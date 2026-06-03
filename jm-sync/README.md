@@ -60,9 +60,16 @@ Reine Mathematik per `npm run selftest` gegen synthetische Signale verifiziert.
 **Phase 1 — Mess-Engine (fertig):** Blitz-/Piep-Erkennung + Korrelator + robuste
 Statistik, in [MeasureView](src/renderer/src/views/MeasureView.tsx) verdrahtet
 (Quellenwahl, Start/Stopp, Live-Ablesung „Audio/Video führt X ms"). Selbsttest
-grün (11 Checks), Typecheck + beide Builds grün, Headless-Start ok. Eine echte
-Live-Loopback-Messung braucht Browser + Kamera/Mikro und ein Referenzsignal
-(Phase 2 Generator oder externer Klatsch).
+grün (11 Checks).
 
-Nächste Phasen: **2** Generator + Null-Abgleich + Verlaufsgraph ·
-**3** Geräte-Feinschliff, Politur, Installer + PWA-Hosting.
+**Phase 2 — Generator, Kalibrierung, Graph (fertig):**
+
+- [GeneratorView](src/renderer/src/views/GeneratorView.tsx) + [generator.ts](src/renderer/src/core/generator.ts) — Blitz + Piep gleichzeitig, Intervall/Frequenz live einstellbar, Vollbild.
+- [CalibrateView](src/renderer/src/views/CalibrateView.tsx) + [store/calibration.ts](src/renderer/src/store/calibration.ts) — Null-Abgleich per Loopback, Baseline in localStorage, „Als Null übernehmen".
+- Kalibrierung wird in der Messung abgezogen (roh + korrigiert sichtbar); [HistoryGraph](src/renderer/src/components/HistoryGraph.tsx) zeigt den Versatz-Verlauf.
+
+Typecheck + Selbsttest + beide Builds + Headless-Start grün. End-to-end-Live
+(Kamera/Mikro + echtes Signal) jetzt im Browser/PWA testbar (Generator + Messung).
+
+Nächste Phase: **3** Geräte-Feinschliff (Capture-Card-Erkennung), Zähler-Pattern
+für eindeutige Paarung, Politur, signierter Installer + PWA-Hosting.

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { OffsetReadout } from '@/components/OffsetReadout';
+import { HistoryGraph } from '@/components/HistoryGraph';
+import { useCalibration } from '@/store/calibration';
 import { SyncMeter, type SyncMeterUpdate } from '@/core/sync-meter';
 import {
   listDevices,
@@ -27,6 +29,7 @@ export function MeasureView() {
   const [audioId, setAudioId] = useState('');
   const [update, setUpdate] = useState<SyncMeterUpdate>(EMPTY);
   const [error, setError] = useState<string | null>(null);
+  const baselineMs = useCalibration((s) => s.baselineMs);
 
   const loadDevices = useCallback(async () => {
     setError(null);
@@ -81,6 +84,7 @@ export function MeasureView() {
         <RunningPanel
           videoRef={videoRef}
           update={update}
+          baselineMs={baselineMs}
           onStop={stop}
           onReset={() => {
             meterRef.current?.reset();
@@ -187,19 +191,25 @@ function SetupPanel({
 function RunningPanel({
   videoRef,
   update,
+  baselineMs,
   onStop,
   onReset,
 }: {
   videoRef: React.RefObject<HTMLVideoElement>;
   update: SyncMeterUpdate;
+  baselineMs: number | null;
   onStop: () => void;
   onReset: () => void;
 }) {
+  const base = baselineMs ?? 0;
   const recent = update.samples.slice(-8).reverse();
   return (
     <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr] items-start">
       <Card className="p-7">
-        <OffsetReadout stats={update.stats} />
+        <OffsetReadout stats={update.stats} baselineMs={baselineMs} />
+        <div className="mt-6">
+          <HistoryGraph samples={update.samples} baselineMs={base} />
+        </div>
         <div className="mt-6 flex gap-3">
           <Button variant="destructive" onClick={onStop}>
             Stoppen
@@ -229,15 +239,18 @@ function RunningPanel({
           {recent.length === 0 && (
             <li className="text-sm text-[var(--muted-foreground)]">Warte auf Blitz + Piep…</li>
           )}
-          {recent.map((s) => (
-            <li key={s.cycle} className="flex justify-between text-sm">
-              <span className="text-[var(--muted-foreground)]">#{s.cycle + 1}</span>
-              <span className={cn(s.offsetMs >= 0 ? 'text-[var(--primary)]' : 'text-[var(--foreground)]')}>
-                {s.offsetMs >= 0 ? '+' : ''}
-                {s.offsetMs.toFixed(1)} ms
-              </span>
-            </li>
-          ))}
+          {recent.map((s) => {
+            const v = s.offsetMs - base;
+            return (
+              <li key={s.cycle} className="flex justify-between text-sm">
+                <span className="text-[var(--muted-foreground)]">#{s.cycle + 1}</span>
+                <span className={cn(v >= 0 ? 'text-[var(--primary)]' : 'text-[var(--foreground)]')}>
+                  {v >= 0 ? '+' : ''}
+                  {v.toFixed(1)} ms
+                </span>
+              </li>
+            );
+          })}
         </ul>
       </Card>
     </div>
