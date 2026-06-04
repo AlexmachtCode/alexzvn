@@ -20,6 +20,9 @@ type Phase = 'idle' | 'running';
 const EMPTY: SyncMeterUpdate = { stats: null, samples: [] };
 
 export function MeasureView() {
+  // A SINGLE video element, mounted for the whole lifetime of the view. It is
+  // both the flash-detector input and the live preview — never swapped between
+  // phases (swapping it detaches the detector and kills frame callbacks).
   const videoRef = useRef<HTMLVideoElement>(null);
   const meterRef = useRef<SyncMeter | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -76,17 +79,18 @@ export function MeasureView() {
       try {
         const stream = display ? await getDisplayStream() : await getUserStream(videoId, audioId);
         streamRef.current = stream;
+        setUpdate(EMPTY);
+        setPhase('running'); // show the preview before detection starts
         const meter = new SyncMeter(videoRef.current, setUpdate, { targetFreq });
         meterRef.current = meter;
         await meter.start(stream);
-        setUpdate(EMPTY);
-        setPhase('running');
         // Labels may have unlocked now that we hold a stream.
         refreshDevices().catch(() => undefined);
       } catch (e) {
         stopStream(streamRef.current);
         streamRef.current = null;
         meterRef.current = null;
+        setPhase('idle');
         setError(friendly(e));
       }
     },
@@ -104,156 +108,88 @@ export function MeasureView() {
   // Clean up on unmount.
   useEffect(() => stop, [stop]);
 
-  return (
-    <div className="h-full flex flex-col gap-5">
-      {phase === 'running' ? (
-        <RunningPanel
-          videoRef={videoRef}
-          update={update}
-          baselineMs={baselineMs}
-          onStop={stop}
-          onReset={() => {
-            meterRef.current?.reset();
-            setUpdate(EMPTY);
-          }}
-        />
-      ) : (
-        <SetupPanel
-          videoRef={videoRef}
-          devices={devices}
-          videoId={videoId}
-          audioId={audioId}
-          onVideo={setVideoId}
-          onAudio={setAudioId}
-          onLoadDevices={loadDevices}
-          onStart={() => start(false)}
-          onStartDisplay={() => start(true)}
-        />
-      )}
-
-      {error && (
-        <Card variant="nested" className="px-4 py-3 text-sm text-[var(--destructive)]">
-          {error}
-        </Card>
-      )}
-    </div>
-  );
-}
-
-function SetupPanel({
-  videoRef,
-  devices,
-  videoId,
-  audioId,
-  onVideo,
-  onAudio,
-  onLoadDevices,
-  onStart,
-  onStartDisplay,
-}: {
-  videoRef: React.RefObject<HTMLVideoElement>;
-  devices: DeviceLists;
-  videoId: string;
-  audioId: string;
-  onVideo: (id: string) => void;
-  onAudio: (id: string) => void;
-  onLoadDevices: () => void;
-  onStart: () => void;
-  onStartDisplay: () => void;
-}) {
-  const hasDevices = devices.video.length > 0 || devices.audio.length > 0;
-  return (
-    <Card className="p-7">
-      <span className="inline-block text-[10px] uppercase tracking-[0.14em] font-extrabold text-[var(--primary)]">
-        Messung
-      </span>
-      <h1 className="mt-2 text-2xl font-extrabold tracking-tight">Versatz messen</h1>
-      <p className="mt-2 text-sm text-[var(--muted-foreground)] leading-relaxed max-w-2xl">
-        {runtime === 'web'
-          ? 'Handy-Kamera auf den Screen, Mikro Richtung Lautsprecher. Generator (Blitz + Piep) muss durch die Pipeline laufen — die gemessene Differenz ist der A/V-Versatz.'
-          : 'Capture-Card als Kamera, Audio-Interface als Mikrofon wählen. Der Generator-Blitz + Piep läuft durch die Pipeline; die gemessene Differenz ist der A/V-Versatz.'}
-      </p>
-
-      <div className="mt-6">
-        <Button variant="outline" size="sm" onClick={onLoadDevices}>
-          Zugriff erlauben &amp; Geräte laden
-        </Button>
-      </div>
-
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 max-w-2xl">
-        <Field label="Videoquelle">
-          <NativeSelect
-            value={videoId}
-            onChange={onVideo}
-            options={devices.video}
-            placeholder={hasDevices ? 'Videoquelle wählen' : 'Erst Geräte laden'}
-          />
-        </Field>
-        <Field label="Audioquelle">
-          <NativeSelect
-            value={audioId}
-            onChange={onAudio}
-            options={devices.audio}
-            placeholder={hasDevices ? 'Audioquelle wählen' : 'Erst Geräte laden'}
-          />
-        </Field>
-      </div>
-
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <Button onClick={onStart}>Messung starten</Button>
-        {runtime === 'electron' && (
-          <Button variant="ghost" onClick={onStartDisplay} uppercase={false}>
-            Bildschirm/Tab als Quelle (Quick-Check)
-          </Button>
-        )}
-      </div>
-
-      {/* Hidden video sink so the detector has frames even before "running". */}
-      <video ref={videoRef} className="hidden" muted playsInline />
-    </Card>
-  );
-}
-
-function RunningPanel({
-  videoRef,
-  update,
-  baselineMs,
-  onStop,
-  onReset,
-}: {
-  videoRef: React.RefObject<HTMLVideoElement>;
-  update: SyncMeterUpdate;
-  baselineMs: number | null;
-  onStop: () => void;
-  onReset: () => void;
-}) {
   const base = baselineMs ?? 0;
   const recent = update.samples.slice(-8).reverse();
-  return (
-    <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr] items-start">
-      <Card className="p-7">
-        <OffsetReadout stats={update.stats} baselineMs={baselineMs} />
-        <div className="mt-6">
-          <HistoryGraph samples={update.samples} baselineMs={base} />
-        </div>
-        <div className="mt-6 flex gap-3">
-          <Button variant="destructive" onClick={onStop}>
-            Stoppen
-          </Button>
-          <Button variant="outline" onClick={onReset}>
-            Zurücksetzen
-          </Button>
-        </div>
-      </Card>
+  const hasDevices = devices.video.length > 0 || devices.audio.length > 0;
 
-      <Card variant="nested" className="p-5">
+  return (
+    <div className="h-full flex flex-col gap-5">
+      {phase === 'idle' ? (
+        <Card className="p-7">
+          <span className="inline-block text-[10px] uppercase tracking-[0.14em] font-extrabold text-[var(--primary)]">
+            Messung
+          </span>
+          <h1 className="mt-2 text-2xl font-extrabold tracking-tight">Versatz messen</h1>
+          <p className="mt-2 text-sm text-[var(--muted-foreground)] leading-relaxed max-w-2xl">
+            {runtime === 'web'
+              ? 'Handy-Kamera auf den Screen, Mikro Richtung Lautsprecher. Generator (Blitz + Piep) muss durch die Pipeline laufen — die gemessene Differenz ist der A/V-Versatz.'
+              : 'Capture-Card als Kamera, Audio-Interface als Mikrofon wählen. Der Generator-Blitz + Piep läuft durch die Pipeline; die gemessene Differenz ist der A/V-Versatz.'}
+          </p>
+
+          <div className="mt-6">
+            <Button variant="outline" size="sm" onClick={loadDevices}>
+              Zugriff erlauben &amp; Geräte laden
+            </Button>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 max-w-2xl">
+            <Field label="Videoquelle">
+              <NativeSelect
+                value={videoId}
+                onChange={setVideoId}
+                options={devices.video}
+                placeholder={hasDevices ? 'Videoquelle wählen' : 'Erst Geräte laden'}
+              />
+            </Field>
+            <Field label="Audioquelle">
+              <NativeSelect
+                value={audioId}
+                onChange={setAudioId}
+                options={devices.audio}
+                placeholder={hasDevices ? 'Audioquelle wählen' : 'Erst Geräte laden'}
+              />
+            </Field>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <Button onClick={() => start(false)}>Messung starten</Button>
+            {runtime === 'electron' && (
+              <Button variant="ghost" onClick={() => start(true)} uppercase={false}>
+                Bildschirm/Tab als Quelle (Quick-Check)
+              </Button>
+            )}
+          </div>
+        </Card>
+      ) : (
+        <Card className="p-7">
+          <OffsetReadout stats={update.stats} baselineMs={baselineMs} />
+          <div className="mt-6">
+            <HistoryGraph samples={update.samples} baselineMs={base} />
+          </div>
+          <div className="mt-6 flex gap-3">
+            <Button variant="destructive" onClick={stop}>
+              Stoppen
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                meterRef.current?.reset();
+                setUpdate(EMPTY);
+              }}
+            >
+              Zurücksetzen
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Persistent preview + detection video — always mounted, hidden until running. */}
+      <Card variant="nested" className={cn('p-5', phase !== 'running' && 'hidden')}>
         <div className="flex items-center justify-between">
           <span className="text-xs uppercase tracking-[0.12em] font-bold text-[var(--muted-foreground)]">
             Vorschau
           </span>
-          <span className="text-xs text-[var(--muted-foreground)]">
-            {update.samples.length} Zyklen
-          </span>
+          <span className="text-xs text-[var(--muted-foreground)]">{update.samples.length} Zyklen</span>
         </div>
         <video
           ref={videoRef}
@@ -279,6 +215,12 @@ function RunningPanel({
           })}
         </ul>
       </Card>
+
+      {error && (
+        <Card variant="nested" className="px-4 py-3 text-sm text-[var(--destructive)]">
+          {error}
+        </Card>
+      )}
     </div>
   );
 }
