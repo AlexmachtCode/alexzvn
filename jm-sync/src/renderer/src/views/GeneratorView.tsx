@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { SignalGenerator, DEFAULT_GENERATOR_OPTIONS } from '@/core/generator';
+import { SignalGenerator } from '@/core/generator';
+import { useSettings } from '@/store/settings';
 import { cn } from '@/lib/cn';
 
 export function GeneratorView() {
@@ -10,9 +11,12 @@ export function GeneratorView() {
 
   const [running, setRunning] = useState(false);
   const [cycle, setCycle] = useState(0);
-  const [intervalMs, setIntervalMs] = useState(DEFAULT_GENERATOR_OPTIONS.intervalMs);
-  const [beepFreq, setBeepFreq] = useState(DEFAULT_GENERATOR_OPTIONS.beepFreq);
   const [error, setError] = useState<string | null>(null);
+
+  const intervalMs = useSettings((s) => s.intervalMs);
+  const beepFreq = useSettings((s) => s.targetFreq);
+  const setIntervalMs = useSettings((s) => s.setIntervalMs);
+  const setBeepFreq = useSettings((s) => s.setTargetFreq);
 
   const start = useCallback(async () => {
     if (!canvasRef.current) return;
@@ -69,8 +73,8 @@ export function GeneratorView() {
       <Card className="p-6">
         <h1 className="text-xl font-extrabold tracking-tight">Generator</h1>
         <p className="mt-2 text-sm text-[var(--muted-foreground)] leading-relaxed">
-          Blitz + Piep werden exakt gleichzeitig ausgelöst. Frequenz muss zur Messung passen
-          (Standard 1000 Hz).
+          Blitz + Piep werden exakt gleichzeitig ausgelöst. Frequenz &amp; Intervall sind mit der
+          Messung gekoppelt – die Erkennung lockt automatisch auf dieselbe Frequenz.
         </p>
 
         <div className="mt-5 space-y-4">

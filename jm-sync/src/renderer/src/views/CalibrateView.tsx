@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { SyncMeter, type SyncMeterUpdate } from '@/core/sync-meter';
 import { getUserStream, getDisplayStream, stopStream } from '@/core/sources';
 import { useCalibration } from '@/store/calibration';
+import { useSettings } from '@/store/settings';
 import { runtime } from '@/platform';
 
 const EMPTY: SyncMeterUpdate = { stats: null, samples: [] };
@@ -18,24 +19,28 @@ export function CalibrateView() {
   const [error, setError] = useState<string | null>(null);
 
   const { baselineMs, capturedAt, setBaseline, clear } = useCalibration();
+  const targetFreq = useSettings((s) => s.targetFreq);
 
-  const start = useCallback(async (display = false) => {
-    if (!videoRef.current) return;
-    setError(null);
-    try {
-      const stream = display ? await getDisplayStream() : await getUserStream();
-      streamRef.current = stream;
-      const meter = new SyncMeter(videoRef.current, setUpdate);
-      meterRef.current = meter;
-      await meter.start(stream);
-      setUpdate(EMPTY);
-      setRunning(true);
-    } catch (e) {
-      stopStream(streamRef.current);
-      streamRef.current = null;
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
+  const start = useCallback(
+    async (display = false) => {
+      if (!videoRef.current) return;
+      setError(null);
+      try {
+        const stream = display ? await getDisplayStream() : await getUserStream();
+        streamRef.current = stream;
+        const meter = new SyncMeter(videoRef.current, setUpdate, { targetFreq });
+        meterRef.current = meter;
+        await meter.start(stream);
+        setUpdate(EMPTY);
+        setRunning(true);
+      } catch (e) {
+        stopStream(streamRef.current);
+        streamRef.current = null;
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [targetFreq],
+  );
 
   const stop = useCallback(() => {
     meterRef.current?.stop();

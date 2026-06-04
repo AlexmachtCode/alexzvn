@@ -103,4 +103,105 @@ check('computeStats rejects outlier', s.count === 5 && near(s.medianMs, 10, 0.00
   check('correlator: +5 ms (audio leads)', near(st.medianMs, 5, 0.001), `median=${st.medianMs}`);
 }
 
+// --- correlator robustness (missed / spurious events) ---------------------
+{
+  // One cycle is missing its beep → that flash stays unpaired, rest are correct.
+  const c = new Correlator();
+  for (let k = 0; k < 6; k++) {
+    const base = 1000 + k * 2000;
+    c.addFlash(base);
+    if (k !== 3) c.addBeep(base - 5);
+  }
+  const st = c.stats()!;
+  check('correlator: tolerates a missed beep', st.count === 5, `count=${st.count}`);
+  check('correlator: median unaffected by gap', near(st.medianMs, 5, 0.001), `median=${st.medianMs}`);
+}
+{
+  // A spurious beep far outside the pair window must be ignored.
+  const c = new Correlator();
+  c.addFlash(1000);
+  c.addBeep(995);
+  c.addBeep(50000); // noise burst, no matching flash
+  const samples = c.samples();
+  check('correlator: ignores out-of-window beep', samples.length === 1, `n=${samples.length}`);
+}
+{
+  // Two flashes share a nearby beep — global matching must not double-assign.
+  const c = new Correlator();
+  c.addFlash(1000);
+  c.addFlash(1100);
+  c.addBeep(1010); // closest to flash#1
+  c.addBeep(1108); // closest to flash#2
+  const s = c.samples();
+  check(
+    'correlator: no double-assignment',
+    s.length === 2 && near(s[0].offsetMs, -10, 0.001) && near(s[1].offsetMs, -8, 0.001),
+    `n=${s.length} offs=${s.map((x) => x.offsetMs).join(',')}`,
+  );
+}
+
+// --- end-to-end integration (real detectors, synthetic capture) -----------
+// Simulate a captured stream where audio leads video by a known offset, run it
+// through the ACTUAL flash + onset detectors + correlator, and check recovery.
+{
+  const sr = 48000;
+  const fps = 60;
+  const K = 5;
+  const interval = 2.0; // s between cycles
+  const videoMarker = 0.1; // flash at cycleStart + 0.10 s
+  const audioMarker = 0.07; // beep  at cycleStart + 0.07 s  → audio leads by 30 ms
+  const flashDur = 0.12;
+  const beepDur = 0.06;
+  const trueOffset = (videoMarker - audioMarker) * 1000; // +30 ms (audio leads)
+  const duration = K * interval + 0.5;
+
+  // Video: feed luminance frames through the real RisingEdgeDetector.
+  const flashDet = new RisingEdgeDetector();
+  const flashes: number[] = [];
+  const frames = Math.floor(duration * fps);
+  for (let f = 0; f < frames; f++) {
+    const t = f / fps;
+    let lum = 0.1;
+    for (let k = 0; k < K; k++) {
+      const on = k * interval + videoMarker;
+      if (t >= on && t < on + flashDur) lum = 0.9;
+    }
+    const c = flashDet.push(lum, t * 1000);
+    if (c != null) flashes.push(c);
+  }
+
+  // Audio: feed PCM blocks through the real OnsetCore.
+  const onsetCore = new OnsetCore(defaultOnsetOptions(sr, 1000));
+  const beeps: number[] = [];
+  const total = Math.floor(duration * sr);
+  for (let i = 0; i < total; i += 128) {
+    const n = Math.min(128, total - i);
+    const block = new Float32Array(n);
+    for (let j = 0; j < n; j++) {
+      const idx = i + j;
+      const t = idx / sr;
+      let v = Math.sin(idx) * 1e-4;
+      for (let k = 0; k < K; k++) {
+        const on = k * interval + audioMarker;
+        if (t >= on && t < on + beepDur) v += 0.5 * Math.sin((2 * Math.PI * 1000 * idx) / sr);
+      }
+      block[j] = v;
+    }
+    for (const o of onsetCore.push(block, i)) beeps.push((o / sr) * 1000);
+  }
+
+  const corr = new Correlator();
+  flashes.forEach((t) => corr.addFlash(t));
+  beeps.forEach((t) => corr.addBeep(t));
+  const st = corr.stats();
+
+  check('e2e: detected all cycles', !!st && st.count === K, `count=${st?.count} (flashes=${flashes.length} beeps=${beeps.length})`);
+  check(
+    'e2e: recovers offset (within frame/onset resolution)',
+    !!st && near(st.medianMs, trueOffset, 12),
+    `median=${st?.medianMs?.toFixed(1)} expected≈+${trueOffset} (bias removed by calibration in real use)`,
+  );
+  check('e2e: low jitter', !!st && st.madMs <= 6, `mad=${st?.madMs?.toFixed(1)}`);
+}
+
 console.log(`\n${passed} checks passed.`);

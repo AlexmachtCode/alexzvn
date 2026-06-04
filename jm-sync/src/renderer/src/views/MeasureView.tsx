@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { OffsetReadout } from '@/components/OffsetReadout';
 import { HistoryGraph } from '@/components/HistoryGraph';
 import { useCalibration } from '@/store/calibration';
+import { useSettings } from '@/store/settings';
 import { SyncMeter, type SyncMeterUpdate } from '@/core/sync-meter';
 import {
   listDevices,
@@ -25,25 +26,48 @@ export function MeasureView() {
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [devices, setDevices] = useState<DeviceLists>({ video: [], audio: [] });
-  const [videoId, setVideoId] = useState('');
-  const [audioId, setAudioId] = useState('');
   const [update, setUpdate] = useState<SyncMeterUpdate>(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const baselineMs = useCalibration((s) => s.baselineMs);
+
+  const videoId = useSettings((s) => s.videoId);
+  const audioId = useSettings((s) => s.audioId);
+  const setVideoId = useSettings((s) => s.setVideoId);
+  const setAudioId = useSettings((s) => s.setAudioId);
+  const targetFreq = useSettings((s) => s.targetFreq);
+
+  const refreshDevices = useCallback(async () => {
+    const list = await listDevices();
+    setDevices(list);
+    // Keep a valid selection: fall back to the first device if the saved one vanished.
+    if (!list.video.some((d) => d.deviceId === useSettings.getState().videoId)) {
+      setVideoId(list.video[0]?.deviceId ?? '');
+    }
+    if (!list.audio.some((d) => d.deviceId === useSettings.getState().audioId)) {
+      setAudioId(list.audio[0]?.deviceId ?? '');
+    }
+  }, [setVideoId, setAudioId]);
 
   const loadDevices = useCallback(async () => {
     setError(null);
     try {
       const probe = await getUserStream(); // prompt → unlocks device labels
       stopStream(probe);
-      const list = await listDevices();
-      setDevices(list);
-      setVideoId((v) => v || list.video[0]?.deviceId || '');
-      setAudioId((a) => a || list.audio[0]?.deviceId || '');
+      await refreshDevices();
     } catch (e) {
       setError(friendly(e));
     }
-  }, []);
+  }, [refreshDevices]);
+
+  // Enumerate on mount (labels stay blank until permission) and on hot-plug.
+  useEffect(() => {
+    refreshDevices().catch(() => undefined);
+    const md = navigator.mediaDevices;
+    if (!md?.addEventListener) return;
+    const handler = () => refreshDevices().catch(() => undefined);
+    md.addEventListener('devicechange', handler);
+    return () => md.removeEventListener('devicechange', handler);
+  }, [refreshDevices]);
 
   const start = useCallback(
     async (display = false) => {
@@ -52,11 +76,13 @@ export function MeasureView() {
       try {
         const stream = display ? await getDisplayStream() : await getUserStream(videoId, audioId);
         streamRef.current = stream;
-        const meter = new SyncMeter(videoRef.current, setUpdate);
+        const meter = new SyncMeter(videoRef.current, setUpdate, { targetFreq });
         meterRef.current = meter;
         await meter.start(stream);
         setUpdate(EMPTY);
         setPhase('running');
+        // Labels may have unlocked now that we hold a stream.
+        refreshDevices().catch(() => undefined);
       } catch (e) {
         stopStream(streamRef.current);
         streamRef.current = null;
@@ -64,7 +90,7 @@ export function MeasureView() {
         setError(friendly(e));
       }
     },
-    [videoId, audioId],
+    [videoId, audioId, targetFreq, refreshDevices],
   );
 
   const stop = useCallback(() => {

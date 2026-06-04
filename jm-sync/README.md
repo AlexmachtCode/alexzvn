@@ -68,8 +68,15 @@ grün (11 Checks).
 - [CalibrateView](src/renderer/src/views/CalibrateView.tsx) + [store/calibration.ts](src/renderer/src/store/calibration.ts) — Null-Abgleich per Loopback, Baseline in localStorage, „Als Null übernehmen".
 - Kalibrierung wird in der Messung abgezogen (roh + korrigiert sichtbar); [HistoryGraph](src/renderer/src/components/HistoryGraph.tsx) zeigt den Versatz-Verlauf.
 
-Typecheck + Selbsttest + beide Builds + Headless-Start grün. End-to-end-Live
-(Kamera/Mikro + echtes Signal) jetzt im Browser/PWA testbar (Generator + Messung).
+**Phase 3 — Feinschliff & Robustheit (fertig):**
 
-Nächste Phase: **3** Geräte-Feinschliff (Capture-Card-Erkennung), Zähler-Pattern
-für eindeutige Paarung, Politur, signierter Installer + PWA-Hosting.
+- Geteilter [Settings-Store](src/renderer/src/store/settings.ts) (zustand+persist): **eine** Frequenz für Generator *und* Messung (Mismatch ist unmöglich), gemerktes Intervall und Geräte.
+- Geräte: Auto-Enumerieren, `devicechange`-Aktualisierung beim Aus-/Einstecken, gemerkte Auswahl mit Fallback.
+- [Korrelator](src/renderer/src/core/correlator.ts): globale Minimal-Distanz-Paarung — tolerant gegen verpasste/zusätzliche Events, keine Doppelzuordnung.
+
+**Testing:** `npm run selftest` = **18 Checks** inkl. End-to-End-Integration
+(echte Detektoren auf simuliertem Capture). Manuelle QA-Anleitung in
+[TESTING.md](TESTING.md). Typecheck + beide Builds + Headless-Start grün.
+
+Offen / Ausblick: explizites Zähler-Pattern (bei normaler Taktung nicht nötig,
+daher bewusst zurückgestellt), signierter Installer + PWA-Hosting.
