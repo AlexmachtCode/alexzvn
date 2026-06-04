@@ -2,6 +2,7 @@ node_modules/
 out/
 dist-web/
 release/
+*.zip
 *.tsbuildinfo
 .DS_Store
 .env
