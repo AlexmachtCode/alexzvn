@@ -4,6 +4,14 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.5.1",
+        "date": "2026-06-24",
+        "notes": [
+          "Update-Installation: Der Fortschrittsbalken läuft jetzt auch während der Installation sichtbar weiter, statt nur als unbestimmte Animation zu pulsieren (geschätzter Verlauf).",
+          "Tool-Ladescreen: bleibt beim Start einen Moment sichtbar, statt nur kurz aufzublitzen — kein leerer Wartemoment mehr."
+        ]
+      },
+      {
         "version": "0.5.0",
         "date": "2026-06-24",
         "notes": [
@@ -656,6 +664,15 @@
     "name": "JM Titler",
     "entries": [
       {
+        "version": "0.4.0",
+        "date": "2026-06-24",
+        "notes": [
+          "Suite-Verbindung sichtbar: Eine neue Anzeige im Kopf zeigt, wie viele Steuerclients (Companion, Q&A, Battle, System-Zustand) gerade mit dem Titler verbunden sind.",
+          "Stabilere Fernsteuerung: Der Steuerserver protokolliert Start und etwaige Netzwerkfehler, damit Verbindungsprobleme schneller gefunden werden.",
+          "Ladescreen bleibt beim Start einen Moment sichtbar."
+        ]
+      },
+      {
         "version": "0.3.0",
         "date": "2026-06-24",
         "notes": [
@@ -903,6 +920,14 @@
     "app": "caption",
     "name": "JM Caption",
     "entries": [
+      {
+        "version": "0.3.0",
+        "date": "2026-06-24",
+        "notes": [
+          "Audiogeräte-Auswahl: Das Eingangs-Mikrofon lässt sich jetzt direkt in der Kopfzeile wählen; die Auswahl bleibt gespeichert und kann auch während des Betriebs gewechselt werden.",
+          "Ladescreen bleibt beim Start einen Moment sichtbar."
+        ]
+      },
       {
         "version": "0.2.0",
         "date": "2026-06-24",
