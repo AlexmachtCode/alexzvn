@@ -24,6 +24,27 @@ const SILENT_TIMEOUT_MS = 120_000;
 // Fenster für die nachgelagerte Verifikation nach dem interaktiven Fallback.
 const VERIFY_WINDOW_MS = 5 * 60_000;
 const VERIFY_POLL_MS = 2_000;
+// Schätz-Fortschritt während der Installation.
+const INSTALL_TICK_MS = 450;
+const INSTALL_TARGET_PCT = 95;
+
+/**
+ * Der stille NSIS-Installer (`/S`) meldet keinen echten Fortschritt. Statt eines
+ * unbestimmten Pulses zeigen wir einen geschätzten, monoton steigenden Verlauf:
+ * er nähert sich mit abnehmender Geschwindigkeit ~95 % an; den Rest übernimmt der
+ * Abschluss (`done`) bzw. die Hintergrund-Verifikation. Liefert eine Stop-Funktion,
+ * die das Intervall aufräumt (in jedem Ausgang aufzurufen).
+ */
+function startInstallProgress(emit: Emit, id: string): () => void {
+  let pct = 4;
+  emit({ id, phase: 'install', message: 'Installiere…', pct });
+  const timer = setInterval(() => {
+    pct = Math.min(INSTALL_TARGET_PCT, pct + Math.max(1, Math.round((INSTALL_TARGET_PCT - pct) * 0.08)));
+    emit({ id, phase: 'install', message: 'Installiere…', pct });
+  }, INSTALL_TICK_MS);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
 
 interface BinaryStamp {
   exists: boolean;
@@ -234,13 +255,17 @@ export async function installTool(tool: ToolManifest, emit: Emit): Promise<Actio
   // Stille Installation versuchen und danach die Binary verifizieren. Erst bei
   // bestätigter Installation die Version merken — sonst meldete der Launcher
   // „installiert", obwohl SmartScreen blockte oder der User abbrach.
-  emit({ id: tool.id, phase: 'install', message: 'Installiere…' });
+  const stopProgress = startInstallProgress(emit, tool.id);
   const pre = binaryStamp(tool);
 
   let outcome: SilentOutcome;
-  if (process.platform === 'win32') outcome = await runWindowsSilent(dest);
-  else if (process.platform === 'darwin') outcome = await runMacSilent(dest, tool);
-  else outcome = 'failed';
+  try {
+    if (process.platform === 'win32') outcome = await runWindowsSilent(dest);
+    else if (process.platform === 'darwin') outcome = await runMacSilent(dest, tool);
+    else outcome = 'failed';
+  } finally {
+    stopProgress();
+  }
   getLog().info(`Update ${tool.id} → ${asset.version}: Silent-Installer-Ergebnis = ${outcome}`);
 
   if (outcome === 'installed' && isInstalled(tool, pre)) {
