@@ -71,6 +71,8 @@ export interface TitlerStatus {
   ndiActive: boolean;
   /** Anzahl verbundener NDI-Empfänger. */
   connections: number;
+  /** Anzahl verbundener Suite-Steuerclients (Companion/QA/Battle/Health-Dashboard). */
+  suiteClients: number;
 }
 
 export interface TitlerState {

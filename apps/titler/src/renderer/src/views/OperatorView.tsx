@@ -25,6 +25,7 @@ export function OperatorView(): React.JSX.Element {
   const config: TitlerConfig = state?.config ?? DEFAULT_CONFIG;
   const ndiActive = state?.status.ndiActive ?? false;
   const connections = state?.status.connections ?? 0;
+  const suiteClients = state?.status.suiteClients ?? 0;
 
   const previewRef = useRef<HTMLCanvasElement>(null);
   const { live, take, clear } = useTitlerEngine(config, ndiActive, previewRef);
@@ -75,6 +76,21 @@ export function OperatorView(): React.JSX.Element {
         <span
           className={cn(
             'ml-auto inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-extrabold border',
+            suiteClients > 0
+              ? 'border-[var(--primary)]/40 text-[var(--primary)]'
+              : 'border-[var(--border)] text-[var(--muted-foreground)]',
+          )}
+          title="Verbundene Suite-Steuerclients (Companion, Q&A, Battle, System-Zustand)"
+        >
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ background: suiteClients > 0 ? 'var(--primary)' : 'var(--muted-foreground)' }}
+          />
+          {suiteClients > 0 ? `Suite · ${suiteClients} verbunden` : 'Suite getrennt'}
+        </span>
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-extrabold border',
             ndiActive
               ? 'border-[var(--primary)]/40 text-[var(--primary)]'
               : 'border-[var(--border)] text-[var(--muted-foreground)]',

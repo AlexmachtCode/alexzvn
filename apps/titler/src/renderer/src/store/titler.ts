@@ -37,6 +37,6 @@ export const useTitler = create<TitlerStore>((set, get) => ({
   stopNdi: async () => {
     await window.jmtitler.ndi.stop();
     const cur = get().state;
-    if (cur) set({ state: { ...cur, status: { ndiActive: false, connections: 0 } } });
+    if (cur) set({ state: { ...cur, status: { ...cur.status, ndiActive: false, connections: 0 } } });
   },
 }));

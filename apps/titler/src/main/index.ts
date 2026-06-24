@@ -1,17 +1,17 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path, { join } from 'node:path';
-import { initAppRuntime } from '@jm/app-runtime';
+import { initAppRuntime, getLog } from '@jm/app-runtime';
 import type { PartialTitlerConfig, TitlerRemoteState, TitlerState, TitlerStatus } from '@shared/types';
 import { getConfig, patchConfig } from './config';
 import { startSender, stopSender, senderActive } from './ndi/sender-process';
-import { startControlServer, stopControlServer, updateTitlerState } from './control-server';
+import { startControlServer, stopControlServer, updateTitlerState, CONTROL_PORT } from './control-server';
 
 declare const __dirname: string;
 
 let mainWindow: BrowserWindow | null = null;
 const preloadPath = join(__dirname, '../preload/index.mjs');
 
-const status: TitlerStatus = { ndiActive: false, connections: 0 };
+const status: TitlerStatus = { ndiActive: false, connections: 0, suiteClients: 0 };
 
 function buildState(): TitlerState {
   return { config: getConfig(), status };
@@ -119,12 +119,25 @@ if (!gotLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     registerIpc();
     createMainWindow();
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
-    // gehen per IPC an den Renderer, der seinen Zustand zurückmeldet.
-    void startControlServer(() => mainWindow);
+    // gehen per IPC an den Renderer, der seinen Zustand zurückmeldet. Ergebnis
+    // loggen, damit eine fehlende Suite-Verbindung nicht unsichtbar bleibt.
+    try {
+      const r = await startControlServer(
+        () => mainWindow,
+        (clients) => {
+          status.suiteClients = clients;
+          broadcastStatus();
+        },
+      );
+      if (!r.ok) getLog().warn(`Titler-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      else getLog().info(`Titler-Steuerserver (Companion) lauscht auf :${CONTROL_PORT}`);
+    } catch (err) {
+      getLog().warn(`Titler-Steuerserver fehlgeschlagen: ${(err as Error).message}`);
+    }
   });
 
   app.on('before-quit', () => {

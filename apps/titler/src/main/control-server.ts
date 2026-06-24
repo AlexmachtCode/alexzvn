@@ -13,6 +13,7 @@
 // jm-titler-ctl). Das Companion-Modul findet den Steuerport so per Auto-Discovery
 // (manuelle Host:Port-Eingabe bleibt möglich).
 import type { BrowserWindow } from 'electron';
+import { getLog } from '@jm/app-runtime';
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type { TemplateKind, TitlerRemoteCommand, TitlerRemoteState } from '@shared/types';
@@ -58,6 +59,7 @@ function toRemoteCommand(cmd: SuiteCommand): TitlerRemoteCommand | null {
 
 export function startControlServer(
   getWin: () => BrowserWindow | null,
+  onClients?: (clients: number) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   getWindow = getWin;
@@ -73,6 +75,10 @@ export function startControlServer(
       const win = getWindow?.();
       if (win && !win.isDestroyed()) win.webContents.send('titler:remote-cmd', rc);
     },
+    // Verbundene Suite-Steuerclients (Companion/QA/Battle/Health-Dashboard) → UI.
+    onStatus: (st) => onClients?.(st.clients),
+    onAdvertiseError: (err) =>
+      getLog().warn(`Titler-Steuerserver: mDNS-Annoncierung fehlgeschlagen: ${err.message}`),
   });
   return server.start(CONTROL_PORT);
 }

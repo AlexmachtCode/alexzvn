@@ -34,6 +34,13 @@ export interface SuiteControlServerOptions {
   onCommand: (cmd: SuiteCommand, ctx: SuiteCommandContext) => void;
   /** Statuswechsel (Start/Stop/Client-Zahl) — z. B. für UI-Anzeige. */
   onStatus?: (status: SuiteControlStatus) => void;
+  /**
+   * Schlägt die mDNS-Annoncierung fehl (Bonjour/Multicast/Firewall), wird der
+   * Fehler hier gemeldet, statt still verschluckt zu werden. Der Steuerserver
+   * lauscht trotzdem weiter (manuelle Host:Port-Eingabe bleibt möglich), aber
+   * Auto-Discovery funktioniert dann nicht — sichtbar fürs Log/Debugging.
+   */
+  onAdvertiseError?: (err: Error) => void;
   /** mDNS-Annoncierung (Default true). */
   advertiseService?: boolean;
   /** Anzeigename für mDNS (Default `${appId}-ctl` bei controlEndpoint, sonst appId). */
@@ -103,8 +110,10 @@ export class SuiteControlServer {
               name: this.opts.name ?? (ctl ? `${this.opts.appId}-ctl` : undefined),
               txt: ctl ? { ctl: '1' } : undefined,
             });
-          } catch {
-            /* mDNS optional */
+          } catch (err) {
+            // mDNS optional — Server lauscht trotzdem. Fehler aber melden, damit
+            // ausbleibende Auto-Discovery nicht unsichtbar bleibt.
+            this.opts.onAdvertiseError?.(err instanceof Error ? err : new Error(String(err)));
           }
         }
         this.notifyStatus();
