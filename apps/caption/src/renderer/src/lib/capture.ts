@@ -10,6 +10,8 @@ export interface CaptureOptions {
   silenceMs: number;
   silenceThreshold: number;
   maxUtteranceSec: number;
+  /** Audio-Eingang (deviceId aus enumerateDevices); leer/undefined = System-Standard. */
+  deviceId?: string;
   onLevel?: (rms: number) => void;
 }
 
@@ -17,13 +19,40 @@ export interface Capture {
   stop: () => void;
 }
 
+/**
+ * Verfügbare Audio-Eingänge auflisten. Ohne erteilte Mikrofon-Berechtigung liefert
+ * der Browser leere Labels — dann einmal kurz getUserMedia anfragen, damit die
+ * Gerätenamen sichtbar werden (Muster aus apps/switcher).
+ */
+export async function listAudioInputs(): Promise<MediaDeviceInfo[]> {
+  let devices = await navigator.mediaDevices.enumerateDevices();
+  const inputs = (): MediaDeviceInfo[] => devices.filter((d) => d.kind === 'audioinput');
+  if (inputs().length === 0 || inputs().every((d) => !d.label)) {
+    let probe: MediaStream | null = null;
+    try {
+      probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      devices = await navigator.mediaDevices.enumerateDevices();
+    } catch {
+      /* keine Berechtigung → (teilweise) Liste ohne Labels zurückgeben */
+    } finally {
+      probe?.getTracks().forEach((t) => t.stop());
+    }
+  }
+  return inputs();
+}
+
 export async function startCapture(
   opts: CaptureOptions,
   onUtterance: (pcm: Float32Array, sampleRate: number) => void,
 ): Promise<Capture> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
-  });
+  const audio: MediaTrackConstraints = {
+    echoCancellation: false,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+  };
+  if (opts.deviceId) audio.deviceId = { exact: opts.deviceId };
+  const stream = await navigator.mediaDevices.getUserMedia({ audio });
   const ctx = new AudioContext({ sampleRate: 16000 });
   const sr = ctx.sampleRate;
   const source = ctx.createMediaStreamSource(stream);

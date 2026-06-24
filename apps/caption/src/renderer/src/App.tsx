@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useCaption } from '@/store/useCaption';
-import { startCapture, type Capture } from '@/lib/capture';
+import { startCapture, listAudioInputs, type Capture } from '@/lib/capture';
 import { useCaptionNdiEngine } from '@/lib/ndi-engine';
 import type { CaptionConfig, WhisperModelId } from '@shared/types';
 
@@ -31,6 +31,7 @@ const FALLBACK_CFG: CaptionConfig = {
   maxUtteranceSec: 8,
   silenceMs: 700,
   silenceThreshold: 0.012,
+  audioInputDeviceId: '',
   ndiName: 'JM Caption',
   ndiWidth: 1920,
   ndiHeight: 1080,
@@ -44,13 +45,30 @@ export function App() {
   const { state, level, load, setLevel, setConfig, start, stop, setHold, clear, correctLast, ndiStart, ndiStop } =
     useCaption();
   const captureRef = useRef<Capture | null>(null);
+  // Audio-Eingang, mit dem die laufende Aufnahme gestartet wurde — für den
+  // Neustart bei Gerätewechsel im Betrieb.
+  const activeDeviceRef = useRef<string>('');
   const previewRef = useRef<HTMLCanvasElement | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Audio-Eingänge auflisten (+ auf An-/Abstecken reagieren).
+  const refreshDevices = useCallback(() => {
+    void listAudioInputs()
+      .then(setAudioDevices)
+      .catch(() => setAudioDevices([]));
+  }, []);
+  useEffect(() => {
+    refreshDevices();
+    const onChange = (): void => refreshDevices();
+    navigator.mediaDevices.addEventListener?.('devicechange', onChange);
+    return () => navigator.mediaDevices.removeEventListener?.('devicechange', onChange);
+  }, [refreshDevices]);
 
   const running = state?.running ?? false;
   const cfg = state?.config;
@@ -63,13 +81,23 @@ export function App() {
 
   // Aufnahme-Lebenszyklus an das running-Flag koppeln.
   useEffect(() => {
+    const desiredDevice = cfg?.audioInputDeviceId ?? '';
+    // Gerätewechsel im laufenden Betrieb → alte Aufnahme verwerfen, damit sie
+    // unten mit dem neuen Eingang neu startet.
+    if (running && captureRef.current && activeDeviceRef.current !== desiredDevice) {
+      captureRef.current.stop();
+      captureRef.current = null;
+      setLevel(0);
+    }
     if (running && !captureRef.current && cfg) {
       let cancelled = false;
+      activeDeviceRef.current = desiredDevice;
       startCapture(
         {
           silenceMs: cfg.silenceMs,
           silenceThreshold: cfg.silenceThreshold,
           maxUtteranceSec: cfg.maxUtteranceSec,
+          deviceId: cfg.audioInputDeviceId,
           onLevel: (r) => setLevel(r),
         },
         (pcm, sr) => window.jmcaption.pushUtterance(pcm, sr),
@@ -129,6 +157,26 @@ export function App() {
             </option>
           ))}
         </select>
+        <select
+          value={c.audioInputDeviceId}
+          onChange={(e) => void setConfig({ audioInputDeviceId: e.target.value })}
+          className={sel}
+          title="Audio-Eingang (Mikrofon)"
+        >
+          <option value="">System-Standard (Mikrofon)</option>
+          {audioDevices.map((d, i) => (
+            <option key={d.deviceId || i} value={d.deviceId}>
+              {d.label || `Audiogerät ${i + 1}`}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={refreshDevices}
+          title="Audiogeräte aktualisieren"
+          className="rounded border border-neutral-700 px-2 py-1 text-sm text-neutral-300 hover:bg-neutral-800"
+        >
+          ⟳
+        </button>
 
         <div className="ml-auto flex items-center gap-2">
           <button

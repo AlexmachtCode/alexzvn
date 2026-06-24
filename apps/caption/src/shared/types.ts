@@ -17,6 +17,8 @@ export interface CaptionConfig {
   silenceMs: number;
   /** RMS-Schwelle, ab der ein Block als „Sprache" gilt. */
   silenceThreshold: number;
+  /** Gewählter Audio-Eingang (deviceId); leer = System-Standard-Mikrofon. */
+  audioInputDeviceId: string;
 
   // ── NDI-Ausgabe (Slice 2): transparente Untertitel-Quelle ──────────────────
   /** Sichtbarer NDI-Quellname. */

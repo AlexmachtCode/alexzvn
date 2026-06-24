@@ -27,6 +27,7 @@ const defaultConfig: CaptionConfig = {
   maxUtteranceSec: 8,
   silenceMs: 700,
   silenceThreshold: 0.012,
+  audioInputDeviceId: '',
   ndiName: 'JM Caption',
   ndiWidth: 1920,
   ndiHeight: 1080,

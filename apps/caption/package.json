@@ -1,6 +1,6 @@
 {
   "name": "@jm/caption",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "JM Caption — Live-Untertitel (whisper.cpp) als transparente NDI-Quelle",
   "main": "out/main/index.cjs",
