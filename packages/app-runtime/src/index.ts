@@ -323,6 +323,10 @@ function startPresence(info: {
 // ── Ladescreen (Splash) ──────────────────────────────────────────────────────
 
 const SPLASH_SAFETY_MS = 15_000;
+// Mindest-Anzeigedauer: Lädt das Hauptfenster sehr schnell, fielen Öffnen und
+// Schließen des Splashs sonst fast zusammen → er blitzte nur kurz auf. Mit einer
+// Untergrenze bleibt er wie bei Adobe/Blackmagic einen Moment sichtbar.
+const MIN_SPLASH_MS = 700;
 
 function splashHtml(appName: string): string {
   const name = appName.replace(
@@ -350,6 +354,7 @@ function splashHtml(appName: string): string {
 function startSplash(appName: string): void {
   app.whenReady().then(() => {
     let splash: BrowserWindow | null = null;
+    let shownAt = 0;
     try {
       splash = new BrowserWindow({
         width: 440,
@@ -367,16 +372,25 @@ function startSplash(appName: string): void {
         webPreferences: { contextIsolation: true, nodeIntegration: false },
       });
       splash.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(splashHtml(appName)));
-      splash.once('ready-to-show', () => splash?.show());
+      splash.once('ready-to-show', () => {
+        shownAt = Date.now();
+        splash?.show();
+      });
     } catch {
       return; // Splash ist optional
     }
 
     const splashId = splash.id;
     let closed = false;
-    const close = (): void => {
+    let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const doClose = (): void => {
       if (closed) return;
       closed = true;
+      if (closeTimer) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
       try {
         splash?.close();
       } catch {
@@ -385,17 +399,38 @@ function startSplash(appName: string): void {
       splash = null;
     };
 
+    // Schließen, aber die Mindest-Anzeigedauer ab dem Sichtbarwerden einhalten —
+    // sonst blitzt der Splash bei schnellem Start nur kurz auf.
+    const requestClose = (): void => {
+      if (closed || closeTimer) return;
+      const arm = (ms: number, fn: () => void): void => {
+        closeTimer = setTimeout(() => {
+          closeTimer = null;
+          fn();
+        }, Math.max(0, ms));
+        closeTimer.unref?.();
+      };
+      if (!shownAt) {
+        // Splash noch nicht sichtbar → gleich erneut prüfen (i. d. R. sofort bereit).
+        arm(MIN_SPLASH_MS, requestClose);
+        return;
+      }
+      const remaining = MIN_SPLASH_MS - (Date.now() - shownAt);
+      if (remaining > 0) arm(remaining, doClose);
+      else doClose();
+    };
+
     // Erstes echtes Fenster (nicht der Splash) → beim Anzeigen den Splash schließen.
     const onCreated = (_e: unknown, win: BrowserWindow): void => {
       if (win.id === splashId) return;
       app.removeListener('browser-window-created', onCreated);
-      win.once('ready-to-show', close);
-      win.once('show', close);
+      win.once('ready-to-show', requestClose);
+      win.once('show', requestClose);
     };
     app.on('browser-window-created', onCreated);
 
-    // Sicherheits-Frist, falls nie ein Fenster bereit wird.
-    const t = setTimeout(close, SPLASH_SAFETY_MS);
+    // Sicherheits-Frist, falls nie ein Fenster bereit wird (hart, ohne Mindestzeit).
+    const t = setTimeout(doClose, SPLASH_SAFETY_MS);
     t.unref?.();
   });
 }

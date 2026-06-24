@@ -1,6 +1,6 @@
 {
   "name": "@jm/app-runtime",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Geteilter Main-Prozess-Runtime-Layer: zentrales Logging, Crash-Handler, jmps://-Deep-Links und Presence-Heartbeat für die JM Production Suite",
