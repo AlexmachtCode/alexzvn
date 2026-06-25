@@ -3,9 +3,10 @@
 // Konsumiert den STATE-Strom eines SuiteControlServer (Tally/Status) und kann
 // Befehle senden. Genutzt von Tally-Aggregatoren (Stage Display, Rundown).
 //
-// Nur im Main-Prozess verwenden (node:net).
+// Nur im Main-Prozess verwenden (node:net / node:tls).
 import net from 'node:net';
-import { hmacProof } from '@jm/auth-core';
+import tls from 'node:tls';
+import { hmacProof, normalizeFingerprint } from '@jm/auth-core';
 import {
   createLineBuffer,
   formatAuth,
@@ -33,6 +34,14 @@ export interface SuiteControlClientOptions {
   auth?: string;
   /** Auth-Erfolg/-Misserfolg (nur secure-Modus) — z. B. fürs UI/Log. */
   onAuthChange?: (ok: boolean) => void;
+  /**
+   * TLS (P1, #59): Gesetzt → Verbindung via `tls.connect`. Der Server nutzt ein
+   * selbstsigniertes Zertifikat (keine CA), daher wird die Kette NICHT geprüft,
+   * sondern der **Fingerprint gepinnt** (TOFU): stimmt der SHA-256-Fingerprint
+   * des Server-Zertifikats nicht mit `fingerprint` überein, wird die Verbindung
+   * verworfen (Schutz vor MITM/gefälschtem Endpunkt).
+   */
+  tls?: { fingerprint: string; rejectUnauthorized?: boolean };
 }
 
 /** TCP-Client auf einen SuiteControlServer (suite-weites Zeilenprotokoll). */
@@ -66,7 +75,15 @@ export class SuiteControlClient {
 
   private open(): void {
     if (!this.active) return;
-    const socket = net.connect({ host: this.host, port: this.port });
+    const tlsOpt = this.opts.tls;
+    const socket: net.Socket = tlsOpt
+      ? tls.connect({
+          host: this.host,
+          port: this.port,
+          // Selbstsigniert → Kette NICHT prüfen; stattdessen Fingerprint pinnen.
+          rejectUnauthorized: tlsOpt.rejectUnauthorized ?? false,
+        })
+      : net.connect({ host: this.host, port: this.port });
     socket.setEncoding('utf8');
     const feed = createLineBuffer((line) => {
       // secure-Handshake: Server fordert mit AUTHREQ einen Beweis an.
@@ -89,13 +106,24 @@ export class SuiteControlClient {
       const st = parseSuiteState(line);
       if (st) this.opts.onState(st);
     });
-    socket.on('connect', () => {
+    const onReady = (): void => {
+      // TLS: Fingerprint pinnen (TOFU). Mismatch → Verbindung verwerfen (MITM-Schutz).
+      if (tlsOpt) {
+        const peer = (socket as tls.TLSSocket).getPeerCertificate();
+        const got = peer && peer.fingerprint256 ? normalizeFingerprint(peer.fingerprint256) : '';
+        if (!got || got !== normalizeFingerprint(tlsOpt.fingerprint)) {
+          this.opts.onAuthChange?.(false);
+          socket.destroy(); // 'close' folgt → Reconnect
+          return;
+        }
+      }
       this.opts.onConnectedChange?.(true);
       // open-Modus: Zustand aktiv anfordern (wie bisher). Im secure-Modus NICHT —
       // ein STATE? vor der Auth würde als Fehlversuch gewertet; dort liefert der
       // Server den Zustand ohnehin direkt nach AUTHOK.
       if (!this.opts.auth) socket.write('STATE?\n');
-    });
+    };
+    socket.on(tlsOpt ? 'secureConnect' : 'connect', onReady);
     socket.on('data', (chunk: string) => feed(chunk));
     socket.on('error', () => {
       /* 'close' folgt → Reconnect dort */

@@ -1,12 +1,33 @@
 // Socket-Integrationstest für den P1-Handshake (kein Framework):
-//   node --experimental-strip-types test/integration.ts
+//   npm run test:integration   (esbuild-Bundle → node; bonjour-service lädt nur gebündelt)
 // Bindet echte SuiteControlServer auf 127.0.0.1 (advertiseService:false → kein
-// mDNS) und prüft open- vs. secure-Modus über echte TCP-Verbindungen.
+// mDNS) und prüft open/secure/TLS über echte TCP-/TLS-Verbindungen.
 import net from 'node:net';
-import { hmacProof } from '@jm/auth-core';
+import { certFingerprint, hmacProof } from '@jm/auth-core';
 import { SuiteControlServer } from '../src/server.ts';
 import { SuiteControlClient } from '../src/client.ts';
 import { parseAuthReq, type SuiteState } from '../src/index.ts';
+
+// Throwaway-Testzertifikat (selbstsigniert, EC P-256) — KEIN Secret, nur für
+// diesen TLS-Integrationstest erzeugt.
+const TEST_CERT = `-----BEGIN CERTIFICATE-----
+MIIBhTCCASugAwIBAgIUZLJSpXBBLzdFiJ5UTC3cbMRNE/kwCgYIKoZIzj0EAwIw
+GDEWMBQGA1UEAwwNam0tc3VpdGUtdGVzdDAeFw0yNjA2MjUxMTUxMTNaFw0zNjA2
+MjIxMTUxMTNaMBgxFjAUBgNVBAMMDWptLXN1aXRlLXRlc3QwWTATBgcqhkjOPQIB
+BggqhkjOPQMBBwNCAASZ7WcDFrl9KKTv7ydif+LzX4KYDwPErBYpWiBZi1HmTxzH
+ecORNwa1nSIVJPKvrMLy0WoM5ZNcKYaZTPDTorN4o1MwUTAdBgNVHQ4EFgQUqGQ3
+4yn1tK5lTD5/+bFXBX3+rw8wHwYDVR0jBBgwFoAUqGQ34yn1tK5lTD5/+bFXBX3+
+rw8wDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAiC4dDZ3a4uhj
+ksAGWLma4tGILo8EoFtRJKtJnDEB31ICIDvShBjtwkEf58/8PLBYwfPbmxt/2OJC
+AovVbb6Rel2Y
+-----END CERTIFICATE-----
+`;
+const TEST_KEY = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgJeFfEqwdHNMtR99K
+vFOgONw/g0B912ckyFwPwMyGFUWhRANCAASZ7WcDFrl9KKTv7ydif+LzX4KYDwPE
+rBYpWiBZi1HmTxzHecORNwa1nSIVJPKvrMLy0WoM5ZNcKYaZTPDTorN4
+-----END PRIVATE KEY-----
+`;
 
 let failed = 0;
 function ok(cond: boolean, msg: string): void {
@@ -145,6 +166,53 @@ async function main(): Promise<void> {
     await rawCollect(19092, { token: 'WRONG' }); // Fehlversuch 2 → Sperre
     const locked = await rawCollect(19092, { token: 'WRONG' }); // gesperrt
     ok(locked.length === 0, 'secure: nach 2 Fehlversuchen ist die IP gesperrt (kein AUTHREQ mehr)');
+    srv.stop();
+  }
+
+  // ── 7) SECURE + TLS + richtiger Token + richtiger Fingerprint ───────────────
+  const GOOD_FP = certFingerprint(TEST_CERT);
+  {
+    const { srv } = await startServer(19093, {
+      mode: 'secure',
+      auth: { token: 'GOOD' },
+      tls: { key: TEST_KEY, cert: TEST_CERT },
+    });
+    let gotState: SuiteState | null = null;
+    let authOk: boolean | null = null;
+    const cli = new SuiteControlClient({
+      auth: 'GOOD',
+      tls: { fingerprint: GOOD_FP },
+      onState: (s) => (gotState = s),
+      onAuthChange: (o) => (authOk = o),
+    });
+    cli.connect('127.0.0.1', 19093);
+    await delay(350);
+    ok(authOk === true, 'TLS+richtiger Pin+Token: onAuthChange(true)');
+    ok(gotState != null && gotState.kv.label === 'A', 'TLS: State nach AUTHOK über verschlüsselten Kanal');
+    cli.disconnect();
+    srv.stop();
+  }
+
+  // ── 8) SECURE + TLS + FALSCHER Fingerprint → verworfen (MITM-Schutz) ────────
+  {
+    const { srv } = await startServer(19094, {
+      mode: 'secure',
+      auth: { token: 'GOOD' },
+      tls: { key: TEST_KEY, cert: TEST_CERT },
+    });
+    let gotState: SuiteState | null = null;
+    let authOk: boolean | null = null;
+    const cli = new SuiteControlClient({
+      auth: 'GOOD',
+      tls: { fingerprint: '00'.repeat(32) }, // falscher Pin
+      onState: (s) => (gotState = s),
+      onAuthChange: (o) => (authOk = o),
+    });
+    cli.connect('127.0.0.1', 19094);
+    await delay(350);
+    ok(gotState === null, 'TLS+falscher Pin: KEIN State (Verbindung verworfen)');
+    ok(authOk === false, 'TLS+falscher Pin: onAuthChange(false)');
+    cli.disconnect();
     srv.stop();
   }
 
