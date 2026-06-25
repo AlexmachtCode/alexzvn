@@ -17,7 +17,8 @@
     "selftest": "node --experimental-strip-types test/selftest.ts",
     "dist": "electron-vite build && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
-    "dist:win": "electron-vite build && npm run prepackage && electron-builder --win"
+    "dist:win": "electron-vite build && npm run prepackage && electron-builder --win",
+    "dist:mac": "electron-vite build && npm run prepackage && electron-builder --mac"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.1.1",

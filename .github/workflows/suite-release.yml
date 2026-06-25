@@ -20,8 +20,11 @@ jobs:
     #   - ndi-screen-capture + switcher + titler → @jm/ndi (NDI-SDK)
     #   - recorder + daw                         → @jm/audio (PortAudio/ASIO-SDK)
     #   - transcribe + caption                   → whisper.cpp-Binary + Modell (+ caption: @jm/ndi)
-    # Diese werden lokal auf Windows gebaut und das Release manuell angelegt
-    # (gh release create <app>-v<version> + Installer-Upload).
+    # Diese werden LOKAL gebaut (Windows: dist:win; macOS/arm64: dist:mac — siehe
+    # docs/mac-build-windows-only-apps.md) und das Release manuell angelegt
+    # (gh release create <app>-v<version> + Installer-Upload). transcribe ließe
+    # sich auf macos-latest perspektivisch CI-automatisieren (whisper.cpp aus
+    # Quelle baubar, kein Secret) — bewusst noch nicht umgesetzt.
     if: ${{ !startsWith(github.ref_name, 'ndi-screen-capture-v') && !startsWith(github.ref_name, 'switcher-v') && !startsWith(github.ref_name, 'recorder-v') && !startsWith(github.ref_name, 'titler-v') && !startsWith(github.ref_name, 'transcribe-v') && !startsWith(github.ref_name, 'caption-v') && !startsWith(github.ref_name, 'daw-v') }}
     strategy:
       fail-fast: false

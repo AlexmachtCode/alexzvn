@@ -279,12 +279,16 @@
       "id": "jm-titler",
       "name": "JM Titler",
       "tagline": "Live-Bauchbinden → NDI",
-      "description": "Live-CG: Bauchbinden (Name/Funktion), Banner und Ticker als transparente NDI-Quelle für TriCaster, vMix oder OBS. Take/Clear mit Einblendung, frei stil- und positionierbar. Windows (nutzt die NDI-Runtime).",
+      "description": "Live-CG: Bauchbinden (Name/Funktion), Banner und Ticker als transparente NDI-Quelle für TriCaster, vMix oder OBS. Take/Clear mit Einblendung, frei stil- und positionierbar. Windows + macOS (nutzt die NDI-Runtime).",
       "category": "Studio",
       "appId": "gmbh.jakobs.titler",
       "repo": "AlexmachtCode/alexzvn",
       "latestVersion": "0.4.0",
       "platforms": {
+        "mac": {
+          "artifact": "JM Titler-${version}-mac-${arch}.dmg",
+          "appPath": "/Applications/JM Titler.app"
+        },
         "win": {
           "artifact": "JM Titler-${version}-win-x64.exe",
           "exePath": "%LOCALAPPDATA%\\Programs\\JM Titler\\JM Titler.exe"
@@ -296,12 +300,16 @@
       "id": "jm-transcribe",
       "name": "JM Transcribe",
       "tagline": "Lokale Untertitel · Whisper",
-      "description": "Erzeugt Untertitel/Transkripte (SRT/VTT/TXT) lokal und offline aus Audio-/Videodateien via whisper.cpp. Sprachwahl oder Auto-Erkennung, Übersetzung nach Englisch, Basismodell mitgeliefert, größere Modelle nachladbar. Windows.",
+      "description": "Erzeugt Untertitel/Transkripte (SRT/VTT/TXT) lokal und offline aus Audio-/Videodateien via whisper.cpp. Sprachwahl oder Auto-Erkennung, Übersetzung nach Englisch, Basismodell mitgeliefert, größere Modelle nachladbar. Windows + macOS.",
       "category": "Utilities",
       "appId": "gmbh.jakobs.transcribe",
       "repo": "AlexmachtCode/alexzvn",
       "latestVersion": "0.2.0",
       "platforms": {
+        "mac": {
+          "artifact": "JM Transcribe-${version}-mac-${arch}.dmg",
+          "appPath": "/Applications/JM Transcribe.app"
+        },
         "win": {
           "artifact": "JM Transcribe-${version}-win-x64.exe",
           "exePath": "%LOCALAPPDATA%\\Programs\\JM Transcribe\\JM Transcribe.exe"
@@ -418,12 +426,16 @@
       "id": "jm-caption",
       "name": "JM Caption",
       "tagline": "Live-Untertitel → NDI",
-      "description": "Live-Untertitel offline aus Mikrofon/Ton via whisper.cpp, ausgegeben als transparente NDI-Quelle für TriCaster, vMix oder OBS. Modell- und Sprachwahl, Hold zum Einfrieren und Korrektur der letzten Zeile. Per Bitfocus Companion fernsteuerbar (Transkription an/aus, Hold, NDI). Für Politik-Streams, Pressekonferenzen und Barrierefreiheit (BITV). Windows (nutzt die NDI-Runtime).",
+      "description": "Live-Untertitel offline aus Mikrofon/Ton via whisper.cpp, ausgegeben als transparente NDI-Quelle für TriCaster, vMix oder OBS. Modell- und Sprachwahl, Hold zum Einfrieren und Korrektur der letzten Zeile. Per Bitfocus Companion fernsteuerbar (Transkription an/aus, Hold, NDI). Für Politik-Streams, Pressekonferenzen und Barrierefreiheit (BITV). Windows + macOS (nutzt die NDI-Runtime).",
       "category": "Studio",
       "appId": "gmbh.jakobs.caption",
       "repo": "AlexmachtCode/alexzvn",
       "latestVersion": "0.3.0",
       "platforms": {
+        "mac": {
+          "artifact": "JM Caption-${version}-mac-${arch}.dmg",
+          "appPath": "/Applications/JM Caption.app"
+        },
         "win": {
           "artifact": "JM Caption-${version}-win-x64.exe",
           "exePath": "%LOCALAPPDATA%\\Programs\\JM Caption\\JM Caption.exe"

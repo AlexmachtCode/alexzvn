@@ -19,11 +19,11 @@ extraResources:
 
 asar: true
 
-# NDI wird LOKAL auf Windows gebaut (NDI-SDK nicht in CI verfügbar; der
-# suite-release-Workflow überspringt dieses Tool). electron ist im Workspace ans
-# Root gehoistet → electron-builder findet die Version sonst nicht; npmRebuild aus,
-# weil das native Addon via electron-rebuild gebaut + von bundle-ndi nach
-# resources/bin/win gestaged wird. electronVersion bei Electron-Upgrade nachziehen.
+# NDI wird LOKAL gebaut (NDI-SDK nicht in CI verfügbar) — Windows wie macOS
+# (arm64). electron ist im Workspace ans Root gehoistet → electron-builder findet
+# die Version sonst nicht; npmRebuild aus, weil das native Addon via electron-
+# rebuild gebaut + von bundle-ndi nach resources/bin/<plat> gestaged wird.
+# electronVersion bei Electron-Upgrade nachziehen.
 electronVersion: 33.4.11
 npmRebuild: false
 
@@ -33,6 +33,18 @@ win:
       arch:
         - x64
   icon: build/icon.ico
+
+# macOS (Apple Silicon). Unsigniert/nicht notarisiert → Gatekeeper-Quarantäne:
+# beim ersten Start Rechtsklick → „Öffnen" bzw. `xattr -dr com.apple.quarantine`.
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  category: public.app-category.video
+  icon: build/icon.png
+  hardenedRuntime: false
+  gatekeeperAssess: false
 
 nsis:
   oneClick: false

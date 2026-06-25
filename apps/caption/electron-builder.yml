@@ -19,10 +19,10 @@ extraResources:
 
 asar: true
 
-# whisper.cpp-Binary + Basismodell werden LOKAL auf Windows gestaged (bundle-
-# whisper.mjs, braucht WHISPER_DIR + WHISPER_MODEL_BASE); der suite-release-
-# Workflow überspringt dieses Tool (Tag-Präfix caption-v). NDI-Addon + DLL kommen
-# in Slice 2 dazu (bundle-ndi-Muster wie Titler). electron ans Root gehoistet.
+# whisper.cpp + NDI-Addon werden LOKAL gestaged (bundle-whisper.mjs braucht
+# WHISPER_DIR + WHISPER_MODEL_BASE; bundle-ndi.mjs braucht NDI_SDK_DIR) — Windows
+# (.exe/.dll) wie macOS (whisper-cli/libndi.dylib, arm64). electron ans Root
+# gehoistet → electronVersion bei Electron-Upgrade nachziehen.
 electronVersion: 33.4.11
 npmRebuild: false
 
@@ -32,6 +32,18 @@ win:
       arch:
         - x64
   icon: build/icon.ico
+
+# macOS (Apple Silicon). Unsigniert/nicht notarisiert → Gatekeeper-Quarantäne:
+# beim ersten Start Rechtsklick → „Öffnen" bzw. `xattr -dr com.apple.quarantine`.
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  category: public.app-category.video
+  icon: build/icon.png
+  hardenedRuntime: false
+  gatekeeperAssess: false
 
 nsis:
   oneClick: false

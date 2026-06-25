@@ -19,10 +19,10 @@ extraResources:
 
 asar: true
 
-# whisper.cpp-Binary + Basismodell werden LOKAL auf Windows gestaged (bundle-
-# whisper.mjs, braucht WHISPER_DIR + WHISPER_MODEL_BASE); der suite-release-
-# Workflow überspringt dieses Tool (Tag-Präfix transcribe-v). electron ist ans
-# Root gehoistet → electronVersion bei Electron-Upgrade nachziehen.
+# whisper.cpp-Binary + Basismodell werden LOKAL gestaged (bundle-whisper.mjs,
+# braucht WHISPER_DIR + WHISPER_MODEL_BASE) — Windows (.exe/.dll) wie macOS
+# (whisper-cli + *.dylib, arm64). electron ist ans Root gehoistet →
+# electronVersion bei Electron-Upgrade nachziehen.
 electronVersion: 33.4.11
 npmRebuild: false
 
@@ -32,6 +32,18 @@ win:
       arch:
         - x64
   icon: build/icon.ico
+
+# macOS (Apple Silicon). Unsigniert/nicht notarisiert → Gatekeeper-Quarantäne:
+# beim ersten Start Rechtsklick → „Öffnen" bzw. `xattr -dr com.apple.quarantine`.
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  category: public.app-category.productivity
+  icon: build/icon.png
+  hardenedRuntime: false
+  gatekeeperAssess: false
 
 nsis:
   oneClick: false
