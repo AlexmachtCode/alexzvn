@@ -4,6 +4,14 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.5.2",
+        "date": "2026-06-25",
+        "notes": [
+          "Neu: JM Kochbuch — das interne Nachschlagewerk direkt im Launcher (Buch-Symbol oben). Best Practices, Technik-Setups, Kunden-/Location-Profile und Tool-Manuals im Rezept-Stil, offline verfügbar und live aktualisiert.",
+          "Neues Rezept hinzufügen: Über die Schaltfläche Neues Rezept macht ein KI-Agent aus ein paar Stichpunkten ein formattreues Rezept und öffnet es zur Prüfung — so wächst das Kochbuch aus dem Team heraus."
+        ]
+      },
+      {
         "version": "0.5.1",
         "date": "2026-06-24",
         "notes": [
