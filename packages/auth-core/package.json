@@ -1,0 +1,13 @@
+{
+  "name": "@jm/auth-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Geteilter Krypto-/Token-Kern für die Suite: scrypt-Passwörter, Zufalls-Tokens und HMAC-Challenge-Response für den Steuer-Handshake. Reines node:crypto, keine Native-Deps.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "selftest": "node --experimental-strip-types test/selftest.ts"
+  }
+}
