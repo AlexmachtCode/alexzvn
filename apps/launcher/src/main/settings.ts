@@ -77,6 +77,19 @@ export function resolveProxyKey(): string | undefined {
   return process.env['JMPS_PROXY_KEY'] || BAKED_PROXY_KEY || undefined;
 }
 
+/**
+ * Lokaler Polaris-KI-Agent fürs Rezept-Drafting (Pfad B, primär). Standardmäßig
+ * AUS (undefined) → der Launcher nutzt den Anthropic-Fallback im Proxy. Sobald
+ * `JMPS_POLARIS_URL` gesetzt ist, erzeugt Polaris das Rezept lokal (Daten bleiben
+ * intern) und der Proxy öffnet nur noch den PR. Optionaler `JMPS_POLARIS_KEY` für
+ * Auth gegen Polaris.
+ */
+export function resolvePolaris(): { url: string; key?: string } | undefined {
+  const url = process.env['JMPS_POLARIS_URL']?.trim();
+  if (!url) return undefined;
+  return { url, key: process.env['JMPS_POLARIS_KEY']?.trim() || undefined };
+}
+
 /** Proxy ist nutzbar, wenn URL UND Key vorhanden sind. */
 function proxyActive(): boolean {
   return Boolean(resolveProxy() && resolveProxyKey());

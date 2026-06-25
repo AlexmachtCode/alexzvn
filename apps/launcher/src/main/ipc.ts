@@ -1,6 +1,12 @@
 import { app, ipcMain, shell } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
-import type { ActionResult, FeedbackInput, InstallProgress, SuiteSettingsInput } from '@shared/types';
+import type {
+  ActionResult,
+  FeedbackInput,
+  InstallProgress,
+  RecipeDraftInput,
+  SuiteSettingsInput,
+} from '@shared/types';
 import type { ToolManifest } from '@jm/suite-manifest';
 import type { Show } from '@jm/show';
 import { getTool, getTools } from './manifest';
@@ -16,6 +22,7 @@ import { installTool, updateLauncher } from './installer';
 import { uninstallTool } from './uninstall';
 import { getSettingsView, setSettings } from './settings';
 import { submitFeedback } from './feedback';
+import { submitRecipeDraft } from './cookbook-draft';
 
 function withTool(
   id: string,
@@ -72,6 +79,9 @@ export function registerIpc(): void {
 
   // Bug-/Wunsch-Meldung → GitHub-Issue (via Proxy, sonst Token-Fallback).
   ipcMain.handle('feedback:submit', (_e, input: FeedbackInput) => submitFeedback(input));
+
+  // Neues Rezept einreichen (Pfad B = KI) → Proxy erzeugt das Rezept und öffnet einen PR.
+  ipcMain.handle('cookbook:draft', (_e, input: RecipeDraftInput) => submitRecipeDraft(input));
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 }
