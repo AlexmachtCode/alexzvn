@@ -109,6 +109,18 @@ function isQueryVerb(verb: string): boolean {
   return verb === 'query' || verb === 'state' || verb === 'state?';
 }
 
+/** Loopback-Bind (nur lokal erreichbar)? */
+function isLoopbackHost(host: string | undefined): boolean {
+  if (!host) return false; // undefined = alle Interfaces (Node-Default) → NICHT loopback
+  return (
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host === 'localhost' ||
+    host === '::ffff:127.0.0.1' ||
+    host.startsWith('127.')
+  );
+}
+
 export class SuiteControlServer {
   private server: net.Server | null = null;
   private readonly clients = new Set<net.Socket>();
@@ -124,12 +136,23 @@ export class SuiteControlServer {
     return { running: this.running, port: this.boundPort, clients: this.clients.size };
   }
 
+  /**
+   * Effektiver Modus (P1, #59): explizites `mode` gewinnt; sonst wird bei einem
+   * Bind auf eine **Nicht-Loopback**-Adresse automatisch `secure` erzwungen
+   * (man kann nie versehentlich offen ins Netz). Fehlt dann `auth`, schlägt der
+   * Handshake fail-closed fehl — niemand kommt rein, aber nichts leakt.
+   */
+  private effectiveMode(): 'open' | 'secure' {
+    if (this.opts.mode) return this.opts.mode;
+    return this.opts.bindHost && !isLoopbackHost(this.opts.bindHost) ? 'secure' : 'open';
+  }
+
   start(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
     return new Promise((resolve) => {
       this.stop();
       // secure + tls → verschlüsselter Transport (tls.Server ist ein net.Server).
       // Der Connection-Handler ist identisch: TLSSocket erbt von net.Socket.
-      const useTls = this.opts.mode === 'secure' && this.opts.tls != null;
+      const useTls = this.effectiveMode() === 'secure' && this.opts.tls != null;
       const srv = useTls
         ? tls.createServer(
             { key: this.opts.tls!.key, cert: this.opts.tls!.cert },
@@ -179,7 +202,7 @@ export class SuiteControlServer {
       this.notifyStatus();
     });
 
-    if (this.opts.mode !== 'secure') {
+    if (this.effectiveMode() !== 'secure') {
       // OPEN: unverändertes Verhalten — sofort begrüßen, Befehle ohne Auth.
       this.clients.add(socket);
       socket.write(formatSuiteState(this.opts.getState()));

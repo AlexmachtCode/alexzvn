@@ -216,6 +216,27 @@ async function main(): Promise<void> {
     srv.stop();
   }
 
+  // ── 9) Auto-secure: Nicht-Loopback-Bind erzwingt secure (ohne mode) ─────────
+  {
+    // bindHost 0.0.0.0 (alle Interfaces) + auth, KEIN mode → automatisch secure.
+    const { srv } = await startServer(19095, { bindHost: '0.0.0.0', auth: { token: 'GOOD' } });
+    const lines = await rawCollect(19095, { token: 'GOOD' });
+    ok(lines[0]?.startsWith('AUTHREQ'), 'auto-secure: Nicht-Loopback-Bind → AUTHREQ zuerst (kein offener Greeting)');
+    const okIdx = lines.findIndex((l) => l.trim() === 'AUTHOK');
+    const stateIdx = lines.findIndex((l) => /^STATE\b/.test(l.trim()));
+    ok(okIdx >= 0 && stateIdx > okIdx, 'auto-secure: korrektes Token → AUTHOK, dann STATE');
+    srv.stop();
+  }
+
+  // ── 10) Auto-secure fail-closed: Nicht-Loopback ohne auth → niemand rein ────
+  {
+    const { srv } = await startServer(19096, { bindHost: '0.0.0.0' }); // kein mode, kein auth
+    const lines = await rawCollect(19096, { token: 'GOOD' });
+    ok(lines.some((l) => l.trim() === 'AUTHFAIL'), 'auto-secure fail-closed: ohne auth-Config → AUTHFAIL');
+    ok(!hasState(lines), 'auto-secure fail-closed: KEIN State geleakt');
+    srv.stop();
+  }
+
   await delay(50);
   console.log(failed === 0 ? '\nALLE INTEGRATIONSTESTS OK' : `\n${failed} FEHLER`);
   process.exit(failed === 0 ? 0 : 1);

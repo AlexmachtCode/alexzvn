@@ -6,5 +6,8 @@
   "description": "Geteilter Mini-HTTP/SSE-Server für Handy-Fernbedienungen (und Tool-zu-Tool-Substrat)",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "scripts": {
+    "selftest": "node --experimental-transform-types test/selftest.ts"
   }
 }
