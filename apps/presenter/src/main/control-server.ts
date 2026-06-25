@@ -13,6 +13,7 @@
 // HTTP+SSE-Remote (Port 7330, von Stage Display konsumiert); ctl=1 hält beide
 // auseinander (Stage Display filtert !ctl, Companion nimmt ctl=1).
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
+import { app } from 'electron';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { getState, goto, next, prev, setScreen, stopPresentation, subscribe } from './present';
 
@@ -40,6 +41,7 @@ function toSuiteState(): SuiteState {
 export function startControlServer(): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   server = new SuiteControlServer({
+    appDataDir: app.getPath('appData'),
     role: 'presenter',
     appId: 'jm-presenter',
     controlEndpoint: true,

@@ -10,6 +10,7 @@
 // (getState/onCommand). controlEndpoint:true annonciert den Endpunkt per mDNS mit
 // TXT ctl=1 (Name jm-caption-ctl) → Companion findet ihn automatisch.
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
+import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 
 /** Eigener TCP-Steuerport. */
@@ -27,6 +28,7 @@ export function startControlServer(
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   server = new SuiteControlServer({
+    appDataDir: app.getPath('appData'),
     role: 'caption',
     appId: 'jm-caption',
     controlEndpoint: true,

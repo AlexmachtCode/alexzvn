@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@jm/auth-core": "*",
+    "@jm/control-config": "*",
     "@jm/discovery": "*"
   },
   "scripts": {

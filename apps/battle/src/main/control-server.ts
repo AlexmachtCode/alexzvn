@@ -8,6 +8,7 @@
 // controlEndpoint:true annonciert den Endpunkt per mDNS (TXT ctl=1, Name
 // jm-battle-ctl) → Companion findet ihn automatisch.
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
+import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 
 export const CONTROL_PORT = 8734;
@@ -24,6 +25,7 @@ export function startControlServer(
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   server = new SuiteControlServer({
+    appDataDir: app.getPath('appData'),
     role: 'battle',
     appId: 'jm-battle',
     controlEndpoint: true,

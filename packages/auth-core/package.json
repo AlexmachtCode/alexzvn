@@ -8,6 +8,6 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "selftest": "node --experimental-strip-types test/selftest.ts"
+    "selftest": "tsx test/selftest.ts"
   }
 }

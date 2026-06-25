@@ -15,6 +15,7 @@
 import type { BrowserWindow } from 'electron';
 import { getLog } from '@jm/app-runtime';
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
+import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type { TemplateKind, TitlerRemoteCommand, TitlerRemoteState } from '@shared/types';
 
@@ -64,6 +65,7 @@ export function startControlServer(
   stopControlServer();
   getWindow = getWin;
   server = new SuiteControlServer({
+    appDataDir: app.getPath('appData'),
     role: 'titler',
     appId: 'jm-titler',
     controlEndpoint: true,

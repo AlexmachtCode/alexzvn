@@ -9,6 +9,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { advertise, type Advertiser } from '@jm/discovery';
 import { randomNonce, verifyProof } from '@jm/auth-core';
+import { controlServerOptions, readControlConfig } from '@jm/control-config';
 import {
   AUTH_FAIL,
   AUTH_OK,
@@ -103,6 +104,15 @@ export interface SuiteControlServerOptions {
   authMaxFailures?: number;
   /** Sperrdauer nach zu vielen Fehlversuchen in ms (Default 30000). */
   authLockoutMs?: number;
+  /**
+   * appData-Wurzel (z. B. `app.getPath('appData')`) zum Laden der geteilten
+   * Steuerebenen-Konfig (@jm/control-config, P1-Adoption). Gesetzt → der Server
+   * übernimmt mode/auth/tls/bindHost aus `<appData>/JM Production Suite/
+   * control.json`. Explizit gesetzte Optionen oben **gewinnen** über die Konfig.
+   * Fehlt die Konfig → leer → open (unverändert). So bekommen alle Tools mit
+   * einer Zeile (`appDataDir`) die zentral provisionierte Sicherheit.
+   */
+  appDataDir?: string;
 }
 
 function isQueryVerb(verb: string): boolean {
@@ -129,8 +139,26 @@ export class SuiteControlServer {
   private boundPort = 0;
   /** Fehlversuch-Zähler je Quell-IP (Brute-Force-Bremse im secure-Modus). */
   private readonly authFailures = new Map<string, { count: number; lockUntil: number }>();
+  /** Aufgelöste Sicherheitsoptionen (explizit > geteilte Konfig); in start() gesetzt. */
+  private resolved: {
+    mode?: 'open' | 'secure';
+    bindHost?: string;
+    auth?: SuiteControlServerOptions['auth'];
+    tls?: { cert: string; key: string };
+  } = {};
 
   constructor(private readonly opts: SuiteControlServerOptions) {}
+
+  /** Explizite Optionen mit der geteilten Konfig (via appDataDir) zusammenführen. */
+  private resolve(): void {
+    const cfg = this.opts.appDataDir ? controlServerOptions(readControlConfig(this.opts.appDataDir)) : {};
+    this.resolved = {
+      mode: this.opts.mode ?? cfg.mode,
+      bindHost: this.opts.bindHost ?? cfg.bindHost,
+      auth: this.opts.auth ?? cfg.auth,
+      tls: this.opts.tls ?? cfg.tls,
+    };
+  }
 
   status(): SuiteControlStatus {
     return { running: this.running, port: this.boundPort, clients: this.clients.size };
@@ -143,19 +171,20 @@ export class SuiteControlServer {
    * Handshake fail-closed fehl — niemand kommt rein, aber nichts leakt.
    */
   private effectiveMode(): 'open' | 'secure' {
-    if (this.opts.mode) return this.opts.mode;
-    return this.opts.bindHost && !isLoopbackHost(this.opts.bindHost) ? 'secure' : 'open';
+    if (this.resolved.mode) return this.resolved.mode;
+    return this.resolved.bindHost && !isLoopbackHost(this.resolved.bindHost) ? 'secure' : 'open';
   }
 
   start(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
     return new Promise((resolve) => {
       this.stop();
+      this.resolve(); // explizite Optionen + geteilte Konfig (appDataDir) zusammenführen
       // secure + tls → verschlüsselter Transport (tls.Server ist ein net.Server).
       // Der Connection-Handler ist identisch: TLSSocket erbt von net.Socket.
-      const useTls = this.effectiveMode() === 'secure' && this.opts.tls != null;
+      const useTls = this.effectiveMode() === 'secure' && this.resolved.tls != null;
       const srv = useTls
         ? tls.createServer(
-            { key: this.opts.tls!.key, cert: this.opts.tls!.cert },
+            { key: this.resolved.tls!.key, cert: this.resolved.tls!.cert },
             (socket) => this.handleConnection(socket),
           )
         : net.createServer((socket) => this.handleConnection(socket));
@@ -167,7 +196,7 @@ export class SuiteControlServer {
         resolve({ ok: false, error: e.message });
       });
       // host undefined → Node-Default (alle Interfaces): bestehendes Verhalten.
-      srv.listen(port, this.opts.bindHost, () => {
+      srv.listen(port, this.resolved.bindHost, () => {
         this.server = srv;
         this.running = true;
         this.boundPort = port;
@@ -250,7 +279,7 @@ export class SuiteControlServer {
 
   /** Prüft den Handshake-Beweis gegen Token bzw. verify-Funktion. */
   private verifyAuth(proof: string, nonce: string): boolean {
-    const auth = this.opts.auth;
+    const auth = this.resolved.auth;
     if (!auth) return false; // secure ohne auth-Config: alles ablehnen
     if ('verify' in auth) return auth.verify(proof, nonce);
     return verifyProof(auth.token, nonce, proof);

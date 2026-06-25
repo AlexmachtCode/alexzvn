@@ -14,6 +14,7 @@
 // Marker hält beide auseinander: Stage Display filtert auf !ctl (Socket.IO),
 // das Companion-Modul nimmt per Auto-Discovery den ctl=1-Endpunkt (dieser Port).
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
+import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import {
   getCountdownRemaining,
@@ -93,6 +94,7 @@ function toTimerCommand(cmd: SuiteCommand): Command | null {
 export function startControlServer(): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   server = new SuiteControlServer({
+    appDataDir: app.getPath('appData'),
     role: 'timer',
     appId: 'jm-timer',
     controlEndpoint: true,
