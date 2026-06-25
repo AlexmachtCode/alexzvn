@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-06-24T00:00:00.000Z",
+  "updatedAt": "2026-06-25T00:00:00.000Z",
   "recipes": [
     {
       "id": "award-gala",
@@ -937,6 +937,7 @@
         "jury",
         "qr",
         "replay",
+        "companion",
         "manual"
       ],
       "relatedTools": [
@@ -954,9 +955,9 @@
       "crewRoles": [
         "Battle-Operator"
       ],
-      "lastReviewed": "2026-06-24",
+      "lastReviewed": "2026-06-25",
       "owner": "tech@jakobsmedien.com",
-      "summary": "BattleRap-Toolkit: zwei Kontrahenten, Runden mit Jury-Entscheid und Publikums-Voting per QR, VS-Bauchbinde via Titler, Instant-Replay aus der Aufnahme.",
+      "summary": "BattleRap-Toolkit: zwei Kontrahenten, Runden mit Jury-Entscheid und Publikums-Voting per QR (Port 7783), VS-Bauchbinde via Titler, Instant-Replay aus der Aufnahme — fernsteuerbar per Companion über Port 8734.",
       "blocks": {
         "ingredients": [
           {
@@ -967,31 +968,46 @@
               "JM Titler im selben LAN (VS-Bauchbinde)",
               "Laufende Aufnahme (Quelle für den Instant-Replay)"
             ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port 7783 (@jm/remote, HTTP): Publikums-Voting. Gäste scannen den QR und landen auf http://<host-ip>:7783/.",
+              "Port 8734 (TCP-Zeilenprotokoll): Steuerport für Bitfocus Companion. mDNS-Name jm-battle-ctl (TXT ctl=1, Auto-Discovery).",
+              "Fern-Befehle: BATTLE NEXT | BATTLE PREV | BATTLE WIN a|b|tie | BATTLE VOTING on|off|toggle | BATTLE VS on|off|toggle | BATTLE REPLAY | BATTLE RESET | STATE?.",
+              "Status-Push: STATE round, total, wins_a, wins_b, votes_a/votes_b, live.",
+              "Instant-Replay schneidet die letzten Sekunden aus der laufenden Aufnahme (via @jm/media/ffmpeg)."
+            ]
           }
         ],
         "steps": {
           "vor": [],
           "waehrend": [
-            "Runde starten, VS-Bauchbinde einblenden",
-            "Voting öffnen, dann schließen; Ergebnis anzeigen",
-            "Bei Bedarf Instant-Replay (letzte Sekunden) erzeugen und abspielen"
+            "Runde starten, VS-Bauchbinde einblenden (BATTLE VS on)",
+            "Voting öffnen (BATTLE VOTING on), dann schließen (off); Sieger setzen mit BATTLE WIN a|b|tie",
+            "Bei Bedarf BATTLE REPLAY — letzte Sekunden aus der Aufnahme abspielen",
+            "Mit BATTLE NEXT in die nächste Runde"
           ],
           "nach": [
-            "Ergebnisse sichern"
+            "Ergebnisse sichern; BATTLE RESET für das nächste Battle"
           ]
         },
         "troubleshooting": [
           {
             "risk": "QR-Voting kommt nicht an",
-            "remedy": "Netz und Erreichbarkeit der Voting-Seite prüfen"
+            "remedy": "Gäste-WLAN erreicht Port 7783 am Host? http://<host-ip>:7783/ testen"
           },
           {
             "risk": "VS-Bauchbinde fehlt",
-            "remedy": "JM Titler im selben LAN gestartet?"
+            "remedy": "JM Titler im selben LAN gestartet? BATTLE VS on gesendet?"
           },
           {
             "risk": "Instant-Replay ist leer",
-            "remedy": "Aufnahmequelle und Verbindung prüfen"
+            "remedy": "Läuft die Aufnahme (Recorder) durchgehend? Quelle/Verbindung prüfen"
+          },
+          {
+            "risk": "Companion steuert nicht",
+            "remedy": "Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN?"
           }
         ],
         "checklists": [
@@ -1000,8 +1016,9 @@
             "items": [
               "Kontrahenten und Runden angelegt",
               "Titler verbunden (VS-Bauchbinde)",
-              "Voting konfiguriert",
-              "Aufnahme für Replay verbunden"
+              "Voting konfiguriert (Port 7783 erreichbar)",
+              "Aufnahme für Replay verbunden",
+              "Companion an Port 8734 verbunden (optional)"
             ]
           },
           {
@@ -1013,8 +1030,10 @@
           }
         ],
         "tips": [
-          "Voting-Fenster bewusst kurz halten — das hält die Dramaturgie straff.",
-          "Replay-Länge vorab testen, damit der Ausschnitt sitzt."
+          "Voting-Fenster bewusst kurz halten (BATTLE VOTING on → off) — das hält die Dramaturgie straff.",
+          "Replay-Länge vorab testen, damit der Ausschnitt sitzt; die Aufnahme muss dafür durchgehend laufen.",
+          "Companion-Layout für den Live-Flow: VS, VOTING, WIN a/b und REPLAY auf eigene Taster — der Operator bleibt am Geschehen statt in Menüs.",
+          "QR fürs Publikum groß auf den Stream/eine Folie legen."
         ]
       }
     },
@@ -1032,6 +1051,7 @@
         "whisper",
         "barrierefreiheit",
         "bitv",
+        "companion",
         "manual"
       ],
       "relatedTools": [
@@ -1049,9 +1069,9 @@
       "crewRoles": [
         "Media Operator (Untertitel)"
       ],
-      "lastReviewed": "2026-06-24",
+      "lastReviewed": "2026-06-25",
       "owner": "tech@jakobsmedien.com",
-      "summary": "Live-Untertitel offline via whisper.cpp als transparente NDI-Quelle — für Politik-Streams, Pressekonferenzen und Barrierefreiheit (BITV).",
+      "summary": "Live-Untertitel offline via whisper.cpp als transparente NDI-Quelle — für Politik-Streams, Pressekonferenzen und Barrierefreiheit (BITV), fernsteuerbar per Companion über Port 8732.",
       "blocks": {
         "ingredients": [
           {
@@ -1062,55 +1082,71 @@
               "Audioeingang (Mikrofon oder besser ein sauberer Mix)",
               "Whisper-Modell (Basis mitgeliefert, größere für mehr Genauigkeit nachladbar)"
             ]
+          },
+          {
+            "title": "Netzwerk & Steuerung",
+            "items": [
+              "Port 8732 (TCP-Zeilenprotokoll): Steuerport für Bitfocus Companion. mDNS-Name jm-caption-ctl (TXT ctl=1, Auto-Discovery).",
+              "Fern-Befehle: CAPTION transcribe on|off|toggle | CAPTION hold on|off|toggle | CAPTION ndi on|off|toggle | CAPTION clear | STATE?.",
+              "Status-Push: STATE running, hold, ndi, connections, lines.",
+              "Ausgabe ist eine eigene, transparente NDI-Quelle — im LAN per mDNS sichtbar, wird im Mischer (TriCaster/vMix/OBS) als Quelle eingebunden."
+            ]
           }
         ],
         "steps": {
           "vor": [],
           "waehrend": [
-            "Transkription starten",
-            "Bei Fehlern „Hold\" zum Einfrieren und die letzte Zeile korrigieren",
+            "Transkription starten (lokal oder CAPTION transcribe on)",
+            "Bei Fehlern CAPTION hold on zum Einfrieren, letzte Zeile korrigieren, dann hold off",
+            "CAPTION clear leert die Anzeige hart (z. B. vor einem neuen Sprecher)",
             "Lesbarkeit und Timing im Blick behalten"
           ],
           "nach": [
-            "Transkription stoppen"
+            "Transkription stoppen (CAPTION transcribe off), NDI bei Bedarf abschalten"
           ]
         },
         "troubleshooting": [
           {
             "risk": "NDI-Quelle erscheint nicht im Mixer",
-            "remedy": "NDI-Runtime und gleiches Subnetz prüfen"
+            "remedy": "NDI-Runtime installiert? Gleiches Subnetz, mDNS/Firewall frei"
+          },
+          {
+            "risk": "Companion steuert nicht",
+            "remedy": "Port 8732 (jm-caption-ctl) erreichbar? Gemeinsames LAN?"
           },
           {
             "risk": "Untertitel zu spät oder falsch",
-            "remedy": "Modell/Sprache prüfen, Audioqualität verbessern"
+            "remedy": "Modell/Sprache prüfen, Audioqualität (Pult-Mix) verbessern"
           },
           {
             "risk": "Aussetzer / Ruckeln",
-            "remedy": "CPU-Last beobachten, kleineres Modell wählen"
+            "remedy": "CPU-Last beobachten, kleineres Whisper-Modell wählen"
           }
         ],
         "checklists": [
           {
             "title": "Einrichtung",
             "items": [
-              "Audioquelle gewählt",
+              "Audioquelle gewählt (Mix bevorzugt)",
               "Modell und Sprache gesetzt",
               "NDI-Quelle im Mixer sichtbar",
-              "Companion (optional) verbunden"
+              "Companion an Port 8732 verbunden (optional)"
             ]
           },
           {
             "title": "Vor Live",
             "items": [
               "Probesatz korrekt erkannt",
-              "Hold getestet",
+              "Hold getestet (CAPTION hold on/off)",
               "Lesbarkeit und Position ok"
             ]
           }
         ],
         "tips": [
-          "Größeres Modell = bessere Genauigkeit, aber mehr CPU-Last — vorab unter Realbedingungen testen.",
-          "Sauberer Ton (Pult-Mix statt Raummikro) verbessert die Erkennung deutlich."
+          "Größeres Modell = bessere Genauigkeit, aber mehr CPU-Last — vorab unter Realbedingungen testen, Aussetzer = Modell kleiner wählen.",
+          "Sauberer Ton (Pult-Mix statt Raummikro) verbessert die Erkennung deutlich.",
+          "Companion-Hold als eigener Taster: in heiklen Momenten (O-Ton, Versprecher) einfrieren statt löschen.",
+          "NDI separat halten: Transkription kann laufen, während die NDI-Ausgabe per CAPTION ndi off kurz aus dem Programm genommen wird."
         ]
       }
     },
@@ -1127,6 +1163,7 @@
         "pressekonferenz",
         "townhall",
         "qr",
+        "companion",
         "manual"
       ],
       "relatedTools": [
@@ -1144,9 +1181,9 @@
         "Moderations-Operator",
         "Moderation (Freigabe)"
       ],
-      "lastReviewed": "2026-06-24",
+      "lastReviewed": "2026-06-25",
       "owner": "tech@jakobsmedien.com",
-      "summary": "Wortmeldungs- und Frage-Queue: der Saal reicht per QR vom Handy ein, per Klick kommt jemand ans Wort — steuert dabei Redezeit (Timer) und Bauchbinde (Titler) automatisch.",
+      "summary": "Wortmeldungs- und Frage-Queue: der Saal reicht per QR vom Handy ein (Port 7782), per Klick kommt jemand ans Wort — koppelt automatisch Redezeit (Timer) und Bauchbinde (Titler), fernsteuerbar per Companion über Port 8733.",
       "blocks": {
         "ingredients": [
           {
@@ -1156,14 +1193,24 @@
               "Netz/WLAN, über das die Gäste den QR-Code erreichen",
               "JM Timer und JM Titler im selben LAN"
             ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port 7782 (@jm/remote, HTTP): Saal-Einreichung. Gäste scannen den QR und landen auf http://<host-ip>:7782/ — Fragen laufen in die Queue.",
+              "Port 8733 (TCP-Zeilenprotokoll): Steuerport für Bitfocus Companion. mDNS-Name jm-qa-ctl (TXT ctl=1, Auto-Discovery).",
+              "Fern-Befehle: QA NEXT | QA END | QA EXTEND <Sekunden> | QA CLEAR | STATE?. Status-Push: STATE active, waiting, total, live, remote.",
+              "Auto-Kopplung im LAN: „ans Wort holen\" startet JM Timer (Redezeit) und blendet via JM Titler die Bauchbinde ein (Befehl TITLER TEXT, vorwärtskompatibel zu älteren Titler-Ständen)."
+            ]
           }
         ],
         "steps": {
           "vor": [],
           "waehrend": [
             "Eingehende Fragen moderieren und freigeben",
-            "Per Klick jemanden ans Wort holen — Timer startet, Bauchbinde wird eingeblendet",
-            "Queue abarbeiten"
+            "Per Klick (oder QA NEXT) jemanden ans Wort holen — Timer startet, Bauchbinde wird eingeblendet",
+            "Redezeit verlängern mit QA EXTEND 60; Wortbeitrag beenden mit QA END",
+            "Queue abarbeiten; QA CLEAR leert sie bei Bedarf"
           ],
           "nach": [
             "Queue/Statistik sichern (falls gewünscht)"
@@ -1172,20 +1219,29 @@
         "troubleshooting": [
           {
             "risk": "QR-Einreichung kommt nicht an",
-            "remedy": "Gleiches Netz und Erreichbarkeit der Einreich-Seite prüfen"
+            "remedy": "Gäste-WLAN erreicht Port 7782 am Host? http://<host-ip>:7782/ im Browser testen"
           },
           {
             "risk": "Timer/Titler reagieren nicht",
-            "remedy": "Im selben LAN gestartet? mDNS/Firewall prüfen"
+            "remedy": "Beide im selben LAN gestartet? mDNS/Firewall prüfen"
+          },
+          {
+            "risk": "Companion steuert nicht",
+            "remedy": "Port 8733 (jm-qa-ctl) erreichbar? Gemeinsames LAN?"
+          },
+          {
+            "risk": "Bauchbinde bleibt leer",
+            "remedy": "Titler erreichbar? TITLER TEXT-Kopplung in den Q&A-Einstellungen aktiv?"
           }
         ],
         "checklists": [
           {
             "title": "Einrichtung",
             "items": [
-              "QR-Einreichung aktiv",
+              "QR-Einreichung aktiv (Port 7782 erreichbar)",
               "Moderation/Freigabe gesetzt",
-              "Timer und Titler gekoppelt"
+              "Timer und Titler gekoppelt (gleiches LAN)",
+              "Companion an Port 8733 verbunden (optional)"
             ]
           },
           {
@@ -1198,7 +1254,9 @@
         ],
         "tips": [
           "Den Moderationsschritt aktiv nutzen, um Doppelungen und Unangemessenes zu filtern.",
-          "Titler-Text ist vorwärtskompatibel (TITLER TEXT) — funktioniert auch mit älteren Titler-Ständen."
+          "Titler-Text ist vorwärtskompatibel (TITLER TEXT) — die Kopplung funktioniert auch mit älteren Titler-Ständen.",
+          "Companion-Workflow für die Moderation: QA NEXT (nächste Person + Timer + Bauchbinde) und QA END auf zwei Taster legen — flüssiger als Maus.",
+          "QR groß auf eine Folie/Stage-Display legen, damit der ganze Saal scannen kann."
         ]
       }
     },
@@ -1234,9 +1292,9 @@
       "crewRoles": [
         "Regie / Ablaufregie"
       ],
-      "lastReviewed": "2026-06-24",
+      "lastReviewed": "2026-06-25",
       "owner": "tech@jakobsmedien.com",
-      "summary": "Zeilenbasierter Ablaufplan: ein GO startet pro Segment mehrere Tools gleichzeitig (Timer, Prompter, Presenter, Titler, Switcher).",
+      "summary": "Zeilenbasierter Ablaufplan: ein GO startet pro Segment mehrere Tools gleichzeitig (Timer, Prompter, Presenter, Titler, Switcher) — lokal oder per Companion über Port 8731.",
       "blocks": {
         "ingredients": [
           {
@@ -1248,9 +1306,17 @@
             ]
           },
           {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port 8731 (TCP-Zeilenprotokoll): Steuerport von JM Rundown selbst — so kann ein Dirigent (Companion) den Ablauf fern-GO-en. mDNS-Name jm-rundown-ctl (TXT ctl=1).",
+              "Fern-Befehle an Rundown: RUNDOWN GO | RUNDOWN NEXT | RUNDOWN PREV | RUNDOWN GOTO <n> | STATE?. Rundown pusht STATE (cue, total, label).",
+              "Rundown findet die Ziel-Tools per mDNS (deren ctl=1-Endpunkte) und feuert pro Zeile auf deren Steuerports: Timer 8724, Titler 8726, Prompter 8727, Presenter 8728, Switcher (konfigurierter Port)."
+            ]
+          },
+          {
             "title": "Was pro Segment gesteuert wird",
             "items": [
-              "Timer-Block (JM Timer)",
+              "Timer-Block (JM Timer) — z. B. TIMER GOTO/START",
               "Prompter-Skript (JM Prompter)",
               "Presenter-Folie (JM Presenter)",
               "Titler-Bauchbinde (JM Titler)",
@@ -1261,33 +1327,37 @@
         "steps": {
           "vor": [],
           "waehrend": [
-            "Pro Segment GO drücken — feuert alle zugeordneten Aktionen gleichzeitig",
+            "Pro Segment GO drücken — feuert alle zugeordneten Aktionen gleichzeitig (lokal oder per RUNDOWN GO)",
             "Live-Status / Tally im Blick behalten",
             "Bei Bedarf einzelne Aktionen per Override anpassen"
           ],
           "nach": [
-            "`.jmrundown` sichern"
+            ".jmrundown sichern"
           ]
         },
         "troubleshooting": [
           {
             "risk": "Tool wird nicht gefunden",
-            "remedy": "Gleiches Subnetz prüfen, Tool gestartet?, mDNS/Firewall"
+            "remedy": "Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein"
           },
           {
             "risk": "GO feuert nicht alle Aktionen",
-            "remedy": "Zuordnung je Zeile kontrollieren"
+            "remedy": "Zuordnung je Zeile kontrollieren; Live-Status des betroffenen Tools prüfen"
           },
           {
             "risk": "Companion-GO ohne Wirkung",
-            "remedy": "Verbindung und gemeinsames LAN prüfen"
+            "remedy": "Companion zeigt auf Port 8731 (jm-rundown-ctl)? Gemeinsames LAN?"
+          },
+          {
+            "risk": "Eine einzelne Aktion läuft ins Leere",
+            "remedy": "Ziel-Tool neu gestartet → Port/Endpunkt erneut zuordnen"
           }
         ],
         "checklists": [
           {
             "title": "Einrichtung",
             "items": [
-              "Ziel-Tools laufen und sind gefunden",
+              "Ziel-Tools laufen und sind gefunden (ctl=1 sichtbar)",
               "Zeilen und Aktionen angelegt",
               "Live-Status grün",
               "Als .jmrundown gespeichert"
@@ -1297,13 +1367,15 @@
             "title": "Vor Live",
             "items": [
               "Probe-GO je Segment gelaufen",
-              "Companion (optional) getestet"
+              "Companion an Port 8731 getestet (optional)"
             ]
           }
         ],
         "tips": [
-          "Tools vor der Probe starten, damit sie im mDNS auftauchen und zuweisbar sind.",
-          "Pro Zeile nur die wirklich nötigen Aktionen — das hält das GO vorhersehbar."
+          "Tools vor der Probe starten, damit sie im mDNS auftauchen und zuweisbar sind — ein Tool, das erst nach dem Zuordnen startet, fehlt in der Zeile.",
+          "Pro Zeile nur die wirklich nötigen Aktionen — das hält das GO vorhersehbar.",
+          "Companion steuert beide Ebenen: RUNDOWN GO am Port 8731 löst die Zeile aus; alternativ einzelne Tools direkt (z. B. TIMER START an 8724), wenn ein Segment mal abweicht.",
+          "Ein .jmshow kann Rundown samt Ziel-Tools koordiniert mitstarten."
         ]
       }
     },
@@ -1322,6 +1394,7 @@
         "ptz",
         "companion",
         "gateway",
+        "audit",
         "manual"
       ],
       "relatedTools": [
@@ -1333,15 +1406,15 @@
         "JM Studio Control installiert (über den Launcher)",
         "Studiogeräte im Netz erreichbar (TriCaster, ATEM, OBS, PTZ, Audio/Licht)",
         "Nutzer und Rollen festgelegt",
-        "Bitfocus Companion (Gateway-Rolle „studio\", optional)"
+        "Bitfocus Companion (Gateway-Rolle studio, optional)"
       ],
       "equipmentOwner": "gemischt",
       "crewRoles": [
         "Studio-Operator / Technische Leitung"
       ],
-      "lastReviewed": "2026-06-24",
+      "lastReviewed": "2026-06-25",
       "owner": "tech@jakobsmedien.com",
-      "summary": "Zentrale Studiosteuerung (TriCaster/ATEM/OBS/PTZ/Audio/Licht) mit Nutzerrollen, NDI-PGM-Vorschau und Companion-Gateway.",
+      "summary": "Zentrale, auditierte Studiosteuerung (TriCaster/ATEM/OBS/PTZ/Audio/Licht) mit Nutzerrollen und NDI-PGM-Vorschau (Port 7778) plus EIN Companion-Gateway über Port 8735.",
       "blocks": {
         "ingredients": [
           {
@@ -1350,41 +1423,59 @@
               "JM Studio Control (über den Launcher)",
               "Erreichbare Studiogeräte: Video-Mischer (TriCaster/ATEM/OBS), PTZ-Kameras, Audio, Licht",
               "Nutzer und Rollen",
-              "Optional: Bitfocus Companion über die Gateway-Rolle „studio\""
+              "Optional: Bitfocus Companion über die Gateway-Rolle studio"
             ]
           },
           {
             "title": "Gewerke",
             "items": [
               "Video-Mischer (TriCaster / ATEM / OBS)",
-              "PTZ-Kameras",
-              "Audio und Licht"
+              "PTZ-Kameras (Panasonic)",
+              "Audiopult und Licht (Art-Net)"
+            ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port 7778 (Socket.IO/HTTP, Bearer-Auth): Web-/Bedien-UI und NDI-PGM-Vorschau. Hier melden sich die Operator-Clients an.",
+              "Port 8735 (TCP-Zeilenprotokoll): EIN Companion-Gateway für den ganzen Studio-Hub. mDNS-Name jm-studio-control-ctl (TXT ctl=1). Studio Control hat sonst keinen weiteren _jmps._tcp-Advert (keine Namenskollision).",
+              "Modell: EINE Rolle studio mit typ-präfixierten Verben; je Gerätetyp wird die PRIMÄR-Instanz (die erste konfigurierte) bedient.",
+              "Fern-Befehle: STUDIO atem_program <n> | STUDIO atem_cut | STUDIO obs_scene <n> | STUDIO obs_record on|off | STUDIO tricaster_shortcut <name> | STATE?.",
+              "Audit: Das TCP-Protokoll hat keinen Token (Companion-TCP); das Gateway handelt unter der festen Identität companion-gateway und protokolliert jeden Befehl (wer/was/Ziel) — Nachvollziehbarkeit für regulierte Umgebungen."
             ]
           }
         ],
         "steps": {
           "vor": [],
           "waehrend": [
-            "Quellen und Szenen schalten, PTZ steuern, Audio/Licht bedienen",
+            "Quellen/Szenen schalten (z. B. STUDIO atem_program 2, STUDIO obs_scene 3), PTZ steuern, Audio/Licht bedienen",
             "PGM-Vorschau im Blick behalten",
-            "Aktionen werden zentral protokolliert (auditiert)"
+            "Aufnahme per STUDIO obs_record on/off; alle Aktionen werden zentral auditiert"
           ],
           "nach": [
-            "Session/Logs sichern"
+            "Session/Logs sichern (Audit-Log bleibt erhalten)"
           ]
         },
         "troubleshooting": [
           {
             "risk": "Gerät nicht erreichbar",
-            "remedy": "Netz/IP und Anmeldedaten prüfen"
+            "remedy": "Netz/IP und Anmeldedaten prüfen; richtige Primär-Instanz konfiguriert?"
           },
           {
             "risk": "Verb wirkt nicht",
-            "remedy": "Richtige Primär-Instanz und Typ-Präfix prüfen"
+            "remedy": "Richtiges Typ-Präfix (atem_/obs_/tricaster_) und Primär-Instanz prüfen"
+          },
+          {
+            "risk": "Web-UI/PGM nicht erreichbar",
+            "remedy": "Port 7778 erreichbar? Bearer-Token korrekt?"
+          },
+          {
+            "risk": "Companion-Gateway reagiert nicht",
+            "remedy": "Port 8735 (jm-studio-control-ctl) erreichbar? Gateway in den Einstellungen aktiviert?"
           },
           {
             "risk": "Aktion verweigert",
-            "remedy": "Nutzerrolle/Rechte kontrollieren"
+            "remedy": "Nutzerrolle/Rechte in der Web-UI kontrollieren"
           }
         ],
         "checklists": [
@@ -1392,22 +1483,25 @@
             "title": "Einrichtung",
             "items": [
               "Geräte verbunden (Primär-Instanz je Typ)",
-              "Rollen gesetzt",
+              "Rollen gesetzt (Web-UI Port 7778)",
               "PGM-Vorschau läuft",
-              "Companion-Gateway (optional) aktiv"
+              "Companion-Gateway Port 8735 aktiv (optional)"
             ]
           },
           {
             "title": "Vor Live",
             "items": [
               "Schalt-Test je Gewerk gelaufen",
-              "Rechte/Rollen geprüft"
+              "Rechte/Rollen geprüft",
+              "Audit-Log schreibt mit"
             ]
           }
         ],
         "tips": [
-          "Pro Gerätetyp genau eine Primär-Instanz festlegen — das vermeidet Mehrdeutigkeit beim Schalten.",
-          "Das Companion-Gateway bündelt alle Gewerke auf einer Rolle, statt jedes Gerät einzeln anzubinden."
+          "Pro Gerätetyp genau eine Primär-Instanz festlegen — das Gateway adressiert immer die erste konfigurierte; Mehrinstanz-Adressierung ist (noch) nicht im flachen Verb-Set.",
+          "Das Companion-Gateway bündelt alle Gewerke auf EINER Rolle (Port 8735), statt jedes Gerät einzeln anzubinden.",
+          "TriCaster-Makros per STUDIO tricaster_shortcut <name> auslösen — Shortcut-Namen vorab im TriCaster festlegen.",
+          "Bei Audits/Abnahmen: das zentrale Log zeigt jeden Gateway-Befehl unter companion-gateway — praktisch für regulierte Kunden."
         ]
       }
     },
@@ -1443,9 +1537,9 @@
       "crewRoles": [
         "Media Operator (Bildregie)"
       ],
-      "lastReviewed": "2026-06-24",
+      "lastReviewed": "2026-06-25",
       "owner": "tech@jakobsmedien.com",
-      "summary": "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bildschirm-Quellen, Aufnahme und RTMP-Ausgang — Einrichtung und Live-Bedienung.",
+      "summary": "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bildschirm-Quellen, Aufnahme und RTMP-Ausgang — Einrichtung, Companion-Fernsteuerung und Live-Bedienung.",
       "blocks": {
         "ingredients": [
           {
@@ -1463,14 +1557,22 @@
               "NDI-Quellen aus dem LAN (z. B. JM NDI Screen Capture, JM Titler)",
               "Capture-Karte (SDI/HDMI)"
             ]
+          },
+          {
+            "title": "Netzwerk & Steuerung",
+            "items": [
+              "TCP-Steuerport (Zeilenprotokoll): nicht fest verdrahtet — wird im Switcher aktiviert (Companion-/Steuerung-Einstellungen) bzw. per Umgebungsvariable JMSWITCH_CONTROL_PORT gesetzt. mDNS-Rolle switcher (jm-switcher-ctl).",
+              "Fern-Befehle: PREVIEW <n> | PROGRAM <n> | CUT | AUTO | RECORD | STREAM | STATE?.",
+              "Status-Push: STATE program, preview, recording, streaming, scenes — das Format ist rückwärtskompatibel zum alten Companion-Modul."
+            ]
           }
         ],
         "steps": {
           "vor": [],
           "waehrend": [
-            "Quelle in Preview wählen",
-            "Mit Cut hart oder mit Auto-Dissolve weich auf Program schalten",
-            "Aufnahme und/oder Stream starten",
+            "Quelle in Preview wählen (PREVIEW <n>)",
+            "Mit CUT hart oder mit AUTO weich auf Program schalten",
+            "Aufnahme (RECORD) und/oder Stream (STREAM) starten",
             "Stream-Status (Bitrate, Drops) und Audiopegel beobachten"
           ],
           "nach": [
@@ -1486,6 +1588,10 @@
           {
             "risk": "Kein Bild von der Capture-Karte",
             "remedy": "Treiber prüfen, Gerät nicht von anderem Programm belegt"
+          },
+          {
+            "risk": "Companion steuert nicht",
+            "remedy": "Steuerport im Switcher aktiviert? Gleicher Port in Companion? Gemeinsames LAN?"
           },
           {
             "risk": "Stream bricht ab",
@@ -1504,14 +1610,14 @@
               "Audio zugeordnet und gepegelt",
               "Aufnahme-Zielordner gesetzt",
               "RTMP-Verbindung getestet",
-              "Companion (optional) verbunden"
+              "Steuerport aktiviert + Companion verbunden (optional)"
             ]
           },
           {
             "title": "Vor Live",
             "items": [
               "Program/Preview korrekt",
-              "Cut und Dissolve getestet",
+              "CUT und AUTO getestet",
               "Aufnahme armiert",
               "Pegel ok"
             ]
@@ -1520,7 +1626,8 @@
         "tips": [
           "NDI-Quellen tauchen automatisch im LAN auf (mDNS) — alle Geräte ins gleiche Subnetz.",
           "JM Titler als eigene, transparente NDI-Quelle über das Programmbild legen.",
-          "Vor Live einmal Cut und Auto-Dissolve durchspielen."
+          "Companion-Belegung: PROGRAM <n> je Kamera auf eigene Taster, dazu CUT und AUTO — so schaltet die Bildregie blind.",
+          "Vor Live einmal CUT und AUTO durchspielen; STATE? in Companion zeigt program/preview zur Kontrolle."
         ]
       }
     },
@@ -1536,6 +1643,7 @@
         "countdown",
         "sprecher",
         "companion",
+        "mdns",
         "manual"
       ],
       "relatedTools": [
@@ -1552,9 +1660,9 @@
       "crewRoles": [
         "Regie / Media Operator"
       ],
-      "lastReviewed": "2026-06-24",
+      "lastReviewed": "2026-06-25",
       "owner": "tech@jakobsmedien.com",
-      "summary": "Countdown- und Produktions-Timer mit Sprecherfenster und Fernsteuerung — Einrichtung und Bedienung im Live-Betrieb.",
+      "summary": "Countdown- und Produktions-Timer mit Sprecherfenster, LAN-Remote-View und TCP-Fernsteuerung — Einrichtung, Ports und Bedienung im Live-Betrieb.",
       "blocks": {
         "ingredients": [
           {
@@ -1562,51 +1670,86 @@
             "items": [
               "JM Timer installiert (über den Launcher)",
               "Optional: zweiter Monitor für das Sprecherfenster",
-              "Optional: Netzwerk / Bitfocus Companion für die Fernsteuerung"
+              "Optional: Bitfocus Companion oder JM Rundown für die Fernsteuerung"
+            ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port 7777 (Socket.IO/HTTP, 0.0.0.0): Operator- und Sprecherfenster, der LAN-Remote-View im Browser und JM Stage Display hängen hier dran.",
+              "Remote-View (Read-Only-Spiegel für iPad/Backstage-Monitor): http://<host-ip>:7777/?view=remote (Dev-Modus Port 5173). Die kopierbaren URLs stehen in der Operator-Sidebar unter „Remote\".",
+              "Port 8724 (TCP-Zeilenprotokoll, getrennt von 7777): der Steuerport für Bitfocus Companion und JM Rundown.",
+              "mDNS: zwei Adverts — role=timer (Socket.IO, von Stage Display genutzt) und jm-timer-ctl (TXT ctl=1, von Companion automatisch gefunden).",
+              "Optional Token-Auth für den Remote-Zugriff (in den Einstellungen aktivierbar, Token neu generierbar)."
+            ]
+          },
+          {
+            "title": "Fernsteuer-Befehle (TCP 8724)",
+            "items": [
+              "TIMER START / TIMER STOP / TIMER RESET — Lauf steuern",
+              "TIMER ADD <Sekunden> — Zeit addieren (Nachschlag); TIMER SET <Sekunden> — Dauer neu setzen",
+              "TIMER GOTO <Block> — Timetable-Block anspringen; TIMER NEXT / TIMER PREV — Block wechseln",
+              "STATE? — Zustand abfragen. Der Timer pusht laufend STATE (remaining, running, overrun, warning, block_label)"
             ]
           }
         ],
         "steps": {
           "vor": [],
           "waehrend": [
-            "Timer starten / stoppen / zurücksetzen",
-            "Bei Bedarf eine Kurznachricht für die Bühne einblenden",
-            "Over-Time (Rotphase) im Blick behalten"
+            "Timer starten / stoppen / zurücksetzen (lokal oder per Companion: TIMER START/STOP/RESET)",
+            "Nachschlag geben mit TIMER ADD 60; harte Korrektur mit TIMER SET 300",
+            "Kurznachricht für die Bühne einblenden; Over-Time (Rotphase) im Blick behalten"
           ],
           "nach": [
-            "Timer für das nächste Segment zurücksetzen"
+            "Timer bzw. Timetable für das nächste Segment zurücksetzen"
           ]
         },
         "troubleshooting": [
           {
-            "risk": "Sprecherfenster auf falschem Monitor",
-            "remedy": "Fenster auf den Talent-Monitor ziehen, Vollbild setzen"
+            "risk": "Remote-View im Browser lädt nicht",
+            "remedy": "Host-IP + Port 7777 erreichbar? Gleiches LAN, Firewall für 7777 frei"
           },
           {
-            "risk": "Fernsteuerung reagiert nicht",
-            "remedy": "Gleiches LAN prüfen, Companion-Verbindung kontrollieren"
+            "risk": "Companion/Rundown steuert nicht",
+            "remedy": "Das ist Port 8724, nicht 7777 — Steuerport offen? jm-timer-ctl im mDNS sichtbar?"
+          },
+          {
+            "risk": "Remote zeigt „nicht autorisiert\"",
+            "remedy": "Token-Auth aktiv → Token aus den Einstellungen verwenden oder neu generieren"
+          },
+          {
+            "risk": "Stage Display findet den Timer nicht",
+            "remedy": "role=timer-Advert (nicht der ctl-Endpunkt), gleiches Subnetz, mDNS frei"
+          },
+          {
+            "risk": "Sprecherfenster auf falschem Monitor",
+            "remedy": "Fenster auf den Talent-Monitor ziehen, Vollbild setzen"
           }
         ],
         "checklists": [
           {
             "title": "Einrichtung",
             "items": [
-              "Presets je Segment angelegt",
+              "Timetable/Presets je Segment angelegt (ggf. XLSX importiert)",
               "Sprecherfenster auf Talent-Monitor",
-              "Fernsteuerung (optional) verbunden"
+              "Remote-View-URL verteilt (optional)",
+              "Companion auf Port 8724 / jm-timer-ctl verbunden (optional)"
             ]
           },
           {
             "title": "Vor Live",
             "items": [
               "Test-Start gelaufen",
+              "TIMER GOTO/START per Companion getestet (optional)",
               "Auf Stage Display sichtbar"
             ]
           }
         ],
         "tips": [
-          "Mit JM Rundown koppeln: pro Segment startet der Timer automatisch.",
-          "Den Countdown zusätzlich auf JM Stage Display für die Crew anzeigen."
+          "Companion-Button „Segment 3 scharf\": TIMER GOTO 3 gefolgt von TIMER START — ein Tastendruck springt den Block an und startet ihn.",
+          "Mit JM Rundown koppeln: ein GO startet pro Segment automatisch den passenden Timer-Block (Rundown spricht denselben Port 8724).",
+          "Den Countdown zusätzlich auf JM Stage Display für die Crew zeigen — das hängt am Socket.IO-Port 7777, nicht am Steuerport.",
+          "Token-Auth nur einschalten, wenn das LAN nicht vertrauenswürdig ist — sonst hält es Backstage-Geräte unnötig auf."
         ]
       }
     }
