@@ -7,7 +7,18 @@
 // Nur im Main-Prozess verwenden (node:net + Multicast über @jm/discovery).
 import net from 'node:net';
 import { advertise, type Advertiser } from '@jm/discovery';
-import { createLineBuffer, formatSuiteState, parseSuiteCommand, type SuiteCommand, type SuiteState } from './index';
+import { randomNonce, verifyProof } from '@jm/auth-core';
+import {
+  AUTH_FAIL,
+  AUTH_OK,
+  createLineBuffer,
+  formatAuthReq,
+  formatSuiteState,
+  parseAuth,
+  parseSuiteCommand,
+  type SuiteCommand,
+  type SuiteState,
+} from './index';
 
 export interface SuiteControlStatus {
   running: boolean;
@@ -54,6 +65,26 @@ export interface SuiteControlServerOptions {
    * Namen, damit nicht zwei _jmps._tcp-Instanzen denselben Namen tragen.
    */
   controlEndpoint?: boolean;
+  /**
+   * Betriebsmodus (P1, #59):
+   *  - `'open'` (Default): unverändertes Verhalten — Server grüßt sofort mit
+   *    STATE, akzeptiert Befehle ohne Auth. Für reine, vertraute LANs.
+   *  - `'secure'`: Auth-Handshake (Challenge-Response) ZUERST; vor `AUTHOK` wird
+   *    KEIN Zustand gesendet und kein Befehl angenommen. Für geteilte/fremde
+   *    Netze. (Die TLS-Verschlüsselung kommt in einem Folge-Slice.)
+   */
+  mode?: 'open' | 'secure';
+  /**
+   * Auth-Konfiguration für `mode:'secure'`. Entweder ein geteiltes Suite-Token
+   * (der Client beweist Besitz per HMAC über die Server-Nonce) oder eine eigene
+   * Prüf-Funktion (z. B. Token je Rolle). Fehlt sie im secure-Modus, wird jede
+   * Verbindung abgelehnt.
+   */
+  auth?: { token: string } | { verify: (proof: string, nonce: string) => boolean };
+  /** Fehlversuche pro Quell-IP bis zur kurzen Sperre (Default 5). */
+  authMaxFailures?: number;
+  /** Sperrdauer nach zu vielen Fehlversuchen in ms (Default 30000). */
+  authLockoutMs?: number;
 }
 
 function isQueryVerb(verb: string): boolean {
@@ -66,6 +97,8 @@ export class SuiteControlServer {
   private advertiser: Advertiser | null = null;
   private running = false;
   private boundPort = 0;
+  /** Fehlversuch-Zähler je Quell-IP (Brute-Force-Bremse im secure-Modus). */
+  private readonly authFailures = new Map<string, { count: number; lockUntil: number }>();
 
   constructor(private readonly opts: SuiteControlServerOptions) {}
 
@@ -76,19 +109,7 @@ export class SuiteControlServer {
   start(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
     return new Promise((resolve) => {
       this.stop();
-      const srv = net.createServer((socket) => {
-        this.clients.add(socket);
-        socket.setEncoding('utf8');
-        socket.write(formatSuiteState(this.opts.getState())); // Begrüßung mit Zustand
-        const feed = createLineBuffer((line) => this.handleLine(line, socket));
-        socket.on('data', (d) => feed(String(d)));
-        socket.on('error', () => {});
-        socket.on('close', () => {
-          this.clients.delete(socket);
-          this.notifyStatus();
-        });
-        this.notifyStatus();
-      });
+      const srv = net.createServer((socket) => this.handleConnection(socket));
       srv.on('error', (e) => {
         this.server = null;
         this.running = false;
@@ -120,6 +141,90 @@ export class SuiteControlServer {
         resolve({ ok: true, port });
       });
     });
+  }
+
+  /** Eine neue Verbindung behandeln — je nach Modus offen oder mit Handshake. */
+  private handleConnection(socket: net.Socket): void {
+    socket.setEncoding('utf8');
+    socket.on('error', () => {});
+    socket.on('close', () => {
+      this.clients.delete(socket);
+      this.notifyStatus();
+    });
+
+    if (this.opts.mode !== 'secure') {
+      // OPEN: unverändertes Verhalten — sofort begrüßen, Befehle ohne Auth.
+      this.clients.add(socket);
+      socket.write(formatSuiteState(this.opts.getState()));
+      const feed = createLineBuffer((line) => this.handleLine(line, socket));
+      socket.on('data', (d) => feed(String(d)));
+      this.notifyStatus();
+      return;
+    }
+
+    // SECURE: Challenge-Response ZUERST. Vor AUTHOK kein Zustand, keine Befehle.
+    const ip = socket.remoteAddress ?? '';
+    if (this.isLockedOut(ip)) {
+      socket.destroy(); // gesperrt: nicht mal eine Aufforderung senden
+      return;
+    }
+    const nonce = randomNonce();
+    let authed = false;
+    socket.write(formatAuthReq(nonce));
+    const feed = createLineBuffer((line) => {
+      if (authed) {
+        this.handleLine(line, socket);
+        return;
+      }
+      const a = parseAuth(line);
+      if (a && this.verifyAuth(a.proof, nonce)) {
+        authed = true;
+        this.clearFailures(ip);
+        socket.write(`${AUTH_OK}\n`);
+        this.clients.add(socket); // erst jetzt Empfänger von pushState/Greeting
+        socket.write(formatSuiteState(this.opts.getState()));
+        this.notifyStatus();
+      } else {
+        // Falscher/fehlender Beweis ODER Befehl vor Auth → ablehnen + schließen.
+        this.registerFailure(ip);
+        try {
+          socket.write(`${AUTH_FAIL}\n`);
+        } catch {
+          /* egal */
+        }
+        socket.destroy();
+      }
+    });
+    socket.on('data', (d) => feed(String(d)));
+  }
+
+  /** Prüft den Handshake-Beweis gegen Token bzw. verify-Funktion. */
+  private verifyAuth(proof: string, nonce: string): boolean {
+    const auth = this.opts.auth;
+    if (!auth) return false; // secure ohne auth-Config: alles ablehnen
+    if ('verify' in auth) return auth.verify(proof, nonce);
+    return verifyProof(auth.token, nonce, proof);
+  }
+
+  private isLockedOut(ip: string): boolean {
+    const e = this.authFailures.get(ip);
+    return e != null && e.lockUntil > Date.now();
+  }
+
+  private registerFailure(ip: string): void {
+    const max = this.opts.authMaxFailures ?? 5;
+    const lockMs = this.opts.authLockoutMs ?? 30_000;
+    const e = this.authFailures.get(ip) ?? { count: 0, lockUntil: 0 };
+    e.count += 1;
+    if (e.count >= max) {
+      e.lockUntil = Date.now() + lockMs;
+      e.count = 0; // nach Sperre frisch zählen
+    }
+    this.authFailures.set(ip, e);
+  }
+
+  private clearFailures(ip: string): void {
+    this.authFailures.delete(ip);
   }
 
   private handleLine(line: string, socket: net.Socket): void {
