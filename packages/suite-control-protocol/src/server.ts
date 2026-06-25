@@ -54,6 +54,15 @@ export interface SuiteControlServerOptions {
    * Namen, damit nicht zwei _jmps._tcp-Instanzen denselben Namen tragen.
    */
   controlEndpoint?: boolean;
+  /**
+   * Bind-Adresse für den TCP-Server. `undefined` (Default) = unverändertes
+   * Verhalten: alle Interfaces (Node-Default), damit Fernsteuerung über das LAN
+   * (Companion/Stage Display/Aggregatoren auf anderen Rechnern) weiter
+   * funktioniert. Wer ein reines Einzel-Rechner-Setup absichern will, setzt
+   * `'127.0.0.1'` (nur lokal erreichbar). Die sichere Vorgabe für fremde Netze
+   * (Bind erst nach Auth/TLS) kommt mit dem `secure`-Modus in P1 (#59).
+   */
+  bindHost?: string;
 }
 
 function isQueryVerb(verb: string): boolean {
@@ -96,7 +105,8 @@ export class SuiteControlServer {
         this.notifyStatus();
         resolve({ ok: false, error: e.message });
       });
-      srv.listen(port, () => {
+      // host undefined → Node-Default (alle Interfaces): bestehendes Verhalten.
+      srv.listen(port, this.opts.bindHost, () => {
         this.server = srv;
         this.running = true;
         this.boundPort = port;
