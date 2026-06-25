@@ -67,6 +67,15 @@ export interface SuiteControlServerOptions {
    */
   controlEndpoint?: boolean;
   /**
+   * Bind-Adresse für den TCP-Server. `undefined` (Default) = unverändertes
+   * Verhalten: alle Interfaces (Node-Default), damit Fernsteuerung über das LAN
+   * (Companion/Stage Display/Aggregatoren auf anderen Rechnern) weiter
+   * funktioniert. Wer ein reines Einzel-Rechner-Setup absichern will, setzt
+   * `'127.0.0.1'` (nur lokal erreichbar). Im `mode:'secure'` ist sie für fremde
+   * Netze sicher, weil der Bind erst nach Auth/TLS Wirkung entfaltet.
+   */
+  bindHost?: string;
+  /**
    * Betriebsmodus (P1, #59):
    *  - `'open'` (Default): unverändertes Verhalten — Server grüßt sofort mit
    *    STATE, akzeptiert Befehle ohne Auth. Für reine, vertraute LANs.
@@ -134,7 +143,8 @@ export class SuiteControlServer {
         this.notifyStatus();
         resolve({ ok: false, error: e.message });
       });
-      srv.listen(port, () => {
+      // host undefined → Node-Default (alle Interfaces): bestehendes Verhalten.
+      srv.listen(port, this.opts.bindHost, () => {
         this.server = srv;
         this.running = true;
         this.boundPort = port;
