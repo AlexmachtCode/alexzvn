@@ -49,6 +49,17 @@ export interface SuiteSettingsInput {
   manifestUrl?: string;
 }
 
+/** Zustand der sicheren Steuerebene (P1-Adoption, geteilte control.json). */
+export interface ControlPlaneStatus {
+  mode: 'open' | 'secure';
+  hasToken: boolean;
+  hasTls: boolean;
+  /** SHA-256-Fingerprint des TLS-Zertifikats (Clients pinnen ihn). */
+  tlsFingerprint?: string;
+  /** Suite-Token — nur direkt nach dem Provisionieren gesetzt (zum Anzeigen/Kopieren). */
+  token?: string;
+}
+
 /** Für die UI sichtbarer Einstellungs-Zustand (ohne Klartext-Token). */
 export interface SuiteSettingsView {
   hasToken: boolean;
@@ -169,6 +180,12 @@ export interface JmpsApi {
   openExternal: (url: string) => Promise<void>;
   getSettings: () => Promise<SuiteSettingsView>;
   setSettings: (settings: SuiteSettingsInput) => Promise<SuiteSettingsView>;
+  /** Zustand der sicheren Steuerebene lesen. */
+  getControlStatus: () => Promise<ControlPlaneStatus>;
+  /** Sichere Steuerebene aktivieren/neu provisionieren (Token + Cert erzeugen). */
+  provisionControl: () => Promise<ControlPlaneStatus>;
+  /** Zurück auf offene Steuerebene. */
+  disableControl: () => Promise<ControlPlaneStatus>;
   submitFeedback: (input: FeedbackInput) => Promise<ActionResult>;
   /** Neues Rezept einreichen (Pfad B = KI) — öffnet bei Erfolg einen PR. */
   submitRecipeDraft: (input: RecipeDraftInput) => Promise<RecipeDraftResult>;

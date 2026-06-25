@@ -3,6 +3,7 @@ import type {
   ActionResult,
   AppChangelog,
   AppEvent,
+  ControlPlaneStatus,
   FeedbackInput,
   HealthEntry,
   InstallProgress,
@@ -41,6 +42,9 @@ const api: JmpsApi = {
   openExternal: (url) => invoke<void>('shell:openExternal', url),
   getSettings: () => invoke<SuiteSettingsView>('settings:get'),
   setSettings: (settings: SuiteSettingsInput) => invoke<SuiteSettingsView>('settings:set', settings),
+  getControlStatus: () => invoke<ControlPlaneStatus>('control:status'),
+  provisionControl: () => invoke<ControlPlaneStatus>('control:provision'),
+  disableControl: () => invoke<ControlPlaneStatus>('control:disable'),
   submitFeedback: (input: FeedbackInput) => invoke<ActionResult>('feedback:submit', input),
   submitRecipeDraft: (input: RecipeDraftInput) =>
     invoke<RecipeDraftResult>('cookbook:draft', input),
