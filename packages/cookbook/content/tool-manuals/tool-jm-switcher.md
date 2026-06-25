@@ -16,9 +16,9 @@ prerequisites:
 equipmentOwner: jm
 crewRoles:
   - Media Operator (Bildregie)
-lastReviewed: 2026-06-24
+lastReviewed: 2026-06-25
 owner: tech@jakobsmedien.com
-summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bildschirm-Quellen, Aufnahme und RTMP-Ausgang — Einrichtung und Live-Bedienung."
+summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bildschirm-Quellen, Aufnahme und RTMP-Ausgang — Einrichtung, Companion-Fernsteuerung und Live-Bedienung."
 ---
 
 ## Zutaten
@@ -33,6 +33,11 @@ summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bil
 - NDI-Quellen aus dem LAN (z. B. JM NDI Screen Capture, JM Titler)
 - Capture-Karte (SDI/HDMI)
 
+### Netzwerk & Steuerung
+- TCP-Steuerport (Zeilenprotokoll): nicht fest verdrahtet — wird im Switcher aktiviert (Companion-/Steuerung-Einstellungen) bzw. per Umgebungsvariable JMSWITCH_CONTROL_PORT gesetzt. mDNS-Rolle switcher (jm-switcher-ctl).
+- Fern-Befehle: PREVIEW <n> | PROGRAM <n> | CUT | AUTO | RECORD | STREAM | STATE?.
+- Status-Push: STATE program, preview, recording, streaming, scenes — das Format ist rückwärtskompatibel zum alten Companion-Modul.
+
 ## Schritt-für-Schritt
 
 ### Einrichtung
@@ -41,12 +46,12 @@ summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bil
 - Audioquelle zuordnen und Pegel kontrollieren
 - Aufnahme-Zielordner setzen
 - Für Stream: RTMP-Ziel + Stream-Key hinterlegen und Verbindung testen
-- Optional: Bitfocus Companion verbinden (Tasten für Cut/Szenen)
+- Optional: Steuerport aktivieren und Companion verbinden (Tasten für CUT/AUTO/PROGRAM/Szenen)
 
 ### Während
-- Quelle in Preview wählen
-- Mit Cut hart oder mit Auto-Dissolve weich auf Program schalten
-- Aufnahme und/oder Stream starten
+- Quelle in Preview wählen (PREVIEW <n>)
+- Mit CUT hart oder mit AUTO weich auf Program schalten
+- Aufnahme (RECORD) und/oder Stream (STREAM) starten
 - Stream-Status (Bitrate, Drops) und Audiopegel beobachten
 
 ### Nachbereitung
@@ -56,7 +61,8 @@ summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bil
 ## Profi-Tipps
 - NDI-Quellen tauchen automatisch im LAN auf (mDNS) — alle Geräte ins gleiche Subnetz.
 - JM Titler als eigene, transparente NDI-Quelle über das Programmbild legen.
-- Vor Live einmal Cut und Auto-Dissolve durchspielen.
+- Companion-Belegung: PROGRAM <n> je Kamera auf eigene Taster, dazu CUT und AUTO — so schaltet die Bildregie blind.
+- Vor Live einmal CUT und AUTO durchspielen; STATE? in Companion zeigt program/preview zur Kontrolle.
 
 ## Pannenhilfe
 
@@ -64,6 +70,7 @@ summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bil
 | --- | --- |
 | NDI-Quelle erscheint nicht | Gleiches Subnetz prüfen, Firewall/mDNS freigeben |
 | Kein Bild von der Capture-Karte | Treiber prüfen, Gerät nicht von anderem Programm belegt |
+| Companion steuert nicht | Steuerport im Switcher aktiviert? Gleicher Port in Companion? Gemeinsames LAN? |
 | Stream bricht ab | Bitrate senken, Upload prüfen, Backup-Uplink bereithalten |
 | Kein Ton im Stream | Audioquelle zugeordnet? Pegel/Mute prüfen |
 
@@ -74,10 +81,10 @@ summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bil
 - [ ] Audio zugeordnet und gepegelt
 - [ ] Aufnahme-Zielordner gesetzt
 - [ ] RTMP-Verbindung getestet
-- [ ] Companion (optional) verbunden
+- [ ] Steuerport aktiviert + Companion verbunden (optional)
 
 ### Vor Live
 - [ ] Program/Preview korrekt
-- [ ] Cut und Dissolve getestet
+- [ ] CUT und AUTO getestet
 - [ ] Aufnahme armiert
 - [ ] Pegel ok
