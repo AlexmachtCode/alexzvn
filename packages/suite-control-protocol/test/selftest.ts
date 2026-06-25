@@ -12,6 +12,13 @@ import {
   parseState,
   switcherStateToSuite,
   switcherStateFromSuite,
+  formatAuthReq,
+  parseAuthReq,
+  formatAuth,
+  parseAuth,
+  isAuthOk,
+  isAuthFail,
+  AUTH_PROTO,
   type SwitcherStateMsg,
   type SuiteState,
 } from '../src/index.ts';
@@ -92,6 +99,22 @@ eq(lines, ['TIMER START', 'PLAYER CUE 2'], 'LineBuffer splittet über Chunks');
 // ── Capabilities-Struktur ────────────────────────────────────────────────────
 eq(KNOWN_ROLES.includes('switcher') && KNOWN_ROLES.includes('timer'), true, 'CAPABILITIES enthält switcher + timer');
 eq(CAPABILITIES.switcher.actions.some((a) => a.id === 'cut'), true, 'Switcher-Capability hat cut-Action');
+
+// ── Auth-Handshake-Grammatik (P1, #59) ──────────────────────────────────────
+eq(formatAuthReq('abcd1234'), `AUTHREQ ${AUTH_PROTO} nonce=abcd1234\n`, 'formatAuthReq');
+eq(parseAuthReq('AUTHREQ scs/1 nonce=abcd1234'), { proto: 'scs/1', nonce: 'abcd1234' }, 'parseAuthReq');
+eq(parseAuthReq(formatAuthReq('deadbeef').trim()), { proto: 'scs/1', nonce: 'deadbeef' }, 'AUTHREQ format↔parse round-trip');
+eq(parseAuthReq('AUTHREQ scs/1'), null, 'parseAuthReq ohne nonce → null');
+eq(parseAuthReq('TIMER START'), null, 'parseAuthReq Nicht-AUTHREQ → null');
+eq(formatAuth('ff00'), 'AUTH ff00\n', 'formatAuth');
+eq(parseAuth('AUTH ff00'), { proof: 'ff00' }, 'parseAuth');
+eq(parseAuth(formatAuth('cafe').trim()), { proof: 'cafe' }, 'AUTH format↔parse round-trip');
+eq(parseAuth('AUTH'), null, 'parseAuth ohne Beweis → null');
+eq(isAuthOk('AUTHOK') && isAuthOk('  authok '), true, 'isAuthOk (trim + case-insensitive)');
+eq(isAuthFail('AUTHFAIL'), true, 'isAuthFail');
+eq(isAuthOk('AUTHFAIL') || isAuthFail('AUTHOK'), false, 'AUTHOK/AUTHFAIL nicht verwechselt');
+// Handshake-Zeilen kollidieren nicht mit echten Befehls-Namespaces:
+eq(parseSuiteCommand('AUTHREQ scs/1 nonce=x')?.ns, 'authreq', 'AUTHREQ landet in eigenem ns (keine Tool-Rolle)');
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
 process.exit(failed === 0 ? 0 : 1);
