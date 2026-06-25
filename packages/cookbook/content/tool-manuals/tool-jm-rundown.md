@@ -14,9 +14,9 @@ prerequisites:
 equipmentOwner: jm
 crewRoles:
   - Regie / Ablaufregie
-lastReviewed: 2026-06-24
+lastReviewed: 2026-06-25
 owner: tech@jakobsmedien.com
-summary: "Zeilenbasierter Ablaufplan: ein GO startet pro Segment mehrere Tools gleichzeitig (Timer, Prompter, Presenter, Titler, Switcher)."
+summary: "Zeilenbasierter Ablaufplan: ein GO startet pro Segment mehrere Tools gleichzeitig (Timer, Prompter, Presenter, Titler, Switcher) — lokal oder per Companion über Port 8731."
 ---
 
 ## Zutaten
@@ -26,8 +26,13 @@ summary: "Zeilenbasierter Ablaufplan: ein GO startet pro Segment mehrere Tools g
 - Ziel-Tools im selben LAN gestartet (Timer, Prompter, Presenter, Titler, Switcher)
 - Optional: Bitfocus Companion für Fern-GO
 
+### Netzwerk & Ports
+- Port 8731 (TCP-Zeilenprotokoll): Steuerport von JM Rundown selbst — so kann ein Dirigent (Companion) den Ablauf fern-GO-en. mDNS-Name jm-rundown-ctl (TXT ctl=1).
+- Fern-Befehle an Rundown: RUNDOWN GO | RUNDOWN NEXT | RUNDOWN PREV | RUNDOWN GOTO <n> | STATE?. Rundown pusht STATE (cue, total, label).
+- Rundown findet die Ziel-Tools per mDNS (deren ctl=1-Endpunkte) und feuert pro Zeile auf deren Steuerports: Timer 8724, Titler 8726, Prompter 8727, Presenter 8728, Switcher (konfigurierter Port).
+
 ### Was pro Segment gesteuert wird
-- Timer-Block (JM Timer)
+- Timer-Block (JM Timer) — z. B. TIMER GOTO/START
 - Prompter-Skript (JM Prompter)
 - Presenter-Folie (JM Presenter)
 - Titler-Bauchbinde (JM Titler)
@@ -36,40 +41,43 @@ summary: "Zeilenbasierter Ablaufplan: ein GO startet pro Segment mehrere Tools g
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- Ziel-Tools starten, damit JM Rundown sie per mDNS findet
+- Ziel-Tools starten, damit JM Rundown sie per mDNS findet (Steuer-Endpunkt jm-<tool>-ctl)
 - Rundown-Zeilen je Segment anlegen und die Aktionen pro Zeile zuordnen
-- Live-Status der gefundenen Tools prüfen
-- Optional: Bitfocus Companion für Fern-GO verbinden
-- Als `.jmrundown` speichern
+- Live-Status der gefundenen Tools prüfen (grün = ansteuerbar)
+- Optional: Companion auf Port 8731 / jm-rundown-ctl verbinden für Fern-GO
+- Als .jmrundown speichern
 
 ### Während
-- Pro Segment GO drücken — feuert alle zugeordneten Aktionen gleichzeitig
+- Pro Segment GO drücken — feuert alle zugeordneten Aktionen gleichzeitig (lokal oder per RUNDOWN GO)
 - Live-Status / Tally im Blick behalten
 - Bei Bedarf einzelne Aktionen per Override anpassen
 
 ### Nachbereitung
-- `.jmrundown` sichern
+- .jmrundown sichern
 
 ## Profi-Tipps
-- Tools vor der Probe starten, damit sie im mDNS auftauchen und zuweisbar sind.
+- Tools vor der Probe starten, damit sie im mDNS auftauchen und zuweisbar sind — ein Tool, das erst nach dem Zuordnen startet, fehlt in der Zeile.
 - Pro Zeile nur die wirklich nötigen Aktionen — das hält das GO vorhersehbar.
+- Companion steuert beide Ebenen: RUNDOWN GO am Port 8731 löst die Zeile aus; alternativ einzelne Tools direkt (z. B. TIMER START an 8724), wenn ein Segment mal abweicht.
+- Ein .jmshow kann Rundown samt Ziel-Tools koordiniert mitstarten.
 
 ## Pannenhilfe
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| Tool wird nicht gefunden | Gleiches Subnetz prüfen, Tool gestartet?, mDNS/Firewall |
-| GO feuert nicht alle Aktionen | Zuordnung je Zeile kontrollieren |
-| Companion-GO ohne Wirkung | Verbindung und gemeinsames LAN prüfen |
+| Tool wird nicht gefunden | Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein |
+| GO feuert nicht alle Aktionen | Zuordnung je Zeile kontrollieren; Live-Status des betroffenen Tools prüfen |
+| Companion-GO ohne Wirkung | Companion zeigt auf Port 8731 (jm-rundown-ctl)? Gemeinsames LAN? |
+| Eine einzelne Aktion läuft ins Leere | Ziel-Tool neu gestartet → Port/Endpunkt erneut zuordnen |
 
 ## Checklisten
 
 ### Einrichtung
-- [ ] Ziel-Tools laufen und sind gefunden
+- [ ] Ziel-Tools laufen und sind gefunden (ctl=1 sichtbar)
 - [ ] Zeilen und Aktionen angelegt
 - [ ] Live-Status grün
 - [ ] Als .jmrundown gespeichert
 
 ### Vor Live
 - [ ] Probe-GO je Segment gelaufen
-- [ ] Companion (optional) getestet
+- [ ] Companion an Port 8731 getestet (optional)

@@ -140,6 +140,75 @@ export function createLineBuffer(onLine: (line: string) => void): (chunk: string
   };
 }
 
+// ── Auth-Handshake (P1, #59) ─────────────────────────────────────────────────
+//
+// Optionaler Challenge-Response-Handshake VOR den Befehlen — nur im `secure`-
+// Modus (Auth+TLS). Reine String-Grammatik (node-frei, kopierbar ins Companion-
+// Modul); die Krypto (Nonce/HMAC/timing-safe) liegt in @jm/auth-core, das
+// Zustands-Handling in ./server bzw. ./client.
+//
+//   Server → AUTHREQ scs/1 nonce=<hex>      (statt sofortigem STATE)
+//   Client → AUTH <proofHex>                (proof = HMAC-SHA256(token, nonce))
+//   Server → AUTHOK                          → danach normaler STATE-Greeting
+//          | AUTHFAIL                        → Verbindung schließen
+//
+// Im `open`-Modus (Default, heutiges Verhalten) wird nichts davon gesendet.
+
+/** Protokoll-Tag im AUTHREQ (Version des Handshakes). */
+export const AUTH_PROTO = 'scs/1';
+/** Server-Antwort bei erfolgreicher Auth. */
+export const AUTH_OK = 'AUTHOK';
+/** Server-Antwort bei fehlgeschlagener Auth. */
+export const AUTH_FAIL = 'AUTHFAIL';
+
+/** Server→Client: Auth-Aufforderung mit frischer Nonce. */
+export function formatAuthReq(nonceHex: string): string {
+  return `AUTHREQ ${AUTH_PROTO} nonce=${nonceHex}\n`;
+}
+
+/** AUTHREQ-Zeile parsen (Client-Seite). Liefert null, wenn keine/ohne nonce. */
+export function parseAuthReq(line: string): { proto: string; nonce: string } | null {
+  const t = line.trim();
+  if (!t) return null;
+  const parts = t.split(/\s+/);
+  if (parts[0].toUpperCase() !== 'AUTHREQ') return null;
+  let proto = '';
+  let nonce = '';
+  for (const tok of parts.slice(1)) {
+    const eq = tok.indexOf('=');
+    if (eq < 0) {
+      if (!proto) proto = tok; // erstes nacktes Token = Protokoll-Tag
+      continue;
+    }
+    if (tok.slice(0, eq).toLowerCase() === 'nonce') nonce = tok.slice(eq + 1);
+  }
+  return nonce ? { proto, nonce } : null;
+}
+
+/** Client→Server: Beweiszeile. */
+export function formatAuth(proofHex: string): string {
+  return `AUTH ${proofHex}\n`;
+}
+
+/** AUTH-Zeile parsen (Server-Seite). Liefert null, wenn kein Beweis. */
+export function parseAuth(line: string): { proof: string } | null {
+  const t = line.trim();
+  if (!t) return null;
+  const parts = t.split(/\s+/);
+  if (parts[0].toUpperCase() !== 'AUTH' || !parts[1]) return null;
+  return { proof: parts[1] };
+}
+
+/** Erkennt die `AUTHOK`-Antwort (Client-Seite). */
+export function isAuthOk(line: string): boolean {
+  return line.trim().toUpperCase() === AUTH_OK;
+}
+
+/** Erkennt die `AUTHFAIL`-Antwort (Client-Seite). */
+export function isAuthFail(line: string): boolean {
+  return line.trim().toUpperCase() === AUTH_FAIL;
+}
+
 // ── Legacy-Switcher-Schicht (byte-kompatibel mit @jm/companion-protocol) ──────
 //
 // Unverändert übernommen, damit der bestehende Switcher-Server, das alte
