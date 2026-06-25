@@ -144,11 +144,13 @@ interface SuiteControlServerOptions {
 | Neuer Client ohne Token ↔ Server `open` | ✅ ignoriert Auth, wie heute |
 | Loopback-Lokalbetrieb | ✅ `open` bleibt Default-Pfad |
 
-## 11. Offene Entscheidungen (für die Abstimmung)
-1. **Token-Granularität:** Ein Suite-weites Token (einfachstes Pairing) vs. Token je Tool/Rolle (feinere Rotation, mehr Pairing-Aufwand). Empfehlung Spike: **suite-weit** starten, Interface erlaubt späteres Aufteilen.
-2. **TLS-Vertrauen:** TOFU-Fingerprint (kein Setup) vs. kleine Suite-eigene CA im Launcher (sauberer, mehr Maschinerie). Empfehlung: **TOFU** zuerst.
-3. **`secure` erzwingen ab wann:** nur bei explizitem Nicht-Loopback-Bind (Spike-Annahme) — oder global per Launcher-Schalter?
-4. **mDNS-Annonce im `secure`-Modus:** weiterhin annoncieren (mit signiertem TXT) oder ganz unterdrücken in fremden Netzen?
+## 11. Entschiedene Punkte (Stand dieses Spikes)
+Die vier offenen Forks sind mit der empfohlenen Variante entschieden — bewusst die einfachste tragfähige Option, jeweils mit offen gehaltenem Aufrüstpfad:
+
+1. **Token-Granularität → suite-weit.** Ein gemeinsames Suite-Token (einfachstes Pairing). Das `auth`-Interface (§8) lässt späteres Aufteilen je Rolle zu, ohne das Wire-Format zu ändern.
+2. **TLS-Vertrauen → TOFU-Fingerprint.** Selbstsigniertes Zertifikat je Installation + Fingerprint-Pinning, kein CA-Setup, keine Native-Deps. Eine Suite-eigene CA im Launcher bleibt als spätere Option möglich (die Client-Pinning-Logik ändert sich dafür nicht).
+3. **`secure`-Erzwingung → zweistufig.** (a) `secure` wird **automatisch erzwungen**, sobald an eine Nicht-Loopback-Adresse gebunden wird (man kann nie versehentlich offen ins Netz). (b) Zusätzlich ein **expliziter Launcher-Schalter „Sichere Steuerebene"**, der den Modus aller Tools gesammelt auf `secure` setzt.
+4. **mDNS im `secure`-Modus → weiter annoncieren, signiert.** Auto-Discovery bleibt erhalten (Konnektivität!), aber der TXT-Record trägt eine HMAC-Signatur über die Pairing-Identität, sodass Clients die Authentizität prüfen (Anti-Spoofing, Befund A5). Kein Unterdrücken.
 
 ## 12. Proof-of-Concept-Plan (klein, vor der Vollumsetzung)
 - `packages/suite-control-protocol/test/selftest.ts` erweitern: Handshake-Round-Trip (nonce → proof → AUTHOK), Fehlpfad (falsches Token → AUTHFAIL), und `open`-Pfad bleibt byte-identisch.
