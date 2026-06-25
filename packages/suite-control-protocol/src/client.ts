@@ -5,7 +5,16 @@
 //
 // Nur im Main-Prozess verwenden (node:net).
 import net from 'node:net';
-import { createLineBuffer, parseSuiteState, type SuiteState } from './index';
+import { hmacProof } from '@jm/auth-core';
+import {
+  createLineBuffer,
+  formatAuth,
+  isAuthFail,
+  isAuthOk,
+  parseAuthReq,
+  parseSuiteState,
+  type SuiteState,
+} from './index';
 
 const DEFAULT_RECONNECT_MS = 2000;
 
@@ -16,6 +25,14 @@ export interface SuiteControlClientOptions {
   onConnectedChange?: (connected: boolean) => void;
   /** Reconnect-Intervall in ms (Default 2000). */
   reconnectMs?: number;
+  /**
+   * Geteiltes Suite-Token (P1, #59). Gesetzt → der Client beantwortet ein
+   * AUTHREQ des Servers per HMAC-Beweis (secure-Modus). Nicht gesetzt → Verhalten
+   * wie bisher (open-Modus: STATE? beim Connect, kein Handshake).
+   */
+  auth?: string;
+  /** Auth-Erfolg/-Misserfolg (nur secure-Modus) — z. B. fürs UI/Log. */
+  onAuthChange?: (ok: boolean) => void;
 }
 
 /** TCP-Client auf einen SuiteControlServer (suite-weites Zeilenprotokoll). */
@@ -52,12 +69,32 @@ export class SuiteControlClient {
     const socket = net.connect({ host: this.host, port: this.port });
     socket.setEncoding('utf8');
     const feed = createLineBuffer((line) => {
+      // secure-Handshake: Server fordert mit AUTHREQ einen Beweis an.
+      const req = parseAuthReq(line);
+      if (req) {
+        if (this.opts.auth) {
+          socket.write(formatAuth(hmacProof(this.opts.auth, req.nonce)));
+        }
+        // ohne Token: nichts senden → Server antwortet AUTHFAIL/schließt.
+        return;
+      }
+      if (isAuthOk(line)) {
+        this.opts.onAuthChange?.(true);
+        return; // der Server schickt direkt danach den Greeting-STATE
+      }
+      if (isAuthFail(line)) {
+        this.opts.onAuthChange?.(false);
+        return; // 'close' folgt → Reconnect
+      }
       const st = parseSuiteState(line);
       if (st) this.opts.onState(st);
     });
     socket.on('connect', () => {
       this.opts.onConnectedChange?.(true);
-      socket.write('STATE?\n');
+      // open-Modus: Zustand aktiv anfordern (wie bisher). Im secure-Modus NICHT —
+      // ein STATE? vor der Auth würde als Fehlversuch gewertet; dort liefert der
+      // Server den Zustand ohnehin direkt nach AUTHOK.
+      if (!this.opts.auth) socket.write('STATE?\n');
     });
     socket.on('data', (chunk: string) => feed(chunk));
     socket.on('error', () => {
