@@ -21,6 +21,7 @@ import { openShowDialog, saveShow, pickShowDocument } from './show';
 import { installTool, updateLauncher } from './installer';
 import { uninstallTool } from './uninstall';
 import { getSettingsView, setSettings } from './settings';
+import { getControlStatus, provisionControl, disableControl } from './control-provision';
 import { submitFeedback } from './feedback';
 import { submitRecipeDraft } from './cookbook-draft';
 
@@ -76,6 +77,11 @@ export function registerIpc(): void {
 
   ipcMain.handle('settings:get', () => getSettingsView());
   ipcMain.handle('settings:set', (_e, input: SuiteSettingsInput) => setSettings(input));
+
+  // Sichere Steuerebene (P1): Status lesen, provisionieren, deaktivieren.
+  ipcMain.handle('control:status', () => getControlStatus());
+  ipcMain.handle('control:provision', () => provisionControl());
+  ipcMain.handle('control:disable', () => disableControl());
 
   // Bug-/Wunsch-Meldung → GitHub-Issue (via Proxy, sonst Token-Fallback).
   ipcMain.handle('feedback:submit', (_e, input: FeedbackInput) => submitFeedback(input));

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
+import type { ControlPlaneStatus } from '@shared/types';
 import { useTools } from '@/store/tools';
 
 export function SettingsModal() {
@@ -73,6 +74,8 @@ export function SettingsModal() {
           </div>
         </div>
 
+        <ControlPlaneSection />
+
         <div className="mt-6 flex items-center justify-end gap-3">
           <Button variant="ghost" onClick={close}>
             Abbrechen
@@ -91,6 +94,107 @@ export function SettingsModal() {
         </div>
       </Card>
     </div>
+  );
+}
+
+function ControlPlaneSection() {
+  const [status, setStatus] = useState<ControlPlaneStatus | null>(null);
+  const [revealed, setRevealed] = useState<ControlPlaneStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    window.jmps.getControlStatus().then(setStatus).catch(() => {});
+  }, []);
+
+  const provision = async () => {
+    setBusy(true);
+    try {
+      const s = await window.jmps.provisionControl();
+      setStatus(s);
+      setRevealed(s);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const disable = async () => {
+    setBusy(true);
+    try {
+      setStatus(await window.jmps.disableControl());
+      setRevealed(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const secure = status?.mode === 'secure';
+  return (
+    <div className="mt-5 border-t border-[var(--border)] pt-5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+          Sichere Steuerebene
+        </p>
+        <span
+          className={cn(
+            'shrink-0 rounded-[var(--radius-full)] border px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.12em]',
+            secure
+              ? 'border-[var(--success)]/40 bg-[var(--success)]/12 text-[var(--success)]'
+              : 'border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]',
+          )}
+        >
+          {secure ? 'Sicher' : 'Offen'}
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+        Token + Verschlüsselung (TLS) für die Tool-Steuerung. Wirkt beim nächsten Start jedes
+        Tools. Token &amp; Fingerprint trägst du in Companion/Clients ein.
+      </p>
+      <div className="mt-3 flex items-center gap-3">
+        <Button variant="primary" onClick={provision} disabled={busy}>
+          {secure ? 'Erneuern' : 'Aktivieren'}
+        </Button>
+        {secure && (
+          <Button variant="ghost" onClick={disable} disabled={busy}>
+            Deaktivieren
+          </Button>
+        )}
+      </div>
+      {revealed?.token && (
+        <div className="mt-3 flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] p-3">
+          <p className="text-[10px] text-[var(--muted-foreground)]">
+            Einmalig sichtbar — jetzt in Companion/Clients übernehmen:
+          </p>
+          <ReadonlyRow label="Token" value={revealed.token} />
+          {revealed.tlsFingerprint && <ReadonlyRow label="TLS-Fingerprint" value={revealed.tlsFingerprint} />}
+        </div>
+      )}
+      {secure && !revealed && status?.tlsFingerprint && (
+        <div className="mt-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] p-3">
+          <ReadonlyRow label="TLS-Fingerprint" value={status.tlsFingerprint} />
+          <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">
+            Das Token wird aus Sicherheitsgründen nur beim Erzeugen/Erneuern angezeigt.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReadonlyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+        {label}
+      </span>
+      <input
+        readOnly
+        value={value}
+        onFocus={(e) => e.currentTarget.select()}
+        className={cn(
+          'h-9 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)]',
+          'px-3 text-xs font-mono text-[var(--foreground)] select-all',
+        )}
+      />
+    </label>
   );
 }
 
