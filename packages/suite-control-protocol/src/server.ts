@@ -6,6 +6,7 @@
 //
 // Nur im Main-Prozess verwenden (node:net + Multicast über @jm/discovery).
 import net from 'node:net';
+import tls from 'node:tls';
 import { advertise, type Advertiser } from '@jm/discovery';
 import { randomNonce, verifyProof } from '@jm/auth-core';
 import {
@@ -71,9 +72,17 @@ export interface SuiteControlServerOptions {
    *    STATE, akzeptiert Befehle ohne Auth. Für reine, vertraute LANs.
    *  - `'secure'`: Auth-Handshake (Challenge-Response) ZUERST; vor `AUTHOK` wird
    *    KEIN Zustand gesendet und kein Befehl angenommen. Für geteilte/fremde
-   *    Netze. (Die TLS-Verschlüsselung kommt in einem Folge-Slice.)
+   *    Netze. Mit `tls` zusätzlich verschlüsselt (empfohlen für fremde Netze).
    */
   mode?: 'open' | 'secure';
+  /**
+   * TLS für `mode:'secure'` (P1, #59): umhüllt den Server mit `tls.createServer`.
+   * Selbstsigniertes Zertifikat je Installation (vom Launcher bereitgestellt);
+   * der Client pinnt den Fingerprint (TOFU). Ohne `tls` läuft `secure` als reine
+   * Authentifizierung über Klartext-TCP (Token leakt dank HMAC trotzdem nicht,
+   * aber die Steuer-Inhalte sind unverschlüsselt).
+   */
+  tls?: { key: string; cert: string };
   /**
    * Auth-Konfiguration für `mode:'secure'`. Entweder ein geteiltes Suite-Token
    * (der Client beweist Besitz per HMAC über die Server-Nonce) oder eine eigene
@@ -109,7 +118,15 @@ export class SuiteControlServer {
   start(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
     return new Promise((resolve) => {
       this.stop();
-      const srv = net.createServer((socket) => this.handleConnection(socket));
+      // secure + tls → verschlüsselter Transport (tls.Server ist ein net.Server).
+      // Der Connection-Handler ist identisch: TLSSocket erbt von net.Socket.
+      const useTls = this.opts.mode === 'secure' && this.opts.tls != null;
+      const srv = useTls
+        ? tls.createServer(
+            { key: this.opts.tls!.key, cert: this.opts.tls!.cert },
+            (socket) => this.handleConnection(socket),
+          )
+        : net.createServer((socket) => this.handleConnection(socket));
       srv.on('error', (e) => {
         this.server = null;
         this.running = false;

@@ -2,3 +2,4 @@
 // Reines node:crypto, keine Native-Deps. Nur im Main-Prozess/Node verwenden.
 export { hashPassword, verifyPassword } from './password.ts';
 export { randomToken, randomNonce, hmacProof, verifyProof } from './token.ts';
+export { certFingerprint, normalizeFingerprint } from './cert.ts';

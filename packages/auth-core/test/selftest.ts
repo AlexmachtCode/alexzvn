@@ -8,7 +8,24 @@ import {
   randomNonce,
   hmacProof,
   verifyProof,
+  certFingerprint,
+  normalizeFingerprint,
 } from '../src/index.ts';
+
+// Throwaway-Testzertifikat (selbstsigniert, EC P-256) — KEIN Secret.
+const TEST_CERT = `-----BEGIN CERTIFICATE-----
+MIIBhTCCASugAwIBAgIUZLJSpXBBLzdFiJ5UTC3cbMRNE/kwCgYIKoZIzj0EAwIw
+GDEWMBQGA1UEAwwNam0tc3VpdGUtdGVzdDAeFw0yNjA2MjUxMTUxMTNaFw0zNjA2
+MjIxMTUxMTNaMBgxFjAUBgNVBAMMDWptLXN1aXRlLXRlc3QwWTATBgcqhkjOPQIB
+BggqhkjOPQMBBwNCAASZ7WcDFrl9KKTv7ydif+LzX4KYDwPErBYpWiBZi1HmTxzH
+ecORNwa1nSIVJPKvrMLy0WoM5ZNcKYaZTPDTorN4o1MwUTAdBgNVHQ4EFgQUqGQ3
+4yn1tK5lTD5/+bFXBX3+rw8wHwYDVR0jBBgwFoAUqGQ34yn1tK5lTD5/+bFXBX3+
+rw8wDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAiC4dDZ3a4uhj
+ksAGWLma4tGILo8EoFtRJKtJnDEB31ICIDvShBjtwkEf58/8PLBYwfPbmxt/2OJC
+AovVbb6Rel2Y
+-----END CERTIFICATE-----
+`;
+const TEST_CERT_FP = '4d1d1af17136c8e094c8c29b0055613e61b6d540d5493c54a16bca9753fd7237';
 
 let failed = 0;
 function ok(cond: boolean, msg: string): void {
@@ -47,6 +64,11 @@ ok(verifyProof(randomToken(), nonce, proof) === false, 'verifyProof lehnt Beweis
 ok(verifyProof(token, nonce, proof.slice(0, -2) + '00') === false, 'verifyProof lehnt manipulierten Beweis ab');
 ok(verifyProof(token, nonce, 'nicht-hex') === false, 'verifyProof lehnt Nicht-Hex/zu kurzen Beweis ab');
 ok(verifyProof(token, nonce, '') === false, 'verifyProof lehnt leeren Beweis ab');
+
+// ── Zertifikats-Fingerprint (TOFU-Pinning) ───────────────────────────────────
+ok(normalizeFingerprint('AB:CD:EF') === 'abcdef', 'normalizeFingerprint: Doppelpunkte weg + lowercase');
+ok(certFingerprint(TEST_CERT) === TEST_CERT_FP, 'certFingerprint: bekannter SHA-256 des Testzertifikats');
+ok(certFingerprint(TEST_CERT) === certFingerprint(TEST_CERT), 'certFingerprint ist deterministisch');
 
 if (failed > 0) {
   console.error(`\n${failed} FEHLGESCHLAGEN`);
