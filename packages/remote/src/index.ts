@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { networkInterfaces } from 'node:os';
 
@@ -10,6 +11,19 @@ export interface RemoteServerOptions {
   getState?: () => unknown;
   /** Kommando eines Clients (POST /cmd, JSON-Body). */
   onCommand?: (cmd: unknown) => void;
+  /**
+   * Zugriffs-Token (P1, #59). Gesetzt → die Daten-Endpunkte (/state, /events,
+   * /cmd) verlangen das Token (Query `?t=` ODER Header `x-remote-token`); ohne
+   * gültiges Token → 401. Die Seite `/` selbst bleibt frei (der QR-Link trägt
+   * `?t=<token>`, die Seite reicht es bei ihren Aufrufen mit). Nicht gesetzt →
+   * Verhalten wie bisher (kein Token). Stärkerer Ersatz für den 4-stelligen PIN.
+   */
+  token?: string;
+  /**
+   * Rate-Limit für POST /cmd pro Quell-IP (Default: 60 Anfragen / 10 s). Schützt
+   * vor Spam-Einreichungen aus dem Saal. `max:0` deaktiviert das Limit.
+   */
+  rateLimit?: { windowMs?: number; max?: number };
 }
 
 export interface RemoteAddress {
@@ -34,6 +48,8 @@ export class RemoteServer {
   private readonly clients = new Set<ServerResponse>();
   private addr: RemoteAddress | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
+  /** Zeitstempel der jüngsten /cmd-Anfragen je Quell-IP (Rate-Limit). */
+  private readonly cmdHits = new Map<string, number[]>();
 
   constructor(private readonly opts: RemoteServerOptions) {}
 
@@ -103,6 +119,13 @@ export class RemoteServer {
     const url = (req.url ?? '/').split('?')[0];
     const method = req.method ?? 'GET';
 
+    // Token-Schutz der Daten-Endpunkte (P1). Die Seite `/` bleibt frei.
+    if ((url === '/state' || url === '/events' || url === '/cmd') && !this.tokenOk(req)) {
+      res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end('{"error":"unauthorized"}');
+      return;
+    }
+
     if (method === 'GET' && url === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(this.opts.page);
@@ -129,6 +152,11 @@ export class RemoteServer {
     }
 
     if (method === 'POST' && url === '/cmd') {
+      if (!this.rateOk(req)) {
+        res.writeHead(429, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end('{"error":"rate_limited"}');
+        return;
+      }
       let body = '';
       req.on('data', (chunk) => {
         body += chunk;
@@ -147,6 +175,42 @@ export class RemoteServer {
 
     res.writeHead(404).end();
   }
+
+  /** Token gültig? (kein Token konfiguriert → immer true). */
+  private tokenOk(req: IncomingMessage): boolean {
+    const expected = this.opts.token;
+    if (!expected) return true;
+    const qs = (req.url ?? '').split('?')[1] ?? '';
+    const fromQuery = new URLSearchParams(qs).get('t') ?? '';
+    const header = req.headers['x-remote-token'];
+    const provided = (Array.isArray(header) ? header[0] : header) || fromQuery;
+    return safeEqual(provided, expected);
+  }
+
+  /** Rate-Limit-Fenster pro Quell-IP (kein Limit, wenn max:0). */
+  private rateOk(req: IncomingMessage): boolean {
+    const max = this.opts.rateLimit?.max ?? 60;
+    if (max <= 0) return true;
+    const windowMs = this.opts.rateLimit?.windowMs ?? 10_000;
+    const ip = req.socket.remoteAddress ?? '';
+    const now = Date.now();
+    const hits = (this.cmdHits.get(ip) ?? []).filter((t) => now - t < windowMs);
+    if (hits.length >= max) {
+      this.cmdHits.set(ip, hits);
+      return false;
+    }
+    hits.push(now);
+    this.cmdHits.set(ip, hits);
+    return true;
+  }
+}
+
+/** Konstantzeit-Vergleich zweier Strings (Längen-tolerant). */
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
 }
 
 /** Alle nicht-internen IPv4-Adressen → http-URLs. */
