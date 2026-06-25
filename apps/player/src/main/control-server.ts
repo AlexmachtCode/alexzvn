@@ -17,6 +17,7 @@
 // (manuelle Host:Port-Eingabe bleibt möglich).
 import type { BrowserWindow } from 'electron';
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
+import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type { RemoteCommand, RemotePlayerState } from '@shared/types';
 
@@ -82,6 +83,7 @@ export function startControlServer(
   stopControlServer();
   getWindow = getWin;
   server = new SuiteControlServer({
+    appDataDir: app.getPath('appData'),
     role: 'player',
     appId: 'jm-player',
     controlEndpoint: true,

@@ -16,6 +16,7 @@
 // Companion-Modul (liest die Felder per Schlüssel, ignoriert ns).
 import type { BrowserWindow } from 'electron';
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
+import { app } from 'electron';
 import {
   parseCommand,
   switcherStateToSuite,
@@ -59,6 +60,7 @@ function send(channel: string, payload: unknown): void {
 export function startControlServer(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   server = new SuiteControlServer({
+    appDataDir: app.getPath('appData'),
     role: 'switcher',
     appId: 'jm-switcher',
     getState: () => switcherStateToSuite(lastState),

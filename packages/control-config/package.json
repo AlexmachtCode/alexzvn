@@ -1,0 +1,13 @@
+{
+  "name": "@jm/control-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Geteilte Steuerebenen-Konfiguration der Suite (Token/Modus/TLS/Bind/mDNS-Key) — vom Launcher geschrieben, von allen Tools gelesen. Reines node:fs/path, keine Deps.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "selftest": "node --experimental-strip-types test/selftest.ts"
+  }
+}

@@ -2,8 +2,12 @@
 //   npm run test:integration   (esbuild-Bundle → node; bonjour-service lädt nur gebündelt)
 // Bindet echte SuiteControlServer auf 127.0.0.1 (advertiseService:false → kein
 // mDNS) und prüft open/secure/TLS über echte TCP-/TLS-Verbindungen.
+import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import { certFingerprint, hmacProof } from '@jm/auth-core';
+import { writeControlConfig } from '@jm/control-config';
 import { SuiteControlServer } from '../src/server.ts';
 import { SuiteControlClient } from '../src/client.ts';
 import { parseAuthReq, type SuiteState } from '../src/index.ts';
@@ -234,6 +238,35 @@ async function main(): Promise<void> {
     const lines = await rawCollect(19096, { token: 'GOOD' });
     ok(lines.some((l) => l.trim() === 'AUTHFAIL'), 'auto-secure fail-closed: ohne auth-Config → AUTHFAIL');
     ok(!hasState(lines), 'auto-secure fail-closed: KEIN State geleakt');
+    srv.stop();
+  }
+
+  // ── 11) Config-driven: geteilte control.json{secure,token} → Server secure ──
+  {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jmcc-it-'));
+    writeControlConfig(tmp, { mode: 'secure', token: 'CFGTOKEN' });
+    // KEINE expliziten secure-Opts — nur appDataDir auf die Konfig zeigen.
+    const { srv } = await startServer(19097, { appDataDir: tmp });
+    const lines = await rawCollect(19097, { token: 'CFGTOKEN' });
+    ok(lines[0]?.startsWith('AUTHREQ'), 'config-driven: control.json{secure} → AUTHREQ (secure aus Konfig)');
+    const okIdx = lines.findIndex((l) => l.trim() === 'AUTHOK');
+    const stateIdx = lines.findIndex((l) => /^STATE\b/.test(l.trim()));
+    ok(okIdx >= 0 && stateIdx > okIdx, 'config-driven: Token aus Konfig akzeptiert → AUTHOK, dann STATE');
+    fs.rmSync(tmp, { recursive: true, force: true });
+    srv.stop();
+  }
+
+  // ── 12) Explizite Option gewinnt über Konfig (open schlägt config-secure) ───
+  {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jmcc-it-'));
+    writeControlConfig(tmp, { mode: 'secure', token: 'X' });
+    const { srv } = await startServer(19098, { appDataDir: tmp, mode: 'open' });
+    const lines = await rawCollect(19098, {});
+    ok(
+      lines.some((l) => /^STATE\b/.test(l.trim())) && !lines.some((l) => l.startsWith('AUTHREQ')),
+      'explizite Option open gewinnt über Konfig secure (sofortiger Greeting, kein AUTHREQ)',
+    );
+    fs.rmSync(tmp, { recursive: true, force: true });
     srv.stop();
   }
 

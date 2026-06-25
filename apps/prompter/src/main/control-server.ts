@@ -13,6 +13,7 @@
 // Name jm-prompter-ctl); daneben gibt es einen role=prompter-Advert für die
 // HTTP/SSE-Fernbedienung. ctl=1 hält beide auseinander (Companion nimmt ctl=1).
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
+import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 
 /** Eigener TCP-Steuerport (getrennt vom HTTP-Remote 7781). */
@@ -30,6 +31,7 @@ export function startControlServer(
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   server = new SuiteControlServer({
+    appDataDir: app.getPath('appData'),
     role: 'prompter',
     appId: 'jm-prompter',
     controlEndpoint: true,

@@ -13,6 +13,7 @@
 // jm-daw-ctl) → vom Companion-Modul per Auto-Discovery gefunden.
 import type { BrowserWindow } from 'electron';
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
+import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type { DawRemoteCommand, DawRemoteState } from '@shared/ipc-types';
 
@@ -52,6 +53,7 @@ export function startControlServer(
   stopControlServer();
   getWindow = getWin;
   server = new SuiteControlServer({
+    appDataDir: app.getPath('appData'),
     role: 'daw',
     appId: 'jm-daw',
     controlEndpoint: true,
