@@ -1,5 +1,5 @@
 import type { AppChangelog, ToolManifest, ToolState } from '@jm/suite-manifest';
-import type { Recipe } from '@jm/cookbook';
+import type { Recipe, CookbookCategory } from '@jm/cookbook';
 import type { Show } from '@jm/show';
 
 export type {
@@ -78,6 +78,26 @@ export interface FeedbackInput {
   includeLogs?: boolean;
 }
 
+/**
+ * Neues Rezept aus dem Launcher einreichen (Pfad B = KI). Der KI-Agent macht aus
+ * Titel + Stichpunkten ein schema-treues Rezept, das als PR landet — das feste
+ * Format ist strukturell erzwungen (Schema + Compiler + CI + Review), die KI
+ * füllt nur Inhalt. Welcher KI-Agent das übernimmt (Release-Proxy/Anthropic oder
+ * der lokale Polaris-Agent) ist Sache des Main-Prozesses, nicht der UI.
+ */
+export interface RecipeDraftInput {
+  title: string;
+  category: CookbookCategory;
+  /** Roh-Stichpunkte/Notizen, aus denen das Rezept entsteht. */
+  notes: string;
+}
+
+/** Ergebnis einer Rezept-Einreichung — bei Erfolg mit Link zum geöffneten PR. */
+export interface RecipeDraftResult extends ActionResult {
+  /** URL des geöffneten Pull Requests, falls erstellt. */
+  url?: string;
+}
+
 /** Laufzeit-Zustand eines Tools, gemeldet per Heartbeat an den Presence-Hub. */
 export interface PresenceRecord {
   /** Stabile Tool-ID (entspricht ToolManifest.id, z. B. "jm-timer"). */
@@ -150,6 +170,8 @@ export interface JmpsApi {
   getSettings: () => Promise<SuiteSettingsView>;
   setSettings: (settings: SuiteSettingsInput) => Promise<SuiteSettingsView>;
   submitFeedback: (input: FeedbackInput) => Promise<ActionResult>;
+  /** Neues Rezept einreichen (Pfad B = KI) — öffnet bei Erfolg einen PR. */
+  submitRecipeDraft: (input: RecipeDraftInput) => Promise<RecipeDraftResult>;
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
 }

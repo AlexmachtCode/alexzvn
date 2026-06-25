@@ -10,6 +10,8 @@ import type {
   LauncherUpdate,
   PresenceRecord,
   Recipe,
+  RecipeDraftInput,
+  RecipeDraftResult,
   SuiteSettingsInput,
   SuiteSettingsView,
   ToolManifest,
@@ -40,6 +42,8 @@ const api: JmpsApi = {
   getSettings: () => invoke<SuiteSettingsView>('settings:get'),
   setSettings: (settings: SuiteSettingsInput) => invoke<SuiteSettingsView>('settings:set', settings),
   submitFeedback: (input: FeedbackInput) => invoke<ActionResult>('feedback:submit', input),
+  submitRecipeDraft: (input: RecipeDraftInput) =>
+    invoke<RecipeDraftResult>('cookbook:draft', input),
   onProgress: (cb) => listen<InstallProgress>('suite:progress', cb),
   onAppEvent: (cb) => listen<AppEvent>('app:event', cb),
 };

@@ -12,7 +12,13 @@ REPO = "AlexmachtCode/alexzvn"
 # Bei einem Wechsel hier ändern, dann `npx wrangler deploy` UND die Repo-Variable
 # MANIFEST_BRANCH (CI-Bump-Ziel) synchron halten — sonst Katalog-Drift.
 MANIFEST_REF = "main"
+# Modell fürs Kochbuch-KI-Authoring (/cookbook/draft). Default claude-opus-4-8;
+# für günstiger auskommentieren und z. B. auf claude-sonnet-4-6 setzen.
+# COOKBOOK_MODEL = "claude-sonnet-4-6"
 
 # Secrets NICHT hier eintragen — verschlüsselt setzen:
-#   npx wrangler secret put GITHUB_TOKEN   (fine-grained PAT, read-only Contents)
-#   npx wrangler secret put PROXY_KEY      (gemeinsamer Zugriffs-Key)
+#   npx wrangler secret put GITHUB_TOKEN      (fine-grained PAT; read-only Contents reicht
+#                                              für Katalog/Feedback. /cookbook/draft braucht
+#                                              zusätzlich Contents:write + Pull requests:write)
+#   npx wrangler secret put PROXY_KEY         (gemeinsamer Zugriffs-Key)
+#   npx wrangler secret put ANTHROPIC_API_KEY (nur für /cookbook/draft mode "ai")

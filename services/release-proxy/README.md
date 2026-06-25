@@ -60,6 +60,14 @@ Header: X-Proxy-Key: <PROXY_KEY>
 GET /cookbook.json
 Header: X-Proxy-Key: <PROXY_KEY>
 → 200 (liefert packages/cookbook/cookbook.json LIVE aus dem Repo)
+
+POST /cookbook/draft
+Header: X-Proxy-Key: <PROXY_KEY>
+Body: { "mode": "ai",   "input":  { "title"?, "category"?, "notes" } }
+  oder { "mode": "form", "recipe": { ...vollständiges Rezept-Objekt... } }
+→ 200 { ok, prUrl, number, branch }
+   (validiert das Rezept, rendert die .md und öffnet einen PR; mode "ai" ruft Claude)
+   braucht GITHUB_TOKEN mit Contents:write + Pull requests:write; mode "ai" zusätzlich ANTHROPIC_API_KEY
 ```
 - `:id` = Tool-ID aus suite.json (`jm-copy`, `jm-sync`, … oder `launcher`).
 - Auf macOS bestimmt `arch` das richtige DMG (arm64/x64); auf Windows ist es x64.

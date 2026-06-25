@@ -16,6 +16,11 @@
 // Variable (Klartext, in wrangler.toml [vars]):
 //   REPO          z. B. "AlexmachtCode/alexzvn"
 
+// Geteilter Rezept-Kern (pur, Worker-tauglich) für den KI-Authoring-Flow.
+// wrangler/esbuild bündelt diese ESM-Module beim Deploy mit ein.
+import { validateRecipe, renderRecipeMarkdown, CATEGORY_SLUG } from '../../packages/cookbook/src/recipe-core.mjs';
+import { buildAuthoringPrompt } from '../../packages/cookbook/src/authoring-prompt.mjs';
+
 const USER_AGENT = 'JM-Suite-Release-Proxy';
 
 export default {
@@ -151,6 +156,14 @@ export default {
       }
     }
 
+    // KI-/Formular-Authoring: erzeugt aus Roh-Infos (oder einem fertigen Rezept-
+    // Objekt) ein validiertes Rezept und öffnet dafür einen PR. Client bleibt
+    // tokenlos (wie /feedback). Braucht ANTHROPIC_API_KEY (nur mode "ai") und
+    // GITHUB_TOKEN mit Contents:write + Pull requests:write.
+    if (request.method === 'POST' && url.pathname === '/cookbook/draft') {
+      return handleCookbookDraft(request, env);
+    }
+
     const match = url.pathname.match(/^\/tools\/([^/]+)\/latest\/?$/);
     if (request.method !== 'GET' || !match) {
       return json({ error: 'not found' }, 404);
@@ -275,4 +288,171 @@ function text(body, status = 200) {
     status,
     headers: { 'content-type': 'text/plain; charset=utf-8' },
   });
+}
+
+// --- Kochbuch-Authoring (Pfad B/A) -----------------------------------------
+
+/**
+ * mode "ai":   { input: { title?, category?, notes } } → Claude erzeugt das Rezept
+ * mode "form": { recipe: {...} }                        → fertiges Rezept-Objekt
+ * Beide: validieren → zu .md rendern → PR öffnen.
+ */
+async function handleCookbookDraft(request, env) {
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ error: 'ungültiges JSON' }, 400);
+  }
+
+  let recipe;
+  try {
+    if (payload && payload.mode === 'form') {
+      recipe = payload.recipe;
+    } else if (payload && payload.mode === 'ai') {
+      recipe = await draftRecipeWithClaude(payload.input || {}, env);
+    } else {
+      return json({ error: 'mode muss "ai" oder "form" sein' }, 400);
+    }
+  } catch (e) {
+    return json({ error: String((e && e.message) || e) }, 502);
+  }
+
+  const { ok, errors } = validateRecipe(recipe);
+  if (!ok) return json({ error: 'Rezept ungültig', details: errors }, 422);
+
+  const slug = CATEGORY_SLUG[recipe.category];
+  const path = `packages/cookbook/content/${slug}/${recipe.id}.md`;
+  const md = renderRecipeMarkdown(recipe);
+
+  try {
+    const pr = await openRecipePR(env, { path, md, recipe });
+    return json({ ok: true, ...pr });
+  } catch (e) {
+    return json({ error: String((e && e.message) || e) }, 502);
+  }
+}
+
+/** Claude (Messages-API) aus Roh-Notizen → Rezept-Objekt. */
+async function draftRecipeWithClaude(input, env) {
+  if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY nicht gesetzt');
+  const system = buildAuthoringPrompt({ toolIds: await loadToolIds(env) });
+  const userText = [
+    input.title ? `Titel: ${input.title}` : '',
+    input.category ? `Kategorie: ${input.category}` : '',
+    'Roh-Notizen:',
+    String(input.notes || ''),
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      // Standard Opus 4.8; per ENV (z. B. claude-sonnet-4-6) für günstiger überschreibbar.
+      model: env.COOKBOOK_MODEL || 'claude-opus-4-8',
+      max_tokens: 4000,
+      system,
+      messages: [{ role: 'user', content: userText }],
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Anthropic ${res.status}: ${detail.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  const out = (data.content || [])
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('');
+  return parseRecipeJson(out);
+}
+
+/** Tolerantes JSON-Parsing der Modellantwort (Code-Fences/Vorwort abfangen). */
+function parseRecipeJson(textOut) {
+  let t = String(textOut).trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  if (!t.startsWith('{')) {
+    const a = t.indexOf('{');
+    const b = t.lastIndexOf('}');
+    if (a >= 0 && b > a) t = t.slice(a, b + 1);
+  }
+  return JSON.parse(t);
+}
+
+/** Bekannte Tool-IDs aus suite.json (für die relatedTools-Vorgabe an die KI). */
+async function loadToolIds(env) {
+  try {
+    const ref = env.MANIFEST_REF || 'main';
+    const path = env.MANIFEST_PATH || 'packages/suite-manifest/suite.json';
+    const raw = await ghRaw(
+      `https://api.github.com/repos/${env.REPO}/contents/${path}?ref=${encodeURIComponent(ref)}`,
+      env,
+    );
+    return (JSON.parse(raw).tools || []).map((t) => t.id);
+  } catch {
+    return [];
+  }
+}
+
+/** Neuen Branch + Datei committen + PR öffnen. Braucht GITHUB_TOKEN mit Schreibrechten. */
+async function openRecipePR(env, { path, md, recipe }) {
+  const repo = env.REPO;
+  const base = env.MANIFEST_REF || 'main';
+  const ref = await ghApi(`https://api.github.com/repos/${repo}/git/ref/heads/${encodeURIComponent(base)}`, env);
+  const baseSha = ref.object.sha;
+
+  const branch = `cookbook/${recipe.id}-${crypto.randomUUID().slice(0, 8)}`;
+  await ghApi(`https://api.github.com/repos/${repo}/git/refs`, env, 'POST', {
+    ref: `refs/heads/${branch}`,
+    sha: baseSha,
+  });
+
+  await ghApi(`https://api.github.com/repos/${repo}/contents/${path}`, env, 'PUT', {
+    message: `feat(cookbook): Rezept "${recipe.title}" (Entwurf)`,
+    content: toBase64Utf8(md),
+    branch,
+  });
+
+  const pr = await ghApi(`https://api.github.com/repos/${repo}/pulls`, env, 'POST', {
+    title: `Kochbuch: ${recipe.title}`,
+    head: branch,
+    base,
+    body: `Entwurf eines neuen Rezepts (${recipe.category}).\n\nVor dem Merge bitte prüfen — besonders mit „(bitte ergänzen: …)" markierte Lücken. cookbook.json wird nach dem Merge per \`npm run cookbook:build\` regeneriert.`,
+  });
+  return { prUrl: pr.html_url, number: pr.number, branch };
+}
+
+/** GitHub-JSON-Call (GET/POST/PUT) mit Server-Token. */
+async function ghApi(apiUrl, env, method = 'GET', body) {
+  const res = await fetch(apiUrl, {
+    method,
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': USER_AGENT,
+      ...(body ? { 'content-type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`GitHub ${res.status} (${method}): ${detail.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+/** UTF-8-String → base64 (für die GitHub Contents-API). */
+function toBase64Utf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
 }

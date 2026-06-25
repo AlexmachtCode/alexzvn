@@ -17,6 +17,7 @@ const CATEGORY_ORDER: CookbookCategory[] = [
 export function CookbookModal() {
   const open = useCookbook((s) => s.open);
   const close = useCookbook((s) => s.closeCookbook);
+  const openDraft = useCookbook((s) => s.openDraft);
   const recipes = useCookbook((s) => s.recipes);
   const selectedId = useCookbook((s) => s.selectedId);
   const select = useCookbook((s) => s.select);
@@ -55,17 +56,32 @@ export function CookbookModal() {
               Best Practices & Manuals — Zutaten, Aufbau und Schritt-für-Schritt.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Schließen"
-            className="grid place-items-center size-8 shrink-0 rounded-[var(--radius)] border border-[var(--border)]
-                       text-[var(--muted-foreground)] hover:bg-[var(--highlight)] hover:text-[var(--foreground)] transition-colors"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={openDraft}
+              title="Neues Rezept mit KI erstellen — öffnet einen PR zur Prüfung"
+              className="inline-flex items-center gap-1.5 h-8 rounded-[var(--radius)] border border-[var(--border)]
+                         px-3 text-xs font-extrabold uppercase tracking-wide text-[var(--foreground)]
+                         hover:border-[var(--primary)]/50 hover:bg-[var(--highlight)] transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Neues Rezept
+            </button>
+            <button
+              type="button"
+              onClick={close}
+              aria-label="Schließen"
+              className="grid place-items-center size-8 rounded-[var(--radius)] border border-[var(--border)]
+                         text-[var(--muted-foreground)] hover:bg-[var(--highlight)] hover:text-[var(--foreground)] transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="mt-5 grid grid-cols-[240px_1fr] gap-0 border-t border-[var(--border)]">
