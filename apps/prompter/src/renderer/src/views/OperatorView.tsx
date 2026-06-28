@@ -2,6 +2,7 @@ import { Button, cn, Logo } from '@jm/ui';
 import { positionEm } from '@shared/types';
 import { usePrompter } from '@/store/prompter';
 import { PrompterScroller } from '@/components/PrompterScroller';
+import { RemoteQr } from '@/components/RemoteQr';
 import { usePrompterHotkeys } from '@/lib/useHotkeys';
 
 export function OperatorView(): React.JSX.Element {
@@ -224,10 +225,11 @@ export function OperatorView(): React.JSX.Element {
                 onChange={(v) => void setRemote(v)}
               />
               {state.remote.running && state.remote.urls.length > 0 && (
-                <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] p-2.5 space-y-1">
+                <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] p-2.5 space-y-2">
                   <div className="text-[11px] text-[var(--muted-foreground)]">
-                    Im selben WLAN am Handy öffnen:
+                    Am Handy im selben WLAN scannen oder URL öffnen:
                   </div>
+                  <RemoteQr url={state.remote.urls[0] ?? ''} />
                   {state.remote.urls.map((u) => (
                     <div key={u} className="text-sm font-bold tabular text-[var(--primary)] break-all">
                       {u}
