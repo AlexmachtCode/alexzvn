@@ -54,28 +54,54 @@ function sendStatus(recvId: string, state: NdiStatus['state'], source: string | 
   if (!wc.isDestroyed()) wc.send('ndi:status', status);
 }
 
-/** Sichtbare NDI-Quellen suchen — kurzlebiger Finder-Prozess (kein Receiver). */
+// PERSISTENTER Finder-Prozess. NDI-Discovery (mDNS) ist asynchron und akkumuliert
+// über die Zeit im nativen g_find. Forkten wir pro Suche einen frischen Prozess
+// (fork+kill), startete die Discovery jedes Mal KALT → 1,5 s reichen bei mehreren
+// Geräten nicht → jeder Scan sieht nur eine zufällige Teilmenge (#17). Stattdessen
+// halten wir EINEN Finder am Leben: sein g_find sammelt im Hintergrund weiter,
+// jeder Scan liefert den aktuellen (wachsenden) Stand — zusammen mit dem
+// Renderer-Doppelscan/Refresh konvergiert die Liste auf ALLE Quellen.
+let finder: UtilityProcess | null = null;
+const findQueue: Array<(list: string[]) => void> = [];
+
+function ensureFinder(): UtilityProcess {
+  if (finder) return finder;
+  const f = utilityProcess.fork(utilityPath());
+  f.on('message', (msg: unknown) => {
+    const m = msg as { type?: string; list?: string[] } | null;
+    if (m && m.type === 'sources') {
+      // Suchen laufen sequenziell (Renderer awaitet jeden Scan) → FIFO genügt.
+      findQueue.shift()?.(Array.isArray(m.list) ? m.list : []);
+    }
+  });
+  f.on('exit', () => {
+    finder = null; // beim nächsten Scan neu forken
+    while (findQueue.length) findQueue.shift()?.([]);
+  });
+  finder = f;
+  return f;
+}
+
+/** Sichtbare NDI-Quellen suchen — fragt den persistenten Finder ab. */
 export function ndiFind(timeoutMs = 1500): Promise<string[]> {
   return new Promise((resolve) => {
-    const finder = utilityProcess.fork(utilityPath());
+    const f = ensureFinder();
     let done = false;
     const finish = (list: string[]): void => {
       if (done) return;
       done = true;
-      try {
-        finder.kill();
-      } catch {
-        // egal
-      }
       resolve(list);
     };
-    finder.on('message', (msg: unknown) => {
-      const m = msg as { type?: string; list?: string[] } | null;
-      if (m && m.type === 'sources') finish(Array.isArray(m.list) ? m.list : []);
-    });
-    finder.on('exit', () => finish([]));
-    finder.postMessage({ type: 'find', timeoutMs });
-    setTimeout(() => finish([]), timeoutMs + 4000);
+    findQueue.push(finish);
+    f.postMessage({ type: 'find', timeoutMs });
+    // Sicherheits-Timeout: bleibt die Antwort aus, diesen Resolver wieder aus der
+    // Queue nehmen (sonst geriete die FIFO-Zuordnung durcheinander) und leer melden.
+    setTimeout(() => {
+      if (done) return;
+      const i = findQueue.indexOf(finish);
+      if (i >= 0) findQueue.splice(i, 1);
+      finish([]);
+    }, timeoutMs + 4000);
   });
 }
 
@@ -138,4 +164,14 @@ export function stopNdi(): void {
   }
   receivers.clear();
   statuses.clear();
+  // Persistenten Finder mit beenden.
+  if (finder) {
+    try {
+      finder.kill();
+    } catch {
+      // egal
+    }
+    finder = null;
+  }
+  while (findQueue.length) findQueue.shift()?.([]);
 }
