@@ -56,15 +56,22 @@ function deliver(win: BrowserWindow, project: { name: string; bytes: Uint8Array 
  * Datei nicht gelesen werden kann (Pfad falsch / nicht erreichbar).
  */
 export async function openProjectFromPath(filePath: string): Promise<boolean> {
+  const log = getLog();
+  log.info(`PRESENTER OPEN: lade „${filePath}"`);
   try {
     const bytes = new Uint8Array(await readFile(filePath));
     const project = { name: path.basename(filePath), bytes };
     const win = getEditorWindow();
-    if (win) deliver(win, project);
-    else pending = project; // Fenster noch nicht da → nachliefern
+    if (win) {
+      deliver(win, project);
+      log.info(`PRESENTER OPEN: ${project.bytes.length} Bytes an Editor-Fenster „${project.name}" gesendet`);
+    } else {
+      pending = project; // Fenster noch nicht da → nachliefern
+      log.info(`PRESENTER OPEN: kein Editor-Fenster — „${project.name}" vorgemerkt`);
+    }
     return true;
   } catch (e) {
-    getLog().error(`PRESENTER OPEN: „${filePath}" konnte nicht geladen werden: ${(e as Error).message}`);
+    log.error(`PRESENTER OPEN: „${filePath}" konnte nicht geladen werden: ${(e as Error).message}`);
     return false;
   }
 }
