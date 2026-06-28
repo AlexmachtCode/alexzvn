@@ -15,6 +15,12 @@ export interface RundownAction {
   args: (string | number)[];
   /** Deaktivierte Aktionen werden beim GO übersprungen. */
   enabled: boolean;
+  /**
+   * Verzögerung in Millisekunden VOR dem Feuern dieser Aktion, relativ zur
+   * vorherigen Aktion derselben GO-Sequenz (Issue #80). 0/undefined = sofort.
+   * So lassen sich Multi-Aktionen einer Zeile zeitlich staffeln.
+   */
+  delayMs?: number;
 }
 
 /** Eine Zeile/Segment im Ablaufplan. */

@@ -148,6 +148,11 @@ export function RundownList({
                           : 'bg-neutral-800/60 text-neutral-500 line-through'
                       }`}
                     >
+                      {a.delayMs ? (
+                        <span className="text-neutral-400" title={`${a.delayMs} ms Verzögerung`}>
+                          ⏱{a.delayMs}ms{' '}
+                        </span>
+                      ) : null}
                       {actionLabel(a.role, a.verb, a.args)}
                     </span>
                   ))}
