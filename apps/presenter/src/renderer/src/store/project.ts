@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Overlay, ProjectDoc, Slide, SourceMeta } from '@shared/types';
+import type { ImportedFile, Overlay, ProjectDoc, Slide, SourceMeta } from '@shared/types';
 import { uid } from '@/lib/ids';
 import { clearAssets, getSource, getImageBytes, putImage, putSource } from '@/lib/assets';
 import { clearPdfCaches, pdfPageCount } from '@/lib/pdf';
@@ -48,6 +48,12 @@ interface ProjectState {
 
   // import / IO
   importDocs: () => Promise<void>;
+  /**
+   * Bereits gelesene Dateien (PDF/Bild) als Quellen+Folien einpflegen. `replace`
+   * ersetzt das aktuelle Projekt (frisches Deck) — genutzt vom PRESENTER-OPEN-
+   * Steuerbefehl; `importDocs` ruft es mit replace=false (anhängen).
+   */
+  ingestImportedFiles: (files: ImportedFile[], replace?: boolean) => Promise<void>;
   importOffice: () => Promise<void>;
   newProject: () => void;
   openProject: () => Promise<void>;
@@ -96,9 +102,19 @@ export const useProject = create<ProjectState>((set, get) => ({
   setNotice: (msg) => set({ notice: msg }),
 
   importDocs: async () => {
-    set({ busy: { active: true, label: 'Importiere…' }, error: null });
+    const files = await window.jmpr.files.importDocs();
+    if (files.length) await get().ingestImportedFiles(files, false);
+  },
+
+  ingestImportedFiles: async (files, replace = false) => {
+    set({ busy: { active: true, label: replace ? 'Lade Präsentation…' : 'Importiere…' }, error: null });
     try {
-      const files = await window.jmpr.files.importDocs();
+      // replace = frisches Deck: alte Quellen-Caches leeren (wie newProject).
+      if (replace) {
+        clearPdfCaches();
+        clearAssets();
+      }
+      const baseDoc = replace ? emptyDoc() : get().doc;
       const newSources: SourceMeta[] = [];
       const newSlides: Slide[] = [];
       for (const f of files) {
@@ -116,16 +132,16 @@ export const useProject = create<ProjectState>((set, get) => ({
           newSlides.push(makeSlide(sourceId, 0, base));
         }
       }
-      const doc = get().doc;
       const merged: ProjectDoc = {
-        ...doc,
-        sources: [...doc.sources, ...newSources],
-        slides: [...doc.slides, ...newSlides],
+        ...baseDoc,
+        sources: [...baseDoc.sources, ...newSources],
+        slides: [...baseDoc.slides, ...newSlides],
       };
       set({
         doc: merged,
         dirty: true,
-        selectedId: get().selectedId ?? newSlides[0]?.id ?? null,
+        selectedId: replace ? (newSlides[0]?.id ?? null) : (get().selectedId ?? newSlides[0]?.id ?? null),
+        selectedOverlayId: replace ? null : get().selectedOverlayId,
       });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });

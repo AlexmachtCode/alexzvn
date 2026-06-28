@@ -202,6 +202,21 @@ function registerIpc(): void {
     conductor.setOverrides(setOverride(role, host || null, Number.isFinite(port) ? port : null));
     return buildState();
   });
+  ipcMain.handle('rundown:pickFile', async () => {
+    // Datei-Dialog für Pfad-Argumente (z. B. PRESENTER OPEN). Hinweis: Der Pfad
+    // gilt auf dem Ziel-Rechner — sinnvoll bei gemeinsamem/UNC-Laufwerk oder
+    // gleichem Rechner; sonst Pfad direkt eintippen.
+    const r = await dialog.showOpenDialog({
+      title: 'Datei wählen',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Präsentationen', extensions: ['pdf', 'pptx', 'ppt', 'odp', 'jmpres', 'png', 'jpg', 'jpeg', 'webp'] },
+        { name: 'Alle Dateien', extensions: ['*'] },
+      ],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return r.filePaths[0];
+  });
   ipcMain.handle('rundown:setDoc', (_e, next: RundownDoc) => {
     setDoc(next, filePath, true);
     return buildState();
@@ -321,8 +336,10 @@ if (!gotLock) {
     registerIpc();
     createMainWindow();
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
+    // start() zuerst: liest die geteilte Steuer-Konfig (Token/TLS für secure-Modus),
+    // bevor setOverrides die ersten Clients erzeugt — sonst verbänden sie plain.
+    conductor.start(app.getPath('appData'));
     conductor.setOverrides(getOverrides());
-    conductor.start();
     // Eigener Steuerserver: Rundown selbst per Companion fern-GO-bar (Port 8731).
     void startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand });
   });

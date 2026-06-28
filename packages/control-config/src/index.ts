@@ -87,3 +87,24 @@ export function controlServerOptions(cfg: SuiteControlConfig): {
   if (cfg.tls?.cert && cfg.tls?.key) out.tls = { cert: cfg.tls.cert, key: cfg.tls.key };
   return out;
 }
+
+/**
+ * Konfig → spreadbare Optionen für `new SuiteControlClient({...})` (Gegenstück zu
+ * controlServerOptions, P1-Adoption Client-Seite):
+ *   new SuiteControlClient({ onState, …, ...controlClientOptions(cfg) })
+ *
+ * Nur im `secure`-Modus werden Token/TLS gesetzt — sonst leer, damit ein Client
+ * gegen einen open-Server NICHT versehentlich TLS spricht (das würde den
+ * Handshake brechen). Ein gesetztes Token gegen einen open-Server wäre harmlos,
+ * TLS dagegen nicht; deshalb gaten wir beide an `mode === 'secure'`.
+ */
+export function controlClientOptions(cfg: SuiteControlConfig): {
+  auth?: string;
+  tls?: { fingerprint: string };
+} {
+  const out: ReturnType<typeof controlClientOptions> = {};
+  if (cfg.mode !== 'secure') return out;
+  if (cfg.token) out.auth = cfg.token;
+  if (cfg.tlsFingerprint) out.tls = { fingerprint: cfg.tlsFingerprint };
+  return out;
+}

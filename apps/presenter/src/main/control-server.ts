@@ -16,6 +16,7 @@ import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { getState, goto, next, prev, setScreen, stopPresentation, subscribe } from './present';
+import { openByPath } from './control-open';
 
 /** Eigener TCP-Steuerport (getrennt vom HTTP-Remote 7330). */
 export const CONTROL_PORT = 8728;
@@ -46,9 +47,16 @@ export function startControlServer(): Promise<{ ok: boolean; error?: string; por
     appId: 'jm-presenter',
     controlEndpoint: true,
     getState: toSuiteState,
-    onCommand: (cmd) => {
+    onCommand: (cmd, ctx) => {
       if (cmd.ns !== 'presenter') return;
       switch (cmd.verb) {
+        case 'open': {
+          // Pfad aus der ROHEN Zeile rekonstruieren — Dateipfade enthalten
+          // Leerzeichen, der Token-Parser (split /\s+/) würde sie zerlegen.
+          const p = ctx.raw.replace(/^\s*presenter\s+open\s+/i, '').trim();
+          if (p) void openByPath(p);
+          break;
+        }
         case 'next':
           next();
           break;

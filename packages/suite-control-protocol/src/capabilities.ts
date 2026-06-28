@@ -20,6 +20,13 @@ export interface CapabilityArg {
   min?: number;
   max?: number;
   choices?: { id: string; label: string }[];
+  /**
+   * Optionaler UI-Hinweis: das Argument ist ein Dateipfad. Editoren mit nativem
+   * Datei-Dialog (z. B. JM Rundown) zeigen dann einen „Durchsuchen"-Button neben
+   * dem Textfeld. Companion ignoriert es und behandelt das Arg als string-Textfeld
+   * (Pfad wird getippt) — daher bleibt `type: 'string'`.
+   */
+  picker?: 'file';
 }
 
 export interface CapabilityAction {
@@ -254,6 +261,12 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
       { id: 'white', label: 'Weiß', verb: 'white' },
       { id: 'live', label: 'Live', verb: 'live' },
       { id: 'stop', label: 'Präsentation beenden', verb: 'stop' },
+      {
+        id: 'open',
+        label: 'Präsentation öffnen (Pfad)',
+        verb: 'open',
+        args: [{ id: 'path', label: 'Pfad (.pdf / .pptx / .jmpres / Bild)', type: 'string', default: '', picker: 'file' }],
+      },
     ],
     variables: [
       { id: 'slide', label: 'Aktuelle Folie' },

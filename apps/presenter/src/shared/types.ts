@@ -94,6 +94,15 @@ export interface ImportedFile {
   bytes: Uint8Array;
 }
 
+/**
+ * Push vom Hauptprozess (PRESENTER OPEN, Issue #81): importierte Dateien als
+ * Präsentation vorlegen. `replace` = vorhandenes Projekt ersetzen (frisches Deck).
+ */
+export interface OpenFilesPayload {
+  files: ImportedFile[];
+  replace: boolean;
+}
+
 /** On-click build animations read from a .pptx (LibreOffice flattens them away). */
 export interface OfficeAnimations {
   /** Click-build count per slide, in presentation order. */
@@ -238,6 +247,8 @@ export interface JmprApi {
     savePdf: (suggestedName: string, bytes: Uint8Array) => Promise<string | null>;
     /** Push vom Hauptprozess: in einer Show referenziertes .jmpres öffnen. */
     onOpenProject: (cb: (p: { name: string; bytes: Uint8Array }) => void) => () => void;
+    /** Push vom Hauptprozess (PRESENTER OPEN): importierte Dateien vorlegen. */
+    onOpenFiles: (cb: (p: OpenFilesPayload) => void) => () => void;
   };
 
   present: {

@@ -4,6 +4,7 @@ import type {
   JmprApi,
   NetInterface,
   OfficeImportResult,
+  OpenFilesPayload,
   PresentationPayload,
   PresentationState,
   RemoteConfig,
@@ -41,6 +42,11 @@ const api: JmprApi = {
       const listener = (_event: unknown, p: { name: string; bytes: Uint8Array }) => cb(p);
       ipcRenderer.on('project:open', listener);
       return () => ipcRenderer.off('project:open', listener);
+    },
+    onOpenFiles: (cb) => {
+      const listener = (_event: unknown, p: OpenFilesPayload) => cb(p);
+      ipcRenderer.on('project:openFiles', listener);
+      return () => ipcRenderer.off('project:openFiles', listener);
     },
   },
 
