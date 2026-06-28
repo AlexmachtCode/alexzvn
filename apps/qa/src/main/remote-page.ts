@@ -52,6 +52,12 @@ export const REMOTE_PAGE = `<!doctype html>
   var sendEl=document.getElementById('send'), stEl=document.getElementById('st'), subEl=document.getElementById('sub');
   var formEl=document.getElementById('form'), closedEl=document.getElementById('closed');
 
+  // P1 (#59): Zugriffs-Token aus der eigenen URL (?t=) lesen und an jeden
+  // Daten-Aufruf anhängen. Der QR-Link trägt das Token; ohne Token (open-Modus)
+  // bleibt withT() ein No-Op und alles funktioniert wie bisher.
+  var T=new URLSearchParams(location.search).get('t')||'';
+  function withT(p){ return T ? p+(p.indexOf('?')<0?'?':'&')+'t='+encodeURIComponent(T) : p; }
+
   function apply(s){
     if(!s) return;
     var accepting = s.accepting !== false;
@@ -65,7 +71,7 @@ export const REMOTE_PAGE = `<!doctype html>
     var name=(nameEl.value||'').trim();
     if(!name){ stEl.textContent='Bitte einen Namen angeben.'; stEl.className='status'; nameEl.focus(); return; }
     sendEl.disabled=true; stEl.textContent='Sende …'; stEl.className='status';
-    fetch('/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
+    fetch(withT('/cmd'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({type:'submit',name:name,affiliation:(affEl.value||'').trim(),question:(qEl.value||'').trim()})})
       .then(function(){ stEl.textContent='Danke! Deine Wortmeldung ist eingegangen.'; stEl.className='status ok';
         affEl.value=''; qEl.value=''; nameEl.value=''; })
@@ -75,11 +81,11 @@ export const REMOTE_PAGE = `<!doctype html>
   sendEl.addEventListener('click', send);
   function connect(){
     try{
-      var es=new EventSource('/events');
+      var es=new EventSource(withT('/events'));
       es.onmessage=function(e){ try{ apply(JSON.parse(e.data)); }catch(_){} };
     }catch(_){}
   }
-  fetch('/state').then(function(r){return r.json();}).then(apply).catch(function(){});
+  fetch(withT('/state')).then(function(r){return r.json();}).then(apply).catch(function(){});
   connect();
 </script>
 </body>

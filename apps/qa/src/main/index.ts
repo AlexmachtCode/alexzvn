@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import { RemoteServer } from '@jm/remote';
+import { readControlConfig } from '@jm/control-config';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type { QaConfig, QaEntry, QaState, QaSubmission, ToolLink } from '@shared/types';
 import {
@@ -32,6 +33,19 @@ const REMOTE_PORT = 7782;
 let mainWindow: BrowserWindow | null = null;
 const preloadPath = join(__dirname, '../preload/index.mjs');
 
+// P1 (#59): geteiltes Suite-Token aus der control.json (vom Launcher provisioniert).
+// Gesetzt → die Saal-Endpunkte (/state,/events,/cmd) verlangen es; der QR-Link trägt
+// ?t=<token>, die Seite reicht es bei jedem Aufruf mit. Fehlt es (open-Modus) →
+// unverändertes Verhalten ohne Token. readControlConfig ist fehlertolerant ({}).
+const suiteToken = readControlConfig(app.getPath('appData')).token;
+
+/** Token an die LAN-URLs hängen, damit QR/Anzeige die Saal-Clients berechtigen. */
+function withRemoteToken(urls: string[]): string[] {
+  const t = suiteToken;
+  if (!t) return urls;
+  return urls.map((u) => `${u}/?t=${encodeURIComponent(t)}`);
+}
+
 // ── Autoritativer Zustand (lebt im Main, damit Steuerserver/Companion + die
 //    Saal-Einreichung darauf wirken) ──────────────────────────────────────────
 let entries: QaEntry[] = [];
@@ -43,6 +57,7 @@ const coupling = new Coupling(() => broadcastLinks());
 const remote = new RemoteServer({
   port: REMOTE_PORT,
   page: REMOTE_PAGE,
+  token: suiteToken,
   getState: () => publicRemoteState(),
   onCommand: (cmd) => handleRemoteSubmit(cmd),
 });
@@ -208,7 +223,7 @@ async function setRemote(enabled: boolean): Promise<void> {
     if (enabled) {
       const addr = await remote.start();
       remoteRunning = true;
-      remoteUrls = addr.urls;
+      remoteUrls = withRemoteToken(addr.urls);
     } else {
       await remote.stop();
       remoteRunning = false;

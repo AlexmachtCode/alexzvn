@@ -38,6 +38,11 @@ export const REMOTE_PAGE = `<!doctype html>
 </div>
 <script>
   var cur = { round:0, votingOpen:false };
+  // P1 (#59): Zugriffs-Token aus der eigenen URL (?t=) lesen und an jeden
+  // Daten-Aufruf anhängen. Der QR-Link trägt das Token; ohne Token (open-Modus)
+  // bleibt withT() ein No-Op.
+  var T=new URLSearchParams(location.search).get('t')||'';
+  function withT(p){ return T ? p+(p.indexOf('?')<0?'?':'&')+'t='+encodeURIComponent(T) : p; }
   function setText(id,t){ var el=document.getElementById(id); if(el) el.textContent=t; }
   function votedKey(r){ return 'jmbattle_voted_'+r; }
   function apply(s){
@@ -62,11 +67,11 @@ export const REMOTE_PAGE = `<!doctype html>
     localStorage.setItem(votedKey(r),'1');
     document.getElementById('voteA').disabled=true; document.getElementById('voteB').disabled=true;
     var st=document.getElementById('st'); st.textContent='Danke, deine Stimme zählt!'; st.className='status ok';
-    fetch('/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
+    fetch(withT('/cmd'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({type:'vote',side:side,round:r})}).catch(function(){});
   }
-  function connect(){ try{ var es=new EventSource('/events'); es.onmessage=function(e){ try{ apply(JSON.parse(e.data)); }catch(_){} }; }catch(_){} }
-  fetch('/state').then(function(r){return r.json();}).then(apply).catch(function(){});
+  function connect(){ try{ var es=new EventSource(withT('/events')); es.onmessage=function(e){ try{ apply(JSON.parse(e.data)); }catch(_){} }; }catch(_){} }
+  fetch(withT('/state')).then(function(r){return r.json();}).then(apply).catch(function(){});
   connect();
 </script>
 </body>

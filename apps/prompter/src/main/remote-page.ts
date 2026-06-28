@@ -53,7 +53,12 @@ export const REMOTE_PAGE = `<!doctype html>
   <button onclick="send({type:'reset'})">⟲ An den Anfang</button>
 
 <script>
-  function send(cmd){ fetch('/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cmd)}).catch(function(){}); }
+  // P1 (#59): Zugriffs-Token aus der eigenen URL (?t=) lesen und an jeden Aufruf
+  // anhängen. Der QR-Link trägt das Token; ohne Token (open-Modus) bleibt withT()
+  // ein No-Op und die Fernbedienung funktioniert wie bisher.
+  var T=new URLSearchParams(location.search).get('t')||'';
+  function withT(p){ return T ? p+(p.indexOf('?')<0?'?':'&')+'t='+encodeURIComponent(T) : p; }
+  function send(cmd){ fetch(withT('/cmd'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cmd)}).catch(function(){}); }
   var go=document.getElementById('go'), dot=document.getElementById('dot'),
       stateEl=document.getElementById('state'), speedEl=document.getElementById('speed');
   function apply(s){
@@ -66,7 +71,7 @@ export const REMOTE_PAGE = `<!doctype html>
     if(typeof s.speed==='number') speedEl.textContent = s.speed.toFixed(1) + ' Z/s';
   }
   function connect(){
-    var es=new EventSource('/events');
+    var es=new EventSource(withT('/events'));
     es.onmessage=function(e){ try{ apply(JSON.parse(e.data)); }catch(_){} };
     es.onerror=function(){ stateEl.textContent='getrennt – verbinde…'; };
   }

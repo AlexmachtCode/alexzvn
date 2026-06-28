@@ -6,6 +6,7 @@ import { advertise, type Advertiser } from '@jm/discovery';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import { OutputWindow, listDisplays } from '@jm/output-window';
 import { RemoteServer } from '@jm/remote';
+import { readControlConfig } from '@jm/control-config';
 import { INITIAL_TRANSPORT, positionEm } from '@shared/types';
 import type { PartialPrompterConfig, PrompterState, PrompterTransport, RemoteInfo } from '@shared/types';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
@@ -26,6 +27,19 @@ let mainWindow: BrowserWindow | null = null;
 const preloadPath = join(__dirname, '../preload/index.mjs');
 const output = new OutputWindow('prompter:state');
 
+// P1 (#59): geteiltes Suite-Token aus der control.json (vom Launcher provisioniert).
+// Gesetzt → die Fernbedienungs-Endpunkte (/events,/cmd) verlangen es; der QR-Link
+// trägt ?t=<token>, die Seite reicht es bei jedem Aufruf mit. Fehlt es (open-Modus)
+// → unverändertes Verhalten ohne Token. readControlConfig ist fehlertolerant ({}).
+const suiteToken = readControlConfig(app.getPath('appData')).token;
+
+/** Token an die LAN-URLs hängen, damit der QR die Fernbedienung berechtigt. */
+function withRemoteToken(urls: string[]): string[] {
+  const t = suiteToken;
+  if (!t) return urls;
+  return urls.map((u) => `${u}/?t=${encodeURIComponent(t)}`);
+}
+
 // mDNS-Annoncierung ist an die Fernbedienung gekoppelt: nur wenn die läuft, ist
 // der Prompter im LAN sichtbar (für Discovery durch andere Tools). Best-effort.
 let advertiser: Advertiser | null = null;
@@ -40,6 +54,7 @@ let transport: PrompterTransport = {
 const remote = new RemoteServer({
   port: REMOTE_PORT,
   page: REMOTE_PAGE,
+  token: suiteToken,
   getState: () => ({ playing: transport.playing, speed: getConfig().speed }),
   onCommand: (cmd) => handleRemoteCommand(cmd),
 });
@@ -51,7 +66,7 @@ function getEmPerSec(): number {
 
 function remoteInfo(): RemoteInfo {
   const addr = remote.address();
-  return { running: remote.isRunning(), urls: addr?.urls ?? [] };
+  return { running: remote.isRunning(), urls: withRemoteToken(addr?.urls ?? []) };
 }
 
 function buildState(): PrompterState {
