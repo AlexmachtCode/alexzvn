@@ -8,7 +8,7 @@ import { startControlServer, stopControlServer } from './control-server';
 declare const __dirname: string;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-recorder', appName: 'JM Audio Recorder' });
+initAppRuntime({ csp: true, appId: 'jm-recorder', appName: 'JM Audio Recorder' });
 
 let mainWindow: BrowserWindow | null = null;
 

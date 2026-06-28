@@ -8,7 +8,7 @@ import { startControlServer, stopControlServer } from './control-server';
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
 // onDeepLink fängt Show-Links bei laufender App (second-instance/open-url) ab;
 // den Start-Link verarbeiten wir unten über runtime.initialDeepLink.
-const runtime = initAppRuntime({
+const runtime = initAppRuntime({ csp: true,
   appId: 'jm-presenter',
   appName: 'JM Presenter',
   onDeepLink: (url) => void handleShowDeepLink(url),

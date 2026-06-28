@@ -259,7 +259,7 @@ function createMainWindow(): BrowserWindow {
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-const runtime = initAppRuntime({
+const runtime = initAppRuntime({ csp: true,
   appId: 'jm-rundown',
   appName: 'JM Rundown',
   onDeepLink: (url) => applyShowFromDeepLink(url),

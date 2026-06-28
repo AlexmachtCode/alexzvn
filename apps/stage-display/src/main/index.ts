@@ -260,7 +260,7 @@ function applyShowFromDeepLink(url: string): void {
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-const runtime = initAppRuntime({
+const runtime = initAppRuntime({ csp: true,
   appId: 'jm-stage-display',
   appName: 'JM Stage Display',
   onDeepLink: (url) => applyShowFromDeepLink(url),

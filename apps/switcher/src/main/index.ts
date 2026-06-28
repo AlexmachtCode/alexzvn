@@ -11,7 +11,7 @@ import { attachControlWindow, startControlServer, stopControlServer } from './co
 declare const __dirname: string;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-switcher', appName: 'JM Switcher' });
+initAppRuntime({ csp: true, appId: 'jm-switcher', appName: 'JM Switcher' });
 
 let mainWindow: BrowserWindow | null = null;
 

@@ -8,7 +8,7 @@ import { installDisplayMediaHandler } from './capture-handler';
 declare const __dirname: string;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-ndi-screen-capture', appName: 'JM NDI Screen Capture' });
+initAppRuntime({ csp: true, appId: 'jm-ndi-screen-capture', appName: 'JM NDI Screen Capture' });
 
 // Windows: Das neue Windows-Graphics-Capture-Backend (WGC) scheitert auf manchen
 // Systemen (Hybrid-GPU/Treiber/Sitzung) mit E_FAIL/E_INVALIDARG → die Aufnahme

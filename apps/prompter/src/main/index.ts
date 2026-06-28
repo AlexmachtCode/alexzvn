@@ -370,7 +370,7 @@ function registerIpc(): void {
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
 // onDeepLink fängt Show-Links bei laufender App ab; den Start-Link verarbeiten
 // wir unten über runtime.initialDeepLink.
-const runtime = initAppRuntime({
+const runtime = initAppRuntime({ csp: true,
   appId: 'jm-prompter',
   appName: 'JM Prompter',
   servicePort: REMOTE_PORT,
