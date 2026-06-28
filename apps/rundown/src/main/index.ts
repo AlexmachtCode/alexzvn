@@ -336,8 +336,10 @@ if (!gotLock) {
     registerIpc();
     createMainWindow();
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
+    // start() zuerst: liest die geteilte Steuer-Konfig (Token/TLS für secure-Modus),
+    // bevor setOverrides die ersten Clients erzeugt — sonst verbänden sie plain.
+    conductor.start(app.getPath('appData'));
     conductor.setOverrides(getOverrides());
-    conductor.start();
     // Eigener Steuerserver: Rundown selbst per Companion fern-GO-bar (Port 8731).
     void startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand });
   });
