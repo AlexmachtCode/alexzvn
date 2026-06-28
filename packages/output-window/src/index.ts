@@ -22,6 +22,12 @@ export interface OpenOutputOptions {
   displayId?: number;
   /** Fenstertitel. */
   title?: string;
+  /**
+   * Renderer-Sandbox des Ausgabefensters (P2, #60). Default false (heutiges
+   * Verhalten). true setzt die App, sobald ihr Preload sandbox-sicher + als CJS
+   * gebaut ist — dann sollten Haupt- UND Ausgabefenster gemeinsam sandboxed sein.
+   */
+  sandbox?: boolean;
 }
 
 /** Liste aller Bildschirme (id/label/primär/Auflösung). */
@@ -83,7 +89,7 @@ export class OutputWindow {
       autoHideMenuBar: true,
       webPreferences: {
         preload: opts.preloadPath,
-        sandbox: false,
+        sandbox: opts.sandbox ?? false,
         contextIsolation: true,
         nodeIntegration: false,
       },
