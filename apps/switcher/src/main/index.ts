@@ -15,7 +15,7 @@ initAppRuntime({ appId: 'jm-switcher', appName: 'JM Switcher' });
 
 let mainWindow: BrowserWindow | null = null;
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 function resourcePath(filename: string): string {
   if (app.isPackaged) {
@@ -52,7 +52,7 @@ function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },

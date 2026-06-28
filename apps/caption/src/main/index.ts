@@ -18,7 +18,7 @@ import type { CaptionConfig, CaptionLine, CaptionState, CaptionStatus } from '@s
 declare const __dirname: string;
 
 const MAX_LINES = 40;
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 let mainWindow: BrowserWindow | null = null;
 
 const defaultConfig: CaptionConfig = {
@@ -244,7 +244,7 @@ function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
