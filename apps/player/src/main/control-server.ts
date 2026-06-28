@@ -49,8 +49,12 @@ function toSuiteState(s: RemotePlayerState = lastState): SuiteState {
   };
 }
 
-/** SuiteCommand (ns=player) → RemoteCommand für den Renderer. null bei Unbekanntem. */
-function toRemoteCommand(cmd: SuiteCommand): RemoteCommand | null {
+/**
+ * SuiteCommand (ns=player) → RemoteCommand für den Renderer. null bei Unbekanntem.
+ * `raw` = ungeparste Zeile (für `show`, dessen Argument ein Show-Name mit
+ * Leerzeichen sein kann — der Token-Parser würde ihn sonst zerlegen).
+ */
+function toRemoteCommand(cmd: SuiteCommand, raw: string): RemoteCommand | null {
   const num = (i: number): number => Number(cmd.args[i]);
   switch (cmd.verb) {
     case 'go':
@@ -72,6 +76,11 @@ function toRemoteCommand(cmd: SuiteCommand): RemoteCommand | null {
       return { t: 'prev' };
     case 'pad':
       return Number.isFinite(num(0)) ? { t: 'pad', slot: Math.trunc(num(0)) } : null;
+    case 'show': {
+      // Show-Name (oder DB-ID) aus der rohen Zeile — kann Leerzeichen enthalten.
+      const show = raw.replace(/^\s*player\s+show\s+/i, '').trim();
+      return show ? { t: 'loadShow', show } : null;
+    }
     default:
       return null;
   }
@@ -88,9 +97,9 @@ export function startControlServer(
     appId: 'jm-player',
     controlEndpoint: true,
     getState: () => toSuiteState(),
-    onCommand: (cmd) => {
+    onCommand: (cmd, ctx) => {
       if (cmd.ns !== 'player') return;
-      const rc = toRemoteCommand(cmd);
+      const rc = toRemoteCommand(cmd, ctx.raw);
       if (!rc) return;
       const win = getWindow?.();
       if (win && !win.isDestroyed()) win.webContents.send('remote:cmd', rc);

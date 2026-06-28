@@ -173,6 +173,7 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
       { id: 'next', label: 'Standby +1', verb: 'next' },
       { id: 'prev', label: 'Standby −1', verb: 'prev' },
       { id: 'pad', label: 'Soundboard-Pad triggern', verb: 'pad', args: [{ id: 'slot', label: 'Pad (Slot)', type: 'number', default: 0, min: 0, max: 99 }] },
+      { id: 'show', label: 'Show aufrufen (Name)', verb: 'show', args: [{ id: 'show', label: 'Show-Name (oder DB-Nr.)', type: 'string', default: '' }] },
     ],
     variables: [
       { id: 'playing', label: 'Spielt (1/0)' },

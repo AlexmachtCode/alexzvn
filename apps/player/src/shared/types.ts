@@ -144,7 +144,8 @@ export type RemoteCommand =
   | { t: 'standby'; n: number } // Standby auf Cue n (1-basiert) setzen
   | { t: 'next' } // Standby +1
   | { t: 'prev' } // Standby -1
-  | { t: 'pad'; slot: number }; // Soundboard-Pad (slot) triggern
+  | { t: 'pad'; slot: number } // Soundboard-Pad (slot) triggern
+  | { t: 'loadShow'; show: string }; // Show aus der Bibliothek aktivieren (Name oder DB-ID)
 
 /** Wiedergabe-Zustand, vom Renderer an den Main gemeldet (für Companion-STATE). */
 export interface RemotePlayerState {
