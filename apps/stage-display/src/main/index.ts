@@ -260,7 +260,13 @@ function applyShowFromDeepLink(url: string): void {
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-const runtime = initAppRuntime({ csp: true,
+// CSP (#60): Der Renderer lädt das gerenderte Folienbild (#38) per <img> vom
+// Presenter-Remote — einem EXTERNEN Host (`http://<host>:<port>/slide/current.jpg`),
+// dessen Adresse konfigurierbar ist (Loopback ODER beliebige LAN-IP). Ohne
+// img-src-Freigabe blockt die CSP das Bild → „Folie nicht verfügbar" (Regression
+// aus dem CSP-Rollout #111). Darum img-src für http/https öffnen.
+const runtime = initAppRuntime({
+  csp: { imgSrc: ['http:', 'https:'] },
   appId: 'jm-stage-display',
   appName: 'JM Stage Display',
   onDeepLink: (url) => applyShowFromDeepLink(url),
