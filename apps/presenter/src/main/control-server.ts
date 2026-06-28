@@ -14,7 +14,6 @@
 // auseinander (Stage Display filtert !ctl, Companion nimmt ctl=1).
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
-import { getLog } from '@jm/app-runtime';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { getState, goto, next, prev, setScreen, stopPresentation, subscribe } from './present';
 import { openByPath } from './control-open';
@@ -55,7 +54,6 @@ export function startControlServer(): Promise<{ ok: boolean; error?: string; por
           // Pfad aus der ROHEN Zeile rekonstruieren — Dateipfade enthalten
           // Leerzeichen, der Token-Parser (split /\s+/) würde sie zerlegen.
           const p = ctx.raw.replace(/^\s*presenter\s+open\s+/i, '').trim();
-          getLog().info(`PRESENTER OPEN empfangen: raw="${ctx.raw}" → pfad="${p}"`);
           if (p) void openByPath(p);
           break;
         }
