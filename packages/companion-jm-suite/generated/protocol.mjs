@@ -64,6 +64,47 @@ function createLineBuffer(onLine) {
     }
   };
 }
+var AUTH_PROTO = "scs/1";
+var AUTH_OK = "AUTHOK";
+var AUTH_FAIL = "AUTHFAIL";
+function formatAuthReq(nonceHex) {
+  return `AUTHREQ ${AUTH_PROTO} nonce=${nonceHex}
+`;
+}
+function parseAuthReq(line) {
+  const t = line.trim();
+  if (!t) return null;
+  const parts = t.split(/\s+/);
+  if (parts[0].toUpperCase() !== "AUTHREQ") return null;
+  let proto = "";
+  let nonce = "";
+  for (const tok of parts.slice(1)) {
+    const eq = tok.indexOf("=");
+    if (eq < 0) {
+      if (!proto) proto = tok;
+      continue;
+    }
+    if (tok.slice(0, eq).toLowerCase() === "nonce") nonce = tok.slice(eq + 1);
+  }
+  return nonce ? { proto, nonce } : null;
+}
+function formatAuth(proofHex) {
+  return `AUTH ${proofHex}
+`;
+}
+function parseAuth(line) {
+  const t = line.trim();
+  if (!t) return null;
+  const parts = t.split(/\s+/);
+  if (parts[0].toUpperCase() !== "AUTH" || !parts[1]) return null;
+  return { proof: parts[1] };
+}
+function isAuthOk(line) {
+  return line.trim().toUpperCase() === AUTH_OK;
+}
+function isAuthFail(line) {
+  return line.trim().toUpperCase() === AUTH_FAIL;
+}
 function parseCommand(line) {
   const t = line.trim();
   if (!t) return null;
@@ -575,13 +616,22 @@ var CAPABILITIES = {
 };
 var KNOWN_ROLES = Object.keys(CAPABILITIES);
 export {
+  AUTH_FAIL,
+  AUTH_OK,
+  AUTH_PROTO,
   CAPABILITIES,
   DEFAULT_CONTROL_PORT,
   KNOWN_ROLES,
   createLineBuffer,
+  formatAuth,
+  formatAuthReq,
   formatState,
   formatSuiteCommand,
   formatSuiteState,
+  isAuthFail,
+  isAuthOk,
+  parseAuth,
+  parseAuthReq,
   parseCommand,
   parseState,
   parseSuiteCommand,

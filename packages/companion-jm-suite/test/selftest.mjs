@@ -3,8 +3,10 @@
 // Prüft den Zeilenbau gegen die generierten Capabilities und — als Kernpunkt —
 // dass JEDE generierte Befehlszeile vom Suite-Protokoll-Parser wieder korrekt
 // (ns + verb) gelesen wird (Round-Trip Modul → Tool).
-import { CAPABILITIES, KNOWN_ROLES, parseSuiteCommand } from '../generated/protocol.mjs'
+import crypto from 'node:crypto'
+import { CAPABILITIES, KNOWN_ROLES, parseSuiteCommand, parseAuthReq, formatAuth, isAuthOk, isAuthFail } from '../generated/protocol.mjs'
 import { buildCommandLine, matchesRole, isControlService, pickEndpoint } from '../lib.mjs'
+import { computeAuthProof, normalizeFingerprint } from '../auth.mjs'
 
 let failed = 0
 function eq(actual, expected, msg) {
@@ -77,6 +79,41 @@ for (const role of KNOWN_ROLES) {
   }
 }
 console.log(`ok   Round-Trip: ${rtCount} Actions bauen gültige, parsebare Protokollzeilen`)
+
+// ── Sicherer Steuer-Handshake (P1, #59) ──────────────────────────────────────
+// Auth-Grammatik aus der generierten Protokoll-Schicht + Krypto aus auth.mjs.
+eq(parseAuthReq('AUTHREQ scs/1 nonce=abc123'), { proto: 'scs/1', nonce: 'abc123' }, 'parseAuthReq liest proto+nonce')
+eq(parseAuthReq('STATE ns=timer running=1'), null, 'parseAuthReq ignoriert Nicht-AUTHREQ')
+eq(formatAuth('deadbeef'), 'AUTH deadbeef\n', 'formatAuth → "AUTH <proof>\\n"')
+eq(isAuthOk('AUTHOK'), true, 'isAuthOk erkennt AUTHOK')
+eq(isAuthOk('authok'), true, 'isAuthOk case-insensitiv')
+eq(isAuthFail('AUTHFAIL'), true, 'isAuthFail erkennt AUTHFAIL')
+eq(isAuthFail('AUTHOK'), false, 'isAuthFail nur bei AUTHFAIL')
+
+// Fester HMAC-Vektor (pinnt Algorithmus = @jm/auth-core hmacProof).
+eq(
+  computeAuthProof('tok-123', 'nonceABC'),
+  'c4bf1c8188714fa86adb6adf82536e565d3e09154af616eb1930be075755e719',
+  'computeAuthProof: fester HMAC-SHA256-Vektor',
+)
+// Beweis verifiziert konstantzeitig gegen denselben HMAC (= Server-Seite).
+{
+  const token = 'geheim-xyz'
+  const nonce = crypto.randomBytes(16).toString('hex')
+  const proof = computeAuthProof(token, nonce)
+  const expected = crypto.createHmac('sha256', token).update(nonce).digest('hex')
+  eq(
+    proof.length === expected.length && crypto.timingSafeEqual(Buffer.from(proof, 'hex'), Buffer.from(expected, 'hex')),
+    true,
+    'computeAuthProof: Beweis verifiziert gegen Server-HMAC',
+  )
+  eq(computeAuthProof('falsch', nonce) === expected, false, 'computeAuthProof: falsches Token → anderer Beweis')
+}
+
+// Fingerprint-Normalisierung (Node liefert "AB:CD:…", Launcher zeigt klein/ohne).
+eq(normalizeFingerprint('AB:CD:EF:01'), 'abcdef01', 'normalizeFingerprint: Doppelpunkte weg + klein')
+eq(normalizeFingerprint('  abcdef01  '), 'abcdef01', 'normalizeFingerprint: Whitespace weg')
+eq(normalizeFingerprint('AB:CD:EF:01'), normalizeFingerprint('abcdef01'), 'normalizeFingerprint: beide Seiten vergleichbar')
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`)
 process.exit(failed === 0 ? 0 : 1)
