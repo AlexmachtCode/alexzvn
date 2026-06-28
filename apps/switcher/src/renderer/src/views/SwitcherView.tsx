@@ -892,7 +892,7 @@ function ScenesPanel({
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col min-h-0 min-w-0">
       <PanelHead title="Szenen">
         <Button size="sm" variant="outline" onClick={onAdd}>
           + Szene
@@ -932,7 +932,7 @@ function ScenesPanel({
                 />
               ) : (
                 <span
-                  className="flex-1 truncate"
+                  className="flex-1 min-w-0 truncate"
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     setEditing({ id: sc.id, value: sc.name });
@@ -983,7 +983,7 @@ function LayersPanel({
   const nameOf = (id: string): string => sources.find((s) => s.id === id)?.name ?? '—';
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col min-h-0 min-w-0">
       <PanelHead title={scene ? `Ebenen · ${scene.name}` : 'Ebenen'} />
       <div className="flex-1 overflow-auto scroll-thin p-2 flex flex-col gap-1">
         {!scene && <p className="text-xs text-[var(--muted-foreground)] p-2">Keine Szene gewählt.</p>}
@@ -1013,7 +1013,7 @@ function LayersPanel({
                   >
                     <EyeIcon off={!layer.visible} />
                   </button>
-                  <span className="flex-1 truncate text-sm font-semibold">{nameOf(layer.sourceId)}</span>
+                  <span className="flex-1 min-w-0 truncate text-sm font-semibold">{nameOf(layer.sourceId)}</span>
                   <select
                     value={currentPreset(layer)}
                     onChange={(e) => {
@@ -1165,7 +1165,7 @@ function SourcesPanel({
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col min-h-0 min-w-0">
       <PanelHead title="Quellen-Pool" />
       <div className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-[var(--border)]/40">
         <Button size="sm" variant="outline" onClick={onAddColor}>
@@ -1236,7 +1236,7 @@ function SourcesPanel({
               />
             ) : (
               <span
-                className="flex-1 truncate text-sm font-semibold"
+                className="flex-1 min-w-0 truncate text-sm font-semibold"
                 title="Doppelklick zum Umbenennen"
                 onDoubleClick={() => setEditing({ id: s.id, value: s.name })}
               >
