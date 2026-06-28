@@ -24,7 +24,7 @@ declare const __dirname: string;
 const REMOTE_PORT = 7781;
 
 let mainWindow: BrowserWindow | null = null;
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 const output = new OutputWindow('prompter:state');
 
 // P1 (#59): geteiltes Suite-Token aus der control.json (vom Launcher provisioniert).
@@ -262,7 +262,7 @@ function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -286,6 +286,7 @@ function openOutput(displayId?: number): void {
   if (displayId != null) patchConfig({ outputDisplayId: displayId });
   output.open({
     preloadPath,
+    sandbox: true, // P2 (#60): Ausgabefenster ebenfalls sandboxen (gleiches CJS-Preload).
     rendererUrl: rendererUrl(),
     rendererFile: rendererFile(),
     hash: 'output',
