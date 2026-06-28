@@ -9,7 +9,7 @@ import { startControlServer, stopControlServer } from './control-server';
 
 declare const __dirname: string;
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
 const runtime = initAppRuntime({
@@ -37,6 +37,8 @@ function createWindow(): BrowserWindow {
   return createMainWindow({
     title: 'JM DAW',
     preloadPath,
+    // P2 (#60): Renderer-Sandbox. Preload nutzt nur contextBridge/ipcRenderer/webUtils.
+    sandbox: true,
     iconPath: resourcePath('icon.png', join(__dirname, '..', '..', 'resources')),
     rendererUrl: process.env['ELECTRON_RENDERER_URL'],
     rendererFile: join(__dirname, '../renderer/index.html'),
