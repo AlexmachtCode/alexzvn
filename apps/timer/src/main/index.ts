@@ -40,7 +40,7 @@ let tray: Tray | null = null;
 let isQuitting = false;
 let advertiser: Advertiser | null = null;
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 function resourcePath(filename: string): string {
   if (app.isPackaged) {
@@ -79,7 +79,7 @@ function createOperatorWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -150,7 +150,7 @@ function openSpeakerWindow(): void {
     fullscreenable: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
