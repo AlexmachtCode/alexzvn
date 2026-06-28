@@ -64,9 +64,13 @@ for (const file of files) {
       if (!knownToolIds.has(tid)) warnings.push(`${fileId}: relatedTools verweist auf unbekanntes Tool "${tid}"`);
     }
   }
-  if (recipe.blocks.ingredients.length === 0) warnings.push(`${fileId}: keine Zutaten-Gruppen gefunden`);
-  const s = recipe.blocks.steps;
-  if (!s.vor.length && !s.waehrend.length && !s.nach.length) warnings.push(`${fileId}: keine Schritte gefunden`);
+  // Doc-Einträge (Best Practices) tragen ihren Inhalt als Roh-`markdown`, nicht in
+  // den Rezept-Blöcken → die Zutaten/Schritte-Warnungen hier nicht anwenden.
+  if (!recipe.markdown) {
+    if (recipe.blocks.ingredients.length === 0) warnings.push(`${fileId}: keine Zutaten-Gruppen gefunden`);
+    const s = recipe.blocks.steps;
+    if (!s.vor.length && !s.waehrend.length && !s.nach.length) warnings.push(`${fileId}: keine Schritte gefunden`);
+  }
 
   recipes.push(recipe);
 }

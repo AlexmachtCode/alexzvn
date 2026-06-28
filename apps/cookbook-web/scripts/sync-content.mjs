@@ -20,12 +20,13 @@ try {
   // suite.json nicht lesbar → IDs unverändert anzeigen
 }
 
-const CATEGORY_ORDER = ['Veranstaltungsformate', 'Technik-Setups', 'Kunden-/Location-Setups', 'Tool-Manuals'];
+const CATEGORY_ORDER = ['Veranstaltungsformate', 'Technik-Setups', 'Kunden-/Location-Setups', 'Tool-Manuals', 'Best Practices'];
 const CATEGORY_SLUG = {
   'Veranstaltungsformate': 'veranstaltungsformate',
   'Technik-Setups': 'technik-setups',
   'Kunden-/Location-Setups': 'kunden-location-setups',
   'Tool-Manuals': 'tool-manuals',
+  'Best Practices': 'best-practices',
 };
 const OWNER_LABEL = { 'kunde-haus': 'Kunde / Haustechnik', jm: 'JM-Material', gemischt: 'Gemischt (Haus + JM)' };
 
@@ -52,6 +53,18 @@ function recipePage(r) {
   L.push('');
   L.push('{/* Automatisch generiert aus packages/cookbook/cookbook.json — nicht direkt bearbeiten. */}');
   L.push('');
+  // Doc-Einträge (Best Practices): Inhalt ist Roh-Markdown statt Rezept-Blöcken.
+  if (r.markdown) {
+    L.push(`**Kategorie:** ${r.category} · **Schwierigkeit:** ${r.difficulty}`);
+    L.push('');
+    L.push(r.markdown);
+    L.push('');
+    L.push('---');
+    L.push('');
+    L.push(`*Zuletzt geprüft: ${r.lastReviewed} · Verantwortlich: ${r.owner}*`);
+    L.push('');
+    return L.join('\n');
+  }
   const meta = [
     `**Kategorie:** ${r.category}`,
     `**Schwierigkeit:** ${r.difficulty}`,
