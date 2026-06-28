@@ -9,6 +9,7 @@ const sharedAlias = { '@shared': resolve(__dirname, 'src/shared') };
 // @jm/remote (Voting per Handy) + @jm/discovery/bonjour (Titler-Kopplung).
 const internalPackages = [
   '@jm/app-runtime',
+  '@jm/control-config',
   '@jm/suite-control-protocol',
   '@jm/discovery',
   '@jm/remote',
