@@ -68,7 +68,19 @@ export async function refreshCookbook(): Promise<boolean> {
   }
 }
 
-/** Aktuelle Rezepte (live geladen, sonst gebündelter Fallback). */
+/**
+ * Aktuelle Rezepte: gebündelte Rezepte als Untergrenze mit der Live-Quelle
+ * (Cache/Proxy) VEREINT — per id, Live gewinnt bei Konflikten. So erscheinen NEU
+ * gebündelte Rezepte (eine frische Launcher-Version mit zusätzlichen Einträgen,
+ * z. B. die Best-Practices-Kategorie) sofort, auch wenn der Proxy noch ein
+ * älteres cookbook.json liefert; Live-Updates bestehender Rezepte greifen weiter.
+ * (Früher ersetzte der Proxy-Stand die gebündelten Rezepte komplett → neue
+ * gebündelte Einträge blieben unsichtbar, bis der Proxy neu deployt war.)
+ */
 export function getCookbook(): Recipe[] {
-  return cache.recipes;
+  if (cache === COOKBOOK) return cache.recipes;
+  const byId = new Map<string, Recipe>();
+  for (const r of COOKBOOK.recipes) byId.set(r.id, r);
+  for (const r of cache.recipes) byId.set(r.id, r);
+  return [...byId.values()];
 }
