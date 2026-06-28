@@ -9,7 +9,7 @@ import { startControlServer, stopControlServer, updateTitlerState, CONTROL_PORT 
 declare const __dirname: string;
 
 let mainWindow: BrowserWindow | null = null;
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 const status: TitlerStatus = { ndiActive: false, connections: 0, suiteClients: 0 };
 
@@ -45,7 +45,7 @@ function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
