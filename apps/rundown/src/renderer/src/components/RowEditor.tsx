@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { buildActionLine } from '@shared/conductor';
 import { CAPABILITIES, KNOWN_ROLES, capAction } from '@/lib/capabilities';
-import { addAction, removeAction, updateAction, updateRow } from '@/lib/doc';
+import { addAction, duplicateAction, removeAction, updateAction, updateRow } from '@/lib/doc';
 import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
 
 const select =
@@ -123,6 +123,13 @@ function ActionRow({
             className="rounded border border-neutral-700 px-1.5 py-0.5 text-xs text-neutral-300 hover:bg-neutral-700"
           >
             Test
+          </button>
+          <button
+            onClick={() => onDoc(duplicateAction(doc, rowId, action.id))}
+            title="Aktion duplizieren"
+            className="rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100"
+          >
+            ⧉
           </button>
           <button
             onClick={() => onDoc(removeAction(doc, rowId, action.id))}

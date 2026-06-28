@@ -35,6 +35,39 @@ export function moveRow(doc: RundownDoc, from: number, to: number): RundownDoc {
   return withRows(doc, rows);
 }
 
+/**
+ * Dupliziert eine Zeile inkl. all ihrer Aktionen direkt darunter. Alle IDs (Zeile
+ * + Aktionen) werden neu vergeben, damit Original und Kopie unabhängig bleiben;
+ * `args` wird kopiert (kein geteiltes Array). Label bekommt einen „(Kopie)"-Zusatz.
+ */
+export function duplicateRow(doc: RundownDoc, rowId: string): RundownDoc {
+  const idx = doc.rows.findIndex((r) => r.id === rowId);
+  if (idx < 0) return doc;
+  const src = doc.rows[idx];
+  const copy: RundownRow = {
+    ...src,
+    id: newId('r'),
+    label: `${src.label} (Kopie)`,
+    actions: src.actions.map((a) => ({ ...a, id: newId('a'), args: a.args.slice() })),
+  };
+  const rows = doc.rows.slice();
+  rows.splice(idx + 1, 0, copy);
+  return withRows(doc, rows);
+}
+
+/** Dupliziert eine Aktion innerhalb ihrer Zeile direkt darunter (neue ID, kopierte args). */
+export function duplicateAction(doc: RundownDoc, rowId: string, actionId: string): RundownDoc {
+  const row = doc.rows.find((r) => r.id === rowId);
+  if (!row) return doc;
+  const idx = row.actions.findIndex((a) => a.id === actionId);
+  if (idx < 0) return doc;
+  const src = row.actions[idx];
+  const copy: RundownAction = { ...src, id: newId('a'), args: src.args.slice() };
+  const actions = row.actions.slice();
+  actions.splice(idx + 1, 0, copy);
+  return updateRow(doc, rowId, { actions });
+}
+
 export function addAction(doc: RundownDoc, rowId: string): RundownDoc {
   const row = doc.rows.find((r) => r.id === rowId);
   if (!row) return doc;
