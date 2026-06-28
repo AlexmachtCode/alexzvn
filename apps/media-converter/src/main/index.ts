@@ -9,12 +9,15 @@ declare const __dirname: string;
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
 initAppRuntime({ appId: 'jm-media-converter', appName: 'JM Media Converter' });
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 function createWindow(): BrowserWindow {
   return createMainWindow({
     title: 'JM Media Converter',
     preloadPath,
+    // P2 (#60): Pilot für die Renderer-Sandbox. Das Preload nutzt nur sandbox-
+    // sichere APIs (contextBridge/ipcRenderer/webUtils) → kompatibel mit sandbox:true.
+    sandbox: true,
     iconPath: resourcePath('icon.png', join(__dirname, '..', '..', 'resources')),
     rendererUrl: process.env['ELECTRON_RENDERER_URL'],
     rendererFile: join(__dirname, '../renderer/index.html'),

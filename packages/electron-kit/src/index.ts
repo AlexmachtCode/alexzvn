@@ -17,6 +17,15 @@ export interface WindowOptions {
   minWidth?: number;
   minHeight?: number;
   backgroundColor?: string;
+  /**
+   * Renderer-Sandbox (P2, #60). Default `false` (heutiges Verhalten). `true` =
+   * zusätzliche OS-Sandbox des Renderer-Prozesses (Defense-in-Depth über
+   * `contextIsolation` hinaus). Das Preload darf dann nur sandbox-sichere
+   * Electron-APIs nutzen (`contextBridge`/`ipcRenderer`/`webUtils`) — keine
+   * `node:*`-Importe und kein `process.versions`. Pro App opt-in, bis alle Tools
+   * migriert sind; danach kann der Default zentral auf `true` wechseln.
+   */
+  sandbox?: boolean;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -45,7 +54,7 @@ export function createMainWindow(opts: WindowOptions): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: opts.preloadPath,
-      sandbox: false,
+      sandbox: opts.sandbox ?? false,
       contextIsolation: true,
       nodeIntegration: false,
     },
