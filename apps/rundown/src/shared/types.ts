@@ -101,6 +101,8 @@ export interface JmRundownApi {
   setEndpoint: (role: string, host: string, port: number) => Promise<RundownState>;
   /** Nativen Datei-Dialog öffnen (für Pfad-Argumente, z. B. PRESENTER OPEN). Liefert den gewählten Pfad oder null. */
   pickFile: () => Promise<string | null>;
+  /** Regieplan-Datei (XLSX/CSV) wählen + Bytes lesen (Issue #82). null bei Abbruch. */
+  importRegieplan: () => Promise<{ name: string; bytes: Uint8Array } | null>;
   /** Dokument ersetzen (Editor speichert den ganzen Doc zurück). */
   setDoc: (doc: RundownDoc) => Promise<RundownState>;
   /** Datei-Operationen. */

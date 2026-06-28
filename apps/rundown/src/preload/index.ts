@@ -20,6 +20,8 @@ const api: JmRundownApi = {
   setEndpoint: (role: string, host: string, port: number) =>
     ipcRenderer.invoke('rundown:setEndpoint', role, host, port) as Promise<RundownState>,
   pickFile: () => ipcRenderer.invoke('rundown:pickFile') as Promise<string | null>,
+  importRegieplan: () =>
+    ipcRenderer.invoke('rundown:importRegieplan') as Promise<{ name: string; bytes: Uint8Array } | null>,
   setDoc: (doc: RundownDoc) => ipcRenderer.invoke('rundown:setDoc', doc) as Promise<RundownState>,
   newDoc: () => ipcRenderer.invoke('rundown:new') as Promise<RundownState>,
   open: () => ipcRenderer.invoke('rundown:open') as Promise<RundownState>,

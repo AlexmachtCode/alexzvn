@@ -217,6 +217,20 @@ function registerIpc(): void {
     if (r.canceled || !r.filePaths[0]) return null;
     return r.filePaths[0];
   });
+  ipcMain.handle('rundown:importRegieplan', async () => {
+    // Regieplan (Excel/CSV) wählen + Bytes an den Renderer geben (parst dort mit
+    // SheetJS, Issue #82). Dasselbe Spaltenformat wie der JM-Timer-Import.
+    const r = await dialog.showOpenDialog({
+      title: 'Regieplan importieren',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Regieplan (Excel/CSV)', extensions: ['xlsx', 'xls', 'xlsm', 'csv'] },
+        { name: 'Alle Dateien', extensions: ['*'] },
+      ],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return { name: path.basename(r.filePaths[0]), bytes: new Uint8Array(readFileSync(r.filePaths[0])) };
+  });
   ipcMain.handle('rundown:setDoc', (_e, next: RundownDoc) => {
     setDoc(next, filePath, true);
     return buildState();
