@@ -72,6 +72,19 @@ function handleRemoteCommand(get: () => PlayerStore, cmd: RemoteCommand): void {
     case 'pad':
       p.firePad(cmd.slot);
       break;
+    case 'loadShow': {
+      // Show per NAME (case-insensitiv: exakt, dann Teilstring) auflösen; rein
+      // numerische Eingabe als DB-ID als letzter Ausweg. Dann wie „Show wählen".
+      const q = cmd.show.trim();
+      if (!q) break;
+      const lower = q.toLowerCase();
+      const byName =
+        p.shows.find((s) => s.name.toLowerCase() === lower) ??
+        p.shows.find((s) => s.name.toLowerCase().includes(lower));
+      const id = byName?.id ?? (/^\d+$/.test(q) ? Number(q) : undefined);
+      if (id != null) void p.selectShow(id);
+      break;
+    }
   }
 }
 
