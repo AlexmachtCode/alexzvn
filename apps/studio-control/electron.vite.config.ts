@@ -35,6 +35,12 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/preload/index.ts') },
+        // P2 (#60): Preload als CommonJS bauen — sandbox:true lädt KEINE
+        // ESM-(.mjs-)Preloads → sonst bliebe die GUI leer.
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs',
+        },
       },
     },
   },

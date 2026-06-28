@@ -1009,6 +1009,28 @@ export function startServer(): Promise<void> {
       const pathname = url.pathname;
       const method = (req.method ?? 'GET').toUpperCase();
 
+      // Dev-only CORS: Im Dev läuft der Renderer auf dem Vite-Server (anderer
+      // Origin als der API-Port) → `POST /api/login` mit JSON ist cross-origin und
+      // wird ohne diese Header per Preflight geblockt („Failed to fetch"). Der
+      // gepackte Build liefert den Renderer von DIESEM Server aus (same-origin),
+      // braucht also kein CORS → bewusst dev-only, um die Produktions-Angriffs-
+      // fläche nicht zu vergrößern. Auth läuft über Bearer-Token (kein Cookie),
+      // daher ist das Spiegeln des Origins unkritisch.
+      if (!app.isPackaged) {
+        const origin = req.headers.origin;
+        if (origin) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+          res.setHeader('Vary', 'Origin');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        }
+        if (method === 'OPTIONS') {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+      }
+
       handleApi(req, res, pathname, method).then((handled) => {
         if (handled) return;
         if (pathname.startsWith('/api/')) {

@@ -25,13 +25,22 @@ import {
 declare const __dirname: string;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-studio-control', appName: 'JM Studio Control' });
+// P2 (#60): CSP. Der Renderer spricht den eigenen lokalen Server (Loopback :7778)
+// per Socket.IO (WebSocket) + fetch → connect-src http+ws auf den Loopback. Die
+// Remote-Browser-Ansicht (Companion/Handy) ist kein Electron-Fenster, unberührt.
+initAppRuntime({
+  appId: 'jm-studio-control',
+  appName: 'JM Studio Control',
+  csp: {
+    connectSrc: ['http://127.0.0.1:7778', 'ws://127.0.0.1:7778'],
+  },
+});
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 function resourcePath(filename: string): string {
   if (app.isPackaged) {
@@ -68,7 +77,9 @@ function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      // P2 (#60): Renderer-Sandbox. Preload nutzt nur contextBridge/ipcRenderer +
+      // sandbox-polyfillte process.platform/versions/contextIsolated → sandbox-sicher.
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },

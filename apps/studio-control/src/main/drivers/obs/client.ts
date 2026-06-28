@@ -1,7 +1,16 @@
-import OBSWebSocket from 'obs-websocket-js';
+import OBSWebSocketDefault from 'obs-websocket-js';
 import type { ObsCommand, ObsConfig, ObsStatus } from '@shared/obs';
 
 const RECONNECT_MS = 3000;
+
+// obs-websocket-js v5 ist ein ESM-first-Dual-Package. Im CJS-Main-Bundle
+// (electron-vite + externalizeDepsPlugin → require) liefert der Default-Import je
+// nach Interop die Modul-Namespace-Hülle statt der Klasse → `new OBSWebSocket()`
+// warf „OBSWebSocket is not a constructor" (Issue #91). Das blockierte zugleich
+// den (Dev-)Start, weil startServer() den OBS-Pool eager aufbaut und der throw
+// das Fenster nie aufkommen ließ. Konstruktor robust aus beiden Formen ziehen.
+const OBSWebSocket = ((OBSWebSocketDefault as unknown as { default?: typeof OBSWebSocketDefault })
+  .default ?? OBSWebSocketDefault) as typeof OBSWebSocketDefault;
 
 /**
  * Brücke zu einer OBS-Instanz über das obs-websocket-v5-Protokoll. Event-getrieben
