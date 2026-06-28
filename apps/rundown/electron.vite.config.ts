@@ -11,6 +11,7 @@ const sharedAlias = { '@shared': resolve(__dirname, 'src/shared') };
 const internalPackages = [
   '@jm/app-runtime',
   '@jm/suite-control-protocol',
+  '@jm/control-config',
   '@jm/show',
   '@jm/discovery',
   'bonjour-service',
