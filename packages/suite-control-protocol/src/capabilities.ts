@@ -265,7 +265,7 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
         id: 'open',
         label: 'Präsentation öffnen (Pfad)',
         verb: 'open',
-        args: [{ id: 'path', label: 'Pfad zur .jmpres-Datei', type: 'string', default: '', picker: 'file' }],
+        args: [{ id: 'path', label: 'Pfad (.pdf / .pptx / .jmpres / Bild)', type: 'string', default: '', picker: 'file' }],
       },
     ],
     variables: [

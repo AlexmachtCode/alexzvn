@@ -380,7 +380,7 @@ var CAPABILITIES = {
         id: "open",
         label: "Pr\xE4sentation \xF6ffnen (Pfad)",
         verb: "open",
-        args: [{ id: "path", label: "Pfad zur .jmpres-Datei", type: "string", default: "", picker: "file" }]
+        args: [{ id: "path", label: "Pfad (.pdf / .pptx / .jmpres / Bild)", type: "string", default: "", picker: "file" }]
       }
     ],
     variables: [

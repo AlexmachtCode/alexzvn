@@ -48,34 +48,6 @@ function deliver(win: BrowserWindow, project: { name: string; bytes: Uint8Array 
   }
 }
 
-/**
- * Lädt ein .jmpres-Projekt direkt von einem Dateipfad ins Editor-Fenster — für
- * den Steuerbefehl `PRESENTER OPEN <pfad>` (Rundown/Companion, Issue #81). Nutzt
- * denselben `project:open`-Pfad wie „Öffnen"/Show-Deep-Link; das Fenster
- * deserialisiert die Bytes und legt die Präsentation vor. Liefert false, wenn die
- * Datei nicht gelesen werden kann (Pfad falsch / nicht erreichbar).
- */
-export async function openProjectFromPath(filePath: string): Promise<boolean> {
-  const log = getLog();
-  log.info(`PRESENTER OPEN: lade „${filePath}"`);
-  try {
-    const bytes = new Uint8Array(await readFile(filePath));
-    const project = { name: path.basename(filePath), bytes };
-    const win = getEditorWindow();
-    if (win) {
-      deliver(win, project);
-      log.info(`PRESENTER OPEN: ${project.bytes.length} Bytes an Editor-Fenster „${project.name}" gesendet`);
-    } else {
-      pending = project; // Fenster noch nicht da → nachliefern
-      log.info(`PRESENTER OPEN: kein Editor-Fenster — „${project.name}" vorgemerkt`);
-    }
-    return true;
-  } catch (e) {
-    log.error(`PRESENTER OPEN: „${filePath}" konnte nicht geladen werden: ${(e as Error).message}`);
-    return false;
-  }
-}
-
 /** Verarbeitet einen Show-Deep-Link: Dokument laden und ans Editor-Fenster geben. */
 export async function handleShowDeepLink(url: string): Promise<void> {
   const project = await resolveShowProject(url);

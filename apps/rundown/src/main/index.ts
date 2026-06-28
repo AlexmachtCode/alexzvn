@@ -210,7 +210,7 @@ function registerIpc(): void {
       title: 'Datei wählen',
       properties: ['openFile'],
       filters: [
-        { name: 'JM Presenter Projekt', extensions: ['jmpres'] },
+        { name: 'Präsentationen', extensions: ['pdf', 'pptx', 'ppt', 'odp', 'jmpres', 'png', 'jpg', 'jpeg', 'webp'] },
         { name: 'Alle Dateien', extensions: ['*'] },
       ],
     });

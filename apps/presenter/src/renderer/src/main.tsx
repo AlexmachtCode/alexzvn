@@ -17,6 +17,11 @@ if (view === 'editor') {
   window.jmpr?.files?.onOpenProject?.((p) => {
     useProject.getState().openProjectFromBytes(p.bytes);
   });
+  // PRESENTER OPEN (Issue #81): vom Hauptprozess gelesene PDF/Bild/Office-Dateien
+  // als (frische) Präsentation vorlegen.
+  window.jmpr?.files?.onOpenFiles?.((p) => {
+    void useProject.getState().ingestImportedFiles(p.files, p.replace);
+  });
 }
 
 createRoot(root).render(
