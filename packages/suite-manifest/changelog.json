@@ -122,6 +122,13 @@
     "name": "JM Player",
     "entries": [
       {
+        "version": "0.7.0",
+        "date": "2026-06-28",
+        "notes": [
+          "Fernsteuerung kann jetzt eine gespeicherte Show aufrufen: JM Rundown (oder Companion) lädt per Aktion eine Show aus der Bibliothek anhand ihres Namens als aktive Cue-Liste."
+        ]
+      },
+      {
         "version": "0.6.0",
         "date": "2026-06-24",
         "notes": [
@@ -268,6 +275,13 @@
     "name": "JM Presenter",
     "entries": [
       {
+        "version": "0.9.0",
+        "date": "2026-06-28",
+        "notes": [
+          "Fernsteuerung kann jetzt eine Präsentation öffnen: JM Rundown (oder Companion) legt per Aktion die Speaker-Präsentation vor — PDF, PowerPoint oder ein Presenter-Projekt, anhand des Datei-Pfads."
+        ]
+      },
+      {
         "version": "0.8.0",
         "date": "2026-06-24",
         "notes": [
@@ -384,6 +398,13 @@
     "app": "timer",
     "name": "JM Timer",
     "entries": [
+      {
+        "version": "0.4.0",
+        "date": "2026-06-28",
+        "notes": [
+          "Ablauf exportieren: Der aktuelle Ablaufplan lässt sich als Excel-Regieplan herunterladen (bisher gab es nur die leere Vorlage) — ideal, um ihn mit JM Rundown zu teilen."
+        ]
+      },
       {
         "version": "0.3.0",
         "date": "2026-06-24",
@@ -872,6 +893,18 @@
     "app": "rundown",
     "name": "JM Rundown",
     "entries": [
+      {
+        "version": "0.2.0",
+        "date": "2026-06-28",
+        "notes": [
+          "Blöcke per Maus umsortieren (Drag and Drop) und Zeilen oder einzelne Aktionen mit einem Klick duplizieren.",
+          "Verzögerungen je Aktion: Mehrere Aktionen einer Zeile lassen sich beim GO zeitlich staffeln — zum Beispiel erst der Titler, zwei Sekunden später der Player.",
+          "Neue Aktionen: JM Presenter — Präsentation öffnen (PDF, PowerPoint oder Projekt per Pfad) und JM Player — Show aufrufen (anhand des Namens).",
+          "Regieplan importieren: Excel- oder CSV-Ablaufpläne werden zu Zeilen — je Punkt eine Zeile mit Titel, Dauer und Notiz.",
+          "Ablauf-Austausch mit JM Timer: Blöcke bekommen eine optionale Dauer, und der ganze Ablauf lässt sich als Regieplan exportieren — derselbe Plan wandert zwischen Rundown und Timer hin und her.",
+          "Verbindet jetzt auch mit einer abgesicherten (verschlüsselten) Steuerebene, sodass die Tools im Netz zuverlässig erreichbar bleiben."
+        ]
+      },
       {
         "version": "0.1.0",
         "date": "2026-06-24",
