@@ -42,7 +42,14 @@ function createWindow(): BrowserWindow {
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-editor', appName: 'JM Editor' });
+initAppRuntime({
+  appId: 'jm-editor',
+  appName: 'JM Editor',
+  // P2 (#60): CSP. Medien laufen über das privilegierte jm-media://-Schema
+  // (bypassCSP) — wir whitelisten es zusätzlich explizit, damit auch der
+  // fetch(mediaUrl())-Pfad (connect-src) unabhängig vom bypassCSP-Verhalten trägt.
+  csp: { connectSrc: ['jm-media:'], imgSrc: ['jm-media:'], mediaSrc: ['jm-media:'] },
+});
 
 if (setupSingleInstance(() => createWindow())) {
   app.whenReady().then(() => {

@@ -332,6 +332,13 @@ const runtime = initAppRuntime({
   appId: 'jm-timer',
   appName: 'JM Timer',
   servicePort: SERVER_PORT,
+  // P2 (#60): CSP. Operator-/Speaker-Fenster sprechen den lokalen Socket.IO-Server
+  // (Loopback, Port 7777) per WebSocket — connect-src muss http+ws dorthin erlauben.
+  // Die Remote-Browser-Ansicht (Handy/Tablet) ist kein Electron-Fenster und von
+  // dieser CSP unberührt.
+  csp: {
+    connectSrc: [`http://${SERVER_HOST}:${SERVER_PORT}`, `ws://${SERVER_HOST}:${SERVER_PORT}`],
+  },
   onDeepLink: (url) => applyShowFromDeepLink(url),
 });
 

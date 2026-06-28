@@ -9,7 +9,14 @@ import { startControlServer, stopControlServer } from './control-server';
 declare const __dirname: string;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-player', appName: 'JM Player' });
+initAppRuntime({
+  appId: 'jm-player',
+  appName: 'JM Player',
+  // P2 (#60): CSP. Medien laufen über das privilegierte jm-media://-Schema
+  // (bypassCSP) — wir whitelisten es zusätzlich explizit, damit auch der
+  // fetch(mediaUrl())-Pfad (connect-src) unabhängig vom bypassCSP-Verhalten trägt.
+  csp: { connectSrc: ['jm-media:'], imgSrc: ['jm-media:'], mediaSrc: ['jm-media:'] },
+});
 
 let mainWindow: BrowserWindow | null = null;
 

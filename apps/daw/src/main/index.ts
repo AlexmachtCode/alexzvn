@@ -15,6 +15,10 @@ const preloadPath = join(__dirname, '../preload/index.cjs');
 const runtime = initAppRuntime({
   appId: 'jm-daw',
   appName: 'JM DAW',
+  // P2 (#60): CSP. Medien laufen über das privilegierte jm-media://-Schema
+  // (bypassCSP) — wir whitelisten es zusätzlich explizit, damit auch der
+  // fetch(mediaUrl())-Pfad (connect-src) unabhängig vom bypassCSP-Verhalten trägt.
+  csp: { connectSrc: ['jm-media:'], imgSrc: ['jm-media:'], mediaSrc: ['jm-media:'] },
   onDeepLink: (url) => runtime.log.info(`deep-link empfangen: ${url}`),
 });
 
