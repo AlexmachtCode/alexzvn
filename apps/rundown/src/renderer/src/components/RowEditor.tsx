@@ -150,9 +150,34 @@ function ActionRow({
       {cap?.args && cap.args.length > 0 && (
         <div className="mt-2 grid grid-cols-2 gap-2">
           {cap.args.map((arg, i) => (
-            <label key={arg.id} className="text-xs text-neutral-400">
+            <label
+              key={arg.id}
+              className={`text-xs text-neutral-400${arg.picker === 'file' ? ' col-span-2' : ''}`}
+            >
               {arg.label}
-              {arg.type === 'dropdown' ? (
+              {arg.picker === 'file' ? (
+                // Pfad-Argument: Textfeld (kontrolliert, damit „Durchsuchen" sichtbar
+                // einträgt) + nativer Datei-Dialog. Pfad gilt auf dem Ziel-Rechner.
+                <div className="mt-0.5 flex gap-1">
+                  <input
+                    type="text"
+                    value={String(action.args[i] ?? '')}
+                    placeholder="Pfad zur Datei…"
+                    onChange={(e) => setArg(i, e.target.value)}
+                    className={`${input} flex-1`}
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const p = await window.jmrundown.pickFile();
+                      if (p) setArg(i, p);
+                    }}
+                    className="shrink-0 rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+                  >
+                    Durchsuchen…
+                  </button>
+                </div>
+              ) : arg.type === 'dropdown' ? (
                 <select
                   value={String(action.args[i] ?? arg.default ?? '')}
                   onChange={(e) => setArg(i, e.target.value)}

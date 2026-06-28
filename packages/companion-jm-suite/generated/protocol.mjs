@@ -375,7 +375,13 @@ var CAPABILITIES = {
       { id: "black", label: "Schwarz", verb: "black" },
       { id: "white", label: "Wei\xDF", verb: "white" },
       { id: "live", label: "Live", verb: "live" },
-      { id: "stop", label: "Pr\xE4sentation beenden", verb: "stop" }
+      { id: "stop", label: "Pr\xE4sentation beenden", verb: "stop" },
+      {
+        id: "open",
+        label: "Pr\xE4sentation \xF6ffnen (Pfad)",
+        verb: "open",
+        args: [{ id: "path", label: "Pfad zur .jmpres-Datei", type: "string", default: "", picker: "file" }]
+      }
     ],
     variables: [
       { id: "slide", label: "Aktuelle Folie" },

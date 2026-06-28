@@ -99,6 +99,8 @@ export interface JmRundownApi {
   fireAction: (role: string, verb: string, args: (string | number)[]) => Promise<boolean>;
   /** Manuellen Endpunkt setzen (host leer = Override entfernen → wieder mDNS). */
   setEndpoint: (role: string, host: string, port: number) => Promise<RundownState>;
+  /** Nativen Datei-Dialog öffnen (für Pfad-Argumente, z. B. PRESENTER OPEN). Liefert den gewählten Pfad oder null. */
+  pickFile: () => Promise<string | null>;
   /** Dokument ersetzen (Editor speichert den ganzen Doc zurück). */
   setDoc: (doc: RundownDoc) => Promise<RundownState>;
   /** Datei-Operationen. */

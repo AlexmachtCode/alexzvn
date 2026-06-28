@@ -202,6 +202,21 @@ function registerIpc(): void {
     conductor.setOverrides(setOverride(role, host || null, Number.isFinite(port) ? port : null));
     return buildState();
   });
+  ipcMain.handle('rundown:pickFile', async () => {
+    // Datei-Dialog für Pfad-Argumente (z. B. PRESENTER OPEN). Hinweis: Der Pfad
+    // gilt auf dem Ziel-Rechner — sinnvoll bei gemeinsamem/UNC-Laufwerk oder
+    // gleichem Rechner; sonst Pfad direkt eintippen.
+    const r = await dialog.showOpenDialog({
+      title: 'Datei wählen',
+      properties: ['openFile'],
+      filters: [
+        { name: 'JM Presenter Projekt', extensions: ['jmpres'] },
+        { name: 'Alle Dateien', extensions: ['*'] },
+      ],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return r.filePaths[0];
+  });
   ipcMain.handle('rundown:setDoc', (_e, next: RundownDoc) => {
     setDoc(next, filePath, true);
     return buildState();
