@@ -7,9 +7,21 @@
 // Das Protokoll + die Capabilities liegen generiert in ./generated/protocol.mjs
 // (aus packages/suite-control-protocol via scripts/sync-companion-protocol.mjs)
 // — so bleibt das Modul standalone baubar und driftet nicht von der Suite ab.
+import net from 'node:net'
+import tls from 'node:tls'
 import { InstanceBase, runEntrypoint, InstanceStatus, TCPHelper, Regex, combineRgb } from '@companion-module/base'
-import { parseSuiteState, createLineBuffer, CAPABILITIES, KNOWN_ROLES } from './generated/protocol.mjs'
+import {
+  parseSuiteState,
+  createLineBuffer,
+  parseAuthReq,
+  formatAuth,
+  isAuthOk,
+  isAuthFail,
+  CAPABILITIES,
+  KNOWN_ROLES,
+} from './generated/protocol.mjs'
 import { buildCommandLine, toCompanionOption, matchesRole, isTruthy, isControlService, pickEndpoint } from './lib.mjs'
+import { computeAuthProof, normalizeFingerprint } from './auth.mjs'
 import { browseSuite } from './discovery.mjs'
 
 const rgb = (t) => combineRgb(t[0], t[1], t[2])
@@ -74,6 +86,18 @@ class JmSuiteInstance extends InstanceBase {
       },
       { type: 'textinput', id: 'host', label: 'IP-Adresse (manuell)', width: 6, default: '127.0.0.1', regex: Regex.IP },
       { type: 'number', id: 'port', label: 'Port (manuell)', width: 4, default: 8723, min: 1, max: 65535 },
+      {
+        type: 'static-text',
+        id: 'secinfo',
+        label: 'Sichere Steuerebene (optional)',
+        width: 12,
+        value:
+          'Token + TLS-Fingerprint aus dem Launcher → „Sichere Steuerebene". ' +
+          'Beide leer = offen (wie bisher). Nur Token = Authentifizierung ohne ' +
+          'Verschlüsselung. Mit Fingerprint = TLS-verschlüsselt + gepinnt (Schutz vor MITM).',
+      },
+      { type: 'textinput', id: 'token', label: 'Suite-Token', width: 12, default: '' },
+      { type: 'textinput', id: 'tlsFingerprint', label: 'TLS-Fingerprint (SHA-256)', width: 12, default: '' },
       { type: 'static-text', id: 'discovered', label: 'Gefunden im LAN', width: 12, value: foundText },
       { type: 'static-text', id: 'ports', label: 'Standard-Ports', width: 12, value: ports },
     ]
@@ -198,10 +222,25 @@ class JmSuiteInstance extends InstanceBase {
     this.connectTo(host, port)
   }
 
+  /** Token/Fingerprint aus der Config (getrimmt/normalisiert). */
+  secureConfig() {
+    const token = String(this.config?.token ?? '').trim()
+    const fingerprint = normalizeFingerprint(this.config?.tlsFingerprint ?? '')
+    return { token, fingerprint, secure: !!(token || fingerprint) }
+  }
+
   connectTo(host, port) {
     this.disconnect()
     this.activeHost = host
     this.activePort = port
+    const { token, fingerprint } = this.secureConfig()
+    if (token || fingerprint) this.openSecure(host, port, token, fingerprint)
+    else this.openPlain(host, port)
+  }
+
+  // Offener Modus: unveränderter TCPHelper-Pfad (Klartext, kein Handshake) — der
+  // Auto-Reconnect von TCPHelper bleibt erhalten.
+  openPlain(host, port) {
     this.updateStatus(InstanceStatus.Connecting)
     this.socket = new TCPHelper(host, port)
     const feed = createLineBuffer((line) => {
@@ -221,16 +260,112 @@ class JmSuiteInstance extends InstanceBase {
     })
   }
 
+  // Sicherer Modus (P1, #59): TLS + Fingerprint-Pinning und/oder Token-Handshake.
+  // TCPHelper kann kein TLS → eigener node:net/tls-Socket mit eigenem Reconnect.
+  // Spiegelt SuiteControlClient.open() (packages/suite-control-protocol/client.ts).
+  openSecure(host, port, token, fingerprint) {
+    const useTls = !!fingerprint
+    this.updateStatus(InstanceStatus.Connecting, useTls ? 'TLS-Verbindung …' : 'Verbinde …')
+    const socket = useTls
+      ? tls.connect({ host, port, rejectUnauthorized: false })
+      : net.connect({ host, port })
+    socket.setEncoding('utf8')
+    this.secureSocket = socket
+    const feed = createLineBuffer((line) => {
+      // secure-Handshake: Server fordert mit AUTHREQ einen Beweis an.
+      const req = parseAuthReq(line)
+      if (req) {
+        if (token) this.sendSecure(formatAuth(computeAuthProof(token, req.nonce)))
+        return // ohne Token: nichts senden → Server schließt mit AUTHFAIL
+      }
+      if (isAuthOk(line)) {
+        this.updateStatus(InstanceStatus.Ok)
+        this.sendSecure('STATE?') // Server liefert den Greeting-STATE direkt danach
+        return
+      }
+      if (isAuthFail(line)) {
+        this.updateStatus(InstanceStatus.ConnectionFailure, 'Authentifizierung abgelehnt — Token prüfen')
+        return // 'close' folgt → Reconnect
+      }
+      const st = parseSuiteState(line)
+      if (st && matchesRole(this.role, st.ns)) this.applyState(st.kv)
+    })
+    const onReady = () => {
+      if (useTls) {
+        // Selbstsigniert → Kette NICHT prüfen; stattdessen Fingerprint pinnen (TOFU).
+        const peer = socket.getPeerCertificate()
+        const got = peer && peer.fingerprint256 ? normalizeFingerprint(peer.fingerprint256) : ''
+        if (!got || got !== fingerprint) {
+          this.updateStatus(InstanceStatus.ConnectionFailure, 'TLS-Fingerprint stimmt nicht (MITM?) — verworfen')
+          socket.destroy() // 'close' folgt → Reconnect
+          return
+        }
+      }
+      // Mit Token: nichts senden — der Server schickt AUTHREQ, Antwort erfolgt im
+      // feed(). Nur TLS ohne Token (auth-loser secure-Server): Zustand anfordern.
+      if (!token) {
+        this.updateStatus(InstanceStatus.Ok)
+        this.sendSecure('STATE?')
+      } else {
+        this.updateStatus(InstanceStatus.Connecting, 'Authentifiziere …')
+      }
+    }
+    socket.on(useTls ? 'secureConnect' : 'connect', onReady)
+    socket.on('data', (chunk) => feed(chunk))
+    socket.on('error', (err) => {
+      this.updateStatus(InstanceStatus.ConnectionFailure, String(err?.message ?? err))
+    })
+    socket.on('close', () => {
+      this.secureSocket = undefined
+      this.scheduleReconnect()
+    })
+  }
+
+  sendSecure(line) {
+    if (this.secureSocket && !this.secureSocket.destroyed) {
+      try {
+        this.secureSocket.write(line.endsWith('\n') ? line : line + '\n')
+      } catch {
+        /* egal */
+      }
+    }
+  }
+
+  // Reconnect nur im Secure-Pfad (im offenen Modus reconnectet TCPHelper selbst).
+  scheduleReconnect() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    const host = this.activeHost
+    const port = this.activePort
+    if (!host) return
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined
+      this.connectTo(host, port)
+    }, 2000)
+  }
+
   disconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
     if (this.socket) {
       this.socket.destroy()
       this.socket = undefined
+    }
+    if (this.secureSocket) {
+      this.secureSocket.removeAllListeners()
+      this.secureSocket.destroy()
+      this.secureSocket = undefined
     }
     this.activeHost = undefined
     this.activePort = undefined
   }
 
   send(line) {
+    if (this.secureSocket) {
+      this.sendSecure(line)
+      return
+    }
     if (this.socket && this.socket.isConnected) this.socket.send(line + '\n')
   }
 
