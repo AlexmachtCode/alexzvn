@@ -7,7 +7,9 @@ import { rescheduleAll, stopAllRunners } from './sync/scheduler';
 declare const __dirname: string;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-copy', appName: 'JM Copy' });
+// P2 (#60): CSP-Pilot. copy spricht im Renderer nur per IPC (kein Custom-Protokoll,
+// kein direkter Netz-Zugriff) → strenge Default-CSP ohne zusätzliche Quellen.
+initAppRuntime({ appId: 'jm-copy', appName: 'JM Copy', csp: true });
 
 let mainWindow: BrowserWindow | null = null;
 
