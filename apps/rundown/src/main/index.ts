@@ -14,7 +14,7 @@ import { defaultDoc, loadAutosave, readDoc, saveAutosave, writeDoc } from './sto
 declare const __dirname: string;
 
 let mainWindow: BrowserWindow | null = null;
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 // ── Autoritativer Zustand (lebt im Main, damit auch der spätere RUNDOWN-
 //    Steuerserver / Companion navigieren kann) ───────────────────────────────
@@ -238,7 +238,7 @@ function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },

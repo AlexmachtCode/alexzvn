@@ -38,7 +38,7 @@ declare const __dirname: string;
 
 const REMOTE_PORT = 7783;
 let mainWindow: BrowserWindow | null = null;
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 // P1 (#59): geteiltes Suite-Token aus der control.json (vom Launcher provisioniert).
 // Gesetzt → die Voting-Endpunkte (/state,/events,/cmd) verlangen es; der QR-Link
@@ -405,7 +405,7 @@ function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
