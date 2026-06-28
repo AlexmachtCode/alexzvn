@@ -4,6 +4,7 @@
 // ist — der Worker nutzt nur recipe-core (validate + render).
 
 import matter from 'gray-matter';
+import { DOC_CATEGORIES } from './recipe-core.mjs';
 
 /** YAML-Datum (js-yaml liefert ein Date) → ISO-Datumsstring YYYY-MM-DD. */
 function toDateStr(v) {
@@ -109,5 +110,12 @@ function toRecipe(data, blocks) {
 /** `.md`-Quelltext → Rezept-Objekt. */
 export function parseRecipeMarkdown(md) {
   const { data, content } = matter(md);
-  return toRecipe(data, buildBlocks(parseBody(content)));
+  const recipe = toRecipe(data, buildBlocks(parseBody(content)));
+  // Doc-Kategorien (Best Practices): der Inhalt steckt im Roh-Markdown, nicht in
+  // den Rezept-Blöcken → Body als `markdown` mitführen, damit Launcher/Website ihn
+  // rendern. Für normale Rezepte NICHT gespeichert (cookbook.json bleibt schlank).
+  if (DOC_CATEGORIES.includes(data.category) && content?.trim()) {
+    recipe.markdown = content.trim();
+  }
+  return recipe;
 }

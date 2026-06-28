@@ -6,9 +6,18 @@
 // validateRecipe() prüft es → renderRecipeMarkdown() erzeugt die `.md` für den PR.
 // Der Markdown-Parser (gray-matter) lebt separat in recipe-parse.mjs (nur Node).
 
-export const CATEGORIES = ['Veranstaltungsformate', 'Technik-Setups', 'Kunden-/Location-Setups', 'Tool-Manuals'];
+export const CATEGORIES = ['Veranstaltungsformate', 'Technik-Setups', 'Kunden-/Location-Setups', 'Tool-Manuals', 'Best Practices'];
 export const DIFFICULTIES = ['einfach', 'mittel', 'anspruchsvoll', 'profi'];
 export const OWNERS = ['kunde-haus', 'jm', 'gemischt'];
+
+/**
+ * „Best Practices" trägt SOPs/Notfall-Flowcharts, die nicht ins Rezept-Template
+ * (Zutaten/Schritte/…) passen. Solche Einträge führen ihren Inhalt als Roh-
+ * Markdown im `markdown`-Feld (statt in `blocks`); der Launcher-Reader und die
+ * Website rendern dann das Markdown. Frontmatter bleibt vollständig (Default-
+ * Werte für die rezept-spezifischen Felder), damit Schema/Validierung greifen.
+ */
+export const DOC_CATEGORIES = ['Best Practices'];
 
 /** Kategorie → Ordner-Slug unter content/. */
 export const CATEGORY_SLUG = {
@@ -16,6 +25,7 @@ export const CATEGORY_SLUG = {
   'Technik-Setups': 'technik-setups',
   'Kunden-/Location-Setups': 'kunden-location-setups',
   'Tool-Manuals': 'tool-manuals',
+  'Best Practices': 'best-practices',
 };
 
 const REQUIRED = ['id', 'title', 'category', 'difficulty', 'setupTimeMin', 'teamSize', 'equipmentOwner', 'lastReviewed', 'owner', 'summary'];

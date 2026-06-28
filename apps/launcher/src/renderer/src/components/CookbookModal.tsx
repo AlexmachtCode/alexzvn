@@ -12,6 +12,7 @@ const CATEGORY_ORDER: CookbookCategory[] = [
   'Technik-Setups',
   'Kunden-/Location-Setups',
   'Tool-Manuals',
+  'Best Practices',
 ];
 
 export function CookbookModal() {

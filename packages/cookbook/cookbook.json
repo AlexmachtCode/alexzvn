@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-06-25T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z",
   "recipes": [
     {
       "id": "award-gala",
@@ -1752,6 +1752,442 @@
           "Token-Auth nur einschalten, wenn das LAN nicht vertrauenswürdig ist — sonst hält es Backstage-Geräte unnötig auf."
         ]
       }
+    },
+    {
+      "id": "checkliste-studio",
+      "title": "Checkliste — Studio Betrieb & Vorbereitung",
+      "category": "Best Practices",
+      "difficulty": "mittel",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "checkliste",
+        "studio",
+        "licht",
+        "video"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Vorbereitungs- und Betriebs-Checkliste fürs Studio — Allgemeines, Licht, Video, Audio und Netzwerk.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": [
+          {
+            "title": "2.1 Hardware",
+            "items": [
+              "Aputure Nova P300C eingeschaltet",
+              "LS300X & LS60X aktiv",
+              "Softboxen korrekt montiert",
+              "Snapgrid / Diffusion korrekt gesetzt",
+              "ArtNet Node IV online"
+            ]
+          },
+          {
+            "title": "2.2 Steuerung",
+            "items": [
+              "QLC+ gestartet",
+              "DMX‑Universen korrekt gepatcht",
+              "Presets geladen (Keylight, Fill, Backlight, Szenen)",
+              "Keine Fehlermeldungen im ArtNet‑Monitor"
+            ]
+          }
+        ]
+      },
+      "markdown": "# Studio Checkliste – Betrieb & Vorbereitung\n\n*Jakobs Medien GmbH – Technik Wiki Version*\n\n---\n\n## 1. Allgemeine Vorbereitung\n\n- [ ] Studio ist aufgeräumt, Kabelwege frei\n- [ ] Alle Geräte haben Strom / PoE++ / USV\n- [ ] Netzwerk aktiv (Switches, VLANs, PoE)\n- [ ] Monitoring-Systeme laufen (Multiview, Audio-Metering)\n- [ ] Letzte Änderungen im Technik-Wiki geprüft\n\n---\n\n## 2. Licht – Checkliste\n\n### 2.1 Hardware\n\n- [ ] Aputure Nova P300C eingeschaltet\n- [ ] LS300X & LS60X aktiv\n- [ ] Softboxen korrekt montiert\n- [ ] Snapgrid / Diffusion korrekt gesetzt\n- [ ] ArtNet Node IV online\n\n### 2.2 Steuerung\n\n- [ ] QLC+ gestartet\n- [ ] DMX‑Universen korrekt gepatcht\n- [ ] Presets geladen (Keylight, Fill, Backlight, Szenen)\n- [ ] Keine Fehlermeldungen im ArtNet‑Monitor\n\n---\n\n## 3. Video – Checkliste\n\n### 3.1 PTZ‑Kameras\n\n- [ ] PTZ Control Center geöffnet\n- [ ] AW‑UE150 / UE100 erreichbar (Ping)\n- [ ] IP‑Adressen stimmen (192.168.10.20–23)\n- [ ] PoE++ aktiv\n- [ ] Presets geladen (Wide, Close, Speaker, Panel) - [ ] Remote Panel AW‑RP150 verbunden\n\n### 3.2 Cine‑Kameras\n\n- [ ] URSA Mini Pro 12K betriebsbereit\n- [ ] Sony FS5 & A7c korrekt konfiguriert - [ ] Opt"
+    },
+    {
+      "id": "notfall-flowchart-audio",
+      "title": "Notfall-Flowchart — Audio Operator",
+      "category": "Best Practices",
+      "difficulty": "profi",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "notfall",
+        "audio",
+        "flowchart",
+        "live"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Entscheidungsbaum für den Audio-Operator bei Störungen im Live-Betrieb.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Audio Operator – Emergency Flowchart\n\n```\n                     ┌──────────────────────────┐\n                     │   AUDIO-PROBLEM IM LIVE   │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                     ┌──────────────────────────┐\n                     │ 0–5 SEK: BACKUP AUDIO AN │\n                     │ (Backup Mix / Handsender)│\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                 ┌────────────────────────────────────┐\n                 │ WELCHER FEHLERTYP?                  │\n                 └──────────────┬───────────┬─────────┘\n                                │           │\n                                ▼           ▼\n                 ┌─────────────────┐   ┌─────────────────┐\n                 │   KEIN TON      │   │ TON ÜBERSTEUERT │\n                 └───────┬─────────┘   └────────┬────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ SQ-5 Input prüfen            │   │ Gain reduzieren              │\n    │ Fader hoch / Mute aus        │   │ Sender-Gain prüfen           │\n    │ Dante 15/16 prüfen           │   │ Headset korrekt setzen       │\n    │ Mikrofon eingeschaltet?      │   │ Limiter/Compressor prüfen    │\n    └──────────────────────────────┘   └──────────────────────────────┘\n                         │                      │\n                         ▼                      ▼\n                 ┌─────────────────┐   ┌─────────────────┐\n                 │ FUNK AUSFALL    │   │ DANTE AUSFALL    │\n                 └───────┬─────────┘   └────────┬────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ Backup-Handsender geben      │   │ Dante Controller öffnen       │\n    │ Frequenz wechseln            │   │ Clock Master prüfen           │\n    │ Sender koppeln               │   │ Patchplan neu laden           │\n    │ Antennen ausrichten          │   │ SQ-5 neu starten              │\n    └──────────────────────────────┘   └──────────────────────────────┘\n```"
+    },
+    {
+      "id": "notfall-flowchart-licht",
+      "title": "Notfall-Flowchart — Licht Operator",
+      "category": "Best Practices",
+      "difficulty": "profi",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "notfall",
+        "licht",
+        "flowchart",
+        "live"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Entscheidungsbaum für den Licht-Operator bei Störungen im Live-Betrieb.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Licht Operator – Emergency Flowchart\n\n```\n                     ┌──────────────────────────┐\n                     │   LICHT-PROBLEM IM LIVE   │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                     ┌──────────────────────────┐\n                     │ 0–5 SEK: KAMERA ISO HOCH │\n                     │ (Notfall-Licht)          │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                 ┌────────────────────────────────────┐\n                 │ WELCHER FEHLERTYP?                  │\n                 └──────────────┬───────────┬─────────┘\n                                │           │\n                                ▼           ▼\n                 ┌─────────────────┐   ┌─────────────────┐\n                 │ LICHT AUS       │   │ FALSCHE SZENE    │\n                 └───────┬─────────┘   └────────┬────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ QLC+ neu starten             │   │ Preset neu laden             │\n    │ ArtNet Node prüfen           │   │ Farbtemperatur prüfen        │\n    │ DMX-Universen prüfen         │   │ Softbox / Diffusion prüfen   │\n    │ Netzwerk prüfen              │   │ Keylight / Fill / Backlight  │\n    └──────────────────────────────┘   └──────────────────────────────┘\n```"
+    },
+    {
+      "id": "notfall-flowchart-unreal",
+      "title": "Notfall-Flowchart — Unreal Virtual Production",
+      "category": "Best Practices",
+      "difficulty": "profi",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "notfall",
+        "unreal",
+        "virtual-production",
+        "flowchart"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Entscheidungsbaum für Störungen in der Unreal-Virtual-Production-Pipeline.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Unreal / Virtual Production – Emergency Flowchart\n\n```\n                     ┌──────────────────────────┐\n                     │   UNREAL-PROBLEM IM LIVE  │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                     ┌──────────────────────────┐\n                     │ 0–5 SEK: AUF KAMERA GEHEN│\n                     │ (Fallback Bild)          │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                 ┌────────────────────────────────────┐\n                 │ WELCHER FEHLERTYP?                  │\n                 └──────────────┬───────────┬─────────┘\n                                │           │\n                                ▼           ▼\n                 ┌─────────────────┐   ┌─────────────────┐\n                 │ KEIN SIGNAL     │   │ TRACKING AUSFALL │\n                 └───────┬─────────┘   └────────┬────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ Decklink Output prüfen       │   │ UDP-Port prüfen              │\n    │ Routing zur Kumo prüfen      │   │ Tracking-Software aktiv?     │\n    │ Szene neu laden              │   │ Kamera-ID prüfen             │\n    │ Unreal neu starten           │   │ Netzwerk prüfen              │\n    └──────────────────────────────┘   └──────────────────────────────┘\n                         │                      │\n                         ▼                      ▼\n                 ┌─────────────────┐\n                 │ UNREAL CRASH    │\n                 └───────┬─────────┘\n                         │\n                         ▼\n    ┌──────────────────────────────┐\n    │ Projekt neu laden            │\n    │ GPU-Auslastung prüfen        │\n    │ Decklink deaktivieren/aktiv. │\n    │ Unreal neu starten           │\n    └──────────────────────────────┘\n```"
+    },
+    {
+      "id": "notfall-flowchart-video",
+      "title": "Notfall-Flowchart — Video Operator",
+      "category": "Best Practices",
+      "difficulty": "profi",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "notfall",
+        "video",
+        "flowchart",
+        "live"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Entscheidungsbaum für den Video-Operator bei Störungen im Live-Betrieb.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Video Operator – Emergency Flowchart\n\n```\n                     ┌──────────────────────────┐\n                     │   VIDEO-PROBLEM IM LIVE   │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                     ┌──────────────────────────┐\n                     │ 0–5 SEK: BACKUP BILD AN  │\n                     │ (Fallback Input / Cam)   │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                 ┌────────────────────────────────────┐\n                 │ WELCHER FEHLERTYP?                  │\n                 └──────────────┬───────────┬─────────┘\n                                │           │\n                                ▼           ▼\n                 ┌─────────────────┐   ┌─────────────────┐\n                 │   KEIN BILD     │   │ FALSCHES BILD    │\n                 └───────┬─────────┘   └────────┬────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ Kumo Salvo „Standard“ laden  │   │ Routing prüfen               │\n    │ SDI prüfen                   │   │ TriCaster Input neu zuweisen │\n    │ TriCaster Input neu setzen   │   │ Unreal / PTZ prüfen          │\n    └──────────────────────────────┘   └──────────────────────────────┘\n                         │                      │\n                         ▼                      ▼\n                 ┌─────────────────┐   ┌─────────────────┐\n                 │ PTZ AUSFALL     │   │ UNREAL AUSFALL   │\n                 └───────┬─────────┘   └────────┬────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ Auf andere Kamera schalten   │   │ Auf Standard-Kamera schalten │\n    │ PoE++ prüfen                 │   │ Decklink Output prüfen        │\n    │ IP prüfen (192.168.10.xx)    │   │ Szene neu laden               │\n    │ Control Center neu starten   │   │ Routing zur Kumo prüfen       │\n    └──────────────────────────────┘   └──────────────────────────────┘\n```"
+    },
+    {
+      "id": "notfall-wallchart-alle-rollen",
+      "title": "Notfall-Wallchart — alle Rollen",
+      "category": "Best Practices",
+      "difficulty": "profi",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "notfall",
+        "wallchart",
+        "alle-rollen",
+        "flowchart"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Rollenübergreifendes Notfall-Wallchart (Audio/Licht/Video/Regie) für die Wand im Studio.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# WALLCHART – EMERGENCY FLOWCHART (Alle Rollen)\n\n*Jakobs Medien GmbH – Media Operations*\n\n---\n\n## 🎥 VIDEO OPERATOR (TriCaster / PTZ / Kumo)\n\n[CRITICAL] Backup-Bild aktivieren (Fallback Input)\n\n→ FEHLERTYP:\n\n**KEIN BILD**\n\n- [CRITICAL] Kumo Salvo „Standard“ laden\n- [HIGH] SDI prüfen\n- [HIGH] TriCaster Input neu setzen\n\n**FALSCHES BILD**\n\n- [HIGH] Routing prüfen\n- [HIGH] Unreal/PTZ prüfen\n\n**PTZ AUSFALL**\n\n- [HIGH] Auf andere Kamera schalten\n- [HIGH] PoE++ prüfen\n- [HIGH] IP prüfen (192.168.10.xx)\n\n**UNREAL AUSFALL**\n\n- [HIGH] Auf Standard-Kamera schalten\n- [MEDIUM] Decklink Output prüfen\n- [MEDIUM] Szene neu laden\n- [MEDIUM] Routing zur Kumo prüfen\n\n---\n\n## 🎚️ AUDIO OPERATOR (SQ‑5 / Dante / Funk)\n\n[CRITICAL] Backup-Audio aktivieren (Backup Mix / Handsender)\n\n→ FEHLERTYP:\n\n**KEIN TON**\n\n- [CRITICAL] SQ‑5 Input prüfen\n- [HIGH] Fader hoch / Mute aus\n- [HIGH] Dante 15/16 prüfen\n\n**ÜBERSTEUERT**\n\n- [HIGH] Gain reduzieren\n- [HIGH] Sender-Gain prüfen\n- [HIGH] Headset korrekt setzen\n\n**FUNK AUSFALL**\n\n- [HIGH] Backup-Handsender geben\n- [HIGH] Frequenz wechseln\n- [HIGH] Sender koppeln\n\n**DANTE AUSFALL**\n\n- [MEDIUM] Dante Controller öffnen\n- [MEDIUM] Clock Master prüfen\n- [MEDIUM] Patchplan neu laden\n- [MEDIUM] SQ‑5 neu starten\n\n---\n\n## 💡 LICHT OPERATOR (Aputure / QLC+ / DMX)\n\n[CRITICAL] Kamera ISO/Gain erhöhen (Notfall-Licht)\n\n→ FEHLERTYP:\n\n**LICHT AUS**\n\n- [CRITICAL] QLC+ neu starten\n- [HIGH] ArtNet Node prüfen"
+    },
+    {
+      "id": "panic-sop",
+      "title": "Panic SOP",
+      "category": "Best Practices",
+      "difficulty": "profi",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "notfall",
+        "sop",
+        "live",
+        "emergency"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Notfall-SOP für kritische Störungen im laufenden Live-Betrieb mit Sofortmaßnahmen in 0–30 Sekunden.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Emergency SOP – Live-Ausfälle\n\n*Jakobs Medien GmbH – Media Operations*\n\n---\n\n## Zweck\n\nDiese SOP beschreibt die **sofortigen Maßnahmen (0–30 Sekunden)** bei kritischen\nFehlern während einer Live‑Produktion.\n\nSie dient als Notfallreferenz für alle Operator.\n\n---\n\n## 1. Grundprinzipien (0–5 Sekunden)\n\n- **Ruhe bewahren**\n\n- **Nicht mehrere Dinge gleichzeitig ändern**\n\n- **Backup aktivieren, bevor Fehler gesucht wird** - **Regie sofort informieren**\n\n---\n\n## 2. Kritische Fehler & Sofortmaßnahmen\n\n---\n\n### 2.1 Kein Bild (Black Screen) – *höchste Priorität*\n**0–5 Sekunden**\n\n- [ ] Auf Backup‑Quelle schalten (TriCaster: „Backup Cam“ oder „Fallback Input“)\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n\n- [ ] Kumo Salvo „Standard“ laden\n\n- [ ] SDI‑Kabel prüfen (Sitz / Locking)\n- [ ] TriCaster Input neu zuweisen\n\n- [ ] Kamera neu starten (falls PTZ)\n\n---\n\n### 2.2 Kein Ton – *zweithöchste Priorität*\n**0–5 Sekunden**\n\n- [ ] Backup‑Audio aktivieren (SQ‑5: „Backup Mix“)\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] Mikrofon prüfen (Batterie / Mute)\n- [ ] Dante Receive 15/16 prüfen\n- [ ] SQ‑5 Input aktivieren\n- [ ] Fader hoch / Mute aus\n\n---\n\n### 2.3 PTZ Kamera eingefroren / offline\n**0–5 Sekunden**\n- [ ] Auf andere Kamera schalten\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] PoE++ prüfen\n- [ ] PTZ Control Center neu starten\n- [ ] Preset neu laden\n- [ ] Kamera pingen (192.168.10.20–23)\n\n---\n\n### 2.4 Unreal / Virtual Set ausgefallen\n\n**0–5 Sekunden**\n\n- [ ] Auf Standard‑Kamera schalten\n\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n\n- [ ] Decklink Output neu aktivieren\n- [ ] Unreal Szene neu laden\n- [ ] Routing zur Kumo prüfen\n\n---\n\n### 2.5 NDI komplett instabil / Ausfall\n**0–5 Sekunden**\n- [ ] Auf SDI‑Backup‑Signal schalten\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] Switch prüfen\n- [ ] NDI‑Quellen deaktivieren\n- [ ] VLAN prüfen\n- [ ] TriCaster Input neu laden\n\n---\n\n### 2.6 Funkstrecke tot / massives Rauschen\n**0–5 Sekunden**\n- [ ] Backup‑Mikrofon geben (Handsender)\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] Frequenz wechseln\n- [ ] Sender neu koppeln\n- [ ] Antennen ausrichten\n\n---\n\n### 2.7 Licht komplett ausgefallen\n**0–5 Sekunden**\n- [ ] ISO / Gain an Kamera erhöhen\n- [ ] Regie informieren\n**5–30 Sekunden**\n- [ ] QLC+ neu starten\n- [ ] ArtNet Node prüfen\n- [ ] DMX‑Universen neu laden\n\n---\n\n## 3. Systemweite Notfallmaßnahmen\n### 3.1 TriCaster hängt / Freeze\n**0–5 Sekunden**\n- [ ] Auf Backup‑Quelle schalten\n- [ ] Regie informieren\n**5–30 Sekunden**\n- [ ] TriCaster neu starten\n- [ ] Session neu laden\n- [ ] Control Surface neu verbinden\n\n---\n\n### 3.2 Kreuzschiene (Kumo) reagiert nicht\n**0–5 Sekunden**\n\n- [ ] Backup‑Routing im TriCaster nutzen\n\n- [ ] Regie informieren\n\n- **5–30 Sekunden**\n\n- [ ] Kumo Web‑GUI neu laden\n\n- [ ] Salvo „Standard“ erneut ausführen\n\n- [ ] Gerät neu starten (falls möglich)\n\n---\n\n## 4. Kommunikation (immer)\n\n- [ ] Regie sofort informieren\n\n- [ ] Projektleitung informieren\n\n- [ ] Moderation nur informieren, wenn absolut nötig\n\n- [ ] Keine technischen Details an Gäste kommunizieren\n\n---\n\n## 5. Nach dem Notfall (Post‑Emergency)\n\n- [ ] Fehler dokumentieren\n\n- [ ] Ursache"
+    },
+    {
+      "id": "panik-flowchart",
+      "title": "Panik-Flowchart",
+      "category": "Best Practices",
+      "difficulty": "profi",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "notfall",
+        "panik",
+        "flowchart",
+        "live"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Schneller Notfall-Entscheidungsbaum für akute Störungen im laufenden Betrieb.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Panik Flowchart\n\n# Emergency Flowchart – Live-Ausfälle\n\n*Jakobs Medien GmbH – Media Operations*\n\n```\n                     ┌──────────────────────────┐\n                     │   PROBLEM IM LIVE-BETRIEB │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                     ┌──────────────────────────┐\n                     │   0–5 SEKUNDEN REAKTION   │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                     ┌──────────────────────────┐\n                     │ 1. Ruhe bewahren          │\n                     │ 2. Backup aktivieren      │\n                     │ 3. Regie informieren      │\n                     └──────────────┬───────────┘\n                                    │\n                                    ▼\n                 ┌────────────────────────────────────┐\n                 │ WELCHER FEHLERTYP TRITT AUF?        │\n                 └──────────────┬───────────┬─────────┘\n                                │           │\n                                │           │\n                                ▼           ▼\n                 ┌─────────────────┐   ┌─────────────────┐\n                 │   KEIN BILD     │   │    KEIN TON      │\n                 └───────┬─────────┘   └────────┬────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ Backup-Kamera aktivieren     │   │ Backup-Mikrofon aktivieren   │\n    │ Kumo-Salvo „Standard“ laden  │   │ SQ-5: Backup-Mix aktivieren  │\n    │ SDI prüfen                   │   │ Dante 15/16 prüfen           │\n    │ TriCaster Input neu zuweisen │   │ Sender/Mute prüfen           │\n    └──────────────────────────────┘   └──────────────────────────────┘\n                         │                      │\n                         ▼                      ▼\n                 ┌─────────────────┐   ┌─────────────────┐\n                 │   PTZ AUSFALL   │   │   NDI AUSFALL    │\n                 └───────┬─────────┘   └────────┬────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ Auf andere Kamera schalten   │   │ Auf SDI-Backup schalten      │\n    │ PoE++ prüfen                 │   │ Switch prüfen                │\n    │ IP (192.168.10.xx) prüfen    │   │ NDI-Quellen reduzieren       │\n    │ PTZ Control Center neu laden │   │ VLAN prüfen                  │\n    └──────────────────────────────┘   └──────────────────────────────┘\n                         │                      │\n                         ▼                      ▼\n                 ┌─────────────────┐   ┌─────────────────┐\n                 │ UNREAL AUSFALL  │   │ FUNK AUSFALL     │\n                 └───────┬─────────┘   └────────┬────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ Auf Standard-Kamera schalten │   │ Backup-Handsender geben      │\n    │ Decklink Output prüfen       │   │ Frequenz wechseln            │\n    │ Szene neu laden              │   │ Sender koppeln               │\n    │ Routing zur Kumo prüfen      │   │ Antennen ausrichten          │\n    └──────────────────────────────┘   └──────────────────────────────┘\n                         │                      │\n                         ▼                      ▼\n                 ┌────────────────────────────────────┐\n                 │  FEHLER INNERHALB 30 SEKUNDEN GELÖST? │\n                 └──────────────┬───────────┬──────────┘\n                                │           │\n                                │           │\n                                ▼           ▼\n                 ┌─────────────────┐   ┌──────────────────────────────┐\n                 │     JA          │   │             NEIN              │\n                 └───────┬─────────┘   └────────┬────────────────────┘\n                         │                      │\n                         ▼                      ▼\n    ┌──────────────────────────────┐   ┌──────────────────────────────┐\n    │ Produktion normal fortsetzen │   │ 1. Regie informieren         │\n    │ Monitoring weiter aktiv      │   │ 2. Projektleitung informieren│\n    │                              │   │ 3. Backup-Signal halten      │\n    └──────────────────────────────┘   │ 4. Fehler dokumentieren      │\n                                       └──────────────────────────────┘\n```\n\n# Versionierung\n\n- Version: 1.0\n- Verantwortlich: Media Operations\n- Studio: Jakobs Medien GmbH"
+    },
+    {
+      "id": "fehlerbehebung-troubleshooting",
+      "title": "SOP — Fehlerbehebung (Troubleshooting)",
+      "category": "Best Practices",
+      "difficulty": "anspruchsvoll",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "troubleshooting",
+        "sop",
+        "video",
+        "audio"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Systematische Troubleshooting-SOP für Video, Audio, Licht und Netzwerk im Studio.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# SOP – Fehlerbehebung (Troubleshooting)\n\n*Jakobs Medien GmbH – Media Operations*\n\n---\n\n## 1. Zweck der SOP\n\nDiese SOP beschreibt alle standardisierten Schritte zur Fehlerbehebung im\nStudiobetrieb.\n\nSie dient als schnelle Referenz für Operator, Bildtechnik, Audiotechnik und\nLichttechnik.\n\n---\n\n## 2. Allgemeine Grundregeln\n\n- **Ruhe bewahren** – Fehler treten häufig auf, sind meist schnell lösbar.\n\n- **Systematisch vorgehen** – niemals mehrere Dinge gleichzeitig ändern.\n\n- **Dokumentieren** – jeder Fehler wird nach der Produktion eingetragen.\n\n- **Rollback‑Plan nutzen** – immer einen funktionierenden Zustand herstellen\nkönnen.\n\n---\n\n## 3. Fehlerkategorien\n\nDiese SOP deckt folgende Bereiche ab:\n\n1. **Video / Bildsignal**\n\n2. **Audio / Ton**\n\n3. **Netzwerk / NDI / Dante**\n\n4. **PTZ‑Kameras**\n\n5. **Unreal Engine / Virtual Production**\n\n6. **Licht / DMX**\n\n7. **TriCaster / Routing / Kumo**\n\n8. **Funkstrecken / Mikrofone**\n\n---\n\n## 4. Fehlerbehebung – Video\n\n### 4.1 Kein Bildsignal\n\n- [ ] SDI‑Kabel prüfen (Sitz, Knick, Locking)\n\n- [ ] Kumo Routing prüfen (Quelle → Ziel)\n\n- [ ] TriCaster Input prüfen (richtiger SDI‑Port) - [ ] Kamera eingeschaltet?\n\n- [ ] Kamera‑Output korrekt (1080i25 / 1080p50)? - [ ] Monitor OUT korrekt geroutet?\n\n### 4.2 Falsches Bild / falsche Quelle\n\n- [ ] Kumo Salvo neu laden („Standard“)\n\n- [ ] TriCaster Input‑Label prüfen\n\n- [ ] Unreal Output prüfen (Decklink"
+    },
+    {
+      "id": "sop-studio-jm",
+      "title": "SOP — Studiobetrieb JM",
+      "category": "Best Practices",
+      "difficulty": "anspruchsvoll",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "sop",
+        "studio",
+        "media-operations",
+        "workflow"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Standard Operating Procedure für den JM-Studiobetrieb — Rollen, Phasen von Vorbereitung bis Post-Production, Sicherheit und Troubleshooting.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Standard Operating Procedure (SOP) – Studiobetrieb\n\n*Jakobs Medien GmbH – Media Operations*\n\n---\n\n## 1. Zweck der SOP\n\nDiese SOP definiert den standardisierten Ablauf für den Betrieb des Studios.\nSie stellt sicher, dass alle Produktionen konsistent, sicher und mit hoher\nQualität durchgeführt werden.\n\n---\n\n## 2. Geltungsbereich\n\nDiese SOP gilt für:\n\n- Media Operator\n- Bildtechnik\n- Audiotechnik\n- Lichttechnik\n- Projektleitung\n- Externe Techniker im Studio\n\n---\n\n## 3. Rollen & Verantwortlichkeiten\n\n### 3.1 Media Operator\n\n- Gesamtüberblick über Bild, Ton, Licht, Routing\n- Bedienung TriCaster & PTZ\n- Monitoring aller Signale\n- Kommunikation mit Regie & Projektleitung\n\n### 3.2 Bildtechnik\n\n- Kameras (PTZ, Cine)\n- Kreuzschiene (AJA Kumo)\n- Monitore & Zuspieler\n- Unreal Engine / Virtual Production\n\n### 3.3 Audiotechnik\n\n- SQ‑5 Mischpult\n- Dante‑Routing\n- Funkstrecken (Shure ULXD)\n- Monitoring & Pegelkontrolle\n\n### 3.4 Lichttechnik\n\n- Aputure‑Leuchten\n- QLC+ / DMX‑Steuerung\n- Lichtstimmungen & Szenen\n\n---\n\n## 4. Ablauf – Gesamtprozess\n\n### Phase 1 – Vorbereitung (T‑60 bis T‑30 Minuten)\n\n#### 4.1 Studio öffnen & Grundcheck\n\n- Studio stromseitig aktiv\n- Netzwerk aktiv (Switches, VLANs, PoE++)\n- Kreuzschiene erreichbar (192.168.10.150)\n- TriCaster gestartet\n- SQ‑5 gestartet\n- Unreal Workstation gestartet\n- Lichtsystem aktiv (QLC+, ArtNet Node)\n\n#### 4.2 Geräteprüfung\n\n- PTZ‑Kameras erreichbar (Ping)\n- Cine‑Kameras liefern SDI‑Signal\n- Funkstrecken geladen & verbunden\n- Monitore aktiv\n- Audio‑Monitoring aktiv\n\n---\n\n### Phase 2 – Technische Einrichtung (T‑30 bis T‑10 Minuten)\n\n#### 4.3 Routing konfigurieren\n\n- Kumo Salvo „Standard“ laden\n- PTZ‑Inputs → TriCaster\n- Unreal OUT → TriCaster\n- LiveU Ingest → TriCaster\n- Monitor OUT → NEC M551\n\n#### 4.4 TriCaster Setup\n\n- Session laden\n- Inputs benennen\n- Audio‑Metering prüfen\n- Streaming‑Profile prüfen\n- Recording‑Pfad prüfen\n\n#### 4.5 Audio Setup\n\n- Dante‑Routing prüfen\n- SQ‑5 Patchplan prüfen\n- Headsets & Handsender testen\n- Pegel einrichten (−12 dBFS Zielwert)\n\n#### 4.6 Licht Setup\n\n- Keylight / Fill / Backlight setzen\n- Szenen laden\n- DMX‑Universen prüfen\n\n#### 4.7 Unreal Setup\n\n- Szene laden\n- Tracking aktiv\n- Decklink‑Outputs prüfen\n- Routing zur Kumo prüfen\n\n---\n\n### Phase 3 – Pre‑Production (T‑10 bis T‑0 Minuten)\n\n#### 4.8 Letzter Systemcheck\n\n- Bild stabil\n- Ton stabil\n- Licht korrekt\n- PTZ‑Presets geladen\n- Streaming bereit\n- Recording bereit\n- Backup‑Recording aktiv\n\n#### 4.9 Kommunikation\n\n- Regie informiert\n- Projektleitung informiert\n- Moderation / Gäste verkabelt\n- Letzter Audio‑Check\n\n---\n\n### Phase 4 – Live‑Produktion\n\n#### 4.10 Während der Produktion\n\n- Monitoring aller Signale\n- Audio‑Metering im Blick\n- PTZ‑Bewegungen smooth\n- Szenenwechsel im TriCaster\n- Unreal‑Render überwachen\n- NDI‑Stabilität prüfen\n- Backup‑Recording prüfen\n\n#### 4.11 Troubleshooting (Schnellmaßnahmen)\n\n- **Kein Bild:** Kumo Routing prüfen\n- **Kein Ton:** SQ‑5 Patch / Dante prüfen\n- **PTZ offline:** PoE++ / IP / Control Center\n- **Unreal kein Signal:** Decklink / Routing\n- **NDI instabil:** VLAN / Switch / Bandbreite\n\n---\n\n### Phase 5 – Post‑Production\n\n#### 4.12 Nach der Produktion\n\n- Recordings sichern\n- Streaming stoppen\n- TriCaster Session speichern\n- Routing zurück auf „Standard“\n- Funkstrecken ausschalten\n- Licht ausschalten\n- Studio zurückbauen\n\n#### 4.13 Dokumentation\n\n- Fehler dokumentieren\n- Besonderheiten notieren\n- Lessons Learned eintragen\n- Technik‑Wiki aktualisieren\n\n---\n\n## 5. Sicherheitsrichtlinien\n\n### 5.1 Elektrik\n\n- Keine Lasten an Mehrfachsteckdosen\n- Kabelwege frei halten\n- USV nicht überlasten\n\n### 5.2 Netzwerk\n\n- Keine Fremdgeräte ohne Freigabe\n- VLAN‑Trennung beachten\n- IP‑Konflikte vermeiden\n\n### 5.3 Audio\n\n- Pegel nicht über 0 dBFS\n- Headsets hygienisch reinigen\n\n### 5.4 Video\n\n- SDI‑Kabel nicht knicken\n- PTZ‑Bewegungen langsam fahren\n\n---\n\n## 6. Anhänge\n\n### 6.1 Checklisten\n\n→ Verlinkte Checkliste „Studio Checkliste – Betrieb & Vorbereitung“"
+    },
+    {
+      "id": "studio-best-practices",
+      "title": "Studio Best Practices",
+      "category": "Best Practices",
+      "difficulty": "mittel",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "studio",
+        "best-practices",
+        "workflow",
+        "implementierung"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Leitlinien und Best Practices für den Studiobetrieb — von der Planung neuer medientechnischer Setups bis zur Dokumentation.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Best Practices\n\n# Best Practice: Implementierung neuer medientechnischer Setups\n\n*Software- und Hardware-Implementierungen – Von der Planung bis zur Dokumentation*\n\n*Jakobs Medien GmbH – Qualitätsstandard*\n\n---\n\n## 1. Zielsetzung\n\nDiese Best Practice beschreibt den vollständigen Prozess zur Einführung neuer medientechnischer Setups – egal ob software- oder hardwarebasiert.\n\nSie dient als Leitfaden für Media Operator, Techniker, Projektleiter und externe Dienstleister.\n\n---\n\n## 2. Anwendungsfälle\n\n- Neue Software (z. B. Streaming-Tools, Grafiksysteme, Automationssoftware)\n- Neue Hardware (z. B. PTZ-Kameras, Audio-Racks, Router, Encoder, Monitore)\n- Neue Workflows (z. B. Remote-Zuschaltungen, Hybrid-Event-Setups, Recording-Pipelines)\n- Austausch oder Upgrade bestehender Systeme\n\n---\n\n## 3. Prozessübersicht\n\n1. **Bedarf & Ziele definieren**\n2. **Anforderungen sammeln**\n3. **Technisches Konzept erstellen**\n4. **Testumgebung aufbauen**\n5. **Implementierung durchführen**\n6. **Qualitätssicherung & Abnahme**\n7. **Rollout & Schulung**\n8. **Dokumentation finalisieren**\n9. **Review & Lessons Learned**\n\n---\n\n## 4. Phase 1 – Bedarf & Ziele definieren\n\n### 4.1 Kickoff\n\n- Verantwortliche bestimmen (Projektleitung, Operator, Technik)\n- Ziel des neuen Setups definieren\n- Stakeholder identifizieren (Kunde, Ministerium, interne Teams)\n\n### 4.2 Leitfragen\n\n- Welches Problem soll gelöst werden?\n- Welche Anforderungen kommen vom Kunden?\n- Welche internen Standards müssen eingehalten werden?\n- Welche Systeme müssen integriert werden?\n\n---\n\n## 5. Phase 2 – Anforderungen sammeln\n\n### 5.1 Funktionale Anforderungen\n\n- Videoformate, Auflösungen, Framerates\n- Audio-Routing, Pegel, Monitoring\n- Netzwerk (VLANs, Bandbreite, NDI/SRT/RTMP)\n- Redundanz & Failover\n- Bedienbarkeit für Operator\n\n### 5.2 Nicht-funktionale Anforderungen\n\n- Sicherheit (IT, Datenschutz, Ministeriumsvorgaben)\n- Skalierbarkeit\n- Kompatibilität mit bestehender Infrastruktur\n- Wartbarkeit\n\n### 5.3 Ressourcenplanung\n\n- Hardwareliste\n- Softwarelizenzen\n- Personalbedarf\n- Zeitplan\n\n---\n\n## 6. Phase 3 – Technisches Konzept\n\n### 6.1 Architekturdiagramm\n\n- Signalfluss (Video/Audio/Netzwerk)\n- Geräte-Topologie\n- Redundanzpfade\n- Monitoring-Punkte\n\n### 6.2 Risikoanalyse\n\n- Single Points of Failure\n- Netzwerkrisiken\n- Stromversorgung\n- Bedienfehler\n\n### 6.3 Testplan definieren\n\n- Funktionstests\n- Belastungstests\n- Failover-Tests\n- Kompatibilitätstests\n\n---\n\n## 7. Phase 4 – Testumgebung aufbauen\n\n### 7.1 Aufbau\n\n- Setup in isolierter Umgebung\n- Nutzung echter Produktionsgeräte, wenn möglich\n- Logging aktivieren (Software/Hardware)\n\n### 7.2 Testdurchführung\n\n- Alle definierten Tests durchführen\n- Ergebnisse dokumentieren\n- Bugs priorisieren\n- Workarounds definieren\n\n### 7.3 Abnahme der Testphase\n\n- Freigabe durch Projektleitung\n- Entscheidung: Go / No-Go\n\n---\n\n## 8. Phase 5 – Implementierung im Live-System\n\n### 8.1 Vorbereitung\n\n- Wartungsfenster planen\n- Backup bestehender Konfigurationen\n- Rollback-Plan erstellen\n- Kommunikation an alle Teams\n\n### 8.2 Umsetzung\n\n- Installation / Verkabelung / Konfiguration\n- Live-Monitoring während der Implementierung\n- Sofortige Funktionsprüfung\n\n### 8.3 Übergabe an Operator\n\n- Kurzeinweisung\n- Checkliste abarbeiten\n- Troubleshooting-Szenarien durchgehen\n\n---\n\n## 9. Phase 6 – Qualitätssicherung & Abnahme\n\n### 9.1 QS-Checkliste\n\n- Funktion aller Ein- und Ausgänge\n- Audiopegel stabil\n- Videoformate korrekt\n- Netzwerk stabil (Ping, Jitter, Paketverlust)\n- Redundanz getestet\n- Bedienbarkeit geprüft\n\n### 9.2 Abnahmeprotokoll\n\n- Verantwortliche bestätigen Funktion\n- Offene Punkte dokumentieren\n- Finales Go für Produktion\n\n---\n\n## 10. Phase 7 – Rollout & Schulung\n\n### 10.1 Interne Schulung\n\n- Operator\n- Techniker\n- Projektleiter\n- Eventmanager\n\n### 10.2 Externe Schulung (falls relevant)\n\n- Ministerium\n- Kunden\n- Externe Dienstleister\n\n### 10.3 Schulungsunterlagen\n\n- Quickstart-Guides\n- Troubleshooting-Guides\n- Video-Tutorials\n- Konfigurationsvorlagen\n\n---\n\n## 11. Phase 8 – Dokumentation\n\n### 11.1 Pflichtdokumente\n\n- Setup-Dokumentation (Signalfluss, Geräte, Versionen)\n- Bedienungsanleitung\n- Checklisten\n- Backup- & Restore-Anleitung\n- Netzwerkplan\n- Abnahmeprotokoll\n- Change-Log\n\n### 11.2 Format\n\n- Markdown (.md) für interne Repositories\n- PDF für Kunden\n- Confluence für Wissensdatenbank\n\n---\n\n## 12. Phase 9 – Review & Lessons Learned\n\n### 12.1 Nachbesprechung\n\n- Was lief gut?\n- Was lief schlecht?\n- Welche Risiken wurden sichtbar?\n- Welche Standards müssen angepasst werden?\n\n### 12.2 Kontinuierliche Verbesserung\n\n- Dokumentation aktualisieren\n- Checklisten erweitern\n- Prozesse optimieren\n- Feedback in zukünftige Projekte übernehmen\n\n---\n\n## 13. Anhänge\n\n### 13.1 Beispiel-Checkliste für Operator\n\n- [ ]  Stromversorgung geprüft\n- [ ]  Netzwerkverbindungen aktiv\n- [ ]  Audiopegel korrekt\n- [ ]  Kameras erreichbar\n- [ ]  Encoder sendet korrekt\n- [ ]  Backup-System aktiv\n- [ ]  Monitoring läuft\n\n### 13.2 Beispiel-Template für Signalfluss\n\n[Quelle] → [Router] → [Encoder] → [Streamingserver]\n[Audioquelle] → [Mischpult] → [Interface] → [Encoder]\n\n---\n\n## 14. Versionierung\n\n- Version: 1.0\n- Erstellt: {{Datum}}\n- Verantwortlich: Jakobs Medien GmbH – Media Operations"
+    },
+    {
+      "id": "studio-infrastruktur",
+      "title": "Studio-Infrastruktur",
+      "category": "Best Practices",
+      "difficulty": "anspruchsvoll",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "infrastruktur",
+        "studio",
+        "licht",
+        "netzwerk"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Überblick über die technische Infrastruktur des Studios — Licht, Video, Audio und Netzwerk.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Studio Infrastruktur\n\n# Studio Infrastruktur – Zusammenfassung\n\n*Basierend auf der internen Dokumentation (Stand: 09.12.2023)*\n\n---\n\n## 1. Allgemeines\n\n- Dokument erstellt von: **Alexander Kurreck**\n- Letzte Bearbeitung: **Alexander Kurreck**\n- Inhalt: Übersicht über Licht-, Video-, Audio- und Netzwerk-Infrastruktur des Studios sowie Referenzen und Workflows.\n\n---\n\n# 2. Licht\n\n## 2.1 Ausstattung\n\n- **14× Aputure Nova P300C** (mit Softboxen & Snapgrid)\n- **2× Aputure LS300X** (Softbox, Lantern)\n- **4× Aputure LS60X**\n- **3× 1×1 Lightpanel**\n- **1× Eurolite ArtNet Node IV**\n\n## 2.2 Steuerung\n\n- **QLC+ (QLight Controller Plus)** für DMX‑Steuerung\n\n## 2.3 Referenzen / Manuals\n\n- Aputure Nova P300C Manual\n- Aputure LS300X Manual\n\n---\n\n# 3. Video\n\n## 3.1 Kamera-Setup\n\n- **3× Panasonic AW‑UE150 (PTZ)**\n- **1× Panasonic AW‑UE100 (PTZ)**\n- **1× Panasonic AW‑RP150 Remote Panel**\n- **IP-Adressen der PTZ-Kameras:**\n    - Kam 1: 192.168.10.20\n    - Kam 2: 192.168.10.21\n    - Kam 3: 192.168.10.22\n    - Kam 4: 192.168.10.23\n- Steuerung:\n    - PTZ Control Center (Software)\n    - AW‑RP150 Remote (Keller)\n- Stromversorgung:\n    - PoE++ Injector (Serverschrank)\n\n## 3.2 Bildmischer & Routing\n\n- **NewTek TriCaster 2 Elite** + Control Surface\n- **AJA Kumo 32×32 12G Kreuzschiene**\n    - IP: **192.168.10.150**\n    - Alle Inputs/Outputs frei routbar\n    - Salvos konfiguriert (Standard, Salvo 2–8)\n\n### 3.2.1 Kumo – Beispielbelegung (Auszug)\n\n- CAM Top IN 1–4\n- TC OUT 1–8\n- Unreal OUT 1–8\n- LiveU Ingest 1–4\n- Rack Studio IN/OUT 1–2\n- Monitor OUT 1–4\n\n## 3.3 Monitore & Zuspieler\n\n- **2× NEC Multisync M551 55\"** (entspiegelt, Bodenständer)\n- **4× Lenovo Thinkcenter** (Content)\n- **2× Lenovo P‑340** (Control)\n- **1× LiveU LU‑2000** (Decoder)\n\n## 3.4 Cine- & Studio-Kameras\n\n- **Blackmagic URSA Mini Pro 12K** (PL, DZO/Tamron Optiken)\n- **Sony PXW‑FS5** (E‑Mount, 24–105mm f4, Metabones E→EF)\n- **Sony Alpha 7c** (Fullframe, 24–105mm)\n\n## 3.5 Unreal Engine / Schnitt\n\n- Unreal Engine Rechner\n- Blackmagic Decklink Duo\n- Decklink 4K Extreme\n\n## 3.6 Referenzen\n\n- Unreal Referenzprojekt Studio\n- UDP‑Tracking & Aximmetry\n- Urban Studio Basic Setup\n\n---\n\n# 4. Audio\n\n## 4.1 Mischpult & Monitoring\n\n- **Allen & Heath SQ‑5**\n- **Sennheiser HD‑25**\n- **2× Fostex 6301DT** (Regie)\n\n### 4.1.1 Verkabelung (Auszug)\n\n- 2× XLR Main Out → SQ5 Input 1 & 2\n- 2× XLR Main In → SQ5 Output 1 & 2\n- Dante Receive: **15 & 16**\n\n## 4.2 Funkstrecke – SHURE ULXD\n\n- **2× ULXD4D** Dual‑Empfänger\n- **4× UA8** Rundstrahler\n- **4× UA874** aktive Richtantennen\n- **4× ULXD1 H51** Taschensender\n- **4× ULXD2 B87A** Handsender\n- **4× DPA 4288 Headsets**\n\n## 4.3 Stagebox\n\n- Allen & Heath AB168 Stagebox\n- Manuals & Datasheets verlinkt\n\n---\n\n# 5. Netzwerk\n\n- Interne Netzwerkübersicht:\n    \n    Google Sheet (VLANs, IP‑Ranges, Routing)\n    \n- VLANs (aus Dokument ersichtlich, aber nicht ausgefüllt):\n    - NDI VLAN\n    - Dante VLAN\n    - Ubiquiti VLAN\n\n---\n\n# 6. Bisherige Produktionen & Workflows\n\n## 6.1 AstraZeneca Produktion\n\n- Referenzvideo / Workflow-Dokument (Google Drive)\n\n## 6.2 FischerAppelt Produktion\n\n- Referenzvideo / Workflow-Dokument (Google Drive)\n\n---\n\n# 7. Technikausleihe / Defekte Geräte\n\n- QR‑Code‑basierte Übersicht (PDF verlinkt)\n- Interne Tools:\n    - TriCaster Hands‑On Projekt\n    - JM Technik Wiki\n\n---\n\n# 8. Externe Dokumente & Manuals (Auszug)\n\n- Aputure Manuals\n- Panasonic AW‑UE150 / AW‑RP150 Manuals\n- TriCaster Software Update Guide\n- Allen & Heath SQ‑5 Manuals\n- AB168 Stagebox Manuals\n- Unreal Engine Referenzen\n\n---\n\n# 9. Zusammenfassung (Kurz)\n\nDas Studio verfügt über eine **voll ausgestattete Broadcast‑ und Virtual‑Production‑Infrastruktur**, bestehend aus:\n\n- **Hochwertigem Licht‑Setup** (Aputure)\n- **PTZ‑ und Cine‑Kameras** (Panasonic, Sony, Blackmagic)\n- **Professionellem Routing** (AJA Kumo 32×32)\n- **TriCaster 2 Elite** als zentrale Live‑Produktionseinheit\n- **Dante‑basiertem Audio‑System** (SQ‑5, Shure ULXD)\n- **Unreal Engine** für Virtual Production\n- **Strukturiertem Netzwerk** mit VLAN‑Trennung\n- **Dokumentierten Workflows** für vergangene Produktionen\n\nDieses Dokument dient als **technische Übersicht** für Operator, Techniker und Projektplanung."
+    },
+    {
+      "id": "studio-infrastruktur-optimiert",
+      "title": "Studio-Infrastruktur (optimiert)",
+      "category": "Best Practices",
+      "difficulty": "anspruchsvoll",
+      "setupTimeMin": 0,
+      "teamSize": "—",
+      "tags": [
+        "studio",
+        "infrastruktur",
+        "netzwerk",
+        "routing"
+      ],
+      "relatedTools": [],
+      "prerequisites": [],
+      "equipmentOwner": "jm",
+      "crewRoles": [],
+      "lastReviewed": "2026-06-28",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Optimierte Soll-Infrastruktur des Studios: Netzwerk, Signalwege und Redundanz.",
+      "blocks": {
+        "ingredients": [],
+        "steps": {
+          "vor": [],
+          "waehrend": [],
+          "nach": []
+        },
+        "troubleshooting": [],
+        "checklists": []
+      },
+      "markdown": "# Studio Infrastruktur – Technik Wiki\n*Stand: aktuellste interne Dokumentation*\n\n---\n\n## Übersicht\nDieses Dokument beschreibt die vollständige technische Infrastruktur des\nStudios:\nLicht, Video, Audio, Netzwerk, Routing, PTZ‑Kameras, Funkstrecken, Stageboxen\nund relevante Referenzen.\n\nEs dient als zentrale Wissensbasis für:\n- Media Operator\n- Bildtechnik\n- Audiotechnik\n- Projektleitung\n- Externe Techniker\n\n---\n\n## 1. Licht\n\n### 1.1 Ausstattung\n- **14× Aputure Nova P300C** (Softboxen, Snapgrid)\n- **2× Aputure LS300X** (Softbox, Lantern)\n- **4× Aputure LS60X**\n- **3× 1×1 Lightpanel**\n- **1× Eurolite ArtNet Node IV**\n\n### 1.2 Steuerung\n- **QLC+ (QLight Controller Plus)**\n  → DMX‑Steuerung über ArtNet Node\n\n### 1.3 Dokumente\n- Aputure Nova P300C Manual\n- Aputure LS300X Manual\n\n---\n\n## 2. Video\n\n### 2.1 PTZ‑Kameras\n#### Modelle\n- **3× Panasonic AW‑UE150**\n- **1× Panasonic AW‑UE100**\n- **1× Panasonic AW‑RP150 Remote Panel**\n#### IP‑Adressen\n| Kamera | IP-Adresse |\n|--------|------------|\n| Kam 1 | 192.168.10.20 |\n| Kam 2 | 192.168.10.21 |\n| Kam 3 | 192.168.10.22 |\n| Kam 4 | 192.168.10.23 |\n#### Steuerung\n- PTZ Control Center (Software)\n- AW‑RP150 Remote Panel (Keller)\n- Stromversorgung via **PoE++ Injector** (Serverschrank)\n\n---\n\n### 2.2 Bildmischer & Routing\n\n#### TriCaster\n- **NewTek TriCaster 2 Elite**\n- Control Surface\n- Alle Signale liegen auf der Kreuzschiene\n#### AJA Kumo 3232‑12G\n- **32×32 SDI‑Kreuzschiene**\n- IP: **192.168.10.150**\n- Salvos konfiguriert (Standard, Salvo 2–8)\n#### Beispiel‑Routing (Auszug)\n**Sources:**\n- CAM Top IN 1–4\n- TC OUT 1–8\n- Unreal OUT 1–8\n- LiveU Ingest 1–4\n- Rack Studio IN 1–2\n**Destinations:**\n- TC IN 1–8\n- Monitor OUT 1–4\n- Unreal IN 1–8\n- Rack Studio OUT 1–2\n\n---\n\n### 2.3 Monitore & Zuspieler\n- **2× NEC Multisync M551 55\"** (entspiegelt)\n- **4× Lenovo Thinkcenter** (Content)\n- **2× Lenovo P‑340** (Control)\n- **1× LiveU LU‑2000** (Decoder)\n\n---\n\n### 2.4 Cine‑ & Studio‑Kameras\n- **Blackmagic URSA Mini Pro 12K** (PL, DZO/Tamron Optiken)\n- **Sony PXW‑FS5** (E‑Mount, 24–105mm f4, Metabones E→EF)\n- **Sony Alpha 7c** (Fullframe, 24–105mm)\n\n---\n\n### 2.5 Unreal Engine / Virtual Production\n- Unreal Engine Workstation\n- Blackmagic Decklink Duo\n- Decklink 4K Extreme\n- Referenzen:\n  - Unreal Referenzprojekt Studio\n  - UDP‑Tracking & Aximmetry\n  - Urban Studio Basic Setup\n\n---\n\n## 3. Audio\n\n### 3.1 Mischpult & Monitoring\n- **Allen & Heath SQ‑5**\n- **Sennheiser HD‑25**\n- **2× Fostex 6301DT** (Regie)\n#### Verkabelung (Auszug)\n- 2× XLR Main Out → SQ5 Input 1 & 2\n- 2× XLR Main In → SQ5 Output 1 & 2\n- Dante Receive: **15 & 16**\n\n---\n\n### 3.2 Funkstrecke – SHURE ULXD\n- **2× ULXD4D** Dual‑Empfänger\n- **4× UA8** Rundstrahler\n- **4× UA874** aktive Richtantennen\n- **4× ULXD1 H51** Taschensender\n- **4× ULXD2 B87A** Handsender\n- **4× DPA 4288 Headsets**\n\n---\n\n### 3.3 Stagebox\n- **Allen & Heath AB168 Stagebox**\n- Dokumente:\n  - Getting Started Guide\n  - Technical Datasheet\n  - Weights & Dimensions\n\n---\n\n## 4. Netzwerk\n\n### 4.1 VLAN‑Struktur\n- **NDI VLAN**\n- **Dante VLAN**\n- **Ubiquiti VLAN**\n- Weitere Details im internen Netzwerk‑Sheet\n\n### 4.2 Netzwerkübersicht\n→ Google Sheet (IP‑Ranges, Routing, VLAN‑Zuordnung)\n\n---\n\n## 5. Workflows & Produktionen\n\n### 5.1 Referenzproduktionen\n- AstraZeneca (Google Drive)\n- FischerAppelt (Google Drive)\n\n### 5.2 Interne Ressourcen\n- TriCaster Hands‑On Projekt\n- JM Technik Wiki\n- Technikausleihe / Defekte Geräte (QR‑Code‑System)\n\n---\n\n## 6. Zusammenfassung\nDas Studio verfügt über eine vollständig integrierte Broadcast‑ und\nVirtual‑Production‑Infrastruktur mit:\n\n- Hochwertigem Licht‑Setup (Aputure) - PTZ‑ und Cine‑Kameras (Panasonic, Sony, Blackmagic) - 32×32 SDI‑Routing (AJA Kumo) - TriCaster 2 Elite als zentrale Live‑Produktion - Dante‑basiertem Audio‑System (SQ‑5, Shure ULXD) - Unreal Engine für Virtual Production - VLAN‑basiertem Netzwerkdesign\n\n- Dokumentierten Workflows & Referenzen\n\nDieses Dokument dient als **zentrale technische Wissensbasis** für alle\nStudio‑Produktionen."
     }
   ]
 }

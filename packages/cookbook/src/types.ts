@@ -13,7 +13,10 @@ export type CookbookCategory =
   | 'Veranstaltungsformate'
   | 'Technik-Setups'
   | 'Kunden-/Location-Setups'
-  | 'Tool-Manuals';
+  | 'Tool-Manuals'
+  /** SOPs / Notfall-Flowcharts. Führen ihren Inhalt als Roh-`markdown` (statt
+   *  strukturierter `blocks`); Launcher/Website rendern das Markdown. */
+  | 'Best Practices';
 
 /** Schwierigkeitsgrad eines Rezepts. */
 export type Difficulty = 'einfach' | 'mittel' | 'anspruchsvoll' | 'profi';

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Badge, Button, cn } from '@jm/ui';
 import type { EquipmentOwner, Recipe } from '@jm/cookbook';
 import { useTools } from '@/store/tools';
+import { Markdown } from '@/components/Markdown';
 
 const OWNER_LABEL: Record<EquipmentOwner, string> = {
   'kunde-haus': 'Kunde / Haustechnik',
@@ -73,6 +74,9 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
     .filter((t): t is NonNullable<typeof t> => Boolean(t));
 
   const { blocks } = recipe;
+  // Doc-Einträge (Best Practices) führen ihren Inhalt als Roh-Markdown statt in
+  // den Rezept-Blöcken → Markdown rendern, rezept-spezifische Metadaten ausblenden.
+  const isDoc = Boolean(recipe.markdown);
 
   return (
     <div className="flex flex-col gap-6">
@@ -85,9 +89,13 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone="muted">{recipe.category}</Badge>
           <Badge tone={DIFFICULTY_TONE[recipe.difficulty]}>{recipe.difficulty}</Badge>
-          <Badge tone="muted">⏱ {formatSetupTime(recipe.setupTimeMin)}</Badge>
-          <Badge tone="muted">👥 {recipe.teamSize}</Badge>
-          <Badge tone="muted">{OWNER_LABEL[recipe.equipmentOwner]}</Badge>
+          {!isDoc && (
+            <>
+              <Badge tone="muted">⏱ {formatSetupTime(recipe.setupTimeMin)}</Badge>
+              <Badge tone="muted">👥 {recipe.teamSize}</Badge>
+              <Badge tone="muted">{OWNER_LABEL[recipe.equipmentOwner]}</Badge>
+            </>
+          )}
           {recipe.location && <Badge tone="muted">📍 {recipe.location}</Badge>}
         </div>
         {recipe.crewRoles.length > 0 && (
@@ -125,6 +133,10 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
         </Section>
       )}
 
+      {isDoc && recipe.markdown ? (
+        <Markdown source={recipe.markdown} />
+      ) : (
+      <>
       {recipe.prerequisites.length > 0 && (
         <Section title="Voraussetzungen">
           <Bullets items={recipe.prerequisites} />
@@ -237,6 +249,8 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
             ))}
           </div>
         </Section>
+      )}
+      </>
       )}
 
       <p className="border-t border-[var(--border)] pt-3 text-[11px] text-[var(--muted-foreground)]">
