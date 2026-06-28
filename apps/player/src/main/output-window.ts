@@ -4,7 +4,7 @@ import type { DisplayInfo, OutputCommand } from '@shared/types';
 
 declare const __dirname: string;
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 let outputWindow: BrowserWindow | null = null;
 
@@ -57,7 +57,7 @@ export function openOutputWindow(displayId?: number): void {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },

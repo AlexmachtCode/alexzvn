@@ -13,7 +13,7 @@ initAppRuntime({ appId: 'jm-player', appName: 'JM Player' });
 
 let mainWindow: BrowserWindow | null = null;
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 // Schema vor app.whenReady() freischalten (Pflicht für protocol.handle).
 protocol.registerSchemesAsPrivileged([
@@ -65,7 +65,7 @@ function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
