@@ -30,12 +30,16 @@ if (process.platform === 'win32') {
   app.disableHardwareAcceleration();
 }
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 function createWindow(): BrowserWindow {
   return createMainWindow({
     title: 'JM NDI Screen Capture',
     preloadPath,
+    // P2 (#60): Renderer-Sandbox. Preload nutzt contextBridge/ipcRenderer + reicht
+    // den NDI-Frame-MessagePort per window.postMessage(…, e.ports) durch — dieser
+    // Transfer ist der unter Sandbox zu prüfende Punkt.
+    sandbox: true,
     iconPath: resourcePath('icon.png', join(__dirname, '..', '..', 'resources')),
     rendererUrl: process.env['ELECTRON_RENDERER_URL'],
     rendererFile: join(__dirname, '../renderer/index.html'),
