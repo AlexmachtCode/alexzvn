@@ -14,7 +14,7 @@ import { openShow } from './show';
 
 declare const __dirname: string;
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 // Geteilter Runtime-Layer. Der Launcher ist der Hub: er besitzt das
 // jmps://-Protokoll (registerProtocol) und sendet selbst keinen Heartbeat.
@@ -46,6 +46,9 @@ function createWindow(): BrowserWindow {
   return createMainWindow({
     title: 'JM Production Suite',
     preloadPath,
+    // P2 (#60): Renderer-Sandbox. Preload nutzt nur @jm/electron-kit/preload
+    // (contextBridge/ipcRenderer) — sandbox-sicher; IPC-Fläche groß → gründlich testen.
+    sandbox: true,
     iconPath: resourcePath('icon.png', join(__dirname, '..', '..', 'resources')),
     rendererUrl: process.env['ELECTRON_RENDERER_URL'],
     rendererFile: join(__dirname, '../renderer/index.html'),
