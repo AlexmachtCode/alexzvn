@@ -5,7 +5,7 @@ import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import { buildActionLine, navigate } from '@shared/conductor';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
-import type { FireReport, RundownDoc, RundownNav, RundownState } from '@shared/types';
+import type { FireReport, RundownAction, RundownDoc, RundownNav, RundownRow, RundownState } from '@shared/types';
 import { Conductor } from './conductor';
 import { getOverrides, setOverride } from './config';
 import { startControlServer, stopControlServer, pushControlState } from './control-server';
@@ -86,6 +86,9 @@ function broadcastLinks(): void {
 }
 
 function setDoc(next: RundownDoc, nextPath: string | null, markDirty: boolean): void {
+  // Dokumentwechsel/-Edit bricht noch ausstehende verzögerte Aktionen ab — sie
+  // gehörten zum alten Stand.
+  cancelPendingFires();
   doc = next;
   if (index > doc.rows.length - 1) index = Math.max(0, doc.rows.length - 1);
   filePath = nextPath;
@@ -94,23 +97,55 @@ function setDoc(next: RundownDoc, nextPath: string | null, markDirty: boolean): 
   broadcast();
 }
 
-/** Navigation auswerten; bei GO die Aktionen der scharfen Zeile feuern. */
-function doNav(cmd: RundownNav): void {
-  const res = navigate(doc, index, cmd);
-  if (cmd.t === 'go') {
-    const row = doc.rows[index];
-    const sent = res.fire.map((a) => {
-      const line = buildActionLine(a.role, a.verb, a.args);
-      const delivered = conductor.fire(a.role, line);
-      return { role: a.role, line, delivered };
-    });
-    lastFired = row ? { rowId: row.id, rowLabel: row.label, sent } : null;
-    if (row && sent.length) {
-      getLog().info(
-        `GO „${row.label}": ${sent.map((s) => s.line + (s.delivered ? '' : ' (offline)')).join(' | ')}`,
-      );
+// ── Verzögerte GO-Feuerung (Issue #80) ───────────────────────────────────────
+// Aktionen einer Zeile können je eine Verzögerung (delayMs) vor dem Feuern tragen,
+// kumulativ über die Sequenz. Ohne Verzögerungen verhält sich GO exakt wie bisher
+// (alle Aktionen synchron). Ausstehende Timer werden bei jeder neuen Navigation
+// oder jedem Dokumentwechsel abgebrochen, damit nichts in die nächste Cue feuert.
+let fireTimers: ReturnType<typeof setTimeout>[] = [];
+
+function cancelPendingFires(): void {
+  for (const t of fireTimers) clearTimeout(t);
+  fireTimers = [];
+}
+
+function fireOne(row: RundownRow, a: RundownAction, sent: FireReport['sent']): void {
+  const line = buildActionLine(a.role, a.verb, a.args);
+  const delivered = conductor.fire(a.role, line);
+  sent.push({ role: a.role, line, delivered });
+  getLog().info(`GO „${row.label}": ${line}${delivered ? '' : ' (offline)'}`);
+}
+
+/** Aktionen der scharfen Zeile feuern — sofort und/oder zeitversetzt nach delayMs. */
+function fireRow(row: RundownRow | undefined, actions: RundownAction[]): void {
+  if (!row) {
+    lastFired = null;
+    return;
+  }
+  const sent: FireReport['sent'] = [];
+  lastFired = { rowId: row.id, rowLabel: row.label, sent };
+  let offset = 0;
+  for (const a of actions) {
+    offset += Math.max(0, a.delayMs ?? 0);
+    if (offset === 0) {
+      fireOne(row, a, sent); // kein Versatz → synchron (wie bisher)
+    } else {
+      const t = setTimeout(() => {
+        fireTimers = fireTimers.filter((x) => x !== t);
+        fireOne(row, a, sent);
+        broadcast(); // UI-Quittung aktualisieren, sobald die Aktion rausging
+      }, offset);
+      fireTimers.push(t);
     }
   }
+}
+
+/** Navigation auswerten; bei GO die Aktionen der scharfen Zeile feuern. */
+function doNav(cmd: RundownNav): void {
+  // Neue Navigation bricht noch ausstehende verzögerte Aktionen der vorigen Zeile ab.
+  cancelPendingFires();
+  const res = navigate(doc, index, cmd);
+  if (cmd.t === 'go') fireRow(doc.rows[index], res.fire);
   index = res.index;
   broadcast();
 }

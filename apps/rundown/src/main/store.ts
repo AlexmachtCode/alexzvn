@@ -37,12 +37,16 @@ export function defaultDoc(): RundownDoc {
 
 function normAction(raw: unknown): RundownAction {
   const o = (raw ?? {}) as Partial<RundownAction>;
+  const delay = typeof o.delayMs === 'number' && Number.isFinite(o.delayMs) ? Math.max(0, Math.trunc(o.delayMs)) : 0;
   return {
     id: typeof o.id === 'string' ? o.id : newId('a'),
     role: typeof o.role === 'string' ? o.role : 'timer',
     verb: typeof o.verb === 'string' ? o.verb : 'start',
     args: Array.isArray(o.args) ? o.args.filter((x) => typeof x === 'string' || typeof x === 'number') : [],
     enabled: o.enabled !== false,
+    // Optionales Feld nur setzen, wenn >0 — hält cookbook-/Doc-JSON schlank und
+    // alte Dateien (ohne delayMs) verhalten sich unverändert.
+    ...(delay > 0 ? { delayMs: delay } : {}),
   };
 }
 

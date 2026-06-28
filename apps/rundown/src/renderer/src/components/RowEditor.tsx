@@ -87,6 +87,12 @@ function ActionRow({
     args[i] = value;
     onDoc(updateAction(doc, rowId, action.id, { args }));
   }
+  function setDelay(ms: number): void {
+    const v = Number.isFinite(ms) ? Math.max(0, Math.trunc(ms)) : 0;
+    onDoc(updateAction(doc, rowId, action.id, { delayMs: v > 0 ? v : undefined }));
+  }
+
+  const delayMs = action.delayMs ?? 0;
 
   return (
     <div
@@ -175,7 +181,24 @@ function ActionRow({
         </div>
       )}
 
-      <div className="mt-2 font-mono text-[11px] text-neutral-500">→ {line}</div>
+      <div className="mt-2 flex items-center gap-2">
+        <label className="flex items-center gap-1.5 text-xs text-neutral-400" title="Wartezeit vor dieser Aktion, relativ zur vorherigen Aktion derselben GO-Sequenz">
+          <span>⏱ Verzögerung</span>
+          <input
+            type="number"
+            min={0}
+            step={100}
+            defaultValue={delayMs}
+            key={`${action.id}:${delayMs}`}
+            onBlur={(e) => setDelay(Number(e.target.value))}
+            className="w-20 rounded border border-neutral-700 bg-neutral-800 px-2 py-0.5 text-sm text-neutral-100"
+          />
+          <span className="text-neutral-500">ms</span>
+        </label>
+        <span className="ml-auto font-mono text-[11px] text-neutral-500">
+          {delayMs > 0 && <span className="text-neutral-400">+{delayMs} ms </span>}→ {line}
+        </span>
+      </div>
     </div>
   );
 }
