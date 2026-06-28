@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow } from 'electron';
+import { app, ipcMain, BrowserWindow, session } from 'electron';
 import {
   appendFileSync,
   existsSync,
@@ -36,6 +36,17 @@ export interface Logger {
   error(msg: string, ...rest: unknown[]): void;
 }
 
+/**
+ * Zusätzliche CSP-Quellen je Direktive (P2, #60) — für Fälle, in denen der
+ * RENDERER direkt lädt/spricht (Custom-Protokolle wie `jm-media:`, externe Hosts).
+ * Die meisten Tools brauchen nichts davon (Netz läuft im Main per IPC).
+ */
+export interface CspConfig {
+  connectSrc?: string[];
+  imgSrc?: string[];
+  mediaSrc?: string[];
+}
+
 export interface AppRuntimeOptions {
   /** Stabile Tool-ID (z. B. "jm-timer") — für Logs, Presence, Heartbeat. */
   appId: string;
@@ -65,6 +76,13 @@ export interface AppRuntimeOptions {
   splash?: boolean;
   /** Untere Log-Schwelle (Default: 'debug' im Dev, sonst 'info'). */
   level?: LogLevel;
+  /**
+   * Content-Security-Policy für den Renderer setzen (P2, #60). `true` = strenge
+   * Default-CSP; Objekt = mit zusätzlichen Quellen je Direktive ({@link CspConfig}).
+   * Im Dev werden script/connect gelockert, damit der Vite-Dev-Server + HMR weiter
+   * laufen; im gepackten Build gilt die strenge Fassung. Default: aus (kein CSP).
+   */
+  csp?: boolean | CspConfig;
 }
 
 export interface AppRuntime {
@@ -441,6 +459,46 @@ function startSplash(appName: string): void {
  * Initialisiert den geteilten Runtime-Layer. So früh wie möglich im Main-Modul
  * aufrufen (vor app.whenReady), damit Crash-Handler auch frühe Fehler fangen.
  */
+/**
+ * Setzt eine Content-Security-Policy für alle Renderer der App via Response-Header
+ * (P2, #60). Strenge Default-CSP; im Dev (`!app.isPackaged`) werden script/connect
+ * gelockert, damit Vite + HMR (inline/eval/Websocket) weiter funktionieren — der
+ * gepackte Build bekommt die strenge Fassung. Inline-Styles bleiben erlaubt
+ * (React/Tailwind injizieren `<style>`); Skripte sind im Prod auf same-origin
+ * beschränkt. Pro App opt-in über AppRuntimeOptions.csp.
+ */
+function installContentSecurityPolicy(cfg: CspConfig, isDev: boolean, log: Logger): void {
+  const SELF = "'self'";
+  const directives: Record<string, string[]> = {
+    'default-src': [SELF],
+    'script-src': [SELF, ...(isDev ? ["'unsafe-inline'", "'unsafe-eval'"] : [])],
+    'style-src': [SELF, "'unsafe-inline'"],
+    'img-src': [SELF, 'data:', 'blob:', ...(cfg.imgSrc ?? [])],
+    'font-src': [SELF, 'data:'],
+    'media-src': [SELF, 'blob:', ...(cfg.mediaSrc ?? [])],
+    'connect-src': [SELF, ...(isDev ? ['ws:', 'wss:', 'http:', 'https:'] : []), ...(cfg.connectSrc ?? [])],
+    'worker-src': [SELF, 'blob:'],
+    'object-src': ["'none'"],
+    'base-uri': [SELF],
+    'frame-src': ["'none'"],
+  };
+  const csp = Object.entries(directives)
+    .map(([k, v]) => `${k} ${v.join(' ')}`)
+    .join('; ');
+  const apply = (): void => {
+    try {
+      session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+        cb({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } });
+      });
+      log.info(`CSP gesetzt (${isDev ? 'dev-gelockert' : 'streng'})`);
+    } catch (err) {
+      log.warn(`CSP konnte nicht gesetzt werden: ${String((err as Error)?.message ?? err)}`);
+    }
+  };
+  if (app.isReady()) apply();
+  else void app.whenReady().then(apply);
+}
+
 export function initAppRuntime(opts: AppRuntimeOptions): AppRuntime {
   const isDev = !app.isPackaged;
   const level: LogLevel = opts.level ?? (isDev ? 'debug' : 'info');
@@ -462,6 +520,11 @@ export function initAppRuntime(opts: AppRuntimeOptions): AppRuntime {
   defaultLogger = log;
 
   installCrashHandlers(log, logDir, opts.appId);
+
+  // P2 (#60): optionale Content-Security-Policy für den Renderer (opt-in pro App).
+  if (opts.csp) {
+    installContentSecurityPolicy(opts.csp === true ? {} : opts.csp, isDev, log);
+  }
 
   // Optionaler Kanal für Renderer-Logs (App kann ihn über die Preload-Bridge
   // füttern: ipcRenderer.send('jmps:log', level, msg, ...rest)).
