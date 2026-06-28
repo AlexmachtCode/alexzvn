@@ -10,6 +10,7 @@ const sharedAlias = { '@shared': resolve(__dirname, 'src/shared') };
 // — die gepackte App liefert kein node_modules.
 const internalPackages = [
   '@jm/app-runtime',
+  '@jm/control-config',
   '@jm/output-window',
   '@jm/remote',
   '@jm/show',

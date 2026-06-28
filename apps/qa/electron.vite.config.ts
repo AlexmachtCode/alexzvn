@@ -10,6 +10,7 @@ const sharedAlias = { '@shared': resolve(__dirname, 'src/shared') };
 // Tool-Kopplung (Conductor), @jm/remote für die Saal-Einreichung per Handy.
 const internalPackages = [
   '@jm/app-runtime',
+  '@jm/control-config',
   '@jm/suite-control-protocol',
   '@jm/discovery',
   '@jm/remote',
