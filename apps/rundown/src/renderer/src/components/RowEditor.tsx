@@ -99,14 +99,14 @@ function ActionRow({
           onChange={(e) => onDoc(updateAction(doc, rowId, action.id, { enabled: e.target.checked }))}
           title="aktiviert"
         />
-        <select value={action.role} onChange={(e) => setRole(e.target.value)} className={select}>
+        <select value={action.role} onChange={(e) => setRole(e.target.value)} className={`${select} min-w-0 flex-1`}>
           {KNOWN_ROLES.filter((r) => r !== 'rundown').map((r) => (
             <option key={r} value={r}>
               {CAPABILITIES[r].label}
             </option>
           ))}
         </select>
-        <select value={action.verb} onChange={(e) => setVerb(e.target.value)} className={select}>
+        <select value={action.verb} onChange={(e) => setVerb(e.target.value)} className={`${select} min-w-0 flex-1`}>
           {(CAPABILITIES[action.role]?.actions ?? []).map((a) => (
             <option key={a.id} value={a.verb}>
               {a.label}
@@ -114,7 +114,7 @@ function ActionRow({
           ))}
           {!cap && <option value={action.verb}>{action.verb}</option>}
         </select>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {fired === 'ok' && <span className="text-xs text-green-400">✓ gesendet</span>}
           {fired === 'off' && <span className="text-xs text-yellow-400">⚠ offline</span>}
           <button
