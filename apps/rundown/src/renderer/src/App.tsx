@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRundown } from '@/store/useRundown';
-import { parseRegieplan } from '@/lib/regieplan';
+import { exportRegieplan, parseRegieplan } from '@/lib/regieplan';
 import { applyImportedRows, rowsFromImport } from '@/lib/doc';
 import { ToolLinks } from '@/components/ToolLinks';
 import { Transport } from '@/components/Transport';
@@ -81,6 +81,20 @@ export function App() {
     }
   }
 
+  // Regieplan-Export (Issue #85): aktuellen Ablauf als Excel — vom JM Timer lesbar.
+  async function exportPlan(): Promise<void> {
+    if (!state || state.doc.rows.length === 0) {
+      setNotice('Kein Ablauf zum Exportieren.');
+      return;
+    }
+    try {
+      await exportRegieplan(state.doc.rows, `${state.doc.name || 'JM-Rundown'}-Regieplan.xlsx`);
+      setNotice('Regieplan als Excel exportiert.');
+    } catch (e) {
+      setNotice(`Export fehlgeschlagen: ${(e as Error).message}`);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-neutral-800 px-4 py-2">
@@ -106,6 +120,13 @@ export function App() {
             className={hdrBtn}
           >
             Regieplan…
+          </button>
+          <button
+            onClick={() => void exportPlan()}
+            title="Aktuellen Ablauf als Regieplan (Excel) exportieren — z. B. für den JM Timer"
+            className={hdrBtn}
+          >
+            Export…
           </button>
           <button onClick={() => void save()} className={hdrBtn}>
             Speichern

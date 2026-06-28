@@ -76,20 +76,51 @@ export async function parseXlsx(buffer: ArrayBuffer): Promise<ParseResult> {
  * geschrieben. SheetJS wird wie beim Import erst hier lazy geladen.
  */
 export async function downloadTemplate(): Promise<void> {
+  await buildAndDownload(
+    [
+      ['Programmpunkt', 'Dauer', 'Notiz'],
+      ['Begrüßung', '00:05:00', 'Einlauf / Moderation'],
+      ['Keynote', '00:30:00', ''],
+      ['Pause', '00:15:00', 'Catering'],
+      ['Podiumsdiskussion', '00:45:00', '3 Gäste'],
+      ['Abschluss', '00:10:00', ''],
+    ],
+    'JM-Timer-Regieplan-Vorlage.xlsx',
+  );
+}
+
+/**
+ * Den AKTUELLEN Ablauf als Regieplan-XLSX herunterladen (Issue #85). Spalten +
+ * HH:MM:SS-Dauern entsprechen dem Import — so wandert der Timer-Ablauf direkt ins
+ * JM Rundown (und umgekehrt: Rundown exportiert dasselbe Format).
+ */
+export async function exportTimetable(
+  items: Array<{ label: string; durationMs: number; note?: string }>,
+): Promise<void> {
+  await buildAndDownload(
+    [
+      ['Programmpunkt', 'Dauer', 'Notiz'],
+      ...items.map((it) => [it.label, hms(it.durationMs), it.note ?? '']),
+    ],
+    'JM-Timer-Ablauf.xlsx',
+  );
+}
+
+/** ms → "HH:MM:SS" (Export-Spaltenformat). Leer bei 0. */
+function hms(ms: number): string {
+  if (!ms || ms <= 0) return '';
+  const total = Math.round(ms / 1000);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+}
+
+/** Eine AoA als XLSX („Regieplan"-Blatt) bauen und im Browser herunterladen. */
+async function buildAndDownload(aoa: string[][], filename: string): Promise<void> {
   const XLSX = await import('xlsx');
-  const aoa: (string)[][] = [
-    ['Programmpunkt', 'Dauer', 'Notiz'],
-    ['Begrüßung', '00:05:00', 'Einlauf / Moderation'],
-    ['Keynote', '00:30:00', ''],
-    ['Pause', '00:15:00', 'Catering'],
-    ['Podiumsdiskussion', '00:45:00', '3 Gäste'],
-    ['Abschluss', '00:10:00', ''],
-  ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{ wch: 28 }, { wch: 12 }, { wch: 32 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Regieplan');
-
   const data = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
   const blob = new Blob([data], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -97,7 +128,7 @@ export async function downloadTemplate(): Promise<void> {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'JM-Timer-Regieplan-Vorlage.xlsx';
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();

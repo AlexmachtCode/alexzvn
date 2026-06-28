@@ -24,11 +24,15 @@ export function addRow(doc: RundownDoc, afterIndex: number): RundownDoc {
  * Zeilen aus einem importierten Regieplan (Issue #82) bauen — je Punkt eine Zeile
  * mit Titel + optionaler Notiz, noch ohne Aktionen (die legt der Operator an).
  */
-export function rowsFromImport(items: { label: string; note?: string }[]): RundownRow[] {
+export function rowsFromImport(
+  items: { label: string; note?: string; durationMs?: number }[],
+): RundownRow[] {
   return items.map((it) => ({
     id: newId('r'),
     label: it.label,
     ...(it.note ? { note: it.note } : {}),
+    // Dauer aus dem Regieplan mitführen (Issue #85, Timer-Austausch).
+    ...(it.durationMs && it.durationMs > 0 ? { durationMs: it.durationMs } : {}),
     actions: [],
   }));
 }

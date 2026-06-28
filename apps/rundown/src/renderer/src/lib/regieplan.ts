@@ -23,6 +23,8 @@ export interface RegieParseResult {
   };
 }
 
+import { formatHms } from './duration';
+
 const LABEL_KEYWORDS = /titel|programmpunkt|programm|punkt|item|label|name|topic|inhalt|thema|regie/;
 const DURATION_KEYWORDS = /dauer|duration|laenge|länge|length|time|zeit/;
 const NOTE_KEYWORDS = /notiz|note|bemerkung|kommentar|info|hinweis|anmerkung/;
@@ -67,6 +69,38 @@ export async function parseRegieplan(data: Uint8Array | ArrayBuffer): Promise<Re
       skippedRows: skipped,
     },
   };
+}
+
+/**
+ * Den aktuellen Ablauf als Regieplan-XLSX herunterladen (Issue #85). Spalten
+ * Programmpunkt / Dauer (HH:MM:SS) / Notiz — dasselbe Format, das der JM Timer
+ * importiert. So wandert ein in Rundown gepflegter Ablauf direkt in den Timer.
+ */
+export async function exportRegieplan(
+  rows: { label: string; durationMs?: number; note?: string }[],
+  filename = 'JM-Rundown-Regieplan.xlsx',
+): Promise<void> {
+  const XLSX = await import('xlsx');
+  const aoa: string[][] = [
+    ['Programmpunkt', 'Dauer', 'Notiz'],
+    ...rows.map((r) => [r.label ?? '', formatHms(r.durationMs), r.note ?? '']),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 28 }, { wch: 12 }, { wch: 32 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Regieplan');
+  const data = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  const blob = new Blob([data], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 interface DetectedColumns {
