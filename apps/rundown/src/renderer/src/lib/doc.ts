@@ -20,6 +20,24 @@ export function addRow(doc: RundownDoc, afterIndex: number): RundownDoc {
   return withRows(doc, rows);
 }
 
+/**
+ * Zeilen aus einem importierten Regieplan (Issue #82) bauen — je Punkt eine Zeile
+ * mit Titel + optionaler Notiz, noch ohne Aktionen (die legt der Operator an).
+ */
+export function rowsFromImport(items: { label: string; note?: string }[]): RundownRow[] {
+  return items.map((it) => ({
+    id: newId('r'),
+    label: it.label,
+    ...(it.note ? { note: it.note } : {}),
+    actions: [],
+  }));
+}
+
+/** Importierte Zeilen ins Dokument übernehmen — ersetzen oder anhängen. */
+export function applyImportedRows(doc: RundownDoc, rows: RundownRow[], replace: boolean): RundownDoc {
+  return withRows(doc, replace ? rows : [...doc.rows, ...rows]);
+}
+
 export function removeRow(doc: RundownDoc, rowId: string): RundownDoc {
   return withRows(
     doc,

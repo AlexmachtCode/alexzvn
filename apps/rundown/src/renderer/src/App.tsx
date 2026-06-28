@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useRundown } from '@/store/useRundown';
+import { parseRegieplan } from '@/lib/regieplan';
+import { applyImportedRows, rowsFromImport } from '@/lib/doc';
 import { ToolLinks } from '@/components/ToolLinks';
 import { Transport } from '@/components/Transport';
 import { RundownList } from '@/components/RundownList';
@@ -13,10 +15,18 @@ export function App() {
   const { state, load, nav, setDoc, newDoc, open, save, saveAs, setEndpoint } = useRundown();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showConnections, setShowConnections] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Kurze Rückmeldung (Import) automatisch ausblenden.
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   // Tastatur-Regie: Leertaste = GO, Pfeil hoch/runter = Zurück/Weiter
   // (nur außerhalb von Eingabefeldern, damit das Tippen nicht stört).
@@ -46,6 +56,31 @@ export function App() {
   const selectedRow =
     state.doc.rows.find((r) => r.id === selectedId) ?? state.doc.rows[state.index] ?? null;
 
+  // Regieplan-Import (Issue #82): Excel/CSV wählen → Punkte als Zeilen anlegen.
+  async function importRegieplan(): Promise<void> {
+    const file = await window.jmrundown.importRegieplan();
+    if (!file || !state) return;
+    try {
+      const parsed = await parseRegieplan(file.bytes);
+      const rows = rowsFromImport(parsed.rows);
+      if (rows.length === 0) {
+        setNotice('Keine Regieplan-Punkte erkannt — ist eine Titel-Spalte vorhanden?');
+        return;
+      }
+      const replace =
+        state.doc.rows.length === 0
+          ? true
+          : window.confirm(
+              `${rows.length} Regieplan-Punkte aus „${file.name}" gefunden.\n\n` +
+                'OK = aktuellen Ablauf ERSETZEN\nAbbrechen = anhängen',
+            );
+      await setDoc(applyImportedRows(state.doc, rows, replace));
+      setNotice(`${rows.length} Punkte ${replace ? 'importiert (ersetzt)' : 'angehängt'}.`);
+    } catch (e) {
+      setNotice(`Import fehlgeschlagen: ${(e as Error).message}`);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-neutral-800 px-4 py-2">
@@ -57,12 +92,20 @@ export function App() {
           className="rounded border border-transparent bg-transparent px-2 py-0.5 text-sm hover:border-neutral-700 focus:border-neutral-600 focus:outline-none"
         />
         {state.dirty && <span className="text-xs text-[var(--brand-yellow)]">• ungespeichert</span>}
+        {notice && <span className="text-xs text-neutral-400">{notice}</span>}
         <div className="ml-auto flex items-center gap-1.5 text-sm">
           <button onClick={() => void newDoc()} className={hdrBtn}>
             Neu
           </button>
           <button onClick={() => void open()} className={hdrBtn}>
             Öffnen
+          </button>
+          <button
+            onClick={() => void importRegieplan()}
+            title="Regieplan aus Excel/CSV importieren — legt je Punkt eine Zeile an"
+            className={hdrBtn}
+          >
+            Regieplan…
           </button>
           <button onClick={() => void save()} className={hdrBtn}>
             Speichern
