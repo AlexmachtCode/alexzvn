@@ -9,7 +9,7 @@ declare const __dirname: string;
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
 initAppRuntime({ appId: 'jm-media-converter', appName: 'JM Media Converter' });
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 function createWindow(): BrowserWindow {
   return createMainWindow({
