@@ -37,30 +37,38 @@ export class Correlator {
     if (this.beeps.length > this.opts.maxEvents) this.beeps.shift();
   }
 
-  /** Greedy nearest-neighbour pairing over the buffered events. */
+  /**
+   * Global nearest-pair matching: build every flash↔beep candidate within the
+   * window, then assign shortest-distance pairs first, one-to-one. This is robust
+   * to missed or spurious events (a lone flash or beep simply stays unpaired),
+   * unlike a left-to-right greedy walk that can mis-assign a shared neighbour.
+   */
   samples(): SyncSample[] {
-    const out: SyncSample[] = [];
-    const usedBeep = new Set<number>();
-    let cycle = this.cycle;
-
-    for (const videoMs of this.flashes) {
-      let bestIdx = -1;
-      let bestDist = this.opts.pairWindowMs;
-      for (let i = 0; i < this.beeps.length; i++) {
-        if (usedBeep.has(i)) continue;
-        const dist = Math.abs(this.beeps[i] - videoMs);
-        if (dist <= bestDist) {
-          bestDist = dist;
-          bestIdx = i;
-        }
-      }
-      if (bestIdx >= 0) {
-        usedBeep.add(bestIdx);
-        const audioMs = this.beeps[bestIdx];
-        out.push({ cycle: cycle++, videoMs, audioMs, offsetMs: videoMs - audioMs });
+    const candidates: { fi: number; bi: number; dist: number }[] = [];
+    for (let fi = 0; fi < this.flashes.length; fi++) {
+      for (let bi = 0; bi < this.beeps.length; bi++) {
+        const dist = Math.abs(this.beeps[bi] - this.flashes[fi]);
+        if (dist <= this.opts.pairWindowMs) candidates.push({ fi, bi, dist });
       }
     }
-    return out;
+    candidates.sort((a, b) => a.dist - b.dist);
+
+    const usedF = new Set<number>();
+    const usedB = new Set<number>();
+    const matched: { fi: number; bi: number }[] = [];
+    for (const c of candidates) {
+      if (usedF.has(c.fi) || usedB.has(c.bi)) continue;
+      usedF.add(c.fi);
+      usedB.add(c.bi);
+      matched.push({ fi: c.fi, bi: c.bi });
+    }
+
+    matched.sort((a, b) => this.flashes[a.fi] - this.flashes[b.fi]);
+    return matched.map(({ fi, bi }, i) => {
+      const videoMs = this.flashes[fi];
+      const audioMs = this.beeps[bi];
+      return { cycle: this.cycle + i, videoMs, audioMs, offsetMs: videoMs - audioMs };
+    });
   }
 
   stats(): MeasurementStats | null {
