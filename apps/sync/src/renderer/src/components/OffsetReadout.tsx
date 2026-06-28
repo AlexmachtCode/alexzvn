@@ -2,10 +2,12 @@ import type { MeasurementStats } from '@shared/types';
 
 interface Props {
   stats: MeasurementStats | null;
+  /** Calibration baseline subtracted from the raw offset, if set. */
+  baselineMs?: number | null;
 }
 
 /** Big headline readout of the measured A/V offset. */
-export function OffsetReadout({ stats }: Props) {
+export function OffsetReadout({ stats, baselineMs }: Props) {
   if (!stats) {
     return (
       <div className="py-6">
@@ -19,13 +21,9 @@ export function OffsetReadout({ stats }: Props) {
     );
   }
 
-  const ms = stats.medianMs;
-  const lead =
-    Math.abs(ms) < 1
-      ? 'synchron'
-      : ms > 0
-        ? 'Audio führt'
-        : 'Video führt';
+  const base = baselineMs ?? 0;
+  const ms = stats.medianMs - base;
+  const lead = Math.abs(ms) < 1 ? 'synchron' : ms > 0 ? 'Audio führt' : 'Video führt';
 
   return (
     <div className="py-2">
@@ -38,9 +36,20 @@ export function OffsetReadout({ stats }: Props) {
       </div>
       <div className="mt-2 text-lg font-bold text-[var(--primary)]">{lead}</div>
 
+      {baselineMs != null && (
+        <div className="mt-1 text-xs text-[var(--muted-foreground)] tabular">
+          roh {stats.medianMs >= 0 ? '+' : ''}
+          {stats.medianMs.toFixed(1)} ms · kalibriert ({base >= 0 ? '−' : '+'}
+          {Math.abs(base).toFixed(1)} ms)
+        </div>
+      )}
+
       <div className="mt-5 grid grid-cols-3 gap-3 max-w-md tabular">
         <Stat label="Jitter (MAD)" value={`±${stats.madMs.toFixed(1)} ms`} />
-        <Stat label="Bereich" value={`${stats.minMs.toFixed(0)}…${stats.maxMs.toFixed(0)}`} />
+        <Stat
+          label="Bereich"
+          value={`${(stats.minMs - base).toFixed(0)}…${(stats.maxMs - base).toFixed(0)}`}
+        />
         <Stat label="Messungen" value={String(stats.count)} />
       </div>
     </div>
