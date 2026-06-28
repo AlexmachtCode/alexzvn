@@ -6,7 +6,7 @@ import { registerIpc } from './ipc';
 declare const __dirname: string;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-grafiktool', appName: 'JM Grafiktool' });
+initAppRuntime({ csp: true, appId: 'jm-grafiktool', appName: 'JM Grafiktool' });
 
 let mainWindow: BrowserWindow | null = null;
 

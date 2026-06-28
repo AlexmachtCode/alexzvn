@@ -141,7 +141,7 @@ function registerIpc(): void {
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-transcribe', appName: 'JM Transcribe' });
+initAppRuntime({ csp: true, appId: 'jm-transcribe', appName: 'JM Transcribe' });
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {

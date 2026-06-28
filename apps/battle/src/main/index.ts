@@ -456,7 +456,7 @@ function applyShowFromDeepLink(url: string): void {
   }
 }
 
-const runtime = initAppRuntime({
+const runtime = initAppRuntime({ csp: true,
   appId: 'jm-battle',
   appName: 'JM Battle',
   onDeepLink: (url) => applyShowFromDeepLink(url),

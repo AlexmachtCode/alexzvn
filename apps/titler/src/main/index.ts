@@ -103,7 +103,7 @@ function registerIpc(): void {
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-titler', appName: 'JM Titler' });
+initAppRuntime({ csp: true, appId: 'jm-titler', appName: 'JM Titler' });
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {

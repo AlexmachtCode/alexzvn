@@ -7,7 +7,7 @@ import { registerIpc } from './ipc';
 declare const __dirname: string;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ appId: 'jm-media-converter', appName: 'JM Media Converter' });
+initAppRuntime({ csp: true, appId: 'jm-media-converter', appName: 'JM Media Converter' });
 
 const preloadPath = join(__dirname, '../preload/index.cjs');
 

@@ -18,7 +18,7 @@ const preloadPath = join(__dirname, '../preload/index.cjs');
 
 // Geteilter Runtime-Layer. Der Launcher ist der Hub: er besitzt das
 // jmps://-Protokoll (registerProtocol) und sendet selbst keinen Heartbeat.
-const runtime = initAppRuntime({
+const runtime = initAppRuntime({ csp: true,
   appId: 'jm-launcher',
   appName: 'JM Production Suite',
   registerProtocol: true,
