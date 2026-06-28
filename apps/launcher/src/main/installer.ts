@@ -49,30 +49,40 @@ function startInstallProgress(emit: Emit, id: string): () => void {
 interface BinaryStamp {
   exists: boolean;
   mtimeMs: number;
+  size: number;
 }
 
 /** Zustand der installierten Binär-/App-Datei (für Vorher/Nachher-Vergleich). */
 function binaryStamp(tool: ToolManifest): BinaryStamp {
   const p = installPathFor(tool);
-  if (!p) return { exists: false, mtimeMs: 0 };
+  if (!p) return { exists: false, mtimeMs: 0, size: 0 };
   try {
-    return { exists: true, mtimeMs: statSync(p).mtimeMs };
+    const st = statSync(p);
+    return { exists: true, mtimeMs: st.mtimeMs, size: st.size };
   } catch {
-    return { exists: false, mtimeMs: 0 };
+    return { exists: false, mtimeMs: 0, size: 0 };
   }
 }
 
 /**
  * Hat sich die Installation gegenüber `pre` real verändert? Frische Installation
- * (Datei war nicht da → jetzt da) oder Update (Datei wurde neu geschrieben →
- * mtime gewachsen). So unterscheiden wir „wirklich installiert" von „SmartScreen
- * hat geblockt, alte Version liegt noch da".
+ * (Datei war nicht da → jetzt da) oder Update (Datei wurde neu geschrieben). So
+ * unterscheiden wir „wirklich installiert" von „SmartScreen hat geblockt, alte
+ * Version liegt noch da".
+ *
+ * WICHTIG (#79): NSIS/electron-builder ERHALTEN beim Entpacken oft den Build-
+ * Zeitstempel der Exe. Werden zwei Versionen im selben CI-Lauf gebaut, ist die
+ * mtime identisch → ein reiner mtime-Vergleich meldet fälschlich „unverändert",
+ * obwohl korrekt aktualisiert (betraf v. a. den Recorder: Update wurde nicht
+ * erkannt, erst Deinstallieren+Neu half). Darum auch die DATEIGRÖSSE vergleichen
+ * — zwei unterschiedliche Versionen unterscheiden sich praktisch immer in der
+ * Größe, selbst wenn die mtime den Build-Zeitstempel behält.
  */
 function isInstalled(tool: ToolManifest, pre: BinaryStamp): boolean {
   const now = binaryStamp(tool);
   if (!now.exists) return false;
   if (!pre.exists) return true;
-  return now.mtimeMs > pre.mtimeMs + 1;
+  return now.mtimeMs > pre.mtimeMs + 1 || now.size !== pre.size;
 }
 
 type SilentOutcome = 'installed' | 'failed' | 'timeout';
@@ -268,8 +278,20 @@ export async function installTool(tool: ToolManifest, emit: Emit): Promise<Actio
   }
   getLog().info(`Update ${tool.id} → ${asset.version}: Silent-Installer-Ergebnis = ${outcome}`);
 
-  if (outcome === 'installed' && isInstalled(tool, pre)) {
-    getLog().info(`Update ${tool.id}: still installiert + Binary verifiziert`);
+  if (outcome === 'installed' && binaryStamp(tool).exists) {
+    // Stiller NSIS-Lauf mit Exit 0 UND Binary liegt vor → erfolgreich. Der
+    // mtime/size-Vergleich (isInstalled) ist ein Zusatzindiz, aber KEINE Pflicht:
+    // bei erhaltenem Build-Zeitstempel UND zufällig gleicher Größe würde er sonst
+    // fälschlich den interaktiven Fallback auslösen (#79). SmartScreen-Blockaden
+    // liefern 'failed'/'timeout' (nicht 'installed') — die Schutzabsicht (nicht
+    // „installiert" melden, obwohl der Installer gar nicht lief) bleibt gewahrt.
+    if (isInstalled(tool, pre)) {
+      getLog().info(`Update ${tool.id}: still installiert + Binary verifiziert`);
+    } else {
+      getLog().info(
+        `Update ${tool.id}: Exit 0 + Binary vorhanden (mtime/size unverändert — Build-Zeitstempel erhalten) → akzeptiert`,
+      );
+    }
     recordInstalled(tool.id, asset.version);
     const message = `${tool.name} ${asset.version} installiert.`;
     emit({ id: tool.id, phase: 'done', message });
@@ -277,7 +299,7 @@ export async function installTool(tool: ToolManifest, emit: Emit): Promise<Actio
   }
 
   if (outcome === 'installed') {
-    getLog().warn(`Update ${tool.id}: Silent meldete Erfolg, aber Binary unverändert → Fallback`);
+    getLog().warn(`Update ${tool.id}: Silent meldete Erfolg, aber Binary fehlt → Fallback`);
   }
 
   if (outcome === 'timeout') {
