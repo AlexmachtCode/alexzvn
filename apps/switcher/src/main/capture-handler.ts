@@ -27,8 +27,13 @@ export function installDisplayMediaHandler(): void {
 
   // getUserMedia (Capture-Karte/Kamera) braucht eine erteilte media-Permission —
   // für eine Desktop-App pauschal erlauben (kein Browser-Sandboxing nötig).
+  // Außerdem `fullscreen`: das Multiview-Overlay wirft sich per HTML-Fullscreen-API
+  // (element.requestFullscreen) auf den Monitor; ohne erteilte fullscreen-Permission
+  // lehnt Electron das ab → der „Vollbild"-Button tat nichts (#88).
+  const allow = (permission: string): boolean =>
+    permission === 'media' || permission === 'fullscreen';
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
-    cb(permission === 'media');
+    cb(allow(permission));
   });
-  session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => allow(permission));
 }
