@@ -4,7 +4,7 @@ import type { DisplayInfo, ViewName } from '@shared/types';
 
 declare const __dirname: string;
 
-const preloadPath = join(__dirname, '../preload/index.mjs');
+const preloadPath = join(__dirname, '../preload/index.cjs');
 
 let editorWindow: BrowserWindow | null = null;
 let presenterWindow: BrowserWindow | null = null;
@@ -37,7 +37,9 @@ function loadView(win: BrowserWindow, view: ViewName): void {
 
 const baseWebPreferences = {
   preload: preloadPath,
-  sandbox: false,
+  // P2 (#60): Renderer-Sandbox für alle drei Fenster (Editor/Referent/Publikum).
+  // Preload nutzt nur contextBridge/ipcRenderer (sandbox-sicher).
+  sandbox: true,
   contextIsolation: true,
   nodeIntegration: false,
 } as const;
