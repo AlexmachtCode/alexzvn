@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, session, shell } from 'electron';
 import path, { join } from 'node:path';
 import { initAppRuntime } from '@jm/app-runtime';
 import { registerIpc } from './ipc';
@@ -84,6 +84,18 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    // Kamera/Mikrofon: JM Sync ist ein lokales Mess-Tool, das Kamera UND Mikrofon
+    // per getUserMedia öffnet. Ohne expliziten Permission-Handler weist Electron
+    // die Anfrage (bzw. den vorgelagerten Permission-Check, den auch
+    // enumerateDevices für die Geräte-Labels nutzt) je nach Version ab → „keine
+    // Geräte erkannt / Could not start video source" (#32/#92), obwohl die Kamera
+    // in anderen Apps (OBS, Windows-Kamera) läuft. Wir gewähren gezielt `media`.
+    const allowMedia = (permission: string): boolean => permission === 'media';
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(allowMedia(permission));
+    });
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowMedia(permission));
+
     registerIpc();
     createMainWindow();
 

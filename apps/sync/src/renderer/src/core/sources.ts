@@ -47,3 +47,27 @@ export async function getDisplayStream(): Promise<MediaStream> {
 export function stopStream(stream: MediaStream | null): void {
   stream?.getTracks().forEach((t) => t.stop());
 }
+
+/**
+ * Schaltet die Geräte-Labels frei (enumerateDevices liefert leere Labels, bis
+ * einmal ein Stream geöffnet wurde). Kamera und Mikrofon werden GETRENNT
+ * angefragt: fällt eines aus (kein Mikro vorhanden, belegt, blockiert), bleibt
+ * das andere nutzbar und die Geräteliste füllt sich trotzdem (#32) — eine
+ * kombinierte Anfrage würde an einem einzigen defekten Subsystem komplett
+ * scheitern. Schlägt das Video fehl, wird DESSEN Fehler hochgereicht (damit
+ * friendly() ihn anzeigt); ein reiner Audio-Fehler wird bewusst verschluckt.
+ */
+export async function unlockDeviceLabels(): Promise<void> {
+  let videoErr: unknown = null;
+  try {
+    stopStream(await navigator.mediaDevices.getUserMedia({ video: true }));
+  } catch (e) {
+    videoErr = e;
+  }
+  try {
+    stopStream(await navigator.mediaDevices.getUserMedia({ audio: true }));
+  } catch {
+    /* Mikro fürs Label-Unlock optional — Fehler hier bewusst ignorieren */
+  }
+  if (videoErr) throw videoErr;
+}

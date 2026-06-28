@@ -11,6 +11,7 @@ import {
   getUserStream,
   getDisplayStream,
   stopStream,
+  unlockDeviceLabels,
   type DeviceLists,
 } from '@/core/sources';
 import { runtime } from '@/platform';
@@ -54,8 +55,9 @@ export function MeasureView() {
   const loadDevices = useCallback(async () => {
     setError(null);
     try {
-      const probe = await getUserStream(); // prompt → unlocks device labels
-      stopStream(probe);
+      // Kamera + Mikro getrennt freischalten — ein fehlendes/belegtes Mikro darf
+      // die Kamera-Geräteliste nicht mitreißen (#32).
+      await unlockDeviceLabels();
       await refreshDevices();
     } catch (e) {
       setError(friendly(e));
