@@ -29,6 +29,13 @@ export interface RundownRow {
   label: string;
   note?: string;
   actions: RundownAction[];
+  /**
+   * Geplante Dauer des Blocks in Millisekunden (Issue #85, Austausch mit dem JM
+   * Timer). Rundown selbst feuert zeitlich nicht danach — das Feld wird beim
+   * Regieplan-Import übernommen, im Editor pflegbar und beim Export mitgeschrieben,
+   * damit ein Ablauf zwischen Rundown und Timer synchron bleibt. 0/undefined = ohne.
+   */
+  durationMs?: number;
 }
 
 /** Das Rundown-Dokument (Speicherformat `.jmrundown`). */

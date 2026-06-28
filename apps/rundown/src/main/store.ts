@@ -52,11 +52,14 @@ function normAction(raw: unknown): RundownAction {
 
 function normRow(raw: unknown): RundownRow {
   const o = (raw ?? {}) as Partial<RundownRow>;
+  const duration = typeof o.durationMs === 'number' && Number.isFinite(o.durationMs) ? Math.max(0, Math.trunc(o.durationMs)) : 0;
   return {
     id: typeof o.id === 'string' ? o.id : newId('r'),
     label: typeof o.label === 'string' ? o.label : 'Zeile',
     note: typeof o.note === 'string' ? o.note : undefined,
     actions: Array.isArray(o.actions) ? o.actions.map(normAction) : [],
+    // Optionales Feld nur bei >0 setzen — alte Dateien bleiben unverändert.
+    ...(duration > 0 ? { durationMs: duration } : {}),
   };
 }
 

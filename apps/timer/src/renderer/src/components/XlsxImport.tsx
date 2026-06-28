@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { parseXlsx, downloadTemplate, type ParseResult } from '@/lib/xlsx';
+import { parseXlsx, downloadTemplate, exportTimetable, type ParseResult } from '@/lib/xlsx';
 import { formatHMS } from '@/lib/time';
 import { useStore } from '@/store/timer';
 import { Button } from '@jm/ui';
@@ -14,6 +14,7 @@ interface Props {
 
 export function XlsxImport({ open, onClose }: Props) {
   const ttSetAll = useStore((s) => s.ttSetAll);
+  const items = useStore((s) => s.timetable.items);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [filename, setFilename] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +110,14 @@ export function XlsxImport({ open, onClose }: Props) {
               </Button>
               <Button variant="outline" onClick={() => void downloadTemplate()}>
                 Vorlage herunterladen
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void exportTimetable(items)}
+                disabled={items.length === 0}
+                title="Aktuellen Ablauf als Regieplan (Excel) exportieren — z. B. für JM Rundown"
+              >
+                Ablauf exportieren
               </Button>
               {filename && (
                 <span className="text-sm text-[var(--muted-foreground)] truncate">

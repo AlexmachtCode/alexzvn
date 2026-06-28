@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { buildActionLine } from '@shared/conductor';
 import { CAPABILITIES, KNOWN_ROLES, capAction } from '@/lib/capabilities';
 import { addAction, duplicateAction, removeAction, updateAction, updateRow } from '@/lib/doc';
+import { formatClock, parseClock } from '@/lib/duration';
 import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
 
 const select =
@@ -32,6 +33,16 @@ export function RowEditor({
           key={row.id}
           defaultValue={row.label}
           onBlur={(e) => onDoc(updateRow(doc, row.id, { label: e.target.value }))}
+          className={input}
+        />
+        <label className="mt-2 block text-[10px] uppercase tracking-wider text-neutral-500">
+          Dauer (mm:ss · optional, für Timer-Austausch)
+        </label>
+        <input
+          key={`${row.id}:dur`}
+          defaultValue={formatClock(row.durationMs)}
+          placeholder="z. B. 5:00"
+          onBlur={(e) => onDoc(updateRow(doc, row.id, { durationMs: parseClock(e.target.value) }))}
           className={input}
         />
       </div>
