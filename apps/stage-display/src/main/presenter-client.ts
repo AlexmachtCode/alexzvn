@@ -96,6 +96,13 @@ export class PresenterClient {
           this.onChange({ ...PRESENTER_OFFLINE });
           this.scheduleReconnect();
         });
+        // Ohne 'error'-Handler auf der Response wird ein „socket hang up" (Server
+        // bricht den Stream ab) zur uncaughtException → App-Crash (#87, Symptom A).
+        res.on('error', () => {
+          this.stopWatchdog();
+          this.onChange({ ...PRESENTER_OFFLINE });
+          this.scheduleReconnect();
+        });
       },
     );
     req.on('error', () => {
@@ -170,19 +177,26 @@ export class PresenterClient {
     }
   }
 
+  /**
+   * Reißt req/res sicher ab. removeAllListeners() entfernt die Reconnect-Handler,
+   * aber destroy() kann danach noch synchron/asynchron ein „socket hang up"-'error'
+   * nachfeuern — ohne Listener wäre das eine uncaughtException → App-Crash (#87,
+   * Symptom A). Darum vor dem destroy() einen schluckenden 'error'-Handler setzen.
+   */
+  private teardown(stream: ClientRequest | IncomingMessage | null): void {
+    if (!stream) return;
+    stream.removeAllListeners();
+    stream.on('error', () => {});
+    stream.destroy();
+  }
+
   /** Halb-tote Verbindung verwerfen und sofort neu aufbauen (#87). */
   private forceReconnect(): void {
     this.stopWatchdog();
-    if (this.res) {
-      this.res.removeAllListeners();
-      this.res.destroy();
-      this.res = null;
-    }
-    if (this.req) {
-      this.req.removeAllListeners();
-      this.req.destroy();
-      this.req = null;
-    }
+    this.teardown(this.res);
+    this.res = null;
+    this.teardown(this.req);
+    this.req = null;
     this.onChange({ ...PRESENTER_OFFLINE });
     this.open();
   }
@@ -194,16 +208,10 @@ export class PresenterClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.res) {
-      this.res.removeAllListeners();
-      this.res.destroy();
-      this.res = null;
-    }
-    if (this.req) {
-      this.req.removeAllListeners();
-      this.req.destroy();
-      this.req = null;
-    }
+    this.teardown(this.res);
+    this.res = null;
+    this.teardown(this.req);
+    this.req = null;
     this.onChange({ ...PRESENTER_OFFLINE });
   }
 }
