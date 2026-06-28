@@ -354,8 +354,17 @@ export const useProject = create<State>((set, get) => ({
         ? resolveVideoTrack(draft, get().activeVideoTrackId)
         : draft.tracks.find((t) => t.kind === 'audio');
       if (!track) return;
-      if (mode === 'insert') rippleInsertAll(draft, playheadUs, lenUs);
-      else overwriteRegion(track, playheadUs, playheadUs + lenUs);
+      // Video mit Ton: Audiospur verknüpft auf die Audiospur legen (wie beim
+      // Import), Video-Ton per muteSource vom Export ausnehmen.
+      const audioTrack =
+        wantVideo && asset.hasAudio ? draft.tracks.find((t) => t.kind === 'audio') : undefined;
+      const linkId = audioTrack ? newId('link') : undefined;
+      if (mode === 'insert') {
+        rippleInsertAll(draft, playheadUs, lenUs); // macht auf ALLEN Spuren Platz
+      } else {
+        overwriteRegion(track, playheadUs, playheadUs + lenUs);
+        if (audioTrack) overwriteRegion(audioTrack, playheadUs, playheadUs + lenUs);
+      }
       track.clips.push({
         id: newId('clip'),
         kind: 'media',
@@ -366,7 +375,21 @@ export const useProject = create<State>((set, get) => ({
         gain: 1,
         transform: { scaleMode: 'fit' },
         enabled: true,
+        ...(audioTrack ? { muteSource: true, linkId } : {}),
       });
+      if (audioTrack) {
+        audioTrack.clips.push({
+          id: newId('clip'),
+          kind: 'media',
+          assetId: sourceAssetId,
+          inUs,
+          outUs,
+          startUs: playheadUs,
+          gain: 1,
+          enabled: true,
+          linkId,
+        });
+      }
     });
     // Playhead ans Ende des eingefügten Clips ziehen (Verkettung wie in NLEs).
     set({ playheadUs: playheadUs + lenUs });
@@ -425,6 +448,15 @@ export const useProject = create<State>((set, get) => ({
         : draft.tracks.find((t) => t.kind === 'audio');
       if (!track) return;
       const start = trackEndUs(track);
+
+      // Video MIT Ton: die Audiospur separat (verknüpft) auf die Audiospur legen,
+      // damit der Ton sichtbar/editierbar ist. Den eingebetteten Video-Ton dann
+      // per muteSource vom Export ausnehmen (sonst doppelt). Fehlt eine Audiospur,
+      // bleibt der Ton am Video-Clip (kein Verlust).
+      const audioTrack =
+        wantVideo && asset.hasAudio ? draft.tracks.find((t) => t.kind === 'audio') : undefined;
+      const linkId = audioTrack ? newId('link') : undefined;
+
       track.clips.push({
         id: newId('clip'),
         kind: 'media',
@@ -435,7 +467,22 @@ export const useProject = create<State>((set, get) => ({
         gain: 1,
         transform: { scaleMode: 'fit' },
         enabled: true,
+        ...(audioTrack ? { muteSource: true, linkId } : {}),
       });
+
+      if (audioTrack) {
+        audioTrack.clips.push({
+          id: newId('clip'),
+          kind: 'media',
+          assetId,
+          inUs: 0,
+          outUs: asset.durationUs,
+          startUs: start, // synchron zum Video-Clip
+          gain: 1,
+          enabled: true,
+          linkId,
+        });
+      }
     }),
 
   addTitle: () =>

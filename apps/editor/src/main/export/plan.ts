@@ -216,6 +216,9 @@ export function buildPlan(input: PlanInput): ExportPlan {
   let aN = 0;
   let audioRenderedEndUs = videoRenderedEndUs;
   const addAudioFrom = (clip: Clip, startUs: number): void => {
+    // Video-Clips, deren Ton als verknüpfter Audio-Clip ausgekoppelt wurde, hier
+    // überspringen — sonst läge der Ton doppelt im amix.
+    if (clip.muteSource) return;
     const asset = project.assets.find((a) => a.id === clip.assetId);
     if (!asset || !asset.hasAudio) return;
     const idx = addMedia(asset.id, asset.path);

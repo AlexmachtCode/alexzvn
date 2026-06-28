@@ -86,6 +86,19 @@ export interface Clip {
   transform?: ClipTransform;
   /** Audio-Verstärkung als linearer Faktor (1 = unverändert). */
   gain?: number;
+  /**
+   * Verknüpft einen Video-Clip mit seinem ausgekoppelten Audio-Clip (gemeinsame
+   * `linkId`). Beim Video-Import wird der Ton als eigener Audio-Clip auf die
+   * Audiospur gelegt; die linkId markiert das Paar (Grundlage für späteres
+   * gekoppeltes Bearbeiten).
+   */
+  linkId?: string;
+  /**
+   * Nur Video-Clips: der eingebettete Ton wird NICHT exportiert, weil der
+   * verknüpfte Audio-Clip ihn trägt — verhindert doppelten Ton, wenn die
+   * Audiospur eines Videos separat auf die Timeline gelegt wird.
+   */
+  muteSource?: boolean;
   transitionIn?: Transition;
   effects?: EffectInstance[];
   title?: TitleSpec;

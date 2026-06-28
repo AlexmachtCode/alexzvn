@@ -80,7 +80,7 @@ function MediaInspector({ clip, trackKind }: { clip: Clip; trackKind: string }) 
         </Row>
       )}
 
-      {hasAudio && (
+      {hasAudio && !clip.muteSource && (
         <Row label={`Lautstärke: ${Math.round((clip.gain ?? 1) * 100)}%`}>
           <input
             type="range"
