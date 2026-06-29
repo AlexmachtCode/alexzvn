@@ -10,6 +10,20 @@ const IDLE: RecorderState = {
   recordedSec: 0,
 };
 
+const GAIN_KEY = 'jmrec.gainDb';
+const GAIN_MIN = -12;
+const GAIN_MAX = 24;
+function clampGain(db: number): number {
+  return Math.max(GAIN_MIN, Math.min(GAIN_MAX, Math.round(Number.isFinite(db) ? db : 0)));
+}
+function loadGain(): number {
+  try {
+    return clampGain(Number(localStorage.getItem(GAIN_KEY)));
+  } catch {
+    return 0;
+  }
+}
+
 interface RecStore {
   devices: AudioDevice[];
   deviceIndex: number | null;
@@ -22,6 +36,8 @@ interface RecStore {
   scheduleStart: string;
   /** Auto-Stopp nach N Minuten; 0 = bis zum manuellen Stopp. */
   scheduleDurationMin: number;
+  /** Aufnahme-Verstärkung in dB (#94), persistiert in localStorage. */
+  gainDb: number;
   state: RecorderState;
   peaks: number[];
   notice: string | null;
@@ -36,6 +52,7 @@ interface RecStore {
   setSeparateTracks: (v: boolean) => void;
   setScheduleStart: (s: string) => void;
   setScheduleDurationMin: (n: number) => void;
+  setGain: (db: number) => void;
   pickDir: () => Promise<void>;
   arm: () => Promise<void>;
   disarm: () => Promise<void>;
@@ -58,6 +75,7 @@ export const useRec = create<RecStore>((set, get) => ({
   separateTracks: false,
   scheduleStart: '',
   scheduleDurationMin: 0,
+  gainDb: loadGain(),
   state: IDLE,
   peaks: [],
   notice: null,
@@ -71,6 +89,8 @@ export const useRec = create<RecStore>((set, get) => ({
       window.jmrec.onLevels((l) => set({ peaks: l.peaks }));
       window.jmrec.onState((s) => set({ state: s }));
       window.jmrec.onNotice((msg) => set({ notice: msg }));
+      // Persistierten Gain in den Main spiegeln (Main startet bei 0 dB).
+      void window.jmrec.setGain(get().gainDb);
       // TCP-Fernsteuerung (Companion): Befehle auf die Store-Aktionen abbilden.
       window.jmrec.onRemoteCommand((cmd) => {
         const s = get();
@@ -126,6 +146,17 @@ export const useRec = create<RecStore>((set, get) => ({
   setScheduleStart: (scheduleStart) => set({ scheduleStart }),
   setScheduleDurationMin: (scheduleDurationMin) =>
     set({ scheduleDurationMin: Math.max(0, Math.floor(scheduleDurationMin) || 0) }),
+
+  setGain: (db) => {
+    const gainDb = clampGain(db);
+    set({ gainDb });
+    try {
+      localStorage.setItem(GAIN_KEY, String(gainDb));
+    } catch {
+      // localStorage nicht verfügbar → nur In-Memory
+    }
+    void window.jmrec.setGain(gainDb);
+  },
 
   pickDir: async () => {
     const dir = await window.jmrec.dialog.pickDir();

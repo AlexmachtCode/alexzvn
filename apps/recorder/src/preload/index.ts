@@ -22,6 +22,7 @@ const api: JmrecApi = {
   schedule: (input: ScheduleInput) => ipcRenderer.invoke('rec:schedule', input) as Promise<OpResult>,
   cancelSchedule: () => ipcRenderer.invoke('rec:cancelSchedule') as Promise<void>,
   getState: () => ipcRenderer.invoke('rec:state') as Promise<RecorderState>,
+  setGain: (db: number) => ipcRenderer.invoke('rec:setGain', db) as Promise<void>,
   dialog: {
     pickDir: () => ipcRenderer.invoke('dialog:pickDir') as Promise<string | null>,
   },

@@ -13,6 +13,8 @@ export function RecorderView() {
   const fileName = useRec((s) => s.fileName);
   const state = useRec((s) => s.state);
   const peaks = useRec((s) => s.peaks);
+  const gainDb = useRec((s) => s.gainDb);
+  const setGain = useRec((s) => s.setGain);
 
   const selectDevice = useRec((s) => s.selectDevice);
   const setChannels = useRec((s) => s.setChannels);
@@ -215,6 +217,39 @@ export function RecorderView() {
           </h2>
           {!open && <span className="text-xs text-[var(--muted-foreground)]">Eingang öffnen zum Messen</span>}
         </div>
+
+        {/* Aufnahme-Verstärkung (#94): hebt leise Eingänge an, wirkt live auf Pegel + Aufnahme. */}
+        <div className="flex items-center gap-3 mb-3">
+          <span className="tabular text-[10px] font-bold text-[var(--muted-foreground)] w-9">GAIN</span>
+          <input
+            type="range"
+            min={-12}
+            max={24}
+            step={1}
+            value={gainDb}
+            onChange={(e) => setGain(Number(e.target.value))}
+            className="flex-1 accent-[var(--primary)]"
+            title="Aufnahme-Verstärkung"
+          />
+          <span className="tabular text-xs font-bold w-14 text-right">
+            {gainDb > 0 ? `+${gainDb}` : gainDb} dB
+          </span>
+          <button
+            type="button"
+            onClick={() => setGain(0)}
+            disabled={gainDb === 0}
+            className="h-7 px-2 rounded-[var(--radius)] border border-[var(--border)] text-[10px] font-bold hover:bg-[var(--highlight)] disabled:opacity-40"
+            title="Auf 0 dB zurücksetzen"
+          >
+            0 dB
+          </button>
+        </div>
+        {gainDb > 0 ? (
+          <p className="text-[11px] text-[var(--muted-foreground)] -mt-1 mb-3">
+            Verstärkung hebt leise Aufnahmen an; zu viel übersteuert (Meter wird rot).
+          </p>
+        ) : null}
+
         <div className={cn('flex flex-col gap-1.5', !open && 'opacity-40')}>
           {Array.from({ length: Math.max(meterCount, 1) }, (_, c) => {
             const peak = peaks[c] ?? 0;
