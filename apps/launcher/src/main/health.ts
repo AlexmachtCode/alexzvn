@@ -15,6 +15,7 @@
 import { discover, type DiscoveredService } from '@jm/discovery';
 import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 import type { SuiteState } from '@jm/suite-control-protocol';
+import { controlClientOptions, readControlConfig } from '@jm/control-config';
 import type { HealthEntry } from '@shared/types';
 
 interface Conn {
@@ -28,6 +29,13 @@ const conns = new Map<string, Conn>(); // Schlüssel: host:port
 let discovery: { stop: () => void } | null = null;
 let notify: (() => void) | null = null;
 let debounce: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Token/TLS für die Health-Clients (P1, secure-Modus). Provisioniert der Launcher
+ * die Steuerebene secure, laufen ALLE Tool-Steuerserver verschlüsselt + token-auth
+ * — die Dashboard-Clients müssen das mitbringen, sonst verbinden sie plain gegen
+ * TLS-Server und das Dashboard bliebe dauerhaft leer/„offline".
+ */
+let clientSecurity: ReturnType<typeof controlClientOptions> = {};
 
 /** Steuer-Endpunkt? ctl=1 oder der ctl-lose switcher-Advert. */
 function isControl(s: DiscoveredService): boolean {
@@ -59,6 +67,7 @@ function onDiscovered(services: DiscoveredService[]): void {
       continue;
     }
     const client = new SuiteControlClient({
+      ...clientSecurity, // P1: Token/TLS im secure-Modus (sonst leer = open)
       onState: (state: SuiteState) => {
         const c = conns.get(key);
         if (!c) return;
@@ -87,10 +96,15 @@ function onDiscovered(services: DiscoveredService[]): void {
   emit();
 }
 
-/** mDNS-Browsing + Client-Pool starten. `onChange` feuert (gebündelt) bei Änderung. */
-export function startHealth(onChange: () => void): void {
+/**
+ * mDNS-Browsing + Client-Pool starten. `onChange` feuert (gebündelt) bei Änderung.
+ * `appDataDir` (app.getPath('appData')) → die geteilte control.json wird gelesen,
+ * damit die Health-Clients im secure-Modus Token/TLS mitbringen.
+ */
+export function startHealth(onChange: () => void, appDataDir?: string): void {
   if (discovery) return;
   notify = onChange;
+  if (appDataDir) clientSecurity = controlClientOptions(readControlConfig(appDataDir));
   try {
     discovery = discover(onDiscovered);
   } catch {

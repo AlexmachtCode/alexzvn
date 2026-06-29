@@ -8,7 +8,11 @@ import { discover, type DiscoveredService, type Discovery } from '@jm/discovery'
 import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { CAPABILITIES } from '@jm/suite-control-protocol/capabilities';
+import { controlClientOptions, readControlConfig } from '@jm/control-config';
 import type { Endpoint, ToolLink } from '@shared/types';
+
+/** Token/TLS-Optionen für die Steuer-Clients (P1, secure-Modus). */
+type ClientSecurity = ReturnType<typeof controlClientOptions>;
 
 /** Rollen, die Q&A ansteuert (Redezeit-Timer + Namens-Bauchbinde). */
 export const COUPLED_ROLES = ['timer', 'titler'] as const;
@@ -46,10 +50,22 @@ export class Coupling {
   private discovered: Record<string, Endpoint> = {};
   private overrides: Record<string, Endpoint> = {};
   private readonly links = new Map<string, Link>();
+  /**
+   * Token/TLS für die Steuer-Clients (P1, secure-Modus). Aus der geteilten
+   * control.json — ohne sie verbände sich Q&A plain gegen einen secure-Timer/
+   * -Titler-Steuerserver und bliebe „offline" (Auto-Kopplung tot).
+   */
+  private clientSecurity: ClientSecurity = {};
 
   constructor(private readonly onChange: () => void) {}
 
-  start(): void {
+  /**
+   * Discovery starten. `appDataDir` (app.getPath('appData')) → die geteilte
+   * Steuer-Konfig wird gelesen, damit die Clients im secure-Modus Token/TLS
+   * mitbringen (sonst kein Connect zu den secure-Tool-Servern).
+   */
+  start(appDataDir?: string): void {
+    if (appDataDir) this.clientSecurity = controlClientOptions(readControlConfig(appDataDir));
     if (this.discovery) return;
     try {
       this.discovery = discover((svcs) => this.onDiscovered(svcs));
@@ -97,6 +113,7 @@ export class Coupling {
     for (const [role, w] of Object.entries(want)) {
       if (this.links.has(role)) continue;
       const client = new SuiteControlClient({
+        ...this.clientSecurity, // P1: Token/TLS im secure-Modus (sonst leer = open)
         onState: (st: SuiteState) => {
           const l = this.links.get(role);
           if (!l) return;

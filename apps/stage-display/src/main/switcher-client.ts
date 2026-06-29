@@ -1,6 +1,10 @@
 import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 import { switcherStateFromSuite } from '@jm/suite-control-protocol';
+import type { controlClientOptions } from '@jm/control-config';
 import type { SwitcherSource } from '@shared/types';
+
+/** Token/TLS-Optionen für den Steuer-Client (P1, secure-Modus). */
+type ClientSecurity = ReturnType<typeof controlClientOptions>;
 
 export const SWITCHER_OFFLINE: SwitcherSource = {
   connected: false,
@@ -20,8 +24,14 @@ export const SWITCHER_OFFLINE: SwitcherSource = {
 export class SwitcherClient {
   private readonly client: SuiteControlClient;
 
-  constructor(onChange: (s: SwitcherSource) => void) {
+  /**
+   * `security` trägt Token/TLS im secure-Modus (aus der geteilten control.json).
+   * Leer (open-Modus) → unverändertes Klartext-Verhalten. Ohne sie verbände sich
+   * Stage Display plain gegen einen secure-Switcher-Steuerserver und bliebe „offline".
+   */
+  constructor(onChange: (s: SwitcherSource) => void, security: ClientSecurity = {}) {
     this.client = new SuiteControlClient({
+      ...security,
       onState: (st) => {
         const s = switcherStateFromSuite(st);
         onChange({

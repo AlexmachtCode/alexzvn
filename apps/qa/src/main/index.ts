@@ -399,7 +399,7 @@ if (!gotLock) {
     createMainWindow();
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     coupling.setOverrides(getOverrides());
-    coupling.start();
+    coupling.start(app.getPath('appData'));
     // Saal-Einreichung wiederherstellen, falls zuletzt aktiv.
     if (getConfig().remoteEnabled) void setRemote(true);
     // Eigener Steuerserver: Q&A per Companion fernsteuerbar (Port 8733).
