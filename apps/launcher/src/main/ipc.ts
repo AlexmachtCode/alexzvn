@@ -54,7 +54,8 @@ export function registerIpc(): void {
   ipcMain.handle('tool:open', (_e, id: string) => withTool(id, openTool));
 
   // Show öffnen (Datei-Dialog) und die referenzierten Tools koordiniert starten.
-  ipcMain.handle('show:open', () => openShowDialog());
+  // Start-Feedback (#76) an das aufrufende Fenster senden.
+  ipcMain.handle('show:open', (e) => openShowDialog((ev) => e.sender.send('app:event', ev)));
   // Show anlegen/bearbeiten: speichern + Dokument-Auswahl für die Authoring-UI.
   ipcMain.handle('show:save', (_e, show: Show) => saveShow(show));
   ipcMain.handle('show:pickDocument', () => pickShowDocument());

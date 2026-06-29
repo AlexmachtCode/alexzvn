@@ -8,6 +8,7 @@ import type {
   InstallProgress,
   LauncherUpdate,
   PresenceRecord,
+  ShowLaunchTool,
   SuiteSettingsInput,
   SuiteSettingsView,
   ToolManifest,
@@ -17,6 +18,18 @@ import type { Show } from '@jm/show';
 
 function byId(states: ToolState[]): Record<string, ToolState> {
   return Object.fromEntries(states.map((s) => [s.id, s]));
+}
+
+/** Laufender Show-Start (#76): Tool-Liste + Ergebnis fürs Lade-Overlay. */
+export interface ShowLaunchState {
+  name: string;
+  tools: ShowLaunchTool[];
+  /** Nach dem Start: Tools, die nicht starteten (nicht installiert/Fehler). */
+  missing: string[];
+  /** true, sobald der Startlauf durch ist (Tools booten ggf. noch). */
+  done: boolean;
+  /** Zeitpunkt von `done` (ms) für den Auto-Close-Timeout. */
+  doneAt: number;
 }
 
 interface ToolsStore {
@@ -35,6 +48,9 @@ interface ToolsStore {
   health: HealthEntry[];
   systemOpen: boolean;
   showEditorOpen: boolean;
+  /** Lade-Overlay beim Öffnen einer Show (#76); null = kein Start läuft. */
+  showLaunch: ShowLaunchState | null;
+  dismissShowLaunch: () => void;
   load: () => Promise<void>;
   loadPresence: () => Promise<void>;
   loadHealth: () => Promise<void>;
@@ -118,6 +134,7 @@ export const useTools = create<ToolsStore>((set) => {
     health: [],
     systemOpen: false,
     showEditorOpen: false,
+    showLaunch: null,
     patchNotes: null,
 
     load: async () => {
@@ -151,6 +168,16 @@ export const useTools = create<ToolsStore>((set) => {
           } else if (e.type === 'health-changed') {
             // Live-Zustand eines entdeckten Steuer-Endpunkts hat sich geändert.
             await useTools.getState().loadHealth();
+          } else if (e.type === 'show-launch-start') {
+            // Show wird geöffnet (#76): Overlay zeigen, Presence frisch holen.
+            set({ showLaunch: { name: e.name, tools: e.tools, missing: [], done: false, doneAt: 0 } });
+            await useTools.getState().loadPresence();
+          } else if (e.type === 'show-launch-done') {
+            set((s) =>
+              s.showLaunch
+                ? { showLaunch: { ...s.showLaunch, missing: e.missing, done: true, doneAt: Date.now() } }
+                : {},
+            );
           }
         });
         // Nach Rückkehr zum Launcher (z. B. wenn der NSIS-Installer durch ist
@@ -216,6 +243,7 @@ export const useTools = create<ToolsStore>((set) => {
 
     openShowEditor: () => set({ showEditorOpen: true }),
     closeShowEditor: () => set({ showEditorOpen: false }),
+    dismissShowLaunch: () => set({ showLaunch: null }),
     saveShow: async (show) => {
       const res = await window.jmps.saveShow(show);
       if (res.message) set({ notice: res.message });

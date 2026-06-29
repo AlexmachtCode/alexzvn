@@ -3,9 +3,12 @@ import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { parseShow, serializeShow, showOpenUrl, SHOW_FILE_EXT, type Show } from '@jm/show';
 import { getLog } from '@jm/app-runtime';
-import type { ActionResult } from '@shared/types';
+import type { ActionResult, AppEvent } from '@shared/types';
 import { getTool } from './manifest';
 import { openTool } from './launch';
+
+/** Sender für UI-Ereignisse (Show-Start-Feedback, #76). Optional → ohne UI lautlos. */
+type EmitAppEvent = (e: AppEvent) => void;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Show-Orchestrierung: eine .jmshow öffnen und alle referenzierten Tools
@@ -13,8 +16,14 @@ import { openTool } from './launch';
 // als Argument mitgegeben — die App lädt daraus später ihren eigenen Teil (B4).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Liest eine Show und startet ihre installierten Tools mit dem Show-Deep-Link. */
-export async function openShow(showPath: string): Promise<ActionResult> {
+/**
+ * Liest eine Show und startet ihre installierten Tools mit dem Show-Deep-Link.
+ * `emit` (optional) gibt der UI ein Start-Feedback (#76): ein `show-launch-start`
+ * vor dem Starten (mit der Tool-Liste) und ein `show-launch-done` danach. Die UI
+ * tickt die Tools dann via Presence auf „läuft", damit der Nutzer beim langsamen
+ * Tool-Kaltstart nicht in der Luft hängt.
+ */
+export async function openShow(showPath: string, emit?: EmitAppEvent): Promise<ActionResult> {
   let show;
   try {
     show = parseShow(readFileSync(showPath, 'utf8'));
@@ -27,6 +36,14 @@ export async function openShow(showPath: string): Promise<ActionResult> {
   const deepLink = showOpenUrl(showPath);
   let launched = 0;
   const missing: string[] = [];
+
+  // Start-Feedback mit der vollständigen Tool-Liste (Name aus dem Manifest, sonst
+  // die appId) — die UI zeigt das Overlay sofort, bevor die Kaltstarts laufen.
+  emit?.({
+    type: 'show-launch-start',
+    name: show.name,
+    tools: show.tools.map((ref) => ({ appId: ref.appId, name: getTool(ref.appId)?.name ?? ref.appId })),
+  });
 
   for (const ref of show.tools) {
     const tool = getTool(ref.appId);
@@ -43,18 +60,19 @@ export async function openShow(showPath: string): Promise<ActionResult> {
     `Show „${show.name}": ${launched}/${show.tools.length} Tools gestartet` +
     (missing.length ? ` · nicht verfügbar: ${missing.join(', ')}` : '');
   getLog().info(message);
+  emit?.({ type: 'show-launch-done', launched, total: show.tools.length, missing });
   return { ok: launched > 0, message };
 }
 
 /** Öffnet einen Datei-Dialog zur Auswahl einer .jmshow und startet sie. */
-export async function openShowDialog(): Promise<ActionResult> {
+export async function openShowDialog(emit?: EmitAppEvent): Promise<ActionResult> {
   const result = await dialog.showOpenDialog({
     title: 'Show öffnen',
     properties: ['openFile'],
     filters: [{ name: 'JM Show', extensions: [SHOW_FILE_EXT.replace(/^\./, '')] }],
   });
   if (result.canceled || !result.filePaths[0]) return { ok: false };
-  return openShow(result.filePaths[0]);
+  return openShow(result.filePaths[0], emit);
 }
 
 /** Speichert eine im Launcher zusammengestellte Show als .jmshow (Save-Dialog). */

@@ -12,6 +12,7 @@ import { CookbookModal } from '@/components/CookbookModal';
 import { RecipeDraftModal } from '@/components/RecipeDraftModal';
 import { SystemStatusModal } from '@/components/SystemStatusModal';
 import { ShowEditorModal } from '@/components/ShowEditorModal';
+import { ShowLaunchOverlay } from '@/components/ShowLaunchOverlay';
 import { displayName } from '@/lib/monogram';
 import { useTools } from '@/store/tools';
 
@@ -165,6 +166,7 @@ export function App() {
       <RecipeDraftModal />
       <SystemStatusModal />
       <ShowEditorModal />
+      <ShowLaunchOverlay />
     </div>
   );
 }
