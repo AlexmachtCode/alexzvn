@@ -33,7 +33,7 @@ function handleDeepLink(url: string): void {
     runtime.log.info(`deep-link (ohne Show) empfangen: ${url}`);
     return;
   }
-  void openShow(showPath).then((res) => {
+  void openShow(showPath, emitAppEvent).then((res) => {
     if (res.message) emitAppEvent({ type: 'notice', message: res.message });
   });
 }

@@ -140,6 +140,12 @@ export interface HealthEntry {
   kv: Record<string, string>;
 }
 
+/** Ein in einer Show referenziertes Tool (für das Start-Feedback, #76). */
+export interface ShowLaunchTool {
+  appId: string;
+  name: string;
+}
+
 /** Dezente Hintergrund-Ereignisse vom Main-Prozess an die UI. */
 export type AppEvent =
   | { type: 'notice'; message: string }
@@ -147,7 +153,11 @@ export type AppEvent =
   | { type: 'changelog-changed' }
   | { type: 'cookbook-changed' }
   | { type: 'presence-changed' }
-  | { type: 'health-changed' };
+  | { type: 'health-changed' }
+  // Show-Start-Feedback (#76): Beim Öffnen einer Show startet der Launcher mehrere
+  // Tools (Kaltstart dauert) — die UI zeigt dazu ein Lade-Overlay.
+  | { type: 'show-launch-start'; name: string; tools: ShowLaunchTool[] }
+  | { type: 'show-launch-done'; launched: number; total: number; missing: string[] };
 
 /** Die unter `window.jmps` bereitgestellte Launcher-API. */
 export interface JmpsApi {
