@@ -13,6 +13,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle('rec:schedule', (_e, input: ScheduleInput) => rec.schedule(input));
   ipcMain.handle('rec:cancelSchedule', () => rec.cancelSchedule());
   ipcMain.handle('rec:state', () => rec.getState());
+  ipcMain.handle('rec:setGain', (_e, db: number) => rec.setGain(db));
 
   ipcMain.handle('dialog:pickDir', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });

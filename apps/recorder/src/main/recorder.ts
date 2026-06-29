@@ -47,6 +47,15 @@ let writer: WavWriter | null = null;
 let multiWriter: MultiWavWriter | null = null;
 let peaks: number[] = [];
 let lastEmit = 0;
+// Aufnahme-Verstärkung (#94): linearer Faktor, der je Audioblock VOR Pegel-
+// messung und Schreiben angewandt wird → der Meter zeigt den verstärkten Pegel.
+let gainFactor = 1;
+
+/** Aufnahme-Gain in dB setzen (geklemmt). 0 dB = unverändert. */
+export function setGain(db: number): void {
+  const clamped = Math.max(-24, Math.min(36, Number.isFinite(db) ? db : 0));
+  gainFactor = Math.pow(10, clamped / 20);
+}
 
 // Zeitgesteuerte Aufnahme (Slice C3): Timer + gemerkter Aufnahme-Input.
 let startTimer: ReturnType<typeof setTimeout> | null = null;
@@ -95,6 +104,12 @@ export function listDevices(): AudioDevice[] {
 // Läuft je Audioblock (TSFN → Node-Loop): Pegel sammeln, ggf. schreiben,
 // gedrosselt Pegel/State an den Renderer senden.
 function onFrames(planar: Float32Array, channels: number, frames: number): void {
+  // Gain zuerst auf den ganzen Block anwenden (in place) → Pegel + Datei zeigen/
+  // schreiben den verstärkten Ton. 32-bit-Float-WAV behält Werte >1 (kein Hard-
+  // Clip in der Datei); der Meter warnt rot ab ~0 dBFS.
+  if (gainFactor !== 1) {
+    for (let i = 0; i < planar.length; i++) planar[i] *= gainFactor;
+  }
   if (peaks.length !== channels) peaks = new Array(channels).fill(0);
   for (let c = 0; c < channels; c++) {
     let p = peaks[c];

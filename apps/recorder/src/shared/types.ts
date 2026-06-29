@@ -88,6 +88,8 @@ export interface JmrecApi {
   /** Geplante Aufnahme abbrechen (stoppt keine laufende Aufnahme). */
   cancelSchedule: () => Promise<void>;
   getState: () => Promise<RecorderState>;
+  /** Aufnahme-Verstärkung in dB setzen (#94). Wirkt live auf Pegel + Aufnahme. */
+  setGain: (db: number) => Promise<void>;
   dialog: { pickDir: () => Promise<string | null> };
   shell: { reveal: (path: string) => Promise<void> };
   onLevels: (cb: (l: Levels) => void) => () => void;
