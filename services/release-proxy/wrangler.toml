@@ -2,6 +2,17 @@ name = "jm-suite-proxy"
 main = "worker.js"
 compatibility_date = "2024-11-01"
 
+# Rate-Limit-Speicher (Anti-Spam auf /feedback + /cookbook/draft, P3/#61).
+# Namespace EINMALIG anlegen, die ausgegebene id unten eintragen, dann die drei
+# Zeilen einkommentieren und neu deployen:
+#   npx wrangler kv namespace create RATELIMIT
+# Solange die Bindung fehlt, laufen beide Endpunkte UNGEDROSSELT (Worker-Log warnt
+# pro Aufruf). Input-Größenlimits + Fehler-Redaktion sind davon unabhängig und
+# sofort nach dem Deploy aktiv.
+# [[kv_namespaces]]
+# binding = "RATELIMIT"
+# id = "<KV_NAMESPACE_ID_EINTRAGEN>"
+
 # Klartext-Variablen.
 [vars]
 # Das Mono-Repo mit den Releases.
