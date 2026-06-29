@@ -112,6 +112,42 @@ export interface Levels {
   peaks: number[];
 }
 
+// ── Mixer-Fenster (#95): Popout ↔ Host-Fenster ──────────────────────────────
+// Der Host (Hauptfenster) besitzt Audio-Engine + Store; das Popout ist ein
+// schlankes Spiegelfenster. Der Host pusht periodisch eine Momentaufnahme
+// (Kanäle + Live-Meter), das Popout schickt Steuerbefehle zurück; beides läuft
+// über den Main-Prozess als Relais.
+
+export interface MixerStripSnapshot {
+  id: string;
+  name: string;
+  kind: 'audio' | 'bus';
+  gain: number;
+  pan: number;
+  muted: boolean;
+  solo: boolean;
+  /** Anzahl Insert-Effekte (Anzeige ƒx). */
+  fx: number;
+  /** Spitzenpegel linear 0..1. */
+  meter: number;
+}
+
+export interface MixerSnapshot {
+  strips: MixerStripSnapshot[];
+  master: { gain: number; meter: number };
+  activeTrackId: string | null;
+}
+
+/** Steuerbefehl vom Popout an den Host-Store. Fader/Pan mit Drag-Phasen für sauberes Undo. */
+export type MixerCommand =
+  | { kind: 'gain'; id: string; value: number; phase: 'start' | 'move' | 'end' }
+  | { kind: 'pan'; id: string; value: number; phase: 'start' | 'move' | 'end' }
+  | { kind: 'mute'; id: string }
+  | { kind: 'solo'; id: string }
+  | { kind: 'select'; id: string }
+  | { kind: 'addBus' }
+  | { kind: 'removeBus'; id: string };
+
 // ── Bridge-Shape ─────────────────────────────────────────────────────────────
 
 /** Form, die die Preload-Bridge auf `window.jmdaw` legt. */
@@ -147,6 +183,21 @@ export interface JmdawApi {
   shell: {
     reveal: (path: string) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
+  };
+  /** Mixer als eigenes Fenster (#95): Popout öffnen + Live-Sync-Relais. */
+  mixerWin: {
+    /** Popout-Fenster öffnen (oder fokussieren). */
+    open: () => Promise<void>;
+    /** Host → Popout: aktuelle Mixer-Momentaufnahme senden. */
+    pushSnapshot: (snap: MixerSnapshot) => void;
+    /** Popout → Host: Steuerbefehl senden. */
+    sendCommand: (cmd: MixerCommand) => void;
+    /** Popout: auf Momentaufnahmen hören. Liefert Unsubscribe. */
+    onSnapshot: (cb: (snap: MixerSnapshot) => void) => () => void;
+    /** Host: auf Steuerbefehle des Popouts hören. Liefert Unsubscribe. */
+    onCommand: (cb: (cmd: MixerCommand) => void) => () => void;
+    /** Host: erfährt, ob das Popout offen ist (→ Pushen starten/stoppen). */
+    onPopoutState: (cb: (open: boolean) => void) => () => void;
   };
   onExportProgress: (cb: (p: ExportProgress) => void) => () => void;
   onExportDone: (cb: (r: ExportResult) => void) => () => void;

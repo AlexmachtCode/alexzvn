@@ -14,6 +14,7 @@ import { useProject } from './store/project';
 import { useLayout } from './store/layout';
 import { useLiveMix, useTransport } from './lib/transport';
 import { useRemoteControl } from './lib/remote-control';
+import { useMixerWindowHost } from './lib/mixer-host';
 import { saveProjectFlow } from './lib/actions';
 
 export function App() {
@@ -25,6 +26,7 @@ export function App() {
   useTransport();
   useLiveMix();
   useRemoteControl();
+  useMixerWindowHost();
 
   // IPC-Events abonnieren.
   useEffect(() => {
@@ -122,9 +124,17 @@ function ViewBar(): React.JSX.Element {
       <ViewToggle label="Mixer" active={showMixer} onClick={toggleMixer} />
       <button
         type="button"
+        onClick={() => void window.jmdaw.mixerWin.open()}
+        title="Mixer in eigenem Fenster öffnen (z. B. für einen zweiten Monitor)"
+        className="ml-auto h-6 px-2.5 rounded-[var(--radius)] text-[10px] font-bold border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--highlight)]"
+      >
+        ⧉ Mixer-Fenster
+      </button>
+      <button
+        type="button"
         onClick={reset}
         title="Panel-Größen + Sichtbarkeit auf Standard zurücksetzen"
-        className="ml-auto h-6 px-2 rounded-[var(--radius)] text-[10px] font-bold text-[var(--muted-foreground)] hover:bg-[var(--highlight)]"
+        className="h-6 px-2 rounded-[var(--radius)] text-[10px] font-bold text-[var(--muted-foreground)] hover:bg-[var(--highlight)]"
       >
         Layout zurücksetzen
       </button>

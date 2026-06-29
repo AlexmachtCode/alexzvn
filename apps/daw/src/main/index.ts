@@ -6,6 +6,7 @@ import { MEDIA_SCHEME } from '@shared/media-url';
 import { registerIpc } from './ipc';
 import { registerMediaProtocol } from './media-protocol';
 import { startControlServer, stopControlServer } from './control-server';
+import { setupMixerWindow, closeMixerWindow } from './mixer-window';
 
 declare const __dirname: string;
 
@@ -57,6 +58,14 @@ if (setupSingleInstance(() => createWindow())) {
   app.whenReady().then(() => {
     registerMediaProtocol();
     registerIpc(() => getMainWindow());
+    // Mixer-Popout-Fenster (#95) + Relais Host↔Popout.
+    setupMixerWindow({
+      getHost: () => getMainWindow(),
+      preloadPath,
+      rendererUrl: process.env['ELECTRON_RENDERER_URL'],
+      rendererFile: join(__dirname, '../renderer/index.html'),
+      iconPath: resourcePath('icon.png', join(__dirname, '..', '..', 'resources')),
+    });
     createWindow();
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
     // gehen per IPC an den Renderer, der seinen Zustand zurückmeldet.
@@ -67,7 +76,10 @@ if (setupSingleInstance(() => createWindow())) {
     });
   });
 
-  app.on('before-quit', () => stopControlServer());
+  app.on('before-quit', () => {
+    stopControlServer();
+    closeMixerWindow();
+  });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
