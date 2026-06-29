@@ -1,17 +1,24 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path, { join } from 'node:path';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
 import type { PartialTitlerConfig, TitlerRemoteState, TitlerState, TitlerStatus } from '@shared/types';
 import { getConfig, patchConfig } from './config';
 import { startSender, stopSender, senderActive } from './ndi/sender-process';
 import { startControlServer, stopControlServer, updateTitlerState, CONTROL_PORT } from './control-server';
+import { startDataWatch, stopDataWatch, type DataState } from './datalink';
 
 declare const __dirname: string;
 
 let mainWindow: BrowserWindow | null = null;
 const preloadPath = join(__dirname, '../preload/index.cjs');
 
-const status: TitlerStatus = { ndiActive: false, connections: 0, suiteClients: 0 };
+const status: TitlerStatus = {
+  ndiActive: false,
+  connections: 0,
+  suiteClients: 0,
+  variables: {},
+  dataSources: [],
+};
 
 function buildState(): TitlerState {
   return { config: getConfig(), status };
@@ -19,6 +26,25 @@ function buildState(): TitlerState {
 
 function broadcastStatus(): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('titler:status', status);
+}
+
+/** DataLink-Watchfolder (neu) starten/aktualisieren — Variablen in den Status spiegeln. */
+function refreshDataWatch(): void {
+  const folder = getConfig().dataFolder;
+  if (!folder) {
+    stopDataWatch();
+    status.variables = {};
+    status.dataSources = [];
+    status.dataError = undefined;
+    broadcastStatus();
+    return;
+  }
+  startDataWatch(folder, (d: DataState) => {
+    status.variables = d.variables;
+    status.dataSources = d.sources;
+    status.dataError = d.error;
+    broadcastStatus();
+  });
 }
 
 function resourcePath(filename: string): string {
@@ -89,8 +115,18 @@ function stopNdi(): void {
 function registerIpc(): void {
   ipcMain.handle('titler:getState', () => buildState());
   ipcMain.handle('titler:setConfig', (_e, patch: PartialTitlerConfig) => {
+    const before = getConfig().dataFolder;
     patchConfig(patch);
+    if (patch.dataFolder !== undefined && patch.dataFolder !== before) refreshDataWatch();
     return buildState();
+  });
+  ipcMain.handle('titler:pickDataFolder', async () => {
+    const r = await dialog.showOpenDialog({
+      title: 'DataLink-Ordner wählen',
+      properties: ['openDirectory'],
+      defaultPath: getConfig().dataFolder || undefined,
+    });
+    return r.canceled || !r.filePaths[0] ? '' : r.filePaths[0];
   });
   ipcMain.handle('titler:ndi-start', (_e, name: string) => startNdi(name || getConfig().ndiName));
   ipcMain.handle('titler:ndi-stop', () => stopNdi());
@@ -122,6 +158,8 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     registerIpc();
     createMainWindow();
+    // DataLink-Watchfolder (#86) starten, falls konfiguriert.
+    refreshDataWatch();
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
     // gehen per IPC an den Renderer, der seinen Zustand zurückmeldet. Ergebnis
     // loggen, damit eine fehlende Suite-Verbindung nicht unsichtbar bleibt.
@@ -143,6 +181,7 @@ if (!gotLock) {
   app.on('before-quit', () => {
     stopSender();
     stopControlServer();
+    stopDataWatch();
   });
 
   app.on('window-all-closed', () => {

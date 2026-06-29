@@ -333,6 +333,17 @@ var CAPABILITIES = {
             ]
           }
         ]
+      },
+      {
+        // Bauchbinden-Text fernsetzen (z. B. von Q&A). Tokens sind whitespace-frei:
+        // Leerzeichen als '_' schreiben, '-' = leeres Feld (Titler dekodiert das).
+        id: "text",
+        label: "Bauchbinden-Text setzen",
+        verb: "text",
+        args: [
+          { id: "name", label: "Name (Leerzeichen als _)", type: "string", default: "" },
+          { id: "subtitle", label: 'Untertitel (Leerzeichen als _, \u201E-" = leer)', type: "string", default: "" }
+        ]
       }
     ],
     variables: [

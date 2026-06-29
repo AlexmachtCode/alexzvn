@@ -35,6 +35,12 @@ export interface TitlerConfig {
   tickerText: string;
   /** Ticker-Tempo in CG-Breiten pro Sekunde. */
   tickerSpeed: number;
+  /**
+   * DataLink-Watchfolder (#86): Ordner mit `schlüssel=wert`-Datendateien
+   * (.txt/.env/.csv/.tsv). Textfelder dürfen `{{schlüssel}}`-Platzhalter
+   * enthalten, die hieraus aufgelöst werden. Leer = deaktiviert.
+   */
+  dataFolder: string;
   colors: TitlerColors;
   /** Vertikale Lage. */
   position: 'bottom' | 'top';
@@ -57,6 +63,7 @@ export const DEFAULT_CONFIG: TitlerConfig = {
   bannerText: 'Live aus dem Studio',
   tickerText: 'Willkommen bei Jakobs Medien  ·  Heute live  ·  ',
   tickerSpeed: 0.08,
+  dataFolder: '',
   colors: DEFAULT_COLORS,
   position: 'bottom',
   scale: 1,
@@ -73,6 +80,12 @@ export interface TitlerStatus {
   connections: number;
   /** Anzahl verbundener Suite-Steuerclients (Companion/QA/Battle/Health-Dashboard). */
   suiteClients: number;
+  /** DataLink (#86): live aus dem Watchfolder aufgelöste Variablen. */
+  variables: Record<string, string>;
+  /** Dateinamen, die zu den Variablen beigetragen haben. */
+  dataSources: string[];
+  /** Fehler beim Lesen des Watchfolders (z. B. nicht gefunden) — sonst undefined. */
+  dataError?: string;
 }
 
 export interface TitlerState {
@@ -88,6 +101,7 @@ export interface PartialTitlerConfig {
   bannerText?: string;
   tickerText?: string;
   tickerSpeed?: number;
+  dataFolder?: string;
   colors?: Partial<TitlerColors>;
   position?: 'bottom' | 'top';
   scale?: number;
@@ -105,7 +119,8 @@ export type TitlerRemoteCommand =
   | { t: 'take' } // CG einblenden (On Air)
   | { t: 'clear' } // CG ausblenden
   | { t: 'toggle' } // On Air umschalten
-  | { t: 'template'; kind: TemplateKind }; // Vorlage wechseln
+  | { t: 'template'; kind: TemplateKind } // Vorlage wechseln
+  | { t: 'text'; name: string; subtitle: string }; // Bauchbinden-Text setzen (#93, z. B. Q&A)
 
 /** Live-Zustand, vom Renderer an den Main gemeldet (für Companion-STATE). */
 export interface TitlerRemoteState {
@@ -124,6 +139,8 @@ export interface JmtitlerApi {
   platform: NodeJS.Platform;
   getState: () => Promise<TitlerState>;
   setConfig: (patch: PartialTitlerConfig) => Promise<TitlerState>;
+  /** Nativen Ordner-Dialog für den DataLink-Watchfolder (#86) öffnen. '' = abgebrochen. */
+  pickDataFolder: () => Promise<string>;
   onStatus: (cb: (s: TitlerStatus) => void) => () => void;
   ndi: {
     /** NDI-Sender starten (forkt den utilityProcess, übergibt den Frame-Port). */

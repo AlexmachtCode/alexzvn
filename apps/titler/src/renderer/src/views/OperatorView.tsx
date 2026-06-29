@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Button, cn, Logo } from '@jm/ui';
 import { DEFAULT_CONFIG, type TemplateKind, type TitlerConfig } from '@shared/types';
+import { resolveConfigVars, usedVars } from '@shared/vars';
 import { useTitler } from '@/store/titler';
 import { useTitlerEngine } from '@/lib/engine';
 
@@ -26,9 +27,30 @@ export function OperatorView(): React.JSX.Element {
   const ndiActive = state?.status.ndiActive ?? false;
   const connections = state?.status.connections ?? 0;
   const suiteClients = state?.status.suiteClients ?? 0;
+  const variables = state?.status.variables ?? {};
+  const dataSources = state?.status.dataSources ?? [];
+  const dataError = state?.status.dataError;
 
   const previewRef = useRef<HTMLCanvasElement>(null);
-  const { live, take, clear } = useTitlerEngine(config, ndiActive, previewRef);
+  // Zum Zeichnen werden {{variablen}} aufgelöst; die Eingabefelder zeigen weiter
+  // die Vorlage (siehe @shared/vars).
+  const resolved = useMemo(() => resolveConfigVars(config, variables), [config, variables]);
+  const { live, take, clear } = useTitlerEngine(resolved, ndiActive, previewRef);
+
+  // Vorhandene Variablen (klein geschrieben) + im Text referenzierte Schlüssel
+  // für die Variablen-Sektion (Treffer/Fehler markieren).
+  const lowerVars = useMemo(() => {
+    const m: Record<string, true> = {};
+    for (const k of Object.keys(variables)) m[k.toLowerCase()] = true;
+    return m;
+  }, [variables]);
+  const referenced = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of [config.name, config.subtitle, config.bannerText, config.tickerText]) {
+      for (const k of usedVars(t)) set.add(k);
+    }
+    return [...set];
+  }, [config.name, config.subtitle, config.bannerText, config.tickerText]);
 
   // ── TCP-Fernsteuerung (Bitfocus Companion) ─────────────────────────────────
   const liveRef = useRef(live);
@@ -51,6 +73,10 @@ export function OperatorView(): React.JSX.Element {
         case 'template':
           void setConfig({ template: cmd.kind });
           break;
+        case 'text':
+          // Bauchbinden-Text fernsetzen (#93, z. B. Q&A aktiver Sprecher).
+          void setConfig({ name: cmd.name, subtitle: cmd.subtitle });
+          break;
       }
     });
   }, [take, clear, setConfig]);
@@ -59,6 +85,11 @@ export function OperatorView(): React.JSX.Element {
   useEffect(() => {
     void window.jmtitler.remote.reportState({ onAir: live, template: config.template, ndiActive, connections });
   }, [live, config.template, ndiActive, connections]);
+
+  const pickFolder = async (): Promise<void> => {
+    const p = await window.jmtitler.pickDataFolder();
+    if (p) void setConfig({ dataFolder: p });
+  };
 
   if (!state) {
     return <div className="h-screen grid place-items-center text-[var(--muted-foreground)]">Lädt…</div>;
@@ -177,6 +208,73 @@ export function OperatorView(): React.JSX.Element {
                   />
                 </>
               )}
+            </Section>
+
+            {/* DataLink-Variablen (#86) */}
+            <Section title="Daten / Variablen">
+              <p className="text-[11px] text-[var(--muted-foreground)] -mt-1">
+                Platzhalter <code className="text-[var(--primary)]">{'{{name}}'}</code> in den Textfeldern
+                werden aus den Dateien im Ordner (Zeilen <code>schlüssel=wert</code>) gefüllt und
+                aktualisieren sich live.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  value={c.dataFolder}
+                  onChange={(e) => void setConfig({ dataFolder: e.target.value })}
+                  placeholder="Kein Ordner gewählt"
+                  spellCheck={false}
+                  className="h-9 flex-1 min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-xs"
+                />
+                <Button variant="outline" size="sm" onClick={() => void pickFolder()}>
+                  Durchsuchen…
+                </Button>
+                {c.dataFolder ? (
+                  <Button variant="ghost" size="sm" uppercase={false} onClick={() => void setConfig({ dataFolder: '' })} title="Watchfolder entfernen">
+                    ✕
+                  </Button>
+                ) : null}
+              </div>
+              {dataError ? (
+                <p className="text-[11px] text-[var(--destructive)]">DataLink: {dataError}</p>
+              ) : null}
+              {c.dataFolder && !dataError ? (
+                <div className="rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
+                  {Object.keys(variables).length === 0 ? (
+                    <p className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
+                      Keine Variablen gefunden. Lege im Ordner z. B. eine <code>daten.txt</code> mit Zeilen
+                      wie <code>name=Dr. Schmidt</code> an.
+                    </p>
+                  ) : (
+                    Object.entries(variables).map(([k, v]) => (
+                      <div key={k} className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
+                        <code className="font-bold text-[var(--primary)] shrink-0">{`{{${k}}}`}</code>
+                        <span className="truncate text-[var(--muted-foreground)]">{v || '—'}</span>
+                      </div>
+                    ))
+                  )}
+                  {dataSources.length > 0 ? (
+                    <p className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                      Quelle: {dataSources.join(', ')}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {referenced.length > 0 ? (
+                <p className="text-[11px] text-[var(--muted-foreground)] flex flex-wrap items-baseline gap-x-1">
+                  <span>Im Text verwendet:</span>
+                  {referenced.map((k) => (
+                    <code
+                      key={k}
+                      className={cn(
+                        k.toLowerCase() in lowerVars ? 'text-[var(--primary)]' : 'text-[var(--destructive)]',
+                      )}
+                      title={k.toLowerCase() in lowerVars ? 'Variable vorhanden' : 'Variable nicht gefunden'}
+                    >
+                      {`{{${k}}}`}
+                    </code>
+                  ))}
+                </p>
+              ) : null}
             </Section>
 
             {/* Stil */}

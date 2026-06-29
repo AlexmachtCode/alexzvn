@@ -40,6 +40,7 @@ export function patchConfig(patch: PartialTitlerConfig): TitlerConfig {
     ...(patch.bannerText !== undefined ? { bannerText: patch.bannerText } : {}),
     ...(patch.tickerText !== undefined ? { tickerText: patch.tickerText } : {}),
     ...(patch.tickerSpeed !== undefined ? { tickerSpeed: patch.tickerSpeed } : {}),
+    ...(patch.dataFolder !== undefined ? { dataFolder: patch.dataFolder } : {}),
     ...(patch.position !== undefined ? { position: patch.position } : {}),
     ...(patch.scale !== undefined ? { scale: patch.scale } : {}),
     ...(patch.ndiName !== undefined ? { ndiName: patch.ndiName } : {}),
