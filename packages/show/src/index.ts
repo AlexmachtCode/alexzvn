@@ -31,6 +31,21 @@ export interface ShowToolRef {
   settings?: Record<string, unknown>;
 }
 
+/**
+ * Ein Programmpunkt des zentralen Show-Ablaufs (#78). Bewusst tool-agnostisch und
+ * minimal (Titel/Dauer/Notiz) — dieselbe Form wie ein Timer-`TimetableItem` und
+ * eine Rundown-Zeile ohne Aktionen, damit ein einmal zentral gepflegter Ablauf
+ * von mehreren Tools (Rundown, Timer) gelesen werden kann.
+ */
+export interface ShowAblaufItem {
+  /** Segment-/Programmpunkt-Titel. */
+  label: string;
+  /** Geplante Dauer in Millisekunden (optional). */
+  durationMs?: number;
+  /** Freie Notiz (optional). */
+  note?: string;
+}
+
 export interface Show {
   schemaVersion: number;
   /** Anzeigename der Produktion. */
@@ -39,11 +54,28 @@ export interface Show {
   updatedAt?: string;
   /** Beteiligte Tools und ihre Show-spezifischen Referenzen. */
   tools: ShowToolRef[];
+  /**
+   * Zentraler Ablauf der Produktion (#78): einmal beim Erstellen der Show
+   * gepflegt, von Tools wie Rundown/Timer gelesen — kein separater Ablauf je Tool
+   * mehr nötig. Optional/abwärtskompatibel: alte Shows ohne Ablauf bleiben gültig.
+   */
+  ablauf?: ShowAblaufItem[];
 }
 
 /** Leere Show mit aktuellem Schema. */
 export function createShow(name: string): Show {
   return { schemaVersion: SHOW_SCHEMA_VERSION, name, tools: [] };
+}
+
+function normalizeAblaufItem(value: unknown): ShowAblaufItem | null {
+  if (!value || typeof value !== 'object') return null;
+  const o = value as Record<string, unknown>;
+  const label = typeof o.label === 'string' ? o.label : '';
+  if (!label.trim()) return null; // ohne Titel kein sinnvoller Programmpunkt
+  const item: ShowAblaufItem = { label };
+  if (typeof o.durationMs === 'number' && o.durationMs > 0) item.durationMs = o.durationMs;
+  if (typeof o.note === 'string' && o.note) item.note = o.note;
+  return item;
 }
 
 function normalizeToolRef(value: unknown): ShowToolRef | null {
@@ -76,6 +108,11 @@ export function migrateShow(raw: unknown): Show {
   const tools = Array.isArray(obj.tools)
     ? (obj.tools as unknown[]).map(normalizeToolRef).filter((t): t is ShowToolRef => t !== null)
     : [];
+  const ablauf = Array.isArray(obj.ablauf)
+    ? (obj.ablauf as unknown[])
+        .map(normalizeAblaufItem)
+        .filter((a): a is ShowAblaufItem => a !== null)
+    : [];
   const name =
     typeof obj.name === 'string' && obj.name.trim() ? (obj.name as string) : 'Unbenannte Show';
   return {
@@ -83,6 +120,8 @@ export function migrateShow(raw: unknown): Show {
     name,
     updatedAt: typeof obj.updatedAt === 'string' ? (obj.updatedAt as string) : undefined,
     tools,
+    // Leeren Ablauf weglassen → alte Shows bleiben byte-nah, kein Rauschen.
+    ...(ablauf.length ? { ablauf } : {}),
   };
 }
 

@@ -12,7 +12,7 @@ import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { advertise, type Advertiser } from '@jm/discovery';
-import { parseShow, parseShowDeepLink } from '@jm/show';
+import { parseShow, parseShowDeepLink, type ShowAblaufItem } from '@jm/show';
 import type { TimetableItem } from '@shared/timer-state';
 import { loadState, dispatch } from './state';
 import {
@@ -303,11 +303,26 @@ function parseTimetable(raw: unknown): Array<Omit<TimetableItem, 'id'>> | null {
   return items.length ? items : null;
 }
 
+/** Zentralen Show-Ablauf (#78) in Timetable-Items überführen (gleiche Form). */
+function ablaufToTimetable(
+  ablauf: ShowAblaufItem[] | undefined,
+): Array<Omit<TimetableItem, 'id'>> | null {
+  if (!ablauf || !ablauf.length) return null;
+  return ablauf.map((a) => ({
+    label: a.label,
+    durationMs: typeof a.durationMs === 'number' && a.durationMs > 0 ? a.durationMs : 0,
+    ...(a.note ? { note: a.note } : {}),
+  }));
+}
+
 /**
  * Show-Integration (B4): Wird der Timer über einen Show-Deep-Link gestartet,
  * übernimmt er seinen Teil aus der Show. Der Timer hat kein Dokumentformat,
  * daher trägt die Show die Daten inline in `settings`:
  *   { timetable?: [{label, durationMs, note?}], durationMs?: number }
+ * Fehlt eine explizite Timer-Timetable, greift der ZENTRALE Show-Ablauf
+ * (#78, show.ablauf) — derselbe {label,durationMs?,note?}-Aufbau. So muss der
+ * Ablauf nur einmal zentral gepflegt werden (speist Timer UND Rundown).
  */
 function applyShowFromDeepLink(url: string): void {
   const showPath = parseShowDeepLink(url);
@@ -315,10 +330,9 @@ function applyShowFromDeepLink(url: string): void {
   try {
     const show = parseShow(readFileSync(showPath, 'utf8'));
     const settings = show.tools.find((t) => t.appId === 'jm-timer')?.settings;
-    if (!settings) return;
-    const items = parseTimetable(settings.timetable);
+    const items = parseTimetable(settings?.timetable) ?? ablaufToTimetable(show.ablauf);
     if (items) dispatch({ type: 'tt:setAll', items });
-    if (typeof settings.durationMs === 'number' && settings.durationMs >= 0) {
+    if (settings && typeof settings.durationMs === 'number' && settings.durationMs >= 0) {
       dispatch({ type: 'setDuration', ms: settings.durationMs });
     }
   } catch (err) {
