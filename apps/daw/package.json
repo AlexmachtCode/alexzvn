@@ -1,6 +1,6 @@
 {
   "name": "@jm/daw",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "description": "JM DAW — Mehrspur-Audio-Editor (Import/Schnitt/Mix), Aufnahme über @jm/audio, Export via FFmpeg",
   "author": "Jakobs Medien GmbH",
