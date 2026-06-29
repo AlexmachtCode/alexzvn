@@ -1,0 +1,16 @@
+{
+  "name": "@jm/regieplan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Geteilte Regieplan-/Ablauf-Tabellenlogik (XLSX/XLS/CSV) für JM Timer und JM Rundown — Spalten-Auto-Erkennung, Dauer-Parsing, Import/Export. SheetJS lazy.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "selftest": "node --experimental-strip-types test/selftest.ts"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
