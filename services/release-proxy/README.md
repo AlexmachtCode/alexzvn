@@ -97,5 +97,27 @@ curl -s -H "X-Proxy-Key: <DEIN_KEY>" \
 ```
 Erwartet: der Anfang der `suite.json` (`{"schemaVersion":…,"tools":[…`).
 
+## Sicherheit / Missbrauchsschutz (P3, #61)
+Die **schreibenden** Endpunkte `/feedback` (legt Issues an) und `/cookbook/draft`
+(öffnet PRs, ruft ggf. Anthropic) sind gehärtet:
+
+- **Input-Größenlimits** — Bodies über 16 KB (`/feedback`) bzw. 32 KB
+  (`/cookbook/draft`) → `413`; Felder (Titel/Beschreibung/Notizen …) werden hart
+  gekappt. Begrenzt Body- und Prompt-Injection-Fläche. **Sofort aktiv** nach Deploy.
+- **Fehler-Redaktion** — rohe GitHub-/Anthropic-Antwortkörper gehen nicht mehr an
+  den Client (nur Status + serverseitiges Log via `wrangler tail`). **Sofort aktiv.**
+- **Rate-Limit pro IP** — `/feedback` 10 / 10 min, `/cookbook/draft` 5 / h →
+  `429` mit `Retry-After`. Braucht eine **Workers-KV-Bindung** `RATELIMIT`:
+  ```bash
+  cd services/release-proxy
+  npx wrangler kv namespace create RATELIMIT   # gibt eine id aus
+  # die id in wrangler.toml unter [[kv_namespaces]] eintragen + Zeilen einkommentieren
+  npx wrangler deploy
+  ```
+  **Solange die Bindung fehlt, ist NUR das Rate-Limit inaktiv** (der Worker warnt
+  pro Aufruf im Log); Größenlimits + Redaktion laufen unabhängig davon.
+
+Lokaler Test (ohne Deploy): `node services/release-proxy/test/worker.test.mjs`.
+
 > Optional später: statt `PROXY_KEY` Cloudflare Access (Service-Tokens); Caching der
 > Release-Liste (~60 s) gegen GitHub-Rate-Limits. Für die Testphase nicht nötig.

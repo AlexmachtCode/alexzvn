@@ -23,6 +23,79 @@ import { buildAuthoringPrompt } from '../../packages/cookbook/src/authoring-prom
 
 const USER_AGENT = 'JM-Suite-Release-Proxy';
 
+// Anti-Missbrauch (P3, #61): Body-Größen- und Rate-Limit-Grenzen für die
+// SCHREIBENDEN Endpunkte. /feedback legt GitHub-Issues an, /cookbook/draft öffnet
+// PRs (und ruft ggf. die teure Anthropic-API) → ohne Limits offen für Spam und
+// Kosten-Missbrauch. Werte per [vars] in wrangler.toml überschreibbar.
+const LIMITS = {
+  feedback: { maxBytes: 16 * 1024, rlMax: 10, rlWindowSec: 600 },
+  draft: { maxBytes: 32 * 1024, rlMax: 5, rlWindowSec: 3600 },
+};
+// Harte Feld-Kappungen (Zeichen) — begrenzen Body und Prompt-Injection-Fläche.
+const FIELD = { title: 200, description: 8000, context: 8000, notes: 12000, category: 80 };
+
+class HttpError extends Error {
+  constructor(status, msg) {
+    super(msg);
+    this.status = status;
+  }
+}
+
+/** JSON lesen mit harter Größengrenze (Content-Length UND tatsächliche Bytes). */
+async function readJsonLimited(request, maxBytes) {
+  const cl = request.headers.get('content-length');
+  if (cl && Number(cl) > maxBytes) throw new HttpError(413, 'Anfrage zu groß');
+  const buf = await request.arrayBuffer();
+  if (buf.byteLength > maxBytes) throw new HttpError(413, 'Anfrage zu groß');
+  try {
+    return JSON.parse(new TextDecoder().decode(buf));
+  } catch {
+    throw new HttpError(400, 'ungültiges JSON');
+  }
+}
+
+/** Feld trimmen + hart auf maxLen kappen (gegen null/Objekte robust). */
+function clampField(v, maxLen) {
+  return String(v == null ? '' : v).trim().slice(0, maxLen);
+}
+
+function clientIp(request) {
+  return request.headers.get('CF-Connecting-IP') || 'unknown';
+}
+
+/**
+ * Fixed-Window-Rate-Limit pro Client-IP über Workers-KV (env.RATELIMIT).
+ * → {ok:true} oder {ok:false, retryAfter}. Fehlt die KV-Bindung (noch nicht
+ * eingerichtet), wird NICHT geblockt, aber pro Aufruf gewarnt — damit der
+ * Schutz nicht still wirkungslos bleibt. KV ist eventually-consistent → unter
+ * Burst evtl. leicht untergezählt; für Anti-Spam ausreichend.
+ */
+async function rateLimit(env, bucket, ip, max, windowSec) {
+  if (!env.RATELIMIT) {
+    console.warn(`rate-limit: KV-Bindung RATELIMIT fehlt — ${bucket} ungedrosselt`);
+    return { ok: true };
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const windowId = Math.floor(nowSec / windowSec);
+  const key = `rl:${bucket}:${ip}:${windowId}`;
+  const current = Number((await env.RATELIMIT.get(key)) || 0);
+  if (current >= max) return { ok: false, retryAfter: windowSec - (nowSec % windowSec) };
+  // TTL = 2 Fenster, damit alte Zähler sicher ablaufen.
+  await env.RATELIMIT.put(key, String(current + 1), { expirationTtl: windowSec * 2 });
+  return { ok: true };
+}
+
+/** 429 mit Retry-After. */
+function tooMany(retryAfter) {
+  return new Response(JSON.stringify({ error: 'zu viele Anfragen' }), {
+    status: 429,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'Retry-After': String(retryAfter || 60),
+    },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -44,24 +117,26 @@ export default {
     // anlegen, damit die Clients tokenlos bleiben. Braucht GITHUB_TOKEN mit
     // Berechtigung issues:write auf REPO.
     if (request.method === 'POST' && url.pathname === '/feedback') {
-      let payload;
       try {
-        payload = await request.json();
-      } catch {
-        return json({ error: 'ungültiges JSON' }, 400);
-      }
-      const title = String((payload && payload.title) || '').trim();
-      const description = String((payload && payload.description) || '').trim();
-      if (!title || !description) {
-        return json({ error: 'title und description erforderlich' }, 400);
-      }
-      const isBug = payload && payload.type === 'bug';
-      const context = String((payload && payload.context) || '').trim();
-      const body =
-        description +
-        '\n\n---\n_Aus dem JM Production Suite Launcher gemeldet_' +
-        (context ? `\n\n\`\`\`\n${context}\n\`\`\`` : '');
-      try {
+        const rl = await rateLimit(
+          env, 'feedback', clientIp(request),
+          LIMITS.feedback.rlMax, LIMITS.feedback.rlWindowSec,
+        );
+        if (!rl.ok) return tooMany(rl.retryAfter);
+
+        const payload = await readJsonLimited(request, LIMITS.feedback.maxBytes);
+        const title = clampField(payload && payload.title, FIELD.title);
+        const description = clampField(payload && payload.description, FIELD.description);
+        if (!title || !description) {
+          return json({ error: 'title und description erforderlich' }, 400);
+        }
+        const isBug = payload && payload.type === 'bug';
+        const context = clampField(payload && payload.context, FIELD.context);
+        const body =
+          description +
+          '\n\n---\n_Aus dem JM Production Suite Launcher gemeldet_' +
+          (context ? `\n\n\`\`\`\n${context}\n\`\`\`` : '');
+
         const res = await fetch(`https://api.github.com/repos/${env.REPO}/issues`, {
           method: 'POST',
           headers: {
@@ -78,13 +153,17 @@ export default {
           }),
         });
         if (!res.ok) {
-          const detail = await res.text().catch(() => '');
-          return json({ error: `GitHub ${res.status}`, detail: detail.slice(0, 300) }, 502);
+          // Rohe GitHub-Antwort NICHT an den Client geben (kann Token-Scope-Hinweise
+          // tragen) — nur serverseitig loggen, dem Client den Status zurück.
+          console.error('feedback issue', res.status, (await res.text().catch(() => '')).slice(0, 500));
+          return json({ error: `GitHub ${res.status}` }, 502);
         }
         const issue = await res.json();
         return json({ ok: true, number: issue.number, url: issue.html_url });
       } catch (e) {
-        return json({ error: String((e && e.message) || e) }, 502);
+        if (e instanceof HttpError) return json({ error: e.message }, e.status);
+        console.error('feedback', e);
+        return json({ error: 'interner Fehler' }, 502);
       }
     }
 
@@ -300,9 +379,16 @@ function text(body, status = 200) {
 async function handleCookbookDraft(request, env) {
   let payload;
   try {
-    payload = await request.json();
-  } catch {
-    return json({ error: 'ungültiges JSON' }, 400);
+    const rl = await rateLimit(
+      env, 'draft', clientIp(request),
+      LIMITS.draft.rlMax, LIMITS.draft.rlWindowSec,
+    );
+    if (!rl.ok) return tooMany(rl.retryAfter);
+    payload = await readJsonLimited(request, LIMITS.draft.maxBytes);
+  } catch (e) {
+    if (e instanceof HttpError) return json({ error: e.message }, e.status);
+    console.error('draft read', e);
+    return json({ error: 'interner Fehler' }, 502);
   }
 
   let recipe;
@@ -337,11 +423,12 @@ async function handleCookbookDraft(request, env) {
 async function draftRecipeWithClaude(input, env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY nicht gesetzt');
   const system = buildAuthoringPrompt({ toolIds: await loadToolIds(env) });
+  // Eingaben hart kappen — begrenzt Anthropic-Kosten und die Prompt-Injection-Fläche.
   const userText = [
-    input.title ? `Titel: ${input.title}` : '',
-    input.category ? `Kategorie: ${input.category}` : '',
+    input.title ? `Titel: ${clampField(input.title, FIELD.title)}` : '',
+    input.category ? `Kategorie: ${clampField(input.category, FIELD.category)}` : '',
     'Roh-Notizen:',
-    String(input.notes || ''),
+    clampField(input.notes, FIELD.notes),
   ]
     .filter(Boolean)
     .join('\n');
@@ -362,8 +449,9 @@ async function draftRecipeWithClaude(input, env) {
     }),
   });
   if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`Anthropic ${res.status}: ${detail.slice(0, 300)}`);
+    // Anthropic-Antwortkörper nur serverseitig loggen, nicht an den Client geben.
+    console.error('anthropic', res.status, (await res.text().catch(() => '')).slice(0, 500));
+    throw new Error(`Anthropic ${res.status}`);
   }
   const data = await res.json();
   const out = (data.content || [])
@@ -443,8 +531,9 @@ async function ghApi(apiUrl, env, method = 'GET', body) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`GitHub ${res.status} (${method}): ${detail.slice(0, 200)}`);
+    // Rohe GitHub-Antwort serverseitig loggen, dem Client nur Status/Methode.
+    console.error('ghApi', method, res.status, (await res.text().catch(() => '')).slice(0, 500));
+    throw new Error(`GitHub ${res.status} (${method})`);
   }
   return res.json();
 }
