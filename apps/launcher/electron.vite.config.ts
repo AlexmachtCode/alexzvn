@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 // im Main-/Preload-Output landet statt zur Laufzeit `require`d zu werden.
 const internalPackages = [
   '@jm/app-runtime',
+  '@jm/control-config',
   '@jm/cookbook',
   '@jm/discovery',
   '@jm/electron-kit',

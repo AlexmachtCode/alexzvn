@@ -483,7 +483,7 @@ if (!gotLock) {
     createMainWindow();
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     coupling.setOverrides(getOverrides());
-    coupling.start();
+    coupling.start(app.getPath('appData'));
     void startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand });
   });
 

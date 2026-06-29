@@ -5,6 +5,7 @@ import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { parseShow, parseShowDeepLink, type ShowNetworkBinding } from '@jm/show';
 import { discover, type Discovery, type DiscoveredService } from '@jm/discovery';
 import { OutputWindow, listDisplays } from '@jm/output-window';
+import { controlClientOptions, readControlConfig } from '@jm/control-config';
 import type { PartialStageConfig, StageState } from '@shared/types';
 import { getConfig, patchConfig } from './config';
 import { TimerClient, TIMER_OFFLINE } from './timer-client';
@@ -26,10 +27,16 @@ const timerClient = new TimerClient((s) => {
   lastTimer = s;
   broadcast();
 });
+// P1 (#59): Token/TLS aus der geteilten control.json. Der Switcher-Steuerserver
+// (SuiteControlClient-Pfad) läuft im secure-Modus verschlüsselt + token-auth →
+// ohne diese Optionen verbände sich Stage Display plain dagegen und bliebe „offline".
+// Nur der Switcher nutzt SuiteControlClient; Timer (Socket.IO) und Presenter (PIN)
+// haben eigene Transporte und sind unberührt.
+const switcherSecurity = controlClientOptions(readControlConfig(app.getPath('appData')));
 const switcherClient = new SwitcherClient((s) => {
   lastSwitcher = s;
   broadcast();
-});
+}, switcherSecurity);
 const presenterClient = new PresenterClient((s) => {
   lastPresenter = s;
   broadcast();

@@ -69,7 +69,7 @@ if (setupSingleInstance(() => createWindow())) {
     startPresenceHub(() => emitAppEvent({ type: 'presence-changed' }));
     // Health-Aggregator: browst per mDNS nach Steuer-Endpunkten und liest deren
     // Live-Zustand (REC/On-Air/…) — auch von Tools auf anderen Rechnern.
-    startHealth(() => emitAppEvent({ type: 'health-changed' }));
+    startHealth(() => emitAppEvent({ type: 'health-changed' }), app.getPath('appData'));
     registerIpc();
     createWindow();
 

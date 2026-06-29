@@ -8,6 +8,7 @@ const sharedAlias = { '@shared': resolve(__dirname, 'src/shared') };
 // Source-Workspace-Pakete inline bündeln (kein Laufzeit-require).
 const internalPackages = [
   '@jm/app-runtime',
+  '@jm/control-config',
   '@jm/output-window',
   '@jm/companion-protocol',
   '@jm/suite-control-protocol',
