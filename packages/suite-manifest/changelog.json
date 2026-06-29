@@ -191,6 +191,13 @@
     "name": "JM Audio Recorder",
     "entries": [
       {
+        "version": "0.6.0",
+        "date": "2026-06-29",
+        "notes": [
+          "Aufnahme-Verstaerkung: Neuer Gain-Regler (-12 bis +24 dB) hebt zu leise Eingaenge an — wirkt live auf Pegelanzeige und Aufnahme und bleibt ueber Neustarts gespeichert."
+        ]
+      },
+      {
         "version": "0.5.0",
         "date": "2026-06-24",
         "notes": [
@@ -728,6 +735,15 @@
     "name": "JM Titler",
     "entries": [
       {
+        "version": "0.5.0",
+        "date": "2026-06-29",
+        "notes": [
+          "DataLink-Variablen: Textfelder koennen jetzt Platzhalter wie {{name}} enthalten, die aus einer Datei im Watchfolder (CSV-Liste oder schluessel=wert) live gefuellt werden — aehnlich TriCaster DataLink.",
+          "Eintraege abrufen: Aus einer Liste laesst sich per Klick oder ueber Bitfocus Companion (Abrufen/Weiter/Zurueck) der gewuenschte Eintrag aufrufen; der aktive Name steht als Companion-Variable bereit.",
+          "Q&A-Kopplung: Der aktive Sprecher aus JM Q&A erscheint automatisch als Bauchbinde."
+        ]
+      },
+      {
         "version": "0.4.0",
         "date": "2026-06-24",
         "notes": [
@@ -796,6 +812,13 @@
     "name": "JM Editor",
     "entries": [
       {
+        "version": "0.5.0",
+        "date": "2026-06-29",
+        "notes": [
+          "Modulares Layout: Medien, Quelle, Vorschau, Inspector und Timeline lassen sich in der Groesse ziehen und ein-/ausblenden; das Layout wird gespeichert."
+        ]
+      },
+      {
         "version": "0.4.0",
         "date": "2026-06-23",
         "notes": [
@@ -844,6 +867,15 @@
     "app": "daw",
     "name": "JM DAW",
     "entries": [
+      {
+        "version": "0.9.0",
+        "date": "2026-06-29",
+        "notes": [
+          "Mixer als eigenes Fenster: Der Mixer laesst sich in ein separates Fenster ausklappen (z. B. fuer einen zweiten Monitor), live synchron zum Hauptfenster inklusive Fader, Pan, Mute/Solo und Bussen.",
+          "Pegelanzeige: Jeder Kanal, Bus und der Master zeigen den Spitzenpegel als Zahl — umschaltbar zwischen dBFS und dBu.",
+          "Modulares Layout: Medien-, Inspector- und Mixer-Bereich lassen sich in der Groesse ziehen und ein-/ausblenden; das Layout wird gespeichert."
+        ]
+      },
       {
         "version": "0.8.0",
         "date": "2026-06-24",
