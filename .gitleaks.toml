@@ -1,0 +1,14 @@
+title = "JM Production Suite — gitleaks"
+
+# Standard-Regelsatz von gitleaks verwenden (API-Keys, private Schlüssel, Tokens …).
+[extend]
+useDefault = true
+
+# Bekannte, bewusste Nicht-Secrets von der Prüfung ausnehmen.
+[allowlist]
+description = "Wegwerf-Material in Tests/Doku — keine echten Geheimnisse"
+paths = [
+  # Selbstsigniertes Throwaway-EC-Zertifikat (embedded) für den TLS-Integrationstest
+  # des Steuerprotokolls — generiert, nicht produktiv, kein echtes Secret.
+  '''packages/suite-control-protocol/test/integration\.ts''',
+]

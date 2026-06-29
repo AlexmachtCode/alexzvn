@@ -1,0 +1,61 @@
+name: CI Checks
+
+# Leichte Qualitäts-/Sicherheits-Gates auf jedem PR + Push nach main (P4, #62).
+# Kein nativer Build/Postinstall nötig → `npm ci --ignore-scripts` (wie
+# cookbook-check.yml) spart die schweren Postinstalls (electron, better-sqlite3,
+# freetype2). tsc braucht nur die TS-Typen, nicht die Binaries; gitleaks scannt
+# die Quelldateien direkt.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md"]
+  pull_request:
+    paths-ignore: ["**/*.md"]
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    name: Typecheck (alle Workspaces)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Install (ohne native Postinstalls)
+        run: npm ci --ignore-scripts
+      - name: tsc --noEmit (node + web)
+        run: npm run typecheck --workspaces --if-present
+
+  secret-scan:
+    name: Secret-Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: gitleaks installieren
+        run: |
+          VER=8.18.4
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+      - name: Quellbaum auf Secrets prüfen
+        # --no-git: aktuellen Dateibaum prüfen (kein node_modules — vor npm ci),
+        # nicht die History. --redact: gefundene Werte nicht ins Log drucken.
+        run: gitleaks detect --no-git --source . --config .gitleaks.toml --redact --verbose
+
+  audit:
+    name: npm audit (Bericht, nicht blockierend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Install (ohne native Postinstalls)
+        run: npm ci --ignore-scripts
+      - name: npm audit (high+)
+        # Bewusst nicht blockierend: dokumentiert bekannte Schwachstellen als
+        # Bericht, ohne PRs an (teils transitiven) Altlasten scheitern zu lassen.
+        run: npm audit --audit-level=high || true
