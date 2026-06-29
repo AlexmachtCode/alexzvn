@@ -8,6 +8,8 @@ import type {
   ExportRunRequest,
   JmdawApi,
   Levels,
+  MixerCommand,
+  MixerSnapshot,
   PickOutputRequest,
   RecorderState,
   SaveProjectRequest,
@@ -45,6 +47,26 @@ const api: JmdawApi = {
   shell: {
     reveal: (p) => ipcRenderer.invoke('shell:reveal', p) as Promise<void>,
     openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url) as Promise<void>,
+  },
+  mixerWin: {
+    open: () => ipcRenderer.invoke('mixer:open') as Promise<void>,
+    pushSnapshot: (snap: MixerSnapshot) => ipcRenderer.send('mixer:snapshot', snap),
+    sendCommand: (cmd: MixerCommand) => ipcRenderer.send('mixer:command', cmd),
+    onSnapshot: (cb) => {
+      const listener = (_e: unknown, snap: MixerSnapshot): void => cb(snap);
+      ipcRenderer.on('mixer:snapshot', listener);
+      return () => ipcRenderer.off('mixer:snapshot', listener);
+    },
+    onCommand: (cb) => {
+      const listener = (_e: unknown, cmd: MixerCommand): void => cb(cmd);
+      ipcRenderer.on('mixer:command', listener);
+      return () => ipcRenderer.off('mixer:command', listener);
+    },
+    onPopoutState: (cb) => {
+      const listener = (_e: unknown, open: boolean): void => cb(open);
+      ipcRenderer.on('mixer:popout', listener);
+      return () => ipcRenderer.off('mixer:popout', listener);
+    },
   },
   onExportProgress: (cb) => {
     const listener = (_e: unknown, p: ExportProgress): void => cb(p);
