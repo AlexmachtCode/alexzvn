@@ -80,12 +80,16 @@ export interface TitlerStatus {
   connections: number;
   /** Anzahl verbundener Suite-Steuerclients (Companion/QA/Battle/Health-Dashboard). */
   suiteClients: number;
-  /** DataLink (#86): live aus dem Watchfolder aufgelöste Variablen. */
+  /** DataLink (#86): Variablen des AKTIVEN Eintrags (für die {{}}-Auflösung). */
   variables: Record<string, string>;
   /** Dateinamen, die zu den Variablen beigetragen haben. */
   dataSources: string[];
   /** Fehler beim Lesen des Watchfolders (z. B. nicht gefunden) — sonst undefined. */
   dataError?: string;
+  /** Labels aller abrufbaren DataLink-Einträge (Recall-Liste). */
+  entries: string[];
+  /** Index des aktiven Eintrags, -1 wenn keiner. */
+  activeEntry: number;
 }
 
 export interface TitlerState {
@@ -120,7 +124,10 @@ export type TitlerRemoteCommand =
   | { t: 'clear' } // CG ausblenden
   | { t: 'toggle' } // On Air umschalten
   | { t: 'template'; kind: TemplateKind } // Vorlage wechseln
-  | { t: 'text'; name: string; subtitle: string }; // Bauchbinden-Text setzen (#93, z. B. Q&A)
+  | { t: 'text'; name: string; subtitle: string } // Bauchbinden-Text setzen (#93, z. B. Q&A)
+  | { t: 'recall'; ref: string } // DataLink-Eintrag abrufen (Nr. oder Name)
+  | { t: 'next' } // nächster DataLink-Eintrag
+  | { t: 'prev' }; // vorheriger DataLink-Eintrag
 
 /** Live-Zustand, vom Renderer an den Main gemeldet (für Companion-STATE). */
 export interface TitlerRemoteState {
@@ -141,6 +148,10 @@ export interface JmtitlerApi {
   setConfig: (patch: PartialTitlerConfig) => Promise<TitlerState>;
   /** Nativen Ordner-Dialog für den DataLink-Watchfolder (#86) öffnen. '' = abgebrochen. */
   pickDataFolder: () => Promise<string>;
+  /** DataLink-Eintrag abrufen (Nr. oder Name). */
+  recallEntry: (ref: string) => Promise<void>;
+  /** Aktiven DataLink-Eintrag verschieben (+1 / -1). */
+  stepEntry: (delta: number) => Promise<void>;
   onStatus: (cb: (s: TitlerStatus) => void) => () => void;
   ndi: {
     /** NDI-Sender starten (forkt den utilityProcess, übergibt den Frame-Port). */

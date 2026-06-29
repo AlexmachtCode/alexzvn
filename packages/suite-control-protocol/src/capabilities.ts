@@ -228,12 +228,25 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
           { id: 'subtitle', label: 'Untertitel (Leerzeichen als _, „-" = leer)', type: 'string', default: '' },
         ],
       },
+      {
+        // DataLink-Eintrag abrufen: füllt die {{variablen}} aus dem gewählten
+        // Listen-Eintrag (CSV-Zeile bzw. key=wert-Datei im Watchfolder).
+        id: 'recall',
+        label: 'DataLink-Eintrag abrufen',
+        verb: 'recall',
+        args: [{ id: 'ref', label: 'Eintrag (Nr. oder Name)', type: 'string', default: '1' }],
+      },
+      { id: 'next', label: 'Nächster DataLink-Eintrag', verb: 'next' },
+      { id: 'prev', label: 'Vorheriger DataLink-Eintrag', verb: 'prev' },
     ],
     variables: [
       { id: 'on_air', label: 'On Air (1/0)' },
       { id: 'template', label: 'Vorlage' },
       { id: 'ndi', label: 'NDI aktiv (1/0)' },
       { id: 'connections', label: 'NDI-Empfänger' },
+      { id: 'entry', label: 'Aktiver DataLink-Eintrag' },
+      { id: 'entry_index', label: 'Eintrag Nr.' },
+      { id: 'entry_count', label: 'Anzahl Einträge' },
     ],
     feedbacks: [
       { id: 'on_air', label: 'CG ist On Air', stateKey: 'on_air', match: 'truthy', bgcolor: RED, color: WHITE },

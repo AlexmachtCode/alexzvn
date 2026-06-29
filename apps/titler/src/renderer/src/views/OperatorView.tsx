@@ -30,6 +30,8 @@ export function OperatorView(): React.JSX.Element {
   const variables = state?.status.variables ?? {};
   const dataSources = state?.status.dataSources ?? [];
   const dataError = state?.status.dataError;
+  const entries = state?.status.entries ?? [];
+  const activeEntry = state?.status.activeEntry ?? -1;
 
   const previewRef = useRef<HTMLCanvasElement>(null);
   // Zum Zeichnen werden {{variablen}} aufgelöst; die Eingabefelder zeigen weiter
@@ -210,12 +212,12 @@ export function OperatorView(): React.JSX.Element {
               )}
             </Section>
 
-            {/* DataLink-Variablen (#86) */}
+            {/* DataLink-Variablen (#86) + Recall */}
             <Section title="Daten / Variablen">
               <p className="text-[11px] text-[var(--muted-foreground)] -mt-1">
                 Platzhalter <code className="text-[var(--primary)]">{'{{name}}'}</code> in den Textfeldern
-                werden aus den Dateien im Ordner (Zeilen <code>schlüssel=wert</code>) gefüllt und
-                aktualisieren sich live.
+                werden aus den Dateien im Ordner gefüllt. CSV mit Kopfzeile = Liste (je Zeile ein Eintrag,
+                abrufbar); <code>schlüssel=wert</code>-Datei = ein Eintrag.
               </p>
               <div className="flex gap-2">
                 <input
@@ -237,12 +239,64 @@ export function OperatorView(): React.JSX.Element {
               {dataError ? (
                 <p className="text-[11px] text-[var(--destructive)]">DataLink: {dataError}</p>
               ) : null}
+
+              {/* Abrufbare Einträge (Recall) */}
+              {c.dataFolder && !dataError && entries.length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+                      Einträge {activeEntry >= 0 ? `· ${activeEntry + 1}/${entries.length}` : `· ${entries.length}`}
+                    </span>
+                    <div className="ml-auto flex gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        uppercase={false}
+                        disabled={activeEntry <= 0}
+                        onClick={() => void window.jmtitler.stepEntry(-1)}
+                        title="Vorheriger Eintrag"
+                      >
+                        ‹
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        uppercase={false}
+                        disabled={activeEntry >= entries.length - 1}
+                        onClick={() => void window.jmtitler.stepEntry(1)}
+                        title="Nächster Eintrag"
+                      >
+                        ›
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="max-h-40 overflow-auto rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
+                    {entries.map((label, i) => (
+                      <button
+                        key={`${i}-${label}`}
+                        onClick={() => void window.jmtitler.recallEntry(String(i + 1))}
+                        className={cn(
+                          'flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs',
+                          i === activeEntry
+                            ? 'bg-[var(--primary)]/15 text-[var(--foreground)] font-bold'
+                            : 'hover:bg-[var(--highlight)] text-[var(--muted-foreground)]',
+                        )}
+                      >
+                        <span className="tabular text-[10px] w-5 shrink-0 text-[var(--muted-foreground)]">{i + 1}</span>
+                        <span className="truncate">{label || '—'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Variablen des aktiven Eintrags */}
               {c.dataFolder && !dataError ? (
                 <div className="rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
                   {Object.keys(variables).length === 0 ? (
                     <p className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
-                      Keine Variablen gefunden. Lege im Ordner z. B. eine <code>daten.txt</code> mit Zeilen
-                      wie <code>name=Dr. Schmidt</code> an.
+                      Keine Variablen gefunden. Lege im Ordner z. B. eine <code>gaeste.csv</code> mit Kopfzeile
+                      <code>name,funktion</code> an — oder eine <code>daten.txt</code> mit <code>name=Dr. Schmidt</code>.
                     </p>
                   ) : (
                     Object.entries(variables).map(([k, v]) => (

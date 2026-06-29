@@ -42,11 +42,21 @@ let lastState: TitlerRemoteState = {
   ndiActive: false,
   connections: 0,
 };
+/** DataLink-Eintragsinfo (Main-Zustand) → in den STATE-Push für Companion. */
+let dataInfo = { entry: '', entryIndex: 0, entryCount: 0 };
 
-function toSuiteState(s: TitlerRemoteState = lastState): SuiteState {
+function toSuiteState(): SuiteState {
   return {
     ns: 'titler',
-    kv: { on_air: s.onAir, template: s.template, ndi: s.ndiActive, connections: s.connections },
+    kv: {
+      on_air: lastState.onAir,
+      template: lastState.template,
+      ndi: lastState.ndiActive,
+      connections: lastState.connections,
+      entry: dataInfo.entry,
+      entry_index: dataInfo.entryIndex,
+      entry_count: dataInfo.entryCount,
+    },
   };
 }
 
@@ -66,6 +76,13 @@ function toRemoteCommand(cmd: SuiteCommand): TitlerRemoteCommand | null {
     case 'text':
       // TITLER TEXT <name> <untertitel> — Tokens whitespace-frei (siehe decodeToken).
       return { t: 'text', name: decodeToken(cmd.args[0] ?? ''), subtitle: decodeToken(cmd.args[1] ?? '') };
+    case 'recall':
+      // TITLER RECALL <nr|name> — Name darf Leerzeichen enthalten (Args wieder fügen).
+      return { t: 'recall', ref: cmd.args.join(' ').trim() };
+    case 'next':
+      return { t: 'next' };
+    case 'prev':
+      return { t: 'prev' };
     default:
       return null;
   }
@@ -74,6 +91,9 @@ function toRemoteCommand(cmd: SuiteCommand): TitlerRemoteCommand | null {
 export function startControlServer(
   getWin: () => BrowserWindow | null,
   onClients?: (clients: number) => void,
+  // Im Main behandelte Befehle (DataLink-Recall/Next/Prev): liefert true, wenn
+  // erledigt → dann NICHT zusätzlich an den Renderer pushen.
+  onLocal?: (rc: TitlerRemoteCommand) => boolean,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   getWindow = getWin;
@@ -87,6 +107,7 @@ export function startControlServer(
       if (cmd.ns !== 'titler') return;
       const rc = toRemoteCommand(cmd);
       if (!rc) return;
+      if (onLocal?.(rc)) return;
       const win = getWindow?.();
       if (win && !win.isDestroyed()) win.webContents.send('titler:remote-cmd', rc);
     },
@@ -108,5 +129,11 @@ export function stopControlServer(): void {
 /** Renderer meldet neuen Live-Zustand → cachen + an alle Clients broadcasten. */
 export function updateTitlerState(state: TitlerRemoteState): void {
   lastState = state;
-  server?.pushState(toSuiteState(state));
+  server?.pushState(toSuiteState());
+}
+
+/** DataLink-Eintragsinfo (aktiver Eintrag) → cachen + broadcasten (Companion-STATE). */
+export function updateTitlerData(info: { entry: string; entryIndex: number; entryCount: number }): void {
+  dataInfo = info;
+  server?.pushState(toSuiteState());
 }

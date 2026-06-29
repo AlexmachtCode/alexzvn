@@ -4,8 +4,8 @@ import { initAppRuntime, getLog } from '@jm/app-runtime';
 import type { PartialTitlerConfig, TitlerRemoteState, TitlerState, TitlerStatus } from '@shared/types';
 import { getConfig, patchConfig } from './config';
 import { startSender, stopSender, senderActive } from './ndi/sender-process';
-import { startControlServer, stopControlServer, updateTitlerState, CONTROL_PORT } from './control-server';
-import { startDataWatch, stopDataWatch, type DataState } from './datalink';
+import { startControlServer, stopControlServer, updateTitlerState, updateTitlerData, CONTROL_PORT } from './control-server';
+import { startDataWatch, stopDataWatch, recall, step, type DataState } from './datalink';
 
 declare const __dirname: string;
 
@@ -18,6 +18,8 @@ const status: TitlerStatus = {
   suiteClients: 0,
   variables: {},
   dataSources: [],
+  entries: [],
+  activeEntry: -1,
 };
 
 function buildState(): TitlerState {
@@ -28,7 +30,7 @@ function broadcastStatus(): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('titler:status', status);
 }
 
-/** DataLink-Watchfolder (neu) starten/aktualisieren — Variablen in den Status spiegeln. */
+/** DataLink-Watchfolder (neu) starten/aktualisieren — Einträge/Variablen spiegeln. */
 function refreshDataWatch(): void {
   const folder = getConfig().dataFolder;
   if (!folder) {
@@ -36,14 +38,24 @@ function refreshDataWatch(): void {
     status.variables = {};
     status.dataSources = [];
     status.dataError = undefined;
+    status.entries = [];
+    status.activeEntry = -1;
     broadcastStatus();
+    updateTitlerData({ entry: '', entryIndex: 0, entryCount: 0 });
     return;
   }
   startDataWatch(folder, (d: DataState) => {
     status.variables = d.variables;
     status.dataSources = d.sources;
     status.dataError = d.error;
+    status.entries = d.entries.map((e) => e.label);
+    status.activeEntry = d.activeIndex;
     broadcastStatus();
+    updateTitlerData({
+      entry: d.activeIndex >= 0 ? d.entries[d.activeIndex].label : '',
+      entryIndex: d.activeIndex >= 0 ? d.activeIndex + 1 : 0,
+      entryCount: d.entries.length,
+    });
   });
 }
 
@@ -128,6 +140,8 @@ function registerIpc(): void {
     });
     return r.canceled || !r.filePaths[0] ? '' : r.filePaths[0];
   });
+  ipcMain.handle('titler:recall', (_e, ref: string) => recall(ref));
+  ipcMain.handle('titler:stepEntry', (_e, delta: number) => step(delta));
   ipcMain.handle('titler:ndi-start', (_e, name: string) => startNdi(name || getConfig().ndiName));
   ipcMain.handle('titler:ndi-stop', () => stopNdi());
   ipcMain.handle('titler:ndi-status', () => {
@@ -169,6 +183,23 @@ if (!gotLock) {
         (clients) => {
           status.suiteClients = clients;
           broadcastStatus();
+        },
+        // DataLink-Recall im Main behandeln (ändert den aktiven Eintrag, kein
+        // Renderer-Push) → true = erledigt.
+        (rc) => {
+          if (rc.t === 'recall') {
+            recall(rc.ref);
+            return true;
+          }
+          if (rc.t === 'next') {
+            step(1);
+            return true;
+          }
+          if (rc.t === 'prev') {
+            step(-1);
+            return true;
+          }
+          return false;
         },
       );
       if (!r.ok) getLog().warn(`Titler-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
