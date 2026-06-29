@@ -31,6 +31,31 @@ export function formatDbfs(peak: number): string {
   return `${(20 * Math.log10(peak)).toFixed(0)}`;
 }
 
+/** Pegel-Einheit der Meter-Anzeige. */
+export type MeterUnit = 'dbfs' | 'dbu';
+
+/**
+ * Digital↔analoge Bezugsausrichtung (EBU R68): 0 dBFS = +18 dBu.
+ * Damit lässt sich die dBFS-Spitze als dBu darstellen (Studio-Üblichkeit).
+ */
+export const DBU_REF = 18;
+
+/** Lineare Spitze (0..1) → Pegel-Text in der gewählten Einheit (ohne Suffix). */
+export function formatMeterPeak(peak: number, unit: MeterUnit): string {
+  if (peak <= 0) return '−∞';
+  const dbfs = 20 * Math.log10(peak);
+  if (unit === 'dbu') {
+    const dbu = dbfs + DBU_REF;
+    return `${dbu >= 0 ? '+' : ''}${dbu.toFixed(0)}`;
+  }
+  return `${dbfs.toFixed(0)}`;
+}
+
+/** Suffix für die gewählte Einheit. */
+export function meterUnitLabel(unit: MeterUnit): string {
+  return unit === 'dbu' ? 'dBu' : 'dBFS';
+}
+
 /** Pan (-1..+1) → Orientierungstext: L100 … 0 … R100. */
 export function formatPan(pan: number): string {
   const v = Math.round(pan * 100);

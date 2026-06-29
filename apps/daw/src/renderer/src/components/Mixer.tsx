@@ -3,7 +3,7 @@ import { cn } from '@jm/ui';
 import type { Track } from '@shared/project';
 import { useProject } from '@/store/project';
 import { engine, type MeterData } from '@/audio/engine';
-import { formatDb, formatPan } from '@/lib/format';
+import { formatDb, formatMeterPeak, formatPan, meterUnitLabel, type MeterUnit } from '@/lib/format';
 
 const GAIN_MAX = 1.6; // ~ +4 dB Headroom
 
@@ -14,6 +14,16 @@ function meterPct(peak: number): number {
   return Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
 }
 
+// Gewählte Pegel-Einheit (dBFS/dBu) — persistiert, damit sie Sessions übersteht.
+const UNIT_KEY = 'jmdaw.meterUnit';
+function loadUnit(): MeterUnit {
+  try {
+    return localStorage.getItem(UNIT_KEY) === 'dbu' ? 'dbu' : 'dbfs';
+  } catch {
+    return 'dbfs';
+  }
+}
+
 export function Mixer() {
   const tracks = useProject((s) => s.present.tracks);
   const masterGain = useProject((s) => s.present.master.gain);
@@ -22,8 +32,19 @@ export function Mixer() {
   const addBus = useProject((s) => s.addBus);
   const removeBus = useProject((s) => s.removeBus);
   const [meters, setMeters] = useState<MeterData>({ master: 0, tracks: {} });
+  const [unit, setUnit] = useState<MeterUnit>(loadUnit);
   const audioTracks = tracks.filter((t) => t.kind === 'audio');
   const buses = tracks.filter((t) => t.kind === 'bus');
+
+  const toggleUnit = (): void => {
+    const next: MeterUnit = unit === 'dbfs' ? 'dbu' : 'dbfs';
+    setUnit(next);
+    try {
+      localStorage.setItem(UNIT_KEY, next);
+    } catch {
+      // localStorage nicht verfügbar → nur In-Memory
+    }
+  };
 
   useEffect(() => {
     let raf = 0;
@@ -45,17 +66,30 @@ export function Mixer() {
         <span className="text-[11px] uppercase tracking-[0.14em] font-bold text-[var(--muted-foreground)]">
           Mixer
         </span>
-        <button
-          type="button"
-          onClick={addBus}
-          title="AUX-Bus hinzufügen (für Sends, z. B. Reverb-Return)"
-          className={cn(
-            'h-6 px-2 rounded-[var(--radius)] text-[10px] font-bold border border-[var(--border)]',
-            'text-[var(--foreground)]/85 hover:bg-[var(--highlight)]',
-          )}
-        >
-          + Bus
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={toggleUnit}
+            title="Pegel-Einheit umschalten (dBFS ↔ dBu, EBU R68: 0 dBFS = +18 dBu)"
+            className={cn(
+              'h-6 px-2 rounded-[var(--radius)] text-[10px] font-bold border border-[var(--border)] tabular-nums',
+              'text-[var(--foreground)]/85 hover:bg-[var(--highlight)]',
+            )}
+          >
+            {meterUnitLabel(unit)}
+          </button>
+          <button
+            type="button"
+            onClick={addBus}
+            title="AUX-Bus hinzufügen (für Sends, z. B. Reverb-Return)"
+            className={cn(
+              'h-6 px-2 rounded-[var(--radius)] text-[10px] font-bold border border-[var(--border)]',
+              'text-[var(--foreground)]/85 hover:bg-[var(--highlight)]',
+            )}
+          >
+            + Bus
+          </button>
+        </div>
       </div>
       <div className="flex-1 min-h-0 overflow-x-auto flex gap-2 p-3">
         {audioTracks.map((track) => (
@@ -63,6 +97,7 @@ export function Mixer() {
             key={track.id}
             track={track}
             meter={meters.tracks[track.id] ?? 0}
+            unit={unit}
             active={track.id === activeTrackId}
             onSelect={() => setActiveTrack(track.id)}
           />
@@ -73,13 +108,14 @@ export function Mixer() {
             key={track.id}
             track={track}
             meter={meters.tracks[track.id] ?? 0}
+            unit={unit}
             active={track.id === activeTrackId}
             onSelect={() => setActiveTrack(track.id)}
             isBus
             onRemove={() => removeBus(track.id)}
           />
         ))}
-        <MasterStrip gain={masterGain} meter={meters.master} />
+        <MasterStrip gain={masterGain} meter={meters.master} unit={unit} />
       </div>
     </div>
   );
@@ -88,6 +124,7 @@ export function Mixer() {
 function ChannelStrip({
   track,
   meter,
+  unit,
   active,
   onSelect,
   isBus,
@@ -95,6 +132,7 @@ function ChannelStrip({
 }: {
   track: Track;
   meter: number;
+  unit: MeterUnit;
   active: boolean;
   onSelect: () => void;
   isBus?: boolean;
@@ -183,7 +221,15 @@ function ChannelStrip({
         <Meter pct={meterPct(meter)} />
       </div>
 
-      <span className="shrink-0 text-[9px] tabular-nums text-[var(--muted-foreground)]">{formatDb(track.gain)} dB</span>
+      <span
+        className="shrink-0 text-[8px] tabular-nums text-[var(--muted-foreground)]/70 leading-none"
+        title={`Spitzenpegel (${meterUnitLabel(unit)})`}
+      >
+        {formatMeterPeak(meter, unit)} {meterUnitLabel(unit)}
+      </span>
+      <span className="shrink-0 text-[9px] tabular-nums text-[var(--muted-foreground)]" title="Fader-Pegel">
+        {formatDb(track.gain)} dB
+      </span>
 
       <div className="shrink-0 flex items-center gap-1">
         <StripToggle active={track.muted} label="M" tone="mute" onClick={() => toggleMute(track.id)} />
@@ -193,7 +239,7 @@ function ChannelStrip({
   );
 }
 
-function MasterStrip({ gain, meter }: { gain: number; meter: number }) {
+function MasterStrip({ gain, meter, unit }: { gain: number; meter: number; unit: MeterUnit }) {
   const beginDrag = useProject((s) => s.beginDrag);
   const dragUpdate = useProject((s) => s.dragUpdate);
   const endDrag = useProject((s) => s.endDrag);
@@ -211,7 +257,15 @@ function MasterStrip({ gain, meter }: { gain: number; meter: number }) {
         <Fader value={gain} onBegin={beginDrag} onEnd={endDrag} onChange={setGain} />
         <Meter pct={meterPct(meter)} />
       </div>
-      <span className="shrink-0 text-[9px] tabular-nums text-[var(--muted-foreground)]">{formatDb(gain)} dB</span>
+      <span
+        className="shrink-0 text-[8px] tabular-nums text-[var(--muted-foreground)]/70 leading-none"
+        title={`Spitzenpegel (${meterUnitLabel(unit)})`}
+      >
+        {formatMeterPeak(meter, unit)} {meterUnitLabel(unit)}
+      </span>
+      <span className="shrink-0 text-[9px] tabular-nums text-[var(--muted-foreground)]" title="Fader-Pegel">
+        {formatDb(gain)} dB
+      </span>
     </div>
   );
 }
