@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-06-29T09:13:35.135Z",
+  "updatedAt": "2026-06-29T09:14:19.447Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -409,7 +409,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.battle",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.2.0",
+      "latestVersion": "0.2.1",
       "platforms": {
         "mac": {
           "artifact": "JM Battle-${version}-mac-${arch}.dmg",
