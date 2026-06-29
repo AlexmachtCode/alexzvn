@@ -24,6 +24,16 @@ export const CONTROL_PORT = 8726;
 
 const TEMPLATES = new Set<TemplateKind>(['lowerthird', 'banner', 'ticker']);
 
+/**
+ * Token aus dem `TITLER TEXT`-Verb dekodieren: das Zeilenprotokoll trennt an
+ * Leerzeichen, daher kodiert der Sender (z. B. Q&A) Leerzeichen als `_` und ein
+ * leeres Feld als `-`. Vgl. apps/qa encodeToken().
+ */
+function decodeToken(s: string): string {
+  if (!s || s === '-') return '';
+  return s.replace(/_/g, ' ').trim();
+}
+
 let server: SuiteControlServer | null = null;
 let getWindow: (() => BrowserWindow | null) | null = null;
 let lastState: TitlerRemoteState = {
@@ -53,6 +63,9 @@ function toRemoteCommand(cmd: SuiteCommand): TitlerRemoteCommand | null {
       const kind = (cmd.args[0] ?? '').toLowerCase() as TemplateKind;
       return TEMPLATES.has(kind) ? { t: 'template', kind } : null;
     }
+    case 'text':
+      // TITLER TEXT <name> <untertitel> — Tokens whitespace-frei (siehe decodeToken).
+      return { t: 'text', name: decodeToken(cmd.args[0] ?? ''), subtitle: decodeToken(cmd.args[1] ?? '') };
     default:
       return null;
   }

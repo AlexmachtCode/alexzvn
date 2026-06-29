@@ -20,6 +20,7 @@ const api: JmtitlerApi = {
   getState: () => ipcRenderer.invoke('titler:getState') as Promise<TitlerState>,
   setConfig: (patch: PartialTitlerConfig) =>
     ipcRenderer.invoke('titler:setConfig', patch) as Promise<TitlerState>,
+  pickDataFolder: () => ipcRenderer.invoke('titler:pickDataFolder') as Promise<string>,
   onStatus: (cb) => {
     const listener = (_e: unknown, s: TitlerStatus): void => cb(s);
     ipcRenderer.on('titler:status', listener);

@@ -217,6 +217,17 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
           },
         ],
       },
+      {
+        // Bauchbinden-Text fernsetzen (z. B. von Q&A). Tokens sind whitespace-frei:
+        // Leerzeichen als '_' schreiben, '-' = leeres Feld (Titler dekodiert das).
+        id: 'text',
+        label: 'Bauchbinden-Text setzen',
+        verb: 'text',
+        args: [
+          { id: 'name', label: 'Name (Leerzeichen als _)', type: 'string', default: '' },
+          { id: 'subtitle', label: 'Untertitel (Leerzeichen als _, „-" = leer)', type: 'string', default: '' },
+        ],
+      },
     ],
     variables: [
       { id: 'on_air', label: 'On Air (1/0)' },
