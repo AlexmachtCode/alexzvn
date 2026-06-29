@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-06-29T09:14:19.447Z",
+  "updatedAt": "2026-06-29T09:14:30.066Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -241,7 +241,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.stage-display",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.4.2",
+      "latestVersion": "0.4.3",
       "platforms": {
         "mac": {
           "artifact": "JM Stage Display-${version}-mac-${arch}.dmg",
