@@ -1,10 +1,13 @@
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
 
 interface StoredSettings {
+  /** Legacy-Klartext-Token (alte Datei). Wird beim nächsten Schreiben migriert. */
   githubToken?: string;
+  /** GitHub-Token verschlüsselt (OS-Keychain via safeStorage), base64. Bevorzugt. */
+  githubTokenEnc?: string;
   proxyUrl?: string;
   manifestUrl?: string;
 }
@@ -57,14 +60,54 @@ function read(): StoredSettings {
   return {};
 }
 
+/**
+ * Token verschlüsselt ablegen (OS-Keychain via safeStorage), Klartext entfernen.
+ * Greift sowohl für frisch gesetzte Tokens als auch für ein Legacy-Klartext-Token
+ * aus einer alten Datei (Migration). Ist die Verschlüsselung nicht verfügbar
+ * (z. B. Linux ohne Keyring), bleibt der Klartext erhalten — Token-Verlust wäre
+ * schlimmer als at-rest-Klartext auf einem Einzelplatz.
+ */
+function sealToken(s: StoredSettings): StoredSettings {
+  const out: StoredSettings = { ...s };
+  if (out.githubToken && safeStorage.isEncryptionAvailable()) {
+    out.githubTokenEnc = safeStorage.encryptString(out.githubToken).toString('base64');
+    delete out.githubToken;
+  }
+  return out;
+}
+
+/** Gespeichertes Token lesen: verschlüsselt bevorzugt, Klartext-Fallback (Legacy). */
+function storedToken(s: StoredSettings): string | undefined {
+  if (s.githubTokenEnc && safeStorage.isEncryptionAvailable()) {
+    try {
+      return safeStorage.decryptString(Buffer.from(s.githubTokenEnc, 'base64')) || undefined;
+    } catch {
+      // Unlesbar (anderes OS-Profil/Schlüssel) → wie kein Token behandeln.
+      return undefined;
+    }
+  }
+  return s.githubToken || undefined;
+}
+
 function write(value: StoredSettings): void {
   mkdirSync(app.getPath('userData'), { recursive: true });
-  writeFileSync(settingsFile(), JSON.stringify(value, null, 2));
+  // Vor dem Schreiben das Token versiegeln (Klartext → verschlüsselt).
+  writeFileSync(settingsFile(), JSON.stringify(sealToken(value), null, 2), { mode: 0o600 });
+}
+
+/**
+ * Einmalige Migration beim Start: ein vorhandenes Klartext-Token verschlüsselt
+ * neu ablegen. No-op, wenn keins existiert oder die Verschlüsselung fehlt.
+ * Muss NACH app.whenReady laufen (safeStorage braucht die bereite App).
+ */
+export function migrateTokenAtRest(): void {
+  const s = read();
+  if (s.githubToken && safeStorage.isEncryptionAvailable()) write(s);
 }
 
 /** Effektives Token: Umgebungsvariable hat Vorrang vor gespeichertem Wert. */
 export function resolveToken(): string | undefined {
-  return process.env['JMPS_GITHUB_TOKEN'] || read().githubToken || undefined;
+  return process.env['JMPS_GITHUB_TOKEN'] || storedToken(read()) || undefined;
 }
 
 /** Effektive Proxy-URL: Env > gespeichert > eingebackener Default. */
@@ -122,7 +165,11 @@ export function setSettings(input: SuiteSettingsInput): SuiteSettingsView {
   const next: StoredSettings = { ...current };
   // Leerer String => Wert löschen; undefined => unverändert lassen.
   if (input.githubToken !== undefined) {
-    next.githubToken = input.githubToken.trim() || undefined;
+    const t = input.githubToken.trim();
+    // Beide Repräsentationen zurücksetzen, dann (in write→sealToken) neu versiegeln.
+    delete next.githubToken;
+    delete next.githubTokenEnc;
+    if (t) next.githubToken = t;
   }
   if (input.proxyUrl !== undefined) {
     next.proxyUrl = input.proxyUrl.trim() || undefined;
