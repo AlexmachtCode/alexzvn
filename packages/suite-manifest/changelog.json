@@ -4,6 +4,17 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.6.0",
+        "date": "2026-06-29",
+        "notes": [
+          "Show öffnen: Ein Lade-Overlay zeigt jetzt, welche Tools starten, und hakt jedes ab, sobald es läuft — kein Rätselraten mehr beim Start einer Produktion.",
+          "Zentraler Show-Ablauf: Der Ablauf lässt sich einmal beim Anlegen der Show pflegen; Rundown und Timer übernehmen ihn automatisch.",
+          "Sicherheit: Das hinterlegte GitHub-Token wird jetzt verschlüsselt im Schlüsselspeicher des Betriebssystems abgelegt statt im Klartext.",
+          "Kochbuch: Neue Kategorie Best Practices (SOPs und Flowcharts) direkt im Launcher.",
+          "Behoben: Verfügbare Updates des JM Audio Recorders wurden teils nicht erkannt."
+        ]
+      },
+      {
         "version": "0.5.2",
         "date": "2026-06-25",
         "notes": [
@@ -225,6 +236,15 @@
     "name": "JM Switcher",
     "entries": [
       {
+        "version": "0.5.0",
+        "date": "2026-06-29",
+        "notes": [
+          "NDI-Quellen: Es werden jetzt zuverlässig ALLE NDI-Quellen im Netzwerk gefunden und gelistet — nicht mehr nur eine zufällige Teilmenge pro Gerät. Die Suche läuft im Hintergrund weiter und ergänzt neu auftauchende Quellen.",
+          "Multiview: Der Vollbild-Button funktioniert; lange Quellnamen sprengen die Kachel nicht mehr.",
+          "Sicherheit: Renderer-Sandbox + Content-Security-Policy aktiviert; im secure-Modus verschlüsselte, token-gesicherte Steuerebene."
+        ]
+      },
+      {
         "version": "0.4.0",
         "date": "2026-06-23",
         "notes": [
@@ -398,6 +418,13 @@
     "app": "timer",
     "name": "JM Timer",
     "entries": [
+      {
+        "version": "0.5.0",
+        "date": "2026-06-29",
+        "notes": [
+          "Zentraler Show-Ablauf: Der Timer übernimmt den in der Show gepflegten Ablauf automatisch als Countdown-Plan, sofern kein eigener Timer-Ablaufplan gesetzt ist."
+        ]
+      },
       {
         "version": "0.4.0",
         "date": "2026-06-28",
@@ -584,6 +611,14 @@
     "app": "stage-display",
     "name": "JM Stage Display",
     "entries": [
+      {
+        "version": "0.4.3",
+        "date": "2026-06-29",
+        "notes": [
+          "Presenter-Folien stabiler: Folien erscheinen zuverlässig auch ohne Neustart; seltene Abstürze (socket hang up) behoben.",
+          "Sicherheit: Renderer-Sandbox + Content-Security-Policy; im secure-Modus verschlüsselte, token-gesicherte Verbindung zum Switcher."
+        ]
+      },
       {
         "version": "0.4.2",
         "date": "2026-06-24",
@@ -894,6 +929,13 @@
     "name": "JM Rundown",
     "entries": [
       {
+        "version": "0.3.0",
+        "date": "2026-06-29",
+        "notes": [
+          "Zentraler Show-Ablauf: Rundown übernimmt den in der Show gepflegten Ablauf automatisch als Zeilen — kein separater Ablauf je Tool mehr nötig. Die GO-Aktionen ergänzt man wie gewohnt. Ein eigenes Rundown-Dokument in der Show hat weiterhin Vorrang."
+        ]
+      },
+      {
         "version": "0.2.0",
         "date": "2026-06-28",
         "notes": [
@@ -920,6 +962,13 @@
     "name": "JM Q&A",
     "entries": [
       {
+        "version": "0.2.1",
+        "date": "2026-06-29",
+        "notes": [
+          "Sicherheit: Saal-Einreichung per QR ist token-abgesichert; im secure-Modus verschlüsselte, token-gesicherte Kopplung an Timer und Titler. Renderer-Sandbox + Content-Security-Policy."
+        ]
+      },
+      {
         "version": "0.2.0",
         "date": "2026-06-24",
         "notes": [
@@ -940,6 +989,13 @@
     "app": "battle",
     "name": "JM Battle",
     "entries": [
+      {
+        "version": "0.2.1",
+        "date": "2026-06-29",
+        "notes": [
+          "Sicherheit: Publikums- und Jury-Voting per QR sind token-abgesichert; im secure-Modus verschlüsselte, token-gesicherte Kopplung an den Titler. Renderer-Sandbox + Content-Security-Policy."
+        ]
+      },
       {
         "version": "0.2.0",
         "date": "2026-06-24",
