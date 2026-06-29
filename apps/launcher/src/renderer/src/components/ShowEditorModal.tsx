@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
-import { createShow, type Show, type ShowToolRef } from '@jm/show';
+import { createShow, type Show, type ShowAblaufItem, type ShowToolRef } from '@jm/show';
 import { useTools } from '@/store/tools';
 
 interface Entry {
@@ -10,10 +10,13 @@ interface Entry {
   host: string;
 }
 
-interface TtRow {
+/** Eine Zeile des zentralen Show-Ablaufs (#78) im Editor. */
+interface AblaufRow {
   label: string;
-  /** Dauer in Minuten als Eingabe-String (z. B. "5" oder "2.5"). */
+  /** Dauer in Minuten als Eingabe-String (z. B. "5" oder "2.5"). Leer = ohne Dauer. */
   minutes: string;
+  /** Freie Notiz (optional). */
+  note: string;
 }
 
 const EMPTY_ENTRY: Entry = { included: false, document: '', host: '' };
@@ -32,7 +35,7 @@ export function ShowEditorModal() {
 
   const [name, setName] = useState('');
   const [entries, setEntries] = useState<Record<string, Entry>>({});
-  const [timetable, setTimetable] = useState<TtRow[]>([]);
+  const [ablauf, setAblauf] = useState<AblaufRow[]>([]);
   const [battleA, setBattleA] = useState('');
   const [battleB, setBattleB] = useState('');
   const [battleRounds, setBattleRounds] = useState('');
@@ -56,11 +59,27 @@ export function ShowEditorModal() {
     if (path) setEntry(id, { included: true, document: path });
   };
 
-  const addTtRow = (): void => setTimetable((rows) => [...rows, { label: '', minutes: '' }]);
-  const setTtRow = (i: number, patch: Partial<TtRow>): void =>
-    setTimetable((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const removeTtRow = (i: number): void =>
-    setTimetable((rows) => rows.filter((_, idx) => idx !== i));
+  const addAblaufRow = (): void =>
+    setAblauf((rows) => [...rows, { label: '', minutes: '', note: '' }]);
+  const setAblaufRow = (i: number, patch: Partial<AblaufRow>): void =>
+    setAblauf((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const removeAblaufRow = (i: number): void =>
+    setAblauf((rows) => rows.filter((_, idx) => idx !== i));
+
+  /** Editor-Zeilen → zentrale Show-Ablauf-Items (Titel Pflicht, Dauer/Notiz optional). */
+  const buildAblauf = (): ShowAblaufItem[] =>
+    ablauf
+      .filter((r) => r.label.trim())
+      .map((r) => {
+        const min = parseFloat(r.minutes);
+        const durationMs = Number.isFinite(min) && min > 0 ? Math.round(min * 60000) : undefined;
+        const note = r.note.trim();
+        return {
+          label: r.label.trim(),
+          ...(durationMs ? { durationMs } : {}),
+          ...(note ? { note } : {}),
+        };
+      });
 
   const buildRef = (id: string): ShowToolRef => {
     const e = entries[id];
@@ -69,15 +88,6 @@ export function ShowEditorModal() {
     if (doc) ref.document = doc;
     const host = e?.host.trim();
     if (host) ref.network = { host };
-    if (id === 'jm-timer') {
-      const items = timetable
-        .filter((r) => r.label.trim() || r.minutes.trim())
-        .map((r) => ({
-          label: r.label.trim(),
-          durationMs: Math.max(0, Math.round((parseFloat(r.minutes) || 0) * 60000)),
-        }));
-      if (items.length) ref.settings = { timetable: items };
-    }
     if (id === 'jm-battle') {
       const s: Record<string, unknown> = {};
       if (battleA.trim()) s.nameA = battleA.trim();
@@ -94,9 +104,11 @@ export function ShowEditorModal() {
   };
 
   const onSave = async (): Promise<void> => {
+    const ablaufItems = buildAblauf();
     const show: Show = {
       ...createShow(name.trim() || 'Unbenannte Show'),
       tools: sorted.filter((t) => entries[t.id]?.included).map((t) => buildRef(t.id)),
+      ...(ablaufItems.length ? { ablauf: ablaufItems } : {}),
     };
     setBusy(true);
     try {
@@ -104,7 +116,7 @@ export function ShowEditorModal() {
       if (ok) {
         setName('');
         setEntries({});
-        setTimetable([]);
+        setAblauf([]);
         setBattleA('');
         setBattleB('');
         setBattleRounds('');
@@ -138,6 +150,57 @@ export function ShowEditorModal() {
             className={cn(inputCls, 'h-10 px-3 text-sm')}
           />
         </label>
+
+        {/* Zentraler Ablauf (#78): einmal hier gepflegt, lesen Rundown + Timer
+            automatisch beim Öffnen der Show — kein separater Ablauf je Tool. */}
+        <div className="mt-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+              Zentraler Ablauf
+            </span>
+            <Button size="sm" variant="ghost" onClick={addAblaufRow}>
+              + Programmpunkt
+            </Button>
+          </div>
+          {ablauf.length === 0 ? (
+            <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+              Optional — Programmpunkte mit Dauer. Rundown &amp; Timer übernehmen sie
+              automatisch (Rundown als Zeilen, Timer als Countdown-Ablauf).
+            </p>
+          ) : (
+            <div className="mt-2 flex flex-col gap-1.5">
+              {ablauf.map((r, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="w-5 text-right text-[11px] tabular-nums text-[var(--muted-foreground)]">
+                    {i + 1}
+                  </span>
+                  <input
+                    value={r.label}
+                    placeholder="Programmpunkt (z. B. Begrüßung)"
+                    onChange={(e) => setAblaufRow(i, { label: e.target.value })}
+                    className={cn(inputCls, 'h-8 flex-1 px-2.5 text-xs')}
+                  />
+                  <input
+                    value={r.minutes}
+                    inputMode="decimal"
+                    placeholder="Min"
+                    onChange={(e) => setAblaufRow(i, { minutes: e.target.value })}
+                    className={cn(inputCls, 'h-8 w-14 px-2.5 text-xs tabular-nums')}
+                  />
+                  <input
+                    value={r.note}
+                    placeholder="Notiz"
+                    onChange={(e) => setAblaufRow(i, { note: e.target.value })}
+                    className={cn(inputCls, 'h-8 w-24 px-2.5 text-xs')}
+                  />
+                  <Button size="sm" variant="ghost" onClick={() => removeAblaufRow(i)}>
+                    ✕
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="mt-5 max-h-[52vh] overflow-auto flex flex-col gap-1.5">
           {sorted.map((t) => {
@@ -182,44 +245,9 @@ export function ShowEditorModal() {
                     />
 
                     {t.id === 'jm-timer' && (
-                      <div className="mt-1 rounded-[var(--radius)] border border-[var(--border)]/60 bg-[var(--input)]/40 p-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
-                            Ablaufplan
-                          </span>
-                          <Button size="sm" variant="ghost" onClick={addTtRow}>
-                            + Eintrag
-                          </Button>
-                        </div>
-                        {timetable.length === 0 ? (
-                          <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-                            Optional — Punkte mit Dauer (Minuten) für den Timer.
-                          </p>
-                        ) : (
-                          <div className="mt-2 flex flex-col gap-1.5">
-                            {timetable.map((r, i) => (
-                              <div key={i} className="flex items-center gap-2">
-                                <input
-                                  value={r.label}
-                                  placeholder="Punkt (z. B. Begrüßung)"
-                                  onChange={(e) => setTtRow(i, { label: e.target.value })}
-                                  className={cn(inputCls, 'h-8 flex-1 px-2.5 text-xs')}
-                                />
-                                <input
-                                  value={r.minutes}
-                                  inputMode="decimal"
-                                  placeholder="Min"
-                                  onChange={(e) => setTtRow(i, { minutes: e.target.value })}
-                                  className={cn(inputCls, 'h-8 w-16 px-2.5 text-xs tabular-nums')}
-                                />
-                                <Button size="sm" variant="ghost" onClick={() => removeTtRow(i)}>
-                                  ✕
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <p className="text-[11px] text-[var(--muted-foreground)]">
+                        Übernimmt den zentralen Ablauf oben als Countdown-Plan.
+                      </p>
                     )}
 
                     {t.id === 'jm-battle' && (

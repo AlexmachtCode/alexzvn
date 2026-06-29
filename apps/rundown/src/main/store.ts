@@ -5,6 +5,7 @@ import { app } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { newId } from '@shared/conductor';
+import type { ShowAblaufItem } from '@jm/show';
 import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
 
 function autosavePath(): string {
@@ -71,6 +72,17 @@ export function migrate(raw: unknown): RundownDoc {
     name: typeof o.name === 'string' ? o.name : 'Ablauf',
     rows: Array.isArray(o.rows) ? o.rows.map(normRow) : [],
   };
+}
+
+/**
+ * Zentralen Show-Ablauf (#78) in ein RundownDoc überführen — jeder Programmpunkt
+ * wird zu einer Zeile OHNE Aktionen (die GO-Aktionen bleiben Rundown-spezifisch
+ * und ergänzt der Nutzer in Rundown). Über `migrate` normalisiert (frische IDs,
+ * optionale Felder). So muss der Ablauf nur einmal zentral in der Show gepflegt
+ * werden, statt in jedem Tool separat.
+ */
+export function docFromAblauf(name: string, items: ShowAblaufItem[]): RundownDoc {
+  return migrate({ name: name || 'Ablauf', rows: items.map((it) => ({ ...it, actions: [] })) });
 }
 
 export function readDoc(path: string): RundownDoc {

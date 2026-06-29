@@ -9,7 +9,7 @@ import type { FireReport, RundownAction, RundownDoc, RundownNav, RundownRow, Run
 import { Conductor } from './conductor';
 import { getOverrides, setOverride } from './config';
 import { startControlServer, stopControlServer, pushControlState } from './control-server';
-import { defaultDoc, loadAutosave, readDoc, saveAutosave, writeDoc } from './store';
+import { defaultDoc, docFromAblauf, loadAutosave, readDoc, saveAutosave, writeDoc } from './store';
 
 declare const __dirname: string;
 
@@ -256,9 +256,13 @@ function registerIpc(): void {
 }
 
 /**
- * Show-Integration: Wird Rundown über einen Show-Deep-Link gestartet, lädt es das
- * in der Show referenzierte `.jmrundown`-Dokument (ShowToolRef.document von
- * jm-rundown). So startet die ganze Produktion mit dem richtigen Ablauf.
+ * Show-Integration: Wird Rundown über einen Show-Deep-Link gestartet, lädt es den
+ * Ablauf aus der Show. Zwei Quellen, in dieser Reihenfolge:
+ *  1. Referenziert die Show ein eigenes `.jmrundown` (ShowToolRef.document von
+ *     jm-rundown), gewinnt dieses — voller Ablauf inkl. GO-Aktionen.
+ *  2. Sonst der ZENTRALE Show-Ablauf (#78, show.ablauf): die Programmpunkte
+ *     werden zu Zeilen (ohne Aktionen). So muss der Ablauf nur einmal beim
+ *     Erstellen der Show gepflegt werden, nicht separat in Rundown.
  */
 function applyShowFromDeepLink(url: string): void {
   const showPath = parseShowDeepLink(url);
@@ -270,6 +274,10 @@ function applyShowFromDeepLink(url: string): void {
       index = 0;
       lastFired = null;
       setDoc(readDoc(ref.document), ref.document, false);
+    } else if (show.ablauf && show.ablauf.length) {
+      index = 0;
+      lastFired = null;
+      setDoc(docFromAblauf(show.name, show.ablauf), null, false);
     }
   } catch (err) {
     getLog().error(`Show-Deep-Link konnte nicht geladen werden: ${(err as Error).message}`);
