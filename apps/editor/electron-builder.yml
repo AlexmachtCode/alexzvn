@@ -19,6 +19,14 @@ extraResources:
 
 asar: true
 
+# ffmpeg/ffprobe werden via prepackage (bundle-ffmpeg) nach resources/bin/win
+# gestaged. electron ist im Workspace ans Root gehoistet → electron-builder
+# findet die Version sonst nicht (Fehler „Cannot compute electron version") →
+# hier fixieren; bei Electron-Upgrade nachziehen. npmRebuild aus (keine nativen
+# Addons im Editor). Gleiches Muster wie recorder/daw.
+electronVersion: 33.4.11
+npmRebuild: false
+
 mac:
   target:
     - target: dmg
