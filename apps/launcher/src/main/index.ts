@@ -10,6 +10,7 @@ import { initChangelog, refreshChangelog } from './changelog';
 import { initCookbook, refreshCookbook } from './cookbook';
 import { startPresenceHub } from './presence';
 import { startHealth } from './health';
+import { migrateTokenAtRest } from './settings';
 import { openShow } from './show';
 
 declare const __dirname: string;
@@ -57,6 +58,9 @@ function createWindow(): BrowserWindow {
 
 if (setupSingleInstance(() => createWindow())) {
   app.whenReady().then(() => {
+    // P3 (#61): ein evtl. vorhandenes Klartext-Token aus settings.json einmalig
+    // verschlüsselt neu ablegen (OS-Keychain). Vor dem ersten Token-Gebrauch.
+    migrateTokenAtRest();
     initManifest(); // lokalen Manifest-Cache laden, bevor das Fenster Tools abfragt
     initChangelog(); // dito für die App-Patchnotes
     initCookbook(); // dito für die Kochbuch-Rezepte
