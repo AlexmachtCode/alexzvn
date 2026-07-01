@@ -1,0 +1,19 @@
+{
+  "name": "@jm/iveo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Geteilter iveo-REST-API-Client der JM Production Suite: read-only Event-/Programm-/Speaker-Daten, Cursor-Pagination, Mapper auf den zentralen Show-Ablauf. NUR im Main-Prozess nutzen (Token ist geheim).",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./mapper": "./src/mapper.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "selftest": "esbuild test/selftest.ts --bundle --platform=node --format=esm --outfile=test/selftest.bundle.mjs && node test/selftest.bundle.mjs"
+  },
+  "dependencies": {
+    "@jm/show": "*"
+  }
+}

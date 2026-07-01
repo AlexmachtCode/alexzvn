@@ -9,7 +9,7 @@ const sharedAlias = { '@shared': resolve(__dirname, 'src/shared') };
 // gebündelt. @jm/app-runtime + @jm/suite-control-protocol (TCP-Fernsteuerung)
 // als Source-Workspace-Pakete inline bündeln; dessen Transitiv-Deps
 // (@jm/discovery + bonjour-service) werden automatisch mitgebündelt.
-const internalPackages: string[] = ['@jm/app-runtime', '@jm/suite-control-protocol'];
+const internalPackages: string[] = ['@jm/app-runtime', '@jm/suite-control-protocol', '@jm/show'];
 
 export default defineConfig({
   main: {

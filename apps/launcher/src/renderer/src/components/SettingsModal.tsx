@@ -12,15 +12,18 @@ export function SettingsModal() {
   const [token, setToken] = useState('');
   const [proxy, setProxy] = useState(settings?.proxyUrl ?? '');
   const [manifestUrl, setManifestUrl] = useState(settings?.manifestUrl ?? '');
+  const [iveoBaseUrl, setIveoBaseUrl] = useState(settings?.iveoBaseUrl ?? '');
 
   if (!open) return null;
 
   const fromEnv = settings?.fromEnv ?? false;
   const manifestFromEnv = settings?.manifestFromEnv ?? false;
+  const iveoBaseUrlFromEnv = settings?.iveoBaseUrlFromEnv ?? false;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm px-6">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6">
       <Card className="w-full max-w-lg p-6 jm-fade-in">
+        <div className="-mr-2 max-h-[68vh] overflow-y-auto pr-2">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-extrabold tracking-tight">Einstellungen</h2>
@@ -74,9 +77,32 @@ export function SettingsModal() {
           </div>
         </div>
 
-        <ControlPlaneSection />
+        <div className="mt-5 border-t border-[var(--border)] pt-5">
+          <p className="text-xs text-[var(--muted-foreground)] mb-3">
+            iveo-Eventplattform (#11): Basis-URL der API. Leer = Standard (Staging). Das
+            Token ist pro Event und wird beim Anlegen einer Show eingetragen — es liegt
+            verschlüsselt hier und nie in der Show-Datei.
+          </p>
+          {iveoBaseUrlFromEnv && (
+            <p className="mb-3 text-xs rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-[var(--muted-foreground)]">
+              iveo-Basis-URL wird per Umgebungsvariable gesetzt und kann hier nicht
+              überschrieben werden.
+            </p>
+          )}
+          <div className={cn(iveoBaseUrlFromEnv && 'opacity-50 pointer-events-none')}>
+            <Field
+              label="iveo Basis-URL (optional)"
+              placeholder="https://staging-dev.my-iveo.de/api/v1"
+              value={iveoBaseUrl}
+              onChange={setIveoBaseUrl}
+            />
+          </div>
+        </div>
 
-        <div className="mt-6 flex items-center justify-end gap-3">
+        <ControlPlaneSection />
+        </div>
+
+        <div className="mt-4 flex shrink-0 items-center justify-end gap-3 border-t border-[var(--border)] pt-4">
           <Button variant="ghost" onClick={close}>
             Abbrechen
           </Button>
@@ -86,6 +112,7 @@ export function SettingsModal() {
               save({
                 ...(fromEnv ? {} : { githubToken: token, proxyUrl: proxy }),
                 ...(manifestFromEnv ? {} : { manifestUrl }),
+                ...(iveoBaseUrlFromEnv ? {} : { iveoBaseUrl }),
               })
             }
           >

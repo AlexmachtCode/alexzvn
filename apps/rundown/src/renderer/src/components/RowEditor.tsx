@@ -3,6 +3,7 @@ import { buildActionLine } from '@shared/conductor';
 import { CAPABILITIES, KNOWN_ROLES, capAction } from '@/lib/capabilities';
 import { addAction, duplicateAction, removeAction, updateAction, updateRow } from '@/lib/doc';
 import { formatClock, parseClock } from '@/lib/duration';
+import type { ShowIveoSpeaker } from '@jm/show';
 import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
 
 const select =
@@ -19,10 +20,12 @@ function defaultArgs(role: string, verb: string): (string | number)[] {
 export function RowEditor({
   doc,
   row,
+  iveoSpeakers,
   onDoc,
 }: {
   doc: RundownDoc;
   row: RundownRow;
+  iveoSpeakers: ShowIveoSpeaker[];
   onDoc: (doc: RundownDoc) => void;
 }) {
   return (
@@ -52,7 +55,7 @@ export function RowEditor({
           Aktionen beim GO ({row.actions.length})
         </div>
         {row.actions.map((a) => (
-          <ActionRow key={a.id} doc={doc} rowId={row.id} action={a} onDoc={onDoc} />
+          <ActionRow key={a.id} doc={doc} rowId={row.id} action={a} iveoSpeakers={iveoSpeakers} onDoc={onDoc} />
         ))}
         <button
           onClick={() => onDoc(addAction(doc, row.id))}
@@ -69,16 +72,24 @@ function ActionRow({
   doc,
   rowId,
   action,
+  iveoSpeakers,
   onDoc,
 }: {
   doc: RundownDoc;
   rowId: string;
   action: RundownAction;
+  iveoSpeakers: ShowIveoSpeaker[];
   onDoc: (doc: RundownDoc) => void;
 }) {
   const cap = capAction(action.role, action.verb);
   const line = buildActionLine(action.role, action.verb, action.args);
   const [fired, setFired] = useState<'' | 'ok' | 'off'>('');
+  // iveo-Komfort (#11): Beim Titler-Recall die Speaker der Show als Dropdown
+  // anbieten (Recall PER NAME → stabil gegenüber Umsortierung). Ersetzt für diese
+  // Aktion die generische Arg-Eingabe. Programme↔Speaker sind in iveo NICHT
+  // verknüpft → die Zuordnung Programmzeile→Speaker trifft bewusst der Operator.
+  const speakerPicker =
+    action.role === 'titler' && action.verb === 'recall' && iveoSpeakers.length > 0;
 
   async function test(): Promise<void> {
     const ok = await window.jmrundown.fireAction(action.role, action.verb, action.args);
@@ -158,7 +169,27 @@ function ActionRow({
         </div>
       </div>
 
-      {cap?.args && cap.args.length > 0 && (
+      {speakerPicker && (
+        <div className="mt-2">
+          <label className="text-xs text-neutral-400">
+            iveo-Speaker (Bauchbinde)
+            <select
+              value={String(action.args[0] ?? '')}
+              onChange={(e) => setArg(0, e.target.value)}
+              className={`${input} mt-0.5`}
+            >
+              <option value="">— Speaker wählen —</option>
+              {iveoSpeakers.map((s, i) => (
+                <option key={`${s.name}-${i}`} value={s.name}>
+                  {s.title ? `${s.name} — ${s.title}` : s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      {!speakerPicker && cap?.args && cap.args.length > 0 && (
         <div className="mt-2 grid grid-cols-2 gap-2">
           {cap.args.map((arg, i) => (
             <label

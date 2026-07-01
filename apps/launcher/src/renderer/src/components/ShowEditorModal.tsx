@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
-import { createShow, type Show, type ShowAblaufItem, type ShowToolRef } from '@jm/show';
+import { createShow, type Show, type ShowAblaufItem, type ShowIveoSpeaker, type ShowToolRef } from '@jm/show';
+import type { IveoEventStub } from '@shared/types';
 import { useTools } from '@/store/tools';
 
 interface Entry {
@@ -42,6 +43,21 @@ export function ShowEditorModal() {
   const [qaSpeak, setQaSpeak] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // iveo-Event-Bindung (#11). Token bleibt nur transient hier im Feld; der Main-
+  // Prozess legt ihn beim Binden verschlüsselt ab und gibt ihn NIE zurück.
+  const [iveoToken, setIveoToken] = useState('');
+  const [iveoBaseUrl, setIveoBaseUrl] = useState('');
+  const [iveoEvents, setIveoEvents] = useState<IveoEventStub[] | null>(null);
+  const [iveoSelected, setIveoSelected] = useState('');
+  const [iveoBinding, setIveoBinding] = useState<{
+    event: string;
+    name: string;
+    baseUrl?: string;
+    speakers?: ShowIveoSpeaker[];
+  } | null>(null);
+  const [iveoBusy, setIveoBusy] = useState(false);
+  const [iveoMsg, setIveoMsg] = useState<string | null>(null);
+
   if (!open) return null;
 
   const sorted = [...tools].sort((a, b) => a.name.localeCompare(b.name));
@@ -65,6 +81,74 @@ export function ShowEditorModal() {
     setAblauf((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const removeAblaufRow = (i: number): void =>
     setAblauf((rows) => rows.filter((_, idx) => idx !== i));
+
+  /** Token prüfen + lesbare Events auflisten (Token wird noch nicht gespeichert). */
+  const discoverIveo = async (): Promise<void> => {
+    if (!iveoToken.trim()) {
+      setIveoMsg('Bitte iveo-Token einfügen.');
+      return;
+    }
+    setIveoBusy(true);
+    setIveoMsg(null);
+    try {
+      const res = await window.jmps.discoverIveoEvents({
+        token: iveoToken.trim(),
+        baseUrl: iveoBaseUrl.trim() || undefined,
+      });
+      if (!res.ok) {
+        setIveoEvents(null);
+        setIveoMsg(res.error ?? 'Verbindung fehlgeschlagen.');
+        return;
+      }
+      const events = res.events ?? [];
+      setIveoEvents(events);
+      if (events.length) setIveoSelected(events[0].slug);
+      setIveoMsg(events.length ? `${events.length} Event(s) lesbar.` : 'Token gültig, aber keine Events im Scope.');
+    } finally {
+      setIveoBusy(false);
+    }
+  };
+
+  /** Gewähltes Event binden: Token verschlüsselt ablegen + Ablauf übernehmen. */
+  const bindIveo = async (): Promise<void> => {
+    const event = iveoSelected.trim();
+    if (!iveoToken.trim() || !event) {
+      setIveoMsg('Token und Event erforderlich.');
+      return;
+    }
+    setIveoBusy(true);
+    setIveoMsg(null);
+    try {
+      const res = await window.jmps.bindIveoEvent({
+        token: iveoToken.trim(),
+        baseUrl: iveoBaseUrl.trim() || undefined,
+        event,
+      });
+      if (!res.ok) {
+        setIveoMsg(res.error ?? 'Ablauf konnte nicht geladen werden.');
+        return;
+      }
+      const rows: AblaufRow[] = (res.ablauf ?? []).map((a) => ({
+        label: a.label,
+        minutes: a.durationMs ? String(Math.round(a.durationMs / 60000)) : '',
+        note: a.note ?? '',
+      }));
+      setAblauf(rows);
+      const bound = { event: res.event?.slug ?? event, name: res.event?.name ?? event };
+      const speakers = res.speakers ?? [];
+      setIveoBinding({
+        ...bound,
+        baseUrl: iveoBaseUrl.trim() || undefined,
+        ...(speakers.length ? { speakers } : {}),
+      });
+      setIveoMsg(
+        `„${bound.name}" übernommen — ${rows.length} Programmpunkte, ${speakers.length} Speaker (Titler).` +
+          (res.warning ? ` ⚠ ${res.warning}` : ''),
+      );
+    } finally {
+      setIveoBusy(false);
+    }
+  };
 
   /** Editor-Zeilen → zentrale Show-Ablauf-Items (Titel Pflicht, Dauer/Notiz optional). */
   const buildAblauf = (): ShowAblaufItem[] =>
@@ -109,6 +193,17 @@ export function ShowEditorModal() {
       ...createShow(name.trim() || 'Unbenannte Show'),
       tools: sorted.filter((t) => entries[t.id]?.included).map((t) => buildRef(t.id)),
       ...(ablaufItems.length ? { ablauf: ablaufItems } : {}),
+      // Token-freie iveo-Bindung (nur Slug/Name/Base-URL) — für das Live-Polling.
+      ...(iveoBinding
+        ? {
+            iveo: {
+              event: iveoBinding.event,
+              name: iveoBinding.name,
+              ...(iveoBinding.baseUrl ? { baseUrl: iveoBinding.baseUrl } : {}),
+              ...(iveoBinding.speakers?.length ? { speakers: iveoBinding.speakers } : {}),
+            },
+          }
+        : {}),
     };
     setBusy(true);
     try {
@@ -121,6 +216,12 @@ export function ShowEditorModal() {
         setBattleB('');
         setBattleRounds('');
         setQaSpeak('');
+        setIveoToken('');
+        setIveoBaseUrl('');
+        setIveoEvents(null);
+        setIveoSelected('');
+        setIveoBinding(null);
+        setIveoMsg(null);
         close();
       }
     } finally {
@@ -129,8 +230,9 @@ export function ShowEditorModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm px-6">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6">
       <Card className="w-full max-w-lg p-6 jm-fade-in">
+        <div className="-mr-2 max-h-[68vh] overflow-y-auto pr-2">
         <div>
           <h2 className="text-lg font-extrabold tracking-tight">Show anlegen</h2>
           <p className="text-xs text-[var(--muted-foreground)] mt-1">
@@ -150,6 +252,69 @@ export function ShowEditorModal() {
             className={cn(inputCls, 'h-10 px-3 text-sm')}
           />
         </label>
+
+        {/* iveo-Event (#11): Ablauf + Metadaten aus der Eventplattform übernehmen.
+            Das per-Event-Token bleibt verschlüsselt im Launcher — nie in der Show. */}
+        <div className="mt-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3">
+          <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+            iveo-Event (optional)
+          </span>
+          <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+            Token pro Event aus iveo einfügen → Ablauf wird unten übernommen und während der
+            Show live nachgezogen. Das Token bleibt verschlüsselt im Launcher, nie in der Show-Datei.
+          </p>
+          <div className="mt-2 flex flex-col gap-2">
+            <input
+              type="password"
+              value={iveoToken}
+              placeholder="iveo-Token (iveo_live_…)"
+              autoComplete="off"
+              onChange={(e) => setIveoToken(e.target.value)}
+              className={cn(inputCls, 'h-8 px-2.5 text-xs')}
+            />
+            <div className="flex items-center gap-2">
+              <input
+                value={iveoBaseUrl}
+                placeholder="Basis-URL (leer = Standard/Staging)"
+                onChange={(e) => setIveoBaseUrl(e.target.value)}
+                className={cn(inputCls, 'h-8 flex-1 px-2.5 text-xs')}
+              />
+              <Button size="sm" variant="outline" disabled={iveoBusy} onClick={() => void discoverIveo()}>
+                {iveoBusy ? '…' : 'Events laden'}
+              </Button>
+            </div>
+            {iveoEvents && iveoEvents.length > 0 && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={iveoSelected}
+                  onChange={(e) => setIveoSelected(e.target.value)}
+                  className={cn(inputCls, 'h-8 min-w-0 flex-1 px-2 text-xs')}
+                >
+                  {iveoEvents.map((ev) => (
+                    <option key={ev.id} value={ev.slug}>
+                      {ev.name}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="shrink-0"
+                  disabled={iveoBusy}
+                  onClick={() => void bindIveo()}
+                >
+                  Ablauf übernehmen
+                </Button>
+              </div>
+            )}
+            {iveoMsg && <p className="text-[11px] text-[var(--muted-foreground)]">{iveoMsg}</p>}
+            {iveoBinding && (
+              <p className="text-[11px] font-semibold text-[var(--primary)]">
+                Gebunden an „{iveoBinding.name}" — Live-Sync beim Öffnen der Show aktiv.
+              </p>
+            )}
+          </div>
+        </div>
 
         {/* Zentraler Ablauf (#78): einmal hier gepflegt, lesen Rundown + Timer
             automatisch beim Öffnen der Show — kein separater Ablauf je Tool. */}
@@ -202,7 +367,7 @@ export function ShowEditorModal() {
           )}
         </div>
 
-        <div className="mt-5 max-h-[52vh] overflow-auto flex flex-col gap-1.5">
+        <div className="mt-5 flex flex-col gap-1.5">
           {sorted.map((t) => {
             const entry = entries[t.id];
             const included = entry?.included ?? false;
@@ -290,7 +455,9 @@ export function ShowEditorModal() {
           })}
         </div>
 
-        <div className="mt-6 flex items-center justify-between gap-3">
+        </div>
+
+        <div className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
           <span className="text-xs text-[var(--muted-foreground)]">
             {selectedCount} Tool(s) gewählt
           </span>

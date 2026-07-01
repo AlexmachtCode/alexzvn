@@ -127,7 +127,8 @@ export type TitlerRemoteCommand =
   | { t: 'text'; name: string; subtitle: string } // Bauchbinden-Text setzen (#93, z. B. Q&A)
   | { t: 'recall'; ref: string } // DataLink-Eintrag abrufen (Nr. oder Name)
   | { t: 'next' } // nächster DataLink-Eintrag
-  | { t: 'prev' }; // vorheriger DataLink-Eintrag
+  | { t: 'prev' } // vorheriger DataLink-Eintrag
+  | { t: 'reload' }; // aktuelle Show neu einlesen (#11, nach iveo-Update)
 
 /** Live-Zustand, vom Renderer an den Main gemeldet (für Companion-STATE). */
 export interface TitlerRemoteState {

@@ -1,0 +1,281 @@
+// Mini-Selbsttest (kein Framework): node --experimental-strip-types test/selftest.ts
+// Kein Netz — der fetch wird injiziert (opts.fetchImpl). Deckt Mapping, Cursor-
+// Pagination, Fehler-Envelope, Retry/Backoff und Datensparsamkeit/Token-Hygiene.
+
+import {
+  IveoClient,
+  IveoApiError,
+  normalizeIveoBaseUrl,
+  createIveoClient,
+  durationMsOf,
+  programsToAblauf,
+  snapshotToAblauf,
+  snapshotToShowSpeakers,
+  buildShowMetadata,
+  speakerName,
+  type IveoFetchLike,
+  type IveoFetchResponse,
+  type IveoProgram,
+  type IveoSnapshot,
+} from '../src/index';
+import { createShow, parseShow, serializeShow } from '@jm/show';
+
+let failed = 0;
+function ok(cond: boolean, msg: string): void {
+  if (cond) console.log(`ok   ${msg}`);
+  else {
+    failed++;
+    console.error(`FAIL ${msg}`);
+  }
+}
+
+// ── Fixtures ──────────────────────────────────────────────────────────────────
+const prog = (over: Partial<IveoProgram>): IveoProgram => ({
+  id: 'p',
+  event_id: 'e1',
+  title: 'T',
+  ...over,
+});
+
+const snapshot: IveoSnapshot = {
+  event: {
+    id: 'e1',
+    slug: 'cop30',
+    name: 'COP30',
+    starts_at: '2026-11-10T00:00:00+00:00',
+    ends_at: '2026-11-21T23:59:00+00:00',
+    timezone: 'America/Belem',
+  },
+  programs: [
+    prog({ id: 'p2', title: 'Zweitens', starts_at: '2026-11-12T12:00:00+00:00', duration_minutes: 90, subtitle: 'Sub', stage_id: 's1' }),
+    prog({ id: 'p1', title: 'Erstens', starts_at: '2026-11-12T09:00:00+00:00', ends_at: '2026-11-12T09:30:00+00:00' }),
+    prog({ id: 'p3', title: 'Ohne Zeit' }),
+  ],
+  speakers: [
+    { id: 'sp1', event_id: 'e1', salutation: 'Dr.', first_name: 'Ana', last_name: 'Ferreira', title: 'Lead Negotiator', bio: 'GEHEIM-BIO sollte nicht in Metadaten', photo: { url: 'https://x/api/v1/assets/photo1' } },
+  ],
+  organisations: [{ id: 'o1', name: 'UNFCCC' }],
+  stages: [{ id: 's1', event_id: 'e1', name: 'Blue Zone Plenary', color: '#1B66FF' }],
+  fetchedAt: '2026-11-09T07:55:02+00:00',
+};
+
+// ── durationMsOf ──────────────────────────────────────────────────────────────
+ok(durationMsOf(prog({ duration_minutes: 90 })) === 90 * 60_000, 'durationMsOf: duration_minutes → ms');
+ok(
+  durationMsOf(prog({ starts_at: '2026-11-12T09:00:00+00:00', ends_at: '2026-11-12T09:30:00+00:00' })) === 30 * 60_000,
+  'durationMsOf: Fallback ends_at - starts_at',
+);
+ok(durationMsOf(prog({})) === 0, 'durationMsOf: unbekannt → 0');
+
+// ── programsToAblauf ─────────────────────────────────────────────────────────
+const stagesById = new Map(snapshot.stages.map((s) => [s.id, s]));
+const ablauf = programsToAblauf(snapshot.programs, { stagesById });
+ok(ablauf[0].label === 'Erstens', 'programsToAblauf: nach starts_at sortiert (Erstens zuerst)');
+ok(ablauf[1].label === 'Zweitens' && ablauf[1].durationMs === 90 * 60_000, 'programsToAblauf: Dauer aus duration_minutes');
+ok(ablauf[1].note === 'Sub · Blue Zone Plenary', 'programsToAblauf: Notiz = Subtitle · Stage-Name');
+ok(ablauf[2].label === 'Ohne Zeit' && ablauf[2].durationMs === undefined, 'programsToAblauf: Programm ohne Zeit ans Ende, keine Dauer');
+
+// ── speakerName ──────────────────────────────────────────────────────────────
+ok(speakerName(snapshot.speakers[0]) === 'Dr. Ana Ferreira', 'speakerName: Anrede + Vor- + Nachname');
+
+// ── buildShowMetadata: Allowlist / keine PII / kein Token ─────────────────────
+const meta = buildShowMetadata(snapshot, 'https://staging-dev.my-iveo.de/api/v1');
+const metaJson = JSON.stringify(meta);
+ok(meta.programs.length === 3 && meta.programs[0].title === 'Erstens', 'buildShowMetadata: Programme sortiert übernommen');
+ok(!metaJson.includes('GEHEIM-BIO'), 'buildShowMetadata: keine Bio (PII) in den Metadaten');
+ok(!metaJson.includes('photo1'), 'buildShowMetadata: keine Foto-URL (PII) in den Metadaten');
+ok(meta.speakers[0].name === 'Dr. Ana Ferreira' && meta.speakers[0].title === 'Lead Negotiator', 'buildShowMetadata: Speaker-Name+Titel erlaubt');
+
+// ── Fake-fetch-Infrastruktur ─────────────────────────────────────────────────
+function mkRes(status: number, body: unknown, headers: Record<string, string> = {}): IveoFetchResponse {
+  const h = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+  const raw = typeof body === 'string' ? body : JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (n: string) => h[n.toLowerCase()] ?? null },
+    json: async () => body,
+    text: async () => raw,
+    arrayBuffer: async () => new ArrayBuffer(0),
+  };
+}
+
+// ── Cursor-Pagination (§6) ───────────────────────────────────────────────────
+{
+  const seenUrls: string[] = [];
+  const fetchImpl: IveoFetchLike = async (url) => {
+    seenUrls.push(url);
+    if (url.includes('cursor=')) {
+      return mkRes(200, { data: [prog({ id: 'p3' })], meta: { request_id: 'r', pagination: { next_cursor: null, limit: 200 } } });
+    }
+    return mkRes(200, { data: [prog({ id: 'p1' }), prog({ id: 'p2' })], meta: { request_id: 'r', pagination: { next_cursor: 'CUR2', limit: 200 } } });
+  };
+  const client = new IveoClient({ token: 'iveo_live_SECRET', fetchImpl });
+  const programs = await client.listPrograms('cop30');
+  ok(programs.length === 3, 'Cursor-Pagination: alle Seiten eingesammelt (2 + 1)');
+  ok(seenUrls.length === 2 && seenUrls[1].includes('cursor=CUR2'), 'Cursor-Pagination: zweite Seite mit next_cursor angefragt');
+  ok(!seenUrls.some((u) => u.includes('iveo_live_')), 'Token NICHT in der Query-URL (nur Header, §3)');
+}
+
+// ── Header-Injektion + Token-Hygiene ─────────────────────────────────────────
+{
+  let authHeader: string | undefined;
+  const fetchImpl: IveoFetchLike = async (_url, init) => {
+    authHeader = init?.headers?.['Authorization'];
+    return mkRes(200, { data: { events: [{ id: 'e1', slug: 'cop30', name: 'COP30' }], _links: {} }, meta: { request_id: 'r' } });
+  };
+  const client = createIveoClient({ token: 'iveo_live_SECRET', fetchImpl });
+  const events = await client.discovery();
+  ok(authHeader === 'Bearer iveo_live_SECRET', 'Bearer-Header wird gesetzt');
+  ok(!JSON.stringify(events).includes('iveo_live_'), 'Discovery-Ergebnis enthält kein Token');
+}
+
+// ── Fehler-Envelope → IveoApiError.code (§4/§9) ──────────────────────────────
+{
+  const fetchImpl: IveoFetchLike = async () =>
+    mkRes(404, { errors: [{ code: 'event_not_found', message: 'Event not found.' }], meta: { request_id: 'r9' } });
+  const client = new IveoClient({ token: 'iveo_live_SECRET', fetchImpl });
+  let caught: unknown;
+  try {
+    await client.getEvent('missing');
+  } catch (e) {
+    caught = e;
+  }
+  ok(caught instanceof IveoApiError, 'Fehler wirft IveoApiError');
+  ok(caught instanceof IveoApiError && caught.code === 'event_not_found', 'Fehler-code aus errors[0].code');
+  ok(caught instanceof IveoApiError && caught.isNotFoundOrOutOfScope, '404 → isNotFoundOrOutOfScope');
+  ok(caught instanceof IveoApiError && caught.requestId === 'r9', 'request_id übernommen');
+}
+
+// ── Retry/Backoff auf 5xx (§9) ───────────────────────────────────────────────
+{
+  let calls = 0;
+  const fetchImpl: IveoFetchLike = async () => {
+    calls++;
+    if (calls < 3) return mkRes(503, { errors: [{ code: 'internal', message: 'x' }] });
+    return mkRes(200, { data: { id: 'e1', slug: 'cop30', name: 'COP30', starts_at: null, ends_at: null, timezone: null }, meta: { request_id: 'r' } });
+  };
+  const client = new IveoClient({ token: 'iveo_live_SECRET', fetchImpl, sleepImpl: async () => {}, retryBaseMs: 1 });
+  const ev = await client.getEvent('cop30');
+  ok(calls === 3 && ev.slug === 'cop30', 'Retry: 503,503 → 200 nach 3 Versuchen');
+}
+
+// ── normalizeIveoBaseUrl (Robustheit gegen „Failed to parse URL") ─────────────
+ok(normalizeIveoBaseUrl('') === 'https://staging-dev.my-iveo.de/api/v1', 'baseUrl: leer → Default');
+ok(normalizeIveoBaseUrl('  ') === 'https://staging-dev.my-iveo.de/api/v1', 'baseUrl: nur Whitespace → Default');
+ok(
+  normalizeIveoBaseUrl('staging-dev.my-iveo.de/api/v1') === 'https://staging-dev.my-iveo.de/api/v1',
+  'baseUrl: fehlendes Schema → https:// ergänzt',
+);
+ok(
+  normalizeIveoBaseUrl('https://x.example/api/v1/') === 'https://x.example/api/v1',
+  'baseUrl: trailing slash entfernt',
+);
+{
+  let threw = false;
+  try {
+    normalizeIveoBaseUrl('http://'); // Schema ohne Host
+  } catch {
+    threw = true;
+  }
+  ok(threw, 'baseUrl: Schema ohne Host → wirft klar (statt „Failed to parse URL")');
+}
+
+// ── bad_envelope-Diagnose (falsche Basis-URL → HTML) ─────────────────────────
+{
+  const fetchImpl: IveoFetchLike = async () =>
+    mkRes(200, '<!doctype html><html><body>Nicht die API</body></html>', { 'content-type': 'text/html' });
+  const client = new IveoClient({ token: 'iveo_live_SECRET', fetchImpl });
+  let caught: unknown;
+  try {
+    await client.discovery();
+  } catch (e) {
+    caught = e;
+  }
+  ok(caught instanceof IveoApiError && caught.code === 'bad_envelope', 'HTML-Antwort → bad_envelope');
+  ok(
+    caught instanceof IveoApiError && /api\/v1/.test(caught.message),
+    'bad_envelope-Meldung nennt die api/v1-Ursache',
+  );
+}
+
+// ── snapshotToShowSpeakers (Phase 3, Titler) ─────────────────────────────────
+{
+  const speakers = snapshotToShowSpeakers(snapshot);
+  ok(speakers.length === 1 && speakers[0].name === 'Dr. Ana Ferreira', 'snapshotToShowSpeakers: Name');
+  ok(speakers[0].title === 'Lead Negotiator', 'snapshotToShowSpeakers: Titel/Funktion');
+  ok(!JSON.stringify(speakers).includes('GEHEIM-BIO'), 'snapshotToShowSpeakers: keine Bio (PII)');
+}
+
+// ── getEventSnapshot resilient (Best-Effort-Nebendaten + programsBestEffort) ──
+// Fabrik: 500 auf allen Pfaden, die eines der `fail`-Segmente enthalten; sonst 200.
+function snapshotFetch(fail: string[]): IveoFetchLike {
+  return async (url) => {
+    if (fail.some((f) => url.includes(f))) return mkRes(500, '');
+    if (url.includes('/programs')) {
+      return mkRes(200, { data: [prog({ id: 'p1', duration_minutes: 10 })], meta: { request_id: 'r', pagination: { next_cursor: null, limit: 200 } } });
+    }
+    if (url.includes('/speakers') || url.includes('/organisations')) {
+      return mkRes(200, { data: [], meta: { request_id: 'r', pagination: { next_cursor: null, limit: 200 } } });
+    }
+    if (url.includes('/stages')) return mkRes(200, { data: [], meta: { request_id: 'r' } });
+    return mkRes(200, { data: { id: 'e1', slug: 'cop30', name: 'COP30', starts_at: null, ends_at: null, timezone: null }, meta: { request_id: 'r' } });
+  };
+}
+{
+  // (a) 500 nur auf Nebendaten → Snapshot ok, leere Listen, onSubError meldet sie.
+  const sub: string[] = [];
+  const client = new IveoClient({ token: 'iveo_live_SECRET', fetchImpl: snapshotFetch(['/speakers', '/stages']), sleepImpl: async () => {}, retryBaseMs: 1 });
+  const snap = await client.getEventSnapshot('cop30', '2026-01-01T00:00:00Z', { onSubError: (r) => sub.push(r) });
+  ok(snap.event.slug === 'cop30' && snap.programs.length === 1, 'Snapshot: Event+Programme geladen (Nebendaten-500)');
+  ok(snap.speakers.length === 0 && snap.stages.length === 0, 'Snapshot: 500-Nebendaten → leere Listen');
+  ok(sub.includes('speakers') && sub.includes('stages'), 'Snapshot: onSubError meldet speakers+stages');
+}
+{
+  // (b) 500 auf /programs, Default (essenziell) → wirft mit Pfad in der Meldung.
+  const client = new IveoClient({ token: 'iveo_live_SECRET', fetchImpl: snapshotFetch(['/programs']), sleepImpl: async () => {}, retryBaseMs: 1 });
+  let caught: unknown;
+  try {
+    await client.getEventSnapshot('cop30', 'now');
+  } catch (e) {
+    caught = e;
+  }
+  ok(caught instanceof IveoApiError && caught.status === 500, 'Snapshot: /programs-500 essenziell → wirft (Poller-Schutz)');
+  ok(caught instanceof IveoApiError && /\/programs/.test(caught.message), 'Snapshot: Fehlermeldung nennt /programs');
+}
+{
+  // (c) 500 auf /programs, programsBestEffort → Snapshot ok mit leerem Ablauf.
+  const sub: string[] = [];
+  const client = new IveoClient({ token: 'iveo_live_SECRET', fetchImpl: snapshotFetch(['/programs']), sleepImpl: async () => {}, retryBaseMs: 1 });
+  const snap = await client.getEventSnapshot('cop30', 'now', { programsBestEffort: true, onSubError: (r) => sub.push(r) });
+  ok(snap.programs.length === 0 && sub.includes('programs'), 'Snapshot: programsBestEffort → /programs-500 wird übersprungen');
+}
+
+// ── @jm/show Round-Trip mit iveo-Bindung (Materialisierungs-/Poller-Pfad) ──────
+{
+  const ablauf = snapshotToAblauf(snapshot);
+  const show = {
+    ...createShow('Testshow'),
+    ablauf,
+    iveo: {
+      event: 'cop30',
+      baseUrl: 'https://staging-dev.my-iveo.de/api/v1',
+      name: 'COP30',
+      speakers: snapshotToShowSpeakers(snapshot),
+    },
+  };
+  const text = serializeShow(show);
+  const round = parseShow(text);
+  ok(round.iveo?.event === 'cop30', '@jm/show: iveo-Bindung übersteht Round-Trip');
+  ok(round.iveo?.baseUrl === 'https://staging-dev.my-iveo.de/api/v1', '@jm/show: iveo baseUrl erhalten');
+  ok(round.ablauf?.length === 3, '@jm/show: materialisierter Ablauf übersteht Round-Trip');
+  ok(round.iveo?.speakers?.length === 1 && round.iveo.speakers[0].name === 'Dr. Ana Ferreira', '@jm/show: iveo-Speaker übersteht Round-Trip');
+  ok(!text.includes('iveo_live_'), '@jm/show: kein Token in der serialisierten Show');
+  ok(!text.includes('GEHEIM-BIO'), '@jm/show: keine Bio (PII) in der serialisierten Show');
+}
+
+if (failed > 0) {
+  console.error(`\n${failed} FEHLGESCHLAGEN`);
+  process.exit(1);
+}
+console.log('\nALLE TESTS OK');

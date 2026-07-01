@@ -4,6 +4,15 @@ title = "JM Production Suite — gitleaks"
 [extend]
 useDefault = true
 
+# iveo Public REST API — Bearer-Token (`iveo_live_…`, §2/§3 des Consumer-Guide).
+# Ist ein Secret und darf nie ins Repo. Die {20,}-Länge lässt kurze Test-Platzhalter
+# wie `iveo_live_SECRET` bewusst durch.
+[[rules]]
+id = "jm-iveo-token"
+description = "iveo API Bearer-Token"
+regex = '''iveo_live_[A-Za-z0-9]{20,}'''
+keywords = ["iveo_live_"]
+
 # Bekannte, bewusste Nicht-Secrets von der Prüfung ausnehmen.
 [allowlist]
 description = "Wegwerf-Material in Tests/Doku — keine echten Geheimnisse"

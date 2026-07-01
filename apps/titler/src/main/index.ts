@@ -1,16 +1,21 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path, { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
+import { parseShow, parseShowDeepLink } from '@jm/show';
 import type { PartialTitlerConfig, TitlerRemoteState, TitlerState, TitlerStatus } from '@shared/types';
 import { getConfig, patchConfig } from './config';
 import { startSender, stopSender, senderActive } from './ndi/sender-process';
 import { startControlServer, stopControlServer, updateTitlerState, updateTitlerData, CONTROL_PORT } from './control-server';
 import { startDataWatch, stopDataWatch, recall, step, type DataState } from './datalink';
+import { writeSpeakersTsv } from './iveo-show';
 
 declare const __dirname: string;
 
 let mainWindow: BrowserWindow | null = null;
 const preloadPath = join(__dirname, '../preload/index.cjs');
+/** Pfad der aktuell geladenen Show (für Live-Reload nach iveo-Update). */
+let currentShowPath: string | null = null;
 
 const status: TitlerStatus = {
   ndiActive: false,
@@ -57,6 +62,41 @@ function refreshDataWatch(): void {
       entryCount: d.entries.length,
     });
   });
+}
+
+/**
+ * Show-Integration (#11, Phase 3): Wird der Titler per Show-Deep-Link gestartet und
+ * trägt die Show eine iveo-Speaker-Liste, materialisieren wir sie als `speakers.tsv`
+ * im verwalteten DataLink-Ordner und richten den Watchfolder darauf aus. Das
+ * bestehende DataLink/Recall-System füllt daraus die Bauchbinden. Kein Token nötig
+ * (die Daten stehen bereits sanitisiert in der Show).
+ */
+function applyShowFromDeepLink(url: string): void {
+  const showPath = parseShowDeepLink(url);
+  if (!showPath) return;
+  applyShowFromPath(showPath);
+}
+
+function applyShowFromPath(showPath: string): void {
+  try {
+    const show = parseShow(readFileSync(showPath, 'utf8'));
+    currentShowPath = showPath;
+    const speakers = show.iveo?.speakers ?? [];
+    if (!speakers.length) return; // Show ohne iveo-Speaker → DataLink unverändert lassen
+    const dir = writeSpeakersTsv(speakers);
+    if (getConfig().dataFolder !== dir) patchConfig({ dataFolder: dir });
+    refreshDataWatch();
+    getLog().info(`iveo: ${speakers.length} Speaker aus Show in den DataLink übernommen.`);
+  } catch (err) {
+    getLog().error(`Show konnte nicht geladen werden: ${(err as Error).message}`);
+  }
+}
+
+/** Aktuelle Show neu einlesen (Launcher schickt `TITLER RELOAD` nach iveo-Update). */
+function reloadCurrentShow(): boolean {
+  if (!currentShowPath) return false;
+  applyShowFromPath(currentShowPath);
+  return true;
 }
 
 function resourcePath(filename: string): string {
@@ -153,7 +193,13 @@ function registerIpc(): void {
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ csp: true, appId: 'jm-titler', appName: 'JM Titler' });
+const runtime = initAppRuntime({
+  csp: true,
+  appId: 'jm-titler',
+  appName: 'JM Titler',
+  // Per Show gestartet? iveo-Speaker in den DataLink übernehmen (#11).
+  onDeepLink: (url) => applyShowFromDeepLink(url),
+});
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -174,6 +220,8 @@ if (!gotLock) {
     createMainWindow();
     // DataLink-Watchfolder (#86) starten, falls konfiguriert.
     refreshDataWatch();
+    // Per Show gestartet? iveo-Speaker aus der Show in den DataLink übernehmen (#11).
+    if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
     // gehen per IPC an den Renderer, der seinen Zustand zurückmeldet. Ergebnis
     // loggen, damit eine fehlende Suite-Verbindung nicht unsichtbar bleibt.
@@ -197,6 +245,10 @@ if (!gotLock) {
           }
           if (rc.t === 'prev') {
             step(-1);
+            return true;
+          }
+          if (rc.t === 'reload') {
+            reloadCurrentShow();
             return true;
           }
           return false;

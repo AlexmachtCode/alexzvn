@@ -1,6 +1,6 @@
 import type { AppChangelog, ToolManifest, ToolState } from '@jm/suite-manifest';
 import type { Recipe, CookbookCategory } from '@jm/cookbook';
-import type { Show } from '@jm/show';
+import type { Show, ShowAblaufItem, ShowIveoSpeaker } from '@jm/show';
 
 export type {
   ToolManifest,
@@ -47,6 +47,8 @@ export interface SuiteSettingsInput {
   proxyUrl?: string;
   /** Remote-Katalog (suite.json) — leer = gebündelten Katalog nutzen. */
   manifestUrl?: string;
+  /** iveo-Basis-URL (kein Secret; leer = Staging-Default). #11 */
+  iveoBaseUrl?: string;
 }
 
 /** Zustand der sicheren Steuerebene (P1-Adoption, geteilte control.json). */
@@ -72,6 +74,59 @@ export interface SuiteSettingsView {
   manifestUrl?: string;
   /** Manifest-URL stammt aus Umgebungsvariable (read-only in der UI). */
   manifestFromEnv: boolean;
+  /** Aktive iveo-Basis-URL (kein Secret). #11 */
+  iveoBaseUrl?: string;
+  /** iveo-Basis-URL stammt aus Umgebungsvariable (read-only in der UI). */
+  iveoBaseUrlFromEnv: boolean;
+}
+
+// ── iveo (#11) ────────────────────────────────────────────────────────────────
+
+/** Kurz-Referenz eines iveo-Events (aus der Discovery `GET /`). */
+export interface IveoEventStub {
+  id: string;
+  slug: string;
+  name: string;
+}
+
+/** Token EINMAL prüfen und lesbare Events auflisten (Token wird nicht persistiert). */
+export interface IveoDiscoverInput {
+  /** Optional; leer = konfigurierte/Default-Basis-URL. */
+  baseUrl?: string;
+  /** Per-Event-Bearer-Token (`iveo_live_…`). */
+  token: string;
+}
+export interface IveoDiscoverResult {
+  ok: boolean;
+  events?: IveoEventStub[];
+  /** Stabiler Fehlercode (z. B. "unauthorized"), nie rohe Upstream-Antwort. */
+  code?: string;
+  error?: string;
+}
+
+/**
+ * Event an eine Show binden: Token (verschlüsselt, pro Event) ablegen und den
+ * Ablauf holen. Der zurückgegebene `ablauf` wird vom Show-Editor in die Show
+ * eingebettet; das Token verlässt den Main-Prozess NIE.
+ */
+export interface IveoBindInput {
+  baseUrl?: string;
+  token: string;
+  /** Event-Slug oder UUID. */
+  event: string;
+}
+export interface IveoBindResult {
+  ok: boolean;
+  code?: string;
+  error?: string;
+  /** Soft-Warnung bei Teilerfolg (z. B. iveo-Server-Fehler auf einer Ressource). */
+  warning?: string;
+  /** Materialisierter zentraler Ablauf zum Einbetten in die Show. */
+  ablauf?: ShowAblaufItem[];
+  /** Sanitisierte Speaker-Liste (Phase 3, für Titler) — token-frei, ohne PII. */
+  speakers?: ShowIveoSpeaker[];
+  /** Slug + Anzeigename für die token-freie Show-Bindung. */
+  event?: { slug: string; name: string };
 }
 
 /** Verfügbares Launcher-Update (Self-Update). */
@@ -199,6 +254,10 @@ export interface JmpsApi {
   submitFeedback: (input: FeedbackInput) => Promise<ActionResult>;
   /** Neues Rezept einreichen (Pfad B = KI) — öffnet bei Erfolg einen PR. */
   submitRecipeDraft: (input: RecipeDraftInput) => Promise<RecipeDraftResult>;
+  /** iveo (#11): Token prüfen + lesbare Events auflisten (Token nicht gespeichert). */
+  discoverIveoEvents: (input: IveoDiscoverInput) => Promise<IveoDiscoverResult>;
+  /** iveo (#11): Event an Show binden — Token verschlüsselt ablegen, Ablauf holen. */
+  bindIveoEvent: (input: IveoBindInput) => Promise<IveoBindResult>;
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
 }

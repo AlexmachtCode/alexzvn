@@ -7,6 +7,10 @@ import type {
   FeedbackInput,
   HealthEntry,
   InstallProgress,
+  IveoBindInput,
+  IveoBindResult,
+  IveoDiscoverInput,
+  IveoDiscoverResult,
   JmpsApi,
   LauncherUpdate,
   PresenceRecord,
@@ -48,6 +52,9 @@ const api: JmpsApi = {
   submitFeedback: (input: FeedbackInput) => invoke<ActionResult>('feedback:submit', input),
   submitRecipeDraft: (input: RecipeDraftInput) =>
     invoke<RecipeDraftResult>('cookbook:draft', input),
+  discoverIveoEvents: (input: IveoDiscoverInput) =>
+    invoke<IveoDiscoverResult>('iveo:discover', input),
+  bindIveoEvent: (input: IveoBindInput) => invoke<IveoBindResult>('iveo:bind', input),
   onProgress: (cb) => listen<InstallProgress>('suite:progress', cb),
   onAppEvent: (cb) => listen<AppEvent>('app:event', cb),
 };

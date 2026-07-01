@@ -90,6 +90,7 @@ export type Command =
   | { type: 'tt:delete'; id: string }
   | { type: 'tt:move'; id: string; direction: 'up' | 'down' }
   | { type: 'tt:setAll'; items: Array<Omit<TimetableItem, 'id'>> }
+  | { type: 'tt:replaceItems'; items: Array<Omit<TimetableItem, 'id'>> }
   | { type: 'tt:loadItem'; index: number }
   | { type: 'tt:next' }
   | { type: 'tt:prev' }
@@ -259,6 +260,18 @@ export function reduce(
         timetable: { ...tt, items, activeIndex: null },
         countdown: resetCountdownToDuration(cd.durationMs),
       };
+    }
+
+    case 'tt:replaceItems': {
+      // Nicht-destruktives Ersetzen für Live-Updates (z. B. iveo-Reload während
+      // der Show): tauscht die Items, hält den aktiven Index (geklemmt) und lässt
+      // den Countdown UNANGETASTET — ein laufender Timer darf nie resetten.
+      const items: TimetableItem[] = cmd.items.map((it) => ({ id: makeId(), ...it }));
+      let activeIndex = tt.activeIndex;
+      if (activeIndex !== null && (items.length === 0 || activeIndex >= items.length)) {
+        activeIndex = items.length ? items.length - 1 : null;
+      }
+      return { ...state, timetable: { ...tt, items, activeIndex } };
     }
 
     case 'tt:loadItem': {

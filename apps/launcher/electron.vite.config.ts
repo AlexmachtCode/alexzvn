@@ -11,6 +11,7 @@ const internalPackages = [
   '@jm/cookbook',
   '@jm/discovery',
   '@jm/electron-kit',
+  '@jm/iveo',
   '@jm/show',
   '@jm/suite-control-protocol',
   '@jm/suite-manifest',

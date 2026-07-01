@@ -23,6 +23,7 @@
     "@fontsource-variable/manrope": "^5.1.1",
     "@jm/app-runtime": "*",
     "@jm/ndi": "*",
+    "@jm/show": "*",
     "@jm/suite-control-protocol": "*",
     "@jm/ui": "*",
     "react": "^18.3.1",
