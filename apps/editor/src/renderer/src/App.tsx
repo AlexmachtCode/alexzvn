@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import '@fontsource-variable/manrope';
-import { cn } from '@jm/ui';
+import { cn, Splitter } from '@jm/ui';
 import { Topbar } from './components/Topbar';
 import { MediaBin } from './components/MediaBin';
 import { SourceMonitor } from './components/SourceMonitor';
@@ -8,7 +8,6 @@ import { PreviewMonitor } from './components/PreviewMonitor';
 import { Inspector } from './components/Inspector';
 import { Timeline } from './components/Timeline';
 import { ExportDialog } from './components/ExportDialog';
-import { Splitter } from './components/Splitter';
 import { useProject } from './store/project';
 import { useLayout } from './store/layout';
 import { saveProjectFlow } from './lib/actions';
