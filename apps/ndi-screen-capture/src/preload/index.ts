@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { JmNdiApi, JmNdiSource, JmNdiStartOptions, JmNdiStatus } from '@shared/types';
+import type {
+  JmNdiApi,
+  JmNdiSource,
+  JmNdiStartOptions,
+  JmNdiStatus,
+  TrayCommand,
+  TraySettings,
+} from '@shared/types';
 import { IPC } from '@shared/ipc';
 
 // Den vom Main übertragenen Frame-MessagePort in den Renderer-Main-World
@@ -19,6 +26,12 @@ const api: JmNdiApi = {
     const listener = (_event: unknown, s: JmNdiStatus) => cb(s);
     ipcRenderer.on(IPC.status, listener);
     return () => ipcRenderer.off(IPC.status, listener);
+  },
+  traySync: (settings: TraySettings) => ipcRenderer.send(IPC.traySync, settings),
+  onTrayCommand: (cb) => {
+    const listener = (_event: unknown, cmd: TrayCommand) => cb(cmd);
+    ipcRenderer.on(IPC.trayCommand, listener);
+    return () => ipcRenderer.off(IPC.trayCommand, listener);
   },
 };
 

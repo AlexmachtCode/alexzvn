@@ -1,17 +1,22 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import { hostname } from 'node:os';
-import type { JmNdiSource, JmNdiStartOptions, JmNdiStatus } from '@shared/types';
+import type { JmNdiSource, JmNdiStartOptions, JmNdiStatus, TraySettings } from '@shared/types';
 import { IPC } from '@shared/ipc';
 import { listSources } from './sources';
 import { armCapture, disarmCapture } from './capture-handler';
 import { startSender, stopSender } from './ndi/sender-process';
+import { setTrayStatus, setTraySettings } from './tray';
 
 let status: JmNdiStatus = { sendState: 'idle', audioEnabled: false };
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const pushStatus = (): void => {
     getWindow()?.webContents.send(IPC.status, status);
+    setTrayStatus(status); // #104: Tray-Menü spiegelt den Status
   };
+
+  // #104: Renderer meldet seine aktuellen Einstellungen fürs Tray-Menü.
+  ipcMain.on(IPC.traySync, (_e, settings: TraySettings) => setTraySettings(settings));
 
   ipcMain.handle(IPC.listSources, (): Promise<JmNdiSource[]> => listSources());
 
