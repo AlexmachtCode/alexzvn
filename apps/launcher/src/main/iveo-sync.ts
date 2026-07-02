@@ -111,12 +111,20 @@ async function resolveSideEvent(
     onNote(`Programm-Detail „${programId}" nicht abrufbar (${(e as Error).message}) — Listen-Daten genutzt.`);
   }
   let agenda: Awaited<ReturnType<IveoClient['listAgendaItems']>> = [];
+  let agendaError = false;
   try {
     agenda = await client.listAgendaItems(event, programId);
   } catch (e) {
-    onNote(`Agenda „${programId}" nicht abrufbar (${(e as Error).message}).`);
+    agendaError = true;
+    getLog().warn(`iveo: agenda-items „${programId}" nicht abrufbar (${(e as Error).message}).`);
+    onNote(`Agenda nicht abrufbar (${(e as Error).message}).`);
   }
   const source = detail ?? listProgram;
+  const title = source?.title?.trim() || programId;
+  // Diagnose deutlich in den Haupt-Log: Agenda leer vs. Fehler vs. vorhanden.
+  if (!agendaError) {
+    getLog().info(`iveo: Side Event „${title}" — Agenda-Punkte: ${agenda.length}${agenda.length ? '' : ' (in iveo keine Agenda gepflegt → Programm als 1 Punkt)'}.`);
+  }
   const stagesById = new Map(snap.stages.map((s) => [s.id, s]));
   const ablauf =
     agenda.length > 0
