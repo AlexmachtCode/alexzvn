@@ -470,7 +470,15 @@ async function pollOnce(): Promise<void> {
  */
 async function pollSideEvent(client: IveoClient, a: ActiveShow): Promise<void> {
   const programId = a.filter.programId!;
-  const agenda = await client.listAgendaItems(a.event, programId); // essenziell → wirft = Poll überspringen
+  // agenda-items (staging) kann instabil sein → still auf das Programm-Detail
+  // zurückfallen statt jede 45s zu warnen (der Fehler ist beim Umschalten/bei den
+  // Materialien bereits sichtbar).
+  let agenda: Awaited<ReturnType<IveoClient['listAgendaItems']>> = [];
+  try {
+    agenda = await client.listAgendaItems(a.event, programId);
+  } catch {
+    /* Endpoint-Fehler → Fallback unten (Programm als 1 Punkt), kein RELOAD-Spam */
+  }
   let ablauf = agendaToAblauf(agenda);
   if (!ablauf.length) {
     // Kein/leerer Agenda → das Programm selbst als ein Punkt (Detail best-effort).

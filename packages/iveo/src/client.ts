@@ -184,11 +184,15 @@ export class IveoClient {
     if (!res.ok) {
       const env = body as { errors?: Array<{ code?: string; message?: string }>; meta?: { request_id?: string } } | null;
       const first = env?.errors?.[0];
+      const reqId = env?.meta?.request_id;
+      // Status/Code/request_id an die Meldung hängen → jede Log-Zeile ist ein
+      // vollständiger, an den iveo-Dev weiterreichbarer Fehlerbericht.
+      const diag = `[HTTP ${res.status}${first?.code ? ` ${first.code}` : ''}${reqId ? ` req=${reqId}` : ''}]`;
       throw new IveoApiError(
         res.status,
         first?.code || `http_${res.status}`,
-        `${first?.message || `iveo HTTP ${res.status}`} @ ${path}${!first?.message && raw ? `: ${snippet(raw)}` : ''}`,
-        env?.meta?.request_id,
+        `${first?.message || `iveo HTTP ${res.status}`} @ ${path} ${diag}${!first?.message && raw ? `: ${snippet(raw)}` : ''}`,
+        reqId,
       );
     }
     const env = body as { data?: T; meta?: IveoMeta } | null;

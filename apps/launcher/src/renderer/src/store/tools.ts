@@ -305,10 +305,12 @@ export const useTools = create<ToolsStore>((set) => {
     loadMaterials: async (programId) => {
       try {
         const res = await window.jmps.listIveoMaterials({ programId });
-        if (res.ok) set((s) => ({ materials: { ...s.materials, [programId]: res.materials ?? [] } }));
-        else if (res.error) set({ notice: res.error });
+        // Auch bei Fehler eine (leere) Liste setzen → das Panel bleibt nicht auf
+        // „Lade Materialien…" hängen; der Grund erscheint als Hinweis.
+        set((s) => ({ materials: { ...s.materials, [programId]: res.ok ? (res.materials ?? []) : [] } }));
+        if (!res.ok && res.error) set({ notice: res.error });
       } catch {
-        // kein Token / Netz → still lassen
+        set((s) => ({ materials: { ...s.materials, [programId]: [] } }));
       }
     },
     downloadMaterial: async (programId, materialId) => {
