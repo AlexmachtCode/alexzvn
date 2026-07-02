@@ -5,6 +5,7 @@
 // (traySync) und schickt Befehle zurück (trayCommand).
 import { Menu, Tray, nativeImage, type BrowserWindow } from 'electron';
 import type { JmNdiStatus, TrayCommand, TraySettings } from '@shared/types';
+import { NDI_FPS_OPTIONS } from '@shared/types';
 
 let tray: Tray | null = null;
 let getWindow: () => BrowserWindow | null = () => null;
@@ -85,20 +86,12 @@ function rebuild(): void {
     { type: 'separator' },
     {
       label: 'Bildrate',
-      submenu: [
-        {
-          label: '30 fps',
-          type: 'radio',
-          checked: settings.targetFps === 30,
-          click: () => sendCommand({ kind: 'setFps', fps: 30 }),
-        },
-        {
-          label: '60 fps',
-          type: 'radio',
-          checked: settings.targetFps === 60,
-          click: () => sendCommand({ kind: 'setFps', fps: 60 }),
-        },
-      ],
+      submenu: NDI_FPS_OPTIONS.map((f) => ({
+        label: `${f} fps`,
+        type: 'radio' as const,
+        checked: settings.targetFps === f,
+        click: () => sendCommand({ kind: 'setFps', fps: f }),
+      })),
     },
     {
       label: 'System-Audio mitsenden',

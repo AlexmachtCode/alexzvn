@@ -4,6 +4,12 @@ export type SendState = 'idle' | 'starting' | 'sending' | 'error';
 
 export type PixelFormat = 'bgra' | 'uyvy';
 
+/** Wählbare Ziel-Bildraten: PAL (25/50) und NTSC/Film-nah (30/60). */
+export type NdiFps = 25 | 30 | 50 | 60;
+
+/** Auswahlreihenfolge für UI + Tray-Menü. */
+export const NDI_FPS_OPTIONS: readonly NdiFps[] = [25, 30, 50, 60];
+
 /** Eine wählbare Aufnahmequelle (Monitor oder Fenster) inkl. Vorschau. */
 export interface JmNdiSource {
   /** chromeMediaSourceId aus desktopCapturer.getSources(). */
@@ -19,7 +25,7 @@ export interface JmNdiSource {
 /** Optionen für den Start des NDI-Versands. */
 export interface JmNdiStartOptions {
   sourceId: string;
-  targetFps: 30 | 60;
+  targetFps: NdiFps;
   audio: boolean;
   pixelFormat: PixelFormat;
 }
@@ -42,7 +48,7 @@ export interface JmNdiStatus {
 /** Einstellungen, die der Renderer ans Tray-Menü spiegelt (#104). */
 export interface TraySettings {
   active: boolean;
-  targetFps: 30 | 60;
+  targetFps: NdiFps;
   audio: boolean;
   /** Name der gewählten Quelle (für die Menü-/Tooltip-Anzeige). */
   sourceName: string | null;
@@ -52,7 +58,7 @@ export interface TraySettings {
 export type TrayCommand =
   | { kind: 'start' }
   | { kind: 'stop' }
-  | { kind: 'setFps'; fps: 30 | 60 }
+  | { kind: 'setFps'; fps: NdiFps }
   | { kind: 'setAudio'; audio: boolean };
 
 /** Die unter window.jmndi bereitgestellte API. */

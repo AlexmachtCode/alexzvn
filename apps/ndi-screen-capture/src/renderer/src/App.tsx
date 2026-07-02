@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge, Button, Card, Logo, cn, dragRegion, isElectronMac } from '@jm/ui';
-import type { JmNdiSource, JmNdiStatus, TrayCommand } from '@shared/types';
+import type { JmNdiSource, JmNdiStatus, NdiFps, TrayCommand } from '@shared/types';
+import { NDI_FPS_OPTIONS } from '@shared/types';
 import { CaptureSession, type CaptureStats } from './core/capture';
 import { SourcePicker } from './components/SourcePicker';
 import { StatusBar } from './components/StatusBar';
@@ -9,9 +10,10 @@ import { Preview } from './components/Preview';
 const IDLE_STATUS: JmNdiStatus = { sendState: 'idle', audioEnabled: false };
 
 const FPS_KEY = 'jmndi.targetFps';
-function loadFps(): 30 | 60 {
+function loadFps(): NdiFps {
   try {
-    return localStorage.getItem(FPS_KEY) === '60' ? 60 : 30;
+    const v = Number(localStorage.getItem(FPS_KEY));
+    return (NDI_FPS_OPTIONS as readonly number[]).includes(v) ? (v as NdiFps) : 30;
   } catch {
     return 30;
   }
@@ -25,7 +27,7 @@ export function App() {
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [audioOn, setAudioOn] = useState(true);
-  const [targetFps, setTargetFps] = useState<30 | 60>(loadFps);
+  const [targetFps, setTargetFps] = useState<NdiFps>(loadFps);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -33,7 +35,7 @@ export function App() {
   const framePortRef = useRef<MessagePort | null>(null);
   // #104: Live-Werte als Refs, damit start()/handleFrame und Tray-Restart immer
   // die aktuellen Einstellungen lesen (ohne stale Closures).
-  const fpsRef = useRef<30 | 60>(targetFps);
+  const fpsRef = useRef<NdiFps>(targetFps);
   fpsRef.current = targetFps;
   const audioRef = useRef(audioOn);
   audioRef.current = audioOn;
@@ -166,7 +168,7 @@ export function App() {
   // #104: Bildrate/Audio ändern — bei laufendem Versand neu starten (Ref zuerst
   // setzen, damit start() den neuen Wert liest).
   const changeFps = useCallback(
-    async (fps: 30 | 60) => {
+    async (fps: NdiFps) => {
       fpsRef.current = fps;
       setTargetFps(fps);
       try {
@@ -273,7 +275,7 @@ export function App() {
             <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
               <span>Bildrate</span>
               <div className="flex gap-1">
-                {([30, 60] as const).map((f) => (
+                {NDI_FPS_OPTIONS.map((f) => (
                   <button
                     key={f}
                     type="button"
