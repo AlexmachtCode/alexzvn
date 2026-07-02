@@ -21,7 +21,7 @@ import { getPresence } from './presence';
 import { getHealth } from './health';
 import { checkToolUpdates, checkLauncherUpdate } from './updates';
 import { openTool } from './launch';
-import { openShowDialog, saveShow, pickShowDocument } from './show';
+import { openShowDialog, saveShow, pickShowDocument, loadShowForEdit } from './show';
 import { installTool, updateLauncher } from './installer';
 import { uninstallTool } from './uninstall';
 import { getSettingsView, setSettings } from './settings';
@@ -62,7 +62,8 @@ export function registerIpc(): void {
   // Start-Feedback (#76) an das aufrufende Fenster senden.
   ipcMain.handle('show:open', (e) => openShowDialog((ev) => e.sender.send('app:event', ev)));
   // Show anlegen/bearbeiten: speichern + Dokument-Auswahl für die Authoring-UI.
-  ipcMain.handle('show:save', (_e, show: Show) => saveShow(show));
+  ipcMain.handle('show:save', (_e, show: Show, targetPath?: string) => saveShow(show, targetPath));
+  ipcMain.handle('show:loadForEdit', () => loadShowForEdit());
   ipcMain.handle('show:pickDocument', () => pickShowDocument());
 
   // Download + Installation aus der konfigurierten Release-Quelle, mit

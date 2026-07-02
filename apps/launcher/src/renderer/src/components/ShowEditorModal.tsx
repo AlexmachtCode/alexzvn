@@ -57,6 +57,8 @@ export function ShowEditorModal() {
   const [battleRounds, setBattleRounds] = useState('');
   const [qaSpeak, setQaSpeak] = useState('');
   const [busy, setBusy] = useState(false);
+  // Bearbeiten (statt neu): Pfad der geladenen Show — Speichern schreibt dorthin zurück.
+  const [editPath, setEditPath] = useState<string | null>(null);
 
   // iveo-Event-Bindung (#11). Token bleibt nur transient hier im Feld; der Main-
   // Prozess legt ihn beim Binden verschlüsselt ab und gibt ihn NIE zurück.
@@ -258,6 +260,78 @@ export function ShowEditorModal() {
     return ref;
   };
 
+  /** Alle Formularfelder leeren (nach Speichern / Abbrechen / „Neu"). */
+  const resetForm = (): void => {
+    setName('');
+    setEntries({});
+    setAblauf([]);
+    setBattleA('');
+    setBattleB('');
+    setBattleRounds('');
+    setQaSpeak('');
+    setIveoToken('');
+    setIveoBaseUrl('');
+    setIveoEvents(null);
+    setIveoSelected('');
+    setIveoBinding(null);
+    setIveoMsg(null);
+    setIveoDay('');
+    setIveoExcludeBlockers(false);
+    setIveoTypeSlug('');
+    setIveoFormatSlug('');
+    setIveoProgramTypes(null);
+    setIveoProgramId('');
+    setIveoProgramList([]);
+    setEditPath(null);
+  };
+
+  const cancel = (): void => {
+    resetForm();
+    close();
+  };
+
+  /** Bestehende .jmshow laden und das Formular damit füllen (Bearbeiten). */
+  const loadForEdit = async (): Promise<void> => {
+    const r = await window.jmps.loadShowForEdit();
+    if (!r) return;
+    const { path, show } = r;
+    resetForm();
+    setEditPath(path);
+    setName(show.name === 'Unbenannte Show' ? '' : show.name);
+    const next: Record<string, Entry> = {};
+    for (const ref of show.tools) {
+      next[ref.appId] = { included: true, document: ref.document ?? '', host: ref.network?.host ?? '' };
+    }
+    setEntries(next);
+    setAblauf(
+      (show.ablauf ?? []).map((a) => ({
+        label: a.label,
+        minutes: a.durationMs ? String(Math.round(a.durationMs / 60000)) : '',
+        note: a.note ?? '',
+      })),
+    );
+    const battle = show.tools.find((t) => t.appId === 'jm-battle')?.settings as
+      | Record<string, unknown>
+      | undefined;
+    setBattleA(typeof battle?.nameA === 'string' ? battle.nameA : '');
+    setBattleB(typeof battle?.nameB === 'string' ? battle.nameB : '');
+    setBattleRounds(typeof battle?.rounds === 'number' ? String(battle.rounds) : '');
+    const qa = show.tools.find((t) => t.appId === 'jm-qa')?.settings as Record<string, unknown> | undefined;
+    setQaSpeak(typeof qa?.speakSeconds === 'number' ? String(qa.speakSeconds) : '');
+    setIveoBinding(
+      show.iveo
+        ? {
+            event: show.iveo.event,
+            name: show.iveo.name ?? show.iveo.event,
+            baseUrl: show.iveo.baseUrl,
+            speakers: show.iveo.speakers,
+            sideEvents: show.iveo.sideEvents,
+            filter: show.iveo.filter,
+          }
+        : null,
+    );
+  };
+
   const onSave = async (): Promise<void> => {
     const ablaufItems = buildAblauf();
     const show: Show = {
@@ -287,28 +361,9 @@ export function ShowEditorModal() {
     };
     setBusy(true);
     try {
-      const ok = await saveShow(show);
+      const ok = await saveShow(show, editPath ?? undefined);
       if (ok) {
-        setName('');
-        setEntries({});
-        setAblauf([]);
-        setBattleA('');
-        setBattleB('');
-        setBattleRounds('');
-        setQaSpeak('');
-        setIveoToken('');
-        setIveoBaseUrl('');
-        setIveoEvents(null);
-        setIveoSelected('');
-        setIveoBinding(null);
-        setIveoMsg(null);
-        setIveoDay('');
-        setIveoExcludeBlockers(false);
-        setIveoTypeSlug('');
-        setIveoFormatSlug('');
-        setIveoProgramTypes(null);
-        setIveoProgramId('');
-        setIveoProgramList([]);
+        resetForm();
         close();
       }
     } finally {
@@ -320,12 +375,25 @@ export function ShowEditorModal() {
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6">
       <Card className="w-full max-w-lg p-6 jm-fade-in">
         <div className="-mr-2 max-h-[68vh] overflow-y-auto pr-2">
-        <div>
-          <h2 className="text-lg font-extrabold tracking-tight">Show anlegen</h2>
-          <p className="text-xs text-[var(--muted-foreground)] mt-1">
-            Tools für die Produktion auswählen und als .jmshow speichern. Beim Öffnen startet
-            der Launcher alle gewählten Tools und gibt jedem seinen Teil mit.
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-lg font-extrabold tracking-tight">
+              {editPath ? 'Show bearbeiten' : 'Show anlegen'}
+            </h2>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+              {editPath
+                ? 'Tools an-/abwählen, Ablauf und iveo anpassen und in dieselbe Datei zurückspeichern.'
+                : 'Tools für die Produktion auswählen und als .jmshow speichern. Beim Öffnen startet der Launcher alle gewählten Tools und gibt jedem seinen Teil mit.'}
+            </p>
+            {editPath && (
+              <p className="mt-1 text-[10px] text-[var(--muted-foreground)] truncate" title={editPath}>
+                {editPath.split(/[\\/]/).pop()}
+              </p>
+            )}
+          </div>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={() => void loadForEdit()}>
+            Bestehende öffnen…
+          </Button>
         </div>
 
         <label className="mt-5 flex flex-col gap-1.5">
@@ -664,11 +732,11 @@ export function ShowEditorModal() {
             {selectedCount} Tool(s) gewählt
           </span>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" onClick={close} disabled={busy}>
+            <Button variant="ghost" onClick={cancel} disabled={busy}>
               Abbrechen
             </Button>
             <Button variant="primary" disabled={!canSave} onClick={() => void onSave()}>
-              {busy ? 'Speichere…' : 'Speichern'}
+              {busy ? 'Speichere…' : editPath ? 'Aktualisieren' : 'Speichern'}
             </Button>
           </div>
         </div>

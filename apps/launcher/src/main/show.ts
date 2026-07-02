@@ -78,24 +78,52 @@ export async function openShowDialog(emit?: EmitAppEvent): Promise<ActionResult>
   return openShow(result.filePaths[0], emit);
 }
 
-/** Speichert eine im Launcher zusammengestellte Show als .jmshow (Save-Dialog). */
-export async function saveShow(show: Show): Promise<ActionResult> {
-  const ext = SHOW_FILE_EXT.replace(/^\./, '');
-  const safeName = (show.name || 'show').replace(/[\\/:*?"<>|]/g, '_');
-  const result = await dialog.showSaveDialog({
-    title: 'Show speichern',
-    defaultPath: `${safeName}.${ext}`,
-    filters: [{ name: 'JM Show', extensions: [ext] }],
+/**
+ * Öffnet einen Datei-Dialog, um eine bestehende .jmshow zum BEARBEITEN zu laden
+ * (nicht zu starten). Liefert Pfad + geparste Show, damit der Editor sie hydriert.
+ */
+export async function loadShowForEdit(): Promise<{ path: string; show: Show } | null> {
+  const result = await dialog.showOpenDialog({
+    title: 'Show bearbeiten',
+    properties: ['openFile'],
+    filters: [{ name: 'JM Show', extensions: [SHOW_FILE_EXT.replace(/^\./, '')] }],
   });
-  if (result.canceled || !result.filePath) return { ok: false };
+  if (result.canceled || !result.filePaths[0]) return null;
+  const path = result.filePaths[0];
   try {
-    await writeFile(result.filePath, serializeShow(show, new Date().toISOString()), 'utf8');
+    return { path, show: parseShow(readFileSync(path, 'utf8')) };
+  } catch (e) {
+    getLog().error(`Show konnte nicht gelesen werden: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+/**
+ * Speichert eine im Launcher zusammengestellte Show als .jmshow. Mit `targetPath`
+ * (Bearbeiten) wird direkt an diese Datei zurückgeschrieben; ohne (Neu) fragt ein
+ * Save-Dialog nach dem Ziel.
+ */
+export async function saveShow(show: Show, targetPath?: string): Promise<ActionResult> {
+  let filePath = targetPath;
+  if (!filePath) {
+    const ext = SHOW_FILE_EXT.replace(/^\./, '');
+    const safeName = (show.name || 'show').replace(/[\\/:*?"<>|]/g, '_');
+    const result = await dialog.showSaveDialog({
+      title: 'Show speichern',
+      defaultPath: `${safeName}.${ext}`,
+      filters: [{ name: 'JM Show', extensions: [ext] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false };
+    filePath = result.filePath;
+  }
+  try {
+    await writeFile(filePath, serializeShow(show, new Date().toISOString()), 'utf8');
   } catch (e) {
     const message = `Show konnte nicht gespeichert werden: ${(e as Error).message}`;
     getLog().error(message);
     return { ok: false, message };
   }
-  return { ok: true, message: `Show „${show.name}" gespeichert.` };
+  return { ok: true, message: `Show „${show.name}" ${targetPath ? 'aktualisiert' : 'gespeichert'}.` };
 }
 
 /** Datei-Dialog zur Auswahl eines Tool-Dokuments (z. B. .jmpres, .jmdaw). */

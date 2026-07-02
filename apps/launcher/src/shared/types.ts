@@ -311,8 +311,13 @@ export interface JmpsApi {
   open: (id: string) => Promise<ActionResult>;
   /** Show-Datei (.jmshow) wählen und ihre Tools koordiniert starten. */
   openShow: () => Promise<ActionResult>;
-  /** Zusammengestellte Show als .jmshow speichern (Save-Dialog). */
-  saveShow: (show: Show) => Promise<ActionResult>;
+  /**
+   * Zusammengestellte Show als .jmshow speichern. Mit `targetPath` (Bearbeiten)
+   * wird direkt an diese Datei zurückgeschrieben; ohne fragt ein Save-Dialog.
+   */
+  saveShow: (show: Show, targetPath?: string) => Promise<ActionResult>;
+  /** Bestehende .jmshow zum Bearbeiten laden (Datei-Dialog) → Pfad + geparste Show. */
+  loadShowForEdit: () => Promise<{ path: string; show: Show } | null>;
   /** Datei-Dialog für ein Tool-Dokument (z. B. .jmpres) — liefert den Pfad. */
   pickShowDocument: () => Promise<string | null>;
   install: (id: string) => Promise<ActionResult>;

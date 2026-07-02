@@ -66,7 +66,7 @@ interface ToolsStore {
   openShow: () => Promise<void>;
   openShowEditor: () => void;
   closeShowEditor: () => void;
-  saveShow: (show: Show) => Promise<boolean>;
+  saveShow: (show: Show, targetPath?: string) => Promise<boolean>;
   openSystem: () => void;
   closeSystem: () => void;
   checkUpdates: () => Promise<void>;
@@ -264,8 +264,8 @@ export const useTools = create<ToolsStore>((set) => {
     openShowEditor: () => set({ showEditorOpen: true }),
     closeShowEditor: () => set({ showEditorOpen: false }),
     dismissShowLaunch: () => set({ showLaunch: null }),
-    saveShow: async (show) => {
-      const res = await window.jmps.saveShow(show);
+    saveShow: async (show, targetPath) => {
+      const res = await window.jmps.saveShow(show, targetPath);
       if (res.message) set({ notice: res.message });
       return res.ok;
     },
