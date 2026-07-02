@@ -64,6 +64,16 @@ export interface ShowIveoSpeaker {
   title?: string;
 }
 
+/**
+ * Token-freie Referenz eines Side Events (#11) — id + Titel. Erlaubt Tools (Rundown
+ * Row-Editor, Launcher-Panel), die Side Events des Tages aufzulisten und per id live
+ * umzuschalten, ohne selbst bei iveo abzufragen.
+ */
+export interface ShowIveoProgramRef {
+  id: string;
+  title: string;
+}
+
 export interface ShowIveoBinding {
   /** iveo Event-Slug oder UUID. */
   event: string;
@@ -78,6 +88,11 @@ export interface ShowIveoBinding {
    * token-frei, ohne PII. Speist die DataLink-Variablen/Recall-Einträge.
    */
   speakers?: ShowIveoSpeaker[];
+  /**
+   * Side Events des Tages (#11), token-frei (id + Titel) — Grundlage fürs Live-
+   * Umschalten (Launcher-Panel / Rundown-GO), ohne dass ein Tool selbst iveo abfragt.
+   */
+  sideEvents?: ShowIveoProgramRef[];
   /**
    * Optionaler Programm-Filter (#11): welche Programme in den Ablauf übernommen
    * werden — nach Typ/Format, nach Kalendertag (mehrtägige iveo-Pläne → ein Tag)
@@ -155,6 +170,18 @@ function normalizeIveoBinding(value: unknown): ShowIveoBinding | null {
       })
       .filter((s): s is ShowIveoSpeaker => s !== null);
     if (speakers.length) binding.speakers = speakers;
+  }
+  if (Array.isArray(o.sideEvents)) {
+    const refs = (o.sideEvents as unknown[])
+      .map((s): ShowIveoProgramRef | null => {
+        if (!s || typeof s !== 'object') return null;
+        const r = s as Record<string, unknown>;
+        const id = typeof r.id === 'string' ? r.id.trim() : '';
+        const title = typeof r.title === 'string' ? r.title.trim() : '';
+        return id ? { id, title: title || id } : null;
+      })
+      .filter((r): r is ShowIveoProgramRef => r !== null);
+    if (refs.length) binding.sideEvents = refs;
   }
   if (o.filter && typeof o.filter === 'object') {
     const f = o.filter as Record<string, unknown>;

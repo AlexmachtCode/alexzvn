@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
-import { createShow, type Show, type ShowAblaufItem, type ShowIveoSpeaker, type ShowToolRef } from '@jm/show';
+import {
+  createShow,
+  type Show,
+  type ShowAblaufItem,
+  type ShowIveoProgramRef,
+  type ShowIveoSpeaker,
+  type ShowToolRef,
+} from '@jm/show';
 import type { IveoEventStub, IveoProgramRef, IveoProgramTaxonomy } from '@shared/types';
 import { useTools } from '@/store/tools';
 
@@ -62,6 +69,7 @@ export function ShowEditorModal() {
     name: string;
     baseUrl?: string;
     speakers?: ShowIveoSpeaker[];
+    sideEvents?: ShowIveoProgramRef[];
     filter?: { typeSlug?: string; formatSlug?: string; day?: string; excludeBlockers?: boolean; programId?: string };
   } | null>(null);
   const [iveoBusy, setIveoBusy] = useState(false);
@@ -189,6 +197,7 @@ export function ShowEditorModal() {
         ...bound,
         baseUrl: iveoBaseUrl.trim() || undefined,
         ...(speakers.length ? { speakers } : {}),
+        ...(res.sideEvents?.length ? { sideEvents: res.sideEvents } : {}),
         ...(Object.keys(filter).length ? { filter } : {}),
       });
       let filterLabel: string;
@@ -263,6 +272,7 @@ export function ShowEditorModal() {
               name: iveoBinding.name,
               ...(iveoBinding.baseUrl ? { baseUrl: iveoBinding.baseUrl } : {}),
               ...(iveoBinding.speakers?.length ? { speakers: iveoBinding.speakers } : {}),
+              ...(iveoBinding.sideEvents?.length ? { sideEvents: iveoBinding.sideEvents } : {}),
               ...(iveoBinding.filter &&
               (iveoBinding.filter.typeSlug ||
                 iveoBinding.filter.formatSlug ||

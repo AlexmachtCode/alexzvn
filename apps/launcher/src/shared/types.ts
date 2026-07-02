@@ -1,6 +1,6 @@
 import type { AppChangelog, ToolManifest, ToolState } from '@jm/suite-manifest';
 import type { Recipe, CookbookCategory } from '@jm/cookbook';
-import type { Show, ShowAblaufItem, ShowIveoSpeaker } from '@jm/show';
+import type { Show, ShowAblaufItem, ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 
 export type {
   ToolManifest,
@@ -198,6 +198,8 @@ export interface IveoBindResult {
   programCount?: number;
   /** Alle Programme (id/title/day) für die Side-Event-Auswahl im Editor. */
   programList?: IveoProgramRef[];
+  /** Side Events des Tages (token-frei, id+title) → in die Show backen (Live-Umschalter). */
+  sideEvents?: ShowIveoProgramRef[];
   /** true, wenn der Ablauf aus den Agenda-Punkten EINES Side Events gebildet wurde. */
   agenda?: boolean;
 }

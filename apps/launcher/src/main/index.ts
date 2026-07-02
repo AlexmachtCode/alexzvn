@@ -12,7 +12,8 @@ import { startPresenceHub } from './presence';
 import { startHealth } from './health';
 import { migrateTokenAtRest } from './settings';
 import { openShow } from './show';
-import { setIveoEmitter } from './iveo-sync';
+import { setIveoEmitter, iveoStateKv } from './iveo-sync';
+import { startLauncherControlServer, stopLauncherControlServer, pushLauncherControlState } from './control-server';
 
 declare const __dirname: string;
 
@@ -71,8 +72,20 @@ if (setupSingleInstance(() => createWindow())) {
     // Health-Aggregator: browst per mDNS nach Steuer-Endpunkten und liest deren
     // Live-Zustand (REC/On-Air/…) — auch von Tools auf anderen Rechnern.
     startHealth(() => emitAppEvent({ type: 'health-changed' }), app.getPath('appData'));
-    // iveo-Live-Umschalter (#11): Panel über offene Show / aktives Side Event informieren.
-    setIveoEmitter(emitAppEvent);
+    // iveo-Live-Umschalter (#11): Panel informieren UND Companion/Rundown-STATE pushen.
+    setIveoEmitter((e) => {
+      emitAppEvent(e);
+      if (e.type === 'iveo-active-changed') {
+        pushLauncherControlState({ ns: 'launcher', kv: iveoStateKv() });
+      }
+    });
+    // Launcher-Steuerserver (#11): Rundown-GO / Companion können live auf ein iveo
+    // Side Event umschalten. Best-effort — fällt der Port aus, läuft alles weiter.
+    void startLauncherControlServer().then((r) => {
+      if (!r.ok) runtime.log.warn(`Launcher-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      else runtime.log.info(`Launcher-Steuerserver (iveo Side Events) lauscht auf :${r.port}`);
+    });
+    app.on('before-quit', () => stopLauncherControlServer());
     registerIpc();
     createWindow();
 

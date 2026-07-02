@@ -237,6 +237,18 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
     // Events). Taxonomie + Programm-Liste aus ALLEN Programmen für die Auswahl im Editor.
     const taxonomy = programTaxonomy(snap.programs);
     const programList = toProgramList(snap.programs);
+    // Side Events des Tages (token-frei, id+title) → in die Show backen, damit
+    // Launcher-Panel/Rundown live umschalten können (ohne selbst iveo abzufragen).
+    const dayFilter: IveoProgramFilter = {
+      typeSlug: input.typeSlug,
+      formatSlug: input.formatSlug,
+      day: input.day,
+      excludeBlockers: input.excludeBlockers,
+    };
+    const sideEvents = toProgramList(filterPrograms(snap.programs, dayFilter)).map((p) => ({
+      id: p.id,
+      title: p.title,
+    }));
     const filter: IveoProgramFilter = {
       typeSlug: input.typeSlug,
       formatSlug: input.formatSlug,
@@ -283,6 +295,7 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
       event: { slug: snap.event.slug, name: snap.event.name },
       programTypes: taxonomy,
       programList,
+      sideEvents,
       programCount: ablauf.length,
       agenda: agendaMode,
       ...(warning ? { warning } : {}),
@@ -338,6 +351,15 @@ function emitActiveChanged(): void {
     activeProgramId: active?.filter.programId,
     canSwitch: active !== null,
   });
+}
+
+/** STATE-Werte für den Launcher-Steuerserver (Companion-Variablen, #11). */
+export function iveoStateKv(): Record<string, string> {
+  return {
+    iveo_event: openShowIveo?.name ?? '',
+    iveo_day: active?.filter.day ?? openShowIveo?.day ?? '',
+    iveo_side_event: active?.filter.programId ?? '',
+  };
 }
 
 /**
@@ -483,6 +505,8 @@ function rewriteShowAblauf(
 ): void {
   try {
     const show = parseShow(readFileSync(path, 'utf8'));
+    // Vorhandene, token-freie Side-Event-Liste erhalten (fürs Live-Umschalten).
+    const sideEvents = show.iveo?.sideEvents;
     show.ablauf = ablauf;
     const compact = compactFilter(filter);
     show.iveo = {
@@ -491,6 +515,7 @@ function rewriteShowAblauf(
       name,
       syncedAt: nowIso(),
       ...(speakers.length ? { speakers } : {}),
+      ...(sideEvents?.length ? { sideEvents } : {}),
       ...(compact ? { filter: compact } : {}),
     };
     writeFileSync(path, serializeShow(show, nowIso()), 'utf8');

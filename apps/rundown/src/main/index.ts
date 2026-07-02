@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
-import { parseShow, parseShowDeepLink, type ShowIveoSpeaker } from '@jm/show';
+import { parseShow, parseShowDeepLink, type ShowIveoProgramRef, type ShowIveoSpeaker } from '@jm/show';
 import { buildActionLine, navigate } from '@shared/conductor';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type { FireReport, RundownAction, RundownDoc, RundownNav, RundownRow, RundownState } from '@shared/types';
@@ -25,6 +25,8 @@ let dirty = false;
 let lastFired: FireReport | null = null;
 /** iveo-Speaker der zuletzt geöffneten Show (für Titler-Cues im Row-Editor). */
 let iveoSpeakers: ShowIveoSpeaker[] = [];
+/** iveo-Side-Events der zuletzt geöffneten Show (für LAUNCHER-SIDEEVENT-Cues). */
+let iveoSideEvents: ShowIveoProgramRef[] = [];
 
 const conductor = new Conductor(() => broadcastLinks());
 
@@ -34,7 +36,7 @@ function resourcePath(filename: string): string {
 }
 
 function buildState(): RundownState {
-  return { doc, index, filePath, dirty, links: conductor.snapshot(), overrides: getOverrides(), lastFired, iveoSpeakers };
+  return { doc, index, filePath, dirty, links: conductor.snapshot(), overrides: getOverrides(), lastFired, iveoSpeakers, iveoSideEvents };
 }
 
 function broadcast(): void {
@@ -271,8 +273,9 @@ function applyShowFromDeepLink(url: string): void {
   if (!showPath) return;
   try {
     const show = parseShow(readFileSync(showPath, 'utf8'));
-    // iveo-Speaker der Show für die Titler-Cues im Row-Editor bereitstellen (#11).
+    // iveo-Speaker + Side Events der Show für die Row-Editor-Cues bereitstellen (#11).
     iveoSpeakers = show.iveo?.speakers ?? [];
+    iveoSideEvents = show.iveo?.sideEvents ?? [];
     const ref = show.tools.find((t) => t.appId === 'jm-rundown');
     if (ref?.document) {
       index = 0;

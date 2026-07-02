@@ -156,6 +156,7 @@ export function App() {
               doc={state.doc}
               row={selectedRow}
               iveoSpeakers={state.iveoSpeakers ?? []}
+              iveoSideEvents={state.iveoSideEvents ?? []}
               onDoc={(d) => void setDoc(d)}
             />
           ) : (

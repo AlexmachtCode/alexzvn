@@ -120,9 +120,11 @@ export function agendaToAblauf(items: IveoAgendaItem[]): ShowAblaufItem[] {
 
 /**
  * Speaker-IDs, die an einem Programm hängen, robust aus einem (Detail-)Programm
- * ziehen (#11 Phase 3b). iveo v1 dokumentiert die Verknüpfung nicht einheitlich —
- * daher tolerant: `speaker_ids: string[]`, `speakers: (string|{id|uuid|speaker_id})[]`
- * und `speaker_id`. Leere/fehlende Verknüpfung → leeres Array (kein Fehler).
+ * ziehen (#11 Phase 3b). Laut iveo Entity-Map (v1) existiert der DB-Join
+ * `program_speakers` (role_on_program, speaking_time), wird aber über die API v1
+ * NICHT ausgeliefert. Ergänzt iveo das später, ist die Feldform unbekannt — daher
+ * tolerant: `speaker_ids`, `speakers`/`program_speakers` als (string|{id|uuid|
+ * speaker_id})[] und `speaker_id`. Fehlend → leeres Array (kein Fehler).
  */
 export function extractSpeakerIds(program: unknown): string[] {
   if (!program || typeof program !== 'object') return [];
@@ -136,7 +138,7 @@ export function extractSpeakerIds(program: unknown): string[] {
       if (typeof id === 'string' && id.trim()) out.add(id.trim());
     }
   };
-  for (const key of ['speaker_ids', 'speakerIds', 'speakers', 'speaker_id']) {
+  for (const key of ['speaker_ids', 'speakerIds', 'speakers', 'program_speakers', 'speaker_id']) {
     const val = o[key];
     if (Array.isArray(val)) val.forEach(pushId);
     else if (val != null) pushId(val);

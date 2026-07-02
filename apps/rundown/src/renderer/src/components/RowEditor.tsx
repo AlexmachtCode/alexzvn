@@ -3,7 +3,7 @@ import { buildActionLine } from '@shared/conductor';
 import { CAPABILITIES, KNOWN_ROLES, capAction } from '@/lib/capabilities';
 import { addAction, duplicateAction, removeAction, updateAction, updateRow } from '@/lib/doc';
 import { formatClock, parseClock } from '@/lib/duration';
-import type { ShowIveoSpeaker } from '@jm/show';
+import type { ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
 
 const select =
@@ -21,11 +21,13 @@ export function RowEditor({
   doc,
   row,
   iveoSpeakers,
+  iveoSideEvents,
   onDoc,
 }: {
   doc: RundownDoc;
   row: RundownRow;
   iveoSpeakers: ShowIveoSpeaker[];
+  iveoSideEvents: ShowIveoProgramRef[];
   onDoc: (doc: RundownDoc) => void;
 }) {
   return (
@@ -55,7 +57,15 @@ export function RowEditor({
           Aktionen beim GO ({row.actions.length})
         </div>
         {row.actions.map((a) => (
-          <ActionRow key={a.id} doc={doc} rowId={row.id} action={a} iveoSpeakers={iveoSpeakers} onDoc={onDoc} />
+          <ActionRow
+            key={a.id}
+            doc={doc}
+            rowId={row.id}
+            action={a}
+            iveoSpeakers={iveoSpeakers}
+            iveoSideEvents={iveoSideEvents}
+            onDoc={onDoc}
+          />
         ))}
         <button
           onClick={() => onDoc(addAction(doc, row.id))}
@@ -73,12 +83,14 @@ function ActionRow({
   rowId,
   action,
   iveoSpeakers,
+  iveoSideEvents,
   onDoc,
 }: {
   doc: RundownDoc;
   rowId: string;
   action: RundownAction;
   iveoSpeakers: ShowIveoSpeaker[];
+  iveoSideEvents: ShowIveoProgramRef[];
   onDoc: (doc: RundownDoc) => void;
 }) {
   const cap = capAction(action.role, action.verb);
@@ -90,6 +102,11 @@ function ActionRow({
   // verknüpft → die Zuordnung Programmzeile→Speaker trifft bewusst der Operator.
   const speakerPicker =
     action.role === 'titler' && action.verb === 'recall' && iveoSpeakers.length > 0;
+  // iveo-Komfort (#11): Beim LAUNCHER-SIDEEVENT-Cue die Side Events der Show als
+  // Dropdown (Wert = programId) — ein GO schaltet die offene Show live auf dieses
+  // Side Event um (Ablauf=Agenda + Speaker). Ersetzt die generische Arg-Eingabe.
+  const sideEventPicker =
+    action.role === 'launcher' && action.verb === 'sideevent' && iveoSideEvents.length > 0;
 
   async function test(): Promise<void> {
     const ok = await window.jmrundown.fireAction(action.role, action.verb, action.args);
@@ -189,7 +206,27 @@ function ActionRow({
         </div>
       )}
 
-      {!speakerPicker && cap?.args && cap.args.length > 0 && (
+      {sideEventPicker && (
+        <div className="mt-2">
+          <label className="text-xs text-neutral-400">
+            iveo Side Event (live schalten)
+            <select
+              value={String(action.args[0] ?? '')}
+              onChange={(e) => setArg(0, e.target.value)}
+              className={`${input} mt-0.5`}
+            >
+              <option value="">— Tagesübersicht (alle Side Events) —</option>
+              {iveoSideEvents.map((se) => (
+                <option key={se.id} value={se.id}>
+                  {se.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      {!speakerPicker && !sideEventPicker && cap?.args && cap.args.length > 0 && (
         <div className="mt-2 grid grid-cols-2 gap-2">
           {cap.args.map((arg, i) => (
             <label

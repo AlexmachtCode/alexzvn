@@ -4,7 +4,7 @@
 // so kann auch der spätere RUNDOWN-Steuerserver (Companion, Slice 3) navigieren.
 // Der Renderer ist Ansicht + Editor und schickt Änderungen per IPC zurück.
 
-import type { ShowIveoSpeaker } from '@jm/show';
+import type { ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 
 /** Eine Aktion, die beim GO an ein Tool gesendet wird. */
 export interface RundownAction {
@@ -99,6 +99,12 @@ export interface RundownState {
    * Programmzeile gezielt eine Speaker-Bauchbinde auslöst.
    */
   iveoSpeakers: ShowIveoSpeaker[];
+  /**
+   * Side Events der geöffneten Show (#11), token-frei (id + Titel). Speist im
+   * Row-Editor das Dropdown für `LAUNCHER SIDEEVENT <id>`-Cues: ein GO schaltet
+   * die offene Show live auf das gewählte Side Event (Ablauf=Agenda + Speaker).
+   */
+  iveoSideEvents: ShowIveoProgramRef[];
 }
 
 // ── Preload-API (window.jmrundown) ───────────────────────────────────────────
