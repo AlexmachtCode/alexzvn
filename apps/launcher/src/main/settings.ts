@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
+import type { RecentShow, SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
 
 interface StoredSettings {
   /** Legacy-Klartext-Token (alte Datei). Wird beim nächsten Schreiben migriert. */
@@ -10,7 +10,12 @@ interface StoredSettings {
   githubTokenEnc?: string;
   proxyUrl?: string;
   manifestUrl?: string;
+  /** Zuletzt geöffnete Shows (#157), neueste zuerst. */
+  recentShows?: RecentShow[];
 }
+
+/** Wie viele zuletzt geöffnete Shows gemerkt werden (#157). */
+const RECENT_SHOWS_CAP = 8;
 
 // Standard-Release-Quelle: der interne Cloudflare-Proxy. Die URL ist kein
 // Secret; der zugehörige Proxy-Key wird beim CI-Build via vite `define` aus dem
@@ -158,6 +163,28 @@ export function getSettingsView(): SuiteSettingsView {
     manifestUrl: resolveManifestUrl(),
     manifestFromEnv: Boolean(process.env['JMPS_MANIFEST_URL']),
   };
+}
+
+/** Zuletzt geöffnete Shows lesen (#157), neueste zuerst. */
+export function getRecentShows(): RecentShow[] {
+  return read().recentShows ?? [];
+}
+
+/**
+ * Eine geöffnete Show oben in die Recent-Liste schieben (#157). Dedupe nach
+ * normalisiertem Pfad (case-insensitiv auf Windows), auf {@link RECENT_SHOWS_CAP}
+ * begrenzt. Fehler beim Schreiben werden verschluckt — die Liste ist Komfort,
+ * kein kritischer Zustand.
+ */
+export function pushRecentShow(entry: RecentShow): void {
+  try {
+    const key = entry.path.toLowerCase();
+    const current = read();
+    const rest = (current.recentShows ?? []).filter((r) => r.path.toLowerCase() !== key);
+    write({ ...current, recentShows: [entry, ...rest].slice(0, RECENT_SHOWS_CAP) });
+  } catch {
+    // Komfortfunktion → Schreibfehler ignorieren.
+  }
 }
 
 export function setSettings(input: SuiteSettingsInput): SuiteSettingsView {
