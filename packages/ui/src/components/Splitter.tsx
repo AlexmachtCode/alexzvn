@@ -1,8 +1,8 @@
 import { useCallback } from 'react';
-import { cn } from '@jm/ui';
+import { cn } from '../lib/cn';
 
 /**
- * Schlanker Resize-Griff zwischen zwei Panels (#95). `orientation:'v'` ist ein
+ * Schlanker Resize-Griff zwischen zwei Panels. `orientation:'v'` ist ein
  * vertikaler Trenner (horizontales Resize, Spalten); `'h'` ein horizontaler
  * Trenner (vertikales Resize, Zeilen). `onDelta` bekommt die Mausbewegung in px
  * auf der jeweiligen Achse; der Aufrufer rechnet das aufs Panel um (Vorzeichen).
@@ -49,7 +49,7 @@ export function Splitter({
       onPointerDown={onPointerDown}
       title={title ?? 'Ziehen zum Anpassen'}
       className={cn(
-        'shrink-0 z-10 group flex items-center justify-center bg-[var(--border)]/40 hover:bg-[var(--primary)]/60 transition-colors',
+        'shrink-0 z-10 flex items-center justify-center bg-[var(--border)]/40 hover:bg-[var(--primary)]/60 transition-colors',
         orientation === 'v' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize',
       )}
     />
