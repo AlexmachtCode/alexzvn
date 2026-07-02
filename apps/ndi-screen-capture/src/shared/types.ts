@@ -39,6 +39,22 @@ export interface JmNdiStatus {
   error?: string;
 }
 
+/** Einstellungen, die der Renderer ans Tray-Menü spiegelt (#104). */
+export interface TraySettings {
+  active: boolean;
+  targetFps: 30 | 60;
+  audio: boolean;
+  /** Name der gewählten Quelle (für die Menü-/Tooltip-Anzeige). */
+  sourceName: string | null;
+}
+
+/** Befehl vom Tray-Menü an den Renderer (#104). */
+export type TrayCommand =
+  | { kind: 'start' }
+  | { kind: 'stop' }
+  | { kind: 'setFps'; fps: 30 | 60 }
+  | { kind: 'setAudio'; audio: boolean };
+
 /** Die unter window.jmndi bereitgestellte API. */
 export interface JmNdiApi {
   platform: string;
@@ -48,4 +64,8 @@ export interface JmNdiApi {
   getStatus: () => Promise<JmNdiStatus>;
   /** Abonniert Status-Pushes; liefert eine Unsubscribe-Funktion. */
   onStatus: (cb: (status: JmNdiStatus) => void) => () => void;
+  /** Aktuelle Einstellungen ans Tray-Menü melden (#104). */
+  traySync: (settings: TraySettings) => void;
+  /** Auf Tray-Befehle hören (#104). Liefert Unsubscribe. */
+  onTrayCommand: (cb: (cmd: TrayCommand) => void) => () => void;
 }

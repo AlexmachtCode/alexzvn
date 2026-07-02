@@ -2,10 +2,18 @@ import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
 import { initAppRuntime } from '@jm/app-runtime';
 import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } from '@jm/electron-kit';
+import { IPC } from '@shared/ipc';
+import type { TrayCommand } from '@shared/types';
 import { registerIpc } from './ipc';
 import { installDisplayMediaHandler } from './capture-handler';
+import { createTray, destroyTray } from './tray';
 
 declare const __dirname: string;
+
+// #104: Beim Fenster-Schließen läuft die App im System-Tray weiter (NDI-Versand
+// bleibt aktiv). Nur „Beenden" im Tray beendet wirklich — dann muss das Fenster
+// schließen dürfen (isQuitting).
+let isQuitting = false;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
 initAppRuntime({ csp: true, appId: 'jm-ndi-screen-capture', appName: 'JM NDI Screen Capture' });
@@ -32,32 +40,70 @@ if (process.platform === 'win32') {
 
 const preloadPath = join(__dirname, '../preload/index.cjs');
 
+function iconPath(): string {
+  return resourcePath('icon.png', join(__dirname, '..', '..', 'resources'));
+}
+
 function createWindow(): BrowserWindow {
-  return createMainWindow({
+  const win = createMainWindow({
     title: 'JM NDI Screen Capture',
     preloadPath,
     // P2 (#60): Renderer-Sandbox. Preload nutzt contextBridge/ipcRenderer + reicht
     // den NDI-Frame-MessagePort per window.postMessage(…, e.ports) durch — dieser
     // Transfer ist der unter Sandbox zu prüfende Punkt.
     sandbox: true,
-    iconPath: resourcePath('icon.png', join(__dirname, '..', '..', 'resources')),
+    iconPath: iconPath(),
     rendererUrl: process.env['ELECTRON_RENDERER_URL'],
     rendererFile: join(__dirname, '../renderer/index.html'),
   });
+  // #104: Schließen versteckt nur ins Tray (Hintergrundbetrieb), außer beim Beenden.
+  win.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      win.hide();
+    }
+  });
+  return win;
 }
 
-if (setupSingleInstance(() => createWindow())) {
+/** Fenster zeigen (aus dem Tray heraus) oder erstmalig erstellen. */
+function showOrCreateWindow(): void {
+  const win = getMainWindow();
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  } else {
+    createWindow();
+  }
+}
+
+if (setupSingleInstance(() => showOrCreateWindow())) {
   app.whenReady().then(() => {
     installDisplayMediaHandler();
     registerIpc(() => getMainWindow());
     createWindow();
-
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    createTray({
+      iconPath: iconPath(),
+      getWindow: () => getMainWindow(),
+      sendCommand: (cmd: TrayCommand) => getMainWindow()?.webContents.send(IPC.trayCommand, cmd),
+      onQuit: () => {
+        isQuitting = true;
+        app.quit();
+      },
     });
+
+    app.on('activate', () => showOrCreateWindow());
   });
 
+  // #104: Fenster-Schließen beendet die App NICHT — sie läuft im Tray weiter.
+  // Beendet wird nur über das Tray-Menü („Beenden").
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
+    // absichtlich leer: Hintergrundbetrieb via Tray
+  });
+
+  app.on('before-quit', () => {
+    isQuitting = true;
+    destroyTray();
   });
 }
