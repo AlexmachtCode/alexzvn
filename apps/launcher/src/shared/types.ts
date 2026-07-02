@@ -30,6 +30,12 @@ export interface ActionResult {
   message?: string;
 }
 
+/** Eine zuletzt geöffnete Show (#157): Pfad zur .jmshow + angezeigter Show-Name. */
+export interface RecentShow {
+  path: string;
+  name: string;
+}
+
 /** Fortschritts-/Statusmeldung während Download & Installation. */
 export interface InstallProgress {
   id: string;
@@ -178,6 +184,10 @@ export interface JmpsApi {
   open: (id: string) => Promise<ActionResult>;
   /** Show-Datei (.jmshow) wählen und ihre Tools koordiniert starten. */
   openShow: () => Promise<ActionResult>;
+  /** Zuletzt geöffnete Shows (#157) für die 1-Klick-Wiederöffnung. */
+  getRecentShows: () => Promise<RecentShow[]>;
+  /** Eine bekannte .jmshow direkt per Pfad öffnen (ohne Dialog, #157). */
+  openShowPath: (path: string) => Promise<ActionResult>;
   /** Zusammengestellte Show als .jmshow speichern (Save-Dialog). */
   saveShow: (show: Show) => Promise<ActionResult>;
   /** Datei-Dialog für ein Tool-Dokument (z. B. .jmpres) — liefert den Pfad. */
