@@ -118,12 +118,33 @@ export interface IveoBindInput {
   typeSlug?: string;
   /** Optionaler Ablauf-Filter: nur dieses Programmformat übernehmen. */
   formatSlug?: string;
+  /** Optionaler Ablauf-Filter: nur Programme dieses Kalendertags (YYYY-MM-DD). */
+  day?: string;
+  /** Optionaler Ablauf-Filter: „Blocker"/Platzhalter-Einträge weglassen. */
+  excludeBlockers?: boolean;
+  /**
+   * Ein einzelnes Side Event „im Detail" (#11 Phase 3b): Ablauf aus dessen Agenda,
+   * Speaker auf dieses Programm eingegrenzt. Leer = Tages-/Listenmodus.
+   */
+  programId?: string;
 }
 
-/** Verteilung der Programmtypen/-formate eines Events (für die Filter-Auswahl). */
+/** Leichte Programm-Referenz für die Side-Event-Auswahl im Editor (token-frei, keine PII). */
+export interface IveoProgramRef {
+  id: string;
+  title: string;
+  /** Kalendertag (YYYY-MM-DD) oder leer, für die Gruppierung nach Tag im Picker. */
+  day: string;
+}
+
+/** Verteilung der Programmtypen/-formate/-tage eines Events (für die Filter-Auswahl). */
 export interface IveoProgramTaxonomy {
   types: Array<{ value: string; count: number }>;
   formats: Array<{ value: string; count: number }>;
+  /** Kalendertage mit Anzahl (chronologisch) — Basis fürs „nur dieser Tag"-Filter. */
+  days: Array<{ value: string; count: number }>;
+  /** Anzahl als „Blocker"/Platzhalter erkannter Programme. */
+  blockerCount: number;
 }
 export interface IveoBindResult {
   ok: boolean;
@@ -141,6 +162,10 @@ export interface IveoBindResult {
   programTypes?: IveoProgramTaxonomy;
   /** Anzahl Programmpunkte nach aktuell angewandtem Filter (Info für die UI). */
   programCount?: number;
+  /** Alle Programme (id/title/day) für die Side-Event-Auswahl im Editor. */
+  programList?: IveoProgramRef[];
+  /** true, wenn der Ablauf aus den Agenda-Punkten EINES Side Events gebildet wurde. */
+  agenda?: boolean;
 }
 
 /** Verfügbares Launcher-Update (Self-Update). */

@@ -11,6 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {
+  IveoAgendaItem,
   IveoEvent,
   IveoEventStub,
   IveoMeta,
@@ -241,6 +242,20 @@ export class IveoClient {
   listPrograms(event: string, query = ''): Promise<IveoProgram[]> {
     const q = query ? (query.startsWith('?') ? query : `?${query}`) : '?limit=200';
     return this.getAll<IveoProgram>(`/events/${encodeURIComponent(event)}/programs${q}`);
+  }
+
+  /** Einzelnes Programm (Detail) — kann mehr Felder tragen als die Liste (z. B. Speaker-Verknüpfung). */
+  getProgram(event: string, program: string): Promise<IveoProgram> {
+    return this.get<IveoProgram>(
+      `/events/${encodeURIComponent(event)}/programs/${encodeURIComponent(program)}`,
+    );
+  }
+
+  /** Agenda-Punkte eines Programms (Feinablauf eines Side Events, #11 Phase 3b). */
+  listAgendaItems(event: string, program: string): Promise<IveoAgendaItem[]> {
+    return this.getAll<IveoAgendaItem>(
+      `/events/${encodeURIComponent(event)}/programs/${encodeURIComponent(program)}/agenda-items?limit=200`,
+    );
   }
 
   listSpeakers(event: string): Promise<IveoSpeaker[]> {

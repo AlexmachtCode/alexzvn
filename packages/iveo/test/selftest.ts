@@ -13,6 +13,11 @@ import {
   snapshotToShowSpeakers,
   programTaxonomy,
   filterPrograms,
+  programDayKey,
+  isBlockerProgram,
+  agendaToAblauf,
+  extractSpeakerIds,
+  speakersToShowSpeakers,
   buildShowMetadata,
   speakerName,
   type IveoFetchLike,
@@ -94,6 +99,57 @@ ok(ablauf[2].label === 'Ohne Zeit' && ablauf[2].durationMs === undefined, 'progr
     filterPrograms(progs, { typeSlug: 'side_event', formatSlug: 'onsite' }).length === 1,
     'filterPrograms: Typ UND Format',
   );
+}
+
+// ── Tag-Filter + Blocker (mehrtägiger iveo-Plan → ein Tag, #11) ──────────────
+{
+  const progs = [
+    prog({ id: 'd1a', starts_at_local: '2024-11-15T10:00:00', title: 'Side Event A' }),
+    prog({ id: 'd1b', starts_at_local: '2024-11-15T14:00:00', title: 'Side Event B' }),
+    prog({ id: 'd2a', starts_at_local: '2024-11-16T09:00:00', title: 'Side Event C' }),
+    prog({ id: 'blk', starts_at_local: '2024-11-15T20:00:00', title: 'Blocker | Nov 15, 8pm' }),
+    prog({ id: 'draft', title: 'Entwurf ohne Termin' }), // kein starts_at → kein Tag
+  ];
+  ok(programDayKey(progs[0]) === '2024-11-15', 'programDayKey: lokale Startzeit → YYYY-MM-DD');
+  ok(programDayKey(progs[4]) === '', 'programDayKey: ohne Startzeit → leer');
+  ok(isBlockerProgram(progs[3]) && !isBlockerProgram(progs[0]), 'isBlockerProgram: nur Blocker-Titel');
+  const tax = programTaxonomy(progs);
+  ok(tax.days.length === 2 && tax.days[0].value === '2024-11-15', 'programTaxonomy: Tage chronologisch');
+  ok(tax.days[0].count === 3 && tax.days[1].count === 1, 'programTaxonomy: Programme je Tag (inkl. Blocker)');
+  ok(tax.blockerCount === 1, 'programTaxonomy: Blocker gezählt');
+  ok(filterPrograms(progs, { day: '2024-11-15' }).length === 3, 'filterPrograms: nur ein Tag');
+  ok(
+    filterPrograms(progs, { day: '2024-11-15', excludeBlockers: true }).length === 2,
+    'filterPrograms: Tag UND ohne Blocker → nur echte Side Events',
+  );
+  ok(filterPrograms(progs, { excludeBlockers: true }).length === 4, 'filterPrograms: nur Blocker raus');
+  ok(filterPrograms(progs, { programId: 'irrelevant' }).length === 5, 'filterPrograms: ignoriert programId');
+}
+
+// ── Agenda-Drill + Speaker-Eingrenzung (ein Side Event, #11 Phase 3b) ────────
+{
+  const items = [
+    { id: 'a2', program_id: 'p', sort_order: 1, title: 'Panel', duration_minutes: 45, notes: 'Bühne' },
+    { id: 'a1', program_id: 'p', sort_order: 0, title: 'Begrüßung', duration_minutes: 10 },
+    { id: 'a3', program_id: 'p', sort_order: 2, title: 'Q&A' },
+  ];
+  const ab = agendaToAblauf(items);
+  ok(ab[0].label === 'Begrüßung' && ab[1].label === 'Panel' && ab[2].label === 'Q&A', 'agendaToAblauf: nach sort_order');
+  ok(ab[1].durationMs === 45 * 60_000 && ab[1].note === 'Bühne', 'agendaToAblauf: Dauer + Notiz');
+  ok(ab[2].durationMs === undefined, 'agendaToAblauf: ohne Dauer → keine');
+
+  // Speaker-Verknüpfung tolerant: verschiedene Formen + Abwesenheit.
+  ok(JSON.stringify(extractSpeakerIds({ speaker_ids: ['s1', 's2'] })) === '["s1","s2"]', 'extractSpeakerIds: speaker_ids[]');
+  ok(JSON.stringify(extractSpeakerIds({ speakers: [{ id: 's3' }, 's4'] })) === '["s3","s4"]', 'extractSpeakerIds: speakers[{id}|str]');
+  ok(JSON.stringify(extractSpeakerIds({ speaker_id: 's5' })) === '["s5"]', 'extractSpeakerIds: speaker_id');
+  ok(extractSpeakerIds({ title: 'nix' }).length === 0, 'extractSpeakerIds: keine Verknüpfung → leer');
+  ok(extractSpeakerIds(null).length === 0, 'extractSpeakerIds: null → leer');
+
+  // Eingegrenzte Speaker-Liste (nur die verknüpften) → sanitisiert.
+  const scoped = speakersToShowSpeakers(
+    snapshot.speakers.filter((s) => new Set(['sp1']).has(s.id)),
+  );
+  ok(scoped.length === 1 && scoped[0].name === 'Dr. Ana Ferreira', 'speakersToShowSpeakers: eingegrenzte Auswahl');
 }
 
 // ── speakerName ──────────────────────────────────────────────────────────────
@@ -283,6 +339,7 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
       baseUrl: 'https://staging-dev.my-iveo.de/api/v1',
       name: 'COP30',
       speakers: snapshotToShowSpeakers(snapshot),
+      filter: { day: '2026-11-12', excludeBlockers: true },
     },
   };
   const text = serializeShow(show);
@@ -291,6 +348,10 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   ok(round.iveo?.baseUrl === 'https://staging-dev.my-iveo.de/api/v1', '@jm/show: iveo baseUrl erhalten');
   ok(round.ablauf?.length === 3, '@jm/show: materialisierter Ablauf übersteht Round-Trip');
   ok(round.iveo?.speakers?.length === 1 && round.iveo.speakers[0].name === 'Dr. Ana Ferreira', '@jm/show: iveo-Speaker übersteht Round-Trip');
+  ok(
+    round.iveo?.filter?.day === '2026-11-12' && round.iveo.filter.excludeBlockers === true,
+    '@jm/show: Ablauf-Filter (Tag + ohne Blocker) übersteht Round-Trip',
+  );
   ok(!text.includes('iveo_live_'), '@jm/show: kein Token in der serialisierten Show');
   ok(!text.includes('GEHEIM-BIO'), '@jm/show: keine Bio (PII) in der serialisierten Show');
 }

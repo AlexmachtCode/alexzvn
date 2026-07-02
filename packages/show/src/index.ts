@@ -79,11 +79,24 @@ export interface ShowIveoBinding {
    */
   speakers?: ShowIveoSpeaker[];
   /**
-   * Optionaler Programm-Filter (#11): nur bestimmte Programmtypen/-formate in den
-   * Ablauf übernehmen (z. B. nur „Side Events"). Der Launcher-Poller filtert
-   * identisch, damit Live-Updates konsistent bleiben.
+   * Optionaler Programm-Filter (#11): welche Programme in den Ablauf übernommen
+   * werden — nach Typ/Format, nach Kalendertag (mehrtägige iveo-Pläne → ein Tag)
+   * und/oder ohne „Blocker"-Platzhalter. Der Launcher-Poller filtert identisch,
+   * damit Live-Updates konsistent bleiben.
    */
-  filter?: { typeSlug?: string; formatSlug?: string };
+  filter?: {
+    typeSlug?: string;
+    formatSlug?: string;
+    /** Nur Programme dieses Kalendertags (YYYY-MM-DD, lokale Venue-Zeit). */
+    day?: string;
+    /** „Blocker"/Platzhalter-Einträge aus dem Ablauf nehmen. */
+    excludeBlockers?: boolean;
+    /**
+     * Ein einzelnes Side Event „im Detail": Ablauf = dessen Agenda-Punkte, Speaker
+     * auf dieses Programm eingegrenzt. Der Launcher-Poller löst identisch auf.
+     */
+    programId?: string;
+  };
 }
 
 export interface Show {
@@ -145,10 +158,14 @@ function normalizeIveoBinding(value: unknown): ShowIveoBinding | null {
   }
   if (o.filter && typeof o.filter === 'object') {
     const f = o.filter as Record<string, unknown>;
-    const filter: { typeSlug?: string; formatSlug?: string } = {};
+    const filter: NonNullable<ShowIveoBinding['filter']> = {};
     if (typeof f.typeSlug === 'string' && f.typeSlug.trim()) filter.typeSlug = f.typeSlug.trim();
     if (typeof f.formatSlug === 'string' && f.formatSlug.trim()) filter.formatSlug = f.formatSlug.trim();
-    if (filter.typeSlug || filter.formatSlug) binding.filter = filter;
+    if (typeof f.day === 'string' && f.day.trim()) filter.day = f.day.trim();
+    if (f.excludeBlockers === true) filter.excludeBlockers = true;
+    if (typeof f.programId === 'string' && f.programId.trim()) filter.programId = f.programId.trim();
+    if (filter.typeSlug || filter.formatSlug || filter.day || filter.excludeBlockers || filter.programId)
+      binding.filter = filter;
   }
   return binding;
 }

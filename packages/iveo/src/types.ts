@@ -63,6 +63,16 @@ export interface IveoProgram {
   translations?: null;
   image?: IveoAssetRef | null;
   updated_at?: string;
+  /**
+   * Verknüpfte Speaker (#11, Phase 3b). Der v1-Guide dokumentiert die Verknüpfung
+   * NICHT im generischen Programm-Shape, §8 erwähnt sie aber („linked speakers").
+   * Sie taucht — falls überhaupt — am ehesten im Programm-DETAIL auf. Deshalb hier
+   * BEWUSST tolerant/optional: verschiedene mögliche Formen werden von
+   * `extractSpeakerIds` robust ausgewertet, Abwesenheit ist kein Fehler.
+   */
+  speaker_ids?: string[];
+  speakers?: Array<string | { id?: string; uuid?: string; speaker_id?: string }>;
+  speaker_id?: string;
 }
 
 export interface IveoSpeaker {

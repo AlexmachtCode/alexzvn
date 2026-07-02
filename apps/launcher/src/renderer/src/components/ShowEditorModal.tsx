@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
 import { createShow, type Show, type ShowAblaufItem, type ShowIveoSpeaker, type ShowToolRef } from '@jm/show';
-import type { IveoEventStub, IveoProgramTaxonomy } from '@shared/types';
+import type { IveoEventStub, IveoProgramRef, IveoProgramTaxonomy } from '@shared/types';
 import { useTools } from '@/store/tools';
 
 interface Entry {
@@ -21,6 +21,14 @@ interface AblaufRow {
 }
 
 const EMPTY_ENTRY: Entry = { included: false, document: '', host: '' };
+
+/** YYYY-MM-DD → „Mo, 11.11.2024" (lokal geparst, ohne TZ-Verschiebung). */
+function formatDay(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const wd = new Date(y, m - 1, d).toLocaleDateString('de-DE', { weekday: 'short' });
+  return `${wd}, ${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y}`;
+}
 
 const inputCls = cn(
   'rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)]',
@@ -54,20 +62,29 @@ export function ShowEditorModal() {
     name: string;
     baseUrl?: string;
     speakers?: ShowIveoSpeaker[];
-    filter?: { typeSlug?: string; formatSlug?: string };
+    filter?: { typeSlug?: string; formatSlug?: string; day?: string; excludeBlockers?: boolean; programId?: string };
   } | null>(null);
   const [iveoBusy, setIveoBusy] = useState(false);
   const [iveoMsg, setIveoMsg] = useState<string | null>(null);
-  // Ablauf-Filter (#11): nur bestimmte Programmtypen/-formate (z. B. Side Events).
+  // Ablauf-Filter (#11): nach Tag (mehrtägige iveo-Pläne → ein Tag), Typ/Format
+  // und optional ohne „Blocker"-Platzhalter — z. B. „nur die Side Events dieses Tages".
+  const [iveoDay, setIveoDay] = useState('');
+  const [iveoExcludeBlockers, setIveoExcludeBlockers] = useState(false);
   const [iveoTypeSlug, setIveoTypeSlug] = useState('');
   const [iveoFormatSlug, setIveoFormatSlug] = useState('');
   const [iveoProgramTypes, setIveoProgramTypes] = useState<IveoProgramTaxonomy | null>(null);
+  // Ein einzelnes Side Event „im Detail" (#11 Phase 3b): Ablauf = dessen Agenda,
+  // Bauchbinden = dessen Speaker. Leer = Tages-/Listenmodus.
+  const [iveoProgramId, setIveoProgramId] = useState('');
+  const [iveoProgramList, setIveoProgramList] = useState<IveoProgramRef[]>([]);
 
   if (!open) return null;
 
   const sorted = [...tools].sort((a, b) => a.name.localeCompare(b.name));
   const selectedCount = Object.values(entries).filter((e) => e.included).length;
   const canSave = selectedCount > 0 && !busy;
+  // Side-Event-Auswahl auf den gewählten Tag eingrenzen (sonst alle Programme).
+  const dayPrograms = iveoProgramList.filter((p) => !iveoDay || p.day === iveoDay);
 
   const setEntry = (id: string, patch: Partial<Entry>): void =>
     setEntries((prev) => ({
@@ -114,13 +131,24 @@ export function ShowEditorModal() {
     }
   };
 
-  /** Gewähltes Event binden: Token verschlüsselt ablegen + Ablauf übernehmen. */
-  const bindIveo = async (typeSlug = iveoTypeSlug, formatSlug = iveoFormatSlug): Promise<void> => {
+  /**
+   * Gewähltes Event binden: Token verschlüsselt ablegen + (gefilterten) Ablauf
+   * übernehmen. `override` erlaubt es, ein gerade geändertes Filter-Kriterium sofort
+   * anzuwenden (React-State ist beim onChange noch nicht aktualisiert).
+   */
+  const bindIveo = async (
+    override: Partial<{ typeSlug: string; formatSlug: string; day: string; excludeBlockers: boolean; programId: string }> = {},
+  ): Promise<void> => {
     const event = iveoSelected.trim();
     if (!iveoToken.trim() || !event) {
       setIveoMsg('Token und Event erforderlich.');
       return;
     }
+    const typeSlug = override.typeSlug ?? iveoTypeSlug;
+    const formatSlug = override.formatSlug ?? iveoFormatSlug;
+    const day = override.day ?? iveoDay;
+    const excludeBlockers = override.excludeBlockers ?? iveoExcludeBlockers;
+    const programId = override.programId ?? iveoProgramId;
     setIveoBusy(true);
     setIveoMsg(null);
     try {
@@ -130,6 +158,9 @@ export function ShowEditorModal() {
         event,
         typeSlug: typeSlug || undefined,
         formatSlug: formatSlug || undefined,
+        day: day || undefined,
+        excludeBlockers: excludeBlockers || undefined,
+        programId: programId || undefined,
       });
       if (!res.ok) {
         setIveoMsg(res.error ?? 'Ablauf konnte nicht geladen werden.');
@@ -142,16 +173,36 @@ export function ShowEditorModal() {
       }));
       setAblauf(rows);
       if (res.programTypes) setIveoProgramTypes(res.programTypes);
+      if (res.programList) setIveoProgramList(res.programList);
       const bound = { event: res.event?.slug ?? event, name: res.event?.name ?? event };
       const speakers = res.speakers ?? [];
-      const filter = { ...(typeSlug ? { typeSlug } : {}), ...(formatSlug ? { formatSlug } : {}) };
+      // Im Agenda-Modus (ein Side Event) zählen Tag/Typ/Format nicht mit — nur programId.
+      const filter = programId
+        ? { programId }
+        : {
+            ...(typeSlug ? { typeSlug } : {}),
+            ...(formatSlug ? { formatSlug } : {}),
+            ...(day ? { day } : {}),
+            ...(excludeBlockers ? { excludeBlockers: true } : {}),
+          };
       setIveoBinding({
         ...bound,
         baseUrl: iveoBaseUrl.trim() || undefined,
         ...(speakers.length ? { speakers } : {}),
-        ...(typeSlug || formatSlug ? { filter } : {}),
+        ...(Object.keys(filter).length ? { filter } : {}),
       });
-      const filterLabel = typeSlug || formatSlug || 'alle';
+      let filterLabel: string;
+      if (programId) {
+        const title = iveoProgramList.find((p) => p.id === programId)?.title ?? 'Side Event';
+        filterLabel = `Side Event „${title}" (Agenda)`;
+      } else {
+        const labelParts: string[] = [];
+        if (day) labelParts.push(day);
+        if (typeSlug) labelParts.push(typeSlug);
+        if (formatSlug) labelParts.push(formatSlug);
+        if (excludeBlockers) labelParts.push('ohne Blocker');
+        filterLabel = labelParts.length ? labelParts.join(', ') : 'alle';
+      }
       setIveoMsg(
         `„${bound.name}" übernommen — ${rows.length} Programmpunkte (Filter: ${filterLabel}), ${speakers.length} Speaker (Titler).` +
           (res.warning ? ` ⚠ ${res.warning}` : ''),
@@ -212,7 +263,12 @@ export function ShowEditorModal() {
               name: iveoBinding.name,
               ...(iveoBinding.baseUrl ? { baseUrl: iveoBinding.baseUrl } : {}),
               ...(iveoBinding.speakers?.length ? { speakers: iveoBinding.speakers } : {}),
-              ...(iveoBinding.filter && (iveoBinding.filter.typeSlug || iveoBinding.filter.formatSlug)
+              ...(iveoBinding.filter &&
+              (iveoBinding.filter.typeSlug ||
+                iveoBinding.filter.formatSlug ||
+                iveoBinding.filter.day ||
+                iveoBinding.filter.excludeBlockers ||
+                iveoBinding.filter.programId)
                 ? { filter: iveoBinding.filter }
                 : {}),
             },
@@ -236,9 +292,13 @@ export function ShowEditorModal() {
         setIveoSelected('');
         setIveoBinding(null);
         setIveoMsg(null);
+        setIveoDay('');
+        setIveoExcludeBlockers(false);
         setIveoTypeSlug('');
         setIveoFormatSlug('');
         setIveoProgramTypes(null);
+        setIveoProgramId('');
+        setIveoProgramList([]);
         close();
       }
     } finally {
@@ -325,51 +385,120 @@ export function ShowEditorModal() {
               </div>
             )}
             {iveoProgramTypes &&
-              (iveoProgramTypes.types.length > 1 || iveoProgramTypes.formats.length > 1) && (
-                <div className="flex flex-col gap-1">
+              (iveoProgramTypes.days.length > 1 ||
+                iveoProgramTypes.types.length > 1 ||
+                iveoProgramTypes.formats.length > 1 ||
+                iveoProgramTypes.blockerCount > 0) && (
+                <div className="flex flex-col gap-1.5">
                   <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
-                    Ablauf-Filter — z. B. nur „Side Events"
+                    Ablauf-Filter — z. B. nur die Side Events eines Tages
                   </span>
-                  <div className="flex items-center gap-2">
-                    {iveoProgramTypes.types.length > 1 && (
-                      <select
-                        value={iveoTypeSlug}
+                  {/* Tag: wichtigster Filter — mehrtägige iveo-Pläne auf einen Tag eingrenzen. */}
+                  {iveoProgramTypes.days.length > 1 && (
+                    <select
+                      value={iveoDay}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setIveoDay(v);
+                        // Tageswechsel hebt eine Side-Event-Detailauswahl auf (anderer Tag).
+                        setIveoProgramId('');
+                        void bindIveo({ day: v, programId: '' });
+                      }}
+                      className={cn(inputCls, 'h-8 min-w-0 w-full px-2 text-xs')}
+                    >
+                      <option value="">Alle Tage (kein Tagesfilter)</option>
+                      {iveoProgramTypes.days.map((d) => (
+                        <option key={d.value} value={d.value}>
+                          {formatDay(d.value)} — {d.count} Punkt(e)
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {(iveoProgramTypes.types.length > 1 || iveoProgramTypes.formats.length > 1) && (
+                    <div className="flex items-center gap-2">
+                      {iveoProgramTypes.types.length > 1 && (
+                        <select
+                          value={iveoTypeSlug}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setIveoTypeSlug(v);
+                            void bindIveo({ typeSlug: v });
+                          }}
+                          className={cn(inputCls, 'h-8 min-w-0 flex-1 px-2 text-xs')}
+                        >
+                          <option value="">Typ: alle</option>
+                          {iveoProgramTypes.types.map((t) => (
+                            <option key={t.value} value={t.value}>
+                              {t.value} ({t.count})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {iveoProgramTypes.formats.length > 1 && (
+                        <select
+                          value={iveoFormatSlug}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setIveoFormatSlug(v);
+                            void bindIveo({ formatSlug: v });
+                          }}
+                          className={cn(inputCls, 'h-8 min-w-0 flex-1 px-2 text-xs')}
+                        >
+                          <option value="">Format: alle</option>
+                          {iveoProgramTypes.formats.map((f) => (
+                            <option key={f.value} value={f.value}>
+                              {f.value} ({f.count})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+                  {iveoProgramTypes.blockerCount > 0 && (
+                    <label className="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={iveoExcludeBlockers}
                         onChange={(e) => {
-                          const v = e.target.value;
-                          setIveoTypeSlug(v);
-                          void bindIveo(v, iveoFormatSlug);
+                          const v = e.target.checked;
+                          setIveoExcludeBlockers(v);
+                          void bindIveo({ excludeBlockers: v });
                         }}
-                        className={cn(inputCls, 'h-8 min-w-0 flex-1 px-2 text-xs')}
-                      >
-                        <option value="">Typ: alle</option>
-                        {iveoProgramTypes.types.map((t) => (
-                          <option key={t.value} value={t.value}>
-                            {t.value} ({t.count})
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    {iveoProgramTypes.formats.length > 1 && (
-                      <select
-                        value={iveoFormatSlug}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setIveoFormatSlug(v);
-                          void bindIveo(iveoTypeSlug, v);
-                        }}
-                        className={cn(inputCls, 'h-8 min-w-0 flex-1 px-2 text-xs')}
-                      >
-                        <option value="">Format: alle</option>
-                        {iveoProgramTypes.formats.map((f) => (
-                          <option key={f.value} value={f.value}>
-                            {f.value} ({f.count})
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
+                        className="size-3.5 accent-[var(--primary)]"
+                      />
+                      „Blocker"/Platzhalter ausblenden ({iveoProgramTypes.blockerCount})
+                    </label>
+                  )}
                 </div>
               )}
+            {/* Ein Side Event „im Detail" (#11 Phase 3b): Ablauf = dessen Agenda,
+                Bauchbinden nur dessen Speaker. */}
+            {iveoProgramList.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+                  Side Event im Detail (Agenda + eigene Speaker)
+                </span>
+                <select
+                  value={iveoProgramId}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setIveoProgramId(v);
+                    void bindIveo({ programId: v });
+                  }}
+                  className={cn(inputCls, 'h-8 min-w-0 w-full px-2 text-xs')}
+                >
+                  <option value="">— Kein Detail (Tages-/Listenablauf) —</option>
+                  {dayPrograms.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {!iveoDay && p.day ? `${p.day} · ${p.title}` : p.title}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-[var(--muted-foreground)]">
+                  Ablauf = Agenda dieses Side Events; Titler zeigt nur dessen Speaker.
+                </span>
+              </div>
+            )}
             {iveoMsg && <p className="text-[11px] text-[var(--muted-foreground)]">{iveoMsg}</p>}
             {iveoBinding && (
               <p className="text-[11px] font-semibold text-[var(--primary)]">
