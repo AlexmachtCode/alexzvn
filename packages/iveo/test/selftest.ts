@@ -11,6 +11,8 @@ import {
   programsToAblauf,
   snapshotToAblauf,
   snapshotToShowSpeakers,
+  programTaxonomy,
+  filterPrograms,
   buildShowMetadata,
   speakerName,
   type IveoFetchLike,
@@ -74,6 +76,25 @@ ok(ablauf[0].label === 'Erstens', 'programsToAblauf: nach starts_at sortiert (Er
 ok(ablauf[1].label === 'Zweitens' && ablauf[1].durationMs === 90 * 60_000, 'programsToAblauf: Dauer aus duration_minutes');
 ok(ablauf[1].note === 'Sub · Blue Zone Plenary', 'programsToAblauf: Notiz = Subtitle · Stage-Name');
 ok(ablauf[2].label === 'Ohne Zeit' && ablauf[2].durationMs === undefined, 'programsToAblauf: Programm ohne Zeit ans Ende, keine Dauer');
+
+// ── programTaxonomy + filterPrograms (Side-Events-Filter, #11) ───────────────
+{
+  const progs = [
+    prog({ id: 'a', type_slug: 'side_event', format_slug: 'onsite' }),
+    prog({ id: 'b', type_slug: 'side_event', format_slug: 'hybrid' }),
+    prog({ id: 'c', type_slug: 'plenary', format_slug: 'onsite' }),
+  ];
+  const tax = programTaxonomy(progs);
+  ok(tax.types[0].value === 'side_event' && tax.types[0].count === 2, 'programTaxonomy: häufigster Typ zuerst');
+  ok(tax.types.length === 2 && tax.formats.length === 2, 'programTaxonomy: distinkte Typen + Formate');
+  ok(filterPrograms(progs, { typeSlug: 'side_event' }).length === 2, 'filterPrograms: nach Typ');
+  ok(filterPrograms(progs, { formatSlug: 'onsite' }).length === 2, 'filterPrograms: nach Format');
+  ok(filterPrograms(progs, {}).length === 3, 'filterPrograms: leer → alle');
+  ok(
+    filterPrograms(progs, { typeSlug: 'side_event', formatSlug: 'onsite' }).length === 1,
+    'filterPrograms: Typ UND Format',
+  );
+}
 
 // ── speakerName ──────────────────────────────────────────────────────────────
 ok(speakerName(snapshot.speakers[0]) === 'Dr. Ana Ferreira', 'speakerName: Anrede + Vor- + Nachname');

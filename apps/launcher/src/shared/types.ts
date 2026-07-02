@@ -114,6 +114,16 @@ export interface IveoBindInput {
   token: string;
   /** Event-Slug oder UUID. */
   event: string;
+  /** Optionaler Ablauf-Filter (#11): nur diesen Programmtyp übernehmen (z. B. Side Events). */
+  typeSlug?: string;
+  /** Optionaler Ablauf-Filter: nur dieses Programmformat übernehmen. */
+  formatSlug?: string;
+}
+
+/** Verteilung der Programmtypen/-formate eines Events (für die Filter-Auswahl). */
+export interface IveoProgramTaxonomy {
+  types: Array<{ value: string; count: number }>;
+  formats: Array<{ value: string; count: number }>;
 }
 export interface IveoBindResult {
   ok: boolean;
@@ -127,6 +137,10 @@ export interface IveoBindResult {
   speakers?: ShowIveoSpeaker[];
   /** Slug + Anzeigename für die token-freie Show-Bindung. */
   event?: { slug: string; name: string };
+  /** Vorhandene Programmtypen/-formate (aus ALLEN Programmen) für die Filter-Auswahl. */
+  programTypes?: IveoProgramTaxonomy;
+  /** Anzahl Programmpunkte nach aktuell angewandtem Filter (Info für die UI). */
+  programCount?: number;
 }
 
 /** Verfügbares Launcher-Update (Self-Update). */

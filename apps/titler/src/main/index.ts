@@ -13,6 +13,8 @@ import { writeSpeakersTsv } from './iveo-show';
 declare const __dirname: string;
 
 let mainWindow: BrowserWindow | null = null;
+/** Zweites Fenster: Recall-Button-Board (#152). */
+let recallWindow: BrowserWindow | null = null;
 const preloadPath = join(__dirname, '../preload/index.cjs');
 /** Pfad der aktuell geladenen Show (für Live-Reload nach iveo-Update). */
 let currentShowPath: string | null = null;
@@ -32,7 +34,10 @@ function buildState(): TitlerState {
 }
 
 function broadcastStatus(): void {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('titler:status', status);
+  // An alle Fenster (Operator + Recall-Board), damit beide den Zustand spiegeln.
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('titler:status', status);
+  }
 }
 
 /** DataLink-Watchfolder (neu) starten/aktualisieren — Einträge/Variablen spiegeln. */
@@ -146,6 +151,44 @@ function createMainWindow(): BrowserWindow {
   return win;
 }
 
+/** Recall-Button-Board (#152) in einem eigenen Fenster öffnen (view=recall). */
+function createRecallWindow(): void {
+  if (recallWindow && !recallWindow.isDestroyed()) {
+    if (recallWindow.isMinimized()) recallWindow.restore();
+    recallWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 900,
+    height: 700,
+    minWidth: 460,
+    minHeight: 340,
+    backgroundColor: '#121212',
+    show: false,
+    title: 'JM Titler · Recall-Board',
+    icon: resourcePath('icon.png'),
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: preloadPath,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  win.on('ready-to-show', () => win.show());
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.on('closed', () => {
+    recallWindow = null;
+  });
+  const url = process.env['ELECTRON_RENDERER_URL'];
+  if (url) win.loadURL(`${url}?view=recall`);
+  else win.loadFile(join(__dirname, '../renderer/index.html'), { search: 'view=recall' });
+  recallWindow = win;
+}
+
 function startNdi(name: string): void {
   if (!mainWindow) return;
   startSender(mainWindow, name, (connections) => {
@@ -182,6 +225,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('titler:recall', (_e, ref: string) => recall(ref));
   ipcMain.handle('titler:stepEntry', (_e, delta: number) => step(delta));
+  ipcMain.handle('titler:openRecall', () => createRecallWindow());
   ipcMain.handle('titler:ndi-start', (_e, name: string) => startNdi(name || getConfig().ndiName));
   ipcMain.handle('titler:ndi-stop', () => stopNdi());
   ipcMain.handle('titler:ndi-status', () => {

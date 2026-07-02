@@ -78,6 +78,41 @@ export function programsToAblauf(
   return [...programs].sort((a, b) => startKey(a) - startKey(b)).map((p) => programToAblaufItem(p, opts));
 }
 
+/** Filter auf Programmtyp/-format (#11): z. B. nur „Side Events". Leer = alle. */
+export interface IveoProgramFilter {
+  typeSlug?: string;
+  formatSlug?: string;
+}
+
+/** Programme nach type_slug/format_slug filtern (leere Kriterien lassen alle durch). */
+export function filterPrograms(programs: IveoProgram[], filter: IveoProgramFilter = {}): IveoProgram[] {
+  const type = (filter.typeSlug || '').trim();
+  const format = (filter.formatSlug || '').trim();
+  return programs.filter(
+    (p) => (!type || (p.type_slug || '') === type) && (!format || (p.format_slug || '') === format),
+  );
+}
+
+/** Verteilung der Programmtypen/-formate (für den Filter-Auswahl im Show-Editor). */
+export interface IveoProgramTaxonomy {
+  types: Array<{ value: string; count: number }>;
+  formats: Array<{ value: string; count: number }>;
+}
+
+export function programTaxonomy(programs: IveoProgram[]): IveoProgramTaxonomy {
+  const tally = (get: (p: IveoProgram) => string | null | undefined): Array<{ value: string; count: number }> => {
+    const m = new Map<string, number>();
+    for (const p of programs) {
+      const v = (get(p) || '').trim();
+      if (v) m.set(v, (m.get(v) ?? 0) + 1);
+    }
+    return [...m.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+  };
+  return { types: tally((p) => p.type_slug), formats: tally((p) => p.format_slug) };
+}
+
 /** Bequemer Ablauf aus einem ganzen Snapshot (nutzt Stages für Notizen). */
 export function snapshotToAblauf(snap: IveoSnapshot): ShowAblaufItem[] {
   const stagesById = new Map(snap.stages.map((s) => [s.id, s]));

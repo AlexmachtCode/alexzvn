@@ -24,8 +24,11 @@ import {
   IveoApiError,
   IveoClient,
   buildShowMetadata,
-  snapshotToAblauf,
+  filterPrograms,
+  programTaxonomy,
+  programsToAblauf,
   snapshotToShowSpeakers,
+  type IveoProgramFilter,
   type IveoShowMetadata,
 } from '@jm/iveo';
 import type { ShowIveoSpeaker } from '@jm/show';
@@ -102,7 +105,13 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
         getLog().warn(`iveo bind: „${resource}" übersprungen (${(e as Error).message})`);
       },
     });
-    const ablauf = snapshotToAblauf(snap);
+    // Programm-Filter (#11): nur gewählten Typ/Format in den Ablauf (z. B. Side
+    // Events). Taxonomie aus ALLEN Programmen für die Filter-Auswahl im Editor.
+    const taxonomy = programTaxonomy(snap.programs);
+    const filter: IveoProgramFilter = { typeSlug: input.typeSlug, formatSlug: input.formatSlug };
+    const stagesById = new Map(snap.stages.map((s) => [s.id, s]));
+    const filtered = filterPrograms(snap.programs, filter);
+    const ablauf = programsToAblauf(filtered, { stagesById });
     const speakers = snapshotToShowSpeakers(snap);
     const meta = buildShowMetadata(snap, baseUrl);
     // Token verschlüsselt ablegen (Schlüssel = kanonischer Slug), Cache schreiben.
@@ -111,15 +120,18 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
     const warning = skipped.length
       ? `iveo lieferte für ${skipped.join(', ')} keine Daten (Server-Fehler) — nur teilweise übernommen.`
       : undefined;
+    const filterLabel = input.typeSlug || input.formatSlug || 'alle';
     getLog().info(
-      `iveo: Event „${snap.event.name}" gebunden — ${ablauf.length} Programmpunkte, ${speakers.length} Speaker` +
-        `${skipped.length ? ` (übersprungen: ${skipped.join(', ')})` : ''}.`,
+      `iveo: Event „${snap.event.name}" gebunden — ${ablauf.length}/${snap.programs.length} Programmpunkte ` +
+        `(Filter: ${filterLabel}), ${speakers.length} Speaker${skipped.length ? ` (übersprungen: ${skipped.join(', ')})` : ''}.`,
     );
     return {
       ok: true,
       ablauf,
       speakers,
       event: { slug: snap.event.slug, name: snap.event.name },
+      programTypes: taxonomy,
+      programCount: ablauf.length,
       ...(warning ? { warning } : {}),
     };
   } catch (e) {
@@ -137,6 +149,8 @@ interface ActiveShow {
   baseUrl: string;
   /** Letzter erfolgreicher Sync (ISO) — Basis fürs ?updated_since=. */
   lastSyncIso: string;
+  /** Ablauf-Filter der Show (identisch zum Bind) — für konsistente Live-Updates. */
+  filter: IveoProgramFilter;
 }
 
 let active: ActiveShow | null = null;
@@ -164,6 +178,7 @@ export function onShowOpened(showPath: string, show: Show): void {
     event: binding.event,
     baseUrl: binding.baseUrl || resolveIveoBaseUrl(),
     lastSyncIso: binding.syncedAt || nowIso(),
+    filter: binding.filter ?? {},
   };
   pollTimer = setInterval(() => {
     void pollOnce();
@@ -198,10 +213,11 @@ async function pollOnce(): Promise<void> {
       onSubError: (resource, e) =>
         getLog().warn(`iveo poll: Metadaten „${resource}" übersprungen (${(e as Error).message})`),
     });
-    const ablauf = snapshotToAblauf(snap);
+    const stagesById = new Map(snap.stages.map((s) => [s.id, s]));
+    const ablauf = programsToAblauf(filterPrograms(snap.programs, active.filter), { stagesById });
     const speakers = snapshotToShowSpeakers(snap);
     writeCache(buildShowMetadata(snap, active.baseUrl));
-    rewriteShowAblauf(active.path, snap.event.slug, active.baseUrl, snap.event.name, ablauf, speakers);
+    rewriteShowAblauf(active.path, snap.event.slug, active.baseUrl, snap.event.name, ablauf, speakers, active.filter);
     active.lastSyncIso = snap.fetchedAt;
     // Laufende Tools nicht-destruktiv neu laden lassen (sie lesen die Datei neu).
     const timers = sendControlCommand('jm-timer', 'TIMER RELOAD');
@@ -215,7 +231,7 @@ async function pollOnce(): Promise<void> {
   }
 }
 
-/** Ablauf + Speaker + token-freie iveo-Bindung in die .jmshow zurückschreiben. */
+/** Ablauf + Speaker + token-freie iveo-Bindung (inkl. Filter) in die .jmshow zurückschreiben. */
 function rewriteShowAblauf(
   path: string,
   slug: string,
@@ -223,6 +239,7 @@ function rewriteShowAblauf(
   name: string,
   ablauf: Show['ablauf'],
   speakers: ShowIveoSpeaker[],
+  filter: IveoProgramFilter,
 ): void {
   try {
     const show = parseShow(readFileSync(path, 'utf8'));
@@ -233,6 +250,9 @@ function rewriteShowAblauf(
       name,
       syncedAt: nowIso(),
       ...(speakers.length ? { speakers } : {}),
+      ...(filter.typeSlug || filter.formatSlug
+        ? { filter: { ...(filter.typeSlug ? { typeSlug: filter.typeSlug } : {}), ...(filter.formatSlug ? { formatSlug: filter.formatSlug } : {}) } }
+        : {}),
     };
     writeFileSync(path, serializeShow(show, nowIso()), 'utf8');
   } catch (e) {

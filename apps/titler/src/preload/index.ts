@@ -23,6 +23,7 @@ const api: JmtitlerApi = {
   pickDataFolder: () => ipcRenderer.invoke('titler:pickDataFolder') as Promise<string>,
   recallEntry: (ref: string) => ipcRenderer.invoke('titler:recall', ref) as Promise<void>,
   stepEntry: (delta: number) => ipcRenderer.invoke('titler:stepEntry', delta) as Promise<void>,
+  openRecall: () => ipcRenderer.invoke('titler:openRecall') as Promise<void>,
   onStatus: (cb) => {
     const listener = (_e: unknown, s: TitlerStatus): void => cb(s);
     ipcRenderer.on('titler:status', listener);

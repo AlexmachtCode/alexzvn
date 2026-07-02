@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
 import { createShow, type Show, type ShowAblaufItem, type ShowIveoSpeaker, type ShowToolRef } from '@jm/show';
-import type { IveoEventStub } from '@shared/types';
+import type { IveoEventStub, IveoProgramTaxonomy } from '@shared/types';
 import { useTools } from '@/store/tools';
 
 interface Entry {
@@ -54,9 +54,14 @@ export function ShowEditorModal() {
     name: string;
     baseUrl?: string;
     speakers?: ShowIveoSpeaker[];
+    filter?: { typeSlug?: string; formatSlug?: string };
   } | null>(null);
   const [iveoBusy, setIveoBusy] = useState(false);
   const [iveoMsg, setIveoMsg] = useState<string | null>(null);
+  // Ablauf-Filter (#11): nur bestimmte Programmtypen/-formate (z. B. Side Events).
+  const [iveoTypeSlug, setIveoTypeSlug] = useState('');
+  const [iveoFormatSlug, setIveoFormatSlug] = useState('');
+  const [iveoProgramTypes, setIveoProgramTypes] = useState<IveoProgramTaxonomy | null>(null);
 
   if (!open) return null;
 
@@ -110,7 +115,7 @@ export function ShowEditorModal() {
   };
 
   /** Gewähltes Event binden: Token verschlüsselt ablegen + Ablauf übernehmen. */
-  const bindIveo = async (): Promise<void> => {
+  const bindIveo = async (typeSlug = iveoTypeSlug, formatSlug = iveoFormatSlug): Promise<void> => {
     const event = iveoSelected.trim();
     if (!iveoToken.trim() || !event) {
       setIveoMsg('Token und Event erforderlich.');
@@ -123,6 +128,8 @@ export function ShowEditorModal() {
         token: iveoToken.trim(),
         baseUrl: iveoBaseUrl.trim() || undefined,
         event,
+        typeSlug: typeSlug || undefined,
+        formatSlug: formatSlug || undefined,
       });
       if (!res.ok) {
         setIveoMsg(res.error ?? 'Ablauf konnte nicht geladen werden.');
@@ -134,15 +141,19 @@ export function ShowEditorModal() {
         note: a.note ?? '',
       }));
       setAblauf(rows);
+      if (res.programTypes) setIveoProgramTypes(res.programTypes);
       const bound = { event: res.event?.slug ?? event, name: res.event?.name ?? event };
       const speakers = res.speakers ?? [];
+      const filter = { ...(typeSlug ? { typeSlug } : {}), ...(formatSlug ? { formatSlug } : {}) };
       setIveoBinding({
         ...bound,
         baseUrl: iveoBaseUrl.trim() || undefined,
         ...(speakers.length ? { speakers } : {}),
+        ...(typeSlug || formatSlug ? { filter } : {}),
       });
+      const filterLabel = typeSlug || formatSlug || 'alle';
       setIveoMsg(
-        `„${bound.name}" übernommen — ${rows.length} Programmpunkte, ${speakers.length} Speaker (Titler).` +
+        `„${bound.name}" übernommen — ${rows.length} Programmpunkte (Filter: ${filterLabel}), ${speakers.length} Speaker (Titler).` +
           (res.warning ? ` ⚠ ${res.warning}` : ''),
       );
     } finally {
@@ -201,6 +212,9 @@ export function ShowEditorModal() {
               name: iveoBinding.name,
               ...(iveoBinding.baseUrl ? { baseUrl: iveoBinding.baseUrl } : {}),
               ...(iveoBinding.speakers?.length ? { speakers: iveoBinding.speakers } : {}),
+              ...(iveoBinding.filter && (iveoBinding.filter.typeSlug || iveoBinding.filter.formatSlug)
+                ? { filter: iveoBinding.filter }
+                : {}),
             },
           }
         : {}),
@@ -222,6 +236,9 @@ export function ShowEditorModal() {
         setIveoSelected('');
         setIveoBinding(null);
         setIveoMsg(null);
+        setIveoTypeSlug('');
+        setIveoFormatSlug('');
+        setIveoProgramTypes(null);
         close();
       }
     } finally {
@@ -307,6 +324,52 @@ export function ShowEditorModal() {
                 </Button>
               </div>
             )}
+            {iveoProgramTypes &&
+              (iveoProgramTypes.types.length > 1 || iveoProgramTypes.formats.length > 1) && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+                    Ablauf-Filter — z. B. nur „Side Events"
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {iveoProgramTypes.types.length > 1 && (
+                      <select
+                        value={iveoTypeSlug}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setIveoTypeSlug(v);
+                          void bindIveo(v, iveoFormatSlug);
+                        }}
+                        className={cn(inputCls, 'h-8 min-w-0 flex-1 px-2 text-xs')}
+                      >
+                        <option value="">Typ: alle</option>
+                        {iveoProgramTypes.types.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.value} ({t.count})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {iveoProgramTypes.formats.length > 1 && (
+                      <select
+                        value={iveoFormatSlug}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setIveoFormatSlug(v);
+                          void bindIveo(iveoTypeSlug, v);
+                        }}
+                        className={cn(inputCls, 'h-8 min-w-0 flex-1 px-2 text-xs')}
+                      >
+                        <option value="">Format: alle</option>
+                        {iveoProgramTypes.formats.map((f) => (
+                          <option key={f.value} value={f.value}>
+                            {f.value} ({f.count})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              )}
             {iveoMsg && <p className="text-[11px] text-[var(--muted-foreground)]">{iveoMsg}</p>}
             {iveoBinding && (
               <p className="text-[11px] font-semibold text-[var(--primary)]">

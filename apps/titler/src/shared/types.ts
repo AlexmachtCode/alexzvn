@@ -153,6 +153,8 @@ export interface JmtitlerApi {
   recallEntry: (ref: string) => Promise<void>;
   /** Aktiven DataLink-Eintrag verschieben (+1 / -1). */
   stepEntry: (delta: number) => Promise<void>;
+  /** Recall-Button-Board in einem eigenen Fenster öffnen (#152). */
+  openRecall: () => Promise<void>;
   onStatus: (cb: (s: TitlerStatus) => void) => () => void;
   ndi: {
     /** NDI-Sender starten (forkt den utilityProcess, übergibt den Frame-Port). */

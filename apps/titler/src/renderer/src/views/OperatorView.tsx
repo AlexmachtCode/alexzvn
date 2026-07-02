@@ -252,6 +252,15 @@ export function OperatorView(): React.JSX.Element {
                         variant="outline"
                         size="sm"
                         uppercase={false}
+                        onClick={() => void window.jmtitler.openRecall()}
+                        title="Recall-Button-Board in eigenem Fenster öffnen (#152)"
+                      >
+                        ⧉ Board
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        uppercase={false}
                         disabled={activeEntry <= 0}
                         onClick={() => void window.jmtitler.stepEntry(-1)}
                         title="Vorheriger Eintrag"

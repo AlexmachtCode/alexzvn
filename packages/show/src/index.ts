@@ -78,6 +78,12 @@ export interface ShowIveoBinding {
    * token-frei, ohne PII. Speist die DataLink-Variablen/Recall-Einträge.
    */
   speakers?: ShowIveoSpeaker[];
+  /**
+   * Optionaler Programm-Filter (#11): nur bestimmte Programmtypen/-formate in den
+   * Ablauf übernehmen (z. B. nur „Side Events"). Der Launcher-Poller filtert
+   * identisch, damit Live-Updates konsistent bleiben.
+   */
+  filter?: { typeSlug?: string; formatSlug?: string };
 }
 
 export interface Show {
@@ -136,6 +142,13 @@ function normalizeIveoBinding(value: unknown): ShowIveoBinding | null {
       })
       .filter((s): s is ShowIveoSpeaker => s !== null);
     if (speakers.length) binding.speakers = speakers;
+  }
+  if (o.filter && typeof o.filter === 'object') {
+    const f = o.filter as Record<string, unknown>;
+    const filter: { typeSlug?: string; formatSlug?: string } = {};
+    if (typeof f.typeSlug === 'string' && f.typeSlug.trim()) filter.typeSlug = f.typeSlug.trim();
+    if (typeof f.formatSlug === 'string' && f.formatSlug.trim()) filter.formatSlug = f.formatSlug.trim();
+    if (filter.typeSlug || filter.formatSlug) binding.filter = filter;
   }
   return binding;
 }
