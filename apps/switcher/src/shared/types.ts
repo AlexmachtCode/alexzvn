@@ -1,3 +1,5 @@
+import type { OpenSwitcherResult, SaveSwitcherRequest, SaveSwitcherResult } from './project';
+
 export interface ScreenSourceInfo {
   /** chromeMediaSourceId aus desktopCapturer.getSources(). */
   id: string;
@@ -134,4 +136,13 @@ export interface JmswitchApi {
   output: JmswitchOutputApi;
   /** TCP-Fernsteuerung / Companion (Slice 6). */
   control: JmswitchControlApi;
+  /** Projekt speichern/öffnen (#89). */
+  project: JmswitchProjectApi;
+}
+
+export interface JmswitchProjectApi {
+  /** `.jmswitch`-Projekt öffnen (Datei-Dialog). null = abgebrochen. */
+  open: () => Promise<OpenSwitcherResult | null>;
+  /** Projekt speichern; ohne `path` öffnet sich „Speichern unter". null = abgebrochen. */
+  save: (req: SaveSwitcherRequest) => Promise<SaveSwitcherResult | null>;
 }

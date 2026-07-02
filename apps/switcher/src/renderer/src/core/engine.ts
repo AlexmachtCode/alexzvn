@@ -4,6 +4,8 @@
 // Gezeichnet auf zwei Canvases per requestAnimationFrame. NDI/Capture-Karte
 // kommen als weitere Quelltypen in späteren Slices dazu.
 
+import type { SwitcherContent, SwitcherSource } from '@shared/project';
+
 export type SourceKind = 'color' | 'screen' | 'ndi' | 'image' | 'capture';
 
 export interface SourceInfo {
@@ -11,6 +13,11 @@ export interface SourceInfo {
   name: string;
   kind: SourceKind;
   color?: string;
+  /**
+   * Nur für die Anzeige (#89): screen/capture-Quelle ohne Live-Stream — z. B.
+   * nach dem Öffnen eines Projekts. Wird per attachStream() wieder verbunden.
+   */
+  offline?: boolean;
 }
 
 /** Chroma-Key-Einstellungen einer Ebene (Greenscreen). */
@@ -176,13 +183,82 @@ export class SwitcherEngine {
 
   getState(): EngineState {
     return {
-      sources: this.sources.map((s) => ({ ...s.info })),
+      sources: this.sources.map((s) => {
+        const offline = (s.info.kind === 'screen' || s.info.kind === 'capture') && !s.stream;
+        return offline ? { ...s.info, offline: true } : { ...s.info };
+      }),
       scenes: this.scenes.map((sc) => ({ ...sc, layers: sc.layers.map((l) => ({ ...l })) })),
       previewSceneId: this.previewSceneId,
       programSceneId: this.programSceneId,
       transitioning: this.transition != null,
       autoMs: this.autoMs,
     };
+  }
+
+  // ---- Projekt speichern/laden (#89) ----
+
+  /** Serialisierbaren Projektinhalt liefern (ohne Live-Streams; image als Data-URL). */
+  serialize(): SwitcherContent {
+    return {
+      sources: this.sources.map((s): SwitcherSource => {
+        const base: SwitcherSource = { id: s.info.id, name: s.info.name, kind: s.info.kind };
+        if (s.info.kind === 'color' && s.info.color) base.color = s.info.color;
+        if (s.info.kind === 'image' && s.image?.src) base.imageDataUrl = s.image.src;
+        return base;
+      }),
+      scenes: this.scenes.map((sc) => ({ ...sc, layers: sc.layers.map((l) => ({ ...l })) })),
+      previewSceneId: this.previewSceneId,
+      programSceneId: this.programSceneId,
+      autoMs: this.autoMs,
+    };
+  }
+
+  /**
+   * Projektinhalt laden: aktuelle Quellen freigeben und Pool/Szenen neu aufbauen.
+   * Source-IDs werden 1:1 übernommen (damit Ebenen-Referenzen + NDI-Reconnect per
+   * recvId=id greifen). NDI wird NICHT hier verbunden — das macht die View
+   * (Auto-Reconnect); screen/capture starten offline (per attachStream verbindbar).
+   */
+  loadContent(content: SwitcherContent): void {
+    for (const s of this.sources) this.disposeSource(s);
+    this.transition = null;
+    this.sources = content.sources.map((src): InternalSource => {
+      if (src.kind === 'image' && src.imageDataUrl) {
+        const image = new Image();
+        image.onload = () => this.notify();
+        image.src = src.imageDataUrl;
+        return { info: { id: src.id, name: src.name, kind: 'image' }, video: null, stream: null, image };
+      }
+      const info: SourceInfo = { id: src.id, name: src.name, kind: src.kind };
+      if (src.kind === 'color') info.color = src.color ?? '#000000';
+      return { info, video: null, stream: null };
+    });
+    this.scenes = content.scenes.map((sc) => ({
+      id: sc.id,
+      name: sc.name,
+      layers: sc.layers.map((l) => ({ ...l, key: l.key ? { ...l.key } : undefined })),
+    }));
+    this.previewSceneId = content.previewSceneId;
+    this.programSceneId = content.programSceneId;
+    this.autoMs = content.autoMs;
+    // seq über die höchste vergebene Nummer heben, damit neue IDs nicht kollidieren.
+    this.seq = Math.max(this.seq, maxIdSeq(content));
+    this.notify();
+  }
+
+  /** Einen (offline-)Quelleneintrag wieder an einen Live-Stream koppeln (Reconnect). */
+  attachStream(sourceId: string, stream: MediaStream): void {
+    const src = this.sources.find((s) => s.info.id === sourceId);
+    if (!src) return;
+    this.disposeSource(src);
+    const video = document.createElement('video');
+    video.muted = true;
+    video.srcObject = stream;
+    void video.play().catch(() => {});
+    src.video = video;
+    src.stream = stream;
+    src.image = undefined;
+    this.notify();
   }
 
   private notify(): void {
@@ -703,6 +779,21 @@ export class SwitcherEngine {
     ctx.lineWidth = accent === '#3a3a3a' ? 1.5 : 3;
     ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
   }
+}
+
+/** Höchste Zahl aus allen IDs (src-N/scene-N/layer-N) eines Projektinhalts (#89). */
+function maxIdSeq(content: SwitcherContent): number {
+  let max = 0;
+  const scan = (id: string): void => {
+    const m = /-(\d+)$/.exec(id);
+    if (m) max = Math.max(max, Number(m[1]));
+  };
+  for (const s of content.sources) scan(s.id);
+  for (const sc of content.scenes) {
+    scan(sc.id);
+    for (const l of sc.layers) scan(l.id);
+  }
+  return max;
 }
 
 /** Zentriertes 16:9-Rechteck innerhalb (x,y,w,h). */
