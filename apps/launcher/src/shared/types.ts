@@ -135,6 +135,40 @@ export interface IveoProgramRef {
   title: string;
   /** Kalendertag (YYYY-MM-DD) oder leer, für die Gruppierung nach Tag im Picker. */
   day: string;
+  /** Lokale Startzeit (HH:MM) für die Anzeige, falls vorhanden. */
+  time?: string;
+}
+
+/** Anfrage: Side Events der offenen iveo-Show auflisten (token-frei, aus dem Cache). */
+export interface IveoSideEventsInput {
+  /** Optionaler Tag (YYYY-MM-DD); leer = Tag der Show bzw. erster Tag. */
+  day?: string;
+}
+
+/** Live-Zustand des Side-Event-Umschalters für die offene Show. */
+export interface IveoSideEventsResult {
+  ok: boolean;
+  error?: string;
+  /** Anzeigename des gebundenen Events. */
+  event?: string;
+  /** Aktuell gewählter Tag (YYYY-MM-DD). */
+  day?: string;
+  /** Alle Tage des Events (chronologisch, mit Anzahl). */
+  days?: Array<{ value: string; count: number }>;
+  /** Side Events des gewählten Tages. */
+  programs?: IveoProgramRef[];
+  /** Gerade aktives Side Event (programId) oder leer = Tagesübersicht. */
+  activeProgramId?: string;
+  /** Liegt hier ein Token → ist Live-Umschalten möglich? */
+  canSwitch?: boolean;
+}
+
+/** Live auf ein Side Event (oder zurück auf die Tagesübersicht) umschalten. */
+export interface IveoSwitchInput {
+  /** programId des Side Events; leer/weg = Tagesübersicht (alle Side Events des Tages). */
+  programId?: string;
+  /** Optional den Tag wechseln (für die Tagesübersicht). */
+  day?: string;
 }
 
 /** Verteilung der Programmtypen/-formate/-tage eines Events (für die Filter-Auswahl). */
@@ -251,7 +285,10 @@ export type AppEvent =
   // Show-Start-Feedback (#76): Beim Öffnen einer Show startet der Launcher mehrere
   // Tools (Kaltstart dauert) — die UI zeigt dazu ein Lade-Overlay.
   | { type: 'show-launch-start'; name: string; tools: ShowLaunchTool[] }
-  | { type: 'show-launch-done'; launched: number; total: number; missing: string[] };
+  | { type: 'show-launch-done'; launched: number; total: number; missing: string[] }
+  // iveo (#11): eine iveo-gebundene Show ist offen bzw. das aktive Side Event hat
+  // sich geändert (Live-Umschalter/Rundown-GO) → Panel aktualisieren.
+  | { type: 'iveo-active-changed'; event: string; day?: string; activeProgramId?: string; canSwitch: boolean };
 
 /** Die unter `window.jmps` bereitgestellte Launcher-API. */
 export interface JmpsApi {
@@ -297,6 +334,10 @@ export interface JmpsApi {
   discoverIveoEvents: (input: IveoDiscoverInput) => Promise<IveoDiscoverResult>;
   /** iveo (#11): Event an Show binden — Token verschlüsselt ablegen, Ablauf holen. */
   bindIveoEvent: (input: IveoBindInput) => Promise<IveoBindResult>;
+  /** iveo (#11): Side Events der offenen Show auflisten (token-frei, aus Cache). */
+  listIveoSideEvents: (input?: IveoSideEventsInput) => Promise<IveoSideEventsResult>;
+  /** iveo (#11): live auf ein Side Event umschalten (Ablauf+Speaker → Timer/Titler RELOAD). */
+  switchIveoSideEvent: (input: IveoSwitchInput) => Promise<ActionResult>;
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
 }

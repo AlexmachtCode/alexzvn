@@ -42,11 +42,16 @@ import type { ShowIveoSpeaker } from '@jm/show';
 import { getIveoToken, resolveIveoBaseUrl, setIveoToken } from './settings';
 import { sendControlCommand } from './health';
 import type {
+  ActionResult,
+  AppEvent,
   IveoBindInput,
   IveoBindResult,
   IveoDiscoverInput,
   IveoDiscoverResult,
   IveoProgramRef,
+  IveoSideEventsInput,
+  IveoSideEventsResult,
+  IveoSwitchInput,
 } from '@shared/types';
 
 /** Poll-Intervall fürs Live-Update während einer offenen Show. */
@@ -162,6 +167,24 @@ function writeCache(meta: IveoShowMetadata): void {
   } catch (e) {
     getLog().warn(`iveo: Metadaten-Cache schreiben fehlgeschlagen: ${(e as Error).message}`);
   }
+}
+function readCache(slug: string): IveoShowMetadata | null {
+  try {
+    return JSON.parse(readFileSync(cacheFile(slug), 'utf8')) as IveoShowMetadata;
+  } catch {
+    return null; // kein Cache (Show auf anderem Rechner gebunden) — kein Fehler
+  }
+}
+
+/** Tag (YYYY-MM-DD) eines gecachten Programms — camelCase, NICHT über programDayKey. */
+function metaProgramDay(p: IveoShowMetadata['programs'][number]): string {
+  return (p.startsAtLocal || p.startsAt || '').slice(0, 10);
+}
+/** Lokale Uhrzeit (HH:MM) eines gecachten Programms, falls vorhanden. */
+function metaProgramTime(p: IveoShowMetadata['programs'][number]): string | undefined {
+  const s = p.startsAtLocal || '';
+  const m = /T(\d{2}:\d{2})/.exec(s);
+  return m ? m[1] : undefined;
 }
 
 // ── Fehler → nutzerfreundlich, ohne rohe Upstream-Antwort ────────────────────
@@ -289,6 +312,35 @@ let active: ActiveShow | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
+ * Token-freier Merker der aktuell offenen iveo-Show (auch wenn HIER kein Token
+ * liegt) — für das Auflisten der Side Events im Launcher-Panel. `canSwitch` sagt,
+ * ob live umgeschaltet werden kann (nur mit Token = `active !== null`).
+ */
+interface OpenShowIveo {
+  path: string;
+  slug: string;
+  name: string;
+  day?: string;
+}
+let openShowIveo: OpenShowIveo | null = null;
+
+/** Renderer-Emitter (aus index.ts injiziert) — Panel über aktive Show/Side-Event informieren. */
+let emitIveo: ((e: AppEvent) => void) | null = null;
+export function setIveoEmitter(fn: (e: AppEvent) => void): void {
+  emitIveo = fn;
+}
+function emitActiveChanged(): void {
+  if (!openShowIveo) return;
+  emitIveo?.({
+    type: 'iveo-active-changed',
+    event: openShowIveo.name,
+    day: openShowIveo.day,
+    activeProgramId: active?.filter.programId,
+    canSwitch: active !== null,
+  });
+}
+
+/**
  * Nach dem Öffnen einer Show ggf. Live-Polling starten. Bedingung: die Show trägt
  * eine iveo-Bindung UND hier liegt ein Token für dieses Event. Fehlt das Token
  * (Show auf anderem Rechner gebunden), läuft der bereits materialisierte Ablauf
@@ -296,13 +348,25 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
  */
 export function onShowOpened(showPath: string, show: Show): void {
   stopIveoPolling();
+  openShowIveo = null;
   const binding = show.iveo;
-  if (!binding?.event) return;
+  if (!binding?.event) {
+    emitIveo?.({ type: 'iveo-active-changed', event: '', canSwitch: false }); // Panel leeren
+    return;
+  }
+  // Merker IMMER setzen (auch ohne Token) → Panel kann Side Events aus dem Cache listen.
+  openShowIveo = {
+    path: showPath,
+    slug: binding.event,
+    name: binding.name || binding.event,
+    day: binding.filter?.day,
+  };
   const token = getIveoToken(binding.event);
   if (!token) {
     getLog().info(
-      `iveo: Show ist an Event „${binding.event}" gebunden, aber hier ist kein Token hinterlegt — nur Offline-Ablauf.`,
+      `iveo: Show ist an Event „${binding.event}" gebunden, aber hier ist kein Token hinterlegt — nur Offline-Ablauf (kein Live-Umschalten).`,
     );
+    emitActiveChanged();
     return;
   }
   active = {
@@ -316,6 +380,7 @@ export function onShowOpened(showPath: string, show: Show): void {
     void pollOnce();
   }, POLL_INTERVAL_MS);
   getLog().info(`iveo: Live-Polling für Event „${binding.event}" aktiv (alle ${POLL_INTERVAL_MS / 1000}s).`);
+  emitActiveChanged();
 }
 
 export function stopIveoPolling(): void {
@@ -431,5 +496,158 @@ function rewriteShowAblauf(
     writeFileSync(path, serializeShow(show, nowIso()), 'utf8');
   } catch (e) {
     getLog().warn(`iveo: Show-Ablauf aktualisieren fehlgeschlagen: ${(e as Error).message}`);
+  }
+}
+
+// ── Live-Umschalter für Side Events (#11) ────────────────────────────────────
+// Die .jmshow bindet Event+Tag EINMAL; welches Side Event „live" läuft, ist
+// Laufzeit-Zustand — kein neues Show-File je Side Event. Auflisten geht token-frei
+// aus dem Cache; Umschalten braucht das Token (Launcher = single-holder).
+
+/** Side Events der offenen Show (aus dem Cache, token-frei) für das Umschalt-Panel. */
+export function listSideEvents(input: IveoSideEventsInput = {}): IveoSideEventsResult {
+  if (!openShowIveo) return { ok: false, error: 'Keine iveo-gebundene Show geöffnet.' };
+  const meta = readCache(openShowIveo.slug);
+  if (!meta) {
+    return {
+      ok: false,
+      error: 'Kein iveo-Cache vorhanden (Show auf anderem Rechner gebunden?).',
+      event: openShowIveo.name,
+      canSwitch: active !== null,
+    };
+  }
+  const dayMap = new Map<string, number>();
+  for (const p of meta.programs) {
+    const d = metaProgramDay(p);
+    if (d) dayMap.set(d, (dayMap.get(d) ?? 0) + 1);
+  }
+  const days = [...dayMap.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => a.value.localeCompare(b.value));
+  const day = input.day || openShowIveo.day || days[0]?.value || '';
+  const programs: IveoProgramRef[] = meta.programs
+    .filter((p) => !day || metaProgramDay(p) === day)
+    .sort((a, b) => (a.startsAtLocal || a.startsAt || '').localeCompare(b.startsAtLocal || b.startsAt || ''))
+    .map((p) => {
+      const time = metaProgramTime(p);
+      return { id: p.id, title: p.title, day: metaProgramDay(p), ...(time ? { time } : {}) };
+    });
+  return {
+    ok: true,
+    event: meta.name,
+    day,
+    days,
+    programs,
+    activeProgramId: active?.filter.programId,
+    canSwitch: active !== null,
+  };
+}
+
+/** Aktuelle Speaker-Liste aus der offenen Show lesen (Fallback beim Umschalten). */
+function readShowSpeakers(path: string): ShowIveoSpeaker[] {
+  try {
+    return parseShow(readFileSync(path, 'utf8')).iveo?.speakers ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Ein Side Event leichtgewichtig auflösen (nur Detail + agenda-items, KEIN voller
+ * Snapshot) — für schnelles Live-Umschalten. Speaker werden nur dann neu geholt/
+ * eingegrenzt, wenn iveo tatsächlich eine Verknüpfung liefert; sonst bleibt die
+ * bestehende (Event-)Speakerliste erhalten.
+ */
+async function resolveSideEventLight(
+  client: IveoClient,
+  event: string,
+  programId: string,
+  fallbackSpeakers: ShowIveoSpeaker[],
+): Promise<{ ablauf: ReturnType<typeof agendaToAblauf>; speakers: ShowIveoSpeaker[]; warning?: string }> {
+  const detail = await client.getProgram(event, programId).catch((e) => {
+    getLog().warn(`iveo switch: Detail „${programId}" nicht abrufbar (${(e as Error).message}).`);
+    return null;
+  });
+  let agenda: Awaited<ReturnType<IveoClient['listAgendaItems']>> = [];
+  try {
+    agenda = await client.listAgendaItems(event, programId);
+  } catch (e) {
+    getLog().warn(`iveo switch: agenda-items „${programId}" nicht abrufbar (${(e as Error).message}).`);
+  }
+  let ablauf = agendaToAblauf(agenda);
+  if (!ablauf.length && detail) ablauf = [programToAblaufItem(detail, {})];
+  const ids = extractSpeakerIds(detail);
+  let speakers = fallbackSpeakers;
+  let warning: string | undefined;
+  if (ids.length) {
+    try {
+      const all = await client.listSpeakers(event);
+      speakers = speakersToShowSpeakers(all.filter((s) => ids.includes(s.id)));
+    } catch {
+      /* Speakerliste nicht ladbar → Fallback bleibt */
+    }
+  } else {
+    warning = 'iveo verknüpft keine Speaker mit diesem Side Event — bestehende Speakerliste bleibt.';
+  }
+  getLog().info(
+    `iveo: Side Event „${detail?.title?.trim() || programId}" — Agenda-Punkte: ${agenda.length}` +
+      `${agenda.length ? '' : ' (keine → Programm als 1 Punkt)'}.`,
+  );
+  return { ablauf, speakers, warning };
+}
+
+/**
+ * Live auf ein Side Event umschalten (oder zurück auf die Tagesübersicht) — schreibt
+ * Ablauf+Speaker in die offene Show und lässt Timer/Titler neu laden. Braucht ein
+ * Token für die offene Show (`active`).
+ */
+export async function switchSideEvent(input: IveoSwitchInput): Promise<ActionResult> {
+  if (!active) {
+    return { ok: false, message: 'Kein iveo-Token für die offene Show — Live-Umschalten nicht möglich.' };
+  }
+  const token = getIveoToken(active.event);
+  if (!token) return { ok: false, message: 'iveo-Token nicht mehr vorhanden.' };
+  const programId = input.programId?.trim();
+  try {
+    const client = new IveoClient({ token, baseUrl: active.baseUrl });
+    let ablauf: ReturnType<typeof agendaToAblauf> = [];
+    let speakers: ShowIveoSpeaker[] = [];
+    let name = openShowIveo?.name ?? active.event;
+    let warning: string | undefined;
+    if (programId) {
+      const r = await resolveSideEventLight(client, active.event, programId, readShowSpeakers(active.path));
+      ablauf = r.ablauf;
+      speakers = r.speakers;
+      warning = r.warning;
+      active.filter = { ...active.filter, programId };
+    } else {
+      // Tagesübersicht: alle Side Events des Tages (voller Snapshot nötig).
+      const day = input.day || active.filter.day;
+      const snap = await client.getEventSnapshot(active.event, nowIso(), { onSubError: () => {} });
+      const stagesById = new Map(snap.stages.map((s) => [s.id, s]));
+      const f: IveoProgramFilter = { ...active.filter, programId: undefined, day };
+      ablauf = programsToAblauf(filterPrograms(snap.programs, f), { stagesById });
+      speakers = snapshotToShowSpeakers(snap);
+      name = snap.event.name;
+      active.filter = f;
+      writeCache(buildShowMetadata(snap, active.baseUrl));
+    }
+    if (!ablauf.length) return { ok: false, message: 'Side Event nicht auflösbar (leerer Ablauf).' };
+    active.lastSig = JSON.stringify(ablauf);
+    if (openShowIveo) openShowIveo.day = active.filter.day;
+    rewriteShowAblauf(active.path, active.event, active.baseUrl, name, ablauf, speakers, active.filter);
+    const timers = sendControlCommand('jm-timer', 'TIMER RELOAD');
+    const titlers = sendControlCommand('jm-titler', 'TITLER RELOAD');
+    getLog().info(
+      `iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakers.length} Speaker; RELOAD ${timers} Timer/${titlers} Titler.`,
+    );
+    emitActiveChanged();
+    return {
+      ok: true,
+      message: warning ? `Umgeschaltet — ${warning}` : `Umgeschaltet (${ablauf.length} Punkte).`,
+    };
+  } catch (e) {
+    getLog().warn(`iveo switch fehlgeschlagen: ${(e as Error).message}`);
+    return { ok: false, message: toClientError(e).error };
   }
 }

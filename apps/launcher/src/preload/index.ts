@@ -11,6 +11,9 @@ import type {
   IveoBindResult,
   IveoDiscoverInput,
   IveoDiscoverResult,
+  IveoSideEventsInput,
+  IveoSideEventsResult,
+  IveoSwitchInput,
   JmpsApi,
   LauncherUpdate,
   PresenceRecord,
@@ -55,6 +58,9 @@ const api: JmpsApi = {
   discoverIveoEvents: (input: IveoDiscoverInput) =>
     invoke<IveoDiscoverResult>('iveo:discover', input),
   bindIveoEvent: (input: IveoBindInput) => invoke<IveoBindResult>('iveo:bind', input),
+  listIveoSideEvents: (input?: IveoSideEventsInput) =>
+    invoke<IveoSideEventsResult>('iveo:listSideEvents', input ?? {}),
+  switchIveoSideEvent: (input: IveoSwitchInput) => invoke<ActionResult>('iveo:switchSideEvent', input),
   onProgress: (cb) => listen<InstallProgress>('suite:progress', cb),
   onAppEvent: (cb) => listen<AppEvent>('app:event', cb),
 };

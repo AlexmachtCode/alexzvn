@@ -6,6 +6,7 @@ import type {
   FeedbackInput,
   HealthEntry,
   InstallProgress,
+  IveoSideEventsResult,
   LauncherUpdate,
   PresenceRecord,
   ShowLaunchTool,
@@ -48,6 +49,14 @@ interface ToolsStore {
   health: HealthEntry[];
   systemOpen: boolean;
   showEditorOpen: boolean;
+  /** iveo-Live-Umschalter (#11): Zustand der offenen iveo-Show (null = keine). */
+  iveoActive: { event: string; day?: string; activeProgramId?: string; canSwitch: boolean } | null;
+  sideEvents: IveoSideEventsResult | null;
+  sideEventsOpen: boolean;
+  openSideEvents: () => void;
+  closeSideEvents: () => void;
+  loadSideEvents: (day?: string) => Promise<void>;
+  switchSideEvent: (programId?: string, day?: string) => Promise<void>;
   /** Lade-Overlay beim Öffnen einer Show (#76); null = kein Start läuft. */
   showLaunch: ShowLaunchState | null;
   dismissShowLaunch: () => void;
@@ -134,6 +143,9 @@ export const useTools = create<ToolsStore>((set) => {
     health: [],
     systemOpen: false,
     showEditorOpen: false,
+    iveoActive: null,
+    sideEvents: null,
+    sideEventsOpen: false,
     showLaunch: null,
     patchNotes: null,
 
@@ -178,6 +190,14 @@ export const useTools = create<ToolsStore>((set) => {
                 ? { showLaunch: { ...s.showLaunch, missing: e.missing, done: true, doneAt: Date.now() } }
                 : {},
             );
+          } else if (e.type === 'iveo-active-changed') {
+            // iveo-Show geöffnet / aktives Side Event geändert (#11).
+            set({
+              iveoActive: e.event
+                ? { event: e.event, day: e.day, activeProgramId: e.activeProgramId, canSwitch: e.canSwitch }
+                : null,
+            });
+            if (useTools.getState().sideEventsOpen) await useTools.getState().loadSideEvents();
           }
         });
         // Nach Rückkehr zum Launcher (z. B. wenn der NSIS-Installer durch ist
@@ -256,6 +276,26 @@ export const useTools = create<ToolsStore>((set) => {
       void useTools.getState().loadHealth();
     },
     closeSystem: () => set({ systemOpen: false }),
+
+    openSideEvents: () => {
+      set({ sideEventsOpen: true });
+      void useTools.getState().loadSideEvents();
+    },
+    closeSideEvents: () => set({ sideEventsOpen: false }),
+    loadSideEvents: async (day) => {
+      try {
+        set({ sideEvents: await window.jmps.listIveoSideEvents(day ? { day } : undefined) });
+      } catch {
+        // Kein Cache / kein Main-Zugriff → bestehenden Stand behalten
+      }
+    },
+    switchSideEvent: async (programId, day) => {
+      const res = await window.jmps.switchIveoSideEvent({ programId, day });
+      if (res.message) set({ notice: res.message });
+      // Nach dem Umschalten die Liste (aktives Side Event) auffrischen.
+      const cur = useTools.getState().sideEvents?.day;
+      await useTools.getState().loadSideEvents(day ?? cur);
+    },
 
     checkUpdates: async () => {
       try {

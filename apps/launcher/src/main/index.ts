@@ -12,6 +12,7 @@ import { startPresenceHub } from './presence';
 import { startHealth } from './health';
 import { migrateTokenAtRest } from './settings';
 import { openShow } from './show';
+import { setIveoEmitter } from './iveo-sync';
 
 declare const __dirname: string;
 
@@ -70,6 +71,8 @@ if (setupSingleInstance(() => createWindow())) {
     // Health-Aggregator: browst per mDNS nach Steuer-Endpunkten und liest deren
     // Live-Zustand (REC/On-Air/…) — auch von Tools auf anderen Rechnern.
     startHealth(() => emitAppEvent({ type: 'health-changed' }), app.getPath('appData'));
+    // iveo-Live-Umschalter (#11): Panel über offene Show / aktives Side Event informieren.
+    setIveoEmitter(emitAppEvent);
     registerIpc();
     createWindow();
 

@@ -6,6 +6,8 @@ import type {
   InstallProgress,
   IveoBindInput,
   IveoDiscoverInput,
+  IveoSideEventsInput,
+  IveoSwitchInput,
   RecipeDraftInput,
   SuiteSettingsInput,
 } from '@shared/types';
@@ -26,7 +28,7 @@ import { getSettingsView, setSettings } from './settings';
 import { getControlStatus, provisionControl, disableControl } from './control-provision';
 import { submitFeedback } from './feedback';
 import { submitRecipeDraft } from './cookbook-draft';
-import { discoverIveoEvents, bindIveoEvent } from './iveo-sync';
+import { discoverIveoEvents, bindIveoEvent, listSideEvents, switchSideEvent } from './iveo-sync';
 
 function withTool(
   id: string,
@@ -97,6 +99,8 @@ export function registerIpc(): void {
   // verschlüsselt ablegen, Ablauf holen). Token/Daten bleiben im Main-Prozess.
   ipcMain.handle('iveo:discover', (_e, input: IveoDiscoverInput) => discoverIveoEvents(input));
   ipcMain.handle('iveo:bind', (_e, input: IveoBindInput) => bindIveoEvent(input));
+  ipcMain.handle('iveo:listSideEvents', (_e, input: IveoSideEventsInput) => listSideEvents(input));
+  ipcMain.handle('iveo:switchSideEvent', (_e, input: IveoSwitchInput) => switchSideEvent(input));
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 }
