@@ -171,6 +171,37 @@ export interface IveoSwitchInput {
   day?: string;
 }
 
+/** Ein herunterladbares Material eines Side Events (aus dessen Agenda-Punkten, #11 Phase 4). */
+export interface IveoMaterialRef {
+  id: string;
+  label: string;
+  /** 'file' = Datei-Asset (Download), 'link' = öffentlicher Link (öffnen). */
+  kind: 'file' | 'link';
+  /** Titel des Agenda-Punkts, an dem das Material hängt. */
+  agendaTitle?: string;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  externalUrl?: string | null;
+  /** true, wenn ein Datei-Asset zum Herunterladen vorhanden ist. */
+  hasAsset: boolean;
+}
+
+/** Materialien EINES Side Events auflisten (token-pflichtig, im Launcher). */
+export interface IveoMaterialsInput {
+  programId: string;
+}
+export interface IveoMaterialsResult {
+  ok: boolean;
+  error?: string;
+  materials?: IveoMaterialRef[];
+}
+
+/** Ein Material herunterladen (Datei) bzw. öffnen (Link). */
+export interface IveoDownloadInput {
+  programId: string;
+  materialId: string;
+}
+
 /** Verteilung der Programmtypen/-formate/-tage eines Events (für die Filter-Auswahl). */
 export interface IveoProgramTaxonomy {
   types: Array<{ value: string; count: number }>;
@@ -345,6 +376,10 @@ export interface JmpsApi {
   listIveoSideEvents: (input?: IveoSideEventsInput) => Promise<IveoSideEventsResult>;
   /** iveo (#11): live auf ein Side Event umschalten (Ablauf+Speaker → Timer/Titler RELOAD). */
   switchIveoSideEvent: (input: IveoSwitchInput) => Promise<ActionResult>;
+  /** iveo (#11): Materialien eines Side Events auflisten (aus dessen Agenda-Punkten). */
+  listIveoMaterials: (input: IveoMaterialsInput) => Promise<IveoMaterialsResult>;
+  /** iveo (#11): ein Material herunterladen (Datei speichern+öffnen) bzw. Link öffnen. */
+  downloadIveoMaterial: (input: IveoDownloadInput) => Promise<ActionResult>;
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
 }

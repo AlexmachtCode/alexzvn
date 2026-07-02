@@ -6,6 +6,8 @@ import type {
   InstallProgress,
   IveoBindInput,
   IveoDiscoverInput,
+  IveoDownloadInput,
+  IveoMaterialsInput,
   IveoSideEventsInput,
   IveoSwitchInput,
   RecipeDraftInput,
@@ -28,7 +30,14 @@ import { getSettingsView, setSettings } from './settings';
 import { getControlStatus, provisionControl, disableControl } from './control-provision';
 import { submitFeedback } from './feedback';
 import { submitRecipeDraft } from './cookbook-draft';
-import { discoverIveoEvents, bindIveoEvent, listSideEvents, switchSideEvent } from './iveo-sync';
+import {
+  discoverIveoEvents,
+  bindIveoEvent,
+  listSideEvents,
+  switchSideEvent,
+  listSideEventMaterials,
+  downloadSideEventMaterial,
+} from './iveo-sync';
 
 function withTool(
   id: string,
@@ -102,6 +111,8 @@ export function registerIpc(): void {
   ipcMain.handle('iveo:bind', (_e, input: IveoBindInput) => bindIveoEvent(input));
   ipcMain.handle('iveo:listSideEvents', (_e, input: IveoSideEventsInput) => listSideEvents(input));
   ipcMain.handle('iveo:switchSideEvent', (_e, input: IveoSwitchInput) => switchSideEvent(input));
+  ipcMain.handle('iveo:listMaterials', (_e, input: IveoMaterialsInput) => listSideEventMaterials(input));
+  ipcMain.handle('iveo:downloadMaterial', (_e, input: IveoDownloadInput) => downloadSideEventMaterial(input));
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 }

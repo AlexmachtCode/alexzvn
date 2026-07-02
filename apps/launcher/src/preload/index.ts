@@ -11,6 +11,9 @@ import type {
   IveoBindResult,
   IveoDiscoverInput,
   IveoDiscoverResult,
+  IveoDownloadInput,
+  IveoMaterialsInput,
+  IveoMaterialsResult,
   IveoSideEventsInput,
   IveoSideEventsResult,
   IveoSwitchInput,
@@ -62,6 +65,9 @@ const api: JmpsApi = {
   listIveoSideEvents: (input?: IveoSideEventsInput) =>
     invoke<IveoSideEventsResult>('iveo:listSideEvents', input ?? {}),
   switchIveoSideEvent: (input: IveoSwitchInput) => invoke<ActionResult>('iveo:switchSideEvent', input),
+  listIveoMaterials: (input: IveoMaterialsInput) =>
+    invoke<IveoMaterialsResult>('iveo:listMaterials', input),
+  downloadIveoMaterial: (input: IveoDownloadInput) => invoke<ActionResult>('iveo:downloadMaterial', input),
   onProgress: (cb) => listen<InstallProgress>('suite:progress', cb),
   onAppEvent: (cb) => listen<AppEvent>('app:event', cb),
 };

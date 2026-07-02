@@ -15,7 +15,7 @@
 // kommen nur Daten (Ablauf + sanitisierte, feld-allowlistete Metadaten).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { app } from 'electron';
+import { app, dialog, shell } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
@@ -26,6 +26,7 @@ import {
   agendaToAblauf,
   buildShowMetadata,
   extractSpeakerIds,
+  type IveoMaterial,
   filterPrograms,
   programDayKey,
   programTaxonomy,
@@ -48,6 +49,10 @@ import type {
   IveoBindResult,
   IveoDiscoverInput,
   IveoDiscoverResult,
+  IveoDownloadInput,
+  IveoMaterialRef,
+  IveoMaterialsInput,
+  IveoMaterialsResult,
   IveoProgramRef,
   IveoSideEventsInput,
   IveoSideEventsResult,
@@ -673,6 +678,105 @@ export async function switchSideEvent(input: IveoSwitchInput): Promise<ActionRes
     };
   } catch (e) {
     getLog().warn(`iveo switch fehlgeschlagen: ${(e as Error).message}`);
+    return { ok: false, message: toClientError(e).error };
+  }
+}
+
+// ── Materialien eines Side Events (#11 Phase 4) ──────────────────────────────
+// Präsentationen/Dateien hängen in iveo an den Agenda-Punkten eines Programms
+// (materials[]). Datei-Assets werden über die 302-Indirektion mit Token geladen
+// (der Launcher hält es); die signierte URL wird NIE gespeichert.
+
+const MIME_EXT: Record<string, string> = {
+  'application/pdf': '.pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+  'application/vnd.ms-powerpoint': '.ppt',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/zip': '.zip',
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/gif': '.gif',
+  'image/svg+xml': '.svg',
+  'text/plain': '.txt',
+  'video/mp4': '.mp4',
+};
+/** Passende Dateiendung: liegt sie schon im Label, keine ergänzen; sonst aus dem MIME. */
+function extFor(label: string, mime?: string | null): string {
+  if (/\.[a-z0-9]{2,5}$/i.test(label || '')) return '';
+  return (mime && MIME_EXT[mime.toLowerCase()]) || '';
+}
+
+/** Alle Materialien eines Side Events (aus dessen Agenda-Punkten) auflisten. */
+export async function listSideEventMaterials(input: IveoMaterialsInput): Promise<IveoMaterialsResult> {
+  if (!active) return { ok: false, error: 'Keine iveo-Show mit Token geöffnet.' };
+  const token = getIveoToken(active.event);
+  if (!token) return { ok: false, error: 'Kein iveo-Token für die offene Show.' };
+  const programId = input.programId?.trim();
+  if (!programId) return { ok: false, error: 'programId fehlt.' };
+  try {
+    const client = new IveoClient({ token, baseUrl: active.baseUrl });
+    const agenda = await client.listAgendaItems(active.event, programId);
+    const materials: IveoMaterialRef[] = [];
+    for (const item of agenda) {
+      for (const m of item.materials ?? []) {
+        materials.push({
+          id: m.id,
+          label: m.label || '(ohne Titel)',
+          kind: m.kind,
+          agendaTitle: item.title,
+          mimeType: m.asset?.mime_type ?? null,
+          sizeBytes: m.asset?.size_bytes ?? null,
+          externalUrl: m.external_url ?? null,
+          hasAsset: !!m.asset?.url,
+        });
+      }
+    }
+    getLog().info(`iveo: Side Event „${programId}" — ${materials.length} Material(ien).`);
+    return { ok: true, materials };
+  } catch (e) {
+    getLog().warn(`iveo materials: ${(e as Error).message}`);
+    return { ok: false, ...toClientError(e) };
+  }
+}
+
+/** Ein Material herunterladen (Datei speichern + öffnen) bzw. öffnen (Link). */
+export async function downloadSideEventMaterial(input: IveoDownloadInput): Promise<ActionResult> {
+  if (!active) return { ok: false, message: 'Keine iveo-Show mit Token geöffnet.' };
+  const token = getIveoToken(active.event);
+  if (!token) return { ok: false, message: 'Kein iveo-Token für die offene Show.' };
+  try {
+    const client = new IveoClient({ token, baseUrl: active.baseUrl });
+    const agenda = await client.listAgendaItems(active.event, input.programId);
+    let target: IveoMaterial | undefined;
+    for (const item of agenda) {
+      const m = (item.materials ?? []).find((x) => x.id === input.materialId);
+      if (m) {
+        target = m;
+        break;
+      }
+    }
+    if (!target) return { ok: false, message: 'Material nicht gefunden.' };
+    // Link → einfach im Browser öffnen (kein Token nötig).
+    if (target.kind === 'link' || (!target.asset?.url && target.external_url)) {
+      if (!target.external_url) return { ok: false, message: 'Kein Link vorhanden.' };
+      await shell.openExternal(target.external_url);
+      return { ok: true, message: `Link geöffnet: ${target.label}` };
+    }
+    if (!target.asset?.url) return { ok: false, message: 'Kein Datei-Asset vorhanden.' };
+    // Datei-Asset: mit Token holen (302-Follow im Client), dann speichern.
+    const { bytes, contentType } = await client.fetchAsset(target.asset.url);
+    const ext = extFor(target.label, target.asset.mime_type ?? contentType);
+    const safe = (target.label || 'material').replace(/[\\/:*?"<>|]/g, '_');
+    const r = await dialog.showSaveDialog({ title: 'Material speichern', defaultPath: `${safe}${ext}` });
+    if (r.canceled || !r.filePath) return { ok: false };
+    writeFileSync(r.filePath, Buffer.from(bytes));
+    void shell.openPath(r.filePath); // zum Testen gleich öffnen
+    getLog().info(`iveo: Material „${target.label}" gespeichert (${bytes.byteLength} Bytes) → ${r.filePath}`);
+    return { ok: true, message: `Gespeichert & geöffnet: ${target.label}` };
+  } catch (e) {
+    getLog().warn(`iveo download: ${(e as Error).message}`);
     return { ok: false, message: toClientError(e).error };
   }
 }

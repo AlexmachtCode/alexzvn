@@ -10,6 +10,13 @@ function formatDay(iso: string): string {
   return `${wd}, ${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y}`;
 }
 
+/** Bytes → kompakte Größe (KB/MB). */
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 /**
  * iveo-Live-Umschalter (#11): listet die Side Events des Tages der offenen Show und
  * schaltet auf Klick live um (Ablauf = dessen Agenda + Speaker → Timer/Titler
@@ -22,7 +29,11 @@ export function SideEventsPanel(): React.JSX.Element | null {
   const close = useTools((s) => s.closeSideEvents);
   const loadDay = useTools((s) => s.loadSideEvents);
   const switchTo = useTools((s) => s.switchSideEvent);
+  const materials = useTools((s) => s.materials);
+  const loadMaterials = useTools((s) => s.loadMaterials);
+  const downloadMaterial = useTools((s) => s.downloadMaterial);
   const [busy, setBusy] = useState<string | null>(null);
+  const [openMat, setOpenMat] = useState<string | null>(null);
 
   if (!open) return null;
 
@@ -39,6 +50,15 @@ export function SideEventsPanel(): React.JSX.Element | null {
     } finally {
       setBusy(null);
     }
+  };
+
+  const toggleMaterials = (programId: string): void => {
+    if (openMat === programId) {
+      setOpenMat(null);
+      return;
+    }
+    setOpenMat(programId);
+    if (!materials[programId]) void loadMaterials(programId);
   };
 
   return (
@@ -118,38 +138,92 @@ export function SideEventsPanel(): React.JSX.Element | null {
               <ul className="mt-3 flex flex-col gap-1.5 max-h-[58vh] overflow-auto pr-1">
                 {programs.map((p) => {
                   const isActive = p.id === activeId;
+                  const mats = materials[p.id];
+                  const matOpen = openMat === p.id;
                   return (
                     <li
                       key={p.id}
                       className={cn(
-                        'flex items-center gap-3 rounded-[var(--radius)] border px-3 py-2',
+                        'rounded-[var(--radius)] border',
                         isActive
                           ? 'border-[var(--primary)] bg-[var(--primary)]/10'
                           : 'border-[var(--border)] bg-[var(--card)]',
                       )}
                     >
-                      {p.time && (
-                        <span className="w-10 shrink-0 text-[11px] tabular-nums text-[var(--muted-foreground)]">
-                          {p.time}
+                      <div className="flex items-center gap-3 px-3 py-2">
+                        {p.time && (
+                          <span className="w-10 shrink-0 text-[11px] tabular-nums text-[var(--muted-foreground)]">
+                            {p.time}
+                          </span>
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={p.title}>
+                          {p.title}
                         </span>
-                      )}
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={p.title}>
-                        {p.title}
-                      </span>
-                      {isActive ? (
-                        <span className="shrink-0 rounded-[var(--radius-full)] border border-[var(--primary)]/40 bg-[var(--primary)]/15 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[var(--primary)]">
-                          Aktiv
-                        </span>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          className="shrink-0"
-                          disabled={!canSwitch || busy !== null}
-                          onClick={() => void doSwitch(p.id)}
-                        >
-                          {busy === p.id ? '…' : 'Live'}
-                        </Button>
+                        {canSwitch && (
+                          <button
+                            type="button"
+                            onClick={() => toggleMaterials(p.id)}
+                            title="Materialien (Präsentationen/Dateien) anzeigen"
+                            className={cn(
+                              'shrink-0 rounded-[var(--radius)] border px-2 py-0.5 text-[11px]',
+                              matOpen
+                                ? 'border-[var(--primary)]/50 text-[var(--primary)]'
+                                : 'border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--highlight)]',
+                            )}
+                          >
+                            📎{mats?.length ? ` ${mats.length}` : ''}
+                          </button>
+                        )}
+                        {isActive ? (
+                          <span className="shrink-0 rounded-[var(--radius-full)] border border-[var(--primary)]/40 bg-[var(--primary)]/15 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[var(--primary)]">
+                            Aktiv
+                          </span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            className="shrink-0"
+                            disabled={!canSwitch || busy !== null}
+                            onClick={() => void doSwitch(p.id)}
+                          >
+                            {busy === p.id ? '…' : 'Live'}
+                          </Button>
+                        )}
+                      </div>
+
+                      {matOpen && (
+                        <div className="border-t border-[var(--border)]/60 px-3 py-2">
+                          {mats === undefined ? (
+                            <p className="text-[11px] text-[var(--muted-foreground)]">Lade Materialien…</p>
+                          ) : mats.length === 0 ? (
+                            <p className="text-[11px] text-[var(--muted-foreground)]">
+                              Keine Materialien an diesem Side Event.
+                            </p>
+                          ) : (
+                            <ul className="flex flex-col gap-1">
+                              {mats.map((m) => (
+                                <li key={m.id} className="flex items-center gap-2">
+                                  <span className="min-w-0 flex-1 truncate text-xs" title={m.label}>
+                                    {m.kind === 'link' ? '🔗' : '📄'} {m.label}
+                                    {m.sizeBytes ? (
+                                      <span className="text-[var(--muted-foreground)]">
+                                        {' '}· {formatSize(m.sizeBytes)}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="shrink-0"
+                                    onClick={() => void downloadMaterial(p.id, m.id)}
+                                  >
+                                    {m.kind === 'link' ? 'Öffnen' : 'Herunterladen'}
+                                  </Button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
                       )}
                     </li>
                   );

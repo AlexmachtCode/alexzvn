@@ -6,6 +6,7 @@ import type {
   FeedbackInput,
   HealthEntry,
   InstallProgress,
+  IveoMaterialRef,
   IveoSideEventsResult,
   LauncherUpdate,
   PresenceRecord,
@@ -53,10 +54,14 @@ interface ToolsStore {
   iveoActive: { event: string; day?: string; activeProgramId?: string; canSwitch: boolean } | null;
   sideEvents: IveoSideEventsResult | null;
   sideEventsOpen: boolean;
+  /** Materialien je Side Event (programId → Liste), lazy geladen. */
+  materials: Record<string, IveoMaterialRef[]>;
   openSideEvents: () => void;
   closeSideEvents: () => void;
   loadSideEvents: (day?: string) => Promise<void>;
   switchSideEvent: (programId?: string, day?: string) => Promise<void>;
+  loadMaterials: (programId: string) => Promise<void>;
+  downloadMaterial: (programId: string, materialId: string) => Promise<void>;
   /** Lade-Overlay beim Öffnen einer Show (#76); null = kein Start läuft. */
   showLaunch: ShowLaunchState | null;
   dismissShowLaunch: () => void;
@@ -146,6 +151,7 @@ export const useTools = create<ToolsStore>((set) => {
     iveoActive: null,
     sideEvents: null,
     sideEventsOpen: false,
+    materials: {},
     showLaunch: null,
     patchNotes: null,
 
@@ -295,6 +301,19 @@ export const useTools = create<ToolsStore>((set) => {
       // Nach dem Umschalten die Liste (aktives Side Event) auffrischen.
       const cur = useTools.getState().sideEvents?.day;
       await useTools.getState().loadSideEvents(day ?? cur);
+    },
+    loadMaterials: async (programId) => {
+      try {
+        const res = await window.jmps.listIveoMaterials({ programId });
+        if (res.ok) set((s) => ({ materials: { ...s.materials, [programId]: res.materials ?? [] } }));
+        else if (res.error) set({ notice: res.error });
+      } catch {
+        // kein Token / Netz → still lassen
+      }
+    },
+    downloadMaterial: async (programId, materialId) => {
+      const res = await window.jmps.downloadIveoMaterial({ programId, materialId });
+      if (res.message) set({ notice: res.message });
     },
 
     checkUpdates: async () => {
