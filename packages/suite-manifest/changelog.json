@@ -4,6 +4,15 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.7.0",
+        "date": "2026-07-02",
+        "notes": [
+          "Übersichtlicher: JM Show ist jetzt ein eigener Reiter mit großen, klar beschrifteten Schaltflächen — Show öffnen, Neue Show anlegen und System-Zustand auf einen Blick. Ideal für neue Operator; die gewohnte Symbolleiste oben bleibt erhalten.",
+          "Zuletzt geöffnete Shows: Der JM-Show-Reiter listet die zuletzt gestarteten Produktionen — ein Klick öffnet sie erneut, ohne Datei-Dialog.",
+          "Der Launcher merkt sich den zuletzt genutzten Reiter."
+        ]
+      },
+      {
         "version": "0.6.0",
         "date": "2026-06-29",
         "notes": [
