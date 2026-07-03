@@ -56,6 +56,8 @@ interface ToolsStore {
   sideEventsOpen: boolean;
   /** Materialien je Side Event (programId → Liste), lazy geladen. */
   materials: Record<string, IveoMaterialRef[]>;
+  /** Ladefehler je Side Event (programId → Meldung), z. B. iveo-500 auf agenda-items. */
+  materialsError: Record<string, string>;
   openSideEvents: () => void;
   closeSideEvents: () => void;
   loadSideEvents: (day?: string) => Promise<void>;
@@ -152,6 +154,7 @@ export const useTools = create<ToolsStore>((set) => {
     sideEvents: null,
     sideEventsOpen: false,
     materials: {},
+    materialsError: {},
     showLaunch: null,
     patchNotes: null,
 
@@ -303,14 +306,35 @@ export const useTools = create<ToolsStore>((set) => {
       await useTools.getState().loadSideEvents(day ?? cur);
     },
     loadMaterials: async (programId) => {
+      // Alten Fehler zurücksetzen → Panel zeigt beim (Neu-)Laden „Lade…".
+      set((s) => {
+        if (!s.materialsError[programId]) return {};
+        const next = { ...s.materialsError };
+        delete next[programId];
+        return { materialsError: next };
+      });
       try {
         const res = await window.jmps.listIveoMaterials({ programId });
-        // Auch bei Fehler eine (leere) Liste setzen → das Panel bleibt nicht auf
-        // „Lade Materialien…" hängen; der Grund erscheint als Hinweis.
-        set((s) => ({ materials: { ...s.materials, [programId]: res.ok ? (res.materials ?? []) : [] } }));
-        if (!res.ok && res.error) set({ notice: res.error });
-      } catch {
-        set((s) => ({ materials: { ...s.materials, [programId]: [] } }));
+        if (res.ok) {
+          set((s) => ({ materials: { ...s.materials, [programId]: res.materials ?? [] } }));
+        } else {
+          // KEIN leeres materials cachen: der echte Fehler (inkl. req-id) wird
+          // inline gezeigt statt „Keine Materialien", und ein erneuter Versuch
+          // bleibt möglich (z. B. transienter iveo-500 auf agenda-items).
+          set((s) => ({
+            materialsError: {
+              ...s.materialsError,
+              [programId]: res.error ?? 'Materialien konnten nicht geladen werden.',
+            },
+          }));
+        }
+      } catch (e) {
+        set((s) => ({
+          materialsError: {
+            ...s.materialsError,
+            [programId]: (e as Error).message || 'Materialien konnten nicht geladen werden.',
+          },
+        }));
       }
     },
     downloadMaterial: async (programId, materialId) => {

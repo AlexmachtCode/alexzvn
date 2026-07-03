@@ -30,6 +30,7 @@ export function SideEventsPanel(): React.JSX.Element | null {
   const loadDay = useTools((s) => s.loadSideEvents);
   const switchTo = useTools((s) => s.switchSideEvent);
   const materials = useTools((s) => s.materials);
+  const materialsError = useTools((s) => s.materialsError);
   const loadMaterials = useTools((s) => s.loadMaterials);
   const downloadMaterial = useTools((s) => s.downloadMaterial);
   const [busy, setBusy] = useState<string | null>(null);
@@ -139,6 +140,7 @@ export function SideEventsPanel(): React.JSX.Element | null {
                 {programs.map((p) => {
                   const isActive = p.id === activeId;
                   const mats = materials[p.id];
+                  const matErr = materialsError[p.id];
                   const matOpen = openMat === p.id;
                   return (
                     <li
@@ -193,7 +195,21 @@ export function SideEventsPanel(): React.JSX.Element | null {
 
                       {matOpen && (
                         <div className="border-t border-[var(--border)]/60 px-3 py-2">
-                          {mats === undefined ? (
+                          {matErr ? (
+                            <div className="flex flex-col gap-2">
+                              <p className="text-[11px] text-[var(--destructive)] break-words">
+                                Materialien konnten nicht geladen werden: {matErr}
+                              </p>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="self-start"
+                                onClick={() => void loadMaterials(p.id)}
+                              >
+                                Erneut versuchen
+                              </Button>
+                            </div>
+                          ) : mats === undefined ? (
                             <p className="text-[11px] text-[var(--muted-foreground)]">Lade Materialien…</p>
                           ) : mats.length === 0 ? (
                             <p className="text-[11px] text-[var(--muted-foreground)]">
