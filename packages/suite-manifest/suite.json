@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-06-29T09:14:30.066Z",
+  "updatedAt": "2026-07-03T10:36:09.391Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -136,7 +136,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.switcher",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.5.0",
+      "latestVersion": "0.6.0",
       "platforms": {
         "mac": {
           "artifact": "JM Switcher-${version}-mac-${arch}.dmg",
@@ -220,7 +220,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.ndi-screen-capture",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.2.0",
+      "latestVersion": "0.3.0",
       "platforms": {
         "mac": {
           "artifact": "JM NDI Screen Capture-${version}-mac-${arch}.dmg",
@@ -283,7 +283,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.titler",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.5.0",
+      "latestVersion": "0.6.0",
       "platforms": {
         "mac": {
           "artifact": "JM Titler-${version}-mac-${arch}.dmg",

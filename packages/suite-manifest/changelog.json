@@ -4,6 +4,15 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.7.0",
+        "date": "2026-07-02",
+        "notes": [
+          "Übersichtlicher: JM Show ist jetzt ein eigener Reiter mit großen, klar beschrifteten Schaltflächen — Show öffnen, Neue Show anlegen und System-Zustand auf einen Blick. Ideal für neue Operator; die gewohnte Symbolleiste oben bleibt erhalten.",
+          "Zuletzt geöffnete Shows: Der JM-Show-Reiter listet die zuletzt gestarteten Produktionen — ein Klick öffnet sie erneut, ohne Datei-Dialog.",
+          "Der Launcher merkt sich den zuletzt genutzten Reiter."
+        ]
+      },
+      {
         "version": "0.6.0",
         "date": "2026-06-29",
         "notes": [
@@ -242,6 +251,14 @@
     "app": "switcher",
     "name": "JM Switcher",
     "entries": [
+      {
+        "version": "0.6.0",
+        "date": "2026-07-02",
+        "notes": [
+          "Projekte speichern und öffnen: Der komplette Aufbau — Quellen, Szenen mit Ebenen, Bild-in-Bild und Chroma-Key sowie Program/Preview — lässt sich als .jmswitch-Datei sichern und später wieder laden.",
+          "Beim Öffnen verbinden sich NDI-Quellen automatisch wieder; Bildschirm- und Fensterquellen erscheinen als Platzhalter mit einem Klick zum Neu-Verbinden, ohne die Szenen zu verlieren."
+        ]
+      },
       {
         "version": "0.5.0",
         "date": "2026-06-29",
@@ -600,6 +617,14 @@
     "name": "JM NDI Screen Capture",
     "entries": [
       {
+        "version": "0.3.0",
+        "date": "2026-07-02",
+        "notes": [
+          "Läuft im Hintergrund weiter: Fenster schließen minimiert die App ins System-Tray, der NDI-Versand läuft ununterbrochen weiter. Status, Start/Stopp, Bildrate und System-Audio direkt per Rechtsklick aufs Tray-Symbol; Beenden ebenfalls über das Tray.",
+          "Bildrate wählbar: 25, 30, 50 oder 60 fps — passend zu PAL- und NTSC-/Film-Workflows. Die Auswahl wird gemerkt."
+        ]
+      },
+      {
         "version": "0.2.0",
         "date": "2026-06-23",
         "notes": [
@@ -734,6 +759,15 @@
     "app": "titler",
     "name": "JM Titler",
     "entries": [
+      {
+        "version": "0.6.0",
+        "date": "2026-07-03",
+        "notes": [
+          "2. Bildschirm (Chroma-Green): Die Bauchbinde laesst sich zusaetzlich als Vollbild auf einem waehlbaren Monitor mit gruenem Hintergrund ausgeben — fuer externe Hardware-Keyer wie vMix, ATEM oder TriCaster, ganz ohne NDI. Die NDI-Ausgabe laeuft unveraendert weiter.",
+          "Bauchbinden-Import: Fertige Vorlagen aus dem jm Grafiktool (An Titler senden) oder als .psd-Datei importieren. Nicht-Text-Ebenen werden zum Hintergrund, Text-Ebenen zu fuellbaren Feldern — Variablen (DataLink {{name}}) und die Fernsteuerung TITLER TEXT bleiben nutzbar.",
+          "Companion: Neue Verben zum Waehlen einer Grafik-Vorlage (GRAPHIC) und zum Setzen einzelner Feldtexte (SLOT)."
+        ]
+      },
       {
         "version": "0.5.0",
         "date": "2026-06-29",

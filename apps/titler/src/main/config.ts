@@ -43,10 +43,15 @@ export function patchConfig(patch: PartialTitlerConfig): TitlerConfig {
     ...(patch.dataFolder !== undefined ? { dataFolder: patch.dataFolder } : {}),
     ...(patch.position !== undefined ? { position: patch.position } : {}),
     ...(patch.scale !== undefined ? { scale: patch.scale } : {}),
+    ...(patch.activeGraphicId !== undefined ? { activeGraphicId: patch.activeGraphicId } : {}),
+    ...(patch.slotText !== undefined ? { slotText: patch.slotText } : {}),
     ...(patch.ndiName !== undefined ? { ndiName: patch.ndiName } : {}),
     ...(patch.width !== undefined ? { width: patch.width } : {}),
     ...(patch.height !== undefined ? { height: patch.height } : {}),
     ...(patch.fps !== undefined ? { fps: patch.fps } : {}),
+    ...(patch.secondScreenEnabled !== undefined ? { secondScreenEnabled: patch.secondScreenEnabled } : {}),
+    ...(patch.secondScreenDisplay !== undefined ? { secondScreenDisplay: patch.secondScreenDisplay } : {}),
+    ...(patch.chromaColor !== undefined ? { chromaColor: patch.chromaColor } : {}),
     colors: { ...cur.colors, ...patch.colors },
   };
   cache = next;

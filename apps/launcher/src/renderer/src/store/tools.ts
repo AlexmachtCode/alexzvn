@@ -10,6 +10,7 @@ import type {
   IveoSideEventsResult,
   LauncherUpdate,
   PresenceRecord,
+  RecentShow,
   ShowLaunchTool,
   SuiteSettingsInput,
   SuiteSettingsView,
@@ -20,6 +21,20 @@ import type { Show } from '@jm/show';
 
 function byId(states: ToolState[]): Record<string, ToolState> {
   return Object.fromEntries(states.map((s) => [s.id, s]));
+}
+
+/** Aktiver Reiter der Launcher-Shell (#157). */
+export type LauncherView = 'catalog' | 'jmshow';
+
+const LAST_VIEW_KEY = 'jmps:lastView';
+
+/** Zuletzt aktiven Reiter lesen (#157) — Fallback Werkzeugkasten. */
+function readLastView(): LauncherView {
+  try {
+    return localStorage.getItem(LAST_VIEW_KEY) === 'jmshow' ? 'jmshow' : 'catalog';
+  } catch {
+    return 'catalog';
+  }
 }
 
 /** Laufender Show-Start (#76): Tool-Liste + Ergebnis fürs Lade-Overlay. */
@@ -64,6 +79,13 @@ interface ToolsStore {
   switchSideEvent: (programId?: string, day?: string) => Promise<void>;
   loadMaterials: (programId: string) => Promise<void>;
   downloadMaterial: (programId: string, materialId: string) => Promise<void>;
+  /** Aktiver Reiter der Shell (#157). */
+  view: LauncherView;
+  setView: (view: LauncherView) => void;
+  /** Zuletzt geöffnete Shows (#157) für die 1-Klick-Wiederöffnung. */
+  recentShows: RecentShow[];
+  loadRecentShows: () => Promise<void>;
+  openShowPath: (path: string) => Promise<void>;
   /** Lade-Overlay beim Öffnen einer Show (#76); null = kein Start läuft. */
   showLaunch: ShowLaunchState | null;
   dismissShowLaunch: () => void;
@@ -155,6 +177,8 @@ export const useTools = create<ToolsStore>((set) => {
     sideEventsOpen: false,
     materials: {},
     materialsError: {},
+    view: readLastView(),
+    recentShows: [],
     showLaunch: null,
     patchNotes: null,
 
@@ -199,6 +223,8 @@ export const useTools = create<ToolsStore>((set) => {
                 ? { showLaunch: { ...s.showLaunch, missing: e.missing, done: true, doneAt: Date.now() } }
                 : {},
             );
+            // Recent-Liste auffrischen (auch bei Deep-Link-Start ohne UI-Aktion, #157).
+            await useTools.getState().loadRecentShows();
           } else if (e.type === 'iveo-active-changed') {
             // iveo-Show geöffnet / aktives Side Event geändert (#11).
             set({
@@ -245,6 +271,7 @@ export const useTools = create<ToolsStore>((set) => {
       void useTools.getState().loadLauncherUpdate();
       void useTools.getState().loadPresence();
       void useTools.getState().loadHealth();
+      void useTools.getState().loadRecentShows();
     },
 
     loadPresence: async () => {
@@ -263,11 +290,37 @@ export const useTools = create<ToolsStore>((set) => {
       }
     },
 
+    setView: (view) => {
+      set({ view });
+      try {
+        localStorage.setItem(LAST_VIEW_KEY, view);
+      } catch {
+        // nur In-Memory, wenn localStorage nicht verfügbar ist
+      }
+    },
+
+    loadRecentShows: async () => {
+      try {
+        set({ recentShows: await window.jmps.getRecentShows() });
+      } catch {
+        // kein Zugriff → bestehenden Stand behalten
+      }
+    },
+
+    openShowPath: async (path) => {
+      const res = await window.jmps.openShowPath(path);
+      if (res.message) set({ notice: res.message });
+      // Wie openShow: nach dem Start Presence + Recent-Liste auffrischen.
+      void useTools.getState().loadPresence();
+      void useTools.getState().loadRecentShows();
+    },
+
     openShow: async () => {
       const res = await window.jmps.openShow();
       if (res.message) set({ notice: res.message });
       // Nach dem koordinierten Start meldet sich Presence neu → Dashboard frisch.
       void useTools.getState().loadPresence();
+      void useTools.getState().loadRecentShows();
     },
 
     openShowEditor: () => set({ showEditorOpen: true }),

@@ -23,10 +23,10 @@ import { getPresence } from './presence';
 import { getHealth } from './health';
 import { checkToolUpdates, checkLauncherUpdate } from './updates';
 import { openTool } from './launch';
-import { openShowDialog, saveShow, pickShowDocument, loadShowForEdit } from './show';
+import { openShowDialog, openShow, saveShow, pickShowDocument, loadShowForEdit } from './show';
 import { installTool, updateLauncher } from './installer';
 import { uninstallTool } from './uninstall';
-import { getSettingsView, setSettings } from './settings';
+import { getSettingsView, setSettings, getRecentShows } from './settings';
 import { getControlStatus, provisionControl, disableControl } from './control-provision';
 import { submitFeedback } from './feedback';
 import { submitRecipeDraft } from './cookbook-draft';
@@ -70,6 +70,12 @@ export function registerIpc(): void {
   // Show öffnen (Datei-Dialog) und die referenzierten Tools koordiniert starten.
   // Start-Feedback (#76) an das aufrufende Fenster senden.
   ipcMain.handle('show:open', (e) => openShowDialog((ev) => e.sender.send('app:event', ev)));
+  // Zuletzt geöffnete Shows + Öffnen-per-Pfad ohne Dialog (#157) — gleiche
+  // Start-Feedback-Verdrahtung wie 'show:open', damit das Overlay feuert.
+  ipcMain.handle('show:recent', () => getRecentShows());
+  ipcMain.handle('show:openPath', (e, path: string) =>
+    openShow(path, (ev) => e.sender.send('app:event', ev)),
+  );
   // Show anlegen/bearbeiten: speichern + Dokument-Auswahl für die Authoring-UI.
   ipcMain.handle('show:save', (_e, show: Show, targetPath?: string) => saveShow(show, targetPath));
   ipcMain.handle('show:loadForEdit', () => loadShowForEdit());

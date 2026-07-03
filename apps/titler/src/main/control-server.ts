@@ -2,7 +2,8 @@
 // (@jm/suite-control-protocol) — getrieben z. B. vom Bitfocus-Companion-Modul.
 //
 //   Client → Titler:  TITLER TAKE | TITLER CLEAR | TITLER TOGGLE |
-//                     TITLER TEMPLATE lowerthird|banner|ticker | TITLER TEXT … |
+//                     TITLER TEMPLATE lowerthird|banner|ticker|graphic | TITLER TEXT … |
+//                     TITLER GRAPHIC <nr|name> | TITLER SLOT <key> <text> |
 //                     TITLER RECALL <nr|name> | TITLER NEXT|PREV | TITLER RELOAD | STATE?
 //   (RELOAD liest die aktuell geladene Show neu ein — der Launcher schickt es nach
 //    einem iveo-Update, damit die Speaker-DataLink-Einträge frisch sind.)
@@ -25,7 +26,7 @@ import type { TemplateKind, TitlerRemoteCommand, TitlerRemoteState } from '@shar
 /** Eigener TCP-Steuerport. */
 export const CONTROL_PORT = 8726;
 
-const TEMPLATES = new Set<TemplateKind>(['lowerthird', 'banner', 'ticker']);
+const TEMPLATES = new Set<TemplateKind>(['lowerthird', 'banner', 'ticker', 'graphic']);
 
 /**
  * Token aus dem `TITLER TEXT`-Verb dekodieren: das Zeilenprotokoll trennt an
@@ -79,6 +80,12 @@ function toRemoteCommand(cmd: SuiteCommand): TitlerRemoteCommand | null {
     case 'text':
       // TITLER TEXT <name> <untertitel> — Tokens whitespace-frei (siehe decodeToken).
       return { t: 'text', name: decodeToken(cmd.args[0] ?? ''), subtitle: decodeToken(cmd.args[1] ?? '') };
+    case 'graphic':
+      // TITLER GRAPHIC <nr|name|id> — Grafik-Vorlage wählen (#162). Name darf Leerzeichen tragen.
+      return { t: 'graphic', ref: cmd.args.join(' ').trim() };
+    case 'slot':
+      // TITLER SLOT <key> <text> — Slot-Text setzen (#162). Text-Token whitespace-frei.
+      return { t: 'slot', key: (cmd.args[0] ?? '').trim(), text: decodeToken(cmd.args[1] ?? '') };
     case 'recall':
       // TITLER RECALL <nr|name> — Name darf Leerzeichen enthalten (Args wieder fügen).
       return { t: 'recall', ref: cmd.args.join(' ').trim() };

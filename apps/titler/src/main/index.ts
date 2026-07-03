@@ -1,10 +1,19 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron';
 import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { parseShow, parseShowDeepLink } from '@jm/show';
-import type { PartialTitlerConfig, TitlerRemoteState, TitlerState, TitlerStatus } from '@shared/types';
+import type {
+  DisplayInfo,
+  OpenedImportFile,
+  PartialTitlerConfig,
+  TitlerRemoteState,
+  TitlerState,
+  TitlerStatus,
+} from '@shared/types';
 import { getConfig, patchConfig } from './config';
+import { registerTemplateIpc } from './library';
 import { startSender, stopSender, senderActive } from './ndi/sender-process';
 import { startControlServer, stopControlServer, updateTitlerState, updateTitlerData, CONTROL_PORT } from './control-server';
 import { startDataWatch, stopDataWatch, recall, step, type DataState } from './datalink';
@@ -15,6 +24,10 @@ declare const __dirname: string;
 let mainWindow: BrowserWindow | null = null;
 /** Zweites Fenster: Recall-Button-Board (#152). */
 let recallWindow: BrowserWindow | null = null;
+/** Ausgabe-Fenster: 2. Bildschirm mit Chroma-Green (#161). */
+let outputWindow: BrowserWindow | null = null;
+/** Zuletzt vom Operator gemeldeter On-Air-Zustand (für frisch geöffnetes Output-Fenster). */
+let lastOnAir = false;
 const preloadPath = join(__dirname, '../preload/index.cjs');
 /** Pfad der aktuell geladenen Show (für Live-Reload nach iveo-Update). */
 let currentShowPath: string | null = null;
@@ -34,10 +47,54 @@ function buildState(): TitlerState {
 }
 
 function broadcastStatus(): void {
-  // An alle Fenster (Operator + Recall-Board), damit beide den Zustand spiegeln.
+  // An alle Fenster (Operator, Recall-Board, Output) — alle spiegeln den Zustand.
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) w.webContents.send('titler:status', status);
   }
+}
+
+/**
+ * Config an alle Fenster spiegeln (#161). Der `setConfig`-Invoke liefert den neuen
+ * Stand nur an den aufrufenden Renderer zurück; das Output-Fenster (2. Bildschirm)
+ * bekäme Text-/Stil-Änderungen sonst nie. Daher der zusätzliche Broadcast.
+ */
+function broadcastConfig(): void {
+  const config = getConfig();
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('titler:config', config);
+  }
+}
+
+/** Library-Änderung (#162) an alle Fenster melden → neu listen + Hintergrund neu laden. */
+function broadcastTplChanged(): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('titler:tpl-changed');
+  }
+}
+
+/** Datei für den Import (#162) lesen (Dialog / Drag&Drop). */
+async function readImportFile(filePath: string): Promise<OpenedImportFile> {
+  const buf = await readFile(filePath);
+  return { fileName: path.basename(filePath), bytes: new Uint8Array(buf) };
+}
+
+/** Electron-Displays in die serialisierbare Auswahl-Form (#161) bringen. */
+function toDisplayInfo(): DisplayInfo[] {
+  const primaryId = screen.getPrimaryDisplay().id;
+  return screen.getAllDisplays().map((d) => {
+    const parts = [`${d.size.width}×${d.size.height}`];
+    if (d.internal) parts.push('intern');
+    if (d.id === primaryId) parts.push('primär');
+    return {
+      id: d.id,
+      label: parts.join(' · '),
+      bounds: { x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height },
+      size: { width: d.size.width, height: d.size.height },
+      scaleFactor: d.scaleFactor,
+      primary: d.id === primaryId,
+      internal: d.internal,
+    };
+  });
 }
 
 /** DataLink-Watchfolder (neu) starten/aktualisieren — Einträge/Variablen spiegeln. */
@@ -143,6 +200,8 @@ function createMainWindow(): BrowserWindow {
     status.ndiActive = false;
     status.connections = 0;
     mainWindow = null;
+    // Output-Fenster mitschließen, sonst kann die App nicht beenden (window-all-closed).
+    if (outputWindow && !outputWindow.isDestroyed()) outputWindow.close();
   });
   const url = process.env['ELECTRON_RENDERER_URL'];
   if (url) win.loadURL(url);
@@ -189,6 +248,76 @@ function createRecallWindow(): void {
   recallWindow = win;
 }
 
+/**
+ * Ausgabe-Fenster (#161): frameloses Vollbild auf dem gewählten Monitor, lädt
+ * denselben Renderer mit `view=output` (CG auf Chroma-Green für externe Keyer,
+ * z. B. vMix/ATEM/TriCaster — unabhängig von NDI). Kein Frame-Port → kann NDI
+ * nicht auslösen; `ndiActive=false` im Renderer sorgt zusätzlich dafür.
+ */
+function createOutputWindow(): void {
+  if (outputWindow && !outputWindow.isDestroyed()) return;
+  const cfg = getConfig();
+  const target =
+    screen.getAllDisplays().find((d) => d.id === cfg.secondScreenDisplay) ?? screen.getPrimaryDisplay();
+  const win = new BrowserWindow({
+    x: target.bounds.x,
+    y: target.bounds.y,
+    width: target.bounds.width,
+    height: target.bounds.height,
+    frame: false,
+    fullscreen: true,
+    backgroundColor: cfg.chromaColor,
+    show: false,
+    title: 'JM Titler · Ausgabe',
+    icon: resourcePath('icon.png'),
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: preloadPath,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  win.on('ready-to-show', () => win.show());
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  // On-Air-Zustand an das frisch geladene Fenster nachschieben (sonst startet es „clear").
+  win.webContents.on('did-finish-load', () => {
+    if (!win.isDestroyed()) win.webContents.send('titler:onair', lastOnAir);
+  });
+  win.on('closed', () => {
+    outputWindow = null;
+  });
+  const url = process.env['ELECTRON_RENDERER_URL'];
+  if (url) win.loadURL(`${url}?view=output`);
+  else win.loadFile(join(__dirname, '../renderer/index.html'), { search: 'view=output' });
+  outputWindow = win;
+}
+
+/**
+ * Output-Fenster nach Config-Stand öffnen/schließen/umsetzen (#161). Aufgerufen
+ * bei `setConfig` und bei Monitor-Wechseln (display-added/-removed → Hot-Unplug).
+ */
+function reconcileOutputWindow(): void {
+  const cfg = getConfig();
+  if (!cfg.secondScreenEnabled) {
+    if (outputWindow && !outputWindow.isDestroyed()) outputWindow.close();
+    return;
+  }
+  if (!outputWindow || outputWindow.isDestroyed()) {
+    createOutputWindow();
+    return;
+  }
+  // Aktiviert & Fenster existiert → ggf. auf einen anderen Monitor umsetzen.
+  const target =
+    screen.getAllDisplays().find((d) => d.id === cfg.secondScreenDisplay) ?? screen.getPrimaryDisplay();
+  outputWindow.setBounds(target.bounds);
+  outputWindow.setFullScreen(true);
+  outputWindow.setBackgroundColor(cfg.chromaColor);
+}
+
 function startNdi(name: string): void {
   if (!mainWindow) return;
   startSender(mainWindow, name, (connections) => {
@@ -213,6 +342,9 @@ function registerIpc(): void {
     const before = getConfig().dataFolder;
     patchConfig(patch);
     if (patch.dataFolder !== undefined && patch.dataFolder !== before) refreshDataWatch();
+    // Neuen Stand an alle Fenster (u. a. Output/2. Bildschirm) spiegeln (#161).
+    broadcastConfig();
+    reconcileOutputWindow();
     return buildState();
   });
   ipcMain.handle('titler:pickDataFolder', async () => {
@@ -226,6 +358,30 @@ function registerIpc(): void {
   ipcMain.handle('titler:recall', (_e, ref: string) => recall(ref));
   ipcMain.handle('titler:stepEntry', (_e, delta: number) => step(delta));
   ipcMain.handle('titler:openRecall', () => createRecallWindow());
+  ipcMain.handle('titler:listDisplays', () => toDisplayInfo());
+  // Grafik-Vorlagen-Library (#162): list/add/remove/read-bg + Änderungs-Broadcast.
+  registerTemplateIpc(broadcastTplChanged);
+  ipcMain.handle('titler:pickImportFile', async (): Promise<OpenedImportFile | null> => {
+    const r = await dialog.showOpenDialog({
+      title: 'Bauchbinde importieren',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Titler-Import', extensions: ['psd', 'jmtitler'] },
+        { name: 'Photoshop', extensions: ['psd'] },
+        { name: 'JM Titler-Vorlage', extensions: ['jmtitler'] },
+        { name: 'Alle Dateien', extensions: ['*'] },
+      ],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return readImportFile(r.filePaths[0]);
+  });
+  ipcMain.handle('titler:readFile', async (_e, filePath: string): Promise<OpenedImportFile | null> => {
+    try {
+      return await readImportFile(filePath);
+    } catch {
+      return null;
+    }
+  });
   ipcMain.handle('titler:ndi-start', (_e, name: string) => startNdi(name || getConfig().ndiName));
   ipcMain.handle('titler:ndi-stop', () => stopNdi());
   ipcMain.handle('titler:ndi-status', () => {
@@ -233,7 +389,13 @@ function registerIpc(): void {
     return status;
   });
   // TCP-Fernsteuerung: Renderer meldet seinen Live-Zustand → Steuerserver.
-  ipcMain.handle('titler:report-state', (_e, st: TitlerRemoteState) => updateTitlerState(st));
+  // Zusätzlich On-Air ans Output-Fenster (#161) weiterreichen — fängt Take/Clear
+  // per Button UND per Fernsteuerbefehl ab (beide laufen über den Operator-Live-Zustand).
+  ipcMain.handle('titler:report-state', (_e, st: TitlerRemoteState) => {
+    updateTitlerState(st);
+    lastOnAir = st.onAir;
+    if (outputWindow && !outputWindow.isDestroyed()) outputWindow.webContents.send('titler:onair', st.onAir);
+  });
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
@@ -266,6 +428,19 @@ if (!gotLock) {
     refreshDataWatch();
     // Per Show gestartet? iveo-Speaker aus der Show in den DataLink übernehmen (#11).
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
+    // 2. Bildschirm (#161): bei persistiert aktivierter Ausgabe direkt öffnen und
+    // auf Monitor-Wechsel reagieren (verwaistes Fenster bei Hot-Unplug vermeiden,
+    // Auswahl-Dropdown im Operator aktuell halten).
+    reconcileOutputWindow();
+    const onDisplaysChanged = (): void => {
+      reconcileOutputWindow();
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) w.webContents.send('titler:displays-changed');
+      }
+    };
+    screen.on('display-added', onDisplaysChanged);
+    screen.on('display-removed', onDisplaysChanged);
+    screen.on('display-metrics-changed', onDisplaysChanged);
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
     // gehen per IPC an den Renderer, der seinen Zustand zurückmeldet. Ergebnis
     // loggen, damit eine fehlende Suite-Verbindung nicht unsichtbar bleibt.

@@ -9,6 +9,7 @@ import type {
   ScreenSourceInfo,
 } from '@shared/types';
 import type { ControlCommand, SwitcherStateMsg } from '@jm/companion-protocol';
+import type { OpenSwitcherResult, SaveSwitcherRequest, SaveSwitcherResult } from '@shared/project';
 
 // Den vom Main übertragenen NDI-Frame-MessagePort in den Renderer-Main-World
 // durchreichen — contextBridge kann MessagePorts nicht direkt übergeben, daher
@@ -95,6 +96,11 @@ const api: JmswitchApi = {
       return () => ipcRenderer.off('control:command', listener);
     },
     pushState: (state: SwitcherStateMsg) => ipcRenderer.send('control:pushState', state),
+  },
+  project: {
+    open: () => ipcRenderer.invoke('project:open') as Promise<OpenSwitcherResult | null>,
+    save: (req: SaveSwitcherRequest) =>
+      ipcRenderer.invoke('project:save', req) as Promise<SaveSwitcherResult | null>,
   },
 };
 

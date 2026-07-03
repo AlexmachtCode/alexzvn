@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, cn } from '@jm/ui';
 import type { NdiStatus, NdiVideoMessage, ScreenSourceInfo } from '@shared/types';
+import { emptyContent, makeEmptyProject, type SwitcherProject } from '@shared/project';
 import {
   SwitcherEngine,
   type EngineState,
@@ -85,6 +86,15 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
   const [capturePicker, setCapturePicker] = useState(false);
   const [ndiStatusById, setNdiStatusById] = useState<Record<string, NdiStatus['state']>>({});
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Projekt speichern/öffnen (#89): aktuelle Datei + Metadaten (id/createdAt).
+  const projectRef = useRef<SwitcherProject | null>(null);
+  if (!projectRef.current) projectRef.current = makeEmptyProject();
+  const [projectName, setProjectName] = useState(projectRef.current.name);
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  // Beim „neu verbinden" einer offline screen/capture-Quelle: Ziel-Source-ID für
+  // den nächsten Picker-Pick (dann attachStream statt add).
+  const reconnectTargetRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (previewRef.current && programRef.current) {
@@ -278,10 +288,13 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
 
   const pickScreen = async (screen: ScreenSourceInfo): Promise<void> => {
     setPicker(false);
+    const target = reconnectTargetRef.current;
+    reconnectTargetRef.current = null;
     try {
       await window.jmswitch.armCapture(screen.id);
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-      engine.addScreenStream(screen.name, stream);
+      if (target) engine.attachStream(target, stream);
+      else engine.addScreenStream(screen.name, stream);
     } catch (e) {
       setNotice(`Bildschirm konnte nicht aufgenommen werden: ${(e as Error).message}`);
     }
@@ -289,15 +302,104 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
 
   const pickCapture = async (device: MediaDeviceInfo): Promise<void> => {
     setCapturePicker(false);
+    const target = reconnectTargetRef.current;
+    reconnectTargetRef.current = null;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { deviceId: { exact: device.deviceId } },
         audio: false,
       });
-      engine.addCaptureStream(device.label || 'Capture-Gerät', stream);
+      if (target) engine.attachStream(target, stream);
+      else engine.addCaptureStream(device.label || 'Capture-Gerät', stream);
     } catch (e) {
       setNotice(`Capture-Gerät konnte nicht geöffnet werden: ${(e as Error).message}`);
     }
+  };
+
+  // ── Projekt speichern/öffnen (#89) ───────────────────────────────────────────
+  const disconnectAllNdi = (): void => {
+    for (const s of engine.getState().sources) {
+      if (s.kind !== 'ndi') continue;
+      void window.jmswitch.ndi.disconnect(s.id);
+      const p = ndiPortsRef.current.get(s.id);
+      if (p) {
+        p.onmessage = null;
+        try {
+          p.close();
+        } catch {
+          // egal
+        }
+        ndiPortsRef.current.delete(s.id);
+      }
+    }
+  };
+
+  const applyProject = (project: SwitcherProject, path: string | null): void => {
+    disconnectAllNdi();
+    engine.loadContent(project);
+    projectRef.current = project;
+    setProjectName(project.name);
+    setProjectPath(path);
+    // NDI-Quellen automatisch wieder verbinden (recvId = Source-id).
+    for (const s of project.sources) {
+      if (s.kind === 'ndi') void window.jmswitch.ndi.connect(s.id, s.name).catch(() => {});
+    }
+  };
+
+  const newProject = (): void => {
+    if (
+      (state.sources.length > 0 || state.scenes.length > 0) &&
+      !window.confirm('Neues Projekt anlegen? Nicht gespeicherte Änderungen gehen verloren.')
+    ) {
+      return;
+    }
+    disconnectAllNdi();
+    engine.loadContent(emptyContent());
+    projectRef.current = makeEmptyProject();
+    setProjectName(projectRef.current.name);
+    setProjectPath(null);
+  };
+
+  const openProject = async (): Promise<void> => {
+    try {
+      const res = await window.jmswitch.project.open();
+      if (res) applyProject(res.project, res.path);
+    } catch (e) {
+      setNotice(`Projekt konnte nicht geöffnet werden: ${(e as Error).message}`);
+    }
+  };
+
+  const saveProject = async (saveAs: boolean): Promise<void> => {
+    const meta = projectRef.current ?? makeEmptyProject();
+    const project: SwitcherProject = {
+      ...meta,
+      ...engine.serialize(),
+      name: projectName.trim() || 'Unbenanntes Projekt',
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      const res = await window.jmswitch.project.save({
+        project,
+        path: saveAs ? undefined : projectPath ?? undefined,
+      });
+      if (res) {
+        projectRef.current = project;
+        setProjectPath(res.path);
+        setNotice('Projekt gespeichert.');
+      }
+    } catch (e) {
+      setNotice(`Speichern fehlgeschlagen: ${(e as Error).message}`);
+    }
+  };
+
+  /** Offline screen/capture-Quelle wieder an eine Live-Quelle koppeln. */
+  const reconnectSource = (id: string): void => {
+    const src = state.sources.find((s) => s.id === id);
+    if (!src) return;
+    reconnectTargetRef.current = id;
+    if (src.kind === 'screen') setPicker(true);
+    else if (src.kind === 'capture') setCapturePicker(true);
+    else reconnectTargetRef.current = null;
   };
 
   const addScene = (): void => {
@@ -349,6 +451,31 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
 
   return (
     <div className="h-full flex flex-col">
+      {/* Projekt-Leiste (#89) */}
+      <div className="shrink-0 flex items-center gap-2 px-6 py-1.5 border-b border-[var(--border)]/50 bg-[var(--card)]/20">
+        <span className="text-[10px] uppercase tracking-[0.14em] font-bold text-[var(--muted-foreground)]">
+          Projekt
+        </span>
+        <span className="text-sm font-semibold truncate max-w-[320px]" title={projectPath ?? 'Nicht gespeichert'}>
+          {projectName}
+        </span>
+        {!projectPath && <span className="text-[10px] text-[var(--muted-foreground)]">· ungespeichert</span>}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button size="sm" variant="ghost" onClick={newProject}>
+            Neu
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void openProject()}>
+            Öffnen…
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void saveProject(false)}>
+            Speichern
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void saveProject(true)}>
+            Speichern unter…
+          </Button>
+        </div>
+      </div>
+
       {/* Monitore + Transition */}
       <div className="flex-1 min-h-0 flex items-stretch gap-5 px-6 py-5">
         <Monitor label="Preview" tone="preview" canvasRef={previewRef} sceneName={previewScene?.name}>
@@ -437,13 +564,20 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
           canAddLayer={previewScene != null}
           ndiStatusById={ndiStatusById}
           onAddColor={addColor}
-          onAddScreen={() => setPicker(true)}
+          onAddScreen={() => {
+            reconnectTargetRef.current = null;
+            setPicker(true);
+          }}
           onAddNdi={() => setNdiPicker(true)}
-          onAddCapture={() => setCapturePicker(true)}
+          onAddCapture={() => {
+            reconnectTargetRef.current = null;
+            setCapturePicker(true);
+          }}
           onAddImage={() => fileInputRef.current?.click()}
           onSetColor={(id, color) => engine.setSourceColor(id, color)}
           onRename={(id, name) => engine.renameSource(id, name)}
           onAddToScene={(sourceId) => previewScene && engine.addLayer(previewScene.id, sourceId)}
+          onReconnect={reconnectSource}
           onRemove={removeSource}
         />
       </div>
@@ -462,10 +596,24 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
 
       {showMultiview && <MultiviewOverlay engine={engine} onClose={() => setShowMultiview(false)} />}
 
-      {picker && <ScreenPicker onPick={(s) => void pickScreen(s)} onClose={() => setPicker(false)} />}
+      {picker && (
+        <ScreenPicker
+          onPick={(s) => void pickScreen(s)}
+          onClose={() => {
+            setPicker(false);
+            reconnectTargetRef.current = null;
+          }}
+        />
+      )}
       {ndiPicker && <NdiPicker onPick={(s) => void connectNdi(s)} onClose={() => setNdiPicker(false)} />}
       {capturePicker && (
-        <CapturePicker onPick={(d) => void pickCapture(d)} onClose={() => setCapturePicker(false)} />
+        <CapturePicker
+          onPick={(d) => void pickCapture(d)}
+          onClose={() => {
+            setCapturePicker(false);
+            reconnectTargetRef.current = null;
+          }}
+        />
       )}
 
       {notice && (
@@ -1147,6 +1295,7 @@ function SourcesPanel({
   onSetColor,
   onRename,
   onAddToScene,
+  onReconnect,
   onRemove,
 }: {
   sources: SourceInfo[];
@@ -1160,6 +1309,7 @@ function SourcesPanel({
   onSetColor: (id: string, color: string) => void;
   onRename: (id: string, name: string) => void;
   onAddToScene: (sourceId: string) => void;
+  onReconnect: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
@@ -1249,6 +1399,16 @@ function SourcesPanel({
                 title={`NDI: ${ndiStatusById[s.id] ?? 'getrennt'}`}
                 style={{ background: ndiDotColor(ndiStatusById[s.id]) }}
               />
+            )}
+            {s.offline && (
+              <button
+                type="button"
+                title="Quelle ist offline (nach Projekt-Öffnen) — mit einer Live-Quelle neu verbinden"
+                onClick={() => onReconnect(s.id)}
+                className="shrink-0 h-7 px-2 rounded-[var(--radius)] border border-amber-500/50 text-[10px] font-bold text-amber-500 hover:bg-[var(--highlight)]"
+              >
+                ⚠ Neu verbinden
+              </button>
             )}
             <button
               type="button"

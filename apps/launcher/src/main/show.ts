@@ -7,6 +7,7 @@ import type { ActionResult, AppEvent } from '@shared/types';
 import { getTool } from './manifest';
 import { openTool } from './launch';
 import { onShowOpened } from './iveo-sync';
+import { pushRecentShow } from './settings';
 
 /** Sender für UI-Ereignisse (Show-Start-Feedback, #76). Optional → ohne UI lautlos. */
 type EmitAppEvent = (e: AppEvent) => void;
@@ -64,6 +65,9 @@ export async function openShow(showPath: string, emit?: EmitAppEvent): Promise<A
   emit?.({ type: 'show-launch-done', launched, total: show.tools.length, missing });
   // Hat die Show eine iveo-Bindung (+ lokal ein Token), Live-Polling starten (#11).
   onShowOpened(showPath, show);
+  // Erfolgreich (mindestens ein Tool gestartet) → in die Recent-Liste (#157).
+  // Greift für alle Wege hierher: Dialog, Deep-Link und Öffnen-per-Pfad.
+  if (launched > 0) pushRecentShow({ path: showPath, name: show.name });
   return { ok: launched > 0, message };
 }
 

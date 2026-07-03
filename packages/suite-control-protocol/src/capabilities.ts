@@ -213,6 +213,7 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
               { id: 'lowerthird', label: 'Bauchbinde' },
               { id: 'banner', label: 'Banner' },
               { id: 'ticker', label: 'Ticker' },
+              { id: 'graphic', label: 'Grafik-Vorlage' },
             ],
           },
         ],
@@ -238,6 +239,23 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
       },
       { id: 'next', label: 'Nächster DataLink-Eintrag', verb: 'next' },
       { id: 'prev', label: 'Vorheriger DataLink-Eintrag', verb: 'prev' },
+      {
+        // Importierte Grafik-Vorlage (Bauchbinde aus dem jm Grafiktool / PSD) wählen (#162).
+        id: 'graphic',
+        label: 'Grafik-Vorlage wählen',
+        verb: 'graphic',
+        args: [{ id: 'ref', label: 'Vorlage (Nr. oder Name)', type: 'string', default: '1' }],
+      },
+      {
+        // Einzelnes Textfeld einer Grafik-Vorlage setzen. Token whitespace-frei ('_'=Leerzeichen).
+        id: 'slot',
+        label: 'Grafik-Slot-Text setzen',
+        verb: 'slot',
+        args: [
+          { id: 'key', label: 'Slot-Schlüssel (z. B. titel)', type: 'string', default: '' },
+          { id: 'text', label: 'Text (Leerzeichen als _)', type: 'string', default: '' },
+        ],
+      },
     ],
     variables: [
       { id: 'on_air', label: 'On Air (1/0)' },

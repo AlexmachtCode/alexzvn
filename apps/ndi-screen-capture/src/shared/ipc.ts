@@ -11,4 +11,8 @@ export const IPC = {
   getStatus: 'jmndi:get-status',
   /** push (Main → Renderer): JmNdiStatus-Aktualisierung. */
   status: 'jmndi:status',
+  /** push (Renderer → Main): aktuelle Einstellungen fürs Tray-Menü (#104). */
+  traySync: 'jmndi:tray-sync',
+  /** push (Main → Renderer): Tray-Befehl (Start/Stop/Fps/Audio) (#104). */
+  trayCommand: 'jmndi:tray-command',
 } as const;

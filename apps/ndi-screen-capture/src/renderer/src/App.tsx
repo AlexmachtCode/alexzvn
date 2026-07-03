@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge, Button, Card, Logo, cn, dragRegion, isElectronMac } from '@jm/ui';
-import type { JmNdiSource, JmNdiStatus } from '@shared/types';
+import type { JmNdiSource, JmNdiStatus, NdiFps, TrayCommand } from '@shared/types';
+import { NDI_FPS_OPTIONS } from '@shared/types';
 import { CaptureSession, type CaptureStats } from './core/capture';
 import { SourcePicker } from './components/SourcePicker';
 import { StatusBar } from './components/StatusBar';
 import { Preview } from './components/Preview';
 
 const IDLE_STATUS: JmNdiStatus = { sendState: 'idle', audioEnabled: false };
-const TARGET_FPS = 30;
+
+const FPS_KEY = 'jmndi.targetFps';
+function loadFps(): NdiFps {
+  try {
+    const v = Number(localStorage.getItem(FPS_KEY));
+    return (NDI_FPS_OPTIONS as readonly number[]).includes(v) ? (v as NdiFps) : 30;
+  } catch {
+    return 30;
+  }
+}
 
 export function App() {
   const [sources, setSources] = useState<JmNdiSource[]>([]);
@@ -17,11 +27,18 @@ export function App() {
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [audioOn, setAudioOn] = useState(true);
+  const [targetFps, setTargetFps] = useState<NdiFps>(loadFps);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const sessionRef = useRef<CaptureSession | null>(null);
   const framePortRef = useRef<MessagePort | null>(null);
+  // #104: Live-Werte als Refs, damit start()/handleFrame und Tray-Restart immer
+  // die aktuellen Einstellungen lesen (ohne stale Closures).
+  const fpsRef = useRef<NdiFps>(targetFps);
+  fpsRef.current = targetFps;
+  const audioRef = useRef(audioOn);
+  audioRef.current = audioOn;
 
   const refreshSources = useCallback(async () => {
     const list = await window.jmndi.listSources();
@@ -79,7 +96,7 @@ export function App() {
           buffer: buf,
           w: frame.displayWidth,
           h: frame.displayHeight,
-          fpsN: TARGET_FPS,
+          fpsN: fpsRef.current,
         });
       } catch (err) {
         console.error('[jmndi] Frame-Versand fehlgeschlagen:', err);
@@ -113,13 +130,15 @@ export function App() {
 
   const start = useCallback(async () => {
     if (!selectedId) return;
+    const fps = fpsRef.current;
+    const audio = audioRef.current;
     setBusy(true);
     try {
       // Quelle vormerken + nativen Sender starten (Main postet den Frame-Port).
       await window.jmndi.start({
         sourceId: selectedId,
-        targetFps: TARGET_FPS,
-        audio: audioOn,
+        targetFps: fps,
+        audio,
         pixelFormat: 'bgra',
       });
       const session = new CaptureSession(
@@ -133,7 +152,7 @@ export function App() {
           },
           onEnded: () => setActive(false),
         },
-        { targetFps: TARGET_FPS, audio: audioOn },
+        { targetFps: fps, audio },
       );
       sessionRef.current = session;
       await session.start();
@@ -144,7 +163,58 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [selectedId, audioOn, handleFrame, handleAudio, stop]);
+  }, [selectedId, handleFrame, handleAudio, stop]);
+
+  // #104: Bildrate/Audio ändern — bei laufendem Versand neu starten (Ref zuerst
+  // setzen, damit start() den neuen Wert liest).
+  const changeFps = useCallback(
+    async (fps: NdiFps) => {
+      fpsRef.current = fps;
+      setTargetFps(fps);
+      try {
+        localStorage.setItem(FPS_KEY, String(fps));
+      } catch {
+        /* nur In-Memory */
+      }
+      if (active) {
+        await stop();
+        await start();
+      }
+    },
+    [active, start, stop],
+  );
+  const changeAudio = useCallback(
+    async (on: boolean) => {
+      audioRef.current = on;
+      setAudioOn(on);
+      if (active) {
+        await stop();
+        await start();
+      }
+    },
+    [active, start, stop],
+  );
+
+  // #104: Tray-Menü ↔ Renderer.
+  const trayCmdRef = useRef<(cmd: TrayCommand) => void>(() => {});
+  trayCmdRef.current = (cmd: TrayCommand): void => {
+    if (cmd.kind === 'start') {
+      if (!active && selectedId) void start();
+    } else if (cmd.kind === 'stop') {
+      if (active) void stop();
+    } else if (cmd.kind === 'setFps') {
+      void changeFps(cmd.fps);
+    } else if (cmd.kind === 'setAudio') {
+      void changeAudio(cmd.audio);
+    }
+  };
+  useEffect(() => window.jmndi.onTrayCommand((cmd) => trayCmdRef.current(cmd)), []);
+
+  // Aktuelle Einstellungen ans Tray spiegeln.
+  useEffect(() => {
+    const sourceName = sources.find((s) => s.id === selectedId)?.name ?? null;
+    window.jmndi.traySync({ active, targetFps, audio: audioOn, sourceName });
+  }, [active, targetFps, audioOn, selectedId, sources]);
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
@@ -202,6 +272,26 @@ export function App() {
               />
               System-Audio mitsenden (Windows)
             </label>
+            <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+              <span>Bildrate</span>
+              <div className="flex gap-1">
+                {NDI_FPS_OPTIONS.map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => void changeFps(f)}
+                    className={cn(
+                      'h-7 px-2.5 rounded-[var(--radius)] text-xs font-bold border',
+                      targetFps === f
+                        ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-transparent'
+                        : 'border-[var(--border)] hover:bg-[var(--highlight)]',
+                    )}
+                  >
+                    {f} fps
+                  </button>
+                ))}
+              </div>
+            </div>
           </Card>
 
           <Button
@@ -212,6 +302,9 @@ export function App() {
           >
             {active ? 'Stoppen' : 'NDI-Versand starten'}
           </Button>
+          <p className="text-center text-[10px] text-[var(--muted-foreground)]">
+            Fenster schließen minimiert ins System-Tray — der NDI-Versand läuft weiter. Beenden über das Tray-Menü.
+          </p>
         </aside>
       </main>
 
