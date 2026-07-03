@@ -3,6 +3,7 @@ import { useEditor } from '@/store/editor';
 import { DOC_PRESETS } from '@/engine/io/safeArea';
 import { psdToDoc, docToPsdBytes } from '@/engine/io/psd';
 import { jmgToDoc, docToJmgBytes } from '@/engine/io/project';
+import { docToTitlerBundle } from '@/engine/io/titlerBundle';
 import { loadSvg, tiffToCanvas, decodeToBitmap } from '@/engine/io/importImage';
 import type { EditorController } from '@/engine/render/EditorController';
 import type { ImageFormat } from '@shared/types';
@@ -89,6 +90,19 @@ export function EditorActions() {
       });
     });
 
+  // Bauchbinde als .jmtitler-Vorlage für den JM Titler exportieren (#162):
+  // Nicht-Text-Ebenen → Hintergrund-PNG, Text-Ebenen → variablen-fähige Slots.
+  const onSendToTitler = () =>
+    run(async () => {
+      const bytes = await docToTitlerBundle(controller.doc, 'Bauchbinde');
+      await window.jmg.file.saveBytes({
+        suggestedName: 'bauchbinde',
+        ext: 'jmtitler',
+        filterName: 'JM Titler-Vorlage',
+        bytes,
+      });
+    });
+
   const onExport = () =>
     run(async () => {
       if (format === 'psd') {
@@ -140,6 +154,17 @@ export function EditorActions() {
 
       <Button size="sm" variant="outline" uppercase={false} onClick={onSaveProject} disabled={busy}>
         Speichern
+      </Button>
+
+      <Button
+        size="sm"
+        variant="ghost"
+        uppercase={false}
+        onClick={onSendToTitler}
+        disabled={busy}
+        title="Als .jmtitler-Vorlage für den JM Titler exportieren (Textebenen werden zu Variablen-Feldern)"
+      >
+        An Titler senden
       </Button>
 
       <div className="flex items-center">
