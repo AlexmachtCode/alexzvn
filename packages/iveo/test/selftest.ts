@@ -236,11 +236,11 @@ function mkRes(status: number, body: unknown, headers: Record<string, string> = 
     baseUrl: 'https://staging-dev.my-iveo.de/api/v1',
     fetchImpl,
   });
-  // Material-Asset liefert nur den signierten Token (keine URL) → selbst bauen.
-  const token = 'WyJhZ2VuZGEtbWF0ZXJpYWxzIiwiZm9vLnBwdHgiXQ.SIG-_abc';
-  await client.fetchAsset(token);
+  // Material-Asset liefert nur die signierte Asset-ID (keine URL) → selbst bauen.
+  const assetId = 'WyJhZ2VuZGEtbWF0ZXJpYWxzIiwiZm9vLnBwdHgiXQ.SIG-_abc'; // gitleaks:allow — erfundene Test-Fixture, kein Secret
+  await client.fetchAsset(assetId);
   ok(
-    seen[0] === `https://staging-dev.my-iveo.de/api/v1/assets/${token}`,
+    seen[0] === `https://staging-dev.my-iveo.de/api/v1/assets/${assetId}`,
     'fetchAsset: nackte ID → <baseUrl>/assets/<id>',
   );
   // IveoAssetRef (Logos/Fotos) liefert die volle URL → unverändert benutzen.
