@@ -1,14 +1,24 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, cn, Logo } from '@jm/ui';
-import { DEFAULT_CONFIG, type TemplateKind, type TitlerConfig } from '@shared/types';
+import {
+  DEFAULT_CONFIG,
+  type DisplayInfo,
+  type GraphicTemplate,
+  type TemplateKind,
+  type TitlerConfig,
+} from '@shared/types';
 import { resolveConfigVars, usedVars } from '@shared/vars';
 import { useTitler } from '@/store/titler';
 import { useTitlerEngine } from '@/lib/engine';
+import { activeGraphic } from '@/lib/graphic';
+import { importFileToTemplate, type ParsedTemplate } from '@/lib/psd-import';
+import { ImportDialog } from './ImportDialog';
 
 const TEMPLATES: { key: TemplateKind; label: string }[] = [
   { key: 'lowerthird', label: 'Bauchbinde' },
   { key: 'banner', label: 'Banner' },
   { key: 'ticker', label: 'Ticker' },
+  { key: 'graphic', label: 'Grafik' },
 ];
 
 const RESOLUTIONS = [
@@ -22,6 +32,7 @@ export function OperatorView(): React.JSX.Element {
   const setConfig = useTitler((s) => s.setConfig);
   const startNdi = useTitler((s) => s.startNdi);
   const stopNdi = useTitler((s) => s.stopNdi);
+  const templates = useTitler((s) => s.templates);
 
   const config: TitlerConfig = state?.config ?? DEFAULT_CONFIG;
   const ndiActive = state?.status.ndiActive ?? false;
@@ -37,7 +48,40 @@ export function OperatorView(): React.JSX.Element {
   // Zum Zeichnen werden {{variablen}} aufgelöst; die Eingabefelder zeigen weiter
   // die Vorlage (siehe @shared/vars).
   const resolved = useMemo(() => resolveConfigVars(config, variables), [config, variables]);
-  const { live, take, clear } = useTitlerEngine(resolved, ndiActive, previewRef);
+  const graphic = useMemo(() => activeGraphic(config, templates, variables), [config, templates, variables]);
+  const { live, take, clear } = useTitlerEngine(resolved, ndiActive, previewRef, { graphic });
+
+  // Import-Dialog (#162): frisch geparste Vorlage, bis gespeichert/abgebrochen.
+  const [importParsed, setImportParsed] = useState<{ name: string; template: ParsedTemplate } | null>(null);
+  const activeTemplate = templates.find((t) => t.id === config.activeGraphicId);
+
+  const runImport = async (fileName: string, bytes: Uint8Array): Promise<void> => {
+    try {
+      setImportParsed(await importFileToTemplate(fileName, bytes));
+    } catch (err) {
+      // eslint-disable-next-line no-alert
+      window.alert(`Import fehlgeschlagen: ${(err as Error).message}`);
+    }
+  };
+  const pickImport = async (): Promise<void> => {
+    const f = await window.jmtitler.pickImportFile();
+    if (f) await runImport(f.fileName, f.bytes);
+  };
+  const selectTemplate = (tpl: GraphicTemplate): void =>
+    void setConfig({ template: 'graphic', activeGraphicId: tpl.id, slotText: {} });
+  const onDropImport = (e: React.DragEvent): void => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const p = window.jmtitler.pathForFile(file);
+    void window.jmtitler.readFile(p).then((f) => {
+      if (f) void runImport(f.fileName, f.bytes);
+    });
+  };
+  const deleteTemplate = async (tpl: GraphicTemplate): Promise<void> => {
+    await window.jmtitler.tpl.remove(tpl.id);
+    if (config.activeGraphicId === tpl.id) void setConfig({ activeGraphicId: '' });
+  };
 
   // Vorhandene Variablen (klein geschrieben) + im Text referenzierte Schlüssel
   // für die Variablen-Sektion (Treffer/Fehler markieren).
@@ -75,10 +119,42 @@ export function OperatorView(): React.JSX.Element {
         case 'template':
           void setConfig({ template: cmd.kind });
           break;
-        case 'text':
-          // Bauchbinden-Text fernsetzen (#93, z. B. Q&A aktiver Sprecher).
-          void setConfig({ name: cmd.name, subtitle: cmd.subtitle });
+        case 'text': {
+          // Bauchbinden-Text fernsetzen (#93, z. B. Q&A aktiver Sprecher). Bei einer
+          // Grafik-Vorlage (#162) auf die ersten beiden Slots abbilden (Name/Untertitel).
+          const cfg = useTitler.getState().state?.config;
+          const tpl =
+            cfg?.template === 'graphic'
+              ? useTitler.getState().templates.find((t) => t.id === cfg.activeGraphicId)
+              : undefined;
+          if (tpl) {
+            const patch = { ...cfg!.slotText };
+            if (tpl.slots[0]) patch[tpl.slots[0].key] = cmd.name;
+            if (tpl.slots[1]) patch[tpl.slots[1].key] = cmd.subtitle;
+            void setConfig({ slotText: patch });
+          } else {
+            void setConfig({ name: cmd.name, subtitle: cmd.subtitle });
+          }
           break;
+        }
+        case 'graphic': {
+          // Grafik-Vorlage per ID / Nr. / (Teil-)Name wählen (#162).
+          const list = useTitler.getState().templates;
+          const ref = cmd.ref.trim().toLowerCase();
+          const found =
+            list.find((t) => t.id.toLowerCase() === ref) ??
+            list.find((_t, i) => String(i + 1) === ref) ??
+            list.find((t) => t.name.toLowerCase() === ref) ??
+            list.find((t) => t.name.toLowerCase().includes(ref));
+          if (found) void setConfig({ template: 'graphic', activeGraphicId: found.id, slotText: {} });
+          break;
+        }
+        case 'slot': {
+          // Einzelnen Slot-Text einer Grafik-Vorlage fernsetzen (#162).
+          const cur = useTitler.getState().state?.config.slotText ?? {};
+          void setConfig({ slotText: { ...cur, [cmd.key]: cmd.text } });
+          break;
+        }
       }
     });
   }, [take, clear, setConfig]);
@@ -92,6 +168,14 @@ export function OperatorView(): React.JSX.Element {
     const p = await window.jmtitler.pickDataFolder();
     if (p) void setConfig({ dataFolder: p });
   };
+
+  // Monitore für die Zweitbildschirm-Auswahl (#161) — bei Hot-Plug aktualisieren.
+  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
+  useEffect(() => {
+    const refresh = (): void => void window.jmtitler.listDisplays().then(setDisplays);
+    refresh();
+    return window.jmtitler.onDisplaysChanged(refresh);
+  }, []);
 
   if (!state) {
     return <div className="h-screen grid place-items-center text-[var(--muted-foreground)]">Lädt…</div>;
@@ -209,6 +293,85 @@ export function OperatorView(): React.JSX.Element {
                     onChange={(v) => void setConfig({ tickerSpeed: v })}
                   />
                 </>
+              )}
+              {c.template === 'graphic' &&
+                (activeTemplate ? (
+                  activeTemplate.slots.length === 0 ? (
+                    <p className="text-[11px] text-[var(--muted-foreground)]">
+                      Diese Vorlage hat keine Textfelder (reines Standbild).
+                    </p>
+                  ) : (
+                    activeTemplate.slots.map((s) => (
+                      <Field
+                        key={s.key}
+                        label={s.label}
+                        value={c.slotText[s.key] ?? s.defaultText}
+                        onChange={(v) => void setConfig({ slotText: { ...c.slotText, [s.key]: v } })}
+                      />
+                    ))
+                  )
+                ) : (
+                  <p className="text-[11px] text-[var(--muted-foreground)]">
+                    Keine Grafik-Vorlage gewählt — unten unter „Grafik-Vorlagen" importieren oder auswählen.
+                  </p>
+                ))}
+            </Section>
+
+            {/* Grafik-Vorlagen (#162): Import aus jm Grafiktool / PSD */}
+            <Section title="Grafik-Vorlagen">
+              <p className="text-[11px] text-[var(--muted-foreground)] -mt-1">
+                Bauchbinden aus dem jm Grafiktool oder als <code>.psd</code> importieren. Textebenen werden zu
+                füllbaren Feldern — Variablen bleiben nutzbar.
+              </p>
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={onDropImport}
+                className="rounded-[var(--radius)] border border-dashed border-[var(--border)] px-3 py-3 text-center"
+              >
+                <Button variant="outline" size="sm" onClick={() => void pickImport()}>
+                  Datei importieren…
+                </Button>
+                <p className="mt-1.5 text-[10px] text-[var(--muted-foreground)]">
+                  oder .psd / .jmtitler hierher ziehen
+                </p>
+              </div>
+              {templates.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {templates.map((t) => (
+                    <div
+                      key={t.id}
+                      onClick={() => selectTemplate(t)}
+                      className={cn(
+                        'group relative rounded-[var(--radius)] border overflow-hidden cursor-pointer',
+                        t.id === config.activeGraphicId
+                          ? 'border-[var(--primary)] ring-1 ring-[var(--primary)]'
+                          : 'border-[var(--border)] hover:bg-[var(--highlight)]',
+                      )}
+                      title={t.name}
+                    >
+                      {t.thumbDataUrl ? (
+                        <img src={t.thumbDataUrl} alt={t.name} className="cg-checker w-full h-20 object-contain" />
+                      ) : (
+                        <div className="cg-checker w-full h-20" />
+                      )}
+                      <div className="flex items-center gap-1 px-2 py-1">
+                        <span className="truncate text-[11px] font-semibold">{t.name}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteTemplate(t);
+                          }}
+                          className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 text-[var(--destructive)] text-xs"
+                          title="Vorlage löschen"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-[var(--muted-foreground)]">Noch keine Vorlagen importiert.</p>
               )}
             </Section>
 
@@ -404,9 +567,64 @@ export function OperatorView(): React.JSX.Element {
                 <p className="text-[11px] text-[var(--destructive)]">Auflösung sollte gerade sein.</p>
               ) : null}
             </Section>
+
+            {/* Ausgabe (2. Bildschirm, #161) */}
+            <Section title="Ausgabe (2. Bildschirm)">
+              <p className="text-[11px] text-[var(--muted-foreground)] -mt-1">
+                Zeigt die Bauchbinde als Vollbild auf einem zweiten Monitor mit
+                Chroma-Green-Hintergrund — für externe Keyer (vMix/ATEM/TriCaster) ohne NDI.
+              </p>
+              <Labeled label="Monitor">
+                <select
+                  value={String(c.secondScreenDisplay)}
+                  onChange={(e) => void setConfig({ secondScreenDisplay: Number(e.target.value) })}
+                  className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold"
+                >
+                  <option value="0">Primär (automatisch)</option>
+                  {displays.map((d) => (
+                    <option key={d.id} value={String(d.id)}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </Labeled>
+              <div className="flex gap-3 items-end">
+                <ColorField label="Chroma" value={c.chromaColor} onChange={(v) => void setConfig({ chromaColor: v })} />
+                <button
+                  onClick={() => void setConfig({ chromaColor: '#00B140' })}
+                  className="h-9 shrink-0 rounded-[var(--radius)] border border-[var(--border)] px-3 text-xs hover:bg-[var(--highlight)]"
+                  title="Standard-Green (#00B140) zurücksetzen"
+                >
+                  Reset
+                </button>
+              </div>
+              {c.secondScreenEnabled ? (
+                <Button variant="destructive" className="w-full" onClick={() => void setConfig({ secondScreenEnabled: false })}>
+                  2. Bildschirm ausschalten
+                </Button>
+              ) : (
+                <Button variant="primary" className="w-full" onClick={() => void setConfig({ secondScreenEnabled: true })}>
+                  2. Bildschirm einschalten
+                </Button>
+              )}
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                Tipp: Zweitmonitor wählen, damit die Ausgabe nicht die Operator-Oberfläche verdeckt.
+              </p>
+            </Section>
           </div>
         </div>
       </div>
+
+      {importParsed ? (
+        <ImportDialog
+          parsed={importParsed}
+          onCancel={() => setImportParsed(null)}
+          onSaved={(tpl) => {
+            setImportParsed(null);
+            selectTemplate(tpl);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

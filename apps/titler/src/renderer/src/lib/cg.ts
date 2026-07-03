@@ -1,6 +1,15 @@
-import type { TitlerConfig } from '@shared/types';
+import type { GraphicTemplate, TitlerConfig } from '@shared/types';
 
 const FONT = '"Manrope Variable", system-ui, Arial, sans-serif';
+
+/** Render-Kontext für eine importierte Grafik-Vorlage (#162). */
+export interface GraphicRenderCtx {
+  tpl: GraphicTemplate;
+  /** Dekodierter Hintergrund (ImageBitmap/Canvas) — null, solange noch nicht geladen. */
+  bg: CanvasImageSource | null;
+  /** Aufgelöste Slot-Texte (key → fertiger Text). */
+  slotText: Record<string, string>;
+}
 
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
@@ -19,8 +28,59 @@ function roundRect(
   ctx.roundRect(x, y, w, h, rr);
 }
 
+/** Optionen für {@link drawCg}. */
+export interface DrawCgOptions {
+  /**
+   * Hintergrundfarbe statt Transparenz (#161, 2. Bildschirm/Chroma-Green). Wird
+   * VOR dem Early-Return gefüllt, damit ein geleerter Ausgang eine volle
+   * Chroma-Fläche ist (nicht schwarz). NDI-Aufrufer lassen dies weg → transparent.
+   */
+  bg?: string;
+  /** Render-Daten der aktiven Grafik-Vorlage (#162), nötig bei template==='graphic'. */
+  gfx?: GraphicRenderCtx;
+}
+
+function drawMultiline(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  baseline: number,
+  lineHeight: number,
+): void {
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], x, baseline + i * lineHeight);
+}
+
 /**
- * Zeichnet den CG transparent auf den Offscreen-Canvas (Programmauflösung).
+ * Importierte Grafik-Vorlage zeichnen (#162): Hintergrund-Bild in Autoren-Auflösung
+ * auf die Programmauflösung skalieren, dann je Slot den aufgelösten Text an seiner
+ * Position setzen. `e` (0..1) treibt Fade + sanften Slide (wie die Built-ins).
+ */
+function drawGraphic(ctx: CanvasRenderingContext2D, W: number, H: number, gfx: GraphicRenderCtx, e: number): void {
+  const { tpl, bg, slotText } = gfx;
+  if (tpl.width <= 0 || tpl.height <= 0) return;
+  ctx.save();
+  const slide = (1 - e) * H * 0.04;
+  ctx.translate(0, slide);
+  ctx.scale(W / tpl.width, H / tpl.height);
+  if (bg) ctx.drawImage(bg, 0, 0, tpl.width, tpl.height);
+  ctx.textBaseline = 'alphabetic';
+  for (const slot of tpl.slots) {
+    const text = slotText[slot.key] ?? '';
+    if (!text) continue;
+    ctx.font = `${slot.fontWeight} ${slot.fontSize}px ${slot.fontFamily}`;
+    ctx.fillStyle = slot.color;
+    ctx.textAlign = slot.align;
+    const x = slot.align === 'center' ? slot.x + slot.w / 2 : slot.align === 'right' ? slot.x + slot.w : slot.x;
+    drawMultiline(ctx, text, x, slot.y + slot.fontSize, slot.fontSize * slot.lineHeight);
+  }
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+
+/**
+ * Zeichnet den CG auf den Offscreen-Canvas (Programmauflösung). Ohne `opts.bg`
+ * transparent (für NDI-Key), mit `opts.bg` auf gefülltem Hintergrund (2. Bildschirm).
  * `vis` 0..1 steuert Ein-/Ausblendung (Alpha + Slide), `elapsedSec` treibt den
  * Ticker. Alle Maße relativ zur Höhe → auflösungsunabhängig.
  */
@@ -31,8 +91,14 @@ export function drawCg(
   c: TitlerConfig,
   vis: number,
   elapsedSec: number,
+  opts?: DrawCgOptions,
 ): void {
-  ctx.clearRect(0, 0, W, H);
+  if (opts?.bg) {
+    ctx.fillStyle = opts.bg;
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    ctx.clearRect(0, 0, W, H);
+  }
   if (vis <= 0.001) return;
 
   const e = easeOutCubic(Math.max(0, Math.min(1, vis)));
@@ -43,7 +109,9 @@ export function drawCg(
   ctx.globalAlpha = e;
   ctx.textBaseline = 'alphabetic';
 
-  if (c.template === 'lowerthird') {
+  if (c.template === 'graphic') {
+    if (opts?.gfx) drawGraphic(ctx, W, H, opts.gfx, e);
+  } else if (c.template === 'lowerthird') {
     const nameSize = H * 0.052 * S;
     const subSize = H * 0.030 * S;
     const padX = H * 0.032 * S;

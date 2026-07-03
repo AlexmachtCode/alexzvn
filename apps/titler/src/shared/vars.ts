@@ -6,7 +6,7 @@
 // selbst behält die Vorlage, sodass der Operator sie weiter bearbeiten kann
 // (vgl. NewTek/TriCaster DataLink).
 
-import type { TitlerConfig } from './types';
+import type { GraphicTemplate, TitlerConfig } from './types';
 
 /** Erlaubte Variablen-Schlüssel: Buchstaben, Ziffern, `_`, `.`, `-`. */
 export const VAR_RE = /\{\{\s*([A-Za-z0-9_.\-]+)\s*\}\}/g;
@@ -56,4 +56,22 @@ export function resolveConfigVars(c: TitlerConfig, vars: Record<string, string>)
     bannerText: resolveVars(c.bannerText, vars),
     tickerText: resolveVars(c.tickerText, vars),
   };
+}
+
+/**
+ * Aufgelöste Slot-Texte einer Grafik-Vorlage (#162): pro Slot der Override aus
+ * `config.slotText[key]` (falls gesetzt), sonst der `defaultText` der Vorlage,
+ * jeweils mit aufgelösten `{{}}`-Platzhaltern. Ergebnis: key → fertiger Text.
+ */
+export function resolveSlots(
+  tpl: GraphicTemplate,
+  slotText: Record<string, string>,
+  vars: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const slot of tpl.slots) {
+    const raw = slotText[slot.key] ?? slot.defaultText;
+    out[slot.key] = resolveVars(raw, vars);
+  }
+  return out;
 }

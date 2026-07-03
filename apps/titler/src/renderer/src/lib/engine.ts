@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TitlerConfig } from '@shared/types';
-import { drawCg } from './cg';
+import type { GraphicTemplate, TitlerConfig } from '@shared/types';
+import { drawCg, type GraphicRenderCtx } from './cg';
+
+/** Aktive Grafik-Vorlage (#162) für den Render-Loop: Metadaten + aufgelöste Slot-Texte. */
+export interface EngineGraphic {
+  tpl: GraphicTemplate;
+  slotText: Record<string, string>;
+}
 
 function easeInOut(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -20,11 +26,20 @@ export function useTitlerEngine(
   config: TitlerConfig,
   ndiActive: boolean,
   previewRef: React.RefObject<HTMLCanvasElement | null>,
+  opts?: { bg?: string; graphic?: EngineGraphic },
 ): { live: boolean; take: () => void; clear: () => void } {
   const cfgRef = useRef(config);
   cfgRef.current = config;
   const ndiRef = useRef(ndiActive);
   ndiRef.current = ndiActive;
+  // Hintergrundfarbe (2. Bildschirm, #161) — leer = transparent (NDI-Key).
+  const bgRef = useRef(opts?.bg);
+  bgRef.current = opts?.bg;
+  // Aktive Grafik-Vorlage (#162) + gecachtes Hintergrund-Bitmap (nach Library-ID).
+  const graphicRef = useRef(opts?.graphic);
+  graphicRef.current = opts?.graphic;
+  const bgBitmapRef = useRef<{ id: string; bmp: ImageBitmap } | null>(null);
+  const loadingIdRef = useRef<string | null>(null);
 
   const [live, setLive] = useState(false);
 
@@ -53,6 +68,15 @@ export function useTitlerEngine(
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  // Library-Änderung (#162): gecachtes Hintergrund-Bitmap verwerfen → neu laden.
+  useEffect(() => {
+    return window.jmtitler.onTplChanged(() => {
+      bgBitmapRef.current?.bmp.close();
+      bgBitmapRef.current = null;
+      loadingIdRef.current = null;
+    });
   }, []);
 
   useEffect(() => {
@@ -85,7 +109,36 @@ export function useTitlerEngine(
       visRef.current = a.from + (a.to - a.from) * easeInOut(t);
 
       const elapsedSec = (now - startRef.current) / 1000;
-      drawCg(ctx, c.width, c.height, c, visRef.current, elapsedSec);
+
+      // Grafik-Vorlage (#162): Hintergrund-Bitmap lazy nach Library-ID cachen.
+      let gfx: GraphicRenderCtx | undefined;
+      const g = graphicRef.current;
+      if (c.template === 'graphic' && g) {
+        const id = g.tpl.id;
+        const cached = bgBitmapRef.current;
+        if (id && (!cached || cached.id !== id) && loadingIdRef.current !== id) {
+          loadingIdRef.current = id;
+          void window.jmtitler.tpl
+            .readBg(id)
+            .then(async (bytes) => {
+              if (!bytes) {
+                loadingIdRef.current = null;
+                return;
+              }
+              const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: 'image/png' }));
+              bgBitmapRef.current?.bmp.close();
+              bgBitmapRef.current = { id, bmp };
+              loadingIdRef.current = null;
+            })
+            .catch(() => {
+              loadingIdRef.current = null;
+            });
+        }
+        const bmp = bgBitmapRef.current && bgBitmapRef.current.id === id ? bgBitmapRef.current.bmp : null;
+        gfx = { tpl: g.tpl, bg: bmp, slotText: g.slotText };
+      }
+
+      drawCg(ctx, c.width, c.height, c, visRef.current, elapsedSec, { bg: bgRef.current, gfx });
 
       // Vorschau (skaliert)
       const pv = previewRef.current;

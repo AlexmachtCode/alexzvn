@@ -1,8 +1,18 @@
 import { create } from 'zustand';
-import type { PartialTitlerConfig, TitlerState, TitlerStatus } from '@shared/types';
+import type {
+  GraphicTemplate,
+  PartialTitlerConfig,
+  TitlerConfig,
+  TitlerState,
+  TitlerStatus,
+} from '@shared/types';
 
 interface TitlerStore {
   state: TitlerState | null;
+  /** On-Air-Zustand, vom Main gepusht (#161, nur im Output-Fenster relevant). */
+  onAir: boolean;
+  /** Grafik-Vorlagen-Library (#162), synchron über alle Fenster. */
+  templates: GraphicTemplate[];
   load: () => Promise<void>;
   setConfig: (patch: PartialTitlerConfig) => Promise<void>;
   startNdi: (name: string) => Promise<void>;
@@ -13,6 +23,8 @@ let subscribed = false;
 
 export const useTitler = create<TitlerStore>((set, get) => ({
   state: null,
+  onAir: false,
+  templates: [],
 
   load: async () => {
     if (!subscribed) {
@@ -21,9 +33,19 @@ export const useTitler = create<TitlerStore>((set, get) => ({
         const cur = get().state;
         if (cur) set({ state: { ...cur, status } });
       });
+      // Config-Broadcast (#161): hält alle Fenster – v. a. das Output-Fenster –
+      // bei Text-/Stil-/Ausgabe-Änderungen synchron.
+      window.jmtitler.onConfig((config: TitlerConfig) => {
+        const cur = get().state;
+        if (cur) set({ state: { ...cur, config } });
+      });
+      // On-Air-Push (#161): Take/Clear des Operators treibt das Output-Fenster.
+      window.jmtitler.onOnAir((onAir: boolean) => set({ onAir }));
+      // Grafik-Vorlagen-Library (#162): initial + bei jeder Änderung neu listen.
+      window.jmtitler.onTplChanged(() => void window.jmtitler.tpl.list().then((templates) => set({ templates })));
     }
-    const state = await window.jmtitler.getState();
-    set({ state });
+    const [state, templates] = await Promise.all([window.jmtitler.getState(), window.jmtitler.tpl.list()]);
+    set({ state, templates });
   },
   setConfig: async (patch) => {
     const s = await window.jmtitler.setConfig(patch);
