@@ -142,16 +142,24 @@ async function resolveSideEvent(
       : source
         ? [programToAblaufItem(source, { stagesById })]
         : [];
-  // Speaker-Verknüpfung tolerant aus Detail + Listen-Programm ziehen.
-  const ids = new Set<string>([...extractSpeakerIds(detail), ...extractSpeakerIds(listProgram)]);
+  // Speaker-Verknüpfung tolerant aus Detail + Listen-Programm + Agenda-Items ziehen
+  // (iveo v1 surft die Verknüpfung bislang nicht; sobald sie kommt — egal ob am
+  // Programm oder an den Agenda-Punkten — greift das hier automatisch).
+  const ids = new Set<string>([
+    ...extractSpeakerIds(detail),
+    ...extractSpeakerIds(listProgram),
+    ...agenda.flatMap((it) => extractSpeakerIds(it)),
+  ]);
   let speakers: ShowIveoSpeaker[];
   let warning: string | undefined;
   if (ids.size > 0) {
     speakers = speakersToShowSpeakers(snap.speakers.filter((s) => ids.has(s.id)));
+    getLog().info(`iveo: Side Event „${title}" — ${ids.size} Speaker verknüpft, ${speakers.length} im Event aufgelöst.`);
   } else {
-    // Diagnose: welche Felder trägt das Detail? (nur Schlüssel, keine PII) — hilft,
-    // eine evtl. anders benannte Speaker-Verknüpfung künftig gezielt auszuwerten.
+    // Diagnose: welche Felder tragen Detail UND ein Agenda-Item? (nur Schlüssel,
+    // keine PII) — zeigt eine evtl. anders benannte/verschobene Speaker-Verknüpfung.
     if (detail) getLog().info(`iveo: Programm-Detail-Felder = ${Object.keys(detail).join(', ')}`);
+    if (agenda[0]) getLog().info(`iveo: Agenda-Item-Felder = ${Object.keys(agenda[0]).join(', ')}`);
     speakers = snapshotToShowSpeakers(snap);
     warning = 'iveo verknüpft für dieses Side Event keine Speaker — es werden alle Event-Speaker gezeigt.';
   }
@@ -614,17 +622,22 @@ async function resolveSideEventLight(
   }
   let ablauf = agendaToAblauf(agenda);
   if (!ablauf.length && detail) ablauf = [programToAblaufItem(detail, {})];
-  const ids = extractSpeakerIds(detail);
+  const ids = [
+    ...new Set<string>([...extractSpeakerIds(detail), ...agenda.flatMap((it) => extractSpeakerIds(it))]),
+  ];
   let speakers = fallbackSpeakers;
   let warning: string | undefined;
   if (ids.length) {
     try {
       const all = await client.listSpeakers(event);
       speakers = speakersToShowSpeakers(all.filter((s) => ids.includes(s.id)));
+      getLog().info(`iveo switch: ${ids.length} Speaker verknüpft, ${speakers.length} aufgelöst.`);
     } catch {
       /* Speakerliste nicht ladbar → Fallback bleibt */
     }
   } else {
+    if (detail) getLog().info(`iveo switch: Programm-Detail-Felder = ${Object.keys(detail).join(', ')}`);
+    if (agenda[0]) getLog().info(`iveo switch: Agenda-Item-Felder = ${Object.keys(agenda[0]).join(', ')}`);
     warning = 'iveo verknüpft keine Speaker mit diesem Side Event — bestehende Speakerliste bleibt.';
   }
   getLog().info(
