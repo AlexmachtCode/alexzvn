@@ -328,12 +328,29 @@ export class IveoClient {
   }
 
   /**
-   * Asset-Bytes über die indirekte URL holen (§7): Bearer mitschicken, 302 dem
-   * signierten Kurzlebigen folgen (Default `redirect:'follow'`). Die signierte URL
-   * wird NICHT zurückgegeben/gespeichert — nur die Bytes.
+   * Asset-Referenz → absolute Anfrage-URL. iveo ist hier inkonsistent: manche
+   * Assets liefern die volle `…/api/v1/assets/<id>`-URL (`IveoAssetRef`), Material-
+   * Assets nur die nackte ID bzw. den signierten Token. Endpoint ist in beiden
+   * Fällen `GET /assets/{id}` (§7) → aus einer nackten ID selbst `<baseUrl>/assets/<id>`
+   * bauen, damit `fetch` nicht an „Failed to parse URL" scheitert.
    */
-  async fetchAsset(assetUrl: string): Promise<{ bytes: ArrayBuffer; contentType: string | null }> {
-    const res = await this.fetchWithRetry(assetUrl, {
+  private resolveAssetUrl(ref: string): string {
+    const v = (ref ?? '').trim();
+    if (!v) throw new Error('iveo: leere Asset-Referenz');
+    if (/^https?:\/\//i.test(v)) return v; // bereits volle URL (Logos/Fotos)
+    // nackte ID / „/assets/<id>" / „assets/<id>" → auf ein Pfadsegment normalisieren
+    const id = v.replace(/^\/+/, '').replace(/^assets\//, '');
+    return `${this.baseUrl}/assets/${id}`;
+  }
+
+  /**
+   * Asset-Bytes über die indirekte URL/ID holen (§7): Bearer mitschicken, 302 dem
+   * signierten Kurzlebigen folgen (Default `redirect:'follow'`). Die signierte URL
+   * wird NICHT zurückgegeben/gespeichert — nur die Bytes. Akzeptiert eine volle
+   * `…/assets/<id>`-URL ODER die nackte Asset-ID (Material-Assets).
+   */
+  async fetchAsset(assetUrlOrId: string): Promise<{ bytes: ArrayBuffer; contentType: string | null }> {
+    const res = await this.fetchWithRetry(this.resolveAssetUrl(assetUrlOrId), {
       headers: this.authHeaders(),
       redirect: 'follow',
     });

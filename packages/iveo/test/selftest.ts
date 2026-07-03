@@ -224,6 +224,34 @@ function mkRes(status: number, body: unknown, headers: Record<string, string> = 
   ok(caught instanceof IveoApiError && caught.requestId === 'r9', 'request_id übernommen');
 }
 
+// ── Asset-Fetch: nackte ID → /assets/<id>, volle URL unangetastet (§7) ───────
+{
+  const seen: string[] = [];
+  const fetchImpl: IveoFetchLike = async (url) => {
+    seen.push(url);
+    return mkRes(200, '', { 'content-type': 'application/pdf' });
+  };
+  const client = new IveoClient({
+    token: 'iveo_live_SECRET',
+    baseUrl: 'https://staging-dev.my-iveo.de/api/v1',
+    fetchImpl,
+  });
+  // Material-Asset liefert nur den signierten Token (keine URL) → selbst bauen.
+  const token = 'WyJhZ2VuZGEtbWF0ZXJpYWxzIiwiZm9vLnBwdHgiXQ.SIG-_abc';
+  await client.fetchAsset(token);
+  ok(
+    seen[0] === `https://staging-dev.my-iveo.de/api/v1/assets/${token}`,
+    'fetchAsset: nackte ID → <baseUrl>/assets/<id>',
+  );
+  // IveoAssetRef (Logos/Fotos) liefert die volle URL → unverändert benutzen.
+  await client.fetchAsset('https://cdn.example/api/v1/assets/logo1');
+  ok(seen[1] === 'https://cdn.example/api/v1/assets/logo1', 'fetchAsset: volle URL bleibt unverändert');
+  // „/assets/<id>" bzw. „assets/<id>" nicht verdoppeln.
+  await client.fetchAsset('/assets/xyz');
+  ok(seen[2] === 'https://staging-dev.my-iveo.de/api/v1/assets/xyz', 'fetchAsset: „/assets/<id>" wird nicht verdoppelt');
+  ok(!seen.some((u) => u.includes('iveo_live_')), 'fetchAsset: kein Token in der URL (nur Header)');
+}
+
 // ── Retry/Backoff auf 5xx (§9) ───────────────────────────────────────────────
 {
   let calls = 0;
