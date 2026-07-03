@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { IVEO_DEFAULT_BASE_URL } from '@jm/iveo';
 import type { RecentShow, SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
 
 interface StoredSettings {
@@ -10,6 +11,16 @@ interface StoredSettings {
   githubTokenEnc?: string;
   proxyUrl?: string;
   manifestUrl?: string;
+  /** iveo-Basis-URL (kein Secret; Default = Staging). */
+  iveoBaseUrl?: string;
+  /**
+   * iveo Bearer-Token PRO EVENT, verschlüsselt (safeStorage, base64). Schlüssel =
+   * Event-Slug/UUID. Bewusst getrennt von der portablen .jmshow — das Secret
+   * bleibt nur hier. #11.
+   */
+  iveoTokensEnc?: Record<string, string>;
+  /** Klartext-Fallback (nur wenn safeStorage fehlt, z. B. Linux ohne Keyring). */
+  iveoTokens?: Record<string, string>;
   /** Zuletzt geöffnete Shows (#157), neueste zuerst. */
   recentShows?: RecentShow[];
 }
@@ -152,6 +163,78 @@ function envControlled(): boolean {
   return Boolean(process.env['JMPS_GITHUB_TOKEN'] || process.env['JMPS_RELEASE_PROXY']);
 }
 
+// ── iveo (#11) ────────────────────────────────────────────────────────────────
+// Der Launcher ist der EINZIGE Token-Halter/iveo-Client (single-holder). Das
+// per-Event-Token liegt verschlüsselt hier — NIE in der portablen .jmshow und nie
+// im Renderer. Env-Override JMPS_IVEO_TOKEN gilt global (nur für Dev/CI).
+
+/** Effektive iveo-Basis-URL: Env > gespeichert > Staging-Default. Kein Secret. */
+export function resolveIveoBaseUrl(): string {
+  return process.env['JMPS_IVEO_BASE_URL'] || read().iveoBaseUrl || IVEO_DEFAULT_BASE_URL;
+}
+
+export function setIveoBaseUrl(url: string | undefined): void {
+  const s = read();
+  s.iveoBaseUrl = url?.trim() || undefined;
+  write(s);
+}
+
+/** iveo-Token für ein Event ablegen (verschlüsselt) bzw. löschen (leerer Wert). */
+export function setIveoToken(eventKey: string, token: string): void {
+  const key = eventKey.trim();
+  if (!key) return;
+  const s = read();
+  const enc = { ...(s.iveoTokensEnc ?? {}) };
+  const plain = { ...(s.iveoTokens ?? {}) };
+  // Beide Repräsentationen für diesen Key zurücksetzen, dann neu ablegen.
+  delete enc[key];
+  delete plain[key];
+  const t = token.trim();
+  if (t) {
+    if (safeStorage.isEncryptionAvailable()) {
+      enc[key] = safeStorage.encryptString(t).toString('base64');
+    } else {
+      // Fallback: at-rest-Klartext auf einem Einzelplatz — Token-Verlust wäre schlimmer.
+      plain[key] = t;
+    }
+  }
+  s.iveoTokensEnc = Object.keys(enc).length ? enc : undefined;
+  s.iveoTokens = Object.keys(plain).length ? plain : undefined;
+  write(s);
+}
+
+/** iveo-Token für ein Event lesen: Env-Override > verschlüsselt > Klartext-Fallback. */
+export function getIveoToken(eventKey: string): string | undefined {
+  const envTok = process.env['JMPS_IVEO_TOKEN'];
+  if (envTok) return envTok;
+  const key = eventKey.trim();
+  if (!key) return undefined;
+  const s = read();
+  const enc = s.iveoTokensEnc?.[key];
+  if (enc && safeStorage.isEncryptionAvailable()) {
+    try {
+      return safeStorage.decryptString(Buffer.from(enc, 'base64')) || undefined;
+    } catch {
+      return undefined; // anderes OS-Profil/Schlüssel → wie kein Token
+    }
+  }
+  return s.iveoTokens?.[key] || undefined;
+}
+
+export function deleteIveoToken(eventKey: string): void {
+  setIveoToken(eventKey, '');
+}
+
+export function hasIveoToken(eventKey: string): boolean {
+  return Boolean(getIveoToken(eventKey));
+}
+
+/** Event-Keys, für die ein Token hinterlegt ist (ohne die Tokens preiszugeben). */
+export function listIveoTokenKeys(): string[] {
+  const s = read();
+  return [...new Set([...Object.keys(s.iveoTokensEnc ?? {}), ...Object.keys(s.iveoTokens ?? {})])];
+}
+
 export function getSettingsView(): SuiteSettingsView {
   const token = resolveToken();
   const source: SuiteSettingsView['source'] = proxyActive() ? 'proxy' : token ? 'github' : 'none';
@@ -162,6 +245,8 @@ export function getSettingsView(): SuiteSettingsView {
     fromEnv: envControlled(),
     manifestUrl: resolveManifestUrl(),
     manifestFromEnv: Boolean(process.env['JMPS_MANIFEST_URL']),
+    iveoBaseUrl: resolveIveoBaseUrl(),
+    iveoBaseUrlFromEnv: Boolean(process.env['JMPS_IVEO_BASE_URL']),
   };
 }
 
@@ -203,6 +288,9 @@ export function setSettings(input: SuiteSettingsInput): SuiteSettingsView {
   }
   if (input.manifestUrl !== undefined) {
     next.manifestUrl = input.manifestUrl.trim() || undefined;
+  }
+  if (input.iveoBaseUrl !== undefined) {
+    next.iveoBaseUrl = input.iveoBaseUrl.trim() || undefined;
   }
   write(next);
   return getSettingsView();

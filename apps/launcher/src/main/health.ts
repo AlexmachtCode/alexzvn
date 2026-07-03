@@ -123,6 +123,24 @@ export function stopHealth(): void {
   conns.clear();
 }
 
+/**
+ * Eine rohe Steuer-Zeile an alle VERBUNDENEN Endpunkte eines Tools senden (z. B.
+ * `TIMER RELOAD` an jeden entdeckten Timer). Liefert die Anzahl erreichter
+ * Endpunkte. Nutzt der iveo-Live-Sync, um nach einem Update den Ablauf in
+ * laufenden Tools nicht-destruktiv neu laden zu lassen. Best-effort (send ist
+ * no-op, wenn eine Verbindung inzwischen weg ist).
+ */
+export function sendControlCommand(appId: string, line: string): number {
+  let sent = 0;
+  for (const conn of conns.values()) {
+    if (conn.connected && conn.svc.appId === appId) {
+      conn.client.send(line);
+      sent += 1;
+    }
+  }
+  return sent;
+}
+
 /** Momentaufnahme aller entdeckten Steuer-Endpunkte + ihres Live-Zustands. */
 export function getHealth(): HealthEntry[] {
   return [...conns.values()].map((c) => ({

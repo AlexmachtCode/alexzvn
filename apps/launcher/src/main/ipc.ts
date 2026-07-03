@@ -4,6 +4,12 @@ import type {
   ActionResult,
   FeedbackInput,
   InstallProgress,
+  IveoBindInput,
+  IveoDiscoverInput,
+  IveoDownloadInput,
+  IveoMaterialsInput,
+  IveoSideEventsInput,
+  IveoSwitchInput,
   RecipeDraftInput,
   SuiteSettingsInput,
 } from '@shared/types';
@@ -17,13 +23,21 @@ import { getPresence } from './presence';
 import { getHealth } from './health';
 import { checkToolUpdates, checkLauncherUpdate } from './updates';
 import { openTool } from './launch';
-import { openShowDialog, openShow, saveShow, pickShowDocument } from './show';
+import { openShowDialog, openShow, saveShow, pickShowDocument, loadShowForEdit } from './show';
 import { installTool, updateLauncher } from './installer';
 import { uninstallTool } from './uninstall';
 import { getSettingsView, setSettings, getRecentShows } from './settings';
 import { getControlStatus, provisionControl, disableControl } from './control-provision';
 import { submitFeedback } from './feedback';
 import { submitRecipeDraft } from './cookbook-draft';
+import {
+  discoverIveoEvents,
+  bindIveoEvent,
+  listSideEvents,
+  switchSideEvent,
+  listSideEventMaterials,
+  downloadSideEventMaterial,
+} from './iveo-sync';
 
 function withTool(
   id: string,
@@ -63,7 +77,8 @@ export function registerIpc(): void {
     openShow(path, (ev) => e.sender.send('app:event', ev)),
   );
   // Show anlegen/bearbeiten: speichern + Dokument-Auswahl für die Authoring-UI.
-  ipcMain.handle('show:save', (_e, show: Show) => saveShow(show));
+  ipcMain.handle('show:save', (_e, show: Show, targetPath?: string) => saveShow(show, targetPath));
+  ipcMain.handle('show:loadForEdit', () => loadShowForEdit());
   ipcMain.handle('show:pickDocument', () => pickShowDocument());
 
   // Download + Installation aus der konfigurierten Release-Quelle, mit
@@ -95,6 +110,15 @@ export function registerIpc(): void {
 
   // Neues Rezept einreichen (Pfad B = KI) → Proxy erzeugt das Rezept und öffnet einen PR.
   ipcMain.handle('cookbook:draft', (_e, input: RecipeDraftInput) => submitRecipeDraft(input));
+
+  // iveo (#11): Token prüfen + Events auflisten; Event an Show binden (Token
+  // verschlüsselt ablegen, Ablauf holen). Token/Daten bleiben im Main-Prozess.
+  ipcMain.handle('iveo:discover', (_e, input: IveoDiscoverInput) => discoverIveoEvents(input));
+  ipcMain.handle('iveo:bind', (_e, input: IveoBindInput) => bindIveoEvent(input));
+  ipcMain.handle('iveo:listSideEvents', (_e, input: IveoSideEventsInput) => listSideEvents(input));
+  ipcMain.handle('iveo:switchSideEvent', (_e, input: IveoSwitchInput) => switchSideEvent(input));
+  ipcMain.handle('iveo:listMaterials', (_e, input: IveoMaterialsInput) => listSideEventMaterials(input));
+  ipcMain.handle('iveo:downloadMaterial', (_e, input: IveoDownloadInput) => downloadSideEventMaterial(input));
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 }

@@ -1,6 +1,6 @@
 import type { AppChangelog, ToolManifest, ToolState } from '@jm/suite-manifest';
 import type { Recipe, CookbookCategory } from '@jm/cookbook';
-import type { Show } from '@jm/show';
+import type { Show, ShowAblaufItem, ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 
 export type {
   ToolManifest,
@@ -53,6 +53,8 @@ export interface SuiteSettingsInput {
   proxyUrl?: string;
   /** Remote-Katalog (suite.json) — leer = gebündelten Katalog nutzen. */
   manifestUrl?: string;
+  /** iveo-Basis-URL (kein Secret; leer = Staging-Default). #11 */
+  iveoBaseUrl?: string;
 }
 
 /** Zustand der sicheren Steuerebene (P1-Adoption, geteilte control.json). */
@@ -78,6 +80,165 @@ export interface SuiteSettingsView {
   manifestUrl?: string;
   /** Manifest-URL stammt aus Umgebungsvariable (read-only in der UI). */
   manifestFromEnv: boolean;
+  /** Aktive iveo-Basis-URL (kein Secret). #11 */
+  iveoBaseUrl?: string;
+  /** iveo-Basis-URL stammt aus Umgebungsvariable (read-only in der UI). */
+  iveoBaseUrlFromEnv: boolean;
+}
+
+// ── iveo (#11) ────────────────────────────────────────────────────────────────
+
+/** Kurz-Referenz eines iveo-Events (aus der Discovery `GET /`). */
+export interface IveoEventStub {
+  id: string;
+  slug: string;
+  name: string;
+}
+
+/** Token EINMAL prüfen und lesbare Events auflisten (Token wird nicht persistiert). */
+export interface IveoDiscoverInput {
+  /** Optional; leer = konfigurierte/Default-Basis-URL. */
+  baseUrl?: string;
+  /** Per-Event-Bearer-Token (`iveo_live_…`). */
+  token: string;
+}
+export interface IveoDiscoverResult {
+  ok: boolean;
+  events?: IveoEventStub[];
+  /** Stabiler Fehlercode (z. B. "unauthorized"), nie rohe Upstream-Antwort. */
+  code?: string;
+  error?: string;
+}
+
+/**
+ * Event an eine Show binden: Token (verschlüsselt, pro Event) ablegen und den
+ * Ablauf holen. Der zurückgegebene `ablauf` wird vom Show-Editor in die Show
+ * eingebettet; das Token verlässt den Main-Prozess NIE.
+ */
+export interface IveoBindInput {
+  baseUrl?: string;
+  token: string;
+  /** Event-Slug oder UUID. */
+  event: string;
+  /** Optionaler Ablauf-Filter (#11): nur diesen Programmtyp übernehmen (z. B. Side Events). */
+  typeSlug?: string;
+  /** Optionaler Ablauf-Filter: nur dieses Programmformat übernehmen. */
+  formatSlug?: string;
+  /** Optionaler Ablauf-Filter: nur Programme dieses Kalendertags (YYYY-MM-DD). */
+  day?: string;
+  /** Optionaler Ablauf-Filter: „Blocker"/Platzhalter-Einträge weglassen. */
+  excludeBlockers?: boolean;
+  /**
+   * Ein einzelnes Side Event „im Detail" (#11 Phase 3b): Ablauf aus dessen Agenda,
+   * Speaker auf dieses Programm eingegrenzt. Leer = Tages-/Listenmodus.
+   */
+  programId?: string;
+}
+
+/** Leichte Programm-Referenz für die Side-Event-Auswahl im Editor (token-frei, keine PII). */
+export interface IveoProgramRef {
+  id: string;
+  title: string;
+  /** Kalendertag (YYYY-MM-DD) oder leer, für die Gruppierung nach Tag im Picker. */
+  day: string;
+  /** Lokale Startzeit (HH:MM) für die Anzeige, falls vorhanden. */
+  time?: string;
+}
+
+/** Anfrage: Side Events der offenen iveo-Show auflisten (token-frei, aus dem Cache). */
+export interface IveoSideEventsInput {
+  /** Optionaler Tag (YYYY-MM-DD); leer = Tag der Show bzw. erster Tag. */
+  day?: string;
+}
+
+/** Live-Zustand des Side-Event-Umschalters für die offene Show. */
+export interface IveoSideEventsResult {
+  ok: boolean;
+  error?: string;
+  /** Anzeigename des gebundenen Events. */
+  event?: string;
+  /** Aktuell gewählter Tag (YYYY-MM-DD). */
+  day?: string;
+  /** Alle Tage des Events (chronologisch, mit Anzahl). */
+  days?: Array<{ value: string; count: number }>;
+  /** Side Events des gewählten Tages. */
+  programs?: IveoProgramRef[];
+  /** Gerade aktives Side Event (programId) oder leer = Tagesübersicht. */
+  activeProgramId?: string;
+  /** Liegt hier ein Token → ist Live-Umschalten möglich? */
+  canSwitch?: boolean;
+}
+
+/** Live auf ein Side Event (oder zurück auf die Tagesübersicht) umschalten. */
+export interface IveoSwitchInput {
+  /** programId des Side Events; leer/weg = Tagesübersicht (alle Side Events des Tages). */
+  programId?: string;
+  /** Optional den Tag wechseln (für die Tagesübersicht). */
+  day?: string;
+}
+
+/** Ein herunterladbares Material eines Side Events (aus dessen Agenda-Punkten, #11 Phase 4). */
+export interface IveoMaterialRef {
+  id: string;
+  label: string;
+  /** 'file' = Datei-Asset (Download), 'link' = öffentlicher Link (öffnen). */
+  kind: 'file' | 'link';
+  /** Titel des Agenda-Punkts, an dem das Material hängt. */
+  agendaTitle?: string;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  externalUrl?: string | null;
+  /** true, wenn ein Datei-Asset zum Herunterladen vorhanden ist. */
+  hasAsset: boolean;
+}
+
+/** Materialien EINES Side Events auflisten (token-pflichtig, im Launcher). */
+export interface IveoMaterialsInput {
+  programId: string;
+}
+export interface IveoMaterialsResult {
+  ok: boolean;
+  error?: string;
+  materials?: IveoMaterialRef[];
+}
+
+/** Ein Material herunterladen (Datei) bzw. öffnen (Link). */
+export interface IveoDownloadInput {
+  programId: string;
+  materialId: string;
+}
+
+/** Verteilung der Programmtypen/-formate/-tage eines Events (für die Filter-Auswahl). */
+export interface IveoProgramTaxonomy {
+  types: Array<{ value: string; count: number }>;
+  formats: Array<{ value: string; count: number }>;
+  /** Kalendertage mit Anzahl (chronologisch) — Basis fürs „nur dieser Tag"-Filter. */
+  days: Array<{ value: string; count: number }>;
+  /** Anzahl als „Blocker"/Platzhalter erkannter Programme. */
+  blockerCount: number;
+}
+export interface IveoBindResult {
+  ok: boolean;
+  code?: string;
+  error?: string;
+  /** Soft-Warnung bei Teilerfolg (z. B. iveo-Server-Fehler auf einer Ressource). */
+  warning?: string;
+  /** Materialisierter zentraler Ablauf zum Einbetten in die Show. */
+  ablauf?: ShowAblaufItem[];
+  /** Sanitisierte Speaker-Liste (Phase 3, für Titler) — token-frei, ohne PII. */
+  speakers?: ShowIveoSpeaker[];
+  /** Slug + Anzeigename für die token-freie Show-Bindung. */
+  event?: { slug: string; name: string };
+  /** Vorhandene Programmtypen/-formate (aus ALLEN Programmen) für die Filter-Auswahl. */
+  programTypes?: IveoProgramTaxonomy;
+  /** Anzahl Programmpunkte nach aktuell angewandtem Filter (Info für die UI). */
+  programCount?: number;
+  /** Alle Programme (id/title/day) für die Side-Event-Auswahl im Editor. */
+  programList?: IveoProgramRef[];
+  /** Side Events des Tages (token-frei, id+title) → in die Show backen (Live-Umschalter). */
+  sideEvents?: ShowIveoProgramRef[];
+  /** true, wenn der Ablauf aus den Agenda-Punkten EINES Side Events gebildet wurde. */
+  agenda?: boolean;
 }
 
 /** Verfügbares Launcher-Update (Self-Update). */
@@ -163,7 +324,10 @@ export type AppEvent =
   // Show-Start-Feedback (#76): Beim Öffnen einer Show startet der Launcher mehrere
   // Tools (Kaltstart dauert) — die UI zeigt dazu ein Lade-Overlay.
   | { type: 'show-launch-start'; name: string; tools: ShowLaunchTool[] }
-  | { type: 'show-launch-done'; launched: number; total: number; missing: string[] };
+  | { type: 'show-launch-done'; launched: number; total: number; missing: string[] }
+  // iveo (#11): eine iveo-gebundene Show ist offen bzw. das aktive Side Event hat
+  // sich geändert (Live-Umschalter/Rundown-GO) → Panel aktualisieren.
+  | { type: 'iveo-active-changed'; event: string; day?: string; activeProgramId?: string; canSwitch: boolean };
 
 /** Die unter `window.jmps` bereitgestellte Launcher-API. */
 export interface JmpsApi {
@@ -184,12 +348,17 @@ export interface JmpsApi {
   open: (id: string) => Promise<ActionResult>;
   /** Show-Datei (.jmshow) wählen und ihre Tools koordiniert starten. */
   openShow: () => Promise<ActionResult>;
+  /**
+   * Zusammengestellte Show als .jmshow speichern. Mit `targetPath` (Bearbeiten)
+   * wird direkt an diese Datei zurückgeschrieben; ohne fragt ein Save-Dialog.
+   */
+  saveShow: (show: Show, targetPath?: string) => Promise<ActionResult>;
+  /** Bestehende .jmshow zum Bearbeiten laden (Datei-Dialog) → Pfad + geparste Show. */
+  loadShowForEdit: () => Promise<{ path: string; show: Show } | null>;
   /** Zuletzt geöffnete Shows (#157) für die 1-Klick-Wiederöffnung. */
   getRecentShows: () => Promise<RecentShow[]>;
   /** Eine bekannte .jmshow direkt per Pfad öffnen (ohne Dialog, #157). */
   openShowPath: (path: string) => Promise<ActionResult>;
-  /** Zusammengestellte Show als .jmshow speichern (Save-Dialog). */
-  saveShow: (show: Show) => Promise<ActionResult>;
   /** Datei-Dialog für ein Tool-Dokument (z. B. .jmpres) — liefert den Pfad. */
   pickShowDocument: () => Promise<string | null>;
   install: (id: string) => Promise<ActionResult>;
@@ -209,6 +378,18 @@ export interface JmpsApi {
   submitFeedback: (input: FeedbackInput) => Promise<ActionResult>;
   /** Neues Rezept einreichen (Pfad B = KI) — öffnet bei Erfolg einen PR. */
   submitRecipeDraft: (input: RecipeDraftInput) => Promise<RecipeDraftResult>;
+  /** iveo (#11): Token prüfen + lesbare Events auflisten (Token nicht gespeichert). */
+  discoverIveoEvents: (input: IveoDiscoverInput) => Promise<IveoDiscoverResult>;
+  /** iveo (#11): Event an Show binden — Token verschlüsselt ablegen, Ablauf holen. */
+  bindIveoEvent: (input: IveoBindInput) => Promise<IveoBindResult>;
+  /** iveo (#11): Side Events der offenen Show auflisten (token-frei, aus Cache). */
+  listIveoSideEvents: (input?: IveoSideEventsInput) => Promise<IveoSideEventsResult>;
+  /** iveo (#11): live auf ein Side Event umschalten (Ablauf+Speaker → Timer/Titler RELOAD). */
+  switchIveoSideEvent: (input: IveoSwitchInput) => Promise<ActionResult>;
+  /** iveo (#11): Materialien eines Side Events auflisten (aus dessen Agenda-Punkten). */
+  listIveoMaterials: (input: IveoMaterialsInput) => Promise<IveoMaterialsResult>;
+  /** iveo (#11): ein Material herunterladen (Datei speichern+öffnen) bzw. Link öffnen. */
+  downloadIveoMaterial: (input: IveoDownloadInput) => Promise<ActionResult>;
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
 }

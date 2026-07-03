@@ -152,7 +152,13 @@ export function App() {
         </div>
         <div className="w-[26rem] shrink-0">
           {selectedRow ? (
-            <RowEditor doc={state.doc} row={selectedRow} onDoc={(d) => void setDoc(d)} />
+            <RowEditor
+              doc={state.doc}
+              row={selectedRow}
+              iveoSpeakers={state.iveoSpeakers ?? []}
+              iveoSideEvents={state.iveoSideEvents ?? []}
+              onDoc={(d) => void setDoc(d)}
+            />
           ) : (
             <div className="grid h-full place-items-center text-sm text-neutral-500">
               Keine Zeile gewählt.

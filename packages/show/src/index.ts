@@ -46,6 +46,74 @@ export interface ShowAblaufItem {
   note?: string;
 }
 
+/**
+ * Optionale iveo-Bindung (#11): aus welchem iveo-Event der zentrale `ablauf`
+ * materialisiert wurde. Enthält BEWUSST NIE ein Token — nur den Event-Slug und
+ * die (nicht-geheime) Basis-URL. Der Launcher nutzt das fürs Live-Polling; das
+ * Bearer-Token liegt getrennt und verschlüsselt im Launcher, nie in der Show
+ * (die Show ist portabel/teilbar).
+ */
+/**
+ * Sanitisierter Speaker für Konsumenten (z. B. Titler-Bauchbinden). Bewusst nur
+ * Anzeigefelder — KEINE PII wie Bio/Foto/Kontakt, kein Secret.
+ */
+export interface ShowIveoSpeaker {
+  /** Anzeigename (Anrede + Vor- + Nachname). */
+  name: string;
+  /** Funktion/Rolle (z. B. „Lead Negotiator"). */
+  title?: string;
+}
+
+/**
+ * Token-freie Referenz eines Side Events (#11) — id + Titel. Erlaubt Tools (Rundown
+ * Row-Editor, Launcher-Panel), die Side Events des Tages aufzulisten und per id live
+ * umzuschalten, ohne selbst bei iveo abzufragen.
+ */
+export interface ShowIveoProgramRef {
+  id: string;
+  title: string;
+}
+
+export interface ShowIveoBinding {
+  /** iveo Event-Slug oder UUID. */
+  event: string;
+  /** Basis-URL der iveo-API (kein Secret; Default = Staging). */
+  baseUrl?: string;
+  /** Anzeigename des Events (Komfort/Anzeige). */
+  name?: string;
+  /** Zeitpunkt der letzten Materialisierung (ISO-8601). */
+  syncedAt?: string;
+  /**
+   * Sanitisierte Speaker-Liste (#11, Phase 3) für Tools wie den Titler —
+   * token-frei, ohne PII. Speist die DataLink-Variablen/Recall-Einträge.
+   */
+  speakers?: ShowIveoSpeaker[];
+  /**
+   * Side Events des Tages (#11), token-frei (id + Titel) — Grundlage fürs Live-
+   * Umschalten (Launcher-Panel / Rundown-GO), ohne dass ein Tool selbst iveo abfragt.
+   */
+  sideEvents?: ShowIveoProgramRef[];
+  /**
+   * Optionaler Programm-Filter (#11): welche Programme in den Ablauf übernommen
+   * werden — nach Typ/Format, nach Kalendertag (mehrtägige iveo-Pläne → ein Tag)
+   * und/oder ohne „Blocker"-Platzhalter. Der Launcher-Poller filtert identisch,
+   * damit Live-Updates konsistent bleiben.
+   */
+  filter?: {
+    typeSlug?: string;
+    formatSlug?: string;
+    /** Nur Programme dieses Kalendertags (YYYY-MM-DD, lokale Venue-Zeit). */
+    day?: string;
+    /** „Blocker"/Platzhalter-Einträge aus dem Ablauf nehmen. */
+    excludeBlockers?: boolean;
+    /**
+     * Ein einzelnes Side Event „im Detail": Ablauf = dessen Agenda-Punkte, Speaker
+     * auf dieses Programm eingegrenzt. Der Launcher-Poller löst identisch auf.
+     */
+    programId?: string;
+  };
+}
+
 export interface Show {
   schemaVersion: number;
   /** Anzeigename der Produktion. */
@@ -60,6 +128,8 @@ export interface Show {
    * mehr nötig. Optional/abwärtskompatibel: alte Shows ohne Ablauf bleiben gültig.
    */
   ablauf?: ShowAblaufItem[];
+  /** Optionale iveo-Event-Bindung (#11), token-frei. */
+  iveo?: ShowIveoBinding;
 }
 
 /** Leere Show mit aktuellem Schema. */
@@ -76,6 +146,55 @@ function normalizeAblaufItem(value: unknown): ShowAblaufItem | null {
   if (typeof o.durationMs === 'number' && o.durationMs > 0) item.durationMs = o.durationMs;
   if (typeof o.note === 'string' && o.note) item.note = o.note;
   return item;
+}
+
+function normalizeIveoBinding(value: unknown): ShowIveoBinding | null {
+  if (!value || typeof value !== 'object') return null;
+  const o = value as Record<string, unknown>;
+  const event = typeof o.event === 'string' ? o.event.trim() : '';
+  if (!event) return null; // ohne Event-Slug keine sinnvolle Bindung
+  const binding: ShowIveoBinding = { event };
+  if (typeof o.baseUrl === 'string' && o.baseUrl.trim()) binding.baseUrl = o.baseUrl.trim();
+  if (typeof o.name === 'string' && o.name.trim()) binding.name = o.name.trim();
+  if (typeof o.syncedAt === 'string' && o.syncedAt) binding.syncedAt = o.syncedAt;
+  if (Array.isArray(o.speakers)) {
+    const speakers = (o.speakers as unknown[])
+      .map((s): ShowIveoSpeaker | null => {
+        if (!s || typeof s !== 'object') return null;
+        const sp = s as Record<string, unknown>;
+        const name = typeof sp.name === 'string' ? sp.name.trim() : '';
+        if (!name) return null;
+        const speaker: ShowIveoSpeaker = { name };
+        if (typeof sp.title === 'string' && sp.title.trim()) speaker.title = sp.title.trim();
+        return speaker;
+      })
+      .filter((s): s is ShowIveoSpeaker => s !== null);
+    if (speakers.length) binding.speakers = speakers;
+  }
+  if (Array.isArray(o.sideEvents)) {
+    const refs = (o.sideEvents as unknown[])
+      .map((s): ShowIveoProgramRef | null => {
+        if (!s || typeof s !== 'object') return null;
+        const r = s as Record<string, unknown>;
+        const id = typeof r.id === 'string' ? r.id.trim() : '';
+        const title = typeof r.title === 'string' ? r.title.trim() : '';
+        return id ? { id, title: title || id } : null;
+      })
+      .filter((r): r is ShowIveoProgramRef => r !== null);
+    if (refs.length) binding.sideEvents = refs;
+  }
+  if (o.filter && typeof o.filter === 'object') {
+    const f = o.filter as Record<string, unknown>;
+    const filter: NonNullable<ShowIveoBinding['filter']> = {};
+    if (typeof f.typeSlug === 'string' && f.typeSlug.trim()) filter.typeSlug = f.typeSlug.trim();
+    if (typeof f.formatSlug === 'string' && f.formatSlug.trim()) filter.formatSlug = f.formatSlug.trim();
+    if (typeof f.day === 'string' && f.day.trim()) filter.day = f.day.trim();
+    if (f.excludeBlockers === true) filter.excludeBlockers = true;
+    if (typeof f.programId === 'string' && f.programId.trim()) filter.programId = f.programId.trim();
+    if (filter.typeSlug || filter.formatSlug || filter.day || filter.excludeBlockers || filter.programId)
+      binding.filter = filter;
+  }
+  return binding;
 }
 
 function normalizeToolRef(value: unknown): ShowToolRef | null {
@@ -115,6 +234,7 @@ export function migrateShow(raw: unknown): Show {
     : [];
   const name =
     typeof obj.name === 'string' && obj.name.trim() ? (obj.name as string) : 'Unbenannte Show';
+  const iveo = normalizeIveoBinding(obj.iveo);
   return {
     schemaVersion: SHOW_SCHEMA_VERSION,
     name,
@@ -122,6 +242,8 @@ export function migrateShow(raw: unknown): Show {
     tools,
     // Leeren Ablauf weglassen → alte Shows bleiben byte-nah, kein Rauschen.
     ...(ablauf.length ? { ablauf } : {}),
+    // Ungültige/fehlende iveo-Bindung weglassen → alte Shows byte-nah.
+    ...(iveo ? { iveo } : {}),
   };
 }
 

@@ -11,6 +11,7 @@ import { CookbookModal } from '@/components/CookbookModal';
 import { RecipeDraftModal } from '@/components/RecipeDraftModal';
 import { SystemStatusModal } from '@/components/SystemStatusModal';
 import { ShowEditorModal } from '@/components/ShowEditorModal';
+import { SideEventsPanel } from '@/components/SideEventsPanel';
 import { ShowLaunchOverlay } from '@/components/ShowLaunchOverlay';
 import { useTools } from '@/store/tools';
 
@@ -60,6 +61,7 @@ export function App() {
       <RecipeDraftModal />
       <SystemStatusModal />
       <ShowEditorModal />
+      <SideEventsPanel />
       <ShowLaunchOverlay />
     </div>
   );

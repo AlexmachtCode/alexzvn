@@ -224,7 +224,8 @@ export type TitlerRemoteCommand =
   | { t: 'slot'; key: string; text: string } // Slot-Text einer Grafik-Vorlage setzen (#162)
   | { t: 'recall'; ref: string } // DataLink-Eintrag abrufen (Nr. oder Name)
   | { t: 'next' } // nächster DataLink-Eintrag
-  | { t: 'prev' }; // vorheriger DataLink-Eintrag
+  | { t: 'prev' } // vorheriger DataLink-Eintrag
+  | { t: 'reload' }; // aktuelle Show neu einlesen (#11, nach iveo-Update)
 
 /** Live-Zustand, vom Renderer an den Main gemeldet (für Companion-STATE). */
 export interface TitlerRemoteState {
@@ -249,6 +250,8 @@ export interface JmtitlerApi {
   recallEntry: (ref: string) => Promise<void>;
   /** Aktiven DataLink-Eintrag verschieben (+1 / -1). */
   stepEntry: (delta: number) => Promise<void>;
+  /** Recall-Button-Board in einem eigenen Fenster öffnen (#152). */
+  openRecall: () => Promise<void>;
   /** Verfügbare Monitore für die Zweitbildschirm-Auswahl (#161). */
   listDisplays: () => Promise<DisplayInfo[]>;
   /** Auf Monitor-Änderungen (an-/abgesteckt) hören (#161). Liefert Unsubscribe. */

@@ -1,7 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron';
 import path, { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
+import { parseShow, parseShowDeepLink } from '@jm/show';
 import type {
   DisplayInfo,
   OpenedImportFile,
@@ -15,15 +17,20 @@ import { registerTemplateIpc } from './library';
 import { startSender, stopSender, senderActive } from './ndi/sender-process';
 import { startControlServer, stopControlServer, updateTitlerState, updateTitlerData, CONTROL_PORT } from './control-server';
 import { startDataWatch, stopDataWatch, recall, step, type DataState } from './datalink';
+import { writeSpeakersTsv } from './iveo-show';
 
 declare const __dirname: string;
 
 let mainWindow: BrowserWindow | null = null;
+/** Zweites Fenster: Recall-Button-Board (#152). */
+let recallWindow: BrowserWindow | null = null;
 /** Ausgabe-Fenster: 2. Bildschirm mit Chroma-Green (#161). */
 let outputWindow: BrowserWindow | null = null;
 /** Zuletzt vom Operator gemeldeter On-Air-Zustand (für frisch geöffnetes Output-Fenster). */
 let lastOnAir = false;
 const preloadPath = join(__dirname, '../preload/index.cjs');
+/** Pfad der aktuell geladenen Show (für Live-Reload nach iveo-Update). */
+let currentShowPath: string | null = null;
 
 const status: TitlerStatus = {
   ndiActive: false,
@@ -40,7 +47,7 @@ function buildState(): TitlerState {
 }
 
 function broadcastStatus(): void {
-  // An alle Fenster (Operator + Output), damit auch das Zweitbild Variablen/Status spiegelt.
+  // An alle Fenster (Operator, Recall-Board, Output) — alle spiegeln den Zustand.
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) w.webContents.send('titler:status', status);
   }
@@ -119,6 +126,41 @@ function refreshDataWatch(): void {
   });
 }
 
+/**
+ * Show-Integration (#11, Phase 3): Wird der Titler per Show-Deep-Link gestartet und
+ * trägt die Show eine iveo-Speaker-Liste, materialisieren wir sie als `speakers.tsv`
+ * im verwalteten DataLink-Ordner und richten den Watchfolder darauf aus. Das
+ * bestehende DataLink/Recall-System füllt daraus die Bauchbinden. Kein Token nötig
+ * (die Daten stehen bereits sanitisiert in der Show).
+ */
+function applyShowFromDeepLink(url: string): void {
+  const showPath = parseShowDeepLink(url);
+  if (!showPath) return;
+  applyShowFromPath(showPath);
+}
+
+function applyShowFromPath(showPath: string): void {
+  try {
+    const show = parseShow(readFileSync(showPath, 'utf8'));
+    currentShowPath = showPath;
+    const speakers = show.iveo?.speakers ?? [];
+    if (!speakers.length) return; // Show ohne iveo-Speaker → DataLink unverändert lassen
+    const dir = writeSpeakersTsv(speakers);
+    if (getConfig().dataFolder !== dir) patchConfig({ dataFolder: dir });
+    refreshDataWatch();
+    getLog().info(`iveo: ${speakers.length} Speaker aus Show in den DataLink übernommen.`);
+  } catch (err) {
+    getLog().error(`Show konnte nicht geladen werden: ${(err as Error).message}`);
+  }
+}
+
+/** Aktuelle Show neu einlesen (Launcher schickt `TITLER RELOAD` nach iveo-Update). */
+function reloadCurrentShow(): boolean {
+  if (!currentShowPath) return false;
+  applyShowFromPath(currentShowPath);
+  return true;
+}
+
 function resourcePath(filename: string): string {
   if (app.isPackaged) return path.join(process.resourcesPath, filename);
   return path.join(__dirname, '..', '..', 'resources', filename);
@@ -166,6 +208,44 @@ function createMainWindow(): BrowserWindow {
   else win.loadFile(join(__dirname, '../renderer/index.html'));
   mainWindow = win;
   return win;
+}
+
+/** Recall-Button-Board (#152) in einem eigenen Fenster öffnen (view=recall). */
+function createRecallWindow(): void {
+  if (recallWindow && !recallWindow.isDestroyed()) {
+    if (recallWindow.isMinimized()) recallWindow.restore();
+    recallWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 900,
+    height: 700,
+    minWidth: 460,
+    minHeight: 340,
+    backgroundColor: '#121212',
+    show: false,
+    title: 'JM Titler · Recall-Board',
+    icon: resourcePath('icon.png'),
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: preloadPath,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  win.on('ready-to-show', () => win.show());
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.on('closed', () => {
+    recallWindow = null;
+  });
+  const url = process.env['ELECTRON_RENDERER_URL'];
+  if (url) win.loadURL(`${url}?view=recall`);
+  else win.loadFile(join(__dirname, '../renderer/index.html'), { search: 'view=recall' });
+  recallWindow = win;
 }
 
 /**
@@ -277,6 +357,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('titler:recall', (_e, ref: string) => recall(ref));
   ipcMain.handle('titler:stepEntry', (_e, delta: number) => step(delta));
+  ipcMain.handle('titler:openRecall', () => createRecallWindow());
   ipcMain.handle('titler:listDisplays', () => toDisplayInfo());
   // Grafik-Vorlagen-Library (#162): list/add/remove/read-bg + Änderungs-Broadcast.
   registerTemplateIpc(broadcastTplChanged);
@@ -318,7 +399,13 @@ function registerIpc(): void {
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ csp: true, appId: 'jm-titler', appName: 'JM Titler' });
+const runtime = initAppRuntime({
+  csp: true,
+  appId: 'jm-titler',
+  appName: 'JM Titler',
+  // Per Show gestartet? iveo-Speaker in den DataLink übernehmen (#11).
+  onDeepLink: (url) => applyShowFromDeepLink(url),
+});
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -339,6 +426,8 @@ if (!gotLock) {
     createMainWindow();
     // DataLink-Watchfolder (#86) starten, falls konfiguriert.
     refreshDataWatch();
+    // Per Show gestartet? iveo-Speaker aus der Show in den DataLink übernehmen (#11).
+    if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     // 2. Bildschirm (#161): bei persistiert aktivierter Ausgabe direkt öffnen und
     // auf Monitor-Wechsel reagieren (verwaistes Fenster bei Hot-Unplug vermeiden,
     // Auswahl-Dropdown im Operator aktuell halten).
@@ -375,6 +464,10 @@ if (!gotLock) {
           }
           if (rc.t === 'prev') {
             step(-1);
+            return true;
+          }
+          if (rc.t === 'reload') {
+            reloadCurrentShow();
             return true;
           }
           return false;

@@ -39,6 +39,8 @@ let speakerWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 let advertiser: Advertiser | null = null;
+/** Pfad der aktuell geladenen Show (für Live-Reload, z. B. nach iveo-Update). */
+let currentShowPath: string | null = null;
 
 const preloadPath = join(__dirname, '../preload/index.cjs');
 
@@ -327,17 +329,47 @@ function ablaufToTimetable(
 function applyShowFromDeepLink(url: string): void {
   const showPath = parseShowDeepLink(url);
   if (!showPath) return;
+  applyShowFromPath(showPath, 'initial');
+}
+
+/**
+ * Ablauf aus einer .jmshow anwenden. `mode`:
+ *  - 'initial' (Erst-Öffnen): `tt:setAll` — ersetzt Ablauf + setzt Countdown zurück.
+ *  - 'reload' (Live-Update, z. B. nach iveo-Poll): `tt:replaceItems` — tauscht nur
+ *    die Items, lässt einen laufenden Countdown UNANGETASTET.
+ * Merkt sich den Show-Pfad, damit `reloadCurrentShow()` später neu einlesen kann.
+ */
+function applyShowFromPath(showPath: string, mode: 'initial' | 'reload'): void {
   try {
     const show = parseShow(readFileSync(showPath, 'utf8'));
     const settings = show.tools.find((t) => t.appId === 'jm-timer')?.settings;
     const items = parseTimetable(settings?.timetable) ?? ablaufToTimetable(show.ablauf);
-    if (items) dispatch({ type: 'tt:setAll', items });
-    if (settings && typeof settings.durationMs === 'number' && settings.durationMs >= 0) {
+    if (items) {
+      dispatch({ type: mode === 'reload' ? 'tt:replaceItems' : 'tt:setAll', items });
+    }
+    // Countdown-Vorgabe nur beim Erst-Öffnen anwenden (nicht bei Live-Reload).
+    if (
+      mode === 'initial' &&
+      settings &&
+      typeof settings.durationMs === 'number' &&
+      settings.durationMs >= 0
+    ) {
       dispatch({ type: 'setDuration', ms: settings.durationMs });
     }
+    currentShowPath = showPath;
   } catch (err) {
     getLog().error(`Show-Einstellungen konnten nicht geladen werden: ${(err as Error).message}`);
   }
+}
+
+/**
+ * Aktuelle Show neu einlesen (z. B. wenn der Launcher nach einem iveo-Update ein
+ * `TIMER RELOAD` schickt). No-op, wenn keine Show geladen ist. Nicht-destruktiv.
+ */
+export function reloadCurrentShow(): boolean {
+  if (!currentShowPath) return false;
+  applyShowFromPath(currentShowPath, 'reload');
+  return true;
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
@@ -385,7 +417,7 @@ if (!gotLock) {
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — neben
     // Socket.IO, ohne eigene mDNS-Annoncierung (siehe control-server.ts).
     try {
-      const r = await startControlServer();
+      const r = await startControlServer({ onReload: () => reloadCurrentShow() });
       if (!r.ok) getLog().warn(`Timer-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
       else getLog().info(`Timer-Steuerserver (Companion) lauscht auf :${CONTROL_PORT}`);
     } catch (err) {

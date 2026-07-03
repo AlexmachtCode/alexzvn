@@ -4,7 +4,9 @@
 // Wahrheit; beide Server gehen auf dasselbe dispatch/subscribe).
 //
 //   Client → Timer:  TIMER START|STOP|RESET | TIMER ADD <s> | TIMER SET <s> |
-//                    TIMER GOTO <block> | TIMER NEXT|PREV | STATE?
+//                    TIMER GOTO <block> | TIMER NEXT|PREV | TIMER RELOAD | STATE?
+//   (RELOAD liest die aktuell geladene Show neu ein — nicht-destruktiv; nutzt der
+//    Launcher nach einem iveo-Update, um den Ablauf live zu aktualisieren.)
 //   Timer → Client:  STATE ns=timer remaining=mm:ss remaining_s=… running=0|1
 //                    overrun=0|1 warning=0|1 block_label=…
 //
@@ -91,7 +93,18 @@ function toTimerCommand(cmd: SuiteCommand): Command | null {
   }
 }
 
-export function startControlServer(): Promise<{ ok: boolean; error?: string; port?: number }> {
+export interface ControlServerOptions {
+  /**
+   * Callback für das `TIMER RELOAD`-Verb (aktuelle Show neu einlesen). Als
+   * Callback injiziert, um einen Zirkularimport control-server ↔ index zu
+   * vermeiden.
+   */
+  onReload?: () => void;
+}
+
+export function startControlServer(
+  opts: ControlServerOptions = {},
+): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   server = new SuiteControlServer({
     appDataDir: app.getPath('appData'),
@@ -101,6 +114,10 @@ export function startControlServer(): Promise<{ ok: boolean; error?: string; por
     getState: () => toSuiteState(),
     onCommand: (cmd) => {
       if (cmd.ns !== 'timer') return;
+      if (cmd.verb === 'reload') {
+        opts.onReload?.();
+        return;
+      }
       const tc = toTimerCommand(cmd);
       if (tc) dispatch(tc); // löst subscribe → pushState aus
     },

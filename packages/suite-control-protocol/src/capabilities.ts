@@ -554,6 +554,30 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
       { id: 'lighting_blackout', label: 'Licht: Blackout aktiv', stateKey: 'lighting_blackout', match: 'truthy', bgcolor: RED, color: WHITE },
     ],
   },
+
+  // ── Launcher (iveo Side-Event-Umschalter, #11) ─────────────────────────────
+  // Der Launcher ist iveo-Token-Halter: EIN Befehl schaltet die offene Show live
+  // auf ein Side Event um (Ablauf=Agenda + Speaker → Timer/Titler RELOAD), ohne
+  // dass je Side Event eine eigene Show angelegt werden muss.
+  launcher: {
+    role: 'launcher',
+    label: 'JM Launcher',
+    port: 8736,
+    actions: [
+      {
+        id: 'sideevent',
+        label: 'iveo Side Event live schalten',
+        verb: 'sideevent',
+        args: [{ id: 'programId', label: 'Side-Event-ID (leer = Tagesübersicht)', type: 'string', default: '' }],
+      },
+    ],
+    variables: [
+      { id: 'iveo_event', label: 'iveo Event' },
+      { id: 'iveo_day', label: 'iveo Tag' },
+      { id: 'iveo_side_event', label: 'Aktives Side Event (ID)' },
+    ],
+    feedbacks: [],
+  },
 };
 
 /** Liste aller bekannten Rollen (für mDNS-Filter / Dropdowns). */

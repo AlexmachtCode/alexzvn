@@ -11,6 +11,8 @@ export function Header() {
   const openShow = useTools((s) => s.openShow);
   const openShowEditor = useTools((s) => s.openShowEditor);
   const openSystem = useTools((s) => s.openSystem);
+  const openSideEvents = useTools((s) => s.openSideEvents);
+  const iveoActive = useTools((s) => s.iveoActive);
   const openCookbook = useCookbook((s) => s.openCookbook);
   const runningCount = useTools((s) => s.presence.filter((p) => p.running).length);
   const version = useTools((s) => s.version);
@@ -102,6 +104,24 @@ export function Header() {
             <line x1="17" y1="7" x2="22" y2="7" />
           </svg>
         </button>
+        {iveoActive && (
+          <button
+            type="button"
+            onClick={openSideEvents}
+            aria-label="Side Events"
+            title="iveo Side Events · live umschalten"
+            className={cn(
+              'grid place-items-center size-8 rounded-[var(--radius)]',
+              'border border-[var(--primary)]/50 text-[var(--primary)]',
+              'hover:bg-[var(--highlight)] transition-colors',
+            )}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18M8 15h5" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           onClick={openSystem}

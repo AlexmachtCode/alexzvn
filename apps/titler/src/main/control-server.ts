@@ -4,7 +4,9 @@
 //   Client → Titler:  TITLER TAKE | TITLER CLEAR | TITLER TOGGLE |
 //                     TITLER TEMPLATE lowerthird|banner|ticker|graphic | TITLER TEXT … |
 //                     TITLER GRAPHIC <nr|name> | TITLER SLOT <key> <text> |
-//                     TITLER RECALL <nr|name> | TITLER NEXT|PREV | STATE?
+//                     TITLER RECALL <nr|name> | TITLER NEXT|PREV | TITLER RELOAD | STATE?
+//   (RELOAD liest die aktuell geladene Show neu ein — der Launcher schickt es nach
+//    einem iveo-Update, damit die Speaker-DataLink-Einträge frisch sind.)
 //   Titler → Client:  STATE ns=titler on_air=0|1 template=… ndi=0|1 connections=<n>
 //
 // Take/Clear ist Live-Zustand im Renderer (engine.ts). Befehle werden per IPC
@@ -91,6 +93,9 @@ function toRemoteCommand(cmd: SuiteCommand): TitlerRemoteCommand | null {
       return { t: 'next' };
     case 'prev':
       return { t: 'prev' };
+    case 'reload':
+      // TITLER RELOAD — aktuelle Show neu einlesen (iveo-Update). Im Main behandelt.
+      return { t: 'reload' };
     default:
       return null;
   }

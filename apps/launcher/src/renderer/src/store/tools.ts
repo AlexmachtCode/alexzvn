@@ -6,6 +6,8 @@ import type {
   FeedbackInput,
   HealthEntry,
   InstallProgress,
+  IveoMaterialRef,
+  IveoSideEventsResult,
   LauncherUpdate,
   PresenceRecord,
   RecentShow,
@@ -63,6 +65,20 @@ interface ToolsStore {
   health: HealthEntry[];
   systemOpen: boolean;
   showEditorOpen: boolean;
+  /** iveo-Live-Umschalter (#11): Zustand der offenen iveo-Show (null = keine). */
+  iveoActive: { event: string; day?: string; activeProgramId?: string; canSwitch: boolean } | null;
+  sideEvents: IveoSideEventsResult | null;
+  sideEventsOpen: boolean;
+  /** Materialien je Side Event (programId → Liste), lazy geladen. */
+  materials: Record<string, IveoMaterialRef[]>;
+  /** Ladefehler je Side Event (programId → Meldung), z. B. iveo-500 auf agenda-items. */
+  materialsError: Record<string, string>;
+  openSideEvents: () => void;
+  closeSideEvents: () => void;
+  loadSideEvents: (day?: string) => Promise<void>;
+  switchSideEvent: (programId?: string, day?: string) => Promise<void>;
+  loadMaterials: (programId: string) => Promise<void>;
+  downloadMaterial: (programId: string, materialId: string) => Promise<void>;
   /** Aktiver Reiter der Shell (#157). */
   view: LauncherView;
   setView: (view: LauncherView) => void;
@@ -79,7 +95,7 @@ interface ToolsStore {
   openShow: () => Promise<void>;
   openShowEditor: () => void;
   closeShowEditor: () => void;
-  saveShow: (show: Show) => Promise<boolean>;
+  saveShow: (show: Show, targetPath?: string) => Promise<boolean>;
   openSystem: () => void;
   closeSystem: () => void;
   checkUpdates: () => Promise<void>;
@@ -156,6 +172,11 @@ export const useTools = create<ToolsStore>((set) => {
     health: [],
     systemOpen: false,
     showEditorOpen: false,
+    iveoActive: null,
+    sideEvents: null,
+    sideEventsOpen: false,
+    materials: {},
+    materialsError: {},
     view: readLastView(),
     recentShows: [],
     showLaunch: null,
@@ -204,6 +225,14 @@ export const useTools = create<ToolsStore>((set) => {
             );
             // Recent-Liste auffrischen (auch bei Deep-Link-Start ohne UI-Aktion, #157).
             await useTools.getState().loadRecentShows();
+          } else if (e.type === 'iveo-active-changed') {
+            // iveo-Show geöffnet / aktives Side Event geändert (#11).
+            set({
+              iveoActive: e.event
+                ? { event: e.event, day: e.day, activeProgramId: e.activeProgramId, canSwitch: e.canSwitch }
+                : null,
+            });
+            if (useTools.getState().sideEventsOpen) await useTools.getState().loadSideEvents();
           }
         });
         // Nach Rückkehr zum Launcher (z. B. wenn der NSIS-Installer durch ist
@@ -297,8 +326,8 @@ export const useTools = create<ToolsStore>((set) => {
     openShowEditor: () => set({ showEditorOpen: true }),
     closeShowEditor: () => set({ showEditorOpen: false }),
     dismissShowLaunch: () => set({ showLaunch: null }),
-    saveShow: async (show) => {
-      const res = await window.jmps.saveShow(show);
+    saveShow: async (show, targetPath) => {
+      const res = await window.jmps.saveShow(show, targetPath);
       if (res.message) set({ notice: res.message });
       return res.ok;
     },
@@ -309,6 +338,62 @@ export const useTools = create<ToolsStore>((set) => {
       void useTools.getState().loadHealth();
     },
     closeSystem: () => set({ systemOpen: false }),
+
+    openSideEvents: () => {
+      set({ sideEventsOpen: true });
+      void useTools.getState().loadSideEvents();
+    },
+    closeSideEvents: () => set({ sideEventsOpen: false }),
+    loadSideEvents: async (day) => {
+      try {
+        set({ sideEvents: await window.jmps.listIveoSideEvents(day ? { day } : undefined) });
+      } catch {
+        // Kein Cache / kein Main-Zugriff → bestehenden Stand behalten
+      }
+    },
+    switchSideEvent: async (programId, day) => {
+      const res = await window.jmps.switchIveoSideEvent({ programId, day });
+      if (res.message) set({ notice: res.message });
+      // Nach dem Umschalten die Liste (aktives Side Event) auffrischen.
+      const cur = useTools.getState().sideEvents?.day;
+      await useTools.getState().loadSideEvents(day ?? cur);
+    },
+    loadMaterials: async (programId) => {
+      // Alten Fehler zurücksetzen → Panel zeigt beim (Neu-)Laden „Lade…".
+      set((s) => {
+        if (!s.materialsError[programId]) return {};
+        const next = { ...s.materialsError };
+        delete next[programId];
+        return { materialsError: next };
+      });
+      try {
+        const res = await window.jmps.listIveoMaterials({ programId });
+        if (res.ok) {
+          set((s) => ({ materials: { ...s.materials, [programId]: res.materials ?? [] } }));
+        } else {
+          // KEIN leeres materials cachen: der echte Fehler (inkl. req-id) wird
+          // inline gezeigt statt „Keine Materialien", und ein erneuter Versuch
+          // bleibt möglich (z. B. transienter iveo-500 auf agenda-items).
+          set((s) => ({
+            materialsError: {
+              ...s.materialsError,
+              [programId]: res.error ?? 'Materialien konnten nicht geladen werden.',
+            },
+          }));
+        }
+      } catch (e) {
+        set((s) => ({
+          materialsError: {
+            ...s.materialsError,
+            [programId]: (e as Error).message || 'Materialien konnten nicht geladen werden.',
+          },
+        }));
+      }
+    },
+    downloadMaterial: async (programId, materialId) => {
+      const res = await window.jmps.downloadIveoMaterial({ programId, materialId });
+      if (res.message) set({ notice: res.message });
+    },
 
     checkUpdates: async () => {
       try {

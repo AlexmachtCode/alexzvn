@@ -28,6 +28,14 @@ const ICON = {
       <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
     </svg>
   ),
+  sideEvents: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  ),
 } as const;
 
 type ButtonVariant = 'primary' | 'accent' | 'outline' | 'ghost' | 'destructive' | 'link';
@@ -56,6 +64,9 @@ export function ShowView(): React.JSX.Element {
   const openShowPath = useTools((s) => s.openShowPath);
   const recentShows = useTools((s) => s.recentShows);
   const runningCount = useTools((s) => s.presence.filter((p) => p.running).length);
+  // iveo-Live-Umschalter (#11): nur zeigen, wenn eine iveo-gebundene Show offen ist.
+  const iveoActive = useTools((s) => s.iveoActive);
+  const openSideEvents = useTools((s) => s.openSideEvents);
 
   const actions: ShowAction[] = [
     {
@@ -86,9 +97,24 @@ export function ShowView(): React.JSX.Element {
       variant: 'outline',
       badge: runningCount || undefined,
     },
-    // TODO(iveo): Side-Events-Aktion (guarded by iveoActive) hier einhängen —
-    // { key: 'sideEvents', icon: ICON.sideEvents, title: 'Side Events', …,
-    //   onClick: openSideEvents, variant: 'accent' } (siehe feat/iveo-integration).
+    // iveo-Side-Events (#11): nur bei offener iveo-Show. Ein Klick öffnet den
+    // Live-Umschalter (Timer & Titler übernehmen Ablauf & Speaker) — keine neue
+    // Show nötig. Ohne Token nur Anzeige (Umschalten am Token-Rechner).
+    ...(iveoActive
+      ? [
+          {
+            key: 'sideEvents',
+            icon: ICON.sideEvents,
+            title: 'Side Events',
+            description: iveoActive.canSwitch
+              ? 'Zwischen den Side Events des Tages live umschalten — Timer & Titler übernehmen Ablauf & Speaker.'
+              : 'Side Events des Tages ansehen (Live-Umschalten nur am Rechner mit dem iveo-Token).',
+            actionLabel: 'Side Events',
+            onClick: openSideEvents,
+            variant: 'accent' as const,
+          },
+        ]
+      : []),
   ];
 
   return (
