@@ -760,6 +760,15 @@
     "name": "JM Titler",
     "entries": [
       {
+        "version": "0.6.0",
+        "date": "2026-07-03",
+        "notes": [
+          "2. Bildschirm (Chroma-Green): Die Bauchbinde laesst sich zusaetzlich als Vollbild auf einem waehlbaren Monitor mit gruenem Hintergrund ausgeben — fuer externe Hardware-Keyer wie vMix, ATEM oder TriCaster, ganz ohne NDI. Die NDI-Ausgabe laeuft unveraendert weiter.",
+          "Bauchbinden-Import: Fertige Vorlagen aus dem jm Grafiktool (An Titler senden) oder als .psd-Datei importieren. Nicht-Text-Ebenen werden zum Hintergrund, Text-Ebenen zu fuellbaren Feldern — Variablen (DataLink {{name}}) und die Fernsteuerung TITLER TEXT bleiben nutzbar.",
+          "Companion: Neue Verben zum Waehlen einer Grafik-Vorlage (GRAPHIC) und zum Setzen einzelner Feldtexte (SLOT)."
+        ]
+      },
+      {
         "version": "0.5.0",
         "date": "2026-06-29",
         "notes": [
