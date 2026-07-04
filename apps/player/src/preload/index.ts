@@ -11,6 +11,7 @@ import type {
   Playlist,
   PlaylistItem,
   PlaylistKind,
+  PlayerShowSettings,
   RemoteCommand,
   RemotePlayerState,
   Show,
@@ -103,6 +104,13 @@ const api: JmplayApi = {
   shell: {
     reveal: (filePath) => ipcRenderer.invoke('shell:reveal', filePath) as Promise<void>,
     openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url) as Promise<void>,
+  },
+  takeShowSettings: () =>
+    ipcRenderer.invoke('player:takeShowSettings') as Promise<PlayerShowSettings | null>,
+  onShowSettings: (cb) => {
+    const listener = (_e: unknown, s: PlayerShowSettings): void => cb(s);
+    ipcRenderer.on('player:show-settings', listener);
+    return () => ipcRenderer.off('player:show-settings', listener);
   },
 };
 

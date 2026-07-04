@@ -9,6 +9,7 @@ import type {
   RecordInput,
   RecordResult,
   RecorderState,
+  RecShowSettings,
   ScheduleInput,
 } from '@shared/types';
 
@@ -48,6 +49,13 @@ const api: JmrecApi = {
     const listener = (_e: unknown, cmd: RecorderRemoteCommand): void => cb(cmd);
     ipcRenderer.on('recorder:remote-cmd', listener);
     return () => ipcRenderer.off('recorder:remote-cmd', listener);
+  },
+  takeShowSettings: () =>
+    ipcRenderer.invoke('rec:takeShowSettings') as Promise<RecShowSettings | null>,
+  onShowSettings: (cb) => {
+    const listener = (_e: unknown, s: RecShowSettings): void => cb(s);
+    ipcRenderer.on('recorder:show-settings', listener);
+    return () => ipcRenderer.off('recorder:show-settings', listener);
   },
 };
 

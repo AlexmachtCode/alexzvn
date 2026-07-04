@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AudioDevice, RecorderState } from '@shared/types';
+import type { AudioDevice, RecorderState, RecShowSettings } from '@shared/types';
 
 const IDLE: RecorderState = {
   status: 'idle',
@@ -84,6 +84,15 @@ export const useRec = create<RecStore>((set, get) => ({
   setNotice: (notice) => set({ notice }),
 
   init: async () => {
+    // Show-Integration (C3): geprüfte Voreinstellungen aus der .jmshow auf den
+    // Store anwenden. channels/sampleRate über die Setter (clampen).
+    const applyShowSettings = (s: RecShowSettings): void => {
+      if (typeof s.dir === 'string') set({ dir: s.dir });
+      if (typeof s.fileName === 'string') set({ fileName: s.fileName });
+      if (typeof s.separateTracks === 'boolean') set({ separateTracks: s.separateTracks });
+      if (typeof s.channels === 'number') get().setChannels(s.channels);
+      if (typeof s.sampleRate === 'number') get().setSampleRate(s.sampleRate);
+    };
     if (!subscribed) {
       subscribed = true;
       window.jmrec.onLevels((l) => set({ peaks: l.peaks }));
@@ -108,8 +117,14 @@ export const useRec = create<RecStore>((set, get) => ({
             break;
         }
       });
+      // Show-Voreinstellungen, die zur Laufzeit per Deep-Link ankommen.
+      window.jmrec.onShowSettings(applyShowSettings);
     }
     await get().refreshDevices();
+    // Kaltstart: ausstehende Show-Voreinstellungen NACH der Geräte-Vorauswahl
+    // anwenden, damit die Show channels/sampleRate überschreibt (nicht umgekehrt).
+    const pending = await window.jmrec.takeShowSettings();
+    if (pending) applyShowSettings(pending);
     set({ loading: false });
   },
 
