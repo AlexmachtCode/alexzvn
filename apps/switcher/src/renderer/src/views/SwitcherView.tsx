@@ -247,6 +247,14 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
     });
   }, [engine, output]);
 
+  // Show-Integration (C3): per .jmshow referenziertes .jmswitch-Projekt laden —
+  // dieselbe Anwende-Logik wie beim manuellen „Öffnen".
+  useEffect(() => {
+    return window.jmswitch.project.onOpened((res) => applyProject(res.project, res.path));
+    // applyProject nutzt nur stabile Engine-/State-Setter → einmalig abonnieren.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Switcher-Zustand bei jeder Änderung an den Steuerserver melden (Feedback).
   useEffect(() => {
     const idx = (id: string | null): number => {

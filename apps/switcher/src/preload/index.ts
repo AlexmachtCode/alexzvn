@@ -101,6 +101,11 @@ const api: JmswitchApi = {
     open: () => ipcRenderer.invoke('project:open') as Promise<OpenSwitcherResult | null>,
     save: (req: SaveSwitcherRequest) =>
       ipcRenderer.invoke('project:save', req) as Promise<SaveSwitcherResult | null>,
+    onOpened: (cb) => {
+      const listener = (_event: unknown, res: OpenSwitcherResult) => cb(res);
+      ipcRenderer.on('project:opened', listener);
+      return () => ipcRenderer.off('project:opened', listener);
+    },
   },
 };
 

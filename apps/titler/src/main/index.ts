@@ -137,6 +137,8 @@ function applyShowFromDeepLink(url: string): void {
   const showPath = parseShowDeepLink(url);
   if (!showPath) return;
   applyShowFromPath(showPath);
+  // C3: zusätzlich die referenzierte Bauchbinden-Vorlage (Dokument-Ref) öffnen.
+  void openShowDocument(showPath);
 }
 
 function applyShowFromPath(showPath: string): void {
@@ -159,6 +161,47 @@ function reloadCurrentShow(): boolean {
   if (!currentShowPath) return false;
   applyShowFromPath(currentShowPath);
   return true;
+}
+
+// ── Show-Integration (C3): referenzierte Bauchbinden-Vorlage öffnen ──────────
+// Anders als die iveo-Speaker oben (settings-artiges Materialisieren) ist das ein
+// DOKUMENT-Ref: Die in der .jmshow für `jm-titler` hinterlegte .jmtitler/.psd wird
+// EINMAL beim Show-Öffnen geladen und dem Renderer gereicht, der sie in die Library
+// importiert und als aktive Grafik VORBEREITET (nicht on-air). Läuft bewusst NICHT
+// bei `TITLER RELOAD` (nur iveo-Refresh) — sonst entstünde je Reload ein Duplikat.
+let pendingShowFile: OpenedImportFile | null = null;
+
+async function openShowDocument(showPath: string): Promise<void> {
+  try {
+    const show = parseShow(readFileSync(showPath, 'utf8'));
+    const ref = show.tools.find((t) => t.appId === 'jm-titler');
+    if (!ref?.document) return;
+    // Dokumentpfad relativ zur Show-Datei auflösen, falls nicht absolut.
+    const docPath = path.isAbsolute(ref.document)
+      ? ref.document
+      : path.join(path.dirname(showPath), ref.document);
+    deliverShowFile(await readImportFile(docPath));
+  } catch (err) {
+    getLog().error(`Show-Vorlage konnte nicht geladen werden: ${(err as Error).message}`);
+  }
+}
+
+function deliverShowFile(file: OpenedImportFile): void {
+  if (!mainWindow) {
+    pendingShowFile = file; // Fenster noch nicht da (z. B. mac open-url vor whenReady)
+    return;
+  }
+  const wc = mainWindow.webContents;
+  if (wc.isLoading()) wc.once('did-finish-load', () => wc.send('titler:file-opened', file));
+  else wc.send('titler:file-opened', file);
+}
+
+/** Ein evtl. vor dem Fenster eingetroffenes Show-Dokument nachliefern. */
+function flushPendingShowFile(): void {
+  const file = pendingShowFile;
+  if (!file) return;
+  pendingShowFile = null;
+  deliverShowFile(file);
 }
 
 function resourcePath(filename: string): string {
@@ -424,9 +467,12 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     registerIpc();
     createMainWindow();
+    // C3: eine vor dem Fenster eingetroffene Show-Vorlage jetzt nachliefern.
+    flushPendingShowFile();
     // DataLink-Watchfolder (#86) starten, falls konfiguriert.
     refreshDataWatch();
-    // Per Show gestartet? iveo-Speaker aus der Show in den DataLink übernehmen (#11).
+    // Per Show gestartet? iveo-Speaker aus der Show in den DataLink übernehmen (#11)
+    // + die referenzierte Bauchbinden-Vorlage (C3) laden.
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     // 2. Bildschirm (#161): bei persistiert aktivierter Ausgabe direkt öffnen und
     // auf Monitor-Wechsel reagieren (verwaistes Fenster bei Hot-Unplug vermeiden,

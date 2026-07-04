@@ -203,6 +203,8 @@ export interface JmdawApi {
   onExportDone: (cb: (r: ExportResult) => void) => () => void;
   onRecLevels: (cb: (l: Levels) => void) => () => void;
   onRecState: (cb: (s: RecorderState) => void) => () => void;
+  /** Show-Integration (C3): Der Hauptprozess schiebt das aus der .jmshow geladene Projekt zu. */
+  onProjectOpened: (cb: (r: OpenProjectResult) => void) => () => void;
   /** TCP-Fernsteuerung (Bitfocus Companion) ↔ Renderer. */
   remote: {
     /** Auf Fernsteuer-Befehle hören (Main → Renderer). Liefert Unsubscribe. */

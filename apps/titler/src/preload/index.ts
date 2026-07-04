@@ -75,6 +75,11 @@ const api: JmtitlerApi = {
     ipcRenderer.on('titler:tpl-changed', listener);
     return () => ipcRenderer.off('titler:tpl-changed', listener);
   },
+  onFileOpened: (cb) => {
+    const listener = (_e: unknown, f: OpenedImportFile): void => cb(f);
+    ipcRenderer.on('titler:file-opened', listener);
+    return () => ipcRenderer.off('titler:file-opened', listener);
+  },
   pickImportFile: () => ipcRenderer.invoke('titler:pickImportFile') as Promise<OpenedImportFile | null>,
   readFile: (path: string) => ipcRenderer.invoke('titler:readFile', path) as Promise<OpenedImportFile | null>,
   pathForFile: (file: File) => webUtils.getPathForFile(file),

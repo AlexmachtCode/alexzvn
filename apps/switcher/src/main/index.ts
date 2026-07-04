@@ -7,13 +7,20 @@ import { attachNdiWindow, stopNdi } from './ndi-receive';
 import { attachNdiSendWindow, stopNdiOutput } from './ndi-send';
 import { attachOutputWindow, stopOutput } from './output';
 import { attachControlWindow, startControlServer, stopControlServer } from './control-server';
+import { handleShowDeepLink, flushPendingShowProject } from './show-open';
 
 declare const __dirname: string;
 
-// Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ csp: true, appId: 'jm-switcher', appName: 'JM Switcher' });
-
 let mainWindow: BrowserWindow | null = null;
+
+// Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence. Ein
+// Show-Deep-Link lädt das referenzierte .jmswitch-Projekt (C3).
+const runtime = initAppRuntime({
+  csp: true,
+  appId: 'jm-switcher',
+  appName: 'JM Switcher',
+  onDeepLink: (url) => void handleShowDeepLink(url, () => mainWindow),
+});
 
 const preloadPath = join(__dirname, '../preload/index.cjs');
 
@@ -108,6 +115,13 @@ if (!gotLock) {
     installDisplayMediaHandler();
     registerIpc();
     createMainWindow();
+
+    // Show-Deep-Link, der vor dem Fenster eintraf, jetzt nachliefern; per
+    // Kaltstart (App direkt mit Deep-Link geöffnet) das Projekt laden.
+    flushPendingShowProject(() => mainWindow);
+    if (runtime.initialDeepLink) {
+      void handleShowDeepLink(runtime.initialDeepLink, () => mainWindow);
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
