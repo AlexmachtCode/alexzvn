@@ -287,6 +287,12 @@ export interface JmtitlerApi {
   };
   /** Auf Library-Änderungen hören (#162, Main → alle Fenster). Liefert Unsubscribe. */
   onTplChanged: (cb: () => void) => () => void;
+  /**
+   * Show-Integration (C3): Der Main schiebt eine aus der .jmshow referenzierte
+   * Bauchbinden-Vorlage zu — der Renderer importiert sie und bereitet sie als
+   * aktive Grafik vor (nicht on-air). Liefert Unsubscribe.
+   */
+  onFileOpened: (cb: (f: OpenedImportFile) => void) => () => void;
   /** Import-Datei per Dialog wählen (.psd / .jmtitler). null = abgebrochen. */
   pickImportFile: () => Promise<OpenedImportFile | null>;
   /** Datei per Pfad lesen (Drag&Drop). null = Fehler. */

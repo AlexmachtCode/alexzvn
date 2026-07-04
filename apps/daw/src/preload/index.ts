@@ -10,6 +10,7 @@ import type {
   Levels,
   MixerCommand,
   MixerSnapshot,
+  OpenProjectResult,
   PickOutputRequest,
   RecorderState,
   SaveProjectRequest,
@@ -87,6 +88,11 @@ const api: JmdawApi = {
     const listener = (_e: unknown, s: RecorderState): void => cb(s);
     ipcRenderer.on('rec:state', listener);
     return () => ipcRenderer.off('rec:state', listener);
+  },
+  onProjectOpened: (cb) => {
+    const listener = (_e: unknown, r: OpenProjectResult): void => cb(r);
+    ipcRenderer.on('project:opened', listener);
+    return () => ipcRenderer.off('project:opened', listener);
   },
   remote: {
     onCommand: (cb) => {

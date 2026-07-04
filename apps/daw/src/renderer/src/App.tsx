@@ -43,11 +43,16 @@ export function App() {
     });
     const offRL = window.jmdaw.onRecLevels((l) => setRecLevels(l.peaks));
     const offRS = window.jmdaw.onRecState((s) => setRecFromMain(s));
+    // Show-Integration (C3): per .jmshow referenziertes .jmdaw-Projekt laden.
+    const offPO = window.jmdaw.onProjectOpened((r) =>
+      useProject.getState().loadProject(r.path, r.project),
+    );
     return () => {
       offEP();
       offED();
       offRL();
       offRS();
+      offPO();
     };
   }, [setExportStatus, setRecLevels, setRecFromMain]);
 

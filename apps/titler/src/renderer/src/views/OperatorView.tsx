@@ -11,7 +11,7 @@ import { resolveConfigVars, usedVars } from '@shared/vars';
 import { useTitler } from '@/store/titler';
 import { useTitlerEngine } from '@/lib/engine';
 import { activeGraphic } from '@/lib/graphic';
-import { importFileToTemplate, type ParsedTemplate } from '@/lib/psd-import';
+import { encodeCanvasPng, importFileToTemplate, makeThumbPng, type ParsedTemplate } from '@/lib/psd-import';
 import { ImportDialog } from './ImportDialog';
 
 const TEMPLATES: { key: TemplateKind; label: string }[] = [
@@ -90,6 +90,33 @@ export function OperatorView(): React.JSX.Element {
     await window.jmtitler.tpl.remove(tpl.id);
     if (config.activeGraphicId === tpl.id) void setConfig({ activeGraphicId: '' });
   };
+
+  // Show-Integration (C3): per .jmshow referenzierte Bauchbinden-Vorlage
+  // automatisch in die Library importieren und als aktive Grafik VORBEREITEN —
+  // ohne Slot-Mapping-Dialog, ohne on-air (der Operator drückt bewusst TAKE).
+  useEffect(() => {
+    return window.jmtitler.onFileOpened(async (f) => {
+      try {
+        const { name, template } = await importFileToTemplate(f.fileName, f.bytes);
+        const [pngBytes, thumbBytes] = await Promise.all([
+          encodeCanvasPng(template.background),
+          makeThumbPng(template.background),
+        ]);
+        const saved = await window.jmtitler.tpl.add({
+          name: name.trim() || 'Bauchbinde',
+          width: template.width,
+          height: template.height,
+          slots: template.slots,
+          pngBytes,
+          thumbBytes,
+        });
+        void setConfig({ template: 'graphic', activeGraphicId: saved.id, slotText: {} });
+      } catch (err) {
+        // eslint-disable-next-line no-alert
+        window.alert(`Show-Vorlage konnte nicht importiert werden: ${(err as Error).message}`);
+      }
+    });
+  }, [setConfig]);
 
   // Vorhandene Variablen (klein geschrieben) + im Text referenzierte Schlüssel
   // für die Variablen-Sektion (Treffer/Fehler markieren).

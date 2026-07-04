@@ -7,6 +7,7 @@ import { registerIpc } from './ipc';
 import { registerMediaProtocol } from './media-protocol';
 import { startControlServer, stopControlServer } from './control-server';
 import { setupMixerWindow, closeMixerWindow } from './mixer-window';
+import { handleShowDeepLink } from './show-open';
 
 declare const __dirname: string;
 
@@ -20,7 +21,8 @@ const runtime = initAppRuntime({
   // (bypassCSP) — wir whitelisten es zusätzlich explizit, damit auch der
   // fetch(mediaUrl())-Pfad (connect-src) unabhängig vom bypassCSP-Verhalten trägt.
   csp: { connectSrc: ['jm-media:'], imgSrc: ['jm-media:'], mediaSrc: ['jm-media:'] },
-  onDeepLink: (url) => runtime.log.info(`deep-link empfangen: ${url}`),
+  // Per Show gestartet? Das referenzierte .jmdaw-Projekt automatisch laden (C3).
+  onDeepLink: (url) => void handleShowDeepLink(url),
 });
 
 // Schema vor app.whenReady() freischalten (Pflicht für protocol.handle).
@@ -67,6 +69,8 @@ if (setupSingleInstance(() => createWindow())) {
       iconPath: resourcePath('icon.png', join(__dirname, '..', '..', 'resources')),
     });
     createWindow();
+    // Kaltstart: App direkt mit Show-Deep-Link geöffnet → Projekt jetzt laden.
+    if (runtime.initialDeepLink) void handleShowDeepLink(runtime.initialDeepLink);
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
     // gehen per IPC an den Renderer, der seinen Zustand zurückmeldet.
     void startControlServer(() => getMainWindow());

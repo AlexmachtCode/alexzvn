@@ -145,4 +145,6 @@ export interface JmswitchProjectApi {
   open: () => Promise<OpenSwitcherResult | null>;
   /** Projekt speichern; ohne `path` öffnet sich „Speichern unter". null = abgebrochen. */
   save: (req: SaveSwitcherRequest) => Promise<SaveSwitcherResult | null>;
+  /** Show-Integration (C3): Der Hauptprozess schiebt das aus der .jmshow geladene Projekt zu. */
+  onOpened: (cb: (res: OpenSwitcherResult) => void) => () => void;
 }
