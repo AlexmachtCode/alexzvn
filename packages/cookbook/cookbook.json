@@ -1301,6 +1301,127 @@
       }
     },
     {
+      "id": "tool-jm-copy",
+      "title": "JM Copy — verifizierter Offload (xxHash64 + MHL)",
+      "category": "Tool-Manuals",
+      "difficulty": "einfach",
+      "setupTimeMin": 10,
+      "teamSize": "1",
+      "tags": [
+        "copy",
+        "offload",
+        "backup",
+        "sicherung",
+        "prüfsumme",
+        "mhl",
+        "xxhash",
+        "spiegel",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-copy"
+      ],
+      "prerequisites": [
+        "JM Copy installiert (über den Launcher)",
+        "Quellmedium (Karte/Laufwerk) und ein oder mehrere Ziel-Datenträger",
+        "Für die Netzwerk-Spiegelung erreichbare Backup-Ziele (UNC/Laufwerk)"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "DIT / Data Wrangler"
+      ],
+      "lastReviewed": "2026-07-05",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Verifizierter Medien-Offload: Footage von Karte/Quelle parallel auf mehrere Ziele kopieren, per xxHash64 zurücklesen und prüfen, MHL-Protokoll schreiben — plus Master-Ordner-Vorlagen und ein Netzwerk-Ordner-Spiegel als Backup.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Copy installiert (über den Launcher). Reines Werkzeug ohne Cloud, ohne native Abhängigkeiten.",
+              "Quellmedium (Kamerakarte, Recorder-Laufwerk) und **ein oder mehrere** Ziel-Datenträger.",
+              "Für die Spiegelung (Backup-Rechner) erreichbare Netzwerkfreigaben (UNC/Laufwerk/Volume)."
+            ]
+          },
+          {
+            "title": "Lokales Werkzeug",
+            "items": [
+              "Reines Kopier-/Sicherungswerkzeug — **kein Steuerserver, keine Show-Anbindung**. Vier Bereiche: **Kopieren · Sync · Vorlagen · Prüfen**."
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [
+            "**Quelle** wählen: Dateien und/oder Ordner (rekursiv gescannt, Junk wie `.DS_Store`/`Thumbs.db` übersprungen).",
+            "**Ziele** hinzufügen: beliebig viele — es wird **einmal gelesen und parallel auf alle Ziele geschrieben** (schneller Fan-out).",
+            "**Master-Ordner** aus einer Vorlage (Baukasten) erzeugen: Datums-/Projekt-Tokens (`{YYYY}{MM}{DD}`, `{projekt}`, `{kunde}`, `{episode}` …) + feste Unterordner (Footage/Audio/Docs …).",
+            "**Optionen**: Verifizieren (an), MHL-Protokoll (an), optional zusätzlich MD5."
+          ],
+          "waehrend": [
+            "Kopiervorgang starten — jede Datei wird beim Kopieren per **xxHash64** gehasht.",
+            "Bei aktivem **Verify** wird jede geschriebene Datei zurückgelesen und der Hash gegen die Quelle geprüft (je Ziel).",
+            "Fortschritt je Datei/Job wird angezeigt; Probleme werden als `mismatch`/`failed` markiert."
+          ],
+          "nach": [
+            "Ergebnis prüfen: „Alles verifiziert\" bzw. „N Datei(en) mit Problemen\", je Ziel „MHL ✓\" und „Im Finder/Explorer zeigen\".",
+            "Das **`.mhl`**-Protokoll (MHL 1.1, `xxhash64be`) liegt am Ziel — lesbar von DaVinci Resolve, Silverstack, ShotPut Pro.",
+            "**Später erneut prüfen**: Reiter „Prüfen\" → Ordner wählen → JM Copy rehasht alle im MHL referenzierten Dateien (ok / mismatch / missing)."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "„Ziel ist identisch mit der Quelle\"",
+            "remedy": "Anderes Ziel wählen (nicht auf die Quelle kopieren)"
+          },
+          {
+            "risk": "„Prüfsumme stimmt nicht überein\"",
+            "remedy": "Medium/Kabel defekt — Kopie wiederholen, Karte prüfen, nicht löschen"
+          },
+          {
+            "risk": "Ziel nicht erreichbar",
+            "remedy": "Netzlaufwerk verbunden? Freigabe/Rechte, Kabel/WLAN prüfen"
+          },
+          {
+            "risk": "Zieldatenträger voll",
+            "remedy": "Freien Platz vor dem Offload prüfen"
+          },
+          {
+            "risk": "Mirror hat am Ziel gelöscht",
+            "remedy": "Das ist gewollt — vorher Vorschau lesen; kritische Backups nicht spiegeln"
+          },
+          {
+            "risk": "Quelldatei nicht lesbar",
+            "remedy": "Wird übersprungen (`skipped`) — Karte/Reader prüfen"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Offload",
+            "items": [
+              "Quelle gewählt, Ziel(e) hinzugefügt",
+              "Master-Ordner/Vorlage gesetzt",
+              "Verify + MHL aktiv",
+              "Nach dem Lauf: „Alles verifiziert\", MHL am Ziel"
+            ]
+          },
+          {
+            "title": "Backup-Spiegel",
+            "items": [
+              "Vorschau gelesen (neu/aktualisiert/gelöscht)",
+              "Mirror nur, wenn Löschen am Ziel gewollt ist"
+            ]
+          }
+        ],
+        "tips": [
+          "Beim Offload **immer verifizieren** — nur so ist die Kopie beweisbar identisch (xxHash64 ist schnell, MD5 nur zusätzlich, wenn ein Kunde es verlangt).",
+          "Direkt auf **zwei Ziele** kopieren (Arbeits- + Backup-Platte) — der Fan-out macht das fast ohne Zeitverlust.",
+          "Master-Ordner-Vorlage einmal pro Projekt einrichten — dann landet jede Karte konsistent benannt im richtigen Baum.",
+          "Das MHL nicht wegwerfen — mit „Prüfen\" lässt sich Tage später belegen, dass nichts gekippt ist.",
+          "„Mirror\" mit Bedacht: es **löscht** am Ziel, was an der Quelle fehlt — vorher die Vorschau lesen."
+        ]
+      }
+    },
+    {
       "id": "tool-jm-daw",
       "title": "JM DAW — Mehrspur-Audio (Schnitt/Mix/Aufnahme)",
       "category": "Tool-Manuals",
@@ -1784,6 +1905,124 @@
           "Kommt ein Clip im JM Editor nicht flüssig oder gar nicht rein, hier vorab in ein edit-freundliches Format (ProRes/H.264) wandeln.",
           "PPTX-Folien vorab hier zu PDF wandeln und im Presenter das PDF importieren — spart den LibreOffice-Schritt unter Live-Druck.",
           "Hardware-Encoder für lange Dateien; bei Qualitätszweifeln kurzen Testausschnitt vergleichen."
+        ]
+      }
+    },
+    {
+      "id": "tool-jm-ndi-screen-capture",
+      "title": "JM NDI Screen Capture — Bildschirm als NDI-Quelle",
+      "category": "Tool-Manuals",
+      "difficulty": "einfach",
+      "setupTimeMin": 5,
+      "teamSize": "1",
+      "tags": [
+        "ndi",
+        "screen-capture",
+        "bildschirm",
+        "fenster",
+        "tray",
+        "streaming",
+        "studio",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-ndi-screen-capture",
+        "jm-switcher",
+        "jm-stage-display"
+      ],
+      "prerequisites": [
+        "JM NDI Screen Capture installiert (über den Launcher)",
+        "Ein NDI-Empfänger im LAN (JM Switcher, NDI Studio Monitor, OBS-NDI, vMix …)",
+        "Studio-LAN mit funktionierendem mDNS/NDI-Discovery"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Bildtechnik / Zuspielung"
+      ],
+      "lastReviewed": "2026-07-05",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Sendet einen Bildschirm oder ein Fenster als NDI-Quelle ins Studio-LAN — mit einstellbarer Bildrate (25/30/50/60), optionalem System-Audio (Windows) und Tray-Betrieb, sodass die NDI-Ausgabe im Hintergrund weiterläuft.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM NDI Screen Capture installiert (über den Launcher). Nutzt die native NDI-Runtime.",
+              "Ein **NDI-Empfänger** im selben LAN: JM Switcher, NDI Studio Monitor, OBS mit NDI-Plugin, vMix, TriCaster …",
+              "Studio-LAN mit funktionierendem NDI-Discovery (mDNS). Kein zweiter Monitor nötig, aber praktisch (man erfasst ja einen Screen/ein Fenster)."
+            ]
+          },
+          {
+            "title": "Netzwerk & Ausgabe",
+            "items": [
+              "Ausgabe als **NDI-Quelle** ins LAN — **kein Steuerserver, keine Show-Anbindung**.",
+              "NDI-Quellname wird automatisch gebildet: `JM Capture (<Rechnername>) - <Quelle>` (z. B. „JM Capture (STUDIO-PC) - Display 1\")."
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [
+            "**Quelle** wählen: einen Monitor **oder** ein Fenster (mit Vorschau-Thumbnail). „Aktualisieren\", falls ein Fenster neu ist.",
+            "**Bildrate** wählen: 25 / 30 / 50 / 60 (passend zum Studio-Standard PAL/NTSC).",
+            "Optional **System-Audio mitsenden** (nur Windows — Loopback des Ton-Ausgangs)."
+          ],
+          "waehrend": [
+            "**Start** — die Quelle geht als NDI ins LAN; der Empfänger (z. B. Switcher) wählt „JM Capture …\" aus. Die Statusleiste zeigt Auflösung, gemessene fps und die Zahl verbundener Empfänger.",
+            "Das Fenster kann **geschlossen** werden — die App **minimiert ins System-Tray** und sendet weiter. Steuerung (Start/Stopp, fps, Audio, Beenden) über das **Tray-Menü**."
+          ],
+          "nach": [
+            "Über das Tray-Menü **Stopp** bzw. **Beenden** (echtes Schließen nur dort)."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "Empfänger sieht die Quelle nicht",
+            "remedy": "Gleiches Subnetz? Firewall/mDNS für NDI offen? Empfänger neu suchen lassen"
+          },
+          {
+            "risk": "Schwarzes Bild",
+            "remedy": "Auf Hybrid-GPU-Notebooks bekannt — die App entschärft das (WGC/HW-Beschleunigung aus); Quelle neu wählen"
+          },
+          {
+            "risk": "Kein NDI-Versand trotz Start",
+            "remedy": "Native NDI-Komponente nicht installiert — Vorschau läuft, Versand nicht"
+          },
+          {
+            "risk": "System-Audio kommt nicht mit",
+            "remedy": "Loopback ist nur unter Windows verfügbar"
+          },
+          {
+            "risk": "Fenster „verschwunden\"",
+            "remedy": "Es liegt im System-Tray — App läuft weiter, dort Beenden/Steuern"
+          },
+          {
+            "risk": "Ruckelnde Ausgabe",
+            "remedy": "Niedrigere fps wählen; Netz-/CPU-Last prüfen"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Einrichtung",
+            "items": [
+              "Quelle (Monitor/Fenster) gewählt",
+              "Bildrate passend zum Studio",
+              "System-Audio nach Bedarf (Windows)"
+            ]
+          },
+          {
+            "title": "Vor Live",
+            "items": [
+              "Empfänger sieht „JM Capture …\" und zeigt das Bild",
+              "Verbundene Empfänger + fps in der Statusleiste ok",
+              "Tray-Betrieb bekannt (Fenster schließen = weiter senden)"
+            ]
+          }
+        ],
+        "tips": [
+          "Bildrate an das Programm anpassen: 50 für PAL-Produktionen, 25/30 für einfache Zuspielung — höhere fps kostet Bandbreite.",
+          "Ein **Fenster** statt des ganzen Monitors erfassen, wenn nur eine Anwendung (Folien, Browser, Scoreboard) ins Bild soll — sauberer als der volle Desktop.",
+          "Nach dem Start das Fenster ruhig schließen — der Tray-Betrieb hält die Quelle stabil, ohne dass jemand versehentlich das Sende-Fenster wegklickt.",
+          "Im JM Switcher als NDI-Quelle einbinden — Folien/Grafiken vom Zuspiel-PC ohne Kabel ins Programm."
         ]
       }
     },
@@ -2835,6 +3074,121 @@
       }
     },
     {
+      "id": "tool-jm-sync",
+      "title": "JM Sync — A/V-Versatz messen (Lipsync)",
+      "category": "Tool-Manuals",
+      "difficulty": "mittel",
+      "setupTimeMin": 10,
+      "teamSize": "1",
+      "tags": [
+        "sync",
+        "lipsync",
+        "av-versatz",
+        "latenz",
+        "streaming",
+        "messung",
+        "kalibrierung",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-sync"
+      ],
+      "prerequisites": [
+        "JM Sync installiert (über den Launcher) oder als Web-App auf dem Handy",
+        "Kamera + Mikrofon bzw. Capture-Card + Audio-Interface",
+        "Ein Referenzsignal (der eingebaute Generator oder ein Klatschbrett)"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Streaming / Technik"
+      ],
+      "lastReviewed": "2026-07-05",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Misst den A/V-Versatz (Lipsync-Offset), den eine Streaming-Pipeline einbaut — Softwareersatz fürs Sync-It-Plus: ein Generator löst Blitz + Piep gleichzeitig aus, die Messung erfasst beide mit einer Uhr, die Differenz ist der Versatz. Mit Null-Abgleich (Kalibrierung) und Verlaufsanzeige.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Sync installiert (über den Launcher) — oder als **Web-App** auf dem Handy (braucht HTTPS, Kamera + Mikro).",
+              "Eine **Videoquelle** (Kamera/Capture-Card) und eine **Audioquelle** (Mikro/Audio-Interface), die den zu prüfenden Signalweg abbilden.",
+              "Ein **Referenzsignal**: der eingebaute **Generator** (Blitz + Piep) oder ein echtes Klatschbrett."
+            ]
+          },
+          {
+            "title": "Lokales Werkzeug",
+            "items": [
+              "Reines Messwerkzeug — **kein Steuerserver, keine Show-Anbindung**. Drei Reiter: **Messung · Generator · Kalibrierung**.",
+              "Prinzip: Blitz und Piep werden **exakt gleichzeitig** ausgelöst und durch die Pipeline geschickt; da beide mit **einer** Uhr gemessen werden, ist keine Zeitsynchronisation nötig. Positiver Wert = **Audio führt**, negativer = **Video führt**."
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [
+            "Video- und Audioquelle wählen (im Studio Capture-Card + Interface; für einen Schnelltest lässt sich auch ein Bildschirm/Tab als Quelle nehmen).",
+            "**Kalibrierung (Null-Abgleich)**: Generator und Messung einmal **direkt** gegeneinander laufen lassen (ohne die zu prüfende Pipeline). JM Sync speichert die Eigenlatenz als Baseline und zieht sie danach automatisch ab."
+          ],
+          "waehrend": [
+            "**Generator** starten (am Punkt, den man prüfen will — z. B. auf dem Encoder-Screen). Intervall (1–5 s) und Frequenz (400–2000 Hz) sind mit der Messung gekoppelt.",
+            "**Messung** starten und ablesen: „Audio führt X ms\" bzw. „Video führt X ms\", plus **Verlaufsgraph** für stabile Mittelwerte.",
+            "Den gemessenen Versatz am Mischer/Encoder ausgleichen (Audio-Delay) und gegenkontrollieren."
+          ],
+          "nach": [
+            "Messung stoppen; bei geänderter Pipeline neu kalibrieren und messen."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "„Could not start video source\"",
+            "remedy": "Kamera/Capture von anderer App (OBS/Teams) belegt — schließen, Gerät freigeben"
+          },
+          {
+            "risk": "Keine Geräte erkannt",
+            "remedy": "Kamera-/Mikrofon-Freigabe erteilt? Gerät angeschlossen?"
+          },
+          {
+            "risk": "Werte springen stark",
+            "remedy": "Referenzsignal zu schwach/verdeckt — Blitz gut sichtbar, Piep laut genug"
+          },
+          {
+            "risk": "Ergebnis wirkt „verschoben\"",
+            "remedy": "Nicht kalibriert — Null-Abgleich durchführen"
+          },
+          {
+            "risk": "Web-App zeigt keine Kamera",
+            "remedy": "PWA braucht HTTPS für den Kamerazugriff"
+          },
+          {
+            "risk": "Gerät kann Einstellung nicht",
+            "remedy": "Andere Auflösung/Rate wählen (Overconstrained)"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Vor der Messung",
+            "items": [
+              "Video- + Audioquelle gewählt",
+              "Null-Abgleich (Kalibrierung) gemacht",
+              "Generator sichtbar/hörbar am richtigen Punkt"
+            ]
+          },
+          {
+            "title": "Messung",
+            "items": [
+              "Verlauf stabil, Median abgelesen",
+              "Versatz am Encoder/Mischer korrigiert und gegengeprüft"
+            ]
+          }
+        ],
+        "tips": [
+          "**Immer erst kalibrieren** — sonst steckt die Eigenlatenz von Kamera/Interface im Ergebnis und du korrigierst den falschen Wert.",
+          "Den Generator dort zeigen, wo das Signal in die Pipeline geht (Bühnen-Monitor/Encoder-Screen); die Messung am Ende (Stream/Recording) — die Differenz ist genau der Pipeline-Versatz.",
+          "Den Verlaufsgraphen beobachten, nicht den Momentwert — kurze Ausreißer werden verworfen, der Median ist belastbar.",
+          "Handy-Web-App als schnelle Zweitmessung „von der Bühne aus\" (Kamera aufs Display, Mikro an den Lautsprecher)."
+        ]
+      }
+    },
+    {
       "id": "tool-jm-timer",
       "title": "JM Timer — Countdown & Sprecher-Timer",
       "category": "Tool-Manuals",
@@ -3096,6 +3450,120 @@
           "Grafik im JM Grafiktool bauen und als `.jmtitler` „an den Titler senden\" — Hintergrund + variablen-fähige Text-Slots kommen fertig gemappt an.",
           "Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab.",
           "Zweiter Bildschirm statt NDI, wenn der Mischer nur SDI/HDMI-Keying kann: Chroma-Green-Ausgabe auf den Keyer, NDI bleibt zusätzlich verfügbar."
+        ]
+      }
+    },
+    {
+      "id": "tool-jm-transcribe",
+      "title": "JM Transcribe — Untertitel & Transkripte (offline)",
+      "category": "Tool-Manuals",
+      "difficulty": "einfach",
+      "setupTimeMin": 10,
+      "teamSize": "1",
+      "tags": [
+        "transcribe",
+        "untertitel",
+        "transkript",
+        "whisper",
+        "srt",
+        "vtt",
+        "offline",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-transcribe",
+        "jm-editor",
+        "jm-media-converter"
+      ],
+      "prerequisites": [
+        "JM Transcribe installiert (über den Launcher)",
+        "Audio-/Videodateien lokal verfügbar",
+        "Ausreichend Plattenplatz für nachgeladene Modelle (optional)"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Postproduktion / Untertitel"
+      ],
+      "lastReviewed": "2026-07-05",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Erzeugt Untertitel und Transkripte (SRT/VTT/TXT) lokal und offline aus Audio-/Videodateien via whisper.cpp — Sprachwahl oder Auto-Erkennung, Übersetzung nach Englisch, Basismodell mitgeliefert, größere Modelle nachladbar.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Transcribe installiert (über den Launcher). whisper-Binary + **Basismodell** sind mitgebündelt — läuft **offline**, keine Cloud.",
+              "Audio-/Videodateien lokal (ffmpeg wandelt intern in 16-kHz-Mono-WAV).",
+              "Plattenplatz, falls größere Modelle nachgeladen werden."
+            ]
+          },
+          {
+            "title": "Lokales Werkzeug",
+            "items": [
+              "Reines Offline-Werkzeug — **kein Steuerserver / keine Fernsteuerung**.",
+              "Über eine **`.jmshow`** übernimmt Transcribe Voreinstellungen (Sprache, Modell, Aufgabe, Formate, Zielordner) — sinnvoll, um pro Produktion gleich richtig zu starten."
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [
+            "**Modell** wählen: `base` (mitgeliefert, schnell) bis `large-v3` (beste Qualität, langsam). Größere Modelle werden bei Bedarf einmalig heruntergeladen.",
+            "**Sprache** wählen oder „Automatisch erkennen\".",
+            "**Aufgabe**: `Transkribieren` (Originalsprache) oder `Übersetzen` (immer nach Englisch).",
+            "**Formate**: SRT, VTT und/oder TXT. **Zielordner** setzen (leer = neben der Quelldatei)."
+          ],
+          "waehrend": [
+            "Dateien per Dialog hinzufügen **oder** in das Fenster ziehen. Die Job-Queue arbeitet sie nacheinander ab (Fortschritt je Datei).",
+            "Größeres Modell = genauer, aber deutlich langsamer — bei vielen Dateien Modellgröße bewusst wählen."
+          ],
+          "nach": [
+            "Ergebnisdateien prüfen (Chips je Job) und „Im Ordner zeigen\". Untertitel in den Schnitt (JM Editor) übernehmen oder als Transkript weitergeben."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "„Engine nicht verfügbar\" / kein Transkribieren",
+            "remedy": "whisper-Binary fehlt (Windows-Build) — Installation prüfen"
+          },
+          {
+            "risk": "Modell nicht installiert",
+            "remedy": "Modell im Tool herunterladen (base ist immer da)"
+          },
+          {
+            "risk": "Keine Ausgabedatei erzeugt",
+            "remedy": "Schreibrechte/Zielordner prüfen; mindestens ein Format wählen"
+          },
+          {
+            "risk": "Datei wird nicht verarbeitet",
+            "remedy": "Exotischer Codec — vorab im JM Media Converter umwandeln"
+          },
+          {
+            "risk": "Transkription sehr langsam",
+            "remedy": "Kleineres Modell wählen; große Modelle brauchen Zeit/CPU"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Einrichtung",
+            "items": [
+              "Modell + Sprache + Aufgabe gewählt",
+              "Formate (SRT/VTT/TXT) + Zielordner gesetzt",
+              "Gewünschtes Modell installiert"
+            ]
+          },
+          {
+            "title": "Durchlauf",
+            "items": [
+              "Dateien hinzugefügt, Queue läuft",
+              "Ergebnis stichprobenartig geprüft (Timing/Rechtschreibung)"
+            ]
+          }
+        ],
+        "tips": [
+          "Für saubere Untertitel `base`/`small` meist ausreichend; `medium`/`large-v3` für schwierige Akustik oder fremde Sprachen.",
+          "„Automatisch erkennen\" nur, wenn die Sprache unklar ist — die feste Sprachwahl ist zuverlässiger.",
+          "SRT für Videoschnitt/YouTube, VTT für Web-Player, TXT als reines Redemanuskript — bei Bedarf einfach mehrere Formate ankreuzen.",
+          "Über eine **`.jmshow`** pro Event Sprache + Zielordner vorbelegen — dann ist jede Aufnahme sofort richtig eingestellt."
         ]
       }
     },
