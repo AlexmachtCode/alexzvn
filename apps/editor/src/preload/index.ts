@@ -5,6 +5,7 @@ import type {
   ExportResult,
   ImportKind,
   JmedApi,
+  OpenProjectResult,
   PickOutputRequest,
   ProxyProgress,
   ProxyResult,
@@ -61,6 +62,11 @@ const api: JmedApi = {
     const listener = (_e: unknown, r: ExportResult) => cb(r);
     ipcRenderer.on('export:done', listener);
     return () => ipcRenderer.off('export:done', listener);
+  },
+  onProjectOpened: (cb) => {
+    const listener = (_e: unknown, r: OpenProjectResult) => cb(r);
+    ipcRenderer.on('project:opened', listener);
+    return () => ipcRenderer.off('project:opened', listener);
   },
 };
 

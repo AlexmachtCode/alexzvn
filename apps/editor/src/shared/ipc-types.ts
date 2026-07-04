@@ -114,4 +114,6 @@ export interface JmedApi {
   onProxyDone: (cb: (r: ProxyResult) => void) => () => void;
   onExportProgress: (cb: (p: ExportProgress) => void) => () => void;
   onExportDone: (cb: (r: ExportResult) => void) => () => void;
+  /** Show-Integration (C3): der Hauptprozess schiebt ein aus der .jmshow geladenes Projekt zu. */
+  onProjectOpened: (cb: (r: OpenProjectResult) => void) => () => void;
 }

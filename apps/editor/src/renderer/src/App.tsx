@@ -34,11 +34,17 @@ export function App() {
         setExportStatus({ running: false, error: r.error ?? 'Export fehlgeschlagen' });
       }
     });
+    // Show-Integration (C3): per .jmshow referenziertes .jmedit-Projekt laden —
+    // gleicher Pfad wie beim manuellen „Öffnen".
+    const offPO = window.jmed.onProjectOpened((r) =>
+      useProject.getState().loadProject(r.path, r.project),
+    );
     return () => {
       offPP();
       offPD();
       offEP();
       offED();
+      offPO();
     };
   }, [setProxyProgress, setProxyDone, setExportStatus]);
 
