@@ -24,7 +24,7 @@ export function OnboardingModal() {
   const states = useTools((s) => s.states);
   const openSettings = useTools((s) => s.openSettings);
   const openSystem = useTools((s) => s.openSystem);
-  const openShowEditor = useTools((s) => s.openShowEditor);
+  const openScenarios = useTools((s) => s.openScenarios);
   const setView = useTools((s) => s.setView);
 
   if (!open) return null;
@@ -95,10 +95,10 @@ export function OnboardingModal() {
           />
           <Step
             index={4}
-            title="Erste Show anlegen"
-            desc="Eine .jmshow bündelt deine Tools + den Ablauf — ein Klick startet später die ganze Produktion koordiniert."
-            actionLabel="Show anlegen"
-            onAction={openShowEditor}
+            title="Erste Show aus Vorlage"
+            desc="Wähle, was du produzierst (Konferenz, Battle, Bühne, Podcast) — die passende .jmshow mit Tools + Ablauf wird vorbereitet. Ein Klick startet später die ganze Produktion koordiniert."
+            actionLabel="Vorlage wählen"
+            onAction={openScenarios}
           />
         </ol>
 
