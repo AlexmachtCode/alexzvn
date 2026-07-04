@@ -5,6 +5,7 @@ import { ActivePanel } from '@/components/ActivePanel';
 import { Queue } from '@/components/Queue';
 import { AddForm } from '@/components/AddForm';
 import { RemotePanel } from '@/components/RemotePanel';
+import { CloudPanel } from '@/components/CloudPanel';
 import { Settings } from '@/components/Settings';
 import { ConnectionsPanel } from '@/components/ConnectionsPanel';
 
@@ -48,9 +49,10 @@ export function App() {
           <AddForm />
         </div>
 
-        {/* Rechts: Saal-Einreichung (QR) + Kopplungsstatus */}
+        {/* Rechts: Saal-Einreichung (QR) + externe Einreichung + Kopplungsstatus */}
         <div className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto">
           <RemotePanel remote={state.remote} />
+          <CloudPanel cloud={state.cloud} />
           <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3">
             <h2 className="mb-2 text-sm font-semibold text-neutral-300">Kopplung</h2>
             <div className="space-y-1.5">
@@ -74,7 +76,7 @@ export function App() {
         </div>
       </div>
 
-      {showSettings && <Settings config={state.config} onClose={() => setShowSettings(false)} />}
+      {showSettings && <Settings config={state.config} cloud={state.cloud} onClose={() => setShowSettings(false)} />}
       {showConnections && (
         <ConnectionsPanel
           links={state.links}

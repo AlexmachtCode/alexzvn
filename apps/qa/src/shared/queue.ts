@@ -1,7 +1,7 @@
 // Reine Queue-Logik (keine node/electron-Imports) — per Selftest (test/selftest.ts)
 // ohne Electron prüfbar. Operiert immutabel auf QaEntry[]; IDs/Zeitstempel reicht
 // der Main herein, damit die Funktionen deterministisch testbar bleiben.
-import type { QaEntry, QaStatus, QaSubmission } from './types';
+import type { QaChannel, QaEntry, QaStatus, QaSubmission } from './types';
 
 let _seq = 0;
 /** Kurze, eindeutige ID für Einträge. */
@@ -18,7 +18,9 @@ export function makeEntry(
   approved: boolean,
   id: string,
   at: number,
+  channel: QaChannel = source === 'operator' ? 'operator' : 'lan',
 ): QaEntry {
+  const contact = clampStr(sub.contact, 200);
   return {
     id,
     name: clampStr(sub.name, 80) || 'Unbenannt',
@@ -26,6 +28,8 @@ export function makeEntry(
     question: clampStr(sub.question, 500),
     status: 'waiting',
     source,
+    channel,
+    ...(contact ? { contact } : {}),
     approved,
     at,
   };
@@ -89,9 +93,19 @@ export function activeEntry(entries: QaEntry[]): QaEntry | null {
   return entries.find((e) => e.status === 'active') ?? null;
 }
 
-/** Erster wartender (bei Moderation: freigegebener) Eintrag in Listenreihenfolge. */
+/**
+ * Ist ein Eintrag aufrufbereit? Externe Einreichungen (Stream/Presse, #166) sind
+ * IMMER freigabepflichtig — unabhängig vom Moderations-Schalter. Für Pult/Saal gilt
+ * der Schalter: ohne Moderation sofort bereit, mit Moderation erst nach Freigabe.
+ */
+function isReady(e: QaEntry, moderation: boolean): boolean {
+  if (e.channel === 'stream' || e.channel === 'press') return e.approved;
+  return !moderation || e.approved;
+}
+
+/** Erster wartender (freigabebereiter) Eintrag in Listenreihenfolge. */
 export function nextWaiting(entries: QaEntry[], moderation: boolean): QaEntry | null {
-  return entries.find((e) => e.status === 'waiting' && (!moderation || e.approved)) ?? null;
+  return entries.find((e) => e.status === 'waiting' && isReady(e, moderation)) ?? null;
 }
 
 export function clearDone(entries: QaEntry[]): QaEntry[] {
@@ -100,7 +114,7 @@ export function clearDone(entries: QaEntry[]): QaEntry[] {
 
 /** Anzahl wartender (queuebarer) Einträge — für STATE/Companion. */
 export function waitingCount(entries: QaEntry[], moderation: boolean): number {
-  return entries.filter((e) => e.status === 'waiting' && (!moderation || e.approved)).length;
+  return entries.filter((e) => e.status === 'waiting' && isReady(e, moderation)).length;
 }
 
 /**

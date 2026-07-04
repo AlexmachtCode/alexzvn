@@ -1,4 +1,5 @@
-import type { QaConfig } from '@shared/types';
+import { useState } from 'react';
+import type { QaCloudInfo, QaConfig } from '@shared/types';
 import { useQa } from '@/store/useQa';
 
 const inp = 'rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100';
@@ -15,12 +16,12 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
-/** Einstellungen: Redezeit + Auto-Kopplung (Timer/Titler) + Moderation. */
-export function Settings({ config, onClose }: { config: QaConfig; onClose: () => void }) {
+/** Einstellungen: Redezeit + Auto-Kopplung (Timer/Titler) + Moderation + Cloud. */
+export function Settings({ config, cloud, onClose }: { config: QaConfig; cloud: QaCloudInfo; onClose: () => void }) {
   const { setConfig } = useQa();
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 py-8" onClick={onClose}>
       <div
         className="w-[34rem] rounded-xl border border-neutral-700 bg-neutral-900 p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
@@ -69,7 +70,79 @@ export function Settings({ config, onClose }: { config: QaConfig; onClose: () =>
         <Row label="Moderation" hint="Saal-Einreichungen müssen erst freigegeben werden, bevor sie aufgerufen werden.">
           <input type="checkbox" checked={config.moderation} onChange={(e) => void setConfig({ moderation: e.target.checked })} />
         </Row>
+
+        <CloudSettings config={config} cloud={cloud} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Externe Einreichung (#166): Fragen per Livestream-QR + Presse vorab, über den
+ * Cloud-Relay. Proxy-URL/Key + Event + Presse-Code. Der Live-Status (QR/Links)
+ * liegt im CloudPanel rechts. Externe Einreichungen sind IMMER moderationspflichtig.
+ */
+function CloudSettings({ config, cloud }: { config: QaConfig; cloud: QaCloudInfo }) {
+  const { setCloudConfig, setProxyKey, cloudGenerateEvent } = useQa();
+  const [key, setKey] = useState('');
+
+  return (
+    <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+      <div className="mb-1 text-sm font-semibold text-neutral-300">Externe Einreichung (Stream & Presse)</div>
+      <p className="mb-2 text-[11px] text-neutral-500">
+        Fragen von außerhalb des Saal-WLANs — Ende-zu-Ende verschlüsselt über den Cloud-Relay. Presse per
+        Zugangscode. Alle externen Einreichungen sind freigabepflichtig.
+      </p>
+
+      <Row label="Proxy-URL" hint="Basis-URL des Q&A-Relays (Cloudflare-Worker).">
+        <input
+          className={`${inp} w-56`}
+          placeholder="https://…workers.dev"
+          value={config.proxyUrl}
+          onChange={(e) => void setCloudConfig({ proxyUrl: e.target.value })}
+        />
+      </Row>
+
+      <Row label="Proxy-Key" hint={cloud.hasKey ? 'Hinterlegt (verschlüsselt gespeichert).' : 'Zugriffs-Key des Proxys (Secret).'}>
+        <div className="flex gap-1">
+          <input
+            className={`${inp} w-40`}
+            type="password"
+            placeholder={cloud.hasKey ? '•••••• (ändern)' : 'Key'}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+          />
+          <button
+            className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+            onClick={() => {
+              void setProxyKey(key);
+              setKey('');
+            }}
+          >
+            Speichern
+          </button>
+        </div>
+      </Row>
+
+      <Row label="Event" hint={config.eventId ? `ID: ${config.eventId}` : 'Noch kein Event erzeugt.'}>
+        <button
+          className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+          onClick={() => void cloudGenerateEvent()}
+        >
+          {config.eventId ? 'Neues Event' : 'Event erzeugen'}
+        </button>
+      </Row>
+
+      <Row label="Presse-Zugangscode" hint="Nur mit diesem Code kann Presse einreichen (leer = Presse-Kanal aus).">
+        <input
+          className={`${inp} w-40`}
+          placeholder="z. B. PRESSE-2026"
+          value={config.pressCode}
+          onChange={(e) => void setCloudConfig({ pressCode: e.target.value })}
+        />
+      </Row>
+
+      {cloud.lastError && <div className="mt-2 text-[11px] text-red-400">Fehler: {cloud.lastError}</div>}
     </div>
   );
 }

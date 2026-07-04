@@ -17,6 +17,11 @@ interface Store {
   setConfig: (patch: Partial<QaConfig>) => Promise<void>;
   setRemote: (enabled: boolean) => Promise<void>;
   setEndpoint: (role: string, host: string, port: number) => Promise<void>;
+  setCloudConfig: (patch: Partial<QaConfig>) => Promise<void>;
+  setProxyKey: (key: string) => Promise<void>;
+  cloudGenerateEvent: () => Promise<void>;
+  cloudEnable: (enabled: boolean) => Promise<void>;
+  cloudPurge: () => Promise<void>;
 }
 
 let subscribed = false;
@@ -45,4 +50,9 @@ export const useQa = create<Store>((set) => ({
   setConfig: async (patch) => set({ state: await window.jmqa.setConfig(patch) }),
   setRemote: async (enabled) => set({ state: await window.jmqa.setRemote(enabled) }),
   setEndpoint: async (role, host, port) => set({ state: await window.jmqa.setEndpoint(role, host, port) }),
+  setCloudConfig: async (patch) => set({ state: await window.jmqa.setCloudConfig(patch) }),
+  setProxyKey: async (key) => set({ state: await window.jmqa.setProxyKey(key) }),
+  cloudGenerateEvent: async () => set({ state: await window.jmqa.cloudGenerateEvent() }),
+  cloudEnable: async (enabled) => set({ state: await window.jmqa.cloudEnable(enabled) }),
+  cloudPurge: async () => set({ state: await window.jmqa.cloudPurge() }),
 }));

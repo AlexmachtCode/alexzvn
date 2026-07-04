@@ -33,6 +33,12 @@ const api: JmQaApi = {
   setRemote: (enabled: boolean) => ipcRenderer.invoke('qa:setRemote', enabled) as Promise<QaState>,
   setEndpoint: (role: string, host: string, port: number) =>
     ipcRenderer.invoke('qa:setEndpoint', role, host, port) as Promise<QaState>,
+
+  setCloudConfig: (patch: Partial<QaConfig>) => ipcRenderer.invoke('qa:setCloudConfig', patch) as Promise<QaState>,
+  setProxyKey: (key: string) => ipcRenderer.invoke('qa:setProxyKey', key) as Promise<QaState>,
+  cloudGenerateEvent: () => ipcRenderer.invoke('qa:cloudGenerateEvent') as Promise<QaState>,
+  cloudEnable: (enabled: boolean) => ipcRenderer.invoke('qa:cloudEnable', enabled) as Promise<QaState>,
+  cloudPurge: () => ipcRenderer.invoke('qa:cloudPurge') as Promise<QaState>,
 };
 
 if (process.contextIsolated) {

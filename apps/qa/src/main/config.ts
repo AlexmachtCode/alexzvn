@@ -12,6 +12,13 @@ export const defaultConfig: QaConfig = {
   moderation: true,
   remoteEnabled: false,
   titlerTemplate: 'lowerthird',
+  // Externe Einreichung (Cloud-Relay, #166) — standardmäßig aus.
+  cloudEnabled: false,
+  proxyUrl: '',
+  eventId: '',
+  pressCode: '',
+  streamOpen: true,
+  pressOpen: true,
 };
 
 interface Persisted {
