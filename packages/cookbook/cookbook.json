@@ -925,6 +925,138 @@
       "location": "BMUKN Berlin, Stresemannstr. 128-130"
     },
     {
+      "id": "tool-jm-recorder",
+      "title": "JM Audio Recorder — Mehrspur-Mitschnitt (WAV)",
+      "category": "Tool-Manuals",
+      "difficulty": "einfach",
+      "setupTimeMin": 10,
+      "teamSize": "1",
+      "tags": [
+        "recorder",
+        "aufnahme",
+        "audio",
+        "wav",
+        "mehrspur",
+        "mitschnitt",
+        "asio",
+        "dante",
+        "companion",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-recorder",
+        "jm-daw",
+        "jm-timer",
+        "jm-rundown"
+      ],
+      "prerequisites": [
+        "JM Audio Recorder installiert (über den Launcher)",
+        "Audio-Eingang am Rechner (Interface / ASIO / Dante Virtual Soundcard)",
+        "Zielordner mit genügend freiem Speicher (WAV ist unkomprimiert)",
+        "Optional Bitfocus Companion / JM Rundown für die Fernsteuerung"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Ton / Recording Operator"
+      ],
+      "lastReviewed": "2026-07-04",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Mehrspur-Audiomitschnitt als WAV über die Soundkarte — Gerät/Kanäle wählen, Pegel (Gain) setzen, optional getrennte Spuren und zeitgesteuerte Aufnahme, per Companion fern-ausgelöst.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Audio Recorder installiert (über den Launcher). Native Aufnahme über PortAudio — Windows (macOS als lokaler Build).",
+              "Ein Audio-Eingang: Audio-Interface, ASIO-Gerät oder Dante Virtual Soundcard. Mehrkanal wird unterstützt.",
+              "Zielordner mit ausreichend Platz — die Aufnahme ist **WAV** (unkomprimiert; grob ~10 MB pro Kanal und Minute bei 48 kHz/24 bit).",
+              "Optional: Bitfocus Companion oder JM Rundown, um Aufnahme fern zu starten/stoppen."
+            ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port **8729** (TCP-Zeilenprotokoll): Steuerport für Companion / Rundown. Auto-Discovery über mDNS (`jm-recorder-ctl`, TXT `ctl=1`).",
+              "Bedienmodell: **Scharfschalten (Arm) → Aufnehmen (Record)**. „Arm\" öffnet den Eingang (Pegel laufen, noch keine Datei); „Record\" schreibt die WAV."
+            ]
+          },
+          {
+            "title": "Fernsteuer-Befehle (TCP 8729)",
+            "items": [
+              "`RECORDER ARM` / `RECORDER DISARM` — Eingang öffnen/schließen (Pegel ohne Datei)",
+              "`RECORDER RECORD ON` / `RECORDER RECORD OFF` / `RECORDER RECORD TOGGLE` — Aufnahme starten/stoppen/umschalten",
+              "`STATE?` — Zustand abfragen. Gepushte STATE-Werte: `recording` (0/1), `armed` (0/1), `status`"
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [],
+          "waehrend": [
+            "Vor dem Start **Arm** drücken und die Pegel prüfen — nicht ins Clipping fahren (Gain reduzieren, falls nötig).",
+            "**Record** startet den Mitschnitt (lokal oder per Companion `RECORDER RECORD ON`). Der Zustand (`recording`) wird an Companion gemeldet.",
+            "Für einen unbeaufsichtigten Mitschnitt die **zeitgesteuerte Aufnahme** nutzen: Startzeit und/oder Auto-Stopp nach N Minuten setzen."
+          ],
+          "nach": [
+            "**Record OFF** beendet und finalisiert die WAV sauber (Datei erst danach vollständig lesbar).",
+            "Aufnahme kontrollieren (Pegel, Vollständigkeit); Dateien sichern. Für Schnitt/Mix in JM DAW importieren."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "Kein Eingang / „Gerät konnte nicht geöffnet werden\"",
+            "remedy": "Richtiges Gerät gewählt? ASIO-/Dante-Treiber aktiv, Gerät nicht von anderer App belegt?"
+          },
+          {
+            "risk": "Kein Pegel trotz Arm",
+            "remedy": "Falscher Eingang/Kanal, Kabel/Phantomspeisung prüfen; Gain nicht zu niedrig"
+          },
+          {
+            "risk": "Übersteuerung (Clipping)",
+            "remedy": "Gain reduzieren, am Interface/Pult zurücknehmen — vor Record prüfen"
+          },
+          {
+            "risk": "Companion startet nicht",
+            "remedy": "Port 8729 offen? `jm-recorder-ctl` im mDNS sichtbar (sonst Adresse manuell eintragen)?"
+          },
+          {
+            "risk": "WAV unvollständig/nicht abspielbar",
+            "remedy": "Aufnahme sauber mit **Record OFF** beenden — die Datei wird erst beim Stopp finalisiert"
+          },
+          {
+            "risk": "Platte voll mitten in der Aufnahme",
+            "remedy": "Vorher Speicher prüfen; WAV ist groß — bei langen/mehrkanaligen Mitschnitten großzügig planen"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Einrichtung",
+            "items": [
+              "Eingangsgerät gewählt (ASIO/Dante bevorzugt), Kanäle + Samplerate gesetzt",
+              "Zielordner + Dateiname festgelegt, Speicher geprüft",
+              "Gain gesetzt, Pegel im grünen Bereich",
+              "Getrennte Spuren nach Bedarf aktiviert",
+              "Companion/Rundown auf Port 8729 verbunden (optional)"
+            ]
+          },
+          {
+            "title": "Vor Live",
+            "items": [
+              "Arm + Pegel geprüft (kein Clipping, alle Kanäle da)",
+              "Test-Aufnahme kurz gemacht und abgespielt",
+              "Zeitplan/Auto-Stopp gesetzt (falls unbeaufsichtigt)"
+            ]
+          }
+        ],
+        "tips": [
+          "Immer erst **Arm** und ein paar Sekunden Pegel beobachten, bevor es live wird — so fällt ein totes Kabel/falscher Eingang vor der Aufnahme auf, nicht danach.",
+          "**Getrennte Spuren** aktivieren, wenn hinterher gemischt wird — die Mono-WAVs pro Kanal landen direkt auf der DAW-Timeline.",
+          "`RECORD TOGGLE` auf einen Companion-Button legen: ein Knopf für Start und Stopp, mit rückgemeldetem `recording`-Zustand als Tally.",
+          "Zeitgesteuerte Aufnahme für Vorträge/Streams, die pünktlich beginnen — Startzeit setzen, der Recorder scharf lassen, fertig.",
+          "Über eine **`.jmshow`** lassen sich Zielordner, Dateiname, getrennte Spuren, Kanäle und Samplerate pro Produktion vorbelegen (das Eingangsgerät bleibt bewusst lokal)."
+        ]
+      }
+    },
+    {
       "id": "tool-jm-battle",
       "title": "JM Battle — BattleRap-Voting & Replay",
       "category": "Tool-Manuals",
@@ -1278,6 +1410,275 @@
       }
     },
     {
+      "id": "tool-jm-presenter",
+      "title": "JM Presenter — Folien mit Referenten- & Publikumsansicht",
+      "category": "Tool-Manuals",
+      "difficulty": "mittel",
+      "setupTimeMin": 15,
+      "teamSize": "1",
+      "tags": [
+        "presenter",
+        "folien",
+        "powerpoint",
+        "pdf",
+        "referentenansicht",
+        "publikum",
+        "clicker",
+        "pin",
+        "companion",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-presenter",
+        "jm-timer",
+        "jm-stage-display",
+        "jm-rundown"
+      ],
+      "prerequisites": [
+        "JM Presenter installiert (über den Launcher)",
+        "Foliendokument (.pdf, PowerPoint/Office, Bilder oder .jmpres)",
+        "LibreOffice installiert (nur für Office-Import PPTX/DOCX …)",
+        "Zweiter Monitor/Beamer für die Publikumsansicht",
+        "Optional Handy im WLAN als Clicker (mit PIN)"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Präsentations-Operator / Regie"
+      ],
+      "lastReviewed": "2026-07-04",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Folien aus PDF/PowerPoint aufbereiten und mit getrennter Referenten- und Publikumsansicht präsentieren — Notizen, Black/White, Bauchbinden-Overlays, Handy-Clicker mit PIN, Companion-Steuerung und Timer-Countdown.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Presenter installiert (über den Launcher)",
+              "Ein Foliendokument: **.pdf**, **Bilder**, ein **Office-Format** (PPTX/PPT/ODP/DOCX/…) oder ein editierbares **.jmpres**-Projekt",
+              "**LibreOffice** (`soffice`) installiert — nur nötig für den Office-Import (Office → PDF)",
+              "Zweiter Monitor/Beamer für die Publikumsansicht (Vollbild)",
+              "Optional: Handy im WLAN als Clicker (PIN), JM Timer für den Countdown, Companion/Rundown"
+            ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port **8728** (TCP-Zeilenprotokoll): Steuerport für Companion / Rundown. Auto-Discovery über mDNS (`jm-presenter-ctl`, TXT `ctl=1`).",
+              "Port **7330** (HTTP/SSE): Handy-Clicker + Live-Folienbild — optional per **4-stelliger PIN** geschützt. Wird auch von JM Stage Display als Referenten-Feed genutzt.",
+              "Port **7777** (socket.io, ausgehend): liest den JM-Timer-Countdown und spiegelt ihn in Referenten-/Publikumsansicht."
+            ]
+          },
+          {
+            "title": "Fernsteuer-Befehle (TCP 8728)",
+            "items": [
+              "`PRESENTER NEXT` / `PRESENTER PREV` — eine Folie vor/zurück",
+              "`PRESENTER GOTO <n>` — zu Folie n springen (1-basiert)",
+              "`PRESENTER BLACK` / `PRESENTER WHITE` — Pausenbild schwarz/weiß",
+              "`PRESENTER LIVE` — zurück zur Folie (Pause aufheben)",
+              "`PRESENTER OPEN <pfad>` — Dokument öffnen (.pdf/.pptx/.jmpres/Bild)",
+              "`PRESENTER STOP` — Präsentation beenden",
+              "`STATE?` — Zustand abfragen. Gepushte STATE-Werte: `slide`, `total`, `active`, `live`, `black`, `white`"
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [],
+          "waehrend": [
+            "Navigieren mit `NEXT`/`PREV` (lokal, Handy oder Companion). `GOTO` springt gezielt.",
+            "`BLACK`/`WHITE` für Pausen/Umbau, `LIVE` holt die Folie zurück.",
+            "Referentenansicht im Blick behalten: Notizen + nächste Folie + Countdown; das Publikum sieht nur die saubere Folie."
+          ],
+          "nach": [
+            "`STOP` beendet die Präsentation; Projekt (.jmpres) sichern, falls Overlays/Anpassungen erhalten bleiben sollen."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "Office-Import schlägt fehl",
+            "remedy": "LibreOffice installiert und auffindbar? Sonst als PDF exportieren und dieses importieren"
+          },
+          {
+            "risk": "„Port belegt\" bei der Fernbedienung",
+            "remedy": "Anderen Remote-Port wählen (Standard 7330)"
+          },
+          {
+            "risk": "Handy/Clicker meldet 401",
+            "remedy": "Falsche/fehlende PIN — PIN am Handy eingeben; dieselbe PIN im Stage Display"
+          },
+          {
+            "risk": "Kein Bild auf dem Beamer",
+            "remedy": "Publikumsfenster geöffnet + richtiger Monitor? Vollbild aktiv?"
+          },
+          {
+            "risk": "Countdown bleibt leer",
+            "remedy": "JM Timer läuft und ist auf 7777 erreichbar, Timer-Sync aktiv?"
+          },
+          {
+            "risk": "Companion steuert nicht",
+            "remedy": "Port 8728 offen? `jm-presenter-ctl` (ctl=1) im mDNS?"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Einrichtung",
+            "items": [
+              "Dokument importiert (Office → PDF via LibreOffice) / als .jmpres gespeichert",
+              "Overlays gesetzt (falls nötig)",
+              "Publikumsansicht auf Beamer/Monitor (Vollbild), Referentenansicht beim Operator",
+              "Handy-Clicker mit PIN aktiv (QR/URL verteilt)",
+              "Companion 8728 + JM Timer 7777 verbunden (optional)"
+            ]
+          },
+          {
+            "title": "Vor Live",
+            "items": [
+              "Durch alle Folien geklickt (Reihenfolge/Overlays ok)",
+              "Black/White + LIVE getestet",
+              "Notizen erscheinen in der Referentenansicht",
+              "Countdown läuft"
+            ]
+          }
+        ],
+        "tips": [
+          "Office vorab importieren und als **.jmpres** speichern — der LibreOffice-Wandlungsschritt passiert dann einmal in Ruhe, nicht unter Live-Druck.",
+          "Notizen in der Quelldatei pflegen — sie erscheinen in der Referentenansicht und (optional) auf dem JM Stage Display als Confidence-Monitor.",
+          "Handy-Clicker mit **PIN** betreiben, sonst kann jeder im WLAN weiterklicken. Dieselbe PIN braucht das Stage Display für den Folien-Feed.",
+          "`BLACK` auf einen Companion-Button — schneller sauberer „Vorhang\" zwischen zwei Programmpunkten.",
+          "Über eine **`.jmshow`** öffnet der Presenter sein `.jmpres` automatisch; das Stage Display zieht Referenten-Feed + PIN aus derselben Show."
+        ]
+      }
+    },
+    {
+      "id": "tool-jm-prompter",
+      "title": "JM Prompter — Teleprompter mit Handy-Fernbedienung",
+      "category": "Tool-Manuals",
+      "difficulty": "einfach",
+      "setupTimeMin": 10,
+      "teamSize": "1",
+      "tags": [
+        "prompter",
+        "teleprompter",
+        "skript",
+        "scroll",
+        "spiegel",
+        "handy-remote",
+        "companion",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-prompter",
+        "jm-timer",
+        "jm-rundown"
+      ],
+      "prerequisites": [
+        "JM Prompter installiert (über den Launcher)",
+        "Ein Skript (getippt oder als .docx / .txt / .md)",
+        "Zweiter Monitor als Talent-/Prompter-Ausgabe",
+        "Optional Handy im selben WLAN für die Fernbedienung"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Prompter Operator / Regie"
+      ],
+      "lastReviewed": "2026-07-04",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Teleprompter mit Skript-Editor und Vollbild-Scroller auf dem Talent-Monitor — Tempo, Schrift, Ränder und Lesezeile einstellbar, Spiegelmodus für Beamsplitter, Fernbedienung per Handy (QR) oder Companion.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Prompter installiert (über den Launcher)",
+              "Ein Skript: direkt getippt oder aus **.docx / .txt / .md** geladen. Zeilen mit `#` / `##` werden zu Sprungmarken (Abschnitte).",
+              "Zweiter Monitor als Talent-Ausgabe (bei Beamsplitter-Glas: Spiegelmodus)",
+              "Optional: Handy im selben WLAN für die Fernbedienung, oder Bitfocus Companion / JM Rundown"
+            ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port **8727** (TCP-Zeilenprotokoll): Steuerport für Companion / Rundown. Auto-Discovery über mDNS (`jm-prompter-ctl`, TXT `ctl=1`).",
+              "Port **7781** (HTTP): Handy-Fernbedienung (`@jm/remote`) — QR-Code + URL im Operator-Fenster. Optional per Suite-Token abgesichert."
+            ]
+          },
+          {
+            "title": "Fernsteuer-Befehle (TCP 8727)",
+            "items": [
+              "`PROMPTER SCROLL ON` / `OFF` / `TOGGLE` — Scrollen starten/stoppen/umschalten",
+              "`PROMPTER SPEED <n>` — Tempo setzen (0,2–6 Zeilen/s)",
+              "`PROMPTER FASTER` / `PROMPTER SLOWER` — Tempo schrittweise ändern",
+              "`PROMPTER TOP` — an den Skriptanfang springen",
+              "`STATE?` — Zustand abfragen. Gepushte STATE-Werte: `scrolling` (0/1), `speed`"
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [],
+          "waehrend": [
+            "Tempo mit dem Sprecher einregeln — lieber etwas langsamer als zu schnell. `FASTER`/`SLOWER` (lokal oder per Handy/Companion) justieren live.",
+            "`SCROLL TOGGLE` startet/stoppt; bei Versprechern per Abschnittssprung zurück, `TOP` an den Anfang.",
+            "Das Handy in der Hand des Regie-/Prompter-Operators: GO/Pause + Tempo ±, ohne an den Rechner zu müssen."
+          ],
+          "nach": [
+            "Scrollen stoppen, an den Anfang (`TOP`) für den nächsten Take/Beitrag."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "Handy-Remote „Keine LAN-Adresse gefunden\"",
+            "remedy": "Rechner im WLAN? Bei getrennten Netzen Adresse manuell/über den Launcher prüfen"
+          },
+          {
+            "risk": "Handy zeigt „getrennt – verbinde…\"",
+            "remedy": "Suite läuft sicher → Token fehlt in der URL; QR neu scannen (Token steckt in `?t=`)"
+          },
+          {
+            "risk": "Companion steuert nicht",
+            "remedy": "Port 8727 offen? `jm-prompter-ctl` (ctl=1) im mDNS sichtbar?"
+          },
+          {
+            "risk": "Skript lädt nicht",
+            "remedy": "Format .docx/.txt/.md? Datei lesbar? Fehlermeldung beachten"
+          },
+          {
+            "risk": "Kein Bild auf dem Talent-Monitor",
+            "remedy": "Ausgabe geöffnet + richtiger Monitor gewählt?"
+          },
+          {
+            "risk": "Text spiegelverkehrt/falsch herum",
+            "remedy": "Spiegelmodus passend zur Optik (H für Glas, V für Deckenspiegel)"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Einrichtung",
+            "items": [
+              "Skript geladen/getippt, Abschnitte (`#`) gesetzt",
+              "Schrift/Zeilenhöhe/Rand/Lesezeile eingestellt",
+              "Spiegelmodus passend zur Optik",
+              "Ausgabe auf Talent-Monitor (Vollbild)",
+              "Fernbedienung verbunden (Handy 7781 / Companion 8727)"
+            ]
+          },
+          {
+            "title": "Vor Live",
+            "items": [
+              "Tempo mit dem Sprecher getestet",
+              "Sprungmarken funktionieren",
+              "Handy-Remote reagiert (GO/Pause/Tempo)"
+            ]
+          }
+        ],
+        "tips": [
+          "Abschnittsmarker (`#`) großzügig setzen — bei Umstellungen im Ablauf springst du sofort zur richtigen Stelle statt zu suchen.",
+          "Tempo lieber knapp unter der Wohlfühlgrenze — ein Sprecher, der auf den Prompter „wartet\", wirkt souveräner als einer, der hinterherhetzt.",
+          "Handy-Remote an die Regie geben und `TOGGLE`/Tempo dort bedienen — der Talent sieht nur ruhigen Text, keine Hektik.",
+          "Lesezeile als festen Ankerpunkt einblenden — die Augen des Sprechers bleiben auf einer Höhe, das reduziert das „Prompter-Glasauge\".",
+          "Über eine **`.jmshow`** wird das Skript automatisch geladen — eine Show öffnen, Text steht."
+        ]
+      }
+    },
+    {
       "id": "tool-jm-qa",
       "title": "JM Q&A — Wortmeldungen & Saal-Fragen",
       "category": "Tool-Manuals",
@@ -1503,6 +1904,131 @@
           "Pro Zeile nur die wirklich nötigen Aktionen — das hält das GO vorhersehbar.",
           "Companion steuert beide Ebenen: RUNDOWN GO am Port 8731 löst die Zeile aus; alternativ einzelne Tools direkt (z. B. TIMER START an 8724), wenn ein Segment mal abweicht.",
           "Ein .jmshow kann Rundown samt Ziel-Tools koordiniert mitstarten."
+        ]
+      }
+    },
+    {
+      "id": "tool-jm-stage-display",
+      "title": "JM Stage Display — Bühnen- & Crew-Monitor",
+      "category": "Tool-Manuals",
+      "difficulty": "einfach",
+      "setupTimeMin": 10,
+      "teamSize": "1",
+      "tags": [
+        "stage-display",
+        "buehne",
+        "crew-monitor",
+        "countdown",
+        "uhr",
+        "programm",
+        "referent",
+        "confidence",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-stage-display",
+        "jm-timer",
+        "jm-switcher",
+        "jm-presenter"
+      ],
+      "prerequisites": [
+        "JM Stage Display installiert (über den Launcher)",
+        "Quell-Tools laufen und sind erreichbar (JM Timer / Switcher / Presenter)",
+        "Zweiter Monitor als Bühnen-/Crew-Schirm",
+        "Bei sicherer Steuerebene die control.json provisioniert (für den Switcher)"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Regie / Stage Manager"
+      ],
+      "lastReviewed": "2026-07-04",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Bühnen-/Crew-Schirm, der Timer-Countdown, Uhr, Switcher-Programm (REC/Stream), Referenten-Folie mit Notizen und Nachrichten aus den laufenden Tools zusammenführt und im Vollbild auf einen zweiten Monitor legt.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Stage Display installiert (über den Launcher)",
+              "Die **Quell-Tools** laufen und sind erreichbar — je nach gewünschtem Inhalt: JM Timer, JM Switcher, JM Presenter",
+              "Zweiter Monitor als Bühnen-/Crew-Schirm (Vollbild-Ausgabe)",
+              "Netz-Erreichbarkeit im LAN (oder alles auf einem Rechner über `127.0.0.1`)",
+              "Für einen **sicher** betriebenen Switcher: die geteilte `control.json` (Token/TLS) muss provisioniert sein"
+            ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "**JM Timer** — Port **7777** (socket.io): Countdown, aktiver/nächster Programmpunkt, Nachricht",
+              "**JM Switcher** — Port **8723** (TCP-Zeilenprotokoll): Programm-Szene + REC/Stream-Status",
+              "**JM Presenter** — Port **7330** (HTTP/SSE, optional **PIN**): aktuelle Folie, Notizen, nächster Titel"
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [],
+          "waehrend": [
+            "Der Schirm aktualisiert sich automatisch: Countdown mit Farbschwellen (normal/Warnung/Überzug), „Endet HH:MM\", Programmpunkt, PGM + REC/ON-AIR, Referenten-Folie mit Notizen und „Up Next\".",
+            "Bei Bedarf eine **Ad-hoc-Nachricht** einblenden (hat Vorrang vor der Timer-Nachricht) — z. B. „Bitte zum Schluss kommen\".",
+            "Presenter-Feed wählbar: **Referent** (Folie + Notizen + nächste, Confidence-Monitor) oder **Vollbild-Folie**."
+          ],
+          "nach": [
+            "Ausgabe schließen; Quellen für die nächste Show ggf. anpassen."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "Quelle bleibt „getrennt\"",
+            "remedy": "Host/Port richtig? Tool läuft? Bei Firewall/getrenntem Netz Adresse von Hand eintragen"
+          },
+          {
+            "risk": "Switcher „getrennt\" trotz Erreichbarkeit",
+            "remedy": "Läuft der Switcher sicher (Token/TLS)? Dann muss die geteilte control.json auch hier provisioniert sein"
+          },
+          {
+            "risk": "„Folie nicht verfügbar\"",
+            "remedy": "Läuft eine Präsentation? Presenter-Fernsteuerung an? PIN korrekt?"
+          },
+          {
+            "risk": "Presenter-Feed friert ein",
+            "remedy": "Kurzer Netz-Aussetzer — der Watchdog verbindet nach ~35 s neu; sonst Presenter prüfen"
+          },
+          {
+            "risk": "Kein Bild auf dem Bühnen-Monitor",
+            "remedy": "Ausgabe geöffnet + richtiger Monitor (Vollbild)?"
+          },
+          {
+            "risk": "Countdown/Programmpunkt fehlt",
+            "remedy": "JM Timer aktiviert und auf 7777 verbunden?"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Einrichtung",
+            "items": [
+              "Quellen aktiviert, Host/Port gesetzt (oder mDNS-Vorbefüllung)",
+              "Presenter-PIN eingetragen (falls Presenter genutzt)",
+              "Widgets ausgewählt (Uhr/Timer/Switcher/Referent/Nachricht)",
+              "Ausgabe auf Bühnen-Monitor (Vollbild)",
+              "Alle aktiven Quellen zeigen „verbunden\""
+            ]
+          },
+          {
+            "title": "Vor Live",
+            "items": [
+              "Countdown + Programmpunkt kommen an",
+              "Switcher PGM/REC sichtbar (falls genutzt)",
+              "Referenten-Folie + Notizen erscheinen (falls genutzt)",
+              "Ad-hoc-Nachricht getestet"
+            ]
+          }
+        ],
+        "tips": [
+          "Alles auf einem Rechner? Dann tragen die Standardwerte `127.0.0.1` + die bekannten Ports schon; nur die Quellen aktivieren.",
+          "Über eine **`.jmshow`** aktivieren sich die Quellen automatisch anhand der in der Show enthaltenen Tools — Host/Port kommen aus deren Netzwerk-Bindung, die Presenter-PIN aus den Show-Einstellungen. Kein manuelles Eintragen im Standardfall.",
+          "Referentenansicht (Notizen + nächste Folie) als Confidence-Monitor für die Bühne — der/die Vortragende sieht Stichworte, das Publikum nicht.",
+          "Bei getrennten Event-Netzen (mDNS blockiert) Host/Port je Quelle von Hand eintragen — Stage Display braucht dafür keine Discovery.",
+          "Countdown-Farbschwellen als stille Regie: Warnfarbe = „bitte zum Punkt kommen\", Überzug = „überziehst gerade\"."
         ]
       }
     },
