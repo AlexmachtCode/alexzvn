@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
 import {
   createShow,
@@ -48,6 +48,8 @@ export function ShowEditorModal() {
   const tools = useTools((s) => s.tools);
   const close = useTools((s) => s.closeShowEditor);
   const saveShow = useTools((s) => s.saveShow);
+  const editorSeed = useTools((s) => s.editorSeed);
+  const clearEditorSeed = useTools((s) => s.clearEditorSeed);
 
   const [name, setName] = useState('');
   const [entries, setEntries] = useState<Record<string, Entry>>({});
@@ -87,6 +89,30 @@ export function ShowEditorModal() {
   // Bauchbinden = dessen Speaker. Leer = Tages-/Listenmodus.
   const [iveoProgramId, setIveoProgramId] = useState('');
   const [iveoProgramList, setIveoProgramList] = useState<IveoProgramRef[]>([]);
+
+  // Szenario-Start (B2): einen vom Szenario-Picker gesetzten Seed einmalig ins
+  // Formular übernehmen (Tools vorwählen, Ablauf/Redezeit/Runden vorbefüllen) und
+  // danach verbrauchen — nutzt denselben Formular-State wie „Bestehende öffnen".
+  useEffect(() => {
+    if (!open || !editorSeed) return;
+    setName(editorSeed.name);
+    setEntries(
+      Object.fromEntries(
+        editorSeed.toolIds.map((id) => [id, { included: true, document: '', host: '' }]),
+      ),
+    );
+    setAblauf(
+      (editorSeed.ablauf ?? []).map((a) => ({
+        label: a.label,
+        minutes: a.minutes != null ? String(a.minutes) : '',
+        note: a.note ?? '',
+      })),
+    );
+    setQaSpeak(editorSeed.qaSpeakSeconds != null ? String(editorSeed.qaSpeakSeconds) : '');
+    setBattleRounds(editorSeed.battleRounds != null ? String(editorSeed.battleRounds) : '');
+    setEditPath(null);
+    clearEditorSeed();
+  }, [open, editorSeed, clearEditorSeed]);
 
   if (!open) return null;
 

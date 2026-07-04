@@ -12,6 +12,7 @@ import { RecipeDraftModal } from '@/components/RecipeDraftModal';
 import { SystemStatusModal } from '@/components/SystemStatusModal';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { ShowEditorModal } from '@/components/ShowEditorModal';
+import { ScenarioPicker } from '@/components/ScenarioPicker';
 import { SideEventsPanel } from '@/components/SideEventsPanel';
 import { ShowLaunchOverlay } from '@/components/ShowLaunchOverlay';
 import { useTools } from '@/store/tools';
@@ -63,6 +64,7 @@ export function App() {
       <SystemStatusModal />
       <OnboardingModal />
       <ShowEditorModal />
+      <ScenarioPicker />
       <SideEventsPanel />
       <ShowLaunchOverlay />
     </div>

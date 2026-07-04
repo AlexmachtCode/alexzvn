@@ -18,6 +18,7 @@ import type {
   ToolState,
 } from '@shared/types';
 import type { Show } from '@jm/show';
+import type { ScenarioSeed } from '@/lib/scenarios';
 
 function byId(states: ToolState[]): Record<string, ToolState> {
   return Object.fromEntries(states.map((s) => [s.id, s]));
@@ -122,6 +123,16 @@ interface ToolsStore {
   onboardingOpen: boolean;
   openOnboarding: () => void;
   closeOnboarding: (persist?: boolean) => void;
+  /** Szenario-Start „Was willst du produzieren?" (Onboarding B2). */
+  scenariosOpen: boolean;
+  openScenarios: () => void;
+  closeScenarios: () => void;
+  /** Vorbefüllung, die der Show-Editor beim Öffnen übernimmt (null = leerer Editor). */
+  editorSeed: ScenarioSeed | null;
+  /** Editor mit einem Szenario-Seed öffnen (schließt den Szenario-Picker). */
+  openShowEditorWith: (seed: ScenarioSeed) => void;
+  /** Seed nach Übernahme durch den Editor löschen. */
+  clearEditorSeed: () => void;
 }
 
 const SEEN_VERSION_KEY = 'jmps:lastSeenVersion';
@@ -187,6 +198,8 @@ export const useTools = create<ToolsStore>((set) => {
     systemOpen: false,
     showEditorOpen: false,
     onboardingOpen: false,
+    scenariosOpen: false,
+    editorSeed: null,
     iveoActive: null,
     sideEvents: null,
     sideEventsOpen: false,
@@ -343,6 +356,11 @@ export const useTools = create<ToolsStore>((set) => {
 
     openShowEditor: () => set({ showEditorOpen: true }),
     closeShowEditor: () => set({ showEditorOpen: false }),
+
+    openScenarios: () => set({ scenariosOpen: true }),
+    closeScenarios: () => set({ scenariosOpen: false }),
+    openShowEditorWith: (seed) => set({ editorSeed: seed, showEditorOpen: true, scenariosOpen: false }),
+    clearEditorSeed: () => set({ editorSeed: null }),
     dismissShowLaunch: () => set({ showLaunch: null }),
     saveShow: async (show, targetPath) => {
       const res = await window.jmps.saveShow(show, targetPath);
