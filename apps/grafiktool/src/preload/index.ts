@@ -39,6 +39,11 @@ const api: JmgApi = {
     reveal: (path) => ipcRenderer.invoke('shell:reveal', path) as Promise<void>,
     openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url) as Promise<void>,
   },
+  onFileOpened: (cb) => {
+    const listener = (_e: unknown, f: OpenedFile) => cb(f);
+    ipcRenderer.on('file:opened', listener);
+    return () => ipcRenderer.off('file:opened', listener);
+  },
 };
 
 if (process.contextIsolated) {

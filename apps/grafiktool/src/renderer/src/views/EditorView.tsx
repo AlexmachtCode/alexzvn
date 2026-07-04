@@ -6,6 +6,7 @@ import { ToolDock } from '@/components/editor/ToolDock';
 import { ToolOptionsBar } from '@/components/editor/ToolOptionsBar';
 import { RightPanel } from '@/components/editor/RightPanel';
 import { importBytesAsLayer } from '@/components/editor/EditorActions';
+import { jmgToDoc } from '@/engine/io/project';
 
 const SHORTCUT: Record<string, ToolId> = {
   v: 'move',
@@ -95,6 +96,20 @@ export function EditorView() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Show-Integration (C3): per .jmshow referenziertes Dokument laden — gleiche
+  // Anwende-Logik wie beim manuellen „Öffnen" (.jmg → ganzes Dokument ersetzen,
+  // sonst als Ebene importieren).
+  useEffect(() => {
+    if (!window.jmg?.onFileOpened) return;
+    return window.jmg.onFileOpened(async (f) => {
+      const c = useEditor.getState().controller;
+      if (!c) return;
+      const kind = f.fileName.split('.').pop()?.toLowerCase();
+      if (kind === 'jmg') c.setDocument(await jmgToDoc(f.bytes));
+      else await importBytesAsLayer(c, f.bytes, f.fileName);
+    });
   }, []);
 
   const onDrop = useCallback(async (e: React.DragEvent) => {

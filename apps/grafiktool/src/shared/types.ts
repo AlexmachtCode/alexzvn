@@ -120,4 +120,6 @@ export interface JmgApi {
     reveal: (path: string) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
   };
+  /** Show-Integration (C3): der Hauptprozess schiebt eine aus der .jmshow geladene Datei zu. */
+  onFileOpened: (cb: (f: OpenedFile) => void) => () => void;
 }

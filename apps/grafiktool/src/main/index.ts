@@ -2,11 +2,19 @@ import { app, BrowserWindow, shell } from 'electron';
 import path, { join } from 'node:path';
 import { initAppRuntime } from '@jm/app-runtime';
 import { registerIpc } from './ipc';
+import { handleShowDeepLink } from './show-open';
 
 declare const __dirname: string;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ csp: true, appId: 'jm-grafiktool', appName: 'JM Grafiktool' });
+// onDeepLink fängt Show-Links bei laufender App (second-instance/open-url) ab;
+// den Start-Link verarbeiten wir unten über runtime.initialDeepLink.
+const runtime = initAppRuntime({
+  csp: true,
+  appId: 'jm-grafiktool',
+  appName: 'JM Grafiktool',
+  onDeepLink: (url) => void handleShowDeepLink(url, () => mainWindow),
+});
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -86,6 +94,9 @@ if (!gotLock) {
   app.whenReady().then(() => {
     registerIpc(() => mainWindow);
     createMainWindow();
+    // Start-Deep-Link (App per Show gestartet) verarbeiten — lädt das in der
+    // .jmshow referenzierte Grafiktool-Dokument.
+    if (runtime.initialDeepLink) void handleShowDeepLink(runtime.initialDeepLink, () => mainWindow);
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
