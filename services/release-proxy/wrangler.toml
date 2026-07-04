@@ -9,9 +9,9 @@ compatibility_date = "2024-11-01"
 # Solange die Bindung fehlt, laufen beide Endpunkte UNGEDROSSELT (Worker-Log warnt
 # pro Aufruf). Input-Größenlimits + Fehler-Redaktion sind davon unabhängig und
 # sofort nach dem Deploy aktiv.
-# [[kv_namespaces]]
-# binding = "RATELIMIT"
-# id = "<KV_NAMESPACE_ID_EINTRAGEN>"
+[[kv_namespaces]]
+binding = "RATELIMIT"
+id = "e704747ca2284601a1ed1ef1dc7ee98f"
 
 # Q&A externe Einreichung (#166): Speicher für Event-Metadaten (Public Key,
 # Presse-Code-Hash) + Ende-zu-Ende-verschlüsselte Einreichungen. Der Worker sieht
@@ -19,9 +19,9 @@ compatibility_date = "2024-11-01"
 # EINMALIG anlegen, id eintragen, Zeilen einkommentieren, neu deployen:
 #   npx wrangler kv namespace create QA_RELAY
 # Ohne diese Bindung antworten die Q&A-Admin-Routen mit 503 (Feature inaktiv).
-# [[kv_namespaces]]
-# binding = "QA_RELAY"
-# id = "<KV_NAMESPACE_ID_EINTRAGEN>"
+[[kv_namespaces]]
+binding = "QA_RELAY"
+id = "9e73a7425fb446d78ed7080a1d2fd080"
 
 # Klartext-Variablen.
 [vars]
