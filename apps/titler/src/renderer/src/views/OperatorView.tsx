@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, cn, Logo } from '@jm/ui';
+import { Button, cn, Collapsible, Logo, SettingsSection, Tabs, type TabItem } from '@jm/ui';
 import {
   DEFAULT_CONFIG,
   type DisplayInfo,
@@ -26,6 +26,14 @@ const RESOLUTIONS = [
   { label: '1280×720', w: 1280, h: 720 },
 ];
 const FPS = [25, 30, 50, 60];
+
+// Reiter des Steuerpults (#165): Live-Steuerung getrennt von Einstellungen, damit
+// das Namensfeld nicht in einer langen Sektionsliste untergeht.
+type TabKey = 'steuerung' | 'einstellungen';
+const TABS: TabItem<TabKey>[] = [
+  { key: 'steuerung', label: 'Steuerung' },
+  { key: 'einstellungen', label: 'Einstellungen' },
+];
 
 export function OperatorView(): React.JSX.Element {
   const state = useTitler((s) => s.state);
@@ -177,10 +185,31 @@ export function OperatorView(): React.JSX.Element {
     return window.jmtitler.onDisplaysChanged(refresh);
   }, []);
 
+  // Reiter des Steuerpults (#165) — letzte Wahl merken, damit der Operator dort
+  // weitermacht, wo er war (Live vs. Einrichten).
+  const [tab, setTab] = useState<TabKey>(() => {
+    if (typeof window === 'undefined') return 'steuerung';
+    const v = window.localStorage.getItem('titler.operator.tab');
+    return v === 'einstellungen' ? 'einstellungen' : 'steuerung';
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('titler.operator.tab', tab);
+    } catch {
+      /* localStorage optional */
+    }
+  }, [tab]);
+
   if (!state) {
     return <div className="h-screen grid place-items-center text-[var(--muted-foreground)]">Lädt…</div>;
   }
   const c = config;
+
+  // iveo speist Speaker automatisch als verwalteten DataLink-Ordner ein (speakers.tsv,
+  // #11) — der Titler hält kein Token/Backend. Hier nur ableiten, ob dieser Ordner
+  // gerade aktiv ist (beitragende Datei bzw. verwalteter Ordnername).
+  const iveoActive =
+    dataSources.includes('speakers.tsv') || /[\\/]iveo-data[\\/]?$/.test(c.dataFolder);
 
   return (
     <div className="h-screen flex flex-col bg-[var(--background)] text-[var(--foreground)]">
@@ -247,379 +276,435 @@ export function OperatorView(): React.JSX.Element {
           </p>
         </div>
 
-        {/* Steuerpult */}
+        {/* Steuerpult (#165): Live-Steuerung und Einstellungen in Reitern getrennt;
+            das Namensfeld bleibt im Reiter „Steuerung" oben immer sichtbar, der Rest
+            ist ausklappbar bzw. in „Einstellungen" gebündelt. */}
         <div className="w-[400px] shrink-0 overflow-auto border-l border-[var(--border)]/60">
-          <div className="p-5 space-y-5">
-            {/* Vorlage */}
-            <Section title="Vorlage">
-              <div className="flex gap-2">
-                {TEMPLATES.map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => void setConfig({ template: t.key })}
-                    className={cn(
-                      'flex-1 h-9 rounded-[var(--radius)] text-xs font-extrabold uppercase tracking-wide border',
-                      c.template === t.key
-                        ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-transparent'
-                        : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)]',
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </Section>
+          <div className="p-5 space-y-4">
+            <Tabs items={TABS} value={tab} onChange={setTab} />
 
-            {/* Inhalt */}
-            <Section title="Inhalt">
-              {c.template === 'lowerthird' && (
-                <>
-                  <Field label="Name" value={c.name} onChange={(v) => void setConfig({ name: v })} />
-                  <Field label="Untertitel" value={c.subtitle} onChange={(v) => void setConfig({ subtitle: v })} />
-                </>
-              )}
-              {c.template === 'banner' && (
-                <Field label="Banner-Text" value={c.bannerText} onChange={(v) => void setConfig({ bannerText: v })} />
-              )}
-              {c.template === 'ticker' && (
-                <>
-                  <Field label="Ticker-Text" value={c.tickerText} onChange={(v) => void setConfig({ tickerText: v })} />
-                  <Slider
-                    label="Ticker-Tempo"
-                    value={c.tickerSpeed}
-                    min={0.02}
-                    max={0.3}
-                    step={0.01}
-                    onChange={(v) => void setConfig({ tickerSpeed: v })}
-                  />
-                </>
-              )}
-              {c.template === 'graphic' &&
-                (activeTemplate ? (
-                  activeTemplate.slots.length === 0 ? (
-                    <p className="text-[11px] text-[var(--muted-foreground)]">
-                      Diese Vorlage hat keine Textfelder (reines Standbild).
-                    </p>
-                  ) : (
-                    activeTemplate.slots.map((s) => (
-                      <Field
-                        key={s.key}
-                        label={s.label}
-                        value={c.slotText[s.key] ?? s.defaultText}
-                        onChange={(v) => void setConfig({ slotText: { ...c.slotText, [s.key]: v } })}
-                      />
-                    ))
-                  )
-                ) : (
-                  <p className="text-[11px] text-[var(--muted-foreground)]">
-                    Keine Grafik-Vorlage gewählt — unten unter „Grafik-Vorlagen" importieren oder auswählen.
-                  </p>
-                ))}
-            </Section>
-
-            {/* Grafik-Vorlagen (#162): Import aus jm Grafiktool / PSD */}
-            <Section title="Grafik-Vorlagen">
-              <p className="text-[11px] text-[var(--muted-foreground)] -mt-1">
-                Bauchbinden aus dem jm Grafiktool oder als <code>.psd</code> importieren. Textebenen werden zu
-                füllbaren Feldern — Variablen bleiben nutzbar.
-              </p>
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={onDropImport}
-                className="rounded-[var(--radius)] border border-dashed border-[var(--border)] px-3 py-3 text-center"
-              >
-                <Button variant="outline" size="sm" onClick={() => void pickImport()}>
-                  Datei importieren…
-                </Button>
-                <p className="mt-1.5 text-[10px] text-[var(--muted-foreground)]">
-                  oder .psd / .jmtitler hierher ziehen
-                </p>
-              </div>
-              {templates.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2">
-                  {templates.map((t) => (
-                    <div
-                      key={t.id}
-                      onClick={() => selectTemplate(t)}
-                      className={cn(
-                        'group relative rounded-[var(--radius)] border overflow-hidden cursor-pointer',
-                        t.id === config.activeGraphicId
-                          ? 'border-[var(--primary)] ring-1 ring-[var(--primary)]'
-                          : 'border-[var(--border)] hover:bg-[var(--highlight)]',
-                      )}
-                      title={t.name}
-                    >
-                      {t.thumbDataUrl ? (
-                        <img src={t.thumbDataUrl} alt={t.name} className="cg-checker w-full h-20 object-contain" />
-                      ) : (
-                        <div className="cg-checker w-full h-20" />
-                      )}
-                      <div className="flex items-center gap-1 px-2 py-1">
-                        <span className="truncate text-[11px] font-semibold">{t.name}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void deleteTemplate(t);
-                          }}
-                          className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 text-[var(--destructive)] text-xs"
-                          title="Vorlage löschen"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] text-[var(--muted-foreground)]">Noch keine Vorlagen importiert.</p>
-              )}
-            </Section>
-
-            {/* DataLink-Variablen (#86) + Recall */}
-            <Section title="Daten / Variablen">
-              <p className="text-[11px] text-[var(--muted-foreground)] -mt-1">
-                Platzhalter <code className="text-[var(--primary)]">{'{{name}}'}</code> in den Textfeldern
-                werden aus den Dateien im Ordner gefüllt. CSV mit Kopfzeile = Liste (je Zeile ein Eintrag,
-                abrufbar); <code>schlüssel=wert</code>-Datei = ein Eintrag.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  value={c.dataFolder}
-                  onChange={(e) => void setConfig({ dataFolder: e.target.value })}
-                  placeholder="Kein Ordner gewählt"
-                  spellCheck={false}
-                  className="h-9 flex-1 min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-xs"
-                />
-                <Button variant="outline" size="sm" onClick={() => void pickFolder()}>
-                  Durchsuchen…
-                </Button>
-                {c.dataFolder ? (
-                  <Button variant="ghost" size="sm" uppercase={false} onClick={() => void setConfig({ dataFolder: '' })} title="Watchfolder entfernen">
-                    ✕
-                  </Button>
-                ) : null}
-              </div>
-              {dataError ? (
-                <p className="text-[11px] text-[var(--destructive)]">DataLink: {dataError}</p>
-              ) : null}
-
-              {/* Abrufbare Einträge (Recall) */}
-              {c.dataFolder && !dataError && entries.length > 0 ? (
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
-                      Einträge {activeEntry >= 0 ? `· ${activeEntry + 1}/${entries.length}` : `· ${entries.length}`}
-                    </span>
-                    <div className="ml-auto flex gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        uppercase={false}
-                        onClick={() => void window.jmtitler.openRecall()}
-                        title="Recall-Button-Board in eigenem Fenster öffnen (#152)"
-                      >
-                        ⧉ Board
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        uppercase={false}
-                        disabled={activeEntry <= 0}
-                        onClick={() => void window.jmtitler.stepEntry(-1)}
-                        title="Vorheriger Eintrag"
-                      >
-                        ‹
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        uppercase={false}
-                        disabled={activeEntry >= entries.length - 1}
-                        onClick={() => void window.jmtitler.stepEntry(1)}
-                        title="Nächster Eintrag"
-                      >
-                        ›
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="max-h-40 overflow-auto rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
-                    {entries.map((label, i) => (
+            {tab === 'steuerung' ? (
+              <div className="space-y-5">
+                {/* Vorlage */}
+                <SettingsSection title="Vorlage">
+                  <div className="flex gap-2">
+                    {TEMPLATES.map((t) => (
                       <button
-                        key={`${i}-${label}`}
-                        onClick={() => void window.jmtitler.recallEntry(String(i + 1))}
+                        key={t.key}
+                        onClick={() => void setConfig({ template: t.key })}
                         className={cn(
-                          'flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs',
-                          i === activeEntry
-                            ? 'bg-[var(--primary)]/15 text-[var(--foreground)] font-bold'
-                            : 'hover:bg-[var(--highlight)] text-[var(--muted-foreground)]',
+                          'flex-1 h-9 rounded-[var(--radius)] text-xs font-extrabold uppercase tracking-wide border',
+                          c.template === t.key
+                            ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-transparent'
+                            : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)]',
                         )}
                       >
-                        <span className="tabular text-[10px] w-5 shrink-0 text-[var(--muted-foreground)]">{i + 1}</span>
-                        <span className="truncate">{label || '—'}</span>
+                        {t.label}
                       </button>
                     ))}
                   </div>
-                </div>
-              ) : null}
+                </SettingsSection>
 
-              {/* Variablen des aktiven Eintrags */}
-              {c.dataFolder && !dataError ? (
-                <div className="rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
-                  {Object.keys(variables).length === 0 ? (
-                    <p className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
-                      Keine Variablen gefunden. Lege im Ordner z. B. eine <code>gaeste.csv</code> mit Kopfzeile
-                      <code>name,funktion</code> an — oder eine <code>daten.txt</code> mit <code>name=Dr. Schmidt</code>.
-                    </p>
-                  ) : (
-                    Object.entries(variables).map(([k, v]) => (
-                      <div key={k} className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
-                        <code className="font-bold text-[var(--primary)] shrink-0">{`{{${k}}}`}</code>
-                        <span className="truncate text-[var(--muted-foreground)]">{v || '—'}</span>
-                      </div>
-                    ))
+                {/* Inhalt — Namensfeld: immer sichtbar, nicht ausklappbar (#165) */}
+                <SettingsSection title="Inhalt">
+                  {c.template === 'lowerthird' && (
+                    <>
+                      <Field label="Name" value={c.name} onChange={(v) => void setConfig({ name: v })} />
+                      <Field label="Untertitel" value={c.subtitle} onChange={(v) => void setConfig({ subtitle: v })} />
+                    </>
                   )}
-                  {dataSources.length > 0 ? (
-                    <p className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-                      Quelle: {dataSources.join(', ')}
+                  {c.template === 'banner' && (
+                    <Field label="Banner-Text" value={c.bannerText} onChange={(v) => void setConfig({ bannerText: v })} />
+                  )}
+                  {c.template === 'ticker' && (
+                    <>
+                      <Field label="Ticker-Text" value={c.tickerText} onChange={(v) => void setConfig({ tickerText: v })} />
+                      <Slider
+                        label="Ticker-Tempo"
+                        value={c.tickerSpeed}
+                        min={0.02}
+                        max={0.3}
+                        step={0.01}
+                        onChange={(v) => void setConfig({ tickerSpeed: v })}
+                      />
+                    </>
+                  )}
+                  {c.template === 'graphic' &&
+                    (activeTemplate ? (
+                      activeTemplate.slots.length === 0 ? (
+                        <p className="text-[11px] text-[var(--muted-foreground)]">
+                          Diese Vorlage hat keine Textfelder (reines Standbild).
+                        </p>
+                      ) : (
+                        activeTemplate.slots.map((s) => (
+                          <Field
+                            key={s.key}
+                            label={s.label}
+                            value={c.slotText[s.key] ?? s.defaultText}
+                            onChange={(v) => void setConfig({ slotText: { ...c.slotText, [s.key]: v } })}
+                          />
+                        ))
+                      )
+                    ) : (
+                      <p className="text-[11px] text-[var(--muted-foreground)]">
+                        Keine Grafik-Vorlage gewählt — unter „Grafik-Vorlagen" importieren oder auswählen.
+                      </p>
+                    ))}
+                </SettingsSection>
+
+                {/* Grafik-Vorlagen (#162): Import aus jm Grafiktool / PSD */}
+                <Collapsible
+                  title="Grafik-Vorlagen"
+                  persistId="titler.graphics"
+                  defaultOpen={false}
+                  description={
+                    <>
+                      Bauchbinden aus dem jm Grafiktool oder als <code>.psd</code> importieren. Textebenen werden zu
+                      füllbaren Feldern — Variablen bleiben nutzbar.
+                    </>
+                  }
+                >
+                  <div
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={onDropImport}
+                    className="rounded-[var(--radius)] border border-dashed border-[var(--border)] px-3 py-3 text-center"
+                  >
+                    <Button variant="outline" size="sm" onClick={() => void pickImport()}>
+                      Datei importieren…
+                    </Button>
+                    <p className="mt-1.5 text-[10px] text-[var(--muted-foreground)]">
+                      oder .psd / .jmtitler hierher ziehen
+                    </p>
+                  </div>
+                  {templates.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      {templates.map((t) => (
+                        <div
+                          key={t.id}
+                          onClick={() => selectTemplate(t)}
+                          className={cn(
+                            'group relative rounded-[var(--radius)] border overflow-hidden cursor-pointer',
+                            t.id === config.activeGraphicId
+                              ? 'border-[var(--primary)] ring-1 ring-[var(--primary)]'
+                              : 'border-[var(--border)] hover:bg-[var(--highlight)]',
+                          )}
+                          title={t.name}
+                        >
+                          {t.thumbDataUrl ? (
+                            <img src={t.thumbDataUrl} alt={t.name} className="cg-checker w-full h-20 object-contain" />
+                          ) : (
+                            <div className="cg-checker w-full h-20" />
+                          )}
+                          <div className="flex items-center gap-1 px-2 py-1">
+                            <span className="truncate text-[11px] font-semibold">{t.name}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void deleteTemplate(t);
+                              }}
+                              className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 text-[var(--destructive)] text-xs"
+                              title="Vorlage löschen"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-[var(--muted-foreground)]">Noch keine Vorlagen importiert.</p>
+                  )}
+                </Collapsible>
+
+                {/* Daten / Recall (#86/#152): Live-Abruf der DataLink-Einträge.
+                    Der Datenordner selbst wird im Reiter „Einstellungen" gewählt. */}
+                <Collapsible title="Daten / Recall" persistId="titler.recall" defaultOpen>
+                  {!c.dataFolder ? (
+                    <p className="text-[11px] text-[var(--muted-foreground)]">
+                      Kein Datenordner aktiv. Im Reiter <b>Einstellungen › DataLink</b> einen Ordner wählen — oder den
+                      Titler über eine <b>JM Show</b> mit iveo-Daten öffnen. Abrufbare Einträge erscheinen dann hier.
+                    </p>
+                  ) : dataError ? (
+                    <p className="text-[11px] text-[var(--destructive)]">DataLink: {dataError}</p>
+                  ) : (
+                    <>
+                      {/* Abrufbare Einträge (Recall) */}
+                      {entries.length > 0 ? (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+                              Einträge {activeEntry >= 0 ? `· ${activeEntry + 1}/${entries.length}` : `· ${entries.length}`}
+                            </span>
+                            <div className="ml-auto flex gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                uppercase={false}
+                                onClick={() => void window.jmtitler.openRecall()}
+                                title="Recall-Button-Board in eigenem Fenster öffnen (#152)"
+                              >
+                                ⧉ Board
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                uppercase={false}
+                                disabled={activeEntry <= 0}
+                                onClick={() => void window.jmtitler.stepEntry(-1)}
+                                title="Vorheriger Eintrag"
+                              >
+                                ‹
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                uppercase={false}
+                                disabled={activeEntry >= entries.length - 1}
+                                onClick={() => void window.jmtitler.stepEntry(1)}
+                                title="Nächster Eintrag"
+                              >
+                                ›
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="max-h-40 overflow-auto rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
+                            {entries.map((label, i) => (
+                              <button
+                                key={`${i}-${label}`}
+                                onClick={() => void window.jmtitler.recallEntry(String(i + 1))}
+                                className={cn(
+                                  'flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs',
+                                  i === activeEntry
+                                    ? 'bg-[var(--primary)]/15 text-[var(--foreground)] font-bold'
+                                    : 'hover:bg-[var(--highlight)] text-[var(--muted-foreground)]',
+                                )}
+                              >
+                                <span className="tabular text-[10px] w-5 shrink-0 text-[var(--muted-foreground)]">{i + 1}</span>
+                                <span className="truncate">{label || '—'}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Variablen des aktiven Eintrags */}
+                      <div className="rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
+                        {Object.keys(variables).length === 0 ? (
+                          <p className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
+                            Keine Variablen gefunden. Lege im Ordner z. B. eine <code>gaeste.csv</code> mit Kopfzeile
+                            <code>name,funktion</code> an — oder eine <code>daten.txt</code> mit <code>name=Dr. Schmidt</code>.
+                          </p>
+                        ) : (
+                          Object.entries(variables).map(([k, v]) => (
+                            <div key={k} className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
+                              <code className="font-bold text-[var(--primary)] shrink-0">{`{{${k}}}`}</code>
+                              <span className="truncate text-[var(--muted-foreground)]">{v || '—'}</span>
+                            </div>
+                          ))
+                        )}
+                        {dataSources.length > 0 ? (
+                          <p className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                            Quelle: {dataSources.join(', ')}
+                          </p>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
+                  {referenced.length > 0 ? (
+                    <p className="text-[11px] text-[var(--muted-foreground)] flex flex-wrap items-baseline gap-x-1">
+                      <span>Im Text verwendet:</span>
+                      {referenced.map((k) => (
+                        <code
+                          key={k}
+                          className={cn(
+                            k.toLowerCase() in lowerVars ? 'text-[var(--primary)]' : 'text-[var(--destructive)]',
+                          )}
+                          title={k.toLowerCase() in lowerVars ? 'Variable vorhanden' : 'Variable nicht gefunden'}
+                        >
+                          {`{{${k}}}`}
+                        </code>
+                      ))}
                     </p>
                   ) : null}
-                </div>
-              ) : null}
-              {referenced.length > 0 ? (
-                <p className="text-[11px] text-[var(--muted-foreground)] flex flex-wrap items-baseline gap-x-1">
-                  <span>Im Text verwendet:</span>
-                  {referenced.map((k) => (
-                    <code
-                      key={k}
-                      className={cn(
-                        k.toLowerCase() in lowerVars ? 'text-[var(--primary)]' : 'text-[var(--destructive)]',
-                      )}
-                      title={k.toLowerCase() in lowerVars ? 'Variable vorhanden' : 'Variable nicht gefunden'}
+                </Collapsible>
+
+                {/* Stil */}
+                <Collapsible title="Stil" persistId="titler.style" defaultOpen={false}>
+                  <div className="flex gap-2">
+                    {(['bottom', 'top'] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => void setConfig({ position: p })}
+                        className={cn(
+                          'flex-1 h-9 rounded-[var(--radius)] text-xs font-bold border',
+                          c.position === p
+                            ? 'bg-[var(--accent)] text-[var(--foreground)] border-transparent'
+                            : 'border-[var(--border)] hover:bg-[var(--highlight)]',
+                        )}
+                      >
+                        {p === 'bottom' ? 'Unten' : 'Oben'}
+                      </button>
+                    ))}
+                  </div>
+                  <Slider label="Größe" value={c.scale} min={0.6} max={1.6} step={0.05} onChange={(v) => void setConfig({ scale: v })} />
+                  <div className="flex gap-3">
+                    <ColorField label="Balken" value={c.colors.bar} onChange={(v) => void setConfig({ colors: { bar: v } })} />
+                    <ColorField label="Text" value={c.colors.text} onChange={(v) => void setConfig({ colors: { text: v } })} />
+                    <ColorField label="Akzent" value={c.colors.accent} onChange={(v) => void setConfig({ colors: { accent: v } })} />
+                  </div>
+                </Collapsible>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {/* DataLink (#86): Datenquelle konfigurieren (Abruf im Reiter „Steuerung"). */}
+                <SettingsSection
+                  title="DataLink"
+                  description={
+                    <>
+                      Platzhalter <code className="text-[var(--primary)]">{'{{name}}'}</code> in den Textfeldern
+                      werden aus den Dateien im Ordner gefüllt. CSV mit Kopfzeile = Liste (je Zeile ein Eintrag,
+                      im Reiter <b>Steuerung</b> abrufbar); <code>schlüssel=wert</code>-Datei = ein Eintrag.
+                    </>
+                  }
+                >
+                  <div className="flex gap-2">
+                    <input
+                      value={c.dataFolder}
+                      onChange={(e) => void setConfig({ dataFolder: e.target.value })}
+                      placeholder="Kein Ordner gewählt"
+                      spellCheck={false}
+                      className="h-9 flex-1 min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-xs"
+                    />
+                    <Button variant="outline" size="sm" onClick={() => void pickFolder()}>
+                      Durchsuchen…
+                    </Button>
+                    {c.dataFolder ? (
+                      <Button variant="ghost" size="sm" uppercase={false} onClick={() => void setConfig({ dataFolder: '' })} title="Watchfolder entfernen">
+                        ✕
+                      </Button>
+                    ) : null}
+                  </div>
+                  {dataError ? (
+                    <p className="text-[11px] text-[var(--destructive)]">DataLink: {dataError}</p>
+                  ) : null}
+                </SettingsSection>
+
+                {/* iveo (#11): Status der automatischen Speaker-Übernahme aus der JM Show. */}
+                <SettingsSection title="iveo">
+                  {iveoActive ? (
+                    <div className="rounded-[var(--radius)] border border-[var(--primary)]/40 bg-[var(--primary)]/10 px-3 py-2.5 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--primary)' }} />
+                        <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--primary)]">
+                          iveo aktiv
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[var(--muted-foreground)]">
+                        {entries.length} Speaker aus der geöffneten JM Show im DataLink. Aktualisiert sich live nach
+                        iveo-Änderungen (verwaltet vom Launcher). Abruf im Reiter <b>Steuerung › Daten / Recall</b>.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-[var(--muted-foreground)]">
+                      Kein iveo-Event aktiv. iveo-Speaker werden automatisch zu Bauchbinden-Variablen, sobald der
+                      Titler über eine <b>JM Show</b> mit iveo-Daten geöffnet wird — Verwaltung und Zugriffstoken
+                      bleiben im Launcher (der Titler speichert kein Token).
+                    </p>
+                  )}
+                </SettingsSection>
+
+                {/* Ausgabe (NDI) */}
+                <SettingsSection title="Ausgabe (NDI)">
+                  <Field label="Quellname" value={c.ndiName} onChange={(v) => void setConfig({ ndiName: v })} />
+                  <div className="flex gap-2">
+                    <Labeled label="Auflösung">
+                      <select
+                        value={`${c.width}x${c.height}`}
+                        onChange={(e) => {
+                          const r = RESOLUTIONS.find((x) => `${x.w}x${x.h}` === e.target.value);
+                          if (r) void setConfig({ width: r.w, height: r.h });
+                        }}
+                        className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold"
+                      >
+                        {RESOLUTIONS.map((r) => (
+                          <option key={r.label} value={`${r.w}x${r.h}`}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                    </Labeled>
+                    <Labeled label="fps">
+                      <select
+                        value={String(c.fps)}
+                        onChange={(e) => void setConfig({ fps: Number(e.target.value) })}
+                        className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold tabular"
+                      >
+                        {FPS.map((f) => (
+                          <option key={f} value={f}>
+                            {f}
+                          </option>
+                        ))}
+                      </select>
+                    </Labeled>
+                  </div>
+                  {ndiActive ? (
+                    <Button variant="destructive" className="w-full" onClick={() => void stopNdi()}>
+                      NDI stoppen
+                    </Button>
+                  ) : (
+                    <Button variant="primary" className="w-full" onClick={() => void startNdi(c.ndiName)}>
+                      NDI starten
+                    </Button>
+                  )}
+                  {c.width % 2 !== 0 || c.height % 2 !== 0 ? (
+                    <p className="text-[11px] text-[var(--destructive)]">Auflösung sollte gerade sein.</p>
+                  ) : null}
+                </SettingsSection>
+
+                {/* Ausgabe (2. Bildschirm, #161) */}
+                <SettingsSection
+                  title="Ausgabe (2. Bildschirm)"
+                  description="Zeigt die Bauchbinde als Vollbild auf einem zweiten Monitor mit Chroma-Green-Hintergrund — für externe Keyer (vMix/ATEM/TriCaster) ohne NDI."
+                >
+                  <Labeled label="Monitor">
+                    <select
+                      value={String(c.secondScreenDisplay)}
+                      onChange={(e) => void setConfig({ secondScreenDisplay: Number(e.target.value) })}
+                      className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold"
                     >
-                      {`{{${k}}}`}
-                    </code>
-                  ))}
-                </p>
-              ) : null}
-            </Section>
-
-            {/* Stil */}
-            <Section title="Stil">
-              <div className="flex gap-2">
-                {(['bottom', 'top'] as const).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => void setConfig({ position: p })}
-                    className={cn(
-                      'flex-1 h-9 rounded-[var(--radius)] text-xs font-bold border',
-                      c.position === p
-                        ? 'bg-[var(--accent)] text-[var(--foreground)] border-transparent'
-                        : 'border-[var(--border)] hover:bg-[var(--highlight)]',
-                    )}
-                  >
-                    {p === 'bottom' ? 'Unten' : 'Oben'}
-                  </button>
-                ))}
+                      <option value="0">Primär (automatisch)</option>
+                      {displays.map((d) => (
+                        <option key={d.id} value={String(d.id)}>
+                          {d.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Labeled>
+                  <div className="flex gap-3 items-end">
+                    <ColorField label="Chroma" value={c.chromaColor} onChange={(v) => void setConfig({ chromaColor: v })} />
+                    <button
+                      onClick={() => void setConfig({ chromaColor: '#00B140' })}
+                      className="h-9 shrink-0 rounded-[var(--radius)] border border-[var(--border)] px-3 text-xs hover:bg-[var(--highlight)]"
+                      title="Standard-Green (#00B140) zurücksetzen"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  {c.secondScreenEnabled ? (
+                    <Button variant="destructive" className="w-full" onClick={() => void setConfig({ secondScreenEnabled: false })}>
+                      2. Bildschirm ausschalten
+                    </Button>
+                  ) : (
+                    <Button variant="primary" className="w-full" onClick={() => void setConfig({ secondScreenEnabled: true })}>
+                      2. Bildschirm einschalten
+                    </Button>
+                  )}
+                  <p className="text-[11px] text-[var(--muted-foreground)]">
+                    Tipp: Zweitmonitor wählen, damit die Ausgabe nicht die Operator-Oberfläche verdeckt.
+                  </p>
+                </SettingsSection>
               </div>
-              <Slider label="Größe" value={c.scale} min={0.6} max={1.6} step={0.05} onChange={(v) => void setConfig({ scale: v })} />
-              <div className="flex gap-3">
-                <ColorField label="Balken" value={c.colors.bar} onChange={(v) => void setConfig({ colors: { bar: v } })} />
-                <ColorField label="Text" value={c.colors.text} onChange={(v) => void setConfig({ colors: { text: v } })} />
-                <ColorField label="Akzent" value={c.colors.accent} onChange={(v) => void setConfig({ colors: { accent: v } })} />
-              </div>
-            </Section>
-
-            {/* Ausgabe (NDI) */}
-            <Section title="Ausgabe (NDI)">
-              <Field label="Quellname" value={c.ndiName} onChange={(v) => void setConfig({ ndiName: v })} />
-              <div className="flex gap-2">
-                <Labeled label="Auflösung">
-                  <select
-                    value={`${c.width}x${c.height}`}
-                    onChange={(e) => {
-                      const r = RESOLUTIONS.find((x) => `${x.w}x${x.h}` === e.target.value);
-                      if (r) void setConfig({ width: r.w, height: r.h });
-                    }}
-                    className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold"
-                  >
-                    {RESOLUTIONS.map((r) => (
-                      <option key={r.label} value={`${r.w}x${r.h}`}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                </Labeled>
-                <Labeled label="fps">
-                  <select
-                    value={String(c.fps)}
-                    onChange={(e) => void setConfig({ fps: Number(e.target.value) })}
-                    className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold tabular"
-                  >
-                    {FPS.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
-                </Labeled>
-              </div>
-              {ndiActive ? (
-                <Button variant="destructive" className="w-full" onClick={() => void stopNdi()}>
-                  NDI stoppen
-                </Button>
-              ) : (
-                <Button variant="primary" className="w-full" onClick={() => void startNdi(c.ndiName)}>
-                  NDI starten
-                </Button>
-              )}
-              {c.width % 2 !== 0 || c.height % 2 !== 0 ? (
-                <p className="text-[11px] text-[var(--destructive)]">Auflösung sollte gerade sein.</p>
-              ) : null}
-            </Section>
-
-            {/* Ausgabe (2. Bildschirm, #161) */}
-            <Section title="Ausgabe (2. Bildschirm)">
-              <p className="text-[11px] text-[var(--muted-foreground)] -mt-1">
-                Zeigt die Bauchbinde als Vollbild auf einem zweiten Monitor mit
-                Chroma-Green-Hintergrund — für externe Keyer (vMix/ATEM/TriCaster) ohne NDI.
-              </p>
-              <Labeled label="Monitor">
-                <select
-                  value={String(c.secondScreenDisplay)}
-                  onChange={(e) => void setConfig({ secondScreenDisplay: Number(e.target.value) })}
-                  className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold"
-                >
-                  <option value="0">Primär (automatisch)</option>
-                  {displays.map((d) => (
-                    <option key={d.id} value={String(d.id)}>
-                      {d.label}
-                    </option>
-                  ))}
-                </select>
-              </Labeled>
-              <div className="flex gap-3 items-end">
-                <ColorField label="Chroma" value={c.chromaColor} onChange={(v) => void setConfig({ chromaColor: v })} />
-                <button
-                  onClick={() => void setConfig({ chromaColor: '#00B140' })}
-                  className="h-9 shrink-0 rounded-[var(--radius)] border border-[var(--border)] px-3 text-xs hover:bg-[var(--highlight)]"
-                  title="Standard-Green (#00B140) zurücksetzen"
-                >
-                  Reset
-                </button>
-              </div>
-              {c.secondScreenEnabled ? (
-                <Button variant="destructive" className="w-full" onClick={() => void setConfig({ secondScreenEnabled: false })}>
-                  2. Bildschirm ausschalten
-                </Button>
-              ) : (
-                <Button variant="primary" className="w-full" onClick={() => void setConfig({ secondScreenEnabled: true })}>
-                  2. Bildschirm einschalten
-                </Button>
-              )}
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                Tipp: Zweitmonitor wählen, damit die Ausgabe nicht die Operator-Oberfläche verdeckt.
-              </p>
-            </Section>
+            )}
           </div>
         </div>
       </div>
@@ -635,17 +720,6 @@ export function OperatorView(): React.JSX.Element {
         />
       ) : null}
     </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <section className="space-y-2.5">
-      <h3 className="text-[10px] uppercase tracking-[0.14em] font-extrabold text-[var(--muted-foreground)]">
-        {title}
-      </h3>
-      {children}
-    </section>
   );
 }
 
