@@ -20,6 +20,8 @@
 // wrangler/esbuild bündelt diese ESM-Module beim Deploy mit ein.
 import { validateRecipe, renderRecipeMarkdown, CATEGORY_SLUG } from '../../packages/cookbook/src/recipe-core.mjs';
 import { buildAuthoringPrompt } from '../../packages/cookbook/src/authoring-prompt.mjs';
+// Q&A externe Einreichung (#166) — eigenes Modul, hält worker.js schlank.
+import { handleQa } from './qa-relay.js';
 
 const USER_AGENT = 'JM-Suite-Release-Proxy';
 
@@ -104,6 +106,14 @@ export default {
     if (request.method === 'GET' && url.pathname === '/') {
       return text('JM Production Suite release proxy — ok');
     }
+
+    // Q&A externe Einreichung (#166). Eigene Routing-Ebene: die ÖFFENTLICHEN
+    // Einreich-Routen (Seite/submit/press/pubkey/state) müssen VOR dem PROXY_KEY-
+    // Gate erreichbar sein (Zuschauer/Presse haben keinen Key); die Admin-Routen
+    // (open/pending/ack/delete) prüfen den Key im Modul selbst. `null` = kein
+    // Q&A-Pfad → normal weiter.
+    const qa = await handleQa(request, env, url);
+    if (qa) return qa;
 
     // Ab hier: Proxy-Key Pflicht.
     const provided =
