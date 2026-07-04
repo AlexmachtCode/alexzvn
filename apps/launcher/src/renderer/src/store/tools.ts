@@ -118,15 +118,29 @@ interface ToolsStore {
   patchNotes: { app: string; highlight?: string } | null;
   openPatchNotes: (view?: { app: string; highlight?: string }) => void;
   closePatchNotes: () => void;
+  /** Erste-Schritte-Assistent (Onboarding B1): beim allerersten Start automatisch. */
+  onboardingOpen: boolean;
+  openOnboarding: () => void;
+  closeOnboarding: (persist?: boolean) => void;
 }
 
 const SEEN_VERSION_KEY = 'jmps:lastSeenVersion';
+const ONBOARDED_KEY = 'jmps:onboardedV1';
 
 function readSeenVersion(): string | null {
   try {
     return localStorage.getItem(SEEN_VERSION_KEY);
   } catch {
     return null;
+  }
+}
+
+/** Wurde der Erste-Schritte-Assistent schon gesehen/weggeklickt? (Onboarding B1) */
+function readOnboarded(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDED_KEY) === '1';
+  } catch {
+    return false;
   }
 }
 
@@ -172,6 +186,7 @@ export const useTools = create<ToolsStore>((set) => {
     health: [],
     systemOpen: false,
     showEditorOpen: false,
+    onboardingOpen: false,
     iveoActive: null,
     sideEvents: null,
     sideEventsOpen: false,
@@ -261,9 +276,12 @@ export const useTools = create<ToolsStore>((set) => {
         useCookbook.getState().load(),
       ]);
       set({ tools, states: byId(states), settings, version, loading: false });
-      // „Was ist neu?" nach einem Launcher-Update (oder beim ersten Start dieser
-      // Version) genau einmal zeigen — sofern für die Version Notes vorliegen.
-      if (version && readSeenVersion() !== version && useChangelog.getState().entryFor('launcher', version)) {
+      // Beim allerersten Start den Erste-Schritte-Assistenten zeigen (B1); sonst
+      // — nach einem Launcher-Update — genau einmal „Was ist neu?", sofern für die
+      // Version Notes vorliegen. Nie beides gleichzeitig aufpoppen.
+      if (!readOnboarded()) {
+        set({ onboardingOpen: true });
+      } else if (version && readSeenVersion() !== version && useChangelog.getState().entryFor('launcher', version)) {
         set({ patchNotes: { app: 'launcher', highlight: version } });
       }
       // Zustände sofort rendern, die (langsameren, online) Prüfungen danach.
@@ -338,6 +356,21 @@ export const useTools = create<ToolsStore>((set) => {
       void useTools.getState().loadHealth();
     },
     closeSystem: () => set({ systemOpen: false }),
+
+    openOnboarding: () => {
+      set({ onboardingOpen: true });
+      void useTools.getState().loadPresence();
+    },
+    closeOnboarding: (persist = true) => {
+      if (persist) {
+        try {
+          localStorage.setItem(ONBOARDED_KEY, '1');
+        } catch {
+          // localStorage nicht verfügbar → nur In-Memory schließen
+        }
+      }
+      set({ onboardingOpen: false });
+    },
 
     openSideEvents: () => {
       set({ sideEventsOpen: true });

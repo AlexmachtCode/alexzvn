@@ -10,6 +10,7 @@ import { PatchNotesModal } from '@/components/PatchNotesModal';
 import { CookbookModal } from '@/components/CookbookModal';
 import { RecipeDraftModal } from '@/components/RecipeDraftModal';
 import { SystemStatusModal } from '@/components/SystemStatusModal';
+import { OnboardingModal } from '@/components/OnboardingModal';
 import { ShowEditorModal } from '@/components/ShowEditorModal';
 import { SideEventsPanel } from '@/components/SideEventsPanel';
 import { ShowLaunchOverlay } from '@/components/ShowLaunchOverlay';
@@ -60,6 +61,7 @@ export function App() {
       <CookbookModal />
       <RecipeDraftModal />
       <SystemStatusModal />
+      <OnboardingModal />
       <ShowEditorModal />
       <SideEventsPanel />
       <ShowLaunchOverlay />

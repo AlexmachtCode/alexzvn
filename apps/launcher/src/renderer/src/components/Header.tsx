@@ -11,6 +11,7 @@ export function Header() {
   const openShow = useTools((s) => s.openShow);
   const openShowEditor = useTools((s) => s.openShowEditor);
   const openSystem = useTools((s) => s.openSystem);
+  const openOnboarding = useTools((s) => s.openOnboarding);
   const openSideEvents = useTools((s) => s.openSideEvents);
   const iveoActive = useTools((s) => s.iveoActive);
   const openCookbook = useCookbook((s) => s.openCookbook);
@@ -146,6 +147,23 @@ export function Header() {
               {runningCount}
             </span>
           )}
+        </button>
+        <button
+          type="button"
+          onClick={openOnboarding}
+          aria-label="Erste Schritte"
+          title="Erste Schritte · geführter Einstieg"
+          className={cn(
+            'grid place-items-center size-8 rounded-[var(--radius)]',
+            'border border-[var(--border)] text-[var(--foreground)]',
+            'hover:bg-[var(--highlight)] transition-colors',
+          )}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <path d="M12 17h.01" />
+          </svg>
         </button>
         <button
           type="button"
