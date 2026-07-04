@@ -5,6 +5,7 @@ import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } fr
 import { MEDIA_SCHEME } from '@shared/media-url';
 import { registerIpc } from './ipc';
 import { registerMediaProtocol } from './media-protocol';
+import { handleShowDeepLink } from './show-open';
 
 declare const __dirname: string;
 
@@ -42,13 +43,16 @@ function createWindow(): BrowserWindow {
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({
+// onDeepLink fängt Show-Links bei laufender App (second-instance/open-url) ab;
+// den Start-Link verarbeiten wir unten über runtime.initialDeepLink.
+const runtime = initAppRuntime({
   appId: 'jm-editor',
   appName: 'JM Editor',
   // P2 (#60): CSP. Medien laufen über das privilegierte jm-media://-Schema
   // (bypassCSP) — wir whitelisten es zusätzlich explizit, damit auch der
   // fetch(mediaUrl())-Pfad (connect-src) unabhängig vom bypassCSP-Verhalten trägt.
   csp: { connectSrc: ['jm-media:'], imgSrc: ['jm-media:'], mediaSrc: ['jm-media:'] },
+  onDeepLink: (url) => void handleShowDeepLink(url),
 });
 
 if (setupSingleInstance(() => createWindow())) {
@@ -56,6 +60,9 @@ if (setupSingleInstance(() => createWindow())) {
     registerMediaProtocol();
     registerIpc(() => getMainWindow());
     createWindow();
+    // Start-Deep-Link (App per Show gestartet) verarbeiten — lädt das in der
+    // .jmshow referenzierte .jmedit-Dokument.
+    if (runtime.initialDeepLink) void handleShowDeepLink(runtime.initialDeepLink);
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
