@@ -2,7 +2,7 @@ import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IVEO_DEFAULT_BASE_URL } from '@jm/iveo';
-import type { RecentShow, SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
+import type { ManualEndpoint, RecentShow, SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
 
 interface StoredSettings {
   /** Legacy-Klartext-Token (alte Datei). Wird beim nächsten Schreiben migriert. */
@@ -23,6 +23,8 @@ interface StoredSettings {
   iveoTokens?: Record<string, string>;
   /** Zuletzt geöffnete Shows (#157), neueste zuerst. */
   recentShows?: RecentShow[];
+  /** Manuell eingetragene Steuer-Adressen (A4-Fallback bei blockiertem mDNS). */
+  manualEndpoints?: ManualEndpoint[];
 }
 
 /** Wie viele zuletzt geöffnete Shows gemerkt werden (#157). */
@@ -270,6 +272,42 @@ export function pushRecentShow(entry: RecentShow): void {
   } catch {
     // Komfortfunktion → Schreibfehler ignorieren.
   }
+}
+
+// ── A4: manuelle Steuer-Adressen (Fallback bei blockiertem mDNS) ───────────────
+function endpointKey(e: ManualEndpoint): string {
+  return `${e.host}:${e.port}`;
+}
+
+/** Gültigen host:port normalisieren; null, wenn unbrauchbar. */
+function normalizeEndpoint(host: string, port: number): ManualEndpoint | null {
+  const h = host.trim();
+  const p = Math.trunc(port);
+  if (!h || !Number.isFinite(p) || p <= 0 || p > 65535) return null;
+  return { host: h, port: p };
+}
+
+export function getManualEndpoints(): ManualEndpoint[] {
+  return read().manualEndpoints ?? [];
+}
+
+/** Manuelle Adresse hinzufügen (dedupe nach host:port) → neue Liste. */
+export function addManualEndpoint(host: string, port: number): ManualEndpoint[] {
+  const ep = normalizeEndpoint(host, port);
+  const current = getManualEndpoints();
+  if (!ep) return current;
+  const rest = current.filter((e) => endpointKey(e) !== endpointKey(ep));
+  const next = [...rest, ep];
+  write({ ...read(), manualEndpoints: next });
+  return next;
+}
+
+/** Manuelle Adresse entfernen → neue Liste. */
+export function removeManualEndpoint(host: string, port: number): ManualEndpoint[] {
+  const key = `${host.trim()}:${Math.trunc(port)}`;
+  const next = getManualEndpoints().filter((e) => endpointKey(e) !== key);
+  write({ ...read(), manualEndpoints: next.length ? next : undefined });
+  return next;
 }
 
 export function setSettings(input: SuiteSettingsInput): SuiteSettingsView {

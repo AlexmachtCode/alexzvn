@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
-import type { ControlPlaneStatus, HealthEntry, PresenceRecord } from '@shared/types';
+import type { ControlPlaneStatus, HealthEntry, ManualEndpoint, PresenceRecord } from '@shared/types';
 import { useTools } from '@/store/tools';
 import { pairingUrl, toDataUrl } from '@/lib/qr';
 
@@ -368,7 +368,104 @@ function NetworkPlaneCard({
           </p>
         </div>
       )}
+
+      <ManualEndpointsBlock health={health} nonce={nonce} />
     </section>
+  );
+}
+
+/**
+ * A4 — sichtbarer host:port-Fallback: Bei blockiertem mDNS (getrennte Event-Netze)
+ * findet der Health-Aggregator nichts. Hier trägt der Operator ein Tool per Adresse
+ * direkt ein; der Eintrag wird persistiert und der Launcher verbindet sich dorthin.
+ */
+function ManualEndpointsBlock({ health, nonce }: { health: HealthEntry[]; nonce: number }) {
+  const [list, setList] = useState<ManualEndpoint[]>([]);
+  const [host, setHost] = useState('');
+  const [port, setPort] = useState('');
+
+  useEffect(() => {
+    window.jmps.getManualEndpoints().then(setList).catch(() => {});
+  }, [nonce]);
+
+  const add = async (): Promise<void> => {
+    const p = Number(port);
+    if (!host.trim() || !Number.isFinite(p) || p <= 0 || p > 65535) return;
+    setList(await window.jmps.addManualEndpoint(host.trim(), Math.trunc(p)));
+    setHost('');
+    setPort('');
+  };
+  const remove = async (ep: ManualEndpoint): Promise<void> => {
+    setList(await window.jmps.removeManualEndpoint(ep.host, ep.port));
+  };
+  const statusOf = (ep: ManualEndpoint): HealthEntry | undefined =>
+    health.find((h) => h.manual && h.host === ep.host && h.port === ep.port);
+
+  const inputCls = cn(
+    'h-9 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)]',
+    'px-3 text-xs text-[var(--foreground)] tabular-nums',
+  );
+
+  return (
+    <div className="mt-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)]/40 p-3">
+      <p className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+        Tool nicht gefunden? Adresse eintragen
+      </p>
+      <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+        Bei blockiertem mDNS (getrennte Netze) ein Tool per host:port direkt anbinden — bleibt gespeichert.
+      </p>
+
+      {list.length > 0 && (
+        <ul className="mt-2 space-y-1.5">
+          {list.map((ep) => {
+            const h = statusOf(ep);
+            return (
+              <li key={`${ep.host}:${ep.port}`} className="flex items-center gap-2 text-sm">
+                <span
+                  aria-hidden
+                  className={cn(
+                    'size-2 shrink-0 rounded-full',
+                    h?.connected ? 'bg-[var(--success)]' : 'bg-[var(--destructive)]/70',
+                  )}
+                />
+                <span className="tabular-nums text-[var(--foreground)]">
+                  {ep.host}:{ep.port}
+                </span>
+                <span className="text-[11px] text-[var(--muted-foreground)]">
+                  {h?.connected ? (h.role ? `verbunden · ${h.role}` : 'verbunden') : 'nicht erreichbar'}
+                </span>
+                <button
+                  onClick={() => void remove(ep)}
+                  className="ml-auto rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)] hover:bg-[var(--highlight)]"
+                >
+                  Entfernen
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          value={host}
+          onChange={(e) => setHost(e.target.value)}
+          placeholder="IP / Host"
+          className={cn(inputCls, 'min-w-0 flex-1')}
+        />
+        <input
+          value={port}
+          onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ''))}
+          onKeyDown={(e) => e.key === 'Enter' && void add()}
+          placeholder="Port"
+          inputMode="numeric"
+          className={cn(inputCls, 'w-20')}
+        />
+        <Button variant="ghost" onClick={() => void add()} disabled={!host.trim() || !port}>
+          Hinzufügen
+        </Button>
+      </div>
+    </div>
   );
 }
 

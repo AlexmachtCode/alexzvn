@@ -305,6 +305,17 @@ export interface HealthEntry {
   connected: boolean;
   /** Letzter STATE-Push (Schlüssel→Wert, Werte als Strings). */
   kv: Record<string, string>;
+  /** Manuell eingetragener Endpunkt (A4-Fallback, mDNS-unabhängig). */
+  manual?: boolean;
+}
+
+/**
+ * Manuell eingetragene Steuer-Adresse (A4): greift, wenn mDNS blockiert ist
+ * (getrennte Event-Netze) und sich Tools nicht automatisch finden.
+ */
+export interface ManualEndpoint {
+  host: string;
+  port: number;
 }
 
 /** Ein in einer Show referenziertes Tool (für das Start-Feedback, #76). */
@@ -345,6 +356,12 @@ export interface JmpsApi {
   getPresence: () => Promise<PresenceRecord[]>;
   /** Live-Zustand aller im LAN entdeckten Steuer-Endpunkte (REC/On-Air/…). */
   getHealth: () => Promise<HealthEntry[]>;
+  /** Manuell eingetragene Steuer-Adressen (A4-Fallback bei blockiertem mDNS). */
+  getManualEndpoints: () => Promise<ManualEndpoint[]>;
+  /** Manuelle Adresse hinzufügen (host:port) → neue Liste. */
+  addManualEndpoint: (host: string, port: number) => Promise<ManualEndpoint[]>;
+  /** Manuelle Adresse entfernen → neue Liste. */
+  removeManualEndpoint: (host: string, port: number) => Promise<ManualEndpoint[]>;
   open: (id: string) => Promise<ActionResult>;
   /** Show-Datei (.jmshow) wählen und ihre Tools koordiniert starten. */
   openShow: () => Promise<ActionResult>;

@@ -9,8 +9,8 @@ import { initManifest, refreshManifest } from './manifest';
 import { initChangelog, refreshChangelog } from './changelog';
 import { initCookbook, refreshCookbook } from './cookbook';
 import { startPresenceHub } from './presence';
-import { startHealth } from './health';
-import { migrateTokenAtRest } from './settings';
+import { startHealth, setManualEndpoints } from './health';
+import { getManualEndpoints, migrateTokenAtRest } from './settings';
 import { openShow } from './show';
 import { setIveoEmitter, iveoStateKv } from './iveo-sync';
 import { startLauncherControlServer, stopLauncherControlServer, pushLauncherControlState } from './control-server';
@@ -72,6 +72,8 @@ if (setupSingleInstance(() => createWindow())) {
     // Health-Aggregator: browst per mDNS nach Steuer-Endpunkten und liest deren
     // Live-Zustand (REC/On-Air/…) — auch von Tools auf anderen Rechnern.
     startHealth(() => emitAppEvent({ type: 'health-changed' }), app.getPath('appData'));
+    // A4: persistierte manuelle Adressen verbinden (Fallback bei blockiertem mDNS).
+    setManualEndpoints(getManualEndpoints());
     // iveo-Live-Umschalter (#11): Panel informieren UND Companion/Rundown-STATE pushen.
     setIveoEmitter((e) => {
       emitAppEvent(e);

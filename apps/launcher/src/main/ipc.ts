@@ -20,13 +20,20 @@ import { getChangelog } from './changelog';
 import { getCookbook } from './cookbook';
 import { getAllStates } from './install-state';
 import { getPresence } from './presence';
-import { getHealth } from './health';
+import { getHealth, setManualEndpoints } from './health';
 import { checkToolUpdates, checkLauncherUpdate } from './updates';
 import { openTool } from './launch';
 import { openShowDialog, openShow, saveShow, pickShowDocument, loadShowForEdit } from './show';
 import { installTool, updateLauncher } from './installer';
 import { uninstallTool } from './uninstall';
-import { getSettingsView, setSettings, getRecentShows } from './settings';
+import {
+  getSettingsView,
+  setSettings,
+  getRecentShows,
+  getManualEndpoints,
+  addManualEndpoint,
+  removeManualEndpoint,
+} from './settings';
 import { getControlStatus, provisionControl, disableControl } from './control-provision';
 import { submitFeedback } from './feedback';
 import { submitRecipeDraft } from './cookbook-draft';
@@ -62,6 +69,18 @@ export function registerIpc(): void {
   ipcMain.handle('presence:get', () => getPresence());
   // Live-Zustand der entdeckten Steuer-Endpunkte (REC/On-Air/…) fürs Dashboard.
   ipcMain.handle('health:get', () => getHealth());
+  // A4: manuelle Steuer-Adressen (Fallback bei blockiertem mDNS) — lesen/setzen.
+  ipcMain.handle('health:getManual', () => getManualEndpoints());
+  ipcMain.handle('health:addManual', (_e, host: string, port: number) => {
+    const list = addManualEndpoint(host, port);
+    setManualEndpoints(list);
+    return list;
+  });
+  ipcMain.handle('health:removeManual', (_e, host: string, port: number) => {
+    const list = removeManualEndpoint(host, port);
+    setManualEndpoints(list);
+    return list;
+  });
   // Live-Update-Prüfung gegen die Releases (online, sonst unveränderte Zustände).
   ipcMain.handle('suite:check-updates', () => checkToolUpdates(getTools()));
 
