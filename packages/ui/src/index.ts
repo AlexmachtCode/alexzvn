@@ -5,3 +5,6 @@ export { Card } from './components/Card';
 export { Badge } from './components/Badge';
 export { Logo } from './components/Logo';
 export { Splitter } from './components/Splitter';
+export { Collapsible } from './components/Collapsible';
+export { SettingsSection } from './components/SettingsSection';
+export { Tabs, type TabItem } from './components/Tabs';
