@@ -36,6 +36,12 @@ const ICON = {
       <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   ),
+  template: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 21V9" />
+    </svg>
+  ),
 } as const;
 
 type ButtonVariant = 'primary' | 'accent' | 'outline' | 'ghost' | 'destructive' | 'link';
@@ -60,6 +66,7 @@ interface ShowAction {
 export function ShowView(): React.JSX.Element {
   const openShow = useTools((s) => s.openShow);
   const openShowEditor = useTools((s) => s.openShowEditor);
+  const openScenarios = useTools((s) => s.openScenarios);
   const openSystem = useTools((s) => s.openSystem);
   const openShowPath = useTools((s) => s.openShowPath);
   const recentShows = useTools((s) => s.recentShows);
@@ -77,6 +84,15 @@ export function ShowView(): React.JSX.Element {
       actionLabel: 'Show öffnen',
       onClick: () => void openShow(),
       variant: 'primary',
+    },
+    {
+      key: 'template',
+      icon: ICON.template,
+      title: 'Aus Vorlage starten',
+      description: 'Sag, was du produzierst (Konferenz, Battle, Bühne, Podcast) — die passenden Tools sind vorgewählt.',
+      actionLabel: 'Vorlage wählen',
+      onClick: openScenarios,
+      variant: 'accent',
     },
     {
       key: 'create',
