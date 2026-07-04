@@ -16,16 +16,19 @@ import { discover, type DiscoveredService } from '@jm/discovery';
 import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { controlClientOptions, readControlConfig } from '@jm/control-config';
-import type { HealthEntry } from '@shared/types';
+import type { HealthEntry, ManualEndpoint } from '@shared/types';
 
 interface Conn {
   svc: DiscoveredService;
   client: SuiteControlClient;
   connected: boolean;
   kv: Record<string, string>;
+  /** Manuell eingetragener Endpunkt (A4) — vom mDNS-Pruning ausgenommen. */
+  manual: boolean;
 }
 
 const conns = new Map<string, Conn>(); // Schlüssel: host:port
+const manualKeys = new Set<string>(); // A4: manuell eingetragene host:port
 let discovery: { stop: () => void } | null = null;
 let notify: (() => void) | null = null;
 let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -55,6 +58,33 @@ function emit(): void {
   }, 500);
 }
 
+/** Einen Steuer-Client für einen Endpunkt anlegen + verbinden (mDNS oder manuell). */
+function addConn(svc: DiscoveredService, manual: boolean): void {
+  const key = endpointKey(svc);
+  const client = new SuiteControlClient({
+    ...clientSecurity, // P1: Token/TLS im secure-Modus (sonst leer = open)
+    onState: (state: SuiteState) => {
+      const c = conns.get(key);
+      if (!c) return;
+      c.kv = Object.fromEntries(Object.entries(state.kv).map(([k, v]) => [k, String(v)]));
+      // Manueller Endpunkt kennt Rolle/appId erst aus dem STATE-Namespace (ns).
+      if (c.manual && state.ns && !c.svc.role) {
+        c.svc = { ...c.svc, role: state.ns, appId: c.svc.appId || `jm-${state.ns}` };
+      }
+      emit();
+    },
+    onConnectedChange: (connected: boolean) => {
+      const c = conns.get(key);
+      if (!c) return;
+      c.connected = connected;
+      emit();
+    },
+    reconnectMs: 3000,
+  });
+  conns.set(key, { svc, client, connected: false, kv: {}, manual });
+  client.connect(svc.host, svc.port);
+}
+
 function onDiscovered(services: DiscoveredService[]): void {
   const control = services.filter(isControl);
   const live = new Set(control.map(endpointKey));
@@ -66,29 +96,42 @@ function onDiscovered(services: DiscoveredService[]): void {
       existing.svc = svc; // Metadaten auffrischen (appId/role/name)
       continue;
     }
-    const client = new SuiteControlClient({
-      ...clientSecurity, // P1: Token/TLS im secure-Modus (sonst leer = open)
-      onState: (state: SuiteState) => {
-        const c = conns.get(key);
-        if (!c) return;
-        c.kv = Object.fromEntries(Object.entries(state.kv).map(([k, v]) => [k, String(v)]));
-        emit();
-      },
-      onConnectedChange: (connected: boolean) => {
-        const c = conns.get(key);
-        if (!c) return;
-        c.connected = connected;
-        emit();
-      },
-      reconnectMs: 3000,
-    });
-    conns.set(key, { svc, client, connected: false, kv: {} });
-    client.connect(svc.host, svc.port);
+    addConn(svc, false);
   }
 
-  // Verschwundene Endpunkte trennen.
+  // Verschwundene Endpunkte trennen — manuelle bleiben (mDNS-unabhängig, A4).
   for (const [key, conn] of [...conns]) {
+    if (conn.manual) continue;
     if (!live.has(key)) {
+      conn.client.disconnect();
+      conns.delete(key);
+    }
+  }
+  emit();
+}
+
+/**
+ * A4: manuell eingetragene Steuer-Adressen setzen (Fallback bei blockiertem mDNS).
+ * Verbindet neue, trennt entfernte. Überschneidet sich eine manuelle Adresse mit
+ * einem bereits per mDNS gefundenen Endpunkt (gleicher host:port), bleibt die
+ * bestehende Verbindung erhalten (nur als manuell gemerkt, damit sie nicht gepruned wird).
+ */
+export function setManualEndpoints(list: ManualEndpoint[]): void {
+  const want = new Map(list.map((e) => [endpointKey(e), e]));
+  for (const [key, ep] of want) {
+    manualKeys.add(key);
+    if (conns.has(key)) continue;
+    addConn(
+      { appId: '', role: '', host: ep.host, port: ep.port, name: key, ctl: true, verified: true },
+      true,
+    );
+  }
+  // Entfernte manuelle Adressen trennen (nur solche, die nur manuell existieren).
+  for (const key of [...manualKeys]) {
+    if (want.has(key)) continue;
+    manualKeys.delete(key);
+    const conn = conns.get(key);
+    if (conn?.manual) {
       conn.client.disconnect();
       conns.delete(key);
     }
@@ -150,5 +193,6 @@ export function getHealth(): HealthEntry[] {
     port: c.svc.port,
     connected: c.connected,
     kv: c.kv,
+    manual: c.manual,
   }));
 }
