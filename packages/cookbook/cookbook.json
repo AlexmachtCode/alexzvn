@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-07-04T00:00:00.000Z",
   "recipes": [
     {
       "id": "award-gala",
@@ -1151,6 +1151,133 @@
       }
     },
     {
+      "id": "tool-jm-player",
+      "title": "JM Player — Zuspieler, Playlists & Soundboard",
+      "category": "Tool-Manuals",
+      "difficulty": "einfach",
+      "setupTimeMin": 10,
+      "teamSize": "1",
+      "tags": [
+        "player",
+        "zuspieler",
+        "playlist",
+        "soundboard",
+        "cues",
+        "einlaufmusik",
+        "companion",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-player",
+        "jm-switcher",
+        "jm-rundown",
+        "jm-timer"
+      ],
+      "prerequisites": [
+        "JM Player installiert (über den Launcher)",
+        "Medien lokal verfügbar (Video/Audio) — Bibliothek liegt lokal (SQLite)",
+        "Optional Audio-/Video-Ausgabegerät (Bühnen-PA, Mischer-Eingang)",
+        "Optional Bitfocus Companion / JM Rundown für die Fernsteuerung"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Media Operator / Ton"
+      ],
+      "lastReviewed": "2026-07-04",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Video-/Audio-Zuspieler mit Playlists (Lounge-/Einlaufmusik), Show-Cues und Soundboard-Pads für Instant-Effekte — Standby/GO-Bedienung und TCP-Fernsteuerung.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Player installiert (über den Launcher)",
+              "Medien lokal verfügbar — die Bibliothek (Playlists, Soundboard, Tags) liegt lokal in einer SQLite-Datei",
+              "Ausgabegerät: Bühnen-PA / Mischer-Eingang (Audio) bzw. Bildmischer (Video)",
+              "Optional: Bitfocus Companion oder JM Rundown für die Fernsteuerung"
+            ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port **8725** (TCP-Zeilenprotokoll): Steuerport für Companion / Rundown. Auto-Discovery über mDNS (`jm-player-ctl`, TXT `ctl=1`).",
+              "Bedienmodell: **Standby → GO**. Ein Cue steht auf Standby, `GO` feuert ihn; Soundboard-Pads triggern sofort (unabhängig vom Standby)."
+            ]
+          },
+          {
+            "title": "Fernsteuer-Befehle (TCP 8725)",
+            "items": [
+              "`PLAYER GO` — den Standby-Cue feuern; `PLAYER STANDBY <Nr.>` — Standby setzen; `PLAYER NEXT` / `PLAYER PREV` — Standby ±1",
+              "`PLAYER CUE <Nr.>` — einen bestimmten Show-Cue direkt feuern",
+              "`PLAYER STOP` (alle Cues) · `PLAYER PAUSE` (Pause/Resume) · `PLAYER PANIC` (Hard-Stop)",
+              "`PLAYER PAD <Slot>` — Soundboard-Pad triggern",
+              "`PLAYER SHOW <Name oder DB-Nr.>` — gespeicherte Show/Playlist aufrufen",
+              "`STATE?` — Zustand abfragen. Gepushte STATE-Werte: `playing`, `paused`, `standby`, `standby_label`, `cues`, `playing_count`"
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [],
+          "waehrend": [
+            "Standby setzen und mit `GO` feuern (lokal oder per Companion) — `NEXT`/`PREV` schiebt den Standby",
+            "Soundboard-Pads für Applaus/Stinger/Jingle sofort auslösen (`PAD <Slot>`)",
+            "`PAUSE` für kurze Unterbrechung, `STOP` beendet sauber, `PANIC` bei Bedarf hart abwürgen"
+          ],
+          "nach": [
+            "Alle Cues stoppen; nächste Playlist (z. B. „Ausklang\") auf Standby legen"
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "Kein Ton/Bild beim GO",
+            "remedy": "Richtiges Ausgabegerät gewählt? Kabel/Pegel am Mischer prüfen"
+          },
+          {
+            "risk": "Companion/Rundown steuert nicht",
+            "remedy": "Port 8725 offen? `jm-player-ctl` im mDNS sichtbar?"
+          },
+          {
+            "risk": "Falscher Cue läuft",
+            "remedy": "Standby prüfen (`STATE` `standby`/`standby_label`) — `GO` feuert immer den Standby, nicht die Auswahl"
+          },
+          {
+            "risk": "Soundboard-Pad reagiert nicht",
+            "remedy": "Richtiger Slot? Datei in der Bibliothek vorhanden/lesbar?"
+          },
+          {
+            "risk": "Cue hängt / lässt sich nicht stoppen",
+            "remedy": "`PANIC` (Hard-Stop), danach neu auf Standby legen"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Einrichtung",
+            "items": [
+              "Medien in der Bibliothek + getaggt",
+              "Playlists angelegt (Lounge/Einlauf/Pause)",
+              "Show-Cues in Reihenfolge, Soundboard-Pads belegt",
+              "Ausgabegerät gewählt",
+              "Companion/Rundown auf Port 8725 verbunden (optional)"
+            ]
+          },
+          {
+            "title": "Vor Live",
+            "items": [
+              "Test-`GO` + Pegel geprüft",
+              "Soundboard-Pads getestet",
+              "`PANIC`-Button erreichbar"
+            ]
+          }
+        ],
+        "tips": [
+          "Einlaufmusik als eigene Playlist auf Standby — ein `GO` startet den Einlauf, ohne suchen zu müssen.",
+          "Mit JM Rundown koppeln: ein GO pro Segment feuert automatisch den passenden Player-Cue (gleicher Port 8725).",
+          "Soundboard-Pads für die Momente, die keine Verzögerung dulden (Applaus, Buzzer) — Pads gehen sofort, unabhängig vom Standby-Cue.",
+          "`PANIC` auf einen roten Companion-Button legen — der Not-Aus für den Ton, wenn ein Cue entgleist."
+        ]
+      }
+    },
+    {
       "id": "tool-jm-qa",
       "title": "JM Q&A — Wortmeldungen & Saal-Fragen",
       "category": "Tool-Manuals",
@@ -1750,6 +1877,138 @@
           "Mit JM Rundown koppeln: ein GO startet pro Segment automatisch den passenden Timer-Block (Rundown spricht denselben Port 8724).",
           "Den Countdown zusätzlich auf JM Stage Display für die Crew zeigen — das hängt am Socket.IO-Port 7777, nicht am Steuerport.",
           "Token-Auth nur einschalten, wenn das LAN nicht vertrauenswürdig ist — sonst hält es Backstage-Geräte unnötig auf."
+        ]
+      }
+    },
+    {
+      "id": "tool-jm-titler",
+      "title": "JM Titler — Live-Bauchbinden & CG als NDI-Quelle",
+      "category": "Tool-Manuals",
+      "difficulty": "mittel",
+      "setupTimeMin": 15,
+      "teamSize": "1",
+      "tags": [
+        "titler",
+        "bauchbinde",
+        "lowerthird",
+        "ndi",
+        "datalink",
+        "iveo",
+        "psd",
+        "companion",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-titler",
+        "jm-switcher",
+        "jm-qa",
+        "jm-rundown",
+        "jm-grafiktool"
+      ],
+      "prerequisites": [
+        "JM Titler installiert (über den Launcher) — nativer Build mit NDI",
+        "Bildmischer/Playout mit NDI-Eingang (TriCaster, vMix, OBS, JM Switcher)",
+        "Optional Watchfolder mit CSV/TSV für DataLink-Variablen",
+        "Optional Bitfocus Companion / JM Rundown / JM Q&A für die Fernsteuerung"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Grafik / Media Operator"
+      ],
+      "lastReviewed": "2026-07-04",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Live-Bauchbinden, Banner und Ticker als transparente NDI-Quelle — mit DataLink-Variablen aus Dateien, iveo-Speakerdaten, PSD-/Grafiktool-Import, zweitem Bildschirm und TCP-Fernsteuerung.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Titler installiert (über den Launcher; nativer Build inkl. NDI-Anbindung)",
+              "Ein Bildmischer/Playout mit NDI-Eingang (TriCaster, vMix, OBS oder JM Switcher)",
+              "Optional: Watchfolder mit CSV/TSV/`key=wert`-Dateien für DataLink-Variablen",
+              "Optional: Bitfocus Companion, JM Rundown oder JM Q&A für die Fernsteuerung"
+            ]
+          },
+          {
+            "title": "Netzwerk & Ausgabe",
+            "items": [
+              "Ausgabe: transparente **NDI-Quelle** — im Mischer als NDI-Input auswählen. Die Bauchbinde liegt mit Alpha auf, der Hintergrund bleibt frei.",
+              "2. Bildschirm (Alternative zu NDI): Ausgabe als Chroma-Green-Fenster (`view=output`) auf einen zweiten Monitor/HDMI — für Hardware-Keyer, ohne NDI. Die NDI-Ausgabe bleibt davon unberührt.",
+              "Port **8726** (TCP-Zeilenprotokoll): Steuerport für Companion / Rundown / Q&A. Auto-Discovery über mDNS (`jm-titler-ctl`, TXT `ctl=1`)."
+            ]
+          },
+          {
+            "title": "Fernsteuer-Befehle (TCP 8726)",
+            "items": [
+              "`TITLER TAKE` / `TITLER CLEAR` / `TITLER TOGGLE` — Bauchbinde on air / ausblenden / umschalten",
+              "`TITLER TEMPLATE <lowerthird|banner|ticker|graphic>` — Vorlagentyp wählen",
+              "`TITLER TEXT <name> <untertitel>` — Text fernsetzen (Leerzeichen als `_`, `-` = leeres Feld). Nutzt z. B. JM Q&A für den aktiven Sprecher.",
+              "`TITLER RECALL <Nr. oder Name>` — DataLink-Eintrag abrufen (füllt die `{{variablen}}`)",
+              "`TITLER NEXT` / `TITLER PREV` — im DataLink-Liste vor/zurück",
+              "`STATE?` — Zustand abfragen. Der Titler pusht laufend STATE (`entry`, `index`, `count`, on-air-Status)"
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [],
+          "waehrend": [
+            "Bauchbinde füllen: Namensfeld ist immer sichtbar; per DataLink `RECALL`/`NEXT`/`PREV` durch die Liste springen",
+            "`TAKE` blendet on air, `CLEAR` blendet aus — lokal oder per Companion/Rundown/Q&A",
+            "Q&A-Kopplung: der aktive Sprecher setzt automatisch `TITLER TEXT` + `TITLER TAKE`",
+            "Bei iveo-Live-Umschaltung lädt der Titler die Speaker der neuen Side Session non-destruktiv nach (`TITLER RELOAD`)"
+          ],
+          "nach": [
+            "Bauchbinde ausblenden (`CLEAR`), NDI-Quelle im Mischer bleibt bestehen",
+            "Importierte Vorlagen/Watchfolder für die nächste Show prüfen/austauschen"
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "NDI-Quelle taucht im Mischer nicht auf",
+            "remedy": "Gleiches Subnetz? NDI-Discovery/Firewall frei? Titler wirklich gestartet?"
+          },
+          {
+            "risk": "Bauchbinde hat keinen transparenten Hintergrund",
+            "remedy": "NDI führt Alpha — im Mischer als NDI (nicht als Screen-Capture) einbinden; beim 2. Bildschirm den Keyer auf Chroma-Green stellen"
+          },
+          {
+            "risk": "`{{variablen}}` bleiben leer",
+            "remedy": "DataLink-Watchfolder gewählt? Spalten-/Ebenennamen passen zum Mapping? Per `RECALL <Nr.>` einen Eintrag ziehen"
+          },
+          {
+            "risk": "Companion/Q&A steuert nicht",
+            "remedy": "Port 8726 offen? `jm-titler-ctl` im mDNS sichtbar?"
+          },
+          {
+            "risk": "iveo-Speaker fehlen",
+            "remedy": "Show iveo-gebunden gestartet? Der Token liegt im Launcher (single-holder) — der Titler liest nur `speakers.tsv`"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Einrichtung",
+            "items": [
+              "Vorlage + Stil gewählt",
+              "NDI im Mischer eingebunden (oder 2. Bildschirm/Chroma-Green gelegt)",
+              "DataLink-Watchfolder gesetzt (optional)",
+              "PSD/`.jmtitler`-Vorlage importiert (optional)",
+              "Companion/Rundown/Q&A auf Port 8726 verbunden (optional)"
+            ]
+          },
+          {
+            "title": "Vor Live",
+            "items": [
+              "Test-`TAKE`/`CLEAR` gelaufen",
+              "`RECALL`/`NEXT`/`PREV` durch die Liste getestet",
+              "Q&A-/iveo-Kopplung geprüft (optional)"
+            ]
+          }
+        ],
+        "tips": [
+          "Companion-Button „Nächster Redner\": `TITLER NEXT` gefolgt von `TITLER TAKE` — ein Tastendruck holt den nächsten DataLink-Eintrag und blendet ihn ein.",
+          "Grafik im JM Grafiktool bauen und als `.jmtitler` „an den Titler senden\" — Hintergrund + variablen-fähige Text-Slots kommen fertig gemappt an.",
+          "Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab.",
+          "Zweiter Bildschirm statt NDI, wenn der Mischer nur SDI/HDMI-Keying kann: Chroma-Green-Ausgabe auf den Keyer, NDI bleibt zusätzlich verfügbar."
         ]
       }
     },
