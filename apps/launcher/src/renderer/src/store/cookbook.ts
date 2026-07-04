@@ -20,6 +20,8 @@ interface CookbookStore {
   closeCookbook: () => void;
   select: (recipeId: string) => void;
   findRecipe: (id: string) => Recipe | undefined;
+  /** ID des Tool-Manuals für eine Tool-ID (Onboarding B3: Tool → seine Anleitung). */
+  manualFor: (appId: string) => string | undefined;
   openDraft: () => void;
   closeDraft: () => void;
   /** Rezept einreichen (KI erzeugt es, öffnet einen PR). Notice landet im Tools-Store. */
@@ -44,6 +46,13 @@ export const useCookbook = create<CookbookStore>((set, get) => ({
   closeCookbook: () => set({ open: false }),
   select: (recipeId) => set({ selectedId: recipeId }),
   findRecipe: (id) => get().recipes.find((r) => r.id === id),
+  // Präzise Zuordnung über die ID-Konvention `tool-<appId>` (z. B. tool-jm-timer).
+  // NICHT über relatedTools: die listen auch verwandte Tools (das Battle-Manual
+  // nennt z. B. jm-titler) → das würde jm-titler fälschlich ein fremdes Manual geben.
+  manualFor: (appId) => {
+    const id = `tool-${appId}`;
+    return get().recipes.find((r) => r.category === 'Tool-Manuals' && r.id === id)?.id;
+  },
   openDraft: () => set({ draftOpen: true }),
   closeDraft: () => set({ draftOpen: false }),
   submitDraft: async (input) => {

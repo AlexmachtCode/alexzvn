@@ -2,6 +2,7 @@ import { Badge, Button, Card, cn } from '@jm/ui';
 import type { ToolManifest, ToolState } from '@shared/types';
 import { displayName, monogram } from '@/lib/monogram';
 import { useChangelog } from '@/store/changelog';
+import { useCookbook } from '@/store/cookbook';
 import { useTools } from '@/store/tools';
 
 interface Props {
@@ -18,6 +19,8 @@ export function ToolCard({ tool, state }: Props) {
   const update = useTools((s) => s.update);
   const uninstall = useTools((s) => s.uninstall);
   const openPatchNotes = useTools((s) => s.openPatchNotes);
+  const openCookbook = useCookbook((s) => s.openCookbook);
+  const manualId = useCookbook((s) => s.manualFor(tool.id));
   const changelogFor = useChangelog((s) => s.changelogFor);
   const hasNotes = Boolean(changelogFor(tool.app));
   const showProgress = busy && progress && progress.phase !== 'done' && progress.phase !== 'error';
@@ -73,6 +76,19 @@ export function ToolCard({ tool, state }: Props) {
             {status === 'update-available' && state?.latestAvailable
               ? ` · Update auf ${state.latestAvailable}`
               : ''}
+            {manualId && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  onClick={() => openCookbook(manualId)}
+                  title="Anleitung im Kochbuch öffnen"
+                  className="underline-offset-2 hover:text-[var(--foreground)] hover:underline transition-colors"
+                >
+                  Anleitung
+                </button>
+              </>
+            )}
           </span>
           <Actions
             status={status}
