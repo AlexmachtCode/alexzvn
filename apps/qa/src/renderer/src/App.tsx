@@ -12,7 +12,7 @@ import { ConnectionsPanel } from '@/components/ConnectionsPanel';
 const topBtn = 'rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800';
 
 export function App() {
-  const { state, load, next, endActive, setEndpoint } = useQa();
+  const { state, load, next, endActive, setEndpoint, setConfig } = useQa();
   const [showSettings, setShowSettings] = useState(false);
   const [showConnections, setShowConnections] = useState(false);
 
@@ -58,19 +58,46 @@ export function App() {
             <div className="space-y-1.5">
               {COUPLED_ROLES.map((role) => {
                 const link = state.links.find((l) => l.role === role);
+                const enabled = role === 'timer' ? state.config.autoTimer : state.config.autoTitler;
+                const connected = !!link?.connected;
+                // Ehrlicher Status: aus / aktiviert-aber-nicht-gefunden / gekoppelt.
+                const dot = !enabled ? 'bg-neutral-600' : connected ? 'bg-green-500' : 'bg-amber-500';
+                const status = !enabled
+                  ? 'aus'
+                  : connected
+                    ? `gekoppelt · ${link?.host}:${link?.port}`
+                    : 'aktiviert · nicht gefunden';
+                const toggle = (): void =>
+                  void setConfig(role === 'timer' ? { autoTimer: !enabled } : { autoTitler: !enabled });
                 return (
                   <div key={role} className="flex items-center gap-2 text-sm">
-                    <span className={`h-2 w-2 rounded-full ${link?.connected ? 'bg-green-500' : 'bg-neutral-600'}`} />
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
                     <span className="text-neutral-300">{roleLabel(role)}</span>
-                    <span className="ml-auto text-[11px] text-neutral-500">
-                      {link?.connected ? `${link.host}:${link.port}` : 'getrennt'}
+                    <span
+                      className={`ml-auto truncate text-[11px] ${
+                        enabled && !connected ? 'text-amber-400' : 'text-neutral-500'
+                      }`}
+                    >
+                      {status}
                     </span>
+                    <button
+                      onClick={toggle}
+                      title={enabled ? 'Auto-Kopplung ausschalten' : 'Auto-Kopplung einschalten'}
+                      className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                        enabled
+                          ? 'border-emerald-700/60 bg-emerald-900/30 text-emerald-300'
+                          : 'border-neutral-700 bg-neutral-800/60 text-neutral-400'
+                      } hover:brightness-125`}
+                    >
+                      {enabled ? 'An' : 'Aus'}
+                    </button>
                   </div>
                 );
               })}
             </div>
             <p className="mt-2 text-[11px] text-neutral-600">
-              Beim Ans-Wort-Holen werden Redezeit (Timer) und Bauchbinde (Titler) automatisch gesteuert.
+              Standardmäßig aktiv: Redezeit (Timer) und Bauchbinde (Titler) werden beim Ans-Wort-Holen
+              automatisch gesteuert — hier pro Werkzeug mit einem Klick umschaltbar.
             </p>
           </div>
         </div>
