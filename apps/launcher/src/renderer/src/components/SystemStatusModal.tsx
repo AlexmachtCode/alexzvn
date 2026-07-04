@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
-import type { HealthEntry, PresenceRecord } from '@shared/types';
+import type { ControlPlaneStatus, HealthEntry, PresenceRecord } from '@shared/types';
 import { useTools } from '@/store/tools';
+import { pairingUrl, toDataUrl } from '@/lib/qr';
 
 // Spiegelt STALE_MS aus dem Presence-Hub: ohne Lebenszeichen gilt ein Tool
 // nach dieser Zeit lokal als gestoppt (snappige Anzeige bis zum Hub-Event).
@@ -71,6 +72,10 @@ export function SystemStatusModal() {
     return () => clearInterval(t);
   }, [open]);
 
+  // „Aktualisieren" stößt auch einen Neu-Abruf des Steuerebenen-Status in der
+  // Netzwerk-Karte an (presence/health kommen live aus dem Store).
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
   if (!open) return null;
 
   const now = Date.now();
@@ -110,6 +115,8 @@ export function SystemStatusModal() {
             {runningCount > 0 ? 'Live' : 'Idle'}
           </span>
         </div>
+
+        <NetworkPlaneCard presence={presence} health={health} now={now} nonce={refreshNonce} />
 
         {presence.length === 0 ? (
           <p className="mt-5 text-sm rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-3 text-[var(--muted-foreground)]">
@@ -151,6 +158,7 @@ export function SystemStatusModal() {
             onClick={() => {
               void reload();
               void reloadHealth();
+              setRefreshNonce((n) => n + 1);
             }}
           >
             Aktualisieren
@@ -161,6 +169,226 @@ export function SystemStatusModal() {
         </div>
       </Card>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Netzwerk-Ampel + 1-Klick-Steuerebene (Onboarding-Slice A1).
+//
+// Leitet aus den bereits vorhandenen Daten (presence = lokal laufende Tools,
+// health = im LAN entdeckte Steuer-Endpunkte) eine Erreichbarkeits-Diagnose ab
+// und bietet die vorhandene 1-Klick-Provisionierung der sicheren Steuerebene
+// (control-provision.ts über window.jmps.*) direkt an — statt sie in den
+// Einstellungen zu verstecken. Kein neues Protokoll; nur Führung + Sichtbarkeit.
+//
+// Bewusst konservativ, um Fehlalarme zu vermeiden: „nicht gefunden" nur, wenn ein
+// laufendes Tool nachweislich einen Server (servicePort) exponiert, aber im Netz
+// nichts entdeckt wurde. Die getrennt-Warnung ist auf den secure-Modus begrenzt
+// (klassischer p1-secure-client-gap: Tool läuft noch mit altem/plain Zustand).
+// Die Provision/Disable-Logik spiegelt SettingsModal.ControlPlaneSection — die
+// Zusammenführung zu einer geteilten „Netzwerk"-Sektion ist Säule D der Roadmap.
+
+type PlaneTone = 'ok' | 'warn' | 'idle';
+
+function NetworkPlaneCard({
+  presence,
+  health,
+  now,
+  nonce,
+}: {
+  presence: PresenceRecord[];
+  health: HealthEntry[];
+  now: number;
+  nonce: number;
+}) {
+  const [status, setStatus] = useState<ControlPlaneStatus | null>(null);
+  const [revealed, setRevealed] = useState<ControlPlaneStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [qr, setQr] = useState<string | null>(null);
+
+  useEffect(() => {
+    window.jmps.getControlStatus().then(setStatus).catch(() => {});
+  }, [nonce]);
+
+  // QR fürs Pairing erzeugen, sobald ein frisches Token vorliegt (nur nach
+  // Aktivieren/Erneuern — das Token ist nur dann im Klartext verfügbar).
+  useEffect(() => {
+    if (!revealed?.token) {
+      setQr(null);
+      return;
+    }
+    let alive = true;
+    toDataUrl(pairingUrl(revealed.token, revealed.tlsFingerprint))
+      .then((d) => alive && setQr(d))
+      .catch(() => alive && setQr(null));
+    return () => {
+      alive = false;
+    };
+  }, [revealed]);
+
+  const provision = async () => {
+    setBusy(true);
+    try {
+      const s = await window.jmps.provisionControl();
+      setStatus(s);
+      setRevealed(s);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const disable = async () => {
+    setBusy(true);
+    try {
+      setStatus(await window.jmps.disableControl());
+      setRevealed(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const secure = status?.mode === 'secure';
+  const liveLocal = presence.filter((r) => r.running && now - r.lastSeen < STALE_MS);
+  const liveWithServer = liveLocal.filter((r) => r.servicePort);
+  const discovered = health.length;
+  const connected = health.filter((h) => h.connected).length;
+  const disconnected = discovered - connected;
+
+  let tone: PlaneTone;
+  let text: string;
+  if (liveLocal.length === 0) {
+    tone = 'idle';
+    text = 'Bereit — sobald Tools laufen, prüfen wir hier, ob sie sich im Netz finden.';
+  } else if (liveWithServer.length > 0 && discovered === 0) {
+    tone = 'warn';
+    text =
+      'Laufende Tools werden im Netz nicht gefunden — läuft mDNS/Bonjour? Firewall prüfen, ' +
+      'oder die Adresse (host:port) im jeweiligen Tool manuell eintragen.';
+  } else if (secure && disconnected > 0) {
+    tone = 'warn';
+    text =
+      `${disconnected} entdeckte(r) Endpunkt(e) getrennt — Tool(s) neu starten, damit sie die ` +
+      'sichere Steuerebene (Token/TLS) übernehmen.';
+  } else if (connected > 0) {
+    tone = 'ok';
+    text = `Tools finden sich im Netz — ${connected} von ${discovered} Steuer-Endpunkt(en) verbunden.`;
+  } else {
+    tone = 'ok';
+    text = 'Bereit — für die laufenden Tools ist keine Netz-Kopplung nötig.';
+  }
+
+  const toneCls: Record<PlaneTone, string> = {
+    ok: 'border-[var(--success)]/40 bg-[var(--success)]/12 text-[var(--success)]',
+    warn: 'border-[var(--destructive)]/40 bg-[var(--destructive)]/15 text-[var(--destructive)]',
+    idle: 'border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]',
+  };
+  const toneLabel: Record<PlaneTone, string> = { ok: 'Verbunden', warn: 'Prüfen', idle: 'Bereit' };
+  const dotCls: Record<PlaneTone, string> = {
+    ok: 'bg-[var(--success)]',
+    warn: 'bg-[var(--destructive)]',
+    idle: 'bg-[var(--muted-foreground)]/40',
+  };
+
+  return (
+    <section className="mt-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span aria-hidden className={cn('size-2.5 shrink-0 rounded-full', dotCls[tone])} />
+          <p className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+            Netzwerk &amp; Steuerebene
+          </p>
+        </div>
+        <span
+          className={cn(
+            'shrink-0 rounded-[var(--radius-full)] border px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.12em]',
+            toneCls[tone],
+          )}
+        >
+          {toneLabel[tone]}
+        </span>
+      </div>
+
+      <p className="mt-2 text-xs text-[var(--muted-foreground)]" aria-live="polite">
+        {text}
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-[var(--border)] pt-3">
+        <span className="text-xs text-[var(--muted-foreground)]">
+          Steuerebene:{' '}
+          <span className={cn('font-semibold', secure ? 'text-[var(--success)]' : 'text-[var(--foreground)]')}>
+            {secure ? 'Sicher (Token + TLS)' : 'Offen'}
+          </span>
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="primary" onClick={provision} disabled={busy}>
+            {secure ? 'Erneuern' : 'Sichere Steuerebene aktivieren'}
+          </Button>
+          {secure && (
+            <Button variant="ghost" onClick={disable} disabled={busy}>
+              Deaktivieren
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {!secure && (
+        <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+          Empfohlen in geteilten/mehrere-Standorte-Netzen: erzeugt ein Suite-Token + TLS, das alle
+          Tools beim nächsten Start übernehmen. Companion/zweite Rechner koppelst du per Token &amp;
+          Fingerprint.
+        </p>
+      )}
+
+      {revealed?.token && (
+        <div className="mt-3 flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] p-3 sm:flex-row sm:items-start">
+          {qr && (
+            <div className="shrink-0 self-center rounded-[var(--radius)] bg-white p-2 sm:self-start">
+              <img
+                src={qr}
+                alt="QR-Code zum Koppeln (Token + Fingerprint)"
+                width={120}
+                height={120}
+                className="block size-[120px]"
+              />
+            </div>
+          )}
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <p className="text-[10px] text-[var(--muted-foreground)]">
+              Einmalig sichtbar — per QR auf zweiten Rechner/Companion koppeln oder Werte übernehmen:
+            </p>
+            <PlaneMono label="Token" value={revealed.token} />
+            {revealed.tlsFingerprint && <PlaneMono label="TLS-Fingerprint" value={revealed.tlsFingerprint} />}
+          </div>
+        </div>
+      )}
+      {secure && !revealed && status?.tlsFingerprint && (
+        <div className="mt-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] p-3">
+          <PlaneMono label="TLS-Fingerprint" value={status.tlsFingerprint} />
+          <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">
+            Das Token wird aus Sicherheitsgründen nur beim Erzeugen/Erneuern angezeigt.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Kompakte, kopierbare Mono-Zeile (Token/Fingerprint). */
+function PlaneMono({ label, value }: { label: string; value: string }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+        {label}
+      </span>
+      <input
+        readOnly
+        value={value}
+        onFocus={(e) => e.currentTarget.select()}
+        className={cn(
+          'h-9 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)]',
+          'px-3 text-xs font-mono text-[var(--foreground)] select-all',
+        )}
+      />
+    </label>
   );
 }
 
