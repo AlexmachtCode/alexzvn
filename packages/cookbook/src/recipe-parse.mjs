@@ -71,9 +71,11 @@ function buildBlocks(sections) {
   const blocks = {
     ingredients: ing ? ing.subs.map((s) => ({ title: s.h3, items: s.items })) : [],
     steps: {
-      vor: phase(steps, (h) => h.includes('vorbereit')),
-      waehrend: phase(steps, (h) => h.includes('während') || h.includes('waehrend') || h.includes('live')),
-      nach: phase(steps, (h) => h.includes('nachbereit')),
+      // Phasen-Überschriften großzügig erkennen: die Manuals nutzen „Einrichtung"
+      // (Vorbereitung), „Während" und „Nachbereitung"/„Export"/„Ausgabe".
+      vor: phase(steps, (h) => h.includes('vorbereit') || h.includes('einricht')),
+      waehrend: phase(steps, (h) => h.includes('während') || h.includes('waehrend') || h.includes('live') || h.includes('betrieb')),
+      nach: phase(steps, (h) => h.includes('nachbereit') || h.includes('ausgabe') || h.includes('export')),
     },
     // rows[0] ist die Tabellen-Kopfzeile; die Trennzeile wurde schon gefiltert.
     troubleshooting: trouble ? trouble.rows.slice(1).map((r) => ({ risk: r[0], remedy: r[1] ?? '' })) : [],

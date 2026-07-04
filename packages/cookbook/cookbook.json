@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-04T00:00:00.000Z",
+  "updatedAt": "2026-07-05T00:00:00.000Z",
   "recipes": [
     {
       "id": "award-gala",
@@ -990,7 +990,13 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Eingangsgerät wählen (bevorzugt ASIO/Dante für latenzarme Mehrkanal-Aufnahme); Kanalzahl und Samplerate setzen — Standard 2 Kanäle / 48000 Hz, folgt sonst dem Gerät.",
+            "Zielordner und Basis-Dateinamen festlegen (ohne Namen = Zeitstempel).",
+            "Aufnahme-Verstärkung (Gain, dB) bei Bedarf anpassen — wirkt live auf Pegel **und** Aufnahme, wird gemerkt.",
+            "Optional **getrennte Spuren**: zusätzlich jede Spur als eigene Mono-WAV in einen Unterordner (für den späteren Mix in JM DAW).",
+            "Fernsteuerung: Companion/Rundown auf Port 8729 zeigen lassen (Auto-Discovery `jm-recorder-ctl`)."
+          ],
           "waehrend": [
             "Vor dem Start **Arm** drücken und die Pegel prüfen — nicht ins Clipping fahren (Gain reduzieren, falls nötig).",
             "**Record** startet den Mitschnitt (lokal oder per Companion `RECORDER RECORD ON`). Der Zustand (`recording`) wird an Companion gemeldet.",
@@ -1113,7 +1119,13 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Kontrahenten und Runden anlegen",
+            "VS-Bauchbinde über JM Titler prüfen (BATTLE VS on/off blendet sie ein/aus)",
+            "Voting konfigurieren (Jury-Entscheid und/oder Publikum per QR, Port 7783)",
+            "Aufnahmequelle für den Instant-Replay verbinden",
+            "Optional: Companion auf Port 8734 verbinden"
+          ],
           "waehrend": [
             "Runde starten, VS-Bauchbinde einblenden (BATTLE VS on)",
             "Voting öffnen (BATTLE VOTING on), dann schließen (off); Sieger setzen mit BATTLE WIN a|b|tie",
@@ -1226,7 +1238,13 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Audioquelle wählen (sauberer Pult-Mix bevorzugt gegenüber Raummikrofon)",
+            "Sprache und Whisper-Modell setzen (größer = genauer, aber mehr CPU-Last)",
+            "Stil und Position der Untertitel anpassen",
+            "NDI-Ausgabe in TriCaster / vMix / OBS als Quelle einbinden",
+            "Optional: Companion auf Port 8732 verbinden (Transkription an/aus, Hold, NDI, Clear)"
+          ],
           "waehrend": [
             "Transkription starten (lokal oder CAPTION transcribe on)",
             "Bei Fehlern CAPTION hold on zum Einfrieren, letzte Zeile korrigieren, dann hold off",
@@ -1279,6 +1297,493 @@
           "Sauberer Ton (Pult-Mix statt Raummikro) verbessert die Erkennung deutlich.",
           "Companion-Hold als eigener Taster: in heiklen Momenten (O-Ton, Versprecher) einfrieren statt löschen.",
           "NDI separat halten: Transkription kann laufen, während die NDI-Ausgabe per CAPTION ndi off kurz aus dem Programm genommen wird."
+        ]
+      }
+    },
+    {
+      "id": "tool-jm-daw",
+      "title": "JM DAW — Mehrspur-Audio (Schnitt/Mix/Aufnahme)",
+      "category": "Tool-Manuals",
+      "difficulty": "mittel",
+      "setupTimeMin": 15,
+      "teamSize": "1",
+      "tags": [
+        "daw",
+        "audio",
+        "mehrspur",
+        "mix",
+        "aufnahme",
+        "mixer",
+        "effekte",
+        "export",
+        "companion",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-daw",
+        "jm-recorder",
+        "jm-editor",
+        "jm-rundown"
+      ],
+      "prerequisites": [
+        "JM DAW installiert (über den Launcher)",
+        "Für Aufnahme ein Audio-Eingang (Interface/ASIO/Dante)",
+        "Ausreichend Plattenplatz für Aufnahmen und Export",
+        "Optional Bitfocus Companion / JM Rundown für Transport-Fernsteuerung"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Ton / Audio Editor"
+      ],
+      "lastReviewed": "2026-07-05",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Digitale Audio-Workstation: Mehrspur schneiden und mischen (Fader/Pan/Mute/Solo/Master), über die Soundkarte aufnehmen, Effekte (EQ/Kompressor/Reverb), Automation und AUX-Busse — Export als WAV/MP3/FLAC/AAC/OGG, Transport per Companion fernsteuerbar.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM DAW installiert (über den Launcher). FFmpeg ist mitgebündelt (Export/Transkodierung).",
+              "Für **Aufnahme**: ein Audio-Eingang (Interface, ASIO, Dante) — das native Audiomodul muss dafür gebaut sein. Wiedergabe/Schnitt/Mix/Export laufen auch ohne.",
+              "Plattenplatz für Aufnahmen (`userData/recordings`) und Exporte."
+            ]
+          },
+          {
+            "title": "Netzwerk & Ports",
+            "items": [
+              "Port **8730** (TCP-Zeilenprotokoll): Steuerport für Companion / Rundown (**nur Transport/Aufnahme**). Auto-Discovery über mDNS (`jm-daw-ctl`, TXT `ctl=1`)."
+            ]
+          },
+          {
+            "title": "Fernsteuer-Befehle (TCP 8730)",
+            "items": [
+              "`DAW PLAY` / `DAW STOP` / `DAW TOGGLE` — Wiedergabe starten/stoppen/umschalten",
+              "`DAW REC ON` / `DAW REC OFF` / `DAW REC TOGGLE` — Aufnahme starten/stoppen/umschalten",
+              "`STATE?` — Zustand abfragen. Gepushte STATE-Werte: `playing` (0/1), `recording` (0/1)"
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [
+            "Audiodateien importieren (`wav, mp3, m4a, aac, flac, ogg …`) und auf Spuren anordnen; exotische Container werden automatisch zu 48-kHz-WAV dekodiert.",
+            "Für Aufnahme: Eingangsgerät wählen, Spur scharfschalten. Ausgabe landet als WAV in `userData/recordings`."
+          ],
+          "waehrend": [
+            "Clips schneiden/verschieben, Fades setzen (Nulldurchgang-Hilfe für klickfreie Schnitte).",
+            "**Mixer**: Fader (dB), Pan, Mute, Solo, Master. Optional das **Mixer-Popout-Fenster** auf einen zweiten Monitor.",
+            "**Effekte** je Spur/Master: 3-Band-EQ, Kompressor (Threshold/Ratio/Attack/Release), Reverb.",
+            "**Automation** (Lautstärke/Pan als Hüllkurven) und **AUX-Busse/Sends** für gemeinsame Effektwege.",
+            "Transport per Companion/Rundown fernsteuerbar (`DAW PLAY`/`REC …`)."
+          ],
+          "nach": [
+            "Offline-Mix rendern und schreiben als **WAV** (16/24/32-bit), **MP3**, **FLAC**, **AAC** oder **OGG**."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "Keine Geräteliste / Aufnahme nicht möglich",
+            "remedy": "Natives Audiomodul (`@jm/audio`) gebaut? Eingang vorhanden und nicht belegt?"
+          },
+          {
+            "risk": "Aufnahme scheitert beim Scharfschalten",
+            "remedy": "Gerät von anderer App belegt, falscher Treiber (ASIO/Dante) — Eingang prüfen"
+          },
+          {
+            "risk": "Export-FFmpeg-Fehler",
+            "remedy": "Fehlerdetail lesen; Zielformat/-pfad prüfen"
+          },
+          {
+            "risk": "Import wird nicht erkannt",
+            "remedy": "Exotisches Format — wird ggf. transkodiert; sonst vorab umwandeln"
+          },
+          {
+            "risk": "Companion steuert nicht",
+            "remedy": "Port 8730 offen? `jm-daw-ctl` (ctl=1) im mDNS sichtbar?"
+          },
+          {
+            "risk": "Knackser an Schnittkanten",
+            "remedy": "Fades/Nulldurchgang-Hilfe nutzen"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Einrichtung",
+            "items": [
+              "Spuren angelegt, Material importiert",
+              "(Aufnahme) Eingangsgerät gewählt, Spur scharf",
+              "Companion/Rundown auf 8730 verbunden (optional)"
+            ]
+          },
+          {
+            "title": "Vor dem Export",
+            "items": [
+              "Mix final (Fader/Pan/Effekte/Automation)",
+              "Solo/Mute zurückgesetzt",
+              "Zielformat gewählt, Zielordner mit Platz"
+            ]
+          }
+        ],
+        "tips": [
+          "Für Weiterverarbeitung/Archiv **WAV** (24-bit), für Verteilung MP3/AAC. 32-bit-WAV geht ohne Re-Encode raus (verlustfrei).",
+          "Aufnahmen lieber im **JM Audio Recorder** machen (spezialisiert, getrennte Spuren) und zum Mischen in die DAW importieren — beide teilen sich das Audiomodul.",
+          "Solo/Mute großzügig nutzen, um einzelne Spuren beim Mischen freizustellen; Automation für saubere Ein-/Ausblendungen statt manuellem Fadern.",
+          "`DAW REC TOGGLE` auf einen Companion-Button legen — ein Knopf mit `recording`-Tally als Rückmeldung.",
+          "Über eine **`.jmshow`** öffnet die DAW ihr referenziertes `.jmdaw`-Projekt automatisch."
+        ]
+      }
+    },
+    {
+      "id": "tool-jm-editor",
+      "title": "JM Editor — Schnittprogramm (Trim/Cut/Export)",
+      "category": "Tool-Manuals",
+      "difficulty": "mittel",
+      "setupTimeMin": 15,
+      "teamSize": "1",
+      "tags": [
+        "editor",
+        "schnitt",
+        "video",
+        "ffmpeg",
+        "export",
+        "bauchbinde",
+        "prores",
+        "dnxhr",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-editor",
+        "jm-media-converter",
+        "jm-grafiktool"
+      ],
+      "prerequisites": [
+        "JM Editor installiert (über den Launcher)",
+        "Quellclips lokal verfügbar (Video/Audio/Bild)",
+        "Ausreichend Plattenplatz für Proxys und Export"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Cutter / Editor"
+      ],
+      "lastReviewed": "2026-07-05",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Leichtes Schnittprogramm auf FFmpeg-Basis: Clips importieren, trimmen, schneiden und aneinanderreihen, Kreuzblenden, Titel/Bauchbinden und Lautstärke pro Clip — Export in H.264/H.265/ProRes/DNxHR mit flüssiger Vorschau über automatische Proxys.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Editor installiert (über den Launcher). FFmpeg/FFprobe sind mitgebündelt — kein separater Codec-Pack nötig.",
+              "Quellmaterial lokal: Video (`mp4, mov, mkv, avi, mxf, webm, mpg, ts, m2ts, r3d …`), Audio (`wav, mp3, m4a, aac, flac, ogg …`), Bilder (`png, jpg, webp, tif …`).",
+              "Plattenplatz für **Proxys** (Vorschau) und die Exportdatei."
+            ]
+          },
+          {
+            "title": "Lokales Werkzeug",
+            "items": [
+              "Reines Schnittprogramm — **kein Steuerserver / keine Fernsteuerung**, keine Netzwerkabhängigkeit. Läuft eigenständig.",
+              "Über eine **`.jmshow`** öffnet der Editor sein referenziertes `.jmedit`-Projekt automatisch (Show-Anbindung)."
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [
+            "Clips importieren und auf die Timeline ziehen. Spuren: **Titel** (Overlay), **Video**, **Audio**.",
+            "ProRes/MXF/DNxHD-Quellen und Material über 1440p bekommen automatisch einen **720p-Proxy** für frame-genaues Scrubbing — kurz warten, bis er erzeugt ist (einmalig, gecacht)."
+          ],
+          "waehrend": [
+            "**Trimmen/Schneiden/Teilen**: Clip-Anfang/-Ende ziehen, an der Abspielposition teilen, Lücken schließen.",
+            "**Kreuzblenden** (Dissolve) zwischen zwei Clips setzen; harte Schnitte bleiben Cut.",
+            "**Titel/Bauchbinden** auf der Titelspur: Text + Untertitel, Farbe, Hintergrundbox, Position, Fett.",
+            "**Lautstärke pro Clip** anpassen (Gain)."
+          ],
+          "nach": [
+            "Preset wählen: **H.264 (mp4)**, **H.265/HEVC (mp4)**, **ProRes 422 HQ (mov)** oder **DNxHR HQ (mov)**. Auflösung/Bitrate bzw. Qualität (CRF), Ton als AAC oder PCM-WAV.",
+            "Hardware-Encoder (NVENC/QSV/VideoToolbox) nutzen, wenn verfügbar — sonst Software-Fallback.",
+            "Export rechnet aus den **Originaldateien** (nicht den Proxys) → volle Qualität."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "Export bricht ab (FFmpeg-Fehler)",
+            "remedy": "Fehlerdetail (stderr) lesen; Preset/Codec-Kombination prüfen; Zielpfad beschreibbar?"
+          },
+          {
+            "risk": "Vorschau ruckelt / kein Bild",
+            "remedy": "Proxy-Erzeugung läuft noch (ProRes/MXF/>1440p) — kurz warten"
+          },
+          {
+            "risk": "„Keine Videoclips auf der Timeline\"",
+            "remedy": "Mindestens einen Videoclip auf die Videospur legen"
+          },
+          {
+            "risk": "Hardware-Encoder nicht verfügbar",
+            "remedy": "Automatischer Software-Fallback — Export dauert länger, Ergebnis identisch"
+          },
+          {
+            "risk": "Clip lässt sich nicht importieren",
+            "remedy": "Exotischer Container/Codec — vorab im JM Media Converter umwandeln"
+          },
+          {
+            "risk": "Platte voll beim Export",
+            "remedy": "Freien Platz prüfen (Proxys + Export brauchen Platz)"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Vor dem Schnitt",
+            "items": [
+              "Clips importiert, Proxys erzeugt (bei ProRes/MXF/4K)",
+              "Timeline-Spuren sortiert (Titel/Video/Audio)"
+            ]
+          },
+          {
+            "title": "Vor dem Export",
+            "items": [
+              "Schnitte/Blenden final, Titel korrekt",
+              "Lautstärke pro Clip geprüft",
+              "Preset + Auflösung/Qualität gewählt, Zielordner mit Platz",
+              "Kurzer Testexport bei kritischen Abgaben"
+            ]
+          }
+        ],
+        "tips": [
+          "Für die Sendung/Weiterverarbeitung **ProRes/DNxHR** exportieren (edit-freundlich), für Web/YouTube **H.264/HEVC**.",
+          "Den Proxy-Lauf einmal in Ruhe abwarten — danach scrubbt auch schweres ProRes-/MXF-Material flüssig.",
+          "Titel/Bauchbinden, die öfter gebraucht werden, im **JM Grafiktool** gestalten und als Standbild importieren — mehr Gestaltungsfreiheit als das eingebaute Titel-Feld.",
+          "Hardware-Encoder spart bei langen Exporten viel Zeit; bei Qualitätszweifeln einen kurzen Testexport vergleichen."
+        ]
+      }
+    },
+    {
+      "id": "tool-jm-grafiktool",
+      "title": "JM Grafiktool — Ebenen-Editor & Freistellen",
+      "category": "Tool-Manuals",
+      "difficulty": "mittel",
+      "setupTimeMin": 10,
+      "teamSize": "1",
+      "tags": [
+        "grafiktool",
+        "grafik",
+        "ebenen",
+        "freistellen",
+        "magic-mask",
+        "bauchbinde",
+        "psd",
+        "jmtitler",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-grafiktool",
+        "jm-titler",
+        "jm-editor"
+      ],
+      "prerequisites": [
+        "JM Grafiktool installiert (über den Launcher)",
+        "Für „Magic Mask\" das lokale KI-Modell (u2netp.onnx) vorhanden",
+        "Quellbilder lokal (PNG/JPG/PSD/SVG/TIFF)"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Grafik / Bildbearbeitung"
+      ],
+      "lastReviewed": "2026-07-05",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Schlanker Ebenen-Grafikeditor für Bauchbinden, Hintergründe und Freistellen (Magic Mask, lokal per KI) — Pinsel/Auswahl/Text/Formen, PSD/SVG/TIFF-Import, .jmg-Projekt und Export als .jmtitler-Vorlage für den JM Titler.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Grafiktool installiert (über den Launcher).",
+              "Für **Magic Mask** (KI-Freistellen): das lokale Modell **`u2netp.onnx`** muss mitinstalliert sein — läuft offline auf der CPU, kein Cloud-Dienst.",
+              "Quellbilder lokal: `png, jpg, webp, gif, bmp, tif` sowie **`psd`** (Photoshop), **`svg`** und `.jmg`-Projekte."
+            ]
+          },
+          {
+            "title": "Lokales Werkzeug",
+            "items": [
+              "Reiner Grafikeditor — **kein Steuerserver / keine Fernsteuerung**, keine Netzwerkabhängigkeit.",
+              "Über eine **`.jmshow`** öffnet das Grafiktool sein referenziertes `.jmg`-Dokument automatisch."
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [
+            "Neues Dokument anlegen oder ein Bild/PSD/SVG importieren. Arbeit erfolgt in **Ebenen** (Raster/Text/Form) mit Maske, Deckkraft und Blend-Modus."
+          ],
+          "waehrend": [
+            "Werkzeuge: **Pinsel**, **Radierer**, **Auswahl** (Rechteck/Lasso/Zauberstab), **Füllen**, **Form**, **Text**, **Freistellen (Crop)**, Pipette, Hand/Zoom.",
+            "**Magic Mask**: Motiv per KI freistellen — der Hintergrund wird als Maske entfernt (rembg-kompatibel). Große Bilder brauchen auf der CPU etwas Zeit.",
+            "Text-Ebenen benennen wie die späteren Variablen (z. B. `name`, `subtitle`, `location`) — das erleichtert den Titler-Export."
+          ],
+          "nach": [
+            "**Projekt** als `.jmg` speichern (ZIP aus Ebenen + Masken).",
+            "**Raster-Export** als PNG/JPG für Standbilder/Bauchbinden im Schnitt.",
+            "**`.jmtitler`-Export** für den JM Titler: Text-Ebenen werden zu Slots (Auto-Mapping Ebenenname → `{{name}}`/`{{subtitle}}`/`{{location}}`), Nicht-Text-Ebenen zum Hintergrund — im Titler als Grafik-Vorlage nutzbar.",
+            "Häufig gebrauchte Assets in die **Bibliothek** legen."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "„KI-Modell (u2netp.onnx) nicht gefunden\"",
+            "remedy": "Modell fehlt in der Installation — ohne es ist Magic Mask nicht verfügbar (Rest funktioniert)"
+          },
+          {
+            "risk": "PSD/TIFF/SVG lädt nicht",
+            "remedy": "Datei beschädigt/exotische Variante — als PNG exportieren und dieses importieren"
+          },
+          {
+            "risk": "Freistellen dauert lange",
+            "remedy": "Große Auflösung auf CPU — kleiner rechnen oder Ausschnitt bearbeiten"
+          },
+          {
+            "risk": "Titler zeigt Slots falsch",
+            "remedy": "Text-Ebenen im Grafiktool nach den Variablennamen benennen und neu exportieren"
+          },
+          {
+            "risk": "Schriftliste leer",
+            "remedy": "System-Fonts nicht gefunden — Standardschrift nutzen"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Gestalten",
+            "items": [
+              "Dokument/Import angelegt, Ebenen sortiert",
+              "Motiv freigestellt (Magic Mask + Nachbesserung)",
+              "Text-Ebenen nach Variablennamen benannt"
+            ]
+          },
+          {
+            "title": "Ausgabe",
+            "items": [
+              "`.jmg` gespeichert",
+              "Export gewählt: PNG/JPG (Standbild) oder `.jmtitler` (Titler-Vorlage)",
+              "Häufige Assets in der Bibliothek"
+            ]
+          }
+        ],
+        "tips": [
+          "Bauchbinden im Grafiktool bauen und als **`.jmtitler`** exportieren — im Titler bleiben die Textfelder als Variablen aus DataLink/iveo füllbar (dynamische Namen/Funktionen).",
+          "Text-Ebenen konsequent nach dem Variablennamen benennen — dann sitzt das Slot-Mapping beim Titler-Import ohne Nacharbeit.",
+          "Magic Mask liefert die Maske; mit Pinsel/Radierer an Haaren/Kanten nachbessern, statt neu freizustellen.",
+          "PSD aus einem vollwertigen Grafikprogramm importieren, wenn die Gestaltung dort schon steht — Ebenen bleiben erhalten."
+        ]
+      }
+    },
+    {
+      "id": "tool-jm-media-converter",
+      "title": "JM Media Converter — Video umwandeln & Office→PDF",
+      "category": "Tool-Manuals",
+      "difficulty": "einfach",
+      "setupTimeMin": 10,
+      "teamSize": "1",
+      "tags": [
+        "media-converter",
+        "konvertierung",
+        "transcode",
+        "ffmpeg",
+        "codec",
+        "office",
+        "pdf",
+        "libreoffice",
+        "manual"
+      ],
+      "relatedTools": [
+        "jm-media-converter",
+        "jm-editor"
+      ],
+      "prerequisites": [
+        "JM Media Converter installiert (über den Launcher)",
+        "Für Office→PDF LibreOffice installiert",
+        "Ausreichend Plattenplatz für die Ausgabedateien"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Medien / Zuarbeit"
+      ],
+      "lastReviewed": "2026-07-05",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Lokales Umwandeln: Video in gängige Codecs (H.264/H.265/AV1/ProRes/DNxHR) mit Skalierung, Ratensteuerung und Hardware-Beschleunigung — plus Office-Dokumente (PPTX/DOCX/…) nach PDF über LibreOffice.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Voraussetzungen",
+            "items": [
+              "JM Media Converter installiert (über den Launcher). FFmpeg/FFprobe sind mitgebündelt (Video).",
+              "**LibreOffice** vom Nutzer installiert — nur dann funktioniert Office→PDF (`soffice` wird an den üblichen Orten gesucht).",
+              "Plattenplatz für die Ausgabedateien."
+            ]
+          },
+          {
+            "title": "Lokales Werkzeug",
+            "items": [
+              "Reines Umwandlungs-/Batch-Werkzeug — **kein Steuerserver / keine Fernsteuerung**, keine Show-Anbindung. Läuft eigenständig."
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [
+            "Datei(en) laden und den Zielordner wählen.",
+            "Für Video ein **Preset** wählen: **H.264 (mp4)**, **H.265/HEVC (mp4)**, **AV1 (mp4)**, **ProRes 422 HQ (mov)** oder **DNxHR HQ (mov)**; dazu **Auflösung** (Original / 2160p / 1440p / 1080p / 720p / 480p), **Ratensteuerung** (Qualität/CRF, VBR oder CBR) und **Ton** (AAC/MP3/AC-3/ALAC/PCM, Originalspur übernehmen oder kein Ton)."
+          ],
+          "waehrend": [
+            "**Video**: Umwandlung starten — die Queue zeigt Fortschritt/ETA/fps. Optional **trimmen** (Start/Ende) und **Hardware-Beschleunigung** (NVENC/QSV/VideoToolbox) nutzen, sonst Software-Fallback.",
+            "**Office → PDF**: Office-Dokument laden (`doc, docx, odt, rtf, txt, xls, xlsx, ods, csv, ppt, pptx, odp`) → LibreOffice wandelt headless nach **PDF**."
+          ],
+          "nach": [
+            "Ausgabedatei prüfen (bei Namenskollision wird `-converted` angehängt).",
+            "PDF direkt im JM Presenter (Folien) nutzen; umgewandeltes Video im JM Editor weiterverarbeiten."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "„LibreOffice wurde nicht gefunden\"",
+            "remedy": "LibreOffice installieren (Office→PDF braucht es); danach Tool neu starten"
+          },
+          {
+            "risk": "„Es wurde keine PDF erzeugt\" / Timeout",
+            "remedy": "Dokument beschädigt/sehr groß — in LibreOffice manuell öffnen und exportieren"
+          },
+          {
+            "risk": "Video-Export-Fehler (FFmpeg)",
+            "remedy": "Fehlerdetail lesen; anderes Preset/Container; Zielpfad beschreibbar?"
+          },
+          {
+            "risk": "Hardware-Encoder nicht verfügbar",
+            "remedy": "Automatischer Software-Fallback — langsamer, gleiches Ergebnis"
+          },
+          {
+            "risk": "Ausgabedatei überschreibt nichts",
+            "remedy": "Bei Namenskollision wird `-converted` angehängt — Zielordner prüfen"
+          },
+          {
+            "risk": "Platte voll",
+            "remedy": "Freien Platz vor großen Batches prüfen"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Video",
+            "items": [
+              "Preset + Auflösung + Ratensteuerung gewählt",
+              "Ton-Einstellung passt (Codec/Original/kein Ton)",
+              "Zielordner mit Platz; Testausschnitt bei kritischen Abgaben"
+            ]
+          },
+          {
+            "title": "Office → PDF",
+            "items": [
+              "LibreOffice installiert",
+              "Dokument geladen, PDF erzeugt und geprüft"
+            ]
+          }
+        ],
+        "tips": [
+          "Für Web/YouTube **H.264/HEVC**, für Schnitt/Sendung **ProRes/DNxHR**, für maximale Kompression **AV1** (langsamer). Beschriftung als Faustregel: „für Web\" vs. „für Schnitt\".",
+          "Kommt ein Clip im JM Editor nicht flüssig oder gar nicht rein, hier vorab in ein edit-freundliches Format (ProRes/H.264) wandeln.",
+          "PPTX-Folien vorab hier zu PDF wandeln und im Presenter das PDF importieren — spart den LibreOffice-Schritt unter Live-Druck.",
+          "Hardware-Encoder für lange Dateien; bei Qualitätszweifeln kurzen Testausschnitt vergleichen."
         ]
       }
     },
@@ -1349,7 +1854,12 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Medien in die Bibliothek aufnehmen und taggen; Playlist(s) anlegen — z. B. „Lounge\", „Einlauf\", „Pause\"",
+            "Show-Cues in Reihenfolge bringen; Soundboard-Pads mit Instant-Effekten/Stingern belegen",
+            "Ausgabegerät wählen (PA/Mischer-Eingang bzw. Videoausgang)",
+            "Fernsteuerung: Companion/Rundown auf Port 8725 zeigen lassen (Auto-Discovery `jm-player-ctl`)"
+          ],
           "waehrend": [
             "Standby setzen und mit `GO` feuern (lokal oder per Companion) — `NEXT`/`PREV` schiebt den Standby",
             "Soundboard-Pads für Applaus/Stinger/Jingle sofort auslösen (`PAD <Slot>`)",
@@ -1482,7 +1992,13 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Dokument importieren: PDF/Bilder direkt, Office-Dateien werden per LibreOffice zu PDF gewandelt. Bei Bedarf als **.jmpres**-Projekt speichern (behält Overlays/Reihenfolge).",
+            "Optional **Overlays** je Folie setzen (Text/Logo/Bauchbinde, frei positioniert).",
+            "**Publikumsansicht** auf den Beamer/zweiten Monitor legen (Vollbild); die **Referentenansicht** bleibt beim Operator (aktuelle + nächste Folie, Notizen).",
+            "Handy-Clicker aktivieren: Port/Interface wählen, **PIN** setzen, QR/URL ans Handy geben.",
+            "Fernsteuerung: Companion/Rundown auf Port 8728; JM Timer für den Countdown verbinden (7777)."
+          ],
           "waehrend": [
             "Navigieren mit `NEXT`/`PREV` (lokal, Handy oder Companion). `GOTO` springt gezielt.",
             "`BLACK`/`WHITE` für Pausen/Umbau, `LIVE` holt die Folie zurück.",
@@ -1613,7 +2129,13 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Skript eintippen oder eine .docx/.txt/.md laden. Mit `#`/`##` Abschnitte markieren, um live vor-/zurückspringen zu können.",
+            "Lesbarkeit einstellen: Schriftgröße, Zeilenhöhe, Seitenrand, Lesezeile (Position), Fett — auf Abstand und Talent abstimmen.",
+            "Bei Beamsplitter-Prompter den **Spiegelmodus** aktivieren (horizontal für Glas vor der Kamera, vertikal für Deckenspiegel).",
+            "Vollbild-Ausgabe auf den Talent-Monitor legen (Display wählen).",
+            "Fernbedienung: Handy-Remote einschalten und QR scannen (Port 7781), oder Companion/Rundown auf Port 8727 zeigen lassen."
+          ],
           "waehrend": [
             "Tempo mit dem Sprecher einregeln — lieber etwas langsamer als zu schnell. `FASTER`/`SLOWER` (lokal oder per Handy/Companion) justieren live.",
             "`SCROLL TOGGLE` startet/stoppt; bei Versprechern per Abschnittssprung zurück, `TOP` an den Anfang.",
@@ -1733,7 +2255,12 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "QR-Einreichung aktivieren (Port 7782) — Erreichbarkeit der Einreich-Seite vom Gäste-WLAN testen",
+            "Moderation/Freigabe einstellen (Filter vor Veröffentlichung)",
+            "Kopplung mit JM Timer (Redezeit) und JM Titler (Name/Funktion) prüfen — beide im selben LAN gestartet",
+            "Optional: Companion auf Port 8733 verbinden (NEXT/END/EXTEND/CLEAR)"
+          ],
           "waehrend": [
             "Eingehende Fragen moderieren und freigeben",
             "Per Klick (oder QA NEXT) jemanden ans Wort holen — Timer startet, Bauchbinde wird eingeblendet",
@@ -1853,7 +2380,13 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Ziel-Tools starten, damit JM Rundown sie per mDNS findet (Steuer-Endpunkt jm-<tool>-ctl)",
+            "Rundown-Zeilen je Segment anlegen und die Aktionen pro Zeile zuordnen",
+            "Live-Status der gefundenen Tools prüfen (grün = ansteuerbar)",
+            "Optional: Companion auf Port 8731 / jm-rundown-ctl verbinden für Fern-GO",
+            "Als .jmrundown speichern"
+          ],
           "waehrend": [
             "Pro Segment GO drücken — feuert alle zugeordneten Aktionen gleichzeitig (lokal oder per RUNDOWN GO)",
             "Live-Status / Tally im Blick behalten",
@@ -1966,7 +2499,12 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Je Quelle den Schalter aktivieren und **Host/IP + Port** eintragen (oder die mDNS-Vorbefüllung übernehmen). Für den Presenter zusätzlich die **PIN** wie in dessen Fernsteuerung.",
+            "Widgets ein-/ausblenden: Uhr, Timer/Countdown, Switcher-Status, Referent (Folie/Notizen), Nachricht.",
+            "Die **Ausgabe** im Vollbild auf den Bühnen-/Crew-Monitor legen (Display wählen).",
+            "Verbindungs-Badges prüfen: jede aktive Quelle sollte „verbunden\" zeigen (sonst „getrennt\")."
+          ],
           "waehrend": [
             "Der Schirm aktualisiert sich automatisch: Countdown mit Farbschwellen (normal/Warnung/Überzug), „Endet HH:MM\", Programmpunkt, PGM + REC/ON-AIR, Referenten-Folie mit Notizen und „Up Next\".",
             "Bei Bedarf eine **Ad-hoc-Nachricht** einblenden (hat Vorrang vor der Timer-Nachricht) — z. B. „Bitte zum Schluss kommen\".",
@@ -2099,7 +2637,12 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Geräte verbinden und je Typ eine Primär-Instanz festlegen (ATEM, OBS, TriCaster, PTZ, Audio, Licht)",
+            "Nutzer und Rollen anlegen (wer darf was) — Web-UI auf Port 7778 mit Bearer-Auth",
+            "NDI-PGM-Vorschau einrichten",
+            "Optional: Companion-Gateway auf Port 8735 aktivieren (typ-präfixierte Verben)"
+          ],
           "waehrend": [
             "Quellen/Szenen schalten (z. B. STUDIO atem_program 2, STUDIO obs_scene 3), PTZ steuern, Audio/Licht bedienen",
             "PGM-Vorschau im Blick behalten",
@@ -2221,7 +2764,14 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Quellen hinzufügen (Bildschirm/Fenster, NDI, Capture-Karte)",
+            "Program/Preview prüfen, Reihenfolge der Quellen festlegen",
+            "Audioquelle zuordnen und Pegel kontrollieren",
+            "Aufnahme-Zielordner setzen",
+            "Für Stream: RTMP-Ziel + Stream-Key hinterlegen und Verbindung testen",
+            "Optional: Steuerport aktivieren und Companion verbinden (Tasten für CUT/AUTO/PROGRAM/Szenen)"
+          ],
           "waehrend": [
             "Quelle in Preview wählen (PREVIEW <n>)",
             "Mit CUT hart oder mit AUTO weich auf Program schalten",
@@ -2347,7 +2897,12 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Timetable bzw. Presets je Segment anlegen — Regieplan optional per XLSX importieren (Spalten Titel/Dauer/Notiz; Dauer als HH:MM:SS, MM:SS oder Minuten)",
+            "Sprecherfenster auf den Talent-Monitor schieben (Vollbild)",
+            "Remote-View bei Bedarf: URL aus der „Remote\"-Sidebar an Backstage/iPad geben",
+            "Fernsteuerung: Companion auf den Steuerport 8724 zeigen lassen (Auto-Discovery über jm-timer-ctl) — oder mit JM Rundown koppeln, das denselben Port nutzt"
+          ],
           "waehrend": [
             "Timer starten / stoppen / zurücksetzen (lokal oder per Companion: TIMER START/STOP/RESET)",
             "Nachschlag geben mit TIMER ADD 60; harte Korrektur mit TIMER SET 300",
@@ -2476,7 +3031,13 @@
           }
         ],
         "steps": {
-          "vor": [],
+          "vor": [
+            "Vorlage wählen (Bauchbinde/Banner/Ticker/Grafik) und Stil einstellen — der Reiter „Einstellungen\" bündelt DataLink, iveo-Status, Ausgabe (NDI/2. Bildschirm)",
+            "NDI im Mischer als Quelle einbinden — oder das Ausgabe-Fenster auf den zweiten Monitor legen (Chroma-Green für Hardware-Keyer)",
+            "DataLink (optional): Watchfolder mit CSV/TSV wählen — jede Zeile wird ein abrufbarer Eintrag, Spalten füllen die `{{name}}`/`{{subtitle}}`/`{{location}}`-Variablen",
+            "Grafik-Vorlage (optional): PSD oder `.jmtitler` importieren — Ebenennamen werden automatisch auf DataLink-Variablen gemappt (Titel/Name → `{{name}}`, Untertitel/Funktion → `{{subtitle}}`, Ort → `{{location}}`)",
+            "iveo (optional): Wird der Titler über eine iveo-gebundene Show gestartet, materialisiert der Launcher die Speaker automatisch in den DataLink (`speakers.tsv`) — kein Token im Titler nötig"
+          ],
           "waehrend": [
             "Bauchbinde füllen: Namensfeld ist immer sichtbar; per DataLink `RECALL`/`NEXT`/`PREV` durch die Liste springen",
             "`TAKE` blendet on air, `CLEAR` blendet aus — lokal oder per Companion/Rundown/Q&A",
