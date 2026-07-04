@@ -1028,6 +1028,15 @@
     "name": "JM Q&A",
     "entries": [
       {
+        "version": "0.3.0",
+        "date": "2026-07-04",
+        "notes": [
+          "Neu: Fragen auch von außerhalb des Saals — Zuschauer reichen per QR-Code im Livestream ein, Pressevertreter vorab über einen persönlichen Zugangscode. Alle externen Fragen sind Ende-zu-Ende verschlüsselt und gehen zuerst in die Moderation.",
+          "Neuer Bereich Extern: QR-Code für den Livestream und Presse-Link zum Teilen; Stream- und Presse-Kanal einzeln öffnen/schließen, Event mit einem Klick beenden (Daten werden gelöscht).",
+          "Herkunft jeder Frage ist sichtbar (Saal, Stream, Presse); vorab eingereichte Presse-Fragen überstehen einen Neustart. Einrichtung in den Einstellungen unter Externe Einreichung."
+        ]
+      },
+      {
         "version": "0.2.1",
         "date": "2026-06-29",
         "notes": [

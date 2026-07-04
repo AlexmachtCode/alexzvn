@@ -1,12 +1,12 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path, { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import { RemoteServer } from '@jm/remote';
 import { readControlConfig } from '@jm/control-config';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
-import type { QaConfig, QaEntry, QaState, QaSubmission, ToolLink } from '@shared/types';
+import type { QaCloudInfo, QaConfig, QaEntry, QaState, QaSubmission, ToolLink } from '@shared/types';
 import {
   activate,
   activeEntry,
@@ -26,6 +26,20 @@ import { Coupling } from './coupling';
 import { getConfig, getOverrides, patchConfig, setOverride } from './config';
 import { startControlServer, stopControlServer, pushControlState } from './control-server';
 import { REMOTE_PAGE } from './remote-page';
+import {
+  type CloudCfg,
+  type CloudSecrets,
+  ackItems,
+  generateKeypair,
+  loadSecrets,
+  openEvent,
+  pollPending,
+  pressUrl,
+  purgeEvent,
+  randomEventId,
+  saveSecrets,
+  streamUrl,
+} from './cloud';
 
 declare const __dirname: string;
 
@@ -52,6 +66,13 @@ let entries: QaEntry[] = [];
 let remoteRunning = false;
 let remoteUrls: string[] = [];
 
+// Externe Einreichung (Cloud-Relay, #166). Secrets (Private Key + Proxy-Key)
+// leben nur hier im Main, nie im Renderer. Erst in whenReady() geladen (safeStorage).
+let cloudSecrets: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '' };
+let cloudTimer: ReturnType<typeof setInterval> | null = null;
+let cloudError: string | null = null;
+let cloudLastPollAt: number | null = null;
+
 const coupling = new Coupling(() => broadcastLinks());
 
 const remote = new RemoteServer({
@@ -71,21 +92,192 @@ function resourcePath(filename: string): string {
   return path.join(__dirname, '..', '..', 'resources', filename);
 }
 
+function cloudCfg(): CloudCfg {
+  const c = getConfig();
+  return {
+    proxyUrl: c.proxyUrl,
+    eventId: c.eventId,
+    pressCode: c.pressCode,
+    streamOpen: c.streamOpen,
+    pressOpen: c.pressOpen,
+  };
+}
+
+function buildCloudInfo(): QaCloudInfo {
+  const c = getConfig();
+  const cfg = cloudCfg();
+  const configured = !!(c.proxyUrl && c.eventId && cloudSecrets.publicJwk && cloudSecrets.proxyKey);
+  return {
+    enabled: cloudTimer != null,
+    configured,
+    eventId: c.eventId,
+    proxyUrl: c.proxyUrl,
+    streamUrl: streamUrl(cfg),
+    pressUrl: pressUrl(cfg),
+    pressCode: c.pressCode,
+    streamOpen: c.streamOpen,
+    pressOpen: c.pressOpen,
+    hasKey: !!cloudSecrets.proxyKey,
+    lastError: cloudError,
+    lastPollAt: cloudLastPollAt,
+  };
+}
+
 function buildState(): QaState {
   return {
     entries,
     activeId: activeEntry(entries)?.id ?? null,
     config: getConfig(),
     remote: { running: remoteRunning, urls: remoteUrls },
+    cloud: buildCloudInfo(),
     links: coupling.snapshot(),
     overrides: getOverrides(),
   };
+}
+
+// ── Queue-Persistenz (#166) ───────────────────────────────────────────────────
+// Presse-Vorab-Fragen sammeln sich vor dem Event an; damit sie einen Neustart
+// überstehen (und abgeholte Cloud-Einträge nicht verloren gehen), wird die Queue
+// auf Platte gesichert. Beim Laden wird ein evtl. „aktiver" Sprecher auf „wartend"
+// zurückgesetzt (nach Neustart ist niemand live).
+function entriesPath(): string {
+  return join(app.getPath('userData'), 'qa.entries.json');
+}
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+function persistEntries(): void {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    try {
+      writeFileSync(entriesPath(), JSON.stringify(entries));
+    } catch (err) {
+      getLog().error(`Q&A: Queue speichern fehlgeschlagen: ${(err as Error).message}`);
+    }
+  }, 200);
+}
+function loadEntries(): void {
+  try {
+    const raw = JSON.parse(readFileSync(entriesPath(), 'utf8')) as QaEntry[];
+    if (Array.isArray(raw)) {
+      entries = raw.map((e) => (e.status === 'active' ? { ...e, status: 'waiting' } : e));
+    }
+  } catch {
+    /* keine gespeicherte Queue → leer starten */
+  }
 }
 
 function broadcast(): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('qa:state', buildState());
   pushControlState(buildSuiteState());
   if (remoteRunning) remote.broadcast(publicRemoteState());
+  persistEntries();
+}
+
+// ── Externe Einreichung: Poll / Ingest (#166) ─────────────────────────────────
+/** Abgeholte, entschlüsselte Einreichungen in die Moderations-Queue übernehmen. */
+async function cloudPollTick(): Promise<void> {
+  const cfg = cloudCfg();
+  if (!cfg.proxyUrl || !cfg.eventId) return;
+  try {
+    const items = await pollPending(cfg, cloudSecrets);
+    cloudError = null;
+    cloudLastPollAt = Date.now();
+    if (items.length) {
+      const cfgQa = getConfig();
+      const acked: string[] = [];
+      for (const it of items) {
+        // Deterministische ID → idempotent (Neu-Abruf nach Absturz vor dem ACK
+        // erzeugt keine Dubletten).
+        const id = `c_${it.itemId}`;
+        acked.push(it.itemId);
+        if (entries.some((e) => e.id === id)) continue;
+        const sub: QaSubmission = {
+          name: it.name,
+          affiliation: it.affiliation,
+          question: it.question,
+          contact: it.contact,
+        };
+        // Externe Einreichungen sind IMMER moderationspflichtig (approved:false),
+        // unabhängig vom Saal-Moderations-Flag (#166, User-Vorgabe Presse-Security).
+        entries = [...entries, makeEntry(sub, 'remote', false, id, it.at, it.channel)];
+        getLog().info(`Q&A: ${it.channel === 'press' ? 'Presse' : 'Stream'}-Frage „${it.name}" (wartet auf Freigabe)`);
+      }
+      // Im Relay quittieren (löschen) — auch bereits bekannte, damit sie nicht
+      // erneut geliefert werden.
+      await ackItems(cfg, cloudSecrets, acked);
+      broadcast();
+    } else {
+      broadcast();
+    }
+  } catch (err) {
+    cloudError = (err as Error).message;
+    broadcast();
+  }
+}
+
+function startCloudPoll(): void {
+  if (cloudTimer) return;
+  cloudTimer = setInterval(() => void cloudPollTick(), 5000);
+  void cloudPollTick();
+}
+function stopCloudPoll(): void {
+  if (cloudTimer) {
+    clearInterval(cloudTimer);
+    cloudTimer = null;
+  }
+}
+
+/** Externe Einreichung starten/stoppen: Event öffnen + Polling. */
+async function cloudEnable(enabled: boolean): Promise<void> {
+  patchConfig({ cloudEnabled: enabled });
+  cloudError = null;
+  if (enabled) {
+    const cfg = cloudCfg();
+    if (!cfg.proxyUrl || !cfg.eventId || !cloudSecrets.publicJwk || !cloudSecrets.proxyKey) {
+      cloudError = 'Nicht vollständig konfiguriert (Proxy-URL, Key, Event fehlen).';
+      patchConfig({ cloudEnabled: false });
+      broadcast();
+      return;
+    }
+    try {
+      await openEvent(cfg, cloudSecrets);
+      startCloudPoll();
+    } catch (err) {
+      cloudError = (err as Error).message;
+      patchConfig({ cloudEnabled: false });
+    }
+  } else {
+    stopCloudPoll();
+    // Kanäle schließen (Best effort), damit ohne Polling nichts mehr angenommen wird.
+    try {
+      await openEvent({ ...cloudCfg(), streamOpen: false, pressOpen: false }, cloudSecrets);
+    } catch {
+      /* offline o. ä. — egal */
+    }
+  }
+  broadcast();
+}
+
+/** Neues Event erzeugen: frische Event-ID + Schlüsselpaar (alte Daten aufgeben). */
+async function cloudGenerateEvent(): Promise<void> {
+  const { publicJwk, privateJwk } = await generateKeypair();
+  cloudSecrets = { ...cloudSecrets, publicJwk, privateJwk };
+  saveSecrets(app.getPath('userData'), cloudSecrets);
+  patchConfig({ eventId: randomEventId() });
+  cloudError = null;
+  broadcast();
+}
+
+/** Event-Daten im Relay löschen (Ende des Events). Stoppt auch das Polling. */
+async function cloudPurge(): Promise<void> {
+  stopCloudPoll();
+  patchConfig({ cloudEnabled: false });
+  try {
+    await purgeEvent(cloudCfg(), cloudSecrets);
+  } catch (err) {
+    cloudError = (err as Error).message;
+  }
+  broadcast();
 }
 
 // Tally/Verbindungen (z. B. Timer-Tick 1×/s) ändern sich häufig → nur die Links
@@ -302,6 +494,46 @@ function registerIpc(): void {
     broadcast();
     return buildState();
   });
+
+  // ── Externe Einreichung (Cloud-Relay, #166) ──────────────────────────────────
+  ipcMain.handle('qa:setCloudConfig', async (_e, patch: Partial<QaConfig>) => {
+    // Nur nicht-geheime Felder zulassen (Secrets laufen über setProxyKey).
+    const allowed: Partial<QaConfig> = {};
+    if (typeof patch.proxyUrl === 'string') allowed.proxyUrl = patch.proxyUrl.trim();
+    if (typeof patch.pressCode === 'string') allowed.pressCode = patch.pressCode.trim();
+    if (typeof patch.streamOpen === 'boolean') allowed.streamOpen = patch.streamOpen;
+    if (typeof patch.pressOpen === 'boolean') allowed.pressOpen = patch.pressOpen;
+    patchConfig(allowed);
+    // Läuft das Event bereits, Änderungen (Flags/Code) sofort hochschieben.
+    if (cloudTimer && cloudSecrets.publicJwk) {
+      try {
+        await openEvent(cloudCfg(), cloudSecrets);
+        cloudError = null;
+      } catch (err) {
+        cloudError = (err as Error).message;
+      }
+    }
+    broadcast();
+    return buildState();
+  });
+  ipcMain.handle('qa:setProxyKey', (_e, key: string) => {
+    cloudSecrets = { ...cloudSecrets, proxyKey: String(key || '').trim() };
+    saveSecrets(app.getPath('userData'), cloudSecrets);
+    broadcast();
+    return buildState();
+  });
+  ipcMain.handle('qa:cloudGenerateEvent', async () => {
+    await cloudGenerateEvent();
+    return buildState();
+  });
+  ipcMain.handle('qa:cloudEnable', async (_e, enabled: boolean) => {
+    await cloudEnable(!!enabled);
+    return buildState();
+  });
+  ipcMain.handle('qa:cloudPurge', async () => {
+    await cloudPurge();
+    return buildState();
+  });
 }
 
 function rendererUrl(): string | undefined {
@@ -395,6 +627,9 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    // Gespeicherte Queue + Cloud-Geheimnisse laden (safeStorage ist erst jetzt bereit).
+    loadEntries();
+    cloudSecrets = loadSecrets(app.getPath('userData'));
     registerIpc();
     createMainWindow();
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
@@ -402,6 +637,8 @@ if (!gotLock) {
     coupling.start(app.getPath('appData'));
     // Saal-Einreichung wiederherstellen, falls zuletzt aktiv.
     if (getConfig().remoteEnabled) void setRemote(true);
+    // Externe Einreichung wiederherstellen, falls zuletzt aktiv (#166).
+    if (getConfig().cloudEnabled) void cloudEnable(true);
     // Eigener Steuerserver: Q&A per Companion fernsteuerbar (Port 8733).
     void startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand });
   });
@@ -409,6 +646,7 @@ if (!gotLock) {
   app.on('before-quit', () => {
     coupling.stop();
     stopControlServer();
+    stopCloudPoll();
     void remote.stop();
   });
 

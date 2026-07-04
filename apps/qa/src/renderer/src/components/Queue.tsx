@@ -1,6 +1,18 @@
 import { useState } from 'react';
-import type { QaConfig, QaEntry, QaSubmission } from '@shared/types';
+import type { QaChannel, QaConfig, QaEntry, QaSubmission } from '@shared/types';
 import { useQa } from '@/store/useQa';
+
+/** Herkunftskanal-Badge (#166) — Presse hervorgehoben (Moderations-Relevanz). */
+function ChannelBadge({ channel }: { channel: QaChannel }) {
+  if (channel === 'operator') return null;
+  const map: Record<Exclude<QaChannel, 'operator'>, { label: string; cls: string }> = {
+    lan: { label: 'Saal', cls: 'bg-neutral-800 text-neutral-400' },
+    stream: { label: 'Stream', cls: 'bg-sky-600/25 text-sky-300' },
+    press: { label: 'Presse', cls: 'bg-amber-500/25 text-amber-300' },
+  };
+  const b = map[channel];
+  return <span className={`rounded px-1.5 py-0.5 text-[10px] ${b.cls}`}>{b.label}</span>;
+}
 
 const inp = 'rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100';
 const iconBtn = 'rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100';
@@ -73,7 +85,10 @@ function WaitingRow({
     question: entry.question,
   });
 
-  const pending = moderation && entry.source === 'remote' && !entry.approved;
+  // Jede unbestätigte Remote-Einreichung wartet auf Freigabe — externe Kanäle
+  // (Stream/Presse) sind immer freigabepflichtig, unabhängig vom Moderations-Schalter.
+  const pending = entry.source === 'remote' && !entry.approved;
+  void moderation;
 
   if (editing) {
     return (
@@ -107,12 +122,11 @@ function WaitingRow({
         <div className="flex items-center gap-2">
           <span className="font-medium">{entry.name}</span>
           {entry.affiliation && <span className="truncate text-xs text-neutral-400">· {entry.affiliation}</span>}
-          {entry.source === 'remote' && (
-            <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-400">Saal</span>
-          )}
+          <ChannelBadge channel={entry.channel} />
           {pending && <span className="rounded bg-yellow-600/30 px-1.5 py-0.5 text-[10px] text-yellow-300">wartet auf Freigabe</span>}
         </div>
         {entry.question && <div className="mt-0.5 text-sm text-neutral-400">{entry.question}</div>}
+        {entry.contact && <div className="mt-0.5 text-[11px] text-neutral-500">Kontakt: {entry.contact}</div>}
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">
