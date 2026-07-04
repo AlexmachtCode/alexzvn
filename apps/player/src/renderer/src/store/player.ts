@@ -7,6 +7,7 @@ import type {
   Playlist,
   PlaylistItem,
   PlaylistKind,
+  PlayerShowSettings,
   RemoteCommand,
   RemotePlayerState,
   Show,
@@ -29,6 +30,9 @@ let outputEndedSubscribed = false;
 // ── TCP-Fernsteuerung (Bitfocus Companion) ───────────────────────────────────
 // Einmalige Verdrahtung: Befehle vom Main ausführen + Wiedergabe-Zustand melden.
 let remoteSubscribed = false;
+
+// Show-Integration (C3): einmalige Anmeldung des Live-Push für Show-Voreinstellungen.
+let showSettingsSubscribed = false;
 
 function computeRemoteState(s: PlayerStore): RemotePlayerState {
   const label = s.showCues[s.standbyIndex]?.media?.title ?? '';
@@ -240,6 +244,22 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
       window.jmplay.output.onTime((t) => get().onOutputTime(t));
     }
     setupRemote(get);
+    // Show-Integration (C3): geprüfte Voreinstellungen aus der .jmshow anwenden.
+    // `show` über die vorhandene loadShow-Auflösung (Name/DB-ID); `outputDisplayId`
+    // nur merken (kein Auto-Fenster). Erst hier — nach dem Shows-Laden oben —, damit
+    // `show` per Name auflösen kann.
+    const applyShowSettings = (s: PlayerShowSettings): void => {
+      if (typeof s.outputDisplayId === 'number') set({ outputDisplayId: s.outputDisplayId });
+      if (typeof s.show === 'string' && s.show.trim()) {
+        handleRemoteCommand(get, { t: 'loadShow', show: s.show });
+      }
+    };
+    if (!showSettingsSubscribed) {
+      showSettingsSubscribed = true;
+      window.jmplay.onShowSettings(applyShowSettings);
+    }
+    const pending = await window.jmplay.takeShowSettings();
+    if (pending) applyShowSettings(pending);
   },
 
   refreshLibrary: async () => set({ items: await window.jmplay.library.list() }),

@@ -130,6 +130,18 @@ export interface ImportResult {
   error?: string;
 }
 
+/**
+ * Show-Integration (C3): aus dem `settings`-Block der .jmshow übernommene
+ * Player-Voreinstellungen. `show` aktiviert eine Cue-Show (Name oder DB-ID,
+ * gleiche Auflösung wie der Companion-Befehl `loadShow`); `outputDisplayId`
+ * merkt den Ausgabe-Monitor (kein Auto-Fenster — greift, wenn die Ausgabe für
+ * einen Video-Cue automatisch öffnet).
+ */
+export interface PlayerShowSettings {
+  show?: string;
+  outputDisplayId?: number;
+}
+
 /** Shape, die der Preload auf `window.jmplay` legt. */
 /**
  * Befehl der TCP-Fernsteuerung (Bitfocus Companion), vom Main an den Renderer
@@ -239,4 +251,8 @@ export interface JmplayApi {
     reveal: (path: string) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
   };
+  /** Show-Integration (C3): beim Start ausstehende Show-Voreinstellungen abholen (Kaltstart). */
+  takeShowSettings: () => Promise<PlayerShowSettings | null>;
+  /** Show-Integration (C3): Voreinstellungen, die zur Laufzeit per Deep-Link ankommen. Liefert Unsubscribe. */
+  onShowSettings: (cb: (s: PlayerShowSettings) => void) => () => void;
 }

@@ -71,6 +71,19 @@ export type RecorderRemoteCommand =
   | { t: 'arm' }
   | { t: 'disarm' };
 
+/**
+ * Show-Integration (C3): aus dem `settings`-Block der .jmshow übernommene
+ * Aufnahme-Voreinstellungen. Alle Felder optional — nur Vorhandenes wird gesetzt.
+ * `deviceIndex` bleibt bewusst außen vor (maschinenlokaler PortAudio-Index).
+ */
+export interface RecShowSettings {
+  dir?: string;
+  fileName?: string;
+  separateTracks?: boolean;
+  channels?: number;
+  sampleRate?: number;
+}
+
 /** Shape, die der Preload auf `window.jmrec` legt. */
 export interface JmrecApi {
   platform: NodeJS.Platform;
@@ -98,4 +111,8 @@ export interface JmrecApi {
   onNotice: (cb: (msg: string) => void) => () => void;
   /** TCP-Fernsteuerung (Bitfocus Companion): auf Befehle hören. Liefert Unsubscribe. */
   onRemoteCommand: (cb: (cmd: RecorderRemoteCommand) => void) => () => void;
+  /** Show-Integration (C3): beim Start ausstehende Show-Voreinstellungen abholen (Kaltstart). */
+  takeShowSettings: () => Promise<RecShowSettings | null>;
+  /** Show-Integration (C3): Voreinstellungen, die zur Laufzeit per Deep-Link ankommen. Liefert Unsubscribe. */
+  onShowSettings: (cb: (s: RecShowSettings) => void) => () => void;
 }

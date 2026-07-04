@@ -1,7 +1,16 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path, { join } from 'node:path';
-import { initAppRuntime } from '@jm/app-runtime';
-import type { PartialTranscribeConfig, TranscribeState, WhisperModelId } from '@shared/types';
+import { readFileSync } from 'node:fs';
+import { initAppRuntime, getLog } from '@jm/app-runtime';
+import { parseShow, parseShowDeepLink } from '@jm/show';
+import { LANGUAGES, MODELS } from '@shared/types';
+import type {
+  Language,
+  OutputFormat,
+  PartialTranscribeConfig,
+  TranscribeState,
+  WhisperModelId,
+} from '@shared/types';
 import { getConfig, patchConfig } from './config';
 import { whisperAvailable } from './locate';
 import { modelStates, downloadModel, deleteModel } from './models';
@@ -140,8 +149,52 @@ function registerIpc(): void {
   });
 }
 
-// Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ csp: true, appId: 'jm-transcribe', appName: 'JM Transcribe' });
+// ─────────────────────────────────────────────────────────────────────────────
+// Show-Integration (C3): Wird Transcribe per Show-Deep-Link gestartet, übernimmt
+// es den `settings`-Block seines Eintrags aus der .jmshow (Sprache/Modell/Aufgabe/
+// Formate/Zielordner). Jeder Schlüssel wird defensiv geprüft (settings ist
+// Record<string, unknown>), dann per patchConfig persistiert + an den Renderer
+// gemeldet. Ohne settings-Block ändert sich nichts.
+// ─────────────────────────────────────────────────────────────────────────────
+function applyShowFromDeepLink(url: string): void {
+  const showPath = parseShowDeepLink(url);
+  if (!showPath) return;
+  try {
+    const show = parseShow(readFileSync(showPath, 'utf8'));
+    const s = show.tools.find((t) => t.appId === 'jm-transcribe')?.settings;
+    if (!s) return;
+    const patch: PartialTranscribeConfig = {};
+    if (typeof s.model === 'string' && MODELS.some((m) => m.id === s.model)) {
+      patch.model = s.model as WhisperModelId;
+    }
+    if (typeof s.language === 'string' && LANGUAGES.some((l) => l.id === s.language)) {
+      patch.language = s.language as Language;
+    }
+    if (s.task === 'transcribe' || s.task === 'translate') patch.task = s.task;
+    if (Array.isArray(s.formats)) {
+      const valid = (s.formats as unknown[]).filter(
+        (f): f is OutputFormat => f === 'srt' || f === 'vtt' || f === 'txt',
+      );
+      if (valid.length) patch.formats = valid;
+    }
+    if (typeof s.outputDir === 'string' || s.outputDir === null) patch.outputDir = s.outputDir;
+    if (Object.keys(patch).length) {
+      patchConfig(patch);
+      broadcast();
+    }
+  } catch (err) {
+    getLog().error(`Show-Einstellungen konnten nicht geladen werden: ${(err as Error).message}`);
+  }
+}
+
+// Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence. Per Show
+// gestartet? settings-Block übernehmen (C3).
+const runtime = initAppRuntime({
+  csp: true,
+  appId: 'jm-transcribe',
+  appName: 'JM Transcribe',
+  onDeepLink: (url) => applyShowFromDeepLink(url),
+});
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -161,6 +214,8 @@ if (!gotLock) {
     setOnChange(broadcast);
     registerIpc();
     createMainWindow();
+    // Kaltstart: App direkt mit Show-Deep-Link geöffnet → settings jetzt anwenden.
+    if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
   });
 
   app.on('window-all-closed', () => {
