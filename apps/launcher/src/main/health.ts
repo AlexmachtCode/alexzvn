@@ -15,7 +15,7 @@
 import { discover, type DiscoveredService } from '@jm/discovery';
 import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 import type { SuiteState } from '@jm/suite-control-protocol';
-import { controlClientOptions, readControlConfig } from '@jm/control-config';
+import { controlClientOptions, readControlConfig, mdnsSignKey } from '@jm/control-config';
 import type { HealthEntry, ManualEndpoint } from '@shared/types';
 
 interface Conn {
@@ -122,7 +122,8 @@ export function setManualEndpoints(list: ManualEndpoint[]): void {
     manualKeys.add(key);
     if (conns.has(key)) continue;
     addConn(
-      { appId: '', role: '', host: ep.host, port: ep.port, name: key, ctl: true, verified: true },
+      // Manuell eingetragen (kein mDNS-TXT) → unsigniert, aber operator-vertraut.
+      { appId: '', role: '', host: ep.host, port: ep.port, name: key, ctl: true, signed: false, verified: true },
       true,
     );
   }
@@ -147,9 +148,16 @@ export function setManualEndpoints(list: ManualEndpoint[]): void {
 export function startHealth(onChange: () => void, appDataDir?: string): void {
   if (discovery) return;
   notify = onChange;
-  if (appDataDir) clientSecurity = controlClientOptions(readControlConfig(appDataDir));
+  let verifyKey: string | undefined;
+  if (appDataDir) {
+    const cfg = readControlConfig(appDataDir);
+    clientSecurity = controlClientOptions(cfg);
+    // secure-Modus: gefälschte/manipulierte Annoncen verwerfen (A3, #59). Unsignierte
+    // Alt-Tools bleiben in Phase 1 sichtbar (assessAdvertisement toleriert sie).
+    verifyKey = mdnsSignKey(cfg);
+  }
   try {
-    discovery = discover(onDiscovered);
+    discovery = discover(onDiscovered, { verifyKey });
   } catch {
     discovery = null;
   }

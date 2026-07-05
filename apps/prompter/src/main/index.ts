@@ -6,7 +6,7 @@ import { advertise, type Advertiser } from '@jm/discovery';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import { OutputWindow, listDisplays } from '@jm/output-window';
 import { RemoteServer } from '@jm/remote';
-import { readControlConfig } from '@jm/control-config';
+import { readControlConfig, mdnsSignKey } from '@jm/control-config';
 import { INITIAL_TRANSPORT, positionEm } from '@shared/types';
 import type { PartialPrompterConfig, PrompterState, PrompterTransport, RemoteInfo } from '@shared/types';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
@@ -31,7 +31,10 @@ const output = new OutputWindow('prompter:state');
 // Gesetzt → die Fernbedienungs-Endpunkte (/events,/cmd) verlangen es; der QR-Link
 // trägt ?t=<token>, die Seite reicht es bei jedem Aufruf mit. Fehlt es (open-Modus)
 // → unverändertes Verhalten ohne Token. readControlConfig ist fehlertolerant ({}).
-const suiteToken = readControlConfig(app.getPath('appData')).token;
+const suiteControl = readControlConfig(app.getPath('appData'));
+const suiteToken = suiteControl.token;
+// mDNS-Annonce im secure-Modus signieren (A3, #59); open-Modus → undefined (wie bisher).
+const suiteSignKey = mdnsSignKey(suiteControl);
 
 /** Token an die LAN-URLs hängen, damit der QR die Fernbedienung berechtigt. */
 function withRemoteToken(urls: string[]): string[] {
@@ -163,7 +166,7 @@ async function setRemote(enabled: boolean): Promise<void> {
 function setAdvertised(on: boolean): void {
   if (on && !advertiser) {
     try {
-      advertiser = advertise({ appId: 'jm-prompter', role: 'prompter', port: REMOTE_PORT });
+      advertiser = advertise({ appId: 'jm-prompter', role: 'prompter', port: REMOTE_PORT, signKey: suiteSignKey });
     } catch {
       /* mDNS optional */
     }

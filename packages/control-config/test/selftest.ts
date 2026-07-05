@@ -8,6 +8,7 @@ import {
   readControlConfig,
   writeControlConfig,
   controlServerOptions,
+  mdnsSignKey,
 } from '../src/index.ts';
 
 let failed = 0;
@@ -42,6 +43,12 @@ eq(
 writeControlConfig(dir, { mode: 'secure', token: 'T', tls: { cert: 'C', key: 'K' }, tlsFingerprint: 'ff' });
 const opts = controlServerOptions(readControlConfig(dir));
 eq(opts.tls, { cert: 'C', key: 'K' }, 'controlServerOptions: TLS inline durchgereicht');
+
+// mdnsSignKey: nur im secure-Modus aktiv (A3, #59) — open bleibt unsigniert.
+ok(mdnsSignKey({ mode: 'secure', signKey: 'SK' }) === 'SK', 'mdnsSignKey: secure + Key → Key');
+ok(mdnsSignKey({ mode: 'open', signKey: 'SK' }) === undefined, 'mdnsSignKey: open → undefined (nie signieren/prüfen)');
+ok(mdnsSignKey({ signKey: 'SK' }) === undefined, 'mdnsSignKey: ohne mode → undefined');
+ok(mdnsSignKey({ mode: 'secure' }) === undefined, 'mdnsSignKey: secure ohne Key → undefined');
 
 // Defensive: Müll/Teilschrott wird ignoriert.
 fs.writeFileSync(controlConfigPath(dir), '{ kaputt');

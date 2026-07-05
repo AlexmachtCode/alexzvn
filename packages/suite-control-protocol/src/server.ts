@@ -9,7 +9,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { advertise, type Advertiser } from '@jm/discovery';
 import { randomNonce, verifyProof } from '@jm/auth-core';
-import { controlServerOptions, readControlConfig } from '@jm/control-config';
+import { controlServerOptions, readControlConfig, mdnsSignKey } from '@jm/control-config';
 import {
   AUTH_FAIL,
   AUTH_OK,
@@ -145,18 +145,24 @@ export class SuiteControlServer {
     bindHost?: string;
     auth?: SuiteControlServerOptions['auth'];
     tls?: { cert: string; key: string };
+    /** mDNS-Pairing-Key (secure-Modus) → signiert die Annonce (A3, #59). */
+    signKey?: string;
   } = {};
 
   constructor(private readonly opts: SuiteControlServerOptions) {}
 
   /** Explizite Optionen mit der geteilten Konfig (via appDataDir) zusammenführen. */
   private resolve(): void {
-    const cfg = this.opts.appDataDir ? controlServerOptions(readControlConfig(this.opts.appDataDir)) : {};
+    const raw = this.opts.appDataDir ? readControlConfig(this.opts.appDataDir) : {};
+    const cfg = controlServerOptions(raw);
     this.resolved = {
       mode: this.opts.mode ?? cfg.mode,
       bindHost: this.opts.bindHost ?? cfg.bindHost,
       auth: this.opts.auth ?? cfg.auth,
       tls: this.opts.tls ?? cfg.tls,
+      // signKey existiert nur mit mode='secure' (mdnsSignKey gatet das) → im
+      // open-Modus bleibt die Annonce unsigniert wie bisher.
+      signKey: mdnsSignKey(raw),
     };
   }
 
@@ -209,6 +215,7 @@ export class SuiteControlServer {
               port,
               name: this.opts.name ?? (ctl ? `${this.opts.appId}-ctl` : undefined),
               txt: ctl ? { ctl: '1' } : undefined,
+              signKey: this.resolved.signKey,
             });
           } catch (err) {
             // mDNS optional — Server lauscht trotzdem. Fehler aber melden, damit

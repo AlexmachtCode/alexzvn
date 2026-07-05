@@ -6,7 +6,7 @@ import { discover, type DiscoveredService, type Discovery } from '@jm/discovery'
 import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { CAPABILITIES } from '@jm/suite-control-protocol/capabilities';
-import { controlClientOptions, readControlConfig } from '@jm/control-config';
+import { controlClientOptions, readControlConfig, mdnsSignKey } from '@jm/control-config';
 import type { Endpoint, ToolLink } from '@shared/types';
 
 /** Token/TLS-Optionen für die Steuer-Clients (P1, secure-Modus). */
@@ -36,6 +36,8 @@ export class Coupling {
    * Steuerserver und bliebe „offline" (VS-Bauchbinde tot).
    */
   private clientSecurity: ClientSecurity = {};
+  /** mDNS-Prüf-Key (secure-Modus, A3 #59) → gefälschte Annoncen werden verworfen. */
+  private verifyKey: string | undefined;
 
   constructor(private readonly onChange: () => void) {}
 
@@ -45,10 +47,14 @@ export class Coupling {
    * mitbringen (sonst kein Connect zu den secure-Tool-Servern).
    */
   start(appDataDir?: string): void {
-    if (appDataDir) this.clientSecurity = controlClientOptions(readControlConfig(appDataDir));
+    if (appDataDir) {
+      const cfg = readControlConfig(appDataDir);
+      this.clientSecurity = controlClientOptions(cfg);
+      this.verifyKey = mdnsSignKey(cfg);
+    }
     if (this.discovery) return;
     try {
-      this.discovery = discover((svcs) => this.onDiscovered(svcs));
+      this.discovery = discover((svcs) => this.onDiscovered(svcs), { verifyKey: this.verifyKey });
     } catch {
       /* mDNS optional */
     }

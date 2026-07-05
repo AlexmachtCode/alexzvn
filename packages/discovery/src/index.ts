@@ -1,5 +1,5 @@
 import { Bonjour } from 'bonjour-service';
-import { signAdvertisement, verifyAdvertisement } from './sign';
+import { signAdvertisement, assessAdvertisement } from './sign';
 
 /** Strukturelle Teilmenge eines Bonjour-Service — nur was wir wirklich lesen. */
 interface MdnsService {
@@ -41,12 +41,19 @@ export interface DiscoveredService {
    */
   ctl: boolean;
   /**
+   * War eine `sig` (signierte Annonce) vorhanden? (P1, #59). Diagnose/Badge und
+   * Grundlage für Phase 2 („nur noch signierte akzeptieren"). Unabhängig davon, ob
+   * ein `verifyKey` zum Prüfen übergeben wurde.
+   */
+  signed: boolean;
+  /**
    * Signatur-Status (P1, #59, Befund A5):
    *  - kein `verifyKey` an `discover()` übergeben → immer `true` (keine Prüfung
    *    angefordert, Legacy-Verhalten).
    *  - `verifyKey` gesetzt → `true` nur, wenn der TXT-`sig`-Record per HMAC zum
-   *    Key passt. Aggregatoren im secure-Betrieb ignorieren `verified:false`
-   *    (gefälschte/unsignierte Annoncen).
+   *    Key passt. Manipulierte Annoncen (Signatur da, aber falsch) werden schon in
+   *    `discover()` verworfen und tauchen gar nicht erst auf; ein unsignierter,
+   *    aber tolerierter Dienst (Phase 1) erscheint mit `verified:false`/`signed:false`.
    */
   verified: boolean;
 }
@@ -103,7 +110,7 @@ export function advertise(opts: {
   };
 }
 
-function toDiscovered(s: MdnsService, verifyKey?: string): DiscoveredService | null {
+function toDiscovered(s: MdnsService, verifyKey?: string, strict = false): DiscoveredService | null {
   const txt = (s.txt ?? {}) as Record<string, unknown>;
   const appId = typeof txt.appId === 'string' ? txt.appId : '';
   if (!appId) return null;
@@ -111,11 +118,12 @@ function toDiscovered(s: MdnsService, verifyKey?: string): DiscoveredService | n
   const host = s.addresses?.find((a) => a.includes('.')) ?? s.host;
   if (!host) return null;
   const role = typeof txt.role === 'string' ? txt.role : '';
-  // Ohne verifyKey wird nicht geprüft (Legacy → verified:true). Mit Key muss die
-  // TXT-Signatur passen.
-  const verified = verifyKey
-    ? verifyAdvertisement(verifyKey, { appId, role, port: s.port }, txt.sig != null ? String(txt.sig) : undefined)
-    : true;
+  // Vertrauens-Entscheidung (siehe assessAdvertisement): ohne verifyKey keine
+  // Prüfung; mit Key werden MANIPULIERTE Annoncen (Signatur da, aber falsch) hier
+  // verworfen (return null → sie tauchen nie auf), unsignierte in Phase 1 toleriert.
+  const sig = typeof txt.sig === 'string' ? txt.sig : txt.sig != null ? String(txt.sig) : undefined;
+  const trust = assessAdvertisement(verifyKey, { appId, role, port: s.port }, sig, strict);
+  if (!trust.accept) return null;
   return {
     appId,
     role,
@@ -125,7 +133,8 @@ function toDiscovered(s: MdnsService, verifyKey?: string): DiscoveredService | n
     // TXT-Werte können String oder (bei manchen Respondern) Buffer/true sein →
     // tolerant auf '1' prüfen.
     ctl: String(txt.ctl ?? '') === '1',
-    verified,
+    signed: trust.signed,
+    verified: trust.verified,
   };
 }
 
@@ -135,7 +144,16 @@ function toDiscovered(s: MdnsService, verifyKey?: string): DiscoveredService | n
  */
 export function discover(
   onChange: (services: DiscoveredService[]) => void,
-  opts: { verifyKey?: string } = {},
+  opts: {
+    /** Pairing-Key zum Prüfen der Annoncen-Signaturen. Fehlt → keine Prüfung (open). */
+    verifyKey?: string;
+    /**
+     * Phase 2 (#59): mit `verifyKey` auch UNSIGNIERTE Annoncen verwerfen (nur noch
+     * korrekt signierte Dienste durchreichen). Erst aktivieren, wenn die ganze Suite
+     * signiert ausgeliefert ist — sonst verschwinden legitime Alt-Tools. Default `false`.
+     */
+    strict?: boolean;
+  } = {},
 ): Discovery {
   const bonjour = new Bonjour();
   const found = new Map<string, DiscoveredService>();
@@ -143,14 +161,14 @@ export function discover(
   const emit = (): void => onChange([...found.values()]);
 
   const browser = bonjour.find({ type: SERVICE_TYPE }, (s: MdnsService) => {
-    const d = toDiscovered(s, opts.verifyKey);
+    const d = toDiscovered(s, opts.verifyKey, opts.strict);
     if (d) {
       found.set(key(d), d);
       emit();
     }
   });
   browser.on('down', (s: MdnsService) => {
-    const d = toDiscovered(s, opts.verifyKey);
+    const d = toDiscovered(s, opts.verifyKey, opts.strict);
     if (d && found.delete(key(d))) emit();
   });
 

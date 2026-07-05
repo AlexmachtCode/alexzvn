@@ -5,7 +5,7 @@ import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { parseShow, parseShowDeepLink, type ShowNetworkBinding } from '@jm/show';
 import { discover, type Discovery, type DiscoveredService } from '@jm/discovery';
 import { OutputWindow, listDisplays } from '@jm/output-window';
-import { controlClientOptions, readControlConfig } from '@jm/control-config';
+import { controlClientOptions, readControlConfig, mdnsSignKey } from '@jm/control-config';
 import type { PartialStageConfig, StageState } from '@shared/types';
 import { getConfig, patchConfig } from './config';
 import { TimerClient, TIMER_OFFLINE } from './timer-client';
@@ -32,7 +32,10 @@ const timerClient = new TimerClient((s) => {
 // ohne diese Optionen verbände sich Stage Display plain dagegen und bliebe „offline".
 // Nur der Switcher nutzt SuiteControlClient; Timer (Socket.IO) und Presenter (PIN)
 // haben eigene Transporte und sind unberührt.
-const switcherSecurity = controlClientOptions(readControlConfig(app.getPath('appData')));
+const suiteControl = readControlConfig(app.getPath('appData'));
+const switcherSecurity = controlClientOptions(suiteControl);
+// mDNS-Annoncen im secure-Modus prüfen (A3, #59) → nur echte Quellen verbinden.
+const mdnsVerifyKey = mdnsSignKey(suiteControl);
 const switcherClient = new SwitcherClient((s) => {
   lastSwitcher = s;
   broadcast();
@@ -303,7 +306,7 @@ if (!gotLock) {
     // LAN nach Quellen absuchen und nicht stehende Verbindungen automatisch
     // auf den entdeckten Host umstellen (mDNS). Best-effort.
     try {
-      discovery = discover(onDiscovered);
+      discovery = discover(onDiscovered, { verifyKey: mdnsVerifyKey });
     } catch (err) {
       getLog().warn(`mDNS-Discovery fehlgeschlagen: ${(err as Error).message}`);
     }
