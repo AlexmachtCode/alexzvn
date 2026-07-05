@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { CAPABILITIES, KNOWN_ROLES } from '@/lib/capabilities';
 import type { Endpoint, ToolLink } from '@shared/types';
 
-const inp = 'rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100';
-const btn = 'rounded-md border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800';
+const inp = 'rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]';
+const btn = 'rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]';
 
 /** Modal: je Rolle den Steuer-Endpunkt anzeigen + bei Bedarf manuell setzen. */
 export function ConnectionsPanel({
@@ -20,16 +20,16 @@ export function ConnectionsPanel({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50" onClick={onClose}>
       <div
-        className="max-h-[82vh] w-[42rem] overflow-y-auto rounded-xl border border-neutral-700 bg-neutral-900 p-4 shadow-xl"
+        className="max-h-[82vh] w-[42rem] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-2 flex items-center">
           <h2 className="text-lg font-semibold">Tool-Verbindungen</h2>
-          <button onClick={onClose} className="ml-auto rounded px-2 text-neutral-400 hover:bg-neutral-800">
+          <button onClick={onClose} className="ml-auto rounded px-2 text-[var(--muted-foreground)] hover:bg-[var(--highlight)]">
             ✕
           </button>
         </div>
-        <p className="mb-3 text-xs text-neutral-500">
+        <p className="mb-3 text-xs text-[var(--muted-foreground)]">
           Standard ist automatisch (mDNS). Für Cross-Subnet oder bei blockiertem mDNS einen Host/Port
           manuell setzen — das überschreibt den Fund. „Auto" entfernt den Override wieder.
         </p>
@@ -71,10 +71,10 @@ function RoleRow({
       : 'nicht verbunden';
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-neutral-800 p-2">
+    <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] p-2">
       <div className="w-44 shrink-0">
         <div className="text-sm font-medium">{cap.label}</div>
-        <div className={`text-[11px] ${link?.connected ? 'text-green-400' : 'text-neutral-500'}`}>{status}</div>
+        <div className={`text-[11px] ${link?.connected ? 'text-[var(--success)]' : 'text-[var(--muted-foreground)]'}`}>{status}</div>
       </div>
       <input
         value={host}

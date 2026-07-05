@@ -9,7 +9,7 @@ import { RowEditor } from '@/components/RowEditor';
 import { ConnectionsPanel } from '@/components/ConnectionsPanel';
 
 const hdrBtn =
-  'rounded-md border border-neutral-700 px-2.5 py-1 text-neutral-300 hover:bg-neutral-800';
+  'rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--foreground)] hover:bg-[var(--highlight)]';
 
 export function App() {
   const { state, load, nav, setDoc, newDoc, open, save, saveAs, setEndpoint } = useRundown();
@@ -50,7 +50,7 @@ export function App() {
   }, [nav]);
 
   if (!state) {
-    return <div className="grid h-full place-items-center text-neutral-500">Lädt …</div>;
+    return <div className="grid h-full place-items-center text-[var(--muted-foreground)]">Lädt …</div>;
   }
 
   const selectedRow =
@@ -97,16 +97,16 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-neutral-800 px-4 py-2">
+      <header className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-2">
         <span className="font-bold">JM Rundown</span>
         <input
           key={`${state.doc.name}|${state.filePath ?? ''}`}
           defaultValue={state.doc.name}
           onBlur={(e) => void setDoc({ ...state.doc, name: e.target.value })}
-          className="rounded border border-transparent bg-transparent px-2 py-0.5 text-sm hover:border-neutral-700 focus:border-neutral-600 focus:outline-none"
+          className="rounded border border-transparent bg-transparent px-2 py-0.5 text-sm hover:border-[var(--border)] focus:border-[var(--ring)] focus:outline-none"
         />
         {state.dirty && <span className="text-xs text-[var(--brand-yellow)]">• ungespeichert</span>}
-        {notice && <span className="text-xs text-neutral-400">{notice}</span>}
+        {notice && <span className="text-xs text-[var(--muted-foreground)]">{notice}</span>}
         <div className="ml-auto flex items-center gap-1.5 text-sm">
           <button onClick={() => void newDoc()} className={hdrBtn}>
             Neu
@@ -140,7 +140,7 @@ export function App() {
       <ToolLinks links={state.links} onOpenConnections={() => setShowConnections(true)} />
 
       <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 border-r border-neutral-800">
+        <div className="min-w-0 flex-1 border-r border-[var(--border)]">
           <RundownList
             doc={state.doc}
             index={state.index}
@@ -160,7 +160,7 @@ export function App() {
               onDoc={(d) => void setDoc(d)}
             />
           ) : (
-            <div className="grid h-full place-items-center text-sm text-neutral-500">
+            <div className="grid h-full place-items-center text-sm text-[var(--muted-foreground)]">
               Keine Zeile gewählt.
             </div>
           )}

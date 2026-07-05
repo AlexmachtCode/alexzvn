@@ -2,14 +2,14 @@ import { useState } from 'react';
 import type { QaCloudInfo, QaConfig } from '@shared/types';
 import { useQa } from '@/store/useQa';
 
-const inp = 'rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100';
+const inp = 'rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]';
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 border-b border-neutral-800/60 py-2.5">
+    <div className="flex items-center gap-3 border-b border-[var(--border)]/60 py-2.5">
       <div className="flex-1">
         <div className="text-sm">{label}</div>
-        {hint && <div className="text-[11px] text-neutral-500">{hint}</div>}
+        {hint && <div className="text-[11px] text-[var(--muted-foreground)]">{hint}</div>}
       </div>
       {children}
     </div>
@@ -23,12 +23,12 @@ export function Settings({ config, cloud, onClose }: { config: QaConfig; cloud: 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 py-8" onClick={onClose}>
       <div
-        className="w-[34rem] rounded-xl border border-neutral-700 bg-neutral-900 p-4 shadow-xl"
+        className="w-[34rem] rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-center">
           <h2 className="text-lg font-semibold">Einstellungen</h2>
-          <button onClick={onClose} className="ml-auto rounded px-2 text-neutral-400 hover:bg-neutral-800">
+          <button onClick={onClose} className="ml-auto rounded px-2 text-[var(--muted-foreground)] hover:bg-[var(--highlight)]">
             ✕
           </button>
         </div>
@@ -87,9 +87,9 @@ function CloudSettings({ config, cloud }: { config: QaConfig; cloud: QaCloudInfo
   const [key, setKey] = useState('');
 
   return (
-    <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-      <div className="mb-1 text-sm font-semibold text-neutral-300">Externe Einreichung (Stream & Presse)</div>
-      <p className="mb-2 text-[11px] text-neutral-500">
+    <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--background)]/40 p-3">
+      <div className="mb-1 text-sm font-semibold text-[var(--foreground)]">Externe Einreichung (Stream & Presse)</div>
+      <p className="mb-2 text-[11px] text-[var(--muted-foreground)]">
         Fragen von außerhalb des Saal-WLANs — Ende-zu-Ende verschlüsselt über den Cloud-Relay. Presse per
         Zugangscode. Alle externen Einreichungen sind freigabepflichtig.
       </p>
@@ -113,7 +113,7 @@ function CloudSettings({ config, cloud }: { config: QaConfig; cloud: QaCloudInfo
             onChange={(e) => setKey(e.target.value)}
           />
           <button
-            className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+            className="rounded border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
             onClick={() => {
               void setProxyKey(key);
               setKey('');
@@ -126,7 +126,7 @@ function CloudSettings({ config, cloud }: { config: QaConfig; cloud: QaCloudInfo
 
       <Row label="Event" hint={config.eventId ? `ID: ${config.eventId}` : 'Noch kein Event erzeugt.'}>
         <button
-          className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+          className="rounded border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
           onClick={() => void cloudGenerateEvent()}
         >
           {config.eventId ? 'Neues Event' : 'Event erzeugen'}
@@ -142,7 +142,7 @@ function CloudSettings({ config, cloud }: { config: QaConfig; cloud: QaCloudInfo
         />
       </Row>
 
-      {cloud.lastError && <div className="mt-2 text-[11px] text-red-400">Fehler: {cloud.lastError}</div>}
+      {cloud.lastError && <div className="mt-2 text-[11px] text-[var(--destructive)]">Fehler: {cloud.lastError}</div>}
     </div>
   );
 }
