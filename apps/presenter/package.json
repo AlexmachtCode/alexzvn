@@ -1,6 +1,6 @@
 {
   "name": "@jm/presenter",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "description": "Jakobs Medien Presenter — PDF-/Office-Folien aufbereiten und mit Referenten- und Publikumsansicht präsentieren",
   "author": "Jakobs Medien GmbH",

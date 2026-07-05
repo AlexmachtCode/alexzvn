@@ -1,6 +1,6 @@
 {
   "name": "@jm/battle",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "JM Battle — BattleRap-Toolkit: VS-Bauchbinde, Jury-/Publikums-Voting (QR), Instant-Replay-Clip",
   "main": "out/main/index.cjs",
