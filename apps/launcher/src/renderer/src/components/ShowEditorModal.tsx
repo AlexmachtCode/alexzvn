@@ -89,6 +89,9 @@ export function ShowEditorModal() {
   // Bauchbinden = dessen Speaker. Leer = Tages-/Listenmodus.
   const [iveoProgramId, setIveoProgramId] = useState('');
   const [iveoProgramList, setIveoProgramList] = useState<IveoProgramRef[]>([]);
+  // C4: Ist für die im Feld stehende Basis-URL schon ein Token gemerkt? Dann darf
+  // das Token-Feld leer bleiben — der Main-Prozess nutzt den gespeicherten (nie im Renderer).
+  const [iveoBaseTokenSaved, setIveoBaseTokenSaved] = useState(false);
 
   // Szenario-Start (B2): einen vom Szenario-Picker gesetzten Seed einmalig ins
   // Formular übernehmen (Tools vorwählen, Ablauf/Redezeit/Runden vorbefüllen) und
@@ -113,6 +116,20 @@ export function ShowEditorModal() {
     setEditPath(null);
     clearEditorSeed();
   }, [open, editorSeed, clearEditorSeed]);
+
+  // C4: prüfen, ob für die aktuelle Basis-URL schon ein Token hinterlegt ist
+  // (nur Boolean — der Token-Wert bleibt im Main-Prozess). Erlaubt „Events laden"
+  // und „Ablauf übernehmen" mit leerem Feld für ein weiteres Event derselben Org.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void window.jmps.hasIveoBaseToken(iveoBaseUrl.trim() || undefined).then((has) => {
+      if (!cancelled) setIveoBaseTokenSaved(has);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, iveoBaseUrl]);
 
   if (!open) return null;
 
@@ -142,7 +159,7 @@ export function ShowEditorModal() {
 
   /** Token prüfen + lesbare Events auflisten (Token wird noch nicht gespeichert). */
   const discoverIveo = async (): Promise<void> => {
-    if (!iveoToken.trim()) {
+    if (!iveoToken.trim() && !iveoBaseTokenSaved) {
       setIveoMsg('Bitte iveo-Token einfügen.');
       return;
     }
@@ -176,7 +193,7 @@ export function ShowEditorModal() {
     override: Partial<{ typeSlug: string; formatSlug: string; day: string; excludeBlockers: boolean; programId: string }> = {},
   ): Promise<void> => {
     const event = iveoSelected.trim();
-    if (!iveoToken.trim() || !event) {
+    if ((!iveoToken.trim() && !iveoBaseTokenSaved) || !event) {
       setIveoMsg('Token und Event erforderlich.');
       return;
     }
@@ -202,6 +219,8 @@ export function ShowEditorModal() {
         setIveoMsg(res.error ?? 'Ablauf konnte nicht geladen werden.');
         return;
       }
+      // Der Bind hat den Token basis-weit gemerkt (Main) → Feld darf künftig leer bleiben.
+      setIveoBaseTokenSaved(true);
       const rows: AblaufRow[] = (res.ablauf ?? []).map((a) => ({
         label: a.label,
         minutes: a.durationMs ? String(Math.round(a.durationMs / 60000)) : '',
@@ -448,11 +467,17 @@ export function ShowEditorModal() {
             <input
               type="password"
               value={iveoToken}
-              placeholder="iveo-Token (iveo_live_…)"
+              placeholder={iveoBaseTokenSaved ? 'Token gemerkt — leer lassen zum Wiederverwenden' : 'iveo-Token (iveo_live_…)'}
               autoComplete="off"
               onChange={(e) => setIveoToken(e.target.value)}
               className={cn(inputCls, 'h-8 px-2.5 text-xs')}
             />
+            {iveoBaseTokenSaved && (
+              <span className="text-[10px] text-[var(--muted-foreground)]">
+                ✓ Token für diese Basis gemerkt — Feld leer lassen, um es für ein weiteres Event
+                derselben Veranstaltung wiederzuverwenden.
+              </span>
+            )}
             <div className="flex items-center gap-2">
               <input
                 value={iveoBaseUrl}
@@ -494,9 +519,28 @@ export function ShowEditorModal() {
                 iveoProgramTypes.formats.length > 1 ||
                 iveoProgramTypes.blockerCount > 0) && (
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
-                    Ablauf-Filter — z. B. nur die Side Events eines Tages
-                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+                      Ablauf-Filter — z. B. nur die Side Events eines Tages
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0 h-6 px-2 text-[10px]"
+                      disabled={iveoBusy}
+                      title="Filter zurücksetzen und den gesamten Event-Ablauf übernehmen"
+                      onClick={() => {
+                        setIveoDay('');
+                        setIveoTypeSlug('');
+                        setIveoFormatSlug('');
+                        setIveoExcludeBlockers(false);
+                        setIveoProgramId('');
+                        void bindIveo({ day: '', typeSlug: '', formatSlug: '', excludeBlockers: false, programId: '' });
+                      }}
+                    >
+                      Ganze Veranstaltung
+                    </Button>
+                  </div>
                   {/* Tag: wichtigster Filter — mehrtägige iveo-Pläne auf einen Tag eingrenzen. */}
                   {iveoProgramTypes.days.length > 1 && (
                     <select
