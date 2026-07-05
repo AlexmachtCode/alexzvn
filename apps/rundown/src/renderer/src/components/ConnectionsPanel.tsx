@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Modal } from '@jm/ui';
 import { CAPABILITIES, KNOWN_ROLES } from '@/lib/capabilities';
 import type { Endpoint, ToolLink } from '@shared/types';
 
@@ -18,34 +19,23 @@ export function ConnectionsPanel({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50" onClick={onClose}>
-      <div
-        className="max-h-[82vh] w-[42rem] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-2 flex items-center">
-          <h2 className="text-lg font-semibold">Tool-Verbindungen</h2>
-          <button onClick={onClose} className="ml-auto rounded px-2 text-[var(--muted-foreground)] hover:bg-[var(--highlight)]">
-            ✕
-          </button>
-        </div>
-        <p className="mb-3 text-xs text-[var(--muted-foreground)]">
-          Standard ist automatisch (mDNS). Für Cross-Subnet oder bei blockiertem mDNS einen Host/Port
-          manuell setzen — das überschreibt den Fund. „Auto" entfernt den Override wieder.
-        </p>
-        <div className="space-y-2">
-          {KNOWN_ROLES.map((role) => (
-            <RoleRow
-              key={role}
-              role={role}
-              link={links.find((l) => l.role === role)}
-              override={overrides[role]}
-              onSet={onSet}
-            />
-          ))}
-        </div>
+    <Modal onClose={onClose} title="Tool-Verbindungen" className="w-[42rem]">
+      <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+        Standard ist automatisch (mDNS). Für Cross-Subnet oder bei blockiertem mDNS einen Host/Port
+        manuell setzen — das überschreibt den Fund. „Auto" entfernt den Override wieder.
+      </p>
+      <div className="space-y-2">
+        {KNOWN_ROLES.map((role) => (
+          <RoleRow
+            key={role}
+            role={role}
+            link={links.find((l) => l.role === role)}
+            override={overrides[role]}
+            onSet={onSet}
+          />
+        ))}
       </div>
-    </div>
+    </Modal>
   );
 }
 
