@@ -1,6 +1,6 @@
 {
   "name": "@jm/qa",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "JM Q&A — Wortmeldungs-/Pressekonferenz-Queue: Saal-Einreichung per QR, Redezeit (Timer) + Bauchbinde (Titler) automatisch",
   "main": "out/main/index.cjs",

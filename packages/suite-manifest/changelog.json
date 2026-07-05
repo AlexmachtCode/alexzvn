@@ -4,6 +4,14 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.11.0",
+        "date": "2026-07-05",
+        "notes": [
+          "iveo: Ein einmal eingegebenes Token wird jetzt pro Basis-Adresse gemerkt (verschlüsselt im Launcher) — ein weiteres Event derselben Veranstaltung lässt sich ohne erneute Token-Eingabe laden. Neuer Knopf Ganze Veranstaltung übernimmt den kompletten Event-Ablauf mit einem Klick.",
+          "Sicherheit: Im secure-Modus werden die Netzwerk-Annoncen der Tools signiert und geprüft — der Launcher verwirft gefälschte oder manipulierte Einträge (Anti-Spoofing); noch nicht aktualisierte Tools bleiben sichtbar."
+        ]
+      },
+      {
         "version": "0.10.0",
         "date": "2026-07-05",
         "notes": [
@@ -366,6 +374,13 @@
     "name": "JM Presenter",
     "entries": [
       {
+        "version": "0.10.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Sicherheit: Im secure-Modus signiert der Presenter seine Netzwerk-Annonce (Anti-Spoofing der automatischen Erkennung)."
+        ]
+      },
+      {
         "version": "0.9.0",
         "date": "2026-06-28",
         "notes": [
@@ -489,6 +504,13 @@
     "app": "timer",
     "name": "JM Timer",
     "entries": [
+      {
+        "version": "0.7.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Sicherheit: Im secure-Modus signiert der Timer seine Netzwerk-Annonce, damit Aggregatoren (z. B. Stage Display) den echten Timer von einer Fälschung unterscheiden."
+        ]
+      },
       {
         "version": "0.6.0",
         "date": "2026-07-03",
@@ -698,6 +720,13 @@
     "name": "JM Stage Display",
     "entries": [
       {
+        "version": "0.5.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Sicherheit: Im secure-Modus prüft das Stage Display die Signatur der gefundenen Tools und verbindet sich nur mit echten Quellen (Anti-Spoofing)."
+        ]
+      },
+      {
         "version": "0.4.3",
         "date": "2026-06-29",
         "notes": [
@@ -761,6 +790,13 @@
     "app": "prompter",
     "name": "JM Prompter",
     "entries": [
+      {
+        "version": "0.6.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Sicherheit: Im secure-Modus signiert der Prompter seine Netzwerk-Annonce (Anti-Spoofing der automatischen Erkennung)."
+        ]
+      },
       {
         "version": "0.5.0",
         "date": "2026-06-24",
@@ -1077,6 +1113,15 @@
     "name": "JM Rundown",
     "entries": [
       {
+        "version": "0.5.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Oberfläche durchgängig auf die Design-Tokens der Suite umgestellt (heller/dunkler Modus, Wiedererkennung).",
+          "Barrierefreiheit: Der Verbindungen-Dialog folgt jetzt dem Tastatur-Standard — Escape schließt, der Fokus bleibt im Dialog und kehrt danach zurück.",
+          "Sicherheit: Im secure-Modus prüft Rundown die Signatur der gefundenen Tools und verwirft gefälschte Annoncen."
+        ]
+      },
+      {
         "version": "0.4.0",
         "date": "2026-07-03",
         "notes": [
@@ -1116,6 +1161,15 @@
     "app": "qa",
     "name": "JM Q&A",
     "entries": [
+      {
+        "version": "0.5.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Oberfläche durchgängig auf die Design-Tokens der Suite umgestellt — heller/dunkler Modus und Wiedererkennung mit den anderen Tools.",
+          "Barrierefreiheit: Die Dialoge (Verbindungen, Einstellungen) folgen jetzt dem Tastatur-Standard — Escape schließt, der Fokus bleibt im Dialog und kehrt danach an das auslösende Element zurück.",
+          "Sicherheit: Im secure-Modus prüft Q&A die Signatur der gefundenen Tools und verwirft gefälschte Annoncen."
+        ]
+      },
       {
         "version": "0.4.0",
         "date": "2026-07-04",
@@ -1160,6 +1214,15 @@
     "app": "battle",
     "name": "JM Battle",
     "entries": [
+      {
+        "version": "0.3.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Oberfläche auf die Design-Tokens der Suite umgestellt (heller/dunkler Modus, Wiedererkennung).",
+          "Barrierefreiheit: Die Dialoge (Verbindungen, Einstellungen) folgen jetzt dem Tastatur-Standard — Escape schließt, der Fokus bleibt im Dialog und kehrt danach zurück.",
+          "Sicherheit: Im secure-Modus prüft Battle die Signatur der gefundenen Tools und verwirft gefälschte Annoncen."
+        ]
+      },
       {
         "version": "0.2.1",
         "date": "2026-06-29",
