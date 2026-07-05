@@ -4,6 +4,32 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.10.0",
+        "date": "2026-07-05",
+        "notes": [
+          "System-Zustand: Findet sich ein Tool nicht automatisch im Netz (getrennte Event-Netze oder blockiertes mDNS), lässt sich seine Adresse (Host und Port) jetzt von Hand eintragen — der Launcher verbindet sich zusätzlich dorthin und merkt sich die Adresse."
+        ]
+      },
+      {
+        "version": "0.9.0",
+        "date": "2026-07-04",
+        "notes": [
+          "Erste Schritte: Ein neuer Einrichtungs-Assistent führt neue Operator durch Release-Quelle, Werkzeug-Auswahl, Netzwerk-Selbsttest und die erste Show — jederzeit über den Knopf Erste Schritte im Kopfbereich erneut aufrufbar.",
+          "Aus Vorlage starten: Szenario-Kacheln (Konferenz, Battle, Bühnenshow, Podcast) legen mit einem Klick ein passendes Tool-Set und eine vorbereitete Show an.",
+          "System-Zustand: Eine Netzwerk-Ampel zeigt, ob sich die Tools gegenseitig finden, und richtet die sichere Steuerebene bei Bedarf mit einem Klick ein; zusätzliche Rechner koppeln per QR-Code statt Abtippen.",
+          "Anleitung je Tool: Jede Tool-Kachel hat jetzt einen Anleitung-Link direkt zum passenden Kochbuch-Manual."
+        ]
+      },
+      {
+        "version": "0.8.0",
+        "date": "2026-07-03",
+        "notes": [
+          "iveo-Anbindung: Ein iveo-Event lässt sich direkt beim Anlegen einer Show übernehmen — Ablauf, Speaker und Materialien werden eingebettet und während der Show live nachgezogen. Das Event-Token bleibt verschlüsselt im Launcher, nie in der Show-Datei.",
+          "Side Events live umschalten: Über die Show-Ansicht lässt sich während der Produktion auf ein anderes Side Event wechseln — Ablauf und Bauchbinden ziehen automatisch nach.",
+          "Materialien einer Veranstaltung (Folien, Dokumente) direkt aus dem Launcher herunterladen."
+        ]
+      },
+      {
         "version": "0.7.0",
         "date": "2026-07-02",
         "notes": [
@@ -142,6 +168,13 @@
     "name": "JM Player",
     "entries": [
       {
+        "version": "0.8.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Suite-Integration: Per Show geöffnet, übernimmt der Player die in der Produktion hinterlegten Einstellungen — die vorgesehene Cue-Show wird geladen und der Ausgabeschirm vorgewählt."
+        ]
+      },
+      {
         "version": "0.7.0",
         "date": "2026-06-28",
         "notes": [
@@ -200,6 +233,13 @@
     "name": "JM Audio Recorder",
     "entries": [
       {
+        "version": "0.7.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Suite-Integration: Per Show geöffnet, übernimmt der Recorder die hinterlegten Aufnahme-Einstellungen — Zielordner, Dateiname, getrennte Spuren, Kanäle und Samplerate."
+        ]
+      },
+      {
         "version": "0.6.0",
         "date": "2026-06-29",
         "notes": [
@@ -251,6 +291,13 @@
     "app": "switcher",
     "name": "JM Switcher",
     "entries": [
+      {
+        "version": "0.7.0",
+        "date": "2026-07-04",
+        "notes": [
+          "Suite-Integration: Per Show geöffnet, lädt der Switcher automatisch das in der Produktion hinterlegte Projekt (.jmswitch) — Quellen, Szenen und Ausgabe stehen sofort bereit."
+        ]
+      },
       {
         "version": "0.6.0",
         "date": "2026-07-02",
@@ -442,6 +489,13 @@
     "app": "timer",
     "name": "JM Timer",
     "entries": [
+      {
+        "version": "0.6.0",
+        "date": "2026-07-03",
+        "notes": [
+          "iveo-Anbindung: Per Show mit einem iveo-Event geöffnet, zieht der Timer Änderungen am Ablauf während der Veranstaltung automatisch nach — nicht-destruktiv, ein laufender Countdown bleibt erhalten."
+        ]
+      },
       {
         "version": "0.5.0",
         "date": "2026-06-29",
@@ -760,6 +814,20 @@
     "name": "JM Titler",
     "entries": [
       {
+        "version": "0.8.0",
+        "date": "2026-07-04",
+        "notes": [
+          "Suite-Integration: Per Show geöffnet, importiert der Titler die hinterlegte Bauchbinden-Vorlage (.jmtitler oder .psd) automatisch in die Bibliothek und legt sie als aktive Grafik bereit — bereit zum Take, ohne manuelles Laden."
+        ]
+      },
+      {
+        "version": "0.7.0",
+        "date": "2026-07-03",
+        "notes": [
+          "iveo-Anbindung: Die Speaker eines iveo-Events stehen als Bauchbinden-Einträge bereit und lassen sich per Klick oder Fernsteuerung abrufen — Name und Funktion werden automatisch gefüllt."
+        ]
+      },
+      {
         "version": "0.6.0",
         "date": "2026-07-03",
         "notes": [
@@ -816,6 +884,13 @@
     "app": "transcribe",
     "name": "JM Transcribe",
     "entries": [
+      {
+        "version": "0.3.0",
+        "date": "2026-07-05",
+        "notes": [
+          "Suite-Integration: Per Show geöffnet, übernimmt Transcribe die hinterlegten Einstellungen — Modell, Sprache, Aufgabe, Ausgabeformate und Zielordner."
+        ]
+      },
       {
         "version": "0.2.0",
         "date": "2026-06-23",
@@ -901,6 +976,13 @@
     "app": "daw",
     "name": "JM DAW",
     "entries": [
+      {
+        "version": "0.10.0",
+        "date": "2026-07-04",
+        "notes": [
+          "Suite-Integration: Per Show geöffnet, lädt die DAW automatisch das in der Produktion hinterlegte Projekt (.jmdaw)."
+        ]
+      },
       {
         "version": "0.9.0",
         "date": "2026-06-29",
@@ -995,6 +1077,13 @@
     "name": "JM Rundown",
     "entries": [
       {
+        "version": "0.4.0",
+        "date": "2026-07-03",
+        "notes": [
+          "iveo-Anbindung: Neue GO-Aktionen für iveo — live auf ein Side Event umschalten und den passenden Speaker als Bauchbinde abrufen. Die Side Events und Speaker der gebundenen Show stehen direkt als Auswahl bereit."
+        ]
+      },
+      {
         "version": "0.3.0",
         "date": "2026-06-29",
         "notes": [
@@ -1027,6 +1116,13 @@
     "app": "qa",
     "name": "JM Q&A",
     "entries": [
+      {
+        "version": "0.4.0",
+        "date": "2026-07-04",
+        "notes": [
+          "Kopplungs-Status auf einen Blick: Die Kopplung an JM Timer (Redezeit) und JM Titler (Bauchbinde) zeigt jetzt je Werkzeug klar an, ob sie aus, aktiviert-aber-nicht-gefunden oder verbunden ist — und lässt sich mit einem Klick umschalten."
+        ]
+      },
       {
         "version": "0.3.0",
         "date": "2026-07-04",
