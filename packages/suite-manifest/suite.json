@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-05T08:46:01.701Z",
+  "updatedAt": "2026-07-05T13:04:51.147Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -367,7 +367,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.rundown",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.4.0",
+      "latestVersion": "0.5.0",
       "platforms": {
         "mac": {
           "artifact": "JM Rundown-${version}-mac-${arch}.dmg",
