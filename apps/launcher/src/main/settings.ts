@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { IVEO_DEFAULT_BASE_URL } from '@jm/iveo';
+import { IVEO_DEFAULT_BASE_URL, normalizeIveoBaseUrl } from '@jm/iveo';
 import type { ManualEndpoint, RecentShow, SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
 
 interface StoredSettings {
@@ -229,6 +229,31 @@ export function deleteIveoToken(eventKey: string): void {
 
 export function hasIveoToken(eventKey: string): boolean {
   return Boolean(getIveoToken(eventKey));
+}
+
+// ── C4: Token zusätzlich PRO BASIS-URL merken ──────────────────────────────────
+// Ein iveo-Token gilt basis-/org-weit — die Discovery `GET /` listet ALLE für den
+// Token lesbaren Events. Für ein NEUES Event derselben Basis muss man ihn also
+// nicht erneut einfügen. Wir legen ihn beim Binden ZUSÄTZLICH unter einem
+// `base:<normalisierte URL>`-Schlüssel ab (kollidiert nicht mit Event-Slugs) —
+// dieselbe safeStorage-Verschlüsselung, main-only, nie im Renderer/der Show.
+function iveoBaseKey(baseUrl: string): string {
+  return `base:${normalizeIveoBaseUrl(baseUrl)}`;
+}
+
+/** Token unter der (normalisierten) Basis-URL ablegen (verschlüsselt) bzw. löschen. */
+export function setIveoBaseToken(baseUrl: string, token: string): void {
+  setIveoToken(iveoBaseKey(baseUrl.trim() || resolveIveoBaseUrl()), token);
+}
+
+/** Gespeicherten Basis-Token lesen (Env-Override greift wie bei getIveoToken). */
+export function getIveoBaseToken(baseUrl?: string): string | undefined {
+  return getIveoToken(iveoBaseKey(baseUrl?.trim() || resolveIveoBaseUrl()));
+}
+
+/** Ist für diese Basis ein Token hinterlegt? (Boolean für den Renderer — ohne Wert.) */
+export function hasIveoBaseToken(baseUrl?: string): boolean {
+  return Boolean(getIveoBaseToken(baseUrl));
 }
 
 /** Event-Keys, für die ein Token hinterlegt ist (ohne die Tokens preiszugeben). */

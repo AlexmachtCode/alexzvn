@@ -40,7 +40,13 @@ import {
   type IveoSnapshot,
 } from '@jm/iveo';
 import type { ShowIveoSpeaker } from '@jm/show';
-import { getIveoToken, resolveIveoBaseUrl, setIveoToken } from './settings';
+import {
+  getIveoToken,
+  getIveoBaseToken,
+  resolveIveoBaseUrl,
+  setIveoToken,
+  setIveoBaseToken,
+} from './settings';
 import { sendControlCommand } from './health';
 import type {
   ActionResult,
@@ -216,9 +222,12 @@ function toClientError(e: unknown): { code?: string; error: string } {
 // ── Discover / Bind (vom Show-Editor via IPC aufgerufen) ─────────────────────
 
 export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<IveoDiscoverResult> {
-  const token = input.token?.trim();
-  if (!token) return { ok: false, error: 'Token fehlt.' };
   const baseUrl = input.baseUrl?.trim() || resolveIveoBaseUrl();
+  // C4: kein Token im Feld → den für diese Basis gemerkten nutzen (ein Token gilt
+  // basis-weit — die Discovery listet ALLE lesbaren Events), damit ein neues Event
+  // derselben Org kein erneutes Einfügen erzwingt. Discover persistiert selbst nichts.
+  const token = input.token?.trim() || getIveoBaseToken(baseUrl);
+  if (!token) return { ok: false, error: 'Token fehlt.' };
   try {
     const client = new IveoClient({ token, baseUrl });
     const events = await client.discovery();
@@ -230,10 +239,11 @@ export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<Iveo
 }
 
 export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {
-  const token = input.token?.trim();
+  const baseUrl = input.baseUrl?.trim() || resolveIveoBaseUrl();
+  // C4: Token-Fallback wie bei discover (basis-weit gemerkter Token).
+  const token = input.token?.trim() || getIveoBaseToken(baseUrl);
   const event = input.event?.trim();
   if (!token || !event) return { ok: false, error: 'Token und Event erforderlich.' };
-  const baseUrl = input.baseUrl?.trim() || resolveIveoBaseUrl();
   try {
     const client = new IveoClient({ token, baseUrl });
     // Initialer Bind resilient: ein serverseitiger 500 (z. B. auf /programs) soll
@@ -290,6 +300,8 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
     const meta = buildShowMetadata(snap, baseUrl);
     // Token verschlüsselt ablegen (Schlüssel = kanonischer Slug), Cache schreiben.
     setIveoToken(snap.event.slug, token);
+    // C4: zusätzlich basis-weit merken → nächstes Event derselben Org ohne Neu-Eingabe.
+    setIveoBaseToken(baseUrl, token);
     writeCache(meta);
     const warnParts = [
       ...(skipped.length ? [`iveo lieferte für ${skipped.join(', ')} keine Daten (Server-Fehler)`] : []),

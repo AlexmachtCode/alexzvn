@@ -69,6 +69,7 @@ const api: JmpsApi = {
   discoverIveoEvents: (input: IveoDiscoverInput) =>
     invoke<IveoDiscoverResult>('iveo:discover', input),
   bindIveoEvent: (input: IveoBindInput) => invoke<IveoBindResult>('iveo:bind', input),
+  hasIveoBaseToken: (baseUrl?: string) => invoke<boolean>('iveo:hasBaseToken', baseUrl),
   listIveoSideEvents: (input?: IveoSideEventsInput) =>
     invoke<IveoSideEventsResult>('iveo:listSideEvents', input ?? {}),
   switchIveoSideEvent: (input: IveoSwitchInput) => invoke<ActionResult>('iveo:switchSideEvent', input),

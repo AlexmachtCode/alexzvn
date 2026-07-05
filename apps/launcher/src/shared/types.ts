@@ -399,6 +399,8 @@ export interface JmpsApi {
   discoverIveoEvents: (input: IveoDiscoverInput) => Promise<IveoDiscoverResult>;
   /** iveo (#11): Event an Show binden — Token verschlüsselt ablegen, Ablauf holen. */
   bindIveoEvent: (input: IveoBindInput) => Promise<IveoBindResult>;
+  /** iveo (C4): Ist für diese Basis-URL schon ein Token gemerkt? (Token bleibt im Main.) */
+  hasIveoBaseToken: (baseUrl?: string) => Promise<boolean>;
   /** iveo (#11): Side Events der offenen Show auflisten (token-frei, aus Cache). */
   listIveoSideEvents: (input?: IveoSideEventsInput) => Promise<IveoSideEventsResult>;
   /** iveo (#11): live auf ein Side Event umschalten (Ablauf+Speaker → Timer/Titler RELOAD). */
