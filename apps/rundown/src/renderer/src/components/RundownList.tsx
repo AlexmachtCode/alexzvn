@@ -4,7 +4,7 @@ import { addRow, duplicateRow, moveRow, removeRow } from '@/lib/doc';
 import type { RundownDoc } from '@shared/types';
 
 const iconBtn =
-  'rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100';
+  'rounded px-1.5 py-0.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--highlight)] hover:text-[var(--foreground)]';
 
 /** Der Ablaufplan als Cue-Stack: scharfe Zeile hervorgehoben, Auswahl mit Ring. */
 export function RundownList({
@@ -65,16 +65,16 @@ export function RundownList({
               onClick={() => onSelect(row.id)}
               style={isCue ? { borderColor: 'var(--brand-yellow)' } : undefined}
               className={`cursor-grab rounded-lg border px-3 py-2 active:cursor-grabbing ${
-                isCue ? 'bg-neutral-800/70' : 'border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900/70'
-              } ${isSel ? 'ring-1 ring-neutral-500' : ''} ${isDragging ? 'opacity-40' : ''} ${
+                isCue ? 'bg-[var(--input)]/70' : 'border-[var(--border)] bg-[var(--card)]/40 hover:bg-[var(--card)]/70'
+              } ${isSel ? 'ring-1 ring-[var(--muted-foreground)]' : ''} ${isDragging ? 'opacity-40' : ''} ${
                 isDropTarget ? 'border-t-2 border-t-[var(--brand-yellow)]' : ''
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className="select-none text-xs text-neutral-600" title="ziehen zum Umsortieren">
+                <span className="select-none text-xs text-[var(--muted-foreground)]" title="ziehen zum Umsortieren">
                   ⠿
                 </span>
-                <span className="tabular w-6 text-right text-xs text-neutral-500">{i + 1}</span>
+                <span className="tabular w-6 text-right text-xs text-[var(--muted-foreground)]">{i + 1}</span>
                 <span className="font-medium">{row.label}</span>
                 {isCue && (
                   <span
@@ -144,12 +144,12 @@ export function RundownList({
                       key={a.id}
                       className={`rounded px-1.5 py-0.5 text-[11px] ${
                         a.enabled
-                          ? 'bg-neutral-700/60 text-neutral-200'
-                          : 'bg-neutral-800/60 text-neutral-500 line-through'
+                          ? 'bg-[var(--muted)]/60 text-[var(--foreground)]'
+                          : 'bg-[var(--input)]/60 text-[var(--muted-foreground)] line-through'
                       }`}
                     >
                       {a.delayMs ? (
-                        <span className="text-neutral-400" title={`${a.delayMs} ms Verzögerung`}>
+                        <span className="text-[var(--muted-foreground)]" title={`${a.delayMs} ms Verzögerung`}>
                           ⏱{a.delayMs}ms{' '}
                         </span>
                       ) : null}
@@ -162,13 +162,13 @@ export function RundownList({
           );
         })}
         {doc.rows.length === 0 && (
-          <div className="p-6 text-center text-sm text-neutral-500">Noch keine Zeilen.</div>
+          <div className="p-6 text-center text-sm text-[var(--muted-foreground)]">Noch keine Zeilen.</div>
         )}
       </div>
-      <div className="border-t border-neutral-800 p-2">
+      <div className="border-t border-[var(--border)] p-2">
         <button
           onClick={() => onDoc(addRow(doc, doc.rows.length - 1))}
-          className="w-full rounded-md border border-dashed border-neutral-700 py-2 text-sm text-neutral-400 hover:bg-neutral-800"
+          className="w-full rounded-md border border-dashed border-[var(--border)] py-2 text-sm text-[var(--muted-foreground)] hover:bg-[var(--highlight)]"
         >
           + Zeile hinzufügen
         </button>

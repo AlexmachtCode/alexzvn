@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQa } from '@/store/useQa';
 
-const inp = 'rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-100';
+const inp = 'rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1.5 text-sm text-[var(--foreground)]';
 
 /** Operator fügt eine Wortmeldung von Hand hinzu. */
 export function AddForm() {
@@ -19,8 +19,8 @@ export function AddForm() {
   };
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3">
-      <h2 className="mb-2 text-sm font-semibold text-neutral-300">Wortmeldung hinzufügen</h2>
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)]/40 p-3">
+      <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">Wortmeldung hinzufügen</h2>
       <div className="grid grid-cols-2 gap-2">
         <input
           className={inp}
@@ -48,7 +48,7 @@ export function AddForm() {
         <button
           onClick={submit}
           disabled={!name.trim()}
-          className="rounded-md bg-neutral-700 px-3 py-1.5 text-sm text-neutral-100 hover:bg-neutral-600 disabled:opacity-40"
+          className="rounded-md bg-[var(--secondary)] px-3 py-1.5 text-sm text-[var(--secondary-foreground)] hover:brightness-125 disabled:opacity-40"
         >
           Hinzufügen
         </button>

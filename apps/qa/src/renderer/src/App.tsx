@@ -9,7 +9,7 @@ import { CloudPanel } from '@/components/CloudPanel';
 import { Settings } from '@/components/Settings';
 import { ConnectionsPanel } from '@/components/ConnectionsPanel';
 
-const topBtn = 'rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800';
+const topBtn = 'rounded-md border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)] hover:bg-[var(--highlight)]';
 
 export function App() {
   const { state, load, next, endActive, setEndpoint, setConfig } = useQa();
@@ -21,16 +21,16 @@ export function App() {
   }, [load]);
 
   if (!state) {
-    return <div className="grid h-full place-items-center text-neutral-500">Lädt …</div>;
+    return <div className="grid h-full place-items-center text-[var(--muted-foreground)]">Lädt …</div>;
   }
 
   const waiting = state.entries.filter((e) => e.status === 'waiting').length;
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-neutral-800 px-4 py-2">
+      <header className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-2">
         <span className="font-bold">JM Q&A</span>
-        <span className="text-xs text-neutral-500">{waiting} wartend</span>
+        <span className="text-xs text-[var(--muted-foreground)]">{waiting} wartend</span>
         <div className="ml-auto flex items-center gap-2">
           <button onClick={() => setShowConnections(true)} className={topBtn}>
             Verbindungen
@@ -53,15 +53,15 @@ export function App() {
         <div className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto">
           <RemotePanel remote={state.remote} />
           <CloudPanel cloud={state.cloud} />
-          <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3">
-            <h2 className="mb-2 text-sm font-semibold text-neutral-300">Kopplung</h2>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card)]/40 p-3">
+            <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">Kopplung</h2>
             <div className="space-y-1.5">
               {COUPLED_ROLES.map((role) => {
                 const link = state.links.find((l) => l.role === role);
                 const enabled = role === 'timer' ? state.config.autoTimer : state.config.autoTitler;
                 const connected = !!link?.connected;
                 // Ehrlicher Status: aus / aktiviert-aber-nicht-gefunden / gekoppelt.
-                const dot = !enabled ? 'bg-neutral-600' : connected ? 'bg-green-500' : 'bg-amber-500';
+                const dot = !enabled ? 'bg-[var(--muted-foreground)]' : connected ? 'bg-[var(--success)]' : 'bg-[var(--warning)]';
                 const status = !enabled
                   ? 'aus'
                   : connected
@@ -72,10 +72,10 @@ export function App() {
                 return (
                   <div key={role} className="flex items-center gap-2 text-sm">
                     <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
-                    <span className="text-neutral-300">{roleLabel(role)}</span>
+                    <span className="text-[var(--foreground)]">{roleLabel(role)}</span>
                     <span
                       className={`ml-auto truncate text-[11px] ${
-                        enabled && !connected ? 'text-amber-400' : 'text-neutral-500'
+                        enabled && !connected ? 'text-[var(--warning)]' : 'text-[var(--muted-foreground)]'
                       }`}
                     >
                       {status}
@@ -85,8 +85,8 @@ export function App() {
                       title={enabled ? 'Auto-Kopplung ausschalten' : 'Auto-Kopplung einschalten'}
                       className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${
                         enabled
-                          ? 'border-emerald-700/60 bg-emerald-900/30 text-emerald-300'
-                          : 'border-neutral-700 bg-neutral-800/60 text-neutral-400'
+                          ? 'border-[var(--success)]/60 bg-[var(--success)]/15 text-[var(--success)]'
+                          : 'border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)]'
                       } hover:brightness-125`}
                     >
                       {enabled ? 'An' : 'Aus'}
@@ -95,7 +95,7 @@ export function App() {
                 );
               })}
             </div>
-            <p className="mt-2 text-[11px] text-neutral-600">
+            <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
               Standardmäßig aktiv: Redezeit (Timer) und Bauchbinde (Titler) werden beim Ans-Wort-Holen
               automatisch gesteuert — hier pro Werkzeug mit einem Klick umschaltbar.
             </p>

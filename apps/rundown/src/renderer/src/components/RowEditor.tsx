@@ -7,9 +7,9 @@ import type { ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
 
 const select =
-  'rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100';
+  'rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]';
 const input =
-  'w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100';
+  'w-full rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]';
 
 /** Default-Argumente einer Capability-Aktion (Reihenfolge wie im Protokoll). */
 function defaultArgs(role: string, verb: string): (string | number)[] {
@@ -32,15 +32,15 @@ export function RowEditor({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-neutral-800 p-3">
-        <label className="text-[10px] uppercase tracking-wider text-neutral-500">Zeilen-Titel</label>
+      <div className="border-b border-[var(--border)] p-3">
+        <label className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Zeilen-Titel</label>
         <input
           key={row.id}
           defaultValue={row.label}
           onBlur={(e) => onDoc(updateRow(doc, row.id, { label: e.target.value }))}
           className={input}
         />
-        <label className="mt-2 block text-[10px] uppercase tracking-wider text-neutral-500">
+        <label className="mt-2 block text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
           Dauer (mm:ss · optional, für Timer-Austausch)
         </label>
         <input
@@ -53,7 +53,7 @@ export function RowEditor({
       </div>
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
-        <div className="text-[10px] uppercase tracking-wider text-neutral-500">
+        <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
           Aktionen beim GO ({row.actions.length})
         </div>
         {row.actions.map((a) => (
@@ -69,7 +69,7 @@ export function RowEditor({
         ))}
         <button
           onClick={() => onDoc(addAction(doc, row.id))}
-          className="w-full rounded-md border border-dashed border-neutral-700 py-1.5 text-sm text-neutral-400 hover:bg-neutral-800"
+          className="w-full rounded-md border border-dashed border-[var(--border)] py-1.5 text-sm text-[var(--muted-foreground)] hover:bg-[var(--highlight)]"
         >
           + Aktion hinzufügen
         </button>
@@ -135,7 +135,7 @@ function ActionRow({
 
   return (
     <div
-      className={`rounded-lg border border-neutral-800 p-2 ${action.enabled ? '' : 'opacity-60'}`}
+      className={`rounded-lg border border-[var(--border)] p-2 ${action.enabled ? '' : 'opacity-60'}`}
     >
       <div className="flex items-center gap-2">
         <input
@@ -160,26 +160,26 @@ function ActionRow({
           {!cap && <option value={action.verb}>{action.verb}</option>}
         </select>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {fired === 'ok' && <span className="text-xs text-green-400">✓ gesendet</span>}
-          {fired === 'off' && <span className="text-xs text-yellow-400">⚠ offline</span>}
+          {fired === 'ok' && <span className="text-xs text-[var(--success)]">✓ gesendet</span>}
+          {fired === 'off' && <span className="text-xs text-[var(--warning)]">⚠ offline</span>}
           <button
             onClick={test}
             title="diese Aktion jetzt an das Tool senden"
-            className="rounded border border-neutral-700 px-1.5 py-0.5 text-xs text-neutral-300 hover:bg-neutral-700"
+            className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
           >
             Test
           </button>
           <button
             onClick={() => onDoc(duplicateAction(doc, rowId, action.id))}
             title="Aktion duplizieren"
-            className="rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100"
+            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
           >
             ⧉
           </button>
           <button
             onClick={() => onDoc(removeAction(doc, rowId, action.id))}
             title="Aktion löschen"
-            className="rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100"
+            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
           >
             ✕
           </button>
@@ -188,7 +188,7 @@ function ActionRow({
 
       {speakerPicker && (
         <div className="mt-2">
-          <label className="text-xs text-neutral-400">
+          <label className="text-xs text-[var(--muted-foreground)]">
             iveo-Speaker (Bauchbinde)
             <select
               value={String(action.args[0] ?? '')}
@@ -208,7 +208,7 @@ function ActionRow({
 
       {sideEventPicker && (
         <div className="mt-2">
-          <label className="text-xs text-neutral-400">
+          <label className="text-xs text-[var(--muted-foreground)]">
             iveo Side Event (live schalten)
             <select
               value={String(action.args[0] ?? '')}
@@ -231,7 +231,7 @@ function ActionRow({
           {cap.args.map((arg, i) => (
             <label
               key={arg.id}
-              className={`text-xs text-neutral-400${arg.picker === 'file' ? ' col-span-2' : ''}`}
+              className={`text-xs text-[var(--muted-foreground)]${arg.picker === 'file' ? ' col-span-2' : ''}`}
             >
               {arg.label}
               {arg.picker === 'file' ? (
@@ -251,7 +251,7 @@ function ActionRow({
                       const p = await window.jmrundown.pickFile();
                       if (p) setArg(i, p);
                     }}
-                    className="shrink-0 rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+                    className="shrink-0 rounded border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
                   >
                     Durchsuchen…
                   </button>
@@ -286,7 +286,7 @@ function ActionRow({
       )}
 
       <div className="mt-2 flex items-center gap-2">
-        <label className="flex items-center gap-1.5 text-xs text-neutral-400" title="Wartezeit vor dieser Aktion, relativ zur vorherigen Aktion derselben GO-Sequenz">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]" title="Wartezeit vor dieser Aktion, relativ zur vorherigen Aktion derselben GO-Sequenz">
           <span>⏱ Verzögerung</span>
           <input
             type="number"
@@ -295,12 +295,12 @@ function ActionRow({
             defaultValue={delayMs}
             key={`${action.id}:${delayMs}`}
             onBlur={(e) => setDelay(Number(e.target.value))}
-            className="w-20 rounded border border-neutral-700 bg-neutral-800 px-2 py-0.5 text-sm text-neutral-100"
+            className="w-20 rounded border border-[var(--border)] bg-[var(--input)] px-2 py-0.5 text-sm text-[var(--foreground)]"
           />
-          <span className="text-neutral-500">ms</span>
+          <span className="text-[var(--muted-foreground)]">ms</span>
         </label>
-        <span className="ml-auto font-mono text-[11px] text-neutral-500">
-          {delayMs > 0 && <span className="text-neutral-400">+{delayMs} ms </span>}→ {line}
+        <span className="ml-auto font-mono text-[11px] text-[var(--muted-foreground)]">
+          {delayMs > 0 && <span className="text-[var(--muted-foreground)]">+{delayMs} ms </span>}→ {line}
         </span>
       </div>
     </div>

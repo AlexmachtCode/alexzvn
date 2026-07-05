@@ -20,7 +20,7 @@ export function ToolLinks({ links, onOpenConnections }: { links: ToolLink[]; onO
   return (
     <div className="flex items-center gap-2 px-4 py-1.5">
       {links.length === 0 ? (
-        <span className="text-xs text-neutral-500">
+        <span className="text-xs text-[var(--muted-foreground)]">
           Noch keine Tools gefunden — Suite-Tools im selben Netz starten (mDNS) oder Verbindungen manuell setzen.
         </span>
       ) : (
@@ -30,10 +30,10 @@ export function ToolLinks({ links, onOpenConnections }: { links: ToolLink[]; onO
               key={l.role}
               title={`${l.host}:${l.port} (${l.source === 'manual' ? 'manuell' : 'mDNS'})`}
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs ${
-                l.connected ? 'bg-green-500/15 text-green-300' : 'bg-neutral-700/40 text-neutral-400'
+                l.connected ? 'bg-[var(--success)]/15 text-[var(--success)]' : 'bg-[var(--muted)]/40 text-[var(--muted-foreground)]'
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${l.connected ? 'bg-green-400' : 'bg-neutral-500'}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${l.connected ? 'bg-[var(--success)]' : 'bg-[var(--muted-foreground)]'}`} />
               {l.label}
               {l.source === 'manual' && <span className="opacity-50">⚙</span>}
               {tally(l.role, l.state).map((t) => (
@@ -51,7 +51,7 @@ export function ToolLinks({ links, onOpenConnections }: { links: ToolLink[]; onO
       )}
       <button
         onClick={onOpenConnections}
-        className="ml-auto rounded-md border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 hover:bg-neutral-800"
+        className="ml-auto rounded-md border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
       >
         Verbindungen …
       </button>
