@@ -1,7 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomInt } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
+import { app } from 'electron';
 import { advertise, type Advertiser } from '@jm/discovery';
+import { readControlConfig, mdnsSignKey } from '@jm/control-config';
 import type { NetInterface, RemoteConfig, RemoteStatus } from '@shared/types';
 import { getRemoteView, goto, next, prev, setScreen, stopPresentation, subscribe } from './present';
 import { captureAudience } from './windows';
@@ -280,7 +282,10 @@ export function applyRemoteConfig(cfg: RemoteConfig): Promise<RemoteStatus> {
       // Im LAN annoncieren, damit Stage Display den Presenter ohne IP-Eingabe
       // findet (mDNS). Best-effort — Fehler dürfen die Fernsteuerung nicht stören.
       try {
-        advertiser = advertise({ appId: 'jm-presenter', role: 'presenter', port: cfg.port });
+        // Annonce im secure-Modus signieren (A3, #59) → Stage Display verbindet nur
+        // mit dem echten Presenter. Open-Modus → undefined (unverändert).
+        const signKey = mdnsSignKey(readControlConfig(app.getPath('appData')));
+        advertiser = advertise({ appId: 'jm-presenter', role: 'presenter', port: cfg.port, signKey });
       } catch {
         /* mDNS optional */
       }

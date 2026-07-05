@@ -34,3 +34,40 @@ export function verifyAdvertisement(key: string, f: AdvertisedIdentity, sig: unk
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
+
+export interface AdvertisementTrust {
+  /** Annonce durchreichen? `false` = verwerfen (Manipulation, oder Phase-2-unsigniert). */
+  accept: boolean;
+  /** War überhaupt eine `sig` vorhanden? (Diagnose/Badge, Phase-2-Grundlage). */
+  signed: boolean;
+  /** Signatur vorhanden UND gültig — bzw. keine Prüfung angefordert (`verified:true`). */
+  verified: boolean;
+}
+
+/**
+ * Vertrauens-Entscheidung für eine mDNS-Annonce (P1, #59) — reine Logik, damit sie
+ * ohne bonjour testbar ist. Zwei-Phasen-Rollout, absichtlich konservativ:
+ *
+ *  - **kein `key`** (open-Modus / keine Prüfung angefordert) → immer akzeptieren
+ *    (`verified:true`), unverändertes Legacy-Verhalten.
+ *  - **`key` + gültige Signatur** → akzeptieren (`verified:true`).
+ *  - **`key` + Signatur vorhanden, aber falsch** → IMMER verwerfen. Das ist der
+ *    einzige Fall echter Manipulation/Spoofing (jemand ohne Key hat signiert).
+ *  - **`key` + keine Signatur** → in **Phase 1 tolerieren** (`accept:true`): ein
+ *    legitimes, noch nicht aktualisiertes Tool signiert noch nicht und darf im
+ *    secure-Modus nicht verschwinden, solange nicht alle Maschinen upgedatet sind.
+ *    Mit **`strict` (Phase 2)** auch unsignierte verwerfen → volle Vertrauenswürdigkeit,
+ *    erst sicher, wenn die ganze Suite signiert ausgeliefert ist.
+ */
+export function assessAdvertisement(
+  key: string | undefined,
+  f: AdvertisedIdentity,
+  sig: unknown,
+  strict = false,
+): AdvertisementTrust {
+  const signed = sig != null && sig !== '';
+  if (!key) return { accept: true, signed, verified: true };
+  if (!signed) return { accept: !strict, signed: false, verified: false };
+  const verified = verifyAdvertisement(key, f, sig);
+  return { accept: verified, signed: true, verified };
+}

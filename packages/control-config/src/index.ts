@@ -108,3 +108,15 @@ export function controlClientOptions(cfg: SuiteControlConfig): {
   if (cfg.tlsFingerprint) out.tls = { fingerprint: cfg.tlsFingerprint };
   return out;
 }
+
+/**
+ * mDNS-Pairing-Key zum Signieren (`advertise`) bzw. Prüfen (`discover`) der
+ * Annoncen (A3, #59). Bewusst an `mode === 'secure'` gegatet: der Key existiert
+ * ohnehin nur nach `provisionControl()` (das mode='secure' setzt), aber die
+ * explizite Prüfung garantiert, dass im open-Modus NICHTS signiert oder verworfen
+ * wird — Auto-Discovery bleibt dort byte-genau wie bisher. `undefined` → kein
+ * Signieren/Prüfen (Legacy-Verhalten).
+ */
+export function mdnsSignKey(cfg: SuiteControlConfig): string | undefined {
+  return cfg.mode === 'secure' ? cfg.signKey : undefined;
+}

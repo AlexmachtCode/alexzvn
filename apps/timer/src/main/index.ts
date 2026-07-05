@@ -12,6 +12,7 @@ import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { advertise, type Advertiser } from '@jm/discovery';
+import { readControlConfig, mdnsSignKey } from '@jm/control-config';
 import { parseShow, parseShowDeepLink, type ShowAblaufItem } from '@jm/show';
 import type { TimetableItem } from '@shared/timer-state';
 import { loadState, dispatch } from './state';
@@ -410,7 +411,10 @@ if (!gotLock) {
     // Im LAN annoncieren, damit Aggregatoren (Stage Display) den Timer ohne
     // manuelle IP/Port-Eingabe finden (mDNS). Best-effort.
     try {
-      advertiser = advertise({ appId: 'jm-timer', role: 'timer', port: SERVER_PORT });
+      // Annonce im secure-Modus signieren (A3, #59), damit Aggregatoren den echten
+      // Timer von einem Spoof unterscheiden. Open-Modus → signKey undefined (wie bisher).
+      const signKey = mdnsSignKey(readControlConfig(app.getPath('appData')));
+      advertiser = advertise({ appId: 'jm-timer', role: 'timer', port: SERVER_PORT, signKey });
     } catch (err) {
       getLog().warn(`mDNS-Annoncierung fehlgeschlagen: ${(err as Error).message}`);
     }
