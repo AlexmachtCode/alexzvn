@@ -1,9 +1,17 @@
 // Lokaler Selbsttest des Release-Proxy-Workers (kein Deploy nötig).
-//   node services/release-proxy/test/worker.test.mjs
+//   node services/release-proxy/test/worker.test.mjs      (Node ≥ 23.6: Type-Stripping default)
+//   node --experimental-strip-types …                     (Node 22.6–23.5)
+//
+// Hinweis: seit Welle 6 zieht worker.js (via connect-relay.js) TS-Module aus
+// packages/rtc in den Import-Graphen. Node strippt die Typen (die .ts-Importe tragen
+// explizite Endungen). NICHT über `tsx` laufen — das transpiliert das ESM-worker.js
+// (kein "type":"module" hier) zu CJS und verschachtelt den Default-Export.
 //
 // Prüft die P3-Härtung (#61): Auth-Gate, Input-Größenlimits (413), Feld-Kappung,
 // Fehler-Redaktion (keine rohen Upstream-Bodies an den Client) und das KV-Rate-
-// Limit (429). Stubbt globalThis.fetch und eine Map-basierte KV-Bindung.
+// Limit (429). Stubbt globalThis.fetch und eine Map-basierte KV-Bindung. Die
+// Connect-Tests (Welle 6) prüfen die Worker-Routing-Ebene; die DO-internen Pfade
+// brauchen die Workers-Runtime (miniflare) und sind hier bewusst nicht abgedeckt.
 import worker from '../worker.js';
 
 let passed = 0;
@@ -145,6 +153,52 @@ async function run() {
   {
     const r = await worker.fetch(new Request('https://proxy.test/'), baseEnv);
     check('health-check ohne Key → 200', r.status === 200);
+  }
+
+  // ── Welle 6 — Remote-Zuschaltung (Worker-Routing-Ebene) ──
+
+  // 10) Gast-Seite ist öffentlich (vor dem PROXY_KEY-Gate) und liefert HTML.
+  {
+    const r = await worker.fetch(new Request('https://proxy.test/connect/room-1', { headers: { 'CF-Connecting-IP': '9.9.9.9' } }), baseEnv);
+    const body = await r.text();
+    check('connect Gast-Seite ohne Key → 200', r.status === 200);
+    check('connect Gast-Seite ist HTML', (r.headers.get('content-type') || '').includes('text/html') && body.includes('Zuschaltung'));
+  }
+
+  // 11) Ungültige Raum-ID → 400.
+  {
+    const r = await worker.fetch(new Request('https://proxy.test/connect/ab', { headers: { 'CF-Connecting-IP': '9.9.9.9' } }), baseEnv);
+    check('connect ungültige Raum-ID → 400', r.status === 400);
+  }
+
+  // 12) Admin-Route (open) ohne Key → 401, VOR dem DO.
+  {
+    const r = await worker.fetch(req('/connect/room-1', { method: 'POST', body: { secretHex: 'a'.repeat(64) }, key: null }), baseEnv);
+    check('connect open ohne Key → 401', r.status === 401);
+  }
+
+  // 13) Mit Key, aber ohne DO-Bindung → 503 (graceful, kein Absturz).
+  {
+    const r = await worker.fetch(req('/connect/room-1', { method: 'POST', body: { secretHex: 'a'.repeat(64) } }), baseEnv);
+    check('connect open ohne DO-Bindung → 503', r.status === 503);
+  }
+
+  // 14) Öffentliche state-Route ohne DO-Bindung → 503 (nicht 401 — kein Key nötig).
+  {
+    const r = await worker.fetch(new Request('https://proxy.test/connect/room-1/state', { headers: { 'CF-Connecting-IP': '9.9.9.9' } }), baseEnv);
+    check('connect state ohne DO-Bindung → 503 (nicht 401)', r.status === 503);
+  }
+
+  // 15) Unbekannte Sub-Route → 404.
+  {
+    const r = await worker.fetch(new Request('https://proxy.test/connect/room-1/bogus', { headers: { 'CF-Connecting-IP': '9.9.9.9' } }), baseEnv);
+    check('connect unbekannte Sub-Route → 404', r.status === 404);
+  }
+
+  // 16) Nicht-Connect-Pfad bleibt unberührt (handleConnect gibt null → normale 404).
+  {
+    const r = await worker.fetch(req('/nope'), baseEnv);
+    check('nicht-connect-Pfad unberührt → 404', r.status === 404);
   }
 }
 

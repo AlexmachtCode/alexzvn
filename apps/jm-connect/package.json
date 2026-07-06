@@ -1,0 +1,46 @@
+{
+  "name": "@jm/connect",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JM Connect — Remote-Zuschaltungen (Green Room) für hybride Konferenzen: Remote-Gäste per Browser → NDI-Quelle in der Suite",
+  "author": "Jakobs Medien GmbH",
+  "main": "out/main/index.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron-vite preview",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "rebuild:native": "electron-rebuild --only @jm/ndi",
+    "dist": "electron-vite build && electron-builder",
+    "dist:dir": "electron-vite build && electron-builder --dir",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac"
+  },
+  "dependencies": {
+    "@jm/app-runtime": "*",
+    "@jm/electron-kit": "*",
+    "@jm/ndi": "*",
+    "@jm/rtc": "*",
+    "@jm/suite-control-protocol": "*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.7.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "electron": "^33.0.0",
+    "electron-builder": "24.13.3",
+    "electron-vite": "^2.3.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

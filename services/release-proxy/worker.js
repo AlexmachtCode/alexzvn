@@ -22,6 +22,11 @@ import { validateRecipe, renderRecipeMarkdown, CATEGORY_SLUG } from '../../packa
 import { buildAuthoringPrompt } from '../../packages/cookbook/src/authoring-prompt.mjs';
 // Q&A externe Einreichung (#166) — eigenes Modul, hält worker.js schlank.
 import { handleQa } from './qa-relay.js';
+// Remote-Zuschaltung / Signalling (Welle 6) — Routing + ConnectRoom Durable Object.
+import { handleConnect, ConnectRoom } from './connect-relay.js';
+
+// Durable-Object-Klassen müssen aus dem Worker-Haupt-Modul re-exportiert werden.
+export { ConnectRoom };
 
 const USER_AGENT = 'JM-Suite-Release-Proxy';
 
@@ -114,6 +119,12 @@ export default {
     // Q&A-Pfad → normal weiter.
     const qa = await handleQa(request, env, url);
     if (qa) return qa;
+
+    // Remote-Zuschaltung (Welle 6). Wie Q&A: öffentliche Routen (Gast-Seite/state/ice/ws) sind
+    // vor dem PROXY_KEY-Gate erreichbar; die Admin-Routen (open/close) prüft das Modul selbst.
+    // `null` = kein Connect-Pfad → normal weiter.
+    const conn = await handleConnect(request, env, url);
+    if (conn) return conn;
 
     // Ab hier: Proxy-Key Pflicht.
     const provided =

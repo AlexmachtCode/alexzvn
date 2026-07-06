@@ -23,6 +23,26 @@ id = "e704747ca2284601a1ed1ef1dc7ee98f"
 binding = "QA_RELAY"
 id = "9e73a7425fb446d78ed7080a1d2fd080"
 
+# Remote-Zuschaltung / Signalling (Welle 6, „JM Connect"): der ConnectRoom Durable Object hält je
+# Raum den autoritativen Zustand (Warteraum/Freigabe/Tally) + die WebSockets (Hibernation). DOs
+# brauchen KEIN Pre-Provisioning wie KV — sie entstehen beim Deploy über die Migration unten.
+[[durable_objects.bindings]]
+name = "CONNECT_ROOM"
+class_name = "ConnectRoom"
+
+# Erste Migration des Workers (bisher keine DOs). SQLite-gestützter DO (moderner Default) — die
+# storage.put/get-API bleibt nutzbar. Bei Klassen-Umbenennung/-Entfernung neuen Tag anhängen.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ConnectRoom"]
+
+# Optionale Secrets für die Remote-Zuschaltung (verschlüsselt via `wrangler secret put`):
+#   RTC_SFU_APP_ID / RTC_SFU_APP_TOKEN     Cloudflare-Realtime-SFU-App (Medien). Fehlen sie, läuft
+#                                          der Raum im „Signalling-only"-Modus (Warteraum/Freigabe/
+#                                          Tally ok, Medien übersprungen).
+#   RTC_TURN_KEY_ID / RTC_TURN_API_TOKEN   Cloudflare-TURN-Schlüssel (NAT-Relay). Fehlen sie, liefert
+#                                          /connect/:room/ice nur STUN (Dev-Fallback).
+
 # Klartext-Variablen.
 [vars]
 # Das Mono-Repo mit den Releases.
