@@ -11,6 +11,7 @@ import { activeCount, spinUp, tearDown, tearDownAll } from './ndi-guests';
 import { programStatus, startProgram, stopProgram } from './ndi-program';
 import { CONTROL_PORT, pushControlState } from './control-server';
 import { initShow, showInfo } from './show-open';
+import { presenterConnected, slideCue } from './presenter-link';
 
 let getWindow: () => BrowserWindow | null = () => null;
 let getPeer: () => BrowserWindow | null = () => null;
@@ -25,6 +26,7 @@ export function currentStatus(): AppStatus {
     ndiSenders: activeCount(),
     programState: prog.state,
     programSource: prog.source,
+    presenterLinked: presenterConnected(),
   };
 }
 
@@ -100,6 +102,16 @@ export function registerIpc(deps: {
   // Spur S4 ersetzt das später durch ein echtes audit_log (Muster: studio-control).
   ipcMain.on(IPC.audit, (_e, p: { event?: string; detail?: string }) => {
     if (p?.event) console.log('[audit]', p.event, p.detail ?? '');
+  });
+
+  // Folien-Cue eines freigegebenen Gasts → JM Presenter im LAN (Welle 6.3c). Erreicht der Cue
+  // niemanden, sagt das Log es laut — ein stumm verschluckter Blätter-Befehl wäre auf der Bühne
+  // nicht zu diagnostizieren.
+  ipcMain.on(IPC.slideCue, (_e, p: { dir?: 'next' | 'prev'; guestId?: string }) => {
+    if (p?.dir !== 'next' && p?.dir !== 'prev') return;
+    const sent = slideCue(p.dir);
+    if (sent === 0) console.warn('[connect] Folien-Cue ohne Empfänger — kein JM Presenter im Netz gefunden.');
+    else console.log('[audit] slide', `${p.dir} von ${p.guestId ?? '?'} → ${sent} Presenter`);
   });
 }
 

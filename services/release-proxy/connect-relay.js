@@ -37,6 +37,8 @@ const HEX_SECRET_RE = /^[a-f0-9]{32,128}$/;
 // Rückkanal-Tracknamen (Welle 6.2): EIN geteiltes Programmbild + je Gast ein eigener Mix-Minus-Ton.
 const PROGRAM_TRACK = 'program-video';
 const RETURN_AUDIO_RE = /^return-(.+)-audio$/;
+/** Mindestabstand zwischen zwei Folien-Kommandos EINES Gasts (Welle 6.3c). */
+const SLIDE_MIN_GAP_MS = 150;
 const CONNECT = {
   adminBytes: 16 * 1024,
   retentionMaxSec: 60 * 60 * 24, // 24 h Auto-Verfall eines Raums (DO-Alarm)
@@ -134,6 +136,8 @@ export class ConnectRoom {
     this.ret = null;
     /** guestId → Set der bereits abonnierten Rückkanal-Tracknamen (in-memory, gegen Doppel-Abo). */
     this.retSubs = new Map();
+    /** guestId → Zeitpunkt des letzten Folien-Kommandos (in-memory, reine Drossel). */
+    this.lastCue = new Map();
     /** Test-Hook: injizierbarer SfuBroker (sonst Cloudflare Realtime aus env). */
     this._sfuOverride = null;
     // Persistierten Zustand VOR dem ersten Request laden (nur Setup — kein externes I/O).
@@ -240,6 +244,7 @@ export class ConnectRoom {
     this.pub = new Map();
     this.ret = null;
     this.retSubs = new Map();
+    this.lastCue = new Map();
     return json({ ok: true });
   }
 
@@ -317,7 +322,7 @@ export class ConnectRoom {
   onOperator(ws, msg) {
     if (!msg) return;
     // Operator-Aktionen sind exakt die OperatorAction-Union aus @jm/rtc/protocol.
-    const OPS = ['approve', 'deny', 'onair', 'off', 'standby', 'go', 'next', 'kick', 'mute', 'talkback'];
+    const OPS = ['approve', 'deny', 'onair', 'off', 'standby', 'go', 'next', 'kick', 'mute', 'talkback', 'slides'];
     if (OPS.includes(msg.t)) {
       this.applyEvent(msg);
       return;
@@ -345,6 +350,18 @@ export class ConnectRoom {
       case 'offer':
         // Der Gast bietet erst nach grantPublish an (siehe Gast-Seite). Warteraum-Gate hier hart prüfen.
         return this.publishGuest(ws, att.guestId, msg.sdp, Array.isArray(msg.tracks) ? msg.tracks : []);
+      case 'slide': {
+        // Welle 6.3c: Folien-Fernbedienung des Sprechers. Der Reducer prüft die Freigabe; hier nur
+        // eine Drossel — ein hängender Finger (oder ein kaputter Client) soll nicht den ganzen
+        // Foliensatz durchblättern.
+        const dir = msg.dir === 'prev' ? 'prev' : 'next';
+        const last = this.lastCue.get(att.guestId) || 0;
+        const now = Date.now();
+        if (now - last < SLIDE_MIN_GAP_MS) return;
+        this.lastCue.set(att.guestId, now);
+        this.applyEvent({ t: 'guestSlide', guestId: att.guestId, dir });
+        return;
+      }
       case 'addScreen':
         // Welle 6.3: Bildschirm als zusätzlichen Track auf die bestehende Session legen.
         return void this.guestAddScreen(ws, att.guestId, msg.sdp, Array.isArray(msg.tracks) ? msg.tracks : []);
@@ -641,6 +658,10 @@ export class ConnectRoom {
       case 'tally':
         this.toGuest(eff.guestId, { t: 'tally', tally: eff.tally });
         break;
+      case 'slideCue':
+        // An die Operator-App: SIE spricht die Control-Plane im Saal (der DO kennt kein LAN).
+        this.toOperators({ t: 'cue', kind: 'slide', guestId: eff.guestId, dir: eff.dir });
+        break;
       case 'notify':
         this.toGuest(eff.guestId, { t: 'notice', code: eff.code });
         break;
@@ -674,7 +695,8 @@ export class ConnectRoom {
     for (const ws of this.ctx.getWebSockets('guest')) {
       const att = safeAttachment(ws);
       const g = this.state.guests.find((x) => x.id === att.guestId);
-      if (g) this.send(ws, { t: 'you', phase: g.phase, tally: g.tally });
+      // `slides`: nur so weiß der Gast, ob seine Folien-Fernbedienung erscheinen darf.
+      if (g) this.send(ws, { t: 'you', phase: g.phase, tally: g.tally, slides: g.canAdvance });
     }
   }
 
@@ -752,6 +774,9 @@ function guestPage(id) {
   .status{ margin-top:16px; text-align:center; color:var(--muted); font-size:14px; min-height:20px; }
   .badge{ display:inline-block; padding:4px 12px; border-radius:999px; font-size:12px; font-weight:700; }
   .b-live{ background:var(--red); color:#fff; } .b-prev{ background:#333; color:var(--fg); } .b-wait{ background:#333; color:var(--muted); }
+  .slidebar{ display:flex; gap:10px; }
+  .slidebtn{ flex:1; margin-top:8px; padding:18px; background:#1c1c1c; border:1px solid var(--line); color:var(--fg); font-size:16px; }
+  .slidebtn:active{ background:#2a2a2a; }
   .hide{ display:none; }
 </style>
 </head>
@@ -771,6 +796,14 @@ function guestPage(id) {
 
   <video id="preview" playsinline autoplay muted></video>
   <button id="share" class="hide">Bildschirm teilen</button>
+  <!-- Folien-Fernbedienung: erscheint erst, wenn die Regie sie freigibt (Welle 6.3c). -->
+  <div id="slides" class="hide">
+    <div class="proglabel">Deine Folien</div>
+    <div class="slidebar">
+      <button id="prev" class="slidebtn">◀ Zurück</button>
+      <button id="next" class="slidebtn">Weiter ▶</button>
+    </div>
+  </div>
   <div id="programWrap" class="hide">
     <div class="proglabel">Programm (Rückkanal)</div>
     <video id="program" playsinline autoplay muted></video>
@@ -786,6 +819,7 @@ function guestPage(id) {
   var joinEl=document.getElementById('join'), stEl=document.getElementById('st'), video=document.getElementById('preview');
   var programWrap=document.getElementById('programWrap'), programVideo=document.getElementById('program');
   var retAudio=document.getElementById('ret'), shareEl=document.getElementById('share');
+  var slidesEl=document.getElementById('slides'), prevEl=document.getElementById('prev'), nextEl=document.getElementById('next');
   var ws=null, pc=null, stream=null, programStream=null, returnStream=null, retTries=0;
   var screenStream=null, screenTx=null;
 
@@ -847,6 +881,8 @@ function guestPage(id) {
       if(retTries<6) setTimeout(wantReturn, 800*retTries);
     }
     else if(m.t==='returnOffer' && pc && m.sdp){ retTries=0; var rsdp=m.sdp; serializeNego(function(){ return onReturnOffer(rsdp); }); }
+    // Die Regie hat die Folien-Steuerung erteilt oder entzogen (Welle 6.3c).
+    else if(m.t==='you'){ slidesEl.classList.toggle('hide', !m.slides); }
     else if(m.t==='notice'){ if(m.code==='kicked'){ status('Von der Regie entfernt.'); if(ws)ws.close(); } if(m.code==='denied'){ status('Zuschaltung abgelehnt.'); if(ws)ws.close(); } }
     else if(m.t==='error'){
       if(m.code==='sfu_not_configured') status('Regie-Medienserver noch nicht eingerichtet.');
@@ -966,8 +1002,13 @@ function guestPage(id) {
       await wait;
     }catch(e){ /* Rückkanal optional — Zuschaltung läuft auch ohne Programm-Bild weiter */ }
   }
+  // Folien-Fernbedienung: der DO drosselt, der Reducer prüft die Freigabe — hier nur senden.
+  function slide(dir){ if(ws && ws.readyState===1) ws.send(JSON.stringify({t:'slide', dir:dir})); }
+
   enterEl.addEventListener('click', enter);
   shareEl.addEventListener('click', toggleShare);
+  prevEl.addEventListener('click', function(){ slide('prev'); });
+  nextEl.addEventListener('click', function(){ slide('next'); });
 </script>
 </body>
 </html>`;

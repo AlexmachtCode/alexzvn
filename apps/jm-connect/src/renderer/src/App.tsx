@@ -73,11 +73,23 @@ export function App(): JSX.Element {
 
   const handleMessage = useCallback(
     (raw: unknown) => {
-      const msg = raw as { t?: string; state?: RoomState; action?: string; guestId?: string; label?: string; stream?: string };
+      const msg = raw as {
+        t?: string;
+        state?: RoomState;
+        action?: string;
+        guestId?: string;
+        label?: string;
+        stream?: string;
+        kind?: string;
+        dir?: 'next' | 'prev';
+      };
       if ((msg.t === 'welcome' || msg.t === 'state') && msg.state) {
         setRoom(msg.state);
         roomRef.current = msg.state;
         pushControlState(msg.state);
+      } else if (msg.t === 'cue' && msg.kind === 'slide' && msg.dir) {
+        // Der DO hat die Freigabe des Gasts geprüft; hier nur noch an den Presenter im LAN weiter.
+        window.jmconnect.slideCue(msg.dir, msg.guestId ?? '');
       } else if (msg.t === 'ndi' && msg.guestId) {
         // Kamera und geteilter Bildschirm sind zwei getrennte NDI-Quellen desselben Gasts (6.3).
         const key = ndiPoolKey(msg.guestId, msg.stream === 'screen' ? 'screen' : 'cam');
@@ -166,6 +178,15 @@ export function App(): JSX.Element {
         return;
       }
       const guestId = cmd.args[0] ?? '';
+      // `CONNECT SLIDES <gast> [on|off|toggle]` — der Modus ist das ZWEITE Argument (Default toggle).
+      if (cmd.verb === 'slides') {
+        const arg = (cmd.args[1] ?? 'toggle').toLowerCase();
+        const cur = roomRef.current?.guests.find((g) => g.id === guestId)?.canAdvance ?? false;
+        const on = arg === 'on' ? true : arg === 'off' ? false : !cur;
+        send({ t: 'slides', guestId, on });
+        window.jmconnect.audit('slides', `${on ? 'erteilt' : 'entzogen'} für ${guestId} (Steuerprotokoll)`);
+        return;
+      }
       const map: Record<string, OperatorAction | undefined> = {
         go: { t: 'go' },
         next: { t: 'next' },
@@ -252,7 +273,12 @@ export function App(): JSX.Element {
             <span>
               {guests.length} Gäste · {room ? lobbyCount(room) : 0} im Warteraum · {room ? onAirGuests(room).length : 0} auf Sendung
             </span>
-            <ProgramBadge status={status} />
+            <div className="flex items-center gap-2">
+              {status?.presenterLinked && (
+                <span className="rounded-full bg-sky-900 px-2 py-0.5 font-semibold text-sky-200">📊 Presenter</span>
+              )}
+              <ProgramBadge status={status} />
+            </div>
           </div>
 
           <PttButton
@@ -284,6 +310,24 @@ export function App(): JSX.Element {
                     label="🎙"
                     title={`Halten: nur ${g.name} hört die Regie`}
                   />
+                )}
+                {canHearTalkback(g) && (
+                  <button
+                    onClick={() => {
+                      send({ t: 'slides', guestId: g.id, on: !g.canAdvance });
+                      window.jmconnect.audit('slides', `${g.canAdvance ? 'entzogen' : 'erteilt'} für ${g.name}`);
+                    }}
+                    title={
+                      status?.presenterLinked
+                        ? 'Der Gast darf die Folien im JM Presenter selbst weiterblättern'
+                        : 'Kein JM Presenter im Netz gefunden — der Cue liefe ins Leere'
+                    }
+                    className={`rounded px-2 py-1 text-xs font-semibold ${
+                      g.canAdvance ? 'bg-sky-600 text-white' : 'bg-neutral-700 text-neutral-200'
+                    }`}
+                  >
+                    📊
+                  </button>
                 )}
                 <PhaseBadge phase={g.phase} />
                 <GuestActions guest={g} send={send} />

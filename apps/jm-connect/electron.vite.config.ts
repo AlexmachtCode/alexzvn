@@ -7,7 +7,15 @@ const sharedAlias = { '@shared': resolve(__dirname, 'src/shared') };
 
 // Reine Quell-Workspace-Pakete (kein gebautes dist) als Quelle bündeln statt zur
 // Laufzeit `require`n. @jm/ndi bleibt extern (natives Addon, zur Laufzeit geladen).
-const internalPackages = ['@jm/app-runtime', '@jm/electron-kit', '@jm/rtc', '@jm/show', '@jm/suite-control-protocol'];
+const internalPackages = [
+  '@jm/app-runtime',
+  '@jm/control-config',
+  '@jm/discovery',
+  '@jm/electron-kit',
+  '@jm/rtc',
+  '@jm/show',
+  '@jm/suite-control-protocol',
+];
 
 export default defineConfig({
   main: {

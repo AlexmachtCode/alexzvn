@@ -595,6 +595,8 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
       { id: 'off', label: 'Gast aus Sendung', verb: 'off', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }] },
       { id: 'approve', label: 'Gast aus dem Warteraum freigeben', verb: 'approve', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }] },
       { id: 'talkback', label: 'Talkback (Regie ins Ohr)', verb: 'talkback', args: [modeArg], toggleKey: 'talkback' },
+      // Der Remote-Sprecher blättert seine Folien im JM Presenter selbst weiter (Welle 6.3c).
+      { id: 'slides', label: 'Folien-Steuerung für Gast', verb: 'slides', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }, modeArg] },
       { id: 'kick', label: 'Gast entfernen', verb: 'kick', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }] },
     ],
     variables: [

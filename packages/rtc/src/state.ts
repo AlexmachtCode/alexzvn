@@ -4,6 +4,7 @@
 // Sicherheitskritisch (Spur S3): der Warteraum ist STRUKTURELL. Ein Gast in 'lobby' erhält keinen
 // grantPublish-Effekt (also keine SFU-Publish-Rechte/ICE), und 'onair' ist ohne erteilte
 // Einwilligung (consentAt) nicht erreichbar — beides in den Transitionen erzwungen, nicht in der UI.
+// Ebenso die Folien-Steuerung (6.3c): ohne ausdrückliche Freigabe entsteht kein slideCue-Effekt.
 
 import type { RoomState, RoomEvent, RoomEffect, Guest } from './protocol';
 
@@ -40,7 +41,8 @@ export function reduce(prev: RoomState, ev: RoomEvent, nowMs: number): ReduceRes
           ? // Rejoin nach disconnect → zurück in den Warteraum. `hasScreen` MUSS zurückgesetzt werden:
             // der Gast publiziert von vorn, und bliebe das Flag stehen, erkennt der Reducer sein
             // erneutes Teilen nicht als Änderung und es entstünde nie wieder eine Bildschirm-Quelle.
-            { ...existing, phase: 'lobby', name: ev.name, hasScreen: false }
+            // `canAdvance` ebenso: eine erteilte Folien-Steuerung darf ein Rejoin nicht überdauern.
+            { ...existing, phase: 'lobby', name: ev.name, hasScreen: false, canAdvance: false }
           : {
               id: ev.guestId,
               name: ev.name,
@@ -50,6 +52,7 @@ export function reduce(prev: RoomState, ev: RoomEvent, nowMs: number): ReduceRes
               muted: false,
               hasVideo: ev.hasVideo ?? true,
               hasScreen: ev.hasScreen ?? false,
+              canAdvance: false,
               joinedAt: nowMs,
             },
       );
@@ -142,7 +145,7 @@ export function reduce(prev: RoomState, ev: RoomEvent, nowMs: number): ReduceRes
     case 'kick': {
       const g = find(prev, ev.guestId);
       if (g && g.phase !== 'kicked' && g.phase !== 'left') {
-        replace({ ...g, phase: 'kicked', tally: 'off', hasScreen: false });
+        replace({ ...g, phase: 'kicked', tally: 'off', hasScreen: false, canAdvance: false });
         if (standbyId === g.id) standbyId = null;
         effects.push({ t: 'revokePublish', guestId: g.id });
         effects.push({ t: 'tearDownNdi', guestId: g.id });
@@ -162,12 +165,33 @@ export function reduce(prev: RoomState, ev: RoomEvent, nowMs: number): ReduceRes
       break;
     }
 
+    case 'slides': {
+      // Der Operator erteilt/entzieht die Folien-Steuerung. Nur ein publizierender Gast kann sie
+      // bekommen — im Warteraum hat niemand etwas im Saal zu steuern.
+      const g = find(prev, ev.guestId);
+      if (g && (!ev.on || isLive(g))) replace({ ...g, canAdvance: ev.on });
+      break;
+    }
+
+    case 'guestSlide': {
+      // DAS Gate: ohne erteilte Freigabe (und ohne Publish) entsteht schlicht kein Effekt.
+      const g = find(prev, ev.guestId);
+      if (g && g.canAdvance && isLive(g)) effects.push({ t: 'slideCue', guestId: g.id, dir: ev.dir });
+      break;
+    }
+
     case 'guestLeave':
     case 'guestDisconnect': {
       const g = find(prev, ev.guestId);
       if (g) {
         const wasLive = isLive(g);
-        replace({ ...g, phase: ev.t === 'guestLeave' ? 'left' : 'disconnected', tally: 'off', hasScreen: false });
+        replace({
+          ...g,
+          phase: ev.t === 'guestLeave' ? 'left' : 'disconnected',
+          tally: 'off',
+          hasScreen: false,
+          canAdvance: false,
+        });
         if (standbyId === g.id) standbyId = null;
         // Ein tearDownNdi ohne `stream` räumt BEIDE Quellen des Gasts ab (Kamera + Bildschirm).
         if (wasLive) effects.push({ t: 'tearDownNdi', guestId: g.id });

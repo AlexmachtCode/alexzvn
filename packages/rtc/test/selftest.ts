@@ -66,6 +66,25 @@ console.log('state machine — Warteraum- & Consent-Gates:');
   const s4 = apply(r1.state, [{ t: 'guestTracks', guestId: 'g1', hasScreen: true }]);
   assert(!s4.effects.some((e) => e.t === 'spinUpNdi'), 'lobby + Bildschirm → kein NDI-Sender');
 
+  // Welle 6.3c: Folien-Steuerung ist ein GATE im Reducer, nicht in der Oberfläche.
+  const f1 = apply(r2.state, [{ t: 'guestSlide', guestId: 'g1', dir: 'next' }]);
+  assert(!f1.effects.some((e) => e.t === 'slideCue'), 'ohne Freigabe → KEIN slideCue');
+  const f2 = apply(r2.state, [{ t: 'slides', guestId: 'g1', on: true }, { t: 'guestSlide', guestId: 'g1', dir: 'next' }]);
+  assert(f2.state.guests[0].canAdvance, 'slides on → canAdvance');
+  assert(
+    f2.effects.some((e) => e.t === 'slideCue' && e.dir === 'next'),
+    'mit Freigabe → slideCue(next)',
+  );
+  const f3 = apply(f2.state, [{ t: 'slides', guestId: 'g1', on: false }, { t: 'guestSlide', guestId: 'g1', dir: 'prev' }]);
+  assert(!f3.effects.some((e) => e.t === 'slideCue'), 'entzogene Freigabe → kein slideCue mehr');
+  // Ein Gast im Warteraum bekommt die Steuerung gar nicht erst.
+  const f4 = apply(r1.state, [{ t: 'slides', guestId: 'g1', on: true }, { t: 'guestSlide', guestId: 'g1', dir: 'next' }]);
+  assert(!f4.state.guests[0].canAdvance, 'lobby: Folien-Steuerung wird nicht erteilt');
+  assert(!f4.effects.some((e) => e.t === 'slideCue'), 'lobby: kein slideCue');
+  // Rejoin darf eine erteilte Steuerung nicht überdauern.
+  const f5 = apply(f2.state, [{ t: 'guestDisconnect', guestId: 'g1' }, { t: 'guestJoin', guestId: 'g1', name: 'Alex' }]);
+  assert(!f5.state.guests[0].canAdvance, 'Rejoin setzt die Folien-Steuerung zurück');
+
   // onair OHNE Consent muss blockieren.
   const r3 = apply(r2.state, [{ t: 'onair', guestId: 'g1' }]);
   assert(r3.state.guests[0].phase === 'approved', 'onair ohne Consent bleibt approved (Consent-Gate)');

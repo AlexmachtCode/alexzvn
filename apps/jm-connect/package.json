@@ -23,6 +23,8 @@
   },
   "dependencies": {
     "@jm/app-runtime": "*",
+    "@jm/control-config": "*",
+    "@jm/discovery": "*",
     "@jm/electron-kit": "*",
     "@jm/ndi": "*",
     "@jm/rtc": "*",

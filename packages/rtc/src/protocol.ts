@@ -25,8 +25,16 @@ export interface Guest {
   muted: boolean;
   hasVideo: boolean;
   hasScreen: boolean;
+  /**
+   * Darf der Gast die Folien im JM Presenter weiterblättern (Welle 6.3c)? Standard: nein.
+   * Der Operator erteilt das ausdrücklich — ein Remote-Gast steuert sonst ungefragt den Saal.
+   */
+  canAdvance: boolean;
   joinedAt: number;
 }
+
+/** Richtung eines Folien-Kommandos. Mehr braucht die Fernbedienung eines Sprechers nicht. */
+export type SlideDir = 'next' | 'prev';
 
 export type TalkbackMode = 'off' | 'selected' | 'all';
 
@@ -49,13 +57,15 @@ export type OperatorAction =
   | { t: 'next' }
   | { t: 'kick'; guestId: string }
   | { t: 'mute'; guestId: string; on: boolean }
-  | { t: 'talkback'; mode: TalkbackMode; target?: string | null };
+  | { t: 'talkback'; mode: TalkbackMode; target?: string | null }
+  | { t: 'slides'; guestId: string; on: boolean };
 
 // ── Gast-Lebenszyklus-Ereignisse (Gast-Seite/DO-intern → Reducer) ──────────
 export type GuestEvent =
   | { t: 'guestJoin'; guestId: string; name: string; hasVideo?: boolean; hasScreen?: boolean }
   | { t: 'guestConsent'; guestId: string }
   | { t: 'guestTracks'; guestId: string; hasVideo?: boolean; hasScreen?: boolean }
+  | { t: 'guestSlide'; guestId: string; dir: SlideDir }
   | { t: 'guestLeave'; guestId: string }
   | { t: 'guestDisconnect'; guestId: string };
 
@@ -75,6 +85,9 @@ export type RoomEffect =
   | { t: 'spinUpNdi'; guestId: string; label: string; stream?: GuestStream } // App: NDI-Sender-utilityProcess forken
   | { t: 'tearDownNdi'; guestId: string; stream?: GuestStream }
   | { t: 'tally'; guestId: string; tally: Tally }
+  // App: Folie im JM Presenter blättern (Control-Plane). Entsteht NUR, wenn der Operator dem
+  // Gast die Folien-Steuerung erteilt hat — das Gate sitzt im Reducer, nicht in der Oberfläche.
+  | { t: 'slideCue'; guestId: string; dir: SlideDir }
   | { t: 'notify'; guestId: string; code: 'consentRequired' | 'denied' | 'kicked' };
 
 /**

@@ -241,6 +241,53 @@ async function run() {
   const downNdi = scOp.sent.find((m) => m.t === 'ndi' && m.action === 'down');
   check('stopScreen → nur die Bildschirm-Quelle wird gestoppt', !!downNdi && downNdi.stream === 'screen');
   check('stopScreen meldet den Gast NICHT als unpublished', !scOp.sent.some((m) => m.t === 'guestUnpublished'));
+
+  // ── Welle 6.3c: Folien-Fernbedienung des Sprechers ────────────────────────────────────────
+  const slOp = mockWs(['operator'], { scope: 'operator' });
+  const slGuest = mockWs(['guest', 'g1'], { scope: 'guest', guestId: 'g1' });
+  const slRoom = new ConnectRoom(makeCtx([slOp, slGuest]), {});
+  await tick();
+  slRoom.state = { room: 'r', guests: [{ ...approvedGuest }], standbyId: null, talkback: { mode: 'off', target: null } };
+
+  const slAtt = { scope: 'guest', guestId: 'g1' };
+  // Die Drossel greift VOR der Rechteprüfung — sie zählt jede Nachricht, auch eine abgelehnte.
+  // Das ist Absicht (ein bösartiger Client soll den DO nicht mit Broadcasts fluten); die Tests
+  // setzen sie deshalb zwischen den Phasen zurück.
+  const noThrottle = () => slRoom.lastCue.clear();
+
+  // Ohne Freigabe passiert nichts — das Gate sitzt im Reducer, nicht in der Gast-Oberfläche.
+  slRoom.onGuest(slGuest, slAtt, { t: 'slide', dir: 'next' });
+  check('ohne Freigabe → kein Folien-Cue an die Operator-App', !slOp.sent.some((m) => m.t === 'cue'));
+
+  slRoom.onOperator(slOp, { t: 'slides', guestId: 'g1', on: true });
+  noThrottle();
+  slOp.sent.length = 0;
+  slRoom.onGuest(slGuest, slAtt, { t: 'slide', dir: 'prev' });
+  const cue = slOp.sent.find((m) => m.t === 'cue');
+  check('mit Freigabe → cue kind=slide dir=prev an die Operator-App', !!cue && cue.kind === 'slide' && cue.dir === 'prev');
+  check('der Gast erfährt seine Freigabe über `you.slides`', slGuest.sent.some((m) => m.t === 'you' && m.slides === true));
+
+  // Drossel: ein hängender Finger darf nicht den ganzen Foliensatz durchblättern.
+  noThrottle();
+  slOp.sent.length = 0;
+  slRoom.onGuest(slGuest, slAtt, { t: 'slide', dir: 'next' });
+  slRoom.onGuest(slGuest, slAtt, { t: 'slide', dir: 'next' });
+  slRoom.onGuest(slGuest, slAtt, { t: 'slide', dir: 'next' });
+  check('Drossel: drei Kommandos in Folge → genau ein Cue', slOp.sent.filter((m) => m.t === 'cue').length === 1);
+
+  // Unbekannte Richtung wird auf 'next' normalisiert, nicht durchgereicht.
+  noThrottle();
+  slOp.sent.length = 0;
+  slRoom.onGuest(slGuest, slAtt, { t: 'slide', dir: 'RÜCKWÄRTS; DROP TABLE' });
+  const norm = slOp.sent.find((m) => m.t === 'cue');
+  check('unbekannte Richtung → auf next normalisiert', !!norm && norm.dir === 'next');
+
+  // Entzug wirkt sofort.
+  slRoom.onOperator(slOp, { t: 'slides', guestId: 'g1', on: false });
+  noThrottle();
+  slOp.sent.length = 0;
+  slRoom.onGuest(slGuest, slAtt, { t: 'slide', dir: 'next' });
+  check('entzogene Freigabe → kein Cue mehr', !slOp.sent.some((m) => m.t === 'cue'));
 }
 
 run()

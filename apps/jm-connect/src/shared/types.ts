@@ -30,6 +30,8 @@ export interface AppStatus {
   programState: string;
   /** Aufgelöster NDI-Quellname des Programm-Rückkanals (oder null). */
   programSource: string | null;
+  /** Ist ein JM Presenter im LAN erreichbar? (Folien-Kopplung, Welle 6.3c.) */
+  presenterLinked: boolean;
 }
 
 /** Sprecher aus der `.jmshow` — token-frei vom Launcher materialisiert (iveo, Welle 6.3b). */
@@ -76,6 +78,8 @@ export interface JmConnectApi {
   peerLog: (msg: string) => void;
   /** Auditierbaren Vorgang protokollieren (Spur S4 hängt hier später ein Audit-Log an). */
   audit: (event: string, detail?: string) => void;
+  /** Folie im JM Presenter blättern (ausgelöst von einem freigegebenen Gast). */
+  slideCue: (dir: 'next' | 'prev', guestId: string) => void;
   getStatus: () => Promise<AppStatus>;
   onStatus: (cb: (s: AppStatus) => void) => () => void;
   onTrayCommand: (cb: (cmd: TrayCommand) => void) => () => void;

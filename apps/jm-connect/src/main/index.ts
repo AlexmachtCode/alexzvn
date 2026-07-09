@@ -11,6 +11,7 @@ import { createPeerWindow, destroyPeerWindow, getPeerWindow } from './peer-windo
 import { startControlServer, stopControlServer } from './control-server';
 import { createTray, destroyTray, setTrayStatus } from './tray';
 import { handleShowDeepLink } from './show-open';
+import { startPresenterLink, stopPresenterLink } from './presenter-link';
 
 declare const __dirname: string;
 
@@ -81,6 +82,10 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
       onStatusChange: (s) => setTrayStatus(s),
     });
 
+    // Folien-Kopplung (6.3c): JM Presenter im LAN suchen, damit ein freigegebener Remote-Sprecher
+    // seine Folien selbst weiterblättern kann.
+    startPresenterLink({ onChange: () => notifyStatusChanged() });
+
     // Steuerprotokoll (Companion/Rundown): Befehle an den Operator-Renderer relayen,
     // der sie über die Raum-WS an den DO schickt.
     const res = await startControlServer({
@@ -116,6 +121,7 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     stopProgram();
     destroyPeerWindow();
     stopControlServer();
+    stopPresenterLink();
     destroyTray();
   });
 }

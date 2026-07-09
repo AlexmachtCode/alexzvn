@@ -31,6 +31,8 @@ export const IPC = {
   peerLog: 'jmc:peer-log',
   /** send (Renderer → Main): auditierbarer Vorgang (Talkback an/aus …) ins Laufzeit-Log. */
   audit: 'jmc:audit',
+  /** send (Renderer → Main): Folie im JM Presenter blättern (Control-Plane, Welle 6.3c). */
+  slideCue: 'jmc:slide-cue',
 } as const;
 
 /** Interner Kanal Main → versteckter Peer-Renderer: Frame-Port für einen Gast. */

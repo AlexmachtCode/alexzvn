@@ -36,6 +36,7 @@ const api: JmConnectApi = {
   pushControlState: (kv) => ipcRenderer.send(IPC.pushControlState, kv),
   peerLog: (msg: string) => ipcRenderer.send(IPC.peerLog, msg),
   audit: (event: string, detail?: string) => ipcRenderer.send(IPC.audit, { event, detail }),
+  slideCue: (dir: 'next' | 'prev', guestId: string) => ipcRenderer.send(IPC.slideCue, { dir, guestId }),
   getStatus: () => ipcRenderer.invoke(IPC.status) as Promise<AppStatus>,
   onStatus: (cb) => {
     const listener = (_e: unknown, s: AppStatus) => cb(s);
