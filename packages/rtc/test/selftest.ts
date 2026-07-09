@@ -46,6 +46,26 @@ console.log('state machine — Warteraum- & Consent-Gates:');
     'approve → spinUpNdi mit NDI-Label',
   );
 
+  // Welle 6.3: der geteilte Bildschirm ist eine EIGENE NDI-Quelle, kein Ersatz für die Kamera.
+  const s1 = apply(r2.state, [{ t: 'guestTracks', guestId: 'g1', hasScreen: true }]);
+  assert(s1.state.guests[0].hasScreen, 'guestTracks setzt hasScreen');
+  assert(
+    s1.effects.some((e) => e.t === 'spinUpNdi' && e.stream === 'screen' && e.label.endsWith('(Bildschirm)')),
+    'Bildschirm teilen → zweiter NDI-Sender „(Bildschirm)"',
+  );
+  // Dieselbe Meldung erneut darf KEINEN zweiten Sender erzeugen (der DO broadcastet oft).
+  const s2 = apply(s1.state, [{ t: 'guestTracks', guestId: 'g1', hasScreen: true }]);
+  assert(!s2.effects.some((e) => e.t === 'spinUpNdi'), 'unverändertes hasScreen → kein zweiter Sender');
+  // Teilen beenden räumt NUR den Bildschirm ab.
+  const s3 = apply(s2.state, [{ t: 'guestTracks', guestId: 'g1', hasScreen: false }]);
+  assert(
+    s3.effects.some((e) => e.t === 'tearDownNdi' && e.stream === 'screen'),
+    'Teilen beenden → tearDownNdi(screen)',
+  );
+  // Im Warteraum gibt es keine Quelle — auch nicht für den Bildschirm (Warteraum-Gate).
+  const s4 = apply(r1.state, [{ t: 'guestTracks', guestId: 'g1', hasScreen: true }]);
+  assert(!s4.effects.some((e) => e.t === 'spinUpNdi'), 'lobby + Bildschirm → kein NDI-Sender');
+
   // onair OHNE Consent muss blockieren.
   const r3 = apply(r2.state, [{ t: 'onair', guestId: 'g1' }]);
   assert(r3.state.guests[0].phase === 'approved', 'onair ohne Consent bleibt approved (Consent-Gate)');

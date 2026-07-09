@@ -16,17 +16,26 @@
 // (sonst: „Session appears to be disconnected"). Track→Gast läuft über die Transceiver-mid.
 import { SignallingClient } from '@jm/rtc/signalling';
 import { audioDataToFltp, bgraToVideoFrame, fltpToAudioData, videoFrameToBgra } from '@jm/rtc/frames';
+import { ndiPoolKey } from '@jm/rtc/protocol';
 import { PEER_CONNECT, PEER_FRAME_PORT, PEER_PROGRAM_PORT } from '@shared/ipc';
 
-type Kind = 'video' | 'audio';
+type Kind = 'video' | 'audio' | 'screen';
 
-const guestPorts = new Map<string, MessagePort>(); // Gast → Frame-Port (Main → NDI-Utility)
+// Schlüssel von `guestPorts`/`pendingTracks`/`pumping` ist der NDI-POOL-Schlüssel, nicht die Gast-ID:
+// ein Gast hat zwei Quellen (Kamera + geteilter Bildschirm) und damit zwei NDI-Sender (Welle 6.3).
+const guestPorts = new Map<string, MessagePort>(); // Pool-Schlüssel → Frame-Port (Main → NDI-Utility)
 const midMap = new Map<string, { guestId: string; kind: Kind }>(); // Transceiver-mid → Gast/Art
 const pendingTracks = new Map<string, { video?: MediaStreamTrack; audio?: MediaStreamTrack }>();
-const pumping = new Set<string>(); // `${guestId}:${kind}` — läuft bereits
+const pumping = new Set<string>(); // `${poolKey}:${kind}` — läuft bereits
 const wantSubscribe = new Set<string>(); // guestPublished vor Transport-ready → nachholen
 const subscribeTries = new Map<string, number>(); // Gast → bisherige Subscribe-Versuche (Retry-Backoff)
 const SUBSCRIBE_MAX_TRIES = 6;
+
+// Track-Buchführung je Gast. Der Bildschirm kommt MITTEN im Betrieb dazu — würde der Peer dann
+// erneut alle Tracks ziehen, läge das Kamerabild ein zweites Mal in seiner Session.
+const publishedNames = new Map<string, Set<string>>(); // Gast → vom DO gemeldete Tracknamen
+const subscribedNames = new Map<string, Set<string>>(); // Gast → bereits gezogen
+const inflightNames = new Map<string, Set<string>>(); // Gast → gerade angefordert
 
 let ws: SignallingClient | null = null;
 let pc: RTCPeerConnection | null = null;
@@ -93,14 +102,14 @@ function serializeNego(fn: () => Promise<void>): Promise<void> {
 }
 
 window.addEventListener('message', (e: MessageEvent) => {
-  const d = e.data as { ch?: string; guestId?: string; wsUrl?: string; iceUrl?: string } | null;
+  const d = e.data as { ch?: string; key?: string; wsUrl?: string; iceUrl?: string } | null;
   if (!d) return;
-  if (d.ch === PEER_FRAME_PORT && d.guestId) {
+  if (d.ch === PEER_FRAME_PORT && d.key) {
     const port = e.ports[0];
     if (!port) return;
     port.start();
-    guestPorts.set(d.guestId, port);
-    tryPump(d.guestId);
+    guestPorts.set(d.key, port);
+    tryPump(d.key);
   } else if (d.ch === PEER_PROGRAM_PORT) {
     const port = e.ports[0];
     if (!port) return;
@@ -135,6 +144,11 @@ async function connect(wsUrl: string, iceUrl: string): Promise<void> {
   // Neue PeerConnection → alle eigenen Tracks (Programm + Return-Audio) erneut publishen.
   programPublished = false;
   returnPublished.clear();
+  // …und alle FREMDEN Tracks erneut ziehen: sie hingen an der alten Session. Ohne das hielte sich
+  // der Peer für versorgt und bliebe nach einem Reconnect ohne Bild.
+  subscribedNames.clear();
+  inflightNames.clear();
+  midMap.clear();
   pc = new RTCPeerConnection({ iceServers: ice.iceServers || [] });
   pc.ontrack = onTrack;
   pc.oniceconnectionstatechange = () => {
@@ -172,7 +186,8 @@ function onMessage(raw: unknown): void {
     guestId?: string;
     sdp?: RTCSessionDescriptionInit;
     answer?: RTCSessionDescriptionInit;
-    tracks?: { mid: string; kind: Kind }[];
+    // `guestPublished`/`subscribeFailed` schicken Tracknamen, `subscribeOffer` die Zuordnung mid→Art.
+    tracks?: (string | { mid: string; kind: Kind; name?: string })[];
     code?: string;
     state?: { talkback?: { mode?: TalkbackMode; target?: string | null } };
   };
@@ -191,17 +206,21 @@ function onMessage(raw: unknown): void {
     renegotiateResolve?.();
     renegotiateResolve = null;
   } else if (m.t === 'guestPublished' && m.guestId) {
-    plog('guestPublished', m.guestId);
+    const names = trackNames(m.tracks);
+    plog('guestPublished', m.guestId, names.join(',') || '(ohne Namen)');
+    notePublished(m.guestId, names);
     maybeSubscribe(m.guestId);
   } else if (m.t === 'subscribeOffer' && m.guestId && m.sdp) {
     plog('subscribeOffer', m.guestId, m.tracks);
     const guestId = m.guestId;
     const sdp = m.sdp;
-    const tracks = m.tracks || [];
+    const tracks = (m.tracks || []).filter((t): t is { mid: string; kind: Kind; name?: string } => typeof t === 'object');
     subscribeTries.delete(guestId); // geklappt → Zähler zurücksetzen
+    settleSubscribe(guestId, tracks.map((t) => t.name).filter((n): n is string => !!n), true);
     void serializeNego(() => onSubscribeOffer(guestId, sdp, tracks));
   } else if (m.t === 'subscribeFailed' && m.guestId) {
     // Der Gast-Transport steht oft erst kurz nach seinem Publish → gestaffelt erneut versuchen.
+    settleSubscribe(m.guestId, trackNames(m.tracks), false);
     retrySubscribe(m.guestId);
   } else if (m.t === 'guestUnpublished' && m.guestId) {
     stopGuest(m.guestId);
@@ -230,6 +249,37 @@ async function applyTransportAnswer(answer?: RTCSessionDescriptionInit): Promise
   }
 }
 
+/** Nur die Namens-Einträge aus einer gemischten `tracks`-Liste. */
+function trackNames(tracks: (string | { name?: string })[] | undefined): string[] {
+  return (tracks || []).map((t) => (typeof t === 'string' ? t : t.name)).filter((n): n is string => !!n);
+}
+
+function notePublished(guestId: string, names: string[]): void {
+  if (!names.length) return;
+  const set = publishedNames.get(guestId) ?? new Set<string>();
+  for (const n of names) set.add(n);
+  publishedNames.set(guestId, set);
+}
+
+/** Angeforderte Tracks abhaken: erfolgreich → „habe ich", fehlgeschlagen → wieder freigeben. */
+function settleSubscribe(guestId: string, names: string[], ok: boolean): void {
+  const inflight = inflightNames.get(guestId);
+  for (const n of names) inflight?.delete(n);
+  if (!ok) return;
+  const have = subscribedNames.get(guestId) ?? new Set<string>();
+  for (const n of names) have.add(n);
+  subscribedNames.set(guestId, have);
+}
+
+/** Welche Tracks des Gasts fehlen noch — oder `null`, wenn der DO keine Namen meldet (alter Worker). */
+function missingFor(guestId: string): string[] | null {
+  const want = publishedNames.get(guestId);
+  if (!want) return null; // ohne Namen: der DO zieht alles (abwärtskompatibel)
+  const have = subscribedNames.get(guestId) ?? new Set<string>();
+  const inflight = inflightNames.get(guestId) ?? new Set<string>();
+  return [...want].filter((n) => !have.has(n) && !inflight.has(n));
+}
+
 function maybeSubscribe(guestId: string): void {
   if (pcConnected && peerSessionId) subscribe(guestId);
   else wantSubscribe.add(guestId);
@@ -240,8 +290,15 @@ function flushSubscribe(): void {
   wantSubscribe.clear();
 }
 function subscribe(guestId: string): void {
-  plog('subscribe', guestId, '(session', peerSessionId, ')');
-  ws?.send({ t: 'subscribe', sessionId: peerSessionId, guestId });
+  const only = missingFor(guestId);
+  if (only && !only.length) return; // alles schon gezogen
+  if (only) {
+    const inflight = inflightNames.get(guestId) ?? new Set<string>();
+    for (const n of only) inflight.add(n);
+    inflightNames.set(guestId, inflight);
+  }
+  plog('subscribe', guestId, only ? only.join(',') : '(alle)', '(session', peerSessionId, ')');
+  ws?.send(only ? { t: 'subscribe', sessionId: peerSessionId, guestId, only } : { t: 'subscribe', sessionId: peerSessionId, guestId });
 }
 
 /** Subscribe erneut versuchen (Backoff). Der Gast ist gerade erst am Publishen — seine Tracks
@@ -296,9 +353,12 @@ function onTrack(ev: RTCTrackEvent): void {
   const info = midMap.get(mid);
   plog('ontrack mid=', mid, '→', info, 'kind=', ev.track.kind);
   if (!info) return;
-  const slot = pendingTracks.get(info.guestId) || {};
-  slot[info.kind] = ev.track;
-  pendingTracks.set(info.guestId, slot);
+  // Der geteilte Bildschirm ist eine eigene NDI-Quelle → eigener Pool-Schlüssel, eigener Frame-Port.
+  const key = ndiPoolKey(info.guestId, info.kind === 'screen' ? 'screen' : 'cam');
+  const slotKind = info.kind === 'screen' ? 'video' : info.kind;
+  const slot = pendingTracks.get(key) || {};
+  slot[slotKind] = ev.track;
+  pendingTracks.set(key, slot);
   // Gast-Ton zusätzlich in den Mix-Minus-Graph (6.2b) — der NDI-Pump bekommt das Original.
   // Gekapselt: scheitert der Mixer, muss der NDI-Weg des Gasts trotzdem laufen.
   if (info.kind === 'audio') {
@@ -308,30 +368,36 @@ function onTrack(ev: RTCTrackEvent): void {
       plog('FEHLER Gast-Ton-Mixer fehlgeschlagen (NDI läuft weiter):', err);
     }
   }
-  tryPump(info.guestId);
+  tryPump(key);
 }
 
-/** Startet die Pumpe, sobald für einen Gast SOWOHL der Frame-Port ALS AUCH ein Track da ist. */
-function tryPump(guestId: string): void {
-  const port = guestPorts.get(guestId);
-  const slot = pendingTracks.get(guestId);
+/** Startet die Pumpe, sobald für eine Quelle SOWOHL der Frame-Port ALS AUCH ein Track da ist. */
+function tryPump(key: string): void {
+  const port = guestPorts.get(key);
+  const slot = pendingTracks.get(key);
   if (!port || !slot) return;
-  if (slot.video && !pumping.has(`${guestId}:video`)) {
-    pumping.add(`${guestId}:video`);
-    plog('starte Video-Pump für', guestId);
-    void pumpVideo(guestId, slot.video);
+  if (slot.video && !pumping.has(`${key}:video`)) {
+    pumping.add(`${key}:video`);
+    plog('starte Video-Pump für', key);
+    void pumpVideo(key, slot.video);
   }
-  if (slot.audio && !pumping.has(`${guestId}:audio`)) {
-    pumping.add(`${guestId}:audio`);
-    void pumpAudio(guestId, slot.audio);
+  if (slot.audio && !pumping.has(`${key}:audio`)) {
+    pumping.add(`${key}:audio`);
+    void pumpAudio(key, slot.audio);
   }
 }
 
 function stopGuest(guestId: string): void {
-  pendingTracks.delete(guestId);
-  pumping.delete(`${guestId}:video`);
-  pumping.delete(`${guestId}:audio`);
+  const screen = ndiPoolKey(guestId, 'screen');
+  for (const key of [guestId, screen]) {
+    pendingTracks.delete(key);
+    pumping.delete(`${key}:video`);
+    pumping.delete(`${key}:audio`);
+  }
   subscribeTries.delete(guestId);
+  publishedNames.delete(guestId);
+  subscribedNames.delete(guestId);
+  inflightNames.delete(guestId);
   // Aus dem Mix-Minus-Graph entfernen; die übrigen Gäste werden neu verdrahtet.
   const g = guestGain.get(guestId);
   if (g) {
@@ -365,8 +431,8 @@ function stopGuest(guestId: string): void {
   rebuildMixMinus();
 }
 
-async function pumpVideo(guestId: string, track: MediaStreamTrack, targetFps = 25): Promise<void> {
-  const port = guestPorts.get(guestId);
+async function pumpVideo(key: string, track: MediaStreamTrack, targetFps = 25): Promise<void> {
+  const port = guestPorts.get(key);
   if (!port) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proc = new (window as any).MediaStreamTrackProcessor({ track });
@@ -385,19 +451,28 @@ async function pumpVideo(guestId: string, track: MediaStreamTrack, targetFps = 2
           last = now;
           const b = await videoFrameToBgra(frame);
           port.postMessage({ type: 'video', buffer: b.buffer, w: b.width, h: b.height, fpsN: targetFps });
-          if (++frames % 50 === 0) plog(guestId, 'Video-Frames:', frames);
+          if (++frames % 50 === 0) plog(key, 'Video-Frames:', frames);
         }
       } finally {
         frame.close();
       }
     }
   } finally {
-    pumping.delete(`${guestId}:video`);
+    pumping.delete(`${key}:video`);
+    // Beendeter Track (Gast hat das Teilen gestoppt) darf nicht als „bereit" liegen bleiben —
+    // sonst startete tryPump beim nächsten Frame-Port eine Pumpe auf einem toten Track.
+    releaseTrack(key, 'video', track);
   }
 }
 
-async function pumpAudio(guestId: string, track: MediaStreamTrack): Promise<void> {
-  const port = guestPorts.get(guestId);
+/** Einen beendeten Track aus dem Slot nehmen, falls dort noch genau dieser steht. */
+function releaseTrack(key: string, kind: 'video' | 'audio', track: MediaStreamTrack): void {
+  const slot = pendingTracks.get(key);
+  if (slot && slot[kind] === track) delete slot[kind];
+}
+
+async function pumpAudio(key: string, track: MediaStreamTrack): Promise<void> {
+  const port = guestPorts.get(key);
   if (!port) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proc = new (window as any).MediaStreamTrackProcessor({ track });
@@ -415,7 +490,8 @@ async function pumpAudio(guestId: string, track: MediaStreamTrack): Promise<void
       }
     }
   } finally {
-    pumping.delete(`${guestId}:audio`);
+    pumping.delete(`${key}:audio`);
+    releaseTrack(key, 'audio', track);
   }
 }
 

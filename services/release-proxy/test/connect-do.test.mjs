@@ -50,7 +50,7 @@ function mockSfu(calls) {
       return { requiresImmediateRenegotiation: true, offer: { type: 'offer', sdp: 'o' }, tracks: tracks.map((t, i) => ({ ...t, mid: String(i) })) };
     },
     async renegotiate(sid, ans) { calls.push(['renegotiate', sid, ans]); },
-    async closeTracks() {},
+    async closeTracks(sid, names) { calls.push(['closeTracks', sid, names]); },
   };
 }
 
@@ -92,9 +92,10 @@ async function run() {
   ]));
   const offerMsg = peerSocket.sent.find((m) => m.t === 'subscribeOffer');
   check('Peer erhält subscribeOffer für g1', offerMsg && offerMsg.guestId === 'g1');
-  check('subscribeOffer: mid→kind-Korrelation (video/audio)', offerMsg && JSON.stringify(offerMsg.tracks) === JSON.stringify([
-    { mid: '0', kind: 'video' },
-    { mid: '1', kind: 'audio' },
+  // Der Trackname wandert seit 6.3 mit: der Peer hakt damit ab, was er schon gezogen hat.
+  check('subscribeOffer: mid→Name/kind-Korrelation (video/audio)', offerMsg && JSON.stringify(offerMsg.tracks) === JSON.stringify([
+    { mid: '0', name: 'g1-video', kind: 'video' },
+    { mid: '1', name: 'g1-audio', kind: 'audio' },
   ]));
 
   // ── Rückkanal 6.2a: Peer publisht program-video → returnAvailable; Gast zieht es in seine Session ──
@@ -193,6 +194,53 @@ async function run() {
     'Gast weg → Talkback bleibt an, Gast gilt als getrennt',
     tbRoom2.state.talkback.mode === 'all' && tbRoom2.state.guests[0].phase === 'disconnected',
   );
+
+  // ── Welle 6.3: geteilter Bildschirm als EIGENE Quelle ──────────────────────────────────────
+  const scOp = mockWs(['operator'], { scope: 'operator' });
+  const scGuest = mockWs(['guest', 'g1'], { scope: 'guest', guestId: 'g1' });
+  const scRoom = new ConnectRoom(makeCtx([scOp, scGuest]), {});
+  await tick();
+  scRoom.state = { room: 'r', guests: [{ ...approvedGuest }], standbyId: null, talkback: { mode: 'off', target: null } };
+  const scCalls = [];
+  scRoom._sfuOverride = mockSfu(scCalls);
+
+  await scRoom.publishGuest(scGuest, 'g1', { type: 'offer', sdp: 'x' }, [{ mid: '0', kind: 'video' }, { mid: '1', kind: 'audio' }]);
+  const published = scOp.sent.find((m) => m.t === 'guestPublished');
+  check('guestPublished nennt die Tracknamen (Peer zieht später gezielt nach)',
+    !!published && published.tracks.join(',') === 'g1-video,g1-audio');
+
+  // Bildschirm kommt MITTEN im Betrieb dazu: gleicher Session, eigener Trackname.
+  scCalls.length = 0;
+  scOp.sent.length = 0;
+  await scRoom.guestAddScreen(scGuest, 'g1', { type: 'offer', sdp: 'scr' }, [{ mid: '2', kind: 'screen' }]);
+  const scPubCall = scCalls.find((c) => c[0] === 'publish');
+  check('addScreen publisht auf die BESTEHENDE Session als g1-screen',
+    !!scPubCall && scPubCall[1] === 'sess-X' && scPubCall[2].length === 1 && scPubCall[2][0].trackName === 'g1-screen');
+  check('addScreen setzt hasScreen', scRoom.state.guests[0].hasScreen === true);
+  const upNdi = scOp.sent.find((m) => m.t === 'ndi' && m.action === 'up' && m.stream === 'screen');
+  check('addScreen → zweiter NDI-Sender „(Bildschirm)"', !!upNdi && /\(Bildschirm\)$/.test(upNdi.label));
+
+  // Der Peer zieht NUR den neuen Track nach — sonst läge das Kamerabild doppelt in seiner Session.
+  scCalls.length = 0;
+  await scRoom.peerSubscribe(scOp, 'peer-1', 'g1', ['g1-screen']);
+  const scSubCall = scCalls.find((c) => c[0] === 'subscribe');
+  check('only-Subscribe zieht ausschließlich g1-screen',
+    !!scSubCall && scSubCall[2].length === 1 && scSubCall[2][0].trackName === 'g1-screen');
+  const scOffer = scOp.sent.filter((m) => m.t === 'subscribeOffer').pop();
+  check('subscribeOffer trägt Name + kind=screen',
+    !!scOffer && scOffer.tracks[0].name === 'g1-screen' && scOffer.tracks[0].kind === 'screen');
+
+  // Teilen beenden: Track schließen, Bildschirm-Quelle abräumen — Kamera/Publish bleiben.
+  scCalls.length = 0;
+  scOp.sent.length = 0;
+  await scRoom.guestStopScreen('g1');
+  const closed = scCalls.find((c) => c[0] === 'closeTracks');
+  check('stopScreen schließt g1-screen an der SFU', !!closed && closed[2].join(',') === 'g1-screen');
+  check('stopScreen räumt NUR den Bildschirm ab, der Gast publisht weiter',
+    scRoom.pub.has('g1') && scRoom.pub.get('g1').tracks.every((t) => t.trackName !== 'g1-screen'));
+  const downNdi = scOp.sent.find((m) => m.t === 'ndi' && m.action === 'down');
+  check('stopScreen → nur die Bildschirm-Quelle wird gestoppt', !!downNdi && downNdi.stream === 'screen');
+  check('stopScreen meldet den Gast NICHT als unpublished', !scOp.sent.some((m) => m.t === 'guestUnpublished'));
 }
 
 run()

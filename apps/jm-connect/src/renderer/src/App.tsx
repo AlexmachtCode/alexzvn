@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SignallingClient } from '@jm/rtc/signalling';
 import { lobbyCount, onAirGuests, standbyGuest } from '@jm/rtc/state';
+import { ndiPoolKey } from '@jm/rtc/protocol';
 import type { Guest, OperatorAction, RoomState } from '@jm/rtc/protocol';
 import type { AppStatus, GuestInvite } from '@shared/types';
 
@@ -70,14 +71,16 @@ export function App(): JSX.Element {
 
   const handleMessage = useCallback(
     (raw: unknown) => {
-      const msg = raw as { t?: string; state?: RoomState; action?: string; guestId?: string; label?: string };
+      const msg = raw as { t?: string; state?: RoomState; action?: string; guestId?: string; label?: string; stream?: string };
       if ((msg.t === 'welcome' || msg.t === 'state') && msg.state) {
         setRoom(msg.state);
         roomRef.current = msg.state;
         pushControlState(msg.state);
       } else if (msg.t === 'ndi' && msg.guestId) {
-        if (msg.action === 'up') window.jmconnect.ndiUp(msg.guestId, msg.label || `JM Connect – ${msg.guestId}`);
-        else if (msg.action === 'down') window.jmconnect.ndiDown(msg.guestId);
+        // Kamera und geteilter Bildschirm sind zwei getrennte NDI-Quellen desselben Gasts (6.3).
+        const key = ndiPoolKey(msg.guestId, msg.stream === 'screen' ? 'screen' : 'cam');
+        if (msg.action === 'up') window.jmconnect.ndiUp(key, msg.label || `JM Connect – ${msg.guestId}`);
+        else if (msg.action === 'down') window.jmconnect.ndiDown(key);
       }
     },
     [pushControlState],
@@ -236,6 +239,14 @@ export function App(): JSX.Element {
             {guests.map((g) => (
               <li key={g.id} className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3">
                 <span className="flex-1 font-medium">{g.name}</span>
+                {g.hasScreen && (
+                  <span
+                    title={`Teilt seinen Bildschirm — eigene NDI-Quelle „JM Connect – ${g.name} (Bildschirm)"`}
+                    className="rounded-full bg-sky-900 px-2 py-0.5 text-xs font-semibold text-sky-200"
+                  >
+                    🖥 Bildschirm
+                  </span>
+                )}
                 {canHearTalkback(g) && (
                   <PttButton
                     onDown={() => talkbackDown(g.id)}

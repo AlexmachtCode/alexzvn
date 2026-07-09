@@ -37,7 +37,10 @@ export function reduce(prev: RoomState, ev: RoomEvent, nowMs: number): ReduceRes
       const existing = find(prev, ev.guestId);
       replace(
         existing
-          ? { ...existing, phase: 'lobby', name: ev.name } // Rejoin nach disconnect → zurück in den Warteraum
+          ? // Rejoin nach disconnect → zurück in den Warteraum. `hasScreen` MUSS zurückgesetzt werden:
+            // der Gast publiziert von vorn, und bliebe das Flag stehen, erkennt der Reducer sein
+            // erneutes Teilen nicht als Änderung und es entstünde nie wieder eine Bildschirm-Quelle.
+            { ...existing, phase: 'lobby', name: ev.name, hasScreen: false }
           : {
               id: ev.guestId,
               name: ev.name,
@@ -61,7 +64,17 @@ export function reduce(prev: RoomState, ev: RoomEvent, nowMs: number): ReduceRes
 
     case 'guestTracks': {
       const g = find(prev, ev.guestId);
-      if (g) replace({ ...g, hasVideo: ev.hasVideo ?? g.hasVideo, hasScreen: ev.hasScreen ?? g.hasScreen });
+      if (g) {
+        const hasScreen = ev.hasScreen ?? g.hasScreen;
+        replace({ ...g, hasVideo: ev.hasVideo ?? g.hasVideo, hasScreen });
+        // Der geteilte Bildschirm ist eine EIGENE NDI-Quelle (Welle 6.3) — sauber getrennt vom
+        // Kamerabild, damit der Switcher beides unabhängig schalten kann. Nur solange der Gast
+        // publiziert; im Warteraum gibt es keine Quelle (Warteraum-Gate).
+        if (isLive(g) && hasScreen !== g.hasScreen) {
+          if (hasScreen) effects.push({ t: 'spinUpNdi', guestId: g.id, label: screenLabel(g.name), stream: 'screen' });
+          else effects.push({ t: 'tearDownNdi', guestId: g.id, stream: 'screen' });
+        }
+      }
       break;
     }
 
@@ -129,7 +142,7 @@ export function reduce(prev: RoomState, ev: RoomEvent, nowMs: number): ReduceRes
     case 'kick': {
       const g = find(prev, ev.guestId);
       if (g && g.phase !== 'kicked' && g.phase !== 'left') {
-        replace({ ...g, phase: 'kicked', tally: 'off' });
+        replace({ ...g, phase: 'kicked', tally: 'off', hasScreen: false });
         if (standbyId === g.id) standbyId = null;
         effects.push({ t: 'revokePublish', guestId: g.id });
         effects.push({ t: 'tearDownNdi', guestId: g.id });
@@ -153,9 +166,10 @@ export function reduce(prev: RoomState, ev: RoomEvent, nowMs: number): ReduceRes
     case 'guestDisconnect': {
       const g = find(prev, ev.guestId);
       if (g) {
-        const wasLive = g.phase === 'approved' || g.phase === 'onair' || g.phase === 'off';
-        replace({ ...g, phase: ev.t === 'guestLeave' ? 'left' : 'disconnected', tally: 'off' });
+        const wasLive = isLive(g);
+        replace({ ...g, phase: ev.t === 'guestLeave' ? 'left' : 'disconnected', tally: 'off', hasScreen: false });
         if (standbyId === g.id) standbyId = null;
+        // Ein tearDownNdi ohne `stream` räumt BEIDE Quellen des Gasts ab (Kamera + Bildschirm).
         if (wasLive) effects.push({ t: 'tearDownNdi', guestId: g.id });
       }
       break;
@@ -165,10 +179,20 @@ export function reduce(prev: RoomState, ev: RoomEvent, nowMs: number): ReduceRes
   return { state: { room: prev.room, guests, standbyId, talkback }, effects };
 }
 
+/** Publiziert der Gast gerade? Nur dann existieren seine SFU-Tracks und damit NDI-Quellen. */
+function isLive(g: Guest): boolean {
+  return g.phase === 'approved' || g.phase === 'onair' || g.phase === 'off';
+}
+
 /** NDI-Quellenname pro Gast — vom Switcher automatisch entdeckt (Auto-Reconnect per Name). */
 function ndiLabel(name: string): string {
   const clean = name.replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0, 40) || 'Gast';
   return `JM Connect – ${clean}`;
+}
+
+/** Zweite NDI-Quelle desselben Gasts: sein geteilter Bildschirm (Welle 6.3). */
+function screenLabel(name: string): string {
+  return `${ndiLabel(name)} (Bildschirm)`;
 }
 
 // ── Bequeme Ableitungen für UI/Health-Badges/STATE-Variablen ───────────────
@@ -187,5 +211,5 @@ export function lobbyCount(state: RoomState): number {
   return state.guests.filter((g) => g.phase === 'lobby').length;
 }
 export function activeGuests(state: RoomState): Guest[] {
-  return state.guests.filter((g) => g.phase === 'approved' || g.phase === 'onair' || g.phase === 'off');
+  return state.guests.filter(isLive);
 }

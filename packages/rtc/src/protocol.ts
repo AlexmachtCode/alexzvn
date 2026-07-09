@@ -64,13 +64,44 @@ export type RoomEvent = OperatorAction | GuestEvent;
 // ── Effekte (Reducer → DO/App-Seiteneffekte) ───────────────────────────────
 // Der Reducer bleibt rein; Seiteneffekte werden als Daten zurückgegeben. Der DO setzt Publish-
 // Rechte, die App-Main mappt spinUpNdi/tearDownNdi auf ihren utilityProcess-Sender-Pool.
+//
+// `stream` unterscheidet die beiden NDI-Quellen eines Gasts (Welle 6.3): seine Kamera und sein
+// geteilter Bildschirm. Fehlt das Feld, ist die Kamera gemeint (Abwärtskompatibilität).
+export type GuestStream = 'cam' | 'screen';
+
 export type RoomEffect =
   | { t: 'grantPublish'; guestId: string } // DO: SFU-Publish erlauben / ICE-Creds herausgeben
   | { t: 'revokePublish'; guestId: string }
-  | { t: 'spinUpNdi'; guestId: string; label: string } // App: NDI-Sender-utilityProcess forken
-  | { t: 'tearDownNdi'; guestId: string }
+  | { t: 'spinUpNdi'; guestId: string; label: string; stream?: GuestStream } // App: NDI-Sender-utilityProcess forken
+  | { t: 'tearDownNdi'; guestId: string; stream?: GuestStream }
   | { t: 'tally'; guestId: string; tally: Tally }
   | { t: 'notify'; guestId: string; code: 'consentRequired' | 'denied' | 'kicked' };
+
+/**
+ * Pool-Schlüssel der NDI-Sender. Kamera = die nackte Gast-ID (unverändert seit 6.1), Bildschirm =
+ * eigener Schlüssel. Beide Seiten (DO-Effekt-Konsument und Sender-Pool) leiten ihn hieraus ab,
+ * damit die Namensregel an genau EINER Stelle steht.
+ */
+export function ndiPoolKey(guestId: string, stream: GuestStream = 'cam'): string {
+  return stream === 'screen' ? `${guestId}::screen` : guestId;
+}
+
+/**
+ * Track-Namen der SFU sind global eindeutig und tragen die Art im Suffix. Sie sind die einzige
+ * Korrelation zwischen Gast-Publish und Peer-Subscribe — deshalb hier zentral, statt an mehreren
+ * Stellen per `endsWith` geraten zu werden.
+ */
+export type GuestTrackKind = 'video' | 'audio' | 'screen';
+
+export function guestTrackName(guestId: string, kind: GuestTrackKind): string {
+  return `${guestId}-${kind}`;
+}
+
+export function guestTrackKind(trackName: string): GuestTrackKind {
+  if (trackName.endsWith('-audio')) return 'audio';
+  if (trackName.endsWith('-screen')) return 'screen';
+  return 'video';
+}
 
 // ── Signalling-Nachrichten über den DO-WebSocket ───────────────────────────
 // SDP/ICE werden nur relayt; die App/DO spricht die SFU-HTTP-API (App-Secret bleibt serverseitig,

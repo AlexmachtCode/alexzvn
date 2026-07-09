@@ -46,10 +46,10 @@ export interface JmConnectApi {
   openRoom: (room?: string) => Promise<RoomSession>;
   mintGuest: (name: string) => Promise<GuestInvite>;
   closeRoom: () => Promise<void>;
-  /** NDI-Sender für einen freigegebenen Gast starten (bei spinUpNdi-Effekt). */
-  ndiUp: (guestId: string, label: string) => void;
-  /** NDI-Sender eines Gasts stoppen (bei tearDownNdi-Effekt). */
-  ndiDown: (guestId: string) => void;
+  /** NDI-Sender einer Quelle starten (spinUpNdi). `key` = Pool-Schlüssel: Gast-ID oder `<id>::screen`. */
+  ndiUp: (key: string, label: string) => void;
+  /** NDI-Sender einer Quelle stoppen (tearDownNdi). Kamera-Schlüssel räumt auch den Bildschirm ab. */
+  ndiDown: (key: string) => void;
   /** Abgeleiteten STATE ans Steuerprotokoll melden (Companion/Rundown/Health). */
   pushControlState: (kv: Record<string, string | number | boolean>) => void;
   /** Diagnose-Zeile des versteckten Peers ins Main-/Terminal-Log spiegeln. */

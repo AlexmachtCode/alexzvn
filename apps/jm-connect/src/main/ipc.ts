@@ -64,12 +64,13 @@ export function registerIpc(deps: {
 
   ipcMain.handle(IPC.status, async () => currentStatus());
 
-  ipcMain.on(IPC.ndiUp, (_e, p: { guestId: string; label: string }) => {
-    if (p?.guestId) spinUp(p.guestId, p.label || `JM Connect – ${p.guestId}`);
+  // `key` ist der NDI-Pool-Schlüssel (Gast-ID = Kamera, `<id>::screen` = geteilter Bildschirm).
+  ipcMain.on(IPC.ndiUp, (_e, p: { key: string; label: string }) => {
+    if (p?.key) spinUp(p.key, p.label || `JM Connect – ${p.key}`);
   });
 
-  ipcMain.on(IPC.ndiDown, (_e, p: { guestId: string }) => {
-    if (p?.guestId) tearDown(p.guestId);
+  ipcMain.on(IPC.ndiDown, (_e, p: { key: string }) => {
+    if (p?.key) tearDown(p.key);
   });
 
   ipcMain.on(IPC.pushControlState, (_e, kv: Record<string, string | number | boolean>) => {

@@ -5,8 +5,8 @@ import { IPC, PEER_CONNECT, PEER_FRAME_PORT, PEER_PROGRAM_PORT } from '@shared/i
 // Versteckter Peer-Renderer: den vom Main übertragenen Frame-MessagePort (je Gast)
 // in den Renderer-Main-World durchreichen. contextBridge kann MessagePorts nicht
 // direkt übergeben → dokumentierter window.postMessage-Transfer (Empfang: window 'message').
-ipcRenderer.on(PEER_FRAME_PORT, (e, payload: { guestId: string }) => {
-  window.postMessage({ ch: PEER_FRAME_PORT, guestId: payload?.guestId }, '*', e.ports);
+ipcRenderer.on(PEER_FRAME_PORT, (e, payload: { key: string }) => {
+  window.postMessage({ ch: PEER_FRAME_PORT, key: payload?.key }, '*', e.ports);
 });
 
 // Programm-NDI-Frame-Port (Rückkanal 6.2a) an den Peer-Renderer durchreichen.
@@ -24,8 +24,8 @@ const api: JmConnectApi = {
   openRoom: (room?: string) => ipcRenderer.invoke(IPC.openRoom, room) as Promise<RoomSession>,
   mintGuest: (name: string) => ipcRenderer.invoke(IPC.mintGuest, name) as Promise<GuestInvite>,
   closeRoom: () => ipcRenderer.invoke(IPC.closeRoom) as Promise<void>,
-  ndiUp: (guestId: string, label: string) => ipcRenderer.send(IPC.ndiUp, { guestId, label }),
-  ndiDown: (guestId: string) => ipcRenderer.send(IPC.ndiDown, { guestId }),
+  ndiUp: (key: string, label: string) => ipcRenderer.send(IPC.ndiUp, { key, label }),
+  ndiDown: (key: string) => ipcRenderer.send(IPC.ndiDown, { key }),
   pushControlState: (kv) => ipcRenderer.send(IPC.pushControlState, kv),
   peerLog: (msg: string) => ipcRenderer.send(IPC.peerLog, msg),
   audit: (event: string, detail?: string) => ipcRenderer.send(IPC.audit, { event, detail }),

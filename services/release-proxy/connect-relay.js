@@ -27,6 +27,7 @@
 // (lokaler Test). Die von diesen Modulen intern genutzten Relativ-Importe sind ausschließlich
 // `import type` → beim Stripping entfernt, daher dort ohne Endung unkritisch.
 import { initialRoomState, reduce, onAirGuests, lobbyCount } from '../../packages/rtc/src/state.ts';
+import { guestTrackKind, guestTrackName } from '../../packages/rtc/src/protocol.ts';
 import { verifyJoinToken } from '../../packages/rtc/src/token.ts';
 import { generateTurnCredentials } from '../../packages/rtc/src/turn.ts';
 import { createCloudflareSfu } from '../../packages/rtc/src/cf-sfu.ts';
@@ -323,7 +324,7 @@ export class ConnectRoom {
     }
     // Peer-Medien-Signalling (der versteckte Peer zieht Gäste über den DO von der SFU).
     if (msg.t === 'peerSession') return void this.peerNewSession(ws, msg.offer);
-    if (msg.t === 'subscribe' && msg.guestId) return void this.peerSubscribe(ws, msg.sessionId, msg.guestId);
+    if (msg.t === 'subscribe' && msg.guestId) return void this.peerSubscribe(ws, msg.sessionId, msg.guestId, msg.only);
     if (msg.t === 'renegotiate') return void this.peerRenegotiate(ws, msg.sessionId, msg.sdp);
     // Rückkanal 6.2a: der Peer publisht den Programm-Track (Switcher-PGM) auf seiner Session.
     if (msg.t === 'peerPublish') return void this.peerPublish(ws, msg.sessionId, msg.offer, Array.isArray(msg.tracks) ? msg.tracks : []);
@@ -344,6 +345,11 @@ export class ConnectRoom {
       case 'offer':
         // Der Gast bietet erst nach grantPublish an (siehe Gast-Seite). Warteraum-Gate hier hart prüfen.
         return this.publishGuest(ws, att.guestId, msg.sdp, Array.isArray(msg.tracks) ? msg.tracks : []);
+      case 'addScreen':
+        // Welle 6.3: Bildschirm als zusätzlichen Track auf die bestehende Session legen.
+        return void this.guestAddScreen(ws, att.guestId, msg.sdp, Array.isArray(msg.tracks) ? msg.tracks : []);
+      case 'stopScreen':
+        return void this.guestStopScreen(att.guestId);
       case 'wantReturn':
         // Rückkanal 6.2a: Gast möchte den Programm-Track sehen → in seine Publish-Session ziehen.
         return void this.guestWantReturn(ws, att.guestId);
@@ -363,7 +369,7 @@ export class ConnectRoom {
    */
   async publishGuest(ws, guestId, sdp, guestTracks) {
     const g = this.state.guests.find((x) => x.id === guestId);
-    if (!g || (g.phase !== 'approved' && g.phase !== 'onair' && g.phase !== 'off')) {
+    if (!g || !isLivePhase(g)) {
       this.send(ws, { t: 'error', code: 'not_approved' }); // Warteraum-Gate
       return;
     }
@@ -374,20 +380,71 @@ export class ConnectRoom {
     }
     // mid+kind → benannte lokale Tracks. Fallback (falls der Gast keine Metadaten schickt): v/a.
     const named = (guestTracks.length ? guestTracks : [{ mid: '0', kind: 'video' }, { mid: '1', kind: 'audio' }]).map(
-      (t) => ({ location: 'local', mid: String(t.mid), trackName: `${guestId}-${t.kind === 'audio' ? 'audio' : 'video'}` }),
+      (t) => ({ location: 'local', mid: String(t.mid), trackName: guestTrackName(guestId, normKind(t.kind)) }),
     );
     try {
       const { sessionId } = await sfu.newSession();
       const { answer } = await sfu.publish(sessionId, sdp, named);
-      this.pub.set(guestId, { sessionId, tracks: named.map((t) => ({ trackName: t.trackName, kind: t.trackName.endsWith('-audio') ? 'audio' : 'video' })) });
+      this.pub.set(guestId, { sessionId, tracks: named.map((t) => ({ trackName: t.trackName, kind: guestTrackKind(t.trackName) })) });
       await this.savePub();
       this.send(ws, { t: 'answer', sdp: answer });
-      // Peer(s) informieren, dass dieser Gast ziehbar ist.
-      this.toOperators({ t: 'guestPublished', guestId });
+      // Peer(s) informieren, dass dieser Gast ziehbar ist — mit den Tracknamen, damit der Peer
+      // später gezielt nur die NEUEN Tracks nachzieht (Bildschirm kommt mitten im Betrieb dazu).
+      this.toOperators({ t: 'guestPublished', guestId, tracks: this.pub.get(guestId).tracks.map((t) => t.trackName) });
     } catch (e) {
       console.error('[connect] publish', e && e.message);
       this.send(ws, { t: 'error', code: 'sfu_error' });
     }
+  }
+
+  /**
+   * Welle 6.3: der Gast legt seinen geteilten Bildschirm als ZUSÄTZLICHEN Track auf seine bereits
+   * bestehende SFU-Session (Renegotiation, kein zweiter Upstream). Eigener Trackname
+   * `<guestId>-screen` → der Peer zieht ihn getrennt und macht daraus eine zweite, saubere
+   * NDI-Quelle, die der Switcher unabhängig vom Kamerabild schalten kann.
+   */
+  async guestAddScreen(ws, guestId, sdp, newTracks) {
+    const g = this.state.guests.find((x) => x.id === guestId);
+    const p = this.pub.get(guestId);
+    const sfu = this.sfu();
+    if (!g || !isLivePhase(g)) return this.send(ws, { t: 'error', code: 'not_approved' });
+    if (!sfu || !p || !sdp) return this.send(ws, { t: 'error', code: 'not_published' });
+    const trackName = guestTrackName(guestId, 'screen');
+    const named = newTracks
+      .filter((t) => t && t.mid != null)
+      .map((t) => ({ location: 'local', mid: String(t.mid), trackName }));
+    if (!named.length) return;
+    try {
+      const { answer } = await sfu.publish(p.sessionId, sdp, named);
+      if (!p.tracks.some((t) => t.trackName === trackName)) p.tracks.push({ trackName, kind: 'screen' });
+      await this.savePub();
+      this.send(ws, { t: 'answer', sdp: answer });
+      // Reducer erzeugt daraus den spinUpNdi(screen)-Effekt für die Operator-App und broadcastet.
+      this.applyEvent({ t: 'guestTracks', guestId, hasScreen: true });
+      this.toOperators({ t: 'guestPublished', guestId, tracks: p.tracks.map((t) => t.trackName) });
+    } catch (e) {
+      console.error('[connect] addScreen', e && e.message);
+      this.send(ws, { t: 'error', code: 'sfu_error' });
+    }
+  }
+
+  /** Gast beendet das Teilen: Track an der SFU schließen, Bildschirm-NDI-Quelle abräumen. */
+  async guestStopScreen(guestId) {
+    const p = this.pub.get(guestId);
+    const trackName = guestTrackName(guestId, 'screen');
+    if (p && p.tracks.some((t) => t.trackName === trackName)) {
+      p.tracks = p.tracks.filter((t) => t.trackName !== trackName);
+      await this.savePub();
+      const sfu = this.sfu();
+      if (sfu) {
+        try {
+          await sfu.closeTracks(p.sessionId, [trackName]);
+        } catch (e) {
+          console.error('[connect] stopScreen', e && e.message);
+        }
+      }
+    }
+    this.applyEvent({ t: 'guestTracks', guestId, hasScreen: false });
   }
 
   // ── Peer-Medien-Broker (der versteckte Peer-Renderer spricht die SFU NUR über den DO,
@@ -405,21 +462,25 @@ export class ConnectRoom {
     }
   }
 
-  async peerSubscribe(ws, peerSessionId, guestId) {
+  async peerSubscribe(ws, peerSessionId, guestId, only) {
     const sfu = this.sfu();
     const p = this.pub.get(guestId);
     if (!sfu || !p) return this.send(ws, { t: 'error', code: 'not_published' });
+    // `only` = die Tracknamen, die der Peer noch nicht hat. Der Bildschirm kommt mitten im Betrieb
+    // dazu; ein erneutes Ziehen ALLER Tracks legte den Kamera-Track ein zweites Mal in die Session.
+    const wanted = Array.isArray(only) && only.length ? p.tracks.filter((t) => only.includes(t.trackName)) : p.tracks;
+    if (!wanted.length) return;
     try {
-      const remote = p.tracks.map((t) => ({ location: 'remote', sessionId: p.sessionId, trackName: t.trackName }));
+      const remote = wanted.map((t) => ({ location: 'remote', sessionId: p.sessionId, trackName: t.trackName }));
       const r = await sfu.subscribe(peerSessionId, remote);
-      // Zurückgegebene Track-mids (in der Peer-Session) + kind (aus unserem Publish) für die Korrelation.
-      const tracks = r.tracks.map((t) => ({ mid: t.mid, kind: t.trackName.endsWith('-audio') ? 'audio' : 'video' }));
+      // Zurückgegebene Track-mids (in der Peer-Session) + Name/Art für die Korrelation beim Peer.
+      const tracks = r.tracks.map((t) => ({ mid: t.mid, name: t.trackName, kind: guestTrackKind(t.trackName) }));
       this.send(ws, { t: 'subscribeOffer', guestId, sdp: r.offer, tracks, renegotiate: r.requiresImmediateRenegotiation });
     } catch (e) {
       console.error('[connect] subscribe', e && e.message);
       // Häufigster Fall: der Transport des Gasts steht noch nicht, seine Tracks sind noch nicht
       // ziehbar. Der Peer versucht es kurz darauf erneut — vorher blieb er still ohne Bild/Ton.
-      this.send(ws, { t: 'subscribeFailed', guestId });
+      this.send(ws, { t: 'subscribeFailed', guestId, tracks: wanted.map((t) => t.trackName) });
     }
   }
 
@@ -498,7 +559,7 @@ export class ConnectRoom {
       );
       for (const t of missing) have.add(t);
       this.retSubs.set(guestId, have);
-      const tracks = r.tracks.map((t) => ({ mid: t.mid, kind: t.trackName && t.trackName.endsWith('-audio') ? 'audio' : 'video' }));
+      const tracks = r.tracks.map((t) => ({ mid: t.mid, kind: guestTrackKind(t.trackName || '') }));
       this.send(ws, { t: 'returnOffer', sdp: r.offer, tracks, renegotiate: r.requiresImmediateRenegotiation });
     } catch (e) {
       console.error('[connect] guestWantReturn', e && e.message);
@@ -508,15 +569,22 @@ export class ConnectRoom {
     }
   }
 
-  /** Answer des Gasts auf den Rückkanal-Offer → an die SFU (renegotiate seiner Publish-Session). */
+  /**
+   * Answer des Gasts auf den Rückkanal-Offer → an die SFU (renegotiate seiner Publish-Session).
+   * Wird IMMER bestätigt: bis die Answer dort angewendet ist, weist die SFU jeden weiteren Push
+   * mit 406 `invalid_session_description` ab. Seit der Gast selbst nachpublisht (Bildschirm, 6.3)
+   * braucht er denselben Aushandlungs-Lock wie der Peer — und dafür diese Quittung.
+   */
   async guestReturnAnswer(ws, guestId, sdp) {
     const sfu = this.sfu();
     const p = this.pub.get(guestId);
-    if (!sfu || !p || !sdp) return;
+    if (!sfu || !p || !sdp) return this.send(ws, { t: 'returnRenegotiated', ok: false });
     try {
       await sfu.renegotiate(p.sessionId, sdp);
+      this.send(ws, { t: 'returnRenegotiated', ok: true });
     } catch (e) {
       console.error('[connect] guestReturnAnswer', e && e.message);
+      this.send(ws, { t: 'returnRenegotiated', ok: false });
     }
   }
 
@@ -578,10 +646,14 @@ export class ConnectRoom {
         break;
       case 'spinUpNdi':
         // An die Operator-App (jm-connect) — sie verwaltet den NDI-Sender-Pool (Welle 6.1).
-        this.toOperators({ t: 'ndi', action: 'up', guestId: eff.guestId, label: eff.label });
+        this.toOperators({ t: 'ndi', action: 'up', guestId: eff.guestId, label: eff.label, stream: eff.stream || 'cam' });
         break;
-      case 'tearDownNdi':
-        this.toOperators({ t: 'ndi', action: 'down', guestId: eff.guestId });
+      case 'tearDownNdi': {
+        const stream = eff.stream || 'cam';
+        this.toOperators({ t: 'ndi', action: 'down', guestId: eff.guestId, stream });
+        // Nur der Bildschirm ist weg (Gast hat das Teilen beendet): Kamera, Publish-Session und
+        // Rückkanal des Gasts laufen unverändert weiter — hier NICHTS abräumen.
+        if (stream !== 'cam') break;
         // Publish-Zustand vergessen + Peer zum Abbau anstoßen.
         if (this.pub.delete(eff.guestId)) void this.savePub();
         // Rückkanal des Gasts vergessen (Rejoin darf neu ziehen; sein Mix-Minus-Track ist tot).
@@ -592,6 +664,7 @@ export class ConnectRoom {
         }
         this.toOperators({ t: 'guestUnpublished', guestId: eff.guestId });
         break;
+      }
     }
   }
 
@@ -628,6 +701,18 @@ function safeAttachment(ws) {
   } catch {
     return {};
   }
+}
+
+/** Publiziert der Gast gerade? Nur dann darf er Tracks auf die SFU legen (Warteraum-Gate). */
+function isLivePhase(g) {
+  return g.phase === 'approved' || g.phase === 'onair' || g.phase === 'off';
+}
+
+/** Vom Gast gemeldete Transceiver-Art auf unsere drei Track-Arten normalisieren. */
+function normKind(kind) {
+  if (kind === 'audio') return 'audio';
+  if (kind === 'screen') return 'screen';
+  return 'video';
 }
 
 function clampInt(v, min, max, dflt) {
@@ -685,6 +770,7 @@ function guestPage(id) {
   </div>
 
   <video id="preview" playsinline autoplay muted></video>
+  <button id="share" class="hide">Bildschirm teilen</button>
   <div id="programWrap" class="hide">
     <div class="proglabel">Programm (Rückkanal)</div>
     <video id="program" playsinline autoplay muted></video>
@@ -699,8 +785,26 @@ function guestPage(id) {
   var nameEl=document.getElementById('name'), consentEl=document.getElementById('consent'), enterEl=document.getElementById('enter');
   var joinEl=document.getElementById('join'), stEl=document.getElementById('st'), video=document.getElementById('preview');
   var programWrap=document.getElementById('programWrap'), programVideo=document.getElementById('program');
-  var retAudio=document.getElementById('ret');
+  var retAudio=document.getElementById('ret'), shareEl=document.getElementById('share');
   var ws=null, pc=null, stream=null, programStream=null, returnStream=null, retTries=0;
+  var screenStream=null, screenTx=null;
+
+  // Alle SDP-Aushandlungen auf DIESER PeerConnection serialisieren. Seit der Gast mitten im Betrieb
+  // selbst nachpublisht (Bildschirm teilen), können sein Offer und ein Rückkanal-Offer der SFU
+  // kollidieren — und die SFU weist dann jeden Push mit 406 'invalid_session_description' ab.
+  // Dieselbe Mechanik wie im versteckten Peer der Regie.
+  var negoChain=Promise.resolve();
+  function serializeNego(fn){ var run=negoChain.then(fn,fn); negoChain=run.catch(function(){}); return run; }
+
+  // Einzel-Slots: es läuft immer nur EINE Aushandlung (siehe negoChain).
+  var answerResolve=null, renegotiatedResolve=null;
+  function awaitOnce(assign, timeoutMs){
+    return new Promise(function(resolve){
+      var done=false;
+      var timer=setTimeout(function(){ if(done) return; done=true; assign(null); resolve(undefined); }, timeoutMs);
+      assign(function(v){ if(done) return; done=true; clearTimeout(timer); assign(null); resolve(v); });
+    });
+  }
 
   // Rückkanal anfordern (Programmbild + eigener Mix-Minus-Ton). Wird gestaffelt wiederholt, solange
   // die SFU die Tracks noch nicht liefert (z. B. Programm-Track sendet noch keine Pakete).
@@ -733,13 +837,16 @@ function guestPage(id) {
       else if(m.tally==='preview') status('Freigegeben — in Vorschau','b-prev');
       else status('Aus Sendung genommen','b-wait');
     }
-    else if(m.t==='answer' && pc){ await pc.setRemoteDescription(m.sdp); retTries=0; wantReturn(); }
+    // Answer auf unseren laufenden Publish (Kamera oder Bildschirm) — sie wird IM Nego-Lock
+    // angewandt, nicht hier: sonst gäbe der Lock frei, bevor der SDP-Zustand konsistent ist.
+    else if(m.t==='answer'){ if(answerResolve) answerResolve(m.sdp); }
+    else if(m.t==='returnRenegotiated'){ if(renegotiatedResolve) renegotiatedResolve(m.ok); }
     else if(m.t==='returnAvailable'){ retTries=0; wantReturn(); }
     else if(m.t==='returnFailed'){
       // Programm-Track meldet noch keine Pakete → gestaffelt erneut versuchen.
       if(retTries<6) setTimeout(wantReturn, 800*retTries);
     }
-    else if(m.t==='returnOffer' && pc && m.sdp){ retTries=0; await onReturnOffer(m.sdp); }
+    else if(m.t==='returnOffer' && pc && m.sdp){ retTries=0; var rsdp=m.sdp; serializeNego(function(){ return onReturnOffer(rsdp); }); }
     else if(m.t==='notice'){ if(m.code==='kicked'){ status('Von der Regie entfernt.'); if(ws)ws.close(); } if(m.code==='denied'){ status('Zuschaltung abgelehnt.'); if(ws)ws.close(); } }
     else if(m.t==='error'){
       if(m.code==='sfu_not_configured') status('Regie-Medienserver noch nicht eingerichtet.');
@@ -774,12 +881,66 @@ function guestPage(id) {
       };
       stream.getTracks().forEach(function(tr){ pc.addTrack(tr, stream); });
       ws.send(JSON.stringify({t:'tracks', hasVideo:true}));
+      await serializeNego(publishInitial);
+      if(supportsShare()) shareEl.classList.remove('hide');
+    }catch(e){ status('Kamera/Mikrofon nicht verfügbar.'); }
+  }
+  async function publishInitial(){
+    var offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    // Transceiver-mid + kind mitsenden → der DO vergibt daraus global eindeutige trackNames.
+    var tracks=pc.getTransceivers().filter(function(t){return t.sender&&t.sender.track;}).map(function(t){return {mid:t.mid, kind:t.sender.track.kind};});
+    var wait=awaitOnce(function(fn){ answerResolve=fn; }, 8000); // VOR dem Senden — die Answer kann sofort da sein
+    ws.send(JSON.stringify({t:'offer', sdp:{ type:offer.type, sdp:offer.sdp }, tracks:tracks}));
+    var answer=await wait;
+    if(!answer) throw new Error('keine Answer auf den Publish');
+    await pc.setRemoteDescription(answer);
+    retTries=0; wantReturn();
+  }
+
+  // ── Welle 6.3: Bildschirm teilen → zusätzlicher Track auf DERSELBEN Session ──
+  function supportsShare(){ return !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia); }
+
+  async function toggleShare(){
+    if(screenStream){ stopShare(); return; }
+    shareEl.disabled=true;
+    try{
+      // Bewusst OHNE Systemton: der käme als zweiter Ton-Track in den Mix und der Gast hörte
+      // über den Rückkanal seinen eigenen Bildschirmton zurück.
+      screenStream=await navigator.mediaDevices.getDisplayMedia({ video:{frameRate:25}, audio:false });
+    }catch(e){ shareEl.disabled=false; return; } // Nutzer hat die Auswahl abgebrochen
+    var track=screenStream.getVideoTracks()[0];
+    if(!track){ cleanupShare(); return; }
+    if('contentHint' in track) track.contentHint='detail'; // Text/Folien statt Bewegtbild
+    track.addEventListener('ended', stopShare);            // „Teilen beenden" der Browserleiste
+    await serializeNego(function(){ return publishScreen(track); });
+    shareEl.disabled=false;
+  }
+
+  async function publishScreen(track){
+    try{
+      screenTx=pc.addTransceiver(track, {direction:'sendonly'});
       var offer=await pc.createOffer();
       await pc.setLocalDescription(offer);
-      // Transceiver-mid + kind mitsenden → der DO vergibt daraus global eindeutige trackNames.
-      var tracks=pc.getTransceivers().filter(function(t){return t.sender&&t.sender.track;}).map(function(t){return {mid:t.mid, kind:t.sender.track.kind};});
-      ws.send(JSON.stringify({t:'offer', sdp:{ type:offer.type, sdp:offer.sdp }, tracks:tracks}));
-    }catch(e){ status('Kamera/Mikrofon nicht verfügbar.'); }
+      var wait=awaitOnce(function(fn){ answerResolve=fn; }, 8000);
+      ws.send(JSON.stringify({t:'addScreen', sdp:{ type:offer.type, sdp:offer.sdp }, tracks:[{mid:screenTx.mid, kind:'screen'}]}));
+      var answer=await wait;
+      if(!answer) throw new Error('keine Answer auf den Bildschirm-Publish');
+      await pc.setRemoteDescription(answer);
+      shareEl.textContent='Teilen beenden';
+    }catch(e){ status('Bildschirm konnte nicht geteilt werden.'); cleanupShare(); }
+  }
+
+  function stopShare(){
+    if(!screenStream) return;
+    cleanupShare();
+    if(ws && ws.readyState===1) ws.send(JSON.stringify({t:'stopScreen'}));
+  }
+  function cleanupShare(){
+    if(screenStream){ screenStream.getTracks().forEach(function(t){ t.stop(); }); screenStream=null; }
+    if(screenTx){ try{ screenTx.sender.replaceTrack(null); }catch(e){} screenTx=null; }
+    shareEl.textContent='Bildschirm teilen';
+    shareEl.disabled=false;
   }
   // Return-Ton starten. Blockiert die Autoplay-Policy trotz vorheriger Geste, beim nächsten
   // Tippen erneut versuchen (statt still stumm zu bleiben).
@@ -792,16 +953,21 @@ function guestPage(id) {
       });
     });
   }
-  // Rückkanal-Renegotiation: SFU-Offer (Programm-/Return-Tracks) beantworten.
+  // Rückkanal-Renegotiation: SFU-Offer (Programm-/Return-Tracks) beantworten. Läuft im Nego-Lock und
+  // wartet auf die Quittung: bis die SFU unsere Answer angewandt hat, weist sie jeden weiteren Push
+  // (z. B. „Bildschirm teilen") mit 406 ab.
   async function onReturnOffer(sdp){
     try{
       await pc.setRemoteDescription(sdp);
       var answer=await pc.createAnswer();
       await pc.setLocalDescription(answer);
+      var wait=awaitOnce(function(fn){ renegotiatedResolve=fn; }, 8000);
       ws.send(JSON.stringify({t:'returnAnswer', sdp:{ type:answer.type, sdp:answer.sdp }}));
+      await wait;
     }catch(e){ /* Rückkanal optional — Zuschaltung läuft auch ohne Programm-Bild weiter */ }
   }
   enterEl.addEventListener('click', enter);
+  shareEl.addEventListener('click', toggleShare);
 </script>
 </body>
 </html>`;
