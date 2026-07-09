@@ -463,6 +463,27 @@
         }
       },
       "app": "connect"
+    },
+    {
+      "id": "jm-interpreter",
+      "name": "JM Interpreter",
+      "tagline": "Dolmetscher-Ducking · Einspeisung",
+      "description": "Mischt den Originalton einer Veranstaltung (Floor) mit der Simultanübersetzung und senkt den Floor automatisch ab, sobald die Dolmetscherin spricht. Schwelle, Absenkung, Attack, Release und Nachlauf sind frei einstellbar; der Nachlauf verhindert, dass kurze Atempausen den Originalton hochreißen. Der fertige Mix geht auf ein Ausgabegerät deiner Wahl — über ein virtuelles Kabel (z. B. VB-Cable) lässt er sich in Zoom, Webex oder Teams als Mikrofon einspeisen. Windows + macOS.",
+      "category": "Studio",
+      "appId": "gmbh.jakobs.interpreter",
+      "repo": "AlexmachtCode/alexzvn",
+      "latestVersion": "0.1.0",
+      "platforms": {
+        "mac": {
+          "artifact": "JM Interpreter-${version}-mac-${arch}.dmg",
+          "appPath": "/Applications/JM Interpreter.app"
+        },
+        "win": {
+          "artifact": "JM Interpreter-${version}-win-x64.exe",
+          "exePath": "%LOCALAPPDATA%\\Programs\\JM Interpreter\\JM Interpreter.exe"
+        }
+      },
+      "app": "interpreter"
     }
   ]
 }

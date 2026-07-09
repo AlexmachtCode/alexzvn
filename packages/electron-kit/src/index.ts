@@ -26,6 +26,13 @@ export interface WindowOptions {
    * migriert sind; danach kann der Default zentral auf `true` wechseln.
    */
   sandbox?: boolean;
+  /**
+   * Chromium drosselt Timer und `requestAnimationFrame` in verdeckten oder minimierten
+   * Fenstern. Für Tools mit einem LIVE-Ausgang (NDI-Versand, Aufnahme, Ducking) ist das fatal:
+   * die Quelle bleibt im Netz sichtbar, liefert aber nichts mehr. Solche Apps setzen `false`.
+   * Default bleibt Chromiums Sparverhalten — es kostet sonst grundlos Akku.
+   */
+  backgroundThrottling?: boolean;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -57,6 +64,7 @@ export function createMainWindow(opts: WindowOptions): BrowserWindow {
       sandbox: opts.sandbox ?? false,
       contextIsolation: true,
       nodeIntegration: false,
+      ...(opts.backgroundThrottling === false ? { backgroundThrottling: false } : {}),
     },
   });
 
