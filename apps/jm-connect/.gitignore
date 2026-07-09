@@ -1,0 +1,6 @@
+# Von tools/bundle-ndi.mjs vor dem Packen hierher gestaged: die NDI-Runtime
+# (Processing.NDI.Lib.*, lizenziert, nicht redistribuierbar) und das gebaute
+# native Addon jm_ndi.node. Beides gehört nicht ins Repo — sonst zieht ein
+# `git add -A` knapp 30 MB Fremd-Binaries in den nächsten Commit.
+# Die Wurzel-.gitignore deckt node_modules/out/release bereits ab.
+resources/bin/
