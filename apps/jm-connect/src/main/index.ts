@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
 import { join } from 'node:path';
 import { initAppRuntime } from '@jm/app-runtime';
 import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } from '@jm/electron-kit';
@@ -56,6 +56,12 @@ function showOrCreateWindow(): void {
 
 if (setupSingleInstance(() => showOrCreateWindow())) {
   app.whenReady().then(async () => {
+    // Der versteckte Peer öffnet fürs Talkback (6.2c) das Regie-Mikro. Ohne diese Freigabe lehnt
+    // Chromium getUserMedia im file://-Kontext des gepackten Builds ab (wie in caption/sync).
+    // Nur `media` — alles andere bleibt verwehrt.
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
+
     // Versteckter WebRTC-Peer (Medien) — vor dem NDI-Pool, der ihm Frame-Ports gibt.
     createPeerWindow(preloadPath);
     initNdiGuests({ getPeer: () => getPeerWindow(), onChange: () => notifyStatusChanged() });

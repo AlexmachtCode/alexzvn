@@ -20,9 +20,9 @@ function check(name, cond) {
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-function mockWs(tags) {
+function mockWs(tags, attachment = {}) {
   const sent = [];
-  return { __tags: tags, sent, send: (s) => sent.push(JSON.parse(s)), serializeAttachment() {}, deserializeAttachment: () => ({}), close() {} };
+  return { __tags: tags, sent, send: (s) => sent.push(JSON.parse(s)), serializeAttachment() {}, deserializeAttachment: () => attachment, close() {} };
 }
 
 function makeCtx(sockets) {
@@ -172,6 +172,27 @@ async function run() {
   const g3ws = mockWs(['guest', 'g3']);
   await room.publishGuest(g3ws, 'g3', { type: 'offer', sdp: 'z' }, [{ mid: '0', kind: 'video' }]);
   check('ohne SFU-Config → sfu_not_configured', g3ws.sent.some((m) => m.t === 'error' && m.code === 'sfu_not_configured'));
+
+  // ── Talkback-Fail-Safe (6.2c): der Zustand wird persistiert. Stirbt die Operator-App, während
+  //    jemand die Sprechtaste hält, stünde sonst ein heißes Regie-Mikro im Raum. ──
+  const tbOp = mockWs(['operator'], { scope: 'operator' });
+  const tbRoom = new ConnectRoom(makeCtx([tbOp]), {});
+  await tick();
+  tbRoom.state = { room: 'r', guests: [approvedGuest], standbyId: null, talkback: { mode: 'all', target: null } };
+  tbRoom.webSocketClose(tbOp);
+  check('Operator weg → Talkback wird geschlossen', tbRoom.state.talkback.mode === 'off');
+
+  // Ein gehender GAST darf das Talkback der Regie hingegen nicht abschalten.
+  const tbOp2 = mockWs(['operator'], { scope: 'operator' });
+  const tbGuest = mockWs(['guest', 'g1'], { scope: 'guest', guestId: 'g1' });
+  const tbRoom2 = new ConnectRoom(makeCtx([tbOp2, tbGuest]), {});
+  await tick();
+  tbRoom2.state = { room: 'r', guests: [approvedGuest], standbyId: null, talkback: { mode: 'all', target: null } };
+  tbRoom2.webSocketClose(tbGuest);
+  check(
+    'Gast weg → Talkback bleibt an, Gast gilt als getrennt',
+    tbRoom2.state.talkback.mode === 'all' && tbRoom2.state.guests[0].phase === 'disconnected',
+  );
 }
 
 run()

@@ -6,6 +6,8 @@
 //   6.2a  Programm-NDI → `program-video`  (EIN geteilter Track, alle Gäste sehen ihn)
 //   6.2b  Mix-Minus    → `return-<G>-audio` je Gast: Programm + alle ANDEREN Gäste, nie er selbst
 //         (sonst hörte er sich verzögert selbst → Echo). Gemischt im Web-Audio-Graph hier.
+//   6.2c  Talkback     → Regie-Mikro, gated, in den Return-Bus des Ziel-Gasts. Es geht NUR ins Ohr
+//         des Gasts, nie ins Programm/NDI und nie in die Mischung der anderen Gäste.
 //
 // Das App-Secret der SFU bleibt serverseitig: der Peer spricht die SFU NUR über den ConnectRoom-DO.
 // WICHTIG (CF Realtime): eine reine EMPFÄNGER-Session hat erst dann einen Transport, wenn ein
@@ -58,6 +60,14 @@ let audioWriteChain: Promise<void> = Promise.resolve();
 const guestGain = new Map<string, GainNode>(); // Gast-Audio → sein Beitrag zum Bus
 const returnDest = new Map<string, MediaStreamAudioDestinationNode>(); // Gast → sein persönlicher Mix
 const returnPublished = new Set<string>(); // `return-<G>-audio` bereits an die SFU publiziert
+
+// ── Rückkanal 6.2c: Talkback (Regie ins Ohr) ─────────────────────────────────────────────────
+type TalkbackMode = 'off' | 'selected' | 'all';
+let talkbackSource: MediaStreamAudioSourceNode | null = null;
+let talkbackMode: TalkbackMode = 'off';
+let talkbackTarget: string | null = null;
+let talkbackOpening = false;
+const talkbackGain = new Map<string, GainNode>(); // Gast → Regie-Mikro in SEINEN Return-Bus
 
 /**
  * Diagnose: in die (versteckte) Peer-Konsole UND ins Main-/Terminal-Log spiegeln. Der Peer hat
@@ -164,6 +174,7 @@ function onMessage(raw: unknown): void {
     answer?: RTCSessionDescriptionInit;
     tracks?: { mid: string; kind: Kind }[];
     code?: string;
+    state?: { talkback?: { mode?: TalkbackMode; target?: string | null } };
   };
   if (m.t === 'peerSession' && m.sessionId) {
     peerSessionId = m.sessionId;
@@ -196,8 +207,12 @@ function onMessage(raw: unknown): void {
     stopGuest(m.guestId);
   } else if (m.t === 'error') {
     plog('WARN DO-Fehler:', m.code);
-  } else if (m.t === 'welcome' || m.t === 'state' || m.t === 'ndi' || m.t === 'you') {
-    // Reine Operator-/UI-Nachrichten — den Peer betreffen sie nicht.
+  } else if (m.t === 'welcome' || m.t === 'state') {
+    // Der DO ist autoritativ — auch fürs Talkback (6.2c). Der Peer hört hier mit, statt einen
+    // eigenen IPC-Weg zu bekommen: so kann die Regie-Stimme nie von der Freigabe-Logik abweichen.
+    applyTalkback(m.state?.talkback);
+  } else if (m.t === 'ndi' || m.t === 'you') {
+    // Reine Operator-/Gast-UI-Nachrichten — den Peer betreffen sie nicht.
   } else {
     // NIE still verschlucken: ein subscribeOffer ohne sdp fiel vorher wortlos durch alle
     // Bedingungen und der Medienpfad blieb ohne jede Spur stehen.
@@ -335,6 +350,16 @@ function stopGuest(guestId: string): void {
       /* egal */
     }
     returnDest.delete(guestId);
+  }
+  const tb = talkbackGain.get(guestId);
+  if (tb) {
+    try {
+      talkbackSource?.disconnect(tb);
+      tb.disconnect();
+    } catch {
+      /* egal */
+    }
+    talkbackGain.delete(guestId);
   }
   returnPublished.delete(guestId);
   rebuildMixMinus();
@@ -591,6 +616,15 @@ function rebuildMixMinus(): void {
   if (!audioCtx) return;
   for (const id of guestGain.keys()) {
     if (!returnDest.has(id)) returnDest.set(id, audioCtx.createMediaStreamDestination());
+    // Talkback-Gate des Gasts: hängt dauerhaft an SEINEM Ziel und wird nur über den Pegel geöffnet
+    // (6.2c). Es bleibt beim Neuverdrahten unangetastet — es hängt an keiner Gästemenge.
+    if (!talkbackGain.has(id)) {
+      const tb = audioCtx.createGain();
+      tb.gain.value = 0;
+      tb.connect(returnDest.get(id)!);
+      talkbackSource?.connect(tb);
+      talkbackGain.set(id, tb);
+    }
   }
   // Nur die Ausgänge lösen (die Quellen → Gain-Verbindungen bleiben bestehen).
   programAudioGain?.disconnect();
@@ -602,7 +636,64 @@ function rebuildMixMinus(): void {
       if (otherId !== id) gain.connect(dest);
     }
   }
+  applyTalkbackGains();
   flushReturns();
+}
+
+/**
+ * Regie-Mikro erst beim ERSTEN Talkback öffnen — solange niemand spricht, ist kein Mikro offen.
+ * Danach bleibt es offen: `getUserMedia` braucht 100–300 ms, und die würden jedem Tastendruck den
+ * Wortanfang abschneiden. Stumm wird über die Gains geschaltet, nicht über den Track.
+ */
+async function ensureTalkbackMic(): Promise<boolean> {
+  if (talkbackSource) return true;
+  if (talkbackOpening) return false;
+  talkbackOpening = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    const ctx = ensureAudioCtx();
+    talkbackSource = ctx.createMediaStreamSource(stream);
+    for (const tb of talkbackGain.values()) talkbackSource.connect(tb);
+    plog('AUDIT Talkback-Mikro geöffnet');
+    return true;
+  } catch (e) {
+    plog('FEHLER Talkback-Mikro nicht verfügbar', e);
+    return false;
+  } finally {
+    talkbackOpening = false;
+  }
+}
+
+/** Autoritativer Talkback-Zustand des DO → Web-Audio-Gates. */
+function applyTalkback(tb: { mode?: TalkbackMode; target?: string | null } | undefined): void {
+  const mode = tb?.mode ?? 'off';
+  const target = tb?.target ?? null;
+  if (mode === talkbackMode && target === talkbackTarget) return;
+  talkbackMode = mode;
+  talkbackTarget = target;
+  plog('AUDIT Talkback', mode, target ?? '');
+  // Beim Einschalten kann das Mikro noch fehlen → nach dem Öffnen die Gates erneut setzen.
+  if (mode !== 'off' && !talkbackSource) {
+    void ensureTalkbackMic().then((ok) => {
+      if (ok) applyTalkbackGains();
+    });
+  }
+  applyTalkbackGains();
+}
+
+function talkbackLevel(guestId: string): number {
+  if (!talkbackSource || talkbackMode === 'off') return 0;
+  if (talkbackMode === 'all') return 1;
+  return guestId === talkbackTarget ? 1 : 0;
+}
+
+function applyTalkbackGains(): void {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  // Rampe statt Sprung: ein harter Gain-Wechsel knackt hörbar im Ohr des Gasts.
+  for (const [id, gain] of talkbackGain) gain.gain.setTargetAtTime(talkbackLevel(id), now, 0.015);
 }
 
 function flushReturns(): void {
@@ -617,4 +708,4 @@ function maybePublishReturn(guestId: string): void {
   void serializeNego(() => publishTrack(track, `return-${guestId}-audio`, () => returnPublished.delete(guestId)));
 }
 
-plog('JM Connect Peer-Renderer bereit (Welle 6.1/6.2a/6.2b).');
+plog('JM Connect Peer-Renderer bereit (Welle 6.1/6.2a/6.2b/6.2c).');

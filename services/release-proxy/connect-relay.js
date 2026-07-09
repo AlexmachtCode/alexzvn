@@ -293,6 +293,13 @@ export class ConnectRoom {
     const att = safeAttachment(ws);
     if (att.scope === 'guest' && att.guestId) {
       this.applyEvent({ t: 'guestDisconnect', guestId: att.guestId });
+      return;
+    }
+    // Operator (oder der versteckte Peer) ist weg → Talkback IMMER schließen. Der Zustand wird
+    // persistiert: stirbt die App, während jemand die Sprechtaste hält, stünde sonst ein heißes
+    // Regie-Mikro im Raum und wäre beim nächsten Verbinden sofort wieder offen.
+    if (this.state.talkback && this.state.talkback.mode !== 'off') {
+      this.applyEvent({ t: 'talkback', mode: 'off', target: null });
     }
   }
 

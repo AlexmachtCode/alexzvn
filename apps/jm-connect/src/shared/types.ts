@@ -54,6 +54,8 @@ export interface JmConnectApi {
   pushControlState: (kv: Record<string, string | number | boolean>) => void;
   /** Diagnose-Zeile des versteckten Peers ins Main-/Terminal-Log spiegeln. */
   peerLog: (msg: string) => void;
+  /** Auditierbaren Vorgang protokollieren (Spur S4 hängt hier später ein Audit-Log an). */
+  audit: (event: string, detail?: string) => void;
   getStatus: () => Promise<AppStatus>;
   onStatus: (cb: (s: AppStatus) => void) => () => void;
   onTrayCommand: (cb: (cmd: TrayCommand) => void) => () => void;

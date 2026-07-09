@@ -28,10 +28,29 @@ export function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<SignallingClient | null>(null);
   const openingRef = useRef(false);
+  // Der Steuerbefehl-Handler wird EINMAL registriert und darf nicht an `room` hängen (sonst
+  // ab-/neu-abonniert er bei jedem Zustands-Broadcast). `talkback toggle` braucht aber den
+  // aktuellen Zustand → über einen Ref lesen.
+  const roomRef = useRef<RoomState | null>(null);
 
   const send = useCallback((action: OperatorAction) => {
     clientRef.current?.send(action);
   }, []);
+
+  // Talkback ist „Halten zum Sprechen": Taste unten → Mikro auf, Taste los → zu.
+  // `target: null` spricht ALLE Gäste an, sonst nur den einen. Der DO ist autoritativ; der
+  // versteckte Peer folgt seinem Broadcast und schaltet den Web-Audio-Gate.
+  const talkbackDown = useCallback(
+    (target: string | null) => {
+      send({ t: 'talkback', mode: target ? 'selected' : 'all', target });
+      window.jmconnect.audit('talkback', `an → ${target ?? 'alle Gäste'} (Bedienfeld)`);
+    },
+    [send],
+  );
+  const talkbackUp = useCallback(() => {
+    send({ t: 'talkback', mode: 'off', target: null });
+    window.jmconnect.audit('talkback', 'aus (Bedienfeld)');
+  }, [send]);
 
   // STATE fürs Steuerprotokoll ableiten (Companion/Rundown/Health).
   const pushControlState = useCallback((s: RoomState) => {
@@ -54,6 +73,7 @@ export function App(): JSX.Element {
       const msg = raw as { t?: string; state?: RoomState; action?: string; guestId?: string; label?: string };
       if ((msg.t === 'welcome' || msg.t === 'state') && msg.state) {
         setRoom(msg.state);
+        roomRef.current = msg.state;
         pushControlState(msg.state);
       } else if (msg.t === 'ndi' && msg.guestId) {
         if (msg.action === 'up') window.jmconnect.ndiUp(msg.guestId, msg.label || `JM Connect – ${msg.guestId}`);
@@ -109,6 +129,15 @@ export function App(): JSX.Element {
     const offStatus = window.jmconnect.onStatus(setStatus);
     // Steuerbefehle (Companion/Rundown) → Operator-Aktion an den DO relayen.
     const offCmd = window.jmconnect.onControlCommand((cmd) => {
+      // `talkback` trägt als Argument den Modus (on|off|toggle), NICHT eine Gast-ID — und muss den
+      // aktuellen Zustand kennen. Bisher schaltete jeder talkback-Befehl (auch `off`) das Mikro AN.
+      if (cmd.verb === 'talkback') {
+        const arg = (cmd.args[0] ?? 'toggle').toLowerCase();
+        const on = arg === 'on' ? true : arg === 'off' ? false : (roomRef.current?.talkback.mode ?? 'off') === 'off';
+        send({ t: 'talkback', mode: on ? 'all' : 'off', target: null });
+        window.jmconnect.audit('talkback', `${on ? 'an → alle Gäste' : 'aus'} (Steuerprotokoll)`);
+        return;
+      }
       const guestId = cmd.args[0] ?? '';
       const map: Record<string, OperatorAction | undefined> = {
         go: { t: 'go' },
@@ -118,7 +147,6 @@ export function App(): JSX.Element {
         off: { t: 'off', guestId },
         approve: { t: 'approve', guestId },
         kick: { t: 'kick', guestId },
-        talkback: { t: 'talkback', mode: 'all' },
       };
       const action = map[cmd.verb];
       if (action) send(action);
@@ -131,6 +159,7 @@ export function App(): JSX.Element {
   }, [send]);
 
   const guests = (room?.guests ?? []).filter((g) => g.phase !== 'left' && g.phase !== 'kicked');
+  const talkback = room?.talkback ?? { mode: 'off' as const, target: null };
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -195,10 +224,28 @@ export function App(): JSX.Element {
             <ProgramBadge status={status} />
           </div>
 
+          <PttButton
+            onDown={() => talkbackDown(null)}
+            onUp={talkbackUp}
+            active={talkback.mode === 'all'}
+            className="mb-3 w-full py-3 text-sm"
+            label={talkback.mode === 'all' ? '🎙 Regie spricht — alle Gäste' : '🎙 Halten zum Sprechen (alle Gäste)'}
+          />
+
           <ul className="space-y-2">
             {guests.map((g) => (
               <li key={g.id} className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3">
                 <span className="flex-1 font-medium">{g.name}</span>
+                {canHearTalkback(g) && (
+                  <PttButton
+                    onDown={() => talkbackDown(g.id)}
+                    onUp={talkbackUp}
+                    active={talkback.mode === 'selected' && talkback.target === g.id}
+                    className="px-2 py-1 text-xs"
+                    label="🎙"
+                    title={`Halten: nur ${g.name} hört die Regie`}
+                  />
+                )}
                 <PhaseBadge phase={g.phase} />
                 <GuestActions guest={g} send={send} />
               </li>
@@ -208,6 +255,49 @@ export function App(): JSX.Element {
         </>
       )}
     </div>
+  );
+}
+
+/** Nur wer einen Rückkanal hat, kann die Regie hören (Mix-Minus-Bus entsteht erst ab „freigegeben"). */
+function canHearTalkback(g: Guest): boolean {
+  return g.phase === 'approved' || g.phase === 'onair' || g.phase === 'off';
+}
+
+/**
+ * Halten zum Sprechen. Der Zeiger wird eingefangen (`setPointerCapture`), damit das Loslassen
+ * auch dann auf dem Knopf ankommt, wenn die Maus dabei längst woanders ist — sonst bliebe das
+ * Regie-Mikro offen, ohne dass es jemand merkt.
+ */
+function PttButton({
+  label,
+  title,
+  active,
+  className,
+  onDown,
+  onUp,
+}: {
+  label: string;
+  title?: string;
+  active: boolean;
+  className: string;
+  onDown: () => void;
+  onUp: () => void;
+}): JSX.Element {
+  return (
+    <button
+      title={title}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        onDown();
+      }}
+      onPointerUp={onUp}
+      onPointerCancel={onUp}
+      className={`select-none rounded-lg font-semibold transition-colors ${
+        active ? 'bg-yellow-400 text-neutral-900' : 'bg-neutral-700 text-neutral-100 hover:bg-neutral-600'
+      } ${className}`}
+    >
+      {label}
+    </button>
   );
 }
 

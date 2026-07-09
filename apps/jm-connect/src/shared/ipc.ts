@@ -23,6 +23,8 @@ export const IPC = {
   programStatus: 'jmc:program-status',
   /** send (versteckter Peer → Main): Diagnose-Zeile ins Terminal-Log (Peer hat kein sichtbares Fenster). */
   peerLog: 'jmc:peer-log',
+  /** send (Renderer → Main): auditierbarer Vorgang (Talkback an/aus …) ins Laufzeit-Log. */
+  audit: 'jmc:audit',
 } as const;
 
 /** Interner Kanal Main → versteckter Peer-Renderer: Frame-Port für einen Gast. */

@@ -80,6 +80,12 @@ export function registerIpc(deps: {
   ipcMain.on(IPC.peerLog, (_e, msg: string) => {
     if (typeof msg === 'string') console.log('[peer]', msg);
   });
+
+  // Auditierbare Vorgänge (heute: Talkback) ins Laufzeit-Log von @jm/app-runtime.
+  // Spur S4 ersetzt das später durch ein echtes audit_log (Muster: studio-control).
+  ipcMain.on(IPC.audit, (_e, p: { event?: string; detail?: string }) => {
+    if (p?.event) console.log('[audit]', p.event, p.detail ?? '');
+  });
 }
 
 /** Vom ndi-guests-Pool aufgerufen, wenn sich die Sender-Anzahl ändert. */
