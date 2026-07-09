@@ -442,6 +442,27 @@
         }
       },
       "app": "caption"
+    },
+    {
+      "id": "jm-connect",
+      "name": "JM Connect",
+      "tagline": "Remote-Zuschaltungen · Green Room",
+      "description": "Hybride Konferenzen: Remote-Gäste kommen per Browser dazu (nur ein Join-Link, keine Software) und erscheinen automatisch als NDI-Quelle im JM Switcher, Titler und Rundown. Voller Green Room mit Warteraum, Vorschau, Freigabe und Tally. Rückkanal mit Mix-Minus — jeder Gast sieht das Programm und hört alle anderen, aber nie sich selbst; die Regie spricht per Talkback ins Ohr. Der Raum-PC öffnet keinen eingehenden Port. Per Bitfocus Companion und JM Rundown fernsteuerbar (eine GO-Zeile holt den Standby-Gast auf Sendung). Windows + macOS (nutzt die NDI-Runtime).",
+      "category": "Studio",
+      "appId": "gmbh.jakobs.connect",
+      "repo": "AlexmachtCode/alexzvn",
+      "latestVersion": "0.1.0",
+      "platforms": {
+        "mac": {
+          "artifact": "JM Connect-${version}-mac-${arch}.dmg",
+          "appPath": "/Applications/JM Connect.app"
+        },
+        "win": {
+          "artifact": "JM Connect-${version}-win-x64.exe",
+          "exePath": "%LOCALAPPDATA%\\Programs\\JM Connect\\JM Connect.exe"
+        }
+      },
+      "app": "connect"
     }
   ]
 }

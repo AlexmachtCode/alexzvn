@@ -17,7 +17,7 @@ jobs:
     name: ${{ matrix.os }}
     # Tools mit nativen Addons werden NICHT in CI gebaut (lizenzierte, nicht
     # redistribuierbare SDKs fehlen auf GitHub-Runnern):
-    #   - ndi-screen-capture + switcher + titler → @jm/ndi (NDI-SDK)
+    #   - ndi-screen-capture + switcher + titler + connect → @jm/ndi (NDI-SDK)
     #   - recorder + daw                         → @jm/audio (PortAudio/ASIO-SDK)
     #   - transcribe + caption                   → whisper.cpp-Binary + Modell (+ caption: @jm/ndi)
     # Diese werden LOKAL gebaut (Windows: dist:win; macOS/arm64: dist:mac — siehe
@@ -25,7 +25,7 @@ jobs:
     # (gh release create <app>-v<version> + Installer-Upload). transcribe ließe
     # sich auf macos-latest perspektivisch CI-automatisieren (whisper.cpp aus
     # Quelle baubar, kein Secret) — bewusst noch nicht umgesetzt.
-    if: ${{ !startsWith(github.ref_name, 'ndi-screen-capture-v') && !startsWith(github.ref_name, 'switcher-v') && !startsWith(github.ref_name, 'recorder-v') && !startsWith(github.ref_name, 'titler-v') && !startsWith(github.ref_name, 'transcribe-v') && !startsWith(github.ref_name, 'caption-v') && !startsWith(github.ref_name, 'daw-v') }}
+    if: ${{ !startsWith(github.ref_name, 'ndi-screen-capture-v') && !startsWith(github.ref_name, 'switcher-v') && !startsWith(github.ref_name, 'recorder-v') && !startsWith(github.ref_name, 'titler-v') && !startsWith(github.ref_name, 'transcribe-v') && !startsWith(github.ref_name, 'caption-v') && !startsWith(github.ref_name, 'daw-v') && !startsWith(github.ref_name, 'connect-v') }}
     strategy:
       fail-fast: false
       matrix:
@@ -110,7 +110,7 @@ jobs:
   # latestVersion in suite.json automatisch nachziehen, sobald der CI-Build
   # erfolgreich released wurde — ersetzt das manuelle Pflegen der Katalog-Version.
   # Läuft nur bei vollständigem Erfolg der Matrix (kein Bump bei Teilausfall).
-  # Native Tools (ndi-screen-capture/switcher/recorder/daw/titler/transcribe)
+  # Native Tools (ndi-screen-capture/switcher/recorder/daw/titler/transcribe/connect)
   # bauen lokal und sind oben per `if` ausgenommen → deren Version bumpt man lokal:
   #   node scripts/bump-manifest.mjs <app> <version>
   bump-manifest:

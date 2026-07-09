@@ -15,9 +15,10 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "rebuild:native": "electron-rebuild --only @jm/ndi",
-    "dist": "electron-vite build && electron-builder",
+    "prepackage": "node tools/bundle-ndi.mjs",
+    "dist": "electron-vite build && npm run prepackage && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
-    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:win": "electron-vite build && npm run prepackage && electron-builder --win",
     "dist:mac": "electron-vite build && electron-builder --mac"
   },
   "dependencies": {
