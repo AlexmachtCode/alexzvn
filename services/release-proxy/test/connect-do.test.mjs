@@ -104,7 +104,7 @@ async function run() {
     (c) => c[0] === 'publish' && JSON.stringify(c[2]) === JSON.stringify([{ location: 'local', mid: '0', trackName: 'program-video' }]),
   );
   check('peerPublish: program-video als lokaler Track', !!progPub);
-  check('DO merkt Programm-Track (ret)', room.ret && room.ret.sessionId === 'peer-sess' && room.ret.trackName === 'program-video');
+  check('DO merkt Programm-Track (ret)', room.ret && room.ret.sessionId === 'peer-sess' && room.ret.program === 'program-video');
   check('Peer erhält peerPublished mit answer', progPeer.sent.some((m) => m.t === 'peerPublished' && m.answer));
   check('Gast erhält returnAvailable', guestSocket.sent.some((m) => m.t === 'returnAvailable'));
 
@@ -123,6 +123,39 @@ async function run() {
   const dupSubs = calls.filter((c) => c[0] === 'subscribe').length;
   await room.guestWantReturn(guestSocket, 'g1');
   check('doppeltes wantReturn → kein erneutes subscribe', calls.filter((c) => c[0] === 'subscribe').length === dupSubs);
+
+  // ── Mix-Minus 6.2b: Peer publisht return-g1-audio → Gast zieht NUR den fehlenden Ton nach ──
+  await room.peerPublish(progPeer, 'peer-sess', { type: 'offer', sdp: 'ao' }, [{ mid: '1', trackName: 'return-g1-audio' }]);
+  check('peerPublish: return-g1-audio gemerkt', room.ret.audio && room.ret.audio.g1 === 'return-g1-audio');
+  check('peerPublish: program bleibt gemerkt', room.ret.program === 'program-video');
+
+  const audioBefore = calls.length;
+  await room.guestWantReturn(guestSocket, 'g1');
+  const audioSub = calls.slice(audioBefore).find((c) => c[0] === 'subscribe');
+  check(
+    'wantReturn zieht NUR den noch fehlenden Ton-Track nach',
+    audioSub && JSON.stringify(audioSub[2]) === JSON.stringify([{ location: 'remote', sessionId: 'peer-sess', trackName: 'return-g1-audio' }]),
+  );
+  const audioOffer = guestSocket.sent.filter((m) => m.t === 'returnOffer').pop();
+  check('returnOffer für den Ton hat kind=audio', audioOffer && audioOffer.tracks.length && audioOffer.tracks.every((t) => t.kind === 'audio'));
+
+  // Kern-Eigenschaft des Mix-Minus: ein Gast bekommt NIE den Return-Ton eines anderen Gasts.
+  const g9 = { ...approvedGuest, id: 'g9' };
+  room.state.guests.push(g9);
+  room.pub.set('g9', { sessionId: 'sess-Y', tracks: [{ trackName: 'g9-video', kind: 'video' }] });
+  const g9ws = mockWs(['guest', 'g9']);
+  const isoBefore = calls.length;
+  await room.guestWantReturn(g9ws, 'g9');
+  const isoSub = calls.slice(isoBefore).find((c) => c[0] === 'subscribe');
+  check(
+    'Mix-Minus-Isolation: g9 zieht nur program-video, NIE g1s Return-Ton',
+    isoSub && JSON.stringify(isoSub[2]) === JSON.stringify([{ location: 'remote', sessionId: 'peer-sess', trackName: 'program-video' }]),
+  );
+
+  // tearDown räumt den Rückkanal des Gasts ab (Rejoin zieht frisch).
+  room.dispatch({ t: 'tearDownNdi', guestId: 'g1' });
+  check('tearDown entfernt g1s Return-Ton-Referenz', !room.ret.audio.g1);
+  check('tearDown vergisst g1s Rückkanal-Abos', !room.retSubs.has('g1'));
 
   // ── Warteraum-Gate: nicht freigegebener Gast darf NICHT publishen ──
   const lobbyGuest = { ...approvedGuest, id: 'g2', phase: 'lobby' };

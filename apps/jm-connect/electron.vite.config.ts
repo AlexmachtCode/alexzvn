@@ -56,7 +56,9 @@ export default defineConfig({
     },
     server: {
       host: true,
-      port: 5181,
+      // 5181 gehört dem Switcher. Für den Rückkanal (Welle 6.2) müssen Switcher und Connect
+      // GLEICHZEITIG im Dev laufen (Switcher sendet das Programm-NDI, Connect empfängt es).
+      port: 5195,
       strictPort: true,
     },
     build: {

@@ -46,6 +46,27 @@ export function createCloudflareSfu(cfg: CfSfuConfig): SfuBroker {
     return res.json();
   }
 
+  /**
+   * CF Realtime meldet Track-Fehler NICHT über den HTTP-Status, sondern mit 200 und einem
+   * `error`-Objekt AM EINZELNEN TRACK (dann fehlt auch `sessionDescription`). Ohne diese Prüfung
+   * rutscht so ein Fehler still durch: der Aufrufer bekommt Tracks ohne SDP und der Medienpfad
+   * bleibt spurlos stehen. Genau das ist beim Rückkanal passiert.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function assertTracksOk(r: any, op: string): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bad = ((r?.tracks ?? []) as any[]).filter((t) => t && t.error);
+    if (!bad.length) return;
+    const detail = bad
+      .map((t) => {
+        const e = t.error;
+        const msg = e.errorCode || e.errorDescription ? `${e.errorCode ?? ''} ${e.errorDescription ?? ''}`.trim() : JSON.stringify(e);
+        return `${t.trackName ?? '?'}: ${msg}`;
+      })
+      .join(' | ');
+    throw new Error(`SFU ${op} Track-Fehler → ${detail}`);
+  }
+
   return {
     async newSession(offer?) {
       // Mit Offer: Transport direkt etablieren (CF Realtime gibt die Answer zurück). Ohne Offer:
@@ -59,6 +80,7 @@ export function createCloudflareSfu(cfg: CfSfuConfig): SfuBroker {
         sessionDescription: offer,
         tracks: tracks.map((t) => ({ location: 'local', mid: t.mid, trackName: t.trackName })),
       });
+      assertTracksOk(r, 'publish');
       return { answer: r.sessionDescription as SdpDescription, tracks: (r.tracks ?? []) as TrackRef[] };
     },
 
@@ -66,6 +88,14 @@ export function createCloudflareSfu(cfg: CfSfuConfig): SfuBroker {
       const r = await call(`/sessions/${sessionId}/tracks/new`, 'POST', {
         tracks: tracks.map((t) => ({ location: 'remote', sessionId: t.sessionId, trackName: t.trackName })),
       });
+      assertTracksOk(r, 'subscribe');
+      // Ein Pull neuer Tracks braucht IMMER neue m-Sektionen → CF muss ein Offer liefern. Fehlt es,
+      // stimmt etwas Grundsätzliches nicht; lieber laut scheitern als still ohne SDP weiterzugeben.
+      if (!r.sessionDescription) {
+        throw new Error(
+          `SFU subscribe ohne sessionDescription (renegotiate=${r.requiresImmediateRenegotiation}) → ${JSON.stringify(r).slice(0, 400)}`,
+        );
+      }
       return {
         requiresImmediateRenegotiation: Boolean(r.requiresImmediateRenegotiation),
         offer: r.sessionDescription as SdpDescription | undefined,

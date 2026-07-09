@@ -52,6 +52,8 @@ export interface JmConnectApi {
   ndiDown: (guestId: string) => void;
   /** Abgeleiteten STATE ans Steuerprotokoll melden (Companion/Rundown/Health). */
   pushControlState: (kv: Record<string, string | number | boolean>) => void;
+  /** Diagnose-Zeile des versteckten Peers ins Main-/Terminal-Log spiegeln. */
+  peerLog: (msg: string) => void;
   getStatus: () => Promise<AppStatus>;
   onStatus: (cb: (s: AppStatus) => void) => () => void;
   onTrayCommand: (cb: (cmd: TrayCommand) => void) => () => void;

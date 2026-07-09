@@ -19,6 +19,9 @@ export function createPeerWindow(preloadPath: string): BrowserWindow {
       preload: preloadPath,
       sandbox: true,
       contextIsolation: true,
+      // Der Mix-Minus-AudioContext (6.2b) läuft hier ohne jede Nutzergeste — ohne diese Policy
+      // startete er 'suspended' und die Return-Audio-Tracks blieben stumm.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 

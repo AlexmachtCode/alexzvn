@@ -75,6 +75,11 @@ export function registerIpc(deps: {
   ipcMain.on(IPC.pushControlState, (_e, kv: Record<string, string | number | boolean>) => {
     if (kv && typeof kv === 'object') pushControlState(kv);
   });
+
+  // Der versteckte Peer hat kein sichtbares Fenster — seine Diagnose landet so im Terminal-Log.
+  ipcMain.on(IPC.peerLog, (_e, msg: string) => {
+    if (typeof msg === 'string') console.log('[peer]', msg);
+  });
 }
 
 /** Vom ndi-guests-Pool aufgerufen, wenn sich die Sender-Anzahl ändert. */

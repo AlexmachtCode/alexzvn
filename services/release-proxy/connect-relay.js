@@ -33,6 +33,9 @@ import { createCloudflareSfu } from '../../packages/rtc/src/cf-sfu.ts';
 
 const ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
 const HEX_SECRET_RE = /^[a-f0-9]{32,128}$/;
+// Rückkanal-Tracknamen (Welle 6.2): EIN geteiltes Programmbild + je Gast ein eigener Mix-Minus-Ton.
+const PROGRAM_TRACK = 'program-video';
+const RETURN_AUDIO_RE = /^return-(.+)-audio$/;
 const CONNECT = {
   adminBytes: 16 * 1024,
   retentionMaxSec: 60 * 60 * 24, // 24 h Auto-Verfall eines Raums (DO-Alarm)
@@ -123,10 +126,13 @@ export class ConnectRoom {
     this.meta = null;
     /** Veröffentlichte Gäste: guestId → { sessionId, tracks:[{trackName, kind}] } (Medien-Publish). */
     this.pub = new Map();
-    /** Rückkanal (6.2a): der vom Peer publizierte Programm-Track { sessionId, trackName } oder null. */
+    /**
+     * Rückkanal (6.2): die vom Peer publizierten Tracks auf SEINER Session.
+     * `{ sessionId, program: 'program-video'|null, audio: { [guestId]: 'return-<g>-audio' } }`
+     */
     this.ret = null;
-    /** Gäste, die den Programm-Track bereits abonniert haben (in-memory, gegen Doppel-Subscribe). */
-    this.retSubs = new Set();
+    /** guestId → Set der bereits abonnierten Rückkanal-Tracknamen (in-memory, gegen Doppel-Abo). */
+    this.retSubs = new Map();
     /** Test-Hook: injizierbarer SfuBroker (sonst Cloudflare Realtime aus env). */
     this._sfuOverride = null;
     // Persistierten Zustand VOR dem ersten Request laden (nur Setup — kein externes I/O).
@@ -134,7 +140,9 @@ export class ConnectRoom {
       this.meta = (await ctx.storage.get('meta')) || null;
       this.state = (await ctx.storage.get('state')) || null;
       this.pub = new Map((await ctx.storage.get('pub')) || []);
-      this.ret = (await ctx.storage.get('ret')) || null;
+      // Nur die 6.2b-Form akzeptieren; alte/unvollständige Stände → null (Peer publisht neu).
+      const ret = await ctx.storage.get('ret');
+      this.ret = ret && ret.audio ? ret : null;
     });
   }
 
@@ -230,7 +238,7 @@ export class ConnectRoom {
     this.meta = null;
     this.pub = new Map();
     this.ret = null;
-    this.retSubs = new Set();
+    this.retSubs = new Map();
     return json({ ok: true });
   }
 
@@ -402,41 +410,58 @@ export class ConnectRoom {
       this.send(ws, { t: 'subscribeOffer', guestId, sdp: r.offer, tracks, renegotiate: r.requiresImmediateRenegotiation });
     } catch (e) {
       console.error('[connect] subscribe', e && e.message);
-      this.send(ws, { t: 'error', code: 'sfu_error' });
+      // Häufigster Fall: der Transport des Gasts steht noch nicht, seine Tracks sind noch nicht
+      // ziehbar. Der Peer versucht es kurz darauf erneut — vorher blieb er still ohne Bild/Ton.
+      this.send(ws, { t: 'subscribeFailed', guestId });
     }
   }
 
+  /**
+   * Answer des Peers auf ein SFU-Offer anwenden — und das BESTÄTIGEN. Ohne Bestätigung gab der Peer
+   * seinen Aushandlungs-Lock frei, sobald die Answer abgeschickt war; sein nächster Publish traf die
+   * SFU dann noch im Zustand „warte auf remote answer" → HTTP 406 `invalid_session_description`.
+   * Die Bestätigung kommt IMMER (auch im Fehlerfall), damit der Peer nie im Lock hängen bleibt.
+   */
   async peerRenegotiate(ws, peerSessionId, sdp) {
     const sfu = this.sfu();
-    if (!sfu) return;
+    if (!sfu) return this.send(ws, { t: 'renegotiated', ok: false });
     try {
       await sfu.renegotiate(peerSessionId, sdp);
+      this.send(ws, { t: 'renegotiated', ok: true });
     } catch (e) {
       console.error('[connect] renegotiate', e && e.message);
-      this.send(ws, { t: 'error', code: 'sfu_error' });
+      this.send(ws, { t: 'renegotiated', ok: false });
     }
   }
 
-  // ── Rückkanal 6.2a: Programm-Track (Switcher-PGM) → alle Gäste ──
+  // ── Rückkanal 6.2: Programm-Bild (geteilt) + Mix-Minus-Ton (je Gast) → Gäste ──
   /**
-   * Der Peer publisht `program-video` auf seiner eigenen Session. Wir merken uns (sessionId,
-   * trackName), damit Gäste ihn ziehen können, und informieren alle Gäste (returnAvailable).
+   * Der Peer publisht eigene Tracks auf SEINER Session: `program-video` (einmal, geteilt) und je
+   * Gast `return-<guestId>-audio` (sein Mix-Minus). Wir merken uns die Referenzen, damit Gäste sie
+   * ziehen können, und stoßen die Gäste an (returnAvailable → wantReturn).
    */
   async peerPublish(ws, sessionId, offer, tracks) {
     const sfu = this.sfu();
     if (!sfu || !sessionId) return this.send(ws, { t: 'error', code: 'sfu_not_configured' });
-    const named = (tracks.length ? tracks : [{ mid: '0', trackName: 'program-video' }]).map((t) => ({
-      location: 'local',
-      mid: String(t.mid),
-      trackName: String(t.trackName || 'program-video'),
-    }));
+    const named = tracks
+      .filter((t) => t && t.trackName)
+      .map((t) => ({ location: 'local', mid: String(t.mid), trackName: String(t.trackName) }));
+    if (!named.length) return;
     try {
       const { answer } = await sfu.publish(sessionId, offer, named);
-      this.ret = { sessionId, trackName: named[0].trackName };
-      this.retSubs = new Set(); // neue Programm-Session → Gäste müssen neu abonnieren
+      // Neue Peer-Session (App-Neustart/Reconnect) → alte Track-Referenzen sind tot: Gäste neu abonnieren.
+      if (!this.ret || this.ret.sessionId !== sessionId) {
+        this.ret = { sessionId, program: null, audio: {} };
+        this.retSubs = new Map();
+      }
+      for (const t of named) {
+        if (t.trackName === PROGRAM_TRACK) this.ret.program = t.trackName;
+        const m = RETURN_AUDIO_RE.exec(t.trackName);
+        if (m) this.ret.audio[m[1]] = t.trackName;
+      }
       await this.ctx.storage.put('ret', this.ret).catch(() => {});
       this.send(ws, { t: 'peerPublished', answer });
-      // Alle Gäste anstoßen, den (evtl. neuen) Programm-Track zu ziehen.
+      // Alle Gäste anstoßen, die (evtl. neuen) Rückkanal-Tracks zu ziehen.
       for (const g of this.ctx.getWebSockets('guest')) this.send(g, { t: 'returnAvailable' });
     } catch (e) {
       console.error('[connect] peerPublish', e && e.message);
@@ -444,22 +469,35 @@ export class ConnectRoom {
     }
   }
 
-  /** Gast zieht den Programm-Track in seine Publish-Session (Renegotiation-Offer zurück). */
+  /**
+   * Gast zieht seine Rückkanal-Tracks in die eigene Publish-Session: das geteilte Programmbild und
+   * SEINEN Mix-Minus-Ton (`return-<guestId>-audio` — enthält ihn selbst nie). Idempotent: es werden
+   * nur noch nicht abonnierte Tracks nachgezogen (der Ton kommt oft erst nach dem Bild dazu).
+   */
   async guestWantReturn(ws, guestId) {
     const sfu = this.sfu();
     const p = this.pub.get(guestId);
-    if (!sfu || !this.ret || !p) return; // Programm noch nicht da / Gast publisht noch nicht → returnAvailable folgt
-    if (this.retSubs.has(guestId)) return; // schon abonniert
-    this.retSubs.add(guestId);
+    if (!sfu || !this.ret || !p) return; // noch nichts publiziert / Gast publisht noch nicht → returnAvailable folgt
+    const want = [];
+    if (this.ret.program) want.push(this.ret.program);
+    if (this.ret.audio[guestId]) want.push(this.ret.audio[guestId]);
+    const have = this.retSubs.get(guestId) || new Set();
+    const missing = want.filter((t) => !have.has(t));
+    if (!missing.length) return;
     try {
-      const r = await sfu.subscribe(p.sessionId, [
-        { location: 'remote', sessionId: this.ret.sessionId, trackName: this.ret.trackName },
-      ]);
-      const tracks = r.tracks.map((t) => ({ mid: t.mid, kind: 'video' }));
+      const r = await sfu.subscribe(
+        p.sessionId,
+        missing.map((trackName) => ({ location: 'remote', sessionId: this.ret.sessionId, trackName })),
+      );
+      for (const t of missing) have.add(t);
+      this.retSubs.set(guestId, have);
+      const tracks = r.tracks.map((t) => ({ mid: t.mid, kind: t.trackName && t.trackName.endsWith('-audio') ? 'audio' : 'video' }));
       this.send(ws, { t: 'returnOffer', sdp: r.offer, tracks, renegotiate: r.requiresImmediateRenegotiation });
     } catch (e) {
-      this.retSubs.delete(guestId); // Retry bei nächstem returnAvailable erlauben
       console.error('[connect] guestWantReturn', e && e.message);
+      // Häufig `not_found_track_error`: der Programm-Track ist angemeldet, sendet aber noch keine
+      // Pakete. `have` bleibt unverändert → der Gast darf es gleich nochmal versuchen.
+      this.send(ws, { t: 'returnFailed' });
     }
   }
 
@@ -539,7 +577,12 @@ export class ConnectRoom {
         this.toOperators({ t: 'ndi', action: 'down', guestId: eff.guestId });
         // Publish-Zustand vergessen + Peer zum Abbau anstoßen.
         if (this.pub.delete(eff.guestId)) void this.savePub();
-        this.retSubs.delete(eff.guestId); // Rückkanal-Abo vergessen (Rejoin darf neu ziehen)
+        // Rückkanal des Gasts vergessen (Rejoin darf neu ziehen; sein Mix-Minus-Track ist tot).
+        this.retSubs.delete(eff.guestId);
+        if (this.ret && this.ret.audio[eff.guestId]) {
+          delete this.ret.audio[eff.guestId];
+          void this.ctx.storage.put('ret', this.ret).catch(() => {});
+        }
         this.toOperators({ t: 'guestUnpublished', guestId: eff.guestId });
         break;
     }
@@ -639,6 +682,8 @@ function guestPage(id) {
     <div class="proglabel">Programm (Rückkanal)</div>
     <video id="program" playsinline autoplay muted></video>
   </div>
+  <!-- Return-Ton (Mix-Minus: Programm + andere Gäste, nie man selbst) — eigenes, NICHT stummes Element. -->
+  <audio id="ret" autoplay playsinline></audio>
   <div class="status" id="st"></div>
 </div>
 <script>
@@ -647,7 +692,15 @@ function guestPage(id) {
   var nameEl=document.getElementById('name'), consentEl=document.getElementById('consent'), enterEl=document.getElementById('enter');
   var joinEl=document.getElementById('join'), stEl=document.getElementById('st'), video=document.getElementById('preview');
   var programWrap=document.getElementById('programWrap'), programVideo=document.getElementById('program');
-  var ws=null, pc=null, stream=null, programStream=null;
+  var retAudio=document.getElementById('ret');
+  var ws=null, pc=null, stream=null, programStream=null, returnStream=null, retTries=0;
+
+  // Rückkanal anfordern (Programmbild + eigener Mix-Minus-Ton). Wird gestaffelt wiederholt, solange
+  // die SFU die Tracks noch nicht liefert (z. B. Programm-Track sendet noch keine Pakete).
+  function wantReturn(){
+    retTries++;
+    if(ws && ws.readyState===1) ws.send(JSON.stringify({t:'wantReturn'}));
+  }
 
   function status(t, cls){ stEl.innerHTML = cls ? '<span class="badge '+cls+'">'+t+'</span>' : t; }
   function wsUrl(){ return (location.protocol==='https:'?'wss://':'ws://')+location.host+BASE+'/ws?t='+encodeURIComponent(TOKEN)+'&name='+encodeURIComponent(nameEl.value.trim()); }
@@ -673,9 +726,13 @@ function guestPage(id) {
       else if(m.tally==='preview') status('Freigegeben — in Vorschau','b-prev');
       else status('Aus Sendung genommen','b-wait');
     }
-    else if(m.t==='answer' && pc){ await pc.setRemoteDescription(m.sdp); ws.send(JSON.stringify({t:'wantReturn'})); }
-    else if(m.t==='returnAvailable'){ if(ws) ws.send(JSON.stringify({t:'wantReturn'})); }
-    else if(m.t==='returnOffer' && pc && m.sdp){ await onReturnOffer(m.sdp); }
+    else if(m.t==='answer' && pc){ await pc.setRemoteDescription(m.sdp); retTries=0; wantReturn(); }
+    else if(m.t==='returnAvailable'){ retTries=0; wantReturn(); }
+    else if(m.t==='returnFailed'){
+      // Programm-Track meldet noch keine Pakete → gestaffelt erneut versuchen.
+      if(retTries<6) setTimeout(wantReturn, 800*retTries);
+    }
+    else if(m.t==='returnOffer' && pc && m.sdp){ retTries=0; await onReturnOffer(m.sdp); }
     else if(m.t==='notice'){ if(m.code==='kicked'){ status('Von der Regie entfernt.'); if(ws)ws.close(); } if(m.code==='denied'){ status('Zuschaltung abgelehnt.'); if(ws)ws.close(); } }
     else if(m.t==='error'){
       if(m.code==='sfu_not_configured') status('Regie-Medienserver noch nicht eingerichtet.');
@@ -686,12 +743,24 @@ function guestPage(id) {
   async function startPublish(){
     try{
       status('Freigegeben — starte Kamera …','b-prev');
-      stream=await navigator.mediaDevices.getUserMedia({ video:{width:1280,height:720}, audio:true });
+      // Echo-Unterdrückung ausdrücklich an: der Return-Ton kommt aus dem Lautsprecher zurück ins Mikro.
+      // (Das „sich selbst hören" verhindert dagegen das Mix-Minus serverseitig.)
+      stream=await navigator.mediaDevices.getUserMedia({
+        video:{width:1280,height:720},
+        audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true }
+      });
       video.srcObject=stream; video.style.display='block';
       var ice=await fetch(BASE+'/ice?t='+encodeURIComponent(TOKEN)).then(function(r){return r.json();}).catch(function(){return {iceServers:[]};});
       pc=new RTCPeerConnection({ iceServers: ice.iceServers||[] });
-      // Rückkanal: Programm-Track von der SFU → Programm-Video anzeigen.
+      // Rückkanal: Programm-Bild → <video>, Mix-Minus-Ton → eigenes <audio> (nicht stumm).
       pc.ontrack=function(ev){
+        if(ev.track.kind==='audio'){
+          if(!returnStream) returnStream=new MediaStream();
+          returnStream.addTrack(ev.track);
+          retAudio.srcObject=returnStream;
+          playReturnAudio();
+          return;
+        }
         if(!programStream) programStream=new MediaStream();
         programStream.addTrack(ev.track);
         programVideo.srcObject=programStream; programVideo.style.display='block'; programWrap.classList.remove('hide');
@@ -705,7 +774,18 @@ function guestPage(id) {
       ws.send(JSON.stringify({t:'offer', sdp:{ type:offer.type, sdp:offer.sdp }, tracks:tracks}));
     }catch(e){ status('Kamera/Mikrofon nicht verfügbar.'); }
   }
-  // Rückkanal-Renegotiation: SFU-Offer (Programm-Track) beantworten.
+  // Return-Ton starten. Blockiert die Autoplay-Policy trotz vorheriger Geste, beim nächsten
+  // Tippen erneut versuchen (statt still stumm zu bleiben).
+  function playReturnAudio(){
+    retAudio.play().catch(function(){
+      status('Zum Aktivieren des Tons kurz tippen.');
+      document.addEventListener('click', function once(){
+        document.removeEventListener('click', once);
+        retAudio.play().catch(function(){});
+      });
+    });
+  }
+  // Rückkanal-Renegotiation: SFU-Offer (Programm-/Return-Tracks) beantworten.
   async function onReturnOffer(sdp){
     try{
       await pc.setRemoteDescription(sdp);

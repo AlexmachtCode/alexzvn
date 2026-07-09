@@ -49,8 +49,8 @@ export function startProgram(nameHint = (process.env.JMPS_PROGRAM_NDI || 'JM Swi
   child.on('message', (msg: unknown) => {
     const m = msg as { type?: string; state?: string; source?: string } | null;
     if (!m) return;
-    if (m.type === 'video') {
-      port2?.postMessage(m); // an den Peer (Copy, kein Transfer)
+    if (m.type === 'video' || m.type === 'audio') {
+      port2?.postMessage(m); // an den Peer (Copy, kein Transfer) — Video-Frames + Programm-Ton
     } else if (m.type === 'status') {
       status = { state: m.state || 'off', source: m.source ?? null };
       onStatus(status);

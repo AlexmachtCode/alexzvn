@@ -27,6 +27,7 @@ const api: JmConnectApi = {
   ndiUp: (guestId: string, label: string) => ipcRenderer.send(IPC.ndiUp, { guestId, label }),
   ndiDown: (guestId: string) => ipcRenderer.send(IPC.ndiDown, { guestId }),
   pushControlState: (kv) => ipcRenderer.send(IPC.pushControlState, kv),
+  peerLog: (msg: string) => ipcRenderer.send(IPC.peerLog, msg),
   getStatus: () => ipcRenderer.invoke(IPC.status) as Promise<AppStatus>,
   onStatus: (cb) => {
     const listener = (_e: unknown, s: AppStatus) => cb(s);

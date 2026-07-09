@@ -11,11 +11,13 @@
 //   { type:'stop' }             → closeReceiver + destroy
 //   { type:'ack' }              → Peer hat das letzte Videoframe verarbeitet (Backpressure)
 // An den Main zurück:
-//   { type:'status', state, source? }                    → Operator-UI
-//   { type:'video', buffer(ArrayBuffer BGRA tight), w, h, fpsN } → an den Peer-Frame-Port
+//   { type:'status', state, source? }                            → Operator-UI
+//   { type:'video', buffer(ArrayBuffer BGRA tight), w, h, fpsN }  → an den Peer-Frame-Port
+//   { type:'audio', buffer(ArrayBuffer FLTP), ch, n, sr }         → Peer-Web-Audio-Mixer (6.2b)
 //
-// Backpressure wie im Switcher: nach jedem Frame `awaitingAck`; bis der Peer 'ack' schickt,
+// Backpressure wie im Switcher: nach jedem VIDEO-Frame `awaitingAck`; bis der Peer 'ack' schickt,
 // werden weitere Videoframes nur aus dem NDI-Puffer gezogen und verworfen (Latenz niedrig).
+// Audio wird NIE verworfen (Lücken wären hörbar) — es ist klein genug.
 import * as ndi from '@jm/ndi';
 import type { NdiFrame } from '@jm/ndi';
 
@@ -26,6 +28,11 @@ let polling = false;
 let stopRequested = false;
 let awaitingAck = false;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
+// Diagnose: liefert die Quelle überhaupt Frames? Werden sie verworfen (Peer ackt nicht)?
+let videoRx = 0;
+let audioRx = 0;
+let videoDropped = 0;
+let emptyPolls = 0;
 
 function postStatus(state: string, source?: string): void {
   process.parentPort.postMessage({ type: 'status', state, source });
@@ -140,10 +147,39 @@ function pump(): void {
     }
     for (let i = 0; i < 4; i++) {
       const frame = safeReceive(60);
-      if (!frame) break;
-      if (frame.type !== 'video') continue; // Audio wird gedraint (Mix-Minus folgt in 6.2b)
-      if (awaitingAck) continue; // Peer noch beschäftigt → Frame verwerfen (Latenz niedrig halten)
+      if (!frame) {
+        // Quelle verbunden, aber sie schickt nichts (z. B. Switcher minimiert → rAF pausiert).
+        if (++emptyPolls % 50 === 0 && videoRx === 0) {
+          console.log(`[ndi-program-receiver] verbunden, aber KEINE Frames (${emptyPolls} Leerabfragen) — sendet der Switcher wirklich Bild?`);
+        }
+        break;
+      }
+      if (frame.type === 'audio') {
+        // Programm-Ton (FLTP) → Peer → Web-Audio-Mixer (Mix-Minus, 6.2b). KEIN Ack/Drop: Audio ist
+        // klein und darf nicht lückenhaft werden (Video-Backpressure gilt nur für Videoframes).
+        if (++audioRx === 1) console.log(`[ndi-program-receiver] erster Audio-Frame: ${frame.channels}ch ${frame.sampleRate}Hz`);
+        const f32 = new Float32Array(frame.data); // Kopie in einen frischen ArrayBuffer
+        process.parentPort.postMessage({
+          type: 'audio',
+          buffer: f32.buffer,
+          ch: frame.channels,
+          n: frame.samples,
+          sr: frame.sampleRate,
+        });
+        continue;
+      }
+      if (awaitingAck) {
+        // Peer noch beschäftigt → Frame verwerfen (Latenz niedrig halten). Bleibt der Ack dauerhaft
+        // aus, hängt der Peer — das wäre hier sichtbar.
+        if (++videoDropped % 100 === 0) console.log(`[ndi-program-receiver] ${videoDropped} Videoframes verworfen (Peer ackt nicht?)`);
+        continue;
+      }
       awaitingAck = true;
+      if (++videoRx === 1) {
+        console.log(`[ndi-program-receiver] erster Video-Frame: ${frame.width}x${frame.height} stride=${frame.lineStride} (tight=${frame.width * 4})`);
+      } else if (videoRx % 100 === 0) {
+        console.log(`[ndi-program-receiver] Video-Frames von NDI: ${videoRx}`);
+      }
       process.parentPort.postMessage({
         type: 'video',
         buffer: toTightBgra(frame.data, frame.width, frame.height, frame.lineStride),
