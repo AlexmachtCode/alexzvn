@@ -8,7 +8,7 @@ let tray: Tray | null = null;
 let getWindow: () => BrowserWindow | null = () => null;
 let sendCommand: (cmd: TrayCommand) => void = () => {};
 let onQuit: () => void = () => {};
-let status: AppStatus = { configured: false, proxyBase: null, controlPort: 8737, ndiSenders: 0 };
+let status: AppStatus = { configured: false, proxyBase: null, controlPort: 8737, ndiSenders: 0, programState: 'off', programSource: null };
 
 interface TrayDeps {
   iconPath: string;

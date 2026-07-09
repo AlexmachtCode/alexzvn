@@ -1,12 +1,17 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AppStatus, ControlCommand, GuestInvite, JmConnectApi, RoomSession, TrayCommand } from '@shared/types';
-import { IPC, PEER_CONNECT, PEER_FRAME_PORT } from '@shared/ipc';
+import { IPC, PEER_CONNECT, PEER_FRAME_PORT, PEER_PROGRAM_PORT } from '@shared/ipc';
 
 // Versteckter Peer-Renderer: den vom Main übertragenen Frame-MessagePort (je Gast)
 // in den Renderer-Main-World durchreichen. contextBridge kann MessagePorts nicht
 // direkt übergeben → dokumentierter window.postMessage-Transfer (Empfang: window 'message').
 ipcRenderer.on(PEER_FRAME_PORT, (e, payload: { guestId: string }) => {
   window.postMessage({ ch: PEER_FRAME_PORT, guestId: payload?.guestId }, '*', e.ports);
+});
+
+// Programm-NDI-Frame-Port (Rückkanal 6.2a) an den Peer-Renderer durchreichen.
+ipcRenderer.on(PEER_PROGRAM_PORT, (e) => {
+  window.postMessage({ ch: PEER_PROGRAM_PORT }, '*', e.ports);
 });
 
 // Raum-Verbindungsdaten (WS + ICE-URL) an den Peer-Renderer durchreichen.

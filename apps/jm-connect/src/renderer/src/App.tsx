@@ -188,8 +188,11 @@ export function App(): JSX.Element {
             </div>
           )}
 
-          <div className="mb-2 text-xs text-neutral-400">
-            {guests.length} Gäste · {room ? lobbyCount(room) : 0} im Warteraum · {room ? onAirGuests(room).length : 0} auf Sendung
+          <div className="mb-2 flex items-center justify-between text-xs text-neutral-400">
+            <span>
+              {guests.length} Gäste · {room ? lobbyCount(room) : 0} im Warteraum · {room ? onAirGuests(room).length : 0} auf Sendung
+            </span>
+            <ProgramBadge status={status} />
           </div>
 
           <ul className="space-y-2">
@@ -206,6 +209,19 @@ export function App(): JSX.Element {
       )}
     </div>
   );
+}
+
+function ProgramBadge({ status }: { status: AppStatus | null }): JSX.Element {
+  const state = status?.programState ?? 'off';
+  const map: Record<string, { label: string; cls: string }> = {
+    connected: { label: `Programm ● ${status?.programSource ?? ''}`.trim(), cls: 'bg-green-800 text-green-100' },
+    searching: { label: 'Programm sucht …', cls: 'bg-yellow-900 text-yellow-200' },
+    notfound: { label: 'Programm: keine Quelle', cls: 'bg-neutral-800 text-neutral-400' },
+    error: { label: 'Programm: Fehler', cls: 'bg-red-900 text-red-200' },
+  };
+  const m = map[state];
+  if (!m) return <span />;
+  return <span className={`max-w-[60%] truncate rounded-full px-2 py-0.5 font-semibold ${m.cls}`}>{m.label}</span>;
 }
 
 function PhaseBadge({ phase }: { phase: Guest['phase'] }): JSX.Element {

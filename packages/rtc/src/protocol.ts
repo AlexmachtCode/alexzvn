@@ -100,4 +100,44 @@ export type ServerToClient =
   | { t: 'needConsent' }
   | { t: 'error'; code: string; message?: string };
 
+// ── Rückkanal-Signalling (Welle 6.2) über den DO-WebSocket ─────────────────
+// Der versteckte Peer publisht EINEN geteilten Programm-Track (`program-video`, Switcher-PGM) auf
+// seiner SFU-Session; jeder Gast zieht ihn in seine eigene Publish-Session. SDP wird nur relayt —
+// das App-Secret bleibt serverseitig. Lose JSON (der DO/Peer/Gast prüft nur `t`); hier zur
+// Dokumentation getypt. `program-video` ist der stabile Trackname des Programm-Rückkanals.
+export const PROGRAM_TRACK = 'program-video' as const;
+
+/** Peer → DO: Programm-Track auf der Peer-Session anbieten (Renegotiation-Offer). */
+export interface PeerPublishMsg {
+  t: 'peerPublish';
+  sessionId: string;
+  offer: SdpDescription;
+  tracks: { mid: string | null; trackName: string }[];
+}
+/** DO → Peer: Answer auf den Programm-Publish. */
+export interface PeerPublishedMsg {
+  t: 'peerPublished';
+  answer?: SdpDescription;
+}
+/** Gast → DO: Programm-Track sehen wollen (nach eigenem Publish bzw. auf returnAvailable). */
+export interface WantReturnMsg {
+  t: 'wantReturn';
+}
+/** DO → Gast: ein Programm-Track ist (neu) verfügbar → (erneut) `wantReturn` senden. */
+export interface ReturnAvailableMsg {
+  t: 'returnAvailable';
+}
+/** DO → Gast: Renegotiation-Offer der SFU, der den Programm-Track in die Gast-Session zieht. */
+export interface ReturnOfferMsg {
+  t: 'returnOffer';
+  sdp: SdpDescription;
+  tracks: { mid: string; kind: 'video' | 'audio' }[];
+  renegotiate?: boolean;
+}
+/** Gast → DO: Answer auf den Rückkanal-Offer → an die SFU. */
+export interface ReturnAnswerMsg {
+  t: 'returnAnswer';
+  sdp: SdpDescription;
+}
+
 export const RTC_PROTO = 'jmrtc/1' as const;

@@ -8,6 +8,7 @@ import { IPC, PEER_CONNECT } from '@shared/ipc';
 import type { AppStatus } from '@shared/types';
 import { closeRoom, isConfigured, mintGuest, openRoom, peerConnectInfo, proxyConfig } from './room';
 import { activeCount, spinUp, tearDown, tearDownAll } from './ndi-guests';
+import { programStatus, startProgram, stopProgram } from './ndi-program';
 import { CONTROL_PORT, pushControlState } from './control-server';
 
 let getWindow: () => BrowserWindow | null = () => null;
@@ -15,11 +16,14 @@ let getPeer: () => BrowserWindow | null = () => null;
 let onStatusChange: (s: AppStatus) => void = () => {};
 
 export function currentStatus(): AppStatus {
+  const prog = programStatus();
   return {
     configured: isConfigured(),
     proxyBase: proxyConfig().base,
     controlPort: CONTROL_PORT,
     ndiSenders: activeCount(),
+    programState: prog.state,
+    programSource: prog.source,
   };
 }
 
@@ -43,6 +47,8 @@ export function registerIpc(deps: {
     // Den versteckten Peer separat mit dem DO verbinden (eigenes SFU-Medien-Signalling).
     const info = await peerConnectInfo();
     if (info) getPeer()?.webContents.send(PEER_CONNECT, info);
+    // Programm-Rückkanal starten (Switcher-PGM → Peer → program-video an alle Gäste).
+    startProgram();
     pushStatus();
     return session;
   });
@@ -51,6 +57,7 @@ export function registerIpc(deps: {
 
   ipcMain.handle(IPC.closeRoom, async () => {
     tearDownAll();
+    stopProgram();
     await closeRoom();
     pushStatus();
   });

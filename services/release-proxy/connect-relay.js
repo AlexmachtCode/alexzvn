@@ -88,7 +88,14 @@ function keyOk(request, env) {
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      // Der versteckte Peer-Renderer läuft cross-origin (Dev: localhost, Prod: file://) und holt
+      // hierüber seine token-gegateten ICE/TURN-Creds. `*` ist sicher: der HMAC-Join-Token ist der
+      // Gate, es werden keine Cookies gesendet (Token in der Query → kein credentials-Modus).
+      'access-control-allow-origin': '*',
+    },
   });
 }
 
@@ -116,6 +123,10 @@ export class ConnectRoom {
     this.meta = null;
     /** Veröffentlichte Gäste: guestId → { sessionId, tracks:[{trackName, kind}] } (Medien-Publish). */
     this.pub = new Map();
+    /** Rückkanal (6.2a): der vom Peer publizierte Programm-Track { sessionId, trackName } oder null. */
+    this.ret = null;
+    /** Gäste, die den Programm-Track bereits abonniert haben (in-memory, gegen Doppel-Subscribe). */
+    this.retSubs = new Set();
     /** Test-Hook: injizierbarer SfuBroker (sonst Cloudflare Realtime aus env). */
     this._sfuOverride = null;
     // Persistierten Zustand VOR dem ersten Request laden (nur Setup — kein externes I/O).
@@ -123,6 +134,7 @@ export class ConnectRoom {
       this.meta = (await ctx.storage.get('meta')) || null;
       this.state = (await ctx.storage.get('state')) || null;
       this.pub = new Map((await ctx.storage.get('pub')) || []);
+      this.ret = (await ctx.storage.get('ret')) || null;
     });
   }
 
@@ -216,6 +228,9 @@ export class ConnectRoom {
     await this.ctx.storage.deleteAlarm().catch(() => {});
     this.state = null;
     this.meta = null;
+    this.pub = new Map();
+    this.ret = null;
+    this.retSubs = new Set();
     return json({ ok: true });
   }
 
@@ -295,10 +310,8 @@ export class ConnectRoom {
     if (msg.t === 'peerSession') return void this.peerNewSession(ws, msg.offer);
     if (msg.t === 'subscribe' && msg.guestId) return void this.peerSubscribe(ws, msg.sessionId, msg.guestId);
     if (msg.t === 'renegotiate') return void this.peerRenegotiate(ws, msg.sessionId, msg.sdp);
-    // Programm-/Rückkanal-SDP des Operators (Welle 6.2) — Platzhalter.
-    if (msg.t === 'offer' || msg.t === 'answer' || msg.t === 'ice') {
-      this.send(ws, { t: 'error', code: 'return_feed_not_wired' });
-    }
+    // Rückkanal 6.2a: der Peer publisht den Programm-Track (Switcher-PGM) auf seiner Session.
+    if (msg.t === 'peerPublish') return void this.peerPublish(ws, msg.sessionId, msg.offer, Array.isArray(msg.tracks) ? msg.tracks : []);
   }
 
   onGuest(ws, att, msg) {
@@ -316,6 +329,12 @@ export class ConnectRoom {
       case 'offer':
         // Der Gast bietet erst nach grantPublish an (siehe Gast-Seite). Warteraum-Gate hier hart prüfen.
         return this.publishGuest(ws, att.guestId, msg.sdp, Array.isArray(msg.tracks) ? msg.tracks : []);
+      case 'wantReturn':
+        // Rückkanal 6.2a: Gast möchte den Programm-Track sehen → in seine Publish-Session ziehen.
+        return void this.guestWantReturn(ws, att.guestId);
+      case 'returnAnswer':
+        // Answer des Gasts auf den Rückkanal-Renegotiation-Offer → an die SFU.
+        return void this.guestReturnAnswer(ws, att.guestId, msg.sdp);
       case 'ice':
         // Bei CF-Realtime ICEt jeder Peer direkt mit der SFU; kein Relay nötig. Ignorieren.
         return;
@@ -398,6 +417,64 @@ export class ConnectRoom {
     }
   }
 
+  // ── Rückkanal 6.2a: Programm-Track (Switcher-PGM) → alle Gäste ──
+  /**
+   * Der Peer publisht `program-video` auf seiner eigenen Session. Wir merken uns (sessionId,
+   * trackName), damit Gäste ihn ziehen können, und informieren alle Gäste (returnAvailable).
+   */
+  async peerPublish(ws, sessionId, offer, tracks) {
+    const sfu = this.sfu();
+    if (!sfu || !sessionId) return this.send(ws, { t: 'error', code: 'sfu_not_configured' });
+    const named = (tracks.length ? tracks : [{ mid: '0', trackName: 'program-video' }]).map((t) => ({
+      location: 'local',
+      mid: String(t.mid),
+      trackName: String(t.trackName || 'program-video'),
+    }));
+    try {
+      const { answer } = await sfu.publish(sessionId, offer, named);
+      this.ret = { sessionId, trackName: named[0].trackName };
+      this.retSubs = new Set(); // neue Programm-Session → Gäste müssen neu abonnieren
+      await this.ctx.storage.put('ret', this.ret).catch(() => {});
+      this.send(ws, { t: 'peerPublished', answer });
+      // Alle Gäste anstoßen, den (evtl. neuen) Programm-Track zu ziehen.
+      for (const g of this.ctx.getWebSockets('guest')) this.send(g, { t: 'returnAvailable' });
+    } catch (e) {
+      console.error('[connect] peerPublish', e && e.message);
+      this.send(ws, { t: 'error', code: 'sfu_error' });
+    }
+  }
+
+  /** Gast zieht den Programm-Track in seine Publish-Session (Renegotiation-Offer zurück). */
+  async guestWantReturn(ws, guestId) {
+    const sfu = this.sfu();
+    const p = this.pub.get(guestId);
+    if (!sfu || !this.ret || !p) return; // Programm noch nicht da / Gast publisht noch nicht → returnAvailable folgt
+    if (this.retSubs.has(guestId)) return; // schon abonniert
+    this.retSubs.add(guestId);
+    try {
+      const r = await sfu.subscribe(p.sessionId, [
+        { location: 'remote', sessionId: this.ret.sessionId, trackName: this.ret.trackName },
+      ]);
+      const tracks = r.tracks.map((t) => ({ mid: t.mid, kind: 'video' }));
+      this.send(ws, { t: 'returnOffer', sdp: r.offer, tracks, renegotiate: r.requiresImmediateRenegotiation });
+    } catch (e) {
+      this.retSubs.delete(guestId); // Retry bei nächstem returnAvailable erlauben
+      console.error('[connect] guestWantReturn', e && e.message);
+    }
+  }
+
+  /** Answer des Gasts auf den Rückkanal-Offer → an die SFU (renegotiate seiner Publish-Session). */
+  async guestReturnAnswer(ws, guestId, sdp) {
+    const sfu = this.sfu();
+    const p = this.pub.get(guestId);
+    if (!sfu || !p || !sdp) return;
+    try {
+      await sfu.renegotiate(p.sessionId, sdp);
+    } catch (e) {
+      console.error('[connect] guestReturnAnswer', e && e.message);
+    }
+  }
+
   savePub() {
     return this.ctx.storage.put('pub', [...this.pub.entries()]).catch(() => {});
   }
@@ -462,6 +539,7 @@ export class ConnectRoom {
         this.toOperators({ t: 'ndi', action: 'down', guestId: eff.guestId });
         // Publish-Zustand vergessen + Peer zum Abbau anstoßen.
         if (this.pub.delete(eff.guestId)) void this.savePub();
+        this.retSubs.delete(eff.guestId); // Rückkanal-Abo vergessen (Rejoin darf neu ziehen)
         this.toOperators({ t: 'guestUnpublished', guestId: eff.guestId });
         break;
     }
@@ -535,6 +613,7 @@ function guestPage(id) {
   button:disabled{ opacity:.5; }
   .consent{ font-size:13px; color:var(--muted); background:#1c1c1c; border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:14px; }
   video{ width:100%; border-radius:12px; background:#000; margin-top:16px; display:none; }
+  .proglabel{ margin-top:18px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
   .status{ margin-top:16px; text-align:center; color:var(--muted); font-size:14px; min-height:20px; }
   .badge{ display:inline-block; padding:4px 12px; border-radius:999px; font-size:12px; font-weight:700; }
   .b-live{ background:var(--red); color:#fff; } .b-prev{ background:#333; color:var(--fg); } .b-wait{ background:#333; color:var(--muted); }
@@ -556,6 +635,10 @@ function guestPage(id) {
   </div>
 
   <video id="preview" playsinline autoplay muted></video>
+  <div id="programWrap" class="hide">
+    <div class="proglabel">Programm (Rückkanal)</div>
+    <video id="program" playsinline autoplay muted></video>
+  </div>
   <div class="status" id="st"></div>
 </div>
 <script>
@@ -563,7 +646,8 @@ function guestPage(id) {
   var q=new URLSearchParams(location.search), TOKEN=q.get('t')||'';
   var nameEl=document.getElementById('name'), consentEl=document.getElementById('consent'), enterEl=document.getElementById('enter');
   var joinEl=document.getElementById('join'), stEl=document.getElementById('st'), video=document.getElementById('preview');
-  var ws=null, pc=null, stream=null;
+  var programWrap=document.getElementById('programWrap'), programVideo=document.getElementById('program');
+  var ws=null, pc=null, stream=null, programStream=null;
 
   function status(t, cls){ stEl.innerHTML = cls ? '<span class="badge '+cls+'">'+t+'</span>' : t; }
   function wsUrl(){ return (location.protocol==='https:'?'wss://':'ws://')+location.host+BASE+'/ws?t='+encodeURIComponent(TOKEN)+'&name='+encodeURIComponent(nameEl.value.trim()); }
@@ -589,7 +673,9 @@ function guestPage(id) {
       else if(m.tally==='preview') status('Freigegeben — in Vorschau','b-prev');
       else status('Aus Sendung genommen','b-wait');
     }
-    else if(m.t==='answer' && pc){ await pc.setRemoteDescription(m.sdp); }
+    else if(m.t==='answer' && pc){ await pc.setRemoteDescription(m.sdp); ws.send(JSON.stringify({t:'wantReturn'})); }
+    else if(m.t==='returnAvailable'){ if(ws) ws.send(JSON.stringify({t:'wantReturn'})); }
+    else if(m.t==='returnOffer' && pc && m.sdp){ await onReturnOffer(m.sdp); }
     else if(m.t==='notice'){ if(m.code==='kicked'){ status('Von der Regie entfernt.'); if(ws)ws.close(); } if(m.code==='denied'){ status('Zuschaltung abgelehnt.'); if(ws)ws.close(); } }
     else if(m.t==='error'){
       if(m.code==='sfu_not_configured') status('Regie-Medienserver noch nicht eingerichtet.');
@@ -604,6 +690,12 @@ function guestPage(id) {
       video.srcObject=stream; video.style.display='block';
       var ice=await fetch(BASE+'/ice?t='+encodeURIComponent(TOKEN)).then(function(r){return r.json();}).catch(function(){return {iceServers:[]};});
       pc=new RTCPeerConnection({ iceServers: ice.iceServers||[] });
+      // Rückkanal: Programm-Track von der SFU → Programm-Video anzeigen.
+      pc.ontrack=function(ev){
+        if(!programStream) programStream=new MediaStream();
+        programStream.addTrack(ev.track);
+        programVideo.srcObject=programStream; programVideo.style.display='block'; programWrap.classList.remove('hide');
+      };
       stream.getTracks().forEach(function(tr){ pc.addTrack(tr, stream); });
       ws.send(JSON.stringify({t:'tracks', hasVideo:true}));
       var offer=await pc.createOffer();
@@ -612,6 +704,15 @@ function guestPage(id) {
       var tracks=pc.getTransceivers().filter(function(t){return t.sender&&t.sender.track;}).map(function(t){return {mid:t.mid, kind:t.sender.track.kind};});
       ws.send(JSON.stringify({t:'offer', sdp:{ type:offer.type, sdp:offer.sdp }, tracks:tracks}));
     }catch(e){ status('Kamera/Mikrofon nicht verfügbar.'); }
+  }
+  // Rückkanal-Renegotiation: SFU-Offer (Programm-Track) beantworten.
+  async function onReturnOffer(sdp){
+    try{
+      await pc.setRemoteDescription(sdp);
+      var answer=await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      ws.send(JSON.stringify({t:'returnAnswer', sdp:{ type:answer.type, sdp:answer.sdp }}));
+    }catch(e){ /* Rückkanal optional — Zuschaltung läuft auch ohne Programm-Bild weiter */ }
   }
   enterEl.addEventListener('click', enter);
 </script>

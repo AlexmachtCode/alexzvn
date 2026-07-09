@@ -8,8 +8,8 @@
 // einen Data-Channel-Offer an /sessions/new (Answer zurück) und zieht Tracks erst NACH ICE-connected
 // (sonst: „Session appears to be disconnected"). Track→Gast läuft über die Transceiver-mid.
 import { SignallingClient } from '@jm/rtc/signalling';
-import { audioDataToFltp, videoFrameToBgra } from '@jm/rtc/frames';
-import { PEER_CONNECT, PEER_FRAME_PORT } from '@shared/ipc';
+import { audioDataToFltp, bgraToVideoFrame, videoFrameToBgra } from '@jm/rtc/frames';
+import { PEER_CONNECT, PEER_FRAME_PORT, PEER_PROGRAM_PORT } from '@shared/ipc';
 
 type Kind = 'video' | 'audio';
 
@@ -24,6 +24,25 @@ let pc: RTCPeerConnection | null = null;
 let peerSessionId: string | null = null;
 let pcConnected = false;
 
+// ── Rückkanal (Welle 6.2a): Programm-NDI → EIN geteilter `program-video`-Track an die SFU ──
+const PROGRAM_TRACK = 'program-video';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let programGen: any = null; // MediaStreamTrackGenerator (nicht in lib.dom typisiert)
+let programWriter: WritableStreamDefaultWriter<VideoFrame> | null = null;
+let programTrack: MediaStreamTrack | null = null;
+let programPublished = false;
+let programFrames = 0;
+let programAnswerResolve: ((a: RTCSessionDescriptionInit | undefined) => void) | null = null;
+
+// Alle Aushandlungen auf der EINEN Peer-PeerConnection serialisieren (Publish vs. Subscribe teilen
+// sich den SDP-Zustandsautomaten → sonst Glare: „have-local-offer"-Kollision). Kette rejectet nie.
+let negoChain: Promise<void> = Promise.resolve();
+function serializeNego(fn: () => Promise<void>): Promise<void> {
+  const run = negoChain.then(fn, fn);
+  negoChain = run.catch(() => {});
+  return run;
+}
+
 window.addEventListener('message', (e: MessageEvent) => {
   const d = e.data as { ch?: string; guestId?: string; wsUrl?: string; iceUrl?: string } | null;
   if (!d) return;
@@ -33,6 +52,13 @@ window.addEventListener('message', (e: MessageEvent) => {
     port.start();
     guestPorts.set(d.guestId, port);
     tryPump(d.guestId);
+  } else if (d.ch === PEER_PROGRAM_PORT) {
+    const port = e.ports[0];
+    if (!port) return;
+    port.start();
+    setupProgramGenerator();
+    port.onmessage = (ev) => void onProgramFrame(port, ev.data);
+    maybePublishProgram();
   } else if (d.ch === PEER_CONNECT && d.wsUrl && d.iceUrl) {
     void connect(d.wsUrl, d.iceUrl);
   }
@@ -45,6 +71,7 @@ async function connect(wsUrl: string, iceUrl: string): Promise<void> {
   pc?.close();
   pcConnected = false;
   peerSessionId = null;
+  programPublished = false; // neue PeerConnection → program-video erneut publishen
   pc = new RTCPeerConnection({ iceServers: ice.iceServers || [] });
   pc.ontrack = onTrack;
   pc.oniceconnectionstatechange = () => {
@@ -53,6 +80,7 @@ async function connect(wsUrl: string, iceUrl: string): Promise<void> {
     if (st === 'connected' || st === 'completed') {
       pcConnected = true;
       flushSubscribe();
+      maybePublishProgram();
     }
   };
   // Data-Channel erzwingt eine m-Sektion → gültiger Offer, der den Transport (ICE/DTLS) etabliert.
@@ -87,12 +115,21 @@ function onMessage(raw: unknown): void {
     peerSessionId = m.sessionId;
     console.log('[peer] SFU-Session', m.sessionId, '· Answer?', !!m.answer);
     void applyTransportAnswer(m.answer);
+  } else if (m.t === 'peerPublished') {
+    // Answer auf unseren program-video-Publish (Rückkanal). Löst das im Nego-Lock wartende
+    // publishProgram() auf, das die Answer selbst anwendet (Zustandsautomat bleibt konsistent).
+    console.log('[peer] peerPublished · Answer?', !!m.answer);
+    programAnswerResolve?.(m.answer);
+    programAnswerResolve = null;
   } else if (m.t === 'guestPublished' && m.guestId) {
     console.log('[peer] guestPublished', m.guestId);
     maybeSubscribe(m.guestId);
   } else if (m.t === 'subscribeOffer' && m.guestId && m.sdp) {
     console.log('[peer] subscribeOffer', m.guestId, m.tracks);
-    void onSubscribeOffer(m.guestId, m.sdp, m.tracks || []);
+    const guestId = m.guestId;
+    const sdp = m.sdp;
+    const tracks = m.tracks || [];
+    void serializeNego(() => onSubscribeOffer(guestId, sdp, tracks));
   } else if (m.t === 'guestUnpublished' && m.guestId) {
     stopGuest(m.guestId);
   } else if (m.t === 'error') {
@@ -229,4 +266,88 @@ async function pumpAudio(guestId: string, track: MediaStreamTrack): Promise<void
   }
 }
 
-console.log('[peer] JM Connect Peer-Renderer bereit (Welle 6.1).');
+// ── Rückkanal 6.2a: Programm-NDI → program-video an die SFU ──────────────────────────────────
+function setupProgramGenerator(): void {
+  if (programGen) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const Gen = (window as any).MediaStreamTrackGenerator;
+  if (!Gen) {
+    console.error('[peer] MediaStreamTrackGenerator nicht verfügbar — Return-Video nicht möglich');
+    return;
+  }
+  programGen = new Gen({ kind: 'video' });
+  programWriter = programGen.writable.getWriter();
+  programTrack = programGen as MediaStreamTrack; // Generator IST ein MediaStreamTrack
+  console.log('[peer] Programm-Generator bereit');
+}
+
+/** BGRA-Frame vom Programm-Receiver → VideoFrame → in den Generator schreiben; danach Ack. */
+async function onProgramFrame(port: MessagePort, data: unknown): Promise<void> {
+  const d = data as { type?: string; buffer?: ArrayBuffer; w?: number; h?: number } | null;
+  if (!d || d.type !== 'video' || !d.buffer || !programWriter) {
+    port.postMessage({ type: 'ack' });
+    return;
+  }
+  let frame: VideoFrame | null = null;
+  try {
+    frame = bgraToVideoFrame({ buffer: d.buffer, width: d.w || 0, height: d.h || 0 }, Math.round(performance.now() * 1000));
+    await programWriter.ready; // Backpressure (vor Publish blockiert es → Receiver verwirft Frames)
+    await programWriter.write(frame); // Generator übernimmt & schließt den Frame
+    frame = null;
+    if (++programFrames % 50 === 0) console.log('[peer] Programm-Frames:', programFrames);
+  } catch (e) {
+    if (frame) frame.close();
+    console.error('[peer] Programm-Frame', e);
+  } finally {
+    port.postMessage({ type: 'ack' });
+  }
+}
+
+function maybePublishProgram(): void {
+  if (programPublished || !programTrack || !pc || !pcConnected || !peerSessionId) return;
+  programPublished = true; // optimistischer Guard gegen Doppel-Publish
+  void serializeNego(() => publishProgram());
+}
+
+async function publishProgram(): Promise<void> {
+  if (!pc || !programTrack) {
+    programPublished = false;
+    return;
+  }
+  try {
+    const tx = pc.addTransceiver(programTrack, { direction: 'sendonly' });
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    console.log('[peer] program-video publish → mid', tx.mid);
+    // Offer senden UND im Lock auf die Answer warten (der Peer bleibt bis dahin in
+    // „have-local-offer" — kein Subscribe darf dazwischen; deshalb hier serialisiert).
+    const answer = await new Promise<RTCSessionDescriptionInit | undefined>((resolve) => {
+      const timer = setTimeout(() => {
+        programAnswerResolve = null;
+        resolve(undefined); // Timeout → Lock freigeben, damit Subscribes nicht blockieren
+      }, 8000);
+      programAnswerResolve = (a) => {
+        clearTimeout(timer);
+        resolve(a);
+      };
+      ws?.send({
+        t: 'peerPublish',
+        sessionId: peerSessionId,
+        offer: { type: offer.type, sdp: offer.sdp },
+        tracks: [{ mid: tx.mid, trackName: PROGRAM_TRACK }],
+      });
+    });
+    if (answer) {
+      await pc.setRemoteDescription(answer);
+      console.log('[peer] program-video published (Answer gesetzt)');
+    } else {
+      programPublished = false;
+      console.warn('[peer] program-video publish ohne Answer');
+    }
+  } catch (e) {
+    programPublished = false;
+    console.error('[peer] publishProgram', e);
+  }
+}
+
+console.log('[peer] JM Connect Peer-Renderer bereit (Welle 6.1/6.2a).');

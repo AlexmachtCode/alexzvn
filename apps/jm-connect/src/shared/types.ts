@@ -26,6 +26,10 @@ export interface AppStatus {
   controlPort: number;
   /** Anzahl aktiver NDI-Sender (freigegebene Gäste). */
   ndiSenders: number;
+  /** Programm-Rückkanal-Empfang (Welle 6.2a): 'off'|'searching'|'notfound'|'connected'|'error'|'stopped'. */
+  programState: string;
+  /** Aufgelöster NDI-Quellname des Programm-Rückkanals (oder null). */
+  programSource: string | null;
 }
 
 export type TrayCommand = { kind: 'show' } | { kind: 'closeRoom' };

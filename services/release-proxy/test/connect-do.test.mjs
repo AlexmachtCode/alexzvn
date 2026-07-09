@@ -1,9 +1,10 @@
-// Unit-Test der ConnectRoom-DO-Brokering-Logik (Welle 6.1) mit Mock-SFU + Mock-Sockets.
+// Unit-Test der ConnectRoom-DO-Brokering-Logik (Welle 6.1 + 6.2a Rückkanal) mit Mock-SFU + Mock-Sockets.
 //   node services/release-proxy/test/connect-do.test.mjs   (Node ≥ 23.6: Type-Stripping default)
 //
 // Der DO ist eine einfache Klasse → direkt instanziierbar. Wir prüfen den SFU-Publish-/Subscribe-
-// Broker (Feldnamen/trackNames, Publish-Zustand, guestPublished/subscribeOffer). Der Browser-
-// Medienpfad (WebCodecs/ontrack) ist hier NICHT abgedeckt (braucht echtes Chromium+SFU).
+// Broker (Feldnamen/trackNames, Publish-Zustand, guestPublished/subscribeOffer) UND den Rückkanal
+// (peerPublish program-video → returnAvailable → guestWantReturn zieht es in die Gast-Session,
+// Doppel-Abo-Guard). Der Browser-Medienpfad (WebCodecs/ontrack) ist hier NICHT abgedeckt.
 import { ConnectRoom } from '../connect-relay.js';
 
 let passed = 0;
@@ -95,6 +96,33 @@ async function run() {
     { mid: '0', kind: 'video' },
     { mid: '1', kind: 'audio' },
   ]));
+
+  // ── Rückkanal 6.2a: Peer publisht program-video → returnAvailable; Gast zieht es in seine Session ──
+  const progPeer = mockWs(['operator']);
+  await room.peerPublish(progPeer, 'peer-sess', { type: 'offer', sdp: 'po' }, [{ mid: '0', trackName: 'program-video' }]);
+  const progPub = calls.find(
+    (c) => c[0] === 'publish' && JSON.stringify(c[2]) === JSON.stringify([{ location: 'local', mid: '0', trackName: 'program-video' }]),
+  );
+  check('peerPublish: program-video als lokaler Track', !!progPub);
+  check('DO merkt Programm-Track (ret)', room.ret && room.ret.sessionId === 'peer-sess' && room.ret.trackName === 'program-video');
+  check('Peer erhält peerPublished mit answer', progPeer.sent.some((m) => m.t === 'peerPublished' && m.answer));
+  check('Gast erhält returnAvailable', guestSocket.sent.some((m) => m.t === 'returnAvailable'));
+
+  // Gast zieht den Programm-Track in seine eigene Publish-Session (sess-X).
+  const retBefore = calls.length;
+  await room.guestWantReturn(guestSocket, 'g1');
+  const retSub = calls.slice(retBefore).find((c) => c[0] === 'subscribe');
+  check('wantReturn: subscribe in Gast-Session sess-X', retSub && retSub[1] === 'sess-X');
+  check(
+    'wantReturn: remote program-video von peer-sess',
+    retSub && JSON.stringify(retSub[2]) === JSON.stringify([{ location: 'remote', sessionId: 'peer-sess', trackName: 'program-video' }]),
+  );
+  check('Gast erhält returnOffer', guestSocket.sent.some((m) => m.t === 'returnOffer'));
+
+  // Doppeltes wantReturn → kein zweites subscribe (retSubs-Guard gegen Doppel-Abo).
+  const dupSubs = calls.filter((c) => c[0] === 'subscribe').length;
+  await room.guestWantReturn(guestSocket, 'g1');
+  check('doppeltes wantReturn → kein erneutes subscribe', calls.filter((c) => c[0] === 'subscribe').length === dupSubs);
 
   // ── Warteraum-Gate: nicht freigegebener Gast darf NICHT publishen ──
   const lobbyGuest = { ...approvedGuest, id: 'g2', phase: 'lobby' };

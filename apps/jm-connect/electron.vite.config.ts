@@ -20,6 +20,9 @@ export default defineConfig({
           // utilityProcess-Entry (nativer NDI-Sender, EINE Instanz je Gast) →
           // out/main/ndi-guest-sender.cjs, geladen per utilityProcess.fork.
           'ndi-guest-sender': resolve(__dirname, 'src/utility/ndi-guest-sender.ts'),
+          // utilityProcess-Entry (nativer NDI-Empfänger für den Programm-Rückkanal, Welle 6.2a) →
+          // out/main/ndi-program-receiver.cjs.
+          'ndi-program-receiver': resolve(__dirname, 'src/utility/ndi-program-receiver.ts'),
         },
         output: {
           format: 'cjs',

@@ -6,6 +6,7 @@ import { IPC } from '@shared/ipc';
 import type { TrayCommand } from '@shared/types';
 import { registerIpc, notifyStatusChanged, currentStatus } from './ipc';
 import { initNdiGuests, tearDownAll } from './ndi-guests';
+import { initNdiProgram, stopProgram } from './ndi-program';
 import { createPeerWindow, destroyPeerWindow, getPeerWindow } from './peer-window';
 import { startControlServer, stopControlServer } from './control-server';
 import { createTray, destroyTray, setTrayStatus } from './tray';
@@ -58,6 +59,8 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     // Versteckter WebRTC-Peer (Medien) — vor dem NDI-Pool, der ihm Frame-Ports gibt.
     createPeerWindow(preloadPath);
     initNdiGuests({ getPeer: () => getPeerWindow(), onChange: () => notifyStatusChanged() });
+    // Programm-Rückkanal-Empfang (Welle 6.2a): Status-Änderungen an die Operator-UI/Tray.
+    initNdiProgram({ getPeer: () => getPeerWindow(), onStatus: () => notifyStatusChanged() });
 
     registerIpc({
       getWindow: () => getMainWindow(),
@@ -95,6 +98,7 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
   app.on('before-quit', () => {
     isQuitting = true;
     tearDownAll();
+    stopProgram();
     destroyPeerWindow();
     stopControlServer();
     destroyTray();
