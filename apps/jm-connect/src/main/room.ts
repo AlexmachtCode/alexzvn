@@ -8,6 +8,7 @@
 //   JMPS_PROXY_URL   HTTPS-Basis des Release-Proxys (ConnectRoom-Worker)
 //   JMPS_PROXY_KEY   Admin-Key (PROXY_KEY) — schützt open/close
 import { mintJoinToken, randomEventSecret, randomId } from '@jm/rtc/token';
+import { dropRoomSecret, loadRoomSecret, saveRoomSecret } from './secrets';
 import type { GuestInvite, RoomSession } from '@shared/types';
 
 const CONSENT_TEXT = 'Bild und Ton werden live übertragen und ggf. aufgezeichnet.';
@@ -47,9 +48,11 @@ export async function openRoom(room?: string, nowMs = Date.now()): Promise<RoomS
   }
   // Idempotent: ohne expliziten Raum den bereits offenen weiterverwenden, statt bei jedem
   // Klick einen neuen Zufallsraum zu erzeugen (sonst landen Gast und Operator in verschiedenen
-  // Räumen). Nur ein wirklich neuer Raum bekommt ein frisches Secret.
+  // Räumen). Ein gespeichertes Secret wird wiederverwendet — sonst wären alle vorab verteilten
+  // Join-Links nach einem App-Neustart tot. Nur ein wirklich unbekannter Raum bekommt ein frisches.
   const id = sanitizeRoom(room) || current?.room || randomId(8);
-  const secretHex = current && current.room === id ? current.secretHex : randomEventSecret();
+  const secretHex =
+    current && current.room === id ? current.secretHex : (loadRoomSecret(id) ?? randomEventSecret());
 
   const res = await fetch(`${base}/connect/${encodeURIComponent(id)}`, {
     method: 'POST',
@@ -59,6 +62,7 @@ export async function openRoom(room?: string, nowMs = Date.now()): Promise<RoomS
   if (!res.ok) throw new Error(`Raum öffnen fehlgeschlagen (Proxy ${res.status}).`);
 
   current = { room: id, secretHex };
+  saveRoomSecret(id, secretHex);
   const operatorToken = await mintJoinToken(secretHex, {
     room: id,
     guestId: 'operator',
@@ -111,7 +115,7 @@ export async function mintGuest(name: string, nowMs = Date.now()): Promise<Guest
   return { guestId, name, joinUrl };
 }
 
-/** Raum in der Cloud schließen. */
+/** Raum in der Cloud schließen. Rotiert bewusst das Secret → alle verteilten Join-Links sterben. */
 export async function closeRoom(): Promise<void> {
   const { base, key } = proxyConfig();
   if (current && base && key) {
@@ -120,6 +124,7 @@ export async function closeRoom(): Promise<void> {
       headers: { 'X-Proxy-Key': key },
     }).catch(() => {});
   }
+  if (current) dropRoomSecret(current.room);
   current = null;
 }
 

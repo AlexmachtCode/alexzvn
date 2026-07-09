@@ -3,7 +3,8 @@ import { SignallingClient } from '@jm/rtc/signalling';
 import { lobbyCount, onAirGuests, standbyGuest } from '@jm/rtc/state';
 import { ndiPoolKey } from '@jm/rtc/protocol';
 import type { Guest, OperatorAction, RoomState } from '@jm/rtc/protocol';
-import type { AppStatus, GuestInvite } from '@shared/types';
+import type { AppStatus, GuestInvite, ShowInfo } from '@shared/types';
+import { toDataUrl } from '@/lib/qr';
 
 // Der Operator-Renderer hält die Raum-WebSocket zum ConnectRoom-DO und spiegelt dessen
 // autoritativen Zustand. NDI-Effekte aus dem DO gehen per IPC an den Main (ndi-guests-Pool);
@@ -24,8 +25,9 @@ export function App(): JSX.Element {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [room, setRoom] = useState<RoomState | null>(null);
   const [connected, setConnected] = useState(false);
-  const [invite, setInvite] = useState<GuestInvite | null>(null);
+  const [invites, setInvites] = useState<GuestInvite[]>([]);
   const [guestName, setGuestName] = useState('');
+  const [show, setShow] = useState<ShowInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<SignallingClient | null>(null);
   const openingRef = useRef(false);
@@ -93,7 +95,9 @@ export function App(): JSX.Element {
     openingRef.current = true;
     setError(null);
     try {
-      const session = await window.jmconnect.openRoom();
+      // Eine geöffnete Show gibt den Raum vor (deterministisch) → vorab verteilte Join-Links
+      // bleiben gültig, weil das Secret zu dieser Raum-ID gespeichert ist.
+      const session = await window.jmconnect.openRoom(show?.room);
       const client = new SignallingClient({
         url: session.wsUrl,
         onMessage: handleMessage,
@@ -107,28 +111,48 @@ export function App(): JSX.Element {
     } finally {
       openingRef.current = false;
     }
-  }, [handleMessage]);
+  }, [handleMessage, show?.room]);
 
   const inviteGuest = useCallback(async () => {
     try {
-      setInvite(await window.jmconnect.mintGuest(guestName || 'Gast'));
+      const invite = await window.jmconnect.mintGuest(guestName || 'Gast');
+      setInvites((prev) => [...prev, invite]);
       setGuestName('');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [guestName]);
 
+  /** iveo-Provisionierung: je Sprecher der Veranstaltung ein Join-Link. Bereits eingeladene übergehen. */
+  const inviteSpeakers = useCallback(async () => {
+    if (!show) return;
+    const already = new Set(invites.map((i) => i.name));
+    const names = show.speakers.map((s) => s.name).filter((n) => !already.has(n));
+    if (!names.length) return;
+    try {
+      const fresh = await window.jmconnect.mintGuests(names);
+      setInvites((prev) => [...prev, ...fresh]);
+      window.jmconnect.audit('provision', `${fresh.length} Join-Links aus „${show.name}" erzeugt`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [show, invites]);
+
   const closeRoom = useCallback(async () => {
     clientRef.current?.close();
     clientRef.current = null;
     setConnected(false);
     setRoom(null);
-    setInvite(null);
+    // Der Raum wird geschlossen und das Secret rotiert — alle erzeugten Links sind damit tot.
+    setInvites([]);
     await window.jmconnect.closeRoom();
   }, []);
 
   useEffect(() => {
     void window.jmconnect.getStatus().then(setStatus);
+    // Der Show-Deep-Link kann vor dem Fenster eingetroffen sein → einmal abrufen UND abonnieren.
+    void window.jmconnect.getShow().then(setShow);
+    const offShow = window.jmconnect.onShow(setShow);
     const offStatus = window.jmconnect.onStatus(setStatus);
     // Steuerbefehle (Companion/Rundown) → Operator-Aktion an den DO relayen.
     const offCmd = window.jmconnect.onControlCommand((cmd) => {
@@ -156,6 +180,7 @@ export function App(): JSX.Element {
     });
     return () => {
       offStatus();
+      offShow();
       offCmd();
       clientRef.current?.close();
     };
@@ -185,13 +210,15 @@ export function App(): JSX.Element {
         </div>
       )}
 
+      {show && <ShowCard show={show} connected={connected} invited={invites.length} onInvite={inviteSpeakers} />}
+
       {!connected ? (
         <button
           onClick={openRoom}
           disabled={!status?.configured}
           className="rounded-xl bg-yellow-400 px-5 py-3 font-bold text-neutral-900 disabled:opacity-40"
         >
-          Raum öffnen
+          {show ? `Raum „${show.room}" öffnen` : 'Raum öffnen'}
         </button>
       ) : (
         <>
@@ -213,10 +240,11 @@ export function App(): JSX.Element {
             </button>
           </div>
 
-          {invite && (
-            <div className="mb-4 break-all rounded-lg border border-neutral-700 bg-neutral-900 p-3 text-sm">
-              <div className="mb-1 text-neutral-400">Join-Link für {invite.name}:</div>
-              <a href={invite.joinUrl} className="text-yellow-300">{invite.joinUrl}</a>
+          {invites.length > 0 && (
+            <div className="mb-4 grid gap-3 sm:grid-cols-2">
+              {invites.map((i) => (
+                <InviteCard key={i.guestId} invite={i} />
+              ))}
             </div>
           )}
 
@@ -265,6 +293,88 @@ export function App(): JSX.Element {
           </ul>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Die aus dem Launcher geöffnete Veranstaltung. Die Sprecher stammen token-frei aus iveo; die
+ * Join-Token entstehen erst hier im Main aus dem Raum-Secret — nie in der Show-Datei.
+ */
+function ShowCard({
+  show,
+  connected,
+  invited,
+  onInvite,
+}: {
+  show: ShowInfo;
+  connected: boolean;
+  invited: number;
+  onInvite: () => void;
+}): JSX.Element {
+  const open = show.speakers.length - invited;
+  return (
+    <div className="mb-4 rounded-lg border border-neutral-700 bg-neutral-900 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold">{show.eventName ?? show.name}</div>
+          <div className="text-xs text-neutral-400">
+            {show.speakers.length} Sprecher aus iveo · Raum <code className="text-neutral-300">{show.room}</code>
+          </div>
+        </div>
+        <button
+          onClick={onInvite}
+          disabled={!connected || show.speakers.length === 0 || open <= 0}
+          title={!connected ? 'Erst den Raum öffnen' : undefined}
+          className="shrink-0 rounded-lg bg-neutral-700 px-3 py-2 text-xs font-semibold disabled:opacity-40"
+        >
+          {open > 0 ? `${open} Sprecher einladen` : 'Alle eingeladen'}
+        </button>
+      </div>
+      {show.speakers.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {show.speakers.map((s) => (
+            <span key={s.name} className="rounded-full bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">
+              {s.name}
+              {s.title && <span className="text-neutral-500"> · {s.title}</span>}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Ein fertiger Join-Link: als QR zum Abfotografieren und als Text zum Verschicken. */
+function InviteCard({ invite }: { invite: GuestInvite }): JSX.Element {
+  const [qr, setQr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void toDataUrl(invite.joinUrl).then((d) => alive && setQr(d));
+    return () => {
+      alive = false;
+    };
+  }, [invite.joinUrl]);
+
+  const copy = useCallback(() => {
+    void navigator.clipboard.writeText(invite.joinUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [invite.joinUrl]);
+
+  return (
+    <div className="flex gap-3 rounded-lg border border-neutral-700 bg-neutral-900 p-3">
+      {qr && <img src={qr} alt="" width={96} height={96} className="h-24 w-24 shrink-0 rounded bg-white p-1" />}
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{invite.name}</div>
+        <div className="mt-1 break-all text-xs text-neutral-500">{invite.joinUrl}</div>
+        <button onClick={copy} className="mt-2 rounded bg-neutral-700 px-2 py-1 text-xs font-semibold">
+          {copied ? 'Kopiert ✓' : 'Link kopieren'}
+        </button>
+      </div>
     </div>
   );
 }

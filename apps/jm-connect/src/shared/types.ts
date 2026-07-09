@@ -32,6 +32,21 @@ export interface AppStatus {
   programSource: string | null;
 }
 
+/** Sprecher aus der `.jmshow` — token-frei vom Launcher materialisiert (iveo, Welle 6.3b). */
+export interface ShowSpeaker {
+  name: string;
+  /** Funktion/Rolle, z. B. „Lead Negotiator". */
+  title: string | null;
+}
+
+/** Die geöffnete Veranstaltung: Sprecher-Liste + deterministische Raum-ID. */
+export interface ShowInfo {
+  name: string;
+  room: string;
+  eventName: string | null;
+  speakers: ShowSpeaker[];
+}
+
 export type TrayCommand = { kind: 'show' } | { kind: 'closeRoom' };
 
 /** Steuerbefehl vom TCP-Protokoll (Companion/Rundown), den der Renderer an den DO relayt. */
@@ -45,7 +60,12 @@ export interface JmConnectApi {
   platform: string;
   openRoom: (room?: string) => Promise<RoomSession>;
   mintGuest: (name: string) => Promise<GuestInvite>;
+  /** Join-Links für mehrere Sprecher auf einmal (iveo-Provisionierung). */
+  mintGuests: (names: string[]) => Promise<GuestInvite[]>;
   closeRoom: () => Promise<void>;
+  /** Zuletzt per Deep-Link geöffnete Show (oder null). */
+  getShow: () => Promise<ShowInfo | null>;
+  onShow: (cb: (show: ShowInfo | null) => void) => () => void;
   /** NDI-Sender einer Quelle starten (spinUpNdi). `key` = Pool-Schlüssel: Gast-ID oder `<id>::screen`. */
   ndiUp: (key: string, label: string) => void;
   /** NDI-Sender einer Quelle stoppen (tearDownNdi). Kamera-Schlüssel räumt auch den Bildschirm ab. */

@@ -5,6 +5,12 @@ export const IPC = {
   openRoom: 'jmc:open-room',
   /** invoke (Renderer → Main): Join-Token/-Link für einen neuen Gast erzeugen. */
   mintGuest: 'jmc:mint-guest',
+  /** invoke (Renderer → Main): Join-Links für mehrere Sprecher (iveo-Provisionierung). */
+  mintGuests: 'jmc:mint-guests',
+  /** invoke (Renderer → Main): zuletzt per Deep-Link geöffnete Show. */
+  getShow: 'jmc:get-show',
+  /** push (Main → Renderer): eine Show wurde geöffnet (Sprecher + Raum). */
+  showInfo: 'jmc:show-info',
   /** invoke (Renderer → Main): Raum schließen (Worker-Admin + NDI-Pool leeren). */
   closeRoom: 'jmc:close-room',
   /** send (Renderer → Main): NDI-Sender für einen freigegebenen Gast starten. */

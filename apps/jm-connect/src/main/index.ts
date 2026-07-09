@@ -10,13 +10,20 @@ import { initNdiProgram, stopProgram } from './ndi-program';
 import { createPeerWindow, destroyPeerWindow, getPeerWindow } from './peer-window';
 import { startControlServer, stopControlServer } from './control-server';
 import { createTray, destroyTray, setTrayStatus } from './tray';
+import { handleShowDeepLink } from './show-open';
 
 declare const __dirname: string;
 
 let isQuitting = false;
 
-// Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
-initAppRuntime({ csp: true, appId: 'jm-connect', appName: 'JM Connect' });
+// Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence. Ein Show-Deep-Link liefert
+// die Sprecher-Liste der Veranstaltung (iveo, Welle 6.3b) → Join-Links/QR mit einem Klick.
+const runtime = initAppRuntime({
+  csp: true,
+  appId: 'jm-connect',
+  appName: 'JM Connect',
+  onDeepLink: (url) => void handleShowDeepLink(url),
+});
 
 const preloadPath = join(__dirname, '../preload/index.cjs');
 
@@ -82,6 +89,8 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     if (!res.ok) console.error('[control] Steuerserver-Start fehlgeschlagen:', res.error);
 
     createWindow();
+    // Kaltstart: die App wurde direkt mit einem Show-Deep-Link geöffnet.
+    if (runtime.initialDeepLink) void handleShowDeepLink(runtime.initialDeepLink);
     createTray({
       iconPath: iconPath(),
       getWindow: () => getMainWindow(),

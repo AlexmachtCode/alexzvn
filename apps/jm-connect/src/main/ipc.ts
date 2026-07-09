@@ -10,6 +10,7 @@ import { closeRoom, isConfigured, mintGuest, openRoom, peerConnectInfo, proxyCon
 import { activeCount, spinUp, tearDown, tearDownAll } from './ndi-guests';
 import { programStatus, startProgram, stopProgram } from './ndi-program';
 import { CONTROL_PORT, pushControlState } from './control-server';
+import { initShow, showInfo } from './show-open';
 
 let getWindow: () => BrowserWindow | null = () => null;
 let getPeer: () => BrowserWindow | null = () => null;
@@ -42,6 +43,9 @@ export function registerIpc(deps: {
   getPeer = deps.getPeer;
   onStatusChange = deps.onStatusChange;
 
+  // Show-Deep-Link kann VOR dem Fenster eintreffen — deshalb zusätzlich der getShow-Abruf unten.
+  initShow((show) => getWindow()?.webContents.send(IPC.showInfo, show));
+
   ipcMain.handle(IPC.openRoom, async (_e, room?: string) => {
     const session = await openRoom(room);
     // Den versteckten Peer separat mit dem DO verbinden (eigenes SFU-Medien-Signalling).
@@ -54,6 +58,16 @@ export function registerIpc(deps: {
   });
 
   ipcMain.handle(IPC.mintGuest, async (_e, name: string) => mintGuest(name));
+
+  // iveo-Provisionierung: ein Join-Link je Sprecher. Serialisiert, nicht Promise.all — die
+  // Reihenfolge der Karten soll der Sprecher-Reihenfolge der Veranstaltung entsprechen.
+  ipcMain.handle(IPC.mintGuests, async (_e, names: string[]) => {
+    const invites = [];
+    for (const name of Array.isArray(names) ? names : []) invites.push(await mintGuest(name));
+    return invites;
+  });
+
+  ipcMain.handle(IPC.getShow, async () => showInfo());
 
   ipcMain.handle(IPC.closeRoom, async () => {
     tearDownAll();

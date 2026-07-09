@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppStatus, ControlCommand, GuestInvite, JmConnectApi, RoomSession, TrayCommand } from '@shared/types';
+import type { AppStatus, ControlCommand, GuestInvite, JmConnectApi, RoomSession, ShowInfo, TrayCommand } from '@shared/types';
 import { IPC, PEER_CONNECT, PEER_FRAME_PORT, PEER_PROGRAM_PORT } from '@shared/ipc';
 
 // Versteckter Peer-Renderer: den vom Main übertragenen Frame-MessagePort (je Gast)
@@ -23,7 +23,14 @@ const api: JmConnectApi = {
   platform: process.platform,
   openRoom: (room?: string) => ipcRenderer.invoke(IPC.openRoom, room) as Promise<RoomSession>,
   mintGuest: (name: string) => ipcRenderer.invoke(IPC.mintGuest, name) as Promise<GuestInvite>,
+  mintGuests: (names: string[]) => ipcRenderer.invoke(IPC.mintGuests, names) as Promise<GuestInvite[]>,
   closeRoom: () => ipcRenderer.invoke(IPC.closeRoom) as Promise<void>,
+  getShow: () => ipcRenderer.invoke(IPC.getShow) as Promise<ShowInfo | null>,
+  onShow: (cb) => {
+    const listener = (_e: unknown, show: ShowInfo | null) => cb(show);
+    ipcRenderer.on(IPC.showInfo, listener);
+    return () => ipcRenderer.off(IPC.showInfo, listener);
+  },
   ndiUp: (key: string, label: string) => ipcRenderer.send(IPC.ndiUp, { key, label }),
   ndiDown: (key: string) => ipcRenderer.send(IPC.ndiDown, { key }),
   pushControlState: (kv) => ipcRenderer.send(IPC.pushControlState, kv),
