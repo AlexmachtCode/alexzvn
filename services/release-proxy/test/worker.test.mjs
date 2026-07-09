@@ -200,6 +200,40 @@ async function run() {
     const r = await worker.fetch(req('/nope'), baseEnv);
     check('nicht-connect-Pfad unberührt → 404', r.status === 404);
   }
+
+  // 17–19) EU-Datenresidenz (Welle 6.6): der Raum-DO wird über die Jurisdiction adressiert.
+  {
+    const calls = [];
+    const ns = {
+      jurisdiction(j) {
+        calls.push(`jurisdiction:${j}`);
+        return ns;
+      },
+      idFromName(n) {
+        calls.push(`idFromName:${n}`);
+        return { n };
+      },
+      get() {
+        return { fetch: async () => new Response('{}', { status: 200 }) };
+      },
+    };
+    const url = 'https://proxy.test/connect/room-1/state';
+    const hdr = { headers: { 'CF-Connecting-IP': '9.9.9.9' } };
+
+    calls.length = 0;
+    await worker.fetch(new Request(url, hdr), { ...baseEnv, CONNECT_ROOM: ns });
+    check('Default: Raum-DO wird in der EU-Jurisdiction adressiert', calls[0] === 'jurisdiction:eu');
+
+    // Abschalten nur für lokale Läufe — dann darf sie NICHT still angefordert werden.
+    calls.length = 0;
+    await worker.fetch(new Request(url, hdr), { ...baseEnv, CONNECT_ROOM: ns, CONNECT_JURISDICTION: '' });
+    check('CONNECT_JURISDICTION="" → keine Jurisdiction angefordert', !calls.some((c) => c.startsWith('jurisdiction')));
+
+    // Verlangte Jurisdiction, die die Bindung nicht kann → LAUT scheitern, nicht still global laufen.
+    const plain = { idFromName: () => ({}), get: () => ({ fetch: async () => new Response('{}') }) };
+    const r = await worker.fetch(new Request(url, hdr), { ...baseEnv, CONNECT_ROOM: plain });
+    check('Jurisdiction verlangt, aber nicht unterstützt → 503 statt stiller Rückfall', r.status === 503);
+  }
 }
 
 run()

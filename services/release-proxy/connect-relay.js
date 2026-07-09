@@ -75,7 +75,13 @@ export async function handleConnect(request, env, url) {
   // An den Raum-DO weiterreichen. Raumname + (für Admin) Admin-Marker als interne Header —
   // der DO ist nur über den Worker erreichbar und vertraut diesen Headern.
   if (!env.CONNECT_ROOM) return json({ error: 'CONNECT_ROOM DO-Bindung fehlt' }, 503);
-  const stub = env.CONNECT_ROOM.get(env.CONNECT_ROOM.idFromName(id));
+  let stub;
+  try {
+    stub = roomStub(env, id);
+  } catch (e) {
+    // Lieber laut scheitern als still ohne EU-Bindung weiterlaufen.
+    return json({ error: e.message }, 503);
+  }
   const headers = new Headers(request.headers);
   headers.set('x-connect-room', id);
   if (isAdmin) headers.set('x-connect-admin', '1');
@@ -83,6 +89,34 @@ export async function handleConnect(request, env, url) {
 }
 
 // ── Worker-Helfer (bewusst modul-lokal, wie in qa-relay.js) ─────────────────────
+
+/**
+ * Raum-DO in der konfigurierten Jurisdiction (Welle 6.6, EU-Residenz).
+ *
+ * `jurisdiction('eu')` ist eine HARTE Garantie: das Objekt läuft und speichert ausschließlich in
+ * der EU. (`locationHint` wäre nur eine Platzierungs-Empfehlung ohne Zusage — nicht verwenden.)
+ * Damit liegt der komplette persistierte Raum-Zustand in der EU: Gästenamen, Einwilligungen,
+ * Tally, Publish-Referenzen. Connect nutzt bewusst KEIN KV — Workers KV kennt keine Jurisdiction.
+ *
+ * ⚠️ Derselbe Raumname ergibt in einer anderen Jurisdiction eine ANDERE Objekt-ID. Ein Wechsel
+ * dieser Einstellung verwaist deshalb alle bestehenden Räume; sie ist bei der ersten Auslieferung
+ * festzulegen, nicht im Betrieb. `CONNECT_JURISDICTION=""` schaltet sie ab (nur für lokale
+ * `wrangler dev`-Läufe, in denen die Simulation keine Jurisdictions kennt).
+ *
+ * NICHT abgedeckt: die MEDIEN. Cloudflare Realtime (SFU) und TURN kennen keine Regions- oder
+ * Jurisdiction-Option — siehe docs/security/connect-datenresidenz.md.
+ */
+function roomStub(env, id) {
+  const j = env.CONNECT_JURISDICTION === undefined ? 'eu' : String(env.CONNECT_JURISDICTION).trim();
+  let ns = env.CONNECT_ROOM;
+  if (j) {
+    if (typeof ns.jurisdiction !== 'function') {
+      throw new Error(`Jurisdiction "${j}" verlangt, aber die DO-Bindung unterstützt sie nicht`);
+    }
+    ns = ns.jurisdiction(j);
+  }
+  return ns.get(ns.idFromName(id));
+}
 
 function keyOk(request, env) {
   const provided =

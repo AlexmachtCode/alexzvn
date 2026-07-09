@@ -56,6 +56,13 @@ MANIFEST_REF = "main"
 # Modell fürs Kochbuch-KI-Authoring (/cookbook/draft). Default claude-opus-4-8;
 # für günstiger auskommentieren und z. B. auf claude-sonnet-4-6 setzen.
 # COOKBOOK_MODEL = "claude-sonnet-4-6"
+# EU-Datenresidenz der Zuschaltungs-Räume (Welle 6.6). "eu" pinnt jeden ConnectRoom-DO hart auf
+# die EU — Gästenamen, Einwilligungen und Tally verlassen sie nicht. Leerstring schaltet das ab
+# (nur für lokale `wrangler dev`-Läufe, die keine Jurisdictions kennen).
+# ⚠️ NICHT im Betrieb ändern: derselbe Raumname ergibt in einer anderen Jurisdiction eine ANDERE
+# Objekt-ID, bestehende Räume wären verwaist. Die MEDIEN (Realtime-SFU/TURN) deckt das nicht ab —
+# siehe docs/security/connect-datenresidenz.md.
+CONNECT_JURISDICTION = "eu"
 
 # Secrets NICHT hier eintragen — verschlüsselt setzen:
 #   npx wrangler secret put GITHUB_TOKEN      (fine-grained PAT; read-only Contents reicht
