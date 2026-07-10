@@ -505,6 +505,14 @@ async function pumpAudio(key: string, track: MediaStreamTrack): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proc = new (window as any).MediaStreamTrackProcessor({ track });
   const reader: ReadableStreamDefaultReader<AudioData> = proc.readable.getReader();
+
+  // Gegenprobe zum Video: ein Handy-Browser hält im Hintergrund die KAMERA an, das Mikrofon läuft
+  // weiter. Stumme Kamera bei laufendem Ton heißt also „Gast weggewischt"; sind beide stumm, ist
+  // die SFU-Session des Gasts gestorben. Ohne diese Asymmetrie lässt sich das nicht unterscheiden.
+  track.addEventListener('mute', () => plog(key, '⚠ Audio-Track stumm — keine Medien mehr von der SFU.'));
+  track.addEventListener('unmute', () => plog(key, 'Audio-Track liefert wieder.'));
+  let chunks = 0;
+
   try {
     for (;;) {
       const { value: data, done } = await reader.read();
@@ -513,10 +521,13 @@ async function pumpAudio(key: string, track: MediaStreamTrack): Promise<void> {
       try {
         const a = await audioDataToFltp(data);
         port.postMessage({ type: 'audio', buffer: a.buffer, ch: a.ch, n: a.n, sr: a.sr });
+        if (++chunks % 500 === 0) plog(key, 'Audio-Pakete:', chunks);
       } finally {
         data.close();
       }
     }
+  } catch (e) {
+    plog(key, 'Audio-Pumpe abgebrochen:', e instanceof Error ? e.message : String(e));
   } finally {
     pumping.delete(`${key}:audio`);
     releaseTrack(key, 'audio', track);
@@ -560,7 +571,10 @@ async function onProgramFrame(port: MessagePort, data: unknown): Promise<void> {
     await programWriter.write(frame); // Generator übernimmt & schließt den Frame
     frame = null;
     programFrames++;
-    if (programFrames === 1) plog('erstes Programm-Frame geschrieben ✓');
+    if (programFrames === 1) {
+      plog('erstes Programm-Frame geschrieben ✓ → jetzt darf program-video publiziert werden');
+      maybePublishProgram();
+    }
     if (programFrames % 50 === 0) plog('Programm-Frames:', programFrames);
   } catch (e) {
     if (frame) frame.close();
@@ -572,6 +586,15 @@ async function onProgramFrame(port: MessagePort, data: unknown): Promise<void> {
 
 function maybePublishProgram(): void {
   if (programPublished || !programTrack || !pc || !pcConnected || !peerSessionId) return;
+  // ⭐ NIEMALS einen Track publishen, der noch kein einziges Paket gesendet hat. Genau das ist
+  // Cloudflares `empty_track_error`: der Track existiert, liefert aber nichts — und jeder Gast,
+  // der ihn über den Rückkanal zieht, holt sich eine tote Spur in seine eigene SFU-Session.
+  // Läuft der Switcher (noch) nicht, gibt es kein Programmbild; der Empfänger sucht endlos weiter
+  // und ruft uns hier erneut, sobald das erste Bild da ist.
+  if (programFrames === 0) {
+    plog('program-video noch nicht publiziert — es fließt kein Programmbild (läuft der JM Switcher?).');
+    return;
+  }
   programPublished = true; // optimistischer Guard gegen Doppel-Publish
   const track = programTrack;
   void serializeNego(() => publishTrack(track, PROGRAM_TRACK, () => (programPublished = false)));
