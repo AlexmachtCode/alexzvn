@@ -17,7 +17,7 @@ jobs:
     name: ${{ matrix.os }}
     # Tools mit nativen Addons werden NICHT in CI gebaut (lizenzierte, nicht
     # redistribuierbare SDKs fehlen auf GitHub-Runnern):
-    #   - ndi-screen-capture + switcher + titler → @jm/ndi (NDI-SDK)
+    #   - ndi-screen-capture + switcher + titler + connect → @jm/ndi (NDI-SDK)
     #   - recorder + daw                         → @jm/audio (PortAudio/ASIO-SDK)
     #   - transcribe + caption                   → whisper.cpp-Binary + Modell (+ caption: @jm/ndi)
     # Diese werden LOKAL gebaut (Windows: dist:win; macOS/arm64: dist:mac — siehe
@@ -25,7 +25,7 @@ jobs:
     # (gh release create <app>-v<version> + Installer-Upload). transcribe ließe
     # sich auf macos-latest perspektivisch CI-automatisieren (whisper.cpp aus
     # Quelle baubar, kein Secret) — bewusst noch nicht umgesetzt.
-    if: ${{ !startsWith(github.ref_name, 'ndi-screen-capture-v') && !startsWith(github.ref_name, 'switcher-v') && !startsWith(github.ref_name, 'recorder-v') && !startsWith(github.ref_name, 'titler-v') && !startsWith(github.ref_name, 'transcribe-v') && !startsWith(github.ref_name, 'caption-v') && !startsWith(github.ref_name, 'daw-v') }}
+    if: ${{ !startsWith(github.ref_name, 'ndi-screen-capture-v') && !startsWith(github.ref_name, 'switcher-v') && !startsWith(github.ref_name, 'recorder-v') && !startsWith(github.ref_name, 'titler-v') && !startsWith(github.ref_name, 'transcribe-v') && !startsWith(github.ref_name, 'caption-v') && !startsWith(github.ref_name, 'daw-v') && !startsWith(github.ref_name, 'connect-v') }}
     strategy:
       fail-fast: false
       matrix:
@@ -46,7 +46,15 @@ jobs:
         run: |
           # Tag = "<app>-v<version>" → app = alles vor "-v"
           tag="${GITHUB_REF_NAME}"
-          echo "name=${tag%-v*}" >> "$GITHUB_OUTPUT"
+          app="${tag%-v*}"
+          # Der Tag-Name ist zugleich der Verzeichnisname (apps/<app>) UND der Workspace-Name
+          # (@jm/<app>). Weicht das Verzeichnis ab, scheitert der Lauf sonst erst Minuten später
+          # beim Schreiben der electron-builder.yml — nach `npm ci` und dem Renderer-Build.
+          if [ ! -d "apps/$app" ]; then
+            echo "::error::Tag '$tag' erwartet apps/$app — dieses Verzeichnis gibt es nicht. Entweder heisst das App-Verzeichnis anders (dann umbenennen: die Suite fuehrt apps/<app> ohne jm--Praefix) oder der Tag ist falsch geschrieben."
+            exit 1
+          fi
+          echo "name=$app" >> "$GITHUB_OUTPUT"
 
       - name: Install (workspaces)
         run: npm ci
@@ -65,12 +73,27 @@ jobs:
       # 7zip-bin an die Root hoistet (statt pro App genested), zerstört dieser
       # Schritt sonst die einzige 7zip-bin-Kopie → "ENOENT chmod 7za". Unsere Apps
       # sind reines JS (vite bündelt alles in out/), daher ist das gefahrlos.
+      # Nur ergänzen, was fehlt: die lokal gepackten Tools (NDI/Audio) tragen beide Schlüssel
+      # selbst in ihrer Config, weil sie ohne diesen Workflow gebaut werden. Ein zweites
+      # Vorkommen überschreibt in YAML nicht, sondern ist ein Fehler („duplicated mapping key"),
+      # und electron-builder bricht ab, bevor es überhaupt zu packen beginnt.
       - name: Inject electron version + disable npmRebuild into config
         shell: bash
         run: |
+          cfg="apps/${{ steps.app.outputs.name }}/electron-builder.yml"
           ver=$(node -p "require('electron/package.json').version")
-          printf '\nelectronVersion: %s\nnpmRebuild: false\n' "$ver" >> "apps/${{ steps.app.outputs.name }}/electron-builder.yml"
-          echo "electronVersion=$ver npmRebuild=false"
+          if grep -q '^electronVersion:' "$cfg"; then
+            echo "electronVersion steht schon in $cfg — unverändert"
+          else
+            printf '\nelectronVersion: %s\n' "$ver" >> "$cfg"
+            echo "electronVersion=$ver ergänzt"
+          fi
+          if grep -q '^npmRebuild:' "$cfg"; then
+            echo "npmRebuild steht schon in $cfg — unverändert"
+          else
+            printf 'npmRebuild: false\n' >> "$cfg"
+            echo "npmRebuild=false ergänzt"
+          fi
 
       # Tool-spezifische Vorbereitung (z. B. media-converter bündelt ffmpeg aus
       # ffmpeg-static/ffprobe-static nach resources/bin/<platform>/). Tools ohne
@@ -110,7 +133,7 @@ jobs:
   # latestVersion in suite.json automatisch nachziehen, sobald der CI-Build
   # erfolgreich released wurde — ersetzt das manuelle Pflegen der Katalog-Version.
   # Läuft nur bei vollständigem Erfolg der Matrix (kein Bump bei Teilausfall).
-  # Native Tools (ndi-screen-capture/switcher/recorder/daw/titler/transcribe)
+  # Native Tools (ndi-screen-capture/switcher/recorder/daw/titler/transcribe/connect)
   # bauen lokal und sind oben per `if` ausgenommen → deren Version bumpt man lokal:
   #   node scripts/bump-manifest.mjs <app> <version>
   bump-manifest:

@@ -44,6 +44,15 @@ export class OutputController {
   ) {
     this.getCanvas = getCanvas;
     this.getAudioTrack = getAudioTrack;
+  }
+
+  /**
+   * Main-Meldungen abonnieren; idempotent. Nicht im Konstruktor, weil `destroy()` sie wieder abhängt und
+   * StrictMode/HMR den Effekt danach erneut laufen lassen — sonst erreichten ffmpeg-Fehler und
+   * Stream-Abbrüche die Oberfläche nie wieder (siehe `NdiOutputController.attach`).
+   */
+  attach(): void {
+    if (this.offError) return;
     this.offError = window.jmswitch.output.onError((err) => {
       this.teardown(err.scope === 'record' ? 'rec' : 'stream');
       this.patch({ error: err.message });
@@ -194,7 +203,9 @@ export class OutputController {
     this.teardown('rec');
     this.teardown('stream');
     this.offError?.();
+    this.offError = null;
     this.offStatus?.();
+    this.offStatus = null;
     this.canvasStream?.getTracks().forEach((t) => t.stop());
     this.canvasStream = null;
     this.listeners.clear();

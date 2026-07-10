@@ -1332,5 +1332,39 @@
         ]
       }
     ]
+  },
+  {
+    "app": "connect",
+    "name": "JM Connect",
+    "entries": [
+      {
+        "version": "0.1.0",
+        "date": "2026-07-09",
+        "notes": [
+          "Erste Ausgabe. Remote-Gäste kommen über einen Browser-Link dazu — ohne Software, ohne Konto — und erscheinen automatisch als NDI-Quelle im JM Switcher, Titler und Rundown.",
+          "Voller Green Room: Wer beitritt, landet zuerst im Warteraum. Du siehst eine Vorschau, gibst frei und schaltest auf Sendung; die Tally-Lampe zeigt jedem Gast, ob er zu sehen ist.",
+          "Rückkanal mit Mix-Minus: Jeder Gast sieht das Programm und hört alle anderen, aber nie sich selbst — kein Echo. Über die Sprechtaste redest du direkt ins Ohr eines einzelnen Gastes oder aller.",
+          "Bildschirmfreigabe eines Gastes wird eine zweite, saubere NDI-Quelle. Nach ausdrücklicher Freigabe darf ein Remote-Sprecher seine Folien im JM Presenter selbst weiterblättern.",
+          "Sprecher aus iveo lassen sich im Launcher mit einem Klick einladen: fertige Zuschalt-Links samt QR-Code, die auch nach einem Neustart der App gültig bleiben.",
+          "Fernsteuerbar über JM Rundown und Bitfocus Companion — eine GO-Zeile holt den vorbereiteten Gast auf Sendung.",
+          "Der Raum-PC öffnet keinen eingehenden Port. Namen, Einwilligungen und Tally bleiben in der EU; die Bild- und Tonströme laufen über das weltweite Netz von Cloudflare — Näheres in der Dokumentation zur Datenresidenz."
+        ]
+      }
+    ]
+  },
+  {
+    "app": "interpreter",
+    "name": "JM Interpreter",
+    "entries": [
+      {
+        "version": "0.1.0",
+        "date": "2026-07-09",
+        "notes": [
+          "Erste Ausgabe. Mischt den Originalton einer Veranstaltung mit der Simultanübersetzung und senkt den Originalton automatisch ab, sobald die Dolmetscherin spricht.",
+          "Schwelle, Absenkung, Attack, Release und Nachlauf sind frei einstellbar. Der Nachlauf sorgt dafür, dass kurze Atempausen den Originalton nicht hochreißen — kein Pumpen.",
+          "Der fertige Mix geht auf ein Ausgabegerät deiner Wahl. Über ein virtuelles Audiokabel wie VB-Cable lässt er sich in Zoom, Webex oder Teams als Mikrofon einspeisen; das Kabel ist Voraussetzung und separat zu installieren."
+        ]
+      }
+    ]
   }
 ]

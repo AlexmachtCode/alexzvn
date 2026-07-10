@@ -1,0 +1,60 @@
+appId: gmbh.jakobs.connect
+productName: JM Connect
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+copyright: "© Jakobs Medien GmbH"
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - "**/*"
+
+asar: true
+
+# NDI wird LOKAL auf Windows gebaut (NDI-SDK nicht in CI verfügbar; der
+# suite-release-Workflow überspringt dieses Tool — Tag-Präfix `connect-v`). electron ist
+# im Workspace ans Root gehoistet → electron-builder findet die Version sonst nicht;
+# npmRebuild aus, weil das native Addon bereits via electron-rebuild gebaut + von
+# bundle-ndi nach resources/bin/win gestaged wird. electronVersion bei Electron-Upgrade nachziehen.
+electronVersion: 33.4.11
+npmRebuild: false
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.video
+  icon: build/icon.png
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: JM Connect
+  # Desktop-Icon nur für den Launcher (Suite-Politik) — Tools bleiben ohne.
+  createDesktopShortcut: false
+
+publish:
+  provider: github
+  owner: AlexmachtCode
+  repo: alexzvn
+  private: true

@@ -1,6 +1,7 @@
 import { Badge, Button, Card, cn } from '@jm/ui';
 import type { ToolManifest, ToolState } from '@shared/types';
 import { displayName, monogram } from '@/lib/monogram';
+import { toolIcon } from '@/lib/tool-icons';
 import { useChangelog } from '@/store/changelog';
 import { useCookbook } from '@/store/cookbook';
 import { useTools } from '@/store/tools';
@@ -28,14 +29,7 @@ export function ToolCard({ tool, state }: Props) {
   return (
     <Card className="h-full p-5 flex flex-col gap-4 jm-fade-in">
       <div className="flex items-start gap-4">
-        <div
-          className="grid place-items-center size-12 shrink-0 rounded-[var(--radius-lg)]
-                     border border-[var(--primary)]/40 bg-[var(--highlight)]
-                     text-lg font-extrabold tracking-tight text-[var(--primary)]"
-          aria-hidden
-        >
-          {monogram(tool.name)}
-        </div>
+        <ToolIcon tool={tool} />
         <div className="min-w-0 flex-1">
           <h3 className="text-base font-extrabold leading-tight truncate" title={tool.name}>
             {displayName(tool.name)}
@@ -102,6 +96,28 @@ export function ToolCard({ tool, state }: Props) {
       )}
     </Card>
   );
+}
+
+/**
+ * App-Icon der Kachel. Hat ein Tool (noch) keins, bleibt es beim Kürzel — die Kachel darf nie
+ * leer sein, nur weil ein Icon fehlt.
+ */
+function ToolIcon({ tool }: { tool: ToolManifest }) {
+  const src = toolIcon(tool.id);
+  if (!src) {
+    return (
+      <div
+        className="grid place-items-center size-12 shrink-0 rounded-[var(--radius-lg)]
+                   border border-[var(--primary)]/40 bg-[var(--highlight)]
+                   text-lg font-extrabold tracking-tight text-[var(--primary)]"
+        aria-hidden
+      >
+        {monogram(tool.name)}
+      </div>
+    );
+  }
+  // Das SVG bringt seine dunkle Kachel samt Rundung selbst mit — kein Rahmen, kein Hintergrund.
+  return <img src={src} alt="" aria-hidden className="size-12 shrink-0 rounded-[var(--radius-lg)]" />;
 }
 
 function ProgressStrip({

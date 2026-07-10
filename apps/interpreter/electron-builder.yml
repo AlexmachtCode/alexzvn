@@ -1,0 +1,56 @@
+appId: gmbh.jakobs.interpreter
+productName: JM Interpreter
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+copyright: "© Jakobs Medien GmbH"
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - "**/*"
+
+asar: true
+
+# Keine nativen Addons → in CI baubar (suite-release.yml braucht keine Ausnahme).
+# electron ist im Workspace ans Root gehoistet; die Version schreibt der Workflow zur Build-Zeit.
+npmRebuild: false
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.music
+  icon: build/icon.png
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: JM Interpreter
+  # Desktop-Icon nur für den Launcher (Suite-Politik) — Tools bleiben ohne.
+  createDesktopShortcut: false
+
+publish:
+  provider: github
+  owner: AlexmachtCode
+  repo: alexzvn
+  private: true

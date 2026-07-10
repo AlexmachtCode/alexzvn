@@ -1,0 +1,21 @@
+{
+  "name": "@jm/rtc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Geteilter Remote-A/V-Kern (Welle 6 „JM Connect“): Room-Protokoll/State-Machine, Signalling-Client, austauschbare WHIP/WHEP-SFU-Abstraktion (Cloudflare-Realtime-Adapter), TURN-Cred-Ausgabe und WebCodecs↔NDI-Frame-Konverter. Isomorph (Browser/Electron/Cloudflare-Worker), dependency-frei.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol.ts",
+    "./state": "./src/state.ts",
+    "./token": "./src/token.ts",
+    "./signalling": "./src/signalling.ts",
+    "./sfu": "./src/sfu.ts",
+    "./cf-sfu": "./src/cf-sfu.ts",
+    "./turn": "./src/turn.ts",
+    "./frames": "./src/frames.ts"
+  },
+  "scripts": {
+    "selftest": "tsx test/selftest.ts"
+  }
+}

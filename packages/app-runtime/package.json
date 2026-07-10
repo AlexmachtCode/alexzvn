@@ -7,6 +7,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "selftest": "node --experimental-strip-types test/selftest.ts"
+  },
   "peerDependencies": {
     "electron": ">=30"
   }

@@ -62,10 +62,20 @@ function createMainWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // Der Programm-Ausgang (NDI/Aufnahme/RTMP) MUSS weiterlaufen, wenn das Fenster verdeckt oder
+      // minimiert ist. Sonst drosselt Chromium Timer/rAF im Hintergrund und die NDI-Quelle sendet
+      // keine Frames mehr (bleibt aber im Netz sichtbar → „verbunden, aber kein Bild").
+      backgroundThrottling: false,
     },
   });
 
   win.on('ready-to-show', () => win.show());
+
+  // Die Ausgabe-Pumpe (NDI/Aufnahme/RTMP) lebt im Renderer, dessen Konsole im Betrieb niemand
+  // offen hat. Ihre `[ndi-out]`-Zeilen deshalb ins Terminal-Log spiegeln — alles andere bleibt draußen.
+  win.webContents.on('console-message', (_e, _level, message) => {
+    if (typeof message === 'string' && message.startsWith('[ndi-out]')) console.log(message);
+  });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);

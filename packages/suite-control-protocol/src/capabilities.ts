@@ -578,6 +578,44 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
     ],
     feedbacks: [],
   },
+
+  // ── Connect (Remote-Zuschaltung / Green Room, Welle 6) ─────────────────────
+  // Ein GO holt den vorbereiteten (Standby-)Gast auf Sendung — die eine Rundown-
+  // Zeile für Zuschaltungen. Guest-IDs sind die opaken Bezeichner aus dem Raum;
+  // im Companion typischerweise als Variable/Text hinterlegt.
+  connect: {
+    role: 'connect',
+    label: 'JM Connect',
+    port: 8737,
+    actions: [
+      { id: 'go', label: 'GO — Standby-Gast auf Sendung', verb: 'go' },
+      { id: 'next', label: 'Nächsten Gast vormerken (Standby)', verb: 'next' },
+      { id: 'standby', label: 'Gast als Standby vormerken', verb: 'standby', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }] },
+      { id: 'onair', label: 'Gast auf Sendung', verb: 'onair', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }] },
+      { id: 'off', label: 'Gast aus Sendung', verb: 'off', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }] },
+      { id: 'approve', label: 'Gast aus dem Warteraum freigeben', verb: 'approve', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }] },
+      { id: 'talkback', label: 'Talkback (Regie ins Ohr)', verb: 'talkback', args: [modeArg], toggleKey: 'talkback' },
+      // Der Remote-Sprecher blättert seine Folien im JM Presenter selbst weiter (Welle 6.3c).
+      { id: 'slides', label: 'Folien-Steuerung für Gast', verb: 'slides', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }, modeArg] },
+      { id: 'kick', label: 'Gast entfernen', verb: 'kick', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }] },
+    ],
+    variables: [
+      { id: 'room', label: 'Raum' },
+      { id: 'connected', label: 'SFU verbunden (1/0)' },
+      { id: 'guests', label: 'Gäste gesamt' },
+      { id: 'lobby', label: 'Im Warteraum' },
+      { id: 'onair', label: 'Auf Sendung (Anzahl)' },
+      { id: 'active_label', label: 'Aktiver Gast (Name)' },
+      { id: 'standby', label: 'Standby-Gast (ID)' },
+      { id: 'standby_label', label: 'Standby-Gast (Name)' },
+      { id: 'talkback', label: 'Talkback aktiv (1/0)' },
+    ],
+    feedbacks: [
+      { id: 'onair', label: 'Connect: es ist ein Gast auf Sendung', stateKey: 'onair', match: 'truthy', bgcolor: RED, color: WHITE },
+      { id: 'lobby', label: 'Connect: Gäste im Warteraum', stateKey: 'lobby', match: 'truthy', bgcolor: YELLOW, color: BLACK },
+      { id: 'talkback', label: 'Connect: Talkback aktiv', stateKey: 'talkback', match: 'truthy', bgcolor: YELLOW, color: BLACK },
+    ],
+  },
 };
 
 /** Liste aller bekannten Rollen (für mDNS-Filter / Dropdowns). */

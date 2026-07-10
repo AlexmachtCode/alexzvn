@@ -62,8 +62,10 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
   const ndiSourceRef = useRef<'program' | 'multiview'>('program');
   const ndiOutRef = useRef<NdiOutputController | null>(null);
   if (!ndiOutRef.current) {
-    ndiOutRef.current = new NdiOutputController(() =>
-      ndiSourceRef.current === 'multiview' ? engine.getMultiviewCanvas() : programRef.current,
+    ndiOutRef.current = new NdiOutputController(
+      () => (ndiSourceRef.current === 'multiview' ? engine.getMultiviewCanvas() : programRef.current),
+      // Programm-Ton mit ausspielen (derselbe Track wie Aufnahme/RTMP) → NDI-Quelle ist nicht mehr stumm.
+      () => audio.getOutputTrack(),
     );
   }
   const ndiOut = ndiOutRef.current;
@@ -102,8 +104,13 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
     }
     const unsub = engine.subscribe(() => setState(engine.getState()));
     setState(engine.getState());
+    output.attach();
     const unsubOut = output.subscribe(() => setOutputState(output.getState()));
     setOutputState(output.getState());
+    // Fenster-Listener + Status-Abo der NDI-Ausgabe hier (nicht im Konstruktor) aufsetzen: die Cleanup
+    // unten ruft `destroy()`, und StrictMode/HMR lassen den Effekt danach erneut laufen. Ohne dieses
+    // attach() bliebe der Controller ohne Frame-Port zurück und der NDI-Sender sendete nie ein Bild.
+    ndiOut.attach();
     const unsubNdi = ndiOut.subscribe(() => setNdiOutState(ndiOut.getState()));
     setNdiOutState(ndiOut.getState());
     return () => {
