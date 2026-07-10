@@ -1,0 +1,50 @@
+{
+  "name": "@jm/app-designer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JM App Designer — Baukasten für interaktive Messe-/Lernspiele (Glücksrad, Quiz, Memory, Drag&Drop) mit Sandbox-Vorschau, Kiosk-Ausgabe und Web-Export",
+  "main": "out/main/index.cjs",
+  "type": "module",
+  "scripts": {
+    "prepackage": "npm run build -w @jm/appkit && node tools/bundle-runtime.mjs",
+    "dev": "npm run prepackage && electron-vite dev",
+    "build": "npm run prepackage && electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron-vite preview",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "smoketest:bundle": "node --experimental-strip-types --import ../../packages/appkit/test/register.mjs test/make-bundle.ts resources/templates/wheel.json .smoke",
+    "smoketest": "npm run prepackage && npm run smoketest:bundle && electron test/smoke.cjs .smoke",
+    "csptest": "npm run prepackage && npm run smoketest:bundle && electron test/csp.cjs .smoke none && electron test/csp.cjs .smoke jmapp",
+    "dist": "npm run build && electron-builder",
+    "dist:dir": "npm run build && electron-builder --dir",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
+  },
+  "dependencies": {
+    "@fontsource-variable/manrope": "^5.1.1",
+    "@jm/app-runtime": "*",
+    "@jm/appkit": "*",
+    "@jm/electron-kit": "*",
+    "@jm/output-window": "*",
+    "@jm/ui": "*",
+    "fflate": "^0.8.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.7.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "electron": "^33.0.0",
+    "electron-builder": "24.13.3",
+    "electron-vite": "^2.3.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

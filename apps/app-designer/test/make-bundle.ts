@@ -1,0 +1,30 @@
+// Baut ein echtes Export-Bundle aus einer Vorlage — für den Smoke-Test.
+//
+//   node --experimental-strip-types --import ../../packages/appkit/test/register.mjs \
+//        test/make-bundle.ts <vorlage.json> <zielordner>
+//
+// Nutzt bewusst dieselbe buildIndexHtml(), die auch der Designer benutzt: der Test
+// prüft das Artefakt, das Kunden bekommen, nicht eine Nachbildung davon.
+
+import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildIndexHtml, migrateProject } from '@jm/appkit';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(here, '..', '..', '..');
+
+const [templateArg, outArg] = process.argv.slice(2);
+if (!templateArg || !outArg) {
+  console.error('usage: make-bundle.ts <vorlage.json> <zielordner>');
+  process.exit(1);
+}
+
+const runtimeSrc = join(repoRoot, 'packages', 'appkit', 'dist', 'runtime.js');
+const doc = migrateProject(JSON.parse(await import('node:fs').then((fs) => fs.readFileSync(templateArg, 'utf8'))));
+
+mkdirSync(outArg, { recursive: true });
+writeFileSync(join(outArg, 'index.html'), buildIndexHtml({ doc }), 'utf8');
+copyFileSync(runtimeSrc, join(outArg, 'runtime.js'));
+
+console.log(`Bundle: ${outArg}`);

@@ -1,0 +1,336 @@
+{
+  "$meta": {
+    "name": "Glücksrad",
+    "description": "Drehen, gewinnen oder Niete — mit Gewinn-/Trostszene und Zähler. Feldgröße = Gewinnchance."
+  },
+  "schemaVersion": 1,
+  "id": "app_tpl_wheel",
+  "name": "Glücksrad",
+  "canvas": { "width": 1920, "height": 1080, "fit": "contain" },
+  "theme": {
+    "fontFamily": "system-ui, -apple-system, \"Segoe UI\", sans-serif",
+    "colorPrimary": "#4f8cff",
+    "colorBg": "#101418",
+    "colorText": "#f2f2f2",
+    "radius": 12
+  },
+  "variables": [
+    { "name": "ergebnis", "type": "string", "initial": "" },
+    { "name": "drehungen", "type": "number", "initial": 0 }
+  ],
+  "assets": [],
+  "startSceneId": "sc_tpl_start",
+  "scenes": [
+    {
+      "id": "sc_tpl_start",
+      "name": "Rad",
+      "background": "#101418",
+      "rules": [],
+      "nodes": [
+        {
+          "id": "text_tpl_title",
+          "type": "text",
+          "name": "Überschrift",
+          "x": 210,
+          "y": 90,
+          "w": 1500,
+          "h": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Drehen Sie am Rad!",
+            "fontSize": 84,
+            "color": "#f2f2f2",
+            "weight": 700,
+            "align": "center",
+            "lineHeight": 1.2
+          }
+        },
+        {
+          "id": "wheel_tpl_main",
+          "type": "wheel",
+          "name": "Glücksrad",
+          "x": 610,
+          "y": 250,
+          "w": 700,
+          "h": 700,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "segments": [
+              { "id": "seg_tpl_1", "label": "Gewinn", "color": "#30a46c", "weight": 1, "value": "gewinn" },
+              { "id": "seg_tpl_2", "label": "Niete", "color": "#3b424a", "weight": 2, "value": "niete" },
+              { "id": "seg_tpl_3", "label": "Gewinn", "color": "#30a46c", "weight": 1, "value": "gewinn" },
+              { "id": "seg_tpl_4", "label": "Niete", "color": "#3b424a", "weight": 2, "value": "niete" },
+              { "id": "seg_tpl_5", "label": "Hauptpreis", "color": "#f5a524", "weight": 0.5, "value": "hauptpreis" },
+              { "id": "seg_tpl_6", "label": "Niete", "color": "#3b424a", "weight": 2, "value": "niete" }
+            ],
+            "spinMs": 4200,
+            "turns": 5,
+            "textColor": "#ffffff",
+            "resultVar": "ergebnis"
+          },
+          "rules": [
+            {
+              "id": "r_tpl_count",
+              "enabled": true,
+              "trigger": { "type": "onWheelStop" },
+              "conditions": [],
+              "actions": [{ "verb": "addVar", "args": ["drehungen", 1], "enabled": true }]
+            },
+            {
+              "id": "r_tpl_win",
+              "enabled": true,
+              "trigger": { "type": "onWheelStop" },
+              "conditions": [{ "varName": "$result", "op": "==", "value": "gewinn" }],
+              "actions": [{ "verb": "goToScene", "args": ["sc_tpl_win"], "enabled": true, "delayMs": 800 }]
+            },
+            {
+              "id": "r_tpl_jackpot",
+              "enabled": true,
+              "trigger": { "type": "onWheelStop" },
+              "conditions": [{ "varName": "$result", "op": "==", "value": "hauptpreis" }],
+              "actions": [{ "verb": "goToScene", "args": ["sc_tpl_jackpot"], "enabled": true, "delayMs": 800 }]
+            },
+            {
+              "id": "r_tpl_lose",
+              "enabled": true,
+              "trigger": { "type": "onWheelStop" },
+              "conditions": [{ "varName": "$result", "op": "==", "value": "niete" }],
+              "actions": [{ "verb": "goToScene", "args": ["sc_tpl_lose"], "enabled": true, "delayMs": 800 }]
+            }
+          ]
+        },
+        {
+          "id": "text_tpl_hint",
+          "type": "text",
+          "name": "Hinweis",
+          "x": 610,
+          "y": 970,
+          "w": 700,
+          "h": 60,
+          "rotation": 0,
+          "opacity": 0.6,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Tippen Sie auf das Rad",
+            "fontSize": 34,
+            "color": "#f2f2f2",
+            "weight": 400,
+            "align": "center",
+            "lineHeight": 1.2
+          }
+        }
+      ]
+    },
+    {
+      "id": "sc_tpl_win",
+      "name": "Gewonnen",
+      "background": "#0f2a1d",
+      "rules": [],
+      "nodes": [
+        {
+          "id": "text_tpl_win",
+          "type": "text",
+          "name": "Gewonnen",
+          "x": 210,
+          "y": 380,
+          "w": 1500,
+          "h": 200,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Gewonnen!",
+            "fontSize": 140,
+            "color": "#30a46c",
+            "weight": 800,
+            "align": "center",
+            "lineHeight": 1.1
+          }
+        },
+        {
+          "id": "text_tpl_win_sub",
+          "type": "text",
+          "name": "Untertitel",
+          "x": 210,
+          "y": 590,
+          "w": 1500,
+          "h": 80,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Melden Sie sich am Stand — Ihr Preis wartet.",
+            "fontSize": 44,
+            "color": "#f2f2f2",
+            "weight": 400,
+            "align": "center",
+            "lineHeight": 1.2
+          }
+        },
+        {
+          "id": "button_tpl_win_again",
+          "type": "button",
+          "name": "Nochmal",
+          "x": 800,
+          "y": 760,
+          "w": 320,
+          "h": 96,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "label": "Nochmal",
+            "bg": "#30a46c",
+            "color": "#ffffff",
+            "radius": 12,
+            "fontSize": 32
+          },
+          "rules": [
+            {
+              "id": "r_tpl_win_back",
+              "enabled": true,
+              "trigger": { "type": "onClick" },
+              "conditions": [],
+              "actions": [{ "verb": "goToScene", "args": ["sc_tpl_start"], "enabled": true }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sc_tpl_jackpot",
+      "name": "Hauptpreis",
+      "background": "#2b1f05",
+      "rules": [],
+      "nodes": [
+        {
+          "id": "text_tpl_jackpot",
+          "type": "text",
+          "name": "Hauptpreis",
+          "x": 210,
+          "y": 400,
+          "w": 1500,
+          "h": 220,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Hauptpreis!",
+            "fontSize": 150,
+            "color": "#f5a524",
+            "weight": 800,
+            "align": "center",
+            "lineHeight": 1.1
+          }
+        },
+        {
+          "id": "button_tpl_jackpot_again",
+          "type": "button",
+          "name": "Nochmal",
+          "x": 800,
+          "y": 760,
+          "w": 320,
+          "h": 96,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "label": "Nochmal",
+            "bg": "#f5a524",
+            "color": "#1a1a1a",
+            "radius": 12,
+            "fontSize": 32
+          },
+          "rules": [
+            {
+              "id": "r_tpl_jackpot_back",
+              "enabled": true,
+              "trigger": { "type": "onClick" },
+              "conditions": [],
+              "actions": [{ "verb": "goToScene", "args": ["sc_tpl_start"], "enabled": true }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sc_tpl_lose",
+      "name": "Niete",
+      "background": "#16191d",
+      "rules": [
+        {
+          "id": "r_tpl_lose_auto",
+          "enabled": true,
+          "trigger": { "type": "onTimer", "afterMs": 3500 },
+          "conditions": [],
+          "actions": [{ "verb": "goToScene", "args": ["sc_tpl_start"], "enabled": true }]
+        }
+      ],
+      "nodes": [
+        {
+          "id": "text_tpl_lose",
+          "type": "text",
+          "name": "Niete",
+          "x": 210,
+          "y": 400,
+          "w": 1500,
+          "h": 160,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Leider nichts.",
+            "fontSize": 110,
+            "color": "#f2f2f2",
+            "weight": 700,
+            "align": "center",
+            "lineHeight": 1.1
+          }
+        },
+        {
+          "id": "text_tpl_lose_sub",
+          "type": "text",
+          "name": "Untertitel",
+          "x": 210,
+          "y": 580,
+          "w": 1500,
+          "h": 80,
+          "rotation": 0,
+          "opacity": 0.7,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Gleich geht es von vorn los …",
+            "fontSize": 40,
+            "color": "#f2f2f2",
+            "weight": 400,
+            "align": "center",
+            "lineHeight": 1.2
+          }
+        }
+      ]
+    }
+  ],
+  "createdAt": "2026-07-10T00:00:00.000Z",
+  "updatedAt": "2026-07-10T00:00:00.000Z"
+}
