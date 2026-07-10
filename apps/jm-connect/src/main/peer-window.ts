@@ -22,15 +22,23 @@ export function createPeerWindow(preloadPath: string): BrowserWindow {
       // Der Mix-Minus-AudioContext (6.2b) läuft hier ohne jede Nutzergeste — ohne diese Policy
       // startete er 'suspended' und die Return-Audio-Tracks blieben stumm.
       autoplayPolicy: 'no-user-gesture-required',
+      // ⭐ Dieses Fenster ist DAUERHAFT unsichtbar. Chromium drosselt verborgene Seiten und friert
+      // damit den Medienpfad ein — der Gast erschien im Switcher als Standbild. In der Entwicklung
+      // fällt das nie auf, weil offene DevTools (unten) die Drosselung abschalten. Dieselbe Falle
+      // wie beim NDI-Ausgang des Switchers und beim Ducking des Interpreters.
+      backgroundThrottling: false,
     },
   });
 
   const devUrl = process.env['ELECTRON_RENDERER_URL'];
   if (devUrl) {
     void peer.loadURL(`${devUrl}/peer.html`);
-    // In Dev die DevTools des versteckten Peers abtrennen — zeigt den Medien-Pfad
-    // (SFU-Session/subscribe/ontrack/Pump). In Prod bleibt der Peer unsichtbar.
-    peer.webContents.openDevTools({ mode: 'detach' });
+    // DevTools NICHT mehr automatisch öffnen: offene DevTools schalten Chromiums Drosselung ab
+    // und ließen den Dev-Lauf sich anders verhalten als der Installer — genau daran ging das
+    // Standbild des Gasts monatelang unbemerkt vorbei. Bei Bedarf JMPS_PEER_DEVTOOLS=1 setzen.
+    // (Die Peer-Logs spiegelt `plog()` ohnehin ins Main-/Terminal-Log.)
+    if (process.env['JMPS_PEER_DEVTOOLS']) peer.webContents.openDevTools({ mode: 'detach' });
+    else console.log('[peer] DevTools aus (JMPS_PEER_DEVTOOLS=1 öffnet sie — verfälscht aber die Drosselung).');
   } else {
     void peer.loadFile(join(__dirname, '../renderer/peer.html'));
   }
