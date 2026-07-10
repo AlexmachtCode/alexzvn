@@ -7,6 +7,7 @@
 // Ack-Weg:   Peer (port1) → port2.on('message') → child.postMessage (Backpressure).
 import { MessageChannelMain, utilityProcess, type BrowserWindow, type MessagePortMain, type UtilityProcess } from 'electron';
 import { join } from 'node:path';
+import { getLog } from '@jm/app-runtime';
 import { PEER_PROGRAM_PORT } from '@shared/ipc';
 
 declare const __dirname: string;
@@ -40,12 +41,21 @@ export function programStatus(): ProgramStatus {
 export function startProgram(nameHint = (process.env.JMPS_PROGRAM_NDI || 'JM Switcher').trim()): void {
   const peer = getPeer();
   if (!peer || peer.isDestroyed()) {
-    console.warn('[ndi-program] kein Peer-Fenster — Start verschoben');
+    getLog().warn('[ndi-program] kein Peer-Fenster — Start verschoben');
     return;
   }
   stopProgram();
 
-  child = utilityProcess.fork(join(__dirname, 'ndi-program-receiver.cjs'));
+  // `stdio: 'pipe'`: der gepackten GUI-App fehlt die Konsole, an die 'inherit' erben würde —
+  // die Suchmeldungen des Empfängers („notfound", gesehene Quellnamen) landen so in der Logdatei.
+  child = utilityProcess.fork(join(__dirname, 'ndi-program-receiver.cjs'), [], { stdio: 'pipe' });
+  const forward = (level: 'info' | 'error') => (chunk: Buffer) => {
+    for (const line of chunk.toString().split('\n')) {
+      if (line.trim()) getLog()[level](`[program-receiver] ${line.trim()}`);
+    }
+  };
+  child.stdout?.on('data', forward('info'));
+  child.stderr?.on('data', forward('error'));
   child.on('message', (msg: unknown) => {
     const m = msg as { type?: string; state?: string; source?: string } | null;
     if (!m) return;

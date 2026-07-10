@@ -9,6 +9,7 @@
 import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { getLog } from '@jm/app-runtime';
 
 type Store = Record<string, string>; // Raum-ID → secretHex
 
@@ -23,7 +24,7 @@ function usable(): boolean {
   if (safeStorage.isEncryptionAvailable()) return true;
   if (!warned) {
     warned = true;
-    console.warn('[connect] safeStorage nicht verfügbar — Raum-Secrets werden nicht gespeichert; vorab verteilte Join-Links überleben keinen Neustart.');
+    getLog().warn('[connect] safeStorage nicht verfügbar — Raum-Secrets werden nicht gespeichert; vorab verteilte Join-Links überleben keinen Neustart.');
   }
   return false;
 }
@@ -46,7 +47,7 @@ function write(store: Store): void {
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, safeStorage.encryptString(JSON.stringify(store)), { mode: 0o600 });
   } catch (e) {
-    console.error('[connect] Raum-Secret konnte nicht gespeichert werden:', e instanceof Error ? e.message : e);
+    getLog().error('[connect] Raum-Secret konnte nicht gespeichert werden:', e instanceof Error ? e.message : e);
   }
 }
 

@@ -5,6 +5,7 @@
 // einer Remote-WebRTC-Quelle statt getDisplayMedia.
 import { BrowserWindow } from 'electron';
 import { join } from 'node:path';
+import { getLog } from '@jm/app-runtime';
 
 declare const __dirname: string;
 
@@ -38,7 +39,7 @@ export function createPeerWindow(preloadPath: string): BrowserWindow {
     // Standbild des Gasts monatelang unbemerkt vorbei. Bei Bedarf JMPS_PEER_DEVTOOLS=1 setzen.
     // (Die Peer-Logs spiegelt `plog()` ohnehin ins Main-/Terminal-Log.)
     if (process.env['JMPS_PEER_DEVTOOLS']) peer.webContents.openDevTools({ mode: 'detach' });
-    else console.log('[peer] DevTools aus (JMPS_PEER_DEVTOOLS=1 öffnet sie — verfälscht aber die Drosselung).');
+    else getLog().info('[peer] DevTools aus (JMPS_PEER_DEVTOOLS=1 öffnet sie — verfälscht aber die Drosselung).');
   } else {
     void peer.loadFile(join(__dirname, '../renderer/peer.html'));
   }

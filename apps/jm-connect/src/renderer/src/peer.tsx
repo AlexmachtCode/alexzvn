@@ -135,9 +135,14 @@ window.addEventListener('message', (e: MessageEvent) => {
 });
 
 async function connect(wsUrl: string, iceUrl: string): Promise<void> {
+  // Schlägt der Abruf fehl (CSP, Netz, Token), lief der Peer bisher STUMM ohne TURN weiter — im
+  // LAN unauffällig, hinter striktem NAT tot. Jetzt sagt er es.
   const ice = await fetch(iceUrl)
     .then((r) => r.json())
-    .catch(() => ({ iceServers: [] as RTCIceServer[] }));
+    .catch((err) => {
+      plog('⚠ ICE-Credentials nicht abrufbar — weiter ohne TURN:', err instanceof Error ? err.message : String(err));
+      return { iceServers: [] as RTCIceServer[] };
+    });
   pc?.close();
   pcConnected = false;
   peerSessionId = null;
@@ -440,9 +445,28 @@ async function pumpVideo(key: string, track: MediaStreamTrack, targetFps = 25): 
   const minInterval = 1000 / targetFps;
   let last = 0;
   let frames = 0;
+
+  // Ein REMOTE-Track wird `muted`, sobald keine Medien mehr eintreffen. Zusammen mit
+  // `document.hidden` trennt das die beiden Ursachen eines eingefrorenen Bilds sauber: liefert
+  // der Gast (bzw. die SFU) nichts mehr — oder drosselt Chromium unseren versteckten Renderer?
+  // Ohne diese Unterscheidung bleibt nur Raten; der Peer hat keine sichtbare Konsole.
+  track.addEventListener('mute', () => plog(key, '⚠ Video-Track stumm — keine Medien mehr von der SFU.'));
+  track.addEventListener('unmute', () => plog(key, 'Video-Track liefert wieder.'));
+  let lastRead = Date.now();
+  const stall = setInterval(() => {
+    const idle = Date.now() - lastRead;
+    if (idle < 3000) return;
+    plog(
+      key,
+      `⚠ Video-Pumpe steht seit ${Math.round(idle / 1000)} s — Frames=${frames}, readyState=${track.readyState},`,
+      `muted=${track.muted}, enabled=${track.enabled}, seiteVerborgen=${document.hidden}`,
+    );
+  }, 3000);
+
   try {
     for (;;) {
       const { value: frame, done } = await reader.read();
+      lastRead = Date.now();
       if (done) break;
       if (!frame) continue;
       try {
@@ -457,7 +481,11 @@ async function pumpVideo(key: string, track: MediaStreamTrack, targetFps = 25): 
         frame.close();
       }
     }
+  } catch (e) {
+    // Bisher riss ein Fehler hier die Pumpe lautlos ab (der Aufrufer macht `void pumpVideo(…)`).
+    plog(key, 'Video-Pumpe abgebrochen:', e instanceof Error ? e.message : String(e));
   } finally {
+    clearInterval(stall);
     pumping.delete(`${key}:video`);
     // Beendeter Track (Gast hat das Teilen gestoppt) darf nicht als „bereit" liegen bleiben —
     // sonst startete tryPump beim nächsten Frame-Port eine Pumpe auf einem toten Track.

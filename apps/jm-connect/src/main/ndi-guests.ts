@@ -12,6 +12,7 @@
 // ArrayBuffer käme über die Port-Grenze als null an).
 import { MessageChannelMain, utilityProcess, type BrowserWindow, type MessagePortMain, type UtilityProcess } from 'electron';
 import { join } from 'node:path';
+import { getLog } from '@jm/app-runtime';
 import { ndiPoolKey } from '@jm/rtc/protocol';
 import { PEER_FRAME_PORT } from '@shared/ipc';
 
@@ -38,12 +39,23 @@ export function spinUp(key: string, label: string): void {
   if (senders.has(key)) return;
   const peer = getPeer();
   if (!peer || peer.isDestroyed()) {
-    console.warn('[ndi-guests] kein Peer-Fenster — spinUp verschoben:', key);
+    getLog().warn('[ndi-guests] kein Peer-Fenster — spinUp verschoben:', key);
     return;
   }
 
-  const child = utilityProcess.fork(join(__dirname, 'ndi-guest-sender.cjs'));
+  // `stdio: 'pipe'` statt des Default 'inherit': eine gepackte Windows-GUI-App hat keine Konsole,
+  // an die der Utility-Prozess erben könnte — seine console.log/error (Wachhund-Warnungen, native
+  // NDI-Fehler) fielen bisher spurlos ins Nichts. Jetzt landen sie in der Logdatei der App.
+  const child = utilityProcess.fork(join(__dirname, 'ndi-guest-sender.cjs'), [], { stdio: 'pipe' });
   const entry: GuestSender = { child, port2: null as unknown as MessagePortMain, label, connections: 0 };
+
+  const forward = (level: 'info' | 'error') => (chunk: Buffer) => {
+    for (const line of chunk.toString().split('\n')) {
+      if (line.trim()) getLog()[level](`[guest-sender ${key}] ${line.trim()}`);
+    }
+  };
+  child.stdout?.on('data', forward('info'));
+  child.stderr?.on('data', forward('error'));
 
   child.on('message', (msg: unknown) => {
     const m = msg as { type?: string; connections?: number } | null;

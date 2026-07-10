@@ -4,6 +4,7 @@
 //     ndi-Effekten, die der Renderer aus dem DO empfängt
 //   - abgeleiteten STATE ans Steuerprotokoll weiterreichen (control-server.ts)
 import { ipcMain, type BrowserWindow } from 'electron';
+import { getLog } from '@jm/app-runtime';
 import { IPC, PEER_CONNECT } from '@shared/ipc';
 import type { AppStatus, ProxyInfo } from '@shared/types';
 import { closeRoom, isConfigured, mintGuest, openRoom, peerConnectInfo, proxyConfig } from './room';
@@ -112,13 +113,13 @@ export function registerIpc(deps: {
 
   // Der versteckte Peer hat kein sichtbares Fenster — seine Diagnose landet so im Terminal-Log.
   ipcMain.on(IPC.peerLog, (_e, msg: string) => {
-    if (typeof msg === 'string') console.log('[peer]', msg);
+    if (typeof msg === 'string') getLog().info('[peer]', msg);
   });
 
   // Auditierbare Vorgänge (heute: Talkback) ins Laufzeit-Log von @jm/app-runtime.
   // Spur S4 ersetzt das später durch ein echtes audit_log (Muster: studio-control).
   ipcMain.on(IPC.audit, (_e, p: { event?: string; detail?: string }) => {
-    if (p?.event) console.log('[audit]', p.event, p.detail ?? '');
+    if (p?.event) getLog().info('[audit]', p.event, p.detail ?? '');
   });
 
   // Folien-Cue eines freigegebenen Gasts → JM Presenter im LAN (Welle 6.3c). Erreicht der Cue
@@ -127,8 +128,8 @@ export function registerIpc(deps: {
   ipcMain.on(IPC.slideCue, (_e, p: { dir?: 'next' | 'prev'; guestId?: string }) => {
     if (p?.dir !== 'next' && p?.dir !== 'prev') return;
     const sent = slideCue(p.dir);
-    if (sent === 0) console.warn('[connect] Folien-Cue ohne Empfänger — kein JM Presenter im Netz gefunden.');
-    else console.log('[audit] slide', `${p.dir} von ${p.guestId ?? '?'} → ${sent} Presenter`);
+    if (sent === 0) getLog().warn('[connect] Folien-Cue ohne Empfänger — kein JM Presenter im Netz gefunden.');
+    else getLog().info('[audit] slide', `${p.dir} von ${p.guestId ?? '?'} → ${sent} Presenter`);
   });
 }
 

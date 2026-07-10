@@ -1,6 +1,6 @@
 import { app, BrowserWindow, session } from 'electron';
 import { join } from 'node:path';
-import { initAppRuntime } from '@jm/app-runtime';
+import { getLog, initAppRuntime } from '@jm/app-runtime';
 import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } from '@jm/electron-kit';
 import { IPC } from '@shared/ipc';
 import type { TrayCommand } from '@shared/types';
@@ -97,7 +97,7 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     const res = await startControlServer({
       onCommand: (cmd) => getMainWindow()?.webContents.send(IPC.controlCommand, { verb: cmd.verb, args: cmd.args }),
     });
-    if (!res.ok) console.error('[control] Steuerserver-Start fehlgeschlagen:', res.error);
+    if (!res.ok) getLog().error('[control] Steuerserver-Start fehlgeschlagen:', res.error);
 
     createWindow();
     // Kaltstart: die App wurde direkt mit einem Show-Deep-Link geöffnet.

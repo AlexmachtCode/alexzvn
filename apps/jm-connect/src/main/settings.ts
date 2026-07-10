@@ -12,6 +12,7 @@
 import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { getLog } from '@jm/app-runtime';
 import type { ProxyKeySource } from '@shared/types';
 
 /** Öffentlicher Suite-Proxy — dieselbe Adresse, die der Launcher als Vorgabe nutzt. */
@@ -47,7 +48,7 @@ function write(next: Stored): void {
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
   } catch (e) {
-    console.error('[connect] Einstellungen konnten nicht gespeichert werden:', e instanceof Error ? e.message : e);
+    getLog().error('[connect] Einstellungen konnten nicht gespeichert werden:', e instanceof Error ? e.message : e);
   }
 }
 
@@ -118,6 +119,6 @@ export function setProxyKey(key: string): void {
   sessionKey = v;
   if (!warned) {
     warned = true;
-    console.warn('[connect] safeStorage nicht verfügbar — der Proxy-Key wird nur für diese Sitzung gehalten.');
+    getLog().warn('[connect] safeStorage nicht verfügbar — der Proxy-Key wird nur für diese Sitzung gehalten.');
   }
 }
