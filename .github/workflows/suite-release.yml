@@ -73,12 +73,27 @@ jobs:
       # 7zip-bin an die Root hoistet (statt pro App genested), zerstört dieser
       # Schritt sonst die einzige 7zip-bin-Kopie → "ENOENT chmod 7za". Unsere Apps
       # sind reines JS (vite bündelt alles in out/), daher ist das gefahrlos.
+      # Nur ergänzen, was fehlt: die lokal gepackten Tools (NDI/Audio) tragen beide Schlüssel
+      # selbst in ihrer Config, weil sie ohne diesen Workflow gebaut werden. Ein zweites
+      # Vorkommen überschreibt in YAML nicht, sondern ist ein Fehler („duplicated mapping key"),
+      # und electron-builder bricht ab, bevor es überhaupt zu packen beginnt.
       - name: Inject electron version + disable npmRebuild into config
         shell: bash
         run: |
+          cfg="apps/${{ steps.app.outputs.name }}/electron-builder.yml"
           ver=$(node -p "require('electron/package.json').version")
-          printf '\nelectronVersion: %s\nnpmRebuild: false\n' "$ver" >> "apps/${{ steps.app.outputs.name }}/electron-builder.yml"
-          echo "electronVersion=$ver npmRebuild=false"
+          if grep -q '^electronVersion:' "$cfg"; then
+            echo "electronVersion steht schon in $cfg — unverändert"
+          else
+            printf '\nelectronVersion: %s\n' "$ver" >> "$cfg"
+            echo "electronVersion=$ver ergänzt"
+          fi
+          if grep -q '^npmRebuild:' "$cfg"; then
+            echo "npmRebuild steht schon in $cfg — unverändert"
+          else
+            printf 'npmRebuild: false\n' >> "$cfg"
+            echo "npmRebuild=false ergänzt"
+          fi
 
       # Tool-spezifische Vorbereitung (z. B. media-converter bündelt ffmpeg aus
       # ffmpeg-static/ffprobe-static nach resources/bin/<platform>/). Tools ohne
