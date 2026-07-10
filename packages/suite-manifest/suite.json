@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-05T13:08:04.975Z",
+  "updatedAt": "2026-07-10T12:14:47.109Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -442,6 +442,27 @@
         }
       },
       "app": "caption"
+    },
+    {
+      "id": "jm-app-designer",
+      "name": "JM App Designer",
+      "tagline": "Baukasten für Messe-Lernspiele",
+      "description": "Glücksrad, Quiz, Memory und Drag-und-Drop ohne Programmieren zusammenklicken: visueller Editor, Wenn-Dann-Regeln, Sandbox zum Testen. Ausgabe als Touch-Terminal oder als eigenständiges Web-Bundle, das auch von einem USB-Stick läuft.",
+      "category": "Grafik",
+      "appId": "gmbh.jakobs.appdesigner",
+      "repo": "AlexmachtCode/alexzvn",
+      "latestVersion": "0.1.0",
+      "platforms": {
+        "mac": {
+          "artifact": "JM App Designer-${version}-mac-${arch}.dmg",
+          "appPath": "/Applications/JM App Designer.app"
+        },
+        "win": {
+          "artifact": "JM App Designer-${version}-win-x64.exe",
+          "exePath": "%LOCALAPPDATA%\\Programs\\JM App Designer\\JM App Designer.exe"
+        }
+      },
+      "app": "app-designer"
     },
     {
       "id": "jm-connect",

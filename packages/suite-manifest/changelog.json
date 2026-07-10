@@ -1,5 +1,24 @@
 [
   {
+    "app": "app-designer",
+    "name": "JM App Designer",
+    "entries": [
+      {
+        "version": "0.1.0",
+        "date": "2026-07-10",
+        "notes": [
+          "Erste Ausgabe: Baukasten für Messe- und Lernspiele ohne Programmieren.",
+          "Vier Spielvorlagen zum Loslegen — Glücksrad, Quiz, Memory und ein Zuordnungsspiel zum Ziehen und Ablegen.",
+          "Regeln als Wenn-Dann-Liste: Auslöser (angeklickt, richtig beantwortet, Paar gefunden, Rad steht) führen über eine optionale Bedingung zu Aktionen (Szene wechseln, Punkte zählen, Ton abspielen, ein- und ausblenden).",
+          "Sandbox zum Testen neben dem Editor: Sie sehen live, welche Regel gefeuert hat und wie die Variablen stehen.",
+          "Ausgabe wahlweise als Touch-Terminal auf einem zweiten Bildschirm oder als eigenständiges Web-Bundle, das per Doppelklick auch von einem USB-Stick läuft — ohne Server und ohne installierte Suite.",
+          "Terminal-Betrieb: Nach einer einstellbaren Ruhezeit springt die App von selbst an den Anfang zurück, damit der nächste Besucher sauber startet.",
+          "Rückgängig und Wiederherstellen, Einrasten an Nachbarn und Bühnenmitte mit Hilfslinien."
+        ]
+      }
+    ]
+  },
+  {
     "app": "launcher",
     "name": "JM Production Suite",
     "entries": [
@@ -116,37 +135,51 @@
       {
         "version": "0.2.7",
         "date": "2026-06-10",
-        "notes": ["JM Prompter: Handy-Fernbedienung (v0.2). Eigene App-Icons für die neuen Tools."]
+        "notes": [
+          "JM Prompter: Handy-Fernbedienung (v0.2). Eigene App-Icons für die neuen Tools."
+        ]
       },
       {
         "version": "0.2.6",
         "date": "2026-06-10",
-        "notes": ["Neues Tool im Werkzeugkasten: JM Transcribe (lokale Untertitel via Whisper)."]
+        "notes": [
+          "Neues Tool im Werkzeugkasten: JM Transcribe (lokale Untertitel via Whisper)."
+        ]
       },
       {
         "version": "0.2.5",
         "date": "2026-06-10",
-        "notes": ["Neues Tool im Werkzeugkasten: JM Titler (Live-Bauchbinden → NDI)."]
+        "notes": [
+          "Neues Tool im Werkzeugkasten: JM Titler (Live-Bauchbinden → NDI)."
+        ]
       },
       {
         "version": "0.2.4",
         "date": "2026-06-10",
-        "notes": ["Neues Tool im Werkzeugkasten: JM Prompter (Teleprompter)."]
+        "notes": [
+          "Neues Tool im Werkzeugkasten: JM Prompter (Teleprompter)."
+        ]
       },
       {
         "version": "0.2.3",
         "date": "2026-06-10",
-        "notes": ["Neues Tool im Werkzeugkasten: JM Stage Display (Bühnen-/Crew-Schirm)."]
+        "notes": [
+          "Neues Tool im Werkzeugkasten: JM Stage Display (Bühnen-/Crew-Schirm)."
+        ]
       },
       {
         "version": "0.2.2",
         "date": "2026-06-10",
-        "notes": ["Patch Notes für JM Copy (Netzwerk-Sync) ergänzt."]
+        "notes": [
+          "Patch Notes für JM Copy (Netzwerk-Sync) ergänzt."
+        ]
       },
       {
         "version": "0.2.1",
         "date": "2026-06-09",
-        "notes": ["Patch Notes für JM Player, Media Converter und Timer ergänzt."]
+        "notes": [
+          "Patch Notes für JM Player, Media Converter und Timer ergänzt."
+        ]
       },
       {
         "version": "0.2.0",
@@ -167,7 +200,9 @@
       {
         "version": "0.1.11",
         "date": "2026-06-09",
-        "notes": ["Störendes, nicht relevantes Update-Popup beim Start entfernt."]
+        "notes": [
+          "Störendes, nicht relevantes Update-Popup beim Start entfernt."
+        ]
       }
     ]
   },
@@ -358,7 +393,9 @@
       },
       {
         "version": "0.2.0",
-        "notes": ["Audio-Mix, frei skalierbare Ebenen, Chroma-Keying und Companion-Fernsteuerung."]
+        "notes": [
+          "Audio-Mix, frei skalierbare Ebenen, Chroma-Keying und Companion-Fernsteuerung."
+        ]
       },
       {
         "version": "0.1.0",
@@ -558,11 +595,15 @@
       },
       {
         "version": "0.1.1",
-        "notes": ["Beispiel-XLSX-Vorlage im Import zum Herunterladen."]
+        "notes": [
+          "Beispiel-XLSX-Vorlage im Import zum Herunterladen."
+        ]
       },
       {
         "version": "0.1.0",
-        "notes": ["Countdown-/Ablauf-Timer mit Tabellen-Import (XLSX)."]
+        "notes": [
+          "Countdown-/Ablauf-Timer mit Tabellen-Import (XLSX)."
+        ]
       }
     ]
   },
@@ -625,21 +666,29 @@
       {
         "version": "0.4.0",
         "date": "2026-06-12",
-        "notes": ["Audio-Tab: Fader und Mute für Yamaha QL1 und Allen & Heath SQ5 – wahlweise über TCP, OSC oder Dante."]
+        "notes": [
+          "Audio-Tab: Fader und Mute für Yamaha QL1 und Allen & Heath SQ5 – wahlweise über TCP, OSC oder Dante."
+        ]
       },
       {
         "version": "0.3.0",
         "date": "2026-06-12",
-        "notes": ["Licht-Tab: Art-Net/DMX-Steuerung (Eurolite Node IV) mit Live-Fadern, Farbe/CCT und Master-Blackout. Profile u. a. für Aputure LS 60X/300X und Nova P300C."]
+        "notes": [
+          "Licht-Tab: Art-Net/DMX-Steuerung (Eurolite Node IV) mit Live-Fadern, Farbe/CCT und Master-Blackout. Profile u. a. für Aputure LS 60X/300X und Nova P300C."
+        ]
       },
       {
         "version": "0.2.0",
         "date": "2026-06-12",
-        "notes": ["PTZ-Tab: Schwenk/Neige/Zoom/Fokus, Auto-Fokus, Presets und Power für Panasonic AW-Kameras – mit Press-and-Hold-Steuerkreuz."]
+        "notes": [
+          "PTZ-Tab: Schwenk/Neige/Zoom/Fokus, Auto-Fokus, Presets und Power für Panasonic AW-Kameras – mit Press-and-Hold-Steuerkreuz."
+        ]
       },
       {
         "version": "0.1.0",
-        "notes": ["Studio-Steuerung mit Benutzerverwaltung (Admins legen Nutzer mit Rolle/Passwort an)."]
+        "notes": [
+          "Studio-Steuerung mit Benutzerverwaltung (Admins legen Nutzer mit Rolle/Passwort an)."
+        ]
       }
     ]
   },
@@ -658,7 +707,9 @@
       },
       {
         "version": "0.1.0",
-        "notes": ["Ebenenbasierter Grafik-Editor: Bauchbinden, Freistellen, PSD-Import/-Export."]
+        "notes": [
+          "Ebenenbasierter Grafik-Editor: Bauchbinden, Freistellen, PSD-Import/-Export."
+        ]
       }
     ]
   },
@@ -684,7 +735,9 @@
       },
       {
         "version": "0.1.0",
-        "notes": ["Videokonvertierung (FFmpeg-Codecs) und Office → PDF."]
+        "notes": [
+          "Videokonvertierung (FFmpeg-Codecs) und Office → PDF."
+        ]
       }
     ]
   },
@@ -711,7 +764,9 @@
       },
       {
         "version": "0.1.1",
-        "notes": ["Bildschirm/Fenster + Audio als NDI-Quelle senden (für TriCaster, vMix, OBS)."]
+        "notes": [
+          "Bildschirm/Fenster + Audio als NDI-Quelle senden (für TriCaster, vMix, OBS)."
+        ]
       }
     ]
   },
@@ -775,7 +830,9 @@
       },
       {
         "version": "0.1.1",
-        "notes": ["Eigenes App-Icon."]
+        "notes": [
+          "Eigenes App-Icon."
+        ]
       },
       {
         "version": "0.1.0",

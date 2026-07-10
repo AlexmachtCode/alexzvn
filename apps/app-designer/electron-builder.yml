@@ -1,0 +1,63 @@
+appId: gmbh.jakobs.appdesigner
+productName: JM App Designer
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+copyright: "© Jakobs Medien GmbH"
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+# resources/ trägt neben dem Icon die gebaute Laufzeit (runtime.js) und die
+# Spiel-Vorlagen. Beide werden zur Laufzeit als Dateien gelesen, nicht importiert
+# — sie sind Auslieferungs-Artefakte, keine Module. tools/bundle-runtime.mjs legt
+# runtime.js vor dem Packen dort ab.
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - "**/*"
+
+asar: true
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.graphics-design
+  icon: build/icon.png
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Graphics
+  icon: build/icon.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: JM App Designer
+  createDesktopShortcut: false
+
+publish:
+  provider: github
+  owner: AlexmachtCode
+  repo: alexzvn
+  private: true

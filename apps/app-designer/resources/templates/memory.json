@@ -1,0 +1,179 @@
+{
+  "$meta": {
+    "name": "Memory",
+    "description": "Karten umdrehen und Paare finden — hier als Zuordnung Stadt ↔ Land. Zähler und Endszene."
+  },
+  "schemaVersion": 1,
+  "id": "app_tpl_memory",
+  "name": "Memory",
+  "canvas": { "width": 1920, "height": 1080, "fit": "contain" },
+  "theme": {
+    "fontFamily": "system-ui, -apple-system, \"Segoe UI\", sans-serif",
+    "colorPrimary": "#4f8cff",
+    "colorBg": "#101418",
+    "colorText": "#f2f2f2",
+    "radius": 12
+  },
+  "idleResetMs": 60000,
+  "variables": [{ "name": "paare", "type": "number", "initial": 0 }],
+  "assets": [],
+  "startSceneId": "sc_mem_play",
+  "scenes": [
+    {
+      "id": "sc_mem_play",
+      "name": "Memory",
+      "background": "#101418",
+      "rules": [],
+      "nodes": [
+        {
+          "id": "text_mem_title",
+          "type": "text",
+          "name": "Überschrift",
+          "x": 120,
+          "y": 40,
+          "w": 1200,
+          "h": 90,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Finden Sie die Paare",
+            "fontSize": 56,
+            "color": "#f2f2f2",
+            "weight": 700,
+            "align": "left",
+            "lineHeight": 1.2
+          }
+        },
+        {
+          "id": "text_mem_score",
+          "type": "text",
+          "name": "Gefundene Paare",
+          "x": 1420,
+          "y": 40,
+          "w": 380,
+          "h": 90,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "0",
+            "bindTextTo": "paare",
+            "fontSize": 56,
+            "color": "#4f8cff",
+            "weight": 800,
+            "align": "right",
+            "lineHeight": 1.2
+          }
+        },
+        {
+          "id": "memory_mem_main",
+          "type": "memory",
+          "name": "Memory",
+          "x": 260,
+          "y": 170,
+          "w": 1400,
+          "h": 840,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "pairs": [
+              { "id": "pair_mem_1", "label": "Berlin", "assetId": null, "matchLabel": "Deutschland", "matchAssetId": null },
+              { "id": "pair_mem_2", "label": "Paris", "assetId": null, "matchLabel": "Frankreich", "matchAssetId": null },
+              { "id": "pair_mem_3", "label": "Rom", "assetId": null, "matchLabel": "Italien", "matchAssetId": null },
+              { "id": "pair_mem_4", "label": "Madrid", "assetId": null, "matchLabel": "Spanien", "matchAssetId": null },
+              { "id": "pair_mem_5", "label": "Wien", "assetId": null, "matchLabel": "Österreich", "matchAssetId": null },
+              { "id": "pair_mem_6", "label": "Oslo", "assetId": null, "matchLabel": "Norwegen", "matchAssetId": null }
+            ],
+            "columns": 4,
+            "gap": 16,
+            "flipBackMs": 1000,
+            "backColor": "#4f8cff",
+            "backLabel": "?",
+            "faceColor": "#2b3138",
+            "textColor": "#f2f2f2",
+            "fontSize": 40,
+            "radius": 12,
+            "matchesVar": "paare"
+          },
+          "rules": [
+            {
+              "id": "r_mem_done",
+              "enabled": true,
+              "trigger": { "type": "onComplete" },
+              "conditions": [],
+              "actions": [{ "verb": "goToScene", "args": ["sc_mem_done"], "enabled": true }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sc_mem_done",
+      "name": "Geschafft",
+      "background": "#0f2a1d",
+      "rules": [],
+      "nodes": [
+        {
+          "id": "text_mem_done",
+          "type": "text",
+          "name": "Alle Paare",
+          "x": 210,
+          "y": 380,
+          "w": 1500,
+          "h": 200,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Alle Paare gefunden!",
+            "fontSize": 110,
+            "color": "#30a46c",
+            "weight": 800,
+            "align": "center",
+            "lineHeight": 1.1
+          }
+        },
+        {
+          "id": "button_mem_again",
+          "type": "button",
+          "name": "Nochmal",
+          "x": 800,
+          "y": 700,
+          "w": 320,
+          "h": 96,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "label": "Nochmal",
+            "bg": "#30a46c",
+            "color": "#ffffff",
+            "radius": 12,
+            "fontSize": 32
+          },
+          "rules": [
+            {
+              "id": "r_mem_restart",
+              "enabled": true,
+              "trigger": { "type": "onClick" },
+              "conditions": [],
+              "actions": [{ "verb": "restart", "args": [], "enabled": true }]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "createdAt": "2026-07-10T00:00:00.000Z",
+  "updatedAt": "2026-07-10T00:00:00.000Z"
+}

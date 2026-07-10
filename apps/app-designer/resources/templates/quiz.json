@@ -1,0 +1,249 @@
+{
+  "$meta": {
+    "name": "Quiz",
+    "description": "Fragen mit sofortiger Rückmeldung, Punktezähler und Ergebnisseite. Antworten werden gemischt."
+  },
+  "schemaVersion": 1,
+  "id": "app_tpl_quiz",
+  "name": "Wissensquiz",
+  "canvas": { "width": 1920, "height": 1080, "fit": "contain" },
+  "theme": {
+    "fontFamily": "system-ui, -apple-system, \"Segoe UI\", sans-serif",
+    "colorPrimary": "#4f8cff",
+    "colorBg": "#101418",
+    "colorText": "#f2f2f2",
+    "radius": 12
+  },
+  "idleResetMs": 60000,
+  "variables": [{ "name": "punkte", "type": "number", "initial": 0 }],
+  "assets": [],
+  "startSceneId": "sc_quiz_play",
+  "scenes": [
+    {
+      "id": "sc_quiz_play",
+      "name": "Quiz",
+      "background": "#101418",
+      "rules": [],
+      "nodes": [
+        {
+          "id": "text_quiz_title",
+          "type": "text",
+          "name": "Überschrift",
+          "x": 120,
+          "y": 50,
+          "w": 1100,
+          "h": 100,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Wissensquiz",
+            "fontSize": 64,
+            "color": "#f2f2f2",
+            "weight": 700,
+            "align": "left",
+            "lineHeight": 1.2
+          }
+        },
+        {
+          "id": "text_quiz_score",
+          "type": "text",
+          "name": "Punktestand",
+          "x": 1420,
+          "y": 50,
+          "w": 380,
+          "h": 100,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "0",
+            "bindTextTo": "punkte",
+            "fontSize": 64,
+            "color": "#4f8cff",
+            "weight": 800,
+            "align": "right",
+            "lineHeight": 1.2
+          }
+        },
+        {
+          "id": "quiz_quiz_main",
+          "type": "quiz",
+          "name": "Quiz",
+          "x": 210,
+          "y": 200,
+          "w": 1500,
+          "h": 760,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "questions": [
+              {
+                "id": "q_quiz_1",
+                "text": "Wie viele Bundesländer hat Deutschland?",
+                "imageAssetId": null,
+                "answers": [
+                  { "id": "a_quiz_1a", "text": "16", "correct": true },
+                  { "id": "a_quiz_1b", "text": "12", "correct": false },
+                  { "id": "a_quiz_1c", "text": "20", "correct": false },
+                  { "id": "a_quiz_1d", "text": "14", "correct": false }
+                ]
+              },
+              {
+                "id": "q_quiz_2",
+                "text": "Welches Bauteil speichert elektrische Ladung?",
+                "imageAssetId": null,
+                "answers": [
+                  { "id": "a_quiz_2a", "text": "Kondensator", "correct": true },
+                  { "id": "a_quiz_2b", "text": "Widerstand", "correct": false },
+                  { "id": "a_quiz_2c", "text": "Diode", "correct": false },
+                  { "id": "a_quiz_2d", "text": "Spule", "correct": false }
+                ]
+              },
+              {
+                "id": "q_quiz_3",
+                "text": "Wofür steht die Abkürzung NDI?",
+                "imageAssetId": null,
+                "answers": [
+                  { "id": "a_quiz_3a", "text": "Network Device Interface", "correct": true },
+                  { "id": "a_quiz_3b", "text": "New Digital Input", "correct": false }
+                ]
+              }
+            ],
+            "shuffleQuestions": false,
+            "shuffleAnswers": true,
+            "advanceMs": 1600,
+            "scoreVar": "punkte",
+            "questionFontSize": 56,
+            "answerFontSize": 36,
+            "answerColor": "#2b3138",
+            "correctColor": "#30a46c",
+            "wrongColor": "#e5484d",
+            "textColor": "#f2f2f2"
+          },
+          "rules": [
+            {
+              "id": "r_quiz_done",
+              "enabled": true,
+              "trigger": { "type": "onComplete" },
+              "conditions": [],
+              "actions": [{ "verb": "goToScene", "args": ["sc_quiz_result"], "enabled": true }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sc_quiz_result",
+      "name": "Ergebnis",
+      "background": "#0f2a1d",
+      "rules": [],
+      "nodes": [
+        {
+          "id": "text_quiz_done",
+          "type": "text",
+          "name": "Geschafft",
+          "x": 210,
+          "y": 280,
+          "w": 1500,
+          "h": 160,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Geschafft!",
+            "fontSize": 120,
+            "color": "#30a46c",
+            "weight": 800,
+            "align": "center",
+            "lineHeight": 1.1
+          }
+        },
+        {
+          "id": "text_quiz_final",
+          "type": "text",
+          "name": "Punkte",
+          "x": 210,
+          "y": 470,
+          "w": 1500,
+          "h": 200,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "0",
+            "bindTextTo": "punkte",
+            "fontSize": 180,
+            "color": "#f2f2f2",
+            "weight": 800,
+            "align": "center",
+            "lineHeight": 1.1
+          }
+        },
+        {
+          "id": "text_quiz_of",
+          "type": "text",
+          "name": "von drei",
+          "x": 210,
+          "y": 690,
+          "w": 1500,
+          "h": 70,
+          "rotation": 0,
+          "opacity": 0.7,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "von 3 Fragen richtig",
+            "fontSize": 40,
+            "color": "#f2f2f2",
+            "weight": 400,
+            "align": "center",
+            "lineHeight": 1.2
+          }
+        },
+        {
+          "id": "button_quiz_again",
+          "type": "button",
+          "name": "Nochmal",
+          "x": 800,
+          "y": 820,
+          "w": 320,
+          "h": 96,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "label": "Nochmal",
+            "bg": "#30a46c",
+            "color": "#ffffff",
+            "radius": 12,
+            "fontSize": 32
+          },
+          "rules": [
+            {
+              "id": "r_quiz_restart",
+              "enabled": true,
+              "trigger": { "type": "onClick" },
+              "conditions": [],
+              "actions": [{ "verb": "restart", "args": [], "enabled": true }]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "createdAt": "2026-07-10T00:00:00.000Z",
+  "updatedAt": "2026-07-10T00:00:00.000Z"
+}

@@ -10,8 +10,20 @@ export interface DisplayInfo {
 }
 
 export interface OpenOutputOptions {
-  /** Preload-Pfad der App (stellt die window.jm*-Bridge auch im Ausgabe-Renderer bereit). */
-  preloadPath: string;
+  /**
+   * Preload-Pfad der App (stellt die window.jm*-Bridge auch im Ausgabe-Renderer
+   * bereit). Weglassen, wenn die Ausgabe ein eigenständiges Dokument ist, das
+   * keine IPC-Bridge bekommen soll — etwa der Kiosk des JM App Designers, der
+   * exakt das exportierte Bundle laden muss.
+   */
+  preloadPath?: string;
+  /**
+   * Rohe URL, die statt des App-Renderers geladen wird (kein `#hash`). Für Tools,
+   * deren Ausgabe ein eigenständiges Dokument ist statt einer Ansicht des Renderers
+   * — z. B. der Kiosk des JM App Designers (`jmapp://kiosk/index.html`).
+   * Hat Vorrang vor `rendererUrl`/`rendererFile`.
+   */
+  url?: string;
   /** Dev-Renderer-URL (process.env.ELECTRON_RENDERER_URL); im Prod undefined. */
   rendererUrl?: string;
   /** Prod-Renderer-HTML (loadFile), wenn keine rendererUrl gesetzt ist. */
@@ -72,6 +84,9 @@ export class OutputWindow {
       this.win.setFullScreen(false);
       this.win.setBounds({ x, y, width, height });
       this.win.setFullScreen(true);
+      // Bei `url` neu laden: das Dokument dahinter kann sich geändert haben (der
+      // Kiosk soll das aktuelle Projekt zeigen, nicht das beim ersten Öffnen).
+      if (opts.url) this.win.loadURL(opts.url);
       this.win.show();
       this.win.focus();
       return;
@@ -88,7 +103,7 @@ export class OutputWindow {
       title: opts.title ?? 'Ausgabe',
       autoHideMenuBar: true,
       webPreferences: {
-        preload: opts.preloadPath,
+        ...(opts.preloadPath ? { preload: opts.preloadPath } : {}),
         sandbox: opts.sandbox ?? false,
         contextIsolation: true,
         nodeIntegration: false,
@@ -98,7 +113,8 @@ export class OutputWindow {
     win.on('closed', () => {
       this.win = null;
     });
-    if (opts.rendererUrl) win.loadURL(`${opts.rendererUrl}#${hash}`);
+    if (opts.url) win.loadURL(opts.url);
+    else if (opts.rendererUrl) win.loadURL(`${opts.rendererUrl}#${hash}`);
     else if (opts.rendererFile) win.loadFile(opts.rendererFile, { hash });
     this.win = win;
   }
@@ -110,6 +126,14 @@ export class OutputWindow {
 
   isOpen(): boolean {
     return this.win != null && !this.win.isDestroyed();
+  }
+
+  /**
+   * Das geöffnete Fenster (oder null). Für Feinheiten, die diese Klasse nicht
+   * kennen muss — Zoom sperren, Tastenkürzel abfangen, Kiosk härten.
+   */
+  browserWindow(): BrowserWindow | null {
+    return this.isOpen() ? this.win : null;
   }
 
   /** Befehl an den Ausgabe-Renderer schicken (no-op, wenn geschlossen). */

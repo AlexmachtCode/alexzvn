@@ -62,5 +62,16 @@ function directive(csp: string, name: string): string[] {
   check('… und nicht in connect-src', !directive(csp, 'connect-src').includes('jm-media:'));
 }
 
+// ── frameSrc: die Sandbox des App Designers (#196) ────────────────────────────
+// Die Vorschau lädt unter einem eigenen Schema, das die Parent-CSP NICHT erbt. Ohne diesen
+// Opt-in steht `frame-src 'none'` und die Sandbox bleibt schwarz. Der Default darf sich davon
+// nicht anstecken lassen — sonst dürfte JEDES Tool fremde Frames einbetten.
+{
+  const csp = buildCsp({ frameSrc: ['jmapp:'] }, false);
+  check('frameSrc-Zusatz landet in frame-src', directive(csp, 'frame-src').join(' ') === 'jmapp:');
+  check('frameSrc ERSETZT none (nicht daneben)', !directive(csp, 'frame-src').includes("'none'"));
+  check('leeres frameSrc fällt auf none zurück', directive(buildCsp({ frameSrc: [] }, false), 'frame-src').join(' ') === "'none'");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
