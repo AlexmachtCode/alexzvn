@@ -1,0 +1,31 @@
+{
+  "$meta": {
+    "name": "Leere App",
+    "description": "Eine leere Szene. Elemente links hinzufügen, Regeln rechts anlegen."
+  },
+  "schemaVersion": 1,
+  "id": "app_tpl_blank",
+  "name": "Neue App",
+  "canvas": { "width": 1920, "height": 1080, "fit": "contain" },
+  "theme": {
+    "fontFamily": "system-ui, -apple-system, \"Segoe UI\", sans-serif",
+    "colorPrimary": "#4f8cff",
+    "colorBg": "#121212",
+    "colorText": "#f2f2f2",
+    "radius": 12
+  },
+  "variables": [],
+  "assets": [],
+  "startSceneId": "sc_tpl_blank",
+  "scenes": [
+    {
+      "id": "sc_tpl_blank",
+      "name": "Start",
+      "background": "#121212",
+      "rules": [],
+      "nodes": []
+    }
+  ],
+  "createdAt": "2026-07-10T00:00:00.000Z",
+  "updatedAt": "2026-07-10T00:00:00.000Z"
+}

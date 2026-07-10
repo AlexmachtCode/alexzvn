@@ -45,6 +45,16 @@ export interface CspConfig {
   connectSrc?: string[];
   imgSrc?: string[];
   mediaSrc?: string[];
+  /**
+   * Erlaubte Quellen für eingebettete Frames (#196). Ohne Angabe bleibt es bei
+   * `'none'` — kein Bestandstool bettet Frames ein.
+   *
+   * Nur für Apps mit echtem Sandbox-Bedarf (JM App Designer: Vorschau unter einem
+   * eigenen, privilegierten Schema). Ein Frame auf einem eigenen Schema erbt die
+   * CSP des Parents NICHT, sondern bringt seine eigene mit; `srcdoc`/`blob:`/`data:`
+   * würden dagegen erben und wären mit `script-src 'self'` im gepackten Build tot.
+   */
+  frameSrc?: string[];
 }
 
 export interface AppRuntimeOptions {
@@ -480,7 +490,7 @@ function installContentSecurityPolicy(cfg: CspConfig, isDev: boolean, log: Logge
     'worker-src': [SELF, 'blob:'],
     'object-src': ["'none'"],
     'base-uri': [SELF],
-    'frame-src': ["'none'"],
+    'frame-src': cfg.frameSrc?.length ? [...cfg.frameSrc] : ["'none'"],
   };
   const csp = Object.entries(directives)
     .map(([k, v]) => `${k} ${v.join(' ')}`)
