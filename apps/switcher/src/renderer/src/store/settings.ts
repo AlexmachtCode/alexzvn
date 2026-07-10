@@ -4,6 +4,16 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_CONTROL_PORT } from '@jm/companion-protocol';
 
+/** Programm-Ausgabeauflösung. Bestimmt die Größe, in der das Programm KOMPONIERT wird
+ *  (engine-Canvas) — NDI, Aufnahme und RTMP folgen daraus. 720p kostet ~2,25× weniger
+ *  Rechenlast pro Frame; 1080p ist echtes Full-HD (kein Hochskalieren). */
+export type ProgramResolution = '720p' | '1080p';
+export const RESOLUTIONS: Record<ProgramResolution, { w: number; h: number }> = {
+  '720p': { w: 1280, h: 720 },
+  '1080p': { w: 1920, h: 1080 },
+};
+export const OUTPUT_FPS_OPTIONS = [25, 30, 50, 60] as const;
+
 export interface SettingsState {
   /** RTMP-Ziel (rtmp://server/app/streamkey). */
   rtmpUrl: string;
@@ -21,6 +31,14 @@ export interface SettingsState {
   ndiOutputName: string;
   /** Was als NDI-Quelle ausgegeben wird: 'program' oder 'multiview'. */
   ndiOutputSource: 'program' | 'multiview';
+  /** Auflösung, in der das Programm komponiert und ausgegeben wird (NDI/Aufnahme/RTMP). */
+  programResolution: ProgramResolution;
+  /** Bildrate der NDI-Ausgabe. */
+  outputFps: number;
+  /** Zweiter Bildschirm (Vollbild-Programm-Ausgabe auf einem Monitor) aktiv? */
+  secondScreenEnabled: boolean;
+  /** Ziel-Monitor (Electron display.id). 0 = noch keiner gewählt → Hauptmonitor. */
+  secondScreenDisplayId: number;
   setRtmpUrl: (v: string) => void;
   setStreamBitrateKbps: (v: number) => void;
   setRecordBitrateKbps: (v: number) => void;
@@ -29,6 +47,10 @@ export interface SettingsState {
   setAudioInputId: (v: string) => void;
   setNdiOutputName: (v: string) => void;
   setNdiOutputSource: (v: 'program' | 'multiview') => void;
+  setProgramResolution: (v: ProgramResolution) => void;
+  setOutputFps: (v: number) => void;
+  setSecondScreenEnabled: (v: boolean) => void;
+  setSecondScreenDisplayId: (v: number) => void;
 }
 
 export const useSettings = create<SettingsState>()(
@@ -42,6 +64,10 @@ export const useSettings = create<SettingsState>()(
       audioInputId: '',
       ndiOutputName: 'JM Switcher',
       ndiOutputSource: 'program',
+      programResolution: '1080p',
+      outputFps: 25,
+      secondScreenEnabled: false,
+      secondScreenDisplayId: 0,
       setRtmpUrl: (rtmpUrl) => set({ rtmpUrl }),
       setStreamBitrateKbps: (streamBitrateKbps) =>
         set({ streamBitrateKbps: Math.min(20000, Math.max(500, Math.round(streamBitrateKbps) || 0)) }),
@@ -53,6 +79,11 @@ export const useSettings = create<SettingsState>()(
       setAudioInputId: (audioInputId) => set({ audioInputId }),
       setNdiOutputName: (ndiOutputName) => set({ ndiOutputName: ndiOutputName.slice(0, 64) }),
       setNdiOutputSource: (ndiOutputSource) => set({ ndiOutputSource }),
+      setProgramResolution: (programResolution) => set({ programResolution }),
+      setOutputFps: (outputFps) =>
+        set({ outputFps: (OUTPUT_FPS_OPTIONS as readonly number[]).includes(outputFps) ? outputFps : 25 }),
+      setSecondScreenEnabled: (secondScreenEnabled) => set({ secondScreenEnabled }),
+      setSecondScreenDisplayId: (secondScreenDisplayId) => set({ secondScreenDisplayId }),
     }),
     { name: 'jmswitch-settings' },
   ),

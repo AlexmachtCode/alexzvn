@@ -335,6 +335,15 @@
     "name": "JM Switcher",
     "entries": [
       {
+        "version": "0.9.0",
+        "date": "2026-07-10",
+        "notes": [
+          "Full-HD-Ausgabe: Programm-Auflösung wählbar (720p/1080p, Standard 1080p). Das Programm wird jetzt echt in 1080p komponiert — NDI, Aufnahme und Stream werden Full-HD, nicht mehr hochskaliert. Auf schwächeren Rechnern in den Einstellungen auf 720p zurückstellen.",
+          "NDI-Bildrate wählbar (25/30/50/60 fps).",
+          "Zweiter Bildschirm: das On-Air-Programmbild formatfüllend auf einem gewählten Monitor ausgeben — per HDMI direkt an Beamer, Kontrollmonitor oder Encoder. In den Einstellungen an-/abschalten und den Monitor wählen."
+        ]
+      },
+      {
         "version": "0.8.0",
         "date": "2026-07-10",
         "notes": [

@@ -11,9 +11,11 @@
 // Gleiche Pixel-Mechanik wie der JM Titler: ohne Transfer posten (Buffer wird
 // kopiert; ein transferierter ArrayBuffer käme über die Port-Grenze als null an).
 
-const OUT_W = 1280;
-const OUT_H = 720;
-const TARGET_FPS = 25;
+// Die Ausgabe-Auflösung ist NICHT mehr fest: der Pump liest die tatsächliche Größe des
+// Quell-Canvas (Programm bzw. Multiview) und gibt sie 1:1 aus. So folgt NDI automatisch der
+// Einstellung „Programm-Auflösung" (720p/1080p) und dem Program/Multiview-Umschalter, ohne
+// hochzuskalieren. Nur die Bildrate ist eine eigene Einstellung.
+const DEFAULT_FPS = 25;
 
 export interface NdiOutputState {
   active: boolean;
@@ -46,13 +48,19 @@ export class NdiOutputController {
   // Programm-Ton → NDI. Der gepumpte Track wird gemerkt, um einen Gerätewechsel zu erkennen.
   private audioTrack: MediaStreamTrack | null = null;
   private audioReader: ReadableStreamDefaultReader<AudioData> | null = null;
+  // Bildrate (Einstellung). Live über setFps() umstellbar; startet den Timer neu.
+  private fps: number;
 
-  constructor(getSource: () => HTMLCanvasElement | null, getAudioTrack: () => MediaStreamTrack | null) {
+  constructor(
+    getSource: () => HTMLCanvasElement | null,
+    getAudioTrack: () => MediaStreamTrack | null,
+    fps = DEFAULT_FPS,
+  ) {
     this.getSource = getSource;
     this.getAudioTrack = getAudioTrack;
+    this.fps = fps > 0 ? fps : DEFAULT_FPS;
+    // Größe wird im Pump aus dem Quell-Canvas übernommen (lazy) — hier nur anlegen.
     this.out = document.createElement('canvas');
-    this.out.width = OUT_W;
-    this.out.height = OUT_H;
     this.outCtx = this.out.getContext('2d', { willReadFrequently: true });
 
     // Frame-Port der NDI-Ausgabe vom Main empfangen (Preload → window 'message').
@@ -136,8 +144,8 @@ export class NdiOutputController {
       this.blockLogged = false;
       this.blockedTicks = 0;
       this.noSrcLogged = false;
-      if (!this.timer) this.timer = setInterval(this.tick, Math.round(1000 / TARGET_FPS));
-      console.log(`[ndi-out] Timer gestartet (${TARGET_FPS} fps) · Port ${this.port ? 'da' : 'FEHLT'} · active=${this.state.active}`);
+      if (!this.timer) this.timer = setInterval(this.tick, Math.round(1000 / this.fps));
+      console.log(`[ndi-out] Timer gestartet (${this.fps} fps) · Port ${this.port ? 'da' : 'FEHLT'} · active=${this.state.active}`);
     } catch (e) {
       console.log('[ndi-out] start() fehlgeschlagen:', e instanceof Error ? e.message : String(e));
       this.patch({ error: e instanceof Error ? e.message : String(e) });
@@ -152,6 +160,17 @@ export class NdiOutputController {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+  }
+
+  /** Bildrate live umstellen (Einstellung). Läuft der Sender, wird der Timer neu getaktet. */
+  setFps(fps: number): void {
+    const next = fps > 0 ? fps : DEFAULT_FPS;
+    if (next === this.fps) return;
+    this.fps = next;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = setInterval(this.tick, Math.round(1000 / this.fps));
     }
   }
 
@@ -180,7 +199,7 @@ export class NdiOutputController {
     if (!this.port || !this.state.active || !this.outCtx) {
       // Der Frame-Port trifft erst kurz NACH `ndiStart` ein — die ersten Ticks laufen normal leer.
       // Erst wenn er nach einer Sekunde immer noch fehlt, ist etwas kaputt.
-      if (++this.blockedTicks >= TARGET_FPS && !this.blockLogged) {
+      if (++this.blockedTicks >= this.fps && !this.blockLogged) {
         this.blockLogged = true;
         console.log(`[ndi-out] Pumpe blockiert: port=${!!this.port} active=${this.state.active} ctx=${!!this.outCtx}`);
       }
@@ -195,22 +214,29 @@ export class NdiOutputController {
       this.diag(`Audio-Pumpe fehlgeschlagen (Bild läuft weiter): ${e instanceof Error ? e.message : String(e)}`);
     }
     const src = this.getSource();
-    if (!src || src.width === 0) {
+    if (!src || src.width === 0 || src.height === 0) {
       if (!this.noSrcLogged) { this.noSrcLogged = true; console.log(`[ndi-out] kein Programmbild — ${src ? 'Canvas width=' + src.width : 'kein Canvas'}`); }
       return;
     }
 
-    // Quelle (Program/Multiview) auf Ausgabegröße bringen, dann auslesen.
-    this.outCtx.drawImage(src, 0, 0, OUT_W, OUT_H);
-    const img = this.outCtx.getImageData(0, 0, OUT_W, OUT_H);
+    // Ausgabegröße = tatsächliche Quell-Canvasgröße (folgt der Programm-Auflösung + dem
+    // Program/Multiview-Umschalter). Das Zwischen-Canvas nur bei echter Änderung neu dimensionieren.
+    const w = src.width;
+    const h = src.height;
+    if (this.out.width !== w || this.out.height !== h) {
+      this.out.width = w;
+      this.out.height = h;
+    }
+    this.outCtx.drawImage(src, 0, 0);
+    const img = this.outCtx.getImageData(0, 0, w, h);
     const u32 = new Uint32Array(img.data.buffer);
     // RGBA (0xAABBGGRR LE) → BGRA (0xAARRGGBB LE): R und B tauschen.
     for (let i = 0; i < u32.length; i++) {
       const p = u32[i];
       u32[i] = (p & 0xff00ff00) | ((p & 0x000000ff) << 16) | ((p & 0x00ff0000) >>> 16);
     }
-    this.port.postMessage({ type: 'video', buffer: img.data.buffer, w: OUT_W, h: OUT_H, fpsN: TARGET_FPS });
-    if (++this.framesSent === 1) console.log(`[ndi-out] erstes NDI-Frame gesendet (${OUT_W}x${OUT_H}@${TARGET_FPS})`);
+    this.port.postMessage({ type: 'video', buffer: img.data.buffer, w, h, fpsN: this.fps });
+    if (++this.framesSent === 1) console.log(`[ndi-out] erstes NDI-Frame gesendet (${w}x${h}@${this.fps})`);
   }
 
   /** Audio-Pumpe an den aktuell gewählten Programm-Ton-Track angleichen (Gerätewechsel/-abwahl). */

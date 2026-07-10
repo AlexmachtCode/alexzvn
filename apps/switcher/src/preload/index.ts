@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   ControlStatus,
+  DisplayInfo,
   JmswitchApi,
   NdiOutputStatus,
   NdiStatus,
@@ -105,6 +106,19 @@ const api: JmswitchApi = {
       const listener = (_event: unknown, res: OpenSwitcherResult) => cb(res);
       ipcRenderer.on('project:opened', listener);
       return () => ipcRenderer.off('project:opened', listener);
+    },
+  },
+  screen: {
+    listDisplays: () => ipcRenderer.invoke('screen:listDisplays') as Promise<DisplayInfo[]>,
+    setSecondScreen: (enabled, displayId) =>
+      ipcRenderer.invoke('screen:setSecondScreen', enabled, displayId) as Promise<void>,
+    // Komprimiertes Programm-Frame (WebP) an den Main → Ausgabefenster. `send`, kein invoke:
+    // Feuer-und-vergiss pro Frame, keine Antwort nötig (Backpressure regelt der Renderer-Timer).
+    sendFrame: (data, w, h) => ipcRenderer.send('screen:frame', data, w, h),
+    onFrame: (cb) => {
+      const listener = (_event: unknown, data: ArrayBuffer, w: number, h: number) => cb(data, w, h);
+      ipcRenderer.on('screen:frame', listener);
+      return () => ipcRenderer.off('screen:frame', listener);
     },
   },
 };

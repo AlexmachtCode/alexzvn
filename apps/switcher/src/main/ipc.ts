@@ -6,6 +6,7 @@ import { ndiOutputStatus, startNdiOutput, stopNdiOutput } from './ndi-send';
 import { registerOutputIpc } from './output';
 import { controlStatus, pushState, startControlServer, stopControlServer } from './control-server';
 import { openProject, saveProject } from './project/io';
+import { registerSecondScreenIpc } from './second-screen';
 import type { SaveSwitcherRequest } from '@shared/project';
 import type { SwitcherStateMsg } from '@jm/companion-protocol';
 
@@ -38,4 +39,6 @@ export function registerIpc(): void {
   });
   ipcMain.handle('control:status', () => controlStatus());
   ipcMain.on('control:pushState', (_e, state: SwitcherStateMsg) => pushState(state));
+
+  registerSecondScreenIpc();
 }
