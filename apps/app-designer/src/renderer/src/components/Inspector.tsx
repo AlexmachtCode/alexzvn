@@ -631,6 +631,77 @@ function TypeProps({ node }: { node: AppNode }): JSX.Element {
   }
 }
 
+/** Projektweite Einstellungen — sichtbar, wenn kein Element ausgewählt ist. */
+function AppSettings(): JSX.Element {
+  const doc = useEditor((s) => s.doc);
+  const patchDoc = useEditor((s) => s.patchDoc);
+
+  return (
+    <Collapsible title="App" persistId="app-settings" defaultOpen={false} description="Gilt für die ganze App">
+      <Row label="Name">
+        <TextField value={doc.name} onChange={(name) => patchDoc({ name })} />
+      </Row>
+      <div className="flex gap-2">
+        <Row label="Breite">
+          <NumberField
+            value={doc.canvas.width}
+            min={1}
+            onChange={(width) => patchDoc({ canvas: { ...doc.canvas, width } })}
+          />
+        </Row>
+        <Row label="Höhe">
+          <NumberField
+            value={doc.canvas.height}
+            min={1}
+            onChange={(height) => patchDoc({ canvas: { ...doc.canvas, height } })}
+          />
+        </Row>
+      </div>
+      <Row label="Einpassen">
+        <SelectField
+          value={doc.canvas.fit}
+          options={[
+            { value: 'contain', label: 'ganz zeigen (Ränder)' },
+            { value: 'cover', label: 'Bildschirm füllen (beschneiden)' },
+          ]}
+          onChange={(fit) => patchDoc({ canvas: { ...doc.canvas, fit: fit as 'contain' } })}
+        />
+      </Row>
+
+      <Row label="Zurück nach (s)">
+        <NumberField
+          value={Math.round(doc.idleResetMs / 1000)}
+          min={0}
+          onChange={(s) => patchDoc({ idleResetMs: Math.max(0, Math.round(s)) * 1000 })}
+        />
+      </Row>
+      <p className="mb-2 text-xs text-[var(--muted-foreground)]">
+        Springt nach dieser Ruhezeit an den Anfang zurück — sonst steht das Terminal auf der Gewinnseite
+        des letzten Besuchers. 0 = aus. Gilt auch im exportierten Bundle.
+      </p>
+
+      <Row label="Hauptfarbe">
+        <ColorField
+          value={doc.theme.colorPrimary}
+          onChange={(colorPrimary) => patchDoc({ theme: { ...doc.theme, colorPrimary } })}
+        />
+      </Row>
+      <Row label="Hintergrund">
+        <ColorField value={doc.theme.colorBg} onChange={(colorBg) => patchDoc({ theme: { ...doc.theme, colorBg } })} />
+      </Row>
+      <Row label="Schriftfarbe">
+        <ColorField
+          value={doc.theme.colorText}
+          onChange={(colorText) => patchDoc({ theme: { ...doc.theme, colorText } })}
+        />
+      </Row>
+      <p className="text-xs text-[var(--muted-foreground)]">
+        Das Thema gilt für neu angelegte Elemente; bestehende behalten ihre Farben.
+      </p>
+    </Collapsible>
+  );
+}
+
 export function Inspector(): JSX.Element {
   const node = useSelectedNode();
   const scene = useCurrentScene();
@@ -656,6 +727,8 @@ export function Inspector(): JSX.Element {
             onChange={(rules) => patchScene(scene.id, { rules })}
           />
         </Collapsible>
+
+        <AppSettings />
       </div>
     );
   }

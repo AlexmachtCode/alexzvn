@@ -112,6 +112,36 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
   const onResize = (): void => layoutStage();
   window.addEventListener('resize', onResize);
 
+  // ── Kiosk: Attract-Reset und kein Kontextmenü ──────────────────────────────
+  // Beides gehört in die Runtime, nicht ins Kiosk-Fenster: sonst fehlte es dem
+  // Kunden, der das exportierte Bundle selbst auf ein Terminal stellt.
+
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Der Timer läuft erst nach einer echten Berührung — eine ruhende App bleibt ruhen. */
+  let interacted = false;
+
+  function armIdle(): void {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
+    if (doc.idleResetMs > 0 && interacted && !destroyed) {
+      idleTimer = setTimeout(() => {
+        interacted = false;
+        restart();
+      }, doc.idleResetMs);
+    }
+  }
+
+  const onInteraction = (): void => {
+    interacted = true;
+    armIdle();
+  };
+  // Capture-Phase: Widgets stoppen die Ausbreitung mancher Zeiger-Ereignisse.
+  host.addEventListener('pointerdown', onInteraction, true);
+  host.addEventListener('keydown', onInteraction, true);
+
+  const onContextMenu = (e: Event): void => e.preventDefault();
+  host.addEventListener('contextmenu', onContextMenu);
+
   // ── Widget-Kontext ─────────────────────────────────────────────────────────
 
   function widgetContext(node: AppNode): WidgetContext {
@@ -495,6 +525,15 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
     mountScene(startScene(doc));
   }
 
+  /** Nach `destroy()` darf kein Attract-Timer mehr feuern. */
+  function stopIdle(): void {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
+    host.removeEventListener('pointerdown', onInteraction, true);
+    host.removeEventListener('keydown', onInteraction, true);
+    host.removeEventListener('contextmenu', onContextMenu);
+  }
+
   // ── Start ──────────────────────────────────────────────────────────────────
   mountScene(currentScene);
   emit({ kind: 'ready' });
@@ -510,6 +549,7 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
       // Punktestand nicht bei jeder Änderung verlieren).
       vars = { ...initialVars(doc), ...vars };
       mountScene(keep, false);
+      armIdle();
     },
     goToScene(id) {
       const s = doc.scenes.find((x) => x.id === id);
@@ -521,6 +561,7 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
     destroy() {
       destroyed = true;
       window.removeEventListener('resize', onResize);
+      stopIdle();
       unmountScene();
       audio?.pause();
       audio = null;

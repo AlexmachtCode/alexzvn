@@ -129,6 +129,41 @@ function createMainWindow(): BrowserWindow {
   return win;
 }
 
+// ── Kiosk ────────────────────────────────────────────────────────────────────
+
+/**
+ * Was ein Besucher am Messestand nicht können soll.
+ *
+ * Der Rest der Härtung — Kontextmenü, Attract-Reset — steckt in der Runtime und
+ * gilt deshalb auch für ein Bundle, das der Kunde selbst auf ein Terminal stellt.
+ *
+ * Was Electron NICHT verhindern kann: Alt+Tab, Task-Manager, Windows-Taste. Ein
+ * wirklich abgeriegeltes Terminal ist OS-Konfiguration (Zugewiesener Zugriff bzw.
+ * Shell-Ersatz), nicht Sache dieses Tools.
+ */
+function hardenKiosk(): void {
+  const win = kiosk.browserWindow();
+  if (!win) return;
+  const wc = win.webContents;
+
+  wc.setVisualZoomLevelLimits(1, 1);
+  wc.on('did-finish-load', () => wc.setZoomFactor(1));
+
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    // Escape beendet das Terminal — der Operator muss wieder herauskommen.
+    if (input.key === 'Escape') {
+      event.preventDefault();
+      kiosk.close();
+      return;
+    }
+    // Zoom per Tastatur unterbinden (Strg + / - / 0).
+    if (input.control || input.meta) {
+      if (['+', '-', '=', '0'].includes(input.key)) event.preventDefault();
+    }
+  });
+}
+
 // ── IPC ──────────────────────────────────────────────────────────────────────
 
 function registerIpc(): void {
@@ -208,6 +243,7 @@ function registerIpc(): void {
       sandbox: true,
       ...(displayId != null ? { displayId } : {}),
     });
+    hardenKiosk();
   });
   ipcMain.handle('appdesigner:closeKiosk', () => kiosk.close());
   ipcMain.handle('appdesigner:isKioskOpen', () => kiosk.isOpen());

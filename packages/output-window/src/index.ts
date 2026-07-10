@@ -128,6 +128,14 @@ export class OutputWindow {
     return this.win != null && !this.win.isDestroyed();
   }
 
+  /**
+   * Das geöffnete Fenster (oder null). Für Feinheiten, die diese Klasse nicht
+   * kennen muss — Zoom sperren, Tastenkürzel abfangen, Kiosk härten.
+   */
+  browserWindow(): BrowserWindow | null {
+    return this.isOpen() ? this.win : null;
+  }
+
   /** Befehl an den Ausgabe-Renderer schicken (no-op, wenn geschlossen). */
   send(payload: unknown): void {
     if (this.isOpen()) this.win!.webContents.send(this.channel, payload);

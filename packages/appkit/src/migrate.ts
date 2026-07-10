@@ -393,6 +393,7 @@ export function migrateProject(raw: unknown): AppProject {
       fit: canvasRaw['fit'] === 'cover' ? 'cover' : 'contain',
     },
     theme,
+    idleResetMs: Math.max(0, num(p['idleResetMs'], 0)),
     scenes,
     startSceneId: scenes.some((s) => s.id === startId) ? startId : scenes[0].id,
     variables: arr(p['variables']).map(migrateVar).filter((v): v is VarDef => !!v),

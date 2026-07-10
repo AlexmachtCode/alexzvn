@@ -42,15 +42,34 @@ mkdirSync(outRoot, { recursive: true });
 // Protokoll „c:" gelesen und abgelehnt.
 const register = pathToFileURL(join(repoRoot, 'packages', 'appkit', 'test', 'register.mjs')).href;
 
-for (const t of TEMPLATES) {
-  const dir = join(outRoot, t);
+const bundle = (template, dir, extra = []) =>
   run(
     'node',
-    ['--experimental-strip-types', '--import', register, 'test/make-bundle.ts', `resources/templates/${t}.json`, dir],
-    `Bundle ${t}`,
+    [
+      '--experimental-strip-types',
+      '--import',
+      register,
+      'test/make-bundle.ts',
+      `resources/templates/${template}.json`,
+      dir,
+      ...extra,
+    ],
+    `Bundle ${template}`,
   );
+
+// Erst die reine Logik (kein Browser nötig).
+run('node', ['--experimental-strip-types', 'test/snap.test.ts'], 'Einrasten');
+
+for (const t of TEMPLATES) {
+  const dir = join(outRoot, t);
+  bundle(t, dir);
   run('npx', ['electron', 'test/smoke.cjs', dir, t], `Smoke ${t}`);
 }
+
+// Attract-Reset mit verkürzter Ruhezeit — 60 s wären im Test nicht abwartbar.
+const attractDir = join(outRoot, 'attract');
+bundle('wheel', attractDir, ['--idle=1500']);
+run('npx', ['electron', 'test/smoke.cjs', attractDir, 'attract'], 'Attract-Reset');
 
 if (withCsp) {
   const dir = join(outRoot, 'wheel');

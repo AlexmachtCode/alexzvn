@@ -13,6 +13,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { AppNode } from '@jm/appkit';
 import { useAssetUrls } from '../lib/assetUrls';
+import { snapRect, snapToGrid, type Guide } from '../lib/snap';
 import { useCurrentScene, useEditor } from '../store';
 
 type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -30,6 +31,9 @@ const HANDLE_CURSOR: Record<Handle, string> = {
 };
 
 const MIN_SIZE = 16;
+
+/** Einrast-Abstand in BILDSCHIRM-Pixeln — bei 30 % Zoom wären 6 Design-Pixel unerreichbar. */
+const SNAP_TOLERANCE_SCREEN = 8;
 
 interface Drag {
   kind: 'move' | Handle;
@@ -270,9 +274,17 @@ export function CanvasStage(): JSX.Element {
   const select = useEditor((s) => s.select);
   const patchNode = useEditor((s) => s.patchNode);
 
+  const snapOn = useEditor((s) => s.snap);
+  const grid = useEditor((s) => s.grid);
+  const showGrid = useEditor((s) => s.showGrid);
+  const setSnap = useEditor((s) => s.setSnap);
+  const setGrid = useEditor((s) => s.setGrid);
+  const setShowGrid = useEditor((s) => s.setShowGrid);
+
   const assetUrls = useAssetUrls();
   const wrapRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [guides, setGuides] = useState<Guide[]>([]);
   const dragRef = useRef<Drag | null>(null);
 
   // Bühne einpassen. ResizeObserver statt window.resize: der Editor-Split ändert
@@ -315,9 +327,25 @@ export function CanvasStage(): JSX.Element {
     const dx = (e.clientX - d.startX) / scale;
     const dy = (e.clientY - d.startY) / scale;
     const s = d.node;
+    // Alt gedrückt = frei positionieren, wie in jedem Design-Werkzeug.
+    const useSnap = snapOn && !e.altKey;
 
     if (d.kind === 'move') {
-      patchNode(selected.id, { x: Math.round(s.x + dx), y: Math.round(s.y + dy) });
+      const raw = { x: s.x + dx, y: s.y + dy, w: s.w, h: s.h };
+      if (!useSnap) {
+        setGuides([]);
+        patchNode(selected.id, { x: Math.round(raw.x), y: Math.round(raw.y) });
+        return;
+      }
+      const others = scene.nodes.filter((n) => n.id !== selected.id).map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }));
+      const r = snapRect(raw, {
+        grid,
+        tolerance: SNAP_TOLERANCE_SCREEN / scale,
+        canvas: doc.canvas,
+        others,
+      });
+      setGuides(r.guides);
+      patchNode(selected.id, { x: Math.round(r.x), y: Math.round(r.y) });
       return;
     }
 
@@ -335,13 +363,21 @@ export function CanvasStage(): JSX.Element {
     }
     if (d.kind.includes('s')) h = Math.max(MIN_SIZE, s.h + dy);
 
-    patchNode(selected.id, { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
+    // Beim Skalieren gibt es keine sinnvolle Mitte-an-Mitte-Ausrichtung: nur Raster.
+    const g = useSnap ? grid : 0;
+    patchNode(selected.id, {
+      x: Math.round(snapToGrid(x, g)),
+      y: Math.round(snapToGrid(y, g)),
+      w: Math.max(MIN_SIZE, Math.round(snapToGrid(w, g))),
+      h: Math.max(MIN_SIZE, Math.round(snapToGrid(h, g))),
+    });
   };
 
   const endDrag = (e: React.PointerEvent): void => {
     if (dragRef.current) {
       (e.target as Element).releasePointerCapture?.(e.pointerId);
       dragRef.current = null;
+      setGuides([]);
     }
   };
 
@@ -380,6 +416,18 @@ export function CanvasStage(): JSX.Element {
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
       >
+        {showGrid && grid > 0 && (
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              backgroundImage:
+                'linear-gradient(to right, rgba(255,255,255,.07) 1px, transparent 1px),' +
+                'linear-gradient(to bottom, rgba(255,255,255,.07) 1px, transparent 1px)',
+              backgroundSize: `${grid}px ${grid}px`,
+            }}
+          />
+        )}
+
         {scene.nodes.map((n) => (
           <div
             key={n.id}
@@ -449,6 +497,42 @@ export function CanvasStage(): JSX.Element {
             })}
           </div>
         )}
+
+        {/* Hilfslinien: zeigen, WORAN eingerastet wurde. */}
+        {guides.map((g, i) => (
+          <div
+            key={`${g.axis}-${g.at}-${i}`}
+            className="pointer-events-none absolute bg-[#fbe73b]"
+            style={
+              g.axis === 'x'
+                ? { left: g.at, top: 0, width: 1 / scale, height: '100%' }
+                : { top: g.at, left: 0, height: 1 / scale, width: '100%' }
+            }
+          />
+        ))}
+      </div>
+
+      <div className="pointer-events-none absolute bottom-2 left-3 flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
+        <label className="pointer-events-auto flex cursor-pointer items-center gap-1">
+          <input type="checkbox" checked={snapOn} onChange={(e) => setSnap(e.target.checked)} />
+          Einrasten
+        </label>
+        <label className="pointer-events-auto flex cursor-pointer items-center gap-1">
+          <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
+          Raster
+        </label>
+        <label className="pointer-events-auto flex items-center gap-1">
+          <input
+            type="number"
+            min={0}
+            max={200}
+            value={grid}
+            onChange={(e) => setGrid(Number(e.target.value))}
+            className="w-14 rounded border border-[var(--border)] bg-transparent px-1 py-0.5"
+          />
+          px
+        </label>
+        <span className="opacity-60">Alt = frei</span>
       </div>
 
       <div className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--muted-foreground)]">

@@ -14,6 +14,7 @@
     "colorText": "#f2f2f2",
     "radius": 12
   },
+  "idleResetMs": 60000,
   "variables": [{ "name": "paare", "type": "number", "initial": 0 }],
   "assets": [],
   "startSceneId": "sc_mem_play",

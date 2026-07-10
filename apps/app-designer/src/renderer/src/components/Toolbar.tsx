@@ -15,6 +15,10 @@ export function Toolbar(): JSX.Element {
   const loadDoc = useEditor((s) => s.loadDoc);
   const markSaved = useEditor((s) => s.markSaved);
   const addAssets = useEditor((s) => s.addAssets);
+  const undo = useEditor((s) => s.undo);
+  const redo = useEditor((s) => s.redo);
+  const canUndo = useEditor((s) => s.past.length > 0);
+  const canRedo = useEditor((s) => s.future.length > 0);
 
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -98,6 +102,29 @@ export function Toolbar(): JSX.Element {
       </Button>
       <Button size="sm" variant="ghost" uppercase={false} onClick={() => void onSave(true)}>
         Speichern unter…
+      </Button>
+
+      <span className="mx-2 h-5 w-px bg-[var(--border)]" />
+
+      <Button
+        size="sm"
+        variant="ghost"
+        uppercase={false}
+        disabled={!canUndo}
+        title="Rückgängig (Strg+Z)"
+        onClick={undo}
+      >
+        ↶
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        uppercase={false}
+        disabled={!canRedo}
+        title="Wiederherstellen (Strg+Umschalt+Z)"
+        onClick={redo}
+      >
+        ↷
       </Button>
 
       <span className="mx-2 h-5 w-px bg-[var(--border)]" />

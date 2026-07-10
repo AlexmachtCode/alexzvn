@@ -280,7 +280,56 @@ async function drag(js, itemId, zoneId) {
   })()`);
 }
 
-const CHECKS = { wheel: checkWheel, quiz: checkQuiz, memory: checkMemory, dragdrop: checkDragDrop };
+/**
+ * Attract-Reset: Nach der eingestellten Ruhezeit springt die App an den Anfang.
+ * Läuft gegen ein Bundle mit verkürztem `idleResetMs` (make-bundle --idle).
+ *
+ * Bewusst OHNE das Rad zu drehen: die Niete-Szene der Vorlage kehrt per onTimer
+ * selbst zurück, und dieser Test würde deren Wirkung dem Attract-Reset zuschreiben.
+ * Stattdessen wird ein Zustand gesetzt und nur berührt.
+ *
+ * `HTMLElement.click()` erzeugt kein `pointerdown` — ein echter Finger und eine
+ * echte Maus schon. Der Test muss das Zeiger-Ereignis also selbst schicken,
+ * sonst wird der Attract-Timer nie scharf und der Test wäre grün ohne Aussage.
+ */
+async function checkAttract(js) {
+  const wheel = 'wheel_tpl_main';
+  const touch = `document.querySelector('[data-jmapp-stage]')
+      .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); true`;
+
+  // 1. Unberührt: der Timer darf gar nicht anlaufen.
+  await js(`window.JMApp.handle.setVar('drehungen', 5); true`);
+  await wait(2200);
+  let v = await vars(js);
+  v.drehungen === 5 ? ok('unberührte App startet nicht von selbst neu') : fail('Reset ohne Berührung');
+
+  // 2. Nach einer Berührung greift er.
+  await js(touch);
+  console.log('  …  berührt, warte auf den Attract-Reset (idleResetMs=1500)');
+  await wait(2300);
+
+  v = await vars(js);
+  v.drehungen === 0 && v.ergebnis === ''
+    ? ok('Variablen zurückgesetzt — der nächste Besucher startet sauber')
+    : fail(`Variablen nicht zurückgesetzt: ${JSON.stringify(v)}`);
+
+  const onStart = await js(`!!document.querySelector('${nodeSel(wheel)}')`);
+  onStart ? ok('App steht wieder auf der Startszene') : fail('nicht auf der Startszene');
+
+  // 3. Danach ruht sie wieder, statt im Kreis zu starten.
+  await js(`window.JMApp.handle.setVar('drehungen', 7); true`);
+  await wait(2300);
+  v = await vars(js);
+  v.drehungen === 7 ? ok('nach dem Reset ruht die App (kein Dauer-Neustart)') : fail('App startet im Kreis');
+}
+
+const CHECKS = {
+  wheel: checkWheel,
+  quiz: checkQuiz,
+  memory: checkMemory,
+  dragdrop: checkDragDrop,
+  attract: checkAttract,
+};
 
 async function vars(js) {
   return JSON.parse(await js(`JSON.stringify(window.JMApp.handle.getVars())`));

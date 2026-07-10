@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Splitter, Tabs, type TabItem } from '@jm/ui';
 import { Toolbar } from './components/Toolbar';
 import { CanvasStage } from './components/CanvasStage';
 import { PreviewFrame } from './components/PreviewFrame';
 import { Inspector } from './components/Inspector';
 import { LayerPanel, ScenePanel, VariablesPanel } from './components/SidePanels';
+import { useEditor } from './store';
 
 type MainTab = 'design' | 'play';
 
@@ -13,11 +14,37 @@ const TABS: TabItem<MainTab>[] = [
   { key: 'play', label: 'Testen' },
 ];
 
+/** In Eingabefeldern gehört Strg+Z dem Browser — sonst verliert man den Tippfehler nicht, sondern die Szene. */
+function inTextField(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
+}
+
 export function App(): JSX.Element {
   const [left, setLeft] = useState(260);
   const [right, setRight] = useState(400);
   const [bottom, setBottom] = useState(180);
   const [tab, setTab] = useState<MainTab>('design');
+
+  const undo = useEditor((s) => s.undo);
+  const redo = useEditor((s) => s.redo);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey) || inTextField(e.target)) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo, redo]);
 
   return (
     <div className="flex h-full flex-col">

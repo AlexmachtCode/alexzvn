@@ -25,8 +25,24 @@ export interface EditorState {
   log: { at: number; text: string }[];
   vars: Record<string, number | string | boolean>;
 
+  /** Rückgängig/Wiederherstellen. Snapshots des Dokuments, nicht der Auswahl. */
+  past: AppProject[];
+  future: AppProject[];
+  undo(): void;
+  redo(): void;
+
+  /** Editor-Einstellungen (gehören nicht ins Dokument). */
+  snap: boolean;
+  grid: number;
+  showGrid: boolean;
+  setSnap(on: boolean): void;
+  setGrid(px: number): void;
+  setShowGrid(on: boolean): void;
+
   loadDoc(doc: AppProject, assets: AssetBlob[], path: string | null): void;
   markSaved(path: string): void;
+  /** Projektweite Felder (Name, Auflösung, Thema, Attract-Reset). */
+  patchDoc(patch: Partial<AppProject>): void;
 
   setScene(id: SceneId): void;
   addScene(): void;
@@ -53,6 +69,14 @@ export interface EditorState {
 }
 
 const LOG_MAX = 60;
+const HISTORY_MAX = 100;
+
+/**
+ * Gleichartige Änderungen innerhalb dieses Fensters werden zu EINEM Schritt
+ * zusammengefasst. Ohne das erzeugte ein Zieh-Vorgang hunderte Undo-Schritte und
+ * jeder Buchstabe im Textfeld einen eigenen.
+ */
+const COALESCE_MS = 600;
 
 /** Ein Node-Patch trifft immer genau eine Szene — Szenen-Arrays neu bauen. */
 function mapScene(doc: AppProject, sceneId: SceneId, fn: (s: Scene) => Scene): AppProject {
@@ -66,8 +90,50 @@ function kindOf(fileName: string): 'image' | 'video' | 'audio' {
   return 'image';
 }
 
+/** Auswahl und Szene nach einem Undo/Redo auf gültige Werte ziehen. */
+function reselect(doc: AppProject, sceneId: SceneId, selectedId: NodeId | null) {
+  const nextScene = doc.scenes.some((s) => s.id === sceneId) ? sceneId : doc.scenes[0].id;
+  const scene = doc.scenes.find((s) => s.id === nextScene);
+  const keep = selectedId && scene?.nodes.some((n) => n.id === selectedId) ? selectedId : null;
+  return { sceneId: nextScene, selectedId: keep };
+}
+
 export const useEditor = create<EditorState>((set) => {
   const initial = makeEmptyProject();
+
+  // Verschmelzungs-Zustand lebt außerhalb des Stores: er beschreibt, WIE der
+  // Nutzer gerade tippt oder zieht, nicht das Dokument.
+  let lastKey: string | null = null;
+  let lastAt = 0;
+
+  /**
+   * Eine Dokument-Änderung mit Undo-Eintrag. `key` fasst gleichartige, schnell
+   * aufeinanderfolgende Änderungen zu einem Schritt zusammen; `null` erzwingt
+   * immer einen eigenen Schritt (Anlegen, Löschen, Umsortieren).
+   */
+  const edit = (key: string | null, fn: (st: EditorState) => Partial<EditorState>) =>
+    set((st) => {
+      const patch = fn(st);
+      if (!patch.doc || patch.doc === st.doc) return patch;
+
+      const now = Date.now();
+      const merge = key !== null && key === lastKey && now - lastAt < COALESCE_MS;
+      lastKey = key;
+      lastAt = now;
+
+      return {
+        ...patch,
+        past: merge ? st.past : [...st.past, st.doc].slice(-HISTORY_MAX),
+        future: [],
+        dirty: true,
+      };
+    });
+
+  /** Nach Undo/Redo darf die nächste Änderung nicht mit der letzten verschmelzen. */
+  const breakCoalesce = (): void => {
+    lastKey = null;
+  };
+
   return {
     doc: initial,
     assets: [],
@@ -78,14 +144,67 @@ export const useEditor = create<EditorState>((set) => {
     log: [],
     vars: {},
 
-    loadDoc: (doc, assets, path) =>
-      set({ doc, assets, path, dirty: false, sceneId: doc.startSceneId, selectedId: null, log: [] }),
+    past: [],
+    future: [],
+    snap: true,
+    grid: 8,
+    showGrid: false,
+
+    setSnap: (on) => set({ snap: on }),
+    setGrid: (px) => set({ grid: Math.max(0, Math.round(px)) }),
+    setShowGrid: (on) => set({ showGrid: on }),
+
+    undo: () =>
+      set((st) => {
+        const prev = st.past[st.past.length - 1];
+        if (!prev) return st;
+        breakCoalesce();
+        return {
+          doc: prev,
+          past: st.past.slice(0, -1),
+          future: [st.doc, ...st.future].slice(0, HISTORY_MAX),
+          dirty: true,
+          ...reselect(prev, st.sceneId, st.selectedId),
+        };
+      }),
+
+    redo: () =>
+      set((st) => {
+        const next = st.future[0];
+        if (!next) return st;
+        breakCoalesce();
+        return {
+          doc: next,
+          past: [...st.past, st.doc].slice(-HISTORY_MAX),
+          future: st.future.slice(1),
+          dirty: true,
+          ...reselect(next, st.sceneId, st.selectedId),
+        };
+      }),
+
+    loadDoc: (doc, assets, path) => {
+      breakCoalesce();
+      set({
+        doc,
+        assets,
+        path,
+        dirty: false,
+        sceneId: doc.startSceneId,
+        selectedId: null,
+        log: [],
+        past: [],
+        future: [],
+      });
+    },
     markSaved: (path) => set({ path, dirty: false }),
+
+    patchDoc: (patch) =>
+      edit(`doc:${Object.keys(patch).sort().join(',')}`, (st) => ({ doc: { ...st.doc, ...patch } })),
 
     setScene: (id) => set({ sceneId: id, selectedId: null }),
 
     addScene: () =>
-      set((st) => {
+      edit(null, (st) => {
         const scene: Scene = {
           id: newId('sc'),
           name: `Szene ${st.doc.scenes.length + 1}`,
@@ -97,35 +216,35 @@ export const useEditor = create<EditorState>((set) => {
           doc: { ...st.doc, scenes: [...st.doc.scenes, scene] },
           sceneId: scene.id,
           selectedId: null,
-          dirty: true,
         };
       }),
 
     removeScene: (id) =>
-      set((st) => {
-        if (st.doc.scenes.length <= 1) return st;
+      edit(null, (st) => {
+        if (st.doc.scenes.length <= 1) return {};
         const scenes = st.doc.scenes.filter((s) => s.id !== id);
         const startSceneId = st.doc.startSceneId === id ? scenes[0].id : st.doc.startSceneId;
         return {
           doc: { ...st.doc, scenes, startSceneId },
           sceneId: st.sceneId === id ? scenes[0].id : st.sceneId,
           selectedId: null,
-          dirty: true,
         };
       }),
 
     renameScene: (id, name) =>
-      set((st) => ({ doc: mapScene(st.doc, id, (s) => ({ ...s, name })), dirty: true })),
+      edit(`scene:${id}:name`, (st) => ({ doc: mapScene(st.doc, id, (s) => ({ ...s, name })) })),
 
-    setStartScene: (id) => set((st) => ({ doc: { ...st.doc, startSceneId: id }, dirty: true })),
+    setStartScene: (id) => edit(null, (st) => ({ doc: { ...st.doc, startSceneId: id } })),
 
     patchScene: (id, patch) =>
-      set((st) => ({ doc: mapScene(st.doc, id, (s) => ({ ...s, ...patch })), dirty: true })),
+      edit(`scene:${id}:${Object.keys(patch).sort().join(',')}`, (st) => ({
+        doc: mapScene(st.doc, id, (s) => ({ ...s, ...patch })),
+      })),
 
     select: (id) => set({ selectedId: id }),
 
     addNode: (type) =>
-      set((st) => {
+      edit(null, (st) => {
         const node = makeNode(type, st.doc.theme);
         // Mittig auf der Bühne einsetzen — sonst landet alles in der Ecke.
         node.x = Math.round((st.doc.canvas.width - node.w) / 2);
@@ -133,28 +252,28 @@ export const useEditor = create<EditorState>((set) => {
         return {
           doc: mapScene(st.doc, st.sceneId, (s) => ({ ...s, nodes: [...s.nodes, node] })),
           selectedId: node.id,
-          dirty: true,
         };
       }),
 
+    // Der Schlüssel entsteht aus den geänderten Feldern: Ziehen patcht {x,y},
+    // Skalieren {x,y,w,h}, Tippen {props}. Gleichartiges verschmilzt, ein Wechsel
+    // der Tätigkeit beginnt einen neuen Undo-Schritt.
     patchNode: (id, patch) =>
-      set((st) => ({
+      edit(`node:${id}:${Object.keys(patch).sort().join(',')}`, (st) => ({
         doc: mapScene(st.doc, st.sceneId, (s) => ({
           ...s,
           nodes: s.nodes.map((n) => (n.id === id ? ({ ...n, ...patch } as AppNode) : n)),
         })),
-        dirty: true,
       })),
 
     removeNode: (id) =>
-      set((st) => ({
+      edit(null, (st) => ({
         doc: mapScene(st.doc, st.sceneId, (s) => ({ ...s, nodes: s.nodes.filter((n) => n.id !== id) })),
         selectedId: st.selectedId === id ? null : st.selectedId,
-        dirty: true,
       })),
 
     reorderNode: (id, dir) =>
-      set((st) => ({
+      edit(null, (st) => ({
         doc: mapScene(st.doc, st.sceneId, (s) => {
           const i = s.nodes.findIndex((n) => n.id === id);
           const j = i + dir;
@@ -163,37 +282,33 @@ export const useEditor = create<EditorState>((set) => {
           [nodes[i], nodes[j]] = [nodes[j], nodes[i]];
           return { ...s, nodes };
         }),
-        dirty: true,
       })),
 
     addVar: () =>
-      set((st) => {
+      edit(null, (st) => {
         const taken = new Set(st.doc.variables.map((v) => v.name));
         let name = 'punkte';
         for (let i = 2; taken.has(name); i++) name = `variable${i}`;
         return {
           doc: { ...st.doc, variables: [...st.doc.variables, { name, type: 'number', initial: 0 }] },
-          dirty: true,
         };
       }),
 
     patchVar: (name, patch) =>
-      set((st) => ({
+      edit(`var:${name}`, (st) => ({
         doc: {
           ...st.doc,
           variables: st.doc.variables.map((v) => (v.name === name ? { ...v, ...patch } : v)),
         },
-        dirty: true,
       })),
 
     removeVar: (name) =>
-      set((st) => ({
+      edit(null, (st) => ({
         doc: { ...st.doc, variables: st.doc.variables.filter((v) => v.name !== name) },
-        dirty: true,
       })),
 
     addAssets: (blobs) =>
-      set((st) => {
+      edit(null, (st) => {
         const taken = st.assets.map((a) => a.fileName);
         const added: AssetBlob[] = [];
         for (const b of blobs) {
@@ -215,7 +330,6 @@ export const useEditor = create<EditorState>((set) => {
               })),
             ],
           },
-          dirty: true,
         };
       }),
 

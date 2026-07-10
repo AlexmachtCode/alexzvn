@@ -281,6 +281,15 @@ export interface AppProject {
   /** Design-Auflösung; die Runtime skaliert die Bühne auf den Viewport. */
   canvas: { width: number; height: number; fit: 'contain' | 'cover' };
   theme: Theme;
+  /**
+   * Nach so vielen Millisekunden ohne Berührung springt die App an den Anfang
+   * zurück. 0 = aus.
+   *
+   * Bewusst eine Eigenschaft des Dokuments, nicht des Kiosk-Fensters: sonst
+   * stünde ein Terminal, auf dem der Kunde das exportierte Bundle selbst
+   * betreibt, ewig auf der Gewinnseite des letzten Besuchers.
+   */
+  idleResetMs: number;
   scenes: Scene[];
   startSceneId: SceneId;
   variables: VarDef[];
@@ -324,6 +333,7 @@ export function makeEmptyProject(name = 'Neue App'): AppProject {
     name,
     canvas: { width: 1920, height: 1080, fit: 'contain' },
     theme: { ...DEFAULT_THEME },
+    idleResetMs: 0,
     scenes: [scene],
     startSceneId: scene.id,
     variables: [],
