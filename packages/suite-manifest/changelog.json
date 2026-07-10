@@ -335,6 +335,15 @@
     "name": "JM Switcher",
     "entries": [
       {
+        "version": "0.8.0",
+        "date": "2026-07-10",
+        "notes": [
+          "Der NDI-Ausgang überträgt jetzt auch den Programmton. Bisher war er stumm — jeder Empfänger (JM Connect, OBS, vMix, JM Recorder) bekam nur ein Bild.",
+          "Die Ausgabe läuft weiter, wenn das Switcher-Fenster verdeckt oder minimiert wird. Vorher hielt das ausgesendete Bild dann an.",
+          "Fehler der Aufzeichnung und des Streamings erreichen die Oberfläche wieder — sie konnten zuvor unsichtbar bleiben."
+        ]
+      },
+      {
         "version": "0.7.0",
         "date": "2026-07-04",
         "notes": [
