@@ -3,7 +3,7 @@ import { SignallingClient } from '@jm/rtc/signalling';
 import { lobbyCount, onAirGuests, standbyGuest } from '@jm/rtc/state';
 import { ndiPoolKey } from '@jm/rtc/protocol';
 import type { Guest, OperatorAction, RoomState } from '@jm/rtc/protocol';
-import type { AppStatus, GuestInvite, ShowInfo } from '@shared/types';
+import type { AppStatus, GuestInvite, ProxyKeySource, ShowInfo } from '@shared/types';
 import { toDataUrl } from '@/lib/qr';
 
 // Der Operator-Renderer hält die Raum-WebSocket zum ConnectRoom-DO und spiegelt dessen
@@ -225,11 +225,7 @@ export function App(): JSX.Element {
 
       {error && <div className="mb-4 rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{error}</div>}
 
-      {!status?.configured && (
-        <div className="mb-4 rounded-lg border border-yellow-800 bg-yellow-950/30 p-3 text-sm text-yellow-200">
-          Cloud-Proxy nicht konfiguriert — <code>JMPS_PROXY_URL</code> und <code>JMPS_PROXY_KEY</code> setzen.
-        </div>
-      )}
+      <ProxyCard configured={!!status?.configured} keySource={status?.proxyKeySource ?? 'none'} />
 
       {show && <ShowCard show={show} connected={connected} invited={invites.length} onInvite={inviteSpeakers} />}
 
@@ -345,6 +341,121 @@ export function App(): JSX.Element {
  * Die aus dem Launcher geöffnete Veranstaltung. Die Sprecher stammen token-frei aus iveo; die
  * Join-Token entstehen erst hier im Main aus dem Raum-Secret — nie in der Show-Datei.
  */
+const KEY_HINT: Record<ProxyKeySource, string> = {
+  none: 'Ohne Key lässt sich kein Raum öffnen.',
+  stored: 'Hinterlegt — verschlüsselt gespeichert.',
+  session: 'Nur für diese Sitzung gemerkt — auf diesem Rechner gibt es keinen Schlüsselbund.',
+  env: 'Kommt aus der Umgebungsvariablen JMPS_PROXY_KEY und hat Vorrang.',
+};
+
+const INP = 'w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm text-neutral-100';
+
+/**
+ * Adresse des Suite-Proxys + sein Zugriffs-Key. Der Key geht in den Main und kommt nie zurück —
+ * die Oberfläche kennt nur seine Herkunft. Muster: apps/qa Settings.tsx.
+ */
+function ProxyCard({ configured, keySource }: { configured: boolean; keySource: ProxyKeySource }): JSX.Element {
+  const [url, setUrl] = useState('');
+  const [key, setKey] = useState('');
+  const [open, setOpen] = useState(!configured);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void window.jmconnect.getProxy().then((p) => setUrl(p.url));
+  }, []);
+
+  const save = useCallback(async () => {
+    setBusy(true);
+    try {
+      // Den Key NUR mitschicken, wenn wirklich einer getippt wurde — sonst löschte ein
+      // reiner Adress-Wechsel den hinterlegten Key (das Feld ist nach dem Speichern leer).
+      const p = await window.jmconnect.setProxy(key.trim() ? { url, key } : { url });
+      setUrl(p.url);
+      setKey('');
+      if (p.configured) setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }, [url, key]);
+
+  const dropKey = useCallback(async () => {
+    await window.jmconnect.setProxy({ key: '' });
+    setKey('');
+  }, []);
+
+  if (!open) {
+    return (
+      <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-400">
+        <span className="truncate">
+          Cloud-Zugang: <code className="text-neutral-300">{url}</code> · {KEY_HINT[keySource]}
+        </span>
+        <button
+          onClick={() => setOpen(true)}
+          className="shrink-0 rounded border border-neutral-700 px-2 py-1 text-neutral-300 hover:bg-neutral-800"
+        >
+          ändern
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`mb-4 rounded-lg border p-3 ${configured ? 'border-neutral-700 bg-neutral-900' : 'border-yellow-800 bg-yellow-950/30'}`}
+    >
+      <div className="mb-1 text-sm font-semibold text-neutral-100">Cloud-Zugang</div>
+      <p className="mb-3 text-xs text-neutral-400">
+        Adresse des Suite-Proxys und sein Zugriffs-Key. Beides bleibt auf diesem Rechner; der Key wird
+        verschlüsselt abgelegt und nie an die Oberfläche zurückgegeben.
+      </p>
+
+      <label className="mb-1 block text-xs text-neutral-400">Adresse</label>
+      <input className={`${INP} mb-3`} placeholder="https://…workers.dev" value={url} onChange={(e) => setUrl(e.target.value)} />
+
+      <label className="mb-1 block text-xs text-neutral-400">Proxy-Key</label>
+      <input
+        className={`${INP} mb-1`}
+        type="password"
+        autoComplete="off"
+        disabled={keySource === 'env'}
+        placeholder={keySource === 'none' ? 'Key' : '•••••• (ändern)'}
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !busy) void save();
+        }}
+      />
+      <div className="mb-3 text-[11px] text-neutral-500">{KEY_HINT[keySource]}</div>
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => void save()}
+          disabled={busy || (!key.trim() && keySource === 'none')}
+          className="rounded bg-yellow-400 px-3 py-1 text-sm font-semibold text-neutral-900 disabled:opacity-40"
+        >
+          Speichern
+        </button>
+        {(keySource === 'stored' || keySource === 'session') && (
+          <button
+            onClick={() => void dropKey()}
+            className="rounded border border-neutral-700 px-3 py-1 text-sm text-neutral-300 hover:bg-neutral-800"
+          >
+            Key entfernen
+          </button>
+        )}
+        {configured && (
+          <button
+            onClick={() => setOpen(false)}
+            className="ml-auto rounded border border-neutral-700 px-3 py-1 text-sm text-neutral-300 hover:bg-neutral-800"
+          >
+            Schließen
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ShowCard({
   show,
   connected,

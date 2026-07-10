@@ -11,6 +11,7 @@ let onQuit: () => void = () => {};
 let status: AppStatus = {
   configured: false,
   proxyBase: null,
+  proxyKeySource: 'none',
   controlPort: 8737,
   ndiSenders: 0,
   programState: 'off',

@@ -5,8 +5,9 @@
 //   - abgeleiteten STATE ans Steuerprotokoll weiterreichen (control-server.ts)
 import { ipcMain, type BrowserWindow } from 'electron';
 import { IPC, PEER_CONNECT } from '@shared/ipc';
-import type { AppStatus } from '@shared/types';
+import type { AppStatus, ProxyInfo } from '@shared/types';
 import { closeRoom, isConfigured, mintGuest, openRoom, peerConnectInfo, proxyConfig } from './room';
+import { proxyKeySource, proxyUrl, setProxyKey, setProxyUrl } from './settings';
 import { activeCount, spinUp, tearDown, tearDownAll } from './ndi-guests';
 import { programStatus, startProgram, stopProgram } from './ndi-program';
 import { CONTROL_PORT, pushControlState } from './control-server';
@@ -17,11 +18,17 @@ let getWindow: () => BrowserWindow | null = () => null;
 let getPeer: () => BrowserWindow | null = () => null;
 let onStatusChange: (s: AppStatus) => void = () => {};
 
+/** Cloud-Zugang für die Oberfläche — bewusst OHNE den Key selbst. */
+function proxyInfo(): ProxyInfo {
+  return { url: proxyUrl(), keySource: proxyKeySource(), configured: isConfigured() };
+}
+
 export function currentStatus(): AppStatus {
   const prog = programStatus();
   return {
     configured: isConfigured(),
     proxyBase: proxyConfig().base,
+    proxyKeySource: proxyKeySource(),
     controlPort: CONTROL_PORT,
     ndiSenders: activeCount(),
     programState: prog.state,
@@ -76,6 +83,16 @@ export function registerIpc(deps: {
     stopProgram();
     await closeRoom();
     pushStatus();
+  });
+
+  ipcMain.handle(IPC.getProxy, async () => proxyInfo());
+
+  // Der Key kommt hier herein und geht nie wieder hinaus — zurück fließt nur seine Herkunft.
+  ipcMain.handle(IPC.setProxy, async (_e, p: { url?: string; key?: string }) => {
+    if (typeof p?.url === 'string') setProxyUrl(p.url);
+    if (typeof p?.key === 'string') setProxyKey(p.key);
+    pushStatus();
+    return proxyInfo();
   });
 
   ipcMain.handle(IPC.status, async () => currentStatus());

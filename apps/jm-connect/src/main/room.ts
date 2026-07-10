@@ -3,12 +3,12 @@
 // Operator-/Gast-Join-Token. Der Renderer bekommt nur fertige URLs — das Secret und
 // der PROXY_KEY bleiben im Main-Prozess.
 //
-// Konfiguration (Skelett): über Umgebungsvariablen; später aus den Launcher-/Control-
-// Einstellungen. Ohne beide ist die App „nicht konfiguriert" (openRoom wirft klar).
-//   JMPS_PROXY_URL   HTTPS-Basis des Release-Proxys (ConnectRoom-Worker)
-//   JMPS_PROXY_KEY   Admin-Key (PROXY_KEY) — schützt open/close
+// Konfiguration: siehe `settings.ts` — Adresse und Key gibt der Operator in der Oberfläche ein;
+// die Umgebungsvariablen JMPS_PROXY_URL / JMPS_PROXY_KEY überschreiben sie (Dev-Workflow).
+// Ohne Key ist die App „nicht konfiguriert" (openRoom wirft klar).
 import { mintJoinToken, randomEventSecret, randomId } from '@jm/rtc/token';
 import { dropRoomSecret, loadRoomSecret, saveRoomSecret } from './secrets';
+import { proxyKey, proxyUrl } from './settings';
 import type { GuestInvite, RoomSession } from '@shared/types';
 
 const CONSENT_TEXT = 'Bild und Ton werden live übertragen und ggf. aufgezeichnet.';
@@ -23,12 +23,7 @@ interface OpenRoom {
 let current: OpenRoom | null = null;
 
 export function proxyConfig(): { base: string | null; key: string | null } {
-  let base = (process.env.JMPS_PROXY_URL || '').trim().replace(/\/$/, '');
-  // Schema tolerant ergänzen — ein blanker Host (…workers.dev) ist häufig, fetch braucht aber
-  // ein absolutes URL. Ableitung der ws-URL (https→wss) bleibt dadurch ebenfalls korrekt.
-  if (base && !/^https?:\/\//i.test(base)) base = `https://${base}`;
-  const key = process.env.JMPS_PROXY_KEY || null;
-  return { base: base || null, key };
+  return { base: proxyUrl() || null, key: proxyKey() };
 }
 
 export function isConfigured(): boolean {

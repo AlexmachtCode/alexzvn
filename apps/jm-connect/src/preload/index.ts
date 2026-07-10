@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppStatus, ControlCommand, GuestInvite, JmConnectApi, RoomSession, ShowInfo, TrayCommand } from '@shared/types';
+import type { AppStatus, ControlCommand, GuestInvite, JmConnectApi, ProxyInfo, RoomSession, ShowInfo, TrayCommand } from '@shared/types';
 import { IPC, PEER_CONNECT, PEER_FRAME_PORT, PEER_PROGRAM_PORT } from '@shared/ipc';
 
 // Versteckter Peer-Renderer: den vom Main übertragenen Frame-MessagePort (je Gast)
@@ -37,6 +37,8 @@ const api: JmConnectApi = {
   peerLog: (msg: string) => ipcRenderer.send(IPC.peerLog, msg),
   audit: (event: string, detail?: string) => ipcRenderer.send(IPC.audit, { event, detail }),
   slideCue: (dir: 'next' | 'prev', guestId: string) => ipcRenderer.send(IPC.slideCue, { dir, guestId }),
+  getProxy: () => ipcRenderer.invoke(IPC.getProxy) as Promise<ProxyInfo>,
+  setProxy: (p: { url?: string; key?: string }) => ipcRenderer.invoke(IPC.setProxy, p) as Promise<ProxyInfo>,
   getStatus: () => ipcRenderer.invoke(IPC.status) as Promise<AppStatus>,
   onStatus: (cb) => {
     const listener = (_e: unknown, s: AppStatus) => cb(s);

@@ -17,11 +17,29 @@ export interface GuestInvite {
   joinUrl: string;
 }
 
+/**
+ * Woher der PROXY_KEY stammt. Der Wert selbst verlässt den Main-Prozess nie.
+ *   'env'     — Umgebungsvariable JMPS_PROXY_KEY (hat Vorrang, Feld in der UI wirkungslos)
+ *   'stored'  — verschlüsselt hinterlegt (safeStorage)
+ *   'session' — nur für diese Sitzung gemerkt (kein OS-Schlüsselbund vorhanden)
+ *   'none'    — kein Key
+ */
+export type ProxyKeySource = 'none' | 'env' | 'stored' | 'session';
+
+/** Cloud-Zugang für die Einstellungs-Oberfläche (ohne den Key selbst). */
+export interface ProxyInfo {
+  url: string;
+  keySource: ProxyKeySource;
+  configured: boolean;
+}
+
 /** Laufzeit-/Konfigurations-Status der App (Main → Renderer). */
 export interface AppStatus {
   /** Cloud-Proxy konfiguriert (URL + Key vorhanden)? */
   configured: boolean;
   proxyBase: string | null;
+  /** Herkunft des PROXY_KEY — nie der Key selbst. */
+  proxyKeySource: ProxyKeySource;
   /** Steuerport (Companion/Rundown). */
   controlPort: number;
   /** Anzahl aktiver NDI-Sender (freigegebene Gäste). */
@@ -80,6 +98,10 @@ export interface JmConnectApi {
   audit: (event: string, detail?: string) => void;
   /** Folie im JM Presenter blättern (ausgelöst von einem freigegebenen Gast). */
   slideCue: (dir: 'next' | 'prev', guestId: string) => void;
+  /** Cloud-Zugang lesen (Adresse + Herkunft des Keys, nie der Key selbst). */
+  getProxy: () => Promise<ProxyInfo>;
+  /** Cloud-Zugang setzen. Leerer Key löscht den hinterlegten, leere URL setzt die Vorgabe. */
+  setProxy: (p: { url?: string; key?: string }) => Promise<ProxyInfo>;
   getStatus: () => Promise<AppStatus>;
   onStatus: (cb: (s: AppStatus) => void) => () => void;
   onTrayCommand: (cb: (cmd: TrayCommand) => void) => () => void;

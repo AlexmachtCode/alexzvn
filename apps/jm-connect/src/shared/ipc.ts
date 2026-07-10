@@ -13,6 +13,10 @@ export const IPC = {
   showInfo: 'jmc:show-info',
   /** invoke (Renderer → Main): Raum schließen (Worker-Admin + NDI-Pool leeren). */
   closeRoom: 'jmc:close-room',
+  /** invoke (Renderer → Main): Cloud-Zugang lesen — Adresse + Herkunft des Keys, nie der Key. */
+  getProxy: 'jmc:get-proxy',
+  /** invoke (Renderer → Main): Cloud-Zugang setzen (der Key wandert verschlüsselt in den Main). */
+  setProxy: 'jmc:set-proxy',
   /** send (Renderer → Main): NDI-Sender für einen freigegebenen Gast starten. */
   ndiUp: 'jmc:ndi-up',
   /** send (Renderer → Main): NDI-Sender eines Gasts stoppen. */
