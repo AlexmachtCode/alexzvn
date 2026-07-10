@@ -1,6 +1,6 @@
 # JM Connect — Datenresidenz und Bedrohungsmodell
 
-Stand: 2026-07-09 (Welle 6.6). Gilt für Remote-Zuschaltungen über `apps/jm-connect`,
+Stand: 2026-07-09 (Welle 6.6). Gilt für Remote-Zuschaltungen über `apps/connect`,
 `services/release-proxy/connect-relay.js` und Cloudflare Realtime.
 
 Dieses Dokument sagt, **was in der EU bleibt und was nicht**. Der zweite Teil ist der wichtigere.
@@ -72,7 +72,7 @@ Das ist keine Theorie, aber auch keine erledigte Arbeit: der Tausch ist **nicht 
 | 50 gleichzeitige Gäste je Raum | `CONNECT.guestCap` | **Schutzgrenze, kein gemessener Wert.** Ein Lasttest steht aus. |
 | 24 h Raum-Retention | `CONNECT.retentionMaxSec` | DO-Alarm räumt danach vollständig ab. |
 | 30 min TURN-Credential-TTL | `CONNECT.turnTtlSec` | Kurzlebig, pro Anfrage neu ausgestellt. |
-| 12 h Gast-Token, 8 h Operator-Token | `apps/jm-connect/src/main/room.ts` | HMAC über `{room,guestId,scope,exp}`. |
+| 12 h Gast-Token, 8 h Operator-Token | `apps/connect/src/main/room.ts` | HMAC über `{room,guestId,scope,exp}`. |
 | 720p je Gast | Peer/NDI-Brücke | BGRA-Kopie; 1080p vervierfacht die Busbandbreite. |
 
 Jeder Gast erzeugt einen eigenen NDI-Sender-Prozess und (für den Rückkanal) einen eigenen

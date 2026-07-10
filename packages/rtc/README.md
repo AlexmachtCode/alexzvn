@@ -4,7 +4,7 @@ Geteilte, **isomorphe** Grundlage der Hybrid-Konferenz-/Zuschaltungs-Ebene. Dies
 Funktionen laufen auf drei Seiten:
 
 - **Cloudflare Durable Object** (`ConnectRoom`, im `services/release-proxy`-Worker) — autoritative Room-State-Machine + Signalling-Relay.
-- **`apps/jm-connect`** (Electron) — Operator-App; dekodiert Remote-Gäste im hidden-Peer-Renderer und spielt sie als NDI-Quellen aus.
+- **`apps/connect`** (Electron) — Operator-App; dekodiert Remote-Gäste im hidden-Peer-Renderer und spielt sie als NDI-Quellen aus.
 - **Worker-gehostete Gast-Seite** (Browser) — `getUserMedia` → publish, Consent, Warteraum.
 
 > Status: **Fundament (Roadmap 6.0)**. Reines Scaffolding + grüner Selbsttest — noch nicht live an
@@ -78,5 +78,5 @@ npm run selftest -w @jm/rtc      # State-Gates (Warteraum/Consent/GO/Kick) + Tok
 
 1. `ConnectRoom`-DO im `services/release-proxy` + `wrangler.toml`-Bindings (additiv, wie `handleQa`).
 2. Worker-gehostete Gast-Seite (`/connect/:room`) — Muster wie `qa-relay.js`-`submissionPage`.
-3. `apps/jm-connect`-Skelett (aus `apps/ndi-screen-capture`) + hidden-Peer-Renderer + `ndi-guests`-Pool.
+3. `apps/connect`-Skelett (aus `apps/ndi-screen-capture`) + hidden-Peer-Renderer + `ndi-guests`-Pool.
 4. **Proving-Milestone:** ein Remote-Gast-Kamerabild → NDI-Quelle „JM Connect – Guest 1" im Switcher (einweg).

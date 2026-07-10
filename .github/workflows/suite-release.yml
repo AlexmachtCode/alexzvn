@@ -46,7 +46,15 @@ jobs:
         run: |
           # Tag = "<app>-v<version>" → app = alles vor "-v"
           tag="${GITHUB_REF_NAME}"
-          echo "name=${tag%-v*}" >> "$GITHUB_OUTPUT"
+          app="${tag%-v*}"
+          # Der Tag-Name ist zugleich der Verzeichnisname (apps/<app>) UND der Workspace-Name
+          # (@jm/<app>). Weicht das Verzeichnis ab, scheitert der Lauf sonst erst Minuten später
+          # beim Schreiben der electron-builder.yml — nach `npm ci` und dem Renderer-Build.
+          if [ ! -d "apps/$app" ]; then
+            echo "::error::Tag '$tag' erwartet apps/$app — dieses Verzeichnis gibt es nicht. Entweder heisst das App-Verzeichnis anders (dann umbenennen: die Suite fuehrt apps/<app> ohne jm--Praefix) oder der Tag ist falsch geschrieben."
+            exit 1
+          fi
+          echo "name=$app" >> "$GITHUB_OUTPUT"
 
       - name: Install (workspaces)
         run: npm ci

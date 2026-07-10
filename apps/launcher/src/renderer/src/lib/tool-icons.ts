@@ -3,9 +3,8 @@
 // Bewusst die SVGs, nicht die 1024er-PNGs: alle zusammen sind roh ~35 KB (die PNGs wären ~2 MB),
 // Vite inlined sie unter 4 KB als Data-URI, und sie skalieren verlustfrei auf jede Kachelgröße.
 //
-// Der Verzeichnisname ist NICHT immer die Tool-ID: `apps/switcher` heißt im Katalog `jm-switcher`,
-// `apps/jm-connect` aber schlicht `jm-connect`. Deshalb wird jedes Icon unter beiden Schlüsseln
-// hinterlegt, statt einen der beiden Namen zu raten.
+// Der Verzeichnisname ist NICHT die Tool-ID: `apps/switcher` heißt im Katalog `jm-switcher`.
+// Deshalb wird jedes Icon unter beiden Schlüsseln hinterlegt, statt einen der beiden zu raten.
 const modules = import.meta.glob<string>('../../../../../*/build/icon.svg', {
   eager: true,
   query: '?url',
