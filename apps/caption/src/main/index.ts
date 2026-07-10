@@ -247,6 +247,11 @@ function createMainWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // Der NDI-Ausgang (Render-/NDI-Engine im Renderer) MUSS weiterlaufen, wenn das Fenster
+      // verdeckt oder minimiert ist. Sonst drosselt Chromium den Timer der Ausgabe-Schleife und
+      // die NDI-Quelle sendet keine Frames mehr (bleibt aber im Netz sichtbar → „kein Bild").
+      // Lehre aus dem Switcher-NDI-Ausgang (Commit 56320acfd8).
+      backgroundThrottling: false,
     },
   });
   win.on('ready-to-show', () => win.show());

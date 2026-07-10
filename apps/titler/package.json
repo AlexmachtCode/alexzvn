@@ -1,6 +1,6 @@
 {
   "name": "@jm/titler",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "JM Titler — Live-Bauchbinden/CG als transparente NDI-Quelle für TriCaster/vMix/OBS",
   "main": "out/main/index.cjs",

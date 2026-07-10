@@ -53,6 +53,11 @@ function createWindow(): BrowserWindow {
     // Transfer ist der unter Sandbox zu prüfende Punkt.
     sandbox: true,
     iconPath: iconPath(),
+    // Diese App ist auf Hintergrundbetrieb ausgelegt (Schließen versteckt ins Tray, s. u.) und sendet
+    // dabei weiter NDI. Der Capture-Strom selbst ist medien- statt timer-getrieben, aber der Weg
+    // onFrame → copyTo → postMessage läuft im Renderer-Loop; ohne diesen Flag könnte Chromium ihn im
+    // verborgenen Fenster drosseln. Hält die dokumentierte Zusage „läuft weiter" ein.
+    backgroundThrottling: false,
     rendererUrl: process.env['ELECTRON_RENDERER_URL'],
     rendererFile: join(__dirname, '../renderer/index.html'),
   });
