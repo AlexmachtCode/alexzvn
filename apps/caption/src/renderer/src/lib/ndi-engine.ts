@@ -50,8 +50,10 @@ export function useCaptionNdiEngine(
   }, []);
 
   useEffect(() => {
-    let raf = 0;
-
+    // Taktgeber BEWUSST setInterval statt requestAnimationFrame: rAF wird von Chromium angehalten,
+    // sobald das Fenster verdeckt/minimiert ist — der NDI-Ausgang muss aber durchlaufen (das Fenster
+    // setzt dazu backgroundThrottling:false). ~60 Hz für die Vorschau; der NDI-Versand bleibt darin auf
+    // cfg.ndiFps gedrosselt. Lehre aus dem Switcher-NDI-Ausgang (Commit 56320acfd8).
     const ensureOffscreen = (W: number, H: number): CanvasRenderingContext2D => {
       let cv = offscreenRef.current;
       if (!cv) {
@@ -69,7 +71,7 @@ export function useCaptionNdiEngine(
       return offctxRef.current as CanvasRenderingContext2D;
     };
 
-    const loop = (): void => {
+    const frame = (): void => {
       const c = cfgRef.current;
       const W = Math.max(2, Math.round(c.ndiWidth));
       const H = Math.max(2, Math.round(c.ndiHeight));
@@ -110,11 +112,19 @@ export function useCaptionNdiEngine(
           port.postMessage({ type: 'video', buffer: img.data.buffer, w: W, h: H, fpsN: c.ndiFps });
         }
       }
-
-      raf = requestAnimationFrame(loop);
     };
 
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    // Ein einzelner Fehler darf die Ausgabe nicht dauerhaft abwürgen: bei der rAF-Schleife riss ein
+    // Wurf die Kette ab und die Quelle sendete nie wieder. Der Timer läuft unabhängig weiter.
+    const tick = (): void => {
+      try {
+        frame();
+      } catch {
+        /* nächster Tick versucht es erneut */
+      }
+    };
+
+    const timer = setInterval(tick, Math.round(1000 / 60));
+    return () => clearInterval(timer);
   }, [previewRef]);
 }
