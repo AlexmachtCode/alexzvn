@@ -9,7 +9,7 @@
 // apps/rundown/src/shared/conductor.ts — dieselbe Denkweise, dieselbe Bedienung.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { NodeId, SceneId, VarName } from './model';
+import type { NodeType, VarName } from './model';
 
 export type TriggerType =
   /** Szene wurde betreten (nur Szenen-Regeln). */
@@ -20,8 +20,20 @@ export type TriggerType =
   | 'onTimer'
   /** Eine Variable hat sich geändert (`varName` gesetzt). */
   | 'onVarChange'
-  /** Glücksrad ist stehen geblieben; `$result` trägt den Segment-Wert. */
-  | 'onWheelStop';
+  /** Glücksrad ist stehen geblieben; `$result` = Segment-Wert. */
+  | 'onWheelStop'
+  /** Quiz: richtig geantwortet; `$result` = gewählte Antwort. */
+  | 'onCorrect'
+  /** Quiz: falsch geantwortet; `$result` = gewählte Antwort. */
+  | 'onWrong'
+  /** Memory: Paar gefunden; `$result` = Beschriftung des Paares. */
+  | 'onMatch'
+  /** Quiz: letzte Frage beantwortet · Memory: alle Paare gefunden. */
+  | 'onComplete'
+  /** Drag&Drop: Element korrekt abgelegt; `$result` = Gruppe des Elements. */
+  | 'onDropped'
+  /** Drag&Drop: Element passte nicht bzw. wurde daneben abgelegt. */
+  | 'onRejected';
 
 export interface Trigger {
   type: TriggerType;
@@ -55,6 +67,8 @@ export type ActionVerb =
   | 'playSound'
   | 'stopSound'
   | 'spinWheel'
+  | 'quizNext'
+  | 'resetWidget'
   | 'restart';
 
 /** Argumente sind pro Verb typisiert-per-Konvention; siehe ACTION_SPECS. */
@@ -122,6 +136,8 @@ export const ACTION_SPECS: Record<ActionVerb, ActionSpec> = {
   playSound: { label: 'Ton abspielen', args: [{ label: 'Ton', kind: 'asset' }] },
   stopSound: { label: 'Ton stoppen', args: [] },
   spinWheel: { label: 'Glücksrad drehen', args: [{ label: 'Glücksrad', kind: 'node' }] },
+  quizNext: { label: 'Nächste Frage', args: [{ label: 'Quiz', kind: 'node' }] },
+  resetWidget: { label: 'Spiel zurücksetzen', args: [{ label: 'Element', kind: 'node' }] },
   restart: { label: 'App neu starten', args: [] },
 };
 
@@ -131,11 +147,50 @@ export const TRIGGER_LABELS: Record<TriggerType, string> = {
   onTimer: 'nach Wartezeit',
   onVarChange: 'Variable ändert sich',
   onWheelStop: 'Rad bleibt stehen',
+  onCorrect: 'richtig beantwortet',
+  onWrong: 'falsch beantwortet',
+  onMatch: 'Paar gefunden',
+  onComplete: 'Spiel geschafft',
+  onDropped: 'Element abgelegt',
+  onRejected: 'Element passt nicht',
 };
 
 /** Trigger, die an einem Node hängen (der Rest gehört an die Szene). */
-export const NODE_TRIGGERS: TriggerType[] = ['onClick', 'onTimer', 'onWheelStop'];
+export const NODE_TRIGGERS: TriggerType[] = [
+  'onClick',
+  'onTimer',
+  'onWheelStop',
+  'onCorrect',
+  'onWrong',
+  'onMatch',
+  'onComplete',
+  'onDropped',
+  'onRejected',
+];
 export const SCENE_TRIGGERS: TriggerType[] = ['onLoad', 'onTimer', 'onVarChange'];
+
+/**
+ * Welcher Trigger an welchem Node-Typ überhaupt Sinn ergibt. Fehlt ein Eintrag,
+ * gilt der Trigger für jeden Typ. Der Regel-Editor bietet nur Passendes an —
+ * „Paar gefunden" an einer Schaltfläche wäre eine Falle, keine Freiheit.
+ */
+export const TRIGGER_NODE_TYPES: Partial<Record<TriggerType, NodeType[]>> = {
+  onWheelStop: ['wheel'],
+  onCorrect: ['quiz'],
+  onWrong: ['quiz'],
+  onMatch: ['memory'],
+  onComplete: ['quiz', 'memory'],
+  onDropped: ['dropzone', 'dragitem'],
+  onRejected: ['dropzone', 'dragitem'],
+};
+
+/** Trigger, die dieser Node-Typ anbieten darf. */
+export function triggersFor(nodeType: NodeType): TriggerType[] {
+  return NODE_TRIGGERS.filter((t) => {
+    const allowed = TRIGGER_NODE_TYPES[t];
+    return !allowed || allowed.includes(nodeType);
+  });
+}
 
 export function makeRule(trigger: TriggerType): Rule {
   return {
@@ -195,10 +250,4 @@ export function evalConditions(
   return conds.every((c) =>
     compare(c.varName === '$result' ? result : vars[c.varName], c.op, c.value),
   );
-}
-
-/** Nur zur Typisierung der Aktions-Argumente an den Aufrufstellen. */
-export interface ActionTargets {
-  scene?: SceneId;
-  node?: NodeId;
 }

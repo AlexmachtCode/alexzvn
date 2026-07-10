@@ -16,13 +16,19 @@ import {
   startScene,
   type AppNode,
   type AppProject,
+  type DragItemNode,
+  type DropZoneNode,
   type NodeId,
   type Scene,
   type SceneId,
   type VarName,
 } from '../model';
 import { evalConditions, type Action, type Rule, type TriggerType, type VarValue } from '../logic';
-import { createWheel, type WheelView } from './wheel';
+import { createWheel, type WheelWidget } from './wheel';
+import { createQuiz, type QuizWidget } from './quiz';
+import { createMemory } from './memory';
+import { createDragLayer, type DragLayer, type DragSource, type DragTarget } from './dragdrop';
+import { faceContent, type Widget, type WidgetContext } from './widget';
 
 export interface RuntimeEvent {
   kind: 'ready' | 'scene' | 'vars' | 'trigger' | 'error';
@@ -40,8 +46,6 @@ export interface MountOptions {
   /** Asset-ID → URL. Der einzige Unterschied zwischen Sandbox, Kiosk und Export. */
   resolveAsset: (id: string) => string;
   onEvent?: (e: RuntimeEvent) => void;
-  /** Im Editor: Klicks melden statt Regeln feuern. */
-  interactive?: boolean;
 }
 
 export interface RuntimeHandle {
@@ -56,7 +60,7 @@ export interface RuntimeHandle {
 interface Mounted {
   node: AppNode;
   el: HTMLElement;
-  wheel?: WheelView;
+  widget?: Widget;
 }
 
 /** Schutz gegen Regel-Zyklen (setVar → onVarChange → setVar → …). */
@@ -69,10 +73,18 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
   let vars: Record<VarName, VarValue> = initialVars(doc);
   let currentScene: Scene = startScene(doc);
   let mounted = new Map<NodeId, Mounted>();
+  let dragLayer: DragLayer | null = null;
   let timers: ReturnType<typeof setTimeout>[] = [];
   let audio: HTMLAudioElement | null = null;
   let depth = 0;
   let destroyed = false;
+  let stageScale = 1;
+  /**
+   * Während die Szene aufgebaut wird, dürfen Regeln nicht feuern. Widgets setzen
+   * beim `reset()` ihre Variablen (Punkte auf 0, Fragennummer auf 1) — eine
+   * `onVarChange`-Regel mit „Szene wechseln" würde sonst mitten im Aufbau greifen.
+   */
+  let mounting = false;
 
   // ── Bühne ──────────────────────────────────────────────────────────────────
   const host = opts.root;
@@ -89,16 +101,26 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
     const hh = host.clientHeight || height;
     const sx = hw / width;
     const sy = hh / height;
-    const scale = fit === 'cover' ? Math.max(sx, sy) : Math.min(sx, sy);
+    stageScale = fit === 'cover' ? Math.max(sx, sy) : Math.min(sx, sy);
     stage.style.cssText =
       `position:absolute;left:50%;top:50%;width:${width}px;height:${height}px;` +
-      `transform:translate(-50%,-50%) scale(${scale});transform-origin:center center;` +
+      `transform:translate(-50%,-50%) scale(${stageScale});transform-origin:center center;` +
       `background:${currentScene.background};font-family:${doc.theme.fontFamily};` +
       `color:${doc.theme.colorText};overflow:hidden;`;
   }
 
   const onResize = (): void => layoutStage();
   window.addEventListener('resize', onResize);
+
+  // ── Widget-Kontext ─────────────────────────────────────────────────────────
+
+  function widgetContext(node: AppNode): WidgetContext {
+    return {
+      resolveAsset: opts.resolveAsset,
+      fire: (trigger, result) => fireRules(node.rules, trigger, { nodeId: node.id }, result),
+      setVar,
+    };
+  }
 
   // ── Node-Rendering ─────────────────────────────────────────────────────────
 
@@ -110,14 +132,9 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
     );
   }
 
-  function textOf(n: AppNode & { props: { text: string; bindTextTo?: VarName } }): string {
-    if (n.props.bindTextTo) return String(vars[n.props.bindTextTo] ?? '');
-    return n.props.text;
-  }
-
   function renderNode(n: AppNode): Mounted {
     let el: HTMLElement;
-    let wheel: WheelView | undefined;
+    let widget: Widget | undefined;
 
     switch (n.type) {
       case 'text': {
@@ -129,7 +146,7 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
           };` +
           `font-size:${n.props.fontSize}px;color:${n.props.color};font-weight:${n.props.weight};` +
           `line-height:${n.props.lineHeight};text-align:${n.props.align};white-space:pre-wrap;word-break:break-word;`;
-        el.textContent = textOf(n);
+        el.textContent = n.props.bindTextTo ? String(vars[n.props.bindTextTo] ?? '') : n.props.text;
         break;
       }
       case 'image': {
@@ -185,14 +202,52 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
       case 'wheel': {
         el = document.createElement('div');
         el.style.cssText = baseStyle(n) + 'touch-action:manipulation;';
-        wheel = createWheel(n);
-        el.appendChild(wheel.el);
+        widget = createWheel(n, widgetContext(n));
+        el.appendChild(widget.el);
+        break;
+      }
+      case 'quiz': {
+        el = document.createElement('div');
+        el.style.cssText = baseStyle(n) + 'flex-direction:column;';
+        widget = createQuiz(n, widgetContext(n));
+        el.appendChild(widget.el);
+        break;
+      }
+      case 'memory': {
+        el = document.createElement('div');
+        el.style.cssText = baseStyle(n);
+        widget = createMemory(n, widgetContext(n));
+        el.appendChild(widget.el);
+        break;
+      }
+      case 'dragitem': {
+        el = document.createElement('div');
+        el.style.cssText =
+          baseStyle(n) +
+          `align-items:center;justify-content:center;overflow:hidden;` +
+          `background:${n.props.bg};color:${n.props.color};border-radius:${n.props.radius}px;` +
+          `font-size:${n.props.fontSize}px;font-weight:600;` +
+          `-webkit-tap-highlight-color:transparent;user-select:none;`;
+        faceContent(el, { label: n.props.label, assetId: n.props.assetId }, widgetContext(n));
+        break;
+      }
+      case 'dropzone': {
+        el = document.createElement('div');
+        el.style.cssText =
+          baseStyle(n) +
+          `align-items:flex-start;justify-content:center;padding:8px;` +
+          `background:${n.props.bg};border:2px dashed ${n.props.borderColor};` +
+          `border-radius:${n.props.radius}px;color:${n.props.color};font-size:${n.props.fontSize}px;`;
+        const label = document.createElement('span');
+        label.textContent = n.props.label;
+        label.style.cssText = 'pointer-events:none;opacity:.7;';
+        el.appendChild(label);
         break;
       }
     }
 
     el.setAttribute('data-node-id', n.id);
-    return { node: n, el, wheel };
+    return { node: n, el, widget };
   }
 
   // ── Szenenwechsel ──────────────────────────────────────────────────────────
@@ -204,7 +259,9 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
 
   function unmountScene(): void {
     clearTimers();
-    for (const m of mounted.values()) m.wheel?.destroy();
+    dragLayer?.destroy();
+    dragLayer = null;
+    for (const m of mounted.values()) m.widget?.destroy();
     mounted = new Map();
     stage.textContent = '';
   }
@@ -219,13 +276,37 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
     unmountScene();
     currentScene = scene;
     layoutStage();
+    mounting = true;
+
+    const items: DragSource[] = [];
+    const zones: DragTarget[] = [];
 
     for (const n of scene.nodes) {
       const m = renderNode(n);
       mounted.set(n.id, m);
       stage.appendChild(m.el);
       bindNodeRules(m);
+      if (n.type === 'dragitem') items.push({ node: n as DragItemNode, el: m.el });
+      if (n.type === 'dropzone') zones.push({ node: n as DropZoneNode, el: m.el });
     }
+
+    // Ablageflächen liegen typischerweise unter den Elementen — der Hit-Test läuft
+    // ohnehin über Rechtecke, nicht über die DOM-Reihenfolge.
+    if (items.length) {
+      dragLayer = createDragLayer({
+        items,
+        zones,
+        getScale: () => stageScale,
+        fire: (nodeId, trigger, result) => {
+          const m = mounted.get(nodeId);
+          if (m) fireRules(m.node.rules, trigger, { nodeId }, result);
+        },
+      });
+    }
+
+    // Erst jetzt: die Widgets bauen ihren Inhalt und schreiben ihre Variablen.
+    for (const m of mounted.values()) m.widget?.reset();
+    mounting = false;
 
     emit({ kind: 'scene', sceneId: scene.id });
     if (!start) return;
@@ -241,9 +322,9 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
       m.el.style.cursor = 'pointer';
       m.el.addEventListener('click', () => fireRules(m.node.rules, 'onClick', { nodeId: m.node.id }));
     }
-    if (m.wheel) {
-      // Ein Tipp aufs Rad dreht — ohne dass der Autor eine Regel schreiben muss.
-      m.el.addEventListener('click', () => spin(m));
+    // Ein Tipp aufs Rad dreht — ohne dass der Autor eine Regel schreiben muss.
+    if (m.node.type === 'wheel') {
+      m.el.addEventListener('click', () => (m.widget as WheelWidget | undefined)?.spin());
     }
   }
 
@@ -253,15 +334,6 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
       const t = setTimeout(() => runRule(r, ctx, undefined), Math.max(0, r.trigger.afterMs ?? 0));
       timers.push(t);
     }
-  }
-
-  function spin(m: Mounted): void {
-    if (!m.wheel || m.node.type !== 'wheel') return;
-    const resultVar = m.node.props.resultVar;
-    m.wheel.spin((value) => {
-      if (resultVar) setVar(resultVar, value);
-      fireRules(m.node.rules, 'onWheelStop', { nodeId: m.node.id }, value);
-    });
   }
 
   // ── Regel-Engine ───────────────────────────────────────────────────────────
@@ -341,8 +413,7 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
       case 'setText': {
         const m = nodeById(a0);
         if (!m) break;
-        if (m.node.type === 'text') m.el.textContent = String(a1 ?? '');
-        else if (m.node.type === 'button') m.el.textContent = String(a1 ?? '');
+        if (m.node.type === 'text' || m.node.type === 'button') m.el.textContent = String(a1 ?? '');
         break;
       }
       case 'playSound': {
@@ -362,7 +433,21 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
         break;
       case 'spinWheel': {
         const m = nodeById(a0);
-        if (m) spin(m);
+        if (m?.node.type === 'wheel') (m.widget as WheelWidget | undefined)?.spin();
+        break;
+      }
+      case 'quizNext': {
+        const m = nodeById(a0);
+        if (m?.node.type === 'quiz') (m.widget as QuizWidget | undefined)?.next();
+        break;
+      }
+      case 'resetWidget': {
+        const m = nodeById(a0);
+        if (!m) break;
+        // Zieh-Elemente und Ablageflächen gehören zur gemeinsamen Drag-Schicht;
+        // ein einzelnes „Zurücksetzen" wäre dort sinnlos.
+        if (m.node.type === 'dragitem' || m.node.type === 'dropzone') dragLayer?.reset();
+        else m.widget?.reset();
         break;
       }
       case 'restart':
@@ -394,6 +479,8 @@ export function mountApp(opts: MountOptions): RuntimeHandle {
         m.el.textContent = String(value);
       }
     }
+
+    if (mounting) return;
 
     for (const r of currentScene.rules) {
       if (r.enabled && r.trigger.type === 'onVarChange' && r.trigger.varName === name) {

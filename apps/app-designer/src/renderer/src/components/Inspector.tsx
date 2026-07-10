@@ -1,5 +1,12 @@
 import { Collapsible, SettingsSection } from '@jm/ui';
-import { newId, type AppNode, type WheelSegment } from '@jm/appkit';
+import {
+  newId,
+  type AppNode,
+  type MemoryPair,
+  type QuizAnswer,
+  type QuizQuestion,
+  type WheelSegment,
+} from '@jm/appkit';
 import { useCurrentScene, useEditor, useSelectedNode } from '../store';
 import { RuleEditor } from './RuleEditor';
 import { CheckField, ColorField, NumberField, Row, SelectField, TextField, type Option } from './fields';
@@ -265,6 +272,362 @@ function TypeProps({ node }: { node: AppNode }): JSX.Element {
         </>
       );
     }
+
+    case 'quiz': {
+      const qs = node.props.questions;
+      const setQuestion = (i: number, patch: Partial<QuizQuestion>): void => {
+        const questions = [...qs];
+        questions[i] = { ...questions[i], ...patch };
+        setProps({ questions });
+      };
+      const setAnswer = (qi: number, ai: number, patch: Partial<QuizAnswer>): void => {
+        const answers = [...qs[qi].answers];
+        answers[ai] = { ...answers[ai], ...patch };
+        setQuestion(qi, { answers });
+      };
+      return (
+        <>
+          <Row label="Punkte in">
+            <SelectField
+              value={node.props.scoreVar ?? ''}
+              options={varOptions}
+              placeholder="— nicht zählen —"
+              onChange={(v) => setProps({ scoreVar: v || undefined })}
+            />
+          </Row>
+          <Row label="Fragennummer in">
+            <SelectField
+              value={node.props.indexVar ?? ''}
+              options={varOptions}
+              placeholder="— nicht anzeigen —"
+              onChange={(v) => setProps({ indexVar: v || undefined })}
+            />
+          </Row>
+          <Row label="Weiter nach (ms)">
+            <NumberField
+              value={node.props.advanceMs}
+              min={0}
+              step={100}
+              onChange={(v) => setProps({ advanceMs: v })}
+            />
+          </Row>
+          <p className="mb-2 text-xs text-[var(--muted-foreground)]">
+            0 = wartet auf die Aktion „Nächste Frage".
+          </p>
+          <CheckField
+            checked={node.props.shuffleQuestions}
+            label="Fragen mischen"
+            onChange={(v) => setProps({ shuffleQuestions: v })}
+          />
+          <CheckField
+            checked={node.props.shuffleAnswers}
+            label="Antworten mischen"
+            onChange={(v) => setProps({ shuffleAnswers: v })}
+          />
+
+          <div className="mt-3 text-xs font-semibold uppercase text-[var(--muted-foreground)]">Fragen</div>
+          {qs.map((q, qi) => (
+            <div key={q.id} className="mb-3 rounded border border-[var(--border)] p-2">
+              <div className="mb-2 flex items-center gap-1">
+                <span className="w-5 text-xs text-[var(--muted-foreground)]">{qi + 1}.</span>
+                <div className="flex-1">
+                  <TextField value={q.text} onChange={(text) => setQuestion(qi, { text })} />
+                </div>
+                <button
+                  className="rounded px-2 text-xs hover:bg-[var(--muted)]"
+                  onClick={() => setProps({ questions: qs.filter((_, j) => j !== qi) })}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="mb-2 pl-6">
+                <SelectField
+                  value={q.imageAssetId ?? ''}
+                  options={imageOptions}
+                  placeholder="— kein Bild zur Frage —"
+                  onChange={(v) => setQuestion(qi, { imageAssetId: v || null })}
+                />
+              </div>
+              {q.answers.map((a, ai) => (
+                <div key={a.id} className="mb-1 flex items-center gap-2 pl-6">
+                  <input
+                    type="checkbox"
+                    checked={a.correct}
+                    title="Richtige Antwort"
+                    onChange={(e) => setAnswer(qi, ai, { correct: e.target.checked })}
+                  />
+                  <div className="flex-1">
+                    <TextField value={a.text} onChange={(text) => setAnswer(qi, ai, { text })} />
+                  </div>
+                  <button
+                    className="rounded px-2 text-xs hover:bg-[var(--muted)]"
+                    onClick={() => setQuestion(qi, { answers: q.answers.filter((_, j) => j !== ai) })}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                className="ml-6 rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--muted)]"
+                onClick={() =>
+                  setQuestion(qi, { answers: [...q.answers, { id: newId('a'), text: 'Antwort', correct: false }] })
+                }
+              >
+                + Antwort
+              </button>
+              {!q.answers.some((a) => a.correct) && (
+                <p className="ml-6 mt-1 text-xs text-[#f5a524]">Keine Antwort ist als richtig markiert.</p>
+              )}
+            </div>
+          ))}
+          <button
+            className="rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--muted)]"
+            onClick={() =>
+              setProps({
+                questions: [
+                  ...qs,
+                  {
+                    id: newId('q'),
+                    text: 'Neue Frage?',
+                    imageAssetId: null,
+                    answers: [
+                      { id: newId('a'), text: 'Richtig', correct: true },
+                      { id: newId('a'), text: 'Falsch', correct: false },
+                    ],
+                  },
+                ],
+              })
+            }
+          >
+            + Frage
+          </button>
+
+          <Collapsible title="Aussehen" persistId="quiz-look" defaultOpen={false}>
+            <Row label="Frage-Größe">
+              <NumberField value={node.props.questionFontSize} min={8} onChange={(v) => setProps({ questionFontSize: v })} />
+            </Row>
+            <Row label="Antwort-Größe">
+              <NumberField value={node.props.answerFontSize} min={8} onChange={(v) => setProps({ answerFontSize: v })} />
+            </Row>
+            <Row label="Antwort-Farbe">
+              <ColorField value={node.props.answerColor} onChange={(v) => setProps({ answerColor: v })} />
+            </Row>
+            <Row label="Richtig">
+              <ColorField value={node.props.correctColor} onChange={(v) => setProps({ correctColor: v })} />
+            </Row>
+            <Row label="Falsch">
+              <ColorField value={node.props.wrongColor} onChange={(v) => setProps({ wrongColor: v })} />
+            </Row>
+            <Row label="Schriftfarbe">
+              <ColorField value={node.props.textColor} onChange={(v) => setProps({ textColor: v })} />
+            </Row>
+          </Collapsible>
+        </>
+      );
+    }
+
+    case 'memory': {
+      const pairs = node.props.pairs;
+      const setPair = (i: number, patch: Partial<MemoryPair>): void => {
+        const next = [...pairs];
+        next[i] = { ...next[i], ...patch };
+        setProps({ pairs: next });
+      };
+      return (
+        <>
+          <Row label="Spalten">
+            <NumberField value={node.props.columns} min={1} max={12} onChange={(v) => setProps({ columns: v })} />
+          </Row>
+          <Row label="Zurück nach (ms)">
+            <NumberField value={node.props.flipBackMs} min={100} step={100} onChange={(v) => setProps({ flipBackMs: v })} />
+          </Row>
+          <Row label="Paare in">
+            <SelectField
+              value={node.props.matchesVar ?? ''}
+              options={varOptions}
+              placeholder="— nicht zählen —"
+              onChange={(v) => setProps({ matchesVar: v || undefined })}
+            />
+          </Row>
+
+          <div className="mt-3 text-xs font-semibold uppercase text-[var(--muted-foreground)]">Paare</div>
+          <p className="mb-2 text-xs text-[var(--muted-foreground)]">
+            Bleibt das Gegenstück leer, zeigen beide Karten dasselbe. Sonst wird ein Zuordnungsspiel daraus.
+          </p>
+          {pairs.map((p, i) => (
+            <div key={p.id} className="mb-2 rounded border border-[var(--border)] p-2">
+              <div className="mb-1 flex items-center gap-1">
+                <div className="flex-1">
+                  <TextField value={p.label} placeholder="Karte A" onChange={(label) => setPair(i, { label })} />
+                </div>
+                <div className="w-32">
+                  <SelectField
+                    value={p.assetId ?? ''}
+                    options={imageOptions}
+                    placeholder="— Bild —"
+                    onChange={(v) => setPair(i, { assetId: v || null })}
+                  />
+                </div>
+                <button
+                  className="rounded px-2 text-xs hover:bg-[var(--muted)]"
+                  onClick={() => setProps({ pairs: pairs.filter((_, j) => j !== i) })}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="flex-1">
+                  <TextField
+                    value={p.matchLabel}
+                    placeholder="Gegenstück (leer = gleich)"
+                    onChange={(matchLabel) => setPair(i, { matchLabel })}
+                  />
+                </div>
+                <div className="w-32">
+                  <SelectField
+                    value={p.matchAssetId ?? ''}
+                    options={imageOptions}
+                    placeholder="— Bild —"
+                    onChange={(v) => setPair(i, { matchAssetId: v || null })}
+                  />
+                </div>
+                <span className="w-6" />
+              </div>
+            </div>
+          ))}
+          <button
+            className="rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--muted)]"
+            onClick={() =>
+              setProps({
+                pairs: [...pairs, { id: newId('pair'), label: '', assetId: null, matchLabel: '', matchAssetId: null }],
+              })
+            }
+          >
+            + Paar
+          </button>
+
+          <Collapsible title="Aussehen" persistId="memory-look" defaultOpen={false}>
+            <Row label="Rückseite">
+              <ColorField value={node.props.backColor} onChange={(v) => setProps({ backColor: v })} />
+            </Row>
+            <Row label="Rückseiten-Text">
+              <TextField value={node.props.backLabel} onChange={(v) => setProps({ backLabel: v })} />
+            </Row>
+            <Row label="Vorderseite">
+              <ColorField value={node.props.faceColor} onChange={(v) => setProps({ faceColor: v })} />
+            </Row>
+            <Row label="Schriftfarbe">
+              <ColorField value={node.props.textColor} onChange={(v) => setProps({ textColor: v })} />
+            </Row>
+            <Row label="Schriftgröße">
+              <NumberField value={node.props.fontSize} min={8} onChange={(v) => setProps({ fontSize: v })} />
+            </Row>
+            <Row label="Abstand">
+              <NumberField value={node.props.gap} min={0} onChange={(v) => setProps({ gap: v })} />
+            </Row>
+            <Row label="Ecken">
+              <NumberField value={node.props.radius} min={0} onChange={(v) => setProps({ radius: v })} />
+            </Row>
+          </Collapsible>
+        </>
+      );
+    }
+
+    case 'dragitem':
+      return (
+        <>
+          <Row label="Beschriftung">
+            <TextField value={node.props.label} onChange={(v) => setProps({ label: v })} />
+          </Row>
+          <Row label="Bild">
+            <SelectField
+              value={node.props.assetId ?? ''}
+              options={imageOptions}
+              placeholder="— nur Text —"
+              onChange={(v) => setProps({ assetId: v || null })}
+            />
+          </Row>
+          <Row label="Gruppe">
+            <TextField value={node.props.tag} onChange={(v) => setProps({ tag: v })} />
+          </Row>
+          <p className="mb-2 text-xs text-[var(--muted-foreground)]">
+            Eine Ablagefläche nimmt nur Elemente ihrer Gruppen an.
+          </p>
+          <CheckField
+            checked={node.props.returnOnMiss}
+            label="Springt zurück, wenn es nicht passt"
+            onChange={(v) => setProps({ returnOnMiss: v })}
+          />
+          <CheckField
+            checked={node.props.lockOnDrop}
+            label="Bleibt nach korrekter Ablage liegen"
+            onChange={(v) => setProps({ lockOnDrop: v })}
+          />
+          <p className="mb-2 text-xs text-[var(--muted-foreground)]">
+            Aus lassen für freies Sortieren. An zählt eine Regel „abgelegt +1" verlässlich die Elemente
+            statt der Ablage-Vorgänge.
+          </p>
+          <Row label="Hintergrund">
+            <ColorField value={node.props.bg} onChange={(v) => setProps({ bg: v })} />
+          </Row>
+          <Row label="Schriftfarbe">
+            <ColorField value={node.props.color} onChange={(v) => setProps({ color: v })} />
+          </Row>
+          <Row label="Schriftgröße">
+            <NumberField value={node.props.fontSize} min={8} onChange={(v) => setProps({ fontSize: v })} />
+          </Row>
+          <Row label="Ecken">
+            <NumberField value={node.props.radius} min={0} onChange={(v) => setProps({ radius: v })} />
+          </Row>
+        </>
+      );
+
+    case 'dropzone':
+      return (
+        <>
+          <Row label="Beschriftung">
+            <TextField value={node.props.label} onChange={(v) => setProps({ label: v })} />
+          </Row>
+          <Row label="Nimmt Gruppen">
+            <TextField
+              value={node.props.accepts.join(', ')}
+              placeholder="gruppe1, gruppe2"
+              onChange={(v) =>
+                setProps({
+                  accepts: v
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                })
+              }
+            />
+          </Row>
+          <Row label="Höchstzahl">
+            <NumberField value={node.props.capacity} min={0} onChange={(v) => setProps({ capacity: v })} />
+          </Row>
+          <p className="mb-2 text-xs text-[var(--muted-foreground)]">0 = unbegrenzt.</p>
+          <CheckField
+            checked={node.props.snap}
+            label="Abgelegte Elemente einrasten"
+            onChange={(v) => setProps({ snap: v })}
+          />
+          <Row label="Hintergrund">
+            <ColorField value={node.props.bg} onChange={(v) => setProps({ bg: v })} />
+          </Row>
+          <Row label="Rahmen">
+            <ColorField value={node.props.borderColor} onChange={(v) => setProps({ borderColor: v })} />
+          </Row>
+          <Row label="Schriftfarbe">
+            <ColorField value={node.props.color} onChange={(v) => setProps({ color: v })} />
+          </Row>
+          <Row label="Schriftgröße">
+            <NumberField value={node.props.fontSize} min={8} onChange={(v) => setProps({ fontSize: v })} />
+          </Row>
+          <Row label="Ecken">
+            <NumberField value={node.props.radius} min={0} onChange={(v) => setProps({ radius: v })} />
+          </Row>
+        </>
+      );
   }
 }
 

@@ -14,7 +14,9 @@ import {
   type AppNode,
   type AppProject,
   type Asset,
+  type MemoryPair,
   type NodeType,
+  type QuizQuestion,
   type Scene,
   type Theme,
   type VarDef,
@@ -23,8 +25,31 @@ import {
 import type { Action, ActionVerb, Condition, Rule, Trigger, TriggerType } from './logic';
 import { ACTION_SPECS } from './logic';
 
-const NODE_TYPES: NodeType[] = ['text', 'image', 'shape', 'button', 'video', 'wheel'];
-const TRIGGER_TYPES: TriggerType[] = ['onLoad', 'onClick', 'onTimer', 'onVarChange', 'onWheelStop'];
+const NODE_TYPES: NodeType[] = [
+  'text',
+  'image',
+  'shape',
+  'button',
+  'video',
+  'wheel',
+  'quiz',
+  'memory',
+  'dragitem',
+  'dropzone',
+];
+const TRIGGER_TYPES: TriggerType[] = [
+  'onLoad',
+  'onClick',
+  'onTimer',
+  'onVarChange',
+  'onWheelStop',
+  'onCorrect',
+  'onWrong',
+  'onMatch',
+  'onComplete',
+  'onDropped',
+  'onRejected',
+];
 
 type Raw = Record<string, unknown>;
 
@@ -87,14 +112,47 @@ function migrateRule(raw: Raw): Rule {
 }
 
 function migrateWheelSegments(raw: unknown): WheelSegment[] {
-  const segs = arr(raw).map((s) => ({
+  return arr(raw).map((s) => ({
     id: str(s['id'], newId('seg')),
     label: str(s['label'], 'Feld'),
     color: str(s['color'], '#4f8cff'),
     weight: Math.max(0, num(s['weight'], 1)),
     value: str(s['value'], str(s['label'], 'feld')),
   }));
-  return segs.length ? segs : [];
+}
+
+function migrateQuestions(raw: unknown): QuizQuestion[] {
+  return arr(raw).map((q) => ({
+    id: str(q['id'], newId('q')),
+    text: str(q['text'], 'Frage?'),
+    imageAssetId: typeof q['imageAssetId'] === 'string' ? q['imageAssetId'] : null,
+    answers: arr(q['answers']).map((a) => ({
+      id: str(a['id'], newId('a')),
+      text: str(a['text'], 'Antwort'),
+      correct: bool(a['correct'], false),
+    })),
+  }));
+}
+
+function migrateMemoryPairs(raw: unknown): MemoryPair[] {
+  return arr(raw).map((p) => ({
+    id: str(p['id'], newId('pair')),
+    label: str(p['label'], ''),
+    assetId: typeof p['assetId'] === 'string' ? p['assetId'] : null,
+    matchLabel: str(p['matchLabel'], ''),
+    matchAssetId: typeof p['matchAssetId'] === 'string' ? p['matchAssetId'] : null,
+  }));
+}
+
+/** `accepts` toleriert auch einen kommaseparierten String (Handbearbeitung). */
+function migrateAccepts(raw: unknown): string[] {
+  if (typeof raw === 'string') {
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string' && !!s) : [];
 }
 
 function migrateNode(raw: Raw, theme: Theme): AppNode | null {
@@ -190,6 +248,75 @@ function migrateNode(raw: Raw, theme: Theme): AppNode | null {
           turns: Math.max(1, num(p['turns'], 5)),
           textColor: str(p['textColor'], '#ffffff'),
           ...(typeof p['resultVar'] === 'string' && p['resultVar'] ? { resultVar: p['resultVar'] } : {}),
+        },
+      };
+    case 'quiz':
+      return {
+        ...base,
+        type,
+        props: {
+          questions: migrateQuestions(p['questions']),
+          shuffleQuestions: bool(p['shuffleQuestions'], false),
+          shuffleAnswers: bool(p['shuffleAnswers'], true),
+          advanceMs: Math.max(0, num(p['advanceMs'], 1600)),
+          ...(typeof p['scoreVar'] === 'string' && p['scoreVar'] ? { scoreVar: p['scoreVar'] } : {}),
+          ...(typeof p['indexVar'] === 'string' && p['indexVar'] ? { indexVar: p['indexVar'] } : {}),
+          questionFontSize: num(p['questionFontSize'], 56),
+          answerFontSize: num(p['answerFontSize'], 36),
+          answerColor: str(p['answerColor'], '#2b3138'),
+          correctColor: str(p['correctColor'], '#30a46c'),
+          wrongColor: str(p['wrongColor'], '#e5484d'),
+          textColor: str(p['textColor'], theme.colorText),
+        },
+      };
+    case 'memory':
+      return {
+        ...base,
+        type,
+        props: {
+          pairs: migrateMemoryPairs(p['pairs']),
+          columns: Math.max(1, Math.round(num(p['columns'], 4))),
+          gap: Math.max(0, num(p['gap'], 16)),
+          flipBackMs: Math.max(100, num(p['flipBackMs'], 1000)),
+          backColor: str(p['backColor'], theme.colorPrimary),
+          backLabel: str(p['backLabel'], '?'),
+          faceColor: str(p['faceColor'], '#2b3138'),
+          textColor: str(p['textColor'], theme.colorText),
+          fontSize: num(p['fontSize'], 40),
+          radius: num(p['radius'], theme.radius),
+          ...(typeof p['matchesVar'] === 'string' && p['matchesVar'] ? { matchesVar: p['matchesVar'] } : {}),
+        },
+      };
+    case 'dragitem':
+      return {
+        ...base,
+        type,
+        props: {
+          label: str(p['label'], 'Element'),
+          assetId: typeof p['assetId'] === 'string' ? p['assetId'] : null,
+          tag: str(p['tag'], 'gruppe1'),
+          bg: str(p['bg'], theme.colorPrimary),
+          color: str(p['color'], '#ffffff'),
+          radius: num(p['radius'], theme.radius),
+          fontSize: num(p['fontSize'], 30),
+          returnOnMiss: bool(p['returnOnMiss'], true),
+          lockOnDrop: bool(p['lockOnDrop'], true),
+        },
+      };
+    case 'dropzone':
+      return {
+        ...base,
+        type,
+        props: {
+          label: str(p['label'], 'Hier ablegen'),
+          accepts: migrateAccepts(p['accepts']),
+          snap: bool(p['snap'], true),
+          capacity: Math.max(0, Math.round(num(p['capacity'], 0))),
+          bg: str(p['bg'], 'rgba(255,255,255,0.04)'),
+          borderColor: str(p['borderColor'], 'rgba(255,255,255,0.3)'),
+          color: str(p['color'], theme.colorText),
+          radius: num(p['radius'], theme.radius),
+          fontSize: num(p['fontSize'], 28),
         },
       };
   }

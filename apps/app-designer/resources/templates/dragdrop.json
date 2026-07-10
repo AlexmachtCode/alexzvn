@@ -1,0 +1,287 @@
+{
+  "$meta": {
+    "name": "Drag & Drop",
+    "description": "Elemente den richtigen Flächen zuordnen. Zeigt das Zähler-Muster: „abgelegt +1\" plus eine Szenen-Regel."
+  },
+  "schemaVersion": 1,
+  "id": "app_tpl_dnd",
+  "name": "Zuordnungsspiel",
+  "canvas": { "width": 1920, "height": 1080, "fit": "contain" },
+  "theme": {
+    "fontFamily": "system-ui, -apple-system, \"Segoe UI\", sans-serif",
+    "colorPrimary": "#4f8cff",
+    "colorBg": "#101418",
+    "colorText": "#f2f2f2",
+    "radius": 12
+  },
+  "variables": [{ "name": "abgelegt", "type": "number", "initial": 0 }],
+  "assets": [],
+  "startSceneId": "sc_dnd_play",
+  "scenes": [
+    {
+      "id": "sc_dnd_play",
+      "name": "Zuordnen",
+      "background": "#101418",
+      "rules": [
+        {
+          "id": "r_dnd_all",
+          "enabled": true,
+          "trigger": { "type": "onVarChange", "varName": "abgelegt" },
+          "conditions": [{ "varName": "abgelegt", "op": "==", "value": 4 }],
+          "actions": [{ "verb": "goToScene", "args": ["sc_dnd_done"], "enabled": true, "delayMs": 600 }]
+        }
+      ],
+      "nodes": [
+        {
+          "id": "text_dnd_title",
+          "type": "text",
+          "name": "Überschrift",
+          "x": 120,
+          "y": 40,
+          "w": 1680,
+          "h": 90,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Ziehen Sie die Tiere in die richtige Gruppe",
+            "fontSize": 52,
+            "color": "#f2f2f2",
+            "weight": 700,
+            "align": "center",
+            "lineHeight": 1.2
+          }
+        },
+        {
+          "id": "zone_dnd_mammals",
+          "type": "dropzone",
+          "name": "Säugetiere",
+          "x": 120,
+          "y": 480,
+          "w": 760,
+          "h": 480,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "label": "Säugetiere",
+            "accepts": ["saeugetier"],
+            "snap": true,
+            "capacity": 0,
+            "bg": "rgba(79,140,255,0.06)",
+            "borderColor": "rgba(79,140,255,0.5)",
+            "color": "#f2f2f2",
+            "radius": 12,
+            "fontSize": 32
+          },
+          "rules": [
+            {
+              "id": "r_dnd_m_ok",
+              "enabled": true,
+              "trigger": { "type": "onDropped" },
+              "conditions": [],
+              "actions": [{ "verb": "addVar", "args": ["abgelegt", 1], "enabled": true }]
+            }
+          ]
+        },
+        {
+          "id": "zone_dnd_birds",
+          "type": "dropzone",
+          "name": "Vögel",
+          "x": 1040,
+          "y": 480,
+          "w": 760,
+          "h": 480,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "label": "Vögel",
+            "accepts": ["vogel"],
+            "snap": true,
+            "capacity": 0,
+            "bg": "rgba(48,164,108,0.06)",
+            "borderColor": "rgba(48,164,108,0.5)",
+            "color": "#f2f2f2",
+            "radius": 12,
+            "fontSize": 32
+          },
+          "rules": [
+            {
+              "id": "r_dnd_b_ok",
+              "enabled": true,
+              "trigger": { "type": "onDropped" },
+              "conditions": [],
+              "actions": [{ "verb": "addVar", "args": ["abgelegt", 1], "enabled": true }]
+            }
+          ]
+        },
+        {
+          "id": "item_dnd_dog",
+          "type": "dragitem",
+          "name": "Hund",
+          "x": 120,
+          "y": 220,
+          "w": 260,
+          "h": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "label": "Hund",
+            "assetId": null,
+            "tag": "saeugetier",
+            "bg": "#4f8cff",
+            "color": "#ffffff",
+            "radius": 12,
+            "fontSize": 30,
+            "returnOnMiss": true,
+            "lockOnDrop": true
+          }
+        },
+        {
+          "id": "item_dnd_cat",
+          "type": "dragitem",
+          "name": "Katze",
+          "x": 400,
+          "y": 220,
+          "w": 260,
+          "h": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "label": "Katze",
+            "assetId": null,
+            "tag": "saeugetier",
+            "bg": "#4f8cff",
+            "color": "#ffffff",
+            "radius": 12,
+            "fontSize": 30,
+            "returnOnMiss": true,
+            "lockOnDrop": true
+          }
+        },
+        {
+          "id": "item_dnd_eagle",
+          "type": "dragitem",
+          "name": "Adler",
+          "x": 680,
+          "y": 220,
+          "w": 260,
+          "h": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "label": "Adler",
+            "assetId": null,
+            "tag": "vogel",
+            "bg": "#30a46c",
+            "color": "#ffffff",
+            "radius": 12,
+            "fontSize": 30,
+            "returnOnMiss": true,
+            "lockOnDrop": true
+          }
+        },
+        {
+          "id": "item_dnd_owl",
+          "type": "dragitem",
+          "name": "Eule",
+          "x": 960,
+          "y": 220,
+          "w": 260,
+          "h": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "label": "Eule",
+            "assetId": null,
+            "tag": "vogel",
+            "bg": "#30a46c",
+            "color": "#ffffff",
+            "radius": 12,
+            "fontSize": 30,
+            "returnOnMiss": true,
+            "lockOnDrop": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "sc_dnd_done",
+      "name": "Geschafft",
+      "background": "#0f2a1d",
+      "rules": [],
+      "nodes": [
+        {
+          "id": "text_dnd_done",
+          "type": "text",
+          "name": "Alles zugeordnet",
+          "x": 210,
+          "y": 380,
+          "w": 1500,
+          "h": 200,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "rules": [],
+          "props": {
+            "text": "Alles richtig zugeordnet!",
+            "fontSize": 100,
+            "color": "#30a46c",
+            "weight": 800,
+            "align": "center",
+            "lineHeight": 1.1
+          }
+        },
+        {
+          "id": "button_dnd_again",
+          "type": "button",
+          "name": "Nochmal",
+          "x": 800,
+          "y": 700,
+          "w": 320,
+          "h": 96,
+          "rotation": 0,
+          "opacity": 1,
+          "visible": true,
+          "locked": false,
+          "props": {
+            "label": "Nochmal",
+            "bg": "#30a46c",
+            "color": "#ffffff",
+            "radius": 12,
+            "fontSize": 32
+          },
+          "rules": [
+            {
+              "id": "r_dnd_restart",
+              "enabled": true,
+              "trigger": { "type": "onClick" },
+              "conditions": [],
+              "actions": [{ "verb": "restart", "args": [], "enabled": true }]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "createdAt": "2026-07-10T00:00:00.000Z",
+  "updatedAt": "2026-07-10T00:00:00.000Z"
+}

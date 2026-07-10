@@ -12,14 +12,15 @@
 
 import {
   ACTION_SPECS,
-  NODE_TRIGGERS,
   SCENE_TRIGGERS,
   TRIGGER_LABELS,
   makeAction,
   makeRule,
+  triggersFor,
   type Action,
   type ActionVerb,
   type Condition,
+  type NodeType,
   type Rule,
   type TriggerType,
 } from '@jm/appkit';
@@ -36,16 +37,18 @@ const OPS: Option[] = [
   { value: '<=', label: 'ist höchstens' },
 ];
 
-interface Props {
+interface CommonProps {
   rules: Rule[];
   onChange: (rules: Rule[]) => void;
-  /** Node-Regeln bieten andere Trigger als Szenen-Regeln. */
-  scope: 'node' | 'scene';
-  /** Nur bei Node-Regeln: erlaubt `onWheelStop` nur am Glücksrad. */
-  nodeType?: string;
 }
 
-export function RuleEditor({ rules, onChange, scope, nodeType }: Props): JSX.Element {
+/** Node-Regeln bieten andere Trigger als Szenen-Regeln — und `nodeType` entscheidet mit. */
+type Props =
+  | (CommonProps & { scope: 'scene' })
+  | (CommonProps & { scope: 'node'; nodeType: NodeType });
+
+export function RuleEditor(props: Props): JSX.Element {
+  const { rules, onChange } = props;
   const doc = useEditor((s) => s.doc);
   const scene = useCurrentScene();
 
@@ -56,9 +59,8 @@ export function RuleEditor({ rules, onChange, scope, nodeType }: Props): JSX.Ele
     .filter((a) => a.kind === 'audio')
     .map((a) => ({ value: a.id, label: a.fileName }));
 
-  const available: TriggerType[] = (scope === 'node' ? NODE_TRIGGERS : SCENE_TRIGGERS).filter(
-    (t) => t !== 'onWheelStop' || nodeType === 'wheel',
-  );
+  // „Paar gefunden" an einer Schaltfläche wäre eine Falle, keine Freiheit.
+  const available: TriggerType[] = props.scope === 'node' ? triggersFor(props.nodeType) : SCENE_TRIGGERS;
 
   const triggerOptions: Option[] = available.map((t) => ({ value: t, label: TRIGGER_LABELS[t] }));
 

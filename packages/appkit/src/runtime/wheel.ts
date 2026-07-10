@@ -11,6 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { WheelNode, WheelSegment } from '../model';
+import type { Widget, WidgetContext } from './widget';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -68,17 +69,15 @@ function sectorPath(cx: number, cy: number, r: number, from: number, to: number)
   return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
 }
 
-export interface WheelView {
-  el: HTMLElement;
+export interface WheelWidget extends Widget {
   /**
-   * Dreht das Rad und meldet das Ergebnis, wenn es steht. Ein laufender Spin
-   * wird ignoriert (Doppel-Tipp auf dem Terminal darf nicht neu würfeln).
+   * Dreht das Rad und meldet `onWheelStop`, wenn es steht. Ein laufender Spin
+   * wird ignoriert — ein Doppel-Tipp auf dem Terminal darf nicht neu würfeln.
    */
-  spin(onStop: (value: string, seg: WheelSegment) => void): void;
-  destroy(): void;
+  spin(): void;
 }
 
-export function createWheel(node: WheelNode): WheelView {
+export function createWheel(node: WheelNode, ctx: WidgetContext): WheelWidget {
   const { segments, turns, textColor } = node.props;
   const slices = sliceSegments(segments);
 
@@ -136,9 +135,14 @@ export function createWheel(node: WheelNode): WheelView {
   let spinning = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
+  const clearTimer = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+
   return {
     el: wrap,
-    spin(onStop) {
+    spin() {
       if (spinning || !slices.length) return;
       spinning = true;
 
@@ -156,12 +160,19 @@ export function createWheel(node: WheelNode): WheelView {
         spinning = false;
         timer = null;
         const seg = segmentAt(slices, rotation);
-        if (seg) onStop(seg.value || seg.label, seg);
+        if (!seg) return;
+        const value = seg.value || seg.label;
+        if (node.props.resultVar) ctx.setVar(node.props.resultVar, value);
+        ctx.fire('onWheelStop', value);
       }, node.props.spinMs);
     },
-    destroy() {
-      if (timer) clearTimeout(timer);
-      timer = null;
+    reset() {
+      clearTimer();
+      spinning = false;
+      rotation = 0;
+      svg.style.transition = 'none';
+      svg.style.transform = 'rotate(0deg)';
     },
+    destroy: clearTimer,
   };
 }

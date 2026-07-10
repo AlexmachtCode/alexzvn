@@ -139,6 +139,127 @@ function NodePreview({ node, assetUrls }: { node: AppNode; assetUrls: Map<string
         </div>
       );
     }
+
+    case 'quiz': {
+      const q = node.props.questions[0];
+      return (
+        <div className="flex h-full w-full flex-col gap-[4%] overflow-hidden">
+          <div
+            style={{ fontSize: node.props.questionFontSize, color: node.props.textColor, fontWeight: 700 }}
+            className="flex shrink-0 items-center justify-center text-center"
+          >
+            {q?.text ?? 'Ohne Frage'}
+          </div>
+          <div
+            className="grid shrink-0 gap-[2%]"
+            style={{ gridTemplateColumns: (q?.answers.length ?? 0) <= 2 ? '1fr' : '1fr 1fr' }}
+          >
+            {(q?.answers ?? []).map((a) => (
+              <div
+                key={a.id}
+                className="flex items-center justify-center px-[3%] py-[2.5%]"
+                style={{
+                  background: a.correct ? node.props.correctColor : node.props.answerColor,
+                  color: node.props.textColor,
+                  fontSize: node.props.answerFontSize,
+                  borderRadius: node.props.answerFontSize / 3,
+                  fontWeight: 600,
+                }}
+              >
+                {a.text}
+              </div>
+            ))}
+          </div>
+          {node.props.questions.length > 1 && (
+            <div className="shrink-0 text-center opacity-50" style={{ fontSize: node.props.answerFontSize * 0.6 }}>
+              +{node.props.questions.length - 1} weitere Fragen
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    case 'memory': {
+      // Im Editor unmischt und aufgedeckt — sonst kann man die Paare nicht prüfen.
+      const cards = node.props.pairs.flatMap((p) => {
+        const own = !!(p.matchLabel || p.matchAssetId);
+        return [
+          { key: `${p.id}a`, label: p.label, assetId: p.assetId },
+          { key: `${p.id}b`, label: own ? p.matchLabel : p.label, assetId: own ? p.matchAssetId : p.assetId },
+        ];
+      });
+      return (
+        <div
+          className="grid h-full w-full"
+          style={{
+            gridTemplateColumns: `repeat(${Math.max(1, node.props.columns)}, 1fr)`,
+            gridAutoRows: '1fr',
+            gap: node.props.gap,
+          }}
+        >
+          {cards.map((c) => {
+            const url = c.assetId ? assetUrls.get(c.assetId) : null;
+            return (
+              <div
+                key={c.key}
+                className="flex items-center justify-center overflow-hidden p-[4%]"
+                style={{
+                  background: node.props.faceColor,
+                  color: node.props.textColor,
+                  borderRadius: node.props.radius,
+                  fontSize: node.props.fontSize,
+                  fontWeight: 700,
+                }}
+              >
+                {url ? (
+                  <img src={url} alt={c.label} draggable={false} className="max-h-full max-w-full object-contain" />
+                ) : (
+                  c.label
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    case 'dragitem': {
+      const url = node.props.assetId ? assetUrls.get(node.props.assetId) : null;
+      return (
+        <div
+          className="flex h-full w-full items-center justify-center overflow-hidden"
+          style={{
+            background: node.props.bg,
+            color: node.props.color,
+            borderRadius: node.props.radius,
+            fontSize: node.props.fontSize,
+            fontWeight: 600,
+          }}
+        >
+          {url ? (
+            <img src={url} alt={node.props.label} draggable={false} className="max-h-full max-w-full object-contain" />
+          ) : (
+            node.props.label
+          )}
+        </div>
+      );
+    }
+
+    case 'dropzone':
+      return (
+        <div
+          className="flex h-full w-full items-start justify-center p-2"
+          style={{
+            background: node.props.bg,
+            border: `2px dashed ${node.props.borderColor}`,
+            borderRadius: node.props.radius,
+            color: node.props.color,
+            fontSize: node.props.fontSize,
+          }}
+        >
+          <span className="opacity-70">{node.props.label}</span>
+        </div>
+      );
   }
 }
 

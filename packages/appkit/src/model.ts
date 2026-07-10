@@ -22,12 +22,21 @@ export type AssetId = string;
 export type VarName = string;
 
 export type NodeType =
+  // Bausteine
   | 'text'
   | 'image'
   | 'shape'
   | 'button'
   | 'video'
-  | 'wheel';
+  // Spiel-Widgets
+  | 'wheel'
+  | 'quiz'
+  | 'memory'
+  | 'dragitem'
+  | 'dropzone';
+
+/** Node-Typen, die eigene Spielmechanik mitbringen (eigene Trigger, `reset`). */
+export const WIDGET_TYPES: NodeType[] = ['wheel', 'quiz', 'memory', 'dragitem', 'dropzone'];
 
 export interface BaseNode {
   id: NodeId;
@@ -104,7 +113,132 @@ export interface WheelNode extends BaseNode {
   };
 }
 
-export type AppNode = TextNode | ImageNode | ShapeNode | ButtonNode | VideoNode | WheelNode;
+// ── Quiz ─────────────────────────────────────────────────────────────────────
+
+export interface QuizAnswer {
+  id: string;
+  text: string;
+  correct: boolean;
+}
+
+export interface QuizQuestion {
+  id: string;
+  text: string;
+  imageAssetId: AssetId | null;
+  answers: QuizAnswer[];
+}
+
+export interface QuizNode extends BaseNode {
+  type: 'quiz';
+  props: {
+    questions: QuizQuestion[];
+    shuffleQuestions: boolean;
+    shuffleAnswers: boolean;
+    /** ms bis zur nächsten Frage. 0 = wartet auf die Aktion „Nächste Frage". */
+    advanceMs: number;
+    /** Zählt die richtigen Antworten mit. */
+    scoreVar?: VarName;
+    /** Nummer der aktuellen Frage (1-basiert). */
+    indexVar?: VarName;
+    questionFontSize: number;
+    answerFontSize: number;
+    answerColor: string;
+    correctColor: string;
+    wrongColor: string;
+    textColor: string;
+  };
+}
+
+// ── Memory ───────────────────────────────────────────────────────────────────
+
+/**
+ * Ein Paar sind zwei Karten. Bleiben `matchLabel`/`matchAssetId` leer, zeigt die
+ * zweite Karte dasselbe wie die erste (klassisches Memory); sonst entsteht ein
+ * Zuordnungsspiel (Begriff ↔ Bild), der häufigere Fall auf Wissens-Messeständen.
+ */
+export interface MemoryPair {
+  id: string;
+  label: string;
+  assetId: AssetId | null;
+  matchLabel: string;
+  matchAssetId: AssetId | null;
+}
+
+export interface MemoryNode extends BaseNode {
+  type: 'memory';
+  props: {
+    pairs: MemoryPair[];
+    columns: number;
+    gap: number;
+    /** Wie lange zwei ungleiche Karten offen liegen bleiben. */
+    flipBackMs: number;
+    backColor: string;
+    backLabel: string;
+    faceColor: string;
+    textColor: string;
+    fontSize: number;
+    radius: number;
+    /** Zählt die gefundenen Paare mit. */
+    matchesVar?: VarName;
+  };
+}
+
+// ── Drag & Drop ──────────────────────────────────────────────────────────────
+
+export interface DragItemNode extends BaseNode {
+  type: 'dragitem';
+  props: {
+    label: string;
+    assetId: AssetId | null;
+    /** Gruppe, die eine Ablagefläche akzeptieren kann. */
+    tag: string;
+    bg: string;
+    color: string;
+    radius: number;
+    fontSize: number;
+    /** Springt zurück, wenn es nicht in eine passende Fläche gezogen wurde. */
+    returnOnMiss: boolean;
+    /**
+     * Bleibt nach korrekter Ablage liegen und lässt sich nicht mehr ziehen.
+     *
+     * Ohne das zählt eine Regel wie „abgelegt +1" Ereignisse statt Elemente:
+     * wer ein Element herauszieht und erneut ablegt, treibt den Zähler hoch und
+     * gewinnt zu früh. Für Zuordnungsspiele ist „richtig = fertig" ohnehin das
+     * erwartete Verhalten. Ausschalten für freies Sortieren.
+     */
+    lockOnDrop: boolean;
+  };
+}
+
+export interface DropZoneNode extends BaseNode {
+  type: 'dropzone';
+  props: {
+    label: string;
+    /** Gruppen (`tag`), die hier abgelegt werden dürfen. */
+    accepts: string[];
+    /** Abgelegte Elemente einrasten lassen. */
+    snap: boolean;
+    /** Höchstzahl abgelegter Elemente. 0 = unbegrenzt. */
+    capacity: number;
+    bg: string;
+    borderColor: string;
+    color: string;
+    radius: number;
+    fontSize: number;
+  };
+}
+
+export type AppNode =
+  | TextNode
+  | ImageNode
+  | ShapeNode
+  | ButtonNode
+  | VideoNode
+  | WheelNode
+  | QuizNode
+  | MemoryNode
+  | DragItemNode
+  | DropZoneNode;
 
 export interface Scene {
   id: SceneId;
@@ -261,6 +395,80 @@ export function makeNode(type: NodeType, theme: Theme = DEFAULT_THEME): AppNode 
           resultVar: undefined,
         },
       };
+    case 'quiz':
+      return {
+        ...base,
+        w: 1200,
+        h: 700,
+        type: 'quiz',
+        props: {
+          questions: [defaultQuestion()],
+          shuffleQuestions: false,
+          shuffleAnswers: true,
+          advanceMs: 1600,
+          questionFontSize: 56,
+          answerFontSize: 36,
+          answerColor: '#2b3138',
+          correctColor: '#30a46c',
+          wrongColor: '#e5484d',
+          textColor: theme.colorText,
+        },
+      };
+    case 'memory':
+      return {
+        ...base,
+        w: 1200,
+        h: 700,
+        type: 'memory',
+        props: {
+          pairs: defaultMemoryPairs(),
+          columns: 4,
+          gap: 16,
+          flipBackMs: 1000,
+          backColor: theme.colorPrimary,
+          backLabel: '?',
+          faceColor: '#2b3138',
+          textColor: theme.colorText,
+          fontSize: 40,
+          radius: theme.radius,
+        },
+      };
+    case 'dragitem':
+      return {
+        ...base,
+        w: 260,
+        h: 120,
+        type: 'dragitem',
+        props: {
+          label: 'Element',
+          assetId: null,
+          tag: 'gruppe1',
+          bg: theme.colorPrimary,
+          color: '#ffffff',
+          radius: theme.radius,
+          fontSize: 30,
+          returnOnMiss: true,
+          lockOnDrop: true,
+        },
+      };
+    case 'dropzone':
+      return {
+        ...base,
+        w: 480,
+        h: 320,
+        type: 'dropzone',
+        props: {
+          label: 'Hier ablegen',
+          accepts: ['gruppe1'],
+          snap: true,
+          capacity: 0,
+          bg: 'rgba(255,255,255,0.04)',
+          borderColor: 'rgba(255,255,255,0.3)',
+          color: theme.colorText,
+          radius: theme.radius,
+          fontSize: 28,
+        },
+      };
   }
 }
 
@@ -271,7 +479,33 @@ export const NODE_LABELS: Record<NodeType, string> = {
   button: 'Schaltfläche',
   video: 'Video',
   wheel: 'Glücksrad',
+  quiz: 'Quiz',
+  memory: 'Memory',
+  dragitem: 'Zieh-Element',
+  dropzone: 'Ablagefläche',
 };
+
+function defaultQuestion(): QuizQuestion {
+  return {
+    id: newId('q'),
+    text: 'Ihre Frage?',
+    imageAssetId: null,
+    answers: [
+      { id: newId('a'), text: 'Richtige Antwort', correct: true },
+      { id: newId('a'), text: 'Falsche Antwort', correct: false },
+    ],
+  };
+}
+
+function defaultMemoryPairs(): MemoryPair[] {
+  return ['A', 'B', 'C', 'D'].map((label) => ({
+    id: newId('pair'),
+    label,
+    assetId: null,
+    matchLabel: '',
+    matchAssetId: null,
+  }));
+}
 
 function defaultWheelSegments(theme: Theme): WheelSegment[] {
   const palette = ['#e5484d', '#f5a524', '#30a46c', '#4f8cff', '#8e4ec6', '#e93d82'];

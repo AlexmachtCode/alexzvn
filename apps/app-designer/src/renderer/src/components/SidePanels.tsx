@@ -3,7 +3,8 @@ import { Badge, Button } from '@jm/ui';
 import { useCurrentScene, useEditor } from '../store';
 import { NumberField, SelectField, TextField } from './fields';
 
-const PALETTE: NodeType[] = ['text', 'image', 'shape', 'button', 'video', 'wheel'];
+const BUILDING_BLOCKS: NodeType[] = ['text', 'image', 'shape', 'button', 'video'];
+const GAME_WIDGETS: NodeType[] = ['wheel', 'quiz', 'memory', 'dragitem', 'dropzone'];
 
 export function ScenePanel(): JSX.Element {
   const doc = useEditor((s) => s.doc);
@@ -75,10 +76,25 @@ export function LayerPanel(): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col p-3">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-        Element hinzufügen
+        Bausteine
       </div>
       <div className="mb-3 grid grid-cols-3 gap-1">
-        {PALETTE.map((t) => (
+        {BUILDING_BLOCKS.map((t) => (
+          <button
+            key={t}
+            className="rounded border border-[var(--border)] px-2 py-1.5 text-xs hover:bg-[var(--muted)]"
+            onClick={() => addNode(t)}
+          >
+            {NODE_LABELS[t]}
+          </button>
+        ))}
+      </div>
+
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+        Spiele
+      </div>
+      <div className="mb-3 grid grid-cols-2 gap-1">
+        {GAME_WIDGETS.map((t) => (
           <button
             key={t}
             className="rounded border border-[var(--border)] px-2 py-1.5 text-xs hover:bg-[var(--muted)]"
