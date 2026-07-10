@@ -31,10 +31,19 @@ export function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<SignallingClient | null>(null);
   const openingRef = useRef(false);
+  // Der SignallingClient versucht bei Misserfolg still und endlos neu zu verbinden. Ohne diese
+  // Frist stünde der Operator vor einem Fenster, das schweigt (so verschluckte die strenge CSP
+  // des gepackten Builds die Raum-WebSocket komplett).
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Der Steuerbefehl-Handler wird EINMAL registriert und darf nicht an `room` hängen (sonst
   // ab-/neu-abonniert er bei jedem Zustands-Broadcast). `talkback toggle` braucht aber den
   // aktuellen Zustand → über einen Ref lesen.
   const roomRef = useRef<RoomState | null>(null);
+
+  const clearWatchdog = useCallback(() => {
+    if (watchdogRef.current) clearTimeout(watchdogRef.current);
+    watchdogRef.current = null;
+  }, []);
 
   const send = useCallback((action: OperatorAction) => {
     clientRef.current?.send(action);
@@ -113,17 +122,30 @@ export function App(): JSX.Element {
       const client = new SignallingClient({
         url: session.wsUrl,
         onMessage: handleMessage,
-        onOpen: () => setConnected(true),
+        onOpen: () => {
+          clearWatchdog();
+          setError(null);
+          setConnected(true);
+        },
         onClose: () => setConnected(false),
       });
       clientRef.current = client;
       client.connect();
+      clearWatchdog();
+      watchdogRef.current = setTimeout(() => {
+        setError(
+          `Keine Verbindung zum Raum „${session.room}". Adresse und Proxy-Key prüfen — im Hintergrund wird weiter versucht.`,
+        );
+      }, 8000);
     } catch (e) {
+      // Ohne dieses Zurücksetzen bliebe `clientRef` besetzt und jeder weitere Klick auf
+      // „Raum öffnen" liefe stumm ins Leere (der Guard oben greift).
+      clientRef.current = null;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       openingRef.current = false;
     }
-  }, [handleMessage, show?.room]);
+  }, [clearWatchdog, handleMessage, show?.room]);
 
   const inviteGuest = useCallback(async () => {
     try {
@@ -151,6 +173,7 @@ export function App(): JSX.Element {
   }, [show, invites]);
 
   const closeRoom = useCallback(async () => {
+    clearWatchdog();
     clientRef.current?.close();
     clientRef.current = null;
     setConnected(false);
@@ -158,7 +181,7 @@ export function App(): JSX.Element {
     // Der Raum wird geschlossen und das Secret rotiert — alle erzeugten Links sind damit tot.
     setInvites([]);
     await window.jmconnect.closeRoom();
-  }, []);
+  }, [clearWatchdog]);
 
   useEffect(() => {
     void window.jmconnect.getStatus().then(setStatus);
@@ -203,9 +226,10 @@ export function App(): JSX.Element {
       offStatus();
       offShow();
       offCmd();
+      clearWatchdog();
       clientRef.current?.close();
     };
-  }, [send]);
+  }, [clearWatchdog, send]);
 
   const guests = (room?.guests ?? []).filter((g) => g.phase !== 'left' && g.phase !== 'kicked');
   const talkback = room?.talkback ?? { mode: 'off' as const, target: null };

@@ -20,7 +20,13 @@ let isQuitting = false;
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence. Ein Show-Deep-Link liefert
 // die Sprecher-Liste der Veranstaltung (iveo, Welle 6.3b) → Join-Links/QR mit einem Klick.
 const runtime = initAppRuntime({
-  csp: true,
+  // Anders als der Rest der Suite spricht dieser Renderer SELBST mit der Cloud: der Operator hält die
+  // WebSocket zum ConnectRoom-DO, der versteckte Peer holt zusätzlich seine ICE-Credentials per fetch.
+  // Die strenge Default-CSP erlaubt im gepackten Build nur `connect-src 'self'` und blockiert damit
+  // beides — im Dev fällt das nie auf, weil dort ws:/wss:/http:/https: gelockert sind.
+  // Schemenweit freigeben statt Origin-Pinning: die Proxy-Adresse gibt der Operator zur Laufzeit ein.
+  // `script-src` bleibt 'self', es wird kein Fremdcode geladen.
+  csp: { connectSrc: ['https:', 'wss:'] },
   appId: 'jm-connect',
   appName: 'JM Connect',
   onDeepLink: (url) => void handleShowDeepLink(url),
