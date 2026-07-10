@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-10T16:11:59.825Z",
+  "updatedAt": "2026-07-10T16:55:07.572Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -136,7 +136,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.switcher",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.8.0",
+      "latestVersion": "0.9.0",
       "platforms": {
         "mac": {
           "artifact": "JM Switcher-${version}-mac-${arch}.dmg",
