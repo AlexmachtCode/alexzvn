@@ -91,10 +91,13 @@ interface InternalSource {
   ndiReady?: boolean;
 }
 
-const RENDER_W = 1280;
-const RENDER_H = 720;
-// Multiview-Ausgabeauflösung (16:9). Eigene Konstante, falls der Haupt-Render
-// später unabhängig skaliert.
+// Vorgabe-Renderauflösung (Full-HD). Über setRenderSize() zur Laufzeit umstellbar
+// (Einstellung „Programm-Auflösung"); das Kompositing selbst ist auflösungsunabhängig
+// (paintScene/drawSceneLayers rechnen relativ zur Canvas-Größe bzw. in 0..1).
+const DEFAULT_RENDER_W = 1920;
+const DEFAULT_RENDER_H = 1080;
+// Multiview-Ausgabeauflösung (16:9). Bleibt 720p — ein Monitoring-Raster braucht
+// kein Full-HD (spart Rechenlast, unabhängig von der Programm-Auflösung).
 const MULTIVIEW_W = 1280;
 const MULTIVIEW_H = 720;
 
@@ -120,15 +123,38 @@ export class SwitcherEngine {
   private raf = 0;
   private listeners = new Set<() => void>();
   private seq = 0;
+  private renderW = DEFAULT_RENDER_W;
+  private renderH = DEFAULT_RENDER_H;
 
   attach(preview: HTMLCanvasElement, program: HTMLCanvasElement): void {
     this.previewCanvas = preview;
     this.programCanvas = program;
-    preview.width = RENDER_W;
-    preview.height = RENDER_H;
-    program.width = RENDER_W;
-    program.height = RENDER_H;
+    preview.width = this.renderW;
+    preview.height = this.renderH;
+    program.width = this.renderW;
+    program.height = this.renderH;
     if (!this.raf) this.loop();
+  }
+
+  /**
+   * Programm-/Vorschau-Renderauflösung zur Laufzeit umstellen (Einstellung
+   * „Programm-Auflösung"). Beide Canvas werden neu dimensioniert — Aufnahme/RTMP
+   * (captureStream auf dem Programm-Canvas) und die NDI-Ausgabe (liest die
+   * Canvas-Größe) ziehen automatisch nach. Idempotent.
+   */
+  setRenderSize(w: number, h: number): void {
+    if (w <= 0 || h <= 0) return;
+    if (w === this.renderW && h === this.renderH) return;
+    this.renderW = w;
+    this.renderH = h;
+    if (this.previewCanvas) {
+      this.previewCanvas.width = w;
+      this.previewCanvas.height = h;
+    }
+    if (this.programCanvas) {
+      this.programCanvas.width = w;
+      this.programCanvas.height = h;
+    }
   }
 
   detach(): void {

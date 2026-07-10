@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useSettings } from '@/store/settings';
-import type { ControlStatus } from '@shared/types';
+import { useSettings, RESOLUTIONS, OUTPUT_FPS_OPTIONS, type ProgramResolution } from '@/store/settings';
+import type { ControlStatus, DisplayInfo } from '@shared/types';
 
 export function SettingsView() {
   const {
@@ -11,6 +11,10 @@ export function SettingsView() {
     controlPort,
     audioInputId,
     ndiOutputName,
+    programResolution,
+    outputFps,
+    secondScreenEnabled,
+    secondScreenDisplayId,
     setRtmpUrl,
     setStreamBitrateKbps,
     setRecordBitrateKbps,
@@ -18,6 +22,10 @@ export function SettingsView() {
     setControlPort,
     setAudioInputId,
     setNdiOutputName,
+    setProgramResolution,
+    setOutputFps,
+    setSecondScreenEnabled,
+    setSecondScreenDisplayId,
   } = useSettings();
 
   const [ctrl, setCtrl] = useState<ControlStatus>({ running: false, port: controlPort, clients: 0 });
@@ -32,6 +40,18 @@ export function SettingsView() {
   };
   useEffect(() => {
     scanAudio();
+  }, []);
+
+  // Angeschlossene Monitore für die Zweitbildschirm-Auswahl (aktualisierbar, falls einer dazukommt).
+  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
+  const scanDisplays = (): void => {
+    void window.jmswitch.screen
+      .listDisplays()
+      .then(setDisplays)
+      .catch(() => setDisplays([]));
+  };
+  useEffect(() => {
+    scanDisplays();
   }, []);
 
   return (
@@ -108,9 +128,92 @@ export function SettingsView() {
               gesendet wird, und schaltest die Ausgabe live an/aus.
             </span>
           </label>
-          <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed border-t border-[var(--border)]/60 pt-4">
-            Ausgabe: <span className="font-semibold text-[var(--foreground)]">1280×720 @ 25 fps</span> (BGRA).
-            Das Multiview zeigt Program + Preview groß plus alle Szenen als Kacheln mit Tally.
+          <div className="flex flex-wrap gap-5 border-t border-[var(--border)]/60 pt-4">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-bold">Programm-Auflösung</span>
+              <select
+                value={programResolution}
+                onChange={(e) => setProgramResolution(e.target.value as ProgramResolution)}
+                className="h-10 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm text-[var(--foreground)]"
+              >
+                {(Object.keys(RESOLUTIONS) as ProgramResolution[]).map((r) => (
+                  <option key={r} value={r}>
+                    {r === '1080p' ? 'Full-HD 1080p' : 'HD 720p'} ({RESOLUTIONS[r].w}×{RESOLUTIONS[r].h})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-bold">NDI-Bildrate</span>
+              <select
+                value={outputFps}
+                onChange={(e) => setOutputFps(Number(e.target.value))}
+                className="h-10 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm text-[var(--foreground)]"
+              >
+                {OUTPUT_FPS_OPTIONS.map((f) => (
+                  <option key={f} value={f}>
+                    {f} fps
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
+            Gilt für NDI, Aufnahme und RTMP — das Programm wird in dieser Auflösung komponiert
+            (kein Hochskalieren). <span className="font-semibold text-[var(--foreground)]">1080p</span> ist
+            echtes Full-HD und kostet mehr Rechenleistung; auf schwächeren Rechnern
+            <span className="font-semibold text-[var(--foreground)]"> 720p</span> wählen. Das Multiview
+            bleibt 720p und zeigt Program + Preview groß plus alle Szenen als Kacheln mit Tally.
+          </p>
+        </section>
+
+        <section className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)] p-5 flex flex-col gap-5">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-[11px] uppercase tracking-[0.14em] font-extrabold text-[var(--muted-foreground)]">
+              Zweiter Bildschirm
+            </h2>
+            <button
+              type="button"
+              onClick={scanDisplays}
+              className="text-[11px] font-bold uppercase tracking-wide text-[var(--muted-foreground)] hover:text-[var(--primary)]"
+            >
+              Monitore aktualisieren
+            </button>
+          </div>
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={secondScreenEnabled}
+              onChange={(e) => setSecondScreenEnabled(e.target.checked)}
+              className="h-4 w-4"
+            />
+            <span className="text-sm font-bold">Programm-Ausgabe im Vollbild auf einem Monitor</span>
+          </label>
+          <label className="flex flex-col gap-1.5 max-w-md">
+            <span className="text-sm font-bold">Monitor</span>
+            <select
+              value={
+                displays.some((d) => d.id === secondScreenDisplayId)
+                  ? secondScreenDisplayId
+                  : (displays.find((d) => d.primary)?.id ?? displays[0]?.id ?? 0)
+              }
+              onChange={(e) => setSecondScreenDisplayId(Number(e.target.value))}
+              disabled={displays.length === 0}
+              className="h-10 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm text-[var(--foreground)] disabled:opacity-50"
+            >
+              {displays.length === 0 && <option value={0}>Kein Monitor gefunden</option>}
+              {displays.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                  {d.primary ? ' · Hauptmonitor' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
+            Zeigt das On-Air-Programmbild formatfüllend auf dem gewählten Monitor — per HDMI direkt an
+            Beamer, Kontrollmonitor oder Encoder. Läuft unabhängig von NDI und der Aufnahme; wähle für die
+            Regie am besten einen anderen Monitor als den mit der Bedienoberfläche.
           </p>
         </section>
 

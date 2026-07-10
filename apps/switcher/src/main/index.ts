@@ -7,6 +7,7 @@ import { attachNdiWindow, stopNdi } from './ndi-receive';
 import { attachNdiSendWindow, stopNdiOutput } from './ndi-send';
 import { attachOutputWindow, stopOutput } from './output';
 import { attachControlWindow, startControlServer, stopControlServer } from './control-server';
+import { attachSecondScreen, stopSecondScreen } from './second-screen';
 import { handleShowDeepLink, flushPendingShowProject } from './show-open';
 
 declare const __dirname: string;
@@ -87,6 +88,7 @@ function createMainWindow(): BrowserWindow {
     stopNdiOutput();
     stopOutput();
     stopControlServer();
+    stopSecondScreen();
     mainWindow = null;
   });
 
@@ -95,6 +97,7 @@ function createMainWindow(): BrowserWindow {
   attachNdiSendWindow(win);
   attachOutputWindow(win);
   attachControlWindow(win);
+  attachSecondScreen(win);
 
   // Dev/Headless: Steuerserver per Env automatisch starten (zum Skripten/Testen
   // ohne den Einstellungen-Toggle). Sonst startet ihn der Renderer nach Settings.

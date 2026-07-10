@@ -12,8 +12,9 @@ import {
 } from '@/core/engine';
 import { OutputController, type OutputState } from '@/core/output';
 import { NdiOutputController, type NdiOutputState } from '@/core/ndiOutput';
+import { ScreenOutputController } from '@/core/screenOutput';
 import { AudioController, type AudioState } from '@/core/audio';
-import { useSettings } from '@/store/settings';
+import { useSettings, RESOLUTIONS } from '@/store/settings';
 
 const PALETTE = ['#1d4ed8', '#dc2626', '#16a34a', '#9333ea', '#0891b2', '#ca8a04'];
 
@@ -66,11 +67,25 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
       () => (ndiSourceRef.current === 'multiview' ? engine.getMultiviewCanvas() : programRef.current),
       // Programm-Ton mit ausspielen (derselbe Track wie Aufnahme/RTMP) → NDI-Quelle ist nicht mehr stumm.
       () => audio.getOutputTrack(),
+      // Initiale Bildrate aus dem Store (die Hook-Werte sind hier noch nicht deklariert); ein Effekt
+      // unten hält sie danach live nach.
+      useSettings.getState().outputFps,
     );
   }
   const ndiOut = ndiOutRef.current;
   const [ndiOutState, setNdiOutState] = useState<NdiOutputState>(() => ndiOut.getState());
   const [showMultiview, setShowMultiview] = useState(false);
+
+  // Zweitbildschirm-Ausgabe: zeigt IMMER das Programmbild (nicht Multiview) — ein Beamer/Monitor
+  // zeigt On-Air. Der Pump läuft nur, während die Ausgabe eingeschaltet ist (Effekt unten).
+  const screenOutRef = useRef<ScreenOutputController | null>(null);
+  if (!screenOutRef.current) {
+    screenOutRef.current = new ScreenOutputController(
+      () => programRef.current,
+      useSettings.getState().outputFps,
+    );
+  }
+  const screenOut = screenOutRef.current;
 
   const rtmpUrl = useSettings((s) => s.rtmpUrl);
   const streamBitrateKbps = useSettings((s) => s.streamBitrateKbps);
@@ -81,6 +96,10 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
   const ndiOutputName = useSettings((s) => s.ndiOutputName);
   const ndiOutputSource = useSettings((s) => s.ndiOutputSource);
   const setNdiOutputSource = useSettings((s) => s.setNdiOutputSource);
+  const programResolution = useSettings((s) => s.programResolution);
+  const outputFps = useSettings((s) => s.outputFps);
+  const secondScreenEnabled = useSettings((s) => s.secondScreenEnabled);
+  const secondScreenDisplayId = useSettings((s) => s.secondScreenDisplayId);
   const firstControlRun = useRef(true);
   const [state, setState] = useState<EngineState>(() => engine.getState());
   const [picker, setPicker] = useState(false);
@@ -118,16 +137,38 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
       unsubOut();
       unsubNdi();
       ndiOut.destroy();
+      screenOut.stop();
       output.destroy();
       audio.destroy();
       engine.destroy();
     };
-  }, [engine, output, audio, ndiOut]);
+  }, [engine, output, audio, ndiOut, screenOut]);
 
   // Quellwahl der NDI-Ausgabe in den Ref spiegeln (Controller liest ihn live).
   useEffect(() => {
     ndiSourceRef.current = ndiOutputSource;
   }, [ndiOutputSource]);
+
+  // Programm-Auflösung live umstellen: der Kompositor-Canvas wird neu dimensioniert,
+  // Aufnahme/RTMP (captureStream) und die NDI-Ausgabe (liest die Canvas-Größe) folgen daraus.
+  useEffect(() => {
+    const { w, h } = RESOLUTIONS[programResolution];
+    engine.setRenderSize(w, h);
+  }, [engine, programResolution]);
+
+  // Ausgabe-Bildrate live an NDI- UND Zweitbildschirm-Pump (taktet laufende Timer neu).
+  useEffect(() => {
+    ndiOut.setFps(outputFps);
+    screenOut.setFps(outputFps);
+  }, [ndiOut, screenOut, outputFps]);
+
+  // Zweitbildschirm: Fenster im Main an-/abschalten + Ziel-Monitor setzen, und den Frame-Pump
+  // nur laufen lassen, während die Ausgabe an ist (sonst kodiert er umsonst).
+  useEffect(() => {
+    void window.jmswitch.screen.setSecondScreen(secondScreenEnabled, secondScreenDisplayId);
+    if (secondScreenEnabled) screenOut.start();
+    else screenOut.stop();
+  }, [screenOut, secondScreenEnabled, secondScreenDisplayId]);
 
   // Multiview nur rendern, wenn gebraucht: Vorschau offen ODER NDI-Multiview aktiv.
   useEffect(() => {

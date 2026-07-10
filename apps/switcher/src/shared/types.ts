@@ -123,6 +123,30 @@ export interface JmswitchOutputApi {
   onNdiStatus: (cb: (s: NdiOutputStatus) => void) => () => void;
 }
 
+/** Ein angeschlossener Monitor (für die Zweitbildschirm-Ausgabe). */
+export interface DisplayInfo {
+  /** Electron `Display.id`. */
+  id: number;
+  /** Menschlicher Name (Label oder „Monitor 1 · 1920×1080"). */
+  label: string;
+  width: number;
+  height: number;
+  /** Der primäre Monitor (dort läuft i. d. R. die Bedienoberfläche). */
+  primary: boolean;
+}
+
+/** Zweitbildschirm-Ausgabe: Vollbild-Programmbild auf einem gewählten Monitor. */
+export interface JmswitchScreenApi {
+  /** Angeschlossene Monitore auflisten (für die Auswahl). */
+  listDisplays: () => Promise<DisplayInfo[]>;
+  /** Ausgabe an-/abschalten und Ziel-Monitor setzen (0 = Hauptmonitor). */
+  setSecondScreen: (enabled: boolean, displayId: number) => Promise<void>;
+  /** Ein (komprimiertes) Programm-Frame aus dem Haupt-Renderer an das Ausgabefenster schicken. */
+  sendFrame: (data: ArrayBuffer, w: number, h: number) => void;
+  /** Nur im Ausgabefenster (view=output): eingehende Programm-Frames empfangen. */
+  onFrame: (cb: (data: ArrayBuffer, w: number, h: number) => void) => () => void;
+}
+
 /** Shape, die der Preload auf `window.jmswitch` legt. */
 export interface JmswitchApi {
   platform: NodeJS.Platform;
@@ -138,6 +162,8 @@ export interface JmswitchApi {
   control: JmswitchControlApi;
   /** Projekt speichern/öffnen (#89). */
   project: JmswitchProjectApi;
+  /** Zweitbildschirm-Ausgabe (physischer Programm-Output auf einem Monitor). */
+  screen: JmswitchScreenApi;
 }
 
 export interface JmswitchProjectApi {
