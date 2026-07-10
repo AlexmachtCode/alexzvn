@@ -73,7 +73,31 @@ function prodCsp(frameSrc) {
 
 const PARENT_HTML = `<!doctype html><meta charset="utf-8">
 <title>Editor</title>
-<body><iframe id="f" src="jmapp://preview/index.html" style="width:800px;height:600px"></iframe></body>`;
+<body><iframe id="f" src="jmapp://preview/index.html" style="width:800px;height:600px"></iframe>
+<script src="parent.js"></script></body>`;
+
+// Externes Script, kein inline: unter `script-src 'self'` wäre ein <script>-Block
+// im Parent blockiert — genau wie im echten Editor.
+//
+// Spielt die Editor-Seite der Bridge nach: Handschlag, Variablen-Inspektor,
+// Szenenwechsel. Der Frame ist cross-origin, also geht alles über postMessage.
+const PARENT_JS = `
+const nonce = 'testnonce';
+const f = document.getElementById('f');
+window.__bridge = { ready: false, vars: null, scenes: [] };
+window.addEventListener('message', (e) => {
+  if (e.source !== f.contentWindow) return;
+  const m = e.data;
+  if (!m || typeof m !== 'object' || m.nonce !== nonce) return;
+  if (m.t === 'ready') window.__bridge.ready = true;
+  if (m.t === 'vars') window.__bridge.vars = m.vars;
+  if (m.t === 'scene') window.__bridge.scenes.push(m.sceneId);
+});
+f.addEventListener('load', () => {
+  f.contentWindow.postMessage({ t: 'hello', nonce }, 'jmapp://preview');
+});
+window.__goto = (sceneId) => f.contentWindow.postMessage({ t: 'goto', nonce, sceneId }, 'jmapp://preview');
+`;
 
 /** Wird pro Fall umgeschaltet — eine Session, eine CSP, wie in der echten App. */
 let currentCsp = '';
@@ -86,7 +110,14 @@ function html(body) {
 }
 
 function setupProtocols() {
-  protocol.handle('jmedit', () => html(PARENT_HTML));
+  protocol.handle('jmedit', (req) => {
+    if (new URL(req.url).pathname.endsWith('parent.js')) {
+      return new Response(PARENT_JS, {
+        headers: { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
+    return html(PARENT_HTML);
+  });
   protocol.handle('jmapp', (req) => {
     const path = new URL(req.url).pathname.replace(/^\/+/, '') || 'index.html';
     if (path === 'index.html') return html(readFileSync(join(bundleDir, 'index.html'), 'utf8'));
@@ -149,6 +180,24 @@ async function runCase(label, frameSrc, expectRun) {
     booted
       ? ok("Runtime im Frame gebootet — script-src 'self' greift auf jmapp://preview")
       : fail('Runtime bootete nicht — der Frame lief nicht an');
+
+    // Die postMessage-Bridge: Handschlag, Variablen, Szenenwechsel.
+    const parent = (code) => win.webContents.executeJavaScript(code, true);
+    const bridge = JSON.parse(await parent(`JSON.stringify(window.__bridge)`));
+    bridge.ready
+      ? ok('Bridge: Handschlag (hello → ready) über Origin-Grenze')
+      : fail('Bridge: kein ready — der Frame antwortet nicht');
+    bridge.vars && bridge.vars.drehungen === 0
+      ? ok('Bridge: Variablen im Inspektor angekommen (drehungen=0)')
+      : fail(`Bridge: keine Variablen empfangen (${JSON.stringify(bridge.vars)})`);
+
+    await parent(`window.__goto('sc_tpl_win'); true`);
+    await new Promise((r) => setTimeout(r, 400));
+    const after = JSON.parse(await parent(`JSON.stringify(window.__bridge.scenes)`));
+    after.includes('sc_tpl_win')
+      ? ok('Bridge: goto vom Editor schaltet die Szene im Frame')
+      : fail(`Bridge: goto wirkungslos (Szenen: ${JSON.stringify(after)})`);
+
     const cspViolations = violations.filter((v) => /Content Security Policy|Refused to/i.test(v));
     cspViolations.length === 0
       ? ok('keine CSP-Verstöße in der Konsole')
