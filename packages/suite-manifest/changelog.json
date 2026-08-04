@@ -560,6 +560,14 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.8.0",
+        "date": "2026-08-04",
+        "notes": [
+          "Geplante Startzeiten: Programmpunkte koennen eine Soll-Uhrzeit tragen (Spalte Startzeit im XLSX oder im Operator). Leere Punkte ergeben sich aus der Kette; feste Uhrzeiten sind Fixslots.",
+          "Soll-Ist-Drift: Der Operator zeigt je Zeile die projizierte Ist-Uhrzeit samt Delta und oben eine Pille Show hinter/vor Plan."
+        ]
+      },
+      {
         "version": "0.7.0",
         "date": "2026-07-05",
         "notes": [

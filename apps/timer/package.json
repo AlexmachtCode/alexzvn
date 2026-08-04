@@ -1,6 +1,6 @@
 {
   "name": "@jm/timer",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Jakobs Medien Timer — Live-Produktions-Timer (Clock, Countdown, Timetable)",
   "main": "out/main/index.cjs",
@@ -13,6 +13,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "selftest": "node --experimental-strip-types test/selftest.ts",
     "dist": "electron-vite build && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
     "dist:mac": "electron-vite build && electron-builder --mac",

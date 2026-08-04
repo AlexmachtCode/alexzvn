@@ -1,6 +1,6 @@
 // Selbsttest für @jm/regieplan:
 //   node --experimental-strip-types packages/regieplan/test/selftest.ts
-import { parseDuration, formatHms, rowsToAoa, parseRegieplan } from '../src/index.ts';
+import { parseDuration, formatHms, rowsToAoa, parseRegieplan, parseTimeOfDay, formatTimeOfDay, REGIEPLAN_HEADER } from '../src/index.ts';
 
 let pass = 0;
 let fail = 0;
@@ -30,9 +30,22 @@ ck('formatHms 0 → leer', formatHms(0) === '' && formatHms(undefined) === '');
 
 // rowsToAoa
 const aoa = rowsToAoa([{ label: 'A', durationMs: 300_000, note: 'x' }, { label: 'B' }]);
-ck('rowsToAoa Header', aoa[0].join('|') === 'Programmpunkt|Dauer|Notiz');
-ck('rowsToAoa Zeile1', aoa[1].join('|') === 'A|00:05:00|x');
-ck('rowsToAoa Zeile2 (ohne Dauer/Notiz)', aoa[2].join('|') === 'B||');
+ck('rowsToAoa Header', aoa[0].join('|') === 'Programmpunkt|Startzeit|Dauer|Notiz');
+ck('rowsToAoa Zeile1', aoa[1].join('|') === 'A||00:05:00|x');
+ck('rowsToAoa Zeile2 (leer)', aoa[2].join('|') === 'B|||');
+
+// parseTimeOfDay
+ck('parseTimeOfDay HH:MM', parseTimeOfDay('09:30') === (9 * 60 + 30) * 60_000);
+ck('parseTimeOfDay HH:MM:SS', parseTimeOfDay('09:30:15') === ((9 * 60 + 30) * 60 + 15) * 1000);
+ck('parseTimeOfDay Excel-Bruch', parseTimeOfDay(9.5 / 24) === Math.round((9.5 / 24) * 86_400_000));
+ck('parseTimeOfDay Date', parseTimeOfDay(new Date(Date.UTC(1899, 11, 31, 9, 30, 0))) === (9 * 60 + 30) * 60_000);
+ck('parseTimeOfDay leer → null', parseTimeOfDay('') === null && parseTimeOfDay(null) === null);
+ck('parseTimeOfDay Müll → null', parseTimeOfDay('abc') === null && parseTimeOfDay('99:99') === null);
+ck('parseTimeOfDay nackte Zahl → null', parseTimeOfDay(5) === null);
+
+// formatTimeOfDay
+ck('formatTimeOfDay 09:30', formatTimeOfDay((9 * 60 + 30) * 60_000) === '09:30');
+ck('formatTimeOfDay null → leer', formatTimeOfDay(null) === '' && formatTimeOfDay(undefined) === '');
 
 // parseRegieplan über ein echtes Workbook (Dauer optional vs. Pflicht)
 const XLSX = await import('xlsx');
@@ -57,6 +70,22 @@ ck('Rundown: Begrüßung-Dauer geparst', lax.rows.find((r) => r.label === 'Begr�
 const strict = await parseRegieplan(buf, { requireDuration: true });
 ck('Timer (Dauer Pflicht): 2 Zeilen', strict.rows.length === 2);
 ck('Timer: Talk ohne Dauer verworfen', !strict.rows.some((r) => r.label === 'Talk'));
+
+// Startzeit-Spalte
+ck('REGIEPLAN_HEADER hat Startzeit', REGIEPLAN_HEADER.join('|') === 'Programmpunkt|Startzeit|Dauer|Notiz');
+const aoaS = rowsToAoa([{ label: 'A', plannedStartMs: (9 * 60) * 60_000, durationMs: 300_000, note: 'x' }]);
+ck('rowsToAoa mit Startzeit', aoaS[1].join('|') === 'A|09:00|00:05:00|x');
+function buildBufS(rows: (string)[][]): ArrayBuffer {
+  const ws = XLSX.utils.aoa_to_sheet([['Programmpunkt', 'Startzeit', 'Dauer', 'Notiz'], ...rows]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Regieplan');
+  return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+}
+const bufS = buildBufS([['Keynote', '09:00', '00:30:00', '']]);
+const parsedS = await parseRegieplan(bufS, { requireDuration: true });
+ck('Startzeit-Spalte erkannt (getrennt von Dauer)', parsedS.source.columns.start !== null && parsedS.source.columns.duration !== null && parsedS.source.columns.start !== parsedS.source.columns.duration);
+ck('plannedStartMs geparst', parsedS.rows[0]?.plannedStartMs === (9 * 60) * 60_000);
+ck('Dauer weiterhin korrekt', parsedS.rows[0]?.durationMs === 1_800_000);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

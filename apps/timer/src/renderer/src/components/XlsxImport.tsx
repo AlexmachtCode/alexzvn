@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { parseXlsx, downloadTemplate, exportTimetable, type ParseResult } from '@/lib/xlsx';
+import { formatTimeOfDay } from '@jm/regieplan';
 import { formatHMS } from '@/lib/time';
 import { useStore } from '@/store/timer';
 import { Button } from '@jm/ui';
@@ -148,6 +149,7 @@ export function XlsxImport({ open, onClose }: Props) {
                     value={
                       [
                         result.source.columns.label && `T:${result.source.columns.label}`,
+                        result.source.columns.start && `S:${result.source.columns.start}`,
                         result.source.columns.duration &&
                           `D:${result.source.columns.duration}`,
                         result.source.columns.note && `N:${result.source.columns.note}`,
@@ -174,9 +176,10 @@ export function XlsxImport({ open, onClose }: Props) {
                 </div>
 
                 <div className="rounded-[var(--radius-md)] border border-[var(--border)]/40 overflow-hidden">
-                  <div className="grid grid-cols-[40px_minmax(0,1fr)_110px_minmax(0,1fr)] gap-2 px-3 py-2 bg-[var(--card)]/60 text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-extrabold">
+                  <div className="grid grid-cols-[40px_minmax(0,1fr)_80px_110px_minmax(0,1fr)] gap-2 px-3 py-2 bg-[var(--card)]/60 text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-extrabold">
                     <span>#</span>
                     <span>Titel</span>
+                    <span className="text-center">Start</span>
                     <span className="text-center">Dauer</span>
                     <span>Notiz</span>
                   </div>
@@ -184,12 +187,15 @@ export function XlsxImport({ open, onClose }: Props) {
                     {result.rows.slice(0, 50).map((row, i) => (
                       <div
                         key={i}
-                        className="grid grid-cols-[40px_minmax(0,1fr)_110px_minmax(0,1fr)] gap-2 px-3 py-2 text-sm"
+                        className="grid grid-cols-[40px_minmax(0,1fr)_80px_110px_minmax(0,1fr)] gap-2 px-3 py-2 text-sm"
                       >
                         <span className="text-[var(--muted-foreground)] tabular text-xs">
                           {String(i + 1).padStart(2, '0')}
                         </span>
                         <span className="truncate font-semibold">{row.label}</span>
+                        <span className="text-center tabular text-xs">
+                          {formatTimeOfDay(row.plannedStartMs) || '—'}
+                        </span>
                         <span className="text-center tabular">
                           {formatHMS(row.durationMs)}
                         </span>

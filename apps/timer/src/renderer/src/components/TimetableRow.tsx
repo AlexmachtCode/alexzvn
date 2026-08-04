@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore, type TimetableItem } from '@/store/timer';
 import { formatHMS, parseHMS } from '@/lib/time';
+import { formatTimeOfDay, parseTimeOfDay } from '@jm/regieplan';
 import { Input } from './ui/Input';
 import { Button } from '@jm/ui';
 import { StatusPill } from './ui/StatusPill';
@@ -13,9 +14,11 @@ interface Props {
   status: 'past' | 'active' | 'upcoming';
   /** projected wall-clock start time, ms, or null when not projectable */
   projectedStartMs: number | null;
+  /** Soll/Ist-Delta in ms (positiv = hinter Plan), oder null wenn kein Plan. */
+  deltaMs: number | null;
 }
 
-export function TimetableRow({ item, index, total, status, projectedStartMs }: Props) {
+export function TimetableRow({ item, index, total, status, projectedStartMs, deltaMs }: Props) {
   const ttUpdate = useStore((s) => s.ttUpdate);
   const ttDelete = useStore((s) => s.ttDelete);
   const ttMove = useStore((s) => s.ttMove);
@@ -25,10 +28,13 @@ export function TimetableRow({ item, index, total, status, projectedStartMs }: P
   const [durationDraft, setDurationDraft] = useState(formatHMS(item.durationMs));
   const [note, setNote] = useState(item.note ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [plannedDraft, setPlannedDraft] = useState(formatTimeOfDay(item.plannedStartMs));
+  const [plannedError, setPlannedError] = useState<string | null>(null);
 
   useEffect(() => setLabel(item.label), [item.label]);
   useEffect(() => setDurationDraft(formatHMS(item.durationMs)), [item.durationMs]);
   useEffect(() => setNote(item.note ?? ''), [item.note]);
+  useEffect(() => setPlannedDraft(formatTimeOfDay(item.plannedStartMs)), [item.plannedStartMs]);
 
   function commitLabel() {
     if (label.trim() !== item.label) ttUpdate(item.id, { label: label.trim() });
@@ -45,11 +51,26 @@ export function TimetableRow({ item, index, total, status, projectedStartMs }: P
   function commitNote() {
     if (note !== (item.note ?? '')) ttUpdate(item.id, { note: note.trim() || undefined });
   }
+  function commitPlanned() {
+    const t = plannedDraft.trim();
+    if (t === '') {
+      if (item.plannedStartMs !== undefined) ttUpdate(item.id, { plannedStartMs: undefined });
+      setPlannedError(null);
+      return;
+    }
+    const ms = parseTimeOfDay(t);
+    if (ms === null) {
+      setPlannedError('HH:MM');
+      return;
+    }
+    setPlannedError(null);
+    if (ms !== item.plannedStartMs) ttUpdate(item.id, { plannedStartMs: ms });
+  }
 
   return (
     <div
       className={cn(
-        'grid grid-cols-[36px_minmax(0,1fr)_120px_minmax(0,1fr)_88px_136px] items-center gap-3 px-4 py-3 rounded-[var(--radius-md)]',
+        'grid grid-cols-[36px_minmax(0,1fr)_96px_120px_minmax(0,1fr)_96px_136px] items-center gap-3 px-4 py-3 rounded-[var(--radius-md)]',
         'border transition-colors',
         status === 'active'
           ? 'bg-[var(--highlight)] border-[var(--primary)]/40'
@@ -71,6 +92,21 @@ export function TimetableRow({ item, index, total, status, projectedStartMs }: P
         placeholder="Programmpunkt"
         className="font-semibold"
       />
+
+      <div className="flex flex-col">
+        <Input
+          value={plannedDraft}
+          onChange={(e) => setPlannedDraft(e.target.value)}
+          onBlur={commitPlanned}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          placeholder="—:—"
+          className="text-center"
+          title="Geplante Startzeit (leer = aus der Kette)"
+        />
+        {plannedError && (
+          <span className="text-[10px] text-[var(--destructive)] mt-1 text-center">{plannedError}</span>
+        )}
+      </div>
 
       <div className="flex flex-col">
         <Input
@@ -105,9 +141,14 @@ export function TimetableRow({ item, index, total, status, projectedStartMs }: P
         ) : status === 'past' ? (
           <StatusPill status="done">Done</StatusPill>
         ) : projectedStartMs !== null ? (
-          <span className="tracking-wide">
-            {formatWallClock(projectedStartMs)}
-          </span>
+          <div className="flex flex-col items-center leading-tight">
+            <span className="tracking-wide">{formatWallClock(projectedStartMs)}</span>
+            {deltaMs !== null && (
+              <span className="text-[10px] font-bold tabular" style={{ color: driftColor(deltaMs) }}>
+                {formatDelta(deltaMs)}
+              </span>
+            )}
+          </div>
         ) : (
           <span className="text-[var(--muted-foreground)]">—</span>
         )}
@@ -186,4 +227,17 @@ function formatWallClock(ms: number): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatDelta(ms: number): string {
+  const sign = ms > 0 ? '+' : ms < 0 ? '−' : '±';
+  const total = Math.round(Math.abs(ms) / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${sign}${m}:${String(s).padStart(2, '0')}`;
+}
+function driftColor(ms: number): string {
+  if (ms > 30_000) return 'var(--destructive)'; // > 30s hinter Plan
+  if (ms < -30_000) return 'var(--primary)'; // > 30s vor Plan
+  return 'var(--muted-foreground)';
 }
