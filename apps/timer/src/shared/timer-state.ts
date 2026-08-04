@@ -26,6 +26,8 @@ export interface TimetableItem {
   label: string;
   durationMs: number;
   note?: string;
+  /** Geplante Startzeit als ms seit LOKALER Mitternacht (Tageszeit). Optional; leer = aus der Kette. */
+  plannedStartMs?: number;
 }
 
 export interface TimetableState {
@@ -404,4 +406,85 @@ export function getProjectedSchedule(
     cursor += tt.items[i].durationMs;
   }
   return out;
+}
+
+/** 00:00 des lokalen Tages von `now` als absolute ms. */
+export function midnightMsLocal(now: number = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * Geplante Tageszeit (ms seit Mitternacht) je Item, oder null. Ohne einen einzigen
+ * expliziten `plannedStartMs` → alles null (kein Plan). Sonst Vorwärts-Kette ab dem
+ * ersten Anker; ein expliziter Wert verankert die Kette neu (Fixslot); Items vor dem
+ * ersten Anker bleiben null.
+ */
+export function computePlannedSchedule(items: TimetableItem[]): Array<number | null> {
+  const out: Array<number | null> = new Array(items.length).fill(null);
+  const hasAnchor = items.some((it) => it.plannedStartMs !== undefined && it.plannedStartMs !== null);
+  if (!hasAnchor) return out;
+  let cursor: number | null = null;
+  for (let i = 0; i < items.length; i++) {
+    const explicit = items[i].plannedStartMs;
+    if (explicit !== undefined && explicit !== null) {
+      out[i] = explicit;
+      cursor = explicit + items[i].durationMs;
+    } else if (cursor !== null) {
+      out[i] = cursor;
+      cursor += items[i].durationMs;
+    }
+  }
+  return out;
+}
+
+export interface DriftPerItem {
+  plannedClockMs: number;
+  projectedClockMs: number;
+  deltaMs: number;
+}
+export interface DriftResult {
+  driftMs: number | null;
+  perItem: Array<DriftPerItem | null>;
+}
+
+/**
+ * Soll/Ist-Drift. Projektion ist LIVE-bewusst: das Ende des aktiven Punktes ist
+ * frühestens `now` (damit Überzug in die Drift durchschlägt). driftMs (Headline) =
+ * Delta des nächsten Punktes (fällt auf den aktiven zurück). null, wenn kein Plan.
+ */
+export function computeDrift(
+  tt: TimetableState,
+  cd: CountdownState,
+  now: number = Date.now(),
+): DriftResult {
+  const items = tt.items;
+  const plannedOfDay = computePlannedSchedule(items);
+  const midnight = midnightMsLocal(now);
+  const projected: Array<number | null> = new Array(items.length).fill(null);
+  if (tt.activeIndex !== null) {
+    projected[tt.activeIndex] = cd.startedAtMs ?? now;
+    const plannedEnd = getProjectedEndMs(cd, now) ?? now + effectiveDurationMs(cd);
+    let cursor = Math.max(plannedEnd, now);
+    for (let i = tt.activeIndex + 1; i < items.length; i++) {
+      projected[i] = cursor;
+      cursor += items[i].durationMs;
+    }
+  }
+  const perItem: Array<DriftPerItem | null> = items.map((_, i) => {
+    const p = projected[i];
+    const pod = plannedOfDay[i];
+    if (p === null || pod === null) return null;
+    const plannedClockMs = midnight + pod;
+    return { plannedClockMs, projectedClockMs: p, deltaMs: p - plannedClockMs };
+  });
+  let driftMs: number | null = null;
+  const idx = tt.activeIndex;
+  if (idx !== null) {
+    const nextItem = perItem[idx + 1];
+    if (idx + 1 < perItem.length && nextItem) driftMs = nextItem.deltaMs;
+    else if (perItem[idx]) driftMs = perItem[idx]!.deltaMs;
+  }
+  return { driftMs, perItem };
 }
