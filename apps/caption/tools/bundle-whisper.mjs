@@ -110,6 +110,21 @@ if (process.platform === 'darwin') {
       execFileSync('install_name_tool', ['-delete_rpath', rp, libPath]);
     }
   }
+  // whisper-server für den persistenten Modus (#204) — NICHT in CLI_PRIORITY,
+  // sonst hielte locate.ts ihn für die CLI. Gleiche rpath-Behandlung wie die CLI.
+  const srvSrc = join(whisperDir, 'whisper-server');
+  if (existsSync(srvSrc) && statSync(srvSrc).isFile()) {
+    const dst = join(binDest, 'whisper-server');
+    copyFileSync(srvSrc, dst);
+    chmodSync(dst, 0o755);
+    try {
+      execFileSync('install_name_tool', ['-add_rpath', '@loader_path', dst], { stdio: 'pipe' });
+    } catch (err) {
+      if (!/would duplicate|already/.test(String(err.stderr || err.message || ''))) throw err;
+    }
+    for (const rp of otherRpaths(dst)) execFileSync('install_name_tool', ['-delete_rpath', rp, dst]);
+    console.log(`bundled whisper-server → ${dst}`);
+  }
   const cliName = CLI_PRIORITY.find((n) => copiedClis.includes(n));
   console.log(`bundled ${copied} whisper-Dateien (CLI: ${copiedClis.join(', ')}; aktiv: ${cliName}) → ${binDest}`);
   bundleBaseModel();
