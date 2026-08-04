@@ -20,6 +20,11 @@ export interface CaptionConfig {
   /** Gewählter Audio-Eingang (deviceId); leer = System-Standard-Mikrofon. */
   audioInputDeviceId: string;
 
+  /** Fachwörter/Eigennamen, eine je Zeile — als Initial-Prompt an whisper übergeben (#204). */
+  dictionary: string;
+  /** Transkriptions-Backend: 'server' (persistent, schnell) | 'cli' (pro Äußerung). */
+  engine: 'server' | 'cli';
+
   // ── NDI-Ausgabe (Slice 2): transparente Untertitel-Quelle ──────────────────
   /** Sichtbarer NDI-Quellname. */
   ndiName: string;

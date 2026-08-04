@@ -32,6 +32,8 @@ const FALLBACK_CFG: CaptionConfig = {
   silenceMs: 700,
   silenceThreshold: 0.012,
   audioInputDeviceId: '',
+  dictionary: '',
+  engine: 'server',
   ndiName: 'JM Caption',
   ndiWidth: 1920,
   ndiHeight: 1080,
