@@ -96,6 +96,7 @@ export {
   getCountdownRemaining,
   getProjectedEndMs,
   getProjectedSchedule,
+  computeDrift,
   isCountdownPaused,
   isCountdownRunning,
 } from '@shared/timer-state';

@@ -19,11 +19,11 @@ export async function downloadTemplate(): Promise<void> {
   await exportRegieplanXlsx(
     [
       [...REGIEPLAN_HEADER],
-      ['Begrüßung', '00:05:00', 'Einlauf / Moderation'],
-      ['Keynote', '00:30:00', ''],
-      ['Pause', '00:15:00', 'Catering'],
-      ['Podiumsdiskussion', '00:45:00', '3 Gäste'],
-      ['Abschluss', '00:10:00', ''],
+      ['Begrüßung', '09:00', '00:05:00', 'Einlauf / Moderation'],
+      ['Keynote', '', '00:30:00', ''],
+      ['Pause', '', '00:15:00', 'Catering'],
+      ['Podiumsdiskussion', '12:00', '00:45:00', '3 Gäste (Fixslot)'],
+      ['Abschluss', '', '00:10:00', ''],
     ],
     'JM-Timer-Regieplan-Vorlage.xlsx',
   );
@@ -34,7 +34,7 @@ export async function downloadTemplate(): Promise<void> {
  * Format, das JM Rundown importiert (und umgekehrt).
  */
 export async function exportTimetable(
-  items: Array<{ label: string; durationMs: number; note?: string }>,
+  items: Array<{ label: string; durationMs: number; note?: string; plannedStartMs?: number }>,
 ): Promise<void> {
   await exportRegieplanXlsx(rowsToAoa(items), 'JM-Timer-Ablauf.xlsx');
 }
