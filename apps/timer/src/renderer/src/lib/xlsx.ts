@@ -2,15 +2,10 @@
 // Pflicht (Countdown), und der Export trägt Timer-Dateinamen + eine Beispiel-
 // vorlage. Die gemeinsame Parse-/Export-Logik (mit JM Rundown geteilt) liegt im
 // Paket — vorher war sie hier dupliziert.
-import { parseRegieplan, inspectRegieplan, extractRowsFromMapping, rowsToAoa, exportRegieplanXlsx, REGIEPLAN_HEADER } from '@jm/regieplan';
+import { inspectRegieplan, extractRowsFromMapping, rowsToAoa, exportRegieplanXlsx, REGIEPLAN_HEADER } from '@jm/regieplan';
 import type { ColumnMapping } from '@jm/regieplan';
 
 export type { ParsedRow, ParseResult, InspectResult, ColumnMapping, AvailableColumn } from '@jm/regieplan';
-
-/** XLSX/XLS/CSV in Timetable-Items parsen — Timer: Dauer-Spalte erforderlich. */
-export function parseXlsx(buffer: ArrayBuffer) {
-  return parseRegieplan(buffer, { requireDuration: true });
-}
 
 /** Datei inspizieren (Timer: Dauer für die Auto-Vorbelegung bevorzugt). */
 export function inspectXlsx(buffer: ArrayBuffer) {
