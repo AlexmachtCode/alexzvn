@@ -1341,6 +1341,14 @@
     "name": "JM Caption",
     "entries": [
       {
+        "version": "0.4.0",
+        "date": "2026-08-04",
+        "notes": [
+          "Fachwörter-Wörterbuch: Eigennamen und Fachbegriffe (eine je Zeile im Erweitert-Bereich) werden jetzt zuverlässiger erkannt.",
+          "Schnellere Transkription: Ein persistenter whisper-Server hält das Modell geladen, statt es je Äußerung neu zu laden — deutlich weniger Wartezeit. Ein CLI-Fallback springt ein, falls der Server nicht bereit ist."
+        ]
+      },
+      {
         "version": "0.3.1",
         "date": "2026-07-10",
         "notes": [
