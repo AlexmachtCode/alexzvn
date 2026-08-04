@@ -10,7 +10,8 @@ import { app } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { bundledModelsDir, whisperPath } from './locate';
+import { bundledModelsDir, whisperPath, whisperServerPath } from './locate';
+import { ensureServer, serverInfer, stopServer } from './whisper-server';
 import { floatToWav16 } from '@shared/wav';
 import { buildPrompt } from '@shared/prompt';
 import { buildCliArgs } from '@shared/whisper-args';
@@ -57,6 +58,7 @@ export function clearQueue(): void {
 
 export function stopTranscriber(): void {
   queue = [];
+  stopServer();
   if (current) {
     try {
       current.kill();
@@ -115,41 +117,70 @@ function transcribeOne(bin: string, pcm: Float32Array, sampleRate: number): Prom
       return;
     }
 
-    const args = buildCliArgs({
-      model,
-      wav,
-      outBase,
-      language: cfg.language,
-      prompt: buildPrompt(cfg.dictionary),
-      threads: THREADS,
-      fast: true, // Live-Untertitel: Greedy-Decode, Tempo vor letzter Genauigkeit
-    });
-
-    const child = spawn(bin, args, { windowsHide: true });
-    current = child;
-    const done = (text: string): void => {
-      current = null;
+    const prompt = buildPrompt(cfg.dictionary);
+    const cleanup = (): void => {
       try {
         rmSync(wav, { force: true });
         rmSync(`${outBase}.txt`, { force: true });
       } catch {
         /* egal */
       }
-      resolve(text);
     };
-    child.on('error', () => {
-      hooks!.onError('whisper-Start fehlgeschlagen.');
-      done('');
-    });
-    child.on('close', () => {
-      let text = '';
-      try {
-        text = readFileSync(`${outBase}.txt`, 'utf8').trim();
-      } catch {
-        /* keine Ausgabe */
-      }
-      hooks!.onError(null);
-      done(text);
-    });
+
+    // CLI-Pfad (auch der stille Fallback, wenn der Server nicht bereit ist).
+    // Als const-Arrow VOR der Nutzung definiert, damit TS das oben verengte
+    // `model` (string) in die Closure trägt (function-Deklaration täte das nicht).
+    const runCli = (): void => {
+      const args = buildCliArgs({
+        model,
+        wav,
+        outBase,
+        language: cfg.language,
+        prompt,
+        threads: THREADS,
+        fast: true,
+      });
+      const child = spawn(bin, args, { windowsHide: true });
+      current = child;
+      const done = (text: string): void => {
+        current = null;
+        cleanup();
+        resolve(text);
+      };
+      child.on('error', () => {
+        hooks!.onError('whisper-Start fehlgeschlagen.');
+        done('');
+      });
+      child.on('close', () => {
+        let text = '';
+        try {
+          text = readFileSync(`${outBase}.txt`, 'utf8').trim();
+        } catch {
+          /* keine Ausgabe */
+        }
+        hooks!.onError(null);
+        done(text);
+      });
+    };
+
+    // ── Server-Pfad (persistent, schnell) mit stillem CLI-Fallback ───────────
+    const server = whisperServerPath();
+    if (cfg.engine === 'server' && server) {
+      void (async () => {
+        try {
+          await ensureServer(server, model, THREADS);
+          const text = await serverInfer(wav, { language: cfg.language, prompt, fast: true });
+          hooks!.onError(null);
+          cleanup();
+          resolve(text);
+        } catch {
+          // Server kaputt/nicht bereit → diese Äußerung über die CLI, Untertitel laufen weiter.
+          hooks!.onError('whisper-server nicht verfügbar — nutze CLI.');
+          runCli();
+        }
+      })();
+      return;
+    }
+    runCli();
   });
 }
