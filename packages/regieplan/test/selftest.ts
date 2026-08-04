@@ -1,6 +1,6 @@
 // Selbsttest für @jm/regieplan:
 //   node --experimental-strip-types packages/regieplan/test/selftest.ts
-import { parseDuration, formatHms, rowsToAoa, parseRegieplan } from '../src/index.ts';
+import { parseDuration, formatHms, rowsToAoa, parseRegieplan, parseTimeOfDay, formatTimeOfDay, REGIEPLAN_HEADER } from '../src/index.ts';
 
 let pass = 0;
 let fail = 0;
@@ -33,6 +33,19 @@ const aoa = rowsToAoa([{ label: 'A', durationMs: 300_000, note: 'x' }, { label: 
 ck('rowsToAoa Header', aoa[0].join('|') === 'Programmpunkt|Dauer|Notiz');
 ck('rowsToAoa Zeile1', aoa[1].join('|') === 'A|00:05:00|x');
 ck('rowsToAoa Zeile2 (ohne Dauer/Notiz)', aoa[2].join('|') === 'B||');
+
+// parseTimeOfDay
+ck('parseTimeOfDay HH:MM', parseTimeOfDay('09:30') === (9 * 60 + 30) * 60_000);
+ck('parseTimeOfDay HH:MM:SS', parseTimeOfDay('09:30:15') === ((9 * 60 + 30) * 60 + 15) * 1000);
+ck('parseTimeOfDay Excel-Bruch', parseTimeOfDay(9.5 / 24) === Math.round((9.5 / 24) * 86_400_000));
+ck('parseTimeOfDay Date', parseTimeOfDay(new Date(Date.UTC(1899, 11, 31, 9, 30, 0))) === (9 * 60 + 30) * 60_000);
+ck('parseTimeOfDay leer → null', parseTimeOfDay('') === null && parseTimeOfDay(null) === null);
+ck('parseTimeOfDay Müll → null', parseTimeOfDay('abc') === null && parseTimeOfDay('99:99') === null);
+ck('parseTimeOfDay nackte Zahl → null', parseTimeOfDay(5) === null);
+
+// formatTimeOfDay
+ck('formatTimeOfDay 09:30', formatTimeOfDay((9 * 60 + 30) * 60_000) === '09:30');
+ck('formatTimeOfDay null → leer', formatTimeOfDay(null) === '' && formatTimeOfDay(undefined) === '');
 
 // parseRegieplan über ein echtes Workbook (Dauer optional vs. Pflicht)
 const XLSX = await import('xlsx');

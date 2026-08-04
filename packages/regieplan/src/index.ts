@@ -120,6 +120,46 @@ export function formatHms(ms: number | undefined): string {
 }
 
 /**
+ * Eine Uhrzeit-Zelle als Millisekunden seit Mitternacht (Tageszeit). Akzeptiert
+ * "HH:MM", "HH:MM:SS", Excel-Zeitbruch (0..1) und Date. `null`, wenn nicht
+ * eindeutig als Uhrzeit parsebar (eine nackte Zahl ist mehrdeutig → null).
+ */
+export function parseTimeOfDay(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) {
+    return (value.getUTCHours() * 60 + value.getUTCMinutes()) * 60_000 + value.getUTCSeconds() * 1000;
+  }
+  if (typeof value === 'number') {
+    if (value > 0 && value < 1) return Math.round(value * 86_400_000); // Excel-Tageszeit-Bruch
+    return null; // nackte Zahl bei einer Uhrzeit-Spalte ist mehrdeutig
+  }
+  if (typeof value === 'string') {
+    const s = value.trim();
+    const hms = s.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+    if (hms) {
+      const h = Number(hms[1]), m = Number(hms[2]), sec = Number(hms[3]);
+      if (h > 23 || m > 59 || sec > 59) return null;
+      return (h * 60 + m) * 60_000 + sec * 1000;
+    }
+    const hm = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (hm) {
+      const h = Number(hm[1]), m = Number(hm[2]);
+      if (h > 23 || m > 59) return null;
+      return (h * 60 + m) * 60_000;
+    }
+  }
+  return null;
+}
+
+/** ms seit Mitternacht → "HH:MM" (Export-/Anzeigeformat). Leer bei null/undefined. */
+export function formatTimeOfDay(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || ms < 0) return '';
+  const totalMin = Math.round(ms / 60_000);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${pad(Math.floor(totalMin / 60) % 24)}:${pad(totalMin % 60)}`;
+}
+
+/**
  * Eine XLSX/XLS/CSV-Datei in Regieplan-Zeilen parsen. `requireDuration` steuert,
  * ob eine Dauer-Spalte/-Wert nötig ist (Timer) oder optional (Rundown).
  */
