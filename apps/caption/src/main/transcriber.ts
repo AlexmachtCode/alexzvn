@@ -12,6 +12,9 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { bundledModelsDir, whisperPath } from './locate';
 import { floatToWav16 } from '@shared/wav';
+import { buildPrompt } from '@shared/prompt';
+import { buildCliArgs } from '@shared/whisper-args';
+import { cpus } from 'node:os';
 import type { CaptionConfig, WhisperModelId } from '@shared/types';
 
 export interface TranscriberHooks {
@@ -26,6 +29,9 @@ let queue: { pcm: Float32Array; sampleRate: number }[] = [];
 let draining = false;
 let current: ChildProcess | null = null;
 let seq = 0;
+
+// Threads für whisper (Auto, aber gekappt gegen Oversubscription auf kleinen Kernen).
+const THREADS = Math.max(1, Math.min(8, cpus().length));
 
 export function initTranscriber(h: TranscriberHooks): void {
   hooks = h;
@@ -109,8 +115,15 @@ function transcribeOne(bin: string, pcm: Float32Array, sampleRate: number): Prom
       return;
     }
 
-    const args = ['-m', model, '-f', wav, '-nt', '-otxt', '-of', outBase];
-    if (cfg.language && cfg.language !== 'auto') args.push('-l', cfg.language);
+    const args = buildCliArgs({
+      model,
+      wav,
+      outBase,
+      language: cfg.language,
+      prompt: buildPrompt(cfg.dictionary),
+      threads: THREADS,
+      fast: true, // Live-Untertitel: Greedy-Decode, Tempo vor letzter Genauigkeit
+    });
 
     const child = spawn(bin, args, { windowsHide: true });
     current = child;
