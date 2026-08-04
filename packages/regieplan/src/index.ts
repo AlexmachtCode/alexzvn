@@ -17,6 +17,8 @@ export interface ParsedRow {
   /** Dauer in ms; 0, wenn keine/keine parsebare Dauer-Spalte. */
   durationMs: number;
   note?: string;
+  /** Geplante Startzeit als ms seit Mitternacht (Tageszeit), wenn eine Startzeit-Spalte vorhanden ist. */
+  plannedStartMs?: number;
 }
 
 export interface ParseResult {
@@ -24,7 +26,7 @@ export interface ParseResult {
   source: {
     sheetName: string;
     headerRow: number; // 0-basiert; -1 = kein Header erkannt (positionsbasiert)
-    columns: { label: string | null; duration: string | null; note: string | null };
+    columns: { label: string | null; start: string | null; duration: string | null; note: string | null };
     totalRows: number;
     skippedRows: number;
   };
@@ -42,26 +44,30 @@ export interface ParseOptions {
 const LABEL_KEYWORDS =
   /titel|programmpunkt|programm|punkt|item|label|name|topic|inhalt|thema|regie/;
 const DURATION_KEYWORDS = /dauer|duration|laenge|länge|length|time|zeit/;
+const START_KEYWORDS = /startzeit|beginn|uhrzeit|clock|^\s*start\s*$/;
 const NOTE_KEYWORDS = /notiz|note|bemerkung|kommentar|info|hinweis|anmerkung/;
 
 /** Standard-Spaltenüberschriften des Export-Formats (Import-kompatibel). */
-export const REGIEPLAN_HEADER = ['Programmpunkt', 'Dauer', 'Notiz'] as const;
+export const REGIEPLAN_HEADER = ['Programmpunkt', 'Startzeit', 'Dauer', 'Notiz'] as const;
 
 interface DetectedColumns {
   label: string | null;
+  start: string | null;
   duration: string | null;
   note: string | null;
 }
 
 function matchHeader(row: Record<string, unknown>): DetectedColumns {
-  const out: DetectedColumns = { label: null, duration: null, note: null };
+  const out: DetectedColumns = { label: null, start: null, duration: null, note: null };
   for (const [col, val] of Object.entries(row)) {
     const v = String(val ?? '')
       .toLowerCase()
       .trim();
     if (!v) continue;
     if (out.label === null && LABEL_KEYWORDS.test(v)) out.label = col;
-    if (out.duration === null && DURATION_KEYWORDS.test(v)) out.duration = col;
+    // Start VOR Dauer: "Startzeit" enthält "zeit" und würde sonst als Dauer erkannt.
+    if (out.start === null && START_KEYWORDS.test(v)) out.start = col;
+    if (out.duration === null && col !== out.start && DURATION_KEYWORDS.test(v)) out.duration = col;
     if (out.note === null && NOTE_KEYWORDS.test(v)) out.note = col;
   }
   return out;
@@ -78,7 +84,7 @@ function detectHeader(
     if (ok) return { headerIdx: i, columns: cols };
   }
   // Fallback — Spalte A = Titel, B = Dauer, C = Notiz (positionsbasiert).
-  return { headerIdx: -1, columns: { label: 'A', duration: 'B', note: 'C' } };
+  return { headerIdx: -1, columns: { label: 'A', start: null, duration: 'B', note: 'C' } };
 }
 
 /**
@@ -187,14 +193,16 @@ export async function parseRegieplan(
   for (let i = headerIdx + 1; i < rawRows.length; i++) {
     const row = rawRows[i];
     const label = columns.label !== null ? String(row[columns.label] ?? '').trim() : '';
+    const startRaw = columns.start !== null ? row[columns.start] : undefined;
     const durationRaw = columns.duration !== null ? row[columns.duration] : undefined;
     const note = columns.note !== null ? String(row[columns.note] ?? '').trim() : '';
     const durationMs = parseDuration(durationRaw);
+    const plannedStartMs = parseTimeOfDay(startRaw);
     if (!label || (requireDuration && durationMs <= 0)) {
       skipped += 1;
       continue;
     }
-    rows.push({ label, durationMs, note: note || undefined });
+    rows.push({ label, durationMs, note: note || undefined, plannedStartMs: plannedStartMs ?? undefined });
   }
 
   return {
@@ -209,13 +217,13 @@ export async function parseRegieplan(
   };
 }
 
-/** Ablauf-Zeilen → AoA (Header + Zeilen, Dauer als HH:MM:SS) im Export-Format. */
+/** Ablauf-Zeilen → AoA (Header + Zeilen) im Export-Format. */
 export function rowsToAoa(
-  rows: Array<{ label: string; durationMs?: number; note?: string }>,
+  rows: Array<{ label: string; durationMs?: number; note?: string; plannedStartMs?: number }>,
 ): string[][] {
   return [
     [...REGIEPLAN_HEADER],
-    ...rows.map((r) => [r.label ?? '', formatHms(r.durationMs), r.note ?? '']),
+    ...rows.map((r) => [r.label ?? '', formatTimeOfDay(r.plannedStartMs), formatHms(r.durationMs), r.note ?? '']),
   ];
 }
 
@@ -226,7 +234,7 @@ export function rowsToAoa(
 export async function exportRegieplanXlsx(aoa: string[][], filename: string): Promise<void> {
   const XLSX = await import('xlsx');
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 28 }, { wch: 12 }, { wch: 32 }];
+  ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 12 }, { wch: 32 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Regieplan');
   const data = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
