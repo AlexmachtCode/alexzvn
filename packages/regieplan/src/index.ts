@@ -26,10 +26,33 @@ export interface ParseResult {
   source: {
     sheetName: string;
     headerRow: number; // 0-basiert; -1 = kein Header erkannt (positionsbasiert)
-    columns: { label: string | null; start: string | null; duration: string | null; note: string | null };
+    columns: ColumnMapping;
     totalRows: number;
     skippedRows: number;
   };
+}
+
+/** Feld → Tabellenspalten-Key ('A','B',…) oder null. Gleiche Form wie die Auto-Erkennung. */
+export interface ColumnMapping {
+  label: string | null;
+  start: string | null;
+  duration: string | null;
+  note: string | null;
+}
+
+/** Eine wählbare Tabellenspalte für die Mapping-UI. */
+export interface AvailableColumn {
+  key: string;    // Spalten-Key wie von sheet_to_json(header:'A') — 'A','B',…
+  header: string; // Zelltext der Header-Zeile ('' bei positional/leer)
+  sample: string; // erster nicht-leerer Datenwert darunter (getrimmt, ≤40 Zeichen)
+}
+
+export interface InspectResult {
+  sheetName: string;
+  headerRow: number;                        // 0-basiert; -1 = positional
+  columns: ColumnMapping;                   // Auto-Erkennung → Vorbelegung
+  availableColumns: AvailableColumn[];
+  rawRows: Array<Record<string, unknown>>;  // bleiben im Renderer; kein IPC
 }
 
 export interface ParseOptions {
@@ -50,15 +73,8 @@ const NOTE_KEYWORDS = /notiz|note|bemerkung|kommentar|info|hinweis|anmerkung/;
 /** Standard-Spaltenüberschriften des Export-Formats (Import-kompatibel). */
 export const REGIEPLAN_HEADER = ['Programmpunkt', 'Startzeit', 'Dauer', 'Notiz'] as const;
 
-interface DetectedColumns {
-  label: string | null;
-  start: string | null;
-  duration: string | null;
-  note: string | null;
-}
-
-function matchHeader(row: Record<string, unknown>): DetectedColumns {
-  const out: DetectedColumns = { label: null, start: null, duration: null, note: null };
+function matchHeader(row: Record<string, unknown>): ColumnMapping {
+  const out: ColumnMapping = { label: null, start: null, duration: null, note: null };
   for (const [col, val] of Object.entries(row)) {
     const v = String(val ?? '')
       .toLowerCase()
@@ -76,7 +92,7 @@ function matchHeader(row: Record<string, unknown>): DetectedColumns {
 function detectHeader(
   rows: Array<Record<string, unknown>>,
   requireDuration: boolean,
-): { headerIdx: number; columns: DetectedColumns } {
+): { headerIdx: number; columns: ColumnMapping } {
   const scanLimit = Math.min(5, rows.length);
   for (let i = 0; i < scanLimit; i++) {
     const cols = matchHeader(rows[i]);
@@ -165,46 +181,110 @@ export function formatTimeOfDay(ms: number | null | undefined): string {
   return `${pad(Math.floor(totalMin / 60) % 24)}:${pad(totalMin % 60)}`;
 }
 
-/**
- * Eine XLSX/XLS/CSV-Datei in Regieplan-Zeilen parsen. `requireDuration` steuert,
- * ob eine Dauer-Spalte/-Wert nötig ist (Timer) oder optional (Rundown).
- */
-export async function parseRegieplan(
+/** XLSX/XLS/CSV lesen → Blattname + Rohzeilen (Spalten-Keys 'A','B',…). Lazy SheetJS. */
+async function readWorkbook(
   data: ArrayBuffer | Uint8Array,
-  opts: ParseOptions = {},
-): Promise<ParseResult> {
-  const requireDuration = opts.requireDuration ?? false;
+): Promise<{ sheetName: string; rawRows: Array<Record<string, unknown>> }> {
   const XLSX = await import('xlsx');
   const wb = XLSX.read(data, { type: 'array', cellDates: true });
   const sheetName = wb.SheetNames[0];
   if (!sheetName) throw new Error('Datei enthält kein Tabellenblatt.');
   const ws = wb.Sheets[sheetName];
-
   const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
     header: 'A',
     raw: true,
     defval: '',
   });
+  return { sheetName, rawRows };
+}
 
-  const { headerIdx, columns } = detectHeader(rawRows, requireDuration);
+/** Excel-Spalten-Keys ordnen: 'A'<'B'<…<'Z'<'AA' (erst Länge, dann lexikalisch). */
+function compareColumnKeys(a: string, b: string): number {
+  return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+}
 
+/** Wählbare Spalten für die Mapping-UI: Vereinigung aller Keys + Header + erster Sample-Wert. */
+function buildAvailableColumns(
+  rawRows: Array<Record<string, unknown>>,
+  headerIdx: number,
+): AvailableColumn[] {
+  const keys = new Set<string>();
+  for (const row of rawRows) for (const k of Object.keys(row)) keys.add(k);
+  const dataStart = headerIdx + 1;
+  return [...keys].sort(compareColumnKeys).map((key) => {
+    const header = headerIdx >= 0 ? String(rawRows[headerIdx]?.[key] ?? '').trim() : '';
+    let sample = '';
+    for (let i = dataStart; i < rawRows.length; i++) {
+      const v = String(rawRows[i]?.[key] ?? '').trim();
+      if (v) {
+        sample = v.length > 40 ? `${v.slice(0, 40)}…` : v;
+        break;
+      }
+    }
+    return { key, header, sample };
+  });
+}
+
+/**
+ * REIN (kein XLSX, kein DOM): baut Ablauf-Zeilen aus einem gegebenen Spalten-Mapping.
+ * Wird bei jeder Mapping-Änderung neu gerufen (billig). requireDuration verwirft
+ * Zeilen ohne Titel bzw. ohne parsebare Dauer.
+ */
+export function extractRowsFromMapping(
+  rawRows: Array<Record<string, unknown>>,
+  headerRow: number,
+  mapping: ColumnMapping,
+  opts: ParseOptions = {},
+): { rows: ParsedRow[]; skippedRows: number } {
+  const requireDuration = opts.requireDuration ?? false;
   const rows: ParsedRow[] = [];
-  let skipped = 0;
-  for (let i = headerIdx + 1; i < rawRows.length; i++) {
+  let skippedRows = 0;
+  for (let i = headerRow + 1; i < rawRows.length; i++) {
     const row = rawRows[i];
-    const label = columns.label !== null ? String(row[columns.label] ?? '').trim() : '';
-    const startRaw = columns.start !== null ? row[columns.start] : undefined;
-    const durationRaw = columns.duration !== null ? row[columns.duration] : undefined;
-    const note = columns.note !== null ? String(row[columns.note] ?? '').trim() : '';
+    const label = mapping.label !== null ? String(row[mapping.label] ?? '').trim() : '';
+    const startRaw = mapping.start !== null ? row[mapping.start] : undefined;
+    const durationRaw = mapping.duration !== null ? row[mapping.duration] : undefined;
+    const note = mapping.note !== null ? String(row[mapping.note] ?? '').trim() : '';
     const durationMs = parseDuration(durationRaw);
     const plannedStartMs = parseTimeOfDay(startRaw);
     if (!label || (requireDuration && durationMs <= 0)) {
-      skipped += 1;
+      skippedRows += 1;
       continue;
     }
     rows.push({ label, durationMs, note: note || undefined, plannedStartMs: plannedStartMs ?? undefined });
   }
+  return { rows, skippedRows };
+}
 
+/** Workbook EINMAL lesen und alles fürs manuelle Mapping liefern (UI-Einstieg). */
+export async function inspectRegieplan(
+  data: ArrayBuffer | Uint8Array,
+  opts: ParseOptions = {},
+): Promise<InspectResult> {
+  const requireDuration = opts.requireDuration ?? false;
+  const { sheetName, rawRows } = await readWorkbook(data);
+  const { headerIdx, columns } = detectHeader(rawRows, requireDuration);
+  return {
+    sheetName,
+    headerRow: headerIdx,
+    columns,
+    availableColumns: buildAvailableColumns(rawRows, headerIdx),
+    rawRows,
+  };
+}
+
+/**
+ * Eine XLSX/XLS/CSV-Datei in Regieplan-Zeilen parsen (Auto-Erkennung). `requireDuration`
+ * steuert, ob eine Dauer nötig ist (Timer) oder optional (Rundown). Wrapper über
+ * readWorkbook + detectHeader + extractRowsFromMapping.
+ */
+export async function parseRegieplan(
+  data: ArrayBuffer | Uint8Array,
+  opts: ParseOptions = {},
+): Promise<ParseResult> {
+  const { sheetName, rawRows } = await readWorkbook(data);
+  const { headerIdx, columns } = detectHeader(rawRows, opts.requireDuration ?? false);
+  const { rows, skippedRows } = extractRowsFromMapping(rawRows, headerIdx, columns, opts);
   return {
     rows,
     source: {
@@ -212,7 +292,7 @@ export async function parseRegieplan(
       headerRow: headerIdx,
       columns,
       totalRows: rawRows.length - (headerIdx + 1),
-      skippedRows: skipped,
+      skippedRows,
     },
   };
 }

@@ -1,6 +1,6 @@
 // Selbsttest für @jm/regieplan:
 //   node --experimental-strip-types packages/regieplan/test/selftest.ts
-import { parseDuration, formatHms, rowsToAoa, parseRegieplan, parseTimeOfDay, formatTimeOfDay, REGIEPLAN_HEADER } from '../src/index.ts';
+import { parseDuration, formatHms, rowsToAoa, parseRegieplan, parseTimeOfDay, formatTimeOfDay, REGIEPLAN_HEADER, extractRowsFromMapping, inspectRegieplan } from '../src/index.ts';
 
 let pass = 0;
 let fail = 0;
@@ -86,6 +86,42 @@ const parsedS = await parseRegieplan(bufS, { requireDuration: true });
 ck('Startzeit-Spalte erkannt (getrennt von Dauer)', parsedS.source.columns.start !== null && parsedS.source.columns.duration !== null && parsedS.source.columns.start !== parsedS.source.columns.duration);
 ck('plannedStartMs geparst', parsedS.rows[0]?.plannedStartMs === (9 * 60) * 60_000);
 ck('Dauer weiterhin korrekt', parsedS.rows[0]?.durationMs === 1_800_000);
+
+// extractRowsFromMapping (rein, ohne XLSX)
+const rawMap = [
+  { A: 'Programmpunkt', B: 'Dauer', C: 'Notiz' },
+  { A: 'Keynote', B: '00:30:00', C: 'Bühne' },
+  { A: 'Talk', B: '', C: '' },
+];
+const ex = extractRowsFromMapping(rawMap, 0, { label: 'A', start: null, duration: 'B', note: 'C' }, { requireDuration: true });
+ck('extract: Talk ohne Dauer verworfen', ex.rows.length === 1 && ex.skippedRows === 1);
+ck('extract: Keynote Dauer+Notiz', ex.rows[0].durationMs === 1_800_000 && ex.rows[0].note === 'Bühne');
+// Remap: Start B, Dauer C, positional ab Zeile 0
+const rawPos = [{ A: 'Begrüßung', B: '09:00', C: '00:05:00' }];
+const exPos = extractRowsFromMapping(rawPos, -1, { label: 'A', start: 'B', duration: 'C', note: null }, { requireDuration: true });
+ck('extract positional (headerRow -1)', exPos.rows.length === 1 && exPos.rows[0].plannedStartMs === (9 * 60) * 60_000 && exPos.rows[0].durationMs === 300_000);
+
+// inspectRegieplan (über ein echtes Workbook)
+function buildBufAoa(aoa: unknown[][]): ArrayBuffer {
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Regieplan');
+  return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+}
+const insBuf = buildBufAoa([
+  ['Programmpunkt', 'Startzeit', 'Dauer', 'Notiz'],
+  ['Keynote', '09:00', '00:30:00', 'Bühne'],
+]);
+const ins = await inspectRegieplan(insBuf, { requireDuration: true });
+ck('inspect: headerRow 0', ins.headerRow === 0);
+ck('inspect: Auto-columns (label A, start B, duration C)', ins.columns.label === 'A' && ins.columns.start === 'B' && ins.columns.duration === 'C');
+ck('inspect: 4 availableColumns', ins.availableColumns.length === 4);
+ck('inspect: Dauer-Spalte Header+Sample', (() => { const c = ins.availableColumns.find((x) => x.key === 'C'); return c?.header === 'Dauer' && c?.sample === '00:30:00'; })());
+ck('inspect: rawRows durchgereicht', ins.rawRows.length === 2);
+const posBuf = buildBufAoa([['Meeting', '00:10:00'], ['Talk', '00:20:00']]);
+const insPos = await inspectRegieplan(posBuf, { requireDuration: true });
+ck('inspect positional: headerRow -1', insPos.headerRow === -1);
+ck('inspect positional: Header leer, Sample gesetzt', insPos.availableColumns[0].header === '' && insPos.availableColumns[0].sample === 'Meeting');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
