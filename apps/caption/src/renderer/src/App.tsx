@@ -54,6 +54,7 @@ export function App() {
   const [micError, setMicError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [showAdv, setShowAdv] = useState(false);
 
   useEffect(() => {
     void load();
@@ -273,6 +274,52 @@ export function App() {
           <span className="ml-auto text-xs text-neutral-400">
             {state.status.connections} Empfänger
           </span>
+        )}
+      </div>
+
+      {/* Erweitert: Wörterbuch · Engine · Fenster (#204) */}
+      <div className="border-b border-neutral-800 px-4 py-1.5">
+        <button
+          onClick={() => setShowAdv((v) => !v)}
+          className="text-xs text-neutral-400 hover:text-neutral-200"
+        >
+          {showAdv ? '▾' : '▸'} Erweitert (Wörterbuch · Engine · Fenster)
+        </button>
+        {showAdv && (
+          <div className="mt-2 flex flex-wrap items-start gap-4">
+            <label className="flex flex-col gap-1 text-xs text-neutral-400">
+              Fachwörter-Wörterbuch (eine je Zeile)
+              <textarea
+                value={c.dictionary}
+                onChange={(e) => void setConfig({ dictionary: e.target.value })}
+                rows={4}
+                placeholder={'z. B.\nJakobs Medien\niveo\nNITROVON'}
+                className="w-72 rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-neutral-400">
+              Engine
+              <select
+                value={c.engine}
+                onChange={(e) => void setConfig({ engine: e.target.value as CaptionConfig['engine'] })}
+                className={sel}
+              >
+                <option value="server">Server (schnell, Modell bleibt geladen)</option>
+                <option value="cli">CLI (pro Äußerung)</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-neutral-400">
+              Max. Äußerung (s)
+              <input
+                type="number"
+                min={2}
+                max={15}
+                value={c.maxUtteranceSec}
+                onChange={(e) => void setConfig({ maxUtteranceSec: Number(e.target.value) })}
+                className={`${sel} w-20`}
+              />
+            </label>
+          </div>
         )}
       </div>
 
