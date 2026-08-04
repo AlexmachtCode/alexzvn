@@ -560,6 +560,14 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.9.0",
+        "date": "2026-08-04",
+        "notes": [
+          "Import-Zuordnung: Beim XLSX-Import ordnest du Titel, Startzeit, Dauer und Notiz jetzt selbst einer Tabellenspalte zu, falls die automatische Erkennung danebenliegt. Die Vorschau aktualisiert sich sofort.",
+          "Auch Dateien ohne saubere Kopfzeile lassen sich so importieren."
+        ]
+      },
+      {
         "version": "0.8.0",
         "date": "2026-08-04",
         "notes": [
