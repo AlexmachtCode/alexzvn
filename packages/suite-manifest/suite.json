@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-10T16:55:07.572Z",
+  "updatedAt": "2026-08-04T14:07:04.459Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -178,7 +178,7 @@
       "category": "Utilities",
       "appId": "gmbh.jakobs.timer",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.7.0",
+      "latestVersion": "0.8.0",
       "platforms": {
         "mac": {
           "artifact": "JM Timer-${version}-mac-${arch}.dmg",
