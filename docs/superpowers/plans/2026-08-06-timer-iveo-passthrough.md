@@ -476,24 +476,51 @@ In `resolveSideEventLight` den Rückgabetyp (Zeile 624) erweitern:
 }> {
 ```
 
-Den Ablauf-Block (Zeile 635-636) ersetzen:
+**⚠️ Reihenfolge-Umbau (wichtig):** `fallbackSpeakers` sind sanitisierte `ShowIveoSpeaker` und haben **keine `id`** — sie taugen NICHT als id→Name-Quelle. Die einzige Quelle in dieser Funktion ist `client.listSpeakers(event)`, das heute erst **nach** dem Ablauf-Bau läuft. Deshalb wandert der Ablauf-Bau **hinter** die Speaker-Auflösung.
+
+Den Block von Zeile 635 bis einschließlich Zeile 654 (also `let ablauf = …` bis zum Ende des `else`-Zweigs) ersetzen durch:
 
 ```ts
+  const ids = [
+    ...new Set<string>([...extractSpeakerIds(detail), ...agenda.flatMap((it) => extractSpeakerIds(it))]),
+  ];
+  let speakers = fallbackSpeakers;
+  let warning: string | undefined;
+  // Namensquelle für „Verantwortlich" (#11 Sub-B): nur die volle Speakerliste trägt
+  // ids; die sanitisierten fallbackSpeakers haben keine. Ohne Verknüpfung bleibt die
+  // Map leer → owner bleibt leer (kein Fehler).
+  let namesMap: Map<string, string> | undefined;
+  if (ids.length) {
+    try {
+      const all = await client.listSpeakers(event);
+      speakers = speakersToShowSpeakers(all.filter((s) => ids.includes(s.id)));
+      namesMap = speakerNameMap(all);
+      getLog().info(`iveo switch: ${ids.length} Speaker verknüpft, ${speakers.length} aufgelöst.`);
+    } catch {
+      /* Speakerliste nicht ladbar → Fallback bleibt, owner bleibt leer */
+    }
+  } else {
+    if (detail) getLog().info(`iveo switch: Programm-Detail-Felder = ${Object.keys(detail).join(', ')}`);
+    if (agenda[0]) getLog().info(`iveo switch: Agenda-Item-Felder = ${Object.keys(agenda[0]).join(', ')}`);
+    warning = 'iveo verknüpft keine Speaker mit diesem Side Event — bestehende Speakerliste bleibt.';
+  }
   const firstStartMs = detail ? localTimeOfDayMs(detail) : null;
   const category = ((detail?.format_slug || detail?.type_slug) || '').trim() || undefined;
-  const namesMap = speakerNameMap(fallbackSpeakers.map((s) => ({ id: s.id, first_name: s.name, last_name: '' })));
   let ablauf = agendaToAblauf(agenda, { firstStartMs, category, speakerNamesById: namesMap });
   if (!ablauf.length && detail) {
     ablauf = [programToAblaufItem(detail, { withSchedule: true, speakerNamesById: namesMap })];
   }
 ```
 
-**Hinweis zur Namensquelle:** Im Switch-Pfad liegt kein Snapshot vor; `fallbackSpeakers` sind bereits sanitisierte `ShowIveoSpeaker` mit `{id, name}`. Sie werden hier auf die von `speakerName` erwartete Form gehoben (Vorname = fertiger Anzeigename, Nachname leer) — das Ergebnis ist exakt der Anzeigename. Löst iveo später echte Verknüpfungen auf, greift derselbe Weg.
-
 Die `return`-Zeile der Funktion (Zeile 659) ersetzen:
 
 ```ts
-  return { ablauf, speakers, warning, sideCtx: { firstStartMs, category, speakerNames: [...namesMap] as Array<[string, string]> } };
+  return {
+    ablauf,
+    speakers,
+    warning,
+    sideCtx: { firstStartMs, category, speakerNames: namesMap ? ([...namesMap] as Array<[string, string]>) : undefined },
+  };
 ```
 
 - [ ] **Step 8: `switchSideEvent` — Kontext übernehmen**
