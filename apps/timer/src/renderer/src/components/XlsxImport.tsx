@@ -20,7 +20,7 @@ interface Props {
   onClose: () => void;
 }
 
-const EMPTY_MAPPING: ColumnMapping = { label: null, start: null, duration: null, note: null };
+const EMPTY_MAPPING: ColumnMapping = { label: null, start: null, duration: null, note: null, owner: null, category: null };
 
 export function XlsxImport({ open, onClose }: Props) {
   const ttSetAll = useStore((s) => s.ttSetAll);
@@ -166,11 +166,13 @@ export function XlsxImport({ open, onClose }: Props) {
                   <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-extrabold">
                     Spalten-Zuordnung
                   </span>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     <MapSelect label="Titel" required field="label" value={mapping.label} columns={inspection.availableColumns} onChange={setField} />
                     <MapSelect label="Startzeit" field="start" value={mapping.start} columns={inspection.availableColumns} onChange={setField} />
                     <MapSelect label="Dauer" required field="duration" value={mapping.duration} columns={inspection.availableColumns} onChange={setField} />
                     <MapSelect label="Notiz" field="note" value={mapping.note} columns={inspection.availableColumns} onChange={setField} />
+                    <MapSelect label="Verantwortlich" field="owner" value={mapping.owner ?? null} columns={inspection.availableColumns} onChange={setField} />
+                    <MapSelect label="Kategorie" field="category" value={mapping.category ?? null} columns={inspection.availableColumns} onChange={setField} />
                   </div>
                 </div>
 
@@ -197,7 +199,14 @@ export function XlsxImport({ open, onClose }: Props) {
                         <span className="text-[var(--muted-foreground)] tabular text-xs">
                           {String(i + 1).padStart(2, '0')}
                         </span>
-                        <span className="truncate font-semibold">{row.label}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{row.label}</span>
+                          {(row.owner || row.category) && (
+                            <span className="block truncate text-[10px] text-[var(--muted-foreground)]">
+                              {[row.owner && `V: ${row.owner}`, row.category && `K: ${row.category}`].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
+                        </span>
                         <span className="text-center tabular text-xs">
                           {formatTimeOfDay(row.plannedStartMs) || '—'}
                         </span>
