@@ -560,6 +560,14 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.11.0",
+        "date": "2026-08-06",
+        "notes": [
+          "Aus iveo uebernommene Ablaeufe bringen jetzt die geplanten Startzeiten mit — die Soll-Ist-Drift steht sofort, ohne Zeiten nachzutragen.",
+          "Ausserdem uebernimmt der Timer Kategorie und (sofern iveo sie verknuepft) Verantwortlich je Programmpunkt."
+        ]
+      },
+      {
         "version": "0.10.0",
         "date": "2026-08-06",
         "notes": [
