@@ -542,6 +542,29 @@ async function pollSideEvent(client: IveoClient, a: ActiveShow): Promise<void> {
   } catch {
     /* Endpoint-Fehler → Fallback unten (Programm als 1 Punkt), kein RELOAD-Spam */
   }
+  // Beim Öffnen einer gespeicherten Show ist kein sideCtx gesetzt (der entsteht nur
+  // beim Binden/Umschalten). Einmalig nachziehen — sonst schreibt der erste Poll den
+  // Ablauf ohne Startzeit/Kategorie/Verantwortlich zurück und löscht die Felder.
+  if (!a.sideCtx) {
+    const detail = await client.getProgram(a.event, programId).catch(() => null);
+    const ids = [
+      ...new Set<string>([...extractSpeakerIds(detail), ...agenda.flatMap((it) => extractSpeakerIds(it))]),
+    ];
+    let speakerNames: Array<[string, string]> | undefined;
+    if (ids.length) {
+      try {
+        const all = await client.listSpeakers(a.event);
+        speakerNames = [...speakerNameMap(all)] as Array<[string, string]>;
+      } catch {
+        /* Speakerliste nicht ladbar → owner bleibt leer, kein Fehler */
+      }
+    }
+    a.sideCtx = {
+      firstStartMs: detail ? localTimeOfDayMs(detail) : null,
+      category: ((detail?.format_slug || detail?.type_slug) || '').trim() || undefined,
+      speakerNames,
+    };
+  }
   const ctx = a.sideCtx;
   const names = ctx?.speakerNames ? new Map(ctx.speakerNames) : undefined;
   let ablauf = agendaToAblauf(agenda, {
