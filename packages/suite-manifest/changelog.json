@@ -560,6 +560,13 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.10.0",
+        "date": "2026-08-06",
+        "notes": [
+          "Verantwortlich + Kategorie: Jeder Programmpunkt kann jetzt Verantwortlich und Kategorie tragen (Spalten im XLSX oder im Operator unter dem Titel editierbar) und exportiert sie wieder mit."
+        ]
+      },
+      {
         "version": "0.9.0",
         "date": "2026-08-04",
         "notes": [

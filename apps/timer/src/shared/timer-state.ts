@@ -28,6 +28,10 @@ export interface TimetableItem {
   note?: string;
   /** Geplante Startzeit als ms seit LOKALER Mitternacht (Tageszeit). Optional; leer = aus der Kette. */
   plannedStartMs?: number;
+  /** Verantwortlich (freier Text). Optional. */
+  owner?: string;
+  /** Kategorie (freier Text). Optional. */
+  category?: string;
 }
 
 export interface TimetableState {

@@ -30,11 +30,15 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
   const [error, setError] = useState<string | null>(null);
   const [plannedDraft, setPlannedDraft] = useState(formatTimeOfDay(item.plannedStartMs));
   const [plannedError, setPlannedError] = useState<string | null>(null);
+  const [ownerDraft, setOwnerDraft] = useState(item.owner ?? '');
+  const [categoryDraft, setCategoryDraft] = useState(item.category ?? '');
 
   useEffect(() => setLabel(item.label), [item.label]);
   useEffect(() => setDurationDraft(formatHMS(item.durationMs)), [item.durationMs]);
   useEffect(() => setNote(item.note ?? ''), [item.note]);
   useEffect(() => setPlannedDraft(formatTimeOfDay(item.plannedStartMs)), [item.plannedStartMs]);
+  useEffect(() => setOwnerDraft(item.owner ?? ''), [item.owner]);
+  useEffect(() => setCategoryDraft(item.category ?? ''), [item.category]);
 
   function commitLabel() {
     if (label.trim() !== item.label) ttUpdate(item.id, { label: label.trim() });
@@ -65,6 +69,12 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
     }
     setPlannedError(null);
     if (ms !== item.plannedStartMs) ttUpdate(item.id, { plannedStartMs: ms });
+  }
+  function commitOwner() {
+    if (ownerDraft !== (item.owner ?? '')) ttUpdate(item.id, { owner: ownerDraft.trim() || undefined });
+  }
+  function commitCategory() {
+    if (categoryDraft !== (item.category ?? '')) ttUpdate(item.id, { category: categoryDraft.trim() || undefined });
   }
 
   return (
@@ -181,6 +191,31 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
         <IconButton title="Löschen" onClick={() => ttDelete(item.id)} destructive>
           ✕
         </IconButton>
+      </div>
+
+      <div className="col-span-full flex items-center gap-4 pl-[calc(36px+0.75rem)] text-xs">
+        <label className="flex items-center gap-1 min-w-0 flex-1">
+          <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)] font-extrabold shrink-0">V</span>
+          <Input
+            value={ownerDraft}
+            onChange={(e) => setOwnerDraft(e.target.value)}
+            onBlur={commitOwner}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            placeholder="Verantwortlich"
+            className="!h-7 text-xs"
+          />
+        </label>
+        <label className="flex items-center gap-1 min-w-0 flex-1">
+          <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)] font-extrabold shrink-0">K</span>
+          <Input
+            value={categoryDraft}
+            onChange={(e) => setCategoryDraft(e.target.value)}
+            onBlur={commitCategory}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            placeholder="Kategorie"
+            className="!h-7 text-xs"
+          />
+        </label>
       </div>
     </div>
   );
