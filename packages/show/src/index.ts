@@ -32,10 +32,10 @@ export interface ShowToolRef {
 }
 
 /**
- * Ein Programmpunkt des zentralen Show-Ablaufs (#78). Bewusst tool-agnostisch und
- * minimal (Titel/Dauer/Notiz) — dieselbe Form wie ein Timer-`TimetableItem` und
- * eine Rundown-Zeile ohne Aktionen, damit ein einmal zentral gepflegter Ablauf
- * von mehreren Tools (Rundown, Timer) gelesen werden kann.
+ * Ein Programmpunkt des zentralen Show-Ablaufs (#11/Sub-B, #78). Bewusst tool-agnostisch,
+ * aber erweiterbar (Titel, optional: Dauer, Notiz, geplante Startzeit, Verantwortlich, Kategorie) —
+ * dieselbe Form wie ein Timer-`TimetableItem` und eine Rundown-Zeile ohne Aktionen, damit ein
+ * einmal zentral gepflegter Ablauf von mehreren Tools (Rundown, Timer) gelesen werden kann.
  */
 export interface ShowAblaufItem {
   /** Segment-/Programmpunkt-Titel. */
@@ -151,6 +151,9 @@ function normalizeAblaufItem(value: unknown): ShowAblaufItem | null {
   const item: ShowAblaufItem = { label };
   if (typeof o.durationMs === 'number' && o.durationMs > 0) item.durationMs = o.durationMs;
   if (typeof o.note === 'string' && o.note) item.note = o.note;
+  if (typeof o.plannedStartMs === 'number' && o.plannedStartMs >= 0) item.plannedStartMs = o.plannedStartMs;
+  if (typeof o.owner === 'string' && o.owner) item.owner = o.owner;
+  if (typeof o.category === 'string' && o.category) item.category = o.category;
   return item;
 }
 

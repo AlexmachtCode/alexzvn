@@ -359,6 +359,13 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
 // ── @jm/show Round-Trip mit iveo-Bindung (Materialisierungs-/Poller-Pfad) ──────
 {
   const ablauf = snapshotToAblauf(snapshot);
+  // Ergänze ein Element mit den neuen Feldern (#11/Sub-B)
+  ablauf[0] = {
+    ...ablauf[0],
+    plannedStartMs: 32400000, // 09:00 Uhr = 9 * 60 * 60 * 1000 ms seit Mitternacht
+    owner: 'Dr. Ana Ferreira',
+    category: 'Plenary',
+  };
   const show = {
     ...createShow('Testshow'),
     ablauf,
@@ -379,6 +386,12 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   ok(
     round.iveo?.filter?.day === '2026-11-12' && round.iveo.filter.excludeBlockers === true,
     '@jm/show: Ablauf-Filter (Tag + ohne Blocker) übersteht Round-Trip',
+  );
+  ok(
+    round.ablauf?.[0]?.plannedStartMs === 32400000 &&
+      round.ablauf?.[0]?.owner === 'Dr. Ana Ferreira' &&
+      round.ablauf?.[0]?.category === 'Plenary',
+    '@jm/show: plannedStartMs/owner/category überstehen Round-Trip',
   );
   ok(!text.includes('iveo_live_'), '@jm/show: kein Token in der serialisierten Show');
   ok(!text.includes('GEHEIM-BIO'), '@jm/show: keine Bio (PII) in der serialisierten Show');
