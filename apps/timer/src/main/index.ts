@@ -315,6 +315,9 @@ function ablaufToTimetable(
     label: a.label,
     durationMs: typeof a.durationMs === 'number' && a.durationMs > 0 ? a.durationMs : 0,
     ...(a.note ? { note: a.note } : {}),
+    ...(typeof a.plannedStartMs === 'number' ? { plannedStartMs: a.plannedStartMs } : {}),
+    ...(a.owner ? { owner: a.owner } : {}),
+    ...(a.category ? { category: a.category } : {}),
   }));
 }
 
