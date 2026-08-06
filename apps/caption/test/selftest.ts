@@ -40,5 +40,36 @@ eq(rms(new Float32Array([0, 0, 0])), 0, 'Stille → RMS 0');
 eq(Math.round(rms(new Float32Array([1, -1, 1, -1])) * 1000), 1000, 'Vollausschlag → RMS 1');
 eq(rms(new Float32Array([])), 0, 'leer → RMS 0');
 
+// ── buildPrompt ────────────────────────────────────────────────────────────
+import { buildPrompt } from '../src/shared/prompt.ts';
+eq(buildPrompt(''), '', 'leeres Wörterbuch → leerer Prompt');
+eq(buildPrompt('  \n  \n'), '', 'nur Leerzeilen → leerer Prompt');
+eq(
+  buildPrompt('iveo\n Jakobs Medien \n\nNITROVON'),
+  'iveo, Jakobs Medien, NITROVON',
+  'Zeilen → getrimmt, komma-verbunden, Leerzeilen weg',
+);
+eq(buildPrompt('aaaa\nbbbb\ncccc', 8), 'aaaa', 'maxChars kappt am letzten vollständigen Begriff');
+
+// ── buildCliArgs ───────────────────────────────────────────────────────────
+import { buildCliArgs } from '../src/shared/whisper-args.ts';
+eq(
+  buildCliArgs({ model: 'M', wav: 'W', outBase: 'O', language: 'auto', prompt: '', threads: 0, fast: false }),
+  ['-m', 'M', '-f', 'W', '-nt', '-otxt', '-of', 'O'],
+  'Basis-Args ohne Sprache/Prompt/Threads/Fast',
+);
+eq(
+  buildCliArgs({ model: 'M', wav: 'W', outBase: 'O', language: 'de', prompt: 'iveo', threads: 4, fast: true }),
+  ['-m', 'M', '-f', 'W', '-nt', '-otxt', '-of', 'O', '-l', 'de', '--prompt', 'iveo', '-t', '4', '-bs', '1', '-bo', '1', '-nf'],
+  'volle Args: Sprache + Prompt + Threads + Greedy',
+);
+
+// ── parseInferenceText ─────────────────────────────────────────────────────
+import { parseInferenceText } from '../src/shared/whisper-response.ts';
+eq(parseInferenceText('{"text":"  hallo welt "}'), 'hallo welt', 'JSON {text} → getrimmt');
+eq(parseInferenceText('roher text\n'), 'roher text', 'kein JSON → Rohtext getrimmt');
+eq(parseInferenceText(''), '', 'leer → leer');
+eq(parseInferenceText('{kaputt'), '{kaputt', 'malformed JSON → Rohtext');
+
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
 process.exit(failed === 0 ? 0 : 1);
