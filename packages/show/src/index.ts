@@ -44,6 +44,12 @@ export interface ShowAblaufItem {
   durationMs?: number;
   /** Freie Notiz (optional). */
   note?: string;
+  /** Geplante Startzeit als ms seit LOKALER Mitternacht (Tageszeit, optional). */
+  plannedStartMs?: number;
+  /** Verantwortlich (freier Text, optional). */
+  owner?: string;
+  /** Kategorie (freier Text, optional). */
+  category?: string;
 }
 
 /**
