@@ -30,9 +30,9 @@ ck('formatHms 0 → leer', formatHms(0) === '' && formatHms(undefined) === '');
 
 // rowsToAoa
 const aoa = rowsToAoa([{ label: 'A', durationMs: 300_000, note: 'x' }, { label: 'B' }]);
-ck('rowsToAoa Header', aoa[0].join('|') === 'Programmpunkt|Startzeit|Dauer|Notiz');
-ck('rowsToAoa Zeile1', aoa[1].join('|') === 'A||00:05:00|x');
-ck('rowsToAoa Zeile2 (leer)', aoa[2].join('|') === 'B|||');
+ck('rowsToAoa Header', aoa[0].join('|') === 'Programmpunkt|Startzeit|Dauer|Notiz|Verantwortlich|Kategorie');
+ck('rowsToAoa Zeile1', aoa[1].join('|') === 'A||00:05:00|x||');
+ck('rowsToAoa Zeile2 (leer)', aoa[2].join('|') === 'B|||||');
 
 // parseTimeOfDay
 ck('parseTimeOfDay HH:MM', parseTimeOfDay('09:30') === (9 * 60 + 30) * 60_000);
@@ -72,9 +72,9 @@ ck('Timer (Dauer Pflicht): 2 Zeilen', strict.rows.length === 2);
 ck('Timer: Talk ohne Dauer verworfen', !strict.rows.some((r) => r.label === 'Talk'));
 
 // Startzeit-Spalte
-ck('REGIEPLAN_HEADER hat Startzeit', REGIEPLAN_HEADER.join('|') === 'Programmpunkt|Startzeit|Dauer|Notiz');
+ck('REGIEPLAN_HEADER 6-spaltig', REGIEPLAN_HEADER.join('|') === 'Programmpunkt|Startzeit|Dauer|Notiz|Verantwortlich|Kategorie');
 const aoaS = rowsToAoa([{ label: 'A', plannedStartMs: (9 * 60) * 60_000, durationMs: 300_000, note: 'x' }]);
-ck('rowsToAoa mit Startzeit', aoaS[1].join('|') === 'A|09:00|00:05:00|x');
+ck('rowsToAoa mit Startzeit', aoaS[1].join('|') === 'A|09:00|00:05:00|x||');
 function buildBufS(rows: (string)[][]): ArrayBuffer {
   const ws = XLSX.utils.aoa_to_sheet([['Programmpunkt', 'Startzeit', 'Dauer', 'Notiz'], ...rows]);
   const wb = XLSX.utils.book_new();
@@ -122,6 +122,28 @@ const posBuf = buildBufAoa([['Meeting', '00:10:00'], ['Talk', '00:20:00']]);
 const insPos = await inspectRegieplan(posBuf, { requireDuration: true });
 ck('inspect positional: headerRow -1', insPos.headerRow === -1);
 ck('inspect positional: Header leer, Sample gesetzt', insPos.availableColumns[0].header === '' && insPos.availableColumns[0].sample === 'Meeting');
+
+// owner/category
+const rawOC = [
+  { A: 'Titel', B: 'Wer', C: 'Kat' },
+  { A: 'Keynote', B: 'Anna', C: 'Live' },
+];
+const exOC = extractRowsFromMapping(rawOC, 0, { label: 'A', start: null, duration: null, note: null, owner: 'B', category: 'C' }, {});
+ck('extract owner/category gesetzt', exOC.rows[0]?.owner === 'Anna' && exOC.rows[0]?.category === 'Live');
+const exNoOC = extractRowsFromMapping(rawOC, 0, { label: 'A', start: null, duration: null, note: null }, {});
+ck('extract owner/category nicht gemappt → undefined', exNoOC.rows[0]?.owner === undefined && exNoOC.rows[0]?.category === undefined);
+const aoaOC = rowsToAoa([{ label: 'A', durationMs: 300_000, note: 'n', owner: 'Anna', category: 'Live' }]);
+ck('rowsToAoa owner/category Spalten', aoaOC[1].join('|') === 'A||00:05:00|n|Anna|Live');
+const insOC = await inspectRegieplan(buildBufAoa([
+  ['Programmpunkt', 'Verantwortlich', 'Kategorie', 'Dauer'],
+  ['Keynote', 'Anna', 'Live', '00:30:00'],
+]), { requireDuration: true });
+ck('inspect: owner/category erkannt', insOC.columns.owner === 'B' && insOC.columns.category === 'C');
+const insArt = await inspectRegieplan(buildBufAoa([
+  ['Programmpunkt', 'Startzeit', 'Dauer'],
+  ['Keynote', '09:00', '00:30:00'],
+]), { requireDuration: true });
+ck('inspect: Startzeit nicht als Kategorie (kein bloßes art)', insArt.columns.start === 'B' && insArt.columns.category == null && insArt.columns.duration === 'C');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

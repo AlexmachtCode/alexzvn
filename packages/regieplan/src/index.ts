@@ -19,6 +19,10 @@ export interface ParsedRow {
   note?: string;
   /** Geplante Startzeit als ms seit Mitternacht (Tageszeit), wenn eine Startzeit-Spalte vorhanden ist. */
   plannedStartMs?: number;
+  /** Verantwortlich (freier Text), wenn eine solche Spalte vorhanden ist. */
+  owner?: string;
+  /** Kategorie (freier Text), wenn eine solche Spalte vorhanden ist. */
+  category?: string;
 }
 
 export interface ParseResult {
@@ -38,6 +42,8 @@ export interface ColumnMapping {
   start: string | null;
   duration: string | null;
   note: string | null;
+  owner?: string | null;
+  category?: string | null;
 }
 
 /** Eine wählbare Tabellenspalte für die Mapping-UI. */
@@ -69,12 +75,15 @@ const LABEL_KEYWORDS =
 const DURATION_KEYWORDS = /dauer|duration|laenge|länge|length|time|zeit/;
 const START_KEYWORDS = /startzeit|beginn|uhrzeit|clock|^\s*start\s*$/;
 const NOTE_KEYWORDS = /notiz|note|bemerkung|kommentar|info|hinweis|anmerkung/;
+const OWNER_KEYWORDS = /verantwortlich|verantwortung|owner|responsible|zust(ä|ae)ndig/;
+// KEIN bloßes `art` — "st-art-zeit" enthält "art" → würde Startzeit als Kategorie erkennen.
+const CATEGORY_KEYWORDS = /kategorie|category|rubrik|typ|type/;
 
 /** Standard-Spaltenüberschriften des Export-Formats (Import-kompatibel). */
-export const REGIEPLAN_HEADER = ['Programmpunkt', 'Startzeit', 'Dauer', 'Notiz'] as const;
+export const REGIEPLAN_HEADER = ['Programmpunkt', 'Startzeit', 'Dauer', 'Notiz', 'Verantwortlich', 'Kategorie'] as const;
 
 function matchHeader(row: Record<string, unknown>): ColumnMapping {
-  const out: ColumnMapping = { label: null, start: null, duration: null, note: null };
+  const out: ColumnMapping = { label: null, start: null, duration: null, note: null, owner: null, category: null };
   for (const [col, val] of Object.entries(row)) {
     const v = String(val ?? '')
       .toLowerCase()
@@ -85,6 +94,9 @@ function matchHeader(row: Record<string, unknown>): ColumnMapping {
     if (out.start === null && START_KEYWORDS.test(v)) out.start = col;
     if (out.duration === null && col !== out.start && DURATION_KEYWORDS.test(v)) out.duration = col;
     if (out.note === null && NOTE_KEYWORDS.test(v)) out.note = col;
+    // owner/category nur auf noch unbelegte Spalten (disjunkte Keywords, plus Guard).
+    if (out.owner == null && col !== out.label && col !== out.start && col !== out.duration && col !== out.note && OWNER_KEYWORDS.test(v)) out.owner = col;
+    if (out.category == null && col !== out.label && col !== out.start && col !== out.duration && col !== out.note && col !== out.owner && CATEGORY_KEYWORDS.test(v)) out.category = col;
   }
   return out;
 }
@@ -100,7 +112,7 @@ function detectHeader(
     if (ok) return { headerIdx: i, columns: cols };
   }
   // Fallback — Spalte A = Titel, B = Dauer, C = Notiz (positionsbasiert).
-  return { headerIdx: -1, columns: { label: 'A', start: null, duration: 'B', note: 'C' } };
+  return { headerIdx: -1, columns: { label: 'A', start: null, duration: 'B', note: 'C', owner: null, category: null } };
 }
 
 /**
@@ -245,13 +257,22 @@ export function extractRowsFromMapping(
     const startRaw = mapping.start !== null ? row[mapping.start] : undefined;
     const durationRaw = mapping.duration !== null ? row[mapping.duration] : undefined;
     const note = mapping.note !== null ? String(row[mapping.note] ?? '').trim() : '';
+    const owner = mapping.owner != null ? String(row[mapping.owner] ?? '').trim() : '';
+    const category = mapping.category != null ? String(row[mapping.category] ?? '').trim() : '';
     const durationMs = parseDuration(durationRaw);
     const plannedStartMs = parseTimeOfDay(startRaw);
     if (!label || (requireDuration && durationMs <= 0)) {
       skippedRows += 1;
       continue;
     }
-    rows.push({ label, durationMs, note: note || undefined, plannedStartMs: plannedStartMs ?? undefined });
+    rows.push({
+      label,
+      durationMs,
+      note: note || undefined,
+      plannedStartMs: plannedStartMs ?? undefined,
+      owner: owner || undefined,
+      category: category || undefined,
+    });
   }
   return { rows, skippedRows };
 }
@@ -299,11 +320,18 @@ export async function parseRegieplan(
 
 /** Ablauf-Zeilen → AoA (Header + Zeilen) im Export-Format. */
 export function rowsToAoa(
-  rows: Array<{ label: string; durationMs?: number; note?: string; plannedStartMs?: number }>,
+  rows: Array<{ label: string; durationMs?: number; note?: string; plannedStartMs?: number; owner?: string; category?: string }>,
 ): string[][] {
   return [
     [...REGIEPLAN_HEADER],
-    ...rows.map((r) => [r.label ?? '', formatTimeOfDay(r.plannedStartMs), formatHms(r.durationMs), r.note ?? '']),
+    ...rows.map((r) => [
+      r.label ?? '',
+      formatTimeOfDay(r.plannedStartMs),
+      formatHms(r.durationMs),
+      r.note ?? '',
+      r.owner ?? '',
+      r.category ?? '',
+    ]),
   ];
 }
 
@@ -314,7 +342,7 @@ export function rowsToAoa(
 export async function exportRegieplanXlsx(aoa: string[][], filename: string): Promise<void> {
   const XLSX = await import('xlsx');
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 12 }, { wch: 32 }];
+  ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 12 }, { wch: 32 }, { wch: 18 }, { wch: 14 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Regieplan');
   const data = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
