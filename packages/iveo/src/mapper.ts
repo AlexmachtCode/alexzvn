@@ -55,6 +55,46 @@ export function programDayKey(p: IveoProgram): string {
 }
 
 /**
+ * Startzeit als ms seit LOKALER Mitternacht (Zeitzone der ausführenden Maschine) —
+ * dieselbe Semantik wie `midnightMsLocal` im Timer, damit die Soll/Ist-Drift stimmt.
+ * Primär `starts_at` (UTC mit Offset): eindeutig parsebar, `getHours()` liefert die
+ * maschinen-lokale Zeit. Fallback `starts_at_local` (Venue-Wanduhr ohne Offset) —
+ * Best-Effort, stimmt nur bei gleicher Zeitzone. Sonst null.
+ */
+export function localTimeOfDayMs(
+  p: { starts_at?: string | null; starts_at_local?: string | null },
+): number | null {
+  const utc = (p.starts_at || '').trim();
+  if (utc) {
+    const t = Date.parse(utc);
+    if (Number.isFinite(t)) {
+      const d = new Date(t);
+      return (d.getHours() * 60 + d.getMinutes()) * 60_000 + d.getSeconds() * 1000;
+    }
+  }
+  const local = (p.starts_at_local || '').trim();
+  const m = local.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    const h = Number(m[1]), min = Number(m[2]), sec = Number(m[3] ?? '0');
+    if (h <= 23 && min <= 59 && sec <= 59) return (h * 60 + min) * 60_000 + sec * 1000;
+  }
+  return null;
+}
+
+/**
+ * Anzeigename(n) verknüpfter Speaker als „Verantwortlich". Ohne Verknüpfung oder
+ * ohne Namensauflösung leer (undefined) — iveo v1 liefert die Verknüpfung oft nicht,
+ * das ist ausdrücklich kein Fehler.
+ */
+function ownerFromIds(source: unknown, namesById?: Map<string, string>): string | undefined {
+  if (!namesById || namesById.size === 0) return undefined;
+  const names = extractSpeakerIds(source)
+    .map((id) => namesById.get(id))
+    .filter((n): n is string => !!n && n.trim().length > 0);
+  return names.length ? names.join(' · ') : undefined;
+}
+
+/**
  * Heuristik für „Blocker"/Platzhalter-Einträge (kein echtes Programm), z. B.
  * „Blocker | Nov 17…", „Blocker Livestream …". Rein titelbasiert und bewusst
  * konservativ — nur damit der Operator sie optional aus dem Ablauf nehmen kann.
@@ -68,6 +108,13 @@ export interface ProgramMapOptions {
   stagesById?: Map<string, IveoStage>;
   /** Subtitle als Notiz nutzen, falls vorhanden (Default true). */
   includeSubtitle?: boolean;
+  /**
+   * Startzeit/Kategorie/Verantwortlich mit befüllen (#11 Sub-B). Default false →
+   * Verhalten bestehender Aufrufer unverändert.
+   */
+  withSchedule?: boolean;
+  /** id → Anzeigename, zur Auflösung verknüpfter Speaker (für `owner`). */
+  speakerNamesById?: Map<string, string>;
 }
 
 function noteFor(p: IveoProgram, opts: ProgramMapOptions): string | undefined {
@@ -88,6 +135,14 @@ export function programToAblaufItem(p: IveoProgram, opts: ProgramMapOptions = {}
   if (durationMs > 0) item.durationMs = durationMs;
   const note = noteFor(p, opts);
   if (note) item.note = note;
+  if (opts.withSchedule) {
+    const startMs = localTimeOfDayMs(p);
+    if (startMs !== null) item.plannedStartMs = startMs;
+    const category = (p.format_slug || p.type_slug || '').trim();
+    if (category) item.category = category;
+    const owner = ownerFromIds(p, opts.speakerNamesById);
+    if (owner) item.owner = owner;
+  }
   return item;
 }
 
@@ -99,21 +154,41 @@ export function programsToAblauf(
   return [...programs].sort((a, b) => startKey(a) - startKey(b)).map((p) => programToAblaufItem(p, opts));
 }
 
+/** Options für den Agenda-Pfad (#11 Sub-B). */
+export interface AgendaMapOptions {
+  /**
+   * Soll-Startzeit des ERSTEN Punktes (ms seit lokaler Mitternacht) — Anker der
+   * Kette. Die Folgepunkte bleiben leer; ihre Zeiten rechnet der Timer aus den
+   * Dauern (computePlannedSchedule), damit die Kettenlogik nur einmal existiert.
+   */
+  firstStartMs?: number | null;
+  /** Kategorie, die alle Punkte des Side Events erben. */
+  category?: string;
+  /** id → Anzeigename, zur Auflösung verknüpfter Speaker je Agenda-Punkt. */
+  speakerNamesById?: Map<string, string>;
+}
+
 /**
  * Agenda-Punkte EINES Programms → zentraler Ablauf (#11 Phase 3b): der Feinablauf
  * eines Side Events (Begrüßung/Panel/Q&A …). Nach `sort_order` sortiert; Dauer aus
- * `duration_minutes`, Notiz aus `notes`.
+ * `duration_minutes`, Notiz aus `notes`. Mit Options zusätzlich Startzeit-Anker,
+ * geerbte Kategorie und Verantwortlich (#11 Sub-B).
  */
-export function agendaToAblauf(items: IveoAgendaItem[]): ShowAblaufItem[] {
+export function agendaToAblauf(items: IveoAgendaItem[], opts: AgendaMapOptions = {}): ShowAblaufItem[] {
+  const category = (opts.category || '').trim();
   return [...items]
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    .map((it) => {
+    .map((it, idx) => {
       const item: ShowAblaufItem = { label: it.title?.trim() || '(ohne Titel)' };
       if (typeof it.duration_minutes === 'number' && it.duration_minutes > 0) {
         item.durationMs = Math.round(it.duration_minutes * MIN_PER_MS);
       }
       const note = (it.notes || '').trim();
       if (note) item.note = note;
+      if (idx === 0 && typeof opts.firstStartMs === 'number') item.plannedStartMs = opts.firstStartMs;
+      if (category) item.category = category;
+      const owner = ownerFromIds(it, opts.speakerNamesById);
+      if (owner) item.owner = owner;
       return item;
     });
 }

@@ -20,6 +20,8 @@ import {
   speakersToShowSpeakers,
   buildShowMetadata,
   speakerName,
+  localTimeOfDayMs,
+  programToAblaufItem,
   type IveoFetchLike,
   type IveoFetchResponse,
   type IveoProgram,
@@ -150,6 +152,53 @@ ok(ablauf[2].label === 'Ohne Zeit' && ablauf[2].durationMs === undefined, 'progr
     snapshot.speakers.filter((s) => new Set(['sp1']).has(s.id)),
   );
   ok(scoped.length === 1 && scoped[0].name === 'Dr. Ana Ferreira', 'speakersToShowSpeakers: eingegrenzte Auswahl');
+}
+
+// localTimeOfDayMs — maschinen-lokale Tageszeit aus UTC (TZ-unabhängig geprüft,
+// indem der Erwartungswert mit derselben Date-API gebildet wird).
+{
+  const utcIso = '2026-11-12T09:30:00+00:00';
+  const d = new Date(utcIso);
+  const expectLocal = (d.getHours() * 60 + d.getMinutes()) * 60_000 + d.getSeconds() * 1000;
+  ok(localTimeOfDayMs({ starts_at: utcIso }) === expectLocal, 'localTimeOfDayMs: starts_at → maschinen-lokale Tageszeit');
+  ok(
+    localTimeOfDayMs({ starts_at_local: '2026-11-12T14:05:00' }) === (14 * 60 + 5) * 60_000,
+    'localTimeOfDayMs: starts_at_local-Fallback (Wanduhr)',
+  );
+  ok(localTimeOfDayMs({}) === null && localTimeOfDayMs({ starts_at: 'quatsch' }) === null, 'localTimeOfDayMs: fehlend/Müll → null');
+
+  // Programm-Pfad mit Options
+  const pSched = prog({ id: 'p9', title: 'Panel', starts_at: utcIso, duration_minutes: 30, format_slug: 'panel', type_slug: 'side-event', speaker_ids: ['sp1'] });
+  const names = new Map([['sp1', 'Ada Lovelace']]);
+  const withOpts = programToAblaufItem(pSched, { withSchedule: true, speakerNamesById: names });
+  ok(withOpts.plannedStartMs === expectLocal, 'programToAblaufItem: plannedStartMs aus starts_at');
+  ok(withOpts.category === 'panel', 'programToAblaufItem: category aus format_slug');
+  ok(withOpts.owner === 'Ada Lovelace', 'programToAblaufItem: owner aus verknüpftem Speaker');
+  const noOpts = programToAblaufItem(pSched);
+  ok(
+    noOpts.plannedStartMs === undefined && noOpts.category === undefined && noOpts.owner === undefined,
+    'programToAblaufItem: ohne Options unverändert (Regression)',
+  );
+
+  // Agenda-Pfad mit Options — NUR Punkt 1 trägt den Anker, alle erben category
+  const items = [
+    { id: 'a2', program_id: 'p', sort_order: 1, title: 'Panel', duration_minutes: 45, notes: 'Bühne' },
+    { id: 'a1', program_id: 'p', sort_order: 0, title: 'Begrüßung', duration_minutes: 10 },
+    { id: 'a3', program_id: 'p', sort_order: 2, title: 'Q&A' },
+  ];
+  const agOpts = agendaToAblauf(items, { firstStartMs: expectLocal, category: 'panel', speakerNamesById: names });
+  ok(agOpts[0].plannedStartMs === expectLocal, 'agendaToAblauf: erster Punkt trägt Anker');
+  ok(agOpts[1].plannedStartMs === undefined && agOpts[2].plannedStartMs === undefined, 'agendaToAblauf: Folgepunkte ohne Startzeit (Kette im Timer)');
+  ok(agOpts.every((a) => a.category === 'panel'), 'agendaToAblauf: category vererbt');
+  const agNo = agendaToAblauf(items);
+  ok(
+    agNo[0].plannedStartMs === undefined && agNo[0].category === undefined,
+    'agendaToAblauf: ohne Options unverändert (Regression)',
+  );
+  ok(
+    agendaToAblauf(items, { speakerNamesById: names })[0].owner === undefined,
+    'agendaToAblauf: ohne Speaker-Verknüpfung bleibt owner leer (kein Fehler)',
+  );
 }
 
 // ── speakerName ──────────────────────────────────────────────────────────────
