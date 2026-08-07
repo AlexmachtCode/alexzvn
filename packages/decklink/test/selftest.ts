@@ -60,6 +60,37 @@ console.log('modes — Urteil je Norm:');
   );
 }
 
+console.log('modes — Vorrang der Gruende (mehrere Maengel zugleich):');
+{
+  // Echte Karten melden durchaus Normen mit ZWEI Maengeln — 2160i50 und 1080i23.98
+  // sind gewoehnliche Eintraege. Der Vorrang ist im Modul als Absicht dokumentiert;
+  // ohne diese Pruefungen koennte man die Reihenfolge umstellen, ohne dass ein Test
+  // es bemerkt.
+  const judged = judgeModes([
+    mode({ mode: '4ki5', name: '2160i50', width: 3840, height: 2160, interlaced: true }),
+    mode({ mode: 'Hi23', name: '1080i23.98', fpsN: 24000, fpsD: 1001, interlaced: true }),
+    mode({ mode: '4k23', name: '2160p23.98', width: 3840, height: 2160, fpsN: 24000, fpsD: 1001 }),
+    mode({ mode: 'Hp2b', name: '1080p23.98', fpsN: 24000, fpsD: 1001, supportsBGRA: false }),
+    mode({ mode: '4kpf', name: '2160PsF25', width: 3840, height: 2160, segmented: true }),
+  ]);
+  const by = (m: string) => judged.find((j) => j.mode === m)!;
+
+  assert(by('4ki5').reason === 'interlaced', 'Halbbild + Aufloesung: interlaced gewinnt');
+  assert(by('Hi23').reason === 'interlaced', 'Halbbild + Bildrate: interlaced gewinnt');
+  assert(by('4k23').reason === 'resolution', 'Aufloesung + Bildrate: resolution gewinnt');
+  assert(by('Hp2b').reason === 'framerate', 'Bildrate + Pixelformat: framerate gewinnt');
+  assert(by('4kpf').reason === 'segmented', 'PsF + Aufloesung: segmented gewinnt');
+}
+
+console.log('modes — Randfaelle:');
+{
+  assert(judgeModes([]).length === 0, 'leere Liste bleibt leer');
+  // fpsD === 0 waere eine Division durch null. Der Wachposten in roundedFps faengt sie;
+  // die Norm ist dann unbenutzbar wegen der Bildrate — nicht durch einen Absturz.
+  const zero = judgeModes([mode({ mode: 'zero', fpsD: 0 })])[0];
+  assert(!zero.usable && zero.reason === 'framerate', 'fpsD=0 ergibt framerate, keinen Absturz');
+}
+
 console.log('modes — Abbildung auf Switcher-Einstellungen:');
 {
   assert(
