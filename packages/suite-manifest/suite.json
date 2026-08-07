@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-07T07:51:30.840Z",
+  "updatedAt": "2026-08-07T10:02:35.477Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -493,7 +493,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.interpreter",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.1.0",
+      "latestVersion": "0.2.0",
       "platforms": {
         "mac": {
           "artifact": "JM Interpreter-${version}-mac-${arch}.dmg",
