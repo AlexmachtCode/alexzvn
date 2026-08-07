@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useSettings, RESOLUTIONS, OUTPUT_FPS_OPTIONS, type ProgramResolution } from '@/store/settings';
+import {
+  useSettings,
+  RESOLUTIONS,
+  OUTPUT_FPS_OPTIONS,
+  recommendedBitrate,
+  type ProgramResolution,
+} from '@/store/settings';
 import type { ControlStatus, DisplayInfo } from '@shared/types';
 
 export function SettingsView() {
@@ -98,14 +104,25 @@ export function SettingsView() {
               <span className="text-sm text-[var(--muted-foreground)]">kbit/s</span>
             </span>
             <span className="text-[11px] text-[var(--muted-foreground)]">
-              Video-Bitrate des H.264-Streams (x264). 720p: ~3000–6000 kbit/s.
+              Video-Bitrate des H.264-Streams (x264). Empfohlen für{' '}
+              {programResolution === '1080p' ? 'Full-HD 1080p' : 'HD 720p'}:{' '}
+              {recommendedBitrate(programResolution, 'stream').min.toLocaleString('de-DE')}–
+              {recommendedBitrate(programResolution, 'stream').max.toLocaleString('de-DE')} kbit/s.
             </span>
           </label>
 
           <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed border-t border-[var(--border)]/60 pt-4">
-            Auflösung: <span className="font-semibold text-[var(--foreground)]">1280×720 @ 30 fps</span> ·
-            Ton: stille AAC-Spur (Audio-Mix kommt in v0.2). Der Stream wird aus dem Program-Bild
-            kodiert (libx264, zerolatency).
+            Auflösung:{' '}
+            <span className="font-semibold text-[var(--foreground)]">
+              {RESOLUTIONS[programResolution].w}×{RESOLUTIONS[programResolution].h} @ {outputFps} fps
+            </span>{' '}
+            · Ton:{' '}
+            {audioInputId
+              ? 'Programm-Ton der gewählten Audioquelle'
+              : 'stille AAC-Spur (keine Audioquelle gewählt)'}
+            . Der Stream wird aus dem Program-Bild kodiert (libx264, zerolatency) — die Auflösung
+            folgt der Programm-Auflösung, es wird nie hochskaliert. Eine geänderte Bildrate wirkt
+            bei laufender Aufnahme oder Sendung erst beim nächsten Start.
           </p>
         </section>
 
@@ -314,7 +331,10 @@ export function SettingsView() {
               <span className="text-sm text-[var(--muted-foreground)]">kbit/s</span>
             </span>
             <span className="text-[11px] text-[var(--muted-foreground)]">
-              Video-Bitrate der WebM-Aufnahme. 720p: ~8000–16000 kbit/s.
+              Video-Bitrate der WebM-Aufnahme. Empfohlen für{' '}
+              {programResolution === '1080p' ? 'Full-HD 1080p' : 'HD 720p'}:{' '}
+              {recommendedBitrate(programResolution, 'record').min.toLocaleString('de-DE')}–
+              {recommendedBitrate(programResolution, 'record').max.toLocaleString('de-DE')} kbit/s.
             </span>
           </label>
           <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed border-t border-[var(--border)]/60 pt-4">
