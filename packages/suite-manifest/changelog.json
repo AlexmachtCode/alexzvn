@@ -1443,6 +1443,14 @@
     "name": "JM Interpreter",
     "entries": [
       {
+        "version": "0.2.0",
+        "date": "2026-08-07",
+        "notes": [
+          "Der Interpreter erkennt jetzt bekannte virtuelle Kabel (VB-CABLE, VoiceMeeter) und nennt dauerhaft das Geraet, das in Zoom als Mikrofon zu waehlen ist — der Hinweis verschwindet nicht mehr, sobald ein Ausgabegeraet gewaehlt wurde.",
+          "Ist kein Kabel vorhanden, erklaert eine Karte den Zusammenhang und verweist auf den Download. Ein nachtraeglich installiertes Kabel wird ohne Neustart erkannt."
+        ]
+      },
+      {
         "version": "0.1.0",
         "date": "2026-07-09",
         "notes": [
