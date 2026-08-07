@@ -281,6 +281,16 @@ function CableStatus({
   }
 
   const selected = outputs.find((d) => d.deviceId === outputId);
+
+  if (outputId && !selected) {
+    return (
+      <Notice tone="warn">
+        Das gewählte Ausgabegerät ist derzeit nicht verfügbar. Der Mix geht auf den Systemstandard und
+        erreicht die Konferenz nicht.
+      </Notice>
+    );
+  }
+
   const kind = selected ? detectCable(selected.label) : null;
 
   if (kind && counterpartPresent(kind, inputs.map((d) => d.label))) {
