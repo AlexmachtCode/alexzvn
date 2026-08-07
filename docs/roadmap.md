@@ -89,11 +89,24 @@ Es war der zweite Fall dieser Falle nach JM Connect — der Selbsttest von `@jm/
 - **iveo-Prod-URL** scharfschalten (📌 langstehend; Staging-Base bleibt bis dahin).
 - *Optional:* **Binär-/Manifest-Signierung (C3)** — braucht Zertifikate/Budget, zurückgestellt.
 
-### Lane D — Switcher physischer Output
+### Lane D — Switcher-Ausgabe
 
-- **Decklink/SDI-Ausgang** über natives DeckLink-SDK-Addon (utilityProcess + Addon, ein Sender/Prozess,
-  Muster `packages/ndi`). Größerer nativer Brocken, echt nebenläufig zum Zoom-C++-Strang. **Kein Issue → neu anlegen.**
-- Kontext: der 2. Bildschirm ist seit `switcher-v0.9.0` erledigt; hier geht es um den **physischen** SDI/HDMI-Out.
+**D1 — Streaming sagt die Wahrheit: ✅ released 2026-08-07 als `switcher-v0.10.0`** (PR #215).
+Ausgelöst durch die Meldung „streamt nur 1280×720p25". Full-HD lief längst — die Einstellungen behaupteten
+vier Dinge, die der Code seit 0.8.0/0.9.0 nicht mehr tat. Daneben ein echter Defekt: der Canvas wurde mit
+fest verdrahteten 30 fps abgegriffen, die Bildratenwahl erreichte nur NDI und den Zweitbildschirm.
+Jetzt: Anzeige liest die tatsächlichen Werte, `OutputController.setFps` wirkt bis in Aufnahme und RTMP,
+„NDI-Bildrate" heißt „Ausgabe-Bildrate", Bitraten-Empfehlung folgt der Auflösung, Aufnahme-Vorgabe 16.000
+statt 12.000 kbit/s. Dazu der **erste Selbsttest des Switchers** (16 Prüfungen).
+📌 **Offen (Owner, lokal):** Installer bauen — CI überspringt `switcher-v` —, Release + Asset hochladen,
+danach `node scripts/bump-manifest.mjs switcher 0.10.0`. `suite.json` steht bis dahin auf 0.9.0.
+📌 **Offen (Owner, Laufzeit):** 1080p + 50 fps senden und am Ziel messen.
+
+**D2 — Decklink/SDI-Ausgang:** über natives DeckLink-SDK-Addon (utilityProcess + Addon, ein Sender/Prozess,
+Muster `packages/ndi`). Größerer nativer Brocken, echt nebenläufig zum Zoom-C++-Strang.
+**Kein Issue → neu anlegen.** Owner-Vorgaben stehen bereits: Karte vorhanden, aber an einem **anderen**
+Rechner (Verifikation dort) · **Slice 1 nur Bild**, Ton als zweite Scheibe · Videoformat **von der Karte
+abfragen** statt festlegen.
 
 ---
 
@@ -103,7 +116,7 @@ Es war der zweite Fall dieser Falle nach JM Connect — der Selbsttest von `@jm/
   Lane C (Proxy-Deploy #61, iveo-URL — schnell, nur Worker/CI) · Lane B (Live-Tests, jetzt inkl. der
   Runtime-Tests für #11 und #208). Lane A ist seit 2026-08-07 abgearbeitet.
 - **Während Stage 1–2** (C++-Bau läuft) 🔵:
-  Lane D Switcher-Decklink (eigener nativer Strang) · neue Kundenwünsche in Lane A.
+  Lane D2 Switcher-Decklink (eigener nativer Strang) · neue Kundenwünsche in Lane A.
 - **Nach Zoom-Release** ⚪: Härtung, dann geparkte Wünsche nach Bedarf.
 
 ---
