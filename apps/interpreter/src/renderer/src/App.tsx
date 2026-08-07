@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { InterpreterEngine, listDevices, type DeviceInfo, type EngineState } from '@/core/engine';
 import { duckSettings, useSettings } from '@/store/settings';
+import { counterpartPresent, detectCable } from '@shared/virtual-cable';
 
 export function App(): JSX.Element {
   // Der Konstruktor der Engine ist nebenwirkungsfrei; die verworfene Instanz aus dem doppelten
@@ -12,6 +13,7 @@ export function App(): JSX.Element {
   const [state, setState] = useState<EngineState>(() => engine.getState());
   const [inputs, setInputs] = useState<DeviceInfo[]>([]);
   const [outputs, setOutputs] = useState<DeviceInfo[]>([]);
+  const [labelsAvailable, setLabelsAvailable] = useState(true);
   const s = useSettings();
 
   useEffect(() => {
@@ -23,11 +25,19 @@ export function App(): JSX.Element {
     };
   }, [engine]);
 
+  // Geräte auch nachziehen, wenn sich die Liste ändert: wer VB-CABLE erst nachinstalliert, soll
+  // die Hinweiskarte ohne Neustart verschwinden sehen.
   useEffect(() => {
-    void listDevices().then(({ inputs, outputs }) => {
-      setInputs(inputs);
-      setOutputs(outputs);
-    });
+    const load = (): void => {
+      void listDevices().then(({ inputs, outputs, labelsAvailable }) => {
+        setInputs(inputs);
+        setOutputs(outputs);
+        setLabelsAvailable(labelsAvailable);
+      });
+    };
+    load();
+    navigator.mediaDevices.addEventListener('devicechange', load);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', load);
   }, []);
 
   // Regler wirken sofort — auch während die Konferenz läuft.
@@ -66,12 +76,12 @@ export function App(): JSX.Element {
         <div className="rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{state.error}</div>
       )}
 
-      {!s.outputId && (
-        <div className="rounded-lg border border-yellow-800 bg-yellow-950/30 p-3 text-sm text-yellow-200">
-          Kein Ausgabegerät gewählt — der Mix geht auf den Systemstandard. Für die Einspeisung in Zoom/Webex ein
-          virtuelles Kabel (z. B. VB-Cable) wählen und dort als <em>Mikrofon</em> auswählen.
-        </div>
-      )}
+      <CableStatus
+        outputId={s.outputId}
+        outputs={outputs}
+        inputs={inputs}
+        labelsAvailable={labelsAvailable}
+      />
 
       <section className="grid gap-3 sm:grid-cols-3">
         <Picker label="Floor (O-Ton)" value={s.floorId} devices={inputs} onChange={(v) => s.set('floorId', v)} />
@@ -233,6 +243,82 @@ function Slider({
         className="w-full accent-yellow-400"
       />
       {hint && <div className="text-[11px] text-neutral-500">{hint}</div>}
+    </div>
+  );
+}
+
+/** Einheitlicher Rahmen fuer die Statuszeilen unter dem Ausgabe-Picker. */
+function Notice({ tone, children }: { tone: 'ok' | 'warn'; children: ReactNode }): JSX.Element {
+  const cls =
+    tone === 'ok'
+      ? 'border-neutral-700 bg-neutral-900 text-neutral-200'
+      : 'border-yellow-800 bg-yellow-950/30 text-yellow-200';
+  return <div className={`rounded-lg border p-3 text-sm ${cls}`}>{children}</div>;
+}
+
+/**
+ * Sagt dauerhaft, was in Zoom zu waehlen ist (#208). Der frueherere Hinweis verschwand, sobald ein
+ * Geraet gewaehlt war — also genau dann, wenn der Operator die Anweisung braucht.
+ */
+function CableStatus({
+  outputId,
+  outputs,
+  inputs,
+  labelsAvailable,
+}: {
+  outputId: string;
+  outputs: DeviceInfo[];
+  inputs: DeviceInfo[];
+  labelsAvailable: boolean;
+}): JSX.Element {
+  if (!labelsAvailable) {
+    return (
+      <Notice tone="warn">
+        Gerätenamen nicht lesbar — bitte die Mikrofonfreigabe erteilen. Ohne sie kann der Interpreter das
+        virtuelle Kabel nicht erkennen.
+      </Notice>
+    );
+  }
+
+  const selected = outputs.find((d) => d.deviceId === outputId);
+  const kind = selected ? detectCable(selected.label) : null;
+
+  if (kind && counterpartPresent(kind, inputs.map((d) => d.label))) {
+    return (
+      <Notice tone="ok">
+        {kind.name} erkannt. In Zoom als <em>Mikrofon</em> wählen: <strong>{kind.zoomInputLabel}</strong>
+      </Notice>
+    );
+  }
+
+  if (kind) {
+    return (
+      <Notice tone="warn">
+        {kind.name} erkannt, aber die Aufnahmeseite <strong>{kind.zoomInputLabel}</strong> fehlt. Der Treiber
+        ist unvollständig installiert oder das Gerät ist in den Windows-Sound-Einstellungen deaktiviert.
+      </Notice>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-yellow-800 bg-yellow-950/30 p-4 text-sm text-yellow-200">
+      <p className="font-bold">Kein virtuelles Kabel gewählt</p>
+      <p className="mt-1 text-yellow-200/80">
+        Zoom und Webex können nur ein <em>Mikrofon</em> abgreifen. Der Interpreter spielt seinen Mix deshalb
+        in ein virtuelles Kabel hinein; in Zoom wird dann das andere Ende desselben Kabels als Mikrofon
+        gewählt. Ohne Kabel geht der Mix auf den Systemstandard und erreicht die Konferenz nicht.
+      </p>
+      <p className="mt-2 text-xs text-yellow-200/60">
+        VB-CABLE ist für private Nutzung Donationware; der gewerbliche Einsatz ist lizenzpflichtig.
+      </p>
+      <button
+        onClick={() => {
+          void window.jminterpreter.openCableDownload().catch(() => {});
+        }}
+        className="mt-3 rounded-lg border border-yellow-700 px-3 py-1.5 text-xs font-semibold hover:bg-yellow-900/40"
+      >
+        VB-CABLE herunterladen
+      </button>
     </div>
   );
 }

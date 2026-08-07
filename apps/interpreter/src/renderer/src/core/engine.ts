@@ -47,9 +47,15 @@ export interface DeviceInfo {
 
 /**
  * Geräte auflisten. Ohne einmal erteilte Mikrofon-Freigabe liefert der Browser leere Labels —
- * deshalb vorher einen Stream anfordern und sofort wieder schließen.
+ * deshalb vorher einen Stream anfordern und sofort wieder schließen. `labelsAvailable` meldet,
+ * ob echte Namen herausgegeben wurden: ohne sie ist keine Kabel-Erkennung möglich, und die
+ * Oberfläche darf das nicht mit „kein Kabel gefunden" verwechseln.
  */
-export async function listDevices(): Promise<{ inputs: DeviceInfo[]; outputs: DeviceInfo[] }> {
+export async function listDevices(): Promise<{
+  inputs: DeviceInfo[];
+  outputs: DeviceInfo[];
+  labelsAvailable: boolean;
+}> {
   try {
     const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
     probe.getTracks().forEach((t) => t.stop());
@@ -61,7 +67,11 @@ export async function listDevices(): Promise<{ inputs: DeviceInfo[]; outputs: De
     all
       .filter((d) => d.kind === kind)
       .map((d) => ({ deviceId: d.deviceId, label: d.label || `${kind} ${d.deviceId.slice(0, 6)}` }));
-  return { inputs: pick('audioinput'), outputs: pick('audiooutput') };
+  return {
+    inputs: pick('audioinput'),
+    outputs: pick('audiooutput'),
+    labelsAvailable: all.some((d) => d.label.trim().length > 0),
+  };
 }
 
 export class InterpreterEngine {
