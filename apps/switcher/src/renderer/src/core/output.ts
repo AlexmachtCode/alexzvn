@@ -10,6 +10,8 @@ export interface OutputState {
   error: string | null;
 }
 
+/** Bildrate des Canvas-Abgriffs, bis der Store seine Einstellung durchreicht. */
+const DEFAULT_FPS = 30;
 const DEFAULT_REC_BITS = 12_000_000;
 const MIN_STREAM_INTERMEDIATE = 8_000_000;
 const TIMESLICE_MS = 500;
@@ -31,6 +33,8 @@ export class OutputController {
   private getCanvas: () => HTMLCanvasElement | null;
   private getAudioTrack: () => MediaStreamTrack | null;
   private canvasStream: MediaStream | null = null;
+  /** Bildrate fuer captureStream. Live umstellbar; wirkt beim naechsten Start eines Recorders. */
+  private fps = DEFAULT_FPS;
   private recRecorder: MediaRecorder | null = null;
   private streamRecorder: MediaRecorder | null = null;
   private state: OutputState = { recording: false, streaming: false, recPath: null, error: null };
@@ -74,6 +78,24 @@ export class OutputController {
     return { ...this.state };
   }
 
+  /**
+   * Bildrate des Canvas-Abgriffs setzen. Laeuft gerade nichts, wird der zwischengespeicherte
+   * Stream verworfen, damit der naechste Start mit der neuen Rate greift.
+   *
+   * Laeuft eine Aufnahme oder Sendung, bleibt der Stream stehen: MediaRecorder-Spuren sind nach
+   * dem Start unveraenderlich (dasselbe gilt fuer den Ton, siehe core/audio.ts). Eine laufende
+   * Sendung dafuer neu zu starten waere schlimmer als die verspaetete Wirkung — die neue Rate
+   * greift beim naechsten Start.
+   */
+  setFps(fps: number): void {
+    const next = fps > 0 ? fps : DEFAULT_FPS;
+    if (next === this.fps) return;
+    this.fps = next;
+    if (this.state.recording || this.state.streaming) return;
+    this.canvasStream?.getTracks().forEach((t) => t.stop());
+    this.canvasStream = null;
+  }
+
   private notify(): void {
     for (const l of this.listeners) l();
   }
@@ -87,7 +109,7 @@ export class OutputController {
     if (this.canvasStream) return this.canvasStream;
     const c = this.getCanvas();
     if (!c) return null;
-    this.canvasStream = c.captureStream(30);
+    this.canvasStream = c.captureStream(this.fps);
     return this.canvasStream;
   }
 
