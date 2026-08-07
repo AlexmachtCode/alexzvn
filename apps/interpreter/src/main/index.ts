@@ -2,7 +2,7 @@
 //
 // Der Main-Prozess ist bewusst dünn — die gesamte Audio-Kette lebt im Renderer (Web Audio).
 // Keine nativen Abhängigkeiten: die App ist dadurch in CI baubar, anders als die NDI-/Audio-Tools.
-import { app, session } from 'electron';
+import { app, ipcMain, session, shell } from 'electron';
 import { join } from 'node:path';
 import { initAppRuntime } from '@jm/app-runtime';
 import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } from '@jm/electron-kit';
@@ -12,6 +12,12 @@ declare const __dirname: string;
 initAppRuntime({ csp: true, appId: 'jm-interpreter', appName: 'JM Interpreter' });
 
 const preloadPath = join(__dirname, '../preload/index.cjs');
+
+/**
+ * Bezugsquelle des empfohlenen virtuellen Kabels (#208). Die Adresse steht hier und NICHT im
+ * Renderer: der IPC-Kanal nimmt keine URL entgegen, damit kein offener openExternal-Kanal entsteht.
+ */
+const CABLE_DOWNLOAD_URL = 'https://vb-audio.com/Cable/';
 
 function iconPath(): string {
   return resourcePath('icon.png', join(__dirname, '..', '..', 'resources'));
@@ -52,6 +58,8 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     // Mikrofon-Zugriff für getUserMedia im Renderer (Muster aus caption/sync). Nur `media`.
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
+
+    ipcMain.handle('cable:openDownload', () => shell.openExternal(CABLE_DOWNLOAD_URL));
 
     createWindow();
     app.on('activate', () => showOrCreateWindow());
