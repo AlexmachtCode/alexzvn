@@ -72,10 +72,25 @@ IDeckLinkIterator* NewIterator() {
   return SUCCEEDED(hr) ? it : nullptr;
 }
 
-/** Die n-te Karte holen. Aufrufer gibt frei. nullptr, wenn es sie nicht gibt. */
-IDeckLink* DeviceAt(uint32_t index) {
+/**
+ * Die n-te Karte holen. Der Aufrufer gibt sie frei.
+ *
+ * Bei Misserfolg liefert die Funktion eine UNTERSCHEIDBARE Begruendung statt eines blossen
+ * nullptr: fehlender Treiber, gar keine Karte und "diesen Index gibt es nicht" sind drei
+ * verschiedene Ursachen und verlangen drei verschiedene Meldungen. Eine gemeinsame Meldung
+ * zerstoert genau die Diagnose, fuer die man sie braucht.
+ *
+ * `errorOut` zeigt danach auf eine statische Zeichenkette oder auf nullptr bei Erfolg.
+ */
+IDeckLink* DeviceAt(uint32_t index, const char** errorOut) {
+  if (errorOut) *errorOut = nullptr;
+
   IDeckLinkIterator* it = NewIterator();
-  if (!it) return nullptr;
+  if (!it) {
+    if (errorOut) *errorOut = "Blackmagic Desktop Video ist nicht installiert.";
+    return nullptr;
+  }
+
   IDeckLink* dev = nullptr;
   uint32_t i = 0;
   while (it->Next(&dev) == S_OK) {
@@ -88,6 +103,11 @@ IDeckLink* DeviceAt(uint32_t index) {
     i++;
   }
   it->Release();
+
+  if (errorOut) {
+    // i ist jetzt die Anzahl gefundener Karten.
+    *errorOut = (i == 0) ? "Keine Blackmagic-Karte gefunden." : "Keine Karte mit diesem Index.";
+  }
   return nullptr;
 }
 
@@ -157,9 +177,10 @@ Napi::Value ListOutputModes(const Napi::CallbackInfo& info) {
   }
   const uint32_t index = info[0].As<Napi::Number>().Uint32Value();
 
-  IDeckLink* dev = DeviceAt(index);
+  const char* lookupError = nullptr;
+  IDeckLink* dev = DeviceAt(index, &lookupError);
   if (!dev) {
-    ThrowJs(env, "Keine Karte mit diesem Index.");
+    ThrowJs(env, lookupError ? lookupError : "Keine Karte mit diesem Index.");
     return env.Undefined();
   }
 
