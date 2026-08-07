@@ -29,7 +29,7 @@ export interface SettingsState {
   ndiOutputSource: 'program' | 'multiview';
   /** Auflösung, in der das Programm komponiert und ausgegeben wird (NDI/Aufnahme/RTMP). */
   programResolution: ProgramResolution;
-  /** Bildrate der NDI-Ausgabe. */
+  /** Bildrate aller Ausgaben: NDI, zweiter Bildschirm, Aufnahme und RTMP. */
   outputFps: number;
   /** Zweiter Bildschirm (Vollbild-Programm-Ausgabe auf einem Monitor) aktiv? */
   secondScreenEnabled: boolean;

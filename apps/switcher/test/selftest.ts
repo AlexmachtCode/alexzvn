@@ -23,6 +23,23 @@ for (const kind of ['stream', 'record'] as const) {
   }
 }
 
+// Relationen allein wuerden ein stilles Abrutschen (6000 -> 5000) nicht bemerken — die Spec
+// nennt konkrete Zahlen, also pruefen wir konkrete Zahlen.
+const EXPECTED: Record<'stream' | 'record', Record<'720p' | '1080p', { min: number; max: number }>> = {
+  stream: { '720p': { min: 3000, max: 6000 }, '1080p': { min: 6000, max: 12000 } },
+  record: { '720p': { min: 8000, max: 16000 }, '1080p': { min: 16000, max: 32000 } },
+};
+for (const kind of ['stream', 'record'] as const) {
+  for (const res of ['720p', '1080p'] as const) {
+    const got = recommendedBitrate(res, kind);
+    const want = EXPECTED[kind][res];
+    assert(
+      got.min === want.min && got.max === want.max,
+      `${kind}/${res}: genau ${want.min}-${want.max} kbit/s`,
+    );
+  }
+}
+
 // Full-HD hat rund die 2,25-fache Pixelzahl — die Empfehlung MUSS darueber liegen,
 // sonst sieht 1080p bei unveraenderter Bitrate schlechter aus als 720p. Genau das
 // war der Ausgangspunkt von Lane D1.

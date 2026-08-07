@@ -10,8 +10,9 @@ export interface OutputState {
   error: string | null;
 }
 
-/** Bildrate des Canvas-Abgriffs, bis der Store seine Einstellung durchreicht. */
-const DEFAULT_FPS = 30;
+/** Bildrate des Canvas-Abgriffs, bis der Store seine Einstellung durchreicht.
+ *  Gleicher Rueckfallwert wie in ndiOutput.ts und screenOutput.ts. */
+const DEFAULT_FPS = 25;
 const DEFAULT_REC_BITS = 12_000_000;
 const MIN_STREAM_INTERMEDIATE = 8_000_000;
 const TIMESLICE_MS = 500;
@@ -33,7 +34,7 @@ export class OutputController {
   private getCanvas: () => HTMLCanvasElement | null;
   private getAudioTrack: () => MediaStreamTrack | null;
   private canvasStream: MediaStream | null = null;
-  /** Bildrate fuer captureStream. Live umstellbar; wirkt beim naechsten Start eines Recorders. */
+  /** Bildrate fuer captureStream. Live umstellbar; greift, sobald der Abgriff frei ist — s. setFps. */
   private fps = DEFAULT_FPS;
   /** Eine Bildratenaenderung wartet darauf, dass der Canvas-Abgriff frei wird. */
   private fpsDirty = false;
@@ -88,10 +89,14 @@ export class OutputController {
    * Bildrate des Canvas-Abgriffs setzen. Der zwischengespeicherte Abgriff wird verworfen, sobald
    * ihn niemand mehr benutzt — der naechste Start greift dann mit der neuen Rate ab.
    *
-   * Laeuft eine Aufnahme oder Sendung, bleibt der Stream stehen: MediaRecorder-Spuren sind nach
+   * Laeuft eine Aufnahme oder Sendung, bleibt der Abgriff stehen: MediaRecorder-Spuren sind nach
    * dem Start unveraenderlich (dasselbe gilt fuer den Ton, siehe core/audio.ts). Eine laufende
-   * Sendung dafuer neu zu starten waere schlimmer als die verspaetete Wirkung — die neue Rate
-   * greift beim naechsten Start.
+   * Sendung dafuer neu zu starten waere schlimmer als die verspaetete Wirkung.
+   *
+   * ACHTUNG — die neue Rate greift NICHT schlicht „beim naechsten Start": Aufnahme und Sendung
+   * teilen sich EINEN Abgriff. Wird waehrend einer laufenden Ausgabe eine zweite gestartet,
+   * bekommt auch die zweite noch die alte Rate; verworfen wird der Abgriff erst, wenn beide
+   * beendet sind. Die Oberflaeche formuliert es genauso.
    */
   setFps(fps: number): void {
     const next = fps > 0 ? fps : DEFAULT_FPS;
@@ -270,6 +275,10 @@ export class OutputController {
     this.offStatus = null;
     this.canvasStream?.getTracks().forEach((t) => t.stop());
     this.canvasStream = null;
+    // Der Abgriff ist weg — eine wartende Bildratenaenderung hat sich damit erledigt.
+    // `pendingStarts` bleibt bewusst unangetastet: ein noch laufendes `finally` wuerde
+    // sonst auf -1 zaehlen und die `> 0`-Sperre beim naechsten Start still aushebeln.
+    this.fpsDirty = false;
     this.listeners.clear();
   }
 }

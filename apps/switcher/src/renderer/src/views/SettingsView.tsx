@@ -121,14 +121,15 @@ export function SettingsView() {
               ? 'Programm-Ton der gewählten Audioquelle'
               : 'stille AAC-Spur (keine Audioquelle gewählt)'}
             . Der Stream wird aus dem Program-Bild kodiert (libx264, zerolatency) — die Auflösung
-            folgt der Programm-Auflösung, es wird nie hochskaliert. Eine geänderte Bildrate wirkt
-            bei laufender Aufnahme oder Sendung erst beim nächsten Start.
+            folgt der Programm-Auflösung, es wird nie hochskaliert. Eine geänderte Bildrate greift,
+            sobald weder Aufnahme noch Sendung läuft — solange eine von beiden läuft, behält auch
+            eine neu gestartete zweite Ausgabe die bisherige Rate.
           </p>
         </section>
 
         <section className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)] p-5 flex flex-col gap-5">
           <h2 className="text-[11px] uppercase tracking-[0.14em] font-extrabold text-[var(--muted-foreground)]">
-            NDI-Ausgabe
+            NDI-Ausgabe &amp; Programm-Format
           </h2>
           <label className="flex flex-col gap-1.5 max-w-md">
             <span className="text-sm font-bold">NDI-Quellname</span>
@@ -161,7 +162,7 @@ export function SettingsView() {
               </select>
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-bold">NDI-Bildrate</span>
+              <span className="text-sm font-bold">Ausgabe-Bildrate</span>
               <select
                 value={outputFps}
                 onChange={(e) => setOutputFps(Number(e.target.value))}
@@ -176,7 +177,8 @@ export function SettingsView() {
             </label>
           </div>
           <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
-            Gilt für NDI, Aufnahme und RTMP — das Programm wird in dieser Auflösung komponiert
+            Auflösung und Bildrate gelten für alle Ausgaben — NDI, Aufnahme, RTMP und den zweiten
+            Bildschirm. Das Programm wird in dieser Auflösung komponiert
             (kein Hochskalieren). <span className="font-semibold text-[var(--foreground)]">1080p</span> ist
             echtes Full-HD und kostet mehr Rechenleistung; auf schwächeren Rechnern
             <span className="font-semibold text-[var(--foreground)]"> 720p</span> wählen. Das Multiview
