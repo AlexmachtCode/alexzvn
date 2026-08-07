@@ -28,6 +28,7 @@ export function bundledModelsDir(): string {
 
 // whisper.cpp-Releases benennen die CLI je nach Version unterschiedlich.
 const WHISPER_NAMES = ['whisper-cli', 'whisper', 'main'];
+const WHISPER_SERVER_NAMES = ['whisper-server'];
 
 /** Pfad zur whisper-CLI (gebündelt bevorzugt, sonst PATH) oder null. */
 export function whisperPath(): string | null {
@@ -36,6 +37,15 @@ export function whisperPath(): string | null {
     if (existsSync(p)) return p;
   }
   // Dev/Fallback: im PATH (Codespace hat i. d. R. keine Binary → null).
+  return null;
+}
+
+/** Pfad zum persistenten whisper-server (gebündelt) oder null. */
+export function whisperServerPath(): string | null {
+  for (const name of WHISPER_SERVER_NAMES) {
+    const p = path.join(bundledBinDir(), exe(name));
+    if (existsSync(p)) return p;
+  }
   return null;
 }
 

@@ -1,11 +1,14 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+import type { JmInterpreterApi } from '@shared/api';
 
-// Der Interpreter braucht (noch) nichts vom Main: die Audio-Kette lebt vollständig im Renderer.
-// Die Brücke existiert trotzdem, damit `sandbox: true` + `contextIsolation` das Muster der Suite
-// beibehalten und spätere Ergänzungen (Steuerserver, Presets) hier andocken.
-const api = { platform: process.platform };
+// Die Audio-Kette lebt vollstaendig im Renderer; vom Main braucht der Interpreter nur den
+// Download-Verweis auf das virtuelle Kabel (#208).
+const api: JmInterpreterApi = {
+  platform: process.platform,
+  openCableDownload: () => ipcRenderer.invoke('cable:openDownload') as Promise<void>,
+};
 
-export type JmInterpreterApi = typeof api;
+export type { JmInterpreterApi };
 
 if (process.contextIsolated) {
   contextBridge.exposeInMainWorld('jminterpreter', api);

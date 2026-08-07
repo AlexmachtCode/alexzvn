@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { InterpreterEngine, listDevices, type DeviceInfo, type EngineState } from '@/core/engine';
 import { duckSettings, useSettings } from '@/store/settings';
+import { counterpartPresent, detectCable, zoomInputDisplayName } from '@shared/virtual-cable';
 
 export function App(): JSX.Element {
   // Der Konstruktor der Engine ist nebenwirkungsfrei; die verworfene Instanz aus dem doppelten
@@ -12,6 +13,11 @@ export function App(): JSX.Element {
   const [state, setState] = useState<EngineState>(() => engine.getState());
   const [inputs, setInputs] = useState<DeviceInfo[]>([]);
   const [outputs, setOutputs] = useState<DeviceInfo[]>([]);
+  const [labelsAvailable, setLabelsAvailable] = useState(true);
+  // Vor dem ersten listDevices()-Ergebnis ist die Liste leer. Ohne dieses Flag würde ein aus
+  // dem Store wiederhergestelltes outputId sofort "Gerät nicht verfügbar" behaupten (#208) —
+  // ein Fehlalarm bei jedem Start, bis die echte Geräteliste da ist.
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
   const s = useSettings();
 
   useEffect(() => {
@@ -23,11 +29,45 @@ export function App(): JSX.Element {
     };
   }, [engine]);
 
+  // Geräte auch nachziehen, wenn sich die Liste ändert: wer VB-CABLE erst nachinstalliert, soll
+  // die Hinweiskarte ohne Neustart verschwinden sehen.
+  //
+  // Windows feuert `devicechange` bei einer Treiberinstallation mehrfach hintereinander. Ohne
+  // Bündelung könnte ein älterer, länger laufender Aufruf einen bereits eingetroffenen jüngeren
+  // Snapshot überschreiben — die Karte bliebe dann stehen, obwohl das Kabel schon da ist, genau
+  // das Gegenteil des Katalogversprechens "ohne Neustart erkannt". Ein nachlaufender Debounce
+  // bündelt die Serie, der Generationszähler verwirft zusätzlich jedes Ergebnis, das nicht mehr
+  // zum jüngsten angestoßenen Aufruf gehört.
   useEffect(() => {
-    void listDevices().then(({ inputs, outputs }) => {
-      setInputs(inputs);
-      setOutputs(outputs);
-    });
+    let generation = 0;
+    let knownLabels = false;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const load = (): void => {
+      const myGeneration = ++generation;
+      // Die Mikrofon-Probe ist nur nötig, solange noch keine Gerätenamen bekannt sind — danach
+      // erspart sie dem Operator unnötige Mikrofon-Öffnungen im Livebetrieb.
+      void listDevices(!knownLabels).then(({ inputs, outputs, labelsAvailable }) => {
+        if (myGeneration !== generation) return; // ein jüngerer Aufruf ist inzwischen unterwegs
+        setInputs(inputs);
+        setOutputs(outputs);
+        setLabelsAvailable(labelsAvailable);
+        setDevicesLoaded(true);
+        if (labelsAvailable) knownLabels = true;
+      });
+    };
+
+    const onDeviceChange = (): void => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(load, 500);
+    };
+
+    load();
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, []);
 
   // Regler wirken sofort — auch während die Konferenz läuft.
@@ -66,13 +106,6 @@ export function App(): JSX.Element {
         <div className="rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{state.error}</div>
       )}
 
-      {!s.outputId && (
-        <div className="rounded-lg border border-yellow-800 bg-yellow-950/30 p-3 text-sm text-yellow-200">
-          Kein Ausgabegerät gewählt — der Mix geht auf den Systemstandard. Für die Einspeisung in Zoom/Webex ein
-          virtuelles Kabel (z. B. VB-Cable) wählen und dort als <em>Mikrofon</em> auswählen.
-        </div>
-      )}
-
       <section className="grid gap-3 sm:grid-cols-3">
         <Picker label="Floor (O-Ton)" value={s.floorId} devices={inputs} onChange={(v) => s.set('floorId', v)} />
         <Picker
@@ -89,6 +122,16 @@ export function App(): JSX.Element {
           allowDefault
         />
       </section>
+
+      <CableStatus
+        outputId={s.outputId}
+        outputs={outputs}
+        inputs={inputs}
+        labelsAvailable={labelsAvailable}
+        devicesLoaded={devicesLoaded}
+        running={state.running}
+        startedOutputId={state.startedOutputId}
+      />
 
       <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
         <div className="mb-3 flex items-center justify-between">
@@ -234,5 +277,173 @@ function Slider({
       />
       {hint && <div className="text-[11px] text-neutral-500">{hint}</div>}
     </div>
+  );
+}
+
+/** Einheitlicher Rahmen fuer die Statuszeilen unter dem Ausgabe-Picker. */
+function Notice({ tone, children }: { tone: 'ok' | 'warn'; children: ReactNode }): JSX.Element {
+  // 'ok' bekommt eine erkennbar positive Farbe: die eine Zeile, die den ganzen Fix traegt, darf
+  // nicht wie Dekor unter den umgebenden neutralen Flaechen verschwinden (#208).
+  const cls =
+    tone === 'ok'
+      ? 'border-emerald-700 bg-emerald-950/30 text-emerald-200'
+      : 'border-yellow-800 bg-yellow-950/30 text-yellow-200';
+  return <div className={`rounded-lg border p-3 text-sm ${cls}`}>{children}</div>;
+}
+
+/** Gemeinsamer Fuss der Erklaerkarte: Lizenzsatz + Download-Knopf, in beiden Karten-Varianten gleich. */
+function CableDownloadFooter(): JSX.Element {
+  return (
+    <>
+      <p className="mt-2 text-xs text-yellow-200/60">
+        VB-CABLE ist für private Nutzung Donationware; der gewerbliche Einsatz ist lizenzpflichtig.
+      </p>
+      <button
+        onClick={() => {
+          // Defensiv: window.jminterpreter kann fehlen, falls das Preload (noch) nicht geladen
+          // hat — sonst wirft schon der Property-Zugriff, bevor `.catch()` greifen kann.
+          void window.jminterpreter?.openCableDownload().catch(() => {});
+        }}
+        className="mt-3 rounded-lg border border-yellow-700 px-3 py-1.5 text-xs font-semibold hover:bg-yellow-900/40"
+      >
+        VB-CABLE herunterladen
+      </button>
+    </>
+  );
+}
+
+/**
+ * Meldet den Zustand des gerade wirksamen Ausgabegeraets — Kabel erkannt, Gegenseite fehlt,
+ * unbekanntes Geraet, oder gar keins gewaehlt. Getrennt von `CableStatus`, weil der waehrend des
+ * Betriebs nicht unbedingt der aktuelle Picker-Wert ist (siehe dort).
+ */
+function deviceCableNotice(outputId: string, outputs: DeviceInfo[], inputs: DeviceInfo[]): JSX.Element {
+  const selected = outputs.find((d) => d.deviceId === outputId);
+
+  if (outputId && !selected) {
+    return (
+      <Notice tone="warn">
+        Das gewählte Ausgabegerät ist derzeit nicht verfügbar. Der Mix geht auf den Systemstandard und
+        erreicht die Konferenz nicht.
+      </Notice>
+    );
+  }
+
+  const kind = selected ? detectCable(selected.label) : null;
+  const inputLabels = inputs.map((d) => d.label);
+
+  if (kind) {
+    if (!counterpartPresent(kind, inputLabels)) {
+      return (
+        <Notice tone="warn">
+          {kind.name} erkannt, aber unter dem Namen <strong>{kind.zoomInputLabel}</strong> wurde keine
+          Aufnahmeseite gefunden. Mögliche Ursachen: der Treiber ist unvollständig installiert, das Gerät ist
+          in den Windows-Sound-Einstellungen deaktiviert — oder es wurde dort umbenannt.
+        </Notice>
+      );
+    }
+
+    // Der TATSAECHLICH gefundene Geraetename, nicht die feste Konstante: die Muster akzeptieren
+    // bewusst Namensvarianten, die es auf diesem Rechner so gar nicht gibt (#208).
+    const zoomName = zoomInputDisplayName(kind, inputLabels);
+
+    if (kind.needsRouting) {
+      // VoiceMeeter (wie Dante) verbindet Ein- und Ausgang nicht von allein — Warnton statt
+      // Erfolgston, plus der Zusatzhinweis, was im VoiceMeeter noch zu tun ist.
+      return (
+        <Notice tone="warn">
+          {kind.name} erkannt. In Zoom als <em>Mikrofon</em> wählen: <strong>{zoomName}</strong>. {kind.routingHint}
+        </Notice>
+      );
+    }
+
+    return (
+      <Notice tone="ok">
+        {kind.name} erkannt. In Zoom als <em>Mikrofon</em> wählen: <strong>{zoomName}</strong>
+      </Notice>
+    );
+  }
+
+  if (!outputId) {
+    return (
+      <div className="rounded-lg border border-yellow-800 bg-yellow-950/30 p-4 text-sm text-yellow-200">
+        <p className="font-bold">Kein virtuelles Kabel gewählt</p>
+        <p className="mt-1 text-yellow-200/80">
+          Zoom und Webex können nur ein <em>Mikrofon</em> abgreifen. Der Interpreter spielt seinen Mix deshalb
+          in ein virtuelles Kabel hinein; in Zoom wird dann das andere Ende desselben Kabels als Mikrofon
+          gewählt. Ohne Kabel geht der Mix auf den Systemstandard und erreicht die Konferenz nicht.
+        </p>
+        <CableDownloadFooter />
+      </div>
+    );
+  }
+
+  // Ein Geraet ist bewusst gewaehlt, aber keins der bekannten Kabel (z. B. Dante, Realtek): der
+  // Mix geht sehr wohl dorthin — anders als im "nichts gewaehlt"-Fall oben darf das hier nicht
+  // behauptet werden (#208).
+  return (
+    <div className="rounded-lg border border-yellow-800 bg-yellow-950/30 p-4 text-sm text-yellow-200">
+      <p className="font-bold">{selected!.label}: kein bekanntes virtuelles Kabel</p>
+      <p className="mt-1 text-yellow-200/80">
+        Der Mix geht auf dieses Gerät. Es ist aber kein virtuelles Kabel, das der Interpreter kennt, und für
+        Zoom/Webex wird eines gebraucht, damit die Konferenz den Ton als Mikrofon abgreifen kann. Sonderwege
+        (z. B. eigenes Routing) bleiben davon unbenommen möglich.
+      </p>
+      <CableDownloadFooter />
+    </div>
+  );
+}
+
+/**
+ * Sagt dauerhaft, was in Zoom zu waehlen ist (#208). Der frueherere Hinweis verschwand, sobald ein
+ * Geraet gewaehlt war — also genau dann, wenn der Operator die Anweisung braucht.
+ */
+function CableStatus({
+  outputId,
+  outputs,
+  inputs,
+  labelsAvailable,
+  devicesLoaded,
+  running,
+  startedOutputId,
+}: {
+  outputId: string;
+  outputs: DeviceInfo[];
+  inputs: DeviceInfo[];
+  labelsAvailable: boolean;
+  devicesLoaded: boolean;
+  running: boolean;
+  startedOutputId: string | null;
+}): JSX.Element | null {
+  // Vor dem ersten listDevices()-Ergebnis ist die Liste leer — noch nichts Alarmierendes
+  // behaupten, sonst meldet ein gespeichertes outputId faelschlich "nicht verfuegbar" (#208).
+  if (!devicesLoaded) return null;
+
+  if (!labelsAvailable) {
+    return (
+      <Notice tone="warn">
+        Gerätenamen nicht lesbar — bitte die Mikrofonfreigabe erteilen. Ohne sie kann der Interpreter das
+        virtuelle Kabel nicht erkennen.
+      </Notice>
+    );
+  }
+
+  // `engine.route()` laeuft nur in `start()` — stellt der Operator den Ausgabe-Picker waehrend des
+  // Betriebs um, sendet der Mix unveraendert auf das beim Start gewaehlte Geraet weiter. Die
+  // Anzeige richtet sich deshalb nach dem GESTARTETEN Geraet, nicht nach dem aktuellen Picker-
+  // Wert, und bekommt zusaetzlich einen eigenen Hinweis, dass die Umstellung noch nicht wirkt.
+  const pendingChange = running && startedOutputId !== null && outputId !== startedOutputId;
+  const effectiveOutputId = running && startedOutputId !== null ? startedOutputId : outputId;
+
+  return (
+    <>
+      {pendingChange && (
+        <Notice tone="warn">
+          Das Ausgabegerät wurde geändert, der Interpreter sendet aber noch auf das beim Start gewählte Gerät.
+          Die Änderung wirkt erst, wenn er <strong>gestoppt und erneut gestartet</strong> wird.
+        </Notice>
+      )}
+      {deviceCableNotice(effectiveOutputId, outputs, inputs)}
+    </>
   );
 }

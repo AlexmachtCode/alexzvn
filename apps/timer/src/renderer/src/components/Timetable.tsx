@@ -4,6 +4,7 @@ import {
   getCountdownRemaining,
   getProjectedEndMs,
   getProjectedSchedule,
+  computeDrift,
   isCountdownPaused,
   isCountdownRunning,
 } from '@/store/timer';
@@ -36,6 +37,7 @@ export function Timetable() {
   const remaining = getCountdownRemaining(cd, now);
   const endsAt = getProjectedEndMs(cd, now);
   const schedule = getProjectedSchedule(tt, cd, now);
+  const drift = computeDrift(tt, cd, now);
 
   const [importOpen, setImportOpen] = useState(false);
 
@@ -56,6 +58,18 @@ export function Timetable() {
         <SectionHeader>Timetable · Regieplan</SectionHeader>
         <div className="flex items-center gap-2">
           <StatusPill status={status}>{statusLabel}</StatusPill>
+          {drift.driftMs !== null && (
+            <span
+              className="text-xs font-extrabold tabular px-2 py-1 rounded-[var(--radius)]"
+              style={{
+                color: drift.driftMs > 30_000 ? 'var(--destructive)' : drift.driftMs < -30_000 ? 'var(--primary)' : 'var(--muted-foreground)',
+                background: 'var(--card)',
+              }}
+              title="Soll/Ist-Drift der Show"
+            >
+              {driftPillText(drift.driftMs)}
+            </span>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -212,12 +226,13 @@ export function Timetable() {
               </span>
             </div>
 
-            <div className="grid grid-cols-[36px_minmax(0,1fr)_120px_minmax(0,1fr)_88px_136px] gap-3 px-4 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-extrabold">
+            <div className="grid grid-cols-[36px_minmax(0,1fr)_96px_120px_minmax(0,1fr)_96px_136px] gap-3 px-4 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-extrabold">
               <span className="text-center">#</span>
               <span>Titel</span>
+              <span className="text-center">Soll</span>
               <span className="text-center">Dauer</span>
               <span>Notiz</span>
-              <span className="text-center">Status / Start</span>
+              <span className="text-center">Ist / Δ</span>
               <span className="text-right">Aktionen</span>
             </div>
 
@@ -239,6 +254,7 @@ export function Timetable() {
                     total={tt.items.length}
                     status={status}
                     projectedStartMs={schedule[idx]}
+                    deltaMs={drift.perItem[idx]?.deltaMs ?? null}
                   />
                 );
               })}
@@ -281,4 +297,15 @@ function formatWallClock(ms: number): string {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+function driftPillText(ms: number): string {
+  const abs = Math.abs(ms);
+  if (abs <= 30_000) return 'pünktlich';
+  const total = Math.round(abs / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const hms = h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+  return ms > 0 ? `${hms} hinter Plan` : `${hms} vor Plan`;
 }

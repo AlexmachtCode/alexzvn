@@ -560,6 +560,45 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.11.1",
+        "date": "2026-08-07",
+        "notes": [
+          "Behebt: Der Timer blieb im installierten Build dauerhaft auf Offline stehen — Knoepfe, Import und das Anlegen von Programmpunkten blieben wirkungslos. Ursache war eine zu enge Sicherheitsregel, die die Verbindung des Fensters zum eigenen Timer-Server blockierte.",
+          "Betraf alle Installer ab 0.5.0. In der Entwicklungsumgebung trat der Fehler nie auf."
+        ]
+      },
+      {
+        "version": "0.11.0",
+        "date": "2026-08-06",
+        "notes": [
+          "Aus iveo uebernommene Ablaeufe bringen jetzt die geplanten Startzeiten mit — die Soll-Ist-Drift steht sofort, ohne Zeiten nachzutragen.",
+          "Ausserdem uebernimmt der Timer Kategorie und (sofern iveo sie verknuepft) Verantwortlich je Programmpunkt."
+        ]
+      },
+      {
+        "version": "0.10.0",
+        "date": "2026-08-06",
+        "notes": [
+          "Verantwortlich + Kategorie: Jeder Programmpunkt kann jetzt Verantwortlich und Kategorie tragen (Spalten im XLSX oder im Operator unter dem Titel editierbar) und exportiert sie wieder mit."
+        ]
+      },
+      {
+        "version": "0.9.0",
+        "date": "2026-08-04",
+        "notes": [
+          "Import-Zuordnung: Beim XLSX-Import ordnest du Titel, Startzeit, Dauer und Notiz jetzt selbst einer Tabellenspalte zu, falls die automatische Erkennung danebenliegt. Die Vorschau aktualisiert sich sofort.",
+          "Auch Dateien ohne saubere Kopfzeile lassen sich so importieren."
+        ]
+      },
+      {
+        "version": "0.8.0",
+        "date": "2026-08-04",
+        "notes": [
+          "Geplante Startzeiten: Programmpunkte koennen eine Soll-Uhrzeit tragen (Spalte Startzeit im XLSX oder im Operator). Leere Punkte ergeben sich aus der Kette; feste Uhrzeiten sind Fixslots.",
+          "Soll-Ist-Drift: Der Operator zeigt je Zeile die projizierte Ist-Uhrzeit samt Delta und oben eine Pille Show hinter/vor Plan."
+        ]
+      },
+      {
         "version": "0.7.0",
         "date": "2026-07-05",
         "notes": [
@@ -1341,6 +1380,14 @@
     "name": "JM Caption",
     "entries": [
       {
+        "version": "0.4.0",
+        "date": "2026-08-04",
+        "notes": [
+          "Fachwörter-Wörterbuch: Eigennamen und Fachbegriffe (eine je Zeile im Erweitert-Bereich) werden jetzt zuverlässiger erkannt.",
+          "Schnellere Transkription: Ein persistenter whisper-Server hält das Modell geladen, statt es je Äußerung neu zu laden — deutlich weniger Wartezeit. Ein CLI-Fallback springt ein, falls der Server nicht bereit ist."
+        ]
+      },
+      {
         "version": "0.3.1",
         "date": "2026-07-10",
         "notes": [
@@ -1395,6 +1442,14 @@
     "app": "interpreter",
     "name": "JM Interpreter",
     "entries": [
+      {
+        "version": "0.2.0",
+        "date": "2026-08-07",
+        "notes": [
+          "Der Interpreter erkennt jetzt bekannte virtuelle Kabel (VB-CABLE, VoiceMeeter) und nennt dauerhaft das Geraet, das in Zoom als Mikrofon zu waehlen ist — der Hinweis verschwindet nicht mehr, sobald ein Ausgabegeraet gewaehlt wurde.",
+          "Ist kein Kabel vorhanden, erklaert eine Karte den Zusammenhang und verweist auf den Download. Ein nachtraeglich installiertes Kabel wird ohne Neustart erkannt."
+        ]
+      },
       {
         "version": "0.1.0",
         "date": "2026-07-09",

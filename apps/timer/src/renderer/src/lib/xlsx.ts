@@ -2,13 +2,23 @@
 // Pflicht (Countdown), und der Export trägt Timer-Dateinamen + eine Beispiel-
 // vorlage. Die gemeinsame Parse-/Export-Logik (mit JM Rundown geteilt) liegt im
 // Paket — vorher war sie hier dupliziert.
-import { parseRegieplan, rowsToAoa, exportRegieplanXlsx, REGIEPLAN_HEADER } from '@jm/regieplan';
+import { inspectRegieplan, extractRowsFromMapping, rowsToAoa, exportRegieplanXlsx, REGIEPLAN_HEADER } from '@jm/regieplan';
+import type { ColumnMapping } from '@jm/regieplan';
 
-export type { ParsedRow, ParseResult } from '@jm/regieplan';
+export type { ParsedRow, ParseResult, InspectResult, ColumnMapping, AvailableColumn } from '@jm/regieplan';
 
-/** XLSX/XLS/CSV in Timetable-Items parsen — Timer: Dauer-Spalte erforderlich. */
-export function parseXlsx(buffer: ArrayBuffer) {
-  return parseRegieplan(buffer, { requireDuration: true });
+/** Datei inspizieren (Timer: Dauer für die Auto-Vorbelegung bevorzugt). */
+export function inspectXlsx(buffer: ArrayBuffer) {
+  return inspectRegieplan(buffer, { requireDuration: true });
+}
+
+/** Zeilen aus einem (evtl. manuell korrigierten) Mapping bauen — Timer: Dauer Pflicht. */
+export function extractRows(
+  rawRows: Array<Record<string, unknown>>,
+  headerRow: number,
+  mapping: ColumnMapping,
+) {
+  return extractRowsFromMapping(rawRows, headerRow, mapping, { requireDuration: true });
 }
 
 /**
@@ -19,11 +29,11 @@ export async function downloadTemplate(): Promise<void> {
   await exportRegieplanXlsx(
     [
       [...REGIEPLAN_HEADER],
-      ['Begrüßung', '00:05:00', 'Einlauf / Moderation'],
-      ['Keynote', '00:30:00', ''],
-      ['Pause', '00:15:00', 'Catering'],
-      ['Podiumsdiskussion', '00:45:00', '3 Gäste'],
-      ['Abschluss', '00:10:00', ''],
+      ['Begrüßung', '09:00', '00:05:00', 'Einlauf / Moderation', 'Anna', 'Moderation'],
+      ['Keynote', '', '00:30:00', '', 'Dr. Berg', 'Vortrag'],
+      ['Pause', '', '00:15:00', 'Catering', '', 'Pause'],
+      ['Podiumsdiskussion', '12:00', '00:45:00', '3 Gäste (Fixslot)', 'Lena', 'Talk'],
+      ['Abschluss', '', '00:10:00', '', 'Anna', 'Moderation'],
     ],
     'JM-Timer-Regieplan-Vorlage.xlsx',
   );
@@ -34,7 +44,7 @@ export async function downloadTemplate(): Promise<void> {
  * Format, das JM Rundown importiert (und umgekehrt).
  */
 export async function exportTimetable(
-  items: Array<{ label: string; durationMs: number; note?: string }>,
+  items: Array<{ label: string; durationMs: number; note?: string; plannedStartMs?: number; owner?: string; category?: string }>,
 ): Promise<void> {
   await exportRegieplanXlsx(rowsToAoa(items), 'JM-Timer-Ablauf.xlsx');
 }

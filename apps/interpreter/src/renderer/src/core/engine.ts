@@ -31,6 +31,13 @@ export interface EngineState {
   floorDb: number;
   interpreterDb: number;
   error: string | null;
+  /**
+   * Ausgabegeraet, mit dem zuletzt GESTARTET wurde (#208). `engine.route()` laeuft nur in
+   * `start()` — stellt der Operator waehrend des Betriebs den Ausgabe-Picker um, klingt der Mix
+   * unveraendert auf diesem Geraet weiter. Die Oberflaeche braucht diesen Wert, um das nicht zu
+   * erraten: null, solange die Engine nicht laeuft.
+   */
+  startedOutputId: string | null;
 }
 
 export interface Devices {
@@ -47,21 +54,38 @@ export interface DeviceInfo {
 
 /**
  * Geräte auflisten. Ohne einmal erteilte Mikrofon-Freigabe liefert der Browser leere Labels —
- * deshalb vorher einen Stream anfordern und sofort wieder schließen.
+ * deshalb vorher einen Stream anfordern und sofort wieder schließen. `labelsAvailable` meldet,
+ * ob echte Namen herausgegeben wurden: ohne sie ist keine Kabel-Erkennung möglich, und die
+ * Oberfläche darf das nicht mit „kein Kabel gefunden" verwechseln.
+ *
+ * `withProbe` (Vorgabe `true`) steuert, ob dafür ein `getUserMedia`-Probestream angefordert wird.
+ * Das kostet eine (kurz aufblitzende) Mikrofon-Öffnung — nötig, solange noch keine Namen bekannt
+ * sind, im Livebetrieb (Geräte bereits benannt, `devicechange` feuert erneut) aber überflüssig.
+ * Aufrufer, die die Labels schon kennen, übergeben `false`.
  */
-export async function listDevices(): Promise<{ inputs: DeviceInfo[]; outputs: DeviceInfo[] }> {
-  try {
-    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
-    probe.getTracks().forEach((t) => t.stop());
-  } catch {
-    // Verweigert: wir listen trotzdem, die Labels bleiben dann leer.
+export async function listDevices(withProbe = true): Promise<{
+  inputs: DeviceInfo[];
+  outputs: DeviceInfo[];
+  labelsAvailable: boolean;
+}> {
+  if (withProbe) {
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach((t) => t.stop());
+    } catch {
+      // Verweigert: wir listen trotzdem, die Labels bleiben dann leer.
+    }
   }
   const all = await navigator.mediaDevices.enumerateDevices();
   const pick = (kind: MediaDeviceKind): DeviceInfo[] =>
     all
       .filter((d) => d.kind === kind)
       .map((d) => ({ deviceId: d.deviceId, label: d.label || `${kind} ${d.deviceId.slice(0, 6)}` }));
-  return { inputs: pick('audioinput'), outputs: pick('audiooutput') };
+  return {
+    inputs: pick('audioinput'),
+    outputs: pick('audiooutput'),
+    labelsAvailable: all.some((d) => d.label.trim().length > 0),
+  };
 }
 
 export class InterpreterEngine {
@@ -83,7 +107,14 @@ export class InterpreterEngine {
   private lastTarget = Number.NaN; // erneutes setTargetAtTime auf denselben Wert bremst die Rampe
   private lastPublish = 0;
 
-  private state: EngineState = { running: false, ducking: false, floorDb: -Infinity, interpreterDb: -Infinity, error: null };
+  private state: EngineState = {
+    running: false,
+    ducking: false,
+    floorDb: -Infinity,
+    interpreterDb: -Infinity,
+    error: null,
+    startedOutputId: null,
+  };
   private listeners = new Set<() => void>();
 
   subscribe(cb: () => void): () => void {
@@ -151,7 +182,7 @@ export class InterpreterEngine {
       this.duck = { ...INITIAL_STATE };
       this.lastTarget = Number.NaN;
       this.timer = setInterval(this.tick, TICK_MS);
-      this.patch({ running: true, error: null });
+      this.patch({ running: true, error: null, startedOutputId: devices.outputId });
     } catch (e) {
       await this.stop();
       this.patch({ error: e instanceof Error ? e.message : String(e) });
@@ -170,7 +201,13 @@ export class InterpreterEngine {
     this.mixDest = null;
     if (this.ctx) await this.ctx.close().catch(() => {});
     this.ctx = null;
-    this.patch({ running: false, ducking: false, floorDb: -Infinity, interpreterDb: -Infinity });
+    this.patch({
+      running: false,
+      ducking: false,
+      floorDb: -Infinity,
+      interpreterDb: -Infinity,
+      startedOutputId: null,
+    });
   }
 
   private open(deviceId: string): Promise<MediaStream> {

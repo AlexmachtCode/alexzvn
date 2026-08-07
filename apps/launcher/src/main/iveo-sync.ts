@@ -28,11 +28,13 @@ import {
   extractSpeakerIds,
   type IveoMaterial,
   filterPrograms,
+  localTimeOfDayMs,
   programDayKey,
   programTaxonomy,
   programsToAblauf,
   programToAblaufItem,
   snapshotToShowSpeakers,
+  speakerName,
   speakersToShowSpeakers,
   type IveoProgram,
   type IveoProgramFilter,
@@ -106,6 +108,36 @@ function toProgramList(programs: IveoProgram[]): IveoProgramRef[] {
     .map((p) => ({ id: p.id, title: p.title?.trim() || '(ohne Titel)', day: programDayKey(p) }));
 }
 
+/** id → Anzeigename aller Event-Speaker (für „Verantwortlich" am Ablauf-Punkt). */
+function speakerNameMap(speakers: Array<Parameters<typeof speakerName>[0]>): Map<string, string> {
+  return new Map(speakers.map((s) => [s.id, speakerName(s)]));
+}
+
+/**
+ * F3: `withSchedule` (Soll-Startzeit/Kategorie/Verantwortlich je Punkt) im
+ * Listen-Pfad (mehrere Programme, KEIN Side Event „im Detail") nur setzen, wenn
+ * der gefilterte Ablauf eindeutig EINEM Kalendertag zugehört. Ohne diese Bremse
+ * behandelt die Timer-Kettenrechnung jede gesetzte Startzeit als neuen Anker; bei
+ * einem mehrtägigen iveo-Plan OHNE Tagesfilter (Uhrzeit ohne Datum) springt die
+ * Soll-Uhr für Tag 2 zurück auf dessen erste Startzeit, und die Drift-Pille meldet
+ * zweistellige Stunden-Abweichungen gegen die heutige Mitternacht. Ein gesetzter
+ * Tagesfilter macht die Zugehörigkeit explizit; ohne ihn (z. B. eintägige Events,
+ * für die der Editor gar keinen Tagesfilter anbietet, weil `days.length <= 1`)
+ * genügt es, dass alle gefilterten Programme mit Datum denselben Kalendertag
+ * tragen. Keine Zahl ist im Livebetrieb besser als eine falsche → im Zweifel false.
+ * Der Side-Event-/Agenda-Pfad (`resolveSideEvent`/`pollSideEvent`/
+ * `resolveSideEventLight`) ist NICHT betroffen — dort gibt es genau einen Anker.
+ */
+function scheduleSafeForList(filter: IveoProgramFilter, programs: IveoProgram[]): boolean {
+  if ((filter.day || '').trim()) return true;
+  const days = new Set<string>();
+  for (const p of programs) {
+    const d = programDayKey(p);
+    if (d) days.add(d);
+  }
+  return days.size <= 1;
+}
+
 /**
  * EIN Side Event „im Detail" auflösen (#11 Phase 3b): Ablauf = dessen Agenda-Punkte
  * (Fallback: das Programm selbst als ein Punkt), Speaker auf dieses Programm
@@ -118,7 +150,12 @@ async function resolveSideEvent(
   programId: string,
   snap: IveoSnapshot,
   onNote: (msg: string) => void,
-): Promise<{ ablauf: ReturnType<typeof agendaToAblauf>; speakers: ShowIveoSpeaker[]; warning?: string }> {
+): Promise<{
+  ablauf: ReturnType<typeof agendaToAblauf>;
+  speakers: ShowIveoSpeaker[];
+  warning?: string;
+  sideCtx: { firstStartMs: number | null; category?: string; speakerNames?: Array<[string, string]> };
+}> {
   const listProgram = snap.programs.find((p) => p.id === programId);
   let detail: IveoProgram | null = null;
   try {
@@ -142,12 +179,16 @@ async function resolveSideEvent(
     getLog().info(`iveo: Side Event „${title}" — Agenda-Punkte: ${agenda.length}${agenda.length ? '' : ' (in iveo keine Agenda gepflegt → Programm als 1 Punkt)'}.`);
   }
   const stagesById = new Map(snap.stages.map((s) => [s.id, s]));
+  const names = speakerNameMap(snap.speakers);
+  const firstStartMs = source ? localTimeOfDayMs(source) : null;
+  const category = ((source?.format_slug || source?.type_slug) || '').trim() || undefined;
   const ablauf =
     agenda.length > 0
-      ? agendaToAblauf(agenda)
+      ? agendaToAblauf(agenda, { firstStartMs, category, speakerNamesById: names })
       : source
-        ? [programToAblaufItem(source, { stagesById })]
+        ? [programToAblaufItem(source, { stagesById, withSchedule: true, speakerNamesById: names })]
         : [];
+  const sideCtx = { firstStartMs, category, speakerNames: [...names] as Array<[string, string]> };
   // Speaker-Verknüpfung tolerant aus Detail + Listen-Programm + Agenda-Items ziehen
   // (iveo v1 surft die Verknüpfung bislang nicht; sobald sie kommt — egal ob am
   // Programm oder an den Agenda-Punkten — greift das hier automatisch).
@@ -169,7 +210,7 @@ async function resolveSideEvent(
     speakers = snapshotToShowSpeakers(snap);
     warning = 'iveo verknüpft für dieses Side Event keine Speaker — es werden alle Event-Speaker gezeigt.';
   }
-  return { ablauf, speakers, warning };
+  return { ablauf, speakers, warning, sideCtx };
 }
 
 // ── Metadaten-Cache (appData, token-frei) ────────────────────────────────────
@@ -283,6 +324,7 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
     let ablauf: ReturnType<typeof programsToAblauf>;
     let speakers: ShowIveoSpeaker[];
     let agendaMode = false;
+    let sideCtx: ActiveShow['sideCtx'];
     if (input.programId) {
       // Mode B (#11 Phase 3b): EIN Side Event „im Detail" — Ablauf aus dessen
       // Agenda, Speaker auf dieses Programm eingegrenzt.
@@ -290,12 +332,35 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
       const resolved = await resolveSideEvent(client, event, input.programId, snap, (m) => subWarnings.push(m));
       ablauf = resolved.ablauf;
       speakers = resolved.speakers;
+      sideCtx = resolved.sideCtx;
       if (resolved.warning) subWarnings.push(resolved.warning);
     } else {
       // Mode A: Liste (Tag/Typ/Format, ohne Blocker) → mehrere Side Events als Ablauf.
       const stagesById = new Map(snap.stages.map((s) => [s.id, s]));
-      ablauf = programsToAblauf(filterPrograms(snap.programs, filter), { stagesById });
+      const listPrograms = filterPrograms(snap.programs, filter);
+      ablauf = programsToAblauf(listPrograms, {
+        stagesById,
+        // F3: nur bei eindeutiger Tageszugehörigkeit (s. scheduleSafeForList).
+        withSchedule: scheduleSafeForList(filter, listPrograms),
+        speakerNamesById: speakerNameMap(snap.speakers),
+      });
       speakers = snapshotToShowSpeakers(snap);
+    }
+    // Re-Bind einer bereits aktiv pollenden Show DESSELBEN Events (#11 Sub-B):
+    // `bindIveoEvent` selbst hat keinen Show-Pfad und setzt `active` nicht (das
+    // passiert erst später beim Öffnen, s. `onShowOpened`). Ist aber GENAU diese
+    // Show gerade schon aktiv (gleicher Event-Slug), den frischen Side-Event-
+    // Kontext sofort übernehmen — sonst würde der nächste Poll ohne die neuen
+    // Felder rechnen und sie aus der Datei wieder entfernen (Signatur-Stabilität).
+    // F2: NEBEN dem Event-Slug auch die programId vergleichen — sonst überschreibt
+    // ein Vorbereitungs-Bind desselben Events auf ein ANDERES Side Event (z. B.
+    // P2, während die laufende Show noch an P1 gebunden ist) sofort den sideCtx
+    // der laufenden Show, während `active.filter.programId` weiter auf P1 steht:
+    // der nächste Poll baut P1s Agenda dann mit P2s Startzeit/Kategorie und stößt
+    // ein RELOAD mit falschen Werten an. Nur ein Re-Bind DESSELBEN Side Events
+    // darf den Kontext auffrischen.
+    if (active && active.event === snap.event.slug && active.filter.programId === input.programId) {
+      active.sideCtx = agendaMode ? sideCtx : undefined;
     }
     const meta = buildShowMetadata(snap, baseUrl);
     // Token verschlüsselt ablegen (Schlüssel = kanonischer Slug), Cache schreiben.
@@ -344,6 +409,14 @@ interface ActiveShow {
   filter: IveoProgramFilter;
   /** Signatur des zuletzt geschriebenen Ablaufs (Agenda-Modus) — verhindert unnötige RELOADs. */
   lastSig?: string;
+  /**
+   * Beim Bind/Switch ermittelter Side-Event-Kontext (#11 Sub-B). `pollSideEvent`
+   * hat keinen Snapshot; ohne diesen Merker würde der Poll einen Ablauf OHNE
+   * Startzeit/Kategorie/Verantwortlich erzeugen → andere `lastSig` bei jedem Poll
+   * (RELOAD-Sturm) und Feldverlust in der Show. Namen als Array-Paare, damit der
+   * Merker klonbar/serialisierbar bleibt.
+   */
+  sideCtx?: { firstStartMs: number | null; category?: string; speakerNames?: Array<[string, string]> };
 }
 
 let active: ActiveShow | null = null;
@@ -465,7 +538,13 @@ async function pollOnce(): Promise<void> {
         getLog().warn(`iveo poll: Metadaten „${resource}" übersprungen (${(e as Error).message})`),
     });
     const stagesById = new Map(snap.stages.map((s) => [s.id, s]));
-    const ablauf = programsToAblauf(filterPrograms(snap.programs, active.filter), { stagesById });
+    const listPrograms = filterPrograms(snap.programs, active.filter);
+    const ablauf = programsToAblauf(listPrograms, {
+      stagesById,
+      // F3: nur bei eindeutiger Tageszugehörigkeit (s. scheduleSafeForList).
+      withSchedule: scheduleSafeForList(active.filter, listPrograms),
+      speakerNamesById: speakerNameMap(snap.speakers),
+    });
     const speakers = snapshotToShowSpeakers(snap);
     writeCache(buildShowMetadata(snap, active.baseUrl));
     rewriteShowAblauf(active.path, snap.event.slug, active.baseUrl, snap.event.name, ablauf, speakers, active.filter);
@@ -499,11 +578,62 @@ async function pollSideEvent(client: IveoClient, a: ActiveShow): Promise<void> {
   } catch {
     /* Endpoint-Fehler → Fallback unten (Programm als 1 Punkt), kein RELOAD-Spam */
   }
-  let ablauf = agendaToAblauf(agenda);
+  // F5: `detail` einmal für BEIDE Stellen halten, die es ggf. brauchen (lazy
+  // sideCtx-Auflösung unten + der Empty-Ablauf-Fallback weiter unten) — sonst ruft
+  // der allererste Poll mit leerer Agenda `getProgram` zweimal. Weiterhin nur
+  // abrufen, wenn tatsächlich gebraucht (kein sideCtx ODER leere Agenda), nicht
+  // pauschal bei jedem Poll.
+  let cachedDetail: IveoProgram | null = null;
+  let detailFetched = false;
+  const ensureDetail = async (): Promise<IveoProgram | null> => {
+    if (!detailFetched) {
+      cachedDetail = await client.getProgram(a.event, programId).catch(() => null);
+      detailFetched = true;
+    }
+    return cachedDetail;
+  };
+  // Beim Öffnen einer gespeicherten Show ist kein sideCtx gesetzt (der entsteht nur
+  // beim Binden/Umschalten). Einmalig nachziehen — sonst schreibt der erste Poll den
+  // Ablauf ohne Startzeit/Kategorie/Verantwortlich zurück und löscht die Felder.
+  if (!a.sideCtx) {
+    const detail = await ensureDetail();
+    const ids = [
+      ...new Set<string>([...extractSpeakerIds(detail), ...agenda.flatMap((it) => extractSpeakerIds(it))]),
+    ];
+    let speakerNames: Array<[string, string]> | undefined;
+    if (ids.length) {
+      try {
+        const all = await client.listSpeakers(a.event);
+        speakerNames = [...speakerNameMap(all)] as Array<[string, string]>;
+      } catch {
+        /* Speakerliste nicht ladbar → owner bleibt leer, kein Fehler */
+      }
+    }
+    // F4: den Kontext nur dauerhaft merken, wenn das Detail tatsächlich geladen
+    // wurde — sonst würde ein transienter Netzfehler beim allerersten Poll
+    // `a.sideCtx` mit Leerwerten setzen, der Guard `if (!a.sideCtx)` griffe nie
+    // wieder, und die Felder fehlten für den Rest der Sitzung ohne Warnung.
+    // Bleibt `detail` null, bleibt `a.sideCtx` undefined → nächster Poll versucht
+    // es erneut (kein zusätzlicher Abruf im Normalfall, nur bei Fehlschlag).
+    if (detail) {
+      a.sideCtx = {
+        firstStartMs: localTimeOfDayMs(detail),
+        category: ((detail.format_slug || detail.type_slug) || '').trim() || undefined,
+        speakerNames,
+      };
+    }
+  }
+  const ctx = a.sideCtx;
+  const names = ctx?.speakerNames ? new Map(ctx.speakerNames) : undefined;
+  let ablauf = agendaToAblauf(agenda, {
+    firstStartMs: ctx?.firstStartMs ?? null,
+    category: ctx?.category,
+    speakerNamesById: names,
+  });
   if (!ablauf.length) {
     // Kein/leerer Agenda → das Programm selbst als ein Punkt (Detail best-effort).
-    const detail = await client.getProgram(a.event, programId).catch(() => null);
-    if (detail) ablauf = [programToAblaufItem(detail, {})];
+    const detail = await ensureDetail();
+    if (detail) ablauf = [programToAblaufItem(detail, { withSchedule: true, speakerNamesById: names })];
   }
   if (!ablauf.length) return;
   const sig = JSON.stringify(ablauf);
@@ -621,7 +751,12 @@ async function resolveSideEventLight(
   event: string,
   programId: string,
   fallbackSpeakers: ShowIveoSpeaker[],
-): Promise<{ ablauf: ReturnType<typeof agendaToAblauf>; speakers: ShowIveoSpeaker[]; warning?: string }> {
+): Promise<{
+  ablauf: ReturnType<typeof agendaToAblauf>;
+  speakers: ShowIveoSpeaker[];
+  warning?: string;
+  sideCtx: { firstStartMs: number | null; category?: string; speakerNames?: Array<[string, string]> };
+}> {
   const detail = await client.getProgram(event, programId).catch((e) => {
     getLog().warn(`iveo switch: Detail „${programId}" nicht abrufbar (${(e as Error).message}).`);
     return null;
@@ -632,31 +767,45 @@ async function resolveSideEventLight(
   } catch (e) {
     getLog().warn(`iveo switch: agenda-items „${programId}" nicht abrufbar (${(e as Error).message}).`);
   }
-  let ablauf = agendaToAblauf(agenda);
-  if (!ablauf.length && detail) ablauf = [programToAblaufItem(detail, {})];
   const ids = [
     ...new Set<string>([...extractSpeakerIds(detail), ...agenda.flatMap((it) => extractSpeakerIds(it))]),
   ];
   let speakers = fallbackSpeakers;
   let warning: string | undefined;
+  // Namensquelle für „Verantwortlich" (#11 Sub-B): nur die volle Speakerliste trägt
+  // ids; die sanitisierten fallbackSpeakers haben keine. Ohne Verknüpfung bleibt die
+  // Map leer → owner bleibt leer (kein Fehler).
+  let namesMap: Map<string, string> | undefined;
   if (ids.length) {
     try {
       const all = await client.listSpeakers(event);
       speakers = speakersToShowSpeakers(all.filter((s) => ids.includes(s.id)));
+      namesMap = speakerNameMap(all);
       getLog().info(`iveo switch: ${ids.length} Speaker verknüpft, ${speakers.length} aufgelöst.`);
     } catch {
-      /* Speakerliste nicht ladbar → Fallback bleibt */
+      /* Speakerliste nicht ladbar → Fallback bleibt, owner bleibt leer */
     }
   } else {
     if (detail) getLog().info(`iveo switch: Programm-Detail-Felder = ${Object.keys(detail).join(', ')}`);
     if (agenda[0]) getLog().info(`iveo switch: Agenda-Item-Felder = ${Object.keys(agenda[0]).join(', ')}`);
     warning = 'iveo verknüpft keine Speaker mit diesem Side Event — bestehende Speakerliste bleibt.';
   }
+  const firstStartMs = detail ? localTimeOfDayMs(detail) : null;
+  const category = ((detail?.format_slug || detail?.type_slug) || '').trim() || undefined;
+  let ablauf = agendaToAblauf(agenda, { firstStartMs, category, speakerNamesById: namesMap });
+  if (!ablauf.length && detail) {
+    ablauf = [programToAblaufItem(detail, { withSchedule: true, speakerNamesById: namesMap })];
+  }
   getLog().info(
     `iveo: Side Event „${detail?.title?.trim() || programId}" — Agenda-Punkte: ${agenda.length}` +
       `${agenda.length ? '' : ' (keine → Programm als 1 Punkt)'}.`,
   );
-  return { ablauf, speakers, warning };
+  return {
+    ablauf,
+    speakers,
+    warning,
+    sideCtx: { firstStartMs, category, speakerNames: namesMap ? ([...namesMap] as Array<[string, string]>) : undefined },
+  };
 }
 
 /**
@@ -682,6 +831,7 @@ export async function switchSideEvent(input: IveoSwitchInput): Promise<ActionRes
       ablauf = r.ablauf;
       speakers = r.speakers;
       warning = r.warning;
+      active.sideCtx = r.sideCtx;
       active.filter = { ...active.filter, programId };
     } else {
       // Tagesübersicht: alle Side Events des Tages (voller Snapshot nötig).
@@ -689,7 +839,14 @@ export async function switchSideEvent(input: IveoSwitchInput): Promise<ActionRes
       const snap = await client.getEventSnapshot(active.event, nowIso(), { onSubError: () => {} });
       const stagesById = new Map(snap.stages.map((s) => [s.id, s]));
       const f: IveoProgramFilter = { ...active.filter, programId: undefined, day };
-      ablauf = programsToAblauf(filterPrograms(snap.programs, f), { stagesById });
+      const listPrograms = filterPrograms(snap.programs, f);
+      ablauf = programsToAblauf(listPrograms, {
+        stagesById,
+        // F3: nur bei eindeutiger Tageszugehörigkeit (s. scheduleSafeForList).
+        withSchedule: scheduleSafeForList(f, listPrograms),
+        speakerNamesById: speakerNameMap(snap.speakers),
+      });
+      active.sideCtx = undefined;
       speakers = snapshotToShowSpeakers(snap);
       name = snap.event.name;
       active.filter = f;

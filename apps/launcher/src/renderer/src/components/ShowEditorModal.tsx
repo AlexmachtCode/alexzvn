@@ -25,6 +25,15 @@ interface AblaufRow {
   minutes: string;
   /** Freie Notiz (optional). */
   note: string;
+  /**
+   * Reine Durchreich-Felder aus einer iveo-Bindung (#11/Sub-B/Sub-C) — im Editor
+   * NICHT editierbar (keine UI dafür), aber müssen den Editor unverändert
+   * durchlaufen, sonst gehen Soll-Zeit/Verantwortlich/Kategorie beim Speichern
+   * verloren (F1: der Editor ist der einzige Schreiber nach einem Bind).
+   */
+  plannedStartMs?: number;
+  owner?: string;
+  category?: string;
 }
 
 const EMPTY_ENTRY: Entry = { included: false, document: '', host: '' };
@@ -225,6 +234,11 @@ export function ShowEditorModal() {
         label: a.label,
         minutes: a.durationMs ? String(Math.round(a.durationMs / 60000)) : '',
         note: a.note ?? '',
+        // Durchreich-Felder aus iveo (F1) — im Editor nicht sichtbar/editierbar,
+        // müssen aber bis buildAblauf() erhalten bleiben (0 ist gültig = 00:00 Uhr).
+        ...(typeof a.plannedStartMs === 'number' ? { plannedStartMs: a.plannedStartMs } : {}),
+        ...(a.owner ? { owner: a.owner } : {}),
+        ...(a.category ? { category: a.category } : {}),
       }));
       setAblauf(rows);
       if (res.programTypes) setIveoProgramTypes(res.programTypes);
@@ -280,6 +294,11 @@ export function ShowEditorModal() {
           label: r.label.trim(),
           ...(durationMs ? { durationMs } : {}),
           ...(note ? { note } : {}),
+          // Durchreich-Felder aus iveo (F1): nicht editierbar, aber müssen erhalten
+          // bleiben — 0 ist ein gültiger plannedStartMs-Wert (00:00 Uhr).
+          ...(typeof r.plannedStartMs === 'number' ? { plannedStartMs: r.plannedStartMs } : {}),
+          ...(r.owner ? { owner: r.owner } : {}),
+          ...(r.category ? { category: r.category } : {}),
         };
       });
 
@@ -353,6 +372,10 @@ export function ShowEditorModal() {
         label: a.label,
         minutes: a.durationMs ? String(Math.round(a.durationMs / 60000)) : '',
         note: a.note ?? '',
+        // Durchreich-Felder aus iveo (F1) — s. Kommentar in bindIveo().
+        ...(typeof a.plannedStartMs === 'number' ? { plannedStartMs: a.plannedStartMs } : {}),
+        ...(a.owner ? { owner: a.owner } : {}),
+        ...(a.category ? { category: a.category } : {}),
       })),
     );
     const battle = show.tools.find((t) => t.appId === 'jm-battle')?.settings as
