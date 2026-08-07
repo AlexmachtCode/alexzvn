@@ -1,6 +1,12 @@
 // Selbsttest der Ducking-Logik (#164). Läuft ohne Browser: `npm run selftest -w @jm/interpreter`.
 import { DEFAULT_SETTINGS, INITIAL_STATE, dbToGain, gainToDb, rmsDb, step } from '../src/shared/ducking.ts';
-import { counterpartPresent, detectCable } from '../src/shared/virtual-cable.ts';
+import {
+  CABLE_KINDS,
+  counterpartPresent,
+  detectCable,
+  stripDevicePrefix,
+  zoomInputDisplayName,
+} from '../src/shared/virtual-cable.ts';
 
 let failures = 0;
 function assert(cond: boolean, name: string): void {
@@ -115,6 +121,46 @@ console.log('virtual-cable — Gegenseite:');
     'fehlende Aufnahmeseite wird gemeldet',
   );
   assert(!counterpartPresent(vb, []), 'leere Geraeteliste ergibt false');
+}
+
+console.log('virtual-cable — Routing-Hinweis (VoiceMeeter verbindet nicht von allein, wie Dante):');
+{
+  const vbCable = CABLE_KINDS.find((k) => k.id === 'vb-cable');
+  assert(!vbCable?.needsRouting, 'VB-CABLE braucht keinen Routing-Hinweis');
+
+  for (const id of ['voicemeeter', 'voicemeeter-aux', 'voicemeeter-vaio3']) {
+    const kind = CABLE_KINDS.find((k) => k.id === id);
+    assert(kind?.needsRouting === true, `${id} traegt needsRouting`);
+    assert(!!kind?.routingHint, `${id} traegt einen Routing-Hinweistext`);
+  }
+}
+
+console.log('virtual-cable — angezeigter Zoom-Name (muss auf dem Rechner existieren koennen):');
+{
+  const vb = detectCable('CABLE Input (VB-Audio Virtual Cable)');
+  if (!vb) throw new Error('Vorbedingung: VB-CABLE muss erkannt werden');
+
+  assert(
+    zoomInputDisplayName(vb, ['CABLE Output (VB-Audio Cable)']) === 'CABLE Output (VB-Audio Cable)',
+    'zeigt die tatsaechlich gefundene Namensvariante, nicht die feste Konstante',
+  );
+  assert(
+    zoomInputDisplayName(vb, ['Standard - CABLE Output (VB-Audio Virtual Cable)']) ===
+      'CABLE Output (VB-Audio Virtual Cable)',
+    'schneidet den Chromium-Praefix "Standard - " vor der Anzeige ab',
+  );
+  assert(
+    zoomInputDisplayName(vb, ['Mikrofon (Realtek)']) === vb.zoomInputLabel,
+    'faellt auf zoomInputLabel zurueck, wenn nichts gefunden wurde',
+  );
+
+  assert(stripDevicePrefix('Standard - CABLE Output') === 'CABLE Output', 'entfernt "Standard - "');
+  assert(stripDevicePrefix('Default - CABLE Output') === 'CABLE Output', 'entfernt "Default - "');
+  assert(
+    stripDevicePrefix('Kommunikation - CABLE Output') === 'CABLE Output',
+    'entfernt "Kommunikation - "',
+  );
+  assert(stripDevicePrefix('CABLE Output') === 'CABLE Output', 'laesst Namen ohne Praefix unveraendert');
 }
 
 if (failures) {

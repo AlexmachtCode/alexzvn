@@ -22,10 +22,19 @@ export interface CableKind {
   name: string;
   /** Wiedergabe-Geraet: hier spielt der Interpreter hinein. */
   outputMatch: RegExp;
-  /** Exakt das, was der Operator in Zoom als Mikrofon waehlt. */
+  /** Exakt das, was der Operator in Zoom als Mikrofon waehlt (Rueckfall, wenn nichts gefunden wird). */
   zoomInputLabel: string;
   /** Aufnahme-Geraet: damit wird geprueft, ob die Gegenseite existiert. */
   inputMatch: RegExp;
+  /**
+   * true = Ein- und Ausgang sind NICHT automatisch verbunden, sondern nur, wenn zusaetzlich in der
+   * Kabel-Software geroutet wurde (bei VoiceMeeter: Bus B1/B2/B3 auf dem Virtual-Input-Strip aktiv
+   * UND VoiceMeeter laeuft) — derselbe Fall wie Dante, das deshalb bewusst NICHT als Kabel gilt.
+   * VoiceMeeter bleibt trotzdem erkannt, bekommt aber Warnton statt Erfolgston plus `routingHint`.
+   */
+  needsRouting?: boolean;
+  /** Zusatzhinweis, wenn `needsRouting` gesetzt ist. */
+  routingHint?: string;
 }
 
 export const CABLE_KINDS: CableKind[] = [
@@ -70,6 +79,10 @@ export const CABLE_KINDS: CableKind[] = [
     outputMatch: /voicemeeter aux input/i,
     zoomInputLabel: 'VoiceMeeter Aux Output (VB-Audio VoiceMeeter AUX VAIO)',
     inputMatch: /voicemeeter aux output/i,
+    needsRouting: true,
+    routingHint:
+      'Ein- und Ausgang sind nur verbunden, wenn im VoiceMeeter der Bus B2 auf dem Virtual-Input-Strip ' +
+      'aktiviert ist und VoiceMeeter laeuft.',
   },
   {
     id: 'voicemeeter-vaio3',
@@ -77,6 +90,10 @@ export const CABLE_KINDS: CableKind[] = [
     outputMatch: /voicemeeter vaio3 input/i,
     zoomInputLabel: 'VoiceMeeter VAIO3 Output (VB-Audio VoiceMeeter VAIO3)',
     inputMatch: /voicemeeter vaio3 output/i,
+    needsRouting: true,
+    routingHint:
+      'Ein- und Ausgang sind nur verbunden, wenn im VoiceMeeter der Bus B3 auf dem Virtual-Input-Strip ' +
+      'aktiviert ist und VoiceMeeter laeuft.',
   },
   {
     id: 'voicemeeter',
@@ -84,6 +101,10 @@ export const CABLE_KINDS: CableKind[] = [
     outputMatch: /voicemeeter input \(vb-audio voicemeeter vaio\)/i,
     zoomInputLabel: 'VoiceMeeter Output (VB-Audio VoiceMeeter VAIO)',
     inputMatch: /voicemeeter output \(vb-audio voicemeeter vaio\)/i,
+    needsRouting: true,
+    routingHint:
+      'Ein- und Ausgang sind nur verbunden, wenn im VoiceMeeter der Bus B1 auf dem Virtual-Input-Strip ' +
+      'aktiviert ist und VoiceMeeter laeuft.',
   },
 ];
 
@@ -99,4 +120,29 @@ export function detectCable(outputLabel: string): CableKind | null {
 /** Existiert die Aufnahme-Gegenseite des Kabels in der Geraeteliste? */
 export function counterpartPresent(kind: CableKind, inputLabels: string[]): boolean {
   return inputLabels.some((label) => kind.inputMatch.test(label));
+}
+
+/** Chromium-Praefixe vor Geraetenamen — tauchen in Zooms eigener Geraeteliste NICHT auf. */
+const DEVICE_LABEL_PREFIX = /^(?:standard|default|kommunikation) - /i;
+
+/**
+ * Entfernt die Chromium-Praefixe "Standard - ", "Default - " und "Kommunikation - ", damit der
+ * angezeigte Name dem entspricht, was in Zoom in der Mikrofonliste steht.
+ */
+export function stripDevicePrefix(label: string): string {
+  let out = label;
+  while (DEVICE_LABEL_PREFIX.test(out)) out = out.replace(DEVICE_LABEL_PREFIX, '');
+  return out;
+}
+
+/**
+ * Der Name, den der Operator in Zoom als Mikrofon suchen soll: der TATSAECHLICH in der
+ * Eingabeliste gefundene Geraetename (ohne Chromium-Praefix), nicht `zoomInputLabel` — die
+ * `inputMatch`-Muster akzeptieren bewusst Namensvarianten (z. B. "(VB-Audio Cable)" ohne
+ * "Virtual"), die von der festen Konstante abweichen koennen und auf diesem Rechner gar nicht
+ * existieren. `zoomInputLabel` ist nur der Ruckfall, wenn nichts gefunden wurde.
+ */
+export function zoomInputDisplayName(kind: CableKind, inputLabels: string[]): string {
+  const found = inputLabels.find((label) => kind.inputMatch.test(label));
+  return found ? stripDevicePrefix(found) : kind.zoomInputLabel;
 }
