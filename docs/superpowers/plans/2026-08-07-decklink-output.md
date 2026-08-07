@@ -43,7 +43,7 @@ Beide fielen beim Lesen des erzeugten Headers auf, nicht beim Entwerfen:
 | `packages/decklink/test/selftest.ts` | Selbsttest der reinen Logik, ohne Hardware. |
 | `packages/decklink/binding.gyp` | Addon-Ziel, `generated/` als Include + GUID-Quelle. |
 | `packages/decklink/src/addon.cc` | Die COM-Anbindung. |
-| `packages/decklink/index.js` / `index.d.ts` | Ladepfad + Typen. |
+| `packages/decklink/index.cjs` / `index.d.ts` | Ladepfad + Typen. |
 | `packages/decklink/test/spike.mjs` | Sondierlauf an echter Karte, bewegtes Testbild. |
 
 ---
@@ -72,7 +72,8 @@ Der riskanteste Schritt zuerst. Danach steht der Header, gegen den alles Weitere
   "version": "0.1.0",
   "private": true,
   "description": "Native DeckLink-Bindings (SDI-Ausgabe) fuer die JM Production Suite",
-  "main": "index.js",
+  "type": "module",
+  "main": "index.cjs",
   "types": "index.d.ts",
   "scripts": {
     "install": "node scripts/maybe-build.mjs",
@@ -92,6 +93,12 @@ Der riskanteste Schritt zuerst. Danach steht der Header, gegen den alles Weitere
 ```
 
 `packages/*` ist bereits eine Workspace-Glob in der Wurzel-`package.json` — es ist **nichts** zu registrieren.
+
+`"type": "module"` ist Pflicht und nicht Geschmackssache: ohne das Feld muss Node beim Laden von
+`src/modes.ts` das Modulsystem raten und schreibt bei **jedem** Selbsttestlauf eine Warnung
+(„Reparsing as ES module …"). `@jm/switcher`, `@jm/timer` und `@jm/interpreter` setzen es alle.
+Der Ladepfad heisst deshalb `index.cjs` statt `index.js` — die Endung erzwingt CommonJS, das ein
+natives Addon per `require('bindings')` braucht.
 
 - [ ] **Step 2: Bau-Erzeugnisse aus git heraushalten**
 
@@ -536,7 +543,7 @@ leere Liste liefern, nicht abstürzen.
 **Files:**
 - Create: `packages/decklink/binding.gyp`
 - Create: `packages/decklink/src/addon.cc`
-- Create: `packages/decklink/index.js`
+- Create: `packages/decklink/index.cjs`
 - Create: `packages/decklink/index.d.ts`
 
 **Interfaces:**
@@ -573,7 +580,7 @@ leere Liste liefern, nicht abstürzen.
 
 - [ ] **Step 2: Den Ladepfad und die Typen schreiben**
 
-`packages/decklink/index.js`:
+`packages/decklink/index.cjs`:
 
 ```js
 // Laedt das native Addon (jm_decklink.node).
@@ -942,7 +949,7 @@ Welcher der beiden Fälle eintrat, gehört in den Bericht.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/decklink/binding.gyp packages/decklink/src/addon.cc packages/decklink/index.js packages/decklink/index.d.ts
+git add packages/decklink/binding.gyp packages/decklink/src/addon.cc packages/decklink/index.cjs packages/decklink/index.d.ts
 git status --short
 git commit -m "feat(decklink): Addon Teil 1 — COM, Karten und Normen auflisten (Lane D2a)"
 ```
@@ -1357,7 +1364,7 @@ wird, bevor jemand den Switcher anfasst.
 // Das Skript ist .mjs, importiert aber modes.ts — deshalb laeuft es ueber
 // `node --experimental-strip-types` (siehe package.json). Ohne die Schalterangabe
 // scheitert der Import mit ERR_UNKNOWN_FILE_EXTENSION.
-import dl from '../index.js';
+import dl from '../index.cjs';
 import { judgeModes } from '../src/modes.ts';
 
 function arg(name, fallback) {

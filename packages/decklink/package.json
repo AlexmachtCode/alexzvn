@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "Native DeckLink-Bindings (SDI-Ausgabe) fuer die JM Production Suite",
-  "main": "index.js",
+  "type": "module",
+  "main": "index.cjs",
   "types": "index.d.ts",
   "scripts": {
     "install": "node scripts/maybe-build.mjs",
