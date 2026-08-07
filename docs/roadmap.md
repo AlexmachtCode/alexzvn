@@ -1,6 +1,6 @@
 # JM Production Suite — Roadmap
 
-> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-08-04**.
+> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-08-07**.
 > Leitprojekt der nächsten Phase ist die **Zoom-Einbindung (Welle 6.7)**; alles andere läuft
 > in vier Parallel-Spuren, die gezielt Zooms Beschaffungs-/Bau-Wartefenster füllen.
 
@@ -53,26 +53,38 @@ Zoom-Teilnehmer bekommen **kein Tally**, **kein privates Talkback/IFB** und **ke
 
 Laufen, während Zoom in Stage 0/1–2 hängt. Alle vier sind für diese Phase freigegeben.
 
-### Lane A — Kunden-Features
+### Lane A — Kunden-Features ✅ **abgearbeitet (2026-08-07)**
 
-- **Caption [#204](https://github.com/AlexmachtCode/alexzvn/issues/204):**
-  - (a) **Fachwörter-Wörterbuch** für Eigennamen/Fachbegriffe (whisper.cpp Initial-Prompt / Hotwords).
-  - (b) **Schnellere Transkription** — heute ~10 s Latenz; kürzeres Chunk-/Fenster-Intervall, Modell-/GPU-Wahl prüfen.
-  - Release **`caption-v0.4.0`**.
-- **Timer [#11](https://github.com/AlexmachtCode/alexzvn/issues/11):**
-  - (a) **xlsx-Beispiel** einladen/generieren, damit das Format klar ist.
-  - (b) **iveo-Schnittstelle** (Owner hat Entwicklerkontakt bei my-iveo.de).
+Beide Vorhaben sind ausgeliefert; die Spur ist leer und steht für neue Kundenwünsche bereit.
+
+- **Caption [#204](https://github.com/AlexmachtCode/alexzvn/issues/204)** ✅ `caption-v0.4.0` — Fachwörter-Wörterbuch
+  (`--prompt`) und persistenter `whisper-server` statt Modell-Reload je Chunk. Issue geschlossen.
+- **Timer [#11](https://github.com/AlexmachtCode/alexzvn/issues/11)** ✅ in vier Scheiben:
+  `v0.8.0` geplante Startzeiten + Soll/Ist-Drift · `v0.9.0` Import-Mapping (Spaltenzuordnung mit Vorschau) ·
+  `v0.10.0` Verantwortlich/Kategorie je Punkt · `v0.11.0` iveo reicht Startzeit/Verantwortlich/Kategorie
+  bis ins Timetable durch. Issue **noch offen bis zum Runtime-Test**.
+- **Interpreter [#208](https://github.com/AlexmachtCode/alexzvn/issues/208)** ✅ `interpreter-v0.2.0` — virtuelles
+  Kabel erkennen, Zoom-Gegenstück beim Namen nennen, Download-Verweis wenn keins da ist. Issue **noch offen
+  bis zum Runtime-Test**.
+
+**Zwei Feldfehler dazwischen, beide behoben:** `timer-v0.11.1` — die CSP erlaubte die *Lausch*-Adresse
+(`0.0.0.0`) statt der *Verbindungs*-Adresse (`127.0.0.1`); der Timer stand in **jedem Installer ab 0.5.0**
+dauerhaft auf „Offline", jeder Knopf wirkungslos. Im Dev nie sichtbar, weil die CSP dort alles durchlässt.
+Es war der zweite Fall dieser Falle nach JM Connect — der Selbsttest von `@jm/app-runtime` hält sie fest.
 
 ### Lane B — Welle-6-Abschluss (vor allem Verifikation, wenig Code)
 
 - Live-Test **Bildschirmfreigabe** im gepackten Build (6.3a — Permission-Handler-Pfad existiert nur im Paket).
 - Live-Test **iveo-QR nach App-Neustart** (6.3b — `safeStorage`-Persistenz des Raum-Secrets).
 - **Interpreter-Ducking-Live-Test** [#164](https://github.com/AlexmachtCode/alexzvn/issues/164) (VB-Cable + hörbares Ducking) → danach #164 schließen.
+  Seit `interpreter-v0.2.0` sagt die App selbst, welches Gerät in Zoom zu wählen ist — der Test wird dadurch einfacher.
+- **Runtime-Tests der Lane-A-Releases:** Timer (iveo-Felder + Drift-Pille, #11) und Interpreter (Kabel-Erkennung, #208).
 - **50-Gäste-Lasttest** (die Gästeobergrenze ist eine Schutzgrenze, kein gemessener Wert).
 
 ### Lane C — Security & Betrieb
 
 - **Proxy-Rate-Limit deployen** [#61](https://github.com/AlexmachtCode/alexzvn/issues/61) — Code liegt auf `main` (PR #133); offen ist `wrangler deploy` + `wrangler kv namespace create RATELIMIT`.
+  ⚠️ Braucht eine **autorisierte Cloudflare-Verbindung**; ohne sie ist der Schritt aus einer Agenten-Sitzung heraus nicht ausführbar.
 - **Token-at-rest** (Launcher-GitHub-Token via `safeStorage`, PR #134) bestätigen/ausliefern.
 - **iveo-Prod-URL** scharfschalten (📌 langstehend; Staging-Base bleibt bis dahin).
 - *Optional:* **Binär-/Manifest-Signierung (C3)** — braucht Zertifikate/Budget, zurückgestellt.
@@ -88,10 +100,10 @@ Laufen, während Zoom in Stage 0/1–2 hängt. Alle vier sind für diese Phase f
 ## 3 · Was läuft wann (Zoom-Wartefenster gezielt füllen)
 
 - **Während Stage 0** (Owner beschafft, Wochen) 🟢 **Jetzt-Block:**
-  Lane C (Proxy-Deploy #61, iveo-URL — schnell, nur Worker/CI) · Lane B (Live-Tests) · Caption-Wörterbuch #204.
-  Hoher Wert, wartet auf nichts.
+  Lane C (Proxy-Deploy #61, iveo-URL — schnell, nur Worker/CI) · Lane B (Live-Tests, jetzt inkl. der
+  Runtime-Tests für #11 und #208). Lane A ist seit 2026-08-07 abgearbeitet.
 - **Während Stage 1–2** (C++-Bau läuft) 🔵:
-  Timer #11 · Caption-Speed · Lane D Switcher-Decklink (eigener nativer Strang).
+  Lane D Switcher-Decklink (eigener nativer Strang) · neue Kundenwünsche in Lane A.
 - **Nach Zoom-Release** ⚪: Härtung, dann geparkte Wünsche nach Bedarf.
 
 ---
@@ -101,6 +113,8 @@ Laufen, während Zoom in Stage 0/1–2 hängt. Alle vier sind für diese Phase f
 - **[#57](https://github.com/AlexmachtCode/alexzvn/issues/57) Optimierung** (Umbrella): P0–P4 im Kern erledigt → **nach Proxy-Deploy schließen**, C3 abtrennen.
 - **[#61](https://github.com/AlexmachtCode/alexzvn/issues/61) P3:** nach Proxy-Deploy + Token-at-rest → **schließen**; **C3 Binär-Signierung** als eigenes Issue ausgliedern.
 - **[#164](https://github.com/AlexmachtCode/alexzvn/issues/164) Interpreter:** gebaut+released → **nach bestandenem Ducking-Test schließen**.
+- **[#11](https://github.com/AlexmachtCode/alexzvn/issues/11) Timer** und **[#208](https://github.com/AlexmachtCode/alexzvn/issues/208) Interpreter:** ausgeliefert → **nach Runtime-Test schließen**.
+  ⚠️ Deutschsprachige PR-Texte schließen Issues **nicht** automatisch — GitHub erkennt nur englische Schlüsselwörter.
 - **Neu anlegen:** Switcher-Decklink/SDI-Issue (Lane D).
 - **[#200](https://github.com/AlexmachtCode/alexzvn/issues/200) App-Designer W3:** bleibt offen, niedrige Prio → geparkt.
 
@@ -113,17 +127,25 @@ Laufen, während Zoom in Stage 0/1–2 hängt. Alle vier sind für diese Phase f
 - **C4-c iveo-Speaker-Join** — extern blockiert (iveo-API v1 liefert `program_speakers` nicht).
 - **Kochbuch:** Polaris-API-Vertrag (Endpoint + Schema-Steuerung, Owner liefert nach) + cookbook-web-Deploy.
 - **Binär-Signierung C3** — Zertifikate/Budget offen.
-- **DAW PortAudio-DLL** — Umgebungsproblem (Win-Fehler 126), kein Code-Bug.
+- **VB-CABLE-Lizenzen** — der Interpreter empfiehlt VB-CABLE; privat ist es Donationware, **gewerblich
+  lizenzpflichtig pro PC**, Weitergabe ab zehn Einheiten nur per Vertriebsabkommen mit VB-Audio.
+  Einkaufsentscheidung, keine Entwicklungsaufgabe. Deshalb wird der Treiber auch **nicht mitgebundelt**
+  (signierter Kernel-Treiber → Adminrechte, Neustart, Haftung für fremden Code).
+- **Timer-Import:** Kopfzeilen-Wahl, Mapping pro Vorlage merken, generischer Spalten-Beutel — vorgemerkt, nicht gebaut.
 
 ---
 
-## Anhang · Ausgeliefert (Baseline, Stand 2026-08-04)
+## Anhang · Ausgeliefert (Baseline, Stand 2026-08-07)
 
 `main` trägt **24 Werkzeuge**. Bereits released:
 
 - **Welle 1–5** — Steuerebene (mDNS/Discovery, `.jmshow`, Health-Dashboard), ATEM/OBS-Bridge, Companion-Gateway (8735).
 - **Welle 6 „JM Connect"** (`connect-v0.1.0`) — Green Room (Lobby/Approve/Tally), Rückkanal + Mix-Minus, Talkback-PTT, Gast-Bildschirm als eigene NDI-Quelle, iveo-Provisionierung, Folien-Kopplung an Presenter. EU-Pinning (6.6).
-- **JM Interpreter** (`interpreter-v0.1.0`) — Floor/Dolmetscher-Ducking, VB-Cable-Ausgabe (Live-Ducking-Test noch offen → Lane B).
+- **JM Interpreter** (`interpreter-v0.2.0`) — Floor/Dolmetscher-Ducking; seit 0.2.0 erkennt er bekannte virtuelle
+  Kabel und nennt das in Zoom zu wählende Gerät (Live-Ducking-Test noch offen → Lane B).
+- **JM Timer** (`timer-v0.11.1`) — geplante Startzeiten mit Soll/Ist-Drift, Import-Spaltenzuordnung mit Vorschau,
+  Verantwortlich/Kategorie je Punkt, iveo-Felder bis ins Timetable durchgereicht.
+- **JM Caption** (`caption-v0.4.0`) — Fachwörter-Wörterbuch, persistenter whisper-server statt Reload je Chunk.
 - **JM App Designer** (`app-designer-v0.1.0`) — vier Spieltypen, Editor, Sandbox, Kiosk, Export.
 - **Switcher** — NDI-Programmton (`0.8.0`), echtes Full-HD + Zweitbildschirm (`0.9.0`).
 - **titler / caption / ndi-screen-capture** — rAF-/Background-Throttle-Fix (`0.x.1`).
