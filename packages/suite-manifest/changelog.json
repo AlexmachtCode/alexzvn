@@ -340,7 +340,8 @@
         "notes": [
           "Die Einstellungen zeigen jetzt die tatsächliche Ausgabe-Auflösung, Bildrate und Tonquelle statt eines festen Textes. Bisher stand dort immer 1280×720 bei 30 Bildern, unabhängig davon, was eingestellt war — Full-HD war längst möglich.",
           "Die gewählte Bildrate wirkt jetzt auch auf Aufnahme und Stream, nicht mehr nur auf NDI und den zweiten Bildschirm. Aufnahme und Stream teilen sich denselben Bildabgriff — eine Änderung greift, sobald keine von beiden mehr läuft.",
-          "Die empfohlenen Bitraten richten sich nach der gewählten Auflösung — Full-HD braucht deutlich mehr als 720p."
+          "Die empfohlenen Bitraten richten sich nach der gewählten Auflösung — Full-HD braucht deutlich mehr als 720p.",
+          "Neuinstallationen starten mit 16.000 statt 12.000 kbit/s Aufnahme-Bitrate, passend zum Full-HD-Standard. Bestehende Einstellungen bleiben unverändert. Die Stream-Bitrate bleibt bei 4.500, damit auch eine schwache Leitung trägt — für Full-HD in den Einstellungen hochdrehen."
         ]
       },
       {

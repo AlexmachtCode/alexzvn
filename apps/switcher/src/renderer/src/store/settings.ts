@@ -53,8 +53,14 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       rtmpUrl: '',
+      // Stream bleibt bewusst konservativ: 4500 traegt auch eine schwache Leitung, und ein
+      // gerissener Stream ist schlimmer als ein weicheres Bild. Wer Full-HD ausreizt, dreht in
+      // den Einstellungen hoch — dort steht die Empfehlung aus `recommendedBitrate` daneben.
       streamBitrateKbps: 4500,
-      recordBitrateKbps: 12000,
+      // Die Aufnahme geht auf die Platte, nicht durch die Leitung: mehr Bitrate kostet nur
+      // Speicher. 12000 stammt aus der 720p-Zeit und lag seit dem 1080p-Standard (0.9.0) unter
+      // der eigenen Empfehlung. Bestehende Installationen behalten ihren Wert (persist).
+      recordBitrateKbps: 16000,
       controlEnabled: false,
       controlPort: DEFAULT_CONTROL_PORT,
       audioInputId: '',
