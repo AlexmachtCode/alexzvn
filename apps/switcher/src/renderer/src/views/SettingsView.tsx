@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useSettings, RESOLUTIONS, OUTPUT_FPS_OPTIONS, type ProgramResolution } from '@/store/settings';
+import {
+  useSettings,
+  RESOLUTIONS,
+  OUTPUT_FPS_OPTIONS,
+  recommendedBitrate,
+  type ProgramResolution,
+} from '@/store/settings';
 import type { ControlStatus, DisplayInfo } from '@shared/types';
 
 export function SettingsView() {
@@ -98,20 +104,32 @@ export function SettingsView() {
               <span className="text-sm text-[var(--muted-foreground)]">kbit/s</span>
             </span>
             <span className="text-[11px] text-[var(--muted-foreground)]">
-              Video-Bitrate des H.264-Streams (x264). 720p: ~3000–6000 kbit/s.
+              Video-Bitrate des H.264-Streams (x264). Empfohlen für{' '}
+              {programResolution === '1080p' ? 'Full-HD 1080p' : 'HD 720p'}:{' '}
+              {recommendedBitrate(programResolution, 'stream').min.toLocaleString('de-DE')}–
+              {recommendedBitrate(programResolution, 'stream').max.toLocaleString('de-DE')} kbit/s.
             </span>
           </label>
 
           <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed border-t border-[var(--border)]/60 pt-4">
-            Auflösung: <span className="font-semibold text-[var(--foreground)]">1280×720 @ 30 fps</span> ·
-            Ton: stille AAC-Spur (Audio-Mix kommt in v0.2). Der Stream wird aus dem Program-Bild
-            kodiert (libx264, zerolatency).
+            Auflösung:{' '}
+            <span className="font-semibold text-[var(--foreground)]">
+              {RESOLUTIONS[programResolution].w}×{RESOLUTIONS[programResolution].h} @ {outputFps} fps
+            </span>{' '}
+            · Ton:{' '}
+            {audioInputId
+              ? 'Programm-Ton der gewählten Audioquelle'
+              : 'stille AAC-Spur (keine Audioquelle gewählt)'}
+            . Der Stream wird aus dem Program-Bild kodiert (libx264, zerolatency) — die Auflösung
+            folgt der Programm-Auflösung, es wird nie hochskaliert. Eine geänderte Bildrate greift,
+            sobald weder Aufnahme noch Sendung läuft — solange eine von beiden läuft, behält auch
+            eine neu gestartete zweite Ausgabe die bisherige Rate.
           </p>
         </section>
 
         <section className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)] p-5 flex flex-col gap-5">
           <h2 className="text-[11px] uppercase tracking-[0.14em] font-extrabold text-[var(--muted-foreground)]">
-            NDI-Ausgabe
+            NDI-Ausgabe &amp; Programm-Format
           </h2>
           <label className="flex flex-col gap-1.5 max-w-md">
             <span className="text-sm font-bold">NDI-Quellname</span>
@@ -144,7 +162,7 @@ export function SettingsView() {
               </select>
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-bold">NDI-Bildrate</span>
+              <span className="text-sm font-bold">Ausgabe-Bildrate</span>
               <select
                 value={outputFps}
                 onChange={(e) => setOutputFps(Number(e.target.value))}
@@ -159,7 +177,8 @@ export function SettingsView() {
             </label>
           </div>
           <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
-            Gilt für NDI, Aufnahme und RTMP — das Programm wird in dieser Auflösung komponiert
+            Auflösung und Bildrate gelten für alle Ausgaben — NDI, Aufnahme, RTMP und den zweiten
+            Bildschirm. Das Programm wird in dieser Auflösung komponiert
             (kein Hochskalieren). <span className="font-semibold text-[var(--foreground)]">1080p</span> ist
             echtes Full-HD und kostet mehr Rechenleistung; auf schwächeren Rechnern
             <span className="font-semibold text-[var(--foreground)]"> 720p</span> wählen. Das Multiview
@@ -314,7 +333,10 @@ export function SettingsView() {
               <span className="text-sm text-[var(--muted-foreground)]">kbit/s</span>
             </span>
             <span className="text-[11px] text-[var(--muted-foreground)]">
-              Video-Bitrate der WebM-Aufnahme. 720p: ~8000–16000 kbit/s.
+              Video-Bitrate der WebM-Aufnahme. Empfohlen für{' '}
+              {programResolution === '1080p' ? 'Full-HD 1080p' : 'HD 720p'}:{' '}
+              {recommendedBitrate(programResolution, 'record').min.toLocaleString('de-DE')}–
+              {recommendedBitrate(programResolution, 'record').max.toLocaleString('de-DE')} kbit/s.
             </span>
           </label>
           <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed border-t border-[var(--border)]/60 pt-4">

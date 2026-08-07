@@ -10,6 +10,9 @@ export interface OutputState {
   error: string | null;
 }
 
+/** Bildrate des Canvas-Abgriffs, bis der Store seine Einstellung durchreicht.
+ *  Gleicher Rueckfallwert wie in ndiOutput.ts und screenOutput.ts. */
+const DEFAULT_FPS = 25;
 const DEFAULT_REC_BITS = 12_000_000;
 const MIN_STREAM_INTERMEDIATE = 8_000_000;
 const TIMESLICE_MS = 500;
@@ -31,6 +34,14 @@ export class OutputController {
   private getCanvas: () => HTMLCanvasElement | null;
   private getAudioTrack: () => MediaStreamTrack | null;
   private canvasStream: MediaStream | null = null;
+  /** Bildrate fuer captureStream. Live umstellbar; greift, sobald der Abgriff frei ist — s. setFps. */
+  private fps = DEFAULT_FPS;
+  /** Eine Bildratenaenderung wartet darauf, dass der Canvas-Abgriff frei wird. */
+  private fpsDirty = false;
+  /** Starts, die noch in der Schwebe sind (Dialog bzw. ffmpeg-Start laeuft). Solange > 0 steckt
+   *  die Video-Spur des Abgriffs bereits in einem Stream, der gleich einem MediaRecorder
+   *  uebergeben wird — sie darf dann nicht gestoppt werden. */
+  private pendingStarts = 0;
   private recRecorder: MediaRecorder | null = null;
   private streamRecorder: MediaRecorder | null = null;
   private state: OutputState = { recording: false, streaming: false, recPath: null, error: null };
@@ -74,6 +85,27 @@ export class OutputController {
     return { ...this.state };
   }
 
+  /**
+   * Bildrate des Canvas-Abgriffs setzen. Der zwischengespeicherte Abgriff wird verworfen, sobald
+   * ihn niemand mehr benutzt — der naechste Start greift dann mit der neuen Rate ab.
+   *
+   * Laeuft eine Aufnahme oder Sendung, bleibt der Abgriff stehen: MediaRecorder-Spuren sind nach
+   * dem Start unveraenderlich (dasselbe gilt fuer den Ton, siehe core/audio.ts). Eine laufende
+   * Sendung dafuer neu zu starten waere schlimmer als die verspaetete Wirkung.
+   *
+   * ACHTUNG — die neue Rate greift NICHT schlicht „beim naechsten Start": Aufnahme und Sendung
+   * teilen sich EINEN Abgriff. Wird waehrend einer laufenden Ausgabe eine zweite gestartet,
+   * bekommt auch die zweite noch die alte Rate; verworfen wird der Abgriff erst, wenn beide
+   * beendet sind. Die Oberflaeche formuliert es genauso.
+   */
+  setFps(fps: number): void {
+    const next = fps > 0 ? fps : DEFAULT_FPS;
+    if (next === this.fps) return;
+    this.fps = next;
+    this.fpsDirty = true;
+    this.dropCanvasStreamIfIdle();
+  }
+
   private notify(): void {
     for (const l of this.listeners) l();
   }
@@ -83,11 +115,28 @@ export class OutputController {
     this.notify();
   }
 
+  /** Benutzt gerade jemand den Canvas-Abgriff? */
+  private canvasStreamInUse(): boolean {
+    return this.pendingStarts > 0 || this.state.recording || this.state.streaming;
+  }
+
+  /**
+   * Eine wartende Bildratenaenderung einloesen, sobald der Canvas-Abgriff frei ist: alte Spuren
+   * stoppen und den Cache leeren, damit `ensureCanvasStream()` beim naechsten Start mit der
+   * aktuellen Rate neu abgreift. Wird aus `setFps` und am Ende jedes `teardown` versucht.
+   */
+  private dropCanvasStreamIfIdle(): void {
+    if (!this.fpsDirty || this.canvasStreamInUse()) return;
+    this.canvasStream?.getTracks().forEach((t) => t.stop());
+    this.canvasStream = null;
+    this.fpsDirty = false;
+  }
+
   private ensureCanvasStream(): MediaStream | null {
     if (this.canvasStream) return this.canvasStream;
     const c = this.getCanvas();
     if (!c) return null;
-    this.canvasStream = c.captureStream(30);
+    this.canvasStream = c.captureStream(this.fps);
     return this.canvasStream;
   }
 
@@ -115,27 +164,36 @@ export class OutputController {
     bitrateKbps?: number,
   ): Promise<void> {
     if (this.recRecorder) return;
-    const stream = this.buildOutputStream();
-    if (!stream) {
-      this.patch({ error: 'Kein Program-Bild zum Aufnehmen.' });
-      return;
+    // Ab hier haengt die Video-Spur des Abgriffs in der Schwebe: sie steckt schon in `stream`,
+    // der Recorder entsteht aber erst nach dem await. Solange darf setFps sie nicht stoppen.
+    this.pendingStarts++;
+    try {
+      const stream = this.buildOutputStream();
+      if (!stream) {
+        this.patch({ error: 'Kein Program-Bild zum Aufnehmen.' });
+        return;
+      }
+      const res = await open();
+      if (!res.ok) {
+        if (res.error) this.patch({ error: res.error });
+        return; // abgebrochen
+      }
+      const bits = bitrateKbps ? bitrateKbps * 1000 : DEFAULT_REC_BITS;
+      const rec = new MediaRecorder(stream, { mimeType: pickMimeType(), videoBitsPerSecond: bits });
+      rec.ondataavailable = (e) => void this.send(e.data, 'rec');
+      rec.onstop = () => window.jmswitch.output.recStop();
+      rec.onerror = () => {
+        this.teardown('rec');
+        this.patch({ error: 'Aufnahme-Encoder-Fehler.' });
+      };
+      rec.start(TIMESLICE_MS);
+      this.recRecorder = rec;
+      this.patch({ recording: true, recPath: res.path ?? null, error: null });
+    } finally {
+      this.pendingStarts--;
+      // Wurde waehrend des Starts die Bildrate geaendert oder der Start abgebrochen: jetzt einloesen.
+      this.dropCanvasStreamIfIdle();
     }
-    const res = await open();
-    if (!res.ok) {
-      if (res.error) this.patch({ error: res.error });
-      return; // abgebrochen
-    }
-    const bits = bitrateKbps ? bitrateKbps * 1000 : DEFAULT_REC_BITS;
-    const rec = new MediaRecorder(stream, { mimeType: pickMimeType(), videoBitsPerSecond: bits });
-    rec.ondataavailable = (e) => void this.send(e.data, 'rec');
-    rec.onstop = () => window.jmswitch.output.recStop();
-    rec.onerror = () => {
-      this.teardown('rec');
-      this.patch({ error: 'Aufnahme-Encoder-Fehler.' });
-    };
-    rec.start(TIMESLICE_MS);
-    this.recRecorder = rec;
-    this.patch({ recording: true, recPath: res.path ?? null, error: null });
   }
 
   stopRecording(): void {
@@ -144,30 +202,37 @@ export class OutputController {
 
   async startStreaming(url: string, bitrateKbps?: number): Promise<void> {
     if (this.streamRecorder) return;
-    const stream = this.buildOutputStream();
-    if (!stream) {
-      this.patch({ error: 'Kein Program-Bild zum Streamen.' });
-      return;
+    // Siehe beginRecording: zwischen buildOutputStream und rec.start haengt die Video-Spur in der Schwebe.
+    this.pendingStarts++;
+    try {
+      const stream = this.buildOutputStream();
+      if (!stream) {
+        this.patch({ error: 'Kein Program-Bild zum Streamen.' });
+        return;
+      }
+      const hasAudio = stream.getAudioTracks().length > 0;
+      const res = await window.jmswitch.output.streamStart(url, bitrateKbps, hasAudio);
+      if (!res.ok) {
+        this.patch({ error: res.error ?? 'Stream-Start fehlgeschlagen.' });
+        return;
+      }
+      // Zwischen-WebM nicht unter die Stream-Zielbitrate drücken (sonst Qualitätsverlust
+      // vor dem x264-Re-Encode).
+      const interBits = Math.max(MIN_STREAM_INTERMEDIATE, (bitrateKbps ?? 0) * 1000);
+      const rec = new MediaRecorder(stream, { mimeType: pickMimeType(), videoBitsPerSecond: interBits });
+      rec.ondataavailable = (e) => void this.send(e.data, 'stream');
+      rec.onstop = () => window.jmswitch.output.streamStop();
+      rec.onerror = () => {
+        this.teardown('stream');
+        this.patch({ error: 'Stream-Encoder-Fehler.' });
+      };
+      rec.start(TIMESLICE_MS);
+      this.streamRecorder = rec;
+      this.patch({ streaming: true, error: null });
+    } finally {
+      this.pendingStarts--;
+      this.dropCanvasStreamIfIdle();
     }
-    const hasAudio = stream.getAudioTracks().length > 0;
-    const res = await window.jmswitch.output.streamStart(url, bitrateKbps, hasAudio);
-    if (!res.ok) {
-      this.patch({ error: res.error ?? 'Stream-Start fehlgeschlagen.' });
-      return;
-    }
-    // Zwischen-WebM nicht unter die Stream-Zielbitrate drücken (sonst Qualitätsverlust
-    // vor dem x264-Re-Encode).
-    const interBits = Math.max(MIN_STREAM_INTERMEDIATE, (bitrateKbps ?? 0) * 1000);
-    const rec = new MediaRecorder(stream, { mimeType: pickMimeType(), videoBitsPerSecond: interBits });
-    rec.ondataavailable = (e) => void this.send(e.data, 'stream');
-    rec.onstop = () => window.jmswitch.output.streamStop();
-    rec.onerror = () => {
-      this.teardown('stream');
-      this.patch({ error: 'Stream-Encoder-Fehler.' });
-    };
-    rec.start(TIMESLICE_MS);
-    this.streamRecorder = rec;
-    this.patch({ streaming: true, error: null });
   }
 
   stopStreaming(): void {
@@ -197,6 +262,8 @@ export class OutputController {
       this.streamRecorder = null;
       this.patch({ streaming: false });
     }
+    // Nach dem Stoppen kann eine wartende Bildratenaenderung greifen.
+    this.dropCanvasStreamIfIdle();
   }
 
   destroy(): void {
@@ -208,6 +275,10 @@ export class OutputController {
     this.offStatus = null;
     this.canvasStream?.getTracks().forEach((t) => t.stop());
     this.canvasStream = null;
+    // Der Abgriff ist weg — eine wartende Bildratenaenderung hat sich damit erledigt.
+    // `pendingStarts` bleibt bewusst unangetastet: ein noch laufendes `finally` wuerde
+    // sonst auf -1 zaehlen und die `> 0`-Sperre beim naechsten Start still aushebeln.
+    this.fpsDirty = false;
     this.listeners.clear();
   }
 }

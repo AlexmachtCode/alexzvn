@@ -4,14 +4,10 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_CONTROL_PORT } from '@jm/companion-protocol';
 
-/** Programm-Ausgabeauflösung. Bestimmt die Größe, in der das Programm KOMPONIERT wird
- *  (engine-Canvas) — NDI, Aufnahme und RTMP folgen daraus. 720p kostet ~2,25× weniger
- *  Rechenlast pro Frame; 1080p ist echtes Full-HD (kein Hochskalieren). */
-export type ProgramResolution = '720p' | '1080p';
-export const RESOLUTIONS: Record<ProgramResolution, { w: number; h: number }> = {
-  '720p': { w: 1280, h: 720 },
-  '1080p': { w: 1920, h: 1080 },
-};
+// Aufloesung und Bitraten-Empfehlungen leben als reines Modul in @shared/output-quality
+// (ohne zustand, damit der Selbsttest sie laden kann) und werden hier nur weitergereicht.
+export { RESOLUTIONS, recommendedBitrate, type ProgramResolution } from '@shared/output-quality';
+import type { ProgramResolution } from '@shared/output-quality';
 export const OUTPUT_FPS_OPTIONS = [25, 30, 50, 60] as const;
 
 export interface SettingsState {
@@ -33,7 +29,7 @@ export interface SettingsState {
   ndiOutputSource: 'program' | 'multiview';
   /** Auflösung, in der das Programm komponiert und ausgegeben wird (NDI/Aufnahme/RTMP). */
   programResolution: ProgramResolution;
-  /** Bildrate der NDI-Ausgabe. */
+  /** Bildrate aller Ausgaben: NDI, zweiter Bildschirm, Aufnahme und RTMP. */
   outputFps: number;
   /** Zweiter Bildschirm (Vollbild-Programm-Ausgabe auf einem Monitor) aktiv? */
   secondScreenEnabled: boolean;
@@ -57,8 +53,14 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       rtmpUrl: '',
+      // Stream bleibt bewusst konservativ: 4500 traegt auch eine schwache Leitung, und ein
+      // gerissener Stream ist schlimmer als ein weicheres Bild. Wer Full-HD ausreizt, dreht in
+      // den Einstellungen hoch — dort steht die Empfehlung aus `recommendedBitrate` daneben.
       streamBitrateKbps: 4500,
-      recordBitrateKbps: 12000,
+      // Die Aufnahme geht auf die Platte, nicht durch die Leitung: mehr Bitrate kostet nur
+      // Speicher. 12000 stammt aus der 720p-Zeit und lag seit dem 1080p-Standard (0.9.0) unter
+      // der eigenen Empfehlung. Bestehende Installationen behalten ihren Wert (persist).
+      recordBitrateKbps: 16000,
       controlEnabled: false,
       controlPort: DEFAULT_CONTROL_PORT,
       audioInputId: '',

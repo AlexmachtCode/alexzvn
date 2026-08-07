@@ -156,11 +156,14 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
     engine.setRenderSize(w, h);
   }, [engine, programResolution]);
 
-  // Ausgabe-Bildrate live an NDI- UND Zweitbildschirm-Pump (taktet laufende Timer neu).
+  // Ausgabe-Bildrate live an NDI-, Zweitbildschirm- und Aufnahme-/Stream-Pfad. Bei NDI und
+  // Zweitbildschirm taktet das laufende Timer neu; im Aufnahme-/Stream-Pfad greift die neue Rate
+  // erst beim naechsten Start, weil MediaRecorder-Spuren fix sind.
   useEffect(() => {
     ndiOut.setFps(outputFps);
     screenOut.setFps(outputFps);
-  }, [ndiOut, screenOut, outputFps]);
+    output.setFps(outputFps);
+  }, [ndiOut, screenOut, output, outputFps]);
 
   // Zweitbildschirm: Fenster im Main an-/abschalten + Ziel-Monitor setzen, und den Frame-Pump
   // nur laufen lassen, während die Ausgabe an ist (sonst kodiert er umsonst).
