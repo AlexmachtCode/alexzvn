@@ -1,12 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
-
-const SERVER_HOST = '127.0.0.1';
-const SERVER_PORT = 7777;
+import { PRELOAD_SERVER_URL } from '@shared/net';
 
 const api = {
   platform: process.platform,
   versions: process.versions,
-  serverUrl: `http://${SERVER_HOST}:${SERVER_PORT}`,
+  serverUrl: PRELOAD_SERVER_URL,
   speaker: {
     open: () => ipcRenderer.invoke('speaker:open') as Promise<void>,
     close: () => ipcRenderer.invoke('speaker:close') as Promise<void>,

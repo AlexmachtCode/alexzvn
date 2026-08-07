@@ -7,9 +7,11 @@ import { Server as IoServer } from 'socket.io';
 import { dispatch, getState, subscribe } from './state';
 import { getAuth, isTokenValid } from './auth';
 import type { Command } from '@shared/timer-state';
+import { BIND_HOST, SERVER_PORT as PORT } from '@shared/net';
 
-export const SERVER_PORT = 7777;
-export const SERVER_HOST = '0.0.0.0';
+export const SERVER_PORT = PORT;
+/** Lausch-Adresse — NICHT als Verbindungsziel verwenden, siehe @shared/net. */
+export const SERVER_HOST = BIND_HOST;
 export const VITE_DEV_PORT = 5173;
 
 let http: HttpServer | null = null;

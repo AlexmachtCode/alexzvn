@@ -8,6 +8,14 @@ import {
   type TimetableState,
   type CountdownState,
 } from '../src/shared/timer-state.ts';
+import { buildCsp } from '../../../packages/app-runtime/src/csp.ts';
+import {
+  BIND_HOST,
+  CLIENT_HOST,
+  PRELOAD_SERVER_URL,
+  RENDERER_CSP,
+  SERVER_PORT,
+} from '../src/shared/net.ts';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -47,6 +55,20 @@ const dNone = computeDrift(tt([item('a', 10), item('b', 10)], 0), cdOnTime, base
 ck('kein Plan → driftMs null', dNone.driftMs === null && dNone.perItem.every((v) => v === null));
 // Idle (kein aktives Item) → null
 ck('idle → null', computeDrift(tt(items, null), cdOnTime, base + 9 * H).driftMs === null);
+
+// ── CSP deckt die Adresse, die der Renderer wirklich waehlt ──────────────────
+// Der Renderer bekommt seine Server-Adresse aus dem Preload und spricht sie per
+// Websocket an. Steht diese Adresse NICHT in der connect-src der CSP, blockt
+// Chromium die Verbindung — die Oberflaeche bleibt still auf "Offline" und jedes
+// Kommando versickert in sendCommand. Im Dev faellt das nie auf (dort laesst die
+// CSP ws:/http: pauschal durch), erst der gepackte Build stirbt. Genau so lag der
+// Timer von 0.5.0 bis 0.11.0 lahm: CSP aus der LAUSCH-Adresse 0.0.0.0 gebaut,
+// verbunden wurde aber nach 127.0.0.1.
+const strictCsp = buildCsp(RENDERER_CSP, false);
+const connectSrc = strictCsp.split('; ').find((d) => d.startsWith('connect-src ')) ?? '';
+ck('CSP erlaubt die Preload-Adresse', connectSrc.includes(PRELOAD_SERVER_URL));
+ck('CSP erlaubt den Websocket dorthin', connectSrc.includes(`ws://${CLIENT_HOST}:${SERVER_PORT}`));
+ck('CSP nennt nicht die Lausch-Adresse', !strictCsp.includes(BIND_HOST));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

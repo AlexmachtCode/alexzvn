@@ -15,6 +15,7 @@ import { advertise, type Advertiser } from '@jm/discovery';
 import { readControlConfig, mdnsSignKey } from '@jm/control-config';
 import { parseShow, parseShowDeepLink, type ShowAblaufItem } from '@jm/show';
 import type { TimetableItem } from '@shared/timer-state';
+import { RENDERER_CSP } from '@shared/net';
 import { loadState, dispatch } from './state';
 import {
   startServer,
@@ -384,11 +385,11 @@ const runtime = initAppRuntime({
   servicePort: SERVER_PORT,
   // P2 (#60): CSP. Operator-/Speaker-Fenster sprechen den lokalen Socket.IO-Server
   // (Loopback, Port 7777) per WebSocket — connect-src muss http+ws dorthin erlauben.
+  // Die Quellen kommen aus @shared/net, damit hier NICHT die Lausch-Adresse
+  // (0.0.0.0) landet, während das Preload nach 127.0.0.1 verbindet — siehe dort.
   // Die Remote-Browser-Ansicht (Handy/Tablet) ist kein Electron-Fenster und von
   // dieser CSP unberührt.
-  csp: {
-    connectSrc: [`http://${SERVER_HOST}:${SERVER_PORT}`, `ws://${SERVER_HOST}:${SERVER_PORT}`],
-  },
+  csp: RENDERER_CSP,
   onDeepLink: (url) => applyShowFromDeepLink(url),
 });
 
