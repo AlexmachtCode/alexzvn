@@ -53,16 +53,18 @@ Zoom-Teilnehmer bekommen **kein Tally**, **kein privates Talkback/IFB** und **ke
 
 Laufen, während Zoom in Stage 0/1–2 hängt. Alle vier sind für diese Phase freigegeben.
 
-### Lane A — Kunden-Features ✅ **abgearbeitet (2026-08-07)**
+### Lane A — Kunden-Features 🟢 **ein offener Wunsch (#213)**
 
-Beide Vorhaben sind ausgeliefert; die Spur ist leer und steht für neue Kundenwünsche bereit.
-
+- **Battle [#213](https://github.com/AlexmachtCode/alexzvn/issues/213)** 🟢 **offen, noch nicht geplant.**
+  „Aktuell nur ein Jurypunkt pro Runde möglich, bitte auf 7 Judges erweitern." Betrifft Wertung und
+  VS-Titler-Anzeige in [`apps/battle`](../apps/battle/); braucht eine eigene Brainstorming-Runde
+  (Wie werden 7 Wertungen dargestellt? Summe, Mittel, Streichresultat? Wer trägt sie ein?).
 - **Caption [#204](https://github.com/AlexmachtCode/alexzvn/issues/204)** ✅ `caption-v0.4.0` — Fachwörter-Wörterbuch
   (`--prompt`) und persistenter `whisper-server` statt Modell-Reload je Chunk. Issue geschlossen.
 - **Timer [#11](https://github.com/AlexmachtCode/alexzvn/issues/11)** ✅ in vier Scheiben:
   `v0.8.0` geplante Startzeiten + Soll/Ist-Drift · `v0.9.0` Import-Mapping (Spaltenzuordnung mit Vorschau) ·
   `v0.10.0` Verantwortlich/Kategorie je Punkt · `v0.11.0` iveo reicht Startzeit/Verantwortlich/Kategorie
-  bis ins Timetable durch. Issue **noch offen bis zum Runtime-Test**.
+  bis ins Timetable durch. **Issue geschlossen.**
 - **Interpreter [#208](https://github.com/AlexmachtCode/alexzvn/issues/208)** ✅ `interpreter-v0.2.0` — virtuelles
   Kabel erkennen, Zoom-Gegenstück beim Namen nennen, Download-Verweis wenn keins da ist. Issue **noch offen
   bis zum Runtime-Test**.
@@ -108,16 +110,37 @@ Muster `packages/ndi`). Größerer nativer Brocken, echt nebenläufig zum Zoom-C
 Rechner (Verifikation dort) · **Slice 1 nur Bild**, Ton als zweite Scheibe · Videoformat **von der Karte
 abfragen** statt festlegen.
 
+### Lane E — Steuerpulte vereinheitlichen (#165)
+
+Eigene Roadmap: [`docs/ux/suite-ux-roadmap.md`](ux/suite-ux-roadmap.md). Leitprinzip: **Live-Bedienung
+sichtbar, Einrichtung weggeräumt.** Stand am 2026-08-07 **am Code gemessen** (das UX-Dokument selbst war
+nicht nachgeführt, und drei seiner fünf Dateipfade zeigen inzwischen ins Leere — alle Apps haben ein
+`src/` dazubekommen):
+
+| Phase | Stand |
+|---|---|
+| 1 · Fundament + Titler-Pilot | ✅ **fertig**, PR #168 gemergt 2026-07-04. `Collapsible`/`SettingsSection`/`Tabs` liegen in `@jm/ui`, die Titler-`OperatorView` nutzt sie durchgehend. |
+| 2 · Switcher | ❌ **nicht begonnen.** `SettingsView.tsx` hat null `@jm/ui`-Importe und baut eigene `<section>`-Karten. |
+| 3 · Timer | ~ **halb.** `Sidebar.tsx` zieht nur `Logo` und `cn`; die vier eigenen Primitive liegen weiter unter `components/ui/`. |
+| 4 · Q&A + Rundown | ~ **halb, und die Hälfte war still erledigt.** Die Token-Migration ist durch (keine rohen `neutral-*`-Klassen mehr in beiden Apps). Offen bleibt Modal → Reiter: `apps/qa/.../Settings.tsx` ist weiter ein `fixed inset-0`-Overlay. |
+| 5 · Geteilte Sektions-Komponenten | ❌ **nie begonnen.** |
+
+⚠️ **Doppelt geführt:** „Onboarding-Reste D1-Teil-2 (timer/switcher-Primitive auf `@jm/ui`)" unter
+*Geparkt* meint dieselbe Arbeit wie Phase 2+3. Bei der nächsten Runde zusammenführen, nicht zweimal planen.
+
+Phase 2 ist der billigste Einstieg (eine Datei, rein anzeigend) und wäre gut in einem Zug mit der
+nächsten Switcher-Änderung zu erledigen.
+
 ---
 
 ## 3 · Was läuft wann (Zoom-Wartefenster gezielt füllen)
 
 - **Während Stage 0** (Owner beschafft, Wochen) 🟢 **Jetzt-Block:**
-  Lane C (Proxy-Deploy #61, iveo-URL — schnell, nur Worker/CI) · Lane B (Live-Tests, jetzt inkl. der
-  Runtime-Tests für #11 und #208). Lane A ist seit 2026-08-07 abgearbeitet.
+  Lane D2a (DeckLink-Addon — SDK liegt, Bauweg bewiesen) · Lane C (Proxy-Deploy #61, iveo-URL) ·
+  Lane B (Live-Tests, inkl. Runtime-Test #208) · Lane A #213 Battle-Judges.
 - **Während Stage 1–2** (C++-Bau läuft) 🔵:
-  Lane D2 Switcher-Decklink (eigener nativer Strang) · neue Kundenwünsche in Lane A.
-- **Nach Zoom-Release** ⚪: Härtung, dann geparkte Wünsche nach Bedarf.
+  Lane D2b Switcher-Anbindung · Lane E Phase 2+3 (billig, gut nebenher) · neue Kundenwünsche in Lane A.
+- **Nach Zoom-Release** ⚪: Härtung, Lane E Phase 4+5, dann geparkte Wünsche nach Bedarf.
 
 ---
 
@@ -126,17 +149,24 @@ abfragen** statt festlegen.
 - **[#57](https://github.com/AlexmachtCode/alexzvn/issues/57) Optimierung** (Umbrella): P0–P4 im Kern erledigt → **nach Proxy-Deploy schließen**, C3 abtrennen.
 - **[#61](https://github.com/AlexmachtCode/alexzvn/issues/61) P3:** nach Proxy-Deploy + Token-at-rest → **schließen**; **C3 Binär-Signierung** als eigenes Issue ausgliedern.
 - **[#164](https://github.com/AlexmachtCode/alexzvn/issues/164) Interpreter:** gebaut+released → **nach bestandenem Ducking-Test schließen**.
-- **[#11](https://github.com/AlexmachtCode/alexzvn/issues/11) Timer** und **[#208](https://github.com/AlexmachtCode/alexzvn/issues/208) Interpreter:** ausgeliefert → **nach Runtime-Test schließen**.
+- **[#11](https://github.com/AlexmachtCode/alexzvn/issues/11) Timer:** ✅ **geschlossen.**
+  **[#208](https://github.com/AlexmachtCode/alexzvn/issues/208) Interpreter:** ausgeliefert → **nach Runtime-Test schließen**.
   ⚠️ Deutschsprachige PR-Texte schließen Issues **nicht** automatisch — GitHub erkennt nur englische Schlüsselwörter.
-- **Neu anlegen:** Switcher-Decklink/SDI-Issue (Lane D).
+- **Neu anlegen:** Switcher-Decklink/SDI-Issue (Lane D2).
 - **[#200](https://github.com/AlexmachtCode/alexzvn/issues/200) App-Designer W3:** bleibt offen, niedrige Prio → geparkt.
+- **Drei tote Remote-Branches löschen** (2026-08-07 einzeln gegen `main` geprüft, alle Inhalte sind dort):
+  `feat/jm-production-suite` (Katalogpflege für Switcher 0.2.2 — wir sind bei 0.10.0) ·
+  `fix/suite-titler-launcher-caption` (Caption-Audiogerät #47 und Launcher-Fortschrittsbalken #44 sind auf main) ·
+  `feat/jm-sync-phase2` (altes `jm-sync/`-Layout; `apps/sync` 0.2.0 hat Calibrate-/Generator-/MeasureView,
+  HistoryGraph, `core/generator.ts` und `tools/engine-selftest.ts` — der Port ist längst passiert).
 
 ---
 
 ## 5 · Geparkt / niedrige Priorität
 
 - **App-Designer Welle 3** [#200](https://github.com/AlexmachtCode/alexzvn/issues/200) (Bundle-Optimierung, CSV-Auswertung, Autosave) — ausdrücklich „nach Bedarf".
-- **Onboarding-Reste:** D1-Teil-2 (timer/switcher-Primitive auf `@jm/ui`), D2/D3-Reste.
+- **Onboarding-Reste:** D2/D3-Reste. (D1-Teil-2 „timer/switcher-Primitive auf `@jm/ui`" ist **dieselbe
+  Arbeit wie Lane E Phase 2+3** — dort geführt, hier nicht noch einmal.)
 - **C4-c iveo-Speaker-Join** — extern blockiert (iveo-API v1 liefert `program_speakers` nicht).
 - **Kochbuch:** Polaris-API-Vertrag (Endpoint + Schema-Steuerung, Owner liefert nach) + cookbook-web-Deploy.
 - **Binär-Signierung C3** — Zertifikate/Budget offen.
