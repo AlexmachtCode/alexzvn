@@ -118,7 +118,7 @@ generated/
 // MIDL braucht die Visual-Studio-Umgebung (Praeprozessor + Windows-SDK-Includes),
 // deshalb der Umweg ueber VsDevCmd.bat.
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -142,10 +142,30 @@ if (!existsSync(idl)) {
   process.exit(0);
 }
 
-// Idempotent: ist der Header neuer als die IDL, ist nichts zu tun.
+// Idempotent, aber nicht naiv: statt "Header neuer als IDL" merken wir uns, AUS WELCHER
+// IDL der Header entstand — Pfad, Groesse und Aenderungszeit. Ein blosser Zeitvergleich
+// laesst sich austricksen: wird DECKLINK_SDK_DIR auf eine aeltere SDK-Fassung umgebogen
+// oder ein Archiv mit alten Zeitstempeln daruebergelegt, gilt der ALTE Header weiter als
+// aktuell. Bei einem COM-Header waere das fatal — falsche GUIDs und vtable-Layouts
+// uebersetzen anstandslos und scheitern erst zur Laufzeit.
 const header = join(genDir, 'DeckLinkAPI.h');
 const iid = join(genDir, 'DeckLinkAPI_i.c');
-if (existsSync(header) && existsSync(iid) && statSync(header).mtimeMs >= statSync(idl).mtimeMs) {
+const stampFile = join(genDir, '.source-stamp.json');
+
+const idlStat = statSync(idl);
+const stamp = { idl, size: idlStat.size, mtimeMs: idlStat.mtimeMs };
+
+function stampMatches() {
+  if (!existsSync(header) || !existsSync(iid) || !existsSync(stampFile)) return false;
+  try {
+    const prev = JSON.parse(readFileSync(stampFile, 'utf8'));
+    return prev.idl === stamp.idl && prev.size === stamp.size && prev.mtimeMs === stamp.mtimeMs;
+  } catch {
+    return false; // unlesbarer Stempel: lieber neu erzeugen als raten
+  }
+}
+
+if (stampMatches()) {
   console.log('[@jm/decklink] Header ist aktuell — MIDL uebersprungen.');
   process.exit(0);
 }
@@ -189,11 +209,20 @@ if (!existsSync(header) || !existsSync(iid)) {
   console.error('[@jm/decklink] MIDL meldete Erfolg, aber die Dateien fehlen.');
   process.exit(1);
 }
+// Stempel ERST nach der Erfolgspruefung schreiben — sonst gaebe ein halb gescheiterter
+// Lauf beim naechsten Mal faelschlich "ist aktuell" zurueck.
+writeFileSync(stampFile, JSON.stringify(stamp, null, 2), 'utf8');
 console.log('[@jm/decklink] Header erzeugt.');
 ```
 
 Der Schlusstest ist Absicht: ein Werkzeug, das „Erfolg" meldet und nichts hinterlässt, ist eine
 bekannte Falle. Die Prüfung kostet nichts und fängt sie.
+
+Der **Quell-Stempel** statt eines Zeitvergleichs ist die zweite Absicht. „Header neuer als IDL"
+lässt sich austricksen: wird `DECKLINK_SDK_DIR` auf eine ältere SDK-Fassung umgebogen oder ein
+Archiv mit alten Zeitstempeln darübergelegt, gilt der alte Header weiter als aktuell. Bei einem
+**COM**-Header wäre das der schlimmste Fall — falsche GUIDs und vtable-Layouts übersetzen
+anstandslos und scheitern erst zur Laufzeit.
 
 - [ ] **Step 4: Den Bauriegel schreiben**
 
@@ -244,10 +273,25 @@ grep -c "IDeckLinkOutput" packages/decklink/generated/DeckLinkAPI.h
 Expected: `DeckLinkAPI.h` (rund 758 KB), `DeckLinkAPI_i.c` (rund 19 KB), `DeckLinkAPI.tlb`.
 Die Zählung für `IDeckLinkOutput` muss **deutlich über 100** liegen (auf dem Referenzrechner: 538).
 
-- [ ] **Step 7: Prüfen, dass der zweite Lauf nichts tut**
+- [ ] **Step 7: Prüfen, dass der zweite Lauf nichts tut — und dass der Stempel wirklich greift**
 
 Run: `npm run generate -w @jm/decklink`
 Expected: `[@jm/decklink] Header ist aktuell — MIDL uebersprungen.`
+
+Dann die Gegenprobe, die ein reiner Zeitvergleich **nicht** bestanden hätte: die IDL künstlich
+altern lassen und noch einmal laufen.
+
+```bash
+touch -d "2020-01-01" "$DECKLINK_SDK_DIR/Win/include/DeckLinkAPI.idl"
+npm run generate -w @jm/decklink
+```
+Expected: **erzeugt neu** (`Header erzeugt.`). Danach den Zeitstempel zurücksetzen und ein
+letztes Mal laufen, damit der Stempel wieder passt:
+
+```bash
+touch "$DECKLINK_SDK_DIR/Win/include/DeckLinkAPI.idl"
+npm run generate -w @jm/decklink
+```
 
 - [ ] **Step 8: Prüfen, dass nichts Erzeugtes in git landet**
 
