@@ -1,5 +1,6 @@
 // Selbsttest der Ducking-Logik (#164). Läuft ohne Browser: `npm run selftest -w @jm/interpreter`.
 import { DEFAULT_SETTINGS, INITIAL_STATE, dbToGain, gainToDb, rmsDb, step } from '../src/shared/ducking.ts';
+import { counterpartPresent, detectCable } from '../src/shared/virtual-cable.ts';
 
 let failures = 0;
 function assert(cond: boolean, name: string): void {
@@ -61,6 +62,60 @@ const trimmed = step(INITIAL_STATE, -99, 0, { ...s, floorGainDb: -6 });
 assert(near(trimmed.targetGain, dbToGain(-6)), 'Floor-Trim wirkt auch ohne Ducking');
 const trimmedDuck = step({ ducking: true, holdUntilMs: 9999 }, 0, 0, { ...s, floorGainDb: -6 });
 assert(near(trimmedDuck.targetGain, dbToGain(-26)), 'Floor-Trim und Absenkung addieren sich in dB');
+
+console.log('\nvirtual-cable — Erkennung:');
+{
+  const vb = detectCable('CABLE Input (VB-Audio Virtual Cable)');
+  assert(vb?.id === 'vb-cable', 'VB-CABLE erkannt');
+  assert(
+    vb?.zoomInputLabel === 'CABLE Output (VB-Audio Virtual Cable)',
+    'VB-CABLE nennt das Zoom-Gegenstueck exakt',
+  );
+
+  assert(
+    detectCable('Standard - CABLE Input (VB-Audio Virtual Cable)')?.id === 'vb-cable',
+    'Praefix "Standard - " stoert die Erkennung nicht',
+  );
+  assert(
+    detectCable('cable input (vb-audio virtual cable)')?.id === 'vb-cable',
+    'Gross-/Kleinschreibung egal',
+  );
+  assert(detectCable('CABLE-A Input (VB-Audio Cable A)')?.id === 'vb-cable-a', 'VB-CABLE A erkannt');
+  assert(detectCable('CABLE-B Input (VB-Audio Cable B)')?.id === 'vb-cable-b', 'VB-CABLE B erkannt');
+  assert(
+    detectCable('VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)')?.id === 'voicemeeter',
+    'VoiceMeeter erkannt',
+  );
+  assert(
+    detectCable('VoiceMeeter Aux Input (VB-Audio VoiceMeeter AUX VAIO)')?.id === 'voicemeeter-aux',
+    'VoiceMeeter AUX nicht mit dem Haupt-VAIO verwechselt',
+  );
+}
+
+console.log('virtual-cable — Negativfaelle (duerfen NICHT als Kabel gelten):');
+{
+  // Dante meldet Sende- und Empfangsseite getrennt, sie sind aber nicht intern verbunden.
+  assert(detectCable('DVS Transmit 1-2') === null, 'Dante DVS Transmit ist kein Kabel');
+  assert(detectCable('DVS Receive 1-2') === null, 'Dante DVS Receive ist kein Kabel');
+  assert(detectCable('Lautsprecher (Realtek Audio)') === null, 'Realtek-Lautsprecher ist kein Kabel');
+  assert(detectCable('NDI Webcam Audio') === null, 'NDI Webcam Audio ist kein Kabel');
+  assert(detectCable('') === null, 'leerer Name ergibt null');
+}
+
+console.log('virtual-cable — Gegenseite:');
+{
+  const vb = detectCable('CABLE Input (VB-Audio Virtual Cable)');
+  if (!vb) throw new Error('Vorbedingung: VB-CABLE muss erkannt werden');
+  assert(
+    counterpartPresent(vb, ['Mikrofon (Realtek)', 'CABLE Output (VB-Audio Virtual Cable)']),
+    'Aufnahmeseite wird gefunden',
+  );
+  assert(
+    !counterpartPresent(vb, ['Mikrofon (Realtek)', 'DVS Receive 1-2']),
+    'fehlende Aufnahmeseite wird gemeldet',
+  );
+  assert(!counterpartPresent(vb, []), 'leere Geraeteliste ergibt false');
+}
 
 if (failures) {
   console.error(`\n${failures} Selbsttest(s) fehlgeschlagen.`);
