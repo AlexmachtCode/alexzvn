@@ -9,7 +9,7 @@
 // MIDL braucht die Visual-Studio-Umgebung (Praeprozessor + Windows-SDK-Includes),
 // deshalb der Umweg ueber VsDevCmd.bat.
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,10 +33,30 @@ if (!existsSync(idl)) {
   process.exit(0);
 }
 
-// Idempotent: ist der Header neuer als die IDL, ist nichts zu tun.
+// Idempotent, aber nicht naiv: statt "Header neuer als IDL" merken wir uns, AUS WELCHER
+// IDL der Header entstand — Pfad, Groesse und Aenderungszeit. Ein blosser Zeitvergleich
+// laesst sich austricksen: wird DECKLINK_SDK_DIR auf eine aeltere SDK-Fassung umgebogen
+// oder ein Archiv mit alten Zeitstempeln daruebergelegt, gilt der ALTE Header weiter als
+// aktuell. Bei einem COM-Header waere das fatal — falsche GUIDs und vtable-Layouts
+// uebersetzen anstandslos und scheitern erst zur Laufzeit.
 const header = join(genDir, 'DeckLinkAPI.h');
 const iid = join(genDir, 'DeckLinkAPI_i.c');
-if (existsSync(header) && existsSync(iid) && statSync(header).mtimeMs >= statSync(idl).mtimeMs) {
+const stampFile = join(genDir, '.source-stamp.json');
+
+const idlStat = statSync(idl);
+const stamp = { idl, size: idlStat.size, mtimeMs: idlStat.mtimeMs };
+
+function stampMatches() {
+  if (!existsSync(header) || !existsSync(iid) || !existsSync(stampFile)) return false;
+  try {
+    const prev = JSON.parse(readFileSync(stampFile, 'utf8'));
+    return prev.idl === stamp.idl && prev.size === stamp.size && prev.mtimeMs === stamp.mtimeMs;
+  } catch {
+    return false; // unlesbarer Stempel: lieber neu erzeugen als raten
+  }
+}
+
+if (stampMatches()) {
   console.log('[@jm/decklink] Header ist aktuell — MIDL uebersprungen.');
   process.exit(0);
 }
@@ -80,4 +100,7 @@ if (!existsSync(header) || !existsSync(iid)) {
   console.error('[@jm/decklink] MIDL meldete Erfolg, aber die Dateien fehlen.');
   process.exit(1);
 }
+// Stempel ERST nach der Erfolgspruefung schreiben — sonst gaebe ein halb gescheiterter
+// Lauf beim naechsten Mal faelschlich "ist aktuell" zurueck.
+writeFileSync(stampFile, JSON.stringify(stamp, null, 2), 'utf8');
 console.log('[@jm/decklink] Header erzeugt.');
