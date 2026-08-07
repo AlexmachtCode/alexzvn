@@ -122,7 +122,7 @@ export interface DisplayMode {
 }
 export function listOutputModes(deviceIndex: number): DisplayMode[];
 
-/** Ausgang öffnen. prerollFrames: 2–6, Vorgabe 3. */
+/** Ausgang öffnen. prerollFrames: 2–6, Vorgabe 2. */
 export function openOutput(deviceIndex: number, mode: string, prerollFrames?: number): boolean;
 
 /** Ein BGRA-Vollbild einreihen (tight packed, stride = width*4). */
@@ -196,6 +196,12 @@ Die Karte hat ihren eigenen Quarz, unser Bild kommt später aus einem freilaufen
 **geplante Wiedergabe**, nicht sofortiges Hinausschieben: `openOutput` reiht `prerollFrames` schwarze
 Bilder ein und startet dann `StartScheduledPlayback`. Jedes `scheduleFrameBGRA` hängt ein Bild an.
 
+**Vorgabe ist 2 Bilder** — bei 25p also 80 ms bis zum Bild. Owner-Entscheid: der Ausgang bedient auch das
+Saalbild, und dort ist Versatz gegen einen live sprechenden Menschen das teurere Übel. Der kleine Vorlauf
+ist bewußt die riskantere Einstellung: stockt der Rechner, läuft die Warteschlange eher leer und
+`repeated` steigt. Genau dafür ist der Wert einstellbar (2–6) und der Zähler sichtbar — wer im Betrieb
+Ruckler sieht, dreht hoch, statt zu raten. Der Laufzeittest an der Karte entscheidet, ob 2 im Alltag trägt.
+
 Die beiden Takte driften über Stunden gegeneinander, die Warteschlange läuft also langsam voll oder
 leer. Das Addon fängt beides ab und **zählt es getrennt**:
 
@@ -240,9 +246,26 @@ Jeder Fehlerpfad liefert eine eigene, unterscheidbare Meldung — nicht ein geme
 3. **Ohne Karte lauffähig:** `node -e "require('@jm/decklink').listDevices()"` muß auf diesem Rechner
    **eine leere Liste** liefern — nicht abstürzen. Das ist ein gültiges Ergebnis und wird geprüft.
 4. **Sondierlauf am Kartenrechner** (`npm run spike -w @jm/decklink`): Karten auflisten, Normen mit
-   Urteil und Grund ausgeben, die erste benutzbare Norm öffnen, **zehn Sekunden Farbbalken** senden,
-   danach `stats()` ausgeben. Das Programm bleibt Teil der Lieferung — es ist das Werkzeug, mit dem man
-   künftig eine fremde Karte prüft, bevor man den Switcher anfaßt.
+   Urteil und Grund ausgeben, eine Norm öffnen, ein **bewegtes** Testbild senden, danach `stats()`
+   ausgeben. Das Programm bleibt Teil der Lieferung — es ist das Werkzeug, mit dem man künftig eine
+   fremde Karte prüft, bevor man den Switcher anfaßt.
+
+   **Das Testbild muß bewegt sein, sonst mißt es nichts.** Ein Standbild sieht auf dem Monitor gleich
+   aus, ob 25 Bilder je Sekunde ankommen oder eines — es beweist nur, daß irgendwann irgendein Bild
+   durchging. Deshalb drei Ebenen in einem Bild, alle mit schlichtem `Uint8Array`-Füllen erzeugt, ohne
+   Canvas:
+   - **Hintergrund:** acht Farbbalken (Weiß, Gelb, Cyan, Grün, Magenta, Rot, Blau, Schwarz) — die
+     Signal- und Farbprüfung.
+   - **Laufbalken:** ein weißer, 8 px breiter senkrechter Balken wandert von links nach rechts, **genau
+     einen Schritt je Bild**, eine volle Bahn je Sekunde. Fällt ein Bild aus, springt er sichtbar. Das
+     ist die eigentliche Messung.
+   - **Pulsstreifen:** die oberen 5 % wechseln im Sekundentakt zwischen Schwarz und Weiß. Gegen eine
+     Stoppuhr gehalten zeigt er, ob die Karte im richtigen Tempo läuft.
+
+   Schalter, damit das Programm ein Werkzeug bleibt und kein Einmalskript:
+   `--device <n>` · `--mode <FourCC>` · `--seconds <n>` (Vorgabe 15) · `--preroll <2..6>`.
+   Ohne `--mode` nimmt es die erste benutzbare Norm. Am Ende steht `stats()` — und wenn `repeated`
+   oder `rejected` über null steht, sagt das Programm ausdrücklich, was das bedeutet.
 
 ## Was D2b von hier erbt
 
