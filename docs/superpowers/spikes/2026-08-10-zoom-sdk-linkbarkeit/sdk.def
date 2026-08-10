@@ -1,0 +1,26 @@
+LIBRARY sdk
+EXPORTS
+    CleanUPSDK
+    CreateAuthService
+    CreateCustomizedUIMgr
+    CreateMeetingService
+    CreateNetworkConnectionHelper
+    CreateSettingService
+    DestroyAuthService
+    DestroyCustomizedUIMgr
+    DestroyMeetingService
+    DestroyNetworkConnectionHelper
+    DestroySettingService
+    GetAudioRawdataHelper
+    GetRawdataShareSourceHelper
+    GetRawdataVideoSourceHelper
+    GetSDKVersion
+    GetZoomLastError
+    HasRawdataLicense
+    InitSDK
+    RetrieveCustomizedResourceHelper
+    RetrieveUIHooker
+    SwitchDomain
+    createRenderer
+    destroyRenderer
+

@@ -43,20 +43,38 @@ Zwei Abkürzungen sind tot: **Zoom ISO** (Liminal, nur macOS 14+) und das **Zoom
 |---|---|
 | Rohdaten-Header (`zoom_rawdata_api.h`, `rawdata_renderer_interface.h`, `rawdata_audio_helper_interface.h`) | ✅ da, im **C#-Wrapper-Paket** (`zoom-c-sharp-wrapper-7.1.5.43953/x64/zoom_sdk_c_sharp_wrap/h/`) |
 | `sdk.dll` (Laufzeit, x64, 2.086 KB) | ✅ da |
-| **`sdk.lib`** (Import-Bibliothek zum Linken) | ❌ **fehlt** |
-| Marketplace-App (Client-ID/Secret) | ❌ offen |
+| ~~`sdk.lib` (Import-Bibliothek)~~ | ✅ **erledigt — wird nicht gebraucht**, siehe Sondierlauf unten |
+| Marketplace-App (Client-ID/Secret) | ❌ **offen — der einzige echte Blocker** |
 | Testmeeting mit Co-Host-Rechten | ❌ offen |
 | DLL-Weiterverteilungs-Lizenz | ❌ offen |
 
 ⚠️ **Das geladene „Plugin SDK" ist ein anderes Produkt** und hilft hier nicht: es spricht per IPC
 (`zToolSuiteIPCProxy.lib`) mit dem laufenden Zoom-Client und liefert **keine Rohmedien**. Der
-C#-Wrapper dagegen enthält den vollständigen nativen C++-Kopfsatz inklusive `h/rawdata/` — nur eben
-keine Import-Bibliothek.
+C#-Wrapper dagegen enthält den vollständigen nativen C++-Kopfsatz inklusive `h/rawdata/`.
 
-Daraus folgt für Stage 0 **eine Entscheidung, die eine Messung ist, keine Beschaffung**: läßt sich aus
-`sdk.dll` eine Import-Bibliothek erzeugen (Exporte auslesen → `.def` → `lib /def:`), spart das den Download
-des schlichten „Meeting SDK for Windows"-Pakets ganz. Läßt es sich nicht, ist genau dieses eine Paket zu
-laden. Die übrigen drei Owner-Punkte bleiben davon unberührt.
+**De-Risking-Spike gelaufen 2026-08-10** → [`docs/superpowers/spikes/2026-08-10-zoom-sdk-linkbarkeit/`](superpowers/spikes/2026-08-10-zoom-sdk-linkbarkeit/README.md)
+
+Die fehlende `sdk.lib` war **kein Beschaffungsproblem**: `sdk.dll` exportiert 23 **unverzierte
+C-Namen** statt gemangelter C++-Symbole, deshalb ist der Weg `dumpbin /exports` → `.def` →
+`lib /def:` gangbar. Gemessen, nicht vermutet:
+
+```
+GetSDKVersion()                   -> 7.1.5 (43953)
+InitSDK()                         -> SDKError=0     (OHNE Zugangsdaten)
+CreateAuthService()               -> SDKError=0, gueltiger Zeiger
+CreateMeetingService()            -> SDKError=0, gueltiger Zeiger
+CleanUPSDK()                      -> sauber, exit=0
+```
+
+Auch `GetRawdataVideoSourceHelper` und `GetAudioRawdataHelper` sind bindbar und liefern Zeiger.
+**Damit steht das Fundament von Stage 1 auf gemessenem Boden**, und ein SDK-Download entfällt.
+
+❗ **Was der Spike NICHT beantwortet:** `HasRawdataLicense()` meldet `false`. Das ist **kein** Beweis,
+daß die Rohdaten-Berechtigung fehlt — sie hängt am Konto und kommt über das JWT bei der Anmeldung,
+und angemeldet wurde nicht, weil dafür die Marketplace-App nötig ist. Vor der Anmeldung ist `false`
+die nichtssagende, nicht die negative Antwort. Sobald Client-ID und Secret vorliegen, beantwortet ein
+erweiterter Lauf (JWT → `IAuthService::SDKAuth` → `HasRawdataLicense()`) die Frage in einem Durchgang.
+**Stage 0 hängt jetzt an genau diesem einen Punkt.**
 | **1 · Bridge-Gerüst** | `packages/zoom-bridge/` (CMake + `maybe-build.mjs`) · Win32/COM-**Message-Pump** (`utilityProcess` hat keine) · Zoom-SDK-Init + Meeting-Join per JSON. | 🔵 nach Stage 0 |
 | **2 · Video → NDI** | `onVideoRawDataReceived` (I420 nativ) → **mehrere NDI-Sender in EINEM Prozess** · Quelle „JM Connect – Zoom: \<Name\>" erscheint ohne Switcher-Änderung. | 🔵 |
 | **3 · Ton je Person** | `onOneWayAudioRawDataReceived` (PCM16 je `node_id`) → NDI-Audio je Teilnehmer (bzw. `onMixedAudioRawDataReceived` als Mischton). | 🔵 |
@@ -183,8 +201,10 @@ nächsten Switcher-Änderung zu erledigen.
   ~~Lane D2a (DeckLink-Addon)~~ ✅ gemergt 2026-08-10 · Lane C (Proxy-Deploy #61 — jetzt zusätzlich nötig,
   damit 0.10.0 im Launcher ankommt · iveo-URL) · Lane B (Live-Tests, inkl. Runtime-Test #208) ·
   Lane A #213 Battle-Judges.
-  ⚠️ Stage 0 ist **nicht mehr rein Owner-Sache**: die Frage „läßt sich `sdk.dll` ohne `sdk.lib` linken"
-  ist eine Messung und gehört in den Jetzt-Block.
+  ✅ Die Messfrage aus Stage 0 („läßt sich `sdk.dll` ohne `sdk.lib` binden?") ist am 2026-08-10
+  beantwortet: **ja**. Stage 0 ist damit wieder rein Owner-Sache — und zwar an **einem** Punkt: der
+  Marketplace-App. Ohne sie keine Anmeldung, ohne Anmeldung keine belastbare Auskunft über die
+  Rohdaten-Berechtigung.
 - **Während Stage 1–2** (C++-Bau läuft) 🔵:
   Lane D2b Switcher-Anbindung · Lane E Phase 2+3 (billig, gut nebenher) · neue Kundenwünsche in Lane A.
 - **Nach Zoom-Release** ⚪: Härtung, Lane E Phase 4+5, dann geparkte Wünsche nach Bedarf.
