@@ -175,12 +175,25 @@ bool ScheduleBlackFrame() {
   }
   void* bytes = nullptr;
   IDeckLinkVideoBuffer* buffer = nullptr;
-  if (frame->QueryInterface(IID_IDeckLinkVideoBuffer, reinterpret_cast<void**>(&buffer)) == S_OK && buffer) {
-    if (buffer->GetBytes(&bytes) == S_OK && bytes) {
-      std::memset(bytes, 0, static_cast<size_t>(g_width) * static_cast<size_t>(g_height) * 4);
-    }
-    buffer->Release();
+  if (frame->QueryInterface(IID_IDeckLinkVideoBuffer, reinterpret_cast<void**>(&buffer)) != S_OK || !buffer) {
+    frame->Release();
+    return false;
   }
+  if (buffer->StartAccess(bmdBufferAccessWrite) != S_OK) {
+    buffer->Release();
+    frame->Release();
+    return false;
+  }
+  if (buffer->GetBytes(&bytes) != S_OK || !bytes) {
+    buffer->EndAccess(bmdBufferAccessWrite);
+    buffer->Release();
+    frame->Release();
+    return false;
+  }
+  std::memset(bytes, 0, static_cast<size_t>(g_width) * static_cast<size_t>(g_height) * 4);
+  buffer->EndAccess(bmdBufferAccessWrite);
+  buffer->Release();
+
   const HRESULT hr =
       g_output->ScheduleVideoFrame(frame, g_nextDisplayTime, g_frameDuration, g_timeScale);
   frame->Release();  // der Treiber haelt seine eigene Referenz
@@ -387,22 +400,36 @@ Napi::Value OpenOutput(const Napi::CallbackInfo& info) {
 
   // Norm suchen und ihre Masse uebernehmen.
   IDeckLinkDisplayModeIterator* modeIt = nullptr;
-  bool found = false;
-  if (out->GetDisplayModeIterator(&modeIt) == S_OK) {
-    IDeckLinkDisplayMode* m = nullptr;
-    while (modeIt->Next(&m) == S_OK) {
-      if (m->GetDisplayMode() == wanted) {
-        g_width = m->GetWidth();
-        g_height = m->GetHeight();
-        m->GetFrameRate(&g_frameDuration, &g_timeScale);
-        found = true;
-      }
-      m->Release();
-      m = nullptr;
-      if (found) break;
-    }
-    modeIt->Release();
+  if (out->GetDisplayModeIterator(&modeIt) != S_OK) {
+    out->Release();
+    dev->Release();
+    ThrowJs(env, "Normen der Karte nicht lesbar.");
+    return env.Undefined();
   }
+
+  bool found = false;
+  IDeckLinkDisplayMode* m = nullptr;
+  while (modeIt->Next(&m) == S_OK) {
+    if (m->GetDisplayMode() == wanted) {
+      g_width = m->GetWidth();
+      g_height = m->GetHeight();
+      const HRESULT hrRate = m->GetFrameRate(&g_frameDuration, &g_timeScale);
+      if (hrRate != S_OK) {
+        m->Release();
+        modeIt->Release();
+        out->Release();
+        dev->Release();
+        ThrowJs(env, "Bildrate dieser Norm ist nicht lesbar.");
+        return env.Undefined();
+      }
+      found = true;
+    }
+    m->Release();
+    m = nullptr;
+    if (found) break;
+  }
+  modeIt->Release();
+
   if (!found) {
     out->Release();
     dev->Release();
@@ -520,12 +547,19 @@ Napi::Value ScheduleFrameBGRA(const Napi::CallbackInfo& info) {
     frame->Release();
     return Napi::Boolean::New(env, false);
   }
+  if (buffer->StartAccess(bmdBufferAccessWrite) != S_OK) {
+    buffer->Release();
+    frame->Release();
+    return Napi::Boolean::New(env, false);
+  }
   if (buffer->GetBytes(&bytes) != S_OK || !bytes) {
+    buffer->EndAccess(bmdBufferAccessWrite);
     buffer->Release();
     frame->Release();
     return Napi::Boolean::New(env, false);
   }
   std::memcpy(bytes, buf.Data(), need);
+  buffer->EndAccess(bmdBufferAccessWrite);
   buffer->Release();
 
   const HRESULT hr =
