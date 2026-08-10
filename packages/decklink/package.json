@@ -1,0 +1,23 @@
+{
+  "name": "@jm/decklink",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native DeckLink-Bindings (SDI-Ausgabe) fuer die JM Production Suite",
+  "type": "module",
+  "main": "index.cjs",
+  "types": "index.d.ts",
+  "scripts": {
+    "install": "node scripts/maybe-build.mjs",
+    "generate": "node scripts/generate-idl.mjs",
+    "rebuild": "node scripts/generate-idl.mjs && node-gyp rebuild",
+    "selftest": "node --experimental-strip-types test/selftest.ts",
+    "spike": "node --experimental-strip-types test/spike.mjs"
+  },
+  "dependencies": {
+    "bindings": "^1.5.0",
+    "node-addon-api": "^8.0.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.0.0"
+  }
+}
