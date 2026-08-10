@@ -78,11 +78,25 @@ mkdirSync(out, { recursive: true });
 // keine geerbten Variablen. Eingesetzt werden nur zwei Werte: ZOOM_SDK_DIR aus der Umgebung
 // des Entwicklers und der von vswhere gemeldete VS-Pfad. Kein Wert stammt aus einer fremden
 // Quelle. Wer ZOOM_SDK_DIR setzt, darf auf diesem Rechner ohnehin Befehle ausfuehren.
-const run = (line) =>
-  execSync(`call "${vsDevCmd}" -arch=x64 -host_arch=x64 >nul 2>&1 && ${line}`, {
-    cwd: out,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).toString();
+const run = (line) => {
+  try {
+    return execSync(`call "${vsDevCmd}" -arch=x64 -host_arch=x64 >nul 2>&1 && ${line}`, {
+      cwd: out,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).toString();
+  } catch (err) {
+    // Ohne diese Aufbereitung wirft Node die Ausgabe als rohen Byte-Puffer aus — eine
+    // Compiler-Fehlermeldung als Zahlenkolonne ist keine Fehlermeldung.
+    const say = (b) => (b ? b.toString().trim() : '');
+    console.error(`\n[zoom-spike] Befehl fehlgeschlagen:\n  ${line}\n`);
+    const o = say(err.stdout);
+    const e = say(err.stderr);
+    if (o) console.error(o);
+    if (e) console.error(e);
+    if (!o && !e) console.error('(keine Ausgabe — meist eine falsch maskierte Befehlszeile)');
+    process.exit(1);
+  }
+};
 
 const exportsText = run(`dumpbin /nologo /exports "${dll}"`);
 // Zeilenform: "   ordinal   hint   RVA   Name". [NONAME]-Eintraege haben keinen Namen
@@ -100,9 +114,13 @@ console.log(`[zoom-spike] ${names.length} Exporte -> sdk.def`);
 run('lib /nologo /def:sdk.def /machine:x64 /out:sdk.lib');
 console.log('[zoom-spike] sdk.lib erzeugt');
 
-for (const src of ['01-bindbarkeit.cpp', '02-initsdk.cpp']) {
+for (const src of ['01-bindbarkeit.cpp', '02-initsdk.cpp', '03-auth.cpp']) {
   const exe = src.replace(/\.cpp$/, '.exe');
-  run(`cl /nologo /EHsc /std:c++17 /I "${headers}" "${join(here, src)}" /link sdk.lib /out:${exe}`);
+  // user32.lib: 03-auth.cpp braucht PeekMessage/TranslateMessage/DispatchMessage — die
+  // Anmeldung antwortet asynchron und ohne Nachrichtenschleife kommt der Rueckruf nie an.
+  run(
+    `cl /nologo /EHsc /std:c++17 /I "${headers}" "${join(here, src)}" /link sdk.lib user32.lib /out:${exe}`,
+  );
   console.log(`[zoom-spike] ${exe} uebersetzt`);
 }
 

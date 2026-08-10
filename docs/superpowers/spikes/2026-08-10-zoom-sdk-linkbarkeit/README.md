@@ -69,8 +69,50 @@ kommt über das JWT bei der Anmeldung — und angemeldet wurde hier nicht, weil 
 Marketplace-App nötig ist. Vor der Anmeldung ist `false` die nichtssagende Antwort, nicht die
 negative.
 
-Sobald Client-ID und Secret vorliegen, beantwortet ein erweiterter Lauf 2 (JWT bauen →
-`IAuthService::SDKAuth` → `HasRawdataLicense()`) die Frage in einem Durchgang.
+Genau dafür gibt es **Lauf 3** (`03-auth.cpp`) — siehe unten. Er ist gebaut und wartet nur auf
+Zugangsdaten.
+
+## Lauf 3 — die Berechtigungsfrage beantworten
+
+`make-jwt.mjs` baut das JWT (HS256 über `{appKey, iat, exp, tokenExp}`), `03-auth.cpp` meldet sich
+damit an und fragt **danach** `HasRawdataLicense()`. Erst diese Antwort zählt.
+
+Der Lauf beweist nebenbei die zweite Voraussetzung von Stage 1: `SDKAuth` antwortet **asynchron**
+über `onAuthenticationReturn`. Ohne laufende Win32-Nachrichtenschleife kommt der Rückruf **nie** an —
+und ein `utilityProcess` hat keine. Die Bridge muß ihre eigene mitbringen; hier läuft sie zum ersten
+Mal gegen das echte SDK.
+
+### Zugangsdaten — nirgends hinschreiben, wo sie bleiben
+
+Client-ID und Secret gehören **nicht** ins Repo, nicht in die Konsole und nicht in ein Protokoll.
+In der CI läuft ein gitleaks-Scan über den Dateibaum. Deshalb: Datei **außerhalb** des Repos anlegen,
+dann kann sie gar nicht erst committet werden.
+
+```json
+{ "clientId": "…", "clientSecret": "…" }
+```
+
+```powershell
+$env:ZOOM_SDK_DIR         = "…\SDKs\zoom-c-sharp-wrapper-7.1.5.43953"
+$env:ZOOM_SDK_CREDENTIALS = "C:\Users\<du>\Documents\zoom-credentials.json"
+node docs/superpowers/spikes/2026-08-10-zoom-sdk-linkbarkeit/run-auth.mjs
+```
+
+`run-auth.mjs` reicht das JWT ausschließlich durch die Umgebung des Kindprozesses weiter und nimmt
+dabei die Zugangsdaten selbst aus dessen Umgebung heraus — `03-auth.exe` sieht Client-ID und Secret
+nie. Alternativ gehen `ZOOM_SDK_CLIENT_ID` und `ZOOM_SDK_CLIENT_SECRET` direkt als
+Umgebungsvariablen.
+
+### Wie das Ergebnis zu lesen ist
+
+| Ausgabe | Bedeutung |
+|---|---|
+| `AUTHRET_SUCCESS` + `HasRawdataLicense() -> TRUE` | **Stage 0 durch.** Stage 1 kann beginnen. |
+| `AUTHRET_SUCCESS` + `HasRawdataLicense() -> FALSE` | Anmeldung gut, aber **keine Rohdaten-Berechtigung**. Dann greift der Ausweg VideoCom Bridge aus der Roadmap. |
+| `AUTHRET_JWTTOKENWRONG` | JWT fehlerhaft — meist die Uhrzeit (`iat`/`exp`) oder ein falsches Secret. |
+| `AUTHRET_KEYORSECRETWRONG` | Client-ID/Secret passen nicht zur App. |
+| `AUTHRET_ACCOUNTNOTENABLESDK` | Das Konto hat das Meeting-SDK nicht freigeschaltet. |
+| kein Rückruf in 30 s | **Kein** Beweis für Scheitern — es kam nur kein Ergebnis. Netz, Uhrzeit oder Nachrichtenschleife prüfen. |
 
 ## Nachbauen
 
