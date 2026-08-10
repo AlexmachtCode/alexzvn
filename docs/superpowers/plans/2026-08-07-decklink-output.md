@@ -831,9 +831,13 @@ Napi::Value ListOutputModes(const Napi::CallbackInfo& info) {
   }
   const uint32_t index = info[0].As<Napi::Number>().Uint32Value();
 
-  IDeckLink* dev = DeviceAt(index);
+  // NACHTRAG (Fix-Runde Task 3): dieser Aufruf sammelte drei verschiedene Ursachen unter
+  // EINER Meldung. Umgesetzt ist stattdessen DeviceAt(index, &lookupError) mit drei Saetzen.
+  // Der Stand im Repo gilt, nicht dieser Block.
+  const char* lookupError = nullptr;
+  IDeckLink* dev = DeviceAt(index, &lookupError);
   if (!dev) {
-    ThrowJs(env, "Keine Karte mit diesem Index.");
+    ThrowJs(env, lookupError ? lookupError : "Keine Karte mit diesem Index.");
     return env.Undefined();
   }
 
@@ -962,7 +966,10 @@ git commit -m "feat(decklink): Addon Teil 1 — COM, Karten und Normen auflisten
 - Modify: `packages/decklink/src/addon.cc`
 
 **Interfaces:**
-- Consumes: alle Hilfsfunktionen aus Task 3 (`NewIterator`, `DeviceAt`, `TakeBstr`, `StringToFourCc`, `ThrowJs`).
+- Consumes: alle Hilfsfunktionen aus Task 3 (`NewIterator`, `TakeBstr`, `StringToFourCc`, `ThrowJs`)
+  sowie `IDeckLink* DeviceAt(uint32_t index, const char** errorOut)` — **zwei** Argumente: der
+  Helfer wurde in Task 3 erweitert, damit fehlender Treiber, gar keine Karte und falscher Index
+  unterscheidbar bleiben. Die wahre Signatur steht in `packages/decklink/src/addon.cc`.
 - Produces: `openOutput(deviceIndex, mode, prerollFrames?)`, `scheduleFrameBGRA(buf, width, height)`, `stats()`, `closeOutput()`; `destroy()` schließt jetzt zusätzlich den Ausgang.
 
 - [ ] **Step 1: Zustand und Rückruf ergänzen**
@@ -1092,9 +1099,12 @@ Napi::Value OpenOutput(const Napi::CallbackInfo& info) {
 
   CloseOutputInternal();
 
-  IDeckLink* dev = DeviceAt(index);
+  // DeviceAt liefert die Ursache selbst — fehlender Treiber, gar keine Karte und
+  // falscher Index sind drei verschiedene Lagen und bekommen drei verschiedene Saetze.
+  const char* lookupError = nullptr;
+  IDeckLink* dev = DeviceAt(index, &lookupError);
   if (!dev) {
-    ThrowJs(env, "Keine Karte mit diesem Index.");
+    ThrowJs(env, lookupError ? lookupError : "Keine Karte mit diesem Index.");
     return env.Undefined();
   }
 
@@ -1322,7 +1332,7 @@ Expected: alle Zähler auf `0`, `closeOutput()` ohne offenen Ausgang tut nichts,
 - [ ] **Step 7: Selbsttest erneut laufen lassen**
 
 Run: `npm run selftest -w @jm/decklink`
-Expected: unverändert 15 Prüfungen grün — Task 4 berührt die reine Logik nicht.
+Expected: unverändert 22 Prüfungen grün — Task 4 berührt die reine Logik nicht.
 
 - [ ] **Step 8: Commit**
 
