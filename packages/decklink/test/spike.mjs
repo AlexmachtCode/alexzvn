@@ -131,6 +131,8 @@ try {
   // started VOR dem SIGINT-Handler setzen — sonst kann finish() bei einem sehr
   // fruehen Strg-C auf ein noch undefiniertes started treffen und "in NaN s" drucken.
   started = Date.now();
+  // Zweite Zuweisung folgt unmittelbar vor setInterval: diese hier deckt nur ein sehr
+  // fruehes Strg-C waehrend der Ruestzeit ab, die spaetere misst den eigentlichen Lauf.
 
   // SIGINT-Handler anmelden, BEVOR der Ausgang geoeffnet wird (Befund 3).
   process.on('SIGINT', () => {
@@ -168,6 +170,11 @@ try {
   const PULSE_H = Math.max(1, Math.floor(H * 0.05));
   const SWEEP_W = 8;
   const step = W / FPS; // eine volle Bahn je Sekunde
+
+  // Jetzt beginnt der eigentliche Lauf. Ohne diese zweite Zuweisung enthielte `elapsed`
+  // die Ruestzeit (Ausgang oeffnen, Farbbalken malen), und die erwartete Bildzahl laege
+  // systematisch ueber der tatsaechlich gesendeten.
+  started = Date.now();
 
   timer = setInterval(() => {
     try {

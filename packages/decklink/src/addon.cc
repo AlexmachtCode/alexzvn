@@ -152,7 +152,10 @@ long g_width = 0;
 long g_height = 0;
 BMDTimeValue g_frameDuration = 0;
 BMDTimeScale g_timeScale = 0;
-uint32_t g_preroll = 2;
+// 0 = kein Ausgang offen. NICHT 2: der Anfangswert wird von stats() gelesen, und ein
+// frischer Prozess ohne jeden Ausgang haette sonst einen Vorlauf gemeldet, den es
+// nicht gibt. openOutput setzt den wirksamen Wert, CloseOutputInternal raeumt ihn weg.
+uint32_t g_preroll = 0;
 BMDTimeValue g_nextDisplayTime = 0;
 
 // Zaehler. atomic, weil ScheduledFrameCompleted auf dem TREIBER-Thread laeuft.
@@ -273,6 +276,10 @@ void CloseOutputInternal() {
   g_frameDuration = 0;
   g_timeScale = 0;
   g_nextDisplayTime = 0;
+  // 0 heisst: es gibt keinen wirksamen Vorlauf, weil kein Ausgang offen ist. Ohne diese
+  // Ruecksetzung meldete stats() nach dem Schliessen weiter den Wert der letzten Sitzung
+  // und behauptete damit einen Vorlauf, den es gerade nicht gibt.
+  g_preroll = 0;
 }
 
 // init(): COM hochfahren.

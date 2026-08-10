@@ -143,6 +143,12 @@ export interface OutputStats {
   repeated: number;
   /** Von UNS abgewiesen, weil die Warteschlange volllief. */
   rejected: number;
+  /** Jedes andere Scheitern beim Einreihen — etwa eine im Betrieb gezogene Karte. Ohne
+   *  diesen Zähler stünden bei so einem Ausfall ALLE übrigen Zähler still und `stats()`
+   *  meldete eine makellose Bilanz, während nichts mehr hinausgeht. */
+  failed: number;
+  /** Der wirksame Vorlauf (2–6). `0` heißt: kein Ausgang offen. */
+  preroll: number;
   scheduled: number;
 }
 export function stats(): OutputStats;

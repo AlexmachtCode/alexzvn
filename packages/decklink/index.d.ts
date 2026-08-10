@@ -54,7 +54,10 @@ export interface OutputStats {
    * meldet eine makellose Bilanz, während nichts mehr hinausgeht.
    */
   failed: number;
-  /** Der WIRKSAME Vorlauf (2–6, nach dem Klemmen in openOutput). */
+  /**
+   * Der WIRKSAME Vorlauf (2–6, nach dem Klemmen in openOutput).
+   * `0` heißt: kein Ausgang offen — es gibt gerade keinen Vorlauf.
+   */
   preroll: number;
 }
 export function stats(): OutputStats;
