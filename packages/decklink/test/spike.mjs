@@ -29,6 +29,8 @@ const preroll = Number(arg('preroll', 2));
 let n = 0;
 let FPS;
 let timer;
+let started;
+let finished = false;
 
 try {
   dl.init();
@@ -89,6 +91,19 @@ try {
   const H = chosen.height;
   FPS = Math.round(chosen.fpsN / chosen.fpsD);
   console.log(`\nOeffne ${chosen.name} (${W}x${H} @ ${FPS}), Vorlauf ${preroll} Bilder …`);
+
+  // SIGINT-Handler anmelden, BEVOR der Ausgang geoeffnet wird (Befund 3).
+  process.on('SIGINT', () => {
+    if (timer !== undefined) {
+      clearInterval(timer);
+    }
+    if (!finished) {
+      finished = true;
+      finish();
+    }
+    process.exit(0);
+  });
+
   dl.openOutput(wantDevice, chosen.mode, preroll);
 
   // Acht Farbbalken als Hintergrund (BGRA, also B,G,R,A je Bildpunkt).
@@ -114,45 +129,56 @@ try {
   const SWEEP_W = 8;
   const step = W / FPS; // eine volle Bahn je Sekunde
 
-  const started = Date.now();
+  started = Date.now();
 
   timer = setInterval(() => {
-    // Hintergrund zuruecksetzen (nur die beiden bemalten Baender, nicht das ganze Bild).
-    frame.set(bars.subarray(0, PULSE_H * W * 4), 0);
-    const sweepTop = H - PULSE_H;
-    frame.set(bars.subarray(sweepTop * W * 4), sweepTop * W * 4);
+    try {
+      // Hintergrund zuruecksetzen (nur die beiden bemalten Baender, nicht das ganze Bild).
+      frame.set(bars.subarray(0, PULSE_H * W * 4), 0);
+      const sweepTop = H - PULSE_H;
+      frame.set(bars.subarray(sweepTop * W * 4), sweepTop * W * 4);
 
-    // Pulsstreifen oben: wechselt im Sekundentakt. Gegen eine Stoppuhr gehalten zeigt er,
-    // ob die Karte im richtigen Tempo laeuft.
-    const on = Math.floor(n / FPS) % 2 === 0;
-    const v = on ? 255 : 0;
-    for (let y = 0; y < PULSE_H; y++) {
-      for (let x = 0; x < W; x++) {
-        const i = (y * W + x) * 4;
-        frame[i] = v;
-        frame[i + 1] = v;
-        frame[i + 2] = v;
+      // Pulsstreifen oben: wechselt im Sekundentakt. Gegen eine Stoppuhr gehalten zeigt er,
+      // ob die Karte im richtigen Tempo laeuft.
+      const on = Math.floor(n / FPS) % 2 === 0;
+      const v = on ? 255 : 0;
+      for (let y = 0; y < PULSE_H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = (y * W + x) * 4;
+          frame[i] = v;
+          frame[i + 1] = v;
+          frame[i + 2] = v;
+        }
       }
-    }
 
-    // Laufbalken unten: genau ein Schritt je Bild. DAS ist die eigentliche Messung —
-    // faellt ein Bild aus, springt er sichtbar.
-    const px = Math.floor((n * step) % W);
-    for (let y = sweepTop; y < H; y++) {
-      for (let dx = 0; dx < SWEEP_W; dx++) {
-        const i = (y * W + ((px + dx) % W)) * 4;
-        frame[i] = 255;
-        frame[i + 1] = 255;
-        frame[i + 2] = 255;
+      // Laufbalken unten: genau ein Schritt je Bild. DAS ist die eigentliche Messung —
+      // faellt ein Bild aus, springt er sichtbar.
+      const px = Math.floor((n * step) % W);
+      for (let y = sweepTop; y < H; y++) {
+        for (let dx = 0; dx < SWEEP_W; dx++) {
+          const i = (y * W + ((px + dx) % W)) * 4;
+          frame[i] = 255;
+          frame[i + 1] = 255;
+          frame[i + 2] = 255;
+        }
       }
-    }
 
-    dl.scheduleFrameBGRA(frame, W, H);
-    n++;
+      dl.scheduleFrameBGRA(frame, W, H);
+      n++;
 
-    if ((Date.now() - started) / 1000 >= seconds) {
+      if ((Date.now() - started) / 1000 >= seconds) {
+        clearInterval(timer);
+        if (!finished) {
+          finished = true;
+          finish();
+        }
+      }
+    } catch (e) {
+      console.error(e.message);
       clearInterval(timer);
-      finish();
+      dl.closeOutput();
+      dl.destroy();
+      process.exit(1);
     }
   }, Math.round(1000 / FPS));
 
@@ -163,8 +189,9 @@ try {
 }
 
 function finish() {
+  const elapsed = (Date.now() - started) / 1000;
   const s = dl.stats();
-  console.log(`\nGesendet: ${n} Bilder in ${seconds} s (erwartet rund ${FPS * seconds}).`);
+  console.log(`\nGesendet: ${n} Bilder in ${elapsed.toFixed(2)} s (erwartet rund ${Math.round(FPS * elapsed)}).`);
   console.log(
     `stats: eingereiht=${s.scheduled} warteschlange=${s.queued} ` +
       `zu-spaet=${s.late} verworfen=${s.dropped} leergelaufen=${s.repeated} abgewiesen=${s.rejected}`,
@@ -184,9 +211,3 @@ function finish() {
   dl.closeOutput();
   dl.destroy();
 }
-
-process.on('SIGINT', () => {
-  clearInterval(timer);
-  finish();
-  process.exit(0);
-});
