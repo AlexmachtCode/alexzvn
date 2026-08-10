@@ -250,8 +250,17 @@ Jeder Fehlerpfad liefert eine eigene, unterscheidbare Meldung — nicht ein geme
    rundet 30000/1001 auf 30.
 2. **Der Bau selbst** ist die erste echte Prüfung des C++: `npm run rebuild -w @jm/decklink` übersetzt
    gegen das SDK. Ohne Karte, aber mit Compiler.
-3. **Ohne Karte lauffähig:** `node -e "require('@jm/decklink').listDevices()"` muß auf diesem Rechner
-   **eine leere Liste** liefern — nicht abstürzen. Das ist ein gültiges Ergebnis und wird geprüft.
+3. **Ohne Karte lauffähig:**
+   `node -e "const d=require('@jm/decklink'); d.init(); console.log(d.listDevices());"` muß auf diesem
+   Rechner **eine leere Liste** liefern — nicht abstürzen. Das ist ein gültiges Ergebnis und wird geprüft.
+
+   > **Berichtigt am 2026-08-10.** Ursprünglich stand hier der Aufruf **ohne** `init()`. Das war
+   > sachlich falsch: `CoCreateInstance` liefert ohne initialisiertes COM `CO_E_NOTINITIALIZED`, eine
+   > leere Liste ist dort unmöglich. Das Addon könnte zwar selbst nachinitialisieren — genau das wäre
+   > aber der Fehler, den `init()` verhindern soll: es würde still das MTA-Wohnungsmodell wählen und im
+   > Electron-Hauptprozess (STA) mit `RPC_E_CHANGED_MODE` kollidieren. Wer COM hochfährt, entscheidet
+   > über das Wohnungsmodell, und diese Entscheidung gehört dem Aufrufer. `init()` bleibt Pflicht;
+   > ein Aufruf ohne `init()` bekommt seinen eigenen, unterscheidbaren Satz.
 4. **Sondierlauf am Kartenrechner** (`npm run spike -w @jm/decklink`): Karten auflisten, Normen mit
    Urteil und Grund ausgeben, eine Norm öffnen, ein **bewegtes** Testbild senden, danach `stats()`
    ausgeben. Das Programm bleibt Teil der Lieferung — es ist das Werkzeug, mit dem man künftig eine
