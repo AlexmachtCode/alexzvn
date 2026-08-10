@@ -23,7 +23,8 @@ try {
   throw new Error(
     '@jm/decklink: natives Addon konnte nicht geladen werden.\n' +
       '  Build (Windows): DECKLINK_SDK_DIR setzen, dann `npm run rebuild -w @jm/decklink`\n' +
-      '  Laufzeit: Blackmagic Desktop Video installiert?\n' +
+      '  Ein fehlendes Desktop-Video ist NICHT die Ursache — das Addon linkt nur ole32/\n' +
+      '  oleaut32 und loest DeckLink erst zur Laufzeit ueber COM auf (siehe Kopfkommentar).\n' +
       'Urspruenglicher Fehler: ' +
       (err && err.message ? err.message : String(err)),
   );

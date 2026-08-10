@@ -19,14 +19,32 @@ function arg(name, fallback) {
   return i >= 0 && process.argv[i + 1] !== undefined ? process.argv[i + 1] : fallback;
 }
 
-const wantDevice = Number(arg('device', 0));
+/**
+ * Zahlen-Argument lesen und pruefen. Ein unbrauchbarer Wert (z. B. "--seconds abc",
+ * NaN) darf NICHT stillschweigend durchrutschen — sonst wird z. B. die
+ * Abbruchbedingung `(Date.now()-started)/1000 >= seconds` nie wahr, und der Lauf
+ * ist nur per Strg-C zu beenden. Klarer Satz statt Haenger.
+ */
+function numberArg(name, fallback, min) {
+  const raw = arg(name, null);
+  if (raw === null) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min) {
+    console.error(`--${name} erwartet eine Zahl ab ${min}, bekommen: "${raw}"`);
+    process.exit(1);
+  }
+  return n;
+}
+
+const wantDevice = numberArg('device', 0, 0);
 const wantMode = arg('mode', null);
-const seconds = Number(arg('seconds', 15));
-const preroll = Number(arg('preroll', 2));
+const seconds = numberArg('seconds', 15, 0.1);
+const preroll = numberArg('preroll', 2, 1);
 
 // Variablen, die außerhalb des try-Blocks von finish() oder dem SIGINT-Handler
 // gebraucht werden, müssen hier deklariert sein.
-let n = 0;
+let n = 0; // Versuche (jeder Interval-Tick)
+let sent = 0; // tatsaechlich ANGENOMMEN — scheduleFrameBGRA() gab true zurueck
 let FPS;
 let timer;
 let started;
@@ -78,19 +96,41 @@ try {
   }
 
   const usable = judged.filter((m) => m.usable);
-  const chosen = wantMode ? usable.find((m) => m.mode === wantMode) : usable[0];
-  if (!chosen) {
-    console.error(
-      wantMode ? `\nNorm ${wantMode} ist nicht benutzbar.` : '\nKeine benutzbare Norm gefunden.',
-    );
-    dl.destroy();
-    process.exit(1);
+  // Zwei verschiedene Lagen bei --mode, zwei verschiedene Saetze: die Norm gibt es auf
+  // dieser Karte gar nicht (Tippfehler wie "Zzzz"), oder es gibt sie, aber sie ist nicht
+  // benutzbar (z. B. "Hi50" — Halbbild). `judged` (nicht nur `usable`) kennt den Unterschied
+  // bereits, per Grund.
+  let chosen;
+  if (wantMode) {
+    const found = judged.find((m) => m.mode === wantMode);
+    if (!found) {
+      console.error(`\nNorm ${wantMode} kennt diese Karte nicht.`);
+      dl.destroy();
+      process.exit(1);
+    }
+    if (!found.usable) {
+      console.error(`\nNorm ${wantMode} ist nicht benutzbar (${GRUND[found.reason]}).`);
+      dl.destroy();
+      process.exit(1);
+    }
+    chosen = found;
+  } else {
+    chosen = usable[0];
+    if (!chosen) {
+      console.error('\nKeine benutzbare Norm gefunden.');
+      dl.destroy();
+      process.exit(1);
+    }
   }
 
   const W = chosen.width;
   const H = chosen.height;
   FPS = Math.round(chosen.fpsN / chosen.fpsD);
   console.log(`\nOeffne ${chosen.name} (${W}x${H} @ ${FPS}), Vorlauf ${preroll} Bilder …`);
+
+  // started VOR dem SIGINT-Handler setzen — sonst kann finish() bei einem sehr
+  // fruehen Strg-C auf ein noch undefiniertes started treffen und "in NaN s" drucken.
+  started = Date.now();
 
   // SIGINT-Handler anmelden, BEVOR der Ausgang geoeffnet wird (Befund 3).
   process.on('SIGINT', () => {
@@ -129,8 +169,6 @@ try {
   const SWEEP_W = 8;
   const step = W / FPS; // eine volle Bahn je Sekunde
 
-  started = Date.now();
-
   timer = setInterval(() => {
     try {
       // Hintergrund zuruecksetzen (nur die beiden bemalten Baender, nicht das ganze Bild).
@@ -163,7 +201,7 @@ try {
         }
       }
 
-      dl.scheduleFrameBGRA(frame, W, H);
+      if (dl.scheduleFrameBGRA(frame, W, H)) sent++;
       n++;
 
       if ((Date.now() - started) / 1000 >= seconds) {
@@ -191,21 +229,39 @@ try {
 function finish() {
   const elapsed = (Date.now() - started) / 1000;
   const s = dl.stats();
-  console.log(`\nGesendet: ${n} Bilder in ${elapsed.toFixed(2)} s (erwartet rund ${Math.round(FPS * elapsed)}).`);
+  // n zaehlt VERSUCHE (jeden Interval-Tick), nicht Gesendetes — der Rueckgabewert von
+  // scheduleFrameBGRA() wurde bislang ignoriert. Die erste Zeile darf fuer ein Werkzeug,
+  // dessen einziger Zweck ehrliches Messen ist, nicht die optimistischere sein: "sent"
+  // (tatsaechlich angenommen) steht deshalb gleichrangig direkt daneben, nicht "Gesendet"
+  // fuer die blosse Versuchszahl.
   console.log(
-    `stats: eingereiht=${s.scheduled} warteschlange=${s.queued} ` +
-      `zu-spaet=${s.late} verworfen=${s.dropped} leergelaufen=${s.repeated} abgewiesen=${s.rejected}`,
+    `\nVersucht: ${n} Bilder, angenommen ${sent} in ${elapsed.toFixed(2)} s ` +
+      `(erwartet rund ${Math.round(FPS * elapsed)}).`,
+  );
+  console.log(
+    `stats: eingereiht=${s.scheduled} vorlauf(wirksam)=${s.preroll} warteschlange=${s.queued} ` +
+      `zu-spaet=${s.late} verworfen=${s.dropped} leergelaufen=${s.repeated} abgewiesen=${s.rejected} ` +
+      `fehlgeschlagen=${s.failed}`,
   );
   if (s.late || s.dropped) {
     console.log('  → zu-spaet/verworfen kommen von der KARTE: der Vorlauf ist zu klein. --preroll erhoehen.');
   }
   if (s.repeated) {
-    console.log('  → leergelaufen kommt von UNS: der Zulieferer stockt oder die Takte driften.');
+    console.log(
+      '  → leergelaufen kommt von UNS: der Zulieferer stockt oder die Takte driften. ' +
+        'Wir schicken dabei KEIN Bild erneut — die KARTE haelt von sich aus ihr letztes Bild.',
+    );
   }
   if (s.rejected) {
     console.log('  → abgewiesen kommt von UNS: wir liefern schneller, als die Karte abnimmt.');
   }
-  if (!s.late && !s.dropped && !s.repeated && !s.rejected) {
+  if (s.failed) {
+    console.log(
+      '  → fehlgeschlagen kommt von der KARTE/Treiber und ist WEDER rejected NOCH late/dropped — ' +
+        'z. B. eine im Betrieb gezogene Karte. Ernst nehmen.',
+    );
+  }
+  if (!s.late && !s.dropped && !s.repeated && !s.rejected && !s.failed) {
     console.log('  → sauber, kein einziges Bild verloren.');
   }
   dl.closeOutput();

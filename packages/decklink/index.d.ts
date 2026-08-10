@@ -31,16 +31,31 @@ export function scheduleFrameBGRA(buf: Uint8Array, width: number, height: number
 export interface OutputStats {
   /** Bilder, die die Karte noch vor sich hat. */
   queued: number;
-  /** Von der KARTE als zu spaet gemeldet — deutet auf zu kleinen Vorlauf. */
+  /** Von der KARTE als zu spät gemeldet — deutet auf zu kleinen Vorlauf. */
   late: number;
   /** Von der KARTE verworfen. */
   dropped: number;
-  /** Von UNS gezaehlt, weil die Warteschlange leerlief — deutet auf Drift oder stockenden Zulieferer. */
+  /**
+   * Leerlauf-Ereignisse: die Warteschlange lief leer. Wir schicken dabei ausdrücklich
+   * KEIN Bild erneut — das zählt nur den Leerlauf. Was währenddessen auf dem SDI-Kabel
+   * liegt, entscheidet die KARTE selbst: sie hält von sich aus ihr zuletzt angezeigtes
+   * Bild (Hardware-Verhalten, keine Zusage dieses Addons). Deutet auf Drift oder
+   * stockenden Zulieferer.
+   */
   repeated: number;
   /** Von UNS abgewiesen, weil die Warteschlange volllief. */
   rejected: number;
-  /** Insgesamt eingereiht. */
+  /** Insgesamt eingereiht (erfolgreich). */
   scheduled: number;
+  /**
+   * Jedes Scheitern von scheduleFrameBGRA (und des Schwarzbild-Vorlaufs), das NICHT
+   * schon in `rejected` steckt — z. B. wenn die Karte im Betrieb gezogen wird. Ohne
+   * diesen Zähler frieren bei so einem Ausfall ALLE anderen Zähler ein und `stats()`
+   * meldet eine makellose Bilanz, während nichts mehr hinausgeht.
+   */
+  failed: number;
+  /** Der WIRKSAME Vorlauf (2–6, nach dem Klemmen in openOutput). */
+  preroll: number;
 }
 export function stats(): OutputStats;
 

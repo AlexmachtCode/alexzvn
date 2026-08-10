@@ -117,7 +117,9 @@ export interface DisplayMode {
   fpsN: number;
   fpsD: number;
   interlaced: boolean;
-  /** Kann diese Karte diese Norm mit BGRA ausgeben? Sonst wandelt das Addon nach UYVY. */
+  /** Kann diese Karte diese Norm mit BGRA ausgeben? Wenn nicht, weist `openOutput()` die
+   *  Norm ab — es findet KEINE Wandlung nach UYVY statt (ausdrückliches Nicht-Ziel dieser
+   *  Scheibe, siehe „Nicht-Ziele“ oben und `src/addon.cc`). */
   supportsBGRA: boolean;
 }
 export function listOutputModes(deviceIndex: number): DisplayMode[];
@@ -135,7 +137,9 @@ export interface OutputStats {
   late: number;
   /** Von der Karte verworfen. */
   dropped: number;
-  /** Von UNS wiederholt, weil die Warteschlange leerlief. */
+  /** Leerlauf-Ereignisse: die Warteschlange lief leer. Wir schicken dabei KEIN Bild
+   *  erneut — das zählt nur den Leerlauf. Die KARTE hält währenddessen von sich aus
+   *  ihr zuletzt angezeigtes Bild (Hardware-Verhalten, keine Zusage des Addons). */
   repeated: number;
   /** Von UNS abgewiesen, weil die Warteschlange volllief. */
   rejected: number;
@@ -206,7 +210,10 @@ Die beiden Takte driften über Stunden gegeneinander, die Warteschlange läuft a
 leer. Das Addon fängt beides ab und **zählt es getrennt**:
 
 - Warteschlange über `prerollFrames + 2` → das eingehende Bild wird abgewiesen (`rejected++`).
-- Warteschlange auf 0 → das zuletzt gesendete Bild wird wiederholt (`repeated++`).
+- Warteschlange auf 0 → wir zählen den Leerlauf (`repeated++`) und setzen die Zeitachse neu,
+  schicken aber **kein** Bild erneut. Was währenddessen auf dem SDI-Kabel liegt, entscheidet
+  die Karte selbst: sie hält von sich aus ihr zuletzt angezeigtes Bild — das ist
+  Hardware-Verhalten, keine Zusage dieses Addons.
 - Die Karte meldet über `ScheduledFrameCompleted` selbst `late` und `dropped`.
 
 Ein SDI-Ausgang, der still Bilder frißt, während die Regie ihn für sauber hält, ist der schlimmere

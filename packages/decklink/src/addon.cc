@@ -23,6 +23,11 @@
 namespace {
 
 bool g_comReady = false;
+// Nur true, wenn UNSER EIGENES CoInitializeEx den COM-Zaehler dieses Threads
+// tatsaechlich erhoeht hat (SUCCEEDED(hr)). RPC_E_CHANGED_MODE ist ein FEHLERcode —
+// er erhoeht den Zaehler NICHT, COM lief bereits in einem fremden Wohnungsmodell.
+// Nur wer den Zaehler erhoeht hat, darf ihn in Destroy() auch wieder senken.
+bool g_comOwned = false;
 
 void ThrowJs(napi_env env, const char* message) {
   napi_throw_error(env, nullptr, message);
@@ -64,12 +69,36 @@ uint32_t StringToFourCc(const std::string& s) {
          static_cast<uint32_t>(static_cast<unsigned char>(s[3]));
 }
 
-/** Iterator anlegen. nullptr heisst: Desktop Video ist nicht installiert. */
-IDeckLinkIterator* NewIterator() {
+/**
+ * Iterator anlegen. nullptr heisst NICHT zwingend "Desktop Video fehlt" — es gibt
+ * mehrere Ursachen, siehe IteratorFailureMessage(). `hrOut` (falls gesetzt) traegt
+ * danach den rohen HRESULT von CoCreateInstance.
+ */
+IDeckLinkIterator* NewIterator(HRESULT* hrOut) {
   IDeckLinkIterator* it = nullptr;
   const HRESULT hr = CoCreateInstance(CLSID_CDeckLinkIterator, nullptr, CLSCTX_ALL,
                                       IID_IDeckLinkIterator, reinterpret_cast<void**>(&it));
+  if (hrOut) *hrOut = hr;
   return SUCCEEDED(hr) ? it : nullptr;
+}
+
+/**
+ * HRESULT von CoCreateInstance(CLSID_CDeckLinkIterator) in einen deutschen Klartextsatz
+ * uebersetzen. DREI verschiedene Ursachen, DREI verschiedene Saetze — eine gemeinsame
+ * Meldung fuer alle drei zerstoert genau die Diagnose, fuer die man sie braucht:
+ * - CO_E_NOTINITIALIZED: init() wurde auf diesem Thread nicht (mehr) gerufen.
+ * - REGDB_E_CLASSNOTREG: Desktop Video ist nicht installiert.
+ * - alles andere: ein eigener, unspezifischer COM-Fehler — NICHT als einen der beiden
+ *   anderen ausgeben, auch wenn die Ursache damit unbenannt bleibt.
+ */
+const char* IteratorFailureMessage(HRESULT hr) {
+  if (hr == CO_E_NOTINITIALIZED) {
+    return "COM ist nicht initialisiert. init() wurde nicht aufgerufen (oder destroy() wurde bereits gerufen).";
+  }
+  if (hr == REGDB_E_CLASSNOTREG) {
+    return "Blackmagic Desktop Video ist nicht installiert.";
+  }
+  return "DeckLink-Iterator konnte nicht angelegt werden (unerwarteter COM-Fehler).";
 }
 
 /**
@@ -85,9 +114,10 @@ IDeckLinkIterator* NewIterator() {
 IDeckLink* DeviceAt(uint32_t index, const char** errorOut) {
   if (errorOut) *errorOut = nullptr;
 
-  IDeckLinkIterator* it = NewIterator();
+  HRESULT hr = S_OK;
+  IDeckLinkIterator* it = NewIterator(&hr);
   if (!it) {
-    if (errorOut) *errorOut = "Blackmagic Desktop Video ist nicht installiert.";
+    if (errorOut) *errorOut = IteratorFailureMessage(hr);
     return nullptr;
   }
 
@@ -130,11 +160,18 @@ BMDTimeValue g_nextDisplayTime = 0;
 // der Karte und deuten auf zu kleinen Vorlauf, repeated/rejected kommen von uns und
 // deuten auf Drift oder einen stockenden Zulieferer. Ein gemeinsamer Zaehler
 // "Bildfehler" wuerde genau die Diagnose zerstoeren, fuer die man ihn braucht.
+//
+// g_failed zaehlt JEDES Scheitern von scheduleFrameBGRA (und der Schwarzbild-
+// Vorlaufschleife), das NICHT schon rejected ist — z. B. wenn die Karte im Betrieb
+// gezogen wird. Ohne diesen Zaehler frieren bei so einem Ausfall ALLE Zaehler ein
+// (late=dropped=repeated=rejected=0, scheduled friert ein), und stats() meldet eine
+// makellose Bilanz, waehrend nichts mehr hinausgeht.
 std::atomic<uint64_t> g_late{0};
 std::atomic<uint64_t> g_dropped{0};
 std::atomic<uint64_t> g_repeated{0};
 std::atomic<uint64_t> g_rejected{0};
 std::atomic<uint64_t> g_scheduled{0};
+std::atomic<uint64_t> g_failed{0};
 
 // Der Treiber ruft ScheduledFrameCompleted auf SEINEM Thread. Hier darf NICHTS mit
 // JavaScript passieren — nur atomare Zaehler. Genau deshalb braucht dieses Addon
@@ -155,9 +192,24 @@ class OutputCallback : public IDeckLinkVideoOutputCallback {
   }
   HRESULT STDMETHODCALLTYPE ScheduledPlaybackHasStopped() override { return S_OK; }
 
+  // Der Treiber fragt per QueryInterface nach, ob dieses Objekt WIRKLICH ein
+  // IDeckLinkVideoOutputCallback ist, bevor er SetScheduledFrameCompletionCallback
+  // akzeptiert. E_NOINTERFACE fuer ALLES (auch IUnknown und den eigenen Callback-Typ)
+  // liesse den Treiber den Rueckruf STILL abweisen: openOutput meldet trotzdem true,
+  // late/dropped blieben fuer immer 0, waehrend die Karte Bilder frisst — der schlimmste
+  // Fehler, den dieses Addon machen kann.
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID* ppv) override {
+    if (!ppv) return E_POINTER;
+    if (IsEqualIID(iid, __uuidof(IUnknown)) || IsEqualIID(iid, IID_IDeckLinkVideoOutputCallback)) {
+      *ppv = this;
+      return S_OK;
+    }
+    *ppv = nullptr;
+    return E_NOINTERFACE;
+  }
+
   // Der Rueckruf ist ein statisches Objekt und lebt so lange wie das Modul —
   // eine echte Referenzzaehlung waere hier nur Zierrat.
-  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, LPVOID*) override { return E_NOINTERFACE; }
   ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
   ULONG STDMETHODCALLTYPE Release() override { return 1; }
 };
@@ -231,12 +283,16 @@ Napi::Value Init(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (!g_comReady) {
     const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    // RPC_E_CHANGED_MODE heisst nur: COM laeuft schon, in einem anderen Modell.
-    // Fuer uns kein Fehler.
+    // RPC_E_CHANGED_MODE heisst nur: COM laeuft schon, in einem anderen Modell (z. B.
+    // STA im Electron-Hauptprozess). Fuer uns kein Fehler — wir arbeiten im fremden
+    // Modell weiter. Aber: dieser Aufruf hat den COM-Zaehler des Threads NICHT erhoeht,
+    // also merken wir uns, dass wir ihn spaeter in Destroy() auch NICHT senken duerfen —
+    // sonst faehrt unser destroy() COM fuer einen fremden Besitzer herunter.
     if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
       ThrowJs(env, "CoInitializeEx fehlgeschlagen.");
       return env.Undefined();
     }
+    g_comOwned = SUCCEEDED(hr);
     g_comReady = true;
   }
   return Napi::Boolean::New(env, true);
@@ -246,9 +302,10 @@ Napi::Value Init(const Napi::CallbackInfo& info) {
 // nur ein fehlender Treiber wirft.
 Napi::Value ListDevices(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  IDeckLinkIterator* it = NewIterator();
+  HRESULT hr = S_OK;
+  IDeckLinkIterator* it = NewIterator(&hr);
   if (!it) {
-    ThrowJs(env, "Blackmagic Desktop Video ist nicht installiert.");
+    ThrowJs(env, IteratorFailureMessage(hr));
     return env.Undefined();
   }
 
@@ -335,6 +392,9 @@ Napi::Value ListOutputModes(const Napi::CallbackInfo& info) {
     outIface->DoesSupportVideoMode(bmdVideoConnectionUnspecified, code, bmdFormat8BitBGRA,
                                    bmdNoVideoOutputConversion, bmdSupportedVideoModeDefault,
                                    &actual, &supported);
+    // "actual" muss der abgefragten Norm entsprechen — sonst wuerde openOutput() bei
+    // dieser Norm in Wahrheit eine ANDERE oeffnen, und supportsBGRA haette gelogen.
+    const bool supportsBgraForThisMode = (supported == TRUE) && (actual == code);
 
     Napi::Object o = Napi::Object::New(env);
     o.Set("mode", Napi::String::New(env, FourCcToString(static_cast<uint32_t>(code))));
@@ -346,7 +406,7 @@ Napi::Value ListOutputModes(const Napi::CallbackInfo& info) {
     o.Set("interlaced",
           Napi::Boolean::New(env, fd == bmdLowerFieldFirst || fd == bmdUpperFieldFirst));
     o.Set("segmented", Napi::Boolean::New(env, fd == bmdProgressiveSegmentedFrame));
-    o.Set("supportsBGRA", Napi::Boolean::New(env, supported == TRUE));
+    o.Set("supportsBGRA", Napi::Boolean::New(env, supportsBgraForThisMode));
     arr.Set(n, o);
 
     mode->Release();
@@ -451,8 +511,23 @@ Napi::Value OpenOutput(const Napi::CallbackInfo& info) {
     ThrowJs(env, "Diese Karte kann diese Norm nicht mit BGRA ausgeben.");
     return env.Undefined();
   }
+  // "actual" ist die Norm, die die Karte TATSAECHLICH oeffnen wuerde. Mit
+  // bmdNoVideoOutputConversion muss sie der angefragten entsprechen — sonst
+  // oeffneten wir eine andere Norm als die, die wir vermessen haben.
+  if (actual != wanted) {
+    out->Release();
+    dev->Release();
+    ThrowJs(env, "Die Karte weicht bei dieser Norm ab (nicht die angefragte Norm) — Ausgabe verweigert.");
+    return env.Undefined();
+  }
 
-  out->SetScheduledFrameCompletionCallback(&g_callback);
+  const HRESULT hrCallback = out->SetScheduledFrameCompletionCallback(&g_callback);
+  if (FAILED(hrCallback)) {
+    out->Release();
+    dev->Release();
+    ThrowJs(env, "Rueckruf fuer abgeschlossene Bilder konnte nicht gesetzt werden.");
+    return env.Undefined();
+  }
 
   const HRESULT hr = out->EnableVideoOutput(wanted, bmdVideoOutputFlagDefault);
   if (FAILED(hr)) {
@@ -473,10 +548,16 @@ Napi::Value OpenOutput(const Napi::CallbackInfo& info) {
   g_repeated = 0;
   g_rejected = 0;
   g_scheduled = 0;
+  g_failed = 0;
 
-  // Vorlauf mit Schwarzbildern fuellen, dann die Wiedergabe starten.
+  // Vorlauf mit Schwarzbildern fuellen, dann die Wiedergabe starten. Bricht die
+  // Schleife ab, zaehlt das als "failed" — sonst meldet openOutput() unten trotzdem
+  // true, obwohl der Vorlauf nicht vollstaendig gefuellt wurde.
   for (uint32_t i = 0; i < g_preroll; i++) {
-    if (!ScheduleBlackFrame()) break;
+    if (!ScheduleBlackFrame()) {
+      g_failed.fetch_add(1, std::memory_order_relaxed);
+      break;
+    }
   }
   if (FAILED(g_output->StartScheduledPlayback(0, g_timeScale, 1.0))) {
     CloseOutputInternal();
@@ -505,6 +586,7 @@ Napi::Value ScheduleFrameBGRA(const Napi::CallbackInfo& info) {
 
   // Masse muessen exakt passen. NICHT skalieren — die Aufloesung kommt aus der Quelle.
   if (width != g_width || height != g_height) {
+    g_failed.fetch_add(1, std::memory_order_relaxed);
     return Napi::Boolean::New(env, false);
   }
   const size_t need = static_cast<size_t>(g_width) * static_cast<size_t>(g_height) * 4;
@@ -523,9 +605,13 @@ Napi::Value ScheduleFrameBGRA(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, false);
   }
 
-  // Warteschlange leergelaufen: die Karte hatte nichts mehr. Wir zaehlen es UND setzen
-  // die Zeitachse auf die Hardware-Uhr zurueck. Ohne diese Neusetzung planten wir ab
-  // hier dauerhaft in die Vergangenheit, und ALLES kaeme fuer immer zu spaet.
+  // Warteschlange leergelaufen: die Karte hatte nichts mehr ANZUZEIGEN. Wir schicken
+  // dabei ausdruecklich KEIN Bild erneut — "repeated" zaehlt nur den Leerlauf. Was in
+  // diesem Moment auf dem SDI-Kabel liegt, entscheidet die KARTE selbst: sie haelt von
+  // sich aus ihr zuletzt angezeigtes Bild (Hardware-Verhalten, keine Zusage dieses
+  // Addons). Zusaetzlich setzen wir die Zeitachse auf die Hardware-Uhr zurueck. Ohne
+  // diese Neusetzung planten wir ab hier dauerhaft in die Vergangenheit, und ALLES
+  // kaeme fuer immer zu spaet.
   if (buffered == 0 && g_scheduled.load(std::memory_order_relaxed) > 0) {
     g_repeated.fetch_add(1, std::memory_order_relaxed);
     BMDTimeValue streamTime = 0;
@@ -539,23 +625,27 @@ Napi::Value ScheduleFrameBGRA(const Napi::CallbackInfo& info) {
   if (g_output->CreateVideoFrame(static_cast<int>(g_width), static_cast<int>(g_height),
                                  static_cast<int>(g_width) * 4, bmdFormat8BitBGRA,
                                  bmdFrameFlagDefault, &frame) != S_OK) {
+    g_failed.fetch_add(1, std::memory_order_relaxed);
     return Napi::Boolean::New(env, false);
   }
   void* bytes = nullptr;
   IDeckLinkVideoBuffer* buffer = nullptr;
   if (frame->QueryInterface(IID_IDeckLinkVideoBuffer, reinterpret_cast<void**>(&buffer)) != S_OK || !buffer) {
     frame->Release();
+    g_failed.fetch_add(1, std::memory_order_relaxed);
     return Napi::Boolean::New(env, false);
   }
   if (buffer->StartAccess(bmdBufferAccessWrite) != S_OK) {
     buffer->Release();
     frame->Release();
+    g_failed.fetch_add(1, std::memory_order_relaxed);
     return Napi::Boolean::New(env, false);
   }
   if (buffer->GetBytes(&bytes) != S_OK || !bytes) {
     buffer->EndAccess(bmdBufferAccessWrite);
     buffer->Release();
     frame->Release();
+    g_failed.fetch_add(1, std::memory_order_relaxed);
     return Napi::Boolean::New(env, false);
   }
   std::memcpy(bytes, buf.Data(), need);
@@ -565,7 +655,10 @@ Napi::Value ScheduleFrameBGRA(const Napi::CallbackInfo& info) {
   const HRESULT hr =
       g_output->ScheduleVideoFrame(frame, g_nextDisplayTime, g_frameDuration, g_timeScale);
   frame->Release();  // der Treiber haelt seine eigene Referenz bis zum Abschluss
-  if (FAILED(hr)) return Napi::Boolean::New(env, false);
+  if (FAILED(hr)) {
+    g_failed.fetch_add(1, std::memory_order_relaxed);
+    return Napi::Boolean::New(env, false);
+  }
 
   g_nextDisplayTime += g_frameDuration;
   g_scheduled.fetch_add(1, std::memory_order_relaxed);
@@ -585,6 +678,10 @@ Napi::Value Stats(const Napi::CallbackInfo& info) {
   o.Set("repeated", Napi::Number::New(env, static_cast<double>(g_repeated.load())));
   o.Set("rejected", Napi::Number::New(env, static_cast<double>(g_rejected.load())));
   o.Set("scheduled", Napi::Number::New(env, static_cast<double>(g_scheduled.load())));
+  o.Set("failed", Napi::Number::New(env, static_cast<double>(g_failed.load())));
+  // Der WIRKSAME Vorlauf (nach dem stillen Klemmen auf 2..6 in openOutput) — sonst
+  // erfaehrt niemand, dass --preroll 10 zu 6 wurde.
+  o.Set("preroll", Napi::Number::New(env, static_cast<double>(g_preroll)));
   return o;
 }
 
@@ -597,8 +694,15 @@ Napi::Value Destroy(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   CloseOutputInternal();
   if (g_comReady) {
-    CoUninitialize();
+    // Nur abbauen, was wir selbst aufgebaut haben (siehe g_comOwned/Init()). War unser
+    // CoInitializeEx RPC_E_CHANGED_MODE, gehoert der COM-Zaehler einem fremden Besitzer —
+    // CoUninitialize wuerde DESSEN Zaehler senken, nicht unseren. Im Electron-Hauptprozess
+    // (STA, von Electron selbst hochgefahren) waere das fatal.
+    if (g_comOwned) {
+      CoUninitialize();
+    }
     g_comReady = false;
+    g_comOwned = false;
   }
   return env.Undefined();
 }
