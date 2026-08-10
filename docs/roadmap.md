@@ -34,7 +34,29 @@ Zwei Abkürzungen sind tot: **Zoom ISO** (Liminal, nur macOS 14+) und das **Zoom
 
 | Stage | Inhalt | Status |
 |---|---|---|
-| **0 · Beschaffung + De-Risking-Spike** | **Owner:** private Marketplace-App (Client-ID/Secret) · Windows-Meeting-SDK laden (`ZOOM_SDK_DIR`) · Testmeeting mit Co-Host/„local recording permission" · DLL-Weiterverteilungs-Lizenz klären. **Spike:** minimaler C++-Prototyp bekommt Roh-Video (I420 je User) + Roh-Ton (PCM16 je `node_id`); bestätigt, dass **kein Sonder-Entitlement** nötig ist. Ausweg **VideoCom Bridge** (~199 $), falls der Spike scheitert. | ⛔ **Owner** |
+| **0 · Beschaffung + De-Risking-Spike** | **Owner:** private Marketplace-App (Client-ID/Secret) · Windows-Meeting-SDK laden (`ZOOM_SDK_DIR`) · Testmeeting mit Co-Host/„local recording permission" · DLL-Weiterverteilungs-Lizenz klären. **Spike:** minimaler C++-Prototyp bekommt Roh-Video (I420 je User) + Roh-Ton (PCM16 je `node_id`); bestätigt, dass **kein Sonder-Entitlement** nötig ist. Ausweg **VideoCom Bridge** (~199 $), falls der Spike scheitert. | 🟡 **teilweise** |
+
+**Stand der Beschaffung, gemessen am 2026-08-10** in
+`C:\Users\alexk\Documents\Jakobs Medien\Production Suite\SDKs`:
+
+| | |
+|---|---|
+| Rohdaten-Header (`zoom_rawdata_api.h`, `rawdata_renderer_interface.h`, `rawdata_audio_helper_interface.h`) | ✅ da, im **C#-Wrapper-Paket** (`zoom-c-sharp-wrapper-7.1.5.43953/x64/zoom_sdk_c_sharp_wrap/h/`) |
+| `sdk.dll` (Laufzeit, x64, 2.086 KB) | ✅ da |
+| **`sdk.lib`** (Import-Bibliothek zum Linken) | ❌ **fehlt** |
+| Marketplace-App (Client-ID/Secret) | ❌ offen |
+| Testmeeting mit Co-Host-Rechten | ❌ offen |
+| DLL-Weiterverteilungs-Lizenz | ❌ offen |
+
+⚠️ **Das geladene „Plugin SDK" ist ein anderes Produkt** und hilft hier nicht: es spricht per IPC
+(`zToolSuiteIPCProxy.lib`) mit dem laufenden Zoom-Client und liefert **keine Rohmedien**. Der
+C#-Wrapper dagegen enthält den vollständigen nativen C++-Kopfsatz inklusive `h/rawdata/` — nur eben
+keine Import-Bibliothek.
+
+Daraus folgt für Stage 0 **eine Entscheidung, die eine Messung ist, keine Beschaffung**: läßt sich aus
+`sdk.dll` eine Import-Bibliothek erzeugen (Exporte auslesen → `.def` → `lib /def:`), spart das den Download
+des schlichten „Meeting SDK for Windows"-Pakets ganz. Läßt es sich nicht, ist genau dieses eine Paket zu
+laden. Die übrigen drei Owner-Punkte bleiben davon unberührt.
 | **1 · Bridge-Gerüst** | `packages/zoom-bridge/` (CMake + `maybe-build.mjs`) · Win32/COM-**Message-Pump** (`utilityProcess` hat keine) · Zoom-SDK-Init + Meeting-Join per JSON. | 🔵 nach Stage 0 |
 | **2 · Video → NDI** | `onVideoRawDataReceived` (I420 nativ) → **mehrere NDI-Sender in EINEM Prozess** · Quelle „JM Connect – Zoom: \<Name\>" erscheint ohne Switcher-Änderung. | 🔵 |
 | **3 · Ton je Person** | `onOneWayAudioRawDataReceived` (PCM16 je `node_id`) → NDI-Audio je Teilnehmer (bzw. `onMixedAudioRawDataReceived` als Mischton). | 🔵 |
@@ -100,15 +122,37 @@ fest verdrahteten 30 fps abgegriffen, die Bildratenwahl erreichte nur NDI und de
 Jetzt: Anzeige liest die tatsächlichen Werte, `OutputController.setFps` wirkt bis in Aufnahme und RTMP,
 „NDI-Bildrate" heißt „Ausgabe-Bildrate", Bitraten-Empfehlung folgt der Auflösung, Aufnahme-Vorgabe 16.000
 statt 12.000 kbit/s. Dazu der **erste Selbsttest des Switchers** (16 Prüfungen).
-📌 **Offen (Owner, lokal):** Installer bauen — CI überspringt `switcher-v` —, Release + Asset hochladen,
-danach `node scripts/bump-manifest.mjs switcher 0.10.0`. `suite.json` steht bis dahin auf 0.9.0.
+✅ **Erledigt 2026-08-10:** Installer lokal gebaut, [Release `switcher-v0.10.0`](https://github.com/AlexmachtCode/alexzvn/releases/tag/switcher-v0.10.0)
+samt Asset veröffentlicht, `suite.json` auf 0.10.0 (PR #219). Das Tag stand seit dem 07.08. auf origin, aber
+ohne Release — der Katalog stand deshalb zu Recht noch auf 0.9.0: ein früherer Bump hätte eine Aktualisierung
+angeboten, die es nicht zum Herunterladen gab.
 📌 **Offen (Owner, Laufzeit):** 1080p + 50 fps senden und am Ziel messen.
+📌 **Offen (Betrieb):** Launcher-Proxy neu ausrollen — er liest den Katalog aus `MANIFEST_REF`, sonst sehen
+Operatoren weder 0.10.0 noch die Patch-Notes.
 
-**D2 — Decklink/SDI-Ausgang:** über natives DeckLink-SDK-Addon (utilityProcess + Addon, ein Sender/Prozess,
-Muster `packages/ndi`). Größerer nativer Brocken, echt nebenläufig zum Zoom-C++-Strang.
-**Kein Issue → neu anlegen.** Owner-Vorgaben stehen bereits: Karte vorhanden, aber an einem **anderen**
-Rechner (Verifikation dort) · **Slice 1 nur Bild**, Ton als zweite Scheibe · Videoformat **von der Karte
-abfragen** statt festlegen.
+**D2a — natives DeckLink-Addon: ✅ gemergt 2026-08-10** (PR #218), `packages/decklink`.
+Privat (`"private": true`), **kein Release** — es wird erst mit D2b als Teil des Switchers ausgeliefert.
+Kann: Karten und Normen auflisten, Ausgang öffnen, BGRA-Vollbilder in geplanter Wiedergabe einreihen,
+Verluste **getrennt nach Ursache** zählen. Dazu ein Sondierlauf mit bewegtem Testbild (`npm run spike`).
+Zwei Setzungen, die D2b erbt: das SDK liefert **nur eine IDL** (Header entstehen zur Bauzeit per MIDL, es
+gibt **keine DLL zum Mitliefern** — COM holt die Umsetzung aus dem Desktop-Video-Treiber), und das **Urteil
+über brauchbare Normen liegt in TypeScript** (`src/modes.ts`, 22 Selbsttests), nicht in C++ — dadurch ohne
+Karte prüfbar.
+📌 **Offen (Owner, Kartenrechner):** die Prüfliste in der Spec abarbeiten. Punkt 1 zuerst — kommt der
+Rückruf überhaupt an? Bleiben `zu-spät`/`verworfen` hartnäckig 0, während der Laufbalken springt, ist die
+Karten-Seite von `stats()` blind und **alle** weiteren Messungen sind wertlos.
+
+**D2b — Anbindung an den Switcher:** utilityProcess + Kartenauswahl in den Einstellungen, Programmbild raus
+über SDI. Der Frameweg steht schon: der Renderer wandelt sein Programmbild heute für NDI nach BGRA — kann
+die Karte BGRA, geht **derselbe Puffer ohne jede Farbwandlung** hinaus. Baubar ohne Karte, verifizierbar nur
+am Kartenrechner. **Kein Issue → neu anlegen.**
+Für D2b vorgemerkt (aus dem Abschluss-Review von D2a):
+- **Drift-Wächter für die Spiegel-Konstanten.** `COMPOSABLE` == `RESOLUTIONS` und `OFFERED_FPS` ==
+  `OUTPUT_FPS_OPTIONS` stimmen heute (nachgemessen), aber `OUTPUT_FPS_OPTIONS` liegt im Renderer-Store, aus
+  dem ein Paket nicht importieren kann → nach `src/shared/` ziehen oder per Selbsttest vergleichen.
+- **`napi_add_env_cleanup_hook` fehlt:** stirbt der Trägerprozess ohne `destroy()`, bleibt
+  `DisableVideoOutput` aus.
+- **Ton** bleibt die dritte Scheibe (Owner-Vorgabe: Slice 1 nur Bild).
 
 ### Lane E — Steuerpulte vereinheitlichen (#165)
 
@@ -135,9 +179,12 @@ nächsten Switcher-Änderung zu erledigen.
 
 ## 3 · Was läuft wann (Zoom-Wartefenster gezielt füllen)
 
-- **Während Stage 0** (Owner beschafft, Wochen) 🟢 **Jetzt-Block:**
-  Lane D2a (DeckLink-Addon — SDK liegt, Bauweg bewiesen) · Lane C (Proxy-Deploy #61, iveo-URL) ·
-  Lane B (Live-Tests, inkl. Runtime-Test #208) · Lane A #213 Battle-Judges.
+- **Während Stage 0** (Owner beschafft) 🟢 **Jetzt-Block:**
+  ~~Lane D2a (DeckLink-Addon)~~ ✅ gemergt 2026-08-10 · Lane C (Proxy-Deploy #61 — jetzt zusätzlich nötig,
+  damit 0.10.0 im Launcher ankommt · iveo-URL) · Lane B (Live-Tests, inkl. Runtime-Test #208) ·
+  Lane A #213 Battle-Judges.
+  ⚠️ Stage 0 ist **nicht mehr rein Owner-Sache**: die Frage „läßt sich `sdk.dll` ohne `sdk.lib` linken"
+  ist eine Messung und gehört in den Jetzt-Block.
 - **Während Stage 1–2** (C++-Bau läuft) 🔵:
   Lane D2b Switcher-Anbindung · Lane E Phase 2+3 (billig, gut nebenher) · neue Kundenwünsche in Lane A.
 - **Nach Zoom-Release** ⚪: Härtung, Lane E Phase 4+5, dann geparkte Wünsche nach Bedarf.
@@ -152,7 +199,8 @@ nächsten Switcher-Änderung zu erledigen.
 - **[#11](https://github.com/AlexmachtCode/alexzvn/issues/11) Timer:** ✅ **geschlossen.**
   **[#208](https://github.com/AlexmachtCode/alexzvn/issues/208) Interpreter:** ausgeliefert → **nach Runtime-Test schließen**.
   ⚠️ Deutschsprachige PR-Texte schließen Issues **nicht** automatisch — GitHub erkennt nur englische Schlüsselwörter.
-- **Neu anlegen:** Switcher-Decklink/SDI-Issue (Lane D2).
+- **Neu anlegen:** Switcher-Decklink/SDI-Issue — D2a ist ohne Issue gebaut und gemergt (PR #218); das Issue
+  gehört jetzt an **D2b** (Anbindung an den Switcher) und an die Kartenrechner-Verifikation.
 - **[#200](https://github.com/AlexmachtCode/alexzvn/issues/200) App-Designer W3:** bleibt offen, niedrige Prio → geparkt.
 - **Drei tote Remote-Branches löschen** (2026-08-07 einzeln gegen `main` geprüft, alle Inhalte sind dort):
   `feat/jm-production-suite` (Katalogpflege für Switcher 0.2.2 — wir sind bei 0.10.0) ·
