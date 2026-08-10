@@ -34,7 +34,7 @@ Zwei Abkürzungen sind tot: **Zoom ISO** (Liminal, nur macOS 14+) und das **Zoom
 
 | Stage | Inhalt | Status |
 |---|---|---|
-| **0 · Beschaffung + De-Risking-Spike** | **Owner:** private Marketplace-App (Client-ID/Secret) · Windows-Meeting-SDK laden (`ZOOM_SDK_DIR`) · Testmeeting mit Co-Host/„local recording permission" · DLL-Weiterverteilungs-Lizenz klären. **Spike:** minimaler C++-Prototyp bekommt Roh-Video (I420 je User) + Roh-Ton (PCM16 je `node_id`); bestätigt, dass **kein Sonder-Entitlement** nötig ist. Ausweg **VideoCom Bridge** (~199 $), falls der Spike scheitert. | 🟡 **teilweise** |
+| **0 · Beschaffung + De-Risking-Spike** | **Owner:** ~~private Marketplace-App~~ ✅ · ~~Windows-Meeting-SDK laden~~ ✅ · **Rohdaten-Freischaltung des Kontos** ⛔ · Testmeeting mit Co-Host/„local recording permission" · DLL-Weiterverteilungs-Lizenz klären. **Spike:** ✅ gelaufen 2026-08-10 — Bindung, `InitSDK`, Anmeldung und Nachrichtenschleife tragen. ⛔ **Die Annahme „kein Sonder-Entitlement nötig" ist WIDERLEGT:** `HasRawdataLicense()` meldet nach `AUTHRET_SUCCESS` `false`. Ausweg **VideoCom Bridge** (~199 $), falls Zoom die Freischaltung nicht erteilt. | ⛔ **blockiert** |
 
 **Stand der Beschaffung, gemessen am 2026-08-10** in
 `C:\Users\alexk\Documents\Jakobs Medien\Production Suite\SDKs`:
@@ -44,8 +44,9 @@ Zwei Abkürzungen sind tot: **Zoom ISO** (Liminal, nur macOS 14+) und das **Zoom
 | Rohdaten-Header (`zoom_rawdata_api.h`, `rawdata_renderer_interface.h`, `rawdata_audio_helper_interface.h`) | ✅ da, im **C#-Wrapper-Paket** (`zoom-c-sharp-wrapper-7.1.5.43953/x64/zoom_sdk_c_sharp_wrap/h/`) |
 | `sdk.dll` (Laufzeit, x64, 2.086 KB) | ✅ da |
 | ~~`sdk.lib` (Import-Bibliothek)~~ | ✅ **erledigt — wird nicht gebraucht**, siehe Sondierlauf unten |
-| Marketplace-App (Client-ID/Secret) | ❌ **offen — der einzige echte Blocker** |
-| Testmeeting mit Co-Host-Rechten | ❌ offen |
+| Marketplace-App (Client-ID/Secret) | ✅ **erstellt und geprüft** — `AUTHRET_SUCCESS` |
+| **Rohdaten-Freischaltung des Kontos** | ⛔ **FEHLT — der Blocker** |
+| Testmeeting mit Co-Host-Rechten | ❌ offen (erst sinnvoll nach der Freischaltung) |
 | DLL-Weiterverteilungs-Lizenz | ❌ offen |
 
 ⚠️ **Das geladene „Plugin SDK" ist ein anderes Produkt** und hilft hier nicht: es spricht per IPC
@@ -69,12 +70,28 @@ CleanUPSDK()                      -> sauber, exit=0
 Auch `GetRawdataVideoSourceHelper` und `GetAudioRawdataHelper` sind bindbar und liefern Zeiger.
 **Damit steht das Fundament von Stage 1 auf gemessenem Boden**, und ein SDK-Download entfällt.
 
-❗ **Was der Spike NICHT beantwortet:** `HasRawdataLicense()` meldet `false`. Das ist **kein** Beweis,
-daß die Rohdaten-Berechtigung fehlt — sie hängt am Konto und kommt über das JWT bei der Anmeldung,
-und angemeldet wurde nicht, weil dafür die Marketplace-App nötig ist. Vor der Anmeldung ist `false`
-die nichtssagende, nicht die negative Antwort. Sobald Client-ID und Secret vorliegen, beantwortet ein
-erweiterter Lauf (JWT → `IAuthService::SDKAuth` → `HasRawdataLicense()`) die Frage in einem Durchgang.
-**Stage 0 hängt jetzt an genau diesem einen Punkt.**
+⛔ **Die Berechtigungsfrage ist beantwortet — negativ.** Mit der am 2026-08-10 erstellten
+Marketplace-App gemessen:
+
+```
+onAuthenticationReturn              -> AUTHRET_SUCCESS
+nach Anmeldung: HasRawdataLicense() -> FALSE
+```
+
+`AUTHRET_SUCCESS` beweist, daß Client-ID, Secret, JWT-Aufbau, Uhrzeit und die Nachrichtenschleife
+stimmen — die Anmeldung ist kein Verdächtiger mehr. Und **nach** geglückter Anmeldung ist
+`HasRawdataLicense() == false` die belastbare, negative Antwort: **dieses Konto hat die
+Rohdaten-Berechtigung nicht.**
+
+Das ist **kein Code-Problem**. Zoom erteilt die Rohdaten-Freischaltung für Meeting-SDK-Apps
+gesondert; auf welchem Weg (Antrag im Marketplace, Support-Ticket, Konto-Typ/Plan) ist zu klären —
+**das ist der nächste Owner-Schritt und der einzige verbliebene Blocker für Stages 1–4.**
+
+Bleibt sie aus, greift der bereits vorgesehene Ausweg **VideoCom Bridge** (~199 $). Die Entscheidung
+darüber ist damit keine Vermutung mehr, sondern hängt an einer Antwort von Zoom.
+
+Der erneute Nachweis kostet **einen Befehl**: nach einer Freischaltung `run-auth.mjs` noch einmal
+laufen lassen — Rückgabewert `0` statt `3` heißt, Stage 0 ist durch.
 | **1 · Bridge-Gerüst** | `packages/zoom-bridge/` (CMake + `maybe-build.mjs`) · Win32/COM-**Message-Pump** (`utilityProcess` hat keine) · Zoom-SDK-Init + Meeting-Join per JSON. | 🔵 nach Stage 0 |
 | **2 · Video → NDI** | `onVideoRawDataReceived` (I420 nativ) → **mehrere NDI-Sender in EINEM Prozess** · Quelle „JM Connect – Zoom: \<Name\>" erscheint ohne Switcher-Änderung. | 🔵 |
 | **3 · Ton je Person** | `onOneWayAudioRawDataReceived` (PCM16 je `node_id`) → NDI-Audio je Teilnehmer (bzw. `onMixedAudioRawDataReceived` als Mischton). | 🔵 |
@@ -201,10 +218,10 @@ nächsten Switcher-Änderung zu erledigen.
   ~~Lane D2a (DeckLink-Addon)~~ ✅ gemergt 2026-08-10 · Lane C (Proxy-Deploy #61 — jetzt zusätzlich nötig,
   damit 0.10.0 im Launcher ankommt · iveo-URL) · Lane B (Live-Tests, inkl. Runtime-Test #208) ·
   Lane A #213 Battle-Judges.
-  ✅ Die Messfrage aus Stage 0 („läßt sich `sdk.dll` ohne `sdk.lib` binden?") ist am 2026-08-10
-  beantwortet: **ja**. Stage 0 ist damit wieder rein Owner-Sache — und zwar an **einem** Punkt: der
-  Marketplace-App. Ohne sie keine Anmeldung, ohne Anmeldung keine belastbare Auskunft über die
-  Rohdaten-Berechtigung.
+  ⛔ **Stage 0 ist am 2026-08-10 an einer Konto-Berechtigung hängengeblieben, nicht an Code.**
+  Bindung, `InitSDK`, Anmeldung und Nachrichtenschleife sind gemessen und tragen; die
+  Rohdaten-Freischaltung fehlt. Bis Zoom antwortet, ist am Zoom-Strang **nichts** zu bauen — das
+  Wartefenster wird also länger, nicht kürzer. Der Jetzt-Block trägt die Arbeit allein.
 - **Während Stage 1–2** (C++-Bau läuft) 🔵:
   Lane D2b Switcher-Anbindung · Lane E Phase 2+3 (billig, gut nebenher) · neue Kundenwünsche in Lane A.
 - **Nach Zoom-Release** ⚪: Härtung, Lane E Phase 4+5, dann geparkte Wünsche nach Bedarf.

@@ -135,18 +135,32 @@ int main() {
 
   wprintf(L"\nonAuthenticationReturn       -> %s\n", AuthResultName(g_result));
 
+  bool licensed = false;
   if (g_result == AUTHRET_SUCCESS) {
-    const bool lic = HasRawdataLicense();
-    wprintf(L"nach Anmeldung: HasRawdataLicense() -> %s\n", lic ? L"TRUE" : L"FALSE");
-    wprintf(L"\n==> %s\n",
-            lic ? L"Rohdaten-Berechtigung VORHANDEN. Stage 0 ist durch, Stage 1 kann beginnen."
-                : L"Rohdaten-Berechtigung FEHLT. Ohne sie gibt es kein Rohvideo und keinen Ton je\n"
-                  L"    Person — dann greift der Ausweg VideoCom Bridge aus der Roadmap.");
+    licensed = HasRawdataLicense();
+    wprintf(L"nach Anmeldung: HasRawdataLicense() -> %s\n", licensed ? L"TRUE" : L"FALSE");
+    if (licensed) {
+      wprintf(L"\n==> Rohdaten-Berechtigung VORHANDEN. Stage 0 ist durch, Stage 1 kann beginnen.\n");
+    } else {
+      wprintf(L"\n==> Rohdaten-Berechtigung FEHLT auf diesem Konto.\n");
+      wprintf(L"    Die Anmeldung selbst hat geklappt - Zugangsdaten, JWT und Nachrichtenschleife\n");
+      wprintf(L"    sind also in Ordnung. Es fehlt die Freischaltung fuer Rohdaten, die Zoom fuer\n");
+      wprintf(L"    Meeting-SDK-Apps gesondert erteilt. Ohne sie gibt es kein Rohvideo und keinen\n");
+      wprintf(L"    Ton je Person.\n");
+    }
   } else {
-    wprintf(L"\n==> Anmeldung nicht erfolgreich — HasRawdataLicense() bleibt aussagelos.\n");
+    wprintf(L"\n==> Anmeldung nicht erfolgreich - HasRawdataLicense() bleibt aussagelos.\n");
   }
 
   DestroyAuthService(auth);
   CleanUPSDK();
-  return g_result == AUTHRET_SUCCESS ? 0 : 1;
+
+  // Der Rueckgabewert beantwortet DIE FRAGE DIESES LAUFS, nicht die Teilfrage "hat die
+  // Anmeldung geklappt". Eine geglueckte Anmeldung ohne Berechtigung ist kein Erfolg —
+  // mit 0 zu enden waere hier genau die Sorte Luege, die dieses Werkzeug aufdecken soll.
+  //   0 = angemeldet UND berechtigt
+  //   3 = angemeldet, aber NICHT berechtigt
+  //   1 = Anmeldung fehlgeschlagen
+  if (g_result != AUTHRET_SUCCESS) return 1;
+  return licensed ? 0 : 3;
 }

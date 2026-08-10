@@ -1,6 +1,16 @@
-# Zoom-Meeting-SDK: Ist es ohne `sdk.lib` bindbar? — Sondierlauf 2026-08-10
+# Zoom-Meeting-SDK — Stage-0-Sondierläufe, 2026-08-10
 
-**Ergebnis: ja.** Der Download eines weiteren SDK-Pakets entfällt. Der C#-Wrapper allein genügt.
+Drei Läufe, drei Antworten:
+
+| Frage | Antwort |
+|---|---|
+| Ist das SDK **ohne `sdk.lib`** bindbar? | ✅ **Ja.** Der Download eines weiteren SDK-Pakets entfällt. |
+| Trägt das **Fundament** (Init, Dienste, Anmeldung, Nachrichtenschleife)? | ✅ **Ja**, alles gemessen. |
+| Hat das Konto die **Rohdaten-Berechtigung**? | ❌ **Nein.** `HasRawdataLicense()` meldet nach erfolgreicher Anmeldung `FALSE`. |
+
+**Das Ergebnis in einem Satz:** technisch ist alles bereit, aber ohne die Rohdaten-Freischaltung
+von Zoom gibt es kein Rohvideo und keinen Ton je Person — und damit keine Zoom-Einbindung in der
+geplanten Form.
 
 ## Die Frage
 
@@ -63,14 +73,33 @@ exit=0
 `InitSDK` gelingt **ohne** Marketplace-Zugangsdaten, die Dienst-Fabriken liefern gültige Zeiger. Das
 Fundament von Stage 1 (Bridge-Gerüst) steht damit auf gemessenem Boden.
 
-**Nicht geklärt — und aus diesem Lauf auch nicht klärbar:** `HasRawdataLicense()` meldet `false`.
-Das ist **kein** Beweis, daß die Rohdaten-Berechtigung fehlt. Die Berechtigung hängt am Konto und
-kommt über das JWT bei der Anmeldung — und angemeldet wurde hier nicht, weil dafür die
-Marketplace-App nötig ist. Vor der Anmeldung ist `false` die nichtssagende Antwort, nicht die
-negative.
+**Aus Lauf 1 und 2 nicht klärbar:** `HasRawdataLicense()` meldet dort `false`, aber vor der
+Anmeldung ist das die nichtssagende Antwort, nicht die negative. Die Berechtigung hängt am Konto und
+kommt über das JWT. Dafür gibt es Lauf 3.
 
-Genau dafür gibt es **Lauf 3** (`03-auth.cpp`) — siehe unten. Er ist gebaut und wartet nur auf
-Zugangsdaten.
+**Lauf 3 — Anmeldung** (`03-auth.cpp`, mit Marketplace-Zugangsdaten, 2026-08-10):
+
+```
+InitSDK()                           -> ok
+vor  Anmeldung: HasRawdataLicense() -> false
+SDKAuth()                           -> SDKError=0 (nur Annahme, Ergebnis kommt asynchron)
+onAuthenticationReturn              -> AUTHRET_SUCCESS
+nach Anmeldung: HasRawdataLicense() -> FALSE
+exit=3
+```
+
+**Damit ist die Frage beantwortet — negativ.** `AUTHRET_SUCCESS` beweist, daß Client-ID, Secret,
+JWT-Aufbau, Uhrzeit und die Nachrichtenschleife alle stimmen. Die Anmeldung ist kein Verdächtiger
+mehr. Und **nach** einer geglückten Anmeldung ist `HasRawdataLicense() == false` die belastbare,
+negative Antwort: **dieses Konto hat die Rohdaten-Berechtigung nicht.**
+
+Das ist **kein Code-Problem und nichts, was sich programmieren ließe**. Zoom erteilt die
+Rohdaten-Freischaltung für Meeting-SDK-Apps gesondert; auf welchem Weg (Antrag im Marketplace,
+Support-Ticket, Konto-Typ) ist zu klären. Bleibt sie aus, greift der in der Roadmap vorgesehene
+Ausweg **VideoCom Bridge** (~199 $).
+
+Der erneute Nachweis kostet einen Befehl: nach einer Freischaltung `run-auth.mjs` noch einmal
+laufen lassen. Rückgabewert `0` statt `3` heißt, Stage 0 ist durch.
 
 ## Lauf 3 — die Berechtigungsfrage beantworten
 
@@ -105,14 +134,18 @@ Umgebungsvariablen.
 
 ### Wie das Ergebnis zu lesen ist
 
-| Ausgabe | Bedeutung |
-|---|---|
-| `AUTHRET_SUCCESS` + `HasRawdataLicense() -> TRUE` | **Stage 0 durch.** Stage 1 kann beginnen. |
-| `AUTHRET_SUCCESS` + `HasRawdataLicense() -> FALSE` | Anmeldung gut, aber **keine Rohdaten-Berechtigung**. Dann greift der Ausweg VideoCom Bridge aus der Roadmap. |
-| `AUTHRET_JWTTOKENWRONG` | JWT fehlerhaft — meist die Uhrzeit (`iat`/`exp`) oder ein falsches Secret. |
-| `AUTHRET_KEYORSECRETWRONG` | Client-ID/Secret passen nicht zur App. |
-| `AUTHRET_ACCOUNTNOTENABLESDK` | Das Konto hat das Meeting-SDK nicht freigeschaltet. |
-| kein Rückruf in 30 s | **Kein** Beweis für Scheitern — es kam nur kein Ergebnis. Netz, Uhrzeit oder Nachrichtenschleife prüfen. |
+| Ausgabe | Rückgabewert | Bedeutung |
+|---|---|---|
+| `AUTHRET_SUCCESS` + `HasRawdataLicense() -> TRUE` | `0` | **Stage 0 durch.** Stage 1 kann beginnen. |
+| `AUTHRET_SUCCESS` + `HasRawdataLicense() -> FALSE` | `3` | Anmeldung gut, aber **keine Rohdaten-Berechtigung**. ← *Stand 2026-08-10* |
+| `AUTHRET_JWTTOKENWRONG` | `1` | JWT fehlerhaft — meist die Uhrzeit (`iat`/`exp`) oder ein falsches Secret. |
+| `AUTHRET_KEYORSECRETWRONG` | `1` | Client-ID/Secret passen nicht zur App. |
+| `AUTHRET_ACCOUNTNOTENABLESDK` | `1` | Das Konto hat das Meeting-SDK nicht freigeschaltet. |
+| kein Rückruf in 30 s | `1` | **Kein** Beweis für Scheitern — es kam nur kein Ergebnis. Netz, Uhrzeit oder Nachrichtenschleife prüfen. |
+
+Der Rückgabewert beantwortet **die Frage dieses Laufs**, nicht die Teilfrage „hat die Anmeldung
+geklappt". Eine geglückte Anmeldung ohne Berechtigung mit `0` zu quittieren wäre genau die Sorte
+Lüge, die dieses Werkzeug aufdecken soll — deshalb der eigene Wert `3`.
 
 ## Nachbauen
 
