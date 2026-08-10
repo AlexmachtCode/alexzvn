@@ -6,11 +6,15 @@ Drei Läufe, drei Antworten:
 |---|---|
 | Ist das SDK **ohne `sdk.lib`** bindbar? | ✅ **Ja.** Der Download eines weiteren SDK-Pakets entfällt. |
 | Trägt das **Fundament** (Init, Dienste, Anmeldung, Nachrichtenschleife)? | ✅ **Ja**, alles gemessen. |
-| Hat das Konto die **Rohdaten-Berechtigung**? | ❌ **Nein.** `HasRawdataLicense()` meldet nach erfolgreicher Anmeldung `FALSE`. |
+| Hat das Konto die **Rohdaten-Lizenz**? | ❌ **Nein.** `HasRawdataLicense()` meldet nach erfolgreicher Anmeldung `FALSE`. |
+| Trägt der **zweite Weg** (Aufnahme-Erlaubnis im Meeting)? | ⛕ **ungeprüft** — braucht einen Beitritts-Sondierlauf, siehe unten. |
 
-**Das Ergebnis in einem Satz:** technisch ist alles bereit, aber ohne die Rohdaten-Freischaltung
-von Zoom gibt es kein Rohvideo und keinen Ton je Person — und damit keine Zoom-Einbindung in der
-geplanten Form.
+**Das Ergebnis in einem Satz:** technisch ist alles bereit; die Rohdaten-Lizenz des Kontos fehlt,
+aber sie ist **nur einer von zwei Wegen** — der zweite ist noch offen und als Host der
+naheliegendere.
+
+> ⚠️ **Berichtigung.** Hier stand zuerst, ohne die Freischaltung gebe es „keine Zoom-Einbindung in der
+> geplanten Form". Das war voreilig — siehe **Der zweite Weg** weiter unten.
 
 ## Die Frage
 
@@ -93,13 +97,55 @@ JWT-Aufbau, Uhrzeit und die Nachrichtenschleife alle stimmen. Die Anmeldung ist 
 mehr. Und **nach** einer geglückten Anmeldung ist `HasRawdataLicense() == false` die belastbare,
 negative Antwort: **dieses Konto hat die Rohdaten-Berechtigung nicht.**
 
-Das ist **kein Code-Problem und nichts, was sich programmieren ließe**. Zoom erteilt die
-Rohdaten-Freischaltung für Meeting-SDK-Apps gesondert; auf welchem Weg (Antrag im Marketplace,
-Support-Ticket, Konto-Typ) ist zu klären. Bleibt sie aus, greift der in der Roadmap vorgesehene
-Ausweg **VideoCom Bridge** (~199 $).
+## Der zweite Weg — und warum der erste Schluß voreilig war
 
-Der erneute Nachweis kostet einen Befehl: nach einer Freischaltung `run-auth.mjs` noch einmal
-laufen lassen. Rückgabewert `0` statt `3` heißt, Stage 0 ist durch.
+`HasRawdataLicense()` prüft eine **Konto-Lizenz**. Sie ist **nicht** die einzige Tür zu den Rohdaten.
+Der SDK-Kopfsatz nennt eine zweite, in
+`meeting_service_components/meeting_recording_interface.h`:
+
+```cpp
+// IMeetingRecordingController
+virtual SDKError CanStartRawRecording() = 0;   // darf dieser Nutzer Rohdaten aufnehmen?
+virtual SDKError StartRawRecording()   = 0;
+virtual SDKError RequestLocalRecordingPrivilege() = 0;        // den Gastgeber fragen
+virtual SDKError IsSupportRequestLocalRecordingPrivilege() = 0;
+
+// IMeetingRecordingCtrlEvent
+virtual void onLocalRecordingPrivilegeRequestStatus(RequestLocalRecordingStatus) = 0;
+
+// Gastgeberseite (IRequestLocalRecordingPrivilegeHandler)
+virtual SDKError GrantLocalRecordingPrivilege() = 0;
+virtual SDKError DenyLocalRecordingPrivilege()  = 0;
+```
+
+Das ist die **lokale Aufnahme-Erlaubnis im Meeting**. Genau diesen Weg hatte die Roadmap für Stage 0
+von Anfang an vorgesehen („Testmeeting mit Co-Host/**local recording permission**") — Lauf 3 hat ihn
+nur nicht berührt, weil er gar nicht erst in ein Meeting geht.
+
+**Und wir sind laut Owner-Entscheid ohnehin Host.** Ein Host kann die Erlaubnis selbst erteilen. Weg 2
+ist damit nicht der Notnagel, sondern der naheliegendere.
+
+**Was der `false`-Befund also wirklich heißt:** Weg 1 ist zu. Über Weg 2 sagt er **nichts**.
+
+## Was als Nächstes zu messen ist
+
+Ein vierter Lauf, der einem echten Testmeeting beitritt und dort `CanStartRawRecording()` fragt:
+
+1. `InitSDK` + `SDKAuth` (steht, siehe Lauf 3)
+2. `IMeetingService::Join` mit Meeting-Nummer und Kenncode
+3. auf `MEETING_STATUS_INMEETING` warten (Nachrichtenschleife läuft schon)
+4. `GetMeetingRecordingController()` → `CanStartRawRecording()`
+5. bei Ablehnung `RequestLocalRecordingPrivilege()` und auf
+   `onLocalRecordingPrivilegeRequestStatus` warten
+
+Voraussetzungen beim Owner: im Zoom-Web-Portal unter **Einstellungen → Aufzeichnung** die **lokale
+Aufzeichnung** einschalten samt der Unteroption, daß Hosts Teilnehmern die lokale Aufnahme gestatten
+dürfen; dazu ein Testmeeting mit Host- oder Co-Host-Rechten.
+
+Trägt auch Weg 2 nicht, greift der in der Roadmap vorgesehene Ausweg **VideoCom Bridge** (~199 $).
+
+Sollte Zoom die Konto-Lizenz doch noch erteilen, kostet der Nachweis einen Befehl: `run-auth.mjs`
+erneut laufen lassen — Rückgabewert `0` statt `3` heißt, Weg 1 ist offen.
 
 ## Lauf 3 — die Berechtigungsfrage beantworten
 

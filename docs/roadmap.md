@@ -34,7 +34,7 @@ Zwei Abkürzungen sind tot: **Zoom ISO** (Liminal, nur macOS 14+) und das **Zoom
 
 | Stage | Inhalt | Status |
 |---|---|---|
-| **0 · Beschaffung + De-Risking-Spike** | **Owner:** ~~private Marketplace-App~~ ✅ · ~~Windows-Meeting-SDK laden~~ ✅ · **Rohdaten-Freischaltung des Kontos** ⛔ · Testmeeting mit Co-Host/„local recording permission" · DLL-Weiterverteilungs-Lizenz klären. **Spike:** ✅ gelaufen 2026-08-10 — Bindung, `InitSDK`, Anmeldung und Nachrichtenschleife tragen. ⛔ **Die Annahme „kein Sonder-Entitlement nötig" ist WIDERLEGT:** `HasRawdataLicense()` meldet nach `AUTHRET_SUCCESS` `false`. Ausweg **VideoCom Bridge** (~199 $), falls Zoom die Freischaltung nicht erteilt. | ⛔ **blockiert** |
+| **0 · Beschaffung + De-Risking-Spike** | **Owner:** ~~private Marketplace-App~~ ✅ · ~~Windows-Meeting-SDK laden~~ ✅ · **Rohdaten-Freischaltung des Kontos** ⛔ · Testmeeting mit Co-Host/„local recording permission" · DLL-Weiterverteilungs-Lizenz klären. **Spike:** ✅ gelaufen 2026-08-10 — Bindung, `InitSDK`, Anmeldung und Nachrichtenschleife tragen. Die **Rohdaten-Lizenz** des Kontos fehlt (`HasRawdataLicense()` = `false` nach `AUTHRET_SUCCESS`), aber das ist nur **Weg 1**; **Weg 2** (lokale Aufnahme-Erlaubnis im Meeting, `CanStartRawRecording()`) ist **ungeprüft** und als Host der naheliegendere. Ausweg **VideoCom Bridge** (~199 $) erst, wenn auch Weg 2 nicht trägt. | 🟡 **Beitritts-Spike offen** |
 
 **Stand der Beschaffung, gemessen am 2026-08-10** in
 `C:\Users\alexk\Documents\Jakobs Medien\Production Suite\SDKs`:
@@ -45,8 +45,9 @@ Zwei Abkürzungen sind tot: **Zoom ISO** (Liminal, nur macOS 14+) und das **Zoom
 | `sdk.dll` (Laufzeit, x64, 2.086 KB) | ✅ da |
 | ~~`sdk.lib` (Import-Bibliothek)~~ | ✅ **erledigt — wird nicht gebraucht**, siehe Sondierlauf unten |
 | Marketplace-App (Client-ID/Secret) | ✅ **erstellt und geprüft** — `AUTHRET_SUCCESS` |
-| **Rohdaten-Freischaltung des Kontos** | ⛔ **FEHLT — der Blocker** |
-| Testmeeting mit Co-Host-Rechten | ❌ offen (erst sinnvoll nach der Freischaltung) |
+| Rohdaten-**Lizenz** des Kontos (Weg 1) | ❌ fehlt — `HasRawdataLicense()` = `false` |
+| **Lokale Aufnahme-Erlaubnis im Meeting (Weg 2)** | ⛕ **ungeprüft — der eigentlich offene Punkt** |
+| Testmeeting mit Host-/Co-Host-Rechten | ⛕ **jetzt nötig**, um Weg 2 zu prüfen |
 | DLL-Weiterverteilungs-Lizenz | ❌ offen |
 
 ⚠️ **Das geladene „Plugin SDK" ist ein anderes Produkt** und hilft hier nicht: es spricht per IPC
@@ -83,15 +84,45 @@ stimmen — die Anmeldung ist kein Verdächtiger mehr. Und **nach** geglückter 
 `HasRawdataLicense() == false` die belastbare, negative Antwort: **dieses Konto hat die
 Rohdaten-Berechtigung nicht.**
 
-Das ist **kein Code-Problem**. Zoom erteilt die Rohdaten-Freischaltung für Meeting-SDK-Apps
-gesondert; auf welchem Weg (Antrag im Marketplace, Support-Ticket, Konto-Typ/Plan) ist zu klären —
-**das ist der nächste Owner-Schritt und der einzige verbliebene Blocker für Stages 1–4.**
+> ### ⚠️ Berichtigung vom 2026-08-10 (später am Tag): das war voreilig
+>
+> Hier stand zuerst „der einzige verbliebene Blocker · Ausweg VideoCom Bridge". **Am SDK-Kopfsatz
+> nachgemessen ist das zu pessimistisch.** `HasRawdataLicense()` ist **nur einer von zwei** Wegen zu
+> den Rohdaten. Der zweite steht in
+> `meeting_service_components/meeting_recording_interface.h` und ist die **Aufnahme-Erlaubnis im
+> Meeting**:
+>
+> ```cpp
+> // IMeetingRecordingController
+> virtual SDKError CanStartRawRecording() = 0;   // darf dieser Nutzer Rohdaten aufnehmen?
+> virtual SDKError StartRawRecording()   = 0;
+> virtual SDKError RequestLocalRecordingPrivilege() = 0;   // Gastgeber fragen
+> virtual SDKError IsSupportRequestLocalRecordingPrivilege() = 0;
+> // IMeetingRecordingCtrlEvent
+> virtual void onLocalRecordingPrivilegeRequestStatus(RequestLocalRecordingStatus) = 0;
+> // Gastgeberseite: GrantLocalRecordingPrivilege() / DenyLocalRecordingPrivilege()
+> ```
+>
+> Genau diesen Weg hatte Stage 0 von Anfang an vorgesehen — die Zeile
+> „Testmeeting mit Co-Host/**local recording permission**" steht seit jeher in der Tabelle oben. Der
+> Spike hat sie nur nicht geprüft, weil er gar nicht erst in ein Meeting geht.
+>
+> **Der Befund lautet daher richtig:** dem Konto fehlt die **Rohdaten-Lizenz** (Weg 1). Ob Weg 2
+> trägt, ist **ungeprüft** — und da wir laut Owner-Entscheid ohnehin **Host** sind, ist er der
+> naheliegendere: der Host kann die Erlaubnis selbst erteilen.
+>
+> **Die Entscheidung über VideoCom Bridge ist damit vertagt**, nicht fällig.
 
-Bleibt sie aus, greift der bereits vorgesehene Ausweg **VideoCom Bridge** (~199 $). Die Entscheidung
-darüber ist damit keine Vermutung mehr, sondern hängt an einer Antwort von Zoom.
+**Nächster Schritt: der Beitritts-Sondierlauf.** Ein vierter Lauf tritt einem echten Testmeeting bei
+und fragt `CanStartRawRecording()`, nachdem der Host die lokale Aufnahme erlaubt hat. **Erst dieses
+Ergebnis entscheidet über Stages 1–4.** Voraussetzungen dafür beim Owner:
 
-Der erneute Nachweis kostet **einen Befehl**: nach einer Freischaltung `run-auth.mjs` noch einmal
-laufen lassen — Rückgabewert `0` statt `3` heißt, Stage 0 ist durch.
+1. Im Zoom-Web-Portal unter **Einstellungen → Aufzeichnung** die **lokale Aufzeichnung** einschalten
+   und die Unteroption erlauben, daß Hosts Teilnehmern die lokale Aufnahme gestatten dürfen.
+   (Menü-Bezeichnungen ändern sich bei Zoom gelegentlich — sinngemäß suchen.)
+2. Ein Testmeeting, in dem wir Host sind oder Co-Host-Rechte haben.
+
+Sollte auch Weg 2 nicht tragen, bleibt der Ausweg **VideoCom Bridge** (~199 $).
 | **1 · Bridge-Gerüst** | `packages/zoom-bridge/` (CMake + `maybe-build.mjs`) · Win32/COM-**Message-Pump** (`utilityProcess` hat keine) · Zoom-SDK-Init + Meeting-Join per JSON. | 🔵 nach Stage 0 |
 | **2 · Video → NDI** | `onVideoRawDataReceived` (I420 nativ) → **mehrere NDI-Sender in EINEM Prozess** · Quelle „JM Connect – Zoom: \<Name\>" erscheint ohne Switcher-Änderung. | 🔵 |
 | **3 · Ton je Person** | `onOneWayAudioRawDataReceived` (PCM16 je `node_id`) → NDI-Audio je Teilnehmer (bzw. `onMixedAudioRawDataReceived` als Mischton). | 🔵 |
