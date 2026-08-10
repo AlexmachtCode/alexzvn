@@ -289,6 +289,34 @@ Jeder Fehlerpfad liefert eine eigene, unterscheidbare Meldung — nicht ein geme
    Ohne `--mode` nimmt es die erste benutzbare Norm. Am Ende steht `stats()` — und wenn `repeated`
    oder `rejected` über null steht, sagt das Programm ausdrücklich, was das bedeutet.
 
+### Prüfliste für den Kartenrechner — in dieser Reihenfolge
+
+Aus dem Abschluß-Review. Die Reihenfolge ist nicht beliebig: Punkt 1 entscheidet, ob die übrigen
+Messungen überhaupt etwas wert sind.
+
+1. **Kommt der Rückruf überhaupt an?** `npm run spike -w @jm/decklink -- --seconds 20`, dabei den
+   Rechner absichtlich belasten. Bleiben `zu-spaet` und `verworfen` hartnäckig **0**, während der
+   Laufbalken sichtbar springt, ist der Rückruf nicht installiert — dann ist die ganze Karten-Seite
+   von `stats()` blind und **alle** folgenden Messungen sind wertlos.
+2. **Gelingt `QueryInterface(IID_IDeckLinkVideoBuffer)`** auf einem per `CreateVideoFrame` erzeugten
+   Bild? Scheitert es, kommt kein einziges Bild heraus: schwarzer Ausgang, `eingereiht=0`.
+3. **Bild am Monitor:** Farbbalken in der richtigen Reihenfolge (das beweist die BGRA-Byteordnung),
+   Laufbalken ohne Sprünge, Pulsstreifen gegen eine Stoppuhr.
+4. **Trägt Vorlauf 2 im Alltag?** Zweimal 60 s: `--preroll 2` gegen `--preroll 6`, `repeated` und
+   `late` vergleichen. Die Vorgabe 2 ist bewußt die riskantere Einstellung — erst danach entscheiden,
+   ob sie bleibt.
+5. **Baut sich das Polster nach einem Leerlauf wieder auf?** Leerlauf provozieren (schwere Last
+   starten), dann beobachten, ob `warteschlange` dauerhaft bei 1 klebt statt auf `preroll`
+   zurückzukommen. Das entscheidet, ob die fehlende Bildwiederholung ein echtes Problem ist.
+6. **Feldkennung echter Normen:** meldet die Karte für 1080i50 wirklich `bmdUpperFieldFirst` und
+   nicht `bmdUnknownFieldDominance`? Bei „unknown" würde `judgeModes` ein Halbbild als benutzbar
+   durchwinken. Der Sondierlauf druckt die Liste — einmal ansehen genügt.
+7. **`supportsBGRA` an echter Hardware** für 1080p25 und 720p50. Sagt die Karte nein, ist diese
+   Scheibe an ihr nicht benutzbar — bewußt, denn es wird nicht gewandelt.
+8. **Karte belegt und Karte gezogen:** zweiten Sondierlauf parallel starten (erwartet „Die Karte wird
+   von einem anderen Programm benutzt."), danach die Karte im Betrieb ziehen und prüfen, ob `failed`
+   steigt statt daß alles still weiterläuft.
+
 ## Was D2b von hier erbt
 
 Die Anbindung braucht genau drei Dinge aus diesem Paket: `listDevices` + `listOutputModes` + `judgeModes`
