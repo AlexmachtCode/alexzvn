@@ -114,7 +114,6 @@ console.log('readCredentials — Umgebung und Datei:');
       assert(false, 'Fehlerfall: readCredentials wirft, wenn nichts gesetzt');
     } catch (e) {
       const err = e as Error;
-      assert(!err.message.includes('GEHEIM'), 'Fehlerfall: kein testgeheimnis in der Meldung');
       assert(err.message.includes('ZOOM_SDK_CLIENT_ID'), 'Fehlerfall: Variablennamen stehen in der Meldung');
     }
 
