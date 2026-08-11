@@ -138,12 +138,15 @@ int main() {
         // ACHTUNG FUER SPAETER: diese Frist deckt bisher NUR "auth" ab. Die
         // Aufgaben 7 bis 9 bringen weitere asynchrone Antworten (Beitritt,
         // Teilnehmerliste, Aufnahme-Erlaubnis) - jede davon braucht dieselbe
-        // Pruefung fuer ihr eigenes "wartet noch"-Flag, sonst verschluckt EOF
-        // dort denselben Fehler erneut. Die zehn Sekunden sind KEINE
-        // allgemeine Wahrheit, nur der fuer "auth" gemessene Wert.
+        // Pruefung fuer ihr eigenes "wartet noch"-Flag. Der Code "authTimeout"
+        // gilt NUR fuer diese Stelle - zwei verschiedene Ursachen bekommen nie
+        // dieselbe Meldung (Kernregel der Spec), also braucht jede weitere
+        // Stelle ihren EIGENEN Code (z.B. "joinTimeout"), nicht denselben
+        // Sammelbegriff. Die zehn Sekunden sind KEINE allgemeine Wahrheit,
+        // nur der fuer "auth" gemessene Wert.
         if (!sessionAuthPending()) break;
         if (GetTickCount64() - g_stdinClosedAtMs >= 10000) {
-          emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":\"timeout\"}");
+          emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":\"authTimeout\"}");
           break;
         }
       }

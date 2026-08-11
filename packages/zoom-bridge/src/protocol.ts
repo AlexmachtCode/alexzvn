@@ -102,9 +102,21 @@ export const SDK_ERROR_NAMES: Record<number, string> = {
   37: 'SDKERR_BREAKOUT_ROOM_NOT_CREATED',
 };
 
-/** Namen, die WIR vergeben — nicht das SDK. */
+/**
+ * Namen, die WIR vergeben — nicht das SDK.
+ *
+ * KEIN nackter Sammelschlüssel `timeout` mehr: zwei verschiedene Ursachen
+ * dürfen nie dieselbe Meldung bekommen (Kernregel dieses Vorhabens). Ein
+ * namenloser Sammelbegriff würde sich beim nächsten Mal wieder von
+ * irgendwoher einen Namen borgen — genau das ist mit `authTimeout` passiert,
+ * der hier zuerst als `timeout` → `JOIN_TIMEOUT` gemeldet wurde, obwohl die
+ * Ursache die Anmeldung war, nicht der Beitritt. Fällt der Sammelschlüssel
+ * weg, bekommt ein unbekannter Code sichtbar `OWN_UNKNOWN(...)` — sichtbar
+ * falsch ist besser als unsichtbar falsch.
+ */
 export const OWN_ERROR_NAMES: Record<string, string> = {
-  timeout: 'JOIN_TIMEOUT',
+  authTimeout: 'AUTH_TIMEOUT',
+  joinTimeout: 'JOIN_TIMEOUT',
   badJson: 'BAD_JSON',
   badMeetingId: 'BAD_MEETING_ID',
   spawnFailed: 'SPAWN_FAILED',

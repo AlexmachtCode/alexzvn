@@ -238,8 +238,17 @@ console.log('\nprotocol — Anreicherung:');
   const a = enrich({ ev: 'auth', code: 0 });
   assert((a as { result: string }).result === 'AUTHRET_SUCCESS', 'auth bekommt result dazu');
 
-  const t = enrich({ ev: 'error', where: 'join', code: 'timeout' });
+  const t = enrich({ ev: 'error', where: 'join', code: 'joinTimeout' });
   assert((t as { name: string }).name === 'JOIN_TIMEOUT', 'ein selbst erzeugter Fehler behaelt seinen eigenen Namen');
+
+  // Zwei verschiedene Ursachen duerfen nie dieselbe Meldung bekommen: die
+  // Anmeldung hat ihren EIGENEN Timeout-Code, nicht den des Beitritts.
+  const at = enrich({ ev: 'error', where: 'auth', code: 'authTimeout' });
+  assert((at as { name: string }).name === 'AUTH_TIMEOUT', 'ein Anmelde-Timeout traegt AUTH_TIMEOUT');
+  assert(
+    (t as { name: string }).name !== (at as { name: string }).name,
+    'Beitritts-Timeout und Anmelde-Timeout tragen verschiedene Namen - sonst sucht man den Fehler am falschen Ort',
+  );
 
   const b = enrich({ ev: 'bye' });
   assert(b.ev === 'bye' && Object.keys(b).length === 1, 'was nichts braucht, wird nicht angereichert');

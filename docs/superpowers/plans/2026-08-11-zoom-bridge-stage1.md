@@ -437,8 +437,11 @@ console.log('\nprotocol — Anreicherung:');
   const a = enrich({ ev: 'auth', code: 0 });
   assert((a as { result: string }).result === 'AUTHRET_SUCCESS', 'auth bekommt result dazu');
 
-  const t = enrich({ ev: 'error', where: 'join', code: 'timeout' });
+  const t = enrich({ ev: 'error', where: 'join', code: 'joinTimeout' });
   assert((t as { name: string }).name === 'JOIN_TIMEOUT', 'ein selbst erzeugter Fehler behaelt seinen eigenen Namen');
+  const a = enrich({ ev: 'error', where: 'auth', code: 'authTimeout' });
+  assert((a as { name: string }).name === 'AUTH_TIMEOUT', 'die Anmelde-Zeitueberschreitung hat einen EIGENEN Namen');
+  assert((t as { name: string }).name !== (a as { name: string }).name, 'zwei Zeitueberschreitungen, zwei Namen');
 
   const b = enrich({ ev: 'bye' });
   assert(b.ev === 'bye' && Object.keys(b).length === 1, 'was nichts braucht, wird nicht angereichert');
@@ -2692,7 +2695,10 @@ export class Bridge {
     this.joinTimer = setTimeout(() => {
       this.joinTimer = null;
       if (isSettled(this.state.meeting)) return;
-      this.dispatch({ ev: 'error', where: 'join', code: 'timeout', lastStatus: this.state.meeting } as BridgeEvent);
+      // `joinTimeout`, nicht `timeout`: die Bridge kennt eine zweite Zeitueberschreitung
+      // (die Anmeldung), und zwei verschiedene Ursachen duerfen nie denselben Namen
+      // bekommen. Siehe OWN_ERROR_NAMES in protocol.ts.
+      this.dispatch({ ev: 'error', where: 'join', code: 'joinTimeout', lastStatus: this.state.meeting } as BridgeEvent);
     }, ms);
     this.joinTimer.unref?.();
   }
