@@ -131,18 +131,30 @@ interface Participant {
   role: 'none' | 'host' | 'coHost' | 'panelist' | 'breakoutModerator' | 'attendee';
 }
 
-type Event =
+type WireEvent =
   | { ev: 'ready'; sdkVersion: string }
-  | { ev: 'auth'; result: AuthResultName; code: number }
+  | { ev: 'auth'; code: number }
   | { ev: 'status'; status: MeetingStatus; raw: number; code: number }
   | { ev: 'roster'; list: Participant[] }
   | { ev: 'joined'; p: Participant }
   | { ev: 'left'; id: number }
   | { ev: 'renamed'; id: number; name: string }
   | { ev: 'privilege'; canRecordRaw: boolean; requested?: boolean; denied?: boolean }
-  | { ev: 'error'; where: string; code: number | string; name: string; msg?: string }
+  | { ev: 'error'; where: string; code: number | string }
   | { ev: 'bye' };
 ```
+
+**Zwei Schichten, ein Ereignis.** Auf der Rohrleitung stehen **Zahlen**, keine Namen: die Bridge
+meldet `{"ev":"error","where":"join","code":12}`. Den Namen (`SDKERR_NO_PERMISSION`) setzt
+TypeScript beim Lesen dazu und reicht nach außen ein `BridgeEvent` weiter — dasselbe Objekt plus
+`name` und, bei `auth`, plus `result`.
+
+Der Grund ist nicht Sparsamkeit, sondern **eine Tabelle an genau einer Stelle**. Läge der
+Namenskatalog in C++, wäre er nur mit SDK und Compiler prüfbar; in TypeScript ist er es überall, und
+die Prüfungen aus Abschnitt 11.1 (jeder Code genau ein Name, kein Name doppelt, unbekannter Code
+wird nicht gerundet) laufen ohne Meeting. Die C++-Seite schreibt den Klartextnamen zusätzlich auf
+**stderr**, damit ein Mensch beim Mitlesen der Rohausgabe nicht Zahlen nachschlagen muss — das ist
+Diagnose, kein Protokoll, und darf sich doppeln.
 
 `bye` quittiert `quit`, bevor der Prozess endet — damit die aufrufende Seite ein sauberes Ende von
 einem Absturz unterscheiden kann.
@@ -251,15 +263,17 @@ klang.
 Umgesetzt heißt das:
 
 - Kein `SDKError` wird verworfen. Jeder Rückgabewert wird geprüft und im Fehlerfall gemeldet.
-- `name` kommt aus einer Tabelle, die aus `zoom_sdk_def.h` gepflegt ist (`SDKERR_SUCCESS`=0,
+- Der Namenskatalog liegt in **`src/protocol.ts`**, gepflegt aus `zoom_sdk_def.h` (`SDKERR_SUCCESS`=0,
   `SDKERR_UNINITIALIZE`=7, `SDKERR_NO_PERMISSION`=12, …). Ein unbekannter Code wird als
   `SDKERR_UNKNOWN(<n>)` gemeldet — **nie** als der nächstähnliche bekannte.
 - `where` benennt die Stelle (`init`, `auth`, `join`, `leave`, `privilege`, `roster`), damit derselbe
   Code an zwei Stellen unterscheidbar bleibt.
 - `AuthResultName` ist die Aufzählung aus `auth_service_interface.h`: `AUTHRET_SUCCESS`,
-  `KEYORSECRETEMPTY`, `KEYORSECRETWRONG`, `ACCOUNTNOTSUPPORT`, `ACCOUNTNOTENABLESDK`, `UNKNOWN`,
-  `SERVICE_BUSY`, `NONE`, `OVERTIME`, `NETWORKISSUE`, `CLIENT_INCOMPATIBLE`, `JWTTOKENWRONG`,
-  `LIMIT_EXCEEDED_EXCEPTION`.
+  `AUTHRET_KEYORSECRETEMPTY`, `AUTHRET_KEYORSECRETWRONG`, `AUTHRET_ACCOUNTNOTSUPPORT`,
+  `AUTHRET_ACCOUNTNOTENABLESDK`, `AUTHRET_UNKNOWN`, `AUTHRET_SERVICE_BUSY`, `AUTHRET_NONE`,
+  `AUTHRET_OVERTIME`, `AUTHRET_NETWORKISSUE`, `AUTHRET_CLIENT_INCOMPATIBLE`,
+  `AUTHRET_JWTTOKENWRONG`, `AUTHRET_LIMIT_EXCEEDED_EXCEPTION` — ebenfalls in `protocol.ts`, aus
+  demselben Grund.
 
 ## 9 · Zugangsdaten und Datenschutz
 
