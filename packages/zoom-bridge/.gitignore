@@ -1,0 +1,5 @@
+# Bauartefakte. sdk.lib/sdk.def sind an die DLL-Fassung gebunden und werden zur
+# Bauzeit erzeugt — eine mitcommittete Lib liefe bei einem SDK-Wechsel still daneben.
+build/
+sdk.lib
+sdk.def

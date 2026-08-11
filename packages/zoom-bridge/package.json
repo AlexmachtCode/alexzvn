@@ -1,0 +1,22 @@
+{
+  "name": "@jm/zoom-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Zoom-Meeting-SDK-Bruecke (natives Windows-Sidecar) fuer JM Connect — Stage 1: Beitritt, Teilnehmer, Aufnahme-Erlaubnis",
+  "exports": {
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol.ts",
+    "./state": "./src/state.ts",
+    "./jwt": "./src/jwt.ts"
+  },
+  "scripts": {
+    "rebuild": "node scripts/make-implib.mjs && cmake -S . -B build -A x64 && cmake --build build --config Release",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "selftest": "node --experimental-strip-types test/selftest.ts",
+    "join": "node test/join.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
