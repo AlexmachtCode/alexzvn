@@ -202,6 +202,20 @@ void sessionLeave() {
     // Sie wartet auf GENAU die Bedingung, die hier bereits erfuellt ist
     // (ENDED/IDLE) - das Ueberspringen hier ist dieselbe Abbruchbedingung,
     // keine neue.
+    //
+    // ACHTUNG, WARUM GENAU ENDED/IDLE UND NICHT AUCH FAILED: FAILED sieht wie
+    // ein Endzustand aus, ist aber KEINER. Gemessen wurde die Folge
+    // connecting -> disconnecting -> failed -> ended: nach FAILED arbeitet der
+    // SDK-Thread WEITER, bis ENDED steht. Wer FAILED hier aufnaehme, wuerde die
+    // Pumpschleife MITTEN in dieser Abwicklung ueberspringen - genau diese Lage
+    // laesst DestroyMeetingService mit 0xC0000005 abstuerzen. In dieser Aufgabe
+    // einmal versehentlich hergestellt (die Pumpfrist unten wurde zu Messzwecken
+    // auf 5 ms verkuerzt, wodurch der Abbau ebenfalls waehrend DISCONNECTING
+    // lief) und 5/5 reproduziert. Diese Bedingung darf deshalb nur um Zustaende
+    // wachsen, die nachweislich RUHEN - nicht um solche, die bloss endgueltig
+    // KLINGEN. Der Preis dafuer ist gering: steht wirklich einmal FAILED an,
+    // laeuft ein ueberfluessiger Leave()-Ruf ins Leere und meldet code 2, und
+    // die Pumpschleife wartet danach sicher bis ENDED.
     return;
   }
 
