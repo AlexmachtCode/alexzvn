@@ -162,8 +162,20 @@ samt Asset veröffentlicht, `suite.json` auf 0.10.0 (PR #219). Das Tag stand sei
 ohne Release — der Katalog stand deshalb zu Recht noch auf 0.9.0: ein früherer Bump hätte eine Aktualisierung
 angeboten, die es nicht zum Herunterladen gab.
 📌 **Offen (Owner, Laufzeit):** 1080p + 50 fps senden und am Ziel messen.
-📌 **Offen (Betrieb):** Launcher-Proxy neu ausrollen — er liest den Katalog aus `MANIFEST_REF`, sonst sehen
-Operatoren weder 0.10.0 noch die Patch-Notes.
+📌 **Zu prüfen (Betrieb), 10 Sekunden:** Launcher öffnen — steht dort Switcher **0.10.0**, ist alles gut
+und **nichts** zu tun.
+
+> **Berichtigung vom 2026-08-10.** Hier stand zuerst „Proxy neu ausrollen". Am Code nachgemessen ist das
+> falsch: `worker.js` holt `suite.json` und `changelog.json` bei **jedem Aufruf** live über die
+> GitHub-API vom Branch in `MANIFEST_REF` (60 s Cache). Ein Katalog-Bump auf `main` ist damit sofort
+> live — genau dafür ist es so gebaut („damit neue Tools ohne Launcher-Release oder Worker-Deploy
+> erscheinen"). Ein Deploy ist nur nötig, wenn sich `worker.js` oder eine Variable **ändert**.
+>
+> Offen bleibt nur eine Frage, die von hier aus nicht beantwortbar ist: ob der **ausgerollte** Worker
+> schon `MANIFEST_REF = "main"` trägt. In `wrangler.toml` steht `main`, aber ob seit dieser Änderung
+> einmal deployt wurde, sieht man ohne Cloudflare-Zugang nicht — die Route `/suite.json` ist
+> schlüsselgeschützt (401 ohne `PROXY_KEY`). Zeigt der Launcher 0.10.0, ist die Frage beantwortet.
+> Zeigt er 0.9.0, dann einmal `cd services/release-proxy && npx wrangler deploy`.
 
 **D2a — natives DeckLink-Addon: ✅ gemergt 2026-08-10** (PR #218), `packages/decklink`.
 Privat (`"private": true`), **kein Release** — es wird erst mit D2b als Teil des Switchers ausgeliefert.
