@@ -30,6 +30,7 @@ endif()
 add_executable(zoom-bridge
   native/main.cpp
   native/emit.cpp
+  native/session.cpp
 )
 
 target_include_directories(zoom-bridge PRIVATE "${ZOOM_HEADERS}")
