@@ -167,17 +167,58 @@ void sessionJoin(const std::string& meetingIdUtf8, const std::string& passcodeUt
 
 void sessionLeave() {
   if (g_meeting == nullptr) return;
-  g_meeting->Leave(LEAVE_MEETING);
+
+  // ACHTUNG, GEMESSEN: der Befehl "leave" ruft diese Funktion auf, OHNE
+  // g_meeting auf nullptr zu setzen oder den Dienst zu zerstoeren - ein
+  // spaeteres "quit" ruft sessionLeave() dadurch ein zweites Mal auf demselben
+  // Dienst auf (sessionShutdown()). Mehrfaches Aufrufen ist GEMESSEN
+  // unschaedlich, nicht nur abgeleitet: 13 wiederholte Node-spawn-Laeufe
+  // (5x join+leave+quit, 3x leave ohne vorherigen join, 5x join+leave+leave+quit
+  // - also bis zu DREI sessionLeave()-Aufrufe auf demselben Dienst in Folge),
+  // in allen 13 Laeufen exitCode=0, kein Haenger. Jeder ueberzaehlige Aufruf
+  // liefert von Leave() ein SDKError (gemessen: code 2) - siehe die Meldung
+  // gleich darunter, die genau diesen Fall jetzt sichtbar macht statt ihn zu
+  // verwerfen.
+  //
+  // ACHTUNG: kein SDKError wird verworfen (bindende Randbedingung des Plans) -
+  // der woertliche Brief-Codeblock tat das an dieser Stelle, das war ein
+  // Fehler im Brief, nicht in der Randbedingung. Ein gescheitertes Leave() ist
+  // ein Grund, MEHR aufzupassen, nicht ein Grund, den Abbau zu ueberspringen:
+  // gemeldet wird es, TROTZDEM wird unten weiter gepumpt und regulaer
+  // abgebaut - ein uebersprungener Abbau ist genau der Fehler, der den
+  // Stage-0-Spike mit 0xC0000005 beendet hat.
+  const SDKError leaveErr = g_meeting->Leave(LEAVE_MEETING);
+  if (leaveErr != SDKERR_SUCCESS) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"leave\",\"code\":" + std::to_string(static_cast<int>(leaveErr)) + "}");
+    emitLog(std::wstring(L"Leave() fehlgeschlagen, SDKError=") + std::to_wstring(static_cast<int>(leaveErr)) +
+            L" - der Abbau laeuft trotzdem weiter.");
+  }
+
   // Erst SAUBER VERLASSEN, dann abbauen - bis zu 5 s pumpen. Ein
   // DestroyMeetingService waehrend CONNECTING hat den Stage-0-Spike mit
   // 0xC0000005 beendet: der Abbau raeumt Zustand weg, an dem der SDK-Thread
   // noch arbeitet.
   const ULONGLONG deadline = GetTickCount64() + 5000;
+  MeetingStatus lastStatus = g_meeting->GetMeetingStatus();
   while (GetTickCount64() < deadline) {
     pumpOnce();
-    const MeetingStatus s = g_meeting->GetMeetingStatus();
-    if (s == MEETING_STATUS_ENDED || s == MEETING_STATUS_IDLE) break;
+    lastStatus = g_meeting->GetMeetingStatus();
+    if (lastStatus == MEETING_STATUS_ENDED || lastStatus == MEETING_STATUS_IDLE) break;
     Sleep(20);
+  }
+
+  if (lastStatus != MEETING_STATUS_ENDED && lastStatus != MEETING_STATUS_IDLE) {
+    // ACHTUNG, GEMESSEN AN ANDERER STELLE (Stage-0-Spike, 90 s Schweigen bei
+    // CONNECTING): eine Wartefrist darf nicht stillschweigend ablaufen. Der
+    // zuletzt gesehene Status geht als "lastStatus" mit - derselbe Feldname,
+    // den bridge.ts (Task 10) fuer ihren eigenen "joinTimeout" schon benutzt -
+    // damit spaeter nachvollziehbar ist, WORAUF vergeblich gewartet wurde.
+    // Die Frist ist eine OBERGRENZE, kein Abbruchkriterium: der Aufrufer
+    // (sessionShutdown()) baut danach TROTZDEM ab, unveraendert.
+    emitRaw(std::string("{\"ev\":\"error\",\"where\":\"leave\",\"code\":\"leaveTimeout\",\"lastStatus\":\"") +
+            statusName(lastStatus) + "\"}");
+    emitLog(std::wstring(L"Zeitueberschreitung: 5 s Leave-Pumpobergrenze abgelaufen, zuletzt gesehener Status: ") +
+            toWide(std::string(statusName(lastStatus))) + L" - der Abbau laeuft trotzdem weiter.");
   }
 }
 
