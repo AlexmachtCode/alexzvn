@@ -35,3 +35,25 @@ std::string fieldFromJson(const std::string& line, const char* key);
 
 /** Der Wert von "cmd", oder "" wenn die Zeile keiner ist. */
 std::string cmdOf(const std::string& line);
+
+/**
+ * Meldet sich mit dem fertigen JWT an. Das Ergebnis kommt ASYNCHRON ueber
+ * onAuthenticationReturn - ohne laufende Nachrichtenschleife nie. Deshalb
+ * meldet diese Funktion selbst nichts ausser einem Fehler beim Absetzen.
+ * Das JWT wird NIRGENDS ausgegeben.
+ */
+void sessionAuth(const std::string& jwtUtf8);
+
+/**
+ * Ob eine mit sessionAuth() abgesetzte Anmeldung noch auf die asynchrone
+ * Antwort wartet. Der Hauptthread braucht das: bei geschlossenem stdin darf
+ * ein Lauf nicht abbrechen, waehrend eine Anmeldung noch offen ist - sonst
+ * wird die Antwort verschluckt. GEMESSEN: EOF direkt nach "auth" liefert ohne
+ * diese Pruefung NIE ein {"ev":"auth",...} - weder ueber PowerShells Pipe
+ * (3/3 Laeufen) noch ueber Node child_process.spawn (5/5 Laeufen), jeweils
+ * deterministisch.
+ */
+bool sessionAuthPending();
+
+/** Von AuthListener::onAuthenticationReturn gerufen, sobald die Antwort da ist. */
+void sessionAuthAnswered();

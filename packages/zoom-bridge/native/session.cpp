@@ -2,12 +2,30 @@
 #include <windows.h>
 #include "zoom_sdk.h"
 #include "emit.h"
+#include "callbacks.h"
 
 USING_ZOOM_SDK_NAMESPACE
 
 namespace {
 bool g_sdkUp = false;
 }
+
+namespace {
+IAuthService* g_auth = nullptr;
+AuthListener g_authListener;
+// Siehe sessionAuthPending() in session.h: schuetzt die asynchrone Antwort vor
+// einem verfruehten Prozessende bei geschlossenem stdin.
+bool g_authPending = false;
+
+std::wstring toWide(const std::string& utf8) {
+  const int need = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), static_cast<int>(utf8.size()), nullptr, 0);
+  std::wstring w(static_cast<size_t>(need), L'\0');
+  if (need > 0) {
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), static_cast<int>(utf8.size()), w.data(), need);
+  }
+  return w;
+}
+}  // namespace
 
 void pumpOnce() {
   MSG msg;
@@ -55,8 +73,50 @@ bool sessionInit() {
   return true;
 }
 
+void sessionAuth(const std::string& jwtUtf8) {
+  if (!g_sdkUp) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":7}");  // SDKERR_UNINITIALIZE
+    return;
+  }
+  if (g_auth == nullptr) {
+    const SDKError err = CreateAuthService(&g_auth);
+    if (err != SDKERR_SUCCESS || g_auth == nullptr) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":" + std::to_string(static_cast<int>(err)) + "}");
+      return;
+    }
+    g_auth->SetEvent(&g_authListener);
+  }
+
+  // Das JWT lebt nur bis zum Ende dieses Aufrufs und wird nie ausgegeben.
+  const std::wstring jwt = toWide(jwtUtf8);
+  AuthContext ctx;
+  ctx.jwt_token = jwt.c_str();
+  const SDKError err = g_auth->SDKAuth(ctx);
+  if (err != SDKERR_SUCCESS) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":" + std::to_string(static_cast<int>(err)) + "}");
+    return;
+  }
+  // Bei Erfolg wird hier NICHTS gemeldet: die Antwort kommt asynchron.
+  // Bis onAuthenticationReturn feuert (sessionAuthAnswered()), gilt die
+  // Anmeldung als offen - siehe sessionAuthPending().
+  g_authPending = true;
+}
+
+bool sessionAuthPending() {
+  return g_authPending;
+}
+
+void sessionAuthAnswered() {
+  g_authPending = false;
+}
+
 void sessionShutdown() {
   if (!g_sdkUp) return;
+  if (g_auth != nullptr) {
+    g_auth->SetEvent(nullptr);
+    DestroyAuthService(g_auth);
+    g_auth = nullptr;
+  }
   CleanUPSDK();
   g_sdkUp = false;
 }

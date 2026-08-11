@@ -22,6 +22,10 @@ std::deque<std::string> g_lines;
 // Threadgrenzen, es haelt hier nur durch MSVC-x86-Praxis. atomic<bool> kostet
 // nichts und ist tatsaechlich das, was zwischen Leser- und Hauptthread gilt.
 std::atomic<bool> g_stdinClosed{false};
+// Zeitpunkt (GetTickCount64) von g_stdinClosed=true. Gebraucht, um eine noch
+// offene Anmeldung nach EOF nicht ewig abzuwarten - siehe die Pruefung in
+// main() weiter unten.
+std::atomic<ULONGLONG> g_stdinClosedAtMs{0};
 std::atomic<bool> g_quit{false};
 // Wird erst wahr, wenn InitSDK tatsaechlich geglueckt ist (sessionInit()
 // liefert true). Steuert am Ende von main() den Ausstiegsweg - siehe dort.
@@ -55,7 +59,11 @@ void readStdin() {
     g_lines.push_back(line);
   }
   // EOF heisst quit. Stirbt die aufrufende Seite, darf keine verwaiste Bridge
-  // in einem fremden Meeting sitzen bleiben.
+  // in einem fremden Meeting sitzen bleiben. ABER: eine noch offene Anmeldung
+  // (sessionAuthPending()) bekommt in main() trotzdem eine kurze Frist - siehe
+  // dort. Erst den Zeitstempel setzen, dann das Flag, damit ein Leser von
+  // g_stdinClosed==true den Zeitstempel bereits gueltig sieht.
+  g_stdinClosedAtMs = GetTickCount64();
   g_stdinClosed = true;
 }
 
@@ -81,7 +89,16 @@ void handle(const std::string& line) {
     g_quit = true;
     return;
   }
-  // auth/join/leave kommen in Task 6 und 7.
+  if (cmd == "auth") {
+    const std::string jwt = fieldFromJson(line, "jwt");
+    if (jwt.empty()) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":3}");  // SDKERR_INVALID_PARAMETER
+      return;
+    }
+    sessionAuth(jwt);
+    return;
+  }
+  // join/leave kommen in Task 7.
   emitRaw("{\"ev\":\"error\",\"where\":\"" + cmd + "\",\"code\":1}");  // SDKERR_NO_IMPL
 }
 
@@ -96,8 +113,40 @@ int main() {
     pumpOnce();
     while (!g_quit && nextLine(line)) handle(line);
     if (g_stdinClosed) {
-      std::lock_guard<std::mutex> lock(g_mutex);
-      if (g_lines.empty()) break;
+      bool linesEmpty;
+      {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        linesEmpty = g_lines.empty();
+      }
+      if (linesEmpty) {
+        // ACHTUNG, GEMESSEN: eine offene Anmeldung darf EOF nicht sofort
+        // beenden lassen. sessionAuth() antwortet ASYNCHRON ueber
+        // onAuthenticationReturn - ohne diese Pruefung bricht der Prozess ab,
+        // sobald die Zeile "auth" verarbeitet ist und stdin zugeht, lange
+        // bevor die Antwort da ist. Ohne diese Zeilen hat GENAU DAS die
+        // {"ev":"auth",...}-Meldung deterministisch verschluckt: 3/3 Laeufen
+        // ueber PowerShells Pipe und 5/5 Laeufen ueber Node child_process.spawn.
+        //
+        // Zehn Sekunden Obergrenze, damit eine tote Verbindung keine verwaiste
+        // Bridge fuer immer am Leben haelt - dieselbe Sorge, die EOF ueberhaupt
+        // erst als "quit" behandelt (siehe readStdin()). Laeuft die Frist ab,
+        // OHNE dass die Antwort kam, wird das GEMELDET statt schweigend
+        // aufzugeben - ein Warten, das stumm endet, waere genau der Haenger,
+        // den dieses Vorhaben im Stage-0-Spike schon einmal 90 Sekunden lang
+        // gesucht hat (ENABLE_CUSTOMIZED_UI_FLAG, siehe session.cpp).
+        //
+        // ACHTUNG FUER SPAETER: diese Frist deckt bisher NUR "auth" ab. Die
+        // Aufgaben 7 bis 9 bringen weitere asynchrone Antworten (Beitritt,
+        // Teilnehmerliste, Aufnahme-Erlaubnis) - jede davon braucht dieselbe
+        // Pruefung fuer ihr eigenes "wartet noch"-Flag, sonst verschluckt EOF
+        // dort denselben Fehler erneut. Die zehn Sekunden sind KEINE
+        // allgemeine Wahrheit, nur der fuer "auth" gemessene Wert.
+        if (!sessionAuthPending()) break;
+        if (GetTickCount64() - g_stdinClosedAtMs >= 10000) {
+          emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":\"timeout\"}");
+          break;
+        }
+      }
     }
     // 10 ms: kurz genug, dass ein Befehl nicht spuerbar liegen bleibt, lang
     // genug, dass die Bridge im Leerlauf keinen Kern verheizt.
