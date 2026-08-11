@@ -34,7 +34,7 @@ Zwei Abkürzungen sind tot: **Zoom ISO** (Liminal, nur macOS 14+) und das **Zoom
 
 | Stage | Inhalt | Status |
 |---|---|---|
-| **0 · Beschaffung + De-Risking-Spike** | **Owner:** ~~private Marketplace-App~~ ✅ · ~~Windows-Meeting-SDK laden~~ ✅ · **Rohdaten-Freischaltung des Kontos** ⛔ · Testmeeting mit Co-Host/„local recording permission" · DLL-Weiterverteilungs-Lizenz klären. **Spike:** ✅ gelaufen 2026-08-10 — Bindung, `InitSDK`, Anmeldung und Nachrichtenschleife tragen. ⛔ **Die Annahme „kein Sonder-Entitlement nötig" ist WIDERLEGT:** `HasRawdataLicense()` meldet nach `AUTHRET_SUCCESS` `false`. Ausweg **VideoCom Bridge** (~199 $), falls Zoom die Freischaltung nicht erteilt. | ⛔ **blockiert** |
+| **0 · Beschaffung + De-Risking-Spike** | **Owner:** ~~private Marketplace-App~~ ✅ · ~~Windows-Meeting-SDK laden~~ ✅ · **Rohdaten-Freischaltung des Kontos** ⛔ · Testmeeting mit Co-Host/„local recording permission" · DLL-Weiterverteilungs-Lizenz klären. **Spike:** ✅ **komplett durch** (2026-08-10/11). Bindung ohne `sdk.lib`, `InitSDK`, Anmeldung, Nachrichtenschleife, Meeting-Beitritt und `CanStartRawRecording()` — alles gemessen. Die Konto-**Lizenz** fehlt (Weg 1), wird aber **nicht gebraucht**: mit der lokalen Aufnahme-Erlaubnis des Gastgebers (Weg 2) meldet `CanStartRawRecording()` Erfolg. **Ausweg VideoCom Bridge vom Tisch.** ⚑ Pflicht für Stage 1: `ENABLE_CUSTOMIZED_UI_FLAG`, sonst hängt der Beitritt ewig bei `CONNECTING`. | ✅ **durch** |
 
 **Stand der Beschaffung, gemessen am 2026-08-10** in
 `C:\Users\alexk\Documents\Jakobs Medien\Production Suite\SDKs`:
@@ -45,8 +45,9 @@ Zwei Abkürzungen sind tot: **Zoom ISO** (Liminal, nur macOS 14+) und das **Zoom
 | `sdk.dll` (Laufzeit, x64, 2.086 KB) | ✅ da |
 | ~~`sdk.lib` (Import-Bibliothek)~~ | ✅ **erledigt — wird nicht gebraucht**, siehe Sondierlauf unten |
 | Marketplace-App (Client-ID/Secret) | ✅ **erstellt und geprüft** — `AUTHRET_SUCCESS` |
-| **Rohdaten-Freischaltung des Kontos** | ⛔ **FEHLT — der Blocker** |
-| Testmeeting mit Co-Host-Rechten | ❌ offen (erst sinnvoll nach der Freischaltung) |
+| Rohdaten-**Lizenz** des Kontos (Weg 1) | ❌ fehlt — **wird aber nicht gebraucht** |
+| **Lokale Aufnahme-Erlaubnis im Meeting (Weg 2)** | ✅ **trägt** — `CanStartRawRecording()` = 0 nach Freigabe |
+| Testmeeting mit Host-/Co-Host-Rechten | ✅ durchgeführt 2026-08-11 |
 | DLL-Weiterverteilungs-Lizenz | ❌ offen |
 
 ⚠️ **Das geladene „Plugin SDK" ist ein anderes Produkt** und hilft hier nicht: es spricht per IPC
@@ -83,15 +84,70 @@ stimmen — die Anmeldung ist kein Verdächtiger mehr. Und **nach** geglückter 
 `HasRawdataLicense() == false` die belastbare, negative Antwort: **dieses Konto hat die
 Rohdaten-Berechtigung nicht.**
 
-Das ist **kein Code-Problem**. Zoom erteilt die Rohdaten-Freischaltung für Meeting-SDK-Apps
-gesondert; auf welchem Weg (Antrag im Marketplace, Support-Ticket, Konto-Typ/Plan) ist zu klären —
-**das ist der nächste Owner-Schritt und der einzige verbliebene Blocker für Stages 1–4.**
+> ### ⚠️ Berichtigung vom 2026-08-10 (später am Tag): das war voreilig
+>
+> Hier stand zuerst „der einzige verbliebene Blocker · Ausweg VideoCom Bridge". **Am SDK-Kopfsatz
+> nachgemessen ist das zu pessimistisch.** `HasRawdataLicense()` ist **nur einer von zwei** Wegen zu
+> den Rohdaten. Der zweite steht in
+> `meeting_service_components/meeting_recording_interface.h` und ist die **Aufnahme-Erlaubnis im
+> Meeting**:
+>
+> ```cpp
+> // IMeetingRecordingController
+> virtual SDKError CanStartRawRecording() = 0;   // darf dieser Nutzer Rohdaten aufnehmen?
+> virtual SDKError StartRawRecording()   = 0;
+> virtual SDKError RequestLocalRecordingPrivilege() = 0;   // Gastgeber fragen
+> virtual SDKError IsSupportRequestLocalRecordingPrivilege() = 0;
+> // IMeetingRecordingCtrlEvent
+> virtual void onLocalRecordingPrivilegeRequestStatus(RequestLocalRecordingStatus) = 0;
+> // Gastgeberseite: GrantLocalRecordingPrivilege() / DenyLocalRecordingPrivilege()
+> ```
+>
+> Genau diesen Weg hatte Stage 0 von Anfang an vorgesehen — die Zeile
+> „Testmeeting mit Co-Host/**local recording permission**" steht seit jeher in der Tabelle oben. Der
+> Spike hat sie nur nicht geprüft, weil er gar nicht erst in ein Meeting geht.
+>
+> **Der Befund lautet daher richtig:** dem Konto fehlt die **Rohdaten-Lizenz** (Weg 1). Ob Weg 2
+> trägt, war zu diesem Zeitpunkt **ungeprüft** — und da wir laut Owner-Entscheid ohnehin **Host**
+> sind, war er der naheliegendere: der Host kann die Erlaubnis selbst erteilen.
+>
+> **Nachtrag 2026-08-11: gemessen, Weg 2 trägt.** Siehe direkt darunter. Die Berichtigung war
+> berechtigt — der ursprüngliche Schluß „blockiert, VideoCom Bridge erwägen" wäre eine
+> Fehlentscheidung mit Kostenfolge gewesen.
 
-Bleibt sie aus, greift der bereits vorgesehene Ausweg **VideoCom Bridge** (~199 $). Die Entscheidung
-darüber ist damit keine Vermutung mehr, sondern hängt an einer Antwort von Zoom.
+### ✅ Weg 2 trägt — Stage 0 ist durch (gemessen 2026-08-11)
 
-Der erneute Nachweis kostet **einen Befehl**: nach einer Freischaltung `run-auth.mjs` noch einmal
-laufen lassen — Rückgabewert `0` statt `3` heißt, Stage 0 ist durch.
+Lauf 4 ist einem echten Testmeeting beigetreten:
+
+```
+CanStartRawRecording()                    -> SDKError=12  (SDKERR_NO_PERMISSION)
+IsSupportRequestLocalRecordingPrivilege() -> SDKError=0
+onLocalRecordingPrivilegeRequestStatus    -> GRANTED
+CanStartRawRecording() erneut             -> SDKError=0   (JA)
+```
+
+**Die Konto-Lizenz wird nicht gebraucht.** Erteilt der Gastgeber die lokale Aufnahme-Erlaubnis, sind
+Rohvideo und Rohton erreichbar — und da wir laut Owner-Entscheid **Host** sind, erteilen wir sie uns
+selbst. Der Ausweg **VideoCom Bridge** ist damit **vom Tisch**.
+
+### ⚑ Pflicht für Stage 1: `ENABLE_CUSTOMIZED_UI_FLAG`
+
+Der erste Beitrittsversuch blieb **90 Sekunden bei `CONNECTING` stehen** — kein Fehler, kein Abbruch,
+keine Meldung. Ursache: in der Vorgabe läuft das SDK im **Zoom-UI-Modus** und will ein eigenes
+Meeting-Fenster aufmachen. Eine Konsolenanwendung hat keines — und der `utilityProcess` der Bridge
+später ebenso wenig. Der Beitritt scheitert nicht, er **hängt**.
+
+```cpp
+p.obConfigOpts.optionalFeatures = ENABLE_CUSTOMIZED_UI_FLAG;   // (1 << 5)
+```
+
+Mit dieser Zeile lief der Beitritt sofort durch. **Ohne sie wäre Stage 1 in einen Hänger gelaufen,
+der wie ein Netzwerkproblem aussieht.** Zusammen mit der eigenen Nachrichtenschleife ist das die
+zweite Fenster-bedingte Voraussetzung der Bridge.
+
+**Damit sind alle Stage-0-Fragen beantwortet.** Offen bleibt nur die
+**DLL-Weiterverteilungs-Lizenz** — eine kaufmännische Frage, die Stage 1–3 nicht blockiert, sondern
+erst die Auslieferung in Stage 4.
 | **1 · Bridge-Gerüst** | `packages/zoom-bridge/` (CMake + `maybe-build.mjs`) · Win32/COM-**Message-Pump** (`utilityProcess` hat keine) · Zoom-SDK-Init + Meeting-Join per JSON. | 🔵 nach Stage 0 |
 | **2 · Video → NDI** | `onVideoRawDataReceived` (I420 nativ) → **mehrere NDI-Sender in EINEM Prozess** · Quelle „JM Connect – Zoom: \<Name\>" erscheint ohne Switcher-Änderung. | 🔵 |
 | **3 · Ton je Person** | `onOneWayAudioRawDataReceived` (PCM16 je `node_id`) → NDI-Audio je Teilnehmer (bzw. `onMixedAudioRawDataReceived` als Mischton). | 🔵 |
