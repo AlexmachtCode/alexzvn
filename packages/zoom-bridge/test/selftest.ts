@@ -253,5 +253,140 @@ console.log('\nprotocol — Befehle schreiben:');
   assert(JSON.parse(j).passcode === 'a"b', 'Anfuehrungszeichen im Kenncode werden maskiert');
 }
 
+import { initialSession, isSettled, reduce, type Session } from '../src/state.ts';
+
+function person(over: Partial<Participant> = {}): Participant {
+  return {
+    id: 1,
+    name: 'Alex',
+    persistentId: 'p-alex',
+    self: false,
+    videoOn: true,
+    hasCamera: true,
+    inWaitingRoom: false,
+    role: 'host',
+    ...over,
+  };
+}
+
+function run(events: BridgeEvent[]): Session {
+  return events.reduce((s, e) => reduce(s, enrich(e)), initialSession());
+}
+
+console.log('\nstate — ruhende Zustaende:');
+{
+  // DER Testfall des Spikes: der Beitritt hing 90 Sekunden bei CONNECTING.
+  // Ein Wachhund, der bei "connecting" einschlaeft, haette genau das verschlafen.
+  assert(!isSettled('connecting'), 'connecting ist NICHT ruhend — sonst verschlaeft der Wachhund den Haenger');
+  assert(!isSettled('reconnecting'), 'reconnecting ist nicht ruhend');
+  assert(!isSettled('disconnecting'), 'disconnecting ist nicht ruhend');
+  assert(!isSettled('idle'), 'idle ist nicht ruhend');
+  assert(!isSettled('other'), 'other ist nicht ruhend');
+  assert(isSettled('inMeeting'), 'inMeeting ist ruhend');
+  assert(isSettled('waitingRoom'), 'waitingRoom ist ruhend — dort ist Warten die richtige Antwort');
+  assert(isSettled('waitingForHost'), 'waitingForHost ist ruhend');
+  assert(isSettled('failed'), 'failed ist ruhend');
+  assert(isSettled('ended'), 'ended ist ruhend');
+}
+
+console.log('\nstate — sauberer Beitritt:');
+{
+  const s = run([
+    { ev: 'ready', sdkVersion: '7.1.5' },
+    { ev: 'auth', code: 0 },
+    { ev: 'status', status: 'connecting', raw: 1, code: 0 },
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'roster', list: [person(), person({ id: 2, name: 'Bridge', self: true, role: 'attendee' })] },
+  ]);
+  assert(s.phase === 'inMeeting', 'Phase ist inMeeting');
+  assert(s.meeting === 'inMeeting', 'Meeting-Status ist inMeeting');
+  assert(s.participants.size === 2, 'zwei Teilnehmer bekannt');
+  assert(s.participants.get(2)?.self === true, 'die Bridge erkennt sich selbst');
+  assert(s.lastError === null, 'kein Fehler');
+}
+
+console.log('\nstate — Warteraum und verspaeteter Gastgeber:');
+{
+  const a = run([
+    { ev: 'status', status: 'waitingRoom', raw: 10, code: 0 },
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+  ]);
+  assert(a.meeting === 'inMeeting' && a.phase !== 'error', 'Warteraum ist kein Fehler');
+
+  const b = run([
+    { ev: 'status', status: 'waitingForHost', raw: 2, code: 0 },
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+  ]);
+  assert(b.meeting === 'inMeeting' && b.phase !== 'error', 'auf den Gastgeber warten ist kein Fehler');
+}
+
+console.log('\nstate — Erlaubnis kommt verspaetet:');
+{
+  const s = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'privilege', canRecordRaw: false, requested: true },
+    { ev: 'privilege', canRecordRaw: true },
+  ]);
+  assert(s.canRecordRaw === true, 'nach der Freigabe darf aufgenommen werden');
+  assert(s.privilegeRequested === true, 'dass gefragt wurde, bleibt sichtbar');
+  assert(s.phase === 'inMeeting', 'die fehlende Erlaubnis war nie ein Fehler');
+}
+
+console.log('\nstate — Teilnehmer kommen, heissen anders, gehen:');
+{
+  const s = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'roster', list: [person()] },
+    { ev: 'joined', p: person({ id: 2, name: 'Bea' }) },
+    { ev: 'renamed', id: 2, name: 'Beatrix' },
+    { ev: 'left', id: 1 },
+  ]);
+  assert(s.participants.size === 1, 'einer ist gegangen, einer ist da');
+  assert(s.participants.get(2)?.name === 'Beatrix', 'die Umbenennung ist angekommen');
+
+  // Ereignisse koennen sich ueberholen. Keiner dieser Faelle ist ein Fehler.
+  const t = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'left', id: 99 },
+    { ev: 'renamed', id: 98, name: 'Geist' },
+    { ev: 'joined', p: person({ id: 5 }) },
+    { ev: 'joined', p: person({ id: 5, name: 'Alex zum Zweiten' }) },
+  ]);
+  assert(t.phase === 'inMeeting', 'ueberholende Ereignisse sind kein Fehler');
+  assert(t.participants.size === 1, 'ein zweites joined verdoppelt nicht, es aktualisiert');
+  assert(t.participants.get(5)?.name === 'Alex zum Zweiten', 'das zweite joined hat aktualisiert');
+  assert(!t.participants.has(98), 'ein renamed fuer einen Unbekannten legt niemanden an');
+}
+
+console.log('\nstate — Wiederverbindung ersetzt die Karte vollstaendig:');
+{
+  const s = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'roster', list: [person({ id: 11 }), person({ id: 12, name: 'Bea' })] },
+    { ev: 'status', status: 'reconnecting', raw: 5, code: 0 },
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    // Nach der Wiederverbindung sind die IDs ANDERE. Wer nur ergaenzt, behaelt
+    // Karteileichen und laesst spaeter NDI-Sender fuer Geister laufen.
+    { ev: 'roster', list: [person({ id: 21 }), person({ id: 22, name: 'Bea' })] },
+  ]);
+  assert(s.participants.size === 2, 'die Karte hat zwei Eintraege, nicht vier');
+  assert(s.participants.has(21) && !s.participants.has(11), 'die alten IDs sind weg');
+}
+
+console.log('\nstate — Abbruch und Fehler:');
+{
+  const s = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'status', status: 'ended', raw: 7, code: 2 },
+  ]);
+  assert(s.phase !== 'error', 'ein beendetes Meeting ist kein Fehler');
+  assert(s.meeting === 'ended', 'der Status ist ended');
+
+  const e = run([{ ev: 'error', where: 'join', code: 12 }]);
+  assert(e.phase === 'error', 'nur ein error-Ereignis fuehrt in die Fehlerphase');
+  assert(e.lastError?.name === 'SDKERR_NO_PERMISSION', 'der Fehler traegt seinen Namen');
+  assert(e.lastError?.where === 'join', 'und die Stelle, an der er auftrat');
+}
+
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
