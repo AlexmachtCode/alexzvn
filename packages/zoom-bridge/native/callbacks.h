@@ -8,15 +8,26 @@
 // dagegen einen unverstaendlichen C2061 in einer fremden Zeile.
 #pragma once
 #include <string>
+#include "session.h"
 // Muss VOR zoom_sdk.h stehen: zoom_sdk_def.h setzt HWND unter WIN32 als
 // bereits bekannt voraus und typedef't es selbst nur im Nicht-WIN32-Zweig.
 // Ohne diese Reihenfolge scheitert die Uebersetzung in zoom_sdk_def.h mit
 // einer Kaskade aus C3646/C2065/C4430 - gemessen, siehe session.cpp, wo
-// windows.h aus demselben Grund vor zoom_sdk.h steht.
+// windows.h aus demselben Grund vor zoom_sdk.h steht. Gilt auch fuer den
+// Teilnehmer-Header unten - session.h bringt windows.h bereits selbst mit,
+// diese Zeile hier ist trotzdem die zweite, unabhaengige Absicherung fuer
+// diese Uebersetzungseinheit.
 #include <windows.h>
 #include "zoom_sdk.h"
 #include "auth_service_interface.h"
 #include "meeting_service_interface.h"
+// EIGENE, im Brief nicht erwaehnte Uebersetzungsfalle, GEMESSEN (C3646/C2059/
+// C2238 in Zeile 139 von meeting_participants_ctrl_interface.h): dieser
+// Header benutzt `AudioType` (IUserInfo::GetAudioJoinType()), deklariert es
+// aber nicht selbst und inkludiert auch nicht den Header, der es deklariert -
+// siehe session.h, wo dieselbe Reihenfolge aus demselben Grund steht.
+#include "meeting_service_components/meeting_audio_interface.h"
+#include "meeting_service_components/meeting_participants_ctrl_interface.h"
 
 USING_ZOOM_SDK_NAMESPACE
 
@@ -45,4 +56,42 @@ class MeetingListener : public IMeetingServiceEvent {
   void onMeetingFullToWatchLiveStream(const zchar_t*) override {}
   void onUserNetworkStatusChanged(MeetingComponentType, ConnectionQuality, unsigned int, bool) override {}
   void onAppSignalPanelUpdated(IMeetingAppSignalHandler*) override {}
+};
+
+const char* roleName(UserRole r);
+std::string participantJson(IUserInfo* u);
+
+// ACHTUNG: REIN VIRTUELL, rund 30 Methoden, drei davon hinter #if defined(WIN32).
+// Fehlt eine, bleibt die Klasse abstrakt. Steht eine zu viel drin, gibt es einen
+// C2061 in einer fremden Zeile. `grep virtual` zeigt alle und verschluckt die
+// Waechter - im Spike hat genau das einen Uebersetzungsfehler gekostet.
+class ParticipantsListener : public IMeetingParticipantsCtrlEvent {
+ public:
+  void onUserJoin(IList<unsigned int>* lstUserID, const zchar_t* strUserList = nullptr) override;
+  void onUserLeft(IList<unsigned int>* lstUserID, const zchar_t* strUserList = nullptr) override;
+  void onUserNamesChanged(IList<unsigned int>* lstUserID) override;
+  void onHostChangeNotification(unsigned int) override {}
+  void onLowOrRaiseHandStatusChanged(bool, unsigned int) override {}
+  void onCoHostChangeNotification(unsigned int, bool) override {}
+  void onInvalidReclaimHostkey() override {}
+  void onAllHandsLowered() override {}
+  void onLocalRecordingStatusChanged(unsigned int, RecordingStatus) override {}
+  void onAllowParticipantsRenameNotification(bool) override {}
+  void onAllowParticipantsUnmuteSelfNotification(bool) override {}
+  void onAllowParticipantsStartVideoNotification(bool) override {}
+  void onAllowParticipantsShareWhiteBoardNotification(bool) override {}
+  void onRequestLocalRecordingPrivilegeChanged(LocalRecordingRequestPrivilegeStatus) override {}
+  void onAllowParticipantsRequestCloudRecording(bool) override {}
+  void onInMeetingUserAvatarPathUpdated(unsigned int) override {}
+  void onParticipantProfilePictureStatusChange(bool) override {}
+  void onFocusModeStateChanged(bool) override {}
+  void onFocusModeShareTypeChanged(FocusModeShareType) override {}
+  void onBotAuthorizerRelationChanged(unsigned int) override {}
+  void onVirtualNameTagStatusChanged(bool, unsigned int) override {}
+  void onVirtualNameTagRosterInfoUpdated(unsigned int) override {}
+  void onGrantCoOwnerPrivilegeChanged(bool) override {}
+#if defined(WIN32)
+  void onCreateCompanionRelation(unsigned int, unsigned int) override {}
+  void onRemoveCompanionRelation(unsigned int) override {}
+#endif
 };

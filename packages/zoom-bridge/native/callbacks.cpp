@@ -2,6 +2,10 @@
 #include "emit.h"
 #include "session.h"
 
+namespace {
+ParticipantsListener g_participantsListener;
+}
+
 void AuthListener::onAuthenticationReturn(AuthResult ret) {
   // Nur die Zahl auf die Rohrleitung - den Namen setzt TypeScript dazu.
   emitRaw("{\"ev\":\"auth\",\"code\":" + std::to_string(static_cast<int>(ret)) + "}");
@@ -46,4 +50,76 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
   // wie bei der Anmeldung: ohne diesen Ruf koennte EOF direkt nach "join" den
   // Beitritt beenden, bevor auch nur EINE Pumprunde eine Rueckmeldung bringt.
   sessionJoinAnswered();
+
+  if (status == MEETING_STATUS_INMEETING) {
+    // JEDES Mal, wenn inMeeting erreicht wird - auch nach einer
+    // Wiederverbindung, weil sich dabei die Teilnehmer-IDs aendern (siehe
+    // participantJson() in dieser Datei: GetUserID() gilt nur innerhalb der
+    // Sitzung). Ein zweites roster ist darum kein Fehler, sondern die
+    // einzige Moeglichkeit, die Karte nach einer Wiederverbindung wieder
+    // richtigzustellen.
+    IMeetingParticipantsController* ctrl = participantsCtrl();
+    if (ctrl != nullptr) {
+      ctrl->SetEvent(&g_participantsListener);
+      emitRoster();
+    }
+  }
+}
+
+const char* roleName(UserRole r) {
+  switch (r) {
+    case USERROLE_HOST:                    return "host";
+    case USERROLE_COHOST:                  return "coHost";
+    case USERROLE_PANELIST:                return "panelist";
+    case USERROLE_BREAKOUTROOM_MODERATOR:  return "breakoutModerator";
+    case USERROLE_ATTENDEE:                return "attendee";
+    default:                               return "none";
+  }
+}
+
+std::string participantJson(IUserInfo* u) {
+  if (u == nullptr) return "";
+  const zchar_t* name = u->GetUserName();
+  const zchar_t* pid = u->GetPersistentId();
+  std::string out = "{\"id\":" + std::to_string(u->GetUserID());
+  out += ",\"name\":\"" + jsonEscape(name ? name : L"") + "\"";
+  // GetPersistentId() ist ueber Wiederverbindungen stabil und wird in Stage 2
+  // der Schluessel fuer die NDI-Quellennamen. Er darf leer sein.
+  out += ",\"persistentId\":\"" + jsonEscape(pid ? pid : L"") + "\"";
+  out += std::string(",\"self\":") + (u->IsMySelf() ? "true" : "false");
+  out += std::string(",\"videoOn\":") + (u->IsVideoOn() ? "true" : "false");
+  out += std::string(",\"hasCamera\":") + (u->HasCamera() ? "true" : "false");
+  out += std::string(",\"inWaitingRoom\":") + (u->IsInWaitingRoom() ? "true" : "false");
+  out += std::string(",\"role\":\"") + roleName(u->GetUserRole()) + "\"}";
+  return out;
+}
+
+void ParticipantsListener::onUserJoin(IList<unsigned int>* ids, const zchar_t*) {
+  if (ids == nullptr) return;
+  for (int i = 0; i < ids->GetCount(); ++i) {
+    IUserInfo* u = participantsCtrl() ? participantsCtrl()->GetUserByUserID(ids->GetItem(i)) : nullptr;
+    const std::string p = participantJson(u);
+    if (!p.empty()) emitRaw("{\"ev\":\"joined\",\"p\":" + p + "}");
+  }
+}
+
+void ParticipantsListener::onUserLeft(IList<unsigned int>* ids, const zchar_t*) {
+  if (ids == nullptr) return;
+  // NUR die ID: beim Eintreffen dieses Rueckrufs ist der Nutzer unter Umstaenden
+  // nicht mehr abfragbar. Ein nullptr-Ergebnis waere kein Grund, das Ereignis zu
+  // verschlucken - wer geht, muss gemeldet werden.
+  for (int i = 0; i < ids->GetCount(); ++i) {
+    emitRaw("{\"ev\":\"left\",\"id\":" + std::to_string(ids->GetItem(i)) + "}");
+  }
+}
+
+void ParticipantsListener::onUserNamesChanged(IList<unsigned int>* ids) {
+  if (ids == nullptr) return;
+  for (int i = 0; i < ids->GetCount(); ++i) {
+    IUserInfo* u = participantsCtrl() ? participantsCtrl()->GetUserByUserID(ids->GetItem(i)) : nullptr;
+    if (u == nullptr) continue;
+    const zchar_t* n = u->GetUserName();
+    emitRaw("{\"ev\":\"renamed\",\"id\":" + std::to_string(ids->GetItem(i)) +
+            ",\"name\":\"" + jsonEscape(n ? n : L"") + "\"}");
+  }
 }

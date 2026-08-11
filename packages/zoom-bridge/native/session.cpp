@@ -272,6 +272,30 @@ void sessionJoinAnswered() {
   g_joinPending = false;
 }
 
+IMeetingParticipantsController* participantsCtrl() {
+  return g_meeting ? g_meeting->GetMeetingParticipantsController() : nullptr;
+}
+
+void emitRoster() {
+  IMeetingParticipantsController* ctrl = participantsCtrl();
+  if (ctrl == nullptr) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"roster\",\"code\":31}");  // SDKERR_NOT_IN_MEETING
+    return;
+  }
+  IList<unsigned int>* ids = ctrl->GetParticipantsList();
+  std::string out = "{\"ev\":\"roster\",\"list\":[";
+  bool first = true;
+  for (int i = 0; ids != nullptr && i < ids->GetCount(); ++i) {
+    const std::string p = participantJson(ctrl->GetUserByUserID(ids->GetItem(i)));
+    if (p.empty()) continue;
+    if (!first) out += ",";
+    out += p;
+    first = false;
+  }
+  out += "]}";
+  emitRaw(out);
+}
+
 void sessionShutdown() {
   if (!g_sdkUp) return;
   if (g_meeting != nullptr) {

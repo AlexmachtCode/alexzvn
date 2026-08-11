@@ -1,5 +1,21 @@
 #pragma once
 #include <string>
+// Muss VOR dem Teilnehmer-Header stehen - dieselbe Uebersetzungsfalle wie in
+// callbacks.h: zoom_sdk_def.h setzt HWND unter WIN32 als bereits bekannt
+// voraus und typedef't es selbst nur im Nicht-WIN32-Zweig. session.cpp
+// bindet session.h VOR seinem eigenen windows.h ein (siehe dort) - dieser
+// Header muss darum selbst dafuer sorgen, dass windows.h zuerst steht.
+#include <windows.h>
+// EIGENE, im Brief nicht erwaehnte Uebersetzungsfalle, GEMESSEN (C3646/C2059/
+// C2238 in Zeile 139 von meeting_participants_ctrl_interface.h): dieser
+// Header benutzt `AudioType` (IUserInfo::GetAudioJoinType()), deklariert es
+// aber nicht selbst und inkludiert auch nicht den Header, der es deklariert.
+// Ohne meeting_audio_interface.h VOR dem Teilnehmer-Header ist AudioType an
+// dieser Stelle unbekannt, und der Parser verliert danach die Deklaration.
+#include "meeting_service_components/meeting_audio_interface.h"
+#include "meeting_service_components/meeting_participants_ctrl_interface.h"
+
+USING_ZOOM_SDK_NAMESPACE
 
 /**
  * InitSDK mit den Setzungen der Bridge. Meldet {"ev":"ready",...} bei Erfolg und
@@ -100,3 +116,9 @@ bool sessionJoinPending();
  * angekommen, EOF wuerde sie also nicht mehr verschlucken.
  */
 void sessionJoinAnswered();
+
+/** Der Teilnehmer-Controller, oder nullptr wenn kein Meeting laeuft. */
+IMeetingParticipantsController* participantsCtrl();
+
+/** Vollbild der Anwesenden als ein roster-Ereignis. */
+void emitRoster();

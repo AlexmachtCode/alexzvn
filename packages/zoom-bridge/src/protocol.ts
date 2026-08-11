@@ -117,6 +117,11 @@ export const SDK_ERROR_NAMES: Record<number, string> = {
 export const OWN_ERROR_NAMES: Record<string, string> = {
   authTimeout: 'AUTH_TIMEOUT',
   joinTimeout: 'JOIN_TIMEOUT',
+  // Der native EOF-Wachhund fuer einen offenen Beitritt (main.cpp,
+  // sessionJoinPending()) - eine ANDERE Ursache als joinTimeout oben (das
+  // misst hier in bridge.ts, ob je ein Endzustand erreicht wird). Aus Task 7
+  // zurueckgestellt, hier nachgetragen (Task 8).
+  joinEofTimeout: 'JOIN_EOF_TIMEOUT',
   badJson: 'BAD_JSON',
   badMeetingId: 'BAD_MEETING_ID',
   spawnFailed: 'SPAWN_FAILED',
