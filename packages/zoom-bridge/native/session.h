@@ -14,6 +14,11 @@ bool sessionInit();
  * Ein DestroyMeetingService waehrend CONNECTING hat den Stage-0-Spike mit
  * 0xC0000005 beendet: der Abbau raeumt Zustand weg, an dem der SDK-Thread
  * noch arbeitet.
+ *
+ * STAND TASK 5: es gibt noch weder Meeting- noch Auth-Dienst, darum macht
+ * diese Funktion bisher NUR CleanUPSDK. Leave, DestroyMeetingService und
+ * DestroyAuthService kommen mit Task 6 und 7 dazu. Der Ablauf oben beschreibt
+ * das ZIEL der spaeteren Stufen, nicht den heutigen IST-Zustand.
  */
 void sessionShutdown();
 

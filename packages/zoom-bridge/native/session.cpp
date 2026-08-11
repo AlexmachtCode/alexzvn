@@ -61,21 +61,19 @@ void sessionShutdown() {
   g_sdkUp = false;
 }
 
-std::string fieldFromJson(const std::string& line, const char* key) {
-  const std::string needle = std::string("\"") + key + "\"";
-  size_t at = line.find(needle);
-  if (at == std::string::npos) return "";
-  at = line.find(':', at + needle.size());
-  if (at == std::string::npos) return "";
-  at = line.find('"', at);
-  if (at == std::string::npos) return "";
-  ++at;
+namespace {
 
+bool isJsonSpace(char c) { return c == ' ' || c == '\t'; }
+
+// Liest den Zeichenkettenwert, der bei "at" (dem oeffnenden Anfuehrungszeichen)
+// beginnt, mit denselben Maskierungsregeln wie der Rest des Lesers.
+std::string readStringValue(const std::string& line, size_t at) {
   std::string out;
-  while (at < line.size()) {
-    const char c = line[at];
-    if (c == '\\' && at + 1 < line.size()) {
-      const char n = line[at + 1];
+  size_t i = at + 1;
+  while (i < line.size()) {
+    const char c = line[i];
+    if (c == '\\' && i + 1 < line.size()) {
+      const char n = line[i + 1];
       switch (n) {
         case 'n': out += '\n'; break;
         case 'r': out += '\r'; break;
@@ -84,14 +82,59 @@ std::string fieldFromJson(const std::string& line, const char* key) {
         case 'f': out += '\f'; break;
         default:  out += n;    break;  // \" \\ \/ und alles andere woertlich
       }
-      at += 2;
+      i += 2;
       continue;
     }
     if (c == '"') break;
     out += c;
-    ++at;
+    ++i;
   }
   return out;
+}
+
+}  // namespace
+
+std::string fieldFromJson(const std::string& line, const char* key) {
+  // Der Leser bleibt bewusst schlicht: fuenf Befehle, ausschliesslich flache
+  // Zeichenkettenfelder (siehe session.h). Er sucht daher NICHT nach einem
+  // Baum, sondern nach der Zeichenfolge des Schluessels und prueft an dieser
+  // Stelle nur zwei Dinge nach: steht unmittelbar davor ein '{' oder ein ','
+  // (also eine SCHLUESSEL-Position, keine WERT-Position), und folgt nach dem
+  // Doppelpunkt wieder ein Anfuehrungszeichen (also ein STRING-Wert, keine
+  // Zahl, kein Objekt, kein Array)? Beides muss stimmen, sonst gilt das Feld
+  // als nicht gefunden - das ist fuer dieses Protokoll richtig, waere aber
+  // falsch fuer allgemeines JSON (verschachtelte Objekte, Zahlenfelder,
+  // Arrays erkennt dieser Leser gar nicht und soll er auch nicht).
+  const std::string needle = std::string("\"") + key + "\"";
+  size_t searchFrom = 0;
+
+  while (true) {
+    size_t at = line.find(needle, searchFrom);
+    if (at == std::string::npos) return "";
+
+    bool isKeyPosition = false;
+    size_t p = at;
+    while (p > 0 && isJsonSpace(line[p - 1])) --p;
+    if (p > 0 && (line[p - 1] == '{' || line[p - 1] == ',')) isKeyPosition = true;
+
+    if (isKeyPosition) {
+      size_t after = at + needle.size();
+      while (after < line.size() && isJsonSpace(line[after])) ++after;
+      if (after < line.size() && line[after] == ':') {
+        ++after;
+        while (after < line.size() && isJsonSpace(line[after])) ++after;
+        if (after < line.size() && line[after] == '"') {
+          return readStringValue(line, after);
+        }
+      }
+    }
+
+    // Kein gueltiges Schluessel-Wert-Paar an dieser Stelle (z.B. der
+    // Schluesselname tauchte hier als WERT eines anderen Feldes auf, oder
+    // sein Wert ist keine Zeichenkette) - an der naechsten Fundstelle weiter
+    // suchen statt sofort aufzugeben.
+    searchFrom = at + needle.size();
+  }
 }
 
 std::string cmdOf(const std::string& line) {
