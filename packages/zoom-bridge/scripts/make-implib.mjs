@@ -72,6 +72,30 @@ if (names.length === 0) {
   console.error('[@jm/zoom-bridge] Keine Exportnamen erkannt - Ausgabeformat von dumpbin geaendert?');
   process.exit(1);
 }
+
+// names.length > 0 beweist nicht, dass ALLE Zeilen erkannt wurden - aendert sich
+// das dumpbin-Ausgabeformat nur fuer einen Teil der Zeilen, kommen z.B. 10 statt
+// 23 Namen heraus, kein Fehler hier, aber sdk.lib waere still verkuerzt. Das
+// fiele erst viel spaeter als "unresolved external symbol" beim Binden auf und
+// saehe dann wie ein Fehler im C++-Code aus, nicht wie einer im Werkzeug. Diese
+// fuenf Kernsymbole braucht das Paket nachweislich (CMakeLists.txt/native/*.cpp
+// binden dagegen); sie sind im Stage-0-Spike gemessen worden.
+const CORE_SYMBOLS = ['InitSDK', 'CleanUPSDK', 'GetSDKVersion', 'CreateAuthService', 'CreateMeetingService'];
+const missingCore = CORE_SYMBOLS.filter((s) => !names.includes(s));
+if (missingCore.length > 0) {
+  console.error(`[@jm/zoom-bridge] Kernsymbole fehlen in den dumpbin-Exporten: ${missingCore.join(', ')} (von ${names.length} erkannten Namen insgesamt). Ausgabeformat von dumpbin geaendert?`);
+  process.exit(1);
+}
+
+// Die Fassung 7.1.5.43953 exportiert 23 namentlich bindbare Symbole (gemessen im
+// Stage-0-Spike, docs/superpowers/spikes/2026-08-10-zoom-sdk-linkbarkeit/README.md).
+// Eine neue SDK-Fassung darf mehr oder weniger exportieren - das ist kein
+// Abbruchgrund, nur ein Hinweis, damit ein stiller Teilverlust trotzdem auffaellt.
+const EXPECTED_EXPORT_COUNT = 23;
+if (names.length !== EXPECTED_EXPORT_COUNT) {
+  console.warn(`[@jm/zoom-bridge] WARNUNG: ${names.length} Exportnamen erkannt, erwartet waren ${EXPECTED_EXPORT_COUNT} (Fassung 7.1.5.43953). Neue SDK-Fassung?`);
+}
+
 writeFileSync(join(pkg, 'sdk.def'), `LIBRARY sdk\r\nEXPORTS\r\n${names.map((n) => `    ${n}`).join('\r\n')}\r\n`);
 run('lib /nologo /def:sdk.def /machine:x64 /out:sdk.lib');
 console.log(`[@jm/zoom-bridge] ${names.length} Exporte -> sdk.lib`);
