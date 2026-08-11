@@ -94,10 +94,32 @@ alles außer `bridge.ts` und dem C++-Teil ohne Aufbau prüfbar.
 
 **JSON Lines, eine Zeile ein Objekt, UTF-8, `\n` als Trenner.**
 
-`stdout` ist ein **reiner Maschinenkanal** — dort geht kein Menschentext durch. Diagnose und Rauschen
-laufen als Klartext über `stderr` und landen in der Logdatei der App. Dasselbe Muster wie in
+`stdout` ist unser **Maschinenkanal** — wir schreiben dort nur JSON. Diagnose und Rauschen laufen
+als Klartext über `stderr` und landen in der Logdatei der App. Dasselbe Muster wie in
 `apps/connect/src/main/ndi-guests.ts`, wo `stdio: 'pipe'` genau deshalb gesetzt ist: eine gepackte
 Windows-GUI-App hat keine Konsole, an die ein Kindprozess erben könnte.
+
+### ⚑ Der Kanal gehört uns nicht allein (gemessen 2026-08-11)
+
+Hier stand zuerst „ein **reiner** Maschinenkanal — dort geht kein Menschentext durch". **Das ist
+falsch, und zwar messbar.** Ein Programm, das nur `InitSDK` ruft, gibt aus:
+
+```
+getServiceHub                                  <- vom Zoom-SDK, auf STDOUT
+{"ev":"ready","sdkVersion":"7.1.5 (43953)"}    <- von uns
+{"ev":"bye"}                                   <- von uns
+```
+
+Nachgemessen mit getrennter Umleitung: `getServiceHub` kommt auf **stdout**, nicht auf stderr. Die
+DLL schreibt in unseren Kanal, und wir können es nicht abstellen.
+
+**Folge:** Die Regel aus Abschnitt 11.1 — *„eine kaputte Zeile darf die Sitzung nicht abreißen"* —
+ist damit **keine Vorsichtsmaßnahme mehr, sondern tragend.** Ohne sie stolperte jede Sitzung über
+die allererste Zeile. `parseWireEvent` gibt bei Nicht-JSON `null` zurück, `bridge.ts` meldet die
+Zeile als Rauschen auf dem Diagnoseweg und überspringt sie. Genau dafür ist das gebaut.
+
+Wer diese Toleranz später „aufräumt", weil sie überflüssig aussieht, bricht die Bridge im ersten
+Moment jeder Sitzung.
 
 ### 5.1 Befehle (stdin → Bridge)
 

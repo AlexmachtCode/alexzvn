@@ -17,7 +17,9 @@
 - **Alles Neue liegt unter `packages/zoom-bridge/`.** Kein Eingriff in `apps/connect` oder eine andere App. Ausnahme: Task 11 aktualisiert `docs/roadmap.md`.
 - **Niemals `git add -A` oder `git add .`** — immer ausdrückliche Pfade, und nach jedem `git add` `git status --short` lesen.
 - **Niemals `apps/ndi-screen-capture/resources/bin/win/jm_ndi.node` stagen.** Die Datei ist im Arbeitsbaum verändert und gehört nicht in diesen Branch.
-- **Commit-Botschaften ohne Umlaute** (`ue`/`oe`/`ae`). In Quelltext, Kommentaren, README und Spec bleiben echte Umlaute.
+- **Umlaute — nachgemessen, nicht geraten.** Commit-Botschaften: keine (`ue`/`oe`/`ae`). **Quelltext und Codekommentare** (`src/*.ts`, `native/*`, `scripts/*`, `test/*`): ebenfalls keine — `@jm/decklink`, das Vorbild dieses Plans, hat in `src/`, `native/` und `test/` **null** echte Umlaute, `@jm/ndi` und `@jm/audio` ebenso. **Dokumentation** (`README.md`, Spec, Plan): echte Umlaute — dort hat jedes gemessene README welche (`packages/ndi` 20, `packages/audio` 74, `apps/switcher` 46).
+  Der Grund ist nicht Geschmack: Quelltext dieser Pakete läuft durch MSVC, `dumpbin`, CMake und PowerShell-Pipelines, deren Zeichensatzverhalten je nach Codepage kippt. Dokumentation tut das nicht.
+- **Sonderzeichen in Code-Kommentaren.** Die Code-Blöcke dieses Plans benutzen `⚑` als Warnmarke und `—` als Gedankenstrich. Beide sind **keine Umlaute** und dürfen nicht „umgeschrieben" werden. In den Quelltext übernommen wird: `⚑` → `ACHTUNG:` und `—` → ` - `. Eine Warnmarke, die als `ae_:` im Kommentar landet, macht aus dem wichtigsten Hinweis der Datei Kauderwelsch — genau das ist in Task 3 einmal passiert.
 - **Keine Zugangsdaten im Repo.** Client-ID, Secret, JWT, Meeting-Nummer und Kenncode kommen ausschließlich aus der Umgebung oder aus einer Datei außerhalb des Repos. In CI läuft gitleaks über den Dateibaum.
 - **Kein Geheimnis in einer Ausgabe.** Weder auf stdout noch auf stderr noch in einer Fehlermeldung darf JWT, Secret oder Kenncode erscheinen.
 - **`stdout` ist ein reiner Maschinenkanal**: ausschließlich JSON-Zeilen, eine Zeile ein Objekt, `\n` als Trenner. Jeder Menschentext geht auf `stderr`.
@@ -1326,7 +1328,16 @@ Erwartet, wörtlich zwei Zeilen:
 {"ev":"ready","sdkVersion":"7.1.5 (43953)"}
 {"ev":"bye"}
 ```
-Rückgabewert 0. Weicht die Fassung ab, ist das kein Fehler — sie kommt aus der DLL.
+Weicht die Fassung ab, ist das kein Fehler — sie kommt aus der DLL.
+
+**Zum Rückgabewert:** hier stand ursprünglich „Rückgabewert 0". Das war falsch gedacht. Dieses
+Programm fasst das SDK an, **ohne `InitSDK` zu rufen** — und damit hat es genau die Gestalt von
+Lauf 1 des Stage-0-Spikes, der beim Beenden mit `0xC0000409` (= `-1073740791`) abstürzte. Der
+Spike hält das fest: *„Das Programm stürzte beim Beenden ab (0xC0000409), was ebenfalls zum
+uninitialisierten Zustand paßt; Lauf 2 beendet sauber."*
+Für diese Aufgabe zählt deshalb **nur die Ausgabe**, nicht der Rückgabewert. Der Rückgabewert `0`
+wird zum harten Abnahmekriterium in **Task 5**, wo `InitSDK` und `CleanUPSDK` dazukommen — stürzt
+es dort noch ab, ist das ein echter Befund und kein dokumentiertes SDK-Verhalten mehr.
 
 - [ ] **Step 8: Prüfen, dass der Riegel greift**
 
@@ -1652,9 +1663,27 @@ Write-Output "Rueckgabewert: $LASTEXITCODE"
 ```
 
 Erwartet:
-- a) `{"ev":"ready",…}` dann `{"ev":"bye"}`, Rückgabewert 0
+- a) `{"ev":"ready",…}` dann `{"ev":"bye"}`, **Rückgabewert 0** — hier ist die 0 ein hartes
+  Kriterium, anders als in Task 4: mit `InitSDK` und `CleanUPSDK` endet das Programm sauber.
+  Gemessen am 2026-08-11 an einem Vorabbau: dreimal Rückgabewert 0, deterministisch.
 - b) dieselben zwei Zeilen — EOF beendet den Prozess ohne `quit`, Rückgabewert 0
 - c) `{"ev":"error","where":"parse","code":"badJson"}`, **danach** `ready` und `bye`, Rückgabewert 0
+
+⚑ **Eine fremde Zeile auf stdout ist normal, kein Fehler.** Nach `InitSDK` schreibt das Zoom-SDK
+selbst `getServiceHub` auf **stdout** — gemessen mit getrennter Umleitung. Die erwartete Ausgabe
+von a) lautet also vollständig:
+
+```
+getServiceHub
+{"ev":"ready","sdkVersion":"7.1.5 (43953)"}
+{"ev":"bye"}
+```
+
+Diese Zeile darf **nicht** unterdrückt oder herausgefiltert werden — sie kommt aus der DLL, wir
+haben keinen Zugriff darauf, und ein Filter würde nur so lange halten, bis Zoom den Text ändert.
+Die richtige Antwort steht schon in Task 2: `parseWireEvent` gibt bei Nicht-JSON `null` zurück, und
+Task 10 meldet solche Zeilen als Rauschen auf dem Diagnoseweg. Diese Toleranz ist damit **tragend
+und nicht optional**.
 
 - [ ] **Step 6: Committen**
 
