@@ -16,6 +16,7 @@
 #include <windows.h>
 #include "zoom_sdk.h"
 #include "auth_service_interface.h"
+#include "meeting_service_interface.h"
 
 USING_ZOOM_SDK_NAMESPACE
 
@@ -27,4 +28,21 @@ class AuthListener : public IAuthServiceEvent {
   void onZoomIdentityExpired() override {}
   void onZoomAuthIdentityExpired() override {}
   void onNotificationServiceStatus(SDKNotificationServiceStatus, SDKNotificationServiceError) override {}
+};
+
+/** Unsere Statusnamen. `other` ist ausdruecklich kein Verschlucken - der
+ *  SDK-Rohwert geht in `raw` mit heraus. */
+const char* statusName(MeetingStatus s);
+
+class MeetingListener : public IMeetingServiceEvent {
+ public:
+  void onMeetingStatusChanged(MeetingStatus status, int iResult = 0) override;
+  void onMeetingStatisticsWarningNotification(StatisticsWarningType) override {}
+  void onMeetingParameterNotification(const MeetingParameter*) override {}
+  void onSuspendParticipantsActivities() override {}
+  void onAICompanionActiveChangeNotice(bool) override {}
+  void onMeetingTopicChanged(const zchar_t*) override {}
+  void onMeetingFullToWatchLiveStream(const zchar_t*) override {}
+  void onUserNetworkStatusChanged(MeetingComponentType, ConnectionQuality, unsigned int, bool) override {}
+  void onAppSignalPanelUpdated(IMeetingAppSignalHandler*) override {}
 };

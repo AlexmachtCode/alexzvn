@@ -15,10 +15,11 @@ bool sessionInit();
  * 0xC0000005 beendet: der Abbau raeumt Zustand weg, an dem der SDK-Thread
  * noch arbeitet.
  *
- * STAND TASK 5: es gibt noch weder Meeting- noch Auth-Dienst, darum macht
- * diese Funktion bisher NUR CleanUPSDK. Leave, DestroyMeetingService und
- * DestroyAuthService kommen mit Task 6 und 7 dazu. Der Ablauf oben beschreibt
- * das ZIEL der spaeteren Stufen, nicht den heutigen IST-Zustand.
+ * STAND TASK 7: der Ablauf oben ist vollstaendig umgesetzt - sessionLeave()
+ * (Leave + pumpen) laeuft VOR DestroyMeetingService, das wiederum vor
+ * DestroyAuthService und CleanUPSDK steht. Wird ohne laufendes Meeting bzw.
+ * ohne Auth-Dienst gerufen, ueberspringt der jeweilige Schritt sich selbst
+ * (g_meeting/g_auth bleiben nullptr, siehe session.cpp).
  */
 void sessionShutdown();
 
@@ -57,3 +58,45 @@ bool sessionAuthPending();
 
 /** Von AuthListener::onAuthenticationReturn gerufen, sobald die Antwort da ist. */
 void sessionAuthAnswered();
+
+/**
+ * Beitritt zu einem Meeting per Nummer/Kenncode/Anzeigename. Das Ergebnis
+ * kommt ASYNCHRON als Statusfolge ueber MeetingListener::onMeetingStatusChanged
+ * (siehe callbacks.cpp) - bei Erfolg des Aufrufs selbst wird hier NICHTS
+ * gemeldet. Die Bridge tritt STUMM und OHNE BILD bei: sie sendet nichts,
+ * sie hoert nur zu.
+ */
+void sessionJoin(const std::string& meetingIdUtf8, const std::string& passcodeUtf8, const std::string& displayNameUtf8);
+
+/**
+ * Verlassen in der EINZIG zulaessigen Reihenfolge: Leave(), dann bis zu 5 s
+ * pumpen, bis der Meeting-Status ENDED/IDLE erreicht - erst danach darf
+ * DestroyMeetingService laufen (siehe sessionShutdown()). Ein
+ * DestroyMeetingService waehrend CONNECTING hat den Stage-0-Spike mit
+ * 0xC0000005 beendet: der Abbau raeumt Zustand weg, an dem der SDK-Thread
+ * noch arbeitet. sessionLeave() ist ohne laufendes Meeting (g_meeting ==
+ * nullptr) ein no-op.
+ */
+void sessionLeave();
+
+/**
+ * Ob ein mit sessionJoin() erfolgreich abgesetzter Beitritt noch auf die
+ * ERSTE asynchrone Statusmeldung wartet (analog sessionAuthPending() - siehe
+ * dort). Der Hauptthread braucht das aus demselben Grund: bei geschlossenem
+ * stdin darf ein Lauf nicht abbrechen, bevor auch nur EINE Pumprunde eine
+ * Rueckmeldung ueber onMeetingStatusChanged bringen konnte - sonst verschwindet
+ * der Beitritt spurlos, genau wie es fuer "auth" ohne sessionAuthPending()
+ * GEMESSEN wurde. NICHT gemessen (kein echtes Meeting verfuegbar): ob die
+ * gleiche 10-s-Frist wie bei "auth" fuer den Beitritt reicht - siehe der
+ * Code "joinEofTimeout" in main.cpp.
+ */
+bool sessionJoinPending();
+
+/**
+ * Von MeetingListener::onMeetingStatusChanged gerufen, sobald die erste
+ * Statusmeldung eines Beitritts da ist. NICHT dasselbe wie "das Meeting ist
+ * jetzt in einem Endzustand" - schon "connecting" zaehlt, denn das genuegt,
+ * um sessionJoinPending() aufzuloesen: es ist mindestens EINE Rueckmeldung
+ * angekommen, EOF wuerde sie also nicht mehr verschlucken.
+ */
+void sessionJoinAnswered();

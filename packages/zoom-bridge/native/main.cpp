@@ -98,7 +98,14 @@ void handle(const std::string& line) {
     sessionAuth(jwt);
     return;
   }
-  // join/leave kommen in Task 7.
+  if (cmd == "join") {
+    sessionJoin(fieldFromJson(line, "meetingId"), fieldFromJson(line, "passcode"), fieldFromJson(line, "displayName"));
+    return;
+  }
+  if (cmd == "leave") {
+    sessionLeave();
+    return;
+  }
   emitRaw("{\"ev\":\"error\",\"where\":\"" + cmd + "\",\"code\":1}");  // SDKERR_NO_IMPL
 }
 
@@ -135,18 +142,36 @@ int main() {
         // den dieses Vorhaben im Stage-0-Spike schon einmal 90 Sekunden lang
         // gesucht hat (ENABLE_CUSTOMIZED_UI_FLAG, siehe session.cpp).
         //
-        // ACHTUNG FUER SPAETER: diese Frist deckt bisher NUR "auth" ab. Die
-        // Aufgaben 7 bis 9 bringen weitere asynchrone Antworten (Beitritt,
-        // Teilnehmerliste, Aufnahme-Erlaubnis) - jede davon braucht dieselbe
-        // Pruefung fuer ihr eigenes "wartet noch"-Flag. Der Code "authTimeout"
-        // gilt NUR fuer diese Stelle - zwei verschiedene Ursachen bekommen nie
-        // dieselbe Meldung (Kernregel der Spec), also braucht jede weitere
-        // Stelle ihren EIGENEN Code (z.B. "joinTimeout"), nicht denselben
-        // Sammelbegriff. Die zehn Sekunden sind KEINE allgemeine Wahrheit,
-        // nur der fuer "auth" gemessene Wert.
-        if (!sessionAuthPending()) break;
-        if (GetTickCount64() - g_stdinClosedAtMs >= 10000) {
+        // Task 7 bringt denselben Fall fuer den Beitritt: sessionJoin() setzt
+        // seine Statusfolge ebenfalls ASYNCHRON ueber onMeetingStatusChanged ab
+        // (siehe callbacks.cpp/session.cpp, sessionJoinPending()). Derselbe
+        // Verschluck-Mechanismus, DERSELBE Code waere aber FALSCH: "joinTimeout"
+        // gehoert bereits der TypeScript-Seite (bridge.ts misst dort, ob je ein
+        // Endzustand erreicht wird - eine andere Frage als "kam ueberhaupt eine
+        // Rueckmeldung, bevor der Prozess unter EOF wegstirbt"). Zwei
+        // verschiedene Ursachen duerfen nie denselben Namen bekommen (Kernregel
+        // der Spec) - der native Fall bekommt darum den EIGENEN Code
+        // "joinEofTimeout". NICHT GEMESSEN (kein echtes Meeting verfuegbar ohne
+        // Owner-Freigabe): ob die fuer "auth" gemessenen zehn Sekunden auch fuer
+        // den Beitritt reichen - hier wiederverwendet, weil beides EOF-Notbremsen
+        // fuer denselben Prozess sind, nicht weil die Zahl fuer "join" belegt waere.
+        //
+        // Aufgaben 8 und 9 bringen weitere asynchrone Antworten (Teilnehmerliste,
+        // Aufnahme-Erlaubnis) - jede davon braucht dieselbe Pruefung fuer ihr
+        // eigenes "wartet noch"-Flag und ihren EIGENEN Code, nicht denselben
+        // Sammelbegriff.
+        const bool authOpen = sessionAuthPending();
+        const bool joinOpen = sessionJoinPending();
+        if (!authOpen && !joinOpen) break;
+        const ULONGLONG waitedMs = GetTickCount64() - g_stdinClosedAtMs;
+        if (authOpen && waitedMs >= 10000) {
           emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":\"authTimeout\"}");
+          emitLog(L"Zeitueberschreitung: EOF waehrend die Anmelde-Antwort noch offen war.");
+          break;
+        }
+        if (joinOpen && waitedMs >= 10000) {
+          emitRaw("{\"ev\":\"error\",\"where\":\"join\",\"code\":\"joinEofTimeout\"}");
+          emitLog(L"Zeitueberschreitung: EOF waehrend die erste Beitritts-Statusmeldung noch offen war.");
           break;
         }
       }

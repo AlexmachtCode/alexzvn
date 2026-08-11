@@ -1,6 +1,8 @@
 #include "session.h"
+#include <cstdlib>
 #include <windows.h>
 #include "zoom_sdk.h"
+#include "meeting_service_interface.h"
 #include "emit.h"
 #include "callbacks.h"
 
@@ -16,6 +18,12 @@ AuthListener g_authListener;
 // Siehe sessionAuthPending() in session.h: schuetzt die asynchrone Antwort vor
 // einem verfruehten Prozessende bei geschlossenem stdin.
 bool g_authPending = false;
+
+IMeetingService* g_meeting = nullptr;
+MeetingListener g_meetingListener;
+// Siehe sessionJoinPending() in session.h: derselbe Schutz wie g_authPending,
+// nur fuer die ERSTE Statusmeldung eines Beitritts statt fuer die Anmeldung.
+bool g_joinPending = false;
 
 std::wstring toWide(const std::string& utf8) {
   const int need = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), static_cast<int>(utf8.size()), nullptr, 0);
@@ -110,8 +118,85 @@ void sessionAuthAnswered() {
   g_authPending = false;
 }
 
+void sessionJoin(const std::string& meetingIdUtf8, const std::string& passcodeUtf8, const std::string& displayNameUtf8) {
+  if (!g_sdkUp) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"join\",\"code\":7}");  // SDKERR_UNINITIALIZE
+    return;
+  }
+  if (g_meeting == nullptr) {
+    const SDKError err = CreateMeetingService(&g_meeting);
+    if (err != SDKERR_SUCCESS || g_meeting == nullptr) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"join\",\"code\":" + std::to_string(static_cast<int>(err)) + "}");
+      return;
+    }
+    g_meeting->SetEvent(&g_meetingListener);
+  }
+
+  const UINT64 number = _strtoui64(meetingIdUtf8.c_str(), nullptr, 10);
+  if (number == 0) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"join\",\"code\":3}");  // SDKERR_INVALID_PARAMETER
+    return;
+  }
+
+  const std::wstring name = toWide(displayNameUtf8);
+  const std::wstring psw = toWide(passcodeUtf8);
+
+  JoinParam jp;
+  jp.userType = SDK_UT_WITHOUT_LOGIN;
+  JoinParam4WithoutLogin& w = jp.param.withoutloginuserJoin;
+  w.meetingNumber = number;
+  w.userName = name.c_str();
+  w.psw = psw.empty() ? nullptr : psw.c_str();
+  // Die Bridge sendet NICHTS. Sie hoert nur zu.
+  w.isVideoOff = true;
+  w.isAudioOff = true;
+
+  const SDKError err = g_meeting->Join(jp);
+  if (err != SDKERR_SUCCESS) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"join\",\"code\":" + std::to_string(static_cast<int>(err)) + "}");
+    return;
+  }
+  // Bei Erfolg NICHTS melden: das Ergebnis kommt als Statusfolge.
+  // Ab hier gilt der Beitritt als offen, bis die ERSTE Statusmeldung eintrifft
+  // (sessionJoinAnswered(), von MeetingListener::onMeetingStatusChanged gerufen)
+  // - siehe sessionJoinPending() in session.h. Derselbe Verschluck-Mechanismus
+  // wie bei sessionAuth(): ohne diese Markierung koennte EOF den Beitritt
+  // beenden, bevor auch nur eine Pumprunde eine Rueckmeldung bringt.
+  g_joinPending = true;
+}
+
+void sessionLeave() {
+  if (g_meeting == nullptr) return;
+  g_meeting->Leave(LEAVE_MEETING);
+  // Erst SAUBER VERLASSEN, dann abbauen - bis zu 5 s pumpen. Ein
+  // DestroyMeetingService waehrend CONNECTING hat den Stage-0-Spike mit
+  // 0xC0000005 beendet: der Abbau raeumt Zustand weg, an dem der SDK-Thread
+  // noch arbeitet.
+  const ULONGLONG deadline = GetTickCount64() + 5000;
+  while (GetTickCount64() < deadline) {
+    pumpOnce();
+    const MeetingStatus s = g_meeting->GetMeetingStatus();
+    if (s == MEETING_STATUS_ENDED || s == MEETING_STATUS_IDLE) break;
+    Sleep(20);
+  }
+}
+
+bool sessionJoinPending() {
+  return g_joinPending;
+}
+
+void sessionJoinAnswered() {
+  g_joinPending = false;
+}
+
 void sessionShutdown() {
   if (!g_sdkUp) return;
+  if (g_meeting != nullptr) {
+    sessionLeave();
+    g_meeting->SetEvent(nullptr);
+    DestroyMeetingService(g_meeting);
+    g_meeting = nullptr;
+  }
   if (g_auth != nullptr) {
     g_auth->SetEvent(nullptr);
     DestroyAuthService(g_auth);
