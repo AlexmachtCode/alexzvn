@@ -24,18 +24,6 @@ MeetingListener g_meetingListener;
 // Siehe sessionJoinPending() in session.h: derselbe Schutz wie g_authPending,
 // nur fuer die ERSTE Statusmeldung eines Beitritts statt fuer die Anmeldung.
 bool g_joinPending = false;
-// Merkzeichen: dieses Meeting wurde bereits SAUBER verlassen (Leave()
-// erfolgreich UND die Pumpschleife hat ENDED/IDLE gesehen). Verhindert einen
-// UEBERFLUESSIGEN zweiten Leave()-Aufruf in sessionLeave() - nicht um einen
-// Aufruf zu sparen, sondern weil der zweite Aufruf auf dem GEWOEHNLICHEN
-// Ausstiegsweg (Bediener verlaesst das Meeting, beendet dann die Bridge)
-// zuverlaessig SDKERR_WRONG_USAGE liefert: eine Fehlerzeile bei JEDER sauberen
-// Sitzung entwertet genau die Regel ("kein SDKError wird verworfen"), die sie
-// eigentlich schuetzen soll - eine Anzeige, die immer da ist, wird nicht
-// gelesen. Wird zurueckgesetzt, sobald ein neuer sessionJoin() erfolgreich
-// abgesetzt wird (siehe dort) - sonst haelt die Bridge sich nach einem
-// zweiten Beitritt faelschlich fuer schon draussen.
-bool g_meetingLeft = false;
 
 std::wstring toWide(const std::string& utf8) {
   const int need = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), static_cast<int>(utf8.size()), nullptr, 0);
@@ -175,11 +163,6 @@ void sessionJoin(const std::string& meetingIdUtf8, const std::string& passcodeUt
   // wie bei sessionAuth(): ohne diese Markierung koennte EOF den Beitritt
   // beenden, bevor auch nur eine Pumprunde eine Rueckmeldung bringt.
   g_joinPending = true;
-  // g_meetingLeft galt fuer das VORIGE Meeting (falls eines vorausging) -
-  // dieser neue, erfolgreiche Beitritt macht es ungueltig. Ohne diesen Reset
-  // wuerde ein spaeteres "leave" fuer DIESES Meeting faelschlich uebersprungen,
-  // weil das Merkzeichen noch vom letzten Mal stuende.
-  g_meetingLeft = false;
 }
 
 void sessionLeave() {
@@ -188,25 +171,37 @@ void sessionLeave() {
   // ACHTUNG, GEMESSEN: der Befehl "leave" ruft diese Funktion auf, OHNE
   // g_meeting auf nullptr zu setzen oder den Dienst zu zerstoeren - ein
   // spaeteres "quit" ruft sessionLeave() dadurch ein zweites Mal auf demselben
-  // Dienst auf (sessionShutdown()). Mehrfaches Aufrufen war GEMESSEN
-  // unschaedlich, nicht nur abgeleitet: 13 wiederholte Node-spawn-Laeufe
-  // (5x join+leave+quit, 3x leave ohne vorherigen join, 5x join+leave+leave+quit
-  // - also bis zu DREI sessionLeave()-Aufrufe auf demselben Dienst in Folge),
-  // in allen 13 Laeufen exitCode=0, kein Haenger. ABER: der zweite Aufruf lief
-  // dabei auf dem GEWOEHNLICHEN Ausstiegsweg (Bediener verlaesst das Meeting,
-  // beendet dann die Bridge) IMMER auf ein SDKERR_WRONG_USAGE (code 2) - eine
-  // Fehlerzeile bei JEDER sauberen Sitzung, obwohl nichts falsch lief. Das
-  // Merkzeichen unten (g_meetingLeft) vermeidet GENAU diesen ueberfluessigen
-  // zweiten SDK-Ruf, damit "kein SDKError wird verworfen" fuer die Faelle
-  // aussagekraeftig bleibt, in denen wirklich etwas schiefgeht.
-  if (g_meetingLeft) {
-    // Dieses Meeting wurde bereits SAUBER verlassen (siehe unten, wo das
-    // Merkzeichen gesetzt wird) - der SDK-Aufruf UND die Pumpschleife
+  // Dienst auf (sessionShutdown()). Ein zweiter SDK-Ruf auf ein Meeting, das
+  // BEREITS in ENDED/IDLE steht, liefert zuverlaessig SDKERR_WRONG_USAGE
+  // (code 2) - GLEICH AUF WELCHEM WEG dieser Zustand erreicht wurde: durch
+  // unseren eigenen Leave()-Ruf, durch den Gastgeber, der das Meeting fuer
+  // alle beendet, oder durch einen asynchron gescheiterten Beitritt. Eine
+  // Fehlerzeile bei JEDEM dieser alltaeglichen Ausgaenge entwertet die Regel
+  // "kein SDKError wird verworfen", die echte Fehler sichtbar halten soll -
+  // eine Anzeige, die immer da ist, wird nicht gelesen.
+  //
+  // Ein vorheriger Entwurf hielt sich das mit einem eigenen Merkzeichen
+  // (g_meetingLeft), das nur "ICH habe sauber verlassen" abdeckte - nicht
+  // "das Meeting ist ohnehin vorbei" (Gastgeber beendet fuer alle,
+  // gescheiterter Beitritt). GEMESSEN deckte das Merkzeichen daher nur die
+  // HAELFTE der alltaeglichen Ausgaenge ab. Ersetzt durch die Zustandsfrage,
+  // die das SDK selbst beantwortet - EINE Wahrheitsquelle statt zweier, die
+  // auseinanderlaufen koennen, und sie deckt jeden Fall des Merkzeichens plus
+  // die beiden, die es nicht konnte.
+  const MeetingStatus statusOnEntry = g_meeting->GetMeetingStatus();
+  if (statusOnEntry == MEETING_STATUS_ENDED || statusOnEntry == MEETING_STATUS_IDLE) {
+    // Das Meeting steht BEREITS auf ENDED/IDLE - Leave() waere per Definition
+    // ueberfluessig, unabhaengig vom Grund. SDK-Aufruf UND Pumpschleife
     // entfallen, kein Fehler wird gemeldet. NICHT: "spart einen Aufruf".
-    // SONDERN: verhindert eine Fehlermeldung auf dem NORMALWEG, die echte
-    // Fehler entwerten wuerde - eine Anzeige, die immer da ist, wird nicht
-    // gelesen, und genau diese Gewoehnung ist der Grund, warum die Regel
-    // "kein SDKError wird verworfen" ueberhaupt existiert.
+    // SONDERN: verhindert eine Fehlermeldung fuer einen Zustand, der bereits
+    // erreicht ist.
+    //
+    // Zur Pumpschleife weiter unten: sie existiert NUR, damit
+    // DestroyMeetingService (siehe sessionShutdown()) nicht waehrend
+    // CONNECTING laeuft - das hat den Stage-0-Spike mit 0xC0000005 beendet.
+    // Sie wartet auf GENAU die Bedingung, die hier bereits erfuellt ist
+    // (ENDED/IDLE) - das Ueberspringen hier ist dieselbe Abbruchbedingung,
+    // keine neue.
     return;
   }
 
@@ -237,24 +232,17 @@ void sessionLeave() {
     Sleep(20);
   }
 
-  if (lastStatus == MEETING_STATUS_ENDED || lastStatus == MEETING_STATUS_IDLE) {
-    if (leaveErr == SDKERR_SUCCESS) {
-      // NUR hier setzen: Leave() selbst hat geklappt UND die Pumpschleife hat
-      // wirklich ENDED/IDLE gesehen. Ein gescheitertes Leave() oder eine
-      // abgelaufene Frist duerfen dieses Merkzeichen NICHT setzen - das
-      // Meeting ist dann NICHT sicher verlassen, und der naechste Abbau muss
-      // Leave() zu Recht noch einmal versuchen.
-      g_meetingLeft = true;
-    }
-  } else {
+  if (lastStatus != MEETING_STATUS_ENDED && lastStatus != MEETING_STATUS_IDLE) {
     // ACHTUNG, GEMESSEN AN ANDERER STELLE (Stage-0-Spike, 90 s Schweigen bei
     // CONNECTING): eine Wartefrist darf nicht stillschweigend ablaufen. Der
     // zuletzt gesehene Status geht als "lastStatus" mit - derselbe Feldname,
     // den bridge.ts (Task 10) fuer ihren eigenen "joinTimeout" schon benutzt -
     // damit spaeter nachvollziehbar ist, WORAUF vergeblich gewartet wurde.
     // Die Frist ist eine OBERGRENZE, kein Abbruchkriterium: der Aufrufer
-    // (sessionShutdown()) baut danach TROTZDEM ab, unveraendert. g_meetingLeft
-    // bleibt hier ABSICHTLICH unveraendert (false) - siehe Kommentar oben.
+    // (sessionShutdown()) baut danach TROTZDEM ab, unveraendert. Der naechste
+    // sessionLeave()-Aufruf fragt beim Eintritt erneut GetMeetingStatus() ab
+    // (siehe oben) und versucht Leave() zu Recht noch einmal, weil der Status
+    // hier NICHT auf ENDED/IDLE steht.
     emitRaw(std::string("{\"ev\":\"error\",\"where\":\"leave\",\"code\":\"leaveTimeout\",\"lastStatus\":\"") +
             statusName(lastStatus) + "\"}");
     emitLog(std::wstring(L"Zeitueberschreitung: 5 s Leave-Pumpobergrenze abgelaufen, zuletzt gesehener Status: ") +
