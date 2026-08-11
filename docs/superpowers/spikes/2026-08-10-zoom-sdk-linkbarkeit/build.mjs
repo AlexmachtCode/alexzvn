@@ -114,7 +114,7 @@ console.log(`[zoom-spike] ${names.length} Exporte -> sdk.def`);
 run('lib /nologo /def:sdk.def /machine:x64 /out:sdk.lib');
 console.log('[zoom-spike] sdk.lib erzeugt');
 
-for (const src of ['01-bindbarkeit.cpp', '02-initsdk.cpp', '03-auth.cpp']) {
+for (const src of ['01-bindbarkeit.cpp', '02-initsdk.cpp', '03-auth.cpp', '04-join-rawrecording.cpp']) {
   const exe = src.replace(/\.cpp$/, '.exe');
   // user32.lib: 03-auth.cpp braucht PeekMessage/TranslateMessage/DispatchMessage — die
   // Anmeldung antwortet asynchron und ohne Nachrichtenschleife kommt der Rueckruf nie an.
