@@ -2,6 +2,20 @@
 // und KEIN Meeting — sie laufen auch auf Linux.
 //   npm run selftest -w @jm/zoom-bridge
 import { buildJwt, readCredentials } from '../src/jwt.ts';
+import {
+  LineSplitter,
+  authResultName,
+  enrich,
+  explainStatus,
+  normalizeMeetingId,
+  parseWireEvent,
+  sdkErrorName,
+  serializeCommand,
+  SDK_ERROR_NAMES,
+  AUTH_RESULT_NAMES,
+  type BridgeEvent,
+  type Participant,
+} from '../src/protocol.ts';
 import { tmpdir } from 'node:os';
 import { writeFileSync, unlinkSync } from 'node:fs';
 
@@ -134,6 +148,109 @@ console.log('readCredentials — Umgebung und Datei:');
     // Umgebung wiederherstellen
     process.env = savedEnv;
   }
+}
+
+console.log('\nprotocol — Meeting-Nummer aufraeumen:');
+{
+  assert(normalizeMeetingId('830 3445 8134') === '83034458134', 'Leerzeichen fallen weg');
+  assert(normalizeMeetingId('830-3445-8134') === '83034458134', 'Bindestriche fallen weg');
+  assert(normalizeMeetingId('83034458134') === '83034458134', 'reine Ziffern bleiben');
+  let threw = false;
+  try {
+    normalizeMeetingId('830abc8134');
+  } catch {
+    threw = true;
+  }
+  // Buchstaben still zu entfernen waere die gefaehrliche Variante: aus einer falschen
+  // Eingabe wuerde klaglos eine falsche Nummer, und der Beitritt scheiterte spaeter
+  // aus scheinbar unerklaerlichem Grund.
+  assert(threw, 'Buchstaben werden abgewiesen, nicht still entfernt');
+}
+
+console.log('\nprotocol — Fehlerkatalog:');
+{
+  assert(sdkErrorName(0) === 'SDKERR_SUCCESS', 'Code 0 ist SDKERR_SUCCESS');
+  // Zwei am echten SDK GEMESSENE Anker: Lauf 1 lieferte 7 fuer den
+  // uninitialisierten Zustand, Lauf 4 lieferte 12 fuer die fehlende Erlaubnis.
+  assert(sdkErrorName(7) === 'SDKERR_UNINITIALIZE', 'Code 7 ist SDKERR_UNINITIALIZE (gemessen, Lauf 1)');
+  assert(sdkErrorName(12) === 'SDKERR_NO_PERMISSION', 'Code 12 ist SDKERR_NO_PERMISSION (gemessen, Lauf 4)');
+  assert(sdkErrorName(9999) === 'SDKERR_UNKNOWN(9999)', 'unbekannter Code wird nicht gerundet');
+
+  const names = Object.values(SDK_ERROR_NAMES);
+  assert(new Set(names).size === names.length, 'kein Name kommt zweimal vor');
+  assert(names.length === 38, 'der Katalog hat 38 Eintraege (zoom_sdk_def.h, Fassung 7.1.5)');
+
+  assert(authResultName(0) === 'AUTHRET_SUCCESS', 'AuthResult 0 ist AUTHRET_SUCCESS');
+  assert(authResultName(11) === 'AUTHRET_JWTTOKENWRONG', 'AuthResult 11 ist AUTHRET_JWTTOKENWRONG');
+  assert(authResultName(77) === 'AUTHRET_UNKNOWN_CODE(77)', 'unbekannter AuthResult wird nicht gerundet');
+  const auths = Object.values(AUTH_RESULT_NAMES);
+  assert(new Set(auths).size === auths.length, 'kein AuthResult-Name kommt zweimal vor');
+}
+
+console.log('\nprotocol — code bedeutet je nach status etwas anderes:');
+{
+  // MEETING_FAIL_PASSWORD_ERR = 4 und EndMeetingReason_NoAttendee = 4.
+  // Derselbe Zahlenwert, zwei voellig verschiedene Aussagen. Wer den Code ohne
+  // den Status ausliest, liest Kaffeesatz.
+  const a = explainStatus('failed', 4);
+  const b = explainStatus('ended', 4);
+  assert(a !== b, 'failed(4) und ended(4) ergeben verschiedene Klartexte');
+  assert(a.includes('Kenncode'), 'failed(4) nennt den falschen Kenncode');
+  assert(b.includes('niemand'), 'ended(4) nennt, dass niemand mehr da war');
+  assert(explainStatus('connecting', 4) !== a, 'bei connecting bedeutet 4 nichts Verwertbares');
+}
+
+console.log('\nprotocol — Zeilenteiler:');
+{
+  const s = new LineSplitter();
+  assert(s.push('{"ev":"bye"}\n').length === 1, 'eine ganze Zeile ergibt ein Stueck');
+
+  const s2 = new LineSplitter();
+  // DIE Falle: die Puffergrenze faellt mitten ins JSON. Wer je Datenpaket parst,
+  // verliert hier ein Ereignis — und merkt es nie, weil nichts abstuerzt.
+  assert(s2.push('{"ev":"re').length === 0, 'halbe Zeile ergibt noch nichts');
+  const rest = s2.push('ady","sdkVersion":"7.1.5"}\n');
+  assert(rest.length === 1 && rest[0] === '{"ev":"ready","sdkVersion":"7.1.5"}', 'die zweite Haelfte vervollstaendigt sie');
+
+  const s3 = new LineSplitter();
+  assert(s3.push('{"ev":"bye"}\n{"ev":"bye"}\n').length === 2, 'zwei Zeilen in einem Puffer ergeben zwei Stuecke');
+
+  const s4 = new LineSplitter();
+  assert(s4.push('{"ev":"bye"}\r\n').length === 1, 'CRLF wird wie LF behandelt');
+  assert(s4.push('{"ev":"bye"}\r\n')[0] === '{"ev":"bye"}', 'das \\r bleibt nicht am Ende haengen');
+}
+
+console.log('\nprotocol — Ereignisse lesen:');
+{
+  assert(parseWireEvent('{"ev":"bye"}')?.ev === 'bye', 'wohlgeformtes Ereignis wird gelesen');
+  assert(parseWireEvent('nicht json') === null, 'kaputtes JSON ergibt null, es wirft nicht');
+  assert(parseWireEvent('') === null, 'leere Zeile ergibt null');
+  assert(parseWireEvent('{"kein":"ev"}') === null, 'Objekt ohne ev ergibt null');
+  assert(parseWireEvent('{"ev":"voellig_neu"}')?.ev === 'voellig_neu', 'unbekanntes Ereignis kommt durch, es wird nicht verworfen');
+  assert(parseWireEvent('[1,2,3]') === null, 'ein Array ist kein Ereignis');
+}
+
+console.log('\nprotocol — Anreicherung:');
+{
+  const e = enrich({ ev: 'error', where: 'join', code: 12 });
+  assert(e.ev === 'error' && (e as { name: string }).name === 'SDKERR_NO_PERMISSION', 'error bekommt seinen Namen dazu');
+
+  const a = enrich({ ev: 'auth', code: 0 });
+  assert((a as { result: string }).result === 'AUTHRET_SUCCESS', 'auth bekommt result dazu');
+
+  const t = enrich({ ev: 'error', where: 'join', code: 'timeout' });
+  assert((t as { name: string }).name === 'JOIN_TIMEOUT', 'ein selbst erzeugter Fehler behaelt seinen eigenen Namen');
+
+  const b = enrich({ ev: 'bye' });
+  assert(b.ev === 'bye' && Object.keys(b).length === 1, 'was nichts braucht, wird nicht angereichert');
+}
+
+console.log('\nprotocol — Befehle schreiben:');
+{
+  assert(serializeCommand({ cmd: 'init' }) === '{"cmd":"init"}\n', 'init endet mit genau einem Zeilenumbruch');
+  const j = serializeCommand({ cmd: 'join', meetingId: '83034458134', passcode: 'a"b', displayName: 'JM Connect' });
+  assert(j.endsWith('\n') && j.split('\n').length === 2, 'auch join ist genau eine Zeile');
+  assert(JSON.parse(j).passcode === 'a"b', 'Anfuehrungszeichen im Kenncode werden maskiert');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
