@@ -26,7 +26,7 @@ export function initialSession(): Session {
  * Ruhend heisst: es ist ein Zustand, in dem das Warten aufhoert und eine Antwort
  * vorliegt — auch wenn die Antwort "Warteraum" lautet.
  *
- * ae_: `connecting` ist AUSDRUECKLICH nicht ruhend. Genau dort hing der Stage-0-Spike
+ * ACHTUNG: `connecting` ist AUSDRUECKLICH nicht ruhend. Genau dort hing der Stage-0-Spike
  * 90 Sekunden lang ohne jede Meldung. Ein Wachhund, der beim ersten Lebenszeichen
  * einschlaeft, haette diesen Fall verschlafen.
  */

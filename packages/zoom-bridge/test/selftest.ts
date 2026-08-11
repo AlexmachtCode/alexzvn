@@ -388,5 +388,71 @@ console.log('\nstate — Abbruch und Fehler:');
   assert(e.lastError?.where === 'join', 'und die Stelle, an der er auftrat');
 }
 
+console.log('\nstate — reduce veraendert nichts Bestehendes:');
+{
+  // Ausgangszustand: zwei Teilnehmer
+  const initialState = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'roster', list: [person({ id: 1, name: 'Alex' }), person({ id: 2, name: 'Bea' })] },
+  ]);
+
+  // Referenzen festhalten VOR dem reduce
+  const oldSession = initialState;
+  const oldParticipants = oldSession.participants;
+  const oldAlex = oldParticipants.get(1)!;
+
+  // renamed aufrufen
+  const newSession = reduce(oldSession, enrich({ ev: 'renamed', id: 1, name: 'Alexander' }));
+
+  // Behauptungen fuer renamed:
+  assert(oldAlex.name === 'Alex', 'der alte Participant hat seinen Namen nicht geaendert');
+  assert(oldParticipants.get(1)?.name === 'Alex', 'die alte Map hat den alten Namen');
+  assert(oldSession !== newSession, 'reduce gibt ein ANDERES Session-Objekt zurueck');
+  assert(oldParticipants !== newSession.participants, 'die neue Map ist eine ANDERE Map');
+  assert(newSession.participants.get(1)?.name === 'Alexander', 'die neue Map hat den neuen Namen');
+
+  // Wiederverbindung: alte Map festhalten
+  const beforeRoster = newSession;
+  const oldParticipantsBeforeRoster = beforeRoster.participants;
+  const afterRoster = reduce(
+    beforeRoster,
+    enrich({ ev: 'roster', list: [person({ id: 21 }), person({ id: 22, name: 'Bea' })] }),
+  );
+
+  // Behauptungen fuer roster:
+  assert(oldParticipantsBeforeRoster.has(1), 'die alte Map hat noch die alten IDs');
+  assert(oldParticipantsBeforeRoster !== afterRoster.participants, 'roster gibt eine ANDERE Map zurueck');
+  assert(!afterRoster.participants.has(1), 'die neue Map hat die neuen IDs');
+
+  // joined: alte Map festhalten
+  const beforeJoined = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'roster', list: [person({ id: 1, name: 'Alex' })] },
+  ]);
+  const oldMapBeforeJoined = beforeJoined.participants;
+  const participant2 = person({ id: 2, name: 'Carol' });
+  const afterJoined = reduce(beforeJoined, enrich({ ev: 'joined', p: participant2 }));
+
+  // Behauptungen fuer joined:
+  assert(oldMapBeforeJoined.size === 1, 'die alte Map hatte einen Eintrag');
+  assert(oldMapBeforeJoined !== afterJoined.participants, 'joined gibt eine ANDERE Map zurueck');
+  assert(oldMapBeforeJoined.size === 1, 'die alte Map hat ihre Groesse nicht geaendert');
+
+  // left: alte Map festhalten
+  const beforeLeft = afterJoined;
+  const oldMapBeforeLeft = beforeLeft.participants;
+  const afterLeft = reduce(beforeLeft, enrich({ ev: 'left', id: 1 }));
+
+  // Behauptungen fuer left:
+  assert(oldMapBeforeLeft.has(1), 'die alte Map hat noch den Teilnehmer');
+  assert(oldMapBeforeLeft !== afterLeft.participants, 'left gibt eine ANDERE Map zurueck');
+  assert(oldMapBeforeLeft.has(1), 'die alte Map hat den Teilnehmer noch nicht geloescht');
+
+  // Gegenprobe: left mit unbekannter ID gibt DENSELBEN Zustand
+  const beforeNoOp = run([{ ev: 'status', status: 'inMeeting', raw: 3, code: 0 }]);
+  const afterNoOp = reduce(beforeNoOp, enrich({ ev: 'left', id: 999 }));
+  assert(beforeNoOp === afterNoOp, 'left mit unbekannter ID gibt DENSELBEN Zustand zurueck');
+}
+
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
