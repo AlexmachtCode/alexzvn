@@ -11,6 +11,7 @@
     "./jwt": "./src/jwt.ts"
   },
   "scripts": {
+    "install": "node scripts/maybe-build.mjs",
     "rebuild": "node scripts/make-implib.mjs && cmake -S . -B build -A x64 && cmake --build build --config Release",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "selftest": "node --experimental-strip-types test/selftest.ts",
