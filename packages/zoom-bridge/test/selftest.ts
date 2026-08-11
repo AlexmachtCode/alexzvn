@@ -250,6 +250,17 @@ console.log('\nprotocol — Anreicherung:');
     'Beitritts-Timeout und Anmelde-Timeout tragen verschiedene Namen - sonst sucht man den Fehler am falschen Ort',
   );
 
+  // Der native EOF-Wachhund fuer einen noch offenen Beitritt (main.cpp,
+  // sessionJoinPending()) misst eine ANDERE Ursache als joinTimeout oben (das
+  // misst hier in bridge.ts, ob je ein Endzustand erreicht wird) - er bekommt
+  // darum seinen EIGENEN Code.
+  const je = enrich({ ev: 'error', where: 'join', code: 'joinEofTimeout' });
+  assert((je as { name: string }).name === 'JOIN_EOF_TIMEOUT', 'ein EOF-Beitrittstimeout traegt JOIN_EOF_TIMEOUT');
+  assert(
+    (je as { name: string }).name !== (t as { name: string }).name,
+    'EOF-Beitrittstimeout und Beitritts-Endzustand-Timeout tragen verschiedene Namen - zwei verschiedene Ursachen, zwei verschiedene Namen',
+  );
+
   const b = enrich({ ev: 'bye' });
   assert(b.ev === 'bye' && Object.keys(b).length === 1, 'was nichts braucht, wird nicht angereichert');
 }

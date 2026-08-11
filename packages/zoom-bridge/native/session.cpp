@@ -300,6 +300,17 @@ void sessionShutdown() {
   if (!g_sdkUp) return;
   if (g_meeting != nullptr) {
     sessionLeave();
+    // Abmeldung NACH sessionLeave(), nicht davor: sessionLeave() pumpt bis zu
+    // 5 s auf ENDED/IDLE, und waehrend dieses Pumpens duerfen Teilnehmer-
+    // Rueckrufe noch feuern (Leute verlassen das Meeting, waehrend es endet)
+    // - das sind gueltige Tatsachen, die gemeldet gehoeren. Erst wenn
+    // sessionLeave() zurueckkehrt, wird der Empfaenger abgemeldet, symmetrisch
+    // zu g_meeting->SetEvent(nullptr) und g_auth->SetEvent(nullptr) unten -
+    // ein registrierter Empfaenger wird IMMER abgemeldet, bevor der
+    // zugehoerige Dienst zerstoert wird, nicht "sofern sonst nichts mehr
+    // kommt".
+    IMeetingParticipantsController* pctrl = participantsCtrl();
+    if (pctrl != nullptr) pctrl->SetEvent(nullptr);
     g_meeting->SetEvent(nullptr);
     DestroyMeetingService(g_meeting);
     g_meeting = nullptr;

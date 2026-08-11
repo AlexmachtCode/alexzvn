@@ -156,10 +156,14 @@ int main() {
         // den Beitritt reichen - hier wiederverwendet, weil beides EOF-Notbremsen
         // fuer denselben Prozess sind, nicht weil die Zahl fuer "join" belegt waere.
         //
-        // Aufgaben 8 und 9 bringen weitere asynchrone Antworten (Teilnehmerliste,
-        // Aufnahme-Erlaubnis) - jede davon braucht dieselbe Pruefung fuer ihr
-        // eigenes "wartet noch"-Flag und ihren EIGENEN Code, nicht denselben
-        // Sammelbegriff.
+        // Aufgabe 8 (Teilnehmerliste) braucht KEIN eigenes "wartet noch"-Flag:
+        // es gibt keinen "roster"-Befehl, die Liste feuert unaufgefordert als
+        // Nebenwirkung der bereits hier geschuetzten Statusfolge - niemand
+        // wartet auf eine Antwort, also kann EOF nichts verschlucken. Aufgabe 9
+        // (Aufnahme-Erlaubnis) braucht die Pruefung dagegen SEHR WOHL: das ist
+        // ein echtes Gesuch mit einer asynchronen Antwort, fuer die dieselbe
+        // Rennbedingung wie bei "auth"/"join" gilt - mit ihrem EIGENEN Code,
+        // nicht dem Sammelbegriff eines anderen Befehls.
         const bool authOpen = sessionAuthPending();
         const bool joinOpen = sessionJoinPending();
         if (!authOpen && !joinOpen) break;
