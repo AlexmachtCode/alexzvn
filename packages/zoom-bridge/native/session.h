@@ -14,6 +14,12 @@
 // dieser Stelle unbekannt, und der Parser verliert danach die Deklaration.
 #include "meeting_service_components/meeting_audio_interface.h"
 #include "meeting_service_components/meeting_participants_ctrl_interface.h"
+// GEMESSEN, KEINE eigene Falle: meeting_participants_ctrl_interface.h bindet
+// diesen Header bereits selbst ein, diese Zeile ist die explizite,
+// unabhaengige Absicherung fuer diese Uebersetzungseinheit - gebraucht, weil
+// dieser Header selbst IMeetingRecordingController* als Rueckgabetyp
+// deklariert (recordingCtrl() unten).
+#include "meeting_service_components/meeting_recording_interface.h"
 
 USING_ZOOM_SDK_NAMESPACE
 
@@ -122,3 +128,49 @@ IMeetingParticipantsController* participantsCtrl();
 
 /** Vollbild der Anwesenden als ein roster-Ereignis. */
 void emitRoster();
+
+/**
+ * Haelt fest, dass der Teilnehmer-Empfaenger (g_participantsListener, siehe
+ * callbacks.cpp) JE auf dem Teilnehmer-Regler registriert wurde. Gebraucht von
+ * der Messstelle in sessionShutdown(): liefert participantsCtrl() beim Abbau
+ * nullptr, obwohl hier schon einmal registriert wurde, wird das SICHTBAR
+ * gemeldet statt die Abmeldung still zu uebergehen - die SDK-Kopfdateien
+ * klaeren nicht, ob der Regler-Zeiger nach einem durchlaufenen Leave() noch
+ * gueltig bleibt.
+ */
+void markParticipantsListenerRegistered();
+
+/** Der Aufnahme-Regler, oder nullptr wenn kein Meeting laeuft. */
+IMeetingRecordingController* recordingCtrl();
+
+/**
+ * Fragt die Rohdaten-Aufnahme-Erlaubnis ab und, wenn noetig, beim Gastgeber
+ * an (RequestLocalRecordingPrivilege). Meldet {"ev":"privilege",...} bzw.
+ * {"ev":"error","where":"privilege",...}. Stage 1 zeichnet NICHTS auf: diese
+ * Funktion ruft StartRawRecording() NICHT - es steht nirgends im Quelltext.
+ *
+ * Owner-Entscheidung: "automatisch anfragen, einmal freigeben" - die Bruecke
+ * fragt die Erlaubnis SELBST an, sie wartet nicht auf einen externen Befehl.
+ * Deshalb gibt es dafuer keinen eigenen "cmd" in main.cpp - der Aufruf steht
+ * in MeetingListener::onMeetingStatusChanged (callbacks.cpp), ausgeloest vom
+ * Status INMEETING, genau wie emitRoster().
+ */
+void checkPrivilege();
+
+/**
+ * Ob eine mit checkPrivilege() abgesetzte RequestLocalRecordingPrivilege()
+ * noch auf die asynchrone Antwort wartet (analog sessionAuthPending()/
+ * sessionJoinPending() - siehe dort). Der Hauptthread braucht das aus
+ * demselben Grund: bei geschlossenem stdin darf ein Lauf nicht abbrechen,
+ * bevor die Antwort ueber onLocalRecordingPrivilegeRequestStatus da ist -
+ * sonst verschwindet sie spurlos, genau wie es fuer "auth" ohne
+ * sessionAuthPending() GEMESSEN wurde. NICHT GEMESSEN (kein echtes Meeting
+ * verfuegbar ohne Owner-Freigabe): ob dieselbe Rennbedingung hier tatsaechlich
+ * auftritt - die Anfrage ist aber, wie bei "auth"/"join", ein Gesuch mit
+ * asynchroner Antwort ueber genau denselben Mechanismus (SDK-Rueckruf nach
+ * einer Pumprunde), darum dieselbe Vorsichtsmassnahme.
+ */
+bool sessionPrivilegePending();
+
+/** Von RecordingListener::onLocalRecordingPrivilegeRequestStatus gerufen, sobald die Antwort da ist. */
+void sessionPrivilegeAnswered();

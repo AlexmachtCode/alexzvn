@@ -28,6 +28,11 @@
 // siehe session.h, wo dieselbe Reihenfolge aus demselben Grund steht.
 #include "meeting_service_components/meeting_audio_interface.h"
 #include "meeting_service_components/meeting_participants_ctrl_interface.h"
+// GEMESSEN, KEINE eigene Falle: meeting_participants_ctrl_interface.h bindet
+// diesen Header bereits selbst ein (Zeile 8 der SDK-Fassung), diese Zeile ist
+// darum nur die explizite, unabhaengige Absicherung fuer diese
+// Uebersetzungseinheit - derselbe Vorsichts-Stil wie bei windows.h oben.
+#include "meeting_service_components/meeting_recording_interface.h"
 
 USING_ZOOM_SDK_NAMESPACE
 
@@ -93,5 +98,26 @@ class ParticipantsListener : public IMeetingParticipantsCtrlEvent {
 #if defined(WIN32)
   void onCreateCompanionRelation(unsigned int, unsigned int) override {}
   void onRemoveCompanionRelation(unsigned int) override {}
+#endif
+};
+
+// ACHTUNG: onTranscodingStatusChanged gibt es NUR unter __linux__ - samt seinem
+// Enum. Diese drei gibt es NUR unter WIN32. Im Spike gemessen, nicht vermutet.
+class RecordingListener : public IMeetingRecordingCtrlEvent {
+ public:
+  void onRecordPrivilegeChanged(bool bCanRec) override;
+  void onLocalRecordingPrivilegeRequestStatus(RequestLocalRecordingStatus status) override;
+  void onRecordingStatus(RecordingStatus) override {}
+  void onCloudRecordingStatus(RecordingStatus) override {}
+  void onRequestCloudRecordingResponse(RequestStartCloudRecordingStatus) override {}
+  void onLocalRecordingPrivilegeRequested(IRequestLocalRecordingPrivilegeHandler*) override {}
+  void onStartCloudRecordingRequested(IRequestStartCloudRecordingHandler*) override {}
+  void onCloudRecordingStorageFull(time_t) override {}
+  void onEnableAndStartSmartRecordingRequested(IRequestEnableAndStartSmartRecordingHandler*) override {}
+  void onSmartRecordingEnableActionCallback(ISmartRecordingEnableActionHandler*) override {}
+#if defined(WIN32)
+  void onRecording2MP4Done(bool, int, const zchar_t*) override {}
+  void onRecording2MP4Processing(int) override {}
+  void onCustomizedLocalRecordingSourceNotification(ICustomizedLocalRecordingLayoutHelper*) override {}
 #endif
 };

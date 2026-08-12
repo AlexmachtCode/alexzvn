@@ -261,6 +261,25 @@ console.log('\nprotocol — Anreicherung:');
     'EOF-Beitrittstimeout und Beitritts-Endzustand-Timeout tragen verschiedene Namen - zwei verschiedene Ursachen, zwei verschiedene Namen',
   );
 
+  // Der native EOF-Wachhund fuer eine noch offene Aufnahme-Erlaubnis-Anfrage
+  // (main.cpp, sessionPrivilegePending()) - RequestLocalRecordingPrivilege()
+  // beantwortet sich ASYNCHRON ueber onLocalRecordingPrivilegeRequestStatus,
+  // dieselbe Rennbedingung wie bei auth/join, aber eine ANDERE Ursache als
+  // jede der drei oben - keine von ihnen beschreibt eine Aufnahme-Erlaubnis.
+  const pe = enrich({ ev: 'error', where: 'privilege', code: 'privilegeEofTimeout' });
+  assert(
+    (pe as { name: string }).name === 'PRIVILEGE_EOF_TIMEOUT',
+    'ein EOF-Erlaubnistimeout traegt PRIVILEGE_EOF_TIMEOUT',
+  );
+  // Gegenprobe: die Erlaubnis-EOF-Meldung traegt einen ANDEREN Namen als jede
+  // ihrer drei Geschwister - sonst sucht man den Fehler am falschen Ort.
+  assert(
+    (pe as { name: string }).name !== (at as { name: string }).name &&
+      (pe as { name: string }).name !== (t as { name: string }).name &&
+      (pe as { name: string }).name !== (je as { name: string }).name,
+    'Erlaubnis-EOF-Timeout traegt einen anderen Namen als authTimeout, joinTimeout und joinEofTimeout',
+  );
+
   const b = enrich({ ev: 'bye' });
   assert(b.ev === 'bye' && Object.keys(b).length === 1, 'was nichts braucht, wird nicht angereichert');
 }

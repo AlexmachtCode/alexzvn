@@ -25,6 +25,21 @@ MeetingListener g_meetingListener;
 // nur fuer die ERSTE Statusmeldung eines Beitritts statt fuer die Anmeldung.
 bool g_joinPending = false;
 
+// Siehe sessionPrivilegePending() in session.h: derselbe Schutz wie
+// g_authPending/g_joinPending, nur fuer RequestLocalRecordingPrivilege().
+// g_recordingListener steht bewusst HIER (nicht in callbacks.cpp wie
+// g_participantsListener) - checkPrivilege(), das ihn registriert, lebt in
+// dieser Datei, siehe Brief Task 9.
+RecordingListener g_recordingListener;
+bool g_privilegePending = false;
+
+// Merkzeichen fuer die Messstelle in sessionShutdown() (siehe dort und die
+// Doc-Kommentare in session.h): haelt fest, ob JE ein Empfaenger auf dem
+// jeweiligen Regler registriert wurde - unabhaengig davon, ob der
+// Regler-Zeiger beim Abbau noch gueltig ist.
+bool g_participantsListenerRegistered = false;
+bool g_recordingListenerRegistered = false;
+
 std::wstring toWide(const std::string& utf8) {
   const int need = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), static_cast<int>(utf8.size()), nullptr, 0);
   std::wstring w(static_cast<size_t>(need), L'\0');
@@ -296,6 +311,68 @@ void emitRoster() {
   emitRaw(out);
 }
 
+void markParticipantsListenerRegistered() {
+  g_participantsListenerRegistered = true;
+}
+
+IMeetingRecordingController* recordingCtrl() {
+  return g_meeting ? g_meeting->GetMeetingRecordingController() : nullptr;
+}
+
+void checkPrivilege() {
+  if (g_meeting == nullptr) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"privilege\",\"code\":31}");  // SDKERR_NOT_IN_MEETING
+    return;
+  }
+  IMeetingRecordingController* rec = g_meeting->GetMeetingRecordingController();
+  if (rec == nullptr) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"privilege\",\"code\":6}");  // SDKERR_SERVICE_FAILED
+    return;
+  }
+  rec->SetEvent(&g_recordingListener);
+  // Haelt fest, dass JE ein Empfaenger auf dem Aufnahme-Regler stand - siehe
+  // die Messstelle in sessionShutdown(), die genau dieses Merkzeichen braucht,
+  // um ein stilles Uebergehen der Abmeldung SICHTBAR zu machen.
+  g_recordingListenerRegistered = true;
+
+  const SDKError can = rec->CanStartRawRecording();
+  if (can == SDKERR_SUCCESS) {
+    emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true}");
+    return;
+  }
+
+  const SDKError sup = rec->IsSupportRequestLocalRecordingPrivilege();
+  if (sup != SDKERR_SUCCESS) {
+    // Meist: im Zoom-Portal ist die lokale Aufzeichnung nicht freigegeben.
+    // Das ist ein anderer Fall als "abgelehnt" und bekommt deshalb seinen
+    // eigenen Fehler statt eines privilege-Ereignisses.
+    emitRaw("{\"ev\":\"error\",\"where\":\"privilege\",\"code\":" + std::to_string(static_cast<int>(sup)) + "}");
+    return;
+  }
+
+  const SDKError req = rec->RequestLocalRecordingPrivilege();
+  if (req != SDKERR_SUCCESS) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"privilege\",\"code\":" + std::to_string(static_cast<int>(req)) + "}");
+    return;
+  }
+  // Ab hier gilt die Anfrage als offen, bis onLocalRecordingPrivilegeRequestStatus
+  // antwortet (sessionPrivilegeAnswered()) - derselbe Verschluck-Mechanismus wie
+  // bei sessionAuth()/sessionJoin(): ohne diese Markierung koennte EOF die Antwort
+  // verschlucken, bevor sie eintrifft (siehe sessionPrivilegePending() in session.h).
+  g_privilegePending = true;
+  // Steht beim Gastgeber IsAutoAllowLocalRecordingRequest() auf an, kommt die
+  // Freigabe in Millisekunden zurueck - ohne dass jemand klicken muss.
+  emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"requested\":true}");
+}
+
+bool sessionPrivilegePending() {
+  return g_privilegePending;
+}
+
+void sessionPrivilegeAnswered() {
+  g_privilegePending = false;
+}
+
 void sessionShutdown() {
   if (!g_sdkUp) return;
   if (g_meeting != nullptr) {
@@ -309,8 +386,39 @@ void sessionShutdown() {
     // ein registrierter Empfaenger wird IMMER abgemeldet, bevor der
     // zugehoerige Dienst zerstoert wird, nicht "sofern sonst nichts mehr
     // kommt".
+    //
+    // MESSSTELLE (Task 9): die SDK-Kopfdateien dokumentieren NICHT, ob
+    // GetMeetingParticipantsController()/GetMeetingRecordingController() nach
+    // einem wirklich durchlaufenen INMEETING -> Leave() noch denselben
+    // gueltigen Zeiger liefern oder bereits nullptr. Liefert einer von beiden
+    // hier nullptr, wuerde die Abmeldung STILL uebersprungen - genau der
+    // interessante Fall, in dem es am meisten zaehlt. g_..ListenerRegistered
+    // haelt fest, ob JE registriert wurde; steht das Merkzeichen, der
+    // Regler-Zeiger ist aber nullptr, wird das auf stderr gemeldet (Diagnose
+    // fuer den Bediener, keine Protokolltatsache) - das ist KEIN Fehlerfall,
+    // den diese Aufgabe erfindet, sondern eine Messstelle fuer eine Frage, die
+    // aus den Kopfdateien nicht hervorgeht. Schlaegt sie nie an, ist die Frage
+    // beantwortet (der Zeiger bleibt gueltig); schlaegt sie an, ebenso (er
+    // wird nullptr, und die Abmeldung wird bewusst uebersprungen statt auf
+    // einem nullptr SetEvent() zu rufen). NICHT GEMESSEN (kein echtes Meeting
+    // verfuegbar ohne Owner-Freigabe): welchen der beiden Faelle ein echter
+    // SDK-Lauf zeigt.
     IMeetingParticipantsController* pctrl = participantsCtrl();
-    if (pctrl != nullptr) pctrl->SetEvent(nullptr);
+    if (pctrl != nullptr) {
+      pctrl->SetEvent(nullptr);
+    } else if (g_participantsListenerRegistered) {
+      emitLog(L"Messstelle: Teilnehmer-Regler war registriert, ist beim Abbau aber "
+              L"nullptr - die SDK-Kopfdateien klaeren nicht, ob GetMeetingParticipantsController() "
+              L"nach Leave() noch gueltig bleibt. Abmeldung uebersprungen, kein Absturz.");
+    }
+    IMeetingRecordingController* rctrl = recordingCtrl();
+    if (rctrl != nullptr) {
+      rctrl->SetEvent(nullptr);
+    } else if (g_recordingListenerRegistered) {
+      emitLog(L"Messstelle: Aufnahme-Regler war registriert, ist beim Abbau aber "
+              L"nullptr - dieselbe offene Frage wie beim Teilnehmer-Regler oben, hier "
+              L"fuer GetMeetingRecordingController(). Abmeldung uebersprungen, kein Absturz.");
+    }
     g_meeting->SetEvent(nullptr);
     DestroyMeetingService(g_meeting);
     g_meeting = nullptr;

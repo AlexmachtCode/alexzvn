@@ -160,13 +160,24 @@ int main() {
         // es gibt keinen "roster"-Befehl, die Liste feuert unaufgefordert als
         // Nebenwirkung der bereits hier geschuetzten Statusfolge - niemand
         // wartet auf eine Antwort, also kann EOF nichts verschlucken. Aufgabe 9
-        // (Aufnahme-Erlaubnis) braucht die Pruefung dagegen SEHR WOHL: das ist
-        // ein echtes Gesuch mit einer asynchronen Antwort, fuer die dieselbe
-        // Rennbedingung wie bei "auth"/"join" gilt - mit ihrem EIGENEN Code,
-        // nicht dem Sammelbegriff eines anderen Befehls.
+        // (Aufnahme-Erlaubnis) braucht die Pruefung dagegen SEHR WOHL und bekommt
+        // sie hier: RequestLocalRecordingPrivilege() (checkPrivilege(), siehe
+        // session.cpp) beantwortet sich ASYNCHRON ueber
+        // onLocalRecordingPrivilegeRequestStatus - dieselbe Rennbedingung wie
+        // bei "auth"/"join", derselbe Verschluck-Mechanismus, aber mit ihrem
+        // EIGENEN Code "privilegeEofTimeout": weder "authTimeout" noch
+        // "joinEofTimeout" waeren die richtige Ursache, und ein Sammelbegriff
+        // wuerde die Suche beim naechsten Mal wieder an den falschen Ort
+        // schicken (Kernregel der Spec: eine Ursache, ein Name). NICHT GEMESSEN
+        // (kein echtes Meeting verfuegbar ohne Owner-Freigabe): ob diese
+        // Rennbedingung hier tatsaechlich auftritt und ob dieselben zehn
+        // Sekunden reichen - wiederverwendet aus demselben Grund wie bei
+        // "joinEofTimeout": alle drei sind EOF-Notbremsen fuer denselben
+        // Prozess, nicht weil die Zahl fuer "privilege" gemessen waere.
         const bool authOpen = sessionAuthPending();
         const bool joinOpen = sessionJoinPending();
-        if (!authOpen && !joinOpen) break;
+        const bool privilegeOpen = sessionPrivilegePending();
+        if (!authOpen && !joinOpen && !privilegeOpen) break;
         const ULONGLONG waitedMs = GetTickCount64() - g_stdinClosedAtMs;
         if (authOpen && waitedMs >= 10000) {
           emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":\"authTimeout\"}");
@@ -176,6 +187,11 @@ int main() {
         if (joinOpen && waitedMs >= 10000) {
           emitRaw("{\"ev\":\"error\",\"where\":\"join\",\"code\":\"joinEofTimeout\"}");
           emitLog(L"Zeitueberschreitung: EOF waehrend die erste Beitritts-Statusmeldung noch offen war.");
+          break;
+        }
+        if (privilegeOpen && waitedMs >= 10000) {
+          emitRaw("{\"ev\":\"error\",\"where\":\"privilege\",\"code\":\"privilegeEofTimeout\"}");
+          emitLog(L"Zeitueberschreitung: EOF waehrend die Antwort auf die Aufnahme-Erlaubnis noch offen war.");
           break;
         }
       }

@@ -61,8 +61,14 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
     IMeetingParticipantsController* ctrl = participantsCtrl();
     if (ctrl != nullptr) {
       ctrl->SetEvent(&g_participantsListener);
+      // Haelt fest, dass JE ein Empfaenger auf dem Teilnehmer-Regler stand -
+      // siehe die Messstelle in sessionShutdown() (session.cpp), die genau
+      // dieses Merkzeichen braucht, um ein stilles Uebergehen der Abmeldung
+      // SICHTBAR zu machen, falls der Regler-Zeiger nach Leave() nullptr ist.
+      markParticipantsListenerRegistered();
       emitRoster();
     }
+    checkPrivilege();
   }
 }
 
@@ -122,4 +128,30 @@ void ParticipantsListener::onUserNamesChanged(IList<unsigned int>* ids) {
     emitRaw("{\"ev\":\"renamed\",\"id\":" + std::to_string(ids->GetItem(i)) +
             ",\"name\":\"" + jsonEscape(n ? n : L"") + "\"}");
   }
+}
+
+void RecordingListener::onRecordPrivilegeChanged(bool bCanRec) {
+  emitRaw(std::string("{\"ev\":\"privilege\",\"canRecordRaw\":") + (bCanRec ? "true" : "false") + "}");
+}
+
+void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecordingStatus status) {
+  // Beantwortet die aus checkPrivilege() noch offene Anfrage - siehe
+  // sessionPrivilegePending()/sessionPrivilegeAnswered() in session.h. Gilt
+  // fuer ALLE drei Auspraegungen unten (Granted/Denied/Timeout): sobald diese
+  // Rueckmeldung eintrifft, ist NICHTS mehr offen, unabhaengig vom Inhalt der
+  // Antwort. Deshalb steht der Ruf hier oben, nicht in jedem einzelnen Zweig.
+  sessionPrivilegeAnswered();
+
+  if (status == RequestLocalRecording_Granted) {
+    emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true}");
+    return;
+  }
+  if (status == RequestLocalRecording_Denied) {
+    emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"denied\":true}");
+    return;
+  }
+  // Timeout ist KEIN Beweis fuer eine Ablehnung - es kam nur keine Antwort.
+  // Deshalb ausdruecklich nicht als `denied` melden.
+  emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"requested\":true}");
+  emitLog(L"Keine Antwort auf die Anfrage nach lokaler Aufnahme (Zeitueberschreitung).");
 }

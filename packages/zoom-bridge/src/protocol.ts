@@ -122,6 +122,13 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // misst hier in bridge.ts, ob je ein Endzustand erreicht wird). Aus Task 7
   // zurueckgestellt, hier nachgetragen (Task 8).
   joinEofTimeout: 'JOIN_EOF_TIMEOUT',
+  // Der native EOF-Wachhund fuer eine offene Aufnahme-Erlaubnis-Anfrage
+  // (main.cpp, sessionPrivilegePending()) - RequestLocalRecordingPrivilege()
+  // beantwortet sich ASYNCHRON ueber onLocalRecordingPrivilegeRequestStatus,
+  // dieselbe Rennbedingung wie bei auth/join, aber eine ANDERE Ursache als
+  // authTimeout/joinTimeout/joinEofTimeout - keiner der drei beschreibt eine
+  // Aufnahme-Erlaubnis-Anfrage, darum der EIGENE Name statt eines geliehenen.
+  privilegeEofTimeout: 'PRIVILEGE_EOF_TIMEOUT',
   badJson: 'BAD_JSON',
   badMeetingId: 'BAD_MEETING_ID',
   spawnFailed: 'SPAWN_FAILED',
