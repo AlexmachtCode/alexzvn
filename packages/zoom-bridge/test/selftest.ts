@@ -552,5 +552,58 @@ console.log('\nstate — reduce veraendert nichts Bestehendes:');
   assert(beforeNoOp === afterNoOp, 'left mit unbekannter ID gibt DENSELBEN Zustand zurueck');
 }
 
+import { Bridge } from '../src/bridge.ts';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const testDir = dirname(fileURLToPath(import.meta.url));
+const fake = join(testDir, 'fake-bridge.mjs');
+
+console.log('\nbridge - gegen die Attrappe:');
+{
+  const seen: string[] = [];
+  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'join' }, onEvent: (e) => seen.push(e.ev) });
+  await b.start();
+  await b.waitFor((s) => s.phase === 'inMeeting', 4000);
+  assert(b.session.phase === 'inMeeting', 'die Sitzung erreicht inMeeting');
+  assert(b.session.participants.size === 1, 'die Teilnehmerliste ist angekommen');
+  assert(b.session.canRecordRaw === true, 'die Erlaubnis ist angekommen');
+  assert(seen.includes('ready') && seen.includes('roster'), 'jedes Ereignis wurde durchgereicht');
+  const code = await b.stop();
+  assert(code === 0, 'die Attrappe endet mit 0');
+}
+
+console.log('\nbridge - der Wachhund faengt den Haenger:');
+{
+  // Ohne Wachhund saehe dieser Lauf aus wie ein Netzwerkproblem - genau der
+  // 90-Sekunden-Haenger aus dem Stage-0-Spike.
+  const errors: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'hang' },
+    joinTimeoutMs: 400,
+    onEvent: (e) => {
+      if (e.ev === 'error') errors.push(e);
+    },
+  });
+  await b.start();
+  b.send({ cmd: 'join', meetingId: '1', passcode: '', displayName: 'JM Connect' });
+  await b.waitFor((s) => s.phase === 'error', 4000);
+  assert(errors.length === 1, 'genau ein Fehler');
+  assert(errors[0]?.name === 'JOIN_TIMEOUT', 'und zwar JOIN_TIMEOUT');
+  assert((errors[0] as { lastStatus?: string }).lastStatus === 'connecting', 'der Fehler nennt den zuletzt gesehenen Status');
+  await b.stop();
+}
+
+console.log('\nbridge - kaputte Zeilen reissen nichts ab:');
+{
+  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'messy' } });
+  await b.start();
+  await b.waitFor((s) => s.phase === 'inMeeting', 4000);
+  assert(b.session.phase === 'inMeeting', 'trotz halber Zeile und Muell wird inMeeting erreicht');
+  await b.stop();
+}
+
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
