@@ -4,7 +4,7 @@
 > Leitprojekt der nächsten Phase ist die **Zoom-Einbindung (Welle 6.7)**; alles andere läuft
 > in vier Parallel-Spuren, die gezielt Zooms Beschaffungs-/Bau-Wartefenster füllen.
 
-**Status-Legende:** ⛔ blockiert/Gate · 🟢 jetzt/aktiv · 🔵 als Nächstes · ⚪ später/geparkt · ✅ erledigt
+**Status-Legende:** ⛔ blockiert/Gate · 🟢 jetzt/aktiv · 🔵 als Nächstes · 🟡 Code fertig, Abnahme offen · ⚪ später/geparkt · ✅ erledigt
 
 ---
 
@@ -148,7 +148,7 @@ zweite Fenster-bedingte Voraussetzung der Bridge.
 **Damit sind alle Stage-0-Fragen beantwortet.** Offen bleibt nur die
 **DLL-Weiterverteilungs-Lizenz** — eine kaufmännische Frage, die Stage 1–3 nicht blockiert, sondern
 erst die Auslieferung in Stage 4.
-| **1 · Bridge-Gerüst** | `packages/zoom-bridge/` (CMake + `maybe-build.mjs`) · Win32/COM-**Message-Pump** (`utilityProcess` hat keine) · Zoom-SDK-Init + Meeting-Join per JSON. | 🔵 nach Stage 0 |
+| **1 · Bridge-Gerüst** | [`packages/zoom-bridge/`](../packages/zoom-bridge/README.md) — CMake + `maybe-build.mjs`-Riegel · eigene Win32-Nachrichtenschleife · `InitSDK` mit `ENABLE_CUSTOMIZED_UI_FLAG` · Anmeldung, Meeting-Beitritt, Teilnehmerliste und Rohdaten-Erlaubnis per JSON über stdin/stdout. Zeichnet **nichts** auf. Selbsttests laufen ohne SDK, ohne Compiler, ohne Meeting. **Owner-Abnahme am 12.08.2026 gegen ein echtes Meeting durch, alle vier Läufe:** Beitritt mit Warteraum + Erlaubnis erteilt (0), Erlaubnis abgelehnt (3), erfundene Meeting-Nummer (4), Strg+C verlässt das Meeting ohne verwaisten Prozess. [Spec](superpowers/specs/2026-08-11-zoom-bridge-geruest-design.md) · [Plan](superpowers/plans/2026-08-11-zoom-bridge-stage1.md) | ✅ durch |
 | **2 · Video → NDI** | `onVideoRawDataReceived` (I420 nativ) → **mehrere NDI-Sender in EINEM Prozess** · Quelle „JM Connect – Zoom: \<Name\>" erscheint ohne Switcher-Änderung. | 🔵 |
 | **3 · Ton je Person** | `onOneWayAudioRawDataReceived` (PCM16 je `node_id`) → NDI-Audio je Teilnehmer (bzw. `onMixedAudioRawDataReceived` als Mischton). | 🔵 |
 | **4 · Integration + Release** | `ZoomParticipant` in `App.tsx` · Operator-UI (Einwahldaten eintragen, Teilnehmerliste, einzeln als Quelle laden/entladen) · Handbuch mit harten Grenzen · Lizenz-Entscheid: DLLs nachladen (transcribe-Muster) vs. separate Installer-Variante · Release **`connect-v0.2.0`**. | 🔵 |

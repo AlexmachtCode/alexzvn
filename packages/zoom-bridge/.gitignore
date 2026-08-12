@@ -1,0 +1,8 @@
+# Bauartefakte. sdk.lib/sdk.def sind an die DLL-Fassung gebunden und werden zur
+# Bauzeit erzeugt — eine mitcommittete Lib liefe bei einem SDK-Wechsel still daneben.
+# sdk.exp entsteht als Nebenprodukt von `lib /def:` neben sdk.lib und faellt in
+# dieselbe Kategorie (gemessen: Task 4, Step 9 — sonst landet sie unbeabsichtigt im Repo).
+build/
+sdk.lib
+sdk.def
+sdk.exp

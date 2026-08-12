@@ -1,0 +1,309 @@
+// zoom-bridge.exe - Stage 1.
+//
+// EIN Thread pumpt die Win32-Nachrichten (ohne sie kommt kein SDK-Rueckruf an),
+// EIN Thread liest stdin. Der Leser legt fertige Zeilen in eine Warteschlange,
+// der Hauptthread arbeitet sie zwischen zwei Pumprunden ab. Alle SDK-Aufrufe
+// passieren damit auf demselben Thread, der auch pumpt.
+#include <atomic>
+#include <deque>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <cstdio>
+#include <windows.h>
+#include "emit.h"
+#include "session.h"
+
+namespace {
+
+std::mutex g_mutex;
+std::deque<std::string> g_lines;
+// atomic statt volatile: volatile garantiert KEINE Sichtbarkeit ueber
+// Threadgrenzen, es haelt hier nur durch MSVC-x86-Praxis. atomic<bool> kostet
+// nichts und ist tatsaechlich das, was zwischen Leser- und Hauptthread gilt.
+std::atomic<bool> g_stdinClosed{false};
+// Zeitpunkt (GetTickCount64) von g_stdinClosed=true. Gebraucht, um eine noch
+// offene Anmeldung nach EOF nicht ewig abzuwarten - siehe die Pruefung in
+// main() weiter unten.
+std::atomic<ULONGLONG> g_stdinClosedAtMs{0};
+std::atomic<bool> g_quit{false};
+// Wird erst wahr, wenn InitSDK tatsaechlich geglueckt ist (sessionInit()
+// liefert true). Steuert am Ende von main() den Ausstiegsweg - siehe dort.
+std::atomic<bool> g_sdkInitialized{false};
+
+// Owner-Entscheidung, Abschluss-Sichtung Punkt A: EIGENER, von 0 UND von
+// 0xC0000005/0xC0000409 UNTERSCHIEDLICHER Rueckgabewert fuer den Fall, dass
+// sessionShutdown() false liefert (die 5-s-Leave-Pumpobergrenze lief ab,
+// waehrend der SDK-Thread nachweislich noch arbeitete - session.cpp). In
+// GENAU diesem Zustand endete der Prozess in Aufgabe 7 GEMESSEN 5/5 mit
+// 0xC0000005 - NACHGERECHNET (Schluss-Pruefung dieser Runde): das damalige
+// Protokoll enthielt ein "bye" NACH der leaveTimeout-Zeile, der Abbau war
+// beim Absturz also bereits zurueckgekehrt. Der Absturz kam auf dem
+// REGULAEREN Ausstiegsweg (return 0 -> ExitProcess -> DLL_PROCESS_DETACH),
+// NICHT nachweislich in DestroyMeetingService selbst. Darum zwei getrennte
+// Dinge: den Abbau hier zu ueberspringen ist eine begruendete
+// VORSICHTSMASSNAHME (fuer sich nicht gemessen), TerminateProcess() unten
+// ist der GEMESSENE Teil (10/10 sauber, kein Absturz). Dokumentiert in
+// README.md, Abschnitt 6 - halte den Wert dort synchron, aendert er sich
+// hier.
+constexpr UINT kLeaveNotSettledExitCode = 2;
+
+void readStdin() {
+  std::string line;
+  int c;
+  while ((c = std::fgetc(stdin)) != EOF) {
+    if (c == '\n') {
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (!line.empty()) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_lines.push_back(line);
+      }
+      line.clear();
+      continue;
+    }
+    line += static_cast<char>(c);
+  }
+  // Ein Aufrufer ist nicht verpflichtet, mit einem Zeilenende abzuschliessen -
+  // node's child_process.spawn() haengt keins an (anders als PowerShells `|`,
+  // das eins stillschweigend ergaenzt). Ohne diese Behandlung ginge der
+  // letzte Befehl bei EOF spurlos verloren: kein Fehler, keine Meldung, der
+  // Befehl war einfach nie da. Ein verschluckter Befehl ist schlimmer als ein
+  // abgewiesener - darum dieselbe Behandlung wie bei '\n', nur am Prozessende
+  // statt am Zeilenende.
+  if (!line.empty() && line.back() == '\r') line.pop_back();
+  if (!line.empty()) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_lines.push_back(line);
+  }
+  // EOF heisst quit. Stirbt die aufrufende Seite, darf keine verwaiste Bridge
+  // in einem fremden Meeting sitzen bleiben. ABER: eine noch offene Anmeldung
+  // (sessionAuthPending()) bekommt in main() trotzdem eine kurze Frist - siehe
+  // dort. Erst den Zeitstempel setzen, dann das Flag, damit ein Leser von
+  // g_stdinClosed==true den Zeitstempel bereits gueltig sieht.
+  g_stdinClosedAtMs = GetTickCount64();
+  g_stdinClosed = true;
+}
+
+bool nextLine(std::string& out) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  if (g_lines.empty()) return false;
+  out = g_lines.front();
+  g_lines.pop_front();
+  return true;
+}
+
+void handle(const std::string& line) {
+  const std::string cmd = cmdOf(line);
+  if (cmd.empty()) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"parse\",\"code\":\"badJson\"}");
+    return;
+  }
+  if (cmd == "init") {
+    if (sessionInit()) g_sdkInitialized = true;
+    return;
+  }
+  if (cmd == "quit") {
+    g_quit = true;
+    return;
+  }
+  if (cmd == "auth") {
+    const std::string jwt = fieldFromJson(line, "jwt");
+    if (jwt.empty()) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":3}");  // SDKERR_INVALID_PARAMETER
+      return;
+    }
+    sessionAuth(jwt);
+    return;
+  }
+  if (cmd == "join") {
+    sessionJoin(fieldFromJson(line, "meetingId"), fieldFromJson(line, "passcode"), fieldFromJson(line, "displayName"));
+    return;
+  }
+  if (cmd == "leave") {
+    sessionLeave();
+    return;
+  }
+  // ACHTUNG (Abschluss-Sichtung Punkt F): `cmd` kommt von AUSSEN (stdin) und
+  // wird NICHT maskiert - die einzige Stelle im nativen Teil, an der ein roher
+  // Aussenwert direkt in eine JSON-Zeile gespleisst wuerde. GEMESSEN, zwei
+  // Folgen, wenn man das taete: ein Anfuehrungszeichen im Befehlsnamen
+  // erzeugt UNGUELTIGES JSON (die Abweisung des Befehls verschluckt sich
+  // selbst - genau gegen die Rangordnung, die readStdin() aufstellt: ein
+  // verschluckter Befehl ist schlimmer als ein abgewiesener), und ein
+  // sorgfaeltig gebauter Name kann ein FREMDES Ereignis faelschen (z. B.
+  // `{"ev":"ready"}`). Der einfachere Weg ist der bessere: ein FESTES
+  // "where":"cmd" auf die Rohrleitung, der Rohname ausschliesslich per
+  // emitLog() auf stderr - dort kann eine unmaskierte Zeichenkette nichts
+  // kaputt machen, es ist Klartext fuer Menschen, kein Maschinenkanal.
+  emitRaw("{\"ev\":\"error\",\"where\":\"cmd\",\"code\":1}");  // SDKERR_NO_IMPL
+  emitLog(std::wstring(L"Unbekannter Befehl abgewiesen (Name nicht in JSON gespleisst, siehe Kommentar): ") +
+          toWide(cmd));
+}
+
+}  // namespace
+
+int main() {
+  std::thread reader(readStdin);
+  reader.detach();
+
+  std::string line;
+  while (!g_quit) {
+    pumpOnce();
+    while (!g_quit && nextLine(line)) handle(line);
+    if (g_stdinClosed) {
+      bool linesEmpty;
+      {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        linesEmpty = g_lines.empty();
+      }
+      if (linesEmpty) {
+        // ACHTUNG, GEMESSEN: eine offene Anmeldung darf EOF nicht sofort
+        // beenden lassen. sessionAuth() antwortet ASYNCHRON ueber
+        // onAuthenticationReturn - ohne diese Pruefung bricht der Prozess ab,
+        // sobald die Zeile "auth" verarbeitet ist und stdin zugeht, lange
+        // bevor die Antwort da ist. Ohne diese Zeilen hat GENAU DAS die
+        // {"ev":"auth",...}-Meldung deterministisch verschluckt: 3/3 Laeufen
+        // ueber PowerShells Pipe und 5/5 Laeufen ueber Node child_process.spawn.
+        //
+        // Zehn Sekunden Obergrenze, damit eine tote Verbindung keine verwaiste
+        // Bridge fuer immer am Leben haelt - dieselbe Sorge, die EOF ueberhaupt
+        // erst als "quit" behandelt (siehe readStdin()). Laeuft die Frist ab,
+        // OHNE dass die Antwort kam, wird das GEMELDET statt schweigend
+        // aufzugeben - ein Warten, das stumm endet, waere genau der Haenger,
+        // den dieses Vorhaben im Stage-0-Spike schon einmal 90 Sekunden lang
+        // gesucht hat (ENABLE_CUSTOMIZED_UI_FLAG, siehe session.cpp).
+        //
+        // Task 7 bringt denselben Fall fuer den Beitritt: sessionJoin() setzt
+        // seine Statusfolge ebenfalls ASYNCHRON ueber onMeetingStatusChanged ab
+        // (siehe callbacks.cpp/session.cpp, sessionJoinPending()). Derselbe
+        // Verschluck-Mechanismus, DERSELBE Code waere aber FALSCH: "joinTimeout"
+        // gehoert bereits der TypeScript-Seite (bridge.ts misst dort, ob je ein
+        // Endzustand erreicht wird - eine andere Frage als "kam ueberhaupt eine
+        // Rueckmeldung, bevor der Prozess unter EOF wegstirbt"). Zwei
+        // verschiedene Ursachen duerfen nie denselben Namen bekommen (Kernregel
+        // der Spec) - der native Fall bekommt darum den EIGENEN Code
+        // "joinEofTimeout". NICHT GEMESSEN (kein echtes Meeting verfuegbar ohne
+        // Owner-Freigabe): ob die fuer "auth" gemessenen zehn Sekunden auch fuer
+        // den Beitritt reichen - hier wiederverwendet, weil beides EOF-Notbremsen
+        // fuer denselben Prozess sind, nicht weil die Zahl fuer "join" belegt waere.
+        //
+        // Aufgabe 8 (Teilnehmerliste) braucht KEIN eigenes "wartet noch"-Flag:
+        // es gibt keinen "roster"-Befehl, die Liste feuert unaufgefordert als
+        // Nebenwirkung der bereits hier geschuetzten Statusfolge - niemand
+        // wartet auf eine Antwort, also kann EOF nichts verschlucken. Aufgabe 9
+        // (Aufnahme-Erlaubnis) braucht die Pruefung dagegen SEHR WOHL und bekommt
+        // sie hier: RequestLocalRecordingPrivilege() (checkPrivilege(), siehe
+        // session.cpp) beantwortet sich ASYNCHRON ueber
+        // onLocalRecordingPrivilegeRequestStatus - dieselbe Rennbedingung wie
+        // bei "auth"/"join", derselbe Verschluck-Mechanismus, aber mit ihrem
+        // EIGENEN Code "privilegeEofTimeout": weder "authTimeout" noch
+        // "joinEofTimeout" waeren die richtige Ursache, und ein Sammelbegriff
+        // wuerde die Suche beim naechsten Mal wieder an den falschen Ort
+        // schicken (Kernregel der Spec: eine Ursache, ein Name). NICHT GEMESSEN
+        // (kein echtes Meeting verfuegbar ohne Owner-Freigabe): ob diese
+        // Rennbedingung hier tatsaechlich auftritt und ob dieselben zehn
+        // Sekunden reichen - wiederverwendet aus demselben Grund wie bei
+        // "joinEofTimeout": alle drei sind EOF-Notbremsen fuer denselben
+        // Prozess, nicht weil die Zahl fuer "privilege" gemessen waere.
+        const bool authOpen = sessionAuthPending();
+        const bool joinOpen = sessionJoinPending();
+        const bool privilegeOpen = sessionPrivilegePending();
+        if (!authOpen && !joinOpen && !privilegeOpen) break;
+        const ULONGLONG waitedMs = GetTickCount64() - g_stdinClosedAtMs;
+        if (authOpen && waitedMs >= 10000) {
+          emitRaw("{\"ev\":\"error\",\"where\":\"auth\",\"code\":\"authTimeout\"}");
+          emitLog(L"Zeitueberschreitung: EOF waehrend die Anmelde-Antwort noch offen war.");
+          break;
+        }
+        if (joinOpen && waitedMs >= 10000) {
+          emitRaw("{\"ev\":\"error\",\"where\":\"join\",\"code\":\"joinEofTimeout\"}");
+          emitLog(L"Zeitueberschreitung: EOF waehrend die erste Beitritts-Statusmeldung noch offen war.");
+          break;
+        }
+        if (privilegeOpen && waitedMs >= 10000) {
+          emitRaw("{\"ev\":\"error\",\"where\":\"privilege\",\"code\":\"privilegeEofTimeout\"}");
+          emitLog(L"Zeitueberschreitung: EOF waehrend die Antwort auf die Aufnahme-Erlaubnis noch offen war.");
+          break;
+        }
+      }
+    }
+    // 10 ms: kurz genug, dass ein Befehl nicht spuerbar liegen bleibt, lang
+    // genug, dass die Bridge im Leerlauf keinen Kern verheizt.
+    Sleep(10);
+  }
+
+  const bool shutdownComplete = sessionShutdown();
+  if (!shutdownComplete) {
+    // Owner-Entscheidung, Abschluss-Sichtung Punkt A: sessionShutdown() hat
+    // DestroyMeetingService/DestroyAuthService/CleanUPSDK uebersprungen, weil
+    // sessionLeave() false lieferte (5-s-Pumpobergrenze abgelaufen, WAEHREND
+    // der SDK-Thread nachweislich noch arbeitete - dieselbe Lage, in der der
+    // Prozess in Aufgabe 7 GEMESSEN 5/5 mit 0xC0000005 endete. NACHGERECHNET
+    // (Schluss-Pruefung dieser Runde): das damalige Protokoll enthielt "bye"
+    // NACH der leaveTimeout-Zeile - der Abbau war also bereits zurueckgekehrt,
+    // der Absturz kam auf dem REGULAEREN Ausstiegsweg danach, nicht
+    // nachweislich in DestroyMeetingService selbst (siehe die Konstante
+    // oben). "leaveTimeout" steht bereits auf stdout UND stderr (session.cpp,
+    // vor der Rueckkehr aus sessionLeave()) - das ist die letzte verwertbare
+    // Information vor dem Prozessende.
+    //
+    // KEIN {"ev":"bye"} hier: das waere eine Luege ueber einen sauberen
+    // Abgang, den es in diesem Zweig nicht gab.
+    //
+    // Derselbe Ausstiegsweg wie unten fuer "InitSDK nie geglueckt", fuer
+    // dasselbe Problem: TerminateProcess() ueberspringt DLL_PROCESS_DETACH
+    // fuer ALLE angehaengten DLLs (dokumentiertes Verhalten) und damit den
+    // Handler in der Zoom-SDK-DLL, der sonst Zustand voraussetzt, den der
+    // uebersprungene Abbau hier NICHT hergestellt hat. EIGENER Rueckgabewert
+    // (kLeaveNotSettledExitCode, siehe oben) statt 0: ein regulaeres Ende
+    // UND dieser abgebrochene Abbau duerfen sich auf Prozessebene nicht
+    // gleich anfuehlen - genau die Unterscheidung, die main() fuer den
+    // InitSDK-Fall unten schon fuer 0 (weiterhin "alles gut") vs. den
+    // regulaeren Absturzweg trifft.
+    std::fflush(stdout);
+    TerminateProcess(GetCurrentProcess(), kLeaveNotSettledExitCode);
+    // ACHTUNG (Schluss-Pruefung, MINOR 3): TerminateProcess() ist dokumentiert
+    // ASYNCHRON und liefert ein BOOL, das absichtlich nicht geprueft wird -
+    // kehrte der Aufruf trotzdem je zurueck (oder schluege er fehl), darf die
+    // Ausfuehrung NICHT in emitRaw("bye")/return 0 unten weiterlaufen, das
+    // sind genau die beiden Dinge, die dieser Zweig verbietet. Eigener Riegel
+    // statt Rueckgabewert-Pruefung: return beendet main() hier auf jeden Fall,
+    // mit demselben Exitcode, den TerminateProcess ohnehin haette setzen
+    // sollen - schlimmstenfalls (TerminateProcess kehrt zurueck) ein
+    // regulaerer ExitProcess-Ausstieg mit kLeaveNotSettledExitCode statt ein
+    // harter Abbruch, nie ein stillschweigendes Durchfallen in den bye-Pfad.
+    return kLeaveNotSettledExitCode;
+  }
+
+  emitRaw("{\"ev\":\"bye\"}");
+
+  if (!g_sdkInitialized) {
+    // ACHTUNG: Wenn InitSDK in diesem Lauf NIE geglueckt ist (Bediener bricht
+    // vor "init" ab, stdin schliesst ohne Daten, InitSDK schlaegt fehl), endet
+    // der REGULAERE Prozessausstieg mit einem Absturz: gemessen 0xC0000409
+    // (3221226505), deterministisch - unabhaengig davon, ob ueberhaupt eine
+    // SDK-Funktion aufgerufen wurde. Ursache ist ein DLL_PROCESS_DETACH-
+    // Handler in der Zoom-SDK-DLL, der Zustand voraussetzt, den nur InitSDK
+    // anlegt; beim regulaeren Prozessende (ExitProcess) wird dieser Handler
+    // fuer jede angehaengte DLL aufgerufen und stuerzt hier ab.
+    // Gemessen wurden zwei Kandidaten, die diesen Handler umgehen sollen (fuenf
+    // Faelle je Kandidat, ueber child_process.spawn ohne angehaengtes
+    // Zeilenende - siehe task-5-report.md):
+    //   - std::quick_exit(0): laeuft am Ende trotzdem durch ExitProcess - im
+    //     Fall "stdin sofort zu, keine Daten" weiterhin exit=3221226505
+    //     (0xC0000409), der Absturz blieb bestehen.
+    //   - TerminateProcess(): ueberspringt DLL_PROCESS_DETACH fuer ALLE
+    //     angehaengten DLLs (dokumentiertes Verhalten) - alle fuenf Faelle
+    //     exit=0.
+    // Dieser Umweg betrifft NUR den Fall "InitSDK nie geglueckt". Ein Lauf MIT
+    // geglueckter Initialisierung nimmt weiterhin den regulaeren `return 0`
+    // unten - sonst wuerde ein spaeterer ECHTER Absturz kuenftig
+    // stillschweigend als Erfolg gemeldet, und das waere schlimmer als der
+    // jetzige Zustand. Die Ausgabe steht vorher vollstaendig: emitRaw()
+    // spuelt bereits selbst, das fflush() hier ist zusaetzliche Absicherung.
+    std::fflush(stdout);
+    TerminateProcess(GetCurrentProcess(), 0);
+  }
+
+  return 0;
+}
