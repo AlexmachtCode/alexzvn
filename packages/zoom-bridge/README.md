@@ -126,6 +126,17 @@ Absturz behandelt.
 | `leave` | — | Verlässt das Meeting, bleibt aber angemeldet. |
 | `quit` | — | Beendet `zoom-bridge.exe` sauber. |
 
+**Die Reihenfolge ist bindend, und der Aufrufer muss sie einhalten:** nach `auth`
+**erst das `auth`-Ereignis abwarten**, dann `join` schicken. Wer `init`, `auth`
+und `join` zusammen schickt, bekommt beim Beitritt `SDKERR_UNAUTHENTICATION (8)`
+— gemessen, deterministisch, im ersten Owner-Lauf gegen ein echtes Meeting.
+Ursache: `main()` arbeitet **alle** wartenden stdin-Zeilen in einem Rutsch ab und
+pumpt erst danach wieder Nachrichten; `SDKAuth()` beantwortet sich aber
+ausschließlich über diese Pumpe (`onAuthenticationReturn`). `Join()` läuft dann
+los, während das SDK noch unangemeldet ist. Der native Teil meldet das korrekt
+mit Namen — die Reihenfolge herzustellen ist Sache der aufrufenden Seite
+(`test/join.mjs` zeigt es vor). Dieselbe Regel gilt für `leave` vor `quit`.
+
 **Ereignisse** (`ev`, von stdout):
 
 | `ev` | Bedeutung |

@@ -52,12 +52,24 @@ try {
 // kaeme aus process.env darunter zurueck (gemessen, Nachbesserung 1, Befund
 // A). envRemove wird ERST NACH diesem Merge angewendet und entfernt darum
 // wirklich.
+// Der Rueckgabewert von onAuthenticationReturn, sobald er da ist; bis dahin
+// null. Gebraucht, weil der Sitzungszustand eine GESCHEITERTE Anmeldung nicht
+// abbildet: reduce() setzt bei code!==0 die Phase gar nicht um (state.ts, Fall
+// 'auth'), "noch keine Antwort" und "abgelehnt" saehen dort also gleich aus.
+// Rennfrei lesbar, weil waitFor() den Zustand alle 20 ms POLLT und onEvent()
+// synchron in dispatch() laeuft (bridge.ts) - beim naechsten Blick steht der
+// Wert bereits.
+let authCode = null;
+
 const bridge = new Bridge({
   env: { PATH: `${join(sdk, 'x64', 'bin')};${process.env.PATH}` },
   envRemove: ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS'],
   onEvent: (ev, s) => {
     if (ev.ev === 'status') console.log(`  Status: ${ev.status}  (${ev.explain})`);
-    else if (ev.ev === 'auth') console.log(`  Anmeldung: ${ev.result}`);
+    else if (ev.ev === 'auth') {
+      authCode = ev.code;
+      console.log(`  Anmeldung: ${ev.result}`);
+    }
     else if (ev.ev === 'ready') console.log(`  SDK: ${ev.sdkVersion}`);
     else if (ev.ev === 'roster') {
       console.log(`  Teilnehmer (${ev.list.length}):`);
@@ -94,6 +106,39 @@ process.on('SIGINT', () => {
 await bridge.start();
 bridge.send({ cmd: 'init' });
 bridge.send({ cmd: 'auth', jwt });
+
+// ERST die Anmelde-Antwort abwarten, DANN beitreten.
+//
+// GEMESSEN (erster Owner-Lauf gegen ein echtes Meeting): ohne dieses Warten
+// meldet der Beitritt SDKERR_UNAUTHENTICATION (8), und zwar deterministisch.
+// Grund liegt im nativen Teil: main() arbeitet ALLE wartenden stdin-Zeilen in
+// EINEM Rutsch ab (`while (nextLine(line)) handle(line);`), erst DANACH pumpt
+// es wieder Nachrichten. SDKAuth() beantwortet sich aber ausschliesslich UEBER
+// diese Pumpe (onAuthenticationReturn) - werden init/auth/join zusammen
+// geschickt, laeuft Join() los, waehrend das SDK noch unangemeldet ist.
+//
+// Die Reihenfolge gehoert HIERHIN und nicht in den nativen Teil: "vor dem
+// Beitritt muss die Anmeldung stehen" ist eine Beurteilung, und Beurteilungen
+// liegen in dieser Bruecke auf der TypeScript-Seite. Der native Teil hat sich
+// richtig verhalten - er hat den Fehler des SDK unverfaelscht mit Namen
+// gemeldet, statt ihn zu verstecken.
+try {
+  await bridge.waitFor((s) => authCode !== null || s.phase === 'error', 30_000);
+} catch {
+  console.log('\nKeine Antwort auf die Anmeldung — es wurde kein Meeting betreten.');
+  await finish(1);
+}
+
+if (authCode !== 0) {
+  // Eigener Rueckgabewert 1 (Einrichtungsfehler), NICHT 4: eine abgelehnte
+  // Anmeldung sagt nichts ueber die Meeting-Nummer - zwei verschiedene
+  // Ursachen duerfen nie denselben Namen bekommen.
+  console.log('\nAnmeldung nicht durchgekommen — es wurde kein Meeting betreten.');
+  console.log('Pruefen: ist die App im Zoom-Marketplace eine "Meeting SDK"-App (nicht "General"/OAuth),');
+  console.log('und stimmen Client-ID und Secret in der Datei aus ZOOM_SDK_CREDENTIALS?');
+  await finish(1);
+}
+
 bridge.send({
   cmd: 'join',
   meetingId,

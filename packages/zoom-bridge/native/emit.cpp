@@ -4,8 +4,21 @@
 
 void emitRaw(const std::string& json) {
   // fwrite statt printf: der JSON-Text darf Prozentzeichen enthalten.
-  std::fwrite(json.data(), 1, json.size(), stdout);
-  std::fputc('\n', stdout);
+  //
+  // EIN Schreibaufruf fuer Text UND Zeilenende, nicht fwrite+fputc.
+  // Das Zoom-SDK schreibt SELBST auf stdout (`getServiceHub` unmittelbar nach
+  // InitSDK - im Stage-0-Spike gemessen, in README.md Abschnitt 6 festgehalten,
+  // im ersten Owner-Lauf erneut aufgetreten). stdout ist damit nachweislich
+  // KEIN Kanal, auf dem wir allein sind. Zwei getrennte CRT-Aufrufe sind einzeln
+  // gesperrt, aber nicht GEMEINSAM: zwischen Text und '\n' passt eine fremde
+  // Ausgabe, und dann klebt Fremdtext mitten in einer Ereigniszeile - aus
+  // einer lesbaren Zeile wuerden zwei unlesbare. Ein Aufruf schliesst dieses
+  // Fenster fuer unsere eigene Zeile. Eine EIGENSTAENDIGE Fremdzeile bleibt
+  // moeglich und ist bereits versorgt: bridge.ts meldet sie als "unlesbare
+  // Zeile" und faehrt fort (nichts verschwindet still).
+  std::string line = json;
+  line += '\n';
+  std::fwrite(line.data(), 1, line.size(), stdout);
   // Ohne fflush haengt die Zeile im Puffer, bis er voll ist - die aufrufende
   // Seite saehe minutenlang nichts und hielte die Bridge fuer tot.
   std::fflush(stdout);
