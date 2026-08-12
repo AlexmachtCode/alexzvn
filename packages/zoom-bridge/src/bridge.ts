@@ -22,6 +22,17 @@ export interface BridgeOptions {
   /** Zusaetzliche Argumente - die Selbsttests reichen hier den Pfad der Attrappe durch. */
   exeArgs?: string[];
   env?: Record<string, string>;
+  /**
+   * Diese Variablen werden aus der ererbten Umgebung ENTFERNT, bevor das Kind
+   * startet - angewendet NACH dem Merge mit `process.env` in `start()`.
+   * GEMESSEN, warum das ein eigenes Feld braucht statt eines Vorschlags wie
+   * `env: this.opts.env ?? process.env`: eine Variable, die im uebergebenen
+   * `env`-Objekt bloss FEHLT, ist fuer den Merge `{ ...process.env,
+   * ...this.opts.env }` unsichtbar - `process.env` darunter liefert sie
+   * trotzdem wieder. Eine Abwesenheit kann ein Merge nicht sehen, eine Liste
+   * schon.
+   */
+  envRemove?: string[];
   /** Wie lange nach `join` auf einen ruhenden Zustand gewartet wird. */
   joinTimeoutMs?: number;
   /** Wie lange stop() auf ein von selbst endendes Kind wartet, bevor kill() faellt. Vorgabe 8000. */
@@ -81,8 +92,15 @@ export class Bridge {
   async start(): Promise<void> {
     const exe = this.opts.exePath ?? binPath();
     const args = this.opts.exeArgs ?? [];
+    // Reihenfolge ist tragend: erst der ganz normale Merge (Teil-Umgebungen wie
+    // { FAKE_SCRIPT: 'join' } bleiben dadurch mit PATH & Co. versorgt), DANACH
+    // envRemove auf das FERTIGE Objekt angewendet - eine bloss fehlende Variable
+    // in this.opts.env waere fuer den Merge selbst unsichtbar, siehe Kommentar an
+    // envRemove in BridgeOptions.
+    const env: NodeJS.ProcessEnv = { ...process.env, ...this.opts.env };
+    for (const key of this.opts.envRemove ?? []) delete env[key];
     const child = spawn(exe, args, {
-      env: { ...process.env, ...this.opts.env },
+      env,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });

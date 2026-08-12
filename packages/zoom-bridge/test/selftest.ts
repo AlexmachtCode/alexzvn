@@ -156,15 +156,20 @@ console.log('\nprotocol — Meeting-Nummer aufraeumen:');
   assert(normalizeMeetingId('830-3445-8134') === '83034458134', 'Bindestriche fallen weg');
   assert(normalizeMeetingId('83034458134') === '83034458134', 'reine Ziffern bleiben');
   let threw = false;
+  let badMeetingIdMsg = '';
   try {
     normalizeMeetingId('830abc8134');
-  } catch {
+  } catch (e) {
     threw = true;
+    badMeetingIdMsg = (e as Error).message;
   }
   // Buchstaben still zu entfernen waere die gefaehrliche Variante: aus einer falschen
   // Eingabe wuerde klaglos eine falsche Nummer, und der Beitritt scheiterte spaeter
   // aus scheinbar unerklaerlichem Grund.
   assert(threw, 'Buchstaben werden abgewiesen, nicht still entfernt');
+  // Nachbesserung 1, Befund B: die Meldung darf die fehlerhafte Eingabe nicht
+  // wiederholen - der haeufigste Vertipper ist ein Kenncode im Nummernfeld.
+  assert(!badMeetingIdMsg.includes('830abc8134'), 'die Fehlermeldung wiederholt die fehlerhafte Eingabe nicht');
 }
 
 console.log('\nprotocol — Fehlerkatalog:');
@@ -778,6 +783,41 @@ console.log('\nbridge - ein asynchroner stdin-Fehler verschwindet nicht spurlos:
   assert(stdinErrorEvent?.ev === 'error', 'ein asynchroner stdin-Fehler meldet sich als STDIN_ERROR-Ereignis');
   assert(b.session.lastError?.name === 'STDIN_ERROR', 'lastError traegt denselben Namen');
   await b.stop();
+}
+
+console.log('\nbridge - envRemove entfernt eine geerbte Variable wirklich, nicht nur scheinbar:');
+{
+  // Nachbesserung 1, Befund A: { ...process.env, ...this.opts.env } (der
+  // Merge in start()) macht eine bloss FEHLENDE Variable in this.opts.env
+  // unsichtbar - process.env darunter liefert sie wieder. Zwei sentinelhafte
+  // Variablen in der EIGENEN Prozessumgebung dieses Selbsttests: eine steht
+  // in envRemove (muss beim Kind FEHLEN), die andere nicht (muss ANKOMMEN -
+  // die Gegenprobe, dass envRemove nicht zu viel entfernt).
+  process.env.ZOOM_BRIDGE_TEST_SECRET = 'GEHEIM_DARF_NICHT_DURCH';
+  process.env.ZOOM_BRIDGE_TEST_KEEP = 'bleibt-sichtbar';
+  try {
+    const events: BridgeEvent[] = [];
+    const b = new Bridge({
+      exePath: process.execPath,
+      exeArgs: [fake],
+      env: { FAKE_SCRIPT: 'envprobe', ENV_PROBE_NAMES: 'ZOOM_BRIDGE_TEST_SECRET,ZOOM_BRIDGE_TEST_KEEP' },
+      envRemove: ['ZOOM_BRIDGE_TEST_SECRET'],
+      onEvent: (e) => events.push(e),
+    });
+    await b.start();
+    // Die Attrappe meldet 'envprobe' synchron beim Start - reduce() kennt das
+    // Ereignis nicht (Standardzweig), darum kein waitFor() auf den Zustand,
+    // sondern kurz auf das Ereignis selbst warten (gleiches Muster wie beim
+    // asynchronen stdin-Fehler oben).
+    await new Promise((r) => setTimeout(r, 200));
+    const probe = events.find((e) => e.ev === 'envprobe') as { seen?: Record<string, boolean> } | undefined;
+    assert(probe?.seen?.ZOOM_BRIDGE_TEST_SECRET === false, 'envRemove entfernt die genannte Variable wirklich - das Kind sieht sie NICHT');
+    assert(probe?.seen?.ZOOM_BRIDGE_TEST_KEEP === true, 'Gegenprobe: eine NICHT genannte Variable kommt weiterhin an');
+    await b.stop();
+  } finally {
+    delete process.env.ZOOM_BRIDGE_TEST_SECRET;
+    delete process.env.ZOOM_BRIDGE_TEST_KEEP;
+  }
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

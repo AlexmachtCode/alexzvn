@@ -36,6 +36,17 @@ const scripts = {
   // herunterfaehrt - der Fall, den stop()s Nachbrenner-Zeitgeber abfangen
   // muss (Nachbesserung 1 zu Task 10, Befund A: der Zeitgeber wurde nie
   // geloescht/genutzt und ein gescheitertes kill() verschwand spurlos).
+  // Meldet, ob bestimmte Variablen in der EIGENEN Prozessumgebung sichtbar
+  // sind - ENV_PROBE_NAMES (kommagetrennt) legt fest, welche. Prueft damit
+  // envRemove in bridge.ts von der EMPFANGENDEN Seite aus: kein SDK noetig,
+  // nur die Attrappe selbst als eigener Kindprozess (siehe Nachbesserung 1,
+  // Befund A).
+  envprobe: () => {
+    const names = (process.env.ENV_PROBE_NAMES ?? '').split(',').filter(Boolean);
+    const seen = {};
+    for (const n of names) seen[n] = Object.prototype.hasOwnProperty.call(process.env, n);
+    say({ ev: 'envprobe', seen });
+  },
   stuck: () => {
     say({ ev: 'ready', sdkVersion: '7.1.5 (attrappe)' });
     say({ ev: 'auth', code: 0 });

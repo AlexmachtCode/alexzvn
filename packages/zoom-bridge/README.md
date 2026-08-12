@@ -81,12 +81,19 @@ innerhalb des Repos, findet `gitleaks` in CI sie garantiert nicht, weil sie dort
 gar nicht erst committet werden kann.
 
 `test/join.mjs` baut daraus im **eigenen** Node-Prozess das JWT (`buildJwt()`) und
-löscht `ZOOM_SDK_CLIENT_ID`, `ZOOM_SDK_CLIENT_SECRET` und `ZOOM_SDK_CREDENTIALS`
-ausdrücklich aus der Umgebung, bevor sie an den Kindprozess weitergereicht wird
-(`spawn(exe, { env: childEnv })` in `src/bridge.ts`). `zoom-bridge.exe` bekommt
-also nie Client-ID oder Secret zu sehen — nur das fertige JWT, per `auth`-Befehl
-über stdin. Meeting-Nummer und Kenncode kommen ausschließlich zur Laufzeit aus
-der Umgebung, nie aus dem Quelltext.
+übergibt `envRemove: ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS']`
+an `Bridge` — ein eigenes Feld in `BridgeOptions` (`src/bridge.ts`), **kein**
+bloßes `delete` auf einem selbst gebauten Umgebungsobjekt: `start()` mischt die
+übergebene Umgebung ohnehin ein zweites Mal mit `process.env`
+(`{ ...process.env, ...this.opts.env }`) — eine dort bloß **fehlende** Variable
+wäre für diesen Merge unsichtbar und käme aus `process.env` darunter zurück.
+`envRemove` wird darum **nach** diesem Merge auf das fertige Objekt angewendet
+und entfernt die genannten Schlüssel wirklich, bevor `spawn()` läuft. `zoom-bridge.exe`
+bekommt also nie Client-ID oder Secret zu sehen — nur das fertige JWT, per
+`auth`-Befehl über stdin. Meeting-Nummer und Kenncode kommen ausschließlich zur
+Laufzeit aus der Umgebung, nie aus dem Quelltext, und `normalizeMeetingId()`
+(`src/protocol.ts`) echot bei einer ungültigen Nummer nie den eingegebenen Wert
+— der häufigste Vertipper ist, den Kenncode ins Nummernfeld zu schreiben.
 
 ## 6 · Das Protokoll
 
@@ -140,13 +147,14 @@ Stage-0-Spike waren das gemessene 90 Sekunden ohne jede weitere Meldung, bevor
 der Wachhund griff. Sieht aus wie ein Netzwerkproblem, ist keins.
 
 **`#if defined(WIN32)`-Wächter in den Rückruf-Schnittstellen.** Die
-SDK-Callback-Klassen (`native/callbacks.h`) sind rein virtuell, plattformabhängig
-und rund 30 Methoden groß — drei davon stehen hinter `#if defined(WIN32)`. Ein
-`grep virtual` über den Kopfsatz zeigt alle Methoden und **verschluckt die
-Wächter**: fehlt eine WIN32-Methode, bleibt die Klasse abstrakt und übersetzt
-nicht; steht eine zu viel drin (die es unter Windows nicht gibt), gibt es einen
-unverständlichen `C2061` in einer fremden Zeile. Im Spike hat genau das einen
-Übersetzungsfehler gekostet.
+SDK-Callback-Klassen (`native/callbacks.h`) sind rein virtuell und
+plattformabhängig: `ParticipantsListener` hat 25 Methoden (2 davon hinter
+`#if defined(WIN32)`), `RecordingListener` hat 13 (3 davon). Ein `grep virtual`
+über den Kopfsatz zeigt alle Methoden und **verschluckt die Wächter**: fehlt
+eine WIN32-Methode, bleibt die Klasse abstrakt und übersetzt nicht; steht eine
+zu viel drin (die es unter Windows nicht gibt), gibt es einen unverständlichen
+`C2061` in einer fremden Zeile. Im Spike hat genau das einen Übersetzungsfehler
+gekostet.
 
 ## 8 · Was Stage 1 nicht tut
 

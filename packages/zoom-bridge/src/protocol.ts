@@ -245,7 +245,13 @@ export function normalizeMeetingId(raw: string): string {
     // Buchstaben still zu entfernen waere gefaehrlich: aus einer falschen Eingabe
     // wuerde klaglos eine falsche Nummer, und der Beitritt scheiterte spaeter aus
     // scheinbar unerklaerlichem Grund.
-    throw new Error(`Meeting-Nummer enthaelt Zeichen, die keine Ziffern sind: "${trimmed}"`);
+    //
+    // Die Meldung nennt NIE den Wert selbst (Nachbesserung 1, Befund B): der
+    // haeufigste Vertipper ist, den KENNCODE ins Nummernfeld zu schreiben -
+    // ein Echo der Roheingabe wuerde ihn dann auf den Schirm bringen. Wer die
+    // Nummer eingegeben hat, kann in seine eigene Umgebung/Eingabe sehen; er
+    // braucht das Echo nicht.
+    throw new Error('Meeting-Nummer enthaelt Zeichen, die keine Ziffern sind. Erwartet: nur Ziffern (Leerzeichen/Bindestriche werden entfernt).');
   }
   return stripped;
 }

@@ -4,7 +4,8 @@
 //
 // ZUGANGSDATEN: kommen aus der Umgebung oder aus einer Datei AUSSERHALB des
 // Repos. Meeting-Nummer und Kenncode gehoeren nirgends ins Repo, auch nicht als
-// Beispiel - deshalb stehen unten nur Platzhalter, keine Ziffern.
+// Beispiel - deshalb stehen unten nur Platzhalter, keine Ziffern. Der Kenncode
+// wird nie gedruckt.
 //
 //   $env:ZOOM_SDK_DIR          = "<Pfad zum entpackten Zoom-Meeting-SDK>"
 //   $env:ZOOM_SDK_CREDENTIALS  = "<Pfad ausserhalb des Repos>\zoom-credentials.json"
@@ -29,7 +30,10 @@ let meetingId;
 try {
   meetingId = normalizeMeetingId(process.env.ZOOM_MEETING_ID);
 } catch (e) {
-  fail(String(e.message));
+  // normalizeMeetingId() selbst nennt nie den Wert (siehe protocol.ts) - hier
+  // nur der Variablenname davor, damit klar ist, WELCHE Umgebungsvariable
+  // gemeint ist, ohne die fehlerhafte Eingabe zu wiederholen.
+  fail(`ZOOM_MEETING_ID: ${e.message}`);
 }
 
 let jwt;
@@ -41,13 +45,16 @@ try {
 
 // Die Zugangsdaten aus der Umgebung des Kindprozesses NEHMEN: die Bridge sieht
 // ausschliesslich das fertige JWT. Gleiche Setzung wie im Stage-0-Spike.
-const childEnv = { ...process.env, PATH: `${join(sdk, 'x64', 'bin')};${process.env.PATH}` };
-delete childEnv.ZOOM_SDK_CLIENT_ID;
-delete childEnv.ZOOM_SDK_CLIENT_SECRET;
-delete childEnv.ZOOM_SDK_CREDENTIALS;
-
+//
+// envRemove statt delete auf einem selbst gebauten Objekt: bridge.ts mischt
+// opts.env NOCH EINMAL mit process.env ({ ...process.env, ...opts.env }) -
+// eine hier bloss FEHLENDE Variable waere fuer diesen Merge unsichtbar und
+// kaeme aus process.env darunter zurueck (gemessen, Nachbesserung 1, Befund
+// A). envRemove wird ERST NACH diesem Merge angewendet und entfernt darum
+// wirklich.
 const bridge = new Bridge({
-  env: childEnv,
+  env: { PATH: `${join(sdk, 'x64', 'bin')};${process.env.PATH}` },
+  envRemove: ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS'],
   onEvent: (ev, s) => {
     if (ev.ev === 'status') console.log(`  Status: ${ev.status}  (${ev.explain})`);
     else if (ev.ev === 'auth') console.log(`  Anmeldung: ${ev.result}`);
