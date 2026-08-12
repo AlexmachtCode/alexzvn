@@ -2430,10 +2430,17 @@ Erwartet: `{"ev":"privilege","canRecordRaw":false,"requested":true}`, und im Zoo
 Erwartet: `{"ev":"privilege","canRecordRaw":true}`.
 
 **Und die Gegenprobe, dass wirklich nichts aufgezeichnet wird:**
-```powershell
-Select-String -Path packages/zoom-bridge/native/*.cpp,packages/zoom-bridge/native/*.h -SimpleMatch "StartRawRecording"
+```bash
+grep -rnw StartRawRecording packages/zoom-bridge/native/
 ```
-Erwartet: **keine Treffer.**
+Erwartet: **kein Aufruf** — höchstens der verneinende Kommentar in `session.h`.
+
+> ⚑ **BERICHTIGT, GEMESSEN:** hier stand `Select-String … -SimpleMatch "StartRawRecording"`.
+> Das ist eine Teilzeichenketten-Suche und schlägt deshalb auf `CanStartRawRecording()` an —
+> der **Abfrage**, ob aufgezeichnet werden dürfte, die `checkPrivilege()` zu Recht benutzt.
+> Zwei Umsetzer sind unabhängig voneinander darüber gestolpert und mussten den Fehlalarm
+> von Hand entkräften. Ein Abnahmekriterium, das bei korrektem Code anschlägt, wird beim
+> dritten Mal weggeklickt — die Wortgrenze (`-w`) trennt Abfrage von Aufnahme.
 
 - [ ] **Step 5: Committen**
 
@@ -3012,7 +3019,7 @@ muss Strg+C trotzdem greifen."
 5. Derselbe Lauf ohne Freigabe endet mit `3`, nicht mit `0` und nicht mit einem Absturz.
 6. Ein Lauf gegen eine falsche Meeting-Nummer endet mit `4` und einer benannten Ursache.
 7. Strg+C: die Bridge verschwindet aus dem Meeting und hinterlässt keinen Prozess.
-8. `Select-String -Path packages/zoom-bridge/native/*.cpp -SimpleMatch "StartRawRecording"` findet **nichts**.
+8. `grep -rnw StartRawRecording packages/zoom-bridge/native/` findet **keinen Aufruf** (höchstens den verneinenden Kommentar in `session.h`). ⚑ Die Wortgrenze `-w` ist nicht kosmetisch: eine Teilzeichenketten-Suche schlägt auf `CanStartRawRecording()` an — die erlaubte **Abfrage** — und meldet damit bei völlig korrektem Code einen Fehlalarm.
 9. `git status --short` zeigt keine Bauartefakte (`build/`, `sdk.lib`, `sdk.def`) und **nicht** `apps/ndi-screen-capture/resources/bin/win/jm_ndi.node`.
 
 Punkte 4–7 sind **Owner-Schritte**: sie brauchen ein echtes Meeting und eine Freigabe von Hand.
