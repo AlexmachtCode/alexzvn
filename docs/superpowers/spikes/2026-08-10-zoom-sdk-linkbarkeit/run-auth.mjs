@@ -3,8 +3,8 @@
 // durch die Umgebung des Kindprozesses — es erscheint NICHT auf der Konsole, nicht in
 // der Prozessliste und in keinem Protokoll.
 //
-//   $env:ZOOM_SDK_DIR      = "…\SDKs\zoom-c-sharp-wrapper-7.1.5.43953"
-//   $env:ZOOM_SDK_CREDENTIALS = "…\zoom-credentials.json"   # ausserhalb des Repos!
+//   $env:ZOOM_SDK_DIR      = "<Pfad zum entpackten Zoom-Meeting-SDK>"
+//   $env:ZOOM_SDK_CREDENTIALS = "<Pfad ausserhalb des Repos zur zoom-credentials.json>"   # ausserhalb des Repos!
 //   node docs/superpowers/spikes/2026-08-10-zoom-sdk-linkbarkeit/run-auth.mjs
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
