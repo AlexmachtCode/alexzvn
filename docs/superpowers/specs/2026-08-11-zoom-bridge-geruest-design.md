@@ -133,7 +133,7 @@ type Command =
 ```
 
 `meetingId` ist eine reine Ziffernfolge ohne Leerzeichen. Die Bridge nimmt sie so, wie sie kommt;
-das Aufräumen der Eingabe („830 3445 8134" → `83034458134`) macht `bridge.ts` und ist selbstgetestet.
+das Aufräumen der Eingabe („111 2222 3333" → `11122223333`) macht `bridge.ts` und ist selbstgetestet.
 
 ### 5.2 Ereignisse (Bridge → stdout)
 
@@ -343,7 +343,7 @@ ohne Meeting, auch auf Linux:
   `reconnecting`, `disconnecting`, `idle` und `other` **nicht ruhend** und für `inMeeting`,
   `waitingRoom`, `waitingForHost`, `failed`, `ended` **ruhend**. `connecting` darf den Wachhund
   nicht stillstellen — das ist der Spike-Hänger als Testfall.
-- **Meeting-Nummer aufräumen:** `"830 3445 8134"`, `"830-3445-8134"` und `"83034458134"` ergeben
+- **Meeting-Nummer aufräumen:** `"111 2222 3333"`, `"111-2222-3333"` und `"11122223333"` ergeben
   dieselbe Ziffernfolge; Buchstaben werden abgewiesen statt still entfernt.
 - **Parser:** wohlgeformte Zeilen · **halbe Zeilen** (die Puffergrenze fällt mitten ins JSON) ·
   mehrere Zeilen in einem Puffer · unbekannte Ereignisnamen · kaputtes JSON. **Eine kaputte Zeile

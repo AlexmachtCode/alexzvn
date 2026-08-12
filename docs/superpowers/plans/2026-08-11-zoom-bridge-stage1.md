@@ -351,9 +351,9 @@ import {
 
 console.log('\nprotocol — Meeting-Nummer aufraeumen:');
 {
-  assert(normalizeMeetingId('830 3445 8134') === '83034458134', 'Leerzeichen fallen weg');
-  assert(normalizeMeetingId('830-3445-8134') === '83034458134', 'Bindestriche fallen weg');
-  assert(normalizeMeetingId('83034458134') === '83034458134', 'reine Ziffern bleiben');
+  assert(normalizeMeetingId('111 2222 3333') === '11122223333', 'Leerzeichen fallen weg');
+  assert(normalizeMeetingId('111-2222-3333') === '11122223333', 'Bindestriche fallen weg');
+  assert(normalizeMeetingId('11122223333') === '11122223333', 'reine Ziffern bleiben');
   let threw = false;
   try {
     normalizeMeetingId('830abc8134');
@@ -451,7 +451,7 @@ console.log('\nprotocol — Anreicherung:');
 console.log('\nprotocol — Befehle schreiben:');
 {
   assert(serializeCommand({ cmd: 'init' }) === '{"cmd":"init"}\n', 'init endet mit genau einem Zeilenumbruch');
-  const j = serializeCommand({ cmd: 'join', meetingId: '83034458134', passcode: 'a"b', displayName: 'JM Connect' });
+  const j = serializeCommand({ cmd: 'join', meetingId: '11122223333', passcode: 'a"b', displayName: 'JM Connect' });
   assert(j.endsWith('\n') && j.split('\n').length === 2, 'auch join ist genau eine Zeile');
   assert(JSON.parse(j).passcode === 'a"b', 'Anfuehrungszeichen im Kenncode werden maskiert');
 }
