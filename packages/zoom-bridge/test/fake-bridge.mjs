@@ -14,7 +14,11 @@ const scripts = {
     say({ ev: 'status', status: 'connecting', raw: 1, code: 0 });
     say({ ev: 'status', status: 'inMeeting', raw: 3, code: 0 });
     say({ ev: 'roster', list: [{ id: 1, name: 'Alex', persistentId: 'p1', self: false, videoOn: true, hasCamera: true, inWaitingRoom: false, role: 'host' }] });
-    say({ ev: 'privilege', canRecordRaw: true });
+    // "source" ist PFLICHT (siehe protocol.ts, WireEvent) - der echte native
+    // Teil vergibt es an ALLEN Stellen. Eine Attrappe, die etwas sendet, was
+    // das Original nicht senden kann, darf keinen Verbraucher scheitern
+    // lassen, der sich auf den Vertrag verlaesst (Abschluss-Sichtung, H1).
+    say({ ev: 'privilege', canRecordRaw: true, source: 'requestAnswer' });
   },
   // DER Spike-Fall: connecting kommt sofort und dann NICHTS mehr.
   hang: () => {

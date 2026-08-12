@@ -31,6 +31,15 @@ std::atomic<bool> g_quit{false};
 // liefert true). Steuert am Ende von main() den Ausstiegsweg - siehe dort.
 std::atomic<bool> g_sdkInitialized{false};
 
+// Owner-Entscheidung, Abschluss-Sichtung Punkt A: EIGENER, von 0 UND von
+// 0xC0000005/0xC0000409 UNTERSCHIEDLICHER Rueckgabewert fuer den Fall, dass
+// sessionShutdown() false liefert (die 5-s-Leave-Pumpobergrenze lief ab,
+// waehrend der SDK-Thread nachweislich noch arbeitete - session.cpp,
+// GEMESSEN 5/5 mit 0xC0000005, wenn man in diesem Zustand trotzdem
+// DestroyMeetingService riefe, Aufgabe 7). Dokumentiert in README.md,
+// Abschnitt 6 - halte den Wert dort synchron, aendert er sich hier.
+constexpr UINT kLeaveNotSettledExitCode = 2;
+
 void readStdin() {
   std::string line;
   int c;
@@ -106,7 +115,21 @@ void handle(const std::string& line) {
     sessionLeave();
     return;
   }
-  emitRaw("{\"ev\":\"error\",\"where\":\"" + cmd + "\",\"code\":1}");  // SDKERR_NO_IMPL
+  // ACHTUNG (Abschluss-Sichtung Punkt F): `cmd` kommt von AUSSEN (stdin) und
+  // wird NICHT maskiert - die einzige Stelle im nativen Teil, an der ein roher
+  // Aussenwert direkt in eine JSON-Zeile gespleisst wuerde. GEMESSEN, zwei
+  // Folgen, wenn man das taete: ein Anfuehrungszeichen im Befehlsnamen
+  // erzeugt UNGUELTIGES JSON (die Abweisung des Befehls verschluckt sich
+  // selbst - genau gegen die Rangordnung, die readStdin() aufstellt: ein
+  // verschluckter Befehl ist schlimmer als ein abgewiesener), und ein
+  // sorgfaeltig gebauter Name kann ein FREMDES Ereignis faelschen (z. B.
+  // `{"ev":"ready"}`). Der einfachere Weg ist der bessere: ein FESTES
+  // "where":"cmd" auf die Rohrleitung, der Rohname ausschliesslich per
+  // emitLog() auf stderr - dort kann eine unmaskierte Zeichenkette nichts
+  // kaputt machen, es ist Klartext fuer Menschen, kein Maschinenkanal.
+  emitRaw("{\"ev\":\"error\",\"where\":\"cmd\",\"code\":1}");  // SDKERR_NO_IMPL
+  emitLog(std::wstring(L"Unbekannter Befehl abgewiesen (Name nicht in JSON gespleisst, siehe Kommentar): ") +
+          toWide(cmd));
 }
 
 }  // namespace
@@ -201,7 +224,34 @@ int main() {
     Sleep(10);
   }
 
-  sessionShutdown();
+  const bool shutdownComplete = sessionShutdown();
+  if (!shutdownComplete) {
+    // Owner-Entscheidung, Abschluss-Sichtung Punkt A: sessionShutdown() hat
+    // DestroyMeetingService/DestroyAuthService/CleanUPSDK uebersprungen, weil
+    // sessionLeave() false lieferte (5-s-Pumpobergrenze abgelaufen, WAEHREND
+    // der SDK-Thread nachweislich noch arbeitete - dieselbe Lage, die in
+    // Aufgabe 7 DestroyMeetingService mit 0xC0000005 hat abstuerzen lassen,
+    // 5/5 GEMESSEN). "leaveTimeout" steht bereits auf stdout UND stderr
+    // (session.cpp, vor der Rueckkehr aus sessionLeave()) - das ist die
+    // letzte verwertbare Information vor dem Prozessende.
+    //
+    // KEIN {"ev":"bye"} hier: das waere eine Luege ueber einen sauberen
+    // Abgang, den es in diesem Zweig nicht gab.
+    //
+    // Derselbe Ausstiegsweg wie unten fuer "InitSDK nie geglueckt", fuer
+    // dasselbe Problem: TerminateProcess() ueberspringt DLL_PROCESS_DETACH
+    // fuer ALLE angehaengten DLLs (dokumentiertes Verhalten) und damit den
+    // Handler in der Zoom-SDK-DLL, der sonst Zustand voraussetzt, den der
+    // uebersprungene Abbau hier NICHT hergestellt hat. EIGENER Rueckgabewert
+    // (kLeaveNotSettledExitCode, siehe oben) statt 0: ein regulaeres Ende
+    // UND dieser abgebrochene Abbau duerfen sich auf Prozessebene nicht
+    // gleich anfuehlen - genau die Unterscheidung, die main() fuer den
+    // InitSDK-Fall unten schon fuer 0 (weiterhin "alles gut") vs. den
+    // regulaeren Absturzweg trifft.
+    std::fflush(stdout);
+    TerminateProcess(GetCurrentProcess(), kLeaveNotSettledExitCode);
+  }
+
   emitRaw("{\"ev\":\"bye\"}");
 
   if (!g_sdkInitialized) {

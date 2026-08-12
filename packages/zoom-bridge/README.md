@@ -71,6 +71,12 @@ Sekunden wieder (Vorgabe 60, Strg+C beendet früher). Optional: `ZOOM_DISPLAY_NA
 Ein geglückter Beitritt ohne Rohdaten-Erlaubnis wird bewusst **nicht** mit `0`
 quittiert — das wäre genau die Sorte Lüge, die dieses Werkzeug aufdecken soll.
 
+**Ungeprüft gegen ein echtes Meeting:** der gesamte Pfad ab dem Beitritt — Teilnehmerliste,
+Rollennamen, Weggang, Rohdaten-Aufnahme-Erlaubnis — ist bis heute ausschließlich gegen die
+Attrappe (`test/fake-bridge.mjs`) geprüft. Die Punkte 4–7 der Abnahme in
+[`docs/superpowers/specs/2026-08-11-zoom-bridge-geruest-design.md`](../../docs/superpowers/specs/2026-08-11-zoom-bridge-geruest-design.md)
+(§12) sind Owner-Schritte, die noch ausstehen.
+
 ## 5 · Zugangsdaten
 
 Client-ID und Client-Secret gehören in eine JSON-Datei **außerhalb des Repos**
@@ -133,11 +139,21 @@ Absturz behandelt.
 | `renamed` | Ein Teilnehmer (`id`) hat einen neuen Namen (`name`). |
 | `privilege` | Stand der Rohdaten-Erlaubnis (`canRecordRaw`, `source`, optional `requested`/`denied`/`timedOut`). |
 | `error` | Eine benannte Ursache (`where`, `code`, angereichert zu `name`) — nie ein stiller Abbruch. |
-| `bye` | `zoom-bridge.exe` beendet sich. |
+| `bye` | `zoom-bridge.exe` beendet sich sauber (siehe Ausnahme unten). |
 
-Die Namen (`AUTHRET_…`, `SDKERR_…`, eigene Namen wie `JOIN_TIMEOUT`) entstehen
+Die Namen (`AUTHRET_…`, `SDKERR_…`, eigene Namen wie `JOIN_TIMEOUT`, `LEAVE_TIMEOUT`) entstehen
 NICHT nativ, sondern ausschließlich in `src/protocol.ts` (`enrich()`) — auf der
-Leitung stehen nur Zahlen bzw. eigene Schlüssel wie `joinTimeout`.
+Leitung stehen nur Zahlen bzw. eigene Schlüssel wie `joinTimeout`, `leaveTimeout`.
+
+**Rückgabewert von `zoom-bridge.exe` selbst** (der Prozess-Exitcode, nicht der Inhalt einer
+JSON-Zeile): normalerweise `0`, auch bei gemeldeten Fehlern — die stehen auf stdout, nicht im
+Rückgabewert. **Eine Ausnahme:** läuft `sessionLeave()`s 5-Sekunden-Pumpobergrenze ab, während der
+SDK-Thread nachweislich noch abwickelt (`leaveTimeout` auf stdout, `lastStatus` nennt den zuletzt
+gesehenen Zustand), überspringt der Abbau `DestroyMeetingService`/`DestroyAuthService`/`CleanUPSDK`
+— ein Aufruf während dieses Zustands hat den Prozess GEMESSEN mit `0xC0000005` beendet (Aufgabe 7,
+5/5). Der Prozess endet dann über `TerminateProcess` mit dem eigenen Rückgabewert **`2`**, **ohne**
+`{"ev":"bye"}` — das wäre eine Lüge über einen sauberen Abgang, den es in diesem Fall nicht gab.
+`leaveTimeout` ist dann die letzte verwertbare Information vor dem Prozessende.
 
 ## 7 · Zwei Fallen, die Zeit kosten
 

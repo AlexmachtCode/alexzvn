@@ -89,7 +89,22 @@ export class Bridge {
     return this.state;
   }
 
+  /**
+   * ACHTUNG (Abschluss-Sichtung, Punkt H2): Wiedereintrittsschutz, derselbe
+   * Grundsatz wie stopPromise in stop() (Nachbesserung 2 zu Task 10), nur
+   * fuer den START statt fuer den ABBAU. Ohne ihn ueberschreibt ein zweiter
+   * start()-Aufruf this.child kommentarlos: das ERSTE Kind verliert seine
+   * einzige Referenz, stop() erreicht es danach nie mehr - es sitzt im
+   * Meeting, bis der Wirtsprozess stirbt. Die Pruefung steht bewusst GANZ
+   * OBEN, VOR jedem await: `this.child = child;` unten passiert SYNCHRON,
+   * bevor diese Funktion ihren ersten await erreicht (derselbe Grund, aus
+   * dem stopPromise in stop() zwei GLEICHZEITIGE Aufrufe faengt) - ein throw
+   * hier fasst darum auch zwei GLEICHZEITIGE start()-Aufrufe, nicht nur
+   * sequentielle.
+   */
   async start(): Promise<void> {
+    if (this.child) throw new Error('Bridge laeuft bereits - start() darf nicht zweimal gerufen werden.');
+
     const exe = this.opts.exePath ?? binPath();
     const args = this.opts.exeArgs ?? [];
     // Reihenfolge ist tragend: erst der ganz normale Merge (Teil-Umgebungen wie
@@ -132,7 +147,33 @@ export class Bridge {
     child.stdin.on('error', (e) => this.reportStdinError(e));
 
     this.exitCode = new Promise<number>((resolve) => {
-      child.on('exit', (code) => resolve(code ?? 0));
+      child.on('exit', (code) => {
+        const exitCode = code ?? 0;
+        // ACHTUNG (Abschluss-Sichtung Punkt E): NUR melden, wenn KEIN stop()
+        // in Arbeit ist - this.stopPromise wird SYNCHRON gesetzt, bevor
+        // stop() ueberhaupt seinen ersten await erreicht (siehe stop()),
+        // damit ist dieser 'exit'-Rueckruf (der immer asynchron, also in
+        // einem SPAETEREN Tick feuert) niemals vor dieser Zuweisung dran.
+        // Endet das Kind waehrend eines LAUFENDEN stop() (regulaeres "quit"
+        // wurde beantwortet, oder der Nachbrenner hat kill() gerufen), ist
+        // das der REGULAERE Abgang - ihn zu melden waere die Kardinalsuende
+        // dieses Vorhabens umgekehrt: der Normalweg wuerde ein Dauerfehler.
+        // Stirbt das Kind dagegen OHNE dass stop() lief (Absturz - Punkt A
+        // zeigt, dass das real ist - oder von aussen abgeschossen), blieb
+        // Session.phase vorher fuer immer auf 'inMeeting' stehen: kein
+        // Ereignis, kein dispatch(), die Bruecke wurde einfach still.
+        if (this.stopPromise === null) {
+          this.dispatch(
+            enrich({
+              ev: 'error',
+              where: 'exit',
+              code: 'exited',
+              detail: `Kindprozess unerwartet beendet, exitCode=${exitCode}`,
+            } as WireEvent),
+          );
+        }
+        resolve(exitCode);
+      });
     });
 
     // DAUERHAFT angemeldet - nicht nur waehrend des Starts. Node kennt genau

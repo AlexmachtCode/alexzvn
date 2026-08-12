@@ -152,13 +152,18 @@ console.log('readCredentials — Umgebung und Datei:');
 
 console.log('\nprotocol — Meeting-Nummer aufraeumen:');
 {
-  assert(normalizeMeetingId('830 3445 8134') === '83034458134', 'Leerzeichen fallen weg');
-  assert(normalizeMeetingId('830-3445-8134') === '83034458134', 'Bindestriche fallen weg');
-  assert(normalizeMeetingId('83034458134') === '83034458134', 'reine Ziffern bleiben');
+  // ACHTUNG: FREI ERFUNDENE Nummer, KEINE echte Meeting-Nummer (Abschluss-
+  // Sichtung Punkt I) - eine fruehere Fassung benutzte woertlich die Nummer
+  // des Stage-0-Spikes. Der Wert ist fuer diese Zusicherungen gleichgueltig
+  // (es geht nur um Leerzeichen/Bindestriche vs. reine Ziffern) - bitte NICHT
+  // "realistischer" machen.
+  assert(normalizeMeetingId('111 2222 3333') === '11122223333', 'Leerzeichen fallen weg');
+  assert(normalizeMeetingId('111-2222-3333') === '11122223333', 'Bindestriche fallen weg');
+  assert(normalizeMeetingId('11122223333') === '11122223333', 'reine Ziffern bleiben');
   let threw = false;
   let badMeetingIdMsg = '';
   try {
-    normalizeMeetingId('830abc8134');
+    normalizeMeetingId('111abc3333');
   } catch (e) {
     threw = true;
     badMeetingIdMsg = (e as Error).message;
@@ -169,7 +174,7 @@ console.log('\nprotocol — Meeting-Nummer aufraeumen:');
   assert(threw, 'Buchstaben werden abgewiesen, nicht still entfernt');
   // Nachbesserung 1, Befund B: die Meldung darf die fehlerhafte Eingabe nicht
   // wiederholen - der haeufigste Vertipper ist ein Kenncode im Nummernfeld.
-  assert(!badMeetingIdMsg.includes('830abc8134'), 'die Fehlermeldung wiederholt die fehlerhafte Eingabe nicht');
+  assert(!badMeetingIdMsg.includes('111abc3333'), 'die Fehlermeldung wiederholt die fehlerhafte Eingabe nicht');
 }
 
 console.log('\nprotocol — Fehlerkatalog:');
@@ -285,23 +290,44 @@ console.log('\nprotocol — Anreicherung:');
     'Erlaubnis-EOF-Timeout traegt einen anderen Namen als authTimeout, joinTimeout und joinEofTimeout',
   );
 
+  // sessionLeave()s eigene 5-s-Pumpobergrenze (session.cpp) - eine ANDERE
+  // Ursache als alle vier oben: sie misst nicht die ANMELDUNG, den BEITRITT
+  // oder die AUFNAHME-ERLAUBNIS, sondern das VERLASSEN - nach einer
+  // abgelaufenen Frist (Owner-Entscheidung, Abschluss-Sichtung Punkt A) die
+  // letzte verwertbare Information vor einem moeglichen TerminateProcess.
+  // Kam bereits in Aufgabe 7 auf die Leitung, hatte aber NIE eine
+  // Zusicherung (Abschluss-Sichtung, Punkt C) - ohne sie waere
+  // OWN_UNKNOWN(leaveTimeout) kein stiller Fehler gewesen, aber ein
+  // ungeprueftes Loch im Katalog.
+  const le = enrich({ ev: 'error', where: 'leave', code: 'leaveTimeout' });
+  assert((le as { name: string }).name === 'LEAVE_TIMEOUT', 'eine abgelaufene Leave-Pumpobergrenze traegt LEAVE_TIMEOUT');
+  assert(
+    (le as { name: string }).name !== (at as { name: string }).name &&
+      (le as { name: string }).name !== (t as { name: string }).name &&
+      (le as { name: string }).name !== (je as { name: string }).name &&
+      (le as { name: string }).name !== (pe as { name: string }).name,
+    'Leave-Timeout traegt einen anderen Namen als authTimeout, joinTimeout, joinEofTimeout und privilegeEofTimeout',
+  );
+
   // bridge.ts' stop()-Nachbrenner (Nachbesserung 1, Befund A): schlaegt das
   // erzwungene kill() fehl, darf das nicht spurlos verschwinden - eine ANDERE
-  // Ursache als jede der vier oben, denn sie misst das GEGENTEIL vom Start
-  // (spawnFailed/exited): der Prozess laesst sich am ENDE nicht mehr beenden.
+  // Ursache als jede der fuenf oben, denn sie misst das GEGENTEIL vom Start
+  // bzw. vom eigenmaechtigen Ende (exited): der Prozess laesst sich am ENDE
+  // nicht mehr beenden.
   const kf = enrich({ ev: 'error', where: 'stop', code: 'killFailed' });
   assert((kf as { name: string }).name === 'KILL_FAILED', 'ein gescheitertes kill() traegt KILL_FAILED');
   assert(
     (kf as { name: string }).name !== (at as { name: string }).name &&
       (kf as { name: string }).name !== (t as { name: string }).name &&
       (kf as { name: string }).name !== (je as { name: string }).name &&
-      (kf as { name: string }).name !== (pe as { name: string }).name,
-    'kill()-Fehlschlag traegt einen anderen Namen als authTimeout, joinTimeout, joinEofTimeout und privilegeEofTimeout',
+      (kf as { name: string }).name !== (pe as { name: string }).name &&
+      (kf as { name: string }).name !== (le as { name: string }).name,
+    'kill()-Fehlschlag traegt einen anderen Namen als authTimeout, joinTimeout, joinEofTimeout, privilegeEofTimeout und leaveTimeout',
   );
 
   // bridge.ts' dauerhafter stdin-Lauscher (Nachbesserung 2): ein asynchroner
   // Fehler beim SENDEN (write nach end, EPIPE) ist eine ANDERE Ursache als
-  // killFailed (das misst das TERMINIEREN) und erst recht als jede der vier
+  // killFailed (das misst das TERMINIEREN) und erst recht als jede der fuenf
   // vorherigen - zwei verschiedene Vorgaenge duerfen nie denselben Namen tragen.
   const se = enrich({ ev: 'error', where: 'stdin', code: 'stdinError' });
   assert((se as { name: string }).name === 'STDIN_ERROR', 'ein asynchroner stdin-Fehler traegt STDIN_ERROR');
@@ -310,8 +336,9 @@ console.log('\nprotocol — Anreicherung:');
       (se as { name: string }).name !== (t as { name: string }).name &&
       (se as { name: string }).name !== (je as { name: string }).name &&
       (se as { name: string }).name !== (pe as { name: string }).name &&
+      (se as { name: string }).name !== (le as { name: string }).name &&
       (se as { name: string }).name !== (kf as { name: string }).name,
-    'stdin-Fehler traegt einen anderen Namen als authTimeout, joinTimeout, joinEofTimeout, privilegeEofTimeout und killFailed',
+    'stdin-Fehler traegt einen anderen Namen als authTimeout, joinTimeout, joinEofTimeout, privilegeEofTimeout, leaveTimeout und killFailed',
   );
 
   const b = enrich({ ev: 'bye' });
@@ -345,7 +372,7 @@ console.log('\nprotocol - privilege traegt seine Ursache (source):');
 console.log('\nprotocol — Befehle schreiben:');
 {
   assert(serializeCommand({ cmd: 'init' }) === '{"cmd":"init"}\n', 'init endet mit genau einem Zeilenumbruch');
-  const j = serializeCommand({ cmd: 'join', meetingId: '83034458134', passcode: 'a"b', displayName: 'JM Connect' });
+  const j = serializeCommand({ cmd: 'join', meetingId: '11122223333', passcode: 'a"b', displayName: 'JM Connect' }); // erfunden, siehe Punkt I oben
   assert(j.endsWith('\n') && j.split('\n').length === 2, 'auch join ist genau eine Zeile');
   assert(JSON.parse(j).passcode === 'a"b', 'Anfuehrungszeichen im Kenncode werden maskiert');
 }
@@ -462,6 +489,47 @@ console.log('\nstate - Zeitueberschreitung ist ENDGUELTIG, "gerade gefragt" ist 
   ]);
   assert(recovered.privilegeTimedOut === false, 'eine spaetere Freigabe hebt eine fruehere Zeitueberschreitung auf');
   assert(recovered.canRecordRaw === true, 'und die Freigabe selbst ist angekommen');
+}
+
+console.log('\nstate - Ablehnung ist von "warte noch" unterscheidbar:');
+{
+  // Dieselbe Falle wie bei privilegeTimedOut oben (Nachbesserung 1, Befund
+  // B), nur fuer eine ANDERE Ursache (Abschluss-Sichtung, Punkt D): eine
+  // Ablehnung ({"denied":true}, callbacks.cpp
+  // RecordingListener::onLocalRecordingPrivilegeRequestStatus,
+  // RequestLocalRecording_Denied) landete VOR dieser Aenderung byte-gleich
+  // im Zustand wie "gerade gefragt, Antwort steht noch aus"
+  // (canRecordRaw:false, privilegeRequested:true, privilegeTimedOut:false) -
+  // reduce() las das denied-Feld schlicht nicht. Wer auf eine
+  // Zustandsaenderung wartet (Stage 4), haette nach einer Ablehnung fuer
+  // immer gewartet.
+  const denied = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'privilege', canRecordRaw: false, source: 'requestAnswer', denied: true },
+  ]);
+  assert(denied.privilegeDenied === true, 'eine Ablehnung kommt im Zustand an');
+  assert(denied.canRecordRaw === false, 'nach einer Ablehnung darf nicht aufgenommen werden');
+  assert(denied.phase !== 'error', 'eine Ablehnung ist kein Fehler - sie ist eine gueltige Antwort');
+
+  const pending = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'privilege', canRecordRaw: false, source: 'check', requested: true },
+  ]);
+  assert(
+    pending.privilegeDenied === false,
+    '"gerade gefragt" ist NICHT als abgelehnt markiert - unterscheidbar von einer echten Ablehnung',
+  );
+
+  // Eine SPAETERE Freigabe hebt eine fruehere Ablehnung wieder auf -
+  // privilegeDenied spiegelt das ZULETZT verarbeitete Ereignis, genau wie
+  // canRecordRaw und privilegeTimedOut, nicht eine einmal gesetzte Flagge.
+  const recoveredFromDenial = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'privilege', canRecordRaw: false, source: 'requestAnswer', denied: true },
+    { ev: 'privilege', canRecordRaw: true, source: 'broadcast' },
+  ]);
+  assert(recoveredFromDenial.privilegeDenied === false, 'eine spaetere Freigabe hebt eine fruehere Ablehnung auf');
+  assert(recoveredFromDenial.canRecordRaw === true, 'und die Freigabe selbst ist angekommen');
 }
 
 console.log('\nstate — Teilnehmer kommen, heissen anders, gehen:');
@@ -596,13 +664,32 @@ const fake = join(testDir, 'fake-bridge.mjs');
 console.log('\nbridge - gegen die Attrappe:');
 {
   const seen: string[] = [];
-  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'join' }, onEvent: (e) => seen.push(e.ev) });
+  const bridgeEvents: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'join' },
+    onEvent: (e) => {
+      seen.push(e.ev);
+      bridgeEvents.push(e);
+    },
+  });
   await b.start();
   await b.waitFor((s) => s.phase === 'inMeeting', 4000);
   assert(b.session.phase === 'inMeeting', 'die Sitzung erreicht inMeeting');
   assert(b.session.participants.size === 1, 'die Teilnehmerliste ist angekommen');
   assert(b.session.canRecordRaw === true, 'die Erlaubnis ist angekommen');
   assert(seen.includes('ready') && seen.includes('roster'), 'jedes Ereignis wurde durchgereicht');
+  // Abschluss-Sichtung, Punkt H1: fake-bridge.mjs sandte hier vorher ein
+  // privilege-Ereignis OHNE "source" - protocol.ts legt "source" ausdruecklich
+  // als PFLICHT fest, und der echte native Teil vergibt es an ALLEN Stellen.
+  // Eine Attrappe, die etwas sendet, was das Original nicht senden kann, darf
+  // keinen Verbraucher scheitern lassen, der sich auf den Vertrag verlaesst.
+  const privilegeEvent = bridgeEvents.find((e) => e.ev === 'privilege');
+  assert(
+    (privilegeEvent as { source?: string } | undefined)?.source === 'requestAnswer',
+    'das privilege-Ereignis der Attrappe traegt "source", genau wie es der echte native Teil taete',
+  );
   const code = await b.stop();
   assert(code === 0, 'die Attrappe endet mit 0');
 }
@@ -717,6 +804,78 @@ console.log('\nbridge - eine gescheiterte spawn() ist kein KILL_FAILED:');
   assert(!events.some((e) => (e as { name?: string }).name === 'KILL_FAILED'), 'eine gescheiterte spawn() wird NICHT als KILL_FAILED gemeldet');
 }
 
+console.log('\nbridge - ein gestorbenes Kind wird gemeldet, ein regulaeres stop() nicht:');
+{
+  // Abschluss-Sichtung, Punkt E: vorher reagierte bridge.ts auf
+  // child.on('exit') NUR, indem sie ein Versprechen aufloeste - kein
+  // Ereignis, kein dispatch(). Stuerzte zoom-bridge.exe ab (Punkt A zeigt,
+  // dass das real ist) oder wurde sie abgeschossen, blieb Session.phase
+  // FUER IMMER auf 'inMeeting' stehen - die Bruecke wurde einfach still.
+  // BEIDE Richtungen werden geprueft, mit ZWEI Bridge-Instanzen, damit sie
+  // sich nicht gegenseitig verunreinigen: ein Kind, das OHNE stop() endet
+  // (hier: von aussen abgeschossen, simuliert einen Absturz), erzeugt
+  // EXITED_UNEXPECTEDLY UND verlaesst die Phase 'inMeeting' - ein Kind, das
+  // WEGEN eines regulaeren stop()-Aufrufs endet, erzeugt es NICHT, sonst
+  // waere der Normalweg ein Dauerfehler.
+  const killedEvents: BridgeEvent[] = [];
+  const killed = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'join' },
+    onEvent: (e) => killedEvents.push(e),
+  });
+  await killed.start();
+  await killed.waitFor((s) => s.phase === 'inMeeting', 4000);
+  // Reach-around wie beim stdin-Fehler-Test oben: kill() DIREKT auf dem
+  // Kindprozess, OHNE bridge.stop() zu rufen - genau der Fall "von selbst
+  // gestorben, kein stop() in Arbeit".
+  (killed as unknown as { child: { kill(): boolean } }).child.kill();
+  await new Promise((r) => setTimeout(r, 300));
+  const exitedEvent = killedEvents.find((e) => (e as { name?: string }).name === 'EXITED_UNEXPECTEDLY');
+  assert(exitedEvent?.ev === 'error', 'ein von aussen abgeschossenes Kind meldet sich als EXITED_UNEXPECTEDLY');
+  assert(killed.session.phase !== 'inMeeting', 'die Phase bleibt NICHT fuer immer auf inMeeting stehen');
+  await killed.stop(); // idempotentes Aufraeumen (this.child ist bereits weg)
+
+  const cleanEvents: BridgeEvent[] = [];
+  const clean = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'join' },
+    onEvent: (e) => cleanEvents.push(e),
+  });
+  await clean.start();
+  await clean.waitFor((s) => s.phase === 'inMeeting', 4000);
+  await clean.stop();
+  assert(
+    !cleanEvents.some((e) => (e as { name?: string }).name === 'EXITED_UNEXPECTEDLY'),
+    'ein REGULAERES stop() meldet KEIN EXITED_UNEXPECTEDLY - sonst waere der Normalweg ein Dauerfehler',
+  );
+}
+
+console.log('\nbridge - start() zweimal gerufen laesst kein Kind verwaist zurueck:');
+{
+  // Abschluss-Sichtung, Punkt H2: derselbe Wiedereintrittsschutz wie stop()
+  // (Nachbesserung 2 zu Task 10), nur fuer den START statt fuer den ABBAU.
+  // Ohne ihn ueberschreibt ein zweiter start()-Aufruf this.child
+  // kommentarlos - das ERSTE Kind waere verwaist und saesse im Meeting,
+  // bis der Wirtsprozess stirbt.
+  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'join' } });
+  await b.start();
+  let threwOnSecondStart = false;
+  try {
+    await b.start();
+  } catch {
+    threwOnSecondStart = true;
+  }
+  assert(threwOnSecondStart, 'ein zweiter start()-Aufruf wirft, statt das laufende Kind still zu ersetzen');
+  // Der Beleg, dass wirklich NICHTS ersetzt wurde: das ERSTE Kind ist
+  // weiterhin unter derselben Bridge-Instanz erreichbar und laesst sich
+  // sauber beenden - waere this.child ueberschrieben worden, wuerde stop()
+  // hier ein ANDERES (oder gar kein) Kind treffen.
+  const code = await b.stop();
+  assert(code === 0, 'das ERSTE Kind ist weiterhin erreichbar - stop() beendet es sauber');
+}
+
 console.log('\nbridge - zwei gleichzeitige stop()-Aufrufe stuerzen nichts ab:');
 {
   // Nachbesserung 2: Promise.all([b.stop(), b.stop()]) OHNE Abwarten
@@ -769,7 +928,26 @@ console.log('\nbridge - ein asynchroner stdin-Fehler verschwindet nicht spurlos:
   // kein Reach-around auf eine private Melde-Methode noetig, nur auf das
   // private child-Feld, um den echten Fehler von aussen auszuloesen.
   const events: BridgeEvent[] = [];
-  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'join' }, onEvent: (e) => events.push(e) });
+  // ACHTUNG (Abschluss-Sichtung Punkt E): dieser Test loest die Attrappe per
+  // Hand aus (child.stdin.end() OHNE stop() zu rufen) - genau der Fall, in
+  // dem bridge.ts seit Punkt E ein 'exited' meldet, WEIL kein stop() in
+  // Arbeit ist (fake-bridge.mjs reagiert auf dasselbe end() mit ihrem
+  // eigenen 'bye'+process.exit(0)). lastError spiegelt darum, WELCHES der
+  // beiden Ereignisse ZULETZT verarbeitet wurde - das ist bei zwei
+  // asynchronen Vorgaengen (der stdin-Fehler UND das Kindprozess-Ende) keine
+  // feste Reihenfolge. Der Schnappschuss aus onEvent() zum Zeitpunkt des
+  // STDIN_ERROR-Ereignisses ist darum der robuste Beleg, nicht der
+  // Endzustand b.session danach.
+  let lastErrorAtStdinError: Session['lastError'] | undefined;
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'join' },
+    onEvent: (e, s) => {
+      events.push(e);
+      if ((e as { name?: string }).name === 'STDIN_ERROR') lastErrorAtStdinError = s.lastError;
+    },
+  });
   await b.start();
   await b.waitFor((s) => s.phase === 'inMeeting', 4000);
   const child = (b as unknown as { child: { stdin: { end(): void; write(s: string): void } } }).child;
@@ -781,7 +959,7 @@ console.log('\nbridge - ein asynchroner stdin-Fehler verschwindet nicht spurlos:
   // das kann NACH unserem Fehler ankommen. Gesucht wird darum gezielt.
   const stdinErrorEvent = events.find((e) => (e as { name?: string }).name === 'STDIN_ERROR');
   assert(stdinErrorEvent?.ev === 'error', 'ein asynchroner stdin-Fehler meldet sich als STDIN_ERROR-Ereignis');
-  assert(b.session.lastError?.name === 'STDIN_ERROR', 'lastError traegt denselben Namen');
+  assert(lastErrorAtStdinError?.name === 'STDIN_ERROR', 'lastError trug STDIN_ERROR GENAU zum Zeitpunkt des Ereignisses');
   await b.stop();
 }
 

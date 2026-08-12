@@ -42,8 +42,23 @@ bool sessionInit();
  * DestroyAuthService und CleanUPSDK steht. Wird ohne laufendes Meeting bzw.
  * ohne Auth-Dienst gerufen, ueberspringt der jeweilige Schritt sich selbst
  * (g_meeting/g_auth bleiben nullptr, siehe session.cpp).
+ *
+ * ACHTUNG (Owner-Entscheidung, Abschluss-Sichtung Punkt A): liefert
+ * sessionLeave() false (die 5-s-Pumpobergrenze ist abgelaufen, WAEHREND der
+ * SDK-Thread nachweislich noch arbeitet), ueberspringt dieser Abbau
+ * DestroyMeetingService, DestroyAuthService UND CleanUPSDK - ein Aufruf
+ * dieser drei in genau diesem Zustand hat den Prozess in Aufgabe 7 GEMESSEN
+ * 5/5 mit 0xC0000005 beendet. Die SetEvent(nullptr)-Abmeldungen laufen
+ * TROTZDEM (siehe die Begruendung in session.cpp), sie zerstoeren nichts.
+ * Rueckgabewert: true, wenn der Abbau VOLLSTAENDIG durchgelaufen ist
+ * (inklusive der Faelle "kein Meeting"/"kein Auth-Dienst" bzw. "SDK gar
+ * nicht hoch"); false, wenn er wegen einer abgelaufenen Leave-Frist
+ * VORZEITIG endet. main() darf im false-Fall kein "bye" mehr senden - das
+ * waere eine Luege ueber einen sauberen Abgang - und muss stattdessen ueber
+ * TerminateProcess mit einem eigenen, von 0 verschiedenen Code beenden
+ * (siehe main.cpp).
  */
-void sessionShutdown();
+bool sessionShutdown();
 
 /** Eine Runde Win32-Nachrichten abarbeiten. Ohne sie kommt kein Rueckruf an. */
 void pumpOnce();
@@ -58,6 +73,14 @@ std::string fieldFromJson(const std::string& line, const char* key);
 
 /** Der Wert von "cmd", oder "" wenn die Zeile keiner ist. */
 std::string cmdOf(const std::string& line);
+
+/**
+ * UTF-8 nach UTF-16 (die Gegenrichtung zu jsonEscape() in emit.h). Oeffentlich
+ * gemacht (Abschluss-Sichtung Punkt F), damit main.cpp einen unbekannten
+ * Befehlsnamen VOR der Ausgabe auf stderr (emitLog(), Klartext fuer Menschen)
+ * konvertieren kann, statt ihn unmaskiert in eine JSON-Zeile zu spleissen.
+ */
+std::wstring toWide(const std::string& utf8);
 
 /**
  * Meldet sich mit dem fertigen JWT an. Das Ergebnis kommt ASYNCHRON ueber
@@ -98,8 +121,17 @@ void sessionJoin(const std::string& meetingIdUtf8, const std::string& passcodeUt
  * 0xC0000005 beendet: der Abbau raeumt Zustand weg, an dem der SDK-Thread
  * noch arbeitet. sessionLeave() ist ohne laufendes Meeting (g_meeting ==
  * nullptr) ein no-op.
+ *
+ * Rueckgabewert (Owner-Entscheidung, Abschluss-Sichtung Punkt A): true, wenn
+ * beim Rueckkehren ein RUHENDER Zustand (ENDED/IDLE) erreicht ist - egal ob
+ * er schon beim Eintritt vorlag oder erst die Pumpschleife ihn erreicht hat.
+ * false, wenn die 5-s-Pumpobergrenze abgelaufen ist, WAEHREND der SDK-Thread
+ * noch arbeitet (dieselbe Zeile, die "leaveTimeout" auf stdout meldet).
+ * sessionShutdown() braucht das: DestroyMeetingService waehrend eines
+ * NICHT-ruhenden Zustands ist GENAU der Aufruf, der in Aufgabe 7 mit
+ * 0xC0000005 endete.
  */
-void sessionLeave();
+bool sessionLeave();
 
 /**
  * Ob ein mit sessionJoin() erfolgreich abgesetzter Beitritt noch auf die

@@ -39,7 +39,12 @@ bool g_privilegePending = false;
 // Regler-Zeiger beim Abbau noch gueltig ist.
 bool g_participantsListenerRegistered = false;
 bool g_recordingListenerRegistered = false;
+}  // namespace
 
+// NICHT (mehr) TU-lokal: session.h erklaert diese Funktion oeffentlich, main.cpp
+// braucht sie fuer Punkt F der Abschluss-Sichtung (unbekannter Befehl auf
+// stderr statt unmaskiert in JSON). War vorher in der anonymen Namespace hier
+// oben, unveraendert in der Umsetzung - nur die Sichtbarkeit ist neu.
 std::wstring toWide(const std::string& utf8) {
   const int need = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), static_cast<int>(utf8.size()), nullptr, 0);
   std::wstring w(static_cast<size_t>(need), L'\0');
@@ -48,7 +53,6 @@ std::wstring toWide(const std::string& utf8) {
   }
   return w;
 }
-}  // namespace
 
 void pumpOnce() {
   MSG msg;
@@ -180,8 +184,8 @@ void sessionJoin(const std::string& meetingIdUtf8, const std::string& passcodeUt
   g_joinPending = true;
 }
 
-void sessionLeave() {
-  if (g_meeting == nullptr) return;
+bool sessionLeave() {
+  if (g_meeting == nullptr) return true;  // kein Meeting -> trivial ruhend, nichts zu tun
 
   // ACHTUNG, GEMESSEN: der Befehl "leave" ruft diese Funktion auf, OHNE
   // g_meeting auf nullptr zu setzen oder den Dienst zu zerstoeren - ein
@@ -231,7 +235,7 @@ void sessionLeave() {
     // KLINGEN. Der Preis dafuer ist gering: steht wirklich einmal FAILED an,
     // laeuft ein ueberfluessiger Leave()-Ruf ins Leere und meldet code 2, und
     // die Pumpschleife wartet danach sicher bis ENDED.
-    return;
+    return true;  // bereits ruhend
   }
 
   // ACHTUNG: kein SDKError wird verworfen (bindende Randbedingung des Plans) -
@@ -274,9 +278,18 @@ void sessionLeave() {
     // hier NICHT auf ENDED/IDLE steht.
     emitRaw(std::string("{\"ev\":\"error\",\"where\":\"leave\",\"code\":\"leaveTimeout\",\"lastStatus\":\"") +
             statusName(lastStatus) + "\"}");
+    // ACHTUNG, GEAENDERT (Owner-Entscheidung, Abschluss-Sichtung Punkt A): der
+    // Kommentar "der Abbau laeuft trotzdem weiter" beschrieb den Stand VOR
+    // dieser Entscheidung - sessionShutdown() zerstoert in diesem Fall JETZT
+    // NICHT mehr, siehe dort. Diese Zeile bleibt trotzdem die letzte
+    // verwertbare Information vor einem moeglichen TerminateProcess: sie
+    // steht auf stdout UND stderr, bevor sessionLeave() zurueckkehrt.
     emitLog(std::wstring(L"Zeitueberschreitung: 5 s Leave-Pumpobergrenze abgelaufen, zuletzt gesehener Status: ") +
-            toWide(std::string(statusName(lastStatus))) + L" - der Abbau laeuft trotzdem weiter.");
+            toWide(std::string(statusName(lastStatus))) + L" - der SDK-Thread arbeitet nachweislich noch, der "
+            L"Abbau (DestroyMeetingService/DestroyAuthService/CleanUPSDK) wird UEBERSPRUNGEN.");
+    return false;  // NICHT ruhend - sessionShutdown() darf jetzt nicht zerstoeren
   }
+  return true;  // die Pumpschleife hat ENDED/IDLE erreicht, bevor die Frist ablief
 }
 
 bool sessionJoinPending() {
@@ -430,10 +443,18 @@ void sessionPrivilegeAnswered() {
   g_privilegePending = false;
 }
 
-void sessionShutdown() {
-  if (!g_sdkUp) return;
+bool sessionShutdown() {
+  if (!g_sdkUp) return true;
+  // Owner-Entscheidung, Abschluss-Sichtung Punkt A: bleibt WAHR, solange kein
+  // Grund gemessen ist, den Abbau abzubrechen. Wird FALSCH, wenn
+  // sessionLeave() unten meldet, dass die 5-s-Pumpobergrenze abgelaufen ist,
+  // WAEHREND der SDK-Thread nachweislich noch arbeitet - siehe die
+  // ausfuehrliche Begruendung an sessionLeave()s Doc-Kommentar (session.h)
+  // und main.cpp (Prozessende). Ohne Meeting (g_meeting == nullptr) bleibt es
+  // WAHR: es gibt nichts, dessen Abbau abbrechen koennte.
+  bool leaveSettled = true;
   if (g_meeting != nullptr) {
-    sessionLeave();
+    leaveSettled = sessionLeave();
     // Abmeldung NACH sessionLeave(), nicht davor: sessionLeave() pumpt bis zu
     // 5 s auf ENDED/IDLE, und waehrend dieses Pumpens duerfen Teilnehmer-
     // Rueckrufe noch feuern (Leute verlassen das Meeting, waehrend es endet)
@@ -476,17 +497,51 @@ void sessionShutdown() {
               L"nullptr - dieselbe offene Frage wie beim Teilnehmer-Regler oben, hier "
               L"fuer GetMeetingRecordingController(). Abmeldung uebersprungen, kein Absturz.");
     }
+    // g_meeting->SetEvent(nullptr) laeuft IMMER, auch wenn leaveSettled unten
+    // false ist - GEMESSEN (Abschluss-Sichtung Punkt A, siehe
+    // final-fix-report.md fuer die woertlichen Laeufe): dieselbe
+    // Messreihe mit kuenstlich verkuerzter Pumpobergrenze, die in Aufgabe 7
+    // belegte, dass DestroyMeetingService in diesem Zustand mit 0xC0000005
+    // abstuerzt, wurde hier WIEDERHOLT mit genau diesem SetEvent(nullptr) an
+    // Ort und Stelle (Destroy weiterhin uebersprungen) - kein Absturz ueber
+    // mehrere Laeufe. Der Unterschied ist plausibel kein Zufall: SetEvent()
+    // tauscht nur den registrierten Empfaenger-Zeiger aus, es zerstoert kein
+    // Objekt und raeumt keinen Zustand weg, an dem der SDK-Thread noch
+    // arbeitet - genau das war die gemessene Ursache des Absturzes bei
+    // DestroyMeetingService. Bewusst symmetrisch zu den beiden Reglern oben:
+    // ein registrierter Empfaenger wird IMMER abgemeldet, unabhaengig davon,
+    // ob der zugehoerige Dienst in diesem Lauf noch zerstoert wird.
     g_meeting->SetEvent(nullptr);
-    DestroyMeetingService(g_meeting);
-    g_meeting = nullptr;
+    if (leaveSettled) {
+      DestroyMeetingService(g_meeting);
+      g_meeting = nullptr;
+    }
+    // ACHTUNG, ABSICHTLICH KEIN "else": bleibt leaveSettled false, bleibt
+    // g_meeting bewusst am Leben (nicht auf nullptr gesetzt, nicht zerstoert)
+    // - DestroyMeetingService waehrend eines NICHT-ruhenden Zustands ist
+    // GENAU der Aufruf, der in Aufgabe 7 GEMESSEN 5/5 mit 0xC0000005 endete.
+    // main() beendet den Prozess in diesem Fall ueber TerminateProcess (siehe
+    // dort), das ueberspringt DLL_PROCESS_DETACH fuer ALLE angehaengten DLLs
+    // - der halb abgebaute Zustand hier wird darum nie sichtbar nachgefragt.
   }
   if (g_auth != nullptr) {
+    // Derselbe Grund wie oben: SetEvent(nullptr) zerstoert nichts, bleibt
+    // darum unbedingt. Der Auth-Dienst haengt nicht am Meeting-Zustand - ihn
+    // trotzdem stehenzulassen waere eine unbegruendete Annahme; er wird nur
+    // dann NICHT zerstoert, wenn der Meeting-Abbau oben bereits abgebrochen
+    // wurde (Owner-Vorgabe: DestroyAuthService gehoert zu den drei
+    // uebersprungenen Aufrufen).
     g_auth->SetEvent(nullptr);
-    DestroyAuthService(g_auth);
-    g_auth = nullptr;
+    if (leaveSettled) {
+      DestroyAuthService(g_auth);
+      g_auth = nullptr;
+    }
   }
-  CleanUPSDK();
-  g_sdkUp = false;
+  if (leaveSettled) {
+    CleanUPSDK();
+    g_sdkUp = false;
+  }
+  return leaveSettled;
 }
 
 namespace {

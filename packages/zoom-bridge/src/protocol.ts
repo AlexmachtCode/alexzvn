@@ -149,18 +149,34 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // authTimeout/joinTimeout/joinEofTimeout - keiner der drei beschreibt eine
   // Aufnahme-Erlaubnis-Anfrage, darum der EIGENE Name statt eines geliehenen.
   privilegeEofTimeout: 'PRIVILEGE_EOF_TIMEOUT',
+  // sessionLeave()s EIGENE 5-s-Pumpobergrenze (session.cpp) - eine ANDERE
+  // Ursache als die drei EOF-Wachhunde oben: die messen die ANMELDUNG/den
+  // BEITRITT/die AUFNAHME-ERLAUBNIS, diese hier misst das VERLASSEN. Kam in
+  // Aufgabe 7 auf die Leitung, hatte aber bis zur Abschluss-Sichtung (Punkt
+  // C) keinen Katalogeintrag - fiel darum auf OWN_UNKNOWN(leaveTimeout),
+  // kein stiller Fehler, aber eine Luecke im Katalog, die diese Zeile
+  // schliesst. Nach einer abgelaufenen Frist (Owner-Entscheidung, Punkt A)
+  // ist diese Meldung die LETZTE verwertbare Information vor einem
+  // moeglichen TerminateProcess.
+  leaveTimeout: 'LEAVE_TIMEOUT',
   badJson: 'BAD_JSON',
-  badMeetingId: 'BAD_MEETING_ID',
-  spawnFailed: 'SPAWN_FAILED',
+  // ACHTUNG (Abschluss-Sichtung, Punkt E): war lange ein Katalogeintrag OHNE
+  // Erzeuger - bridge.ts loeste child.on('exit') nur ein Versprechen auf,
+  // meldete aber nichts. Stuerzte zoom-bridge.exe ab (Punkt A zeigt, dass
+  // das real ist) oder wurde sie abgeschossen, blieb Session.phase fuer
+  // immer auf 'inMeeting' stehen - die Bruecke wurde einfach still. Jetzt:
+  // bridge.ts meldet dieses Ereignis IMMER, wenn das Kind endet, WAEHREND
+  // KEIN stop() in Arbeit ist. Endet es WEGEN eines eigenen stop()-Aufrufs
+  // (Quit-Befehl oder erzwungenes kill()), ist das der REGULAERE Abgang und
+  // wird NICHT gemeldet - sonst waere der Normalweg ein Dauerfehler.
   exited: 'EXITED_UNEXPECTEDLY',
   // bridge.ts' stop()-Nachbrenner: schlaegt das erzwungene kill() fehl (liefert
   // false zurueck, oder der Kindprozess meldet nachtraeglich ein eigenes
   // 'error'-Ereignis), darf das nicht spurlos verschwinden - vorher landete
   // ein solches 'error' in einem laengst aufgeloesten Promise (stiller
-  // Leerlauf). Eine ANDERE Ursache als exited (misst den NORMALEN, von der
-  // Bridge SELBST gemeldeten Abgang) oder spawnFailed (misst den START):
-  // killFailed misst das Gegenteil - der Prozess laesst sich am ENDE nicht
-  // mehr beenden. Nachbesserung 1 zu Task 10.
+  // Leerlauf). Eine ANDERE Ursache als exited (misst das unerwartete Ende
+  // OHNE unser Zutun): killFailed misst das Gegenteil - WIR wollten beenden,
+  // und selbst das schlug fehl. Nachbesserung 1 zu Task 10.
   killFailed: 'KILL_FAILED',
   // Ein ASYNCHRONER 'error' auf dem stdin-Strom des Kindprozesses (z. B.
   // ERR_STREAM_WRITE_AFTER_END, wenn zwei gleichzeitige stop()-Aufrufe frueher

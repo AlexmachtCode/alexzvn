@@ -22,6 +22,22 @@ export interface Session {
    * gewartet (Nachbesserung 1, Owner-Entscheidung: Befund B).
    */
   privilegeTimedOut: boolean;
+  /**
+   * ENDGUELTIG "der Gastgeber hat abgelehnt" - dieselbe Falle wie
+   * privilegeTimedOut oben, nur fuer eine ANDERE Ursache (Abschluss-Sichtung,
+   * Punkt D). native/callbacks.cpp sendet bei einer Ablehnung
+   * {"ev":"privilege","canRecordRaw":false,"source":"requestAnswer","denied":true} -
+   * ohne dieses Feld landete das byte-gleich im Zustand wie "gerade gefragt,
+   * Antwort steht noch aus" (canRecordRaw:false, privilegeRequested:true,
+   * privilegeTimedOut:false), weil reduce() das denied-Feld schlicht nicht
+   * las. Wer auf eine Zustandsaenderung wartet (Stage 4), haette nach einer
+   * Ablehnung fuer immer gewartet. Spiegelt IMMER das ZULETZT verarbeitete
+   * privilege-Ereignis (wie canRecordRaw/privilegeTimedOut): eine spaetere,
+   * nicht-denied Antwort (eine erneute Anfrage nach Wiederverbindung, ein
+   * broadcast) setzt es wieder zurueck - die alte Ablehnung gilt dann nicht
+   * mehr als letztes Wort.
+   */
+  privilegeDenied: boolean;
   lastError: { where: string; code: number | string; name: string } | null;
 }
 
@@ -33,6 +49,7 @@ export function initialSession(): Session {
     canRecordRaw: false,
     privilegeRequested: false,
     privilegeTimedOut: false,
+    privilegeDenied: false,
     lastError: null,
   };
 }
@@ -100,7 +117,7 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
     }
 
     case 'privilege': {
-      const e = ev as { canRecordRaw: boolean; requested?: boolean; timedOut?: boolean };
+      const e = ev as { canRecordRaw: boolean; requested?: boolean; timedOut?: boolean; denied?: boolean };
       return {
         ...s,
         canRecordRaw: e.canRecordRaw,
@@ -109,6 +126,11 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
         // nicht mit ODER verknuepfen (wie privilegeRequested): eine spaetere,
         // nicht-timedOut Antwort hebt eine fruehere Zeitueberschreitung auf.
         privilegeTimedOut: e.timedOut === true,
+        // Dasselbe Muster, dieselbe Begruendung, eine ANDERE Ursache
+        // (Abschluss-Sichtung Punkt D): IMMER auf den ZULETZT verarbeiteten
+        // Wert setzen, nicht mit ODER verknuepfen - eine spaetere Freigabe
+        // hebt eine fruehere Ablehnung auf.
+        privilegeDenied: e.denied === true,
       };
     }
 
