@@ -187,10 +187,10 @@ erteilt der Gastgeber sie dann — entweder von sich aus oder auf die Anfrage hi
 ### Nachbauen
 
 ```powershell
-$env:ZOOM_SDK_DIR          = "…\SDKs\zoom-c-sharp-wrapper-7.1.5.43953"
-$env:ZOOM_SDK_CREDENTIALS  = "…\zoom-credentials.json"   # ausserhalb des Repos
-$env:ZOOM_MEETING_ID       = "830…"                      # nur Ziffern
-$env:ZOOM_MEETING_PASSCODE = "…"
+$env:ZOOM_SDK_DIR          = "<Pfad zum entpackten Zoom-Meeting-SDK>"
+$env:ZOOM_SDK_CREDENTIALS  = "<Pfad ausserhalb des Repos zur zoom-credentials.json>"   # ausserhalb des Repos
+$env:ZOOM_MEETING_ID       = "<nur Ziffern>"                      # nur Ziffern
+$env:ZOOM_MEETING_PASSCODE = "<Kenncode>"
 node docs/superpowers/spikes/2026-08-10-zoom-sdk-linkbarkeit/run-join.mjs
 ```
 
@@ -221,8 +221,8 @@ dann kann sie gar nicht erst committet werden.
 ```
 
 ```powershell
-$env:ZOOM_SDK_DIR         = "…\SDKs\zoom-c-sharp-wrapper-7.1.5.43953"
-$env:ZOOM_SDK_CREDENTIALS = "C:\Users\<du>\Documents\zoom-credentials.json"
+$env:ZOOM_SDK_DIR         = "<Pfad zum entpackten Zoom-Meeting-SDK>"
+$env:ZOOM_SDK_CREDENTIALS = "<Pfad ausserhalb des Repos zur zoom-credentials.json>"
 node docs/superpowers/spikes/2026-08-10-zoom-sdk-linkbarkeit/run-auth.mjs
 ```
 
@@ -249,7 +249,7 @@ Lüge, die dieses Werkzeug aufdecken soll — deshalb der eigene Wert `3`.
 ## Nachbauen
 
 ```powershell
-$env:ZOOM_SDK_DIR = "…\SDKs\zoom-c-sharp-wrapper-7.1.5.43953"
+$env:ZOOM_SDK_DIR = "<Pfad zum entpackten Zoom-Meeting-SDK>"
 node docs/superpowers/spikes/2026-08-10-zoom-sdk-linkbarkeit/build.mjs
 $env:PATH = "$env:ZOOM_SDK_DIR\x64\bin;$env:PATH"
 .\docs\superpowers\spikes\2026-08-10-zoom-sdk-linkbarkeit\build\02-initsdk.exe

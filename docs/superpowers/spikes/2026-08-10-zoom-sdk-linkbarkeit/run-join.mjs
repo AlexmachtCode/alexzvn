@@ -4,10 +4,10 @@
 // Wie run-auth.mjs: Client-ID und Secret wandern NIE auf die Konsole und werden aus der
 // Umgebung des Kindprozesses wieder entfernt — es bekommt nur das fertige JWT.
 //
-//   $env:ZOOM_SDK_DIR         = "…\SDKs\zoom-c-sharp-wrapper-7.1.5.43953"
-//   $env:ZOOM_SDK_CREDENTIALS = "…\zoom-credentials.json"    # ausserhalb des Repos
-//   $env:ZOOM_MEETING_ID       = "83034458134"
-//   $env:ZOOM_MEETING_PASSCODE = "…"
+//   $env:ZOOM_SDK_DIR         = "<Pfad zum entpackten Zoom-Meeting-SDK>"
+//   $env:ZOOM_SDK_CREDENTIALS = "<Pfad ausserhalb des Repos zur zoom-credentials.json>"    # ausserhalb des Repos
+//   $env:ZOOM_MEETING_ID       = "<nur Ziffern>"
+//   $env:ZOOM_MEETING_PASSCODE = "<Kenncode>"
 //   node docs/superpowers/spikes/2026-08-10-zoom-sdk-linkbarkeit/run-join.mjs
 //
 // Meeting-Nummer und Kenncode gehoeren ebenfalls NICHT ins Repo.
