@@ -2640,7 +2640,17 @@ export class Bridge {
   private joinTimer: NodeJS.Timeout | null = null;
   private exitCode: Promise<number> | null = null;
 
-  constructor(private readonly opts: BridgeOptions = {}) {}
+  // ⚑ BERICHTIGT, GEMESSEN in Task 10: hier stand `constructor(private readonly
+  // opts: BridgeOptions = {}) {}`. Ein TS-Konstruktorparameter-Feld braucht
+  // generierten Code (`this.opts = opts;`), und `node --experimental-strip-types`
+  // — die Laufzeit, mit der `npm run selftest` tatsächlich läuft — entfernt nur
+  // Typen und schreibt nichts um. Ergebnis: `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`,
+  // der Selbsttest startet gar nicht erst. Feld und Zuweisung darum von Hand.
+  private readonly opts: BridgeOptions;
+
+  constructor(opts: BridgeOptions = {}) {
+    this.opts = opts;
+  }
 
   get session(): Session {
     return this.state;
@@ -2699,7 +2709,14 @@ export class Bridge {
       // `joinTimeout`, nicht `timeout`: die Bridge kennt eine zweite Zeitueberschreitung
       // (die Anmeldung), und zwei verschiedene Ursachen duerfen nie denselben Namen
       // bekommen. Siehe OWN_ERROR_NAMES in protocol.ts.
-      this.dispatch({ ev: 'error', where: 'join', code: 'joinTimeout', lastStatus: this.state.meeting } as BridgeEvent);
+      // ⚑ BERICHTIGT, GEMESSEN in Task 10: hier stand ein nacktes `dispatch({...}
+      // as BridgeEvent)`. Das ist eine Lüge des Typsystems — `as` behauptet nur,
+      // die Anreicherung habe stattgefunden. `dispatch()` erwartet ein bereits
+      // ANGEREICHERTES Ereignis; jeder andere Aufrufer hält sich daran
+      // (`dispatch(enrich(wire))`). Ohne `enrich()` bleibt `name` undefiniert,
+      // und die Zusicherung auf `JOIN_TIMEOUT` wäre selbst bei wörtlicher
+      // Übernahme rot — nachgewiesen durch Zurücknehmen und Messen.
+      this.dispatch(enrich({ ev: 'error', where: 'join', code: 'joinTimeout', lastStatus: this.state.meeting } as WireEvent));
     }, ms);
     this.joinTimer.unref?.();
   }
