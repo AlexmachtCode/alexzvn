@@ -320,19 +320,46 @@ IMeetingRecordingController* recordingCtrl() {
 }
 
 void checkPrivilege() {
-  // Jeder Aufruf hier ersetzt eine etwaige noch offene Anfrage aus einem
-  // FRUEHEREN Aufruf (z.B. nach einer Wiederverbindung, siehe
-  // onMeetingStatusChanged): dieser Aufruf liefert selbst gleich eine neue,
-  // aktuelle Aussage - GLEICH WELCHER Pfad unten greift. Ohne dieses
-  // Zuruecksetzen bliebe das Merkzeichen einer ALTEN Anfrage stehen, wenn
-  // z.B. DIESE Runde die Erlaubnis SOFORT als bereits gewaehrt vorfindet
-  // (can == SDKERR_SUCCESS, ein paar Zeilen unten) - ein spaeteres EOF wuerde
-  // dann bis zu 10 s auf eine Antwort warten, die nie mehr kommt, weil sie
-  // laengst da war. Betrifft AUSNAHMSLOS jeden Ruecksprungpfad unten, auch
-  // die beiden Fehlerfaelle ganz am Anfang: keiner von ihnen darf das
-  // Merkzeichen einer fremden, frueheren Anfrage stehen lassen, die niemand
-  // mehr beantwortet (Nachbesserung 1, Owner-Entscheidung: Befund C).
-  g_privilegePending = false;
+  // ACHTUNG, ZURUECKGENOMMEN (Nachbesserung 2): hier stand einmal ein
+  // unbedingtes `g_privilegePending = false;` als ALLERERSTE Anweisung der
+  // Funktion, das JEDEN Ruecksprungpfad abdeckte - auch die beiden
+  // Fehlerfaelle ganz am Anfang und die beiden Fehlerfaelle bei
+  // IsSupportRequestLocalRecordingPrivilege()/RequestLocalRecordingPrivilege().
+  // Das loeste Befund C (Nachbesserung 1: das Merkzeichen einer laengst
+  // beantworteten Anfrage blieb im Sofort-Erfolgspfad haengen) VOLLSTAENDIG,
+  // riss dabei aber die GEGENRICHTUNG auf: checkPrivilege() laeuft bei JEDEM
+  // Erreichen von INMEETING, ausdruecklich auch nach einer Wiederverbindung
+  // (siehe der Kommentar in callbacks.cpp). Ist zu diesem Zeitpunkt eine
+  // ERSTE, echte RequestLocalRecordingPrivilege()-Anfrage noch offen und
+  // dieser zweite Aufruf nimmt einen der frueheren Ruecksprungpfade (z.B.
+  // rec == nullptr bei instabilem Regler-Zeiger waehrend des Reconnects),
+  // wuerde das Merkzeichen der ERSTEN Anfrage geloescht, OHNE dass deren
+  // Antwort je eingetroffen ist - faellt EOF in dieses Fenster, verschwindet
+  // eine echte Antwort SPURLOS.
+  //
+  // Die beiden Fehlrichtungen sind NICHT gleichwertig: bleibt das
+  // Merkzeichen faelschlich stehen, wartet der Prozess hoechstens 10 s und
+  // meldet dann sichtbar einen irrefuehrenden privilegeEofTimeout - sichtbar
+  // und begrenzt. Wird es faelschlich geloescht, verschwindet eine echte
+  // Antwort unsichtbar und unbegrenzt. Dieselbe Rangordnung wie in
+  // readStdin() (main.cpp): ein verschluckter Befehl ist schlimmer als ein
+  // abgewiesener - hier: eine verschluckte Antwort ist schlimmer als eine
+  // ueberfluessige Zeitueberschreitungsmeldung. Deshalb steht das
+  // Zuruecksetzen NICHT mehr pauschal hier oben, sondern NUR an der einen
+  // Stelle unten (Sofort-Erfolg), an der diese Funktion POSITIV WEISS, dass
+  // keine Antwort mehr aussteht - eine bereits gewaehrte Erlaubnis macht jede
+  // fruehere Anfrage gegenstandslos, GLEICH OB sie von diesem oder einem
+  // vorigen Aufruf stammt. Alle anderen Ruecksprungpfade unten sagen ueber
+  // eine moeglicherweise laufende FRUEHERE Anfrage NICHTS aus und lassen das
+  // Merkzeichen darum unangetastet - stand es auf false, bleibt es false,
+  // nichts wird durch diese Aenderung schlechter als vor Befund C.
+  //
+  // NICHT GEMESSEN und nicht behauptet: ob das SDK eine nach einem Reconnect
+  // verwaiste Anfrage ueberhaupt noch beantwortet oder sie selbst intern
+  // verwirft - aus den Kopfdateien nicht zu klaeren, ohne echtes Meeting
+  // nicht zu messen. Diese Fassung waehlt bewusst die Richtung, deren
+  // Fehlerfall SICHTBAR bleibt (ein begrenztes, meldendes Warten), nicht die
+  // Richtung, die den Fall vollstaendig zu loesen behauptet.
 
   if (g_meeting == nullptr) {
     emitRaw("{\"ev\":\"error\",\"where\":\"privilege\",\"code\":31}");  // SDKERR_NOT_IN_MEETING
@@ -356,6 +383,14 @@ void checkPrivilege() {
     // auf ein GESUCH (requestAnswer, siehe onLocalRecordingPrivilegeRequestStatus):
     // hier wurde noch gar nicht gefragt. "source" unterscheidet die drei
     // Ursachen (Nachbesserung 1, Owner-Entscheidung: Befund A).
+    //
+    // Zuruecksetzen HIER, nicht pauschal am Funktionsanfang (siehe der lange
+    // Kommentar oben, Nachbesserung 2): DIESE Zeile ist der einzige Ort, an
+    // dem checkPrivilege() POSITIV WEISS, dass keine Antwort mehr aussteht -
+    // die Erlaubnis ist JETZT gewaehrt, eine etwaige aeltere, noch offene
+    // Anfrage ist damit gegenstandslos, GLEICH OB die Antwort auf sie je
+    // eintrifft.
+    g_privilegePending = false;
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true,\"source\":\"check\"}");
     return;
   }
