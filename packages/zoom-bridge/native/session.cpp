@@ -499,18 +499,22 @@ bool sessionShutdown() {
     }
     // g_meeting->SetEvent(nullptr) laeuft IMMER, auch wenn leaveSettled unten
     // false ist - GEMESSEN (Abschluss-Sichtung Punkt A, siehe
-    // final-fix-report.md fuer die woertlichen Laeufe): dieselbe
-    // Messreihe mit kuenstlich verkuerzter Pumpobergrenze, die in Aufgabe 7
-    // belegte, dass DestroyMeetingService in diesem Zustand mit 0xC0000005
-    // abstuerzt, wurde hier WIEDERHOLT mit genau diesem SetEvent(nullptr) an
-    // Ort und Stelle (Destroy weiterhin uebersprungen) - kein Absturz ueber
-    // mehrere Laeufe. Der Unterschied ist plausibel kein Zufall: SetEvent()
-    // tauscht nur den registrierten Empfaenger-Zeiger aus, es zerstoert kein
-    // Objekt und raeumt keinen Zustand weg, an dem der SDK-Thread noch
-    // arbeitet - genau das war die gemessene Ursache des Absturzes bei
-    // DestroyMeetingService. Bewusst symmetrisch zu den beiden Reglern oben:
-    // ein registrierter Empfaenger wird IMMER abgemeldet, unabhaengig davon,
-    // ob der zugehoerige Dienst in diesem Lauf noch zerstoert wird.
+    // final-fix-report.md fuer die woertlichen Laeufe): in genau diesem
+    // Zustand (kuenstlich verkuerzte Pumpobergrenze, SDK-Thread nachweislich
+    // noch aktiv) endete der Prozess in Aufgabe 7 GEMESSEN 5/5 mit
+    // 0xC0000005 - NACHGERECHNET (Schluss-Pruefung dieser Runde) auf dem
+    // REGULAEREN Ausstiegsweg NACH einem bereits gesendeten "bye", NICHT
+    // nachweislich in DestroyMeetingService selbst. Dieselbe Messreihe mit
+    // genau diesem SetEvent(nullptr) an Ort und Stelle (Destroy weiterhin
+    // uebersprungen, Ausstieg jetzt ueber TerminateProcess statt "bye")
+    // wiederholt: 10/10 kein Absturz. SetEvent() tauscht nur den
+    // registrierten Empfaenger-Zeiger aus, es zerstoert kein Objekt und
+    // raeumt keinen Zustand weg, an dem der SDK-Thread noch arbeitet - eine
+    // PLAUSIBLE, nicht eine selbststaendig GEMESSENE Begruendung, warum es
+    // hier bleibt und Destroy nicht. Bewusst symmetrisch zu den beiden
+    // Reglern oben: ein registrierter Empfaenger wird IMMER abgemeldet,
+    // unabhaengig davon, ob der zugehoerige Dienst in diesem Lauf noch
+    // zerstoert wird.
     g_meeting->SetEvent(nullptr);
     if (leaveSettled) {
       DestroyMeetingService(g_meeting);
@@ -518,11 +522,15 @@ bool sessionShutdown() {
     }
     // ACHTUNG, ABSICHTLICH KEIN "else": bleibt leaveSettled false, bleibt
     // g_meeting bewusst am Leben (nicht auf nullptr gesetzt, nicht zerstoert)
-    // - DestroyMeetingService waehrend eines NICHT-ruhenden Zustands ist
-    // GENAU der Aufruf, der in Aufgabe 7 GEMESSEN 5/5 mit 0xC0000005 endete.
-    // main() beendet den Prozess in diesem Fall ueber TerminateProcess (siehe
-    // dort), das ueberspringt DLL_PROCESS_DETACH fuer ALLE angehaengten DLLs
-    // - der halb abgebaute Zustand hier wird darum nie sichtbar nachgefragt.
+    // - ein DestroyMeetingService-Aufruf waehrend eines NICHT-ruhenden
+    // Zustands ist GENAU die Lage, in der der Prozess in Aufgabe 7 GEMESSEN
+    // 5/5 mit 0xC0000005 endete (nicht nachweislich IN DestroyMeetingService
+    // selbst, siehe oben - der Abbau wird hier als Vorsichtsmassnahme
+    // uebersprungen, nicht weil DestroyMeetingService selbst als Ursache
+    // belegt waere). main() beendet den Prozess in diesem Fall ueber
+    // TerminateProcess (siehe dort, GEMESSEN 10/10 ohne Absturz), das
+    // ueberspringt DLL_PROCESS_DETACH fuer ALLE angehaengten DLLs - der halb
+    // abgebaute Zustand hier wird darum nie sichtbar nachgefragt.
   }
   if (g_auth != nullptr) {
     // Derselbe Grund wie oben: SetEvent(nullptr) zerstoert nichts, bleibt

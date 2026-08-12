@@ -46,10 +46,14 @@ bool sessionInit();
  * ACHTUNG (Owner-Entscheidung, Abschluss-Sichtung Punkt A): liefert
  * sessionLeave() false (die 5-s-Pumpobergrenze ist abgelaufen, WAEHREND der
  * SDK-Thread nachweislich noch arbeitet), ueberspringt dieser Abbau
- * DestroyMeetingService, DestroyAuthService UND CleanUPSDK - ein Aufruf
- * dieser drei in genau diesem Zustand hat den Prozess in Aufgabe 7 GEMESSEN
- * 5/5 mit 0xC0000005 beendet. Die SetEvent(nullptr)-Abmeldungen laufen
- * TROTZDEM (siehe die Begruendung in session.cpp), sie zerstoeren nichts.
+ * DestroyMeetingService, DestroyAuthService UND CleanUPSDK - in genau diesem
+ * Zustand endete der Prozess in Aufgabe 7 GEMESSEN 5/5 mit 0xC0000005.
+ * NACHGERECHNET (Schluss-Pruefung dieser Runde): der Absturz kam auf dem
+ * REGULAEREN Ausstiegsweg NACH einem bereits gesendeten "bye", NICHT
+ * nachweislich in DestroyMeetingService selbst - das Ueberspringen ist darum
+ * eine begruendete Vorsichtsmassnahme, kein fuer sich gemessener Befund. Die
+ * SetEvent(nullptr)-Abmeldungen laufen TROTZDEM (siehe die Begruendung in
+ * session.cpp), sie zerstoeren nichts.
  * Rueckgabewert: true, wenn der Abbau VOLLSTAENDIG durchgelaufen ist
  * (inklusive der Faelle "kein Meeting"/"kein Auth-Dienst" bzw. "SDK gar
  * nicht hoch"); false, wenn er wegen einer abgelaufenen Leave-Frist
@@ -127,9 +131,12 @@ void sessionJoin(const std::string& meetingIdUtf8, const std::string& passcodeUt
  * er schon beim Eintritt vorlag oder erst die Pumpschleife ihn erreicht hat.
  * false, wenn die 5-s-Pumpobergrenze abgelaufen ist, WAEHREND der SDK-Thread
  * noch arbeitet (dieselbe Zeile, die "leaveTimeout" auf stdout meldet).
- * sessionShutdown() braucht das: DestroyMeetingService waehrend eines
- * NICHT-ruhenden Zustands ist GENAU der Aufruf, der in Aufgabe 7 mit
- * 0xC0000005 endete.
+ * sessionShutdown() braucht das: ein DestroyMeetingService-Aufruf waehrend
+ * eines NICHT-ruhenden Zustands ist GENAU die Lage, in der der Prozess in
+ * Aufgabe 7 GEMESSEN 5/5 mit 0xC0000005 endete - NACHGERECHNET (Schluss-
+ * Pruefung dieser Runde) kam der Absturz auf dem REGULAEREN Ausstiegsweg NACH
+ * einem bereits gesendeten "bye", NICHT nachweislich in DestroyMeetingService
+ * selbst.
  */
 bool sessionLeave();
 

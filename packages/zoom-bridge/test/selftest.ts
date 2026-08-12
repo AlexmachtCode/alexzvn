@@ -740,11 +740,13 @@ console.log('\nbridge - stop() killt einen Prozess, der nicht von selbst geht:')
   // Zeitgeber kann sie noch beenden. killTimeoutMs klein gesetzt, damit die
   // Zusicherung nicht die vollen (vorgegebenen) 8 s abwarten muss - dasselbe
   // Prinzip wie joinTimeoutMs beim Beitritts-Wachhund oben.
+  const events: BridgeEvent[] = [];
   const b = new Bridge({
     exePath: process.execPath,
     exeArgs: [fake],
     env: { FAKE_SCRIPT: 'stuck' },
     killTimeoutMs: 200,
+    onEvent: (e) => events.push(e),
   });
   await b.start();
   await b.waitFor((s) => s.phase === 'inMeeting', 4000);
@@ -755,6 +757,22 @@ console.log('\nbridge - stop() killt einen Prozess, der nicht von selbst geht:')
   assert(
     elapsedMs >= 150 && elapsedMs < 3000,
     `stop() wartet nur bis killTimeoutMs (200ms), nicht bis zur 8000ms-Vorgabe (gemessen: ${elapsedMs}ms)`,
+  );
+  // Schluss-Pruefung IMPORTANT 1, GENAU dieser Aufbau reproduzierte den Fund:
+  // doStop()s kill()-Zweig loest sein eigenes Promise.race SYNCHRON auf
+  // (resolve(-1) direkt nach child.kill()) - this.child wird genullt und
+  // stopPromise im finally auf null gesetzt, BEVOR das ECHTE 'exit'-Ereignis
+  // dieses (jetzt tatsaechlich sterbenden) Kindes eintrifft. Ohne die
+  // this.child===child-Zusatzpruefung im exit-Rueckruf saehe dieser
+  // verspaetete Rueckruf stopPromise===null und meldete EXITED_UNEXPECTEDLY
+  // fuer ein Kind, das WIR selbst abgeschossen haben. stop() ist hier
+  // bereits zurueck (code/elapsedMs oben) - extra warten, damit das
+  // verspaetete echte 'exit' Zeit hat, DOCH noch faelschlich zu feuern, falls
+  // die Korrektur fehlte.
+  await new Promise((r) => setTimeout(r, 500));
+  assert(
+    !events.some((e) => (e as { name?: string }).name === 'EXITED_UNEXPECTEDLY'),
+    'ein per stop() erzwungener kill() meldet KEIN EXITED_UNEXPECTEDLY, obwohl das echte exit-Ereignis dieses Kindes erst NACH stop() eintrifft',
   );
 }
 
@@ -830,11 +848,27 @@ console.log('\nbridge - ein gestorbenes Kind wird gemeldet, ein regulaeres stop(
   // Kindprozess, OHNE bridge.stop() zu rufen - genau der Fall "von selbst
   // gestorben, kein stop() in Arbeit".
   (killed as unknown as { child: { kill(): boolean } }).child.kill();
-  await new Promise((r) => setTimeout(r, 300));
+  await new Promise((r) => setTimeout(r, 500));
   const exitedEvent = killedEvents.find((e) => (e as { name?: string }).name === 'EXITED_UNEXPECTEDLY');
   assert(exitedEvent?.ev === 'error', 'ein von aussen abgeschossenes Kind meldet sich als EXITED_UNEXPECTEDLY');
   assert(killed.session.phase !== 'inMeeting', 'die Phase bleibt NICHT fuer immer auf inMeeting stehen');
-  await killed.stop(); // idempotentes Aufraeumen (this.child ist bereits weg)
+  // Schluss-Pruefung MINOR 7: der exit-Rueckruf nullt this.child jetzt SELBST
+  // (nach der EXITED_UNEXPECTEDLY-Pruefung, siehe bridge.ts) - stop() sieht
+  // darum bereits `!this.child` und kehrt ueber die bestehende Kurzschluss-
+  // Pruefung mit 0 zurueck, ohne noch einmal in ein totes stdin zu schreiben.
+  const code = await killed.stop();
+  assert(code === 0, 'stop() nach einem unerwarteten Tod ist ein echtes Kurzschluss-Aufraeumen (this.child war bereits genullt)');
+  // Direkte Folge, vom Koordinator ausdruecklich verlangt (MINOR 7): OHNE das
+  // Nullen wuerde start()s Wiedereintrittsschutz (Punkt H2) einen Wiederanlauf
+  // nach einem Absturz mit "Bridge laeuft bereits" verweigern, bis irgendwann
+  // stop() gelaufen ist - hier WAR stop() schon gelaufen, die Probe gilt
+  // trotzdem: sie zeigt, dass DER GRUND kein Zufall ist, sondern this.child
+  // wirklich null ist (ein throw waere sonst auch NACH stop() aufgetreten,
+  // haette also nichts bewiesen).
+  await killed.start();
+  await killed.waitFor((s) => s.phase === 'inMeeting', 4000);
+  assert(killed.session.phase === 'inMeeting', 'ein Wiederanlauf nach einem Absturz gelingt, start() wirft NICHT mehr "Bridge laeuft bereits"');
+  await killed.stop();
 
   const cleanEvents: BridgeEvent[] = [];
   const clean = new Bridge({

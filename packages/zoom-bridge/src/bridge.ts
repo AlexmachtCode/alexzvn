@@ -147,31 +147,62 @@ export class Bridge {
     child.stdin.on('error', (e) => this.reportStdinError(e));
 
     this.exitCode = new Promise<number>((resolve) => {
-      child.on('exit', (code) => {
+      child.on('exit', (code, signal) => {
         const exitCode = code ?? 0;
-        // ACHTUNG (Abschluss-Sichtung Punkt E): NUR melden, wenn KEIN stop()
-        // in Arbeit ist - this.stopPromise wird SYNCHRON gesetzt, bevor
-        // stop() ueberhaupt seinen ersten await erreicht (siehe stop()),
-        // damit ist dieser 'exit'-Rueckruf (der immer asynchron, also in
-        // einem SPAETEREN Tick feuert) niemals vor dieser Zuweisung dran.
-        // Endet das Kind waehrend eines LAUFENDEN stop() (regulaeres "quit"
-        // wurde beantwortet, oder der Nachbrenner hat kill() gerufen), ist
-        // das der REGULAERE Abgang - ihn zu melden waere die Kardinalsuende
-        // dieses Vorhabens umgekehrt: der Normalweg wuerde ein Dauerfehler.
-        // Stirbt das Kind dagegen OHNE dass stop() lief (Absturz - Punkt A
-        // zeigt, dass das real ist - oder von aussen abgeschossen), blieb
-        // Session.phase vorher fuer immer auf 'inMeeting' stehen: kein
-        // Ereignis, kein dispatch(), die Bruecke wurde einfach still.
-        if (this.stopPromise === null) {
+        // Abschluss-Sichtung, Schluss-Pruefung MINOR 4: Node meldet bei
+        // einem per Signal beendeten Kind (z. B. kill()) `code === null,
+        // signal !== null` - `code ?? 0` allein macht daraus eine Meldung
+        // "exitCode=0", dieselbe Zahl, die im gesamten Projekt sonst "sauber
+        // beendet" heisst. Fuer die reine Zahl `exitCode` (siehe unten,
+        // `resolve()`) bleibt `0` als Platzhalter unveraendert - NUR der
+        // Text unterscheidet jetzt: bei `code === null` wird das Signal
+        // genannt, sonst der Rueckgabewert.
+        const howEnded = code === null ? `Signal=${signal ?? '(unbekannt)'}` : `exitCode=${exitCode}`;
+        // Abschluss-Sichtung, Schluss-Pruefung IMPORTANT 1 (Punkt E griff auf
+        // dem KILL-Weg falsch): `this.stopPromise === null` allein reicht
+        // NICHT. GEMESSEN (Attrappe `stuck`, killTimeoutMs klein): im
+        // kill()-Zweig von doStop() loest `resolve(-1)` das `Promise.race`
+        // SYNCHRON auf, `this.child = null` und `stopPromise = null` (im
+        // finally von stop()) laufen darum ab, BEVOR das ECHTE `exit`-
+        // Ereignis dieses Kindes eintrifft - dieser Rueckruf saehe dann
+        // `stopPromise === null` und meldete EXITED_UNEXPECTEDLY fuer ein
+        // Kind, das WIR selbst abgeschossen haben. `this.child === child`
+        // zusaetzlich verlangt: im kill()-Fall zeigt `this.child` zu diesem
+        // Zeitpunkt schon auf `null` (oder, nach einem zwischenzeitlichen
+        // neuen start(), auf ein ANDERES Kind) - nie mehr auf `child` selbst,
+        // die Meldung verstummt zu Recht. Im echten Absturzfall (kein stop()
+        // lief) zeigt `this.child` weiterhin auf GENAU dieses `child` - die
+        // Meldung bleibt.
+        const stillTracked = this.child === child;
+        if (this.stopPromise === null && stillTracked) {
           this.dispatch(
             enrich({
               ev: 'error',
               where: 'exit',
               code: 'exited',
-              detail: `Kindprozess unerwartet beendet, exitCode=${exitCode}`,
+              detail: `Kindprozess unerwartet beendet, ${howEnded}`,
             } as WireEvent),
           );
         }
+        // Abschluss-Sichtung, Schluss-Pruefung MINOR 7: `this.child` wird
+        // ERST HIER genullt, NICHT vor der Pruefung oben - sonst schluege
+        // `this.child === child` NIE an und der echte Absturzfall wuerde
+        // ebenfalls verstummen (siehe IMPORTANT 1). Der `stillTracked`-
+        // Wert von OBEN wird wiederverwendet, nicht neu ausgewertet: ein
+        // spaeterer start() koennte `this.child` zwischen den beiden Zeilen
+        // NICHT mehr veraendern (dieser Rueckruf laeuft synchron zu Ende,
+        // bevor JS wieder etwas anderes einschieben kann), die zweite
+        // Auswertung waere also ohnehin dieselbe - die Wiederverwendung
+        // spart nur eine ueberfluessige zweite Objektidentitaetspruefung.
+        // Zweck: nach einem unerwarteten Tod ohne laufendes stop() bleibt
+        // `this.child` sonst NICHT-null stehen (nur der kill()-Weg in
+        // doStop() nullt es) - `start()`s Wiedereintrittsschutz (Punkt H2)
+        // wuerde einen Wiederanlauf nach einem Absturz dann mit "Bridge
+        // laeuft bereits" verweigern, bis irgendwann `stop()` gelaufen ist.
+        // Trifft NICHT zu, wenn `this.child` inzwischen schon ein ANDERES
+        // Kind ist (`stillTracked === false`): dann wuerde das Nullen hier
+        // faelschlich die Referenz auf das NEUE Kind loeschen.
+        if (stillTracked) this.child = null;
         resolve(exitCode);
       });
     });

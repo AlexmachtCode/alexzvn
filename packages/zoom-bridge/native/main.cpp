@@ -34,10 +34,18 @@ std::atomic<bool> g_sdkInitialized{false};
 // Owner-Entscheidung, Abschluss-Sichtung Punkt A: EIGENER, von 0 UND von
 // 0xC0000005/0xC0000409 UNTERSCHIEDLICHER Rueckgabewert fuer den Fall, dass
 // sessionShutdown() false liefert (die 5-s-Leave-Pumpobergrenze lief ab,
-// waehrend der SDK-Thread nachweislich noch arbeitete - session.cpp,
-// GEMESSEN 5/5 mit 0xC0000005, wenn man in diesem Zustand trotzdem
-// DestroyMeetingService riefe, Aufgabe 7). Dokumentiert in README.md,
-// Abschnitt 6 - halte den Wert dort synchron, aendert er sich hier.
+// waehrend der SDK-Thread nachweislich noch arbeitete - session.cpp). In
+// GENAU diesem Zustand endete der Prozess in Aufgabe 7 GEMESSEN 5/5 mit
+// 0xC0000005 - NACHGERECHNET (Schluss-Pruefung dieser Runde): das damalige
+// Protokoll enthielt ein "bye" NACH der leaveTimeout-Zeile, der Abbau war
+// beim Absturz also bereits zurueckgekehrt. Der Absturz kam auf dem
+// REGULAEREN Ausstiegsweg (return 0 -> ExitProcess -> DLL_PROCESS_DETACH),
+// NICHT nachweislich in DestroyMeetingService selbst. Darum zwei getrennte
+// Dinge: den Abbau hier zu ueberspringen ist eine begruendete
+// VORSICHTSMASSNAHME (fuer sich nicht gemessen), TerminateProcess() unten
+// ist der GEMESSENE Teil (10/10 sauber, kein Absturz). Dokumentiert in
+// README.md, Abschnitt 6 - halte den Wert dort synchron, aendert er sich
+// hier.
 constexpr UINT kLeaveNotSettledExitCode = 2;
 
 void readStdin() {
@@ -229,11 +237,15 @@ int main() {
     // Owner-Entscheidung, Abschluss-Sichtung Punkt A: sessionShutdown() hat
     // DestroyMeetingService/DestroyAuthService/CleanUPSDK uebersprungen, weil
     // sessionLeave() false lieferte (5-s-Pumpobergrenze abgelaufen, WAEHREND
-    // der SDK-Thread nachweislich noch arbeitete - dieselbe Lage, die in
-    // Aufgabe 7 DestroyMeetingService mit 0xC0000005 hat abstuerzen lassen,
-    // 5/5 GEMESSEN). "leaveTimeout" steht bereits auf stdout UND stderr
-    // (session.cpp, vor der Rueckkehr aus sessionLeave()) - das ist die
-    // letzte verwertbare Information vor dem Prozessende.
+    // der SDK-Thread nachweislich noch arbeitete - dieselbe Lage, in der der
+    // Prozess in Aufgabe 7 GEMESSEN 5/5 mit 0xC0000005 endete. NACHGERECHNET
+    // (Schluss-Pruefung dieser Runde): das damalige Protokoll enthielt "bye"
+    // NACH der leaveTimeout-Zeile - der Abbau war also bereits zurueckgekehrt,
+    // der Absturz kam auf dem REGULAEREN Ausstiegsweg danach, nicht
+    // nachweislich in DestroyMeetingService selbst (siehe die Konstante
+    // oben). "leaveTimeout" steht bereits auf stdout UND stderr (session.cpp,
+    // vor der Rueckkehr aus sessionLeave()) - das ist die letzte verwertbare
+    // Information vor dem Prozessende.
     //
     // KEIN {"ev":"bye"} hier: das waere eine Luege ueber einen sauberen
     // Abgang, den es in diesem Zweig nicht gab.
@@ -250,6 +262,17 @@ int main() {
     // regulaeren Absturzweg trifft.
     std::fflush(stdout);
     TerminateProcess(GetCurrentProcess(), kLeaveNotSettledExitCode);
+    // ACHTUNG (Schluss-Pruefung, MINOR 3): TerminateProcess() ist dokumentiert
+    // ASYNCHRON und liefert ein BOOL, das absichtlich nicht geprueft wird -
+    // kehrte der Aufruf trotzdem je zurueck (oder schluege er fehl), darf die
+    // Ausfuehrung NICHT in emitRaw("bye")/return 0 unten weiterlaufen, das
+    // sind genau die beiden Dinge, die dieser Zweig verbietet. Eigener Riegel
+    // statt Rueckgabewert-Pruefung: return beendet main() hier auf jeden Fall,
+    // mit demselben Exitcode, den TerminateProcess ohnehin haette setzen
+    // sollen - schlimmstenfalls (TerminateProcess kehrt zurueck) ein
+    // regulaerer ExitProcess-Ausstieg mit kLeaveNotSettledExitCode statt ein
+    // harter Abbruch, nie ein stillschweigendes Durchfallen in den bye-Pfad.
+    return kLeaveNotSettledExitCode;
   }
 
   emitRaw("{\"ev\":\"bye\"}");
