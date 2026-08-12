@@ -53,6 +53,15 @@ export class Bridge {
   // Sache des once('error', reject) unten (eigene, hier nicht angefasste
   // Baustelle - siehe task-10-report.md, "Bedenken").
   private spawned = false;
+  // Das laufende stop()-Versprechen, waehrend ein Abbau IN ARBEIT ist - nicht
+  // "wurde je gerufen". Ein zweiter, GLEICHZEITIGER stop()-Aufruf bekommt
+  // dasselbe Versprechen zurueck, statt selbst noch einmal in child.stdin zu
+  // schreiben (siehe stop() unten, Nachbesserung 2). Wird im finally-Zweig
+  // von stop() wieder auf null gesetzt, sobald der Abbau abgeschlossen ist -
+  // sonst wuerde ein SPAETERER, SEQUENTIELLER stop()-Aufruf faelschlich das
+  // alte (schon aufgeloeste) Versprechen zurueckliefern, statt ueber die
+  // bestehende `if (!this.child) return 0;`-Kurzschluss-Pruefung zu laufen.
+  private stopPromise: Promise<number> | null = null;
   // Kein TS-Konstruktorparameter-Feld (`constructor(private readonly opts...)`):
   // Node's --experimental-strip-types (node:internal/modules/typescript) ist
   // reines Typ-Entfernen, keine Umschreibung - Parameter-Properties brauchen
@@ -91,6 +100,18 @@ export class Bridge {
         (this.opts.onLog ?? ((l: string) => console.error(`[zoom-bridge] ${l}`)))(line);
       }
     });
+
+    // child.stdin ist ein eigener Writable-Strom mit eigenem 'error' - ohne
+    // Lauscher stuerzt der GESAMTE Wirtsprozess ab (Node wirft 'error' ohne
+    // Listener synchron weiter), nicht nur die Bruecke. GEMESSEN: ein write()
+    // NACH end() wirft NICHT synchron (kein try/catch faengt es), sondern
+    // loest asynchron genau dieses 'error' aus (ERR_STREAM_WRITE_AFTER_END) -
+    // exakt der Fall aus zwei gleichzeitigen stop()-Aufrufen, siehe dort. Auch
+    // mit dem Wiedereintritts-Schutz in stop() bleibt EPIPE (das Kind stirbt
+    // mitten im Schreiben) ein zweiter, unabhaengiger Weg zum selben
+    // Symptom - ein Lauscher, der nur den bekannten Weg abdeckt, liesse den
+    // unbekannten offen.
+    child.stdin.on('error', (e) => this.reportStdinError(e));
 
     this.exitCode = new Promise<number>((resolve) => {
       child.on('exit', (code) => resolve(code ?? 0));
@@ -134,6 +155,17 @@ export class Bridge {
   private reportKillFailure(detail: string): void {
     (this.opts.onLog ?? ((l: string) => console.error(`[zoom-bridge] ${l}`)))(`kill() fehlgeschlagen: ${detail}`);
     this.dispatch(enrich({ ev: 'error', where: 'stop', code: 'killFailed', detail } as WireEvent));
+  }
+
+  /**
+   * Meldet einen asynchronen Fehler auf child.stdin (z. B.
+   * ERR_STREAM_WRITE_AFTER_END, EPIPE), statt ihn den Wirtsprozess mitreissen
+   * zu lassen. `where: 'stdin'` grenzt den Ort ab - eine ANDERE Ursache als
+   * killFailed (das misst das TERMINIEREN, dies misst das SENDEN).
+   */
+  private reportStdinError(e: Error): void {
+    (this.opts.onLog ?? ((l: string) => console.error(`[zoom-bridge] ${l}`)))(`stdin-Fehler: ${e.message}`);
+    this.dispatch(enrich({ ev: 'error', where: 'stdin', code: 'stdinError', detail: e.message } as WireEvent));
   }
 
   send(cmd: Command): void {
@@ -201,15 +233,47 @@ export class Bridge {
     }
   }
 
+  /**
+   * ACHTUNG (Nachbesserung 2): gegen Wiedereintritt geschuetzt. Zwei
+   * GLEICHZEITIGE stop()-Aufrufe (z. B. `Promise.all([b.stop(), b.stop()])`,
+   * ein zweimal geklickter Knopf in apps/connect) faengen sonst denselben
+   * `this.child` ein - der erste ruft `child.stdin.end()`, bevor der zweite
+   * drankommt, dessen `child.stdin.write(...)` schreibt dann gegen einen
+   * bereits beendeten Strom. GEMESSEN: das wirft NICHT synchron (kein
+   * try/catch faengt es), sondern loest asynchron ein 'error'
+   * (ERR_STREAM_WRITE_AFTER_END) auf dem stdin-Socket aus - ohne Lauscher
+   * dort stirbt der GESAMTE Wirtsprozess, nicht nur die Bruecke.
+   *
+   * Die Absicherung: der Zustandswechsel (`this.stopPromise = ...`) passiert
+   * hier im SYNCHRONEN Teil, VOR dem ersten `await` - ein zweiter,
+   * gleichzeitiger Aufruf sieht `this.stopPromise` darum bereits gesetzt und
+   * wartet auf DASSELBE Versprechen, statt selbst noch einmal in
+   * child.stdin zu schreiben. Der SEQUENTIELLE Fall bleibt unveraendert:
+   * `stop()` abwarten, dann erneut rufen, liefert weiterhin `0` ueber die
+   * bestehende `if (!this.child) return 0;`-Pruefung, weil `stopPromise` im
+   * finally-Zweig auf `null` zurueckgesetzt wird, sobald der erste Abbau
+   * abgeschlossen ist.
+   */
   async stop(): Promise<number> {
     this.clearWatchdog();
+    if (this.stopPromise) return this.stopPromise;
     if (!this.child) return 0;
-    const child = this.child;
+    this.stopPromise = this.doStop(this.child);
+    try {
+      return await this.stopPromise;
+    } finally {
+      this.stopPromise = null;
+    }
+  }
+
+  private async doStop(child: ChildProcessWithoutNullStreams): Promise<number> {
     try {
       child.stdin.write(serializeCommand({ cmd: 'quit' }));
       child.stdin.end();
     } catch {
-      /* der Prozess ist schon weg */
+      /* der Prozess ist schon weg - der DAUERHAFTE 'error'-Lauscher auf
+         child.stdin faengt einen asynchronen Fehlschlag ab, dieser
+         synchrone Zweig bleibt als zweite, unabhaengige Absicherung stehen */
     }
 
     // Die Zeitgeber-Kennung MUSS festgehalten werden: gewinnt exitCode das

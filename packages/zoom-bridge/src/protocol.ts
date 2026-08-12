@@ -162,6 +162,14 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // killFailed misst das Gegenteil - der Prozess laesst sich am ENDE nicht
   // mehr beenden. Nachbesserung 1 zu Task 10.
   killFailed: 'KILL_FAILED',
+  // Ein ASYNCHRONER 'error' auf dem stdin-Strom des Kindprozesses (z. B.
+  // ERR_STREAM_WRITE_AFTER_END, wenn zwei gleichzeitige stop()-Aufrufe frueher
+  // gegen denselben bereits beendeten Strom schrieben, oder EPIPE, wenn das
+  // Kind mitten im Schreiben stirbt). Eine ANDERE Ursache als killFailed:
+  // killFailed misst das TERMINIEREN (kill() schlaegt fehl), stdinError misst
+  // das SENDEN (ein Schreibversuch schlaegt fehl) - zwei verschiedene
+  // Vorgaenge, die sonst denselben Namen bekaemen. Nachbesserung 2 zu Task 10.
+  stdinError: 'STDIN_ERROR',
 };
 
 export function sdkErrorName(code: number): string {

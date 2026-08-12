@@ -294,6 +294,21 @@ console.log('\nprotocol — Anreicherung:');
     'kill()-Fehlschlag traegt einen anderen Namen als authTimeout, joinTimeout, joinEofTimeout und privilegeEofTimeout',
   );
 
+  // bridge.ts' dauerhafter stdin-Lauscher (Nachbesserung 2): ein asynchroner
+  // Fehler beim SENDEN (write nach end, EPIPE) ist eine ANDERE Ursache als
+  // killFailed (das misst das TERMINIEREN) und erst recht als jede der vier
+  // vorherigen - zwei verschiedene Vorgaenge duerfen nie denselben Namen tragen.
+  const se = enrich({ ev: 'error', where: 'stdin', code: 'stdinError' });
+  assert((se as { name: string }).name === 'STDIN_ERROR', 'ein asynchroner stdin-Fehler traegt STDIN_ERROR');
+  assert(
+    (se as { name: string }).name !== (at as { name: string }).name &&
+      (se as { name: string }).name !== (t as { name: string }).name &&
+      (se as { name: string }).name !== (je as { name: string }).name &&
+      (se as { name: string }).name !== (pe as { name: string }).name &&
+      (se as { name: string }).name !== (kf as { name: string }).name,
+    'stdin-Fehler traegt einen anderen Namen als authTimeout, joinTimeout, joinEofTimeout, privilegeEofTimeout und killFailed',
+  );
+
   const b = enrich({ ev: 'bye' });
   assert(b.ev === 'bye' && Object.keys(b).length === 1, 'was nichts braucht, wird nicht angereichert');
 }
@@ -695,6 +710,74 @@ console.log('\nbridge - eine gescheiterte spawn() ist kein KILL_FAILED:');
   }
   assert(threw, 'start() wirft, wenn die exe nicht existiert');
   assert(!events.some((e) => (e as { name?: string }).name === 'KILL_FAILED'), 'eine gescheiterte spawn() wird NICHT als KILL_FAILED gemeldet');
+}
+
+console.log('\nbridge - zwei gleichzeitige stop()-Aufrufe stuerzen nichts ab:');
+{
+  // Nachbesserung 2: Promise.all([b.stop(), b.stop()]) OHNE Abwarten
+  // dazwischen. Vor der Korrektur fingen beide denselben this.child ein - der
+  // erste rief child.stdin.end(), bevor der zweite drankam, dessen
+  // child.stdin.write(...) schrieb dann gegen einen bereits beendeten Strom.
+  // Das wirft NICHT synchron (kein try/catch faengt es), sondern loest
+  // ASYNCHRON ein 'error' (ERR_STREAM_WRITE_AFTER_END) aus - unbehandelt,
+  // stuerzte das den GESAMTEN Wirtsprozess ab (siehe task-10-report.md fuer
+  // die externe Vorher/Nachher-Messung: ein echter Absturz kann sich nicht
+  // selbst zusichern, darum die Messung in einem eigenen Kindprozess).
+  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'join' } });
+  await b.start();
+  await b.waitFor((s) => s.phase === 'inMeeting', 4000);
+  const [codeA, codeB] = await Promise.all([b.stop(), b.stop()]);
+  assert(codeA === 0 && codeB === 0, 'beide gleichzeitigen Aufrufe liefern dasselbe Ergebnis (0), keiner stuerzt ab');
+}
+
+console.log('\nbridge - stop() bleibt nach dem Abbau idempotent (sequentiell):');
+{
+  // Gegenprobe zum Block oben: der SEQUENTIELLE Fall war schon vorher
+  // richtig und darf es durch die Wiedereintritts-Absicherung nicht
+  // aufhoeren zu sein. 'stuck' + kurzes killTimeoutMs sorgt dafuer, dass der
+  // ERSTE Aufruf NICHT 0 liefert (sondern -1, erzwungener Abbruch, weil sich
+  // die Attrappe nicht von selbst beendet) - so kann eine Mutation, die das
+  // gecachte Versprechen nach Abschluss NICHT zuruecksetzt, den ZWEITEN,
+  // SEQUENTIELLEN Aufruf nicht heimlich denselben (falschen) Wert liefern
+  // lassen wie den ersten. Mit `FAKE_SCRIPT: 'join'` waeren beide Werte
+  // zufaellig gleich (0) gewesen, und die Zusicherung haette diesen Fehler
+  // gar nicht faengen koennen.
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'stuck' },
+    killTimeoutMs: 200,
+  });
+  await b.start();
+  await b.waitFor((s) => s.phase === 'inMeeting', 4000);
+  const first = await b.stop();
+  const second = await b.stop();
+  assert(first === -1, 'der erste Abbau erzwingt kill() (-1), weil sich die Attrappe nicht von selbst beendet');
+  assert(second === 0, 'ein zweiter, SEQUENTIELLER Aufruf danach liefert 0, NICHT den gecachten -1-Wert des ersten');
+}
+
+console.log('\nbridge - ein asynchroner stdin-Fehler verschwindet nicht spurlos:');
+{
+  // Anders als bei KILL_FAILED (Nachbesserung 1) liess sich dieser Ausloeser
+  // ECHT und deterministisch nachstellen (gemessen: write() nach end() wirft
+  // NICHT synchron, loest aber zuverlaessig ein asynchrones 'error' aus) -
+  // kein Reach-around auf eine private Melde-Methode noetig, nur auf das
+  // private child-Feld, um den echten Fehler von aussen auszuloesen.
+  const events: BridgeEvent[] = [];
+  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'join' }, onEvent: (e) => events.push(e) });
+  await b.start();
+  await b.waitFor((s) => s.phase === 'inMeeting', 4000);
+  const child = (b as unknown as { child: { stdin: { end(): void; write(s: string): void } } }).child;
+  child.stdin.end();
+  child.stdin.write('{"cmd":"quit"}\n'); // gegen den bereits beendeten Strom - genau die Lage aus zwei gleichzeitigen stop()-Aufrufen
+  await new Promise((r) => setTimeout(r, 100)); // dem asynchronen 'error' Zeit geben
+  // NICHT events.at(-1): die Attrappe reagiert auf dasselbe end() mit ihrem
+  // eigenen 'bye' (siehe fake-bridge.mjs, process.stdin.on('end', ...)) -
+  // das kann NACH unserem Fehler ankommen. Gesucht wird darum gezielt.
+  const stdinErrorEvent = events.find((e) => (e as { name?: string }).name === 'STDIN_ERROR');
+  assert(stdinErrorEvent?.ev === 'error', 'ein asynchroner stdin-Fehler meldet sich als STDIN_ERROR-Ereignis');
+  assert(b.session.lastError?.name === 'STDIN_ERROR', 'lastError traegt denselben Namen');
+  await b.stop();
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
