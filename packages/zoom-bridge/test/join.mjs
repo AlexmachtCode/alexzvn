@@ -78,13 +78,24 @@ const bridge = new Bridge({
     else if (ev.ev === 'left') console.log(`  - ${ev.id}`);
     else if (ev.ev === 'renamed') console.log(`  ~ ${ev.id} heisst jetzt ${ev.name}`);
     else if (ev.ev === 'privilege') {
-      if (ev.canRecordRaw) console.log('  Rohdaten-Erlaubnis: JA');
+      // Die Herkunft IMMER mitdrucken. GEMESSEN im ersten geglueckten
+      // Owner-Lauf: nach der Freigabe kamen ZWEI Ereignisse (die Antwort auf
+      // das Gesuch und die Rundmeldung) und standen beide als blosses
+      // "Rohdaten-Erlaubnis: JA" da - zwei verschiedene Tatsachen, die auf dem
+      // Bildschirm wie eine doppelt gedruckte Zeile aussahen. Genau dagegen
+      // traegt das Ereignis "source" (Nachbesserung 1, Owner-Entscheidung):
+      // ein Feld, das niemand anzeigt, unterscheidet nichts.
+      const woher =
+        { check: 'eigene Nachfrage', requestAnswer: 'Antwort auf das Gesuch', broadcast: 'Rundmeldung des Gastgebers' }[
+          ev.source
+        ] ?? `unbekannte Herkunft: ${ev.source}`;
+      if (ev.canRecordRaw) console.log(`  Rohdaten-Erlaubnis: JA  (${woher})`);
       // "timedOut" ist eine ANDERE Ursache als "noch keine Antwort" (siehe
       // state.ts, privilegeTimedOut) - wer hier weiter "bitte bestaetigen"
       // liest, wartet auf eine Antwort, die das SDK schon aufgegeben hat.
-      else if (ev.timedOut) console.log('  Rohdaten-Erlaubnis: keine Antwort gekommen (Zeitueberschreitung)');
-      else if (ev.denied) console.log('  Rohdaten-Erlaubnis: ABGELEHNT');
-      else console.log('  Rohdaten-Erlaubnis: fehlt — angefragt, bitte im Zoom-Client bestaetigen');
+      else if (ev.timedOut) console.log(`  Rohdaten-Erlaubnis: keine Antwort gekommen (Zeitueberschreitung)  (${woher})`);
+      else if (ev.denied) console.log(`  Rohdaten-Erlaubnis: ABGELEHNT  (${woher})`);
+      else console.log(`  Rohdaten-Erlaubnis: fehlt — angefragt, bitte im Zoom-Client bestaetigen  (${woher})`);
     } else if (ev.ev === 'error') console.log(`  FEHLER bei ${ev.where}: ${ev.name} (${ev.code})`);
   },
 });
