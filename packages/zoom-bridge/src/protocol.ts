@@ -153,6 +153,15 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   badMeetingId: 'BAD_MEETING_ID',
   spawnFailed: 'SPAWN_FAILED',
   exited: 'EXITED_UNEXPECTEDLY',
+  // bridge.ts' stop()-Nachbrenner: schlaegt das erzwungene kill() fehl (liefert
+  // false zurueck, oder der Kindprozess meldet nachtraeglich ein eigenes
+  // 'error'-Ereignis), darf das nicht spurlos verschwinden - vorher landete
+  // ein solches 'error' in einem laengst aufgeloesten Promise (stiller
+  // Leerlauf). Eine ANDERE Ursache als exited (misst den NORMALEN, von der
+  // Bridge SELBST gemeldeten Abgang) oder spawnFailed (misst den START):
+  // killFailed misst das Gegenteil - der Prozess laesst sich am ENDE nicht
+  // mehr beenden. Nachbesserung 1 zu Task 10.
+  killFailed: 'KILL_FAILED',
 };
 
 export function sdkErrorName(code: number): string {

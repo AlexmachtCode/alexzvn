@@ -280,6 +280,20 @@ console.log('\nprotocol — Anreicherung:');
     'Erlaubnis-EOF-Timeout traegt einen anderen Namen als authTimeout, joinTimeout und joinEofTimeout',
   );
 
+  // bridge.ts' stop()-Nachbrenner (Nachbesserung 1, Befund A): schlaegt das
+  // erzwungene kill() fehl, darf das nicht spurlos verschwinden - eine ANDERE
+  // Ursache als jede der vier oben, denn sie misst das GEGENTEIL vom Start
+  // (spawnFailed/exited): der Prozess laesst sich am ENDE nicht mehr beenden.
+  const kf = enrich({ ev: 'error', where: 'stop', code: 'killFailed' });
+  assert((kf as { name: string }).name === 'KILL_FAILED', 'ein gescheitertes kill() traegt KILL_FAILED');
+  assert(
+    (kf as { name: string }).name !== (at as { name: string }).name &&
+      (kf as { name: string }).name !== (t as { name: string }).name &&
+      (kf as { name: string }).name !== (je as { name: string }).name &&
+      (kf as { name: string }).name !== (pe as { name: string }).name,
+    'kill()-Fehlschlag traegt einen anderen Namen als authTimeout, joinTimeout, joinEofTimeout und privilegeEofTimeout',
+  );
+
   const b = enrich({ ev: 'bye' });
   assert(b.ev === 'bye' && Object.keys(b).length === 1, 'was nichts braucht, wird nicht angereichert');
 }
@@ -598,11 +612,89 @@ console.log('\nbridge - der Wachhund faengt den Haenger:');
 
 console.log('\nbridge - kaputte Zeilen reissen nichts ab:');
 {
-  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'messy' } });
+  // Nachbesserung 1, Befund C: nicht nur PRUEFEN, dass inMeeting trotz Muell
+  // erreicht wird, sondern auch ZUSICHERN, dass die unlesbare Zeile wirklich
+  // GEMELDET wird (onLog), statt nur als Konsolenzeile sichtbar zu sein. Das
+  // echte SDK schreibt von sich aus fremde Zeilen (z. B. getServiceHub) auf
+  // stdout - fremde Zeilen sind hier der NORMALFALL, nicht die Ausnahme.
+  const logs: string[] = [];
+  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'messy' }, onLog: (l) => logs.push(l) });
   await b.start();
   await b.waitFor((s) => s.phase === 'inMeeting', 4000);
   assert(b.session.phase === 'inMeeting', 'trotz halber Zeile und Muell wird inMeeting erreicht');
+  assert(logs.some((l) => l.includes('das hier ist kein json')), 'die unlesbare Zeile wird ueber onLog gemeldet, nicht nur uebersprungen');
   await b.stop();
+}
+
+console.log('\nbridge - stop() killt einen Prozess, der nicht von selbst geht:');
+{
+  // Nachbesserung 1, Befund A (Teil 1): die Attrappe 'stuck' reagiert auf
+  // GAR NICHTS (kein quit, kein stdin-EOF) - nur stop()s Nachbrenner-
+  // Zeitgeber kann sie noch beenden. killTimeoutMs klein gesetzt, damit die
+  // Zusicherung nicht die vollen (vorgegebenen) 8 s abwarten muss - dasselbe
+  // Prinzip wie joinTimeoutMs beim Beitritts-Wachhund oben.
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'stuck' },
+    killTimeoutMs: 200,
+  });
+  await b.start();
+  await b.waitFor((s) => s.phase === 'inMeeting', 4000);
+  const startedStop = Date.now();
+  const code = await b.stop();
+  const elapsedMs = Date.now() - startedStop;
+  assert(code === -1, 'stop() meldet den erzwungenen Abbruch (-1), nicht den Attrappen-Exitcode');
+  assert(
+    elapsedMs >= 150 && elapsedMs < 3000,
+    `stop() wartet nur bis killTimeoutMs (200ms), nicht bis zur 8000ms-Vorgabe (gemessen: ${elapsedMs}ms)`,
+  );
+}
+
+console.log('\nbridge - ein gescheitertes kill() verschwindet nicht spurlos:');
+{
+  // Nachbesserung 1, Befund A (Teil 2): ein ECHTES fehlgeschlagenes kill()
+  // gegen einen LEBENDEN Kindprozess liess sich auf dieser Plattform nicht
+  // deterministisch erzwingen (siehe task-10-report.md: kill() gegen einen
+  // bereits beendeten Prozess liefert lediglich `false` OHNE ein 'error'-
+  // Ereignis - und genau dieser Fall ist in stop()s eigenem Promise.race gar
+  // nicht erreichbar, weil exitCode dann laengst gewonnen haette). Getestet
+  // wird darum die Melde-Methode selbst (reportKillFailure), ueber die BEIDE
+  // echten Ausloeser laufen: kill()===false in stop(), und das dauerhafte
+  // 'error' in start(). Direkter Zugriff auf die private Methode, weil der
+  // oeffentliche Weg dorthin (ein echter kill()-Fehlschlag) nicht reproduzierbar war.
+  const events: BridgeEvent[] = [];
+  const b = new Bridge({ exePath: process.execPath, exeArgs: [fake], env: { FAKE_SCRIPT: 'join' }, onEvent: (e) => events.push(e) });
+  await b.start();
+  await b.waitFor((s) => s.phase === 'inMeeting', 4000);
+  (b as unknown as { reportKillFailure(detail: string): void }).reportKillFailure('Testausloeser (kein echter Fehlschlag)');
+  const last = events.at(-1);
+  assert(last?.ev === 'error' && (last as { name?: string }).name === 'KILL_FAILED', 'ein gescheitertes kill() meldet sich als KILL_FAILED-Ereignis');
+  assert(b.session.phase === 'error', 'die Sitzung wechselt in die Fehlerphase');
+  assert(b.session.lastError?.name === 'KILL_FAILED', 'lastError traegt denselben Namen');
+  await b.stop();
+}
+
+console.log('\nbridge - eine gescheiterte spawn() ist kein KILL_FAILED:');
+{
+  // Eigene Absicherung, waehrend Nachbesserung 1s Befund A umgesetzt wurde
+  // (nicht vom Koordinator verlangt, aber eine direkte Folge des dauerhaften
+  // child.on('error', ...)-Listeners): der laeuft ab jetzt fuer die GESAMTE
+  // Lebensdauer, auch waehrend spawn() selbst noch scheitern kann - ohne die
+  // this.spawned-Weiche in bridge.ts wuerde eine gescheiterte spawn() (Start)
+  // faelschlich als killFailed (Beenden) gemeldet. Zwei verschiedene
+  // Ursachen, die dann denselben Namen bekaemen - genau der Fehler, den
+  // dieses Vorhaben ueberall sonst vermeidet.
+  const events: BridgeEvent[] = [];
+  const b = new Bridge({ exePath: join(testDir, 'datei-die-es-nicht-gibt.exe'), onEvent: (e) => events.push(e) });
+  let threw = false;
+  try {
+    await b.start();
+  } catch {
+    threw = true;
+  }
+  assert(threw, 'start() wirft, wenn die exe nicht existiert');
+  assert(!events.some((e) => (e as { name?: string }).name === 'KILL_FAILED'), 'eine gescheiterte spawn() wird NICHT als KILL_FAILED gemeldet');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
