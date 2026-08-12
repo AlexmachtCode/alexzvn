@@ -142,6 +142,19 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // misst hier in bridge.ts, ob je ein Endzustand erreicht wird). Aus Task 7
   // zurueckgestellt, hier nachgetragen (Task 8).
   joinEofTimeout: 'JOIN_EOF_TIMEOUT',
+  // bridge.ts' Wachhund fuer eine Verbindungsphase, die NACH einem bereits
+  // ruhenden Zustand wieder aufgeht - eine ANDERE Ursache als joinTimeout:
+  // der misst den ERSTEN Beitritt (kam je eine Antwort?), dieser hier misst
+  // ein WIEDERANKOPPELN (die Antwort war da, die Verbindung ist wieder weg).
+  // GEMESSEN in der Owner-Abnahme, und zwar auf dem NORMALWEG mit Warteraum:
+  // connecting -> waitingRoom -> reconnecting -> connecting -> inMeeting. Der
+  // Warteraum ist ein RUHENDER Zustand (zu Recht: auf die Frage "ist der
+  // Beitritt beantwortet?" ist er eine Antwort) und schaltet den
+  // Beitritts-Wachhund ab - die zweite Verbindungsphase beim Einlass stand
+  // danach voellig unbewacht da. Ein Haenger dort waere still geblieben,
+  // genau der 90-Sekunden-Fall aus dem Stage-0-Spike, nur eine Station
+  // spaeter.
+  reconnectTimeout: 'RECONNECT_TIMEOUT',
   // Der native EOF-Wachhund fuer eine offene Aufnahme-Erlaubnis-Anfrage
   // (main.cpp, sessionPrivilegePending()) - RequestLocalRecordingPrivilege()
   // beantwortet sich ASYNCHRON ueber onLocalRecordingPrivilegeRequestStatus,

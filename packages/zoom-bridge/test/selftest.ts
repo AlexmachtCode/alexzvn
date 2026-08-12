@@ -717,6 +717,65 @@ console.log('\nbridge - der Wachhund faengt den Haenger:');
   await b.stop();
 }
 
+console.log('\nbridge - der Wachhund schlaeft nach dem Warteraum NICHT ein:');
+{
+  // GEMESSEN in der Owner-Abnahme, auf dem Normalweg mit Warteraum:
+  // connecting -> waitingRoom -> reconnecting -> connecting -> inMeeting.
+  // `waitingRoom` ist ruhend und schaltet den Beitritts-Wachhund ab - die
+  // zweite Verbindungsphase beim Einlass stand danach unbewacht da. Haenge
+  // sie, bliebe es still.
+  const errors: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'admitstuck' },
+    joinTimeoutMs: 400,
+    onEvent: (e) => {
+      if (e.ev === 'error') errors.push(e);
+    },
+  });
+  await b.start();
+  b.send({ cmd: 'join', meetingId: '1', passcode: '', displayName: 'JM Connect' });
+  await b.waitFor((s) => s.phase === 'error', 4000);
+  assert(errors.length === 1, 'genau ein Fehler');
+  // Der NAME ist der eigentliche Prueffall: JOIN_TIMEOUT hiesse, der Beitritt
+  // haette nie geantwortet - er hat aber geantwortet, naemlich "Warteraum".
+  assert(errors[0]?.name === 'RECONNECT_TIMEOUT', 'und zwar RECONNECT_TIMEOUT, nicht JOIN_TIMEOUT');
+  assert((errors[0] as { where?: string }).where === 'meeting', 'der Ort ist die laufende Verbindung, nicht der Beitritt');
+  assert(
+    (errors[0] as { lastStatus?: string }).lastStatus === 'reconnecting',
+    'der Fehler nennt den zuletzt gesehenen Status',
+  );
+  await b.stop();
+}
+
+console.log('\nbridge - ein ordentlicher Abgang loest KEINEN Wachhund aus:');
+{
+  // Gegenprobe zum Fall darueber, und der Grund, warum nur connecting und
+  // reconnecting scharf stellen: 'disconnecting' und das darauf folgende
+  // 'idle' sind ebenfalls NICHT ruhend. Ein Wachhund, der auf sie anspringt,
+  // meldete nach JEDEM sauber verlassenen Meeting einen Fehler - ein
+  // Daueralarm misst nichts. Kein join-Befehl hier: der Abgang soll fuer sich
+  // stehen.
+  const errors: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'leftclean' },
+    joinTimeoutMs: 200,
+    onEvent: (e) => {
+      if (e.ev === 'error') errors.push(e);
+    },
+  });
+  await b.start();
+  await b.waitFor((s) => s.meeting === 'idle' && s.phase === 'left', 4000);
+  // Laenger warten als joinTimeoutMs: waere faelschlich scharf gestellt
+  // worden, muesste der Wachhund in dieser Spanne zuschlagen.
+  await new Promise((r) => setTimeout(r, 600));
+  assert(errors.length === 0, 'kein einziger Fehler nach einem vollstaendigen, sauberen Abgang');
+  await b.stop();
+}
+
 console.log('\nbridge - kaputte Zeilen reissen nichts ab:');
 {
   // Nachbesserung 1, Befund C: nicht nur PRUEFEN, dass inMeeting trotz Muell

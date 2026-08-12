@@ -260,7 +260,7 @@ export class Bridge {
 
   send(cmd: Command): void {
     if (!this.child) throw new Error('Bridge laeuft nicht.');
-    if (cmd.cmd === 'join') this.armWatchdog();
+    if (cmd.cmd === 'join') this.armWatchdog('joinTimeout');
     this.child.stdin.write(serializeCommand(cmd));
   }
 
@@ -269,7 +269,7 @@ export class Bridge {
    * kommt sofort, und genau dort hing der Stage-0-Spike 90 Sekunden. Er laeuft
    * gegen das Erreichen eines RUHENDEN Zustands (isSettled).
    */
-  private armWatchdog(): void {
+  private armWatchdog(code: 'joinTimeout' | 'reconnectTimeout'): void {
     this.clearWatchdog();
     const ms = this.opts.joinTimeoutMs ?? 30_000;
     this.joinTimer = setTimeout(() => {
@@ -287,7 +287,17 @@ export class Bridge {
       // die Zusicherung "und zwar JOIN_TIMEOUT" ROT (name ist undefined statt
       // 'JOIN_TIMEOUT') - das ist der Beleg, dass die Zusicherung diesen
       // Fehler wirklich faengt, nicht nur, dass sie ihn nicht ausschliesst.
-      this.dispatch(enrich({ ev: 'error', where: 'join', code: 'joinTimeout', lastStatus: this.state.meeting } as WireEvent));
+      this.dispatch(
+        enrich({
+          ev: 'error',
+          // Der Ort folgt der Ursache: der erste Beitritt ist 'join', ein
+          // Wiederankoppeln nach einem bereits ruhenden Zustand ist die
+          // laufende Meeting-Verbindung.
+          where: code === 'joinTimeout' ? 'join' : 'meeting',
+          code,
+          lastStatus: this.state.meeting,
+        } as WireEvent),
+      );
     }, ms);
     this.joinTimer.unref?.();
   }
@@ -309,7 +319,40 @@ export class Bridge {
   }
 
   private dispatch(ev: BridgeEvent): void {
-    if (ev.ev === 'status' && isSettled((ev as { status: Session['meeting'] }).status)) this.clearWatchdog();
+    if (ev.ev === 'status') {
+      const status = (ev as { status: Session['meeting'] }).status;
+      if (isSettled(status)) this.clearWatchdog();
+      // GEMESSEN in der Owner-Abnahme, auf dem NORMALWEG mit Warteraum:
+      // connecting -> waitingRoom -> reconnecting -> connecting -> inMeeting.
+      // `waitingRoom` ist ruhend und schaltet den Beitritts-Wachhund oben ab -
+      // die zweite Verbindungsphase beim Einlass stand danach unbewacht da.
+      // Hier wird wieder scharfgestellt, mit EIGENEM Namen (reconnectTimeout,
+      // siehe OWN_ERROR_NAMES): der erste Beitritt und ein Wiederankoppeln
+      // sind zwei verschiedene Ursachen.
+      //
+      // NUR fuer connecting/reconnecting, ABSICHTLICH NICHT fuer die uebrigen
+      // nicht-ruhenden Zustaende:
+      //   disconnecting - das ist der ABGANG, und den bewacht bereits
+      //                   sessionLeave()s 5-s-Pumpobergrenze im nativen Teil
+      //                   (leaveTimeout). Ein zweiter Wachhund waere ein
+      //                   ZWEITER Name fuer dieselbe Ursache.
+      //   idle          - niemand wartet auf etwas. `idle` folgt regelmaessig
+      //                   auf ein sauber beendetes Meeting; ein Wachhund
+      //                   darauf wuerde nach jedem ordentlichen Abgang einen
+      //                   Fehler melden - ein Daueralarm, der nichts misst.
+      //
+      // `this.joinTimer === null` ist tragend, nicht bloss sparsam: ein
+      // laufender Wachhund darf NICHT neu gestartet werden. Sonst schoebe
+      // jedes wiederholte `connecting` die Frist weiter nach hinten, und eine
+      // Bruecke, die alle paar Sekunden `connecting` meldet und nie ankommt,
+      // liefe fuer immer - genau der Haenger, den dieser Wachhund faengt.
+      // Zweite Wirkung: der vom Beitritt scharfgestellte Wachhund behaelt
+      // seinen Namen JOIN_TIMEOUT, weil das nachfolgende `connecting` ihn
+      // nicht ersetzt.
+      else if ((status === 'connecting' || status === 'reconnecting') && this.joinTimer === null) {
+        this.armWatchdog('reconnectTimeout');
+      }
+    }
     this.state = reduce(this.state, ev);
     this.opts.onEvent?.(ev, this.state);
   }

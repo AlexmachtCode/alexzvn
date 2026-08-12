@@ -27,6 +27,42 @@ const scripts = {
     say({ ev: 'status', status: 'connecting', raw: 1, code: 0 });
     // und dann Schweigen.
   },
+  // Der Warteraum-Fall aus der Owner-Abnahme, an der entscheidenden Stelle
+  // angehalten: der Beitritt IST beantwortet (waitingRoom ist ruhend und
+  // schaltet den Beitritts-Wachhund ab), danach geht die Verbindung beim
+  // Einlass wieder auf - und dann kommt nichts mehr. Genau die Luecke, die
+  // reconnectTimeout schliesst.
+  admitstuck: () => {
+    say({ ev: 'ready', sdkVersion: '7.1.5 (attrappe)' });
+    say({ ev: 'auth', code: 0 });
+    // WARTET auf den join-Befehl, statt die Statusfolge sofort abzufeuern.
+    // Tragend fuer die Aussagekraft dieses Falls: den Beitritts-Wachhund
+    // stellt erst send({cmd:'join'}) scharf. Kaeme die Folge davor, liefe beim
+    // 'reconnecting' schon ein Wachhund, den der join-Befehl danach neu
+    // stellte - der Test maesse dann JOIN_TIMEOUT statt RECONNECT_TIMEOUT,
+    // und zwar je nach Prozessstart mal so, mal so. Das Original verhaelt
+    // sich ohnehin so herum: Statusmeldungen gibt es erst nach einem Beitritt.
+    process.stdin.on('data', (d) => {
+      if (!String(d).includes('"join"')) return;
+      say({ ev: 'status', status: 'connecting', raw: 1, code: 0 });
+      say({ ev: 'status', status: 'waitingRoom', raw: 6, code: 0 });
+      say({ ev: 'status', status: 'reconnecting', raw: 7, code: 0 });
+      // und dann Schweigen.
+    });
+  },
+  // Ein ORDENTLICHER Abgang, vollstaendig bis zum Schluss - einschliesslich
+  // des 'idle', das dem beendeten Meeting folgt. Gegenprobe zu admitstuck:
+  // hier darf KEIN Wachhund anspringen. Ein Wachhund, der auf disconnecting
+  // oder idle anschlaegt, machte aus jedem sauberen Abgang einen Fehler.
+  leftclean: () => {
+    say({ ev: 'ready', sdkVersion: '7.1.5 (attrappe)' });
+    say({ ev: 'auth', code: 0 });
+    say({ ev: 'status', status: 'connecting', raw: 1, code: 0 });
+    say({ ev: 'status', status: 'inMeeting', raw: 3, code: 0 });
+    say({ ev: 'status', status: 'disconnecting', raw: 4, code: 0 });
+    say({ ev: 'status', status: 'ended', raw: 8, code: 0 });
+    say({ ev: 'status', status: 'idle', raw: 0, code: 0 });
+  },
   // Halbe Zeilen und Muell dazwischen.
   messy: () => {
     process.stdout.write('{"ev":"re');

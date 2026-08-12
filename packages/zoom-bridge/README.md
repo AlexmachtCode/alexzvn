@@ -152,7 +152,18 @@ mit Namen — die Reihenfolge herzustellen ist Sache der aufrufenden Seite
 | `error` | Eine benannte Ursache (`where`, `code`, angereichert zu `name`) — nie ein stiller Abbruch. |
 | `bye` | `zoom-bridge.exe` beendet sich sauber (siehe Ausnahme unten). |
 
-Die Namen (`AUTHRET_…`, `SDKERR_…`, eigene Namen wie `JOIN_TIMEOUT`, `LEAVE_TIMEOUT`) entstehen
+**Zwei Wachhunde, zwei Namen.** `JOIN_TIMEOUT` meldet, dass der **erste** Beitritt
+nie eine Antwort gebracht hat. `RECONNECT_TIMEOUT` meldet, dass die Verbindung
+**nach** einem bereits ruhenden Zustand wieder aufging und nicht zurückfand. Das
+ist kein Sonderfall: mit aktiviertem Warteraum ist `connecting → waitingRoom →
+reconnecting → connecting → inMeeting` der **Normalweg** (in der Owner-Abnahme in
+jedem Lauf gemessen). Der Warteraum ist ruhend und schaltet den ersten Wachhund
+ab — ohne den zweiten stünde die Einlassphase unbewacht da. Scharf gestellt wird
+nur bei `connecting`/`reconnecting`: `disconnecting` bewacht bereits
+`leaveTimeout` im nativen Teil, und `idle` folgt jedem sauber beendeten Meeting —
+ein Wachhund darauf wäre ein Daueralarm.
+
+Die Namen (`AUTHRET_…`, `SDKERR_…`, eigene Namen wie `JOIN_TIMEOUT`, `RECONNECT_TIMEOUT`, `LEAVE_TIMEOUT`) entstehen
 NICHT nativ, sondern ausschließlich in `src/protocol.ts` (`enrich()`) — auf der
 Leitung stehen nur Zahlen bzw. eigene Schlüssel wie `joinTimeout`, `leaveTimeout`.
 
