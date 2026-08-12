@@ -356,7 +356,7 @@ console.log('\nprotocol — Meeting-Nummer aufraeumen:');
   assert(normalizeMeetingId('11122223333') === '11122223333', 'reine Ziffern bleiben');
   let threw = false;
   try {
-    normalizeMeetingId('830abc8134');
+    normalizeMeetingId('111abc3333');
   } catch {
     threw = true;
   }
