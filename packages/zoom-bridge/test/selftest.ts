@@ -284,6 +284,30 @@ console.log('\nprotocol — Anreicherung:');
   assert(b.ev === 'bye' && Object.keys(b).length === 1, 'was nichts braucht, wird nicht angereichert');
 }
 
+console.log('\nprotocol - privilege traegt seine Ursache (source):');
+{
+  // Drei verschiedene Ursachen im nativen Teil koennen dieselbe Kombination
+  // aus ev/canRecordRaw melden (Nachbesserung 1, Befund A) - "source"
+  // unterscheidet sie. Erst ueber parseWireEvent lesen (wie die Bridge es
+  // tatsaechlich empfangen wuerde), dann pruefen, dass enrich() das Feld
+  // unveraendert durchreicht (enrich() fasst 'privilege' nicht eigens an).
+  const broadcast = parseWireEvent('{"ev":"privilege","canRecordRaw":true,"source":"broadcast"}');
+  const requestAnswer = parseWireEvent('{"ev":"privilege","canRecordRaw":true,"source":"requestAnswer"}');
+  const check = parseWireEvent('{"ev":"privilege","canRecordRaw":true,"source":"check"}');
+  assert((broadcast as { source: string } | null)?.source === 'broadcast', 'ein Rundruf traegt source:broadcast');
+  assert((requestAnswer as { source: string } | null)?.source === 'requestAnswer', 'eine Gesuchsantwort traegt source:requestAnswer');
+  assert((check as { source: string } | null)?.source === 'check', 'eine Sofortpruefung traegt source:check');
+  assert(
+    (broadcast as { source: string }).source !== (requestAnswer as { source: string }).source &&
+      (requestAnswer as { source: string }).source !== (check as { source: string }).source &&
+      (broadcast as { source: string }).source !== (check as { source: string }).source,
+    'alle drei source-Werte sind paarweise verschieden - drei Ursachen, drei Namen',
+  );
+
+  const enrichedCheck = enrich(check!);
+  assert((enrichedCheck as { source: string }).source === 'check', 'enrich() reicht source unveraendert durch');
+}
+
 console.log('\nprotocol — Befehle schreiben:');
 {
   assert(serializeCommand({ cmd: 'init' }) === '{"cmd":"init"}\n', 'init endet mit genau einem Zeilenumbruch');
@@ -363,12 +387,47 @@ console.log('\nstate — Erlaubnis kommt verspaetet:');
 {
   const s = run([
     { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
-    { ev: 'privilege', canRecordRaw: false, requested: true },
-    { ev: 'privilege', canRecordRaw: true },
+    { ev: 'privilege', canRecordRaw: false, source: 'check', requested: true },
+    { ev: 'privilege', canRecordRaw: true, source: 'requestAnswer' },
   ]);
   assert(s.canRecordRaw === true, 'nach der Freigabe darf aufgenommen werden');
   assert(s.privilegeRequested === true, 'dass gefragt wurde, bleibt sichtbar');
   assert(s.phase === 'inMeeting', 'die fehlende Erlaubnis war nie ein Fehler');
+}
+
+console.log('\nstate - Zeitueberschreitung ist ENDGUELTIG, "gerade gefragt" ist es NICHT:');
+{
+  // Vorher (bis Nachbesserung 1) waren diese beiden nativen Zeilen byte-gleich
+  // - {"canRecordRaw":false,"requested":true} - obwohl der eine Zustand
+  // VORUEBERGEHEND ist (Antwort steht noch aus, checkPrivilege()) und der
+  // andere ENDGUELTIG (das SDK hat aufgegeben, onLocalRecordingPrivilegeRequestStatus
+  // im Timeout-Zweig). Wer auf "die Antwort steht noch aus" wartet, wuerde bei
+  // einer Zeitueberschreitung ohne diese Unterscheidung fuer immer warten.
+  const pending = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'privilege', canRecordRaw: false, source: 'check', requested: true },
+  ]);
+  assert(pending.privilegeTimedOut === false, 'gerade erst gefragt: NICHT als endgueltig aufgegeben markiert');
+  assert(pending.privilegeRequested === true, 'gerade erst gefragt: das Gesuch selbst ist trotzdem sichtbar');
+
+  const timedOut = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'privilege', canRecordRaw: false, source: 'requestAnswer', requested: true, timedOut: true },
+  ]);
+  assert(timedOut.privilegeTimedOut === true, 'Zeitueberschreitung: ENDGUELTIG als "keine Antwort mehr" markiert');
+  assert(timedOut.privilegeRequested === true, 'Zeitueberschreitung: das Gesuch selbst bleibt sichtbar');
+  assert(timedOut.phase !== 'error', 'eine Zeitueberschreitung ist weiterhin kein Fehler (Timeout ist keine Ablehnung)');
+
+  // Eine SPAETERE, erfolgreiche Antwort hebt eine fruehere Zeitueberschreitung
+  // wieder auf - privilegeTimedOut spiegelt das ZULETZT verarbeitete Ereignis,
+  // genau wie canRecordRaw, nicht eine einmal gesetzte Flagge fuer immer.
+  const recovered = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'privilege', canRecordRaw: false, source: 'requestAnswer', requested: true, timedOut: true },
+    { ev: 'privilege', canRecordRaw: true, source: 'broadcast' },
+  ]);
+  assert(recovered.privilegeTimedOut === false, 'eine spaetere Freigabe hebt eine fruehere Zeitueberschreitung auf');
+  assert(recovered.canRecordRaw === true, 'und die Freigabe selbst ist angekommen');
 }
 
 console.log('\nstate — Teilnehmer kommen, heissen anders, gehen:');

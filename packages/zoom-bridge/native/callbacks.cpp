@@ -131,7 +131,15 @@ void ParticipantsListener::onUserNamesChanged(IList<unsigned int>* ids) {
 }
 
 void RecordingListener::onRecordPrivilegeChanged(bool bCanRec) {
-  emitRaw(std::string("{\"ev\":\"privilege\",\"canRecordRaw\":") + (bCanRec ? "true" : "false") + "}");
+  // Unaufgeforderter Rundruf des Reglers - eine ANDERE Ursache als eine
+  // Antwort auf UNSER Gesuch (onLocalRecordingPrivilegeRequestStatus unten)
+  // oder die synchrone Sofortpruefung (checkPrivilege() in session.cpp). Drei
+  // Ursachen koennen `canRecordRaw:true` melden, byte-gleich bis auf dieses
+  // Feld - "source" unterscheidet sie (Nachbesserung 1, Owner-Entscheidung:
+  // Befund A). Vergeben auch im false-Fall, damit das Feld nie mal da ist und
+  // mal nicht.
+  emitRaw(std::string("{\"ev\":\"privilege\",\"canRecordRaw\":") + (bCanRec ? "true" : "false") +
+          ",\"source\":\"broadcast\"}");
 }
 
 void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecordingStatus status) {
@@ -143,15 +151,23 @@ void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecor
   sessionPrivilegeAnswered();
 
   if (status == RequestLocalRecording_Granted) {
-    emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true}");
+    emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true,\"source\":\"requestAnswer\"}");
     return;
   }
   if (status == RequestLocalRecording_Denied) {
-    emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"denied\":true}");
+    emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"source\":\"requestAnswer\",\"denied\":true}");
     return;
   }
   // Timeout ist KEIN Beweis fuer eine Ablehnung - es kam nur keine Antwort.
   // Deshalb ausdruecklich nicht als `denied` melden.
-  emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"requested\":true}");
+  //
+  // "timedOut":true unterscheidet diese ENDGUELTIGE Zeile von der
+  // VORUEBERGEHENDEN "gerade gefragt, Antwort steht noch aus"-Zeile aus
+  // checkPrivilege() (session.cpp) - beide waren vorher byte-gleich
+  // ({"canRecordRaw":false,"requested":true}), obwohl der eine Zustand
+  // fuer immer gilt und der andere sich noch aendern kann. Wer auf die
+  // vorherige Zeile wartet, wuerde ohne dieses Feld beim Timeout fuer immer
+  // warten (Nachbesserung 1, Owner-Entscheidung: Befund B).
+  emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"source\":\"requestAnswer\",\"requested\":true,\"timedOut\":true}");
   emitLog(L"Keine Antwort auf die Anfrage nach lokaler Aufnahme (Zeitueberschreitung).");
 }

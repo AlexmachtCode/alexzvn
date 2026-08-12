@@ -48,7 +48,27 @@ export type WireEvent =
   | { ev: 'joined'; p: Participant }
   | { ev: 'left'; id: number }
   | { ev: 'renamed'; id: number; name: string }
-  | { ev: 'privilege'; canRecordRaw: boolean; requested?: boolean; denied?: boolean }
+  // "source" ist PFLICHT, nicht optional: drei verschiedene Ursachen im
+  // nativen Teil (callbacks.cpp/session.cpp) koennen dieselbe Kombination aus
+  // ev/canRecordRaw melden - ein unaufgeforderter Rundruf des Reglers
+  // ("broadcast"), die Antwort auf UNSER eigenes Gesuch ("requestAnswer")
+  // oder eine synchrone Sofortpruefung, bevor ueberhaupt gefragt wurde
+  // ("check"). Ein Feld, das mal da ist und mal nicht, ist die naechste
+  // Falle - deshalb immer vergeben, auch wenn canRecordRaw false ist.
+  // "timedOut" unterscheidet die ENDGUELTIGE "es kommt keine Antwort mehr"
+  // -Zeile von der VORUEBERGEHENDEN "gerade gefragt, Antwort steht noch aus"
+  // -Zeile - beide waren vorher byte-gleich
+  // ({"canRecordRaw":false,"requested":true}), obwohl der eine Zustand fuer
+  // immer gilt und der andere sich noch aendern kann (Nachbesserung 1,
+  // Owner-Entscheidung: Befund A + B).
+  | {
+      ev: 'privilege';
+      canRecordRaw: boolean;
+      source: 'broadcast' | 'requestAnswer' | 'check';
+      requested?: boolean;
+      denied?: boolean;
+      timedOut?: boolean;
+    }
   | { ev: 'error'; where: string; code: number | string }
   | { ev: 'bye' }
   | { ev: string; [k: string]: unknown };

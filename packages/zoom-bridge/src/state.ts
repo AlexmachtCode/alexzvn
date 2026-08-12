@@ -8,6 +8,20 @@ export interface Session {
   participants: Map<number, Participant>;
   canRecordRaw: boolean;
   privilegeRequested: boolean;
+  /**
+   * ENDGUELTIG "es kommt keine Antwort mehr" - im Unterschied zu
+   * privilegeRequested, das nur heisst "wir haben je gefragt" und weder
+   * "die Antwort steht noch aus" noch "sie kommt nie mehr" unterscheidet.
+   * Spiegelt IMMER das ZULETZT verarbeitete privilege-Ereignis (wie
+   * canRecordRaw): ein spaeteres, nicht-timedOut Ereignis (Freigabe per
+   * broadcast, ein erneutes Gesuch nach Wiederverbindung, ...) setzt es
+   * wieder zurueck - die alte Zeitueberschreitung gilt dann nicht mehr als
+   * letztes Wort. Ohne dieses Feld war "requested:true" fuer BEIDE Faelle
+   * ("Antwort steht aus" und "SDK hat aufgegeben") gleich - wer auf eine
+   * Antwort wartet, haette bei einer Zeitueberschreitung fuer immer
+   * gewartet (Nachbesserung 1, Owner-Entscheidung: Befund B).
+   */
+  privilegeTimedOut: boolean;
   lastError: { where: string; code: number | string; name: string } | null;
 }
 
@@ -18,6 +32,7 @@ export function initialSession(): Session {
     participants: new Map(),
     canRecordRaw: false,
     privilegeRequested: false,
+    privilegeTimedOut: false,
     lastError: null,
   };
 }
@@ -85,11 +100,15 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
     }
 
     case 'privilege': {
-      const e = ev as { canRecordRaw: boolean; requested?: boolean };
+      const e = ev as { canRecordRaw: boolean; requested?: boolean; timedOut?: boolean };
       return {
         ...s,
         canRecordRaw: e.canRecordRaw,
         privilegeRequested: s.privilegeRequested || e.requested === true,
+        // IMMER auf den ZULETZT verarbeiteten Wert setzen (wie canRecordRaw),
+        // nicht mit ODER verknuepfen (wie privilegeRequested): eine spaetere,
+        // nicht-timedOut Antwort hebt eine fruehere Zeitueberschreitung auf.
+        privilegeTimedOut: e.timedOut === true,
       };
     }
 

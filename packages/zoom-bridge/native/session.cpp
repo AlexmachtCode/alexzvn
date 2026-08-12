@@ -320,6 +320,20 @@ IMeetingRecordingController* recordingCtrl() {
 }
 
 void checkPrivilege() {
+  // Jeder Aufruf hier ersetzt eine etwaige noch offene Anfrage aus einem
+  // FRUEHEREN Aufruf (z.B. nach einer Wiederverbindung, siehe
+  // onMeetingStatusChanged): dieser Aufruf liefert selbst gleich eine neue,
+  // aktuelle Aussage - GLEICH WELCHER Pfad unten greift. Ohne dieses
+  // Zuruecksetzen bliebe das Merkzeichen einer ALTEN Anfrage stehen, wenn
+  // z.B. DIESE Runde die Erlaubnis SOFORT als bereits gewaehrt vorfindet
+  // (can == SDKERR_SUCCESS, ein paar Zeilen unten) - ein spaeteres EOF wuerde
+  // dann bis zu 10 s auf eine Antwort warten, die nie mehr kommt, weil sie
+  // laengst da war. Betrifft AUSNAHMSLOS jeden Ruecksprungpfad unten, auch
+  // die beiden Fehlerfaelle ganz am Anfang: keiner von ihnen darf das
+  // Merkzeichen einer fremden, frueheren Anfrage stehen lassen, die niemand
+  // mehr beantwortet (Nachbesserung 1, Owner-Entscheidung: Befund C).
+  g_privilegePending = false;
+
   if (g_meeting == nullptr) {
     emitRaw("{\"ev\":\"error\",\"where\":\"privilege\",\"code\":31}");  // SDKERR_NOT_IN_MEETING
     return;
@@ -337,7 +351,12 @@ void checkPrivilege() {
 
   const SDKError can = rec->CanStartRawRecording();
   if (can == SDKERR_SUCCESS) {
-    emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true}");
+    // Synchrone Sofortpruefung - eine ANDERE Ursache als ein unaufgeforderter
+    // Rundruf (broadcast, siehe onRecordPrivilegeChanged) oder eine Antwort
+    // auf ein GESUCH (requestAnswer, siehe onLocalRecordingPrivilegeRequestStatus):
+    // hier wurde noch gar nicht gefragt. "source" unterscheidet die drei
+    // Ursachen (Nachbesserung 1, Owner-Entscheidung: Befund A).
+    emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true,\"source\":\"check\"}");
     return;
   }
 
@@ -361,8 +380,11 @@ void checkPrivilege() {
   // verschlucken, bevor sie eintrifft (siehe sessionPrivilegePending() in session.h).
   g_privilegePending = true;
   // Steht beim Gastgeber IsAutoAllowLocalRecordingRequest() auf an, kommt die
-  // Freigabe in Millisekunden zurueck - ohne dass jemand klicken muss.
-  emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"requested\":true}");
+  // Freigabe in Millisekunden zurueck - ohne dass jemand klicken muss. Diese
+  // Zeile ist VORUEBERGEHEND ("requested", Antwort steht noch aus) - im
+  // Unterschied zur ENDGUELTIGEN Timeout-Zeile oben in callbacks.cpp
+  // ("requested" UND "timedOut") waren beide vorher byte-gleich.
+  emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"source\":\"check\",\"requested\":true}");
 }
 
 bool sessionPrivilegePending() {
