@@ -177,7 +177,121 @@ gesehenen Zustand), überspringt der Abbau `DestroyMeetingService`/`DestroyAuthS
 `{"ev":"bye"}` — das wäre eine Lüge über einen sauberen Abgang, den es in diesem Fall nicht gab.
 `leaveTimeout` ist dann die letzte verwertbare Information vor dem Prozessende.
 
-## 7 · Zwei Fallen, die Zeit kosten
+## 7 · Video-Abos (Stage 2)
+
+Je abonniertem Teilnehmer macht `zoom-bridge.exe` einen **eigenen NDI-Sender**
+auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video.cpp`)
+— **kein Umweg über den JS-Heap**, keine Kopie in TypeScript.
+
+**Die zwei Befehle** (`cmd`, an stdin):
+
+| `cmd` | Felder | Wirkung |
+| --- | --- | --- |
+| `videoSubscribe` | `id` (Teilnehmerkennung, **Zahl**, kein String), optional `resolution` (`90p`/`180p`/`360p`/`720p`/`1080p`, Vorgabe `720p`) | Abonniert das Rohvideo dieses Teilnehmers und legt dafür einen eigenen NDI-Sender an. |
+| `videoUnsubscribe` | `id` | Baut das Abo ab und schließt seinen NDI-Sender. |
+
+**Das `video`-Ereignis** (`ev`, von stdout):
+
+| Feld | Bedeutung |
+| --- | --- |
+| `id` | Teilnehmerkennung (Zahl). |
+| `state` | `subscribed` \| `live` \| `black` \| `unsubscribed`. |
+| `source` | der **tatsächlich vergebene** NDI-Quellenname (siehe Namensvergabe unten). |
+| `reason` | `command` \| `frames` \| `cameraOff` \| `participantLeft` \| `rebound` \| `bufferMismatch`. |
+| `rebindable` | ob das Abo bei einem Wiederbeitritt umgehängt werden kann (`persistentId` des Teilnehmers ist nicht leer). |
+| `rotation`, `limitedRange` | **nur vorhanden**, sobald ein Bild sie geliefert hat (`YUVRawDataI420::GetRotation()`/`IsLimitedI420()`) — bei `state:"subscribed"` fehlen sie also immer. Ein Wert wäre dort erfunden, und eine erfundene `0` ließe sich später nicht von einer gemessenen `0` unterscheiden. |
+
+**Neun eigene Fehlerschlüssel** (`where:"video"` bzw. `where:"ndi"`, siehe `OWN_ERROR_NAMES` in `src/protocol.ts`):
+
+| Schlüssel | Ursache |
+| --- | --- |
+| `videoNoPrivilege` | Die Rohdaten-Erlaubnis fehlt — Voraussetzung, kein Wunsch (dieselbe Erlaubnis wie in Abschnitt 6). |
+| `videoUnknownParticipant` | Die Kennung steht nicht in der Teilnehmerliste — oder `id` fehlte/war keine gültige Zahl in der Befehlszeile. |
+| `videoAlreadySubscribed` | Die Kennung ist bereits abonniert. |
+| `videoNotSubscribed` | `videoUnsubscribe` auf eine nicht abonnierte Kennung. |
+| `videoBadResolution` | Der `resolution`-Schlüssel ist keiner der fünf gültigen. |
+| `videoRendererFailed` | Zoom-Seite: `createRenderer`/`subscribe` lieferte einen SDK-Fehler. |
+| `videoSenderFailed` | NDI-Seite: `NDIlib_send_create` schlug fehl. **Absichtlich ein anderer Name** als `videoRendererFailed` — die beiden schicken die Suche an verschiedene Orte. |
+| `videoBufferMismatch` | `GetBufferLen()` passt nicht zu Breite×Höhe×3/2 (siehe Falle unten). |
+| `ndiInitFailed` | `NDIlib_initialize()` schlug fehl — die NDI-Laufzeit fehlt auf diesem Rechner. |
+
+**Der Herzschlag** (`videoTick()`, läuft im Hauptthread alle 10 ms, direkt nach
+`pumpOnce()`): fällt der Bildstrom eines Abos aus, sendet die Quelle statt eines
+eingefrorenen letzten Bildes fortlaufend **Schwarz** — ein verschwindender
+NDI-Sender wäre im Livebetrieb die gefährlichere Wahl, läge er auf Programm,
+risse er weg. Zwei Zahlen sind dabei tragend: **200 ms Nachlauf**, bevor der
+Strom als still gilt (kurze Aussetzer flackern damit nicht sofort auf Schwarz),
+und **höchstens alle 100 ms** ein neues Schwarzbild (10 Bilder je Sekunde — hält
+die Quelle für jeden Empfänger gültig, kostet fast nichts). Ein Abo, das noch
+**nie** ein Bild gesehen hat, bleibt dabei auf `subscribed` stehen — es meldet
+ausdrücklich **nicht** `cameraOff`, weil das SDK in diesem Fall nichts dergleichen
+gesagt hat; `cameraOff` wäre ein SDK-Ereignis, das nie stattfand.
+
+**Die Namensvergabe.** Der Name steht bei `videoSubscribe` fest und ändert sich
+nie — einen NDI-Sender umzubenennen hieße, ihn ab- und wieder aufzubauen, die
+Quelle wäre mitten in der Sendung weg. Grundform: `JM Connect – Zoom <Name>`
+(**ohne** Doppelpunkt nach „Zoom" — gemessen gegen die echte NDI-Laufzeit: sie
+ersetzt `:` durch ein Leerzeichen, mit Doppelpunkt entstünde ein doppeltes
+Leerzeichen). Kollidiert der Name mit einem bereits offenen Sender (zwei
+Teilnehmer mit demselben Anzeigenamen), hängt `uniqueSourceName()` einen
+Zusatz `" (2)"`, `" (3)"`, … an, bis er frei ist. **Zusätzlich, und das ist
+NDIs Verhalten, nicht unsere Wahl:** die NDI-Laufzeit stellt jedem Quellennamen
+den **Rechnernamen in Klammern** voran — gemessen erscheint
+`"JM Connect – Zoom Anna"` im Netz als `"RECHNERNAME (JM Connect – Zoom Anna)"`.
+Wer im Switcher (oder in einem Prüfstand) auf diesen Namen prüft, muss darum auf
+eine **Teilzeichenkette** prüfen, nie auf Gleichheit — `test/ndi-probe.mjs`
+macht das exakt so vor (`.includes(ERWARTET)`).
+
+**Die Abbau-Reihenfolge ist tragend.** Beim einzelnen Abo: erst den Renderer
+abmelden und abbauen (`unSubscribe()`/`destroyRenderer()`), **dann** den
+NDI-Sender schließen — sonst könnte ein bereits unterwegs befindlicher
+Bild-Rückruf auf einen schon abgebauten Sender schreiben. Beim gesamten Prozess:
+`videoShutdownAll()` läuft **vor** `sessionLeave()`/`DestroyMeetingService` — ein
+laufender Renderer hält eine Referenz auf den Meeting-Dienst, ihn danach
+abzubauen hieße, auf bereits abgeräumten Zustand zuzugreifen (dieselbe
+Fehlerklasse, die in Stage 1 als `0xC0000005` gemessen wurde). Gilt für **beide**
+Ausstiege — den `leave`-Befehl **und** das reguläre Prozessende (`main.cpp`).
+
+**Ein Abo überlebt einen Wiederbeitritt.** Verlässt ein abonnierter Gast das
+Meeting, bleibt sein Abo bestehen (`reason:"participantLeft"`, der Herzschlag
+hält es schwarz) — die Quelle darf im Livebetrieb nicht wegbrechen. Kommt
+derselbe Gast zurück (erkannt an einer nicht-leeren `persistentId`, siehe
+`rebindable`), wird **derselbe** Sender auf die neue Kennung umgehängt
+(`reason:"rebound"`) statt einen zweiten anzulegen — für den Switcher ist
+nichts passiert.
+
+**Zwei weitere Prüfstände, beide ohne Meeting:**
+
+```powershell
+$env:ZOOM_SDK_DIR = "<Pfad zum entpackten Zoom-Meeting-SDK>"
+npm run ndi-probe -w @jm/zoom-bridge
+npm run command-probe -w @jm/zoom-bridge
+```
+
+`test/ndi-probe.mjs` belegt **ohne Zoom, ohne Meeting und ohne Anmeldung**,
+dass die Bridge einen auffindbaren NDI-Sender aufmacht — gesucht wird mit dem
+bestehenden `@jm/ndi`-Addon, demselben Code, mit dem der Switcher seine Quellen
+findet. `test/command-probe.mjs` belegt **ohne Meeting**, dass der native
+Befehlsleser die Teilnehmerkennung wirklich als Zahl liest: ohne `init` bleibt
+die Rohdaten-Erlaubnis immer verweigert, `videoNoPrivilege` beweist darum, dass
+die Prüfkette die Kennung erfolgreich gelesen hat und eine Stufe weiterkam —
+und unterscheidet das damit deterministisch von `videoUnknownParticipant`
+(fehlende/unlesbare Kennung). Beide Prüfstände brauchen `%ZOOM_SDK_DIR%\x64\bin`
+im `PATH`, obwohl sie `InitSDK` nie rufen: `zoom-bridge.exe` ist gegen die
+Zoom-SDK-Importbibliothek gebunden, und der Windows-Lader löst das beim
+Prozessstart auf, vor `main()` — ohne den Pfad scheitert der Start mit
+`STATUS_DLL_NOT_FOUND` (0xC0000135), einem Zoom-Einrichtungsfehler, der sich
+sonst als NDI-Problem tarnen würde.
+
+**Der Messlauf.** `npm run video-limit -w @jm/zoom-bridge` (braucht ein echtes
+Meeting mit mehreren fremden Teilnehmern, deren Kameras an sind) misst, wie
+viele gleichzeitige Video-Abos das Zoom-SDK tatsächlich zulässt — eine Zahl,
+die in keinem SDK-Header steht. Reichen die anwesenden Teilnehmer nicht aus, um
+die Grenze zu erreichen, sagt der Lauf das **ausdrücklich**, statt die erreichte
+Zahl als Obergrenze auszugeben — eine Untergrenze als Obergrenze zu melden wäre
+genau die Sorte Messfehler, die dieses Vorhaben vermeiden will.
+
+## 8 · Drei Fallen, die Zeit kosten
 
 **`ENABLE_CUSTOMIZED_UI_FLAG`.** Ohne dieses Flag in `InitParam.obConfigOpts`
 (siehe `native/session.cpp`) hängt der Beitritt für immer bei `CONNECTING` — im
@@ -194,17 +308,35 @@ zu viel drin (die es unter Windows nicht gibt), gibt es einen unverständlichen
 `C2061` in einer fremden Zeile. Im Spike hat genau das einen Übersetzungsfehler
 gekostet.
 
-## 8 · Was Stage 1 nicht tut
+**`GetBufferLen()` wird geprüft, nicht geglaubt.** NDI erwartet den I420-Puffer
+**zusammenhängend** (Y, dann U, dann V) in einem einzigen Block — genau das
+verspricht `YUVRawDataI420::GetBuffer()`, aber ein Zeilenabstand mit Auffüllung
+oder eine andere Anordnung würde ein Bild erzeugen, das wie ein **Kameradefekt**
+aussieht, nicht wie ein Softwarefehler — man sucht dann am falschen Ende. Der
+Bild-Rückruf (`Delegate::onRawDataFrameReceived`, `native/video.cpp`) prüft
+darum vor jedem Senden `GetBufferLen() == Breite × Höhe × 3 / 2`; passt es
+nicht, bleibt das Abo bestehen (der Herzschlag fällt es auf Schwarz), und
+`videoBufferMismatch` wird **einmal je Abo**, nicht einmal je Bild, gemeldet —
+sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
 
-- **Kein NDI.** Kein Bild verlässt den Prozess.
-- **Keine Rohbilder/kein Ton.** `StartRawRecording()` wird nirgends gerufen.
-- **Keine Anbindung an `apps/connect`.** `test/join.mjs` ist der einzige
-  Aufrufer — kein UI, kein Operator-Workflow.
-- **Kein Wiederbeitritt.** Bricht die Verbindung ab, endet die Bridge; sie
-  verbindet sich nicht von selbst neu.
-- **Kein Bündeln der Zoom-DLLs.** `%ZOOM_SDK_DIR%\x64\bin` muss zur Laufzeit im
-  `PATH` stehen (`test/join.mjs` setzt das für den eigenen Lauf selbst) — eine
-  Auslieferungs-/Lizenzfrage bleibt für Stage 4 offen.
+## 9 · Was diese Bridge (noch) nicht tut
 
-Das alles ist Stage 2–4 (`docs/roadmap.md`): Video → NDI, Ton je Person,
-Integration + Release.
+- **Kein Ton.** `onOneWayAudioRawDataReceived`/`onMixedAudioRawDataReceived`
+  werden nirgends gerufen — das ist Stage 3.
+- **Kein Meeting-weites `StartRawRecording()`.** Video läuft ausschließlich über
+  das **Pro-Teilnehmer-Abo** (`IZoomSDKRenderer::subscribe`, Stage 2) — die
+  ältere Aussage „kein Bild verlässt den Prozess" galt für Stage 1 und ist seit
+  Stage 2 **überholt**: mit Rohdaten-Erlaubnis und mindestens einem Abo verlassen
+  sehr wohl Bilder den Prozess, als NDI.
+- **Keine Anbindung an `apps/connect`.** `test/join.mjs`/`test/video-limit.mjs`
+  sind die einzigen Aufrufer — kein UI, kein Operator-Workflow.
+- **Kein Wiederbeitritt der Bridge selbst.** Bricht die Verbindung ab, endet die
+  Bridge; sie verbindet sich nicht von selbst neu. (Ein **einzelnes Video-Abo**
+  überlebt dagegen einen Wiederbeitritt **desselben Teilnehmers** — siehe
+  Abschnitt 7.)
+- **Kein Bündeln der Zoom-/NDI-DLLs.** `%ZOOM_SDK_DIR%\x64\bin` muss zur
+  Laufzeit im `PATH` stehen (`test/join.mjs` und die Prüfstände setzen das für
+  den eigenen Lauf selbst) — eine Auslieferungs-/Lizenzfrage bleibt für Stage 4
+  offen.
+
+Das alles ist Stage 3–4 (`docs/roadmap.md`): Ton je Person, Integration + Release.

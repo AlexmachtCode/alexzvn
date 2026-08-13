@@ -12,6 +12,11 @@
 //   $env:ZOOM_MEETING_ID       = "<nur Ziffern>"
 //   $env:ZOOM_MEETING_PASSCODE = "<Kenncode>"
 //   npm run join -w @jm/zoom-bridge
+//
+// OPTIONAL: $env:ZOOM_VIDEO_SUBSCRIBE = "<kommagetrennte Teilnehmerkennungen>"
+// abonniert nach dem Beitritt das Video der genannten Kennungen (720p,
+// siehe README.md Abschnitt 7). Ohne diese Variable verhaelt sich dieser
+// Pruefstand genau wie bisher - kein Video-Befehl geht raus.
 import { join } from 'node:path';
 import { Bridge, buildJwt, normalizeMeetingId, readCredentials } from '../src/index.ts';
 
@@ -97,6 +102,15 @@ const bridge = new Bridge({
       else if (ev.denied) console.log(`  Rohdaten-Erlaubnis: ABGELEHNT  (${woher})`);
       else console.log(`  Rohdaten-Erlaubnis: fehlt — angefragt, bitte im Zoom-Client bestaetigen  (${woher})`);
     } else if (ev.ev === 'error') console.log(`  FEHLER bei ${ev.where}: ${ev.name} (${ev.code})`);
+    else if (ev.ev === 'video') {
+      // "rotation"/"limitedRange" stehen NUR dabei, wenn ein Bild sie
+      // geliefert hat (siehe protocol.ts) - deshalb hier bedingt angehaengt,
+      // nie mit einem erfundenen Wert aufgefuellt.
+      let zeile = `  video ${ev.id}: ${ev.state} (${ev.reason})  Quelle "${ev.source}"`;
+      if (ev.rotation !== undefined) zeile += `  rotation=${ev.rotation}`;
+      if (ev.limitedRange !== undefined) zeile += `  limitedRange=${ev.limitedRange}`;
+      console.log(zeile);
+    }
   },
 });
 
@@ -167,6 +181,23 @@ try {
 if (bridge.session.phase === 'error' || bridge.session.meeting !== 'inMeeting') {
   console.log('\nNicht ins Meeting gekommen — die Rohdaten-Frage wurde nie gestellt.');
   await finish(4);
+}
+
+// ZOOM_VIDEO_SUBSCRIBE ist OPTIONAL: ohne die Variable bleibt dieser
+// Pruefstand unveraendert (kein Video-Befehl geht raus). Mit ihr kann gegen
+// ein echtes Meeting geprueft werden, was test/video-limit.mjs systematisch
+// misst - hier nur zum Zusehen, ohne Anspruch auf eine Grenze.
+const videoIds = (process.env.ZOOM_VIDEO_SUBSCRIBE ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0);
+for (const raw of videoIds) {
+  const id = Number(raw);
+  if (!Number.isInteger(id)) {
+    console.log(`  ZOOM_VIDEO_SUBSCRIBE: "${raw}" ist keine ganze Zahl - uebersprungen.`);
+    continue;
+  }
+  bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p' });
 }
 
 console.log(`\nIm Meeting. Bleibe ${seconds} s (Strg+C beendet frueher).`);

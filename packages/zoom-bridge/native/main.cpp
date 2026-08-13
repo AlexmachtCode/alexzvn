@@ -1,4 +1,9 @@
-// zoom-bridge.exe - Stage 1.
+// zoom-bridge.exe - Stage 1+2.
+//
+// Stage 1: Anmeldung, Meeting-Beitritt, Teilnehmerliste, Rohdaten-Aufnahme-
+// Erlaubnis. Stage 2 (diese Runde): Video-Abos je Teilnehmer, je Abo ein
+// eigener NDI-Sender (siehe video.cpp/ndi_sender.cpp) - "Kein NDI" gilt seit
+// dieser Runde NICHT mehr, README.md Abschnitt 8 war darin veraltet.
 //
 // EIN Thread pumpt die Win32-Nachrichten (ohne sie kommt kein SDK-Rueckruf an),
 // EIN Thread liest stdin. Der Leser legt fertige Zeilen in eine Warteschlange,

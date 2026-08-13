@@ -17,7 +17,8 @@
     "selftest": "node --experimental-strip-types test/selftest.ts",
     "join": "node test/join.mjs",
     "ndi-probe": "node test/ndi-probe.mjs",
-    "command-probe": "node test/command-probe.mjs"
+    "command-probe": "node test/command-probe.mjs",
+    "video-limit": "node test/video-limit.mjs"
   },
   "devDependencies": {
     "@jm/ndi": "*",
