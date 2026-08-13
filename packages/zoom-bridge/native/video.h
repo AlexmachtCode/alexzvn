@@ -45,3 +45,20 @@ void videoShutdownAll();
  * die Regie ihn SIEHT statt ihn zu erraten.
  */
 void videoTick();
+
+/**
+ * Ein abonnierter Gast verlaesst das Meeting. Das Abo bleibt BESTEHEN - die
+ * Quelle darf im Livebetrieb nicht wegbrechen (Spec Abschnitt 3). Der
+ * Herzschlag (videoTick()) haelt sie ab jetzt schwarz. Von callbacks.cpp aus
+ * onUserLeft gerufen, ZUSAETZLICH zum bestehenden "left"-Ereignis.
+ */
+void videoParticipantLeft(unsigned int userId);
+
+/**
+ * Ein Teilnehmer betritt (oder betritt erneut) das Meeting. Traegt dieselbe
+ * persistentId bereits ein anderes, noch bestehendes Abo, wird DIESES Abo auf
+ * die neue Kennung umgehaengt statt ein zweites anzulegen - derselbe Sender
+ * bleibt bestehen, fuer den Switcher ist nichts passiert. Von callbacks.cpp
+ * aus onUserJoin gerufen, NACH dem bestehenden "joined"-Ereignis.
+ */
+void videoParticipantJoined(unsigned int userId);

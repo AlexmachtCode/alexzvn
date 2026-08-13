@@ -311,6 +311,89 @@ void videoTick() {
   }
 }
 
+// LAEUFT AUF DEM HAUPTTHREAD (die Teilnehmer-Rueckrufe onUserLeft/onUserJoin
+// kommen ueber die Nachrichtenpumpe, siehe callbacks.cpp und main.cpp). Fasst
+// dieselben Felder an wie der Bild-Rueckruf (state, reason, lastFrameMs,
+// gemessen, mismatchGemeldet) - darum dieselbe Sperr-Disziplin wie dort und
+// in videoTick() (siehe Sub::fieldMutex): die Sperre schuetzt NUR den
+// Feldzugriff, wird NIE ueber einen Renderer- oder NDI-Aufruf gehalten und
+// kein emit*() liegt in einem Sperrblock.
+void videoParticipantLeft(unsigned int userId) {
+  auto it = g_subs.find(userId);
+  if (it == g_subs.end()) return;
+  Sub* s = it->second.get();
+  // Das Abo bleibt bestehen - die Quelle darf im Livebetrieb nicht
+  // wegbrechen (Spec Abschnitt 3). Der Herzschlag (videoTick()) haelt sie ab
+  // jetzt schwarz.
+  if (s->renderer) { s->renderer->unSubscribe(); }
+  {
+    std::lock_guard<std::mutex> lock(s->fieldMutex);
+    s->state = "black";
+    s->reason = "participantLeft";
+  }
+  emitVideo(*s, "black", "participantLeft");
+}
+
+// Ebenfalls HAUPTTHREAD, siehe videoParticipantLeft() oben.
+void videoParticipantJoined(unsigned int userId) {
+  std::wstring name;
+  std::string persistentId;
+  if (!sessionFindParticipant(userId, &name, &persistentId)) return;
+
+  // Eine LEERE persistentId kann NIEMANDEN wiedererkennen: zwei verschiedene
+  // Gaeste haetten beide "" und wuerden aufeinander umgehaengt - aus einem
+  // Wiederbeitritt wuerde eine Personenverwechslung auf Sendung. Kein Abo
+  // traegt darum jemals eine leere persistentId zum Vergleich heran (siehe
+  // uniqueSourceName/videoSubscribe), dieser Rueckgabewert bleibt trotzdem
+  // die einzige Instanz, die das PRUEFT statt es vorauszusetzen.
+  if (persistentId.empty()) return;
+
+  // ERST SUCHEN, DANN UMHAENGEN - in zwei getrennten Schritten. extract()
+  // mitten in der Schleife wuerde den Laufzeiger ungueltig machen.
+  unsigned int alteId = 0;
+  bool gefunden = false;
+  for (const auto& [id, s] : g_subs) {
+    if (id != userId && s->persistentId == persistentId) { alteId = id; gefunden = true; break; }
+  }
+  if (!gefunden) return;
+
+  // KEIN neues Sub bauen: der Delegate haelt einen ROHEN Zeiger auf dieses
+  // Objekt (owner_ in Delegate, gesetzt in videoSubscribe()). extract() zieht
+  // nur den KNOTEN samt unique_ptr aus der Map - das Sub-Objekt bleibt an
+  // seiner Adresse stehen, der Delegate-Zeiger bleibt gueltig. Ein
+  // erase()+neues Sub liesse den Delegate eines noch laufenden Renderers auf
+  // freigegebenen Speicher zeigen.
+  auto knoten = g_subs.extract(alteId);
+  Sub* s = knoten.mapped().get();
+  s->userId = userId;
+  {
+    std::lock_guard<std::mutex> lock(s->fieldMutex);
+    // DERSELBE Sender bleibt bestehen - fuer den Switcher ist nichts
+    // passiert, was er merken muesste. state UND lastFrameMs werden
+    // ZUSAMMEN zurueckgesetzt: ein Abo, das noch nie ein Bild gesehen hat
+    // (lastFrameMs == 0), haelt videoTick() bewusst auf "subscribed" statt
+    // es als "cameraOff" zu melden (Aufgabe 5). Bliebe state hier auf einem
+    // alten Wert wie "live" stehen, wuerde ein umgehaengtes Abo dauerhaft
+    // einen Zustand behaupten, der nicht mehr gilt, ohne dass je ein
+    // berichtigendes Ereignis kaeme.
+    s->state = "subscribed";
+    s->reason = "rebound";
+    s->lastFrameMs = 0;
+    s->gemessen = false;
+    s->mismatchGemeldet = false;
+  }
+  if (s->renderer) {
+    // ERST abmelden: das alte Abo haengt noch an der TOTEN Kennung. Ein
+    // subscribe() auf einen bereits abonnierten Renderer liefert einen
+    // SDK-Fehler statt umzuschalten.
+    s->renderer->unSubscribe();
+    s->renderer->subscribe(userId, RAW_DATA_TYPE_VIDEO);
+  }
+  knoten.key() = userId;
+  g_subs.insert(std::move(knoten));
+  emitVideo(*s, "subscribed", "rebound");
+}
+
 namespace {
 
 void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {

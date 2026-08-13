@@ -1,6 +1,7 @@
 #include "callbacks.h"
 #include "emit.h"
 #include "session.h"
+#include "video.h"
 
 namespace {
 ParticipantsListener g_participantsListener;
@@ -103,9 +104,16 @@ std::string participantJson(IUserInfo* u) {
 void ParticipantsListener::onUserJoin(IList<unsigned int>* ids, const zchar_t*) {
   if (ids == nullptr) return;
   for (int i = 0; i < ids->GetCount(); ++i) {
-    IUserInfo* u = participantsCtrl() ? participantsCtrl()->GetUserByUserID(ids->GetItem(i)) : nullptr;
+    const unsigned int id = ids->GetItem(i);
+    IUserInfo* u = participantsCtrl() ? participantsCtrl()->GetUserByUserID(id) : nullptr;
     const std::string p = participantJson(u);
     if (!p.empty()) emitRaw("{\"ev\":\"joined\",\"p\":" + p + "}");
+    // ERST das bestehende "joined"-Ereignis, DANN das Abo-Umhaengen: sonst
+    // stuende ein "video"-Ereignis mit reason:"rebound" fuer eine Kennung auf
+    // der Leitung, die der Leser noch gar nicht kennt. Die Teilnehmerliste
+    // (oben) und das Video-Abo (hier) sind zwei getrennte Fragen und
+    // verschmelzen darum nicht zu einem Ereignis.
+    videoParticipantJoined(id);
   }
 }
 
@@ -115,7 +123,11 @@ void ParticipantsListener::onUserLeft(IList<unsigned int>* ids, const zchar_t*) 
   // nicht mehr abfragbar. Ein nullptr-Ergebnis waere kein Grund, das Ereignis zu
   // verschlucken - wer geht, muss gemeldet werden.
   for (int i = 0; i < ids->GetCount(); ++i) {
-    emitRaw("{\"ev\":\"left\",\"id\":" + std::to_string(ids->GetItem(i)) + "}");
+    const unsigned int id = ids->GetItem(i);
+    emitRaw("{\"ev\":\"left\",\"id\":" + std::to_string(id) + "}");
+    // Das bestehende "left"-Ereignis bleibt unveraendert - das Video-Abo (falls
+    // eins besteht) ist eine ANDERE Frage und wird separat gemeldet.
+    videoParticipantLeft(id);
   }
 }
 
