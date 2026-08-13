@@ -17,6 +17,12 @@
 // abonniert nach dem Beitritt das Video der genannten Kennungen (720p,
 // siehe README.md Abschnitt 7). Ohne diese Variable verhaelt sich dieser
 // Pruefstand genau wie bisher - kein Video-Befehl geht raus.
+//
+// DIE KENNUNGEN STEHEN NICHT VORHER FEST: sie gelten nur fuer DIESES Meeting.
+// Erst ohne die Variable beitreten, den Teilnehmer-Block ablesen (die Zahl
+// links), dann mit ihr neu starten. Ist die Variable gesetzt, WARTET der Lauf
+// vor dem Abonnieren auf die Rohdaten-Erlaubnis - sie kommt regelmaessig erst
+// Sekunden NACH dem Beitritt, wenn der Gastgeber sie im Zoom-Client bestaetigt.
 import { join } from 'node:path';
 import { Bridge, buildJwt, normalizeMeetingId, readCredentials } from '../src/index.ts';
 
@@ -191,12 +197,40 @@ const videoIds = (process.env.ZOOM_VIDEO_SUBSCRIBE ?? '')
   .split(',')
   .map((s) => s.trim())
   .filter((s) => s.length > 0);
+
+// AUF DIE ERLAUBNIS WARTEN, BEVOR abonniert wird. GEMESSEN im Owner-Lauf vom
+// 2026-08-13: beim Erreichen von inMeeting stand die Rohdaten-Erlaubnis noch
+// auf "angefragt"; das JA kam erst Sekunden spaeter, nachdem der Gastgeber im
+// Zoom-Client bestaetigt hatte. Ein videoSubscribe an dieser Stelle waere
+// darum regelmaessig an videoNoPrivilege abgeprallt - und der Abnahmelauf
+// haette eine ZEITFRAGE als fehlende Berechtigung gemeldet. Zwei verschiedene
+// Ursachen duerfen nie denselben Namen bekommen.
+if (videoIds.length > 0 && !bridge.session.canRecordRaw) {
+  console.log('\nWarte auf die Rohdaten-Erlaubnis, bevor Video abonniert wird …');
+  try {
+    await bridge.waitFor((s) => s.canRecordRaw || s.privilegeDenied || s.privilegeTimedOut, 60_000);
+  } catch {
+    // waitFor lief ab: weder JA noch NEIN - der Gastgeber hat schlicht nicht
+    // reagiert. Das ist eine dritte Tatsache, nicht "abgelehnt".
+  }
+  if (!bridge.session.canRecordRaw) {
+    const grund = bridge.session.privilegeDenied
+      ? 'der Gastgeber hat abgelehnt'
+      : bridge.session.privilegeTimedOut
+        ? 'die Anfrage lief ab'
+        : 'es kam keine Antwort';
+    console.log(`  Kein Video-Abo: ${grund}. Die Video-Frage wurde nie gestellt.`);
+    videoIds.length = 0;
+  }
+}
+
 for (const raw of videoIds) {
   const id = Number(raw);
   if (!Number.isInteger(id)) {
     console.log(`  ZOOM_VIDEO_SUBSCRIBE: "${raw}" ist keine ganze Zahl - uebersprungen.`);
     continue;
   }
+  console.log(`  Video wird abonniert: ${id} (720p)`);
   bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p' });
 }
 
