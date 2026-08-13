@@ -68,12 +68,31 @@ bool sessionShutdown();
 void pumpOnce();
 
 /**
- * Liest ein flaches Zeichenkettenfeld aus einer JSON-Zeile. Reicht fuer die fuenf
- * Befehle der Bridge; eine JSON-Bibliothek waere hier teurer als der Leser und
- * muesste in Stage 4 mit ausgeliefert und lizenzgeprueft werden.
+ * Liest ein flaches ZEICHENKETTEN-Feld aus einer JSON-Zeile. BERICHTIGT
+ * (Nachbesserungsrunde 1 zu Task 3): deckt NICHT mehr alle Felder aller
+ * Befehle ab - "id" bei videoSubscribe/videoUnsubscribe (Aufgabe 2) ist eine
+ * ZAHL, kein String. Fuer ein Zahlenfeld liefert dieser Leser IMMER "" (er
+ * prueft im Rumpf ausdruecklich auf ein oeffnendes Anfuehrungszeichen nach
+ * dem Doppelpunkt) - dafuer numberFromJson() weiter unten benutzen, nicht
+ * diese Funktion. Eine JSON-Bibliothek waere fuer die verbleibenden
+ * String-Felder trotzdem teurer als die zwei schlichten Leser und muesste in
+ * Stage 4 mit ausgeliefert und lizenzgeprueft werden.
  * Gibt "" zurueck, wenn das Feld fehlt.
  */
 std::string fieldFromJson(const std::string& line, const char* key);
+
+/**
+ * Liest ein flaches ZAHLEN-Feld aus einer JSON-Zeile. Gegenstueck zu
+ * fieldFromJson() oben, das ausdruecklich nur Zeichenketten liest (siehe
+ * dort) - "id" bei videoSubscribe/videoUnsubscribe ist eine Zahl.
+ * false = Feld fehlt, steht an einer Wert- statt Schluessel-Position, oder
+ * traegt etwas anderes als eine reine Ziffernfolge (kein Vorzeichen, kein
+ * Exponent, keine Nachkommastellen - das Protokoll kennt an dieser Stelle
+ * nur Teilnehmerkennungen) - auch ein Ueberlauf von unsigned long long
+ * zaehlt als "nicht auswertbar" und liefert false, nicht eine durch den
+ * Ueberlauf verstuemmelte Zahl.
+ */
+bool numberFromJson(const std::string& line, const char* key, unsigned long long* out);
 
 /** Der Wert von "cmd", oder "" wenn die Zeile keiner ist. */
 std::string cmdOf(const std::string& line);

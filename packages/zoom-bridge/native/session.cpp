@@ -1,5 +1,6 @@
 #include "session.h"
 #include <atomic>
+#include <climits>
 #include <cstdlib>
 #include <windows.h>
 #include "zoom_sdk.h"
@@ -614,11 +615,44 @@ std::string readStringValue(const std::string& line, size_t at) {
   return out;
 }
 
+// Liest eine Ziffernfolge, die bei "at" beginnt (der Aufrufer hat dort
+// bereits mindestens eine Ziffer gesehen). *endOut zeigt hinter die letzte
+// gelesene Ziffer. *overflow wird wahr, wenn die Folge unsigned long long
+// gesprengt hat - dieselbe Sorgfalt wie beim std::stoul-try/catch-Fix in
+// main.cpp (Task 3): eine durch Ueberlauf VERSTUEMMELTE Zahl waere schlimmer
+// als ein klar gemeldetes "nicht auswertbar". Kein Maskierungsschritt noetig
+// (anders als readStringValue() oben) - Ziffern sind Ziffern.
+unsigned long long readUnsignedDigits(const std::string& line, size_t at, size_t* endOut, bool* overflow) {
+  unsigned long long value = 0;
+  *overflow = false;
+  size_t i = at;
+  while (i < line.size() && line[i] >= '0' && line[i] <= '9') {
+    const unsigned long long digit = static_cast<unsigned long long>(line[i] - '0');
+    if (!*overflow) {
+      // ULLONG_MAX statt std::numeric_limits<...>::max(): windows.h (siehe
+      // Include oben) definiert ohne NOMINMAX ein Makro `max` - das haette
+      // den STL-Aufruf hier zu einem funktionsartigen Makroaufruf verstuemmelt
+      // (GEMESSEN: "zu wenige Argumente fuer das Makro" beim ersten
+      // Bauversuch dieser Nachbesserung).
+      if (value > (ULLONG_MAX - digit) / 10) {
+        *overflow = true;
+      } else {
+        value = value * 10 + digit;
+      }
+    }
+    ++i;
+  }
+  *endOut = i;
+  return value;
+}
+
 }  // namespace
 
 std::string fieldFromJson(const std::string& line, const char* key) {
-  // Der Leser bleibt bewusst schlicht: fuenf Befehle, ausschliesslich flache
-  // Zeichenkettenfelder (siehe session.h). Er sucht daher NICHT nach einem
+  // Der Leser bleibt bewusst schlicht: ausschliesslich flache
+  // Zeichenkettenfelder (siehe session.h - BERICHTIGT, Nachbesserungsrunde 1:
+  // "id" bei videoSubscribe/videoUnsubscribe ist eine ZAHL, dafuer steht
+  // numberFromJson() weiter unten). Er sucht daher NICHT nach einem
   // Baum, sondern nach der Zeichenfolge des Schluessels und prueft an dieser
   // Stelle nur zwei Dinge nach: steht unmittelbar davor ein '{' oder ein ','
   // (also eine SCHLUESSEL-Position, keine WERT-Position), und folgt nach dem
@@ -655,6 +689,57 @@ std::string fieldFromJson(const std::string& line, const char* key) {
     // Schluesselname tauchte hier als WERT eines anderen Feldes auf, oder
     // sein Wert ist keine Zeichenkette) - an der naechsten Fundstelle weiter
     // suchen statt sofort aufzugeben.
+    searchFrom = at + needle.size();
+  }
+}
+
+bool numberFromJson(const std::string& line, const char* key, unsigned long long* out) {
+  // Zahlen-Gegenstueck zu fieldFromJson() oben: DIESELBE Schluessel-Positions-
+  // Pruefung (unmittelbar davor '{' oder ',' - siehe dort fuer die
+  // Begruendung), nach dem Doppelpunkt wird aber eine ZIFFERNFOLGE erwartet
+  // statt eines Anfuehrungszeichens. Ohne dieses Gegenstueck kann "id" bei
+  // videoSubscribe/videoUnsubscribe (Aufgabe 2 legt es als Zahl fest) nie
+  // gelesen werden - fieldFromJson() liefert fuer ein Zahlenfeld IMMER ""
+  // (Nachbesserungsrunde 1, Critical: dieser Fehler machte das Merkmal gegen
+  // einen echten Prozess unbenutzbar, jedes echte videoSubscribe/
+  // videoUnsubscribe meldete deterministisch videoUnknownParticipant).
+  const std::string needle = std::string("\"") + key + "\"";
+  size_t searchFrom = 0;
+
+  while (true) {
+    size_t at = line.find(needle, searchFrom);
+    if (at == std::string::npos) return false;
+
+    bool isKeyPosition = false;
+    size_t p = at;
+    while (p > 0 && isJsonSpace(line[p - 1])) --p;
+    if (p > 0 && (line[p - 1] == '{' || line[p - 1] == ',')) isKeyPosition = true;
+
+    if (isKeyPosition) {
+      size_t after = at + needle.size();
+      while (after < line.size() && isJsonSpace(line[after])) ++after;
+      if (after < line.size() && line[after] == ':') {
+        ++after;
+        while (after < line.size() && isJsonSpace(line[after])) ++after;
+        if (after < line.size() && line[after] >= '0' && line[after] <= '9') {
+          size_t end;
+          bool overflow;
+          const unsigned long long value = readUnsignedDigits(line, after, &end, &overflow);
+          // Ueberlauf zaehlt als "nicht auswertbar", nicht als eine (durch
+          // den Ueberlauf verstuemmelte) Zahl - dieselbe Sorgfalt wie beim
+          // std::stoul-try/catch-Fix in main.cpp (Task 3).
+          if (overflow) return false;
+          *out = value;
+          return true;
+        }
+      }
+    }
+
+    // Kein gueltiges Schluessel-Wert-Paar an dieser Stelle (z.B. der
+    // Schluesselname tauchte hier als WERT eines anderen Feldes auf, oder
+    // sein Wert ist keine reine Ziffernfolge) - an der naechsten Fundstelle
+    // weiter suchen statt sofort aufzugeben. Dasselbe Verhalten wie
+    // fieldFromJson() oben.
     searchFrom = at + needle.size();
   }
 }

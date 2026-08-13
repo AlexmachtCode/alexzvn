@@ -5,6 +5,7 @@
 // der Hauptthread arbeitet sie zwischen zwei Pumprunden ab. Alle SDK-Aufrufe
 // passieren damit auf demselben Thread, der auch pumpt.
 #include <atomic>
+#include <climits>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -94,28 +95,34 @@ bool nextLine(std::string& out) {
   return true;
 }
 
-// std::stoul() wirft bei leerer, nicht-numerischer ODER zu grosser Eingabe
-// (std::out_of_range) - "id" kommt hier von AUSSEN ueber stdin, eine
-// geworfene Ausnahme wuerde den Prozess beenden: genau das stille
-// Verschwinden, das dieses Vorhaben ausschliesst. ABWEICHUNG VOM
-// BRIEF-WORTLAUT: der Brief verlangt nur die Pruefung "nicht leer, nur
-// Ziffern" vor dem Aufruf - das faengt nicht-numerische Eingaben ab, aber
-// NICHT eine Ziffernfolge, die zwar gueltig aussieht, aber ausserhalb des
-// Wertebereichs von unsigned long liegt (std::out_of_range faellt sonst
-// unveraendert durch). Beide Ursachen fuehren zum selben Ergebnis - die
-// Kennung ist nicht auswertbar -, und der Fehlerkatalog dieser Aufgabe hat
-// dafuer keinen eigenen Namen neben videoUnknownParticipant, das bereits
-// "keine auffindbare Kennung" bedeutet.
-bool parseParticipantId(const std::string& idText, unsigned int* out) {
-  if (idText.empty()) return false;
-  for (const char ch : idText) {
-    if (ch < '0' || ch > '9') return false;
-  }
-  try {
-    *out = static_cast<unsigned int>(std::stoul(idText));
-  } catch (...) {
-    return false;
-  }
+// BERICHTIGT (Nachbesserungsrunde 1, Critical): "id" ist laut Protokoll
+// (Aufgabe 2) eine ZAHL, keine Zeichenkette - fieldFromJson() liest
+// AUSDRUECKLICH nur Zeichenketten (siehe session.h/session.cpp) und liefert
+// fuer ein Zahlenfeld darum IMMER "". Der vorherige Stand hier
+// (fieldFromJson() + std::stoul()) las "id" darum bei JEDER echten
+// videoSubscribe/videoUnsubscribe-Zeile als leer und meldete deterministisch
+// videoUnknownParticipant, unabhaengig davon, ob der Teilnehmer existierte -
+// das Merkmal war gegen den echten Prozess unbenutzbar. numberFromJson()
+// (session.h/session.cpp) liest die Ziffernfolge direkt, ohne den Umweg
+// ueber eine Zeichenkette, und faengt einen Ueberlauf selbst ab (kein
+// std::stoul mehr noetig, also auch keine Ausnahme, die den Prozess
+// beenden koennte).
+//
+// ZUSAETZLICHE PRUEFUNG hier: numberFromJson() liefert unsigned long long
+// (64 Bit) - absichtlich breiter als der userId-Zieltyp (unsigned int,
+// 32 Bit, wie Zooms eigenes GetUserID()). Eine Zahl, die zwar innerhalb von
+// unsigned long long passt, aber unsigned int sprengt, wuerde beim
+// Schmalcast sonst STILL umlaufen (modulo 2^32) und koennte zufaellig auf
+// eine FALSCHE, aber existierende Kennung zeigen - derselbe Grundsatz wie
+// beim Ueberlauf-Fang in numberFromJson() selbst: nicht verstuemmeln, klar
+// als "nicht auswertbar" melden. UINT_MAX statt std::numeric_limits<...>::max():
+// windows.h definiert ohne NOMINMAX ein Makro `max`, das den STL-Aufruf
+// verstuemmeln wuerde (siehe derselbe, GEMESSENE Fund in session.cpp).
+bool parseParticipantId(const std::string& line, unsigned int* out) {
+  unsigned long long value = 0;
+  if (!numberFromJson(line, "id", &value)) return false;
+  if (value > static_cast<unsigned long long>(UINT_MAX)) return false;
+  *out = static_cast<unsigned int>(value);
   return true;
 }
 
@@ -157,9 +164,8 @@ void handle(const std::string& line) {
     return;
   }
   if (cmd == "videoSubscribe") {
-    const std::string idText = fieldFromJson(line, "id");
     unsigned int userId = 0;
-    if (!parseParticipantId(idText, &userId)) {
+    if (!parseParticipantId(line, &userId)) {
       emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
       return;
     }
@@ -173,9 +179,8 @@ void handle(const std::string& line) {
     return;
   }
   if (cmd == "videoUnsubscribe") {
-    const std::string idText = fieldFromJson(line, "id");
     unsigned int userId = 0;
-    if (!parseParticipantId(idText, &userId)) {
+    if (!parseParticipantId(line, &userId)) {
       emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
       return;
     }

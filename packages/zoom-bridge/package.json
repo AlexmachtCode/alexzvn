@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "selftest": "node --experimental-strip-types test/selftest.ts",
     "join": "node test/join.mjs",
-    "ndi-probe": "node test/ndi-probe.mjs"
+    "ndi-probe": "node test/ndi-probe.mjs",
+    "command-probe": "node test/command-probe.mjs"
   },
   "devDependencies": {
     "@jm/ndi": "*",
