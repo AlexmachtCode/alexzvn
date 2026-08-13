@@ -40,8 +40,18 @@ await bridge.waitFor((s) => s.canRecordRaw, 60_000);
 const andere = [...bridge.session.participants.values()].filter((p) => !p.self);
 console.log(`\n${andere.length} fremde Teilnehmer im Meeting.\n`);
 
+// NACHBESSERUNG 1: zwei Abbruchgruende sind NICHT gleich stark. Ein vom SDK
+// gemeldeter Fehler ist ein HARTES Signal - das SDK selbst benennt die
+// Grenze. "Keine Bilder innerhalb von 5 s" OHNE jede Fehlermeldung ist ein
+// WEICHES Signal - das kann die Grenze sein, kann aber ebenso gut
+// Netzwerk-Ruckeln oder eine Kamera sein, die GENAU dieser eine Teilnehmer
+// gerade aus hat. Beide in denselben Satzbau zu werfen waere dieselbe Sorte
+// Messfehler wie eine Untergrenze als Obergrenze zu melden - nur eine Stufe
+// leiser: der Lauf soll eine Zahl liefern, auf die man sich verlassen kann,
+// und dafuer muss er sagen, WIE fest der Boden unter ihr ist.
 let gelungen = 0;
 let abbruchGrund = null;
+let abbruchArt = null; // 'hart' = SDK meldet einen Fehler, 'weich' = nur Zeitablauf
 for (const p of andere) {
   const vorher = fehler.length;
   bridge.send({ cmd: 'videoSubscribe', id: p.id, resolution: '720p' });
@@ -51,23 +61,40 @@ for (const p of andere) {
       5000,
     );
   } catch {
+    abbruchArt = 'weich';
     abbruchGrund = `keine Bilder innerhalb von 5 s (Abo ${gelungen + 1})`;
     break;
   }
   if (fehler.length > vorher) {
     const f = fehler[fehler.length - 1];
+    abbruchArt = 'hart';
     abbruchGrund = `${f.name}${f.detail ? ` (${f.detail})` : ''}`;
     break;
   }
   gelungen++;
 }
 
-console.log(
-  abbruchGrund
-    ? `\nGemessen: ${gelungen} gleichzeitige Abos erfolgreich, das ${gelungen + 1}. scheiterte an ${abbruchGrund}.`
-    : `\nGemessen: ${gelungen} gleichzeitige Abos erfolgreich — die Grenze wurde NICHT erreicht (` +
+// Wer nur die LETZTE Zeile liest, muss den Unterschied trotzdem sehen -
+// darum steht die Einstufung vorn im Satz, nicht als Nebensatz hinten.
+if (abbruchArt === 'hart') {
+  console.log(
+    `\nGEMESSEN (SDK-Fehler, das ist die Grenze): ${gelungen} gleichzeitige Abos erfolgreich, ` +
+      `das ${gelungen + 1}. scheiterte an ${abbruchGrund}.`,
+  );
+} else if (abbruchArt === 'weich') {
+  console.log(
+    `\nVERDACHT, KEIN BEWEIS: ${gelungen} gleichzeitige Abos erfolgreich, das ${gelungen + 1}. lieferte ` +
+      `${abbruchGrund} — OHNE dass das SDK selbst einen Fehler gemeldet hat. Das KANN die Grenze sein, ` +
+      `kann aber ebenso gut Netzwerk-Ruckeln oder eine Kamera sein, die GENAU dieser eine Teilnehmer ` +
+      `gerade aus hat. Lauf WIEDERHOLEN (moeglichst mit anderer Teilnehmer-Reihenfolge), bevor ${gelungen} ` +
+      `als Grenze gilt.`,
+  );
+} else {
+  console.log(
+    `\nGemessen: ${gelungen} gleichzeitige Abos erfolgreich — die Grenze wurde NICHT erreicht (` +
       `es waren nur ${andere.length} Teilnehmer da). Fuer eine echte Obergrenze braucht es mehr Teilnehmer.`,
-);
+  );
+}
 
 await bridge.stop();
 process.exit(0);

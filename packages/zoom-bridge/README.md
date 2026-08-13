@@ -4,12 +4,18 @@
 
 Ein natives Windows-Sidecar für JM Connect, das die Zoom-Meeting-SDK-Funktionen
 anspricht, die Node/Electron nicht selbst können (eigene Win32-Nachrichtenschleife,
-`InitSDK`, Rückrufe). Es ist **Stage 1 von 4** der Zoom-Einbindung (Issue #197):
-Anmeldung, Meeting-Beitritt, Teilnehmerliste, Rohdaten-Aufnahme-Erlaubnis.
+`InitSDK`, Rückrufe). Es deckt **Stage 1+2 von 4** der Zoom-Einbindung (Issue #197)
+ab: Anmeldung, Meeting-Beitritt, Teilnehmerliste, Rohdaten-Aufnahme-Erlaubnis
+(Stage 1) — und, mit dieser Erlaubnis, **Video je abonniertem Teilnehmer als
+eigene NDI-Quelle** (Stage 2, siehe Abschnitt 7).
 
-**Es zeichnet nichts auf.** `StartRawRecording()` steht nirgends im Quelltext —
-Stage 1 fragt nur, ob die Erlaubnis da wäre (`CanStartRawRecording()` /
-`RequestLocalRecordingPrivilege()`), sie tatsächlich zu nutzen ist Stage 2/3.
+**Es schreibt keine Datei.** `StartRawRecording()` — die Meeting-**weite**
+Aufnahme-API — steht nirgends im Quelltext; die Erlaubnis wird nur abgefragt
+(`CanStartRawRecording()`/`RequestLocalRecordingPrivilege()`), nie für eine
+eigene Aufzeichnung genutzt. Das heißt aber **nicht** „kein Bild verlässt den
+Prozess": mit erteilter Erlaubnis und mindestens einem `videoSubscribe`-Abo
+verlassen sehr wohl Bilder den Prozess — als **NDI**, nicht als Datei. Ton
+fehlt weiterhin (Stage 3).
 
 Der tragende Entwurfsgedanke: `zoom-bridge.exe` meldet **Tatsachen** als JSON-Zeilen
 auf stdout, alles **Urteilen** (Namen, Zustandsmaschine, Zeitüberschreitungen)
@@ -324,10 +330,8 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
 - **Kein Ton.** `onOneWayAudioRawDataReceived`/`onMixedAudioRawDataReceived`
   werden nirgends gerufen — das ist Stage 3.
 - **Kein Meeting-weites `StartRawRecording()`.** Video läuft ausschließlich über
-  das **Pro-Teilnehmer-Abo** (`IZoomSDKRenderer::subscribe`, Stage 2) — die
-  ältere Aussage „kein Bild verlässt den Prozess" galt für Stage 1 und ist seit
-  Stage 2 **überholt**: mit Rohdaten-Erlaubnis und mindestens einem Abo verlassen
-  sehr wohl Bilder den Prozess, als NDI.
+  das **Pro-Teilnehmer-Abo** (`IZoomSDKRenderer::subscribe`, Stage 2, Abschnitt 7)
+  — kein Meeting-weiter Mitschnitt, keine Datei (siehe Abschnitt 1).
 - **Keine Anbindung an `apps/connect`.** `test/join.mjs`/`test/video-limit.mjs`
   sind die einzigen Aufrufer — kein UI, kein Operator-Workflow.
 - **Kein Wiederbeitritt der Bridge selbst.** Bricht die Verbindung ab, endet die

@@ -4,7 +4,7 @@
 > Leitprojekt der nächsten Phase ist die **Zoom-Einbindung (Welle 6.7)**; alles andere läuft
 > in vier Parallel-Spuren, die gezielt Zooms Beschaffungs-/Bau-Wartefenster füllen.
 
-**Status-Legende:** ⛔ blockiert/Gate · 🟢 jetzt/aktiv · 🔵 als Nächstes · 🟡 Code fertig, Abnahme offen · ⚪ später/geparkt · ✅ erledigt
+**Status-Legende:** ⛔ blockiert/Gate · 🟢 jetzt/aktiv · 🔵 als Nächstes · 🟡 Code fertig, Owner-Abnahme offen · ⚪ später/geparkt · ✅ erledigt
 
 ---
 
