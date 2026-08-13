@@ -55,3 +55,11 @@ target_include_directories(zoom-bridge PRIVATE "${ZOOM_HEADERS}" "${NDI_HEADERS}
 # ohne eigene Schleife kommt kein einziger SDK-Rueckruf an.
 target_link_libraries(zoom-bridge PRIVATE "${ZOOM_IMPLIB}" "${NDI_IMPLIB}" user32)
 target_compile_definitions(zoom-bridge PRIVATE UNICODE _UNICODE WIN32)
+# NACHBESSERUNG (Runde 1, Befund 3): /utf-8 setzt Quell- UND Ausfuehrungs-
+# zeichensatz explizit auf UTF-8 (sonst MSVC-Vorgabe: Ausfuehrungszeichensatz
+# = System-ANSI-Codepage). native/main.cpp enthaelt den NDI-Quellnamen als
+# Zeichenkettenliteral mit einem Gedankenstrich (U+2013) - dass der bisher
+# unveraendert ankam, beruhte auf Byte-Durchreichung ohne definierte
+# Einstellung, nicht auf einer festgelegten Zusicherung. Mit dieser Option
+# ist es eine.
+target_compile_options(zoom-bridge PRIVATE /utf-8)

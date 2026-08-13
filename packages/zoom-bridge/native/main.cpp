@@ -145,10 +145,21 @@ void handle(const std::string& line) {
 
 int main(int argc, char** argv) {
   // Diagnose-Sonderweg: baut NUR einen NDI-Sender auf, schickt zwei Sekunden
-  // Schwarz und geht. Ohne Zoom, ohne Meeting, ohne Anmeldung. Beantwortet
-  // die Frage "traegt NDI auf diesem Rechner ueberhaupt?" getrennt von allem
-  // anderen - ohne diesen Weg waere ein NDI-Problem von einem Zoom-Problem
-  // erst nach dem Beitritt zu unterscheiden.
+  // Schwarz und geht. RUFT keine Zoom-Funktion auf - kein InitSDK, keine
+  // Anmeldung, kein Beitritt. Beantwortet die Frage "traegt NDI auf diesem
+  // Rechner ueberhaupt?" getrennt von der Frage "funktioniert Zoom?".
+  //
+  // BERICHTIGT (Nachbesserung Runde 1, Befund 2): "ruft keine Zoom-Funktion
+  // auf" ist NICHT dasselbe wie "braucht Zoom nicht". zoom-bridge.exe ist
+  // weiterhin gegen sdk.lib (Zoom-SDK-Importbibliothek) gebunden - der
+  // Windows-Lader loest diese Bindung beim PROZESSSTART auf, VOR main(),
+  // unabhaengig davon, ob dieser Zweig je eine Zoom-Funktion ruft. GEMESSEN:
+  // fehlt %ZOOM_SDK_DIR%\x64\bin auf PATH, startet der Prozess ueberhaupt
+  // nicht (STATUS_DLL_NOT_FOUND, 0xC0000135) - ein Zoom-EINRICHTUNGSFEHLER
+  // wuerde sich dann als "NDI-Problem" tarnen, genau das Gegenteil dessen,
+  // was dieser Sonderweg leisten soll. test/ndi-probe.mjs unterscheidet
+  // diesen Fall inzwischen von einem echten ndiInitFailed (siehe dort, PATH-
+  // Kommentar und Ursachen-Auswertung).
   if (argc > 1 && std::string(argv[1]) == "--ndi-selftest") {
     // ABWEICHUNG VOM BRIEF, GEMESSEN: alle drei Ausstiege dieses Zweigs
     // gehen ueber TerminateProcess() statt ueber ein einfaches `return`, mit
@@ -185,7 +196,7 @@ int main(int argc, char** argv) {
     // mDNS/Bonjour-Dienstname, dort ist ':' reserviert). test/ndi-probe.mjs
     // prueft auf GENAUE Teilzeichenkette - mit Doppelpunkt waere Schritt 6 auf
     // JEDEM Rechner deterministisch gescheitert, nicht nur hier. Der Name unten
-    // MUSS mit ERWARTET in test/ndi-probe.mjs übereinstimmen, aendert man den
+    // MUSS mit ERWARTET in test/ndi-probe.mjs uebereinstimmen, aendert man den
     // einen, den anderen mitziehen.
     if (!s.open("JM Connect – Zoom Selbsttest")) {
       emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"videoSenderFailed\"}");

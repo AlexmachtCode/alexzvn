@@ -1,5 +1,9 @@
 #include "ndi_sender.h"
 #include "emit.h"
+// NACHBESSERUNG (Runde 1, Befund 4): std::fill braucht dieses Include -
+// bisher nur transitiv ueber <vector>/<mutex> im MSVC-Build verfuegbar,
+// nicht garantiert.
+#include <algorithm>
 
 bool ndiInitialize() { return NDIlib_initialize(); }
 void ndiShutdown() { NDIlib_destroy(); }
