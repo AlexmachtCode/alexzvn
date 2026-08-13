@@ -266,19 +266,39 @@ void videoTick() {
     s->sender.sendBlack(w, h);
 
     // Fortschreiben NACH dem Senden, wieder unter der Sperre. lastBlackMs
-    // wird UNBEDINGT gesetzt (der Herzschlag lief gerade), state/reason nur
-    // beim UEBERGANG nach "black" - ein bereits schwarzes Abo bekommt keine
-    // weitere Meldung, das waere Wiederholung ohne neue Information. Ein
-    // laufender bufferMismatch ist eine ANDERE Ursache als "Kamera aus" und
-    // bleibt darum erhalten (siehe Aufgabe 4, reason wird beim Uebergang
-    // nach "live" bereits korrekt auf "frames" zurueckgesetzt - hier steht
-    // also nie ein veralteter Wert).
+    // wird UNBEDINGT gesetzt (der Herzschlag lief gerade, das bereits
+    // gesendete Schwarzbild laesst sich ohnehin nicht zurueckholen). Der
+    // BERICHT (state/reason/Ereignis) ist dagegen an ZWEI Bedingungen
+    // gebunden - beide aus der Nachbesserung (Befund 1+2):
+    //
+    // (a) lastFrameMs != 0 (die Momentaufnahme aus Sperre 1, NICHT
+    //     s->lastFrameMs): war lastFrameMs beim Entscheiden bereits 0, hat
+    //     dieses Abo noch NIE ein Bild gesehen - "cameraOff" wuerde ein
+    //     SDK-Ereignis behaupten, das nie stattfand. Der Zustand bleibt
+    //     "subscribed" (Spec: "Sender steht, noch kein Bild"), das
+    //     Schwarzbild wird trotzdem gesendet.
+    // (b) s->lastFrameMs == lastFrameMs: sendBlack() oben kann blockieren,
+    //     bis NDI den Puffer ausgelesen hat (NDIlib_send_send_video_v2) -
+    //     in dieser Spanne, WAEHREND diese Sperre nicht gehalten wird, kann
+    //     der Bild-Rueckruf laengst ein neues Bild verarbeitet und
+    //     s->lastFrameMs veraendert haben. Weicht der aktuelle Wert von der
+    //     Momentaufnahme ab, ist die Entscheidung "still" VERALTET - der
+    //     Strom laeuft nachweislich schon wieder, der Uebergang nach
+    //     "black" (und die Meldung) unterbleibt. Das schon gesendete
+    //     Schwarzbild bleibt stehen (hinnehmbar, ein einzelnes Bild ist
+    //     kein falscher BERICHT), aber es wird nichts Falsches gemeldet.
+    //
+    // Ein bereits schwarzes Abo bekommt ausserdem keine weitere Meldung -
+    // Wiederholung ohne neue Information. Ein laufender bufferMismatch ist
+    // eine ANDERE Ursache als "Kamera aus" und bleibt darum erhalten (siehe
+    // Aufgabe 4, reason wird beim Uebergang nach "live" bereits korrekt auf
+    // "frames" zurueckgesetzt - hier steht also nie ein veralteter Wert).
     std::string emitReason;
     bool sollEmit = false;
     {
       std::lock_guard<std::mutex> lock(s->fieldMutex);
       s->lastBlackMs = jetzt;
-      if (s->state != "black") {
+      if (lastFrameMs != 0 && s->lastFrameMs == lastFrameMs && s->state != "black") {
         s->state = "black";
         if (s->reason != "bufferMismatch") s->reason = "cameraOff";
         emitReason = s->reason;
