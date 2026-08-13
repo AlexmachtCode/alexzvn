@@ -313,7 +313,22 @@ die Grenze zu erreichen, sagt der Lauf das **ausdrücklich**, statt die erreicht
 Zahl als Obergrenze auszugeben — eine Untergrenze als Obergrenze zu melden wäre
 genau die Sorte Messfehler, die dieses Vorhaben vermeiden will.
 
-## 8 · Drei Fallen, die Zeit kosten
+## 8 · Vier Fallen, die Zeit kosten
+
+**Eine fehlende DLL sieht aus wie ein Anmeldefehler.** `zoom-bridge.exe` ist
+gegen die Zoom-**und** (seit Stage 2) gegen die NDI-Importbibliothek gebunden.
+Der Windows-Lader löst beide beim Prozessstart auf, **vor `main()`** — fehlt
+eine davon im `PATH`, stirbt das Kind mit `STATUS_DLL_NOT_FOUND` (`0xC0000135`)
+und schreibt **keine einzige Zeile**, weder auf stdout noch auf stderr. Die
+Brücke kann dann nur `EXITED_UNEXPECTEDLY` melden, und der Prüfstand rät auf
+Zugangsdaten. GEMESSEN am 2026-08-13: genau so ist es passiert, weil das
+Verzeichnis der NDI-Laufzeit auf dem Entwicklungsrechner **in keinem** PATH
+steht (weder Maschine noch Benutzer) und `test/join.mjs` ein **eigenes** `PATH`
+mitgibt, das den Merge in `bridge.ts` gewinnt. Seither setzt `Bridge.start()`
+die NDI-Laufzeit **nach** dem Merge selbst dazu (`src/ndi-path.ts`). Bei
+„startet nicht, sagt nichts" also **zuerst die DLLs prüfen**, nicht die
+Zugangsdaten.
+
 
 **`ENABLE_CUSTOMIZED_UI_FLAG`.** Ohne dieses Flag in `InitParam.obConfigOpts`
 (siehe `native/session.cpp`) hängt der Beitritt für immer bei `CONNECTING` — im
@@ -354,9 +369,11 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
   Bridge; sie verbindet sich nicht von selbst neu. (Ein **einzelnes Video-Abo**
   überlebt dagegen einen Wiederbeitritt **desselben Teilnehmers** — siehe
   Abschnitt 7.)
-- **Kein Bündeln der Zoom-/NDI-DLLs.** `%ZOOM_SDK_DIR%\x64\bin` muss zur
-  Laufzeit im `PATH` stehen (`test/join.mjs` und die Prüfstände setzen das für
-  den eigenen Lauf selbst) — eine Auslieferungs-/Lizenzfrage bleibt für Stage 4
-  offen.
+- **Kein Bündeln der Zoom-/NDI-DLLs.** Beide müssen zur Laufzeit im `PATH`
+  stehen, und sie kommen aus **verschiedenen Händen**: `%ZOOM_SDK_DIR%\x64\bin`
+  setzt der Aufrufer (`test/join.mjs`, `test/video-limit.mjs` und die Prüfstände
+  tun das für den eigenen Lauf selbst), das Verzeichnis der **NDI-Laufzeit**
+  setzt `Bridge.start()` selbst (`src/ndi-path.ts`) — dort, weil kein Aufrufer
+  es vergessen darf. Eine Auslieferungs-/Lizenzfrage bleibt für Stage 4 offen.
 
 Das alles ist Stage 3–4 (`docs/roadmap.md`): Ton je Person, Integration + Release.

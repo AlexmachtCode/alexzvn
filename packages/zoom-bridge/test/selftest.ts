@@ -18,7 +18,9 @@ import {
   type Participant,
   type WireEvent,
 } from '../src/protocol.ts';
+import { withNdiRuntimeOnPath } from '../src/ndi-path.ts';
 import { tmpdir } from 'node:os';
+import { delimiter } from 'node:path';
 import { writeFileSync, unlinkSync } from 'node:fs';
 
 let failures = 0;
@@ -1230,6 +1232,36 @@ console.log('\nbridge — Video: ein Abo über die Attrappe:');
   // dieser Datei (z. B. `(errors[0] as { name?: string })`).
   assert((evs[0] as { state?: string })?.state === 'subscribed', 'der erste Schritt ist subscribed');
   await b.stop();
+}
+
+// --- NDI-Laufzeit auf dem PATH des Kindprozesses ------------------------
+// REGRESSION, gemessen am 2026-08-13: zoom-bridge.exe ist seit Stage 2 auch
+// gegen die NDI-Importbibliothek gebunden und startet ohne
+// Processing.NDI.Lib.x64.dll gar nicht - ohne eine einzige Zeile Ausgabe.
+// test/join.mjs gibt ein EIGENES PATH mit und loeschte damit beim Merge die
+// Erweiterung, die es nie hatte. Diese Zusicherungen halten die Reihenfolge
+// fest, nicht nur die Funktion.
+{
+  const mitPfad = withNdiRuntimeOnPath({ PATH: 'C:\\a' }, 'C:\\ndi');
+  assert(mitPfad.PATH === `C:\\ndi${delimiter}C:\\a`, 'NDI-Laufzeit kommt VORN auf den PATH');
+
+  const ohneFund = { PATH: 'C:\\a' };
+  assert(withNdiRuntimeOnPath(ohneFund, null) === ohneFund, 'ohne gefundene DLL bleibt die Umgebung unveraendert');
+
+  const schonDa = { PATH: `C:\\ndi${delimiter}C:\\a` };
+  assert(withNdiRuntimeOnPath(schonDa, 'C:\\ndi') === schonDa, 'ein bereits vorhandener Eintrag wird nicht verdoppelt');
+
+  assert(withNdiRuntimeOnPath({}, 'C:\\ndi').PATH === 'C:\\ndi', 'ohne PATH entsteht ein PATH mit genau diesem Eintrag');
+
+  const original = { PATH: 'C:\\a' };
+  withNdiRuntimeOnPath(original, 'C:\\ndi');
+  assert(original.PATH === 'C:\\a', 'die uebergebene Umgebung wird nicht veraendert');
+
+  // Die eigentliche Regression: der Merge in bridge.ts laesst ein vom Aufrufer
+  // gesetztes PATH GEWINNEN. Wird die NDI-Laufzeit vorher angehaengt, ist sie
+  // danach weg. Diese Zusicherung bildet genau diese Reihenfolge nach.
+  const wieInBridge = withNdiRuntimeOnPath({ ...{ PATH: 'system' }, ...{ PATH: 'aufrufer' } }, 'C:\\ndi');
+  assert(wieInBridge.PATH === `C:\\ndi${delimiter}aufrufer`, 'ein vom Aufrufer gesetztes PATH behaelt die NDI-Laufzeit');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
