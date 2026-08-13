@@ -194,8 +194,22 @@ andere"). Ein Abo auf die alte Kennung bliebe für immer schwarz, obwohl die Per
 
 Deshalb merkt sich jedes Abo zusätzlich die `persistentId` des Teilnehmers (die Teilnehmerliste führt sie
 schon mit). Taucht später ein Teilnehmer mit **derselben** `persistentId` unter neuer Kennung auf, wird das
-Abo selbsttätig auf die neue Kennung umgehängt: `state: "live"`, `reason: "rebound"`. **Der NDI-Sender
+Abo selbsttätig auf die neue Kennung umgehängt: `state: "subscribed"`, `reason: "rebound"`. **Der NDI-Sender
 bleibt derselbe** — für den Switcher ist nichts passiert, was er merken müsste.
+
+**Berichtigt am 13.08.2026 (frühere Fassung sagte hier `state: "live"`):** im Augenblick des Umhängens ist
+noch **kein** Bild über die neue Kennung gekommen — `live` wäre dort eine Behauptung über etwas, das erst
+noch eintreten muss, und genau das schließt die Regel aus Abschnitt 5 aus („ein Wert wäre dort erfunden").
+`subscribed` heißt laut derselben Tabelle „Sender steht, noch kein Bild" und beschreibt die Lage
+zutreffend; `live` folgt beim ersten wirklich empfangenen Bild, mit `reason: "frames"` und dann auch mit
+`rotation`/`limitedRange`. Die Umsetzung war an dieser Stelle richtig und die Spec falsch — nachgezogen
+wurde deshalb die Spec.
+
+**Scheitert das Umhängen** (`subscribe()` liefert einen SDK-Fehler), wird das **nicht** als Zustand
+gemeldet, sondern als `VIDEO_RENDERER_FAILED` — derselbe Name wie beim gescheiterten Erstabo, denn es ist
+derselbe SDK-Aufruf. Das Abo bleibt dabei **unverändert unter der alten Kennung** bestehen: die Quelle
+darf im Livebetrieb nicht wegbrechen (Abschnitt 3), die Buchführung des Aufrufers bleibt gültig, und ein
+weiterer Wiederbeitritt derselben Person kann es erneut versuchen.
 
 **Ehrlich über die Grenze:** ob Zoom die `persistentId` über einen Wiederbeitritt hinweg stabil hält, ist
 **unbelegt** und gehört in die Abnahme. Ist sie leer (Zoom liefert sie für nicht angemeldete Gäste nicht
@@ -217,6 +231,12 @@ Die Reihenfolge aus Stage 1 ist bindend und bekommt **davor** einen neuen Schrit
 `DestroyMeetingService` abzubauen hieße, auf abgeräumten Zustand zuzugreifen — dieselbe Klasse von Fehler,
 die in Aufgabe 7 als `0xC0000005` gemessen wurde. **Erst der Renderer, dann der Sender:** andersherum
 könnte ein Bild-Rückruf, der schon unterwegs ist, auf einen abgebauten Sender schreiben.
+
+**Jedes Abo meldet seinen eigenen Abbau**, bevor er läuft: `state: "unsubscribed"`, `reason: "command"` —
+dieselbe Zeile wie bei einem einzelnen `videoUnsubscribe`, denn es ist derselbe Anlass (ein Befehl des
+Aufrufers: `leave` bzw. `quit`). Ohne diese Meldung wäre der Abbau beim **`leave`-Befehl** still: die
+Bridge läuft weiter, die NDI-Quellen sind weg, und die Abo-Buchführung der aufrufenden Seite hielte
+Quellen fest, die es nicht mehr gibt.
 
 Nach dem Abbau darf **keine** `JM Connect – Zoom …`-Quelle mehr im Netz stehen. Das ist ein
 Abnahmekriterium, kein Wunsch.

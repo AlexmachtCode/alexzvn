@@ -77,11 +77,20 @@ Sekunden wieder (Vorgabe 60, Strg+C beendet früher). Optional: `ZOOM_DISPLAY_NA
 Ein geglückter Beitritt ohne Rohdaten-Erlaubnis wird bewusst **nicht** mit `0`
 quittiert — das wäre genau die Sorte Lüge, die dieses Werkzeug aufdecken soll.
 
-**Ungeprüft gegen ein echtes Meeting:** der gesamte Pfad ab dem Beitritt — Teilnehmerliste,
-Rollennamen, Weggang, Rohdaten-Aufnahme-Erlaubnis — ist bis heute ausschließlich gegen die
-Attrappe (`test/fake-bridge.mjs`) geprüft. Die Punkte 4–7 der Abnahme in
-[`docs/superpowers/specs/2026-08-11-zoom-bridge-geruest-design.md`](../../docs/superpowers/specs/2026-08-11-zoom-bridge-geruest-design.md)
-(§12) sind Owner-Schritte, die noch ausstehen.
+**Gemessen und offen — der Stand, nicht die Absicht:** Stage 1 (Beitritt,
+Teilnehmerliste, Rollennamen, Weggang, Rohdaten-Aufnahme-Erlaubnis) ist **in der
+Owner-Abnahme am 12.08.2026 gegen ein echtes Meeting gemessen** worden; der
+Normalweg mit Warteraum aus Abschnitt 6 stammt wörtlich aus diesen Läufen.
+**Offen ist die Abnahme von Stage 2** — alles, was Bild betrifft: die acht
+Punkte in
+[`docs/superpowers/specs/2026-08-12-zoom-stage2-video-ndi-design.md`](../../docs/superpowers/specs/2026-08-12-zoom-stage2-video-ndi-design.md)
+(§10), also die Quelle im Switcher, Kamera aus/an, Weggang und Wiederbeitritt,
+die Abweisung ohne Erlaubnis, der Messlauf (`npm run video-limit`) und der
+saubere Abbau — dazu die beiden Werte, die heute niemand kennt: was
+`IsLimitedI420()` liefert und ob `GetRotation()` je von `0` abweicht. Diese
+Läufe brauchen Owner-Zugangsdaten und ein Meeting mit echten Gästen; ohne sie
+sind Herzschlag, Pufferprüfung und Abbau-Reihenfolge nur nativ **gelesen**,
+nicht gemessen.
 
 ## 5 · Zugangsdaten
 
@@ -129,8 +138,10 @@ Absturz behandelt.
 | `init` | — | `InitSDK`, startet die Nachrichtenschleife. |
 | `auth` | `jwt` | Anmeldung mit dem fertigen JWT. |
 | `join` | `meetingId`, `passcode`, `displayName` | Tritt dem Meeting bei. |
-| `leave` | — | Verlässt das Meeting, bleibt aber angemeldet. |
+| `leave` | — | Verlässt das Meeting, bleibt aber angemeldet. Baut **vorher** alle Video-Abos ab (jedes meldet sich einzeln, siehe Abschnitt 7). |
 | `quit` | — | Beendet `zoom-bridge.exe` sauber. |
+| `videoSubscribe` | `id`, optional `resolution` | Abonniert das Video eines Teilnehmers als eigene NDI-Quelle — **Einzelheiten in Abschnitt 7**. |
+| `videoUnsubscribe` | `id` | Baut dieses Abo ab — **Einzelheiten in Abschnitt 7**. |
 
 **Die Reihenfolge ist bindend, und der Aufrufer muss sie einhalten:** nach `auth`
 **erst das `auth`-Ereignis abwarten**, dann `join` schicken. Wer `init`, `auth`
@@ -155,6 +166,7 @@ mit Namen — die Reihenfolge herzustellen ist Sache der aufrufenden Seite
 | `left` | Ein Teilnehmer (`id`) ist weg. |
 | `renamed` | Ein Teilnehmer (`id`) hat einen neuen Namen (`name`). |
 | `privilege` | Stand der Rohdaten-Erlaubnis (`canRecordRaw`, `source`, optional `requested`/`denied`/`timedOut`). |
+| `video` | Zustand eines Video-Abos (`id`, `state`, `source`, `reason`, `rebindable`, gemessen auch `rotation`/`limitedRange`) — **Einzelheiten in Abschnitt 7**. |
 | `error` | Eine benannte Ursache (`where`, `code`, angereichert zu `name`) — nie ein stiller Abbruch. |
 | `bye` | `zoom-bridge.exe` beendet sich sauber (siehe Ausnahme unten). |
 
@@ -219,7 +231,7 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 | `videoRendererFailed` | Zoom-Seite: `createRenderer`/`subscribe` lieferte einen SDK-Fehler. |
 | `videoSenderFailed` | NDI-Seite: `NDIlib_send_create` schlug fehl. **Absichtlich ein anderer Name** als `videoRendererFailed` — die beiden schicken die Suche an verschiedene Orte. |
 | `videoBufferMismatch` | `GetBufferLen()` passt nicht zu Breite×Höhe×3/2 (siehe Falle unten). |
-| `ndiInitFailed` | `NDIlib_initialize()` schlug fehl — die NDI-Laufzeit fehlt auf diesem Rechner. |
+| `ndiInitFailed` | `NDIlib_initialize()` schlug fehl — die NDI-Laufzeit fehlt auf diesem Rechner. Gemeldet beim `init` **und** bei jedem späteren `videoSubscribe` (`where:"ndi"`, nicht `"video"`) — der Abo-Versuch würde sonst `videoSenderFailed` melden und die Suche zu einem einzelnen Abo statt zur fehlenden Installation schicken. |
 
 **Der Herzschlag** (`videoTick()`, läuft im Hauptthread alle 10 ms, direkt nach
 `pumpOnce()`): fällt der Bildstrom eines Abos aus, sendet die Quelle statt eines
@@ -257,6 +269,10 @@ laufender Renderer hält eine Referenz auf den Meeting-Dienst, ihn danach
 abzubauen hieße, auf bereits abgeräumten Zustand zuzugreifen (dieselbe
 Fehlerklasse, die in Stage 1 als `0xC0000005` gemessen wurde). Gilt für **beide**
 Ausstiege — den `leave`-Befehl **und** das reguläre Prozessende (`main.cpp`).
+**Jedes Abo meldet sich dabei einzeln** (`state:"unsubscribed"`,
+`reason:"command"`), bevor es abgebaut wird: beim `leave` läuft die Bridge
+weiter, und eine aufrufende Seite, die ihre Abos führt, hielte sonst Quellen
+fest, die es nicht mehr gibt.
 
 **Ein Abo überlebt einen Wiederbeitritt.** Verlässt ein abonnierter Gast das
 Meeting, bleibt sein Abo bestehen (`reason:"participantLeft"`, der Herzschlag
