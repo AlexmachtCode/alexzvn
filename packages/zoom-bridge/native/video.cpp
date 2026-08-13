@@ -243,8 +243,24 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
 
   if (!sub->sender.open(sub->source)) { emitVideoError("videoSenderFailed"); return; }
 
+  // Der Protokollname bleibt EINER (videoRendererFailed) - ein Aufrufer kann
+  // auf "der Renderer kam nicht zustande" genau eine Handlung stuetzen. Fuer
+  // den MENSCHEN, der die Rohausgabe mitliest, sind es aber zwei
+  // verschiedene Tatsachen an zwei verschiedenen Aufrufen, und ohne den
+  // SDKError ist keine davon zu unterscheiden. GEMESSEN im Owner-Lauf vom
+  // 2026-08-13: videoRendererFailed kam ohne jede weitere Angabe - man sieht
+  // weder WELCHER Ruf scheiterte noch WOMIT. Darum stderr dazu, stdout
+  // unveraendert (stdout ist Maschine, stderr ist Mensch).
+  //
+  // HasRawdataLicense() steht mit dabei, weil es die eine Frage beantwortet,
+  // die man sonst nur raten kann: ob dieses Konto Rohdaten ueberhaupt DARF.
+  // Ein fehlendes Recht sieht an dieser Stelle exakt aus wie ein Codefehler.
   SDKError err = createRenderer(&sub->renderer, sub->delegate.get());
   if (err != SDKERR_SUCCESS || sub->renderer == nullptr) {
+    logSdkError(L"createRenderer()", err);
+    emitLog(std::wstring(L"createRenderer() lieferte keinen Renderer. HasRawdataLicense()=") +
+            (HasRawdataLicense() ? L"true" : L"false") +
+            L" - false heisst: dieses Zoom-Konto hat kein Rohdaten-Recht, dann hilft kein Code.");
     sub->sender.close();
     emitVideoError("videoRendererFailed");
     return;
@@ -252,6 +268,7 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
   sub->renderer->setRawDataResolution(res);
   err = sub->renderer->subscribe(userId, RAW_DATA_TYPE_VIDEO);
   if (err != SDKERR_SUCCESS) {
+    logSdkError(L"subscribe() beim Anlegen des Abos", err);
     destroyRenderer(sub->renderer);
     sub->sender.close();
     emitVideoError("videoRendererFailed");

@@ -1,4 +1,5 @@
 #include "callbacks.h"
+#include "rawdata/zoom_rawdata_api.h"  // HasRawdataLicense()
 #include "emit.h"
 #include "session.h"
 #include "video.h"
@@ -12,6 +13,17 @@ void AuthListener::onAuthenticationReturn(AuthResult ret) {
   emitRaw("{\"ev\":\"auth\",\"code\":" + std::to_string(static_cast<int>(ret)) + "}");
   // Fuer den Menschen, der die Rohausgabe mitliest, zusaetzlich auf stderr.
   emitLog(std::wstring(L"Anmeldung beantwortet, AuthResult=") + std::to_wstring(static_cast<int>(ret)));
+  // Das Rohdaten-Recht haengt am KONTO, nicht am Meeting - es steht also
+  // bereits hier fest, lange vor dem ersten Abo. Ohne diese Zeile sieht ein
+  // fehlendes Recht erst beim videoSubscribe als videoRendererFailed aus,
+  // also wie ein Codefehler in einem Meeting, statt wie eine Kontofrage, die
+  // schon vor dem Beitritt beantwortbar war. KEIN Protokollereignis: es ist
+  // keine Tatsache, auf die ein Aufrufer eine Handlung stuetzt, sondern eine
+  // Auskunft fuer den Menschen, der einen Abnahmelauf einrichtet.
+  if (ret == AUTHRET_SUCCESS) {
+    emitLog(std::wstring(L"Rohdaten-Lizenz dieses Kontos: HasRawdataLicense()=") +
+            (HasRawdataLicense() ? L"true" : L"false"));
+  }
   // Meldet session.cpp, dass die Anmeldung nicht mehr offen ist - siehe
   // sessionAuthPending() in session.h.
   sessionAuthAnswered();

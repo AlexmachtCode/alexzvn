@@ -17,6 +17,21 @@ Prozess": mit erteilter Erlaubnis und mindestens einem `videoSubscribe`-Abo
 verlassen sehr wohl Bilder den Prozess — als **NDI**, nicht als Datei. Ton
 fehlt weiterhin (Stage 3).
 
+> **Voraussetzung für Stage 2, die kein Code erfüllen kann: das Zoom-**Konto**
+> braucht ein Rohdaten-Recht.** Das SDK beantwortet das mit
+> `HasRawdataLicense()`. Steht dort `false`, liefert `createRenderer()` keinen
+> Renderer, und **jedes** `videoSubscribe` endet in `videoRendererFailed` —
+> unabhängig davon, wie oft der Gastgeber die Aufnahme erlaubt. **Das sind zwei
+> verschiedene Tore:** die Rohdaten-**Erlaubnis** (Abschnitt 6) erteilt der
+> Gastgeber im laufenden Meeting; die Rohdaten-**Lizenz** hängt am Zoom-Konto und
+> steht schon nach der Anmeldung fest. GEMESSEN am 2026-08-13 auf dem
+> Entwicklungskonto: Erlaubnis **JA**, Lizenz **false** — Video kam trotzdem
+> keins. Die Brücke meldet den Lizenzwert deshalb seit dem gleichen Tag
+> unaufgefordert nach jeder geglückten Anmeldung auf stderr. Das SDK
+> dokumentiert die Funktion mit **keinem Wort** (kein Kommentar im Kopfsatz,
+> keine zweite Erwähnung im gesamten SDK) — geklärt werden muss das mit Zoom,
+> nicht im Quelltext.
+
 Der tragende Entwurfsgedanke: `zoom-bridge.exe` meldet **Tatsachen** als JSON-Zeilen
 auf stdout, alles **Urteilen** (Namen, Zustandsmaschine, Zeitüberschreitungen)
 passiert in TypeScript (`src/`). Deshalb sind Protokoll, Zustandsmaschine und die
@@ -228,7 +243,7 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 | `videoAlreadySubscribed` | Die Kennung ist bereits abonniert. |
 | `videoNotSubscribed` | `videoUnsubscribe` auf eine nicht abonnierte Kennung. |
 | `videoBadResolution` | Der `resolution`-Schlüssel ist keiner der fünf gültigen. |
-| `videoRendererFailed` | Zoom-Seite: `createRenderer`/`subscribe` lieferte einen SDK-Fehler. |
+| `videoRendererFailed` | Zoom-Seite: `createRenderer`/`subscribe` lieferte einen SDK-Fehler. **Häufigste Ursache ist keine Zoom-Panne, sondern das fehlende Rohdaten-Recht des Kontos** (`HasRawdataLicense()==false`, siehe Abschnitt 1) — die Brücke schreibt bei diesem Fehler den SDK-Code **und** den Lizenzwert auf stderr, damit beides nicht verwechselt wird. |
 | `videoSenderFailed` | NDI-Seite: `NDIlib_send_create` schlug fehl. **Absichtlich ein anderer Name** als `videoRendererFailed` — die beiden schicken die Suche an verschiedene Orte. |
 | `videoBufferMismatch` | `GetBufferLen()` passt nicht zu Breite×Höhe×3/2 (siehe Falle unten). |
 | `ndiInitFailed` | `NDIlib_initialize()` schlug fehl — die NDI-Laufzeit fehlt auf diesem Rechner. Gemeldet beim `init` **und** bei jedem späteren `videoSubscribe` (`where:"ndi"`, nicht `"video"`) — der Abo-Versuch würde sonst `videoSenderFailed` melden und die Suche zu einem einzelnen Abo statt zur fehlenden Installation schicken. |
@@ -328,7 +343,6 @@ mitgibt, das den Merge in `bridge.ts` gewinnt. Seither setzt `Bridge.start()`
 die NDI-Laufzeit **nach** dem Merge selbst dazu (`src/ndi-path.ts`). Bei
 „startet nicht, sagt nichts" also **zuerst die DLLs prüfen**, nicht die
 Zugangsdaten.
-
 
 **`ENABLE_CUSTOMIZED_UI_FLAG`.** Ohne dieses Flag in `InitParam.obConfigOpts`
 (siehe `native/session.cpp`) hängt der Beitritt für immer bei `CONNECTING` — im
