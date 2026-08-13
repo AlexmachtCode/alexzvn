@@ -87,6 +87,24 @@ const scripts = {
     for (const n of names) seen[n] = Object.prototype.hasOwnProperty.call(process.env, n);
     say({ ev: 'envprobe', seen });
   },
+  // Ein Abo, wie es der native Teil meldet: erst steht der Sender, dann
+  // fliessen Bilder. Wartet auf den Befehl, damit die Reihenfolge stimmt.
+  video: () => {
+    say({ ev: 'ready', sdkVersion: '7.1.5 (attrappe)' });
+    say({ ev: 'auth', code: 0 });
+    say({ ev: 'status', status: 'inMeeting', raw: 3, code: 0 });
+    say({ ev: 'privilege', canRecordRaw: true, source: 'requestAnswer' });
+    process.stdin.on('data', (d) => {
+      const s = String(d);
+      if (s.includes('"videoSubscribe"')) {
+        say({ ev: 'video', id: 42, state: 'subscribed', source: 'JM Connect – Zoom Attrappe', reason: 'command', rebindable: true });
+        say({ ev: 'video', id: 42, state: 'live', source: 'JM Connect – Zoom Attrappe', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true });
+      }
+      if (s.includes('"videoUnsubscribe"')) {
+        say({ ev: 'video', id: 42, state: 'unsubscribed', source: 'JM Connect – Zoom Attrappe', reason: 'command', rebindable: true });
+      }
+    });
+  },
   stuck: () => {
     say({ ev: 'ready', sdkVersion: '7.1.5 (attrappe)' });
     say({ ev: 'auth', code: 0 });

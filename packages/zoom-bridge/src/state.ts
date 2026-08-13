@@ -1,6 +1,15 @@
 // Die Zustandsmaschine: aus Ereignissen wird ein Bild der Sitzung.
 // Rein — kein Prozess, keine Uhr, keine Seiteneffekte. Deshalb ohne SDK pruefbar.
-import type { BridgeEvent, MeetingStatusName, Participant } from './protocol.ts';
+import type { BridgeEvent, MeetingStatusName, Participant, VideoReason, VideoState } from './protocol.ts';
+
+export interface VideoSub {
+  state: VideoState;
+  source: string;
+  reason: VideoReason;
+  rebindable: boolean;
+  rotation?: number;
+  limitedRange?: boolean;
+}
 
 export interface Session {
   phase: 'start' | 'ready' | 'authed' | 'joining' | 'inMeeting' | 'left' | 'error';
@@ -39,6 +48,7 @@ export interface Session {
    */
   privilegeDenied: boolean;
   lastError: { where: string; code: number | string; name: string } | null;
+  videoSubs: Map<number, VideoSub>;
 }
 
 export function initialSession(): Session {
@@ -51,6 +61,7 @@ export function initialSession(): Session {
     privilegeTimedOut: false,
     privilegeDenied: false,
     lastError: null,
+    videoSubs: new Map(),
   };
 }
 
@@ -137,6 +148,33 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
     case 'error': {
       const e = ev as { where: string; code: number | string; name?: string };
       return { ...s, phase: 'error', lastError: { where: e.where, code: e.code, name: e.name ?? 'UNBENANNT' } };
+    }
+
+    case 'video': {
+      const e = ev as {
+        id: number; state: VideoState; source: string; reason: VideoReason;
+        rebindable: boolean; rotation?: number; limitedRange?: boolean;
+      };
+      const videoSubs = new Map(s.videoSubs);
+      if (e.state === 'unsubscribed') {
+        videoSubs.delete(e.id);
+      } else {
+        // Beim Umhaengen (reason 'rebound') traegt das Ereignis die NEUE
+        // Kennung; die alte muss verschwinden, sonst bliebe eine Karteileiche
+        // stehen, auf die nie wieder ein Ereignis kommt. Der Quellenname ist
+        // der Faden, an dem die alte Kennung haengt - der Sender ist
+        // derselbe geblieben.
+        if (e.reason === 'rebound') {
+          for (const [id, sub] of videoSubs) {
+            if (sub.source === e.source && id !== e.id) videoSubs.delete(id);
+          }
+        }
+        videoSubs.set(e.id, {
+          state: e.state, source: e.source, reason: e.reason,
+          rebindable: e.rebindable, rotation: e.rotation, limitedRange: e.limitedRange,
+        });
+      }
+      return { ...s, videoSubs };
     }
 
     case 'bye':

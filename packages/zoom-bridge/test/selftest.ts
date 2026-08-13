@@ -13,8 +13,10 @@ import {
   serializeCommand,
   SDK_ERROR_NAMES,
   AUTH_RESULT_NAMES,
+  VIDEO_RESOLUTIONS,
   type BridgeEvent,
   type Participant,
+  type WireEvent,
 } from '../src/protocol.ts';
 import { tmpdir } from 'node:os';
 import { writeFileSync, unlinkSync } from 'node:fs';
@@ -1089,6 +1091,95 @@ console.log('\nbridge - envRemove entfernt eine geerbte Variable wirklich, nicht
     delete process.env.ZOOM_BRIDGE_TEST_SECRET;
     delete process.env.ZOOM_BRIDGE_TEST_KEEP;
   }
+}
+
+console.log('\nprotocol — Video: Auflösungsschlüssel:');
+{
+  assert(VIDEO_RESOLUTIONS.includes('720p'), '720p ist ein gültiger Schlüssel');
+  // Cast noetig: VIDEO_RESOLUTIONS ist `as const`, TS' strict-Modus verbietet
+  // sonst .includes() mit einem Literal, das gar nicht im Vereinigungstyp
+  // vorkommt (Abweichung vom Brief-Wortlaut, siehe task-2-report.md) - die
+  // LAUFZEIT-Pruefung bleibt exakt dieselbe, nur der Compiler wird nicht
+  // mehr getaeuscht.
+  assert(!(VIDEO_RESOLUTIONS as readonly string[]).includes('480p'), '480p ist KEIN gültiger Schlüssel — Zoom kennt es nicht');
+}
+
+console.log('\nprotocol — Video: jede Ursache hat ihren eigenen Namen:');
+{
+  const namen = [
+    'videoNoPrivilege', 'videoUnknownParticipant', 'videoAlreadySubscribed',
+    'videoNotSubscribed', 'videoRendererFailed', 'videoSenderFailed',
+    'videoBadResolution', 'videoBufferMismatch', 'ndiInitFailed',
+  ].map((k) => (enrich({ ev: 'error', where: 'video', code: k } as WireEvent) as { name: string }).name);
+  assert(new Set(namen).size === namen.length, 'neun Ursachen, neun verschiedene Namen');
+  assert(!namen.some((n) => n.startsWith('OWN_UNKNOWN')), 'keiner faellt auf OWN_UNKNOWN zurueck');
+  const fremd = enrich({ ev: 'error', where: 'video', code: 'videoWasAuchImmer' } as WireEvent);
+  assert(
+    (fremd as { name: string }).name === 'OWN_UNKNOWN(videoWasAuchImmer)',
+    'ein unbekannter Schluessel wird SICHTBAR unbekannt, nicht stillschweigend gerundet',
+  );
+}
+
+console.log('\nstate — Video: Abo-Buchführung:');
+{
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'subscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
+  assert(s.videoSubs.get(7)?.state === 'subscribed', 'ein Abo wird gebucht');
+  assert(s.videoSubs.get(7)?.source === 'JM Connect – Zoom Anna', 'der vergebene Name wird festgehalten');
+
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'live', source: 'JM Connect – Zoom Anna', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true } as WireEvent));
+  assert(s.videoSubs.get(7)?.state === 'live', 'der Zustand folgt dem Ereignis');
+  assert(s.videoSubs.get(7)?.rotation === 0, 'die gemessene Drehung wird festgehalten');
+
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'black', source: 'JM Connect – Zoom Anna', reason: 'cameraOff', rebindable: true } as WireEvent));
+  assert(s.videoSubs.get(7)?.reason === 'cameraOff', 'die URSACHE wird getrennt vom Zustand gefuehrt');
+
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'unsubscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
+  assert(!s.videoSubs.has(7), 'ein abgebautes Abo verschwindet aus der Buchfuehrung');
+}
+
+console.log('\nstate — Video: derselbe Zustand, zwei verschiedene Ursachen:');
+{
+  // Der eigentliche Prueffall: "black" allein sagt NICHT, ob jemand die
+  // Kamera zugedeckt hat oder aus dem Meeting geflogen ist.
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 1, state: 'black', source: 'A', reason: 'cameraOff', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 2, state: 'black', source: 'B', reason: 'participantLeft', rebindable: false } as WireEvent));
+  assert(s.videoSubs.get(1)?.state === s.videoSubs.get(2)?.state, 'beide stehen auf demselben Zustand');
+  assert(s.videoSubs.get(1)?.reason !== s.videoSubs.get(2)?.reason, 'aber die Ursachen bleiben unterscheidbar');
+}
+
+console.log('\nstate — Video: Umhängen behält denselben Sender:');
+{
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'live', source: 'JM Connect – Zoom Bo', reason: 'frames', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'black', source: 'JM Connect – Zoom Bo', reason: 'participantLeft', rebindable: true } as WireEvent));
+  // 'subscribed', nicht 'live': beim Umhaengen sind noch keine Bilder da —
+  // genau das meldet der native Teil (Task 6).
+  s = reduce(s, enrich({ ev: 'video', id: 11, state: 'subscribed', source: 'JM Connect – Zoom Bo', reason: 'rebound', rebindable: true } as WireEvent));
+  assert(!s.videoSubs.has(10), 'die alte Kennung ist weg');
+  assert(s.videoSubs.get(11)?.source === 'JM Connect – Zoom Bo', 'der Quellenname bleibt derselbe — der Switcher merkt nichts');
+}
+
+console.log('\nbridge — Video: ein Abo über die Attrappe:');
+{
+  const evs: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'video' },
+    onEvent: (e) => { if (e.ev === 'video') evs.push(e); },
+  });
+  await b.start();
+  b.send({ cmd: 'videoSubscribe', id: 42, resolution: '720p' });
+  await b.waitFor((s) => s.videoSubs.get(42)?.state === 'live', 4000);
+  assert(evs.length >= 2, 'erst subscribed, dann live — beide Schritte sind sichtbar');
+  // Cast noetig (Abweichung vom Brief-Wortlaut, siehe task-2-report.md):
+  // evs ist BridgeEvent[], ein Vereinigungstyp, dessen andere Varianten kein
+  // "state" fuehren - derselbe Cast-Stil wie an den bestehenden Stellen
+  // dieser Datei (z. B. `(errors[0] as { name?: string })`).
+  assert((evs[0] as { state?: string })?.state === 'subscribed', 'der erste Schritt ist subscribed');
+  await b.stop();
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
