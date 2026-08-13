@@ -1126,6 +1126,13 @@ console.log('\nstate — Video: Abo-Buchführung:');
   s = reduce(s, enrich({ ev: 'video', id: 7, state: 'subscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
   assert(s.videoSubs.get(7)?.state === 'subscribed', 'ein Abo wird gebucht');
   assert(s.videoSubs.get(7)?.source === 'JM Connect – Zoom Anna', 'der vergebene Name wird festgehalten');
+  // Nachbesserungsrunde 1: die Gegenprobe zu "die gemessene Drehung wird
+  // festgehalten" weiter unten. Ohne Bild (state:"subscribed") FEHLEN
+  // rotation/limitedRange im Ereignis - reduce() darf hier NICHTS erfinden
+  // (z. B. per `?? 0`/`?? true`), sonst waere eine erfundene 0 von einer
+  // spaeter GEMESSENEN 0 nicht mehr zu unterscheiden.
+  assert(s.videoSubs.get(7)?.rotation === undefined, 'ohne Bild wird KEINE Drehung erfunden');
+  assert(s.videoSubs.get(7)?.limitedRange === undefined, 'ohne Bild wird KEIN Wertebereich erfunden');
 
   s = reduce(s, enrich({ ev: 'video', id: 7, state: 'live', source: 'JM Connect – Zoom Anna', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true } as WireEvent));
   assert(s.videoSubs.get(7)?.state === 'live', 'der Zustand folgt dem Ereignis');
