@@ -33,3 +33,15 @@ void videoUnsubscribe(unsigned int userId);
  * Renderer haelt eine Referenz auf den Meeting-Dienst.
  */
 void videoShutdownAll();
+
+/**
+ * Schwarzbild-Herzschlag: von der Hauptschleife alle 10 ms gerufen (siehe
+ * main.cpp, direkt nach pumpOnce()). Faellt der Bildstrom eines Abos aus
+ * (Kamera aus, Teilnehmer weg, Aussetzer), sendet dieses Abo statt eines
+ * eingefrorenen letzten Bildes fortlaufend Schwarz - die NDI-Quelle bleibt
+ * bestehen, statt zu verschwinden. Ein verschwindender Sender waere im
+ * Livebetrieb die gefaehrlichere Wahl: laege er auf Programm, risse er weg.
+ * Der Wechsel wird zusaetzlich als Ereignis gemeldet (state "black"), damit
+ * die Regie ihn SIEHT statt ihn zu erraten.
+ */
+void videoTick();

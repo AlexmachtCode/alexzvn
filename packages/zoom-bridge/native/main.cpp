@@ -287,6 +287,12 @@ int main(int argc, char** argv) {
   std::string line;
   while (!g_quit) {
     pumpOnce();
+    // Schwarzbild-Herzschlag (Aufgabe 5): haelt jede Video-Quelle am Leben,
+    // indem sie bei Bildausfall Schwarz statt eines eingefrorenen letzten
+    // Bildes sendet. Hier und nicht in einem eigenen Thread - die Schleife
+    // tickt bereits alle 10 ms, ein zweiter Thread waere nur ein weiterer
+    // Schreiber auf denselben Feldern ohne jeden Vorteil.
+    videoTick();
     while (!g_quit && nextLine(line)) handle(line);
     if (g_stdinClosed) {
       bool linesEmpty;

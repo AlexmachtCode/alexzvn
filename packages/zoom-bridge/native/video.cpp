@@ -115,6 +115,36 @@ void emitVideoError(const char* code) {
   emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"") + code + "\"}");
 }
 
+// Die fuenf NENNGROESSEN der Abos (siehe videoParseResolution()). Der
+// Herzschlag (videoTick()) braucht sie fuer das ALLERERSTE Schwarzbild -
+// vor dem ersten empfangenen Bild ist die tatsaechliche Groesse (lastW/
+// lastH) noch 0/unbekannt, die Quelle soll aber von Anfang an eine GUELTIGE
+// NDI-Aufloesung haben statt erst nach dem ersten Bild. Ein res-Wert
+// ausserhalb dieser fuenf kann hier nicht ankommen: res wird ausschliesslich
+// ueber videoParseResolution() (fieldFromJson()) oder die Vorgabe 720p
+// (main.cpp) gesetzt.
+int nominalWidth(ZoomSDKResolution res) {
+  switch (res) {
+    case ZoomSDKResolution_90P:   return 160;
+    case ZoomSDKResolution_180P:  return 320;
+    case ZoomSDKResolution_360P:  return 640;
+    case ZoomSDKResolution_720P:  return 1280;
+    case ZoomSDKResolution_1080P: return 1920;
+    default:                      return 1280;   // sollte nie erreicht werden, siehe oben
+  }
+}
+
+int nominalHeight(ZoomSDKResolution res) {
+  switch (res) {
+    case ZoomSDKResolution_90P:   return 90;
+    case ZoomSDKResolution_180P:  return 180;
+    case ZoomSDKResolution_360P:  return 360;
+    case ZoomSDKResolution_720P:  return 720;
+    case ZoomSDKResolution_1080P: return 1080;
+    default:                      return 720;    // sollte nie erreicht werden, siehe oben
+  }
+}
+
 }  // namespace
 
 bool videoParseResolution(const std::string& key, ZoomSDKResolution* out) {
@@ -186,6 +216,79 @@ void videoShutdownAll() {
     s->sender.close();
   }
   g_subs.clear();
+}
+
+// LAEUFT AUF DEM HAUPTTHREAD (siehe main.cpp: direkt nach pumpOnce(), alle
+// 10 ms). Der Bild-Rueckruf (Delegate::onRawDataFrameReceived) laeuft auf
+// einem SDK-Thread - beide treffen sich in den Feldern von Sub, darum
+// dieselbe Sperr-Disziplin wie dort (siehe Sub::fieldMutex): erst lokal aus
+// den Feldern lesen und ENTSCHEIDEN, dann OHNE Sperre senden, dann unter der
+// Sperre fortschreiben. Die Sperre wird NIE ueber sender.sendBlack()
+// gehalten - NdiSender haelt seine EIGENE Sperre, zwei ineinander gehaltene
+// Sperren waeren eine Verschraenkung.
+//
+// Veraendert die KARTE g_subs selbst NICHT (kein insert/erase) - das bleibt
+// Aufgabe 6 vorbehalten. Iterieren ohne Kartensperre ist hier gefahrlos,
+// weil der Bild-Rueckruf die Karte nachweislich nicht anfasst (siehe
+// Sub::fieldMutex-Kommentar) und alle Karten-Mutationen (videoSubscribe/
+// videoUnsubscribe/videoShutdownAll) ohnehin auf demselben Hauptthread
+// laufen wie videoTick() selbst.
+void videoTick() {
+  const ULONGLONG jetzt = GetTickCount64();
+  for (auto& [id, s] : g_subs) {
+    ULONGLONG lastFrameMs;
+    ULONGLONG lastBlackMs;
+    int lastW, lastH;
+    ZoomSDKResolution res;
+    {
+      std::lock_guard<std::mutex> lock(s->fieldMutex);
+      lastFrameMs = s->lastFrameMs;
+      lastBlackMs = s->lastBlackMs;
+      lastW = s->lastW;
+      lastH = s->lastH;
+      res = s->res;
+    }
+
+    // 200 ms Nachlauf: bei kurzen Aussetzern soll NICHT zwischen Bild und
+    // Schwarz geflackert werden. Erst danach gilt der Strom als still.
+    if (lastFrameMs != 0 && jetzt - lastFrameMs < 200) continue;
+    // Hoechstens alle 100 ms, also 10 Bilder je Sekunde. Das haelt die
+    // Quelle fuer jeden Empfaenger gueltig und kostet fast nichts.
+    if (jetzt - lastBlackMs < 100) continue;
+
+    // Vor dem ersten Bild ist die Bildgroesse unbekannt - dann die
+    // NENNGROESSE des Abos nehmen, damit die Quelle von Anfang an gueltig
+    // ist statt erst nach dem ersten Bild.
+    const int w = lastW > 0 ? lastW : nominalWidth(res);
+    const int h = lastH > 0 ? lastH : nominalHeight(res);
+
+    // Senden OHNE Sperre - sendBlack() nimmt NdiSenders eigene Sperre.
+    s->sender.sendBlack(w, h);
+
+    // Fortschreiben NACH dem Senden, wieder unter der Sperre. lastBlackMs
+    // wird UNBEDINGT gesetzt (der Herzschlag lief gerade), state/reason nur
+    // beim UEBERGANG nach "black" - ein bereits schwarzes Abo bekommt keine
+    // weitere Meldung, das waere Wiederholung ohne neue Information. Ein
+    // laufender bufferMismatch ist eine ANDERE Ursache als "Kamera aus" und
+    // bleibt darum erhalten (siehe Aufgabe 4, reason wird beim Uebergang
+    // nach "live" bereits korrekt auf "frames" zurueckgesetzt - hier steht
+    // also nie ein veralteter Wert).
+    std::string emitReason;
+    bool sollEmit = false;
+    {
+      std::lock_guard<std::mutex> lock(s->fieldMutex);
+      s->lastBlackMs = jetzt;
+      if (s->state != "black") {
+        s->state = "black";
+        if (s->reason != "bufferMismatch") s->reason = "cameraOff";
+        emitReason = s->reason;
+        sollEmit = true;
+      }
+    }
+    // emitVideo() ausserhalb JEDER Sperre - dieselbe Regel wie im
+    // Bild-Rueckruf: kein emit*() innerhalb eines Sperrblocks.
+    if (sollEmit) emitVideo(*s, "black", emitReason.c_str());
+  }
 }
 
 namespace {
