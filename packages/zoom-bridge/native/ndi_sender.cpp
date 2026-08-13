@@ -5,8 +5,27 @@
 // nicht garantiert.
 #include <algorithm>
 
-bool ndiInitialize() { return NDIlib_initialize(); }
-void ndiShutdown() { NDIlib_destroy(); }
+namespace {
+// Ob NDIlib_initialize() in diesem Prozess geglueckt ist. Hier und nicht in
+// main.cpp: diese Uebersetzungseinheit BESITZT den NDI-Zustand, und ein
+// zweites Merkzeichen daneben waeren zwei Wahrheiten, die auseinanderlaufen
+// koennen. Kein std::atomic noetig - gesetzt wird ausschliesslich auf dem
+// Hauptthread (main.cpp, Befehl "init" bzw. der --ndi-selftest-Sonderweg),
+// gelesen ebenfalls nur dort (videoSubscribe() laeuft auf demselben Thread).
+bool g_ndiUp = false;
+}  // namespace
+
+bool ndiInitialize() {
+  g_ndiUp = NDIlib_initialize();
+  return g_ndiUp;
+}
+
+bool ndiIsUp() { return g_ndiUp; }
+
+void ndiShutdown() {
+  NDIlib_destroy();
+  g_ndiUp = false;
+}
 
 NdiSender::~NdiSender() { close(); }
 

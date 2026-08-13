@@ -11,6 +11,26 @@
  */
 bool ndiInitialize();
 
+/**
+ * Ob ndiInitialize() in diesem Prozess geglueckt ist.
+ *
+ * Gebraucht von videoSubscribe() (video.cpp): ohne diese Frage meldete der
+ * naechste Abo-Versuch nach einem fehlgeschlagenen NDIlib_initialize()
+ * "videoSenderFailed" - also einen fehlgeschlagenen EINZELNEN Sender - und
+ * schickte die Suche damit zu diesem einen Abo statt zur fehlenden
+ * NDI-Laufzeit auf dem Rechner. Genau diese Verwechslung nennt der
+ * Katalogkommentar zu ndiInitFailed in src/protocol.ts ausdruecklich als das,
+ * was nicht passieren darf: zwei Ursachen, ein Name.
+ *
+ * "false" heisst hier ausdruecklich "NDI steht in diesem Prozess NICHT zur
+ * Verfuegung" und deckt damit auch den Fall "ndiInitialize() wurde nie
+ * gerufen" mit ab. Fuer den Abo-Weg sind die beiden nicht unterscheidbar und
+ * muessen es auch nicht sein: ndiInitialize() laeuft beim Befehl "init"
+ * (main.cpp), und ein Abo kommt ohne "init" gar nicht bis hierher - es
+ * scheitert vorher an der fehlenden Rohdaten-Erlaubnis.
+ */
+bool ndiIsUp();
+
 /** Einmal je Prozess, NACH dem letzten NdiSender. */
 void ndiShutdown();
 

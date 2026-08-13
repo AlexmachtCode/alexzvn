@@ -141,6 +141,13 @@ void handle(const std::string& line) {
     if (sessionInit()) g_sdkInitialized = true;
     // NDI erst nach geglueckter SDK-Initialisierung: schlaegt schon Zoom
     // fehl, ist eine NDI-Meldung nur Rauschen ueber dem eigentlichen Fehler.
+    //
+    // DER FEHLSCHLAG WIRD GEMERKT (Abschluss-Sichtung, M3), und zwar in
+    // ndi_sender.cpp selbst (ndiIsUp()) statt in einem zweiten Merkzeichen
+    // hier: videoSubscribe() fragt ihn ab und meldet dann ndiInitFailed
+    // statt videoSenderFailed. Vorher blieb es bei DIESER einen Zeile - der
+    // naechste Abo-Versuch schickte die Suche danach zu einem einzelnen
+    // Sender statt zur fehlenden NDI-Laufzeit.
     if (g_sdkInitialized && !ndiInitialize()) {
       emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"ndiInitFailed\"}");
       emitLog(L"NDIlib_initialize() fehlgeschlagen - laeuft die NDI-Laufzeit auf diesem Rechner?");

@@ -65,6 +65,23 @@ struct Sub {
   // Sperre nehmen und die Felder fortschreiben.
   std::mutex fieldMutex;
   bool mismatchGemeldet = false;
+  // "Der Teilnehmer ist gegangen" - gesetzt in videoParticipantLeft(),
+  // geloescht beim Umhaengen (videoParticipantJoined()) und bei jedem neu
+  // angelegten Abo (Vorgabewert false).
+  //
+  // WARUM ES DIESES MERKZEICHEN BRAUCHT (Abschluss-Sichtung, I3): der
+  // Bild-Rueckruf laeuft auf einem SDK-Thread und haelt sendI420()
+  // AUSSERHALB jeder Sperre in Arbeit. Faellt videoParticipantLeft()
+  // (Hauptthread) genau in dieses Fenster, schrieb der Rueckruf danach
+  // "live"/"frames" ueber das gerade gesetzte "black"/"participantLeft" -
+  // samt Ereignis, fuer jemanden, der nachweislich weg ist. 200 ms spaeter
+  // meldete der Herzschlag dann "black"/"cameraOff", und der Endstand war
+  // "Kamera aus" fuer einen Gast, der das Meeting verlassen hat: zwei
+  // Ursachen, ein Name - genau das, was Abschnitt 5 der Spec ausschliesst
+  // (und Abnahmepunkt 4 prueft). Ein Zeitvergleich (lastFrameMs gegen den
+  // Weggeh-Zeitpunkt) waere hier die schlechtere Wahl: er raet aus einer
+  // Uhr, was ein Merkzeichen WEISS.
+  bool teilnehmerWeg = false;
   ULONGLONG lastFrameMs = 0;     // 0 = noch nie ein Bild gesehen
   ULONGLONG lastBlackMs = 0;     // wird in Task 5 gebraucht
   int lastW = 0;
@@ -130,6 +147,23 @@ void emitVideoError(const char* code) {
   emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"") + code + "\"}");
 }
 
+// Ein SDKError, der NICHT auf die Rohrleitung gehoert - stdout ist Maschine,
+// stderr ist Mensch. Verworfen wird trotzdem keiner: an den Abbaustellen
+// (unSubscribe/destroyRenderer) ist ein Fehlschlag keine Protokolltatsache,
+// auf die ein Aufrufer reagieren koennte - das Abo geht in JEDEM Fall weg,
+// und ein zweiter Ereignisname fuer "der Abbau hat gemurrt" waere ein Name
+// ohne eigene Handlung dahinter. Er darf aber auch nicht STILL verschwinden
+// (Kernregel), also geht er als Klartext an den Menschen, der die Rohausgabe
+// mitliest. Ausnahme und ausdruecklich anders behandelt: das subscribe()
+// beim Umhaengen - dort ist der Fehlschlag sehr wohl eine Tatsache ueber ein
+// Abo, das der Aufrufer weiterfuehrt, und geht darum als
+// videoRendererFailed auf stdout (siehe videoParticipantJoined()).
+void logSdkError(const wchar_t* was, SDKError err) {
+  if (err == SDKERR_SUCCESS) return;
+  emitLog(std::wstring(L"Zoom-SDK meldet einen Fehler bei ") + was + L": SDKError=" +
+          std::to_wstring(static_cast<int>(err)));
+}
+
 // Die fuenf NENNGROESSEN der Abos (siehe videoParseResolution()). Der
 // Herzschlag (videoTick()) braucht sie fuer das ALLERERSTE Schwarzbild -
 // vor dem ersten empfangenen Bild ist die tatsaechliche Groesse (lastW/
@@ -183,6 +217,23 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
     return;
   }
 
+  // DIE FEHLENDE NDI-LAUFZEIT BEKOMMT IHREN EIGENEN NAMEN (Abschluss-
+  // Sichtung, M3). Ohne diese Abfrage schluege gleich NDIlib_send_create()
+  // fehl und meldete "videoSenderFailed" - ein Name, der sagt "DIESER eine
+  // Sender ging nicht", waehrend in Wahrheit auf diesem Rechner GAR KEIN
+  // NDI laeuft. Die beiden schicken die Suche an verschiedene Orte (zum Abo
+  // statt zur Installation), und genau davor warnt der Katalogkommentar in
+  // src/protocol.ts.
+  //
+  // where:"ndi", NICHT "video" - dieselbe Stelle, die main.cpp beim
+  // Fehlschlag von ndiInitialize() selbst meldet. Ein Schluessel, der je
+  // nach Melder unter zwei verschiedenen "where" auftaucht, waere derselbe
+  // Fehler noch einmal, nur eine Ebene hoeher.
+  if (!ndiIsUp()) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"ndiInitFailed\"}");
+    return;
+  }
+
   auto sub = std::make_unique<Sub>();
   sub->userId = userId;
   sub->persistentId = persistentId;
@@ -220,14 +271,72 @@ void videoUnsubscribe(unsigned int userId) {
   // REIHENFOLGE IST TRAGEND: erst den Renderer abmelden und abbauen, DANN
   // den Sender schliessen. Andersherum koennte ein Bild-Rueckruf, der schon
   // unterwegs ist, auf einen bereits abgebauten Sender schreiben.
-  if (s->renderer) { s->renderer->unSubscribe(); destroyRenderer(s->renderer); }
+  //
+  // UNBELEGTE ANNAHME, AUSDRUECKLICH BENANNT (Abschluss-Sichtung, I6): das
+  // g_subs.erase() unten zerstoert das Sub - MIT seinem fieldMutex und
+  // seinem NdiSender -, waehrend Delegate::owner_ ein ROHER Zeiger darauf
+  // ist. Das traegt nur, wenn destroyRenderer() synchron gegen einen
+  // LAUFENDEN Rueckruf abschliesst: kehrt es zurueck, waehrend noch ein
+  // onRawDataFrameReceived/onRawDataStatusChanged in Arbeit ist, greift
+  // dieser Rueckruf anschliessend auf freigegebenen Speicher zu.
+  //
+  // WAS DIE KOPFDATEIEN DAZU HERGEBEN: NICHTS. Nachgesehen in
+  // h/rawdata/zoom_rawdata_api.h (destroyRenderer ist dort eine einzige
+  // Deklarationszeile, ohne @brief, @note oder sonst einen Kommentar) und in
+  // h/rawdata/rawdata_renderer_interface.h (unSubscribe() ebenso, voellig
+  // unkommentiert - subscribe() daneben hat @brief/@param/@return, es fehlt
+  // also nicht bloss zufaellig an dieser einen Stelle). Eine Suche ueber
+  // ALLE SDK-Kopfdateien nach "thread", "synchron", "concurren" und
+  // "blocking" liefert zum Renderer keinen einzigen Treffer. Die einzige
+  // Lebensdaueraussage im ganzen Renderer-Header steht an
+  // onRendererBeDestroyed(): "After you handle this callback, you should
+  // never use this renderer object any more" - das regelt UNSEREN Zugriff
+  // auf den RENDERER, nicht den Zugriff des SDK auf UNSEREN Delegate. Es ist
+  // also keine Zusicherung, sondern die Gegenrichtung.
+  //
+  // KEINE GROSSE UMKONSTRUKTION AUF VERDACHT: hier steht bewusst keine
+  // Lebensdauerverwaltung (shared_ptr/Zaehlwerk/Verweilsperre), die ein
+  // Problem loesen wuerde, das niemand gemessen hat - sie brauchte ihre
+  // eigene Sperr-Ordnung und waere ihrerseits ungeprueft. Stattdessen ist
+  // die Annahme HIER benannt: sie gehoert in die Owner-Abnahme (dort wird
+  // unter laufenden Bildern ab- und wieder aufgebaut), und wenn dabei je ein
+  // Zugriffsfehler an dieser Stelle auftritt, steht hier bereits, wo man
+  // suchen muss.
+  if (s->renderer) {
+    logSdkError(L"unSubscribe() beim Abbau eines Abos", s->renderer->unSubscribe());
+    logSdkError(L"destroyRenderer() beim Abbau eines Abos", destroyRenderer(s->renderer));
+  }
   s->sender.close();
   g_subs.erase(it);
 }
 
 void videoShutdownAll() {
   for (auto& [id, s] : g_subs) {
-    if (s->renderer) { s->renderer->unSubscribe(); destroyRenderer(s->renderer); }
+    // JEDES Abo wird GEMELDET, bevor es abgebaut wird (Abschluss-Sichtung,
+    // I4). Am Prozessende ist das gleichgueltig, beim "leave"-Befehl NICHT:
+    // dort laeuft die Bridge weiter, die NDI-Quellen sind aber weg. Ohne
+    // diese Zeile hielte Session.videoSubs (src/state.ts) sie unveraendert
+    // fest - reduce() raeumt bei "ended"/"failed" nur die Teilnehmerliste ab,
+    // nie die Abos -, und der Aufrufer saehe Quellen, die es nicht mehr gibt.
+    // Genau die stille Sorte Fehler, die dieses Vorhaben ausschliesst.
+    //
+    // "unsubscribed"/"command" ist dabei die richtige Ursache und kein
+    // geliehener Name: beide Wege hierher sind Befehle des Aufrufers -
+    // "leave" bzw. "quit"/EOF -, nicht etwas, das dem Abo selbst zugestossen
+    // ist.
+    //
+    // emitRaw() spuelt selbst (siehe emit.h/emit.cpp) - die Zeilen stehen
+    // also auch dann vollstaendig auf stdout, wenn main() unmittelbar danach
+    // ueber TerminateProcess aussteigt.
+    emitVideo(*s, "unsubscribed", "command");
+    // DIESELBE unbelegte Lebensdauer-Annahme wie in videoUnsubscribe() -
+    // siehe den ausfuehrlichen Kommentar dort (Abschluss-Sichtung, I6): das
+    // g_subs.clear() unten zerstoert jedes Sub samt fieldMutex, waehrend der
+    // Delegate einen rohen Zeiger darauf haelt.
+    if (s->renderer) {
+      logSdkError(L"unSubscribe() beim Gesamtabbau", s->renderer->unSubscribe());
+      logSdkError(L"destroyRenderer() beim Gesamtabbau", destroyRenderer(s->renderer));
+    }
     s->sender.close();
   }
   g_subs.clear();
@@ -305,9 +414,19 @@ void videoTick() {
     //
     // Ein bereits schwarzes Abo bekommt ausserdem keine weitere Meldung -
     // Wiederholung ohne neue Information. Ein laufender bufferMismatch ist
-    // eine ANDERE Ursache als "Kamera aus" und bleibt darum erhalten (siehe
-    // Aufgabe 4, reason wird beim Uebergang nach "live" bereits korrekt auf
-    // "frames" zurueckgesetzt - hier steht also nie ein veralteter Wert).
+    // eine ANDERE Ursache als "Kamera aus" und bleibt darum erhalten.
+    //
+    // BERICHTIGT (Abschluss-Sichtung, I2): hier stand, reason werde beim
+    // Uebergang nach "live" ohnehin auf "frames" zurueckgesetzt, es koenne
+    // also nie ein veralteter Wert stehen. Das war zum Zeitpunkt des
+    // Schreibens FALSCH: der Mismatch-Zweig im Bild-Rueckruf setzt nur
+    // reason und laesst state unberuehrt - stand das Abo dabei schon auf
+    // "live", traf die Live-Uebergangsbedingung beim naechsten guten Bild
+    // nicht mehr zu, und "bufferMismatch" klebte fuer immer. Die Zeile
+    // darunter meldete dann black/bufferMismatch fuer eine schlicht
+    // ausgeschaltete Kamera. Die Bedingung im Bild-Rueckruf traegt seither
+    // ein zusaetzliches `reason != "frames"` (siehe dort) - erst DAMIT
+    // stimmt die Zusicherung, die dieser Kommentar macht.
     std::string emitReason;
     bool sollEmit = false;
     {
@@ -340,11 +459,18 @@ void videoParticipantLeft(unsigned int userId) {
   // Das Abo bleibt bestehen - die Quelle darf im Livebetrieb nicht
   // wegbrechen (Spec Abschnitt 3). Der Herzschlag (videoTick()) haelt sie ab
   // jetzt schwarz.
-  if (s->renderer) { s->renderer->unSubscribe(); }
+  if (s->renderer) {
+    logSdkError(L"unSubscribe() nach dem Weggang eines Teilnehmers", s->renderer->unSubscribe());
+  }
   {
     std::lock_guard<std::mutex> lock(s->fieldMutex);
     s->state = "black";
     s->reason = "participantLeft";
+    // ZUSAMMEN mit state/reason gesetzt, unter DERSELBEN Sperre: ein
+    // Bild-Rueckruf, der gerade in sendI420() steht, darf danach weder
+    // "live" behaupten noch die Ursache auf "cameraOff" umschreiben lassen -
+    // siehe die ausfuehrliche Begruendung am Feld selbst.
+    s->teilnehmerWeg = true;
   }
   emitVideo(*s, "black", "participantLeft");
 }
@@ -364,13 +490,69 @@ void videoParticipantJoined(unsigned int userId) {
   if (persistentId.empty()) return;
 
   // ERST SUCHEN, DANN UMHAENGEN - in zwei getrennten Schritten. extract()
-  // mitten in der Schleife wuerde den Laufzeiger ungueltig machen.
+  // mitten in der Schleife wuerde den Laufzeiger ungueltig machen. Der
+  // ZEIGER auf das gefundene Sub wird gleich mitgenommen: ein spaeteres
+  // zweites Nachschlagen (find()/operator[]) muesste entweder erneut auf
+  // "gefunden" pruefen oder es voraussetzen - und operator[] legte bei einem
+  // Irrtum stillschweigend ein leeres Abo an.
   unsigned int alteId = 0;
-  bool gefunden = false;
-  for (const auto& [id, s] : g_subs) {
-    if (id != userId && s->persistentId == persistentId) { alteId = id; gefunden = true; break; }
+  Sub* s = nullptr;
+  for (const auto& [id, sub] : g_subs) {
+    if (id != userId && sub->persistentId == persistentId) { alteId = id; s = sub.get(); break; }
   }
-  if (!gefunden) return;
+  if (s == nullptr) return;
+
+  // ERST DER SDK-TEIL, DANN DIE KARTE (Reihenfolge GEAENDERT, Abschluss-
+  // Sichtung I1): scheitert das Umhaengen, ist die Karte dann noch voellig
+  // unangetastet - es gibt nichts zurueckzurollen, und es kann auch kein
+  // zweiter, nie erreichbarer Wiedereinfuege-Zweig entstehen, dessen
+  // Rueckgabewert wieder jemand pruefen muesste.
+  SDKError anErr = SDKERR_SUCCESS;
+  if (s->renderer) {
+    // ERST abmelden: das alte Abo haengt noch an der TOTEN Kennung. Ein
+    // subscribe() auf einen bereits abonnierten Renderer liefert einen
+    // SDK-Fehler statt umzuschalten. Ein Fehlschlag HIER ist fuer sich noch
+    // keine Protokolltatsache (das folgende subscribe() sagt, ob das
+    // Umhaengen trotzdem gelingt) - er geht darum als Klartext an den
+    // Menschen, statt einen zweiten Ereignisnamen zu erfinden.
+    logSdkError(L"unSubscribe() beim Umhaengen", s->renderer->unSubscribe());
+    anErr = s->renderer->subscribe(userId, RAW_DATA_TYPE_VIDEO);
+  }
+  if (anErr != SDKERR_SUCCESS) {
+    // DER RUECKGABEWERT WIRD GEPRUEFT, NICHT VERWORFEN (Abschluss-Sichtung
+    // I1). Vorher stand hier direkt danach emitVideo(subscribed/rebound) -
+    // eine Behauptung ueber etwas, das nicht stattgefunden hat: das Abo
+    // haenge an der neuen Kennung. Tatsaechlich haengt der Renderer nach
+    // einem gescheiterten subscribe() an GAR NICHTS mehr (das unSubscribe()
+    // darueber ist durch), es kaeme nie wieder ein Bild, und der Herzschlag
+    // hielte die Quelle auf "subscribed" fest - fuer immer, ohne ein
+    // einziges berichtigendes Ereignis. Derselbe SDK-Ruf wird in
+    // videoSubscribe() als videoRendererFailed gemeldet; ein zweiter Umgang
+    // mit demselben Aufruf waere ein Widerspruch im eigenen Haus.
+    logSdkError(L"subscribe() beim Umhaengen", anErr);
+    emitVideoError("videoRendererFailed");
+    // WAS MIT DEM ABO GESCHIEHT - und warum: es BLEIBT bestehen, unveraendert
+    // unter der ALTEN Kennung. Drei Gruende, in dieser Rangfolge:
+    //   1. Die NDI-Quelle darf im Livebetrieb nicht wegbrechen (Spec
+    //      Abschnitt 3). Laege sie auf Programm, risse sie weg - und zwar
+    //      wegen eines Fehlers, der mit dem Bild nichts zu tun hat.
+    //   2. Die Buchfuehrung des Aufrufers bleibt gueltig. Haetten wir hier
+    //      auf die NEUE Kennung umgeschluesselt, waere das Abo unter einer
+    //      Kennung erreichbar, die der Aufrufer nie erfahren hat (das
+    //      "rebound"-Ereignis unterbleibt ja gerade) - sein
+    //      videoUnsubscribe(alteKennung) liefe danach ins Leere, und das Abo
+    //      waere nicht mehr abbaubar.
+    //   3. Es kann sich SELBST erholen: kommt derselbe Gast noch einmal
+    //      wieder (erneutes onUserJoin mit derselben persistentId), findet
+    //      diese Funktion dasselbe Abo erneut und versucht das Umhaengen ein
+    //      weiteres Mal.
+    // state/reason bleiben absichtlich auf ihrem letzten GEMESSENEN Stand
+    // (nach einem Weggang: black/participantLeft) - der Zustand, den die
+    // Quelle tatsaechlich zeigt. Ein neuer reason-Wert fuer "das Umhaengen
+    // ist gescheitert" waere eine Protokollerweiterung; der Fehler steht
+    // benannt auf der Leitung, das genuegt.
+    return;
+  }
 
   // KEIN neues Sub bauen: der Delegate haelt einen ROHEN Zeiger auf dieses
   // Objekt (owner_ in Delegate, gesetzt in videoSubscribe()). extract() zieht
@@ -379,7 +561,6 @@ void videoParticipantJoined(unsigned int userId) {
   // erase()+neues Sub liesse den Delegate eines noch laufenden Renderers auf
   // freigegebenen Speicher zeigen.
   auto knoten = g_subs.extract(alteId);
-  Sub* s = knoten.mapped().get();
   s->userId = userId;
   {
     std::lock_guard<std::mutex> lock(s->fieldMutex);
@@ -396,14 +577,19 @@ void videoParticipantJoined(unsigned int userId) {
     s->lastFrameMs = 0;
     s->gemessen = false;
     s->mismatchGemeldet = false;
+    // Das Merkzeichen aus videoParticipantLeft() faellt hier - und NUR hier
+    // sowie beim Neuanlegen eines Abos: die Person ist nachweislich wieder
+    // da, das Abo haengt an ihrer neuen Kennung, Bilder duerfen ab jetzt
+    // wieder "live" bedeuten.
+    s->teilnehmerWeg = false;
   }
-  if (s->renderer) {
-    // ERST abmelden: das alte Abo haengt noch an der TOTEN Kennung. Ein
-    // subscribe() auf einen bereits abonnierten Renderer liefert einen
-    // SDK-Fehler statt umzuschalten.
-    s->renderer->unSubscribe();
-    s->renderer->subscribe(userId, RAW_DATA_TYPE_VIDEO);
-  }
+  // Zwischen dem geglueckten subscribe() oben und dieser Sperre kann bereits
+  // ein Bild eintreffen. Es wird dann noch mit teilnehmerWeg == true
+  // verworfen (siehe Delegate::onRawDataFrameReceived) - ein einzelnes
+  // ausgelassenes Bild, kein falscher Bericht. Die Gegenrichtung waere
+  // schlimmer: erst die Felder zuruecksetzen und dann subscribe() scheitern
+  // sehen hiesse, ein Abo mit "subscribed"/"rebound" zurueckzulassen, das an
+  // nichts haengt.
   knoten.key() = userId;
   // Rueckgabewert PRUEFEN statt verwerfen (Nachbesserung Runde 1, Befund 2):
   // schluege insert() fehl (userId waere selbst bereits ein Schluessel in
@@ -422,7 +608,10 @@ void videoParticipantJoined(unsigned int userId) {
     // videoUnsubscribe() es tut, statt den verwaisten Knoten kommentarlos
     // auslaufen zu lassen.
     Sub* verwaist = ergebnis.node.mapped().get();
-    if (verwaist->renderer) { verwaist->renderer->unSubscribe(); destroyRenderer(verwaist->renderer); }
+    if (verwaist->renderer) {
+      logSdkError(L"unSubscribe() am verwaisten Knoten beim Umhaengen", verwaist->renderer->unSubscribe());
+      logSdkError(L"destroyRenderer() am verwaisten Knoten beim Umhaengen", destroyRenderer(verwaist->renderer));
+    }
     verwaist->sender.close();
     // DIESELBE Ursache wie ein direktes videoSubscribe auf eine bereits
     // belegte Kennung: "userId" hat in beiden Faellen bereits ein Abo. Kein
@@ -438,6 +627,27 @@ namespace {
 
 void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
   if (!data || !owner_) return;
+
+  // WEGGEGANGEN SCHLAEGT BILD (Abschluss-Sichtung, I3). videoParticipantLeft()
+  // laeuft auf dem Hauptthread und hat dieses Abo soeben auf
+  // black/participantLeft gesetzt; dieser Rueckruf hier kann zu genau diesem
+  // Zeitpunkt schon unterwegs gewesen sein. Ohne diese Abfrage schriebe er
+  // danach live/frames darueber - fuer jemanden, der nachweislich weg ist -,
+  // und der Herzschlag machte daraus 200 ms spaeter black/cameraOff. Der
+  // Endstand waere "Kamera aus" statt "Teilnehmer weg": zwei Ursachen, ein
+  // Name.
+  //
+  // Das Bild wird dabei GANZ verworfen, nicht bloss der Zustandswechsel
+  // unterdrueckt: die Quelle meldet "black", und dann soll dort auch Schwarz
+  // stehen. Ein einzelnes echtes Bild zwischen lauter Schwarzbildern waere
+  // genau der Widerspruch zwischen Meldung und Bild, den Abschnitt 3 der
+  // Spec ausschliesst. lastFrameMs bleibt aus demselben Grund unberuehrt -
+  // sonst setzte der Nachlauf des Herzschlags 200 ms lang aus.
+  {
+    std::lock_guard<std::mutex> lock(owner_->fieldMutex);
+    if (owner_->teilnehmerWeg) return;
+  }
+
   const int w = static_cast<int>(data->GetStreamWidth());
   const int h = static_cast<int>(data->GetStreamHeight());
   const uint8_t* buf = reinterpret_cast<const uint8_t*>(data->GetBuffer());
@@ -480,20 +690,41 @@ void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
   bool sollEmitLive = false;
   {
     std::lock_guard<std::mutex> lock(owner_->fieldMutex);
-    owner_->lastFrameMs = now;
-    owner_->lastW = w;
-    owner_->lastH = h;
-    if (!owner_->gemessen || owner_->state != "live" || owner_->rotation != rot || owner_->limitedRange != limited) {
-      owner_->gemessen = true;
-      owner_->rotation = rot;
-      owner_->limitedRange = limited;
-      owner_->state = "live";
-      // Ohne diese Zeile bliebe reason nach einem vorherigen
-      // bufferMismatch/cameraOff auf dem ALTEN Wert stehen, obwohl das
-      // gesendete Ereignis "frames" sagt - ein spaeterer Leser (Herzschlag,
-      // Aufgabe 5) saehe dann eine Ursache, die laengst nicht mehr gilt.
-      owner_->reason = "frames";
-      sollEmitLive = true;
+    // ZWEITE Abfrage desselben Merkzeichens - und die TRAGENDE: zwischen der
+    // ersten (ganz oben) und dieser Sperre liegt sendI420(), das blockieren
+    // kann, bis NDI den Puffer ausgelesen hat. GENAU in dieses Fenster faellt
+    // der Weggang, gegen den I3 sichert. Die erste Abfrage spart nur die
+    // Arbeit, die zweite haelt den Bericht gerade.
+    if (!owner_->teilnehmerWeg) {
+      owner_->lastFrameMs = now;
+      owner_->lastW = w;
+      owner_->lastH = h;
+      // "|| owner_->reason != \"frames\"" ist der Zusatz aus der
+      // Abschluss-Sichtung (I2) und behebt einen KLEBENDEN bufferMismatch:
+      // der Mismatch-Zweig oben setzt NUR reason, nicht state. Stand das Abo
+      // dabei bereits auf "live" mit unveraenderter rotation/limitedRange,
+      // traf keine der anderen vier Bedingungen beim naechsten GUTEN Bild zu
+      // - reason blieb auf "bufferMismatch" stehen. Faellt der Strom spaeter
+      // aus, meldete der Herzschlag dann black/bufferMismatch fuer eine
+      // schlicht ausgeschaltete Kamera: zwei Ursachen, ein Name, und die
+      // teure Richtung - man sucht im Puffer statt beim Gast. Mit diesem
+      // Zusatz zieht das erste brauchbare Bild den Zustand nach UND meldet
+      // die Erholung sichtbar. mismatchGemeldet bleibt dabei ABSICHTLICH
+      // klebrig: die Meldung soll einmal je Abo kommen, nicht einmal je
+      // Erholung.
+      if (!owner_->gemessen || owner_->state != "live" || owner_->reason != "frames" ||
+          owner_->rotation != rot || owner_->limitedRange != limited) {
+        owner_->gemessen = true;
+        owner_->rotation = rot;
+        owner_->limitedRange = limited;
+        owner_->state = "live";
+        // Ohne diese Zeile bliebe reason nach einem vorherigen
+        // bufferMismatch/cameraOff auf dem ALTEN Wert stehen, obwohl das
+        // gesendete Ereignis "frames" sagt - ein spaeterer Leser (Herzschlag,
+        // Aufgabe 5) saehe dann eine Ursache, die laengst nicht mehr gilt.
+        owner_->reason = "frames";
+        sollEmitLive = true;
+      }
     }
   }
   if (sollEmitLive) emitVideoMeasured(*owner_, "live", "frames", rot, limited);
@@ -502,12 +733,24 @@ void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
 void Delegate::onRawDataStatusChanged(RawDataStatus status) {
   if (!owner_) return;
   if (status == RawData_Off) {
+    // DASSELBE Merkzeichen wie im Bild-Pfad, aus demselben Grund (I3, hier
+    // fuer den zweiten Weg in denselben Zustand): videoParticipantLeft()
+    // ruft unSubscribe(), und ob das SDK darauf noch ein RawData_Off
+    // nachschiebt, ist aus den Kopfdateien NICHT ersichtlich. Kaeme es,
+    // schriebe es "cameraOff" ueber ein bereits gemeldetes
+    // "participantLeft" - derselbe falsche Endstand, nur ueber den
+    // Status-Rueckruf statt ueber den Bild-Rueckruf. "Kamera aus" ist eine
+    // Aussage ueber jemanden, der DA ist.
+    bool sollEmit = false;
     {
       std::lock_guard<std::mutex> lock(owner_->fieldMutex);
-      owner_->state = "black";
-      owner_->reason = "cameraOff";
+      if (!owner_->teilnehmerWeg) {
+        owner_->state = "black";
+        owner_->reason = "cameraOff";
+        sollEmit = true;
+      }
     }
-    emitVideo(*owner_, "black", "cameraOff");
+    if (sollEmit) emitVideo(*owner_, "black", "cameraOff");
   }
   // RawData_On erzeugt hier ABSICHTLICH kein Ereignis: dass das SDK Video
   // ankuendigt, heisst noch nicht, dass Bilder ankommen. "live" wird beim
