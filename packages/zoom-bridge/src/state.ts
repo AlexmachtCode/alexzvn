@@ -93,6 +93,15 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
       else if (e.status === 'ended' || e.status === 'failed') phase = 'left';
       // Wer das Meeting verlaesst, laesst niemanden zurueck.
       const participants = e.status === 'ended' || e.status === 'failed' ? new Map<number, Participant>() : s.participants;
+      // videoSubs wird hier ABSICHTLICH NICHT mit abgeraeumt (Abschluss-
+      // Sichtung, I4): jedes Abo wird beim Abbau EINZELN gemeldet
+      // ({"ev":"video","state":"unsubscribed","reason":"command"}, siehe
+      // videoShutdownAll() in native/video.cpp), und diese Ereignisse
+      // laufen durch den 'video'-Zweig weiter unten. Hier stillschweigend
+      // zu loeschen hiesse, dieselbe Buchung an zwei Stellen zu fuehren -
+      // und die zweite waere eine ANNAHME ueber den nativen Teil statt
+      // seiner Meldung. Kaeme sie je auseinander (ein Abo, das den Abbau
+      // ueberlebt), verdeckte das Abraeumen hier genau das.
       return { ...s, phase, meeting: e.status, participants };
     }
 
@@ -147,7 +156,28 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
 
     case 'error': {
       const e = ev as { where: string; code: number | string; name?: string };
-      return { ...s, phase: 'error', lastError: { where: e.where, code: e.code, name: e.name ?? 'UNBENANNT' } };
+      // EIN VIDEO-FEHLER IST KEINE KAPUTTE SITZUNG (Abschluss-Sichtung, I5).
+      // Stage 2 bringt Fehlerschluessel, die im NORMALBETRIEB auftreten:
+      // videoAlreadySubscribed (jemand hat zweimal geklickt),
+      // videoNotSubscribed, videoBadResolution, videoBufferMismatch (mitten
+      // in einer laufenden Sendung). Vorher setzte JEDER davon phase:'error'
+      // - und zwar ENDGUELTIG: keine andere Verzweigung hier holt eine
+      // Sitzung aus 'error' zurueck, und 'bye' schreibt sie ausdruecklich
+      // fort. Eine Sitzung, die laeuft, stuende danach fuer immer als kaputt
+      // da. Schlimmer noch: test/join.mjs und test/video-limit.mjs benutzen
+      // phase === 'error' als Abbruchmerkmal - der Messlauf haette sich an
+      // einem einzigen videoAlreadySubscribed selbst ausgehebelt.
+      //
+      // AUSGENOMMEN IST NUR where:'video'. where:'ndi' (ndiInitFailed) bleibt
+      // absichtlich drin: das heisst "auf diesem Rechner geht NDI gar nicht",
+      // eine Aussage ueber den Aufbau, nicht ueber ein einzelnes Abo.
+      //
+      // lastError wird IN JEDEM FALL gesetzt - der Fehler darf nicht
+      // verschwinden, nur die SITZUNG ist nicht kaputt. Wer Video-Fehler
+      // sehen will, liest lastError (oder haengt sich an onEvent, wie
+      // test/video-limit.mjs es tut).
+      const phase = e.where === 'video' ? s.phase : 'error';
+      return { ...s, phase, lastError: { where: e.where, code: e.code, name: e.name ?? 'UNBENANNT' } };
     }
 
     case 'video': {

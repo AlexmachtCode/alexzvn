@@ -590,6 +590,49 @@ console.log('\nstate — Abbruch und Fehler:');
   assert(e.lastError?.where === 'join', 'und die Stelle, an der er auftrat');
 }
 
+console.log('\nstate — ein Video-Fehler kippt die SITZUNG nicht:');
+{
+  // Abschluss-Sichtung, I5. Stage 2 bringt Fehler, die im NORMALBETRIEB
+  // auftreten: zweimal geklickt (videoAlreadySubscribed), ein
+  // bufferMismatch mitten in der Sendung. Wuerden die phase auf 'error'
+  // setzen, stuende eine laufende Sitzung fuer immer als kaputt da - und
+  // test/join.mjs wie test/video-limit.mjs benutzen phase === 'error' als
+  // Abbruchmerkmal, der Messlauf haette sich also selbst ausgehebelt.
+  const laufend = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'video', code: 'videoAlreadySubscribed' },
+  ]);
+  assert(laufend.phase === 'inMeeting', 'ein Video-Fehler laesst die Phase stehen, wo sie war');
+  // Der Fehler VERSCHWINDET deswegen nicht - nur die Sitzung ist nicht kaputt.
+  assert(laufend.lastError?.name === 'VIDEO_ALREADY_SUBSCRIBED', 'der Video-Fehler steht trotzdem in lastError');
+  assert(laufend.lastError?.where === 'video', 'samt der Stelle, an der er auftrat');
+
+  const mismatch = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'video', code: 'videoBufferMismatch' },
+  ]);
+  assert(mismatch.phase === 'inMeeting', 'auch ein bufferMismatch mitten in der Sendung kippt die Sitzung nicht');
+
+  // DIE GEGENPROBE, und sie ist der eigentliche Punkt: die Ausnahme gilt
+  // NUR fuer where:'video'. Ein Fehler mit einer anderen Stelle muss
+  // weiterhin in die Fehlerphase fuehren - sonst waere aus der Ausnahme
+  // stillschweigend die Regel geworden.
+  const woanders = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'auth', code: 'authTimeout' },
+  ]);
+  assert(woanders.phase === 'error', 'ein Fehler mit anderem where kippt die Sitzung sehr wohl');
+
+  // where:'ndi' ist AUSDRUECKLICH kein Video-Fehler in diesem Sinne: "auf
+  // diesem Rechner geht NDI gar nicht" ist eine Aussage ueber den Aufbau,
+  // nicht ueber ein einzelnes Abo.
+  const ndi = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'ndi', code: 'ndiInitFailed' },
+  ]);
+  assert(ndi.phase === 'error', 'eine fehlende NDI-Laufzeit kippt die Sitzung sehr wohl');
+}
+
 console.log('\nstate — reduce veraendert nichts Bestehendes:');
 {
   // Ausgangszustand: zwei Teilnehmer
