@@ -1201,6 +1201,30 @@ git commit -m "feat(zoom-bridge): Abo ueberlebt einen Wiederbeitritt, Weggehen l
 - Modify: `packages/zoom-bridge/native/main.cpp`
 - Modify: `packages/zoom-bridge/native/session.cpp` (nur Kommentar, falls die Reihenfolge dort dokumentiert ist)
 
+- [ ] **Schritt 0: `videoShutdownAll()` auch im `leave`-Befehl**
+
+**Planlücke, beim Umsetzen von Aufgabe 3 gemeldet und nachgemessen.** `video.h`s eigener Doc-Kommentar
+verlangt „MUSS vor `sessionLeave()` laufen" — aber der `leave`-**Befehl** in `handle()` ruft
+`sessionLeave()` direkt auf, ohne die Abos abzuräumen. Wer `videoSubscribe` schickt und dann `leave`,
+lässt lebende Renderer eine Referenz auf den Meeting-Dienst halten, während das Meeting endet. Das ist
+dieselbe Fehlerklasse, die in Stage 1 als `0xC0000005` gemessen wurde. Der Prozessende-Weg unten deckt
+das **nicht** ab: er läuft nur bei `quit`/EOF.
+
+```cpp
+  if (cmd == "leave") {
+    // TRAGENDE REIHENFOLGE, dieselbe wie unten beim Prozessende: erst alle
+    // Abos, DANN das Meeting verlassen. Ein laufender Renderer haelt eine
+    // Referenz auf den Meeting-Dienst.
+    videoShutdownAll();
+    sessionLeave();
+    return;
+  }
+```
+
+**Warum abbauen und nicht bloss stehen lassen:** nach einem `leave` gibt es die Teilnehmer nicht mehr,
+auf die die Renderer abonniert sind. Ein Abo, das ein Meeting überlebt, hätte niemanden mehr, dessen Bild
+es tragen könnte — und der Bediener abonniert nach einem erneuten Beitritt ohnehin neu.
+
 - [ ] **Schritt 1: `videoShutdownAll()` vor `sessionShutdown()` einhängen**
 
 In `main.cpp`, unmittelbar vor `const bool shutdownComplete = sessionShutdown();`:
