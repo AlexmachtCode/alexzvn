@@ -1,6 +1,7 @@
 #include "video.h"
 #include <map>
 #include <memory>
+#include <mutex>
 #include "emit.h"
 #include "ndi_sender.h"
 #include "rawdata/zoom_rawdata_api.h"
@@ -36,6 +37,22 @@ struct Sub {
   std::unique_ptr<Delegate> delegate;
   NdiSender sender;
 
+  // Sperre NUR fuer die Feldbuchfuehrung unten (mismatchGemeldet bis
+  // gemessen), NICHT fuer sender: der Bild-Rueckruf laeuft auf einem
+  // SDK-Thread und schreibt diese Felder, waehrend die Hauptschleife
+  // (Herzschlag, Aufgabe 5) gegenlaeufig liest und schreibt - ohne Sperre
+  // waere das bei den beiden std::string-Feldern (state, reason) nicht
+  // bloss ein logischer Fehler, sondern ein moeglicher Absturz durch
+  // zerrissenen Zugriff. EIGENE Sperre JE ABO, keine globale - aus
+  // demselben Grund, aus dem NdiSender seine Sperre je Sender haelt (siehe
+  // ndi_sender.h): zwei Abos duerfen sich nicht gegenseitig ausbremsen.
+  // Wird NIE ueber sender.sendI420() gehalten: NDIlib_send_send_video_v2
+  // kann blockieren, bis der Puffer ausgelesen ist, und diese Sperre
+  // ineinander mit der von NdiSender zu halten waere eine Verschraenkung,
+  // die sich spaeter nur schwer wieder aufloest. Muster im Rueckruf darum
+  // immer: erst Werte lokal aus dem Bild ziehen und senden, DANACH diese
+  // Sperre nehmen und die Felder fortschreiben.
+  std::mutex fieldMutex;
   bool mismatchGemeldet = false;
   ULONGLONG lastFrameMs = 0;     // 0 = noch nie ein Bild gesehen
   ULONGLONG lastBlackMs = 0;     // wird in Task 5 gebraucht
@@ -186,39 +203,64 @@ void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
   // aussieht. Man suchte dann am falschen Ende.
   const size_t erwartet = static_cast<size_t>(w) * h * 3 / 2;
   if (!buf || w <= 0 || h <= 0 || data->GetBufferLen() != erwartet) {
-    if (!owner_->mismatchGemeldet) {
-      // EINMAL je Abo, nicht je Bild: 30 Meldungen je Sekunde ertraenkten
-      // jede andere Ausgabe.
-      owner_->mismatchGemeldet = true;
-      emitVideoError("videoBufferMismatch");
-      owner_->reason = "bufferMismatch";
+    // EINMAL je Abo, nicht je Bild: 30 Meldungen je Sekunde ertraenkten
+    // jede andere Ausgabe. Lesen UND Setzen von mismatchGemeldet gehoeren
+    // unter DIESELBE Sperre, sonst koennten zwei Rueckrufe kurz
+    // hintereinander beide "false" lesen und beide melden.
+    bool sollMelden = false;
+    {
+      std::lock_guard<std::mutex> lock(owner_->fieldMutex);
+      if (!owner_->mismatchGemeldet) {
+        owner_->mismatchGemeldet = true;
+        owner_->reason = "bufferMismatch";
+        sollMelden = true;
+      }
     }
+    if (sollMelden) emitVideoError("videoBufferMismatch");
     return;   // das Abo bleibt bestehen und faellt ueber den Herzschlag auf Schwarz
   }
 
-  owner_->lastFrameMs = GetTickCount64();
-  owner_->lastW = w;
-  owner_->lastH = h;
+  // Werte JETZT aus dem Bild ziehen, dann OHNE Sperre senden - sendI420()
+  // kann blockieren, bis NDI den Puffer ausgelesen hat, und die Sperre auf
+  // fieldMutex darf dabei nicht gehalten werden (siehe Kommentar am Feld).
+  const ULONGLONG now = GetTickCount64();
+  const unsigned int rot = data->GetRotation();
+  const bool limited = data->IsLimitedI420();
+
   owner_->sender.sendI420(buf, w, h);
 
   // Erst beim ERSTEN brauchbaren Bild sind rotation und limitedRange
   // gemessen - vorher waeren sie erfunden.
-  const unsigned int rot = data->GetRotation();
-  const bool limited = data->IsLimitedI420();
-  if (!owner_->gemessen || owner_->state != "live" || owner_->rotation != rot || owner_->limitedRange != limited) {
-    owner_->gemessen = true;
-    owner_->rotation = rot;
-    owner_->limitedRange = limited;
-    owner_->state = "live";
-    emitVideoMeasured(*owner_, "live", "frames", rot, limited);
+  bool sollEmitLive = false;
+  {
+    std::lock_guard<std::mutex> lock(owner_->fieldMutex);
+    owner_->lastFrameMs = now;
+    owner_->lastW = w;
+    owner_->lastH = h;
+    if (!owner_->gemessen || owner_->state != "live" || owner_->rotation != rot || owner_->limitedRange != limited) {
+      owner_->gemessen = true;
+      owner_->rotation = rot;
+      owner_->limitedRange = limited;
+      owner_->state = "live";
+      // Ohne diese Zeile bliebe reason nach einem vorherigen
+      // bufferMismatch/cameraOff auf dem ALTEN Wert stehen, obwohl das
+      // gesendete Ereignis "frames" sagt - ein spaeterer Leser (Herzschlag,
+      // Aufgabe 5) saehe dann eine Ursache, die laengst nicht mehr gilt.
+      owner_->reason = "frames";
+      sollEmitLive = true;
+    }
   }
+  if (sollEmitLive) emitVideoMeasured(*owner_, "live", "frames", rot, limited);
 }
 
 void Delegate::onRawDataStatusChanged(RawDataStatus status) {
   if (!owner_) return;
   if (status == RawData_Off) {
-    owner_->state = "black";
-    owner_->reason = "cameraOff";
+    {
+      std::lock_guard<std::mutex> lock(owner_->fieldMutex);
+      owner_->state = "black";
+      owner_->reason = "cameraOff";
+    }
     emitVideo(*owner_, "black", "cameraOff");
   }
   // RawData_On erzeugt hier ABSICHTLICH kein Ereignis: dass das SDK Video
