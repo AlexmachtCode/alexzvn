@@ -92,7 +92,7 @@ entstehen ausschließlich in `enrich()`.
 ### Ereignis
 
 ```json
-{ "ev": "video", "id": 16778240, "state": "live", "source": "JM Connect – Zoom: Anna Beispiel",
+{ "ev": "video", "id": 16778240, "state": "live", "source": "JM Connect – Zoom Anna Beispiel",
   "reason": "frames", "rebindable": true, "rotation": 0, "limitedRange": true }
 ```
 
@@ -167,11 +167,26 @@ mit unterschiedlichem `reason`. Ein `left`-Ereignis der Teilnehmerliste setzt `r
 
 ## 7 · Quellenname und Wiederbeitritt
 
-**Der Name steht bei `subscribe` fest:** `JM Connect – Zoom: <Anzeigename>`. Er folgt **keiner**
+**Der Name steht bei `subscribe` fest:** `JM Connect – Zoom <Anzeigename>`. Er folgt **keiner**
 Umbenennung. Einen NDI-Sender umzubenennen hieße, ihn abzubauen und neu aufzubauen — die Quelle wäre
 mitten in der Sendung weg, genau das, was Abschnitt 3 ausschließt. Ist der Name bereits durch ein anderes
 laufendes Abo belegt, wird ` (2)`, ` (3)` … angehängt. Die Bridge meldet den **tatsächlich vergebenen**
 Namen im `video`-Ereignis zurück, statt den Aufrufer raten zu lassen.
+
+**Berichtigung, gemessen am 13.08.2026 (frühere Fassung dieser Spec war falsch):** Der Name enthält
+**keinen Doppelpunkt**. Die NDI-Laufzeit ersetzt `:` durch ein Leerzeichen, und `JM Connect – Zoom:` hätte
+deshalb ein doppeltes Leerzeichen hinterlassen. Gemessen mit `packages/ndi` gegen die echte Laufzeit:
+
+```
+angelegt:  "JM Connect – Zoom: Anna Beispiel"
+gefunden:  "NITROVONALEX (JM Connect – Zoom  Anna Beispiel)"
+```
+
+Der Gedankenstrich `–` überlebt unverändert. **Zweite, wichtigere Tatsache aus derselben Messung:** NDI
+stellt jedem Quellennamen den **Rechnernamen in Klammern** voran — was der Operator im Switcher sieht,
+lautet also `RECHNERNAME (JM Connect – Zoom <Anzeigename>)`. Das ist NDIs Format, nicht unsere Wahl, und
+gilt für jede NDI-Quelle der Suite gleichermaßen. Wer im Switcher oder in einem Prüfstand auf den Namen
+prüft, muss deshalb **auf Teilzeichenketten prüfen**, nie auf Gleichheit.
 
 **Wiederbeitritt.** Wer aus dem Meeting fliegt und zurückkommt, hat bei Zoom eine **neue** numerische
 Kennung — die Teilnehmerliste aus Stage 1 hält das bereits fest („nach einer Wiederverbindung sind die IDs
@@ -203,7 +218,7 @@ Die Reihenfolge aus Stage 1 ist bindend und bekommt **davor** einen neuen Schrit
 die in Aufgabe 7 als `0xC0000005` gemessen wurde. **Erst der Renderer, dann der Sender:** andersherum
 könnte ein Bild-Rückruf, der schon unterwegs ist, auf einen abgebauten Sender schreiben.
 
-Nach dem Abbau darf **keine** `JM Connect – Zoom: …`-Quelle mehr im Netz stehen. Das ist ein
+Nach dem Abbau darf **keine** `JM Connect – Zoom …`-Quelle mehr im Netz stehen. Das ist ein
 Abnahmekriterium, kein Wunsch.
 
 ---
@@ -227,7 +242,7 @@ keinem Header; sie zu schätzen wäre eine Behauptung.
 
 | # | Lauf | Erwartung |
 | --- | --- | --- |
-| 1 | Gast abonnieren | Quelle `JM Connect – Zoom: <Name>` erscheint im Switcher und zeigt den Gast |
+| 1 | Gast abonnieren | Quelle `JM Connect – Zoom <Name>` erscheint im Switcher und zeigt den Gast |
 | 2 | Gast schaltet die Kamera aus | Quelle **bleibt**, wird schwarz, Ereignis `state: black, reason: cameraOff` |
 | 3 | Gast schaltet wieder ein | Quelle wird wieder lebendig, `reason: frames` |
 | 4 | Gast verlässt das Meeting | Quelle bleibt schwarz, `reason: participantLeft` |

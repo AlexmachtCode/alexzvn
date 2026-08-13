@@ -257,7 +257,7 @@ Ganz am Anfang von `main()`, **vor** dem stdin-Leser. Signatur von `main()` daf�
       return 1;
     }
     NdiSender s;
-    if (!s.open("JM Connect – Zoom: Selbsttest")) {
+    if (!s.open("JM Connect – Zoom Selbsttest")) {
       emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"videoSenderFailed\"}");
       ndiShutdown();
       return 1;
@@ -291,7 +291,7 @@ import { binPath } from '../src/bridge.ts';
 const require = createRequire(import.meta.url);
 const ndi = require('@jm/ndi');
 
-const ERWARTET = 'JM Connect – Zoom: Selbsttest';
+const ERWARTET = 'JM Connect – Zoom Selbsttest';
 
 const child = spawn(binPath(), ['--ndi-selftest'], { windowsHide: true });
 child.stdout.setEncoding('utf8');
@@ -328,7 +328,7 @@ npm run rebuild -w @jm/zoom-bridge
 npm run ndi-probe -w @jm/zoom-bridge
 ```
 
-Erwartet: `OK — die Quelle "JM Connect – Zoom: Selbsttest" war im Netz auffindbar.` und Rückgabewert 0.
+Erwartet: `OK — die Quelle "JM Connect – Zoom Selbsttest" war im Netz auffindbar.` und Rückgabewert 0.
 
 - [ ] **Schritt 7: Mutationsprobe**
 
@@ -386,18 +386,18 @@ console.log('\nprotocol — Video: jede Ursache hat ihren eigenen Namen:');
 console.log('\nstate — Video: Abo-Buchführung:');
 {
   let s = initialSession();
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'subscribed', source: 'JM Connect – Zoom: Anna', reason: 'command', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'subscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
   assert(s.videoSubs.get(7)?.state === 'subscribed', 'ein Abo wird gebucht');
-  assert(s.videoSubs.get(7)?.source === 'JM Connect – Zoom: Anna', 'der vergebene Name wird festgehalten');
+  assert(s.videoSubs.get(7)?.source === 'JM Connect – Zoom Anna', 'der vergebene Name wird festgehalten');
 
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'live', source: 'JM Connect – Zoom: Anna', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'live', source: 'JM Connect – Zoom Anna', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true } as WireEvent));
   assert(s.videoSubs.get(7)?.state === 'live', 'der Zustand folgt dem Ereignis');
   assert(s.videoSubs.get(7)?.rotation === 0, 'die gemessene Drehung wird festgehalten');
 
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'black', source: 'JM Connect – Zoom: Anna', reason: 'cameraOff', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'black', source: 'JM Connect – Zoom Anna', reason: 'cameraOff', rebindable: true } as WireEvent));
   assert(s.videoSubs.get(7)?.reason === 'cameraOff', 'die URSACHE wird getrennt vom Zustand gefuehrt');
 
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'unsubscribed', source: 'JM Connect – Zoom: Anna', reason: 'command', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'unsubscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
   assert(!s.videoSubs.has(7), 'ein abgebautes Abo verschwindet aus der Buchfuehrung');
 }
 
@@ -415,13 +415,13 @@ console.log('\nstate — Video: derselbe Zustand, zwei verschiedene Ursachen:');
 console.log('\nstate — Video: Umhängen behält denselben Sender:');
 {
   let s = initialSession();
-  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'live', source: 'JM Connect – Zoom: Bo', reason: 'frames', rebindable: true } as WireEvent));
-  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'black', source: 'JM Connect – Zoom: Bo', reason: 'participantLeft', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'live', source: 'JM Connect – Zoom Bo', reason: 'frames', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'black', source: 'JM Connect – Zoom Bo', reason: 'participantLeft', rebindable: true } as WireEvent));
   // 'subscribed', nicht 'live': beim Umhaengen sind noch keine Bilder da —
   // genau das meldet der native Teil (Task 6).
-  s = reduce(s, enrich({ ev: 'video', id: 11, state: 'subscribed', source: 'JM Connect – Zoom: Bo', reason: 'rebound', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 11, state: 'subscribed', source: 'JM Connect – Zoom Bo', reason: 'rebound', rebindable: true } as WireEvent));
   assert(!s.videoSubs.has(10), 'die alte Kennung ist weg');
-  assert(s.videoSubs.get(11)?.source === 'JM Connect – Zoom: Bo', 'der Quellenname bleibt derselbe — der Switcher merkt nichts');
+  assert(s.videoSubs.get(11)?.source === 'JM Connect – Zoom Bo', 'der Quellenname bleibt derselbe — der Switcher merkt nichts');
 }
 
 console.log('\nbridge — Video: ein Abo über die Attrappe:');
@@ -574,11 +574,11 @@ export interface VideoSub {
     process.stdin.on('data', (d) => {
       const s = String(d);
       if (s.includes('"videoSubscribe"')) {
-        say({ ev: 'video', id: 42, state: 'subscribed', source: 'JM Connect – Zoom: Attrappe', reason: 'command', rebindable: true });
-        say({ ev: 'video', id: 42, state: 'live', source: 'JM Connect – Zoom: Attrappe', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true });
+        say({ ev: 'video', id: 42, state: 'subscribed', source: 'JM Connect – Zoom Attrappe', reason: 'command', rebindable: true });
+        say({ ev: 'video', id: 42, state: 'live', source: 'JM Connect – Zoom Attrappe', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true });
       }
       if (s.includes('"videoUnsubscribe"')) {
-        say({ ev: 'video', id: 42, state: 'unsubscribed', source: 'JM Connect – Zoom: Attrappe', reason: 'command', rebindable: true });
+        say({ ev: 'video', id: 42, state: 'unsubscribed', source: 'JM Connect – Zoom Attrappe', reason: 'command', rebindable: true });
       }
     });
   },
@@ -751,8 +751,15 @@ struct Sub {
 // Der Name steht bei subscribe FEST und folgt keiner Umbenennung: einen
 // NDI-Sender umzubenennen hiesse, ihn abzubauen und neu aufzubauen - die
 // Quelle waere mitten in der Sendung weg.
+//
+// KEIN DOPPELPUNKT nach "Zoom" - gemessen am 13.08.2026 gegen die echte
+// NDI-Laufzeit: sie ersetzt ':' durch ein Leerzeichen, "Zoom:" haette also
+// ein DOPPELTES Leerzeichen hinterlassen. Aus derselben Messung: NDI stellt
+// jedem Namen den RECHNERNAMEN in Klammern voran - was im Switcher steht,
+// ist "RECHNERNAME (JM Connect – Zoom Anna)". Wer auf den Namen prueft,
+// prueft darum auf Teilzeichenketten, nie auf Gleichheit.
 std::string uniqueSourceName(const std::wstring& displayName) {
-  const std::string base = "JM Connect – Zoom: " + toUtf8(displayName);
+  const std::string base = "JM Connect – Zoom " + toUtf8(displayName);
   std::string name = base;
   int n = 2;
   bool belegt = true;
