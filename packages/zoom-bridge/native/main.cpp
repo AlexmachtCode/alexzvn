@@ -14,6 +14,7 @@
 #include "emit.h"
 #include "session.h"
 #include "ndi_sender.h"
+#include "video.h"
 
 namespace {
 
@@ -93,6 +94,31 @@ bool nextLine(std::string& out) {
   return true;
 }
 
+// std::stoul() wirft bei leerer, nicht-numerischer ODER zu grosser Eingabe
+// (std::out_of_range) - "id" kommt hier von AUSSEN ueber stdin, eine
+// geworfene Ausnahme wuerde den Prozess beenden: genau das stille
+// Verschwinden, das dieses Vorhaben ausschliesst. ABWEICHUNG VOM
+// BRIEF-WORTLAUT: der Brief verlangt nur die Pruefung "nicht leer, nur
+// Ziffern" vor dem Aufruf - das faengt nicht-numerische Eingaben ab, aber
+// NICHT eine Ziffernfolge, die zwar gueltig aussieht, aber ausserhalb des
+// Wertebereichs von unsigned long liegt (std::out_of_range faellt sonst
+// unveraendert durch). Beide Ursachen fuehren zum selben Ergebnis - die
+// Kennung ist nicht auswertbar -, und der Fehlerkatalog dieser Aufgabe hat
+// dafuer keinen eigenen Namen neben videoUnknownParticipant, das bereits
+// "keine auffindbare Kennung" bedeutet.
+bool parseParticipantId(const std::string& idText, unsigned int* out) {
+  if (idText.empty()) return false;
+  for (const char ch : idText) {
+    if (ch < '0' || ch > '9') return false;
+  }
+  try {
+    *out = static_cast<unsigned int>(std::stoul(idText));
+  } catch (...) {
+    return false;
+  }
+  return true;
+}
+
 void handle(const std::string& line) {
   const std::string cmd = cmdOf(line);
   if (cmd.empty()) {
@@ -101,6 +127,12 @@ void handle(const std::string& line) {
   }
   if (cmd == "init") {
     if (sessionInit()) g_sdkInitialized = true;
+    // NDI erst nach geglueckter SDK-Initialisierung: schlaegt schon Zoom
+    // fehl, ist eine NDI-Meldung nur Rauschen ueber dem eigentlichen Fehler.
+    if (g_sdkInitialized && !ndiInitialize()) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"ndiInitFailed\"}");
+      emitLog(L"NDIlib_initialize() fehlgeschlagen - laeuft die NDI-Laufzeit auf diesem Rechner?");
+    }
     return;
   }
   if (cmd == "quit") {
@@ -122,6 +154,32 @@ void handle(const std::string& line) {
   }
   if (cmd == "leave") {
     sessionLeave();
+    return;
+  }
+  if (cmd == "videoSubscribe") {
+    const std::string idText = fieldFromJson(line, "id");
+    unsigned int userId = 0;
+    if (!parseParticipantId(idText, &userId)) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
+      return;
+    }
+    const std::string resKey = fieldFromJson(line, "resolution");
+    ZoomSDKResolution res = ZoomSDKResolution_720P;   // Vorgabe laut Spec
+    if (!resKey.empty() && !videoParseResolution(resKey, &res)) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadResolution\"}");
+      return;
+    }
+    videoSubscribe(userId, res);
+    return;
+  }
+  if (cmd == "videoUnsubscribe") {
+    const std::string idText = fieldFromJson(line, "id");
+    unsigned int userId = 0;
+    if (!parseParticipantId(idText, &userId)) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
+      return;
+    }
+    videoUnsubscribe(userId);
     return;
   }
   // ACHTUNG (Abschluss-Sichtung Punkt F): `cmd` kommt von AUSSEN (stdin) und
@@ -379,6 +437,14 @@ int main(int argc, char** argv) {
     std::fflush(stdout);
     TerminateProcess(GetCurrentProcess(), 0);
   }
+
+  // Ganz am Ende, NACH sessionShutdown() und VOR dem return - NICHT auf dem
+  // TerminateProcess-Zweig oben (nicht beruhigter Abbau, kLeaveNotSettledExitCode):
+  // dort wird der Prozess ohnehin hart beendet, und ein weiterer Aufruf auf
+  // halb abgeraeumtem Zustand waere genau das Risiko, das dieser Zweig
+  // vermeidet. Dieser Punkt hier wird nur auf dem regulaeren Ausstiegsweg
+  // erreicht.
+  ndiShutdown();
 
   return 0;
 }

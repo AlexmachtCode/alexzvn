@@ -165,6 +165,16 @@ void sessionJoinAnswered();
 /** Der Teilnehmer-Controller, oder nullptr wenn kein Meeting laeuft. */
 IMeetingParticipantsController* participantsCtrl();
 
+/**
+ * Name und persistentId zu einer Teilnehmerkennung. false = die Kennung
+ * steht nicht (mehr) in der Teilnehmerliste.
+ *
+ * `persistentId` KANN LEER SEIN - Zoom liefert sie fuer nicht angemeldete
+ * Gaeste nicht immer. Wer darauf ein Versprechen baut (Umhaengen nach einem
+ * Wiederbeitritt), muss den leeren Fall ausdruecklich behandeln.
+ */
+bool sessionFindParticipant(unsigned int userId, std::wstring* nameOut, std::string* persistentIdOut);
+
 /** Vollbild der Anwesenden als ein roster-Ereignis. */
 void emitRoster();
 
@@ -213,3 +223,27 @@ bool sessionPrivilegePending();
 
 /** Von RecordingListener::onLocalRecordingPrivilegeRequestStatus gerufen, sobald die Antwort da ist. */
 void sessionPrivilegeAnswered();
+
+/**
+ * Der ZULETZT gemeldete Stand der Rohdaten-Erlaubnis. Ohne dieses Merkzeichen
+ * koennte videoSubscribe() (Task 3) die Voraussetzung "canRecordRaw" gar nicht
+ * pruefen - der native Teil MELDET die Erlaubnis an vier Stellen
+ * (callbacks.cpp: onRecordPrivilegeChanged, die zwei
+ * onLocalRecordingPrivilegeRequestStatus-Zweige; session.cpp: checkPrivilege()s
+ * Sofortpruefung), merkte sie sich bisher aber nirgends.
+ */
+bool sessionCanRecordRaw();
+
+/**
+ * Haelt fest, was gerade ueber die Rohdaten-Erlaubnis gemeldet wurde. Von
+ * ALLEN VIER Melde-Stellen oben zu rufen, jeweils mit GENAU dem Wert, der auf
+ * derselben Zeile auch als "canRecordRaw" auf die Rohrleitung geht - zwei
+ * Wahrheiten, die auseinanderlaufen koennten, waeren schlimmer als eine.
+ *
+ * KIPPT IN BEIDE RICHTUNGEN: dieselbe Falle wie bei privilegeTimedOut in
+ * Stage 1 - entzieht der Gastgeber die Erlaubnis waehrend des Meetings
+ * (onRecordPrivilegeChanged(false)), faellt der Stand hier ausdruecklich
+ * wieder auf false zurueck. Ein Merkzeichen, das nur in eine Richtung kippt,
+ * wuerde eine Erlaubnis behaupten, die es nicht mehr gibt.
+ */
+void sessionSetCanRecordRaw(bool v);

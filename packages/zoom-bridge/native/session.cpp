@@ -1,4 +1,5 @@
 #include "session.h"
+#include <atomic>
 #include <cstdlib>
 #include <windows.h>
 #include "zoom_sdk.h"
@@ -39,6 +40,12 @@ bool g_privilegePending = false;
 // Regler-Zeiger beim Abbau noch gueltig ist.
 bool g_participantsListenerRegistered = false;
 bool g_recordingListenerRegistered = false;
+
+// Siehe sessionCanRecordRaw()/sessionSetCanRecordRaw() in session.h (Task 3):
+// der ZULETZT gemeldete Stand der Rohdaten-Erlaubnis. Atomar, nicht bool -
+// gesetzt wird auf dem SDK-Rueckruf-Thread (callbacks.cpp), gelesen beim
+// Abo-Befehl (videoSubscribe(), video.cpp) auf dem Hauptthread.
+std::atomic<bool> g_canRecordRaw{false};
 }  // namespace
 
 // NICHT (mehr) TU-lokal: session.h erklaert diese Funktion oeffentlich, main.cpp
@@ -328,6 +335,20 @@ void markParticipantsListenerRegistered() {
   g_participantsListenerRegistered = true;
 }
 
+bool sessionFindParticipant(unsigned int userId, std::wstring* nameOut, std::string* persistentIdOut) {
+  IMeetingParticipantsController* ctrl = participantsCtrl();
+  if (ctrl == nullptr) return false;  // kein Meeting - nicht "leerer Name als Erfolg"
+  IUserInfo* u = ctrl->GetUserByUserID(userId);
+  if (u == nullptr) return false;  // Kennung nicht (mehr) in der Teilnehmerliste
+  const zchar_t* name = u->GetUserName();
+  const zchar_t* pid = u->GetPersistentId();
+  if (nameOut != nullptr) *nameOut = name ? name : L"";
+  // persistentId kann LEER sein (nicht angemeldete Gaeste) - das ist ein
+  // gueltiges Ergebnis, kein Fehlschlag. toUtf8() aus emit.h (Task 3).
+  if (persistentIdOut != nullptr) *persistentIdOut = toUtf8(pid ? pid : L"");
+  return true;
+}
+
 IMeetingRecordingController* recordingCtrl() {
   return g_meeting ? g_meeting->GetMeetingRecordingController() : nullptr;
 }
@@ -404,6 +425,8 @@ void checkPrivilege() {
     // Anfrage ist damit gegenstandslos, GLEICH OB die Antwort auf sie je
     // eintrifft.
     g_privilegePending = false;
+    // Melde-Stelle 1/4 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+    sessionSetCanRecordRaw(true);
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true,\"source\":\"check\"}");
     return;
   }
@@ -441,6 +464,14 @@ bool sessionPrivilegePending() {
 
 void sessionPrivilegeAnswered() {
   g_privilegePending = false;
+}
+
+bool sessionCanRecordRaw() {
+  return g_canRecordRaw;
+}
+
+void sessionSetCanRecordRaw(bool v) {
+  g_canRecordRaw = v;
 }
 
 bool sessionShutdown() {

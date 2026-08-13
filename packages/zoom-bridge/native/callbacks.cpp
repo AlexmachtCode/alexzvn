@@ -138,6 +138,12 @@ void RecordingListener::onRecordPrivilegeChanged(bool bCanRec) {
   // Feld - "source" unterscheidet sie (Nachbesserung 1, Owner-Entscheidung:
   // Befund A). Vergeben auch im false-Fall, damit das Feld nie mal da ist und
   // mal nicht.
+  // Melde-Stelle 2/4 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+  // GENAU dieser Ruf ist der, der in BEIDE Richtungen kippt - bCanRec ist
+  // hier wortgleich der Wert, der auch auf die Rohrleitung geht, also
+  // spiegelt g_canRecordRaw ab jetzt sofort einen Entzug (bCanRec == false)
+  // ebenso wie eine Freigabe.
+  sessionSetCanRecordRaw(bCanRec);
   emitRaw(std::string("{\"ev\":\"privilege\",\"canRecordRaw\":") + (bCanRec ? "true" : "false") +
           ",\"source\":\"broadcast\"}");
 }
@@ -151,10 +157,14 @@ void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecor
   sessionPrivilegeAnswered();
 
   if (status == RequestLocalRecording_Granted) {
+    // Melde-Stelle 3/4 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+    sessionSetCanRecordRaw(true);
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true,\"source\":\"requestAnswer\"}");
     return;
   }
   if (status == RequestLocalRecording_Denied) {
+    // Melde-Stelle 4/4 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+    sessionSetCanRecordRaw(false);
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"source\":\"requestAnswer\",\"denied\":true}");
     return;
   }
