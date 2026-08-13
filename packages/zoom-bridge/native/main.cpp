@@ -160,6 +160,14 @@ void handle(const std::string& line) {
     return;
   }
   if (cmd == "leave") {
+    // TRAGENDE REIHENFOLGE, dieselbe wie unten beim Prozessende: erst alle
+    // Abos, DANN das Meeting verlassen. Ein laufender Renderer haelt eine
+    // Referenz auf den Meeting-Dienst - ihn nach sessionLeave() abzubauen
+    // hiesse, auf abgeraeumten Zustand zuzugreifen. Ohne diese Zeile deckte
+    // nur der Prozessende-Weg unten (quit/EOF) die Reihenfolge ab, der
+    // "leave"-Befehl selbst nicht - GEMELDET beim Umsetzen von Aufgabe 3,
+    // siehe video.h.
+    videoShutdownAll();
     sessionLeave();
     return;
   }
@@ -376,6 +384,12 @@ int main(int argc, char** argv) {
     Sleep(10);
   }
 
+  // TRAGENDE REIHENFOLGE: erst alle Abos, DANN der Sitzungsabbau. Ein
+  // laufender Renderer haelt eine Referenz auf den Meeting-Dienst - ihn nach
+  // DestroyMeetingService abzubauen hiesse, auf abgeraeumten Zustand
+  // zuzugreifen. Das ist dieselbe Fehlerklasse, die in Aufgabe 7 von Stage 1
+  // als 0xC0000005 gemessen wurde.
+  videoShutdownAll();
   const bool shutdownComplete = sessionShutdown();
   if (!shutdownComplete) {
     // Owner-Entscheidung, Abschluss-Sichtung Punkt A: sessionShutdown() hat
