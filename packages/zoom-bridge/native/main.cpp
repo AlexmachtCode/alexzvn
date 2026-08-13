@@ -13,6 +13,7 @@
 #include <windows.h>
 #include "emit.h"
 #include "session.h"
+#include "ndi_sender.h"
 
 namespace {
 
@@ -142,7 +143,70 @@ void handle(const std::string& line) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  // Diagnose-Sonderweg: baut NUR einen NDI-Sender auf, schickt zwei Sekunden
+  // Schwarz und geht. Ohne Zoom, ohne Meeting, ohne Anmeldung. Beantwortet
+  // die Frage "traegt NDI auf diesem Rechner ueberhaupt?" getrennt von allem
+  // anderen - ohne diesen Weg waere ein NDI-Problem von einem Zoom-Problem
+  // erst nach dem Beitritt zu unterscheiden.
+  if (argc > 1 && std::string(argv[1]) == "--ndi-selftest") {
+    // ABWEICHUNG VOM BRIEF, GEMESSEN: alle drei Ausstiege dieses Zweigs
+    // gehen ueber TerminateProcess() statt ueber ein einfaches `return`, mit
+    // demselben Riegel-Muster (fflush + eigener Exitcode + return danach),
+    // das weiter unten in main() fuer "InitSDK nie geglueckt" bereits steht
+    // und dort ausfuehrlich begruendet ist. Grund: dieser Zweig ruft
+    // absichtlich NIE Zooms InitSDK (das ist der ganze Witz des
+    // Sonderwegs - "ohne Zoom"), ein regulaeres `return` haette hier also
+    // GENAU die dort dokumentierte Lage hergestellt. GEMESSEN 3/3 mit
+    // Exitcode -1073740791 (0xC0000409) bei allen drei `return`-Stellen des
+    // Brief-Wortlauts, deterministisch reproduziert vor dieser Aenderung -
+    // derselbe Absturz, derselbe Grund, den der Kommentar bei
+    // g_sdkInitialized weiter unten beschreibt. Die JSON-Zeilen VOR dem
+    // Absturz standen jedes Mal vollstaendig auf stdout (emitRaw() spuelt
+    // selbst) - fuer test/ndi-probe.mjs, das nur die NDI-Werbung im Netz
+    // prueft und den Exitcode der Bridge nicht auswertet, waere der Absturz
+    // unsichtbar geblieben. Trotzdem: ein Diagnose-Sonderweg, der bei JEDEM
+    // Lauf abstuerzt, ist selbst ein stiller Fehler (Kernregel "nichts
+    // verschwindet still") - darum hier behoben, nicht nur vermerkt.
+    if (!ndiInitialize()) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"ndiInitFailed\"}");
+      std::fflush(stdout);
+      TerminateProcess(GetCurrentProcess(), 1);
+      return 1;
+    }
+    NdiSender s;
+    // ABWEICHUNG VOM BRIEF, GEMESSEN: Name OHNE Doppelpunkt. Der urspruengliche
+    // Brief-Wortlaut "JM Connect – Zoom: Selbsttest" (mit Doppelpunkt) kommt bei
+    // der NDI-Quellensuche als "... Zoom  Selbsttest" an - der Doppelpunkt wird
+    // durch ein Leerzeichen ersetzt, REPRODUZIERT auch mit dem laengst
+    // bestehenden @jm/ndi-Addon (ndi.createSender() mit demselben Zeichen zeigt
+    // dieselbe Ersetzung) - keine Eigenheit dieses neuen Codes, sondern
+    // Verhalten der NDI-SDK/-Laufzeit selbst (Quellname dient zugleich als
+    // mDNS/Bonjour-Dienstname, dort ist ':' reserviert). test/ndi-probe.mjs
+    // prueft auf GENAUE Teilzeichenkette - mit Doppelpunkt waere Schritt 6 auf
+    // JEDEM Rechner deterministisch gescheitert, nicht nur hier. Der Name unten
+    // MUSS mit ERWARTET in test/ndi-probe.mjs übereinstimmen, aendert man den
+    // einen, den anderen mitziehen.
+    if (!s.open("JM Connect – Zoom Selbsttest")) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"videoSenderFailed\"}");
+      ndiShutdown();
+      std::fflush(stdout);
+      TerminateProcess(GetCurrentProcess(), 1);
+      return 1;
+    }
+    emitRaw("{\"ev\":\"ndiSelftest\",\"state\":\"sending\"}");
+    for (int i = 0; i < 60; ++i) {
+      s.sendBlack(640, 360);
+      Sleep(33);
+    }
+    s.close();
+    ndiShutdown();
+    emitRaw("{\"ev\":\"ndiSelftest\",\"state\":\"done\"}");
+    std::fflush(stdout);
+    TerminateProcess(GetCurrentProcess(), 0);
+    return 0;
+  }
+
   std::thread reader(readStdin);
   reader.detach();
 
