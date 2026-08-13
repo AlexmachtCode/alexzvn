@@ -1,4 +1,5 @@
 #include "video.h"
+#include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -29,7 +30,17 @@ class Delegate : public IZoomSDKRendererDelegate {
 };
 
 struct Sub {
-  unsigned int userId = 0;
+  // ATOMAR statt eines rohen unsigned int (Nachbesserung Runde 1, Befund 1):
+  // videoParticipantJoined() (Aufgabe 6) aendert userId zur LAUFZEIT beim
+  // Umhaengen - vorher stand es nach dem Anlegen fest. emitVideo()/
+  // emitVideoMeasured() lesen s.userId dagegen ABSICHTLICH AUSSERHALB der
+  // fieldMutex-Sperre (Regel: kein emit*() im Sperrblock) und werden auch vom
+  // SDK-Thread aus gerufen (Delegate::onRawDataFrameReceived/
+  // onRawDataStatusChanged). Ein Sperren des Schreibens allein haette den
+  // Wettlauf NICHT geloest, weil die Leseseite weiterhin ungesperrt bliebe -
+  // std::atomic macht BEIDE Seiten sicher, ohne emit*() in einen Sperrblock
+  // zu ziehen.
+  std::atomic<unsigned int> userId{0};
   std::string persistentId;
   std::string source;          // der TATSAECHLICH vergebene NDI-Name
   ZoomSDKResolution res = ZoomSDKResolution_720P;
@@ -91,7 +102,10 @@ std::string uniqueSourceName(const std::wstring& displayName) {
 }
 
 void emitVideo(const Sub& s, const char* state, const char* reason) {
-  emitRaw(std::string("{\"ev\":\"video\",\"id\":") + std::to_string(s.userId) +
+  // .load() ausdruecklich statt der impliziten Wandlung: s.userId ist
+  // std::atomic<unsigned int>, dieser Aufruf kann vom SDK-Thread kommen,
+  // WAEHREND der Hauptthread es umhaengt (siehe Kommentar am Feld).
+  emitRaw(std::string("{\"ev\":\"video\",\"id\":") + std::to_string(s.userId.load()) +
           ",\"state\":\"" + state + "\",\"source\":\"" + jsonEscapeUtf8(s.source) +
           "\",\"reason\":\"" + reason +
           "\",\"rebindable\":" + (s.persistentId.empty() ? "false" : "true") + "}");
@@ -103,7 +117,8 @@ void emitVideo(const Sub& s, const char* state, const char* reason) {
 // erfundene 0 liesse sich spaeter nicht von einer gemessenen 0 unterscheiden.
 void emitVideoMeasured(const Sub& s, const char* state, const char* reason,
                        unsigned int rotation, bool limitedRange) {
-  emitRaw(std::string("{\"ev\":\"video\",\"id\":") + std::to_string(s.userId) +
+  // .load() aus demselben Grund wie in emitVideo() oben.
+  emitRaw(std::string("{\"ev\":\"video\",\"id\":") + std::to_string(s.userId.load()) +
           ",\"state\":\"" + state + "\",\"source\":\"" + jsonEscapeUtf8(s.source) +
           "\",\"reason\":\"" + reason +
           "\",\"rebindable\":" + (s.persistentId.empty() ? "false" : "true") +
@@ -390,7 +405,32 @@ void videoParticipantJoined(unsigned int userId) {
     s->renderer->subscribe(userId, RAW_DATA_TYPE_VIDEO);
   }
   knoten.key() = userId;
-  g_subs.insert(std::move(knoten));
+  // Rueckgabewert PRUEFEN statt verwerfen (Nachbesserung Runde 1, Befund 2):
+  // schluege insert() fehl (userId waere selbst bereits ein Schluessel in
+  // g_subs), gaebe der Aufruf den Knoten unveraendert in ergebnis.node
+  // zurueck. Ihn dort einfach verwerfen liesse (ergebnis.node) sofort ausser
+  // Sichtweite zerstoert werden - MIT dem gerade oben umsubscribe()-ten
+  // Renderer und seinem Delegate, waehrend dieser Renderer noch aktiv auf
+  // "userId" haengt. Das Abo waere STILL weg, ohne jedes Ereignis, und der
+  // Delegate-Zeiger eines gerade noch laufenden Renderers zeigte anschliessend
+  // ins Leere - genau die Gefahr, vor der der Kommentar oben (KEIN neues Sub
+  // bauen) bereits warnt, nur von der anderen Seite.
+  auto ergebnis = g_subs.insert(std::move(knoten));
+  if (!ergebnis.inserted) {
+    // Nach heutigem Aufbau praktisch unerreichbar (eine frisch beigetretene
+    // Kennung hat noch kein eigenes Abo) - trotzdem sauber abbauen, GENAU wie
+    // videoUnsubscribe() es tut, statt den verwaisten Knoten kommentarlos
+    // auslaufen zu lassen.
+    Sub* verwaist = ergebnis.node.mapped().get();
+    if (verwaist->renderer) { verwaist->renderer->unSubscribe(); destroyRenderer(verwaist->renderer); }
+    verwaist->sender.close();
+    // DIESELBE Ursache wie ein direktes videoSubscribe auf eine bereits
+    // belegte Kennung: "userId" hat in beiden Faellen bereits ein Abo. Kein
+    // neuer Katalogeintrag noetig - videoAlreadySubscribed traegt schon
+    // genau diese Bedeutung.
+    emitVideoError("videoAlreadySubscribed");
+    return;
+  }
   emitVideo(*s, "subscribed", "rebound");
 }
 
