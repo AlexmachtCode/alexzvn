@@ -234,6 +234,28 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
     return;
   }
 
+  // DER SCHALTER, DEN STAGE 1 AUSGELASSEN HAT. Zooms Schrittfolge fuer
+  // Rohdaten lautet: im Meeting -> Erlaubnis vom Gastgeber ->
+  // StartRawRecording() -> Bilder ueber die Delegates. Ohne den dritten
+  // Schritt gibt createRenderer() keinen Renderer heraus - GEMESSEN am
+  // 2026-08-13, und zwar mit erteilter Erlaubnis. Der Name des Aufrufs luegt
+  // (er schreibt keine Datei, siehe session.h), genau deshalb stand er nicht
+  // im Quelltext.
+  //
+  // HIER und nicht bei der Erlaubnis-Abfrage: wer nie ein Video abonniert,
+  // soll den Rohdaten-Weg des SDK auch nicht anschalten. Der Aufruf ist
+  // idempotent, das erste Abo zahlt ihn fuer alle weiteren.
+  //
+  // EIGENER FEHLERNAME: "der Rohdaten-Schalter ging nicht um" schickt die
+  // Suche an einen anderen Ort als "der Renderer kam nicht zustande" - beim
+  // ersten ist das Meeting oder die Rolle schuld, beim zweiten das Abo.
+  const SDKError rawErr = sessionStartRawRecording();
+  if (rawErr != SDKERR_SUCCESS) {
+    logSdkError(L"StartRawRecording()", rawErr);
+    emitVideoError("videoRawRecordingFailed");
+    return;
+  }
+
   auto sub = std::make_unique<Sub>();
   sub->userId = userId;
   sub->persistentId = persistentId;

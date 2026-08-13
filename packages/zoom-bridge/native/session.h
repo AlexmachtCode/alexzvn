@@ -214,8 +214,10 @@ IMeetingRecordingController* recordingCtrl();
 /**
  * Fragt die Rohdaten-Aufnahme-Erlaubnis ab und, wenn noetig, beim Gastgeber
  * an (RequestLocalRecordingPrivilege). Meldet {"ev":"privilege",...} bzw.
- * {"ev":"error","where":"privilege",...}. Stage 1 zeichnet NICHTS auf: diese
- * Funktion ruft StartRawRecording() NICHT - es steht nirgends im Quelltext.
+ * {"ev":"error","where":"privilege",...}. Diese Funktion ruft
+ * StartRawRecording() NICHT - das tut sessionStartRawRecording(), und zwar
+ * erst beim ersten videoSubscribe(). Erlaubnis holen und Rohdaten einschalten
+ * sind zwei verschiedene Schritte; Stage 1 brauchte nur den ersten.
  *
  * Owner-Entscheidung: "automatisch anfragen, einmal freigeben" - die Bruecke
  * fragt die Erlaubnis SELBST an, sie wartet nicht auf einen externen Befehl.
@@ -294,3 +296,30 @@ void sessionSetCanRecordRaw(bool v);
  * zuletzt GEMELDETEN Wert - sie urteilt, der native Teil meldet.
  */
 void sessionClearCanRecordRaw();
+
+/**
+ * Legt den Rohdaten-Schalter des SDK um (IMeetingRecordingController::
+ * StartRawRecording) und meldet den SDKError zurueck.
+ *
+ * DER NAME LUEGT, UND DAS HAT ECHTE ZEIT GEKOSTET: "StartRawRecording"
+ * schreibt KEINE Datei und startet weder Cloud- noch lokale Aufzeichnung. Es
+ * ist der Schalter, der die Rohdaten-Rueckrufe ueberhaupt erst freigibt. Stage
+ * 1 hat den Aufruf ausdruecklich vermieden, weil der Name nach Mitschnitt
+ * klingt - mit der Folge, dass in Stage 2 JEDES videoSubscribe an
+ * createRenderer() scheiterte. GEMESSEN am 2026-08-13 gegen ein echtes
+ * Meeting; die Schrittfolge (im Meeting -> Erlaubnis -> StartRawRecording ->
+ * Rohdaten ueber die Delegates) stammt woertlich von Zoom.
+ *
+ * Idempotent: der zweite Aufruf in demselben Meeting meldet SDKERR_SUCCESS,
+ * ohne das SDK noch einmal zu behelligen. Gilt je Meeting - siehe
+ * sessionClearRawRecording().
+ */
+SDKError sessionStartRawRecording();
+
+/**
+ * Setzt den Rohdaten-Schalter zurueck, weil er je MEETING gilt. Gleiche
+ * Begruendung und gleiche Aufrufstelle wie sessionClearCanRecordRaw(): ein
+ * stehengebliebener Schalter liesse das naechste Meeting glauben, die
+ * Rohdaten seien schon frei.
+ */
+void sessionClearRawRecording();

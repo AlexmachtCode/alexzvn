@@ -100,6 +100,10 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
   // checkPrivilege() zurueck.
   if (status == MEETING_STATUS_ENDED || status == MEETING_STATUS_FAILED) {
     sessionClearCanRecordRaw();
+    // Aus demselben Grund und an derselben Stelle: der Rohdaten-Schalter gilt
+    // je MEETING. Bliebe er stehen, hielte das naechste Meeting ihn faelschlich
+    // fuer bereits gelegt und subscribe() liefe ins Leere.
+    sessionClearRawRecording();
   }
 }
 

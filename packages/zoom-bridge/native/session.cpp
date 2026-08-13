@@ -47,6 +47,11 @@ bool g_recordingListenerRegistered = false;
 // gesetzt wird auf dem SDK-Rueckruf-Thread (callbacks.cpp), gelesen beim
 // Abo-Befehl (videoSubscribe(), video.cpp) auf dem Hauptthread.
 std::atomic<bool> g_canRecordRaw{false};
+// Ob StartRawRecording() in DIESEM Meeting bereits durchging. Nicht "nimmt der
+// SDK Rohdaten entgegen" - das weiss nur der SDK -, sondern "wir haben den
+// Schalter schon umgelegt". Wird beim Meeting-Ende zurueckgesetzt, sonst
+// hielte ein zweites Meeting den Schalter faelschlich fuer bereits gelegt.
+std::atomic<bool> g_rawRecordingOn{false};
 }  // namespace
 
 // NICHT (mehr) TU-lokal: session.h erklaert diese Funktion oeffentlich, main.cpp
@@ -481,6 +486,21 @@ bool sessionCanRecordRaw() {
 
 void sessionSetCanRecordRaw(bool v) {
   g_canRecordRaw = v;
+}
+
+SDKError sessionStartRawRecording() {
+  // EINMAL je Meeting, nicht je Abo. Der zweite Aufruf waere kein Fehler,
+  // aber ein zweiter Rueckgabewert, den niemand mehr auseinanderhalten kann.
+  if (g_rawRecordingOn) return SDKERR_SUCCESS;
+  IMeetingRecordingController* rec = recordingCtrl();
+  if (rec == nullptr) return SDKERR_SERVICE_FAILED;
+  const SDKError err = rec->StartRawRecording();
+  if (err == SDKERR_SUCCESS) g_rawRecordingOn = true;
+  return err;
+}
+
+void sessionClearRawRecording() {
+  g_rawRecordingOn = false;
 }
 
 void sessionClearCanRecordRaw() {

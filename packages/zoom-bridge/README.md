@@ -9,28 +9,30 @@ ab: Anmeldung, Meeting-Beitritt, Teilnehmerliste, Rohdaten-Aufnahme-Erlaubnis
 (Stage 1) — und, mit dieser Erlaubnis, **Video je abonniertem Teilnehmer als
 eigene NDI-Quelle** (Stage 2, siehe Abschnitt 7).
 
-**Es schreibt keine Datei.** `StartRawRecording()` — die Meeting-**weite**
-Aufnahme-API — steht nirgends im Quelltext; die Erlaubnis wird nur abgefragt
-(`CanStartRawRecording()`/`RequestLocalRecordingPrivilege()`), nie für eine
-eigene Aufzeichnung genutzt. Das heißt aber **nicht** „kein Bild verlässt den
-Prozess": mit erteilter Erlaubnis und mindestens einem `videoSubscribe`-Abo
-verlassen sehr wohl Bilder den Prozess — als **NDI**, nicht als Datei. Ton
-fehlt weiterhin (Stage 3).
+**Es schreibt keine Datei.** Weder Cloud- noch lokale Aufzeichnung wird je
+gestartet, es entsteht keine Datei auf keiner Platte. Das heißt aber **nicht**
+„kein Bild verlässt den Prozess": mit erteilter Erlaubnis und mindestens einem
+`videoSubscribe`-Abo verlassen sehr wohl Bilder den Prozess — als **NDI**, nicht
+als Datei. Ton fehlt weiterhin (Stage 3).
 
-> **Voraussetzung für Stage 2, die kein Code erfüllen kann: das Zoom-**Konto**
-> braucht ein Rohdaten-Recht.** Das SDK beantwortet das mit
-> `HasRawdataLicense()`. Steht dort `false`, liefert `createRenderer()` keinen
-> Renderer, und **jedes** `videoSubscribe` endet in `videoRendererFailed` —
-> unabhängig davon, wie oft der Gastgeber die Aufnahme erlaubt. **Das sind zwei
-> verschiedene Tore:** die Rohdaten-**Erlaubnis** (Abschnitt 6) erteilt der
-> Gastgeber im laufenden Meeting; die Rohdaten-**Lizenz** hängt am Zoom-Konto und
-> steht schon nach der Anmeldung fest. GEMESSEN am 2026-08-13 auf dem
-> Entwicklungskonto: Erlaubnis **JA**, Lizenz **false** — Video kam trotzdem
-> keins. Die Brücke meldet den Lizenzwert deshalb seit dem gleichen Tag
-> unaufgefordert nach jeder geglückten Anmeldung auf stderr. Das SDK
-> dokumentiert die Funktion mit **keinem Wort** (kein Kommentar im Kopfsatz,
-> keine zweite Erwähnung im gesamten SDK) — geklärt werden muss das mit Zoom,
-> nicht im Quelltext.
+> **`StartRawRecording()` heißt nicht, was es heißt — und das hat echte Zeit
+> gekostet.** Der Aufruf schreibt **keine Datei**; er ist der Schalter, der
+> Zooms Rohdaten-Rückrufe überhaupt erst freigibt. Zooms Schrittfolge lautet:
+> im Meeting → Erlaubnis vom Gastgeber → **`StartRawRecording()`** → Bilder
+> über die Delegates. Stage 1 hat den Aufruf **ausdrücklich vermieden**, weil
+> der Name nach Mitschnitt klingt — mit der Folge, dass in Stage 2 **jedes**
+> `videoSubscribe` an `createRenderer()` scheiterte, obwohl der Gastgeber die
+> Erlaubnis erteilt hatte (GEMESSEN am 2026-08-13). Seither ruft
+> `sessionStartRawRecording()` ihn beim **ersten** Abo, idempotent, je Meeting.
+>
+> **`HasRawdataLicense()` ist dabei eine Sackgasse.** Auf dem Entwicklungskonto
+> liefert es `false`, und das ist **kein Hinderungsgrund**: Zoom hat das alte
+> Entitlement-Modell abgeschafft, der Zugriff hängt heute allein an Rolle und
+> Erlaubnis **im laufenden Meeting** (Zoom-Staff wörtlich: *„you do not need
+> rawdatalicense for this. this is a legacy licensing model."*). Die Brücke
+> meldet den Wert weiterhin nach jeder Anmeldung auf stderr — aber als
+> **Auskunft**, nicht als Bedingung. Wer ihn für die Ursache hält, sucht am
+> falschen Ende; genau das ist hier passiert.
 
 Der tragende Entwurfsgedanke: `zoom-bridge.exe` meldet **Tatsachen** als JSON-Zeilen
 auf stdout, alles **Urteilen** (Namen, Zustandsmaschine, Zeitüberschreitungen)
@@ -243,7 +245,8 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 | `videoAlreadySubscribed` | Die Kennung ist bereits abonniert. |
 | `videoNotSubscribed` | `videoUnsubscribe` auf eine nicht abonnierte Kennung. |
 | `videoBadResolution` | Der `resolution`-Schlüssel ist keiner der fünf gültigen. |
-| `videoRendererFailed` | Zoom-Seite: `createRenderer`/`subscribe` lieferte einen SDK-Fehler. **Häufigste Ursache ist keine Zoom-Panne, sondern das fehlende Rohdaten-Recht des Kontos** (`HasRawdataLicense()==false`, siehe Abschnitt 1) — die Brücke schreibt bei diesem Fehler den SDK-Code **und** den Lizenzwert auf stderr, damit beides nicht verwechselt wird. |
+| `videoRendererFailed` | Zoom-Seite: `createRenderer`/`subscribe` lieferte einen SDK-Fehler. Die Brücke schreibt dabei den SDK-Code auf stderr — ohne ihn sind die beiden Aufrufe nicht zu unterscheiden. |
+| `videoRawRecordingFailed` | `StartRawRecording()` ging nicht durch — der Schalter, der Zooms Rohdaten-Rückrufe freigibt (siehe Abschnitt 1; er schreibt **keine** Datei). **Absichtlich ein anderer Name** als `videoRendererFailed`: hier ist das Meeting oder die Rolle schuld, dort das einzelne Abo. |
 | `videoSenderFailed` | NDI-Seite: `NDIlib_send_create` schlug fehl. **Absichtlich ein anderer Name** als `videoRendererFailed` — die beiden schicken die Suche an verschiedene Orte. |
 | `videoBufferMismatch` | `GetBufferLen()` passt nicht zu Breite×Höhe×3/2 (siehe Falle unten). |
 | `ndiInitFailed` | `NDIlib_initialize()` schlug fehl — die NDI-Laufzeit fehlt auf diesem Rechner. Gemeldet beim `init` **und** bei jedem späteren `videoSubscribe` (`where:"ndi"`, nicht `"video"`) — der Abo-Versuch würde sonst `videoSenderFailed` melden und die Suche zu einem einzelnen Abo statt zur fehlenden Installation schicken. |
@@ -374,9 +377,12 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
 
 - **Kein Ton.** `onOneWayAudioRawDataReceived`/`onMixedAudioRawDataReceived`
   werden nirgends gerufen — das ist Stage 3.
-- **Kein Meeting-weites `StartRawRecording()`.** Video läuft ausschließlich über
-  das **Pro-Teilnehmer-Abo** (`IZoomSDKRenderer::subscribe`, Stage 2, Abschnitt 7)
-  — kein Meeting-weiter Mitschnitt, keine Datei (siehe Abschnitt 1).
+- **Kein Mitschnitt.** `StartRawRecording()` wird zwar gerufen (es ist der
+  Schalter für die Rohdaten-Rückrufe, siehe Abschnitt 1), aber es entsteht
+  **keine Datei** — weder Cloud- noch lokale Aufzeichnung. Bild läuft
+  ausschließlich über das **Pro-Teilnehmer-Abo**
+  (`IZoomSDKRenderer::subscribe`, Abschnitt 7), nie über einen Meeting-weiten
+  Mitschnitt.
 - **Keine Anbindung an `apps/connect`.** `test/join.mjs`/`test/video-limit.mjs`
   sind die einzigen Aufrufer — kein UI, kein Operator-Workflow.
 - **Kein Wiederbeitritt der Bridge selbst.** Bricht die Verbindung ab, endet die

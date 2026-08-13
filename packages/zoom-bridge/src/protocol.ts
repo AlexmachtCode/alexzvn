@@ -230,6 +230,13 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   videoNotSubscribed: 'VIDEO_NOT_SUBSCRIBED',
   // Zoom-Seite: createRenderer/subscribe lieferte einen SDK-Fehler.
   videoRendererFailed: 'VIDEO_RENDERER_FAILED',
+  // StartRawRecording() ging nicht durch - der Schalter, der Zooms
+  // Rohdaten-Rueckrufe ueberhaupt erst freigibt (der Name luegt, er schreibt
+  // KEINE Datei; siehe native/session.h). WIEDER ein eigener Name: hier ist
+  // das Meeting oder die Rolle schuld, bei videoRendererFailed das Abo. Die
+  // beiden zu verschmelzen hat in Stage 2 GEMESSEN einen halben Tag gekostet -
+  // der fehlende Schalter trug den Namen des Renderers.
+  videoRawRecordingFailed: 'VIDEO_RAW_RECORDING_FAILED',
   // NDI-Seite: NDIlib_send_create schlug fehl. AUSDRUECKLICH ein anderer Name
   // als videoRendererFailed - die beiden schicken die Suche an
   // verschiedene Orte.
