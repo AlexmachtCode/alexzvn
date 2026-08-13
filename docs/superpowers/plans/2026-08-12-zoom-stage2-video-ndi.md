@@ -1049,6 +1049,24 @@ git commit -m "feat(zoom-bridge): Bildweg ohne Kopie von Zoom nach NDI"
 **Interfaces:**
 - Produces: `void videoTick();`
 
+- [ ] **Schritt 0: Die Sperre von `Sub` benutzen**
+
+**Konstruktionsmangel des Plans, in Aufgabe 4 gemeldet und dort behoben.** Der Bild-Rückruf läuft auf
+einem SDK-Thread und schreibt `lastFrameMs`, `lastW`, `lastH`, `state`, `reason`, `rotation`,
+`limitedRange`, `gemessen`, `mismatchGemeldet`. `videoTick()` läuft auf dem **Hauptthread** und liest
+und schreibt dieselben Felder. Der ursprüngliche Plan sah nur die Sperre für den NDI-Sender vor und
+vergaß die Buchführung — bei den `std::string`-Feldern wäre das nicht bloß ein logischer Wettlauf,
+sondern möglicherweise ein Absturz.
+
+Aufgabe 4 hat deshalb jedem `Sub` eine **eigene** `std::mutex` gegeben. `videoTick()` hält sich an
+dieselbe Disziplin:
+
+- Die Sperre schützt **nur den Feldzugriff**, nie den Sendeaufruf.
+- Sie wird **niemals über `sender.sendBlack(...)` gehalten** — `NdiSender` hat seine eigene Sperre, und
+  zwei ineinander gehaltene Sperren sind eine Verschränkung, die man später schwer wieder auflöst. Also:
+  unter der Sperre entscheiden und die Werte lokal herausziehen, Sperre freigeben, **dann** senden.
+- Eine Sperre je Abo, keine globale: zwei Abos dürfen sich nicht gegenseitig ausbremsen.
+
 - [ ] **Schritt 1: `videoTick()` umsetzen**
 
 ```cpp
