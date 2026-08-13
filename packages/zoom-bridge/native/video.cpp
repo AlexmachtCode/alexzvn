@@ -4,6 +4,12 @@
 #include "emit.h"
 #include "ndi_sender.h"
 #include "rawdata/zoom_rawdata_api.h"
+// rawdata_renderer_interface.h (ueber video.h) FORWARD-deklariert
+// YUVRawDataI420 nur ("class YUVRawDataI420;") - die vollstaendige Klasse mit
+// GetBuffer()/GetStreamWidth()/GetRotation()/IsLimitedI420() steht erst hier.
+// Ohne diesen Include bricht der Bau an jeder Methode auf *data mit C2027
+// ("Verwendung des undefinierten Typs") ab.
+#include "zoom_sdk_raw_data_def.h"
 #include "session.h"
 
 namespace {
@@ -15,8 +21,8 @@ class Delegate : public IZoomSDKRendererDelegate {
  public:
   explicit Delegate(Sub* owner) : owner_(owner) {}
   void onRendererBeDestroyed() override {}
-  void onRawDataFrameReceived(YUVRawDataI420* data) override;   // Task 4
-  void onRawDataStatusChanged(RawDataStatus status) override;   // Task 4
+  void onRawDataFrameReceived(YUVRawDataI420* data) override;
+  void onRawDataStatusChanged(RawDataStatus status) override;
  private:
   Sub* owner_;
 };
@@ -29,6 +35,17 @@ struct Sub {
   IZoomSDKRenderer* renderer = nullptr;
   std::unique_ptr<Delegate> delegate;
   NdiSender sender;
+
+  bool mismatchGemeldet = false;
+  ULONGLONG lastFrameMs = 0;     // 0 = noch nie ein Bild gesehen
+  ULONGLONG lastBlackMs = 0;     // wird in Task 5 gebraucht
+  int lastW = 0;
+  int lastH = 0;
+  std::string state = "subscribed";
+  std::string reason = "command";
+  unsigned int rotation = 0;
+  bool limitedRange = true;
+  bool gemessen = false;         // ob rotation/limitedRange je ein Bild gesehen haben
 };
 
 // Der Name steht bei subscribe FEST und folgt keiner Umbenennung: einen
@@ -61,6 +78,20 @@ void emitVideo(const Sub& s, const char* state, const char* reason) {
           ",\"state\":\"" + state + "\",\"source\":\"" + jsonEscapeUtf8(s.source) +
           "\",\"reason\":\"" + reason +
           "\",\"rebindable\":" + (s.persistentId.empty() ? "false" : "true") + "}");
+}
+
+// Wie emitVideo(), aber MIT den beiden gemessenen Feldern. Zwei getrennte
+// Funktionen statt einer mit Schaltern: rotation und limitedRange duerfen
+// erst auftauchen, wenn ein Bild sie geliefert hat (Spec Abschnitt 5). Eine
+// erfundene 0 liesse sich spaeter nicht von einer gemessenen 0 unterscheiden.
+void emitVideoMeasured(const Sub& s, const char* state, const char* reason,
+                       unsigned int rotation, bool limitedRange) {
+  emitRaw(std::string("{\"ev\":\"video\",\"id\":") + std::to_string(s.userId) +
+          ",\"state\":\"" + state + "\",\"source\":\"" + jsonEscapeUtf8(s.source) +
+          "\",\"reason\":\"" + reason +
+          "\",\"rebindable\":" + (s.persistentId.empty() ? "false" : "true") +
+          ",\"rotation\":" + std::to_string(rotation) +
+          ",\"limitedRange\":" + (limitedRange ? "true" : "false") + "}");
 }
 
 void emitVideoError(const char* code) {
@@ -142,20 +173,58 @@ void videoShutdownAll() {
 
 namespace {
 
-// Absichtlich STUMM in dieser Aufgabe (Task 3): der Bildweg ist Aufgabe 4.
-// Anlegen und Abbauen eines Abo-Buendels sind fuer sich pruefbar (die Quelle
-// erscheint/verschwindet im Netz), OHNE dass je ein Bild ankommen muss - ein
-// hier eintreffender Rueckruf wird darum bewusst verworfen, nicht gepuffert
-// oder ignoriert-ohne-Grund. `owner_`/`data`/`status` bleiben unbenutzt, bis
-// Aufgabe 4 den Bildweg anschliesst.
 void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
-  (void)data;
-  (void)owner_;
+  if (!data || !owner_) return;
+  const int w = static_cast<int>(data->GetStreamWidth());
+  const int h = static_cast<int>(data->GetStreamHeight());
+  const uint8_t* buf = reinterpret_cast<const uint8_t*>(data->GetBuffer());
+
+  // DER PUFFER WIRD GEPRUEFT, NICHT GEGLAUBT. NDI erwartet die drei Ebenen
+  // ZUSAMMENHAENGEND (Y, dann U, dann V) in EINEM Puffer - GetBuffer()
+  // verspricht genau das, aber ein Zeilenabstand mit Auffuellung oder eine
+  // andere Anordnung wuerde ein Bild erzeugen, das wie ein Kameradefekt
+  // aussieht. Man suchte dann am falschen Ende.
+  const size_t erwartet = static_cast<size_t>(w) * h * 3 / 2;
+  if (!buf || w <= 0 || h <= 0 || data->GetBufferLen() != erwartet) {
+    if (!owner_->mismatchGemeldet) {
+      // EINMAL je Abo, nicht je Bild: 30 Meldungen je Sekunde ertraenkten
+      // jede andere Ausgabe.
+      owner_->mismatchGemeldet = true;
+      emitVideoError("videoBufferMismatch");
+      owner_->reason = "bufferMismatch";
+    }
+    return;   // das Abo bleibt bestehen und faellt ueber den Herzschlag auf Schwarz
+  }
+
+  owner_->lastFrameMs = GetTickCount64();
+  owner_->lastW = w;
+  owner_->lastH = h;
+  owner_->sender.sendI420(buf, w, h);
+
+  // Erst beim ERSTEN brauchbaren Bild sind rotation und limitedRange
+  // gemessen - vorher waeren sie erfunden.
+  const unsigned int rot = data->GetRotation();
+  const bool limited = data->IsLimitedI420();
+  if (!owner_->gemessen || owner_->state != "live" || owner_->rotation != rot || owner_->limitedRange != limited) {
+    owner_->gemessen = true;
+    owner_->rotation = rot;
+    owner_->limitedRange = limited;
+    owner_->state = "live";
+    emitVideoMeasured(*owner_, "live", "frames", rot, limited);
+  }
 }
 
 void Delegate::onRawDataStatusChanged(RawDataStatus status) {
-  (void)status;
-  (void)owner_;
+  if (!owner_) return;
+  if (status == RawData_Off) {
+    owner_->state = "black";
+    owner_->reason = "cameraOff";
+    emitVideo(*owner_, "black", "cameraOff");
+  }
+  // RawData_On erzeugt hier ABSICHTLICH kein Ereignis: dass das SDK Video
+  // ankuendigt, heisst noch nicht, dass Bilder ankommen. "live" wird beim
+  // ersten wirklich empfangenen Bild gemeldet - eine Ankuendigung ist keine
+  // Messung.
 }
 
 }  // namespace
