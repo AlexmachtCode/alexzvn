@@ -246,16 +246,18 @@ void sessionPrivilegeAnswered();
 /**
  * Der ZULETZT gemeldete Stand der Rohdaten-Erlaubnis. Ohne dieses Merkzeichen
  * koennte videoSubscribe() (Task 3) die Voraussetzung "canRecordRaw" gar nicht
- * pruefen - der native Teil MELDET die Erlaubnis an vier Stellen
- * (callbacks.cpp: onRecordPrivilegeChanged, die zwei
- * onLocalRecordingPrivilegeRequestStatus-Zweige; session.cpp: checkPrivilege()s
- * Sofortpruefung), merkte sie sich bisher aber nirgends.
+ * pruefen - der native Teil MELDET die Erlaubnis an FUENF Stellen
+ * (callbacks.cpp: onRecordPrivilegeChanged, die DREI
+ * onLocalRecordingPrivilegeRequestStatus-Zweige Granted/Denied/Timeout;
+ * session.cpp: checkPrivilege()s Sofortpruefung), merkte sie sich bisher aber
+ * nirgends. BERICHTIGT (Abschluss-Sichtung, M1): hier stand "vier Stellen" -
+ * der Timeout-Zweig wurde uebersehen und rief diese Funktion nicht.
  */
 bool sessionCanRecordRaw();
 
 /**
  * Haelt fest, was gerade ueber die Rohdaten-Erlaubnis gemeldet wurde. Von
- * ALLEN VIER Melde-Stellen oben zu rufen, jeweils mit GENAU dem Wert, der auf
+ * ALLEN FUENF Melde-Stellen oben zu rufen, jeweils mit GENAU dem Wert, der auf
  * derselben Zeile auch als "canRecordRaw" auf die Rohrleitung geht - zwei
  * Wahrheiten, die auseinanderlaufen koennten, waeren schlimmer als eine.
  *
@@ -264,5 +266,31 @@ bool sessionCanRecordRaw();
  * (onRecordPrivilegeChanged(false)), faellt der Stand hier ausdruecklich
  * wieder auf false zurueck. Ein Merkzeichen, das nur in eine Richtung kippt,
  * wuerde eine Erlaubnis behaupten, die es nicht mehr gibt.
+ *
+ * NUR FUER MELDE-STELLEN. Das Ende eines Meetings ist keine Meldung ueber die
+ * Erlaubnis und laeuft darum ueber sessionClearCanRecordRaw() unten - zwei
+ * verschiedene Anlaesse, zwei verschiedene Namen.
  */
 void sessionSetCanRecordRaw(bool v);
+
+/**
+ * Setzt den Stand der Rohdaten-Erlaubnis zurueck, weil das MEETING vorbei ist
+ * (verlassen, beendet, gescheitert) - NICHT, weil jemand etwas ueber die
+ * Erlaubnis gemeldet haette (Abschluss-Sichtung, M2).
+ *
+ * Vorher galt der Stand des alten Meetings im naechsten weiter: ein "ja" ohne
+ * Deckung. videoSubscribe() haette danach createRenderer()/subscribe() auf
+ * einem Meeting versucht, in dem niemand je etwas erlaubt hat - und im
+ * Zweifel auf einem Meeting-Dienst, der gerade abgeraeumt wird. Die sichere
+ * Richtung ist "nein": ein zu Unrecht abgewiesenes Abo meldet sich BENANNT
+ * (videoNoPrivilege), ein zu Unrecht zugelassenes taeuscht eine Erlaubnis vor.
+ *
+ * ABSICHTLICH OHNE Ereignis auf der Rohrleitung: keiner der drei "source"-
+ * Werte (broadcast/requestAnswer/check) waere wahr - niemand hat gerundfunkt,
+ * niemand geantwortet, nichts wurde geprueft -, und einen vierten zu
+ * erfinden waere eine Protokollerweiterung fuer eine Tatsache, die bereits
+ * auf der Leitung steht: das "status"-Ereignis (ended/failed) bzw. der
+ * "leave"-Befehl des Aufrufers selbst. Die TypeScript-Seite behaelt ihren
+ * zuletzt GEMELDETEN Wert - sie urteilt, der native Teil meldet.
+ */
+void sessionClearCanRecordRaw();

@@ -193,6 +193,14 @@ void sessionJoin(const std::string& meetingIdUtf8, const std::string& passcodeUt
 }
 
 bool sessionLeave() {
+  // GANZ OBEN, VOR jedem Ruecksprung (Abschluss-Sichtung, M2): wer diese
+  // Funktion ruft, verlaesst das Meeting - ab hier gilt keine Erlaubnis mehr,
+  // die in DIESEM Meeting erteilt wurde. Vorher blieb g_canRecordRaw ueber
+  // ein "leave" hinweg auf true stehen und galt im naechsten Meeting weiter:
+  // ein "ja" ohne Deckung. Hier und nicht an den drei Ruecksprungstellen
+  // einzeln - eine Vorbedingung, die an jedem Ausgang wiederholt werden
+  // muss, wird beim naechsten neuen Ausgang vergessen.
+  sessionClearCanRecordRaw();
   if (g_meeting == nullptr) return true;  // kein Meeting -> trivial ruhend, nichts zu tun
 
   // ACHTUNG, GEMESSEN: der Befehl "leave" ruft diese Funktion auf, OHNE
@@ -426,7 +434,7 @@ void checkPrivilege() {
     // Anfrage ist damit gegenstandslos, GLEICH OB die Antwort auf sie je
     // eintrifft.
     g_privilegePending = false;
-    // Melde-Stelle 1/4 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+    // Melde-Stelle 1/5 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
     sessionSetCanRecordRaw(true);
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true,\"source\":\"check\"}");
     return;
@@ -473,6 +481,15 @@ bool sessionCanRecordRaw() {
 
 void sessionSetCanRecordRaw(bool v) {
   g_canRecordRaw = v;
+}
+
+void sessionClearCanRecordRaw() {
+  // EIGENE Funktion statt sessionSetCanRecordRaw(false) (Abschluss-Sichtung,
+  // M2): der Doc-Kommentar dort bindet jeden Aufruf an eine Melde-Stelle -
+  // "das Meeting ist vorbei" ist keine. Zwei verschiedene Anlaesse, zwei
+  // verschiedene Namen; wer spaeter die Melde-Stellen zaehlt, findet hier
+  // keine sechste, die keine ist.
+  g_canRecordRaw = false;
 }
 
 bool sessionShutdown() {

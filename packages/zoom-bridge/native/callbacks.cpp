@@ -71,6 +71,24 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
     }
     checkPrivilege();
   }
+
+  // DAS MEETING IST VORBEI - die Erlaubnis daraus auch (Abschluss-Sichtung,
+  // M2). Deckt den Weg ab, den sessionLeave() NICHT sieht: der Gastgeber
+  // beendet das Meeting fuer alle, oder der Beitritt scheitert asynchron.
+  // Ohne diese Zeile bliebe ein "canRecordRaw":true aus dem alten Meeting
+  // stehen und liesse videoSubscribe() im naechsten Meeting durch, in dem
+  // niemand je etwas erlaubt hat. Kein Ereignis dazu - siehe die
+  // Begruendung am Doc-Kommentar von sessionClearCanRecordRaw() (session.h):
+  // die Tatsache steht bereits als "status" auf der Leitung.
+  //
+  // ENDED UND FAILED, sonst nichts: DISCONNECTING/RECONNECTING sind
+  // Uebergaenge, keine Enden (session.cpp zeigt die gemessene Folge
+  // connecting -> disconnecting -> failed -> ended), und eine
+  // Wiederverbindung fuehrt ohnehin ueber INMEETING wieder in
+  // checkPrivilege() zurueck.
+  if (status == MEETING_STATUS_ENDED || status == MEETING_STATUS_FAILED) {
+    sessionClearCanRecordRaw();
+  }
 }
 
 const char* roleName(UserRole r) {
@@ -150,7 +168,7 @@ void RecordingListener::onRecordPrivilegeChanged(bool bCanRec) {
   // Feld - "source" unterscheidet sie (Nachbesserung 1, Owner-Entscheidung:
   // Befund A). Vergeben auch im false-Fall, damit das Feld nie mal da ist und
   // mal nicht.
-  // Melde-Stelle 2/4 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+  // Melde-Stelle 2/5 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
   // GENAU dieser Ruf ist der, der in BEIDE Richtungen kippt - bCanRec ist
   // hier wortgleich der Wert, der auch auf die Rohrleitung geht, also
   // spiegelt g_canRecordRaw ab jetzt sofort einen Entzug (bCanRec == false)
@@ -169,13 +187,13 @@ void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecor
   sessionPrivilegeAnswered();
 
   if (status == RequestLocalRecording_Granted) {
-    // Melde-Stelle 3/4 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+    // Melde-Stelle 3/5 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
     sessionSetCanRecordRaw(true);
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true,\"source\":\"requestAnswer\"}");
     return;
   }
   if (status == RequestLocalRecording_Denied) {
-    // Melde-Stelle 4/4 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+    // Melde-Stelle 4/5 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
     sessionSetCanRecordRaw(false);
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"source\":\"requestAnswer\",\"denied\":true}");
     return;
@@ -190,6 +208,18 @@ void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecor
   // fuer immer gilt und der andere sich noch aendern kann. Wer auf die
   // vorherige Zeile wartet, wuerde ohne dieses Feld beim Timeout fuer immer
   // warten (Nachbesserung 1, Owner-Entscheidung: Befund B).
+  //
+  // Melde-Stelle 5/5 (Abschluss-Sichtung, M1): DIESER Zweig schickte
+  // "canRecordRaw":false auf die Leitung, ohne sessionSetCanRecordRaw() zu
+  // rufen - es waren also nie vier Melde-Stellen, sondern fuenf, und eine
+  // davon liess die beiden Wahrheiten auseinanderlaufen. Praktisch fiel das
+  // bisher nicht auf, weil der Stand in diesem Ablauf ohnehin schon false
+  // war (checkPrivilege() fragt erst, wenn CanStartRawRecording()
+  // fehlschlug); es auf "faellt schon nicht auf" zu gruenden, ist aber
+  // genau die Annahme, die beim naechsten Umbau bricht. Die Regel am
+  // Doc-Kommentar von sessionSetCanRecordRaw() gilt ohne Ausnahme: JEDE
+  // Stelle, die den Wert auf die Rohrleitung schreibt, merkt ihn sich auch.
+  sessionSetCanRecordRaw(false);
   emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"source\":\"requestAnswer\",\"requested\":true,\"timedOut\":true}");
   emitLog(L"Keine Antwort auf die Anfrage nach lokaler Aufnahme (Zeitueberschreitung).");
 }
