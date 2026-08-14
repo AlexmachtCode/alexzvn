@@ -111,13 +111,10 @@ Meeting gemessen (Referenz: die acht Punkte in
 | Kein Ereignis **nach** `unsubscribed` | ✅ (war ein Befund, siehe `Sub::imAbbau` in `native/video.cpp`) |
 | `IsLimitedI420()` | **`true`** — begrenzter Wertebereich, passt zu unserem Schwarz (`Y=16`) |
 | `GetRotation()` | **`0`**, auch von einem Mobilgerät |
+| **Das Bild angesehen** | ✅ im NDI-Monitor geprüft, Lage und Farben richtig — damit ist `rotation=0` **bestätigt** und nicht nur behauptet |
 
 **Noch offen, und keiner dieser Punkte ist durch eine Zahl zu ersetzen:**
 
-- **Das Bild ansehen.** Ob im Switcher wirklich ein richtiges Bild steht — Lage,
-  Farben, Helligkeit. `GetRotation()==0` ist dafür **kein** Beleg: liefert das
-  SDK die Zahl falsch, sieht man das nur am Bild. Eine Zahl misst nur, was sie
-  messen kann.
 - **Weggang und Wiederbeitritt** (`participantLeft` → `rebound`) — braucht einen
   Gast, der das Meeting verlässt und zurückkommt.
 - **Mehrere Abos gleichzeitig** und der Messlauf `npm run video-limit`.
