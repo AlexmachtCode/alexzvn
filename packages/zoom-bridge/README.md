@@ -264,7 +264,7 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 | `id` | Teilnehmerkennung (Zahl). |
 | `state` | `subscribed` \| `live` \| `black` \| `unsubscribed`. |
 | `source` | der **tatsächlich vergebene** NDI-Quellenname (siehe Namensvergabe unten). |
-| `reason` | `command` \| `frames` \| `cameraOff` \| `participantLeft` \| `rebound` \| `bufferMismatch` \| `meetingEnded`. |
+| `reason` | `command` \| `frames` \| `cameraOff` \| `participantLeft` \| `rebound` \| `reboundByName` \| `bufferMismatch` \| `meetingEnded`. |
 | `rebindable` | ob das Abo bei einem Wiederbeitritt umgehängt werden kann (`persistentId` des Teilnehmers ist nicht leer). |
 | `rotation`, `limitedRange` | **nur vorhanden**, sobald ein Bild sie geliefert hat (`YUVRawDataI420::GetRotation()`/`IsLimitedI420()`) — bei `state:"subscribed"` fehlen sie also immer. Ein Wert wäre dort erfunden, und eine erfundene `0` ließe sich später nicht von einer gemessenen `0` unterscheiden. |
 
@@ -342,10 +342,29 @@ beendete Sitzung.
 **Ein Abo überlebt einen Wiederbeitritt.** Verlässt ein abonnierter Gast das
 Meeting, bleibt sein Abo bestehen (`reason:"participantLeft"`, der Herzschlag
 hält es schwarz) — die Quelle darf im Livebetrieb nicht wegbrechen. Kommt
-derselbe Gast zurück (erkannt an einer nicht-leeren `persistentId`, siehe
-`rebindable`), wird **derselbe** Sender auf die neue Kennung umgehängt
-(`reason:"rebound"`) statt einen zweiten anzulegen — für den Switcher ist
-nichts passiert.
+derselbe Gast zurück, wird **derselbe** Sender auf die neue Kennung umgehängt
+statt einen zweiten anzulegen — für den Switcher ist nichts passiert.
+
+> **GEMESSEN AM 14.08.2026: `GetPersistentId()` überlebt einen Wiederbeitritt
+> nicht.** Derselbe Gast kam mit einer **anderen** Kennung zurück
+> (`821B5E…` → `448CB9…`, beide 36 Zeichen, beide wohlgeformt — also zwei
+> verschiedene Werte, keine verstümmelte Kopie). Der Weg über die Kennung
+> greift für Gäste damit **nie**. Deshalb gibt es einen **zweiten Weg**.
+
+**Zwei Wege dorthin, und sie heißen verschieden**, weil einer schwächer ist:
+
+| `reason` | Grundlage | Wann |
+| --- | --- | --- |
+| `rebound` | die `persistentId` | wenn Zoom sie durchhält — bei Gästen **gemessen nicht**, siehe oben |
+| `reboundByName` | der **Anzeigename** | nur wenn der Name **eindeutig** ist: genau ein Teilnehmer **und** genau ein Abo tragen ihn |
+
+Ist der Name mehrdeutig, passiert **nichts** — die Quelle bleibt schwarz, und
+der Grund steht auf stderr. Zwei Gäste mit demselben Anzeigenamen sind kein
+Sonderfall, sondern der Regelfall bei Handys (`Samsung SM-S931B`); sie auf gut
+Glück umzuhängen wäre eine **Personenverwechslung auf Sendung**, und die ist
+teurer als ein Handgriff des Operators (Owner-Entscheidung, 14.08.2026). Wer im
+Protokoll `reboundByName` liest, weiß, dass die Zuordnung auf einem Namen
+beruht und nicht auf einer Kennung.
 
 **Zwei weitere Prüfstände, beide ohne Meeting:**
 

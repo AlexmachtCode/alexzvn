@@ -314,6 +314,20 @@ void sessionClearCanRecordRaw();
  * ohne das SDK noch einmal zu behelligen. Gilt je Meeting - siehe
  * sessionClearRawRecording().
  */
+/**
+ * Zaehlt, wie viele Teilnehmer GENAU diesen Anzeigenamen tragen.
+ *
+ * Gebraucht fuer das Umhaengen ueber den Namen (videoParticipantJoined):
+ * Zooms persistentId traegt einen Wiederbeitritt NICHT (gemessen am
+ * 14.08.2026, siehe dort), der Anzeigename ist die einzige verbliebene
+ * Handhabe - aber nur, wenn er EINDEUTIG ist. Zwei Gaeste mit demselben Namen
+ * auf gut Glueck umzuhaengen waere eine Personenverwechslung auf Sendung.
+ *
+ * @returns 0, wenn kein Meeting laeuft - "keiner heisst so" ist dann die
+ *          richtige Antwort, denn ohne Meeting gibt es keine Teilnehmer.
+ */
+int sessionCountParticipantsByName(const std::wstring& name);
+
 SDKError sessionStartRawRecording();
 
 /**

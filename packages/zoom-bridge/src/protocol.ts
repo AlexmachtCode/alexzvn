@@ -48,7 +48,16 @@ export type VideoReason =
   | 'participantLeft'
   | 'rebound'
   | 'bufferMismatch'
-  | 'meetingEnded';
+  | 'meetingEnded'
+  // Umgehaengt ueber den ANZEIGENAMEN statt ueber die persistentId, und
+  // darum ein eigener Name: der Weg ist schwaecher. GEMESSEN am 14.08.2026,
+  // dass Zooms persistentId einen Wiederbeitritt NICHT ueberlebt (derselbe
+  // Gast kam mit einem anderen Wert zurueck) - ohne diesen zweiten Weg gaebe
+  // es das Umhaengen nur auf dem Papier. Er greift ausschliesslich bei
+  // EINDEUTIGEM Namen (je genau ein Teilnehmer und ein Abo); sonst bleibt die
+  // Quelle schwarz. Wer im Protokoll "reboundByName" liest, weiss, dass die
+  // Zuordnung auf einem Namen beruht und nicht auf einer Kennung.
+  | 'reboundByName';
 
 export type Command =
   | { cmd: 'init' }

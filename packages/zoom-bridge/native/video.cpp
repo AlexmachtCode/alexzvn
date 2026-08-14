@@ -60,6 +60,10 @@ struct Sub {
   // Absturz), aber das Fenster ist nachweislich real und nicht theoretisch.
   std::atomic<bool> imAbbau{false};
   std::string persistentId;
+  // Der Anzeigename, wie Zoom ihn liefert - die zweite Handhabe beim
+  // Umhaengen, seit gemessen ist, dass die persistentId einen Wiederbeitritt
+  // nicht ueberlebt (siehe videoParticipantJoined).
+  std::wstring displayName;
   std::string source;          // der TATSAECHLICH vergebene NDI-Name
   ZoomSDKResolution res = ZoomSDKResolution_720P;
   IZoomSDKRenderer* renderer = nullptr;
@@ -277,6 +281,11 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
   auto sub = std::make_unique<Sub>();
   sub->userId = userId;
   sub->persistentId = persistentId;
+  // ROH mitfuehren, nicht aus source zurueckrechnen: source traegt Praefix und
+  // ggf. einen Kollisionszusatz " (2)" - daraus den Namen wiederzugewinnen
+  // waere Ratearbeit an einer Stelle, an der ein Irrtum die falsche Person auf
+  // Sendung braechte.
+  sub->displayName = name;
   sub->res = res;
   sub->source = uniqueSourceName(name);
   sub->delegate = std::make_unique<Delegate>(sub.get());
@@ -617,41 +626,77 @@ void videoParticipantJoined(unsigned int userId) {
   // traegt darum jemals eine leere persistentId zum Vergleich heran (siehe
   // uniqueSourceName/videoSubscribe), dieser Rueckgabewert bleibt trotzdem
   // die einzige Instanz, die das PRUEFT statt es vorauszusetzen.
-  if (persistentId.empty()) {
-    if (interessant) {
-      emitLog(L"Wiederbeitritt " + std::to_wstring(userId) + L" (" + name +
-              L"): Zoom liefert fuer diesen Gast KEINE persistentId - ein Abo kann ihn "
-              L"nicht wiedererkennen. Das ist eine Eigenschaft des Gast-Kontos, "
-              L"keine Entscheidung dieser Bruecke.");
-    }
-    return;
-  }
-
   // ERST SUCHEN, DANN UMHAENGEN - in zwei getrennten Schritten. extract()
   // mitten in der Schleife wuerde den Laufzeiger ungueltig machen. Der
   // ZEIGER auf das gefundene Sub wird gleich mitgenommen: ein spaeteres
   // zweites Nachschlagen (find()/operator[]) muesste entweder erneut auf
   // "gefunden" pruefen oder es voraussetzen - und operator[] legte bei einem
   // Irrtum stillschweigend ein leeres Abo an.
+  //
+  // ZWEI WEGE, ZWEI NAMEN. Der erste ist die persistentId - der sichere Weg,
+  // solange Zoom sie durchhaelt. Der zweite ist der Anzeigename, und er
+  // greift NUR bei Eindeutigkeit (siehe unten). Welcher Weg getragen hat,
+  // steht danach im reason des Ereignisses: "rebound" oder "reboundByName".
+  // Ein gemeinsamer Name fuer beide waere eine Aussage weniger, als wir
+  // haben - und ausgerechnet die, an der die Verlaesslichkeit haengt.
   unsigned int alteId = 0;
   Sub* s = nullptr;
-  for (const auto& [id, sub] : g_subs) {
-    if (id != userId && sub->persistentId == persistentId) { alteId = id; s = sub.get(); break; }
+  const char* grund = "rebound";
+
+  if (!persistentId.empty()) {
+    for (const auto& [id, sub] : g_subs) {
+      if (id != userId && sub->persistentId == persistentId) { alteId = id; s = sub.get(); break; }
+    }
   }
+
   if (s == nullptr) {
-    // Der dritte stille Weg, und der einzige, der auf UNS zeigt: der Gast hat
-    // eine persistentId, sie passt nur zu keinem Abo. Entweder war er nie
-    // abonniert (der Normalfall in einem grossen Meeting), oder Zoom vergibt
-    // ihm ueber den Wiederbeitritt hinweg eine ANDERE - dann traegt der Name
-    // "persistent" nicht, und das waere ein echter Befund.
+    // ZWEITER WEG: der Anzeigename. GEMESSEN am 14.08.2026 gegen ein echtes
+    // Meeting: Zooms persistentId ist ueber einen Weggang und Wiederbeitritt
+    // hinweg NICHT stabil - derselbe Gast kam mit einem anderen Wert zurueck
+    // (beide 36 Zeichen, beide wohlgeformt, schlicht verschieden). Der erste
+    // Weg greift fuer Gaeste damit NIE. Ohne einen zweiten Weg gaebe es das
+    // Umhaengen nur auf dem Papier.
+    //
+    // DIE EINDEUTIGKEIT IST DER GANZE PREIS DIESER ENTSCHEIDUNG (Owner,
+    // 14.08.2026). Ein Name muss auf BEIDEN Seiten genau einmal vorkommen:
+    // einmal unter den Teilnehmern (sonst waeren zwei Anwesende gemeint) und
+    // einmal unter den Abos (sonst waeren zwei Quellen gemeint). Zwei Gaeste,
+    // die beide "Samsung SM-S931B" heissen, sind keine Ausnahme, sondern der
+    // Regelfall bei Handys. Ist der Name mehrdeutig, bleibt die Quelle
+    // schwarz - lieber ein Handgriff des Operators als die falsche Person auf
+    // Sendung.
+    const int gleichnamigeTeilnehmer = sessionCountParticipantsByName(name);
+    int gleichnamigeAbos = 0;
+    unsigned int kandidatId = 0;
+    Sub* kandidat = nullptr;
+    for (const auto& [id, sub] : g_subs) {
+      if (id == userId || sub->displayName != name) continue;
+      ++gleichnamigeAbos;
+      kandidatId = id;
+      kandidat = sub.get();
+    }
+
+    if (gleichnamigeAbos == 1 && gleichnamigeTeilnehmer == 1) {
+      alteId = kandidatId;
+      s = kandidat;
+      grund = "reboundByName";
+    } else if (interessant && gleichnamigeAbos > 0) {
+      // NICHT STILL: dass ein Abo mit genau diesem Namen existiert und
+      // trotzdem nichts passiert, ist der Fall, den ein Operator sonst fuer
+      // einen Fehler haelt.
+      emitLog(L"Wiederbeitritt " + std::to_wstring(userId) + L" (" + name +
+              L"): Name ist nicht eindeutig (" + std::to_wstring(gleichnamigeTeilnehmer) +
+              L" Teilnehmer, " + std::to_wstring(gleichnamigeAbos) +
+              L" Abos) - kein Umhaengen, die Quelle bleibt schwarz.");
+    }
+  }
+
+  if (s == nullptr) {
+    // Weder ueber die Kennung noch ueber den Namen. Der Normalfall in einem
+    // grossen Meeting: der Gast war schlicht nie abonniert.
     if (interessant) {
       emitLog(L"Wiederbeitritt " + std::to_wstring(userId) + L" (" + name +
-              L"): hat eine persistentId, aber kein Abo fuehrt dieselbe - kein Umhaengen.");
-      // DIE ZWEITE ERKLAERUNG AUSSCHLIESSEN: "zwei verschiedene Werte" und
-      // "derselbe Wert, von uns verstuemmelt" fuehren beide hierher. Ein
-      // Fingerabdruck (Anfang + Laenge) unterscheidet sie, ohne die Kennung
-      // selbst ins Protokoll zu schreiben - sie identifiziert ein
-      // Zoom-Konto und gehoert darum nicht vollstaendig in eine Logzeile.
+              L"): kein Abo gehoert zu diesem Gast - kein Umhaengen.");
       emitLog(L"  neu:  " + fingerprint(persistentId));
       for (const auto& [id, sub] : g_subs) {
         emitLog(L"  Abo " + std::to_wstring(id) + L": " + fingerprint(sub->persistentId));
@@ -731,7 +776,14 @@ void videoParticipantJoined(unsigned int userId) {
     // einen Zustand behaupten, der nicht mehr gilt, ohne dass je ein
     // berichtigendes Ereignis kaeme.
     s->state = "subscribed";
-    s->reason = "rebound";
+    s->reason = grund;
+    // DIE NEUE KENNUNG UEBERNEHMEN. Ohne diese Zeile traegt das Abo weiter
+    // die persistentId aus der VORIGEN Sitzung des Gastes - beim naechsten
+    // Wiederbeitritt haette der erste Weg dann erneut keine Chance, obwohl
+    // wir den aktuellen Wert laengst kennen. Beim Weg ueber den Namen ist
+    // das der einzige Ort, an dem die Kennung ueberhaupt nachgezogen wird.
+    s->persistentId = persistentId;
+    s->displayName = name;
     s->lastFrameMs = 0;
     s->gemessen = false;
     s->mismatchGemeldet = false;
@@ -778,7 +830,7 @@ void videoParticipantJoined(unsigned int userId) {
     emitVideoError("videoAlreadySubscribed");
     return;
   }
-  emitVideo(*s, "subscribed", "rebound");
+  emitVideo(*s, "subscribed", grund);
 }
 
 namespace {

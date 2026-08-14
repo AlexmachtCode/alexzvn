@@ -345,6 +345,20 @@ void emitRoster() {
   emitRaw(out);
 }
 
+int sessionCountParticipantsByName(const std::wstring& name) {
+  IMeetingParticipantsController* ctrl = participantsCtrl();
+  if (ctrl == nullptr) return 0;
+  IList<unsigned int>* ids = ctrl->GetParticipantsList();
+  int n = 0;
+  for (int i = 0; ids != nullptr && i < ids->GetCount(); ++i) {
+    IUserInfo* u = ctrl->GetUserByUserID(ids->GetItem(i));
+    if (u == nullptr) continue;
+    const zchar_t* un = u->GetUserName();
+    if (un != nullptr && name == un) ++n;
+  }
+  return n;
+}
+
 void markParticipantsListenerRegistered() {
   g_participantsListenerRegistered = true;
 }
