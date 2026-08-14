@@ -98,16 +98,39 @@ quittiert — das wäre genau die Sorte Lüge, die dieses Werkzeug aufdecken sol
 Teilnehmerliste, Rollennamen, Weggang, Rohdaten-Aufnahme-Erlaubnis) ist **in der
 Owner-Abnahme am 12.08.2026 gegen ein echtes Meeting gemessen** worden; der
 Normalweg mit Warteraum aus Abschnitt 6 stammt wörtlich aus diesen Läufen.
-**Offen ist die Abnahme von Stage 2** — alles, was Bild betrifft: die acht
-Punkte in
-[`docs/superpowers/specs/2026-08-12-zoom-stage2-video-ndi-design.md`](../../docs/superpowers/specs/2026-08-12-zoom-stage2-video-ndi-design.md)
-(§10), also die Quelle im Switcher, Kamera aus/an, Weggang und Wiederbeitritt,
-die Abweisung ohne Erlaubnis, der Messlauf (`npm run video-limit`) und der
-saubere Abbau — dazu die beiden Werte, die heute niemand kennt: was
-`IsLimitedI420()` liefert und ob `GetRotation()` je von `0` abweicht. Diese
-Läufe brauchen Owner-Zugangsdaten und ein Meeting mit echten Gästen; ohne sie
-sind Herzschlag, Pufferprüfung und Abbau-Reihenfolge nur nativ **gelesen**,
-nicht gemessen.
+**Stage 2 ist teilweise abgenommen.** Am **13./14.08.2026** gegen ein echtes
+Meeting gemessen (Referenz: die acht Punkte in
+[`docs/superpowers/specs/2026-08-12-zoom-stage2-video-ndi-design.md`](../../docs/superpowers/specs/2026-08-12-zoom-stage2-video-ndi-design.md), §10):
+
+| Gemessen | Ergebnis |
+| --- | --- |
+| Bild fließt (`subscribed` → `live`) | ✅ mit Gastgeber **und** mit einem zweiten Gast (Mobilgerät) |
+| Kamera aus / an | ✅ mehrfach hintereinander, `cameraOff` ↔ `frames` |
+| Gastgeber beendet die Sitzung | ✅ `ended`, Abos werden mit `meetingEnded` abgebaut |
+| Abbau nach beendetem Meeting | ✅ `unSubscribe()`/`destroyRenderer()` ohne Absturz |
+| Kein Ereignis **nach** `unsubscribed` | ✅ (war ein Befund, siehe `Sub::imAbbau` in `native/video.cpp`) |
+| `IsLimitedI420()` | **`true`** — begrenzter Wertebereich, passt zu unserem Schwarz (`Y=16`) |
+| `GetRotation()` | **`0`**, auch von einem Mobilgerät |
+
+**Noch offen, und keiner dieser Punkte ist durch eine Zahl zu ersetzen:**
+
+- **Das Bild ansehen.** Ob im Switcher wirklich ein richtiges Bild steht — Lage,
+  Farben, Helligkeit. `GetRotation()==0` ist dafür **kein** Beleg: liefert das
+  SDK die Zahl falsch, sieht man das nur am Bild. Eine Zahl misst nur, was sie
+  messen kann.
+- **Weggang und Wiederbeitritt** (`participantLeft` → `rebound`) — braucht einen
+  Gast, der das Meeting verlässt und zurückkommt.
+- **Mehrere Abos gleichzeitig** und der Messlauf `npm run video-limit`.
+- **Befund I6** — 10× ab- und anmelden unter laufendem Bild, mit mehreren Abos.
+  Dass Rückrufe während des Abbaus laufen, ist inzwischen **gemessen** (siehe
+  `Sub::imAbbau`); dass der Abbau dabei nie auf freigegebenen Speicher trifft,
+  ist es **nicht**.
+
+Für Stage 4 vorzumerken (keine Störung, eine Beobachtung): wer über ein Handy
+beitritt, erscheint mit dem **Gerätenamen** — die NDI-Quelle hieß im Messlauf
+`JM Connect – Zoom Samsung SM-S931B`. Der Quellenname steht bei
+`videoSubscribe` absichtlich fest (Umbenennen hieße, die Quelle abzureißen,
+siehe Abschnitt 7), ein späteres `renamed` ändert ihn also nicht.
 
 ## 5 · Zugangsdaten
 
