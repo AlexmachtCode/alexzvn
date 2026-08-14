@@ -579,6 +579,16 @@ void videoParticipantLeft(unsigned int userId) {
 }
 
 // Ebenfalls HAUPTTHREAD, siehe videoParticipantLeft() oben.
+// Anfang und Laenge einer persistentId - genug, um zwei Werte zu
+// UNTERSCHEIDEN, zu wenig, um ein Zoom-Konto zu identifizieren. Eine
+// vollstaendige Kennung gehoert nicht in eine Logzeile.
+static std::wstring fingerprint(const std::string& id) {
+  if (id.empty()) return L"(leer)";
+  std::wstring anfang;
+  for (size_t i = 0; i < id.size() && i < 6; ++i) anfang += static_cast<wchar_t>(id[i]);
+  return anfang + L"… (" + std::to_wstring(id.size()) + L" Zeichen)";
+}
+
 void videoParticipantJoined(unsigned int userId) {
   // NICHTS VERSCHWINDET STILL. GEMESSEN am 14.08.2026: ein Gast ging und kam
   // zurueck, das Bild kam NICHT wieder - und diese Funktion stieg dabei ueber
@@ -637,6 +647,15 @@ void videoParticipantJoined(unsigned int userId) {
     if (interessant) {
       emitLog(L"Wiederbeitritt " + std::to_wstring(userId) + L" (" + name +
               L"): hat eine persistentId, aber kein Abo fuehrt dieselbe - kein Umhaengen.");
+      // DIE ZWEITE ERKLAERUNG AUSSCHLIESSEN: "zwei verschiedene Werte" und
+      // "derselbe Wert, von uns verstuemmelt" fuehren beide hierher. Ein
+      // Fingerabdruck (Anfang + Laenge) unterscheidet sie, ohne die Kennung
+      // selbst ins Protokoll zu schreiben - sie identifiziert ein
+      // Zoom-Konto und gehoert darum nicht vollstaendig in eine Logzeile.
+      emitLog(L"  neu:  " + fingerprint(persistentId));
+      for (const auto& [id, sub] : g_subs) {
+        emitLog(L"  Abo " + std::to_wstring(id) + L": " + fingerprint(sub->persistentId));
+      }
     }
     return;
   }
