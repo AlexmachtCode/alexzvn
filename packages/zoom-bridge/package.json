@@ -18,7 +18,8 @@
     "join": "node test/join.mjs",
     "ndi-probe": "node test/ndi-probe.mjs",
     "command-probe": "node test/command-probe.mjs",
-    "video-limit": "node test/video-limit.mjs"
+    "video-limit": "node test/video-limit.mjs",
+    "video-stress": "node test/video-stress.mjs"
   },
   "devDependencies": {
     "@jm/ndi": "*",
