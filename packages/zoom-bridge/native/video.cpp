@@ -41,6 +41,24 @@ struct Sub {
   // std::atomic macht BEIDE Seiten sicher, ohne emit*() in einen Sperrblock
   // zu ziehen.
   std::atomic<unsigned int> userId{0};
+  // ABBAU SCHLAEGT ALLES. GEMESSEN im Owner-Lauf vom 2026-08-13: nach
+  // "unsubscribed" kam noch ein "black (cameraOff)" hinterher - das SDK
+  // schiebt auf unSubscribe() ein RawData_Off nach, und der Status-Rueckruf
+  // meldete es ueber ein Abo, das es nicht mehr gibt. Eine Aussage ueber die
+  // Kamera von jemandem, dessen Abo gerade abgebaut wird, ist doppelt falsch:
+  // die Ursache stimmt nicht (niemand hat die Kamera ausgemacht), und der
+  // Zustand danach ist nicht "schwarz", sondern "weg".
+  //
+  // ATOMAR und OHNE die fieldMutex-Sperre gelesen, damit beide Rueckrufe
+  // sofort am Kopf abbrechen koennen - derselbe Grund wie bei userId. Wird
+  // gesetzt, BEVOR unSubscribe() laeuft, nie danach: das Fenster, das dieser
+  // Riegel schliesst, oeffnet genau dieser Aufruf.
+  //
+  // NEBENBEFUND ZU I6, GEMESSEN: dass dieses Ereignis ueberhaupt ankam,
+  // BEWEIST, dass Rueckrufe waehrend des Abbaus noch laufen. Die Lebensdauer-
+  // Annahme in videoUnsubscribe() ist damit nicht widerlegt (es gab keinen
+  // Absturz), aber das Fenster ist nachweislich real und nicht theoretisch.
+  std::atomic<bool> imAbbau{false};
   std::string persistentId;
   std::string source;          // der TATSAECHLICH vergebene NDI-Name
   ZoomSDKResolution res = ZoomSDKResolution_720P;
@@ -306,6 +324,10 @@ void videoUnsubscribe(unsigned int userId) {
   auto it = g_subs.find(userId);
   if (it == g_subs.end()) { emitVideoError("videoNotSubscribed"); return; }
   Sub* s = it->second.get();
+  // VOR der Meldung, nicht danach: zwischen emitVideo() und unSubscribe()
+  // liegt ein Fenster, in dem ein Rueckruf noch etwas ueber dieses Abo sagen
+  // koennte - und alles, was er dann sagt, kaeme NACH "unsubscribed".
+  s->imAbbau = true;
   emitVideo(*s, "unsubscribed", "command");
   // REIHENFOLGE IST TRAGEND: erst den Renderer abmelden und abbauen, DANN
   // den Sender schliessen. Andersherum koennte ein Bild-Rueckruf, der schon
@@ -367,6 +389,8 @@ void videoShutdownAll() {
     // emitRaw() spuelt selbst (siehe emit.h/emit.cpp) - die Zeilen stehen
     // also auch dann vollstaendig auf stdout, wenn main() unmittelbar danach
     // ueber TerminateProcess aussteigt.
+    // VOR der Meldung, gleiche Begruendung wie in videoUnsubscribe().
+    s->imAbbau = true;
     emitVideo(*s, "unsubscribed", "command");
     // DIESELBE unbelegte Lebensdauer-Annahme wie in videoUnsubscribe() -
     // siehe den ausfuehrlichen Kommentar dort (Abschluss-Sichtung, I6): das
@@ -666,6 +690,12 @@ namespace {
 
 void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
   if (!data || !owner_) return;
+  // ABBAU SCHLAEGT ALLES - siehe imAbbau am Feld. Am Status-Rueckruf ist das
+  // Fenster GEMESSEN; hier ist es dasselbe Fenster mit demselben Ausgang, nur
+  // laute: ein Bild, das nach dem "unsubscribed" eintrifft, meldete "live"
+  // ueber ein Abo, das gerade abgebaut wird, und schriebe es zusaetzlich noch
+  // in einen Sender, der gleich zugeht.
+  if (owner_->imAbbau.load()) return;
 
   // WEGGEGANGEN SCHLAEGT BILD (Abschluss-Sichtung, I3). videoParticipantLeft()
   // laeuft auf dem Hauptthread und hat dieses Abo soeben auf
@@ -771,6 +801,9 @@ void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
 
 void Delegate::onRawDataStatusChanged(RawDataStatus status) {
   if (!owner_) return;
+  // ABBAU SCHLAEGT ALLES - siehe imAbbau am Feld. GEMESSEN: genau hier kam das
+  // "black (cameraOff)" NACH dem "unsubscribed" heraus.
+  if (owner_->imAbbau.load()) return;
   if (status == RawData_Off) {
     // DASSELBE Merkzeichen wie im Bild-Pfad, aus demselben Grund (I3, hier
     // fuer den zweiten Weg in denselben Zustand): videoParticipantLeft()
