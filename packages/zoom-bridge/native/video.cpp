@@ -371,7 +371,12 @@ void videoUnsubscribe(unsigned int userId) {
   g_subs.erase(it);
 }
 
-void videoShutdownAll() {
+// Baut ALLE Abos ab und meldet jedes einzeln mit der uebergebenen Ursache.
+// Zwei Aufrufer, zwei WAHRE Ursachen: der Aufrufer hat es befohlen ("command",
+// ueber leave/quit/EOF) oder das Meeting ist zu Ende ("meetingEnded"). Ein
+// gemeinsamer Rumpf, damit die beiden Wege nicht auseinanderlaufen - der
+// Abbau selbst ist in beiden Faellen derselbe.
+static void videoAbbauAlle(const char* reason) {
   for (auto& [id, s] : g_subs) {
     // JEDES Abo wird GEMELDET, bevor es abgebaut wird (Abschluss-Sichtung,
     // I4). Am Prozessende ist das gleichgueltig, beim "leave"-Befehl NICHT:
@@ -381,17 +386,18 @@ void videoShutdownAll() {
     // nie die Abos -, und der Aufrufer saehe Quellen, die es nicht mehr gibt.
     // Genau die stille Sorte Fehler, die dieses Vorhaben ausschliesst.
     //
-    // "unsubscribed"/"command" ist dabei die richtige Ursache und kein
-    // geliehener Name: beide Wege hierher sind Befehle des Aufrufers -
-    // "leave" bzw. "quit"/EOF -, nicht etwas, das dem Abo selbst zugestossen
-    // ist.
+    // DIE URSACHE KOMMT VOM AUFRUFER und ist nie geliehen: "command", wenn
+    // der Aufrufer es befohlen hat (leave/quit/EOF), "meetingEnded", wenn das
+    // Meeting zu Ende ist. Beides als "command" zu melden waere die Sorte
+    // Namensleihe, die dieses Vorhaben ausschliesst - niemand hat etwas
+    // befohlen, als der Gastgeber die Sitzung beendete.
     //
     // emitRaw() spuelt selbst (siehe emit.h/emit.cpp) - die Zeilen stehen
     // also auch dann vollstaendig auf stdout, wenn main() unmittelbar danach
     // ueber TerminateProcess aussteigt.
     // VOR der Meldung, gleiche Begruendung wie in videoUnsubscribe().
     s->imAbbau = true;
-    emitVideo(*s, "unsubscribed", "command");
+    emitVideo(*s, "unsubscribed", reason);
     // DIESELBE unbelegte Lebensdauer-Annahme wie in videoUnsubscribe() -
     // siehe den ausfuehrlichen Kommentar dort (Abschluss-Sichtung, I6): das
     // g_subs.clear() unten zerstoert jedes Sub samt fieldMutex, waehrend der
@@ -404,6 +410,31 @@ void videoShutdownAll() {
   }
   g_subs.clear();
 }
+
+void videoShutdownAll() {
+  videoAbbauAlle("command");
+}
+
+void videoMeetingEnded() {
+  // GEMESSEN im Owner-Lauf vom 2026-08-13: nach "Status: ended (vom Gastgeber
+  // entfernt)" blieb das Abo bestehen. Der Herzschlag schickte weiter
+  // Schwarzbilder in eine NDI-Quelle, deren Meeting es nicht mehr gab - und
+  // der letzte gemeldete Stand war "black (cameraOff)", also "jemand hat die
+  // Kamera aus" fuer eine beendete Sitzung. Zwei Ursachen, ein Name.
+  //
+  // WARUM DER ABBAU HIER SICHER IST, und zwar gemessen statt gehofft: in
+  // genau jenem Lauf lief videoShutdownAll() NACH dem "ended" durch und rief
+  // unSubscribe()/destroyRenderer() auf Renderer eines bereits beendeten
+  // Meetings - ohne Absturz. Der Abbau an dieser Stelle ist derselbe Aufruf
+  // zum selben Zeitpunkt, nur ohne den Umweg ueber den Aufrufer.
+  //
+  // KEIN Schweigen und kein Weiterleben: ein Abo, das seine Sitzung
+  // ueberlebt, ist genau der Fall, den der Kommentar an reduce() in
+  // src/state.ts als den gefaehrlichen benennt.
+  if (g_subs.empty()) return;
+  videoAbbauAlle("meetingEnded");
+}
+
 
 // LAEUFT AUF DEM HAUPTTHREAD (siehe main.cpp: direkt nach pumpOnce(), alle
 // 10 ms). Der Bild-Rueckruf (Delegate::onRawDataFrameReceived) laeuft auf

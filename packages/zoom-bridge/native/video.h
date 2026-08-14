@@ -35,6 +35,22 @@ void videoUnsubscribe(unsigned int userId);
 void videoShutdownAll();
 
 /**
+ * Baut alle Abos ab, weil das MEETING zu Ende ist (ENDED/FAILED), und meldet
+ * jedes einzeln mit reason:"meetingEnded".
+ *
+ * EIGENE URSACHE, kein geliehener Name: niemand hat etwas befohlen, als der
+ * Gastgeber die Sitzung beendete. GEMESSEN am 2026-08-13 ohne diesen Aufruf:
+ * das Abo ueberlebte das Meeting, der Herzschlag schickte weiter Schwarzbilder
+ * in eine Quelle ohne Sitzung, und der letzte gemeldete Stand war
+ * "black"/"cameraOff" - "jemand hat die Kamera aus" fuer ein beendetes
+ * Meeting.
+ *
+ * Tut nichts, wenn es keine Abos gibt - der Normalfall bei jedem Meeting-Ende
+ * ohne Video.
+ */
+void videoMeetingEnded();
+
+/**
  * Schwarzbild-Herzschlag: von der Hauptschleife alle 10 ms gerufen (siehe
  * main.cpp, direkt nach pumpOnce()). Faellt der Bildstrom eines Abos aus
  * (Kamera aus, Teilnehmer weg, Aussetzer), sendet dieses Abo statt eines

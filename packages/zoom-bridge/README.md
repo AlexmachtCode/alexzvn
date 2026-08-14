@@ -232,7 +232,7 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 | `id` | Teilnehmerkennung (Zahl). |
 | `state` | `subscribed` \| `live` \| `black` \| `unsubscribed`. |
 | `source` | der **tatsächlich vergebene** NDI-Quellenname (siehe Namensvergabe unten). |
-| `reason` | `command` \| `frames` \| `cameraOff` \| `participantLeft` \| `rebound` \| `bufferMismatch`. |
+| `reason` | `command` \| `frames` \| `cameraOff` \| `participantLeft` \| `rebound` \| `bufferMismatch` \| `meetingEnded`. |
 | `rebindable` | ob das Abo bei einem Wiederbeitritt umgehängt werden kann (`persistentId` des Teilnehmers ist nicht leer). |
 | `rotation`, `limitedRange` | **nur vorhanden**, sobald ein Bild sie geliefert hat (`YUVRawDataI420::GetRotation()`/`IsLimitedI420()`) — bei `state:"subscribed"` fehlen sie also immer. Ein Wert wäre dort erfunden, und eine erfundene `0` ließe sich später nicht von einer gemessenen `0` unterscheiden. |
 
@@ -291,6 +291,21 @@ Ausstiege — den `leave`-Befehl **und** das reguläre Prozessende (`main.cpp`).
 `reason:"command"`), bevor es abgebaut wird: beim `leave` läuft die Bridge
 weiter, und eine aufrufende Seite, die ihre Abos führt, hielte sonst Quellen
 fest, die es nicht mehr gibt.
+
+**Ein Abo überlebt sein Meeting NICHT.** Endet die Sitzung (`ended`/`failed` —
+der Gastgeber beendet sie, oder man wird entfernt), werden alle Abos abgebaut
+und **einzeln** gemeldet, mit `reason:"meetingEnded"` — ausdrücklich **nicht**
+`command`, denn niemand hat etwas befohlen. GEMESSEN am 2026-08-13, bevor es
+diesen Weg gab: das Abo überlebte das Ende seiner Sitzung, der Herzschlag hielt
+eine NDI-Quelle am Leben, zu der es kein Meeting mehr gab, und der letzte
+gemeldete Stand war `black`/`cameraOff` — „jemand hat die Kamera aus" für eine
+beendete Sitzung.
+
+> **Bekannte Grenze, gemessen:** unmittelbar **vor** `disconnecting` schiebt das
+> SDK noch ein `RawData_Off` nach, das als `black`/`cameraOff` gemeldet wird.
+> Zu diesem Zeitpunkt weiß niemand, dass das Meeting endet — die Statusmeldung
+> kommt erst danach. Diese eine Zeile bleibt also mehrdeutig; **der letzte**
+> Stand des Abos ist mit `meetingEnded` jedoch eindeutig.
 
 **Ein Abo überlebt einen Wiederbeitritt.** Verlässt ein abonnierter Gast das
 Meeting, bleibt sein Abo bestehen (`reason:"participantLeft"`, der Herzschlag

@@ -36,7 +36,19 @@ export const VIDEO_RESOLUTIONS = ['90p', '180p', '360p', '720p', '1080p'] as con
 export type VideoResolutionKey = (typeof VIDEO_RESOLUTIONS)[number];
 
 export type VideoState = 'subscribed' | 'live' | 'black' | 'unsubscribed';
-export type VideoReason = 'command' | 'frames' | 'cameraOff' | 'participantLeft' | 'rebound' | 'bufferMismatch';
+// "meetingEnded" ist AUSDRUECKLICH nicht "command": beim Meeting-Ende hat
+// niemand etwas befohlen. GEMESSEN am 2026-08-13, als es den Wert noch nicht
+// gab: das Abo ueberlebte das Ende seiner Sitzung, und der letzte gemeldete
+// Stand war "black"/"cameraOff" - "jemand hat die Kamera aus" fuer ein
+// beendetes Meeting. Zwei Ursachen, ein Name.
+export type VideoReason =
+  | 'command'
+  | 'frames'
+  | 'cameraOff'
+  | 'participantLeft'
+  | 'rebound'
+  | 'bufferMismatch'
+  | 'meetingEnded';
 
 export type Command =
   | { cmd: 'init' }

@@ -104,6 +104,12 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
     // je MEETING. Bliebe er stehen, hielte das naechste Meeting ihn faelschlich
     // fuer bereits gelegt und subscribe() liefe ins Leere.
     sessionClearRawRecording();
+    // Und die Abos gehoeren ebenfalls dem Meeting. GEMESSEN am 2026-08-13:
+    // ohne diese Zeile ueberlebte ein Abo das Ende seiner Sitzung, und der
+    // Herzschlag hielt eine NDI-Quelle am Leben, zu der es kein Meeting mehr
+    // gab. NACH den beiden Zeilen darueber, damit ein Rueckruf, der waehrend
+    // des Abbaus noch hereinkommt, keine Erlaubnis mehr vorfindet.
+    videoMeetingEnded();
   }
 }
 
