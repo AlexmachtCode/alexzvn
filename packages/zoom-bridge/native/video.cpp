@@ -333,6 +333,15 @@ void videoUnsubscribe(unsigned int userId) {
   // den Sender schliessen. Andersherum koennte ein Bild-Rueckruf, der schon
   // unterwegs ist, auf einen bereits abgebauten Sender schreiben.
   //
+  // STAND DER MESSUNG ZU I6 (14.08.2026, npm run video-stress): 20 von 20
+  // Wechseln MIT laufendem Bild und ZWEI gleichzeitigen Abos ueberstanden,
+  // kein Absturz. Ausserdem gemessen (Sub::imAbbau): Rueckrufe laufen
+  // waehrend des Abbaus tatsaechlich noch - das Fenster ist real, nicht
+  // theoretisch. Beides zusammen WIDERLEGT die Annahme nicht und BEWEIST sie
+  // auch nicht: ein Wettlauf, den man 20-mal nicht trifft, ist immer noch
+  // ein Wettlauf. Wer hier je einen 0xC0000005 sieht, hat die Antwort - und
+  // muss die Lebensdauer selbst verwalten.
+  //
   // UNBELEGTE ANNAHME, AUSDRUECKLICH BENANNT (Abschluss-Sichtung, I6): das
   // g_subs.erase() unten zerstoert das Sub - MIT seinem fieldMutex und
   // seinem NdiSender -, waehrend Delegate::owner_ ein ROHER Zeiger darauf

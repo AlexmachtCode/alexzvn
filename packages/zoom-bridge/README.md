@@ -114,6 +114,7 @@ Meeting gemessen (Referenz: die acht Punkte in
 | **Das Bild angesehen** | ✅ im NDI-Monitor geprüft, Lage und Farben richtig — damit ist `rotation=0` **bestätigt** und nicht nur behauptet |
 | Zwei Abos **gleichzeitig** | ✅ zwei eigene Quellen, jede mit eigenem Zustand: eine ging mehrfach `cameraOff`↔`frames`, während die andere durchgehend `live` blieb |
 | Der Messlauf meldet ehrlich | ✅ bei zwei Teilnehmern meldete er ausdrücklich „die Grenze wurde **NICHT** erreicht" statt `2` als Obergrenze auszugeben |
+| Belastungslauf zu Befund I6 | ✅ **20 von 20** Wechseln mit laufendem Bild, zwei Abos gleichzeitig, kein Absturz (`npm run video-stress`) — **kein Beweis**, siehe unten |
 
 **Noch offen, und keiner dieser Punkte ist durch eine Zahl zu ersetzen:**
 
@@ -125,10 +126,14 @@ Meeting gemessen (Referenz: die acht Punkte in
   „wo hört Zoom auf": `npm run video-limit` in einem Meeting mit fünf Gästen.
   Zooms absolute Obergrenze steht in keinem SDK-Header und interessiert uns erst,
   wenn sie **unter** 5 läge.
-- **Befund I6** — 10× ab- und anmelden unter laufendem Bild, mit mehreren Abos.
-  Dass Rückrufe während des Abbaus laufen, ist inzwischen **gemessen** (siehe
-  `Sub::imAbbau`); dass der Abbau dabei nie auf freigegebenen Speicher trifft,
-  ist es **nicht**.
+- **Befund I6 bleibt offen — und das ist Absicht.** Der Belastungslauf hat 20
+  Wechsel unter laufendem Bild überstanden, und das ist der stärkste Beleg, der
+  ohne formalen Beweis zu haben ist. Er **beweist nichts**: ein Wettlauf, den
+  man 20-mal nicht trifft, ist immer noch ein Wettlauf, und dass Rückrufe
+  während des Abbaus laufen, ist **gemessen** (siehe `Sub::imAbbau`). Wer je
+  einen `0xC0000005` unmittelbar nach einem `unsubscribed` sieht, hat die
+  Antwort — dann muss die Lebensdauer selbst verwaltet werden. Bis dahin steht
+  die Annahme als **unbelegt** im Quelltext, nicht als erledigt.
 
 Für Stage 4 vorzumerken (keine Störung, eine Beobachtung): wer über ein Handy
 beitritt, erscheint mit dem **Gerätenamen** — die NDI-Quelle hieß im Messlauf
