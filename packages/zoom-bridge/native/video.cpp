@@ -580,9 +580,26 @@ void videoParticipantLeft(unsigned int userId) {
 
 // Ebenfalls HAUPTTHREAD, siehe videoParticipantLeft() oben.
 void videoParticipantJoined(unsigned int userId) {
+  // NICHTS VERSCHWINDET STILL. GEMESSEN am 14.08.2026: ein Gast ging und kam
+  // zurueck, das Bild kam NICHT wieder - und diese Funktion stieg dabei ueber
+  // einen von DREI stillen return-Wegen aus, ohne dass irgendwo eine Zeile
+  // stand, welcher es war. Aus "Zoom kann diesen Gast nicht wiedererkennen"
+  // und "unsere Suche hat nichts gefunden" wurde dieselbe Stille.
+  //
+  // Nur wenn es ueberhaupt Abos gibt: in einem grossen Meeting kommt diese
+  // Funktion bei JEDEM Beitritt vorbei, und eine Zeile je Gast waere Laerm,
+  // kein Befund.
+  const bool interessant = !g_subs.empty();
+
   std::wstring name;
   std::string persistentId;
-  if (!sessionFindParticipant(userId, &name, &persistentId)) return;
+  if (!sessionFindParticipant(userId, &name, &persistentId)) {
+    if (interessant) {
+      emitLog(L"Wiederbeitritt " + std::to_wstring(userId) +
+              L": steht nicht in der Teilnehmerliste - kein Umhaengen.");
+    }
+    return;
+  }
 
   // Eine LEERE persistentId kann NIEMANDEN wiedererkennen: zwei verschiedene
   // Gaeste haetten beide "" und wuerden aufeinander umgehaengt - aus einem
@@ -590,7 +607,15 @@ void videoParticipantJoined(unsigned int userId) {
   // traegt darum jemals eine leere persistentId zum Vergleich heran (siehe
   // uniqueSourceName/videoSubscribe), dieser Rueckgabewert bleibt trotzdem
   // die einzige Instanz, die das PRUEFT statt es vorauszusetzen.
-  if (persistentId.empty()) return;
+  if (persistentId.empty()) {
+    if (interessant) {
+      emitLog(L"Wiederbeitritt " + std::to_wstring(userId) + L" (" + name +
+              L"): Zoom liefert fuer diesen Gast KEINE persistentId - ein Abo kann ihn "
+              L"nicht wiedererkennen. Das ist eine Eigenschaft des Gast-Kontos, "
+              L"keine Entscheidung dieser Bruecke.");
+    }
+    return;
+  }
 
   // ERST SUCHEN, DANN UMHAENGEN - in zwei getrennten Schritten. extract()
   // mitten in der Schleife wuerde den Laufzeiger ungueltig machen. Der
@@ -603,7 +628,18 @@ void videoParticipantJoined(unsigned int userId) {
   for (const auto& [id, sub] : g_subs) {
     if (id != userId && sub->persistentId == persistentId) { alteId = id; s = sub.get(); break; }
   }
-  if (s == nullptr) return;
+  if (s == nullptr) {
+    // Der dritte stille Weg, und der einzige, der auf UNS zeigt: der Gast hat
+    // eine persistentId, sie passt nur zu keinem Abo. Entweder war er nie
+    // abonniert (der Normalfall in einem grossen Meeting), oder Zoom vergibt
+    // ihm ueber den Wiederbeitritt hinweg eine ANDERE - dann traegt der Name
+    // "persistent" nicht, und das waere ein echter Befund.
+    if (interessant) {
+      emitLog(L"Wiederbeitritt " + std::to_wstring(userId) + L" (" + name +
+              L"): hat eine persistentId, aber kein Abo fuehrt dieselbe - kein Umhaengen.");
+    }
+    return;
+  }
 
   // ERST DER SDK-TEIL, DANN DIE KARTE (Reihenfolge GEAENDERT, Abschluss-
   // Sichtung I1): scheitert das Umhaengen, ist die Karte dann noch voellig

@@ -84,7 +84,17 @@ const bridge = new Bridge({
     else if (ev.ev === 'ready') console.log(`  SDK: ${ev.sdkVersion}`);
     else if (ev.ev === 'roster') {
       console.log(`  Teilnehmer (${ev.list.length}):`);
-      for (const p of ev.list) console.log(`    ${p.id}  ${p.name}${p.self ? '  (das sind wir)' : ''}  Rolle ${p.role}`);
+      // "ohne persistentId" IMMER anzeigen: ohne diese Kennung kann ein Abo
+      // einen Wiederbeitritt NICHT ueberleben (siehe videoParticipantJoined
+      // in native/video.cpp - zwei Gaeste ohne persistentId waeren nicht
+      // auseinanderzuhalten, und ein Umhaengen auf Verdacht waere eine
+      // Personenverwechslung auf Sendung). Das ist eine Eigenschaft des
+      // Zoom-Kontos des GASTES, keine unserer Entscheidungen - aber wer sie
+      // nicht sieht, sucht den Fehler bei uns.
+      for (const p of ev.list) {
+        const pid = p.persistentId ? '' : '  [ohne persistentId → Wiederbeitritt nicht umhaengbar]';
+        console.log(`    ${p.id}  ${p.name}${p.self ? '  (das sind wir)' : ''}  Rolle ${p.role}${pid}`);
+      }
     } else if (ev.ev === 'joined') console.log(`  + ${ev.p.name} (${ev.p.id})`);
     else if (ev.ev === 'left') console.log(`  - ${ev.id}`);
     else if (ev.ev === 'renamed') console.log(`  ~ ${ev.id} heisst jetzt ${ev.name}`);
@@ -113,6 +123,12 @@ const bridge = new Bridge({
       // geliefert hat (siehe protocol.ts) - deshalb hier bedingt angehaengt,
       // nie mit einem erfundenen Wert aufgefuellt.
       let zeile = `  video ${ev.id}: ${ev.state} (${ev.reason})  Quelle "${ev.source}"`;
+      // rebindable IMMER mitdrucken. GEMESSEN am 14.08.2026: bei einem
+      // Wiederbeitritt kam das Bild nicht zurueck, und ob das Abo ueberhaupt
+      // umhaengbar WAR, stand zwar auf der Leitung, aber in keiner Zeile.
+      // Ohne diese Angabe sieht "Zoom kann es nicht" genauso aus wie "wir
+      // koennen es nicht".
+      zeile += ev.rebindable ? '  umhaengbar' : '  NICHT umhaengbar';
       if (ev.rotation !== undefined) zeile += `  rotation=${ev.rotation}`;
       if (ev.limitedRange !== undefined) zeile += `  limitedRange=${ev.limitedRange}`;
       console.log(zeile);
