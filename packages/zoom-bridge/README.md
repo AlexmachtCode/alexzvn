@@ -112,12 +112,17 @@ Meeting gemessen (Referenz: die acht Punkte in
 | `IsLimitedI420()` | **`true`** — begrenzter Wertebereich, passt zu unserem Schwarz (`Y=16`) |
 | `GetRotation()` | **`0`**, auch von einem Mobilgerät |
 | **Das Bild angesehen** | ✅ im NDI-Monitor geprüft, Lage und Farben richtig — damit ist `rotation=0` **bestätigt** und nicht nur behauptet |
+| Zwei Abos **gleichzeitig** | ✅ zwei eigene Quellen, jede mit eigenem Zustand: eine ging mehrfach `cameraOff`↔`frames`, während die andere durchgehend `live` blieb |
+| Der Messlauf meldet ehrlich | ✅ bei zwei Teilnehmern meldete er ausdrücklich „die Grenze wurde **NICHT** erreicht" statt `2` als Obergrenze auszugeben |
 
 **Noch offen, und keiner dieser Punkte ist durch eine Zahl zu ersetzen:**
 
 - **Weggang und Wiederbeitritt** (`participantLeft` → `rebound`) — braucht einen
   Gast, der das Meeting verlässt und zurückkommt.
-- **Mehrere Abos gleichzeitig** und der Messlauf `npm run video-limit`.
+- **Die echte Obergrenze gleichzeitiger Abos.** Zwei sind gemessen; die Grenze
+  liegt darüber, wo genau, weiß niemand. `npm run video-limit` misst sie, sobald
+  ein Meeting mit genügend Gästen zur Verfügung steht — die Zahl steht in keinem
+  SDK-Header.
 - **Befund I6** — 10× ab- und anmelden unter laufendem Bild, mit mehreren Abos.
   Dass Rückrufe während des Abbaus laufen, ist inzwischen **gemessen** (siehe
   `Sub::imAbbau`); dass der Abbau dabei nie auf freigegebenen Speicher trifft,
