@@ -115,18 +115,13 @@ Meeting gemessen (Referenz: die acht Punkte in
 | Zwei Abos **gleichzeitig** | ✅ zwei eigene Quellen, jede mit eigenem Zustand: eine ging mehrfach `cameraOff`↔`frames`, während die andere durchgehend `live` blieb |
 | Der Messlauf meldet ehrlich | ✅ bei zwei Teilnehmern meldete er ausdrücklich „die Grenze wurde **NICHT** erreicht" statt `2` als Obergrenze auszugeben |
 | Belastungslauf zu Befund I6 | ✅ **20 von 20** Wechseln mit laufendem Bild, zwei Abos gleichzeitig, kein Absturz (`npm run video-stress`) — **kein Beweis**, siehe unten |
+| **Fünf** Abos gleichzeitig | ✅ die Betriebsgröße (Owner: höchstens 5 je Veranstaltung) trägt |
+| Weggang und Wiederbeitritt | ✅ über `reboundByName` — Gast ging, kam mit **neuer** Kennung zurück, **dieselbe** Quelle hängte sich an, danach mehrfach Kamera aus/an. Über die `persistentId` greift es **nicht**, siehe Abschnitt 7 |
 
-**Noch offen, und keiner dieser Punkte ist durch eine Zahl zu ersetzen:**
+**Die funktionale Abnahme von Stage 2 ist damit durch.** Offen bleibt genau
+eine Sache, und sie bleibt es absichtlich:
 
-- **Weggang und Wiederbeitritt** (`participantLeft` → `rebound`) — braucht einen
-  Gast, der das Meeting verlässt und zurückkommt.
-- **Fünf gleichzeitige Abos.** **Owner-Vorgabe: höchstens 5 Zuschaltungen je
-  Veranstaltung** — das ist unsere Betriebsgröße, nicht Zooms Maximum. Zwei sind
-  gemessen und liefen unabhängig voneinander. Zu prüfen ist darum **5**, nicht
-  „wo hört Zoom auf": `npm run video-limit` in einem Meeting mit fünf Gästen.
-  Zooms absolute Obergrenze steht in keinem SDK-Header und interessiert uns erst,
-  wenn sie **unter** 5 läge.
-- **Befund I6 bleibt offen — und das ist Absicht.** Der Belastungslauf hat 20
+- **Befund I6 — und das ist Absicht.** Der Belastungslauf hat 20
   Wechsel unter laufendem Bild überstanden, und das ist der stärkste Beleg, der
   ohne formalen Beweis zu haben ist. Er **beweist nichts**: ein Wettlauf, den
   man 20-mal nicht trifft, ist immer noch ein Wettlauf, und dass Rückrufe
