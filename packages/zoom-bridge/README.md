@@ -119,10 +119,12 @@ Meeting gemessen (Referenz: die acht Punkte in
 
 - **Weggang und Wiederbeitritt** (`participantLeft` → `rebound`) — braucht einen
   Gast, der das Meeting verlässt und zurückkommt.
-- **Die echte Obergrenze gleichzeitiger Abos.** Zwei sind gemessen; die Grenze
-  liegt darüber, wo genau, weiß niemand. `npm run video-limit` misst sie, sobald
-  ein Meeting mit genügend Gästen zur Verfügung steht — die Zahl steht in keinem
-  SDK-Header.
+- **Fünf gleichzeitige Abos.** **Owner-Vorgabe: höchstens 5 Zuschaltungen je
+  Veranstaltung** — das ist unsere Betriebsgröße, nicht Zooms Maximum. Zwei sind
+  gemessen und liefen unabhängig voneinander. Zu prüfen ist darum **5**, nicht
+  „wo hört Zoom auf": `npm run video-limit` in einem Meeting mit fünf Gästen.
+  Zooms absolute Obergrenze steht in keinem SDK-Header und interessiert uns erst,
+  wenn sie **unter** 5 läge.
 - **Befund I6** — 10× ab- und anmelden unter laufendem Bild, mit mehreren Abos.
   Dass Rückrufe während des Abbaus laufen, ist inzwischen **gemessen** (siehe
   `Sub::imAbbau`); dass der Abbau dabei nie auf freigegebenen Speicher trifft,
