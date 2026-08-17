@@ -195,6 +195,16 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
         rebindable: boolean; rotation?: number; limitedRange?: boolean;
       };
       const videoSubs = new Map(s.videoSubs);
+      // Der Ton haengt am Bild-Abo, also haengt auch seine Karteileiche daran:
+      // dieselbe alte Kennung, die unten aus videoSubs verschwindet, muss auch
+      // aus audioSubs verschwinden. Ein eigener Korrelator am AudioSub waere
+      // eine zweite Buchfuehrung derselben Tatsache - und die zweite ginge
+      // irgendwann auseinander (genau der Fehler, der videoSubs oben schon
+      // einmal getroffen hat, siehe Kommentar zu 'reboundByName'). Erst bei
+      // Bedarf kopiert: ein videoSubscribed/live/black-Ereignis - der weit
+      // haeufigere Fall als ein Umhaengen - soll keine neue Map von
+      // audioSubs anlegen.
+      let audioSubs = s.audioSubs;
       if (e.state === 'unsubscribed') {
         videoSubs.delete(e.id);
       } else {
@@ -213,7 +223,17 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
         // unten ("der Sender ist derselbe geblieben") ausschliessen soll.
         if (e.reason === 'rebound' || e.reason === 'reboundByName') {
           for (const [id, sub] of videoSubs) {
-            if (sub.source === e.source && id !== e.id) videoSubs.delete(id);
+            if (sub.source === e.source && id !== e.id) {
+              videoSubs.delete(id);
+              // Dieselbe tote Kennung, jetzt auf der Ton-Karte: ein spaeteres
+              // audio-Ereignis (Task 7) traegt schon die NEUE Kennung, also
+              // kommt auf diese alte nie wieder eines. Ohne diese Zeile bliebe
+              // sie als zweites, fuer immer stummes Abo stehen.
+              if (audioSubs.has(id)) {
+                audioSubs = new Map(audioSubs);
+                audioSubs.delete(id);
+              }
+            }
           }
         }
         videoSubs.set(e.id, {
@@ -221,7 +241,7 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
           rebindable: e.rebindable, rotation: e.rotation, limitedRange: e.limitedRange,
         });
       }
-      return { ...s, videoSubs };
+      return { ...s, videoSubs, audioSubs };
     }
 
     case 'audio': {

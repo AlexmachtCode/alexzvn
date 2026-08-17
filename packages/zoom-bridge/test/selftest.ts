@@ -1300,6 +1300,13 @@ console.log('\nstate — Ton:');
   let s = initialSession();
   s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'waiting', reason: 'command' } as WireEvent));
   assert(s.audioSubs.get(7)?.state === 'waiting', 'ein Ton-Abo beginnt als waiting');
+  // Load-bearend fuer "Keine erfundenen Werte": parseWireEvent() (oben) kann
+  // strukturell gar nichts erfinden, es ist nur JSON.parse + Cast. Die
+  // Schicht, die eine 0/32000 unterschieben KOENNTE, ist reduce() selbst -
+  // hier wird genau SIE geprueft, unmittelbar nach dem ersten Aufruf mit
+  // einem Ereignis ohne Format.
+  assert(s.audioSubs.get(7)?.sampleRate === undefined,
+    'ohne gemessenes Paket steht auch im Zustand keine Abtastrate — reduce() erfindet nichts');
 
   s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'live', reason: 'packets', sampleRate: 32000, channels: 1 } as WireEvent));
   assert(s.audioSubs.get(7)?.sampleRate === 32000, 'das gemessene Format wird uebernommen');
@@ -1307,6 +1314,25 @@ console.log('\nstate — Ton:');
   // 'off' ist das Ende eines Ton-Abos - wie 'unsubscribed' beim Bild.
   s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'off', reason: 'meetingEnded' } as WireEvent));
   assert(!s.audioSubs.has(7), 'ein beendetes Ton-Abo verschwindet aus der Karte');
+
+  // Umhaengen (Task 7 lässt das video-Ereignis mit der NEUEN Kennung
+  // ankommen) muss die tote ALTE Kennung nicht nur aus videoSubs, sondern
+  // auch aus audioSubs raeumen - derselbe Fund wie beim Bild
+  // (reboundByName-Kommentar in state.ts), nur auf der Ton-Karte. Aufbau:
+  // ein Bild- UND ein Ton-Abo unter der ALTEN Kennung 42, derselbe
+  // Quellenname wie im rebound-Ereignis mit der NEUEN Kennung 99.
+  let r = initialSession();
+  r = reduce(r, enrich({
+    ev: 'video', id: 42, state: 'live', source: 'Gast', reason: 'frames', rebindable: true,
+  } as WireEvent));
+  r = reduce(r, enrich({ ev: 'audio', id: 42, state: 'live', reason: 'packets', sampleRate: 32000, channels: 1 } as WireEvent));
+  r = reduce(r, enrich({
+    ev: 'video', id: 99, state: 'live', source: 'Gast', reason: 'reboundByName', rebindable: true,
+  } as WireEvent));
+  assert(!r.videoSubs.has(42), 'nach dem Umhaengen ist die alte Kennung aus videoSubs weg');
+  assert(r.videoSubs.has(99), 'die neue Kennung steht in videoSubs');
+  assert(!r.audioSubs.has(42),
+    'nach dem Umhaengen ist die alte Kennung auch aus audioSubs weg — keine stumme Karteileiche');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
