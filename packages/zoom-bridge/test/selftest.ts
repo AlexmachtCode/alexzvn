@@ -1213,6 +1213,19 @@ console.log('\nstate — Video: Umhängen behält denselben Sender:');
   assert(s.videoSubs.get(11)?.source === 'JM Connect – Zoom Bo', 'der Quellenname bleibt derselbe — der Switcher merkt nichts');
 }
 
+// DERSELBE Lauf noch einmal über den ZWEITEN Umhänge-Weg. Ohne diese
+// Zusicherung deckte der Selbsttest nur 'rebound' ab — und genau daran ist
+// 'reboundByName' vorbeigelaufen, als es dazukam: die alte Kennung blieb als
+// Karteileiche stehen, auf die nie wieder ein Ereignis kommt.
+{
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 20, state: 'live', source: 'JM Connect – Zoom Cy', reason: 'frames', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 20, state: 'black', source: 'JM Connect – Zoom Cy', reason: 'participantLeft', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 21, state: 'subscribed', source: 'JM Connect – Zoom Cy', reason: 'reboundByName', rebindable: true } as WireEvent));
+  assert(!s.videoSubs.has(20), 'auch beim Umhängen über den Namen ist die alte Kennung weg');
+  assert(s.videoSubs.size === 1, 'nach dem Umhängen über den Namen bleibt genau EIN Abo stehen');
+}
+
 console.log('\nbridge — Video: ein Abo über die Attrappe:');
 {
   const evs: BridgeEvent[] = [];
