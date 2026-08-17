@@ -19,7 +19,8 @@
     "ndi-probe": "node test/ndi-probe.mjs",
     "command-probe": "node test/command-probe.mjs",
     "video-limit": "node test/video-limit.mjs",
-    "video-stress": "node test/video-stress.mjs"
+    "video-stress": "node test/video-stress.mjs",
+    "bool-probe": "node test/bool-probe.mjs"
   },
   "devDependencies": {
     "@jm/ndi": "*",

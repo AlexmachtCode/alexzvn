@@ -1,0 +1,53 @@
+#!/usr/bin/env node
+// Belegt OHNE Meeting, dass der native Befehlsleser "audio":true/false
+// wirklich liest. Ohne diesen Beleg saehe ein ignorierter Schalter genauso
+// aus wie ein befolgter - er ist bis zum ersten echten Ton unsichtbar.
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { binPath } from '../src/bridge.ts';
+
+const require = createRequire(import.meta.url);
+// Nebenwirkung: haengt die NDI-Laufzeit an process.env.PATH (siehe
+// packages/ndi/index.js). Ohne sie startet zoom-bridge.exe gar nicht.
+require('@jm/ndi');
+
+const zoomBin = process.env.ZOOM_SDK_DIR ? `${process.env.ZOOM_SDK_DIR}\\x64\\bin;` : '';
+const child = spawn(binPath(), [], {
+  windowsHide: true,
+  env: { ...process.env, PATH: `${zoomBin}${process.env.PATH}` },
+});
+
+let err = '';
+child.stderr.setEncoding('utf8');
+child.stderr.on('data', (d) => { err += d; });
+
+child.stdin.write('{"cmd":"videoSubscribe","id":42,"audio":false}\n');
+child.stdin.write('{"cmd":"videoSubscribe","id":43,"audio":true}\n');
+child.stdin.write('{"cmd":"videoSubscribe","id":44}\n');
+child.stdin.end();
+
+child.on('exit', (code) => {
+  if (code !== 0 && code !== null) {
+    console.error(`Kindprozess endete mit ${code}.`);
+    console.error('Vermutlich fehlt %ZOOM_SDK_DIR%\\x64\\bin auf PATH oder das Programm existiert nicht.');
+    process.exit(1);
+  }
+  const zeilen = err.split(/\r?\n/);
+  const fuer = (id) => zeilen.find((z) => z.includes(`Ton-Schalter fuer ${id}`)) ?? '';
+  const faelle = [
+    ['audio:false wird gelesen', fuer(42).includes('aus')],
+    ['audio:true wird gelesen', fuer(43).includes('an')],
+    ['ohne Feld gilt die Vorgabe an', fuer(44).includes('an')],
+  ];
+  let schlecht = 0;
+  for (const [name, ok] of faelle) {
+    console.log(`  [${name}] ${ok ? 'OK' : 'FEHLGESCHLAGEN'}`);
+    if (!ok) schlecht++;
+  }
+  if (schlecht > 0) {
+    console.error('\nFEHLGESCHLAGEN — der Ton-Schalter kommt nicht an.');
+    console.error('Rohausgabe:\n' + err);
+    process.exit(2);
+  }
+  console.log('\nOK — der native Befehlsleser liest den Ton-Schalter.');
+});

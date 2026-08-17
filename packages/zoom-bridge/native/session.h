@@ -94,6 +94,24 @@ std::string fieldFromJson(const std::string& line, const char* key);
  */
 bool numberFromJson(const std::string& line, const char* key, unsigned long long* out);
 
+/**
+ * Wahrheitswert-Gegenstueck zu fieldFromJson()/numberFromJson().
+ *
+ * WARUM ES DAS BRAUCHT: fieldFromJson() liest ausdruecklich nur
+ * Zeichenketten, numberFromJson() nur Ziffernfolgen. Ein {"audio":true}
+ * faellt durch BEIDE durch - der Schalter waere im nativen Teil unsichtbar,
+ * und "audio":false wuerde stillschweigend als "Vorgabe an" gelesen. Genau
+ * diese Luecke hat in Stage 2 bei "id" das Merkmal gegen den echten Prozess
+ * unbenutzbar gemacht.
+ *
+ * @param out wird NUR bei Rueckgabe true geschrieben. Der Aufrufer setzt
+ *            seine Vorgabe also VOR dem Aufruf und laesst sie stehen, wenn
+ *            das Feld fehlt.
+ * @returns false, wenn der Schluessel fehlt, nicht an Schluesselposition
+ *          steht oder etwas anderes als true/false folgt.
+ */
+bool boolFromJson(const std::string& line, const char* key, bool* out);
+
 /** Der Wert von "cmd", oder "" wenn die Zeile keiner ist. */
 std::string cmdOf(const std::string& line);
 

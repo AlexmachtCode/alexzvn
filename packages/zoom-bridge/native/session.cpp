@@ -795,6 +795,39 @@ bool numberFromJson(const std::string& line, const char* key, unsigned long long
   }
 }
 
+bool boolFromJson(const std::string& line, const char* key, bool* out) {
+  // DIESELBE Schluessel-Positions-Pruefung wie fieldFromJson/numberFromJson
+  // (unmittelbar davor '{' oder ',') - ohne sie truege ein Wert, der zufaellig
+  // "audio" enthaelt, denselben Namen wie das Feld.
+  const std::string needle = std::string("\"") + key + "\"";
+  size_t searchFrom = 0;
+
+  while (true) {
+    size_t at = line.find(needle, searchFrom);
+    if (at == std::string::npos) return false;
+
+    bool isKeyPosition = false;
+    size_t p = at;
+    while (p > 0 && isJsonSpace(line[p - 1])) --p;
+    if (p > 0 && (line[p - 1] == '{' || line[p - 1] == ',')) isKeyPosition = true;
+
+    if (isKeyPosition) {
+      size_t after = at + needle.size();
+      while (after < line.size() && isJsonSpace(line[after])) ++after;
+      if (after < line.size() && line[after] == ':') {
+        ++after;
+        while (after < line.size() && isJsonSpace(line[after])) ++after;
+        if (line.compare(after, 4, "true") == 0)  { *out = true;  return true; }
+        if (line.compare(after, 5, "false") == 0) { *out = false; return true; }
+        // Schluessel gefunden, Wert ist weder true noch false: NICHT
+        // weitersuchen und NICHT raten - das Feld ist da, aber unlesbar.
+        return false;
+      }
+    }
+    searchFrom = at + 1;
+  }
+}
+
 std::string cmdOf(const std::string& line) {
   return fieldFromJson(line, "cmd");
 }
