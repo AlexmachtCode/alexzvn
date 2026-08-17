@@ -194,7 +194,15 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
         // stehen, auf die nie wieder ein Ereignis kommt. Der Quellenname ist
         // der Faden, an dem die alte Kennung haengt - der Sender ist
         // derselbe geblieben.
-        if (e.reason === 'rebound') {
+        // BEIDE Umhaenge-Ursachen, nicht nur die erste. 'reboundByName' kam
+        // spaeter dazu (Zooms persistentId ueberlebt einen Wiederbeitritt
+        // nicht, gemessen am 14.08.2026) - und weil diese Abfrage nicht
+        // mitgezogen wurde, blieb nach JEDEM Umhaengen ueber den Namen die
+        // tote alte Kennung in videoSubs stehen. Auf sie kommt nie wieder ein
+        // Ereignis: eine Karteileiche, die ein Aufrufer als zweite, ewig
+        // schwarze Quelle anzeigen wuerde. Genau der Fall, den der Kommentar
+        // unten ("der Sender ist derselbe geblieben") ausschliessen soll.
+        if (e.reason === 'rebound' || e.reason === 'reboundByName') {
           for (const [id, sub] of videoSubs) {
             if (sub.source === e.source && id !== e.id) videoSubs.delete(id);
           }
