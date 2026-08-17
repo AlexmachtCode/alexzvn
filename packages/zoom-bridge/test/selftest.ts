@@ -1333,6 +1333,33 @@ console.log('\nstate — Ton:');
   assert(r.videoSubs.has(99), 'die neue Kennung steht in videoSubs');
   assert(!r.audioSubs.has(42),
     'nach dem Umhaengen ist die alte Kennung auch aus audioSubs weg — keine stumme Karteileiche');
+
+  // 'audioUnavailable' vs. 'command' (Review Task 5, Finding 2): vorher
+  // meldeten "der Aufrufer hat den Ton ausgeschaltet" UND "das SDK hat den
+  // Ton verweigert" denselben Wert {"state":"off","reason":"command"} — auf
+  // der Leitung byte-identisch und nur ueber ein begleitendes error-Ereignis
+  // OHNE id zu unterscheiden, fuer einen Konsumenten also gar nicht
+  // zuordenbar. Erst ueber die ROHE Zeile geprueft (parseWireEvent, nicht
+  // von Hand als Objekt gebaut) — genau die Schicht, die "byte-identisch"
+  // widerlegen oder bestaetigen kann.
+  const unavailableZeile: string = '{"ev":"audio","id":8,"state":"off","reason":"audioUnavailable"}';
+  const commandZeile: string = '{"ev":"audio","id":8,"state":"off","reason":"command"}';
+  assert(unavailableZeile !== commandZeile,
+    'die beiden Ausgaenge sind auf der Leitung nicht mehr byte-identisch');
+
+  const evUnavailable = parseWireEvent(unavailableZeile);
+  const evCommand = parseWireEvent(commandZeile);
+  assert((evUnavailable as { reason?: string })?.reason === 'audioUnavailable',
+    'der neue Grund kommt unveraendert durch den Zeilenleser');
+  assert((evUnavailable as { reason?: string })?.reason !== (evCommand as { reason?: string })?.reason,
+    'audioUnavailable und command bleiben unterscheidbare Gruende, keiner faellt auf den anderen zurueck');
+
+  // Und reduce() selbst verliert nichts und wirft nicht — 'off' raeumt das
+  // Abo genau wie beim regulaeren Abschalten aus der Karte, keine
+  // Karteileiche unter einem Grund, den es vorher nicht gab.
+  let u = initialSession();
+  u = reduce(u, enrich(evUnavailable as WireEvent));
+  assert(!u.audioSubs.has(8), 'ein audioUnavailable-Ereignis reduziert verlustfrei — kein Wurf, keine Karteileiche');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

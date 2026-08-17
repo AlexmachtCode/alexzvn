@@ -73,8 +73,20 @@ export type AudioState = (typeof AUDIO_STATES)[number];
 // ein audio-Ereignis unter der neuen Kennung durch. Ein AudioReason, der
 // diese beiden Werte nicht kennt, waere eine Behauptung ueber die Leitung,
 // die die native Seite widerlegt.
+//
+// 'audioUnavailable' ist ein EIGENER Wert und teilt sich NICHT 'command'
+// (Nachbesserung, Review Task 5): 'command' heisst "der Aufrufer hat den Ton
+// ausgeschaltet", 'audioUnavailable' heisst "der Aufrufer wollte Ton, aber
+// audioEnsureSubscribed() ist gescheitert (kein Helfer oder subscribe()
+// schlug fehl)". Vorher liefen beide Faelle auf denselben Wert
+// {"state":"off","reason":"command"} hinaus und waren nur ueber ein
+// begleitendes error-Ereignis OHNE id zu unterscheiden - fuer einen
+// Konsumenten also gar nicht, denn das error-Ereignis laesst sich keinem Abo
+// zuordnen. Zwei Ursachen, ein Name: genau das verbietet die Kernregel
+// "Eine Ursache, ein Name".
 export type AudioReason =
   | 'command'
+  | 'audioUnavailable'
   | 'packets'
   | 'gap'
   | 'participantLeft'

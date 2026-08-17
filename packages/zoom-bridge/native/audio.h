@@ -23,6 +23,16 @@ struct AudioPacket {
   int channels = 0;
   int sampleCount = 0;          // Abtastwerte JE KANAL
   std::vector<int16_t> samples; // interleaved
+  // Rohlaenge in BYTES, wie GetBufferLen() sie lieferte - VOR jeder Teilung.
+  // Nur DIESER Wert kann beantworten, ob der Puffer ein ganzzahliges
+  // Vielfaches von channels*2 war: sampleCount und samples.size() entstehen
+  // beide durch DIESELBE Ganzzahl-Division von len (sampleCount = len /
+  // (2*channels), samples.size() = len / 2) - ein Rest verschwindet in
+  // beiden Rechnungen gleichermassen und ist aus dem Ergebnis NICHT mehr
+  // rekonstruierbar. bufferLen ist die einzige Spur, die den Rest noch
+  // traegt, und wird darum unveraendert mitgefuehrt, obwohl der Hauptthread
+  // ihn erst beim Leeren braucht (video.cpp).
+  unsigned int bufferLen = 0;
 };
 
 /**

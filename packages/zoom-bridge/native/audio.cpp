@@ -57,6 +57,14 @@ class AudioDelegate : public IZoomSDKAudioRawDataDelegate {
     // beim Leeren, nicht hier: "einmal je Abo" braucht ein Merkzeichen am
     // Sub, und genau das darf dieser Rueckruf nicht anfassen. Hier wird nur
     // so gerechnet, dass nichts ueberlaeuft.
+    //
+    // bufferLen VOR den beiden Teilungen sichern (Nachbesserung): sowohl
+    // sampleCount als auch samples.size() unten entstehen durch dieselbe
+    // Ganzzahl-Division von len und verlieren dabei einen etwaigen Rest
+    // GLEICHERMASSEN - aus den beiden Ergebnissen laesst sich danach nicht
+    // mehr rekonstruieren, ob len ein ganzzahliges Vielfaches von channels*2
+    // war. Nur len selbst traegt diese Information noch.
+    p.bufferLen = len;
     p.sampleCount = static_cast<int>(len / (sizeof(int16_t) * static_cast<unsigned int>(ch)));
     p.samples.resize(len / sizeof(int16_t));
     std::memcpy(p.samples.data(), buf, p.samples.size() * sizeof(int16_t));

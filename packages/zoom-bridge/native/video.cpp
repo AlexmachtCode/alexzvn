@@ -373,12 +373,22 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn) {
       raw->audioState = "waiting";
       emitAudio(*raw, "waiting", "command");
     } else {
-      // audioEnsureSubscribed() hat die Ursache bereits benannt. Das BILD-Abo
-      // bleibt bestehen - ein fehlender Ton ist kein Grund, die Quelle
-      // wegzunehmen.
+      // audioEnsureSubscribed() hat die Ursache bereits benannt (auf stdout,
+      // ohne id - siehe audio.cpp). Das BILD-Abo bleibt bestehen - ein
+      // fehlender Ton ist kein Grund, die Quelle wegzunehmen.
+      //
+      // EIGENER GRUND "audioUnavailable", NICHT "command" (Nachbesserung,
+      // Review Task 5): "command" heisst hier eigentlich "der Aufrufer hat
+      // den Ton ausgeschaltet" (siehe der else-Zweig unten) - dieser Zweig
+      // aber laeuft genau dann, wenn der Aufrufer Ton WOLLTE und das SDK ihn
+      // verweigert hat. Beide auf "command" zu melden waere byte-identisch
+      // fuer zwei verschiedene Ursachen gewesen, unterscheidbar nur ueber ein
+      // begleitendes error-Ereignis OHNE id - fuer einen Konsumenten also gar
+      // nicht zuordenbar. Zwei Ursachen, ein Name: genau das schliesst die
+      // Kernregel aus.
       raw->audioOn = false;
       raw->audioState = "off";
-      emitAudio(*raw, "off", "command");
+      emitAudio(*raw, "off", "audioUnavailable");
     }
   } else {
     emitAudio(*raw, "off", "command");
@@ -547,8 +557,20 @@ void videoTick() {
     // Bild-Rueckruf: eine Pufferlaenge, die nicht zur Kanalzahl passt, ergibt
     // Rauschen, das wie ein Mikrofondefekt klingt, nicht wie ein
     // Softwarefehler. Man sucht dann am falschen Ende.
+    //
+    // BERICHTIGT (Nachbesserung nach Review): hier stand
+    // `p.samples.size() != sampleCount * channels` - das kann STRUKTURELL
+    // NIE ansprechen. sampleCount und samples.size() entstehen in audio.cpp
+    // durch DIESELBE Ganzzahl-Division derselben Rohlaenge len (sampleCount
+    // = len / (2*channels), samples.size() = len / 2) und verlieren einen
+    // etwaigen Rest GLEICHERMASSEN - aus den beiden Ergebnissen laesst sich
+    // danach nicht mehr rekonstruieren, ob len ein ganzzahliges Vielfaches
+    // von channels*2 war (bei einem Kanal sogar NIE, siehe AudioPacket::
+    // bufferLen). Die Probe darum jetzt gegen bufferLen, die einzige Groesse,
+    // die den Rest noch traegt und nicht schon durch dieselbe Rechnung
+    // gelaufen ist wie der Wert, gegen den sie prueft.
     if (p.sampleCount <= 0 ||
-        p.samples.size() != static_cast<size_t>(p.sampleCount) * static_cast<size_t>(p.channels)) {
+        p.bufferLen % (sizeof(int16_t) * static_cast<unsigned int>(p.channels)) != 0) {
       bool melden = false;
       {
         std::lock_guard<std::mutex> lock(s->fieldMutex);
