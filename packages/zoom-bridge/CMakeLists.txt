@@ -49,6 +49,7 @@ add_executable(zoom-bridge
   native/callbacks.cpp
   native/ndi_sender.cpp
   native/video.cpp
+  native/audio.cpp
 )
 
 target_include_directories(zoom-bridge PRIVATE "${ZOOM_HEADERS}" "${NDI_HEADERS}")
