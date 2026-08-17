@@ -576,7 +576,23 @@ void videoTick() {
         std::lock_guard<std::mutex> lock(s->fieldMutex);
         if (!s->audioMismatchGemeldet) { s->audioMismatchGemeldet = true; melden = true; }
       }
-      if (melden) emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioBufferMismatch\"}");
+      // MIT id, ANDERS als audioQueueOverflow oben (Review-Runde 2, Finding
+      // B): audioQueueOverflow ist eine Aussage ueber die MASCHINE (eine
+      // Warteschlange fuer alle) - der Rueckruf, der dort verwirft, weiss gar
+      // nicht, zu welchem Abo das Paket gehoert haette, darum bleibt der
+      // OHNE id richtig. audioBufferMismatch dagegen ist eine Aussage ueber
+      // GENAU EIN Abo: das Merkzeichen (audioMismatchGemeldet) ist per-Abo,
+      // und wenn es ausloest, geht GENAU DIESES Abo dauerhaft still (jedes
+      // weitere Paket faellt ab hier auf denselben fruehen continue). Ohne
+      // id bekaeme der Operator eine Fehlerzeile, die sich keinem Gast
+      // zuordnen liesse - fuer EIN Abo dieselbe stille Sorte Fehler, die die
+      // Kernregel ausdruecklich verbietet. NICHT spaeter "vereinheitlichen":
+      // die beiden Fehler haben verschiedene Ursachen (Maschine vs. ein
+      // Gast) und bleiben darum absichtlich verschieden foermig.
+      if (melden) {
+        emitRaw(std::string("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioBufferMismatch\",\"id\":") +
+                std::to_string(s->userId.load()) + "}");
+      }
       continue;
     }
 

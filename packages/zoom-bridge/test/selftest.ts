@@ -14,6 +14,7 @@ import {
   SDK_ERROR_NAMES,
   AUTH_RESULT_NAMES,
   VIDEO_RESOLUTIONS,
+  type AudioReason,
   type BridgeEvent,
   type Participant,
   type WireEvent,
@@ -1334,32 +1335,50 @@ console.log('\nstate — Ton:');
   assert(!r.audioSubs.has(42),
     'nach dem Umhaengen ist die alte Kennung auch aus audioSubs weg — keine stumme Karteileiche');
 
-  // 'audioUnavailable' vs. 'command' (Review Task 5, Finding 2): vorher
-  // meldeten "der Aufrufer hat den Ton ausgeschaltet" UND "das SDK hat den
-  // Ton verweigert" denselben Wert {"state":"off","reason":"command"} — auf
-  // der Leitung byte-identisch und nur ueber ein begleitendes error-Ereignis
-  // OHNE id zu unterscheiden, fuer einen Konsumenten also gar nicht
-  // zuordenbar. Erst ueber die ROHE Zeile geprueft (parseWireEvent, nicht
-  // von Hand als Objekt gebaut) — genau die Schicht, die "byte-identisch"
-  // widerlegen oder bestaetigen kann.
-  const unavailableZeile: string = '{"ev":"audio","id":8,"state":"off","reason":"audioUnavailable"}';
-  const commandZeile: string = '{"ev":"audio","id":8,"state":"off","reason":"command"}';
-  assert(unavailableZeile !== commandZeile,
-    'die beiden Ausgaenge sind auf der Leitung nicht mehr byte-identisch');
+  // 'audioUnavailable' vs. 'command' (Review Task 5, Finding 2) — und die
+  // Nachbesserung dazu (Review-Runde 2, Finding A): die vorherige Fassung
+  // dieses Blocks verglich ausschliesslich Zeichenketten, die der Test
+  // SELBST hingeschrieben hatte (statisch immer wahr), liess parseWireEvent()
+  // ueber einen Cast pruefen, der `reason` gar nicht validiert (er haette
+  // ebenso fuer "bananas" bestanden), und pruefte am Ende
+  // `!audioSubs.has(8)` auf eine Session, in die 8 nie eingefuegt wurde -
+  // wahr, selbst wenn reduce() die Identitaet waere. Keine der vier
+  // Zusicherungen haette versagt, waere Finding 2 zurueckgerollt worden. Der
+  // Compiler hatte das schon gesagt (TS2367, "comparison appears
+  // unintentional, types have no overlap") - die vorherige Fassung
+  // beseitigte die MELDUNG (per `: string`-Annotation), nicht den BEFUND.
+  //
+  // DIESE Zusicherung hat Zaehne, weil sie nicht zur Laufzeit prueft, sondern
+  // beim Typcheck: verschwindet 'audioUnavailable' aus AudioReason, schlaegt
+  // `npm run typecheck` fehl. Ein Vergleich zweier Zeichenketten, die der
+  // Test selbst hingeschrieben hat, koennte das nie zeigen — er ist wahr,
+  // bevor irgendetwas gebaut ist.
+  const ausgefallen: AudioReason = 'audioUnavailable';
+  const abgeschaltet: AudioReason = 'command';
 
-  const evUnavailable = parseWireEvent(unavailableZeile);
-  const evCommand = parseWireEvent(commandZeile);
-  assert((evUnavailable as { reason?: string })?.reason === 'audioUnavailable',
-    'der neue Grund kommt unveraendert durch den Zeilenleser');
-  assert((evUnavailable as { reason?: string })?.reason !== (evCommand as { reason?: string })?.reason,
-    'audioUnavailable und command bleiben unterscheidbare Gruende, keiner faellt auf den anderen zurueck');
+  // Laufzeit-Ergaenzung mit echtem Bezug zu reduce(): NICHT ueber 'off' (das
+  // LOESCHT das Abo aus der Karte, siehe reduce() in state.ts - der Grund
+  // waere danach nicht mehr pruefbar, egal welcher es war), sondern ueber
+  // 'waiting', wo reduce() reason tatsaechlich in die Karte schreibt. Zwei
+  // verschiedene Kennungen, zwei verschiedene Gruende - ein reduce(), das
+  // reason verwirft, auf einen bekannten Wert rundet oder beide auf denselben
+  // Wert abbildet, faellt hier durch.
+  let t = initialSession();
+  t = reduce(t, enrich({ ev: 'audio', id: 9, state: 'waiting', reason: ausgefallen } as WireEvent));
+  t = reduce(t, enrich({ ev: 'audio', id: 10, state: 'waiting', reason: abgeschaltet } as WireEvent));
+  assert(t.audioSubs.get(9)?.reason === 'audioUnavailable' && t.audioSubs.get(10)?.reason === 'command',
+    'reduce() speichert beide Gruende unveraendert und unterscheidbar, statt einen auf den anderen abzubilden');
 
-  // Und reduce() selbst verliert nichts und wirft nicht — 'off' raeumt das
-  // Abo genau wie beim regulaeren Abschalten aus der Karte, keine
-  // Karteileiche unter einem Grund, den es vorher nicht gab.
-  let u = initialSession();
-  u = reduce(u, enrich(evUnavailable as WireEvent));
-  assert(!u.audioSubs.has(8), 'ein audioUnavailable-Ereignis reduziert verlustfrei — kein Wurf, keine Karteileiche');
+  // WAS DAMIT AUSDRUECKLICH NICHT BELEGT IST: ob der NATIVE Teil
+  // (video.cpp) im Fehlschlag-Zweig von audioEnsureSubscribed() tatsaechlich
+  // "audioUnavailable" sendet statt "command" oder gar nichts. selftest.ts
+  // ist reines TypeScript und kann nicht beobachten, was zoom-bridge.exe auf
+  // stdout schreibt. Kein bestehender Pruefstand deckt diese Luecke:
+  // command-probe erreicht diesen Zweig nicht (kein echtes Meeting, kein
+  // erzwingbarer SDK-Fehlschlag), bool-probe/ndi-probe pruefen etwas
+  // anderes. Das gehoert auf die Owner-Abnahmeliste (echtes Meeting, ein
+  // Zustand, in dem audioEnsureSubscribed() tatsaechlich scheitert) - eine
+  // gruene Zeile hier behauptet das NICHT.
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
