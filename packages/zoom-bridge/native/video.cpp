@@ -625,6 +625,45 @@ void videoTick() {
       res = s->res;
     }
 
+    // --- Stille-Herzschlag ------------------------------------------------
+    // ERST NACH DEM ERSTEN ECHTEN PAKET. Vorher sind Abtastrate und
+    // Kanalzahl unbekannt, und ein erfundenes Format liesse sich spaeter
+    // nicht von einem gemessenen unterscheiden - dieselbe Regel, nach der
+    // ein Abo ohne je gesehenes Bild auf "subscribed" steht und nicht auf
+    // "cameraOff".
+    {
+      int aRate, aCh;
+      ULONGLONG aLast;
+      std::string aState;
+      bool aOn;
+      {
+        std::lock_guard<std::mutex> lock(s->fieldMutex);
+        aRate = s->audioRate; aCh = s->audioChannels;
+        aLast = s->lastAudioMs; aState = s->audioState; aOn = s->audioOn;
+      }
+      // 40 ms Nachlauf: Zoom liefert etwa alle 10-20 ms. Der Wert ist ein
+      // ANFANGSWERT, kein Messergebnis (Spec Abschnitt 6) - Abnahmepunkt 2
+      // prueft mit dem Ohr, ob der Uebergang knackt.
+      if (aOn && aRate > 0 && aCh > 0 && jetzt - aLast >= 40) {
+        // Blockgroesse = Tick-Frist (10 ms), damit Stille und echter Ton
+        // nahtlos ineinander uebergehen.
+        const int bloecke = static_cast<int>(aRate / 100);
+        s->sender.sendSilence(bloecke, aRate, aCh);
+        bool wurdeStill = false;
+        {
+          std::lock_guard<std::mutex> lock(s->fieldMutex);
+          // Momentaufnahme gegenpruefen: sendSilence() kann blockieren, in
+          // dieser Spanne kann laengst wieder echter Ton eingetroffen sein.
+          // Dieselbe Sorge wie beim Schwarzbild (Befund 2 aus Stage 2).
+          if (s->lastAudioMs == aLast && s->audioState != "silent") {
+            s->audioState = "silent";
+            wurdeStill = true;
+          }
+        }
+        if (wurdeStill) emitAudio(*s, "silent", "gap");
+      }
+    }
+
     // 200 ms Nachlauf: bei kurzen Aussetzern soll NICHT zwischen Bild und
     // Schwarz geflackert werden. Erst danach gilt der Strom als still.
     if (lastFrameMs != 0 && jetzt - lastFrameMs < 200) continue;
