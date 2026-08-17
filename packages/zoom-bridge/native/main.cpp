@@ -289,8 +289,20 @@ int main(int argc, char** argv) {
       return 1;
     }
     emitRaw("{\"ev\":\"ndiSelftest\",\"state\":\"sending\"}");
-    for (int i = 0; i < 60; ++i) {
+    // 150 statt 60 Durchlaeufe (~5 s statt ~2 s), GEMESSEN gegen
+    // test/ndi-probe.mjs: die Quellensuche dort braucht allein bis zu
+    // 8 * 250 ms = 2 s, und danach braucht die Empfangsphase noch Zeit fuer
+    // Verbindungsaufbau + Poll-Schleife. Bei 2 s Sendezeit koennte die Quelle
+    // schon wieder weg sein, BEVOR ueberhaupt der erste Frame abgeholt wird -
+    // der Pruefstand meldete dann "kein Ton angekommen" fuer eine Quelle, die
+    // tatsaechlich gesendet hat. Ein falscher Befund waere schlimmer als gar
+    // kein Test.
+    for (int i = 0; i < 150; ++i) {
       s.sendBlack(640, 360);
+      // 10 ms Stille je Bild-Durchlauf. Der Selbsttest belegt damit BEIDE
+      // Wege derselben Quelle - eine Quelle, die Bild wirbt und beim Ton
+      // schweigt, saehe im Netz genauso aus wie eine funktionierende.
+      s.sendSilence(480, 48000, 1);
       Sleep(33);
     }
     s.close();

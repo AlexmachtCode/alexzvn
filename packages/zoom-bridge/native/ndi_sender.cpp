@@ -98,6 +98,41 @@ void NdiSender::sendBlack(int width, int height) {
   NDIlib_send_send_video_v2(send_, &f);
 }
 
+void NdiSender::sendAudio(const int16_t* samples, int sampleCount, int sampleRate, int channels) {
+  if (samples == nullptr || sampleCount <= 0 || channels <= 0) return;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (send_ == nullptr) return;
+  NDIlib_audio_frame_interleaved_16s_t f;
+  f.sample_rate = sampleRate;
+  f.no_channels = channels;
+  f.no_samples = sampleCount;
+  // Die Taktung erzeugt NDI selbst. Eigene Zeitstempel aus Zooms
+  // GetTimeStamp() waeren erst dann richtig, wenn gemessen ist, dass die
+  // synthetische Taktung Bild und Ton auseinanderlaufen laesst (Spec
+  // Abschnitt 8, Abnahmepunkt 5).
+  f.timecode = NDIlib_send_timecode_synthesize;
+  // +0 dB: der Kopfsatz der NDI-SDK sagt fuer das SENDEN ausdruecklich
+  // "specify +0 dB. Most common applications produce audio at reference
+  // level." Zoom liefert Ton auf Referenzpegel.
+  f.reference_level = 0;
+  f.p_data = const_cast<int16_t*>(samples);
+  NDIlib_util_send_send_audio_interleaved_16s(send_, &f);
+}
+
+void NdiSender::sendSilence(int sampleCount, int sampleRate, int channels) {
+  if (sampleCount <= 0 || channels <= 0) return;
+  const size_t noetig = static_cast<size_t>(sampleCount) * static_cast<size_t>(channels);
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (send_ == nullptr) return;
+    if (silence_.size() < noetig) silence_.assign(noetig, 0);
+  }
+  // Der Puffer ist reine Null und wird nie beschrieben - ihn ausserhalb der
+  // Sperre zu lesen ist ungefaehrlich, und sendAudio() nimmt die Sperre
+  // ohnehin selbst.
+  sendAudio(silence_.data(), sampleCount, sampleRate, channels);
+}
+
 void NdiSender::close() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!send_) return;

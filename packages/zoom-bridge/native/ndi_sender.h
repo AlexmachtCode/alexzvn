@@ -61,6 +61,18 @@ class NdiSender {
   /** Sendet ein schwarzes I420-Vollbild dieser Groesse. */
   void sendBlack(int width, int height);
 
+  /**
+   * Sendet interleaved PCM16 - genau die Form, die Zoom liefert, und genau
+   * die, die NDI nimmt (NDIlib_audio_frame_interleaved_16s_t). Keine
+   * Umrechnung, kein Umpacken.
+   *
+   * @param sampleCount Abtastwerte JE KANAL, nicht insgesamt.
+   */
+  void sendAudio(const int16_t* samples, int sampleCount, int sampleRate, int channels);
+
+  /** Sendet Nulldaten desselben Formats - der Stille-Herzschlag. */
+  void sendSilence(int sampleCount, int sampleRate, int channels);
+
   void close();
 
  private:
@@ -72,4 +84,8 @@ class NdiSender {
   std::vector<uint8_t> black_;
   int blackW_ = 0;
   int blackH_ = 0;
+  // Wiederverwendeter Stillepuffer - aus demselben Grund wie black_: je
+  // Herzschlag neu zu belegen waere 100-mal je Sekunde je Abo eine
+  // Speicheranforderung fuer immer denselben Inhalt (Nullen).
+  std::vector<int16_t> silence_;
 };
