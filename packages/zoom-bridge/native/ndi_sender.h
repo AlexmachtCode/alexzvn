@@ -76,6 +76,23 @@ class NdiSender {
   void close();
 
  private:
+  /**
+   * Baut den Audio-Frame und sendet ihn - OHNE selbst zu sperren. Der
+   * Aufrufer MUSS mutex_ bereits halten.
+   *
+   * WARUM ES DIESEN HELFER BRAUCHT (Nachbesserung): sendSilence() musste den
+   * Stillepuffer VOR dem Senden pruefen/vergroessern, und sendAudio() sperrt
+   * fuer die Dauer seines eigenen Sendeaufrufs - zwei Sperrungen desselben
+   * mutex_ nacheinander waeren kein Problem gewesen, ABER dazwischen laege
+   * eine Luecke ohne Sperre, in der ein ZWEITER Aufrufer silence_ vergroessern
+   * (also NEU ALLOZIEREN) koennte. Der zuvor gelesene .data()-Zeiger zeigte
+   * dann auf freigegebenen Speicher - das Risiko war nicht, dass sich der
+   * INHALT des Puffers aendert (er ist immer Null), sondern dass sich seine
+   * ADRESSE verschiebt. Dieser Helfer laesst sendSilence() Vergroessern UND
+   * Senden in EINER einzigen kritischen Sektion erledigen.
+   */
+  void sendAudioLocked(const int16_t* samples, int sampleCount, int sampleRate, int channels);
+
   NDIlib_send_instance_t send_ = nullptr;
   std::mutex mutex_;
   // Wiederverwendeter Schwarzpuffer - je Herzschlag neu zu belegen waere

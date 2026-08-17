@@ -68,6 +68,14 @@ const child = spawn(binPath(), ['--ndi-selftest'], {
 //       fuer sich), 5 heisst "die Quelle warb, aber schwieg beim Ton" - zwei
 //       verschiedene Orte zum Suchen, die dieselbe Zahl gegeneinander
 //       verwechselbar gemacht haette.
+//   6 - Quelle gefunden, aber createReceiver() ist FEHLGESCHLAGEN (wirft in
+//       @jm/ndi statt false zurueckzugeben). Auch das ist NICHT derselbe Fall
+//       wie 5: 5 heisst "verbunden, aber nichts gehoert" - ein Befund UEBER
+//       DEN TONWEG. 6 heisst "gar nicht erst verbunden" - ein Befund UEBER
+//       DIE NDI-VERBINDUNG selbst, bevor der Tonweg ueberhaupt geprueft
+//       werden konnte. Wer 5 liest, sucht im Audio-Pfad; wer 6 liest, sucht
+//       in der NDI-Empfaenger-Anlage - unterschiedliche Stellen, darum
+//       unterschiedliche Zahlen.
 let sawSending = false;
 let sawNdiInitFailed = false;
 let sawVideoSenderFailed = false;
@@ -127,6 +135,13 @@ for (let i = 0; i < 8 && !gefundenName; i++) {
 // der Sender laengst zu (TerminateProcess), bevor wir auch nur verbunden
 // haetten.
 let tonGesehen = false;
+// Getrennt von tonGesehen gehalten: "nicht verbunden bekommen" (Code 6) und
+// "verbunden, aber stumm" (Code 5) sind zwei verschiedene Ursachen und
+// duerfen nicht ueber denselben Ja/Nein-Wert zusammenfallen - sonst waere
+// receiverFehler nur eine Textzeile fuer Menschen, aber fuer die
+// Rueckgabewert-Entscheidung unten unsichtbar (dieselbe Falle, die schon
+// beim vorherigen Rueckgabewert 3-vs-5 vermieden wurde).
+let receiverFehler = null;
 if (gefundenName) {
   let empfangBereit = false;
   try {
@@ -135,9 +150,8 @@ if (gefundenName) {
     // Nichts verschwindet still: eine gescheiterte Verbindung zur GEFUNDENEN
     // Quelle ist eine eigene, meldenswerte Ueberraschung, kein Grund, die
     // Tonpruefung wortlos zu ueberspringen.
-    console.error(
-      `\n  createReceiver('${gefundenName}') ist fehlgeschlagen: ${e instanceof Error ? e.message : e}`,
-    );
+    receiverFehler = e instanceof Error ? e.message : String(e);
+    console.error(`\n  createReceiver('${gefundenName}') ist fehlgeschlagen: ${receiverFehler}`);
   }
   if (empfangBereit) {
     // Bis zu 20 * 250 ms = 5 s Budget, bricht frueher ab, sobald ein
@@ -167,6 +181,16 @@ if (gefundenName) {
   if (tonGesehen) {
     console.log(`\nOK — die Quelle "${ERWARTET}" war auffindbar UND hat Ton geliefert.`);
     process.exit(0);
+  }
+  if (receiverFehler) {
+    // Code 6, NICHT 5: siehe Kommentar oben - "nicht verbunden" ist eine
+    // andere Ursache als "verbunden, aber stumm" und braucht darum einen
+    // eigenen Rueckgabewert, keinen geteilten.
+    console.error(
+      `\nEINRICHTUNGSFEHLER — die Quelle "${ERWARTET}" war auffindbar, aber createReceiver() ist ` +
+        `fehlgeschlagen (${receiverFehler}).`,
+    );
+    process.exit(6);
   }
   console.error(`\nTEILWEISE — die Quelle "${ERWARTET}" war auffindbar, aber es kam KEIN Ton an.`);
   process.exit(5);

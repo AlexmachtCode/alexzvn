@@ -98,9 +98,12 @@ void NdiSender::sendBlack(int width, int height) {
   NDIlib_send_send_video_v2(send_, &f);
 }
 
-void NdiSender::sendAudio(const int16_t* samples, int sampleCount, int sampleRate, int channels) {
-  if (samples == nullptr || sampleCount <= 0 || channels <= 0) return;
-  std::lock_guard<std::mutex> lock(mutex_);
+// Baut den Audio-Frame und sendet ihn. Setzt voraus, dass der Aufrufer
+// mutex_ bereits haelt (siehe Deklaration in ndi_sender.h fuer die
+// Begruendung: Vergroessern von silence_ und der Sendeaufruf muessen in
+// DERSELBEN kritischen Sektion liegen, sonst kann sich der zuvor gelesene
+// .data()-Zeiger zwischen Pruefung und Senden verschieben).
+void NdiSender::sendAudioLocked(const int16_t* samples, int sampleCount, int sampleRate, int channels) {
   if (send_ == nullptr) return;
   NDIlib_audio_frame_interleaved_16s_t f;
   f.sample_rate = sampleRate;
@@ -119,18 +122,34 @@ void NdiSender::sendAudio(const int16_t* samples, int sampleCount, int sampleRat
   NDIlib_util_send_send_audio_interleaved_16s(send_, &f);
 }
 
+void NdiSender::sendAudio(const int16_t* samples, int sampleCount, int sampleRate, int channels) {
+  if (samples == nullptr || sampleCount <= 0 || channels <= 0) return;
+  std::lock_guard<std::mutex> lock(mutex_);
+  sendAudioLocked(samples, sampleCount, sampleRate, channels);
+}
+
 void NdiSender::sendSilence(int sampleCount, int sampleRate, int channels) {
   if (sampleCount <= 0 || channels <= 0) return;
   const size_t noetig = static_cast<size_t>(sampleCount) * static_cast<size_t>(channels);
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (send_ == nullptr) return;
-    if (silence_.size() < noetig) silence_.assign(noetig, 0);
-  }
-  // Der Puffer ist reine Null und wird nie beschrieben - ihn ausserhalb der
-  // Sperre zu lesen ist ungefaehrlich, und sendAudio() nimmt die Sperre
-  // ohnehin selbst.
-  sendAudio(silence_.data(), sampleCount, sampleRate, channels);
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (send_ == nullptr) return;
+  if (silence_.size() < noetig) silence_.assign(noetig, 0);
+  // NACHBESSERUNG: Vergroessern (silence_.assign - kann NEU ALLOZIEREN) und
+  // Senden liegen jetzt in DERSELBEN kritischen Sektion. Vorher wurde die
+  // Sperre dazwischen kurz losgelassen: die Gefahr war NICHT, dass sich der
+  // INHALT des Puffers aendert (er ist immer Null), sondern dass sich seine
+  // ADRESSE verschiebt - ein zwischen Loslassen und sendAudio() gelesener
+  // .data()-Zeiger haette dann auf bereits freigegebenen Speicher zeigen
+  // koennen, wenn ein zweiter Aufrufer in der Luecke vergroessert.
+  //
+  // Dass hier ueber sendAudioLocked() (also ueber den eigentlichen
+  // Sendeaufruf) hinweg gesperrt bleibt, verstoesst NICHT gegen die
+  // Kernregel "eine Sperre nie ueber einen NDI-Sendeaufruf halten": diese
+  // Regel verbietet, eine FREMDE Sperre (z. B. eines Subs fieldMutex) ueber
+  // einen Sendeaufruf zu halten - NdiSender darf und muss seine EIGENE
+  // Sperre um seinen EIGENEN Sendeaufruf legen, genau wie sendBlack() es
+  // fuer black_ bereits tut.
+  sendAudioLocked(silence_.data(), sampleCount, sampleRate, channels);
 }
 
 void NdiSender::close() {
