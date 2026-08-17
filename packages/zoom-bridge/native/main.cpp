@@ -21,6 +21,7 @@
 #include "session.h"
 #include "ndi_sender.h"
 #include "video.h"
+#include "audio.h"
 
 namespace {
 
@@ -195,7 +196,14 @@ void handle(const std::string& line) {
       emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadResolution\"}");
       return;
     }
-    videoSubscribe(userId, res);
+    bool audioOn = true;   // Vorgabe laut Spec Abschnitt 7
+    boolFromJson(line, "audio", &audioOn);
+    // Fuer den Menschen, der die Rohausgabe mitliest - und der Beleg, den
+    // test/bool-probe.mjs auswertet: ohne diese Zeile saehe ein ignorierter
+    // Schalter genauso aus wie ein befolgter.
+    emitLog(std::wstring(L"Ton-Schalter fuer ") + std::to_wstring(userId) +
+            L": " + (audioOn ? L"an" : L"aus"));
+    videoSubscribe(userId, res, audioOn);
     return;
   }
   if (cmd == "videoUnsubscribe") {

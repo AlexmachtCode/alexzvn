@@ -13,6 +13,7 @@
 // ("Verwendung des undefinierten Typs") ab.
 #include "zoom_sdk_raw_data_def.h"
 #include "session.h"
+#include "audio.h"
 
 namespace {
 
@@ -113,6 +114,19 @@ struct Sub {
   unsigned int rotation = 0;
   bool limitedRange = true;
   bool gemessen = false;         // ob rotation/limitedRange je ein Bild gesehen haben
+
+  // --- Ton ---------------------------------------------------------------
+  // Ob der Aufrufer den Ton fuer dieses Abo eingeschaltet hat. Steht beim
+  // Abonnieren fest (Spec Abschnitt 10: kein nachtraegliches Umschalten).
+  bool audioOn = true;
+  // Format des zuletzt gesehenen Pakets. 0 = noch NIE eines gesehen - dann
+  // wird auch keine Stille gesendet, weil wir das Format nicht kennen und es
+  // nicht erfinden. Dieselbe Regel wie lastFrameMs beim Bild.
+  int audioRate = 0;
+  int audioChannels = 0;
+  ULONGLONG lastAudioMs = 0;
+  std::string audioState = "off";     // waiting | live | silent | off
+  bool audioMismatchGemeldet = false;
 };
 
 // Der Name steht bei subscribe FEST und folgt keiner Umbenennung: einen
@@ -163,6 +177,20 @@ void emitVideoMeasured(const Sub& s, const char* state, const char* reason,
           "\",\"rebindable\":" + (s.persistentId.empty() ? "false" : "true") +
           ",\"rotation\":" + std::to_string(rotation) +
           ",\"limitedRange\":" + (limitedRange ? "true" : "false") + "}");
+}
+
+// Wie emitVideo(), aber fuer den Ton - und mit derselben Regel: sampleRate und
+// channels stehen NUR dabei, wenn ein Paket sie geliefert hat. Eine erfundene
+// 32000 liesse sich spaeter nicht von einer gemessenen unterscheiden.
+void emitAudio(const Sub& s, const char* state, const char* reason) {
+  std::string out = std::string("{\"ev\":\"audio\",\"id\":") + std::to_string(s.userId.load()) +
+                    ",\"state\":\"" + state + "\",\"reason\":\"" + reason + "\"";
+  if (s.audioRate > 0) {
+    out += ",\"sampleRate\":" + std::to_string(s.audioRate) +
+           ",\"channels\":" + std::to_string(s.audioChannels);
+  }
+  out += "}";
+  emitRaw(out);
 }
 
 void emitVideoError(const char* code) {
@@ -227,7 +255,7 @@ bool videoParseResolution(const std::string& key, ZoomSDKResolution* out) {
   return false;
 }
 
-void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
+void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn) {
   if (g_subs.count(userId)) { emitVideoError("videoAlreadySubscribed"); return; }
   // Die Erlaubnis ist Voraussetzung, kein Wunsch (siehe Spec Abschnitt 5).
   if (!sessionCanRecordRaw()) { emitVideoError("videoNoPrivilege"); return; }
@@ -287,6 +315,7 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
   // Sendung braechte.
   sub->displayName = name;
   sub->res = res;
+  sub->audioOn = audioOn;
   sub->source = uniqueSourceName(name);
   sub->delegate = std::make_unique<Delegate>(sub.get());
 
@@ -327,6 +356,33 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
   Sub* raw = sub.get();
   g_subs[userId] = std::move(sub);
   emitVideo(*raw, "subscribed", "command");
+
+  // Der Ton-Schalter wird IMMER gemeldet, auch wenn er aus ist: ein Abo ohne
+  // Ton-Zeile saehe genauso aus wie eines, dessen Ton nur noch nicht
+  // angekommen ist. Zwei Zustaende, eine Stille - genau das schliesst die
+  // Kernregel aus.
+  //
+  // NACH emitVideo("subscribed") (Owner-Ruling R12, weicht vom urspruenglichen
+  // Brief-Wortlaut "unmittelbar davor" ab): das Ton-Ereignis sagt etwas UEBER
+  // ein Abo, die Video-Zeile ist die, die dieses Abo erst bekannt macht und
+  // seine NDI-Quelle benennt. Zuerst die untergeordnete Tatsache zu senden
+  // haette einem Leser der Rohausgabe eine Aussage ueber eine id in die Hand
+  // gegeben, von der er noch nichts weiss.
+  if (audioOn) {
+    if (audioEnsureSubscribed()) {
+      raw->audioState = "waiting";
+      emitAudio(*raw, "waiting", "command");
+    } else {
+      // audioEnsureSubscribed() hat die Ursache bereits benannt. Das BILD-Abo
+      // bleibt bestehen - ein fehlender Ton ist kein Grund, die Quelle
+      // wegzunehmen.
+      raw->audioOn = false;
+      raw->audioState = "off";
+      emitAudio(*raw, "off", "command");
+    }
+  } else {
+    emitAudio(*raw, "off", "command");
+  }
 }
 
 void videoUnsubscribe(unsigned int userId) {
@@ -470,6 +526,52 @@ void videoMeetingEnded() {
 // videoUnsubscribe/videoShutdownAll) ohnehin auf demselben Hauptthread
 // laufen wie videoTick() selbst.
 void videoTick() {
+  // ERST den Ueberlauf melden, dann leeren. Ein Ueberlauf ist eine Aussage
+  // ueber die Maschine (eine Warteschlange fuer alle), nicht ueber einen Gast
+  // - darum ohne id und nur EINMAL je Schwall.
+  if (audioTakeOverflowCount() > 0) {
+    emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioQueueOverflow\"}");
+  }
+
+  AudioPacket p;
+  while (audioPop(&p)) {
+    auto it = g_subs.find(p.userId);
+    // Kein Abo, Ton aus, oder im Abbau: VERWERFEN. Genau dafuer gibt es den
+    // Weg ueber die Warteschlange - hier ist das die richtige Antwort und
+    // kein Absturz.
+    if (it == g_subs.end()) continue;
+    Sub* s = it->second.get();
+    if (!s->audioOn || s->imAbbau.load()) continue;
+
+    // GEPRUEFT, NICHT GEGLAUBT - dieselbe Sorge wie bei GetBufferLen() im
+    // Bild-Rueckruf: eine Pufferlaenge, die nicht zur Kanalzahl passt, ergibt
+    // Rauschen, das wie ein Mikrofondefekt klingt, nicht wie ein
+    // Softwarefehler. Man sucht dann am falschen Ende.
+    if (p.sampleCount <= 0 ||
+        p.samples.size() != static_cast<size_t>(p.sampleCount) * static_cast<size_t>(p.channels)) {
+      bool melden = false;
+      {
+        std::lock_guard<std::mutex> lock(s->fieldMutex);
+        if (!s->audioMismatchGemeldet) { s->audioMismatchGemeldet = true; melden = true; }
+      }
+      if (melden) emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioBufferMismatch\"}");
+      continue;
+    }
+
+    // Senden OHNE Sperre - sendAudio() nimmt NdiSenders eigene Sperre.
+    s->sender.sendAudio(p.samples.data(), p.sampleCount, p.sampleRate, p.channels);
+
+    bool wurdeLive = false;
+    {
+      std::lock_guard<std::mutex> lock(s->fieldMutex);
+      s->audioRate = p.sampleRate;
+      s->audioChannels = p.channels;
+      s->lastAudioMs = GetTickCount64();
+      if (s->audioState != "live") { s->audioState = "live"; wurdeLive = true; }
+    }
+    if (wurdeLive) emitAudio(*s, "live", "packets");
+  }
+
   const ULONGLONG jetzt = GetTickCount64();
   for (auto& [id, s] : g_subs) {
     ULONGLONG lastFrameMs;
