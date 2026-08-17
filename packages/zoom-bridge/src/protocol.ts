@@ -59,13 +59,36 @@ export type VideoReason =
   // Zuordnung auf einem Namen beruht und nicht auf einer Kennung.
   | 'reboundByName';
 
+export const AUDIO_STATES = ['waiting', 'live', 'silent', 'off'] as const;
+export type AudioState = (typeof AUDIO_STATES)[number];
+
+// Kein 'queueOverflow': ein Ueberlauf aendert keinen Zustand des Abos, er ist
+// ein Fehler ueber die MASCHINE (eine Warteschlange fuer alle) und geht
+// darum als error-Ereignis ohne id raus, nicht als Grund fuer einen Wechsel.
+//
+// 'rebound' und 'reboundByName' bekommen HIER keinen eigenen Ton-Mechanismus -
+// der Ton haengt am Bild-Abo (siehe den Kommentar bei 'audio' in reduce(),
+// state.ts). Wird das videoSubscribe eines Gasts auf eine neue Kennung
+// umgehaengt (VideoReason oben), reicht ein spaeterer Task denselben Grund an
+// ein audio-Ereignis unter der neuen Kennung durch. Ein AudioReason, der
+// diese beiden Werte nicht kennt, waere eine Behauptung ueber die Leitung,
+// die die native Seite widerlegt.
+export type AudioReason =
+  | 'command'
+  | 'packets'
+  | 'gap'
+  | 'participantLeft'
+  | 'meetingEnded'
+  | 'rebound'
+  | 'reboundByName';
+
 export type Command =
   | { cmd: 'init' }
   | { cmd: 'auth'; jwt: string }
   | { cmd: 'join'; meetingId: string; passcode: string; displayName: string }
   | { cmd: 'leave' }
   | { cmd: 'quit' }
-  | { cmd: 'videoSubscribe'; id: number; resolution?: VideoResolutionKey }
+  | { cmd: 'videoSubscribe'; id: number; resolution?: VideoResolutionKey; audio?: boolean }
   | { cmd: 'videoUnsubscribe'; id: number };
 
 /** Was woertlich auf stdout der Bridge steht. */
@@ -113,6 +136,18 @@ export type WireEvent =
       rebindable: boolean;
       rotation?: number;
       limitedRange?: boolean;
+    }
+  // "sampleRate"/"channels" FEHLEN, solange kein Paket sie geliefert hat (bei
+  // state:"waiting" also immer). Dieselbe Regel wie rotation/limitedRange beim
+  // Bild: eine erfundene 32000 liesse sich spaeter nicht von einer gemessenen
+  // unterscheiden.
+  | {
+      ev: 'audio';
+      id: number;
+      state: AudioState;
+      reason: AudioReason;
+      sampleRate?: number;
+      channels?: number;
     }
   | { ev: string; [k: string]: unknown };
 
@@ -273,6 +308,18 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // gar nicht". Wer das mit videoSenderFailed verschmelzen wuerde, schickte
   // die Suche zu einem Abo statt zur Installation.
   ndiInitFailed: 'NDI_INIT_FAILED',
+  // Das SDK gab keinen Ton-Helfer heraus - kein Meeting oder SDK nicht bereit.
+  audioHelperMissing: 'AUDIO_HELPER_MISSING',
+  // Das EINE globale Ton-Abo ging nicht durch. AUSDRUECKLICH ein anderer Name
+  // als audioHelperMissing: dort gab es den Helfer gar nicht, hier hat er
+  // abgelehnt - zwei verschiedene Orte zum Suchen.
+  audioSubscribeFailed: 'AUDIO_SUBSCRIBE_FAILED',
+  // Pufferlaenge passt nicht zu Kanalzahl x 2. Geprueft, nicht geglaubt -
+  // dieselbe Sorge wie videoBufferMismatch beim I420.
+  audioBufferMismatch: 'AUDIO_BUFFER_MISMATCH',
+  // Pakete verworfen, weil das Leeren nicht nachkam. Eine Aussage ueber die
+  // MASCHINE, nicht ueber einen Gast - darum ohne id.
+  audioQueueOverflow: 'AUDIO_QUEUE_OVERFLOW',
 };
 
 export function sdkErrorName(code: number): string {

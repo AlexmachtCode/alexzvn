@@ -1,6 +1,6 @@
 // Die Zustandsmaschine: aus Ereignissen wird ein Bild der Sitzung.
 // Rein — kein Prozess, keine Uhr, keine Seiteneffekte. Deshalb ohne SDK pruefbar.
-import type { BridgeEvent, MeetingStatusName, Participant, VideoReason, VideoState } from './protocol.ts';
+import type { AudioReason, AudioState, BridgeEvent, MeetingStatusName, Participant, VideoReason, VideoState } from './protocol.ts';
 
 export interface VideoSub {
   state: VideoState;
@@ -9,6 +9,13 @@ export interface VideoSub {
   rebindable: boolean;
   rotation?: number;
   limitedRange?: boolean;
+}
+
+export interface AudioSub {
+  state: AudioState;
+  reason: AudioReason;
+  sampleRate?: number;
+  channels?: number;
 }
 
 export interface Session {
@@ -49,6 +56,7 @@ export interface Session {
   privilegeDenied: boolean;
   lastError: { where: string; code: number | string; name: string } | null;
   videoSubs: Map<number, VideoSub>;
+  audioSubs: Map<number, AudioSub>;
 }
 
 export function initialSession(): Session {
@@ -62,6 +70,7 @@ export function initialSession(): Session {
     privilegeDenied: false,
     lastError: null,
     videoSubs: new Map(),
+    audioSubs: new Map(),
   };
 }
 
@@ -213,6 +222,24 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
         });
       }
       return { ...s, videoSubs };
+    }
+
+    case 'audio': {
+      const e = ev as {
+        id: number; state: AudioState; reason: AudioReason;
+        sampleRate?: number; channels?: number;
+      };
+      const audioSubs = new Map(s.audioSubs);
+      // 'off' ist das Ende - wie 'unsubscribed' beim Bild. Kein Umhaengen-
+      // Sonderfall: der Ton haengt am Bild-Abo, und dessen Umhaengen meldet
+      // sich ueber das video-Ereignis. Ein umgehaengtes Abo bekommt hier ein
+      // frisches 'waiting' unter der NEUEN Kennung (Task 7).
+      if (e.state === 'off') audioSubs.delete(e.id);
+      else audioSubs.set(e.id, {
+        state: e.state, reason: e.reason,
+        sampleRate: e.sampleRate, channels: e.channels,
+      });
+      return { ...s, audioSubs };
     }
 
     case 'bye':

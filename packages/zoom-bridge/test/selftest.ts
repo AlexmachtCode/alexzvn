@@ -1277,5 +1277,37 @@ console.log('\nbridge — Video: ein Abo über die Attrappe:');
   assert(wieInBridge.PATH === `C:\\ndi${delimiter}aufrufer`, 'ein vom Aufrufer gesetztes PATH behaelt die NDI-Laufzeit');
 }
 
+// --- Ton: Protokoll und Zustand ----------------------------------------
+console.log('\nprotocol — Ton:');
+{
+  const ev = parseWireEvent('{"ev":"audio","id":7,"state":"live","reason":"packets","sampleRate":32000,"channels":1}');
+  assert(ev?.ev === 'audio', 'ein audio-Ereignis wird gelesen');
+  assert((ev as { sampleRate?: number }).sampleRate === 32000, 'die Abtastrate kommt durch');
+
+  const ohne = parseWireEvent('{"ev":"audio","id":7,"state":"waiting","reason":"command"}');
+  assert((ohne as { sampleRate?: number })?.sampleRate === undefined,
+    'ohne gemessenes Paket fehlt die Abtastrate — sie wird NICHT erfunden');
+
+  assert(serializeCommand({ cmd: 'videoSubscribe', id: 7, audio: false }).includes('"audio":false'),
+    'der Ton-Schalter steht im Befehl');
+
+  const fehler = enrich({ ev: 'error', where: 'audio', code: 'audioQueueOverflow' } as WireEvent);
+  assert((fehler as { name?: string }).name === 'AUDIO_QUEUE_OVERFLOW', 'der Ueberlauf hat einen eigenen Namen');
+}
+
+console.log('\nstate — Ton:');
+{
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'waiting', reason: 'command' } as WireEvent));
+  assert(s.audioSubs.get(7)?.state === 'waiting', 'ein Ton-Abo beginnt als waiting');
+
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'live', reason: 'packets', sampleRate: 32000, channels: 1 } as WireEvent));
+  assert(s.audioSubs.get(7)?.sampleRate === 32000, 'das gemessene Format wird uebernommen');
+
+  // 'off' ist das Ende eines Ton-Abos - wie 'unsubscribed' beim Bild.
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'off', reason: 'meetingEnded' } as WireEvent));
+  assert(!s.audioSubs.has(7), 'ein beendetes Ton-Abo verschwindet aus der Karte');
+}
+
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
