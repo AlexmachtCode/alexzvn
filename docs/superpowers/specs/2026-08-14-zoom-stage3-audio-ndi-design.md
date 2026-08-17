@@ -197,11 +197,12 @@ getragen, nicht wegdefiniert.
 Fehlerschlüssel — gegen `test/fake-bridge.mjs`, das ein `audio`-Skript
 dazubekommt.
 
-**Ohne Meeting, mit SDK:** `--ndi-selftest` sendet zusätzlich Ton.
-**Offene Frage, ehrlich benannt:** ob der Empfänger in `@jm/ndi` Ton überhaupt
-beobachten kann, ist ungeprüft. Kann er es, belegt `ndi-probe` den Tonweg ohne
-Meeting; kann er es nicht, wird das **so dokumentiert** und der Tonweg ist erst
-in der Owner-Abnahme belegt. Nicht versprechen, was nicht gemessen ist.
+**Ohne Meeting, mit SDK:** `--ndi-selftest` sendet zusätzlich Ton, und
+`ndi-probe` prüft, dass er ankommt. **Beim Planschreiben nachgesehen und
+beantwortet:** `@jm/ndi` **kann** Ton empfangen (`NdiAudioFrame` mit
+`type: 'audio'`, siehe `packages/ndi/index.d.ts`) — der Tonweg ist damit ohne
+Meeting belegbar. „Quelle gefunden, aber stumm" bekommt dabei einen **eigenen**
+Rückgabewert: es ist eine andere Ursache als „Quelle nicht gefunden".
 
 **Owner-Abnahme am echten Meeting:**
 
