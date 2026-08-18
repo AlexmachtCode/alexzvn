@@ -139,9 +139,15 @@ Person 2 **verlässt das Meeting ganz** und tritt mit **demselben Anzeigenamen**
 Beim Weggang erwartet:
 
 ```
-video <id2>: unsubscribed (participantLeft)
+video <id2>: black (participantLeft)
 audio <id2>: off (participantLeft)
 ```
+
+**`black`, nicht `unsubscribed`** — hier stand zuerst das Falsche. Das Bild-Abo **bleibt bestehen**,
+damit die NDI-Quelle im Livebetrieb nicht wegbricht; der Herzschlag hält sie schwarz, bis das
+Umhängen greift. Der Ton dagegen geht wirklich auf `off`: Stille für jemanden, der nicht da ist,
+wäre eine Aussage über eine Person, die es im Meeting nicht mehr gibt. Zwei verschiedene
+Behandlungen, und beide sind Absicht.
 
 Beim Wiederbeitritt erwartet — unter einer **neuen** Kennung:
 
