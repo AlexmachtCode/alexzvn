@@ -29,13 +29,16 @@ void emitLog(const std::wstring& text) {
   std::fflush(stderr);
 }
 
-std::string jsonEscape(const std::wstring& s) {
+std::string toUtf8(const std::wstring& s) {
   const int need = WideCharToMultiByte(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), nullptr, 0, nullptr, nullptr);
   std::string utf8(static_cast<size_t>(need), '\0');
   if (need > 0) {
     WideCharToMultiByte(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), utf8.data(), need, nullptr, nullptr);
   }
+  return utf8;
+}
 
+std::string jsonEscapeUtf8(const std::string& utf8) {
   std::string out;
   out.reserve(utf8.size() + 8);
   for (const unsigned char c : utf8) {
@@ -58,4 +61,13 @@ std::string jsonEscape(const std::wstring& s) {
     }
   }
   return out;
+}
+
+// Herausgeloest (Task 3): dieselben zwei Schritte wie vorher, nur jetzt als
+// zwei einzeln aufrufbare Funktionen statt eines einzigen Rumpfs - siehe
+// emit.h. Byte fuer Byte dasselbe Ergebnis wie der vorherige, unaufgeteilte
+// Rumpf: dieselbe Wandlung, in derselben Reihenfolge, ohne einen einzigen
+// veraenderten Schritt dazwischen.
+std::string jsonEscape(const std::wstring& s) {
+  return jsonEscapeUtf8(toUtf8(s));
 }

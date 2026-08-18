@@ -32,12 +32,41 @@ export interface Participant {
   role: UserRoleName;
 }
 
+export const VIDEO_RESOLUTIONS = ['90p', '180p', '360p', '720p', '1080p'] as const;
+export type VideoResolutionKey = (typeof VIDEO_RESOLUTIONS)[number];
+
+export type VideoState = 'subscribed' | 'live' | 'black' | 'unsubscribed';
+// "meetingEnded" ist AUSDRUECKLICH nicht "command": beim Meeting-Ende hat
+// niemand etwas befohlen. GEMESSEN am 2026-08-13, als es den Wert noch nicht
+// gab: das Abo ueberlebte das Ende seiner Sitzung, und der letzte gemeldete
+// Stand war "black"/"cameraOff" - "jemand hat die Kamera aus" fuer ein
+// beendetes Meeting. Zwei Ursachen, ein Name.
+export type VideoReason =
+  | 'command'
+  | 'frames'
+  | 'cameraOff'
+  | 'participantLeft'
+  | 'rebound'
+  | 'bufferMismatch'
+  | 'meetingEnded'
+  // Umgehaengt ueber den ANZEIGENAMEN statt ueber die persistentId, und
+  // darum ein eigener Name: der Weg ist schwaecher. GEMESSEN am 14.08.2026,
+  // dass Zooms persistentId einen Wiederbeitritt NICHT ueberlebt (derselbe
+  // Gast kam mit einem anderen Wert zurueck) - ohne diesen zweiten Weg gaebe
+  // es das Umhaengen nur auf dem Papier. Er greift ausschliesslich bei
+  // EINDEUTIGEM Namen (je genau ein Teilnehmer und ein Abo); sonst bleibt die
+  // Quelle schwarz. Wer im Protokoll "reboundByName" liest, weiss, dass die
+  // Zuordnung auf einem Namen beruht und nicht auf einer Kennung.
+  | 'reboundByName';
+
 export type Command =
   | { cmd: 'init' }
   | { cmd: 'auth'; jwt: string }
   | { cmd: 'join'; meetingId: string; passcode: string; displayName: string }
   | { cmd: 'leave' }
-  | { cmd: 'quit' };
+  | { cmd: 'quit' }
+  | { cmd: 'videoSubscribe'; id: number; resolution?: VideoResolutionKey }
+  | { cmd: 'videoUnsubscribe'; id: number };
 
 /** Was woertlich auf stdout der Bridge steht. */
 export type WireEvent =
@@ -71,6 +100,20 @@ export type WireEvent =
     }
   | { ev: 'error'; where: string; code: number | string }
   | { ev: 'bye' }
+  // "rotation" und "limitedRange" FEHLEN, solange kein Bild kam (bei
+  // state:"subscribed" also immer). Ein Wert waere dort erfunden - und eine
+  // erfundene 0 liesse sich spaeter nicht von einer gemessenen 0
+  // unterscheiden.
+  | {
+      ev: 'video';
+      id: number;
+      state: VideoState;
+      source: string;
+      reason: VideoReason;
+      rebindable: boolean;
+      rotation?: number;
+      limitedRange?: boolean;
+    }
   | { ev: string; [k: string]: unknown };
 
 /** Dasselbe Ereignis, nachdem TypeScript Namen und Klartext dazugesetzt hat. */
@@ -199,6 +242,37 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // das SENDEN (ein Schreibversuch schlaegt fehl) - zwei verschiedene
   // Vorgaenge, die sonst denselben Namen bekaemen. Nachbesserung 2 zu Task 10.
   stdinError: 'STDIN_ERROR',
+  // Rohvideo haengt an derselben Aufnahme-Erlaubnis, die Stage 1 einholt. Ein
+  // Abo ohne sie STILL zuzulassen waere die schlimmere Variante: die Quelle
+  // bliebe fuer immer schwarz und saehe aus wie "Gast hat die Kamera aus".
+  videoNoPrivilege: 'VIDEO_NO_PRIVILEGE',
+  videoUnknownParticipant: 'VIDEO_UNKNOWN_PARTICIPANT',
+  videoAlreadySubscribed: 'VIDEO_ALREADY_SUBSCRIBED',
+  videoNotSubscribed: 'VIDEO_NOT_SUBSCRIBED',
+  // Zoom-Seite: createRenderer/subscribe lieferte einen SDK-Fehler.
+  videoRendererFailed: 'VIDEO_RENDERER_FAILED',
+  // StartRawRecording() ging nicht durch - der Schalter, der Zooms
+  // Rohdaten-Rueckrufe ueberhaupt erst freigibt (der Name luegt, er schreibt
+  // KEINE Datei; siehe native/session.h). WIEDER ein eigener Name: hier ist
+  // das Meeting oder die Rolle schuld, bei videoRendererFailed das Abo. Die
+  // beiden zu verschmelzen hat in Stage 2 GEMESSEN einen halben Tag gekostet -
+  // der fehlende Schalter trug den Namen des Renderers.
+  videoRawRecordingFailed: 'VIDEO_RAW_RECORDING_FAILED',
+  // NDI-Seite: NDIlib_send_create schlug fehl. AUSDRUECKLICH ein anderer Name
+  // als videoRendererFailed - die beiden schicken die Suche an
+  // verschiedene Orte.
+  videoSenderFailed: 'VIDEO_SENDER_FAILED',
+  videoBadResolution: 'VIDEO_BAD_RESOLUTION',
+  // GetBufferLen() passt nicht zu Breite*Hoehe*3/2. Der Puffer wird geprueft,
+  // nicht geglaubt: ein falsch ausgelegter I420-Puffer erzeugt ein Bild, das
+  // wie ein Kameradefekt aussieht - man sucht dann am falschen Ende.
+  videoBufferMismatch: 'VIDEO_BUFFER_MISMATCH',
+  // NDIlib_initialize() schlug fehl - die NDI-Laufzeit fehlt auf diesem
+  // Rechner. WIEDER eine eigene Ursache: weder ein Zoom-Fehler noch ein
+  // fehlgeschlagener EINZELNER Sender, sondern "auf dieser Maschine geht NDI
+  // gar nicht". Wer das mit videoSenderFailed verschmelzen wuerde, schickte
+  // die Suche zu einem Abo statt zur Installation.
+  ndiInitFailed: 'NDI_INIT_FAILED',
 };
 
 export function sdkErrorName(code: number): string {

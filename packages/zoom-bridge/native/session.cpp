@@ -1,4 +1,6 @@
 #include "session.h"
+#include <atomic>
+#include <climits>
 #include <cstdlib>
 #include <windows.h>
 #include "zoom_sdk.h"
@@ -39,6 +41,17 @@ bool g_privilegePending = false;
 // Regler-Zeiger beim Abbau noch gueltig ist.
 bool g_participantsListenerRegistered = false;
 bool g_recordingListenerRegistered = false;
+
+// Siehe sessionCanRecordRaw()/sessionSetCanRecordRaw() in session.h (Task 3):
+// der ZULETZT gemeldete Stand der Rohdaten-Erlaubnis. Atomar, nicht bool -
+// gesetzt wird auf dem SDK-Rueckruf-Thread (callbacks.cpp), gelesen beim
+// Abo-Befehl (videoSubscribe(), video.cpp) auf dem Hauptthread.
+std::atomic<bool> g_canRecordRaw{false};
+// Ob StartRawRecording() in DIESEM Meeting bereits durchging. Nicht "nimmt der
+// SDK Rohdaten entgegen" - das weiss nur der SDK -, sondern "wir haben den
+// Schalter schon umgelegt". Wird beim Meeting-Ende zurueckgesetzt, sonst
+// hielte ein zweites Meeting den Schalter faelschlich fuer bereits gelegt.
+std::atomic<bool> g_rawRecordingOn{false};
 }  // namespace
 
 // NICHT (mehr) TU-lokal: session.h erklaert diese Funktion oeffentlich, main.cpp
@@ -185,6 +198,14 @@ void sessionJoin(const std::string& meetingIdUtf8, const std::string& passcodeUt
 }
 
 bool sessionLeave() {
+  // GANZ OBEN, VOR jedem Ruecksprung (Abschluss-Sichtung, M2): wer diese
+  // Funktion ruft, verlaesst das Meeting - ab hier gilt keine Erlaubnis mehr,
+  // die in DIESEM Meeting erteilt wurde. Vorher blieb g_canRecordRaw ueber
+  // ein "leave" hinweg auf true stehen und galt im naechsten Meeting weiter:
+  // ein "ja" ohne Deckung. Hier und nicht an den drei Ruecksprungstellen
+  // einzeln - eine Vorbedingung, die an jedem Ausgang wiederholt werden
+  // muss, wird beim naechsten neuen Ausgang vergessen.
+  sessionClearCanRecordRaw();
   if (g_meeting == nullptr) return true;  // kein Meeting -> trivial ruhend, nichts zu tun
 
   // ACHTUNG, GEMESSEN: der Befehl "leave" ruft diese Funktion auf, OHNE
@@ -324,8 +345,36 @@ void emitRoster() {
   emitRaw(out);
 }
 
+int sessionCountParticipantsByName(const std::wstring& name) {
+  IMeetingParticipantsController* ctrl = participantsCtrl();
+  if (ctrl == nullptr) return 0;
+  IList<unsigned int>* ids = ctrl->GetParticipantsList();
+  int n = 0;
+  for (int i = 0; ids != nullptr && i < ids->GetCount(); ++i) {
+    IUserInfo* u = ctrl->GetUserByUserID(ids->GetItem(i));
+    if (u == nullptr) continue;
+    const zchar_t* un = u->GetUserName();
+    if (un != nullptr && name == un) ++n;
+  }
+  return n;
+}
+
 void markParticipantsListenerRegistered() {
   g_participantsListenerRegistered = true;
+}
+
+bool sessionFindParticipant(unsigned int userId, std::wstring* nameOut, std::string* persistentIdOut) {
+  IMeetingParticipantsController* ctrl = participantsCtrl();
+  if (ctrl == nullptr) return false;  // kein Meeting - nicht "leerer Name als Erfolg"
+  IUserInfo* u = ctrl->GetUserByUserID(userId);
+  if (u == nullptr) return false;  // Kennung nicht (mehr) in der Teilnehmerliste
+  const zchar_t* name = u->GetUserName();
+  const zchar_t* pid = u->GetPersistentId();
+  if (nameOut != nullptr) *nameOut = name ? name : L"";
+  // persistentId kann LEER sein (nicht angemeldete Gaeste) - das ist ein
+  // gueltiges Ergebnis, kein Fehlschlag. toUtf8() aus emit.h (Task 3).
+  if (persistentIdOut != nullptr) *persistentIdOut = toUtf8(pid ? pid : L"");
+  return true;
 }
 
 IMeetingRecordingController* recordingCtrl() {
@@ -404,6 +453,8 @@ void checkPrivilege() {
     // Anfrage ist damit gegenstandslos, GLEICH OB die Antwort auf sie je
     // eintrifft.
     g_privilegePending = false;
+    // Melde-Stelle 1/5 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+    sessionSetCanRecordRaw(true);
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true,\"source\":\"check\"}");
     return;
   }
@@ -441,6 +492,38 @@ bool sessionPrivilegePending() {
 
 void sessionPrivilegeAnswered() {
   g_privilegePending = false;
+}
+
+bool sessionCanRecordRaw() {
+  return g_canRecordRaw;
+}
+
+void sessionSetCanRecordRaw(bool v) {
+  g_canRecordRaw = v;
+}
+
+SDKError sessionStartRawRecording() {
+  // EINMAL je Meeting, nicht je Abo. Der zweite Aufruf waere kein Fehler,
+  // aber ein zweiter Rueckgabewert, den niemand mehr auseinanderhalten kann.
+  if (g_rawRecordingOn) return SDKERR_SUCCESS;
+  IMeetingRecordingController* rec = recordingCtrl();
+  if (rec == nullptr) return SDKERR_SERVICE_FAILED;
+  const SDKError err = rec->StartRawRecording();
+  if (err == SDKERR_SUCCESS) g_rawRecordingOn = true;
+  return err;
+}
+
+void sessionClearRawRecording() {
+  g_rawRecordingOn = false;
+}
+
+void sessionClearCanRecordRaw() {
+  // EIGENE Funktion statt sessionSetCanRecordRaw(false) (Abschluss-Sichtung,
+  // M2): der Doc-Kommentar dort bindet jeden Aufruf an eine Melde-Stelle -
+  // "das Meeting ist vorbei" ist keine. Zwei verschiedene Anlaesse, zwei
+  // verschiedene Namen; wer spaeter die Melde-Stellen zaehlt, findet hier
+  // keine sechste, die keine ist.
+  g_canRecordRaw = false;
 }
 
 bool sessionShutdown() {
@@ -583,11 +666,44 @@ std::string readStringValue(const std::string& line, size_t at) {
   return out;
 }
 
+// Liest eine Ziffernfolge, die bei "at" beginnt (der Aufrufer hat dort
+// bereits mindestens eine Ziffer gesehen). *endOut zeigt hinter die letzte
+// gelesene Ziffer. *overflow wird wahr, wenn die Folge unsigned long long
+// gesprengt hat - dieselbe Sorgfalt wie beim std::stoul-try/catch-Fix in
+// main.cpp (Task 3): eine durch Ueberlauf VERSTUEMMELTE Zahl waere schlimmer
+// als ein klar gemeldetes "nicht auswertbar". Kein Maskierungsschritt noetig
+// (anders als readStringValue() oben) - Ziffern sind Ziffern.
+unsigned long long readUnsignedDigits(const std::string& line, size_t at, size_t* endOut, bool* overflow) {
+  unsigned long long value = 0;
+  *overflow = false;
+  size_t i = at;
+  while (i < line.size() && line[i] >= '0' && line[i] <= '9') {
+    const unsigned long long digit = static_cast<unsigned long long>(line[i] - '0');
+    if (!*overflow) {
+      // ULLONG_MAX statt std::numeric_limits<...>::max(): windows.h (siehe
+      // Include oben) definiert ohne NOMINMAX ein Makro `max` - das haette
+      // den STL-Aufruf hier zu einem funktionsartigen Makroaufruf verstuemmelt
+      // (GEMESSEN: "zu wenige Argumente fuer das Makro" beim ersten
+      // Bauversuch dieser Nachbesserung).
+      if (value > (ULLONG_MAX - digit) / 10) {
+        *overflow = true;
+      } else {
+        value = value * 10 + digit;
+      }
+    }
+    ++i;
+  }
+  *endOut = i;
+  return value;
+}
+
 }  // namespace
 
 std::string fieldFromJson(const std::string& line, const char* key) {
-  // Der Leser bleibt bewusst schlicht: fuenf Befehle, ausschliesslich flache
-  // Zeichenkettenfelder (siehe session.h). Er sucht daher NICHT nach einem
+  // Der Leser bleibt bewusst schlicht: ausschliesslich flache
+  // Zeichenkettenfelder (siehe session.h - BERICHTIGT, Nachbesserungsrunde 1:
+  // "id" bei videoSubscribe/videoUnsubscribe ist eine ZAHL, dafuer steht
+  // numberFromJson() weiter unten). Er sucht daher NICHT nach einem
   // Baum, sondern nach der Zeichenfolge des Schluessels und prueft an dieser
   // Stelle nur zwei Dinge nach: steht unmittelbar davor ein '{' oder ein ','
   // (also eine SCHLUESSEL-Position, keine WERT-Position), und folgt nach dem
@@ -624,6 +740,57 @@ std::string fieldFromJson(const std::string& line, const char* key) {
     // Schluesselname tauchte hier als WERT eines anderen Feldes auf, oder
     // sein Wert ist keine Zeichenkette) - an der naechsten Fundstelle weiter
     // suchen statt sofort aufzugeben.
+    searchFrom = at + needle.size();
+  }
+}
+
+bool numberFromJson(const std::string& line, const char* key, unsigned long long* out) {
+  // Zahlen-Gegenstueck zu fieldFromJson() oben: DIESELBE Schluessel-Positions-
+  // Pruefung (unmittelbar davor '{' oder ',' - siehe dort fuer die
+  // Begruendung), nach dem Doppelpunkt wird aber eine ZIFFERNFOLGE erwartet
+  // statt eines Anfuehrungszeichens. Ohne dieses Gegenstueck kann "id" bei
+  // videoSubscribe/videoUnsubscribe (Aufgabe 2 legt es als Zahl fest) nie
+  // gelesen werden - fieldFromJson() liefert fuer ein Zahlenfeld IMMER ""
+  // (Nachbesserungsrunde 1, Critical: dieser Fehler machte das Merkmal gegen
+  // einen echten Prozess unbenutzbar, jedes echte videoSubscribe/
+  // videoUnsubscribe meldete deterministisch videoUnknownParticipant).
+  const std::string needle = std::string("\"") + key + "\"";
+  size_t searchFrom = 0;
+
+  while (true) {
+    size_t at = line.find(needle, searchFrom);
+    if (at == std::string::npos) return false;
+
+    bool isKeyPosition = false;
+    size_t p = at;
+    while (p > 0 && isJsonSpace(line[p - 1])) --p;
+    if (p > 0 && (line[p - 1] == '{' || line[p - 1] == ',')) isKeyPosition = true;
+
+    if (isKeyPosition) {
+      size_t after = at + needle.size();
+      while (after < line.size() && isJsonSpace(line[after])) ++after;
+      if (after < line.size() && line[after] == ':') {
+        ++after;
+        while (after < line.size() && isJsonSpace(line[after])) ++after;
+        if (after < line.size() && line[after] >= '0' && line[after] <= '9') {
+          size_t end;
+          bool overflow;
+          const unsigned long long value = readUnsignedDigits(line, after, &end, &overflow);
+          // Ueberlauf zaehlt als "nicht auswertbar", nicht als eine (durch
+          // den Ueberlauf verstuemmelte) Zahl - dieselbe Sorgfalt wie beim
+          // std::stoul-try/catch-Fix in main.cpp (Task 3).
+          if (overflow) return false;
+          *out = value;
+          return true;
+        }
+      }
+    }
+
+    // Kein gueltiges Schluessel-Wert-Paar an dieser Stelle (z.B. der
+    // Schluesselname tauchte hier als WERT eines anderen Feldes auf, oder
+    // sein Wert ist keine reine Ziffernfolge) - an der naechsten Fundstelle
+    // weiter suchen statt sofort aufzugeben. Dasselbe Verhalten wie
+    // fieldFromJson() oben.
     searchFrom = at + needle.size();
   }
 }

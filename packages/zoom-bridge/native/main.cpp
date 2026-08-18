@@ -1,10 +1,16 @@
-// zoom-bridge.exe - Stage 1.
+// zoom-bridge.exe - Stage 1+2.
+//
+// Stage 1: Anmeldung, Meeting-Beitritt, Teilnehmerliste, Rohdaten-Aufnahme-
+// Erlaubnis. Stage 2 (diese Runde): Video-Abos je Teilnehmer, je Abo ein
+// eigener NDI-Sender (siehe video.cpp/ndi_sender.cpp) - "Kein NDI" gilt seit
+// dieser Runde NICHT mehr, README.md Abschnitt 8 war darin veraltet.
 //
 // EIN Thread pumpt die Win32-Nachrichten (ohne sie kommt kein SDK-Rueckruf an),
 // EIN Thread liest stdin. Der Leser legt fertige Zeilen in eine Warteschlange,
 // der Hauptthread arbeitet sie zwischen zwei Pumprunden ab. Alle SDK-Aufrufe
 // passieren damit auf demselben Thread, der auch pumpt.
 #include <atomic>
+#include <climits>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -13,6 +19,8 @@
 #include <windows.h>
 #include "emit.h"
 #include "session.h"
+#include "ndi_sender.h"
+#include "video.h"
 
 namespace {
 
@@ -92,6 +100,37 @@ bool nextLine(std::string& out) {
   return true;
 }
 
+// BERICHTIGT (Nachbesserungsrunde 1, Critical): "id" ist laut Protokoll
+// (Aufgabe 2) eine ZAHL, keine Zeichenkette - fieldFromJson() liest
+// AUSDRUECKLICH nur Zeichenketten (siehe session.h/session.cpp) und liefert
+// fuer ein Zahlenfeld darum IMMER "". Der vorherige Stand hier
+// (fieldFromJson() + std::stoul()) las "id" darum bei JEDER echten
+// videoSubscribe/videoUnsubscribe-Zeile als leer und meldete deterministisch
+// videoUnknownParticipant, unabhaengig davon, ob der Teilnehmer existierte -
+// das Merkmal war gegen den echten Prozess unbenutzbar. numberFromJson()
+// (session.h/session.cpp) liest die Ziffernfolge direkt, ohne den Umweg
+// ueber eine Zeichenkette, und faengt einen Ueberlauf selbst ab (kein
+// std::stoul mehr noetig, also auch keine Ausnahme, die den Prozess
+// beenden koennte).
+//
+// ZUSAETZLICHE PRUEFUNG hier: numberFromJson() liefert unsigned long long
+// (64 Bit) - absichtlich breiter als der userId-Zieltyp (unsigned int,
+// 32 Bit, wie Zooms eigenes GetUserID()). Eine Zahl, die zwar innerhalb von
+// unsigned long long passt, aber unsigned int sprengt, wuerde beim
+// Schmalcast sonst STILL umlaufen (modulo 2^32) und koennte zufaellig auf
+// eine FALSCHE, aber existierende Kennung zeigen - derselbe Grundsatz wie
+// beim Ueberlauf-Fang in numberFromJson() selbst: nicht verstuemmeln, klar
+// als "nicht auswertbar" melden. UINT_MAX statt std::numeric_limits<...>::max():
+// windows.h definiert ohne NOMINMAX ein Makro `max`, das den STL-Aufruf
+// verstuemmeln wuerde (siehe derselbe, GEMESSENE Fund in session.cpp).
+bool parseParticipantId(const std::string& line, unsigned int* out) {
+  unsigned long long value = 0;
+  if (!numberFromJson(line, "id", &value)) return false;
+  if (value > static_cast<unsigned long long>(UINT_MAX)) return false;
+  *out = static_cast<unsigned int>(value);
+  return true;
+}
+
 void handle(const std::string& line) {
   const std::string cmd = cmdOf(line);
   if (cmd.empty()) {
@@ -100,6 +139,19 @@ void handle(const std::string& line) {
   }
   if (cmd == "init") {
     if (sessionInit()) g_sdkInitialized = true;
+    // NDI erst nach geglueckter SDK-Initialisierung: schlaegt schon Zoom
+    // fehl, ist eine NDI-Meldung nur Rauschen ueber dem eigentlichen Fehler.
+    //
+    // DER FEHLSCHLAG WIRD GEMERKT (Abschluss-Sichtung, M3), und zwar in
+    // ndi_sender.cpp selbst (ndiIsUp()) statt in einem zweiten Merkzeichen
+    // hier: videoSubscribe() fragt ihn ab und meldet dann ndiInitFailed
+    // statt videoSenderFailed. Vorher blieb es bei DIESER einen Zeile - der
+    // naechste Abo-Versuch schickte die Suche danach zu einem einzelnen
+    // Sender statt zur fehlenden NDI-Laufzeit.
+    if (g_sdkInitialized && !ndiInitialize()) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"ndiInitFailed\"}");
+      emitLog(L"NDIlib_initialize() fehlgeschlagen - laeuft die NDI-Laufzeit auf diesem Rechner?");
+    }
     return;
   }
   if (cmd == "quit") {
@@ -120,7 +172,39 @@ void handle(const std::string& line) {
     return;
   }
   if (cmd == "leave") {
+    // TRAGENDE REIHENFOLGE, dieselbe wie unten beim Prozessende: erst alle
+    // Abos, DANN das Meeting verlassen. Ein laufender Renderer haelt eine
+    // Referenz auf den Meeting-Dienst - ihn nach sessionLeave() abzubauen
+    // hiesse, auf abgeraeumten Zustand zuzugreifen. Ohne diese Zeile deckte
+    // nur der Prozessende-Weg unten (quit/EOF) die Reihenfolge ab, der
+    // "leave"-Befehl selbst nicht - GEMELDET beim Umsetzen von Aufgabe 3,
+    // siehe video.h.
+    videoShutdownAll();
     sessionLeave();
+    return;
+  }
+  if (cmd == "videoSubscribe") {
+    unsigned int userId = 0;
+    if (!parseParticipantId(line, &userId)) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
+      return;
+    }
+    const std::string resKey = fieldFromJson(line, "resolution");
+    ZoomSDKResolution res = ZoomSDKResolution_720P;   // Vorgabe laut Spec
+    if (!resKey.empty() && !videoParseResolution(resKey, &res)) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadResolution\"}");
+      return;
+    }
+    videoSubscribe(userId, res);
+    return;
+  }
+  if (cmd == "videoUnsubscribe") {
+    unsigned int userId = 0;
+    if (!parseParticipantId(line, &userId)) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
+      return;
+    }
+    videoUnsubscribe(userId);
     return;
   }
   // ACHTUNG (Abschluss-Sichtung Punkt F): `cmd` kommt von AUSSEN (stdin) und
@@ -142,13 +226,93 @@ void handle(const std::string& line) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  // Diagnose-Sonderweg: baut NUR einen NDI-Sender auf, schickt zwei Sekunden
+  // Schwarz und geht. RUFT keine Zoom-Funktion auf - kein InitSDK, keine
+  // Anmeldung, kein Beitritt. Beantwortet die Frage "traegt NDI auf diesem
+  // Rechner ueberhaupt?" getrennt von der Frage "funktioniert Zoom?".
+  //
+  // BERICHTIGT (Nachbesserung Runde 1, Befund 2): "ruft keine Zoom-Funktion
+  // auf" ist NICHT dasselbe wie "braucht Zoom nicht". zoom-bridge.exe ist
+  // weiterhin gegen sdk.lib (Zoom-SDK-Importbibliothek) gebunden - der
+  // Windows-Lader loest diese Bindung beim PROZESSSTART auf, VOR main(),
+  // unabhaengig davon, ob dieser Zweig je eine Zoom-Funktion ruft. GEMESSEN:
+  // fehlt %ZOOM_SDK_DIR%\x64\bin auf PATH, startet der Prozess ueberhaupt
+  // nicht (STATUS_DLL_NOT_FOUND, 0xC0000135) - ein Zoom-EINRICHTUNGSFEHLER
+  // wuerde sich dann als "NDI-Problem" tarnen, genau das Gegenteil dessen,
+  // was dieser Sonderweg leisten soll. test/ndi-probe.mjs unterscheidet
+  // diesen Fall inzwischen von einem echten ndiInitFailed (siehe dort, PATH-
+  // Kommentar und Ursachen-Auswertung).
+  if (argc > 1 && std::string(argv[1]) == "--ndi-selftest") {
+    // ABWEICHUNG VOM BRIEF, GEMESSEN: alle drei Ausstiege dieses Zweigs
+    // gehen ueber TerminateProcess() statt ueber ein einfaches `return`, mit
+    // demselben Riegel-Muster (fflush + eigener Exitcode + return danach),
+    // das weiter unten in main() fuer "InitSDK nie geglueckt" bereits steht
+    // und dort ausfuehrlich begruendet ist. Grund: dieser Zweig ruft
+    // absichtlich NIE Zooms InitSDK (das ist der ganze Witz des
+    // Sonderwegs - "ohne Zoom"), ein regulaeres `return` haette hier also
+    // GENAU die dort dokumentierte Lage hergestellt. GEMESSEN 3/3 mit
+    // Exitcode -1073740791 (0xC0000409) bei allen drei `return`-Stellen des
+    // Brief-Wortlauts, deterministisch reproduziert vor dieser Aenderung -
+    // derselbe Absturz, derselbe Grund, den der Kommentar bei
+    // g_sdkInitialized weiter unten beschreibt. Die JSON-Zeilen VOR dem
+    // Absturz standen jedes Mal vollstaendig auf stdout (emitRaw() spuelt
+    // selbst) - fuer test/ndi-probe.mjs, das nur die NDI-Werbung im Netz
+    // prueft und den Exitcode der Bridge nicht auswertet, waere der Absturz
+    // unsichtbar geblieben. Trotzdem: ein Diagnose-Sonderweg, der bei JEDEM
+    // Lauf abstuerzt, ist selbst ein stiller Fehler (Kernregel "nichts
+    // verschwindet still") - darum hier behoben, nicht nur vermerkt.
+    if (!ndiInitialize()) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"ndiInitFailed\"}");
+      std::fflush(stdout);
+      TerminateProcess(GetCurrentProcess(), 1);
+      return 1;
+    }
+    NdiSender s;
+    // ABWEICHUNG VOM BRIEF, GEMESSEN: Name OHNE Doppelpunkt. Der urspruengliche
+    // Brief-Wortlaut "JM Connect – Zoom: Selbsttest" (mit Doppelpunkt) kommt bei
+    // der NDI-Quellensuche als "... Zoom  Selbsttest" an - der Doppelpunkt wird
+    // durch ein Leerzeichen ersetzt, REPRODUZIERT auch mit dem laengst
+    // bestehenden @jm/ndi-Addon (ndi.createSender() mit demselben Zeichen zeigt
+    // dieselbe Ersetzung) - keine Eigenheit dieses neuen Codes, sondern
+    // Verhalten der NDI-SDK/-Laufzeit selbst (Quellname dient zugleich als
+    // mDNS/Bonjour-Dienstname, dort ist ':' reserviert). test/ndi-probe.mjs
+    // prueft auf GENAUE Teilzeichenkette - mit Doppelpunkt waere Schritt 6 auf
+    // JEDEM Rechner deterministisch gescheitert, nicht nur hier. Der Name unten
+    // MUSS mit ERWARTET in test/ndi-probe.mjs uebereinstimmen, aendert man den
+    // einen, den anderen mitziehen.
+    if (!s.open("JM Connect – Zoom Selbsttest")) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"ndi\",\"code\":\"videoSenderFailed\"}");
+      ndiShutdown();
+      std::fflush(stdout);
+      TerminateProcess(GetCurrentProcess(), 1);
+      return 1;
+    }
+    emitRaw("{\"ev\":\"ndiSelftest\",\"state\":\"sending\"}");
+    for (int i = 0; i < 60; ++i) {
+      s.sendBlack(640, 360);
+      Sleep(33);
+    }
+    s.close();
+    ndiShutdown();
+    emitRaw("{\"ev\":\"ndiSelftest\",\"state\":\"done\"}");
+    std::fflush(stdout);
+    TerminateProcess(GetCurrentProcess(), 0);
+    return 0;
+  }
+
   std::thread reader(readStdin);
   reader.detach();
 
   std::string line;
   while (!g_quit) {
     pumpOnce();
+    // Schwarzbild-Herzschlag (Aufgabe 5): haelt jede Video-Quelle am Leben,
+    // indem sie bei Bildausfall Schwarz statt eines eingefrorenen letzten
+    // Bildes sendet. Hier und nicht in einem eigenen Thread - die Schleife
+    // tickt bereits alle 10 ms, ein zweiter Thread waere nur ein weiterer
+    // Schreiber auf denselben Feldern ohne jeden Vorteil.
+    videoTick();
     while (!g_quit && nextLine(line)) handle(line);
     if (g_stdinClosed) {
       bool linesEmpty;
@@ -232,6 +396,12 @@ int main() {
     Sleep(10);
   }
 
+  // TRAGENDE REIHENFOLGE: erst alle Abos, DANN der Sitzungsabbau. Ein
+  // laufender Renderer haelt eine Referenz auf den Meeting-Dienst - ihn nach
+  // DestroyMeetingService abzubauen hiesse, auf abgeraeumten Zustand
+  // zuzugreifen. Das ist dieselbe Fehlerklasse, die in Aufgabe 7 von Stage 1
+  // als 0xC0000005 gemessen wurde.
+  videoShutdownAll();
   const bool shutdownComplete = sessionShutdown();
   if (!shutdownComplete) {
     // Owner-Entscheidung, Abschluss-Sichtung Punkt A: sessionShutdown() hat
@@ -304,6 +474,14 @@ int main() {
     std::fflush(stdout);
     TerminateProcess(GetCurrentProcess(), 0);
   }
+
+  // Ganz am Ende, NACH sessionShutdown() und VOR dem return - NICHT auf dem
+  // TerminateProcess-Zweig oben (nicht beruhigter Abbau, kLeaveNotSettledExitCode):
+  // dort wird der Prozess ohnehin hart beendet, und ein weiterer Aufruf auf
+  // halb abgeraeumtem Zustand waere genau das Risiko, das dieser Zweig
+  // vermeidet. Dieser Punkt hier wird nur auf dem regulaeren Ausstiegsweg
+  // erreicht.
+  ndiShutdown();
 
   return 0;
 }

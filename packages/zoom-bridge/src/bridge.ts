@@ -6,6 +6,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { withNdiRuntimeOnPath } from './ndi-path.ts';
 import {
   LineSplitter,
   enrich,
@@ -112,8 +113,15 @@ export class Bridge {
     // envRemove auf das FERTIGE Objekt angewendet - eine bloss fehlende Variable
     // in this.opts.env waere fuer den Merge selbst unsichtbar, siehe Kommentar an
     // envRemove in BridgeOptions.
-    const env: NodeJS.ProcessEnv = { ...process.env, ...this.opts.env };
-    for (const key of this.opts.envRemove ?? []) delete env[key];
+    const merged: NodeJS.ProcessEnv = { ...process.env, ...this.opts.env };
+    for (const key of this.opts.envRemove ?? []) delete merged[key];
+    // ZULETZT, auf das FERTIGE Objekt: ein Aufrufer, der ein eigenes PATH
+    // mitgibt (test/join.mjs setzt %ZOOM_SDK_DIR%\x64\bin davor), ersetzt beim
+    // Merge oben das ganze PATH - die NDI-Laufzeit muss darum NACH dem Merge
+    // dazukommen, sonst faellt sie genau bei den Aufrufern weg, die eins
+    // mitgeben. Hier statt in jedem Pruefstand, weil das Kind ohne diese DLL
+    // gar nicht erst startet und KEINE Zeile schreibt - siehe src/ndi-path.ts.
+    const env = withNdiRuntimeOnPath(merged);
     const child = spawn(exe, args, {
       env,
       windowsHide: true,

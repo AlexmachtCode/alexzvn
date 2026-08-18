@@ -27,15 +27,40 @@ if(NOT EXISTS "${ZOOM_IMPLIB}")
   message(FATAL_ERROR "sdk.lib fehlt - erst `node scripts/make-implib.mjs` laufen lassen.")
 endif()
 
+if(NOT DEFINED ENV{NDI_SDK_DIR})
+  message(FATAL_ERROR "NDI_SDK_DIR ist nicht gesetzt.")
+endif()
+file(TO_CMAKE_PATH "$ENV{NDI_SDK_DIR}" NDI_SDK_DIR)
+
+set(NDI_HEADERS "${NDI_SDK_DIR}/Include")
+if(NOT EXISTS "${NDI_HEADERS}/Processing.NDI.Lib.h")
+  message(FATAL_ERROR "Processing.NDI.Lib.h nicht gefunden unter ${NDI_HEADERS}")
+endif()
+
+set(NDI_IMPLIB "${NDI_SDK_DIR}/Lib/x64/Processing.NDI.Lib.x64.lib")
+if(NOT EXISTS "${NDI_IMPLIB}")
+  message(FATAL_ERROR "NDI-Importbibliothek fehlt: ${NDI_IMPLIB}")
+endif()
+
 add_executable(zoom-bridge
   native/main.cpp
   native/emit.cpp
   native/session.cpp
   native/callbacks.cpp
+  native/ndi_sender.cpp
+  native/video.cpp
 )
 
-target_include_directories(zoom-bridge PRIVATE "${ZOOM_HEADERS}")
+target_include_directories(zoom-bridge PRIVATE "${ZOOM_HEADERS}" "${NDI_HEADERS}")
 # user32: die Bridge pumpt selbst Win32-Nachrichten (PeekMessage/Dispatch) -
 # ohne eigene Schleife kommt kein einziger SDK-Rueckruf an.
-target_link_libraries(zoom-bridge PRIVATE "${ZOOM_IMPLIB}" user32)
+target_link_libraries(zoom-bridge PRIVATE "${ZOOM_IMPLIB}" "${NDI_IMPLIB}" user32)
 target_compile_definitions(zoom-bridge PRIVATE UNICODE _UNICODE WIN32)
+# NACHBESSERUNG (Runde 1, Befund 3): /utf-8 setzt Quell- UND Ausfuehrungs-
+# zeichensatz explizit auf UTF-8 (sonst MSVC-Vorgabe: Ausfuehrungszeichensatz
+# = System-ANSI-Codepage). native/main.cpp enthaelt den NDI-Quellnamen als
+# Zeichenkettenliteral mit einem Gedankenstrich (U+2013) - dass der bisher
+# unveraendert ankam, beruhte auf Byte-Durchreichung ohne definierte
+# Einstellung, nicht auf einer festgelegten Zusicherung. Mit dieser Option
+# ist es eine.
+target_compile_options(zoom-bridge PRIVATE /utf-8)

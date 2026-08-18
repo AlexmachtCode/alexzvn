@@ -4,7 +4,7 @@
 > Leitprojekt der nächsten Phase ist die **Zoom-Einbindung (Welle 6.7)**; alles andere läuft
 > in vier Parallel-Spuren, die gezielt Zooms Beschaffungs-/Bau-Wartefenster füllen.
 
-**Status-Legende:** ⛔ blockiert/Gate · 🟢 jetzt/aktiv · 🔵 als Nächstes · 🟡 Code fertig, Abnahme offen · ⚪ später/geparkt · ✅ erledigt
+**Status-Legende:** ⛔ blockiert/Gate · 🟢 jetzt/aktiv · 🔵 als Nächstes · 🟡 Code fertig, Owner-Abnahme offen · ⚪ später/geparkt · ✅ erledigt
 
 ---
 
@@ -149,7 +149,7 @@ zweite Fenster-bedingte Voraussetzung der Bridge.
 **DLL-Weiterverteilungs-Lizenz** — eine kaufmännische Frage, die Stage 1–3 nicht blockiert, sondern
 erst die Auslieferung in Stage 4.
 | **1 · Bridge-Gerüst** | [`packages/zoom-bridge/`](../packages/zoom-bridge/README.md) — CMake + `maybe-build.mjs`-Riegel · eigene Win32-Nachrichtenschleife · `InitSDK` mit `ENABLE_CUSTOMIZED_UI_FLAG` · Anmeldung, Meeting-Beitritt, Teilnehmerliste und Rohdaten-Erlaubnis per JSON über stdin/stdout. Zeichnet **nichts** auf. Selbsttests laufen ohne SDK, ohne Compiler, ohne Meeting. **Owner-Abnahme am 12.08.2026 gegen ein echtes Meeting durch, alle vier Läufe:** Beitritt mit Warteraum + Erlaubnis erteilt (0), Erlaubnis abgelehnt (3), erfundene Meeting-Nummer (4), Strg+C verlässt das Meeting ohne verwaisten Prozess. [Spec](superpowers/specs/2026-08-11-zoom-bridge-geruest-design.md) · [Plan](superpowers/plans/2026-08-11-zoom-bridge-stage1.md) | ✅ durch |
-| **2 · Video → NDI** | `onVideoRawDataReceived` (I420 nativ) → **mehrere NDI-Sender in EINEM Prozess** · Quelle „JM Connect – Zoom: \<Name\>" erscheint ohne Switcher-Änderung. | 🔵 |
+| **2 · Video → NDI** | `onVideoRawDataReceived` (I420 nativ) → **mehrere NDI-Sender in EINEM Prozess** · Quelle „JM Connect – Zoom \<Name\>" (ohne Doppelpunkt, gemessen) erscheint ohne Switcher-Änderung. **Owner-Abnahme am 13./14.08.2026 gegen ein echtes Meeting durch:** Bild fließt, Bild im NDI-Monitor angesehen (Lage + Farben richtig), Kamera aus/an mehrfach, **fünf Abos gleichzeitig** (= die Betriebsgröße, Owner: höchstens 5 Zuschaltungen je Veranstaltung), Weggang + Wiederbeitritt hängen dieselbe Quelle um, Meeting-Ende räumt die Abos ab, 20 Ab-/Anmeldungen unter laufendem Bild ohne Absturz. **Zwei Messbefunde, die den Entwurf korrigiert haben:** `StartRawRecording()` ist der Schalter für die Rohdaten (der Name lügt, es schreibt keine Datei), und Zooms `persistentId` überlebt einen Wiederbeitritt **nicht** — das Umhängen läuft darum über den Anzeigenamen, nur bei Eindeutigkeit (`reboundByName`). Offen bleibt nur Befund I6 als **unbelegte** Annahme. [README Abschnitt 7](../packages/zoom-bridge/README.md). | ✅ durch |
 | **3 · Ton je Person** | `onOneWayAudioRawDataReceived` (PCM16 je `node_id`) → NDI-Audio je Teilnehmer (bzw. `onMixedAudioRawDataReceived` als Mischton). | 🔵 |
 | **4 · Integration + Release** | `ZoomParticipant` in `App.tsx` · Operator-UI (Einwahldaten eintragen, Teilnehmerliste, einzeln als Quelle laden/entladen) · Handbuch mit harten Grenzen · Lizenz-Entscheid: DLLs nachladen (transcribe-Muster) vs. separate Installer-Variante · Release **`connect-v0.2.0`**. | 🔵 |
 

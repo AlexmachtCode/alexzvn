@@ -68,12 +68,31 @@ bool sessionShutdown();
 void pumpOnce();
 
 /**
- * Liest ein flaches Zeichenkettenfeld aus einer JSON-Zeile. Reicht fuer die fuenf
- * Befehle der Bridge; eine JSON-Bibliothek waere hier teurer als der Leser und
- * muesste in Stage 4 mit ausgeliefert und lizenzgeprueft werden.
+ * Liest ein flaches ZEICHENKETTEN-Feld aus einer JSON-Zeile. BERICHTIGT
+ * (Nachbesserungsrunde 1 zu Task 3): deckt NICHT mehr alle Felder aller
+ * Befehle ab - "id" bei videoSubscribe/videoUnsubscribe (Aufgabe 2) ist eine
+ * ZAHL, kein String. Fuer ein Zahlenfeld liefert dieser Leser IMMER "" (er
+ * prueft im Rumpf ausdruecklich auf ein oeffnendes Anfuehrungszeichen nach
+ * dem Doppelpunkt) - dafuer numberFromJson() weiter unten benutzen, nicht
+ * diese Funktion. Eine JSON-Bibliothek waere fuer die verbleibenden
+ * String-Felder trotzdem teurer als die zwei schlichten Leser und muesste in
+ * Stage 4 mit ausgeliefert und lizenzgeprueft werden.
  * Gibt "" zurueck, wenn das Feld fehlt.
  */
 std::string fieldFromJson(const std::string& line, const char* key);
+
+/**
+ * Liest ein flaches ZAHLEN-Feld aus einer JSON-Zeile. Gegenstueck zu
+ * fieldFromJson() oben, das ausdruecklich nur Zeichenketten liest (siehe
+ * dort) - "id" bei videoSubscribe/videoUnsubscribe ist eine Zahl.
+ * false = Feld fehlt, steht an einer Wert- statt Schluessel-Position, oder
+ * traegt etwas anderes als eine reine Ziffernfolge (kein Vorzeichen, kein
+ * Exponent, keine Nachkommastellen - das Protokoll kennt an dieser Stelle
+ * nur Teilnehmerkennungen) - auch ein Ueberlauf von unsigned long long
+ * zaehlt als "nicht auswertbar" und liefert false, nicht eine durch den
+ * Ueberlauf verstuemmelte Zahl.
+ */
+bool numberFromJson(const std::string& line, const char* key, unsigned long long* out);
 
 /** Der Wert von "cmd", oder "" wenn die Zeile keiner ist. */
 std::string cmdOf(const std::string& line);
@@ -165,6 +184,16 @@ void sessionJoinAnswered();
 /** Der Teilnehmer-Controller, oder nullptr wenn kein Meeting laeuft. */
 IMeetingParticipantsController* participantsCtrl();
 
+/**
+ * Name und persistentId zu einer Teilnehmerkennung. false = die Kennung
+ * steht nicht (mehr) in der Teilnehmerliste.
+ *
+ * `persistentId` KANN LEER SEIN - Zoom liefert sie fuer nicht angemeldete
+ * Gaeste nicht immer. Wer darauf ein Versprechen baut (Umhaengen nach einem
+ * Wiederbeitritt), muss den leeren Fall ausdruecklich behandeln.
+ */
+bool sessionFindParticipant(unsigned int userId, std::wstring* nameOut, std::string* persistentIdOut);
+
 /** Vollbild der Anwesenden als ein roster-Ereignis. */
 void emitRoster();
 
@@ -185,8 +214,10 @@ IMeetingRecordingController* recordingCtrl();
 /**
  * Fragt die Rohdaten-Aufnahme-Erlaubnis ab und, wenn noetig, beim Gastgeber
  * an (RequestLocalRecordingPrivilege). Meldet {"ev":"privilege",...} bzw.
- * {"ev":"error","where":"privilege",...}. Stage 1 zeichnet NICHTS auf: diese
- * Funktion ruft StartRawRecording() NICHT - es steht nirgends im Quelltext.
+ * {"ev":"error","where":"privilege",...}. Diese Funktion ruft
+ * StartRawRecording() NICHT - das tut sessionStartRawRecording(), und zwar
+ * erst beim ersten videoSubscribe(). Erlaubnis holen und Rohdaten einschalten
+ * sind zwei verschiedene Schritte; Stage 1 brauchte nur den ersten.
  *
  * Owner-Entscheidung: "automatisch anfragen, einmal freigeben" - die Bruecke
  * fragt die Erlaubnis SELBST an, sie wartet nicht auf einen externen Befehl.
@@ -213,3 +244,96 @@ bool sessionPrivilegePending();
 
 /** Von RecordingListener::onLocalRecordingPrivilegeRequestStatus gerufen, sobald die Antwort da ist. */
 void sessionPrivilegeAnswered();
+
+/**
+ * Der ZULETZT gemeldete Stand der Rohdaten-Erlaubnis. Ohne dieses Merkzeichen
+ * koennte videoSubscribe() (Task 3) die Voraussetzung "canRecordRaw" gar nicht
+ * pruefen - der native Teil MELDET die Erlaubnis an FUENF Stellen
+ * (callbacks.cpp: onRecordPrivilegeChanged, die DREI
+ * onLocalRecordingPrivilegeRequestStatus-Zweige Granted/Denied/Timeout;
+ * session.cpp: checkPrivilege()s Sofortpruefung), merkte sie sich bisher aber
+ * nirgends. BERICHTIGT (Abschluss-Sichtung, M1): hier stand "vier Stellen" -
+ * der Timeout-Zweig wurde uebersehen und rief diese Funktion nicht.
+ */
+bool sessionCanRecordRaw();
+
+/**
+ * Haelt fest, was gerade ueber die Rohdaten-Erlaubnis gemeldet wurde. Von
+ * ALLEN FUENF Melde-Stellen oben zu rufen, jeweils mit GENAU dem Wert, der auf
+ * derselben Zeile auch als "canRecordRaw" auf die Rohrleitung geht - zwei
+ * Wahrheiten, die auseinanderlaufen koennten, waeren schlimmer als eine.
+ *
+ * KIPPT IN BEIDE RICHTUNGEN: dieselbe Falle wie bei privilegeTimedOut in
+ * Stage 1 - entzieht der Gastgeber die Erlaubnis waehrend des Meetings
+ * (onRecordPrivilegeChanged(false)), faellt der Stand hier ausdruecklich
+ * wieder auf false zurueck. Ein Merkzeichen, das nur in eine Richtung kippt,
+ * wuerde eine Erlaubnis behaupten, die es nicht mehr gibt.
+ *
+ * NUR FUER MELDE-STELLEN. Das Ende eines Meetings ist keine Meldung ueber die
+ * Erlaubnis und laeuft darum ueber sessionClearCanRecordRaw() unten - zwei
+ * verschiedene Anlaesse, zwei verschiedene Namen.
+ */
+void sessionSetCanRecordRaw(bool v);
+
+/**
+ * Setzt den Stand der Rohdaten-Erlaubnis zurueck, weil das MEETING vorbei ist
+ * (verlassen, beendet, gescheitert) - NICHT, weil jemand etwas ueber die
+ * Erlaubnis gemeldet haette (Abschluss-Sichtung, M2).
+ *
+ * Vorher galt der Stand des alten Meetings im naechsten weiter: ein "ja" ohne
+ * Deckung. videoSubscribe() haette danach createRenderer()/subscribe() auf
+ * einem Meeting versucht, in dem niemand je etwas erlaubt hat - und im
+ * Zweifel auf einem Meeting-Dienst, der gerade abgeraeumt wird. Die sichere
+ * Richtung ist "nein": ein zu Unrecht abgewiesenes Abo meldet sich BENANNT
+ * (videoNoPrivilege), ein zu Unrecht zugelassenes taeuscht eine Erlaubnis vor.
+ *
+ * ABSICHTLICH OHNE Ereignis auf der Rohrleitung: keiner der drei "source"-
+ * Werte (broadcast/requestAnswer/check) waere wahr - niemand hat gerundfunkt,
+ * niemand geantwortet, nichts wurde geprueft -, und einen vierten zu
+ * erfinden waere eine Protokollerweiterung fuer eine Tatsache, die bereits
+ * auf der Leitung steht: das "status"-Ereignis (ended/failed) bzw. der
+ * "leave"-Befehl des Aufrufers selbst. Die TypeScript-Seite behaelt ihren
+ * zuletzt GEMELDETEN Wert - sie urteilt, der native Teil meldet.
+ */
+void sessionClearCanRecordRaw();
+
+/**
+ * Legt den Rohdaten-Schalter des SDK um (IMeetingRecordingController::
+ * StartRawRecording) und meldet den SDKError zurueck.
+ *
+ * DER NAME LUEGT, UND DAS HAT ECHTE ZEIT GEKOSTET: "StartRawRecording"
+ * schreibt KEINE Datei und startet weder Cloud- noch lokale Aufzeichnung. Es
+ * ist der Schalter, der die Rohdaten-Rueckrufe ueberhaupt erst freigibt. Stage
+ * 1 hat den Aufruf ausdruecklich vermieden, weil der Name nach Mitschnitt
+ * klingt - mit der Folge, dass in Stage 2 JEDES videoSubscribe an
+ * createRenderer() scheiterte. GEMESSEN am 2026-08-13 gegen ein echtes
+ * Meeting; die Schrittfolge (im Meeting -> Erlaubnis -> StartRawRecording ->
+ * Rohdaten ueber die Delegates) stammt woertlich von Zoom.
+ *
+ * Idempotent: der zweite Aufruf in demselben Meeting meldet SDKERR_SUCCESS,
+ * ohne das SDK noch einmal zu behelligen. Gilt je Meeting - siehe
+ * sessionClearRawRecording().
+ */
+/**
+ * Zaehlt, wie viele Teilnehmer GENAU diesen Anzeigenamen tragen.
+ *
+ * Gebraucht fuer das Umhaengen ueber den Namen (videoParticipantJoined):
+ * Zooms persistentId traegt einen Wiederbeitritt NICHT (gemessen am
+ * 14.08.2026, siehe dort), der Anzeigename ist die einzige verbliebene
+ * Handhabe - aber nur, wenn er EINDEUTIG ist. Zwei Gaeste mit demselben Namen
+ * auf gut Glueck umzuhaengen waere eine Personenverwechslung auf Sendung.
+ *
+ * @returns 0, wenn kein Meeting laeuft - "keiner heisst so" ist dann die
+ *          richtige Antwort, denn ohne Meeting gibt es keine Teilnehmer.
+ */
+int sessionCountParticipantsByName(const std::wstring& name);
+
+SDKError sessionStartRawRecording();
+
+/**
+ * Setzt den Rohdaten-Schalter zurueck, weil er je MEETING gilt. Gleiche
+ * Begruendung und gleiche Aufrufstelle wie sessionClearCanRecordRaw(): ein
+ * stehengebliebener Schalter liesse das naechste Meeting glauben, die
+ * Rohdaten seien schon frei.
+ */
+void sessionClearRawRecording();

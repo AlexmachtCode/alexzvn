@@ -12,6 +12,17 @@
 //   $env:ZOOM_MEETING_ID       = "<nur Ziffern>"
 //   $env:ZOOM_MEETING_PASSCODE = "<Kenncode>"
 //   npm run join -w @jm/zoom-bridge
+//
+// OPTIONAL: $env:ZOOM_VIDEO_SUBSCRIBE = "<kommagetrennte Teilnehmerkennungen>"
+// abonniert nach dem Beitritt das Video der genannten Kennungen (720p,
+// siehe README.md Abschnitt 7). Ohne diese Variable verhaelt sich dieser
+// Pruefstand genau wie bisher - kein Video-Befehl geht raus.
+//
+// DIE KENNUNGEN STEHEN NICHT VORHER FEST: sie gelten nur fuer DIESES Meeting.
+// Erst ohne die Variable beitreten, den Teilnehmer-Block ablesen (die Zahl
+// links), dann mit ihr neu starten. Ist die Variable gesetzt, WARTET der Lauf
+// vor dem Abonnieren auf die Rohdaten-Erlaubnis - sie kommt regelmaessig erst
+// Sekunden NACH dem Beitritt, wenn der Gastgeber sie im Zoom-Client bestaetigt.
 import { join } from 'node:path';
 import { Bridge, buildJwt, normalizeMeetingId, readCredentials } from '../src/index.ts';
 
@@ -73,7 +84,17 @@ const bridge = new Bridge({
     else if (ev.ev === 'ready') console.log(`  SDK: ${ev.sdkVersion}`);
     else if (ev.ev === 'roster') {
       console.log(`  Teilnehmer (${ev.list.length}):`);
-      for (const p of ev.list) console.log(`    ${p.id}  ${p.name}${p.self ? '  (das sind wir)' : ''}  Rolle ${p.role}`);
+      // "ohne persistentId" IMMER anzeigen: ohne diese Kennung kann ein Abo
+      // einen Wiederbeitritt NICHT ueberleben (siehe videoParticipantJoined
+      // in native/video.cpp - zwei Gaeste ohne persistentId waeren nicht
+      // auseinanderzuhalten, und ein Umhaengen auf Verdacht waere eine
+      // Personenverwechslung auf Sendung). Das ist eine Eigenschaft des
+      // Zoom-Kontos des GASTES, keine unserer Entscheidungen - aber wer sie
+      // nicht sieht, sucht den Fehler bei uns.
+      for (const p of ev.list) {
+        const pid = p.persistentId ? '' : '  [ohne persistentId → Wiederbeitritt nicht umhaengbar]';
+        console.log(`    ${p.id}  ${p.name}${p.self ? '  (das sind wir)' : ''}  Rolle ${p.role}${pid}`);
+      }
     } else if (ev.ev === 'joined') console.log(`  + ${ev.p.name} (${ev.p.id})`);
     else if (ev.ev === 'left') console.log(`  - ${ev.id}`);
     else if (ev.ev === 'renamed') console.log(`  ~ ${ev.id} heisst jetzt ${ev.name}`);
@@ -97,6 +118,21 @@ const bridge = new Bridge({
       else if (ev.denied) console.log(`  Rohdaten-Erlaubnis: ABGELEHNT  (${woher})`);
       else console.log(`  Rohdaten-Erlaubnis: fehlt — angefragt, bitte im Zoom-Client bestaetigen  (${woher})`);
     } else if (ev.ev === 'error') console.log(`  FEHLER bei ${ev.where}: ${ev.name} (${ev.code})`);
+    else if (ev.ev === 'video') {
+      // "rotation"/"limitedRange" stehen NUR dabei, wenn ein Bild sie
+      // geliefert hat (siehe protocol.ts) - deshalb hier bedingt angehaengt,
+      // nie mit einem erfundenen Wert aufgefuellt.
+      let zeile = `  video ${ev.id}: ${ev.state} (${ev.reason})  Quelle "${ev.source}"`;
+      // rebindable IMMER mitdrucken. GEMESSEN am 14.08.2026: bei einem
+      // Wiederbeitritt kam das Bild nicht zurueck, und ob das Abo ueberhaupt
+      // umhaengbar WAR, stand zwar auf der Leitung, aber in keiner Zeile.
+      // Ohne diese Angabe sieht "Zoom kann es nicht" genauso aus wie "wir
+      // koennen es nicht".
+      zeile += ev.rebindable ? '  umhaengbar' : '  NICHT umhaengbar';
+      if (ev.rotation !== undefined) zeile += `  rotation=${ev.rotation}`;
+      if (ev.limitedRange !== undefined) zeile += `  limitedRange=${ev.limitedRange}`;
+      console.log(zeile);
+    }
   },
 });
 
@@ -167,6 +203,51 @@ try {
 if (bridge.session.phase === 'error' || bridge.session.meeting !== 'inMeeting') {
   console.log('\nNicht ins Meeting gekommen — die Rohdaten-Frage wurde nie gestellt.');
   await finish(4);
+}
+
+// ZOOM_VIDEO_SUBSCRIBE ist OPTIONAL: ohne die Variable bleibt dieser
+// Pruefstand unveraendert (kein Video-Befehl geht raus). Mit ihr kann gegen
+// ein echtes Meeting geprueft werden, was test/video-limit.mjs systematisch
+// misst - hier nur zum Zusehen, ohne Anspruch auf eine Grenze.
+const videoIds = (process.env.ZOOM_VIDEO_SUBSCRIBE ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0);
+
+// AUF DIE ERLAUBNIS WARTEN, BEVOR abonniert wird. GEMESSEN im Owner-Lauf vom
+// 2026-08-13: beim Erreichen von inMeeting stand die Rohdaten-Erlaubnis noch
+// auf "angefragt"; das JA kam erst Sekunden spaeter, nachdem der Gastgeber im
+// Zoom-Client bestaetigt hatte. Ein videoSubscribe an dieser Stelle waere
+// darum regelmaessig an videoNoPrivilege abgeprallt - und der Abnahmelauf
+// haette eine ZEITFRAGE als fehlende Berechtigung gemeldet. Zwei verschiedene
+// Ursachen duerfen nie denselben Namen bekommen.
+if (videoIds.length > 0 && !bridge.session.canRecordRaw) {
+  console.log('\nWarte auf die Rohdaten-Erlaubnis, bevor Video abonniert wird …');
+  try {
+    await bridge.waitFor((s) => s.canRecordRaw || s.privilegeDenied || s.privilegeTimedOut, 60_000);
+  } catch {
+    // waitFor lief ab: weder JA noch NEIN - der Gastgeber hat schlicht nicht
+    // reagiert. Das ist eine dritte Tatsache, nicht "abgelehnt".
+  }
+  if (!bridge.session.canRecordRaw) {
+    const grund = bridge.session.privilegeDenied
+      ? 'der Gastgeber hat abgelehnt'
+      : bridge.session.privilegeTimedOut
+        ? 'die Anfrage lief ab'
+        : 'es kam keine Antwort';
+    console.log(`  Kein Video-Abo: ${grund}. Die Video-Frage wurde nie gestellt.`);
+    videoIds.length = 0;
+  }
+}
+
+for (const raw of videoIds) {
+  const id = Number(raw);
+  if (!Number.isInteger(id)) {
+    console.log(`  ZOOM_VIDEO_SUBSCRIBE: "${raw}" ist keine ganze Zahl - uebersprungen.`);
+    continue;
+  }
+  console.log(`  Video wird abonniert: ${id} (720p)`);
+  bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p' });
 }
 
 console.log(`\nIm Meeting. Bleibe ${seconds} s (Strg+C beendet frueher).`);

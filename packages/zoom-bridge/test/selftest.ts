@@ -13,10 +13,14 @@ import {
   serializeCommand,
   SDK_ERROR_NAMES,
   AUTH_RESULT_NAMES,
+  VIDEO_RESOLUTIONS,
   type BridgeEvent,
   type Participant,
+  type WireEvent,
 } from '../src/protocol.ts';
+import { withNdiRuntimeOnPath } from '../src/ndi-path.ts';
 import { tmpdir } from 'node:os';
+import { delimiter } from 'node:path';
 import { writeFileSync, unlinkSync } from 'node:fs';
 
 let failures = 0;
@@ -588,6 +592,49 @@ console.log('\nstate — Abbruch und Fehler:');
   assert(e.lastError?.where === 'join', 'und die Stelle, an der er auftrat');
 }
 
+console.log('\nstate — ein Video-Fehler kippt die SITZUNG nicht:');
+{
+  // Abschluss-Sichtung, I5. Stage 2 bringt Fehler, die im NORMALBETRIEB
+  // auftreten: zweimal geklickt (videoAlreadySubscribed), ein
+  // bufferMismatch mitten in der Sendung. Wuerden die phase auf 'error'
+  // setzen, stuende eine laufende Sitzung fuer immer als kaputt da - und
+  // test/join.mjs wie test/video-limit.mjs benutzen phase === 'error' als
+  // Abbruchmerkmal, der Messlauf haette sich also selbst ausgehebelt.
+  const laufend = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'video', code: 'videoAlreadySubscribed' },
+  ]);
+  assert(laufend.phase === 'inMeeting', 'ein Video-Fehler laesst die Phase stehen, wo sie war');
+  // Der Fehler VERSCHWINDET deswegen nicht - nur die Sitzung ist nicht kaputt.
+  assert(laufend.lastError?.name === 'VIDEO_ALREADY_SUBSCRIBED', 'der Video-Fehler steht trotzdem in lastError');
+  assert(laufend.lastError?.where === 'video', 'samt der Stelle, an der er auftrat');
+
+  const mismatch = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'video', code: 'videoBufferMismatch' },
+  ]);
+  assert(mismatch.phase === 'inMeeting', 'auch ein bufferMismatch mitten in der Sendung kippt die Sitzung nicht');
+
+  // DIE GEGENPROBE, und sie ist der eigentliche Punkt: die Ausnahme gilt
+  // NUR fuer where:'video'. Ein Fehler mit einer anderen Stelle muss
+  // weiterhin in die Fehlerphase fuehren - sonst waere aus der Ausnahme
+  // stillschweigend die Regel geworden.
+  const woanders = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'auth', code: 'authTimeout' },
+  ]);
+  assert(woanders.phase === 'error', 'ein Fehler mit anderem where kippt die Sitzung sehr wohl');
+
+  // where:'ndi' ist AUSDRUECKLICH kein Video-Fehler in diesem Sinne: "auf
+  // diesem Rechner geht NDI gar nicht" ist eine Aussage ueber den Aufbau,
+  // nicht ueber ein einzelnes Abo.
+  const ndi = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'ndi', code: 'ndiInitFailed' },
+  ]);
+  assert(ndi.phase === 'error', 'eine fehlende NDI-Laufzeit kippt die Sitzung sehr wohl');
+}
+
 console.log('\nstate — reduce veraendert nichts Bestehendes:');
 {
   // Ausgangszustand: zwei Teilnehmer
@@ -1089,6 +1136,145 @@ console.log('\nbridge - envRemove entfernt eine geerbte Variable wirklich, nicht
     delete process.env.ZOOM_BRIDGE_TEST_SECRET;
     delete process.env.ZOOM_BRIDGE_TEST_KEEP;
   }
+}
+
+console.log('\nprotocol — Video: Auflösungsschlüssel:');
+{
+  assert(VIDEO_RESOLUTIONS.includes('720p'), '720p ist ein gültiger Schlüssel');
+  // Cast noetig: VIDEO_RESOLUTIONS ist `as const`, TS' strict-Modus verbietet
+  // sonst .includes() mit einem Literal, das gar nicht im Vereinigungstyp
+  // vorkommt (Abweichung vom Brief-Wortlaut, siehe task-2-report.md) - die
+  // LAUFZEIT-Pruefung bleibt exakt dieselbe, nur der Compiler wird nicht
+  // mehr getaeuscht.
+  assert(!(VIDEO_RESOLUTIONS as readonly string[]).includes('480p'), '480p ist KEIN gültiger Schlüssel — Zoom kennt es nicht');
+}
+
+console.log('\nprotocol — Video: jede Ursache hat ihren eigenen Namen:');
+{
+  const namen = [
+    'videoNoPrivilege', 'videoUnknownParticipant', 'videoAlreadySubscribed',
+    'videoNotSubscribed', 'videoRendererFailed', 'videoSenderFailed',
+    'videoBadResolution', 'videoBufferMismatch', 'ndiInitFailed',
+  ].map((k) => (enrich({ ev: 'error', where: 'video', code: k } as WireEvent) as { name: string }).name);
+  assert(new Set(namen).size === namen.length, 'neun Ursachen, neun verschiedene Namen');
+  assert(!namen.some((n) => n.startsWith('OWN_UNKNOWN')), 'keiner faellt auf OWN_UNKNOWN zurueck');
+  const fremd = enrich({ ev: 'error', where: 'video', code: 'videoWasAuchImmer' } as WireEvent);
+  assert(
+    (fremd as { name: string }).name === 'OWN_UNKNOWN(videoWasAuchImmer)',
+    'ein unbekannter Schluessel wird SICHTBAR unbekannt, nicht stillschweigend gerundet',
+  );
+}
+
+console.log('\nstate — Video: Abo-Buchführung:');
+{
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'subscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
+  assert(s.videoSubs.get(7)?.state === 'subscribed', 'ein Abo wird gebucht');
+  assert(s.videoSubs.get(7)?.source === 'JM Connect – Zoom Anna', 'der vergebene Name wird festgehalten');
+  // Nachbesserungsrunde 1: die Gegenprobe zu "die gemessene Drehung wird
+  // festgehalten" weiter unten. Ohne Bild (state:"subscribed") FEHLEN
+  // rotation/limitedRange im Ereignis - reduce() darf hier NICHTS erfinden
+  // (z. B. per `?? 0`/`?? true`), sonst waere eine erfundene 0 von einer
+  // spaeter GEMESSENEN 0 nicht mehr zu unterscheiden.
+  assert(s.videoSubs.get(7)?.rotation === undefined, 'ohne Bild wird KEINE Drehung erfunden');
+  assert(s.videoSubs.get(7)?.limitedRange === undefined, 'ohne Bild wird KEIN Wertebereich erfunden');
+
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'live', source: 'JM Connect – Zoom Anna', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true } as WireEvent));
+  assert(s.videoSubs.get(7)?.state === 'live', 'der Zustand folgt dem Ereignis');
+  assert(s.videoSubs.get(7)?.rotation === 0, 'die gemessene Drehung wird festgehalten');
+
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'black', source: 'JM Connect – Zoom Anna', reason: 'cameraOff', rebindable: true } as WireEvent));
+  assert(s.videoSubs.get(7)?.reason === 'cameraOff', 'die URSACHE wird getrennt vom Zustand gefuehrt');
+
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'unsubscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
+  assert(!s.videoSubs.has(7), 'ein abgebautes Abo verschwindet aus der Buchfuehrung');
+}
+
+console.log('\nstate — Video: derselbe Zustand, zwei verschiedene Ursachen:');
+{
+  // Der eigentliche Prueffall: "black" allein sagt NICHT, ob jemand die
+  // Kamera zugedeckt hat oder aus dem Meeting geflogen ist.
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 1, state: 'black', source: 'A', reason: 'cameraOff', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 2, state: 'black', source: 'B', reason: 'participantLeft', rebindable: false } as WireEvent));
+  assert(s.videoSubs.get(1)?.state === s.videoSubs.get(2)?.state, 'beide stehen auf demselben Zustand');
+  assert(s.videoSubs.get(1)?.reason !== s.videoSubs.get(2)?.reason, 'aber die Ursachen bleiben unterscheidbar');
+}
+
+console.log('\nstate — Video: Umhängen behält denselben Sender:');
+{
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'live', source: 'JM Connect – Zoom Bo', reason: 'frames', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'black', source: 'JM Connect – Zoom Bo', reason: 'participantLeft', rebindable: true } as WireEvent));
+  // 'subscribed', nicht 'live': beim Umhaengen sind noch keine Bilder da —
+  // genau das meldet der native Teil (Task 6).
+  s = reduce(s, enrich({ ev: 'video', id: 11, state: 'subscribed', source: 'JM Connect – Zoom Bo', reason: 'rebound', rebindable: true } as WireEvent));
+  assert(!s.videoSubs.has(10), 'die alte Kennung ist weg');
+  assert(s.videoSubs.get(11)?.source === 'JM Connect – Zoom Bo', 'der Quellenname bleibt derselbe — der Switcher merkt nichts');
+}
+
+// DERSELBE Lauf noch einmal über den ZWEITEN Umhänge-Weg. Ohne diese
+// Zusicherung deckte der Selbsttest nur 'rebound' ab — und genau daran ist
+// 'reboundByName' vorbeigelaufen, als es dazukam: die alte Kennung blieb als
+// Karteileiche stehen, auf die nie wieder ein Ereignis kommt.
+{
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 20, state: 'live', source: 'JM Connect – Zoom Cy', reason: 'frames', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 20, state: 'black', source: 'JM Connect – Zoom Cy', reason: 'participantLeft', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 21, state: 'subscribed', source: 'JM Connect – Zoom Cy', reason: 'reboundByName', rebindable: true } as WireEvent));
+  assert(!s.videoSubs.has(20), 'auch beim Umhängen über den Namen ist die alte Kennung weg');
+  assert(s.videoSubs.size === 1, 'nach dem Umhängen über den Namen bleibt genau EIN Abo stehen');
+}
+
+console.log('\nbridge — Video: ein Abo über die Attrappe:');
+{
+  const evs: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'video' },
+    onEvent: (e) => { if (e.ev === 'video') evs.push(e); },
+  });
+  await b.start();
+  b.send({ cmd: 'videoSubscribe', id: 42, resolution: '720p' });
+  await b.waitFor((s) => s.videoSubs.get(42)?.state === 'live', 4000);
+  assert(evs.length >= 2, 'erst subscribed, dann live — beide Schritte sind sichtbar');
+  // Cast noetig (Abweichung vom Brief-Wortlaut, siehe task-2-report.md):
+  // evs ist BridgeEvent[], ein Vereinigungstyp, dessen andere Varianten kein
+  // "state" fuehren - derselbe Cast-Stil wie an den bestehenden Stellen
+  // dieser Datei (z. B. `(errors[0] as { name?: string })`).
+  assert((evs[0] as { state?: string })?.state === 'subscribed', 'der erste Schritt ist subscribed');
+  await b.stop();
+}
+
+// --- NDI-Laufzeit auf dem PATH des Kindprozesses ------------------------
+// REGRESSION, gemessen am 2026-08-13: zoom-bridge.exe ist seit Stage 2 auch
+// gegen die NDI-Importbibliothek gebunden und startet ohne
+// Processing.NDI.Lib.x64.dll gar nicht - ohne eine einzige Zeile Ausgabe.
+// test/join.mjs gibt ein EIGENES PATH mit und loeschte damit beim Merge die
+// Erweiterung, die es nie hatte. Diese Zusicherungen halten die Reihenfolge
+// fest, nicht nur die Funktion.
+{
+  const mitPfad = withNdiRuntimeOnPath({ PATH: 'C:\\a' }, 'C:\\ndi');
+  assert(mitPfad.PATH === `C:\\ndi${delimiter}C:\\a`, 'NDI-Laufzeit kommt VORN auf den PATH');
+
+  const ohneFund = { PATH: 'C:\\a' };
+  assert(withNdiRuntimeOnPath(ohneFund, null) === ohneFund, 'ohne gefundene DLL bleibt die Umgebung unveraendert');
+
+  const schonDa = { PATH: `C:\\ndi${delimiter}C:\\a` };
+  assert(withNdiRuntimeOnPath(schonDa, 'C:\\ndi') === schonDa, 'ein bereits vorhandener Eintrag wird nicht verdoppelt');
+
+  assert(withNdiRuntimeOnPath({}, 'C:\\ndi').PATH === 'C:\\ndi', 'ohne PATH entsteht ein PATH mit genau diesem Eintrag');
+
+  const original = { PATH: 'C:\\a' };
+  withNdiRuntimeOnPath(original, 'C:\\ndi');
+  assert(original.PATH === 'C:\\a', 'die uebergebene Umgebung wird nicht veraendert');
+
+  // Die eigentliche Regression: der Merge in bridge.ts laesst ein vom Aufrufer
+  // gesetztes PATH GEWINNEN. Wird die NDI-Laufzeit vorher angehaengt, ist sie
+  // danach weg. Diese Zusicherung bildet genau diese Reihenfolge nach.
+  const wieInBridge = withNdiRuntimeOnPath({ ...{ PATH: 'system' }, ...{ PATH: 'aufrufer' } }, 'C:\\ndi');
+  assert(wieInBridge.PATH === `C:\\ndi${delimiter}aufrufer`, 'ein vom Aufrufer gesetztes PATH behaelt die NDI-Laufzeit');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

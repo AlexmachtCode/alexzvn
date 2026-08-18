@@ -1,6 +1,8 @@
 #include "callbacks.h"
+#include "rawdata/zoom_rawdata_api.h"  // HasRawdataLicense()
 #include "emit.h"
 #include "session.h"
+#include "video.h"
 
 namespace {
 ParticipantsListener g_participantsListener;
@@ -11,6 +13,17 @@ void AuthListener::onAuthenticationReturn(AuthResult ret) {
   emitRaw("{\"ev\":\"auth\",\"code\":" + std::to_string(static_cast<int>(ret)) + "}");
   // Fuer den Menschen, der die Rohausgabe mitliest, zusaetzlich auf stderr.
   emitLog(std::wstring(L"Anmeldung beantwortet, AuthResult=") + std::to_wstring(static_cast<int>(ret)));
+  // Das Rohdaten-Recht haengt am KONTO, nicht am Meeting - es steht also
+  // bereits hier fest, lange vor dem ersten Abo. Ohne diese Zeile sieht ein
+  // fehlendes Recht erst beim videoSubscribe als videoRendererFailed aus,
+  // also wie ein Codefehler in einem Meeting, statt wie eine Kontofrage, die
+  // schon vor dem Beitritt beantwortbar war. KEIN Protokollereignis: es ist
+  // keine Tatsache, auf die ein Aufrufer eine Handlung stuetzt, sondern eine
+  // Auskunft fuer den Menschen, der einen Abnahmelauf einrichtet.
+  if (ret == AUTHRET_SUCCESS) {
+    emitLog(std::wstring(L"Rohdaten-Lizenz dieses Kontos: HasRawdataLicense()=") +
+            (HasRawdataLicense() ? L"true" : L"false"));
+  }
   // Meldet session.cpp, dass die Anmeldung nicht mehr offen ist - siehe
   // sessionAuthPending() in session.h.
   sessionAuthAnswered();
@@ -70,6 +83,34 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
     }
     checkPrivilege();
   }
+
+  // DAS MEETING IST VORBEI - die Erlaubnis daraus auch (Abschluss-Sichtung,
+  // M2). Deckt den Weg ab, den sessionLeave() NICHT sieht: der Gastgeber
+  // beendet das Meeting fuer alle, oder der Beitritt scheitert asynchron.
+  // Ohne diese Zeile bliebe ein "canRecordRaw":true aus dem alten Meeting
+  // stehen und liesse videoSubscribe() im naechsten Meeting durch, in dem
+  // niemand je etwas erlaubt hat. Kein Ereignis dazu - siehe die
+  // Begruendung am Doc-Kommentar von sessionClearCanRecordRaw() (session.h):
+  // die Tatsache steht bereits als "status" auf der Leitung.
+  //
+  // ENDED UND FAILED, sonst nichts: DISCONNECTING/RECONNECTING sind
+  // Uebergaenge, keine Enden (session.cpp zeigt die gemessene Folge
+  // connecting -> disconnecting -> failed -> ended), und eine
+  // Wiederverbindung fuehrt ohnehin ueber INMEETING wieder in
+  // checkPrivilege() zurueck.
+  if (status == MEETING_STATUS_ENDED || status == MEETING_STATUS_FAILED) {
+    sessionClearCanRecordRaw();
+    // Aus demselben Grund und an derselben Stelle: der Rohdaten-Schalter gilt
+    // je MEETING. Bliebe er stehen, hielte das naechste Meeting ihn faelschlich
+    // fuer bereits gelegt und subscribe() liefe ins Leere.
+    sessionClearRawRecording();
+    // Und die Abos gehoeren ebenfalls dem Meeting. GEMESSEN am 2026-08-13:
+    // ohne diese Zeile ueberlebte ein Abo das Ende seiner Sitzung, und der
+    // Herzschlag hielt eine NDI-Quelle am Leben, zu der es kein Meeting mehr
+    // gab. NACH den beiden Zeilen darueber, damit ein Rueckruf, der waehrend
+    // des Abbaus noch hereinkommt, keine Erlaubnis mehr vorfindet.
+    videoMeetingEnded();
+  }
 }
 
 const char* roleName(UserRole r) {
@@ -103,9 +144,16 @@ std::string participantJson(IUserInfo* u) {
 void ParticipantsListener::onUserJoin(IList<unsigned int>* ids, const zchar_t*) {
   if (ids == nullptr) return;
   for (int i = 0; i < ids->GetCount(); ++i) {
-    IUserInfo* u = participantsCtrl() ? participantsCtrl()->GetUserByUserID(ids->GetItem(i)) : nullptr;
+    const unsigned int id = ids->GetItem(i);
+    IUserInfo* u = participantsCtrl() ? participantsCtrl()->GetUserByUserID(id) : nullptr;
     const std::string p = participantJson(u);
     if (!p.empty()) emitRaw("{\"ev\":\"joined\",\"p\":" + p + "}");
+    // ERST das bestehende "joined"-Ereignis, DANN das Abo-Umhaengen: sonst
+    // stuende ein "video"-Ereignis mit reason:"rebound" fuer eine Kennung auf
+    // der Leitung, die der Leser noch gar nicht kennt. Die Teilnehmerliste
+    // (oben) und das Video-Abo (hier) sind zwei getrennte Fragen und
+    // verschmelzen darum nicht zu einem Ereignis.
+    videoParticipantJoined(id);
   }
 }
 
@@ -115,7 +163,11 @@ void ParticipantsListener::onUserLeft(IList<unsigned int>* ids, const zchar_t*) 
   // nicht mehr abfragbar. Ein nullptr-Ergebnis waere kein Grund, das Ereignis zu
   // verschlucken - wer geht, muss gemeldet werden.
   for (int i = 0; i < ids->GetCount(); ++i) {
-    emitRaw("{\"ev\":\"left\",\"id\":" + std::to_string(ids->GetItem(i)) + "}");
+    const unsigned int id = ids->GetItem(i);
+    emitRaw("{\"ev\":\"left\",\"id\":" + std::to_string(id) + "}");
+    // Das bestehende "left"-Ereignis bleibt unveraendert - das Video-Abo (falls
+    // eins besteht) ist eine ANDERE Frage und wird separat gemeldet.
+    videoParticipantLeft(id);
   }
 }
 
@@ -138,6 +190,12 @@ void RecordingListener::onRecordPrivilegeChanged(bool bCanRec) {
   // Feld - "source" unterscheidet sie (Nachbesserung 1, Owner-Entscheidung:
   // Befund A). Vergeben auch im false-Fall, damit das Feld nie mal da ist und
   // mal nicht.
+  // Melde-Stelle 2/5 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+  // GENAU dieser Ruf ist der, der in BEIDE Richtungen kippt - bCanRec ist
+  // hier wortgleich der Wert, der auch auf die Rohrleitung geht, also
+  // spiegelt g_canRecordRaw ab jetzt sofort einen Entzug (bCanRec == false)
+  // ebenso wie eine Freigabe.
+  sessionSetCanRecordRaw(bCanRec);
   emitRaw(std::string("{\"ev\":\"privilege\",\"canRecordRaw\":") + (bCanRec ? "true" : "false") +
           ",\"source\":\"broadcast\"}");
 }
@@ -151,10 +209,14 @@ void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecor
   sessionPrivilegeAnswered();
 
   if (status == RequestLocalRecording_Granted) {
+    // Melde-Stelle 3/5 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+    sessionSetCanRecordRaw(true);
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":true,\"source\":\"requestAnswer\"}");
     return;
   }
   if (status == RequestLocalRecording_Denied) {
+    // Melde-Stelle 4/5 (Task 3): siehe sessionSetCanRecordRaw() in session.h.
+    sessionSetCanRecordRaw(false);
     emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"source\":\"requestAnswer\",\"denied\":true}");
     return;
   }
@@ -168,6 +230,18 @@ void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecor
   // fuer immer gilt und der andere sich noch aendern kann. Wer auf die
   // vorherige Zeile wartet, wuerde ohne dieses Feld beim Timeout fuer immer
   // warten (Nachbesserung 1, Owner-Entscheidung: Befund B).
+  //
+  // Melde-Stelle 5/5 (Abschluss-Sichtung, M1): DIESER Zweig schickte
+  // "canRecordRaw":false auf die Leitung, ohne sessionSetCanRecordRaw() zu
+  // rufen - es waren also nie vier Melde-Stellen, sondern fuenf, und eine
+  // davon liess die beiden Wahrheiten auseinanderlaufen. Praktisch fiel das
+  // bisher nicht auf, weil der Stand in diesem Ablauf ohnehin schon false
+  // war (checkPrivilege() fragt erst, wenn CanStartRawRecording()
+  // fehlschlug); es auf "faellt schon nicht auf" zu gruenden, ist aber
+  // genau die Annahme, die beim naechsten Umbau bricht. Die Regel am
+  // Doc-Kommentar von sessionSetCanRecordRaw() gilt ohne Ausnahme: JEDE
+  // Stelle, die den Wert auf die Rohrleitung schreibt, merkt ihn sich auch.
+  sessionSetCanRecordRaw(false);
   emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"source\":\"requestAnswer\",\"requested\":true,\"timedOut\":true}");
   emitLog(L"Keine Antwort auf die Anfrage nach lokaler Aufnahme (Zeitueberschreitung).");
 }
