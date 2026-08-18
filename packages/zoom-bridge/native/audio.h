@@ -18,6 +18,19 @@
  * einer Hand, und die Lebensdauerfrage entfaellt, statt bewacht zu werden.
  */
 struct AudioPacket {
+  // Zaehlerstand von QueryPerformanceCounter() ZUM ZEITPUNKT DES RUECKRUFS.
+  // Misst, wie lange ein Paket in der Warteschlange liegt, bevor der
+  // Hauptthread es sendet - und das ist GENAU der Verzug, den der Ton
+  // gegenueber dem Bild hat: das Bild geht direkt aus seinem SDK-Rueckruf
+  // raus (Delegate::onRawDataFrameReceived -> sendI420()), der Ton nimmt
+  // diesen Umweg.
+  //
+  // QPC UND NICHT GetTickCount64(): dessen Aufloesung liegt bei rund 15,6 ms
+  // und damit in DERSELBEN Groessenordnung wie die gesuchte Groesse - das
+  // Messgeraet koennte den Unterschied gar nicht zeigen, den es messen soll.
+  // Als long long und nicht als LARGE_INTEGER, weil diese Datei bewusst frei
+  // von windows.h bleibt (siehe oben).
+  long long eingangTick = 0;
   unsigned int userId = 0;
   int sampleRate = 0;
   int channels = 0;

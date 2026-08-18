@@ -149,6 +149,16 @@ struct Sub {
   unsigned int audioMessPakete = 0;
   unsigned long long audioMessAbtastwerte = 0;
   bool audioMessGemeldet = false;
+  // WARTEZEIT IN DER WARTESCHLANGE, in Mikrosekunden. Das ist der VOLLE
+  // Vorsprung, den das Bild vor dem Ton hat: das Bild geht direkt aus seinem
+  // SDK-Rueckruf raus, der Ton wartet bis zum naechsten videoTick().
+  // Abnahmepunkt 5 (Lippensynchronitaet) ist am 18.08.2026 gefallen, mit
+  // GLEICHBLEIBENDEM Versatz - diese Zahl sagt, wieviel davon UNSER Anteil
+  // ist. Faellt sie klein aus, liegt der Rest bei Zoom oder beim Empfaenger,
+  // und kein Umbau dieser Warteschlange wuerde daran etwas aendern.
+  unsigned long long audioWartenSummeUs = 0;
+  unsigned long long audioWartenMaxUs = 0;
+  unsigned long long audioWartenMinUs = 0;   // 0 = noch nichts gemessen
 };
 
 // Der Name steht bei subscribe FEST und folgt keiner Umbenennung: einen
@@ -794,6 +804,9 @@ void videoTick() {
     bool wurdeLive = false;
     bool messungFertig = false;
     unsigned int mPakete = 0;
+    unsigned long long mWartenSumme = 0;
+    unsigned long long mWartenMax = 0;
+    unsigned long long mWartenMin = 0;
     unsigned long long mWerte = 0;
     ULONGLONG mSpanne = 0;
     int mRate = 0, mKanaele = 0;
@@ -810,6 +823,28 @@ void videoTick() {
       if (s->audioMessBeginnMs == 0) s->audioMessBeginnMs = s->lastAudioMs;
       ++s->audioMessPakete;
       s->audioMessAbtastwerte += static_cast<unsigned long long>(p.sampleCount);
+      // Die Frequenz EINMAL holen: sie ist zur Laufzeit unveraenderlich
+      // (dokumentiert), und ein Aufruf je Paket waere bei rund 100 Paketen je
+      // Sekunde und Sprecher blosse Arbeit ohne Erkenntnis.
+      static const long long qpcFreq = [] {
+        LARGE_INTEGER f;
+        QueryPerformanceFrequency(&f);
+        return f.QuadPart;
+      }();
+      if (p.eingangTick > 0 && qpcFreq > 0) {
+        LARGE_INTEGER jetztQpc;
+        QueryPerformanceCounter(&jetztQpc);
+        const long long diff = jetztQpc.QuadPart - p.eingangTick;
+        // VERGLEICH statt blosser Subtraktion, dieselbe Vorsicht wie beim
+        // Herzschlag: ein negativer Wert waere ein Messfehler, kein Verzug,
+        // und als vorzeichenlose Zahl eine gewaltige Luege.
+        if (diff > 0) {
+          const unsigned long long us = static_cast<unsigned long long>(diff * 1000000LL / qpcFreq);
+          s->audioWartenSummeUs += us;
+          if (us > s->audioWartenMaxUs) s->audioWartenMaxUs = us;
+          if (s->audioWartenMinUs == 0 || us < s->audioWartenMinUs) s->audioWartenMinUs = us;
+        }
+      }
       const ULONGLONG spanne = s->lastAudioMs - s->audioMessBeginnMs;
       if (!s->audioMessGemeldet && spanne >= 1000) {
         s->audioMessGemeldet = true;
@@ -819,6 +854,9 @@ void videoTick() {
         mSpanne = spanne;
         mRate = s->audioRate;
         mKanaele = s->audioChannels;
+        mWartenSumme = s->audioWartenSummeUs;
+        mWartenMax = s->audioWartenMaxUs;
+        mWartenMin = s->audioWartenMinUs;
       }
     }
     if (wurdeLive) emitAudio(*s, "live", "packets");
@@ -834,6 +872,18 @@ void videoTick() {
               std::to_wstring(mWerte) + L" Abtastwerte je Kanal = " + std::to_wstring(jeSekunde) +
               L"/s gesendet. Zoom gibt " + std::to_wstring(mRate) + L" Hz, " +
               std::to_wstring(mKanaele) + L" Kanal an.");
+      // UNSER EIGENER ANTEIL AM VERSATZ, getrennt ausgewiesen. Das Bild geht
+      // direkt aus seinem SDK-Rueckruf raus, der Ton wartet bis zum naechsten
+      // videoTick() - diese Spanne ist der Vorsprung, den das Bild dadurch
+      // bekommt. Sie steht ABSICHTLICH als eigene Zeile neben der Durchsatz-
+      // Messung: die eine sagt, ob wir die richtige MENGE senden, die andere,
+      // ob wir sie rechtzeitig senden. Zwei Fragen, zwei Zeilen.
+      if (mPakete > 0) {
+        emitLog(std::wstring(L"Ton-Wartezeit fuer ") + std::to_wstring(s->userId.load()) +
+                L" (Warteschlange -> Senden): mittel " + std::to_wstring(mWartenSumme / mPakete) +
+                L" us, min " + std::to_wstring(mWartenMin) + L" us, max " +
+                std::to_wstring(mWartenMax) + L" us. Das ist UNSER Anteil am Bild-Ton-Versatz.");
+      }
       if (mRate > 0) {
         const unsigned long long soll = static_cast<unsigned long long>(mRate);
         // 10 % Toleranz: die Fenstergrenze faellt nicht auf eine Paketgrenze,
@@ -1331,6 +1381,9 @@ void videoParticipantJoined(unsigned int userId) {
     s->audioMessPakete = 0;
     s->audioMessAbtastwerte = 0;
     s->audioMessGemeldet = false;
+    s->audioWartenSummeUs = 0;
+    s->audioWartenMaxUs = 0;
+    s->audioWartenMinUs = 0;
   }
   // Zwischen dem geglueckten subscribe() oben und dieser Sperre kann bereits
   // ein Bild eintreffen. Es wird dann noch mit teilnehmerWeg == true

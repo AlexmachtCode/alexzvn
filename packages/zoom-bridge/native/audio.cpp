@@ -101,6 +101,12 @@ class AudioDelegate : public IZoomSDKAudioRawDataDelegate {
     if (buf == nullptr || len == 0 || rate <= 0 || ch <= 0) return;
 
     AudioPacket p;
+    // SO FRUEH WIE MOEGLICH: alles danach - die Kopie der Abtastwerte, das
+    // Anstellen in der Warteschlange - gehoert bereits zum Verzug, den diese
+    // Messung erfassen soll.
+    LARGE_INTEGER jetztQpc;
+    QueryPerformanceCounter(&jetztQpc);
+    p.eingangTick = jetztQpc.QuadPart;
     p.userId = userId;
     p.sampleRate = rate;
     p.channels = ch;
