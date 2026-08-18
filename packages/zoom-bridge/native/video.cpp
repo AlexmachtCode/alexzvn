@@ -148,7 +148,15 @@ struct Sub {
   ULONGLONG audioMessBeginnMs = 0;
   unsigned int audioMessPakete = 0;
   unsigned long long audioMessAbtastwerte = 0;
-  bool audioMessGemeldet = false;
+  // FENSTERZAEHLER statt eines einmaligen "schon gemeldet" (18.08.2026): die
+  // erste Messung deckte nur die erste Sekunde NACH dem ersten Paket ab, also
+  // den Anlauf - und ausgerechnet dort log sie 149 % der Rate und 477 ms
+  // Wartezeit, waehrend fruehere Laeufe 100 % zeigten. Eine einmalige Messung
+  // im unrepraesentativsten Moment kann nicht zwischen "Rueckstau beim Start"
+  // und "dauerhafter Rueckstand" unterscheiden - und genau diese Frage
+  // entscheidet, was gegen den Bild-Ton-Versatz zu tun ist. Erstes Fenster
+  // 1 s (fruehe Rueckmeldung), danach je 10 s (Dauerbetrieb).
+  unsigned int audioMessFenster = 0;
   // WARTEZEIT IN DER WARTESCHLANGE, in Mikrosekunden. Das ist der VOLLE
   // Vorsprung, den das Bild vor dem Ton hat: das Bild geht direkt aus seinem
   // SDK-Rueckruf raus, der Ton wartet bis zum naechsten videoTick().
@@ -807,6 +815,7 @@ void videoTick() {
     unsigned long long mWartenSumme = 0;
     unsigned long long mWartenMax = 0;
     unsigned long long mWartenMin = 0;
+    bool mErstesFenster = false;
     unsigned long long mWerte = 0;
     ULONGLONG mSpanne = 0;
     int mRate = 0, mKanaele = 0;
@@ -846,8 +855,12 @@ void videoTick() {
         }
       }
       const ULONGLONG spanne = s->lastAudioMs - s->audioMessBeginnMs;
-      if (!s->audioMessGemeldet && spanne >= 1000) {
-        s->audioMessGemeldet = true;
+      // Erstes Fenster kurz, damit frueh etwas dasteht; danach lang, damit
+      // die Ausgabe im Dauerbetrieb nicht zurauscht.
+      const ULONGLONG fensterMs = (s->audioMessFenster == 0) ? 1000 : 10000;
+      if (spanne >= fensterMs) {
+        mErstesFenster = (s->audioMessFenster == 0);
+        ++s->audioMessFenster;
         messungFertig = true;
         mPakete = s->audioMessPakete;
         mWerte = s->audioMessAbtastwerte;
@@ -857,6 +870,15 @@ void videoTick() {
         mWartenSumme = s->audioWartenSummeUs;
         mWartenMax = s->audioWartenMaxUs;
         mWartenMin = s->audioWartenMinUs;
+        // FENSTER ZURUECKSETZEN, nicht fortschreiben: ein Mittelwert ueber
+        // den gesamten Lauf wuerde den Anlauf-Rueckstau fuer immer
+        // mitschleppen und jede spaetere Besserung verdecken.
+        s->audioMessBeginnMs = s->lastAudioMs;
+        s->audioMessPakete = 0;
+        s->audioMessAbtastwerte = 0;
+        s->audioWartenSummeUs = 0;
+        s->audioWartenMaxUs = 0;
+        s->audioWartenMinUs = 0;
       }
     }
     if (wurdeLive) emitAudio(*s, "live", "packets");
@@ -867,7 +889,8 @@ void videoTick() {
       // senden wir denselben Ton mehrfach - und genau so klingt ein
       // zeitversetztes Echo. Der Quotient sagt, WIE oft.
       const unsigned long long jeSekunde = mWerte * 1000ULL / (mSpanne > 0 ? mSpanne : 1);
-      emitLog(std::wstring(L"Ton-Messung fuer ") + std::to_wstring(s->userId.load()) + L": " +
+      emitLog(std::wstring(L"Ton-Messung fuer ") + std::to_wstring(s->userId.load()) +
+              (mErstesFenster ? L" [ANLAUF, nicht der Dauerbetrieb]" : L" [Dauerbetrieb]") + L": " +
               std::to_wstring(mPakete) + L" Pakete in " + std::to_wstring(mSpanne) + L" ms, " +
               std::to_wstring(mWerte) + L" Abtastwerte je Kanal = " + std::to_wstring(jeSekunde) +
               L"/s gesendet. Zoom gibt " + std::to_wstring(mRate) + L" Hz, " +
@@ -880,6 +903,7 @@ void videoTick() {
       // ob wir sie rechtzeitig senden. Zwei Fragen, zwei Zeilen.
       if (mPakete > 0) {
         emitLog(std::wstring(L"Ton-Wartezeit fuer ") + std::to_wstring(s->userId.load()) +
+                (mErstesFenster ? L" [ANLAUF]" : L" [Dauerbetrieb]") +
                 L" (Warteschlange -> Senden): mittel " + std::to_wstring(mWartenSumme / mPakete) +
                 L" us, min " + std::to_wstring(mWartenMin) + L" us, max " +
                 std::to_wstring(mWartenMax) + L" us. Das ist UNSER Anteil am Bild-Ton-Versatz.");
@@ -1380,7 +1404,7 @@ void videoParticipantJoined(unsigned int userId) {
     s->audioMessBeginnMs = 0;
     s->audioMessPakete = 0;
     s->audioMessAbtastwerte = 0;
-    s->audioMessGemeldet = false;
+    s->audioMessFenster = 0;
     s->audioWartenSummeUs = 0;
     s->audioWartenMaxUs = 0;
     s->audioWartenMinUs = 0;
