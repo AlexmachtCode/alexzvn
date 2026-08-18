@@ -219,6 +219,23 @@ void emitVideoError(const char* code) {
   emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"") + code + "\"}");
 }
 
+// MIT KENNUNG (Owner-Lauf 18.08.2026): dort stand
+// "FEHLER bei video: VIDEO_UNKNOWN_PARTICIPANT" neben ZWEI abonnierten
+// Kennungen, und welche der beiden gemeint war, stand nirgends. Bei fuenf
+// Abos - der festgelegten Betriebsgroesse - ist das nicht mehr zu erraten.
+// Ein Fehler, der sein Abo nicht nennt, laesst sich keinem Abo zuordnen; fuer
+// einen Aufrufer, der eine Karte fuehrt (src/state.ts), ist er damit gar
+// nicht verwertbar - dieselbe Luecke, die beim audio-Ereignis schon einmal
+// zugemacht wurde.
+//
+// KEINE Ueberladung fuer die zwei Stellen in main.cpp, an denen
+// parseParticipantId() scheitert: dort ist gar KEINE Kennung bekannt. Eine
+// erfundene 0 waere schlimmer als keine - sie sieht aus wie eine Angabe.
+void emitVideoError(const char* code, unsigned int userId) {
+  emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"") + code +
+          "\",\"id\":" + std::to_string(userId) + "}");
+}
+
 // Ein SDKError, der NICHT auf die Rohrleitung gehoert - stdout ist Maschine,
 // stderr ist Mensch. Verworfen wird trotzdem keiner: an den Abbaustellen
 // (unSubscribe/destroyRenderer) ist ein Fehlschlag keine Protokolltatsache,
@@ -278,14 +295,14 @@ bool videoParseResolution(const std::string& key, ZoomSDKResolution* out) {
 }
 
 void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn) {
-  if (g_subs.count(userId)) { emitVideoError("videoAlreadySubscribed"); return; }
+  if (g_subs.count(userId)) { emitVideoError("videoAlreadySubscribed", userId); return; }
   // Die Erlaubnis ist Voraussetzung, kein Wunsch (siehe Spec Abschnitt 5).
-  if (!sessionCanRecordRaw()) { emitVideoError("videoNoPrivilege"); return; }
+  if (!sessionCanRecordRaw()) { emitVideoError("videoNoPrivilege", userId); return; }
 
   std::wstring name;
   std::string persistentId;
   if (!sessionFindParticipant(userId, &name, &persistentId)) {
-    emitVideoError("videoUnknownParticipant");
+    emitVideoError("videoUnknownParticipant", userId);
     return;
   }
 
@@ -324,7 +341,7 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn) {
   const SDKError rawErr = sessionStartRawRecording();
   if (rawErr != SDKERR_SUCCESS) {
     logSdkError(L"StartRawRecording()", rawErr);
-    emitVideoError("videoRawRecordingFailed");
+    emitVideoError("videoRawRecordingFailed", userId);
     return;
   }
 
@@ -341,7 +358,7 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn) {
   sub->source = uniqueSourceName(name);
   sub->delegate = std::make_unique<Delegate>(sub.get());
 
-  if (!sub->sender.open(sub->source)) { emitVideoError("videoSenderFailed"); return; }
+  if (!sub->sender.open(sub->source)) { emitVideoError("videoSenderFailed", userId); return; }
 
   // Der Protokollname bleibt EINER (videoRendererFailed) - ein Aufrufer kann
   // auf "der Renderer kam nicht zustande" genau eine Handlung stuetzen. Fuer
@@ -362,7 +379,7 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn) {
             (HasRawdataLicense() ? L"true" : L"false") +
             L" - false heisst: dieses Zoom-Konto hat kein Rohdaten-Recht, dann hilft kein Code.");
     sub->sender.close();
-    emitVideoError("videoRendererFailed");
+    emitVideoError("videoRendererFailed", userId);
     return;
   }
   sub->renderer->setRawDataResolution(res);
@@ -371,7 +388,7 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn) {
     logSdkError(L"subscribe() beim Anlegen des Abos", err);
     destroyRenderer(sub->renderer);
     sub->sender.close();
-    emitVideoError("videoRendererFailed");
+    emitVideoError("videoRendererFailed", userId);
     return;
   }
 
@@ -419,7 +436,7 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn) {
 
 void videoUnsubscribe(unsigned int userId) {
   auto it = g_subs.find(userId);
-  if (it == g_subs.end()) { emitVideoError("videoNotSubscribed"); return; }
+  if (it == g_subs.end()) { emitVideoError("videoNotSubscribed", userId); return; }
   Sub* s = it->second.get();
   // VOR der Meldung, nicht danach: zwischen emitVideo() und unSubscribe()
   // liegt ein Fenster, in dem ein Rueckruf noch etwas ueber dieses Abo sagen
@@ -1168,7 +1185,7 @@ void videoParticipantJoined(unsigned int userId) {
     // videoSubscribe() als videoRendererFailed gemeldet; ein zweiter Umgang
     // mit demselben Aufruf waere ein Widerspruch im eigenen Haus.
     logSdkError(L"subscribe() beim Umhaengen", anErr);
-    emitVideoError("videoRendererFailed");
+    emitVideoError("videoRendererFailed", userId);
     // WAS MIT DEM ABO GESCHIEHT - und warum: es BLEIBT bestehen, unveraendert
     // unter der ALTEN Kennung. Drei Gruende, in dieser Rangfolge:
     //   1. Die NDI-Quelle darf im Livebetrieb nicht wegbrechen (Spec
@@ -1277,7 +1294,7 @@ void videoParticipantJoined(unsigned int userId) {
     // belegte Kennung: "userId" hat in beiden Faellen bereits ein Abo. Kein
     // neuer Katalogeintrag noetig - videoAlreadySubscribed traegt schon
     // genau diese Bedeutung.
-    emitVideoError("videoAlreadySubscribed");
+    emitVideoError("videoAlreadySubscribed", userId);
     return;
   }
   emitVideo(*s, "subscribed", grund);
@@ -1339,7 +1356,7 @@ void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
         sollMelden = true;
       }
     }
-    if (sollMelden) emitVideoError("videoBufferMismatch");
+    if (sollMelden) emitVideoError("videoBufferMismatch", owner_->userId.load());
     return;   // das Abo bleibt bestehen und faellt ueber den Herzschlag auf Schwarz
   }
 

@@ -272,10 +272,18 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 
 **Elf eigene Fehlerschlüssel** (`where:"video"` bzw. `where:"ndi"`, siehe `OWN_ERROR_NAMES` in `src/protocol.ts`):
 
+Jedes dieser Ereignisse trägt `id` — **außer**, wenn die Befehlszeile gar keine
+lesbare Kennung enthielt. Das Fehlen ist dort selbst die Auskunft, und eine
+gedruckte `0` wäre eine erfundene Angabe. *(Nachgetragen nach dem Owner-Lauf vom
+18.08.2026: dort stand `VIDEO_UNKNOWN_PARTICIPANT` neben zwei abonnierten
+Kennungen, ohne zu sagen, welche gemeint war — bei fünf Abos, der festgelegten
+Betriebsgröße, ist das nicht mehr zu erraten. `test/command-probe.mjs` prüft
+beide Fälle, den mit und den ohne Kennung.)*
+
 | Schlüssel | Ursache |
 | --- | --- |
 | `videoNoPrivilege` | Die Rohdaten-Erlaubnis fehlt — Voraussetzung, kein Wunsch (dieselbe Erlaubnis wie in Abschnitt 6). |
-| `videoUnknownParticipant` | Die Kennung steht nicht in der Teilnehmerliste — oder `id` fehlte/war keine gültige Zahl in der Befehlszeile. |
+| `videoUnknownParticipant` | Die Kennung steht nicht in der Teilnehmerliste (dann **mit** `id`) — oder `id` fehlte/war keine gültige Zahl in der Befehlszeile (dann **ohne**). Das Vorhandensein des Feldes trennt die beiden Fälle. |
 | `videoAlreadySubscribed` | Die Kennung ist bereits abonniert. |
 | `videoNotSubscribed` | `videoUnsubscribe` auf eine nicht abonnierte Kennung. |
 | `videoBadResolution` | Der `resolution`-Schlüssel ist keiner der fünf gültigen. |

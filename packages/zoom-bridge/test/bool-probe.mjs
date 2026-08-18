@@ -52,11 +52,16 @@ child.on('exit', (code) => {
     process.exit(1);
   }
   const zeilen = err.split(/\r?\n/);
-  const fuer = (id) => zeilen.find((z) => z.includes(`Ton-Schalter fuer ${id}`)) ?? '';
+  // Das KOMMA hinter der Kennung gehoert zum Suchmuster: ohne es faende
+  // "videoSubscribe 4" auch die Zeilen fuer 42, 43, 44 und 45.
+  const fuer = (id) => zeilen.find((z) => z.includes(`videoSubscribe ${id},`)) ?? '';
   const faelle = [
-    ['audio:false wird gelesen', fuer(42).includes('aus')],
-    ['audio:true wird gelesen', fuer(43).includes('an')],
-    ['ohne Feld gilt die Vorgabe an', fuer(44).includes('an')],
+    // Auf den GANZEN Ausdruck pruefen, nicht auf "an"/"aus" allein: "an"
+    // steckt in genug deutschen Woertern, um irgendwann zufaellig zu passen -
+    // eine Zusicherung, die aus Versehen gruen wird, prueft nichts mehr.
+    ['audio:false wird gelesen', fuer(42).includes('Ton-Schalter aus')],
+    ['audio:true wird gelesen', fuer(43).includes('Ton-Schalter an')],
+    ['ohne Feld gilt die Vorgabe an', fuer(44).includes('Ton-Schalter an')],
     // ZWEI Zusicherungen fuer den vierten Fall, und beide werden gebraucht:
     // die erste belegt, dass GEMELDET wird, die zweite, dass der Schalter
     // nicht still auf "an" durchgeht. Eine Meldung, nach der das Abo trotzdem

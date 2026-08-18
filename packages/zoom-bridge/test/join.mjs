@@ -127,7 +127,13 @@ const bridge = new Bridge({
       else if (ev.timedOut) console.log(`  Rohdaten-Erlaubnis: keine Antwort gekommen (Zeitueberschreitung)  (${woher})`);
       else if (ev.denied) console.log(`  Rohdaten-Erlaubnis: ABGELEHNT  (${woher})`);
       else console.log(`  Rohdaten-Erlaubnis: fehlt — angefragt, bitte im Zoom-Client bestaetigen  (${woher})`);
-    } else if (ev.ev === 'error') console.log(`  FEHLER bei ${ev.where}: ${ev.name} (${ev.code})`);
+    } else if (ev.ev === 'error') {
+      // Die Kennung NUR anhaengen, wenn sie dasteht. Zwei Stellen in main.cpp
+      // melden videoUnknownParticipant, ohne je eine Kennung gelesen zu haben
+      // - dort waere jede angezeigte Zahl erfunden.
+      const wen = ev.id !== undefined ? ` fuer ${ev.id}` : '';
+      console.log(`  FEHLER bei ${ev.where}${wen}: ${ev.name} (${ev.code})`);
+    }
     else if (ev.ev === 'video') {
       // "rotation"/"limitedRange" stehen NUR dabei, wenn ein Bild sie
       // geliefert hat (siehe protocol.ts) - deshalb hier bedingt angehaengt,

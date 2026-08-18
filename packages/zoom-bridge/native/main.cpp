@@ -198,13 +198,20 @@ void handle(const std::string& line) {
   if (cmd == "videoSubscribe") {
     unsigned int userId = 0;
     if (!parseParticipantId(line, &userId)) {
+      // OHNE "id" - und zwar mit Absicht (Owner-Lauf 18.08.2026): hier ist
+      // GAR KEINE Kennung gelesen worden, userId steht noch auf 0. Eine
+      // gedruckte 0 saehe aus wie eine Angabe und schickte die Suche zu einem
+      // Teilnehmer, den niemand genannt hat. Ueberall dort, wo die Kennung
+      // BEKANNT ist, traegt der Fehler sie (video.cpp, emitVideoError mit
+      // zweitem Argument) - das Fehlen ist hier also selbst eine Auskunft:
+      // "die Zeile enthielt keine lesbare Kennung".
       emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
       return;
     }
     const std::string resKey = fieldFromJson(line, "resolution");
     ZoomSDKResolution res = ZoomSDKResolution_720P;   // Vorgabe laut Spec
     if (!resKey.empty() && !videoParseResolution(resKey, &res)) {
-      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadResolution\"}");
+      emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadResolution\",\"id\":") + std::to_string(userId) + "}");
       return;
     }
     bool audioOn = true;   // Vorgabe laut Spec Abschnitt 7
@@ -212,25 +219,42 @@ void handle(const std::string& line) {
     // melden und NICHT abonnieren, nicht "dann eben die Vorgabe"
     // (Schlusspruefung, Important 6). Vorher wurde der Rueckgabewert
     // verworfen, und ein {"audio":"false"} oder {"audio":0} bekam Ton AN,
-    // waehrend stderr zufrieden "Ton-Schalter fuer 42: an" meldete - ein
-    // Aufrufer haette den Grund fuer den doppelten Ton im Saal nirgends
-    // gefunden. FEHLT dagegen bleibt die Vorgabe: ein weggelassenes Feld ist
-    // keine falsche Angabe (Spec Abschnitt 7: audio ist optional).
+    // waehrend stderr zufrieden "Ton-Schalter an" meldete - ein Aufrufer
+    // haette den Grund fuer den doppelten Ton im Saal nirgends gefunden.
+    // FEHLT dagegen bleibt die Vorgabe: ein weggelassenes Feld ist keine
+    // falsche Angabe (Spec Abschnitt 7: audio ist optional).
     if (boolFromJson(line, "audio", &audioOn) == JsonBool::Unlesbar) {
-      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadAudioFlag\"}");
+      emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadAudioFlag\",\"id\":") + std::to_string(userId) + "}");
       return;
     }
     // Fuer den Menschen, der die Rohausgabe mitliest - und der Beleg, den
     // test/bool-probe.mjs auswertet: ohne diese Zeile saehe ein ignorierter
     // Schalter genauso aus wie ein befolgter.
-    emitLog(std::wstring(L"Ton-Schalter fuer ") + std::to_wstring(userId) +
-            L": " + (audioOn ? L"an" : L"aus"));
+    //
+    // WORTLAUT GEAENDERT (Owner-Lauf 18.08.2026): hier stand
+    // "Ton-Schalter fuer 16795648: an" - und daneben lehnte videoSubscribe()
+    // genau diese Kennung als videoUnknownParticipant ab. Die Zeile las sich
+    // wie eine Aussage ueber ein bestehendes Abo, war aber immer nur eine
+    // Aussage ueber die GELESENE BEFEHLSZEILE. Sie kann auch gar nichts
+    // anderes sein: sie steht VOR videoSubscribe(), und das muss so bleiben,
+    // weil bool-probe.mjs sie OHNE Meeting auswertet - dort scheitert jedes
+    // Abo zwangslaeufig an der fehlenden Rohdaten-Erlaubnis. Also sagt der
+    // Wortlaut jetzt, was die Zeile wirklich belegt.
+    emitLog(std::wstring(L"Befehl gelesen: videoSubscribe ") + std::to_wstring(userId) +
+            L", Ton-Schalter " + (audioOn ? L"an" : L"aus"));
     videoSubscribe(userId, res, audioOn);
     return;
   }
   if (cmd == "videoUnsubscribe") {
     unsigned int userId = 0;
     if (!parseParticipantId(line, &userId)) {
+      // OHNE "id" - und zwar mit Absicht (Owner-Lauf 18.08.2026): hier ist
+      // GAR KEINE Kennung gelesen worden, userId steht noch auf 0. Eine
+      // gedruckte 0 saehe aus wie eine Angabe und schickte die Suche zu einem
+      // Teilnehmer, den niemand genannt hat. Ueberall dort, wo die Kennung
+      // BEKANNT ist, traegt der Fehler sie (video.cpp, emitVideoError mit
+      // zweitem Argument) - das Fehlen ist hier also selbst eine Auskunft:
+      // "die Zeile enthielt keine lesbare Kennung".
       emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
       return;
     }
