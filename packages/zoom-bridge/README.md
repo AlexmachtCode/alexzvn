@@ -450,15 +450,27 @@ nächste Rückruf für diese `user_id` kommt trotzdem. Der Rückruf
 Warteschlange (`native/audio.cpp`) und kehrt sofort zurück; `g_subs`
 anzufassen wäre ein SDK-Thread, der mit dem Hauptthread um dieselbe Karte
 konkurriert. Der Hauptthread schlägt beim Leeren (`videoTick()`) in `g_subs`
-nach und verwirft alles, wofür kein aktives, ton-eingeschaltetes und nicht
-gerade abgebautes Abo (mehr) existiert — ein Paket für ein soeben
-abgebautes Abo ist damit der **erwartete** Fall, keine Ausnahme, kein Fehler.
-Beim Abbau (`videoUnsubscribe`/`videoAbbauAlle`/Weggang) meldet sich der Ton
-darum **vor** der zugehörigen Video-Zeile mit `state:"off"` ab — die Aussage
-über den Ton wird zurückgezogen, bevor die Sache selbst verschwindet. Beim
-Abonnieren ist es umgekehrt: `emitAudio` läuft **nach** `emitVideo("subscribed")`,
-weil dort erst die Video-Zeile das Abo überhaupt bekannt macht und der
-Ton-Zeile damit etwas gibt, worüber sie eine Aussage sein kann.
+nach und verwirft alles, wofür kein aktives, ton-eingeschaltetes, nicht
+gerade abgebautes **und nicht bereits weggegangenes** Abo (mehr) existiert —
+ein Paket für ein soeben abgebautes Abo, oder für einen Gast, den
+`onUserLeft` schon gemeldet hat, ist damit der **erwartete** Fall, keine
+Ausnahme, kein Fehler. Der Stille-Herzschlag oben prüft dieselbe Bedingung
+aus demselben Grund: ohne sie würde er einem nachweislich abwesenden Gast
+weiter Stille senden und `silent`/`gap` melden, obwohl `participantLeft`
+diese Quelle bereits auf `off` gesetzt hat — Stille für jemanden, der nicht
+da ist, wäre eine Aussage über eine Person, die es im Meeting nicht mehr
+gibt.
+
+Zwei verschiedene Reihenfolgen, zwei verschiedene Gründe. **Beim Abbau**
+(`videoUnsubscribe`/`videoAbbauAlle`) meldet sich der Ton **vor** der
+zugehörigen Video-Zeile mit `state:"off"` ab — die Aussage über den Ton wird
+zurückgezogen, bevor die Sache selbst verschwindet. **Beim Weggang**
+(`videoParticipantLeft`) ist es umgekehrt: die Video-Zeile (`black`) läuft
+zuerst, die Ton-Zeile (`off`) folgt danach — genau wie beim Abonnieren
+(`emitAudio` **nach** `emitVideo("subscribed")`), weil hier nicht das Abo
+selbst verschwindet, sondern nur ein neuer Zustand gilt, und erst die
+Video-Zeile diesen Zustand bekannt macht, worüber die Ton-Zeile dann eine
+Aussage sein kann.
 
 **Ohne Meeting geprüft:** `npm run ndi-probe -w @jm/zoom-bridge` (`--ndi-selftest`,
 siehe oben) sendet zusätzlich 48 kHz Mono-Stille über denselben `sendSilence()`-

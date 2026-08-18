@@ -552,12 +552,22 @@ void videoTick() {
   AudioPacket p;
   while (audioPop(&p)) {
     auto it = g_subs.find(p.userId);
-    // Kein Abo, Ton aus, oder im Abbau: VERWERFEN. Genau dafuer gibt es den
-    // Weg ueber die Warteschlange - hier ist das die richtige Antwort und
-    // kein Absturz.
+    // Kein Abo, Ton aus, im Abbau, oder der Teilnehmer ist weg: VERWERFEN.
+    // Genau dafuer gibt es den Weg ueber die Warteschlange - hier ist das
+    // die richtige Antwort und kein Absturz.
     if (it == g_subs.end()) continue;
     Sub* s = it->second.get();
-    if (!s->audioOn || s->imAbbau.load()) continue;
+    // teilnehmerWeg NACHGETRAGEN (Review Task 7): dasselbe Fenster, das
+    // Delegate::onRawDataFrameReceived beim Bild schon abschliesst
+    // (die Sperre "if (owner_->teilnehmerWeg) return;", siehe dort, und die
+    // Messung vom 2026-08-13 am Sub::teilnehmerWeg-Kommentar oben: nach
+    // "unsubscribed" kam noch ein "black"/"cameraOff" hinterher). Ohne diese
+    // Bedingung wuerde ein Paket, das beim Weggang schon in g_queue lag -
+    // oder das Zoom noch einen Moment spaeter zustellt -, die Ton-Felder
+    // ueberschreiben und "live"/"packets" melden: eine Behauptung ueber
+    // einen Gast, den der Rueckruf onUserLeft schon als weg gemeldet hat,
+    // ohne dass je ein zweites Weggangs-Ereignis das berichtigen wuerde.
+    if (!s->audioOn || s->imAbbau.load() || s->teilnehmerWeg) continue;
 
     // GEPRUEFT, NICHT GEGLAUBT - dieselbe Sorge wie bei GetBufferLen() im
     // Bild-Rueckruf: eine Pufferlaenge, die nicht zur Kanalzahl passt, ergibt
@@ -640,16 +650,29 @@ void videoTick() {
     {
       int aRate, aCh;
       ULONGLONG aLast;
-      bool aOn;
+      bool aOn, aWeg;
       {
         std::lock_guard<std::mutex> lock(s->fieldMutex);
         aRate = s->audioRate; aCh = s->audioChannels;
         aLast = s->lastAudioMs; aOn = s->audioOn;
+        aWeg = s->teilnehmerWeg;
       }
       // 40 ms Nachlauf: Zoom liefert etwa alle 10-20 ms. Der Wert ist ein
       // ANFANGSWERT, kein Messergebnis (Spec Abschnitt 6) - Abnahmepunkt 2
       // prueft mit dem Ohr, ob der Uebergang knackt.
-      if (aOn && aRate > 0 && aCh > 0 && jetzt - aLast >= 40) {
+      //
+      // !aWeg NACHGETRAGEN (Review Task 7): der Ton endet mit dem Weggang -
+      // anders als das Bild, das als Schwarz stehen bleibt: Stille fuer
+      // jemanden, der nicht da ist, waere eine Aussage ueber eine Person,
+      // die es im Meeting nicht mehr gibt. videoParticipantLeft() setzt
+      // audioState zwar auf "off", loescht aber weder audioRate noch
+      // lastAudioMs - das Abo soll ja auf ein Umhaengen hin weiterleben. Ohne
+      // diese Bedingung erreichte der Herzschlag den naechsten Tick trotzdem
+      // ueber die Schwelle, sendete Stille fuer einen nachweislich
+      // abwesenden Gast und schrieb "off" mit "silent"/"gap" wieder zu -
+      // ohne dass je ein zweites Weggangs-Ereignis kaeme, das das
+      // berichtigen wuerde.
+      if (aOn && !aWeg && aRate > 0 && aCh > 0 && jetzt - aLast >= 40) {
         // Blockgroesse = Tick-Frist (10 ms), damit Stille und echter Ton
         // nahtlos ineinander uebergehen.
         const int bloecke = static_cast<int>(aRate / 100);
