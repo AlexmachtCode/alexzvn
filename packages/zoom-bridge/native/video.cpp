@@ -634,12 +634,11 @@ void videoTick() {
     {
       int aRate, aCh;
       ULONGLONG aLast;
-      std::string aState;
       bool aOn;
       {
         std::lock_guard<std::mutex> lock(s->fieldMutex);
         aRate = s->audioRate; aCh = s->audioChannels;
-        aLast = s->lastAudioMs; aState = s->audioState; aOn = s->audioOn;
+        aLast = s->lastAudioMs; aOn = s->audioOn;
       }
       // 40 ms Nachlauf: Zoom liefert etwa alle 10-20 ms. Der Wert ist ein
       // ANFANGSWERT, kein Messergebnis (Spec Abschnitt 6) - Abnahmepunkt 2
@@ -652,9 +651,29 @@ void videoTick() {
         bool wurdeStill = false;
         {
           std::lock_guard<std::mutex> lock(s->fieldMutex);
-          // Momentaufnahme gegenpruefen: sendSilence() kann blockieren, in
-          // dieser Spanne kann laengst wieder echter Ton eingetroffen sein.
-          // Dieselbe Sorge wie beim Schwarzbild (Befund 2 aus Stage 2).
+          // Momentaufnahme gegenpruefen. ANDERS als beim Schwarzbild weiter
+          // unten ist dieser Vergleich unter der HEUTIGEN Architektur INERT,
+          // nicht scharf: der Ton-Rueckruf (audio.cpp,
+          // onOneWayAudioRawDataReceived) schreibt ausschliesslich in
+          // g_queue, nie direkt in Sub-Felder. lastAudioMs/audioState
+          // aendert einzig die Leer-Schleife am Kopf von videoTick() - auf
+          // demselben Hauptthread, und sie ist fuer DIESEN Tick bereits
+          // durchgelaufen, BEVOR diese Schleife beginnt. Waehrend
+          // sendSilence() oben blockiert, kann darum nichts mehr schreiben,
+          // das dieser Vergleich noch auffangen muesste - ein neu
+          // eingetroffenes Paket landet nur in der Warteschlange und wird
+          // erst der NAECHSTE Tick leeren. Der Bild-Rueckruf dagegen laeuft
+          // auf einem echten SDK-Thread und schreibt lastFrameMs
+          // GLEICHZEITIG zu videoTick() - dort greift derselbe Vergleich
+          // wirklich.
+          //
+          // Die Pruefung bleibt trotzdem stehen, ABSICHTLICH: sie kostet
+          // nichts, und sie ist die Absicherung fuer den Tag, an dem jemand
+          // den Ton-Weg (wie den Bild-Weg heute) auf einen eigenen
+          // Rueckruf-Thread umstellt, der Sub direkt schreibt - eine
+          // Aenderung, die sich nicht von selbst meldet. NICHT als totes
+          // Vergleichen entfernen: genau das waere die Bremse, die diesen
+          // kuenftigen Fall auffaengt.
           if (s->lastAudioMs == aLast && s->audioState != "silent") {
             s->audioState = "silent";
             wurdeStill = true;
