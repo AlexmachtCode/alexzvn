@@ -4,8 +4,13 @@ Sechs von acht Punkten aus [Spec Abschnitt 9](../../docs/superpowers/specs/2026-
 sind offen. Sie brauchen ein echtes Meeting mit echten Menschen — kein Selbsttest kann sie
 ersetzen. Dieses Drehbuch ordnet sie so, dass **ein** Meeting reicht.
 
-**Durch:** ✅ 1) Ton fließt und ist hörbar · ✅ 8) Format gemessen (32 kHz Mono, 320 Werte je Paket,
-rund 100 Pakete je Sekunde und Sprecher).
+**Stand 18.08.2026 — 5 von 8 durch:** ✅ 1) Ton hörbar · ✅ 2) `live`↔`silent` fünfmal, kein
+Knacken · ✅ 4) zwei Personen, einzeln abgehört, sauber getrennt · ✅ 6) Weggang und
+Wiederbeitritt, Quellenname unverändert · ✅ 8) Format gemessen (32 kHz Mono, 320 Werte je Paket,
+~100 Pakete/s je Sprecher; zwei gleichzeitige Sprecher = 203/s ohne Überlauf).
+
+⚠ **Punkt 5 ist gefallen: der Ton läuft dem Bild hinterher.** Offen bleiben damit die Punkte 3
+(`audio:false`), 5 (Lippensynchronität) und 7 (Meeting-Ende) sowie der Pegel.
 
 Die Reihenfolge unten ist nicht beliebig. Punkt 7 beendet das Meeting und muss darum zuletzt
 kommen; Punkt 6 verändert Teilnehmerkennungen; Punkt 3 braucht einen eigenen Start, weil der
@@ -110,8 +115,17 @@ gleichzeitig Sprechenden = zwei Sprecher sind unbedenklich. Über fünf sagt das
 Versatz von 80 ms fällt beim Sprechen kaum auf, beim Klatschen sofort. Ton und
 zusammentreffende Hände müssen im NDI-Monitor zusammenfallen.
 
-Fällt der Ton hörbar **nach** dem Bild oder davor: die Richtung notieren. Sie sagt, an welchem
-Ende zu suchen wäre.
+**GEMESSEN am 18.08.2026: der Ton läuft dem Bild HINTERHER.** Was jetzt gebraucht wird, ist nicht
+noch eine Bestätigung, sondern die Unterscheidung: **zweimal klatschen — einmal kurz nach dem
+Abonnieren, einmal nach vier Minuten.**
+
+| Beobachtung | Was daraus folgt |
+|---|---|
+| Versatz bleibt gleich | Rohrleitung: Bild geht direkt im SDK-Rückruf raus, Ton erst beim Tick über die Warteschlange. Größenordnung eine Tick-Länge. |
+| Versatz wächst | Abtastwert-Buchhaltung: der Stille-Herzschlag füllt zu wenig, und der Ton-Zeitstrahl bleibt gegenüber der Wanduhr zurück. |
+
+Die beiden verlangen **verschiedene** Abhilfen. Eine Reparatur vor dieser Unterscheidung wäre
+geraten, nicht gemessen — und träfe im schlechteren Fall die falsche der beiden Ursachen.
 
 ### A4 · Punkt 2 — Stummschalten und Aufheben
 

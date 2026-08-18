@@ -554,24 +554,35 @@ das Bild und der Ton nicht. Siehe `sessionJoinVoip()` in `native/session.cpp`.
 > Raum ausgibt, lässt es sich selbst wieder aufnehmen. Das gilt für jedes
 > Talent-Mikrofon und ist keine Eigenheit von Zoom oder NDI.
 
-**Was gegen ein echtes Meeting weiterhin nicht geprüft ist, vollständig:**
-weder der Überlauf- noch der Mismatch-Pfad, weder Umhängen noch Weggang,
-weder Meeting-Ende noch Prozessende auf dem Ton-Weg. Von dem, was **Zoom**
-liefert, sind Pegel und Lippensynchronität offen, ebenso die Summenrate bei
-mehreren **gleichzeitig** Sprechenden (gemessen wurde ein einziger Sprecher;
-dass fünf linear 500 Pakete je Sekunde ergeben, ist Arithmetik, keine
-Beobachtung).
+**Owner-Abnahme, Stand 18.08.2026: 5 von 8.** Durch sind 1) hörbarer Ton,
+2) `live`↔`silent` fünfmal über drei Abos **ohne Knacken**, 4) zwei Personen
+gleichzeitig, im NDI-Monitor **einzeln abgehört und sauber getrennt**,
+6) Weggang und Wiederbeitritt (`black`/`off (participantLeft)` →
+`subscribed`/`waiting (reboundByName)` unter neuer Kennung, **Quellenname
+unverändert**), 8) das Format. Erstmals gemessen: **zwei gleichzeitige
+Sprecher = 101 + 102 Pakete/s, kein `AUDIO_QUEUE_OVERFLOW`** — für fünf sagt
+das weiterhin nichts.
 
-**BERICHTIGT am 18.08.2026, dritter Lauf:** hier stand, der Stille-Übergang
-finde womöglich nie statt — in den ersten beiden Messläufen war **kein**
-`silent`/`gap` gekommen, und daraus war geschlossen, Zoom sende durchgehend
-Pakete. Der dritte Lauf hat `audio 16778240: silent (gap)` geliefert. Der
-Schluss war voreilig: aus zwei Läufen ohne Ereignis folgt nicht, dass das
-Ereignis nicht eintritt — es folgt nur, dass es in diesen zwei Läufen nicht
-eintrat. **Was ausgelöst hat, ist noch nicht festgestellt** (Stummschaltung
-oder Sprechpause), und der Rückweg nach `live` wurde noch nicht beobachtet,
-weil der Lauf vorher abgebrochen wurde. Abnahmepunkt 2 bleibt offen, aber
-seine Voraussetzung steht. Das gehört in die
+⚠ **Punkt 5 ist GEFALLEN: der Ton läuft dem Bild hinterher.** Dazu passt eine
+bauliche Unsymmetrie in diesem Paket: das **Bild** geht direkt im SDK-Rückruf
+raus (`Delegate::onRawDataFrameReceived` → `sendI420()`), der **Ton** erst
+beim nächsten `videoTick()` über die Warteschlange — und beide tragen
+`NDIlib_send_timecode_synthesize`, also „stemple mit jetzt". Der Ton bekommt
+damit einen späteren Stempel, als ihm zusteht. **Das ist eine passende
+Erklärung, keine Messung.** Zwei Familien kommen in Frage und verlangen
+verschiedene Abhilfen: ein **gleichbleibender** Versatz spräche für die
+Rohrleitung (Warteschlange plus Tick, rund eine Tick-Länge), ein
+**wachsender** für die Abtastwert-Buchhaltung des Stille-Herzschlags. Welche
+es ist, entscheidet ein Klatschen am Anfang und eines nach vier Minuten —
+nicht die Überlegung.
+
+**Was gegen ein echtes Meeting weiterhin nicht geprüft ist, vollständig:**
+weder der Überlauf- noch der Mismatch-Pfad, weder Meeting-Ende noch
+Prozessende auf dem Ton-Weg, und der Ton-Schalter `audio:false`. Von dem, was
+**Zoom** liefert, ist der Pegel offen, ebenso die Summenrate bei **fünf**
+gleichzeitig Sprechenden (gemessen sind zwei; dass fünf linear 500 Pakete je
+Sekunde ergeben, ist Arithmetik, keine Beobachtung). Das gehört in die
+
 Owner-Abnahme (acht Punkte, siehe
 [`docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md`](../../docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md), §9,
 und `docs/roadmap.md`).
