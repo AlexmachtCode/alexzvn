@@ -513,22 +513,46 @@ Zoom-Weg. `npm run bool-probe -w @jm/zoom-bridge` belegt, dass der Befehlsleser
 statt ihn still als „an" durchgehen zu lassen — das sind vier Kommandozeilen,
 eine stderr-Zeile je Abo und eine stdout-Zeile.
 
-**Was diese beiden Läufe nicht zeigen, vollständig:** gegen eine *laufende*
-Brücke an einem *echten* Meeting ist auf diesem Zweig **nichts** geprüft —
-weder die Warteschlange noch ihr Leeren, weder das Nachschlagen je Abo noch
-`audioEnsureSubscribed()`, weder der Mismatch- noch der Überlauf-Pfad, und
-keiner der Wege für Abbau, Umhängen, Weggang, Meeting-Ende und Prozessende.
-Ebenso offen ist alles, was **Zoom** liefert: Abtastrate, Kanalzahl,
-Paket-/Ankunftsrate, Pegel, ob der Stille-Übergang knackt, und die
-Lippensynchronität. Das gehört in die Owner-Abnahme am echten Meeting (acht
-Punkte, siehe
+### Am echten Meeting gemessen (18.08.2026)
+
+**Zoom liefert 32 kHz Mono, 320 Abtastwerte je Paket, rund 100 Pakete je
+Sekunde und Sprecher** — also genau 10 ms je Paket. Das steht in keinem
+SDK-Header und war bis dahin geraten; die Brücke schreibt es beim ersten Abo
+selbst auf stderr mit (`Ton-Messung fuer <id>: …`, einmal je Abo). Damit ist
+**Abnahmepunkt 8** beantwortet und die Auslegung der Warteschlange in
+`native/audio.cpp` gerechnet statt vermutet.
+
+Die 48 kHz Mono aus `ndi-probe` sind davon zu unterscheiden: das ist der
+**eigene Selbsttest-Sender**, nicht Zoom.
+
+**Ein Ton-Abo braucht `JoinVoip()`.** Ohne den Beitritt zum Tonkanal des
+Meetings antwortet `subscribe()` des Roh-Ton-Helfers mit
+`SDKERR_NOT_JOIN_AUDIO` (32). Video kennt diese Bedingung nicht — deshalb lief
+das Bild und der Ton nicht. Siehe `sessionJoinVoip()` in `native/session.cpp`.
+
+> **⚑ Betriebshinweis: die Quelle nicht über Lautsprecher abhören, wenn das
+> abonnierte Mikrofon im selben Raum steht.** GEMESSEN am 18.08.2026: der Ton
+> war doppelt und zeitversetzt zu hören. Die Brücke war nicht schuld — die
+> Messung wies nach, dass sie 101 % der angegebenen Rate sendet (also genau
+> ein Paket Fenster-Überhang, keine Verdopplung), und mit Kopfhörern war die
+> Dopplung weg. Ursache ist ein akustischer Kreis: die Quelle führt das
+> Mikrofon einer Person, und wer dieses Mikrofon über Lautsprecher im selben
+> Raum ausgibt, lässt es sich selbst wieder aufnehmen. Das gilt für jedes
+> Talent-Mikrofon und ist keine Eigenheit von Zoom oder NDI.
+
+**Was gegen ein echtes Meeting weiterhin nicht geprüft ist, vollständig:**
+weder der Überlauf- noch der Mismatch-Pfad, weder Umhängen noch Weggang,
+weder Meeting-Ende noch Prozessende auf dem Ton-Weg. Von dem, was **Zoom**
+liefert, sind Pegel und Lippensynchronität offen, ebenso die Summenrate bei
+mehreren **gleichzeitig** Sprechenden (gemessen wurde ein einziger Sprecher;
+dass fünf linear 500 Pakete je Sekunde ergeben, ist Arithmetik, keine
+Beobachtung). Offen ist auch, **ob der Stille-Übergang je stattfindet**: in
+beiden Messläufen kam **kein** `silent`/`gap` — Zoom scheint durchgehend
+Pakete zu senden, auch wenn niemand spricht. Der Herzschlag wäre dann ein
+Netz für einen abreißenden Strom, nicht für Sprechpausen. Das gehört in die
+Owner-Abnahme (acht Punkte, siehe
 [`docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md`](../../docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md), §9,
-und `docs/roadmap.md`) — **mitzuschreiben sind dort neben Abtastrate und
-Kanalzahl auch die gemessene Ankunftsrate** (die Auslegung der Warteschlange
-in `native/audio.cpp` hängt daran: sie rechnet mit fünf *gleichzeitig
-sprechenden* Teilnehmern, während der Rückruf für **jeden** Sprecher im
-Meeting feuert) **und ob der Pegel plausibel ist** (`reference_level = 0` ist
-für die NDI-Seite zitiert, für Zoom angenommen).
+und `docs/roadmap.md`).
 
 ## 8 · Vier Fallen, die Zeit kosten
 

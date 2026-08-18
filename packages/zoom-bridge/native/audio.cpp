@@ -35,11 +35,17 @@ namespace {
 // und mehreren offenen Mikrofonen ist die Ankunftsrate ein Vielfaches, und
 // aus der halben Sekunde wird ein Bruchteil.
 //
-// UNGEMESSEN: Zooms tatsaechliche Paketrate (Groesse UND Takt) ist auf diesem
-// Zweig nirgends gemessen - weder je Sprecher noch in Summe. Die 10 ms und
-// die 32 kHz Mono stammen aus der Spec-Auslegung, nicht aus einer Messung an
-// einem echten Meeting; sie gehoeren auf die Owner-Abnahmeliste (README,
-// docs/roadmap.md). Wer diese Zahl anfasst, aendert Betriebswirtschaft: zu
+// GEMESSEN am 18.08.2026 gegen ein echtes Meeting (Abnahmepunkt 8, Ausgabe
+// von videoTick): 101 Pakete in 1000 ms, 320 Abtastwerte je Paket und Kanal,
+// 32000 Hz, 1 Kanal. Also GENAU 10 ms je Paket und rund 100 Pakete je Sekunde
+// JE SPRECHER - die Spec-Auslegung oben stimmt, sie war nur bis dahin
+// geraten. Die 500 Pakete je Sekunde sind damit eine Hochrechnung aus einer
+// gemessenen Einzelrate, keine Vermutung mehr.
+//
+// WAS WEITERHIN UNGEMESSEN IST: die Summe bei mehreren GLEICHZEITIG
+// Sprechenden. Gemessen wurde ein einziger Sprecher; dass fuenf davon linear
+// 500 ergeben, ist Arithmetik, keine Beobachtung. Bleibt auf der
+// Owner-Abnahmeliste. Wer diese Zahl anfasst, aendert Betriebswirtschaft: zu
 // klein heisst audioQueueOverflow bei jedem Hakler, zu gross heisst, dass ein
 // echter Haenger Sekunden alten Ton aufhebt, den niemand mehr hoeren will.
 constexpr size_t kMaxPakete = 256;
