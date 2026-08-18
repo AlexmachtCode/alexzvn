@@ -516,9 +516,33 @@ void videoUnsubscribe(unsigned int userId) {
 // stirbt trotzdem, dann liegt der Fehler NICHT in diesen Aufrufen, sondern in
 // einem SPAETEREN Rueckruf, der auf ein bereits zerstoertes Sub trifft - also
 // genau in I6. Bleibt sie aus, benennt die letzte gedruckte Marke die Zeile.
-static void videoAbbauAlle(const char* reason) {
+// "sdkAbmelden" TRENNT ZWEI LAGEN, die vorher denselben Weg nahmen:
+//
+//   true  - das Meeting LEBT noch (leave/quit/EOF). Der Renderer ist gueltig,
+//           unSubscribe()/destroyRenderer() gehoeren gerufen, sonst bleibt ein
+//           Abo im SDK stehen.
+//   false - das Meeting ist ZU ENDE. GEMESSEN am 18.08.2026, zweimal: ein
+//           unSubscribe() auf den Renderer beendet den Prozess mit
+//           0xC0000005 - aus dem Rueckruf heraus UND, nach dem ersten
+//           Behebungsversuch, ebenso von main() aus. Re-Entranz war es also
+//           nicht; das SDK hat seine Rohdaten-Einrichtung zu diesem Zeitpunkt
+//           bereits abgeraeumt, und der Zeiger zeigt ins Freigegebene. Der
+//           Ton-Helfer sagt an derselben Stelle dasselbe, nur hoeflicher: sein
+//           unSubscribe() antwortet SDKERR_WRONG_USAGE (2) statt abzustuerzen.
+//
+// AUCH destroyRenderer() FAELLT WEG, und das ist eine ABWAEGUNG, keine
+// Messung: ob es den Aufruf ueberlebt haette, ist UNGEPRUEFT. Ihn zu
+// versuchen haette einen weiteren Absturz gekostet, um es zu erfahren. Der
+// Preis der Unwissenheit ist ein moeglicherweise liegengelassener Renderer je
+// Meeting - bei hoechstens fuenf Abos (die festgelegte Betriebsgroesse) eine
+// bekannte, begrenzte Menge. Und sehr wahrscheinlich gar keine: dass
+// unSubscribe() abstuerzt, heisst ja gerade, dass das SDK das Ding schon
+// weggeraeumt hat. Wer es spaeter messen will, setzt destroyRenderer() mit
+// einer Marke davor wieder ein.
+static void videoAbbauAlle(const char* reason, bool sdkAbmelden) {
   const std::wstring grundW(reason, reason + std::char_traits<char>::length(reason));
-  emitLog(L"Abbau beginnt (" + grundW + L"), " + std::to_wstring(g_subs.size()) + L" Abo(s)");
+  emitLog(L"Abbau beginnt (" + grundW + L"), " + std::to_wstring(g_subs.size()) +
+          L" Abo(s), SDK abmelden: " + (sdkAbmelden ? L"ja" : L"nein - Meeting ist zu Ende"));
   for (auto& [id, s] : g_subs) {
     // JEDES Abo wird GEMELDET, bevor es abgebaut wird (Abschluss-Sichtung,
     // I4). Am Prozessende ist das gleichgueltig, beim "leave"-Befehl NICHT:
@@ -549,12 +573,20 @@ static void videoAbbauAlle(const char* reason) {
     // siehe den ausfuehrlichen Kommentar dort (Abschluss-Sichtung, I6): das
     // g_subs.clear() unten zerstoert jedes Sub samt fieldMutex, waehrend der
     // Delegate einen rohen Zeiger darauf haelt.
-    if (s->renderer) {
+    if (s->renderer && sdkAbmelden) {
       emitLog(L"Abbau " + std::to_wstring(id) + L": unSubscribe()");
       logSdkError(L"unSubscribe() beim Gesamtabbau", s->renderer->unSubscribe());
       emitLog(L"Abbau " + std::to_wstring(id) + L": destroyRenderer()");
       logSdkError(L"destroyRenderer() beim Gesamtabbau", destroyRenderer(s->renderer));
+    } else if (s->renderer) {
+      emitLog(L"Abbau " + std::to_wstring(id) +
+              L": Renderer NICHT angefasst - das Meeting ist zu Ende, das SDK hat ihn schon abgeraeumt");
     }
+    // Losgelassen, nicht abgebaut: der Zeiger zeigt ab hier moeglicherweise
+    // ins Freigegebene, und nichts darf ihn spaeter noch fuer gueltig halten.
+    // Das Sub verschwindet gleich ohnehin (clear() unten) - die Zeile steht
+    // fuer den Fall, dass dieser Abbau je woanders hinwandert.
+    s->renderer = nullptr;
     emitLog(L"Abbau " + std::to_wstring(id) + L": NDI-Sender schliessen");
     s->sender.close();
     emitLog(L"Abbau " + std::to_wstring(id) + L": fertig");
@@ -564,8 +596,9 @@ static void videoAbbauAlle(const char* reason) {
   emitLog(L"Abbau fertig, Karte ist leer");
 }
 
+// Meeting LEBT noch (leave/quit/EOF) - das SDK gehoert ordentlich abgemeldet.
 void videoShutdownAll() {
-  videoAbbauAlle("command");
+  videoAbbauAlle("command", true);
 }
 
 void videoMeetingEnded() {
@@ -599,7 +632,8 @@ void videoMeetingEnded() {
   // ueberlebt, ist genau der Fall, den der Kommentar an reduce() in
   // src/state.ts als den gefaehrlichen benennt.
   if (g_subs.empty()) return;
-  videoAbbauAlle("meetingEnded");
+  // OHNE SDK-Abmeldung: siehe die Begruendung an videoAbbauAlle().
+  videoAbbauAlle("meetingEnded", false);
 }
 
 

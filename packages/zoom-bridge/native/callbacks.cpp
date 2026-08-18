@@ -147,22 +147,17 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
     // Hauptthread leert sie).
     g_meetingEndeOffen = true;
     emitLog(L"Meeting-Ende: Abbau angemeldet, laeuft nach pumpOnce()");
-    // Und die Abos gehoeren ebenfalls dem Meeting. GEMESSEN am 2026-08-13:
-    // ohne diese Zeile ueberlebte ein Abo das Ende seiner Sitzung, und der
+    // Die Abos gehoeren ebenfalls dem Meeting. GEMESSEN am 2026-08-13: ohne
+    // diesen Abbau ueberlebte ein Abo das Ende seiner Sitzung, und der
     // Herzschlag hielt eine NDI-Quelle am Leben, zu der es kein Meeting mehr
-    // gab. NACH den drei Zeilen darueber, damit ein Rueckruf, der waehrend
-    // des Abbaus noch hereinkommt, keine Erlaubnis mehr vorfindet.
-
-    // DIE ENTSCHEIDENDE MARKE (Owner-Lauf 18.08.2026, Absturz mit
-    // STATUS_ACCESS_VIOLATION nach dem Meeting-Ende): steht sie da und der
-    // Prozess stirbt TROTZDEM, dann hat kein Abbau-Aufruf ihn umgebracht -
-    // dann trifft ein SPAETERER SDK-Rueckruf auf ein Sub, das videoAbbauAlle()
-    // gerade zerstoert hat. Das ist Befund I6, seit Stage 2 als UNBELEGTE
-    // Annahme vermerkt, und der Unterschied zum Prozessende-Weg erklaert,
-    // warum er dort nie auffiel: dort folgt kurz darauf TerminateProcess, ein
-    // verspaeteter Rueckruf findet den Prozess also gar nicht mehr vor. HIER
-    // laeuft er weiter.
-    emitLog(L"Meeting-Ende: Abbau zurueckgekehrt, Bruecke laeuft weiter");
+    // gab. Er laeuft jetzt in main(), nicht mehr hier - siehe oben.
+    //
+    // HIER STAND EINE MARKE "Abbau zurueckgekehrt, Bruecke laeuft weiter",
+    // die beim Verschieben des Abbaus stehenblieb und damit einen Abbau als
+    // abgeschlossen meldete, der noch gar nicht begonnen hatte. Sie ist
+    // entfernt; die richtige steht in main(), hinter dem Abbau. Eine Marke
+    // gehoert dorthin, wo das Gemeldete WIRKLICH passiert ist - sonst ist sie
+    // schlimmer als keine, weil man ihr glaubt.
   }
 }
 
