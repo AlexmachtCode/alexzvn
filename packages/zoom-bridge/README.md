@@ -264,7 +264,7 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 | `rebindable` | ob das Abo bei einem Wiederbeitritt umgehängt werden kann (`persistentId` des Teilnehmers ist nicht leer). |
 | `rotation`, `limitedRange` | **nur vorhanden**, sobald ein Bild sie geliefert hat (`YUVRawDataI420::GetRotation()`/`IsLimitedI420()`) — bei `state:"subscribed"` fehlen sie also immer. Ein Wert wäre dort erfunden, und eine erfundene `0` ließe sich später nicht von einer gemessenen `0` unterscheiden. |
 
-**Neun eigene Fehlerschlüssel** (`where:"video"` bzw. `where:"ndi"`, siehe `OWN_ERROR_NAMES` in `src/protocol.ts`):
+**Elf eigene Fehlerschlüssel** (`where:"video"` bzw. `where:"ndi"`, siehe `OWN_ERROR_NAMES` in `src/protocol.ts`):
 
 | Schlüssel | Ursache |
 | --- | --- |
@@ -273,6 +273,7 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 | `videoAlreadySubscribed` | Die Kennung ist bereits abonniert. |
 | `videoNotSubscribed` | `videoUnsubscribe` auf eine nicht abonnierte Kennung. |
 | `videoBadResolution` | Der `resolution`-Schlüssel ist keiner der fünf gültigen. |
+| `videoBadAudioFlag` | Das Feld `audio` trägt weder `true` noch `false` (z. B. `"audio":"false"` als Zeichenkette oder `"audio":0`). Das Abo wird **nicht** angelegt — genau wie bei `videoBadResolution`. **Fehlt** das Feld, ist das kein Fehler: dann gilt die Vorgabe `true`. |
 | `videoRendererFailed` | Zoom-Seite: `createRenderer`/`subscribe` lieferte einen SDK-Fehler. Die Brücke schreibt dabei den SDK-Code auf stderr — ohne ihn sind die beiden Aufrufe nicht zu unterscheiden. |
 | `videoRawRecordingFailed` | `StartRawRecording()` ging nicht durch — der Schalter, der Zooms Rohdaten-Rückrufe freigibt (siehe Abschnitt 1; er schreibt **keine** Datei). **Absichtlich ein anderer Name** als `videoRendererFailed`: hier ist das Meeting oder die Rolle schuld, dort das einzelne Abo. |
 | `videoSenderFailed` | NDI-Seite: `NDIlib_send_create` schlug fehl. **Absichtlich ein anderer Name** als `videoRendererFailed` — die beiden schicken die Suche an verschiedene Orte. |
@@ -401,6 +402,14 @@ läuft **ein einziges globales Zoom-Ton-Abo** (`audioEnsureSubscribed()`,
 `native/audio.cpp`), das für die ganze Meeting-Dauer gilt. Ein nachträgliches
 Umschalten an einem laufenden Abo ist **nicht** vorgesehen (Spec Abschnitt 10).
 
+Freigegeben wird dieses Abo beim **Meeting-Ende** (auch wenn der Gastgeber es
+beendet) und beim **Prozessende** — und ausdrücklich **nicht** schon, wenn das
+letzte Teilnehmer-Abo abgebaut wird, obwohl Spec Abschnitt 4 das so vorsieht.
+Diese Abweichung ist bewusst und in `native/audio.h` samt Preis begründet: der
+Rückweg `subscribe()` → `unSubscribe()` → `subscribe()` *innerhalb* eines
+Meetings ist nirgends gemessen, und ginge er schief, wäre der Preis eine
+stumme Sendung statt etwas verschenkter Kopierarbeit.
+
 **Das `audio`-Ereignis** trägt dieselbe `id` wie das zugehörige `video`-Ereignis
 und kennt vier Zustände:
 
@@ -408,13 +417,17 @@ und kennt vier Zustände:
 | --- | --- |
 | `waiting` | Ton eingeschaltet, noch kein Paket gesehen. |
 | `live` | Pakete kommen an. |
-| `silent` | seit mindestens 40 ms (Anfangswert, siehe Herzschlag unten) kein Paket mehr — die Quelle sendet echte Stille statt eines eingefrorenen Puffers. |
+| `silent` | seit mindestens 40 ms (Anfangswert, siehe Herzschlag unten) kein Paket mehr — die Quelle sendet weiter, und zwar echte Stille. |
 | `off` | kein Ton — per Befehl, weil das SDK ihn verweigert hat, oder weil Abo/Teilnehmer/Meeting weg sind. |
 
 `reason` sagt, WARUM: `command` (Aufrufer hat Ton nicht angefordert oder das
 Abo wird auf Befehl abgebaut), `audioUnavailable` (Ton war gewollt, aber
 `audioEnsureSubscribed()` ist gescheitert — ein **eigener** Wert, nicht
-`command`, siehe `src/protocol.ts`), `packets` (erstes/erneutes Paket),
+`command`, siehe `src/protocol.ts`; **für dieses Abo ist das endgültig**:
+`audioOn` bleibt dauerhaft aus, nichts versucht es erneut, auch ein
+Umhängen nicht. Die einzige Erholung ist `videoUnsubscribe` und ein neues
+`videoSubscribe` — wer darauf wartet, dass der Ton von selbst kommt,
+wartet vergeblich), `packets` (erstes/erneutes Paket),
 `gap` (der Stille-Herzschlag hat zugeschlagen), `participantLeft`,
 `meetingEnded`, sowie `rebound`/`reboundByName` — der Ton folgt hier
 **demselben Grund** wie das umgehängte Video-Abo, es gibt keinen eigenen
@@ -429,18 +442,36 @@ gemessenen unterscheiden.
 | --- | --- |
 | `audioHelperMissing` | Das SDK gab keinen Ton-Helfer heraus — kein Meeting oder SDK nicht bereit. |
 | `audioSubscribeFailed` | Das eine globale Ton-Abo (`helper->subscribe()`) ging nicht durch. |
-| `audioBufferMismatch` | Pufferlänge passt nicht zu Kanalzahl × 2 (siehe `AudioPacket::bufferLen`) — **mit** `id`, weil ab hier genau dieses eine Abo dauerhaft still bleibt. |
-| `audioQueueOverflow` | Die Warteschlange lief über, weil das Leeren nicht nachkam — **ohne** `id`, eine Aussage über die Maschine, nicht über einen Gast: der verwerfende Rückruf weiß gar nicht, zu welchem Abo das Paket gehört hätte. |
+| `audioBufferMismatch` | Pufferlänge passt nicht zu Kanalzahl × 2 (siehe `AudioPacket::bufferLen`) — **mit** `id`, weil die Aussage genau ein Abo betrifft. **Verworfen wird je Paket, gemeldet je Abo einmal:** das fehlerhafte Paket geht verloren, das nächste wohlgeformte läuft normal durch (und setzt das Abo wieder auf `live`/`packets`); nur die Wiederholung der Meldung wird unterdrückt. Ein Abo geht davon **nicht** dauerhaft still. |
+| `audioQueueOverflow` | Die Warteschlange lief über, weil das Leeren nicht nachkam — **ohne** `id`, eine Aussage über die Maschine, nicht über einen Gast: der verwerfende Rückruf weiß gar nicht, zu welchem Abo das Paket gehört hätte. Trägt `dropped` (wie viele Pakete bis zu dieser Meldung verworfen wurden) und kommt **einmal je Meeting**, nicht je Tick (Spec Abschnitt 5) — bei anhaltendem Überlauf gäbe es sonst bis zu 100 Zeilen je Sekunde. Was nach der einen Meldung noch verlorengeht, steht darum in keiner Zahl. |
 
 **Der Stille-Herzschlag** (`videoTick()`, dieselbe 10-ms-Schleife wie beim
-Bild): bleibt ein Abo 40 ms ohne neues Paket, sendet die Quelle statt einer
-eingefrorenen letzten Sekunde fortlaufend **echte Stille**, im zuletzt
-gemessenen Format (Blockgröße = Tick-Frist, damit Stille und echter Ton
-nahtlos ineinander übergehen). **Die 40 ms sind ausdrücklich ein Anfangswert,
-kein Messergebnis** — Zoom liefert nach bisheriger Kenntnis etwa alle
-10–20 ms, mehr ist dazu nicht bekannt. Ob der Übergang von Stille auf Ton
-hörbar knackt, ist Abnahmepunkt 2 der Owner-Abnahme (Spec Abschnitt 9) und am
-18.08.2026 **nicht geprüft**; von dieser Prüfung hängt ab, ob der Wert bleibt.
+Bild): bleibt ein Abo 40 ms ohne neues Paket, sendet die Quelle fortlaufend
+**echte Stille** im zuletzt gemessenen Format, damit der Tonstrom nicht
+abreißt. (Anders als beim Bild geht es dabei **nicht** um eine eingefrorene
+letzte Sekunde: ein NDI-Empfänger wiederholt keinen Ton, wie ein
+Bild-Empfänger das letzte Bild hält — er bekäme schlicht nichts. Der
+Herzschlag hält den Strom durchgehend und gültig, das ist der ganze Zweck.)
+
+**Wieviel Stille, das rechnet die verstrichene Zeit aus** — nicht die
+Tick-Frist. Bis zum 18.08.2026 stand hier `Blockgröße = Tick-Frist`, also
+genau 10 ms Ton je Tick; die Schleife (`pumpOnce(); videoTick(); stdin;
+Sleep(10)`) braucht aber **immer** mehr als 10 ms, mit Windows'
+Standard-Zeitgeberauflösung von 15,6 ms deutlich mehr. Eine längere Stille
+lieferte dadurch systematisch zu wenig Ton je Wanduhrzeit. Jetzt führt jedes
+Abo mit (`Sub::silenceBisMs`), bis wann sein Strom gefüllt ist, und der Tick
+schiebt genau die verstrichene Zeit nach. **Obergrenze 200 ms je Tick,
+gewählt und nicht gemessen:** nach einem langen Hänger wird der Rest
+fallengelassen statt nachgeholt — Stille trägt keine Information, und sie im
+Zwanzigfachen der Echtzeit nachzuschieben ließe den Tonstrom dem Bild
+davonlaufen.
+
+**Die 40 ms sind ausdrücklich ein Anfangswert, kein Messergebnis** — Zoom
+liefert nach bisheriger Kenntnis etwa alle 10–20 ms, mehr ist dazu nicht
+bekannt. Ob der Übergang von Stille auf Ton **nahtlos** ist oder hörbar
+knackt, ist Abnahmepunkt 2 der Owner-Abnahme (Spec Abschnitt 9) und am
+18.08.2026 **nicht geprüft** — weder mit der alten noch mit der neuen
+Rechnung; von dieser Prüfung hängt ab, ob der Wert bleibt.
 
 **Der Weg über die Warteschlange, und warum er nötig ist.** Weil das
 Ton-Abo global ist und keinen eigenen Renderer hat, stoppt ein einzelnes
@@ -472,17 +503,32 @@ selbst verschwindet, sondern nur ein neuer Zustand gilt, und erst die
 Video-Zeile diesen Zustand bekannt macht, worüber die Ton-Zeile dann eine
 Aussage sein kann.
 
-**Ohne Meeting geprüft:** `npm run ndi-probe -w @jm/zoom-bridge` (`--ndi-selftest`,
-siehe oben) sendet zusätzlich 48 kHz Mono-Stille über denselben `sendSilence()`-
-Weg und weist mit `@jm/ndi` nach, dass sie **ankommt** — der Tonweg NDI-seitig
-ist damit belegt, unabhängig vom Meeting. `npm run bool-probe -w @jm/zoom-bridge`
-belegt ohne Meeting, dass `audio:true`/`audio:false` am Befehl wirklich gelesen
-wird. Was diese beiden Läufe **nicht** zeigen können — welche Abtastrate und
-Kanalzahl Zoom tatsächlich liefert, ob der Stille-Übergang knackt, und die
-Lippensynchronität — bleibt offen für die Owner-Abnahme am echten Meeting
-(acht Punkte, siehe
+**Ohne Meeting geprüft — und zwar genau zwei Ketten.**
+`npm run ndi-probe -w @jm/zoom-bridge` (`--ndi-selftest`, siehe oben) sendet
+48 kHz Mono-Stille über `sendSilence()` → `sendAudioLocked()` → NDI und weist
+mit `@jm/ndi` nach, dass sie **ankommt**. Der Sender ist dabei der **eigene
+Selbsttest-Sender der Brücke**, nicht Zoom: belegt ist der NDI-Weg, nicht der
+Zoom-Weg. `npm run bool-probe -w @jm/zoom-bridge` belegt, dass der Befehlsleser
+`audio:true`/`audio:false` wirklich liest und einen **unlesbaren** Wert meldet,
+statt ihn still als „an" durchgehen zu lassen — das sind vier Kommandozeilen,
+eine stderr-Zeile je Abo und eine stdout-Zeile.
+
+**Was diese beiden Läufe nicht zeigen, vollständig:** gegen eine *laufende*
+Brücke an einem *echten* Meeting ist auf diesem Zweig **nichts** geprüft —
+weder die Warteschlange noch ihr Leeren, weder das Nachschlagen je Abo noch
+`audioEnsureSubscribed()`, weder der Mismatch- noch der Überlauf-Pfad, und
+keiner der Wege für Abbau, Umhängen, Weggang, Meeting-Ende und Prozessende.
+Ebenso offen ist alles, was **Zoom** liefert: Abtastrate, Kanalzahl,
+Paket-/Ankunftsrate, Pegel, ob der Stille-Übergang knackt, und die
+Lippensynchronität. Das gehört in die Owner-Abnahme am echten Meeting (acht
+Punkte, siehe
 [`docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md`](../../docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md), §9,
-und `docs/roadmap.md`).
+und `docs/roadmap.md`) — **mitzuschreiben sind dort neben Abtastrate und
+Kanalzahl auch die gemessene Ankunftsrate** (die Auslegung der Warteschlange
+in `native/audio.cpp` hängt daran: sie rechnet mit fünf *gleichzeitig
+sprechenden* Teilnehmern, während der Rückruf für **jeden** Sprecher im
+Meeting feuert) **und ob der Pegel plausibel ist** (`reference_level = 0` ist
+für die NDI-Seite zitiert, für Zoom angenommen).
 
 ## 8 · Vier Fallen, die Zeit kosten
 
