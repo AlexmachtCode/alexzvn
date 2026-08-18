@@ -1,9 +1,19 @@
 #include "callbacks.h"
+#include <atomic>
 #include "rawdata/zoom_rawdata_api.h"  // HasRawdataLicense()
 #include "audio.h"
 #include "emit.h"
 #include "session.h"
 #include "video.h"
+
+// Wird im Rueckruf gesetzt und in main() genommen. Beide laufen auf dem
+// HAUPTTHREAD (der Rueckruf kommt aus pumpOnce()), ein einfaches bool taete
+// es also - std::atomic steht hier als AUSSAGE: dieses Merkzeichen ueberquert
+// eine Grenze, an der schon einmal etwas schiefging, und exchange() macht
+// Nehmen-und-Loeschen zu EINEM Schritt statt zu zweien.
+static std::atomic<bool> g_meetingEndeOffen{false};
+
+bool callbacksTakeMeetingEndTeardown() { return g_meetingEndeOffen.exchange(false); }
 
 namespace {
 ParticipantsListener g_participantsListener;
@@ -116,15 +126,33 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
     // und beim Prozessende (main.cpp): der Lauscher gehoert weg, BEVOR die
     // Abos verschwinden - ein Lauscher ohne Abos fuellt eine Warteschlange,
     // die niemand mehr leert.
-    emitLog(L"Meeting-Ende: Ton-Abo abmelden");
-    audioClearSubscribed();
+    // NICHT HIER ABBAUEN. GEMESSEN am 18.08.2026 mit den Abbau-Marken: die
+    // letzte gedruckte Zeile war "Abbau <id>: unSubscribe()", danach starb
+    // der Prozess mit exitCode 3221225477 = 0xC0000005. Der Fehler lag also
+    // WEDER in destroyRenderer() NOCH im NDI-Schliessen NOCH im
+    // g_subs.clear() - und damit NICHT in Befund I6, wie zuerst vermutet.
+    //
+    // Dieser Rueckruf kommt INNERHALB von pumpOnce() an (main.cpp): wer von
+    // hier aus unSubscribe() ruft, ruft ins SDK hinein, waehrend das SDK
+    // seinen eigenen Meeting-Abbau abarbeitet. Der bisherige Sicherheitsbeleg
+    // in videoMeetingEnded() ("gemessen statt gehofft") hat einen ANDEREN
+    // Aufrufort gemessen: am 13.08. lief videoShutdownAll() aus main(), also
+    // NACH Rueckkehr aus dem Rueckruf. Die Messung wurde auf einen Aufrufort
+    // uebertragen, den sie nie abgedeckt hat.
+    //
+    // Das Merkzeichen wird darum nur GESETZT; main() nimmt es unmittelbar
+    // nach pumpOnce() und baut ab - derselbe Schleifendurchlauf, aber
+    // ausserhalb des Rueckrufs. Dieselbe Trennung, aus der der Ton-Weg
+    // ohnehin schon besteht (SDK-Thread fuellt eine Warteschlange, der
+    // Hauptthread leert sie).
+    g_meetingEndeOffen = true;
+    emitLog(L"Meeting-Ende: Abbau angemeldet, laeuft nach pumpOnce()");
     // Und die Abos gehoeren ebenfalls dem Meeting. GEMESSEN am 2026-08-13:
     // ohne diese Zeile ueberlebte ein Abo das Ende seiner Sitzung, und der
     // Herzschlag hielt eine NDI-Quelle am Leben, zu der es kein Meeting mehr
     // gab. NACH den drei Zeilen darueber, damit ein Rueckruf, der waehrend
     // des Abbaus noch hereinkommt, keine Erlaubnis mehr vorfindet.
-    emitLog(L"Meeting-Ende: Bild-Abos abbauen");
-    videoMeetingEnded();
+
     // DIE ENTSCHEIDENDE MARKE (Owner-Lauf 18.08.2026, Absturz mit
     // STATUS_ACCESS_VIOLATION nach dem Meeting-Ende): steht sie da und der
     // Prozess stirbt TROTZDEM, dann hat kein Abbau-Aufruf ihn umgebracht -

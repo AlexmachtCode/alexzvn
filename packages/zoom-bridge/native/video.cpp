@@ -575,11 +575,25 @@ void videoMeetingEnded() {
   // der letzte gemeldete Stand war "black (cameraOff)", also "jemand hat die
   // Kamera aus" fuer eine beendete Sitzung. Zwei Ursachen, ein Name.
   //
-  // WARUM DER ABBAU HIER SICHER IST, und zwar gemessen statt gehofft: in
-  // genau jenem Lauf lief videoShutdownAll() NACH dem "ended" durch und rief
-  // unSubscribe()/destroyRenderer() auf Renderer eines bereits beendeten
-  // Meetings - ohne Absturz. Der Abbau an dieser Stelle ist derselbe Aufruf
-  // zum selben Zeitpunkt, nur ohne den Umweg ueber den Aufrufer.
+  // ⚑ WIDERRUFEN am 18.08.2026. Hier stand: "WARUM DER ABBAU HIER SICHER IST,
+  // und zwar gemessen statt gehofft" - in jenem Lauf sei videoShutdownAll()
+  // nach dem "ended" durchgelaufen und habe unSubscribe()/destroyRenderer()
+  // auf Renderer eines beendeten Meetings gerufen, ohne Absturz.
+  //
+  // Der Satz war wahr und trug trotzdem nicht. Gemessen wurde ein ANDERER
+  // AUFRUFORT: videoShutdownAll() lief aus main(), also NACH Rueckkehr aus
+  // dem Rueckruf. videoMeetingEnded() wurde spaeter aus
+  // onMeetingStatusChanged gerufen - INNERHALB von pumpOnce() -, und die
+  // Begruendung wanderte mit, ohne dass jemand nachmass. Von dort aus
+  // beendete unSubscribe() den Prozess mit 0xC0000005.
+  //
+  // "Derselbe Aufruf zum selben Zeitpunkt, nur ohne den Umweg ueber den
+  // Aufrufer" - genau dieser Umweg WAR der Unterschied. Der Aufrufort ist
+  // Teil der Messung, nicht Beiwerk.
+  //
+  // main() ruft diese Funktion jetzt wieder von aussen (callbacks.h,
+  // callbacksTakeMeetingEndTeardown) - der Aufrufort, den die Messung von
+  // 2026-08-13 tatsaechlich abgedeckt hat.
   //
   // KEIN Schweigen und kein Weiterleben: ein Abo, das seine Sitzung
   // ueberlebt, ist genau der Fall, den der Kommentar an reduce() in

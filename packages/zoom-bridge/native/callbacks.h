@@ -103,6 +103,15 @@ class ParticipantsListener : public IMeetingParticipantsCtrlEvent {
 
 // ACHTUNG: onTranscodingStatusChanged gibt es NUR unter __linux__ - samt seinem
 // Enum. Diese drei gibt es NUR unter WIN32. Im Spike gemessen, nicht vermutet.
+// NIMMT das Merkzeichen "das Meeting ist zu Ende, die Abos gehoeren abgebaut"
+// und LOESCHT es dabei (exchange). GEMESSEN am 18.08.2026: der Abbau DARF
+// NICHT aus onMeetingStatusChanged heraus laufen - dort steckt das SDK
+// mitten im eigenen Meeting-Abbau, und unSubscribe() auf einen Renderer
+// beendete den Prozess mit STATUS_ACCESS_VIOLATION. main() ruft diese
+// Funktion darum unmittelbar NACH pumpOnce() und baut dann ab: derselbe
+// Durchlauf der Schleife, aber ausserhalb des Rueckrufs.
+bool callbacksTakeMeetingEndTeardown();
+
 class RecordingListener : public IMeetingRecordingCtrlEvent {
  public:
   void onRecordPrivilegeChanged(bool bCanRec) override;

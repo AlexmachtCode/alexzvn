@@ -21,6 +21,9 @@
 #include "session.h"
 #include "ndi_sender.h"
 #include "video.h"
+// Nur fuer callbacksTakeMeetingEndTeardown(): der Abbau nach dem Meeting-Ende
+// gehoert in diese Schleife, nicht in den Rueckruf (Begruendung unten).
+#include "callbacks.h"
 #include "audio.h"
 
 namespace {
@@ -373,6 +376,30 @@ int main(int argc, char** argv) {
   std::string line;
   while (!g_quit) {
     pumpOnce();
+    // ABBAU NACH DEM MEETING-ENDE, HIER UND NICHT IM RUECKRUF. GEMESSEN am
+    // 18.08.2026: onMeetingStatusChanged kommt INNERHALB von pumpOnce() an,
+    // und ein unSubscribe() auf einen Renderer von dort aus beendete den
+    // Prozess mit exitCode 3221225477 = 0xC0000005 (die Abbau-Marken zeigten
+    // "Abbau <id>: unSubscribe()" als letzte Zeile). Das SDK steckt zu diesem
+    // Zeitpunkt in seinem eigenen Meeting-Abbau; ein Ruf zurueck hinein
+    // trifft Zustand, den es gerade aufloest.
+    //
+    // Diese Zeile steht darum unmittelbar NACH pumpOnce(): derselbe
+    // Schleifendurchlauf, kein zusaetzlicher Verzug, aber ausserhalb des
+    // Rueckrufs. VOR videoTick(), damit der Herzschlag nicht noch einmal in
+    // Quellen sendet, deren Meeting es nicht mehr gibt.
+    //
+    // audioClearSubscribed() VOR videoMeetingEnded(), dieselbe Reihenfolge
+    // wie beim "leave"-Befehl und beim Prozessende: der Lauscher gehoert weg,
+    // BEVOR die Abos verschwinden - ein Lauscher ohne Abos fuellt eine
+    // Warteschlange, die niemand mehr leert.
+    if (callbacksTakeMeetingEndTeardown()) {
+      emitLog(L"Meeting-Ende: Ton-Abo abmelden (ausserhalb des Rueckrufs)");
+      audioClearSubscribed();
+      emitLog(L"Meeting-Ende: Bild-Abos abbauen");
+      videoMeetingEnded();
+      emitLog(L"Meeting-Ende: Abbau zurueckgekehrt, Bruecke laeuft weiter");
+    }
     // Schwarzbild-Herzschlag (Aufgabe 5): haelt jede Video-Quelle am Leben,
     // indem sie bei Bildausfall Schwarz statt eines eingefrorenen letzten
     // Bildes sendet. Hier und nicht in einem eigenen Thread - die Schleife
