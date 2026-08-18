@@ -4,6 +4,7 @@
 #include <deque>
 #include <mutex>
 #include "emit.h"
+#include "session.h"
 // DIESELBE UEBERSETZUNGSFALLE wie in video.h/session.h, hier GEMESSEN statt
 // vermutet (`npm run rebuild -w @jm/zoom-bridge` brach ohne diese Zeile mit
 // derselben C3646/C4430/C2872-Kaskade in zoom_sdk_def.h ab): unter WIN32
@@ -154,6 +155,12 @@ void audioAbmelden() {
     return;
   }
   g_registriert = false;
+  // Der Tonkanal geht mit dem Abo: er wurde NUR fuer das Abo betreten
+  // (siehe audioEnsureSubscribed), also hat er ohne Abo keinen Zweck mehr -
+  // und solange wir drinstehen, erscheint JM Connect fuer alle anderen als
+  // tonverbunden. NACH dem geglueckten unSubscribe(), nicht davor: erst
+  // sollen die Rueckrufe aufhoeren, dann die Mitgliedschaft fallen.
+  sessionLeaveVoip();
 }
 
 }  // namespace
@@ -167,6 +174,28 @@ bool audioEnsureSubscribed() {
   // zweites Meeting im selben Prozess allen Ton verlieren kann (Schluss-
   // pruefung, Critical 2, Ausfall B).
   audioAbmelden();
+
+  // ZUERST dem Tonkanal des Meetings beitreten, DANN das Roh-Ton-Abo.
+  // GEMESSEN am 18.08.2026 gegen ein echtes Meeting: ohne diesen Schritt
+  // antwortet subscribe() unten mit SDKERR_NOT_JOIN_AUDIO (32). Zoom trennt
+  // "im Meeting" und "am Ton des Meetings" - das Bild kennt diese Bedingung
+  // nicht, deshalb lief es, waehrend der Ton scheiterte.
+  //
+  // HIER und nicht beim Meeting-Beitritt, aus demselben Grund wie
+  // StartRawRecording() in videoSubscribe(): wer nie Ton abonniert, soll auch
+  // nicht als Ton-Teilnehmer im Meeting auftauchen.
+  //
+  // EIGENER FEHLERNAME: "wir kamen nicht an den Tonkanal" schickt die Suche an
+  // einen anderen Ort als "der Helfer hat das Abo abgelehnt" - beim ersten ist
+  // der Meeting-Beitritt schuld, beim zweiten das Abo.
+  const SDKError voipErr = sessionJoinVoip();
+  if (voipErr != SDKERR_SUCCESS) {
+    emitLog(std::wstring(L"Zoom-SDK meldet einen Fehler bei JoinVoip(): SDKError=") +
+            std::to_wstring(static_cast<int>(voipErr)));
+    emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioVoipJoinFailed\"}");
+    return false;
+  }
+
   IZoomSDKAudioRawDataHelper* helper = GetAudioRawdataHelper();
   if (helper == nullptr) {
     emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioHelperMissing\"}");

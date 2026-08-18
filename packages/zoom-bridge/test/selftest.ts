@@ -12,6 +12,7 @@ import {
   sdkErrorName,
   serializeCommand,
   SDK_ERROR_NAMES,
+  OWN_ERROR_NAMES,
   AUTH_RESULT_NAMES,
   VIDEO_RESOLUTIONS,
   type AudioReason,
@@ -1193,8 +1194,23 @@ console.log('\nprotocol — Video: jede Ursache hat ihren eigenen Namen:');
     // an verschiedene Stellen (Aufloesung vs. Ton-Schalter).
     'videoBadResolution', 'videoBadAudioFlag', 'videoBufferMismatch', 'ndiInitFailed',
   ].map((k) => (enrich({ ev: 'error', where: 'video', code: k } as WireEvent) as { name: string }).name);
-  assert(new Set(namen).size === namen.length, 'zehn Ursachen, zehn verschiedene Namen');
+  assert(new Set(namen).size === namen.length, 'die aufgezählten Ursachen tragen paarweise verschiedene Namen');
   assert(!namen.some((n) => n.startsWith('OWN_UNKNOWN')), 'keiner faellt auf OWN_UNKNOWN zurueck');
+  // ÜBER DIE GANZE TABELLE, nicht über eine abgeschriebene Liste. Die
+  // Aufzählung oben ist eine Handkopie und war beim Zählen bereits von der
+  // Wirklichkeit abgewichen (sie ließ videoRawRecordingFailed aus und hieß
+  // trotzdem „zehn Ursachen"). Eine Handkopie kann die Frage „sind ALLE Namen
+  // verschieden?" nicht beantworten — sie beantwortet nur „sind die
+  // verschieden, an die sich jemand erinnert hat". Diese Zusicherung liest die
+  // Quelle selbst und deckt darum jeden künftig hinzugefügten Schlüssel mit ab,
+  // ohne dass jemand daran denken muss.
+  const alleSchluessel = Object.keys(OWN_ERROR_NAMES);
+  const alleNamen = alleSchluessel.map((k) => OWN_ERROR_NAMES[k]);
+  assert(new Set(alleNamen).size === alleNamen.length,
+    `alle ${alleSchluessel.length} Fehlerschlüssel tragen paarweise verschiedene Namen — zwei Ursachen dürfen nie einen Namen teilen`);
+  assert(alleSchluessel.every((k) => (enrich({ ev: 'error', where: 'video', code: k } as WireEvent) as { name: string }).name === OWN_ERROR_NAMES[k]),
+    'jeder Schlüssel der Tabelle wird von enrich() auch wirklich aufgelöst');
+
   const fremd = enrich({ ev: 'error', where: 'video', code: 'videoWasAuchImmer' } as WireEvent);
   assert(
     (fremd as { name: string }).name === 'OWN_UNKNOWN(videoWasAuchImmer)',

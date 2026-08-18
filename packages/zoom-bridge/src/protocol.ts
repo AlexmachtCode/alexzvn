@@ -342,6 +342,13 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // gar nicht". Wer das mit videoSenderFailed verschmelzen wuerde, schickte
   // die Suche zu einem Abo statt zur Installation.
   ndiInitFailed: 'NDI_INIT_FAILED',
+  // Wir kamen nicht an den TONKANAL des Meetings (JoinVoip). GEMESSEN am
+  // 18.08.2026: ohne diesen Beitritt lehnt Zoom das Roh-Ton-Abo mit
+  // SDKERR_NOT_JOIN_AUDIO (32) ab — man ist im Meeting, aber nicht an dessen
+  // Ton, und nur wer am Ton hängt, bekommt Rohdaten davon. AUSDRÜCKLICH ein
+  // anderer Name als audioSubscribeFailed: hier ist der Meeting-Beitritt schuld,
+  // dort das Abo — zwei verschiedene Orte zum Suchen.
+  audioVoipJoinFailed: 'AUDIO_VOIP_JOIN_FAILED',
   // Das SDK gab keinen Ton-Helfer heraus - kein Meeting oder SDK nicht bereit.
   audioHelperMissing: 'AUDIO_HELPER_MISSING',
   // Das EINE globale Ton-Abo ging nicht durch. AUSDRUECKLICH ein anderer Name

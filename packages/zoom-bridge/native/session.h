@@ -377,3 +377,27 @@ SDKError sessionStartRawRecording();
  * Rohdaten seien schon frei.
  */
 void sessionClearRawRecording();
+
+/**
+ * Tritt dem TONKANAL des Meetings bei. Idempotent je Meeting.
+ *
+ * WARUM DAS NOETIG IST — GEMESSEN am 18.08.2026 gegen ein echtes Meeting:
+ * ohne diesen Aufruf antwortet subscribe() des Roh-Ton-Helfers mit
+ * SDKERR_NOT_JOIN_AUDIO (32). Zoom trennt "im Meeting sein" und "am Ton des
+ * Meetings haengen"; wer nicht am Ton haengt, bekommt auch keine Rohdaten
+ * davon. Das BILD hat diese Bedingung nicht — deshalb lief Stage 2 durch,
+ * waehrend der Ton am ersten echten Meeting scheiterte.
+ *
+ * Nimmt dabei zwei Schutzmassnahmen mit, die den Regieraum betreffen und
+ * NICHT den Tonempfang: keine lokale Wiedergabe (sonst Rueckkopplung ueber
+ * die Raummikrofone) und Stummschaltung unserer selbst (JoinVoip macht uns
+ * zum Ton-Teilnehmer, und wir wollen ausschliesslich empfangen). Scheitert
+ * eine davon, wird sie auf stderr gemeldet und der Beitritt bleibt stehen.
+ *
+ * @returns SDKERR_SERVICE_FAILED, wenn es keinen Ton-Regler gibt, sonst das,
+ *          was JoinVoip() geliefert hat.
+ */
+SDKError sessionJoinVoip();
+
+/** Verlaesst den Tonkanal wieder. Tut nichts, wenn wir nie beigetreten sind. */
+void sessionLeaveVoip();
