@@ -587,7 +587,48 @@ Owner-Abnahme (acht Punkte, siehe
 [`docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md`](../../docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md), §9,
 und `docs/roadmap.md`).
 
-## 8 · Vier Fallen, die Zeit kosten
+## 8 · Fünf Fallen, die Zeit kosten
+
+**Nach dem Meeting-Ende ist der Renderer schon tot — ihn anzufassen bringt den
+Prozess um.** GEMESSEN am 18.08.2026: sobald der Gastgeber die Sitzung
+beendet, endet `zoom-bridge.exe` mit `exitCode 3221225477` = `0xC0000005` =
+`STATUS_ACCESS_VIOLATION`. Der Absturz sitzt in `unSubscribe()` auf dem
+Video-Renderer; das SDK hat seine Rohdaten-Einrichtung zu diesem Zeitpunkt
+bereits abgeräumt. Der Ton-Helfer sagt an derselben Stelle dasselbe, nur
+höflicher: sein `unSubscribe()` antwortet `SDKERR_WRONG_USAGE` (2), statt den
+Prozess mitzunehmen. `videoAbbauAlle()` trennt darum zwei Lagen — Meeting lebt
+noch (`leave`/`quit`/EOF) → ordentlich abmelden; Meeting ist zu Ende → den
+Renderer **gar nicht** anfassen, nur den NDI-Sender schließen.
+
+Drei Dinge daran sind es wert, festgehalten zu werden:
+
+1. **Zwei falsche Verdächtige, beide durch Messung ausgeschieden.** Zuerst
+   Befund I6 (zerstörte `Sub`-Objekte unter laufenden Rückrufen) — die
+   Abbau-Marken zeigten, dass es nie so weit kommt. Dann Re-Entranz (Aufruf
+   ins SDK aus dessen eigenem Rückruf) — der Abbau wurde nach `pumpOnce()`
+   verlagert, und es stürzte weiter ab. Erst der dritte Anlauf traf.
+2. **Der Aufrufort ist Teil der Messung.** In `videoMeetingEnded()` stand eine
+   Sicherheitsbegründung mit dem Wort „gemessen statt gehofft". Der Satz war
+   wahr — er beschrieb aber `videoShutdownAll()`, aufgerufen aus `main()`.
+   Als dieselbe Arbeit später aus dem Rückruf lief, wanderte die Begründung
+   mit, ohne dass jemand nachmaß. Sie steht heute als **widerrufen** im
+   Quelltext, samt Grund.
+3. **Der Absturz war seit Stage 2 da und unsichtbar.** Er hängt nicht am Ton
+   (er kam auch mit `audio:false`). Sichtbar wurde er erst, als das Feld
+   `detail` — der Rückgabewert des Kindprozesses, den `bridge.ts` längst
+   füllte — endlich angezeigt wurde. Stage 2 hat „Meeting-Ende räumt die Abos
+   ab" abgenommen; das stimmte auch. Dass der Prozess danach starb, konnte
+   niemand sehen. **Ein Wert, der erzeugt und still verworfen wird, lässt
+   Abnahmen durchgehen, die nicht durchgehen dürften.**
+
+⚑ **Ungeprüft geblieben und bewusst so:** ob `destroyRenderer()` auf diesem Weg
+überlebt hätte. Es zu versuchen hätte einen weiteren abgestürzten Lauf
+gekostet. Der Preis ist ein womöglich liegengelassener Renderer je Meeting —
+bei höchstens fünf Abos begrenzt, und wahrscheinlich gar keiner, denn dass
+`unSubscribe()` abstürzt heißt ja gerade, dass das SDK ihn schon weggeräumt
+hat. Die Abbau-Marken auf stderr bleiben stehen: stirbt der Prozess je wieder
+hier, ist die letzte gedruckte Marke die einzige Auskunft, die es geben wird.
+
 
 **Eine fehlende DLL sieht aus wie ein Anmeldefehler.** `zoom-bridge.exe` ist
 gegen die Zoom-**und** (seit Stage 2) gegen die NDI-Importbibliothek gebunden.

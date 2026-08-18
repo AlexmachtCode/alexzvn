@@ -4,13 +4,19 @@ Sechs von acht Punkten aus [Spec Abschnitt 9](../../docs/superpowers/specs/2026-
 sind offen. Sie brauchen ein echtes Meeting mit echten Menschen — kein Selbsttest kann sie
 ersetzen. Dieses Drehbuch ordnet sie so, dass **ein** Meeting reicht.
 
-**Stand 18.08.2026 — 5 von 8 durch:** ✅ 1) Ton hörbar · ✅ 2) `live`↔`silent` fünfmal, kein
-Knacken · ✅ 4) zwei Personen, einzeln abgehört, sauber getrennt · ✅ 6) Weggang und
-Wiederbeitritt, Quellenname unverändert · ✅ 8) Format gemessen (32 kHz Mono, 320 Werte je Paket,
-~100 Pakete/s je Sprecher; zwei gleichzeitige Sprecher = 203/s ohne Überlauf).
+**Stand 18.08.2026 — 7 von 8 durch:** ✅ 1) Ton hörbar · ✅ 2) `live`↔`silent` fünfmal, kein
+Knacken · ✅ 3) `audio:false` liefert Bild ohne Ton (`off`/`command`) · ✅ 4) zwei Personen,
+einzeln abgehört, sauber getrennt · ✅ 6) Weggang und Wiederbeitritt, Quellenname unverändert ·
+✅ 7) Meeting-Ende meldet den Ton eigens mit `meetingEnded` · ✅ 8) Format gemessen (32 kHz Mono,
+320 Werte je Paket, ~100 Pakete/s je Sprecher; zwei gleichzeitige Sprecher = 203/s ohne Überlauf).
 
-⚠ **Punkt 5 ist gefallen: der Ton läuft dem Bild hinterher.** Offen bleiben damit die Punkte 3
-(`audio:false`), 5 (Lippensynchronität) und 7 (Meeting-Ende) sowie der Pegel.
+⚠ **Offen ist nur noch Punkt 5: der Ton läuft dem Bild hinterher**, und zwar mit
+**gleichbleibendem** Versatz — das schließt die Abtastwert-Buchhaltung aus und lässt die
+Rohrleitung übrig. Dazu der Pegel als Nebenpunkt.
+
+⛑ **Auf dem Weg dorthin fiel ein Absturz auf**, der seit Stage 2 im Meeting-Ende steckte und
+unsichtbar war, weil der Rückgabewert des Kindprozesses nie angezeigt wurde. Behoben. Siehe
+[README Abschnitt 8](README.md).
 
 Die Reihenfolge unten ist nicht beliebig. Punkt 7 beendet das Meeting und muss darum zuletzt
 kommen; Punkt 6 verändert Teilnehmerkennungen; Punkt 3 braucht einen eigenen Start, weil der
@@ -183,8 +189,24 @@ audio <id>: off (meetingEnded)
 video <id>: unsubscribed (meetingEnded)
 ```
 
-Der Ton meldet sich **eigens** — nicht bloß das Bild. Danach: Task-Manager öffnen, es darf **kein**
-`zoom-bridge.exe` übrig sein.
+Der Ton meldet sich **eigens** — nicht bloß das Bild. Dazu auf stderr die Abbau-Marken:
+
+```
+Abbau beginnt (meetingEnded), N Abo(s), SDK abmelden: nein - Meeting ist zu Ende
+Abbau <id>: Renderer NICHT angefasst - das SDK hat ihn schon abgeraeumt
+Abbau <id>: NDI-Sender schliessen
+Abbau <id>: fertig
+Abbau fertig, Karte ist leer
+Meeting-Ende: Abbau zurueckgekehrt, Bruecke laeuft weiter
+```
+
+**Und dann das Wichtigste: es darf KEIN `EXITED_UNEXPECTEDLY` kommen.** Genau dort steckte bis zum
+18.08.2026 ein Absturz (`exitCode=3221225477` = `0xC0000005`), den niemand sehen konnte. Kommt die
+Zeile doch, steht darunter jetzt der Rückgabewert — und die zuletzt gedruckte Abbau-Marke sagt, wo
+es passiert ist. Beides mitschicken.
+
+Die Brücke **läuft danach weiter** — sie ist absichtlich so gebaut, dass sie ein Meeting-Ende
+überlebt. Erst Strg+C beendet sie; im Task-Manager darf danach kein `zoom-bridge.exe` übrig sein.
 
 ---
 
