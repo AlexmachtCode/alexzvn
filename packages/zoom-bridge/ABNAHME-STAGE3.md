@@ -21,8 +21,9 @@ werden nicht „durch Nachdenken" abgehakt.
 
 ⛑ **Kopfhörer für jeden, der im selben Raum sitzt wie ein abonniertes Mikrofon.** Gemessen am
 18.08.2026: über Lautsprecher läuft der Ton akustisch im Kreis und klingt doppelt und versetzt.
-Das ist **kein** Fehler der Brücke — sie sendet nachweislich 101 % der angegebenen Rate, eine
-Dopplung wäre 200 %. Wer diesen Hinweis übergeht, misst den Raum statt die Software.
+Das ist **kein** Fehler der Brücke — sie sendet nachweislich 101 % der angegebenen Rate (im
+dritten Lauf sogar exakt 100 %), eine Dopplung wäre 200 %. Wer diesen Hinweis übergeht, misst
+den Raum statt die Software.
 
 **Offen im NDI-Monitor:** die Quellen heißen `JM Connect – Zoom <Name>` (Halbgeviertstrich, kein
 Doppelpunkt — gemessen in Stage 2).
@@ -123,10 +124,13 @@ audio <id1>: silent (gap)
 Die Schwelle steht auf 40 ms ohne Paket. Aufheben → `audio <id1>: live (packets)`. Dreimal
 wiederholen und **beim Übergang hinhören**: knackt es?
 
-**Wenn kein `silent` kommt**, ist genau das der Befund. In beiden Messläufen vom 18.08. kam
-keines — möglich, dass Zoom auch für einen stummen Teilnehmer weiter Pakete schickt. Dann ist der
-Stille-Herzschlag ein Netz für einen **abreißenden** Strom, nicht für Stummschaltung, und Punkt 2
-ist anders zu formulieren statt „bestanden" zu heißen. Notieren, nicht umbauen.
+**Der Übergang findet statt** — im dritten Lauf am 18.08. kam `audio 16778240: silent (gap)`.
+Eine frühere Notiz behauptete das Gegenteil; sie war ein voreiliger Schluss aus zwei Läufen, in
+denen nichts kam. **Nicht festgestellt ist, was ihn auslöst.** Darum hier ausdrücklich zweimal
+messen: einmal nur schweigen (Mikrofon offen), einmal stummschalten. Kommt `silent` schon beim
+Schweigen, ist die Schwelle von 40 ms für Sprechpausen gedacht; kommt es nur beim Stummschalten,
+ist der Herzschlag ein Netz für einen abreißenden Strom. Das ist ein Unterschied, den nur der
+Versuch trennt — nicht die Überlegung.
 
 ### A5 · Punkt 6 — Weggang und Wiederbeitritt
 

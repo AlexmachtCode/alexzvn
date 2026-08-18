@@ -552,10 +552,18 @@ weder Meeting-Ende noch Prozessende auf dem Ton-Weg. Von dem, was **Zoom**
 liefert, sind Pegel und Lippensynchronität offen, ebenso die Summenrate bei
 mehreren **gleichzeitig** Sprechenden (gemessen wurde ein einziger Sprecher;
 dass fünf linear 500 Pakete je Sekunde ergeben, ist Arithmetik, keine
-Beobachtung). Offen ist auch, **ob der Stille-Übergang je stattfindet**: in
-beiden Messläufen kam **kein** `silent`/`gap` — Zoom scheint durchgehend
-Pakete zu senden, auch wenn niemand spricht. Der Herzschlag wäre dann ein
-Netz für einen abreißenden Strom, nicht für Sprechpausen. Das gehört in die
+Beobachtung).
+
+**BERICHTIGT am 18.08.2026, dritter Lauf:** hier stand, der Stille-Übergang
+finde womöglich nie statt — in den ersten beiden Messläufen war **kein**
+`silent`/`gap` gekommen, und daraus war geschlossen, Zoom sende durchgehend
+Pakete. Der dritte Lauf hat `audio 16778240: silent (gap)` geliefert. Der
+Schluss war voreilig: aus zwei Läufen ohne Ereignis folgt nicht, dass das
+Ereignis nicht eintritt — es folgt nur, dass es in diesen zwei Läufen nicht
+eintrat. **Was ausgelöst hat, ist noch nicht festgestellt** (Stummschaltung
+oder Sprechpause), und der Rückweg nach `live` wurde noch nicht beobachtet,
+weil der Lauf vorher abgebrochen wurde. Abnahmepunkt 2 bleibt offen, aber
+seine Voraussetzung steht. Das gehört in die
 Owner-Abnahme (acht Punkte, siehe
 [`docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md`](../../docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md), §9,
 und `docs/roadmap.md`).
