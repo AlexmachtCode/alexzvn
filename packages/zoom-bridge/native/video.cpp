@@ -138,6 +138,17 @@ struct Sub {
   ULONGLONG silenceBisMs = 0;
   std::string audioState = "off";     // waiting | live | silent | off
   bool audioMismatchGemeldet = false;
+  // --- Messung: wieviel Ton kommt WIRKLICH an? -----------------------------
+  // Zwei offene Fragen haengen an derselben Zahl: Abnahmepunkt 8 (welches
+  // Format und welche Ankunftsrate Zoom liefert - steht in keinem Header) und
+  // die Auslegung der Warteschlange in audio.cpp, die bisher auf einer
+  // Annahme steht. Gemessen wird EINMAL je Abo ueber die erste volle Sekunde
+  // und dann nie wieder: eine Zeile je Sekunde je Abo waere Laerm, und die
+  // Frage ist nach einer Sekunde beantwortet.
+  ULONGLONG audioMessBeginnMs = 0;
+  unsigned int audioMessPakete = 0;
+  unsigned long long audioMessAbtastwerte = 0;
+  bool audioMessGemeldet = false;
 };
 
 // Der Name steht bei subscribe FEST und folgt keiner Umbenennung: einen
@@ -692,14 +703,66 @@ void videoTick() {
     s->sender.sendAudio(p.samples.data(), p.sampleCount, p.sampleRate, p.channels);
 
     bool wurdeLive = false;
+    bool messungFertig = false;
+    unsigned int mPakete = 0;
+    unsigned long long mWerte = 0;
+    ULONGLONG mSpanne = 0;
+    int mRate = 0, mKanaele = 0;
     {
       std::lock_guard<std::mutex> lock(s->fieldMutex);
       s->audioRate = p.sampleRate;
       s->audioChannels = p.channels;
       s->lastAudioMs = GetTickCount64();
       if (s->audioState != "live") { s->audioState = "live"; wurdeLive = true; }
+
+      // GEZAEHLT WIRD, WAS GESENDET WURDE - direkt nach dem Sendeaufruf oben,
+      // nicht was hereinkam. Die Frage lautet ja gerade, ob zwischen "kommt
+      // an" und "geht raus" etwas dazukommt.
+      if (s->audioMessBeginnMs == 0) s->audioMessBeginnMs = s->lastAudioMs;
+      ++s->audioMessPakete;
+      s->audioMessAbtastwerte += static_cast<unsigned long long>(p.sampleCount);
+      const ULONGLONG spanne = s->lastAudioMs - s->audioMessBeginnMs;
+      if (!s->audioMessGemeldet && spanne >= 1000) {
+        s->audioMessGemeldet = true;
+        messungFertig = true;
+        mPakete = s->audioMessPakete;
+        mWerte = s->audioMessAbtastwerte;
+        mSpanne = spanne;
+        mRate = s->audioRate;
+        mKanaele = s->audioChannels;
+      }
     }
     if (wurdeLive) emitAudio(*s, "live", "packets");
+    if (messungFertig) {
+      // DIE ENTSCHEIDENDE GEGENUEBERSTELLUNG: gesendete Abtastwerte je Sekunde
+      // gegen die Abtastrate, die Zoom ANGIBT. Sind beide gleich, geben wir
+      // genau weiter, was ankommt. Ist die gesendete Menge ein Vielfaches,
+      // senden wir denselben Ton mehrfach - und genau so klingt ein
+      // zeitversetztes Echo. Der Quotient sagt, WIE oft.
+      const unsigned long long jeSekunde = mWerte * 1000ULL / (mSpanne > 0 ? mSpanne : 1);
+      emitLog(std::wstring(L"Ton-Messung fuer ") + std::to_wstring(s->userId.load()) + L": " +
+              std::to_wstring(mPakete) + L" Pakete in " + std::to_wstring(mSpanne) + L" ms, " +
+              std::to_wstring(mWerte) + L" Abtastwerte je Kanal = " + std::to_wstring(jeSekunde) +
+              L"/s gesendet. Zoom gibt " + std::to_wstring(mRate) + L" Hz, " +
+              std::to_wstring(mKanaele) + L" Kanal an.");
+      if (mRate > 0) {
+        const unsigned long long soll = static_cast<unsigned long long>(mRate);
+        // 10 % Toleranz: die Fenstergrenze faellt nicht auf eine Paketgrenze,
+        // und die erste Sekunde beginnt mit dem ersten Paket, nicht mit dem
+        // Abo. Ein DOPPELTES Senden waere 200 %, kein Grenzfall.
+        if (jeSekunde > soll + soll / 10) {
+          emitLog(std::wstring(L"  ACHTUNG: das ist ") +
+                  std::to_wstring(jeSekunde * 100ULL / soll) +
+                  L" % der angegebenen Rate - wir senden mehr Ton, als Zoom liefert.");
+        } else if (jeSekunde + soll / 10 < soll) {
+          emitLog(std::wstring(L"  ACHTUNG: das ist nur ") +
+                  std::to_wstring(jeSekunde * 100ULL / soll) +
+                  L" % der angegebenen Rate - es geht Ton verloren.");
+        } else {
+          emitLog(L"  Passt: gesendete Menge und angegebene Rate stimmen ueberein.");
+        }
+      }
+    }
   }
 
   for (auto& [id, s] : g_subs) {
@@ -1172,6 +1235,13 @@ void videoParticipantJoined(unsigned int userId) {
     s->lastAudioMs = 0;
     s->audioMismatchGemeldet = false;
     s->audioState = s->audioOn ? "waiting" : "off";
+    // Auch die Messung gilt je Sitzung des Gastes - nach einem Wiederbeitritt
+    // kann Zoom ein anderes Format liefern, und dann ist die alte Zahl keine
+    // Aussage mehr ueber das, was jetzt kommt.
+    s->audioMessBeginnMs = 0;
+    s->audioMessPakete = 0;
+    s->audioMessAbtastwerte = 0;
+    s->audioMessGemeldet = false;
   }
   // Zwischen dem geglueckten subscribe() oben und dieser Sperre kann bereits
   // ein Bild eintreffen. Es wird dann noch mit teilnehmerWeg == true
