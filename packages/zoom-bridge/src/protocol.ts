@@ -145,7 +145,16 @@ export type WireEvent =
   // bis zu dieser Meldung verworfen wurden. Gemeldet wird einmal je Meeting
   // (Spec Abschnitt 5) — was danach noch verlorengeht, steht in keiner Zahl,
   // und diese Zeile behauptet auch keine.
-  | { ev: 'error'; where: string; code: number | string; id?: number; dropped?: number }
+  // "detail" NACHGETRAGEN (Owner-Lauf 18.08.2026): bridge.ts schrieb das
+  // Feld laengst - mit dem Rueckgabewert bzw. Signal des Kindprozesses, also
+  // genau der Zahl, die einen Absturz von einem geordneten Ende trennt - aber
+  // hinter einem `as WireEvent`-Cast, wo der Typ es nicht kannte und darum
+  // auch kein Anzeiger es je ausgab. Ein Wert, der erzeugt und dann still
+  // weggeworfen wird, ist schlimmer als keiner: er sieht im Quelltext nach
+  // Diagnose aus und liefert keine. Als das Kind nach einem Meeting-Ende von
+  // selbst ging, stand darum nur EXITED_UNEXPECTEDLY da - ohne die Zahl, die
+  // gesagt haette, WIE es ging.
+  | { ev: 'error'; where: string; code: number | string; id?: number; dropped?: number; detail?: string }
   | { ev: 'bye' }
   // "rotation" und "limitedRange" FEHLEN, solange kein Bild kam (bei
   // state:"subscribed" also immer). Ein Wert waere dort erfunden - und eine

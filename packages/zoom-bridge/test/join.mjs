@@ -133,6 +133,12 @@ const bridge = new Bridge({
       // - dort waere jede angezeigte Zahl erfunden.
       const wen = ev.id !== undefined ? ` fuer ${ev.id}` : '';
       console.log(`  FEHLER bei ${ev.where}${wen}: ${ev.name} (${ev.code})`);
+      // "detail" MIT ANZEIGEN: bei where:"exit" steht dort der Rueckgabewert
+      // bzw. das Signal des Kindprozesses. Ohne ihn sieht ein Absturz
+      // (0xC0000005) genauso aus wie ein geordnetes Ende - zwei Ursachen, ein
+      // Bild. Eingerueckt und in einer eigenen Zeile, damit die Fehlerzeile
+      // selbst kurz bleibt.
+      if (ev.detail) console.log(`      ${ev.detail}`);
     }
     else if (ev.ev === 'video') {
       // "rotation"/"limitedRange" stehen NUR dabei, wenn ein Bild sie
