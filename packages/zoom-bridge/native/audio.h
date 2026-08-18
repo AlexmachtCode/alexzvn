@@ -107,9 +107,27 @@ void audioShutdown();
 bool audioPop(AudioPacket* out);
 
 /**
- * Wie viele Pakete seit dem letzten Abruf verworfen wurden, und setzt den
- * Zaehler zurueck. Ein Ueberlauf ist eine Aussage ueber die MASCHINE, nicht
- * ueber einen Gast - der Rueckruf, der verwirft, weiss gar nicht, zu welchem
- * Abo das Paket gehoert haette.
+ * Nimmt den Ueberlauf-Bericht ab - HOECHSTENS EINMAL je Meeting.
+ *
+ * Ein Ueberlauf ist eine Aussage ueber die MASCHINE, nicht ueber einen Gast:
+ * der Rueckruf, der verwirft, weiss gar nicht, zu welchem Abo das Paket
+ * gehoert haette. Darum traegt die Meldung keine id.
+ *
+ * EINMAL JE MEETING, nicht je Tick (Spec Abschnitt 5: "im Tick einmal ...,
+ * danach erst wieder nach dem Zuruecksetzen beim Meeting-Ende"). Bei einem
+ * anhaltenden Ueberlauf schrieb die fruehere Fassung bis zu 100 Zeilen je
+ * Sekunde auf stdout und ertraenkte damit jede andere Ausgabe - genau der
+ * Effekt, den dasselbe Merkmal bei videoBufferMismatch je Abo vermeidet. Das
+ * Merkzeichen setzt audioClearSubscribed() zurueck, wie das Ton-Abo selbst.
+ *
+ * Der Zaehler wird NUR genommen (und zurueckgesetzt), wenn auch gemeldet
+ * wird - eine Messung abzuholen und wegzuwerfen waere schlimmer als sie
+ * stehen zu lassen. Nach der einen Meldung laeuft er darum unbeachtet weiter
+ * bis zum Meeting-Ende.
+ *
+ * @param dropped traegt bei true, WIE VIELE Pakete bis zu dieser Meldung
+ *                verworfen wurden. Was danach noch verlorengeht, steht in
+ *                keiner Zahl - und diese behauptet es auch nicht.
+ * @returns true = jetzt melden.
  */
-unsigned int audioTakeOverflowCount();
+bool audioTakeOverflowReport(unsigned int* dropped);

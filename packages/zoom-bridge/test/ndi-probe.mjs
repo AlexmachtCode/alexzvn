@@ -182,7 +182,12 @@ if (gefundenName) {
     console.log(`\nOK — die Quelle "${ERWARTET}" war auffindbar UND hat Ton geliefert.`);
     process.exit(0);
   }
-  if (receiverFehler) {
+  // !== null, NICHT der blosse Wahrheitswert (Schlusspruefung, M15): ein
+  // Error mit leerer message setzt receiverFehler auf '' - wahrheitswertig
+  // falsch, obwohl createReceiver() nachweislich gescheitert ist. Rueckgabe 6
+  // fiele dann still auf 5 zurueck, also genau die Vermischung zweier
+  // Ursachen, gegen die der Kommentar an receiverFehler oben argumentiert.
+  if (receiverFehler !== null) {
     // Code 6, NICHT 5: siehe Kommentar oben - "nicht verbunden" ist eine
     // andere Ursache als "verbunden, aber stumm" und braucht darum einen
     // eigenen Rueckgabewert, keinen geteilten.

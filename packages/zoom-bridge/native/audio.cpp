@@ -20,10 +20,27 @@ USING_ZOOM_SDK_NAMESPACE
 
 namespace {
 
-// 256 Plaetze: bei 5 Teilnehmern, 32 kHz Mono und 10-ms-Paketen sind das rund
-// 500 Pakete je Sekunde - der Vorrat reicht also ueber eine halbe Sekunde,
-// waehrend geleert wird alle 10 ms. Gross genug fuer einen Hakler, klein
-// genug, um bei einem echten Haenger nicht ins Uferlose zu wachsen.
+// 256 Plaetze zu je 4 KB (1 MB). Die Auslegungsrechnung aus Spec Abschnitt 5:
+// bei 5 Sprechern, 32 kHz Mono und 10-ms-Paketen rund 500 Pakete je Sekunde,
+// der Vorrat reicht also gut eine halbe Sekunde, waehrend alle 10 ms geleert
+// wird.
+//
+// WORAUF DIESE RECHNUNG BERUHT, ehrlich benannt (Schlusspruefung Stage 3,
+// Important 5): die 5 der Betriebsgroesse sind 5 ABOS, nicht 5 Anwesende.
+// onOneWayAudioRawDataReceived haengt an einem GLOBALEN Abo und feuert fuer
+// JEDEN sprechenden Teilnehmer im Meeting - auch fuer die, die niemand
+// abonniert hat. Die halbe Sekunde gilt darum nur, solange hoechstens fuenf
+// Teilnehmer GLEICHZEITIG SPRECHEN. In einem Meeting mit dreissig Personen
+// und mehreren offenen Mikrofonen ist die Ankunftsrate ein Vielfaches, und
+// aus der halben Sekunde wird ein Bruchteil.
+//
+// UNGEMESSEN: Zooms tatsaechliche Paketrate (Groesse UND Takt) ist auf diesem
+// Zweig nirgends gemessen - weder je Sprecher noch in Summe. Die 10 ms und
+// die 32 kHz Mono stammen aus der Spec-Auslegung, nicht aus einer Messung an
+// einem echten Meeting; sie gehoeren auf die Owner-Abnahmeliste (README,
+// docs/roadmap.md). Wer diese Zahl anfasst, aendert Betriebswirtschaft: zu
+// klein heisst audioQueueOverflow bei jedem Hakler, zu gross heisst, dass ein
+// echter Haenger Sekunden alten Ton aufhebt, den niemand mehr hoeren will.
 constexpr size_t kMaxPakete = 256;
 
 std::mutex g_queueMutex;
@@ -52,6 +69,11 @@ std::atomic<unsigned int> g_verworfen{0};
 // videoShutdownAll() in main.cpp).
 std::atomic<bool> g_abonniert{false};
 std::atomic<bool> g_registriert{false};
+
+// "Der Ueberlauf ist fuer dieses Meeting gemeldet." Gilt je Meeting, genau
+// wie g_abonniert, und wird an derselben Stelle zurueckgesetzt - siehe
+// audioTakeOverflowReport() in audio.h fuer die Begruendung.
+std::atomic<bool> g_ueberlaufGemeldet{false};
 
 class AudioDelegate : public IZoomSDKAudioRawDataDelegate {
  public:
@@ -183,6 +205,8 @@ void audioClearSubscribed() {
   // videoMeetingEnded() in video.cpp) - das ist ein Vorbild, kein Beleg.
   audioAbmelden();
   g_abonniert = false;
+  // Das naechste Meeting darf seinen eigenen Ueberlauf wieder melden.
+  g_ueberlaufGemeldet = false;
   std::lock_guard<std::mutex> lock(g_queueMutex);
   // Pakete aus einem beendeten Meeting gehoeren niemandem mehr.
   g_queue.clear();
@@ -208,6 +232,15 @@ bool audioPop(AudioPacket* out) {
   return true;
 }
 
-unsigned int audioTakeOverflowCount() {
-  return g_verworfen.exchange(0);
+bool audioTakeOverflowReport(unsigned int* dropped) {
+  if (dropped == nullptr) return false;
+  // ERST das Merkzeichen fragen, DANN den Zaehler nehmen (siehe audio.h):
+  // audioTakeOverflowCount() setzte frueher bei jedem Tick zurueck, auch wenn
+  // niemand meldete - eine Messung, die genommen und weggeworfen wird.
+  if (g_ueberlaufGemeldet.load()) return false;
+  const unsigned int n = g_verworfen.exchange(0);
+  if (n == 0) return false;
+  g_ueberlaufGemeldet = true;
+  *dropped = n;
+  return true;
 }

@@ -114,9 +114,20 @@ void NdiSender::sendAudioLocked(const int16_t* samples, int sampleCount, int sam
   // synthetische Taktung Bild und Ton auseinanderlaufen laesst (Spec
   // Abschnitt 8, Abnahmepunkt 5).
   f.timecode = NDIlib_send_timecode_synthesize;
-  // +0 dB: der Kopfsatz der NDI-SDK sagt fuer das SENDEN ausdruecklich
-  // "specify +0 dB. Most common applications produce audio at reference
-  // level." Zoom liefert Ton auf Referenzpegel.
+  // +0 dB. ZITAT, und danach eine ANNAHME - die beiden gehoeren getrennt
+  // (Schlusspruefung Stage 3, Important 9; vorher standen sie in einem Satz,
+  // was die Annahme wie einen Beleg aussehen liess):
+  //
+  // ZITIERT aus dem Kopfsatz der NDI-SDK, fuer das SENDEN: "specify +0 dB.
+  // Most common applications produce audio at reference level."
+  //
+  // ANGENOMMEN, auf diesem Zweig NIRGENDS gemessen: dass Zoom seinen Ton
+  // ebenfalls auf Referenzpegel liefert. Kein Lauf dieses Zweigs hat je einen
+  // Pegel gesehen - ndi-probe hoert die Stille UNSERES eigenen Selbsttest-
+  // Senders, nicht Zoom. Liegt Zoom daneben, ist die Folge ein durchgehend zu
+  // leiser oder zu lauter Eingang im Switcher, nicht ein Ausfall. "Pegel
+  // plausibel?" steht darum auf der Owner-Abnahmeliste (README,
+  // docs/roadmap.md); erst danach darf hier eine gemessene Zahl stehen.
   f.reference_level = 0;
   f.p_data = const_cast<int16_t*>(samples);
   NDIlib_util_send_send_audio_interleaved_16s(send_, &f);

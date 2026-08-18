@@ -795,7 +795,7 @@ bool numberFromJson(const std::string& line, const char* key, unsigned long long
   }
 }
 
-bool boolFromJson(const std::string& line, const char* key, bool* out) {
+JsonBool boolFromJson(const std::string& line, const char* key, bool* out) {
   // DIESELBE Schluessel-Positions-Pruefung wie fieldFromJson/numberFromJson
   // (unmittelbar davor '{' oder ',') - ohne sie truege ein Wert, der zufaellig
   // "audio" enthaelt, denselben Namen wie das Feld.
@@ -804,7 +804,7 @@ bool boolFromJson(const std::string& line, const char* key, bool* out) {
 
   while (true) {
     size_t at = line.find(needle, searchFrom);
-    if (at == std::string::npos) return false;
+    if (at == std::string::npos) return JsonBool::Fehlt;
 
     bool isKeyPosition = false;
     size_t p = at;
@@ -817,13 +817,23 @@ bool boolFromJson(const std::string& line, const char* key, bool* out) {
       if (after < line.size() && line[after] == ':') {
         ++after;
         while (after < line.size() && isJsonSpace(line[after])) ++after;
-        if (line.compare(after, 4, "true") == 0)  { *out = true;  return true; }
-        if (line.compare(after, 5, "false") == 0) { *out = false; return true; }
+        if (line.compare(after, 4, "true") == 0)  { *out = true;  return JsonBool::Gelesen; }
+        if (line.compare(after, 5, "false") == 0) { *out = false; return JsonBool::Gelesen; }
         // Schluessel gefunden, Wert ist weder true noch false: NICHT
-        // weitersuchen und NICHT raten - das Feld ist da, aber unlesbar.
-        return false;
+        // weitersuchen und NICHT raten - das Feld ist da, aber unlesbar. Der
+        // Aufrufer bekommt seit der Schlusspruefung (Important 6) einen
+        // EIGENEN Ausgang dafuer, statt denselben wie fuer "steht nicht da".
+        return JsonBool::Unlesbar;
       }
     }
+    // at + 1 statt at + needle.size() wie bei den Geschwisterfunktionen
+    // darueber, und das ist ABSICHT (Schlusspruefung, M16): beweisbar
+    // konservativ. Die naechste Suche beginnt eine Stelle weiter als die
+    // letzte Fundstelle, kann also hoechstens dieselbe Stelle erneut pruefen,
+    // niemals einen Treffer ueberspringen - die Schleife endet trotzdem, weil
+    // searchFrom streng waechst. Ein Angleichen an at + needle.size() waere
+    // nur schneller, nicht richtiger; hier steht Langsamkeit gegen die
+    // Moeglichkeit, ein Feld zu uebersehen, und das ist ein guter Tausch.
     searchFrom = at + 1;
   }
 }

@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 // Belegt OHNE Meeting, dass der native Befehlsleser "audio":true/false
-// wirklich liest. Ohne diesen Beleg saehe ein ignorierter Schalter genauso
-// aus wie ein befolgter - er ist bis zum ersten echten Ton unsichtbar.
+// wirklich liest - und dass ein Wert, der WEDER true NOCH false ist, gemeldet
+// wird statt still als "an" durchzugehen. Ohne diesen Beleg saehe ein
+// ignorierter Schalter genauso aus wie ein befolgter - er ist bis zum ersten
+// echten Ton unsichtbar.
+//
+// WAS DIESER LAUF NICHT ZEIGT: ob je ein Ton fliesst. Er prueft genau eine
+// stderr-Zeile je Abo und eine stdout-Zeile fuer den unlesbaren Fall, ohne
+// SDK-Anmeldung, ohne Meeting, ohne NDI-Empfaenger.
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { binPath } from '../src/bridge.ts';
@@ -21,9 +27,22 @@ let err = '';
 child.stderr.setEncoding('utf8');
 child.stderr.on('data', (d) => { err += d; });
 
+// stdout MITLESEN, nicht nur stderr: der vierte Fall unten wird als
+// JSON-Ereignis gemeldet (Maschinenkanal), waehrend die drei bestehenden
+// Faelle an einer Klartextzeile haengen (Menschenkanal).
+let out = '';
+child.stdout.setEncoding('utf8');
+child.stdout.on('data', (d) => { out += d; });
+
 child.stdin.write('{"cmd":"videoSubscribe","id":42,"audio":false}\n');
 child.stdin.write('{"cmd":"videoSubscribe","id":43,"audio":true}\n');
 child.stdin.write('{"cmd":"videoSubscribe","id":44}\n');
+// VIERTER FALL (Schlusspruefung, Important 6): ein Wert, der WEDER true NOCH
+// false ist. Vorher warf main.cpp den Rueckgabewert von boolFromJson() weg -
+// dieses Abo bekam still Ton AN, und stderr meldete zufrieden "Ton-Schalter
+// fuer 45: an". Ein Bediener haette den doppelten Ton im Saal nirgends
+// erklaert bekommen.
+child.stdin.write('{"cmd":"videoSubscribe","id":45,"audio":"false"}\n');
 child.stdin.end();
 
 child.on('exit', (code) => {
@@ -38,6 +57,14 @@ child.on('exit', (code) => {
     ['audio:false wird gelesen', fuer(42).includes('aus')],
     ['audio:true wird gelesen', fuer(43).includes('an')],
     ['ohne Feld gilt die Vorgabe an', fuer(44).includes('an')],
+    // ZWEI Zusicherungen fuer den vierten Fall, und beide werden gebraucht:
+    // die erste belegt, dass GEMELDET wird, die zweite, dass der Schalter
+    // nicht still auf "an" durchgeht. Eine Meldung, nach der das Abo trotzdem
+    // mit Ton angelegt wuerde, waere kein Fortschritt - und eine ausbleibende
+    // Zeile allein waere kein Beleg, sie koennte auch heissen, dass der
+    // Befehl irgendwo anders liegengeblieben ist.
+    ['ein unlesbarer Ton-Schalter wird gemeldet', out.includes('"code":"videoBadAudioFlag"')],
+    ['ein unlesbarer Ton-Schalter geht NICHT still als an durch', fuer(45) === ''],
   ];
   let schlecht = 0;
   for (const [name, ok] of faelle) {
@@ -46,7 +73,11 @@ child.on('exit', (code) => {
   }
   if (schlecht > 0) {
     console.error('\nFEHLGESCHLAGEN — der Ton-Schalter kommt nicht an.');
-    console.error('Rohausgabe:\n' + err);
+    // BEIDE Kanaele ausgeben: seit dem vierten Fall haengt eine der
+    // Zusicherungen an stdout, und ein Fehlschlag, dessen Beleg man nicht
+    // sieht, ist nur eine halbe Meldung.
+    console.error('Rohausgabe stderr:\n' + err);
+    console.error('Rohausgabe stdout:\n' + out);
     process.exit(2);
   }
   console.log('\nOK — der native Befehlsleser liest den Ton-Schalter.');

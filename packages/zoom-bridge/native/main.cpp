@@ -208,7 +208,18 @@ void handle(const std::string& line) {
       return;
     }
     bool audioOn = true;   // Vorgabe laut Spec Abschnitt 7
-    boolFromJson(line, "audio", &audioOn);
+    // GENAU WIE DIE resolution-PRUEFUNG ZWEI ZEILEN DARUEBER: unlesbar heisst
+    // melden und NICHT abonnieren, nicht "dann eben die Vorgabe"
+    // (Schlusspruefung, Important 6). Vorher wurde der Rueckgabewert
+    // verworfen, und ein {"audio":"false"} oder {"audio":0} bekam Ton AN,
+    // waehrend stderr zufrieden "Ton-Schalter fuer 42: an" meldete - ein
+    // Aufrufer haette den Grund fuer den doppelten Ton im Saal nirgends
+    // gefunden. FEHLT dagegen bleibt die Vorgabe: ein weggelassenes Feld ist
+    // keine falsche Angabe (Spec Abschnitt 7: audio ist optional).
+    if (boolFromJson(line, "audio", &audioOn) == JsonBool::Unlesbar) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadAudioFlag\"}");
+      return;
+    }
     // Fuer den Menschen, der die Rohausgabe mitliest - und der Beleg, den
     // test/bool-probe.mjs auswertet: ohne diese Zeile saehe ein ignorierter
     // Schalter genauso aus wie ein befolgter.

@@ -125,6 +125,17 @@ struct Sub {
   int audioRate = 0;
   int audioChannels = 0;
   ULONGLONG lastAudioMs = 0;
+  // Bis zu welcher WANDUHRZEIT der Tonstrom dieses Abos gefuellt ist -
+  // gerechnet, nicht geraten. Der Herzschlag leitet die Blockgroesse aus
+  // (jetzt - silenceBisMs) ab und schiebt das Feld danach um die TATSAECHLICH
+  // gesendete Zeit vor; der Rest, den die Ganzzahl-Rechnung verliert, bleibt
+  // stehen und wird beim naechsten Tick mitgezaehlt. 0 = noch nie Stille
+  // gesendet; dann startet der erste Stille-Tick bei lastAudioMs, damit
+  // zwischen echtem Ton und Stille keine Luecke klafft. Ein eigenes Feld und
+  // nicht lastAudioMs mitbenutzt: lastAudioMs ist eine MESSUNG (wann kam
+  // zuletzt ein echtes Paket), silenceBisMs eine BUCHFUEHRUNG (wieviel haben
+  // wir gesendet) - zwei Tatsachen, zwei Namen.
+  ULONGLONG silenceBisMs = 0;
   std::string audioState = "off";     // waiting | live | silent | off
   bool audioMismatchGemeldet = false;
 };
@@ -542,11 +553,32 @@ void videoMeetingEnded() {
 // videoUnsubscribe/videoShutdownAll) ohnehin auf demselben Hauptthread
 // laufen wie videoTick() selbst.
 void videoTick() {
+  // JETZT VOR DEM LEEREN NEHMEN (Schlusspruefung, M13). Dauert das Leeren
+  // einer vollen Warteschlange laenger als die 40-ms-Schwelle - 256
+  // Sendeaufrufe nach einem Haenger sind dafuer genug -, dann liegt ein
+  // danach genommenes "jetzt" so weit hinter den Abos, die FRUEH in der
+  // Schleife Ton bekommen haben, dass sie im SELBEN Tick die Stille-Schwelle
+  // ueberschreiten: silent/gap unmittelbar nach live/packets, fuer einen
+  // Strom, der gerade laeuft.
+  //
+  // Der Preis dieser Reihenfolge, und darum stehen unten ueberall Vergleiche
+  // statt blosser Subtraktionen: lastAudioMs/lastFrameMs koennen jetzt
+  // NEUER sein als "jetzt" (die Leer-Schleife setzt lastAudioMs, der
+  // SDK-Thread lastFrameMs). Eine Subtraktion liefe bei ULONGLONG unter null
+  // und wuerde als riesige Spanne gelesen - genau das Gegenteil der Absicht.
+  const ULONGLONG jetzt = GetTickCount64();
+
   // ERST den Ueberlauf melden, dann leeren. Ein Ueberlauf ist eine Aussage
   // ueber die Maschine (eine Warteschlange fuer alle), nicht ueber einen Gast
-  // - darum ohne id und nur EINMAL je Schwall.
-  if (audioTakeOverflowCount() > 0) {
-    emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioQueueOverflow\"}");
+  // - darum ohne id. EINMAL JE MEETING, nicht je Tick: das Merkzeichen dafuer
+  // sitzt in audio.cpp (audioTakeOverflowReport), weil die Warteschlange dort
+  // liegt. Und die ZAHL geht mit: audioTakeOverflowReport() weiss, wie viele
+  // Pakete verlorengegangen sind - sie hier wegzuwerfen hiesse, eine Messung
+  // zu nehmen und zu verschenken.
+  unsigned int verworfen = 0;
+  if (audioTakeOverflowReport(&verworfen)) {
+    emitRaw(std::string("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioQueueOverflow\",\"dropped\":") +
+            std::to_string(verworfen) + "}");
   }
 
   AudioPacket p;
@@ -567,6 +599,38 @@ void videoTick() {
     // ueberschreiben und "live"/"packets" melden: eine Behauptung ueber
     // einen Gast, den der Rueckruf onUserLeft schon als weg gemeldet hat,
     // ohne dass je ein zweites Weggangs-Ereignis das berichtigen wuerde.
+    //
+    // imAbbau IST HIER INERT, ehrlich eingeordnet (Schlusspruefung, M10) -
+    // wie der Nachpruef-Vergleich im Herzschlag weiter unten, der genau das
+    // vorbildlich benennt: gesetzt wird imAbbau nur in videoUnsubscribe() und
+    // videoAbbauAlle(), und BEIDE loeschen das Abo aus g_subs, bevor sie
+    // zurueckkehren - auf DEMSELBEN Hauptthread, der hier leert. Ein Abo, das
+    // diese Zeile mit imAbbau erreichen koennte, gibt es unter der heutigen
+    // Architektur nicht; ein Paket fuer ein abgebautes Abo faellt eine Zeile
+    // hoeher am find() heraus. Der BILD-Rueckruf braucht denselben Riegel
+    // wirklich (er laeuft auf einem SDK-Thread, siehe Sub::imAbbau) - dieses
+    // Leeren nicht.
+    //
+    // NICHT ENTFERNEN, aus demselben Grund wie dort: die Zeile kostet ein
+    // atomares Lesen und ist der Riegel fuer den Tag, an dem jemand das
+    // Leeren aus dem Tick herausnimmt oder den Abbau umbaut - eine Aenderung,
+    // die sich nicht von selbst meldet.
+    //
+    // WELCHE FELDER fieldMutex SCHUETZT, und warum diese Lesestelle anders
+    // aussieht als der Herzschlag achtzig Zeilen weiter unten (M11):
+    // fieldMutex schuetzt die Feldbuchfuehrung, die der BILD-Rueckruf auf dem
+    // SDK-Thread gleichzeitig schreibt - state/reason (std::string, ein
+    // zerrissener Zugriff waere dort nicht bloss falsch, sondern ein
+    // Absturz), lastFrameMs/lastBlackMs/lastW/lastH/rotation/limitedRange/
+    // gemessen/mismatchGemeldet, dazu die Tonfelder, die dieselben zwei
+    // Threads spaeter einmal teilen koennten. audioOn und teilnehmerWeg
+    // gehoeren NICHT dazu: beide schreibt ausschliesslich der Hauptthread
+    // (videoSubscribe bzw. videoParticipantLeft/videoParticipantJoined), und
+    // hier liest derselbe Hauptthread. Ein Wettrennen gibt es dafuer heute
+    // nicht. Der Herzschlag unten nimmt sie trotzdem unter der Sperre mit -
+    // nicht weil sie es braeuchten, sondern weil er ohnehin eine
+    // Momentaufnahme ALLER Tonfelder in einem Zug zieht und ein zweites,
+    // ungesperrtes Lesen daneben nur die Frage aufwuerfe, warum es zwei gibt.
     if (!s->audioOn || s->imAbbau.load() || s->teilnehmerWeg) continue;
 
     // GEPRUEFT, NICHT GEGLAUBT - dieselbe Sorge wie bei GetBufferLen() im
@@ -597,12 +661,24 @@ void videoTick() {
       // Warteschlange fuer alle) - der Rueckruf, der dort verwirft, weiss gar
       // nicht, zu welchem Abo das Paket gehoert haette, darum bleibt der
       // OHNE id richtig. audioBufferMismatch dagegen ist eine Aussage ueber
-      // GENAU EIN Abo: das Merkzeichen (audioMismatchGemeldet) ist per-Abo,
-      // und wenn es ausloest, geht GENAU DIESES Abo dauerhaft still (jedes
-      // weitere Paket faellt ab hier auf denselben fruehen continue). Ohne
-      // id bekaeme der Operator eine Fehlerzeile, die sich keinem Gast
+      // GENAU EIN Abo: das Merkzeichen (audioMismatchGemeldet) ist per-Abo.
+      // Ohne id bekaeme der Operator eine Fehlerzeile, die sich keinem Gast
       // zuordnen liesse - fuer EIN Abo dieselbe stille Sorte Fehler, die die
-      // Kernregel ausdruecklich verbietet. NICHT spaeter "vereinheitlichen":
+      // Kernregel ausdruecklich verbietet.
+      //
+      // WAS DAS MERKZEICHEN TUT UND WAS NICHT (BERICHTIGT, Schlusspruefung
+      // Important 7): hier stand, ab dem Ausloesen gehe "genau dieses eine
+      // Abo dauerhaft still", und jedes weitere Paket falle "ab hier auf
+      // denselben fruehen continue". So ist es nicht. Das continue haengt an
+      // der Pufferlaenge JEDES EINZELNEN Pakets - VERWORFEN WIRD JE PAKET.
+      // audioMismatchGemeldet unterdrueckt ausschliesslich die WIEDERHOLUNG
+      // der Meldung - GEMELDET WIRD JE ABO EINMAL. Ein einzelnes fehlerhaftes
+      // Paket kostet also genau dieses eine Paket; das naechste wohlgeformte
+      // geht normal raus und setzt das Abo wieder auf live/packets. Wer die
+      // alte Fassung glaubte, suchte nach einem Abo, das nie wieder sendet -
+      // in die falsche Richtung.
+      //
+      // NICHT spaeter "vereinheitlichen":
       // die beiden Fehler haben verschiedene Ursachen (Maschine vs. ein
       // Gast) und bleiben darum absichtlich verschieden foermig.
       if (melden) {
@@ -626,7 +702,6 @@ void videoTick() {
     if (wurdeLive) emitAudio(*s, "live", "packets");
   }
 
-  const ULONGLONG jetzt = GetTickCount64();
   for (auto& [id, s] : g_subs) {
     ULONGLONG lastFrameMs;
     ULONGLONG lastBlackMs;
@@ -649,14 +724,19 @@ void videoTick() {
     // "cameraOff".
     {
       int aRate, aCh;
-      ULONGLONG aLast;
+      ULONGLONG aLast, aStilleBis;
       bool aOn, aWeg;
       {
         std::lock_guard<std::mutex> lock(s->fieldMutex);
         aRate = s->audioRate; aCh = s->audioChannels;
         aLast = s->lastAudioMs; aOn = s->audioOn;
-        aWeg = s->teilnehmerWeg;
+        aWeg = s->teilnehmerWeg; aStilleBis = s->silenceBisMs;
       }
+      // VERGLEICH statt blosser Subtraktion (M13): "jetzt" stammt von VOR dem
+      // Leeren, aLast kann also NEUER sein als jetzt - eine Subtraktion liefe
+      // bei ULONGLONG unter null und meldete eine riesige Spanne fuer einen
+      // Strom, der gerade eben noch Ton bekommen hat.
+      const ULONGLONG seitTon = jetzt > aLast ? jetzt - aLast : 0;
       // 40 ms Nachlauf: Zoom liefert etwa alle 10-20 ms. Der Wert ist ein
       // ANFANGSWERT, kein Messergebnis (Spec Abschnitt 6) - Abnahmepunkt 2
       // prueft mit dem Ohr, ob der Uebergang knackt.
@@ -672,52 +752,108 @@ void videoTick() {
       // abwesenden Gast und schrieb "off" mit "silent"/"gap" wieder zu -
       // ohne dass je ein zweites Weggangs-Ereignis kaeme, das das
       // berichtigen wuerde.
-      if (aOn && !aWeg && aRate > 0 && aCh > 0 && jetzt - aLast >= 40) {
-        // Blockgroesse = Tick-Frist (10 ms), damit Stille und echter Ton
-        // nahtlos ineinander uebergehen.
-        const int bloecke = static_cast<int>(aRate / 100);
-        s->sender.sendSilence(bloecke, aRate, aCh);
-        bool wurdeStill = false;
-        {
-          std::lock_guard<std::mutex> lock(s->fieldMutex);
-          // Momentaufnahme gegenpruefen. ANDERS als beim Schwarzbild weiter
-          // unten ist dieser Vergleich unter der HEUTIGEN Architektur INERT,
-          // nicht scharf: der Ton-Rueckruf (audio.cpp,
-          // onOneWayAudioRawDataReceived) schreibt ausschliesslich in
-          // g_queue, nie direkt in Sub-Felder. lastAudioMs/audioState
-          // aendert einzig die Leer-Schleife am Kopf von videoTick() - auf
-          // demselben Hauptthread, und sie ist fuer DIESEN Tick bereits
-          // durchgelaufen, BEVOR diese Schleife beginnt. Waehrend
-          // sendSilence() oben blockiert, kann darum nichts mehr schreiben,
-          // das dieser Vergleich noch auffangen muesste - ein neu
-          // eingetroffenes Paket landet nur in der Warteschlange und wird
-          // erst der NAECHSTE Tick leeren. Der Bild-Rueckruf dagegen laeuft
-          // auf einem echten SDK-Thread und schreibt lastFrameMs
-          // GLEICHZEITIG zu videoTick() - dort greift derselbe Vergleich
-          // wirklich.
-          //
-          // Die Pruefung bleibt trotzdem stehen, ABSICHTLICH: sie kostet
-          // nichts, und sie ist die Absicherung fuer den Tag, an dem jemand
-          // den Ton-Weg (wie den Bild-Weg heute) auf einen eigenen
-          // Rueckruf-Thread umstellt, der Sub direkt schreibt - eine
-          // Aenderung, die sich nicht von selbst meldet. NICHT als totes
-          // Vergleichen entfernen: genau das waere die Bremse, die diesen
-          // kuenftigen Fall auffaengt.
-          if (s->lastAudioMs == aLast && s->audioState != "silent") {
-            s->audioState = "silent";
-            wurdeStill = true;
-          }
+      if (aOn && !aWeg && aRate > 0 && aCh > 0 && seitTon >= 40) {
+        // WIEVIEL STILLE: aus der VERSTRICHENEN ZEIT gerechnet, nicht aus der
+        // Tick-Frist (BERICHTIGT, Schlusspruefung Important 4). Hier stand
+        // `aRate / 100`, also genau 10 ms Ton je Tick, mit der Begruendung,
+        // die Blockgroesse entspreche der Tick-Frist. Die Schleife ist aber
+        // pumpOnce(); videoTick(); stdin lesen; Sleep(10) - die tatsaechliche
+        // Frist ist IMMER groesser als 10 ms, und mit Windows'
+        // Standard-Zeitgeberaufloesung von 15,6 ms deutlich groesser. Eine
+        // laengere Stille lieferte damit systematisch zu wenig Ton je
+        // Wanduhrzeit, um einen Betrag, den niemand gemessen hat.
+        //
+        // silenceBisMs sagt, bis wann der Strom gefuellt ist. Beim ERSTEN
+        // Stille-Tick (oder wenn seither echter Ton kam) faengt die Rechnung
+        // bei lastAudioMs an - so klafft zwischen echtem Ton und Stille keine
+        // Luecke.
+        ULONGLONG bis = aStilleBis > aLast ? aStilleBis : aLast;
+        ULONGLONG spanne = jetzt > bis ? jetzt - bis : 0;
+        // OBERGRENZE 200 ms je Tick, und der Rest wird FALLENGELASSEN, nicht
+        // nachgeholt. GEWAEHLT, nicht gemessen, mit zwei Gruenden: (1) nach
+        // einem langen Haenger - der Prozess lag auf Eis, die Schleife stand
+        // Sekunden - waere ein einzelner Sendeaufruf ueber diese ganze Zeit
+        // ein Puffer, den niemand bestellt hat (bei 48 kHz Stereo sind schon
+        // 200 ms rund 38 KB), und ihn ueber die naechsten Ticks NACHZUHOLEN
+        // hiesse, dem Empfaenger Stille mit dem Zwanzigfachen der Echtzeit
+        // vorzusetzen: der Strom liefe dem Bild davon. (2) Stille traegt
+        // keine Information - was in einem Haenger verlorengeht, ist nichts,
+        // das man aufheben muesste. 200 ms ist dieselbe Groessenordnung wie
+        // der Nachlauf des Schwarzbild-Herzschlags weiter unten.
+        constexpr ULONGLONG kMaxStilleMs = 200;
+        if (spanne > kMaxStilleMs) {
+          spanne = kMaxStilleMs;
+          bis = jetzt - kMaxStilleMs;
         }
-        if (wurdeStill) emitAudio(*s, "silent", "gap");
+        const int bloecke = static_cast<int>(spanne * static_cast<ULONGLONG>(aRate) / 1000);
+        // Unter einem ganzen Abtastwert gibt es nichts zu senden - dann
+        // bleibt silenceBisMs stehen und der naechste Tick rechnet die Spanne
+        // erneut. (Beim ERSTEN Stille-Tick kann das nicht eintreten: dort ist
+        // die Spanne mindestens die 40 ms der Schwelle.) KEIN continue an
+        // dieser Stelle: darunter haengt der Schwarzbild-Herzschlag desselben
+        // Abos, und der hat mit dem Ton nichts zu tun.
+        if (bloecke > 0) {
+          s->sender.sendSilence(bloecke, aRate, aCh);
+          // Um die TATSAECHLICH gesendete Zeit vorschieben, nicht bis "jetzt":
+          // was die Ganzzahl-Rechnung oben verloren hat, bleibt so stehen und
+          // wird beim naechsten Tick mitgezaehlt, statt sich Tick fuer Tick
+          // aufzuaddieren.
+          const ULONGLONG gesendetMs =
+              static_cast<ULONGLONG>(bloecke) * 1000 / static_cast<ULONGLONG>(aRate);
+          bool wurdeStill = false;
+          {
+            std::lock_guard<std::mutex> lock(s->fieldMutex);
+            s->silenceBisMs = bis + gesendetMs;
+            // Momentaufnahme gegenpruefen. ANDERS als beim Schwarzbild weiter
+            // unten ist dieser Vergleich unter der HEUTIGEN Architektur INERT,
+            // nicht scharf: der Ton-Rueckruf (audio.cpp,
+            // onOneWayAudioRawDataReceived) schreibt ausschliesslich in
+            // g_queue, nie direkt in Sub-Felder. lastAudioMs/audioState
+            // aendert einzig die Leer-Schleife am Kopf von videoTick() - auf
+            // demselben Hauptthread, und sie ist fuer DIESEN Tick bereits
+            // durchgelaufen, BEVOR diese Schleife beginnt. Waehrend
+            // sendSilence() oben blockiert, kann darum nichts mehr schreiben,
+            // das dieser Vergleich noch auffangen muesste - ein neu
+            // eingetroffenes Paket landet nur in der Warteschlange und wird
+            // erst der NAECHSTE Tick leeren. Der Bild-Rueckruf dagegen laeuft
+            // auf einem echten SDK-Thread und schreibt lastFrameMs
+            // GLEICHZEITIG zu videoTick() - dort greift derselbe Vergleich
+            // wirklich.
+            //
+            // Die Pruefung bleibt trotzdem stehen, ABSICHTLICH: sie kostet
+            // nichts, und sie ist die Absicherung fuer den Tag, an dem jemand
+            // den Ton-Weg (wie den Bild-Weg heute) auf einen eigenen
+            // Rueckruf-Thread umstellt, der Sub direkt schreibt - eine
+            // Aenderung, die sich nicht von selbst meldet. NICHT als totes
+            // Vergleichen entfernen: genau das waere die Bremse, die diesen
+            // kuenftigen Fall auffaengt.
+            if (s->lastAudioMs == aLast && s->audioState != "silent") {
+              s->audioState = "silent";
+              wurdeStill = true;
+            }
+          }
+          if (wurdeStill) emitAudio(*s, "silent", "gap");
+        }
       }
     }
 
     // 200 ms Nachlauf: bei kurzen Aussetzern soll NICHT zwischen Bild und
     // Schwarz geflackert werden. Erst danach gilt der Strom als still.
-    if (lastFrameMs != 0 && jetzt - lastFrameMs < 200) continue;
+    //
+    // VERGLEICH statt blosser Subtraktion, dieselbe Sorgfalt wie beim Ton
+    // oben (M13): lastFrameMs schreibt der Bild-Rueckruf auf einem
+    // SDK-Thread, und "jetzt" stammt seit dieser Runde von VOR dem Leeren der
+    // Ton-Warteschlange - ein Bild, das dazwischen ankam, traegt also einen
+    // GROESSEREN Wert als jetzt. Die alte Subtraktion lief dann unter null,
+    // wurde als riesige Spanne gelesen, und dieses Abo bekam ein Schwarzbild
+    // mitten in den laufenden Strom (die MELDUNG fing der Vergleich weiter
+    // unten ab, das gesendete Bild nicht).
+    const ULONGLONG seitBild = jetzt > lastFrameMs ? jetzt - lastFrameMs : 0;
+    const ULONGLONG seitSchwarz = jetzt > lastBlackMs ? jetzt - lastBlackMs : 0;
+    if (lastFrameMs != 0 && seitBild < 200) continue;
     // Hoechstens alle 100 ms, also 10 Bilder je Sekunde. Das haelt die
     // Quelle fuer jeden Empfaenger gueltig und kostet fast nichts.
-    if (jetzt - lastBlackMs < 100) continue;
+    if (seitSchwarz < 100) continue;
 
     // Vor dem ersten Bild ist die Bildgroesse unbekannt - dann die
     // NENNGROESSE des Abos nehmen, damit die Quelle von Anfang an gueltig

@@ -95,6 +95,27 @@ std::string fieldFromJson(const std::string& line, const char* key);
 bool numberFromJson(const std::string& line, const char* key, unsigned long long* out);
 
 /**
+ * Das Ergebnis von boolFromJson() - DREI Faelle, drei Namen.
+ *
+ * Vorher waren es drei Faelle hinter EINEM false. Der Kopfsatz unten
+ * beschrieb sie bereits, unterscheidbar waren sie nicht - und die einzige
+ * Aufrufstelle warf den Rueckgabewert weg. Ein {"audio":"false"} oder
+ * {"audio":0} bekam damit stillschweigend Ton AN, und stderr meldete
+ * zufrieden "Ton-Schalter fuer 42: an". Das verletzt "Nichts verschwindet
+ * still" an genau der Stelle, an der das Nachbarfeld zwei Zeilen darueber
+ * (resolution -> videoBadResolution) es vormacht (Schlusspruefung Stage 3,
+ * Important 6).
+ */
+enum class JsonBool {
+  /** Kein Schluessel an einer Schluesselposition. Der Aufrufer behaelt seine Vorgabe. */
+  Fehlt,
+  /** true oder false gelesen - *out traegt den Wert. */
+  Gelesen,
+  /** Der Schluessel ist da, aber es folgt weder true noch false. NICHT raten. */
+  Unlesbar,
+};
+
+/**
  * Wahrheitswert-Gegenstueck zu fieldFromJson()/numberFromJson().
  *
  * WARUM ES DAS BRAUCHT: fieldFromJson() liest ausdruecklich nur
@@ -104,13 +125,14 @@ bool numberFromJson(const std::string& line, const char* key, unsigned long long
  * diese Luecke hat in Stage 2 bei "id" das Merkmal gegen den echten Prozess
  * unbenutzbar gemacht.
  *
- * @param out wird NUR bei Rueckgabe true geschrieben. Der Aufrufer setzt
+ * @param out wird NUR bei JsonBool::Gelesen geschrieben. Der Aufrufer setzt
  *            seine Vorgabe also VOR dem Aufruf und laesst sie stehen, wenn
  *            das Feld fehlt.
- * @returns false, wenn der Schluessel fehlt, nicht an Schluesselposition
- *          steht oder etwas anderes als true/false folgt.
+ * @returns Fehlt, Gelesen oder Unlesbar - drei Ausgaenge, die der Aufrufer
+ *          verschieden beantworten MUSS: eine fehlende Angabe ist eine
+ *          Vorgabe, eine unlesbare ist ein Fehler.
  */
-bool boolFromJson(const std::string& line, const char* key, bool* out);
+JsonBool boolFromJson(const std::string& line, const char* key, bool* out);
 
 /** Der Wert von "cmd", oder "" wenn die Zeile keiner ist. */
 std::string cmdOf(const std::string& line);

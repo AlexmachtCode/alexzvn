@@ -141,7 +141,11 @@ export type WireEvent =
   // zu welchem Abo das Paket gehört hätte. Eine erfundene id wäre dort
   // schlimmer als keine.
   //
-  | { ev: 'error'; where: string; code: number | string; id?: number }
+  // "dropped" steht NUR an `audioQueueOverflow` und nennt, WIE VIELE Pakete
+  // bis zu dieser Meldung verworfen wurden. Gemeldet wird einmal je Meeting
+  // (Spec Abschnitt 5) — was danach noch verlorengeht, steht in keiner Zahl,
+  // und diese Zeile behauptet auch keine.
+  | { ev: 'error'; where: string; code: number | string; id?: number; dropped?: number }
   | { ev: 'bye' }
   // "rotation" und "limitedRange" FEHLEN, solange kein Bild kam (bei
   // state:"subscribed" also immer). Ein Wert waere dort erfunden - und eine
@@ -318,6 +322,16 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // verschiedene Orte.
   videoSenderFailed: 'VIDEO_SENDER_FAILED',
   videoBadResolution: 'VIDEO_BAD_RESOLUTION',
+  // Das Feld `audio` am videoSubscribe-Befehl trug weder `true` noch `false`
+  // (z. B. `"audio":"false"` als Zeichenkette oder `"audio":0`). EIN EIGENER
+  // Name neben videoBadResolution, obwohl beide "ein Befehlsfeld ist
+  // unlesbar" heissen: sie schicken die Suche an verschiedene Stellen — der
+  // eine zum Auflösungsschlüssel, der andere zum Ton-Schalter. Wer beide
+  // zusammenlegte, bekäme eine Meldung, die nicht sagt, WELCHES Feld der
+  // Aufrufer falsch geschrieben hat. FEHLT das Feld, ist das KEIN Fehler
+  // (Vorgabe `true`, Spec Abschnitt 7) — gemeldet wird nur, was dasteht und
+  // sich nicht lesen lässt.
+  videoBadAudioFlag: 'VIDEO_BAD_AUDIO_FLAG',
   // GetBufferLen() passt nicht zu Breite*Hoehe*3/2. Der Puffer wird geprueft,
   // nicht geglaubt: ein falsch ausgelegter I420-Puffer erzeugt ein Bild, das
   // wie ein Kameradefekt aussieht - man sucht dann am falschen Ende.

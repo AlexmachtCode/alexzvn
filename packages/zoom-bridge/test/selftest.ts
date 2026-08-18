@@ -1188,9 +1188,12 @@ console.log('\nprotocol — Video: jede Ursache hat ihren eigenen Namen:');
   const namen = [
     'videoNoPrivilege', 'videoUnknownParticipant', 'videoAlreadySubscribed',
     'videoNotSubscribed', 'videoRendererFailed', 'videoSenderFailed',
-    'videoBadResolution', 'videoBufferMismatch', 'ndiInitFailed',
+    // videoBadAudioFlag steht NEBEN videoBadResolution, nicht statt seiner:
+    // beide heissen "ein Befehlsfeld ist unlesbar", schicken die Suche aber
+    // an verschiedene Stellen (Aufloesung vs. Ton-Schalter).
+    'videoBadResolution', 'videoBadAudioFlag', 'videoBufferMismatch', 'ndiInitFailed',
   ].map((k) => (enrich({ ev: 'error', where: 'video', code: k } as WireEvent) as { name: string }).name);
-  assert(new Set(namen).size === namen.length, 'neun Ursachen, neun verschiedene Namen');
+  assert(new Set(namen).size === namen.length, 'zehn Ursachen, zehn verschiedene Namen');
   assert(!namen.some((n) => n.startsWith('OWN_UNKNOWN')), 'keiner faellt auf OWN_UNKNOWN zurueck');
   const fremd = enrich({ ev: 'error', where: 'video', code: 'videoWasAuchImmer' } as WireEvent);
   assert(
