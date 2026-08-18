@@ -403,6 +403,7 @@ void videoUnsubscribe(unsigned int userId) {
   // liegt ein Fenster, in dem ein Rueckruf noch etwas ueber dieses Abo sagen
   // koennte - und alles, was er dann sagt, kaeme NACH "unsubscribed".
   s->imAbbau = true;
+  if (s->audioOn) emitAudio(*s, "off", "command");
   emitVideo(*s, "unsubscribed", "command");
   // REIHENFOLGE IST TRAGEND: erst den Renderer abmelden und abbauen, DANN
   // den Sender schliessen. Andersherum koennte ein Bild-Rueckruf, der schon
@@ -481,6 +482,11 @@ static void videoAbbauAlle(const char* reason) {
     // ueber TerminateProcess aussteigt.
     // VOR der Meldung, gleiche Begruendung wie in videoUnsubscribe().
     s->imAbbau = true;
+    // Der Ton endet mit dem Abo und meldet sich EIGENS: ein Aufrufer, der
+    // audioSubs fuehrt (src/state.ts), behielte sonst einen Eintrag, auf den
+    // nie wieder ein Ereignis kommt - dieselbe Karteileiche, die beim Bild
+    // schon einmal aufgetreten ist.
+    if (s->audioOn) emitAudio(*s, "off", reason);
     emitVideo(*s, "unsubscribed", reason);
     // DIESELBE unbelegte Lebensdauer-Annahme wie in videoUnsubscribe() -
     // siehe den ausfuehrlichen Kommentar dort (Abschluss-Sichtung, I6): das
@@ -783,6 +789,15 @@ void videoParticipantLeft(unsigned int userId) {
     s->teilnehmerWeg = true;
   }
   emitVideo(*s, "black", "participantLeft");
+  // Der Ton endet mit dem Weggang - anders als das Bild, das als Schwarz
+  // stehen bleibt: Stille fuer jemanden, der nicht da ist, waere eine
+  // Aussage ueber eine Person, die es im Meeting nicht mehr gibt.
+  bool tonWar = false;
+  {
+    std::lock_guard<std::mutex> lock(s->fieldMutex);
+    if (s->audioOn && s->audioState != "off") { s->audioState = "off"; tonWar = true; }
+  }
+  if (tonWar) emitAudio(*s, "off", "participantLeft");
 }
 
 // Ebenfalls HAUPTTHREAD, siehe videoParticipantLeft() oben.
@@ -990,6 +1005,14 @@ void videoParticipantJoined(unsigned int userId) {
     // da, das Abo haengt an ihrer neuen Kennung, Bilder duerfen ab jetzt
     // wieder "live" bedeuten.
     s->teilnehmerWeg = false;
+    // Das Ton-Format gilt je Sitzung des Gastes: nach einem Wiederbeitritt
+    // kann Zoom ein anderes liefern. Zuruecksetzen heisst, es beim ersten
+    // Paket neu zu MESSEN statt das alte fortzuschreiben.
+    s->audioRate = 0;
+    s->audioChannels = 0;
+    s->lastAudioMs = 0;
+    s->audioMismatchGemeldet = false;
+    s->audioState = s->audioOn ? "waiting" : "off";
   }
   // Zwischen dem geglueckten subscribe() oben und dieser Sperre kann bereits
   // ein Bild eintreffen. Es wird dann noch mit teilnehmerWeg == true
@@ -1029,6 +1052,7 @@ void videoParticipantJoined(unsigned int userId) {
     return;
   }
   emitVideo(*s, "subscribed", grund);
+  if (s->audioOn) emitAudio(*s, "waiting", grund);
 }
 
 namespace {

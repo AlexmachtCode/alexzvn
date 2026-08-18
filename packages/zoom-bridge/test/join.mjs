@@ -132,6 +132,12 @@ const bridge = new Bridge({
       if (ev.rotation !== undefined) zeile += `  rotation=${ev.rotation}`;
       if (ev.limitedRange !== undefined) zeile += `  limitedRange=${ev.limitedRange}`;
       console.log(zeile);
+    } else if (ev.ev === 'audio') {
+      let zeile = `  audio ${ev.id}: ${ev.state} (${ev.reason})`;
+      // Format NUR anzeigen, wenn es gemessen wurde - sonst waere die Zeile
+      // eine Behauptung ueber etwas, das noch nie ankam.
+      if (ev.sampleRate !== undefined) zeile += `  ${ev.sampleRate} Hz, ${ev.channels} Kanal/Kanaele`;
+      console.log(zeile);
     }
   },
 });

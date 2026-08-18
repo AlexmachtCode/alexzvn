@@ -180,6 +180,17 @@ void handle(const std::string& line) {
     // nur der Prozessende-Weg unten (quit/EOF) die Reihenfolge ab, der
     // "leave"-Befehl selbst nicht - GEMELDET beim Umsetzen von Aufgabe 3,
     // siehe video.h.
+    //
+    // audioShutdown() VOR videoShutdownAll(), aus demselben Grund wie beim
+    // Prozessende unten: der Lauscher muss weg sein, bevor die Abos
+    // verschwinden, sonst fuellt er eine Warteschlange, die niemand mehr
+    // leert. Nach "leave" laeuft die Bridge WEITER (anders als beim
+    // Prozessende) - genau das macht diese Zeile hier noetig und nicht nur
+    // dort unten: wuerde man sich auf den spaeteren ENDED-Rueckruf
+    // verlassen, der audioClearSubscribed() aufruft (callbacks.cpp), waere
+    // das dieselbe Annahme, die an dieser Stelle beim Bild schon einmal
+    // nicht gehalten hat (siehe der Kommentar hier eins darueber).
+    audioShutdown();
     videoShutdownAll();
     sessionLeave();
     return;
@@ -421,6 +432,11 @@ int main(int argc, char** argv) {
   // DestroyMeetingService abzubauen hiesse, auf abgeraeumten Zustand
   // zuzugreifen. Das ist dieselbe Fehlerklasse, die in Aufgabe 7 von Stage 1
   // als 0xC0000005 gemessen wurde.
+  //
+  // audioShutdown() VOR videoShutdownAll(), dieselbe Reihenfolge wie beim
+  // "leave"-Befehl oben: der Lauscher muss weg sein, bevor die Abos
+  // verschwinden.
+  audioShutdown();
   videoShutdownAll();
   const bool shutdownComplete = sessionShutdown();
   if (!shutdownComplete) {

@@ -4,16 +4,17 @@
 
 Ein natives Windows-Sidecar für JM Connect, das die Zoom-Meeting-SDK-Funktionen
 anspricht, die Node/Electron nicht selbst können (eigene Win32-Nachrichtenschleife,
-`InitSDK`, Rückrufe). Es deckt **Stage 1+2 von 4** der Zoom-Einbindung (Issue #197)
+`InitSDK`, Rückrufe). Es deckt **Stage 1–3 von 4** der Zoom-Einbindung (Issue #197)
 ab: Anmeldung, Meeting-Beitritt, Teilnehmerliste, Rohdaten-Aufnahme-Erlaubnis
 (Stage 1) — und, mit dieser Erlaubnis, **Video je abonniertem Teilnehmer als
-eigene NDI-Quelle** (Stage 2, siehe Abschnitt 7).
+eigene NDI-Quelle** (Stage 2) samt **Ton in derselben Quelle** (Stage 3, siehe
+Abschnitt 7).
 
 **Es schreibt keine Datei.** Weder Cloud- noch lokale Aufzeichnung wird je
 gestartet, es entsteht keine Datei auf keiner Platte. Das heißt aber **nicht**
 „kein Bild verlässt den Prozess": mit erteilter Erlaubnis und mindestens einem
-`videoSubscribe`-Abo verlassen sehr wohl Bilder den Prozess — als **NDI**, nicht
-als Datei. Ton fehlt weiterhin (Stage 3).
+`videoSubscribe`-Abo verlassen sehr wohl Bild **und Ton** den Prozess — als
+**NDI**, nicht als Datei.
 
 > **`StartRawRecording()` heißt nicht, was es heißt — und das hat echte Zeit
 > gekostet.** Der Aufruf schreibt **keine Datei**; er ist der Schalter, der
@@ -392,6 +393,85 @@ die Grenze zu erreichen, sagt der Lauf das **ausdrücklich**, statt die erreicht
 Zahl als Obergrenze auszugeben — eine Untergrenze als Obergrenze zu melden wäre
 genau die Sorte Messfehler, die dieses Vorhaben vermeiden will.
 
+**Ton (Stage 3).** Der Schalter sitzt am Befehl: `videoSubscribe` kennt ein
+optionales Feld `audio` (Vorgabe `true`). Anders als beim Bild gibt es dafür
+**kein** eigenes Abo je Teilnehmer — Zooms Ton-Rückruf liefert ohnehin nur eine
+`user_id`, kein Renderer-Objekt, das man ab- und aufbauen könnte. Stattdessen
+läuft **ein einziges globales Zoom-Ton-Abo** (`audioEnsureSubscribed()`,
+`native/audio.cpp`), das für die ganze Meeting-Dauer gilt. Ein nachträgliches
+Umschalten an einem laufenden Abo ist **nicht** vorgesehen (Spec Abschnitt 10).
+
+**Das `audio`-Ereignis** trägt dieselbe `id` wie das zugehörige `video`-Ereignis
+und kennt vier Zustände:
+
+| `state` | Bedeutung |
+| --- | --- |
+| `waiting` | Ton eingeschaltet, noch kein Paket gesehen. |
+| `live` | Pakete kommen an. |
+| `silent` | seit mindestens 40 ms (Anfangswert, siehe Herzschlag unten) kein Paket mehr — die Quelle sendet echte Stille statt eines eingefrorenen Puffers. |
+| `off` | kein Ton — per Befehl, weil das SDK ihn verweigert hat, oder weil Abo/Teilnehmer/Meeting weg sind. |
+
+`reason` sagt, WARUM: `command` (Aufrufer hat Ton nicht angefordert oder das
+Abo wird auf Befehl abgebaut), `audioUnavailable` (Ton war gewollt, aber
+`audioEnsureSubscribed()` ist gescheitert — ein **eigener** Wert, nicht
+`command`, siehe `src/protocol.ts`), `packets` (erstes/erneutes Paket),
+`gap` (der Stille-Herzschlag hat zugeschlagen), `participantLeft`,
+`meetingEnded`, sowie `rebound`/`reboundByName` — der Ton folgt hier
+**demselben Grund** wie das umgehängte Video-Abo, es gibt keinen eigenen
+Ton-Mechanismus fürs Umhängen. `sampleRate`/`channels` stehen **nur** dabei,
+sobald ein Paket sie geliefert hat — dieselbe Regel wie `rotation`/
+`limitedRange` beim Bild: eine erfundene Zahl ließe sich später nicht von einer
+gemessenen unterscheiden.
+
+**Vier eigene Fehlerschlüssel** (`where:"audio"`):
+
+| Schlüssel | Ursache |
+| --- | --- |
+| `audioHelperMissing` | Das SDK gab keinen Ton-Helfer heraus — kein Meeting oder SDK nicht bereit. |
+| `audioSubscribeFailed` | Das eine globale Ton-Abo (`helper->subscribe()`) ging nicht durch. |
+| `audioBufferMismatch` | Pufferlänge passt nicht zu Kanalzahl × 2 (siehe `AudioPacket::bufferLen`) — **mit** `id`, weil ab hier genau dieses eine Abo dauerhaft still bleibt. |
+| `audioQueueOverflow` | Die Warteschlange lief über, weil das Leeren nicht nachkam — **ohne** `id`, eine Aussage über die Maschine, nicht über einen Gast: der verwerfende Rückruf weiß gar nicht, zu welchem Abo das Paket gehört hätte. |
+
+**Der Stille-Herzschlag** (`videoTick()`, dieselbe 10-ms-Schleife wie beim
+Bild): bleibt ein Abo 40 ms ohne neues Paket, sendet die Quelle statt einer
+eingefrorenen letzten Sekunde fortlaufend **echte Stille**, im zuletzt
+gemessenen Format (Blockgröße = Tick-Frist, damit Stille und echter Ton
+nahtlos ineinander übergehen). **Die 40 ms sind ausdrücklich ein Anfangswert,
+kein Messergebnis** — Zoom liefert nach bisheriger Kenntnis etwa alle
+10–20 ms, mehr ist dazu nicht bekannt. Ob der Übergang von Stille auf Ton
+hörbar knackt, ist Abnahmepunkt 2 der Owner-Abnahme (Spec Abschnitt 9) und am
+18.08.2026 **nicht geprüft**; von dieser Prüfung hängt ab, ob der Wert bleibt.
+
+**Der Weg über die Warteschlange, und warum er nötig ist.** Weil das
+Ton-Abo global ist und keinen eigenen Renderer hat, stoppt ein einzelnes
+`videoUnsubscribe` den Ton-**Rückruf** für diesen Teilnehmer **nicht** — der
+nächste Rückruf für diese `user_id` kommt trotzdem. Der Rückruf
+(`onOneWayAudioRawDataReceived`) kopiert sein Paket darum nur in eine globale
+Warteschlange (`native/audio.cpp`) und kehrt sofort zurück; `g_subs`
+anzufassen wäre ein SDK-Thread, der mit dem Hauptthread um dieselbe Karte
+konkurriert. Der Hauptthread schlägt beim Leeren (`videoTick()`) in `g_subs`
+nach und verwirft alles, wofür kein aktives, ton-eingeschaltetes und nicht
+gerade abgebautes Abo (mehr) existiert — ein Paket für ein soeben
+abgebautes Abo ist damit der **erwartete** Fall, keine Ausnahme, kein Fehler.
+Beim Abbau (`videoUnsubscribe`/`videoAbbauAlle`/Weggang) meldet sich der Ton
+darum **vor** der zugehörigen Video-Zeile mit `state:"off"` ab — die Aussage
+über den Ton wird zurückgezogen, bevor die Sache selbst verschwindet. Beim
+Abonnieren ist es umgekehrt: `emitAudio` läuft **nach** `emitVideo("subscribed")`,
+weil dort erst die Video-Zeile das Abo überhaupt bekannt macht und der
+Ton-Zeile damit etwas gibt, worüber sie eine Aussage sein kann.
+
+**Ohne Meeting geprüft:** `npm run ndi-probe -w @jm/zoom-bridge` (`--ndi-selftest`,
+siehe oben) sendet zusätzlich 48 kHz Mono-Stille über denselben `sendSilence()`-
+Weg und weist mit `@jm/ndi` nach, dass sie **ankommt** — der Tonweg NDI-seitig
+ist damit belegt, unabhängig vom Meeting. `npm run bool-probe -w @jm/zoom-bridge`
+belegt ohne Meeting, dass `audio:true`/`audio:false` am Befehl wirklich gelesen
+wird. Was diese beiden Läufe **nicht** zeigen können — welche Abtastrate und
+Kanalzahl Zoom tatsächlich liefert, ob der Stille-Übergang knackt, und die
+Lippensynchronität — bleibt offen für die Owner-Abnahme am echten Meeting
+(acht Punkte, siehe
+[`docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md`](../../docs/superpowers/specs/2026-08-14-zoom-stage3-audio-ndi-design.md), §9,
+und `docs/roadmap.md`).
+
 ## 8 · Vier Fallen, die Zeit kosten
 
 **Eine fehlende DLL sieht aus wie ein Anmeldefehler.** `zoom-bridge.exe` ist
@@ -436,8 +516,17 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
 
 ## 9 · Was diese Bridge (noch) nicht tut
 
-- **Kein Ton.** `onOneWayAudioRawDataReceived`/`onMixedAudioRawDataReceived`
-  werden nirgends gerufen — das ist Stage 3.
+- **Kein Mischton.** `onMixedAudioRawDataReceived` bleibt ungenutzt (leerer
+  Rumpf in `AudioDelegate`, siehe `native/audio.cpp`) — nur der Ton je
+  einzelnem Teilnehmer wird gesendet.
+- **Kein Bildschirmton.** `onShareAudioRawDataReceived` bleibt ebenso
+  ungenutzt.
+- **Kein Dolmetscherton.** `bWithInterpreters` steht fest auf `false` — ein
+  `true` würde laut SDK-Kopfsatz die lokalen Dolmetscher-Funktionen
+  unbrauchbar machen und damit die Dolmetscher-App (#208) beschädigen.
+- **Kein Ton-Rückweg nach Zoom.** `setExternalAudioSource` und der virtuelle
+  Mikrofon-Weg bleiben unangetastet; Talkback ist bei Zoom ohnehin nur ein
+  gemeinsamer Kanal.
 - **Kein Mitschnitt.** `StartRawRecording()` wird zwar gerufen (es ist der
   Schalter für die Rohdaten-Rückrufe, siehe Abschnitt 1), aber es entsteht
   **keine Datei** — weder Cloud- noch lokale Aufzeichnung. Bild läuft
@@ -457,4 +546,6 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
   setzt `Bridge.start()` selbst (`src/ndi-path.ts`) — dort, weil kein Aufrufer
   es vergessen darf. Eine Auslieferungs-/Lizenzfrage bleibt für Stage 4 offen.
 
-Das alles ist Stage 3–4 (`docs/roadmap.md`): Ton je Person, Integration + Release.
+Die vier Ton-Punkte oben sind **ausdrücklich nicht** vorgesehen (Spec Abschnitt 10),
+keine spätere Stage — der Rest ist Stage 4 (`docs/roadmap.md`): Integration +
+Release.

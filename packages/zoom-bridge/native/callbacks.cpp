@@ -1,5 +1,6 @@
 #include "callbacks.h"
 #include "rawdata/zoom_rawdata_api.h"  // HasRawdataLicense()
+#include "audio.h"
 #include "emit.h"
 #include "session.h"
 #include "video.h"
@@ -110,6 +111,9 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
     // gab. NACH den beiden Zeilen darueber, damit ein Rueckruf, der waehrend
     // des Abbaus noch hereinkommt, keine Erlaubnis mehr vorfindet.
     videoMeetingEnded();
+    // Das Ton-Abo gilt je Meeting - dieselbe Begruendung wie beim
+    // Rohdaten-Schalter darueber.
+    audioClearSubscribed();
   }
 }
 
