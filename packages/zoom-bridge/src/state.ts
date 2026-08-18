@@ -54,7 +54,16 @@ export interface Session {
    * mehr als letztes Wort.
    */
   privilegeDenied: boolean;
-  lastError: { where: string; code: number | string; name: string } | null;
+  /**
+   * `id` steht NUR dabei, wenn das Ereignis eine trug — sie ist die
+   * Zuordnung zu genau einem Abo (heute: `audioBufferMismatch`). Vorher
+   * verwarf der Reducer sie, und damit genau das, wofür sie eingeführt
+   * wurde: eine Fehlerzeile, die sich keinem Gast zuordnen lässt, ist für
+   * einen Leser dieselbe stille Sorte Fehler wie gar keine. Fehlt sie, ist
+   * das eine Aussage über die MASCHINE (`audioQueueOverflow`) — dann wird
+   * hier auch keine erfunden.
+   */
+  lastError: { where: string; code: number | string; name: string; id?: number } | null;
   videoSubs: Map<number, VideoSub>;
   audioSubs: Map<number, AudioSub>;
 }
@@ -164,8 +173,9 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
     }
 
     case 'error': {
-      const e = ev as { where: string; code: number | string; name?: string };
-      // EIN VIDEO-FEHLER IST KEINE KAPUTTE SITZUNG (Abschluss-Sichtung, I5).
+      const e = ev as { where: string; code: number | string; name?: string; id?: number };
+      // EIN VIDEO- ODER TON-FEHLER IST KEINE KAPUTTE SITZUNG (Abschluss-Sichtung, I5;
+      // Ton nachgezogen in der Schlussprüfung zu Stage 3, Critical 1).
       // Stage 2 bringt Fehlerschluessel, die im NORMALBETRIEB auftreten:
       // videoAlreadySubscribed (jemand hat zweimal geklickt),
       // videoNotSubscribed, videoBadResolution, videoBufferMismatch (mitten
@@ -177,16 +187,44 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
       // phase === 'error' als Abbruchmerkmal - der Messlauf haette sich an
       // einem einzigen videoAlreadySubscribed selbst ausgehebelt.
       //
-      // AUSGENOMMEN IST NUR where:'video'. where:'ndi' (ndiInitFailed) bleibt
-      // absichtlich drin: das heisst "auf diesem Rechner geht NDI gar nicht",
-      // eine Aussage ueber den Aufbau, nicht ueber ein einzelnes Abo.
+      // AUSGENOMMEN SIND where:'video' UND where:'audio'. Stage 3 hat vier
+      // Ton-Schluessel dazugelegt, und sie gehoeren aus DEMSELBEN Grund in
+      // dieselbe Klasse: sie treten im NORMALBETRIEB auf und sagen nichts
+      // ueber den Aufbau der Sitzung aus.
+      //   - audioQueueOverflow: die Hauptschleife ist einmal laenger als
+      //     eine halbe Sekunde nicht zum Leeren gekommen. Eine Aussage ueber
+      //     die MASCHINE unter Last - Bild und Ton laufen danach weiter.
+      //   - audioBufferMismatch: ein einzelnes verworfenes Paket mitten in
+      //     einem laufenden Abo, gemeldet einmal je Abo.
+      //   - audioHelperMissing / audioSubscribeFailed: der Ton kam fuer
+      //     dieses Abo nicht zustande (gemeldet als off/audioUnavailable) -
+      //     das BILD dieses und aller anderen Abos laeuft weiter.
+      // Ohne diese Ausnahme kippte jeder Hakler die Sitzung endgueltig auf
+      // 'error', obwohl Bild und Ton einwandfrei weiterlaufen (Schluss-
+      // pruefung Stage 3, Critical 1).
+      //
+      // where:'ndi' (ndiInitFailed) bleibt dagegen absichtlich drin: das
+      // heisst "auf diesem Rechner geht NDI gar nicht", eine Aussage ueber
+      // den AUFBAU, nicht ueber ein einzelnes Abo. Genau daran haengt die
+      // Grenze - nicht daran, ob ein Schluessel neu ist.
       //
       // lastError wird IN JEDEM FALL gesetzt - der Fehler darf nicht
-      // verschwinden, nur die SITZUNG ist nicht kaputt. Wer Video-Fehler
+      // verschwinden, nur die SITZUNG ist nicht kaputt. Wer Bild-/Ton-Fehler
       // sehen will, liest lastError (oder haengt sich an onEvent, wie
       // test/video-limit.mjs es tut).
-      const phase = e.where === 'video' ? s.phase : 'error';
-      return { ...s, phase, lastError: { where: e.where, code: e.code, name: e.name ?? 'UNBENANNT' } };
+      const phase = e.where === 'video' || e.where === 'audio' ? s.phase : 'error';
+      const lastError: NonNullable<Session['lastError']> = {
+        where: e.where,
+        code: e.code,
+        name: e.name ?? 'UNBENANNT',
+      };
+      // Die id NUR uebernehmen, wenn das Ereignis eine trug (Keine
+      // erfundenen Werte). Sie ist die Zuordnung zu genau einem Abo, und der
+      // Reducer verwarf sie bisher - der Leser von lastError bekam also
+      // ausgerechnet die Angabe nicht, fuer die sie in audioBufferMismatch
+      // eingefuehrt wurde.
+      if (typeof e.id === 'number') lastError.id = e.id;
+      return { ...s, phase, lastError };
     }
 
     case 'video': {

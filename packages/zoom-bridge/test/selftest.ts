@@ -636,6 +636,39 @@ console.log('\nstate — ein Video-Fehler kippt die SITZUNG nicht:');
   assert(ndi.phase === 'error', 'eine fehlende NDI-Laufzeit kippt die Sitzung sehr wohl');
 }
 
+console.log('\nstate — ein TON-Fehler kippt die SITZUNG genausowenig:');
+{
+  // Schlusspruefung Stage 3, Critical 1: dieselbe Ausnahme wie beim Bild
+  // eine Zeile hoeher - Stage 3 hat vier where:'audio'-Schluessel dazugelegt
+  // und die Ausnahme zunaechst NICHT mitgezogen. Zwei davon treten im
+  // NORMALBETRIEB auf: audioQueueOverflow bei jedem Hakler der Hauptschleife
+  // jenseits einer halben Sekunde, audioBufferMismatch mitten in einem
+  // laufenden Abo. Beide setzten die Phase ENDGUELTIG auf 'error' (keine
+  // Verzweigung holt eine Sitzung da wieder heraus, 'bye' schreibt sie
+  // ausdruecklich fort), waehrend Bild und Ton einwandfrei weiterliefen.
+  const ueberlauf = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'audio', code: 'audioQueueOverflow' },
+  ]);
+  assert(ueberlauf.phase === 'inMeeting', 'ein Ueberlauf laesst die Phase stehen, wo sie war');
+  assert(ueberlauf.lastError?.name === 'AUDIO_QUEUE_OVERFLOW', 'der Ton-Fehler steht trotzdem in lastError');
+
+  // Und die Kennung kommt MIT an. Sie ist der ganze Grund, aus dem
+  // audioBufferMismatch eine traegt: ohne sie liesse sich die Zeile keinem
+  // Gast zuordnen. Der Reducer verwarf sie vorher stillschweigend.
+  const mismatch = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'audio', code: 'audioBufferMismatch', id: 16778240 },
+  ]);
+  assert(mismatch.phase === 'inMeeting', 'auch ein Puffer-Fehler mitten im Abo kippt die Sitzung nicht');
+  assert(mismatch.lastError?.id === 16778240, 'die Kennung des betroffenen Abos steht in lastError');
+
+  // GEGENPROBE zur Kernregel "Keine erfundenen Werte": audioQueueOverflow
+  // traegt AUSDRUECKLICH keine id (eine Aussage ueber die Maschine, nicht
+  // ueber einen Gast) - dann darf auch in lastError keine stehen.
+  assert(ueberlauf.lastError?.id === undefined, 'ohne id im Ereignis erfindet der Reducer keine');
+}
+
 console.log('\nstate — reduce veraendert nichts Bestehendes:');
 {
   // Ausgangszustand: zwei Teilnehmer

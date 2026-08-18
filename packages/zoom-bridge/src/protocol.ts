@@ -133,7 +133,15 @@ export type WireEvent =
       denied?: boolean;
       timedOut?: boolean;
     }
-  | { ev: 'error'; where: string; code: number | string }
+  // "id" steht NUR an einem Fehler, der GENAU EIN Abo betrifft — heute
+  // `audioBufferMismatch` (das Merkzeichen dafür sitzt am Sub, und ohne die
+  // Kennung ließe sich die Zeile keinem Gast zuordnen). AUSDRÜCKLICH ohne id
+  // bleibt `audioQueueOverflow`: eine Aussage über die MASCHINE — es gibt
+  // eine Warteschlange für alle, und der verwerfende Rückruf weiß gar nicht,
+  // zu welchem Abo das Paket gehört hätte. Eine erfundene id wäre dort
+  // schlimmer als keine.
+  //
+  | { ev: 'error'; where: string; code: number | string; id?: number }
   | { ev: 'bye' }
   // "rotation" und "limitedRange" FEHLEN, solange kein Bild kam (bei
   // state:"subscribed" also immer). Ein Wert waere dort erfunden - und eine
