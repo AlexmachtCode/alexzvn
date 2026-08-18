@@ -29,7 +29,29 @@ constexpr size_t kMaxPakete = 256;
 std::mutex g_queueMutex;
 std::deque<AudioPacket> g_queue;
 std::atomic<unsigned int> g_verworfen{0};
+
+// ZWEI TATSACHEN, ZWEI MERKZEICHEN (Schlusspruefung Stage 3, Critical 2).
+// Vorher liefen sie unter EINEM Namen - und gingen auf dem HAEUFIGSTEN Weg
+// auseinander:
+//
+//   g_abonniert   - "der Ton ist fuer DIESES Meeting scharf". Gilt je
+//                   Meeting, genau wie sessionStartRawRecording(). Nur
+//                   audioEnsureSubscribed() fragt es, um nicht zweimal zu
+//                   abonnieren.
+//   g_registriert - "das SDK haelt unseren Delegate". Eine Tatsache ueber das
+//                   SDK, nicht ueber das Meeting: sie wird erst falsch, wenn
+//                   unSubscribe() TATSAECHLICH durchgelaufen ist.
+//
+// Der Unterschied ist nicht theoretisch. Der Gastgeber beendet das Meeting ->
+// MEETING_STATUS_ENDED -> audioClearSubscribed(): "nicht mehr scharf" stimmt
+// dann, "das SDK haelt unseren Delegate nicht mehr" stimmte NICHT. Haenge man
+// die Abmeldung beim Prozessende an g_abonniert, wird sie genau dann
+// uebersprungen, wenn sie noetig ist - CleanUPSDK() liefe, waehrend
+// &g_delegate noch eingetragen ist. Das ist dieselbe Reihenfolge, die beim
+// Bild als 0xC0000005 GEMESSEN wurde (siehe den Kommentar an
+// videoShutdownAll() in main.cpp).
 std::atomic<bool> g_abonniert{false};
+std::atomic<bool> g_registriert{false};
 
 class AudioDelegate : public IZoomSDKAudioRawDataDelegate {
  public:
@@ -83,10 +105,46 @@ class AudioDelegate : public IZoomSDKAudioRawDataDelegate {
 // Abos haben eine, und die loest der Weg ueber die Warteschlange.
 AudioDelegate g_delegate;
 
+// DIE EINZIGE STELLE, DIE unSubscribe() RUFT - und darum die einzige, die
+// g_registriert loeschen darf. Alles andere fragt nur.
+//
+// Idempotent: steht keine Anmeldung, kehrt sie sofort zurueck. Deshalb kann
+// jeder Abbauweg sie bedenkenlos rufen.
+void audioAbmelden() {
+  if (!g_registriert.load()) return;
+  IZoomSDKAudioRawDataHelper* helper = GetAudioRawdataHelper();
+  if (helper == nullptr) {
+    // NICHTS VERSCHWINDET STILL - aber auf stderr, nicht auf stdout: ein
+    // Aufrufer kann daran nichts aendern (das Meeting ist weg oder das SDK
+    // nicht mehr bereit), und einen Fehlerschluessel dafuer gibt es
+    // ausdruecklich nicht. g_registriert bleibt STEHEN, damit der naechste
+    // Weg (Prozessende) es erneut versucht - ein geloeschtes Merkzeichen
+    // waere hier die Luege, die Critical 2 ueberhaupt erst erzeugt hat.
+    emitLog(L"Ton-Abmeldung nicht moeglich: GetAudioRawdataHelper() gab nichts heraus. Der Delegate bleibt eingetragen.");
+    return;
+  }
+  const SDKError err = helper->unSubscribe();
+  if (err != SDKERR_SUCCESS) {
+    emitLog(std::wstring(L"Zoom-SDK meldet einen Fehler bei unSubscribe() fuer den Ton: SDKError=") +
+            std::to_wstring(static_cast<int>(err)));
+    // Wieder: Merkzeichen STEHEN LASSEN. Die Abmeldung hat nicht
+    // stattgefunden, also darf nichts behaupten, sie haette.
+    return;
+  }
+  g_registriert = false;
+}
+
 }  // namespace
 
 bool audioEnsureSubscribed() {
   if (g_abonniert.load()) return true;
+  // Eine noch STEHENDE Anmeldung zuerst freigeben. Im Normalfall ist das ein
+  // Rueckkehrbefehl (das Meeting-Ende hat sie bereits geloest), scharf wird
+  // die Zeile nur, wenn die Freigabe dort fehlgeschlagen ist: dann waere ein
+  // zweites subscribe() ueber eine bestehende Anmeldung der Weg, auf dem ein
+  // zweites Meeting im selben Prozess allen Ton verlieren kann (Schluss-
+  // pruefung, Critical 2, Ausfall B).
+  audioAbmelden();
   IZoomSDKAudioRawDataHelper* helper = GetAudioRawdataHelper();
   if (helper == nullptr) {
     emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioHelperMissing\"}");
@@ -100,11 +158,30 @@ bool audioEnsureSubscribed() {
     emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioSubscribeFailed\"}");
     return false;
   }
+  // ERST die Tatsache ueber das SDK, dann die ueber das Meeting - in dieser
+  // Reihenfolge, weil ab dem geglueckten subscribe() der Delegate eingetragen
+  // IST, ganz gleich, was danach noch passiert.
+  g_registriert = true;
   g_abonniert = true;
   return true;
 }
 
 void audioClearSubscribed() {
+  // MELDET AB, statt nur ein Merkzeichen zu loeschen (Schlusspruefung,
+  // Critical 2). Von den beiden vertretbaren Formen - hier abmelden, oder
+  // callbacks.cpp eine zweite Funktion rufen lassen - ist DIESE gewaehlt,
+  // damit es genau EINE Stelle gibt, an der die Anmeldung faellt: jeder Weg,
+  // der ein Meeting beendet, laeuft ohnehin hier durch (callbacks.cpp beim
+  // MEETING_STATUS_ENDED/FAILED, audioShutdown() beim leave/quit/EOF). Eine
+  // zweite Funktion daneben waere eine zweite Buchfuehrung derselben
+  // Tatsache, und die zweite geht irgendwann nicht mit.
+  //
+  // UNGEMESSEN und darum benannt: dass unSubscribe() INNERHALB des
+  // Status-Rueckrufs (also im pumpOnce()-Aufruf des Hauptthreads) sicher ist,
+  // ist fuer den TON nirgends gemessen. Fuer das BILD ist derselbe Schritt an
+  // derselben Stelle am 2026-08-13 ohne Absturz durchgelaufen (siehe
+  // videoMeetingEnded() in video.cpp) - das ist ein Vorbild, kein Beleg.
+  audioAbmelden();
   g_abonniert = false;
   std::lock_guard<std::mutex> lock(g_queueMutex);
   // Pakete aus einem beendeten Meeting gehoeren niemandem mehr.
@@ -113,10 +190,12 @@ void audioClearSubscribed() {
 }
 
 void audioShutdown() {
-  if (g_abonniert.load()) {
-    IZoomSDKAudioRawDataHelper* helper = GetAudioRawdataHelper();
-    if (helper != nullptr) helper->unSubscribe();
-  }
+  // Derselbe Abbau wie beim Meeting-Ende, und ABSICHTLICH ohne eigene
+  // Bedingung: die Abmeldung haengt in audioAbmelden() an g_registriert
+  // ("haelt das SDK unseren Delegate?") und NICHT an g_abonniert ("ist der
+  // Ton fuer dieses Meeting scharf?"). Genau darum greift sie auch auf dem
+  // haeufigsten Weg - Gastgeber beendet das Meeting, danach quit -, auf dem
+  // g_abonniert laengst false ist und die Abmeldung frueher ausfiel.
   audioClearSubscribed();
 }
 

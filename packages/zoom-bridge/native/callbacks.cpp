@@ -105,15 +105,24 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
     // je MEETING. Bliebe er stehen, hielte das naechste Meeting ihn faelschlich
     // fuer bereits gelegt und subscribe() liefe ins Leere.
     sessionClearRawRecording();
+    // Das Ton-Abo gilt je Meeting - dieselbe Begruendung wie beim
+    // Rohdaten-Schalter darueber. Seit der Schlusspruefung (Critical 2)
+    // MELDET diese Zeile auch ab (unSubscribe()), statt nur ein Merkzeichen
+    // zu loeschen: sonst blieb der Delegate auf genau diesem Weg eingetragen,
+    // und der spaetere audioShutdown() sah "nicht abonniert" und kehrte
+    // zurueck, ohne abzumelden.
+    //
+    // VOR videoMeetingEnded(), dieselbe Reihenfolge wie beim "leave"-Befehl
+    // und beim Prozessende (main.cpp): der Lauscher gehoert weg, BEVOR die
+    // Abos verschwinden - ein Lauscher ohne Abos fuellt eine Warteschlange,
+    // die niemand mehr leert.
+    audioClearSubscribed();
     // Und die Abos gehoeren ebenfalls dem Meeting. GEMESSEN am 2026-08-13:
     // ohne diese Zeile ueberlebte ein Abo das Ende seiner Sitzung, und der
     // Herzschlag hielt eine NDI-Quelle am Leben, zu der es kein Meeting mehr
-    // gab. NACH den beiden Zeilen darueber, damit ein Rueckruf, der waehrend
+    // gab. NACH den drei Zeilen darueber, damit ein Rueckruf, der waehrend
     // des Abbaus noch hereinkommt, keine Erlaubnis mehr vorfindet.
     videoMeetingEnded();
-    // Das Ton-Abo gilt je Meeting - dieselbe Begruendung wie beim
-    // Rohdaten-Schalter darueber.
-    audioClearSubscribed();
   }
 }
 

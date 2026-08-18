@@ -49,11 +49,59 @@ struct AudioPacket {
  */
 bool audioEnsureSubscribed();
 
-/** Setzt das Merkzeichen zurueck - das Ton-Abo gilt je MEETING. */
+/**
+ * Beendet den Ton fuer das laufende Meeting: MELDET AB (unSubscribe(), falls
+ * die Anmeldung steht), setzt das Meeting-Merkzeichen zurueck und wirft die
+ * Warteschlange weg.
+ *
+ * Der Name sagt "Subscribed", und genau das raeumt sie ab - BEIDE Tatsachen,
+ * die frueher unter einem Merkzeichen liefen (siehe die beiden Kommentare an
+ * g_abonniert/g_registriert in audio.cpp). Vorher loeschte sie nur das
+ * Merkzeichen, und der Delegate blieb eingetragen.
+ *
+ * Scheitert die Abmeldung (kein Helfer mehr, oder das SDK meldet einen
+ * Fehler), steht das auf stderr und die Anmeldung gilt weiter als stehend -
+ * der naechste Weg versucht es erneut.
+ */
 void audioClearSubscribed();
 
-/** unSubscribe() beim Prozessende. Danach kommen keine Rueckrufe mehr. */
+/**
+ * Prozessende. Meldet ab, wenn die Anmeldung steht - unabhaengig davon, ob
+ * der Ton fuer ein Meeting noch scharf ist. Danach kommen keine Rueckrufe
+ * mehr, SOFERN unSubscribe() durchgelaufen ist (schlaegt es fehl, steht das
+ * auf stderr, siehe audioClearSubscribed()).
+ */
 void audioShutdown();
+
+// --- BEWUSSTE ABWEICHUNG VON SPEC ABSCHNITT 4 ------------------------------
+/*
+ * Hier BENANNT statt still gelassen (Schlusspruefung Stage 3, Critical 2,
+ * Ausfall C).
+ *
+ * In Spec Abschnitt 4 steht: "unSubscribe() beim Abbau des LETZTEN Abos bzw. beim
+ * Prozessende." Umgesetzt ist nur die zweite Haelfte: die Anmeldung faellt
+ * beim MEETING-ENDE (audioClearSubscribed(), auch aus callbacks.cpp) und beim
+ * Prozessende - nicht schon, wenn der Bediener mitten im Meeting das letzte
+ * Zoom-Abo herausnimmt.
+ *
+ * WAS DAS KOSTET, unbeschoenigt: nimmt der Bediener alle Zoom-Gaeste heraus
+ * und laeuft das Meeting weiter, kopiert der SDK-Thread bis zum Meeting-Ende
+ * weiter je sprechendem Teilnehmer etwa alle 10-20 ms ein Paket in die
+ * Warteschlange. Der Tick leert sie weiter, findet kein Abo und wirft alles
+ * weg (Spec Abschnitt 5 nennt genau das "die richtige Antwort"). Es ist also
+ * verschenkte Kopierarbeit auf zwei Threads - kein Wachsen, kein Ueberlauf,
+ * kein falsches Ereignis.
+ *
+ * WARUM SO ENTSCHIEDEN: die Freigabe beim letzten Abo braucht den Rueckweg
+ * subscribe() -> unSubscribe() -> subscribe() INNERHALB desselben Meetings,
+ * und dass Zoom den mitmacht, ist nirgends gemessen. Macht er ihn nicht, ist
+ * der Preis ungleich hoeher als die Kopierarbeit: das naechste videoSubscribe
+ * bekaeme audioSubscribeFailed, jedes Abo meldete off/audioUnavailable, und
+ * das bleibt fuer dieses Abo ENDGUELTIG (nichts versucht es erneut) - eine
+ * stumme Sendung als Preis fuer eingespartes Kopieren. Sobald der Rueckweg am
+ * echten Meeting gemessen ist, gehoert die Freigabe beim letzten Abo
+ * nachgezogen; bis dahin steht sie hier als Abweichung, nicht als Luecke.
+ */
 
 /** Holt ein Paket ab. false = Warteschlange leer. */
 bool audioPop(AudioPacket* out);
