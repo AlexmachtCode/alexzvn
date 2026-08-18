@@ -81,7 +81,13 @@ npm run join -w @jm/zoom-bridge
 `test/join.mjs` baut das JWT, startet `zoom-bridge.exe`, tritt dem Meeting bei,
 druckt jedes Ereignis in Klartext und verlässt das Meeting nach `ZOOM_JOIN_SECONDS`
 Sekunden wieder (Vorgabe 60, Strg+C beendet früher). Optional: `ZOOM_DISPLAY_NAME`
-(Vorgabe `JM Connect`).
+(Vorgabe `JM Connect`), `ZOOM_VIDEO_SUBSCRIBE` (kommagetrennte Kennungen) und
+`ZOOM_AUDIO_OFF` (Teilmenge davon, abonniert mit `audio:false` — Bild ohne Ton).
+
+➜ **Für die noch offenen Abnahmepunkte von Stage 3 gibt es ein Drehbuch:**
+[`ABNAHME-STAGE3.md`](ABNAHME-STAGE3.md). Es ordnet die sechs offenen Punkte so,
+dass ein Meeting reicht, nennt zu jedem die erwarteten Zeilen und sagt, woran ein
+Befund zu erkennen ist, der **nicht** nach einem Fehler aussieht.
 
 **Rückgabewert:**
 
