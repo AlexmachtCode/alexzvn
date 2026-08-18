@@ -500,7 +500,25 @@ void videoUnsubscribe(unsigned int userId) {
 // ueber leave/quit/EOF) oder das Meeting ist zu Ende ("meetingEnded"). Ein
 // gemeinsamer Rumpf, damit die beiden Wege nicht auseinanderlaufen - der
 // Abbau selbst ist in beiden Faellen derselbe.
+// ABBAU-MARKEN AUF stderr (Owner-Lauf 18.08.2026): der Prozess ist nach
+// "Status: ended (vom Gastgeber beendet)" mit exitCode 3221225477 = 0xC0000005
+// = STATUS_ACCESS_VIOLATION gestorben. Wo genau, sagte nichts - zwischen der
+// letzten Protokollzeile und dem Prozessende lagen vier SDK-Aufrufe, ein
+// NDI-Aufruf und ein clear(), das JEDES Sub samt fieldMutex zerstoert
+// (Befund I6, seit Stage 2 ausdruecklich als UNBELEGT vermerkt).
+//
+// emitLog() spuelt stderr selbst (emit.cpp) - die zuletzt gedruckte Marke
+// steht also auch dann noch da, wenn der naechste Aufruf den Prozess
+// umbringt. Bei einem Absturz ist sie die EINZIGE Auskunft, die es je geben
+// wird; ein Messgeraet, das mit dem Gemessenen stirbt, misst nichts.
+//
+// DIE MARKE NACH clear() IST DIE WICHTIGSTE: druckt sie noch und der Prozess
+// stirbt trotzdem, dann liegt der Fehler NICHT in diesen Aufrufen, sondern in
+// einem SPAETEREN Rueckruf, der auf ein bereits zerstoertes Sub trifft - also
+// genau in I6. Bleibt sie aus, benennt die letzte gedruckte Marke die Zeile.
 static void videoAbbauAlle(const char* reason) {
+  const std::wstring grundW(reason, reason + std::char_traits<char>::length(reason));
+  emitLog(L"Abbau beginnt (" + grundW + L"), " + std::to_wstring(g_subs.size()) + L" Abo(s)");
   for (auto& [id, s] : g_subs) {
     // JEDES Abo wird GEMELDET, bevor es abgebaut wird (Abschluss-Sichtung,
     // I4). Am Prozessende ist das gleichgueltig, beim "leave"-Befehl NICHT:
@@ -532,12 +550,18 @@ static void videoAbbauAlle(const char* reason) {
     // g_subs.clear() unten zerstoert jedes Sub samt fieldMutex, waehrend der
     // Delegate einen rohen Zeiger darauf haelt.
     if (s->renderer) {
+      emitLog(L"Abbau " + std::to_wstring(id) + L": unSubscribe()");
       logSdkError(L"unSubscribe() beim Gesamtabbau", s->renderer->unSubscribe());
+      emitLog(L"Abbau " + std::to_wstring(id) + L": destroyRenderer()");
       logSdkError(L"destroyRenderer() beim Gesamtabbau", destroyRenderer(s->renderer));
     }
+    emitLog(L"Abbau " + std::to_wstring(id) + L": NDI-Sender schliessen");
     s->sender.close();
+    emitLog(L"Abbau " + std::to_wstring(id) + L": fertig");
   }
+  emitLog(L"Abbau: Karte leeren - ab hier sind alle Sub-Objekte zerstoert");
   g_subs.clear();
+  emitLog(L"Abbau fertig, Karte ist leer");
 }
 
 void videoShutdownAll() {
