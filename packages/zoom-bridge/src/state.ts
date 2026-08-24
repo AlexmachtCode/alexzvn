@@ -1,6 +1,6 @@
 // Die Zustandsmaschine: aus Ereignissen wird ein Bild der Sitzung.
 // Rein — kein Prozess, keine Uhr, keine Seiteneffekte. Deshalb ohne SDK pruefbar.
-import type { BridgeEvent, MeetingStatusName, Participant, VideoReason, VideoState } from './protocol.ts';
+import type { AudioReason, AudioState, BridgeEvent, MeetingStatusName, Participant, VideoReason, VideoState } from './protocol.ts';
 
 export interface VideoSub {
   state: VideoState;
@@ -9,6 +9,13 @@ export interface VideoSub {
   rebindable: boolean;
   rotation?: number;
   limitedRange?: boolean;
+}
+
+export interface AudioSub {
+  state: AudioState;
+  reason: AudioReason;
+  sampleRate?: number;
+  channels?: number;
 }
 
 export interface Session {
@@ -47,8 +54,18 @@ export interface Session {
    * mehr als letztes Wort.
    */
   privilegeDenied: boolean;
-  lastError: { where: string; code: number | string; name: string } | null;
+  /**
+   * `id` steht NUR dabei, wenn das Ereignis eine trug — sie ist die
+   * Zuordnung zu genau einem Abo (heute: `audioBufferMismatch`). Vorher
+   * verwarf der Reducer sie, und damit genau das, wofür sie eingeführt
+   * wurde: eine Fehlerzeile, die sich keinem Gast zuordnen lässt, ist für
+   * einen Leser dieselbe stille Sorte Fehler wie gar keine. Fehlt sie, ist
+   * das eine Aussage über die MASCHINE (`audioQueueOverflow`) — dann wird
+   * hier auch keine erfunden.
+   */
+  lastError: { where: string; code: number | string; name: string; id?: number } | null;
   videoSubs: Map<number, VideoSub>;
+  audioSubs: Map<number, AudioSub>;
 }
 
 export function initialSession(): Session {
@@ -62,6 +79,7 @@ export function initialSession(): Session {
     privilegeDenied: false,
     lastError: null,
     videoSubs: new Map(),
+    audioSubs: new Map(),
   };
 }
 
@@ -155,8 +173,9 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
     }
 
     case 'error': {
-      const e = ev as { where: string; code: number | string; name?: string };
-      // EIN VIDEO-FEHLER IST KEINE KAPUTTE SITZUNG (Abschluss-Sichtung, I5).
+      const e = ev as { where: string; code: number | string; name?: string; id?: number };
+      // EIN VIDEO- ODER TON-FEHLER IST KEINE KAPUTTE SITZUNG (Abschluss-Sichtung, I5;
+      // Ton nachgezogen in der Schlussprüfung zu Stage 3, Critical 1).
       // Stage 2 bringt Fehlerschluessel, die im NORMALBETRIEB auftreten:
       // videoAlreadySubscribed (jemand hat zweimal geklickt),
       // videoNotSubscribed, videoBadResolution, videoBufferMismatch (mitten
@@ -168,16 +187,44 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
       // phase === 'error' als Abbruchmerkmal - der Messlauf haette sich an
       // einem einzigen videoAlreadySubscribed selbst ausgehebelt.
       //
-      // AUSGENOMMEN IST NUR where:'video'. where:'ndi' (ndiInitFailed) bleibt
-      // absichtlich drin: das heisst "auf diesem Rechner geht NDI gar nicht",
-      // eine Aussage ueber den Aufbau, nicht ueber ein einzelnes Abo.
+      // AUSGENOMMEN SIND where:'video' UND where:'audio'. Stage 3 hat vier
+      // Ton-Schluessel dazugelegt, und sie gehoeren aus DEMSELBEN Grund in
+      // dieselbe Klasse: sie treten im NORMALBETRIEB auf und sagen nichts
+      // ueber den Aufbau der Sitzung aus.
+      //   - audioQueueOverflow: die Hauptschleife ist einmal laenger als
+      //     eine halbe Sekunde nicht zum Leeren gekommen. Eine Aussage ueber
+      //     die MASCHINE unter Last - Bild und Ton laufen danach weiter.
+      //   - audioBufferMismatch: ein einzelnes verworfenes Paket mitten in
+      //     einem laufenden Abo, gemeldet einmal je Abo.
+      //   - audioHelperMissing / audioSubscribeFailed: der Ton kam fuer
+      //     dieses Abo nicht zustande (gemeldet als off/audioUnavailable) -
+      //     das BILD dieses und aller anderen Abos laeuft weiter.
+      // Ohne diese Ausnahme kippte jeder Hakler die Sitzung endgueltig auf
+      // 'error', obwohl Bild und Ton einwandfrei weiterlaufen (Schluss-
+      // pruefung Stage 3, Critical 1).
+      //
+      // where:'ndi' (ndiInitFailed) bleibt dagegen absichtlich drin: das
+      // heisst "auf diesem Rechner geht NDI gar nicht", eine Aussage ueber
+      // den AUFBAU, nicht ueber ein einzelnes Abo. Genau daran haengt die
+      // Grenze - nicht daran, ob ein Schluessel neu ist.
       //
       // lastError wird IN JEDEM FALL gesetzt - der Fehler darf nicht
-      // verschwinden, nur die SITZUNG ist nicht kaputt. Wer Video-Fehler
+      // verschwinden, nur die SITZUNG ist nicht kaputt. Wer Bild-/Ton-Fehler
       // sehen will, liest lastError (oder haengt sich an onEvent, wie
       // test/video-limit.mjs es tut).
-      const phase = e.where === 'video' ? s.phase : 'error';
-      return { ...s, phase, lastError: { where: e.where, code: e.code, name: e.name ?? 'UNBENANNT' } };
+      const phase = e.where === 'video' || e.where === 'audio' ? s.phase : 'error';
+      const lastError: NonNullable<Session['lastError']> = {
+        where: e.where,
+        code: e.code,
+        name: e.name ?? 'UNBENANNT',
+      };
+      // Die id NUR uebernehmen, wenn das Ereignis eine trug (Keine
+      // erfundenen Werte). Sie ist die Zuordnung zu genau einem Abo, und der
+      // Reducer verwarf sie bisher - der Leser von lastError bekam also
+      // ausgerechnet die Angabe nicht, fuer die sie in audioBufferMismatch
+      // eingefuehrt wurde.
+      if (typeof e.id === 'number') lastError.id = e.id;
+      return { ...s, phase, lastError };
     }
 
     case 'video': {
@@ -186,6 +233,16 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
         rebindable: boolean; rotation?: number; limitedRange?: boolean;
       };
       const videoSubs = new Map(s.videoSubs);
+      // Der Ton haengt am Bild-Abo, also haengt auch seine Karteileiche daran:
+      // dieselbe alte Kennung, die unten aus videoSubs verschwindet, muss auch
+      // aus audioSubs verschwinden. Ein eigener Korrelator am AudioSub waere
+      // eine zweite Buchfuehrung derselben Tatsache - und die zweite ginge
+      // irgendwann auseinander (genau der Fehler, der videoSubs oben schon
+      // einmal getroffen hat, siehe Kommentar zu 'reboundByName'). Erst bei
+      // Bedarf kopiert: ein videoSubscribed/live/black-Ereignis - der weit
+      // haeufigere Fall als ein Umhaengen - soll keine neue Map von
+      // audioSubs anlegen.
+      let audioSubs = s.audioSubs;
       if (e.state === 'unsubscribed') {
         videoSubs.delete(e.id);
       } else {
@@ -204,7 +261,17 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
         // unten ("der Sender ist derselbe geblieben") ausschliessen soll.
         if (e.reason === 'rebound' || e.reason === 'reboundByName') {
           for (const [id, sub] of videoSubs) {
-            if (sub.source === e.source && id !== e.id) videoSubs.delete(id);
+            if (sub.source === e.source && id !== e.id) {
+              videoSubs.delete(id);
+              // Dieselbe tote Kennung, jetzt auf der Ton-Karte: ein spaeteres
+              // audio-Ereignis (Task 7) traegt schon die NEUE Kennung, also
+              // kommt auf diese alte nie wieder eines. Ohne diese Zeile bliebe
+              // sie als zweites, fuer immer stummes Abo stehen.
+              if (audioSubs.has(id)) {
+                audioSubs = new Map(audioSubs);
+                audioSubs.delete(id);
+              }
+            }
           }
         }
         videoSubs.set(e.id, {
@@ -212,7 +279,25 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
           rebindable: e.rebindable, rotation: e.rotation, limitedRange: e.limitedRange,
         });
       }
-      return { ...s, videoSubs };
+      return { ...s, videoSubs, audioSubs };
+    }
+
+    case 'audio': {
+      const e = ev as {
+        id: number; state: AudioState; reason: AudioReason;
+        sampleRate?: number; channels?: number;
+      };
+      const audioSubs = new Map(s.audioSubs);
+      // 'off' ist das Ende - wie 'unsubscribed' beim Bild. Kein Umhaengen-
+      // Sonderfall: der Ton haengt am Bild-Abo, und dessen Umhaengen meldet
+      // sich ueber das video-Ereignis. Ein umgehaengtes Abo bekommt hier ein
+      // frisches 'waiting' unter der NEUEN Kennung (Task 7).
+      if (e.state === 'off') audioSubs.delete(e.id);
+      else audioSubs.set(e.id, {
+        state: e.state, reason: e.reason,
+        sampleRate: e.sampleRate, channels: e.channels,
+      });
+      return { ...s, audioSubs };
     }
 
     case 'bye':

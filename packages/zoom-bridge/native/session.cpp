@@ -5,6 +5,7 @@
 #include <windows.h>
 #include "zoom_sdk.h"
 #include "meeting_service_interface.h"
+#include "meeting_service_components/meeting_audio_interface.h"
 #include "emit.h"
 #include "callbacks.h"
 
@@ -52,6 +53,10 @@ std::atomic<bool> g_canRecordRaw{false};
 // Schalter schon umgelegt". Wird beim Meeting-Ende zurueckgesetzt, sonst
 // hielte ein zweites Meeting den Schalter faelschlich fuer bereits gelegt.
 std::atomic<bool> g_rawRecordingOn{false};
+// Getrennt von g_rawRecordingOn: "am Tonkanal des Meetings" und "der
+// Rohdaten-Schalter steht" sind zwei verschiedene Tatsachen, und sie koennen
+// einzeln fehlschlagen.
+std::atomic<bool> g_voipOn{false};
 }  // namespace
 
 // NICHT (mehr) TU-lokal: session.h erklaert diese Funktion oeffentlich, main.cpp
@@ -381,6 +386,10 @@ IMeetingRecordingController* recordingCtrl() {
   return g_meeting ? g_meeting->GetMeetingRecordingController() : nullptr;
 }
 
+IMeetingAudioController* audioCtrl() {
+  return g_meeting ? g_meeting->GetMeetingAudioController() : nullptr;
+}
+
 void checkPrivilege() {
   // ACHTUNG, ZURUECKGENOMMEN (Nachbesserung 2): hier stand einmal ein
   // unbedingtes `g_privilegePending = false;` als ALLERERSTE Anweisung der
@@ -515,6 +524,81 @@ SDKError sessionStartRawRecording() {
 
 void sessionClearRawRecording() {
   g_rawRecordingOn = false;
+}
+
+SDKError sessionJoinVoip() {
+  // EINMAL je Meeting, dieselbe Begruendung wie bei sessionStartRawRecording()
+  // darueber: der zweite Aufruf waere kein Fehler, aber ein zweiter
+  // Rueckgabewert, den niemand mehr auseinanderhalten kann.
+  if (g_voipOn) return SDKERR_SUCCESS;
+  IMeetingAudioController* aud = audioCtrl();
+  if (aud == nullptr) return SDKERR_SERVICE_FAILED;
+
+  const SDKError err = aud->JoinVoip();
+  if (err != SDKERR_SUCCESS) return err;
+  g_voipOn = true;
+
+  // AB HIER sind Fehlschlaege nicht mehr toedlich: der Tonkanal STEHT, und das
+  // ist die Bedingung, an der das Roh-Ton-Abo haengt. Die beiden folgenden
+  // Aufrufe schuetzen den REGIERAUM, nicht den Tonempfang - sie melden sich
+  // auf stderr und lassen den Beitritt stehen. Ein fehlgeschlagener Schutz
+  // darf nicht den Ton wegnehmen, den er schuetzen soll.
+
+  // KEINE lokale Wiedergabe. Der Bruecken-PC steht im Regieraum: gaebe er den
+  // Meetington ueber seine Lautsprecher aus, liefe der ueber die Raummikrofone
+  // zurueck ins Meeting. Eine Rueckkopplung, die wie ein Zoom-Problem klingt
+  // und keines ist.
+  const SDKError playErr = aud->EnablePlayMeetingAudio(false);
+  if (playErr != SDKERR_SUCCESS) {
+    emitLog(std::wstring(L"Zoom-SDK: EnablePlayMeetingAudio(false) meldet SDKError=") +
+            std::to_wstring(static_cast<int>(playErr)) +
+            L" - der Bruecken-PC gibt den Meetington moeglicherweise ueber seine Lautsprecher aus.");
+  }
+
+  // UNS SELBST STUMM. JoinVoip() macht uns zum Ton-Teilnehmer, und das SDK
+  // koennte dabei ein Standardmikrofon greifen. Wir wollen ausschliesslich
+  // EMPFANGEN - Ton zurueck nach Zoom steht ausdruecklich nicht im Umfang
+  // (Spec Abschnitt 10). Der zweite Parameter von MuteAudio() bleibt auf
+  // seiner Vorgabe: was er fuer eine SELBST-Stummschaltung bedeutet, ist
+  // ungemessen, und eine ungemessene Annahme gehoert nicht in einen Aufruf,
+  // der die Rechte anderer Teilnehmer betreffen koennte.
+  IMeetingParticipantsController* parts = participantsCtrl();
+  IUserInfo* ich = (parts != nullptr) ? parts->GetMySelfUser() : nullptr;
+  if (ich == nullptr) {
+    emitLog(L"Zoom-SDK gab die eigene Teilnehmerkennung nicht heraus - wir konnten uns nicht "
+            L"stummschalten. Hat der Bruecken-PC ein Mikrofon, sendet er moeglicherweise Raumton "
+            L"ins Meeting.");
+  } else {
+    const SDKError muteErr = aud->MuteAudio(ich->GetUserID());
+    if (muteErr != SDKERR_SUCCESS) {
+      emitLog(std::wstring(L"Zoom-SDK: MuteAudio(uns selbst) meldet SDKError=") +
+              std::to_wstring(static_cast<int>(muteErr)) +
+              L" - moeglicherweise sendet der Bruecken-PC Raumton ins Meeting.");
+    }
+  }
+  return SDKERR_SUCCESS;
+}
+
+void sessionLeaveVoip() {
+  if (!g_voipOn) return;
+  // Das Merkzeichen faellt HIER, nicht erst nach gegluecktem LeaveVoip() -
+  // anders als beim Ton-Abo in audio.cpp, und aus einem gemessenen Grund:
+  // dort haelt das SDK einen Zeiger auf UNSEREN Delegate, eine
+  // fehlgeschlagene Abmeldung laesst also etwas Lebendiges zurueck, das
+  // spaeter erneut geloest werden muss. Ein VoIP-Beitritt laesst nichts
+  // zurueck, was uns gehoert. Das Merkzeichen stehen zu lassen hiesse, bei
+  // jedem weiteren Abbauweg erneut in ein beendetes Meeting hineinzurufen.
+  g_voipOn = false;
+  IMeetingAudioController* aud = audioCtrl();
+  if (aud == nullptr) {
+    emitLog(L"Messstelle: beim Abbau gab es keinen Ton-Regler mehr - LeaveVoip() uebersprungen.");
+    return;
+  }
+  const SDKError err = aud->LeaveVoip();
+  if (err != SDKERR_SUCCESS) {
+    emitLog(std::wstring(L"Zoom-SDK meldet einen Fehler bei LeaveVoip(): SDKError=") +
+            std::to_wstring(static_cast<int>(err)));
+  }
 }
 
 void sessionClearCanRecordRaw() {
@@ -792,6 +876,49 @@ bool numberFromJson(const std::string& line, const char* key, unsigned long long
     // weiter suchen statt sofort aufzugeben. Dasselbe Verhalten wie
     // fieldFromJson() oben.
     searchFrom = at + needle.size();
+  }
+}
+
+JsonBool boolFromJson(const std::string& line, const char* key, bool* out) {
+  // DIESELBE Schluessel-Positions-Pruefung wie fieldFromJson/numberFromJson
+  // (unmittelbar davor '{' oder ',') - ohne sie truege ein Wert, der zufaellig
+  // "audio" enthaelt, denselben Namen wie das Feld.
+  const std::string needle = std::string("\"") + key + "\"";
+  size_t searchFrom = 0;
+
+  while (true) {
+    size_t at = line.find(needle, searchFrom);
+    if (at == std::string::npos) return JsonBool::Fehlt;
+
+    bool isKeyPosition = false;
+    size_t p = at;
+    while (p > 0 && isJsonSpace(line[p - 1])) --p;
+    if (p > 0 && (line[p - 1] == '{' || line[p - 1] == ',')) isKeyPosition = true;
+
+    if (isKeyPosition) {
+      size_t after = at + needle.size();
+      while (after < line.size() && isJsonSpace(line[after])) ++after;
+      if (after < line.size() && line[after] == ':') {
+        ++after;
+        while (after < line.size() && isJsonSpace(line[after])) ++after;
+        if (line.compare(after, 4, "true") == 0)  { *out = true;  return JsonBool::Gelesen; }
+        if (line.compare(after, 5, "false") == 0) { *out = false; return JsonBool::Gelesen; }
+        // Schluessel gefunden, Wert ist weder true noch false: NICHT
+        // weitersuchen und NICHT raten - das Feld ist da, aber unlesbar. Der
+        // Aufrufer bekommt seit der Schlusspruefung (Important 6) einen
+        // EIGENEN Ausgang dafuer, statt denselben wie fuer "steht nicht da".
+        return JsonBool::Unlesbar;
+      }
+    }
+    // at + 1 statt at + needle.size() wie bei den Geschwisterfunktionen
+    // darueber, und das ist ABSICHT (Schlusspruefung, M16): beweisbar
+    // konservativ. Die naechste Suche beginnt eine Stelle weiter als die
+    // letzte Fundstelle, kann also hoechstens dieselbe Stelle erneut pruefen,
+    // niemals einen Treffer ueberspringen - die Schleife endet trotzdem, weil
+    // searchFrom streng waechst. Ein Angleichen an at + needle.size() waere
+    // nur schneller, nicht richtiger; hier steht Langsamkeit gegen die
+    // Moeglichkeit, ein Feld zu uebersehen, und das ist ein guter Tausch.
+    searchFrom = at + 1;
   }
 }
 

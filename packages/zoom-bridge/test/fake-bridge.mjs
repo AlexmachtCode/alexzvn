@@ -99,8 +99,11 @@ const scripts = {
       if (s.includes('"videoSubscribe"')) {
         say({ ev: 'video', id: 42, state: 'subscribed', source: 'JM Connect – Zoom Attrappe', reason: 'command', rebindable: true });
         say({ ev: 'video', id: 42, state: 'live', source: 'JM Connect – Zoom Attrappe', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true });
+        say({ ev: 'audio', id: 42, state: 'waiting', reason: 'command' });
+        say({ ev: 'audio', id: 42, state: 'live', reason: 'packets', sampleRate: 32000, channels: 1 });
       }
       if (s.includes('"videoUnsubscribe"')) {
+        say({ ev: 'audio', id: 42, state: 'off', reason: 'command' });
         say({ ev: 'video', id: 42, state: 'unsubscribed', source: 'JM Connect – Zoom Attrappe', reason: 'command', rebindable: true });
       }
     });

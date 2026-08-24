@@ -59,13 +59,48 @@ export type VideoReason =
   // Zuordnung auf einem Namen beruht und nicht auf einer Kennung.
   | 'reboundByName';
 
+export const AUDIO_STATES = ['waiting', 'live', 'silent', 'off'] as const;
+export type AudioState = (typeof AUDIO_STATES)[number];
+
+// Kein 'queueOverflow': ein Ueberlauf aendert keinen Zustand des Abos, er ist
+// ein Fehler ueber die MASCHINE (eine Warteschlange fuer alle) und geht
+// darum als error-Ereignis ohne id raus, nicht als Grund fuer einen Wechsel.
+//
+// 'rebound' und 'reboundByName' bekommen HIER keinen eigenen Ton-Mechanismus -
+// der Ton haengt am Bild-Abo (siehe den Kommentar bei 'audio' in reduce(),
+// state.ts). Wird das videoSubscribe eines Gasts auf eine neue Kennung
+// umgehaengt (VideoReason oben), reicht ein spaeterer Task denselben Grund an
+// ein audio-Ereignis unter der neuen Kennung durch. Ein AudioReason, der
+// diese beiden Werte nicht kennt, waere eine Behauptung ueber die Leitung,
+// die die native Seite widerlegt.
+//
+// 'audioUnavailable' ist ein EIGENER Wert und teilt sich NICHT 'command'
+// (Nachbesserung, Review Task 5): 'command' heisst "der Aufrufer hat den Ton
+// ausgeschaltet", 'audioUnavailable' heisst "der Aufrufer wollte Ton, aber
+// audioEnsureSubscribed() ist gescheitert (kein Helfer oder subscribe()
+// schlug fehl)". Vorher liefen beide Faelle auf denselben Wert
+// {"state":"off","reason":"command"} hinaus und waren nur ueber ein
+// begleitendes error-Ereignis OHNE id zu unterscheiden - fuer einen
+// Konsumenten also gar nicht, denn das error-Ereignis laesst sich keinem Abo
+// zuordnen. Zwei Ursachen, ein Name: genau das verbietet die Kernregel
+// "Eine Ursache, ein Name".
+export type AudioReason =
+  | 'command'
+  | 'audioUnavailable'
+  | 'packets'
+  | 'gap'
+  | 'participantLeft'
+  | 'meetingEnded'
+  | 'rebound'
+  | 'reboundByName';
+
 export type Command =
   | { cmd: 'init' }
   | { cmd: 'auth'; jwt: string }
   | { cmd: 'join'; meetingId: string; passcode: string; displayName: string }
   | { cmd: 'leave' }
   | { cmd: 'quit' }
-  | { cmd: 'videoSubscribe'; id: number; resolution?: VideoResolutionKey }
+  | { cmd: 'videoSubscribe'; id: number; resolution?: VideoResolutionKey; audio?: boolean }
   | { cmd: 'videoUnsubscribe'; id: number };
 
 /** Was woertlich auf stdout der Bridge steht. */
@@ -98,7 +133,28 @@ export type WireEvent =
       denied?: boolean;
       timedOut?: boolean;
     }
-  | { ev: 'error'; where: string; code: number | string }
+  // "id" steht NUR an einem Fehler, der GENAU EIN Abo betrifft — heute
+  // `audioBufferMismatch` (das Merkzeichen dafür sitzt am Sub, und ohne die
+  // Kennung ließe sich die Zeile keinem Gast zuordnen). AUSDRÜCKLICH ohne id
+  // bleibt `audioQueueOverflow`: eine Aussage über die MASCHINE — es gibt
+  // eine Warteschlange für alle, und der verwerfende Rückruf weiß gar nicht,
+  // zu welchem Abo das Paket gehört hätte. Eine erfundene id wäre dort
+  // schlimmer als keine.
+  //
+  // "dropped" steht NUR an `audioQueueOverflow` und nennt, WIE VIELE Pakete
+  // bis zu dieser Meldung verworfen wurden. Gemeldet wird einmal je Meeting
+  // (Spec Abschnitt 5) — was danach noch verlorengeht, steht in keiner Zahl,
+  // und diese Zeile behauptet auch keine.
+  // "detail" NACHGETRAGEN (Owner-Lauf 18.08.2026): bridge.ts schrieb das
+  // Feld laengst - mit dem Rueckgabewert bzw. Signal des Kindprozesses, also
+  // genau der Zahl, die einen Absturz von einem geordneten Ende trennt - aber
+  // hinter einem `as WireEvent`-Cast, wo der Typ es nicht kannte und darum
+  // auch kein Anzeiger es je ausgab. Ein Wert, der erzeugt und dann still
+  // weggeworfen wird, ist schlimmer als keiner: er sieht im Quelltext nach
+  // Diagnose aus und liefert keine. Als das Kind nach einem Meeting-Ende von
+  // selbst ging, stand darum nur EXITED_UNEXPECTEDLY da - ohne die Zahl, die
+  // gesagt haette, WIE es ging.
+  | { ev: 'error'; where: string; code: number | string; id?: number; dropped?: number; detail?: string }
   | { ev: 'bye' }
   // "rotation" und "limitedRange" FEHLEN, solange kein Bild kam (bei
   // state:"subscribed" also immer). Ein Wert waere dort erfunden - und eine
@@ -113,6 +169,18 @@ export type WireEvent =
       rebindable: boolean;
       rotation?: number;
       limitedRange?: boolean;
+    }
+  // "sampleRate"/"channels" FEHLEN, solange kein Paket sie geliefert hat (bei
+  // state:"waiting" also immer). Dieselbe Regel wie rotation/limitedRange beim
+  // Bild: eine erfundene 32000 liesse sich spaeter nicht von einer gemessenen
+  // unterscheiden.
+  | {
+      ev: 'audio';
+      id: number;
+      state: AudioState;
+      reason: AudioReason;
+      sampleRate?: number;
+      channels?: number;
     }
   | { ev: string; [k: string]: unknown };
 
@@ -263,6 +331,16 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // verschiedene Orte.
   videoSenderFailed: 'VIDEO_SENDER_FAILED',
   videoBadResolution: 'VIDEO_BAD_RESOLUTION',
+  // Das Feld `audio` am videoSubscribe-Befehl trug weder `true` noch `false`
+  // (z. B. `"audio":"false"` als Zeichenkette oder `"audio":0`). EIN EIGENER
+  // Name neben videoBadResolution, obwohl beide "ein Befehlsfeld ist
+  // unlesbar" heissen: sie schicken die Suche an verschiedene Stellen — der
+  // eine zum Auflösungsschlüssel, der andere zum Ton-Schalter. Wer beide
+  // zusammenlegte, bekäme eine Meldung, die nicht sagt, WELCHES Feld der
+  // Aufrufer falsch geschrieben hat. FEHLT das Feld, ist das KEIN Fehler
+  // (Vorgabe `true`, Spec Abschnitt 7) — gemeldet wird nur, was dasteht und
+  // sich nicht lesen lässt.
+  videoBadAudioFlag: 'VIDEO_BAD_AUDIO_FLAG',
   // GetBufferLen() passt nicht zu Breite*Hoehe*3/2. Der Puffer wird geprueft,
   // nicht geglaubt: ein falsch ausgelegter I420-Puffer erzeugt ein Bild, das
   // wie ein Kameradefekt aussieht - man sucht dann am falschen Ende.
@@ -273,6 +351,25 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // gar nicht". Wer das mit videoSenderFailed verschmelzen wuerde, schickte
   // die Suche zu einem Abo statt zur Installation.
   ndiInitFailed: 'NDI_INIT_FAILED',
+  // Wir kamen nicht an den TONKANAL des Meetings (JoinVoip). GEMESSEN am
+  // 18.08.2026: ohne diesen Beitritt lehnt Zoom das Roh-Ton-Abo mit
+  // SDKERR_NOT_JOIN_AUDIO (32) ab — man ist im Meeting, aber nicht an dessen
+  // Ton, und nur wer am Ton hängt, bekommt Rohdaten davon. AUSDRÜCKLICH ein
+  // anderer Name als audioSubscribeFailed: hier ist der Meeting-Beitritt schuld,
+  // dort das Abo — zwei verschiedene Orte zum Suchen.
+  audioVoipJoinFailed: 'AUDIO_VOIP_JOIN_FAILED',
+  // Das SDK gab keinen Ton-Helfer heraus - kein Meeting oder SDK nicht bereit.
+  audioHelperMissing: 'AUDIO_HELPER_MISSING',
+  // Das EINE globale Ton-Abo ging nicht durch. AUSDRUECKLICH ein anderer Name
+  // als audioHelperMissing: dort gab es den Helfer gar nicht, hier hat er
+  // abgelehnt - zwei verschiedene Orte zum Suchen.
+  audioSubscribeFailed: 'AUDIO_SUBSCRIBE_FAILED',
+  // Pufferlaenge passt nicht zu Kanalzahl x 2. Geprueft, nicht geglaubt -
+  // dieselbe Sorge wie videoBufferMismatch beim I420.
+  audioBufferMismatch: 'AUDIO_BUFFER_MISMATCH',
+  // Pakete verworfen, weil das Leeren nicht nachkam. Eine Aussage ueber die
+  // MASCHINE, nicht ueber einen Gast - darum ohne id.
+  audioQueueOverflow: 'AUDIO_QUEUE_OVERFLOW',
 };
 
 export function sdkErrorName(code: number): string {

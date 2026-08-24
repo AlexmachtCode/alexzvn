@@ -12,8 +12,10 @@ import {
   sdkErrorName,
   serializeCommand,
   SDK_ERROR_NAMES,
+  OWN_ERROR_NAMES,
   AUTH_RESULT_NAMES,
   VIDEO_RESOLUTIONS,
+  type AudioReason,
   type BridgeEvent,
   type Participant,
   type WireEvent,
@@ -635,6 +637,39 @@ console.log('\nstate — ein Video-Fehler kippt die SITZUNG nicht:');
   assert(ndi.phase === 'error', 'eine fehlende NDI-Laufzeit kippt die Sitzung sehr wohl');
 }
 
+console.log('\nstate — ein TON-Fehler kippt die SITZUNG genausowenig:');
+{
+  // Schlusspruefung Stage 3, Critical 1: dieselbe Ausnahme wie beim Bild
+  // eine Zeile hoeher - Stage 3 hat vier where:'audio'-Schluessel dazugelegt
+  // und die Ausnahme zunaechst NICHT mitgezogen. Zwei davon treten im
+  // NORMALBETRIEB auf: audioQueueOverflow bei jedem Hakler der Hauptschleife
+  // jenseits einer halben Sekunde, audioBufferMismatch mitten in einem
+  // laufenden Abo. Beide setzten die Phase ENDGUELTIG auf 'error' (keine
+  // Verzweigung holt eine Sitzung da wieder heraus, 'bye' schreibt sie
+  // ausdruecklich fort), waehrend Bild und Ton einwandfrei weiterliefen.
+  const ueberlauf = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'audio', code: 'audioQueueOverflow' },
+  ]);
+  assert(ueberlauf.phase === 'inMeeting', 'ein Ueberlauf laesst die Phase stehen, wo sie war');
+  assert(ueberlauf.lastError?.name === 'AUDIO_QUEUE_OVERFLOW', 'der Ton-Fehler steht trotzdem in lastError');
+
+  // Und die Kennung kommt MIT an. Sie ist der ganze Grund, aus dem
+  // audioBufferMismatch eine traegt: ohne sie liesse sich die Zeile keinem
+  // Gast zuordnen. Der Reducer verwarf sie vorher stillschweigend.
+  const mismatch = run([
+    { ev: 'status', status: 'inMeeting', raw: 3, code: 0 },
+    { ev: 'error', where: 'audio', code: 'audioBufferMismatch', id: 16778240 },
+  ]);
+  assert(mismatch.phase === 'inMeeting', 'auch ein Puffer-Fehler mitten im Abo kippt die Sitzung nicht');
+  assert(mismatch.lastError?.id === 16778240, 'die Kennung des betroffenen Abos steht in lastError');
+
+  // GEGENPROBE zur Kernregel "Keine erfundenen Werte": audioQueueOverflow
+  // traegt AUSDRUECKLICH keine id (eine Aussage ueber die Maschine, nicht
+  // ueber einen Gast) - dann darf auch in lastError keine stehen.
+  assert(ueberlauf.lastError?.id === undefined, 'ohne id im Ereignis erfindet der Reducer keine');
+}
+
 console.log('\nstate — reduce veraendert nichts Bestehendes:');
 {
   // Ausgangszustand: zwei Teilnehmer
@@ -1154,10 +1189,28 @@ console.log('\nprotocol — Video: jede Ursache hat ihren eigenen Namen:');
   const namen = [
     'videoNoPrivilege', 'videoUnknownParticipant', 'videoAlreadySubscribed',
     'videoNotSubscribed', 'videoRendererFailed', 'videoSenderFailed',
-    'videoBadResolution', 'videoBufferMismatch', 'ndiInitFailed',
+    // videoBadAudioFlag steht NEBEN videoBadResolution, nicht statt seiner:
+    // beide heissen "ein Befehlsfeld ist unlesbar", schicken die Suche aber
+    // an verschiedene Stellen (Aufloesung vs. Ton-Schalter).
+    'videoBadResolution', 'videoBadAudioFlag', 'videoBufferMismatch', 'ndiInitFailed',
   ].map((k) => (enrich({ ev: 'error', where: 'video', code: k } as WireEvent) as { name: string }).name);
-  assert(new Set(namen).size === namen.length, 'neun Ursachen, neun verschiedene Namen');
+  assert(new Set(namen).size === namen.length, 'die aufgezählten Ursachen tragen paarweise verschiedene Namen');
   assert(!namen.some((n) => n.startsWith('OWN_UNKNOWN')), 'keiner faellt auf OWN_UNKNOWN zurueck');
+  // ÜBER DIE GANZE TABELLE, nicht über eine abgeschriebene Liste. Die
+  // Aufzählung oben ist eine Handkopie und war beim Zählen bereits von der
+  // Wirklichkeit abgewichen (sie ließ videoRawRecordingFailed aus und hieß
+  // trotzdem „zehn Ursachen"). Eine Handkopie kann die Frage „sind ALLE Namen
+  // verschieden?" nicht beantworten — sie beantwortet nur „sind die
+  // verschieden, an die sich jemand erinnert hat". Diese Zusicherung liest die
+  // Quelle selbst und deckt darum jeden künftig hinzugefügten Schlüssel mit ab,
+  // ohne dass jemand daran denken muss.
+  const alleSchluessel = Object.keys(OWN_ERROR_NAMES);
+  const alleNamen = alleSchluessel.map((k) => OWN_ERROR_NAMES[k]);
+  assert(new Set(alleNamen).size === alleNamen.length,
+    `alle ${alleSchluessel.length} Fehlerschlüssel tragen paarweise verschiedene Namen — zwei Ursachen dürfen nie einen Namen teilen`);
+  assert(alleSchluessel.every((k) => (enrich({ ev: 'error', where: 'video', code: k } as WireEvent) as { name: string }).name === OWN_ERROR_NAMES[k]),
+    'jeder Schlüssel der Tabelle wird von enrich() auch wirklich aufgelöst');
+
   const fremd = enrich({ ev: 'error', where: 'video', code: 'videoWasAuchImmer' } as WireEvent);
   assert(
     (fremd as { name: string }).name === 'OWN_UNKNOWN(videoWasAuchImmer)',
@@ -1275,6 +1328,109 @@ console.log('\nbridge — Video: ein Abo über die Attrappe:');
   // danach weg. Diese Zusicherung bildet genau diese Reihenfolge nach.
   const wieInBridge = withNdiRuntimeOnPath({ ...{ PATH: 'system' }, ...{ PATH: 'aufrufer' } }, 'C:\\ndi');
   assert(wieInBridge.PATH === `C:\\ndi${delimiter}aufrufer`, 'ein vom Aufrufer gesetztes PATH behaelt die NDI-Laufzeit');
+}
+
+// --- Ton: Protokoll und Zustand ----------------------------------------
+console.log('\nprotocol — Ton:');
+{
+  const ev = parseWireEvent('{"ev":"audio","id":7,"state":"live","reason":"packets","sampleRate":32000,"channels":1}');
+  assert(ev?.ev === 'audio', 'ein audio-Ereignis wird gelesen');
+  assert((ev as { sampleRate?: number }).sampleRate === 32000, 'die Abtastrate kommt durch');
+
+  const ohne = parseWireEvent('{"ev":"audio","id":7,"state":"waiting","reason":"command"}');
+  assert((ohne as { sampleRate?: number })?.sampleRate === undefined,
+    'ohne gemessenes Paket fehlt die Abtastrate — sie wird NICHT erfunden');
+
+  assert(serializeCommand({ cmd: 'videoSubscribe', id: 7, audio: false }).includes('"audio":false'),
+    'der Ton-Schalter steht im Befehl');
+
+  const fehler = enrich({ ev: 'error', where: 'audio', code: 'audioQueueOverflow' } as WireEvent);
+  assert((fehler as { name?: string }).name === 'AUDIO_QUEUE_OVERFLOW', 'der Ueberlauf hat einen eigenen Namen');
+}
+
+console.log('\nstate — Ton:');
+{
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'waiting', reason: 'command' } as WireEvent));
+  assert(s.audioSubs.get(7)?.state === 'waiting', 'ein Ton-Abo beginnt als waiting');
+  // Load-bearend fuer "Keine erfundenen Werte": parseWireEvent() (oben) kann
+  // strukturell gar nichts erfinden, es ist nur JSON.parse + Cast. Die
+  // Schicht, die eine 0/32000 unterschieben KOENNTE, ist reduce() selbst -
+  // hier wird genau SIE geprueft, unmittelbar nach dem ersten Aufruf mit
+  // einem Ereignis ohne Format.
+  assert(s.audioSubs.get(7)?.sampleRate === undefined,
+    'ohne gemessenes Paket steht auch im Zustand keine Abtastrate — reduce() erfindet nichts');
+
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'live', reason: 'packets', sampleRate: 32000, channels: 1 } as WireEvent));
+  assert(s.audioSubs.get(7)?.sampleRate === 32000, 'das gemessene Format wird uebernommen');
+
+  // 'off' ist das Ende eines Ton-Abos - wie 'unsubscribed' beim Bild.
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'off', reason: 'meetingEnded' } as WireEvent));
+  assert(!s.audioSubs.has(7), 'ein beendetes Ton-Abo verschwindet aus der Karte');
+
+  // Umhaengen (Task 7 lässt das video-Ereignis mit der NEUEN Kennung
+  // ankommen) muss die tote ALTE Kennung nicht nur aus videoSubs, sondern
+  // auch aus audioSubs raeumen - derselbe Fund wie beim Bild
+  // (reboundByName-Kommentar in state.ts), nur auf der Ton-Karte. Aufbau:
+  // ein Bild- UND ein Ton-Abo unter der ALTEN Kennung 42, derselbe
+  // Quellenname wie im rebound-Ereignis mit der NEUEN Kennung 99.
+  let r = initialSession();
+  r = reduce(r, enrich({
+    ev: 'video', id: 42, state: 'live', source: 'Gast', reason: 'frames', rebindable: true,
+  } as WireEvent));
+  r = reduce(r, enrich({ ev: 'audio', id: 42, state: 'live', reason: 'packets', sampleRate: 32000, channels: 1 } as WireEvent));
+  r = reduce(r, enrich({
+    ev: 'video', id: 99, state: 'live', source: 'Gast', reason: 'reboundByName', rebindable: true,
+  } as WireEvent));
+  assert(!r.videoSubs.has(42), 'nach dem Umhaengen ist die alte Kennung aus videoSubs weg');
+  assert(r.videoSubs.has(99), 'die neue Kennung steht in videoSubs');
+  assert(!r.audioSubs.has(42),
+    'nach dem Umhaengen ist die alte Kennung auch aus audioSubs weg — keine stumme Karteileiche');
+
+  // 'audioUnavailable' vs. 'command' (Review Task 5, Finding 2) — und die
+  // Nachbesserung dazu (Review-Runde 2, Finding A): die vorherige Fassung
+  // dieses Blocks verglich ausschliesslich Zeichenketten, die der Test
+  // SELBST hingeschrieben hatte (statisch immer wahr), liess parseWireEvent()
+  // ueber einen Cast pruefen, der `reason` gar nicht validiert (er haette
+  // ebenso fuer "bananas" bestanden), und pruefte am Ende
+  // `!audioSubs.has(8)` auf eine Session, in die 8 nie eingefuegt wurde -
+  // wahr, selbst wenn reduce() die Identitaet waere. Keine der vier
+  // Zusicherungen haette versagt, waere Finding 2 zurueckgerollt worden. Der
+  // Compiler hatte das schon gesagt (TS2367, "comparison appears
+  // unintentional, types have no overlap") - die vorherige Fassung
+  // beseitigte die MELDUNG (per `: string`-Annotation), nicht den BEFUND.
+  //
+  // DIESE Zusicherung hat Zaehne, weil sie nicht zur Laufzeit prueft, sondern
+  // beim Typcheck: verschwindet 'audioUnavailable' aus AudioReason, schlaegt
+  // `npm run typecheck` fehl. Ein Vergleich zweier Zeichenketten, die der
+  // Test selbst hingeschrieben hat, koennte das nie zeigen — er ist wahr,
+  // bevor irgendetwas gebaut ist.
+  const ausgefallen: AudioReason = 'audioUnavailable';
+  const abgeschaltet: AudioReason = 'command';
+
+  // Laufzeit-Ergaenzung mit echtem Bezug zu reduce(): NICHT ueber 'off' (das
+  // LOESCHT das Abo aus der Karte, siehe reduce() in state.ts - der Grund
+  // waere danach nicht mehr pruefbar, egal welcher es war), sondern ueber
+  // 'waiting', wo reduce() reason tatsaechlich in die Karte schreibt. Zwei
+  // verschiedene Kennungen, zwei verschiedene Gruende - ein reduce(), das
+  // reason verwirft, auf einen bekannten Wert rundet oder beide auf denselben
+  // Wert abbildet, faellt hier durch.
+  let t = initialSession();
+  t = reduce(t, enrich({ ev: 'audio', id: 9, state: 'waiting', reason: ausgefallen } as WireEvent));
+  t = reduce(t, enrich({ ev: 'audio', id: 10, state: 'waiting', reason: abgeschaltet } as WireEvent));
+  assert(t.audioSubs.get(9)?.reason === 'audioUnavailable' && t.audioSubs.get(10)?.reason === 'command',
+    'reduce() speichert beide Gruende unveraendert und unterscheidbar, statt einen auf den anderen abzubilden');
+
+  // WAS DAMIT AUSDRUECKLICH NICHT BELEGT IST: ob der NATIVE Teil
+  // (video.cpp) im Fehlschlag-Zweig von audioEnsureSubscribed() tatsaechlich
+  // "audioUnavailable" sendet statt "command" oder gar nichts. selftest.ts
+  // ist reines TypeScript und kann nicht beobachten, was zoom-bridge.exe auf
+  // stdout schreibt. Kein bestehender Pruefstand deckt diese Luecke:
+  // command-probe erreicht diesen Zweig nicht (kein echtes Meeting, kein
+  // erzwingbarer SDK-Fehlschlag), bool-probe/ndi-probe pruefen etwas
+  // anderes. Das gehoert auf die Owner-Abnahmeliste (echtes Meeting, ein
+  // Zustand, in dem audioEnsureSubscribed() tatsaechlich scheitert) - eine
+  // gruene Zeile hier behauptet das NICHT.
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

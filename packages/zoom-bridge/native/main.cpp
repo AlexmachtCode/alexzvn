@@ -21,6 +21,10 @@
 #include "session.h"
 #include "ndi_sender.h"
 #include "video.h"
+// Nur fuer callbacksTakeMeetingEndTeardown(): der Abbau nach dem Meeting-Ende
+// gehoert in diese Schleife, nicht in den Rueckruf (Begruendung unten).
+#include "callbacks.h"
+#include "audio.h"
 
 namespace {
 
@@ -179,6 +183,17 @@ void handle(const std::string& line) {
     // nur der Prozessende-Weg unten (quit/EOF) die Reihenfolge ab, der
     // "leave"-Befehl selbst nicht - GEMELDET beim Umsetzen von Aufgabe 3,
     // siehe video.h.
+    //
+    // audioShutdown() VOR videoShutdownAll(), aus demselben Grund wie beim
+    // Prozessende unten: der Lauscher muss weg sein, bevor die Abos
+    // verschwinden, sonst fuellt er eine Warteschlange, die niemand mehr
+    // leert. Nach "leave" laeuft die Bridge WEITER (anders als beim
+    // Prozessende) - genau das macht diese Zeile hier noetig und nicht nur
+    // dort unten: wuerde man sich auf den spaeteren ENDED-Rueckruf
+    // verlassen, der audioClearSubscribed() aufruft (callbacks.cpp), waere
+    // das dieselbe Annahme, die an dieser Stelle beim Bild schon einmal
+    // nicht gehalten hat (siehe der Kommentar hier eins darueber).
+    audioShutdown();
     videoShutdownAll();
     sessionLeave();
     return;
@@ -186,21 +201,63 @@ void handle(const std::string& line) {
   if (cmd == "videoSubscribe") {
     unsigned int userId = 0;
     if (!parseParticipantId(line, &userId)) {
+      // OHNE "id" - und zwar mit Absicht (Owner-Lauf 18.08.2026): hier ist
+      // GAR KEINE Kennung gelesen worden, userId steht noch auf 0. Eine
+      // gedruckte 0 saehe aus wie eine Angabe und schickte die Suche zu einem
+      // Teilnehmer, den niemand genannt hat. Ueberall dort, wo die Kennung
+      // BEKANNT ist, traegt der Fehler sie (video.cpp, emitVideoError mit
+      // zweitem Argument) - das Fehlen ist hier also selbst eine Auskunft:
+      // "die Zeile enthielt keine lesbare Kennung".
       emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
       return;
     }
     const std::string resKey = fieldFromJson(line, "resolution");
     ZoomSDKResolution res = ZoomSDKResolution_720P;   // Vorgabe laut Spec
     if (!resKey.empty() && !videoParseResolution(resKey, &res)) {
-      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadResolution\"}");
+      emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadResolution\",\"id\":") + std::to_string(userId) + "}");
       return;
     }
-    videoSubscribe(userId, res);
+    bool audioOn = true;   // Vorgabe laut Spec Abschnitt 7
+    // GENAU WIE DIE resolution-PRUEFUNG ZWEI ZEILEN DARUEBER: unlesbar heisst
+    // melden und NICHT abonnieren, nicht "dann eben die Vorgabe"
+    // (Schlusspruefung, Important 6). Vorher wurde der Rueckgabewert
+    // verworfen, und ein {"audio":"false"} oder {"audio":0} bekam Ton AN,
+    // waehrend stderr zufrieden "Ton-Schalter an" meldete - ein Aufrufer
+    // haette den Grund fuer den doppelten Ton im Saal nirgends gefunden.
+    // FEHLT dagegen bleibt die Vorgabe: ein weggelassenes Feld ist keine
+    // falsche Angabe (Spec Abschnitt 7: audio ist optional).
+    if (boolFromJson(line, "audio", &audioOn) == JsonBool::Unlesbar) {
+      emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadAudioFlag\",\"id\":") + std::to_string(userId) + "}");
+      return;
+    }
+    // Fuer den Menschen, der die Rohausgabe mitliest - und der Beleg, den
+    // test/bool-probe.mjs auswertet: ohne diese Zeile saehe ein ignorierter
+    // Schalter genauso aus wie ein befolgter.
+    //
+    // WORTLAUT GEAENDERT (Owner-Lauf 18.08.2026): hier stand
+    // "Ton-Schalter fuer 16795648: an" - und daneben lehnte videoSubscribe()
+    // genau diese Kennung als videoUnknownParticipant ab. Die Zeile las sich
+    // wie eine Aussage ueber ein bestehendes Abo, war aber immer nur eine
+    // Aussage ueber die GELESENE BEFEHLSZEILE. Sie kann auch gar nichts
+    // anderes sein: sie steht VOR videoSubscribe(), und das muss so bleiben,
+    // weil bool-probe.mjs sie OHNE Meeting auswertet - dort scheitert jedes
+    // Abo zwangslaeufig an der fehlenden Rohdaten-Erlaubnis. Also sagt der
+    // Wortlaut jetzt, was die Zeile wirklich belegt.
+    emitLog(std::wstring(L"Befehl gelesen: videoSubscribe ") + std::to_wstring(userId) +
+            L", Ton-Schalter " + (audioOn ? L"an" : L"aus"));
+    videoSubscribe(userId, res, audioOn);
     return;
   }
   if (cmd == "videoUnsubscribe") {
     unsigned int userId = 0;
     if (!parseParticipantId(line, &userId)) {
+      // OHNE "id" - und zwar mit Absicht (Owner-Lauf 18.08.2026): hier ist
+      // GAR KEINE Kennung gelesen worden, userId steht noch auf 0. Eine
+      // gedruckte 0 saehe aus wie eine Angabe und schickte die Suche zu einem
+      // Teilnehmer, den niemand genannt hat. Ueberall dort, wo die Kennung
+      // BEKANNT ist, traegt der Fehler sie (video.cpp, emitVideoError mit
+      // zweitem Argument) - das Fehlen ist hier also selbst eine Auskunft:
+      // "die Zeile enthielt keine lesbare Kennung".
       emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
       return;
     }
@@ -289,8 +346,20 @@ int main(int argc, char** argv) {
       return 1;
     }
     emitRaw("{\"ev\":\"ndiSelftest\",\"state\":\"sending\"}");
-    for (int i = 0; i < 60; ++i) {
+    // 150 statt 60 Durchlaeufe (~5 s statt ~2 s), GEMESSEN gegen
+    // test/ndi-probe.mjs: die Quellensuche dort braucht allein bis zu
+    // 8 * 250 ms = 2 s, und danach braucht die Empfangsphase noch Zeit fuer
+    // Verbindungsaufbau + Poll-Schleife. Bei 2 s Sendezeit koennte die Quelle
+    // schon wieder weg sein, BEVOR ueberhaupt der erste Frame abgeholt wird -
+    // der Pruefstand meldete dann "kein Ton angekommen" fuer eine Quelle, die
+    // tatsaechlich gesendet hat. Ein falscher Befund waere schlimmer als gar
+    // kein Test.
+    for (int i = 0; i < 150; ++i) {
       s.sendBlack(640, 360);
+      // 10 ms Stille je Bild-Durchlauf. Der Selbsttest belegt damit BEIDE
+      // Wege derselben Quelle - eine Quelle, die Bild wirbt und beim Ton
+      // schweigt, saehe im Netz genauso aus wie eine funktionierende.
+      s.sendSilence(480, 48000, 1);
       Sleep(33);
     }
     s.close();
@@ -307,6 +376,30 @@ int main(int argc, char** argv) {
   std::string line;
   while (!g_quit) {
     pumpOnce();
+    // ABBAU NACH DEM MEETING-ENDE, HIER UND NICHT IM RUECKRUF. GEMESSEN am
+    // 18.08.2026: onMeetingStatusChanged kommt INNERHALB von pumpOnce() an,
+    // und ein unSubscribe() auf einen Renderer von dort aus beendete den
+    // Prozess mit exitCode 3221225477 = 0xC0000005 (die Abbau-Marken zeigten
+    // "Abbau <id>: unSubscribe()" als letzte Zeile). Das SDK steckt zu diesem
+    // Zeitpunkt in seinem eigenen Meeting-Abbau; ein Ruf zurueck hinein
+    // trifft Zustand, den es gerade aufloest.
+    //
+    // Diese Zeile steht darum unmittelbar NACH pumpOnce(): derselbe
+    // Schleifendurchlauf, kein zusaetzlicher Verzug, aber ausserhalb des
+    // Rueckrufs. VOR videoTick(), damit der Herzschlag nicht noch einmal in
+    // Quellen sendet, deren Meeting es nicht mehr gibt.
+    //
+    // audioClearSubscribed() VOR videoMeetingEnded(), dieselbe Reihenfolge
+    // wie beim "leave"-Befehl und beim Prozessende: der Lauscher gehoert weg,
+    // BEVOR die Abos verschwinden - ein Lauscher ohne Abos fuellt eine
+    // Warteschlange, die niemand mehr leert.
+    if (callbacksTakeMeetingEndTeardown()) {
+      emitLog(L"Meeting-Ende: Ton-Abo abmelden (ausserhalb des Rueckrufs)");
+      audioClearSubscribed();
+      emitLog(L"Meeting-Ende: Bild-Abos abbauen");
+      videoMeetingEnded();
+      emitLog(L"Meeting-Ende: Abbau zurueckgekehrt, Bruecke laeuft weiter");
+    }
     // Schwarzbild-Herzschlag (Aufgabe 5): haelt jede Video-Quelle am Leben,
     // indem sie bei Bildausfall Schwarz statt eines eingefrorenen letzten
     // Bildes sendet. Hier und nicht in einem eigenen Thread - die Schleife
@@ -401,6 +494,11 @@ int main(int argc, char** argv) {
   // DestroyMeetingService abzubauen hiesse, auf abgeraeumten Zustand
   // zuzugreifen. Das ist dieselbe Fehlerklasse, die in Aufgabe 7 von Stage 1
   // als 0xC0000005 gemessen wurde.
+  //
+  // audioShutdown() VOR videoShutdownAll(), dieselbe Reihenfolge wie beim
+  // "leave"-Befehl oben: der Lauscher muss weg sein, bevor die Abos
+  // verschwinden.
+  audioShutdown();
   videoShutdownAll();
   const bool shutdownComplete = sessionShutdown();
   if (!shutdownComplete) {

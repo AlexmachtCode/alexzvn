@@ -13,6 +13,7 @@
 // ("Verwendung des undefinierten Typs") ab.
 #include "zoom_sdk_raw_data_def.h"
 #include "session.h"
+#include "audio.h"
 
 namespace {
 
@@ -113,6 +114,59 @@ struct Sub {
   unsigned int rotation = 0;
   bool limitedRange = true;
   bool gemessen = false;         // ob rotation/limitedRange je ein Bild gesehen haben
+
+  // --- Ton ---------------------------------------------------------------
+  // Ob der Aufrufer den Ton fuer dieses Abo eingeschaltet hat. Steht beim
+  // Abonnieren fest (Spec Abschnitt 10: kein nachtraegliches Umschalten).
+  bool audioOn = true;
+  // Format des zuletzt gesehenen Pakets. 0 = noch NIE eines gesehen - dann
+  // wird auch keine Stille gesendet, weil wir das Format nicht kennen und es
+  // nicht erfinden. Dieselbe Regel wie lastFrameMs beim Bild.
+  int audioRate = 0;
+  int audioChannels = 0;
+  ULONGLONG lastAudioMs = 0;
+  // Bis zu welcher WANDUHRZEIT der Tonstrom dieses Abos gefuellt ist -
+  // gerechnet, nicht geraten. Der Herzschlag leitet die Blockgroesse aus
+  // (jetzt - silenceBisMs) ab und schiebt das Feld danach um die TATSAECHLICH
+  // gesendete Zeit vor; der Rest, den die Ganzzahl-Rechnung verliert, bleibt
+  // stehen und wird beim naechsten Tick mitgezaehlt. 0 = noch nie Stille
+  // gesendet; dann startet der erste Stille-Tick bei lastAudioMs, damit
+  // zwischen echtem Ton und Stille keine Luecke klafft. Ein eigenes Feld und
+  // nicht lastAudioMs mitbenutzt: lastAudioMs ist eine MESSUNG (wann kam
+  // zuletzt ein echtes Paket), silenceBisMs eine BUCHFUEHRUNG (wieviel haben
+  // wir gesendet) - zwei Tatsachen, zwei Namen.
+  ULONGLONG silenceBisMs = 0;
+  std::string audioState = "off";     // waiting | live | silent | off
+  bool audioMismatchGemeldet = false;
+  // --- Messung: wieviel Ton kommt WIRKLICH an? -----------------------------
+  // Zwei offene Fragen haengen an derselben Zahl: Abnahmepunkt 8 (welches
+  // Format und welche Ankunftsrate Zoom liefert - steht in keinem Header) und
+  // die Auslegung der Warteschlange in audio.cpp, die bisher auf einer
+  // Annahme steht. Gemessen wird EINMAL je Abo ueber die erste volle Sekunde
+  // und dann nie wieder: eine Zeile je Sekunde je Abo waere Laerm, und die
+  // Frage ist nach einer Sekunde beantwortet.
+  ULONGLONG audioMessBeginnMs = 0;
+  unsigned int audioMessPakete = 0;
+  unsigned long long audioMessAbtastwerte = 0;
+  // FENSTERZAEHLER statt eines einmaligen "schon gemeldet" (18.08.2026): die
+  // erste Messung deckte nur die erste Sekunde NACH dem ersten Paket ab, also
+  // den Anlauf - und ausgerechnet dort log sie 149 % der Rate und 477 ms
+  // Wartezeit, waehrend fruehere Laeufe 100 % zeigten. Eine einmalige Messung
+  // im unrepraesentativsten Moment kann nicht zwischen "Rueckstau beim Start"
+  // und "dauerhafter Rueckstand" unterscheiden - und genau diese Frage
+  // entscheidet, was gegen den Bild-Ton-Versatz zu tun ist. Erstes Fenster
+  // 1 s (fruehe Rueckmeldung), danach je 10 s (Dauerbetrieb).
+  unsigned int audioMessFenster = 0;
+  // WARTEZEIT IN DER WARTESCHLANGE, in Mikrosekunden. Das ist der VOLLE
+  // Vorsprung, den das Bild vor dem Ton hat: das Bild geht direkt aus seinem
+  // SDK-Rueckruf raus, der Ton wartet bis zum naechsten videoTick().
+  // Abnahmepunkt 5 (Lippensynchronitaet) ist am 18.08.2026 gefallen, mit
+  // GLEICHBLEIBENDEM Versatz - diese Zahl sagt, wieviel davon UNSER Anteil
+  // ist. Faellt sie klein aus, liegt der Rest bei Zoom oder beim Empfaenger,
+  // und kein Umbau dieser Warteschlange wuerde daran etwas aendern.
+  unsigned long long audioWartenSummeUs = 0;
+  unsigned long long audioWartenMaxUs = 0;
+  unsigned long long audioWartenMinUs = 0;   // 0 = noch nichts gemessen
 };
 
 // Der Name steht bei subscribe FEST und folgt keiner Umbenennung: einen
@@ -165,8 +219,39 @@ void emitVideoMeasured(const Sub& s, const char* state, const char* reason,
           ",\"limitedRange\":" + (limitedRange ? "true" : "false") + "}");
 }
 
+// Wie emitVideo(), aber fuer den Ton - und mit derselben Regel: sampleRate und
+// channels stehen NUR dabei, wenn ein Paket sie geliefert hat. Eine erfundene
+// 32000 liesse sich spaeter nicht von einer gemessenen unterscheiden.
+void emitAudio(const Sub& s, const char* state, const char* reason) {
+  std::string out = std::string("{\"ev\":\"audio\",\"id\":") + std::to_string(s.userId.load()) +
+                    ",\"state\":\"" + state + "\",\"reason\":\"" + reason + "\"";
+  if (s.audioRate > 0) {
+    out += ",\"sampleRate\":" + std::to_string(s.audioRate) +
+           ",\"channels\":" + std::to_string(s.audioChannels);
+  }
+  out += "}";
+  emitRaw(out);
+}
+
 void emitVideoError(const char* code) {
   emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"") + code + "\"}");
+}
+
+// MIT KENNUNG (Owner-Lauf 18.08.2026): dort stand
+// "FEHLER bei video: VIDEO_UNKNOWN_PARTICIPANT" neben ZWEI abonnierten
+// Kennungen, und welche der beiden gemeint war, stand nirgends. Bei fuenf
+// Abos - der festgelegten Betriebsgroesse - ist das nicht mehr zu erraten.
+// Ein Fehler, der sein Abo nicht nennt, laesst sich keinem Abo zuordnen; fuer
+// einen Aufrufer, der eine Karte fuehrt (src/state.ts), ist er damit gar
+// nicht verwertbar - dieselbe Luecke, die beim audio-Ereignis schon einmal
+// zugemacht wurde.
+//
+// KEINE Ueberladung fuer die zwei Stellen in main.cpp, an denen
+// parseParticipantId() scheitert: dort ist gar KEINE Kennung bekannt. Eine
+// erfundene 0 waere schlimmer als keine - sie sieht aus wie eine Angabe.
+void emitVideoError(const char* code, unsigned int userId) {
+  emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"") + code +
+          "\",\"id\":" + std::to_string(userId) + "}");
 }
 
 // Ein SDKError, der NICHT auf die Rohrleitung gehoert - stdout ist Maschine,
@@ -227,15 +312,15 @@ bool videoParseResolution(const std::string& key, ZoomSDKResolution* out) {
   return false;
 }
 
-void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
-  if (g_subs.count(userId)) { emitVideoError("videoAlreadySubscribed"); return; }
+void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn) {
+  if (g_subs.count(userId)) { emitVideoError("videoAlreadySubscribed", userId); return; }
   // Die Erlaubnis ist Voraussetzung, kein Wunsch (siehe Spec Abschnitt 5).
-  if (!sessionCanRecordRaw()) { emitVideoError("videoNoPrivilege"); return; }
+  if (!sessionCanRecordRaw()) { emitVideoError("videoNoPrivilege", userId); return; }
 
   std::wstring name;
   std::string persistentId;
   if (!sessionFindParticipant(userId, &name, &persistentId)) {
-    emitVideoError("videoUnknownParticipant");
+    emitVideoError("videoUnknownParticipant", userId);
     return;
   }
 
@@ -274,7 +359,7 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
   const SDKError rawErr = sessionStartRawRecording();
   if (rawErr != SDKERR_SUCCESS) {
     logSdkError(L"StartRawRecording()", rawErr);
-    emitVideoError("videoRawRecordingFailed");
+    emitVideoError("videoRawRecordingFailed", userId);
     return;
   }
 
@@ -287,10 +372,11 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
   // Sendung braechte.
   sub->displayName = name;
   sub->res = res;
+  sub->audioOn = audioOn;
   sub->source = uniqueSourceName(name);
   sub->delegate = std::make_unique<Delegate>(sub.get());
 
-  if (!sub->sender.open(sub->source)) { emitVideoError("videoSenderFailed"); return; }
+  if (!sub->sender.open(sub->source)) { emitVideoError("videoSenderFailed", userId); return; }
 
   // Der Protokollname bleibt EINER (videoRendererFailed) - ein Aufrufer kann
   // auf "der Renderer kam nicht zustande" genau eine Handlung stuetzen. Fuer
@@ -311,7 +397,7 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
             (HasRawdataLicense() ? L"true" : L"false") +
             L" - false heisst: dieses Zoom-Konto hat kein Rohdaten-Recht, dann hilft kein Code.");
     sub->sender.close();
-    emitVideoError("videoRendererFailed");
+    emitVideoError("videoRendererFailed", userId);
     return;
   }
   sub->renderer->setRawDataResolution(res);
@@ -320,23 +406,61 @@ void videoSubscribe(unsigned int userId, ZoomSDKResolution res) {
     logSdkError(L"subscribe() beim Anlegen des Abos", err);
     destroyRenderer(sub->renderer);
     sub->sender.close();
-    emitVideoError("videoRendererFailed");
+    emitVideoError("videoRendererFailed", userId);
     return;
   }
 
   Sub* raw = sub.get();
   g_subs[userId] = std::move(sub);
   emitVideo(*raw, "subscribed", "command");
+
+  // Der Ton-Schalter wird IMMER gemeldet, auch wenn er aus ist: ein Abo ohne
+  // Ton-Zeile saehe genauso aus wie eines, dessen Ton nur noch nicht
+  // angekommen ist. Zwei Zustaende, eine Stille - genau das schliesst die
+  // Kernregel aus.
+  //
+  // NACH emitVideo("subscribed") (Owner-Ruling R12, weicht vom urspruenglichen
+  // Brief-Wortlaut "unmittelbar davor" ab): das Ton-Ereignis sagt etwas UEBER
+  // ein Abo, die Video-Zeile ist die, die dieses Abo erst bekannt macht und
+  // seine NDI-Quelle benennt. Zuerst die untergeordnete Tatsache zu senden
+  // haette einem Leser der Rohausgabe eine Aussage ueber eine id in die Hand
+  // gegeben, von der er noch nichts weiss.
+  if (audioOn) {
+    if (audioEnsureSubscribed()) {
+      raw->audioState = "waiting";
+      emitAudio(*raw, "waiting", "command");
+    } else {
+      // audioEnsureSubscribed() hat die Ursache bereits benannt (auf stdout,
+      // ohne id - siehe audio.cpp). Das BILD-Abo bleibt bestehen - ein
+      // fehlender Ton ist kein Grund, die Quelle wegzunehmen.
+      //
+      // EIGENER GRUND "audioUnavailable", NICHT "command" (Nachbesserung,
+      // Review Task 5): "command" heisst hier eigentlich "der Aufrufer hat
+      // den Ton ausgeschaltet" (siehe der else-Zweig unten) - dieser Zweig
+      // aber laeuft genau dann, wenn der Aufrufer Ton WOLLTE und das SDK ihn
+      // verweigert hat. Beide auf "command" zu melden waere byte-identisch
+      // fuer zwei verschiedene Ursachen gewesen, unterscheidbar nur ueber ein
+      // begleitendes error-Ereignis OHNE id - fuer einen Konsumenten also gar
+      // nicht zuordenbar. Zwei Ursachen, ein Name: genau das schliesst die
+      // Kernregel aus.
+      raw->audioOn = false;
+      raw->audioState = "off";
+      emitAudio(*raw, "off", "audioUnavailable");
+    }
+  } else {
+    emitAudio(*raw, "off", "command");
+  }
 }
 
 void videoUnsubscribe(unsigned int userId) {
   auto it = g_subs.find(userId);
-  if (it == g_subs.end()) { emitVideoError("videoNotSubscribed"); return; }
+  if (it == g_subs.end()) { emitVideoError("videoNotSubscribed", userId); return; }
   Sub* s = it->second.get();
   // VOR der Meldung, nicht danach: zwischen emitVideo() und unSubscribe()
   // liegt ein Fenster, in dem ein Rueckruf noch etwas ueber dieses Abo sagen
   // koennte - und alles, was er dann sagt, kaeme NACH "unsubscribed".
   s->imAbbau = true;
+  if (s->audioOn) emitAudio(*s, "off", "command");
   emitVideo(*s, "unsubscribed", "command");
   // REIHENFOLGE IST TRAGEND: erst den Renderer abmelden und abbauen, DANN
   // den Sender schliessen. Andersherum koennte ein Bild-Rueckruf, der schon
@@ -394,7 +518,49 @@ void videoUnsubscribe(unsigned int userId) {
 // ueber leave/quit/EOF) oder das Meeting ist zu Ende ("meetingEnded"). Ein
 // gemeinsamer Rumpf, damit die beiden Wege nicht auseinanderlaufen - der
 // Abbau selbst ist in beiden Faellen derselbe.
-static void videoAbbauAlle(const char* reason) {
+// ABBAU-MARKEN AUF stderr (Owner-Lauf 18.08.2026): der Prozess ist nach
+// "Status: ended (vom Gastgeber beendet)" mit exitCode 3221225477 = 0xC0000005
+// = STATUS_ACCESS_VIOLATION gestorben. Wo genau, sagte nichts - zwischen der
+// letzten Protokollzeile und dem Prozessende lagen vier SDK-Aufrufe, ein
+// NDI-Aufruf und ein clear(), das JEDES Sub samt fieldMutex zerstoert
+// (Befund I6, seit Stage 2 ausdruecklich als UNBELEGT vermerkt).
+//
+// emitLog() spuelt stderr selbst (emit.cpp) - die zuletzt gedruckte Marke
+// steht also auch dann noch da, wenn der naechste Aufruf den Prozess
+// umbringt. Bei einem Absturz ist sie die EINZIGE Auskunft, die es je geben
+// wird; ein Messgeraet, das mit dem Gemessenen stirbt, misst nichts.
+//
+// DIE MARKE NACH clear() IST DIE WICHTIGSTE: druckt sie noch und der Prozess
+// stirbt trotzdem, dann liegt der Fehler NICHT in diesen Aufrufen, sondern in
+// einem SPAETEREN Rueckruf, der auf ein bereits zerstoertes Sub trifft - also
+// genau in I6. Bleibt sie aus, benennt die letzte gedruckte Marke die Zeile.
+// "sdkAbmelden" TRENNT ZWEI LAGEN, die vorher denselben Weg nahmen:
+//
+//   true  - das Meeting LEBT noch (leave/quit/EOF). Der Renderer ist gueltig,
+//           unSubscribe()/destroyRenderer() gehoeren gerufen, sonst bleibt ein
+//           Abo im SDK stehen.
+//   false - das Meeting ist ZU ENDE. GEMESSEN am 18.08.2026, zweimal: ein
+//           unSubscribe() auf den Renderer beendet den Prozess mit
+//           0xC0000005 - aus dem Rueckruf heraus UND, nach dem ersten
+//           Behebungsversuch, ebenso von main() aus. Re-Entranz war es also
+//           nicht; das SDK hat seine Rohdaten-Einrichtung zu diesem Zeitpunkt
+//           bereits abgeraeumt, und der Zeiger zeigt ins Freigegebene. Der
+//           Ton-Helfer sagt an derselben Stelle dasselbe, nur hoeflicher: sein
+//           unSubscribe() antwortet SDKERR_WRONG_USAGE (2) statt abzustuerzen.
+//
+// AUCH destroyRenderer() FAELLT WEG, und das ist eine ABWAEGUNG, keine
+// Messung: ob es den Aufruf ueberlebt haette, ist UNGEPRUEFT. Ihn zu
+// versuchen haette einen weiteren Absturz gekostet, um es zu erfahren. Der
+// Preis der Unwissenheit ist ein moeglicherweise liegengelassener Renderer je
+// Meeting - bei hoechstens fuenf Abos (die festgelegte Betriebsgroesse) eine
+// bekannte, begrenzte Menge. Und sehr wahrscheinlich gar keine: dass
+// unSubscribe() abstuerzt, heisst ja gerade, dass das SDK das Ding schon
+// weggeraeumt hat. Wer es spaeter messen will, setzt destroyRenderer() mit
+// einer Marke davor wieder ein.
+static void videoAbbauAlle(const char* reason, bool sdkAbmelden) {
+  const std::wstring grundW(reason, reason + std::char_traits<char>::length(reason));
+  emitLog(L"Abbau beginnt (" + grundW + L"), " + std::to_wstring(g_subs.size()) +
+          L" Abo(s), SDK abmelden: " + (sdkAbmelden ? L"ja" : L"nein - Meeting ist zu Ende"));
   for (auto& [id, s] : g_subs) {
     // JEDES Abo wird GEMELDET, bevor es abgebaut wird (Abschluss-Sichtung,
     // I4). Am Prozessende ist das gleichgueltig, beim "leave"-Befehl NICHT:
@@ -415,22 +581,42 @@ static void videoAbbauAlle(const char* reason) {
     // ueber TerminateProcess aussteigt.
     // VOR der Meldung, gleiche Begruendung wie in videoUnsubscribe().
     s->imAbbau = true;
+    // Der Ton endet mit dem Abo und meldet sich EIGENS: ein Aufrufer, der
+    // audioSubs fuehrt (src/state.ts), behielte sonst einen Eintrag, auf den
+    // nie wieder ein Ereignis kommt - dieselbe Karteileiche, die beim Bild
+    // schon einmal aufgetreten ist.
+    if (s->audioOn) emitAudio(*s, "off", reason);
     emitVideo(*s, "unsubscribed", reason);
     // DIESELBE unbelegte Lebensdauer-Annahme wie in videoUnsubscribe() -
     // siehe den ausfuehrlichen Kommentar dort (Abschluss-Sichtung, I6): das
     // g_subs.clear() unten zerstoert jedes Sub samt fieldMutex, waehrend der
     // Delegate einen rohen Zeiger darauf haelt.
-    if (s->renderer) {
+    if (s->renderer && sdkAbmelden) {
+      emitLog(L"Abbau " + std::to_wstring(id) + L": unSubscribe()");
       logSdkError(L"unSubscribe() beim Gesamtabbau", s->renderer->unSubscribe());
+      emitLog(L"Abbau " + std::to_wstring(id) + L": destroyRenderer()");
       logSdkError(L"destroyRenderer() beim Gesamtabbau", destroyRenderer(s->renderer));
+    } else if (s->renderer) {
+      emitLog(L"Abbau " + std::to_wstring(id) +
+              L": Renderer NICHT angefasst - das Meeting ist zu Ende, das SDK hat ihn schon abgeraeumt");
     }
+    // Losgelassen, nicht abgebaut: der Zeiger zeigt ab hier moeglicherweise
+    // ins Freigegebene, und nichts darf ihn spaeter noch fuer gueltig halten.
+    // Das Sub verschwindet gleich ohnehin (clear() unten) - die Zeile steht
+    // fuer den Fall, dass dieser Abbau je woanders hinwandert.
+    s->renderer = nullptr;
+    emitLog(L"Abbau " + std::to_wstring(id) + L": NDI-Sender schliessen");
     s->sender.close();
+    emitLog(L"Abbau " + std::to_wstring(id) + L": fertig");
   }
+  emitLog(L"Abbau: Karte leeren - ab hier sind alle Sub-Objekte zerstoert");
   g_subs.clear();
+  emitLog(L"Abbau fertig, Karte ist leer");
 }
 
+// Meeting LEBT noch (leave/quit/EOF) - das SDK gehoert ordentlich abgemeldet.
 void videoShutdownAll() {
-  videoAbbauAlle("command");
+  videoAbbauAlle("command", true);
 }
 
 void videoMeetingEnded() {
@@ -440,17 +626,32 @@ void videoMeetingEnded() {
   // der letzte gemeldete Stand war "black (cameraOff)", also "jemand hat die
   // Kamera aus" fuer eine beendete Sitzung. Zwei Ursachen, ein Name.
   //
-  // WARUM DER ABBAU HIER SICHER IST, und zwar gemessen statt gehofft: in
-  // genau jenem Lauf lief videoShutdownAll() NACH dem "ended" durch und rief
-  // unSubscribe()/destroyRenderer() auf Renderer eines bereits beendeten
-  // Meetings - ohne Absturz. Der Abbau an dieser Stelle ist derselbe Aufruf
-  // zum selben Zeitpunkt, nur ohne den Umweg ueber den Aufrufer.
+  // ⚑ WIDERRUFEN am 18.08.2026. Hier stand: "WARUM DER ABBAU HIER SICHER IST,
+  // und zwar gemessen statt gehofft" - in jenem Lauf sei videoShutdownAll()
+  // nach dem "ended" durchgelaufen und habe unSubscribe()/destroyRenderer()
+  // auf Renderer eines beendeten Meetings gerufen, ohne Absturz.
+  //
+  // Der Satz war wahr und trug trotzdem nicht. Gemessen wurde ein ANDERER
+  // AUFRUFORT: videoShutdownAll() lief aus main(), also NACH Rueckkehr aus
+  // dem Rueckruf. videoMeetingEnded() wurde spaeter aus
+  // onMeetingStatusChanged gerufen - INNERHALB von pumpOnce() -, und die
+  // Begruendung wanderte mit, ohne dass jemand nachmass. Von dort aus
+  // beendete unSubscribe() den Prozess mit 0xC0000005.
+  //
+  // "Derselbe Aufruf zum selben Zeitpunkt, nur ohne den Umweg ueber den
+  // Aufrufer" - genau dieser Umweg WAR der Unterschied. Der Aufrufort ist
+  // Teil der Messung, nicht Beiwerk.
+  //
+  // main() ruft diese Funktion jetzt wieder von aussen (callbacks.h,
+  // callbacksTakeMeetingEndTeardown) - der Aufrufort, den die Messung von
+  // 2026-08-13 tatsaechlich abgedeckt hat.
   //
   // KEIN Schweigen und kein Weiterleben: ein Abo, das seine Sitzung
   // ueberlebt, ist genau der Fall, den der Kommentar an reduce() in
   // src/state.ts als den gefaehrlichen benennt.
   if (g_subs.empty()) return;
-  videoAbbauAlle("meetingEnded");
+  // OHNE SDK-Abmeldung: siehe die Begruendung an videoAbbauAlle().
+  videoAbbauAlle("meetingEnded", false);
 }
 
 
@@ -470,7 +671,263 @@ void videoMeetingEnded() {
 // videoUnsubscribe/videoShutdownAll) ohnehin auf demselben Hauptthread
 // laufen wie videoTick() selbst.
 void videoTick() {
+  // JETZT VOR DEM LEEREN NEHMEN (Schlusspruefung, M13). Dauert das Leeren
+  // einer vollen Warteschlange laenger als die 40-ms-Schwelle - 256
+  // Sendeaufrufe nach einem Haenger sind dafuer genug -, dann liegt ein
+  // danach genommenes "jetzt" so weit hinter den Abos, die FRUEH in der
+  // Schleife Ton bekommen haben, dass sie im SELBEN Tick die Stille-Schwelle
+  // ueberschreiten: silent/gap unmittelbar nach live/packets, fuer einen
+  // Strom, der gerade laeuft.
+  //
+  // Der Preis dieser Reihenfolge, und darum stehen unten ueberall Vergleiche
+  // statt blosser Subtraktionen: lastAudioMs/lastFrameMs koennen jetzt
+  // NEUER sein als "jetzt" (die Leer-Schleife setzt lastAudioMs, der
+  // SDK-Thread lastFrameMs). Eine Subtraktion liefe bei ULONGLONG unter null
+  // und wuerde als riesige Spanne gelesen - genau das Gegenteil der Absicht.
   const ULONGLONG jetzt = GetTickCount64();
+
+  // ERST den Ueberlauf melden, dann leeren. Ein Ueberlauf ist eine Aussage
+  // ueber die Maschine (eine Warteschlange fuer alle), nicht ueber einen Gast
+  // - darum ohne id. EINMAL JE MEETING, nicht je Tick: das Merkzeichen dafuer
+  // sitzt in audio.cpp (audioTakeOverflowReport), weil die Warteschlange dort
+  // liegt. Und die ZAHL geht mit: audioTakeOverflowReport() weiss, wie viele
+  // Pakete verlorengegangen sind - sie hier wegzuwerfen hiesse, eine Messung
+  // zu nehmen und zu verschenken.
+  unsigned int verworfen = 0;
+  if (audioTakeOverflowReport(&verworfen)) {
+    emitRaw(std::string("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioQueueOverflow\",\"dropped\":") +
+            std::to_string(verworfen) + "}");
+  }
+
+  AudioPacket p;
+  while (audioPop(&p)) {
+    auto it = g_subs.find(p.userId);
+    // Kein Abo, Ton aus, im Abbau, oder der Teilnehmer ist weg: VERWERFEN.
+    // Genau dafuer gibt es den Weg ueber die Warteschlange - hier ist das
+    // die richtige Antwort und kein Absturz.
+    if (it == g_subs.end()) continue;
+    Sub* s = it->second.get();
+    // teilnehmerWeg NACHGETRAGEN (Review Task 7): dasselbe Fenster, das
+    // Delegate::onRawDataFrameReceived beim Bild schon abschliesst
+    // (die Sperre "if (owner_->teilnehmerWeg) return;", siehe dort, und die
+    // Messung vom 2026-08-13 am Sub::teilnehmerWeg-Kommentar oben: nach
+    // "unsubscribed" kam noch ein "black"/"cameraOff" hinterher). Ohne diese
+    // Bedingung wuerde ein Paket, das beim Weggang schon in g_queue lag -
+    // oder das Zoom noch einen Moment spaeter zustellt -, die Ton-Felder
+    // ueberschreiben und "live"/"packets" melden: eine Behauptung ueber
+    // einen Gast, den der Rueckruf onUserLeft schon als weg gemeldet hat,
+    // ohne dass je ein zweites Weggangs-Ereignis das berichtigen wuerde.
+    //
+    // imAbbau IST HIER INERT, ehrlich eingeordnet (Schlusspruefung, M10) -
+    // wie der Nachpruef-Vergleich im Herzschlag weiter unten, der genau das
+    // vorbildlich benennt: gesetzt wird imAbbau nur in videoUnsubscribe() und
+    // videoAbbauAlle(), und BEIDE loeschen das Abo aus g_subs, bevor sie
+    // zurueckkehren - auf DEMSELBEN Hauptthread, der hier leert. Ein Abo, das
+    // diese Zeile mit imAbbau erreichen koennte, gibt es unter der heutigen
+    // Architektur nicht; ein Paket fuer ein abgebautes Abo faellt eine Zeile
+    // hoeher am find() heraus. Der BILD-Rueckruf braucht denselben Riegel
+    // wirklich (er laeuft auf einem SDK-Thread, siehe Sub::imAbbau) - dieses
+    // Leeren nicht.
+    //
+    // NICHT ENTFERNEN, aus demselben Grund wie dort: die Zeile kostet ein
+    // atomares Lesen und ist der Riegel fuer den Tag, an dem jemand das
+    // Leeren aus dem Tick herausnimmt oder den Abbau umbaut - eine Aenderung,
+    // die sich nicht von selbst meldet.
+    //
+    // WELCHE FELDER fieldMutex SCHUETZT, und warum diese Lesestelle anders
+    // aussieht als der Herzschlag achtzig Zeilen weiter unten (M11):
+    // fieldMutex schuetzt die Feldbuchfuehrung, die der BILD-Rueckruf auf dem
+    // SDK-Thread gleichzeitig schreibt - state/reason (std::string, ein
+    // zerrissener Zugriff waere dort nicht bloss falsch, sondern ein
+    // Absturz), lastFrameMs/lastBlackMs/lastW/lastH/rotation/limitedRange/
+    // gemessen/mismatchGemeldet, dazu die Tonfelder, die dieselben zwei
+    // Threads spaeter einmal teilen koennten. audioOn und teilnehmerWeg
+    // gehoeren NICHT dazu: beide schreibt ausschliesslich der Hauptthread
+    // (videoSubscribe bzw. videoParticipantLeft/videoParticipantJoined), und
+    // hier liest derselbe Hauptthread. Ein Wettrennen gibt es dafuer heute
+    // nicht. Der Herzschlag unten nimmt sie trotzdem unter der Sperre mit -
+    // nicht weil sie es braeuchten, sondern weil er ohnehin eine
+    // Momentaufnahme ALLER Tonfelder in einem Zug zieht und ein zweites,
+    // ungesperrtes Lesen daneben nur die Frage aufwuerfe, warum es zwei gibt.
+    if (!s->audioOn || s->imAbbau.load() || s->teilnehmerWeg) continue;
+
+    // GEPRUEFT, NICHT GEGLAUBT - dieselbe Sorge wie bei GetBufferLen() im
+    // Bild-Rueckruf: eine Pufferlaenge, die nicht zur Kanalzahl passt, ergibt
+    // Rauschen, das wie ein Mikrofondefekt klingt, nicht wie ein
+    // Softwarefehler. Man sucht dann am falschen Ende.
+    //
+    // BERICHTIGT (Nachbesserung nach Review): hier stand
+    // `p.samples.size() != sampleCount * channels` - das kann STRUKTURELL
+    // NIE ansprechen. sampleCount und samples.size() entstehen in audio.cpp
+    // durch DIESELBE Ganzzahl-Division derselben Rohlaenge len (sampleCount
+    // = len / (2*channels), samples.size() = len / 2) und verlieren einen
+    // etwaigen Rest GLEICHERMASSEN - aus den beiden Ergebnissen laesst sich
+    // danach nicht mehr rekonstruieren, ob len ein ganzzahliges Vielfaches
+    // von channels*2 war (bei einem Kanal sogar NIE, siehe AudioPacket::
+    // bufferLen). Die Probe darum jetzt gegen bufferLen, die einzige Groesse,
+    // die den Rest noch traegt und nicht schon durch dieselbe Rechnung
+    // gelaufen ist wie der Wert, gegen den sie prueft.
+    if (p.sampleCount <= 0 ||
+        p.bufferLen % (sizeof(int16_t) * static_cast<unsigned int>(p.channels)) != 0) {
+      bool melden = false;
+      {
+        std::lock_guard<std::mutex> lock(s->fieldMutex);
+        if (!s->audioMismatchGemeldet) { s->audioMismatchGemeldet = true; melden = true; }
+      }
+      // MIT id, ANDERS als audioQueueOverflow oben (Review-Runde 2, Finding
+      // B): audioQueueOverflow ist eine Aussage ueber die MASCHINE (eine
+      // Warteschlange fuer alle) - der Rueckruf, der dort verwirft, weiss gar
+      // nicht, zu welchem Abo das Paket gehoert haette, darum bleibt der
+      // OHNE id richtig. audioBufferMismatch dagegen ist eine Aussage ueber
+      // GENAU EIN Abo: das Merkzeichen (audioMismatchGemeldet) ist per-Abo.
+      // Ohne id bekaeme der Operator eine Fehlerzeile, die sich keinem Gast
+      // zuordnen liesse - fuer EIN Abo dieselbe stille Sorte Fehler, die die
+      // Kernregel ausdruecklich verbietet.
+      //
+      // WAS DAS MERKZEICHEN TUT UND WAS NICHT (BERICHTIGT, Schlusspruefung
+      // Important 7): hier stand, ab dem Ausloesen gehe "genau dieses eine
+      // Abo dauerhaft still", und jedes weitere Paket falle "ab hier auf
+      // denselben fruehen continue". So ist es nicht. Das continue haengt an
+      // der Pufferlaenge JEDES EINZELNEN Pakets - VERWORFEN WIRD JE PAKET.
+      // audioMismatchGemeldet unterdrueckt ausschliesslich die WIEDERHOLUNG
+      // der Meldung - GEMELDET WIRD JE ABO EINMAL. Ein einzelnes fehlerhaftes
+      // Paket kostet also genau dieses eine Paket; das naechste wohlgeformte
+      // geht normal raus und setzt das Abo wieder auf live/packets. Wer die
+      // alte Fassung glaubte, suchte nach einem Abo, das nie wieder sendet -
+      // in die falsche Richtung.
+      //
+      // NICHT spaeter "vereinheitlichen":
+      // die beiden Fehler haben verschiedene Ursachen (Maschine vs. ein
+      // Gast) und bleiben darum absichtlich verschieden foermig.
+      if (melden) {
+        emitRaw(std::string("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioBufferMismatch\",\"id\":") +
+                std::to_string(s->userId.load()) + "}");
+      }
+      continue;
+    }
+
+    // Senden OHNE Sperre - sendAudio() nimmt NdiSenders eigene Sperre.
+    s->sender.sendAudio(p.samples.data(), p.sampleCount, p.sampleRate, p.channels);
+
+    bool wurdeLive = false;
+    bool messungFertig = false;
+    unsigned int mPakete = 0;
+    unsigned long long mWartenSumme = 0;
+    unsigned long long mWartenMax = 0;
+    unsigned long long mWartenMin = 0;
+    bool mErstesFenster = false;
+    unsigned long long mWerte = 0;
+    ULONGLONG mSpanne = 0;
+    int mRate = 0, mKanaele = 0;
+    {
+      std::lock_guard<std::mutex> lock(s->fieldMutex);
+      s->audioRate = p.sampleRate;
+      s->audioChannels = p.channels;
+      s->lastAudioMs = GetTickCount64();
+      if (s->audioState != "live") { s->audioState = "live"; wurdeLive = true; }
+
+      // GEZAEHLT WIRD, WAS GESENDET WURDE - direkt nach dem Sendeaufruf oben,
+      // nicht was hereinkam. Die Frage lautet ja gerade, ob zwischen "kommt
+      // an" und "geht raus" etwas dazukommt.
+      if (s->audioMessBeginnMs == 0) s->audioMessBeginnMs = s->lastAudioMs;
+      ++s->audioMessPakete;
+      s->audioMessAbtastwerte += static_cast<unsigned long long>(p.sampleCount);
+      // Die Frequenz EINMAL holen: sie ist zur Laufzeit unveraenderlich
+      // (dokumentiert), und ein Aufruf je Paket waere bei rund 100 Paketen je
+      // Sekunde und Sprecher blosse Arbeit ohne Erkenntnis.
+      static const long long qpcFreq = [] {
+        LARGE_INTEGER f;
+        QueryPerformanceFrequency(&f);
+        return f.QuadPart;
+      }();
+      if (p.eingangTick > 0 && qpcFreq > 0) {
+        LARGE_INTEGER jetztQpc;
+        QueryPerformanceCounter(&jetztQpc);
+        const long long diff = jetztQpc.QuadPart - p.eingangTick;
+        // VERGLEICH statt blosser Subtraktion, dieselbe Vorsicht wie beim
+        // Herzschlag: ein negativer Wert waere ein Messfehler, kein Verzug,
+        // und als vorzeichenlose Zahl eine gewaltige Luege.
+        if (diff > 0) {
+          const unsigned long long us = static_cast<unsigned long long>(diff * 1000000LL / qpcFreq);
+          s->audioWartenSummeUs += us;
+          if (us > s->audioWartenMaxUs) s->audioWartenMaxUs = us;
+          if (s->audioWartenMinUs == 0 || us < s->audioWartenMinUs) s->audioWartenMinUs = us;
+        }
+      }
+      const ULONGLONG spanne = s->lastAudioMs - s->audioMessBeginnMs;
+      // Erstes Fenster kurz, damit frueh etwas dasteht; danach lang, damit
+      // die Ausgabe im Dauerbetrieb nicht zurauscht.
+      const ULONGLONG fensterMs = (s->audioMessFenster == 0) ? 1000 : 10000;
+      if (spanne >= fensterMs) {
+        mErstesFenster = (s->audioMessFenster == 0);
+        ++s->audioMessFenster;
+        messungFertig = true;
+        mPakete = s->audioMessPakete;
+        mWerte = s->audioMessAbtastwerte;
+        mSpanne = spanne;
+        mRate = s->audioRate;
+        mKanaele = s->audioChannels;
+        mWartenSumme = s->audioWartenSummeUs;
+        mWartenMax = s->audioWartenMaxUs;
+        mWartenMin = s->audioWartenMinUs;
+        // FENSTER ZURUECKSETZEN, nicht fortschreiben: ein Mittelwert ueber
+        // den gesamten Lauf wuerde den Anlauf-Rueckstau fuer immer
+        // mitschleppen und jede spaetere Besserung verdecken.
+        s->audioMessBeginnMs = s->lastAudioMs;
+        s->audioMessPakete = 0;
+        s->audioMessAbtastwerte = 0;
+        s->audioWartenSummeUs = 0;
+        s->audioWartenMaxUs = 0;
+        s->audioWartenMinUs = 0;
+      }
+    }
+    if (wurdeLive) emitAudio(*s, "live", "packets");
+    if (messungFertig) {
+      // DIE ENTSCHEIDENDE GEGENUEBERSTELLUNG: gesendete Abtastwerte je Sekunde
+      // gegen die Abtastrate, die Zoom ANGIBT. Sind beide gleich, geben wir
+      // genau weiter, was ankommt. Ist die gesendete Menge ein Vielfaches,
+      // senden wir denselben Ton mehrfach - und genau so klingt ein
+      // zeitversetztes Echo. Der Quotient sagt, WIE oft.
+      const unsigned long long jeSekunde = mWerte * 1000ULL / (mSpanne > 0 ? mSpanne : 1);
+      emitLog(std::wstring(L"Ton-Messung fuer ") + std::to_wstring(s->userId.load()) +
+              (mErstesFenster ? L" [ANLAUF, nicht der Dauerbetrieb]" : L" [Dauerbetrieb]") + L": " +
+              std::to_wstring(mPakete) + L" Pakete in " + std::to_wstring(mSpanne) + L" ms, " +
+              std::to_wstring(mWerte) + L" Abtastwerte je Kanal = " + std::to_wstring(jeSekunde) +
+              L"/s gesendet. Zoom gibt " + std::to_wstring(mRate) + L" Hz, " +
+              std::to_wstring(mKanaele) + L" Kanal an.");
+      // UNSER EIGENER ANTEIL AM VERSATZ, getrennt ausgewiesen. Das Bild geht
+      // direkt aus seinem SDK-Rueckruf raus, der Ton wartet bis zum naechsten
+      // videoTick() - diese Spanne ist der Vorsprung, den das Bild dadurch
+      // bekommt. Sie steht ABSICHTLICH als eigene Zeile neben der Durchsatz-
+      // Messung: die eine sagt, ob wir die richtige MENGE senden, die andere,
+      // ob wir sie rechtzeitig senden. Zwei Fragen, zwei Zeilen.
+      if (mPakete > 0) {
+        emitLog(std::wstring(L"Ton-Wartezeit fuer ") + std::to_wstring(s->userId.load()) +
+                (mErstesFenster ? L" [ANLAUF]" : L" [Dauerbetrieb]") +
+                L" (Warteschlange -> Senden): mittel " + std::to_wstring(mWartenSumme / mPakete) +
+                L" us, min " + std::to_wstring(mWartenMin) + L" us, max " +
+                std::to_wstring(mWartenMax) + L" us. Das ist UNSER Anteil am Bild-Ton-Versatz.");
+      }
+      if (mRate > 0) {
+        const unsigned long long soll = static_cast<unsigned long long>(mRate);
+        // 10 % Toleranz: die Fenstergrenze faellt nicht auf eine Paketgrenze,
+        // und die erste Sekunde beginnt mit dem ersten Paket, nicht mit dem
+        // Abo. Ein DOPPELTES Senden waere 200 %, kein Grenzfall.
+        if (jeSekunde > soll + soll / 10) {
+          emitLog(std::wstring(L"  ACHTUNG: das ist ") +
+                  std::to_wstring(jeSekunde * 100ULL / soll) +
+                  L" % der angegebenen Rate - wir senden mehr Ton, als Zoom liefert.");
+        } else if (jeSekunde + soll / 10 < soll) {
+          emitLog(std::wstring(L"  ACHTUNG: das ist nur ") +
+                  std::to_wstring(jeSekunde * 100ULL / soll) +
+                  L" % der angegebenen Rate - es geht Ton verloren.");
+        } else {
+          emitLog(L"  Passt: gesendete Menge und angegebene Rate stimmen ueberein.");
+        }
+      }
+    }
+  }
+
   for (auto& [id, s] : g_subs) {
     ULONGLONG lastFrameMs;
     ULONGLONG lastBlackMs;
@@ -485,12 +942,144 @@ void videoTick() {
       res = s->res;
     }
 
+    // --- Stille-Herzschlag ------------------------------------------------
+    // ERST NACH DEM ERSTEN ECHTEN PAKET. Vorher sind Abtastrate und
+    // Kanalzahl unbekannt, und ein erfundenes Format liesse sich spaeter
+    // nicht von einem gemessenen unterscheiden - dieselbe Regel, nach der
+    // ein Abo ohne je gesehenes Bild auf "subscribed" steht und nicht auf
+    // "cameraOff".
+    {
+      int aRate, aCh;
+      ULONGLONG aLast, aStilleBis;
+      bool aOn, aWeg;
+      {
+        std::lock_guard<std::mutex> lock(s->fieldMutex);
+        aRate = s->audioRate; aCh = s->audioChannels;
+        aLast = s->lastAudioMs; aOn = s->audioOn;
+        aWeg = s->teilnehmerWeg; aStilleBis = s->silenceBisMs;
+      }
+      // VERGLEICH statt blosser Subtraktion (M13): "jetzt" stammt von VOR dem
+      // Leeren, aLast kann also NEUER sein als jetzt - eine Subtraktion liefe
+      // bei ULONGLONG unter null und meldete eine riesige Spanne fuer einen
+      // Strom, der gerade eben noch Ton bekommen hat.
+      const ULONGLONG seitTon = jetzt > aLast ? jetzt - aLast : 0;
+      // 40 ms Nachlauf: Zoom liefert etwa alle 10-20 ms. Der Wert ist ein
+      // ANFANGSWERT, kein Messergebnis (Spec Abschnitt 6) - Abnahmepunkt 2
+      // prueft mit dem Ohr, ob der Uebergang knackt.
+      //
+      // !aWeg NACHGETRAGEN (Review Task 7): der Ton endet mit dem Weggang -
+      // anders als das Bild, das als Schwarz stehen bleibt: Stille fuer
+      // jemanden, der nicht da ist, waere eine Aussage ueber eine Person,
+      // die es im Meeting nicht mehr gibt. videoParticipantLeft() setzt
+      // audioState zwar auf "off", loescht aber weder audioRate noch
+      // lastAudioMs - das Abo soll ja auf ein Umhaengen hin weiterleben. Ohne
+      // diese Bedingung erreichte der Herzschlag den naechsten Tick trotzdem
+      // ueber die Schwelle, sendete Stille fuer einen nachweislich
+      // abwesenden Gast und schrieb "off" mit "silent"/"gap" wieder zu -
+      // ohne dass je ein zweites Weggangs-Ereignis kaeme, das das
+      // berichtigen wuerde.
+      if (aOn && !aWeg && aRate > 0 && aCh > 0 && seitTon >= 40) {
+        // WIEVIEL STILLE: aus der VERSTRICHENEN ZEIT gerechnet, nicht aus der
+        // Tick-Frist (BERICHTIGT, Schlusspruefung Important 4). Hier stand
+        // `aRate / 100`, also genau 10 ms Ton je Tick, mit der Begruendung,
+        // die Blockgroesse entspreche der Tick-Frist. Die Schleife ist aber
+        // pumpOnce(); videoTick(); stdin lesen; Sleep(10) - die tatsaechliche
+        // Frist ist IMMER groesser als 10 ms, und mit Windows'
+        // Standard-Zeitgeberaufloesung von 15,6 ms deutlich groesser. Eine
+        // laengere Stille lieferte damit systematisch zu wenig Ton je
+        // Wanduhrzeit, um einen Betrag, den niemand gemessen hat.
+        //
+        // silenceBisMs sagt, bis wann der Strom gefuellt ist. Beim ERSTEN
+        // Stille-Tick (oder wenn seither echter Ton kam) faengt die Rechnung
+        // bei lastAudioMs an - so klafft zwischen echtem Ton und Stille keine
+        // Luecke.
+        ULONGLONG bis = aStilleBis > aLast ? aStilleBis : aLast;
+        ULONGLONG spanne = jetzt > bis ? jetzt - bis : 0;
+        // OBERGRENZE 200 ms je Tick, und der Rest wird FALLENGELASSEN, nicht
+        // nachgeholt. GEWAEHLT, nicht gemessen, mit zwei Gruenden: (1) nach
+        // einem langen Haenger - der Prozess lag auf Eis, die Schleife stand
+        // Sekunden - waere ein einzelner Sendeaufruf ueber diese ganze Zeit
+        // ein Puffer, den niemand bestellt hat (bei 48 kHz Stereo sind schon
+        // 200 ms rund 38 KB), und ihn ueber die naechsten Ticks NACHZUHOLEN
+        // hiesse, dem Empfaenger Stille mit dem Zwanzigfachen der Echtzeit
+        // vorzusetzen: der Strom liefe dem Bild davon. (2) Stille traegt
+        // keine Information - was in einem Haenger verlorengeht, ist nichts,
+        // das man aufheben muesste. 200 ms ist dieselbe Groessenordnung wie
+        // der Nachlauf des Schwarzbild-Herzschlags weiter unten.
+        constexpr ULONGLONG kMaxStilleMs = 200;
+        if (spanne > kMaxStilleMs) {
+          spanne = kMaxStilleMs;
+          bis = jetzt - kMaxStilleMs;
+        }
+        const int bloecke = static_cast<int>(spanne * static_cast<ULONGLONG>(aRate) / 1000);
+        // Unter einem ganzen Abtastwert gibt es nichts zu senden - dann
+        // bleibt silenceBisMs stehen und der naechste Tick rechnet die Spanne
+        // erneut. (Beim ERSTEN Stille-Tick kann das nicht eintreten: dort ist
+        // die Spanne mindestens die 40 ms der Schwelle.) KEIN continue an
+        // dieser Stelle: darunter haengt der Schwarzbild-Herzschlag desselben
+        // Abos, und der hat mit dem Ton nichts zu tun.
+        if (bloecke > 0) {
+          s->sender.sendSilence(bloecke, aRate, aCh);
+          // Um die TATSAECHLICH gesendete Zeit vorschieben, nicht bis "jetzt":
+          // was die Ganzzahl-Rechnung oben verloren hat, bleibt so stehen und
+          // wird beim naechsten Tick mitgezaehlt, statt sich Tick fuer Tick
+          // aufzuaddieren.
+          const ULONGLONG gesendetMs =
+              static_cast<ULONGLONG>(bloecke) * 1000 / static_cast<ULONGLONG>(aRate);
+          bool wurdeStill = false;
+          {
+            std::lock_guard<std::mutex> lock(s->fieldMutex);
+            s->silenceBisMs = bis + gesendetMs;
+            // Momentaufnahme gegenpruefen. ANDERS als beim Schwarzbild weiter
+            // unten ist dieser Vergleich unter der HEUTIGEN Architektur INERT,
+            // nicht scharf: der Ton-Rueckruf (audio.cpp,
+            // onOneWayAudioRawDataReceived) schreibt ausschliesslich in
+            // g_queue, nie direkt in Sub-Felder. lastAudioMs/audioState
+            // aendert einzig die Leer-Schleife am Kopf von videoTick() - auf
+            // demselben Hauptthread, und sie ist fuer DIESEN Tick bereits
+            // durchgelaufen, BEVOR diese Schleife beginnt. Waehrend
+            // sendSilence() oben blockiert, kann darum nichts mehr schreiben,
+            // das dieser Vergleich noch auffangen muesste - ein neu
+            // eingetroffenes Paket landet nur in der Warteschlange und wird
+            // erst der NAECHSTE Tick leeren. Der Bild-Rueckruf dagegen laeuft
+            // auf einem echten SDK-Thread und schreibt lastFrameMs
+            // GLEICHZEITIG zu videoTick() - dort greift derselbe Vergleich
+            // wirklich.
+            //
+            // Die Pruefung bleibt trotzdem stehen, ABSICHTLICH: sie kostet
+            // nichts, und sie ist die Absicherung fuer den Tag, an dem jemand
+            // den Ton-Weg (wie den Bild-Weg heute) auf einen eigenen
+            // Rueckruf-Thread umstellt, der Sub direkt schreibt - eine
+            // Aenderung, die sich nicht von selbst meldet. NICHT als totes
+            // Vergleichen entfernen: genau das waere die Bremse, die diesen
+            // kuenftigen Fall auffaengt.
+            if (s->lastAudioMs == aLast && s->audioState != "silent") {
+              s->audioState = "silent";
+              wurdeStill = true;
+            }
+          }
+          if (wurdeStill) emitAudio(*s, "silent", "gap");
+        }
+      }
+    }
+
     // 200 ms Nachlauf: bei kurzen Aussetzern soll NICHT zwischen Bild und
     // Schwarz geflackert werden. Erst danach gilt der Strom als still.
-    if (lastFrameMs != 0 && jetzt - lastFrameMs < 200) continue;
+    //
+    // VERGLEICH statt blosser Subtraktion, dieselbe Sorgfalt wie beim Ton
+    // oben (M13): lastFrameMs schreibt der Bild-Rueckruf auf einem
+    // SDK-Thread, und "jetzt" stammt seit dieser Runde von VOR dem Leeren der
+    // Ton-Warteschlange - ein Bild, das dazwischen ankam, traegt also einen
+    // GROESSEREN Wert als jetzt. Die alte Subtraktion lief dann unter null,
+    // wurde als riesige Spanne gelesen, und dieses Abo bekam ein Schwarzbild
+    // mitten in den laufenden Strom (die MELDUNG fing der Vergleich weiter
+    // unten ab, das gesendete Bild nicht).
+    const ULONGLONG seitBild = jetzt > lastFrameMs ? jetzt - lastFrameMs : 0;
+    const ULONGLONG seitSchwarz = jetzt > lastBlackMs ? jetzt - lastBlackMs : 0;
+    if (lastFrameMs != 0 && seitBild < 200) continue;
     // Hoechstens alle 100 ms, also 10 Bilder je Sekunde. Das haelt die
     // Quelle fuer jeden Empfaenger gueltig und kostet fast nichts.
-    if (jetzt - lastBlackMs < 100) continue;
+    if (seitSchwarz < 100) continue;
 
     // Vor dem ersten Bild ist die Bildgroesse unbekannt - dann die
     // NENNGROESSE des Abos nehmen, damit die Quelle von Anfang an gueltig
@@ -585,6 +1174,15 @@ void videoParticipantLeft(unsigned int userId) {
     s->teilnehmerWeg = true;
   }
   emitVideo(*s, "black", "participantLeft");
+  // Der Ton endet mit dem Weggang - anders als das Bild, das als Schwarz
+  // stehen bleibt: Stille fuer jemanden, der nicht da ist, waere eine
+  // Aussage ueber eine Person, die es im Meeting nicht mehr gibt.
+  bool tonWar = false;
+  {
+    std::lock_guard<std::mutex> lock(s->fieldMutex);
+    if (s->audioOn && s->audioState != "off") { s->audioState = "off"; tonWar = true; }
+  }
+  if (tonWar) emitAudio(*s, "off", "participantLeft");
 }
 
 // Ebenfalls HAUPTTHREAD, siehe videoParticipantLeft() oben.
@@ -733,7 +1331,7 @@ void videoParticipantJoined(unsigned int userId) {
     // videoSubscribe() als videoRendererFailed gemeldet; ein zweiter Umgang
     // mit demselben Aufruf waere ein Widerspruch im eigenen Haus.
     logSdkError(L"subscribe() beim Umhaengen", anErr);
-    emitVideoError("videoRendererFailed");
+    emitVideoError("videoRendererFailed", userId);
     // WAS MIT DEM ABO GESCHIEHT - und warum: es BLEIBT bestehen, unveraendert
     // unter der ALTEN Kennung. Drei Gruende, in dieser Rangfolge:
     //   1. Die NDI-Quelle darf im Livebetrieb nicht wegbrechen (Spec
@@ -792,6 +1390,24 @@ void videoParticipantJoined(unsigned int userId) {
     // da, das Abo haengt an ihrer neuen Kennung, Bilder duerfen ab jetzt
     // wieder "live" bedeuten.
     s->teilnehmerWeg = false;
+    // Das Ton-Format gilt je Sitzung des Gastes: nach einem Wiederbeitritt
+    // kann Zoom ein anderes liefern. Zuruecksetzen heisst, es beim ersten
+    // Paket neu zu MESSEN statt das alte fortzuschreiben.
+    s->audioRate = 0;
+    s->audioChannels = 0;
+    s->lastAudioMs = 0;
+    s->audioMismatchGemeldet = false;
+    s->audioState = s->audioOn ? "waiting" : "off";
+    // Auch die Messung gilt je Sitzung des Gastes - nach einem Wiederbeitritt
+    // kann Zoom ein anderes Format liefern, und dann ist die alte Zahl keine
+    // Aussage mehr ueber das, was jetzt kommt.
+    s->audioMessBeginnMs = 0;
+    s->audioMessPakete = 0;
+    s->audioMessAbtastwerte = 0;
+    s->audioMessFenster = 0;
+    s->audioWartenSummeUs = 0;
+    s->audioWartenMaxUs = 0;
+    s->audioWartenMinUs = 0;
   }
   // Zwischen dem geglueckten subscribe() oben und dieser Sperre kann bereits
   // ein Bild eintreffen. Es wird dann noch mit teilnehmerWeg == true
@@ -827,10 +1443,11 @@ void videoParticipantJoined(unsigned int userId) {
     // belegte Kennung: "userId" hat in beiden Faellen bereits ein Abo. Kein
     // neuer Katalogeintrag noetig - videoAlreadySubscribed traegt schon
     // genau diese Bedeutung.
-    emitVideoError("videoAlreadySubscribed");
+    emitVideoError("videoAlreadySubscribed", userId);
     return;
   }
   emitVideo(*s, "subscribed", grund);
+  if (s->audioOn) emitAudio(*s, "waiting", grund);
 }
 
 namespace {
@@ -888,7 +1505,7 @@ void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
         sollMelden = true;
       }
     }
-    if (sollMelden) emitVideoError("videoBufferMismatch");
+    if (sollMelden) emitVideoError("videoBufferMismatch", owner_->userId.load());
     return;   // das Abo bleibt bestehen und faellt ueber den Herzschlag auf Schwarz
   }
 

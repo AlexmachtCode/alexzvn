@@ -18,6 +18,16 @@
 // siehe README.md Abschnitt 7). Ohne diese Variable verhaelt sich dieser
 // Pruefstand genau wie bisher - kein Video-Befehl geht raus.
 //
+// OPTIONAL: $env:ZOOM_AUDIO_OFF = "<Teilmenge davon>" schickt fuer die
+// genannten Kennungen ein videoSubscribe MIT `audio:false` - Bild ohne Ton.
+// Gebraucht fuer Abnahmepunkt 3 (Spec Abschnitt 9): dass der Ton-Schalter
+// wirkt, laesst sich sonst gegen ein echtes Meeting ueberhaupt nicht pruefen,
+// weil das Feld ohne Angabe auf `true` steht (protocol.ts) und dieser
+// Pruefstand es bisher nie gesetzt hat. Die Kennungen muessen auch in
+// ZOOM_VIDEO_SUBSCRIBE stehen - eine Kennung nur hier abonniert nichts, und
+// darum wird sie unten ausdruecklich als folgenlos gemeldet statt still
+// verschluckt.
+//
 // DIE KENNUNGEN STEHEN NICHT VORHER FEST: sie gelten nur fuer DIESES Meeting.
 // Erst ohne die Variable beitreten, den Teilnehmer-Block ablesen (die Zahl
 // links), dann mit ihr neu starten. Ist die Variable gesetzt, WARTET der Lauf
@@ -117,7 +127,19 @@ const bridge = new Bridge({
       else if (ev.timedOut) console.log(`  Rohdaten-Erlaubnis: keine Antwort gekommen (Zeitueberschreitung)  (${woher})`);
       else if (ev.denied) console.log(`  Rohdaten-Erlaubnis: ABGELEHNT  (${woher})`);
       else console.log(`  Rohdaten-Erlaubnis: fehlt — angefragt, bitte im Zoom-Client bestaetigen  (${woher})`);
-    } else if (ev.ev === 'error') console.log(`  FEHLER bei ${ev.where}: ${ev.name} (${ev.code})`);
+    } else if (ev.ev === 'error') {
+      // Die Kennung NUR anhaengen, wenn sie dasteht. Zwei Stellen in main.cpp
+      // melden videoUnknownParticipant, ohne je eine Kennung gelesen zu haben
+      // - dort waere jede angezeigte Zahl erfunden.
+      const wen = ev.id !== undefined ? ` fuer ${ev.id}` : '';
+      console.log(`  FEHLER bei ${ev.where}${wen}: ${ev.name} (${ev.code})`);
+      // "detail" MIT ANZEIGEN: bei where:"exit" steht dort der Rueckgabewert
+      // bzw. das Signal des Kindprozesses. Ohne ihn sieht ein Absturz
+      // (0xC0000005) genauso aus wie ein geordnetes Ende - zwei Ursachen, ein
+      // Bild. Eingerueckt und in einer eigenen Zeile, damit die Fehlerzeile
+      // selbst kurz bleibt.
+      if (ev.detail) console.log(`      ${ev.detail}`);
+    }
     else if (ev.ev === 'video') {
       // "rotation"/"limitedRange" stehen NUR dabei, wenn ein Bild sie
       // geliefert hat (siehe protocol.ts) - deshalb hier bedingt angehaengt,
@@ -131,6 +153,12 @@ const bridge = new Bridge({
       zeile += ev.rebindable ? '  umhaengbar' : '  NICHT umhaengbar';
       if (ev.rotation !== undefined) zeile += `  rotation=${ev.rotation}`;
       if (ev.limitedRange !== undefined) zeile += `  limitedRange=${ev.limitedRange}`;
+      console.log(zeile);
+    } else if (ev.ev === 'audio') {
+      let zeile = `  audio ${ev.id}: ${ev.state} (${ev.reason})`;
+      // Format NUR anzeigen, wenn es gemessen wurde - sonst waere die Zeile
+      // eine Behauptung ueber etwas, das noch nie ankam.
+      if (ev.sampleRate !== undefined) zeile += `  ${ev.sampleRate} Hz, ${ev.channels} Kanal/Kanaele`;
       console.log(zeile);
     }
   },
@@ -240,14 +268,44 @@ if (videoIds.length > 0 && !bridge.session.canRecordRaw) {
   }
 }
 
+// Als Zahlen vergleichen, nicht als Zeichenketten: "07" und "7" sind
+// dieselbe Kennung, saehen aber als Text verschieden aus - und ein
+// Ton-Schalter, der wegen eines fuehrenden Nullzeichens still nicht greift,
+// waere genau die Sorte Fehler, die dieser Pruefstand aufdecken soll.
+const ohneTon = new Set(
+  (process.env.ZOOM_AUDIO_OFF ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map(Number)
+    .filter((n) => Number.isInteger(n)),
+);
+const abonniert = new Set();
+
 for (const raw of videoIds) {
   const id = Number(raw);
   if (!Number.isInteger(id)) {
     console.log(`  ZOOM_VIDEO_SUBSCRIBE: "${raw}" ist keine ganze Zahl - uebersprungen.`);
     continue;
   }
-  console.log(`  Video wird abonniert: ${id} (720p)`);
-  bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p' });
+  abonniert.add(id);
+  const stumm = ohneTon.has(id);
+  console.log(`  Video wird abonniert: ${id} (720p)${stumm ? '  OHNE Ton (audio:false)' : ''}`);
+  // Das Feld nur setzen, wenn es auf false soll. Ein ausdrueckliches
+  // `audio:true` waere zwar gleichbedeutend, wuerde aber den Vorgabefall des
+  // Protokolls (Feld fehlt) im Abnahmelauf nie mehr durchlaufen - und geprueft
+  // wird, was in Betrieb geht.
+  if (stumm) bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p', audio: false });
+  else bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p' });
+}
+
+// Nichts verschwindet still: eine Kennung in ZOOM_AUDIO_OFF, die gar nicht
+// abonniert wurde, hat KEINE Wirkung. Ohne diese Zeile liefe der Abnahmelauf
+// mit Ton weiter und saehe aus, als habe der Schalter versagt.
+for (const id of ohneTon) {
+  if (!abonniert.has(id)) {
+    console.log(`  ZOOM_AUDIO_OFF: ${id} steht nicht in ZOOM_VIDEO_SUBSCRIBE - folgenlos.`);
+  }
 }
 
 console.log(`\nIm Meeting. Bleibe ${seconds} s (Strg+C beendet frueher).`);

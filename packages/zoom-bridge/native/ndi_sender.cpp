@@ -98,6 +98,71 @@ void NdiSender::sendBlack(int width, int height) {
   NDIlib_send_send_video_v2(send_, &f);
 }
 
+// Baut den Audio-Frame und sendet ihn. Setzt voraus, dass der Aufrufer
+// mutex_ bereits haelt (siehe Deklaration in ndi_sender.h fuer die
+// Begruendung: Vergroessern von silence_ und der Sendeaufruf muessen in
+// DERSELBEN kritischen Sektion liegen, sonst kann sich der zuvor gelesene
+// .data()-Zeiger zwischen Pruefung und Senden verschieben).
+void NdiSender::sendAudioLocked(const int16_t* samples, int sampleCount, int sampleRate, int channels) {
+  if (send_ == nullptr) return;
+  NDIlib_audio_frame_interleaved_16s_t f;
+  f.sample_rate = sampleRate;
+  f.no_channels = channels;
+  f.no_samples = sampleCount;
+  // Die Taktung erzeugt NDI selbst. Eigene Zeitstempel aus Zooms
+  // GetTimeStamp() waeren erst dann richtig, wenn gemessen ist, dass die
+  // synthetische Taktung Bild und Ton auseinanderlaufen laesst (Spec
+  // Abschnitt 8, Abnahmepunkt 5).
+  f.timecode = NDIlib_send_timecode_synthesize;
+  // +0 dB. ZITAT, und danach eine ANNAHME - die beiden gehoeren getrennt
+  // (Schlusspruefung Stage 3, Important 9; vorher standen sie in einem Satz,
+  // was die Annahme wie einen Beleg aussehen liess):
+  //
+  // ZITIERT aus dem Kopfsatz der NDI-SDK, fuer das SENDEN: "specify +0 dB.
+  // Most common applications produce audio at reference level."
+  //
+  // ANGENOMMEN, auf diesem Zweig NIRGENDS gemessen: dass Zoom seinen Ton
+  // ebenfalls auf Referenzpegel liefert. Kein Lauf dieses Zweigs hat je einen
+  // Pegel gesehen - ndi-probe hoert die Stille UNSERES eigenen Selbsttest-
+  // Senders, nicht Zoom. Liegt Zoom daneben, ist die Folge ein durchgehend zu
+  // leiser oder zu lauter Eingang im Switcher, nicht ein Ausfall. "Pegel
+  // plausibel?" steht darum auf der Owner-Abnahmeliste (README,
+  // docs/roadmap.md); erst danach darf hier eine gemessene Zahl stehen.
+  f.reference_level = 0;
+  f.p_data = const_cast<int16_t*>(samples);
+  NDIlib_util_send_send_audio_interleaved_16s(send_, &f);
+}
+
+void NdiSender::sendAudio(const int16_t* samples, int sampleCount, int sampleRate, int channels) {
+  if (samples == nullptr || sampleCount <= 0 || channels <= 0) return;
+  std::lock_guard<std::mutex> lock(mutex_);
+  sendAudioLocked(samples, sampleCount, sampleRate, channels);
+}
+
+void NdiSender::sendSilence(int sampleCount, int sampleRate, int channels) {
+  if (sampleCount <= 0 || channels <= 0) return;
+  const size_t noetig = static_cast<size_t>(sampleCount) * static_cast<size_t>(channels);
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (send_ == nullptr) return;
+  if (silence_.size() < noetig) silence_.assign(noetig, 0);
+  // NACHBESSERUNG: Vergroessern (silence_.assign - kann NEU ALLOZIEREN) und
+  // Senden liegen jetzt in DERSELBEN kritischen Sektion. Vorher wurde die
+  // Sperre dazwischen kurz losgelassen: die Gefahr war NICHT, dass sich der
+  // INHALT des Puffers aendert (er ist immer Null), sondern dass sich seine
+  // ADRESSE verschiebt - ein zwischen Loslassen und sendAudio() gelesener
+  // .data()-Zeiger haette dann auf bereits freigegebenen Speicher zeigen
+  // koennen, wenn ein zweiter Aufrufer in der Luecke vergroessert.
+  //
+  // Dass hier ueber sendAudioLocked() (also ueber den eigentlichen
+  // Sendeaufruf) hinweg gesperrt bleibt, verstoesst NICHT gegen die
+  // Kernregel "eine Sperre nie ueber einen NDI-Sendeaufruf halten": diese
+  // Regel verbietet, eine FREMDE Sperre (z. B. eines Subs fieldMutex) ueber
+  // einen Sendeaufruf zu halten - NdiSender darf und muss seine EIGENE
+  // Sperre um seinen EIGENEN Sendeaufruf legen, genau wie sendBlack() es
+  // fuer black_ bereits tut.
+  sendAudioLocked(silence_.data(), sampleCount, sampleRate, channels);
+}
+
 void NdiSender::close() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!send_) return;
