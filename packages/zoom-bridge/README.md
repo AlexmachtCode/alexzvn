@@ -563,18 +563,39 @@ unverändert**), 8) das Format. Erstmals gemessen: **zwei gleichzeitige
 Sprecher = 101 + 102 Pakete/s, kein `AUDIO_QUEUE_OVERFLOW`** — für fünf sagt
 das weiterhin nichts.
 
-⚠ **Punkt 5 ist GEFALLEN: der Ton läuft dem Bild hinterher.** Dazu passt eine
-bauliche Unsymmetrie in diesem Paket: das **Bild** geht direkt im SDK-Rückruf
-raus (`Delegate::onRawDataFrameReceived` → `sendI420()`), der **Ton** erst
-beim nächsten `videoTick()` über die Warteschlange — und beide tragen
-`NDIlib_send_timecode_synthesize`, also „stemple mit jetzt". Der Ton bekommt
-damit einen späteren Stempel, als ihm zusteht. **Das ist eine passende
-Erklärung, keine Messung.** Zwei Familien kommen in Frage und verlangen
-verschiedene Abhilfen: ein **gleichbleibender** Versatz spräche für die
-Rohrleitung (Warteschlange plus Tick, rund eine Tick-Länge), ein
-**wachsender** für die Abtastwert-Buchhaltung des Stille-Herzschlags. Welche
-es ist, entscheidet ein Klatschen am Anfang und eines nach vier Minuten —
-nicht die Überlegung.
+⚠ **Punkt 5 ist GEFALLEN: der Ton läuft dem Bild hinterher**, geschätzt knapp eine
+halbe Sekunde, mit **gleichbleibendem** Versatz.
+
+**Unser eigener Anteil daran ist gemessen und beträgt rund 6 ms.** Die Brücke
+schreibt seit dem 18.08.2026 mit, wie lange jedes Ton-Paket zwischen
+SDK-Rückruf und Senden in der Warteschlange liegt — das ist die **vollständige**
+Verzögerung, die der Ton gegenüber dem Bild hat, denn das Bild geht direkt aus
+seinem Rückruf raus. Über drei Zehn-Sekunden-Fenster im Dauerbetrieb: **mittel
+5,5–5,9 ms, Maximum 15,6 ms** (ein einzelner Ausreißer bei 58 ms). Die
+Senderate lag in allen Fenstern bei **100 %** — es staut sich also nichts auf.
+
+Damit ist der Versatz **nicht unserer**. 6 ms liegen eine Größenordnung unter
+der Wahrnehmungsschwelle für nacheilenden Ton (rund 45 ms), und keine
+Umstrukturierung dieser Warteschlange könnte daran etwas ändern. Übrig bleiben
+Zooms eigene Ton-Zustellung und die Pufferung des NDI-Empfängers.
+
+**Zwei Erklärungen sind auf dem Weg dorthin durch Messung ausgeschieden:**
+
+- *„Die Warteschlange staut."* — Sie wird bei jedem Tick vollständig geleert
+  (`while (audioPop(&p))`), und die Messung bestätigt es.
+- *„Zoom schüttet beim Abonnieren einen Rückstau aus, der dauerhaft eingebaut
+  wird."* — Ein Lauf zeigte tatsächlich **149 %** im Anlauf-Fenster (1,49 s Ton
+  in 1 s Wanduhr) und 477 ms Wartezeit. Der nächste Lauf zeigte im selben
+  Fenster **100 %**. Ein Burst, der nicht in jedem Lauf auftritt, kann keinen
+  Versatz erklären, der in jedem Lauf da ist.
+
+⚑ **Zooms eigenen Anteil kann die Brücke NICHT messen:** `YUVRawDataI420` hat
+**keinen Zeitstempel** — nachgesehen, alle vierzehn Methoden. Nur
+`AudioRawData` hat `GetTimeStamp()`. Zwei Ströme lassen sich nicht über einen
+Zeitstempel ausrichten, den nur einer von beiden hat; die Notiz in
+`ndi_sender.cpp`, die genau diesen Weg vorschlug, ist damit **nicht gangbar**.
+Bleibt als Abhilfe ein **gemessener, einstellbarer Versatz** — einmal in die
+Kamera klatschen, die Differenz ablesen, sie fest einstellen.
 
 **Was gegen ein echtes Meeting weiterhin nicht geprüft ist, vollständig:**
 weder der Überlauf- noch der Mismatch-Pfad, weder Meeting-Ende noch
