@@ -60,7 +60,7 @@ export function koppelText(r: Exclude<KoppelErgebnis, { ok: true }>, masterName:
         case 'code-falsch': return `Code stimmt nicht, noch ${r.rest ?? 0} Versuche.`;
         case 'code-ungueltig': return 'Code abgelaufen oder verbraucht. Am Master einen neuen Code holen.';
         case 'keine-kopplung-offen': return 'Am Master zuerst „Rechner koppeln“ öffnen.';
-        case 'rechner-id': return 'Dieser Rechner hat dieselbe Kennung wie der Master (Ordner kopiert?). Kopplungsdatei zurücksetzen.';
+        case 'rechner-id': return 'Dieser Rechner hat dieselbe Kennung wie der Master (Ordner kopiert?). „Neue Kennung“ wählen, dann koppeln.';
         case 'protokoll': return fehlerText('protokoll', { masterName });
         default: return `Der Master hat abgelehnt (${r.grund}).`;
       }

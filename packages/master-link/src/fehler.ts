@@ -129,7 +129,8 @@ export function fehlerText(code: FehlerCode, k: TextKontext): string {
     case 'signatur':
       return 'Anmeldung abgelehnt: Der Schlüssel passt nicht zur Kopplung. Neu koppeln.';
     case 'ersetzt':
-      return 'Diese Rechnerkennung meldet sich ein zweites Mal beim Master an (Ordner kopiert oder Rechner geklont?). Neu koppeln.';
+      // Endprüfung D1: „Neu koppeln“ allein sperrte das Original aus — am Klon braucht es eine eigene Kennung.
+      return 'Diese Rechnerkennung meldet sich ein zweites Mal beim Master an (Ordner kopiert oder Rechner geklont?). Auf dem kopierten Rechner „Neue Kennung“ wählen, dann neu koppeln.';
     case 'datei':
       return 'Kopplungsdatei beschädigt. Neu koppeln.';
     case 'sonstig':

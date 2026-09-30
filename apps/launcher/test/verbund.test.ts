@@ -102,6 +102,9 @@ ck('teileAdresse: mit Port', teileAdresse('127.0.0.1:18738')?.port === 18738);
 ck('teileAdresse: leer -> null', teileAdresse('  ') === null);
 ck('koppelText code-falsch nennt Restversuche', koppelText({ ok: false, art: 'abgelehnt', grund: 'code-falsch', rest: 3 }, 'Regie-PC', '10.0.0.1') === 'Code stimmt nicht, noch 3 Versuche.');
 ck('koppelText Frist', koppelText({ ok: false, art: 'frist' }, 'Regie-PC', '10.0.0.1') === 'Der Master hat nicht rechtzeitig bestätigt. Nichts gespeichert.');
+ck('D1: koppelText rechner-id verweist auf „Neue Kennung“ (Spec 9.2, Nachtrag)',
+  koppelText({ ok: false, art: 'abgelehnt', grund: 'rechner-id' }, 'Regie-PC', '10.0.0.1')
+  === 'Dieser Rechner hat dieselbe Kennung wie der Master (Ordner kopiert?). „Neue Kennung“ wählen, dann koppeln.');
 
 ck('fehlerCode: nur der Code, nie der Text; ohne Code „UNBEKANNT“', fehlerCode(gesperrtMit('EPERM')) === 'EPERM' && fehlerCode(new Error('x')) === 'UNBEKANNT'
   && fehlerCode(null) === 'UNBEKANNT' && fehlerCode('text') === 'UNBEKANNT' && fehlerCode({ code: 5 }) === 'UNBEKANNT');

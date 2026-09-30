@@ -224,6 +224,7 @@ Die Tools des Master-Rechners verbinden sich binnen 5 s (Dateiprüfung) ohne Zut
   - Das ist eine Heuristik und dient nur der Anzeige und der Rangfolge. Eine Fehleinstufung kostet höchstens einen Fehlversuch.
 - **Gespeichert wird der Kartenname**, weil IPs je Einsatz wechseln.
   - Die Wahl steht in `master-link.json` und gilt für Launcher und Tools des Rechners.
+  - (Nachtrag aus der Endprüfung: Der Launcher beobachtet `master-link.json` wie die Tools und übernimmt eine Änderung von außen — auch Rolle und Kopplung —, siehe 7.3.)
 - **Fehlt die gewählte Karte**, arbeitet der Rechner mit **Automatisch** weiter und zeigt den Hinweis „Gewählte Karte ‚Ethernet 2‘ nicht vorhanden, nutze Automatisch“ (5.4).
 - Alle 10 s prüft er `os.networkInterfaces()` erneut.
 
@@ -363,6 +364,8 @@ Alle Netzarbeit läuft im Main-Prozess, der Renderer bekommt nur IPC. Die CSP bl
   - „Entfernen“ (nicht bei „dieser Rechner“)
 - „Master-Identität erneuern“ (mit Warnung)
 - Wurde eine Datei aus `.bak` wiederhergestellt (7.3), steht ein Hinweis dabei.
+- (Nachtrag aus der Endprüfung:) die Tools dieses Rechners mit ihrem Zustand (5.2), wie am Slave; scheitert das Speichern von `verbund.json` dauerhaft, der Hinweis „Verbund nicht gespeichert (CODE) — Änderungen gelten nur bis zum Neustart“.
+- (Nachtrag aus der Endprüfung:) Der Name des Masters erreicht die Slaves: Sie schreiben den Namen aus dem gepinnten `hallo` bei Abweichung in ihre Kopplung nach und zeigen ihn im Kopf. Eine neue Master-Identität heißt wie „Name dieses Rechners“; „Verbund neu aufsetzen“ behält den bisherigen Namen.
 
 **Am Slave:**
 - Name dieses Rechners
@@ -535,7 +538,7 @@ Schreiben darf **nur der Launcher**, Tools lesen nur.
 - **`kopplung`:** `null`, solange nicht gekoppelt.
 - **`adressen`:** Der Launcher übernimmt `angemeldet.adressen` nur, wenn sie sich ändern.
 - **`letzteAdresse`:** Der Launcher schreibt die zuletzt erfolgreiche Adresse nur bei Änderung.
-- **`rechner.id`:** entsteht beim ersten Schreiben und bleibt beim Umkoppeln gleich.
+- **`rechner.id`:** entsteht beim ersten Schreiben und bleibt beim Umkoppeln gleich. (Nachtrag aus der Endprüfung: Einzige Ausnahme ist „Neue Kennung“ im Modal — neue `rechner.id`, Kopplung gelöscht, Rolle bleibt. Sie wird nur bei `ersetzt`/`signatur` bzw. nach der Koppel-Ablehnung `rechner-id` angeboten, also für einen geklonten Rechner oder einen kopierten Ordner. Normales Umkoppeln behält die Kennung.)
   - Die Datei darf nie kopiert oder in ein Rechner-Image übernommen werden. Das Handbuch sagt das ausdrücklich, ein Klon sonst `ersetzt` ergibt.
 - **Master-Rechner:**
   - Dort gilt `rolle: "master"`, und `kopplung` ist die Selbstkopplung: eigener Fingerprint, eigenes Zertifikat, eigenes Schlüsselpaar.
@@ -586,6 +589,12 @@ Unbekannte Zusatzfelder werden verworfen und gelten nicht als Defekt.
 - Es behält den letzten gültigen Stand.
 - `fehler:datei` meldet es erst, wenn **zwei aufeinanderfolgende** Lesungen scheitern.
 - Es stürzt nie ab.
+
+**Launcher und `master-link.json` im Betrieb** (Nachtrag aus der Endprüfung: vorher las der Launcher die Datei nur beim Start; eine gelöschte oder von Hand geänderte Datei ließ den Kopf dauerhaft „Suche …“ zeigen):
+- Der Launcher beobachtet die Datei im Takt der Tools (5 s, mtime) und übernimmt den **Plattenstand als Wahrheit**, nacheinander mit den Bedienaktionen.
+- **Fehlt** die Datei: wie beim Start ohne Datei — Rolle aus, neue Kennung nur im Speicher, nichts wird geschrieben.
+- **Beschädigt:** wie beim Start. **I/O-Fehler:** „Kopplungsdatei gesperrt“, nichts wird überschrieben, bis sie wieder lesbar ist.
+- **Verbindungsrelevante Änderung** (7.1): Die Rolle startet neu. Eigene Schreibvorgänge lösen keinen Neustart aus.
 
 **Schutz:** Unter Windows liegen alle Dateien im Benutzerprofil, unter macOS wirkt zusätzlich 0600. Das ist derselbe Schutz wie bei `control.json`.
 
@@ -670,8 +679,8 @@ Die Presence wird nur um das Feld `verbund` erweitert (8.3).
 | `uhr` | Zertifikat noch nicht bzw. nicht mehr gültig (6.1) | „Die Uhrzeit dieses Rechners oder des Masters stimmt nicht. Uhrzeit prüfen.“ | alle 30 s |
 | `protokoll` | `abgelehnt { grund: "protokoll" }` | „Versionen passen nicht: Master hat Launcher ⟨suite⟩ (Protokoll ⟨master⟩), dieses Programm Protokoll ⟨eigenes⟩. Bitte angleichen.“ | alle 60 s |
 | `unbekannt` | `abgelehnt { grund: "unbekannt" }`, in jedem Zustand | „Dieser Rechner wurde am Master entfernt. Neu koppeln.“ | keine, bis sich die Datei ändert |
-| `signatur` | `abgelehnt { grund: "signatur" }` | „Anmeldung abgelehnt: Der Schlüssel passt nicht zur Kopplung. Neu koppeln.“ | keine, bis sich die Datei ändert |
-| `ersetzt` | `abgelehnt { grund: "ersetzt" }` auf einer angemeldeten Verbindung | „Diese Rechnerkennung meldet sich ein zweites Mal beim Master an (Ordner kopiert oder Rechner geklont?). Neu koppeln.“ | alle 60 s |
+| `signatur` | `abgelehnt { grund: "signatur" }` | „Anmeldung abgelehnt: Der Schlüssel passt nicht zur Kopplung. Neu koppeln.“ (Nachtrag aus der Endprüfung: Das Modal bietet hier zusätzlich „Neue Kennung“ an — hat ein Klon mit derselben Kennung neu gekoppelt, hilft nur eine eigene Kennung, 7.1.) | keine, bis sich die Datei ändert |
+| `ersetzt` | `abgelehnt { grund: "ersetzt" }` auf einer angemeldeten Verbindung | „Diese Rechnerkennung meldet sich ein zweites Mal beim Master an (Ordner kopiert oder Rechner geklont?). Auf dem kopierten Rechner „Neue Kennung“ wählen, dann neu koppeln.“ (Nachtrag aus der Endprüfung: „Neu koppeln“ allein sperrte das Original aus; das Modal bietet „Neue Kennung“ an, 7.1.) | alle 60 s |
 | `datei` | `master-link.json` beschädigt, zweimal in Folge (7.3) | „Kopplungsdatei beschädigt. Neu koppeln.“ | keine, bis sich die Datei ändert |
 | `sonstig` | jeder andere Socket- oder TLS-Fehler (z. B. `ECONNRESET`) | „Verbindungsfehler ⟨err.code⟩.“ | normal |
 
@@ -689,7 +698,7 @@ Die Presence wird nur um das Feld `verbund` erweitert (8.3).
 | `code-falsch` | „Code stimmt nicht, noch ⟨rest⟩ Versuche.“ |
 | `code-ungueltig` | „Code abgelaufen oder verbraucht. Am Master einen neuen Code holen.“ |
 | `keine-kopplung-offen` | „Am Master zuerst ‚Rechner koppeln‘ öffnen.“ |
-| `rechner-id` | „Dieser Rechner hat dieselbe Kennung wie der Master (Ordner kopiert?). Kopplungsdatei zurücksetzen.“ |
+| `rechner-id` | „Dieser Rechner hat dieselbe Kennung wie der Master (Ordner kopiert?). „Neue Kennung“ wählen, dann koppeln.“ (Nachtrag aus der Endprüfung: statt „Kopplungsdatei zurücksetzen“, wofür das Modal keine Funktion hatte; der Knopf „Neue Kennung“ steht direkt darunter, 7.1.) |
 | Master-Beweis falsch | „Der Master konnte den Code nicht bestätigen, möglicherweise ein fremdes Gerät. Nichts gespeichert.“ |
 | Frist 10 s abgelaufen | „Der Master hat nicht rechtzeitig bestätigt. Nichts gespeichert.“ |
 | Verbindungsfehler | Text aus 9.1 |

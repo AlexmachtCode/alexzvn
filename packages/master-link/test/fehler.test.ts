@@ -56,4 +56,8 @@ export async function laufe(): Promise<void> {
   gleich(fehlerText('kein-master', { masterName: 'X', adresse: '10.0.0.9' }), 'Unter 10.0.0.9 antwortet ein Dienst, aber nicht als Master.', 'kein-master nennt die Adresse');
   pruefe(fehlerText('protokoll', { masterName: 'X', suite: '0.13.0', masterProtokoll: 2 }).includes('Launcher 0.13.0 (Protokoll 2)'), 'protokoll nennt Stand des Masters');
   gleich(fehlerText('sonstig', { masterName: 'X', errCode: 'ECONNRESET' }), 'Verbindungsfehler ECONNRESET.', 'sonstig nennt err.code');
+  // Endprüfung D1 (Ruling Klon): „Neu koppeln“ allein sperrte das Original aus — der Weg ist „Neue Kennung“ am Klon.
+  gleich(fehlerText('ersetzt', { masterName: 'X' }),
+    'Diese Rechnerkennung meldet sich ein zweites Mal beim Master an (Ordner kopiert oder Rechner geklont?). Auf dem kopierten Rechner „Neue Kennung“ wählen, dann neu koppeln.',
+    'ersetzt verweist auf „Neue Kennung“ am kopierten Rechner (Spec 9.1, Nachtrag)');
 }
