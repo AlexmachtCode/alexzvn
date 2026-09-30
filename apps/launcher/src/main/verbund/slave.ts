@@ -1,11 +1,12 @@
 import { networkInterfaces } from 'node:os';
 import {
-  fehlerText, koppele, listeKarten, MASTER_PORT, MasterLinkClient, MdnsSuche, normalisiereCode, ordneKandidaten,
+  fehlerText, koppele, kuerzeName, listeKarten, MASTER_PORT, MasterLinkClient, MdnsSuche, normalisiereCode, ordneKandidaten,
   standardFabrik, wirksameKarten,
   type ClientZustand, type Fristen, type KoppelErgebnis, type MasterLinkDatei, type MasterSichtung,
   type NetzwerkInterfaces, type SucheLike,
 } from '@jm/master-link';
 import type { GefundenerMaster, KoppelAntwort, VerbundClientStand, VerbundSlaveStand } from '@shared/types';
+import { fehlerCode } from './fehlercode';
 
 // Slave-Rolle des Launchers (Spec 3.1, 5.3): eigener Client als Teilnehmer „launcher“,
 // Koppeln per Code, Liste gefundener Master. Schreibt die gemeinsame master-link.json.
@@ -14,6 +15,7 @@ export interface SlaveAbhaengigkeiten {
   dateiPfad: string;
   suiteVersion: string;
   datei: () => MasterLinkDatei;
+  /** Schreibt die gemeinsame master-link.json. WIRFT bei einem Fehler (auch bei gesperrter Datei): nie „gekoppelt“ melden, ohne zu speichern. */
   schreibeDatei: (d: MasterLinkDatei) => void;
   beiAenderung: () => void;
   log: (stufe: 'info' | 'warn', text: string) => void;
@@ -23,6 +25,8 @@ export interface SlaveAbhaengigkeiten {
   suche?: SucheLike | null;
   /** Suche für die Liste „gefundene Master“ (Vorgabe echtes mDNS; null = keine). */
   listenSuche?: SucheLike | null;
+  /** Nur Tests: Takt der Listensuche (Vorgabe 5000 ms). */
+  suchTaktMs?: number;
 }
 
 export function teileAdresse(eingabe: string): { host: string; port: number } | null {
@@ -78,6 +82,8 @@ export class SlaveRolle {
   private koppelAbbruch: AbortController | null = null;
   private koppeltGerade = false;
   private koppelZiel: string | null = null;
+  /** Letzter geloggter Fehler der Such-Runde: dieselbe Meldung steht nicht alle 5 s im Log. */
+  private letzterSuchFehler: string | null = null;
 
   constructor(d: SlaveAbhaengigkeiten) {
     this.d = d;
@@ -130,12 +136,20 @@ export class SlaveRolle {
           this.gefunden = neu;
           this.d.beiAenderung();
         }
+        this.letzterSuchFehler = null;
+      } catch (e) {
+        // Eine werfende Runde (Kartenliste, Bonjour-Fabrik) ist keine unbehandelte Ablehnung im Main; geloggt wird nur ein Wechsel.
+        const code = fehlerCode(e);
+        if (code !== this.letzterSuchFehler) {
+          this.letzterSuchFehler = code;
+          this.d.log('warn', `Master-Suche fehlgeschlagen (${code}).`);
+        }
       } finally {
         this.sucheLaeuft = false;
       }
     };
     void runde();
-    this.suchZeitgeber = setInterval(() => void runde(), 5000);
+    this.suchZeitgeber = setInterval(() => void runde(), this.d.suchTaktMs ?? 5000);
   }
 
   stoppeSuche(): void {
@@ -161,7 +175,7 @@ export class SlaveRolle {
     this.koppelAbbruch = ctrl;
     const gesehen = this.gefunden.find((g) => g.adressen.includes(ziel.host));
     // Kopf „Koppeln mit ⟨Name⟩…“ (Spec 5.4) schon beim ERSTEN Koppeln: Name aus mDNS, sonst die Adresse.
-    this.koppelZiel = gesehen?.name ?? ziel.host;
+    this.koppelZiel = kuerzeName(gesehen?.name ?? ziel.host);
     this.koppeltGerade = true;
     this.d.beiAenderung();
     try {
@@ -178,14 +192,30 @@ export class SlaveRolle {
         festeAdresse: gesehen ? (d.kopplung?.festeAdresse ?? null) : ziel.host,
       });
       if (!r.ok) return { ok: false, text: koppelText(r, gesehen?.name ?? ziel.host, ziel.host) };
-      this.d.schreibeDatei({ ...this.d.datei(), rolle: 'slave', kopplung: r.kopplung });
-      this.client.uebernehme(r.verbindung, r.kopplung, r.masterName);
-      this.d.log('info', `Mit Master „${r.masterName}“ gekoppelt.`);
+      // Der Master-Name kommt aus der 'gekoppelt'-Zeile (bis 4 KiB, Zeilenumbrüche möglich): vor Speichern, Log und Anzeige kürzen.
+      const masterName = kuerzeName(r.masterName);
+      const kopplung = { ...r.kopplung, masterName: kuerzeName(r.kopplung.masterName) };
+      try {
+        this.d.schreibeDatei({ ...this.d.datei(), rolle: 'slave', kopplung });
+      } catch (e) {
+        // Nie „gekoppelt“ melden, ohne zu speichern: der Master führt diesen Rechner zwar schon im Verbund, aber hier
+        // wäre die Kopplung nach dem Neustart weg. Verbindung zu, nichts übernehmen, ehrlich ablehnen (Spec 10).
+        const code = fehlerCode(e);
+        r.verbindung.schliesse();
+        this.d.log('warn', `Kopplung nicht gespeichert (${code}).`);
+        return { ok: false, text: `Kopplung konnte auf diesem Rechner nicht gespeichert werden (${code}).` };
+      }
+      this.client.uebernehme(r.verbindung, kopplung, masterName);
+      this.d.log('info', `Mit Master „${masterName}“ gekoppelt.`);
       return { ok: true };
     } finally {
-      if (this.koppelAbbruch === ctrl) this.koppelAbbruch = null;
-      this.koppeltGerade = false;
-      this.d.beiAenderung();
+      // Nur der AKTUELLE Lauf setzt zurück: ein zweites koppele() hat das erste abgebrochen und läuft noch.
+      if (this.koppelAbbruch === ctrl) {
+        this.koppelAbbruch = null;
+        this.koppeltGerade = false;
+        this.koppelZiel = null;
+        this.d.beiAenderung();
+      }
     }
   }
 
@@ -199,7 +229,12 @@ export class SlaveRolle {
     const k = d.kopplung;
     if (!k) return;
     if (k.letzteAdresse === a.adresse && JSON.stringify(k.adressen) === JSON.stringify(a.adressen)) return;
-    this.d.schreibeDatei({ ...d, kopplung: { ...k, letzteAdresse: a.adresse, adressen: a.adressen } });
+    try {
+      this.d.schreibeDatei({ ...d, kopplung: { ...k, letzteAdresse: a.adresse, adressen: a.adressen } });
+    } catch (e) {
+      // Ein verpasster Adressnachtrag ist kein Grund, die Verbindung zu stören; er kommt mit der nächsten Anmeldung wieder.
+      this.d.log('warn', `Master-Adressen nicht gespeichert (${fehlerCode(e)}).`);
+    }
   }
 
   stand(): VerbundSlaveStand {
@@ -207,7 +242,7 @@ export class SlaveRolle {
     return {
       gekoppelt: d.kopplung !== null,
       koppeltGerade: this.koppeltGerade,
-      masterName: this.koppeltGerade ? this.koppelZiel : (d.kopplung?.masterName ?? null),
+      masterName: this.koppeltGerade ? this.koppelZiel : (d.kopplung ? kuerzeName(d.kopplung.masterName) : null),
       festeAdresse: d.kopplung?.festeAdresse ?? null,
       client: clientStand(this.client.zustand()),
       gefundeneMaster: this.gefunden,
