@@ -14,6 +14,7 @@ import { getManualEndpoints, migrateTokenAtRest } from './settings';
 import { openShow } from './show';
 import { setIveoEmitter, iveoStateKv } from './iveo-sync';
 import { startLauncherControlServer, stopLauncherControlServer, pushLauncherControlState } from './control-server';
+import { starteVerbund } from './verbund';
 
 declare const __dirname: string;
 
@@ -75,6 +76,8 @@ if (setupSingleInstance(() => createWindow())) {
     startHealth(() => emitAppEvent({ type: 'health-changed' }), app.getPath('appData'));
     // A4: persistierte manuelle Adressen verbinden (Fallback bei blockiertem mDNS).
     setManualEndpoints(getManualEndpoints());
+    // Master-Link Teil 1: Rolle aus master-link.json (Master/Slave/aus) starten.
+    void starteVerbund((e) => emitAppEvent(e)).catch((err) => runtime.log.warn(`Verbund nicht gestartet: ${(err as Error).message}`));
     // iveo-Live-Umschalter (#11): Panel informieren UND Companion/Rundown-STATE pushen.
     setIveoEmitter((e) => {
       emitAppEvent(e);

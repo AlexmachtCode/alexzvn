@@ -8,11 +8,7 @@ declare module 'selfsigned' {
     name?: string;
     value?: string;
   }
-  interface Options {
-    days?: number;
-    keySize?: number;
-    algorithm?: string;
-  }
+  interface Options { days?: number; keySize?: number; algorithm?: string; notBeforeDate?: Date; }
   interface Pems {
     private: string;
     public: string;

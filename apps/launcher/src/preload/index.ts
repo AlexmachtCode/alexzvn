@@ -18,6 +18,7 @@ import type {
   IveoSideEventsResult,
   IveoSwitchInput,
   JmpsApi,
+  KoppelAntwort,
   LauncherUpdate,
   ManualEndpoint,
   PresenceRecord,
@@ -29,6 +30,8 @@ import type {
   SuiteSettingsView,
   ToolManifest,
   ToolState,
+  VerbundRolle,
+  VerbundStand,
 } from '@shared/types';
 import type { Show } from '@jm/show';
 
@@ -76,6 +79,23 @@ const api: JmpsApi = {
   listIveoMaterials: (input: IveoMaterialsInput) =>
     invoke<IveoMaterialsResult>('iveo:listMaterials', input),
   downloadIveoMaterial: (input: IveoDownloadInput) => invoke<ActionResult>('iveo:downloadMaterial', input),
+  getVerbund: () => invoke<VerbundStand>('verbund:get'),
+  setzeVerbundRolle: (rolle: VerbundRolle) => invoke<VerbundStand>('verbund:rolle', rolle),
+  setzeRechnerName: (name: string) => invoke<VerbundStand>('verbund:rechnerName', name),
+  setzeMasterName: (name: string) => invoke<VerbundStand>('verbund:masterName', name),
+  setzeVerbundKarte: (karte: string | null) => invoke<VerbundStand>('verbund:karte', karte),
+  oeffneKopplung: () => invoke<VerbundStand>('verbund:kopplungOeffnen'),
+  neuerKoppelCode: () => invoke<VerbundStand>('verbund:neuerCode'),
+  schliesseKopplung: () => invoke<VerbundStand>('verbund:kopplungSchliessen'),
+  entferneRechner: (rechnerId: string) => invoke<VerbundStand>('verbund:entfernen', rechnerId),
+  erneuereMasterIdentitaet: () => invoke<VerbundStand>('verbund:identitaetErneuern'),
+  setzeVerbundNeuAuf: () => invoke<VerbundStand>('verbund:neuAufsetzen'),
+  starteMasterSuche: () => invoke<void>('verbund:sucheStarten'),
+  stoppeMasterSuche: () => invoke<void>('verbund:sucheStoppen'),
+  koppeleMitMaster: (adresse: string, code: string) => invoke<KoppelAntwort>('verbund:koppeln', adresse, code),
+  brecheKoppelnAb: () => invoke<void>('verbund:koppelnAbbrechen'),
+  trenneVerbund: () => invoke<VerbundStand>('verbund:trennen'),
+  setzeFesteMasterAdresse: (adresse: string | null) => invoke<VerbundStand>('verbund:festeAdresse', adresse),
   onProgress: (cb) => listen<InstallProgress>('suite:progress', cb),
   onAppEvent: (cb) => listen<AppEvent>('app:event', cb),
 };

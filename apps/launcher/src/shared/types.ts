@@ -416,6 +416,24 @@ export interface JmpsApi {
   listIveoMaterials: (input: IveoMaterialsInput) => Promise<IveoMaterialsResult>;
   /** iveo (#11): ein Material herunterladen (Datei speichern+öffnen) bzw. Link öffnen. */
   downloadIveoMaterial: (input: IveoDownloadInput) => Promise<ActionResult>;
+  /** Verbund (Master-Link Teil 1). */
+  getVerbund: () => Promise<VerbundStand>;
+  setzeVerbundRolle: (rolle: VerbundRolle) => Promise<VerbundStand>;
+  setzeRechnerName: (name: string) => Promise<VerbundStand>;
+  setzeMasterName: (name: string) => Promise<VerbundStand>;
+  setzeVerbundKarte: (karte: string | null) => Promise<VerbundStand>;
+  oeffneKopplung: () => Promise<VerbundStand>;
+  neuerKoppelCode: () => Promise<VerbundStand>;
+  schliesseKopplung: () => Promise<VerbundStand>;
+  entferneRechner: (rechnerId: string) => Promise<VerbundStand>;
+  erneuereMasterIdentitaet: () => Promise<VerbundStand>;
+  setzeVerbundNeuAuf: () => Promise<VerbundStand>;
+  starteMasterSuche: () => Promise<void>;
+  stoppeMasterSuche: () => Promise<void>;
+  koppeleMitMaster: (adresse: string, code: string) => Promise<KoppelAntwort>;
+  brecheKoppelnAb: () => Promise<void>;
+  trenneVerbund: () => Promise<VerbundStand>;
+  setzeFesteMasterAdresse: (adresse: string | null) => Promise<VerbundStand>;
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
 }

@@ -13,6 +13,12 @@ import type {
   RecipeDraftInput,
   SuiteSettingsInput,
 } from '@shared/types';
+import type { VerbundRolle } from '@shared/types';
+import {
+  brecheKoppelnAb, entferneRechner, erneuereIdentitaet, koppeleMitMaster, neuerKoppelCode, oeffneKopplung,
+  schliesseKopplung, setzeFesteAdresse, setzeKarte, setzeMasterName, setzeNeuAuf, setzeRechnerName, setzeRolle,
+  starteMasterSuche, stoppeMasterSuche, trenneVerbund, verbundStand,
+} from './verbund';
 import type { ToolManifest } from '@jm/suite-manifest';
 import type { Show } from '@jm/show';
 import { getTool, getTools } from './manifest';
@@ -124,6 +130,25 @@ export function registerIpc(): void {
   ipcMain.handle('control:status', () => getControlStatus());
   ipcMain.handle('control:provision', () => provisionControl());
   ipcMain.handle('control:disable', () => disableControl());
+
+  // Verbund (Master-Link Teil 1): Rolle, Kopplung, Netzwerkwahl — alles im Main.
+  ipcMain.handle('verbund:get', () => verbundStand());
+  ipcMain.handle('verbund:rolle', (_e, rolle: VerbundRolle) => setzeRolle(rolle));
+  ipcMain.handle('verbund:rechnerName', (_e, name: string) => setzeRechnerName(name));
+  ipcMain.handle('verbund:masterName', (_e, name: string) => setzeMasterName(name));
+  ipcMain.handle('verbund:karte', (_e, karte: string | null) => setzeKarte(karte));
+  ipcMain.handle('verbund:kopplungOeffnen', () => oeffneKopplung());
+  ipcMain.handle('verbund:neuerCode', () => neuerKoppelCode());
+  ipcMain.handle('verbund:kopplungSchliessen', () => schliesseKopplung());
+  ipcMain.handle('verbund:entfernen', (_e, rechnerId: string) => entferneRechner(rechnerId));
+  ipcMain.handle('verbund:identitaetErneuern', () => erneuereIdentitaet());
+  ipcMain.handle('verbund:neuAufsetzen', () => setzeNeuAuf());
+  ipcMain.handle('verbund:sucheStarten', () => starteMasterSuche());
+  ipcMain.handle('verbund:sucheStoppen', () => stoppeMasterSuche());
+  ipcMain.handle('verbund:koppeln', (_e, adresse: string, code: string) => koppeleMitMaster(adresse, code));
+  ipcMain.handle('verbund:koppelnAbbrechen', () => brecheKoppelnAb());
+  ipcMain.handle('verbund:trennen', () => trenneVerbund());
+  ipcMain.handle('verbund:festeAdresse', (_e, adresse: string | null) => setzeFesteAdresse(adresse));
 
   // Bug-/Wunsch-Meldung → GitHub-Issue (via Proxy, sonst Token-Fallback).
   ipcMain.handle('feedback:submit', (_e, input: FeedbackInput) => submitFeedback(input));
