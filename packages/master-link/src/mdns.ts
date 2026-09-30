@@ -2,6 +2,7 @@ import type { EventEmitter } from 'node:events';
 import BonjourPaket from 'bonjour-service';
 import type { Karte } from './adresswahl';
 import { kurzFingerprint } from './beweis';
+import { kuerzeName } from './fristen';
 import { PROTOKOLL } from './rahmen';
 
 // mDNS des Master-Links (Spec 4.2, 4.5). GEMESSEN (bonjour-service 1.4.0 / multicast-dns 7.2.5):
@@ -72,21 +73,32 @@ export interface MasterSichtung {
   adressen: string[];
 }
 
-function txtWert(txt: Record<string, unknown> | null | undefined, key: string): string {
+/** Eine masterId ist eine UUID (36 Zeichen); mehr kann nur aus fremden Netzdaten kommen. */
+const MAX_ID_LAENGE = 64;
+
+/** Text eines TXT-Felds: `undefined` = Feld fehlt, `null` = vorhanden, aber weder Text noch Bytes (Netzdaten!). */
+function txtWert(txt: Record<string, unknown> | null | undefined, key: string): string | null | undefined {
   const v = txt?.[key];
+  if (v === undefined) return undefined;
   if (typeof v === 'string') return v;
   if (Buffer.isBuffer(v)) return v.toString('utf8');
-  return '';
+  return null;
 }
 
+/** mDNS-Antworten kommen aus dem Netz: Felder prüfen, Namen auf 60 Zeichen kürzen (Spec), sonst Sichtung verwerfen. */
 export function leseSichtung(s: MdnsDienst): MasterSichtung | null {
   const masterId = txtWert(s.txt, 'id');
-  if (!masterId) return null;
-  const p = Number(txtWert(s.txt, 'p'));
+  const name = txtWert(s.txt, 'name');
+  const fp = txtWert(s.txt, 'fp');
+  if (!masterId || masterId.length > MAX_ID_LAENGE) return null;
+  if (name === null || fp === null) return null;
+  const anzeigeName = name || s.name;
+  if (typeof anzeigeName !== 'string') return null;
+  const p = Number(txtWert(s.txt, 'p') ?? '');
   return {
     masterId,
-    name: txtWert(s.txt, 'name') || s.name,
-    fpKurz: txtWert(s.txt, 'fp'),
+    name: kuerzeName(anzeigeName),
+    fpKurz: kurzFingerprint(fp ?? ''),
     protokoll: Number.isInteger(p) ? p : 0,
     adressen: (s.addresses ?? []).filter((a) => /^\d{1,3}(\.\d{1,3}){3}$/.test(a)),
   };
@@ -111,7 +123,8 @@ export class MasterAnnonce {
         port: this.daten.port,
         txt: {
           id: this.daten.masterId,
-          name: kuerzeFuerTxt(this.daten.name),
+          // Spec: Namen höchstens 60 Zeichen. Der Name stammt aus identitaet.json (dort nur typgeprüft), also hier säubern.
+          name: kuerzeFuerTxt(kuerzeName(this.daten.name)),
           fp: kurzFingerprint(this.daten.fp),
           p: String(PROTOKOLL),
         },

@@ -62,6 +62,31 @@ export async function laufe(): Promise<void> {
   gleich(leseSichtung({ name: 'x', port: 1, txt: { id: Buffer.from('m-2'), name: Buffer.from('Säle'), p: Buffer.from('1') } })?.name, 'Säle', 'Buffer-TXT wird UTF-8');
   gleich(leseSichtung({ name: 'x', port: 1, txt: { name: 'ohne id' } }), null, 'ohne id → keine Sichtung');
 
+  abschnitt('mDNS: Netzdaten sind unvertrauenswürdig (Namen höchstens 60 Zeichen, Fix-Runde 1)');
+  const emojiLang = '🎬'.repeat(70);
+  gleich([...(leseSichtung({ name: 'x', port: 1, txt: { id: 'm-1', name: emojiLang } })?.name ?? '')].length, 60, 'Sichtung: 70 Emoji → 60 Zeichen');
+  gleich([...(leseSichtung({ name: 'x', port: 1, txt: { id: 'm-1', name: 'a'.repeat(10_000) } })?.name ?? '')].length, 60, 'Sichtung: 10 000 ASCII-Zeichen → 60 Zeichen');
+  gleich([...(leseSichtung({ name: 'x', port: 1, txt: { id: 'm-1', name: Buffer.from(emojiLang) } })?.name ?? '')].length, 60, 'Sichtung: überlanger Buffer-Name → 60 Zeichen');
+  gleich(leseSichtung({ name: 'y'.repeat(500), port: 1, txt: { id: 'm-1' } })?.name.length, 60, 'Sichtung: überlanger Dienstname als Rückfall → 60 Zeichen');
+  gleich(leseSichtung({ name: 'x', port: 1, txt: { id: 'm-1', name: '' } })?.name, 'x', 'Sichtung: leerer TXT-Name → Dienstname als Rückfall');
+  gleich(leseSichtung({ name: 'x', port: 1, txt: { id: 'm-1', name: '   ' } })?.name, 'Unbenannt', 'Sichtung: nur Leerzeichen → „Unbenannt“ (kuerzeName)');
+  gleich(leseSichtung({ name: 'x', port: 1, txt: { id: 'm-1', name: 'Regie-PC', fp: 'f'.repeat(200) } })?.fpKurz, 'f'.repeat(16), 'Sichtung: fp auf Kurzform (16) begrenzt');
+  gleich(leseSichtung({ name: 'x', port: 1, txt: { id: 'i'.repeat(65), name: 'Regie-PC' } }), null, 'Sichtung: überlange id → verworfen');
+  gleich(leseSichtung({ name: 'x', port: 1, txt: { id: 'i'.repeat(64), name: 'Regie-PC' } })?.masterId, 'i'.repeat(64), 'Sichtung: id mit 64 Zeichen bleibt');
+  const fremd = (txt: Record<string, unknown>): ReturnType<typeof leseSichtung> | 'wurf' => {
+    try {
+      return leseSichtung({ name: 'x', port: 1, txt });
+    } catch {
+      return 'wurf';
+    }
+  };
+  gleich(fremd({ id: 'm-1', name: { boese: 1 } }), null, 'Sichtung: name kein Text (Objekt) → verworfen, kein Wurf');
+  gleich(fremd({ id: 'm-1', name: true }), null, 'Sichtung: name ohne Wert (true) → verworfen, kein Wurf');
+  gleich(fremd({ id: 'm-1', name: 'Regie-PC', fp: 12345 }), null, 'Sichtung: fp kein Text (Zahl) → verworfen, kein Wurf');
+  gleich(fremd({ id: 42, name: 'Regie-PC' }), null, 'Sichtung: id kein Text (Zahl) → verworfen, kein Wurf');
+  gleich(fremd({ id: ['m-1'], name: 'Regie-PC' }), null, 'Sichtung: id kein Text (Liste) → verworfen, kein Wurf');
+  gleich(leseSichtung({ name: undefined as unknown as string, port: 1, txt: { id: 'm-1' } }), null, 'Sichtung: weder TXT-Name noch Dienstname als Text → verworfen, kein Wurf');
+
   abschnitt('mDNS: Annonce');
   const protokoll: string[] = [];
   const instanzen: FakeBonjour[] = [];
@@ -84,6 +109,30 @@ export async function laufe(): Promise<void> {
   const i0 = protokoll.indexOf('unpublishAll 10.0.0.110');
   const d0 = protokoll.indexOf('destroy 10.0.0.110');
   pruefe(i0 >= 0 && d0 > i0, 'stoppe: erst unpublishAll (Goodbye), dann destroy');
+
+  // Spec: Namen höchstens 60 Zeichen. Der Name kommt aus identitaet.json und ist dort nur typgeprüft.
+  const pubName = (b: FakeBonjour): string => (b.veroeffentlicht[b.veroeffentlicht.length - 1] as { txt: Record<string, string> }).txt.name;
+  gleich([...pub.txt.name].length, 60, 'Annonce: 70 Emoji → veröffentlichter Name hat 60 Zeichen (Review Focus 1)');
+  pruefe(Buffer.byteLength(`name=${pub.txt.name}`) <= 245, `Annonce: 60 Emoji + „name=“ ≤ 245 Byte (${Buffer.byteLength(`name=${pub.txt.name}`)})`);
+  const instanzenB: FakeBonjour[] = [];
+  const fabrikB = (o: { interface: string; bind: string }) => {
+    const b = new FakeBonjour(o, []);
+    instanzenB.push(b);
+    return b;
+  };
+  const ascii = new MasterAnnonce(fabrikB, { masterId: 'abcdef12-0000', name: 'a'.repeat(10_000), fp: 'f'.repeat(64), port: 8738 });
+  ascii.starte(karten);
+  gleich([...pubName(instanzenB[0])].length, 60, 'Annonce: 10 000 ASCII-Zeichen → 60 Zeichen');
+  instanzenB.length = 0;
+  await ascii.aktualisiere(karten, '🎬'.repeat(70));
+  gleich([instanzenB.length, [...pubName(instanzenB[0])].length], [2, 60], 'aktualisiere: 70 Emoji → 60 Zeichen');
+  instanzenB.length = 0;
+  await ascii.aktualisiere(karten, '   ');
+  gleich(pubName(instanzenB[0]), 'Unbenannt', 'aktualisiere: leerer Name → „Unbenannt“');
+  instanzenB.length = 0;
+  await ascii.aktualisiere(karten);
+  gleich(pubName(instanzenB[0]), 'Unbenannt', 'aktualisiere ohne Namen behält den gesäuberten Namen');
+  await ascii.stoppe();
 
   abschnitt('mDNS: Suche mit neuem Browser je Runde');
   instanzen.length = 0;
