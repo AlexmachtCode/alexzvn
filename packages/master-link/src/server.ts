@@ -4,7 +4,8 @@ import { networkInterfaces } from 'node:os';
 import { createServer, type Server as TlsServer, type TLSSocket } from 'node:tls';
 import { randomNonce } from '@jm/auth-core';
 import { listeKarten, type NetzwerkInterfaces } from './adresswahl';
-import { fingerprintVonPem, pruefeAnmeldung } from './beweis';
+import { fingerprintVonPem, gleicherBeweis, istEd25519Oeffentlich, masterBeweis, pruefeAnmeldung, slaveBeweis } from './beweis';
+import { erzeugeCode } from './code';
 import { fristen as mitFristen, GRENZEN, kuerzeName, MASTER_PORT, type Fristen } from './fristen';
 import { PROTOKOLL, type Grund, type Nachricht, type TeilnehmerInfo } from './rahmen';
 import type { Identitaet, VerbundSpeicher } from './speicher';
@@ -93,6 +94,7 @@ export class MasterLinkServer extends EventEmitter {
   private readonly teilnehmerMap = new Map<string, Sitzung>();
   private readonly fehlschlaege = new Map<string, number[]>();
   private pulsZeitgeber: ReturnType<typeof setInterval> | null = null;
+  private fenster: { code: string; erzeugt: number; fehlversuche: number; verbraucht: boolean } | null = null;
 
   constructor(o: ServerOptionen) {
     super();
@@ -288,9 +290,96 @@ export class MasterLinkServer extends EventEmitter {
     this.meldeAn(s, n.rechnerId, n.teilnehmer);
   }
 
-  /** Aufgabe 10 ersetzt diese Methode durch die echte Kopplung. */
-  private behandleKoppeln(s: Sitzung, _n: Extract<Nachricht, { t: 'koppeln' }>): void {
-    this.lehneAb(s, 'keine-kopplung-offen');
+  private behandleKoppeln(s: Sitzung, n: Extract<Nachricht, { t: 'koppeln' }>): void {
+    if (n.protokoll !== PROTOKOLL) {
+      this.lehneAb(s, 'protokoll', { master: PROTOKOLL, suite: this.o.suiteVersion });
+      return;
+    }
+    const f = this.fenster;
+    if (!f) {
+      this.lehneAb(s, 'keine-kopplung-offen');
+      return;
+    }
+    if (!this.codeGueltig()) {
+      this.lehneAb(s, 'code-ungueltig');
+      return;
+    }
+    if (n.rechnerId === this.o.eigeneRechnerId) {
+      this.lehneAb(s, 'rechner-id');
+      return;
+    }
+    const d = { fp: this.fingerprint, ns: s.nonce, nc: n.nonce, rechnerId: n.rechnerId, schluessel: n.schluessel };
+    if (!istEd25519Oeffentlich(n.schluessel) || !gleicherBeweis(slaveBeweis(f.code, d), n.beweis)) {
+      f.fehlversuche++;
+      this.emit('aenderung');
+      this.lehneAb(s, 'code-falsch', { rest: Math.max(0, GRENZEN.maxFehlversuche - f.fehlversuche) });
+      return;
+    }
+    f.verbraucht = true;
+    // Neuer Schlüssel für diesen Rechner: bestehende Verbindungen mit dem alten sind ungültig.
+    for (const alt of this.sitzungen) {
+      if (alt !== s && alt.rechnerId === n.rechnerId) this.lehneAb(alt, 'signatur');
+    }
+    const jetzt = this.jetzt();
+    this.o.verbund.setze({
+      rechnerId: n.rechnerId,
+      name: kuerzeName(n.rechnerName),
+      schluessel: n.schluessel,
+      gekoppeltAm: jetzt,
+      zuletztGesehen: jetzt,
+      letzteAdresse: s.v.adresse,
+      dieserRechner: false,
+    });
+    s.rechnerId = n.rechnerId;
+    s.wartetAufTeilnehmer = true;
+    // Frist für 'teilnehmer' neu ansetzen: das Koppeln selbst hat schon Zeit verbraucht.
+    const eintrag = this.roh.get(s.roh);
+    if (eintrag) {
+      clearTimeout(eintrag.frist);
+      eintrag.frist = setTimeout(() => this.anmeldefristAbgelaufen(s.roh), this.f.anmeldefristMs);
+    }
+    s.v.sende({
+      t: 'gekoppelt',
+      masterId: this.o.identitaet.masterId,
+      name: this.name,
+      beweis: masterBeweis(f.code, d, this.o.identitaet.masterId),
+      adressen: this.adressenFuerSlaves(),
+    });
+    this.emit('aenderung');
+  }
+
+  private codeGueltig(): boolean {
+    const f = this.fenster;
+    return !!f && !f.verbraucht && f.fehlversuche < GRENZEN.maxFehlversuche && this.jetzt() - f.erzeugt < this.f.codeGueltigMs;
+  }
+
+  /** Öffnet das Kopplungsfenster mit einem frischen Code (ein neuer Code ersetzt den alten). */
+  oeffneKopplung(): KopplungsStand {
+    this.fenster = { code: erzeugeCode(), erzeugt: this.jetzt(), fehlversuche: 0, verbraucht: false };
+    this.emit('aenderung');
+    return this.kopplungsStand();
+  }
+
+  neuerCode(): KopplungsStand {
+    return this.oeffneKopplung();
+  }
+
+  schliesseKopplung(): void {
+    this.fenster = null;
+    this.emit('aenderung');
+  }
+
+  kopplungsStand(): KopplungsStand {
+    const f = this.fenster;
+    if (!f) return { offen: false, code: null, gueltigBis: null, rest: 0, ungueltig: false };
+    const gueltig = this.codeGueltig();
+    return {
+      offen: true,
+      code: gueltig ? f.code : null,
+      gueltigBis: f.erzeugt + this.f.codeGueltigMs,
+      rest: Math.max(0, GRENZEN.maxFehlversuche - f.fehlversuche),
+      ungueltig: !gueltig,
+    };
   }
 
   private meldeAn(s: Sitzung, rechnerId: string, netzInfo: TeilnehmerInfo): void {

@@ -10,8 +10,9 @@ import { laufe as datei } from './datei.test';
 import { laufe as speicher } from './speicher.test';
 import { laufe as mdns } from './mdns.test';
 import { laufe as server } from './server.test';
+import { laufe as koppeln } from './koppeln.test';
 
-for (const laufe of [code, beweis, rahmen, adresswahl, fehler, datei, speicher, mdns, server]) {
+for (const laufe of [code, beweis, rahmen, adresswahl, fehler, datei, speicher, mdns, server, koppeln]) {
   await laufe();
 }
 bilanz();
