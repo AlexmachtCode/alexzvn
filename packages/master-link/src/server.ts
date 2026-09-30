@@ -70,6 +70,14 @@ interface RohEintrag {
 
 const istLoopback = (ip: string): boolean => ip.startsWith('127.') || ip === '::1';
 
+/**
+ * TeilnehmerInfo kommt vom Netz (nach der Anmeldung sind Zeilen bis 1 MiB erlaubt) und darf nie ungekürzt in
+ * Oberfläche und IPC: Text-Felder laufen durch kuerzeName (höchstens 60 Zeichen), Zusatzfelder fallen weg.
+ */
+function normiereTeilnehmer(i: TeilnehmerInfo): TeilnehmerInfo {
+  return { art: i.art, appId: kuerzeName(i.appId), name: kuerzeName(i.name), version: kuerzeName(i.version), pid: i.pid };
+}
+
 export class MasterLinkServer extends EventEmitter {
   readonly fingerprint: string;
   private readonly o: ServerOptionen;
@@ -167,7 +175,14 @@ export class MasterLinkServer extends EventEmitter {
       this.roh.delete(roh);
     });
     const unangemeldet = [...this.roh.entries()].filter(([, e]) => !e.angemeldet);
-    if (unangemeldet.length > GRENZEN.maxUnangemeldet) unangemeldet[0][0].destroy();
+    if (unangemeldet.length > GRENZEN.maxUnangemeldet) {
+      // Opfer SOFORT austragen: sein 'close' kommt erst asynchron, bis dahin würde jede weitere Annahme
+      // derselben Runde denselben, schon zerstörten Socket als „ältesten“ wählen (Ansturm ginge ungekappt durch).
+      const [opfer, e] = unangemeldet[0];
+      clearTimeout(e.frist);
+      this.roh.delete(opfer);
+      opfer.destroy();
+    }
   }
 
   private aufTls(ts: TLSSocket): void {
@@ -209,9 +224,12 @@ export class MasterLinkServer extends EventEmitter {
   private aufNachricht(s: Sitzung, n: Nachricht): void {
     this.zeileGesehen(s);
     if (s.angemeldet) {
-      if (n.t === 'teilnehmer' && s.info && n.teilnehmer.appId === s.info.appId) {
-        s.info = n.teilnehmer;
-        this.emit('aenderung');
+      if (n.t === 'teilnehmer' && s.info) {
+        const info = normiereTeilnehmer(n.teilnehmer);
+        if (info.appId === s.info.appId) {
+          s.info = info;
+          this.emit('aenderung');
+        }
       }
       return;
     }
@@ -275,7 +293,8 @@ export class MasterLinkServer extends EventEmitter {
     this.lehneAb(s, 'keine-kopplung-offen');
   }
 
-  private meldeAn(s: Sitzung, rechnerId: string, info: TeilnehmerInfo): void {
+  private meldeAn(s: Sitzung, rechnerId: string, netzInfo: TeilnehmerInfo): void {
+    const info = normiereTeilnehmer(netzInfo);
     const schluessel = `${rechnerId}\u0000${info.appId}`;
     const alt = this.teilnehmerMap.get(schluessel);
     if (alt && alt !== s) {

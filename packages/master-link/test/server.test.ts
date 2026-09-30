@@ -9,7 +9,7 @@ import { MasterLinkServer } from '../src/server';
 import { DateiVerbund, SpeicherVerbund, type VerbundEintrag } from '../src/speicher';
 import { baueServer, meldeAn, neueIdentitaet } from './aufbau';
 import { abschnitt, bis, gleich, pruefe, tempOrdner, warte } from './helfer';
-import { verbindeRoh } from './rohclient';
+import { verbindeRoh, type RohClient } from './rohclient';
 
 export async function laufe(): Promise<void> {
   abschnitt('Server: Anmeldung (Spec 3.4, 5.1)');
@@ -146,12 +146,77 @@ export async function laufe(): Promise<void> {
     await a.server.stoppe();
   }
   {
+    // Ansturm (Spec 6.3): viele Verbindungen GLEICHZEITIG, nicht nacheinander — das Opfer muss sofort ausgetragen sein,
+    // sonst wählt jede weitere Annahme derselben Runde denselben, schon zerstörten Socket als „ältesten“.
+    const a = await baueServer();
+    const ansturm = 200;
+    const sockets: Socket[] = [];
+    let offen = 0;
+    await Promise.all(Array.from({ length: ansturm }, () => new Promise<void>((fertig) => {
+      const s = netConnect(a.port, '127.0.0.1');
+      s.on('error', () => {});
+      offen++;
+      s.once('close', () => { offen--; fertig(); });
+      s.once('connect', () => fertig());
+      sockets.push(s);
+    })));
+    await bis(() => offen <= GRENZEN.maxUnangemeldet, 3000);
+    await warte(300);
+    pruefe(offen <= GRENZEN.maxUnangemeldet, `${ansturm} gleichzeitige Verbindungen → höchstens ${GRENZEN.maxUnangemeldet} bleiben offen (gemessen: ${offen})`);
+    pruefe(offen > 0, 'der Ansturm lässt die neuesten Verbindungen leben (nicht alle gekappt)');
+    sockets.forEach((s) => s.destroy());
+    await a.server.stoppe();
+  }
+  {
     const a = await baueServer();
     const c = await meldeAn(a);
     await c.naechste('angemeldet');
     c.socket.write(`{"t":"gross","x":"${'y'.repeat(100_000)}"}\n`);
     await warte(200);
     pruefe(!c.beendet(), 'nach der Anmeldung sind 100-KB-Zeilen erlaubt (1 MiB)');
+    await a.server.stoppe();
+  }
+
+  abschnitt('Server: Teilnehmerangaben aus dem Netz (höchstens 60 Zeichen)');
+  {
+    const a = await baueServer();
+    const lang = 'x'.repeat(200);
+    const emoji = '😀'.repeat(200);
+    const anmelden = async (teilnehmer: { art: 'tool'; appId: string; name: string; version: string; pid: number }): Promise<RohClient> => {
+      const c = await verbindeRoh(a.port);
+      c.v.sende({
+        t: 'anmelden',
+        protokoll: PROTOKOLL,
+        rechnerId: a.slave.rechnerId,
+        rechnerName: 'B',
+        signatur: signiereAnmeldung(a.slave.paar.privat, c.fp, c.hallo.nonce, a.slave.rechnerId),
+        teilnehmer,
+      });
+      await c.naechste('angemeldet');
+      return c;
+    };
+    const c = await anmelden({ art: 'tool', appId: 'jm-timer', name: lang, version: lang, pid: 1 });
+    const t = a.server.teilnehmer()[0];
+    pruefe(t !== undefined && t.name.length <= 60 && t.version.length <= 60, `anmelden: 200-Zeichen-Name und -Version → höchstens 60 (gemessen: ${t?.name.length}/${t?.version.length})`);
+
+    const mitExtra = { art: 'tool' as const, appId: 'jm-timer', name: emoji, version: lang, pid: 2, extra: 'z'.repeat(100_000) };
+    c.v.sende({ t: 'teilnehmer', teilnehmer: mitExtra });
+    await bis(() => a.server.teilnehmer()[0]?.pid === 2, 1000);
+    const u = a.server.teilnehmer()[0];
+    pruefe(u !== undefined && u.pid === 2, 'Update per teilnehmer kommt an');
+    gleich(u && [...u.name].join(''), '😀'.repeat(60), 'teilnehmer-Update: Emoji-Name → 60 ganze Zeichen, nicht mitten im Zeichen gekappt');
+    pruefe(u !== undefined && u.version.length <= 60, 'teilnehmer-Update: 200-Zeichen-Version → höchstens 60');
+    pruefe(u !== undefined && !('extra' in u), 'teilnehmer-Update: unbekannte Zusatzfelder aus dem Netz werden nicht übernommen');
+    c.zu();
+    await bis(() => a.server.teilnehmer().length === 0);
+
+    const e = await anmelden({ art: 'tool', appId: emoji, name: emoji, version: '1', pid: 3 });
+    const ea = a.server.teilnehmer()[0];
+    pruefe(ea !== undefined && [...ea.appId].length <= 60 && [...ea.name].length <= 60, 'anmelden: Emoji-appId und -Name → höchstens 60 Zeichen');
+    e.v.sende({ t: 'teilnehmer', teilnehmer: { art: 'tool', appId: emoji, name: 'neu', version: '2', pid: 4 } });
+    await bis(() => a.server.teilnehmer()[0]?.pid === 4, 1000);
+    gleich(a.server.teilnehmer()[0]?.name, 'neu', 'teilnehmer-Update derselben (gekürzten) appId wird erkannt und übernommen');
+    e.zu();
     await a.server.stoppe();
   }
 
