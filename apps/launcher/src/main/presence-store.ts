@@ -102,6 +102,10 @@ export class PresenceStore {
       this.pruefe();
       return;
     }
+    // Beat und bye kommen als getrennte HTTP-Requests; ein Beat kann NACH dem bye eintreffen.
+    // Ein beendetes Tool nicht wiederbeleben: nur ein hello (neue Instanz) oder ein Beat mit
+    // anderer pid (Neustart) belebt den Eintrag. Ohne Eintrag (Launcher-Neustart) gilt jeder Beat.
+    if (prev?.stopped && beat.event !== 'hello' && (beat.pid === undefined || beat.pid === prev.pid)) return;
     this.eintraege.set(beat.appId, {
       appId: beat.appId,
       name: beat.name ?? prev?.name ?? beat.appId,

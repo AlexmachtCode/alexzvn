@@ -70,5 +70,51 @@ function ck(name: string, cond: boolean): void {
   ck('ohne Lebenszeichen nach 25 s gestoppt (Sweep meldet)', meldungen === 2 && !s.snapshot()[0].running);
 }
 
+// --- Presence: ein beendetes Tool wird durch einen verspaeteten Beat nicht wiederbelebt ---
+// app-runtime sendet Beat und bye als getrennte HTTP-Requests; ein Beat kann nach dem
+// bye eintreffen. Die Anzeige darf das beendete Tool nicht bis zu 25 s als laufend
+// zeigen (Owner-Grundsatz: eine dauerhafte Anzeige luegt nicht).
+{
+  let meldungen = 0;
+  const s = new PresenceStore(() => { meldungen++; });
+  s.verarbeite({ appId: 'jm-timer', name: 'JM Timer', version: '0.12.0', pid: 1, event: 'hello' });
+  s.verarbeite({ appId: 'jm-timer', event: 'bye' });
+  const nachBye = meldungen;
+  const gesehen = s.snapshot()[0].lastSeen;
+  s.verarbeite({ appId: 'jm-timer', event: 'beat' });
+  ck('bye -> verspaeteter beat (ohne pid): bleibt gestoppt, keine Meldung',
+    !s.snapshot()[0].running && meldungen === nachBye && s.snapshot()[0].lastSeen === gesehen);
+  s.verarbeite({ appId: 'jm-timer', event: 'beat', pid: 1 });
+  ck('bye -> verspaeteter beat (gleiche pid): bleibt gestoppt, keine Meldung',
+    !s.snapshot()[0].running && meldungen === nachBye);
+}
+{
+  let meldungen = 0;
+  const s = new PresenceStore(() => { meldungen++; });
+  s.verarbeite({ appId: 'jm-timer', name: 'JM Timer', version: '0.12.0', pid: 1, event: 'hello' });
+  s.verarbeite({ appId: 'jm-timer', event: 'bye' });
+  const nachBye = meldungen;
+  s.verarbeite({ appId: 'jm-timer', name: 'JM Timer', version: '0.12.0', pid: 1, event: 'hello' });
+  ck('bye -> hello (neue Instanz): laeuft wieder, genau eine weitere Meldung',
+    s.snapshot()[0].running && meldungen === nachBye + 1);
+}
+{
+  let meldungen = 0;
+  const s = new PresenceStore(() => { meldungen++; });
+  s.verarbeite({ appId: 'jm-timer', name: 'JM Timer', version: '0.12.0', pid: 1, event: 'hello' });
+  s.verarbeite({ appId: 'jm-timer', event: 'bye' });
+  const nachBye = meldungen;
+  s.verarbeite({ appId: 'jm-timer', event: 'beat', pid: 2 });
+  ck('bye -> beat mit ANDERER pid (Neustart ohne hello): laeuft wieder, eine Meldung',
+    s.snapshot()[0].running && s.snapshot()[0].pid === 2 && meldungen === nachBye + 1);
+}
+{
+  let meldungen = 0;
+  const s = new PresenceStore(() => { meldungen++; });
+  s.verarbeite({ appId: 'jm-timer', name: 'JM Timer', version: '0.12.0', pid: 7, event: 'beat' });
+  ck('frischer Store (Launcher-Neustart bei laufendem Tool): beat ohne hello -> laeuft',
+    s.snapshot()[0].running && meldungen === 1);
+}
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
