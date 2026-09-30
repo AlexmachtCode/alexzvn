@@ -35,6 +35,19 @@ export interface Participant {
 export const VIDEO_RESOLUTIONS = ['90p', '180p', '360p', '720p', '1080p'] as const;
 export type VideoResolutionKey = (typeof VIDEO_RESOLUTIONS)[number];
 
+/**
+ * Obergrenze des Bild-Versatzes (Befehl videoDelay), in Millisekunden. Die
+ * native Seite prueft dieselbe Zahl (native/ndi_sender.h, kMaxVideoDelayMs) -
+ * die beiden muessen gleich bleiben (test/delay-probe.mjs liest DIESE Zahl
+ * und prueft sie und die naechsthoehere an der echten .exe). GESCHAETZT - nach
+ * Gehoer, nicht gemessen - ist ein Versatz von knapp einer halben Sekunde
+ * (Owner, Abnahmepunkt 5, 18.08.2026); gemessen sind nur unsere eigenen 6 ms.
+ * 1000 ms laesst Luft ueber der Schaetzung und
+ * begrenzt den Speicher: bei 1080p und 30 Bildern je Sekunde haelt jede Quelle
+ * rund 3 MB je 33 ms Versatz vor.
+ */
+export const VIDEO_DELAY_MAX_MS = 1000;
+
 export type VideoState = 'subscribed' | 'live' | 'black' | 'unsubscribed';
 // "meetingEnded" ist AUSDRUECKLICH nicht "command": beim Meeting-Ende hat
 // niemand etwas befohlen. GEMESSEN am 2026-08-13, als es den Wert noch nicht
@@ -101,7 +114,12 @@ export type Command =
   | { cmd: 'leave' }
   | { cmd: 'quit' }
   | { cmd: 'videoSubscribe'; id: number; resolution?: VideoResolutionKey; audio?: boolean }
-  | { cmd: 'videoUnsubscribe'; id: number };
+  | { cmd: 'videoUnsubscribe'; id: number }
+  // EIN Wert fuer ALLE Zoom-Quellen (Owner, 30.09.2026), jederzeit aenderbar,
+  // auch vor dem Beitritt. Verzoegert wird das BILD: der Ton kommt bei Zoom
+  // spaeter an, und was zu frueh kommt, muss warten. Ganze Zahl 0 bis
+  // VIDEO_DELAY_MAX_MS; alles andere beantwortet die Bridge mit videoBadDelay.
+  | { cmd: 'videoDelay'; ms: number };
 
 /** Was woertlich auf stdout der Bridge steht. */
 export type WireEvent =
@@ -182,6 +200,10 @@ export type WireEvent =
       sampleRate?: number;
       channels?: number;
     }
+  // Die Bestaetigung auf videoDelay: der Wert, der AB JETZT gilt - gemeldet,
+  // nicht geglaubt. Ohne sie wuesste ein Aufrufer nach einem abgewiesenen
+  // Befehl nicht, ob der alte oder der neue Versatz laeuft.
+  | { ev: 'videoDelay'; ms: number }
   | { ev: string; [k: string]: unknown };
 
 /** Dasselbe Ereignis, nachdem TypeScript Namen und Klartext dazugesetzt hat. */
@@ -341,6 +363,13 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // (Vorgabe `true`, Spec Abschnitt 7) — gemeldet wird nur, was dasteht und
   // sich nicht lesen lässt.
   videoBadAudioFlag: 'VIDEO_BAD_AUDIO_FLAG',
+  // Das Feld `ms` am videoDelay-Befehl fehlt, ist keine ganze Zahl (auch
+  // `"480"` als Zeichenkette, `4.5` oder `1e3`) oder liegt ausserhalb von 0 bis
+  // VIDEO_DELAY_MAX_MS. Der geltende Versatz bleibt dann UNVERAENDERT - ein
+  // halb gelesener Wert waere schlimmer als keiner. Ein EIGENER Name aus
+  // demselben Grund wie videoBadAudioFlag: er schickt die Suche an genau
+  // dieses eine Feld.
+  videoBadDelay: 'VIDEO_BAD_DELAY',
   // GetBufferLen() passt nicht zu Breite*Hoehe*3/2. Der Puffer wird geprueft,
   // nicht geglaubt: ein falsch ausgelegter I420-Puffer erzeugt ein Bild, das
   // wie ein Kameradefekt aussieht - man sucht dann am falschen Ende.

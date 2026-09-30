@@ -66,6 +66,13 @@ export interface Session {
   lastError: { where: string; code: number | string; name: string; id?: number } | null;
   videoSubs: Map<number, VideoSub>;
   audioSubs: Map<number, AudioSub>;
+  /**
+   * Der Bild-Versatz, den die Bridge ZULETZT BESTAETIGT hat (Ereignis
+   * videoDelay), in Millisekunden. `null` = noch nie bestaetigt. Die Bridge
+   * startet zwar mit 0, aber eine hier eingesetzte 0 saehe aus wie eine
+   * Bestaetigung - dieselbe Regel wie rotation/limitedRange am Bild.
+   */
+  videoDelayMs: number | null;
 }
 
 export function initialSession(): Session {
@@ -80,6 +87,7 @@ export function initialSession(): Session {
     lastError: null,
     videoSubs: new Map(),
     audioSubs: new Map(),
+    videoDelayMs: null,
   };
 }
 
@@ -298,6 +306,15 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
         sampleRate: e.sampleRate, channels: e.channels,
       });
       return { ...s, audioSubs };
+    }
+
+    case 'videoDelay': {
+      // Nur eine ZAHL wird uebernommen. Alles andere waere eine Deutung einer
+      // Zeile, die die native Seite so nie schreibt - dann lieber den
+      // bisherigen Stand behalten als einen erfundenen.
+      const ms = (ev as { ms?: unknown }).ms;
+      if (typeof ms !== 'number' || !Number.isInteger(ms)) return s;
+      return { ...s, videoDelayMs: ms };
     }
 
     case 'bye':

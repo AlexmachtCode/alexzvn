@@ -65,3 +65,8 @@ target_compile_definitions(zoom-bridge PRIVATE UNICODE _UNICODE WIN32)
 # Einstellung, nicht auf einer festgelegten Zusicherung. Mit dieser Option
 # ist es eine.
 target_compile_options(zoom-bridge PRIVATE /utf-8)
+
+# Selbsttest der Bild-Verzoegerung (Abnahmepunkt 5). Reine Logik mit
+# eingespeister Uhr - linkt weder Zoom noch NDI und braucht kein Meeting.
+add_executable(delay-line-test native/delay_line_test.cpp)
+target_compile_options(delay-line-test PRIVATE /utf-8)

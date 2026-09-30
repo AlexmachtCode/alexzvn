@@ -15,6 +15,7 @@ import {
   OWN_ERROR_NAMES,
   AUTH_RESULT_NAMES,
   VIDEO_RESOLUTIONS,
+  VIDEO_DELAY_MAX_MS,
   type AudioReason,
   type BridgeEvent,
   type Participant,
@@ -1431,6 +1432,40 @@ console.log('\nstate — Ton:');
   // anderes. Das gehoert auf die Owner-Abnahmeliste (echtes Meeting, ein
   // Zustand, in dem audioEnsureSubscribed() tatsaechlich scheitert) - eine
   // gruene Zeile hier behauptet das NICHT.
+}
+
+console.log('\nvideoDelay — ein Bild-Versatz fuer alle Quellen (Abnahmepunkt 5):');
+{
+  assert(serializeCommand({ cmd: 'videoDelay', ms: 480 }) === '{"cmd":"videoDelay","ms":480}\n',
+    'der Befehl geht als eine Zeile mit ms als ZAHL raus');
+  // Die TS-Obergrenze. Dass die NATIVE Grenze (kMaxVideoDelayMs) gleich ist,
+  // kann dieser Test nicht sehen - das prueft test/delay-probe.mjs, das
+  // DIESE Konstante liest und sie gegen die echte .exe schickt.
+  assert(VIDEO_DELAY_MAX_MS === 1000, 'die TS-Obergrenze betraegt 1000 ms');
+
+  // EIN EIGENER NAME, nicht videoBadResolution geliehen: die Suche geht zum
+  // Versatzfeld, nicht zum Aufloesungsschluessel.
+  const n = enrich({ ev: 'error', where: 'video', code: 'videoBadDelay' } as WireEvent) as { name: string };
+  assert(n.name === 'VIDEO_BAD_DELAY', 'videoBadDelay hat seinen eigenen Namen');
+
+  // NICHT ERFUNDEN: bis die Bridge einen Wert BESTAETIGT, ist er unbekannt.
+  // Eine 0 saehe aus wie "bestaetigt: kein Versatz" - dasselbe Muster wie
+  // rotation/limitedRange, die erst ein Bild liefern darf.
+  assert(initialSession().videoDelayMs === null, 'vor jeder Bestaetigung ist der Versatz unbekannt (null), nicht 0');
+
+  let s = reduce(initialSession(), enrich({ ev: 'videoDelay', ms: 480 } as WireEvent));
+  assert(s.videoDelayMs === 480, 'die Bestaetigung der Bridge setzt den Versatz');
+  s = reduce(s, enrich({ ev: 'videoDelay', ms: 0 } as WireEvent));
+  assert(s.videoDelayMs === 0, 'eine bestaetigte 0 ist ein Wert und wird nicht als "fehlt" verschluckt');
+
+  const vorher = reduce(initialSession(), enrich({ ev: 'videoDelay', ms: 480 } as WireEvent));
+  const nachFehler = reduce(vorher, enrich({ ev: 'error', where: 'video', code: 'videoBadDelay' } as WireEvent));
+  assert(nachFehler.videoDelayMs === 480, 'ein abgewiesener Befehl laesst den geltenden Versatz stehen');
+  assert(nachFehler.phase === vorher.phase, 'videoBadDelay kippt die Sitzung nicht auf error (where:video)');
+  assert(nachFehler.lastError?.name === 'VIDEO_BAD_DELAY', 'der Fehler steht trotzdem in lastError');
+
+  const kaputt = reduce(initialSession(), enrich({ ev: 'videoDelay', ms: '480' } as unknown as WireEvent));
+  assert(kaputt.videoDelayMs === null, 'ein videoDelay-Ereignis ohne Zahl wird nicht gedeutet');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

@@ -28,6 +28,14 @@
 // darum wird sie unten ausdruecklich als folgenlos gemeldet statt still
 // verschluckt.
 //
+// OPTIONAL: $env:ZOOM_VIDEO_DELAY_MS = "<0 bis 1000>" setzt den Bild-Versatz
+// fuer ALLE Zoom-Quellen gleich beim Start (Abnahmepunkt 5, Lippensynchronitaet).
+// WAEHREND DES LAUFS nachstellen: eine Zahl tippen und Enter druecken - die
+// Bridge bestaetigt den Wert, der ab jetzt gilt ("Bild-Versatz: ... ms"), oder
+// meldet VIDEO_BAD_DELAY und laesst den alten stehen. So laesst sich beim
+// Klatschtest nachregeln, ohne das Meeting zu verlassen: Ton hinterher ->
+// groesser, Bild hinterher -> kleiner.
+//
 // DIE KENNUNGEN STEHEN NICHT VORHER FEST: sie gelten nur fuer DIESES Meeting.
 // Erst ohne die Variable beitreten, den Teilnehmer-Block ablesen (die Zahl
 // links), dann mit ihr neu starten. Ist die Variable gesetzt, WARTET der Lauf
@@ -35,6 +43,7 @@
 // Sekunden NACH dem Beitritt, wenn der Gastgeber sie im Zoom-Client bestaetigt.
 import { join } from 'node:path';
 import { Bridge, buildJwt, normalizeMeetingId, readCredentials } from '../src/index.ts';
+import { LineSplitter } from '../src/protocol.ts';
 
 const seconds = Number(process.env.ZOOM_JOIN_SECONDS ?? '60');
 
@@ -160,9 +169,37 @@ const bridge = new Bridge({
       // eine Behauptung ueber etwas, das noch nie ankam.
       if (ev.sampleRate !== undefined) zeile += `  ${ev.sampleRate} Hz, ${ev.channels} Kanal/Kanaele`;
       console.log(zeile);
+    } else if (ev.ev === 'videoDelay') {
+      // Die BESTAETIGUNG der Bridge, nicht das Echo der Eingabe: nur diese
+      // Zahl gilt. Beim Klatschtest wird sie mitgeschrieben.
+      console.log(`  Bild-Versatz: ${ev.ms} ms (von der Bridge bestaetigt, gilt fuer alle Zoom-Quellen)`);
     }
   },
 });
+
+/**
+ * Schickt einen Bild-Versatz an die Bridge. Die PRUEFUNG macht die Bridge
+ * (0..1000, ganze Zahl) - hier wird nur abgewiesen, was gar keine Zahl ist.
+ * So laeuft im Abnahmelauf genau die Pruefung, die auch im Betrieb laeuft,
+ * und eine Tippfehler-Eingabe wie "4.5" erreicht sie und wird dort gemeldet.
+ */
+function sendeVersatz(roh, woher) {
+  const ms = Number(roh);
+  if (roh.trim() === '' || !Number.isFinite(ms)) {
+    console.log(`  ${woher}: "${roh}" ist keine Zahl - erwartet: Bild-Versatz in ms (0 bis 1000).`);
+    return;
+  }
+  // ABGESICHERT (Review 30.09.2026): nach einem Absturz der Bridge wirft
+  // send() "Bridge laeuft nicht." - aus einem data-Lauscher heraus war das
+  // eine unbehandelte Ausnahme mit Rueckgabewert 1 ("Einrichtungsfehler"),
+  // obwohl EXITED_UNEXPECTEDLY samt Rueckgabewert laengst auf dem Schirm
+  // stand. Die Eingabe wird jetzt als folgenlos gemeldet.
+  try {
+    bridge.send({ cmd: 'videoDelay', ms });
+  } catch (e) {
+    console.log(`  ${woher}: nicht gesendet - ${e.message}`);
+  }
+}
 
 let stopping = false;
 async function finish(code) {
@@ -181,6 +218,22 @@ process.on('SIGINT', () => {
 await bridge.start();
 bridge.send({ cmd: 'init' });
 bridge.send({ cmd: 'auth', jwt });
+
+// Der Versatz VOR dem Beitritt: er soll schon stehen, wenn das erste Abo
+// aufgeht - sonst liefen die ersten Bilder ohne ihn raus.
+if (process.env.ZOOM_VIDEO_DELAY_MS !== undefined) sendeVersatz(process.env.ZOOM_VIDEO_DELAY_MS, 'ZOOM_VIDEO_DELAY_MS');
+
+// NACHSTELLEN WAEHREND DES LAUFS: jede Zeile auf stdin ist ein neuer Versatz.
+// ABSICHTLICH OHNE readline: readline faengt Strg+C am Terminal selbst ab und
+// reicht es NICHT als SIGINT an den Prozess weiter - der Abbruch weiter oben
+// (Meeting verlassen, kein verwaister Prozess, Stage-1-Abnahme) griffe dann
+// nicht mehr. Ein schlichter data-Lauscher laesst das Terminal im
+// Zeilenmodus, und Strg+C bleibt ein SIGINT.
+const eingabe = new LineSplitter();
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (d) => {
+  for (const zeile of eingabe.push(d)) sendeVersatz(zeile.trim(), 'Eingabe');
+});
 
 // ERST die Anmelde-Antwort abwarten, DANN beitreten.
 //
@@ -309,6 +362,7 @@ for (const id of ohneTon) {
 }
 
 console.log(`\nIm Meeting. Bleibe ${seconds} s (Strg+C beendet frueher).`);
+console.log('Bild-Versatz nachstellen: Zahl in ms tippen + Enter (0 bis 1000). Ton hinterher -> groesser.');
 await new Promise((r) => setTimeout(r, seconds * 1000));
 
 // Der Rueckgabewert beantwortet DIE FRAGE DIESES LAUFS, nicht die Teilfrage

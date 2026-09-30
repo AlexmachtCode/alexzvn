@@ -864,6 +864,17 @@ bool numberFromJson(const std::string& line, const char* key, unsigned long long
           // den Ueberlauf verstuemmelte) Zahl - dieselbe Sorgfalt wie beim
           // std::stoul-try/catch-Fix in main.cpp (Task 3).
           if (overflow) return false;
+          // DIE ZAHL MUSS HIER ENDEN (berichtigt 30.09.2026). Der Kopfsatz in
+          // session.h sagte schon immer "keine Nachkommastellen, kein
+          // Exponent" - geprueft wurde es nicht: "42.7" kam als 42 heraus,
+          // "1e3" als 1. Bei einer Teilnehmerkennung kann eine abgeschnittene
+          // Zahl auf einen FREMDEN, existierenden Teilnehmer zeigen; beim
+          // Bild-Versatz (videoDelay) waere es eine falsche Einstellung, die
+          // als gueltig bestaetigt wird. GEMESSEN mit test/command-probe.mjs
+          // und test/delay-probe.mjs gegen die echte .exe.
+          size_t nach = end;
+          while (nach < line.size() && isJsonSpace(line[nach])) ++nach;
+          if (nach < line.size() && line[nach] != ',' && line[nach] != '}') return false;
           *out = value;
           return true;
         }

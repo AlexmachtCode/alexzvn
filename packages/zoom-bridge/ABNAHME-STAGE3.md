@@ -14,6 +14,12 @@ einzeln abgehört, sauber getrennt · ✅ 6) Weggang und Wiederbeitritt, Quellen
 **gleichbleibendem** Versatz — das schließt die Abtastwert-Buchhaltung aus und lässt die
 Rohrleitung übrig. Dazu der Pegel als Nebenpunkt.
 
+**Stand 30.09.2026:** Die Rohrleitung ist **gemessen und entlastet** (unser Anteil rund 6 ms,
+[README Abschnitt 8](README.md)); der Rest entsteht bei Zoom und ist von innen nicht
+ausrichtbar. **Abhilfe gebaut: ein einstellbarer Bild-Versatz** (Befehl `videoDelay`, ein Wert
+für alle Zoom-Quellen). Die Abnahme dafür steht in [A3](#a3--punkt-5--lippensynchronität) und
+braucht ein **eigenes, kurzes** Meeting — die übrigen sieben Punkte sind durch.
+
 ⛑ **Auf dem Weg dorthin fiel ein Absturz auf**, der seit Stage 2 im Meeting-Ende steckte und
 unsichtbar war, weil der Rückgabewert des Kindprozesses nie angezeigt wurde. Behoben. Siehe
 [README Abschnitt 8](README.md).
@@ -132,6 +138,40 @@ Abonnieren, einmal nach vier Minuten.**
 
 Die beiden verlangen **verschiedene** Abhilfen. Eine Reparatur vor dieser Unterscheidung wäre
 geraten, nicht gemessen — und träfe im schlechteren Fall die falsche der beiden Ursachen.
+
+> **WIDERRUFEN am 24.08.2026, stehen gelassen als Weg dorthin:** die erste Tabellenzeile
+> („Rohrleitung … Größenordnung eine Tick-Länge") ist durch Messung **ausgeschieden**. Die
+> Wartezeit zwischen SDK-Rückruf und Senden beträgt im Mittel rund **6 ms** — eine
+> Größenordnung unter der Wahrnehmungsschwelle. Der Versatz ist nicht unserer
+> ([README Abschnitt 8](README.md)).
+
+#### Punkt 5 mit Bild-Versatz — die Abnahme ab 30.09.2026
+
+**Wer:** du als Gastgeber und **eine** zugeschaltete Person mit Kamera und Mikrofon (für d)
+gern mehr). **Kopfhörer** für alle im selben Raum wie ein abonniertes Mikrofon — sonst misst
+man den Raum. Abgehört wird **am echten Empfang** (Switcher bzw. NDI-Monitor, kabelgebundene
+Kopfhörer — Owner-Angabe 30.09.: so wurde auch der Versatz gehört).
+
+**Start ohne Versatz** (keine `ZOOM_VIDEO_DELAY_MS` setzen), die Person abonnieren wie in A1.
+Während des Laufs stellt man den Versatz nach, indem man **eine Zahl tippt und Enter drückt**.
+
+| Schritt | Tun | Erwartet |
+|---|---|---|
+| a) Grundlinie | Bei 0 ms dreimal scharf klatschen. | Der Ton läuft **weiterhin** hinterher. Tut er es nicht, ist Punkt 5 heute anders gelagert als am 18.08. — **nicht** einstellen, sondern melden. |
+| b) Einstellen | `400` + Enter, klatschen. Ton hinterher → größer, Bild hinterher → kleiner. Erst in 50-ms-, dann in 20-ms-Schritten. | Nach jeder Eingabe `Bild-Versatz: <n> ms (von der Bridge bestaetigt …)`. **Den Wert notieren**, bei dem Knall und Hände zusammenfallen — er wird der Vorgabewert in JM Connect (Stage 4). |
+| c) Nachstellen im Lauf | Den Wert einmal deutlich vergrößern, einmal verkleinern. | Die Quelle **bleibt** im Monitor stehen: beim Vergrößern friert das Bild kurz ein, beim Verkleinern springt es. Beim Verkleinern auf stderr einmal `Bild-Versatz: <n> wartende(s) Bild(er) verworfen …` — erwartet, kein Fehler. |
+| c′) Wer gibt aus? | Während b) und c) die stderr-Zeile lesen, die alle 10 s je Quelle kommt: `Bild-Versatz <n> ms fuer <id> [10 s]: <a> Bilder im Takt der Ankunft, <b> im Nachlauf, <c> verworfen.` | Bei laufender Kamera ist **a ≈ 300 und b nahe 0**. Das belegt, dass die Quelle Zooms Bildtakt behält. Steht bei laufender Kamera viel unter b, läuft sie im Raster der Hauptschleife — **melden**, das ist ein Befund. Nach Kamera aus ist b > 0 richtig (Nachlauf). |
+| d) Frischer Start + Last | `join.mjs` **beenden** und neu starten, mit `ZOOM_VIDEO_DELAY_MS=<Wert aus b)>` **und** `ZOOM_VIDEO_SUBSCRIBE=<alle Kennungen>` (Betriebsgröße 5, so viele wie da sind). Die Rohdaten-Erlaubnis im Zoom-Client erneut bestätigen. Im laufenden Lauf lassen sich keine Abos dazunehmen — jede getippte Zeile ist ein Versatz. | **Klatschen ist mit dem frisch gesetzten Wert genauso synchron wie in b).** Das ist zugleich die Gegenprobe, dass ein beim Start gesetzter Wert dasselbe bewirkt wie ein im Lauf nachgestellter (ein Empfänger, der nach NDI-Timecode ausrichtet, könnte kleine Schritte im Lauf verschlucken — die Empfänger der Suite tun das nicht, der NDI-Monitor ist unbekannt). Kein Ruckeln. Im Task-Manager den Speicher von `zoom-bridge.exe` grob notieren — Erwartung bei 720p und 500 ms rund 21 MB je Quelle. |
+| e) Fehleingabe | `4.5` + Enter. | `FEHLER bei video: VIDEO_BAD_DELAY` — und der **alte** Versatz gilt weiter (nächstes Klatschen unverändert). |
+| f) Mit Versatz durch den Alltag | Kamera aus und an; Weggang und Wiederbeitritt (wie A5); zuletzt Meeting beenden (wie A6). | Die **Meldung** `black`/`live` kommt sofort, das **Bild** folgt um den Versatz später — das ist so gebaut: Meldungen beschreiben den Eingang. Meeting-Ende **ohne** `EXITED_UNEXPECTEDLY`. |
+
+Abgehört wird **am JM-Switcher**, wenn möglich — dort läuft die Sendung. Der Switcher richtet
+nach Ankunft aus, nicht nach NDI-Timecode; ein Wert, der im NDI-Monitor stimmt, stimmt dort nur,
+wenn beide gleich puffern.
+
+**Bestanden** ist Punkt 5, wenn b) einen Wert ergibt, bei dem Klatschen synchron ist, und c)
+bis f) ohne Abweichung durchlaufen. Den Wert in [README Abschnitt 8](README.md) und in
+`docs/roadmap.md` nachtragen.
 
 ### A4 · Punkt 2 — Stummschalten und Aufheben
 

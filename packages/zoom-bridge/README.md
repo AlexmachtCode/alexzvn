@@ -383,6 +383,8 @@ beruht und nicht auf einer Kennung.
 $env:ZOOM_SDK_DIR = "<Pfad zum entpackten Zoom-Meeting-SDK>"
 npm run ndi-probe -w @jm/zoom-bridge
 npm run command-probe -w @jm/zoom-bridge
+npm run delay-probe -w @jm/zoom-bridge     # Bild-Versatz, siehe Abschnitt 8
+npm run delay-test -w @jm/zoom-bridge      # Warteschlange des Versatzes, ohne .exe
 ```
 
 `test/ndi-probe.mjs` belegt **ohne Zoom, ohne Meeting und ohne Anmeldung**,
@@ -596,6 +598,76 @@ Zeitstempel ausrichten, den nur einer von beiden hat; die Notiz in
 `ndi_sender.cpp`, die genau diesen Weg vorschlug, ist damit **nicht gangbar**.
 Bleibt als Abhilfe ein **gemessener, einstellbarer Versatz** — einmal in die
 Kamera klatschen, die Differenz ablesen, sie fest einstellen.
+
+#### Die Abhilfe: Bild-Versatz (`videoDelay`, gebaut 30.09.2026)
+
+**Verzögert wird das Bild**, nicht der Ton — der Ton kommt bei Zoom später an,
+und was zu früh kommt, muss warten. **Ein Wert für alle Zoom-Quellen** (Owner,
+30.09.2026), jederzeit änderbar, auch vor dem Beitritt:
+
+```json
+{"cmd":"videoDelay","ms":480}          → {"ev":"videoDelay","ms":480}
+{"cmd":"videoDelay","ms":4.5}          → {"ev":"error","where":"video","code":"videoBadDelay"}
+```
+
+Erlaubt ist eine **ganze Zahl von 0 bis 1000**; alles andere (Zeichenkette,
+Kommazahl, Exponent, negativ, fehlend, Überlauf) beantwortet die Bridge mit
+`videoBadDelay` und **lässt den geltenden Wert stehen**. Die Bestätigung nennt
+den Wert, der ab jetzt gilt. Die Bridge merkt sich nichts über ihr Ende hinaus
+— den kalibrierten Wert hält JM Connect (Stage 4).
+
+**Wie es gebaut ist** (`native/delay_line.h`, `native/ndi_sender.cpp`):
+
+- **Bei 0 ms** und leerer Warteschlange läuft **genau der Weg von vor Punkt 5**:
+  das Bild geht direkt aus Zooms Rückruf an NDI. Die Abnahme von Stage 2 bleibt
+  damit gültig.
+- **Über 0 ms** kopiert der Rückruf das Bild in einen wiederverwendeten Puffer
+  und gibt aus, was fällig ist (Ankunft + Versatz ≤ jetzt). **Angestoßen wird die
+  Ausgabe vom nächsten eintreffenden Bild** — die Quelle behält Zooms eigenen
+  Bildtakt statt des 15-ms-Rasters der Hauptschleife. Nach dem **letzten** Bild
+  (Kamera aus, Gast weg) gibt `videoTick()` den Rest aus (`NdiSender::pump()`),
+  aber **nur Bilder, die länger als 70 ms überfällig sind**
+  (`DelayLine::kNachlaufKarenz`). ⚑ **Berichtigt nach dem Review vom 30.09.2026:**
+  die erste Fassung gab in `pump()` alles Fällige aus — und weil der Tick
+  (~15 ms) fast immer vor dem nächsten Bild (~33 ms) kam, lief die Quelle
+  gerechnet zu 77–100 % im Raster der Schleife, also genau so, wie es der Satz
+  davor ausschließt. **Ob es jetzt trägt, zeigt eine Zeile alle 10 s je Quelle:**
+  `… <a> Bilder im Takt der Ankunft, <b> im Nachlauf, <c> verworfen` — bei
+  laufender Kamera muss b nahe 0 stehen ([ABNAHME-STAGE3.md, A3 c′](ABNAHME-STAGE3.md)).
+- **Schwarzbilder** laufen durch dieselbe Warteschlange — sonst überholte das
+  Schwarz die letzten Bilder vor dem Kamera-Aus.
+- **Ein geänderter Wert wirkt sofort**, auch auf wartende Bilder: vergrößert →
+  das Bild steht kurz, verkleinert → es springt. Sind mehr als **3** Bilder auf
+  einmal fällig, geht nur das jüngste raus und der Rest wird verworfen (auf
+  stderr gemeldet), statt einen Schwall synchroner Sendeaufrufe auf Zooms
+  Rückruf-Thread zu legen. **Darum vor der Sendung kalibrieren, nicht während.**
+- **Die Meldungen `live`/`black` beschreiben den Eingang**, die Quelle folgt um
+  den Versatz später. Das ist kein Widerspruch, sondern die Bauart.
+
+**Speicher**, gerechnet: je Quelle rund `Versatz × 30 Bilder/s × Bildgröße` —
+bei 500 ms sind das für 720p rund **21 MB**, für 1080p rund **47 MB**; bei fünf
+Quellen 104 bzw. 233 MB. Die Warteschlange ist auf 90 Bilder begrenzt, der
+Vorrat wiederverwendbarer Puffer auf 4 (`kMaxSpare`) — ohne diesen Deckel
+blieb nach einem kurzen Ausflug auf 1000 ms der Spitzenspeicher bis zum
+Abo-Ende belegt (Review 30.09.2026).
+
+**Die Diagnosezeile `Ton-Wartezeit …`** sagt nur ohne Versatz „Das ist UNSER
+Anteil am Bild-Ton-Versatz". Mit Versatz nennt sie ihn und sagt ausdrücklich,
+dass die Zahl dann **nicht** unser Anteil ist — das Bild wartet ja absichtlich.
+
+**Geprüft ohne Meeting:** `npm run delay-test` (die Warteschlange mit
+eingespeister Uhr, 44 Prüfungen) und `npm run delay-probe` (die Antworten der
+echten `.exe` auf zwölf Befehlszeilen; die Obergrenze liest es aus
+`src/protocol.ts`, damit TS- und native Grenze nicht auseinanderlaufen). **Nicht** ohne Meeting prüfbar und darum
+auf der Owner-Abnahme: ob ein Wert Lippensynchronität herstellt, ob das Bild bei
+fünf Quellen ruckelt, und der tatsächliche Speicher
+([ABNAHME-STAGE3.md, A3](ABNAHME-STAGE3.md)).
+
+⚑ **Nebenbefund beim Bau, behoben:** `numberFromJson()` las `42.7` als `42` und
+`1e3` als `1`, obwohl sein Kopfsatz Nachkommastellen und Exponenten ausschloss.
+Das betraf auch die Teilnehmerkennung — eine abgeschnittene Zahl kann auf einen
+**fremden**, existierenden Teilnehmer zeigen. Jetzt muss die Zahl an `,` oder
+`}` enden; `test/command-probe.mjs` prüft den Fall.
 
 **Was gegen ein echtes Meeting weiterhin nicht geprüft ist, vollständig:**
 weder der Überlauf- noch der Mismatch-Pfad, weder Meeting-Ende noch

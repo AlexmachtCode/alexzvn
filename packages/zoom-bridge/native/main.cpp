@@ -264,6 +264,25 @@ void handle(const std::string& line) {
     videoUnsubscribe(userId);
     return;
   }
+  if (cmd == "videoDelay") {
+    // Bild-Versatz fuer ALLE Zoom-Quellen (Abnahmepunkt 5). Braucht weder
+    // "init" noch ein Meeting: es ist eine Einstellung, und sie soll schon
+    // stehen, BEVOR das erste Abo aufgeht.
+    //
+    // Unlesbar oder ausserhalb 0..kMaxVideoDelayMs: melden und den geltenden
+    // Wert STEHEN LASSEN. Ohne id - der Versatz gehoert keinem einzelnen Abo,
+    // eine Kennung waere erfunden. Die Bestaetigung nennt den Wert, der AB
+    // JETZT gilt: gemeldet, nicht geglaubt.
+    unsigned long long ms = 0;
+    if (!numberFromJson(line, "ms", &ms) || ms > static_cast<unsigned long long>(kMaxVideoDelayMs)) {
+      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadDelay\"}");
+      return;
+    }
+    ndiSetVideoDelayMs(static_cast<int>(ms));
+    emitRaw(std::string("{\"ev\":\"videoDelay\",\"ms\":") + std::to_string(ndiVideoDelayMs()) + "}");
+    emitLog(std::wstring(L"Bild-Versatz fuer alle Zoom-Quellen: ") + std::to_wstring(ndiVideoDelayMs()) + L" ms");
+    return;
+  }
   // ACHTUNG (Abschluss-Sichtung Punkt F): `cmd` kommt von AUSSEN (stdin) und
   // wird NICHT maskiert - die einzige Stelle im nativen Teil, an der ein roher
   // Aussenwert direkt in eine JSON-Zeile gespleisst wuerde. GEMESSEN, zwei

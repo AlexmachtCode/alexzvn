@@ -167,6 +167,12 @@ struct Sub {
   unsigned long long audioWartenSummeUs = 0;
   unsigned long long audioWartenMaxUs = 0;
   unsigned long long audioWartenMinUs = 0;   // 0 = noch nichts gemessen
+  // --- Messung: wer gibt die verzoegerten Bilder aus? ---------------------
+  // Beginn des laufenden 10-s-Fensters fuer die Zaehler aus
+  // NdiSender::takeDelayZaehler(). 0 = noch kein Fenster. NUR der
+  // Hauptthread (videoTick) liest und schreibt es - darum ohne fieldMutex,
+  // aus demselben Grund wie audioOn/teilnehmerWeg.
+  ULONGLONG versatzMessBeginnMs = 0;
 };
 
 // Der Name steht bei subscribe FEST und folgt keiner Umbenennung: einen
@@ -902,11 +908,21 @@ void videoTick() {
       // Messung: die eine sagt, ob wir die richtige MENGE senden, die andere,
       // ob wir sie rechtzeitig senden. Zwei Fragen, zwei Zeilen.
       if (mPakete > 0) {
+        // Der Schlusssatz gilt NUR ohne Bild-Versatz (Review 30.09.2026): er
+        // stuetzt sich darauf, dass das Bild direkt aus seinem Rueckruf
+        // rausgeht. Mit Versatz wartet das Bild ABSICHTLICH - dann ist diese
+        // Zahl nur noch die Wartezeit des Tons, nicht unser Anteil am Versatz.
+        // Eine Messung gilt nur an ihrem Aufrufort.
+        const int bildVersatz = ndiVideoDelayMs();
         emitLog(std::wstring(L"Ton-Wartezeit fuer ") + std::to_wstring(s->userId.load()) +
                 (mErstesFenster ? L" [ANLAUF]" : L" [Dauerbetrieb]") +
                 L" (Warteschlange -> Senden): mittel " + std::to_wstring(mWartenSumme / mPakete) +
                 L" us, min " + std::to_wstring(mWartenMin) + L" us, max " +
-                std::to_wstring(mWartenMax) + L" us. Das ist UNSER Anteil am Bild-Ton-Versatz.");
+                std::to_wstring(mWartenMax) + L" us." +
+                (bildVersatz == 0
+                     ? std::wstring(L" Das ist UNSER Anteil am Bild-Ton-Versatz.")
+                     : L" Das Bild wartet dazu absichtlich " + std::to_wstring(bildVersatz) +
+                           L" ms (Bild-Versatz) - diese Zahl ist darum NICHT unser Anteil am Versatz."));
       }
       if (mRate > 0) {
         const unsigned long long soll = static_cast<unsigned long long>(mRate);
@@ -929,6 +945,31 @@ void videoTick() {
   }
 
   for (auto& [id, s] : g_subs) {
+    // BILD-VERSATZ (Abnahmepunkt 5): wartende Bilder ausgeben, die faellig
+    // sind. Ganz oben und ohne Bedingung, weil die continue-Zweige unten dem
+    // Schwarzbild gelten, nicht dem Nachlauf - und genau nach dem LETZTEN
+    // Bild (Kamera aus, Gast weg) stoesst sonst niemand die Ausgabe mehr an.
+    // Ohne fieldMutex: pump() nimmt NUR die eigene Sperre des Senders.
+    s->sender.pump();
+
+    // GEMESSEN STATT BEHAUPTET (Review 30.09.2026): ob die Quelle Zooms Takt
+    // behaelt, entscheidet, WER die verzoegerten Bilder ausgibt. Im
+    // Normalbetrieb muss "beim Einreihen" fast alles tragen und "im Nachlauf"
+    // nahe 0 stehen - steht dort viel, laeuft die Quelle im Raster dieser
+    // Schleife. Alle 10 s, nur wenn etwas geschah (ohne Versatz: nie).
+    if (s->versatzMessBeginnMs == 0) {
+      s->versatzMessBeginnMs = jetzt;
+    } else if (jetzt > s->versatzMessBeginnMs && jetzt - s->versatzMessBeginnMs >= 10000) {
+      s->versatzMessBeginnMs = jetzt;
+      const NdiSender::DelayZaehler z = s->sender.takeDelayZaehler();
+      if (z.beimEinreihen + z.imNachlauf + z.verworfen > 0) {
+        emitLog(std::wstring(L"Bild-Versatz ") + std::to_wstring(ndiVideoDelayMs()) + L" ms fuer " +
+                std::to_wstring(s->userId.load()) + L" [10 s]: " + std::to_wstring(z.beimEinreihen) +
+                L" Bilder im Takt der Ankunft, " + std::to_wstring(z.imNachlauf) +
+                L" im Nachlauf, " + std::to_wstring(z.verworfen) + L" verworfen.");
+      }
+    }
+
     ULONGLONG lastFrameMs;
     ULONGLONG lastBlackMs;
     int lastW, lastH;

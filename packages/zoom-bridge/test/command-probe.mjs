@@ -160,6 +160,18 @@ const cases = [
     expectedId: 42,
     failExitCode: 3,
   },
+  {
+    // GEMESSEN am 30.09.2026 beim Bau von videoDelay: numberFromJson() las
+    // "42.7" als 42 - obwohl sein Kopfsatz (session.h) Nachkommastellen
+    // ausdruecklich als "nicht auswertbar" nennt. Eine abgeschnittene Kennung
+    // kann auf einen FREMDEN, existierenden Teilnehmer zeigen. Erwartet ist
+    // darum dieselbe Antwort wie bei einer fehlenden Kennung.
+    name: 'Kennung mit Nachkommastellen -> unbekannte Kennung, nicht abgeschnitten',
+    line: '{"cmd":"videoSubscribe","id":42.7}',
+    expected: 'videoUnknownParticipant',
+    expectedId: undefined,
+    failExitCode: 4,
+  },
 ];
 
 let firstFailure = null;
@@ -185,7 +197,7 @@ if (anySpawnError) {
 }
 
 if (firstFailure === null) {
-  console.log('\nOK — alle drei Faelle des nativen Befehlslesers wie erwartet.');
+  console.log(`\nOK — alle ${cases.length} Faelle des nativen Befehlslesers wie erwartet.`);
   process.exit(0);
 }
 
