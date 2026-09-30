@@ -1,4 +1,4 @@
-import { hostname, networkInterfaces } from 'node:os';
+import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import {
   DateiVerbund, erzeugeSchluesselpaar, fingerprintVonPem, kuerzeName, kurzFingerprint, leseMitBak, listeKarten,
@@ -60,6 +60,12 @@ export class MasterRolle {
   /** Letzter geloggter Startfehler-Code: dieselbe Meldung steht nicht bei jeder Wiederholung (alle 10 s) im Log. */
   private letzterStartFehler: string | null = null;
   private letzterKartenFehler: string | null = null;
+  /** Letzter geloggter Neubinde-Fehler: bei dauerhaftem Fehler nicht alle 10 s dieselbe Zeile. */
+  private letzterBindeFehler: string | null = null;
+  /** Name für eine NEU zu erzeugende Identität („Verbund neu aufsetzen“ behält den bisherigen Master-Namen, B5). */
+  private nameFuerNeu: string | null = null;
+  /** Code des letzten gescheiterten Schreibens von verbund.json; null nach dem nächsten Erfolg (B6, aus A8). */
+  private speicherFehler: string | null = null;
 
   constructor(d: MasterAbhaengigkeiten) {
     this.d = d;
@@ -137,16 +143,32 @@ export class MasterRolle {
       if (id.art === 'ok') {
         identitaet = id.wert;
       } else {
-        identitaet = erzeugeMasterIdentitaet(hostname());
+        // Wie „Name dieses Rechners“ (nicht hostname(): sonst hätte derselbe PC zwei Namen, B5); „Verbund neu aufsetzen“ behält den alten.
+        identitaet = erzeugeMasterIdentitaet(kuerzeName(this.nameFuerNeu ?? this.d.datei().rechner.name));
         this.schreibeIdentitaet(identitaet);
         this.d.log('info', `Master-Identität erzeugt (${kurzFingerprint(fingerprintVonPem(identitaet.zertifikat))}).`);
       }
       this.identitaet = identitaet;
       this.ausBak = (id.art === 'ok' && id.ausBak) || (vb.art === 'ok' && vb.ausBak);
       if (this.ausBak) this.d.log('warn', 'Master: Verbunddaten aus .bak wiederhergestellt.');
+      this.speicherFehler = null;
       verbund = new DateiVerbund(this.vbPfad, vb.art === 'ok' ? vb.wert : { version: 1, rechner: [] }, {
         schreibIntervallMs: this.d.fristen?.gesehenSchreibMs,
-        onFehler: (e) => this.d.log('warn', `verbund.json nicht geschrieben: ${e.message}`),
+        // B6: ein dauerhafter Schreibfehler ist ein Zustand (Modal: „Verbund nicht gespeichert (CODE)“), der nächste Erfolg
+        // löscht ihn. Log nur je Codewechsel und nur mit dem Code (die Meldung nennt den Pfad im Benutzerordner).
+        onFehler: (e) => {
+          const code = fehlerCode(e);
+          if (code === this.speicherFehler) return;
+          this.speicherFehler = code;
+          this.d.log('warn', `verbund.json nicht geschrieben (${code}) — Änderungen gelten nur bis zum Neustart.`);
+          this.d.beiAenderung();
+        },
+        onGespeichert: () => {
+          if (this.speicherFehler === null) return;
+          this.speicherFehler = null;
+          this.d.log('info', 'verbund.json wieder gespeichert.');
+          this.d.beiAenderung();
+        },
       });
       this.verbund = verbund;
       // Eintrag „dieser Rechner“ VOR dem Lauschen, damit die eigenen Tools sofort angenommen werden.
@@ -320,12 +342,19 @@ export class MasterRolle {
     const lausch = this.lauschAdressen();
     const schluessel = JSON.stringify(lausch);
     if (schluessel !== this.lauschSchluessel) {
-      this.lauschSchluessel = schluessel;
       geaendert = true;
       try {
         await s.setzeLauschAdressen(lausch);
+        // Erst NACH erfolgreichem Binden übernehmen: sonst versuchte der nächste Takt ein gescheitertes Neubinden nie wieder (B1).
+        this.lauschSchluessel = schluessel;
+        this.letzterBindeFehler = null;
       } catch (e) {
-        this.d.log('warn', `Master-Link: Neubinden fehlgeschlagen (${fehlerCode(e)}).`);
+        this.lauschSchluessel = '';
+        const code = fehlerCode(e);
+        if (code !== this.letzterBindeFehler) {
+          this.letzterBindeFehler = code;
+          this.d.log('warn', `Master-Link: Neubinden fehlgeschlagen (${code}).`);
+        }
       }
       // Nach jedem await: hat inzwischen stoppe() (oder ein neuer Start) übernommen, nichts mehr anfassen.
       if (this.gestoppt || this.server !== s) return;
@@ -429,7 +458,7 @@ export class MasterRolle {
 
   /** Spec 3.5: stoppen (alle Sockets zu) → neue Identität → nur fremde Rechner raus → Start (Selbstkopplung neu). */
   async erneuereIdentitaet(): Promise<void> {
-    const name = this.identitaet?.name ?? hostname();
+    const name = this.identitaet?.name ?? this.d.datei().rechner.name;
     await this.stoppe();
     // Nach dem Stoppen ist der Master zu: scheitert das Erzeugen oder Schreiben, TROTZDEM neu starten (liest den
     // Plattenstand neu und setzt einen ehrlichen Zustand) und den Fehler danach weiterwerfen, damit der Aufruf ablehnt.
@@ -451,6 +480,10 @@ export class MasterRolle {
 
   /** Nur bei „Verbunddaten beschädigt“ angeboten: alles verwerfen, neu beginnen. */
   async neuAufsetzen(): Promise<void> {
+    // Bisheriger Master-Name: aus der geladenen Identität, sonst aus der Selbstkopplung (bei beschädigten Daten ist
+    // keine Identität geladen) — nie still auf einen anderen Namen zurückfallen (B5).
+    const d = this.d.datei();
+    const bisher = this.identitaet?.name ?? (d.rolle === 'master' && d.kopplung?.masterName ? d.kopplung.masterName : null);
     await this.stoppe();
     let wurf: { e: unknown } | null = null;
     try {
@@ -460,7 +493,12 @@ export class MasterRolle {
       wurf = { e };
       this.d.log('warn', `Verbunddaten nicht gelöscht (${fehlerCode(e)}).`);
     }
-    await this.starte();
+    this.nameFuerNeu = bisher;
+    try {
+      await this.starte();
+    } finally {
+      this.nameFuerNeu = null;
+    }
     if (wurf) throw wurf.e;
   }
 
@@ -487,6 +525,7 @@ export class MasterRolle {
       name: this.identitaet ? kuerzeName(this.identitaet.name) : '',
       fpKurz: this.identitaet ? kurzFingerprint(fingerprintVonPem(this.identitaet.zertifikat)) : '',
       ausBak: this.ausBak,
+      speicherFehler: this.speicherFehler,
       rechner,
       kopplung: server?.kopplungsStand() ?? LEER_FENSTER,
     };

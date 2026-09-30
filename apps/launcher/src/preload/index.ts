@@ -95,6 +95,7 @@ const api: JmpsApi = {
   koppeleMitMaster: (adresse: string, code: string) => invoke<KoppelAntwort>('verbund:koppeln', adresse, code),
   brecheKoppelnAb: () => invoke<void>('verbund:koppelnAbbrechen'),
   trenneVerbund: () => invoke<VerbundStand>('verbund:trennen'),
+  neueRechnerKennung: () => invoke<VerbundStand>('verbund:neueKennung'),
   setzeFesteMasterAdresse: (adresse: string | null) => invoke<VerbundStand>('verbund:festeAdresse', adresse),
   onProgress: (cb) => listen<InstallProgress>('suite:progress', cb),
   onAppEvent: (cb) => listen<AppEvent>('app:event', cb),

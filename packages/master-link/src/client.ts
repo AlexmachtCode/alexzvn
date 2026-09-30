@@ -546,7 +546,8 @@ export class MasterLinkClient extends EventEmitter {
       this.letzteAdresse = a.adresse;
       this.gelernteAdressen = a.adressen;
       this.setze({ art: 'verbunden', adresse: a.adresse, seit: this.jetzt(), masterName: a.masterName, suite: a.suite });
-      this.sendeEreignis('angemeldet', { adresse: a.adresse, adressen: a.adressen, suite: a.suite });
+      // masterName: gekürzter Name aus dem gepinnten hallo — der Launcher trägt ihn in kopplung.masterName nach (B5).
+      this.sendeEreignis('angemeldet', { adresse: a.adresse, adressen: a.adressen, suite: a.suite, masterName: a.masterName });
       let beendet = false;
       let stille: ReturnType<typeof setTimeout> | null = null;
       // Jedes Ende (ende des Sockets, Stille, trenne()) räumt auf und löst die Verbindungsphase auf — genau einmal.

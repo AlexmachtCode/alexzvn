@@ -459,12 +459,25 @@ export class MasterLinkServer extends EventEmitter {
     for (const a of [...this.lauscher.keys()]) {
       if (!neu.includes(a)) await this.schliesseLauscher(a);
     }
-    this.lauschAdressen = [...neu];
-    if (!this.laeuft) return;
-    for (const a of neu) {
-      if (!this.lauscher.has(a)) await this.oeffne(a);
+    if (!this.laeuft) {
+      this.lauschAdressen = [...neu];
+      return;
     }
+    // Jede Adresse einzeln: scheitert die Karten-IP (belegt, DAD „tentativ“), lauscht 127.0.0.1 trotzdem (Spec 2, 4.3).
+    // Geführt (und an Slaves genannt) werden nur tatsächlich gebundene Adressen; der erste Fehler geht danach an den
+    // Aufrufer, dessen nächster Takt es erneut versucht (Endprüfung B1).
+    let fehler: { e: unknown } | null = null;
+    for (const a of neu) {
+      if (this.lauscher.has(a)) continue;
+      try {
+        await this.oeffne(a);
+      } catch (e) {
+        fehler ??= { e };
+      }
+    }
+    this.lauschAdressen = neu.filter((a) => this.lauscher.has(a));
     this.emit('aenderung');
+    if (fehler) throw fehler.e;
   }
 
   private async schliesseLauscher(adresse: string): Promise<void> {

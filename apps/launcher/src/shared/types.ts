@@ -433,6 +433,8 @@ export interface JmpsApi {
   koppeleMitMaster: (adresse: string, code: string) => Promise<KoppelAntwort>;
   brecheKoppelnAb: () => Promise<void>;
   trenneVerbund: () => Promise<VerbundStand>;
+  /** Endprüfung B3: geklonter Rechner — neue rechner.id, Kopplung weg, Rolle bleibt. */
+  neueRechnerKennung: () => Promise<VerbundStand>;
   setzeFesteMasterAdresse: (adresse: string | null) => Promise<VerbundStand>;
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
@@ -498,6 +500,8 @@ export interface VerbundMasterStand {
   fpKurz: string;
   /** Eine Datei wurde aus .bak wiederhergestellt. */
   ausBak: boolean;
+  /** verbund.json zuletzt nicht gespeichert (Fehlercode); null, sobald wieder gespeichert wurde (Endprüfung B6). */
+  speicherFehler: string | null;
   rechner: VerbundRechner[];
   kopplung: VerbundKopplungsfenster;
 }

@@ -70,7 +70,7 @@ export async function laufe(): Promise<void> {
     const { code } = a.server.oeffneKopplung();
     const falsch = code === '2222222222' ? '3333333333' : '2222222222';
     const r1 = await koppele({ adresse: '127.0.0.1', port: a.port, code: falsch, rechner: rechnerC });
-    gleich(r1.ok ? null : r1, { ok: false, art: 'abgelehnt', grund: 'code-falsch', rest: 4 }, 'falscher Code → code-falsch, noch 4');
+    gleich(r1.ok ? null : r1, { ok: false, art: 'abgelehnt', grund: 'code-falsch', rest: 4, beweisGesendet: true }, 'falscher Code → code-falsch, noch 4');
     for (let i = 0; i < 4; i++) await koppele({ adresse: '127.0.0.1', port: a.port, code: falsch, rechner: rechnerC });
     gleich(a.server.kopplungsStand().rest, 0, 'nach 5 Fehlversuchen rest 0');
     const r6 = await koppele({ adresse: '127.0.0.1', port: a.port, code: code!, rechner: rechnerC });
@@ -126,7 +126,7 @@ export async function laufe(): Promise<void> {
     });
     await new Promise<void>((r) => relais.listen(0, '127.0.0.1', r));
     const r = await koppele({ adresse: '127.0.0.1', port: (relais.address() as AddressInfo).port, code: code!, rechner: rechnerC });
-    gleich(r.ok ? null : r, { ok: false, art: 'abgelehnt', grund: 'code-falsch', rest: 4 },
+    gleich(r.ok ? null : r, { ok: false, art: 'abgelehnt', grund: 'code-falsch', rest: 4, beweisGesendet: true },
       'Relais mit eigenem Zertifikat: Master lehnt ab (anderer fp im Beweis), Fehlversuch gezählt');
     gleich(a.verbund.finde('rechner-c'), undefined, 'nichts gekoppelt');
     relais.close();
@@ -135,7 +135,7 @@ export async function laufe(): Promise<void> {
   {
     const f = await falscherMaster((v) => v.sende({ t: 'gekoppelt', masterId: 'falsch', name: 'Regie-PC', beweis: 'ab'.repeat(32), adressen: [] }));
     const r = await koppele({ adresse: '127.0.0.1', port: f.port, code: 'K7QXM3PRTH', rechner: rechnerC });
-    gleich(r.ok ? null : r, { ok: false, art: 'master-beweis' }, 'falscher Master mit beliebigem Beweis → abgelehnt, nichts gepinnt');
+    gleich(r.ok ? null : r, { ok: false, art: 'master-beweis', beweisGesendet: true }, 'falscher Master mit beliebigem Beweis → abgelehnt, nichts gepinnt');
     f.schliesse();
   }
   {
@@ -146,7 +146,7 @@ export async function laufe(): Promise<void> {
       v.sende({ t: 'gekoppelt', masterId: 'anders', name: 'Regie-PC', beweis: masterBeweis(K, d, 'anders'), adressen: [] });
     });
     const r = await koppele({ adresse: '127.0.0.1', port: f.port, code: K, rechner: rechnerC });
-    gleich(r.ok ? null : r, { ok: false, art: 'master-beweis' }, 'gekoppelt mit anderer masterId als im hallo → master-beweis');
+    gleich(r.ok ? null : r, { ok: false, art: 'master-beweis', beweisGesendet: true }, 'gekoppelt mit anderer masterId als im hallo → master-beweis');
     if (r.ok) r.verbindung.schliesse();
     f.schliesse();
   }
@@ -162,7 +162,7 @@ export async function laufe(): Promise<void> {
       }, 450);
     });
     const r = await koppele({ adresse: '127.0.0.1', port: f.port, code: K, rechner: rechnerC, fristen: { koppelnMs: 300 } });
-    gleich(r.ok ? null : r, { ok: false, art: 'frist' }, 'harte 10-s-Frist (hier 300 ms): Puls verlängert nicht, später Beweis wird nie angenommen');
+    gleich(r.ok ? null : r, { ok: false, art: 'frist', beweisGesendet: true }, 'harte 10-s-Frist (hier 300 ms): Puls verlängert nicht, später Beweis wird nie angenommen');
     f.schliesse();
   }
 
@@ -211,7 +211,7 @@ export async function laufe(): Promise<void> {
       }, 450);
     });
     const r = await koppele({ adresse: '127.0.0.1', port: f.port, code: K, rechner: rechnerC, fristen: { koppelnMs: 300 } });
-    gleich(r.ok ? null : r, { ok: false, art: 'frist' }, 'weitere hallo verlängern die Frist nicht, der späte gültige Beweis wird nie angenommen');
+    gleich(r.ok ? null : r, { ok: false, art: 'frist', beweisGesendet: true }, 'weitere hallo verlängern die Frist nicht, der späte gültige Beweis wird nie angenommen');
     gleich(koppelnGesamt, 1, 'auf weitere hallo folgt kein weiteres koppeln');
     f.schliesse();
   }
@@ -221,7 +221,7 @@ export async function laufe(): Promise<void> {
     // Vor dem geprüften „gekoppelt“ spricht ein UNGEPRÜFTES Gegenüber: höchstens 4 KiB je Zeile.
     const f = await falscherMaster((v) => v.socket.write(`{"t":"gross","x":"${'y'.repeat(GRENZEN.vorAnmeldung)}"}\n`));
     const r = await koppele({ adresse: '127.0.0.1', port: f.port, code: 'K7QXM3PRTH', rechner: rechnerC, fristen: { koppelnMs: 1000 } });
-    gleich(r.ok ? null : r, { ok: false, art: 'verbindung', code: 'kein-master' }, 'Zeile > 4 KiB vor „gekoppelt“ → sofort zu (kein-master), nicht erst nach der Frist');
+    gleich(r.ok ? null : r, { ok: false, art: 'verbindung', code: 'kein-master', beweisGesendet: true }, 'Zeile > 4 KiB vor „gekoppelt“ → sofort zu (kein-master), nicht erst nach der Frist');
     f.schliesse();
   }
   {
@@ -274,7 +274,7 @@ export async function laufe(): Promise<void> {
     a.server.oeffneKopplung();
     const wirft = { get id(): string { throw Object.assign(new Error('Testwurf'), { code: 'TESTWURF' }); }, name: 'Neuer PC' };
     const r = await koppele({ adresse: '127.0.0.1', port: a.port, code: 'K7QXM3PRTH', rechner: wirft });
-    gleich(r.ok ? null : r, { ok: false, art: 'verbindung', code: 'sonstig', errCode: 'TESTWURF' }, 'Ausnahme im Handler → Fehlerergebnis statt Absturz');
+    gleich(r.ok ? null : r, { ok: false, art: 'verbindung', code: 'sonstig', errCode: 'TESTWURF', beweisGesendet: false }, 'Ausnahme im Handler → Fehlerergebnis statt Absturz');
     await a.server.stoppe();
   }
 
@@ -284,11 +284,12 @@ export async function laufe(): Promise<void> {
     const ctrl = new AbortController();
     setTimeout(() => ctrl.abort(), 100);
     const r = await koppele({ adresse: '127.0.0.1', port: f.port, code: 'K7QXM3PRTH', rechner: rechnerC, signal: ctrl.signal });
-    gleich(r.ok ? null : r, { ok: false, art: 'abgebrochen' }, 'Dialog geschlossen → abgebrochen, nichts gespeichert');
+    gleich(r.ok ? null : r, { ok: false, art: 'abgebrochen', beweisGesendet: true }, 'Dialog geschlossen → abgebrochen, nichts gespeichert');
     f.schliesse();
   }
   {
     const r = await koppele({ adresse: '127.0.0.1', port: 1, code: 'K7QXM3PRTH', rechner: rechnerC });
     pruefe(!r.ok && r.art === 'verbindung' && r.code === 'verweigert', 'niemand lauscht → verbindung/verweigert');
+    pruefe(!r.ok && r.beweisGesendet === false, '… und kein Beweis hinausgegangen (der Code bleibt verwendbar, B9)');
   }
 }

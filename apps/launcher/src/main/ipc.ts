@@ -15,7 +15,7 @@ import type {
 } from '@shared/types';
 import type { VerbundRolle } from '@shared/types';
 import {
-  brecheKoppelnAb, entferneRechner, erneuereIdentitaet, koppeleMitMaster, neuerKoppelCode, oeffneKopplung,
+  brecheKoppelnAb, entferneRechner, erneuereIdentitaet, koppeleMitMaster, neueKennung, neuerKoppelCode, oeffneKopplung,
   schliesseKopplung, setzeFesteAdresse, setzeKarte, setzeMasterName, setzeNeuAuf, setzeRechnerName, setzeRolle,
   starteMasterSuche, stoppeMasterSuche, trenneVerbund, verbundStand,
 } from './verbund';
@@ -148,6 +148,7 @@ export function registerIpc(): void {
   ipcMain.handle('verbund:koppeln', (_e, adresse: string, code: string) => koppeleMitMaster(adresse, code));
   ipcMain.handle('verbund:koppelnAbbrechen', () => brecheKoppelnAb());
   ipcMain.handle('verbund:trennen', () => trenneVerbund());
+  ipcMain.handle('verbund:neueKennung', () => neueKennung());
   ipcMain.handle('verbund:festeAdresse', (_e, adresse: string | null) => setzeFesteAdresse(adresse));
 
   // Bug-/Wunsch-Meldung → GitHub-Issue (via Proxy, sonst Token-Fallback).

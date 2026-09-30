@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import {
   fehlerText, koppele, kuerzeName, listeKarten, MASTER_PORT, MasterLinkClient, MdnsSuche, normalisiereCode, ordneKandidaten,
@@ -27,7 +28,19 @@ export interface SlaveAbhaengigkeiten {
   listenSuche?: SucheLike | null;
   /** Nur Tests: Takt der Listensuche (Vorgabe 5000 ms). */
   suchTaktMs?: number;
+  /**
+   * SHA-256 gesendeter Codes → Zeitpunkt (B9). Der Kern reicht EINE Liste an jede neue SlaveRolle weiter, damit ein
+   * Rollenwechsel die Sperre nicht aufhebt. Vorgabe: eigene Liste dieser Rolle.
+   */
+  gesendeteCodes?: Map<string, number>;
 }
+
+/** Ein gesendeter Code bleibt mindestens so lange gesperrt (Code gilt 120 s am Master, Spec 3.2). */
+export const CODE_SPERRE_MS = 130_000;
+
+export const CODE_SCHON_GESENDET = 'Dieser Code wurde schon gesendet. Am Master „Neuer Code“ holen.';
+
+const codeSchluessel = (code: string): string => createHash('sha256').update(code).digest('hex');
 
 export function teileAdresse(eingabe: string): { host: string; port: number } | null {
   const t = eingabe.trim();
@@ -84,9 +97,11 @@ export class SlaveRolle {
   private koppelZiel: string | null = null;
   /** Letzter geloggter Fehler der Such-Runde: dieselbe Meldung steht nicht alle 5 s im Log. */
   private letzterSuchFehler: string | null = null;
+  private readonly gesendeteCodes: Map<string, number>;
 
   constructor(d: SlaveAbhaengigkeiten) {
     this.d = d;
+    this.gesendeteCodes = d.gesendeteCodes ?? new Map();
     this.client = new MasterLinkClient({
       dateiPfad: d.dateiPfad,
       teilnehmer: { art: 'launcher', appId: 'jm-launcher', name: 'JM Production Suite', version: d.suiteVersion, pid: process.pid },
@@ -96,7 +111,7 @@ export class SlaveRolle {
       log: d.log,
     });
     this.client.on('zustand', () => d.beiAenderung());
-    this.client.on('angemeldet', (a: { adresse: string; adressen: string[] }) => this.merkeAdressen(a));
+    this.client.on('angemeldet', (a: { adresse: string; adressen: string[]; masterName?: string }) => this.merkeAdressen(a));
     this.listenSuche = d.listenSuche === undefined ? new MdnsSuche(standardFabrik((t) => d.log('warn', t))) : d.listenSuche;
   }
 
@@ -170,6 +185,12 @@ export class SlaveRolle {
     }
     const ziel = teileAdresse(adresseEingabe);
     if (!ziel) return { ok: false, text: 'Bitte einen gefundenen Master wählen oder eine Adresse eintragen.' };
+    // B9 (Spec 3.3 „Slave verwirft K“): ein Code, dessen Beweis schon hinausging, nie ein zweites Mal senden — lokal
+    // ablehnen, ohne Socket. Sonst hätte ein fremdes Gerät, das mit „code-falsch“ antwortet, beliebig Zeit zum Raten.
+    const jetzt = Date.now();
+    for (const [h, t] of this.gesendeteCodes) if (jetzt - t > CODE_SPERRE_MS) this.gesendeteCodes.delete(h);
+    const schluessel = codeSchluessel(c.code);
+    if (this.gesendeteCodes.has(schluessel)) return { ok: false, text: CODE_SCHON_GESENDET };
     this.koppelAbbruch?.abort();
     const ctrl = new AbortController();
     this.koppelAbbruch = ctrl;
@@ -191,7 +212,10 @@ export class SlaveRolle {
         // Spec 4.5: eine von Hand eingetragene Adresse (nicht aus mDNS) wird beim Koppeln die feste Adresse.
         festeAdresse: gesehen ? (d.kopplung?.festeAdresse ?? null) : ziel.host,
       });
-      if (!r.ok) return { ok: false, text: koppelText(r, gesehen?.name ?? ziel.host, ziel.host) };
+      if (!r.ok) {
+        if (r.beweisGesendet) this.gesendeteCodes.set(schluessel, Date.now());
+        return { ok: false, text: koppelText(r, gesehen?.name ?? ziel.host, ziel.host) };
+      }
       // Der Master-Name kommt aus der 'gekoppelt'-Zeile (bis 4 KiB, Zeilenumbrüche möglich): vor Speichern, Log und Anzeige kürzen.
       const masterName = kuerzeName(r.masterName);
       const kopplung = { ...r.kopplung, masterName: kuerzeName(r.kopplung.masterName) };
@@ -223,14 +247,18 @@ export class SlaveRolle {
     this.koppelAbbruch?.abort();
   }
 
-  /** Nur bei Änderung schreiben — reine Adressnachträge trennen die Tools nicht (Spec 7.1). */
-  private merkeAdressen(a: { adresse: string; adressen: string[] }): void {
+  /**
+   * Nur bei Änderung schreiben — Adressen und Master-Name sind nicht verbindungsrelevant, die Tools trennen nicht (Spec 7.1).
+   * Der Name kommt aus dem gepinnten hallo (vom Client gekürzt): so erreicht eine Umbenennung am Master die Slaves (B5).
+   */
+  private merkeAdressen(a: { adresse: string; adressen: string[]; masterName?: string }): void {
     const d = this.d.datei();
     const k = d.kopplung;
     if (!k) return;
-    if (k.letzteAdresse === a.adresse && JSON.stringify(k.adressen) === JSON.stringify(a.adressen)) return;
+    const masterName = a.masterName ? kuerzeName(a.masterName) : k.masterName;
+    if (k.letzteAdresse === a.adresse && JSON.stringify(k.adressen) === JSON.stringify(a.adressen) && k.masterName === masterName) return;
     try {
-      this.d.schreibeDatei({ ...d, kopplung: { ...k, letzteAdresse: a.adresse, adressen: a.adressen } });
+      this.d.schreibeDatei({ ...d, kopplung: { ...k, letzteAdresse: a.adresse, adressen: a.adressen, masterName } });
     } catch (e) {
       // Ein verpasster Adressnachtrag ist kein Grund, die Verbindung zu stören; er kommt mit der nächsten Anmeldung wieder.
       this.d.log('warn', `Master-Adressen nicht gespeichert (${fehlerCode(e)}).`);
@@ -239,10 +267,14 @@ export class SlaveRolle {
 
   stand(): VerbundSlaveStand {
     const d = this.d.datei();
+    const z = this.client.zustand();
+    // Im Zustand verbunden gilt der Name aus dem gepinnten hallo (aktuell), sonst der gespeicherte (B5).
+    const gespeichert = d.kopplung ? kuerzeName(d.kopplung.masterName) : null;
+    const name = z.art === 'verbunden' && d.kopplung ? kuerzeName(z.masterName) : gespeichert;
     return {
       gekoppelt: d.kopplung !== null,
       koppeltGerade: this.koppeltGerade,
-      masterName: this.koppeltGerade ? this.koppelZiel : (d.kopplung ? kuerzeName(d.kopplung.masterName) : null),
+      masterName: this.koppeltGerade ? this.koppelZiel : name,
       festeAdresse: d.kopplung?.festeAdresse ?? null,
       client: clientStand(this.client.zustand()),
       gefundeneMaster: this.gefunden,

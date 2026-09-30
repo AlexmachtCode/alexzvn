@@ -693,6 +693,7 @@ Die Presence wird nur um das Feld `verbund` erweitert (8.3).
 | Master-Beweis falsch | „Der Master konnte den Code nicht bestätigen, möglicherweise ein fremdes Gerät. Nichts gespeichert.“ |
 | Frist 10 s abgelaufen | „Der Master hat nicht rechtzeitig bestätigt. Nichts gespeichert.“ |
 | Verbindungsfehler | Text aus 9.1 |
+| Code schon gesendet | „Dieser Code wurde schon gesendet. Am Master „Neuer Code“ holen.“ (Nachtrag aus der Endprüfung: Ging `koppeln` samt Beweis hinaus, ohne dass ein geprüftes `gekoppelt` kam, sperrt der Slave diesen Code lokal — mindestens 130 s, über Rollenwechsel hinweg — und lehnt einen erneuten Versuch ohne Socket ab. Sonst hätte ein fremdes Gerät, das mit „code-falsch“ antwortet, statt 10 s beliebig lange Zeit, den Code aus dem Beweis zu raten; 3.3 „Slave verwirft K“.) |
 
 ---
 

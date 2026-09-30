@@ -25,13 +25,22 @@ export interface KoppelAnfrage {
   festeAdresse?: string | null;
 }
 
-export type KoppelErgebnis =
-  | { ok: true; kopplung: Kopplung; verbindung: Verbindung; masterName: string }
+type KoppelFehlschlag =
   | { ok: false; art: 'abgelehnt'; grund: Grund; rest?: number }
   | { ok: false; art: 'master-beweis' }
   | { ok: false; art: 'frist' }
   | { ok: false; art: 'verbindung'; code: FehlerCode; errCode?: string }
   | { ok: false; art: 'abgebrochen' };
+
+export type KoppelErgebnis =
+  | { ok: true; kopplung: Kopplung; verbindung: Verbindung; masterName: string }
+  | (KoppelFehlschlag & {
+    /**
+     * true = 'koppeln' samt Beweis ging hinaus, ohne geprüftes 'gekoppelt' (Endprüfung B9). Dieser Code darf nie wieder
+     * gesendet werden: das Gegenüber könnte ihn aus dem Beweis offline raten (Spec 3.3 „Slave verwirft K“).
+     */
+    beweisGesendet?: boolean;
+  });
 
 /** errCode, wenn der Code schon lokal ungültig ist — dann gibt es keinen Socket (Spec 3.1). */
 const CODE_UNGUELTIG = 'CODE_UNGUELTIG';
@@ -58,6 +67,7 @@ export function koppele(a: KoppelAnfrage): Promise<KoppelErgebnis> {
     let halloMasterId = '';
     // Eigener Merker: `ns` allein taugt nicht (eine leere Nonce ließe `!ns` wahr und die Frist immer wieder neu anlaufen).
     let halloGesehen = false;
+    let beweisGesendet = false;
 
     const socket = connect({ host: a.adresse, port, rejectUnauthorized: false });
 
@@ -69,6 +79,8 @@ export function koppele(a: KoppelAnfrage): Promise<KoppelErgebnis> {
       if (!r.ok) {
         v?.removeAllListeners();
         socket.destroy();
+        fertig({ ...r, beweisGesendet });
+        return;
       }
       fertig(r);
     };
@@ -115,6 +127,9 @@ export function koppele(a: KoppelAnfrage): Promise<KoppelErgebnis> {
           ns = n.nonce;
           halloMasterId = n.masterId;
           const d = { fp, ns, nc, rechnerId: a.rechner.id, schluessel: paar.oeffentlich };
+          const beweis = slaveBeweis(code, d);
+          // Vor dem Senden setzen: auch ein halb geschriebener Beweis gilt als hinausgegangen (B9).
+          beweisGesendet = true;
           verbindung.sende({
             t: 'koppeln',
             protokoll: PROTOKOLL,
@@ -122,7 +137,7 @@ export function koppele(a: KoppelAnfrage): Promise<KoppelErgebnis> {
             rechnerName,
             nonce: nc,
             schluessel: paar.oeffentlich,
-            beweis: slaveBeweis(code, d),
+            beweis,
           });
           // HART: keine eingehende Zeile verlängert diese Frist (auch nicht 'puls').
           setzeFrist(f.koppelnMs, { ok: false, art: 'frist' });

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { connect as netConnect, type Socket } from 'node:net';
+import { connect as netConnect, createServer as netServer, type Socket } from 'node:net';
 import type { NetworkInterfaceInfo } from 'node:os';
 import { join } from 'node:path';
 import { erzeugeSchluesselpaar, signiereAnmeldung } from '../src/beweis';
@@ -392,5 +392,38 @@ export async function laufe(): Promise<void> {
     gleich(warnungen.filter((t) => t.includes('doppelt aktiv')), [], '… ohne Warnung „doppelt aktiv“ (derselbe Prozess, kein Klon)');
     neu.zu();
     await b.server.stoppe();
+  }
+
+  abschnitt('Server: Neubinden bindet jede Adresse einzeln, Loopback bleibt (Endprüfung B1, Spec 4.3)');
+  {
+    // Wechsel „Automatisch“ → Karte: [Karten-IP, 127.0.0.1]. Scheitert die Karten-IP, muss 127.0.0.1 trotzdem lauschen,
+    // und an Slaves gehen nur Adressen, auf denen wirklich gelauscht wird. (127.0.0.5 steht für 0.0.0.0: keine Firewall-Abfrage.)
+    // Fester Port: mit Port 0 vergäbe das Neubinden nach dem Schließen aller alten Lauscher einen neuen.
+    const frei = netServer();
+    await new Promise<void>((r) => frei.listen(0, '127.0.0.1', r));
+    const p = (frei.address() as { port: number }).port;
+    await new Promise<void>((r) => frei.close(() => r()));
+    const a = await baueServer({ lauschAdressen: ['127.0.0.5'], port: p });
+    const blocker = netServer();
+    await new Promise<void>((r) => blocker.listen(p, '127.0.0.6', r));
+    let code = '';
+    try {
+      await a.server.setzeLauschAdressen(['127.0.0.6', '127.0.0.1']);
+    } catch (e) {
+      code = (e as NodeJS.ErrnoException).code ?? '';
+    }
+    gleich(code, 'EADDRINUSE', 'Karten-IP belegt → setzeLauschAdressen meldet den Fehler');
+    const offen = await new Promise<boolean>((r) => {
+      const s = netConnect(p, '127.0.0.1');
+      s.on('connect', () => { s.destroy(); r(true); });
+      s.on('error', () => r(false));
+    });
+    pruefe(offen, '… 127.0.0.1 lauscht trotzdem (die eigenen Tools behalten den Master)');
+    const liste = (a.server as unknown as { lauschAdressen: string[] }).lauschAdressen;
+    gleich(liste, ['127.0.0.1'], '… geführt werden nur tatsächlich gebundene Adressen (Spec 4.3)');
+    await new Promise<void>((r) => blocker.close(() => r()));
+    await a.server.setzeLauschAdressen(['127.0.0.6', '127.0.0.1']);
+    gleich((a.server as unknown as { lauschAdressen: string[] }).lauschAdressen, ['127.0.0.6', '127.0.0.1'], 'erneuter Aufruf bindet die Karten-IP nach');
+    await a.server.stoppe();
   }
 }

@@ -2,13 +2,14 @@
 // Master und Slaves laufen in EINEM Prozess mit getrennten appData-/userData-Ordnern auf 127.0.0.1.
 // Auch der Kern hinter verbund/index.ts (verbund/kern.ts: Kette, Schreibsperre, Rollenstart) läuft hier ohne Electron.
 import { X509Certificate } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { connect, createServer, type AddressInfo } from 'node:net';
+import { createServer as createTlsServer } from 'node:tls';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
-  fingerprintVonPem, leseMasterLinkDatei, masterLinkPfad, MasterLinkClient, pruefeIdentitaet, schreibeMasterLinkDatei,
+  fingerprintVonPem, leseMasterLinkDatei, masterLinkPfad, MasterLinkClient, pruefeIdentitaet, schreibeMasterLinkDatei, Verbindung,
   type BonjourFabrik, type Lesen, type MasterLinkDatei, type NetzwerkInterfaces, type SucheLike,
 } from '@jm/master-link';
 import { erzeugeVerbundKern, type VerbundKernDeps } from '../src/main/verbund/kern';
@@ -18,6 +19,7 @@ import { koppelText, SlaveRolle, teileAdresse, type SlaveAbhaengigkeiten } from 
 import { beobachte, kartenLage, leseBisLesbar } from '../src/main/verbund/wache';
 import { erzeugeMasterIdentitaet } from '../src/main/verbund/zertifikat';
 import { kopfanzeige, kopfEingang } from '../src/renderer/src/lib/kopfanzeige';
+import { ablehnungText } from '../src/renderer/src/lib/verbund-texte';
 import type { VerbundStand } from '../src/shared/types';
 
 let pass = 0, fail = 0;
@@ -316,6 +318,7 @@ await folgende.stoppe();
   const lebend = new Set<number>();
   let nr = 0;
   let kaputtFabrik = false;
+  let goodbyes = 0;
   const fabrik: BonjourFabrik = () => {
     if (kaputtFabrik) throw gesperrtMit('EMDNS');
     const mein = ++nr;
@@ -323,7 +326,7 @@ await folgende.stoppe();
     return {
       publish: () => ({}),
       find: () => ({ stop() { /* nichts */ } }),
-      unpublishAll: (cb) => { setTimeout(() => cb?.(), 150); },
+      unpublishAll: (cb) => { goodbyes++; setTimeout(() => cb?.(), 150); },
       destroy: (cb) => { lebend.delete(mein); cb?.(); },
     };
   };
@@ -331,7 +334,11 @@ await folgende.stoppe();
   await m.starte();
   ck('Annonce und Lauscher der gewählten Karte laufen', m.stand().zustand === 'laeuft' && lebend.size === 1 && !(await verweigert(pR, '127.0.0.2')));
   karten = karte('Ethernet 3', '127.0.0.3'); // Kartenwechsel (WLAN/DHCP): Lauscher UND Annonce müssen neu
+  const goodbyesVorher = goodbyes;
   const lauf = m.pruefeKarten();
+  // Echter Wettlauf (Endprüfung B2): stoppe() erst, wenn der Lauf in annonce.aktualisiere() im Goodbye steckt. Ohne dieses
+  // Warten setzte stoppe() „gestoppt“, bevor der Lauf überhaupt begann — der Test hätte einen Rückbau nicht bemerkt.
+  ck('Wettlauf hergestellt: der Karten-Lauf steckt im mDNS-Goodbye, als stoppe() kommt', await bis(() => goodbyes > goodbyesVorher, 2000));
   await m.stoppe(); // Aus — OHNE den Karten-Lauf abzuwarten
   ck('stoppe() wartet den Karten-Lauf ab: danach keine Annonce mehr', lebend.size === 0);
   await lauf;
@@ -652,6 +659,11 @@ const dateiRolle = (pfad: string): string | null => dateiDaten(pfad)?.rolle ?? n
   let wurfCode = '';
   try { K2.kern.setzeRechnerName('Anders'); } catch (e) { wurfCode = (e as { code?: string }).code ?? ''; }
   ck('schreibe wirft bei dateiFehler (Code im Error) und ändert nichts', wurfCode === 'EBUSY' && K2.kern.stand().rechnerName === gesperrt.rechnerName && readFileSync(K2.pfad, 'utf8') === inhaltVorher);
+  // Endprüfung B7: über IPC kommt nur die Meldung an („Error invoking remote method …: Error: <message>“), nie das Feld code.
+  let ipcText = '';
+  try { K2.kern.setzeRechnerName('Anders'); } catch (e) { ipcText = `Error invoking remote method 'verbund:rechnerName': ${String(e)}`; }
+  ck(`B7: dateiFehler-Code steht am Anfang der Meldung → Modal zeigt ihn (${ablehnungText(new Error(ipcText))})`,
+    ablehnungText(new Error(ipcText)) === 'Nicht gespeichert (EBUSY). Bitte noch einmal versuchen.');
   let karteAbgelehnt = false;
   try { await K2.kern.setzeKarte('Ethernet 2'); } catch { karteAbgelehnt = true; }
   ck('setzeKarte lehnt ab, die Kartenwahl bleibt unverändert', karteAbgelehnt && K2.kern.stand().gewaehlteKarte === null && readFileSync(K2.pfad, 'utf8') === inhaltVorher);
@@ -808,6 +820,282 @@ const dateiRolle = (pfad: string): string | null => dateiDaten(pfad)?.rolle ?? n
   ck('Schreibfehler beim Rollenwechsel: abgelehnt, die vorige SlaveRolle ist wieder da und sucht weiter',
     abgelehnt5 && S4.kern.stand().rolle === 'slave' && S4.kern.stand().slave !== null && await bis(() => s4.z.runden >= nachSperre + 2, 2000));
   await S4.kern.beende();
+}
+
+// --- Endprüfung B1: gescheitertes Neubinden wird im nächsten Takt wiederholt, Loopback bleibt offen ---------------
+{
+  const karteN = (name: string, ip: string): NetzwerkInterfaces => ({
+    [name]: [{ address: ip, netmask: '255.0.0.0', family: 'IPv4', mac: '00:11:22:33:44:55', internal: false, cidr: `${ip}/8` }],
+  });
+  const pN = await freierPort();
+  const N = rechner('master', 'Neubinden-PC');
+  N.schreibe({ ...N.lies(), netzwerk: { karte: 'Ethernet 2' } });
+  let kartenN = karteN('Ethernet 2', '127.0.0.2');
+  const lmN = logMitschrift();
+  const mN = neuerMaster(N, pN, { log: lmN.log, fristen: { ...KURZ, kartenPruefMs: 60_000 }, netzwerkKarten: () => kartenN, lauschAdressen: undefined });
+  await mN.starte();
+  ck('B1: Master lauscht auf der gewählten Karte', mN.stand().zustand === 'laeuft' && !(await verweigert(pN, '127.0.0.2')));
+  // DHCP gibt eine neue Adresse, die im ersten Takt nicht bindbar ist (hier belegt; echt z. B. DAD „tentativ“ → EADDRNOTAVAIL).
+  const blocker = createServer();
+  await new Promise<void>((r) => blocker.listen(pN, '127.0.0.3', r));
+  kartenN = karteN('Ethernet 2', '127.0.0.3');
+  await mN.pruefeKarten();
+  ck('B1: Takt 1 — Neubinden scheitert und wird geloggt', lmN.zeilen.some((z) => z.includes('Neubinden fehlgeschlagen (EADDRINUSE)')));
+  ck('B1: … Loopback 127.0.0.1 bleibt offen (eigene Tools)', !(await verweigert(pN)));
+  await mN.pruefeKarten(); // noch blockiert: erneuter Versuch, aber keine zweite gleiche Logzeile
+  ck('B1: dieselbe Meldung steht nur einmal im Log', lmN.zeilen.filter((z) => z.includes('Neubinden fehlgeschlagen')).length === 1);
+  await new Promise<void>((r) => blocker.close(() => r()));
+  await mN.pruefeKarten();
+  ck('B1: Blocker weg → der nächste Takt bindet die neue Karten-IP', !(await verweigert(pN, '127.0.0.3')));
+  await mN.stoppe();
+}
+
+// --- Endprüfung B3: geklonter Rechner — „Neue Kennung“ repariert den Klon, ohne das Original auszusperren ---------
+{
+  const pKl = await freierPort();
+  // ersetzt kurz: das Original erholt sich im Test binnen Sekundenbruchteilen statt 60 s.
+  const slaveFristen = () => ({ slave: { fristen: { ...KURZ, ersetztWiederholMs: 300 }, suche: null, listenSuche: null } });
+  const MK = kernRechner('Klon-Master', 'master', pKl);
+  await MK.kern.starte();
+  const OR = kernRechner('Leih-Laptop', 'slave', pKl, slaveFristen);
+  await OR.kern.starte();
+  MK.kern.oeffneKopplung();
+  const rO = await OR.kern.koppeleMitMaster(`127.0.0.1:${pKl}`, MK.kern.stand().master!.kopplung.code!);
+  ck('B3: Original koppelt', rO.ok && await bis(() => OR.kern.stand().slave?.client.art === 'verbunden', 3000));
+  // Klon: dieselbe master-link.json auf einem zweiten Rechner (Image).
+  const KL = kernRechner('Leih-Laptop-Klon', null, pKl, slaveFristen);
+  mkdirSync(dirname(KL.pfad), { recursive: true });
+  writeFileSync(KL.pfad, readFileSync(OR.pfad));
+  await KL.kern.starte();
+  ck('B3: Klon mit gleicher Kennung → einer von beiden sieht „ersetzt“',
+    await bis(() => [OR, KL].some((x) => x.kern.stand().slave?.client.code === 'ersetzt'), 3000));
+  const idAlt = dateiDaten(KL.pfad)?.rechner.id;
+  const nachKennung = await KL.kern.neueKennung();
+  const neuDatei = dateiDaten(KL.pfad);
+  ck('B3: „Neue Kennung“ → neue rechner.id, Kopplung weg, Rolle bleibt (über schreibe())',
+    !!neuDatei && neuDatei.rechner.id !== idAlt && neuDatei.kopplung === null && neuDatei.rolle === 'slave' && nachKennung.rolle === 'slave');
+  ck('B3: … das Original behält seine Datei', dateiDaten(OR.pfad)?.rechner.id === idAlt && dateiDaten(OR.pfad)?.kopplung !== null);
+  MK.kern.oeffneKopplung();
+  const rK = await KL.kern.koppeleMitMaster(`127.0.0.1:${pKl}`, MK.kern.stand().master!.kopplung.code!);
+  ck('B3: Klon koppelt mit neuer Kennung', rK.ok);
+  const beide = await bis(() => OR.kern.stand().slave?.client.art === 'verbunden' && KL.kern.stand().slave?.client.art === 'verbunden', 3000);
+  const fremde = MK.kern.stand().master?.rechner.filter((r) => !r.dieserRechner) ?? [];
+  ck('B3: danach beide verbunden, zwei Einträge am Master (beide online)', beide && fremde.length === 2 && fremde.every((r) => r.online));
+  await warte(600);
+  ck('B3: … und es bleibt so (kein Ping-Pong)', OR.kern.stand().slave?.client.art === 'verbunden' && KL.kern.stand().slave?.client.art === 'verbunden');
+  await KL.kern.beende();
+  await OR.kern.beende();
+  await MK.kern.beende();
+}
+
+// --- Endprüfung B4: der Kern beobachtet master-link.json und übernimmt den Plattenstand -----------------------------
+{
+  const pW = await freierPort();
+  const takt = 100;
+  const mitWache = () => ({ dateiTaktMs: takt });
+  const MW = kernRechner('Wache-Master', 'master', pW);
+  await MW.kern.starte();
+  const koppleSlave = async (name: string) => {
+    const S = kernRechner(name, 'slave', pW, mitWache);
+    await S.kern.starte();
+    MW.kern.oeffneKopplung();
+    const r = await S.kern.koppeleMitMaster(`127.0.0.1:${pW}`, MW.kern.stand().master!.kopplung.code!);
+    ck(`B4: ${name} gekoppelt und verbunden`, r.ok && await bis(() => S.kern.stand().slave?.client.art === 'verbunden', 3000));
+    return S;
+  };
+  const kopf = (S: { kern: { stand: () => VerbundStand } }) => kopfanzeige(kopfEingang(S.kern.stand())).text;
+
+  // Eigene Schreibvorgänge (Koppeln, Adressnachtrag) lösen keinen Neustart aus.
+  const S1 = await koppleSlave('Wache-Laptop');
+  const seit = S1.kern.stand().slave?.client.seit;
+  await warte(takt * 5);
+  ck('B4: eigene Schreibvorgänge → kein Neustart (Verbindung bleibt dieselbe)',
+    S1.kern.stand().slave?.client.art === 'verbunden' && S1.kern.stand().slave?.client.seit === seit);
+
+  // Datei im Betrieb gelöscht → wie Start ohne Datei: Rolle aus, nichts schreiben — Kopf „Verbund aus“, nicht „Suche…“.
+  rmSync(S1.pfad);
+  const ausNachLoeschen = await bis(() => kopf(S1) === 'Verbund aus', takt + 900);
+  ck(`B4: Datei gelöscht → Kopf „Verbund aus“ nach ≤ einem Takt + Spielraum (${kopf(S1)})`, ausNachLoeschen);
+  ck('B4: … Rolle aus, die Datei wird nicht zurückgeschrieben', S1.kern.stand().rolle === 'aus' && S1.kern.stand().slave === null && dateiDaten(S1.pfad) === null);
+  await warte(takt * 3);
+  ck('B4: … auch später nicht (kein Neustart je Takt)', dateiDaten(S1.pfad) === null && kopf(S1) === 'Verbund aus');
+  await S1.kern.beende();
+
+  // Datei von Hand auf Rolle „aus“ gestellt → dasselbe.
+  const S2 = await koppleSlave('Wache-Laptop-2');
+  const vonHand = dateiDaten(S2.pfad)!;
+  await warte(20); // andere mtime als das eigene Schreiben
+  schreibeMasterLinkDatei(S2.pfad, { ...vonHand, rolle: 'aus' });
+  const ausVonHand = await bis(() => kopf(S2) === 'Verbund aus', takt + 900);
+  ck(`B4: Rolle in der Datei von Hand auf „aus“ → Kopf „Verbund aus“ (${kopf(S2)})`, ausVonHand && S2.kern.stand().rolle === 'aus');
+  ck('B4: … Plattenstand ist Wahrheit (Datei unverändert „aus“)', dateiDaten(S2.pfad)?.rolle === 'aus');
+
+  // Von Hand wieder auf „slave“ (mit Kopplung) → Rolle startet neu und verbindet.
+  schreibeMasterLinkDatei(S2.pfad, vonHand);
+  ck('B4: Datei von Hand zurück auf „slave“ → Rolle startet und verbindet', await bis(() => S2.kern.stand().slave?.client.art === 'verbunden', 3000));
+
+  // Datei im Betrieb defekt → wie beim Start (Slave, Client meldet „Kopplungsdatei beschädigt“), nichts überschrieben.
+  writeFileSync(S2.pfad, 'Müll');
+  ck('B4: Datei defekt → wie beim Start (Rolle slave, fehler:datei)', await bis(() => S2.kern.stand().slave?.client.code === 'datei', 3000));
+  ck('B4: … nichts überschrieben', readFileSync(S2.pfad, 'utf8') === 'Müll');
+  await S2.kern.beende();
+
+  // I/O-Fehler beim Lesen im Betrieb → dateiFehler (nichts überschreiben), danach wieder lesbar → Fehler weg.
+  let ioCode: string | null = null;
+  const S3 = kernRechner('Wache-Laptop-3', 'slave', pW, (pfad) => ({
+    dateiTaktMs: takt,
+    lies: () => (ioCode ? { art: 'io', code: ioCode } : leseMasterLinkDatei(pfad)),
+  }));
+  await S3.kern.starte();
+  ioCode = 'EBUSY';
+  writeFileSync(S3.pfad, readFileSync(S3.pfad)); // mtime ändert sich, Lesen scheitert
+  ck('B4: I/O-Fehler im Betrieb → dateiFehler', await bis(() => S3.kern.stand().dateiFehler === 'EBUSY', takt + 900));
+  let geworfen = '';
+  try { S3.kern.setzeRechnerName('Neu'); } catch (e) { geworfen = fehlerCode(e); }
+  ck('B4: … solange wird nichts geschrieben', geworfen === 'EBUSY');
+  ioCode = null;
+  ck('B4: wieder lesbar → dateiFehler weg', await bis(() => S3.kern.stand().dateiFehler === null, takt + 900));
+  await S3.kern.beende();
+  await MW.kern.beende();
+}
+
+// --- Endprüfung B5: Master-Name erreicht die Slaves; Identität heißt wie „Name dieses Rechners“ -------------------
+{
+  const pU = await freierPort();
+  const U = rechner('master', 'Regie-Rechner-7');
+  const mkU = () => neuerMaster(U, pU);
+  let mU = mkU();
+  await mU.starte();
+  ck('B5: neue Master-Identität heißt wie „Name dieses Rechners“ (nicht hostname())', mU.stand().name === 'Regie-Rechner-7');
+  const SU = rechner('slave', 'Umbenenn-Laptop');
+  const sU = neuerSlave(SU);
+  sU.starte();
+  mU.oeffneKopplung();
+  ck('B5: Slave koppelt', (await sU.koppele(`127.0.0.1:${pU}`, mU.stand().kopplung.code!)).ok && await bis(() => sU.stand().client.art === 'verbunden', 3000));
+  await mU.setzeName('Regie-PC Saal 2');
+  // Master-Neustart (z. B. Launcher neu gestartet) → Slave verbindet neu und bekommt 'hallo' mit dem neuen Namen.
+  await mU.stoppe();
+  mU = mkU();
+  await mU.starte();
+  await bis(() => sU.stand().client.art !== 'verbunden', 3000);
+  await bis(() => sU.stand().client.art === 'verbunden', 5000);
+  const kopfU = () => kopfanzeige(kopfEingang({
+    rolle: 'slave', rechnerName: 'Umbenenn-Laptop', karten: [], gewaehlteKarte: null, karteFehlt: false, dateiFehler: null, master: null, slave: sU.stand(),
+  })).text;
+  ck(`B5: nach Neuverbindung zeigt der Kopf den neuen Namen (${kopfU()})`, await bis(() => kopfU().includes('Regie-PC Saal 2'), 2000));
+  ck('B5: … und master-link.json trägt ihn (kopplung.masterName)', await bis(() => SU.lies().kopplung?.masterName === 'Regie-PC Saal 2', 2000)
+    && dateiDaten(SU.pfad)?.kopplung?.masterName === 'Regie-PC Saal 2');
+  // „Verbund neu aufsetzen“ behält den bisherigen Master-Namen (statt auf hostname() zurückzufallen).
+  await mU.neuAufsetzen();
+  ck('B5: „Verbund neu aufsetzen“ behält den Master-Namen', mU.stand().zustand === 'laeuft' && mU.stand().name === 'Regie-PC Saal 2');
+  await sU.stoppe();
+  await mU.stoppe();
+}
+
+// --- Endprüfung B6: dauerhafter Schreibfehler von verbund.json ist am Master sichtbar (speicherFehler) -------------
+{
+  const pS = await freierPort();
+  const S = rechner('master', 'Speicher-PC');
+  const lmS = logMitschrift();
+  const mS = neuerMaster(S, pS, { log: lmS.log });
+  await mS.starte();
+  ck('B6: Master läuft, kein Speicherfehler', mS.stand().zustand === 'laeuft' && mS.stand().speicherFehler === null);
+  const vbS = join(S.speicherDir, 'verbund.json');
+  chmodSync(vbS, 0o444); // Schreibschutz (Windows: Attribut „schreibgeschützt“) — rename darauf scheitert
+  mS.oeffneKopplung();
+  const SS = rechner('slave', 'Speicher-Laptop');
+  const sS = neuerSlave(SS);
+  sS.starte();
+  await sS.koppele(`127.0.0.1:${pS}`, mS.stand().kopplung.code!);
+  const code = mS.stand().speicherFehler;
+  ck(`B6: schreibgeschützte verbund.json → stand().speicherFehler = Code (${code})`, typeof code === 'string' && /^E[A-Z]+$/.test(code));
+  ck('B6: … Log nennt nur den Code (keinen Pfad)', lmS.zeilen.some((z) => z.includes('verbund.json nicht geschrieben')) && lmS.zeilen.every((z) => !z.includes(S.speicherDir)));
+  chmodSync(vbS, 0o644);
+  ck('B6: nach Behebung (Wiederholung schreibt) → speicherFehler null', await bis(() => mS.stand().speicherFehler === null, 3000));
+  await sS.stoppe();
+  await mS.stoppe();
+}
+
+// --- Endprüfung B8: IPC-Eingaben werden im Main geprüft (EINVAL am Meldungsanfang), nie ungeprüft geschrieben -------
+{
+  const pE = await freierPort();
+  const ME = kernRechner('Eingabe-Master', 'master', pE);
+  await ME.kern.starte();
+  const SE = kernRechner('Eingabe-Laptop', 'slave', pE);
+  await SE.kern.starte();
+  ME.kern.oeffneKopplung();
+  ck('B8: Slave gekoppelt', (await SE.kern.koppeleMitMaster(`127.0.0.1:${pE}`, ME.kern.stand().master!.kopplung.code!)).ok);
+  const einval = async (f: () => unknown): Promise<boolean> => {
+    try {
+      await f();
+      return false;
+    } catch (e) {
+      return fehlerCode(e) === 'EINVAL' && String((e as Error).message).startsWith('EINVAL');
+    }
+  };
+  const roh = (x: unknown) => x as never; // ein Renderer kann über IPC beliebige Werte schicken
+  const vorher = readFileSync(SE.pfad, 'utf8');
+  ck('B8: verbund:rolle mit Wert außerhalb der Union → EINVAL',
+    await einval(() => SE.kern.setzeRolle(roh('quatsch'))) && await einval(() => SE.kern.setzeRolle(roh(42))));
+  ck('B8: verbund:karte kein Text bzw. zu lang → EINVAL',
+    await einval(() => SE.kern.setzeKarte(roh(123))) && await einval(() => SE.kern.setzeKarte('x'.repeat(300))));
+  ck('B8: verbund:rechnerName kein Text → EINVAL', await einval(() => SE.kern.setzeRechnerName(roh({ name: 'x' }))));
+  ck('B8: verbund:masterName kein Text → EINVAL', await einval(() => ME.kern.setzeMasterName(roh(5))));
+  ck('B8: verbund:entfernen rechnerId kein Text bzw. > 128 Zeichen → EINVAL',
+    await einval(() => ME.kern.entferneRechner(roh(7))) && await einval(() => ME.kern.entferneRechner('r'.repeat(129))));
+  ck('B8: verbund:koppeln Adresse/Code kein Text bzw. zu lang → EINVAL',
+    await einval(() => SE.kern.koppeleMitMaster(roh(5), 'K7QXM3PRTH')) && await einval(() => SE.kern.koppeleMitMaster('127.0.0.1', 'K'.repeat(100))));
+  ck('B8: … nichts davon wurde geschrieben', readFileSync(SE.pfad, 'utf8') === vorher);
+  ck('B8: feste Adresse mit anderem Port → EINVAL', await einval(() => SE.kern.setzeFesteAdresse('10.0.0.110:1234')));
+  ck('B8: feste Adresse mit Leerzeichen bzw. kein Text → EINVAL',
+    await einval(() => SE.kern.setzeFesteAdresse('10.0.0 .110')) && await einval(() => SE.kern.setzeFesteAdresse(roh(5))));
+  ck('B8: … nichts geschrieben', readFileSync(SE.pfad, 'utf8') === vorher);
+  SE.kern.setzeFesteAdresse(`10.0.0.110:${pE}`);
+  ck('B8: feste Adresse „host:port“ mit dem Kopplungsport → nur der Host wird gespeichert', dateiDaten(SE.pfad)?.kopplung?.festeAdresse === '10.0.0.110');
+  SE.kern.setzeFesteAdresse('  ');
+  ck('B8: leere feste Adresse → null', dateiDaten(SE.pfad)?.kopplung?.festeAdresse === null);
+  await SE.kern.beende();
+  await ME.kern.beende();
+}
+
+// --- Endprüfung B9: ein Kopplungscode geht höchstens einmal hinaus (Spec 3.3 „Slave verwirft K“) --------------------
+{
+  // Fremdes Gerät: antwortet auf 'koppeln' sofort unbeglaubigt „code-falsch“ (bzw. gar nicht → frist) und behält den Beweis.
+  // Ein zweiter Versuch mit DEMSELBEN Code gäbe ihm die Zeit, K offline zu raten (Probe endreview/protokoll/probe-codewiederholung.mts).
+  const fremd = erzeugeMasterIdentitaet('Regie-PC');
+  let verbindungen = 0;
+  let antworte = true;
+  const srv = createTlsServer({ key: fremd.schluessel, cert: fremd.zertifikat }, (ts) => {
+    verbindungen++;
+    const v = new Verbindung(ts, 1 << 20);
+    v.on('nachricht', (n: { t: string }) => {
+      if (n.t === 'koppeln' && antworte) v.sende({ t: 'abgelehnt', grund: 'code-falsch', rest: 4 });
+    });
+    v.sende({ t: 'hallo', protokoll: 1, masterId: 'fremd', name: 'Regie-PC', nonce: 'n'.repeat(32) });
+  });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  const pF = (srv.address() as AddressInfo).port;
+  const SF = rechner('slave', 'Code-Laptop');
+  const sF = neuerSlave(SF, { fristen: { ...KURZ, koppelnMs: 300 } });
+  sF.starte();
+  const r1 = await sF.koppele(`127.0.0.1:${pF}`, 'K7QXM-3PRTH');
+  ck('B9: 1. Versuch erreicht das Gegenüber (code-falsch)', !r1.ok && r1.text.startsWith('Code stimmt nicht') && verbindungen === 1);
+  const r2 = await sF.koppele(`127.0.0.1:${pF}`, 'k7qxm3prth'); // derselbe Code, anders geschrieben
+  ck('B9: 2. Versuch mit demselben Code → lokal abgelehnt, KEIN Socket',
+    !r2.ok && r2.text === 'Dieser Code wurde schon gesendet. Am Master „Neuer Code“ holen.' && verbindungen === 1);
+  antworte = false;
+  const r3 = await sF.koppele(`127.0.0.1:${pF}`, 'A7QXM3PRTH');
+  ck('B9: anderer Code nach „frist“ (Beweis ging hinaus) …', !r3.ok && verbindungen === 2);
+  const r4 = await sF.koppele(`127.0.0.1:${pF}`, 'A7QXM3PRTH');
+  ck('B9: … derselbe Code danach → kein Socket', !r4.ok && r4.text.startsWith('Dieser Code wurde schon gesendet') && verbindungen === 2);
+  // Ein Code, dessen Beweis NIE hinausging (niemand lauscht), bleibt verwendbar.
+  antworte = true;
+  const zu = await freierPort();
+  const r5 = await sF.koppele(`127.0.0.1:${zu}`, 'B7QXM3PRTH');
+  const r6 = await sF.koppele(`127.0.0.1:${pF}`, 'B7QXM3PRTH');
+  ck('B9: Code ohne gesendeten Beweis (Verbindung scheiterte vorher) bleibt verwendbar', !r5.ok && !r6.ok && r6.text.startsWith('Code stimmt nicht') && verbindungen === 3);
+  await sF.stoppe();
+  srv.close();
 }
 
 // --- Beschädigte Daten ----------------------------------------------------------

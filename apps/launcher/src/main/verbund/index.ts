@@ -92,6 +92,11 @@ export function trenneVerbund(): VerbundStand {
   return kern.trenneVerbund();
 }
 
+/** Endprüfung B3: geklonter Rechner — neue rechner.id, Kopplung weg, Rolle bleibt und startet neu. */
+export function neueKennung(): Promise<VerbundStand> {
+  return kern.neueKennung();
+}
+
 export function setzeFesteAdresse(adresse: string | null): VerbundStand {
   return kern.setzeFesteAdresse(adresse);
 }
