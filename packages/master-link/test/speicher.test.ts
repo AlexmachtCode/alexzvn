@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { abschnitt, gleich, pruefe, tempOrdner, warte } from './helfer';
+import { abschnitt, bis, gleich, pruefe, tempOrdner, warte } from './helfer';
 import { erzeugeTestZertifikat } from './zertifikate';
 import {
   DateiVerbund, leseMitBak, loescheMitBak, pruefeIdentitaet, pruefeVerbund, schreibeMitBak, SpeicherVerbund,
@@ -48,6 +48,22 @@ export async function laufe(): Promise<void> {
   loescheMitBak(pfad);
   gleich(leseMitBak(pfad, pruefeVerbund), { art: 'fehlt' }, 'loescheMitBak entfernt beide');
 
+  // Spec 7.3 / 10: nur ENOENT heißt „nicht vorhanden“. Jeder andere I/O-Fehler ist vorübergehend und wird NIE zu
+  // „fehlt“ oder „beschädigt“ umgedeutet — sonst gälte die Installation als frisch und der Master erzeugte still neu.
+  const o3 = tempOrdner();
+  const p3 = join(o3, 'verbund.json');
+  mkdirSync(`${p3}.bak`); // als .bak nicht lesbar (EISDIR steht hier für EBUSY/EACCES)
+  gleich(leseMitBak(p3, pruefeVerbund).art, 'io', 'Hauptdatei fehlt, .bak nicht lesbar → io (nie „fehlt“)');
+  writeFileSync(p3, 'Müll');
+  gleich(leseMitBak(p3, pruefeVerbund).art, 'io', 'Hauptdatei beschädigt, .bak nicht lesbar → io (nie „beschädigt“)');
+  rmSync(`${p3}.bak`, { recursive: true });
+  rmSync(p3);
+  writeFileSync(`${p3}.bak`, 'Müll');
+  gleich(leseMitBak(p3, pruefeVerbund), { art: 'beschaedigt' }, 'Hauptdatei fehlt, .bak unbrauchbar → beschädigt (nie „fehlt“)');
+  writeFileSync(`${p3}.bak`, JSON.stringify({ version: 1, rechner: [eintrag('a')] }));
+  const rb = leseMitBak(p3, pruefeVerbund);
+  pruefe(rb.art === 'ok' && rb.ausBak && rb.wert.rechner.length === 1, 'Hauptdatei fehlt, .bak gültig → aus .bak');
+
   abschnitt('Speicher: Verbund im Speicher');
   const v = new SpeicherVerbund([eintrag('selbst', true), eintrag('a')]);
   v.setze({ ...eintrag('a'), name: 'neu' });
@@ -80,4 +96,56 @@ export async function laufe(): Promise<void> {
   dv.gesehen('a', 4, null, false);
   dv.schliesse();
   gleich(JSON.parse(readFileSync(p2, 'utf8')).rechner[0].zuletztGesehen, 4, 'schliesse holt offene Schreibung nach');
+
+  abschnitt('Speicher: Schreibfehler (nie stilles Verlieren)');
+  // Fehlerpfad: Dort, wo der Ordner sein soll, liegt eine DATEI → mkdir scheitert sofort (EEXIST). Wird sie entfernt,
+  // gelingt die Schreibung. (Ein Verzeichnis AM Dateipfad würde unter Windows 2 s lang wiederholt: EPERM.)
+  const hindernis = (): { pfad: string; weg: () => void } => {
+    const ordner = join(tempOrdner(), 'ordner');
+    writeFileSync(ordner, 'steht im Weg');
+    return { pfad: join(ordner, 'verbund.json'), weg: () => rmSync(ordner) };
+  };
+
+  const h4 = hindernis();
+  const fehler4: Error[] = [];
+  const dv4 = new DateiVerbund(h4.pfad, { version: 1, rechner: [] }, { schreibIntervallMs: 100, onFehler: (e) => fehler4.push(e) });
+  dv4.setze(eintrag('a'));
+  gleich(fehler4.length, 1, 'setze: Schreibfehler geht an onFehler (setze selbst wirft nicht)');
+  h4.weg();
+  pruefe(await bis(() => existsSync(h4.pfad), 2000), 'setze: die fehlgeschlagene Kopplung wird nach dem Intervall erneut geschrieben');
+  gleich(JSON.parse(readFileSync(h4.pfad, 'utf8')).rechner.map((e: VerbundEintrag) => e.rechnerId), ['a'], '… mit dem Eintrag');
+
+  const h5 = hindernis();
+  const fehler5: Error[] = [];
+  const dv5 = new DateiVerbund(h5.pfad, { version: 1, rechner: [eintrag('a')] }, { schreibIntervallMs: 100, onFehler: (e) => fehler5.push(e) });
+  dv5.gesehen('a', 9, null, true);
+  gleich(fehler5.length, 1, 'gesehen (sofort): Schreibfehler geht an onFehler');
+  h5.weg();
+  pruefe(await bis(() => existsSync(h5.pfad), 2000), 'gesehen: fehlgeschlagene Schreibung wird wiederholt, ohne dass sich wieder etwas ändert');
+  gleich(JSON.parse(readFileSync(h5.pfad, 'utf8')).rechner[0].zuletztGesehen, 9, '… mit dem Zeitstempel');
+
+  const h6 = hindernis();
+  const fehler6: Error[] = [];
+  const dv6 = new DateiVerbund(h6.pfad, { version: 1, rechner: [] }, { schreibIntervallMs: 100, onFehler: (e) => fehler6.push(e) });
+  dv6.setze(eintrag('a'));
+  dv6.schliesse();
+  gleich(fehler6.length, 2, 'schliesse versucht die offene Schreibung noch einmal (und meldet den Fehler)');
+  h6.weg();
+  await warte(300);
+  pruefe(!existsSync(h6.pfad), 'nach schliesse() läuft kein Wiederholungs-Zeitgeber mehr');
+
+  // Ohne onFehler bleibt der Fehler nicht spurlos: kurze Meldung mit dem Fehlercode, NIE mit dem Inhalt.
+  const h7 = hindernis();
+  const warnungen: string[] = [];
+  const warnOriginal = console.warn;
+  console.warn = (...a: unknown[]) => { warnungen.push(a.join(' ')); };
+  try {
+    const dv7 = new DateiVerbund(h7.pfad, { version: 1, rechner: [] });
+    dv7.setze({ ...eintrag('a'), schluessel: 'GEHEIMER-TESTWERT' });
+    dv7.schliesse();
+  } finally {
+    console.warn = warnOriginal;
+  }
+  pruefe(warnungen.length >= 1 && warnungen.every((w) => w.length > 0 && !w.includes('GEHEIMER-TESTWERT')),
+    'Standard-onFehler: gekürzte Meldung ohne Inhalt');
 }

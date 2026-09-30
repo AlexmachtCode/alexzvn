@@ -97,13 +97,19 @@ function leseEine<T>(pfad: string, pruefe: (raw: unknown) => T | null): Einzeln<
   }
 }
 
+/**
+ * Spec 7.3: nur ENOENT heißt „nicht vorhanden“, jeder andere I/O-Fehler ist vorübergehend (`io`, auch der der .bak —
+ * sonst gälte die Installation als frisch und der Master erzeugte still neu). `fehlt` gibt es NUR, wenn weder die
+ * Hauptdatei noch die .bak existieren; ist eine von beiden da, aber keine brauchbar, heißt es `beschaedigt`.
+ */
 export function leseMitBak<T>(pfad: string, pruefe: (raw: unknown) => T | null): SpeicherLesen<T> {
   const haupt = leseEine(pfad, pruefe);
   if (haupt.art === 'ok') return { art: 'ok', wert: haupt.wert, ausBak: false };
   if (haupt.art === 'io') return haupt;
   const bak = leseEine(`${pfad}.bak`, pruefe);
   if (bak.art === 'ok') return { art: 'ok', wert: bak.wert, ausBak: true };
-  return haupt.art === 'fehlt' ? { art: 'fehlt' } : { art: 'beschaedigt' };
+  if (bak.art === 'io') return bak;
+  return haupt.art === 'fehlt' && bak.art === 'fehlt' ? { art: 'fehlt' } : { art: 'beschaedigt' };
 }
 
 /** Vorhandene GÜLTIGE Fassung wird zuerst zur .bak, dann wird atomar ersetzt. */
@@ -193,6 +199,7 @@ export class DateiVerbund extends SpeicherVerbund {
   private readonly onFehler: (e: Error) => void;
   private letzteSchreibung = 0;
   private offen = false;
+  private geschlossen = false;
   private zeitgeber: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -204,7 +211,10 @@ export class DateiVerbund extends SpeicherVerbund {
     this.pfad = pfad;
     this.jetzt = opts.jetzt ?? Date.now;
     this.intervall = opts.schreibIntervallMs ?? 60_000;
-    this.onFehler = opts.onFehler ?? (() => {});
+    // Die Produktion (MasterRolle) übergibt onFehler mit ihrem Log. Ohne: nie spurlos — nur der Fehlercode, nie der Inhalt.
+    this.onFehler = opts.onFehler ?? ((e) => {
+      console.warn(`[master-link] Verbund nicht gespeichert: ${(e as NodeJS.ErrnoException).code ?? 'EIO'}`);
+    });
   }
 
   protected override gespeichert(): void {
@@ -218,26 +228,35 @@ export class DateiVerbund extends SpeicherVerbund {
       return;
     }
     this.offen = true;
-    if (!this.zeitgeber) {
-      this.zeitgeber = setTimeout(() => {
-        this.zeitgeber = null;
-        if (this.offen) this.schreibe();
-      }, this.intervall - seit);
-      this.zeitgeber.unref?.();
-    }
+    this.armiere(this.intervall - seit);
+  }
+
+  private armiere(ms: number): void {
+    if (this.zeitgeber) return;
+    this.zeitgeber = setTimeout(() => {
+      this.zeitgeber = null;
+      if (this.offen) this.schreibe();
+    }, ms);
+    this.zeitgeber.unref?.();
   }
 
   private schreibe(): void {
-    this.offen = false;
-    this.letzteSchreibung = this.jetzt();
     try {
       schreibeMitBak(this.pfad, `${JSON.stringify({ version: 1, rechner: this.eintraege }, null, 2)}\n`, pruefeVerbund);
     } catch (e) {
+      // Nichts ging verloren, solange `offen` bleibt: der Zeitgeber versucht es nach dem Intervall erneut — auch eine
+      // fehlgeschlagene Kopplung (setze) oder ein „zuletzt gesehen“, an dem sich sonst nichts mehr ändert.
+      this.offen = true;
+      if (!this.geschlossen) this.armiere(this.intervall);
       this.onFehler(e as Error);
+      return;
     }
+    this.offen = false;
+    this.letzteSchreibung = this.jetzt();
   }
 
   schliesse(): void {
+    this.geschlossen = true;
     if (this.zeitgeber) {
       clearTimeout(this.zeitgeber);
       this.zeitgeber = null;
