@@ -9,3 +9,4 @@ export * from './fehler';
 export * from './datei';
 export * from './speicher';
 export * from './mdns';
+export * from './server';
