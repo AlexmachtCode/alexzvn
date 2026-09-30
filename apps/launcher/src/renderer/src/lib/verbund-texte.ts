@@ -40,6 +40,19 @@ export function toolVerbundText(verbund: string | undefined, rolleAus: boolean):
   return { text, ton: 'rot' };
 }
 
+/**
+ * Kurztext zu einem abgelehnten Verbund-Aufruf (Schreibfehler, gesperrte Datei). Electron reicht dem Renderer nur den
+ * Text der Ablehnung („Error invoking remote method …: Error: EPERM: …“), nicht das Feld `code`: daraus kommt NUR der
+ * Code in die Anzeige, nie der Text (er nennt Pfade und kann Fremdinhalte zitieren).
+ */
+export function ablehnungText(e: unknown): string {
+  // Kein `instanceof Error`: ein Fehler, der über die Context-Bridge kommt, stammt aus einem anderen Realm.
+  const o = (typeof e === 'object' && e !== null ? e : {}) as { code?: unknown; message?: unknown };
+  const text = typeof o.message === 'string' ? o.message : '';
+  const code = typeof o.code === 'string' && o.code !== '' ? o.code : /\bE[A-Z0-9_]{2,}\b/.exec(text)?.[0] ?? 'UNBEKANNT';
+  return `Nicht gespeichert (${kuerze(code, MAX_CODE)}). Bitte noch einmal versuchen.`;
+}
+
 export function zeigeCode(code: string): string {
   return `${code.slice(0, 5)}-${code.slice(5)}`;
 }

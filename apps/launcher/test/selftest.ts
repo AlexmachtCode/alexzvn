@@ -3,7 +3,7 @@
 import { startShowTools } from '../src/main/show-launch.ts';
 import { PresenceStore, gueltigerVerbund } from '../src/main/presence-store.ts';
 import { kopfanzeige, kopfEingang, type KopfEingang } from '../src/renderer/src/lib/kopfanzeige.ts';
-import { toolVerbundText, zeigeCode } from '../src/renderer/src/lib/verbund-texte.ts';
+import { ablehnungText, toolVerbundText, zeigeCode } from '../src/renderer/src/lib/verbund-texte.ts';
 import type { VerbundClientStand, VerbundStand } from '../src/shared/types.ts';
 
 let pass = 0, fail = 0;
@@ -252,6 +252,25 @@ function ck(name: string, cond: boolean): void {
   ck('Rolle aus: keine Verbund-Zeile', toolVerbundText('verbunden', true) === null);
   ck('fehler:zeit wird kurz benannt', toolVerbundText('fehler:zeit', false)?.text === 'Master sichtbar, Port gesperrt');
   ck('Code-Anzeige XXXXX-XXXXX', zeigeCode('K7QXM3PRTH') === 'K7QXM-3PRTH');
+
+  // Abgelehnte IPC-Aufrufe des Verbunds (Schreibfehler, gesperrte Datei): Electron reicht dem Renderer nur den TEXT
+  // („Error invoking remote method …: Error: EPERM: …, rename 'C:\…'“), nicht das Feld code. Angezeigt wird nur der
+  // Code — nie der Text, denn der nennt Pfade und kann Fremdinhalte zitieren.
+  const ABGELEHNT = (code: string): string => `Nicht gespeichert (${code}). Bitte noch einmal versuchen.`;
+  const electronFehler = (code: string): Error =>
+    new Error(`Error invoking remote method 'verbund:rolle': Error: ${code}: operation not permitted, rename 'C:\\Users\\EXAMPLE\\master-link.json.tmp' -> 'C:\\Users\\EXAMPLE\\master-link.json'`);
+  ck('Ablehnung: Code aus dem Electron-Text, ohne Pfad',
+    ablehnungText(electronFehler('EPERM')) === ABGELEHNT('EPERM'));
+  ck('Ablehnung: Feld code hat Vorrang (Aufruf ohne IPC)',
+    ablehnungText(Object.assign(new Error('x'), { code: 'EBUSY' })) === ABGELEHNT('EBUSY'));
+  ck('Ablehnung: Node-Codes mit Unterstrich und Ziffern (ERR_OSSL_…)',
+    ablehnungText(new Error('Error: ERR_OSSL_ASN1_ILLEGAL_PADDING: x')) === ABGELEHNT('ERR_OSSL_ASN1_ILLEGAL_PADDING'));
+  ck('Ablehnung: ohne erkennbaren Code → UNBEKANNT, Fremdtext bleibt draußen',
+    ablehnungText(new Error('kaputt: geheimer Text')) === ABGELEHNT('UNBEKANNT'));
+  ck('Ablehnung: kein Error-Objekt → UNBEKANNT',
+    ablehnungText('EPERM') === ABGELEHNT('UNBEKANNT') && ablehnungText(undefined) === ABGELEHNT('UNBEKANNT'));
+  ck('Ablehnung: überlanger Code wird auf 32 Zeichen gekürzt',
+    ablehnungText(new Error(`E${'A'.repeat(100)}`)) === ABGELEHNT(`E${'A'.repeat(31)}`));
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

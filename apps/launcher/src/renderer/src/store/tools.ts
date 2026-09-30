@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { useChangelog } from '@/store/changelog';
 import { useCookbook } from '@/store/cookbook';
+import { useVerbund } from './verbund';
 import type {
   ActionResult,
   FeedbackInput,
@@ -241,6 +242,9 @@ export const useTools = create<ToolsStore>((set) => {
           } else if (e.type === 'health-changed') {
             // Live-Zustand eines entdeckten Steuer-Endpunkts hat sich geändert.
             await useTools.getState().loadHealth();
+          } else if (e.type === 'verbund-changed') {
+            // Master-Link: Rolle/Kopplung/Teilnehmer/Client-Zustand geändert → Kopfanzeige + Modal.
+            await useVerbund.getState().lade();
           } else if (e.type === 'show-launch-start') {
             // Show wird geöffnet (#76): Overlay zeigen, Presence frisch holen.
             set({ showLaunch: { name: e.name, tools: e.tools, missing: [], done: false, doneAt: 0 } });
@@ -302,6 +306,7 @@ export const useTools = create<ToolsStore>((set) => {
       void useTools.getState().loadLauncherUpdate();
       void useTools.getState().loadPresence();
       void useTools.getState().loadHealth();
+      void useVerbund.getState().lade();
       void useTools.getState().loadRecentShows();
     },
 
