@@ -4,8 +4,9 @@ import { bilanz } from './helfer';
 import { laufe as code } from './code.test';
 import { laufe as beweis } from './beweis.test';
 import { laufe as rahmen } from './rahmen.test';
+import { laufe as adresswahl } from './adresswahl.test';
 
-for (const laufe of [code, beweis, rahmen]) {
+for (const laufe of [code, beweis, rahmen, adresswahl]) {
   await laufe();
 }
 bilanz();

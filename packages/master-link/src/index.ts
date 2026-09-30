@@ -4,3 +4,4 @@ export * from './code';
 export * from './beweis';
 export * from './rahmen';
 export * from './verbindung';
+export * from './adresswahl';
