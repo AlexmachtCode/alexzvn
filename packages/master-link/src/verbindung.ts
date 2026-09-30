@@ -17,6 +17,7 @@ export class Verbindung extends EventEmitter {
   readonly adresse: string;
   private readonly leser: ZeilenLeser;
   private beendet = false;
+  private schliessend = false;
 
   constructor(socket: TLSSocket, grenze: number) {
     super();
@@ -29,11 +30,11 @@ export class Verbindung extends EventEmitter {
   }
 
   get offen(): boolean {
-    return !this.beendet;
+    return !this.beendet && !this.schliessend;
   }
 
   private aufDaten(d: Buffer): void {
-    if (this.beendet) return;
+    if (this.beendet || this.schliessend) return;
     let zeilen: string[];
     try {
       zeilen = this.leser.fuettere(d);
@@ -42,7 +43,7 @@ export class Verbindung extends EventEmitter {
       return;
     }
     for (const zeile of zeilen) {
-      if (this.beendet) return;
+      if (this.beendet || this.schliessend) return;
       const r = dekodiere(zeile);
       if (r.art === 'kaputt') {
         this.brich();
@@ -65,15 +66,21 @@ export class Verbindung extends EventEmitter {
   }
 
   sende(n: Nachricht): void {
-    if (!this.beendet && !this.socket.destroyed) this.socket.write(kodiere(n));
+    if (!this.beendet && !this.schliessend && !this.socket.destroyed) this.socket.write(kodiere(n));
   }
 
   setzeGrenze(grenze: number): void {
     this.leser.setzeGrenze(grenze);
   }
 
-  /** Gepufferte Zeilen (z. B. 'abgelehnt') gehen noch raus; spätestens nach 200 ms ist zu. */
+  /**
+   * Gepufferte Zeilen (z. B. 'abgelehnt') gehen noch raus; spätestens nach 200 ms ist zu.
+   * Ab dem Aufruf ist `offen` false, eingehende Zeilen (auch der Rest des laufenden Chunks) werden
+   * verworfen und `sende()` tut nichts. Mehrfaches Aufrufen ist harmlos.
+   */
   schliesse(): void {
+    if (this.schliessend) return;
+    this.schliessend = true;
     if (this.socket.destroyed) return;
     this.socket.end();
     const t = setTimeout(() => this.socket.destroy(), 200);

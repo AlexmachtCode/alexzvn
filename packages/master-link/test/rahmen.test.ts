@@ -1,4 +1,4 @@
-import { abschnitt, bis, gleich, pruefe } from './helfer';
+import { abschnitt, bis, gleich, pruefe, warte } from './helfer';
 import { erzeugeTestZertifikat } from './zertifikate';
 import { tlsPaar } from './tlspaar';
 import { dekodiere, kodiere, PROTOKOLL, ZeileZuLang, ZeilenLeser, type Nachricht } from '../src/rahmen';
@@ -92,12 +92,83 @@ export async function laufe(): Promise<void> {
     p.client.write(`{"t":"gross","x":"${'y'.repeat(100_000)}"}\n`);
     await bis(() => unbekannt.length === 1);
     gleich(unbekannt, ['gross'], 'nach setzeGrenze(1 MiB) kommen 100-KB-Zeilen durch');
-    let geschlossen = false;
-    v.on('ende', () => { geschlossen = true; });
+    p.schliesse();
+  }
+  {
+    // Geordnetes Schließen mit lesendem Peer: die gepufferte Zeile geht noch raus, 'ende' kommt schnell, genau einmal, ohne Fehler.
+    const p = await tlsPaar(z);
+    const v = new Verbindung(p.server, 4096);
+    let gelesen = '';
+    p.client.on('data', (d: Buffer) => { gelesen += d.toString('utf8'); });
+    const enden: Array<Error | undefined> = [];
+    v.on('ende', (f?: Error) => { enden.push(f); });
     v.sende({ t: 'abgelehnt', grund: 'unbekannt' });
     v.schliesse();
-    await bis(() => geschlossen);
-    pruefe(geschlossen, 'schliesse() beendet die Verbindung');
+    const t0 = Date.now();
+    pruefe(!v.offen, 'offen ist direkt nach schliesse() false');
+    await bis(() => enden.length > 0 && gelesen.endsWith('\n'));
+    const dauer = Date.now() - t0;
+    gleich(gelesen, '{"t":"abgelehnt","grund":"unbekannt"}\n', 'gepufferte Zeile geht nach schliesse() noch raus');
+    pruefe(dauer < 150, `lesender Peer: ende kommt sofort, nicht erst durch den 200-ms-Zwangsabbruch (${dauer} ms)`);
+    await warte(300); // länger als der 200-ms-Zwangsabbruch: auch der darf kein zweites 'ende' auslösen
+    pruefe(enden.length === 1, `ende genau einmal (${enden.length})`);
+    pruefe(enden[0] === undefined, 'reguläres Schließen: ende ohne Fehler');
+    p.schliesse();
+  }
+  {
+    // Nach schliesse() wird nichts mehr verarbeitet: gepipelte Zeilen im selben Chunk werden verworfen, sende() tut nichts.
+    const p = await tlsPaar(z);
+    const v = new Verbindung(p.server, 4096);
+    let gelesen = '';
+    p.client.on('data', (d: Buffer) => { gelesen += d.toString('utf8'); });
+    const enden: Array<Error | undefined> = [];
+    let nachrichten = 0;
+    let offenDirektDanach: boolean | null = null;
+    v.on('ende', (f?: Error) => { enden.push(f); });
+    v.on('nachricht', () => {
+      nachrichten++;
+      if (nachrichten !== 1) return;
+      v.sende({ t: 'abgelehnt', grund: 'unbekannt' });
+      v.schliesse();
+      offenDirektDanach = v.offen;
+      v.sende({ t: 'puls' }); // nach schliesse(): No-op, kein „write after end“
+    });
+    p.client.write(kodiere({ t: 'puls' }).repeat(3));
+    await bis(() => enden.length > 0);
+    await warte(300);
+    gleich(nachrichten, 1, 'nach schliesse() wird keine weitere gepipelte Nachricht zugestellt');
+    gleich(offenDirektDanach, false, 'offen ist im Handler direkt nach schliesse() false');
+    gleich(gelesen, '{"t":"abgelehnt","grund":"unbekannt"}\n', 'sende() nach schliesse() schreibt nichts mehr');
+    pruefe(enden.length === 1, `ende genau einmal (${enden.length})`);
+    pruefe(enden[0] === undefined, 'sende() nach schliesse(): ende ohne Fehler (kein „write after end“)');
+    p.schliesse();
+  }
+  {
+    // Zurückhaltender Peer: liest die 'abgelehnt'-Zeile nicht und schließt deshalb nie zurück. schliesse() wartet höchstens
+    // 200 ms, dann wird hart getrennt. Daten, die in dieser Zeit noch eintreffen, werden verworfen, auch eine überlange
+    // Zeile: sie darf kein ende('rahmen') mehr auslösen.
+    const p = await tlsPaar(z);
+    p.client.on('error', () => {}); // Fehler des absichtlich stummen Clients sind hier nicht der Gegenstand
+    const v = new Verbindung(p.server, 4096);
+    const enden: Array<Error | undefined> = [];
+    let nachrichten = 0;
+    v.on('ende', (f?: Error) => { enden.push(f); });
+    v.on('nachricht', () => {
+      nachrichten++;
+      v.sende({ t: 'abgelehnt', grund: 'unbekannt' });
+      v.schliesse();
+    });
+    p.client.write(kodiere({ t: 'puls' }));
+    await bis(() => nachrichten === 1);
+    const t0 = Date.now();
+    p.client.write(kodiere({ t: 'puls' }) + 'x'.repeat(5000)); // eigener Chunk: gültige Zeile plus Zeile über der 4-KiB-Grenze
+    await bis(() => enden.length > 0, 1500);
+    const dauer = Date.now() - t0;
+    pruefe(enden.length === 1, `zurückhaltender Peer: ende kommt durch den Zwangsabbruch (${enden.length})`);
+    pruefe(dauer >= 150, `Zwangsabbruch nicht vor Ablauf der 200 ms (${dauer} ms)`);
+    pruefe(p.server.destroyed, 'Socket nach dem Zwangsabbruch zerstört');
+    pruefe(enden[0] === undefined, 'Zwangsabbruch nach regulärem Schließen: ende ohne Fehler');
+    gleich(nachrichten, 1, 'Daten nach schliesse() in einem späteren Chunk werden verworfen (auch die überlange Zeile)');
     p.schliesse();
   }
 }
