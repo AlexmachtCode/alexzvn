@@ -8,3 +8,4 @@ export * from './adresswahl';
 export * from './fehler';
 export * from './datei';
 export * from './speicher';
+export * from './mdns';
