@@ -168,4 +168,38 @@ export async function laufe(): Promise<void> {
   }
   pruefe(warnungen.length >= 1 && warnungen.every((w) => w.length > 0 && !w.includes('GEHEIMER-TESTWERT')),
     'Standard-onFehler: gekürzte Meldung ohne Inhalt');
+
+  abschnitt('Speicher: nach schliesse() endgültig still (Endprüfung A7)');
+  {
+    // Späte Ereignisse einer gestoppten MasterRolle (Socket-close nach stoppe) dürfen die Datei nicht mehr schreiben:
+    // sonst überschreiben sie den Stand einer schon neu gestarteten Rolle bzw. „Verbund neu aufsetzen“.
+    const p8 = join(tempOrdner(), 'verbund.json');
+    const dv8 = new DateiVerbund(p8, { version: 1, rechner: [eintrag('a')] }, { schreibIntervallMs: 100 });
+    dv8.schliesse();
+    dv8.setze(eintrag('b'));
+    dv8.gesehen('a', 42, '10.0.0.9', true);
+    dv8.gesehen('a', 43, '10.0.0.9', false);
+    await warte(250);
+    pruefe(!existsSync(p8), 'setze/gesehen nach schliesse() schreiben nichts (auch nicht verzögert)');
+  }
+
+  abschnitt('Speicher: Erfolg und Fehler werden gemeldet (Endprüfung A8)');
+  {
+    // Der Master führt einen dauerhaften Schreibfehler als Zustand — und muss ihn nach dem nächsten Erfolg wieder löschen.
+    const h9 = hindernis();
+    const verlauf: string[] = [];
+    const dv9 = new DateiVerbund(h9.pfad, { version: 1, rechner: [] }, {
+      schreibIntervallMs: 100,
+      onFehler: (e) => verlauf.push(`fehler:${(e as NodeJS.ErrnoException).code ?? '?'}`),
+      onGespeichert: () => verlauf.push('gespeichert'),
+    });
+    dv9.setze(eintrag('a'));
+    pruefe(verlauf.length === 1 && verlauf[0]!.startsWith('fehler:'), `Schreibfehler → Fehler gemeldet (${verlauf.join(', ')})`);
+    h9.weg();
+    await bis(() => verlauf.includes('gespeichert'), 2000);
+    gleich(verlauf.slice(1), ['gespeichert'], 'Erfolg danach (Wiederholung) → gespeichert gemeldet: der Fehler kann gelöscht werden');
+    dv9.setze(eintrag('b'));
+    gleich(verlauf.slice(1), ['gespeichert', 'gespeichert'], 'jede erfolgreiche Schreibung meldet gespeichert');
+    dv9.schliesse();
+  }
 }

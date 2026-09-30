@@ -50,4 +50,14 @@ export async function laufe(): Promise<void> {
   gleich([...kuerzeName(lang)].length, GRENZEN.maxNamenLaenge, 'langer Name auf 60 Zeichen gekürzt');
   const emoji = '🎬'.repeat(70);
   gleich([...kuerzeName(emoji)].length, 60, 'Emoji werden als ganze Zeichen gezählt');
+
+  // Endprüfung A6: Fremdnamen landen im zeilenbasierten Log und in der Oberfläche — Steuer-/Formatzeichen raus.
+  gleich(kuerzeName('Regie\nPC'), 'Regie PC', 'Zeilenumbruch → Leerzeichen (keine gefälschte Logzeile)');
+  gleich(kuerzeName('Regie\r\n2026-01-01 [ERROR] x'), 'Regie 2026-01-01 [ERROR] x', 'CR LF → ein Leerzeichen');
+  gleich(kuerzeName('A\u001b[31mB'), 'A [31mB', 'ESC (Terminal-Steuerfolge) → Leerzeichen');
+  gleich(kuerzeName('\u202eevil.exe'), 'evil.exe', 'Bidi-Override U+202E fällt weg (verdreht sonst Namen in Listen)');
+  gleich(kuerzeName('a\u2028b\u2029c\u0085d\u200be'), 'a b c d e', 'U+2028/2029, NEL und Nullbreite → Leerzeichen');
+  gleich(kuerzeName('  a \t\t \n b  '), 'a b', 'mehrfache Leerräume zusammengezogen, getrimmt');
+  gleich(kuerzeName('\n\u001b\u202e\t'), 'Unbenannt', 'nur Steuerzeichen → „Unbenannt“');
+  gleich(kuerzeName(`${'x'.repeat(59)} yz`), 'x'.repeat(59), 'nach dem Kürzen erneut getrimmt (kein Leerzeichen am Ende)');
 }

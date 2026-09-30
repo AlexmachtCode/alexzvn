@@ -467,7 +467,8 @@ await folgende.stoppe();
 
 // --- Fremdnamen werden an der Quelle gekürzt (Log, Speicher, Stand) -----------------------------------------
 {
-  const lang = `${'M'.repeat(70)}\nINJIZIERTE-LOGZEILE`;
+  // Endprüfung A6: der Umbruch steht INNERHALB der ersten 60 Zeichen — Kürzen allein hilft dann nicht, nur Säubern.
+  const lang = `${'M'.repeat(20)}\nINJIZIERTE-LOGZEILE\u001b[2J${'M'.repeat(50)}`;
   const pL = await freierPort();
   const L = rechner('master', 'Namens-PC');
   mkdirSync(L.speicherDir, { recursive: true });
@@ -491,7 +492,8 @@ await folgende.stoppe();
   const gespeichert = SL.lies().kopplung?.masterName ?? '';
   ck('Slave: Master-Name gekürzt gespeichert und gemeldet (kein Zeilenumbruch)',
     [...gespeichert].length <= 60 && !gespeichert.includes('\n') && [...(slL.stand().masterName ?? '')].length <= 60);
-  ck('Slave: kein Fremdtext im Log', lsl.zeilen.every((z) => !z.includes('INJIZIERTE-LOGZEILE') && !z.includes('\n')));
+  ck('Slave: Master-Name ohne Steuerzeichen gespeichert', !/[\p{Cc}\p{Cf}]/u.test(gespeichert));
+  ck('Slave: Log einzeilig, ohne Steuerzeichen (keine gefälschte Zeile)', lsl.zeilen.every((z) => !/[\p{Cc}\p{Cf}]/u.test(z)));
   await slL.stoppe();
   await mL.stoppe();
 }

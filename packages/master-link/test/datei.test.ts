@@ -126,4 +126,31 @@ export async function laufe(): Promise<void> {
   const b4 = new DateiBeobachter(`${p3}\u0000`);
   gleich([b4.pruefe(), b4.pruefe(), b4.pruefe()].map((x) => x.art), ['unveraendert', 'unveraendert', 'unveraendert'],
     'statSync-Fehler außer ENOENT → vorübergehend, nie „defekt“');
+
+  abschnitt('Datei: Beobachter loggt I/O- und stat-Fehler je Codewechsel einmal (Endprüfung A9)');
+  {
+    // Ein Tool mit dauerhaft unlesbarer master-link.json zeigte sonst stumm „aus“.
+    const p5 = join(tempOrdner(), 'master-link.json');
+    mkdirSync(p5); // Ordner statt Datei: Lesen wirft EISDIR (wie EBUSY vom Virenscanner)
+    const zeilen: string[] = [];
+    const b5 = new DateiBeobachter(p5, (t) => zeilen.push(t));
+    b5.pruefe();
+    b5.pruefe();
+    b5.pruefe();
+    gleich(zeilen.length, 1, `dreimal derselbe I/O-Fehler → genau eine Logzeile (${zeilen.join(' | ')})`);
+    pruefe(zeilen[0]?.includes('EISDIR') === true && zeilen[0].includes('master-link.json'), '… mit Dateiname und Fehlercode (nie Inhalt)');
+    rmSync(p5, { recursive: true });
+    writeFileSync(p5, JSON.stringify(musterDatei(erzeugeTestZertifikat().cert)));
+    gleich(b5.pruefe().art, 'geaendert', 'wieder lesbar → gelesen');
+    gleich(zeilen.length, 1, '… ohne weitere Logzeile');
+    rmSync(p5);
+    mkdirSync(p5);
+    b5.pruefe();
+    gleich(zeilen.length, 2, 'derselbe Fehler nach einer Erholung → wieder eine Zeile');
+    const zeilenStat: string[] = [];
+    const b6 = new DateiBeobachter(`${p5}\u0000`, (t) => zeilenStat.push(t));
+    b6.pruefe();
+    b6.pruefe();
+    gleich(zeilenStat.length, 1, `stat-Fehler (außer ENOENT) → genau eine Logzeile (${zeilenStat.join(' | ')})`);
+  }
 }

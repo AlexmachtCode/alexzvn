@@ -9,7 +9,7 @@ import {
   fehlerText, ordneEin, PIN_FALSCH, RAHMEN, rueckzugMs, staerkster, wiederholung,
   type FehlerCode, type VersuchsErgebnis,
 } from './fehler';
-import { fristen as mitFristen, GRENZEN, type Fristen } from './fristen';
+import { fristen as mitFristen, GRENZEN, kuerzeName, type Fristen } from './fristen';
 import { MdnsSuche, standardFabrik, type SucheLike } from './mdns';
 import { PROTOKOLL, type Grund, type Nachricht, type TeilnehmerInfo } from './rahmen';
 import { Verbindung } from './verbindung';
@@ -47,7 +47,16 @@ export interface AnmeldeParameter {
   rechner: { id: string; name: string };
   teilnehmer: TeilnehmerInfo;
   f: Fristen;
+  /**
+   * Abbruch bei Generationswechsel bzw. stoppe(): der Socket wird sofort zerstört, spätestens vor dem Senden von
+   * 'anmelden'. Sonst meldete sich ein langsamer alter Versuch NACH der neuen Verbindung an und verdrängte sie
+   * am Master („ersetzt“, 60 s Pause — Endprüfung A5).
+   */
+  abbruch?: AbortSignal;
 }
+
+/** Ergebnis eines abgebrochenen Versuchs; die Schleife verwirft es (Generation vorbei). */
+const ABGEBROCHEN: VersuchsErgebnis = { art: 'fehler', code: 'ABGEBROCHEN' };
 
 /**
  * Eine Ausnahme in einem Socket-Handler wäre ungefangen und beendete den ganzen Prozess (jedes Tool).
@@ -65,6 +74,7 @@ function sicherIn<T extends unknown[]>(ende: (r: Versuch) => void, h: (...x: T) 
 
 /** Ein Anmeldeversuch an EINER Adresse: TCP-Frist → TLS mit Pin im Handshake → hallo → anmelden → angemeldet. */
 export function versucheAnmeldung(p: AnmeldeParameter): Promise<Versuch> {
+  if (p.abbruch?.aborted) return Promise.resolve({ ok: false, ergebnis: ABGEBROCHEN });
   return new Promise<Versuch>((fertig) => {
     let erledigt = false;
     let frist: ReturnType<typeof setTimeout> | null = null;
@@ -83,10 +93,12 @@ export function versucheAnmeldung(p: AnmeldeParameter): Promise<Versuch> {
           : Object.assign(new Error('Zertifikat passt nicht zum Pin'), { code: PIN_FALSCH }),
     });
 
+    const abbrechen = (): void => ende({ ok: false, ergebnis: ABGEBROCHEN });
     const ende = (r: Versuch): void => {
       if (erledigt) return;
       erledigt = true;
       if (frist) clearTimeout(frist);
+      p.abbruch?.removeEventListener('abort', abbrechen);
       if (!r.ok) {
         v?.removeAllListeners();
         socket.destroy();
@@ -97,6 +109,7 @@ export function versucheAnmeldung(p: AnmeldeParameter): Promise<Versuch> {
       if (frist) clearTimeout(frist);
       frist = setTimeout(() => ende({ ok: false, ergebnis: e }), ms);
     };
+    p.abbruch?.addEventListener('abort', abbrechen, { once: true });
 
     setzeFrist(p.f.tcpMs, { art: 'tcp-timeout' });
     socket.once('connect', () => setzeFrist(p.f.tlsHalloMs, { art: 'frist' }));
@@ -110,11 +123,15 @@ export function versucheAnmeldung(p: AnmeldeParameter): Promise<Versuch> {
       );
       verbindung.on('nachricht', sicherIn(ende, (n: Nachricht) => {
         if (n.t === 'hallo') {
+          if (p.abbruch?.aborted) {
+            abbrechen();
+            return;
+          }
           if (n.masterId !== p.kopplung.masterId) {
             ende({ ok: false, ergebnis: { art: 'fehler', code: PIN_FALSCH } });
             return;
           }
-          masterName = n.name;
+          masterName = kuerzeName(n.name); // Fremdtext vom (gepinnten) Master: in Kopf, Log und Datei (A6, B5)
           verbindung.sende({
             t: 'anmelden',
             protokoll: PROTOKOLL,
@@ -163,13 +180,15 @@ function holeNachgelesenes(v: Verbindung): Nachricht[] {
 }
 
 /** Nach koppele(): 'teilnehmer' auf derselben Verbindung senden und auf 'angemeldet' warten. */
-function warteAufAngemeldet(v: Verbindung, teilnehmer: TeilnehmerInfo, masterName: string, f: Fristen): Promise<Versuch> {
+function warteAufAngemeldet(v: Verbindung, teilnehmer: TeilnehmerInfo, masterName: string, f: Fristen, abbruch: AbortSignal): Promise<Versuch> {
   return new Promise<Versuch>((fertig) => {
     let erledigt = false;
+    const abbrechen = (): void => ende({ ok: false, ergebnis: ABGEBROCHEN });
     const ende = (r: Versuch): void => {
       if (erledigt) return;
       erledigt = true;
       clearTimeout(t);
+      abbruch.removeEventListener('abort', abbrechen);
       if (!r.ok) {
         v.removeAllListeners();
         v.socket.destroy();
@@ -177,6 +196,12 @@ function warteAufAngemeldet(v: Verbindung, teilnehmer: TeilnehmerInfo, masterNam
       fertig(r);
     };
     const t = setTimeout(() => ende({ ok: false, ergebnis: { art: 'frist' } }), f.angemeldetMs);
+    // Generationswechsel, während der Master noch antwortet: die Koppel-Verbindung sofort schließen (Endprüfung A5).
+    abbruch.addEventListener('abort', abbrechen, { once: true });
+    if (abbruch.aborted) {
+      abbrechen();
+      return;
+    }
     v.on('ende', () => ende({ ok: false, ergebnis: { art: 'frist' } }));
     v.on('nachricht', sicherIn(ende, (n: Nachricht) => {
       if (n.t === 'abgelehnt') {
@@ -214,6 +239,19 @@ interface RundenErgebnis {
 
 type BetriebsEnde = { art: 'ende' } | { art: 'abgelehnt'; grund: Grund; master?: number; suite?: string };
 
+/** Antworten, die nur der gepinnte Master selbst geben kann (TLS mit Pin bestanden bzw. sein Zertifikat). */
+const VOM_MASTER: ReadonlySet<FehlerCode> = new Set<FehlerCode>(['unbekannt', 'signatur', 'protokoll', 'uhr', 'ersetzt']);
+
+/** Ausgang einer Runde: Generation vorbei, sofort weiter (nach einer Verbindungsphase) oder erst warten. */
+type Schritt = { art: 'ende' } | { art: 'weiter' } | { art: 'warte'; ms: number };
+
+/** Code einer lokalen Ausnahme für Anzeige und Log: err.code, sonst der Fehlertyp — nie die Meldung (sie kann Fremdtext zitieren). */
+function wurfCode(e: unknown): string {
+  const o = (typeof e === 'object' && e !== null ? e : {}) as { code?: unknown; name?: unknown };
+  const roh = typeof o.code === 'string' && o.code ? o.code : typeof o.name === 'string' && o.name ? o.name : 'UNBEKANNT';
+  return roh.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 40) || 'UNBEKANNT';
+}
+
 export class MasterLinkClient extends EventEmitter {
   private readonly o: ClientOptionen;
   private readonly f: Fristen;
@@ -227,13 +265,22 @@ export class MasterLinkClient extends EventEmitter {
   private laeuft = false;
   /** Jede relevante Änderung erhöht die Generation; alte Schleifen beenden sich daran. */
   private generation = 0;
+  /** Gehört zur laufenden Generation; neueGeneration() bricht ihn ab. */
+  private abbruch = new AbortController();
   private verbindung: Verbindung | null = null;
   private dateiZeitgeber: ReturnType<typeof setInterval> | null = null;
   private weckeAuf: (() => void) | null = null;
   /** Beendet die laufende Verbindungsphase (Puls und Stille löschen), auch wenn der Socket kein 'ende' mehr meldet. */
   private beendeBetrieb: (() => void) | null = null;
-  /** Zuletzt geloggter Wert; null = nach einer verlorenen Verbindung wird der nächste Wert wieder gemeldet. */
-  private geloggt: VerbundWert | null = 'aus';
+  /** Zuletzt geloggter Wert (samt errCode); null = nach einer verlorenen Verbindung wird der nächste Wert wieder gemeldet. */
+  private geloggt: string | null = 'aus';
+  /** Zuletzt geloggte Ausnahme eines Zuhörers — je Meldungswechsel eine Zeile. */
+  private wurfGeloggt: string | null = null;
+  /**
+   * true = noch kein Ergebnis in dieser Phase (nach starte/neustart/uebernehme oder nach dem Ende einer Verbindung):
+   * nur dann werden „sucht“/„verbindet“ gemeldet. Ein Ergebnis (Fehler, verbunden) setzt es zurück (Ruling jj).
+   */
+  private frisch = true;
   private letzteAdresse: string | null = null;
   private gelernteAdressen: string[] = [];
 
@@ -241,7 +288,7 @@ export class MasterLinkClient extends EventEmitter {
     super();
     this.o = o;
     this.f = mitFristen(o.fristen);
-    this.beobachter = new DateiBeobachter(o.dateiPfad);
+    this.beobachter = new DateiBeobachter(o.dateiPfad, (t) => this.log('warn', `Master-Link: ${t}`));
     this.netz = o.netzwerkKarten ?? networkInterfaces;
     this.jetzt = o.jetzt ?? Date.now;
     this.anmelden = o.anmelden ?? versucheAnmeldung;
@@ -250,6 +297,13 @@ export class MasterLinkClient extends EventEmitter {
 
   zustand(): ClientZustand {
     return this.z;
+  }
+
+  /** Neue Generation: alte Schleifen beenden sich daran, laufende Anmeldeversuche der alten brechen sofort ab (A5). */
+  private neueGeneration(): void {
+    this.generation++;
+    this.abbruch.abort();
+    this.abbruch = new AbortController();
   }
 
   starte(): void {
@@ -262,7 +316,7 @@ export class MasterLinkClient extends EventEmitter {
 
   async stoppe(): Promise<void> {
     this.laeuft = false;
-    this.generation++;
+    this.neueGeneration();
     if (this.dateiZeitgeber) {
       clearInterval(this.dateiZeitgeber);
       this.dateiZeitgeber = null;
@@ -277,7 +331,7 @@ export class MasterLinkClient extends EventEmitter {
   uebernehme(v: Verbindung, kopplung: Kopplung, masterName: string): void {
     const b = this.beobachter.pruefe();
     if (b.art === 'geaendert') this.datei = b.datei;
-    this.generation++;
+    this.neueGeneration();
     this.weckeAuf?.();
     this.trenne();
     const gen = this.generation;
@@ -287,8 +341,9 @@ export class MasterLinkClient extends EventEmitter {
       if (this.laeuft) this.neustart();
       return;
     }
+    this.frisch = true;
     this.setze({ art: 'verbindet', adresse: v.adresse });
-    void this.schleife(gen, warteAufAngemeldet(v, this.o.teilnehmer, masterName, this.f));
+    this.starteSchleife(gen, warteAufAngemeldet(v, this.o.teilnehmer, masterName, this.f, this.abbruch.signal));
   }
 
   /** `beimStart`: nach stoppe() → starte() auch bei unveränderter Datei mit dem letzten gültigen Stand neu aufbauen. */
@@ -300,7 +355,7 @@ export class MasterLinkClient extends EventEmitter {
     }
     if (b.art === 'defekt') {
       if (this.z.art === 'fehler' && this.z.code === 'datei') return;
-      this.generation++;
+      this.neueGeneration();
       this.weckeAuf?.();
       this.trenne();
       this.setze({ art: 'fehler', code: 'datei', text: fehlerText('datei', { masterName: this.datei?.kopplung?.masterName ?? '' }) });
@@ -312,84 +367,106 @@ export class MasterLinkClient extends EventEmitter {
   }
 
   private neustart(): void {
-    this.generation++;
+    this.neueGeneration();
     this.weckeAuf?.();
     this.trenne();
     this.letzteAdresse = null;
     this.gelernteAdressen = [];
+    this.frisch = true;
     const d = this.datei;
     if (!this.laeuft || !d || d.rolle === 'aus' || !d.kopplung) {
       this.suche?.stoppe();
       this.setze({ art: 'aus' });
       return;
     }
-    void this.schleife(this.generation);
+    this.starteSchleife(this.generation);
   }
 
+  /** Letzte Absicherung: schleife() fängt jede Runde selbst; eine Ablehnung hier wäre ein Programmfehler — geloggt, nie unbehandelt. */
+  private starteSchleife(gen: number, erster?: Promise<Versuch>): void {
+    this.schleife(gen, erster).catch((e: unknown) => this.log('warn', `Master-Link: Suchschleife beendet (${wurfCode(e)}).`));
+  }
+
+  /**
+   * Eine Generation: Runde um Runde, bis sie endet. Jede Ausnahme einer Runde (networkInterfaces, Bonjour-Fabrik,
+   * Suche …) wird zum Fehlerergebnis (meist fehler:sonstig mit errCode) — die Schleife wartet den Rückzug ab und
+   * läuft weiter. Ohne das stürbe sie still an einer unbehandelten Ablehnung (Endprüfung A1, Spec 7.3).
+   */
   private async schleife(gen: number, erster?: Promise<Versuch>): Promise<void> {
-    let versuch = 0;
-    if (erster) {
-      const r = await erster;
+    const zaehler = { versuch: 0 };
+    let erst = erster;
+    while (this.laeuft && gen === this.generation) {
+      let s: Schritt;
+      try {
+        s = erst ? await this.ersteRunde(gen, erst, zaehler) : await this.runde(gen, zaehler);
+      } catch (e) {
+        if (gen !== this.generation || !this.laeuft) return;
+        const w = this.werteAus([{ e: { art: 'fehler', code: wurfCode(e) } }], false, zaehler.versuch++);
+        s = w === null ? { art: 'ende' } : { art: 'warte', ms: w };
+      }
+      erst = undefined;
+      if (s.art === 'ende') return;
+      if (s.art === 'warte') await this.warte(s.ms, gen);
+    }
+  }
+
+  /** Nach uebernehme(): die schon laufende Anmeldung auf der Koppel-Verbindung auswerten. */
+  private async ersteRunde(gen: number, erster: Promise<Versuch>, zaehler: { versuch: number }): Promise<Schritt> {
+    const r = await erster;
+    if (gen !== this.generation || !this.laeuft) {
+      if (r.ok) r.a.v.schliesse();
+      return { art: 'ende' };
+    }
+    if (r.ok) return (await this.verbunden(r.a, gen)) ? { art: 'weiter' } : { art: 'ende' };
+    const w = this.werteAus([{ e: r.ergebnis }], false, zaehler.versuch++);
+    return w === null ? { art: 'ende' } : { art: 'warte', ms: w };
+  }
+
+  private async runde(gen: number, zaehler: { versuch: number }): Promise<Schritt> {
+    const d = this.datei;
+    if (!d || !d.kopplung || d.rolle === 'aus') return { art: 'ende' };
+    const kopplung = d.kopplung;
+    this.setze({ art: 'sucht' });
+    const alleKarten = listeKarten(this.netz());
+    let mdns: string[] = [];
+    let mdnsGesehen = false;
+    if (d.rolle === 'slave' && this.suche) {
+      this.suche.setzeKarten(wirksameKarten(alleKarten, d.netzwerk.karte).karten);
+      const sichtungen = await this.suche.runde(this.f.suchrundeMs);
+      if (gen !== this.generation) return { art: 'ende' };
+      const meine = sichtungen.filter((s) => s.masterId === kopplung.masterId);
+      mdnsGesehen = meine.length > 0;
+      mdns = meine.flatMap((s) => s.adressen);
+    }
+    const kandidaten = kandidatenliste({
+      rolle: d.rolle === 'master' ? 'master' : 'slave',
+      mdns,
+      letzteAdresse: this.letzteAdresse ?? kopplung.letzteAdresse,
+      adressen: [...this.gelernteAdressen, ...kopplung.adressen],
+      festeAdresse: kopplung.festeAdresse,
+      karten: alleKarten,
+      gewaehlteKarte: d.netzwerk.karte,
+    });
+    const ergebnisse: RundenErgebnis[] = [];
+    for (const adresse of kandidaten) {
+      if (gen !== this.generation || !this.laeuft) return { art: 'ende' };
+      this.setze({ art: 'verbindet', adresse });
+      const r = await this.anmelden({ adresse, kopplung, rechner: d.rechner, teilnehmer: this.o.teilnehmer, f: this.f, abbruch: this.abbruch.signal });
       if (gen !== this.generation || !this.laeuft) {
         if (r.ok) r.a.v.schliesse();
-        return;
+        return { art: 'ende' };
       }
       if (r.ok) {
-        if (!(await this.verbunden(r.a, gen))) return;
-      } else {
-        const w = this.werteAus([{ e: r.ergebnis }], false, versuch++);
-        if (w === null) return;
-        await this.warte(w, gen);
+        zaehler.versuch = 0;
+        return (await this.verbunden(r.a, gen)) ? { art: 'weiter' } : { art: 'ende' };
       }
+      ergebnisse.push({ e: r.ergebnis, adresse });
+      const e = ordneEin(r.ergebnis, mdnsGesehen);
+      // Unser Master hat geantwortet (Pin passte) — andere Adressen ändern daran nichts.
+      if (e.art === 'code' && ['unbekannt', 'signatur', 'protokoll', 'uhr'].includes(e.code)) break;
     }
-    runde: while (this.laeuft && gen === this.generation) {
-      const d = this.datei;
-      if (!d || !d.kopplung || d.rolle === 'aus') return;
-      const kopplung = d.kopplung;
-      this.setze({ art: 'sucht' });
-      const alleKarten = listeKarten(this.netz());
-      let mdns: string[] = [];
-      let mdnsGesehen = false;
-      if (d.rolle === 'slave' && this.suche) {
-        this.suche.setzeKarten(wirksameKarten(alleKarten, d.netzwerk.karte).karten);
-        const sichtungen = await this.suche.runde(this.f.suchrundeMs);
-        if (gen !== this.generation) return;
-        const meine = sichtungen.filter((s) => s.masterId === kopplung.masterId);
-        mdnsGesehen = meine.length > 0;
-        mdns = meine.flatMap((s) => s.adressen);
-      }
-      const kandidaten = kandidatenliste({
-        rolle: d.rolle === 'master' ? 'master' : 'slave',
-        mdns,
-        letzteAdresse: this.letzteAdresse ?? kopplung.letzteAdresse,
-        adressen: [...this.gelernteAdressen, ...kopplung.adressen],
-        festeAdresse: kopplung.festeAdresse,
-        karten: alleKarten,
-        gewaehlteKarte: d.netzwerk.karte,
-      });
-      const ergebnisse: RundenErgebnis[] = [];
-      for (const adresse of kandidaten) {
-        if (gen !== this.generation || !this.laeuft) return;
-        this.setze({ art: 'verbindet', adresse });
-        const r = await this.anmelden({ adresse, kopplung, rechner: d.rechner, teilnehmer: this.o.teilnehmer, f: this.f });
-        if (gen !== this.generation || !this.laeuft) {
-          if (r.ok) r.a.v.schliesse();
-          return;
-        }
-        if (r.ok) {
-          versuch = 0;
-          if (!(await this.verbunden(r.a, gen))) return;
-          continue runde;
-        }
-        ergebnisse.push({ e: r.ergebnis, adresse });
-        const e = ordneEin(r.ergebnis, mdnsGesehen);
-        // Unser Master hat geantwortet (Pin passte) — andere Adressen ändern daran nichts.
-        if (e.art === 'code' && ['unbekannt', 'signatur', 'protokoll', 'uhr'].includes(e.code)) break;
-      }
-      const w = this.werteAus(ergebnisse, mdnsGesehen, versuch++);
-      if (w === null) return;
-      await this.warte(w, gen);
-    }
+    const w = this.werteAus(ergebnisse, mdnsGesehen, zaehler.versuch++);
+    return w === null ? { art: 'ende' } : { art: 'warte', ms: w };
   }
 
   /**
@@ -409,7 +486,12 @@ export class MasterLinkClient extends EventEmitter {
       }
     }
     if (ergebnisse.length === 0) codes.push('nicht-gefunden');
-    const code = staerkster(codes);
+    // Hat UNSER Master (Pin passte) mit last/anmeldefrist geantwortet, sagen Netzfehler anderer Adressen nichts über ihn:
+    // sie würden „Master-Modus aus?“ bzw. „nicht erreichbar“ behaupten (Spec 5.4). Nur seine eigenen Antworten zählen.
+    const gezeigt = intern ? codes.filter((c) => VOM_MASTER.has(c)) : codes;
+    const code = staerkster(gezeigt);
+    // Spec 9.1: „last: frühestens nach 5 s“ — auch wenn andere Adressen derselben Runde anders endeten.
+    const mindestens = (ms: number): number => (intern === 'last' ? Math.max(this.f.lastMinMs, ms) : ms);
     if (code) {
       const quelle = herkunft.get(code);
       const adresse = quelle?.adresse;
@@ -419,16 +501,15 @@ export class MasterLinkClient extends EventEmitter {
       this.setze({
         art: 'fehler',
         code,
-        text: fehlerText(code, { masterName, adresse, errCode, suite: ablehnung?.suite, masterProtokoll: ablehnung?.master }),
+        text: fehlerText(code, { masterName, adresse, errCode, suite: ablehnung?.suite === undefined ? undefined : kuerzeName(ablehnung.suite), masterProtokoll: ablehnung?.master }),
         ...(code === 'sonstig' && errCode ? { errCode } : {}),
       });
       const w = wiederholung(code, this.f);
       if (w.art === 'keine') return null;
-      return w.art === 'fest' ? w.ms : rueckzugMs(versuch, this.f, this.o.zufall);
+      return mindestens(w.art === 'fest' ? w.ms : rueckzugMs(versuch, this.f, this.o.zufall));
     }
     this.setze({ art: 'sucht' });
-    const r = rueckzugMs(versuch, this.f, this.o.zufall);
-    return intern === 'last' ? Math.max(this.f.lastMinMs, r) : r;
+    return mindestens(rueckzugMs(versuch, this.f, this.o.zufall));
   }
 
   /** Verbunden-Phase; true = Schleife geht weiter, false = aufhören (keine Wiederholung/Generation vorbei). */
@@ -441,6 +522,8 @@ export class MasterLinkClient extends EventEmitter {
       await this.warte(w, gen);
       return gen === this.generation && this.laeuft;
     }
+    // Ende der Verbindungsphase: die nächste Suche ist wieder „frisch“ und wird angezeigt (Ruling jj).
+    this.frisch = true;
     this.setze({ art: 'sucht' });
     await this.warte(rueckzugMs(0, this.f, this.o.zufall), gen);
     return gen === this.generation && this.laeuft;
@@ -463,7 +546,7 @@ export class MasterLinkClient extends EventEmitter {
       this.letzteAdresse = a.adresse;
       this.gelernteAdressen = a.adressen;
       this.setze({ art: 'verbunden', adresse: a.adresse, seit: this.jetzt(), masterName: a.masterName, suite: a.suite });
-      this.emit('angemeldet', { adresse: a.adresse, adressen: a.adressen, suite: a.suite });
+      this.sendeEreignis('angemeldet', { adresse: a.adresse, adressen: a.adressen, suite: a.suite });
       let beendet = false;
       let stille: ReturnType<typeof setTimeout> | null = null;
       // Jedes Ende (ende des Sockets, Stille, trenne()) räumt auf und löst die Verbindungsphase auf — genau einmal.
@@ -521,18 +604,35 @@ export class MasterLinkClient extends EventEmitter {
 
   private setze(z: ClientZustand): void {
     const alt = this.z;
+    // Ruling (jj): nach einem Ergebnis ist „sucht“/„verbindet“ der Wiederholung kein neuer Zustand — der Fehler bleibt
+    // stehen, bis ein neues Ergebnis kommt (verbunden oder ein anderer Fehler). Sonst flackerte der Kopf je Runde.
+    if ((z.art === 'sucht' || z.art === 'verbindet') && !this.frisch && alt.art === 'fehler') return;
+    if (z.art === 'fehler' || z.art === 'verbunden') this.frisch = false;
     if (JSON.stringify(alt) === JSON.stringify(z)) return;
     this.z = z;
     // Geloggt wird nur das Ergebnis einer Runde (verbunden, aus, neuer Fehlercode), nicht sucht/verbindet: sonst schreibt ein
     // Dauerfehler (Master aus ist ein Normalzustand) jede Runde dieselben Zeilen. Das Ereignis 'zustand' bleibt vollständig.
     if (alt.art === 'verbunden' && z.art !== 'verbunden') this.geloggt = null;
     const wert = verbundWert(z);
-    if (z.art !== 'sucht' && z.art !== 'verbindet' && wert !== this.geloggt) {
-      this.geloggt = wert;
+    const logSchluessel = z.art === 'fehler' && z.errCode ? `${wert}/${z.errCode}` : wert;
+    if (z.art !== 'sucht' && z.art !== 'verbindet' && logSchluessel !== this.geloggt) {
+      this.geloggt = logSchluessel;
       const zusatz = z.art === 'verbunden' ? ` (${z.adresse})` : z.art === 'fehler' ? ` — ${z.text}` : '';
       this.log(z.art === 'fehler' ? 'warn' : 'info', `Master-Link: ${wert}${zusatz}`);
     }
-    this.emit('zustand', z);
+    this.sendeEreignis('zustand', z);
+  }
+
+  /** Ein werfender Zuhörer darf weder die Schleife noch den Socket-Handler treffen (Endprüfung A1). */
+  private sendeEreignis(name: string, wert: unknown): void {
+    try {
+      this.emit(name, wert);
+    } catch (e) {
+      const schluessel = `${name}/${wurfCode(e)}`;
+      if (schluessel === this.wurfGeloggt) return;
+      this.wurfGeloggt = schluessel;
+      this.log('warn', `Master-Link: Zuhörer von „${name}“ warf (${wurfCode(e)}).`);
+    }
   }
 
   private log(stufe: 'info' | 'warn', text: string): void {

@@ -102,7 +102,7 @@ export class MasterLinkServer extends EventEmitter {
     this.f = mitFristen(o.fristen);
     this.jetzt = o.jetzt ?? Date.now;
     this.lauschAdressen = [...o.lauschAdressen];
-    this.name = o.identitaet.name;
+    this.name = kuerzeName(o.identitaet.name); // Name steht in hallo/gekoppelt und in fremden Logs (Endprüfung A6)
     this.fingerprint = fingerprintVonPem(o.identitaet.zertifikat);
   }
 
@@ -224,6 +224,8 @@ export class MasterLinkServer extends EventEmitter {
   }
 
   private aufNachricht(s: Sitzung, n: Nachricht): void {
+    // Nach stoppe(): endgültig still — eine späte Zeile aus einem alten Socket erreicht weder Speicher noch Sitzungen (A7).
+    if (!this.laeuft) return;
     this.zeileGesehen(s);
     if (s.angemeldet) {
       if (n.t === 'teilnehmer' && s.info) {
@@ -250,6 +252,7 @@ export class MasterLinkServer extends EventEmitter {
   }
 
   private zeileGesehen(s: Sitzung): void {
+    if (!this.laeuft) return;
     s.letzteZeile = this.jetzt();
     if (!s.angemeldet) return;
     if (s.stille) clearTimeout(s.stille);
@@ -387,8 +390,10 @@ export class MasterLinkServer extends EventEmitter {
     const schluessel = `${rechnerId}\u0000${info.appId}`;
     const alt = this.teilnehmerMap.get(schluessel);
     if (alt && alt !== s) {
-      if (this.jetzt() - alt.letzteZeile < this.f.pulsMs) {
-        this.warne(`Kennung ${rechnerId.slice(0, 8)}…/${info.appId} doppelt aktiv (${alt.v.adresse}, ${s.v.adresse})`);
+      // Gleiche pid und Adresse = derselbe Prozess baut nach einem Aussetzer (WLAN) schnell neu auf — kein Klon-Verdacht (A7).
+      const derselbe = alt.info?.pid === info.pid && alt.v.adresse === s.v.adresse;
+      if (!derselbe && this.jetzt() - alt.letzteZeile < this.f.pulsMs) {
+        this.warne(`Kennung ${kuerzeName(rechnerId.slice(0, 8))}…/${info.appId} doppelt aktiv (${alt.v.adresse}, ${s.v.adresse})`);
       }
       this.teilnehmerMap.delete(schluessel);
       alt.v.sende({ t: 'abgelehnt', grund: 'ersetzt' });
@@ -471,7 +476,7 @@ export class MasterLinkServer extends EventEmitter {
   }
 
   setzeName(name: string): void {
-    this.name = name;
+    this.name = kuerzeName(name);
     this.emit('aenderung');
   }
 

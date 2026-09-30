@@ -184,13 +184,27 @@ export class DateiBeobachter {
   private fehlversuche = 0;
   private erstmals = true;
   private warDefekt = false;
+  private readonly log: (text: string) => void;
+  /** Zuletzt geloggter I/O-Code; null = seitdem erfolgreich gelesen (der nächste Fehler wird wieder geloggt). */
+  private ioGeloggt: string | null = null;
 
-  constructor(pfad: string) {
+  /** `log`: I/O- und stat-Fehler je Codewechsel einmal melden — sonst zeigt ein Tool mit unlesbarer Datei stumm „aus“ (A9). */
+  constructor(pfad: string, log: (text: string) => void = () => {}) {
     this.pfad = pfad;
+    this.log = log;
   }
 
   aktuell(): MasterLinkDatei | null {
     return this.stand;
+  }
+
+  /** Nur der Code, nie Inhalt oder Meldung (die kann Pfade/Fremdtext zitieren). */
+  private ioFehler(code: string): Beobachtung {
+    if (code !== this.ioGeloggt) {
+      this.ioGeloggt = code;
+      this.log(`master-link.json nicht lesbar (${code.replace(/[^A-Za-z0-9_]/g, '').slice(0, 40) || 'EIO'}); der letzte gültige Stand bleibt.`);
+    }
+    return { art: 'unveraendert' };
   }
 
   pruefe(): Beobachtung {
@@ -199,7 +213,8 @@ export class DateiBeobachter {
       mtime = statSync(this.pfad).mtimeMs;
     } catch (e) {
       // EBUSY/EPERM (Virenscanner, Indexer) sind vorübergehend — kein Fehlversuch, nichts gemerkt.
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') return { art: 'unveraendert' };
+      const code = (e as NodeJS.ErrnoException).code ?? 'EIO';
+      if (code !== 'ENOENT') return this.ioFehler(code);
       mtime = null;
     }
     if (!this.erstmals && this.fehlversuche === 0 && mtime === this.mtime) return { art: 'unveraendert' };
@@ -208,11 +223,12 @@ export class DateiBeobachter {
     if (r.art === 'ok') return this.uebernimm(r.wert, mtime);
     if (r.art === 'fehlt') return this.uebernimm(null, null);
     // mtime erst nach erfolgreichem Lesen merken: so liest der nächste Takt erneut, auch beim ersten Lesen.
-    if (r.art === 'io') return { art: 'unveraendert' };
+    if (r.art === 'io') return this.ioFehler(r.code);
     return this.fehlschlag();
   }
 
   private uebernimm(datei: MasterLinkDatei | null, mtime: number | null): Beobachtung {
+    this.ioGeloggt = null;
     const relevant = this.erstmals || this.warDefekt || verbindungsrelevantGeaendert(this.stand, datei);
     const geaendert = relevant || JSON.stringify(this.stand) !== JSON.stringify(datei);
     this.erstmals = false;

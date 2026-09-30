@@ -66,11 +66,29 @@ export async function laufe(): Promise<void> {
     a.server.on('warnung', (t: string) => warnungen.push(t));
     const erst = await meldeAn(a);
     await erst.naechste('angemeldet');
-    const zweit = await meldeAn(a);
+    const zweit = await meldeAn(a, a.slave, 'jm-timer', 2); // andere pid: echte Zweitinstanz (A7)
     await zweit.naechste('angemeldet');
     gleich(await erst.naechste('abgelehnt'), { t: 'abgelehnt', grund: 'ersetzt' }, 'gleicher Schlüssel → alte Verbindung ersetzt');
     gleich(a.server.teilnehmer().length, 1, 'genau ein Teilnehmer bleibt');
     pruefe(warnungen.some((t) => t.includes('doppelt aktiv')), 'Warnung „doppelt aktiv“, weil die alte Verbindung lebte');
+
+    // Endprüfung A6: appId mit Zeilenumbruch/ESC/Bidi darf keine zweite Logzeile erzeugen.
+    const boese = 'jm-timer\n2026-01-01 [ERROR] [jm-launcher] gefälscht\u001b[2J\u202e';
+    const b1 = await meldeAn(a, a.slave, boese);
+    await b1.naechste('angemeldet');
+    const b2 = await meldeAn(a, a.slave, boese, 2);
+    await b2.naechste('angemeldet');
+    const zeile = warnungen.filter((t) => t.includes('doppelt aktiv')).pop() ?? '';
+    pruefe(warnungen.filter((t) => t.includes('doppelt aktiv')).length === 2 && !/[\p{Cc}\p{Cf}]/u.test(zeile),
+      `Warnzeile „doppelt aktiv“ bleibt einzeilig, ohne Steuer-/Formatzeichen (${JSON.stringify(zeile).slice(0, 80)})`);
+    pruefe(a.server.teilnehmer().every((t) => !/[\p{Cc}\p{Cf}]/u.test(t.appId)), 'teilnehmer().appId ohne Steuer-/Formatzeichen');
+    b1.v.schliesse();
+    b2.v.schliesse();
+    const nm = await baueServer({ identitaet: neueIdentitaet('Regie\nPC\u202e') });
+    const roh = await verbindeRoh(nm.port);
+    gleich(roh.hallo.name, 'Regie PC', 'Server-Konstruktor säubert identitaet.name (hallo ohne Steuerzeichen)');
+    roh.zu();
+    await nm.server.stoppe();
 
     const eigenTool = await meldeAn(a, a.eigen, 'jm-titler');
     await eigenTool.naechste('angemeldet');
@@ -329,5 +347,50 @@ export async function laufe(): Promise<void> {
     gleich(new MasterLinkServer({ ...basis, lauschAdressen: ['0.0.0.0'] }).adressenFuerSlaves(), ['10.0.0.110'], 'Automatisch → alle nicht-internen IPv4');
     gleich(new MasterLinkServer({ ...basis, lauschAdressen: ['10.0.0.110', '192.168.1.5', '127.0.0.1'] }).adressenFuerSlaves(),
       ['10.0.0.110', '192.168.1.5'], 'gewählte Karte → ihre IPv4, nie 127.0.0.1');
+  }
+
+  abschnitt('Server: nach stoppe() endgültig still, „doppelt aktiv“ nur bei echter Zweitinstanz (Endprüfung A7)');
+  {
+    // Eine Zeile, die nach stoppe() noch aus einem alten Socket kommt, darf den Verbundspeicher nicht mehr erreichen.
+    let nachStopp = 0;
+    let gestoppt = false;
+    class Zaehler extends SpeicherVerbund {
+      override gesehen(r: string, z: number, ad: string | null, s: boolean): void {
+        if (gestoppt) nachStopp++;
+        super.gesehen(r, z, ad, s);
+      }
+    }
+    const a = await baueServer();
+    await a.server.stoppe();
+    const m = new MasterLinkServer({
+      identitaet: a.identitaet, verbund: new Zaehler(a.verbund.liste()), eigeneRechnerId: 'rechner-a', suiteVersion: '0.12.0',
+      lauschAdressen: ['127.0.0.1'], port: 0,
+    });
+    await m.starte();
+    const c = await meldeAn({ ...a, server: m, port: m.port() });
+    await c.naechste('angemeldet');
+    const sitzungen = [...(m as unknown as { sitzungen: Set<{ v: { emit(n: string, x?: unknown): boolean } }> }).sitzungen];
+    await m.stoppe();
+    gestoppt = true;
+    for (const s of sitzungen) {
+      s.v.emit('nachricht', { t: 'puls' });
+      s.v.emit('unbekannt');
+    }
+    await warte(20);
+    gleich(nachStopp, 0, 'späte Zeile nach stoppe() → kein „zuletzt gesehen“ mehr (Server endgültig still)');
+    c.zu();
+
+    // Schneller Wiederaufbau nach einem WLAN-Aussetzer: gleiche pid, gleiche Adresse → ersetzt, aber keine Klon-Warnung.
+    const b = await baueServer();
+    const warnungen: string[] = [];
+    b.server.on('warnung', (t: string) => warnungen.push(t));
+    const alt = await meldeAn(b, b.slave, 'jm-timer', 7);
+    await alt.naechste('angemeldet');
+    const neu = await meldeAn(b, b.slave, 'jm-timer', 7);
+    await neu.naechste('angemeldet');
+    gleich(await alt.naechste('abgelehnt'), { t: 'abgelehnt', grund: 'ersetzt' }, 'gleiche pid + Adresse → alte Verbindung ersetzt');
+    gleich(warnungen.filter((t) => t.includes('doppelt aktiv')), [], '… ohne Warnung „doppelt aktiv“ (derselbe Prozess, kein Klon)');
+    neu.zu();
+    await b.server.stoppe();
   }
 }

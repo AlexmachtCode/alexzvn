@@ -1,8 +1,9 @@
 import { EventEmitter } from 'node:events';
-import { createServer as netServer, type Socket } from 'node:net';
+import { connect as netConnect, createServer as netServer, type Socket } from 'node:net';
 import { createServer as tlsServer, type Server as TlsServer, type TLSSocket } from 'node:tls';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { randomNonce } from '@jm/auth-core';
 import { MasterLinkClient, verbundWert, versucheAnmeldung, type AnmeldeParameter, type ClientZustand, type Versuch } from '../src/client';
 import { masterLinkPfad, schreibeMasterLinkDatei, type MasterLinkDatei } from '../src/datei';
@@ -316,22 +317,29 @@ export async function laufe(): Promise<void> {
     const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
     const pfad = masterLinkPfad(tempOrdner());
     schreibeMasterLinkDatei(pfad, dateiFuer(a));
-    const c1 = neuerClient(pfad);
-    const c2 = neuerClient(pfad);
     const gesehen = new Set<string>();
     const luecken: number[] = [];
-    for (const c of [c1, c2]) {
+    // Der nächste Versuch wird am Anmeldeaufruf gemessen: der Fehler bleibt über die Wiederholung hinweg stehen (Endprüfung A4).
+    const mitMessung = (): MasterLinkClient => {
       let ersetztSeit: number | null = null;
+      const c = neuerClient(pfad, {
+        anmelden: (p: AnmeldeParameter): Promise<Versuch> => {
+          if (ersetztSeit !== null) {
+            luecken.push(Date.now() - ersetztSeit);
+            ersetztSeit = null;
+          }
+          return versucheAnmeldung(p);
+        },
+      });
       c.on('zustand', () => {
         const w = art(c);
         gesehen.add(w);
         if (w === 'fehler:ersetzt') ersetztSeit = Date.now();
-        else if (w === 'verbindet' && ersetztSeit !== null) {
-          luecken.push(Date.now() - ersetztSeit);
-          ersetztSeit = null;
-        }
       });
-    }
+      return c;
+    };
+    const c1 = mitMessung();
+    const c2 = mitMessung();
     c1.starte();
     await bis(() => art(c1) === 'verbunden');
     c2.starte();
@@ -511,18 +519,23 @@ export async function laufe(): Promise<void> {
     });
     const pfad = masterLinkPfad(tempOrdner());
     schreibeMasterLinkDatei(pfad, dateiFuer(a));
-    const c = neuerClient(pfad);
     const gesehen = new Set<string>();
     const luecken: number[] = [];
     let ersetztSeit: number | null = null;
+    // Gemessen am Anmeldeaufruf: der Fehler bleibt über die Wiederholung hinweg stehen (Endprüfung A4).
+    const c = neuerClient(pfad, {
+      anmelden: (p: AnmeldeParameter): Promise<Versuch> => {
+        if (ersetztSeit !== null) {
+          luecken.push(Date.now() - ersetztSeit);
+          ersetztSeit = null;
+        }
+        return versucheAnmeldung(p);
+      },
+    });
     c.on('zustand', () => {
       const w = art(c);
       gesehen.add(w);
       if (w === 'fehler:ersetzt') ersetztSeit = Date.now();
-      else if (w === 'verbindet' && ersetztSeit !== null) {
-        luecken.push(Date.now() - ersetztSeit);
-        ersetztSeit = null;
-      }
     });
     c.starte();
     await bis(() => gesehen.has('fehler:ersetzt'), 1500);
@@ -612,16 +625,18 @@ export async function laufe(): Promise<void> {
     const pfad = masterLinkPfad(tempOrdner());
     schreibeMasterLinkDatei(pfad, dateiFuer(a));
     const zeilen: Array<{ stufe: string; text: string }> = [];
-    const c = neuerClient(pfad, { log: (stufe, text) => zeilen.push({ stufe, text }) });
     let runden = 0;
-    let suchen = 0;
-    c.on('zustand', (z: ClientZustand) => {
-      if (z.art === 'verbindet') runden++;
-      if (z.art === 'sucht') suchen++;
+    // Runden am Anmeldeaufruf gezählt: nach dem ersten Fehler bleibt der Zustand stehen (Endprüfung A4, eigener Abschnitt).
+    const c = neuerClient(pfad, {
+      log: (stufe, text) => zeilen.push({ stufe, text }),
+      anmelden: (p: AnmeldeParameter): Promise<Versuch> => {
+        runden++;
+        return versucheAnmeldung(p);
+      },
     });
     c.starte();
     await bis(() => runden >= 5, 5000);
-    pruefe(runden >= 5 && suchen >= 4, `mehrere Runden ohne Master, Zustandsereignisse unverändert (${runden} × verbindet, ${suchen} × sucht)`);
+    pruefe(runden >= 5, `mehrere Runden ohne Master (${runden} Versuche)`);
     pruefe(zeilen.length === 1 && zeilen[0]!.stufe === 'warn' && zeilen[0]!.text.includes('fehler:verweigert'),
       `Dauerfehler → genau eine Warnzeile (${zeilen.length} Zeilen)`);
     const b = new MasterLinkServer({ identitaet: a.identitaet, verbund: a.verbund, eigeneRechnerId: 'rechner-a', suiteVersion: '0.12.0', lauschAdressen: ['127.0.0.1'], port: a.port, fristen: { pulsMs: 150, stilleMs: 600 } });
@@ -657,5 +672,238 @@ export async function laufe(): Promise<void> {
     const zwei = await ersterFehler({ '10.0.0.1': { art: 'fehler', code: 'ECONNRESET' }, '10.0.0.2': { art: 'fehler', code: 'EHOSTUNREACH' } });
     pruefe(zwei?.art === 'fehler' && zwei.code === 'sonstig' && zwei.errCode === 'ECONNRESET' && zwei.text.includes('ECONNRESET') && !zwei.text.includes('EHOSTUNREACH'),
       '[A → ECONNRESET, B → EHOSTUNREACH]: sonstig mit dem Code von A, nicht dem des letzten Ergebnisses');
+  }
+  await laufeEndpruefung();
+}
+
+/** Nachträge aus der Schlussprüfung (Fix-Welle): einzeln aufrufbar, damit ein Punkt rot → grün gezielt läuft. */
+export async function laufeEndpruefung(): Promise<void> {
+  abschnitt('Client: Ausnahme in einer Runde beendet die Schleife nicht (Endprüfung A1, Spec 7.3)');
+  {
+    const unbehandelt: unknown[] = [];
+    const merke = (r: unknown): void => { unbehandelt.push(r); };
+    process.on('unhandledRejection', merke);
+    try {
+      // 1) networkInterfaces wirft dreimal hintereinander, während der Master aus ist; danach kommt er zurück.
+      const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
+      await a.server.stoppe();
+      const pfad = masterLinkPfad(tempOrdner());
+      schreibeMasterLinkDatei(pfad, dateiFuer(a));
+      let werfen = 0;
+      let abfragen = 0;
+      const zeilen: string[] = [];
+      const c = neuerClient(pfad, {
+        log: (_s, t) => zeilen.push(t),
+        netzwerkKarten: () => {
+          abfragen++;
+          if (werfen > 0) {
+            werfen--;
+            throw Object.assign(new Error('uv_interface_addresses failed'), { code: 'ERR_SYSTEM_ERROR' });
+          }
+          return networkInterfaces();
+        },
+      });
+      c.starte();
+      await bis(() => abfragen >= 2, 2000);
+      werfen = 3;
+      await bis(() => werfen === 0, 2000);
+      const nachWurf = abfragen;
+      await bis(() => abfragen > nachWurf, 2000);
+      pruefe(abfragen > nachWurf, `nach drei Würfen von networkInterfaces läuft die Schleife weiter (${abfragen - nachWurf} weitere Runde(n))`);
+      const b = new MasterLinkServer({ identitaet: a.identitaet, verbund: a.verbund, eigeneRechnerId: 'rechner-a', suiteVersion: '0.12.0', lauschAdressen: ['127.0.0.1'], port: a.port, fristen: { pulsMs: 150, stilleMs: 600 } });
+      await b.starte();
+      await bis(() => art(c) === 'verbunden', 3000);
+      gleich(art(c), 'verbunden', '… und verbindet, sobald der Master zurück ist');
+      gleich(zeilen.filter((z) => z.includes('ERR_SYSTEM_ERROR')).length, 1, 'drei gleiche Würfe → genau eine Logzeile (gedrosselt)');
+      await c.stoppe();
+
+      // 2) Die Suche (Bonjour-Fabrik) wirft einmal in setzeKarten.
+      let fabrikWirft = true;
+      const suche = new FakeSuche();
+      suche.setzeKarten = (): void => {
+        if (fabrikWirft) {
+          fabrikWirft = false;
+          throw new TypeError("Cannot read properties of undefined (reading 'mdns')");
+        }
+      };
+      const c2 = neuerClient(pfad, { suche });
+      c2.starte();
+      await bis(() => art(c2) === 'verbunden', 3000);
+      pruefe(!fabrikWirft && art(c2) === 'verbunden', 'Suche wirft einmal in setzeKarten → spätere Runde verbindet');
+      await c2.stoppe();
+
+      // 3) Ein Zuhörer von 'zustand' wirft.
+      const c3 = neuerClient(pfad);
+      let zuhoererWuerfe = 0;
+      c3.on('zustand', (z: ClientZustand) => {
+        if (z.art === 'sucht' && zuhoererWuerfe < 2) {
+          zuhoererWuerfe++;
+          throw new Error('Zuhörer kaputt');
+        }
+      });
+      c3.starte();
+      await bis(() => art(c3) === 'verbunden', 3000);
+      pruefe(zuhoererWuerfe > 0 && art(c3) === 'verbunden', `werfender Zuhörer (${zuhoererWuerfe}×) → Schleife lebt, verbunden`);
+      await c3.stoppe();
+      await b.stoppe();
+      await warte(20);
+      gleich(unbehandelt.length, 0, 'keine unbehandelte Ablehnung (app-runtime schriebe sonst eine Absturzmarke)');
+    } finally {
+      process.off('unhandledRejection', merke);
+    }
+  }
+
+  abschnitt('Client: „last“ gilt auch in gemischten Runden (Endprüfung A2, Spec 9.1/5.4)');
+  {
+    const a = await baueServer();
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, { ...d, kopplung: { ...d.kopplung!, adressen: ['10.0.0.1', '10.0.0.2'] } });
+    // lastMinMs weit über dem Rückzug (50 → 100 → 200 ms): ein Abstand ≥ 600 ms kann nur von „last“ kommen.
+    const f: Partial<Fristen> = { ...KURZ, rueckzugBasisMs: 50, rueckzugMaxMs: 200, lastMinMs: 600 };
+    const LAST: VersuchsErgebnis = { art: 'abgelehnt', grund: 'last' };
+    const lauf = async (b: VersuchsErgebnis): Promise<{ abstaende: number[]; gezeigt: string[] }> => {
+      const zeiten: number[] = [];
+      const c = neuerClient(pfad, {
+        fristen: f,
+        zufall: () => 0.5,
+        anmelden: async (p: AnmeldeParameter): Promise<Versuch> => {
+          if (p.adresse === '10.0.0.1') zeiten.push(Date.now());
+          return { ok: false, ergebnis: p.adresse === '10.0.0.1' ? LAST : b };
+        },
+      });
+      const gezeigt = new Set<string>();
+      c.on('zustand', () => {
+        const w = art(c);
+        if (w !== 'sucht' && w !== 'verbindet') gezeigt.add(w);
+      });
+      c.starte();
+      await bis(() => zeiten.length >= 3 || gezeigt.has('fehler:unbekannt'), 4000);
+      await c.stoppe();
+      return { abstaende: zeiten.slice(1).map((t, i) => t - zeiten[i]!), gezeigt: [...gezeigt] };
+    };
+    const verweigert = await lauf({ art: 'fehler', code: 'ECONNREFUSED' });
+    pruefe(verweigert.abstaende.length >= 2 && Math.min(...verweigert.abstaende) >= 550,
+      `[A → last, B → ECONNREFUSED]: nächster Versuch an A frühestens nach lastMinMs (600): ${verweigert.abstaende.join(', ')} ms`);
+    gleich(verweigert.gezeigt.filter((w) => w !== 'aus'), [], '… und keine Anzeige „verweigert“ (unser Master hat geantwortet)');
+    const zeit = await lauf({ art: 'tcp-timeout' });
+    pruefe(zeit.abstaende.length >= 2 && Math.min(...zeit.abstaende) >= 550,
+      `[A → last, B → TCP-Timeout]: frühestens nach lastMinMs: ${zeit.abstaende.join(', ')} ms`);
+    gleich(zeit.gezeigt.filter((w) => w !== 'aus'), [], '… und keine Anzeige „nicht erreichbar“');
+    const entfernt = await lauf({ art: 'abgelehnt', grund: 'unbekannt' });
+    gleich(entfernt.gezeigt.filter((w) => w !== 'aus'), ['fehler:unbekannt'], '[A → last, B → unbekannt]: eine Antwort unseres Masters bleibt sichtbar');
+  }
+
+  abschnitt('Client: Fehler bleibt über Wiederholungsrunden stehen (Endprüfung A4, Ruling jj)');
+  {
+    const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, d);
+    let versuche = 0;
+    const c = neuerClient(pfad, {
+      anmelden: (p: AnmeldeParameter): Promise<Versuch> => {
+        versuche++;
+        return versucheAnmeldung(p);
+      },
+    });
+    const ereignisse: string[] = [];
+    c.on('zustand', (z: ClientZustand) => ereignisse.push(verbundWert(z)));
+    c.starte();
+    await bis(() => art(c) === 'fehler:verweigert', 2000);
+    gleich(ereignisse.slice(0, 2), ['sucht', 'verbindet'], 'Start (frisch): „sucht“, „verbindet“ werden gemeldet');
+    const ab = ereignisse.length;
+    const vorher = versuche;
+    await bis(() => versuche >= vorher + 3, 3000);
+    pruefe(versuche >= vorher + 3, `drei weitere Runden gelaufen (${versuche - vorher})`);
+    gleich(ereignisse.slice(ab).filter((w) => w === 'sucht' || w === 'verbindet'), [], 'nach dem Fehler: kein Zustandsereignis „sucht“/„verbindet“ in Folgerunden');
+    gleich(art(c), 'fehler:verweigert', 'verbundWert folgt: bleibt fehler:verweigert, bis ein neues Ergebnis kommt');
+    const ab2 = ereignisse.length;
+    schreibeMasterLinkDatei(pfad, { ...d, kopplung: { ...d.kopplung!, festeAdresse: '127.0.0.1' } }); // verbindungsrelevant → neustart
+    await bis(() => ereignisse.slice(ab2).includes('sucht'), 2000);
+    gleich(ereignisse[ab2], 'sucht', 'nach Neustart (relevante Dateiänderung) wieder zuerst „sucht“');
+    const b = new MasterLinkServer({ identitaet: a.identitaet, verbund: a.verbund, eigeneRechnerId: 'rechner-a', suiteVersion: '0.12.0', lauschAdressen: ['127.0.0.1'], port: a.port, fristen: { pulsMs: 150, stilleMs: 600 } });
+    await b.starte();
+    await bis(() => art(c) === 'verbunden', 3000);
+    gleich(art(c), 'verbunden', 'Master zurück → verbunden (neues Ergebnis ersetzt den Fehler)');
+    const ab3 = ereignisse.length;
+    await b.stoppe();
+    await bis(() => ereignisse.length > ab3, 2000);
+    gleich(ereignisse[ab3], 'sucht', 'Verbindung verloren → wieder frisch: zuerst „sucht“');
+    await c.stoppe();
+  }
+
+  abschnitt('Client: Anmeldeversuch der alten Generation wird abgebrochen (Endprüfung A5)');
+  {
+    // Proxy: Verbindung 1 bekommt die Antworten des Masters je 400 ms verzögert (langsames WLAN, Master beschäftigt).
+    const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
+    let n = 0;
+    const proxy = netServer((cl) => {
+      const nr = ++n;
+      const s = netConnect(a.port, '127.0.0.1');
+      cl.on('error', () => {});
+      s.on('error', () => {});
+      cl.on('data', (x) => s.write(x));
+      s.on('data', (x) => (nr === 1 ? setTimeout(() => { if (!cl.destroyed) cl.write(x); }, 400) : cl.write(x)));
+      cl.on('close', () => s.destroy());
+      s.on('close', () => setTimeout(() => cl.destroy(), nr === 1 ? 450 : 0));
+    });
+    await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', r));
+    const q = (proxy.address() as AddressInfo).port;
+    const d = dateiFuer(a);
+    const mitProxy = { ...d, kopplung: { ...d.kopplung!, port: q } };
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, mitProxy);
+    const c = neuerClient(pfad, { fristen: { ...KURZ, dateiPruefMs: 30, tlsHalloMs: 4000, angemeldetMs: 4000, ersetztWiederholMs: 5000 } });
+    const verlauf: string[] = [];
+    c.on('zustand', () => verlauf.push(art(c)));
+    c.starte();
+    await warte(150);
+    // Bediener trägt eine feste Adresse ein (verbindungsrelevant, Spec 7.1) — während Versuch 1 noch läuft.
+    schreibeMasterLinkDatei(pfad, { ...mitProxy, kopplung: { ...mitProxy.kopplung, festeAdresse: '127.0.0.1' } });
+    await warte(3000);
+    pruefe(!verlauf.includes('fehler:ersetzt') && art(c) === 'verbunden',
+      `relevante Dateiänderung während eines langsamen Versuchs → kein falsches „ersetzt“ (${verlauf.join(' → ')})`);
+    await c.stoppe();
+
+    // stoppe() während eines langsamen Versuchs: der alte Versuch darf sich danach nicht mehr am Master anmelden.
+    n = 0;
+    const gesehen: number[] = [];
+    const zaehle = (): void => { gesehen.push(a.server.teilnehmer().length); };
+    a.server.on('aenderung', zaehle);
+    const c2 = neuerClient(pfad, { fristen: { ...KURZ, tlsHalloMs: 4000, angemeldetMs: 4000 } });
+    schreibeMasterLinkDatei(pfad, mitProxy);
+    c2.starte();
+    await warte(150);
+    await c2.stoppe();
+    await warte(2500);
+    a.server.off('aenderung', zaehle);
+    gleich(Math.max(0, ...gesehen), 0, 'stoppe() während des Versuchs → der alte Versuch meldet sich nie mehr am Master an');
+    proxy.close();
+    await a.server.stoppe();
+  }
+
+  abschnitt('Client: Fremdtext „suite“ aus „abgelehnt protokoll“ gesäubert (Endprüfung A6)');
+  {
+    const a = await baueServer();
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const zeilen: string[] = [];
+    const c = neuerClient(pfad, {
+      log: (_s, t) => zeilen.push(t),
+      anmelden: async (): Promise<Versuch> => ({
+        ok: false, ergebnis: { art: 'abgelehnt', grund: 'protokoll', master: 2, suite: '0.13.0\n2026-01-01 [ERROR] gefälscht\u001b[2J\u202e' },
+      }),
+    });
+    c.starte();
+    await bis(() => art(c) === 'fehler:protokoll', 1000);
+    const z = c.zustand();
+    pruefe(z.art === 'fehler' && z.text.includes('Launcher 0.13.0 2026-01-01') && !/[\p{Cc}\p{Cf}]/u.test(z.text),
+      `Statustext ohne Steuer-/Formatzeichen (${z.art === 'fehler' ? JSON.stringify(z.text).slice(0, 70) : z.art})`);
+    pruefe(zeilen.length > 0 && zeilen.every((t) => !/[\p{Cc}\p{Cf}]/u.test(t)), 'Logzeilen einzeilig, ohne Steuer-/Formatzeichen');
+    await c.stoppe();
   }
 }

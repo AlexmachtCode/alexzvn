@@ -51,7 +51,7 @@ export async function baueServer(teil: Partial<ServerOptionen> = {}, fristen: Pa
   return { server, port: server.port(), identitaet, verbund, slave, eigen };
 }
 
-export async function meldeAn(a: Aufbau, rechner: TestRechner = a.slave, appId = 'jm-timer'): Promise<RohClient> {
+export async function meldeAn(a: Aufbau, rechner: TestRechner = a.slave, appId = 'jm-timer', pid = 1): Promise<RohClient> {
   const c = await verbindeRoh(a.port);
   c.v.sende({
     t: 'anmelden',
@@ -59,7 +59,7 @@ export async function meldeAn(a: Aufbau, rechner: TestRechner = a.slave, appId =
     rechnerId: rechner.rechnerId,
     rechnerName: 'Regie-Laptop 2',
     signatur: signiereAnmeldung(rechner.paar.privat, c.fp, c.hallo.nonce, rechner.rechnerId),
-    teilnehmer: { art: 'tool', appId, name: appId, version: '0.12.0', pid: 1 },
+    teilnehmer: { art: 'tool', appId, name: appId, version: '0.12.0', pid },
   });
   return c;
 }

@@ -197,6 +197,8 @@ export class DateiVerbund extends SpeicherVerbund {
   private readonly jetzt: () => number;
   private readonly intervall: number;
   private readonly onFehler: (e: Error) => void;
+  /** Nach jeder erfolgreichen Schreibung: der Master löscht damit einen geführten Schreibfehler (A8). */
+  private readonly onGespeichert: () => void;
   private letzteSchreibung = 0;
   private offen = false;
   private geschlossen = false;
@@ -205,7 +207,7 @@ export class DateiVerbund extends SpeicherVerbund {
   constructor(
     pfad: string,
     anfangs: VerbundDaten,
-    opts: { jetzt?: () => number; schreibIntervallMs?: number; onFehler?: (e: Error) => void } = {},
+    opts: { jetzt?: () => number; schreibIntervallMs?: number; onFehler?: (e: Error) => void; onGespeichert?: () => void } = {},
   ) {
     super(anfangs.rechner);
     this.pfad = pfad;
@@ -215,13 +217,17 @@ export class DateiVerbund extends SpeicherVerbund {
     this.onFehler = opts.onFehler ?? ((e) => {
       console.warn(`[master-link] Verbund nicht gespeichert: ${(e as NodeJS.ErrnoException).code ?? 'EIO'}`);
     });
+    this.onGespeichert = opts.onGespeichert ?? (() => {});
   }
 
+  // Nach schliesse() endgültig still: späte Ereignisse einer gestoppten MasterRolle schreiben nichts mehr (A7).
   protected override gespeichert(): void {
+    if (this.geschlossen) return;
     this.schreibe();
   }
 
   protected override gesehenGeaendert(sofort: boolean): void {
+    if (this.geschlossen) return;
     const seit = this.jetzt() - this.letzteSchreibung;
     if (sofort || seit >= this.intervall) {
       this.schreibe();
@@ -256,6 +262,7 @@ export class DateiVerbund extends SpeicherVerbund {
     }
     this.offen = false;
     this.letzteSchreibung = this.jetzt();
+    this.onGespeichert();
   }
 
   schliesse(): void {

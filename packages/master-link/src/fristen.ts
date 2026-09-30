@@ -72,8 +72,13 @@ export const GRENZEN = {
 export const MASTER_PORT = 8738;
 export const SUITE_ORDNER = 'JM Production Suite';
 
-/** Anzeigename säubern: trimmen, auf 60 ganze Zeichen kürzen, nie leer. */
+/**
+ * Anzeigename bzw. Fremdtext säubern: Steuer- und Formatzeichen (Zeilenumbruch, ESC, Bidi-Overrides, U+2028/2029)
+ * werden Leerzeichen — sonst fälschen Fremdtexte Zeilen im zeilenbasierten Log oder verdrehen Namen in Listen
+ * (Endprüfung A6). Dann Leerzeichen zusammenziehen, trimmen, auf 60 ganze Zeichen kürzen, erneut trimmen, nie leer.
+ */
 export function kuerzeName(name: string): string {
-  const zeichen = [...name.trim()].slice(0, GRENZEN.maxNamenLaenge);
-  return zeichen.length > 0 ? zeichen.join('') : 'Unbenannt';
+  const sauber = name.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ').replace(/ {2,}/g, ' ').trim();
+  const gekuerzt = [...sauber].slice(0, GRENZEN.maxNamenLaenge).join('').trim();
+  return gekuerzt.length > 0 ? gekuerzt : 'Unbenannt';
 }

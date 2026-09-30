@@ -196,8 +196,23 @@ export class MdnsSuche implements SucheLike {
     const s = JSON.stringify(opts);
     if (s === this.schluessel) return;
     this.stoppe();
+    // Schlüssel erst NACH vollständigem Anlegen: wirft die Fabrik, versucht der nächste Aufruf mit denselben Karten neu
+    // (sonst suchte jede weitere Runde still ohne mDNS). Schon Angelegtes dieser Runde wird geschlossen (Endprüfung A3).
+    const neu: BonjourLike[] = [];
+    try {
+      for (const o of opts) neu.push(this.fabrik(o));
+    } catch (e) {
+      for (const b of neu) {
+        try {
+          b.destroy();
+        } catch {
+          /* egal */
+        }
+      }
+      throw e;
+    }
+    this.instanzen = neu;
     this.schluessel = s;
-    this.instanzen = opts.map((o) => this.fabrik(o));
   }
 
   runde(dauerMs: number): Promise<MasterSichtung[]> {

@@ -160,4 +160,35 @@ export async function laufe(): Promise<void> {
   gleich(instanzen.length, 3, 'andere Karten → Instanzen neu angelegt');
   gleich(protokoll.filter((p) => p.startsWith('destroy')).length - zerstoertVorher, 2, 'beide alten Instanzen zerstört');
   s.stoppe();
+
+  abschnitt('mDNS: Suche, Fabrik wirft (Endprüfung A3)');
+  {
+    // Wirft die Fabrik an der ZWEITEN Karte: die erste Instanz dieser Runde wird geschlossen (kein Leck), der Wurf geht weiter,
+    // und der nächste Aufruf mit DENSELBEN Karten legt neu an (der Schlüssel gilt erst nach vollständigem Anlegen).
+    const prot: string[] = [];
+    const angelegt: FakeBonjour[] = [];
+    let wirftBei = 2;
+    let aufrufe = 0;
+    const s2 = new MdnsSuche((o) => {
+      aufrufe++;
+      if (aufrufe === wirftBei) throw new TypeError("Cannot read properties of undefined (reading 'mdns')");
+      const b = new FakeBonjour(o, prot);
+      angelegt.push(b);
+      return b;
+    });
+    let geworfen = false;
+    try {
+      s2.setzeKarten(karten);
+    } catch {
+      geworfen = true;
+    }
+    pruefe(geworfen, 'Wurf der Fabrik geht an den Aufrufer weiter (Client/Listensuche melden ihn)');
+    gleich(prot.filter((p) => p.startsWith('destroy')), ['destroy 10.0.0.110'], 'schon angelegte Instanz dieser Runde wird geschlossen (kein Leck)');
+    wirftBei = 0;
+    s2.setzeKarten(karten);
+    gleich(angelegt.length, 3, 'nächster Aufruf mit denselben Karten legt beide Instanzen an (kein stilles „ohne mDNS“)');
+    const r = await s2.runde(20);
+    pruefe(Array.isArray(r) && angelegt.length === 3 && angelegt.slice(1).every((b) => b.finds === 1), 'danach sucht die Runde auf beiden Karten');
+    s2.stoppe();
+  }
 }
