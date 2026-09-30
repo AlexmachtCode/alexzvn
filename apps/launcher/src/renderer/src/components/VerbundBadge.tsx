@@ -1,5 +1,5 @@
 import { cn } from '@jm/ui';
-import { kopfEingang, kopfZeile } from '@/lib/kopfanzeige';
+import { kopfEingang, kopfText, kopfZeile } from '@/lib/kopfanzeige';
 import { useVerbund } from '@/store/verbund';
 import { FARBE_KLASSE } from './VerbundTeile';
 
@@ -19,7 +19,7 @@ export function VerbundBadge() {
       type="button"
       onClick={oeffne}
       aria-label="Verbund"
-      title={`Verbund · ${z.vor}${z.name}${z.nach}`}
+      title={`Verbund · ${kopfText(z)}`}
       className={cn(
         'min-h-8 max-w-[17rem] break-words rounded-[var(--radius-full)] border px-3 py-1 text-[11px] font-bold leading-tight transition-colors hover:brightness-110',
         FARBE_KLASSE[z.farbe],
@@ -28,6 +28,8 @@ export function VerbundBadge() {
       {z.vor}
       {z.name && <span className="inline-block max-w-[10rem] truncate align-bottom">{z.name}</span>}
       {z.nach}
+      {/* „· Karte fehlt“ bricht nie in sich um (C7); umbrechen darf die Zeile nur davor. */}
+      {z.hinweis && <> <span className="whitespace-nowrap">{z.hinweis}</span></>}
     </button>
   );
 }

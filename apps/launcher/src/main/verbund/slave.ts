@@ -190,7 +190,7 @@ export class SlaveRolle {
     const jetzt = Date.now();
     for (const [h, t] of this.gesendeteCodes) if (jetzt - t > CODE_SPERRE_MS) this.gesendeteCodes.delete(h);
     const schluessel = codeSchluessel(c.code);
-    if (this.gesendeteCodes.has(schluessel)) return { ok: false, text: CODE_SCHON_GESENDET };
+    if (this.gesendeteCodes.has(schluessel)) return { ok: false, text: CODE_SCHON_GESENDET, codeVerbraucht: true };
     this.koppelAbbruch?.abort();
     const ctrl = new AbortController();
     this.koppelAbbruch = ctrl;
@@ -214,7 +214,13 @@ export class SlaveRolle {
       });
       if (!r.ok) {
         if (r.beweisGesendet) this.gesendeteCodes.set(schluessel, Date.now());
-        return { ok: false, text: koppelText(r, gesehen?.name ?? ziel.host, ziel.host) };
+        return {
+          ok: false,
+          text: koppelText(r, gesehen?.name ?? ziel.host, ziel.host),
+          // C1/C2: der Grund (rechner-id → „Neue Kennung“) und ob der Code verbraucht ist (Codefeld leeren).
+          ...(r.art === 'abgelehnt' ? { grund: r.grund } : {}),
+          codeVerbraucht: r.beweisGesendet === true,
+        };
       }
       // Der Master-Name kommt aus der 'gekoppelt'-Zeile (bis 4 KiB, Zeilenumbrüche möglich): vor Speichern, Log und Anzeige kürzen.
       const masterName = kuerzeName(r.masterName);
@@ -227,7 +233,7 @@ export class SlaveRolle {
         const code = fehlerCode(e);
         r.verbindung.schliesse();
         this.d.log('warn', `Kopplung nicht gespeichert (${code}).`);
-        return { ok: false, text: `Kopplung konnte auf diesem Rechner nicht gespeichert werden (${code}).` };
+        return { ok: false, text: `Kopplung konnte auf diesem Rechner nicht gespeichert werden (${code}).`, codeVerbraucht: true };
       }
       this.client.uebernehme(r.verbindung, kopplung, masterName);
       this.d.log('info', `Mit Master „${masterName}“ gekoppelt.`);

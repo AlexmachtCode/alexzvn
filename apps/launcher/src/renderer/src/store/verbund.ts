@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { KoppelAntwort, VerbundStand } from '@shared/types';
+import { beimSchliessen } from '@/lib/verbund-schliessen';
 import { ablehnungText } from '@/lib/verbund-texte';
 
 // Zustand des Modals „Verbund“ (Master-Link Teil 1). Alles Netz läuft im Main; hier nur IPC.
@@ -10,6 +11,10 @@ interface VerbundStore {
   meldung: string | null;
   /** Abgelehnter Aufruf (Schreibfehler, gesperrte Datei): kurzer Text mit Code, oben im Modal. */
   fehler: string | null;
+  /** Grund der letzten Koppel-Ablehnung des Masters ('rechner-id' → „Neue Kennung“ anbieten, Endprüfung C1). */
+  letzteAblehnung: string | null;
+  /** C1: geklonter Rechner — neue Kennung erzeugen (Kopplung weg, danach neu koppeln). */
+  neueKennung: () => Promise<boolean>;
   oeffne: () => void;
   schliesse: () => void;
   lade: () => Promise<void>;
@@ -26,19 +31,23 @@ export const useVerbund = create<VerbundStore>((set) => ({
   beschaeftigt: false,
   meldung: null,
   fehler: null,
+  letzteAblehnung: null,
+  neueKennung: async (): Promise<boolean> => {
+    const ok: boolean = await useVerbund.getState().fuehreAus(() => window.jmps.neueRechnerKennung());
+    if (ok) set({ letzteAblehnung: null, meldung: null });
+    return ok;
+  },
   oeffne: () => {
-    set({ offen: true, meldung: null, fehler: null });
+    set({ offen: true, meldung: null, fehler: null, letzteAblehnung: null });
     void useVerbund.getState().lade();
     // Die Suche ist ein Wunsch des Mains (Kern): sie gilt auch für eine Rolle, die erst noch angelegt wird.
     useVerbund.getState().anstossen(() => window.jmps.starteMasterSuche());
   },
   schliesse: () => {
-    const { anstossen } = useVerbund.getState();
-    // Spec 3.2/3.3: Dialog zu → Kopplungsfenster am Master zu, laufendes Koppeln am Slave abbrechen.
-    if (useVerbund.getState().stand?.master?.kopplung.offen) anstossen(() => window.jmps.schliesseKopplung());
-    anstossen(() => window.jmps.brecheKoppelnAb());
-    anstossen(() => window.jmps.stoppeMasterSuche());
-    set({ offen: false, meldung: null, fehler: null });
+    // Spec 3.2/3.3: Dialog zu → Kopplungsfenster zu, Koppeln abbrechen, Suche aus — immer, unabhängig vom gespeicherten
+    // Stand; Ablehnungen sähe im geschlossenen Modal niemand, daher console.warn (Endprüfung C7).
+    beimSchliessen(window.jmps, (e) => console.warn(`[verbund] ${ablehnungText(e, 'anstossen')}`));
+    set({ offen: false, meldung: null, fehler: null, letzteAblehnung: null });
   },
   anstossen: (aufruf) => {
     // async-Funktion: der Aufruf startet sofort, auch ein synchroner Wurf (fehlende Brücke) landet im catch.
@@ -82,7 +91,7 @@ export const useVerbund = create<VerbundStore>((set) => ({
         // Der Main liefert `{ ok: false, text }`; nur ein Ausfall der Leitung selbst landet hier — als Koppelfehler.
         r = { ok: false, text: ablehnungText(e, 'koppeln') };
       }
-      if (!r.ok) set({ meldung: r.text });
+      set(r.ok ? { letzteAblehnung: null } : { meldung: r.text, letzteAblehnung: r.grund ?? null });
       await useVerbund.getState().lade();
       return r;
     } finally {

@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { Button, cn } from '@jm/ui';
-import type { VerbundStand } from '@shared/types';
-import { toolVerbundText, uhrzeit, type Ton } from '@/lib/verbund-texte';
-import { useTools } from '@/store/tools';
+import type { VerbundClientStand, VerbundStand } from '@shared/types';
+import { codeFeldLeeren, koppelnMoeglich, neueKennungAnbieten, uhrzeit, type Ton } from '@/lib/verbund-texte';
 import { useVerbund } from '@/store/verbund';
-import { Abschnitt, Bestaetigung, beschriftung, eingabeKlasse, TextFeld, TON_KLASSE } from './VerbundTeile';
+import { Abschnitt, Bestaetigung, beschriftung, eingabeKlasse, TextFeld, ToolsDiesesRechners, TON_KLASSE } from './VerbundTeile';
 
 export function VerbundSlave({ stand }: { stand: VerbundStand }) {
   return (
@@ -21,12 +20,17 @@ function Koppeln({ stand }: { stand: VerbundStand }) {
   const anstossen = useVerbund((x) => x.anstossen);
   const meldung = useVerbund((x) => x.meldung);
   const beschaeftigt = useVerbund((x) => x.beschaeftigt);
+  const letzteAblehnung = useVerbund((x) => x.letzteAblehnung);
   const [auswahl, setAuswahl] = useState('');
   const [hand, setHand] = useState('');
   const [code, setCode] = useState('');
   const adresse = hand.trim() || auswahl;
   const los = (): void => {
-    if (adresse && code.trim()) void koppele(adresse, code);
+    if (!koppelnMoeglich(beschaeftigt, adresse, code)) return; // auch für Enter (C2)
+    void koppele(adresse, code).then((r) => {
+      // Ein Versuch, der das Gegenüber erreicht hat, verbraucht den Code (Spec 3.3, B9): Feld leeren.
+      if (codeFeldLeeren(r)) setCode('');
+    });
   };
   return (
     <Abschnitt titel="Mit Master verbinden">
@@ -67,34 +71,37 @@ function Koppeln({ stand }: { stand: VerbundStand }) {
       </label>
       {meldung && <p className="mt-2 text-xs text-[var(--destructive)]" aria-live="polite">{meldung}</p>}
       <div className="mt-3 flex gap-2">
-        <Button size="sm" uppercase={false} disabled={beschaeftigt || !adresse || !code.trim()} onClick={los}>
+        <Button size="sm" uppercase={false} disabled={!koppelnMoeglich(beschaeftigt, adresse, code)} onClick={los}>
           {s.koppeltGerade ? 'Koppeln…' : 'Koppeln'}
         </Button>
         {s.koppeltGerade && (
           <Button size="sm" variant="ghost" uppercase={false} onClick={() => anstossen(() => window.jmps.brecheKoppelnAb())}>Abbrechen</Button>
         )}
       </div>
+      {neueKennungAnbieten(s.client, letzteAblehnung) && <NeueKennung />}
     </Abschnitt>
   );
+}
+
+/** Text der Statuszeile am gekoppelten Slave; ein unbekannter Client-Zustand über IPC fällt auf „Suche …“ zurück (C5). */
+function statusZeile(c: VerbundClientStand, name: string): { text: string; ton: Ton } {
+  switch (c.art) {
+    case 'verbunden': return { text: `Verbunden mit ${name} · ${c.adresse ?? ''} · seit ${c.seit ? uhrzeit(c.seit) : '—'}`, ton: 'gruen' };
+    case 'fehler': return { text: typeof c.text === 'string' && c.text ? c.text : 'Fehler', ton: 'rot' };
+    case 'verbindet': return { text: `Verbinde mit ${name} (${c.adresse ?? ''})…`, ton: 'gelb' };
+    default: return { text: `Suche ${name}…`, ton: 'gelb' };
+  }
 }
 
 function Gekoppelt({ stand }: { stand: VerbundStand }) {
   const s = stand.slave!;
   const fuehreAus = useVerbund((x) => x.fuehreAus);
   const [frage, setFrage] = useState(false);
-  const c = s.client;
-  const name = s.masterName ?? 'Master';
-  const zeile = c.art === 'verbunden'
-    ? `Verbunden mit ${name} · ${c.adresse ?? ''} · seit ${c.seit ? uhrzeit(c.seit) : '—'}`
-    : c.art === 'fehler'
-      ? c.text ?? 'Fehler'
-      : c.art === 'verbindet'
-        ? `Verbinde mit ${name} (${c.adresse ?? ''})…`
-        : `Suche ${name}…`;
-  const ton: Ton = c.art === 'verbunden' ? 'gruen' : c.art === 'fehler' ? 'rot' : 'gelb';
+  const zeile = statusZeile(s.client, s.masterName ?? 'Master');
   return (
     <Abschnitt titel="Master">
-      <p className={cn('text-xs', TON_KLASSE[ton])} aria-live="polite">{zeile}</p>
+      <p className={cn('text-xs', TON_KLASSE[zeile.ton])} aria-live="polite">{zeile.text}</p>
+      {neueKennungAnbieten(s.client, null) && <NeueKennung />}
       <div className="mt-3">
         <TextFeld
           label="Feste Master-Adresse (optional, z. B. über VLAN)"
@@ -119,27 +126,35 @@ function Gekoppelt({ stand }: { stand: VerbundStand }) {
   );
 }
 
-/** Spec 5.2: welches Tool hängt? Aus dem lokalen Heartbeat-Feld `verbund`. */
-function ToolsDiesesRechners() {
-  const presence = useTools((s) => s.presence);
-  const laufende = presence.filter((p) => p.running);
+/**
+ * Endprüfung C1 (Ruling): geklonter Rechner bzw. kopierter Ordner — zwei Rechner mit derselben Kennung verdrängen
+ * einander am Master. „Neue Kennung“ erzeugt eine eigene Kennung für DIESEN Rechner und löscht seine Kopplung; danach
+ * ist der Koppeln-Bereich sichtbar. Das Original bleibt gekoppelt.
+ */
+function NeueKennung() {
+  const neueKennung = useVerbund((x) => x.neueKennung);
+  const beschaeftigt = useVerbund((x) => x.beschaeftigt);
+  const [frage, setFrage] = useState(false);
   return (
-    <Abschnitt titel="Tools dieses Rechners">
-      {laufende.length === 0 ? (
-        <p className="text-xs text-[var(--muted-foreground)]">Gerade läuft kein Tool.</p>
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {laufende.map((p) => {
-            const t = toolVerbundText(p.verbund, false)!;
-            return (
-              <li key={p.appId} className="flex items-center justify-between gap-3 text-xs">
-                <span>{p.name}</span>
-                <span className={TON_KLASSE[t.ton]}>{t.text}</span>
-              </li>
-            );
-          })}
-        </ul>
+    <div className="mt-3 rounded-[var(--radius)] border border-[var(--warning)]/50 p-3">
+      <p className="text-xs">
+        Wurde dieser Rechner geklont oder der Suite-Ordner kopiert? Dann melden sich zwei Rechner mit derselben Kennung.
+        „Neue Kennung“ gibt diesem Rechner eine eigene; danach mit einem neuen Code vom Master koppeln.
+      </p>
+      <Button size="sm" variant="outline" uppercase={false} className="mt-2" disabled={beschaeftigt} onClick={() => setFrage(true)}>
+        Neue Kennung
+      </Button>
+      {frage && (
+        <Bestaetigung
+          frage="Neue Kennung für diesen Rechner erzeugen? Seine Kopplung wird gelöscht; danach am Master „Rechner koppeln“ öffnen und neu koppeln."
+          jaText="Neue Kennung"
+          onJa={() => {
+            setFrage(false);
+            void neueKennung();
+          }}
+          onNein={() => setFrage(false)}
+        />
       )}
-    </Abschnitt>
+    </div>
   );
 }

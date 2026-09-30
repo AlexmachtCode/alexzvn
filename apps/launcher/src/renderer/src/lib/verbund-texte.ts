@@ -1,4 +1,4 @@
-import type { VerbundFehlerCode } from '@shared/types';
+import type { KoppelAntwort, VerbundClientStand, VerbundFehlerCode } from '@shared/types';
 
 // Anzeigetexte des Verbund-Modals (reine Funktionen, nur `import type` → strip-types-testbar).
 
@@ -36,7 +36,8 @@ export function toolVerbundText(verbund: string | undefined, rolleAus: boolean):
   if (verbund === 'sucht' || verbund === 'verbindet') return { text: 'sucht den Master…', ton: 'gelb' };
   if (verbund === 'aus') return { text: 'Verbund aus', ton: 'gedaempft' };
   const code = verbund.startsWith('fehler:') ? verbund.slice('fehler:'.length) : '';
-  const text = (KURZ as Record<string, string | undefined>)[code] ?? `Fehler (${kuerze(code || verbund, MAX_CODE)})`;
+  // Object.hasOwn: „fehler:constructor“ lieferte sonst Object.prototype.constructor (eine Funktion) als Text (C5).
+  const text = Object.hasOwn(KURZ, code) ? KURZ[code as VerbundFehlerCode] : `Fehler (${kuerze(code || verbund, MAX_CODE)})`;
   return { text, ton: 'rot' };
 }
 
@@ -89,4 +90,51 @@ export function relativ(ms: number): string {
 
 export function uhrzeit(ts: number): string {
   return new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ── Regeln des Verbund-Modals (Endprüfung C1–C4), als reine Funktionen testbar ──
+
+/**
+ * C1: „Neue Kennung“ nur anbieten, wo sie hilft — bei Kennung doppelt (ersetzt), abgelehnter Anmeldung (signatur) oder
+ * nach der Koppel-Ablehnung 'rechner-id' (geklonter Rechner bzw. kopierter Ordner). Normales Umkoppeln behält die Kennung.
+ */
+export function neueKennungAnbieten(client: VerbundClientStand | null | undefined, letzteAblehnung: string | null): boolean {
+  const klonFehler = client?.art === 'fehler' && (client.code === 'ersetzt' || client.code === 'signatur');
+  return klonFehler || letzteAblehnung === 'rechner-id';
+}
+
+/** C2: Koppeln nur, wenn nichts läuft und Adresse und Code da sind — für Knopf UND Enter (sonst umging Enter die Sperre). */
+export function koppelnMoeglich(beschaeftigt: boolean, adresse: string, code: string): boolean {
+  return !beschaeftigt && adresse.trim() !== '' && code.trim() !== '';
+}
+
+/** C2: Nach jedem Versuch, der das Gegenüber erreicht hat, ist der Code verbraucht (Spec 3.3) — Feld leeren. */
+export function codeFeldLeeren(r: KoppelAntwort): boolean {
+  return r.ok || r.codeVerbraucht === true;
+}
+
+export interface ToolZeile {
+  appId: string;
+  name: string;
+  text: string;
+  ton: Ton;
+}
+
+/** C3 (Spec 5.2): „Tools dieses Rechners“ — laufende Tools mit ihrem Verbund-Zustand; Rolle „aus“ → keine Zeilen. */
+export function toolZeilen(
+  presence: ReadonlyArray<{ appId: string; name: string; running: boolean; verbund?: string }>,
+  rolleAus: boolean,
+): ToolZeile[] {
+  const zeilen: ToolZeile[] = [];
+  for (const p of presence) {
+    if (!p.running) continue;
+    const t = toolVerbundText(p.verbund, rolleAus);
+    if (t) zeilen.push({ appId: p.appId, name: p.name, text: t.text, ton: t.ton });
+  }
+  return zeilen;
+}
+
+/** C4: dauerhafter Schreibfehler von verbund.json am Master (speicherFehler, Endprüfung B6). */
+export function speicherFehlerText(code: string): string {
+  return `Verbund nicht gespeichert (${kuerze(code, MAX_CODE)}) — Änderungen gelten nur bis zum Neustart`;
 }

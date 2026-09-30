@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Button, cn } from '@jm/ui';
 import type { VerbundStand } from '@shared/types';
-import { relativ, uhrzeit, zeigeCode } from '@/lib/verbund-texte';
+import { relativ, speicherFehlerText, uhrzeit, zeigeCode } from '@/lib/verbund-texte';
 import { useVerbund } from '@/store/verbund';
-import { Abschnitt, Bestaetigung, TextFeld } from './VerbundTeile';
+import { Abschnitt, Bestaetigung, TextFeld, ToolsDiesesRechners } from './VerbundTeile';
 
 export function VerbundMaster({ stand }: { stand: VerbundStand }) {
   const m = stand.master!;
@@ -27,6 +27,9 @@ export function VerbundMaster({ stand }: { stand: VerbundStand }) {
         )}
         {m.ausBak && (
           <p className="mt-2 text-xs text-[var(--warning)]">Verbunddaten wurden aus der Sicherung (.bak) wiederhergestellt.</p>
+        )}
+        {m.speicherFehler && (
+          <p className="mt-2 text-xs text-[var(--destructive)]" role="alert">{speicherFehlerText(m.speicherFehler)}</p>
         )}
         {m.zustand === 'daten-beschaedigt' && (
           <div className="mt-3 rounded-[var(--radius)] border border-[var(--destructive)]/40 p-3">
@@ -107,6 +110,9 @@ export function VerbundMaster({ stand }: { stand: VerbundStand }) {
           />
         )}
       </Abschnitt>
+
+      {/* Spec 5.2 „sofern die Rolle nicht aus ist“: auch am Master (Endprüfung C3). */}
+      <ToolsDiesesRechners />
 
       <Abschnitt titel="Master-Identität">
         <p className="text-xs text-[var(--muted-foreground)]">

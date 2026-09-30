@@ -92,10 +92,16 @@ export class PresenceStore {
   }
 
   verarbeite(beat: Beat): void {
-    if (!beat.appId) return;
+    // Die Felder kommen per HTTP von den Tools: falsche Typen → Beat verwerfen. GEMESSEN: ein Name als Zahl warf in
+    // snapshot() (Sortierung) — im 5-s-Sweep also eine Ausnahme je Takt (Endprüfung C6).
+    if (typeof beat.appId !== 'string' || !beat.appId) return;
+    if (beat.name !== undefined && typeof beat.name !== 'string') return;
+    if (beat.version !== undefined && typeof beat.version !== 'string') return;
     const prev = this.eintraege.get(beat.appId);
     if (beat.event === 'bye') {
-      if (prev) {
+      // Nur die eigene Instanz: eine Zweitinstanz (Tool ohne Einzelinstanz-Sperre) beendete sonst die Anzeige der
+      // ersten, die weiterläuft. Ein bye ohne pid (alter Stand) wirkt wie bisher (Endprüfung C6).
+      if (prev && (beat.pid === undefined || beat.pid === prev.pid)) {
         prev.stopped = true;
         prev.lastSeen = this.jetzt();
       }

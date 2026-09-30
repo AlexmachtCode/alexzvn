@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, cn } from '@jm/ui';
 import type { Farbe } from '@/lib/kopfanzeige';
-import type { Ton } from '@/lib/verbund-texte';
+import { toolZeilen, type Ton } from '@/lib/verbund-texte';
+import { useTools } from '@/store/tools';
 
 export const FARBE_KLASSE: Record<Farbe, string> = {
   gedaempft: 'border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]',
@@ -80,6 +81,31 @@ export function TextFeld({ label, wert, platzhalter, onSpeichern }: {
         onKeyDown={(e) => e.key === 'Enter' && speichern()}
       />
     </label>
+  );
+}
+
+/**
+ * Spec 5.2: welches Tool dieses Rechners hängt? Aus dem lokalen Heartbeat-Feld `verbund` (useTools().presence) —
+ * am Slave UND am Master, sofern die Rolle nicht aus ist (Endprüfung C3).
+ */
+export function ToolsDiesesRechners() {
+  const presence = useTools((s) => s.presence);
+  const zeilen = toolZeilen(presence, false);
+  return (
+    <Abschnitt titel="Tools dieses Rechners">
+      {zeilen.length === 0 ? (
+        <p className="text-xs text-[var(--muted-foreground)]">Gerade läuft kein Tool.</p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {zeilen.map((z) => (
+            <li key={z.appId} className="flex items-center justify-between gap-3 text-xs">
+              <span>{z.name}</span>
+              <span className={TON_KLASSE[z.ton]}>{z.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Abschnitt>
   );
 }
 

@@ -2,8 +2,12 @@
 //   node --experimental-strip-types test/selftest.ts
 import { startShowTools } from '../src/main/show-launch.ts';
 import { PresenceStore, gueltigerVerbund } from '../src/main/presence-store.ts';
-import { kopfanzeige, kopfEingang, kopfZeile, type KopfEingang } from '../src/renderer/src/lib/kopfanzeige.ts';
-import { ablehnungText, toolVerbundText, zeigeCode } from '../src/renderer/src/lib/verbund-texte.ts';
+import { kopfanzeige, kopfEingang, kopfText, kopfZeile, type KopfEingang } from '../src/renderer/src/lib/kopfanzeige.ts';
+import { readFileSync } from 'node:fs';
+import { beimSchliessen } from '../src/renderer/src/lib/verbund-schliessen.ts';
+import {
+  ablehnungText, codeFeldLeeren, koppelnMoeglich, neueKennungAnbieten, speicherFehlerText, toolVerbundText, toolZeilen, zeigeCode,
+} from '../src/renderer/src/lib/verbund-texte.ts';
 import type { VerbundClientStand, VerbundStand } from '../src/shared/types.ts';
 
 let pass = 0, fail = 0;
@@ -293,25 +297,24 @@ function ck(name: string, cond: boolean): void {
   // Kopfanzeige bei 980 px: nur der Namensteil darf gekürzt werden. kopfZeile() trennt vor · Name · nach; die Anzeige
   // kürzt NUR den Namen (eigenes truncate), Statusteil, Code und „· Karte fehlt“ stehen vollständig daneben.
   const LANG = 'N'.repeat(60);
-  const K = ' · Karte fehlt';
   const c32 = 'C'.repeat(32);
-  // [Eingang, vor, Name, nach] mit dem 60-Zeichen-Namen bzw. dem 32-Zeichen-Code (längster fester Text jeder Zeile)
-  const zeilen: Array<[KopfEingang, string, string, string]> = [
+  // [Eingang, vor, Name, nach, hinweis] mit dem 60-Zeichen-Namen bzw. dem 32-Zeichen-Code (längster fester Text jeder Zeile)
+  const zeilen: Array<[KopfEingang, string, string, string, string?]> = [
     [{ rolle: 'aus' }, 'Verbund aus', '', ''],
     [{ rolle: 'gesperrt', errCode: c32 }, `Kopplungsdatei gesperrt: ${c32}`, '', ''],
-    [{ rolle: 'master', zustand: 'startet', karteFehlt: true }, `Master startet…${K}`, '', ''],
-    [{ rolle: 'master', zustand: 'laeuft', n: 0, m: 0, karteFehlt: true }, `Master · noch keine Rechner${K}`, '', ''],
-    [{ rolle: 'master', zustand: 'laeuft', n: 10, m: 12, karteFehlt: true }, `Master · 10/12 Rechner online${K}`, '', ''],
-    [{ rolle: 'master', zustand: 'laeuft', n: 12, m: 12, karteFehlt: true }, `Master · 12/12 Rechner online${K}`, '', ''],
+    [{ rolle: 'master', zustand: 'startet', karteFehlt: true }, `Master startet…`, '', '', '· Karte fehlt'],
+    [{ rolle: 'master', zustand: 'laeuft', n: 0, m: 0, karteFehlt: true }, `Master · noch keine Rechner`, '', '', '· Karte fehlt'],
+    [{ rolle: 'master', zustand: 'laeuft', n: 10, m: 12, karteFehlt: true }, `Master · 10/12 Rechner online`, '', '', '· Karte fehlt'],
+    [{ rolle: 'master', zustand: 'laeuft', n: 12, m: 12, karteFehlt: true }, `Master · 12/12 Rechner online`, '', '', '· Karte fehlt'],
     [{ rolle: 'master', zustand: 'port-belegt', karteFehlt: true }, 'Master: Port 8738 belegt', '', ''],
     [{ rolle: 'master', zustand: 'daten-beschaedigt', karteFehlt: true }, 'Master: Verbunddaten beschädigt', '', ''],
     [{ rolle: 'master', zustand: 'lausch-fehler', errCode: c32, karteFehlt: true }, `Master-Fehler: ${c32}`, '', ''],
-    [{ rolle: 'slave', zustand: 'nicht-gekoppelt', karteFehlt: true }, `Nicht gekoppelt: Master wählen${K}`, '', ''],
+    [{ rolle: 'slave', zustand: 'nicht-gekoppelt', karteFehlt: true }, `Nicht gekoppelt: Master wählen`, '', '', '· Karte fehlt'],
     [{ rolle: 'slave', zustand: 'fehler', code: 'sonstig', errCode: c32, name: LANG, karteFehlt: true }, `Verbindungsfehler ${c32}`, '', ''],
-    [{ rolle: 'slave', zustand: 'koppelt', name: LANG, karteFehlt: true }, 'Koppeln mit ', LANG, `…${K}`],
-    [{ rolle: 'slave', zustand: 'sucht', name: LANG, karteFehlt: true }, 'Suche ', LANG, `…${K}`],
-    [{ rolle: 'slave', zustand: 'verbindet', name: LANG, karteFehlt: true }, 'Verbinde mit ', LANG, `…${K}`],
-    [{ rolle: 'slave', zustand: 'verbunden', name: LANG, karteFehlt: true }, '', LANG, ` ●${K}`],
+    [{ rolle: 'slave', zustand: 'koppelt', name: LANG, karteFehlt: true }, 'Koppeln mit ', LANG, `…`, '· Karte fehlt'],
+    [{ rolle: 'slave', zustand: 'sucht', name: LANG, karteFehlt: true }, 'Suche ', LANG, `…`, '· Karte fehlt'],
+    [{ rolle: 'slave', zustand: 'verbindet', name: LANG, karteFehlt: true }, 'Verbinde mit ', LANG, `…`, '· Karte fehlt'],
+    [{ rolle: 'slave', zustand: 'verbunden', name: LANG, karteFehlt: true }, '', LANG, ` ●`, '· Karte fehlt'],
     [{ rolle: 'slave', zustand: 'fehler', code: 'zeit', name: LANG, karteFehlt: true }, '', LANG, ' sichtbar, Port gesperrt: Firewall?'],
     [{ rolle: 'slave', zustand: 'fehler', code: 'nicht-gefunden', name: LANG, karteFehlt: true }, '', LANG, ' nicht erreichbar'],
     [{ rolle: 'slave', zustand: 'fehler', code: 'verweigert', name: LANG, karteFehlt: true }, '', LANG, ': Master-Modus aus?'],
@@ -322,10 +325,10 @@ function ck(name: string, cond: boolean): void {
     [{ rolle: 'slave', zustand: 'fehler', code: 'datei', name: LANG, karteFehlt: true }, 'Kopplung beschädigt: neu koppeln', '', ''],
   ];
   let alleTeile = true;
-  for (const [ein, vor, name, nach] of zeilen) {
+  for (const [ein, vor, name, nach, hinweis = ''] of zeilen) {
     const z = kopfZeile(ein);
     const k = kopfanzeige(ein);
-    if (z.vor !== vor || z.name !== name || z.nach !== nach || z.vor + z.name + z.nach !== k.text || z.farbe !== k.farbe) {
+    if (z.vor !== vor || z.name !== name || z.nach !== nach || z.hinweis !== hinweis || kopfText(z) !== k.text || z.farbe !== k.farbe) {
       alleTeile = false;
       console.log(`      ${JSON.stringify(ein)}: vor "${z.vor}" name (${z.name.length} Zeichen) nach "${z.nach}"`);
     }
@@ -342,6 +345,138 @@ function ck(name: string, cond: boolean): void {
       const z = kopfZeile(kopfEingang({ ...basis, rolle: 'slave', slave: { ...sl, masterName: 'x'.repeat(100), client: { art: 'fehler', code: 'verweigert' } } }));
       return z.name === 'x'.repeat(60) && z.vor === '' && z.nach === ': Master-Modus aus?';
     })());
+}
+
+// --- Endprüfung C5: Kopfanzeige/Texte — ein unbekannter IPC-Wert rendert nie undefined oder eine Funktion ----------
+{
+  const t = toolVerbundText('fehler:constructor', false);
+  ck('C5: toolVerbundText „fehler:constructor“ → Text „Fehler (constructor)“, keine Funktion (Object.hasOwn)',
+    t !== null && typeof t.text === 'string' && t.text === 'Fehler (constructor)');
+  const t2 = toolVerbundText('fehler:toString', false);
+  ck('C5: toolVerbundText „fehler:toString“ → Text, keine Funktion', t2 !== null && t2.text === 'Fehler (toString)');
+  const basisC: VerbundStand = { rolle: 'slave', rechnerName: 'A', karten: [], gewaehlteKarte: null, karteFehlt: false, dateiFehler: null, master: null, slave: null };
+  const slC = { gekoppelt: true, koppeltGerade: false, masterName: 'Regie-PC', festeAdresse: null, gefundeneMaster: [] };
+  const kopfMit = (client: unknown) => kopfanzeige(kopfEingang({ ...basisC, slave: { ...slC, client: client as VerbundClientStand } }));
+  const sauber = (k: { text: unknown }): boolean => typeof k.text === 'string' && !k.text.includes('undefined') && !k.text.includes('function');
+  let k1: { text: unknown; farbe: string } = { text: '', farbe: '' };
+  let k2: { text: unknown; farbe: string } = { text: '', farbe: '' };
+  let k3: { text: unknown; farbe: string } = { text: '', farbe: '' };
+  let wurf = '';
+  try {
+    k1 = kopfMit({ art: 'fehler', code: 'constructor' });
+    k2 = kopfMit({ art: 'fehler', code: 'kuenftiger-code', errCode: 'E1' });
+    k3 = kopfMit({ art: 'fehler', code: 'sonstig', errCode: null });
+  } catch (e) {
+    wurf = (e as Error).name;
+  }
+  ck(`C5: Kopf bei code „constructor“ → rot, Text ohne undefined/Funktion (${JSON.stringify(k1.text)})`, wurf === '' && sauber(k1) && k1.farbe === 'rot');
+  ck(`C5: Kopf bei code außerhalb der Union → rot, Text ohne undefined (${JSON.stringify(k2.text)})`, wurf === '' && sauber(k2) && k2.farbe === 'rot');
+  ck(`C5: errCode null (JSON über IPC) → kein Wurf, „Verbindungsfehler unbekannt“ (${wurf || JSON.stringify(k3.text)})`,
+    wurf === '' && k3.text === 'Verbindungsfehler unbekannt');
+  let k4: { text: unknown } = { text: '' };
+  try {
+    k4 = kopfanzeige(kopfEingang({ ...basisC, rolle: 'master', master: { zustand: 'kuenftig' } as unknown as VerbundStand['master'] }));
+  } catch (e) {
+    wurf = (e as Error).name;
+  }
+  ck(`C5: unbekannter Master-Zustand → Rückfall statt undefined (${JSON.stringify(k4.text)})`, wurf === '' && sauber(k4));
+}
+
+// --- Endprüfung C6: Presence — bye nur bei passender pid, Felder typgeprüft ---------------------------------------
+{
+  const s = new PresenceStore(() => {});
+  s.verarbeite({ appId: 'jm-timer', name: 'JM Timer', version: '0.12.0', pid: 1, event: 'hello' });
+  s.verarbeite({ appId: 'jm-timer', name: 'JM Timer', version: '0.12.0', pid: 2, event: 'hello' }); // Zweitinstanz (ohne Einzelinstanz-Sperre)
+  s.verarbeite({ appId: 'jm-timer', event: 'beat', pid: 1 });
+  s.verarbeite({ appId: 'jm-timer', event: 'bye', pid: 2 }); // die Zweitinstanz beendet sich
+  s.verarbeite({ appId: 'jm-timer', event: 'beat', pid: 1 });
+  ck('C6: hello1, hello2, beat1, bye2, beat1 → das Tool läuft (bye der anderen pid wirkt nicht)', s.snapshot()[0]?.running === true);
+  s.verarbeite({ appId: 'jm-timer', event: 'bye' });
+  ck('C6: bye ohne pid (alter Stand) wirkt weiterhin', s.snapshot()[0]?.running === false);
+}
+{
+  let meldungen = 0;
+  const s = new PresenceStore(() => { meldungen++; });
+  let wurf = '';
+  try {
+    // Reihenfolge wie gemessen: der Eintrag mit Zahl als Name wird beim Sortieren zum linken Vergleichswert → Wurf.
+    s.verarbeite({ appId: 'jm-battle', name: 'JM Battle', version: '0.3.0', pid: 4, event: 'hello' });
+    s.verarbeite({ appId: 'jm-timer', name: 42 as unknown as string, version: '0.12.0', pid: 1, event: 'hello' });
+    s.verarbeite({ appId: 'jm-qa', name: 'JM Q&A', version: 7 as unknown as string, pid: 2, event: 'hello' });
+    s.verarbeite({ appId: 99 as unknown as string, name: 'X', version: '1', pid: 3, event: 'hello' });
+    s.snapshot();
+    s.pruefe(); // 5-s-Sweep
+  } catch (e) {
+    wurf = (e as Error).name;
+  }
+  ck(`C6: Beat mit name als Zahl → kein Wurf im Sweep (${wurf || 'ok'})`, wurf === '');
+  ck('C6: … Beats mit falschen Typen (name, version, appId) werden verworfen, gültige bleiben',
+    JSON.stringify(s.snapshot().map((z) => z.appId)) === JSON.stringify(['jm-battle']));
+}
+
+// --- Endprüfung C7: „· Karte fehlt“ ist ein eigener Teil (Anzeige: whitespace-nowrap) --------------------------------
+{
+  const z1 = kopfZeile({ rolle: 'slave', zustand: 'sucht', name: 'Regie-PC', karteFehlt: true });
+  const z2 = kopfZeile({ rolle: 'master', zustand: 'startet', karteFehlt: true });
+  ck('C7: Hinweis „· Karte fehlt“ steht getrennt (nicht in vor/nach), der volle Text bleibt gleich',
+    (z1 as { hinweis?: string }).hinweis === '· Karte fehlt' && !z1.nach.includes('Karte fehlt')
+    && (z2 as { hinweis?: string }).hinweis === '· Karte fehlt' && !z2.vor.includes('Karte fehlt')
+    && kopfanzeige({ rolle: 'slave', zustand: 'sucht', name: 'Regie-PC', karteFehlt: true }).text === 'Suche Regie-PC… · Karte fehlt');
+  ck('C7: ohne fehlende Karte kein Hinweis', (kopfZeile({ rolle: 'slave', zustand: 'sucht', name: 'Regie-PC', karteFehlt: false }) as { hinweis?: string }).hinweis === '');
+}
+
+// --- Endprüfung C1–C4, C7: Regeln des Verbund-Modals (reine Funktionen) und ihre Verdrahtung ----------------------
+// Die Komponenten selbst laufen hier nicht (kein DOM): geprüft werden die Regeln als Funktionen und, als Quelltext-
+// Prüfung, dass die Komponenten sie auch benutzen.
+{
+  const quelle = (datei: string): string => readFileSync(new URL(`../src/renderer/src/${datei}`, import.meta.url), 'utf8');
+  const fehlerC = (code: VerbundClientStand['code']): VerbundClientStand => ({ art: 'fehler', code, text: 'x' });
+  // C1
+  ck('C1: „Neue Kennung“ bei ersetzt, signatur und nach Koppel-Ablehnung rechner-id — sonst nicht',
+    neueKennungAnbieten(fehlerC('ersetzt'), null) && neueKennungAnbieten(fehlerC('signatur'), null)
+    && neueKennungAnbieten({ art: 'aus' }, 'rechner-id') && !neueKennungAnbieten(fehlerC('unbekannt'), null)
+    && !neueKennungAnbieten({ art: 'verbunden' }, null) && !neueKennungAnbieten(undefined, 'code-falsch'));
+  const slaveQuelle = quelle('components/VerbundSlave.tsx');
+  ck('C1: Verdrahtung — das Slave-Modal bietet „Neue Kennung“ über neueKennungAnbieten mit Bestätigung an',
+    slaveQuelle.includes('neueKennungAnbieten(') && slaveQuelle.includes('neueKennung()') && slaveQuelle.includes('<Bestaetigung'));
+  // C2
+  ck('C2: koppelnMoeglich prüft beschaeftigt, Adresse und Code (Enter umgeht nichts)',
+    koppelnMoeglich(false, '10.0.0.1', 'K7QXM3PRTH') && !koppelnMoeglich(true, '10.0.0.1', 'K7QXM3PRTH')
+    && !koppelnMoeglich(false, ' ', 'K7QXM3PRTH') && !koppelnMoeglich(false, '10.0.0.1', '  '));
+  ck('C2: Codefeld leeren nach jedem Versuch, der das Gegenüber erreicht hat (und nach Erfolg)',
+    codeFeldLeeren({ ok: true }) && codeFeldLeeren({ ok: false, text: 'x', codeVerbraucht: true })
+    && !codeFeldLeeren({ ok: false, text: 'Das Zeichen O kommt im Code nicht vor.' }));
+  ck('C2: Verdrahtung — los() nutzt koppelnMoeglich, das Feld wird über codeFeldLeeren geleert',
+    /const los = [^\n]*\n\s+if \(!koppelnMoeglich\(/.test(slaveQuelle) && slaveQuelle.includes('codeFeldLeeren('));
+  // C3
+  const presence = [
+    { appId: 'jm-timer', name: 'JM Timer', running: true, verbund: 'verbunden' },
+    { appId: 'jm-alt', name: 'Altes Tool', running: true },
+    { appId: 'jm-qa', name: 'JM Q&A', running: false, verbund: 'verbunden' },
+  ];
+  const zm = toolZeilen(presence, false);
+  ck('C3: Tools dieses Rechners — laufende Tools mit Zustand, altes Tool „läuft, noch ohne Verbund (Update nötig)“',
+    JSON.stringify(zm.map((z) => [z.name, z.text])) === JSON.stringify([['JM Timer', 'mit Master verbunden'], ['Altes Tool', 'läuft, noch ohne Verbund (Update nötig)']]));
+  ck('C3: Verdrahtung — auch die Master-Ansicht rendert „Tools dieses Rechners“', quelle('components/VerbundMaster.tsx').includes('<ToolsDiesesRechners'));
+  // C4
+  ck('C4: speicherFehlerText (Code auf 32 Zeichen gekürzt)', speicherFehlerText('EPERM') === 'Verbund nicht gespeichert (EPERM) — Änderungen gelten nur bis zum Neustart'
+    && !speicherFehlerText('E'.repeat(100)).includes('E'.repeat(33)));
+  ck('C4: Verdrahtung — das Master-Modal zeigt speicherFehler', quelle('components/VerbundMaster.tsx').includes('speicherFehlerText(m.speicherFehler)'));
+  // C7
+  const aufrufe: string[] = [];
+  const warnungen: string[] = [];
+  beimSchliessen({
+    schliesseKopplung: async () => { aufrufe.push('schliesseKopplung'); throw Object.assign(new Error('x'), { code: 'EPIPE' }); },
+    brecheKoppelnAb: async () => { aufrufe.push('brecheKoppelnAb'); },
+    stoppeMasterSuche: async () => { aufrufe.push('stoppeMasterSuche'); },
+  }, (e) => warnungen.push(ablehnungText(e, 'anstossen')));
+  await new Promise((r) => setTimeout(r, 10));
+  ck('C7: beimSchliessen stößt schliesseKopplung IMMER an (unabhängig vom gespeicherten Stand), dazu Abbruch und Suche',
+    JSON.stringify(aufrufe) === JSON.stringify(['schliesseKopplung', 'brecheKoppelnAb', 'stoppeMasterSuche']));
+  ck('C7: … eine Ablehnung wird gewarnt statt verschluckt', warnungen.length === 1 && warnungen[0]!.includes('EPIPE'));
+  const store = readFileSync(new URL('../src/renderer/src/store/verbund.ts', import.meta.url), 'utf8');
+  ck('C7: Verdrahtung — schliesse() nutzt beimSchliessen mit console.warn, ohne Bedingung auf den Stand',
+    store.includes('beimSchliessen(') && store.includes('console.warn') && !store.includes('stand?.master?.kopplung.offen'));
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

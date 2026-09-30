@@ -536,4 +536,13 @@ export interface VerbundStand {
   slave: VerbundSlaveStand | null;
 }
 
-export type KoppelAntwort = { ok: true } | { ok: false; text: string };
+export type KoppelAntwort =
+  | { ok: true }
+  | {
+    ok: false;
+    text: string;
+    /** Ablehnungsgrund des Masters (z. B. 'rechner-id' → „Neue Kennung“ anbieten, Endprüfung C1). */
+    grund?: string;
+    /** Der Code ist verbraucht (Beweis ging hinaus bzw. schon gesendet): das Codefeld leeren (Endprüfung C2). */
+    codeVerbraucht?: boolean;
+  };

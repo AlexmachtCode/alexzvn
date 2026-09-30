@@ -1094,6 +1094,10 @@ const dateiRolle = (pfad: string): string | null => dateiDaten(pfad)?.rolle ?? n
   const r5 = await sF.koppele(`127.0.0.1:${zu}`, 'B7QXM3PRTH');
   const r6 = await sF.koppele(`127.0.0.1:${pF}`, 'B7QXM3PRTH');
   ck('B9: Code ohne gesendeten Beweis (Verbindung scheiterte vorher) bleibt verwendbar', !r5.ok && !r6.ok && r6.text.startsWith('Code stimmt nicht') && verbindungen === 3);
+  // C1/C2 (Main-Seite): die Antwort sagt dem Modal den Grund und ob der Code verbraucht ist (Codefeld leeren).
+  ck('C1/C2: KoppelAntwort trägt grund und codeVerbraucht',
+    !r1.ok && r1.grund === 'code-falsch' && r1.codeVerbraucht === true && !r2.ok && r2.codeVerbraucht === true
+    && !r5.ok && r5.codeVerbraucht !== true);
   await sF.stoppe();
   srv.close();
 }
