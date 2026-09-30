@@ -6,6 +6,7 @@ import { getLog } from '@jm/app-runtime';
 import type { ActionResult, AppEvent } from '@shared/types';
 import { getTool } from './manifest';
 import { openTool } from './launch';
+import { startShowTools } from './show-launch';
 import { onShowOpened } from './iveo-sync';
 import { pushRecentShow } from './settings';
 
@@ -36,8 +37,6 @@ export async function openShow(showPath: string, emit?: EmitAppEvent): Promise<A
   }
 
   const deepLink = showOpenUrl(showPath);
-  let launched = 0;
-  const missing: string[] = [];
 
   // Start-Feedback mit der vollständigen Tool-Liste (Name aus dem Manifest, sonst
   // die appId) — die UI zeigt das Overlay sofort, bevor die Kaltstarts laufen.
@@ -47,20 +46,13 @@ export async function openShow(showPath: string, emit?: EmitAppEvent): Promise<A
     tools: show.tools.map((ref) => ({ appId: ref.appId, name: getTool(ref.appId)?.name ?? ref.appId })),
   });
 
-  for (const ref of show.tools) {
-    const tool = getTool(ref.appId);
-    if (!tool) {
-      missing.push(ref.appId);
-      continue;
-    }
-    const res = await openTool(tool, [deepLink]);
-    if (res.ok) launched += 1;
-    else missing.push(tool.name);
-  }
+  const { launched, missing, missingNames } = await startShowTools(show.tools, getTool, (tool) =>
+    openTool(tool, [deepLink]),
+  );
 
   const message =
     `Show „${show.name}": ${launched}/${show.tools.length} Tools gestartet` +
-    (missing.length ? ` · nicht verfügbar: ${missing.join(', ')}` : '');
+    (missingNames.length ? ` · nicht verfügbar: ${missingNames.join(', ')}` : '');
   getLog().info(message);
   emit?.({ type: 'show-launch-done', launched, total: show.tools.length, missing });
   // Hat die Show eine iveo-Bindung (+ lokal ein Token), Live-Polling starten (#11).

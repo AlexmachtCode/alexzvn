@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, cn } from '@jm/ui';
+import { Button, Card, cn, noDragRegion } from '@jm/ui';
 import type { ControlPlaneStatus, HealthEntry, ManualEndpoint, PresenceRecord } from '@shared/types';
 import { useTools } from '@/store/tools';
 import { pairingUrl, toDataUrl } from '@/lib/qr';
@@ -76,6 +76,17 @@ export function SystemStatusModal() {
   // Netzwerk-Karte an (presence/health kommen live aus dem Store).
   const [refreshNonce, setRefreshNonce] = useState(0);
 
+  // Escape schließt (#233) — vorher ging es NUR über den Knopf ganz unten,
+  // und der lag bei langen Listen außerhalb des Fensters.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, close]);
+
   if (!open) return null;
 
   const now = Date.now();
@@ -92,10 +103,30 @@ export function SystemStatusModal() {
   const presenceIds = new Set(presence.map((r) => r.appId));
   const discoveredOnly = [...healthById.values()].filter((h) => !presenceIds.has(h.appId));
 
+  // #233: das Fenster wuchs mit den Listen über den Launcher hinaus und ließ
+  // sich dann nicht mehr schließen. Jetzt: höchstens so hoch wie das Fenster
+  // (Kopf und Knöpfe bleiben stehen, nur die Mitte scrollt), Escape und Klick
+  // auf den Hintergrund schließen, und das Overlay hebt die Zieh-Fläche des
+  // Headers auf — in Electron schluckt eine drag-Fläche Klicks auch UNTER
+  // einem darübergelegten Overlay, unabhängig vom z-index.
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm px-6">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6"
+      style={noDragRegion}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+    >
       <Card className="w-full max-w-lg p-6 jm-fade-in">
-        <div className="flex items-start justify-between gap-4">
+        {/* Das Flex-Layout sitzt auf EIGENEM Container, nicht auf der Card:
+            Card packt die Kinder in ein eigenes <div className="relative">
+            (packages/ui/src/components/Card.tsx) — ein flex-col auf der Card
+            griff darum nur diese Hülle, und die Mitte scrollte nicht
+            (GEMESSEN 30.09.2026: Scroll-Bereich 2599 px hoch bei 640 px
+            Fenster, der Schließen-Knopf bei 2713 px). Höhe: Fenster minus
+            Außenabstand (p-6) minus Innenabstand der Card (p-6). */}
+        <div className="flex max-h-[calc(100vh-6rem)] flex-col">
+        <div className="flex shrink-0 items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-extrabold tracking-tight">System-Zustand</h2>
             <p className="text-xs text-[var(--muted-foreground)] mt-1">
@@ -116,6 +147,10 @@ export function SystemStatusModal() {
           </span>
         </div>
 
+        {/* EIN Scroll-Bereich statt dreier: vorher scrollten die beiden
+            Listen einzeln (60vh + 28vh) und die Netzwerk-Karte gar nicht —
+            zusammen höher als jedes Fenster. */}
+        <div className="-mr-2 min-h-0 flex-1 overflow-y-auto pr-2">
         <NetworkPlaneCard presence={presence} health={health} now={now} nonce={refreshNonce} />
 
         {presence.length === 0 ? (
@@ -125,7 +160,7 @@ export function SystemStatusModal() {
             sich beim nächsten Heartbeat.
           </p>
         ) : (
-          <ul className="mt-5 flex flex-col gap-2 max-h-[60vh] overflow-auto">
+          <ul className="mt-5 flex flex-col gap-2">
             {presence.map((r) => (
               <Row
                 key={r.appId}
@@ -144,15 +179,16 @@ export function SystemStatusModal() {
             <div className="mt-5 text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
               Im Netzwerk entdeckt
             </div>
-            <ul className="mt-2 flex flex-col gap-2 max-h-[28vh] overflow-auto">
+            <ul className="mt-2 flex flex-col gap-2">
               {discoveredOnly.map((h) => (
                 <DiscoveredRow key={`${h.host}:${h.port}`} health={h} />
               ))}
             </ul>
           </>
         )}
+        </div>
 
-        <div className="mt-6 flex items-center justify-end gap-3">
+        <div className="mt-6 flex shrink-0 items-center justify-end gap-3">
           <Button
             variant="ghost"
             onClick={() => {
@@ -166,6 +202,7 @@ export function SystemStatusModal() {
           <Button variant="primary" onClick={close}>
             Schließen
           </Button>
+        </div>
         </div>
       </Card>
     </div>
@@ -266,8 +303,11 @@ function NetworkPlaneCard({
   } else if (secure && disconnected > 0) {
     tone = 'warn';
     text =
-      `${disconnected} entdeckte(r) Endpunkt(e) getrennt — Tool(s) neu starten, damit sie die ` +
-      'sichere Steuerebene (Token/TLS) übernehmen.';
+      // BERICHTIGT (Ist-Karte 30.09.2026): der LAUNCHER liest die
+      // Sicherheitseinstellung nur beim eigenen Start (health.ts,
+      // startHealth) — ein Neustart nur der Tools ließ ihn im alten Modus.
+      `${disconnected} entdeckte(r) Endpunkt(e) getrennt — Launcher UND Tool(s) neu starten, damit ` +
+      'alle die sichere Steuerebene (Token/TLS) übernehmen.';
   } else if (connected > 0) {
     tone = 'ok';
     text = `Tools finden sich im Netz — ${connected} von ${discovered} Steuer-Endpunkt(en) verbunden.`;
@@ -332,9 +372,11 @@ function NetworkPlaneCard({
 
       {!secure && (
         <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
-          Empfohlen in geteilten/mehrere-Standorte-Netzen: erzeugt ein Suite-Token + TLS, das alle
-          Tools beim nächsten Start übernehmen. Companion/zweite Rechner koppelst du per Token &amp;
-          Fingerprint.
+          Empfohlen in geteilten Netzen: erzeugt ein Suite-Token + TLS, das der Launcher und alle
+          Tools dieses Rechners beim nächsten Start übernehmen. Companion koppelst du per Token &amp;
+          Fingerprint. <strong>Über mehrere Rechner hinweg trägt das heute noch nicht</strong> — jeder
+          Rechner erzeugt eigene Schlüssel, und ein Rechner im sicheren Modus findet einen offenen
+          nicht. Die Kopplung zwischen Rechnern ist in Arbeit.
         </p>
       )}
 

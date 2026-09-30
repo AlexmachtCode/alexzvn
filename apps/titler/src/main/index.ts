@@ -158,7 +158,13 @@ function applyShowFromPath(showPath: string): void {
 
 /** Aktuelle Show neu einlesen (Launcher schickt `TITLER RELOAD` nach iveo-Update). */
 function reloadCurrentShow(): boolean {
-  if (!currentShowPath) return false;
+  if (!currentShowPath) {
+    // SICHTBAR statt still — derselbe Fall wie im Timer (Ist-Karte 30.09.2026):
+    // der Launcher zählt den Titler als "benachrichtigt", ohne Show-Pfad gibt
+    // es aber nichts neu zu lesen.
+    getLog().warn('RELOAD empfangen, aber keine Show geladen (nicht per Show gestartet) — nichts neu eingelesen.');
+    return false;
+  }
   applyShowFromPath(currentShowPath);
   return true;
 }

@@ -372,7 +372,15 @@ function applyShowFromPath(showPath: string, mode: 'initial' | 'reload'): void {
  * `TIMER RELOAD` schickt). No-op, wenn keine Show geladen ist. Nicht-destruktiv.
  */
 export function reloadCurrentShow(): boolean {
-  if (!currentShowPath) return false;
+  if (!currentShowPath) {
+    // SICHTBAR statt still (Ist-Karte 30.09.2026): der Launcher zählt diesen
+    // Timer als "benachrichtigt", aber ohne Show-Pfad gibt es nichts neu zu
+    // lesen — typisch für einen Timer, der von Hand oder auf einem anderen
+    // Rechner gestartet wurde. Ohne diese Zeile sah "keine iveo-Live-Daten"
+    // aus wie ein Fehler im Launcher.
+    getLog().warn('RELOAD empfangen, aber keine Show geladen (nicht per Show gestartet) — nichts neu eingelesen.');
+    return false;
+  }
   applyShowFromPath(currentShowPath, 'reload');
   return true;
 }
