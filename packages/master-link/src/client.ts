@@ -131,13 +131,35 @@ export function versucheAnmeldung(p: AnmeldeParameter): Promise<Versuch> {
           return;
         }
         if (n.t === 'angemeldet') {
-          verbindung.removeAllListeners();
+          halteFest(verbindung);
           verbindung.setzeGrenze(GRENZEN.nachAnmeldung);
           ende({ ok: true, a: { v: verbindung, adresse: p.adresse, masterName, suite: n.suite, adressen: n.adressen } });
         }
       }));
     }));
   });
+}
+
+/**
+ * Zwischen 'angemeldet' und dem Anhängen der Betriebs-Listener in betreibe() liegt ein Promise-Sprung. Weitere Zeilen
+ * desselben Lese-Chunks gibt Verbindung synchron aus (z. B. 'abgelehnt ersetzt'); ohne Zuhörer gingen sie verloren.
+ * Hier werden sie festgehalten und von betreibe() übernommen. Ein 'ende' in dieser Zeit steht in `Verbindung.offen`.
+ */
+const nachgelesen = new WeakMap<Verbindung, Nachricht[]>();
+
+function halteFest(v: Verbindung): void {
+  v.removeAllListeners();
+  const liste: Nachricht[] = [];
+  nachgelesen.set(v, liste);
+  v.on('nachricht', (n: Nachricht) => liste.push(n));
+}
+
+function holeNachgelesenes(v: Verbindung): Nachricht[] {
+  const liste = nachgelesen.get(v);
+  if (!liste) return [];
+  nachgelesen.delete(v);
+  v.removeAllListeners();
+  return liste;
 }
 
 /** Nach koppele(): 'teilnehmer' auf derselben Verbindung senden und auf 'angemeldet' warten. */
@@ -162,7 +184,7 @@ function warteAufAngemeldet(v: Verbindung, teilnehmer: TeilnehmerInfo, masterNam
         return;
       }
       if (n.t === 'angemeldet') {
-        v.removeAllListeners();
+        halteFest(v);
         ende({ ok: true, a: { v, adresse: v.adresse, masterName, suite: n.suite, adressen: n.adressen } });
       }
     }));
@@ -184,6 +206,12 @@ export interface ClientOptionen {
   anmelden?: (p: AnmeldeParameter) => Promise<Versuch>;
 }
 
+/** Ergebnis eines Versuchs samt der Adresse, an der es entstand (für den Fehlertext). */
+interface RundenErgebnis {
+  e: VersuchsErgebnis;
+  adresse?: string;
+}
+
 type BetriebsEnde = { art: 'ende' } | { art: 'abgelehnt'; grund: Grund; master?: number; suite?: string };
 
 export class MasterLinkClient extends EventEmitter {
@@ -202,6 +230,10 @@ export class MasterLinkClient extends EventEmitter {
   private verbindung: Verbindung | null = null;
   private dateiZeitgeber: ReturnType<typeof setInterval> | null = null;
   private weckeAuf: (() => void) | null = null;
+  /** Beendet die laufende Verbindungsphase (Puls und Stille löschen), auch wenn der Socket kein 'ende' mehr meldet. */
+  private beendeBetrieb: (() => void) | null = null;
+  /** Zuletzt geloggter Wert; null = nach einer verlorenen Verbindung wird der nächste Wert wieder gemeldet. */
+  private geloggt: VerbundWert | null = 'aus';
   private letzteAdresse: string | null = null;
   private gelernteAdressen: string[] = [];
 
@@ -275,7 +307,8 @@ export class MasterLinkClient extends EventEmitter {
       return;
     }
     this.datei = b.datei;
-    if (b.relevant) this.neustart();
+    // Nach stoppe() bewertet der Beobachter gegen seinen gemerkten Stand: auch „nicht relevant“ (nur Adressen/Namen) baut beim Start neu auf.
+    if (b.relevant || beimStart) this.neustart();
   }
 
   private neustart(): void {
@@ -304,7 +337,7 @@ export class MasterLinkClient extends EventEmitter {
       if (r.ok) {
         if (!(await this.verbunden(r.a, gen))) return;
       } else {
-        const w = this.werteAus([r.ergebnis], false, versuch++);
+        const w = this.werteAus([{ e: r.ergebnis }], false, versuch++);
         if (w === null) return;
         await this.warte(w, gen);
       }
@@ -334,8 +367,7 @@ export class MasterLinkClient extends EventEmitter {
         karten: alleKarten,
         gewaehlteKarte: d.netzwerk.karte,
       });
-      const ergebnisse: VersuchsErgebnis[] = [];
-      let fehlerAdresse: string | undefined;
+      const ergebnisse: RundenErgebnis[] = [];
       for (const adresse of kandidaten) {
         if (gen !== this.generation || !this.laeuft) return;
         this.setze({ art: 'verbindet', adresse });
@@ -349,39 +381,45 @@ export class MasterLinkClient extends EventEmitter {
           if (!(await this.verbunden(r.a, gen))) return;
           continue runde;
         }
-        ergebnisse.push(r.ergebnis);
-        fehlerAdresse = adresse;
+        ergebnisse.push({ e: r.ergebnis, adresse });
         const e = ordneEin(r.ergebnis, mdnsGesehen);
         // Unser Master hat geantwortet (Pin passte) — andere Adressen ändern daran nichts.
         if (e.art === 'code' && ['unbekannt', 'signatur', 'protokoll', 'uhr'].includes(e.code)) break;
       }
-      const w = this.werteAus(ergebnisse, mdnsGesehen, versuch++, fehlerAdresse);
+      const w = this.werteAus(ergebnisse, mdnsGesehen, versuch++);
       if (w === null) return;
       await this.warte(w, gen);
     }
   }
 
-  /** Setzt den Zustand aus den Ergebnissen einer Runde; liefert die Wartezeit oder null (keine Wiederholung). */
-  private werteAus(ergebnisse: VersuchsErgebnis[], mdnsGesehen: boolean, versuch: number, adresse?: string): number | null {
+  /**
+   * Setzt den Zustand aus den Ergebnissen einer Runde; liefert die Wartezeit oder null (keine Wiederholung).
+   * Adresse, errCode und Masterstand im Text stammen vom ersten Ergebnis, das den angezeigten (stärksten) Code lieferte.
+   */
+  private werteAus(ergebnisse: RundenErgebnis[], mdnsGesehen: boolean, versuch: number): number | null {
     const codes: FehlerCode[] = [];
+    const herkunft = new Map<FehlerCode, RundenErgebnis>();
     let intern: 'anmeldefrist' | 'last' | null = null;
-    let errCode: string | undefined;
-    let ablehnung: { master?: number; suite?: string } = {};
-    for (const e of ergebnisse) {
-      const o = ordneEin(e, mdnsGesehen);
+    for (const r of ergebnisse) {
+      const o = ordneEin(r.e, mdnsGesehen);
       if (o.art === 'intern') intern = intern === 'last' ? 'last' : o.grund;
-      else codes.push(o.code);
-      if (e.art === 'fehler') errCode = e.code;
-      if (e.art === 'abgelehnt') ablehnung = { master: e.master, suite: e.suite };
+      else {
+        codes.push(o.code);
+        if (!herkunft.has(o.code)) herkunft.set(o.code, r);
+      }
     }
     if (ergebnisse.length === 0) codes.push('nicht-gefunden');
     const code = staerkster(codes);
     if (code) {
+      const quelle = herkunft.get(code);
+      const adresse = quelle?.adresse;
+      const errCode = quelle?.e.art === 'fehler' ? quelle.e.code : undefined;
+      const ablehnung = quelle?.e.art === 'abgelehnt' ? quelle.e : undefined;
       const masterName = this.datei?.kopplung?.masterName ?? '';
       this.setze({
         art: 'fehler',
         code,
-        text: fehlerText(code, { masterName, adresse, errCode, suite: ablehnung.suite, masterProtokoll: ablehnung.master }),
+        text: fehlerText(code, { masterName, adresse, errCode, suite: ablehnung?.suite, masterProtokoll: ablehnung?.master }),
         ...(code === 'sonstig' && errCode ? { errCode } : {}),
       });
       const w = wiederholung(code, this.f);
@@ -398,7 +436,7 @@ export class MasterLinkClient extends EventEmitter {
     const aus = await this.betreibe(a);
     if (gen !== this.generation || !this.laeuft) return false;
     if (aus.art === 'abgelehnt') {
-      const w = this.werteAus([{ art: 'abgelehnt', grund: aus.grund, master: aus.master, suite: aus.suite }], true, 0);
+      const w = this.werteAus([{ e: { art: 'abgelehnt', grund: aus.grund, master: aus.master, suite: aus.suite } }], true, 0);
       if (w === null) return false;
       await this.warte(w, gen);
       return gen === this.generation && this.laeuft;
@@ -410,30 +448,54 @@ export class MasterLinkClient extends EventEmitter {
 
   private betreibe(a: Angemeldet): Promise<BetriebsEnde> {
     return new Promise<BetriebsEnde>((fertig) => {
+      const nachgeholt = holeNachgelesenes(a.v);
+      let ergebnis: BetriebsEnde = { art: 'ende' };
+      const merke = (n: Nachricht): void => {
+        if (n.t === 'abgelehnt') ergebnis = { art: 'abgelehnt', grund: n.grund, master: n.master, suite: n.suite };
+      };
+      if (!a.v.offen) {
+        // Schon zu (z. B. kaputte Zeile im selben Lese-Chunk wie 'angemeldet'): nie „verbunden“ melden, nur das Nachgelesene auswerten.
+        for (const n of nachgeholt) merke(n);
+        fertig(ergebnis);
+        return;
+      }
       this.verbindung = a.v;
       this.letzteAdresse = a.adresse;
       this.gelernteAdressen = a.adressen;
       this.setze({ art: 'verbunden', adresse: a.adresse, seit: this.jetzt(), masterName: a.masterName, suite: a.suite });
       this.emit('angemeldet', { adresse: a.adresse, adressen: a.adressen, suite: a.suite });
-      let ergebnis: BetriebsEnde = { art: 'ende' };
+      let beendet = false;
       let stille: ReturnType<typeof setTimeout> | null = null;
-      const setzeStille = (): void => {
-        if (stille) clearTimeout(stille);
-        stille = setTimeout(() => a.v.socket.destroy(), this.f.stilleMs);
-      };
-      setzeStille();
-      const puls = setInterval(() => a.v.sende({ t: 'puls' }), this.f.pulsMs);
-      a.v.on('nachricht', (n: Nachricht) => {
-        setzeStille();
-        if (n.t === 'abgelehnt') ergebnis = { art: 'abgelehnt', grund: n.grund, master: n.master, suite: n.suite };
-      });
-      a.v.on('unbekannt', setzeStille);
-      a.v.on('ende', () => {
+      // Jedes Ende (ende des Sockets, Stille, trenne()) räumt auf und löst die Verbindungsphase auf — genau einmal.
+      const beende = (): void => {
+        if (beendet) return;
+        beendet = true;
         if (stille) clearTimeout(stille);
         clearInterval(puls);
         if (this.verbindung === a.v) this.verbindung = null;
+        if (this.beendeBetrieb === beende) this.beendeBetrieb = null;
         fertig(ergebnis);
-      });
+      };
+      const setzeStille = (): void => {
+        if (beendet) return;
+        if (stille) clearTimeout(stille);
+        // Nicht auf ein zweites 'ende' warten: ein schon zerstörter Socket meldet keines mehr.
+        stille = setTimeout(() => {
+          a.v.socket.destroy();
+          beende();
+        }, this.f.stilleMs);
+      };
+      const puls = setInterval(() => a.v.sende({ t: 'puls' }), this.f.pulsMs);
+      this.beendeBetrieb = beende;
+      setzeStille();
+      const aufNachricht = (n: Nachricht): void => {
+        setzeStille();
+        merke(n);
+      };
+      a.v.on('nachricht', aufNachricht);
+      a.v.on('unbekannt', setzeStille);
+      a.v.on('ende', beende);
+      for (const n of nachgeholt) aufNachricht(n);
     });
   }
 
@@ -441,6 +503,7 @@ export class MasterLinkClient extends EventEmitter {
     const v = this.verbindung;
     this.verbindung = null;
     v?.schliesse();
+    this.beendeBetrieb?.();
   }
 
   private warte(ms: number, gen: number): Promise<void> {
@@ -460,10 +523,14 @@ export class MasterLinkClient extends EventEmitter {
     const alt = this.z;
     if (JSON.stringify(alt) === JSON.stringify(z)) return;
     this.z = z;
-    const neuerFehler = z.art === 'fehler' && (alt.art !== 'fehler' || alt.code !== z.code);
-    if (alt.art !== z.art || neuerFehler) {
+    // Geloggt wird nur das Ergebnis einer Runde (verbunden, aus, neuer Fehlercode), nicht sucht/verbindet: sonst schreibt ein
+    // Dauerfehler (Master aus ist ein Normalzustand) jede Runde dieselben Zeilen. Das Ereignis 'zustand' bleibt vollständig.
+    if (alt.art === 'verbunden' && z.art !== 'verbunden') this.geloggt = null;
+    const wert = verbundWert(z);
+    if (z.art !== 'sucht' && z.art !== 'verbindet' && wert !== this.geloggt) {
+      this.geloggt = wert;
       const zusatz = z.art === 'verbunden' ? ` (${z.adresse})` : z.art === 'fehler' ? ` — ${z.text}` : '';
-      this.log(z.art === 'fehler' ? 'warn' : 'info', `Master-Link: ${verbundWert(z)}${zusatz}`);
+      this.log(z.art === 'fehler' ? 'warn' : 'info', `Master-Link: ${wert}${zusatz}`);
     }
     this.emit('zustand', z);
   }

@@ -1,16 +1,17 @@
+import { EventEmitter } from 'node:events';
 import { createServer as netServer, type Socket } from 'node:net';
-import { createServer as tlsServer } from 'node:tls';
+import { createServer as tlsServer, type Server as TlsServer, type TLSSocket } from 'node:tls';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { randomNonce } from '@jm/auth-core';
 import { MasterLinkClient, verbundWert, versucheAnmeldung, type AnmeldeParameter, type ClientZustand, type Versuch } from '../src/client';
 import { masterLinkPfad, schreibeMasterLinkDatei, type MasterLinkDatei } from '../src/datei';
 import { fingerprintVonPem } from '../src/beweis';
-import { PIN_FALSCH } from '../src/fehler';
+import { PIN_FALSCH, type VersuchsErgebnis } from '../src/fehler';
 import { fristen, GRENZEN, type Fristen } from '../src/fristen';
 import { koppele } from '../src/koppeln';
 import type { MasterSichtung, SucheLike } from '../src/mdns';
-import type { Nachricht } from '../src/rahmen';
+import { kodiere, type Nachricht } from '../src/rahmen';
 import { MasterLinkServer } from '../src/server';
 import { Verbindung } from '../src/verbindung';
 import { baueServer, neueIdentitaet, type Aufbau } from './aufbau';
@@ -54,6 +55,31 @@ class FakeSuche implements SucheLike {
     this.runden++;
     return this.sichtungen;
   }
+}
+
+/** Socket, der nie „close“ meldet und sich nicht schließen lässt (Standby, halboffene Verbindung). */
+class StummerSocket extends EventEmitter {
+  destroyed = false;
+  remoteAddress = '10.0.0.1';
+  end(): void { /* schweigt */ }
+  write(): boolean { return true; }
+  destroy(): void { this.destroyed = true; }
+}
+
+/** Master-Attrappe auf dem Port von `a`: sendet „hallo“, ruft bei „anmelden“ `antwort`, zählt Verbindungen. */
+async function attrappe(a: Aufbau, antwort: (ts: TLSSocket, v: Verbindung) => void): Promise<{ srv: TlsServer; zaehler: { n: number } }> {
+  await a.server.stoppe();
+  const zaehler = { n: 0 };
+  const srv = tlsServer({ key: a.identitaet.schluessel, cert: a.identitaet.zertifikat }, (ts) => {
+    zaehler.n++;
+    const v = new Verbindung(ts, 1 << 20);
+    v.on('nachricht', (n: Nachricht) => {
+      if (n.t === 'anmelden') antwort(ts, v);
+    });
+    v.sende({ t: 'hallo', protokoll: 1, masterId: a.identitaet.masterId, name: 'Regie-PC', nonce: randomNonce() });
+  });
+  await new Promise<void>((r) => srv.listen(a.port, '127.0.0.1', r));
+  return { srv, zaehler };
 }
 
 export async function laufe(): Promise<void> {
@@ -451,5 +477,185 @@ export async function laufe(): Promise<void> {
     }
     await c.stoppe();
     await a.server.stoppe();
+  }
+
+  abschnitt('Client: starte() nach stoppe(), Datei nur in nicht relevanten Feldern geändert');
+  {
+    // Der Launcher schreibt nach „angemeldet“ letzteAdresse/adressen/masterName: das trennt nie, darf aber auch kein starte() verschlucken.
+    const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, d);
+    const c = neuerClient(pfad);
+    c.starte();
+    await bis(() => art(c) === 'verbunden');
+    gleich(art(c), 'verbunden', 'verbunden');
+    await c.stoppe();
+    gleich(art(c), 'aus', 'stoppe → aus');
+    await warte(30); // andere mtime als beim ersten Schreiben
+    schreibeMasterLinkDatei(pfad, { ...d, kopplung: { ...d.kopplung!, letzteAdresse: '127.0.0.1', adressen: ['127.0.0.1', '10.9.9.9'], masterName: 'Regie-PC (Saal 2)' } });
+    c.starte();
+    await bis(() => art(c) === 'verbunden', 2000);
+    gleich(art(c), 'verbunden', 'stoppe → nur Adressen/Namen ändern → starte → verbunden (nicht dauerhaft aus)');
+    await c.stoppe();
+    await a.server.stoppe();
+  }
+
+  abschnitt('Client: Übergabe nach „angemeldet“ ohne Lücke, Stille beendet selbst (Review Focus 5)');
+  {
+    // „angemeldet“ und „abgelehnt ersetzt“ kommen in EINEM Schreibvorgang: die zweite Zeile darf nicht ins Leere gehen.
+    const a = await baueServer();
+    const { srv } = await attrappe(a, (ts, v) => {
+      ts.write(kodiere({ t: 'angemeldet', adressen: [], suite: '0.12.0' }) + kodiere({ t: 'abgelehnt', grund: 'ersetzt' }));
+      v.schliesse();
+    });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    const gesehen = new Set<string>();
+    const luecken: number[] = [];
+    let ersetztSeit: number | null = null;
+    c.on('zustand', () => {
+      const w = art(c);
+      gesehen.add(w);
+      if (w === 'fehler:ersetzt') ersetztSeit = Date.now();
+      else if (w === 'verbindet' && ersetztSeit !== null) {
+        luecken.push(Date.now() - ersetztSeit);
+        ersetztSeit = null;
+      }
+    });
+    c.starte();
+    await bis(() => gesehen.has('fehler:ersetzt'), 1500);
+    pruefe(gesehen.has('fehler:ersetzt'), '„angemeldet“ + „abgelehnt ersetzt“ in einem Schreibvorgang → fehler:ersetzt');
+    await bis(() => luecken.length > 0, 1500);
+    pruefe(luecken.length > 0 && Math.min(...luecken) >= 300,
+      `… und neuer Versuch erst nach ersetztWiederholMs (400): ${luecken.join(', ')} ms`);
+    await c.stoppe();
+    srv.close();
+  }
+  {
+    // Dasselbe auf dem Weg nach dem Koppeln (uebernehme → warteAufAngemeldet): die Antwort kommt als ein Chunk aus zwei Zeilen.
+    const a = await baueServer();
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, d);
+    const c = neuerClient(pfad);
+    const gesehen = new Set<string>();
+    c.on('zustand', () => gesehen.add(art(c)));
+    c.starte();
+    await bis(() => art(c) === 'fehler:verweigert', 1000);
+    const socket = new StummerSocket();
+    c.uebernehme(new Verbindung(socket as unknown as TLSSocket, GRENZEN.vorAnmeldung), d.kopplung!, 'Regie-PC');
+    socket.emit('data', Buffer.from(kodiere({ t: 'angemeldet', adressen: [], suite: '0.12.0' }) + kodiere({ t: 'abgelehnt', grund: 'ersetzt' })));
+    await bis(() => gesehen.has('fehler:ersetzt'), 1500);
+    pruefe(gesehen.has('fehler:ersetzt'), 'übernommene Verbindung: „angemeldet“ + „abgelehnt ersetzt“ in einem Chunk → fehler:ersetzt');
+    await c.stoppe();
+  }
+  {
+    // Nach „angemeldet“ bricht eine Zeile den Rahmen (künftiger grund): das ende darf nicht ins Leere gehen.
+    const a = await baueServer();
+    const { srv, zaehler } = await attrappe(a, (ts) => {
+      ts.write(`${kodiere({ t: 'angemeldet', adressen: [], suite: '0.12.0' })}{"t":"abgelehnt","grund":"kuenftiger-grund"}\n`);
+    });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    c.starte();
+    await bis(() => zaehler.n >= 2, 3000);
+    pruefe(zaehler.n >= 2, `„angemeldet“ + rahmenbrechende Zeile in einem Schreibvorgang → Neuaufbau statt dauerhaft „verbunden“ (${zaehler.n} Verbindungen)`);
+    await c.stoppe();
+    srv.close();
+  }
+  {
+    // Der Socket meldet nie „close“: die Stille-Frist muss die Verbindung selbst beenden, und stoppe() das Puls-Intervall löschen.
+    const a = await baueServer();
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    let versuche = 0;
+    const anmelden = async (): Promise<Versuch> => {
+      versuche++;
+      const v = new Verbindung(new StummerSocket() as unknown as TLSSocket, GRENZEN.nachAnmeldung);
+      return { ok: true, a: { v, adresse: '10.0.0.1', masterName: 'Regie-PC', suite: '0.12.0', adressen: [] } };
+    };
+    const pulse: unknown[] = [];
+    const geloescht = new Set<unknown>();
+    const setzeIntervall = globalThis.setInterval;
+    const loescheIntervall = globalThis.clearInterval;
+    globalThis.setInterval = ((f: () => void, ms?: number) => {
+      const h = setzeIntervall(f, ms);
+      if (ms === KURZ.pulsMs) pulse.push(h);
+      return h;
+    }) as unknown as typeof setInterval;
+    globalThis.clearInterval = ((h: Parameters<typeof clearInterval>[0]) => {
+      geloescht.add(h);
+      loescheIntervall(h);
+    }) as typeof clearInterval;
+    try {
+      const c = neuerClient(pfad, { anmelden });
+      c.starte();
+      await bis(() => versuche >= 2, 3000);
+      pruefe(versuche >= 2, `Stille-Frist beendet die Verbindung selbst, auch ohne „close“ des Sockets → neu aufgebaut (${versuche} Versuche)`);
+      await c.stoppe();
+      pruefe(pulse.length >= 2 && pulse.every((h) => geloescht.has(h)), `Puls-Intervall wird bei Stille und bei stoppe() gelöscht (${pulse.length} angelegt)`);
+    } finally {
+      globalThis.setInterval = setzeIntervall;
+      globalThis.clearInterval = loescheIntervall;
+    }
+  }
+
+  abschnitt('Client: Log nur bei Änderung des Ergebnisses (Dauerfehler flutet das Log nicht)');
+  {
+    const a = await baueServer();
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const zeilen: Array<{ stufe: string; text: string }> = [];
+    const c = neuerClient(pfad, { log: (stufe, text) => zeilen.push({ stufe, text }) });
+    let runden = 0;
+    let suchen = 0;
+    c.on('zustand', (z: ClientZustand) => {
+      if (z.art === 'verbindet') runden++;
+      if (z.art === 'sucht') suchen++;
+    });
+    c.starte();
+    await bis(() => runden >= 5, 5000);
+    pruefe(runden >= 5 && suchen >= 4, `mehrere Runden ohne Master, Zustandsereignisse unverändert (${runden} × verbindet, ${suchen} × sucht)`);
+    pruefe(zeilen.length === 1 && zeilen[0]!.stufe === 'warn' && zeilen[0]!.text.includes('fehler:verweigert'),
+      `Dauerfehler → genau eine Warnzeile (${zeilen.length} Zeilen)`);
+    const b = new MasterLinkServer({ identitaet: a.identitaet, verbund: a.verbund, eigeneRechnerId: 'rechner-a', suiteVersion: '0.12.0', lauschAdressen: ['127.0.0.1'], port: a.port, fristen: { pulsMs: 150, stilleMs: 600 } });
+    await b.starte();
+    await bis(() => art(c) === 'verbunden', 3000);
+    pruefe(zeilen.length === 2 && zeilen[1]!.stufe === 'info' && zeilen[1]!.text.includes('verbunden (127.0.0.1)'),
+      `Master zurück → „verbunden“ wird gemeldet (${zeilen.length} Zeilen)`);
+    await c.stoppe();
+    await b.stoppe();
+  }
+
+  abschnitt('Client: Fehlertext gehört zu dem Ergebnis, das den stärksten Code lieferte');
+  {
+    const a = await baueServer();
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, { ...d, kopplung: { ...d.kopplung!, adressen: ['10.0.0.1', '10.0.0.2'] } });
+    const ersterFehler = async (ergebnisse: Record<string, VersuchsErgebnis>): Promise<ClientZustand | null> => {
+      const c = neuerClient(pfad, { anmelden: async (p: AnmeldeParameter): Promise<Versuch> => ({ ok: false, ergebnis: ergebnisse[p.adresse]! }) });
+      let z: ClientZustand | null = null;
+      c.on('zustand', (n: ClientZustand) => {
+        if (n.art === 'fehler') z ??= n;
+      });
+      c.starte();
+      await bis(() => z !== null, 1000);
+      await c.stoppe();
+      return z;
+    };
+    const eins = await ersterFehler({ '10.0.0.1': { art: 'frist' }, '10.0.0.2': { art: 'tcp-timeout' } });
+    pruefe(eins?.art === 'fehler' && eins.code === 'kein-master' && eins.text.includes('10.0.0.1') && !eins.text.includes('10.0.0.2'),
+      '[A → Frist, B → TCP-Timeout]: kein-master nennt A (antwortet), nicht B (letzter Kandidat)');
+    const zwei = await ersterFehler({ '10.0.0.1': { art: 'fehler', code: 'ECONNRESET' }, '10.0.0.2': { art: 'fehler', code: 'EHOSTUNREACH' } });
+    pruefe(zwei?.art === 'fehler' && zwei.code === 'sonstig' && zwei.errCode === 'ECONNRESET' && zwei.text.includes('ECONNRESET') && !zwei.text.includes('EHOSTUNREACH'),
+      '[A → ECONNRESET, B → EHOSTUNREACH]: sonstig mit dem Code von A, nicht dem des letzten Ergebnisses');
   }
 }
