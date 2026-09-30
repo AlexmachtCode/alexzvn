@@ -26,6 +26,7 @@ const runtime = initAppRuntime({ csp: true,
   appName: 'JM Production Suite',
   registerProtocol: true,
   presence: false,
+  masterLink: false, // der Launcher führt seinen Client selbst (src/main/verbund)
   onDeepLink: (url) => handleDeepLink(url),
 });
 

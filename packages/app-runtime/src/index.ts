@@ -13,6 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { buildCsp, type CspConfig } from './csp';
+import { MasterLinkClient, masterLinkPfad, verbundWert, type ClientZustand } from '@jm/master-link';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // @jm/app-runtime — einmaliger Main-Prozess-Layer, den jede App ganz früh ruft.
@@ -23,9 +24,9 @@ import { buildCsp, type CspConfig } from './csp';
 //   3. Deep-Links     → jmps://… / --show <pfad> parsen (OS-Handler optional)
 //   4. Presence       → Heartbeat an den Launcher-Hub (Health-Dashboard)
 //
-// Bewusst OHNE externe Abhängigkeiten (nur node:* + electron), weil das Paket
-// von electron-vite in den App-Main gebündelt wird (siehe externalizeDepsPlugin
-// `exclude`) und gepackte Apps kein node_modules mitliefern.
+// Abhängigkeiten: node:*, electron und @jm/master-link (+ dessen bonjour-service). Alles wird
+// von electron-vite in den App-Main GEBÜNDELT (@jm/app-runtime steht in jeder exclude-Liste von
+// externalizeDepsPlugin) — zur Laufzeit wird nichts davon aus node_modules geladen.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -81,6 +82,13 @@ export interface AppRuntimeOptions {
    * laufen; im gepackten Build gilt die strenge Fassung. Default: aus (kein CSP).
    */
   csp?: boolean | CspConfig;
+  /**
+   * Master-Link-Client starten (Master-Link Teil 1, Default true): verbindet das Tool mit dem
+   * gekoppelten Master. Startet erst in app.whenReady() und NUR mit Single-Instance-Lock — eine
+   * kurz gestartete Zweitinstanz meldet sich so nie an. Ohne Kopplung (master-link.json fehlt,
+   * Rolle „aus“) völlig untätig. Der Launcher setzt false: er führt seinen eigenen Client.
+   */
+  masterLink?: boolean;
 }
 
 export interface AppRuntime {
@@ -105,6 +113,7 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
 };
 
 let defaultLogger: Logger | null = null;
+let masterLinkClient: MasterLinkClient | null = null;
 
 // ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -295,18 +304,21 @@ function startPresence(info: {
   servicePort?: number;
   logDir: string;
   lastCrash: { kind: string; at: string } | null;
-}): void {
+  /** Zustand des Master-Links — bei JEDEM Senden frisch gelesen (Spec 5.2). */
+  verbund?: () => string | undefined;
+}): { sofort(): void } {
   const hub = process.env['JMPS_HUB_URL'] || DEFAULT_HUB;
   let target: URL;
   try {
     target = new URL('/presence', hub);
   } catch {
-    return;
+    return { sofort: () => {} };
   }
+  const { verbund, ...stamm } = info;
 
   const send = (event: 'hello' | 'beat' | 'bye'): void => {
     try {
-      const body = JSON.stringify({ ...info, pid: process.pid, event });
+      const body = JSON.stringify({ ...stamm, verbund: verbund?.(), pid: process.pid, event });
       const req = http.request({
         hostname: target.hostname,
         port: target.port,
@@ -330,11 +342,57 @@ function startPresence(info: {
   send('hello');
   const timer = setInterval(() => send('beat'), HEARTBEAT_MS);
   timer.unref?.();
+  let beendet = false;
   app.on('before-quit', () => {
+    // Nach „bye“ kein Beat mehr: client.stoppe() meldet beim Beenden noch „aus“ — ein Beat nach „bye“
+    // zeigte das Tool im Launcher bis zu 25 s weiter als laufend (gemessen).
+    beendet = true;
     clearInterval(timer);
     send('bye');
   });
+  // Zustandswechsel des Master-Links sofort melden, nicht erst im 10-s-Takt.
+  return { sofort: () => { if (!beendet) send('beat'); } };
 }
+
+// ── Master-Link (Teil 1) ─────────────────────────────────────────────────────
+
+function startMasterLink(info: {
+  appId: string;
+  name: string;
+  version: string;
+  log: Logger;
+  beiWechsel: () => void;
+}): void {
+  const los = (): void => {
+    try {
+      if (masterLinkClient) return;
+      // Erst NACH der Sperre der App: whenReady läuft nach dem synchronen requestSingleInstanceLock
+      // aller Tools. Zweitinstanz (lock=false) → kein Client (gemessen: sonst Anmeldung in 4–9 ms).
+      if (!app.hasSingleInstanceLock()) return;
+      const client = new MasterLinkClient({
+        dateiPfad: masterLinkPfad(app.getPath('appData')),
+        teilnehmer: { art: 'tool', appId: info.appId, name: info.name, version: info.version, pid: process.pid },
+        log: (stufe, text) => info.log[stufe](text),
+      });
+      client.on('zustand', () => info.beiWechsel());
+      masterLinkClient = client;
+      client.starte();
+      app.on('before-quit', () => {
+        void client.stoppe();
+      });
+    } catch (err) {
+      info.log.warn(`Master-Link nicht gestartet: ${(err as Error).message}`);
+    }
+  };
+  void app.whenReady().then(los);
+}
+
+/** Zustand des Master-Links in diesem Tool (Basis für Teil 2). */
+export function getMasterLinkStatus(): ClientZustand {
+  return masterLinkClient?.zustand() ?? { art: 'aus' };
+}
+
+export type { ClientZustand } from '@jm/master-link';
 
 // ── Ladescreen (Splash) ──────────────────────────────────────────────────────
 
@@ -539,14 +597,29 @@ export function initAppRuntime(opts: AppRuntimeOptions): AppRuntime {
     initialDeepLink = findDeepLink(process.argv);
   }
 
+  const masterLinkAn = opts.masterLink !== false;
+  let presence: { sofort(): void } | null = null;
   if (opts.presence !== false) {
-    startPresence({
+    presence = startPresence({
       appId: opts.appId,
       name: opts.appName ?? opts.appId,
       version,
       servicePort: opts.servicePort,
       logDir,
       lastCrash: readLastCrash(logDir),
+      // Ohne Master-Link-Option kein Feld → der Launcher zeigt „noch ohne Verbund“.
+      verbund: masterLinkAn
+        ? () => (masterLinkClient ? verbundWert(masterLinkClient.zustand()) : 'aus')
+        : undefined,
+    });
+  }
+  if (masterLinkAn) {
+    startMasterLink({
+      appId: opts.appId,
+      name: opts.appName ?? opts.appId,
+      version,
+      log,
+      beiWechsel: () => presence?.sofort(),
     });
   }
 
