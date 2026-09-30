@@ -34,6 +34,42 @@ export async function laufe(): Promise<void> {
   gleich(dekodiere('{"t":"abgelehnt","grund":"erfunden"}'), { art: 'kaputt' }, 'unbekannter Grund → kaputt');
   gleich(dekodiere('{"t":"anmelden","protokoll":1,"rechnerId":"r","rechnerName":"B","signatur":"s","teilnehmer":{"art":"x","appId":"a","name":"n","version":"v","pid":1}}'), { art: 'kaputt' }, 'Teilnehmer mit falscher Art → kaputt');
 
+  abschnitt('Rahmen: Kennungen und Nonces (gehen in Beweise und Signaturen ein)');
+  {
+    // hallo.nonce, koppeln.nonce, koppeln.rechnerId, anmelden.rechnerId: nicht leer, höchstens 128 Zeichen, kein „|“,
+    // keine Steuerzeichen. Eine leere Nonce darf nie als „hallo gesehen“ durchgehen (Spec 3.3: harte Frist).
+    const baue = (feld: 'hallo.nonce' | 'koppeln.nonce' | 'koppeln.rechnerId' | 'anmelden.rechnerId', wert: string): string => {
+      const [t, name] = feld.split('.');
+      const n: Record<string, unknown> = {
+        hallo: { t: 'hallo', protokoll: 1, masterId: 'm', name: 'Regie-PC', nonce: 'n' },
+        koppeln: { t: 'koppeln', protokoll: 1, rechnerId: 'r', rechnerName: 'B', nonce: 'n', schluessel: 'P', beweis: 'b' },
+        anmelden: { t: 'anmelden', protokoll: 1, rechnerId: 'r', rechnerName: 'B', signatur: 's', teilnehmer },
+      }[t]! as Record<string, unknown>;
+      n[name] = wert;
+      return JSON.stringify(n);
+    };
+    const felder = ['hallo.nonce', 'koppeln.nonce', 'koppeln.rechnerId', 'anmelden.rechnerId'] as const;
+    const schlecht: Array<[string, string]> = [
+      ['leer', ''],
+      ['129 Zeichen', 'x'.repeat(129)],
+      ['mit „|“', 'a|b'],
+      ['nur „|“', '|'],
+      ['mit Zeilenumbruch', 'a\nb'],
+      ['mit NUL', 'a\u0000b'],
+      ['mit Tabulator', 'a\tb'],
+      ['mit U+001F', 'a\u001fb'],
+      ['mit DEL (U+007F)', 'a\u007fb'],
+    ];
+    for (const feld of felder) {
+      for (const [was, wert] of schlecht) {
+        gleich(dekodiere(baue(feld, wert)), { art: 'kaputt' }, `${feld} ${was} → kaputt`);
+      }
+      for (const [was, wert] of [['128 Zeichen', 'x'.repeat(128)], ['mit Leerzeichen', 'Regie-Laptop 2-id'], ['mit Umlaut', 'Büro-é']] as const) {
+        gleich(dekodiere(baue(feld, wert)).art, 'nachricht', `${feld} ${was} → gültig`);
+      }
+    }
+  }
+
   abschnitt('Rahmen: Zeilenleser');
   const l = new ZeilenLeser(16);
   gleich(l.fuettere(Buffer.from('{"a"')), [], 'unvollständige Zeile → nichts');

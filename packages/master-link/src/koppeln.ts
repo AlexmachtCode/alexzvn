@@ -56,6 +56,8 @@ export function koppele(a: KoppelAnfrage): Promise<KoppelErgebnis> {
     let zertifikat = '';
     let ns = '';
     let halloMasterId = '';
+    // Eigener Merker: `ns` allein taugt nicht (eine leere Nonce ließe `!ns` wahr und die Frist immer wieder neu anlaufen).
+    let halloGesehen = false;
 
     const socket = connect({ host: a.adresse, port, rejectUnauthorized: false });
 
@@ -106,7 +108,10 @@ export function koppele(a: KoppelAnfrage): Promise<KoppelErgebnis> {
       v = verbindung;
       verbindung.on('ende', () => ende({ ok: false, art: 'verbindung', code: 'kein-master' }));
       verbindung.on('nachricht', sicher((n: Nachricht) => {
-        if (n.t === 'hallo' && !ns) {
+        if (n.t === 'hallo') {
+          // Nur das ERSTE 'hallo' wird beantwortet; jedes weitere ist still ignoriert und setzt die Frist NICHT neu.
+          if (halloGesehen) return;
+          halloGesehen = true;
           ns = n.nonce;
           halloMasterId = n.masterId;
           const d = { fp, ns, nc, rechnerId: a.rechner.id, schluessel: paar.oeffentlich };
@@ -123,7 +128,7 @@ export function koppele(a: KoppelAnfrage): Promise<KoppelErgebnis> {
           setzeFrist(f.koppelnMs, { ok: false, art: 'frist' });
           return;
         }
-        if (!ns) return;
+        if (!halloGesehen) return;
         // Vor dem geprüften 'gekoppelt' zählt nur 'abgelehnt' — und das nur zur Anzeige.
         if (n.t === 'abgelehnt') {
           ende({ ok: false, art: 'abgelehnt', grund: n.grund, rest: n.rest });

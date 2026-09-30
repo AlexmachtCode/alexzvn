@@ -16,6 +16,8 @@ const rechnerC = { id: 'rechner-c', name: 'Neuer PC' };
 /** Ein fremdes Gerät, das sich als Master ausgibt (eigenes Zertifikat, masterId „falsch“). */
 async function falscherMaster(
   aufKoppeln: (v: Verbindung, n: Extract<Nachricht, { t: 'koppeln' }>, fp: string, ns: string) => void,
+  /** Ersetzt das eine ordentliche 'hallo' (z. B. durch eine Schleife mit leerer Nonce). */
+  hallo?: (v: Verbindung, ns: string) => void,
 ): Promise<{ port: number; schliesse(): void }> {
   const z = erzeugeTestZertifikat();
   const fp = certFingerprint(z.cert);
@@ -25,7 +27,8 @@ async function falscherMaster(
     v.on('nachricht', (n: Nachricht) => {
       if (n.t === 'koppeln') aufKoppeln(v, n, fp, ns);
     });
-    v.sende({ t: 'hallo', protokoll: 1, masterId: 'falsch', name: 'Regie-PC', nonce: ns });
+    if (hallo) hallo(v, ns);
+    else v.sende({ t: 'hallo', protokoll: 1, masterId: 'falsch', name: 'Regie-PC', nonce: ns });
   });
   await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
   return { port: (srv.address() as AddressInfo).port, schliesse: () => srv.close() };
@@ -160,6 +163,56 @@ export async function laufe(): Promise<void> {
     });
     const r = await koppele({ adresse: '127.0.0.1', port: f.port, code: K, rechner: rechnerC, fristen: { koppelnMs: 300 } });
     gleich(r.ok ? null : r, { ok: false, art: 'frist' }, 'harte 10-s-Frist (hier 300 ms): Puls verlängert nicht, später Beweis wird nie angenommen');
+    f.schliesse();
+  }
+
+  {
+    // Der Angreifer kennt K und schickt 'hallo' mit LEERER Nonce in Schleife: das darf weder die harte Frist neu ansetzen
+    // noch als „hallo gesehen“ gelten. Später käme ein 'hallo' mit echter Nonce und ein gültiges 'gekoppelt' (1,5 s).
+    const K = 'K7QXM3PRTH';
+    let echtGesendet = false;
+    const f = await falscherMaster((v, n, fp) => {
+      if (!echtGesendet) return;
+      const d = { fp, ns: 'echt', nc: n.nonce, rechnerId: n.rechnerId, schluessel: n.schluessel };
+      v.sende({ t: 'gekoppelt', masterId: 'falsch', name: 'X', beweis: masterBeweis(K, d, 'falsch'), adressen: [] });
+    }, (v) => {
+      const leer = (): void => v.sende({ t: 'hallo', protokoll: 1, masterId: 'falsch', name: 'X', nonce: '' });
+      leer();
+      const schleife = setInterval(leer, 50);
+      v.on('ende', () => clearInterval(schleife));
+      setTimeout(() => {
+        clearInterval(schleife);
+        echtGesendet = true;
+        v.sende({ t: 'hallo', protokoll: 1, masterId: 'falsch', name: 'X', nonce: 'echt' });
+      }, 1500);
+    });
+    const t0 = Date.now();
+    const r = await koppele({ adresse: '127.0.0.1', port: f.port, code: K, rechner: rechnerC, fristen: { koppelnMs: 300 } });
+    const dauer = Date.now() - t0;
+    pruefe(!r.ok && (r.art === 'frist' || (r.art === 'verbindung' && r.code === 'kein-master')),
+      `hallo mit leerer Nonce in Schleife → frist oder kein-master, nie gekoppelt (${r.ok ? 'ok' : r.art})`);
+    pruefe(dauer < 1000, `… und innerhalb der Frist statt erst nach der Schleife (${dauer} ms)`);
+    if (r.ok) r.verbindung.schliesse();
+    f.schliesse();
+  }
+  {
+    // Ein zweites 'hallo' (auch mit echter Nonce) wird nie beantwortet und setzt die Frist nicht neu.
+    const K = 'K7QXM3PRTH';
+    let koppelnGesamt = 0;
+    const f = await falscherMaster((v, n, fp, ns) => {
+      koppelnGesamt++;
+      if (koppelnGesamt > 1) return;
+      const weitere = setInterval(() => v.sende({ t: 'hallo', protokoll: 1, masterId: 'falsch', name: 'X', nonce: randomNonce() }), 50);
+      v.on('ende', () => clearInterval(weitere));
+      setTimeout(() => {
+        clearInterval(weitere);
+        const d = { fp, ns, nc: n.nonce, rechnerId: n.rechnerId, schluessel: n.schluessel };
+        v.sende({ t: 'gekoppelt', masterId: 'falsch', name: 'X', beweis: masterBeweis(K, d, 'falsch'), adressen: [] });
+      }, 450);
+    });
+    const r = await koppele({ adresse: '127.0.0.1', port: f.port, code: K, rechner: rechnerC, fristen: { koppelnMs: 300 } });
+    gleich(r.ok ? null : r, { ok: false, art: 'frist' }, 'weitere hallo verlängern die Frist nicht, der späte gültige Beweis wird nie angenommen');
+    gleich(koppelnGesamt, 1, 'auf weitere hallo folgt kein weiteres koppeln');
     f.schliesse();
   }
 

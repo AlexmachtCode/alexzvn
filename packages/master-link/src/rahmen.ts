@@ -43,6 +43,16 @@ const istZahl = (v: unknown): v is number => typeof v === 'number' && Number.isF
 const istTextListe = (v: unknown): v is string[] => Array.isArray(v) && v.every(istText);
 const optional = (v: unknown, p: (x: unknown) => boolean): boolean => v === undefined || p(v);
 
+/**
+ * Felder, die in Beweise und Signaturen eingehen (hallo.nonce, koppeln.nonce, koppeln.rechnerId, anmelden.rechnerId):
+ * nicht leer, höchstens 128 Zeichen, kein „|“ (Trennzeichen in beweis.ts) und keine Steuerzeichen.
+ * Bewusst KEINE engere Zeichenklasse: rechnerIds dürfen z. B. Leerzeichen enthalten.
+ * Eine leere Nonce darf nie als „hallo gesehen“ durchgehen (Spec 3.3: die harte Frist beim Koppeln).
+ */
+const KENNUNG_UNZULAESSIG = /[|\u0000-\u001f\u007f]/;
+const istKennung = (v: unknown): v is string =>
+  istText(v) && v.length > 0 && v.length <= 128 && !KENNUNG_UNZULAESSIG.test(v);
+
 function istTeilnehmer(v: unknown): v is TeilnehmerInfo {
   if (typeof v !== 'object' || v === null) return false;
   const o = v as Objekt;
@@ -52,11 +62,11 @@ function istTeilnehmer(v: unknown): v is TeilnehmerInfo {
 
 // Map statt Objekt-Literal: t = "constructor"/"__proto__" darf keinen Prüfer finden.
 const PRUEFER = new Map<string, (o: Objekt) => boolean>([
-  ['hallo', (o) => istZahl(o.protokoll) && istText(o.masterId) && istText(o.name) && istText(o.nonce)],
-  ['koppeln', (o) => istZahl(o.protokoll) && istText(o.rechnerId) && istText(o.rechnerName)
-    && istText(o.nonce) && istText(o.schluessel) && istText(o.beweis)],
+  ['hallo', (o) => istZahl(o.protokoll) && istText(o.masterId) && istText(o.name) && istKennung(o.nonce)],
+  ['koppeln', (o) => istZahl(o.protokoll) && istKennung(o.rechnerId) && istText(o.rechnerName)
+    && istKennung(o.nonce) && istText(o.schluessel) && istText(o.beweis)],
   ['gekoppelt', (o) => istText(o.masterId) && istText(o.name) && istText(o.beweis) && istTextListe(o.adressen)],
-  ['anmelden', (o) => istZahl(o.protokoll) && istText(o.rechnerId) && istText(o.rechnerName)
+  ['anmelden', (o) => istZahl(o.protokoll) && istKennung(o.rechnerId) && istText(o.rechnerName)
     && istText(o.signatur) && istTeilnehmer(o.teilnehmer)],
   ['teilnehmer', (o) => istTeilnehmer(o.teilnehmer)],
   ['angemeldet', (o) => istTextListe(o.adressen) && istText(o.suite)],
