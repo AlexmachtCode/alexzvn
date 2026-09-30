@@ -433,6 +433,9 @@ Dauerhaft sichtbare Anzeigen lügen, wenn ein Zustand vergessen wurde (#208: sec
 | slave | `ersetzt` | „Kennung doppelt: neu koppeln“ | rot |
 | slave | `datei` | „Kopplung beschädigt: neu koppeln“ | rot |
 | slave | `sonstig` | „Verbindungsfehler ⟨err.code⟩“ | rot |
+| unbekannt | `master-link.json` beim Start nicht lesbar (I/O, 7.3) | „Kopplungsdatei gesperrt: ⟨err.code⟩“ | rot |
+
+Die letzte Zeile kam beim Probelauf des Plans hinzu: Solange die Datei nicht lesbar ist, ist die Rolle unbekannt. „Verbund aus“ wäre falsch, „neu koppeln“ überschriebe eine intakte Kopplung. Der Launcher liest weiter, startet keine Rolle und schreibt nichts, bis das Lesen gelingt.
 
 **Vorrang für den Hinweis „Karte fehlt“:** In grünen und neutralen Zuständen wird die Farbe gelb und der Kopf zeigt „· Karte fehlt“. In gelben Zuständen wird „· Karte fehlt“ angehängt. In roten bleibt der Kopf unverändert, der Hinweis steht dann nur im Modal.
 
@@ -542,6 +545,7 @@ Schreiben darf **nur der Launcher**, Tools lesen nur.
 - Das JSON ist nicht lesbar.
 - Die Rolle ist `master` oder `slave`, aber `kopplung` ist vorhanden **und** unvollständig: Es fehlt einer von `masterId`, `fingerprint`, `zertifikat`, `schluessel.privat`, `schluessel.oeffentlich`.
 - `fingerprint ≠ certFingerprint(zertifikat)`.
+- `schluessel.privat` lässt sich nicht als Ed25519-Schlüssel laden, oder `schluessel.oeffentlich` ist kein Ed25519-Schlüssel. (Nachtrag aus dem Probelauf des Plans: Sonst stürzte jedes Tool beim ersten Anmeldeversuch ab.)
 
 Unbekannte Zusatzfelder werden verworfen und gelten nicht als Defekt.
 
@@ -552,7 +556,7 @@ Unbekannte Zusatzfelder werden verworfen und gelten nicht als Defekt.
 
 ### 7.2 `<userData des Launchers>/master-link/` (nur Master)
 
-- `identitaet.json`: masterId, Name, Zertifikat, privater Schlüssel
+- `identitaet.json`: masterId, Name, Zertifikat, privater Schlüssel. Beschädigt ist sie auch, wenn Schlüssel und Zertifikat nicht ladbar sind oder nicht zusammenpassen. (Nachtrag aus dem Probelauf: Sonst zeigte der Master „läuft“, obwohl jeder Handshake scheitert, und die `.bak` würde nie versucht.)
 - `verbund.json`: gekoppelte Rechner. Je Eintrag stehen dort:
   - `rechnerId`, `name`
   - `schluessel` (öffentlich)
@@ -872,6 +876,7 @@ Checkliste als `packages/master-link/ABNAHME.md`. Jeder Punkt hat die Spalten **
 ## 14 · Nicht in Teil 1
 
 - Show-Daten über das Netz, iveo-Weitergabe, #235 → Teil 2
+- iveo-Live-Zustand je Bühne (aktuelles Programm + erkannter Speaker; neue Endpunkte `/live`, `/live/stream` laut iveo-Briefing vom 30.09.2026, auf Prod erst mit dem nächsten iveo-Release) → Teil 2. Der Master hält die iveo-Verbindung, das Token verlässt ihn nie. Die Nachrichtenform des Master-Links (unbekannte Typen werden ignoriert, 6.1) nimmt das ohne Protokollwechsel auf.
 - Fernstart von Tools → Teil 3
 - Show-Zentrale als eigenes Fenster → Teil 4
 - Anzeige in den Tools → Teil 2
