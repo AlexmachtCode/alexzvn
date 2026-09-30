@@ -23,6 +23,18 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.12.0",
+        "date": "2026-10-01",
+        "notes": [
+          "Neu: Verbund für mehrere Rechner. Ein Launcher wird Master, andere Rechner koppeln sich einmal mit einem 10-stelligen Code und finden ihn danach selbst wieder, auch wenn sich das Netz ändert.",
+          "Der Master zeigt je Rechner, welche Tools laufen, mit online, offline und zuletzt gesehen. Rechner lassen sich entfernen, das wirkt sofort.",
+          "Netzwerk der Suite wählbar: Automatisch oder eine bestimmte Netzwerkkarte. Behebt #234: Bei mehreren Netzwerkkarten wird die Adresse im eigenen Netz bevorzugt.",
+          "Die Verbindung ist immer verschlüsselt, das Zertifikat des Masters wird bei jedem Aufbau geprüft. Fehlermeldungen nennen die Ursache: Firewall, Master aus, anderer Master, Uhrzeit oder Versionen.",
+          "Die Kopfanzeige Verbund zeigt jederzeit den Zustand, ein Klick öffnet das Fenster Verbund. Anleitung und Firewall-Hilfe im Handbuch Verbund.",
+          "Wurde ein Rechner kopiert oder aus einem Image aufgesetzt, meldet der Verbund Kennung doppelt. Der Knopf Neue Kennung im Fenster Verbund behebt das, danach einmal neu koppeln."
+        ]
+      },
+      {
         "version": "0.11.1",
         "date": "2026-09-30",
         "notes": [
@@ -579,6 +591,14 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.12.0",
+        "date": "2026-10-01",
+        "notes": [
+          "Verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Der Launcher zeigt auf jedem Rechner, ob der Timer mit dem Master verbunden ist."
+        ]
+      },
+      {
         "version": "0.11.2",
         "date": "2026-09-30",
         "notes": [
@@ -996,6 +1016,14 @@
     "app": "titler",
     "name": "JM Titler",
     "entries": [
+      {
+        "version": "0.9.0",
+        "date": "2026-10-01",
+        "notes": [
+          "Verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Der Launcher zeigt auf jedem Rechner, ob der Titler mit dem Master verbunden ist."
+        ]
+      },
       {
         "version": "0.8.2",
         "date": "2026-09-30",
