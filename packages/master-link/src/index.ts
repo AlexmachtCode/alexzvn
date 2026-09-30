@@ -5,3 +5,4 @@ export * from './beweis';
 export * from './rahmen';
 export * from './verbindung';
 export * from './adresswahl';
+export * from './fehler';
