@@ -20,5 +20,8 @@ Rechner A = Master („Regie-PC“), Rechner B = zweiter Rechner. Beide mit Laun
 | 10 | Netz ohne Internet-Gateway (Profil „Öffentlich“) | Koppeln und verbinden | klappt, sobald die Regel „Öffentlich“ erlaubt; ohne diese zeigt B den Firewall-Hinweis | |
 | 11 | falls vorhanden: Rechner mit Hyper-V- oder zweiter Karte | koppeln; feste Adresse über eine VLAN-Grenze | richtige Adresse wird gewählt; feste Adresse funktioniert | |
 | 12 | alles erledigt | An A Master-Modus aus, **ein Rechner allein** | Show-Start, RELOAD und Anzeigen wie vorher | |
+| 13 | B gekoppelt, **Launcher auf B läuft**, auf B laufen Timer 0.12.0 und ein noch nicht aktualisiertes Tool | Verbund-Modal auf B öffnen (danach dasselbe an A) | unter „Tools dieses Rechners“: Timer „mit Master verbunden“, das alte Tool „läuft, noch ohne Verbund (Update nötig)“; an A dieselbe Liste für A | |
+| 14 | B verbunden | An A „Name des Masters“ ändern (z. B. „Regie-PC Saal 2“), dann Launcher auf A neu starten | B verbindet neu, Kopf auf B zeigt „Regie-PC Saal 2 ●“; in B's `master-link.json` steht der neue Name | |
+| 15 | B gekoppelt; ein weiterer Rechner C (falls vorhanden) | B's `master-link.json` nach C kopieren (`%APPDATA%\JM Production Suite\`), Launcher auf C starten | einer von beiden zeigt „Kennung doppelt: neu koppeln“; dort Verbund → „Neue Kennung“ → bestätigen, mit neuem Code koppeln → B und C verbunden, an A zwei Einträge | |
 
 **macOS:** Die Regel `bind: '0.0.0.0'` für mDNS stammt aus dem Code von multicast-dns und ist nicht abgenommen. Ein Mac-Test folgt, sobald ein Mac im Aufbau steht.

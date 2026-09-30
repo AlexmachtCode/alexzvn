@@ -479,5 +479,30 @@ function ck(name: string, cond: boolean): void {
     store.includes('beimSchliessen(') && store.includes('console.warn') && !store.includes('stand?.master?.kopplung.offen'));
 }
 
+// --- Endprüfung E1: das Handbuch erklärt JEDE Zeile der Tabelle 5.4, im Wortlaut der Kopfanzeige ------------------
+{
+  const handbuch = readFileSync(new URL('../../../docs/suite-verbund.md', import.meta.url), 'utf8');
+  const n = 'Regie-PC';
+  const alle: KopfEingang[] = [
+    { rolle: 'aus' },
+    { rolle: 'gesperrt', errCode: 'EBUSY' },
+    { rolle: 'master', zustand: 'startet', karteFehlt: false },
+    { rolle: 'master', zustand: 'laeuft', n: 0, m: 0, karteFehlt: false },
+    { rolle: 'master', zustand: 'laeuft', n: 2, m: 2, karteFehlt: false },
+    { rolle: 'master', zustand: 'laeuft', n: 1, m: 2, karteFehlt: false },
+    { rolle: 'master', zustand: 'port-belegt', karteFehlt: false },
+    { rolle: 'master', zustand: 'daten-beschaedigt', karteFehlt: false },
+    { rolle: 'master', zustand: 'lausch-fehler', errCode: 'EACCES', karteFehlt: false },
+    { rolle: 'slave', zustand: 'nicht-gekoppelt', karteFehlt: false },
+    ...(['koppelt', 'sucht', 'verbindet', 'verbunden'] as const).map((zustand) => ({ rolle: 'slave' as const, zustand, name: n, karteFehlt: false })),
+    ...(['zeit', 'nicht-gefunden', 'verweigert', 'netz', 'kein-master', 'zertifikat', 'uhr', 'protokoll', 'unbekannt', 'signatur', 'ersetzt', 'datei'] as const)
+      .map((code) => ({ rolle: 'slave' as const, zustand: 'fehler' as const, code, name: n, karteFehlt: false })),
+    { rolle: 'slave', zustand: 'fehler', code: 'sonstig', errCode: 'ECONNRESET', name: n, karteFehlt: false },
+  ];
+  const fehlend = alle.map((e) => kopfanzeige(e).text).filter((t) => !handbuch.includes(`| ${t} |`));
+  ck(`E1: Handbuch „Was die Kopfanzeige sagt“ enthält alle ${alle.length} Zeilen der Tabelle 5.4 wörtlich (fehlend: ${fehlend.join(' · ') || '—'})`,
+    fehlend.length === 0);
+}
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

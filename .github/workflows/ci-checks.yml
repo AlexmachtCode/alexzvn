@@ -32,6 +32,8 @@ jobs:
   selftests:
     name: Selbsttests (Master-Link + Launcher)
     runs-on: ubuntu-latest
+    # Echte Sockets und Fristen: ein hängender Test darf den Lauf nicht 6 h blockieren (Endprüfung E3).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
