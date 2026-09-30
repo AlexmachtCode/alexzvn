@@ -2,7 +2,7 @@
 // Master und Slaves laufen in EINEM Prozess mit getrennten appData-/userData-Ordnern auf 127.0.0.1.
 // Auch der Kern hinter verbund/index.ts (verbund/kern.ts: Kette, Schreibsperre, Rollenstart) läuft hier ohne Electron.
 import { X509Certificate } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { connect, createServer, type AddressInfo } from 'node:net';
 import { createServer as createTlsServer } from 'node:tls';
@@ -1003,17 +1003,21 @@ const dateiRolle = (pfad: string): string | null => dateiDaten(pfad)?.rolle ?? n
   const mS = neuerMaster(S, pS, { log: lmS.log });
   await mS.starte();
   ck('B6: Master läuft, kein Speicherfehler', mS.stand().zustand === 'laeuft' && mS.stand().speicherFehler === null);
-  const vbS = join(S.speicherDir, 'verbund.json');
-  chmodSync(vbS, 0o444); // Schreibschutz (Windows: Attribut „schreibgeschützt“) — rename darauf scheitert
+  // Dauerhafter Schreibfehler, plattformunabhängig (CI läuft unter Linux, dort hindert ein Schreibschutz der DATEI das
+  // rename nicht): an die Stelle des Ordners tritt eine Datei → mkdir/rename scheitern sofort. Danach zurück.
+  const wegS = `${S.speicherDir}-weg`;
+  renameSync(S.speicherDir, wegS);
+  writeFileSync(S.speicherDir, 'steht im Weg');
   mS.oeffneKopplung();
   const SS = rechner('slave', 'Speicher-Laptop');
   const sS = neuerSlave(SS);
   sS.starte();
   await sS.koppele(`127.0.0.1:${pS}`, mS.stand().kopplung.code!);
   const code = mS.stand().speicherFehler;
-  ck(`B6: schreibgeschützte verbund.json → stand().speicherFehler = Code (${code})`, typeof code === 'string' && /^E[A-Z]+$/.test(code));
+  ck(`B6: verbund.json nicht schreibbar → stand().speicherFehler = Code (${code})`, typeof code === 'string' && /^E[A-Z]+$/.test(code));
   ck('B6: … Log nennt nur den Code (keinen Pfad)', lmS.zeilen.some((z) => z.includes('verbund.json nicht geschrieben')) && lmS.zeilen.every((z) => !z.includes(S.speicherDir)));
-  chmodSync(vbS, 0o644);
+  rmSync(S.speicherDir);
+  renameSync(wegS, S.speicherDir);
   ck('B6: nach Behebung (Wiederholung schreibt) → speicherFehler null', await bis(() => mS.stand().speicherFehler === null, 3000));
   await sS.stoppe();
   await mS.stoppe();
