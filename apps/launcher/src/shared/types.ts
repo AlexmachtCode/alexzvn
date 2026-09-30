@@ -343,7 +343,9 @@ export type AppEvent =
   | { type: 'show-launch-done'; launched: number; total: number; missing: string[] }
   // iveo (#11): eine iveo-gebundene Show ist offen bzw. das aktive Side Event hat
   // sich geändert (Live-Umschalter/Rundown-GO) → Panel aktualisieren.
-  | { type: 'iveo-active-changed'; event: string; day?: string; activeProgramId?: string; canSwitch: boolean };
+  | { type: 'iveo-active-changed'; event: string; day?: string; activeProgramId?: string; canSwitch: boolean }
+  // Master-Link Teil 1: Rolle, Kopplung, Teilnehmer oder Client-Zustand haben sich geändert.
+  | { type: 'verbund-changed' };
 
 /** Die unter `window.jmps` bereitgestellte Launcher-API. */
 export interface JmpsApi {
@@ -417,3 +419,99 @@ export interface JmpsApi {
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
 }
+
+// ── Master-Link / Verbund (Spec docs/superpowers/specs/2026-09-30-master-link-teil1-design.md) ──
+
+export type VerbundRolle = 'aus' | 'master' | 'slave';
+
+/** Spiegel von FehlerCode aus @jm/master-link — der Renderer importiert das Paket nicht (Node-Typen). */
+export type VerbundFehlerCode =
+  | 'zeit' | 'nicht-gefunden' | 'verweigert' | 'netz' | 'kein-master' | 'zertifikat' | 'uhr'
+  | 'protokoll' | 'unbekannt' | 'signatur' | 'ersetzt' | 'datei' | 'sonstig';
+
+export interface VerbundKarte {
+  name: string;
+  /** „10.0.0.110/24“ */
+  adressen: string[];
+  virtuell: boolean;
+  nurLinkLocal: boolean;
+}
+
+export interface VerbundTool {
+  appId: string;
+  name: string;
+  version: string;
+  art: 'tool' | 'launcher';
+  verbundenSeit: number;
+}
+
+export interface VerbundRechner {
+  rechnerId: string;
+  name: string;
+  dieserRechner: boolean;
+  online: boolean;
+  zuletztGesehen: number | null;
+  adresse: string | null;
+  tools: VerbundTool[];
+}
+
+export interface GefundenerMaster {
+  masterId: string;
+  name: string;
+  fpKurz: string;
+  /** Beste zuerst (#234-Reihenfolge). */
+  adressen: string[];
+}
+
+export type MasterZustand = 'startet' | 'laeuft' | 'port-belegt' | 'daten-beschaedigt' | 'lausch-fehler';
+
+export interface VerbundKopplungsfenster {
+  offen: boolean;
+  code: string | null;
+  gueltigBis: number | null;
+  rest: number;
+  ungueltig: boolean;
+}
+
+export interface VerbundMasterStand {
+  zustand: MasterZustand;
+  fehlerCode: string | null;
+  name: string;
+  fpKurz: string;
+  /** Eine Datei wurde aus .bak wiederhergestellt. */
+  ausBak: boolean;
+  rechner: VerbundRechner[];
+  kopplung: VerbundKopplungsfenster;
+}
+
+export interface VerbundClientStand {
+  art: 'aus' | 'sucht' | 'verbindet' | 'verbunden' | 'fehler';
+  adresse?: string;
+  seit?: number;
+  code?: VerbundFehlerCode;
+  text?: string;
+  errCode?: string;
+}
+
+export interface VerbundSlaveStand {
+  gekoppelt: boolean;
+  koppeltGerade: boolean;
+  masterName: string | null;
+  festeAdresse: string | null;
+  client: VerbundClientStand;
+  gefundeneMaster: GefundenerMaster[];
+}
+
+export interface VerbundStand {
+  rolle: VerbundRolle;
+  rechnerName: string;
+  karten: VerbundKarte[];
+  gewaehlteKarte: string | null;
+  karteFehlt: boolean;
+  /** master-link.json beim Start nicht lesbar (I/O-Code, Spec 7.3): Rolle unbekannt, es wird nichts geschrieben. */
+  dateiFehler: string | null;
+  master: VerbundMasterStand | null;
+  slave: VerbundSlaveStand | null;
+}
+
+export type KoppelAntwort = { ok: true } | { ok: false; text: string };
