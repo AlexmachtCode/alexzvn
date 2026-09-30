@@ -291,6 +291,11 @@ export interface PresenceRecord {
   lastSeen: number;
   /** Zuletzt aufgezeichneter Absturz (aus einem früheren Lauf), falls vorhanden. */
   lastCrash?: { kind: string; at: string } | null;
+  /**
+   * Zustand des Master-Links im Tool (Master-Link Teil 1): aus · sucht · verbindet · verbunden ·
+   * fehler:<code>. Fehlt das Feld, hat das Tool noch keinen Master-Link (älterer Stand).
+   */
+  verbund?: string;
 }
 
 /** Live-Zustand eines im LAN entdeckten Steuer-Endpunkts (für das Dashboard). */

@@ -1,6 +1,7 @@
 // Selbsttest der reinen Launcher-Helfer - ohne Electron, ohne Fenster:
 //   node --experimental-strip-types test/selftest.ts
 import { startShowTools } from '../src/main/show-launch.ts';
+import { PresenceStore, gueltigerVerbund } from '../src/main/presence-store.ts';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -34,6 +35,39 @@ function ck(name: string, cond: boolean): void {
 {
   const r = await startShowTools([], () => undefined, async () => ({ ok: true }));
   ck('leere Show: nichts gestartet, nichts fehlt', r.launched === 0 && r.missing.length === 0);
+}
+
+// --- Presence: Verbund-Zustand der Tools (Master-Link Teil 1, Spec 5.2) -----
+// Vorher meldete der Hub nur Start/Stopp (Signatur appId@version): ein Wechsel
+// "verbunden" -> "fehler:zeit" kam bei offenem Launcher nie in der Anzeige an.
+{
+  let meldungen = 0;
+  const s = new PresenceStore(() => { meldungen++; });
+  s.verarbeite({ appId: 'jm-timer', name: 'JM Timer', version: '0.12.0', pid: 1, event: 'hello', verbund: 'verbunden' });
+  ck('hello meldet einmal', meldungen === 1);
+  s.verarbeite({ appId: 'jm-timer', event: 'beat', verbund: 'verbunden' });
+  ck('gleicher Zustand meldet nicht erneut', meldungen === 1);
+  s.verarbeite({ appId: 'jm-timer', event: 'beat', verbund: 'fehler:zeit' });
+  ck('Wechsel des Verbund-Zustands meldet genau einmal', meldungen === 2);
+  ck('Snapshot traegt den Zustand', s.snapshot()[0].verbund === 'fehler:zeit');
+  s.verarbeite({ appId: 'jm-timer', event: 'beat' });
+  ck('Beat ohne Feld (alter Tool-Stand) -> verbund undefined', s.snapshot()[0].verbund === undefined);
+  ck('gueltigerVerbund lehnt Muell ab', gueltigerVerbund('rm -rf') === undefined && gueltigerVerbund(42) === undefined);
+  ck('gueltigerVerbund nimmt fehler:<code>', gueltigerVerbund('fehler:nicht-gefunden') === 'fehler:nicht-gefunden');
+  s.verarbeite({ appId: 'jm-timer', event: 'bye' });
+  ck('bye meldet', meldungen === 4 && !s.snapshot()[0].running);
+  s.verarbeite({ appId: 'jm-qa', name: 'JM Q&A', version: '0.3.0', pid: 2, event: 'hello', logDir: 'C:/logs/qa' });
+  ck('logQuellen: nur Tools mit logDir (Log-Anhang im Feedback)',
+    JSON.stringify(s.logQuellen()) === JSON.stringify([{ appId: 'jm-qa', name: 'JM Q&A', logDir: 'C:/logs/qa' }]));
+}
+{
+  let jetzt = 1000;
+  let meldungen = 0;
+  const s = new PresenceStore(() => { meldungen++; }, () => jetzt, 25_000);
+  s.verarbeite({ appId: 'jm-qa', event: 'hello' });
+  jetzt += 26_000;
+  s.pruefe();
+  ck('ohne Lebenszeichen nach 25 s gestoppt (Sweep meldet)', meldungen === 2 && !s.snapshot()[0].running);
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
