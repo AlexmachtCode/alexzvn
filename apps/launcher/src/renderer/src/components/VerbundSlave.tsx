@@ -18,6 +18,7 @@ export function VerbundSlave({ stand }: { stand: VerbundStand }) {
 function Koppeln({ stand }: { stand: VerbundStand }) {
   const s = stand.slave!;
   const koppele = useVerbund((x) => x.koppele);
+  const anstossen = useVerbund((x) => x.anstossen);
   const meldung = useVerbund((x) => x.meldung);
   const beschaeftigt = useVerbund((x) => x.beschaeftigt);
   const [auswahl, setAuswahl] = useState('');
@@ -41,8 +42,8 @@ function Koppeln({ stand }: { stand: VerbundStand }) {
               <li key={g.masterId}>
                 <label className="flex cursor-pointer items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] px-3 py-2 text-xs">
                   <input type="radio" name="master" checked={auswahl === a && !hand.trim()} onChange={() => { setAuswahl(a); setHand(''); }} />
-                  <span className="font-bold">{g.name}</span>
-                  <span className="text-[var(--muted-foreground)]">{a} · {g.fpKurz}</span>
+                  <span className="min-w-0 truncate font-bold" title={g.name}>{g.name}</span>
+                  <span className="shrink-0 text-[var(--muted-foreground)]">{a} · {g.fpKurz}</span>
                 </label>
               </li>
             );
@@ -70,7 +71,7 @@ function Koppeln({ stand }: { stand: VerbundStand }) {
           {s.koppeltGerade ? 'Koppeln…' : 'Koppeln'}
         </Button>
         {s.koppeltGerade && (
-          <Button size="sm" variant="ghost" uppercase={false} onClick={() => void window.jmps.brecheKoppelnAb()}>Abbrechen</Button>
+          <Button size="sm" variant="ghost" uppercase={false} onClick={() => anstossen(() => window.jmps.brecheKoppelnAb())}>Abbrechen</Button>
         )}
       </div>
     </Abschnitt>
@@ -99,7 +100,7 @@ function Gekoppelt({ stand }: { stand: VerbundStand }) {
           label="Feste Master-Adresse (optional, z. B. über VLAN)"
           wert={s.festeAdresse ?? ''}
           platzhalter="10.0.0.110"
-          onSpeichern={(v) => void fuehreAus(() => window.jmps.setzeFesteMasterAdresse(v || null))}
+          onSpeichern={(v) => fuehreAus(() => window.jmps.setzeFesteMasterAdresse(v || null))}
         />
       </div>
       <Button size="sm" variant="outline" uppercase={false} className="mt-3" onClick={() => setFrage(true)}>Trennen</Button>

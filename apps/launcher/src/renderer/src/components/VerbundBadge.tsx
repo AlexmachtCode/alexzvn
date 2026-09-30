@@ -1,26 +1,33 @@
 import { cn } from '@jm/ui';
-import { kopfanzeige, kopfEingang } from '@/lib/kopfanzeige';
+import { kopfEingang, kopfZeile } from '@/lib/kopfanzeige';
 import { useVerbund } from '@/store/verbund';
 import { FARBE_KLASSE } from './VerbundTeile';
 
-/** Immer sichtbare Kopfanzeige des Verbunds (Spec 5.4). Klick öffnet das Modal. */
+/**
+ * Immer sichtbare Kopfanzeige des Verbunds (Spec 5.4). Klick öffnet das Modal.
+ * Bei 980 px ist der Platz knapp, aber die Tabelle 5.4 unterscheidet ihre Zustände im Statusteil, im Code und am
+ * „· Karte fehlt“: die Anzeige bricht deshalb lieber um, als sie abzuschneiden. Gekürzt wird NUR der Master-Name
+ * (eigenes truncate mit fester Breite); sein voller Text steht im Tooltip und in der Pille des Modals.
+ */
 export function VerbundBadge() {
   const stand = useVerbund((s) => s.stand);
   const oeffne = useVerbund((s) => s.oeffne);
   if (!stand) return null;
-  const k = kopfanzeige(kopfEingang(stand));
+  const z = kopfZeile(kopfEingang(stand));
   return (
     <button
       type="button"
       onClick={oeffne}
       aria-label="Verbund"
-      title={`Verbund · ${k.text}`}
+      title={`Verbund · ${z.vor}${z.name}${z.nach}`}
       className={cn(
-        'h-8 max-w-[12rem] truncate rounded-[var(--radius-full)] border px-3 text-[11px] font-bold transition-colors hover:brightness-110',
-        FARBE_KLASSE[k.farbe],
+        'min-h-8 max-w-[17rem] break-words rounded-[var(--radius-full)] border px-3 py-1 text-[11px] font-bold leading-tight transition-colors hover:brightness-110',
+        FARBE_KLASSE[z.farbe],
       )}
     >
-      {k.text}
+      {z.vor}
+      {z.name && <span className="inline-block max-w-[10rem] truncate align-bottom">{z.name}</span>}
+      {z.nach}
     </button>
   );
 }

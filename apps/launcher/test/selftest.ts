@@ -2,7 +2,7 @@
 //   node --experimental-strip-types test/selftest.ts
 import { startShowTools } from '../src/main/show-launch.ts';
 import { PresenceStore, gueltigerVerbund } from '../src/main/presence-store.ts';
-import { kopfanzeige, kopfEingang, type KopfEingang } from '../src/renderer/src/lib/kopfanzeige.ts';
+import { kopfanzeige, kopfEingang, kopfZeile, type KopfEingang } from '../src/renderer/src/lib/kopfanzeige.ts';
 import { ablehnungText, toolVerbundText, zeigeCode } from '../src/renderer/src/lib/verbund-texte.ts';
 import type { VerbundClientStand, VerbundStand } from '../src/shared/types.ts';
 
@@ -271,6 +271,77 @@ function ck(name: string, cond: boolean): void {
     ablehnungText('EPERM') === ABGELEHNT('UNBEKANNT') && ablehnungText(undefined) === ABGELEHNT('UNBEKANNT'));
   ck('Ablehnung: überlanger Code wird auf 32 Zeichen gekürzt',
     ablehnungText(new Error(`E${'A'.repeat(100)}`)) === ABGELEHNT(`E${'A'.repeat(31)}`));
+
+  // Der Code wird an den Electron-Rahmen gebunden: er steht direkt nach „Error invoking remote method …: Error: “ bzw.
+  // am Anfang der eigentlichen Meldung — nie irgendwo im Fremdtext (Pfad C:\Users\EDV, zitierte Namen).
+  ck('Ablehnung: ein großgeschriebenes E-Wort im Pfad ist kein Code (Pfad C:\\Users\\EDV)',
+    ablehnungText(new Error(`Error invoking remote method 'verbund:rolle': Error: kaputt 'C:\\Users\\EDV\\master-link.json'`)) === ABGELEHNT('UNBEKANNT')
+    && ablehnungText(new Error('Fehler in C:\\Users\\EDV\\x: EPERM')) === ABGELEHNT('UNBEKANNT'));
+  ck('Ablehnung: Meldung, die nur so ähnlich anfängt („EDV-Anlage …“), ist kein Code',
+    ablehnungText(new Error("Error invoking remote method 'verbund:rolle': Error: EDV-Anlage nicht erreichbar")) === ABGELEHNT('UNBEKANNT'));
+  ck('Ablehnung: der Code steht erst nach dem Rahmen (ohne Fehlerklassen-Präfix und mit anderer Klasse)',
+    ablehnungText(new Error("Error invoking remote method 'verbund:rolle': EACCES: permission denied")) === ABGELEHNT('EACCES')
+    && ablehnungText(new Error("Error invoking remote method 'verbund:rolle': TypeError: ENOENT: x")) === ABGELEHNT('ENOENT'));
+  // Ein Koppel-Aufruf, dessen Leitung ausfällt, ist nichts „Nicht gespeichert“: eigener Text.
+  ck('Ablehnung beim Koppeln: eigener Text mit demselben Code-Muster',
+    ablehnungText(electronFehler('ECONNRESET'), 'koppeln') === 'Koppeln fehlgeschlagen (ECONNRESET). Bitte noch einmal versuchen.'
+    && ablehnungText(new Error('kaputt'), 'koppeln') === 'Koppeln fehlgeschlagen (UNBEKANNT). Bitte noch einmal versuchen.'
+    && !ablehnungText(electronFehler('EPERM'), 'koppeln').includes('gespeichert'));
+  ck('Ablehnung bei Anstößen (Suche, Abbrechen, Kopplungsfenster): eigener Text, nie „Nicht gespeichert“',
+    ablehnungText(electronFehler('EPIPE'), 'anstossen') === 'Aktion fehlgeschlagen (EPIPE). Bitte noch einmal versuchen.');
+
+  // Kopfanzeige bei 980 px: nur der Namensteil darf gekürzt werden. kopfZeile() trennt vor · Name · nach; die Anzeige
+  // kürzt NUR den Namen (eigenes truncate), Statusteil, Code und „· Karte fehlt“ stehen vollständig daneben.
+  const LANG = 'N'.repeat(60);
+  const K = ' · Karte fehlt';
+  const c32 = 'C'.repeat(32);
+  // [Eingang, vor, Name, nach] mit dem 60-Zeichen-Namen bzw. dem 32-Zeichen-Code (längster fester Text jeder Zeile)
+  const zeilen: Array<[KopfEingang, string, string, string]> = [
+    [{ rolle: 'aus' }, 'Verbund aus', '', ''],
+    [{ rolle: 'gesperrt', errCode: c32 }, `Kopplungsdatei gesperrt: ${c32}`, '', ''],
+    [{ rolle: 'master', zustand: 'startet', karteFehlt: true }, `Master startet…${K}`, '', ''],
+    [{ rolle: 'master', zustand: 'laeuft', n: 0, m: 0, karteFehlt: true }, `Master · noch keine Rechner${K}`, '', ''],
+    [{ rolle: 'master', zustand: 'laeuft', n: 10, m: 12, karteFehlt: true }, `Master · 10/12 Rechner online${K}`, '', ''],
+    [{ rolle: 'master', zustand: 'laeuft', n: 12, m: 12, karteFehlt: true }, `Master · 12/12 Rechner online${K}`, '', ''],
+    [{ rolle: 'master', zustand: 'port-belegt', karteFehlt: true }, 'Master: Port 8738 belegt', '', ''],
+    [{ rolle: 'master', zustand: 'daten-beschaedigt', karteFehlt: true }, 'Master: Verbunddaten beschädigt', '', ''],
+    [{ rolle: 'master', zustand: 'lausch-fehler', errCode: c32, karteFehlt: true }, `Master-Fehler: ${c32}`, '', ''],
+    [{ rolle: 'slave', zustand: 'nicht-gekoppelt', karteFehlt: true }, `Nicht gekoppelt: Master wählen${K}`, '', ''],
+    [{ rolle: 'slave', zustand: 'fehler', code: 'sonstig', errCode: c32, name: LANG, karteFehlt: true }, `Verbindungsfehler ${c32}`, '', ''],
+    [{ rolle: 'slave', zustand: 'koppelt', name: LANG, karteFehlt: true }, 'Koppeln mit ', LANG, `…${K}`],
+    [{ rolle: 'slave', zustand: 'sucht', name: LANG, karteFehlt: true }, 'Suche ', LANG, `…${K}`],
+    [{ rolle: 'slave', zustand: 'verbindet', name: LANG, karteFehlt: true }, 'Verbinde mit ', LANG, `…${K}`],
+    [{ rolle: 'slave', zustand: 'verbunden', name: LANG, karteFehlt: true }, '', LANG, ` ●${K}`],
+    [{ rolle: 'slave', zustand: 'fehler', code: 'zeit', name: LANG, karteFehlt: true }, '', LANG, ' sichtbar, Port gesperrt: Firewall?'],
+    [{ rolle: 'slave', zustand: 'fehler', code: 'nicht-gefunden', name: LANG, karteFehlt: true }, '', LANG, ' nicht erreichbar'],
+    [{ rolle: 'slave', zustand: 'fehler', code: 'verweigert', name: LANG, karteFehlt: true }, '', LANG, ': Master-Modus aus?'],
+    [{ rolle: 'slave', zustand: 'fehler', code: 'netz', name: LANG, karteFehlt: true }, '', LANG, ': Netz nicht erreichbar'],
+    [{ rolle: 'slave', zustand: 'fehler', code: 'kein-master', name: LANG, karteFehlt: true }, 'Adresse antwortet nicht als Master', '', ''],
+    [{ rolle: 'slave', zustand: 'fehler', code: 'zertifikat', name: LANG, karteFehlt: true }, 'Anderer Master unter dieser Adresse', '', ''],
+    [{ rolle: 'slave', zustand: 'fehler', code: 'unbekannt', name: LANG, karteFehlt: true }, 'Vom Master entfernt: neu koppeln', '', ''],
+    [{ rolle: 'slave', zustand: 'fehler', code: 'datei', name: LANG, karteFehlt: true }, 'Kopplung beschädigt: neu koppeln', '', ''],
+  ];
+  let alleTeile = true;
+  for (const [ein, vor, name, nach] of zeilen) {
+    const z = kopfZeile(ein);
+    const k = kopfanzeige(ein);
+    if (z.vor !== vor || z.name !== name || z.nach !== nach || z.vor + z.name + z.nach !== k.text || z.farbe !== k.farbe) {
+      alleTeile = false;
+      console.log(`      ${JSON.stringify(ein)}: vor "${z.vor}" name (${z.name.length} Zeichen) nach "${z.nach}"`);
+    }
+  }
+  ck(`Kopfzeile: ${zeilen.length} Zeilen mit längstem festen Text (Code 32, Name 60, „· Karte fehlt“): nur der Name steht getrennt`, alleTeile);
+  ck('Kopfzeile: Fehlercodes stehen nie im Namensteil (kein Kürzen des Codes durch die Anzeige)',
+    kopfZeile({ rolle: 'slave', zustand: 'fehler', code: 'sonstig', errCode: 'ECONNRESET', name: LANG, karteFehlt: false }).name === ''
+    && kopfZeile({ rolle: 'gesperrt', errCode: 'EISDIR' }).name === '');
+  ck('Kopfzeile: rot bekommt nie „· Karte fehlt“ (Text unverändert), grün wird gelb',
+    kopfZeile({ rolle: 'slave', zustand: 'fehler', code: 'zeit', name: n, karteFehlt: true }).nach === ' sichtbar, Port gesperrt: Firewall?'
+    && kopfZeile({ rolle: 'slave', zustand: 'verbunden', name: n, karteFehlt: true }).farbe === 'gelb');
+  ck('Kopfzeile: kopfEingang kürzt den Namen weiter auf 60 Zeichen, vor/nach bleiben unberührt',
+    (() => {
+      const z = kopfZeile(kopfEingang({ ...basis, rolle: 'slave', slave: { ...sl, masterName: 'x'.repeat(100), client: { art: 'fehler', code: 'verweigert' } } }));
+      return z.name === 'x'.repeat(60) && z.vor === '' && z.nach === ': Master-Modus aus?';
+    })());
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

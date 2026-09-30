@@ -21,6 +21,22 @@ export interface Kopf {
   farbe: Farbe;
 }
 
+/**
+ * Derselbe Kopf, aber mit dem Master-Namen (Fremdtext) als eigenem Teil: `vor + name + nach` ist der Text von `Kopf`.
+ * Bei 980 px ist der Platz im Kopf knapp; die Anzeige darf NUR den Namen kürzen (eigenes truncate), nie den Statusteil,
+ * den Code oder „· Karte fehlt“ — sie unterscheiden die Zustände der Tabelle 5.4. Ohne Namen steht alles in `vor`.
+ */
+export interface KopfZeile {
+  vor: string;
+  name: string;
+  nach: string;
+  farbe: Farbe;
+}
+
+type Teile = Pick<KopfZeile, 'vor' | 'name' | 'nach'>;
+const fest = (text: string): Teile => ({ vor: text, name: '', nach: '' });
+const mitName = (vor: string, name: string, nach: string): Teile => ({ vor, name, nach });
+
 // Fremdtexte (Master-Name, I/O- und Fehlercodes) stehen dauerhaft im Kopf und kommen nie ungekürzt hinein.
 // Die Kürzung an der Quelle (Master-Link, Namen ≤ 60) bleibt zusätzlich deren Sache.
 const MAX_NAME = 60;
@@ -32,56 +48,64 @@ function kuerze(text: string, max: number): string {
   return zeichen.length <= max ? text : zeichen.slice(0, max).join('');
 }
 
-function fehlerKopf(code: VerbundFehlerCode, name: string, errCode?: string): string {
+function fehlerKopf(code: VerbundFehlerCode, name: string, errCode?: string): Teile {
   switch (code) {
-    case 'zeit': return `${name} sichtbar, Port gesperrt: Firewall?`;
-    case 'nicht-gefunden': return `${name} nicht erreichbar`;
-    case 'verweigert': return `${name}: Master-Modus aus?`;
-    case 'netz': return `${name}: Netz nicht erreichbar`;
-    case 'kein-master': return 'Adresse antwortet nicht als Master';
-    case 'zertifikat': return 'Anderer Master unter dieser Adresse';
-    case 'uhr': return 'Uhrzeit prüfen';
-    case 'protokoll': return 'Versionen angleichen';
-    case 'unbekannt': return 'Vom Master entfernt: neu koppeln';
-    case 'signatur': return 'Anmeldung abgelehnt: neu koppeln';
-    case 'ersetzt': return 'Kennung doppelt: neu koppeln';
-    case 'datei': return 'Kopplung beschädigt: neu koppeln';
-    case 'sonstig': return `Verbindungsfehler ${errCode ?? 'unbekannt'}`;
+    case 'zeit': return mitName('', name, ' sichtbar, Port gesperrt: Firewall?');
+    case 'nicht-gefunden': return mitName('', name, ' nicht erreichbar');
+    case 'verweigert': return mitName('', name, ': Master-Modus aus?');
+    case 'netz': return mitName('', name, ': Netz nicht erreichbar');
+    case 'kein-master': return fest('Adresse antwortet nicht als Master');
+    case 'zertifikat': return fest('Anderer Master unter dieser Adresse');
+    case 'uhr': return fest('Uhrzeit prüfen');
+    case 'protokoll': return fest('Versionen angleichen');
+    case 'unbekannt': return fest('Vom Master entfernt: neu koppeln');
+    case 'signatur': return fest('Anmeldung abgelehnt: neu koppeln');
+    case 'ersetzt': return fest('Kennung doppelt: neu koppeln');
+    case 'datei': return fest('Kopplung beschädigt: neu koppeln');
+    case 'sonstig': return fest(`Verbindungsfehler ${errCode ?? 'unbekannt'}`);
   }
 }
 
-function grund(e: KopfEingang): Kopf {
-  if (e.rolle === 'aus') return { text: 'Verbund aus', farbe: 'gedaempft' };
-  if (e.rolle === 'gesperrt') return { text: `Kopplungsdatei gesperrt: ${e.errCode}`, farbe: 'rot' };
+function grund(e: KopfEingang): KopfZeile {
+  if (e.rolle === 'aus') return { ...fest('Verbund aus'), farbe: 'gedaempft' };
+  if (e.rolle === 'gesperrt') return { ...fest(`Kopplungsdatei gesperrt: ${e.errCode}`), farbe: 'rot' };
   if (e.rolle === 'master') {
     if (e.zustand === 'laeuft') {
-      if (e.m === 0) return { text: 'Master · noch keine Rechner', farbe: 'neutral' };
-      return { text: `Master · ${e.n}/${e.m} Rechner online`, farbe: e.n === e.m ? 'gruen' : 'gelb' };
+      if (e.m === 0) return { ...fest('Master · noch keine Rechner'), farbe: 'neutral' };
+      return { ...fest(`Master · ${e.n}/${e.m} Rechner online`), farbe: e.n === e.m ? 'gruen' : 'gelb' };
     }
-    if (e.zustand === 'lausch-fehler') return { text: `Master-Fehler: ${e.errCode}`, farbe: 'rot' };
-    if (e.zustand === 'startet') return { text: 'Master startet…', farbe: 'gedaempft' };
-    if (e.zustand === 'port-belegt') return { text: 'Master: Port 8738 belegt', farbe: 'rot' };
-    if (e.zustand === 'daten-beschaedigt') return { text: 'Master: Verbunddaten beschädigt', farbe: 'rot' };
+    if (e.zustand === 'lausch-fehler') return { ...fest(`Master-Fehler: ${e.errCode}`), farbe: 'rot' };
+    if (e.zustand === 'startet') return { ...fest('Master startet…'), farbe: 'gedaempft' };
+    if (e.zustand === 'port-belegt') return { ...fest('Master: Port 8738 belegt'), farbe: 'rot' };
+    if (e.zustand === 'daten-beschaedigt') return { ...fest('Master: Verbunddaten beschädigt'), farbe: 'rot' };
     const fehlt: never = e.zustand; // Spec 5.4: Vollständigkeitsprüfung — ein neuer MasterZustand bricht tsc
     return fehlt;
   }
   // Rolle slave — der switch ist erschöpfend (tsc prüft das über den Rückgabetyp).
   switch (e.zustand) {
-    case 'nicht-gekoppelt': return { text: 'Nicht gekoppelt: Master wählen', farbe: 'gedaempft' };
-    case 'koppelt': return { text: `Koppeln mit ${e.name}…`, farbe: 'gelb' };
-    case 'sucht': return { text: `Suche ${e.name}…`, farbe: 'gelb' };
-    case 'verbindet': return { text: `Verbinde mit ${e.name}…`, farbe: 'gelb' };
-    case 'verbunden': return { text: `${e.name} ●`, farbe: 'gruen' };
-    case 'fehler': return { text: fehlerKopf(e.code, e.name, e.errCode), farbe: 'rot' };
+    case 'nicht-gekoppelt': return { ...fest('Nicht gekoppelt: Master wählen'), farbe: 'gedaempft' };
+    case 'koppelt': return { ...mitName('Koppeln mit ', e.name, '…'), farbe: 'gelb' };
+    case 'sucht': return { ...mitName('Suche ', e.name, '…'), farbe: 'gelb' };
+    case 'verbindet': return { ...mitName('Verbinde mit ', e.name, '…'), farbe: 'gelb' };
+    case 'verbunden': return { ...mitName('', e.name, ' ●'), farbe: 'gruen' };
+    case 'fehler': return { ...fehlerKopf(e.code, e.name, e.errCode), farbe: 'rot' };
   }
 }
 
 /** Spec 5.4 „Karte fehlt“: grün/neutral → gelb + Hinweis; gelb/gedämpft → Hinweis; rot → unverändert. */
-export function kopfanzeige(e: KopfEingang): Kopf {
+export function kopfZeile(e: KopfEingang): KopfZeile {
   const k = grund(e);
   if (e.rolle === 'aus' || e.rolle === 'gesperrt' || !e.karteFehlt || k.farbe === 'rot') return k;
   const farbe: Farbe = k.farbe === 'gruen' || k.farbe === 'neutral' ? 'gelb' : k.farbe;
-  return { text: `${k.text} · Karte fehlt`, farbe };
+  const hinweis = ' · Karte fehlt';
+  // Ohne Namen steht alles in `vor`; mit Namen hängt der Hinweis hinter den Namen.
+  return k.name === '' ? { ...k, vor: k.vor + hinweis, farbe } : { ...k, nach: k.nach + hinweis, farbe };
+}
+
+/** Der volle Text der Kopfanzeige (Tooltip, Modal, Tests): `kopfZeile()` ohne die Trennung des Namens. */
+export function kopfanzeige(e: KopfEingang): Kopf {
+  const z = kopfZeile(e);
+  return { text: z.vor + z.name + z.nach, farbe: z.farbe };
 }
 
 export function kopfEingang(s: VerbundStand): KopfEingang {

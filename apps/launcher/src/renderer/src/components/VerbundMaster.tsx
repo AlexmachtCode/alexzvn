@@ -17,7 +17,7 @@ export function VerbundMaster({ stand }: { stand: VerbundStand }) {
   return (
     <>
       <Abschnitt titel="Master">
-        <TextFeld label="Name des Masters" wert={m.name} onSpeichern={(v) => void fuehreAus(() => window.jmps.setzeMasterName(v))} />
+        <TextFeld label="Name des Masters" wert={m.name} onSpeichern={(v) => fuehreAus(() => window.jmps.setzeMasterName(v))} />
         <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">Fingerprint {m.fpKurz || '—'} · Port 8738</p>
         {m.zustand === 'port-belegt' && (
           <p className="mt-2 text-xs text-[var(--destructive)]">Port 8738 ist belegt (anderes Programm?). Der Master versucht es alle 10 s erneut.</p>

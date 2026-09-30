@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, cn } from '@jm/ui';
 import type { Farbe } from '@/lib/kopfanzeige';
 import type { Ton } from '@/lib/verbund-texte';
@@ -27,7 +27,8 @@ export const beschriftung = 'text-[10px] uppercase tracking-[0.12em] font-extrab
 
 export function Pille({ farbe, children }: { farbe: Farbe; children: ReactNode }) {
   return (
-    <span className={cn('inline-flex max-w-full shrink-0 items-center truncate rounded-[var(--radius-full)] border px-2.5 py-0.5 text-[11px] font-bold', FARBE_KLASSE[farbe])}>
+    // Der volle Text, nie abgeschnitten: ein langer Name oder Code bricht um (break-words), statt Status oder Code zu verlieren.
+    <span className={cn('max-w-full shrink-0 break-words rounded-[var(--radius-full)] border px-2.5 py-0.5 text-center text-[11px] font-bold leading-tight', FARBE_KLASSE[farbe])}>
       {children}
     </span>
   );
@@ -42,17 +43,29 @@ export function Abschnitt({ titel, children }: { titel: string; children: ReactN
   );
 }
 
-/** Eingabe, die erst beim Verlassen oder mit Enter speichert. */
+/**
+ * Eingabe, die erst beim Verlassen oder mit Enter speichert. Lehnt der Aufruf ab (`false`), springt das Feld auf den
+ * gespeicherten Wert zurück: es zeigt nie einen Namen, den es nicht gibt.
+ */
 export function TextFeld({ label, wert, platzhalter, onSpeichern }: {
   label: string;
   wert: string;
   platzhalter?: string;
-  onSpeichern: (v: string) => void;
+  onSpeichern: (v: string) => Promise<boolean> | void;
 }) {
   const [text, setText] = useState(wert);
-  useEffect(() => setText(wert), [wert]);
+  // Der gespeicherte Wert zum Zeitpunkt der Ablehnung, nicht der beim Start des Aufrufs (der Stand kann sich dazwischen ändern).
+  const gespeichert = useRef(wert);
+  useEffect(() => {
+    gespeichert.current = wert;
+    setText(wert);
+  }, [wert]);
   const speichern = (): void => {
-    if (text.trim() !== wert) onSpeichern(text.trim());
+    const v = text.trim();
+    if (v === wert) return;
+    void Promise.resolve(onSpeichern(v)).then((ok) => {
+      if (ok === false) setText(gespeichert.current);
+    });
   };
   return (
     <label className="flex flex-col gap-1.5">

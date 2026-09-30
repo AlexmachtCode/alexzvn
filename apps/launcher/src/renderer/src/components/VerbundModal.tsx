@@ -55,8 +55,9 @@ export function VerbundModal() {
     >
       <Card className="w-full max-w-xl p-6 jm-fade-in">
         <div className="flex max-h-[calc(100vh-6rem)] flex-col">
-          <div className="flex shrink-0 items-start justify-between gap-4">
-            <div>
+          {/* Die Pille zeigt den vollen Text und bricht um; ist sie zu breit für eine Zeile neben der Überschrift (langer Name), rutscht sie darunter. */}
+          <div className="flex shrink-0 flex-wrap items-start justify-between gap-x-4 gap-y-2">
+            <div className="min-w-0 flex-[1_1_14rem]">
               <h2 className="text-lg font-extrabold tracking-tight">Verbund</h2>
               <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                 Mehrere Rechner: ein Launcher ist Master, die anderen koppeln sich einmal.
@@ -72,7 +73,8 @@ export function VerbundModal() {
               {fehler}
             </p>
           )}
-          <div className="-mr-2 min-h-0 flex-1 overflow-y-auto pr-2">
+          {/* break-words: ein langer Name ohne Leerzeichen bricht um, statt waagerecht zu scrollen. */}
+          <div className="-mr-2 min-h-0 flex-1 overflow-y-auto break-words pr-2">
             {!stand ? (
               <p className="mt-5 text-sm text-[var(--muted-foreground)]">Lade…</p>
             ) : stand.dateiFehler ? (
@@ -103,14 +105,10 @@ function RolleWahl({ stand }: { stand: VerbundStand }) {
   const fuehreAus = useVerbund((s) => s.fuehreAus);
   const beschaeftigt = useVerbund((s) => s.beschaeftigt);
   const [frage, setFrage] = useState<VerbundRolle | null>(null);
+  // Die Liste „gefundene Master“ sucht nur, solange das Modal offen ist. Der Main führt dafür einen Wunsch (gesetzt in
+  // oeffne(), gelöscht in schliesse()), den JEDE neu angelegte Slave-Rolle übernimmt — hier gibt es nichts nachzustarten.
   const wechsle = (r: VerbundRolle): void => {
-    void fuehreAus(async () => {
-      const s = await window.jmps.setzeVerbundRolle(r);
-      // Die Liste „gefundene Master“ sucht nur, solange das Modal offen ist — gestartet in oeffne().
-      // Nach dem Wechsel auf „slave“ gibt es eine NEUE SlaveRolle ohne laufende Suche: hier nachstarten.
-      if (r === 'slave') void window.jmps.starteMasterSuche();
-      return s;
-    });
+    void fuehreAus(() => window.jmps.setzeVerbundRolle(r));
   };
   const waehle = (r: VerbundRolle): void => {
     if (r === stand.rolle) return;
@@ -162,7 +160,7 @@ function DieserRechner({ stand }: { stand: VerbundStand }) {
       <TextFeld
         label="Name dieses Rechners"
         wert={stand.rechnerName}
-        onSpeichern={(v) => void fuehreAus(() => window.jmps.setzeRechnerName(v))}
+        onSpeichern={(v) => fuehreAus(() => window.jmps.setzeRechnerName(v))}
       />
       <label className="mt-3 flex flex-col gap-1.5">
         <span className={beschriftung}>Netzwerk der Suite</span>

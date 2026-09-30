@@ -40,17 +40,39 @@ export function toolVerbundText(verbund: string | undefined, rolleAus: boolean):
   return { text, ton: 'rot' };
 }
 
+// Electron-Rahmen einer abgelehnten IPC-Anfrage: „Error invoking remote method 'verbund:rolle': “, danach der Text des
+// Fehlers im Main („Error: EPERM: operation not permitted, rename 'C:\…'“). Node-Fehler tragen ihren Code als erstes Wort
+// nach der Fehlerklasse, gefolgt von einem Doppelpunkt.
+const ELECTRON_RAHMEN = /^Error invoking remote method '[^']*': /;
+const CODE_AM_ANFANG = /^(?:[A-Za-z]*Error: )?(E[A-Z0-9_]+)(?::|$)/;
+
 /**
- * Kurztext zu einem abgelehnten Verbund-Aufruf (Schreibfehler, gesperrte Datei). Electron reicht dem Renderer nur den
- * Text der Ablehnung („Error invoking remote method …: Error: EPERM: …“), nicht das Feld `code`: daraus kommt NUR der
- * Code in die Anzeige, nie der Text (er nennt Pfade und kann Fremdinhalte zitieren).
+ * Der Code eines abgelehnten Aufrufs: das Feld `code` (Aufruf ohne IPC), sonst das erste Wort der eigentlichen Meldung
+ * hinter dem Electron-Rahmen. NIE ein Wort irgendwo im Text: Pfade (C:\Users\EDV) und zitierte Namen sind Fremdtext.
  */
-export function ablehnungText(e: unknown): string {
+function ablehnungCode(e: unknown): string {
   // Kein `instanceof Error`: ein Fehler, der über die Context-Bridge kommt, stammt aus einem anderen Realm.
   const o = (typeof e === 'object' && e !== null ? e : {}) as { code?: unknown; message?: unknown };
-  const text = typeof o.message === 'string' ? o.message : '';
-  const code = typeof o.code === 'string' && o.code !== '' ? o.code : /\bE[A-Z0-9_]{2,}\b/.exec(text)?.[0] ?? 'UNBEKANNT';
-  return `Nicht gespeichert (${kuerze(code, MAX_CODE)}). Bitte noch einmal versuchen.`;
+  if (typeof o.code === 'string' && o.code !== '') return kuerze(o.code, MAX_CODE);
+  const text = (typeof o.message === 'string' ? o.message : '').replace(ELECTRON_RAHMEN, '');
+  return kuerze(CODE_AM_ANFANG.exec(text)?.[1] ?? 'UNBEKANNT', MAX_CODE);
+}
+
+/** Was der Aufruf wollte: der Text nennt es, damit er nie etwas Falsches behauptet („Nicht gespeichert“ beim Koppeln). */
+export type AblehnungArt = 'speichern' | 'koppeln' | 'anstossen';
+
+/**
+ * Kurztext zu einem abgelehnten Verbund-Aufruf (Schreibfehler, gesperrte Datei, Ausfall der Leitung). Electron reicht
+ * dem Renderer nur den Text der Ablehnung, nicht das Feld `code`: daraus kommt NUR der Code in die Anzeige, nie der
+ * Text (er nennt Pfade und kann Fremdinhalte zitieren).
+ */
+export function ablehnungText(e: unknown, art: AblehnungArt = 'speichern'): string {
+  const code = ablehnungCode(e);
+  switch (art) {
+    case 'speichern': return `Nicht gespeichert (${code}). Bitte noch einmal versuchen.`;
+    case 'koppeln': return `Koppeln fehlgeschlagen (${code}). Bitte noch einmal versuchen.`;
+    case 'anstossen': return `Aktion fehlgeschlagen (${code}). Bitte noch einmal versuchen.`;
+  }
 }
 
 export function zeigeCode(code: string): string {

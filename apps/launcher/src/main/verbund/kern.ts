@@ -61,6 +61,12 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
   let meldeZeitgeber: ReturnType<typeof setTimeout> | null = null;
   let kette: Promise<unknown> = Promise.resolve();
   let waechterStopp: (() => void) | null = null;
+  /**
+   * Wunsch: die Liste „gefundene Master“ soll suchen (solange das Modal offen ist). Der Kern führt ihn, nicht die
+   * SlaveRolle: jede NEU angelegte SlaveRolle übernimmt ihn (Rollenwechsel, Wiederanlauf nach gesperrter Datei,
+   * Wiederherstellung nach Schreibfehler), und ein Schließen vor dem Ende eines Rollenwechsels lässt nichts laufen.
+   */
+  let sucheGewuenscht = false;
 
   /**
    * Nur der Launcher schreibt die gemeinsame Datei (Spec 7.1). WIRFT bei jedem Fehler (Code im Error) und übernimmt
@@ -131,6 +137,7 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
     } else if (datei.rolle === 'slave') {
       slave = neuerSlave();
       slave.starte();
+      if (sucheGewuenscht) slave.starteSuche();
     }
   }
 
@@ -187,6 +194,7 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
   function beende(): Promise<void> {
     waechterStopp?.();
     waechterStopp = null;
+    sucheGewuenscht = false;
     return Promise.all([master?.stoppe(), slave?.stoppe()]).then(() => undefined, () => undefined);
   }
 
@@ -278,10 +286,12 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
   }
 
   function starteMasterSuche(): void {
+    sucheGewuenscht = true;
     slave?.starteSuche();
   }
 
   function stoppeMasterSuche(): void {
+    sucheGewuenscht = false;
     slave?.stoppeSuche();
   }
 

@@ -734,6 +734,80 @@ const dateiRolle = (pfad: string): string | null => dateiDaten(pfad)?.rolle ?? n
   await KM.kern.beende();
 }
 
+{
+  // Die Suche nach Mastern ist ein WUNSCH des Kerns (Modal offen), kein Zustand der SlaveRolle: jede neu angelegte
+  // SlaveRolle übernimmt ihn (Rollenwechsel während das Modal offen ist, Wiederanlauf nach gesperrter Datei), und ein
+  // zu frühes Schließen lässt nichts zurück (Escape während des Rollenwechsels).
+  const suchzaehler = () => {
+    const z = { runden: 0, stopp: 0 };
+    const suche: SucheLike = { runde: async () => { z.runden++; return []; }, setzeKarten: () => {}, stoppe: () => { z.stopp++; } };
+    return { z, suche };
+  };
+  const mitSuche = (suche: SucheLike) => (): Partial<VerbundKernDeps> => ({ slave: { fristen: KURZ, suche: null, listenSuche: suche, suchTaktMs: 20 } });
+  const stabil = async (z: { runden: number }): Promise<boolean> => { const a = z.runden; await warte(150); return z.runden === a; };
+
+  // 1. Gewünscht, dann Rollenwechsel: die NEUE SlaveRolle sucht (vorher ging der Wunsch verloren: slave war noch null).
+  const s1 = suchzaehler();
+  const S1 = kernRechner('Such-PC', 'master', await freierPort(), mitSuche(s1.suche));
+  await S1.kern.starte();
+  S1.kern.starteMasterSuche();
+  ck('Suche gewünscht, noch Master: nichts sucht', await stabil(s1.z) && s1.z.runden === 0);
+  await S1.kern.setzeRolle('slave');
+  ck('Suche gewünscht → Rollenwechsel auf Slave: die neue SlaveRolle sucht', await bis(() => s1.z.runden >= 2, 2000));
+  S1.kern.stoppeMasterSuche();
+  ck('Suche beendet: es wird nicht weiter gesucht', await stabil(s1.z));
+  // 2. Nicht (mehr) gewünscht: eine neue SlaveRolle sucht nicht — auch nicht nach Master → Slave.
+  const vorher = s1.z.runden;
+  await S1.kern.setzeRolle('master');
+  await S1.kern.setzeRolle('slave');
+  ck('Suche nicht gewünscht → Rollenwechsel auf Slave: keine Suche', await stabil(s1.z) && s1.z.runden === vorher);
+  await S1.kern.beende();
+
+  // 3. Escape während des Rollenwechsels: das Modal schließt (stoppeMasterSuche) VOR dem Ende von setzeRolle.
+  const s2 = suchzaehler();
+  const S2 = kernRechner('Escape-PC', 'master', await freierPort(), mitSuche(s2.suche));
+  await S2.kern.starte();
+  S2.kern.starteMasterSuche();
+  const wechsel = S2.kern.setzeRolle('slave'); // läuft in der Kette, `slave` ist noch null
+  S2.kern.stoppeMasterSuche(); // Escape, bevor der Wechsel fertig ist
+  await wechsel;
+  ck('Escape während des Rollenwechsels: die neue SlaveRolle sucht NICHT bei geschlossenem Modal', await stabil(s2.z) && s2.z.runden === 0);
+  await S2.kern.beende();
+
+  // 4. Wiederanlauf nach gesperrter Datei bei offenem Modal: der Main legt die SlaveRolle selbst neu an.
+  const s3 = suchzaehler();
+  let lesbar3 = false;
+  const io3: Lesen<MasterLinkDatei> = { art: 'io', code: 'EBUSY' };
+  const S3 = kernRechner('Wiederanlauf-PC', 'slave', 0, (pfad) => ({ ...mitSuche(s3.suche)(), lies: () => (lesbar3 ? leseMasterLinkDatei(pfad) : io3) }));
+  const gestartet3 = S3.kern.starte();
+  await bis(() => S3.kern.stand().dateiFehler === 'EBUSY', 2000);
+  S3.kern.starteMasterSuche(); // Modal geöffnet, Datei gesperrt: es gibt noch keine Rolle
+  ck('Datei gesperrt, Suche gewünscht: noch keine Rolle, keine Suche', S3.kern.stand().slave === null && s3.z.runden === 0);
+  lesbar3 = true;
+  await gestartet3;
+  ck('Wiederanlauf nach gesperrter Datei: die neu angelegte SlaveRolle sucht', S3.kern.stand().slave !== null && await bis(() => s3.z.runden >= 2, 2000));
+  await S3.kern.beende();
+  ck('Beenden: die Suche ist zu', await stabil(s3.z));
+
+  // 5. Wiederherstellung der vorigen Rolle nach Schreibfehler bei offenem Modal: auch sie übernimmt den Wunsch.
+  const s4 = suchzaehler();
+  let sperre4 = false;
+  const S4 = kernRechner('Fehler-PC', 'slave', 0, () => ({
+    ...mitSuche(s4.suche)(),
+    schreibeAufPlatte: (pfad, dd) => { if (sperre4) throw gesperrtMit('EPERM'); schreibeMasterLinkDatei(pfad, dd); },
+  }));
+  await S4.kern.starte();
+  S4.kern.starteMasterSuche();
+  await bis(() => s4.z.runden >= 2, 2000);
+  sperre4 = true;
+  let abgelehnt5 = false;
+  try { await S4.kern.setzeRolle('master'); } catch { abgelehnt5 = true; }
+  const nachSperre = s4.z.runden;
+  ck('Schreibfehler beim Rollenwechsel: abgelehnt, die vorige SlaveRolle ist wieder da und sucht weiter',
+    abgelehnt5 && S4.kern.stand().rolle === 'slave' && S4.kern.stand().slave !== null && await bis(() => s4.z.runden >= nachSperre + 2, 2000));
+  await S4.kern.beende();
+}
+
 // --- Beschädigte Daten ----------------------------------------------------------
 await master.stoppe();
 const vb = join(A.speicherDir, 'verbund.json');
