@@ -21,6 +21,17 @@ export interface Kopf {
   farbe: Farbe;
 }
 
+// Fremdtexte (Master-Name, I/O- und Fehlercodes) stehen dauerhaft im Kopf und kommen nie ungekürzt hinein.
+// Die Kürzung an der Quelle (Master-Link, Namen ≤ 60) bleibt zusätzlich deren Sache.
+const MAX_NAME = 60;
+const MAX_CODE = 32;
+
+/** Auf `max` ganze Zeichen (Codepoints, nicht UTF-16-Einheiten) kürzen: ein Emoji wird nie zerschnitten. */
+function kuerze(text: string, max: number): string {
+  const zeichen = Array.from(text);
+  return zeichen.length <= max ? text : zeichen.slice(0, max).join('');
+}
+
 function fehlerKopf(code: VerbundFehlerCode, name: string, errCode?: string): string {
   switch (code) {
     case 'zeit': return `${name} sichtbar, Port gesperrt: Firewall?`;
@@ -75,7 +86,7 @@ export function kopfanzeige(e: KopfEingang): Kopf {
 
 export function kopfEingang(s: VerbundStand): KopfEingang {
   // Weder „Verbund aus“ (die Rolle ist unbekannt) noch „neu koppeln“ (das überschriebe eine intakte Kopplung).
-  if (s.dateiFehler) return { rolle: 'gesperrt', errCode: s.dateiFehler };
+  if (s.dateiFehler) return { rolle: 'gesperrt', errCode: kuerze(s.dateiFehler, MAX_CODE) };
   const karteFehlt = s.karteFehlt;
   if (s.rolle === 'aus') return { rolle: 'aus' };
   if (s.rolle === 'master') {
@@ -85,11 +96,11 @@ export function kopfEingang(s: VerbundStand): KopfEingang {
       const fremde = m.rechner.filter((r) => !r.dieserRechner);
       return { rolle: 'master', zustand: 'laeuft', n: fremde.filter((r) => r.online).length, m: fremde.length, karteFehlt };
     }
-    if (m.zustand === 'lausch-fehler') return { rolle: 'master', zustand: 'lausch-fehler', errCode: m.fehlerCode ?? '?', karteFehlt };
+    if (m.zustand === 'lausch-fehler') return { rolle: 'master', zustand: 'lausch-fehler', errCode: kuerze(m.fehlerCode ?? '?', MAX_CODE), karteFehlt };
     return { rolle: 'master', zustand: m.zustand, karteFehlt };
   }
   const sl = s.slave;
-  const name = sl?.masterName ?? 'Master';
+  const name = kuerze(sl?.masterName ?? 'Master', MAX_NAME);
   if (sl?.koppeltGerade) return { rolle: 'slave', zustand: 'koppelt', name, karteFehlt };
   // master-link.json beim Start beschädigt: der Launcher hält keine Kopplung, sein Client meldet `datei` →
   // rot „Kopplung beschädigt: neu koppeln“ statt gedämpft „Nicht gekoppelt“ (Spec 5.4, 7.3).
@@ -98,7 +109,11 @@ export function kopfEingang(s: VerbundStand): KopfEingang {
   }
   if (!sl || !sl.gekoppelt) return { rolle: 'slave', zustand: 'nicht-gekoppelt', karteFehlt };
   const c = sl.client;
-  if (c.art === 'fehler' && c.code) return { rolle: 'slave', zustand: 'fehler', code: c.code, name, errCode: c.errCode, karteFehlt };
+  if (c.art === 'fehler') {
+    // `code` ist im Typ optional: ein Fehler ohne code bleibt rot (sonstig), er fällt nie auf „Suche …“ in gelb durch (#208).
+    const errCode = c.errCode === undefined ? undefined : kuerze(c.errCode, MAX_CODE);
+    return { rolle: 'slave', zustand: 'fehler', code: c.code ?? 'sonstig', name, errCode, karteFehlt };
+  }
   if (c.art === 'verbunden' || c.art === 'verbindet') return { rolle: 'slave', zustand: c.art, name, karteFehlt };
   return { rolle: 'slave', zustand: 'sucht', name, karteFehlt };
 }

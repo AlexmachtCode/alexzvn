@@ -20,6 +20,14 @@ const KURZ: Record<VerbundFehlerCode, string> = {
 
 export type Ton = 'gruen' | 'gelb' | 'rot' | 'gedaempft';
 
+// Ein unbekannter Fremdwert kommt nie ungekürzt in die Anzeige: höchstens 32 ganze Zeichen (Codepoints).
+// Bewusst lokal statt aus kopfanzeige.ts importiert: diese Datei hat keinen Laufzeit-Import (strip-types-Selbsttest).
+const MAX_CODE = 32;
+const kuerze = (text: string, max: number): string => {
+  const zeichen = Array.from(text);
+  return zeichen.length <= max ? text : zeichen.slice(0, max).join('');
+};
+
 /** Heartbeat-Feld `verbund` eines Tools auf diesem Rechner (Spec 5.2). Rolle „aus“ → keine Zeile. */
 export function toolVerbundText(verbund: string | undefined, rolleAus: boolean): { text: string; ton: Ton } | null {
   if (rolleAus) return null;
@@ -28,7 +36,7 @@ export function toolVerbundText(verbund: string | undefined, rolleAus: boolean):
   if (verbund === 'sucht' || verbund === 'verbindet') return { text: 'sucht den Master…', ton: 'gelb' };
   if (verbund === 'aus') return { text: 'Verbund aus', ton: 'gedaempft' };
   const code = verbund.startsWith('fehler:') ? verbund.slice('fehler:'.length) : '';
-  const text = (KURZ as Record<string, string | undefined>)[code] ?? `Fehler (${code || verbund})`;
+  const text = (KURZ as Record<string, string | undefined>)[code] ?? `Fehler (${kuerze(code || verbund, MAX_CODE)})`;
   return { text, ton: 'rot' };
 }
 

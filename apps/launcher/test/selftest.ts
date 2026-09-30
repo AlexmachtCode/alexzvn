@@ -4,7 +4,7 @@ import { startShowTools } from '../src/main/show-launch.ts';
 import { PresenceStore, gueltigerVerbund } from '../src/main/presence-store.ts';
 import { kopfanzeige, kopfEingang, type KopfEingang } from '../src/renderer/src/lib/kopfanzeige.ts';
 import { toolVerbundText, zeigeCode } from '../src/renderer/src/lib/verbund-texte.ts';
-import type { VerbundStand } from '../src/shared/types.ts';
+import type { VerbundClientStand, VerbundStand } from '../src/shared/types.ts';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -213,8 +213,42 @@ function ck(name: string, cond: boolean): void {
   ck('kopfEingang: Karte fehlt wird durchgereicht',
     (kopfEingang({ ...basis, karteFehlt: true, master: m }) as { karteFehlt: boolean }).karteFehlt === true);
 
+  // Client-Fehler OHNE code (der Typ erlaubt es): die dauerhafte Anzeige darf nie „Suche …“ in gelb lügen (Spec 5.4, #208)
+  const kfs = (client: VerbundClientStand, karteFehlt = false) =>
+    JSON.stringify(kopfanzeige(kopfEingang({ ...basis, karteFehlt, rolle: 'slave', slave: { ...sl, client } })));
+  ck('kopfEingang: fehler ohne code bleibt rot (Verbindungsfehler), nie „Suche“/gelb',
+    kfs({ art: 'fehler' }) === JSON.stringify({ text: 'Verbindungsfehler unbekannt', farbe: 'rot' }));
+  ck('kopfEingang: fehler ohne code, aber mit errCode -> rot mit errCode',
+    kfs({ art: 'fehler', errCode: 'ECONNRESET' }) === JSON.stringify({ text: 'Verbindungsfehler ECONNRESET', farbe: 'rot' }));
+  ck('kopfEingang: fehler ohne code + Karte fehlt bleibt rot und unverändert',
+    kfs({ art: 'fehler' }, true) === JSON.stringify({ text: 'Verbindungsfehler unbekannt', farbe: 'rot' }));
+
+  // Fremdtexte kommen nie ungekürzt in den Kopf: Namen 60, Fehlercodes 32 ganze Zeichen (Codepoints, Spec Namen ≤ 60)
+  const verb = (masterName: string) =>
+    kopfanzeige(kopfEingang({ ...basis, rolle: 'slave', slave: { ...sl, masterName, client: { art: 'verbunden', adresse: '10.0.0.1', seit: 1 } } })).text;
+  ck('Kürzung: Master-Name mit 100 Zeichen -> 60', verb('x'.repeat(100)) === `${'x'.repeat(60)} ●`);
+  ck('Kürzung: genau 60 Zeichen bleiben, Umlaute unverändert',
+    verb('Ü'.repeat(60)) === `${'Ü'.repeat(60)} ●` && verb('Saal Überlingen') === 'Saal Überlingen ●');
+  ck('Kürzung: Emoji werden nie mittendrin zerschnitten (Codepoints)',
+    verb('😀'.repeat(70)) === `${'😀'.repeat(60)} ●` && verb('😀'.repeat(61)) === `${'😀'.repeat(60)} ●` && verb('😀'.repeat(60)) === `${'😀'.repeat(60)} ●`);
+  ck('Kürzung: Name auch im Fehler- und Such-Kopf',
+    kopfanzeige(kopfEingang({ ...basis, rolle: 'slave', slave: { ...sl, masterName: 'n'.repeat(100), client: { art: 'fehler', code: 'nicht-gefunden' } } })).text === `${'n'.repeat(60)} nicht erreichbar`
+    && kopfanzeige(kopfEingang({ ...basis, rolle: 'slave', slave: { ...sl, masterName: 'n'.repeat(100) } })).text === `Suche ${'n'.repeat(60)}…`);
+  ck('Kürzung: errCode des Masters (lausch-fehler) auf 32',
+    kopfanzeige(kopfEingang({ ...basis, master: { ...m, zustand: 'lausch-fehler', fehlerCode: 'E'.repeat(100) } })).text === `Master-Fehler: ${'E'.repeat(32)}`);
+  ck('Kürzung: errCode des Clients (sonstig) auf 32',
+    kfs({ art: 'fehler', code: 'sonstig', errCode: '😀'.repeat(50) }) === JSON.stringify({ text: `Verbindungsfehler ${'😀'.repeat(32)}`, farbe: 'rot' }));
+  ck('Kürzung: dateiFehler auf 32',
+    kopfanzeige(kopfEingang({ ...basis, rolle: 'aus', dateiFehler: 'X'.repeat(100) })).text === `Kopplungsdatei gesperrt: ${'X'.repeat(32)}`);
+  ck('Kürzung: kurzer errCode bleibt wörtlich',
+    kopfanzeige(kopfEingang({ ...basis, master: { ...m, zustand: 'lausch-fehler', fehlerCode: 'EACCES' } })).text === 'Master-Fehler: EACCES');
+
   // Tool-Zeilen am Slave (Spec 5.2)
   ck('Tool ohne Feld: „noch ohne Verbund (Update nötig)“', toolVerbundText(undefined, false)?.text === 'läuft, noch ohne Verbund (Update nötig)');
+  ck('Tool: unbekannter fehler:-Code wird auf 32 Zeichen gekürzt, rot',
+    JSON.stringify(toolVerbundText(`fehler:${'x'.repeat(100)}`, false)) === JSON.stringify({ text: `Fehler (${'x'.repeat(32)})`, ton: 'rot' }));
+  ck('Tool: Fremdwert ohne fehler:-Präfix wird auf 32 Zeichen gekürzt, rot',
+    JSON.stringify(toolVerbundText('😀'.repeat(50), false)) === JSON.stringify({ text: `Fehler (${'😀'.repeat(32)})`, ton: 'rot' }));
   ck('Rolle aus: keine Verbund-Zeile', toolVerbundText('verbunden', true) === null);
   ck('fehler:zeit wird kurz benannt', toolVerbundText('fehler:zeit', false)?.text === 'Master sichtbar, Port gesperrt');
   ck('Code-Anzeige XXXXX-XXXXX', zeigeCode('K7QXM3PRTH') === 'K7QXM-3PRTH');
