@@ -11,3 +11,4 @@ export * from './speicher';
 export * from './mdns';
 export * from './server';
 export * from './koppeln';
+export * from './client';

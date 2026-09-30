@@ -1,0 +1,455 @@
+import { createServer as netServer, type Socket } from 'node:net';
+import { createServer as tlsServer } from 'node:tls';
+import type { AddressInfo } from 'node:net';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { randomNonce } from '@jm/auth-core';
+import { MasterLinkClient, verbundWert, versucheAnmeldung, type AnmeldeParameter, type ClientZustand, type Versuch } from '../src/client';
+import { masterLinkPfad, schreibeMasterLinkDatei, type MasterLinkDatei } from '../src/datei';
+import { fingerprintVonPem } from '../src/beweis';
+import { PIN_FALSCH } from '../src/fehler';
+import { fristen, GRENZEN, type Fristen } from '../src/fristen';
+import { koppele } from '../src/koppeln';
+import type { MasterSichtung, SucheLike } from '../src/mdns';
+import type { Nachricht } from '../src/rahmen';
+import { MasterLinkServer } from '../src/server';
+import { Verbindung } from '../src/verbindung';
+import { baueServer, neueIdentitaet, type Aufbau } from './aufbau';
+import { abschnitt, bis, gleich, pruefe, tempOrdner, warte } from './helfer';
+import { zertifikatMitGueltigkeit } from './zertifikate';
+
+const KURZ: Partial<Fristen> = {
+  dateiPruefMs: 50, rueckzugBasisMs: 50, rueckzugMaxMs: 200, tcpMs: 300, tlsHalloMs: 400, angemeldetMs: 400,
+  stilleMs: 600, pulsMs: 150, zertifikatWiederholMs: 300, protokollWiederholMs: 300, ersetztWiederholMs: 400,
+  lastMinMs: 100, suchrundeMs: 30,
+};
+const teilnehmer = { art: 'tool' as const, appId: 'jm-timer', name: 'JM Timer', version: '0.12.0', pid: 7 };
+
+function dateiFuer(a: Aufbau, teil: Partial<MasterLinkDatei> = {}): MasterLinkDatei {
+  return {
+    version: 1,
+    rolle: 'slave',
+    rechner: { id: a.slave.rechnerId, name: 'Regie-Laptop 2' },
+    netzwerk: { karte: null },
+    kopplung: {
+      masterId: a.identitaet.masterId, masterName: 'Regie-PC', fingerprint: a.server.fingerprint,
+      zertifikat: a.identitaet.zertifikat, port: a.port, adressen: ['127.0.0.1'], letzteAdresse: null,
+      festeAdresse: null, schluessel: a.slave.paar,
+    },
+    ...teil,
+  };
+}
+
+function neuerClient(pfad: string, extra: Partial<ConstructorParameters<typeof MasterLinkClient>[0]> = {}): MasterLinkClient {
+  return new MasterLinkClient({ dateiPfad: pfad, teilnehmer, fristen: KURZ, suche: null, ...extra });
+}
+
+const art = (c: MasterLinkClient): string => verbundWert(c.zustand());
+
+class FakeSuche implements SucheLike {
+  sichtungen: MasterSichtung[] = [];
+  runden = 0;
+  setzeKarten(): void { /* egal */ }
+  stoppe(): void { /* egal */ }
+  async runde(): Promise<MasterSichtung[]> {
+    this.runden++;
+    return this.sichtungen;
+  }
+}
+
+export async function laufe(): Promise<void> {
+  abschnitt('Client: verbinden, Master weg und zurück');
+  {
+    const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    const angemeldet: string[] = [];
+    c.on('angemeldet', (x: { adresse: string }) => angemeldet.push(x.adresse));
+    c.starte();
+    await bis(() => art(c) === 'verbunden');
+    gleich(art(c), 'verbunden', 'Client verbindet sich selbst');
+    gleich(a.server.teilnehmer().map((t) => t.appId), ['jm-timer'], 'Master sieht das Tool');
+    gleich(angemeldet, ['127.0.0.1'], 'Ereignis „angemeldet“ mit Adresse');
+    await a.server.stoppe();
+    await bis(() => art(c) !== 'verbunden');
+    pruefe(art(c) !== 'verbunden', 'Master weg → nicht mehr verbunden');
+    // Gleicher Puls wie a: sonst trennt die Stille-Frist des Clients (600 ms) mitten in den Prüffenstern unten.
+    const b = new MasterLinkServer({ identitaet: a.identitaet, verbund: a.verbund, eigeneRechnerId: 'rechner-a', suiteVersion: '0.12.0', lauschAdressen: ['127.0.0.1'], port: a.port, fristen: { pulsMs: 150, stilleMs: 600 } });
+    await b.starte();
+    await bis(() => art(c) === 'verbunden', 3000);
+    gleich(art(c), 'verbunden', 'Master zurück → ohne Zutun wieder verbunden');
+
+    abschnitt('Client: entfernt, Datei-Änderungen');
+    b.entferne('rechner-b');
+    await bis(() => art(c) === 'fehler:unbekannt', 1000);
+    gleich(art(c), 'fehler:unbekannt', 'entfernt während verbunden → fehler:unbekannt binnen 1 s');
+    let versucheDanach = 0;
+    const zaehle = (z: ClientZustand): void => {
+      if (z.art === 'verbindet') versucheDanach++;
+    };
+    c.on('zustand', zaehle);
+    await warte(500);
+    c.off('zustand', zaehle);
+    gleich(versucheDanach, 0, 'keine neuen Versuche nach „unbekannt“');
+    const neu = dateiFuer(a);
+    b.oeffneKopplung();
+    const r = await koppele({ adresse: '127.0.0.1', port: a.port, code: b.kopplungsStand().code!, rechner: { id: a.slave.rechnerId, name: 'Regie-Laptop 2' } });
+    pruefe(r.ok, 'neu gekoppelt (Launcher-Weg)');
+    if (r.ok) {
+      r.verbindung.schliesse();
+      schreibeMasterLinkDatei(pfad, { ...neu, kopplung: r.kopplung });
+    }
+    await bis(() => art(c) === 'verbunden', 3000);
+    gleich(art(c), 'verbunden', 'Dateiänderung (neuer Schlüssel) → Neuaufbau, verbunden');
+    const seit = (c.zustand() as Extract<ClientZustand, { art: 'verbunden' }>).seit;
+    const d = { ...neu, kopplung: { ...(r.ok ? r.kopplung : neu.kopplung!), adressen: ['127.0.0.1', '10.9.9.9'] } };
+    schreibeMasterLinkDatei(pfad, d);
+    await warte(300);
+    pruefe(art(c) === 'verbunden' && (c.zustand() as Extract<ClientZustand, { art: 'verbunden' }>).seit === seit, 'nur Adressen geändert → keine Trennung');
+    rmSync(pfad);
+    mkdirSync(pfad); // Ordner statt Datei: Lesen wirft EISDIR — ein I/O-Fehler wie EBUSY vom Virenscanner
+    await warte(300);
+    pruefe(art(c) === 'verbunden' && (c.zustand() as Extract<ClientZustand, { art: 'verbunden' }>).seit === seit,
+      'Datei nicht lesbar (I/O-Fehler) → letzter gültiger Stand bleibt, keine Trennung (Spec 7.3)');
+    rmSync(pfad, { recursive: true });
+    writeFileSync(pfad, 'Müll');
+    await bis(() => art(c) === 'fehler:datei', 1000);
+    gleich(art(c), 'fehler:datei', 'Datei zweimal unlesbar → fehler:datei (Review Focus 3)');
+    schreibeMasterLinkDatei(pfad, d);
+    await bis(() => art(c) === 'verbunden', 3000);
+    gleich(art(c), 'verbunden', 'Datei repariert → wieder verbunden');
+    rmSync(pfad);
+    await bis(() => art(c) === 'aus', 1000);
+    gleich(art(c), 'aus', 'Datei im Betrieb gelöscht → aus, kein Absturz (Review Focus 3)');
+    await c.stoppe();
+    await b.stoppe();
+  }
+
+  abschnitt('Client: Zertifikat, Uhr, Protokoll, kein Master, verweigert');
+  {
+    const a = await baueServer();
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    await a.server.stoppe();
+    const erneuert = new MasterLinkServer({ identitaet: neueIdentitaet(), verbund: a.verbund, eigeneRechnerId: 'rechner-a', suiteVersion: '0.12.0', lauschAdressen: ['127.0.0.1'], port: a.port });
+    await erneuert.starte();
+    const c = neuerClient(pfad);
+    c.starte();
+    await bis(() => art(c) === 'fehler:zertifikat', 2000);
+    gleich(art(c), 'fehler:zertifikat', 'Master-Identität erneuert → fehler:zertifikat (CA-Prüfung im Handshake)');
+    await c.stoppe();
+    await erneuert.stoppe();
+  }
+  {
+    // Pin im Handshake: das Zertifikat besteht die CA-Prüfung, nur der Fingerprint-Vergleich bzw. die masterId fällt.
+    const a = await baueServer();
+    const k = dateiFuer(a).kopplung!;
+    const basis = { adresse: '127.0.0.1', rechner: { id: a.slave.rechnerId, name: 'Regie-Laptop 2' }, teilnehmer, f: fristen(KURZ) };
+    const pin = await versucheAnmeldung({ ...basis, kopplung: { ...k, fingerprint: '00'.repeat(32) } });
+    gleich(pin.ok ? null : pin.ergebnis, { art: 'fehler', code: PIN_FALSCH }, 'Zertifikat gültig, Fingerprint ≠ Pin → PIN_FALSCH');
+    if (pin.ok) pin.a.v.schliesse();
+    const fremdeId = await versucheAnmeldung({ ...basis, kopplung: { ...k, masterId: 'anderer-master' } });
+    gleich(fremdeId.ok ? null : fremdeId.ergebnis, { art: 'fehler', code: PIN_FALSCH }, 'hallo mit fremder masterId → PIN_FALSCH');
+    if (fremdeId.ok) fremdeId.a.v.schliesse();
+    await a.server.stoppe();
+  }
+  {
+    const z = zertifikatMitGueltigkeit(new Date(Date.now() + 3600e3), new Date(Date.now() + 3650 * 864e5));
+    const srv = tlsServer({ key: z.key, cert: z.cert }, () => { /* nie erreicht */ });
+    srv.on('tlsClientError', (_e, s) => s.destroy());
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const a = await baueServer();
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, { ...d, kopplung: { ...d.kopplung!, zertifikat: z.cert, fingerprint: fingerprintVonPem(z.cert), port: (srv.address() as AddressInfo).port } });
+    const c = neuerClient(pfad);
+    c.starte();
+    await bis(() => art(c) === 'fehler:uhr', 2000);
+    gleich(art(c), 'fehler:uhr', 'Zertifikat noch nicht gültig → fehler:uhr (nicht „anderer Master“)');
+    await c.stoppe();
+    srv.close();
+    await a.server.stoppe();
+  }
+  {
+    const a = await baueServer();
+    await a.server.stoppe();
+    const srv = tlsServer({ key: a.identitaet.schluessel, cert: a.identitaet.zertifikat }, (ts) => {
+      const v = new Verbindung(ts, 1 << 20);
+      v.on('nachricht', (n: Nachricht) => {
+        if (n.t === 'anmelden') { v.sende({ t: 'abgelehnt', grund: 'protokoll', master: 2, suite: '0.13.0' }); v.schliesse(); }
+      });
+      v.sende({ t: 'hallo', protokoll: 2, masterId: a.identitaet.masterId, name: 'Regie-PC', nonce: randomNonce() });
+    });
+    await new Promise<void>((r) => srv.listen(a.port, '127.0.0.1', r));
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    c.starte();
+    await bis(() => art(c) === 'fehler:protokoll', 2000);
+    const z = c.zustand();
+    pruefe(z.art === 'fehler' && z.text.includes('Launcher 0.13.0 (Protokoll 2)'), 'fehler:protokoll nennt den Stand des Masters');
+    await c.stoppe();
+    srv.close();
+  }
+  {
+    const a = await baueServer();
+    await a.server.stoppe();
+    const sockets: Socket[] = [];
+    const stumm = netServer((s) => { sockets.push(s); s.on('error', () => {}); });
+    await new Promise<void>((r) => stumm.listen(a.port, '127.0.0.1', r));
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    c.starte();
+    await bis(() => art(c) === 'fehler:kein-master', 2000);
+    gleich(art(c), 'fehler:kein-master', 'TCP steht, aber kein TLS/hallo → kein-master');
+    await c.stoppe();
+    sockets.forEach((s) => s.destroy());
+    stumm.close();
+    const c2 = neuerClient(pfad);
+    c2.starte();
+    await bis(() => art(c2) === 'fehler:verweigert', 2000);
+    gleich(art(c2), 'fehler:verweigert', 'niemand lauscht → verweigert');
+    await c2.stoppe();
+    // Spec 11.1 Nr. 5 „zusätzlich ein Nicht-TLS-Dienst“: Klartext statt ServerHello → ERR_SSL_* → kein-master
+    const klartext = netServer((s) => { s.on('error', () => {}); s.write('HTTP/1.1 400 Bad Request\r\n\r\n'); });
+    await new Promise<void>((r) => klartext.listen(0, '127.0.0.1', r));
+    const d3 = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, { ...d3, kopplung: { ...d3.kopplung!, port: (klartext.address() as AddressInfo).port } });
+    const c3 = neuerClient(pfad);
+    c3.starte();
+    await bis(() => art(c3) === 'fehler:kein-master', 2000);
+    gleich(art(c3), 'fehler:kein-master', 'Nicht-TLS-Dienst auf dem Port → kein-master (nicht sonstig)');
+    await c3.stoppe();
+    klartext.close();
+  }
+
+  abschnitt('Client: Zeilengrenze 4 KiB vor, 1 MiB nach der Anmeldung (Spec 6.1)');
+  {
+    const a = await baueServer();
+    await a.server.stoppe();
+    let grossVorAngemeldet = true;
+    let verbindungen = 0;
+    const srv = tlsServer({ key: a.identitaet.schluessel, cert: a.identitaet.zertifikat }, (ts) => {
+      verbindungen++;
+      const v = new Verbindung(ts, 1 << 20);
+      v.on('nachricht', (n: Nachricht) => {
+        if (n.t === 'puls') v.sende({ t: 'puls' }); // hält die Stille-Frist des Clients fern
+        if (n.t !== 'anmelden') return;
+        if (grossVorAngemeldet) ts.write(`{"t":"gross","x":"${'y'.repeat(GRENZEN.vorAnmeldung)}"}\n`);
+        v.sende({ t: 'angemeldet', adressen: [], suite: '0.12.0' });
+        if (!grossVorAngemeldet) setTimeout(() => ts.write(`{"t":"gross","x":"${'y'.repeat(100_000)}"}\n`), 100);
+      });
+      v.sende({ t: 'hallo', protokoll: 1, masterId: a.identitaet.masterId, name: 'Regie-PC', nonce: randomNonce() });
+    });
+    await new Promise<void>((r) => srv.listen(a.port, '127.0.0.1', r));
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    const gesehen = new Set<string>();
+    c.on('zustand', () => gesehen.add(art(c)));
+    c.starte();
+    await bis(() => art(c) === 'fehler:kein-master', 2000);
+    pruefe(art(c) === 'fehler:kein-master' && !gesehen.has('verbunden'), 'Zeile > 4 KiB vor „angemeldet“ → Verbindung zu (kein-master), nie verbunden');
+    await c.stoppe();
+    grossVorAngemeldet = false;
+    verbindungen = 0;
+    const c2 = neuerClient(pfad);
+    c2.starte();
+    await bis(() => art(c2) === 'verbunden', 2000);
+    await warte(400);
+    pruefe(art(c2) === 'verbunden' && verbindungen === 1, `nach „angemeldet“ sind 100-KB-Zeilen erlaubt (1 MiB), ${verbindungen} Verbindung(en)`);
+    await c2.stoppe();
+    srv.close();
+  }
+
+  abschnitt('Client: Stille (Review Focus 5) und ersetzt');
+  {
+    const a = await baueServer();
+    await a.server.stoppe();
+    let verbindungen = 0;
+    const srv = tlsServer({ key: a.identitaet.schluessel, cert: a.identitaet.zertifikat }, (ts) => {
+      verbindungen++;
+      const v = new Verbindung(ts, 1 << 20);
+      v.on('nachricht', (n: Nachricht) => {
+        if (n.t === 'anmelden') v.sende({ t: 'angemeldet', adressen: [], suite: '0.12.0' }); // danach: Schweigen
+      });
+      v.sende({ t: 'hallo', protokoll: 1, masterId: a.identitaet.masterId, name: 'Regie-PC', nonce: randomNonce() });
+    });
+    await new Promise<void>((r) => srv.listen(a.port, '127.0.0.1', r));
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    c.starte();
+    await bis(() => verbindungen >= 2, 3000);
+    pruefe(verbindungen >= 2, 'halboffene Verbindung (keine Zeile) → nach stilleMs selbst neu aufgebaut');
+    await c.stoppe();
+    srv.close();
+  }
+  {
+    const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c1 = neuerClient(pfad);
+    const c2 = neuerClient(pfad);
+    const gesehen = new Set<string>();
+    const luecken: number[] = [];
+    for (const c of [c1, c2]) {
+      let ersetztSeit: number | null = null;
+      c.on('zustand', () => {
+        const w = art(c);
+        gesehen.add(w);
+        if (w === 'fehler:ersetzt') ersetztSeit = Date.now();
+        else if (w === 'verbindet' && ersetztSeit !== null) {
+          luecken.push(Date.now() - ersetztSeit);
+          ersetztSeit = null;
+        }
+      });
+    }
+    c1.starte();
+    await bis(() => art(c1) === 'verbunden');
+    c2.starte();
+    await bis(() => gesehen.has('fehler:ersetzt'), 2000);
+    pruefe(gesehen.has('fehler:ersetzt'), 'zweite Instanz mit gleicher Kennung → fehler:ersetzt');
+    await bis(() => luecken.length > 0, 2000);
+    pruefe(luecken.length > 0 && Math.min(...luecken) >= 300,
+      `nach „ersetzt“ erst nach ersetztWiederholMs (400) neu versucht: ${luecken.join(', ')} ms (kein Sekundentakt-Pingpong)`);
+    await c1.stoppe();
+    await c2.stoppe();
+    await a.server.stoppe();
+  }
+
+  abschnitt('Client: Kandidaten, mDNS, Rolle master (Test-Naht anmelden)');
+  {
+    const a = await baueServer();
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, { ...d, kopplung: { ...d.kopplung!, adressen: ['10.0.0.9'] } });
+    const versucht: string[] = [];
+    const anmelden = async (p: AnmeldeParameter): Promise<Versuch> => {
+      versucht.push(p.adresse);
+      return { ok: false, ergebnis: { art: 'tcp-timeout' } };
+    };
+    const suche = new FakeSuche();
+    suche.sichtungen = [
+      { masterId: 'anderer-saal', name: 'Regie-PC', fpKurz: 'bb', protokoll: 1, adressen: ['10.0.0.60'] },
+      { masterId: a.identitaet.masterId, name: 'Regie-PC', fpKurz: 'aa', protokoll: 1, adressen: ['10.0.0.50'] },
+    ];
+    const c = neuerClient(pfad, { suche, anmelden });
+    c.starte();
+    await bis(() => art(c) === 'fehler:zeit', 1000);
+    gleich(art(c), 'fehler:zeit', 'Timeout + eigener Master per mDNS gesehen → zeit (Firewall?)');
+    gleich(versucht.slice(0, 2), ['10.0.0.50', '10.0.0.9'], 'nur die eigene masterId (nicht der zweite „Regie-PC“), dann Datei');
+    pruefe(!versucht.includes('10.0.0.60'), 'fremder Master gleichen Namens wird nie versucht (Review Focus 4)');
+    await c.stoppe();
+
+    suche.sichtungen = [];
+    const c2 = neuerClient(pfad, { suche, anmelden });
+    c2.starte();
+    await bis(() => art(c2) === 'fehler:nicht-gefunden', 1000);
+    gleich(art(c2), 'fehler:nicht-gefunden', 'Timeout ohne mDNS-Sichtung → nicht-gefunden (Windows-Stealth)');
+    await c2.stoppe();
+
+    versucht.length = 0;
+    const rundenVorher = suche.runden;
+    schreibeMasterLinkDatei(pfad, { ...d, rolle: 'master', kopplung: { ...d.kopplung!, adressen: ['10.0.0.9'] } });
+    const c3 = neuerClient(pfad, { suche, anmelden });
+    c3.starte();
+    await bis(() => versucht.length > 0, 1000);
+    gleich([...new Set(versucht)], ['127.0.0.1'], 'Rolle master → nur 127.0.0.1');
+    gleich(suche.runden, rundenVorher, 'Rolle master → keine mDNS-Suchrunde');
+    await c3.stoppe();
+  }
+
+  abschnitt('Client: Verbindung nach dem Koppeln übernehmen');
+  {
+    const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, { ...d, rechner: { id: 'rechner-c', name: 'Neuer PC' }, kopplung: null });
+    const c = new MasterLinkClient({ dateiPfad: pfad, teilnehmer: { ...teilnehmer, art: 'launcher', appId: 'jm-launcher' }, fristen: KURZ, suche: null });
+    c.starte();
+    await bis(() => art(c) === 'aus');
+    gleich(art(c), 'aus', 'Slave ohne Kopplung → aus (untätig)');
+    a.server.oeffneKopplung();
+    const r = await koppele({ adresse: '127.0.0.1', port: a.port, code: a.server.kopplungsStand().code!, rechner: { id: 'rechner-c', name: 'Neuer PC' } });
+    pruefe(r.ok, 'gekoppelt');
+    if (r.ok) {
+      schreibeMasterLinkDatei(pfad, { ...d, rechner: { id: 'rechner-c', name: 'Neuer PC' }, kopplung: r.kopplung });
+      c.uebernehme(r.verbindung, r.kopplung, r.masterName);
+      await bis(() => art(c) === 'verbunden');
+      gleich(art(c), 'verbunden', 'übernommene Verbindung ist angemeldet');
+      const seit = (c.zustand() as Extract<ClientZustand, { art: 'verbunden' }>).seit;
+      await warte(300);
+      pruefe(art(c) === 'verbunden' && (c.zustand() as Extract<ClientZustand, { art: 'verbunden' }>).seit === seit,
+        'Dateibeobachter baut die übernommene Verbindung nicht neu auf');
+    }
+    await c.stoppe();
+    gleich(art(c), 'aus', 'stoppe → aus');
+    c.starte();
+    await bis(() => art(c) === 'verbunden', 2000);
+    gleich(art(c), 'verbunden', 'starte() nach stoppe(), Datei unverändert → verbindet wieder');
+    await c.stoppe();
+    await a.server.stoppe();
+  }
+
+  abschnitt('Client: unbrauchbarer Schlüssel, Ausnahmen in Handlern (Spec 7.3: stürzt nie ab)');
+  {
+    // GEMESSEN: privat 'AAAA' bestand die Dateiprüfung, signiereAnmeldung warf im Handler → Exit 1 in jedem Tool.
+    const a = await baueServer();
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, { ...d, kopplung: { ...d.kopplung!, schluessel: { ...a.slave.paar, privat: 'AAAA' } } });
+    const c = neuerClient(pfad);
+    const gesehen = new Set<string>();
+    c.on('zustand', () => gesehen.add(art(c)));
+    c.starte();
+    await bis(() => art(c) === 'fehler:datei', 1000);
+    gleich(art(c), 'fehler:datei', 'privater Schlüssel unbrauchbar → fehler:datei, Prozess lebt');
+    pruefe(!gesehen.has('verbindet'), '… ohne Verbindungsversuch');
+    await c.stoppe();
+    await a.server.stoppe();
+  }
+  {
+    // Eine Ausnahme in einem Socket-Handler wäre ungefangen und beendete den ganzen Prozess (jedes Tool).
+    const a = await baueServer();
+    const wirft = { get id(): string { throw Object.assign(new Error('Testwurf'), { code: 'TESTWURF' }); }, name: 'Regie-Laptop 2' };
+    const r = await versucheAnmeldung({ adresse: '127.0.0.1', kopplung: dateiFuer(a).kopplung!, rechner: wirft, teilnehmer, f: fristen(KURZ) });
+    gleich(r.ok ? null : r.ergebnis, { art: 'fehler', code: 'TESTWURF' }, 'Ausnahme im Handler von versucheAnmeldung → Fehlerergebnis statt Absturz');
+    await a.server.stoppe();
+  }
+  {
+    const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    const rechner = { id: 'rechner-c', name: 'Neuer PC' };
+    schreibeMasterLinkDatei(pfad, { ...d, rechner, kopplung: null });
+    const c = new MasterLinkClient({ dateiPfad: pfad, teilnehmer: { ...teilnehmer, art: 'launcher', appId: 'jm-launcher' }, fristen: KURZ, suche: null });
+    const fehler: string[] = [];
+    c.on('zustand', (z: ClientZustand) => { if (z.art === 'fehler') fehler.push(`${z.code}/${z.errCode ?? ''}`); });
+    c.starte();
+    a.server.oeffneKopplung();
+    const r = await koppele({ adresse: '127.0.0.1', port: a.port, code: a.server.kopplungsStand().code!, rechner });
+    pruefe(r.ok, 'gekoppelt');
+    if (r.ok) {
+      schreibeMasterLinkDatei(pfad, { ...d, rechner, kopplung: r.kopplung });
+      c.uebernehme(r.verbindung, r.kopplung, r.masterName);
+      // Gleich nach uebernehme() wartet der Handler; die echte Antwort des Masters ist noch nicht gelesen.
+      const wurf = { t: 'angemeldet', suite: '0.12.0', get adressen(): string[] { throw Object.assign(new Error('Testwurf'), { code: 'TESTWURF' }); } };
+      let durch = false;
+      try {
+        r.verbindung.emit('nachricht', wurf);
+      } catch {
+        durch = true;
+      }
+      pruefe(!durch, 'Ausnahme im Handler von warteAufAngemeldet dringt nicht bis zum Socket durch (dort: Absturz)');
+      await bis(() => fehler.length > 0, 1000);
+      gleich(fehler[0], 'sonstig/TESTWURF', '… sondern wird Fehlerergebnis: fehler:sonstig mit errCode');
+      await bis(() => art(c) === 'verbunden', 3000);
+      gleich(art(c), 'verbunden', '… danach normal neu verbunden');
+    }
+    await c.stoppe();
+    await a.server.stoppe();
+  }
+}

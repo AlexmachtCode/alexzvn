@@ -11,8 +11,9 @@ import { laufe as speicher } from './speicher.test';
 import { laufe as mdns } from './mdns.test';
 import { laufe as server } from './server.test';
 import { laufe as koppeln } from './koppeln.test';
+import { laufe as client } from './client.test';
 
-for (const laufe of [code, beweis, rahmen, adresswahl, fehler, datei, speicher, mdns, server, koppeln]) {
+for (const laufe of [code, beweis, rahmen, adresswahl, fehler, datei, speicher, mdns, server, koppeln, client]) {
   await laufe();
 }
 bilanz();
