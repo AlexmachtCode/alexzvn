@@ -23,6 +23,15 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.11.1",
+        "date": "2026-09-30",
+        "notes": [
+          "Behebt: Beim Öffnen einer Show stand ein installiertes, aber nicht startbares Tool bis zu 30 Sekunden auf startet… — jetzt wird es sofort als nicht verfügbar angezeigt.",
+          "Behebt: Das Fenster System-Zustand wuchs bei vielen Tools über den Launcher hinaus und ließ sich dann nicht mehr schließen. Es passt jetzt immer ins Fenster, der Inhalt scrollt, Aktualisieren und Schließen bleiben sichtbar. Zusätzlich schließen die Escape-Taste und ein Klick neben das Fenster.",
+          "Hinweise zur sicheren Steuerebene berichtigt: Nach dem Aktivieren müssen der Launcher und die Tools neu starten. Über mehrere Rechner hinweg trägt der sichere Modus noch nicht — die Kopplung zwischen Rechnern ist in Arbeit."
+        ]
+      },
+      {
         "version": "0.11.0",
         "date": "2026-07-05",
         "notes": [
@@ -570,6 +579,13 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.11.2",
+        "date": "2026-09-30",
+        "notes": [
+          "Schickt der Launcher nach einer iveo-Änderung ein Neu-Laden, der Timer wurde aber nicht über eine Show gestartet, steht das jetzt als Warnung im Protokoll. Vorher geschah in diesem Fall nichts und ohne jeden Hinweis."
+        ]
+      },
+      {
         "version": "0.11.1",
         "date": "2026-08-07",
         "notes": [
@@ -980,6 +996,13 @@
     "app": "titler",
     "name": "JM Titler",
     "entries": [
+      {
+        "version": "0.8.2",
+        "date": "2026-09-30",
+        "notes": [
+          "Schickt der Launcher nach einer iveo-Änderung ein Neu-Laden, der Titler wurde aber nicht über eine Show gestartet, steht das jetzt als Warnung im Protokoll. Vorher geschah in diesem Fall nichts und ohne jeden Hinweis."
+        ]
+      },
       {
         "version": "0.8.1",
         "date": "2026-07-10",
