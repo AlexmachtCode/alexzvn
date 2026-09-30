@@ -134,6 +134,26 @@ export async function laufe(): Promise<void> {
   await warte(300);
   pruefe(!existsSync(h6.pfad), 'nach schliesse() läuft kein Wiederholungs-Zeitgeber mehr');
 
+  // Dauerfehler + viele gesehen(false) (im Betrieb: jeder Heartbeat jeder angemeldeten Sitzung): Die Drosselung gilt auch
+  // für Fehlversuche — ein Versuch und ein onFehler je Intervall, nicht einer je Zeile (Log-Flut, und unter Windows
+  // blockiert schreibeAtomar bei EPERM/EBUSY bis zu 2 s je Versuch). Die Uhr ist eingespritzt, der Test braucht keine Wartezeit.
+  const h8 = hindernis();
+  const fehler8: Error[] = [];
+  let uhr8 = 1_000_000;
+  const dv8 = new DateiVerbund(h8.pfad, { version: 1, rechner: [eintrag('a')] },
+    { jetzt: () => uhr8, schreibIntervallMs: 60_000, onFehler: (e) => fehler8.push(e) });
+  for (let i = 1; i <= 5; i++) dv8.gesehen('a', i, null, false);
+  gleich(fehler8.length, 1, 'Dauerfehler: fünf gesehen(false) innerhalb des Intervalls → genau ein Versuch, ein onFehler');
+  uhr8 += 59_999;
+  dv8.gesehen('a', 6, null, false);
+  gleich(fehler8.length, 1, 'Dauerfehler: eine Millisekunde vor Intervallende → immer noch kein neuer Versuch');
+  uhr8 += 1;
+  dv8.gesehen('a', 7, null, false);
+  gleich(fehler8.length, 2, 'Dauerfehler: nach dem Intervall wird wieder versucht (Drosselung, keine Sperre)');
+  h8.weg();
+  dv8.schliesse();
+  gleich(JSON.parse(readFileSync(h8.pfad, 'utf8')).rechner[0].zuletztGesehen, 7, 'Dauerfehler behoben: schliesse() schreibt den letzten Stand (offen blieb true)');
+
   // Ohne onFehler bleibt der Fehler nicht spurlos: kurze Meldung mit dem Fehlercode, NIE mit dem Inhalt.
   const h7 = hindernis();
   const warnungen: string[] = [];

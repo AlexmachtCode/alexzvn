@@ -246,7 +246,10 @@ export class DateiVerbund extends SpeicherVerbund {
     } catch (e) {
       // Nichts ging verloren, solange `offen` bleibt: der Zeitgeber versucht es nach dem Intervall erneut — auch eine
       // fehlgeschlagene Kopplung (setze) oder ein „zuletzt gesehen“, an dem sich sonst nichts mehr ändert.
+      // Auch ein Fehlversuch zählt für die Drosselung: sonst löste bei Dauerfehler jedes gesehen(…, false) (jeder Heartbeat)
+      // sofort einen Versuch samt onFehler aus — Log-Flut, und bei EPERM/EBUSY blockiert schreibeAtomar je Versuch bis zu 2 s.
       this.offen = true;
+      this.letzteSchreibung = this.jetzt();
       if (!this.geschlossen) this.armiere(this.intervall);
       this.onFehler(e as Error);
       return;
