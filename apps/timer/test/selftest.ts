@@ -164,7 +164,7 @@ const kennungen = (s: SyncedState): string => JSON.stringify(s.timetable.items.m
   ck('aktiverPunktVerschwunden: Kennung fehlt → ja', aktiverPunktVerschwunden(vorher.timetable, nachher.timetable, eingang));
   // … und am Ende der Liste wird die Nummer wie bisher begrenzt.
   const amEnde = zustand([item('u1', 5), item('u2', 10), item('u3', 5)], 2);
-  const kurz = reduce(amEnde, { type: 'tt:replaceItems', items: eingang.slice(0, 2) });
+  const kurz = reduce(amEnde, { type: 'tt:replaceItems', items: [eingang[0], eingang[2]] });
   ck('replaceItems: aktiver Punkt weg, Liste kürzer → auf das Ende begrenzt', kurz.timetable.activeIndex === 1);
 }
 {
