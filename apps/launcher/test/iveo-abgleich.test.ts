@@ -245,6 +245,8 @@ interface Umgebung {
   warn: string[];
   clients: string[];
   cache: unknown[];
+  /** Die nächsten N Lesezugriffe auf Show-Dateien scheitern (null). */
+  leseAus: number;
 }
 /** Show-Datei anlegen, Kern bauen, Show öffnen (wie onShowOpened). */
 function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boolean } = {}): Umgebung {
@@ -265,6 +267,7 @@ function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boole
     warn: [],
     clients: [],
     cache: [],
+    leseAus: 0,
   };
   u.kern = erzeugeKern({
     clientFabrik: (token, baseUrl) => {
@@ -273,6 +276,7 @@ function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boole
     },
     token: () => u.token,
     leseShow: (p) => {
+      if (u.leseAus > 0) { u.leseAus--; return null; }
       const text = u.dateien.get(p);
       if (text === undefined) return null;
       try {
@@ -757,6 +761,111 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
   u.kern.offeneShowGespeichert(SHOW_PFAD.toUpperCase(), false);
   ck('Spec 0.2: offene Show ohne iveo gespeichert (Pfad in anderer Schreibweise) → RELOAD an alle drei',
     u.reloads.length === 3 && u.kern.aktiv() === null);
+}
+
+// --- Fix-Runde 1 (A14): Umschalten gilt für die Show beim ANFORDERN, Speakerliste, Testlücken ----------------------
+{
+  const u = umgebung(agendaP1);
+  u.token = undefined; // Token nach dem Öffnen entfernt
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Umschalten: Token inzwischen weg → „iveo-Token nicht mehr vorhanden.“, nichts geschrieben',
+    !r.ok && r.message === 'iveo-Token nicht mehr vorhanden.' && u.schreibversuche === 0 && u.clients.length === 0);
+}
+{
+  // Ein wartendes Umschalten gilt für die Show beim Anfordern: wird dazwischen Show B geöffnet, schreibt es nichts.
+  const u = umgebung(agendaP1);
+  const PFAD_B = 'C:/Shows/COP31 Tag 2.jmshow';
+  u.dateien.set(PFAD_B, serializeShow({ ...agendaP1(u.iveo), name: 'COP31 Tag 2' }));
+  const s = sperre();
+  u.iveo.sperre = (abruf, arg) => (abruf === 'agenda' && arg === 'P2' ? s.halt : null);
+  const erstes = u.kern.umschalten({ programId: 'P2' });
+  const zweites = u.kern.umschalten({ programId: 'P3' });
+  await warteMs(20);
+  u.kern.showGeoeffnet(PFAD_B, parseShow(u.dateien.get(PFAD_B)!));
+  s.frei();
+  const [r1, r2] = await Promise.all([erstes, zweites]);
+  ck('7.3: Show B geöffnet, während Umschalten 1 hängt und 2 wartet → beide verworfen',
+    !r1.ok && !r2.ok && r2.message === 'Show wurde inzwischen gewechselt oder gespeichert, Umschalten verworfen.');
+  ck('7.3: … Show B unberührt (kein Schreiben, kein RELOAD, kein Abruf für P3)',
+    u.schreibversuche === 0 && u.reloads.length === 0 && !u.iveo.abrufe.includes('programm:P3') && u.kern.aktiv()?.path === PFAD_B);
+}
+{
+  // Umschalten mit verknüpften Speakern: Neu-Eingrenzung, Verantwortlich, Kontext gemerkt, kein Schein-„geändert“.
+  const u = umgebung((iv) => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA, { name: 'Otto Alt' }]));
+  u.iveo.programme[1] = { ...u.iveo.programme[1], speaker_ids: ['sp1'] } as IveoProgram;
+  u.iveo.agenda.P2 = [{ ...punkt('P2', 'b1', 'Einführung', 1), speaker_ids: ['sp1'] } as IveoAgendaItem, punkt('P2', 'b2', 'Diskussion', 2, 30)];
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  const sp = datei(u).iveo?.speakers ?? [];
+  ck('Umschalten, Speaker verknüpft: ok ohne Warnung, Speaker auf die verknüpften eingegrenzt',
+    r.ok && r.message === 'Umgeschaltet (2 Punkte).' && sp.length === 1 && sp[0].name === 'Ana Silva');
+  ck('… Verantwortlich am Punkt gesetzt', datei(u).ablauf?.[0]?.owner === 'Ana Silva');
+  await u.kern.abfrage();
+  ck('… die nächste Abfrage: Kontext gemerkt (kein Detail-Abruf), nichts geschrieben, kein RELOAD',
+    u.schreibversuche === 1 && u.reloads.length === 3 && u.iveo.abrufe.filter((x) => x === 'programm:P2').length === 1);
+
+  // Speakerliste beim Umschalten nicht ladbar: Warnung im Log, kein Kontext → die nächste Abfrage lädt vollständig nach.
+  const v = umgebung((iv) => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA]));
+  v.iveo.programme[1] = { ...v.iveo.programme[1], speaker_ids: ['sp1'] } as IveoProgram;
+  v.iveo.agenda.P2 = [{ ...punkt('P2', 'b1', 'Einführung', 1), speaker_ids: ['sp1'] } as IveoAgendaItem];
+  v.iveo.fehler.speakers = new Error('fetch failed');
+  const r2 = await v.kern.umschalten({ programId: 'P2' });
+  ck('Umschalten, Speakerliste nicht ladbar: gelingt, Warnung im Log (ohne Token), Ersatzliste bleibt, kein Verantwortlich',
+    r2.ok && v.warn.some((w) => w.includes('Speakerliste')) && !v.warn.some((w) => w.includes(TOKEN))
+    && datei(v).iveo?.speakers?.[0]?.name === 'Ana Silva' && datei(v).ablauf?.[0]?.owner === undefined);
+  v.iveo.fehler.speakers = undefined;
+  await v.kern.abfrage();
+  ck('… die nächste Abfrage lädt Kontext samt Speakern nach und trägt Verantwortlich nach',
+    v.iveo.abrufe.filter((x) => x === 'programm:P2').length === 2 && datei(v).ablauf?.[0]?.owner === 'Ana Silva' && v.schreibversuche === 2);
+}
+{
+  // getProgram scheitert beim Umschalten: gelingt trotzdem (Agenda da), aber kein Kontext → die nächste Abfrage lädt nach.
+  const u = umgebung(agendaP1);
+  u.iveo.fehler.programm = new Error('fetch failed');
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Umschalten, Detail nicht abrufbar: gelingt (Agenda genügt)', r.ok && ids(datei(u)) === 'b1,b2');
+  u.iveo.fehler.programm = undefined;
+  await u.kern.abfrage();
+  ck('… kein Kontext gemerkt: die nächste Abfrage holt das Detail nach (Startzeit/Kategorie) und schreibt',
+    u.iveo.abrufe.filter((x) => x === 'programm:P2').length === 2 && u.schreibversuche === 2 && datei(u).ablauf?.[0]?.plannedStartMs !== undefined);
+}
+{
+  // Die Ersatz-Speakerliste kommt aus dem Lesen, das auch geschrieben wird: ein Lesefehler vorher darf sie nicht leeren.
+  const u = umgebung((iv) => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA]));
+  u.leseAus = 1;
+  await u.kern.umschalten({ programId: 'P3' });
+  ck('Umschalten ohne Verknüpfung, ein Lesefehler: die Speakerliste der Datei bleibt (nie leer geschrieben)',
+    datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva');
+}
+{
+  // Tagesübersicht: iveo antwortet 401 → die Meldung kommt aus toClientError, das Token steht nirgends.
+  const u = umgebung(agendaP1);
+  u.iveo.fehler.snapshot = new IveoApiError(401, 'unauthorized', 'nope');
+  const r = await u.kern.umschalten({ day: '2026-11-11' });
+  ck('Tagesübersicht, Snapshot 401 → ok:false mit der 401-Meldung, nichts geschrieben, Filter unverändert',
+    !r.ok && r.message === 'Token ungültig/abgelaufen oder API-Zugang deaktiviert (401).' && u.schreibversuche === 0
+    && u.kern.aktiv()?.filter.programId === 'P1' && !u.warn.some((w) => w.includes(TOKEN)));
+}
+{
+  // Speichern der offenen Show, danach nicht lesbar: anhalten, Status melden, RELOAD trotzdem.
+  const u = umgebung(agendaP1);
+  u.dateien.set(SHOW_PFAD, '{ kaputt');
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('7.5: gespeichert und danach nicht lesbar → Abgleich angehalten (aktiv() null), Status „Show-Datei nicht lesbar“, RELOAD trotzdem',
+    u.kern.aktiv() === null && u.status.at(-1)?.text === 'Show-Datei nicht lesbar' && u.reloads.length === 3);
+  await u.kern.abfrage();
+  ck('… die Abfrage tut nichts', u.iveo.abrufe.length === 0);
+}
+{
+  // Listen-Modus, gleiche Bindung gespeichert: das Abfragefenster (lastSyncIso) bleibt, es springt nicht auf syncedAt zurück.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  const snap = u.iveo.abrufe.find((x) => x.startsWith('snapshot:'))!.slice('snapshot:'.length);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  await u.kern.abfrage();
+  const seit = u.iveo.abrufe.filter((x) => x.startsWith('geaendert:')).map((x) => x.slice('geaendert:'.length));
+  ck('7.5: Listen-Modus, gleiche Bindung gespeichert → die nächste Abfrage fragt ab dem letzten Abgleich (nicht ab syncedAt)',
+    seit.length === 2 && seit[1] === snap && seit[1] !== '2026-10-01T08:00:00.000Z');
 }
 
 // --- Zusammenfassung ---

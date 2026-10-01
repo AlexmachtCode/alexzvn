@@ -31,6 +31,7 @@ import {
   type IveoClient,
   type IveoProgram,
   type IveoProgramFilter,
+  type IveoSpeaker,
 } from '@jm/iveo';
 
 /** Die Teilmenge des iveo-Clients, die der Kern braucht. Im Test nachgebaut. */
@@ -191,6 +192,24 @@ function pfadSchluessel(p: string): string {
 }
 
 type SideKontext = { firstStartMs: number | null; category?: string; speakerNames?: Array<[string, string]> };
+
+/** Speaker-IDs, die iveo an ein Side Event (Detail oder Agenda-Punkte) hängt. */
+function sideSpeakerIds(detail: IveoProgram | null, agenda: IveoAgendaItem[]): string[] {
+  return [...new Set<string>([...extractSpeakerIds(detail), ...agenda.flatMap((it) => extractSpeakerIds(it))])];
+}
+
+/**
+ * Side-Event-Kontext (Startzeit-Anker, Kategorie, Speakernamen) — der EINE Aufbau für Abfrage und Umschalten.
+ * `alleSpeaker` ist die volle Speakerliste des Events; sie muss da sein, wenn `sideSpeakerIds` etwas liefert
+ * (sonst fehlte „Verantwortlich“, der Kontext wäre nicht vollständig → der Aufrufer merkt ihn dann nicht).
+ */
+function sideKontext(detail: IveoProgram | null, alleSpeaker?: IveoSpeaker[]): SideKontext {
+  return {
+    firstStartMs: detail ? localTimeOfDayMs(detail) : null,
+    category: ((detail?.format_slug || detail?.type_slug) || '').trim() || undefined,
+    speakerNames: alleSpeaker ? [...speakerNameMap(alleSpeaker)] : undefined,
+  };
+}
 
 interface AktiveShow {
   path: string;
@@ -426,19 +445,9 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       // Nach dem Öffnen einer gespeicherten Show fehlt der Kontext (er entsteht beim Binden/Umschalten). Ohne ihn
       // fehlten Startzeit, Kategorie und Verantwortlich → nachladen; scheitert das, bricht die Abfrage ab (7.6).
       detail = await client.getProgram(a.event, programId);
-      const ids = [
-        ...new Set<string>([...extractSpeakerIds(detail), ...agenda.flatMap((it) => extractSpeakerIds(it))]),
-      ];
-      let speakerNames: Array<[string, string]> | undefined;
-      if (ids.length) {
-        // Scheitert die Speakerliste, bricht die Abfrage ab (wie getProgram): sonst entstünde ein Ablauf ohne „Verantwortlich“.
-        speakerNames = [...speakerNameMap(await client.listSpeakers(a.event))];
-      }
-      ctx = {
-        firstStartMs: localTimeOfDayMs(detail),
-        category: ((detail.format_slug || detail.type_slug) || '').trim() || undefined,
-        speakerNames,
-      };
+      // Scheitert die Speakerliste, bricht die Abfrage ab (wie getProgram): sonst entstünde ein Ablauf ohne „Verantwortlich“.
+      const alle = sideSpeakerIds(detail, agenda).length ? await client.listSpeakers(a.event) : undefined;
+      ctx = sideKontext(detail, alle);
     }
     const names = ctx.speakerNames ? new Map(ctx.speakerNames) : undefined;
     let ablauf = agendaToAblauf(agenda, {
@@ -494,8 +503,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     client: IveoClientLike,
     event: string,
     programId: string,
-    ersatzSpeakers: ShowIveoSpeaker[],
-  ): Promise<{ ablauf: ShowAblaufItem[]; speakers: ShowIveoSpeaker[]; warning?: string; sideCtx?: SideKontext } | null> {
+  ): Promise<{ ablauf: ShowAblaufItem[]; speakers: ShowIveoSpeaker[] | null; warning?: string; sideCtx?: SideKontext } | null> {
     const detail = await client.getProgram(event, programId).catch((e: unknown) => {
       d.log.warn(`iveo switch: Detail „${programId}" nicht abrufbar (${(e as Error).message}).`);
       return null;
@@ -507,30 +515,31 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       d.log.warn(`iveo switch: agenda-items „${programId}" nicht abrufbar (${(e as Error).message}).`);
       return null;
     }
-    const ids = [
-      ...new Set<string>([...extractSpeakerIds(detail), ...agenda.flatMap((it) => extractSpeakerIds(it))]),
-    ];
-    let speakers = ersatzSpeakers;
+    const ids = sideSpeakerIds(detail, agenda);
+    // null = die Liste der Datei bleibt; der Aufrufer nimmt sie aus dem Lesen, das er auch schreibt.
+    let speakers: ShowIveoSpeaker[] | null = null;
     let warning: string | undefined;
-    // Namensquelle für „Verantwortlich“: nur die volle Speakerliste trägt ids. Ohne Verknüpfung bleibt owner leer.
-    let namen: Map<string, string> | undefined;
+    // Vollständig nur mit der Speakerliste (Namensquelle für „Verantwortlich“); ohne Verknüpfung braucht es sie nicht.
+    let vollstaendig = true;
+    let alle: IveoSpeaker[] | undefined;
     if (ids.length) {
       try {
-        const alle = await client.listSpeakers(event);
+        alle = await client.listSpeakers(event);
         speakers = speakersToShowSpeakers(alle.filter((s) => ids.includes(s.id)));
-        namen = speakerNameMap(alle);
         d.log.info(`iveo switch: ${ids.length} Speaker verknüpft, ${speakers.length} aufgelöst.`);
-      } catch {
-        /* Speakerliste nicht ladbar → Ersatzliste bleibt, owner bleibt leer */
+      } catch (e) {
+        // Liste der Datei bleibt, owner bleibt leer — und kein Kontext merken: die nächste Abfrage lädt vollständig nach.
+        vollstaendig = false;
+        d.log.warn(`iveo switch: Speakerliste nicht abrufbar (${(e as Error).message}) — Verantwortlich wird bei der nächsten Abfrage nachgeladen.`);
       }
     } else {
       if (detail) d.log.info(`iveo switch: Programm-Detail-Felder = ${Object.keys(detail).join(', ')}`);
       if (agenda[0]) d.log.info(`iveo switch: Agenda-Item-Felder = ${Object.keys(agenda[0]).join(', ')}`);
       warning = 'iveo verknüpft keine Speaker mit diesem Side Event — bestehende Speakerliste bleibt.';
     }
-    const firstStartMs = detail ? localTimeOfDayMs(detail) : null;
-    const category = ((detail?.format_slug || detail?.type_slug) || '').trim() || undefined;
-    let ablauf = agendaToAblauf(agenda, { firstStartMs, category, speakerNamesById: namen });
+    const kontext = sideKontext(detail, alle);
+    const namen = kontext.speakerNames ? new Map(kontext.speakerNames) : undefined;
+    let ablauf = agendaToAblauf(agenda, { firstStartMs: kontext.firstStartMs, category: kontext.category, speakerNamesById: namen });
     if (!ablauf.length && detail) ablauf = [einPunktAblauf(detail, namen)];
     d.log.info(
       `iveo: Side Event „${detail?.title?.trim() || programId}" — Agenda-Punkte: ${agenda.length}` +
@@ -540,8 +549,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       ablauf,
       speakers,
       warning,
-      // Ohne Detail keinen Kontext merken: die nächste Abfrage lädt ihn nach (7.6) und trägt Startzeit/Kategorie nach.
-      sideCtx: detail ? { firstStartMs, category, speakerNames: namen ? [...namen] : undefined } : undefined,
+      // Ohne Detail oder ohne Speakerliste keinen Kontext merken: die nächste Abfrage lädt ihn nach (7.6).
+      sideCtx: detail && vollstaendig ? kontext : undefined,
     };
   }
 
@@ -550,7 +559,12 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
    * Umschalten wartet NICHT auf sie (7.3) — so bleibt `LAUNCHER SIDEEVENT` per Rundown-GO schnell, wenn iveo hängt.
    * Merker (filter, sideCtx, lastSig, lastSyncIso) erst nach erfolgreichem Schreiben (7.2).
    */
-  async function umschaltenJetzt(input: { programId?: string; day?: string }): Promise<{ ok: boolean; message: string }> {
+  async function umschaltenJetzt(
+    input: { programId?: string; day?: string },
+    angefordertFuer: AktiveShow | null,
+  ): Promise<{ ok: boolean; message: string }> {
+    // Ein wartendes Umschalten gilt für die Show, die beim ANFORDERN offen war — nicht für die beim Ausführen.
+    if (active !== angefordertFuer) return { ok: false, message: TEXT_UMSCHALTEN_VERWORFEN };
     const a = active;
     if (!a) return { ok: false, message: 'Kein iveo-Token für die offene Show — Live-Umschalten nicht möglich.' };
     const tok = d.token(a.event);
@@ -561,14 +575,14 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       const client = d.clientFabrik(tok, a.baseUrl);
       const programId = input.programId?.trim();
       let ablauf: ShowAblaufItem[];
-      let speakers: ShowIveoSpeaker[];
+      let speakers: ShowIveoSpeaker[] | null;
       let filter: IveoProgramFilter;
       let sideCtx: SideKontext | undefined;
       let warning: string | undefined;
       let name: string | undefined;
       let lastSyncIso = a.lastSyncIso;
       if (programId) {
-        const r = await loeseSideEventLeicht(client, a.event, programId, d.leseShow(a.path)?.iveo?.speakers ?? []);
+        const r = await loeseSideEventLeicht(client, a.event, programId);
         if (!r) return { ok: false, message: TEXT_AGENDA_NICHT_ABRUFBAR };
         ({ ablauf, speakers, warning, sideCtx } = r);
         filter = { ...a.filter, programId };
@@ -593,6 +607,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       // Ab hier kein await mehr (7.3): Show inzwischen gewechselt oder gespeichert → verwerfen, nichts schreiben.
       if (!istAktuell(a, gen)) return { ok: false, message: TEXT_UMSCHALTEN_VERWORFEN };
       const basis = d.leseShow(a.path);
+      // Ohne Verknüpfung bleibt die Speakerliste der Datei — aus genau diesem Lesen, das auch geschrieben wird.
+      const speakersNeu = speakers ?? basis?.iveo?.speakers ?? [];
       const geschrieben =
         basis !== null &&
         schreibeAblauf(a.path, basis, {
@@ -600,15 +616,15 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
           baseUrl: a.baseUrl,
           name: name ?? (basis.iveo?.name || a.event),
           ablauf,
-          speakers,
+          speakers: speakersNeu,
           filter,
         });
       if (!geschrieben) return { ok: false, message: TEXT_NICHT_GESCHRIEBEN };
       a.filter = filter;
       a.sideCtx = sideCtx;
-      a.lastSig = ablaufSignatur(ablauf, speakers);
+      a.lastSig = ablaufSignatur(ablauf, speakersNeu);
       a.lastSyncIso = lastSyncIso;
-      d.log.info(`iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakers.length} Speaker.`);
+      d.log.info(`iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakersNeu.length} Speaker.`);
       benachrichtigeAlle();
       d.meldeAktiv();
       return { ok: true, message: warning ? `Umgeschaltet — ${warning}` : `Umgeschaltet (${ablauf.length} Punkte).` };
@@ -622,7 +638,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
 
   /** Umschaltungen nacheinander (7.3); ein Umschalten wartet nie auf eine Abfrage. */
   function umschalten(input: { programId?: string; day?: string }): Promise<{ ok: boolean; message: string }> {
-    const lauf = kette.then(() => umschaltenJetzt(input));
+    const angefordertFuer = active;
+    const lauf = kette.then(() => umschaltenJetzt(input, angefordertFuer));
     kette = lauf.catch(() => {});
     return lauf;
   }
