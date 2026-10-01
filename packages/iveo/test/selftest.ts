@@ -27,7 +27,7 @@ import {
   type IveoProgram,
   type IveoSnapshot,
 } from '../src/index';
-import { createShow, parseShow, serializeShow } from '@jm/show';
+import { createShow, hatEigeneTimerListe, normalizeAblauf, parseShow, serializeShow } from '@jm/show';
 
 let failed = 0;
 function ok(cond: boolean, msg: string): void {
@@ -444,6 +444,75 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   );
   ok(!text.includes('iveo_live_'), '@jm/show: kein Token in der serialisierten Show');
   ok(!text.includes('GEHEIM-BIO'), '@jm/show: keine Bio (PII) in der serialisierten Show');
+}
+
+// ── @jm/show: Kennung am Ablaufpunkt, normalizeAblauf, hatEigeneTimerListe (Teil 2a) ──
+{
+  // Kennung wird übernommen, getrimmt und steht vorn (stabile Serialisierung).
+  const a = normalizeAblauf([{ label: 'Begrüßung', id: '  ag-1  ', durationMs: 600_000 }]);
+  ok(
+    JSON.stringify(a) === '[{"id":"ag-1","label":"Begrüßung","durationMs":600000}]',
+    '@jm/show: id übernommen, getrimmt, als erstes Feld',
+  );
+
+  // Ungültige Kennungen fallen weg, der Punkt selbst bleibt.
+  const ungueltig = normalizeAblauf([
+    { id: 42, label: 'Zahl' },
+    { id: '', label: 'Leer' },
+    { id: '   ', label: 'Nur Leerzeichen' },
+    { id: 'k'.repeat(201), label: 'Zu lang' },
+    { id: null, label: 'Null' },
+  ]);
+  ok(ungueltig.length === 5 && ungueltig.every((p) => !('id' in p)), '@jm/show: ungültige id entfällt, Punkt bleibt');
+  ok(normalizeAblauf([{ id: 'k'.repeat(200), label: 'Grenze' }])[0].id === 'k'.repeat(200), '@jm/show: id mit 200 Zeichen bleibt');
+
+  // Doppelte Kennungen: die erste behält ihre, jede weitere bekommt #2, #3 …
+  const doppelt = normalizeAblauf([
+    { id: 'X', label: 'a' },
+    { id: 'X', label: 'b' },
+    { id: 'X', label: 'c' },
+  ]);
+  ok(JSON.stringify(doppelt.map((p) => p.id)) === '["X","X#2","X#3"]', '@jm/show: doppelte id → #2, #3');
+  // … und überspringt Nummern, die in der Liste schon vergeben sind.
+  const belegt = normalizeAblauf([
+    { id: 'X', label: 'a' },
+    { id: 'X', label: 'b' },
+    { id: 'X#2', label: 'c' },
+  ]);
+  ok(JSON.stringify(belegt.map((p) => p.id)) === '["X","X#3","X#2"]', '@jm/show: belegte #2 → nächste freie Nummer');
+  ok(JSON.stringify(normalizeAblauf(belegt)) === JSON.stringify(belegt), '@jm/show: normalizeAblauf ist idempotent');
+  // Lange Kennung: Der Zusatz bleibt in 200 Zeichen, sonst verwürfe das nächste Lesen die id.
+  const grenze = normalizeAblauf([
+    { id: 'k'.repeat(200), label: 'a' },
+    { id: 'k'.repeat(200), label: 'b' },
+  ]);
+  ok(grenze[1].id === 'k'.repeat(198) + '#2', '@jm/show: Zusatz #2 kürzt eine 200-Zeichen-id');
+  ok(JSON.stringify(normalizeAblauf(grenze)) === JSON.stringify(grenze), '@jm/show: gekürzte id übersteht erneutes Normalisieren');
+
+  // Wie bisher: ohne Titel fällt der Punkt weg, ohne id bekommt er keine, kein Array → [].
+  const gemischt = normalizeAblauf([{ id: 'p1', label: '  ' }, null, 'x', { label: 'Ohne id' }]);
+  ok(JSON.stringify(gemischt) === '[{"label":"Ohne id"}]', '@jm/show: ohne Titel weg, ohne id bleibt ohne id');
+  ok(
+    normalizeAblauf(undefined).length === 0 && normalizeAblauf({ ablauf: [] }).length === 0 && normalizeAblauf('x').length === 0,
+    '@jm/show: kein Array → leere Liste',
+  );
+
+  // parseShow/serializeShow laufen über migrateShow → normalizeAblauf.
+  const gelesen = parseShow(
+    JSON.stringify({ schemaVersion: 1, name: 'Doppelt', tools: [], ablauf: [{ id: 'u1', label: 'A' }, { id: 'u1', label: 'B' }] }),
+  );
+  ok(JSON.stringify(gelesen.ablauf?.map((p) => p.id)) === '["u1","u1#2"]', '@jm/show: doppelte id beim Lesen aufgelöst');
+  const altText = serializeShow({ ...createShow('Alt'), ablauf: [{ label: 'A', durationMs: 60_000 }] });
+  ok(!altText.includes('"id"'), '@jm/show: alte Show ohne Kennungen bleibt ohne id (byte-nah)');
+
+  // hatEigeneTimerListe: genau dann, wenn settings.timetable ein Array mit mindestens einem Objekt ist.
+  ok(hatEigeneTimerListe(undefined) === false, 'hatEigeneTimerListe: keine Einstellungen → nein');
+  ok(hatEigeneTimerListe({}) === false, 'hatEigeneTimerListe: ohne timetable → nein');
+  ok(hatEigeneTimerListe({ timetable: [] }) === false, 'hatEigeneTimerListe: leeres Array → nein');
+  ok(hatEigeneTimerListe({ timetable: [null, 3, 'x'] }) === false, 'hatEigeneTimerListe: nur Nicht-Objekte → nein');
+  ok(hatEigeneTimerListe({ timetable: 'x' }) === false, 'hatEigeneTimerListe: kein Array → nein');
+  ok(hatEigeneTimerListe({ timetable: [{ label: 'A', durationMs: 60_000 }] }) === true, 'hatEigeneTimerListe: Array mit einem Objekt → ja');
+  ok(hatEigeneTimerListe({ timetable: [null, {}] }) === true, 'hatEigeneTimerListe: ein Objekt genügt, auch ein leeres');
 }
 
 if (failed > 0) {
