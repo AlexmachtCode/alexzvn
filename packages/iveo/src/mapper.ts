@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // @jm/iveo — Mapper: iveo-Daten → Suite-Formen.
 //
-// Zielform ist der zentrale Show-Ablauf `ShowAblaufItem {label, durationMs?, note?}`
+// Zielform ist der zentrale Show-Ablauf `ShowAblaufItem {id?, label, durationMs?, note?}`
 // (@jm/show) — identisch zu einem Timer-`TimetableItem` und einer @jm/regieplan-
 // `ParsedRow`. Damit ist ein iveo-Import DERSELBE Datenweg wie der XLSX-Import.
 //
@@ -128,9 +128,24 @@ function noteFor(p: IveoProgram, opts: ProgramMapOptions): string | undefined {
   return note || undefined;
 }
 
-/** Ein Programm → ein Ablauf-Punkt. */
+/**
+ * iveo-ID als Kennung eines Ablaufpunkts (Teil 2a, Spec 3.2): nur ein String, der nach trim
+ * nicht leer ist — sonst keine Kennung (der Punkt bekommt dann kein `id`-Feld).
+ */
+function kennungVon(raw: unknown): string | undefined {
+  const id = typeof raw === 'string' ? raw.trim() : '';
+  return id || undefined;
+}
+
+/**
+ * Ein Programm → ein Ablauf-Punkt. Kennung ist die iveo-Programm-ID (eventweit eindeutig,
+ * bleibt über Umbenennen und Umsortieren gleich). `id` steht vorn: feste Feldreihenfolge
+ * für eine stabile Serialisierung und Signatur.
+ */
 export function programToAblaufItem(p: IveoProgram, opts: ProgramMapOptions = {}): ShowAblaufItem {
-  const item: ShowAblaufItem = { label: p.title?.trim() || '(ohne Titel)' };
+  const label = p.title?.trim() || '(ohne Titel)';
+  const id = kennungVon(p.id);
+  const item: ShowAblaufItem = id ? { id, label } : { label };
   const durationMs = durationMsOf(p);
   if (durationMs > 0) item.durationMs = durationMs;
   const note = noteFor(p, opts);
@@ -179,7 +194,10 @@ export function agendaToAblauf(items: IveoAgendaItem[], opts: AgendaMapOptions =
   return [...items]
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     .map((it, idx) => {
-      const item: ShowAblaufItem = { label: it.title?.trim() || '(ohne Titel)' };
+      // Kennung = iveo-Agenda-Punkt-ID (Teil 2a, Spec 3.2), vorn im Objekt.
+      const label = it.title?.trim() || '(ohne Titel)';
+      const id = kennungVon(it.id);
+      const item: ShowAblaufItem = id ? { id, label } : { label };
       if (typeof it.duration_minutes === 'number' && it.duration_minutes > 0) {
         item.durationMs = Math.round(it.duration_minutes * MIN_PER_MS);
       }

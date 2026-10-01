@@ -515,6 +515,76 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   ok(hatEigeneTimerListe({ timetable: [null, {}] }) === true, 'hatEigeneTimerListe: ein Objekt genügt, auch ein leeres');
 }
 
+// ── Kennungs-Durchlauf (Teil 2a, Spec 3.2/9.3): iveo-Antwort → Umwandler → Show → Lesen ──
+{
+  // Nachgebaute iveo-Antworten: Agenda eines Side Events (absichtlich unsortiert) und Programmliste.
+  const agendaAntwort = [
+    { id: 'ag-2', program_id: 'se1', sort_order: 1, title: 'Panel', duration_minutes: 45, notes: 'Bühne' },
+    { id: 'ag-1', program_id: 'se1', sort_order: 0, title: 'Begrüßung', duration_minutes: 10 },
+    { id: 'ag-3', program_id: 'se1', sort_order: 2, title: 'Q&A' },
+  ];
+  const programmAntwort = [
+    prog({ id: 'p-b', title: 'Zweitens', starts_at: '2026-11-12T12:00:00+00:00', duration_minutes: 30 }),
+    prog({ id: 'p-a', title: 'Erstens', starts_at: '2026-11-12T09:00:00+00:00', duration_minutes: 60 }),
+  ];
+  const seite = (data: unknown) => mkRes(200, { data, meta: { request_id: 'r', pagination: { next_cursor: null, limit: 200 } } });
+  const fetchImpl: IveoFetchLike = async (url) => (url.includes('/agenda-items') ? seite(agendaAntwort) : seite(programmAntwort));
+  const client = new IveoClient({ token: 'iveo_live_SECRET', fetchImpl });
+
+  // Agenda-Modus: Kennung = iveo-Agenda-Punkt-ID, als erstes Feld.
+  const agenda = agendaToAblauf(await client.listAgendaItems('cop30', 'se1'));
+  ok(JSON.stringify(agenda.map((a) => a.id)) === '["ag-1","ag-2","ag-3"]', 'Kennungen: agendaToAblauf setzt die Agenda-Punkt-ID');
+  ok(agenda.every((a) => Object.keys(a)[0] === 'id'), 'Kennungen: id steht im Agenda-Punkt vorn');
+
+  // Listen-Modus: Kennung = iveo-Programm-ID, auch nach dem Sortieren nach Startzeit.
+  const liste = programsToAblauf(await client.listPrograms('cop30'));
+  ok(JSON.stringify(liste.map((a) => a.id)) === '["p-a","p-b"]', 'Kennungen: programsToAblauf setzt die Programm-ID');
+  ok(liste.every((a) => Object.keys(a)[0] === 'id'), 'Kennungen: id steht im Programm-Punkt vorn');
+  ok(snapshotToAblauf(snapshot).map((a) => a.id).join(',') === 'p1,p2,p3', 'Kennungen: snapshotToAblauf trägt die Programm-IDs');
+
+  // Side Event ohne Agenda → 1 Punkt mit der Programm-ID (wie Binden/Abfrage/Umschalten ihn bauen).
+  const einzeln = programToAblaufItem(prog({ id: 'se1', title: 'Side Event' }), { withSchedule: true });
+  ok(einzeln.id === 'se1' && einzeln.label === 'Side Event', 'Kennungen: 1-Punkt-Ablauf trägt die Programm-ID');
+  // Fremddaten ohne brauchbare ID → Punkt ohne id statt leerer Kennung.
+  ok(!('id' in programToAblaufItem(prog({ id: '   ' }))), 'Kennungen: Programm mit leerer ID → kein id-Feld');
+  ok(
+    !('id' in agendaToAblauf([{ id: '', program_id: 'se1', title: 'Ohne ID' }])[0]),
+    'Kennungen: Agenda-Punkt mit leerer ID → kein id-Feld',
+  );
+
+  // Umwandler-Ausgabe ist ein Fixpunkt von normalizeAblauf (Signatur im Launcher, Spec 7.2).
+  ok(JSON.stringify(normalizeAblauf(agenda)) === JSON.stringify(agenda), 'Kennungen: normalizeAblauf lässt die Agenda unverändert');
+
+  // Show schreiben und lesen: Kennungen und Feldreihenfolge überstehen den Round-Trip.
+  const show = {
+    ...createShow('Kennungen'),
+    ablauf: normalizeAblauf(agenda),
+    iveo: { event: 'cop30', filter: { programId: 'se1' } },
+  };
+  const gelesen = parseShow(serializeShow(show));
+  ok(
+    JSON.stringify(gelesen.ablauf?.map((a) => a.id)) === '["ag-1","ag-2","ag-3"]' &&
+      JSON.stringify(gelesen.ablauf) === JSON.stringify(agenda),
+    'Kennungs-Durchlauf: iveo-IDs überstehen Schreiben und Lesen',
+  );
+
+  // Doppelte Kennung aus iveo (darf nicht vorkommen, wird trotzdem aufgefangen) → #2.
+  const doppelt = agendaToAblauf([
+    { id: 'ag-x', program_id: 'se1', sort_order: 0, title: 'A' },
+    { id: 'ag-x', program_id: 'se1', sort_order: 1, title: 'B' },
+  ]);
+  ok(
+    JSON.stringify(normalizeAblauf(doppelt).map((a) => a.id)) === '["ag-x","ag-x#2"]',
+    'Kennungs-Durchlauf: doppelte iveo-ID → normalizeAblauf vergibt #2',
+  );
+  // Von Hand verdoppelte Kennung in der Datei → beim Lesen aufgelöst.
+  const roh = JSON.stringify({ schemaVersion: 1, name: 'Kopie', tools: [], ablauf: [...agenda, { ...agenda[0], label: 'Begrüßung (Kopie)' }] });
+  ok(
+    JSON.stringify(parseShow(roh).ablauf?.map((a) => a.id)) === '["ag-1","ag-2","ag-3","ag-1#2"]',
+    'Kennungs-Durchlauf: doppelte id in der Datei → beim Lesen #2',
+  );
+}
+
 if (failed > 0) {
   console.error(`\n${failed} FEHLGESCHLAGEN`);
   process.exit(1);
