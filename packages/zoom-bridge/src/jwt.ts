@@ -38,14 +38,33 @@ export function buildJwt(opts: JwtOptions): string {
  * Liest Client-ID und Secret aus der Umgebung oder aus einer JSON-Datei, auf die
  * ZOOM_SDK_CREDENTIALS zeigt. Die Datei gehoert AUSSERHALB des Repos — dann kann sie
  * gar nicht erst committet werden, und der gitleaks-Lauf in CI findet nichts.
+ *
+ * `env` ist die Umgebung, aus der gelesen wird - Vorgabe process.env. Die
+ * Start-EXE (cli/steuerung.mjs) reicht ihre eigene durch; die Selbsttests
+ * fahren sie damit gegen die Attrappe, ohne process.env anzufassen. Eine
+ * uebergebene Umgebung ist dann die EINZIGE Quelle - process.env springt
+ * nicht ein.
  */
-export function readCredentials(): { clientId: string; clientSecret: string } {
-  let clientId = process.env.ZOOM_SDK_CLIENT_ID;
-  let clientSecret = process.env.ZOOM_SDK_CLIENT_SECRET;
+export function readCredentials(env: NodeJS.ProcessEnv = process.env): { clientId: string; clientSecret: string } {
+  let clientId = env.ZOOM_SDK_CLIENT_ID;
+  let clientSecret = env.ZOOM_SDK_CLIENT_SECRET;
 
-  const file = process.env.ZOOM_SDK_CREDENTIALS;
+  const file = env.ZOOM_SDK_CREDENTIALS;
   if (file && (!clientId || !clientSecret)) {
-    const j = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
+    let j: Record<string, string>;
+    try {
+      j = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
+    } catch (e) {
+      // NICHT e.message weiterreichen, wenn das Parsen scheiterte: GEMESSEN
+      // (Node 24) zitiert JSON.parse einen AUSSCHNITT DER EINGABE in seiner
+      // Meldung ('..."tSecret": GEHEIM…"... is not valid JSON') - eine
+      // kaputte Datei braechte so das Secret auf den Schirm. Ein Lesefehler
+      // (ENOENT u. ae.) nennt nur den Pfad und bleibt wie er ist.
+      if (e instanceof SyntaxError) {
+        throw new Error('ZOOM_SDK_CREDENTIALS: die Datei ist kein gueltiges JSON (Inhalt wird absichtlich nicht angezeigt).');
+      }
+      throw e;
+    }
     clientId ??= j.clientId ?? j.client_id ?? j.appKey ?? j.sdkKey;
     clientSecret ??= j.clientSecret ?? j.client_secret ?? j.appSecret ?? j.sdkSecret;
   }
