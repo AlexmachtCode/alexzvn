@@ -107,6 +107,12 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Abbruch über ein AbortSignal (z. B. AbortSignal.timeout im fetchImpl): TimeoutError bzw. AbortError. */
+function istAbbruch(e: unknown): boolean {
+  const name = (e as { name?: unknown } | null | undefined)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
 /** Kurzer, whitespace-normalisierter Ausschnitt einer Antwort für Fehlermeldungen. */
 function snippet(s: string, max = 180): string {
   return s.replace(/\s+/g, ' ').trim().slice(0, max);
@@ -174,7 +180,12 @@ export class IveoClient {
     const res = await this.fetchWithRetry(url, { headers: this.authHeaders() });
     // Erst als Text lesen → erlaubt eine aussagekräftige Diagnose, falls die
     // Antwort kein/anderes JSON ist (z. B. HTML einer falschen Basis-URL).
-    const raw = await res.text().catch(() => '');
+    // Ein Abbruch über das Signal des Aufrufers (Zeitgrenze) wird NICHT verschluckt:
+    // sonst käme bei HTTP 200 die falsche Diagnose „bad_envelope“ (Basis-URL) heraus.
+    const raw = await res.text().catch((e: unknown) => {
+      if (istAbbruch(e)) throw e;
+      return '';
+    });
     let body: unknown = null;
     try {
       body = raw ? JSON.parse(raw) : null;

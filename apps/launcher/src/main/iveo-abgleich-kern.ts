@@ -33,6 +33,7 @@ import {
   type IveoProgramFilter,
   type IveoSpeaker,
 } from '@jm/iveo';
+import { IVEO_ABRUF_ZEITGRENZE_MS } from './iveo-huelle-hilfen';
 
 /** Die Teilmenge des iveo-Clients, die der Kern braucht. Im Test nachgebaut. */
 export type IveoClientLike = Pick<
@@ -95,6 +96,8 @@ const TEXT_SHOW_NICHT_LESBAR = 'Show-Datei nicht lesbar';
 /** Spec 7.6 (Umschalten), wortgleich. */
 const TEXT_AGENDA_NICHT_ABRUFBAR = 'Agenda von iveo nicht abrufbar, bitte erneut versuchen';
 const TEXT_UMSCHALTEN_VERWORFEN = 'Show wurde inzwischen gewechselt oder gespeichert, Umschalten verworfen.';
+/** Zeitgrenze je Abruf abgelaufen (Spec 7.0). Erweitert die Abbildung aus 7.6 — Text außerhalb der Spec, Ruling offen. */
+const TEXT_ZEITGRENZE = `iveo antwortet nicht innerhalb von ${IVEO_ABRUF_ZEITGRENZE_MS / 1000} s`;
 
 // ── Reine Helfer (aus iveo-sync.ts hierher gezogen; die Hülle importiert sie für Binden/Discover) ──────────
 
@@ -148,7 +151,17 @@ function humanize(e: IveoApiError): string {
 }
 export function toClientError(e: unknown): { code?: string; error: string } {
   if (e instanceof IveoApiError) return { code: e.code, error: humanize(e) };
+  if (istZeitgrenze(e)) return { error: TEXT_ZEITGRENZE };
   return { error: (e as Error)?.message || 'iveo: unbekannter Fehler.' };
+}
+
+/**
+ * Abbruch durch die Zeitgrenze je Abruf (Spec 7.0, AbortSignal.timeout im fetchImpl der Hülle): TimeoutError, je nach
+ * Stelle im Abruf auch AbortError. Einen anderen Abbruch gibt es nicht. Sonst stünde im Panel die englische Rohmeldung.
+ */
+function istZeitgrenze(e: unknown): boolean {
+  const name = (e as { name?: unknown } | null | undefined)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
 }
 
 /** Statustext eines Abfragefehlers (Spec 7.6): 401 eigens, sonst die bestehende Abbildung toClientError. */

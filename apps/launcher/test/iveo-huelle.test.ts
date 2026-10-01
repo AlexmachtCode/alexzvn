@@ -3,12 +3,13 @@
 // Statuszeile im iveo-Panel (7.6). Der Rest der Hülle ist Electron-Verdrahtung und
 // wird im Durchgang mit gebauten Programmen geprüft (Spec 9.8, apps/rundown/test/e2e-teil2a.mjs).
 import { createServer, type AddressInfo } from 'node:http';
-import { IveoClient, type IveoFetchResponse } from '@jm/iveo';
+import { IveoApiError, IveoClient, type IveoFetchResponse } from '@jm/iveo';
 import { serializeShow, type Show } from '@jm/show';
 import {
   abfrageTakt, gleicherShowPfad, IVEO_ABFRAGE_TAKT_MS, IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze, nurBeiWechsel,
   showLeserFuerKern, showSchreiberFuerKern, type FetchMitSignal,
 } from '../src/main/iveo-huelle-hilfen';
+import { toClientError } from '../src/main/iveo-abgleich-kern';
 import { leseShowFuerEditor } from '../src/main/show-lesen';
 import { iveoStatusZeile } from '../src/renderer/src/lib/iveo-status';
 
@@ -70,6 +71,33 @@ console.log('— Zeitgrenze je Abruf (AbortSignal.timeout im fetchImpl)');
   const t0 = Date.now();
   const e = await client.listAgendaItems('ev', 'p1').then(() => null, (x: unknown) => x);
   ck('IveoClient mit echtem fetch: hängender Server → Fehler nach der Zeitgrenze', e !== null && Date.now() - t0 < 3000);
+  ck('… im Panel als deutscher Text, nicht als englische Rohmeldung', toClientError(e).error === 'iveo antwortet nicht innerhalb von 15 s');
+  server.closeAllConnections();
+  await new Promise<void>((r) => server.close(() => r()));
+}
+{
+  // Die Zeitgrenze läuft ab, während der Body liest (HTTP 200 schon da): kein falsches „bad_envelope“.
+  const fetchImpl = async (): Promise<IveoFetchResponse> => ({
+    ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({}),
+    text: () => Promise.reject(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+    arrayBuffer: async () => new ArrayBuffer(0),
+  });
+  const client = new IveoClient({ token: 't', baseUrl: 'http://127.0.0.1/api/v1', fetchImpl, maxRetries: 0 });
+  const e = await client.listAgendaItems('ev', 'p1').then(() => null, (x: unknown) => x);
+  ck('Zeitgrenze beim Lesen des Body → TimeoutError statt bad_envelope', (e as Error | null)?.name === 'TimeoutError');
+
+  // Echter fetch: die Kopfzeilen kommen, der Body hängt.
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.write('{"data":');
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const port = (server.address() as AddressInfo).port;
+  const echt = new IveoClient({ token: 't', baseUrl: `http://127.0.0.1:${port}/api/v1`, fetchImpl: mitZeitgrenze(fetch, 100), maxRetries: 0 });
+  const e2 = await echt.listAgendaItems('ev', 'p1').then(() => null, (x: unknown) => x);
+  ck('echter fetch, Body hängt → Abbruch durch die Zeitgrenze, kein bad_envelope',
+    e2 !== null && !(e2 instanceof IveoApiError) && ['TimeoutError', 'AbortError'].includes((e2 as Error).name));
+  ck('… im Panel als deutscher Text', toClientError(e2).error === 'iveo antwortet nicht innerhalb von 15 s');
   server.closeAllConnections();
   await new Promise<void>((r) => server.close(() => r()));
 }

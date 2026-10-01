@@ -18,7 +18,7 @@ import {
   type IveoStage,
 } from '@jm/iveo';
 import {
-  ablaufSignatur, einPunktAblauf, erzeugeKern, type IveoClientLike, type IveoKern, type IveoSyncStatus,
+  ablaufSignatur, einPunktAblauf, erzeugeKern, toClientError, type IveoClientLike, type IveoKern, type IveoSyncStatus,
 } from '../src/main/iveo-abgleich-kern';
 import { schreibeShowAtomar, warteSync, type DateiSystem } from '../src/main/show-schreiben';
 
@@ -516,6 +516,26 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
   v.iveo.fehler.geaendert = new IveoApiError(401, 'unauthorized', 'iveo HTTP 401 @ /events/cop31/programs [HTTP 401]');
   await v.kern.abfrage();
   ck('Nr. 6: … ebenso im Listen-Modus', v.status.at(-1)?.text === 'Token ungültig oder widerrufen' && v.schreibversuche === 0);
+}
+
+// --- 7.6 (Erweiterung, Ruling offen): Zeitgrenze je Abruf (15 s, Spec 7.0) → deutscher Text, keine Rohmeldung ----
+{
+  const ZEITGRENZE = 'iveo antwortet nicht innerhalb von 15 s';
+  const zeit = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+  ck('toClientError: TimeoutError → deutscher Text', toClientError(zeit).error === ZEITGRENZE);
+  ck('toClientError: AbortError ebenso (die Zeitgrenze ist der einzige Abbruch)',
+    toClientError(new DOMException('This operation was aborted', 'AbortError')).error === ZEITGRENZE);
+  ck('toClientError: anderer Fehler wie bisher', toClientError(new Error('fetch failed')).error === 'fetch failed');
+  const u = umgebung(agendaP1);
+  u.iveo.fehler.agenda = zeit;
+  await u.kern.abfrage();
+  ck('Abfrage läuft in die Zeitgrenze → Status mit deutschem Text, nichts geschrieben, kein RELOAD',
+    u.status.at(-1)?.ok === false && u.status.at(-1)?.text === ZEITGRENZE && u.schreibversuche === 0 && u.reloads.length === 0);
+  ck('… die Rohmeldung steht für die Diagnose im Log', u.warn.some((w) => w.includes(ZEITGRENZE) && w.includes('aborted due to timeout')));
+  const v = umgebung(agendaP1);
+  v.iveo.fehler.snapshot = zeit;
+  const r = await v.kern.umschalten({ day: '2026-11-11' });
+  ck('Umschalten auf die Tagesübersicht in die Zeitgrenze → ok:false mit deutschem Text', !r.ok && r.message === ZEITGRENZE);
 }
 
 // --- 9.6 Nr. 7: kein Token → „kein iveo-Token auf diesem Rechner, nur Offline-Ablauf“ -----------------------------
