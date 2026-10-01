@@ -13,6 +13,16 @@ import { migrate } from '../src/shared/doc-format.ts';
 import { loeseSprungZiel } from '../src/shared/sprung.ts';
 import type { RundownAction as A7Aktion, RundownDoc as A7Doc, RundownRow as A7Zeile } from '../src/shared/types.ts';
 
+import {
+  alsEigeneZeile,
+  bereinigeQuellen,
+  erzeugeBuendler,
+  ersetzeEigeneZeilen,
+  indexVon,
+  nimmAenderungAn,
+  scharfNachBearbeitung,
+} from '../src/shared/scharf.ts';
+
 let failed = 0;
 function eq(actual: unknown, expected: unknown, msg: string): void {
   const a = JSON.stringify(actual);
@@ -1118,6 +1128,190 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
   const goWeg = navigate(alleWeg, 0, { t: 'go' });
   eq(goWeg.fire.length, 0, 'Fall 28: nur entfallene Zeilen → GO feuert nichts');
   eq(goWeg.index, 0, 'Fall 28: nur entfallene Zeilen → Markierung bleibt');
+}
+
+// ── Teil 2a · scharfNachBearbeitung (Fall 29) und indexVon (5.3) ─────────────
+{
+  const z = (id: string, extra: Partial<A7Zeile> = {}): A7Zeile => ({ id, label: id, actions: [], ...extra });
+  const weg = { quelle: 'ablauf', entfallen: true } as const;
+  const alt = [z('A'), z('B'), z('C'), z('D')];
+  const altKopie = JSON.stringify(alt);
+  eq(scharfNachBearbeitung(alt, [z('B'), z('C'), z('D')], 'C'), 'C', 'Fall 29: Zeile darüber gelöscht → scharfe Zeile bleibt C');
+  eq(scharfNachBearbeitung(alt, [z('B'), z('C'), z('A'), z('D')], 'C'), 'C', 'Fall 29: Zeile darüber verschoben → scharfe Zeile bleibt C');
+  eq(scharfNachBearbeitung(alt, [z('C'), z('A'), z('B'), z('D')], 'C'), 'C', 'Fall 29: scharfe Zeile selbst verschoben → bleibt scharf an neuer Stelle');
+  eq(scharfNachBearbeitung(alt, [z('A'), z('B'), z('D')], 'C'), 'D', 'Fall 29: scharfe Zeile gelöscht → Nachfolger D');
+  eq(
+    scharfNachBearbeitung([z('A'), z('B'), z('C'), z('D'), z('E')], [z('A'), z('B'), z('D'), z('E')], 'C'),
+    'D',
+    'Fall 29: scharfe Zeile mitten im Ablauf gelöscht → unmittelbarer Nachfolger D, nicht der übernächste',
+  );
+  eq(
+    scharfNachBearbeitung([z('A'), z('C'), z('D', weg), z('E')], [z('A'), z('D', weg), z('E')], 'C'),
+    'E',
+    'Fall 29: scharfe Zeile gelöscht, Nachfolger entfallen → nächste nicht entfallene E',
+  );
+  eq(
+    scharfNachBearbeitung([z('A'), z('B'), z('C')], [z('A'), z('B', weg), z('C')], 'B'),
+    'C',
+    'Fall 29: scharfe Zeile steht danach als entfallene da → wie gelöscht (R7 c): Nachfolger C',
+  );
+  eq(scharfNachBearbeitung(alt, [z('A'), z('B'), z('C')], 'D'), 'C', 'Fall 29: letzte Zeile scharf und gelöscht → letzte nicht entfallene C');
+  eq(
+    scharfNachBearbeitung([z('A'), z('B'), z('X', weg)], [z('A'), z('X', weg)], 'B'),
+    'A',
+    'Fall 29: dahinter nur Entfallene → letzte nicht entfallene A',
+  );
+  eq(scharfNachBearbeitung([z('A')], [], 'A'), null, 'Fall 29: einzige Zeile gelöscht → null');
+  eq(scharfNachBearbeitung([], [z('X', weg), z('N')], null), 'N', 'Fall 29: ohne scharfe Zeile → erste nicht entfallene Zeile');
+  eq(
+    scharfNachBearbeitung([z('A'), z('B')], [z('X', weg), z('A'), z('B')], 'weg'),
+    'A',
+    'Fall 29: scharfe Kennung unter alt unbekannt → erste nicht entfallene Zeile (R7 a)',
+  );
+  eq(JSON.stringify(alt), altKopie, 'Fall 29: Eingabe unverändert');
+  eq(indexVon([z('A'), z('B'), z('C')], 'C'), 2, 'indexVon: Stelle der scharfen Zeile');
+  eq(indexVon([z('A')], 'weg'), 0, 'indexVon: unbekannte Kennung → 0');
+  eq(indexVon([z('A')], null), 0, 'indexVon: null → 0');
+  eq(indexVon([], null), 0, 'indexVon: leere Liste → 0');
+}
+
+// ── Teil 2a · Absicherung in setDoc (Fall 32, 4.5) und „Als eigene Zeile behalten“ (4.3) ──
+{
+  let zaehler = 0;
+  const neueId = (): string => `r_neu${++zaehler}`;
+  const aktion: A7Aktion = { id: 'a1', role: 'titler', verb: 'take', args: [], enabled: true };
+  const eingang: A7Zeile[] = [
+    { id: 'p1', label: 'Punkt 1', quelle: 'ablauf', actions: [] },
+    { id: 'p9', label: 'Schein', quelle: 'ablauf', actions: [] },
+    { id: 'p2', label: 'Punkt 2', quelle: 'ablauf', entfallen: true, actions: [aktion] },
+    { id: 'p3', label: 'Punkt 3', quelle: 'ablauf', entfallen: true, actions: [] },
+    { id: 'p1', label: 'Doppelt', quelle: 'ablauf', actions: [] },
+    { id: 'x1', label: 'Eigen', entfallen: true, actions: [] },
+    { id: 'p4', label: 'Eigen mit Schlüssel', actions: [] },
+    { id: 'x2', label: 'Eigen 2', actions: [] },
+    // Bisher entfallen, der Renderer schickt sie aber ohne Marke.
+    { id: 'p5', label: 'Punkt 5', quelle: 'ablauf', actions: [aktion] },
+  ];
+  const vorher = JSON.stringify(eingang);
+  const aus = bereinigeQuellen(eingang, ['p1', 'p3', 'p4'], new Set(['p2', 'p5']), neueId);
+  eq(aus[1], { id: 'r_neu1', label: 'Schein', actions: [] }, 'Fall 32: Ablaufzeile mit unbekannter id → eigene Zeile mit neuer id');
+  eq(
+    aus[8],
+    { id: 'p5', label: 'Punkt 5', quelle: 'ablauf', actions: [aktion], entfallen: true },
+    'Fall 32: bisher entfallene Zeile ohne Marke vom Renderer → der Main setzt entfallen wieder',
+  );
+  eq(
+    aus,
+    [
+      { id: 'p1', label: 'Punkt 1', quelle: 'ablauf', actions: [] },
+      { id: 'r_neu1', label: 'Schein', actions: [] },
+      { id: 'p2', label: 'Punkt 2', quelle: 'ablauf', entfallen: true, actions: [aktion] },
+      { id: 'p3', label: 'Punkt 3', quelle: 'ablauf', actions: [] },
+      { id: 'r_neu2', label: 'Doppelt', actions: [] },
+      { id: 'x1', label: 'Eigen', actions: [] },
+      { id: 'r_neu3', label: 'Eigen mit Schlüssel', actions: [] },
+      { id: 'x2', label: 'Eigen 2', actions: [] },
+      { id: 'p5', label: 'Punkt 5', quelle: 'ablauf', actions: [aktion], entfallen: true },
+    ],
+    'Fall 32: lebend nur mit Schlüssel, entfallen nur wenn vorher entfallen, Markierung setzt der Main',
+  );
+  eq(new Set(aus.map((r) => r.id)).size, aus.length, 'Fall 32: danach ist jede id eindeutig');
+  eq(aus[0] === eingang[0] && aus[2] === eingang[2] && aus[7] === eingang[7], true, 'Fall 32: unveränderte Zeilen bleiben dieselben Objekte');
+  eq(JSON.stringify(eingang), vorher, 'Fall 32: Eingabe unverändert');
+  eq(
+    alsEigeneZeile(eingang[2], 'r_eigen'),
+    { id: 'r_eigen', label: 'Punkt 2', actions: [aktion] },
+    '4.3: „Als eigene Zeile behalten“ → ohne quelle/entfallen, neue id, Aktionen bleiben',
+  );
+}
+
+// ── Teil 2a · Annehmen oder Abweisen (Fall 33, 5.5) ──────────────────────────
+{
+  let rev = 5;
+  let abgleichRev = 0;
+  // Renderer kennt Stand 5 und tippt zweimal schnell, ohne dass ein Abgleich läuft.
+  eq(nimmAenderungAn(5, abgleichRev), true, 'Fall 33: erste schnelle eigene Änderung angenommen');
+  rev++;
+  eq(nimmAenderungAn(5, abgleichRev), true, 'Fall 33: zweite schnelle eigene Änderung (basisRev < rev) angenommen');
+  rev++;
+  // Ein Abgleich läuft: rev steigt, abgleichRev merkt sich den Stand.
+  rev++;
+  abgleichRev = rev;
+  eq(nimmAenderungAn(7, abgleichRev), false, 'Fall 33: Änderung auf einem Stand vor dem Abgleich → abgewiesen');
+  eq(nimmAenderungAn(rev, abgleichRev), true, 'Fall 33: Änderung auf dem Stand nach dem Abgleich → angenommen');
+}
+
+// ── Teil 2a · RELOAD-Zusammenfassung (Fall 34, 5.1) ──────────────────────────
+{
+  let jetzt = 0;
+  const geplant: { fn: () => void; bei: number; weg: boolean }[] = [];
+  const plane = (fn: () => void, ms: number): unknown => {
+    const h = { fn, bei: jetzt + ms, weg: false };
+    geplant.push(h);
+    return h;
+  };
+  const storniere = (h: unknown): void => {
+    (h as { weg: boolean }).weg = true;
+  };
+  const laufeBis = (t: number): void => {
+    jetzt = t;
+    for (const h of geplant.slice()) {
+      if (!h.weg && h.bei <= t) {
+        h.weg = true;
+        h.fn();
+      }
+    }
+  };
+  const buendle = erzeugeBuendler(300, plane, storniere);
+  let abgleiche = 0;
+  const reload = (): void => buendle(() => abgleiche++);
+  reload();
+  laufeBis(100);
+  reload();
+  laufeBis(250);
+  reload();
+  laufeBis(549);
+  eq(abgleiche, 0, 'Fall 34: bis 300 ms nach dem letzten RELOAD noch kein Abgleich');
+  laufeBis(550);
+  eq(abgleiche, 1, 'Fall 34: drei RELOADs binnen 300 ms → ein Abgleich');
+  laufeBis(2000);
+  eq(abgleiche, 1, 'Fall 34: danach kein weiterer Abgleich');
+  reload();
+  laufeBis(2300);
+  eq(abgleiche, 2, 'Fall 34: ein neues RELOAD danach gleicht wieder ab');
+  let zuletzt = '';
+  buendle(() => (zuletzt = 'erstes'));
+  buendle(() => (zuletzt = 'zweites'));
+  laufeBis(2600);
+  eq(zuletzt, 'zweites', 'Fall 34: ausgeführt wird die zuletzt übergebene Funktion');
+  eq(geplant.filter((h) => !h.weg).length, 0, 'Fall 34: danach ist nichts mehr geplant');
+}
+
+// ── Teil 2a · Regieplan-Import „Ersetzen“ (Fall 36, 4.5) ─────────────────────
+{
+  const aktion: A7Aktion = { id: 'a1', role: 'titler', verb: 'take', args: [], enabled: true };
+  const zeilen: A7Zeile[] = [
+    { id: 'p1', label: 'Punkt 1', quelle: 'ablauf', actions: [] },
+    { id: 'x1', label: 'Eigen 1', actions: [aktion] },
+    { id: 'p2', label: 'Punkt 2', quelle: 'ablauf', entfallen: true, actions: [aktion] },
+    { id: 'x2', label: 'Eigen 2', actions: [] },
+  ];
+  const importiert: A7Zeile[] = [
+    { id: 'r_imp1', label: 'Import 1', actions: [] },
+    { id: 'r_imp2', label: 'Import 2', note: 'Bühne', actions: [] },
+  ];
+  const vorher = JSON.stringify(zeilen);
+  eq(
+    ersetzeEigeneZeilen(zeilen, importiert).map((r) => r.id),
+    ['p1', 'p2', 'r_imp1', 'r_imp2'],
+    'Fall 36: eigene Zeilen ersetzt, Ablaufzeilen und entfallene bleiben, Import am Ende',
+  );
+  eq(JSON.stringify(zeilen), vorher, 'Fall 36: Eingabe unverändert');
+  eq(
+    ersetzeEigeneZeilen([], [{ id: 'r_imp3', label: 'Schein', quelle: 'ablauf', entfallen: true, actions: [] }]),
+    [{ id: 'r_imp3', label: 'Schein', actions: [] }],
+    'Fall 36: importierte Zeilen sind immer eigene Zeilen',
+  );
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
