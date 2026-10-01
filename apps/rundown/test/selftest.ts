@@ -23,6 +23,10 @@ import {
   scharfNachBearbeitung,
 } from '../src/shared/scharf.ts';
 
+import { waehleAusgangsstand } from '../src/shared/ausgangsstand.ts';
+import type { DateiStand as A8DateiStand, GedaechtnisInhalt as A8Gedaechtnis } from '../src/shared/ausgangsstand.ts';
+import type { RundownDoc as A8Doc } from '../src/shared/types.ts';
+
 let failed = 0;
 function eq(actual: unknown, expected: unknown, msg: string): void {
   const a = JSON.stringify(actual);
@@ -1311,6 +1315,145 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
     ersetzeEigeneZeilen([], [{ id: 'r_imp3', label: 'Schein', quelle: 'ablauf', entfallen: true, actions: [] }]),
     [{ id: 'r_imp3', label: 'Schein', actions: [] }],
     'Fall 36: importierte Zeilen sind immer eigene Zeilen',
+  );
+}
+
+// ── Teil 2a · Ausgangsstand beim Öffnen einer Show (Fall 35, 4.8, 5.2) ───────
+{
+  const aktion = { id: 'a1', role: 'titler', verb: 'take', args: [], enabled: true };
+  const docGedaechtnis: A8Doc = {
+    schemaVersion: 2,
+    name: 'COP31 Tag 1',
+    rows: [{ id: 'p1', label: 'Eröffnung', quelle: 'ablauf', actions: [aktion] }],
+    kontext: 'se:prog-1',
+  };
+  const docDatei: A8Doc = {
+    schemaVersion: 2,
+    name: 'COP31 Tag 1',
+    rows: [{ id: 'p1', label: 'Eröffnung', quelle: 'ablauf', actions: [] }],
+    kontext: 'se:prog-1',
+  };
+  const stand: A8DateiStand = { pfad: 'D:\\Shows\\cop31.jmrundown', mtimeMs: 1727780000000, groesse: 812, sha256: 'aa11' };
+  const gedaechtnis = (datei?: A8DateiStand, doc: A8Doc = docGedaechtnis): A8Gedaechtnis => ({
+    schemaVersion: 2,
+    showPfad: 'D:\\Shows\\COP31 Tag 1.jmshow',
+    showName: 'COP31 Tag 1',
+    doc,
+    scharfId: 'p1',
+    gespeichertAm: '2026-10-01T09:00:00.000Z',
+    ...(datei ? { datei } : {}),
+  });
+  const autosaveV1: A8Doc = { schemaVersion: 2, name: 'COP31 Tag 1', rows: [{ id: 'r_alt', label: 'Eröffnung', actions: [aktion] }] };
+  const basis = { gedaechtnis: null, datei: null, autosave: null, autosaveWarV1: false, showName: 'COP31 Tag 1' };
+
+  // Gedächtnis vorhanden, keine eigene Datei → Gedächtnis samt scharfer Zeile.
+  eq(
+    waehleAusgangsstand({ ...basis, gedaechtnis: gedaechtnis(), autosave: autosaveV1, autosaveWarV1: true }),
+    { quelle: 'gedaechtnis', doc: docGedaechtnis, scharfId: 'p1', ungespeichert: false },
+    'Fall 35: Gedächtnis vorhanden → Gedächtnis (auch vor einem passenden alten Autosave)',
+  );
+  // Eigene Datei, kein Gedächtnis → Datei, ohne Hinweis.
+  eq(
+    waehleAusgangsstand({ ...basis, datei: { doc: docDatei, stand } }),
+    { quelle: 'datei', doc: docDatei, hinweisAusserhalb: false },
+    '4.8: eigene Datei ohne Gedächtnis → Datei, ohne Hinweis',
+  );
+  // Datei unverändert, Gedächtnis weicht inhaltlich ab → Gedächtnis, „ungespeicherte Änderungen“.
+  eq(
+    waehleAusgangsstand({ ...basis, gedaechtnis: gedaechtnis({ ...stand }), datei: { doc: docDatei, stand } }),
+    { quelle: 'gedaechtnis', doc: docGedaechtnis, scharfId: 'p1', ungespeichert: true },
+    '4.8: Datei unverändert, Gedächtnis weicht ab → Gedächtnis, ungespeichert',
+  );
+  // Datei unverändert, gleicher Inhalt in anderer Feldreihenfolge → nicht ungespeichert.
+  const docDateiUmgestellt: A8Doc = {
+    kontext: 'se:prog-1',
+    rows: [{ actions: [aktion], quelle: 'ablauf', label: 'Eröffnung', id: 'p1' }],
+    name: 'COP31 Tag 1',
+    schemaVersion: 2,
+  };
+  eq(
+    waehleAusgangsstand({ ...basis, gedaechtnis: gedaechtnis({ ...stand }), datei: { doc: docDateiUmgestellt, stand } }),
+    { quelle: 'gedaechtnis', doc: docGedaechtnis, scharfId: 'p1', ungespeichert: false },
+    '4.8: Datei unverändert und inhaltsgleich (andere Feldreihenfolge) → Gedächtnis, nicht ungespeichert',
+  );
+  // Datei außerhalb geändert: neuere Änderungszeit, andere Größe → Datei mit Hinweis.
+  eq(
+    waehleAusgangsstand({
+      ...basis,
+      gedaechtnis: gedaechtnis({ ...stand }),
+      datei: { doc: docDatei, stand: { ...stand, mtimeMs: stand.mtimeMs + 60000, groesse: 900, sha256: 'bb22' } },
+    }),
+    { quelle: 'datei', doc: docDatei, hinweisAusserhalb: true },
+    'Fall 35: Datei außerhalb geändert → Datei, mit Hinweis',
+  );
+  // Hineinkopiert: gleiche Änderungszeit und Größe, anderer SHA-256 → Datei mit Hinweis.
+  eq(
+    waehleAusgangsstand({
+      ...basis,
+      gedaechtnis: gedaechtnis({ ...stand }),
+      datei: { doc: docDatei, stand: { ...stand, sha256: 'cc33' } },
+    }),
+    { quelle: 'datei', doc: docDatei, hinweisAusserhalb: true },
+    'Fall 35: Datei mit alter Änderungszeit hineinkopiert → Datei (SHA-256), mit Hinweis',
+  );
+  // Gleicher Inhalt, neu gespeichert: nur die Änderungszeit ist anders → Datei mit Hinweis.
+  eq(
+    waehleAusgangsstand({
+      ...basis,
+      gedaechtnis: gedaechtnis({ ...stand }),
+      datei: { doc: docDatei, stand: { ...stand, mtimeMs: stand.mtimeMs + 1000 } },
+    }),
+    { quelle: 'datei', doc: docDatei, hinweisAusserhalb: true },
+    '4.8: nur die Änderungszeit anders → Datei, mit Hinweis',
+  );
+  // Verglichen wird über alle vier Merkmale (4.8), also auch über die Größe allein.
+  eq(
+    waehleAusgangsstand({
+      ...basis,
+      gedaechtnis: gedaechtnis({ ...stand }),
+      datei: { doc: docDatei, stand: { ...stand, groesse: stand.groesse + 1 } },
+    }),
+    { quelle: 'datei', doc: docDatei, hinweisAusserhalb: true },
+    '4.8: nur die Größe anders → Datei, mit Hinweis',
+  );
+  // Anderer Pfad (Show zeigt jetzt auf eine andere Datei) → Datei mit Hinweis.
+  eq(
+    waehleAusgangsstand({
+      ...basis,
+      gedaechtnis: gedaechtnis({ ...stand }),
+      datei: { doc: docDatei, stand: { ...stand, pfad: 'D:\\Shows\\cop31-neu.jmrundown' } },
+    }),
+    { quelle: 'datei', doc: docDatei, hinweisAusserhalb: true },
+    '4.8: anderer Pfad → Datei, mit Hinweis',
+  );
+  // Gedächtnis hat die Datei nie gesehen (früher keine eigene Datei) → Datei mit Hinweis.
+  eq(
+    waehleAusgangsstand({ ...basis, gedaechtnis: gedaechtnis(), datei: { doc: docDatei, stand } }),
+    { quelle: 'datei', doc: docDatei, hinweisAusserhalb: true },
+    '4.8: Gedächtnis ohne Dateistand, Show hat jetzt eine Datei → Datei, mit Hinweis',
+  );
+  // Übergangsregel: alter Autosave (Version 1) mit gleichem Namen → übernommen mit zuordnungOffen.
+  eq(
+    waehleAusgangsstand({ ...basis, autosave: autosaveV1, autosaveWarV1: true }),
+    { quelle: 'autosave-v1', doc: { ...autosaveV1, zuordnungOffen: true } },
+    'Fall 35: alter Autosave mit gleichem Namen → übernommen mit zuordnungOffen',
+  );
+  eq(autosaveV1.zuordnungOffen, undefined, 'Fall 35: der übergebene Autosave bleibt unverändert');
+  eq(
+    waehleAusgangsstand({ ...basis, autosave: { ...autosaveV1, name: 'COP31 Tag 2' }, autosaveWarV1: true }),
+    { quelle: 'leer' },
+    'Fall 35: Autosave mit anderem Namen → leer',
+  );
+  eq(
+    waehleAusgangsstand({ ...basis, autosave: autosaveV1, autosaveWarV1: false }),
+    { quelle: 'leer' },
+    'Fall 35: Autosave schon Version 2 → leer (Übergangsregel nur für Version 1)',
+  );
+  eq(waehleAusgangsstand({ ...basis }), { quelle: 'leer' }, 'Fall 35: kein Autosave (Beispiel-Dokument) → leer');
+  eq(
+    waehleAusgangsstand({ ...basis, datei: { doc: docDatei, stand }, autosave: autosaveV1, autosaveWarV1: true }),
+    { quelle: 'datei', doc: docDatei, hinweisAusserhalb: false },
+    '5.2: Übergangsregel nur ohne eigene Datei → Datei gilt',
   );
 }
 
