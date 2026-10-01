@@ -9,23 +9,29 @@
 // oeffentliche Paket enthaelt darum KEINE einzige Datei aus <Zoom-SDK>\x64\bin
 // - der WAECHTER unten bricht den Bau ab, wenn doch. Das Komplett-Paket
 // enthaelt sie und wird NIE veroeffentlicht (der Name sagt es, und es liegt
-// wie alles hier unter release\, das git ignoriert).
+// wie alles hier unter release\, das git ignoriert - und dort in einem
+// EIGENEN Unterordner NICHT-VEROEFFENTLICHEN\, damit ein Hochladen per
+// release\*.zip nur das oeffentliche ZIP trifft).
 //
 // Inhalt (beide Pakete, Komplett zusaetzlich mit den SDK-Dateien in bin\):
-//   Zoom-Bridge starten.cmd   Doppelklick -> start.ps1 (reines ASCII)
+//   Zoom-Bridge starten.cmd   Doppelklick -> start.ps1 in eigenem Fenster (reines ASCII)
 //   start.ps1                 fragt ab, startet zoom-join.exe (UTF-8 MIT BOM, CRLF)
 //   zoom-join.exe             die Steuerung als Node "Single Executable Application"
 //   LIESMICH.txt              fuer den Operator (UTF-8 MIT BOM, CRLF)
 //   bin\zoom-bridge.exe       FRISCH gebaut - siehe Pruefung unten
 //   bin\Processing.NDI.Lib.x64.dll   die NDI-Laufzeit (liefert die Suite schon
 //                                    in ihren oeffentlichen Installern mit)
+//   bin\msvcp140.dll, vcruntime140*.dll, ...   die Visual-C++-Laufzeit, app-lokal
+//                                    (siehe "VC-Laufzeit" unten)
 //   LIZENZEN\Processing.NDI.Lib.Licenses.txt
+//   LIZENZEN\Node.js-LICENSE.txt     zoom-join.exe IST eine node.exe
 //
 // Die Quellen der Textdateien liegen in paket\, NICHT in release\: die
 // Wurzel-.gitignore ignoriert jeden Ordner namens "release".
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,7 +47,11 @@ const oeffentlich = join(releaseDir, name);
 const komplettBasis = join(releaseDir, '.komplett');
 const komplettOrdner = join(komplettBasis, name);
 const zipOeffentlich = join(releaseDir, `${name}-win-x64.zip`);
-const zipKomplett = join(releaseDir, `${name}-win-x64-KOMPLETT-NICHT-VEROEFFENTLICHEN.zip`);
+// NICHT neben dem oeffentlichen ZIP: ein `gh release upload ... release/*.zip`
+// haette sonst die Zoom-DLLs veroeffentlicht (Sichtung 01.10.2026).
+const privatDir = join(releaseDir, 'NICHT-VEROEFFENTLICHEN');
+const zipKomplettName = `${name}-win-x64-KOMPLETT-NICHT-VEROEFFENTLICHEN.zip`;
+const zipKomplett = join(privatDir, zipKomplettName);
 
 // postject: der Wert, den Nodes SEA-Dokumentation fuer die Sicherung nennt.
 const SEA_FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
@@ -79,6 +89,32 @@ function neuesteAenderung(dir) {
   let max = 0;
   for (const f of dateienUnter(dir)) max = Math.max(max, statSync(join(dir, f)).mtimeMs);
   return max;
+}
+
+/** Linker-Fassung einer PE-Datei (Optional Header: MajorLinkerVersion.MinorLinkerVersion). */
+function linkerFassung(datei) {
+  const b = readFileSync(datei);
+  const pe = b.readUInt32LE(0x3c);
+  if (b.toString('latin1', pe, pe + 4) !== 'PE\0\0') abbruch(`${datei} ist keine PE-Datei.`);
+  return [b[pe + 24 + 2], b[pe + 24 + 3]];
+}
+
+/** Dateifassung aus VS_FIXEDFILEINFO (Signatur 0xFEEF04BD), als [a, b, c, d]; null ohne Versionsressource. */
+function dateiFassung(datei) {
+  const b = readFileSync(datei);
+  const i = b.indexOf(Buffer.from([0xbd, 0x04, 0xef, 0xfe]));
+  if (i < 0) return null;
+  const ms = b.readUInt32LE(i + 8);
+  const ls = b.readUInt32LE(i + 12);
+  return [ms >>> 16, ms & 0xffff, ls >>> 16, ls & 0xffff];
+}
+
+/** a >= b, komponentenweise (gleich lange Zahlenlisten). */
+function mindestens(a, b) {
+  for (let i = 0; i < b.length; i++) {
+    if ((a[i] ?? 0) !== b[i]) return (a[i] ?? 0) > b[i];
+  }
+  return true;
 }
 
 /**
@@ -164,6 +200,89 @@ const ndiDir = ndiKandidaten.find(
 );
 if (!ndiDir) abbruch(`NDI-Laufzeit mit Lizenztext nicht gefunden. Gesucht in:\n  ${ndiKandidaten.join('\n  ')}`);
 
+// VC-LAUFZEIT, app-lokal (Sichtung 01.10.2026, Schwere hoch). zoom-bridge.exe
+// ist mit /MD gebaut und importiert MSVCP140/VCRUNTIME140/VCRUNTIME140_1 -
+// und, wichtiger: sdk.dll und fast alle uebrigen Zoom-DLLs tun es auch
+// (gemessen: 79 von 119 Dateien in x64\bin + Bridge brauchen msvcp140.dll;
+// dazu einmal msvcp140_codecvt_ids.dll). Das Zoom-SDK liefert sie fuer x64
+// NICHT mit. Ohne installierte VC-Laufzeit stirbt die Bridge darum mit
+// 0xC0000135, ohne eine Zeile - und das sah aus wie ein Anmeldefehler.
+// Statisch linken (/MT) allein hilft nicht, weil die Zoom-DLLs sie trotzdem
+// brauchen. Also: die Redist-Dateien des Toolsets NEBEN zoom-bridge.exe
+// legen. Der Windows-Lader sucht zuerst im Ordner der .exe - auch fuer die
+// Abhaengigkeiten von sdk.dll -, und eine aeltere msvcp140.dll im System
+// (< 14.40 stuerzt mit neu gebautem Code in mutex::lock ab) wird so nicht
+// gezogen. Microsoft gibt diese Dateien als "Distributable Code" frei
+// (VC\Redist\MSVC\...\Microsoft.VC14x.CRT).
+//
+// Die Redist-Fassung muss MINDESTENS die Fassung des Linkers sein, der
+// zoom-bridge.exe gebaut hat (die STL ist nur rueckwaerts kompatibel).
+const VC_PFLICHT = ['msvcp140.dll', 'msvcp140_codecvt_ids.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'];
+function findeVcLaufzeit() {
+  const kandidaten = [];
+  if (process.env.VC_CRT_DIR) kandidaten.push(process.env.VC_CRT_DIR);
+  const cache = join(pkg, 'build', 'CMakeCache.txt');
+  const vsWurzeln = new Set();
+  if (existsSync(cache)) {
+    const m = /^CMAKE_GENERATOR_INSTANCE:INTERNAL=(.+)$/m.exec(readFileSync(cache, 'utf8'));
+    if (m) vsWurzeln.add(m[1].trim());
+  }
+  // Nur Ordner, und ein unlesbarer Ordner ist leer statt ein Absturz.
+  const ordnerIn = (d) => {
+    try {
+      return readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+    } catch {
+      return [];
+    }
+  };
+  for (const pf of ['C:\\Program Files (x86)\\Microsoft Visual Studio', 'C:\\Program Files\\Microsoft Visual Studio']) {
+    for (const jahr of ordnerIn(pf)) for (const ed of ordnerIn(join(pf, jahr))) vsWurzeln.add(join(pf, jahr, ed));
+  }
+  for (const w of vsWurzeln) {
+    const redist = join(w, 'VC', 'Redist', 'MSVC');
+    for (const v of ordnerIn(redist)) {
+      const x64 = join(redist, v, 'x64');
+      for (const d of ordnerIn(x64)) if (/^Microsoft\.VC\d+\.CRT$/i.test(d)) kandidaten.push(join(x64, d));
+    }
+  }
+  const brauchbar = kandidaten
+    .filter((d) => VC_PFLICHT.every((f) => existsSync(join(d, f))))
+    .map((d) => ({ dir: d, fassung: dateiFassung(join(d, 'msvcp140.dll')) ?? [0, 0, 0, 0] }))
+    .sort((a, b) => (mindestens(a.fassung, b.fassung) ? -1 : 1));
+  return { brauchbar, kandidaten };
+}
+const linker = linkerFassung(bridgeExe);
+const vc = findeVcLaufzeit();
+const vcLaufzeit = vc.brauchbar[0];
+if (!vcLaufzeit) {
+  abbruch(
+    `Visual-C++-Laufzeit (Microsoft.VC14x.CRT mit ${VC_PFLICHT.join(', ')}) nicht gefunden.\n` +
+      `  Gesucht in:\n  ${vc.kandidaten.join('\n  ') || '(keine Visual-Studio-Installation gefunden)'}\n` +
+      '  Mit VC_CRT_DIR auf den Ordner ...\\VC\\Redist\\MSVC\\<Fassung>\\x64\\Microsoft.VC14x.CRT zeigen.',
+  );
+}
+if (!mindestens(vcLaufzeit.fassung, linker)) {
+  abbruch(
+    `Die Visual-C++-Laufzeit ${vcLaufzeit.fassung.join('.')} (${vcLaufzeit.dir}) ist AELTER als der Linker ${linker.join('.')}, ` +
+      'der zoom-bridge.exe gebaut hat - die Bridge koennte damit abstuerzen. Die Redist-Dateien desselben Toolsets nehmen (VC_CRT_DIR).',
+  );
+}
+const vcDateien = readdirSync(vcLaufzeit.dir).filter((f) => /\.dll$/i.test(f));
+
+// zoom-join.exe IST eine node.exe (Single Executable Application) - Node
+// wird damit weitergegeben, samt V8, OpenSSL, ICU, libuv. Deren Lizenzen
+// verlangen den Lizenztext bei der Binaerweitergabe. Er liegt im Repo, an die
+// Node-FASSUNG gebunden: baut eine andere Node, fehlt die Datei, und der Bau
+// bricht ab, statt einen falschen Text beizulegen. (C:\Program Files\nodejs
+// enthaelt KEINE LICENSE - gemessen.)
+const nodeLizenz = join(pkg, 'paket', 'LIZENZEN', `Node.js-${process.version}-LICENSE.txt`);
+if (!existsSync(nodeLizenz) || !readFileSync(nodeLizenz, 'utf8').startsWith('Node.js is licensed for use as follows')) {
+  abbruch(
+    `Lizenztext fuer Node ${process.version} fehlt: ${nodeLizenz}\n` +
+      `  Die Datei LICENSE vom Tag ${process.version} (https://github.com/nodejs/node) dort ablegen - zoom-join.exe enthaelt genau diese Node-Fassung.`,
+  );
+}
+
 // --- 2. Die Start-EXE ------------------------------------------------------------
 rmSync(bau, { recursive: true, force: true });
 mkdirSync(bau, { recursive: true });
@@ -198,11 +317,16 @@ await esbuild.build({
 schritt('setze die Single Executable Application zusammen …');
 const seaConfig = join(bau, 'sea-config.json');
 const blob = join(bau, 'sea-prep.blob');
+// RELATIVE Pfade, aufgeloest gegen cwd = .bau: Node schreibt den Pfad von
+// "main" in den Blob - mit absolutem Pfad stand im oeffentlichen ZIP
+// "C:\Users\<name>\...\release\.bau\zoom-join.cjs" (Sichtung 01.10.2026).
+// Der Waechter unten prueft das am fertigen Paket.
 writeFileSync(
   seaConfig,
-  JSON.stringify({ main: buendel, output: blob, disableExperimentalSEAWarning: true, useSnapshot: false, useCodeCache: false }),
+  JSON.stringify({ main: 'zoom-join.cjs', output: 'sea-prep.blob', disableExperimentalSEAWarning: true, useSnapshot: false, useCodeCache: false }),
 );
-lauf(process.execPath, ['--experimental-sea-config', seaConfig]);
+lauf(process.execPath, ['--experimental-sea-config', 'sea-config.json'], { cwd: bau });
+if (!existsSync(blob)) abbruch(`${blob} fehlt nach --experimental-sea-config.`);
 const startExe = join(bau, 'zoom-join.exe');
 copyFileSync(process.execPath, startExe);
 
@@ -251,6 +375,10 @@ copyFileSync(startExe, join(oeffentlich, 'zoom-join.exe'));
 copyFileSync(bridgeExe, join(oeffentlich, 'bin', 'zoom-bridge.exe'));
 copyFileSync(join(ndiDir, 'Processing.NDI.Lib.x64.dll'), join(oeffentlich, 'bin', 'Processing.NDI.Lib.x64.dll'));
 copyFileSync(join(ndiDir, 'Processing.NDI.Lib.Licenses.txt'), join(oeffentlich, 'LIZENZEN', 'Processing.NDI.Lib.Licenses.txt'));
+for (const f of vcDateien) copyFileSync(join(vcLaufzeit.dir, f), join(oeffentlich, 'bin', f));
+textdatei(nodeLizenz, join(oeffentlich, 'LIZENZEN', 'Node.js-LICENSE.txt'), { bom: true });
+schritt(`VC-Laufzeit ${vcLaufzeit.fassung.join('.')} (Linker der Bridge: ${linker.join('.')}) aus ${vcLaufzeit.dir}: ${vcDateien.join(', ')}`);
+const eigeneBin = dateienUnter(join(oeffentlich, 'bin')).length;
 
 // --- 4. DER WAECHTER -------------------------------------------------------------
 // Keine Datei im oeffentlichen Paket darf so heissen wie eine Datei im
@@ -274,6 +402,15 @@ schritt(
 if (!readFileSync(join(oeffentlich, 'start.ps1')).subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) {
   abbruch('start.ps1 hat keinen UTF-8-BOM.');
 }
+// Kein Bau-Pfad des Entwickler-Rechners im oeffentlichen Paket (Benutzername,
+// Ordnerstruktur). Gesucht als ASCII und als UTF-16, in jeder Datei.
+const heim = homedir();
+const spuren = [heim, heim.toLowerCase(), pkg].flatMap((s) => [Buffer.from(s, 'latin1'), Buffer.from(s, 'utf16le')]);
+for (const f of oeffentlicheDateien) {
+  const b = readFileSync(join(oeffentlich, f));
+  if (spuren.some((s) => b.includes(s))) abbruch(`${f} enthaelt einen Pfad des Bau-Rechners (${heim}).`);
+}
+schritt(`keine Pfade des Bau-Rechners in ${oeffentlicheDateien.length} Dateien des oeffentlichen Pakets.`);
 
 // --- 5. ZIP ------------------------------------------------------------------------
 // Das tar von Windows (bsdtar) - NICHT das aus Git Bash, das kein ZIP kann.
@@ -291,6 +428,11 @@ function sha256(datei) {
 
 const mb = (n) => `${(n / 1024 / 1024).toFixed(1)} MB`;
 
+// Ein Komplett-ZIP aus einem frueheren Bau lag direkt in release\ - dort
+// traefe es ein `release\*.zip`. Weg damit; es liegt jetzt in privatDir.
+for (const f of readdirSync(releaseDir)) {
+  if (/KOMPLETT/i.test(f) && /\.zip$/i.test(f)) rmSync(join(releaseDir, f), { force: true });
+}
 zippe(zipOeffentlich, releaseDir, name);
 // Gegenprobe am fertigen ZIP: was drin steht, nicht was hineingehen sollte.
 const imZip = lauf(tar, ['-t', '-f', zipOeffentlich]).stdout.split(/\r?\n/).filter((l) => l && !l.endsWith('/'));
@@ -316,17 +458,25 @@ if (komplett) {
   copyFileSync(join(sdkDir, 'OSS-LICENSE.pdf'), join(komplettOrdner, 'LIZENZEN', 'OSS-LICENSE.pdf'));
   const sdkAnzahl = dateienUnter(sdkBin).length;
   const imBin = dateienUnter(join(komplettOrdner, 'bin')).length;
-  if (imBin !== sdkAnzahl + 2 || !existsSync(join(komplettOrdner, 'bin', 'sdk.dll'))) {
-    abbruch(`bin\\ hat ${imBin} Dateien, erwartet ${sdkAnzahl} aus dem SDK + 2 eigene.`);
+  if (imBin !== sdkAnzahl + eigeneBin || !existsSync(join(komplettOrdner, 'bin', 'sdk.dll'))) {
+    abbruch(`bin\\ hat ${imBin} Dateien, erwartet ${sdkAnzahl} aus dem SDK + ${eigeneBin} eigene.`);
   }
+  mkdirSync(privatDir, { recursive: true });
   zippe(zipKomplett, komplettBasis, name);
   const imKomplett = lauf(tar, ['-t', '-f', zipKomplett]).stdout.split(/\r?\n/).filter((l) => l && !l.endsWith('/'));
   console.log(`\nKOMPLETT (NICHT VEROEFFENTLICHEN)  ${zipKomplett}`);
   console.log(`  ${mb(statSync(zipKomplett).size)}, ${imKomplett.length} Dateien (davon ${sdkAnzahl} aus <Zoom-SDK>\\x64\\bin), sha256 ${sha256(zipKomplett)}`);
-  for (const f of imKomplett.filter((p) => !/\/bin\/./.test(p) || /\/bin\/(zoom-bridge\.exe|Processing\.NDI\.Lib\.x64\.dll|sdk\.dll)$/.test(p))) {
+  const eigeneNamen = new Set(dateienUnter(join(oeffentlich, 'bin')).map((f) => f.toLowerCase()));
+  for (const f of imKomplett.filter((p) => !/\/bin\/./.test(p) || eigeneNamen.has(p.split('/').pop().toLowerCase()) || /\/bin\/sdk\.dll$/.test(p))) {
     console.log(`    ${f}`);
   }
   console.log(`    … plus ${sdkAnzahl - 1} weitere SDK-Dateien in bin\\`);
+}
+
+// Zum Hochladen: in release\ selbst liegt nur das oeffentliche ZIP.
+const obenZips = readdirSync(releaseDir).filter((f) => /\.zip$/i.test(f));
+if (obenZips.length !== 1 || obenZips[0] !== `${name}-win-x64.zip`) {
+  abbruch(`in ${releaseDir} soll nur das oeffentliche ZIP liegen, gefunden: ${obenZips.join(', ')}`);
 }
 
 console.log(`\nzoom-bridge.exe aus build\\Release vom ${new Date(statSync(bridgeExe).mtimeMs).toLocaleString('de-DE')}`);

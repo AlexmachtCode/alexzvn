@@ -7,7 +7,16 @@
 
   Gemerkt werden in %APPDATA%\JM Zoom Bridge\einstellungen.json NUR:
   Pfad der Zugangsdaten-Datei, Anzeigename, Bild-Versatz.
-  NIE die Meeting-Nummer, NIE den Kenncode.
+  NIE die Meeting-Nummer, NIE den Kenncode. Daneben schreibt zoom-join.exe
+  versatz-zuletzt.txt: den zuletzt von der Bridge bestaetigten Bild-Versatz,
+  SOFORT bei jeder Bestaetigung - so ueberlebt der Klatschtest-Wert auch ein
+  geschlossenes Fenster. Das Skript uebernimmt ihn beim naechsten Start.
+
+  Strg+C waehrend des Laufs bekommt NUR zoom-join.exe (die verlaesst das
+  Meeting sauber); dieses Skript faengt es fuer sich ab und deutet danach das
+  Ergebnis wie bei "ende". Ohne das brach PowerShell das Skript mitten im
+  Lauf ab: kein ERGEBNIS, und unter der .cmd fragte cmd.exe "Batchvorgang
+  abbrechen (J/N)?" und schloss das Fenster (gemessen, 01.10.2026).
 
   -OhneFragen: fuer automatische Pruefungen. Fragt nichts, nimmt alle Werte
   aus den bereits gesetzten Umgebungsvariablen (ZOOM_SDK_CREDENTIALS,
@@ -28,13 +37,17 @@ $ordner = $PSScriptRoot
 $exe = Join-Path $ordner 'zoom-join.exe'
 $einstOrdner = Join-Path $env:APPDATA 'JM Zoom Bridge'
 $einstDatei = Join-Path $einstOrdner 'einstellungen.json'
+$versatzDatei = Join-Path $einstOrdner 'versatz-zuletzt.txt'
 
-function Beende([int]$code) {
+function Beende($code) {
+  # $null ist KEIN Erfolg: [int]$null waere 0, und ein Lauf, der gar nicht
+  # erst startete, endete gruen (gemessen mit einer kaputten zoom-join.exe).
+  if ($null -eq $code) { $code = 1 }
   if (-not $OhneFragen) {
     Write-Host ''
     Read-Host 'Enter druecken zum Schliessen' | Out-Null
   }
-  exit $code
+  exit [int]$code
 }
 
 function LiesEinstellungen {
@@ -66,6 +79,55 @@ function SchreibeEinstellungen($e) {
     New-Item -ItemType Directory -Path $einstOrdner | Out-Null
   }
   ($obj | ConvertTo-Json) | Set-Content -LiteralPath $einstDatei -Encoding UTF8
+}
+
+# Uebernimmt den von zoom-join.exe gesicherten Bild-Versatz (versatz-zuletzt.txt)
+# in die Einstellungen und loescht die Datei. Liefert den Wert oder $null.
+# Laeuft vor UND nach dem Lauf: endete der letzte Lauf hart (Fenster
+# geschlossen), liegt die Datei noch da und wird beim naechsten Start geholt.
+function UebernimmVersatz($e) {
+  if (-not [IO.File]::Exists($versatzDatei)) { return $null }
+  $roh = ''
+  try { $roh = [IO.File]::ReadAllText($versatzDatei).Trim() } catch { return $null }
+  try { [IO.File]::Delete($versatzDatei) } catch { }
+  $vz = 0
+  if (-not (GanzzahlImBereich $roh ([ref]$vz))) { return $null }
+  if ($vz -ne $e.versatzMs) {
+    $e.versatzMs = $vz
+    SchreibeEinstellungen $e
+  }
+  return $vz
+}
+
+# Faengt Strg+C und Strg+Pause fuer DIESEN Prozess ab, solange zoom-join.exe
+# laeuft. Ein Konsolen-Handler, der TRUE liefert, beendet die Kette: der von
+# PowerShell kommt danach nicht mehr dran, das Skript laeuft weiter.
+# zoom-join.exe bekommt das Signal trotzdem - jeder Prozess an der Konsole
+# hat seine eigene Kette - und verlaesst das Meeting sauber. Fenster
+# schliessen (CTRL_CLOSE_EVENT) geht weiter an Windows. Liefert $false, wenn
+# Add-Type nicht geht (z. B. eingeschraenkter Sprachmodus); dann bleibt das
+# alte Verhalten mit dem finally-Zweig unten.
+function StrgCAbfangen {
+  try {
+    if (-not ('JmZoomBridgeStrgC' -as [type])) {
+      Add-Type -ErrorAction Stop -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class JmZoomBridgeStrgC {
+  private delegate bool Handler(uint art);
+  [DllImport("kernel32.dll")]
+  private static extern bool SetConsoleCtrlHandler(Handler h, bool add);
+  private static readonly Handler handler = new Handler(Fang);
+  private static bool Fang(uint art) { return art == 0 || art == 1; }
+  public static bool An() { return SetConsoleCtrlHandler(handler, true); }
+  public static bool Aus() { return SetConsoleCtrlHandler(handler, false); }
+}
+'@
+    }
+    return [bool][JmZoomBridgeStrgC]::An()
+  } catch {
+    return $false
+  }
 }
 
 # Prueft die Zugangsdaten-Datei, ZEIGT ABER NIE EINEN WERT. Liefert $null, wenn
@@ -125,6 +187,12 @@ if (-not (Test-Path -LiteralPath $exe)) {
 }
 
 $e = LiesEinstellungen
+# Ein Wert aus einem hart beendeten Lauf (Fenster geschlossen) liegt noch da.
+$ausLetztemLauf = UebernimmVersatz $e
+if ($null -ne $ausLetztemLauf) {
+  Write-Host "Bild-Versatz aus dem letzten Lauf uebernommen: $ausLetztemLauf ms"
+  Write-Host ''
+}
 $nurAnmelden = $false
 
 if ($OhneFragen) {
@@ -191,7 +259,11 @@ if ($OhneFragen) {
 }
 
 # Merken - NUR Zugangsdaten-Pfad, Anzeigename, Versatz.
-$e.zugangsdaten = (Resolve-Path -LiteralPath $zugang).Path
+# .ProviderPath, NICHT .Path: fuer eine Netzwerkfreigabe (\\server\...) liefert
+# .Path "Microsoft.PowerShell.Core\FileSystem::\\server\..." - das versteht nur
+# PowerShell, zoom-join.exe scheiterte daran mit ENOENT (gemessen), und der
+# Wert stand danach als Vorgabe in den Einstellungen.
+$e.zugangsdaten = (Resolve-Path -LiteralPath $zugang).ProviderPath
 SchreibeEinstellungen $e
 
 # Umgebung fuer zoom-join.exe. Client-ID/Secret aus der Umgebung ENTFERNEN:
@@ -211,7 +283,9 @@ if (-not $OhneFragen) {
     $env:ZOOM_VIDEO_DELAY_MS = [string]$e.versatzMs
   }
 }
-$versatzDatei = Join-Path ([IO.Path]::GetTempPath()) ('jm-zoom-versatz-' + [guid]::NewGuid().ToString() + '.txt')
+if (-not (Test-Path -LiteralPath $einstOrdner)) {
+  New-Item -ItemType Directory -Path $einstOrdner | Out-Null
+}
 $env:ZOOM_VERSATZ_DATEI = $versatzDatei
 
 Write-Host ''
@@ -219,6 +293,7 @@ if ($nurAnmelden) {
   Write-Host 'Pruefe die Zugangsdaten bei Zoom (es wird KEIN Meeting betreten) ...'
 } else {
   Write-Host 'Starte. Beenden mit "ende" + Enter (Strg+C geht auch). "hilfe" zeigt alle Befehle.'
+  Write-Host 'Das Fenster NICHT mit dem X schliessen - dann bleibt "JM Connect" unter Umstaenden im Meeting stehen.'
 }
 Write-Host ''
 
@@ -226,31 +301,51 @@ Write-Host ''
 # PowerShell 5.1 das bei umgeleiteter Ausgabe als Fehler werten und abbrechen.
 $ErrorActionPreference = 'Continue'
 $code = $null
+$startFehler = $null
+$strgCGefangen = StrgCAbfangen
 try {
   & $exe
   $code = $LASTEXITCODE
+} catch {
+  # zoom-join.exe liess sich nicht starten (blockiert, beschaedigt, keine
+  # gueltige Anwendung). Ohne diesen Zweig stand "Abgebrochen (Strg+C)" da,
+  # und das Skript endete mit 0 (gemessen).
+  # Nur die erste Zeile, ohne die angehaengte Fundstelle im Skript ("In Zeile:...").
+  $startFehler = (($_.Exception.Message -split "`r?`n")[0] -replace '(?<=\.)(In|At) (Zeile|line|[A-Za-z]:\\).*$', '')
 } finally {
-  # Der Kenncode lebt nur fuer diesen Lauf. .NET statt Remove-Item: laeuft
-  # auch nach Strg+C, wenn PowerShell keine Befehle mehr annimmt.
+  if ($strgCGefangen) { [void][JmZoomBridgeStrgC]::Aus() }
+  # Der Kenncode lebt nur fuer diesen Lauf. NUR .NET-Aufrufe hier: wurde das
+  # Skript doch abgebrochen (Strg+C ohne den Handler oben), nimmt PowerShell
+  # im finally keine Befehle mehr an.
   [Environment]::SetEnvironmentVariable('ZOOM_MEETING_PASSCODE', $null, 'Process')
-  if ($null -eq $code) {
+  if ($null -eq $code -and $null -eq $startFehler) {
     [Console]::WriteLine('')
     [Console]::WriteLine('Abgebrochen (Strg+C).')
+    if ([IO.File]::Exists($versatzDatei)) {
+      [Console]::WriteLine('Der zuletzt bestaetigte Bild-Versatz ist gesichert und wird beim naechsten Start vorgeschlagen.')
+    }
+    if (-not $OhneFragen) {
+      [Console]::WriteLine('Enter druecken zum Schliessen')
+      [void][Console]::ReadLine()
+    }
   }
 }
 $ErrorActionPreference = 'Stop'
 
+if ($null -ne $startFehler) {
+  Write-Host ''
+  Write-Host "zoom-join.exe liess sich nicht starten: $startFehler" -ForegroundColor Red
+  Write-Host 'Moeglicherweise blockiert der Virenschutz oder Smart App Control die Datei (sie ist nicht signiert).'
+  Write-Host 'Dort freigeben oder das Paket neu entpacken.'
+  $code = 1
+}
+
 # Den zuletzt BESTAETIGTEN Bild-Versatz als naechste Vorgabe merken - der im
 # Projekt per Klatschtest nachgestellte Wert soll nicht verloren gehen.
-if (Test-Path -LiteralPath $versatzDatei) {
-  $vz = 0
-  $roh = (Get-Content -LiteralPath $versatzDatei -Raw).Trim()
-  Remove-Item -LiteralPath $versatzDatei
-  if ((GanzzahlImBereich $roh ([ref]$vz)) -and $vz -ne $e.versatzMs) {
-    $e.versatzMs = $vz
-    SchreibeEinstellungen $e
-    Write-Host "Zuletzt bestaetigter Bild-Versatz: $vz ms - wird beim naechsten Start vorgeschlagen."
-  }
+$vz = UebernimmVersatz $e
+if ($null -ne $vz) {
+  Write-Host ''
+  Write-Host "Zuletzt bestaetigter Bild-Versatz: $vz ms - wird beim naechsten Start vorgeschlagen. Bitte notieren."
 }
 
 Write-Host ''
@@ -263,16 +358,24 @@ switch ($code) {
     }
   }
   1 {
-    Write-Host 'ERGEBNIS: Abgebrochen, bevor es losging - eine Voraussetzung fehlt oder die Anmeldung wurde abgelehnt.' -ForegroundColor Red
+    Write-Host 'ERGEBNIS: Abgebrochen, bevor es losging - eine Voraussetzung fehlt, die Bridge startet nicht, oder die Anmeldung wurde abgelehnt.' -ForegroundColor Red
     Write-Host 'Die Meldung darueber sagt, was fehlt (Zugangsdaten-Datei, Zoom-Dateien im Ordner bin, ...).'
   }
   3 {
-    Write-Host 'ERGEBNIS: Im Meeting gewesen, aber OHNE Aufnahme-Erlaubnis - es konnte kein Bild und kein Ton abonniert werden.' -ForegroundColor Yellow
+    Write-Host 'ERGEBNIS: Im Meeting gewesen, aber ohne Aufnahme-Erlaubnis (Rohdaten) - ohne sie gibt es kein Bild und keinen Ton.' -ForegroundColor Yellow
     Write-Host 'Der Gastgeber muss die Aufnahme im Zoom-Client erlauben (oder wir sind selbst Gastgeber).'
   }
   4 {
-    Write-Host 'ERGEBNIS: Nicht ins Meeting gekommen.' -ForegroundColor Red
-    Write-Host 'Pruefen: Meeting-Nummer, Kenncode, laeuft das Meeting, wurden wir aus dem Warteraum eingelassen?'
+    Write-Host 'ERGEBNIS: Nicht ins Meeting gekommen (oder vorher mit "ende"/Strg+C abgebrochen).' -ForegroundColor Red
+    Write-Host 'Pruefen: Meeting-Nummer, Kenncode, laeuft das Meeting, hat der Gastgeber uns aus dem Warteraum eingelassen?'
+  }
+  5 {
+    Write-Host 'ERGEBNIS: Die Bridge ist unerwartet beendet worden (Absturz) - Bild und Ton waren ab da weg.' -ForegroundColor Red
+    Write-Host 'Die Meldungen darueber (FEHLER-Zeile mit exitCode) an das Entwicklungsteam schicken. Neu starten.'
+  }
+  6 {
+    Write-Host 'ERGEBNIS: Die Verbindung zum Meeting ist abgerissen (Netz oder Zoom) - Bild und Ton waren ab da weg.' -ForegroundColor Yellow
+    Write-Host 'Neu starten, um wieder beizutreten.'
   }
   default {
     Write-Host "ERGEBNIS: Unerwarteter Rueckgabewert $code - die Meldungen darueber mitschicken." -ForegroundColor Red
