@@ -48,3 +48,12 @@ export function sendeArgs(
 export function sprungZielTitel(rows: RundownRow[], a: RundownAction): string {
   return rows.find((r) => r.id === a.zielId)?.label ?? `Punkt ${String(a.args[0] ?? '?')}`;
 }
+
+/**
+ * RELOAD (5.2): Hatte die gemerkte Show vorher keinen Ablauf und hat jetzt einen,
+ * ist das wie „andere Show“ (Ausgangsstand-Regel, .v1-Sicherung, GO-Folgen
+ * abbrechen) und nicht nur ein Abgleich des Bestehenden.
+ */
+export function ablaufNeuEntstanden(vorherLeer: boolean, ablaufJetzt: number): boolean {
+  return vorherLeer && ablaufJetzt > 0;
+}

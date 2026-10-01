@@ -9,6 +9,7 @@ import {
   dateiStand,
   gedaechtnisSchluessel,
   leseGedaechtnis,
+  legeGedaechtnisFehlerBei,
   leseShowSicher,
   leseZeiger,
   loescheZeiger,
@@ -105,6 +106,19 @@ try {
   eq(leseGedaechtnis(ordner, s1), { inhalt: null, fehler: 'unlesbar' }, 'falsche Form → fehler unlesbar');
   eq(schreibeGedaechtnis(ordner, inhalt), true, 'nach dem Defekt: Schreiben gelingt');
   eq(leseGedaechtnis(ordner, s1).inhalt?.scharfId, 'u1', 'nach dem Defekt: Gedächtnis wieder lesbar');
+
+  // ── Fix-Runde 1: I/O-Fehler ist kein Inhaltsfehler ─────────────────────────
+  const ioSchluessel = '0123456789abcdef';
+  mkdirSync(join(ordner, `${ioSchluessel}.json`));
+  eq(leseGedaechtnis(ordner, ioSchluessel), { inhalt: null, fehler: 'io' }, 'Lesefehler außer ENOENT (hier EISDIR) → fehler io');
+  eq(legeGedaechtnisFehlerBei(ordner, ioSchluessel, 'io'), 'gesperrt', 'io → Sperre, nichts wird beiseitegelegt');
+  eq(readdirSync(ordner).includes(`${ioSchluessel}.defekt.json`), false, 'io: keine .defekt.json angelegt');
+  writeFileSync(gPfad, halbGeschrieben);
+  eq(legeGedaechtnisFehlerBei(ordner, s1, 'kein-json'), 'beiseite', 'kaputter Inhalt, Kopie gelingt → beiseite');
+  eq(legeGedaechtnisFehlerBei(ordner, s1, 'unlesbar'), 'beiseite', 'falsche Form, Kopie gelingt → beiseite');
+  rmSync(gPfad);
+  eq(legeGedaechtnisFehlerBei(ordner, s1, 'kein-json'), 'gesperrt', 'Kopie scheitert → Sperre statt "beschädigt"');
+  schreibeGedaechtnis(ordner, inhalt);
 
   // ── atomar: Umbenennen scheitert ───────────────────────────────────────────
   const zweiterPfad = join(tmp, 'Shows', 'Tag 2.jmshow');

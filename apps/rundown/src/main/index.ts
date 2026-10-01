@@ -10,8 +10,11 @@ import {
   abweisungText,
   berichtText,
   DATEI_AUSSERHALB,
+  fuegeHinweisAn,
   GEDAECHTNIS_DEFEKT,
+  GEDAECHTNIS_GESPERRT,
   kontextWechselText,
+  ohneHinweisText,
   RELOAD_OHNE_SHOW,
   scharfVerruecktText,
   showNichtLesbarText,
@@ -25,8 +28,9 @@ import {
   nimmAenderungAn,
   scharfNachBearbeitung,
 } from '@shared/scharf';
-import { loeseSprungZiel } from '@shared/sprung';
+import { bildeZielAb, loeseSprungZiel } from '@shared/sprung';
 import {
+  ablaufNeuEntstanden,
   ablaufSchluesselAusZeilen,
   ersteLebendeZeile,
   kontextIstIveo,
@@ -49,6 +53,7 @@ import { startControlServer, stopControlServer, pushControlState } from './contr
 import {
   dateiStand,
   gedaechtnisSchluessel,
+  legeGedaechtnisFehlerBei,
   leseGedaechtnis,
   leseShowSicher,
   leseZeiger,
@@ -108,6 +113,15 @@ let abgleichRev = 0;
 let abweisungen = 0;
 let hinweise: RundownHinweis[] = [];
 let hinweisNr = 0;
+/** Schlüssel des Gedächtnisses, das nicht lesbar war und nicht überschrieben wird; null = keine Sperre. */
+let gedaechtnisSperre: string | null = null;
+/** Die Sperre wurde schon einmal ins Log geschrieben (sichere() läuft oft). */
+let sperreGemeldet = false;
+/**
+ * Umbenennungen (R0) der Abgleiche, solange GO-Folgen ausstehen. Verzögerte
+ * Sprünge bilden ihre beim GO festgehaltene zielId darüber ab (6.2).
+ */
+let umbenennungen: Record<string, string>[] = [];
 
 const conductor = new Conductor(() => broadcastLinks());
 
@@ -147,10 +161,10 @@ function regieOrdner(): string {
   return join(app.getPath('userData'), REGIE_ORDNER);
 }
 
-/** Hinweis an den Renderer anhängen (4.6). Kurze entfernt der Main nach 6 s; höchstens 6 gleichzeitig. */
+/** Hinweis an den Renderer anhängen (4.6). Kurze entfernt der Main nach 6 s (höchstens 6 gleichzeitig); stehende bleiben. */
 function hinweis(text: string, art: RundownHinweis['art']): void {
   const id = ++hinweisNr;
-  hinweise = [...hinweise, { id, text, art }].slice(-6);
+  hinweise = fuegeHinweisAn(hinweise, { id, text, art });
   if (art === 'kurz') setTimeout(() => entferneHinweis(id), 6000);
 }
 
@@ -163,6 +177,14 @@ function entferneHinweis(id: number): void {
 /** Stand sichern (4.7): mit gemerkter Show ins Gedächtnis, sonst wie bisher in den Autosave. */
 function sichere(): void {
   if (showPfad) {
+    if (gedaechtnisSperre !== null && gedaechtnisSperre === gedaechtnisSchluessel(showPfad)) {
+      // Das Gedächtnis war nicht lesbar: nicht überschreiben, bis ein Lesen wieder gelingt.
+      if (!sperreGemeldet) {
+        sperreGemeldet = true;
+        getLog().warn('Gedächtnis der Show ist gesperrt (nicht lesbar), Stand wird nicht ins Gedächtnis geschrieben.');
+      }
+      return;
+    }
     const ok = schreibeGedaechtnis(regieOrdner(), {
       schemaVersion: 2,
       showPfad,
@@ -258,6 +280,8 @@ function ersetzeDoc(next: RundownDoc, nextPath: string | null): void {
   filePath = nextPath;
   dirty = false;
   rev++;
+  // Eine verspätete Bearbeitung des alten Dokuments darf das neue nicht überschreiben (5.5).
+  abgleichRev = rev;
   sichere();
   broadcast();
 }
@@ -312,6 +336,7 @@ let fireTimers: ReturnType<typeof setTimeout>[] = [];
 function cancelPendingFires(): void {
   for (const t of fireTimers) clearTimeout(t);
   fireTimers = [];
+  umbenennungen = [];
 }
 
 /** Argumente, mit denen eine Aktion JETZT gesendet würde (6.2); null = Sprung-Ziel entfallen. */
@@ -319,9 +344,13 @@ function argsZumSenden(a: RundownAction): (string | number)[] | null {
   return sendeArgs(a, (x) => loeseSprungZiel(x, ablaufSchluessel, eigeneTimerListe));
 }
 
-function fireOne(row: RundownRow, a: RundownAction, sent: FireReport['sent']): void {
+function fireOne(row: RundownRow, festgehalten: RundownAction, sent: FireReport['sent'], seitGo: number): void {
   // 6.2: Das Sprung-Ziel wird erst beim Senden aufgelöst — bei verzögerten
-  // Aktionen also nach delayMs, gegen den dann aktuellen Ablauf (5.4).
+  // Aktionen also nach delayMs, gegen den dann aktuellen Ablauf (5.4). Die beim GO
+  // festgehaltene zielId wird zuvor über die R0-Umbenennungen seit dem GO abgebildet.
+  const a = festgehalten.zielId
+    ? { ...festgehalten, zielId: bildeZielAb(festgehalten.zielId, umbenennungen.slice(seitGo)) }
+    : festgehalten;
   const args = argsZumSenden(a);
   if (!args) {
     const titel = sprungZielTitel(doc.rows, a);
@@ -345,14 +374,16 @@ function fireRow(row: RundownRow | undefined, actions: RundownAction[]): void {
   const sent: FireReport['sent'] = [];
   lastFired = { rowId: row.id, rowLabel: row.label, sent };
   let offset = 0;
+  const seitGo = umbenennungen.length;
   for (const a of actions) {
     offset += Math.max(0, a.delayMs ?? 0);
     if (offset === 0) {
-      fireOne(row, a, sent); // kein Versatz → synchron (wie bisher)
+      fireOne(row, a, sent, seitGo); // kein Versatz → synchron (wie bisher)
     } else {
       const t = setTimeout(() => {
         fireTimers = fireTimers.filter((x) => x !== t);
-        fireOne(row, a, sent);
+        fireOne(row, a, sent, seitGo);
+        if (fireTimers.length === 0) umbenennungen = [];
         broadcast(); // UI-Quittung aktualisieren, sobald die Aktion rausging
       }, offset);
       fireTimers.push(t);
@@ -537,6 +568,11 @@ function merkeShowDaten(g: Extract<ShowGelesen, { ok: true }>): void {
   showName = g.show.name;
 }
 
+/** R0-Umbenennungen eines Abgleichs für verzögerte Sprünge festhalten (6.2); nur solange GO-Folgen ausstehen. */
+function merkeUmbenennungen(umbenannt: Record<string, string>): void {
+  if (fireTimers.length > 0 && Object.keys(umbenannt).length > 0) umbenennungen.push(umbenannt);
+}
+
 /** Hinweise zu einem Abgleich (4.6): Kontextwechsel ODER Bericht, dazu ggf. die verrückte scharfe Zeile. */
 function zeigeAbgleichHinweise(res: ReturnType<typeof wendeShowAn>, show: Show): void {
   if (res.kontextGewechselt) {
@@ -548,17 +584,35 @@ function zeigeAbgleichHinweise(res: ReturnType<typeof wendeShowAn>, show: Show):
   if (res.bericht?.scharfVerrueckt) hinweis(scharfVerruecktText(res.bericht.scharfVerrueckt), 'stehend');
 }
 
-/** Gedächtnis lesen; ein defektes wird beiseitegelegt und gemeldet (Review-Focus 2). */
+/**
+ * Gedächtnis lesen. Inhalt kaputt → beiseitelegen und melden, aber nur wenn die
+ * Kopie gelang. Lesefehler (EBUSY, EPERM …) oder gescheiterte Kopie → NICHT als
+ * beschädigt behandeln, sondern sperren: `sichere()` überschreibt es nicht, ein
+ * stehender Hinweis sagt es. Jedes Lesen hebt eine frühere Sperre auf, wenn es gelingt.
+ */
 function leseGedaechtnisMitMeldung(schluessel: string): GedaechtnisInhalt | null {
   const gelesen = leseGedaechtnis(regieOrdner(), schluessel);
-  if (gelesen.fehler) {
-    const kopie = sichereDefektesGedaechtnis(regieOrdner(), schluessel);
-    getLog().warn(
-      `Gedächtnis ${schluessel}.json nicht lesbar (${gelesen.fehler}), ${kopie ? 'als .defekt.json beiseitegelegt' : 'Sicherung gescheitert'}.`,
-    );
-    hinweis(GEDAECHTNIS_DEFEKT, 'stehend');
+  if (!gelesen.fehler) {
+    if (gedaechtnisSperre !== null) getLog().info('Gedächtnis der Show wieder lesbar, Sperre aufgehoben.');
+    gedaechtnisSperre = null;
+    sperreGemeldet = false;
+    hinweise = ohneHinweisText(hinweise, GEDAECHTNIS_GESPERRT);
+    return gelesen.inhalt;
   }
-  return gelesen.inhalt;
+  const folge = legeGedaechtnisFehlerBei(regieOrdner(), schluessel, gelesen.fehler);
+  if (folge === 'beiseite') {
+    gedaechtnisSperre = null;
+    sperreGemeldet = false;
+    hinweise = ohneHinweisText(hinweise, GEDAECHTNIS_GESPERRT);
+    getLog().warn(`Gedächtnis ${schluessel}.json nicht lesbar (${gelesen.fehler}), als .defekt.json beiseitegelegt.`);
+    hinweis(GEDAECHTNIS_DEFEKT, 'stehend');
+  } else {
+    if (gedaechtnisSperre !== schluessel) sperreGemeldet = false;
+    gedaechtnisSperre = schluessel;
+    getLog().warn(`Gedächtnis ${schluessel}.json nicht lesbar (${gelesen.fehler}), gesperrt: wird nicht überschrieben.`);
+    if (!hinweise.some((h) => h.text === GEDAECHTNIS_GESPERRT)) hinweis(GEDAECHTNIS_GESPERRT, 'stehend');
+  }
+  return null;
 }
 
 /** Eigene Rundown-Datei der Show lesen (4.8); null, wenn sie fehlt oder kaputt ist. */
@@ -598,12 +652,13 @@ function ladeAndereShow(pfad: string, g: Extract<ShowGelesen, { ok: true }>): vo
   }
 
   if (g.ablaufSchluessel.length === 0 && !rdPfad && !gedaechtnis) {
-    // 5.2: Show ohne Ablauf und ohne eigene Rundown-Datei → merken, das Dokument
-    // bleibt unangetastet. Bekommt sie danach einen Ablauf, gleicht RELOAD ab.
+    // 5.2: Show ohne Ablauf und ohne eigene Rundown-Datei → merken, das aktuelle
+    // Dokument bleibt unangetastet und wird NICHT als Gedächtnis der Show geschrieben
+    // (es gehört nicht zu ihr, 4.7). Bekommt sie danach einen Ablauf, lädt RELOAD sie
+    // wie eine andere Show.
     gedaechtnisDatei = null;
     rev++;
     abgleichRev = rev;
-    sichere();
     broadcast();
     return;
   }
@@ -662,6 +717,7 @@ function ladeAndereShow(pfad: string, g: Extract<ShowGelesen, { ok: true }>): vo
   cancelPendingFires();
   lastFired = null;
   const res = wendeShowAn({ doc: start, scharfId: startScharf, show: g.show });
+  merkeUmbenennungen(res.umbenannt);
   doc = migrate(res.doc);
   scharfId = res.scharfId;
   rev++;
@@ -692,9 +748,18 @@ function reloadShow(): void {
     broadcast();
     return;
   }
+  // Sperre prüfen: ein Lesen, das jetzt gelingt, hebt sie auf (Ruling Fix-Runde 1).
+  if (gedaechtnisSperre !== null) leseGedaechtnisMitMeldung(gedaechtnisSperre);
+  const warOhneAblauf = ablaufSchluessel.length === 0;
+  if (ablaufNeuEntstanden(warOhneAblauf, g.ablaufSchluessel.length)) {
+    // 5.2: Die Show hatte keinen Ablauf und hat jetzt einen → wie „andere Show“.
+    ladeAndereShow(showPfad, g);
+    return;
+  }
   merkeShowDaten(g);
   showRundownDatei = rundownDateiDerShow(showPfad, g.show);
   const res = wendeShowAn({ doc, scharfId, show: g.show });
+  merkeUmbenennungen(res.umbenannt);
   const neu = migrate(res.doc);
   if (res.scharfId !== scharfId || JSON.stringify(neu) !== JSON.stringify(doc)) {
     doc = neu;

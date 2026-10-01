@@ -432,9 +432,11 @@ export function wendeShowAn(e: { doc: RundownDoc; scharfId: string | null; show:
   scharfId: string | null;
   bericht: AbgleichBericht | null;
   kontextGewechselt: boolean;
+  /** R0: alte → neue Kennung der Zeilen, die der Abgleich umbenannt hat (für verzögerte Sprünge, 6.2). */
+  umbenannt: Record<string, string>;
 } {
   const ablauf = e.show.ablauf ?? [];
-  if (ablauf.length === 0) return { doc: e.doc, scharfId: e.scharfId, bericht: null, kontextGewechselt: false };
+  if (ablauf.length === 0) return { doc: e.doc, scharfId: e.scharfId, bericht: null, kontextGewechselt: false, umbenannt: {} };
 
   const neuerKontext = kontextVon(e.show);
   const archiv: Record<string, RundownRow[]> = { ...(e.doc.archiv ?? {}) };
@@ -472,5 +474,11 @@ export function wendeShowAn(e: { doc: RundownDoc; scharfId: string | null; show:
     kontext: neuerKontext,
     ...(Object.keys(neuesArchiv).length ? { archiv: neuesArchiv } : {}),
   };
-  return { doc, scharfId: erg.scharfId, bericht: gewechselt ? null : erg.bericht, kontextGewechselt: gewechselt };
+  return {
+    doc,
+    scharfId: erg.scharfId,
+    bericht: gewechselt ? null : erg.bericht,
+    kontextGewechselt: gewechselt,
+    umbenannt: erg.umbenannt,
+  };
 }

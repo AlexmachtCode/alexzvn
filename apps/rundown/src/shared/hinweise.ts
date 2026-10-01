@@ -3,6 +3,7 @@
 // Der Main hängt sie an RundownState.hinweise; der Renderer zeigt sie nur an.
 import type { ShowIveoProgramRef } from '@jm/show';
 import type { AbgleichBericht } from './abgleich';
+import type { RundownHinweis } from './types';
 
 /** RELOAD ohne gemerkte Show (5.1): wortgleich zur Log-Warnung des Timers. */
 export const RELOAD_OHNE_SHOW =
@@ -68,4 +69,31 @@ export function abweisungText(mitIveo: boolean): string {
 /** Kurzer Hinweis, wenn ein Sprung beim GO nicht gesendet wird (6.2). */
 export function sprungEntfallenText(titel: string): string {
   return `Sprung nicht gesendet: Ziel „${titel}“ ist entfallen.`;
+}
+
+/**
+ * Stehender Hinweis bei gesperrtem Gedächtnis: es war nicht lesbar (I/O-Fehler
+ * oder Sicherung gescheitert), also wird es nicht überschrieben. Ergänzung dieser
+ * Umsetzung (Ruling im Protokoll), nicht Teil von Spec 4.6.
+ */
+export const GEDAECHTNIS_GESPERRT =
+  'Gespeicherter Stand dieser Show ist gerade nicht lesbar und wird nicht überschrieben.';
+
+/** Höchstens so viele kurze Hinweise gleichzeitig (4.6). */
+export const MAX_KURZE_HINWEISE = 6;
+
+/**
+ * Hinweis anhängen (4.6): gekappt werden nur KURZE (die ältesten); stehende
+ * bleiben, bis `hinweisWeg` sie entfernt. Die Reihenfolge bleibt.
+ */
+export function fuegeHinweisAn(liste: RundownHinweis[], neu: RundownHinweis): RundownHinweis[] {
+  const alle = [...liste, neu];
+  const kurze = alle.filter((h) => h.art === 'kurz');
+  const weg = new Set(kurze.slice(0, Math.max(0, kurze.length - MAX_KURZE_HINWEISE)));
+  return alle.filter((h) => !weg.has(h));
+}
+
+/** Alle Hinweise mit genau diesem Text entfernen. */
+export function ohneHinweisText(liste: RundownHinweis[], text: string): RundownHinweis[] {
+  return liste.filter((h) => h.text !== text);
 }

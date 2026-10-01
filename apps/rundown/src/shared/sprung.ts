@@ -30,3 +30,18 @@ export function loeseSprungZiel(
   if (stelle < 0) return { entfallen: true };
   return { n: stelle + 1, gebunden: true };
 }
+
+/**
+ * Kennung eines Sprung-Ziels über Umbenennungen (R0, Abgleich) abbilden, die seit
+ * dem GO angefallen sind — in der Reihenfolge, in der sie liefen (Spec 6.2 letzter
+ * Satz, 5.4). So überlebt ein verzögerter Sprung den Wechsel von Ersatz- zu echten
+ * Kennungen. Ohne Kennung oder ohne Treffer bleibt sie, wie sie ist.
+ */
+export function bildeZielAb(zielId: string | undefined, umbenennungen: Record<string, string>[]): string | undefined {
+  let id = zielId;
+  if (id === undefined) return undefined;
+  for (const karte of umbenennungen) {
+    if (Object.hasOwn(karte, id)) id = karte[id];
+  }
+  return id;
+}

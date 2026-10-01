@@ -1549,5 +1549,66 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
   eq(sprungZielTitel(zeilen, sprung), 'Punkt 2', 'Ziel ohne Zeile → „Punkt <args[0]>“');
 }
 
+// ── A10 Fix-Runde 1 ──────────────────────────────────────────────────────────
+{
+  // Spec 4.6: Kappung trifft nur kurze Hinweise, stehende bleiben.
+  const { fuegeHinweisAn, ohneHinweisText, GEDAECHTNIS_GESPERRT } = hinweisModul as any;
+  let liste: { id: number; text: string; art: 'kurz' | 'stehend' }[] = [{ id: 1, text: 'stehend 1', art: 'stehend' }];
+  for (let i = 2; i <= 10; i++) liste = fuegeHinweisAn(liste, { id: i, text: `kurz ${i}`, art: 'kurz' });
+  eq(liste.filter((h) => h.art === 'stehend').length, 1, 'Kappung: stehender Hinweis bleibt trotz vieler kurzer');
+  eq(liste.filter((h) => h.art === 'kurz').map((h) => h.id), [5, 6, 7, 8, 9, 10], 'Kappung: nur die 6 neuesten kurzen');
+  eq(liste[0].id, 1, 'Kappung: Reihenfolge bleibt');
+  const viele = fuegeHinweisAn(
+    [1, 2, 3, 4, 5, 6, 7].map((i) => ({ id: i, text: `s${i}`, art: 'stehend' as const })),
+    { id: 8, text: 'k', art: 'kurz' },
+  );
+  eq(viele.length, 8, 'Kappung: sieben stehende plus ein kurzer bleiben alle');
+  eq(ohneHinweisText(liste, 'stehend 1').length, liste.length - 1, 'ohneHinweisText entfernt den Hinweis mit dem Text');
+  eq(GEDAECHTNIS_GESPERRT, 'Gespeicherter Stand dieser Show ist gerade nicht lesbar und wird nicht überschrieben.', 'Text der Schreibsperre');
+
+  // Spec 5.2: RELOAD einer Show, die vorher keinen Ablauf hatte, ist eine "andere Show".
+  const { ablaufNeuEntstanden } = zeilenModul as any;
+  eq(
+    [ablaufNeuEntstanden(true, 3), ablaufNeuEntstanden(true, 0), ablaufNeuEntstanden(false, 3), ablaufNeuEntstanden(false, 0)],
+    [true, false, false, false],
+    'RELOAD: nur "vorher leer, jetzt Ablauf" lädt wie eine andere Show',
+  );
+
+  // Spec 6.2 letzter Satz: festgehaltene zielId über R0-Umbenennungen seit dem GO abbilden.
+  const { bildeZielAb } = sprungModul as any;
+  eq(bildeZielAb('ersatz:X', [{ 'ersatz:X': 'u9' }]), 'u9', 'zielId: Ersatz-Kennung → echte Kennung');
+  eq(bildeZielAb('ersatz:X', [{ 'ersatz:X': 'u9' }, { u9: 'u10' }]), 'u10', 'zielId: Umbenennungen nacheinander');
+  eq(bildeZielAb('u1', [{ 'ersatz:X': 'u9' }]), 'u1', 'zielId: unberührt');
+  eq(bildeZielAb(undefined, [{ a: 'b' }]), undefined, 'zielId: ohne Kennung bleibt ohne');
+  eq(bildeZielAb('toString', [{}]), 'toString', 'zielId: Objekt-Prototyp wird nicht gelesen');
+  const mitUmbenennung = { id: 'a1', role: 'timer', verb: 'goto', args: [2], enabled: true, zielId: 'ersatz:X' };
+  eq(
+    sprungModul.loeseSprungZiel({ ...mitUmbenennung, zielId: bildeZielAb('ersatz:X', [{ 'ersatz:X': 'u2' }]) }, ['u1', 'u2'], false),
+    { n: 2, gebunden: true },
+    'verzögerter Sprung findet sein Ziel nach der Umbenennung',
+  );
+  eq(sprungModul.loeseSprungZiel(mitUmbenennung, ['u1', 'u2'], false), { entfallen: true }, 'ohne Abbildung wäre das Ziel entfallen (Mangel)');
+
+  // wendeShowAn meldet die Umbenennungen (R0) nach außen.
+  const r0 = wendeShowAn({
+    doc: { schemaVersion: 2, name: 'X', kontext: 'show', rows: [{ id: 'ersatz:A', label: 'A', quelle: 'ablauf', actions: [] }] },
+    scharfId: null,
+    show: { name: 'X', ablauf: [{ id: 'u1', label: 'A' }], iveo: { filter: { programId: 'p1' } } },
+  }) as any;
+  eq(typeof r0.umbenannt, 'object', 'wendeShowAn liefert umbenannt');
+  eq(wendeShowAn({ doc: { schemaVersion: 2, name: 'X', rows: [] }, scharfId: null, show: { name: 'X' } }).umbenannt, {}, 'ohne Ablauf: umbenannt leer');
+
+  // 4.8: Pfadvergleich ohne Groß-/Kleinschreibung und Schrägstrich-Art (Windows).
+  const dok: A8Doc = { schemaVersion: 2, name: 'N', rows: [], kontext: 'show' };
+  const st: A8DateiStand = { pfad: 'D:\\Shows\\Cop31.jmrundown', mtimeMs: 1, groesse: 2, sha256: 'ab' };
+  const gd: A8Gedaechtnis = { schemaVersion: 2, showPfad: 'D:\\s.jmshow', showName: 'N', doc: dok, scharfId: null, gespeichertAm: '', datei: st };
+  const andereSchreibweise: A8DateiStand = { ...st, pfad: 'd:/shows/COP31.jmrundown' };
+  const wahl = (stand: A8DateiStand, windows: boolean) =>
+    waehleAusgangsstand({ gedaechtnis: gd, datei: { doc: dok, stand }, autosave: null, autosaveWarV1: false, showName: 'N', windows } as any).quelle;
+  eq(wahl(andereSchreibweise, true), 'gedaechtnis', 'Windows: Pfad in anderer Groß-/Kleinschreibung = gleicher Stand');
+  eq(wahl(andereSchreibweise, false), 'datei', 'nicht Windows: Groß-/Kleinschreibung zählt');
+  eq(wahl({ ...andereSchreibweise, pfad: 'D:\\Shows\\anders.jmrundown' }, true), 'datei', 'Windows: anderer Dateiname bleibt ungleich');
+}
+
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
 process.exit(failed === 0 ? 0 : 1);

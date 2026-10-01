@@ -113,18 +113,19 @@ function pruefeGedaechtnis(roh: unknown): GedaechtnisInhalt | null {
 
 /**
  * Gedächtnis `<ordner>/<schlüssel>.json` lesen. Fehlt es: `{ inhalt: null }`.
- * Kaputt oder fremd: `inhalt: null` plus Fehlerart; die Datei bleibt liegen
- * (Review-Focus 2). Die Parser-Meldung wird nie weitergegeben (G6).
+ * Kaputt oder fremd: `inhalt: null` plus Fehlerart ('kein-json', 'unlesbar'); die
+ * Datei bleibt liegen (Review-Focus 2). Scheitert schon das Lesen (EBUSY, EPERM,
+ * EACCES, EIO …), ist das KEIN Inhaltsfehler: `fehler: 'io'`. Die Parser-Meldung wird nie weitergegeben (G6).
  */
 export function leseGedaechtnis(
   ordner: string,
   schluessel: string,
-): { inhalt: GedaechtnisInhalt | null; fehler?: 'kein-json' | 'unlesbar' } {
+): { inhalt: GedaechtnisInhalt | null; fehler?: 'kein-json' | 'unlesbar' | 'io' } {
   let text: string;
   try {
     text = readFileSync(join(ordner, `${schluessel}.json`), 'utf8');
   } catch (e) {
-    return fehlerCode(e) === 'ENOENT' ? { inhalt: null } : { inhalt: null, fehler: 'unlesbar' };
+    return fehlerCode(e) === 'ENOENT' ? { inhalt: null } : { inhalt: null, fehler: 'io' };
   }
   let roh: unknown;
   try {
@@ -154,6 +155,22 @@ export function sichereDefektesGedaechtnis(ordner: string, schluessel: string): 
   } catch {
     return null;
   }
+}
+
+/**
+ * Was mit einem nicht lesbaren Gedächtnis geschieht (Ruling Fix-Runde 1):
+ *  - Inhalt kaputt ('kein-json', 'unlesbar') und die Kopie als `.defekt.json` gelingt
+ *    → 'beiseite' (beschädigt, das nächste Schreiben darf es ersetzen)
+ *  - I/O-Fehler ('io') oder gescheiterte Kopie → 'gesperrt': nicht als beschädigt
+ *    behandeln, der Aufrufer überschreibt es nicht, bis ein Lesen wieder gelingt.
+ */
+export function legeGedaechtnisFehlerBei(
+  ordner: string,
+  schluessel: string,
+  fehler: 'kein-json' | 'unlesbar' | 'io',
+): 'beiseite' | 'gesperrt' {
+  if (fehler === 'io') return 'gesperrt';
+  return sichereDefektesGedaechtnis(ordner, schluessel) ? 'beiseite' : 'gesperrt';
 }
 
 /** Zeiger auf die gemerkte Show (`<ordner>/zuletzt.json`, 4.7) oder null. */

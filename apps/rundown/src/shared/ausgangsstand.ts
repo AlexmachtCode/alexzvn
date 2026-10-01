@@ -33,9 +33,21 @@ export type Ausgangsstand =
   | { quelle: 'autosave-v1'; doc: RundownDoc }
   | { quelle: 'leer' };
 
+/** Läuft die Prüfung unter Windows? (Dieses Modul darf kein `node:path` laden, G2.) */
+function istWindows(): boolean {
+  return (globalThis as { process?: { platform?: string } }).process?.platform === 'win32';
+}
+
+/** Pfadvergleich (4.8): unter Windows ohne Groß-/Kleinschreibung und mit beiden Schrägstrichen. */
+function pfadGleich(a: string, b: string, windows: boolean): boolean {
+  if (!windows) return a === b;
+  const norm = (p: string) => p.replaceAll('\\', '/').toLowerCase();
+  return norm(a) === norm(b);
+}
+
 /** Gleicher Dateistand: Pfad, Größe, Änderungszeit UND SHA-256 (4.8). */
-function gleicherStand(a: DateiStand, b: DateiStand): boolean {
-  return a.pfad === b.pfad && a.groesse === b.groesse && a.mtimeMs === b.mtimeMs && a.sha256 === b.sha256;
+function gleicherStand(a: DateiStand, b: DateiStand, windows: boolean): boolean {
+  return pfadGleich(a.pfad, b.pfad, windows) && a.groesse === b.groesse && a.mtimeMs === b.mtimeMs && a.sha256 === b.sha256;
 }
 
 /** JSON mit sortierten Schlüsseln: Inhaltsvergleich unabhängig von der Feldreihenfolge. */
@@ -71,11 +83,14 @@ export function waehleAusgangsstand(e: {
   autosave: RundownDoc | null;
   autosaveWarV1: boolean;
   showName: string;
+  /** Nur für Tests: Windows-Pfadvergleich erzwingen oder abschalten; sonst nach Plattform. */
+  windows?: boolean;
 }): Ausgangsstand {
   const { gedaechtnis, datei } = e;
+  const windows = e.windows ?? istWindows();
   if (datei) {
     if (!gedaechtnis) return { quelle: 'datei', doc: datei.doc, hinweisAusserhalb: false };
-    if (gedaechtnis.datei && gleicherStand(gedaechtnis.datei, datei.stand)) {
+    if (gedaechtnis.datei && gleicherStand(gedaechtnis.datei, datei.stand, windows)) {
       return {
         quelle: 'gedaechtnis',
         doc: gedaechtnis.doc,
