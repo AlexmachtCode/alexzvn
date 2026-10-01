@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useRundown } from '@/store/useRundown';
 import { exportRegieplan, parseRegieplan } from '@/lib/regieplan';
 import { applyImportedRows, rowsFromImport } from '@/lib/doc';
+import { zeilenArt, type ShowSicht } from '@shared/zeilen';
+import type { RundownDoc } from '@shared/types';
 import { ToolLinks } from '@/components/ToolLinks';
 import { Transport } from '@/components/Transport';
 import { RundownList } from '@/components/RundownList';
@@ -12,7 +14,8 @@ const hdrBtn =
   'rounded-md border border-[var(--border)] px-2.5 py-1 text-[var(--foreground)] hover:bg-[var(--highlight)]';
 
 export function App() {
-  const { state, load, nav, setDoc, newDoc, open, save, saveAs, setEndpoint } = useRundown();
+  const { state, load, nav, setDoc, newDoc, open, save, saveAs, setEndpoint, hinweisWeg, alsEigeneZeile } =
+    useRundown();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showConnections, setShowConnections] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -55,6 +58,17 @@ export function App() {
 
   const selectedRow =
     state.doc.rows.find((r) => r.id === selectedId) ?? state.doc.rows[state.index] ?? null;
+  // Was Liste und Editor über die gemerkte Show wissen (4.5, 6.2).
+  const sicht: ShowSicht = {
+    showGemerkt: state.showGemerkt,
+    mitIveo: state.showMitIveo,
+    ablaufSchluessel: state.ablaufSchluessel,
+    eigeneTimerListe: state.eigeneTimerListe,
+  };
+  // 5.5: Jede Bearbeitung trägt den rev des Stands, aus dem sie berechnet wurde.
+  // Nach einer Abweisung baut `state.abweisungen` im Schlüssel des Editors die
+  // ungesteuerten Felder neu auf, damit sie den gespeicherten Stand zeigen.
+  const aendere = (d: RundownDoc): void => void setDoc(d, state.rev);
 
   // Regieplan-Import (Issue #82): Excel/CSV wählen → Punkte als Zeilen anlegen.
   async function importRegieplan(): Promise<void> {
@@ -67,14 +81,21 @@ export function App() {
         setNotice('Keine Regieplan-Punkte erkannt — ist eine Titel-Spalte vorhanden?');
         return;
       }
+      // 4.5: Mit gemerkter Show ersetzt „Ersetzen“ nur die eigenen Zeilen.
+      const ersetzbar = state.showGemerkt
+        ? state.doc.rows.filter((r) => zeilenArt(r) === 'eigen').length
+        : state.doc.rows.length;
       const replace =
-        state.doc.rows.length === 0
+        ersetzbar === 0
           ? true
           : window.confirm(
               `${rows.length} Regieplan-Punkte aus „${file.name}" gefunden.\n\n` +
-                'OK = aktuellen Ablauf ERSETZEN\nAbbrechen = anhängen',
+                (state.showGemerkt
+                  ? 'OK = eigene Zeilen ERSETZEN (Zeilen aus der Show bleiben)\n'
+                  : 'OK = aktuellen Ablauf ERSETZEN\n') +
+                'Abbrechen = anhängen',
             );
-      await setDoc(applyImportedRows(state.doc, rows, replace));
+      await setDoc(applyImportedRows(state.doc, rows, replace, state.showGemerkt), state.rev);
       setNotice(`${rows.length} Punkte ${replace ? 'importiert (ersetzt)' : 'angehängt'}.`);
     } catch (e) {
       setNotice(`Import fehlgeschlagen: ${(e as Error).message}`);
@@ -100,9 +121,9 @@ export function App() {
       <header className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-2">
         <span className="font-bold">JM Rundown</span>
         <input
-          key={`${state.doc.name}|${state.filePath ?? ''}`}
+          key={`${state.doc.name}|${state.filePath ?? ''}|${state.abweisungen}`}
           defaultValue={state.doc.name}
-          onBlur={(e) => void setDoc({ ...state.doc, name: e.target.value })}
+          onBlur={(e) => aendere({ ...state.doc, name: e.target.value })}
           className="rounded border border-transparent bg-transparent px-2 py-0.5 text-sm hover:border-[var(--border)] focus:border-[var(--ring)] focus:outline-none"
         />
         {state.dirty && <span className="text-xs text-[var(--brand-yellow)]">• ungespeichert</span>}
@@ -139,6 +160,31 @@ export function App() {
 
       <ToolLinks links={state.links} onOpenConnections={() => setShowConnections(true)} />
 
+      {state.hinweise.length > 0 && (
+        // 4.6: Kurze Hinweise entfernt der Main nach 6 s, stehende klickt der Bediener weg.
+        <div className="space-y-1 border-b border-[var(--border)] px-4 py-1.5">
+          {state.hinweise.map((h) => (
+            <div
+              key={h.id}
+              className={`flex items-center gap-2 text-xs ${
+                h.art === 'stehend' ? 'text-[var(--warning)]' : 'text-[var(--muted-foreground)]'
+              }`}
+            >
+              <span className="min-w-0 flex-1">{h.text}</span>
+              {h.art === 'stehend' && (
+                <button
+                  onClick={() => void hinweisWeg(h.id)}
+                  title="Hinweis schließen"
+                  className="rounded px-1.5 py-0.5 text-xs hover:bg-[var(--highlight)]"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 border-r border-[var(--border)]">
           <RundownList
@@ -147,17 +193,21 @@ export function App() {
             selectedId={selectedRow?.id ?? null}
             onSelect={setSelectedId}
             onSetCue={(i) => void nav({ t: 'goto', n: i + 1 })}
-            onDoc={(d) => void setDoc(d)}
+            onDoc={aendere}
+            sicht={sicht}
           />
         </div>
         <div className="w-[26rem] shrink-0">
           {selectedRow ? (
             <RowEditor
+              key={`${selectedRow.id}:${state.abweisungen}`}
               doc={state.doc}
               row={selectedRow}
               iveoSpeakers={state.iveoSpeakers ?? []}
               iveoSideEvents={state.iveoSideEvents ?? []}
-              onDoc={(d) => void setDoc(d)}
+              sicht={sicht}
+              onDoc={aendere}
+              onAlsEigeneZeile={(rowId) => void alsEigeneZeile(rowId)}
             />
           ) : (
             <div className="grid h-full place-items-center text-sm text-[var(--muted-foreground)]">

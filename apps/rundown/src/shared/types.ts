@@ -164,16 +164,28 @@ export interface JmRundownApi {
   onLinks: (cb: (links: ToolLink[]) => void) => () => void;
   /** Navigation/Conductor (GO feuert die scharfe Zeile). */
   nav: (cmd: RundownNav) => Promise<RundownState>;
-  /** Eine einzelne Aktion sofort feuern (Test im Editor). Liefert „zugestellt". */
-  fireAction: (role: string, verb: string, args: (string | number)[]) => Promise<boolean>;
+  /**
+   * Test-Knopf im Editor: Aktion `actionId` der Zeile `rowId` sofort feuern. Der
+   * Main löst ein Sprung-Ziel auf wie beim GO (6.2). Liefert „zugestellt"; false
+   * auch, wenn das Ziel entfallen ist — dann wird nichts gesendet.
+   */
+  fireAction: (rowId: string, actionId: string) => Promise<boolean>;
   /** Manuellen Endpunkt setzen (host leer = Override entfernen → wieder mDNS). */
   setEndpoint: (role: string, host: string, port: number) => Promise<RundownState>;
   /** Nativen Datei-Dialog öffnen (für Pfad-Argumente, z. B. PRESENTER OPEN). Liefert den gewählten Pfad oder null. */
   pickFile: () => Promise<string | null>;
   /** Regieplan-Datei (XLSX/CSV) wählen + Bytes lesen (Issue #82). null bei Abbruch. */
   importRegieplan: () => Promise<{ name: string; bytes: Uint8Array } | null>;
-  /** Dokument ersetzen (Editor speichert den ganzen Doc zurück). */
-  setDoc: (doc: RundownDoc) => Promise<RundownState>;
+  /**
+   * Dokument ersetzen (Editor speichert den ganzen Doc zurück). `basisRev` ist der
+   * `rev` des Stands, auf dem die Änderung beruht (5.5). Lief seitdem ein Abgleich,
+   * weist der Main sie ab und zählt `abweisungen` hoch.
+   */
+  setDoc: (doc: RundownDoc, basisRev: number) => Promise<RundownState>;
+  /** Stehenden Hinweis wegklicken (4.6). */
+  hinweisWeg: (id: number) => Promise<RundownState>;
+  /** „Als eigene Zeile behalten“ für eine entfallene Zeile (4.3). */
+  alsEigeneZeile: (rowId: string) => Promise<RundownState>;
   /** Datei-Operationen. */
   newDoc: () => Promise<RundownState>;
   open: () => Promise<RundownState>;

@@ -30,6 +30,7 @@ import type { RundownDoc as A8Doc } from '../src/shared/types.ts';
 import * as hinweisModul from '../src/shared/hinweise.ts';
 import * as zeilenModul from '../src/shared/zeilen.ts';
 import * as sprungModul from '../src/shared/sprung.ts';
+import * as abgleichModul from '../src/shared/abgleich.ts';
 
 let failed = 0;
 function eq(actual: unknown, expected: unknown, msg: string): void {
@@ -1608,6 +1609,61 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
   eq(wahl(andereSchreibweise, true), 'gedaechtnis', 'Windows: Pfad in anderer Groß-/Kleinschreibung = gleicher Stand');
   eq(wahl(andereSchreibweise, false), 'datei', 'nicht Windows: Groß-/Kleinschreibung zählt');
   eq(wahl({ ...andereSchreibweise, pfad: 'D:\\Shows\\anders.jmrundown' }, true), 'datei', 'Windows: anderer Dateiname bleibt ungleich');
+}
+
+// ── A11: Sperren, Hinweise, Sprung-Auswahl, Duplizieren (4.5, 6.2) ───────────
+{
+  const { zeilenArt, sperrenFuer, zeilenHinweis, ablaufPunkte, dupliziereZeile } = zeilenModul;
+  const titler = { id: 'a1', role: 'titler', verb: 'take', args: ['x'], enabled: true };
+  const lebend = { id: 'u1', label: 'Begrüßung', quelle: 'ablauf' as const, actions: [titler] };
+  const weg = { id: 'u2', label: 'Panel', quelle: 'ablauf' as const, entfallen: true as const, actions: [] };
+  const eigen = { id: 'r1', label: 'Einspieler', actions: [] };
+  eq([zeilenArt(lebend), zeilenArt(weg), zeilenArt(eigen)], ['ablauf', 'entfallen', 'eigen'], 'Zeilenarten');
+  eq(sperrenFuer(lebend, true), { text: true, verschieben: true, loeschen: true }, '4.5: lebende Ablaufzeile gesperrt, nicht löschbar');
+  eq(sperrenFuer(weg, true), { text: true, verschieben: true, loeschen: false }, '4.5: entfallene Zeile gesperrt, aber löschbar');
+  eq(sperrenFuer(eigen, true), { text: false, verschieben: false, loeschen: false }, '4.5: eigene Zeile frei');
+  eq(sperrenFuer(lebend, false), { text: false, verschieben: false, loeschen: false }, '4.5: ohne gemerkte Show alles frei');
+  eq(zeilenHinweis(lebend, true, true), 'kommt aus iveo', '4.5: Hinweis Ablaufzeile mit iveo');
+  eq(zeilenHinweis(lebend, true, false), 'kommt aus der Show, im Show-Editor ändern', '4.5: Hinweis Ablaufzeile ohne iveo');
+  eq(zeilenHinweis(lebend, false, true), null, '4.5: ohne gemerkte Show kein Hinweis an Ablaufzeilen');
+  eq(zeilenHinweis(weg, true, true), 'in iveo entfallen', '4.5: Hinweis entfallen mit iveo');
+  eq(zeilenHinweis(weg, false, false), 'in der Show entfallen', '4.5: ohne Show behält die entfallene Zeile ihren Hinweis');
+  eq(zeilenHinweis(eigen, true, true), null, '4.5: eigene Zeile ohne Hinweis');
+  eq(
+    ablaufPunkte([lebend, weg, eigen], ['u1', 'u9']),
+    [
+      { n: 1, id: 'u1', label: 'Begrüßung' },
+      { n: 2, id: 'u9', label: 'u9' },
+    ],
+    '6.2: Auswahl in Ablaufreihenfolge mit Nummer und Titel',
+  );
+
+  const doc: RundownDoc = { schemaVersion: 2, name: 'T', kontext: 'se:p1', rows: [lebend, weg, eigen] };
+  let k = 0;
+  const neueId = (p: 'r' | 'a'): string => `${p}_k${++k}`;
+  const d = dupliziereZeile(doc, 'u1', neueId);
+  eq(d.rows.map((r) => r.id), ['u1', 'r_k1', 'u2', 'r1'], 'Duplizieren: Kopie direkt hinter dem Original');
+  eq(
+    d.rows[1],
+    { id: 'r_k1', label: 'Begrüßung (Kopie)', actions: [{ ...titler, id: 'a_k2' }] },
+    'Duplizieren: eigene Zeile ohne quelle, neue ids, Titel mit „(Kopie)“',
+  );
+  eq(d.rows[1].actions[0].args !== titler.args, true, 'Duplizieren: args kopiert, nicht geteilt');
+  eq(dupliziereZeile(doc, 'fehlt', neueId) === doc, true, 'Duplizieren: unbekannte Zeile → Dokument unverändert');
+  eq('entfallen' in dupliziereZeile(doc, 'u2', neueId).rows[2], false, 'Duplizieren einer entfallenen Zeile → ohne entfallen');
+
+  // 9.1 Fall 21 mit dem echten Abgleich: Kopie bleibt eigene Zeile hinter dem Original, Bericht leer.
+  const basis: RundownDoc = { schemaVersion: 2, name: 'T', kontext: 'se:p1', rows: [lebend] };
+  const kopiert = dupliziereZeile(basis, 'u1', neueId);
+  const g = abgleichModul.gleicheAb({
+    alt: kopiert.rows,
+    ablauf: [{ id: 'u1', label: 'Begrüßung' }],
+    scharfId: 'u1',
+    altformat: false,
+  });
+  eq(g.rows.map((r) => r.id), kopiert.rows.map((r) => r.id), 'Fall 21: Kopie bleibt direkt hinter dem Original');
+  eq('quelle' in g.rows[1], false, 'Fall 21: Kopie bleibt eigene Zeile');
+  eq(abgleichModul.berichtIstLeer(g.bericht), true, 'Fall 21: Bericht leer');
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);

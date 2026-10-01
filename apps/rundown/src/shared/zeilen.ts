@@ -2,7 +2,7 @@
 // die Main und Renderer gleich brauchen. Ohne Laufzeit-Importe (G2): die
 // Auflösung des Sprungs (`loeseSprungZiel` aus sprung.ts) wird übergeben.
 import type { SprungErgebnis } from './sprung';
-import type { RundownAction, RundownRow } from './types';
+import type { RundownAction, RundownDoc, RundownRow } from './types';
 
 /** Kontext einer iveo-Show (4.4): Side Event oder Programmliste. */
 export function kontextIstIveo(kontext: string | undefined): boolean {
@@ -47,6 +47,95 @@ export function sendeArgs(
 /** Titel des Sprung-Ziels für Hinweis und Log; ohne Zeile „Punkt <args[0]>“. */
 export function sprungZielTitel(rows: RundownRow[], a: RundownAction): string {
   return rows.find((r) => r.id === a.zielId)?.label ?? `Punkt ${String(a.args[0] ?? '?')}`;
+}
+
+// ── Für den Renderer: Sperren, Hinweise, Sprung-Auswahl, Duplizieren (4.5, 6.2) ──
+
+/** Was Liste und Editor über die gemerkte Show wissen (aus RundownState). */
+export interface ShowSicht {
+  showGemerkt: boolean;
+  mitIveo: boolean;
+  ablaufSchluessel: string[];
+  eigeneTimerListe: boolean;
+}
+
+export type ZeilenArt = 'ablauf' | 'entfallen' | 'eigen';
+
+/** Lebende Ablaufzeile, entfallene Zeile oder eigene Zeile (Begriffe, Spec 2). */
+export function zeilenArt(row: RundownRow): ZeilenArt {
+  if (row.quelle !== 'ablauf') return 'eigen';
+  return row.entfallen ? 'entfallen' : 'ablauf';
+}
+
+/** Was an einer Zeile gesperrt ist (Tabelle 4.5). Aktionen und Duplizieren sind immer frei. */
+export interface Sperren {
+  /** Titel, Notiz und Dauer. */
+  text: boolean;
+  verschieben: boolean;
+  loeschen: boolean;
+}
+
+export function sperrenFuer(row: RundownRow, showGemerkt: boolean): Sperren {
+  const art = zeilenArt(row);
+  if (!showGemerkt || art === 'eigen') return { text: false, verschieben: false, loeschen: false };
+  return { text: true, verschieben: true, loeschen: art === 'ablauf' };
+}
+
+/** Hinweis an der Zeile (Tabelle 4.5); null = kein Hinweis. */
+export function zeilenHinweis(row: RundownRow, showGemerkt: boolean, mitIveo: boolean): string | null {
+  switch (zeilenArt(row)) {
+    case 'ablauf':
+      if (!showGemerkt) return null;
+      return mitIveo ? 'kommt aus iveo' : 'kommt aus der Show, im Show-Editor ändern';
+    case 'entfallen':
+      // Auch ohne gemerkte Show behalten entfallene Zeilen Markierung und Hinweis.
+      return mitIveo ? 'in iveo entfallen' : 'in der Show entfallen';
+    default:
+      return null;
+  }
+}
+
+export interface AblaufPunkt {
+  n: number;
+  id: string;
+  label: string;
+}
+
+/** Auswahl für `timer goto` (6.2): Ablaufpunkte in Ablaufreihenfolge, Titel aus der Zeile. */
+export function ablaufPunkte(rows: RundownRow[], ablaufSchluessel: string[]): AblaufPunkt[] {
+  return ablaufSchluessel.map((id, i) => ({ n: i + 1, id, label: rows.find((r) => r.id === id)?.label ?? id }));
+}
+
+/** Kopie ohne Herkunft: ohne `quelle` und `entfallen` = eigene Zeile (wie `alsEigeneZeile` in scharf.ts, G2). */
+function ohneHerkunft(r: RundownRow): RundownRow {
+  const kopie: RundownRow = { ...r };
+  delete kopie.quelle;
+  delete kopie.entfallen;
+  return kopie;
+}
+
+/**
+ * Zeile duplizieren (4.5): Die Kopie ist immer eine eigene Zeile — neue ids für
+ * Zeile und Aktionen, ohne `quelle`/`entfallen`, Titel mit „(Kopie)“, direkt
+ * hinter dem Original. `args` werden kopiert, nicht geteilt.
+ */
+export function dupliziereZeile(
+  doc: RundownDoc,
+  rowId: string,
+  neueId: (praefix: 'r' | 'a') => string,
+): RundownDoc {
+  const idx = doc.rows.findIndex((r) => r.id === rowId);
+  if (idx < 0) return doc;
+  const src = doc.rows[idx];
+  const kopie: RundownRow = {
+    ...ohneHerkunft(src),
+    id: neueId('r'),
+    label: `${src.label} (Kopie)`,
+    actions: src.actions.map((a) => ({ ...a, id: neueId('a'), args: a.args.slice() })),
+  };
+  const rows = doc.rows.slice();
+  rows.splice(idx + 1, 0, kopie);
+  return { ...doc, rows };
 }
 
 /**

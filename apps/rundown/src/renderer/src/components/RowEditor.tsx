@@ -1,5 +1,16 @@
 import { useState } from 'react';
 import { buildActionLine } from '@shared/conductor';
+import { loeseSprungZiel } from '@shared/sprung';
+import {
+  ablaufPunkte,
+  istSprung,
+  sendeArgs,
+  sperrenFuer,
+  zeilenArt,
+  zeilenHinweis,
+  type AblaufPunkt,
+  type ShowSicht,
+} from '@shared/zeilen';
 import { CAPABILITIES, KNOWN_ROLES, capAction } from '@/lib/capabilities';
 import { addAction, duplicateAction, removeAction, updateAction, updateRow } from '@/lib/doc';
 import { formatClock, parseClock } from '@/lib/duration';
@@ -22,34 +33,68 @@ export function RowEditor({
   row,
   iveoSpeakers,
   iveoSideEvents,
+  sicht,
   onDoc,
+  onAlsEigeneZeile,
 }: {
   doc: RundownDoc;
   row: RundownRow;
   iveoSpeakers: ShowIveoSpeaker[];
   iveoSideEvents: ShowIveoProgramRef[];
+  /** Gemerkte Show: Sperren (4.5) und Sprung-Auswahl (6.2). */
+  sicht: ShowSicht;
   onDoc: (doc: RundownDoc) => void;
+  onAlsEigeneZeile: (rowId: string) => void;
 }) {
+  const sperre = sperrenFuer(row, sicht.showGemerkt);
+  const hinweis = zeilenHinweis(row, sicht.showGemerkt, sicht.mitIveo);
+  const entfallen = zeilenArt(row) === 'entfallen';
+  const punkte = ablaufPunkte(doc.rows, sicht.ablaufSchluessel);
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-[var(--border)] p-3">
         <label className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Zeilen-Titel</label>
-        <input
-          key={row.id}
-          defaultValue={row.label}
-          onBlur={(e) => onDoc(updateRow(doc, row.id, { label: e.target.value }))}
-          className={input}
-        />
+        {sperre.text ? (
+          // 4.5: Gesperrte Felder sind gesteuert (value + readOnly) — ein Abgleich ist sofort sichtbar.
+          <input value={row.label} readOnly className={`${input} opacity-70`} />
+        ) : (
+          <input
+            key={row.id}
+            defaultValue={row.label}
+            onBlur={(e) => onDoc(updateRow(doc, row.id, { label: e.target.value }))}
+            className={input}
+          />
+        )}
         <label className="mt-2 block text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
           Dauer (mm:ss · optional, für Timer-Austausch)
         </label>
-        <input
-          key={`${row.id}:dur`}
-          defaultValue={formatClock(row.durationMs)}
-          placeholder="z. B. 5:00"
-          onBlur={(e) => onDoc(updateRow(doc, row.id, { durationMs: parseClock(e.target.value) }))}
-          className={input}
-        />
+        {sperre.text ? (
+          <input value={formatClock(row.durationMs)} readOnly className={`${input} opacity-70`} />
+        ) : (
+          <input
+            key={`${row.id}:dur`}
+            defaultValue={formatClock(row.durationMs)}
+            placeholder="z. B. 5:00"
+            onBlur={(e) => onDoc(updateRow(doc, row.id, { durationMs: parseClock(e.target.value) }))}
+            className={input}
+          />
+        )}
+        {sperre.text && row.note && (
+          <p className="mt-2 whitespace-pre-wrap text-xs text-[var(--muted-foreground)]">{row.note}</p>
+        )}
+        {hinweis && (
+          <div className="mt-2 flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+            <span className={entfallen ? 'text-[var(--warning)]' : ''}>{hinweis}</span>
+            {entfallen && (
+              <button
+                onClick={() => onAlsEigeneZeile(row.id)}
+                className="ml-auto rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
+              >
+                Als eigene Zeile behalten
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
@@ -64,6 +109,8 @@ export function RowEditor({
             action={a}
             iveoSpeakers={iveoSpeakers}
             iveoSideEvents={iveoSideEvents}
+            sicht={sicht}
+            punkte={punkte}
             onDoc={onDoc}
           />
         ))}
@@ -84,6 +131,8 @@ function ActionRow({
   action,
   iveoSpeakers,
   iveoSideEvents,
+  sicht,
+  punkte,
   onDoc,
 }: {
   doc: RundownDoc;
@@ -91,10 +140,18 @@ function ActionRow({
   action: RundownAction;
   iveoSpeakers: ShowIveoSpeaker[];
   iveoSideEvents: ShowIveoProgramRef[];
+  sicht: ShowSicht;
+  punkte: AblaufPunkt[];
   onDoc: (doc: RundownDoc) => void;
 }) {
   const cap = capAction(action.role, action.verb);
-  const line = buildActionLine(action.role, action.verb, action.args);
+  // 6.2: Vorschau mit der Nummer, die jetzt gesendet würde; null = Ziel entfallen.
+  const sendArgs = sendeArgs(action, (x) => loeseSprungZiel(x, sicht.ablaufSchluessel, sicht.eigeneTimerListe));
+  const line = sendArgs ? buildActionLine(action.role, action.verb, sendArgs) : null;
+  // 6.2: Für `timer goto` die Ablaufpunkte zur Auswahl — nicht bei eigener Timer-Liste.
+  const sprungAuswahl = istSprung(action) && !sicht.eigeneTimerListe && (punkte.length > 0 || !!action.zielId);
+  const handNr = Number(action.args[0]);
+  const handPunkt = Number.isInteger(handNr) ? punkte[handNr - 1] : undefined;
   const [fired, setFired] = useState<'' | 'ok' | 'off'>('');
   // iveo-Komfort (#11): Beim Titler-Recall die Speaker der Show als Dropdown
   // anbieten (Recall PER NAME → stabil gegenüber Umsortierung). Ersetzt für diese
@@ -109,17 +166,27 @@ function ActionRow({
     action.role === 'launcher' && action.verb === 'sideevent' && iveoSideEvents.length > 0;
 
   async function test(): Promise<void> {
-    const ok = await window.jmrundown.fireAction(action.role, action.verb, action.args);
+    // 6.2: Der Main sucht die Aktion über ihre Kennung und löst auf wie beim GO.
+    const ok = await window.jmrundown.fireAction(rowId, action.id);
     setFired(ok ? 'ok' : 'off');
     setTimeout(() => setFired(''), 1300);
   }
 
   function setRole(role: string): void {
     const verb = CAPABILITIES[role]?.actions[0]?.verb ?? '';
-    onDoc(updateAction(doc, rowId, action.id, { role, verb, args: defaultArgs(role, verb) }));
+    onDoc(updateAction(doc, rowId, action.id, { role, verb, args: defaultArgs(role, verb), zielId: undefined }));
   }
   function setVerb(verb: string): void {
-    onDoc(updateAction(doc, rowId, action.id, { verb, args: defaultArgs(action.role, verb) }));
+    onDoc(updateAction(doc, rowId, action.id, { verb, args: defaultArgs(action.role, verb), zielId: undefined }));
+  }
+  /** 6.2: Eine Auswahl schreibt sofort zielId und die Nummer in args[0]; '' = Nummer von Hand. */
+  function waehleZiel(id: string): void {
+    if (!id) {
+      onDoc(updateAction(doc, rowId, action.id, { zielId: undefined }));
+      return;
+    }
+    const p = punkte.find((x) => x.id === id);
+    if (p) onDoc(updateAction(doc, rowId, action.id, { zielId: p.id, args: [p.n, ...action.args.slice(1)] }));
   }
   function setArg(i: number, value: string | number): void {
     const args = action.args.slice();
@@ -164,8 +231,9 @@ function ActionRow({
           {fired === 'off' && <span className="text-xs text-[var(--warning)]">⚠ offline</span>}
           <button
             onClick={test}
-            title="diese Aktion jetzt an das Tool senden"
-            className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
+            disabled={!line}
+            title={line ? 'diese Aktion jetzt an das Tool senden' : 'Ziel entfallen — wird nicht gesendet'}
+            className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)] disabled:opacity-40"
           >
             Test
           </button>
@@ -226,7 +294,46 @@ function ActionRow({
         </div>
       )}
 
-      {!speakerPicker && !sideEventPicker && cap?.args && cap.args.length > 0 && (
+      {sprungAuswahl && (
+        <div className="mt-2 space-y-1">
+          <label className="text-xs text-[var(--muted-foreground)]">
+            Ablaufpunkt (Timer springt dorthin)
+            <select
+              value={action.zielId ?? ''}
+              onChange={(e) => waehleZiel(e.target.value)}
+              className={`${input} mt-0.5`}
+            >
+              <option value="">Nummer von Hand</option>
+              {punkte.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {`${p.n} · ${p.label}`}
+                </option>
+              ))}
+              {action.zielId && !punkte.some((p) => p.id === action.zielId) && (
+                <option value={action.zielId}>Ziel entfallen</option>
+              )}
+            </select>
+          </label>
+          {!action.zielId && (
+            <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+              <span>
+                {`Nummer von Hand: ${String(action.args[0] ?? '')}`}
+                {handPunkt ? ` (${handPunkt.label})` : ''}
+              </span>
+              {handPunkt && (
+                <button
+                  onClick={() => waehleZiel(handPunkt.id)}
+                  className="ml-auto rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
+                >
+                  an diesen Punkt binden
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!speakerPicker && !sideEventPicker && !(sprungAuswahl && action.zielId) && cap?.args && cap.args.length > 0 && (
         <div className="mt-2 grid grid-cols-2 gap-2">
           {cap.args.map((arg, i) => (
             <label
@@ -300,7 +407,8 @@ function ActionRow({
           <span className="text-[var(--muted-foreground)]">ms</span>
         </label>
         <span className="ml-auto font-mono text-[11px] text-[var(--muted-foreground)]">
-          {delayMs > 0 && <span className="text-[var(--muted-foreground)]">+{delayMs} ms </span>}→ {line}
+          {delayMs > 0 && <span className="text-[var(--muted-foreground)]">+{delayMs} ms </span>}→{' '}
+          {line ?? <span className="text-[var(--warning)]">Ziel entfallen</span>}
         </span>
       </div>
     </div>
