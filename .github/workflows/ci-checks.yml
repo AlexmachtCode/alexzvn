@@ -48,6 +48,16 @@ jobs:
         run: npm run selftest -w @jm/launcher
       - name: Launcher (Verbund-Rollen Master/Slave)
         run: npm run selftest:verbund -w @jm/launcher
+      # Master-Link Teil 2a (Spec 9.7). Keiner dieser Tests lädt Electron — ohne
+      # Postinstalls fehlt das Binary, ein Electron-Import bricht hier also ab.
+      - name: Launcher (iveo-Abgleich-Kern, Hülle, Show-Editor)
+        run: npm run selftest:iveo -w @jm/launcher
+      - name: iveo + Show-Format (Kennungen von iveo bis in die Show)
+        run: npm run selftest -w @jm/iveo
+      - name: Timer (aktiver Punkt über die Kennung)
+        run: npm run selftest -w @jm/timer
+      - name: Rundown (Abgleich, Sprung, scharfe Zeile)
+        run: npm run selftest -w @jm/rundown
 
   secret-scan:
     name: Secret-Scan (gitleaks)
