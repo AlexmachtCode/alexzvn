@@ -505,6 +505,7 @@ Welche Aktionen ausstehen, steht beim GO fest. Festgehalten werden die Aktionsob
 In 2a wird geprüft, ob eine Bauchbinde auf Sendung den Namen wechselt, wenn sich die Speaker-Liste verschiebt. Das ist bisher eine Vermutung aus `apps/titler/src/main/datalink.ts:185-192` und `apps/titler/src/renderer/src/views/OutputView.tsx:25-29`.
 - **Prüfung im Durchgang 9.8:** Bauchbinde mit Eintrag 3 auf Sendung, dann im nachgebauten iveo einen Speaker davor einfügen, RELOAD, Ausgabe ablesen.
 - **Ergebnis:** Es kommt in den PR-Text und in die 2b-Spec. Behoben wird es in 2b.
+- **Gemessen** (Durchgang 9.8 am 01.10.2026, `apps/rundown/test/e2e-teil2a.mjs`, Abschnitt 9): Bauchbinde mit Eintrag 3 auf Sendung („Alan“, Eintrag 3 von 4). Im nachgebauten iveo kam ein Speaker davor dazu, dann RELOAD. Danach stand „Grace“ auf Sendung (Eintrag 3 von 5). **Die Bauchbinde auf Sendung wechselt den Namen: JA.** Der Titler hält den Eintrag über die Nummer, der Speaker dahinter rutscht nach. Für die 2b-Spec übernehmen (dort gibt es noch keine Datei).
 
 ---
 
@@ -844,5 +845,5 @@ Keiner dieser Tests darf Electron laden. Die Zeitgrenze bleibt 15 min.
 - **Eigene Timer-Liste:** Eine eigene Timer-Liste in den Show-Einstellungen hat keine Kennungen und hält über die Nummer.
 - **Show öffnen mit laufenden Tools** setzt den Timer per `tt:setAll` zurück, wie heute (`apps/timer/src/main/index.ts:353`, `timer-state.ts:259-268`). Als Neustart-Weg für den Rundown dient deshalb die Kachel (5.2).
 - **Verschobene Show-Datei:** Wird eine Show-Datei umbenannt oder verschoben, beginnt ein neues Gedächtnis. Das alte bleibt auf der Platte liegen.
-- **Titler:** Er wird nur nachgemessen (6.4).
+- **Titler:** Er wird nur nachgemessen (6.4). Gemessen: Eine Bauchbinde auf Sendung wechselt beim RELOAD den Namen, wenn davor ein Speaker eingefügt wird (Alan → Grace). → 2b
 - **Alter Rundown:** Ein alter Rundown, der eine neue `.jmrundown` speichert, verliert Archiv und Markierungen (Ergänzung 0.11).

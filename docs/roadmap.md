@@ -203,6 +203,13 @@ Es war der zweite Fall dieser Falle nach JM Connect — der Selbsttest von `@jm/
 - **Token-at-rest** (Launcher-GitHub-Token via `safeStorage`, PR #134) bestätigen/ausliefern.
 - **iveo-Prod-URL** scharfschalten (📌 langstehend; Staging-Base bleibt bis dahin).
 - *Optional:* **Binär-/Manifest-Signierung (C3)** — braucht Zertifikate/Budget, zurückgestellt.
+- ⚪ **RELOAD im secure-Modus vor der Auth** (Rest aus Master-Link Teil 2a, vorbestehend): Der Launcher setzt
+  `connected` schon beim (TLS-)Verbindungsaufbau (`apps/launcher/src/main/health.ts:86-91`), die Auth läuft erst
+  danach. `sendControlCommand` (`health.ts:195-204`) zählt ein `… RELOAD` in diesem Fenster als erreicht, also holt
+  der Merker aus `reload-nachholen.ts` es nicht nach. Der Server wertet eine Befehlszeile vor der AUTH-Zeile als
+  Fehlversuch (`packages/suite-control-protocol/src/server.ts:274-281`: AUTHFAIL, Verbindung zu, zählt zur Sperre).
+  Folge: Timer, Titler oder Rundown bleiben bis zur nächsten Änderung auf altem Stand. Abhilfe: erst nach dem ersten
+  STATE (= Auth durch) als erreichbar zählen. Kein Issue angelegt.
 
 ### Lane D — Switcher-Ausgabe
 

@@ -9,7 +9,7 @@ Spec: `docs/superpowers/specs/2026-10-01-master-link-teil2a-design.md`, Abschnit
 | # | Schritt | Erwartung | Ergebnis / Datum |
 | --- | --- | --- | --- |
 | 1 | Launcher 0.13.0, Timer 0.13.0 und Rundown 0.6.0 installieren | Versionen im Launcher sichtbar | |
-| 2 | Bestands-Show (von vor dem Update, mit Aktionen im Rundown) öffnen und die erste Abfrage abwarten | alle Aktionen da, kein Hinweis „entfallen“ (Übergang 0.6/0.7) | |
+| 2 | Bestands-Show (von vor dem Update, mit Aktionen im Rundown) öffnen und die erste Abfrage abwarten | alle Aktionen da, kein Hinweis „entfallen“ (Übergang über Titel-Brücke und Übernahme des alten Autosaves: Spec-Ergänzungen 0.6/0.7, keine Versionsnummern) | |
 | 3 | Show an das Test-Side-Event binden und öffnen | Rundown zeigt die Punkte, gesperrte Felder mit „kommt aus iveo“ | |
 | 4 | An Punkt 2 eine Bauchbinde und „Timer springe zu Punkt 2“ anlegen; eine eigene Zeile hinter Punkt 1; eine Zeile duplizieren | gespeichert; die Kopie ist frei bearbeitbar | |
 | 5 | In iveo vor Punkt 2 einen Punkt einfügen und Punkt 3 umbenennen; bis zu 45 s warten | Hinweis „iveo: 1 geändert · 1 neu …“; Aktionen weiter an „Punkt 2“; eigene Zeile und Kopie an ihrem Platz; scharfe Zeile unverändert | |
