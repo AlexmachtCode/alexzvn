@@ -318,6 +318,7 @@ const timerKurz = () => {
 
 // ── Beiseitelegen / Aufräumen ─────────────────────────────────────────────────
 const gesichert = [];
+const freigemacht = []; // Pfade, die der Lauf leer vorfand oder erfolgreich beiseitegelegt hat (nur die darf er am Ende löschen)
 let beiseiteGelegt = false;
 let TMP = '';
 function legeBeiseite() {
@@ -327,13 +328,14 @@ function legeBeiseite() {
       process.exit(3);
     }
   }
+  beiseiteGelegt = true; // vor der Schleife: scheitert renameSync mittendrin, stellt raeumeAuf die schon verschobenen zurück
   for (const p of SICHERN) {
     if (existsSync(p)) {
       renameSync(p, p + VORHER);
-      gesichert.push(p);
+      gesichert.push(p); // erst nach gelungener Umbenennung
     }
+    freigemacht.push(p);
   }
-  beiseiteGelegt = true;
 }
 let aufgeraeumt = false;
 async function raeumeAuf() {
@@ -349,7 +351,7 @@ async function raeumeAuf() {
   server.closeAllConnections();
   server.close();
   if (beiseiteGelegt) {
-    for (const p of SICHERN) {
+    for (const p of freigemacht) {
       rmSync(p, { recursive: true, force: true }); // was der Lauf angelegt hat
       if (gesichert.includes(p)) renameSync(p + VORHER, p);
     }
@@ -512,18 +514,8 @@ async function main() {
   pruefe('7a · Stand nach dem Neustart über die Kachel', JSON.stringify(st.doc.rows) === JSON.stringify(vor7a.doc.rows), zeilenKurz(st));
   pruefe('7a · scharfe Zeile nach dem Neustart', st.scharfId === vor7a.scharfId, `scharf ${st.scharfId}`);
   pruefe('7a · Show bleibt gemerkt', st.showGemerkt === true);
-  // Abweichung vom Brief (Ursache im Bericht): Das Gegenstück zum Fühler oben. Der Launcher verbindet sich nach dem
-  // Neustart erst im nächsten 3-s-Wiederverbindungsschritt neu; ein RELOAD davor erreicht „0 Rundown“ und geht verloren.
-  // Erst wenn ein RELOAD den neuen Rundown erreicht, wird die Agenda verändert.
-  let erreicht7a = null;
-  for (let i = 0; i < 10 && !erreicht7a; i++) {
-    const m = logMarke('launcher');
-    launcherSt.sende('LAUNCHER SIDEEVENT p-a');
-    const z = await bis(() => reloadZaehler(logAb('launcher', m)), 8_000);
-    if (z && z.rundown >= 1) erreicht7a = z;
-    else await sleep(1_000);
-  }
-  pruefe('7a · der Launcher erreicht den neu gestarteten Rundown wieder (RELOAD-Logzeile)', !!erreicht7a, erreicht7a ? `${erreicht7a.rundown} Rundown` : 'weiter „0 Rundown“');
+  // Fix-Runde 1: Ein RELOAD, das in die Lücke zwischen Neustart und Wiederverbindung des Launchers fällt, wird vom
+  // Launcher bei der Verbindung nachgeholt (reload-nachholen.ts). Deshalb hier BEWUSST sofort ändern, ohne zu warten.
   iveo.agenda['p-a'] = iveo.agenda['p-a'].map((x) => (x.id === 'a-1' ? { ...x, title: 'Begrüßung (neu)' } : x));
   st = await wartRundown((s) => zeile(s, 'a-1')?.label === 'Begrüßung (neu)', 15_000, 'RELOAD nach dem Neustart');
   pruefe('7a · ein folgendes RELOAD gleicht ab', zeile(st, 'a-1')?.label === 'Begrüßung (neu)');
