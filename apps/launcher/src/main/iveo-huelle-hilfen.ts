@@ -1,7 +1,9 @@
 // Reine Helfer der iveo-Hülle (iveo-sync.ts), ohne Electron — testbar mit tsx
-// (test/iveo-huelle.test.ts). Master-Link Teil 2a, Spec 7.0 und 7.5.
+// (test/iveo-huelle.test.ts). Master-Link Teil 2a, Spec 7.0, 7.5 und 7.6 (Log).
 import { resolve } from 'node:path';
 import type { IveoFetchLike, IveoFetchResponse } from '@jm/iveo';
+import type { Show } from '@jm/show';
+import { leseShowMitGrund } from './show-lesen';
 
 /** Abfragetakt im Betrieb (Spec 7.0). */
 export const IVEO_ABFRAGE_TAKT_MS = 45_000;
@@ -42,5 +44,68 @@ export function mitZeitgrenze(f: FetchMitSignal, ms: number): IveoFetchLike {
  * schreibung verglichen (Windows-Pfade; wie der Gedächtnis-Schlüssel, Spec 4.7).
  */
 export function gleicherShowPfad(a: string, b: string): boolean {
-  return resolve(a).toLowerCase() === resolve(b).toLowerCase();
+  return showPfadSchluessel(a) === showPfadSchluessel(b);
+}
+
+function showPfadSchluessel(p: string): string {
+  return resolve(p).toLowerCase();
+}
+
+/**
+ * Spec 7.6 (Log): „Gleichbleibende Wiederholungen nicht, damit das Log nicht alle 45 s wächst.“ Eine Warnung, die
+ * jede Abfrage erneut auslöst, kommt nur beim ersten Fehlschlag und bei einem Wechsel des Grunds ins Log.
+ */
+export interface WechselLog {
+  /** Warnung `m` mit dem Grund `grund`. Derselbe Grund wie bei der letzten Warnung → nichts. */
+  warn(grund: string, m: string): void;
+  /** Erfolg: der nächste Fehlschlag kommt wieder ins Log. */
+  ok(): void;
+}
+
+export function nurBeiWechsel(warn: (m: string) => void): WechselLog {
+  let letzterGrund: string | null = null;
+  return {
+    warn(grund, m) {
+      if (grund === letzterGrund) return;
+      letzterGrund = grund;
+      warn(m);
+    },
+    ok() {
+      letzterGrund = null;
+    },
+  };
+}
+
+/**
+ * Show-Leser für den Kern. Der Kern bekommt nur null; den Grund (Fehlercode bzw. „kein gültiges JSON“, nie Inhalt)
+ * hält dieser Leser im Log fest — beim ersten Fehlschlag und bei einem Wechsel von Grund oder Datei, nicht bei jeder
+ * Abfrage. Ein erfolgreiches Lesen setzt zurück.
+ */
+export function showLeserFuerKern(lies: (pfad: string) => string, meldung: WechselLog): (pfad: string) => Show | null {
+  return (pfad) => {
+    const r = leseShowMitGrund(pfad, lies);
+    if (r.show) {
+      meldung.ok();
+      return r.show;
+    }
+    meldung.warn(`${showPfadSchluessel(pfad)}\n${r.grund}`, `iveo: Show-Datei nicht lesbar (${r.grund}).`);
+    return null;
+  };
+}
+
+/**
+ * Show-Schreiber für den Kern. `schreibe` meldet seine Warnung (Fehlercode, Versuche) über `log`; ins Log kommt sie nur
+ * beim ersten Fehlschlag und bei einem Wechsel. Ein erfolgreiches Schreiben setzt zurück.
+ */
+export function showSchreiberFuerKern(
+  schreibe: (pfad: string, show: Show, log: (m: string) => void) => boolean,
+  meldung: WechselLog,
+): (pfad: string, show: Show) => boolean {
+  return (pfad, show) => {
+    const warnungen: string[] = [];
+    const ok = schreibe(pfad, show, (m) => warnungen.push(m));
+    if (ok) meldung.ok();
+    for (const m of warnungen) meldung.warn(`${showPfadSchluessel(pfad)}\n${m}`, m);
+    return ok;
+  };
 }

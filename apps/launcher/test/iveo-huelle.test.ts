@@ -4,8 +4,10 @@
 // wird im Durchgang mit gebauten Programmen geprüft (Spec 9.8, apps/rundown/test/e2e-teil2a.mjs).
 import { createServer, type AddressInfo } from 'node:http';
 import { IveoClient, type IveoFetchResponse } from '@jm/iveo';
+import { serializeShow, type Show } from '@jm/show';
 import {
-  abfrageTakt, gleicherShowPfad, IVEO_ABFRAGE_TAKT_MS, IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze, type FetchMitSignal,
+  abfrageTakt, gleicherShowPfad, IVEO_ABFRAGE_TAKT_MS, IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze, nurBeiWechsel,
+  showLeserFuerKern, showSchreiberFuerKern, type FetchMitSignal,
 } from '../src/main/iveo-huelle-hilfen';
 import { iveoStatusZeile } from '../src/renderer/src/lib/iveo-status';
 
@@ -85,6 +87,75 @@ ck('401 → Text und Uhrzeit', iveoStatusZeile({ ok: false, text: 'Token ungült
 ck('kein Token → Text und Uhrzeit', iveoStatusZeile({ ok: false, text: 'kein iveo-Token auf diesem Rechner, nur Offline-Ablauf', seit }) === 'iveo-Abgleich gestört: kein iveo-Token auf diesem Rechner, nur Offline-Ablauf (seit 14:05)');
 ck('ohne seit → ohne Klammer', iveoStatusZeile({ ok: false, text: 'X' }) === 'iveo-Abgleich gestört: X');
 ck('unlesbares seit → ohne Klammer', iveoStatusZeile({ ok: false, text: 'X', seit: 'kaputt' }) === 'iveo-Abgleich gestört: X');
+
+console.log('— Log nur beim Wechsel (Spec 7.6: „Gleichbleibende Wiederholungen nicht“)');
+{
+  const zeilen: string[] = [];
+  const w = nurBeiWechsel((m) => zeilen.push(m));
+  w.warn('A', 'Warnung A');
+  w.warn('A', 'Warnung A');
+  w.warn('A', 'Warnung A');
+  ck('gleicher Grund dreimal → eine Zeile', zeilen.length === 1 && zeilen[0] === 'Warnung A');
+  w.warn('B', 'Warnung B');
+  ck('anderer Grund → neue Zeile', zeilen.length === 2 && zeilen[1] === 'Warnung B');
+  w.warn('A', 'Warnung A');
+  ck('zurück zum ersten Grund → wieder eine Zeile', zeilen.length === 3);
+  w.ok();
+  w.warn('A', 'Warnung A');
+  ck('nach einem Erfolg kommt derselbe Grund wieder ins Log', zeilen.length === 4);
+}
+{
+  // Der Kern liest die Show im Agenda-Modus bei jeder Abfrage, im Listen-Modus nach einem Lesefehler ebenso
+  // (lastSyncIso rückt dann nicht vor) — ohne Merker stünde alle 45 s dieselbe Zeile im Log.
+  const PFAD = 'C:/Shows/Tag 1.jmshow';
+  const fehler = (code: string) => (): string => { throw Object.assign(new Error(`${code}: open '${PFAD}'`), { code }); };
+  let antwort: () => string = fehler('ENOENT');
+  const zeilen: string[] = [];
+  const lies = showLeserFuerKern(() => antwort(), nurBeiWechsel((m) => zeilen.push(m)));
+  const r1 = lies(PFAD);
+  lies(PFAD);
+  lies(PFAD);
+  ck('Show fehlt, drei Abfragen → null und EINE Warnung mit dem Code',
+    r1 === null && zeilen.length === 1 && zeilen[0] === 'iveo: Show-Datei nicht lesbar (ENOENT).');
+  antwort = fehler('EBUSY');
+  lies(PFAD);
+  lies(PFAD);
+  ck('anderer Grund (EBUSY) → eine neue Warnung', zeilen.length === 2 && zeilen[1] === 'iveo: Show-Datei nicht lesbar (EBUSY).');
+  antwort = () => serializeShow({ schemaVersion: 1, name: 'Tag 1', tools: [] });
+  const r2 = lies(PFAD);
+  ck('lesbar → die Show, keine Warnung', r2?.name === 'Tag 1' && zeilen.length === 2);
+  antwort = fehler('EBUSY');
+  lies(PFAD);
+  ck('nach einem Erfolg derselbe Grund → wieder eine Warnung', zeilen.length === 3);
+  lies('C:/Shows/Tag 2.jmshow');
+  ck('andere Datei, derselbe Grund → eigene Warnung', zeilen.length === 4);
+  antwort = () => '{ "name": "geheimer Inhalt"';
+  lies(PFAD);
+  lies(PFAD);
+  ck('kaputtes JSON → eine Warnung „kein gültiges JSON“, ohne Inhalt und ohne Pfad (G6)',
+    zeilen.length === 5 && zeilen[4] === 'iveo: Show-Datei nicht lesbar (kein gültiges JSON).'
+    && !zeilen.some((z) => z.includes('geheim') || z.includes('Tag 1.jmshow')));
+}
+{
+  // Schreiben für den Kern: bei einer dauerhaften Sperre scheitert jede Abfrage erneut.
+  const PFAD = 'C:/Shows/Tag 1.jmshow';
+  const show: Show = { schemaVersion: 1, name: 'Tag 1', tools: [] };
+  const zeilen: string[] = [];
+  let gelingt = false;
+  const schreibe = showSchreiberFuerKern((_pfad, _show, log) => {
+    if (gelingt) return true;
+    log('Show nicht geschrieben (EBUSY nach 5 Versuchen), Original unverändert.');
+    return false;
+  }, nurBeiWechsel((m) => zeilen.push(m)));
+  const e = [schreibe(PFAD, show), schreibe(PFAD, show), schreibe(PFAD, show)];
+  ck('Schreiben scheitert bei drei Abfragen → jedes Mal false, EINE Warnung',
+    e.every((x) => x === false) && zeilen.length === 1 && zeilen[0] === 'Show nicht geschrieben (EBUSY nach 5 Versuchen), Original unverändert.');
+  gelingt = true;
+  ck('Schreiben gelingt → true, keine Warnung', schreibe(PFAD, show) === true && zeilen.length === 1);
+  gelingt = false;
+  schreibe(PFAD, show);
+  ck('danach scheitert es wieder → wieder eine Warnung', zeilen.length === 2);
+}
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -23,7 +23,7 @@ import { app, dialog, shell } from 'electron';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
-import { parseShow, serializeShow, type Show } from '@jm/show';
+import { serializeShow, type Show } from '@jm/show';
 import {
   IveoClient,
   agendaToAblauf,
@@ -60,7 +60,15 @@ import {
   type IveoKern,
   type IveoSyncStatus,
 } from './iveo-abgleich-kern';
-import { abfrageTakt, gleicherShowPfad, IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze } from './iveo-huelle-hilfen';
+import {
+  abfrageTakt,
+  gleicherShowPfad,
+  IVEO_ABRUF_ZEITGRENZE_MS,
+  mitZeitgrenze,
+  nurBeiWechsel,
+  showLeserFuerKern,
+  showSchreiberFuerKern,
+} from './iveo-huelle-hilfen';
 import { schreibeShowAtomar, warteSync } from './show-schreiben';
 import type {
   ActionResult,
@@ -361,29 +369,24 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
 /** Dateizugriffe fürs atomare Schreiben (show-schreiben.ts); synchron gewartet wird mit `warteSync` von dort. */
 const dateiSystem = { writeFileSync, renameSync, unlinkSync };
 
-function leseShowDatei(pfad: string): Show | null {
-  // Der Kern bekommt nur null — den Grund hält diese Funktion im Log fest (K1). Nie
-  // Dateiinhalt: bei kaputtem JSON nur „kein gültiges JSON“ (G6).
-  let text: string;
-  try {
-    text = readFileSync(pfad, 'utf8');
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    getLog().warn(`iveo: Show-Datei nicht lesbar (${code || 'unbekannter Fehler'}).`);
-    return null; // gesperrt oder fehlt — der Kern entscheidet
-  }
-  try {
-    return parseShow(text);
-  } catch {
-    getLog().warn('iveo: Show-Datei nicht lesbar (kein gültiges JSON).');
-    return null;
-  }
-}
+/**
+ * Spec 7.6 (Log): Lesen und Schreiben der Abfragen scheitern bei fehlender, gesperrter oder kaputter Show bei JEDER
+ * Abfrage erneut (Agenda-Modus liest jedes Mal; im Listen-Modus rückt lastSyncIso dann nicht vor). Die Warnung mit dem
+ * Grund kommt deshalb nur beim ersten Fehlschlag und bei einem Wechsel ins Log; ein Erfolg setzt zurück.
+ */
+const leseWarnung = nurBeiWechsel((m) => getLog().warn(m));
+const schreibWarnung = nurBeiWechsel((m) => getLog().warn(m));
+
+/** Show lesen für den Kern: er bekommt nur null, den Grund hält der Leser im Log fest (K1). Nie Dateiinhalt (G6). */
+const leseShowDatei = showLeserFuerKern((pfad) => readFileSync(pfad, 'utf8'), leseWarnung);
 
 /** Show atomar schreiben: Zwischendatei, dann umbenennen; bei EPERM/EBUSY/EACCES bis zu 5 Versuche (Spec 7.4). */
-function schreibeShowDatei(pfad: string, show: Show): boolean {
-  return schreibeShowAtomar(pfad, serializeShow(show, nowIso()), dateiSystem, warteSync, (m) => getLog().warn(m));
+function schreibeShowDatei(pfad: string, show: Show, log: (m: string) => void): boolean {
+  return schreibeShowAtomar(pfad, serializeShow(show, nowIso()), dateiSystem, warteSync, log);
 }
+
+/** Schreiben für den Kern (Abfrage, Umschalten): die Warnung nur beim ersten Fehlschlag und bei einem Wechsel. */
+const schreibeShowFuerKern = showSchreiberFuerKern(schreibeShowDatei, schreibWarnung);
 
 /**
  * Token-freier Merker der aktuell offenen iveo-Show (auch wenn HIER kein Token
@@ -432,7 +435,7 @@ function kern(): IveoKern {
       clientFabrik: (token, baseUrl) => iveoClient(token, baseUrl),
       token: (event) => getIveoToken(event),
       leseShow: leseShowDatei,
-      schreibeShow: schreibeShowDatei,
+      schreibeShow: schreibeShowFuerKern,
       benachrichtige: (appId, zeile) => sendControlCommand(appId, zeile),
       schreibeCache: (meta) => writeCache(meta as IveoShowMetadata),
       log: { info: (m) => getLog().info(m), warn: (m) => getLog().warn(m) },
@@ -502,6 +505,9 @@ function starteTakt(): void {
  * anderem Rechner gebunden), läuft der Ablauf aus der Datei offline weiter.
  */
 export function onShowOpened(showPath: string, show: Show): void {
+  // Eine geöffnete Show beginnt neu: ihr erster Lese- oder Schreibfehler kommt wieder ins Log (Spec 7.6).
+  leseWarnung.ok();
+  schreibWarnung.ok();
   offeneShowPfad = showPath;
   merkeOffeneShow(showPath, show); // vor dem Kern: dessen meldeAktiv() braucht den Merker
   kern().showGeoeffnet(showPath, show);
@@ -526,7 +532,9 @@ export function stopIveoPolling(): void {
  * `neuGebunden` = im Editor neu an iveo gebunden.
  */
 export function speichereShowDatei(pfad: string, show: Show, neuGebunden: boolean): boolean {
-  if (!schreibeShowDatei(pfad, show)) return false;
+  // Speichern im Editor ist eine Handlung des Bedieners: jede Warnung ins Log (saveShow verweist darauf).
+  if (!schreibeShowDatei(pfad, show, (m) => getLog().warn(m))) return false;
+  schreibWarnung.ok(); // die Datei ist wieder schreibbar: der nächste Fehlschlag einer Abfrage kommt wieder ins Log
   if (offeneShowPfad && gleicherShowPfad(offeneShowPfad, pfad)) {
     // Merker (Name, Tag, Basis-URL) aus der geschriebenen Show, bevor der Kern meldeAktiv() ruft.
     merkeOffeneShow(offeneShowPfad, show);
