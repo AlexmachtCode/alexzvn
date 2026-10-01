@@ -1066,5 +1066,59 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
   );
 }
 
+// ── Teil 2a · Navigation überspringt entfallene Zeilen (Fall 28) ─────────────
+{
+  const akt = (id: string): A7Aktion => ({ id, role: 'timer', verb: 'start', args: [], enabled: true });
+  const navDoc: A7Doc = {
+    schemaVersion: 2,
+    name: 'Fall 28',
+    rows: [
+      { id: 'A', label: 'A', quelle: 'ablauf', actions: [akt('aA')] },
+      { id: 'B', label: 'B', quelle: 'ablauf', entfallen: true, actions: [akt('aB')] },
+      { id: 'X', label: 'X (eigen)', actions: [akt('aX')] },
+      { id: 'D', label: 'D', quelle: 'ablauf', entfallen: true, actions: [akt('aD')] },
+      { id: 'E', label: 'E', quelle: 'ablauf', actions: [] },
+    ],
+  };
+  const goA = navigate(navDoc, 0, { t: 'go' });
+  eq(goA.fire.map((a) => a.id), ['aA'], 'Fall 28: GO auf A feuert A');
+  eq(goA.index, 2, 'Fall 28: GO auf A rückt über das entfallene B auf X');
+  const goX = navigate(navDoc, 2, { t: 'go' });
+  eq(goX.fire.map((a) => a.id), ['aX'], 'Fall 28: GO auf X feuert X');
+  eq(goX.index, 4, 'Fall 28: GO auf X rückt über das entfallene D auf E');
+  eq(navigate(navDoc, 4, { t: 'go' }).index, 4, 'Fall 28: GO auf der letzten nicht entfallenen Zeile bleibt stehen');
+  eq(navigate(navDoc, 0, { t: 'next' }).index, 2, 'Fall 28: Weiter überspringt B');
+  eq(navigate(navDoc, 4, { t: 'prev' }).index, 2, 'Fall 28: Zurück überspringt D');
+  eq(navigate(navDoc, 2, { t: 'prev' }).index, 0, 'Fall 28: Zurück überspringt B');
+  eq(navigate(navDoc, 0, { t: 'goto', n: 3 }).index, 2, 'Fall 28: GOTO zählt alle sichtbaren Zeilen (3 = X)');
+  eq(navigate(navDoc, 0, { t: 'goto', n: 2 }).index, 2, 'Fall 28: GOTO 2 (entfallen) → nächste nicht entfallene (X)');
+  eq(navigate(navDoc, 0, { t: 'goto', n: 4 }).index, 4, 'Fall 28: GOTO 4 (entfallen) → nächste nicht entfallene (E)');
+  const goB = navigate(navDoc, 1, { t: 'go' });
+  eq(goB.fire.map((a) => a.id), ['aX'], 'Fall 28: Markierung auf entfallener Zeile → GO feuert nie deren Aktionen, sondern die nächste');
+  eq(goB.index, 4, 'Fall 28: … und rückt danach weiter auf E');
+  const endeWeg: A7Doc = {
+    schemaVersion: 2,
+    name: 'Fall 28 Ende',
+    rows: [
+      { id: 'A', label: 'A', quelle: 'ablauf', actions: [] },
+      { id: 'X', label: 'X (eigen)', actions: [] },
+      { id: 'D', label: 'D', quelle: 'ablauf', entfallen: true, actions: [akt('aD')] },
+    ],
+  };
+  eq(navigate(endeWeg, 0, { t: 'goto', n: 3 }).index, 1, 'Fall 28: GOTO auf entfallene ohne nicht entfallene dahinter → vorige (X)');
+  eq(navigate(endeWeg, 1, { t: 'next' }).index, 1, 'Fall 28: Weiter vor einer entfallenen letzten Zeile bleibt stehen');
+  const alleWeg: A7Doc = {
+    schemaVersion: 2,
+    name: 'Fall 28 alles entfallen',
+    rows: [
+      { id: 'B', label: 'B', quelle: 'ablauf', entfallen: true, actions: [akt('aB')] },
+      { id: 'D', label: 'D', quelle: 'ablauf', entfallen: true, actions: [akt('aD')] },
+    ],
+  };
+  const goWeg = navigate(alleWeg, 0, { t: 'go' });
+  eq(goWeg.fire.length, 0, 'Fall 28: nur entfallene Zeilen → GO feuert nichts');
+  eq(goWeg.index, 0, 'Fall 28: nur entfallene Zeilen → Markierung bleibt');
+}
+
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
 process.exit(failed === 0 ? 0 : 1);
