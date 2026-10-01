@@ -1666,5 +1666,32 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
   eq(abgleichModul.berichtIstLeer(g.bericht), true, 'Fall 21: Bericht leer');
 }
 
+// ── A11 Fix-Runde 1: Verschieben (4.5/R6) und Import-Meldung (5.5) ───────────
+{
+  const { darfVerschieben, verschiebeZeilen, importMeldung } = zeilenModul as any;
+  const a1 = { id: 'u1', label: 'A1', quelle: 'ablauf' as const, actions: [] };
+  const a2 = { id: 'u2', label: 'A2', quelle: 'ablauf' as const, actions: [] };
+  const gone = { id: 'u3', label: 'A3', quelle: 'ablauf' as const, entfallen: true as const, actions: [] };
+  const e1 = { id: 'r1', label: 'E1', actions: [] };
+  const e2 = { id: 'r2', label: 'E2', actions: [] };
+  eq([darfVerschieben(a1, true), darfVerschieben(gone, true), darfVerschieben(e1, true)], [false, false, true], '4.5: Verschieben nur für eigene Zeilen');
+  eq(darfVerschieben(a1, false), true, '4.5: ohne gemerkte Show frei');
+  const rows = [a1, e1, a2, gone, e2];
+  eq(verschiebeZeilen(rows, 0, 2, true) === rows, true, 'gesperrte Ablaufzeile bleibt, wo sie ist');
+  eq(verschiebeZeilen(rows, 3, 0, true) === rows, true, 'entfallene Zeile bleibt, wo sie ist');
+  eq(verschiebeZeilen(rows, 1, 9, true) === rows, true, 'Ziel außerhalb: unverändert');
+  const alleZiele: boolean[] = [];
+  for (let to = 0; to < rows.length; to++) {
+    const neu = verschiebeZeilen(rows, 4, to, true) as typeof rows;
+    alleZiele.push(JSON.stringify(neu.filter((r) => r.quelle).map((r) => r.id)) === JSON.stringify(['u1', 'u2', 'u3']));
+  }
+  eq(alleZiele.every(Boolean), true, 'R6: Ablaufzeilen behalten nach jeder erlaubten Verschiebung ihre Reihenfolge');
+  eq((verschiebeZeilen(rows, 4, 1, true) as typeof rows).map((r) => r.id), ['u1', 'r2', 'r1', 'u2', 'u3'], 'eigene Zeile wird verschoben');
+
+  eq(importMeldung(3, true, 0, 0), '3 Punkte importiert (ersetzt).', '5.5: Import angenommen, ersetzt');
+  eq(importMeldung(3, false, 2, 2), '3 Punkte angehängt.', '5.5: Import angenommen, angehängt');
+  eq(importMeldung(3, true, 0, 1), 'Import abgewiesen, Show hat sich geändert – bitte erneut importieren.', '5.5: Abweisung statt Erfolgsmeldung');
+}
+
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
 process.exit(failed === 0 ? 0 : 1);

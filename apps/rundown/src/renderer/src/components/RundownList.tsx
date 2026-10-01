@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { loeseSprungZiel } from '@shared/sprung';
-import { sendeArgs, sperrenFuer, zeilenArt, zeilenHinweis, type ShowSicht } from '@shared/zeilen';
+import { sendeArgs, sperrenFuer, verschiebeZeilen, zeilenArt, zeilenHinweis, type ShowSicht } from '@shared/zeilen';
 import { actionLabel } from '@/lib/capabilities';
-import { addRow, duplicateRow, moveRow, removeRow } from '@/lib/doc';
+import { addRow, duplicateRow, removeRow } from '@/lib/doc';
 import type { RundownDoc } from '@shared/types';
 
 const iconBtn =
@@ -28,7 +28,7 @@ export function RundownList({
   sicht: ShowSicht;
 }) {
   // Drag&Drop-Umsortierung (Issue #84): Quell-Index festhalten, Ziel-Index für die
-  // Einfüge-Markierung. Nutzt dieselbe moveRow-Mutation wie die ↑/↓-Buttons.
+  // Einfüge-Markierung. Nutzt dieselbe bewege-Funktion wie die ↑/↓-Buttons.
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
 
@@ -36,8 +36,12 @@ export function RundownList({
     setDragIdx(null);
     setOverIdx(null);
   }
+  function bewege(from: number, to: number): void {
+    const rows = verschiebeZeilen(doc.rows, from, to, sicht.showGemerkt);
+    if (rows !== doc.rows) onDoc({ ...doc, rows });
+  }
   function drop(to: number): void {
-    if (dragIdx !== null && dragIdx !== to) onDoc(moveRow(doc, dragIdx, to));
+    if (dragIdx !== null && dragIdx !== to) bewege(dragIdx, to);
     endDrag();
   }
 
@@ -125,7 +129,7 @@ export function RundownList({
                     disabled={sperre.verschieben}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDoc(moveRow(doc, i, i - 1));
+                      bewege(i, i - 1);
                     }}
                     className={`${iconBtn} disabled:opacity-30`}
                   >
@@ -136,7 +140,7 @@ export function RundownList({
                     disabled={sperre.verschieben}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDoc(moveRow(doc, i, i + 1));
+                      bewege(i, i + 1);
                     }}
                     className={`${iconBtn} disabled:opacity-30`}
                   >

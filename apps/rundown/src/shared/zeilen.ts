@@ -146,3 +146,31 @@ export function dupliziereZeile(
 export function ablaufNeuEntstanden(vorherLeer: boolean, ablaufJetzt: number): boolean {
   return vorherLeer && ablaufJetzt > 0;
 }
+
+/** Verschieben (4.5): nur eigene Zeilen; Ablaufzeilen (lebend oder entfallen) sind bei gemerkter Show gesperrt. */
+export function darfVerschieben(row: RundownRow, showGemerkt: boolean): boolean {
+  return !sperrenFuer(row, showGemerkt).verschieben;
+}
+
+/**
+ * Zeile `from` an Stelle `to` setzen. Gesperrte oder ungültige Verschiebung gibt
+ * dieselbe Liste zurück (gleiche Referenz). Da nur eigene Zeilen wandern, bleibt die
+ * relative Reihenfolge der Ablaufzeilen erhalten; die Zeile hängt danach an der
+ * nächsten lebenden Ablaufzeile über ihr (R6).
+ */
+export function verschiebeZeilen(rows: RundownRow[], from: number, to: number, showGemerkt: boolean): RundownRow[] {
+  if (from === to || from < 0 || from >= rows.length || to < 0 || to >= rows.length) return rows;
+  if (!darfVerschieben(rows[from], showGemerkt)) return rows;
+  const neu = rows.slice();
+  const [r] = neu.splice(from, 1);
+  neu.splice(to, 0, r);
+  return neu;
+}
+
+/** Meldung nach dem Regieplan-Import (5.5): Hat der Main abgewiesen, wird nicht Erfolg gemeldet. */
+export function importMeldung(anzahl: number, ersetzt: boolean, abweisungenVorher: number, abweisungenNachher: number): string {
+  if (abweisungenNachher > abweisungenVorher) {
+    return 'Import abgewiesen, Show hat sich geändert – bitte erneut importieren.';
+  }
+  return `${anzahl} Punkte ${ersetzt ? 'importiert (ersetzt)' : 'angehängt'}.`;
+}

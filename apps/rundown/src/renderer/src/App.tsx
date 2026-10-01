@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRundown } from '@/store/useRundown';
 import { exportRegieplan, parseRegieplan } from '@/lib/regieplan';
 import { applyImportedRows, rowsFromImport } from '@/lib/doc';
-import { zeilenArt, type ShowSicht } from '@shared/zeilen';
+import { importMeldung, zeilenArt, type ShowSicht } from '@shared/zeilen';
 import type { RundownDoc } from '@shared/types';
 import { ToolLinks } from '@/components/ToolLinks';
 import { Transport } from '@/components/Transport';
@@ -95,8 +95,10 @@ export function App() {
                   : 'OK = aktuellen Ablauf ERSETZEN\n') +
                 'Abbrechen = anhängen',
             );
+      const vorher = useRundown.getState().state?.abweisungen ?? 0;
       await setDoc(applyImportedRows(state.doc, rows, replace, state.showGemerkt), state.rev);
-      setNotice(`${rows.length} Punkte ${replace ? 'importiert (ersetzt)' : 'angehängt'}.`);
+      const nachher = useRundown.getState().state?.abweisungen ?? 0;
+      setNotice(importMeldung(rows.length, replace, vorher, nachher));
     } catch (e) {
       setNotice(`Import fehlgeschlagen: ${(e as Error).message}`);
     }
