@@ -203,6 +203,38 @@ console.log('\nreadCredentials — eine uebergebene Umgebung statt process.env:'
   }
 }
 
+console.log('\nreadCredentials — Datei mit BOM (UTF-8 mit BOM, UTF-16):');
+{
+  // GEMESSEN (Nachbesserung Einsatzpaket): start.ps1 liest die Datei mit
+  // Get-Content | ConvertFrom-Json und vertraegt einen BOM - readCredentials
+  // las bisher readFileSync(...,'utf8') und liess U+FEFF stehen. Folge: das
+  // Start-Skript erklaerte die Datei fuer gueltig, zoom-join.exe wies dieselbe
+  // Datei als "kein gueltiges JSON" ab. Windows PowerShell 5.1 schreibt mit
+  // Set-Content -Encoding UTF8 einen BOM, Notepad mit "UTF-16" ebenfalls -
+  // solche Dateien entstehen leicht. Beide Pruefer muessen dasselbe sagen.
+  const json = JSON.stringify({ clientId: 'bom-id', clientSecret: 'bom-secret' });
+  const be = Buffer.from(json, 'utf16le');
+  be.swap16();
+  const varianten: [string, Buffer][] = [
+    ['UTF-8 mit BOM (EF BB BF)', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(json, 'utf8')])],
+    ['UTF-16 LE mit BOM (FF FE)', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(json, 'utf16le')])],
+    ['UTF-16 BE mit BOM (FE FF)', Buffer.concat([Buffer.from([0xfe, 0xff]), be])],
+  ];
+  for (const [name, inhalt] of varianten) {
+    const datei = `${tmpdir()}/zoom-test-${Date.now()}-bom.json`;
+    writeFileSync(datei, inhalt);
+    let ergebnis = '';
+    try {
+      const c = readCredentials({ ZOOM_SDK_CREDENTIALS: datei });
+      ergebnis = `${c.clientId}|${c.clientSecret}`;
+    } catch (e) {
+      ergebnis = `WARF: ${(e as Error).message}`;
+    }
+    unlinkSync(datei);
+    assert(ergebnis === 'bom-id|bom-secret', `${name}: wird gelesen wie ohne BOM`);
+  }
+}
+
 console.log('\nprotocol — Meeting-Nummer aufraeumen:');
 {
   // ACHTUNG: FREI ERFUNDENE Nummer, KEINE echte Meeting-Nummer (Abschluss-
@@ -1518,7 +1550,7 @@ console.log('\nvideoDelay — ein Bild-Versatz fuer alle Quellen (Abnahmepunkt 5
 // Die Steuerung (cli/steuerung.mjs) ist dieselbe fuer den Konsolen-Pruefstand
 // test/join.mjs und fuer die Start-EXE zoom-join.exe im Einsatzpaket. Was hier
 // gegen die Attrappe laeuft, laeuft dort gegen die echte Bridge.
-import { deuteEingabe, starteSteuerung } from '../cli/steuerung.mjs';
+import { deuteEingabe, starteSteuerung, strgCAbfangen } from '../cli/steuerung.mjs';
 import { loeseLaufzeitAuf } from '../cli/laufzeit.mjs';
 import { PassThrough } from 'node:stream';
 import { win32 } from 'node:path';
@@ -1630,6 +1662,8 @@ function steuere(fakeEnv: Record<string, string>, zoomEnv: Record<string, string
     bridgeLog,
     lauf,
     tippe: (s: string) => eingabe.write(`${s}\n`),
+    /** Mehrere Zeilen in EINEM Rutsch - wie eingefuegter Text. */
+    roh: (s: string) => eingabe.write(s),
     strgC: () => abbruch?.(),
     amEnde: () => amEnde,
     /** Die Befehlszeilen, die die Attrappe empfangen hat, als Objekte. */
@@ -1769,6 +1803,235 @@ console.log('\nsteuerung — mehr als 5 Abos: warnen, nicht verhindern:');
   t.tippe('+16778245');
   assert(await bisZeile(t.zeilen, 'gemessen sind 5'), 'beim 6. Abo kommt die Warnung');
   assert(await bisZeile(t.zeilen, 'video 16778245: subscribed'), '... und das Abo wird trotzdem gesendet');
+  t.tippe('ende');
+  await t.lauf;
+}
+
+// --- Nachbesserung Einsatzpaket (Befunde der Sichtung vom 01.10.2026) --------
+
+/** Wartet hoechstens `ms` auf den Lauf - ein Haenger wird zu -99 statt zum Haenger des Selbsttests. */
+async function mitFrist(lauf: Promise<number>, ms: number): Promise<number> {
+  let t: NodeJS.Timeout | undefined;
+  const r = await Promise.race([lauf, new Promise<number>((res) => (t = setTimeout(() => res(-99), ms)))]);
+  clearTimeout(t);
+  return r;
+}
+const fehltExe = join(testDir, 'gibt es nicht', 'zoom-bridge.exe');
+
+console.log('\nbridge - Start scheitert asynchron (Datei fehlt):');
+{
+  // GEMESSEN: fuer ein Kind, dessen Start scheitert (ENOENT/EACCES), meldet
+  // Node NUR 'error', nie 'exit'. this.child stand aber schon - stop() wartete
+  // danach auf ein exit, das nie kommt (kill-Zeitgeber unref'd): der
+  // Pruefstand endete mit 13 (unsettled top-level await), zoom-join.exe mit 0.
+  const b = new Bridge({ exePath: fehltExe });
+  let meldung = '';
+  try {
+    await b.start();
+  } catch (e) {
+    meldung = (e as Error).message;
+  }
+  assert(meldung.includes('ENOENT'), 'start() wirft mit ENOENT');
+  const vorher = Date.now();
+  const r = await Promise.race([b.stop().then(() => 'fertig'), new Promise((res) => setTimeout(() => res('haengt'), 3000))]);
+  assert(r === 'fertig' && Date.now() - vorher < 1000, 'stop() nach gescheitertem Start kehrt sofort zurueck');
+  let zweite = '';
+  try {
+    await b.start();
+  } catch (e) {
+    zweite = (e as Error).message;
+  }
+  assert(zweite.includes('ENOENT'), 'ein zweiter start() scheitert am Start, nicht an "laeuft bereits"');
+}
+
+console.log('\nsteuerung — Bridge laesst sich nicht starten:');
+{
+  const t = steuere({}, { ZOOM_NUR_ANMELDEN: '1' }, { exePath: fehltExe, exeArgs: [] });
+  const code = await mitFrist(t.lauf, 5000);
+  assert(code === 1, 'Start-Fehler -> Rueckgabe 1 (nicht haengen, nicht 0)');
+  assert(t.zeilen.some((z) => z.includes('ENOENT')), 'die Ursache steht da');
+  assert(t.amEnde() !== null, 'die Nachbereitung (beimEnde) laeuft trotzdem');
+}
+
+console.log('\nsteuerung — Strg+C, Strg+Pause und Fenster-Schliessen werden abgefangen:');
+{
+  const signale = ['SIGINT', 'SIGHUP', 'SIGBREAK'] as const;
+  const vorher = signale.map((s) => process.listenerCount(s));
+  const abmelden = strgCAbfangen(() => {});
+  const dabei = signale.map((s) => process.listenerCount(s));
+  abmelden();
+  const nachher = signale.map((s) => process.listenerCount(s));
+  // SIGHUP: so meldet Node unter Windows das Schliessen des Konsolenfensters
+  // (CTRL_CLOSE_EVENT). Ohne Lauscher stirbt zoom-join.exe sofort, und die
+  // Bridge wird ohne Verlassen des Meetings abgeschossen.
+  signale.forEach((s, i) => assert(dabei[i] === vorher[i] + 1, `${s} wird abgefangen`));
+  assert(nachher.join() === vorher.join(), 'und wieder abgemeldet');
+}
+
+console.log('\nsteuerung — Bridge stirbt, bevor die Anmeldung beantwortet ist (fehlende DLL):');
+for (const [modus, zoomEnv] of [['nur anmelden', { ZOOM_NUR_ANMELDEN: '1' }], ['beitreten', { ZOOM_MEETING_ID: '1' }]] as const) {
+  const vorher = Date.now();
+  const t = steuere({ FAKE_SOFORT_ENDE: String(0xc0000135) }, zoomEnv, { anmeldeFristMs: 10_000 });
+  const code = await mitFrist(t.lauf, 5000);
+  assert(code === 1 && Date.now() - vorher < 3000, `${modus}: Rueckgabe 1, sofort`);
+  assert(!t.zeilen.some((z) => z.includes('Client-ID und Secret')), `${modus}: KEIN Verdacht auf die Zugangsdaten`);
+  assert(!t.zeilen.some((z) => z.includes('Keine Antwort auf die Anmeldung')), `${modus}: nicht "Keine Antwort auf die Anmeldung"`);
+  if (process.platform === 'win32') {
+    assert(t.zeilen.some((z) => z.includes('DLL')) && t.zeilen.some((z) => z.includes('x64\\bin')),
+      `${modus}: 0xC0000135 heisst "eine DLL fehlt" - mit dem Ausweg (x64\\bin vollstaendig kopieren)`);
+  }
+  assert(!t.befehle().some((b) => b.cmd === 'join'), `${modus}: kein join`);
+}
+
+console.log('\nsteuerung — nur anmelden: init- und sofortige auth-Fehler warten nicht 30 s:');
+{
+  let vorher = Date.now();
+  let t = steuere({ FAKE_INIT_FEHLER: '1' }, { ZOOM_NUR_ANMELDEN: '1' }, { anmeldeFristMs: 10_000 });
+  let code = await mitFrist(t.lauf, 5000);
+  assert(code === 1 && Date.now() - vorher < 3000, 'InitSDK-Fehler: Rueckgabe 1, sofort');
+  assert(t.zeilen.some((z) => z.includes('FEHLER bei init')), 'der init-Fehler steht mit Namen da');
+  assert(t.zeilen.some((z) => z.includes('Zoom-SDK liess sich nicht starten')), 'eine eigene Meldung fuer den init-Fehler');
+  assert(!t.zeilen.some((z) => z.includes('Keine Antwort auf die Anmeldung')), 'nicht "Keine Antwort auf die Anmeldung"');
+
+  vorher = Date.now();
+  t = steuere({ FAKE_AUTH_SOFORTFEHLER: '3' }, { ZOOM_NUR_ANMELDEN: '1' }, { anmeldeFristMs: 10_000 });
+  code = await mitFrist(t.lauf, 5000);
+  assert(code === 1 && Date.now() - vorher < 3000, 'sofortiger SDKAuth-Fehler: Rueckgabe 1, sofort');
+  assert(t.zeilen.some((z) => z.includes('Anmeldung nicht durchgekommen')), '... als "Anmeldung nicht durchgekommen"');
+}
+
+console.log('\nsteuerung — Absturz der Bridge mitten im Meeting:');
+{
+  const t = steuere({ FAKE_ABSTURZ_MS: '200' }, { ZOOM_MEETING_ID: '1' });
+  const code = await mitFrist(t.lauf, 5000);
+  assert(code === 5, 'Endlos-Lauf: ein Absturz ist Rueckgabe 5 - nicht 0 (das hiesse "alles gut")');
+  assert(t.zeilen.some((z) => z.includes('unerwartet beendet')), 'der Absturz wird in Klartext gemeldet');
+  const fest = steuere({ FAKE_ABSTURZ_MS: '200' }, { ZOOM_MEETING_ID: '1' }, { sekunden: 20 });
+  const vorher = Date.now();
+  const codeFest = await mitFrist(fest.lauf, 5000);
+  assert(codeFest === 5 && Date.now() - vorher < 4000, 'feste Laufdauer: endet sofort mit 5, statt die Zeit abzusitzen');
+}
+
+console.log('\nsteuerung — Verbindung bricht ab (failed nach dem Beitritt):');
+{
+  const t = steuere({ FAKE_VERBINDUNG_WEG_MS: '300' }, { ZOOM_MEETING_ID: '1' });
+  const code = await mitFrist(t.lauf, 5000);
+  assert(code === 6, 'Verbindungsabbruch ist Rueckgabe 6 - nicht 0');
+  assert(t.zeilen.some((z) => z.includes('Verbindung zum Meeting')), 'als Verbindungsabbruch gemeldet');
+  assert(!t.zeilen.some((z) => z.includes('Meeting ist zu Ende')), 'NICHT als "Das Meeting ist zu Ende"');
+}
+
+console.log('\nsteuerung — Warteraum, gescheiterter Beitritt, Abbruch vor dem Betreten:');
+{
+  // Endlos-Lauf: im Warteraum gibt es keine Frist - der Gastgeber laesst ein,
+  // wann er will. Abbrechen mit "ende" ist Rueckgabe 4 (nie im Meeting), nicht 3.
+  const t = steuere({ FAKE_WARTERAUM: '1' }, { ZOOM_MEETING_ID: '1' }, { beitrittsFristMs: 300 });
+  assert(await bisZeile(t.zeilen, 'Status: waitingRoom'), 'der Warteraum wird gemeldet');
+  assert(await bisZeile(t.zeilen, 'einlassen'), '... mit dem Hinweis, dass der Gastgeber einlassen muss');
+  const zwischen = await mitFrist(t.lauf, 900);
+  assert(zwischen === -99, 'Endlos-Lauf: nach Ablauf der Beitrittsfrist im Warteraum wird NICHT aufgegeben');
+  t.tippe('ende');
+  const code = await mitFrist(t.lauf, 5000);
+  assert(code === 4, '"ende" im Warteraum -> Rueckgabe 4 (nie im Meeting gewesen)');
+  assert(t.befehle().some((b) => b.cmd === 'quit'), 'die Bridge wird sauber beendet');
+}
+{
+  const t = steuere({ FAKE_WARTERAUM: '1' }, { ZOOM_MEETING_ID: '1' });
+  assert(await bisZeile(t.zeilen, 'Status: waitingRoom'), 'Warteraum (Strg+C)');
+  t.strgC();
+  assert((await mitFrist(t.lauf, 5000)) === 4, 'Strg+C im Warteraum -> Rueckgabe 4');
+}
+{
+  const t = steuere({ FAKE_WARTERAUM: '1' }, { ZOOM_MEETING_ID: '1' }, { beitrittsFristMs: 300, sekunden: 30 });
+  assert((await mitFrist(t.lauf, 5000)) === 4, 'feste Laufdauer (Pruefstand): die Beitrittsfrist gilt weiter, Rueckgabe 4');
+}
+{
+  const vorher = Date.now();
+  const t = steuere({ FAKE_BEITRITT_SCHEITERT: '4' }, { ZOOM_MEETING_ID: '1' }, { beitrittsFristMs: 20_000 });
+  const code = await mitFrist(t.lauf, 5000);
+  assert(code === 4 && Date.now() - vorher < 3000, 'failed beim Beitritt -> sofort Rueckgabe 4, nicht erst nach der Frist');
+  assert(t.zeilen.some((z) => z.includes('falscher Kenncode')), 'der Grund steht da');
+}
+
+console.log('\nsteuerung — Eingaben nach "ende" werden nicht mehr gedeutet:');
+{
+  const t = steuere({ FAKE_ABGANG_MS: '600' }, { ZOOM_MEETING_ID: '1' });
+  assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'im Meeting mit Erlaubnis');
+  t.tippe('ende');
+  assert(await bisZeile(t.zeilen, 'verlasse das Meeting'), 'das Verlassen beginnt');
+  t.roh('300\n+16778240\nliste\nende\n');
+  const code = await mitFrist(t.lauf, 5000);
+  assert(code === 0, 'Rueckgabe wie beim ersten "ende"');
+  assert(t.zeilen.filter((z) => z.includes('verlasse das Meeting')).length === 1, '"Ende" erscheint nur einmal');
+  assert(!t.zeilen.some((z) => z.includes('Video wird abonniert')), 'kein Abo wird mehr angekuendigt');
+  assert(t.zeilen.some((z) => z.includes('Eingabe ignoriert')), 'spaete Eingaben werden als ignoriert gemeldet');
+  assert(!t.befehle().some((b) => b.cmd === 'videoSubscribe' || b.cmd === 'videoDelay'), 'an die Bridge geht nichts mehr');
+}
+
+console.log('\nsteuerung — ein laufendes Abo wird nicht ein zweites Mal gesendet:');
+{
+  const t = steuere({}, { ZOOM_MEETING_ID: '1' });
+  assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'im Meeting mit Erlaubnis');
+  t.tippe('+16778241');
+  assert(await bisZeile(t.zeilen, 'video 16778241: subscribed (command)'), 'das Abo laeuft');
+  t.tippe('+16778241 stumm');
+  assert(await bisZeile(t.zeilen, 'laeuft schon'), '"+<id> stumm" auf ein laufendes Abo: "laeuft schon"');
+  assert(t.zeilen.some((z) => z.includes('-16778241')), '... mit dem Weg zum Umschalten (erst -<id>)');
+  await new Promise((r) => setTimeout(r, 150));
+  assert(t.befehle().filter((b) => b.cmd === 'videoSubscribe' && b.id === 16778241).length === 1, 'es geht KEIN zweites videoSubscribe raus');
+  assert(!t.zeilen.some((z) => z.includes('VIDEO_ALREADY_SUBSCRIBED')), 'kein VIDEO_ALREADY_SUBSCRIBED');
+  t.tippe('ende');
+  await t.lauf;
+}
+
+console.log('\nsteuerung — sechs eingefuegte Abos auf einmal: die Warnung kommt trotzdem:');
+{
+  const t = steuere({ FAKE_TEILNEHMER: '7' }, { ZOOM_MEETING_ID: '1' });
+  assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'im Meeting mit Erlaubnis');
+  t.roh([0, 1, 2, 3, 4, 5].map((i) => `+${16778240 + i}\n`).join(''));
+  assert(await bisZeile(t.zeilen, 'gemessen sind 5', 2000), 'die Warnung zaehlt auch noch unbestaetigte Abos mit');
+  assert(t.zeilen.filter((z) => z.includes('gemessen sind 5')).length === 1, '... und kommt genau einmal (beim 6.)');
+  t.tippe('ende');
+  await t.lauf;
+}
+
+console.log('\nsteuerung — Wiederbeitritt mit Umhaengen ueber den Namen:');
+{
+  const t = steuere({ FAKE_WIEDERBEITRITT_MS: '400' }, { ZOOM_MEETING_ID: '1' });
+  assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'im Meeting mit Erlaubnis');
+  const anna = t.zeilen.find((z) => z.includes('16778240  Anna')) ?? '';
+  // Seit dem Umhaengen ueber den Namen (14.08.2026) ist ein Abo OHNE
+  // persistentId sehr wohl umhaengbar - nur eben ueber den Namen.
+  assert(anna !== '' && !anna.includes('nicht umhaengbar') && anna.includes('Namen'),
+    'Teilnehmer ohne persistentId: der Hinweis nennt den Weg ueber den Namen, nicht "nicht umhaengbar"');
+  t.tippe('+16778240');
+  assert(await bisZeile(t.zeilen, 'video 16778240: subscribed (command)'), 'Anna ist abonniert');
+  const zeile = t.zeilen.find((z) => z.includes('video 16778240: subscribed (command)')) ?? '';
+  assert(!zeile.includes('NICHT umhaengbar'), 'die video-Zeile sagt nicht mehr "NICHT umhaengbar"');
+  assert(await bisZeile(t.zeilen, 'video 16778250: subscribed (reboundByName)'), 'Anna kommt wieder, das Abo haengt sich um');
+  assert(await bisZeile(t.zeilen, 'umgehaengt'), 'das Umhaengen wird als "nichts zu tun" gemeldet');
+  await new Promise((r) => setTimeout(r, 600));
+  assert(!t.zeilen.some((z) => z.includes('abonnieren mit +16778250')), 'KEIN Hinweis "abonnieren mit +<neu>" fuer ein schon umgehaengtes Abo');
+  t.tippe('+16778250');
+  assert(await bisZeile(t.zeilen, 'laeuft schon'), 'wer es trotzdem tippt, bekommt "laeuft schon"');
+  assert(!t.befehle().some((b) => b.cmd === 'videoSubscribe' && b.id === 16778250), '... und es geht nichts an die Bridge');
+  t.tippe('ende');
+  await t.lauf;
+}
+
+console.log('\nsteuerung — der bestaetigte Versatz wird SOFORT weitergegeben:');
+{
+  const versatz: number[] = [];
+  const t = steuere({}, { ZOOM_MEETING_ID: '1' }, { beiVersatz: (ms: number) => versatz.push(ms) });
+  assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'im Meeting');
+  t.tippe('250');
+  assert(await bisZeile(t.zeilen, 'Bild-Versatz: 250 ms'), 'die Bridge bestaetigt 250');
+  // Nicht erst am Ende: nach Strg+C oder geschlossenem Fenster gibt es kein
+  // "Ende" mehr, an dem der Wert noch weitergegeben werden koennte.
+  assert(versatz.at(-1) === 250, 'beiVersatz kommt mit der Bestaetigung, nicht erst am Ende');
+  t.tippe('4.5');
+  assert(await bisZeile(t.zeilen, 'VIDEO_BAD_DELAY'), 'eine Fehleingabe wird abgewiesen');
+  assert(versatz.length === 1, '... und gibt keinen Wert weiter');
   t.tippe('ende');
   await t.lauf;
 }

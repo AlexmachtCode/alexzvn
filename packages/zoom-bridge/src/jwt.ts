@@ -35,6 +35,30 @@ export function buildJwt(opts: JwtOptions): string {
 }
 
 /**
+ * Liest eine Textdatei so, wie Windows-Werkzeuge sie schreiben: mit oder ohne
+ * BOM. GEMESSEN (Nachbesserung Einsatzpaket, 01.10.2026): readFileSync(...,
+ * 'utf8') laesst ein fuehrendes U+FEFF stehen, und JSON.parse scheitert daran.
+ * start.ps1 (Get-Content | ConvertFrom-Json) vertraegt den BOM dagegen - das
+ * Start-Skript erklaerte eine Datei fuer gueltig, die zoom-join.exe danach als
+ * "kein gueltiges JSON" abwies. Windows PowerShell 5.1 schreibt mit
+ * `Set-Content -Encoding UTF8` einen BOM, Notepad mit "UTF-16" ebenfalls -
+ * solche Dateien entstehen leicht.
+ */
+function readTextWithBom(file: string): string {
+  const b = readFileSync(file);
+  if (b.length >= 2 && b[0] === 0xff && b[1] === 0xfe) return b.subarray(2).toString('utf16le');
+  if (b.length >= 2 && b[0] === 0xfe && b[1] === 0xff) {
+    const be = Buffer.from(b.subarray(2));
+    // Ungerade Laenge ist kein UTF-16 - dann eben kein gueltiges JSON (die
+    // Meldung unten), statt einer RangeError-Meldung aus swap16().
+    if (be.length % 2 !== 0) return '';
+    return be.swap16().toString('utf16le');
+  }
+  const t = b.toString('utf8');
+  return t.charCodeAt(0) === 0xfeff ? t.slice(1) : t;
+}
+
+/**
  * Liest Client-ID und Secret aus der Umgebung oder aus einer JSON-Datei, auf die
  * ZOOM_SDK_CREDENTIALS zeigt. Die Datei gehoert AUSSERHALB des Repos — dann kann sie
  * gar nicht erst committet werden, und der gitleaks-Lauf in CI findet nichts.
@@ -53,7 +77,7 @@ export function readCredentials(env: NodeJS.ProcessEnv = process.env): { clientI
   if (file && (!clientId || !clientSecret)) {
     let j: Record<string, string>;
     try {
-      j = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
+      j = JSON.parse(readTextWithBom(file)) as Record<string, string>;
     } catch (e) {
       // NICHT e.message weiterreichen, wenn das Parsen scheiterte: GEMESSEN
       // (Node 24) zitiert JSON.parse einen AUSSCHNITT DER EINGABE in seiner

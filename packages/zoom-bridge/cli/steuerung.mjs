@@ -84,7 +84,7 @@ export function hilfeText() {
     '  +<id> stumm    dasselbe, aber nur Bild, ohne Ton.',
     '  -<id>          dieses Abo beenden. ("-" heisst abbestellen - einen negativen Versatz gibt es nicht.)',
     '  liste          Teilnehmer (die Zahl links ist die Kennung) und laufende Abos anzeigen.',
-    '  ende           Meeting verlassen und beenden (Strg+C geht auch).',
+    '  ende           Meeting verlassen und beenden (Strg+C geht auch - das Fenster aber NICHT mit dem X schliessen).',
     '  hilfe oder ?   diese Uebersicht.',
   ].join('\n');
 }
@@ -138,17 +138,64 @@ export function deuteEingabe(zeile) {
   return unbekannt('weder eine Zahl noch ein bekannter Befehl');
 }
 
-/** Strg+C abfangen - Vorgabe fuer den echten Betrieb. Liefert die Abmeldung. */
-function strgCAbfangen(handler) {
-  process.on('SIGINT', handler);
-  return () => process.off('SIGINT', handler);
+/**
+ * Strg+C abfangen - Vorgabe fuer den echten Betrieb. Liefert die Abmeldung.
+ *
+ * DREI Signale, ein Weg (Nachbesserung Einsatzpaket, 01.10.2026):
+ *   SIGINT   Strg+C
+ *   SIGBREAK Strg+Pause - ohne Lauscher beendet Windows den Prozess sofort
+ *   SIGHUP   so meldet Node unter Windows das SCHLIESSEN des Konsolenfensters
+ *            (CTRL_CLOSE_EVENT). GEMESSEN ohne Lauscher: zoom-join.exe starb
+ *            sofort, die Bridge wurde ueber das Job-Objekt mitgerissen - ohne
+ *            quit, also ohne das Meeting zu verlassen. Mit Lauscher haelt
+ *            libuv den Steuer-Thread an, und Windows gibt einige Sekunden fuer
+ *            quit und Abbau, bevor es den Prozess beendet.
+ */
+export function strgCAbfangen(handler) {
+  const signale = ['SIGINT', 'SIGBREAK', 'SIGHUP'];
+  for (const s of signale) process.on(s, handler);
+  return () => {
+    for (const s of signale) process.off(s, handler);
+  };
 }
+
+/**
+ * Windows-Rueckgabewerte, die beim Start "eine DLL fehlt oder passt nicht"
+ * heissen. Ohne diese Deutung stand bei einer unvollstaendig kopierten
+ * Zoom-Laufzeit "Anmeldung nicht durchgekommen ... stimmen Client-ID und
+ * Secret?" auf dem Schirm (README Abschnitt 8, "Eine fehlende DLL sieht aus
+ * wie ein Anmeldefehler") - die Suche lief zu den Zugangsdaten.
+ */
+const DLL_FEHLER = new Map([
+  [0xc0000135, '0xC0000135, STATUS_DLL_NOT_FOUND: eine DLL fehlt'],
+  [0xc0000139, '0xC0000139, STATUS_ENTRYPOINT_NOT_FOUND: eine DLL ist zu alt oder passt nicht'],
+  [0xc000007b, '0xC000007B, STATUS_INVALID_IMAGE_FORMAT: eine DLL ist kein 64-Bit-Windows-Programm oder beschaedigt'],
+]);
+
+/** Der Rueckgabewert aus der detail-Zeile von bridge.ts ("... exitCode=<n>"), sonst null. */
+function exitCodeAus(detail) {
+  const m = /exitCode=(\d+)/.exec(detail ?? '');
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Wie lange der Hinweis "abonnieren mit +<id>" nach einem Beitritt wartet.
+ * native/callbacks.cpp onUserJoin meldet ERST "joined" und haengt DANACH ein
+ * bestehendes Abo um (reason rebound/reboundByName) - wer den Hinweis sofort
+ * drucken wuerde, empfaehle ein Abo, das eine Zeile spaeter schon laeuft
+ * (gemessen: "+<neu>" ergab dann VIDEO_ALREADY_SUBSCRIBED). Beide Zeilen
+ * entstehen im selben SDK-Rueckruf; 300 ms sind reichlich.
+ */
+const HINWEIS_VERZOEGERUNG_MS = 300;
 
 /**
  * Startet die Bridge und fuehrt den ganzen Lauf. Liefert den Rueckgabewert
  * (README Abschnitt 4): 0 im Meeting mit Rohdaten-Erlaubnis (bzw. im
  * Nur-Anmelden-Modus: Anmeldung ok), 3 im Meeting ohne Erlaubnis, 4 nicht ins
- * Meeting gekommen, 1 Vorbedingung fehlt/Anmeldung abgelehnt. Der Aufrufer
+ * Meeting gekommen (auch: vorher mit "ende"/Strg+C abgebrochen), 1
+ * Vorbedingung fehlt/Anmeldung abgelehnt/Bridge startet nicht, 5 die Bridge
+ * ist nach der Anmeldung unerwartet beendet (Absturz), 6 die Verbindung zum
+ * Meeting ist abgerissen (Status failed nach dem Beitritt). Der Aufrufer
  * ruft damit process.exit() - diese Funktion selbst beendet nie den Prozess.
  *
  * @param {object} o
@@ -166,6 +213,9 @@ function strgCAbfangen(handler) {
  * @param {(z: string) => void} [o.bridgeLog] stderr der Bridge; Vorgabe siehe bridge.ts
  * @param {(h: () => void) => () => void} [o.abbruchSignal] meldet Strg+C an, liefert die Abmeldung
  * @param {(s: import('../src/state.ts').Session) => void} [o.beimEnde] nach dem Abbau, mit dem letzten Zustand
+ * @param {(ms: number) => void} [o.beiVersatz] SOFORT bei jedem von der Bridge bestaetigten
+ *                                   Bild-Versatz - nicht erst am Ende, das es nach einem
+ *                                   geschlossenen Fenster nicht mehr gibt
  * @param {number} [o.joinTimeoutMs]
  * @param {number} [o.killTimeoutMs]
  * @param {number} [o.anmeldeFristMs]   Vorgabe 30 s (wie bisher)
@@ -228,20 +278,66 @@ export async function starteSteuerung(o = {}) {
   // eines bekannten (README Abschnitt 6).
   const bekannt = new Set();
   let hilfeGezeigt = false;
+  // Waren wir JE im Meeting? Ein "ende"/Strg+C im Warteraum ist "nicht ins
+  // Meeting gekommen" (4), nicht "im Meeting ohne Erlaubnis" (3) - gemessen
+  // stand dort vorher die 3, und das Start-Skript riet dann dem Gastgeber,
+  // die Aufnahme zu erlauben, obwohl er uns nie eingelassen hatte.
+  let warImMeeting = false;
+  // Gesendete, noch NICHT beantwortete Abos. Die Betriebsgroesse zaehlt sie
+  // mit: videoSubs waechst erst mit der Antwort der Bridge, und sechs auf
+  // einmal eingefuegte "+<id>" sahen sonst alle "0 laufende Abos" (gemessen).
+  const ausstehend = new Set();
+  // Der Bridge-Tod (where:'exit') samt detail ("exitCode=..."), sobald er da
+  // ist. Weckt auch den Schlaf der festen Laufdauer: eine tote Bridge muss
+  // man nicht 60 s lang beobachten.
+  let bridgeEndeDetail = null;
+  let gestorbenMelden;
+  const bridgeGestorben = new Promise((r) => (gestorbenMelden = r));
+  // InitSDK ist gescheitert (where:'init'): dann kommt nie eine auth-Antwort,
+  // nur noch ein auth-Fehler (SDKERR_UNINITIALIZE, native/session.cpp).
+  let initFehler = false;
 
   function druckeTeilnehmer(list) {
     log(`  Teilnehmer (${list.length}):`);
-    // "ohne persistentId" IMMER anzeigen: ohne diese Kennung kann ein Abo
-    // einen Wiederbeitritt NICHT ueberleben (siehe videoParticipantJoined
-    // in native/video.cpp - zwei Gaeste ohne persistentId waeren nicht
-    // auseinanderzuhalten, und ein Umhaengen auf Verdacht waere eine
-    // Personenverwechslung auf Sendung). Das ist eine Eigenschaft des
-    // Zoom-Kontos des GASTES, keine unserer Entscheidungen - aber wer sie
-    // nicht sieht, sucht den Fehler bei uns.
+    // "ohne persistentId" IMMER anzeigen - aber mit der Regel, die WIRKLICH
+    // gilt. Bis zum 14.08.2026 hiess das "nicht umhaengbar"; seitdem haengt
+    // videoParticipantJoined (native/video.cpp) ein Abo auch ueber den
+    // ANZEIGENAMEN um, wenn er auf beiden Seiten eindeutig ist - und gemessen
+    // haelt Zoom die persistentId fuer Gaeste ohnehin nicht durch. Ohne
+    // persistentId bleibt also genau EIN Weg: der Name. Heissen zwei gleich
+    // (Handys: "Samsung SM-S931B"), bleibt die Quelle nach einem
+    // Wiederbeitritt schwarz - lieber ein Handgriff als die falsche Person.
     for (const p of list) {
-      const pid = p.persistentId ? '' : '  [ohne persistentId → Wiederbeitritt nicht umhaengbar]';
+      const pid = p.persistentId ? '' : '  [ohne persistentId → Wiederbeitritt nur ueber den Namen umhaengbar, wenn er eindeutig ist]';
       log(`    ${p.id}  ${p.name}${p.self ? '  (das sind wir)' : ''}  Rolle ${p.role}${pid}`);
     }
+  }
+
+  /** Was der Operator liest, wenn die Bridge stirbt, BEVOR Zoom die Anmeldung beantwortet hat. */
+  function startTodText() {
+    const code = exitCodeAus(bridgeEndeDetail);
+    const dll = code === null ? undefined : DLL_FEHLER.get(code);
+    if (dll) {
+      return [
+        `\nDie Bridge ist beim Start gestorben (${dll}) — es wurde kein Meeting betreten.`,
+        'Meist sind die Zoom-Dateien unvollstaendig: den GESAMTEN Inhalt von <Zoom-SDK>\\x64\\bin',
+        '(mit Unterordnern) nach bin kopieren - nicht nur sdk.dll. Im Einsatzpaket liegt dort auch die',
+        'Visual-C++-Laufzeit (msvcp140.dll, vcruntime140.dll, vcruntime140_1.dll); fehlt sie, das Paket',
+        'neu entpacken. Mit den Zugangsdaten hat das nichts zu tun.',
+      ].join('\n');
+    }
+    return (
+      '\nDie Bridge hat sich beendet, bevor Zoom die Anmeldung beantwortet hat (siehe FEHLER-Zeile oben)' +
+      ' — es wurde kein Meeting betreten. Die Meldungen darueber mitschicken.'
+    );
+  }
+
+  /** Was der Operator liest, wenn die Bridge NACH der Anmeldung unerwartet stirbt. */
+  function absturzText() {
+    const code = exitCodeAus(bridgeEndeDetail);
+    const dll = code === null ? undefined : DLL_FEHLER.get(code);
+    const wie = code === 0xc0000005 ? ' (0xC0000005: ein Absturz)' : dll ? ` (${dll})` : '';
+    return `\nDie Bridge hat sich unerwartet beendet${wie} (siehe FEHLER-Zeile oben) — die Steuerung endet. Die Meldungen darueber mitschicken.`;
   }
 
   // Die Zugangsdaten aus der Umgebung des Kindprozesses NEHMEN: die Bridge sieht
@@ -264,8 +360,13 @@ export async function starteSteuerung(o = {}) {
     onLog: o.bridgeLog,
     env: kindEnv,
     envRemove: ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS'],
-    onEvent: (ev) => {
-      if (ev.ev === 'status') log(`  Status: ${ev.status}  (${ev.explain})`);
+    onEvent: (ev, s) => {
+      if (ev.ev === 'status') {
+        log(`  Status: ${ev.status}  (${ev.explain})`);
+        if (ev.status === 'inMeeting') warImMeeting = true;
+        // Mit dem Meeting enden auch alle unbeantworteten Abos.
+        if (ev.status === 'ended' || ev.status === 'failed') ausstehend.clear();
+      }
       else if (ev.ev === 'auth') {
         authCode = ev.code;
         log(`  Anmeldung: ${ev.result}`);
@@ -282,8 +383,19 @@ export async function starteSteuerung(o = {}) {
         }
       } else if (ev.ev === 'joined') {
         log(`  + ${ev.p.name} (${ev.p.id})`);
-        if (!bekannt.has(ev.p.id) && !ev.p.self) log(`    abonnieren mit +${ev.p.id}`);
+        const neu = !bekannt.has(ev.p.id) && !ev.p.self;
         bekannt.add(ev.p.id);
+        if (neu) {
+          // ERST NACH dem Umhaenge-Versuch pruefen (HINWEIS_VERZOEGERUNG_MS):
+          // laeuft fuer diese Kennung inzwischen ein Abo, ist nichts zu tun.
+          const id = ev.p.id;
+          const t = setTimeout(() => {
+            const jetzt = bridge.session;
+            if (stopping || jetzt.videoSubs.has(id) || ausstehend.has(id) || !jetzt.participants.has(id)) return;
+            log(`    abonnieren mit +${id}`);
+          }, HINWEIS_VERZOEGERUNG_MS);
+          t.unref?.();
+        }
       }
       else if (ev.ev === 'left') log(`  - ${ev.id}`);
       else if (ev.ev === 'renamed') log(`  ~ ${ev.id} heisst jetzt ${ev.name}`);
@@ -312,6 +424,12 @@ export async function starteSteuerung(o = {}) {
         // - dort waere jede angezeigte Zahl erfunden.
         const wen = ev.id !== undefined ? ` fuer ${ev.id}` : '';
         log(`  FEHLER bei ${ev.where}${wen}: ${ev.name} (${ev.code})`);
+        if (ev.where === 'video' && ev.id !== undefined) ausstehend.delete(ev.id);
+        if (ev.where === 'init') initFehler = true;
+        if (ev.where === 'exit') {
+          bridgeEndeDetail = ev.detail ?? null;
+          gestorbenMelden();
+        }
         // "detail" MIT ANZEIGEN: bei where:"exit" steht dort der Rueckgabewert
         // bzw. das Signal des Kindprozesses. Ohne ihn sieht ein Absturz
         // (0xC0000005) genauso aus wie ein geordnetes Ende - zwei Ursachen, ein
@@ -323,16 +441,23 @@ export async function starteSteuerung(o = {}) {
         // "rotation"/"limitedRange" stehen NUR dabei, wenn ein Bild sie
         // geliefert hat (siehe protocol.ts) - deshalb hier bedingt angehaengt,
         // nie mit einem erfundenen Wert aufgefuellt.
+        ausstehend.delete(ev.id);
         let zeile = `  video ${ev.id}: ${ev.state} (${ev.reason})  Quelle "${ev.source}"`;
         // rebindable IMMER mitdrucken. GEMESSEN am 14.08.2026: bei einem
         // Wiederbeitritt kam das Bild nicht zurueck, und ob das Abo ueberhaupt
         // umhaengbar WAR, stand zwar auf der Leitung, aber in keiner Zeile.
         // Ohne diese Angabe sieht "Zoom kann es nicht" genauso aus wie "wir
         // koennen es nicht".
-        zeile += ev.rebindable ? '  umhaengbar' : '  NICHT umhaengbar';
+        // rebindable heisst nur "persistentId nicht leer" (emitVideo in
+        // native/video.cpp). Der Weg ueber den eindeutigen NAMEN gilt fuer
+        // JEDES Abo - "NICHT umhaengbar" war seit dem 14.08.2026 falsch.
+        zeile += ev.rebindable ? '  umhaengbar (persistentId oder Name)' : '  umhaengbar nur ueber den Namen';
         if (ev.rotation !== undefined) zeile += `  rotation=${ev.rotation}`;
         if (ev.limitedRange !== undefined) zeile += `  limitedRange=${ev.limitedRange}`;
         log(zeile);
+        if (ev.reason === 'rebound' || ev.reason === 'reboundByName') {
+          log('    Abo automatisch umgehaengt (dieselbe NDI-Quelle) - nichts zu tun.');
+        }
       } else if (ev.ev === 'audio') {
         let zeile = `  audio ${ev.id}: ${ev.state} (${ev.reason})`;
         // Format NUR anzeigen, wenn es gemessen wurde - sonst waere die Zeile
@@ -343,6 +468,16 @@ export async function starteSteuerung(o = {}) {
         // Die BESTAETIGUNG der Bridge, nicht das Echo der Eingabe: nur diese
         // Zahl gilt. Beim Klatschtest wird sie mitgeschrieben.
         log(`  Bild-Versatz: ${ev.ms} ms (von der Bridge bestaetigt, gilt fuer alle Zoom-Quellen)`);
+        // SOFORT weitergeben, nicht erst am Ende: nach Strg+C oder einem
+        // geschlossenen Fenster gibt es kein geordnetes Ende mehr, und der
+        // per Klatschtest gefundene Wert ging verloren (gemessen).
+        if (o.beiVersatz && s.videoDelayMs !== null) {
+          try {
+            o.beiVersatz(s.videoDelayMs);
+          } catch (e) {
+            log(`  (Bild-Versatz nicht gesichert: ${e.message})`);
+          }
+        }
       }
     },
   });
@@ -357,8 +492,10 @@ export async function starteSteuerung(o = {}) {
   function sicherSenden(cmd, woher) {
     try {
       bridge.send(cmd);
+      return true;
     } catch (e) {
       log(`  ${woher}: nicht gesendet - ${e.message}`);
+      return false;
     }
   }
 
@@ -388,7 +525,14 @@ export async function starteSteuerung(o = {}) {
    *  - unbekannte Kennung: meist ein Tippfehler oder eine Kennung aus einem
    *    FRUEHEREN Meeting (sie gelten nur fuer dieses). Nicht senden.
    *  - mehr als BETRIEBSGROESSE Abos: warnen, aber senden - darueber ist
-   *    nichts belegt, auch kein Scheitern.
+   *    nichts belegt, auch kein Scheitern. GEZAEHLT werden laufende UND
+   *    gesendete, noch unbeantwortete Abos (ausstehend) - sonst sahen sechs
+   *    auf einmal eingefuegte "+<id>" alle dieselbe Zahl (gemessen).
+   *  - ein Abo, das schon laeuft (oder unterwegs ist): nicht senden. Die
+   *    Bridge weist es VOR jeder anderen Pruefung als VIDEO_ALREADY_SUBSCRIBED
+   *    ab (native/video.cpp) und aendert dabei auch den Ton NICHT - ein
+   *    "+<id> stumm" auf ein laufendes Abo kuendigte "OHNE Ton" an, und der
+   *    Ton blieb an (gemessen). Umschalten geht nur ueber -<id>, dann +<id>.
    */
   function abonniere(id, stumm) {
     const s = bridge.session;
@@ -409,16 +553,27 @@ export async function starteSteuerung(o = {}) {
       log(`  Kein Abo gesendet: ${id} steht nicht in der Teilnehmerliste. "liste" zeigt die Kennungen - sie gelten nur fuer DIESES Meeting.`);
       return;
     }
-    if (!s.videoSubs.has(id) && s.videoSubs.size >= BETRIEBSGROESSE) {
+    if (s.videoSubs.has(id) || ausstehend.has(id)) {
       log(
-        `  ACHTUNG: das wird das ${s.videoSubs.size + 1}. gleichzeitige Abo - gemessen sind ${BETRIEBSGROESSE} (Betriebsgroesse), ` +
+        `  Kein Abo gesendet: ${id} ist schon abonniert (laeuft schon). ` +
+          `Ton umschalten: erst -${id}, dann +${id}${stumm ? ' stumm' : ''}.`,
+      );
+      return;
+    }
+    const laufend = new Set([...s.videoSubs.keys(), ...ausstehend]).size;
+    if (laufend >= BETRIEBSGROESSE) {
+      log(
+        `  ACHTUNG: das wird das ${laufend + 1}. gleichzeitige Abo - gemessen sind ${BETRIEBSGROESSE} (Betriebsgroesse), ` +
           'darueber ist nichts belegt. Wird trotzdem gesendet.',
       );
     }
     log(`  Video wird abonniert: ${id} (720p)${stumm ? '  OHNE Ton (audio:false)' : ''}`);
+    ausstehend.add(id);
     // Das Feld nur setzen, wenn es auf false soll - siehe die Abos beim Start.
-    if (stumm) sicherSenden({ cmd: 'videoSubscribe', id, resolution: '720p', audio: false }, 'Eingabe');
-    else sicherSenden({ cmd: 'videoSubscribe', id, resolution: '720p' }, 'Eingabe');
+    const gesendet = stumm
+      ? sicherSenden({ cmd: 'videoSubscribe', id, resolution: '720p', audio: false }, 'Eingabe')
+      : sicherSenden({ cmd: 'videoSubscribe', id, resolution: '720p' }, 'Eingabe');
+    if (!gesendet) ausstehend.delete(id);
   }
 
   function druckeListe() {
@@ -474,11 +629,51 @@ export async function starteSteuerung(o = {}) {
     }
   }
 
-  /** Schlaeft `ms` - oder bis zum Abbruch. setTimeout, damit sich auch NaN wie bisher verhaelt. */
+  /**
+   * Schlaeft `ms` - oder bis zum Abbruch, oder bis die Bridge stirbt (dann
+   * gibt es nichts mehr zu beobachten). setTimeout, damit sich auch NaN wie
+   * bisher verhaelt.
+   */
   async function schlafe(ms) {
     let t;
-    await Promise.race([new Promise((r) => (t = setTimeout(r, ms))), abgebrochen]);
+    await Promise.race([new Promise((r) => (t = setTimeout(r, ms))), abgebrochen, bridgeGestorben]);
     clearTimeout(t);
+  }
+
+  /**
+   * Wartet nach dem join auf das Ergebnis des Beitritts. Wie warte(), mit zwei
+   * Unterschieden (Nachbesserung Einsatzpaket, 01.10.2026):
+   *  - 'failed'/'ended' beenden das Warten SOFORT. Ein falscher Kenncode
+   *    setzt phase 'left', nicht 'error' - gemessen kam danach 45 s lang
+   *    keine Zeile, bis die Frist ablief.
+   *  - Im ENDLOS-LAUF (Einsatz) laeuft im Warteraum und beim Warten auf den
+   *    Gastgeber KEINE Frist: der Gastgeber laesst ein, wann er will, und
+   *    vorher aufzugeben hiesse, mitten in der Vorbereitung neu starten zu
+   *    muessen. Abbrechen mit "ende". Mit fester Laufdauer (Pruefstand) gilt
+   *    die Frist wie bisher.
+   * Beim Betreten eines dieser Wartezustaende steht eine Zeile da, was zu tun ist.
+   */
+  async function warteAufBeitritt() {
+    const fristMs = o.beitrittsFristMs ?? 45_000;
+    let frist = Date.now() + fristMs;
+    let zuletzt = null;
+    for (;;) {
+      if (stopping) return 'abbruch';
+      const s = bridge.session;
+      if (s.meeting === 'inMeeting' || s.phase === 'error' || s.meeting === 'failed' || s.meeting === 'ended') return 'ok';
+      const wartend = s.meeting === 'waitingRoom' || s.meeting === 'waitingForHost';
+      if (s.meeting !== zuletzt) {
+        zuletzt = s.meeting;
+        if (s.meeting === 'waitingRoom') {
+          log('  Im Warteraum - der Gastgeber muss "JM Connect" im Zoom-Client einlassen. Abbrechen mit "ende".');
+        } else if (s.meeting === 'waitingForHost') {
+          log('  Warte auf den Gastgeber - das Meeting hat noch nicht begonnen. Abbrechen mit "ende".');
+        }
+      }
+      if (wartend && sekunden === null) frist = Date.now() + fristMs;
+      if (Date.now() > frist) return 'zeit';
+      await new Promise((r) => setTimeout(r, 20));
+    }
   }
 
   const meetingVorbei = (s) => s.meeting === 'ended' || s.meeting === 'failed' || s.phase === 'left';
@@ -486,9 +681,37 @@ export async function starteSteuerung(o = {}) {
   // sonst nichts mehr, worauf man warten koennte.
   const bridgeTot = (s) => s.lastError?.where === 'exit';
 
+  /**
+   * Der Rueckgabewert, wenn der OPERATOR beendet ("ende", Strg+C). Er
+   * beantwortet die Frage des Laufs wie das regulaere Ende - mit EINER
+   * Ausnahme: wer nie im Meeting war (Warteraum, falscher Kenncode, noch beim
+   * Verbinden), ist "nicht ins Meeting gekommen" (4). Vorher stand dort 3
+   * ("im Meeting, aber ohne Erlaubnis"), und das Start-Skript riet dem
+   * Gastgeber zur Aufnahme-Erlaubnis. Im Nur-Anmelden-Modus ist ein Abbruch
+   * eine nicht beendete Pruefung (1).
+   */
+  function abbruchCode() {
+    if (nurAnmelden) return 1;
+    if (!warImMeeting) return 4;
+    return bridge.session.canRecordRaw ? 0 : 3;
+  }
+
+  /** "verlasse das Meeting" nur, wenn wir drin waren. */
+  function abbruchWas() {
+    if (nurAnmelden) return 'beende die Pruefung …';
+    return warImMeeting ? 'verlasse das Meeting …' : 'breche den Beitritt ab …';
+  }
+
   function aufEingabe(zeile) {
     const e = deuteEingabe(zeile);
     if (e.art === 'leer') return;
+    // Nach "ende"/Strg+C nichts mehr deuten: gemessen wurden Abos dann noch
+    // ANGEKUENDIGT, gingen aber still verloren (stdin der Bridge war schon
+    // zu), und ein zweites "ende" druckte ein zweites "Ende".
+    if (stopping) {
+      log(`  Wird gerade beendet - Eingabe ignoriert: "${zeile.trim()}"`);
+      return;
+    }
     if (e.art === 'versatz') sendeVersatz(zeile.trim(), 'Eingabe');
     else if (e.art === 'abonnieren') abonniere(e.id, e.stumm);
     else if (e.art === 'abbestellen') {
@@ -498,8 +721,8 @@ export async function starteSteuerung(o = {}) {
     else if (e.art === 'hilfe') log(hilfeText());
     else if (e.art === 'ende') {
       // Wie Strg+C, mit demselben Rueckgabewert.
-      log('\nEnde — verlasse das Meeting …');
-      void finish(bridge.session.canRecordRaw ? 0 : 3);
+      log(`\nEnde — ${abbruchWas()}`);
+      void finish(abbruchCode());
     } else log(`  Eingabe: "${zeile.trim()}" ist kein Befehl (${e.grund}). "hilfe" zeigt die Befehle.`);
   }
 
@@ -545,18 +768,42 @@ export async function starteSteuerung(o = {}) {
     // richtig verhalten - er hat den Fehler des SDK unverfaelscht mit Namen
     // gemeldet, statt ihn zu verstecken.
     //
-    // Im Nur-Anmelden-Modus wird ENGER gewartet: nur auf die Anmelde-Antwort
-    // oder das Ende der Bridge, nicht auf jede phase 'error'. Sonst hiesse ein
-    // NDI_INIT_FAILED (setzt phase 'error', README Abschnitt 7) dort
+    // Im Nur-Anmelden-Modus wird ENGER gewartet: nur auf die Anmelde-Antwort,
+    // das Ende der Bridge oder einen Fehler, nach dem keine Antwort mehr kommt
+    // (init/auth - native/session.cpp meldet bei gescheitertem InitSDK und bei
+    // einem sofortigen SDKAuth-Fehler NUR error, nie auth; gemessen wartete
+    // dieser Modus sonst 30 s auf "Keine Antwort"). NICHT auf jede phase
+    // 'error': sonst hiesse ein NDI_INIT_FAILED (README Abschnitt 7) dort
     // "Anmeldung nicht durchgekommen - stimmen Client-ID und Secret?", und
     // genau dieser Modus soll die Zugangsdaten pruefen.
+    const ohneAntwort = (s) => bridgeTot(s) || initFehler || s.lastError?.where === 'auth';
     const angemeldet = nurAnmelden
-      ? (s) => authCode !== null || bridgeTot(s)
+      ? (s) => authCode !== null || ohneAntwort(s)
       : (s) => authCode !== null || s.phase === 'error';
     const a = await warte(angemeldet, o.anmeldeFristMs ?? 30_000);
     if (a === 'abbruch') return;
-    if (a === 'zeit' || (nurAnmelden && authCode === null)) {
+    if (a === 'zeit') {
       log('\nKeine Antwort auf die Anmeldung — es wurde kein Meeting betreten.');
+      return finish(1);
+    }
+
+    if (authCode === null) {
+      // Ein Fehler kam VOR der Anmelde-Antwort. Jede Ursache mit eigenem
+      // Text: eine fehlende DLL oder ein gescheitertes InitSDK als
+      // "stimmen Client-ID und Secret?" zu melden, schickte die Suche zu den
+      // Zugangsdaten (gemessen mit einer unvollstaendig kopierten Laufzeit).
+      const s = bridge.session;
+      if (bridgeTot(s)) log(startTodText());
+      else if (initFehler) {
+        log('\nDas Zoom-SDK liess sich nicht starten (FEHLER bei init, siehe oben) — es wurde kein Meeting betreten.');
+        log('Pruefen: liegt der GESAMTE Inhalt von <Zoom-SDK>\\x64\\bin (mit Unterordnern) vor, nicht nur sdk.dll?');
+      } else if (s.lastError?.where === 'auth') {
+        log('\nAnmeldung nicht durchgekommen — es wurde kein Meeting betreten.');
+        log('Pruefen: ist die App im Zoom-Marketplace eine "Meeting SDK"-App (nicht "General"/OAuth),');
+        log('und stimmen Client-ID und Secret in der Datei aus ZOOM_SDK_CREDENTIALS?');
+      } else {
+        log('\nDie Bridge meldet einen Fehler, bevor die Anmeldung beantwortet war (siehe FEHLER-Zeile oben) — es wurde kein Meeting betreten.');
+      }
       return finish(1);
     }
 
@@ -582,13 +829,17 @@ export async function starteSteuerung(o = {}) {
       displayName: env.ZOOM_DISPLAY_NAME ?? 'JM Connect',
     });
 
-    const b = await warte((s) => s.meeting === 'inMeeting' || s.phase === 'error', o.beitrittsFristMs ?? 45_000);
+    const b = await warteAufBeitritt();
     if (b === 'abbruch') return;
     if (b === 'zeit') {
       log('\nNicht ins Meeting gekommen — keine Aussage ueber die Rohdaten-Frage, sie wurde nie gestellt.');
       return finish(4);
     }
 
+    if (bridgeTot(bridge.session)) {
+      log(absturzText());
+      return finish(5);
+    }
     if (bridge.session.phase === 'error' || bridge.session.meeting !== 'inMeeting') {
       log('\nNicht ins Meeting gekommen — die Rohdaten-Frage wurde nie gestellt.');
       return finish(4);
@@ -614,8 +865,15 @@ export async function starteSteuerung(o = {}) {
       log('\nWarte auf die Rohdaten-Erlaubnis, bevor Video abonniert wird …');
       // Laeuft die Frist ab: weder JA noch NEIN - der Gastgeber hat schlicht
       // nicht reagiert. Das ist eine dritte Tatsache, nicht "abgelehnt".
-      const p = await warte((s) => s.canRecordRaw || s.privilegeDenied || s.privilegeTimedOut, o.erlaubnisFristMs ?? 60_000);
+      const p = await warte(
+        (s) => s.canRecordRaw || s.privilegeDenied || s.privilegeTimedOut || bridgeTot(s),
+        o.erlaubnisFristMs ?? 60_000,
+      );
       if (p === 'abbruch') return;
+      if (bridgeTot(bridge.session)) {
+        log(absturzText());
+        return finish(5);
+      }
       if (!bridge.session.canRecordRaw) {
         const grund = bridge.session.privilegeDenied
           ? 'der Gastgeber hat abgelehnt'
@@ -648,6 +906,7 @@ export async function starteSteuerung(o = {}) {
         continue;
       }
       abonniert.add(id);
+      ausstehend.add(id);
       const stumm = ohneTon.has(id);
       log(`  Video wird abonniert: ${id} (720p)${stumm ? '  OHNE Ton (audio:false)' : ''}`);
       // Das Feld nur setzen, wenn es auf false soll. Ein ausdrueckliches
@@ -672,6 +931,12 @@ export async function starteSteuerung(o = {}) {
       log('Bild-Versatz nachstellen: Zahl in ms tippen + Enter (0 bis 1000). Ton hinterher -> groesser.');
       await schlafe(sekunden * 1000);
       if (stopping) return;
+      // Ein Absturz ist eine eigene Antwort (5), kein "alles gut" - vorher
+      // gab auch der Pruefstand nach einem Absturz 0 zurueck.
+      if (bridgeTot(bridge.session)) {
+        log(absturzText());
+        return finish(5);
+      }
       // Der Rueckgabewert beantwortet DIE FRAGE DIESES LAUFS, nicht die Teilfrage
       // "hat der Beitritt geklappt". Ein geglueckter Beitritt ohne Erlaubnis mit 0
       // zu quittieren waere genau die Sorte Luege, die dieses Werkzeug aufdecken soll.
@@ -686,15 +951,36 @@ export async function starteSteuerung(o = {}) {
     log('Bild-Versatz nachstellen: Zahl in ms tippen + Enter (0 bis 1000). Ton hinterher -> groesser.');
     const w = await warte((s) => meetingVorbei(s) || bridgeTot(s), Infinity);
     if (w === 'abbruch') return;
-    if (meetingVorbei(bridge.session)) log('\nDas Meeting ist zu Ende — die Bridge wird beendet.');
-    else log('\nDie Bridge hat sich unerwartet beendet (siehe FEHLER-Zeile oben) — die Steuerung endet.');
-    return finish(bridge.session.canRecordRaw ? 0 : 3);
+    // DREI Enden, DREI Antworten (Nachbesserung Einsatzpaket, 01.10.2026).
+    // Vorher gab jedes davon canRecordRaw ? 0 : 3 zurueck, und das Start-Skript
+    // meldete nach einem Absturz mitten in der Sendung gruen "Im Meeting
+    // gewesen, Erlaubnis war erteilt". canRecordRaw steht nach einem Ende
+    // ohnehin weiter auf true: native/callbacks.cpp loescht die Erlaubnis bei
+    // ENDED/FAILED ausdruecklich OHNE Ereignis.
+    const se = bridge.session;
+    if (bridgeTot(se)) {
+      log(absturzText());
+      return finish(5);
+    }
+    if (se.meeting === 'failed') {
+      // 'failed' NACH dem Beitritt heisst: die Verbindung ist abgerissen
+      // (gemessen: reconnecting -> failed "Wiederverbinden fehlgeschlagen").
+      // Das ist kein Meeting-Ende - das Meeting laeuft ohne uns weiter.
+      log('\nDie Verbindung zum Meeting ist abgerissen (siehe Status-Zeile oben) — die Bridge wird beendet. Neu starten, um wieder beizutreten.');
+      return finish(6);
+    }
+    log('\nDas Meeting ist zu Ende — die Bridge wird beendet.');
+    return finish(se.canRecordRaw ? 0 : 3);
   }
 
   // VOR dem Start registrieren: bricht der Start ab, muss Strg+C trotzdem greifen.
   const abmelden = (o.abbruchSignal ?? strgCAbfangen)(() => {
-    log('\nAbbruch — verlasse das Meeting …');
-    void finish(bridge.session.canRecordRaw ? 0 : 3);
+    if (stopping) {
+      log('  Wird schon beendet - bitte warten …');
+      return;
+    }
+    log(`\nAbbruch — ${abbruchWas()}`);
+    void finish(abbruchCode());
   });
 
   if (nurAnmelden) log('Nur anmelden: die Zugangsdaten werden bei Zoom geprueft, es wird KEIN Meeting betreten.');

@@ -239,7 +239,20 @@ export class Bridge {
         this.spawned = true;
         resolve();
       });
-      child.once('error', (e) => reject(e));
+      child.once('error', (e) => {
+        // DER START IST GESCHEITERT (Nachbesserung Einsatzpaket, 01.10.2026).
+        // GEMESSEN: fuer ein Kind, dessen Start asynchron scheitert (ENOENT,
+        // EACCES - z. B. eine .exe mit Elevation-Pflicht), meldet Node NUR
+        // 'error', nie 'exit'. this.child stand aber schon (oben, synchron) -
+        // ein stop() danach wartete auf ein exit, das nie kommt, und der
+        // kill-Zeitgeber ist unref'd: der Pruefstand endete mit 13
+        // ("unsettled top-level await"), zoom-join.exe mit 0. Darum hier die
+        // Referenz loesen - es gibt kein Kind, das man noch beenden muesste.
+        // Nur wenn 'spawn' NICHT kam: ein spaeteres 'error' gehoert dem
+        // dauerhaften Lauscher oben (killFailed).
+        if (!this.spawned && this.child === child) this.child = null;
+        reject(e);
+      });
     });
   }
 

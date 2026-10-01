@@ -12,10 +12,13 @@
 //   - ohne ZOOM_JOIN_SECONDS laeuft der Lauf bis "ende", Strg+C oder
 //     Meeting-Ende (der Pruefstand: 60 s).
 //
-// OPTIONAL: ZOOM_VERSATZ_DATEI = "<Pfad>" - dorthin schreibt der Lauf am Ende
-// den zuletzt von der Bridge BESTAETIGTEN Bild-Versatz (nur die Zahl). Das
-// Start-Skript schlaegt ihn beim naechsten Start als Vorgabe vor: der Wert,
-// der im Projekt per Klatschtest nachgestellt wurde, soll nicht verloren gehen.
+// OPTIONAL: ZOOM_VERSATZ_DATEI = "<Pfad>" - dorthin schreibt der Lauf den
+// zuletzt von der Bridge BESTAETIGTEN Bild-Versatz (nur die Zahl), und zwar
+// SOFORT bei jeder Bestaetigung, nicht erst am Ende (Nachbesserung
+// Einsatzpaket, 01.10.2026: nach Strg+C oder einem geschlossenen Fenster gab
+// es kein geordnetes Ende mehr, und der Klatschtest-Wert war weg - gemessen).
+// Das Start-Skript legt die Datei fest unter %APPDATA%\JM Zoom Bridge ab und
+// schlaegt den Wert beim naechsten Start als Vorgabe vor.
 //
 // Der Ordner der EXE ist dirname(process.execPath): in einer Single Executable
 // Application ist das die EXE selbst (gemessen mit Node 24.16), und im
@@ -58,12 +61,9 @@ async function main() {
     exePath: lz.bridgeExe,
     zoomDllDir: lz.zoomDllDir,
     sekunden,
-    beimEnde: (s) => {
-      // Nur einen BESTAETIGTEN Wert weitergeben (state.ts, videoDelayMs) -
-      // eine hier erfundene 0 ueberschriebe den zuletzt kalibrierten.
-      if (!versatzDatei || s.videoDelayMs === null) return;
-      writeFileSync(versatzDatei, String(s.videoDelayMs), 'utf8');
-    },
+    // Nur BESTAETIGTE Werte kommen hier an (state.ts, videoDelayMs) - eine
+    // erfundene 0 ueberschriebe den zuletzt kalibrierten.
+    beiVersatz: versatzDatei ? (ms) => writeFileSync(versatzDatei, String(ms), 'utf8') : undefined,
   });
 }
 
