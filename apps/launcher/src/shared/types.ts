@@ -394,6 +394,8 @@ export interface JmpsApi {
   saveShow: (show: Show, targetPath?: string, neuGebunden?: boolean) => Promise<ActionResult>;
   /** Bestehende .jmshow zum Bearbeiten laden (Datei-Dialog) → Pfad + geparste Show. */
   loadShowForEdit: () => Promise<{ path: string; show: Show } | null>;
+  /** Eine .jmshow so lesen, wie sie gerade auf der Platte liegt (Show-Editor, Spec 7.5); nicht lesbar → null. */
+  readShow: (path: string) => Promise<Show | null>;
   /** Zuletzt geöffnete Shows (#157) für die 1-Klick-Wiederöffnung. */
   getRecentShows: () => Promise<RecentShow[]>;
   /** Eine bekannte .jmshow direkt per Pfad öffnen (ohne Dialog, #157). */

@@ -53,6 +53,7 @@ const api: JmpsApi = {
   saveShow: (show: Show, targetPath?: string, neuGebunden?: boolean) =>
     invoke<ActionResult>('show:save', show, targetPath, neuGebunden),
   loadShowForEdit: () => invoke<{ path: string; show: Show } | null>('show:loadForEdit'),
+  readShow: (path: string) => invoke<Show | null>('show:read', path),
   getRecentShows: () => invoke<RecentShow[]>('show:recent'),
   openShowPath: (path: string) => invoke<ActionResult>('show:openPath', path),
   pickShowDocument: () => invoke<string | null>('show:pickDocument'),

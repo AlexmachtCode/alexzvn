@@ -29,7 +29,7 @@ import { getPresence } from './presence';
 import { getHealth, setManualEndpoints } from './health';
 import { checkToolUpdates, checkLauncherUpdate } from './updates';
 import { openTool } from './launch';
-import { openShowDialog, openShow, saveShow, pickShowDocument, loadShowForEdit } from './show';
+import { openShowDialog, openShow, saveShow, pickShowDocument, loadShowForEdit, readShowFile } from './show';
 import { installTool, updateLauncher } from './installer';
 import { uninstallTool } from './uninstall';
 import {
@@ -108,6 +108,8 @@ export function registerIpc(): void {
     saveShow(show, targetPath, neuGebunden === true),
   );
   ipcMain.handle('show:loadForEdit', () => loadShowForEdit());
+  // Show-Editor beim Speichern: die Datei so, wie sie JETZT ist (Spec 7.5, Regel 1).
+  ipcMain.handle('show:read', (_e, path: string) => (typeof path === 'string' ? readShowFile(path) : null));
   ipcMain.handle('show:pickDocument', () => pickShowDocument());
 
   // Download + Installation aus der konfigurierten Release-Quelle, mit

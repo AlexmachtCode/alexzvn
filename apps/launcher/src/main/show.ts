@@ -121,6 +121,20 @@ export async function saveShow(show: Show, targetPath?: string, neuGebunden = fa
   return { ok: true, message: `Show „${show.name}" ${targetPath ? 'aktualisiert' : 'gespeichert'}.` };
 }
 
+/**
+ * Eine .jmshow so lesen, wie sie gerade auf der Platte liegt — der Show-Editor
+ * braucht das beim Speichern (Spec 7.5, Regel 1). Nur .jmshow-Dateien; nicht
+ * lesbar → null.
+ */
+export function readShowFile(path: string): Show | null {
+  if (!path.toLowerCase().endsWith(SHOW_FILE_EXT)) return null;
+  try {
+    return parseShow(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 /** Datei-Dialog zur Auswahl eines Tool-Dokuments (z. B. .jmpres, .jmdaw). */
 export async function pickShowDocument(): Promise<string | null> {
   const result = await dialog.showOpenDialog({
