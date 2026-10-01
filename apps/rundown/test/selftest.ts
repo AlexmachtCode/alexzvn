@@ -10,6 +10,9 @@ import type { RundownAction, RundownRow } from '../src/shared/types.ts';
 import type { ShowAblaufItem } from '@jm/show';
 import { migrate } from '../src/shared/doc-format.ts';
 
+import { loeseSprungZiel } from '../src/shared/sprung.ts';
+import type { RundownAction as A7Aktion, RundownDoc as A7Doc, RundownRow as A7Zeile } from '../src/shared/types.ts';
+
 let failed = 0;
 function eq(actual: unknown, expected: unknown, msg: string): void {
   const a = JSON.stringify(actual);
@@ -1011,6 +1014,56 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
     '9.3: Zeilen tragen die iveo-Kennungen aus der Show-Datei',
   );
   eq([e.doc.kontext, e.scharfId], ['se:p-se-1', '7f0c1a52-0000-4000-8000-000000000001'], '9.3: Kontext Side Event, erste Zeile scharf');
+}
+
+// ── Teil 2a · loeseSprungZiel (Fall 30, Review-Focus 5) ──────────────────────
+{
+  const sprung = (extra: Partial<A7Aktion>): A7Aktion => ({
+    id: 'a-sprung30',
+    role: 'timer',
+    verb: 'goto',
+    args: [2],
+    enabled: true,
+    ...extra,
+  });
+  eq(loeseSprungZiel(sprung({ zielId: 'p2' }), ['p1', 'p2', 'p3'], false), { n: 2, gebunden: true }, 'Fall 30: Ziel an seiner Stelle → Nummer 2, gebunden');
+  eq(loeseSprungZiel(sprung({ zielId: 'p2' }), ['p3', 'p1', 'p2'], false), { n: 3, gebunden: true }, 'Fall 30: Ziel nach Umsortieren an neuer Stelle → Nummer 3');
+  eq(loeseSprungZiel(sprung({ zielId: 'p2' }), ['p1', 'p3'], false), { entfallen: true }, 'Fall 30: Ziel entfallen → { entfallen: true }');
+  eq(loeseSprungZiel(sprung({ zielId: 'p2' }), ['p3', 'p1', 'p2'], true), { n: 2, gebunden: false }, 'Fall 30: eigene Timer-Liste → args[0], nicht gebunden');
+  eq(loeseSprungZiel(sprung({}), ['p3', 'p1', 'p2'], false), { n: 2, gebunden: false }, 'Fall 30: ohne zielId → args[0], nicht gebunden');
+  eq(loeseSprungZiel(sprung({ args: ['4'] }), ['p1'], false), { n: 4, gebunden: false }, 'Fall 30: Nummer von Hand als Text → Zahl');
+  eq(loeseSprungZiel(sprung({ zielId: 'ersatz:Panel' }), ['ersatz:Keynote', 'ersatz:Panel'], false), { n: 2, gebunden: true }, 'Fall 30: Ersatz-Kennung als Ziel');
+  eq(loeseSprungZiel(sprung({ zielId: 'p2' }), [], false), { entfallen: true }, 'Review-Focus 5: zielId, aber Show ohne Ablauf → entfallen, nichts senden');
+}
+
+// ── Teil 2a · Fall 31: verzögertes timer goto wird beim Senden aufgelöst (5.4, 6.2) ──
+{
+  // Zeile „Punkt 2“ trägt ein um 2 s verzögertes „Timer springe zu Punkt 2“.
+  const sprung31: A7Aktion = { id: 'a-sprung31', role: 'timer', verb: 'goto', args: [2], enabled: true, delayMs: 2000, zielId: 'p2' };
+  const doc31: A7Doc = {
+    schemaVersion: 2,
+    name: 'Fall 31',
+    rows: [
+      { id: 'p1', label: 'Punkt 1', quelle: 'ablauf', actions: [] },
+      { id: 'p2', label: 'Punkt 2', quelle: 'ablauf', actions: [sprung31] },
+      { id: 'p3', label: 'Punkt 3', quelle: 'ablauf', actions: [] },
+    ],
+  };
+  const schluesselBeimGo = ['p1', 'p2', 'p3'];
+  // GO auf „Punkt 2“: festgehalten wird das Aktionsobjekt selbst (5.4).
+  const go31 = navigate(doc31, 1, { t: 'go' });
+  eq(go31.fire.length === 1 && go31.fire[0] === sprung31, true, 'Fall 31: GO hält das Aktionsobjekt selbst fest, keine festgeschriebene Kopie');
+  eq(loeseSprungZiel(go31.fire[0], schluesselBeimGo, false), { n: 2, gebunden: true }, 'Fall 31: beim GO stünde das Ziel auf Nummer 2');
+  // Während die 2 s laufen, fügt ein Abgleich einen Punkt vor „Punkt 2“ ein.
+  // Der Main hält danach die Schlüssel des neuen Ablaufs (5.2).
+  const schluesselBeimSenden = ['p1', 'p-neu', 'p2', 'p3'];
+  const beimSenden = loeseSprungZiel(go31.fire[0], schluesselBeimSenden, false);
+  eq(beimSenden, { n: 3, gebunden: true }, 'Fall 31: beim Senden gilt der neue Stand → Nummer 3');
+  eq(
+    'n' in beimSenden ? buildActionLine('timer', 'goto', [beimSenden.n]) : 'nicht gesendet',
+    'TIMER GOTO 3',
+    'Fall 31: gesendet wird TIMER GOTO 3, nicht die alte 2',
+  );
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
