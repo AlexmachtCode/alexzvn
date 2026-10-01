@@ -99,8 +99,8 @@ Strg+C ein SIGINT bleibt):
 | `+<id>` | Bild **und** Ton dieser Kennung abonnieren (720p, Feld `audio` weggelassen = Vorgabefall des Protokolls). |
 | `+<id> stumm` | dasselbe mit `audio:false`. |
 | `-<id>` | Abo beenden (`videoUnsubscribe`). ⚑ **Bewusste Änderung:** `-<Zahl>` war bis dahin ein (ungültiger) negativer Versatz und heißt jetzt abbestellen. |
-| `liste` | Teilnehmer (Format wie der Teilnehmer-Block, samt „(das sind wir)" und `persistentId`-Hinweis), laufende Abos, bestätigter Versatz. |
-| `ende` | wie Strg+C: Meeting verlassen, sauber beenden. |
+| `liste` | Teilnehmer (Format wie der Teilnehmer-Block, samt „(das sind wir)" und dem Hinweis, wenn eine `persistentId` fehlt — dann geht Umhängen nur über den Namen), laufende Abos, bestätigter Versatz. |
+| `ende` | wie Strg+C: Meeting verlassen, sauber beenden. Danach wird keine Eingabe mehr gedeutet („Wird gerade beendet – Eingabe ignoriert"). |
 | `hilfe` / `?` | Befehlsübersicht. Eine kurze Fassung steht einmal unter dem ersten Teilnehmer-Block. |
 
 Vor dem Senden eines `+<id>` wird geprüft, was die Bridge sonst mit einer
@@ -108,18 +108,41 @@ irreführenden Meldung beantworten würde: **fehlt die Rohdaten-Erlaubnis**, geh
 nichts raus, sondern die Erklärung, dass der Gastgeber sie im Zoom-Client erteilen
 muss (eine Zeitfrage soll nicht als `VIDEO_NO_PRIVILEGE` erscheinen); eine
 **unbekannte Kennung** (nicht im Teilnehmerzustand) wird gemeldet und nicht
-gesendet; ab dem **6. gleichzeitigen Abo** kommt eine Warnung (gemessen sind 5),
-gesendet wird trotzdem. Tritt jemand während des Laufs bei, steht unter der
-`+ Name (id)`-Zeile `abonnieren mit +<id>`.
+gesendet; ein **schon laufendes oder gerade gesendetes** Abo geht nicht noch
+einmal raus („läuft schon" — die Bridge wiese es als `VIDEO_ALREADY_SUBSCRIBED`
+ab und änderte dabei auch den Ton **nicht**; Ton umschalten heißt `-<id>`, dann
+`+<id>` bzw. `+<id> stumm`); ab dem **6. gleichzeitigen Abo** kommt eine Warnung
+(gemessen sind 5), gesendet wird trotzdem — gezählt werden laufende **und**
+gesendete, noch unbeantwortete Abos, sonst sahen sechs auf einmal eingefügte
+`+<id>` alle dieselbe Zahl. Tritt jemand während des Laufs **neu** bei, steht kurz
+danach `abonnieren mit +<id>` da — **erst nach** dem Umhänge-Versuch der Bridge
+(`native/callbacks.cpp` meldet `joined` **vor** dem `video`-Ereignis mit
+`rebound`/`reboundByName`). Hängt sich ein Abo um, steht statt des Hinweises
+„Abo automatisch umgehängt … nichts zu tun".
 
 **Nur anmelden:** `ZOOM_NUR_ANMELDEN=1` macht nur `init` + `auth`, druckt
 SDK-Fassung und Anmeldeergebnis und beendet sauber — **ohne Beitritt**, ohne
 Meeting-Nummer. Rückgabe `0` bei `AUTHRET_SUCCESS`, `1` bei Ablehnung oder
 Zeitüberschreitung. So lässt sich die Einrichtung gegen das echte Zoom prüfen,
 ohne einem Meeting beizutreten; im Einsatzpaket heißt das „nur Zugangsdaten
-prüfen". (Hier wird enger gewartet als beim Beitritt: nur auf die
-Anmelde-Antwort oder das Ende der Bridge — ein `NDI_INIT_FAILED` soll in diesem
+prüfen". (Hier wird enger gewartet als beim Beitritt: auf die Anmelde-Antwort,
+das Ende der Bridge oder einen `init`-/`auth`-Fehler, nach dem keine Antwort mehr
+kommt — nicht auf jede `phase:'error'`, denn ein `NDI_INIT_FAILED` soll in diesem
 Modus nicht als „Anmeldung nicht durchgekommen" erscheinen.)
+
+**Stirbt die Bridge vor der Anmelde-Antwort**, steht nicht mehr „stimmen
+Client-ID und Secret?" da, sondern eine eigene Meldung; bei `0xC0000135`
+(`STATUS_DLL_NOT_FOUND`), `0xC0000139` oder `0xC000007B` heißt sie „eine DLL fehlt
+oder passt nicht" samt Ausweg (gesamten Inhalt von `x64\bin` kopieren) —
+Abschnitt 8, „Eine fehlende DLL sieht aus wie ein Anmeldefehler". Ein gescheitertes
+`InitSDK` hat ebenfalls einen eigenen Text.
+
+**Warteraum und gescheiterter Beitritt:** `failed` oder `ended` während des
+Beitritts beenden das Warten **sofort** mit `4` (vorher lief die 45-s-Frist ab,
+ohne eine Zeile). Im Warteraum bzw. beim Warten auf den Gastgeber steht einmal
+„der Gastgeber muss einlassen … Abbrechen mit `ende`". Im **Endlos-Lauf**
+(Einsatzpaket, Abschnitt 10) gilt dort **keine** Frist — der Gastgeber lässt ein,
+wann er will; mit fester Laufdauer (dieser Prüfstand) bleibt die Frist.
 
 ➜ **Für die noch offenen Abnahmepunkte von Stage 3 gibt es ein Drehbuch:**
 [`ABNAHME-STAGE3.md`](ABNAHME-STAGE3.md). Es ordnet die sechs offenen Punkte so,
@@ -131,12 +154,17 @@ Befund zu erkennen ist, der **nicht** nach einem Fehler aussieht.
 | Wert | Bedeutung |
 | --- | --- |
 | `0` | Im Meeting angekommen **und** Rohdaten-Erlaubnis erteilt (`canRecordRaw`). |
-| `3` | Im Meeting angekommen, aber **keine** Rohdaten-Erlaubnis (abgelehnt, Zeitüberschreitung, oder bei Strg+C noch nicht entschieden). |
-| `4` | **Nicht** ins Meeting gekommen (falsche Nummer, falscher Kenncode, Warteraum/Verbindung ohne Endzustand, SDK-Fehler, …). Die Rohdaten-Frage wurde in diesem Fall nie gestellt. |
-| `1` | Eine Vorbedingung fehlt oder ist falsch (`ZOOM_SDK_DIR`, `ZOOM_MEETING_ID`, Zugangsdaten, eine Meeting-Nummer mit Nicht-Ziffern). Bricht sofort ab, **bevor** überhaupt ein Kindprozess startet. |
+| `3` | Im Meeting angekommen, aber **keine** Rohdaten-Erlaubnis (abgelehnt, Zeitüberschreitung, oder bei `ende`/Strg+C im Meeting noch nicht entschieden). |
+| `4` | **Nicht** ins Meeting gekommen (falsche Nummer, falscher Kenncode, Warteraum/Verbindung ohne Endzustand, SDK-Fehler, …) — **auch** wenn vorher mit `ende`/Strg+C abgebrochen wurde (Warteraum, noch beim Verbinden; bis zur Nachbesserung vom 01.10.2026 stand dort `3`). Die Rohdaten-Frage wurde in diesem Fall nie gestellt. |
+| `1` | Eine Vorbedingung fehlt oder ist falsch (`ZOOM_SDK_DIR`, `ZOOM_MEETING_ID`, Zugangsdaten, eine Meeting-Nummer mit Nicht-Ziffern) — bricht ab, **bevor** ein Kindprozess startet. Ebenso: die Anmeldung wurde abgelehnt, `zoom-bridge.exe` lässt sich nicht starten (`ENOENT`/`EACCES`) oder stirbt vor der Anmelde-Antwort (fehlende DLL). Im Nur-Anmelden-Modus auch ein Abbruch mit Strg+C. |
+| `5` | Die Bridge ist **nach** der Anmeldung unerwartet beendet worden (`EXITED_UNEXPECTEDLY`, Absturz). Vorher gab es dafür `canRecordRaw ? 0 : 3` — ein Absturz mitten in der Sendung endete grün. |
+| `6` | Die Verbindung zum Meeting ist abgerissen: Status `failed` **nach** dem Beitritt (gemessen: `reconnecting` → `failed`, „Wiederverbinden fehlgeschlagen"). Das ist kein Meeting-Ende — das Meeting läuft ohne uns weiter. Nur im Endlos-Lauf; mit fester Laufdauer läuft die Bridge wie bisher weiter. |
 
 Ein geglückter Beitritt ohne Rohdaten-Erlaubnis wird bewusst **nicht** mit `0`
 quittiert — das wäre genau die Sorte Lüge, die dieses Werkzeug aufdecken soll.
+Aus demselben Grund haben Absturz (`5`) und Verbindungsabbruch (`6`) eigene Werte:
+`canRecordRaw` steht nach einem Ende ohnehin weiter auf `true`, weil
+`native/callbacks.cpp` die Erlaubnis bei `ENDED`/`FAILED` **ohne** Ereignis löscht.
 
 **Gemessen und offen — der Stand, nicht die Absicht:** Stage 1 (Beitritt,
 Teilnehmerliste, Rollennamen, Weggang, Rohdaten-Aufnahme-Erlaubnis) ist **in der
@@ -304,7 +332,7 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 | `state` | `subscribed` \| `live` \| `black` \| `unsubscribed`. |
 | `source` | der **tatsächlich vergebene** NDI-Quellenname (siehe Namensvergabe unten). |
 | `reason` | `command` \| `frames` \| `cameraOff` \| `participantLeft` \| `rebound` \| `reboundByName` \| `bufferMismatch` \| `meetingEnded`. |
-| `rebindable` | ob das Abo bei einem Wiederbeitritt umgehängt werden kann (`persistentId` des Teilnehmers ist nicht leer). |
+| `rebindable` | ob das Abo über die **`persistentId`** umgehängt werden kann (sie ist nicht leer). **Nicht** „ob es überhaupt umgehängt werden kann": der Weg über den eindeutigen **Anzeigenamen** (`reboundByName`, siehe unten) gilt für **jedes** Abo, auch mit `rebindable:false` — und bei Gästen trägt gemessen **nur** dieser. Die Steuerung druckt darum „umhaengbar (persistentId oder Name)" bzw. „umhaengbar nur ueber den Namen" (bis 01.10.2026 hieß Letzteres fälschlich „NICHT umhaengbar"). |
 | `rotation`, `limitedRange` | **nur vorhanden**, sobald ein Bild sie geliefert hat (`YUVRawDataI420::GetRotation()`/`IsLimitedI420()`) — bei `state:"subscribed"` fehlen sie also immer. Ein Wert wäre dort erfunden, und eine erfundene `0` ließe sich später nicht von einer gemessenen `0` unterscheiden. |
 
 **Elf eigene Fehlerschlüssel** (`where:"video"` bzw. `where:"ndi"`, siehe `OWN_ERROR_NAMES` in `src/protocol.ts`):
@@ -779,7 +807,13 @@ steht (weder Maschine noch Benutzer) und `test/join.mjs` ein **eigenes** `PATH`
 mitgibt, das den Merge in `bridge.ts` gewinnt. Seither setzt `Bridge.start()`
 die NDI-Laufzeit **nach** dem Merge selbst dazu (`src/ndi-path.ts`). Bei
 „startet nicht, sagt nichts" also **zuerst die DLLs prüfen**, nicht die
-Zugangsdaten.
+Zugangsdaten. Seit dem 01.10.2026 deutet die Steuerung (`cli/steuerung.mjs`)
+einen Tod vor der Anmelde-Antwort mit `0xC0000135` selbst als „eine DLL fehlt".
+Dazu gehört auch die **Visual-C++-Laufzeit**: `zoom-bridge.exe` (gebaut mit `/MD`)
+**und** `sdk.dll` samt fast allen übrigen Zoom-DLLs importieren `MSVCP140.dll`,
+`VCRUNTIME140.dll` und `VCRUNTIME140_1.dll`, das Zoom-SDK liefert sie für x64
+aber nicht mit. Auf einem Rechner ohne installiertes VC-Redist stirbt die Bridge
+genau so. Das Einsatzpaket legt sie darum app-lokal nach `bin\` (Abschnitt 10).
 
 **`ENABLE_CUSTOMIZED_UI_FLAG`.** Ohne dieses Flag in `InitParam.obConfigOpts`
 (siehe `native/session.cpp`) hängt der Beitritt für immer bei `CONNECTING` — im
@@ -869,18 +903,49 @@ npm run release:komplett -w @jm/zoom-bridge   # zusätzlich das private Komplett
 **älter** ist als eine Datei in `native\` oder `CMakeLists.txt` — ein Paket mit
 alter `.exe` sähe aus wie der neue Stand. Die Quellen der Textdateien liegen in
 `paket\` (die Wurzel-`.gitignore` ignoriert **jeden** Ordner namens `release`),
-das Ergebnis in `release\` (ignoriert, so gewollt).
+das Ergebnis in `release\` (ignoriert, so gewollt). Das **öffentliche** ZIP liegt
+direkt in `release\`, das **Komplett-ZIP** in `release\NICHT-VEROEFFENTLICHEN\` —
+ein Hochladen per `release\*.zip` trifft so nur das öffentliche (der Bau prüft am
+Ende, dass in `release\` selbst genau dieses eine ZIP liegt).
 
 ### Die zwei ZIPs
 
-| | `JM-Zoom-Bridge-<v>-win-x64.zip` | `JM-Zoom-Bridge-<v>-win-x64-KOMPLETT-NICHT-VEROEFFENTLICHEN.zip` |
+| | `release\JM-Zoom-Bridge-<v>-win-x64.zip` | `release\NICHT-VEROEFFENTLICHEN\JM-Zoom-Bridge-<v>-win-x64-KOMPLETT-NICHT-VEROEFFENTLICHEN.zip` |
 | --- | --- | --- |
 | Wohin | **öffentliches** GitHub-Release | **nie** veröffentlichen — nur direkt an den Projekt-PC |
 | `Zoom-Bridge starten.cmd`, `start.ps1`, `zoom-join.exe`, `LIESMICH.txt` | ✅ | ✅ |
 | `bin\zoom-bridge.exe`, `bin\Processing.NDI.Lib.x64.dll` | ✅ | ✅ |
-| `LIZENZEN\Processing.NDI.Lib.Licenses.txt` | ✅ | ✅ |
+| `bin\msvcp140*.dll`, `bin\vcruntime140*.dll`, `bin\concrt140.dll`, `bin\vccorlib140.dll` (Visual-C++-Laufzeit, app-lokal) | ✅ | ✅ |
+| `LIZENZEN\Processing.NDI.Lib.Licenses.txt`, `LIZENZEN\Node.js-LICENSE.txt` | ✅ | ✅ |
 | kompletter Inhalt von `<Zoom-SDK>\x64\bin` (rekursiv, 153 Dateien) in `bin\` | ❌ | ✅ |
 | `LIZENZEN\OSS-LICENSE.pdf` (aus dem Zoom-SDK) | ❌ | ✅ |
+
+**Visual-C++-Laufzeit, app-lokal** (Sichtung 01.10.2026): `zoom-bridge.exe` ist mit
+`/MD` gebaut, und `sdk.dll` samt fast allen Zoom-DLLs brauchen die VC-Laufzeit
+ebenfalls (gemessen per `dumpbin /dependents` über `x64\bin` und die Bridge:
+`msvcp140.dll` 79-mal, `vcruntime140.dll`, `vcruntime140_1.dll`, einmal
+`msvcp140_codecvt_ids.dll`). Das Zoom-SDK liefert sie für x64 nicht mit; ohne
+installiertes VC-Redist starb die Bridge mit `0xC0000135`, und das sah aus wie ein
+Anmeldefehler (Abschnitt 8). Statisch linken (`/MT`) hilft allein nicht, weil die
+Zoom-DLLs sie trotzdem brauchen. Der Bau kopiert darum den Ordner
+`VC\Redist\MSVC\<Fassung>\x64\Microsoft.VC14x.CRT` des Toolsets nach `bin\` (der
+Windows-Lader sucht zuerst im Ordner der `.exe`, auch für die Abhängigkeiten von
+`sdk.dll`) und bricht ab, wenn diese Fassung **älter** ist als der Linker, der
+`zoom-bridge.exe` gebaut hat. Microsoft gibt diese Dateien als „Distributable Code"
+zur Weitergabe frei. Andere Ordner: `VC_CRT_DIR` setzen.
+
+**Node-Lizenz:** `zoom-join.exe` **ist** eine `node.exe` (Single Executable
+Application) — weitergegeben werden damit Node samt V8, OpenSSL, ICU und libuv.
+Der Lizenztext liegt an die Fassung gebunden im Repo
+(`paket/LIZENZEN/Node.js-v24.16.0-LICENSE.txt`, die `LICENSE` vom Tag
+`v24.16.0`); baut eine andere Node-Fassung, bricht der Bau ab, statt einen falschen
+Text beizulegen. (`C:\Program Files\nodejs` enthält keine `LICENSE`.)
+
+**Kein Bau-Pfad im Paket:** `sea-config.json` nennt `main`/`output` relativ und
+läuft mit `cwd = release\.bau` — mit absolutem Pfad stand
+`C:\Users\<name>\...\zoom-join.cjs` im Blob der öffentlichen `zoom-join.exe`. Ein
+Wächter sucht in jeder Datei des öffentlichen Pakets nach dem Heimatordner des
+Bau-Rechners (ASCII und UTF-16) und bricht ab, wenn er ihn findet.
 
 **Warum die Zoom-DLLs nicht ins öffentliche Paket gehören:** Das Repo ist
 öffentlich, und ob Zooms Laufzeit-DLLs weitergegeben werden dürfen, ist
@@ -916,16 +981,24 @@ darin steckt. Zwei Stellen, die ohne Messung falsch gewesen wären:
   `withNdiRuntimeOnPath` bleibt als Rückfall.
 
 Die EXE läuft **bis `ende`, Strg+C oder Meeting-Ende** (Endlos-Lauf; beendet sie
-sich bei Meeting-Ende, ist der Rückgabewert wie bisher `canRecordRaw ? 0 : 3`).
-Mit `ZOOM_JOIN_SECONDS` läuft sie wie der Prüfstand eine feste Zeit. Am Ende
-schreibt sie den zuletzt **bestätigten** Bild-Versatz in `ZOOM_VERSATZ_DATEI`,
-falls gesetzt — so schlägt das Start-Skript den im Projekt nachgestellten Wert
-beim nächsten Start vor.
+sich bei Meeting-Ende, ist der Rückgabewert `canRecordRaw ? 0 : 3`, bei einem
+Absturz `5`, bei abgerissener Verbindung `6` — Abschnitt 4). Im Warteraum gibt es
+im Endlos-Lauf **keine** Beitrittsfrist. Mit `ZOOM_JOIN_SECONDS` läuft sie wie der
+Prüfstand eine feste Zeit. Den zuletzt **bestätigten** Bild-Versatz schreibt sie
+in `ZOOM_VERSATZ_DATEI`, falls gesetzt — und zwar **sofort bei jeder
+Bestätigung**, nicht erst am Ende: nach Strg+C oder einem geschlossenen Fenster
+gab es kein geordnetes Ende mehr, und der Klatschtest-Wert war weg (gemessen,
+Sichtung 01.10.2026). Strg+C, Strg+Pause **und das Schließen des Fensters**
+(`SIGHUP`, `CTRL_CLOSE_EVENT`) verlassen das Meeting; beim Schließen bleiben nur
+die wenigen Sekunden, die Windows gewährt — darum sagt das Paket „nicht mit dem X
+schließen".
 
 ### Das Start-Skript
 
-`Zoom-Bridge starten.cmd` (reines ASCII) ruft `powershell -NoProfile
--ExecutionPolicy Bypass -File start.ps1`. `start.ps1` (Windows PowerShell 5.1,
+`Zoom-Bridge starten.cmd` (reines ASCII) startet mit `start` ein **eigenes
+Fenster** mit `powershell -NoProfile -ExecutionPolicy Bypass -File start.ps1` —
+lief PowerShell unter der Batchdatei, fragte `cmd.exe` nach Strg+C „Batchvorgang
+abbrechen (J/N)?" und schloss danach das Fenster (gemessen). `start.ps1` (Windows PowerShell 5.1,
 UTF-8 **mit** BOM — ohne BOM liest 5.1 die Datei in der ANSI-Codepage und
 zerlegt die Umlaute; der Bau prüft den BOM) fragt ab: Zugangsdaten-Datei
 (geprüft: existiert, gültiges JSON, Client-ID- und Secret-Schlüssel vorhanden —
@@ -937,6 +1010,29 @@ Bild-Versatz. In `%APPDATA%\JM Zoom Bridge\einstellungen.json` stehen danach
 Kenncode. Es entfernt `ZOOM_SDK_CLIENT_ID`/`_SECRET` aus der Umgebung, startet
 `zoom-join.exe` im selben Fenster und deutet danach den Rückgabewert in Klartext.
 `-OhneFragen` nimmt alle Werte aus der Umgebung (für automatische Prüfungen).
+
+Nachgebessert nach der Sichtung vom 01.10.2026:
+
+- **Strg+C** bekommt während des Laufs **nur** `zoom-join.exe`: das Skript hängt
+  per `Add-Type` einen Konsolen-Handler vor den von PowerShell, der Strg+C und
+  Strg+Pause für **sich** schluckt (`SetConsoleCtrlHandler`, Rückgabe `TRUE`
+  beendet die Kette). Ohne ihn brach PowerShell das Skript ab — kein ERGEBNIS,
+  der nachgestellte Versatz nicht übernommen. Geht `Add-Type` nicht
+  (eingeschränkter Sprachmodus), bleibt ein `finally`-Zweig nur aus
+  .NET-Aufrufen.
+- Der Versatz liegt in `%APPDATA%\JM Zoom Bridge\versatz-zuletzt.txt` (nicht mehr
+  in `%TEMP%`) und wird **vor und nach** jedem Lauf in `einstellungen.json`
+  übernommen — endete ein Lauf hart, holt ihn der nächste Start.
+- Lässt sich `zoom-join.exe` nicht starten (Virenschutz, Smart App Control — die
+  EXEs sind nicht signiert), steht das da, und das Skript endet mit `1` (vorher
+  „Abgebrochen (Strg+C)" und `0`).
+- Der Zugangsdaten-Pfad wird als `.ProviderPath` gemerkt — `.Path` lieferte für
+  eine Netzwerkfreigabe `Microsoft.PowerShell.Core\FileSystem::\\…`, woran
+  `zoom-join.exe` mit `ENOENT` scheiterte.
+- `readCredentials` (`src/jwt.ts`) liest die Zugangsdaten-Datei jetzt mit
+  UTF-8-BOM und als UTF-16 (BOM `FF FE`/`FE FF`) — wie `ConvertFrom-Json` im
+  Skript. Vorher erklärte das Skript eine solche Datei für gültig, und
+  `zoom-join.exe` wies sie als „kein gültiges JSON" ab.
 
 ### Geprüft am 01.10.2026 — und was nicht
 
@@ -950,18 +1046,68 @@ ebenso `0`, danach kein `zoom-bridge.exe`/`zoom-join.exe` mehr im Speicher;
 `start.ps1 -OhneFragen` im Komplett-Ordner → Klartext-Deutung, Rückgabe `0`,
 `einstellungen.json` ohne Meeting-Nummer und Kenncode.
 
+**Nach der Nachbesserung (Sichtung vom 01.10.2026) zusätzlich geprüft**, alles
+ohne Meeting-Beitritt:
+
+- Selbsttests gegen die Attrappe für jeden Befund (gescheiterter Start, Absturz →
+  `5`, Verbindungsabbruch → `6`, Warteraum ohne Frist, `failed` sofort `4`, `ende`
+  im Warteraum `4`, DLL-Tod vor der Anmeldung, `init`-/`auth`-Fehler ohne 30-s-
+  Warten, Eingaben nach `ende`, doppeltes Abo, sechs eingefügte Abos,
+  Wiederbeitritt mit Umhängen, Versatz sofort gesichert, BOM-Zugangsdaten).
+- **Echte Konsole** (eigener Prüfstand: `conhost`-Fenster, Eingabe per
+  `WriteConsoleInput`, Strg+C per `GenerateConsoleCtrlEvent`, Schließen per
+  `WM_CLOSE`; als Bridge eine Attrappe als eigene EXE): Strg+C direkt **und** über
+  die `.cmd` → Attrappe bekommt `quit`, danach „Zuletzt bestätigter Bild-Versatz:
+  250 ms" und ERGEBNIS, Rückgabe `0`, `versatzMs` 250, kein „Batchvorgang
+  abbrechen". Fenster schließen → Attrappe bekommt `quit` (SIGHUP), der Versatz
+  liegt gesichert, der nächste Start meldet „Bild-Versatz aus dem letzten Lauf
+  übernommen: 250 ms".
+- `start.ps1 -OhneFragen` mit Zugangsdaten als UTF-8-BOM, als UTF-16 und über
+  `\\localhost\C$\…` → jeweils `0`; mit einer nicht startbaren `zoom-join.exe` →
+  Meldung und `1`.
+- Echte `zoom-join.exe` + echte `zoom-bridge.exe` mit **nur** `sdk.dll` in `bin\`
+  → „Die Bridge ist beim Start gestorben (0xC0000135 …: eine DLL fehlt)", `1`, in
+  beiden Modi, ohne Verdacht auf die Zugangsdaten.
+- Im Komplett-Paket lädt `zoom-bridge.exe` `MSVCP140.dll`, `VCRUNTIME140.dll` und
+  `VCRUNTIME140_1.dll` aus dem eigenen `bin\` (Modulliste des laufenden Prozesses).
+
 **Nicht** geprüft: ein **Beitritt** mit `zoom-join.exe` (das ist der
-Projekttest), Strg+C im Start-Skript (Windows fragt danach unter Umständen
-„Batchvorgang abbrechen (J/N)?" — darum ist `ende` der empfohlene Weg), und die
-interaktiven Fragen von `start.ps1` (nur `-OhneFragen` lief automatisch).
+Projekttest — die Live-Befehle laufen dort zum ersten Mal gegen die echte Bridge),
+die interaktiven Fragen von `start.ps1` (nur `-OhneFragen` lief automatisch), ein
+Rechner **ohne** installiertes VC-Redist (hier ist 14.51 installiert; belegt ist
+nur, dass die Bridge die app-lokalen DLLs lädt), und ob Zoom „JM Connect" nach
+einem Schließen per X sofort entfernt (die Attrappe bekam `quit`; gegen echtes
+Zoom nicht gemessen).
 
 ### Veröffentlichen
 
 Das Tag `zoom-bridge-v<v>` löst **keinen** CI-Bau aus: `.github/workflows/suite-release.yml`
 nimmt `zoom-bridge-v` aus (wie `connect-v`) — es gibt kein `apps/zoom-bridge`,
 und die Zoom-/NDI-SDKs fehlen auf GitHub-Runnern. Das Release wird von Hand
-angelegt (`gh release create zoom-bridge-v<v> --prerelease`, **nur** das
-öffentliche ZIP hochladen). Der Launcher wählt Releases über das Präfix
+angelegt — **nur** das öffentliche ZIP, mit ausgeschriebenem Dateinamen:
+
+```powershell
+gh release create zoom-bridge-v0.1.0 --prerelease --title "JM Zoom Bridge 0.1.0 (Projekttest)" `
+  "packages\zoom-bridge\release\JM-Zoom-Bridge-0.1.0-win-x64.zip"
+```
+
+Das Komplett-ZIP aus `release\NICHT-VEROEFFENTLICHEN\` geht **nur direkt** an den
+Projekt-PC. Der Launcher wählt Releases über das Präfix
 `<app>-v` eines Katalog-Tools (`apps/launcher/src/main/release-source.ts`,
 `services/release-proxy/worker.js`); `zoom-bridge` ist kein Katalog-Tool und kein
 Präfix eines solchen — das Tag wird dort nicht als Fassung eines Tools gelesen.
+
+### Offen (Owner-Entscheidung, nicht im Code lösbar)
+
+- **NDI-SDK-Lizenz §3d** verlangt, dass ein Produkt mit der NDI-Laufzeit unter
+  einem Lizenzvertrag weitergegeben wird, der u. a. Änderungen und Reverse
+  Engineering untersagt und Gewährleistung und Haftung **von NDI** ausschließt
+  (`NDI SDK License Agreement.pdf`, Seite 4). Das Einsatzpaket legt nur den
+  Lizenztext der Laufzeit bei, einen solchen Vertrag hat es nicht — **wie die
+  ganze Suite** (`apps/connect` hat auch keinen; `apps/ndi-screen-capture/docs/phase1-native-ndi-windows.md`
+  §9 führt es offen). Ein Rechtstext gehört vom Owner entschieden, nicht vom Bau
+  geschrieben.
+- **Die Zoom-DLLs**: Weitergabe-Lizenz weiter ungeklärt (Stage 4) — darum zwei ZIPs.
+- **Signatur**: `zoom-join.exe` und `zoom-bridge.exe` sind nicht signiert; Smart
+  App Control oder ein Virenschutz können sie blockieren. Das Start-Skript meldet
+  das jetzt in Klartext.
