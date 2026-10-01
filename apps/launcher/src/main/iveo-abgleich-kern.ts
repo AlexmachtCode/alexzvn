@@ -219,11 +219,11 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     d.log.info('iveo-Abgleich wieder in Ordnung.');
     d.meldeStatus(status);
   }
-  function statusGestoert(text: string): void {
+  function statusGestoert(text: string, roh?: string): void {
     if (!status.ok && status.text === text) return;
     // „seit“ = Beginn der Störung; ein neuer Text innerhalb derselben Störung behält ihn.
     status = { ok: false, text, seit: status.ok ? d.jetztIso() : status.seit };
-    d.log.warn(`iveo-Abgleich gestört: ${text}`);
+    d.log.warn(`iveo-Abgleich gestört: ${text}${roh && roh !== text ? ` [${roh}]` : ''}`);
     d.meldeStatus(status);
   }
 
@@ -272,6 +272,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     generation++;
     offenePfad = pfad;
     active = null;
+    // Die Störung der vorigen Show gehört nicht zu dieser: still zurücksetzen, die Meldungen folgen unten.
+    status = { ok: true };
     const binding = show.iveo;
     if (!binding?.event) {
       statusOk();
@@ -327,7 +329,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       else await abfrageListe(client, a, gen);
     } catch (e) {
       // Netz, 5xx, 429, 401: der Takt läuft weiter, Zustand „gestört“ (7.6). Eine veraltete Abfrage zählt nicht.
-      if (istAktuell(a, gen)) statusGestoert(stoerungsText(e));
+      if (istAktuell(a, gen)) statusGestoert(stoerungsText(e), (e as Error)?.message);
     } finally {
       abfrageLaeuft = false;
     }
@@ -407,11 +409,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       ];
       let speakerNames: Array<[string, string]> | undefined;
       if (ids.length) {
-        try {
-          speakerNames = [...speakerNameMap(await client.listSpeakers(a.event))];
-        } catch {
-          /* Speakerliste nicht ladbar → owner bleibt leer, kein Fehler */
-        }
+        // Scheitert die Speakerliste, bricht die Abfrage ab (wie getProgram): sonst entstünde ein Ablauf ohne „Verantwortlich“.
+        speakerNames = [...speakerNameMap(await client.listSpeakers(a.event))];
       }
       ctx = {
         firstStartMs: localTimeOfDayMs(detail),

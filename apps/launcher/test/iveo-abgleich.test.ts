@@ -244,6 +244,7 @@ interface Umgebung {
   info: string[];
   warn: string[];
   clients: string[];
+  cache: unknown[];
 }
 /** Show-Datei anlegen, Kern bauen, Show öffnen (wie onShowOpened). */
 function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boolean } = {}): Umgebung {
@@ -263,6 +264,7 @@ function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boole
     info: [],
     warn: [],
     clients: [],
+    cache: [],
   };
   u.kern = erzeugeKern({
     clientFabrik: (token, baseUrl) => {
@@ -289,7 +291,7 @@ function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boole
       u.reloads.push(`${appId} ${zeile}`);
       return u.antworten[appId];
     },
-    schreibeCache: () => {},
+    schreibeCache: (meta) => { u.cache.push(meta); },
     log: { info: (m) => u.info.push(m), warn: (m) => u.warn.push(m) },
     jetztIso: () => new Date((uhr += 1000)).toISOString(),
     meldeStatus: (s) => u.status.push({ ...s }),
@@ -354,6 +356,9 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
   ck('Nr. 2: Gegenprobe: echte Änderung → geschrieben und RELOAD',
     u.schreibversuche === 1 && u.reloads.length === 3 && datei(u).ablauf?.[1]?.label === 'Side Event Wasser und Meer');
   ck('Nr. 2: … die Datei trägt die iveo-Programm-IDs als Kennungen', ids(datei(u)) === 'P1,P2,P3');
+  ck('Nr. 2: … nach dem Schreiben steht das Token weder in Show-Datei, Cache, Status noch Log (der Cache wurde geschrieben)',
+    u.cache.length >= 1 && ![...u.dateien.values()].some((t) => t.includes(TOKEN)) && !JSON.stringify(u.cache).includes(TOKEN)
+    && !JSON.stringify(u.status).includes(TOKEN) && ![...u.info, ...u.warn].some((z) => z.includes(TOKEN)));
   ck('Nr. 2: … Filter, Speaker und Side-Event-Liste bleiben in der Bindung',
     datei(u).iveo?.filter?.day === TAG && datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva' && datei(u).iveo?.sideEvents?.length === 2);
 }
@@ -375,7 +380,10 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
   u.iveo.fehler.agenda = new IveoApiError(503, 'unavailable', 'iveo HTTP 503 @ /events [HTTP 503]');
   await u.kern.abfrage();
   ck('Nr. 3: anderer Fehlertext → neue Meldung und Warnung, „seit“ bleibt',
-    u.status.length === 2 && u.status[1].text !== 'fetch failed' && u.status[1].seit === st.seit && gestoertWarnungen() === 2);
+    u.status.length === 2 && u.status[1].text === 'iveo-Server-Fehler (HTTP 503) — vorübergehend oder serverseitiger Bug. Bitte an den iveo-Entwickler melden (Details im Launcher-Log).'
+    && u.status[1].seit === st.seit && gestoertWarnungen() === 2);
+  ck('Nr. 3: … die Warnung trägt die Rohmeldung (Pfad, HTTP-Status), der Statustext sie nicht',
+    u.warn.some((w) => w.includes('@ /events') && w.includes('HTTP 503')) && !u.status[1].text?.includes('@ /events'));
   delete u.iveo.fehler.agenda;
   await u.kern.abfrage();
   ck('Nr. 3: danach Erfolg → ok, der neue Stand ist geschrieben',
@@ -396,6 +404,69 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
   const a = datei(u).ablauf ?? [];
   ck('Nr. 4: nächster Versuch klappt → mit Startzeit-Anker und Kategorie geschrieben',
     u.schreibversuche === 1 && a.length === 2 && a[0].plannedStartMs === localTimeOfDayMs(u.iveo.programme[0]) && a[0].category === 'side-event');
+}
+
+// --- 7.6 / Spec 0 Nr. 1: Speakerliste nicht ladbar → wie getProgram: abbrechen, nichts schreiben, Kontext nicht merken -----
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = u.iveo.agenda.P1.map((p, i) => (i === 0 ? { ...p, speaker_id: 'sp1' } as IveoAgendaItem : p));
+  u.iveo.fehler.speakers = new Error('speakers kaputt');
+  await u.kern.abfrage();
+  ck('Speaker: listSpeakers scheitert → nichts geschrieben, kein RELOAD (kein Ablauf ohne „Verantwortlich“)',
+    u.schreibversuche === 0 && u.reloads.length === 0);
+  ck('Speaker: … Zustand gestört mit dem Fehlertext', u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'speakers kaputt');
+  delete u.iveo.fehler.speakers;
+  await u.kern.abfrage();
+  ck('Speaker: danach Erfolg → ok, „Verantwortlich“ steht in der Datei (der Kontext war nicht gemerkt)',
+    u.status.at(-1)?.ok === true && u.schreibversuche === 1 && u.reloads.length === 3 && datei(u).ablauf?.[0]?.owner === 'Ana Silva');
+}
+
+// --- 7.3 / kern:330: eine veraltete Abfrage, die WIRFT, setzt keinen Status -----------------------------------------
+{
+  const u = umgebung(agendaP1);
+  const s = sperre();
+  u.iveo.sperre = (abruf) => (abruf === 'agenda' ? s.halt : null);
+  const lauf = u.kern.abfrage();
+  const tag2 = 'C:/Shows/COP31 Tag 2.jmshow';
+  u.dateien.set(tag2, serializeShow({ schemaVersion: 1, name: 'COP31 Tag 2', tools: [] }));
+  u.kern.showGeoeffnet(tag2, datei(u, tag2));
+  u.iveo.fehler.agenda = new Error('fetch failed');
+  s.frei();
+  await lauf;
+  ck('7.3: veraltete Abfrage wirft → kein Status, keine Warnung', u.status.length === 0 && u.warn.length === 0);
+}
+
+// --- 7.6: Show-Datei nicht lesbar → gestört, nichts geschrieben, kein RELOAD ---------------------------------------
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = u.iveo.agenda.P1.slice(0, 2);
+  u.dateien.delete(SHOW_PFAD);
+  await u.kern.abfrage();
+  ck('Datei nicht lesbar (Agenda-Modus): gestört „Show-Datei nicht lesbar“, nichts geschrieben, kein RELOAD',
+    u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'Show-Datei nicht lesbar' && u.schreibversuche === 0 && u.reloads.length === 0);
+
+  const v = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  v.iveo.geaendert = [v.iveo.programme[1]];
+  v.iveo.programme[1] = { ...v.iveo.programme[1], title: 'Side Event Wasser und Meer' };
+  v.dateien.delete(SHOW_PFAD);
+  await v.kern.abfrage();
+  await v.kern.abfrage();
+  const seit = v.iveo.abrufe.filter((x) => x.startsWith('geaendert:'));
+  ck('Datei nicht lesbar (Listen-Modus): gestört, nichts geschrieben, kein RELOAD',
+    v.status.at(-1)?.text === 'Show-Datei nicht lesbar' && v.schreibversuche === 0 && v.reloads.length === 0);
+  ck('Datei nicht lesbar (Listen-Modus): lastSyncIso rückt nicht vor (zweite Abfrage fragt dasselbe Fenster)',
+    seit.length === 2 && seit[0] === seit[1]);
+}
+
+// --- Show-Wechsel nimmt die Störung der vorigen Show nicht mit (setzeAuf) ----------------------------------------
+{
+  const u = umgebung(agendaP1, { ohneToken: true });
+  const erste = u.status.at(-1);
+  const b = 'C:/Shows/COP31 Tag 2.jmshow';
+  u.dateien.set(b, serializeShow(agendaP1(u.iveo)));
+  u.kern.showGeoeffnet(b, datei(u, b));
+  ck('Show-Wechsel A gestört → B ohne Token: neue Meldung mit neuem „seit“ (nicht das von A)',
+    u.status.length === 2 && u.status[1].ok === false && u.status[1].text === erste?.text && u.status[1].seit !== erste?.seit);
 }
 
 // --- 9.6 Nr. 5: leere Agenda → 1-Punkt-Ablauf; gleich gebunden und abgefragt → kein Schein-„geändert“ -------------
@@ -420,6 +491,8 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
   await u.kern.abfrage();
   ck('Nr. 6: HTTP 401 → Text „Token ungültig oder widerrufen“', u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'Token ungültig oder widerrufen');
   ck('Nr. 6: … das Token steht nirgends im Log', ![...u.info, ...u.warn].some((z) => z.includes(TOKEN)));
+  ck('Nr. 6: … und nicht in Status, Show-Datei und Cache',
+    !JSON.stringify(u.status).includes(TOKEN) && ![...u.dateien.values()].some((t) => t.includes(TOKEN)) && !JSON.stringify(u.cache).includes(TOKEN));
   const v = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
   v.iveo.fehler.geaendert = new IveoApiError(401, 'unauthorized', 'iveo HTTP 401 @ /events/cop31/programs [HTTP 401]');
   await v.kern.abfrage();
