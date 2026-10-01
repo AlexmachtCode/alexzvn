@@ -17,6 +17,8 @@
     "selftest": "node --experimental-strip-types test/selftest.ts",
     "delay-test": "cmake --build build --config Release --target delay-line-test && build\\Release\\delay-line-test.exe",
     "join": "node test/join.mjs",
+    "release:build": "node scripts/build-release.mjs",
+    "release:komplett": "node scripts/build-release.mjs --komplett",
     "ndi-probe": "node test/ndi-probe.mjs",
     "command-probe": "node test/command-probe.mjs",
     "video-limit": "node test/video-limit.mjs",

@@ -1,0 +1,149 @@
+﻿JM ZOOM BRIDGE – LIESMICH
+=========================
+
+Was ist das?
+------------
+Die JM Zoom Bridge holt Teilnehmer aus einem Zoom-Meeting als einzelne
+NDI-Quellen ins Netz: je Person ein eigenes Bild mit eigenem Ton. Im
+Bildmischer (JM Switcher, vMix, OBS mit NDI, NDI-Monitor …) erscheinen sie als
+
+    JM Connect – Zoom <Name>
+
+(Der Rechnername steht davor in Klammern – das macht NDI selbst.)
+
+Es wird nichts aufgezeichnet und keine Datei geschrieben. Bild und Ton gehen
+nur als NDI ins Netz.
+
+
+Voraussetzungen
+---------------
+- Windows 10 oder 11, 64 Bit.
+- Ein Zoom-Meeting im eigenen Zoom-Konto. Wir sind Gastgeber – oder der
+  Gastgeber erteilt uns im Meeting die Aufnahme-Erlaubnis (Zoom fragt ihn
+  danach, sobald die Bridge beitritt).
+- Die Zugangsdaten-Datei (JSON mit clientId und clientSecret der
+  "Meeting SDK"-App). Sie liegt NICHT im Paket und gehört nicht in fremde
+  Hände.
+- Nur beim öffentlichen Paket (ohne "KOMPLETT" im Namen): die Zoom-Dateien
+  fehlen aus Lizenzgründen. Einmalig den GESAMTEN Inhalt des Ordners
+      <Zoom-SDK>\x64\bin
+  (mit den Unterordnern) in den Ordner "bin" dieses Pakets kopieren – dorthin,
+  wo schon zoom-bridge.exe liegt. Alternativ die Umgebungsvariable
+  ZOOM_SDK_DIR auf den entpackten Zoom-SDK-Ordner setzen.
+  Beim KOMPLETT-Paket ist das schon erledigt.
+
+Den Ordner an einen festen Platz entpacken (Leerzeichen im Pfad sind kein
+Problem). Node oder andere Programme braucht es nicht.
+
+
+Bedienung Schritt für Schritt
+-----------------------------
+1. Doppelklick auf "Zoom-Bridge starten.cmd".
+2. Fragen beantworten. Vorgaben in [Klammern] übernimmt Enter.
+   - Zugangsdaten-Datei: Pfad zur JSON-Datei (wird gemerkt).
+   - Modus: [1] Meeting beitreten, [2] nur Zugangsdaten prüfen.
+     Tipp: vor der Veranstaltung einmal [2] – das prüft die Anmeldung bei
+     Zoom, ohne einem Meeting beizutreten.
+   - Meeting-Nummer (Leerzeichen erlaubt) und Kenncode (wird nicht angezeigt).
+     Beides wird NICHT gespeichert.
+   - Anzeigename: so heißt die Bridge im Meeting (Vorgabe "JM Connect").
+   - Bild-Versatz in ms: siehe unten. Vorgabe ist der zuletzt benutzte Wert.
+3. Die Bridge tritt bei und zeigt die Teilnehmerliste:
+
+       Teilnehmer (3):
+         16778240  Anna  Rolle attendee
+         …
+
+   Die Zahl links ist die Kennung. Sie gilt nur für DIESES Meeting.
+4. Wenn Zoom fragt: im Zoom-Client die Aufnahme erlauben. Es erscheint
+   "Rohdaten-Erlaubnis: JA".
+5. Personen abonnieren: "+" und die Kennung tippen, Enter. Kurz danach ist die
+   NDI-Quelle da.
+6. Zum Schluss "ende" tippen und Enter. Die Bridge verlässt das Meeting
+   sauber. (Strg+C geht auch.) Endet das Meeting, beendet sich die Bridge
+   von selbst.
+
+
+Befehle im Lauf (tippen, dann Enter)
+------------------------------------
+  <Zahl>         Bild-Versatz in ms für ALLE Zoom-Quellen, 0 bis 1000.
+  +<Kennung>     Bild und Ton dieser Person als NDI-Quelle abonnieren.
+  +<Kennung> stumm
+                 nur Bild, ohne Ton.
+  -<Kennung>     dieses Abo beenden. Achtung: "-" heißt abbestellen –
+                 einen negativen Versatz gibt es nicht.
+  liste          Teilnehmer und laufende Abos anzeigen.
+  ende           Meeting verlassen und beenden.
+  hilfe  oder ?  alle Befehle anzeigen.
+
+Tritt jemand während des Laufs bei, steht darunter gleich der passende
+Befehl ("abonnieren mit +<Kennung>").
+
+
+Bild-Versatz einstellen (Klatschtest)
+-------------------------------------
+Zoom liefert den Ton später als das Bild. Die Bridge hält darum das Bild um
+einen einstellbaren Wert zurück. Der richtige Wert muss vor Ort gemessen
+werden:
+
+- KOPFHÖRER benutzen, am echten Empfang abhören (Bildmischer bzw.
+  NDI-Monitor). Über Lautsprecher im selben Raum hallt der Ton im Kreis, dann
+  misst man den Raum statt der Technik.
+- Eine Person klatscht scharf vor ihrer Kamera, dreimal.
+- Ton kommt hinterher  -> Zahl größer tippen (z. B. 400, Enter).
+  Bild kommt hinterher -> Zahl kleiner tippen.
+  Erst in 50er-, dann in 20er-Schritten, bis Knall und Hände zusammenfallen.
+- Jede Eingabe bestätigt die Bridge mit "Bild-Versatz: <n> ms (von der Bridge
+  bestaetigt …)". Nur diese bestätigte Zahl gilt.
+- Beim Ändern friert das Bild kurz ein oder springt – darum VOR der Sendung
+  einstellen, nicht währenddessen.
+- Der zuletzt bestätigte Wert wird gemerkt und beim nächsten Start
+  vorgeschlagen. Bitte den Wert notieren und an das Entwicklungsteam geben.
+
+
+Rückgabewerte (stehen am Ende als ERGEBNIS da)
+----------------------------------------------
+  0  Im Meeting gewesen, Aufnahme-Erlaubnis war erteilt.
+     (Bei "nur Zugangsdaten prüfen": Anmeldung hat geklappt.)
+  1  Abgebrochen, bevor es losging: Zugangsdaten falsch oder abgelehnt,
+     Zoom-Dateien fehlen im Ordner bin, Meeting-Nummer unlesbar …
+  3  Im Meeting gewesen, aber OHNE Aufnahme-Erlaubnis – kein Bild, kein Ton.
+  4  Nicht ins Meeting gekommen (Nummer, Kenncode, Meeting läuft nicht,
+     nicht aus dem Warteraum eingelassen).
+
+
+Typische Meldungen
+------------------
+  ...HasRawdataLicense()=false   (in einer [zoom-bridge]-Zeile)
+      KEIN Fehler. Ein Überbleibsel von Zoom; alles funktioniert trotzdem.
+      Nicht danach suchen.
+  FEHLER bei video: VIDEO_BAD_DELAY
+      Der eingetippte Versatz war keine ganze Zahl von 0 bis 1000 (z. B.
+      "4.5"). Der alte Wert gilt weiter.
+  FEHLER bei audio: AUDIO_VOIP_JOIN_FAILED
+      Die Bridge kam nicht in den Tonkanal des Meetings. Ohne ihn gibt es
+      keinen Ton. Meeting neu betreten; tritt es wieder auf, melden.
+  Kein Abo gesendet: die Rohdaten-Erlaubnis fehlt noch
+      Der Gastgeber muss im Zoom-Client die Aufnahme erlauben.
+  … steht nicht in der Teilnehmerliste
+      Tippfehler oder eine Kennung aus einem früheren Meeting – "liste"
+      zeigt die aktuellen.
+  ACHTUNG: das wird das 6. gleichzeitige Abo
+      Geprüft sind 5 Personen gleichzeitig. Mehr kann gehen, ist aber nicht
+      erprobt.
+  Die Zoom-Laufzeitdateien fehlen
+      Öffentliches Paket: Inhalt von <Zoom-SDK>\x64\bin nach bin kopieren
+      (siehe Voraussetzungen).
+
+
+Grenzen
+-------
+- Kein Tally, kein Rückweg (IFB/Talkback) und kein Mix-Minus je Person.
+- Erprobt sind 5 gleichzeitige Abos.
+- Kein Bildschirm-Teilen-Ton, kein Mischton, kein Dolmetscherkanal.
+- Bricht die Verbindung ab, verbindet sich die Bridge nicht von selbst neu –
+  neu starten.
+
+
+NDI® ist ein eingetragenes Warenzeichen der Vizrt NDI AB.
+https://ndi.video/ – Lizenztexte im Ordner LIZENZEN.
