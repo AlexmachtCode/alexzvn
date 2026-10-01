@@ -272,11 +272,18 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     generation++;
     offenePfad = pfad;
     active = null;
-    // Die Störung der vorigen Show gehört nicht zu dieser: still zurücksetzen, die Meldungen folgen unten.
+    // Die Störung der vorigen Show gehört nicht zu dieser: zurücksetzen. War sie der UI gemeldet und folgt
+    // unten keine neue, geht „wieder in Ordnung“ hinaus (sonst bliebe die Statuszeile auf A's Störung stehen).
+    const vorher = status;
     status = { ok: true };
+    const nachStoerungOk = (): void => {
+      if (vorher.ok) return;
+      d.log.info('iveo-Abgleich wieder in Ordnung.');
+      d.meldeStatus(status);
+    };
     const binding = show.iveo;
     if (!binding?.event) {
-      statusOk();
+      nachStoerungOk();
       return null;
     }
     if (!d.token(binding.event)) {
@@ -292,7 +299,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       filter: { ...(binding.filter ?? {}) },
       lastSig: ablaufSignatur(show.ablauf ?? [], binding.speakers ?? []),
     };
-    statusOk();
+    nachStoerungOk();
     d.log.info(`iveo: Live-Abgleich für Event „${binding.event}“ aktiv.`);
     return active;
   }

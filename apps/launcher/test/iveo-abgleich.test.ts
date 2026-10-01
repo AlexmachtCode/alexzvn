@@ -469,6 +469,21 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
     u.status.length === 2 && u.status[1].ok === false && u.status[1].text === erste?.text && u.status[1].seit !== erste?.seit);
 }
 
+{
+  const ohne = { schemaVersion: 1, name: 'Ohne iveo', tools: [], ablauf: [{ id: 'x1', label: 'Begrüßung' }] };
+  const u = umgebung(agendaP1, { ohneToken: true });
+  const b = 'C:/Shows/Ohne iveo.jmshow';
+  u.dateien.set(b, serializeShow(ohne as Show));
+  u.kern.showGeoeffnet(b, datei(u, b));
+  ck('Show-Wechsel A gestört → B ohne iveo: UI bekommt „wieder in Ordnung“', u.status.length === 2 && u.status[1].ok === true);
+  const v = umgebung(agendaP1, { ohneToken: true });
+  v.token = TOKEN;
+  const c = 'C:/Shows/COP31 Tag 3.jmshow';
+  v.dateien.set(c, serializeShow(agendaP1(v.iveo)));
+  v.kern.showGeoeffnet(c, datei(v, c));
+  ck('Show-Wechsel A gestört → B mit Token: UI bekommt „wieder in Ordnung“', v.status.length === 2 && v.status[1].ok === true);
+}
+
 // --- 9.6 Nr. 5: leere Agenda → 1-Punkt-Ablauf; gleich gebunden und abgefragt → kein Schein-„geändert“ -------------
 {
   const u = umgebung(agendaP1);
