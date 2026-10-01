@@ -5,8 +5,9 @@ import { app } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { newId } from '@shared/conductor';
+import { migrate as migrateFormat } from '@shared/doc-format';
 import type { ShowAblaufItem } from '@jm/show';
-import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
+import type { RundownAction, RundownDoc } from '@shared/types';
 
 function autosavePath(): string {
   return join(app.getPath('userData'), 'rundown.autosave.jmrundown');
@@ -22,7 +23,7 @@ export function defaultDoc(): RundownDoc {
     enabled: true,
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     name: 'Neuer Ablauf',
     rows: [
       { id: newId('r'), label: 'Opener', actions: [a('timer', 'start'), a('titler', 'take')] },
@@ -36,42 +37,14 @@ export function defaultDoc(): RundownDoc {
   };
 }
 
-function normAction(raw: unknown): RundownAction {
-  const o = (raw ?? {}) as Partial<RundownAction>;
-  const delay = typeof o.delayMs === 'number' && Number.isFinite(o.delayMs) ? Math.max(0, Math.trunc(o.delayMs)) : 0;
-  return {
-    id: typeof o.id === 'string' ? o.id : newId('a'),
-    role: typeof o.role === 'string' ? o.role : 'timer',
-    verb: typeof o.verb === 'string' ? o.verb : 'start',
-    args: Array.isArray(o.args) ? o.args.filter((x) => typeof x === 'string' || typeof x === 'number') : [],
-    enabled: o.enabled !== false,
-    // Optionales Feld nur setzen, wenn >0 — hält cookbook-/Doc-JSON schlank und
-    // alte Dateien (ohne delayMs) verhalten sich unverändert.
-    ...(delay > 0 ? { delayMs: delay } : {}),
-  };
-}
-
-function normRow(raw: unknown): RundownRow {
-  const o = (raw ?? {}) as Partial<RundownRow>;
-  const duration = typeof o.durationMs === 'number' && Number.isFinite(o.durationMs) ? Math.max(0, Math.trunc(o.durationMs)) : 0;
-  return {
-    id: typeof o.id === 'string' ? o.id : newId('r'),
-    label: typeof o.label === 'string' ? o.label : 'Zeile',
-    note: typeof o.note === 'string' ? o.note : undefined,
-    actions: Array.isArray(o.actions) ? o.actions.map(normAction) : [],
-    // Optionales Feld nur bei >0 setzen — alte Dateien bleiben unverändert.
-    ...(duration > 0 ? { durationMs: duration } : {}),
-  };
-}
-
-/** Beliebiges JSON tolerant in ein valides RundownDoc überführen. */
+/**
+ * Beliebiges JSON tolerant in ein valides RundownDoc überführen. Die Regeln des
+ * Dateiformats (Version 1 → `zuordnungOffen`, Version 2 mit quelle/entfallen/
+ * kontext/archiv) stehen rein in `@shared/doc-format` und sind dort per
+ * Selbsttest geprüft; hier kommt nur der ID-Geber `newId` dazu.
+ */
 export function migrate(raw: unknown): RundownDoc {
-  const o = (raw ?? {}) as Partial<RundownDoc>;
-  return {
-    schemaVersion: 1,
-    name: typeof o.name === 'string' ? o.name : 'Ablauf',
-    rows: Array.isArray(o.rows) ? o.rows.map(normRow) : [],
-  };
+  return migrateFormat(raw, newId);
 }
 
 /**
@@ -82,7 +55,8 @@ export function migrate(raw: unknown): RundownDoc {
  * werden, statt in jedem Tool separat.
  */
 export function docFromAblauf(name: string, items: ShowAblaufItem[]): RundownDoc {
-  return migrate({ name: name || 'Ablauf', rows: items.map((it) => ({ ...it, actions: [] })) });
+  // Als Version 2 einlesen: Zeilen aus dem Show-Ablauf brauchen keine Titel-Zuordnung (4.9).
+  return migrate({ schemaVersion: 2, name: name || 'Ablauf', rows: items.map((it) => ({ ...it, actions: [] })) });
 }
 
 export function readDoc(path: string): RundownDoc {

@@ -23,6 +23,12 @@ export interface RundownAction {
    * So lassen sich Multi-Aktionen einer Zeile zeitlich staffeln.
    */
   delayMs?: number;
+  /**
+   * Schlüssel des Ablaufpunkts, auf den ein `timer goto` zielt (Master-Link 2a,
+   * Spec 6.2). Gesetzt nur durch die Auswahl im Editor oder „an diesen Punkt
+   * binden“; der Main rechnet daraus erst beim Senden die Nummer aus.
+   */
+  zielId?: string;
 }
 
 /** Eine Zeile/Segment im Ablaufplan. */
@@ -38,13 +44,29 @@ export interface RundownRow {
    * damit ein Ablauf zwischen Rundown und Timer synchron bleibt. 0/undefined = ohne.
    */
   durationMs?: number;
+  /**
+   * 'ablauf' = Ablaufzeile: stammt aus dem Show-Ablauf, `id` ist der Schlüssel
+   * des Ablaufpunkts (Master-Link 2a, Spec 4.1). Fehlt = eigene Zeile.
+   */
+  quelle?: 'ablauf';
+  /**
+   * Nur bei quelle 'ablauf': der Punkt fehlt im aktuellen Ablauf, die Zeile
+   * bleibt wegen ihrer Aktionen stehen (R5). Entfallene Zeilen feuern nie.
+   */
+  entfallen?: true;
 }
 
-/** Das Rundown-Dokument (Speicherformat `.jmrundown`). */
+/** Das Rundown-Dokument (Speicherformat `.jmrundown`, Autosave, Gedächtnis). */
 export interface RundownDoc {
-  schemaVersion: 1;
+  schemaVersion: 2;
   name: string;
   rows: RundownRow[];
+  /** Kontext der aktuellen rows (Spec 4.4). Fehlt bei Dokumenten, die nie mit einer Show abgeglichen wurden. */
+  kontext?: string;
+  /** Zeilen anderer Kontexte derselben Show, je Kontext. */
+  archiv?: Record<string, RundownRow[]>;
+  /** true = Version-1-Dokument, dessen einmalige Titel-Zuordnung (Spec 4.9) noch aussteht. */
+  zuordnungOffen?: true;
 }
 
 /** Navigationsbefehl (vom UI oder später vom RUNDOWN-Steuerserver). */
