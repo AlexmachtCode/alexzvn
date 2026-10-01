@@ -800,7 +800,7 @@ Keiner dieser Tests darf Electron laden. Die Zeitgrenze bleibt 15 min.
 `apps/rundown/ABNAHME-2a.md`, je Schritt mit Ergebnisspalte.
 
 **Voraussetzungen:**
-- Ein eigenes, **unveröffentlichtes Test-Side-Event** im Prod-Event mit mindestens drei Agenda-Punkten. Die Schritte 4, 5 und 7 ändern dessen Agenda. Am Ende wird der Ausgangszustand wiederhergestellt.
+- Ein eigenes, **unveröffentlichtes Test-Side-Event** im Prod-Event mit mindestens drei Agenda-Punkten. Die Schritte 5, 6 und 8 ändern dessen Agenda. Am Ende wird der Ausgangszustand wiederhergestellt.
 - Das echte iveo-Token wird **nie** in iveo widerrufen. Es gilt org-weit, ein Widerruf legt alle Events und Rechner der Org lahm.
 
 | # | Schritt | Erwartung |
