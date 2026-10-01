@@ -84,6 +84,43 @@ Sekunden wieder (Vorgabe 60, Strg+C beendet früher). Optional: `ZOOM_DISPLAY_NA
 (Vorgabe `JM Connect`), `ZOOM_VIDEO_SUBSCRIBE` (kommagetrennte Kennungen) und
 `ZOOM_AUDIO_OFF` (Teilmenge davon, abonniert mit `audio:false` — Bild ohne Ton).
 
+Die Logik dahinter steht seit dem Einsatzpaket (01.10.2026) in
+`cli/steuerung.mjs` — dieselbe, die im Paket als `zoom-join.exe` läuft
+(Abschnitt 10). `test/join.mjs` legt nur fest, was den Prüfstand unterscheidet:
+`zoom-bridge.exe` aus `build/Release`, die Zoom-DLLs aus `%ZOOM_SDK_DIR%\x64\bin`,
+feste Laufdauer.
+
+**Live-Befehle während des Laufs** (Zeile tippen + Enter, ohne `readline`, damit
+Strg+C ein SIGINT bleibt):
+
+| Eingabe | Wirkung |
+| --- | --- |
+| `<Zahl>` | Bild-Versatz in ms für alle Zoom-Quellen (`videoDelay`). Die **Bridge** prüft 0–1000/ganzzahlig — `4.5` erreicht sie und kommt als `VIDEO_BAD_DELAY` zurück (Drehbuch A3 e). |
+| `+<id>` | Bild **und** Ton dieser Kennung abonnieren (720p, Feld `audio` weggelassen = Vorgabefall des Protokolls). |
+| `+<id> stumm` | dasselbe mit `audio:false`. |
+| `-<id>` | Abo beenden (`videoUnsubscribe`). ⚑ **Bewusste Änderung:** `-<Zahl>` war bis dahin ein (ungültiger) negativer Versatz und heißt jetzt abbestellen. |
+| `liste` | Teilnehmer (Format wie der Teilnehmer-Block, samt „(das sind wir)" und `persistentId`-Hinweis), laufende Abos, bestätigter Versatz. |
+| `ende` | wie Strg+C: Meeting verlassen, sauber beenden. |
+| `hilfe` / `?` | Befehlsübersicht. Eine kurze Fassung steht einmal unter dem ersten Teilnehmer-Block. |
+
+Vor dem Senden eines `+<id>` wird geprüft, was die Bridge sonst mit einer
+irreführenden Meldung beantworten würde: **fehlt die Rohdaten-Erlaubnis**, geht
+nichts raus, sondern die Erklärung, dass der Gastgeber sie im Zoom-Client erteilen
+muss (eine Zeitfrage soll nicht als `VIDEO_NO_PRIVILEGE` erscheinen); eine
+**unbekannte Kennung** (nicht im Teilnehmerzustand) wird gemeldet und nicht
+gesendet; ab dem **6. gleichzeitigen Abo** kommt eine Warnung (gemessen sind 5),
+gesendet wird trotzdem. Tritt jemand während des Laufs bei, steht unter der
+`+ Name (id)`-Zeile `abonnieren mit +<id>`.
+
+**Nur anmelden:** `ZOOM_NUR_ANMELDEN=1` macht nur `init` + `auth`, druckt
+SDK-Fassung und Anmeldeergebnis und beendet sauber — **ohne Beitritt**, ohne
+Meeting-Nummer. Rückgabe `0` bei `AUTHRET_SUCCESS`, `1` bei Ablehnung oder
+Zeitüberschreitung. So lässt sich die Einrichtung gegen das echte Zoom prüfen,
+ohne einem Meeting beizutreten; im Einsatzpaket heißt das „nur Zugangsdaten
+prüfen". (Hier wird enger gewartet als beim Beitritt: nur auf die
+Anmelde-Antwort oder das Ende der Bridge — ein `NDI_INIT_FAILED` soll in diesem
+Modus nicht als „Anmeldung nicht durchgekommen" erscheinen.)
+
 ➜ **Für die noch offenen Abnahmepunkte von Stage 3 gibt es ein Drehbuch:**
 [`ABNAHME-STAGE3.md`](ABNAHME-STAGE3.md). Es ordnet die sechs offenen Punkte so,
 dass ein Meeting reicht, nennt zu jedem die erwarteten Zeilen und sagt, woran ein
@@ -655,6 +692,13 @@ Abo-Ende belegt (Review 30.09.2026).
 Anteil am Bild-Ton-Versatz". Mit Versatz nennt sie ihn und sagt ausdrücklich,
 dass die Zahl dann **nicht** unser Anteil ist — das Bild wartet ja absichtlich.
 
+**Stand 01.10.2026 — Klatschtest bestanden, Wert offen.** Der Owner hat den
+Klatschtest (ABNAHME-STAGE3.md, A3) am 01.10.2026 als **bestanden** gemeldet. Der
+dabei eingestellte Wert wurde **nicht notiert**. Er wird im Projekttest mit dem
+Pre-Release `zoom-bridge-v0.1.0` nachgemessen (die Start-EXE merkt sich den
+zuletzt bestätigten Wert, Abschnitt 10) und **dann hier eingetragen**. Bis dahin
+gibt es keinen belegten Vorgabewert — auch keinen geschätzten.
+
 **Geprüft ohne Meeting:** `npm run delay-test` (die Warteschlange mit
 eingespeister Uhr, 44 Prüfungen) und `npm run delay-probe` (die Antworten der
 echten `.exe` auf zwölf Befehlszeilen; die Obergrenze liest es aus
@@ -782,19 +826,142 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
   ausschließlich über das **Pro-Teilnehmer-Abo**
   (`IZoomSDKRenderer::subscribe`, Abschnitt 7), nie über einen Meeting-weiten
   Mitschnitt.
-- **Keine Anbindung an `apps/connect`.** `test/join.mjs`/`test/video-limit.mjs`
-  sind die einzigen Aufrufer — kein UI, kein Operator-Workflow.
+- **Keine Anbindung an `apps/connect`.** Aufrufer sind `test/join.mjs`/
+  `test/video-limit.mjs` und — seit dem Einsatzpaket (Abschnitt 10) — die
+  Konsolen-Start-EXE `zoom-join.exe` mit Start-Skript. Kein UI.
 - **Kein Wiederbeitritt der Bridge selbst.** Bricht die Verbindung ab, endet die
   Bridge; sie verbindet sich nicht von selbst neu. (Ein **einzelnes Video-Abo**
   überlebt dagegen einen Wiederbeitritt **desselben Teilnehmers** — siehe
   Abschnitt 7.)
-- **Kein Bündeln der Zoom-/NDI-DLLs.** Beide müssen zur Laufzeit im `PATH`
-  stehen, und sie kommen aus **verschiedenen Händen**: `%ZOOM_SDK_DIR%\x64\bin`
-  setzt der Aufrufer (`test/join.mjs`, `test/video-limit.mjs` und die Prüfstände
-  tun das für den eigenen Lauf selbst), das Verzeichnis der **NDI-Laufzeit**
-  setzt `Bridge.start()` selbst (`src/ndi-path.ts`) — dort, weil kein Aufrufer
-  es vergessen darf. Eine Auslieferungs-/Lizenzfrage bleibt für Stage 4 offen.
+- **Kein Bündeln der Zoom-/NDI-DLLs — außer im Einsatzpaket.** Im Repo müssen
+  beide zur Laufzeit im `PATH` stehen, und sie kommen aus **verschiedenen
+  Händen**: `%ZOOM_SDK_DIR%\x64\bin` setzt der Aufrufer (`test/join.mjs`,
+  `test/video-limit.mjs` und die Prüfstände tun das für den eigenen Lauf
+  selbst), das Verzeichnis der **NDI-Laufzeit** setzt `Bridge.start()` selbst
+  (`src/ndi-path.ts`) — dort, weil kein Aufrufer es vergessen darf. Das
+  Einsatzpaket (Abschnitt 10) legt die NDI-Laufzeit neben `zoom-bridge.exe`;
+  die Zoom-DLLs liegen nur im **privaten** Komplett-Paket bei. Die
+  Weitergabe-Lizenz der Zoom-DLLs ist weiterhin **ungeklärt** (Stage 4).
 
 Die vier Ton-Punkte oben sind **ausdrücklich nicht** vorgesehen (Spec Abschnitt 10),
 keine spätere Stage — der Rest ist Stage 4 (`docs/roadmap.md`): Integration +
 Release.
+
+## 10 · Einsatzpaket (Release)
+
+**Warum es das gibt:** Die Bridge muss in einem echten Projekt getestet werden,
+bevor Stage 4 sie in JM Connect einbaut (Owner, 01.10.2026). Dafür wird sie
+**einmal einzeln** als Pre-Release `zoom-bridge-v0.1.0` veröffentlicht (Fassung
+aus `package.json`). Auf dem Projekt-PC ist **kein Node** installiert — darum
+eine eigene Start-EXE und ein Start-Skript statt `npm run join`.
+
+### Bauen
+
+```powershell
+$env:ZOOM_SDK_DIR = "<Pfad zum entpackten Zoom-Meeting-SDK>"
+$env:NDI_SDK_DIR  = "C:\Program Files\NDI\NDI 6 SDK"
+npm run rebuild          -w @jm/zoom-bridge   # zoom-bridge.exe frisch aus dem aktuellen Stand
+npm run release:build    -w @jm/zoom-bridge   # nur das öffentliche ZIP
+npm run release:komplett -w @jm/zoom-bridge   # zusätzlich das private Komplett-ZIP
+```
+
+`scripts/build-release.mjs` bricht ab, wenn `build\Release\zoom-bridge.exe`
+**älter** ist als eine Datei in `native\` oder `CMakeLists.txt` — ein Paket mit
+alter `.exe` sähe aus wie der neue Stand. Die Quellen der Textdateien liegen in
+`paket\` (die Wurzel-`.gitignore` ignoriert **jeden** Ordner namens `release`),
+das Ergebnis in `release\` (ignoriert, so gewollt).
+
+### Die zwei ZIPs
+
+| | `JM-Zoom-Bridge-<v>-win-x64.zip` | `JM-Zoom-Bridge-<v>-win-x64-KOMPLETT-NICHT-VEROEFFENTLICHEN.zip` |
+| --- | --- | --- |
+| Wohin | **öffentliches** GitHub-Release | **nie** veröffentlichen — nur direkt an den Projekt-PC |
+| `Zoom-Bridge starten.cmd`, `start.ps1`, `zoom-join.exe`, `LIESMICH.txt` | ✅ | ✅ |
+| `bin\zoom-bridge.exe`, `bin\Processing.NDI.Lib.x64.dll` | ✅ | ✅ |
+| `LIZENZEN\Processing.NDI.Lib.Licenses.txt` | ✅ | ✅ |
+| kompletter Inhalt von `<Zoom-SDK>\x64\bin` (rekursiv, 153 Dateien) in `bin\` | ❌ | ✅ |
+| `LIZENZEN\OSS-LICENSE.pdf` (aus dem Zoom-SDK) | ❌ | ✅ |
+
+**Warum die Zoom-DLLs nicht ins öffentliche Paket gehören:** Das Repo ist
+öffentlich, und ob Zooms Laufzeit-DLLs weitergegeben werden dürfen, ist
+**ungeklärt**. Darum ein **Wächter** im Bau: enthält das öffentliche Paket eine
+Datei, deren Name in `<Zoom-SDK>\x64\bin` vorkommt, bricht der Bau ab — geprüft
+gegen die **echte** Liste, wenn `ZOOM_SDK_DIR` gesetzt ist, sonst gegen eine feste
+Liste der 152 Namen aus SDK 7.1.5.43953; ein zweites Mal am **fertigen** ZIP. Die
+NDI-Laufzeit darf hinein: die Suite liefert genau diese DLL schon in ihren
+öffentlichen Installern mit (`apps/connect`), der Lizenztext liegt bei. Wer das
+öffentliche Paket benutzt, kopiert einmal den Inhalt von `<Zoom-SDK>\x64\bin`
+nach `bin\` — oder setzt `ZOOM_SDK_DIR`.
+
+### Die Start-EXE `zoom-join.exe`
+
+`cli/zoom-join.mjs` → `cli/steuerung.mjs` (dieselbe Steuerung wie `test/join.mjs`,
+Abschnitt 4) → per esbuild **eine** CommonJS-Datei → Node **Single Executable
+Application** (Node 24, `--experimental-sea-config` + `postject`, Signatur von
+`node.exe` vorher mit `signtool remove /s` entfernt). Rund 92 MB, weil Node
+darin steckt. Zwei Stellen, die ohne Messung falsch gewesen wären:
+
+- **`import.meta.url` gibt es in CommonJS nicht.** `src/bridge.ts` ruft beim
+  **Laden** `fileURLToPath(import.meta.url)` — esbuild setzte `{}` ein, und die
+  EXE stürbe vor der ersten Zeile. Der Bau ersetzt es durch die URL von
+  `__filename`; in einer Single Executable Application ist `__filename` die EXE
+  selbst (gemessen, Node 24.16).
+- **Wo liegt die Bridge?** `dirname(process.execPath)` ist der Paketordner;
+  `zoom-bridge.exe` liegt in `bin\`. Die Zoom-DLLs (`cli/laufzeit.mjs`): liegt
+  `bin\sdk.dll` vor → dieses `bin` vorn auf den PATH des Kindes; sonst
+  `%ZOOM_SDK_DIR%\x64\bin` (muss `sdk.dll` enthalten); sonst Rückgabe `1` mit
+  beiden Auswegen — **bevor** das Kind startet, denn ohne `sdk.dll` stirbt es mit
+  `STATUS_DLL_NOT_FOUND`, ohne eine Zeile zu schreiben (Abschnitt 8). Die
+  NDI-Laufzeit liegt neben `zoom-bridge.exe`, wo der Windows-Lader zuerst sucht;
+  `withNdiRuntimeOnPath` bleibt als Rückfall.
+
+Die EXE läuft **bis `ende`, Strg+C oder Meeting-Ende** (Endlos-Lauf; beendet sie
+sich bei Meeting-Ende, ist der Rückgabewert wie bisher `canRecordRaw ? 0 : 3`).
+Mit `ZOOM_JOIN_SECONDS` läuft sie wie der Prüfstand eine feste Zeit. Am Ende
+schreibt sie den zuletzt **bestätigten** Bild-Versatz in `ZOOM_VERSATZ_DATEI`,
+falls gesetzt — so schlägt das Start-Skript den im Projekt nachgestellten Wert
+beim nächsten Start vor.
+
+### Das Start-Skript
+
+`Zoom-Bridge starten.cmd` (reines ASCII) ruft `powershell -NoProfile
+-ExecutionPolicy Bypass -File start.ps1`. `start.ps1` (Windows PowerShell 5.1,
+UTF-8 **mit** BOM — ohne BOM liest 5.1 die Datei in der ANSI-Codepage und
+zerlegt die Umlaute; der Bau prüft den BOM) fragt ab: Zugangsdaten-Datei
+(geprüft: existiert, gültiges JSON, Client-ID- und Secret-Schlüssel vorhanden —
+**ohne** einen Wert zu zeigen; auch die Fehlermeldung von `ConvertFrom-Json` wird
+nicht gezeigt, weil sie Inhalt zitiert), Modus (Meeting beitreten / nur
+Zugangsdaten prüfen), Meeting-Nummer, Kenncode (verdeckt), Anzeigename,
+Bild-Versatz. In `%APPDATA%\JM Zoom Bridge\einstellungen.json` stehen danach
+**nur** Zugangsdaten-Pfad, Anzeigename und Versatz — **nie** Meeting-Nummer oder
+Kenncode. Es entfernt `ZOOM_SDK_CLIENT_ID`/`_SECRET` aus der Umgebung, startet
+`zoom-join.exe` im selben Fenster und deutet danach den Rückgabewert in Klartext.
+`-OhneFragen` nimmt alle Werte aus der Umgebung (für automatische Prüfungen).
+
+### Geprüft am 01.10.2026 — und was nicht
+
+Geprüft (ohne einem Meeting beizutreten): die Steuerung samt Live-Befehlen,
+Nur-Anmelden, Endlos-Lauf mit Meeting-Ende gegen die Attrappe
+(`npm run selftest`); beide ZIPs in einen frischen Ordner **mit Leerzeichen** im
+Pfad entpackt, `PATH` ohne Node: das öffentliche ohne `ZOOM_SDK_DIR` → Rückgabe
+`1` mit Meldung; mit `ZOOM_SDK_DIR` und `ZOOM_NUR_ANMELDEN=1` → `SDK: 7.1.5
+(43953)`, `AUTHRET_SUCCESS`, Rückgabe `0`; das Komplett-Paket ohne `ZOOM_SDK_DIR`
+ebenso `0`, danach kein `zoom-bridge.exe`/`zoom-join.exe` mehr im Speicher;
+`start.ps1 -OhneFragen` im Komplett-Ordner → Klartext-Deutung, Rückgabe `0`,
+`einstellungen.json` ohne Meeting-Nummer und Kenncode.
+
+**Nicht** geprüft: ein **Beitritt** mit `zoom-join.exe` (das ist der
+Projekttest), Strg+C im Start-Skript (Windows fragt danach unter Umständen
+„Batchvorgang abbrechen (J/N)?" — darum ist `ende` der empfohlene Weg), und die
+interaktiven Fragen von `start.ps1` (nur `-OhneFragen` lief automatisch).
+
+### Veröffentlichen
+
+Das Tag `zoom-bridge-v<v>` löst **keinen** CI-Bau aus: `.github/workflows/suite-release.yml`
+nimmt `zoom-bridge-v` aus (wie `connect-v`) — es gibt kein `apps/zoom-bridge`,
+und die Zoom-/NDI-SDKs fehlen auf GitHub-Runnern. Das Release wird von Hand
+angelegt (`gh release create zoom-bridge-v<v> --prerelease`, **nur** das
+öffentliche ZIP hochladen). Der Launcher wählt Releases über das Präfix
+`<app>-v` eines Katalog-Tools (`apps/launcher/src/main/release-source.ts`,
+`services/release-proxy/worker.js`); `zoom-bridge` ist kein Katalog-Tool und kein
+Präfix eines solchen — das Tag wird dort nicht als Fassung eines Tools gelesen.

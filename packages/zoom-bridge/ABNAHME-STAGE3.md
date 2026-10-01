@@ -20,6 +20,14 @@ ausrichtbar. **Abhilfe gebaut: ein einstellbarer Bild-Versatz** (Befehl `videoDe
 für alle Zoom-Quellen). Die Abnahme dafür steht in [A3](#a3--punkt-5--lippensynchronität) und
 braucht ein **eigenes, kurzes** Meeting — die übrigen sieben Punkte sind durch.
 
+**Stand 01.10.2026 — 8 von 8, mit einem Vorbehalt:** Punkt 5 (Klatschtest, A3) hat der Owner am
+01.10.2026 als **bestanden** gemeldet. Der dabei eingestellte Bild-Versatz wurde **nicht notiert**
+— es gibt also noch **keinen** Vorgabewert für Connect, und keiner wird hier geschätzt. Er wird im
+Projekttest mit dem Pre-Release **`zoom-bridge-v0.1.0`** nachgemessen (Einsatzpaket, README
+Abschnitt 10: die Start-EXE merkt sich den zuletzt bestätigten Wert) und dann in README Abschnitt 7
+(„Die Abhilfe: Bild-Versatz") und in `docs/roadmap.md` eingetragen. Ebenfalls weiter offen: der
+Nebenpunkt Pegel.
+
 ⛑ **Auf dem Weg dorthin fiel ein Absturz auf**, der seit Stage 2 im Meeting-Ende steckte und
 unsichtbar war, weil der Rückgabewert des Kindprozesses nie angezeigt wurde. Behoben. Siehe
 [README Abschnitt 8](README.md).
@@ -172,6 +180,19 @@ wenn beide gleich puffern.
 **Bestanden** ist Punkt 5, wenn b) einen Wert ergibt, bei dem Klatschen synchron ist, und c)
 bis f) ohne Abweichung durchlaufen. Den Wert in [README Abschnitt 8](README.md) und in
 `docs/roadmap.md` nachtragen.
+
+> **Ergebnis 01.10.2026:** vom Owner als **bestanden** gemeldet — **der Wert wurde nicht
+> notiert.** Nachtragen also erst nach dem Projekttest mit `zoom-bridge-v0.1.0`. Der Verweis oben
+> auf „README Abschnitt 8" stimmt nicht mehr: der Bild-Versatz steht in README **Abschnitt 7**
+> („Die Abhilfe: Bild-Versatz"), dort ist die Stelle für den Wert markiert.
+>
+> **Im Einsatzpaket** (README Abschnitt 10) geht das Nachstellen genauso — Zahl tippen, Enter —
+> und **seit dem Paket lassen sich im laufenden Lauf auch Abos dazunehmen** (`+<id>`,
+> `+<id> stumm`, `-<id>`; Schritt d) braucht dafür keinen Neustart mehr, ein Neustart ist als
+> Gegenprobe aber weiterhin sinnvoll). ⚑ `-<Zahl>` heißt seitdem **abbestellen**, nicht
+> „negativer Versatz". `4.5` erreicht die Bridge weiterhin und wird dort als `VIDEO_BAD_DELAY`
+> abgewiesen (Schritt e) gilt unverändert). Am Ende schreibt die Start-EXE den zuletzt
+> **bestätigten** Wert weg, und das Start-Skript schlägt ihn beim nächsten Start vor.
 
 ### A4 · Punkt 2 — Stummschalten und Aufheben
 
