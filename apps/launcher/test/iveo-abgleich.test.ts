@@ -608,6 +608,157 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
   ck('7.2: … danach stabil', u.schreibversuche === 1 && u.reloads.length === 3);
 }
 
+// --- Umschalten: Side Event, 1-Punkt, Tagesübersicht (Spec 7.2) ------------------------------------------------
+{
+  const u = umgebung((iv) => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA]));
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Umschalten auf ein Side Event: ok, RELOAD an alle drei, Panel benachrichtigt',
+    r.ok && u.schreibversuche === 1 && u.reloads.length === 3 && u.aktivMeldungen === 2);
+  ck('… Meldung nennt die fehlende Speaker-Verknüpfung',
+    r.message === 'Umgeschaltet — iveo verknüpft keine Speaker mit diesem Side Event — bestehende Speakerliste bleibt.');
+  ck('… Datei: Agenda von P2 mit Kennungen, Filter P2, Tag und Speaker bleiben',
+    ids(datei(u)) === 'b1,b2' && datei(u).iveo?.filter?.programId === 'P2' && datei(u).iveo?.filter?.day === TAG
+    && datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva');
+  ck('… aktiv() zeigt das neue Side Event', u.kern.aktiv()?.filter.programId === 'P2');
+  await u.kern.abfrage();
+  ck('… die nächste Abfrage findet denselben Stand: nichts geschrieben (lastSig gesetzt, Kontext gemerkt)',
+    u.schreibversuche === 1 && u.reloads.length === 3 && !u.iveo.abrufe.slice(2).includes('programm:P2'));
+}
+{
+  const u = umgebung(agendaP1);
+  const r = await u.kern.umschalten({ programId: 'P3' }); // P3 hat keine Agenda
+  const a = datei(u).ablauf ?? [];
+  ck('Umschalten auf ein Side Event ohne Agenda → 1 Punkt mit Programm-ID, ohne Bühnennamen (Spec 7.2)',
+    r.ok && a.length === 1 && a[0].id === 'P3' && a[0].note === undefined);
+  await u.kern.abfrage();
+  ck('… danach kein Schein-„geändert“', u.schreibversuche === 1 && u.reloads.length === 3);
+}
+{
+  const u = umgebung(agendaP1);
+  const r = await u.kern.umschalten({ day: '2026-11-11' });
+  ck('Tagesübersicht: ok, Filter ohne Side Event, neuer Tag',
+    r.ok && u.kern.aktiv()?.filter.programId === undefined && u.kern.aktiv()?.filter.day === '2026-11-11');
+  ck('… Datei: die Side Events dieses Tages, Bindung ohne programId', ids(datei(u)) === 'P4' && datei(u).iveo?.filter?.programId === undefined);
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  const seit = u.iveo.abrufe.filter((x) => x.startsWith('geaendert:')).map((x) => x.slice('geaendert:'.length));
+  const snap = u.iveo.abrufe.find((x) => x.startsWith('snapshot:'))?.slice('snapshot:'.length) ?? '(kein Snapshot)';
+  ck('… die nächste Listen-Abfrage fragt ab dem Umschalt-Snapshot ab und schreibt nichts', seit[0] === snap && u.schreibversuche === 1);
+}
+
+// --- Umschalten: Fehler (Spec 7.6, 7.2) ---------------------------------------------------------------------------
+{
+  const u = umgebung(agendaP1);
+  u.iveo.fehler.agenda = new Error('fetch failed');
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('7.6: Agenda nicht abrufbar → Umschalten scheitert mit „Agenda von iveo nicht abrufbar, bitte erneut versuchen“',
+    !r.ok && r.message === 'Agenda von iveo nicht abrufbar, bitte erneut versuchen');
+  ck('7.6: … nichts geschrieben, kein RELOAD, Filter unverändert',
+    u.schreibversuche === 0 && u.reloads.length === 0 && u.kern.aktiv()?.filter.programId === 'P1');
+}
+{
+  const u = umgebung(agendaP1);
+  u.schreibFehler = true;
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('7.2: Schreiben scheitert beim Umschalten → ok:false „Show konnte nicht geschrieben werden“',
+    !r.ok && r.message === 'Show konnte nicht geschrieben werden');
+  ck('7.2: … Merker nicht vorgerückt (Filter P1), kein RELOAD', u.kern.aktiv()?.filter.programId === 'P1' && u.reloads.length === 0);
+  u.schreibFehler = false;
+  await u.kern.abfrage();
+  ck('7.2: … die nächste Abfrage läuft weiter auf P1 und findet den Stand der Datei', u.schreibversuche === 1 && u.iveo.abrufe.includes('agenda:P1'));
+}
+{
+  const u = umgebung(agendaP1, { ohneToken: true });
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Umschalten ohne Token → abgelehnt wie bisher',
+    !r.ok && r.message === 'Kein iveo-Token für die offene Show — Live-Umschalten nicht möglich.' && u.clients.length === 0);
+}
+
+// --- 9.6 Nr. 8 und 7.3: Umschalten während laufender Abfrage; Umschaltungen nacheinander --------------------------
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = u.iveo.agenda.P1.slice(0, 2); // die Abfrage hätte etwas zu schreiben
+  const s = sperre();
+  u.iveo.sperre = (abruf, arg) => (abruf === 'agenda' && arg === 'P1' ? s.halt : null);
+  const abfrage = u.kern.abfrage();
+  const r = await Promise.race([u.kern.umschalten({ programId: 'P2' }), warteMs(1000).then(() => null)]);
+  ck('Nr. 8: Umschalten während laufender Abfrage → wartet nicht, gelingt', r !== null && r.ok);
+  s.frei();
+  await abfrage;
+  ck('Nr. 8: … die Abfrage verwirft ihr Ergebnis: nur das Umschalten hat geschrieben',
+    u.schreibversuche === 1 && u.reloads.length === 3 && ids(datei(u)) === 'b1,b2' && datei(u).iveo?.filter?.programId === 'P2');
+}
+{
+  const u = umgebung(agendaP1);
+  const s = sperre();
+  u.iveo.sperre = (abruf, arg) => (abruf === 'agenda' && arg === 'P2' ? s.halt : null);
+  const erstes = u.kern.umschalten({ programId: 'P2' });
+  const zweites = u.kern.umschalten({ programId: 'P3' });
+  await warteMs(20);
+  ck('7.3: Umschaltungen laufen nacheinander (das zweite wartet auf das erste)', !u.iveo.abrufe.includes('programm:P3'));
+  await u.kern.abfrage();
+  ck('7.3: während eines Umschaltens startet keine Abfrage', !u.iveo.abrufe.includes('agenda:P1'));
+  s.frei();
+  const [r1, r2] = await Promise.all([erstes, zweites]);
+  ck('7.3: … beide gelingen, am Ende gilt das zweite',
+    r1.ok && r2.ok && u.kern.aktiv()?.filter.programId === 'P3' && datei(u).iveo?.filter?.programId === 'P3');
+}
+{
+  const u = umgebung(agendaP1);
+  const s = sperre();
+  u.iveo.sperre = (abruf, arg) => (abruf === 'agenda' && arg === 'P2' ? s.halt : null);
+  const lauf = u.kern.umschalten({ programId: 'P2' });
+  await warteMs(20);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  s.frei();
+  const r = await lauf;
+  ck('7.3: die Show wird gespeichert, während ein Umschalten läuft → Umschalten verworfen, nichts geschrieben',
+    !r.ok && u.schreibversuche === 0 && u.kern.aktiv()?.filter.programId === 'P1');
+}
+
+// --- 9.6 Nr. 13: Speichern der offenen Show im Editor (Spec 7.5) ---------------------------------------------------
+{
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  // Der Show-Editor bindet neu an Side Event P2 und speichert (synchron); dann meldet die Hülle es dem Kern.
+  u.dateien.set(SHOW_PFAD, serializeShow(showMit(agendaAblauf(u.iveo, 'P2'), { day: TAG, programId: 'P2' })));
+  u.kern.offeneShowGespeichert(SHOW_PFAD, true);
+  ck('Nr. 13: Speichern der offenen Show → RELOAD an Timer, Titler und Rundown mit der Logzeile aus 7.1',
+    u.reloads.length === 3 && u.info.includes('iveo: RELOAD → 1 Timer, 1 Titler, 1 Rundown benachrichtigt.'));
+  ck('Nr. 13: … active neu aufgesetzt (neuer Filter), Panel benachrichtigt', u.kern.aktiv()?.filter.programId === 'P2' && u.aktivMeldungen === 2);
+  await u.kern.abfrage();
+  ck('Nr. 13: bei neuer Bindung nutzt die nächste Abfrage den neuen Filter (Agenda von P2)',
+    u.iveo.abrufe.includes('agenda:P2') && !u.iveo.abrufe.some((x) => x.startsWith('geaendert:')));
+  ck('Nr. 13: … und schreibt nichts (lastSig aus der gespeicherten Datei)', u.schreibversuche === 0);
+}
+{
+  const u = umgebung(agendaP1);
+  await u.kern.abfrage(); // Kontext geladen
+  u.dateien.set(SHOW_PFAD, serializeShow({ ...datei(u), name: 'COP31 Tag 1 (umbenannt)' }));
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  await u.kern.abfrage();
+  ck('7.5: gleiche Bindung gespeichert → Side-Event-Kontext bleibt (kein zweiter Detail-Abruf), nichts geschrieben',
+    u.iveo.abrufe.filter((x) => x === 'programm:P1').length === 1 && u.schreibversuche === 0 && u.reloads.length === 3);
+}
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = u.iveo.agenda.P1.slice(0, 2);
+  const s = sperre();
+  u.iveo.sperre = (abruf) => (abruf === 'agenda' ? s.halt : null);
+  const lauf = u.kern.abfrage();
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  s.frei();
+  await lauf;
+  ck('7.5: Speichern während einer Abfrage → die Abfrage verwirft ihr Ergebnis (Generation)', u.schreibversuche === 0);
+}
+{
+  const u = umgebung(() => ({ schemaVersion: 1, name: 'Ohne iveo', tools: [], ablauf: [{ id: 'x1', label: 'Begrüßung' }] }));
+  u.kern.offeneShowGespeichert('C:/Shows/Andere.jmshow', false);
+  ck('7.5: eine ANDERE Show gespeichert → kein RELOAD', u.reloads.length === 0);
+  u.kern.offeneShowGespeichert(SHOW_PFAD.toUpperCase(), false);
+  ck('Spec 0.2: offene Show ohne iveo gespeichert (Pfad in anderer Schreibweise) → RELOAD an alle drei',
+    u.reloads.length === 3 && u.kern.aktiv() === null);
+}
+
 // --- Zusammenfassung ---
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

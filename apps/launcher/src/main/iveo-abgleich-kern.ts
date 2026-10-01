@@ -12,6 +12,7 @@
 // Status, Show oder Cache.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { resolve } from 'node:path';
 import { normalizeAblauf, type Show, type ShowAblaufItem, type ShowIveoSpeaker } from '@jm/show';
 import {
   IveoApiError,
@@ -25,6 +26,8 @@ import {
   programsToAblauf,
   snapshotToShowSpeakers,
   speakerName,
+  speakersToShowSpeakers,
+  type IveoAgendaItem,
   type IveoClient,
   type IveoProgram,
   type IveoProgramFilter,
@@ -88,6 +91,9 @@ const TEXT_KEIN_TOKEN = 'kein iveo-Token auf diesem Rechner, nur Offline-Ablauf'
 /** Spec 7.2 (Umschalten); derselbe Text, wenn eine Abfrage nicht schreiben kann. */
 const TEXT_NICHT_GESCHRIEBEN = 'Show konnte nicht geschrieben werden';
 const TEXT_SHOW_NICHT_LESBAR = 'Show-Datei nicht lesbar';
+/** Spec 7.6 (Umschalten), wortgleich. */
+const TEXT_AGENDA_NICHT_ABRUFBAR = 'Agenda von iveo nicht abrufbar, bitte erneut versuchen';
+const TEXT_UMSCHALTEN_VERWORFEN = 'Show wurde inzwischen gewechselt oder gespeichert, Umschalten verworfen.';
 
 // ── Reine Helfer (aus iveo-sync.ts hierher gezogen; die Hülle importiert sie für Binden/Discover) ──────────
 
@@ -179,6 +185,11 @@ export function einPunktAblauf(programm: IveoProgram, namen?: Map<string, string
   return programToAblaufItem(programm, { withSchedule: true, speakerNamesById: namen });
 }
 
+/** Windows: Groß-/Kleinschreibung im Pfad zählt nicht (gleiche Regel wie der Gedächtnis-Schlüssel, Spec 4.7). */
+function pfadSchluessel(p: string): string {
+  return resolve(p).toLowerCase();
+}
+
 type SideKontext = { firstStartMs: number | null; category?: string; speakerNames?: Array<[string, string]> };
 
 interface AktiveShow {
@@ -206,6 +217,10 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   /** Steigt bei Öffnen, Schließen, Umschalten und Speichern der offenen Show (7.3). */
   let generation = 0;
   let abfrageLaeuft = false;
+  /** Während eines Umschaltens startet der Takt keine Abfrage — sie rechnete noch mit dem alten Filter. */
+  let umschaltenLaeuft = false;
+  /** Umschaltungen laufen nacheinander (7.3). */
+  let kette: Promise<unknown> = Promise.resolve();
   let status: IveoSyncStatus = { ok: true };
 
   /** 7.3: Ergebnis gilt nur, wenn Show UND Generation noch dieselben sind wie beim Start. */
@@ -317,8 +332,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   }
 
   async function abfrage(): Promise<void> {
-    // 7.3: Abfragen laufen nacheinander. Läuft noch eine, startet der Takt keine zweite.
-    if (abfrageLaeuft) return;
+    // 7.3: Abfragen laufen nacheinander. Läuft noch eine (oder ein Umschalten), startet der Takt keine zweite.
+    if (abfrageLaeuft || umschaltenLaeuft) return;
     const a = active;
     if (!a) return;
     const gen = generation;
@@ -470,14 +485,173 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     benachrichtigeAlle();
   }
 
-  /** Umschalten (Spec 7.2, 7.3, 7.6). Aufgabe A14 ersetzt diesen Platzhalter. */
-  async function umschalten(_input: { programId?: string; day?: string }): Promise<{ ok: boolean; message: string }> {
-    return { ok: false, message: 'noch nicht verdrahtet' };
+  /**
+   * Ein Side Event leichtgewichtig auflösen (früher resolveSideEventLight): Detail + Agenda, KEIN voller Snapshot.
+   * Spec 7.6: Scheitert die Agenda, scheitert das Umschalten (null) — nie ein Ersatz-Ablauf aus dem Detail.
+   * Speaker werden nur neu eingegrenzt, wenn iveo eine Verknüpfung liefert; sonst bleibt die Liste der Datei.
+   */
+  async function loeseSideEventLeicht(
+    client: IveoClientLike,
+    event: string,
+    programId: string,
+    ersatzSpeakers: ShowIveoSpeaker[],
+  ): Promise<{ ablauf: ShowAblaufItem[]; speakers: ShowIveoSpeaker[]; warning?: string; sideCtx?: SideKontext } | null> {
+    const detail = await client.getProgram(event, programId).catch((e: unknown) => {
+      d.log.warn(`iveo switch: Detail „${programId}" nicht abrufbar (${(e as Error).message}).`);
+      return null;
+    });
+    let agenda: IveoAgendaItem[];
+    try {
+      agenda = await client.listAgendaItems(event, programId);
+    } catch (e) {
+      d.log.warn(`iveo switch: agenda-items „${programId}" nicht abrufbar (${(e as Error).message}).`);
+      return null;
+    }
+    const ids = [
+      ...new Set<string>([...extractSpeakerIds(detail), ...agenda.flatMap((it) => extractSpeakerIds(it))]),
+    ];
+    let speakers = ersatzSpeakers;
+    let warning: string | undefined;
+    // Namensquelle für „Verantwortlich“: nur die volle Speakerliste trägt ids. Ohne Verknüpfung bleibt owner leer.
+    let namen: Map<string, string> | undefined;
+    if (ids.length) {
+      try {
+        const alle = await client.listSpeakers(event);
+        speakers = speakersToShowSpeakers(alle.filter((s) => ids.includes(s.id)));
+        namen = speakerNameMap(alle);
+        d.log.info(`iveo switch: ${ids.length} Speaker verknüpft, ${speakers.length} aufgelöst.`);
+      } catch {
+        /* Speakerliste nicht ladbar → Ersatzliste bleibt, owner bleibt leer */
+      }
+    } else {
+      if (detail) d.log.info(`iveo switch: Programm-Detail-Felder = ${Object.keys(detail).join(', ')}`);
+      if (agenda[0]) d.log.info(`iveo switch: Agenda-Item-Felder = ${Object.keys(agenda[0]).join(', ')}`);
+      warning = 'iveo verknüpft keine Speaker mit diesem Side Event — bestehende Speakerliste bleibt.';
+    }
+    const firstStartMs = detail ? localTimeOfDayMs(detail) : null;
+    const category = ((detail?.format_slug || detail?.type_slug) || '').trim() || undefined;
+    let ablauf = agendaToAblauf(agenda, { firstStartMs, category, speakerNamesById: namen });
+    if (!ablauf.length && detail) ablauf = [einPunktAblauf(detail, namen)];
+    d.log.info(
+      `iveo: Side Event „${detail?.title?.trim() || programId}" — Agenda-Punkte: ${agenda.length}` +
+        `${agenda.length ? '' : ' (keine → Programm als 1 Punkt)'}.`,
+    );
+    return {
+      ablauf,
+      speakers,
+      warning,
+      // Ohne Detail keinen Kontext merken: die nächste Abfrage lädt ihn nach (7.6) und trägt Startzeit/Kategorie nach.
+      sideCtx: detail ? { firstStartMs, category, speakerNames: namen ? [...namen] : undefined } : undefined,
+    };
   }
 
-  /** Speichern der offenen Show im Show-Editor (Spec 7.5). Aufgabe A14 ersetzt diesen Platzhalter. */
-  function offeneShowGespeichert(_pfad: string, _neuGebunden: boolean): void {
-    /* Platzhalter, siehe A14 */
+  /**
+   * Ein Umschalten (früher switchSideEvent). Generation + 1: eine laufende Abfrage verwirft ihr Ergebnis, das
+   * Umschalten wartet NICHT auf sie (7.3) — so bleibt `LAUNCHER SIDEEVENT` per Rundown-GO schnell, wenn iveo hängt.
+   * Merker (filter, sideCtx, lastSig, lastSyncIso) erst nach erfolgreichem Schreiben (7.2).
+   */
+  async function umschaltenJetzt(input: { programId?: string; day?: string }): Promise<{ ok: boolean; message: string }> {
+    const a = active;
+    if (!a) return { ok: false, message: 'Kein iveo-Token für die offene Show — Live-Umschalten nicht möglich.' };
+    const tok = d.token(a.event);
+    if (!tok) return { ok: false, message: 'iveo-Token nicht mehr vorhanden.' };
+    const gen = ++generation;
+    umschaltenLaeuft = true;
+    try {
+      const client = d.clientFabrik(tok, a.baseUrl);
+      const programId = input.programId?.trim();
+      let ablauf: ShowAblaufItem[];
+      let speakers: ShowIveoSpeaker[];
+      let filter: IveoProgramFilter;
+      let sideCtx: SideKontext | undefined;
+      let warning: string | undefined;
+      let name: string | undefined;
+      let lastSyncIso = a.lastSyncIso;
+      if (programId) {
+        const r = await loeseSideEventLeicht(client, a.event, programId, d.leseShow(a.path)?.iveo?.speakers ?? []);
+        if (!r) return { ok: false, message: TEXT_AGENDA_NICHT_ABRUFBAR };
+        ({ ablauf, speakers, warning, sideCtx } = r);
+        filter = { ...a.filter, programId };
+      } else {
+        // Tagesübersicht: alle Side Events des Tages (voller Snapshot nötig).
+        const day = input.day || a.filter.day;
+        const snap = await client.getEventSnapshot(a.event, d.jetztIso(), { onSubError: () => {} });
+        filter = { ...a.filter, programId: undefined, day };
+        const listPrograms = filterPrograms(snap.programs, filter);
+        ablauf = programsToAblauf(listPrograms, {
+          stagesById: new Map(snap.stages.map((s) => [s.id, s])),
+          // F3: nur bei eindeutiger Tageszugehörigkeit (s. scheduleSafeForList).
+          withSchedule: scheduleSafeForList(filter, listPrograms),
+          speakerNamesById: speakerNameMap(snap.speakers),
+        });
+        speakers = snapshotToShowSpeakers(snap);
+        name = snap.event.name;
+        lastSyncIso = snap.fetchedAt;
+        d.schreibeCache(buildShowMetadata(snap, a.baseUrl));
+      }
+      if (!ablauf.length) return { ok: false, message: 'Side Event nicht auflösbar (leerer Ablauf).' };
+      // Ab hier kein await mehr (7.3): Show inzwischen gewechselt oder gespeichert → verwerfen, nichts schreiben.
+      if (!istAktuell(a, gen)) return { ok: false, message: TEXT_UMSCHALTEN_VERWORFEN };
+      const basis = d.leseShow(a.path);
+      const geschrieben =
+        basis !== null &&
+        schreibeAblauf(a.path, basis, {
+          slug: a.event,
+          baseUrl: a.baseUrl,
+          name: name ?? (basis.iveo?.name || a.event),
+          ablauf,
+          speakers,
+          filter,
+        });
+      if (!geschrieben) return { ok: false, message: TEXT_NICHT_GESCHRIEBEN };
+      a.filter = filter;
+      a.sideCtx = sideCtx;
+      a.lastSig = ablaufSignatur(ablauf, speakers);
+      a.lastSyncIso = lastSyncIso;
+      d.log.info(`iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakers.length} Speaker.`);
+      benachrichtigeAlle();
+      d.meldeAktiv();
+      return { ok: true, message: warning ? `Umgeschaltet — ${warning}` : `Umgeschaltet (${ablauf.length} Punkte).` };
+    } catch (e) {
+      d.log.warn(`iveo switch fehlgeschlagen: ${(e as Error).message}`);
+      return { ok: false, message: toClientError(e).error };
+    } finally {
+      umschaltenLaeuft = false;
+    }
+  }
+
+  /** Umschaltungen nacheinander (7.3); ein Umschalten wartet nie auf eine Abfrage. */
+  function umschalten(input: { programId?: string; day?: string }): Promise<{ ok: boolean; message: string }> {
+    const lauf = kette.then(() => umschaltenJetzt(input));
+    kette = lauf.catch(() => {});
+    return lauf;
+  }
+
+  /**
+   * Spec 7.5: Der Show-Editor hat eine Show gespeichert. Zählt nur für die gerade offene Show (auch ohne iveo).
+   * Die Hülle ruft das SYNCHRON direkt nach dem synchronen Schreiben auf, ohne await dazwischen — sonst könnte
+   * eine laufende Abfrage die eben gespeicherte Datei noch überschreiben. Generation + 1, `active` aus der Datei
+   * neu (Filter, lastSig), RELOAD an Timer, Titler und Rundown.
+   */
+  function offeneShowGespeichert(pfad: string, neuGebunden: boolean): void {
+    if (offenePfad === null || pfadSchluessel(pfad) !== pfadSchluessel(offenePfad)) return;
+    const vorher = active;
+    const show = d.leseShow(offenePfad);
+    if (show) {
+      const neu = setzeAuf(offenePfad, show);
+      // Gleiche Bindung: Abfragefenster und Side-Event-Kontext gelten weiter. Neu gebunden: beides frisch.
+      if (neu && vorher && !neuGebunden && vorher.event === neu.event) {
+        neu.lastSyncIso = vorher.lastSyncIso;
+        if (vorher.filter.programId === neu.filter.programId) neu.sideCtx = vorher.sideCtx;
+      }
+    } else {
+      // Gerade gespeichert und doch nicht lesbar: lieber anhalten als mit dem alten Filter weiterschreiben.
+      generation++;
+      active = null;
+      statusGestoert(TEXT_SHOW_NICHT_LESBAR);
+    }
+    benachrichtigeAlle();
+    d.meldeAktiv();
   }
 
   function aktiv(): { path: string; event: string; filter: IveoProgramFilter } | null {
