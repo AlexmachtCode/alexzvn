@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Logo, cn, dragRegion, noDragRegion, isElectronMac } from '@jm/ui';
 import { useTools } from '@/store/tools';
 import { useCookbook } from '@/store/cookbook';
+import { VerbundBadge } from './VerbundBadge';
 
 export function Header() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -66,6 +67,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2" style={noDragRegion}>
+        <VerbundBadge />
         <button
           type="button"
           onClick={openShowEditor}

@@ -10,6 +10,9 @@
   "scripts": {
     "selftest": "node --experimental-strip-types test/selftest.ts"
   },
+  "dependencies": {
+    "@jm/master-link": "*"
+  },
   "peerDependencies": {
     "electron": ">=30"
   }

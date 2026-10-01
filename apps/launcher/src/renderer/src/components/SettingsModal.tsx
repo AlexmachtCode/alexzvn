@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
 import type { ControlPlaneStatus } from '@shared/types';
 import { useTools } from '@/store/tools';
+import { useVerbund } from '@/store/verbund';
 
 export function SettingsModal() {
   const open = useTools((s) => s.settingsOpen);
@@ -100,6 +101,7 @@ export function SettingsModal() {
         </div>
 
         <ControlPlaneSection />
+        <VerbundSection />
         </div>
 
         <div className="mt-4 flex shrink-0 items-center justify-end gap-3 border-t border-[var(--border)] pt-4">
@@ -271,5 +273,31 @@ function Field({
         )}
       />
     </label>
+  );
+}
+
+function VerbundSection() {
+  const closeSettings = useTools((s) => s.closeSettings);
+  const oeffne = useVerbund((s) => s.oeffne);
+  return (
+    <div className="mt-5 border-t border-[var(--border)] pt-5">
+      <p className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+        Verbund (mehrere Rechner)
+      </p>
+      <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+        Master-Modus, Rechner koppeln, Netzwerk der Suite. Ersetzt das Kopieren der control.json zwischen Rechnern.
+      </p>
+      <div className="mt-3">
+        <Button
+          variant="outline"
+          onClick={() => {
+            closeSettings();
+            oeffne();
+          }}
+        >
+          Verbund öffnen
+        </Button>
+      </div>
+    </div>
   );
 }

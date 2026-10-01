@@ -12,6 +12,7 @@ const internalPackages = [
   '@jm/discovery',
   '@jm/electron-kit',
   '@jm/iveo',
+  '@jm/master-link',
   '@jm/show',
   '@jm/suite-control-protocol',
   '@jm/suite-manifest',

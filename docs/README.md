@@ -12,3 +12,7 @@ Einstieg und Hintergründe rund um die Suite-Integration.
   Fernsteuer-Protokoll für alle Tools + generisches Bitfocus-Companion-Modul.
   *Für Entwicklung & Show-Control.* Protokoll, Server/Client, Tally-Rückkanal,
   Migrationsweg, Stand.
+- **[Verbund: die Suite auf mehreren Rechnern](suite-verbund.md)** — ein
+  Launcher ist Master, die anderen Rechner koppeln sich einmal per Code.
+  *Für Bediener.* Master einschalten, Rechner koppeln, Netzwerk der Suite,
+  feste Adresse über VLAN-Grenzen, Kopfanzeige, Firewall.

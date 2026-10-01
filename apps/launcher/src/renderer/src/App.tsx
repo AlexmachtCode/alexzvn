@@ -15,6 +15,7 @@ import { ShowEditorModal } from '@/components/ShowEditorModal';
 import { ScenarioPicker } from '@/components/ScenarioPicker';
 import { SideEventsPanel } from '@/components/SideEventsPanel';
 import { ShowLaunchOverlay } from '@/components/ShowLaunchOverlay';
+import { VerbundModal } from './components/VerbundModal';
 import { useTools } from '@/store/tools';
 
 export function App() {
@@ -62,6 +63,7 @@ export function App() {
       <CookbookModal />
       <RecipeDraftModal />
       <SystemStatusModal />
+      <VerbundModal />
       <OnboardingModal />
       <ShowEditorModal />
       <ScenarioPicker />

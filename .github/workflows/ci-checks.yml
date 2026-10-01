@@ -29,6 +29,26 @@ jobs:
       - name: tsc --noEmit (node + web)
         run: npm run typecheck --workspaces --if-present
 
+  selftests:
+    name: Selbsttests (Master-Link + Launcher)
+    runs-on: ubuntu-latest
+    # Echte Sockets und Fristen: ein hängender Test darf den Lauf nicht 6 h blockieren (Endprüfung E3).
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          # Node 22: der Launcher-Selbsttest läuft mit --experimental-strip-types (≥ 22.6).
+          node-version: 22
+      - name: Install (ohne native Postinstalls)
+        run: npm ci --ignore-scripts
+      - name: Master-Link (TLS, Kopplung, Client — echte Sockets auf 127.0.0.1)
+        run: npm run selftest -w @jm/master-link
+      - name: Launcher (reine Helfer, Kopfanzeige, Presence)
+        run: npm run selftest -w @jm/launcher
+      - name: Launcher (Verbund-Rollen Master/Slave)
+        run: npm run selftest:verbund -w @jm/launcher
+
   secret-scan:
     name: Secret-Scan (gitleaks)
     runs-on: ubuntu-latest
