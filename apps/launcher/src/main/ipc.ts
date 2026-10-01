@@ -103,7 +103,10 @@ export function registerIpc(): void {
     openShow(path, (ev) => e.sender.send('app:event', ev)),
   );
   // Show anlegen/bearbeiten: speichern + Dokument-Auswahl für die Authoring-UI.
-  ipcMain.handle('show:save', (_e, show: Show, targetPath?: string) => saveShow(show, targetPath));
+  // neuGebunden: im Editor neu an iveo gebunden → der Kern nimmt die Bindung der offenen Show auf (Spec 7.5).
+  ipcMain.handle('show:save', (_e, show: Show, targetPath?: string, neuGebunden?: boolean) =>
+    saveShow(show, targetPath, neuGebunden === true),
+  );
   ipcMain.handle('show:loadForEdit', () => loadShowForEdit());
   ipcMain.handle('show:pickDocument', () => pickShowDocument());
 
