@@ -106,8 +106,10 @@ export interface FireReport {
 /** Vollständiger Zustand, den der Renderer (und das Ausgabe-/Companion-Bild) sieht. */
 export interface RundownState {
   doc: RundownDoc;
-  /** Index der scharfen Zeile. */
+  /** Index der scharfen Zeile — aus `scharfId` errechnet (5.3), für Anzeige und STATE `cue=`. */
   index: number;
+  /** Kennung der scharfen Zeile (5.3); null bei leerem Dokument. */
+  scharfId: string | null;
   filePath: string | null;
   dirty: boolean;
   /** Vom Conductor entdeckte/verbundene Tools. */
@@ -127,6 +129,30 @@ export interface RundownState {
    * die offene Show live auf das gewählte Side Event (Ablauf=Agenda + Speaker).
    */
   iveoSideEvents: ShowIveoProgramRef[];
+  /** Änderungszähler des Dokuments (5.5); der Renderer schickt ihn als `basisRev` zurück. */
+  rev: number;
+  /** Hinweise an den Bediener (4.6); kurze entfernt der Main nach 6 s selbst. */
+  hinweise: RundownHinweis[];
+  /** Abgewiesene Änderungen (5.5); geht in die React-Schlüssel der Editor-Felder ein. */
+  abweisungen: number;
+  /** Schlüssel des normalisierten Show-Ablaufs in Reihenfolge (6.2); leer ohne Show. */
+  ablaufSchluessel: string[];
+  /** Die gemerkte Show hat eine eigene Timer-Liste (6.2: Sprünge über die Nummer). */
+  eigeneTimerListe: boolean;
+  /** Eine Show ist gemerkt (5.2) — nur dann sind Ablaufzeilen gesperrt (4.5). */
+  showGemerkt: boolean;
+  /**
+   * Texte mit „iveo“ statt „Show“ (4.5, 4.6): die gemerkte Show hat eine
+   * iveo-Bindung. Ohne gemerkte Show entscheidet der Kontext des Dokuments.
+   */
+  showMitIveo: boolean;
+}
+
+/** Ein Hinweis an den Bediener (4.6). Kurze verschwinden nach 6 s, stehende per `hinweisWeg`. */
+export interface RundownHinweis {
+  id: number;
+  text: string;
+  art: 'kurz' | 'stehend';
 }
 
 // ── Preload-API (window.jmrundown) ───────────────────────────────────────────

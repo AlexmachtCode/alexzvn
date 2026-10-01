@@ -6,7 +6,6 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { newId } from '@shared/conductor';
 import { migrate as migrateFormat } from '@shared/doc-format';
-import type { ShowAblaufItem } from '@jm/show';
 import type { RundownAction, RundownDoc } from '@shared/types';
 
 function autosavePath(): string {
@@ -45,18 +44,6 @@ export function defaultDoc(): RundownDoc {
  */
 export function migrate(raw: unknown): RundownDoc {
   return migrateFormat(raw, newId);
-}
-
-/**
- * Zentralen Show-Ablauf (#78) in ein RundownDoc überführen — jeder Programmpunkt
- * wird zu einer Zeile OHNE Aktionen (die GO-Aktionen bleiben Rundown-spezifisch
- * und ergänzt der Nutzer in Rundown). Über `migrate` normalisiert (frische IDs,
- * optionale Felder). So muss der Ablauf nur einmal zentral in der Show gepflegt
- * werden, statt in jedem Tool separat.
- */
-export function docFromAblauf(name: string, items: ShowAblaufItem[]): RundownDoc {
-  // Als Version 2 einlesen: Zeilen aus dem Show-Ablauf brauchen keine Titel-Zuordnung (4.9).
-  return migrate({ schemaVersion: 2, name: name || 'Ablauf', rows: items.map((it) => ({ ...it, actions: [] })) });
 }
 
 export function readDoc(path: string): RundownDoc {

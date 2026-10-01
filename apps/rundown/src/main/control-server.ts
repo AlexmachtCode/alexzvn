@@ -4,6 +4,9 @@
 //
 //   Client → Rundown:  RUNDOWN GO | RUNDOWN NEXT | RUNDOWN PREV |
 //                      RUNDOWN GOTO <n> | STATE?
+//                      RUNDOWN RELOAD — intern vom Launcher nach einer
+//                      iveo-Änderung (Teil 2a, Spec 5.1), wie TIMER RELOAD
+//                      nicht im Companion-Katalog
 //   Rundown → Client:  STATE ns=rundown cue=<n> total=<n> label=<titel>
 //
 // Der Zustand (doc + scharfe Zeile) lebt modul-lokal in index.ts → Callback-

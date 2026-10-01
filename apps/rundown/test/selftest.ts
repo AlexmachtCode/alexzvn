@@ -27,6 +27,10 @@ import { waehleAusgangsstand } from '../src/shared/ausgangsstand.ts';
 import type { DateiStand as A8DateiStand, GedaechtnisInhalt as A8Gedaechtnis } from '../src/shared/ausgangsstand.ts';
 import type { RundownDoc as A8Doc } from '../src/shared/types.ts';
 
+import * as hinweisModul from '../src/shared/hinweise.ts';
+import * as zeilenModul from '../src/shared/zeilen.ts';
+import * as sprungModul from '../src/shared/sprung.ts';
+
 let failed = 0;
 function eq(actual: unknown, expected: unknown, msg: string): void {
   const a = JSON.stringify(actual);
@@ -1455,6 +1459,94 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
     { quelle: 'datei', doc: docDatei, hinweisAusserhalb: false },
     '5.2: Übergangsregel nur ohne eigene Datei → Datei gilt',
   );
+}
+
+// ── A10: Hinweistexte (Spec 4.6, wortgleich) ─────────────────────────────────
+{
+  const { berichtText, scharfVerruecktText, kontextWechselText, showNichtLesbarText, abweisungText, sprungEntfallenText } =
+    hinweisModul;
+  const leer = { geaendert: 0, neu: 0, entfallen: 0, entfernt: 0, zurueck: 0, verschoben: 0, scharfVerrueckt: null };
+  eq(
+    berichtText({ geaendert: 2, neu: 1, entfallen: 1, entfernt: 0, zurueck: 1, verschoben: 2, scharfVerrueckt: null }, true),
+    'iveo: 2 geändert · 1 neu · 1 entfallen · 1 wieder da · neu sortiert',
+    'Bericht: Beispiel aus 4.6 wortgleich',
+  );
+  eq(berichtText({ ...leer, entfallen: 1, entfernt: 2 }, false), 'Show: 3 entfallen', 'Bericht ohne iveo: „Show:“, entfallen + entfernt zusammen');
+  eq(berichtText({ ...leer, neu: 3 }, true), 'iveo: 3 neu', 'Bericht: nur Teile mit Zähler > 0');
+  eq(berichtText({ ...leer, scharfVerrueckt: { von: 'A', nach: 'B' } }, true), null, 'Bericht nur mit scharfVerrueckt → kein Kurz-Hinweis');
+  eq(
+    scharfVerruecktText({ von: 'Panel', nach: 'Pause' }),
+    'Deine scharfe Zeile „Panel“ ist entfallen. Scharf ist jetzt „Pause“.',
+    'scharfVerrueckt mit Nachfolger',
+  );
+  eq(
+    scharfVerruecktText({ von: 'Panel', nach: null }),
+    'Deine scharfe Zeile „Panel“ ist entfallen. Es gibt keine Zeile mehr.',
+    'scharfVerrueckt ohne Nachfolger',
+  );
+  eq(kontextWechselText('se:p1', [{ id: 'p1', title: 'Klima-Panel' }]), 'Side Event gewechselt: Klima-Panel', 'Wechsel zu se: mit Titel');
+  eq(kontextWechselText('se:p9', []), 'Side Event gewechselt: p9', 'Wechsel zu se: ohne Titel → programId');
+  eq(kontextWechselText('liste:2026-11-12|panel||0', []), 'iveo: Programmliste 2026-11-12', 'Wechsel zu liste: mit Tag');
+  eq(kontextWechselText('liste:|||0', []), 'iveo: Programmliste alle Tage', 'Wechsel zu liste: ohne Tag');
+  eq(kontextWechselText('show', []), 'Show-Ablauf (ohne iveo)', 'Wechsel zu show');
+  eq(showNichtLesbarText('kein gültiges JSON'), 'Show nicht lesbar: kein gültiges JSON', 'Show nicht lesbar');
+  eq(
+    abweisungText(true),
+    'Gleichzeitig kam ein iveo-Abgleich. Deine letzte Änderung wurde nicht übernommen, bitte wiederholen.',
+    'Abweisung mit iveo',
+  );
+  eq(
+    abweisungText(false),
+    'Gleichzeitig kam ein Abgleich mit der Show. Deine letzte Änderung wurde nicht übernommen, bitte wiederholen.',
+    'Abweisung ohne iveo',
+  );
+  eq(sprungEntfallenText('Panel'), 'Sprung nicht gesendet: Ziel „Panel“ ist entfallen.', 'Sprung-Ziel entfallen');
+  eq(
+    hinweisModul.RELOAD_OHNE_SHOW,
+    'RELOAD empfangen, aber keine Show geladen (nicht per Show gestartet) — nichts neu eingelesen.',
+    'RELOAD ohne Show: wortgleich zur Timer-Warnung',
+  );
+  eq(hinweisModul.DATEI_AUSSERHALB, 'Rundown-Datei wurde außerhalb geändert, Datei geladen.', 'Datei außerhalb geändert');
+}
+
+// ── A10: Zeilen-Helfer im Main (5.2, 6.2) ────────────────────────────────────
+{
+  const { ablaufSchluesselAusZeilen, ersteLebendeZeile, kontextIstIveo, sendeArgs, sprungZielTitel } = zeilenModul;
+  const zeilen = [
+    { id: 'u2', label: 'Panel', quelle: 'ablauf' as const, entfallen: true as const, actions: [] },
+    { id: 'u1', label: 'Begrüßung', quelle: 'ablauf' as const, actions: [] },
+    { id: 'r1', label: 'Einspieler', actions: [] },
+  ];
+  eq(ablaufSchluesselAusZeilen(zeilen), ['u1'], 'Schlüssel aus Zeilen: nur lebende Ablaufzeilen');
+  eq(ersteLebendeZeile(zeilen), 'u1', 'erste nicht entfallene Zeile');
+  eq(ersteLebendeZeile([zeilen[0]]), null, 'nur entfallene → null');
+  eq(
+    [kontextIstIveo('se:p1'), kontextIstIveo('liste:|||0'), kontextIstIveo('show'), kontextIstIveo(undefined)],
+    [true, true, false, false],
+    'Kontext mit iveo',
+  );
+
+  // 9.1 Fall 31 im Main: fireOne ruft sendeArgs erst beim Senden, gegen den dann aktuellen Ablauf.
+  const sprung = { id: 'a9', role: 'timer', verb: 'goto', args: [2], enabled: true, zielId: 'u3' };
+  const loese = (schluessel: string[], eigeneListe: boolean) => (a: typeof sprung) =>
+    sprungModul.loeseSprungZiel(a, schluessel, eigeneListe);
+  eq(sendeArgs(sprung, loese(['u1', 'u2', 'u3'], false)), [3], 'Sprung beim GO: Stelle der zielId');
+  eq(sendeArgs(sprung, loese(['u1', 'neu', 'u2', 'u3'], false)), [4], 'Abgleich vor dem Senden → neue Nummer');
+  eq(sendeArgs(sprung, loese(['u1'], false)), null, 'Ziel entfallen → nichts senden');
+  eq(sendeArgs(sprung, loese([], false)), null, 'Show ohne Ablauf → nichts senden');
+  eq(sendeArgs(sprung, loese(['u1', 'u2', 'u3'], true)), [2], 'eigene Timer-Liste → Argumente unverändert');
+  const ohneZiel = { id: 'a7', role: 'timer', verb: 'goto', args: [], enabled: true };
+  eq(sendeArgs(ohneZiel, loese(['u1'], false)), [], 'ohne zielId und ohne Nummer → unverändert (kein NaN)');
+  const start = { id: 'a8', role: 'timer', verb: 'start', args: [], enabled: true };
+  eq(
+    sendeArgs(start, () => {
+      throw new Error('darf nicht auflösen');
+    }),
+    [],
+    'andere Aktionen: Argumente unverändert, keine Auflösung',
+  );
+  eq(sprungZielTitel(zeilen, { ...sprung, zielId: 'u2' }), 'Panel', 'Titel des Sprung-Ziels aus der Zeile');
+  eq(sprungZielTitel(zeilen, sprung), 'Punkt 2', 'Ziel ohne Zeile → „Punkt <args[0]>“');
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
