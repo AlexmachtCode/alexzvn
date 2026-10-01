@@ -4,7 +4,8 @@ Einstieg und Hintergründe rund um die Suite-Integration.
 
 - **[JM Show](jm-show.md)** — eine ganze Produktion auf einen Klick öffnen.
   *Für alle, die Shows anlegen und nutzen.* Format, Show-Editor, was jedes Tool
-  beim Öffnen lädt, Beispiel-`.jmshow`, Stolpersteine.
+  beim Öffnen lädt, Beispiel-`.jmshow`, Stolpersteine, wie der Rundown dem
+  Ablauf aus iveo folgt.
 - **[Suite-Auto-Discovery (mDNS)](suite-discovery.md)** — wie sich Quellen im
   LAN automatisch finden (kein IP-Eintippen). *Für Entwicklung & Betriebs-
   Diagnose.* Rollen/Ports, Lebenszyklus, Packaging, offene Punkte.
