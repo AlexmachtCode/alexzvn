@@ -167,6 +167,17 @@ export interface IveoSideEventsResult {
   activeProgramId?: string;
   /** Liegt hier ein Token → ist Live-Umschalten möglich? */
   canSwitch?: boolean;
+  /** Zustand des iveo-Abgleichs (Spec 7.6) — das Panel zeigt ihn beim Öffnen sofort. */
+  syncStatus?: IveoAbgleichStatus;
+}
+
+/** Zustand des iveo-Abgleichs der offenen Show (Master-Link Teil 2a, Spec 7.6). */
+export interface IveoAbgleichStatus {
+  ok: boolean;
+  /** Bei ok=false der Grund, z. B. „Token ungültig oder widerrufen“. */
+  text?: string;
+  /** ISO-Zeitpunkt, seit dem der Abgleich gestört ist. */
+  seit?: string;
 }
 
 /** Live auf ein Side Event (oder zurück auf die Tagesübersicht) umschalten. */
@@ -344,6 +355,8 @@ export type AppEvent =
   // iveo (#11): eine iveo-gebundene Show ist offen bzw. das aktive Side Event hat
   // sich geändert (Live-Umschalter/Rundown-GO) → Panel aktualisieren.
   | { type: 'iveo-active-changed'; event: string; day?: string; activeProgramId?: string; canSwitch: boolean }
+  // iveo-Abgleich (Spec 7.6): ok=false → das iveo-Panel zeigt „iveo-Abgleich gestört: <Text> (seit <Uhrzeit>)“.
+  | ({ type: 'iveo-sync-status' } & IveoAbgleichStatus)
   // Master-Link Teil 1: Rolle, Kopplung, Teilnehmer oder Client-Zustand haben sich geändert.
   | { type: 'verbund-changed' };
 
@@ -375,8 +388,10 @@ export interface JmpsApi {
   /**
    * Zusammengestellte Show als .jmshow speichern. Mit `targetPath` (Bearbeiten)
    * wird direkt an diese Datei zurückgeschrieben; ohne fragt ein Save-Dialog.
+   * `neuGebunden`: im Editor neu an iveo gebunden — ist es die offene Show, nimmt
+   * der Launcher die neue Bindung sofort auf (Spec 7.5).
    */
-  saveShow: (show: Show, targetPath?: string) => Promise<ActionResult>;
+  saveShow: (show: Show, targetPath?: string, neuGebunden?: boolean) => Promise<ActionResult>;
   /** Bestehende .jmshow zum Bearbeiten laden (Datei-Dialog) → Pfad + geparste Show. */
   loadShowForEdit: () => Promise<{ path: string; show: Show } | null>;
   /** Zuletzt geöffnete Shows (#157) für die 1-Klick-Wiederöffnung. */

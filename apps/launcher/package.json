@@ -17,7 +17,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "selftest": "node --experimental-strip-types test/selftest.ts",
     "selftest:verbund": "tsx test/verbund.test.ts",
-    "selftest:iveo": "tsx test/iveo-abgleich.test.ts",
+    "selftest:iveo": "tsx test/iveo-abgleich.test.ts && tsx test/iveo-huelle.test.ts",
     "dist": "electron-vite build && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
     "dist:win": "electron-vite build && electron-builder --win",
