@@ -1,5 +1,6 @@
 import type { Platform, ToolManifest } from '@jm/suite-manifest';
 import { resolveProxy, resolveProxyKey, resolveToken } from './settings';
+import { holeAlleSeiten, RELEASES_PRO_SEITE } from './release-liste';
 
 /** Aufgelöstes, herunterladbares Release-Artefakt für die aktuelle Plattform. */
 export interface ResolvedAsset {
@@ -61,20 +62,26 @@ interface GithubRelease {
   assets: Array<{ id: number; name: string; size: number }>;
 }
 
-/** Listet die Releases einer Repo (read-only contents) via fine-grained PAT. */
+/** Listet ALLE Releases einer Repo (read-only contents) via fine-grained PAT,
+ *  Seite für Seite (siehe release-liste.ts: Seite 1 allein reichte nicht mehr). */
 async function listGithubReleases(repo: string, token: string): Promise<GithubRelease[]> {
-  const res = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=100`, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': USER_AGENT,
-    },
+  return holeAlleSeiten(async (seite) => {
+    const res = await fetch(
+      `https://api.github.com/repos/${repo}/releases?per_page=${RELEASES_PRO_SEITE}&page=${seite}`,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': USER_AGENT,
+        },
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`GitHub API ${res.status} ${res.statusText}`);
+    }
+    return (await res.json()) as GithubRelease[];
   });
-  if (!res.ok) {
-    throw new Error(`GitHub API ${res.status} ${res.statusText}`);
-  }
-  return (await res.json()) as GithubRelease[];
 }
 
 /** Höchstversioniertes, nicht-draft Release mit Tag-Präfix `<prefix>` (z. B.

@@ -281,10 +281,7 @@ export default {
     const prefix = `${app}-v`;
 
     try {
-      const releases = await ghJson(
-        `https://api.github.com/repos/${env.REPO}/releases?per_page=100`,
-        env,
-      );
+      const releases = await alleReleases(env);
       const picked = releases
         .filter((r) => !r.draft && typeof r.tag_name === 'string' && r.tag_name.startsWith(prefix))
         .map((r) => ({ release: r, version: r.tag_name.slice(prefix.length) }))
@@ -315,6 +312,38 @@ export default {
     }
   },
 };
+
+// Release-Liste seitenweise. GEMESSEN am 01.10.2026: 187 Releases im Monorepo,
+// gelesen wurde nur Seite 1 (per_page=100). Die neuesten Releases von copy,
+// grafiktool und media-converter lagen auf Seite 2, der Proxy antwortete mit
+// "kein Release" (404), und jeder neue Tag schob weitere Tools hinaus.
+// Die Obergrenze schützt vor einer Endlosschleife und hält die Subrequests je
+// Aufruf unter dem Workers-Limit (Free: 50). 30 Seiten = 3000 Releases.
+const RELEASES_PRO_SEITE = 100;
+const RELEASES_MAX_SEITEN = 30;
+
+/**
+ * ALLE Releases des Repos, Seite für Seite, bis eine Seite kürzer als
+ * RELEASES_PRO_SEITE ist. Scheitert eine Folgeseite, scheitert der ganze Aufruf:
+ * eine halbe Liste sähe aus wie "es gibt kein neueres Release" und wäre genau
+ * der stille Fehler, den dieses Blättern behebt.
+ */
+async function alleReleases(env) {
+  const alle = [];
+  for (let seite = 1; seite <= RELEASES_MAX_SEITEN; seite++) {
+    const teil = await ghJson(
+      `https://api.github.com/repos/${env.REPO}/releases?per_page=${RELEASES_PRO_SEITE}&page=${seite}`,
+      env,
+    );
+    if (!Array.isArray(teil)) throw new Error('GitHub API: Release-Liste ist kein Array');
+    alle.push(...teil);
+    if (teil.length < RELEASES_PRO_SEITE) return alle;
+  }
+  console.warn(
+    `Release-Liste: Obergrenze von ${RELEASES_MAX_SEITEN} Seiten erreicht (${alle.length} Releases) - ältere bleiben ungelesen`,
+  );
+  return alle;
+}
 
 /** GitHub-JSON mit Server-Token holen. */
 async function ghJson(apiUrl, env) {

@@ -9,6 +9,7 @@ import {
   ablehnungText, codeFeldLeeren, koppelnMoeglich, neueKennungAnbieten, speicherFehlerText, toolVerbundText, toolZeilen, zeigeCode,
 } from '../src/renderer/src/lib/verbund-texte.ts';
 import type { VerbundClientStand, VerbundStand } from '../src/shared/types.ts';
+import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -503,6 +504,39 @@ function ck(name: string, cond: boolean): void {
   ck(`E1: Handbuch „Was die Kopfanzeige sagt“ enthält alle ${alle.length} Zeilen der Tabelle 5.4 wörtlich (fehlend: ${fehlend.join(' · ') || '—'})`,
     fehlend.length === 0);
 }
+
+// --- Release-Liste: alle Seiten lesen ----------------------------------------
+// GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
+// grafiktool und media-converter waren darum nicht installierbar.
+await (async () => {
+  const voll = (n: number) => Array.from({ length: 100 }, (_, i) => `s${n}-${i}`);
+
+  let abrufe: number[] = [];
+  let r = await holeAlleSeiten(async (s) => { abrufe.push(s); return s === 1 ? voll(1) : ['copy-v0.3.0']; });
+  ck('R1: Eintrag auf Seite 2 ist dabei', r.includes('copy-v0.3.0') && r.length === 101);
+  ck('R1: nach der kurzen Seite 2 kein weiterer Abruf', abrufe.join(',') === '1,2');
+
+  abrufe = [];
+  r = await holeAlleSeiten(async (s) => { abrufe.push(s); return s === 1 ? [] : voll(s); });
+  ck('R2: leere erste Seite → leere Liste, ein Abruf', r.length === 0 && abrufe.join(',') === '1');
+
+  abrufe = [];
+  r = await holeAlleSeiten(async (s) => { abrufe.push(s); return voll(s); });
+  ck(`R3: lauter volle Seiten → Obergrenze ${RELEASES_MAX_SEITEN}, keine Endlosschleife`,
+    abrufe.length === RELEASES_MAX_SEITEN && r.length === RELEASES_MAX_SEITEN * 100);
+
+  let geworfen = '';
+  try {
+    await holeAlleSeiten(async (s) => { if (s === 2) throw new Error('GitHub API 500'); return voll(s); });
+  } catch (e) { geworfen = (e as Error).message; }
+  ck('R4: Fehler auf einer Folgeseite wird geworfen, keine halbe Liste', geworfen === 'GitHub API 500');
+
+  let keinArray = '';
+  try {
+    await holeAlleSeiten(async () => ({ message: 'Bad credentials' }) as unknown as string[]);
+  } catch (e) { keinArray = (e as Error).message; }
+  ck('R5: eine Antwort, die keine Liste ist, wird als Fehler gemeldet', keinArray.includes('kein Array'));
+})();
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -58,6 +58,65 @@ let stub = async () => new Response('{}', { status: 200 });
 globalThis.fetch = (...a) => stub(...a);
 
 async function run() {
+  // 0) /tools/:id/latest muss ALLE Seiten der Release-Liste lesen.
+  // GEMESSEN am 01.10.2026: 187 Releases im Monorepo, gelesen wurde nur
+  // per_page=100 (Seite 1). Die neuesten Releases von copy, grafiktool und
+  // media-converter lagen auf Seite 2 → "kein Release" (404), die Tools waren
+  // weder installier- noch aktualisierbar. Jeder neue Tag schob weitere hinaus.
+  {
+    const listenAufrufe = [];
+    const seite = (n, eintraege) => ({ n, eintraege });
+    let seiten = [];
+    stub = async (u) => {
+      const url = String(u);
+      if (url.includes('/releases/assets/')) {
+        const id = url.split('/').pop();
+        return new Response(null, { status: 302, headers: { Location: `https://signed.test/${id}` } });
+      }
+      if (url.includes('/releases?')) {
+        listenAufrufe.push(url);
+        const n = Number(new URL(url).searchParams.get('page') ?? '1');
+        const s = seiten.find((x) => x.n === n);
+        if (s === 'fehler' || (s && s.eintraege === 'fehler')) return new Response('kaputt', { status: 500 });
+        return new Response(JSON.stringify(s ? s.eintraege : []), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    };
+    const fuell = (anzahl, praefix = 'sync-v0.') =>
+      Array.from({ length: anzahl }, (_, i) => ({ tag_name: `${praefix}${i}.0`, draft: false, assets: [] }));
+    const copy = (v, id) => ({ tag_name: `copy-v${v}`, draft: false, assets: [{ id, name: `JM.Copy.Setup.${v}.exe`, size: 5 }] });
+
+    // a) Tool nur auf Seite 2 → wird gefunden.
+    seiten = [seite(1, fuell(100)), seite(2, [copy('0.3.0', 77)])];
+    listenAufrufe.length = 0;
+    let r = await worker.fetch(req('/tools/jm-copy/latest?platform=win'), baseEnv);
+    let out = await r.json();
+    check('tools: Release nur auf Seite 2 wird gefunden (200, 0.3.0)', r.status === 200 && out.version === '0.3.0');
+    check('tools: signierte URL des Seite-2-Assets', out.assets?.win?.url === 'https://signed.test/77');
+    check('tools: nach einer kurzen Seite wird nicht weitergeblättert (2 Listenabrufe)', listenAufrufe.length === 2);
+    check('tools: Seiten werden mit per_page=100 und page=N geholt',
+      listenAufrufe.every((u, i) => /[?&]per_page=100(&|$)/.test(u) && new URL(u).searchParams.get('page') === String(i + 1)));
+
+    // b) Höchste Version über ALLE Seiten, nicht die erste gefundene.
+    seiten = [seite(1, [...fuell(99), copy('0.2.0', 20)]), seite(2, [copy('0.10.0', 100)])];
+    r = await worker.fetch(req('/tools/jm-copy/latest?platform=win'), baseEnv);
+    out = await r.json();
+    check('tools: höchste Version über alle Seiten (0.10.0 vor 0.2.0)', r.status === 200 && out.version === '0.10.0');
+
+    // c) Lauter volle Seiten → Obergrenze greift, keine Endlosschleife, Antwort kommt.
+    seiten = Array.from({ length: 200 }, (_, i) => seite(i + 1, fuell(100)));
+    listenAufrufe.length = 0;
+    r = await worker.fetch(req('/tools/jm-copy/latest?platform=win'), baseEnv);
+    check('tools: Obergrenze bei lauter vollen Seiten (30 Abrufe, dann 404)', listenAufrufe.length === 30 && r.status === 404);
+
+    // d) Fehler auf Seite 2 → 502, KEIN stilles Ergebnis aus Seite 1.
+    seiten = [seite(1, [...fuell(99), copy('0.2.0', 20)]), seite(2, 'fehler')];
+    r = await worker.fetch(req('/tools/jm-copy/latest?platform=win'), baseEnv);
+    check('tools: Fehler auf einer Folgeseite → 502 statt halber Liste', r.status === 502);
+
+    stub = async () => new Response('{}', { status: 200 });
+  }
+
   // 1) Ohne Proxy-Key → 401.
   {
     const r = await worker.fetch(req('/feedback', { method: 'POST', body: { title: 't', description: 'd' }, key: null }), baseEnv);
