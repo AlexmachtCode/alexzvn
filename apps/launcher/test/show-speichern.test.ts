@@ -159,6 +159,17 @@ console.log('— Neue Bindung');
   ck('… und der neue Ablauf gilt', e.ablauf?.length === 1 && e.ablauf?.[0].id === 'b-1' && e.ablauf?.[0].durationMs === 1_800_000);
 }
 
+console.log('— Neue Bindung, sichtbar gleiche Zeilen, andere Zeiten');
+{
+  const neu = bindungAusEditor({ event: 'cop31', name: 'COP31', speakers: [], sideEvents: [{ id: 'p1', title: 'Side Event A' }], filter: { programId: 'p1' } });
+  const verschoben = (geladen.ablauf ?? []).map((p) => (p.id === 'aaaa-1' ? { ...p, plannedStartMs: 37_800_000 } : p.id === 'aaaa-2' ? { ...p, durationMs: 1_210_000 } : p));
+  const basis = formularAusShow(geladen);
+  const e = baueGespeicherteShow(geladen, { ...basis, ablauf: zeilenAusAblauf(verschoben), iveoNeuGebunden: neu }, geladen, zaehler().neueId);
+  ck('Startzeit der neuen Bindung gilt', e.ablauf?.[0].plannedStartMs === 37_800_000);
+  ck('sekundengenaue Dauer der neuen Bindung gilt', e.ablauf?.[1].durationMs === 1_210_000);
+  ck('Bindung ist die neue', isDeepStrictEqual(e.iveo, neu));
+}
+
 console.log('— Neue Show (ohne editPath)');
 {
   const z = zaehler();

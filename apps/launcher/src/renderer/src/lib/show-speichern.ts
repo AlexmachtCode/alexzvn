@@ -298,7 +298,7 @@ export function baueGespeicherteShow(geladen: Show | null, f: FormularStand, akt
     else delete show.iveo;
     return show;
   }
-  if (!ablaufGleich) {
+  if (!ablaufGleich || f.iveoNeuGebunden) {
     const ablauf = baueAblauf(f.ablauf, neueId);
     if (ablauf.length) show.ablauf = ablauf;
     else delete show.ablauf;
