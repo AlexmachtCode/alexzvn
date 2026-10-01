@@ -136,8 +136,13 @@ try {
   eq(leseZeiger(ordner), null, 'kaputter Zeiger → null');
   loescheZeiger(ordner);
   eq(readdirSync(ordner).includes('zuletzt.json'), false, 'Zeiger gelöscht');
-  loescheZeiger(ordner);
-  eq(true, true, 'Zeiger zweimal löschen wirft nicht');
+  let warf = false;
+  try {
+    loescheZeiger(ordner);
+  } catch {
+    warf = true;
+  }
+  eq(warf, false, 'Zeiger zweimal löschen wirft nicht');
 
   // ── alter Autosave (5.2, Übergangsregel) ───────────────────────────────────
   const userData = join(tmp, 'userData');
@@ -192,6 +197,51 @@ try {
   writeFileSync(showPfad, JSON.stringify({ schemaVersion: 1, name: 'Tag 1', tools: [] }));
   const ohneVerweis = leseShowSicher(showPfad);
   eq(ohneVerweis.ok ? rundownDateiDerShow(showPfad, ohneVerweis.show) : 'x', null, 'ohne Verweis → null');
+
+  // ── Fix-Runde 1: seltsame Formen werfen nie ────────────────────────────────
+  const seltsameShows: Array<[string, unknown]> = [
+    ['tools kein Array', { name: 'X', tools: 'nein' }],
+    ['tools mit Nicht-Objekten', { name: 'X', tools: [null, 1, 'a', [], { appId: 5 }] }],
+    ['ablauf kein Array', { name: 'X', ablauf: { a: 1 } }],
+    ['ablauf mit Nicht-Objekten/null', { name: 'X', ablauf: [null, 1, 'a', [], { label: 5 }, { label: 'ok', id: {} }] }],
+    ['settings als String', { name: 'X', tools: [{ appId: 'jm-timer', settings: 'text' }] }],
+    ['settings.timetable kein Array', { name: 'X', tools: [{ appId: 'jm-timer', settings: { timetable: 'x' } }] }],
+    ['settings.timetable mit null', { name: 'X', tools: [{ appId: 'jm-timer', settings: { timetable: [null] } }] }],
+    ['iveo fremd', { name: 'X', iveo: { event: 'e', speakers: 'x', sideEvents: [null], filter: 5 } }],
+    ['name Zahl', { name: 5, tools: null, ablauf: null }],
+  ];
+  for (const [bez, roh] of seltsameShows) {
+    writeFileSync(showPfad, JSON.stringify(roh));
+    let r: ReturnType<typeof leseShowSicher> | null = null;
+    let wirft = false;
+    try {
+      r = leseShowSicher(showPfad);
+    } catch {
+      wirft = true;
+    }
+    eq(wirft, false, `Show-Form „${bez}“ wirft nicht`);
+    eq(r !== null && typeof r.ok === 'boolean', true, `Show-Form „${bez}“ → ok oder nicht lesbar`);
+  }
+  const seltsameGedaechtnisse: Array<[string, unknown]> = [
+    ['doc.rows kein Array', { rows: 'x' }],
+    ['doc.rows mit Nicht-Objekten', { rows: [null, 1, 'a', []] }],
+    ['doc.archiv fremd', { rows: [], archiv: 'x' }],
+    ['doc.archiv mit null', { rows: [], archiv: [null, 1] }],
+    ['doc.rows mit seltsamen Zeilen', { rows: [{ id: 5, kind: {}, title: [], steps: 'x', durationMs: 'a' }, { kind: 'go', cues: 7 }] }],
+    ['doc.name Zahl', { name: 5, rows: [], settings: 'x' }],
+  ];
+  for (const [bez, doc] of seltsameGedaechtnisse) {
+    writeFileSync(gPfad, JSON.stringify({ schemaVersion: 2, showPfad: 'x', doc }));
+    let wirft = false;
+    let ergebnis: ReturnType<typeof leseGedaechtnis> | null = null;
+    try {
+      ergebnis = leseGedaechtnis(ordner, s1);
+    } catch {
+      wirft = true;
+    }
+    eq(wirft, false, `Gedächtnis-Form „${bez}“ wirft nicht`);
+    eq(ergebnis !== null && (ergebnis.inhalt !== null || ergebnis.fehler === 'unlesbar'), true, `Gedächtnis-Form „${bez}“ → lesbar oder unlesbar`);
+  }
 
   // ── dateiStand (4.8) ───────────────────────────────────────────────────────
   const rdPfad = join(tmp, 'eigen.jmrundown');
