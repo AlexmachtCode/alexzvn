@@ -10,7 +10,7 @@
 // als id; die Funktionen vergeben keine Zufalls-IDs und verändern ihre
 // Eingaben nicht.
 import type { ShowAblaufItem } from '@jm/show';
-import type { RundownRow } from './types';
+import type { RundownDoc, RundownRow } from './types';
 
 export interface AbgleichBericht {
   /** lebende Ablaufzeilen mit neuem Titel, Notiz oder Dauer */
@@ -371,4 +371,106 @@ export function gleicheAb(e: {
   }
 
   return { rows, scharfId, bericht, umbenannt: Object.fromEntries(bruecke) };
+}
+
+// ── Kontext und Anwenden einer Show (Spec 4.4) ──────────────────────────────
+
+/** Was `kontextVon` von einer Show liest (eine `Show` aus `parseShow` passt). */
+export interface ShowKontextQuelle {
+  iveo?: {
+    filter?: { programId?: string; day?: string; typeSlug?: string; formatSlug?: string; excludeBlockers?: boolean };
+  };
+}
+
+/** Was `wendeShowAn` von einer Show liest (eine `Show` aus `parseShow` passt). */
+export interface ShowFuerAbgleich extends ShowKontextQuelle {
+  name: string;
+  /** normalisiert (über `parseShow`/`normalizeAblauf`) */
+  ablauf?: ShowAblaufItem[];
+}
+
+/**
+ * Kontext der Show (Spec 4.4): `se:<programId>` für ein Side Event,
+ * `liste:<day>|<typeSlug>|<formatSlug>|<0/1>` für eine gefilterte Programmliste
+ * (fehlende Teile leer), `show` ohne iveo.
+ */
+export function kontextVon(show: ShowKontextQuelle): string {
+  if (!show.iveo) return 'show';
+  const f = show.iveo.filter;
+  if (f?.programId) return `se:${f.programId}`;
+  return `liste:${f?.day ?? ''}|${f?.typeSlug ?? ''}|${f?.formatSlug ?? ''}|${f?.excludeBlockers ? 1 : 0}`;
+}
+
+/** `zielId` aller Aktionen nach `umbenannt` (R0) umschreiben; unberührte Zeilen bleiben dieselben Objekte. */
+function schreibeZieleUm(rows: RundownRow[], umbenannt: Record<string, string>): RundownRow[] {
+  return rows.map((r) => {
+    if (!r.actions.some((a) => a.zielId !== undefined && Object.hasOwn(umbenannt, a.zielId))) return r;
+    return {
+      ...r,
+      actions: r.actions.map((a) =>
+        a.zielId !== undefined && Object.hasOwn(umbenannt, a.zielId) ? { ...a, zielId: umbenannt[a.zielId] } : a,
+      ),
+    };
+  });
+}
+
+/**
+ * Show auf ein Dokument anwenden (Spec 4.4, 4.9).
+ * - Show ohne Ablauf: nichts tun (`doc` unverändert, `bericht: null`).
+ * - gleicher Kontext: `gleicheAb` mit der scharfen Zeile (R7), Bericht zurück.
+ * - anderer Kontext: aktuelle Zeilen ins Archiv, Zeilen des neuen Kontexts aus
+ *   dem Archiv holen und abgleichen, erste nicht entfallene Zeile scharf,
+ *   `bericht: null` (angezeigt wird nur die Wechselmeldung).
+ * - Dokument ohne `kontext` (nie abgeglichen: Version-1-Dokument, neues oder
+ *   eigenes Dokument): wie ein Kontextwechsel, aber die aktuellen Zeilen sind
+ *   der Ausgangsstand — mit Titel-Zuordnung (4.9), wenn `zuordnungOffen`.
+ * Danach: `umbenannt` schreibt `zielId` in Zeilen und Archiv um, `kontext` ist
+ * gesetzt, `zuordnungOffen` gelöscht.
+ */
+export function wendeShowAn(e: { doc: RundownDoc; scharfId: string | null; show: ShowFuerAbgleich }): {
+  doc: RundownDoc;
+  scharfId: string | null;
+  bericht: AbgleichBericht | null;
+  kontextGewechselt: boolean;
+} {
+  const ablauf = e.show.ablauf ?? [];
+  if (ablauf.length === 0) return { doc: e.doc, scharfId: e.scharfId, bericht: null, kontextGewechselt: false };
+
+  const neuerKontext = kontextVon(e.show);
+  const archiv: Record<string, RundownRow[]> = { ...(e.doc.archiv ?? {}) };
+  let alt: RundownRow[];
+  let scharfId: string | null;
+  let altformat = false;
+  let gewechselt: boolean;
+  if (e.doc.kontext === undefined) {
+    // Erster Abgleich: nichts archivieren, die vorhandenen Zeilen sind der Ausgangsstand.
+    alt = e.doc.rows;
+    scharfId = null;
+    altformat = e.doc.zuordnungOffen === true;
+    gewechselt = true;
+  } else if (e.doc.kontext === neuerKontext) {
+    alt = e.doc.rows;
+    scharfId = e.scharfId;
+    altformat = e.doc.zuordnungOffen === true;
+    gewechselt = false;
+  } else {
+    // 4.4 Schritte 1–3: archivieren, holen, ohne scharfe Zeile abgleichen.
+    archiv[e.doc.kontext] = e.doc.rows;
+    alt = archiv[neuerKontext] ?? [];
+    delete archiv[neuerKontext];
+    scharfId = null;
+    gewechselt = true;
+  }
+
+  const erg = gleicheAb({ alt, ablauf, scharfId, altformat });
+  const neuesArchiv: Record<string, RundownRow[]> = {};
+  for (const [k, zeilen] of Object.entries(archiv)) neuesArchiv[k] = schreibeZieleUm(zeilen, erg.umbenannt);
+  const doc: RundownDoc = {
+    schemaVersion: 2,
+    name: e.doc.name,
+    rows: schreibeZieleUm(erg.rows, erg.umbenannt),
+    kontext: neuerKontext,
+    ...(Object.keys(neuesArchiv).length ? { archiv: neuesArchiv } : {}),
+  };
+  return { doc, scharfId: erg.scharfId, bericht: gewechselt ? null : erg.bericht, kontextGewechselt: gewechselt };
 }

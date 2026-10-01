@@ -2,6 +2,8 @@
 //   node --experimental-strip-types test/selftest.ts
 import { buildActionLine, clampIndex, mergeEndpoints, navigate } from '../src/shared/conductor.ts';
 import type { RundownDoc } from '../src/shared/types.ts';
+import { kontextVon, wendeShowAn } from '../src/shared/abgleich.ts';
+import { parseShow, serializeShow } from '@jm/show';
 import { LEERER_BERICHT, berichtIstLeer, ersatzSchluessel, gleicheAb } from '../src/shared/abgleich.ts';
 import type { AbgleichBericht } from '../src/shared/abgleich.ts';
 import type { RundownAction, RundownRow } from '../src/shared/types.ts';
@@ -790,6 +792,225 @@ function abEinfrieren<T>(x: T): T {
   const ms = performance.now() - t0;
   eq(ms < 50, true, `RF4: 51 Programme + 100 eigene Zeilen in ${ms.toFixed(2)} ms (< 50 ms)`);
   eq([e.rows.length, e.bericht.neu, e.bericht.entfallen, e.scharfId], [156, 5, 5, 'p10'], 'RF4: 156 Zeilen, neu 5, entfallen 5, scharf p10');
+}
+
+// ── kontextVon / wendeShowAn (Master-Link 2a, Spec 4.4, 4.9, 9.1 Fälle 22–27) ──
+eq(kontextVon({}), 'show', 'kontextVon: ohne iveo → show');
+eq(kontextVon({ iveo: {} }), 'liste:|||0', 'kontextVon: iveo ohne Filter → liste mit leeren Teilen');
+eq(kontextVon({ iveo: { filter: { programId: 'p-123', day: '2026-11-10' } } }), 'se:p-123', 'kontextVon: programId → se:');
+eq(
+  kontextVon({ iveo: { filter: { day: '2026-11-10', typeSlug: 'plenary', formatSlug: 'panel', excludeBlockers: true } } }),
+  'liste:2026-11-10|plenary|panel|1',
+  'kontextVon: Liste mit allen Filterteilen',
+);
+eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||0', 'kontextVon: Liste Tag 2');
+
+{
+  // Show ohne Ablauf: Dokument bleibt unangetastet (5.2), kein Bericht.
+  const doc: RundownDoc = { schemaVersion: 2, name: 'X', rows: [abEigene('x')] };
+  const e = wendeShowAn({ doc, scharfId: 'x', show: { name: 'X' } });
+  eq([e.doc === doc, e.scharfId, e.bericht, e.kontextGewechselt], [true, 'x', null, false], 'wendeShowAn: Show ohne Ablauf → nichts');
+  const e2 = wendeShowAn({ doc, scharfId: 'x', show: { name: 'X', ablauf: [] } });
+  eq(e2.doc === doc, true, 'wendeShowAn: leerer Ablauf → nichts');
+}
+{
+  // Fall 22: Altformat (Version-1-Datei), Titel eindeutig → Zuordnung, zuordnungOffen gelöscht.
+  const doc = migrate(
+    {
+      schemaVersion: 1,
+      name: 'COP31',
+      rows: [
+        { id: 'r1', label: 'Begrüßung', actions: [abAktion('a1')] },
+        { id: 'r2', label: 'Keynote', actions: [abAktion('a2')] },
+      ],
+    },
+    (p) => `${p}-neu`,
+  );
+  const e = wendeShowAn({
+    doc,
+    scharfId: null,
+    show: { name: 'COP31', ablauf: [{ id: 'u1', label: 'Begrüßung' }, { id: 'u2', label: 'Keynote' }, { id: 'u3', label: 'Pause' }] },
+  });
+  eq(abBild(e.doc.rows), ['u1[a1]', 'u2[a2]', 'u3'], 'Fall 22: Aktionen an den Ablaufzeilen (Kennungen aus der Show)');
+  eq([e.doc.kontext, e.doc.zuordnungOffen, e.scharfId], ['show', undefined, 'u1'], 'Fall 22: kontext gesetzt, zuordnungOffen weg');
+  eq([e.kontextGewechselt, e.bericht], [true, null], 'Fall 22: erster Abgleich zählt als Kontextwechsel (kein Bericht)');
+}
+{
+  // Fall 23: Altformat, Titel doppelt → alte Zeilen bleiben eigene, Ablaufzeilen kommen dazu.
+  const doc = migrate(
+    {
+      schemaVersion: 1,
+      name: 'COP31',
+      rows: [
+        { id: 'r1', label: 'Panel', actions: [abAktion('a1')] },
+        { id: 'r2', label: 'Panel', actions: [abAktion('a2')] },
+      ],
+    },
+    (p) => `${p}-neu`,
+  );
+  const e = wendeShowAn({
+    doc,
+    scharfId: null,
+    show: { name: 'COP31', ablauf: [{ id: 'u1', label: 'Panel' }, { id: 'u2', label: 'Panel' }] },
+  });
+  eq(abBild(e.doc.rows), ['+r1[a1]', '+r2[a2]', 'u1', 'u2'], 'Fall 23: keine Zuordnung, Ablaufzeilen zusätzlich');
+  eq(e.doc.zuordnungOffen, undefined, 'Fall 23: zuordnungOffen trotzdem gelöscht');
+}
+{
+  // Fall 24: Version-1-Datei ohne Show gespeichert (bleibt zuordnungOffen), danach in eine Show eingetragen.
+  const neueId = (p: 'r' | 'a'): string => `${p}-neu`;
+  const v1 = migrate({ schemaVersion: 1, name: 'Gala', rows: [{ id: 'r1', label: 'Keynote', actions: [abAktion('k1')] }] }, neueId);
+  const gespeichert = migrate(JSON.parse(JSON.stringify(v1)), neueId);
+  eq(gespeichert.zuordnungOffen, true, 'Fall 24: nach dem Speichern ohne Show noch zuordnungOffen');
+  const e = wendeShowAn({ doc: gespeichert, scharfId: null, show: { name: 'Gala', ablauf: [{ id: 'u1', label: 'Keynote' }] } });
+  eq([abBild(e.doc.rows), e.doc.zuordnungOffen], [['u1[k1]'], undefined], 'Fall 24: Titel-Zuordnung läuft beim ersten Abgleich');
+}
+{
+  // Fall 25: Kontextwechsel A → B → A.
+  const showA = { name: 'COP31', ablauf: [abPunkt('a1p'), abPunkt('a2p')], iveo: { filter: { programId: 'pA' } } };
+  const showB = { name: 'COP31', ablauf: [abPunkt('b1p'), abPunkt('b2p')], iveo: { filter: { programId: 'pB' } } };
+  const docA: RundownDoc = {
+    schemaVersion: 2,
+    name: 'COP31',
+    kontext: 'se:pA',
+    rows: [abZeile('a1p', [abAktion('k1')]), abEigene('x', [abAktion('k2')]), abZeile('a2p')],
+  };
+  const zuB = wendeShowAn({ doc: docA, scharfId: 'a2p', show: showB });
+  eq([zuB.kontextGewechselt, zuB.bericht, zuB.doc.kontext], [true, null, 'se:pB'], 'Fall 25: A → B ist Kontextwechsel ohne Bericht');
+  eq([abBild(zuB.doc.rows), zuB.scharfId], [['b1p', 'b2p'], 'b1p'], 'Fall 25: B neu, scharf die erste');
+  eq(abBild(zuB.doc.archiv?.['se:pA'] ?? []), ['a1p[k1]', '+x[k2]', 'a2p'], 'Fall 25: A im Archiv');
+  const zuA = wendeShowAn({ doc: zuB.doc, scharfId: 'b2p', show: showA });
+  eq([zuA.kontextGewechselt, zuA.bericht, zuA.doc.kontext], [true, null, 'se:pA'], 'Fall 25: B → A ist Kontextwechsel ohne Bericht');
+  eq([abBild(zuA.doc.rows), zuA.scharfId], [['a1p[k1]', '+x[k2]', 'a2p'], 'a1p'], 'Fall 25: A mit Aktionen und eigener Zeile zurück, scharf die erste');
+  eq(Object.keys(zuA.doc.archiv ?? {}), ['se:pB'], 'Fall 25: Archiv hält jetzt nur B');
+}
+{
+  // Fall 25b: Rückkehr in einen archivierten Kontext gleicht mit dem DANN aktuellen Ablauf ab
+  // (4.4 Schritt 3): ein inzwischen eingefügter Punkt erscheint, Aktionen und eigene Zeile bleiben.
+  const doc: RundownDoc = {
+    schemaVersion: 2,
+    name: 'COP31',
+    kontext: 'se:pB',
+    rows: [abZeile('b1p')],
+    archiv: { 'se:pA': [abZeile('a1p', [abAktion('k1')]), abEigene('x', [abAktion('k2')]), abZeile('a2p')] },
+  };
+  const e = wendeShowAn({
+    doc,
+    scharfId: 'b1p',
+    show: { name: 'COP31', ablauf: [abPunkt('a1p'), abPunkt('neu'), abPunkt('a2p')], iveo: { filter: { programId: 'pA' } } },
+  });
+  eq([e.kontextGewechselt, abBild(e.doc.rows), e.scharfId], [true, ['a1p[k1]', '+x[k2]', 'neu', 'a2p'], 'a1p'], 'Fall 25b: Rückkehr nach A gleicht mit dem aktuellen Ablauf ab');
+}
+{
+  // 4.4 Schritt 4: Nach einem Kontextwechsel ist die erste nicht entfallene Zeile scharf, auch wenn
+  // die bisher scharfe Kennung im neuen Kontext vorkommt (Liste Tag 1 → Liste alle Tage).
+  const doc: RundownDoc = {
+    schemaVersion: 2,
+    name: 'COP31',
+    kontext: 'liste:2026-11-10|||0',
+    rows: [abZeile('p1'), abZeile('p2', [abAktion('k2')])],
+    archiv: { 'liste:|||0': [abZeile('p1'), abZeile('p2'), abZeile('p3')] },
+  };
+  const e = wendeShowAn({ doc, scharfId: 'p2', show: { name: 'COP31', ablauf: [abPunkt('p1'), abPunkt('p2'), abPunkt('p3')], iveo: {} } });
+  eq(
+    [e.kontextGewechselt, abBild(e.doc.rows), e.scharfId],
+    [true, ['p1', 'p2', 'p3'], 'p1'],
+    'Kontextwechsel: scharf ist die erste Zeile, auch wenn die alte Kennung dort vorkommt',
+  );
+}
+{
+  // Fall 26: Liste Tag 1 → Side Event → Liste Tag 2 → Liste Tag 1.
+  const tag1 = { name: 'COP31', ablauf: [abPunkt('t1a'), abPunkt('t1b')], iveo: { filter: { day: '2026-11-10' } } };
+  const se = { name: 'COP31', ablauf: [abPunkt('s1')], iveo: { filter: { programId: 'pSE', day: '2026-11-10' } } };
+  const tag2 = { name: 'COP31', ablauf: [abPunkt('t2a')], iveo: { filter: { day: '2026-11-11' } } };
+  const start: RundownDoc = {
+    schemaVersion: 2,
+    name: 'COP31',
+    kontext: 'liste:2026-11-10|||0',
+    rows: [abZeile('t1a', [abAktion('k1')]), abZeile('t1b', [abAktion('k2')]), abEigene('y', [abAktion('k3')])],
+  };
+  const s1 = wendeShowAn({ doc: start, scharfId: 't1b', show: se });
+  eq([s1.kontextGewechselt, abBild(s1.doc.rows)], [true, ['s1']], 'Fall 26: Tag 1 → Side Event');
+  const s2 = wendeShowAn({ doc: s1.doc, scharfId: 's1', show: tag2 });
+  eq([s2.kontextGewechselt, abBild(s2.doc.rows)], [true, ['t2a']], 'Fall 26: → Tag 2 zeigt nur Tag 2, nichts entfallen');
+  const s3 = wendeShowAn({ doc: s2.doc, scharfId: 't2a', show: tag1 });
+  eq([s3.kontextGewechselt, abBild(s3.doc.rows)], [true, ['t1a[k1]', 't1b[k2]', '+y[k3]']], 'Fall 26: → Tag 1 alles wieder da');
+  eq(s3.doc.rows.some((r) => r.entfallen), false, 'Fall 26: keine Zeile von Tag 1 entfallen');
+  eq(Object.keys(s3.doc.archiv ?? {}).sort(), ['liste:2026-11-11|||0', 'se:pSE'], 'Fall 26: Archiv hält Side Event und Tag 2');
+}
+{
+  // Fall 27: R0-Umbenennung schreibt zielId in Zeilen und Archiv und scharfId um.
+  const doc: RundownDoc = {
+    schemaVersion: 2,
+    name: 'Gala',
+    kontext: 'show',
+    rows: [
+      abZeile('ersatz:Keynote', [abAktion('g1', { role: 'timer', verb: 'goto', args: [2], zielId: 'ersatz:Pause' })], { label: 'Keynote' }),
+      abZeile('ersatz:Pause', [], { label: 'Pause' }),
+    ],
+    archiv: {
+      'se:alt': [abEigene('z', [abAktion('g2', { role: 'timer', verb: 'goto', args: [1], zielId: 'ersatz:Keynote' })])],
+    },
+  };
+  const e = wendeShowAn({
+    doc,
+    scharfId: 'ersatz:Pause',
+    show: { name: 'Gala', ablauf: [{ id: 'u1', label: 'Keynote' }, { id: 'u2', label: 'Pause' }] },
+  });
+  eq(abBild(e.doc.rows), ['u1[g1]', 'u2'], 'Fall 27: Zeilen mit echten Kennungen');
+  eq(e.doc.rows[0]?.actions[0]?.zielId, 'u2', 'Fall 27: zielId in den Zeilen umgeschrieben');
+  eq(e.doc.archiv?.['se:alt']?.[0]?.actions[0]?.zielId, 'u1', 'Fall 27: zielId im Archiv umgeschrieben');
+  eq([e.scharfId, e.kontextGewechselt, e.bericht], ['u2', false, LEERER_BERICHT], 'Fall 27: scharfId umgeschrieben, Bericht leer');
+}
+{
+  // Gleicher Kontext liefert den Bericht (für den Hinweis 4.6) und hält die scharfe Zeile (R7).
+  const doc: RundownDoc = {
+    schemaVersion: 2,
+    name: 'Gala',
+    kontext: 'liste:|||0',
+    rows: [abZeile('A', [abAktion('a1')]), abZeile('B')],
+  };
+  const e = wendeShowAn({ doc, scharfId: 'B', show: { name: 'Gala', ablauf: [abPunkt('A'), abPunkt('N'), abPunkt('B')], iveo: {} } });
+  eq([e.kontextGewechselt, e.bericht, e.scharfId], [false, abBericht({ neu: 1, verschoben: 1 }), 'B'], 'wendeShowAn: gleicher Kontext → Bericht, scharf bleibt');
+}
+{
+  // wendeShowAn verändert seine Eingaben nicht.
+  const doc = abEinfrieren<RundownDoc>({
+    schemaVersion: 2,
+    name: 'Gala',
+    kontext: 'se:p1',
+    rows: [abZeile('ersatz:A', [abAktion('a1', { zielId: 'ersatz:A' })], { label: 'A' })],
+    archiv: { 'se:p2': [abZeile('B', [abAktion('b1', { zielId: 'ersatz:A' })])] },
+  });
+  const vorher = JSON.stringify(doc);
+  wendeShowAn({ doc, scharfId: 'ersatz:A', show: { name: 'Gala', ablauf: [{ id: 'u1', label: 'A' }], iveo: { filter: { programId: 'p1' } } } });
+  wendeShowAn({ doc, scharfId: 'ersatz:A', show: { name: 'Gala', ablauf: [{ id: 'u1', label: 'A' }], iveo: { filter: { programId: 'p2' } } } });
+  eq(JSON.stringify(doc), vorher, 'wendeShowAn verändert seine Eingaben nicht');
+}
+
+{
+  // Spec 9.3 (Rundown-Teil): iveo-Kennungen überstehen serializeShow/parseShow und werden Zeilen-ids;
+  // eine doppelte Kennung ist beim Lesen schon aufgelöst (#2).
+  const show = parseShow(
+    serializeShow({
+      schemaVersion: 1,
+      name: 'COP31',
+      tools: [],
+      ablauf: [
+        { id: '7f0c1a52-0000-4000-8000-000000000001', label: 'Eröffnung' },
+        { id: '7f0c1a52-0000-4000-8000-000000000002', label: 'Panel' },
+        { id: '7f0c1a52-0000-4000-8000-000000000002', label: 'Panel (doppelt)' },
+      ],
+      iveo: { event: 'cop31', filter: { programId: 'p-se-1' } },
+    }),
+  );
+  const e = wendeShowAn({ doc: { schemaVersion: 2, name: 'COP31', rows: [] }, scharfId: null, show });
+  eq(
+    e.doc.rows.map((r) => r.id),
+    ['7f0c1a52-0000-4000-8000-000000000001', '7f0c1a52-0000-4000-8000-000000000002', '7f0c1a52-0000-4000-8000-000000000002#2'],
+    '9.3: Zeilen tragen die iveo-Kennungen aus der Show-Datei',
+  );
+  eq([e.doc.kontext, e.scharfId], ['se:p-se-1', '7f0c1a52-0000-4000-8000-000000000001'], '9.3: Kontext Side Event, erste Zeile scharf');
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
