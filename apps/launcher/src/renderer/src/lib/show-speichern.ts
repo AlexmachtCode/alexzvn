@@ -269,6 +269,27 @@ function baueTools(alt: ShowToolRef[], basis: FormularStand, f: FormularStand): 
 }
 
 /**
+ * Spec 7.5 Regel 1: gebunden, nicht neu gebunden, Ablauf im Formular unverändert → Ablauf und Bindung kommen aus der
+ * Datei, wie sie JETZT ist (eine iveo-Abfrage kann sie seit dem Laden neu geschrieben haben).
+ */
+export function regelEinsGreift(geladen: Show | null, f: FormularStand): boolean {
+  return !!geladen?.iveo && !f.iveoNeuGebunden && gleicheZeilen(f.ablauf, formularAusShow(geladen).ablauf);
+}
+
+/** Meldung, wenn Regel 1 die aktuelle Datei braucht und sie nicht lesbar ist (Text außerhalb der Spec, Owner-Ruling offen). */
+export const TEXT_SPEICHERN_DATEI_NICHT_LESBAR =
+  'Show nicht gespeichert: Die Show-Datei ist gerade nicht lesbar, sonst gingen iveo-Änderungen seit dem Öffnen verloren (Details im Launcher-Log). Bitte erneut speichern.';
+
+/**
+ * Speichern ablehnen? Greift Regel 1, ist die aktuelle Datei aber nicht lesbar (null), schriebe das Speichern still den
+ * Ablauf vom Öffnen des Editors — und im Listen-Modus heilte das erst die nächste iveo-Änderung. Dann nicht speichern,
+ * sondern die Meldung zeigen. `geladen` = null bei einer neuen Show. Sonst null = speichern.
+ */
+export function speichernAbgelehnt(geladen: Show | null, f: FormularStand, aktuelleDatei: Show | null): string | null {
+  return aktuelleDatei === null && regelEinsGreift(geladen, f) ? TEXT_SPEICHERN_DATEI_NICHT_LESBAR : null;
+}
+
+/**
  * Show zum Speichern bauen (Spec 7.5).
  * - `geladen` = die beim Öffnen gelesene Show (null bei einer neuen Show).
  * - `aktuelleDatei` = dieselbe Datei, wie sie JETZT auf der Platte liegt (null, wenn
@@ -289,7 +310,7 @@ export function baueGespeicherteShow(geladen: Show | null, f: FormularStand, akt
   const show: Show = { ...geladen, tools: baueTools(geladen.tools, basis, f) };
   if (f.name !== basis.name) show.name = f.name.trim() || UNBENANNT;
   const ablaufGleich = gleicheZeilen(f.ablauf, basis.ablauf);
-  if (ablaufGleich && geladen.iveo && !f.iveoNeuGebunden && aktuelleDatei) {
+  if (regelEinsGreift(geladen, f) && aktuelleDatei) {
     // Regel 1: gleiche Bindung, Ablauf unverändert → Ablauf und Bindung so, wie sie
     // JETZT in der Datei stehen. Eine iveo-Abfrage seit dem Laden bleibt erhalten.
     if (aktuelleDatei.ablauf) show.ablauf = aktuelleDatei.ablauf;

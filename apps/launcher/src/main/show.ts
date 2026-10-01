@@ -7,6 +7,7 @@ import { getTool } from './manifest';
 import { openTool } from './launch';
 import { startShowTools } from './show-launch';
 import { onShowOpened, speichereShowDatei } from './iveo-sync';
+import { leseShowFuerEditor } from './show-lesen';
 import { pushRecentShow } from './settings';
 
 /** Sender für UI-Ereignisse (Show-Start-Feedback, #76). Optional → ohne UI lautlos. */
@@ -124,15 +125,10 @@ export async function saveShow(show: Show, targetPath?: string, neuGebunden = fa
 /**
  * Eine .jmshow so lesen, wie sie gerade auf der Platte liegt — der Show-Editor
  * braucht das beim Speichern (Spec 7.5, Regel 1). Nur .jmshow-Dateien; nicht
- * lesbar → null.
+ * lesbar → null und eine Warnung mit dem Grund im Log (show-lesen.ts).
  */
 export function readShowFile(path: string): Show | null {
-  if (!path.toLowerCase().endsWith(SHOW_FILE_EXT)) return null;
-  try {
-    return parseShow(readFileSync(path, 'utf8'));
-  } catch {
-    return null;
-  }
+  return leseShowFuerEditor(path, (p) => readFileSync(p, 'utf8'), (m) => getLog().warn(m));
 }
 
 /** Datei-Dialog zur Auswahl eines Tool-Dokuments (z. B. .jmpres, .jmdaw). */

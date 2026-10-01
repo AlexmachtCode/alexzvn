@@ -7,6 +7,7 @@ import {
   baueGespeicherteShow,
   bindungAusEditor,
   formularAusShow,
+  speichernAbgelehnt,
   zeilenAusAblauf,
   zeilenAusSeed,
   type AblaufZeile,
@@ -42,6 +43,7 @@ export function ShowEditorModal() {
   const tools = useTools((s) => s.tools);
   const close = useTools((s) => s.closeShowEditor);
   const saveShow = useTools((s) => s.saveShow);
+  const setNotice = useTools((s) => s.setNotice);
   const editorSeed = useTools((s) => s.editorSeed);
   const clearEditorSeed = useTools((s) => s.clearEditorSeed);
 
@@ -349,6 +351,12 @@ export function ShowEditorModal() {
       // Bearbeiten: die Datei so lesen, wie sie JETZT ist — eine iveo-Abfrage kann sie
       // seit dem Laden neu geschrieben haben (Spec 7.5, Regel 1).
       const aktuelleDatei = editPath ? await window.jmps.readShow(editPath) : null;
+      // Braucht Regel 1 die aktuelle Datei und ist sie nicht lesbar, nicht still den Stand vom Öffnen schreiben.
+      const abgelehnt = speichernAbgelehnt(editPath ? geladen : null, f, aktuelleDatei);
+      if (abgelehnt) {
+        setNotice(abgelehnt);
+        return;
+      }
       const show = baueGespeicherteShow(editPath ? geladen : null, f, aktuelleDatei, () => crypto.randomUUID());
       const ok = await saveShow(show, editPath ?? undefined, f.iveoNeuGebunden !== null);
       if (ok) {

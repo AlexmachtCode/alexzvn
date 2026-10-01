@@ -3,7 +3,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import { parseShow, serializeShow, type Show } from '@jm/show';
 import {
-  baueAblauf, baueGespeicherteShow, bindungAusEditor, formularAusShow, zeilenAusAblauf, zeilenAusSeed, type FormularStand,
+  baueAblauf, baueGespeicherteShow, bindungAusEditor, formularAusShow, speichernAbgelehnt, TEXT_SPEICHERN_DATEI_NICHT_LESBAR,
+  zeilenAusAblauf, zeilenAusSeed, type FormularStand,
 } from '../src/renderer/src/lib/show-speichern';
 
 let pass = 0, fail = 0;
@@ -87,6 +88,23 @@ console.log('— iveo-Abfrage zwischen Laden und Speichern (7.5 Regel 1)');
   ck('Ablauf im Formular geändert → das Formular gilt', mitFormular.ablauf?.length === 3 && mitFormular.ablauf?.[1].durationMs === 1_500_000);
   ck('… unveränderte Zeile bleibt in allen Feldern gleich', isDeepStrictEqual(mitFormular.ablauf?.[0], geladen.ablauf?.[0]));
   ck('… Bindung bleibt die geladene (ohne neue Bindung)', mitFormular.iveo?.syncedAt === ROH.iveo.syncedAt);
+}
+
+console.log('— Datei beim Speichern nicht lesbar (7.5 Regel 1): nicht still den Stand vom Öffnen schreiben');
+{
+  const basis = formularAusShow(geladen);
+  ck('gebunden, Ablauf unverändert, Datei nicht lesbar → abgelehnt, mit Meldung',
+    speichernAbgelehnt(geladen, basis, null) === TEXT_SPEICHERN_DATEI_NICHT_LESBAR);
+  ck('… Datei lesbar → nicht abgelehnt', speichernAbgelehnt(geladen, basis, geladen) === null);
+  const geaendert: FormularStand = { ...basis, ablauf: basis.ablauf.map((r, i) => (i === 1 ? { ...r, minutes: '25' } : r)) };
+  ck('Ablauf im Formular geändert → das Formular gilt, die Datei wird nicht gebraucht', speichernAbgelehnt(geladen, geaendert, null) === null);
+  const neu = bindungAusEditor({ event: 'cop31', name: 'COP31', filter: { programId: 'p2' } });
+  ck('neu gebunden → die Datei wird nicht gebraucht', speichernAbgelehnt(geladen, { ...basis, iveoNeuGebunden: neu }, null) === null);
+  const ohneIveo = parseShow(JSON.stringify({ ...ROH, iveo: undefined }));
+  ck('Show ohne iveo → die Datei wird nicht gebraucht', speichernAbgelehnt(ohneIveo, formularAusShow(ohneIveo), null) === null);
+  ck('neue Show (nichts geladen) → nichts abzulehnen', speichernAbgelehnt(null, basis, null) === null);
+  ck('die Meldung nennt das Log und sagt, was zu tun ist',
+    TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes('Launcher-Log') && TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes('erneut speichern'));
 }
 
 console.log('— Tools: nur document, network.host und die Formularfelder');

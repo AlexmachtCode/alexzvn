@@ -9,6 +9,7 @@ import {
   abfrageTakt, gleicherShowPfad, IVEO_ABFRAGE_TAKT_MS, IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze, nurBeiWechsel,
   showLeserFuerKern, showSchreiberFuerKern, type FetchMitSignal,
 } from '../src/main/iveo-huelle-hilfen';
+import { leseShowFuerEditor } from '../src/main/show-lesen';
 import { iveoStatusZeile } from '../src/renderer/src/lib/iveo-status';
 
 let pass = 0, fail = 0;
@@ -155,6 +156,24 @@ console.log('— Log nur beim Wechsel (Spec 7.6: „Gleichbleibende Wiederholung
   gelingt = false;
   schreibe(PFAD, show);
   ck('danach scheitert es wieder → wieder eine Warnung', zeilen.length === 2);
+}
+
+console.log('— Show-Editor liest die Datei beim Speichern (Spec 7.5, Regel 1): Fehler nie still');
+{
+  const PFAD = 'C:/Shows/Tag 1.jmshow';
+  const zeilen: string[] = [];
+  const warn = (m: string): void => { zeilen.push(m); };
+  const fehlt = (): string => { throw Object.assign(new Error(`ENOENT: open '${PFAD}'`), { code: 'ENOENT' }); };
+  ck('nicht lesbar (ENOENT) → null und eine Warnung mit dem Code, ohne Pfad',
+    leseShowFuerEditor(PFAD, fehlt, warn) === null && zeilen.length === 1 && zeilen[0].includes('ENOENT') && !zeilen[0].includes('Tag 1'));
+  ck('kaputtes JSON → null und „kein gültiges JSON“, ohne Inhalt',
+    leseShowFuerEditor(PFAD, () => '{ "name": "geheimer Inhalt"', warn) === null && zeilen.length === 2
+    && zeilen[1].includes('kein gültiges JSON') && !zeilen[1].includes('geheim'));
+  const gut = leseShowFuerEditor(PFAD, () => serializeShow({ schemaVersion: 1, name: 'Tag 1', tools: [] }), warn);
+  ck('lesbar → die Show, keine Warnung', gut?.name === 'Tag 1' && zeilen.length === 2);
+  let gelesen = false;
+  const fremd = leseShowFuerEditor('C:/Shows/notizen.txt', () => { gelesen = true; return '{}'; }, warn);
+  ck('keine .jmshow-Datei → null, nicht gelesen, eine Warnung', fremd === null && !gelesen && zeilen.length === 3);
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

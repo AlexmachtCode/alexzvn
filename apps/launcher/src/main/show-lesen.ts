@@ -4,7 +4,7 @@
 // Nie Dateiinhalt (G6) und nie der Pfad — wie show-schreiben.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { parseShow, type Show } from '@jm/show';
+import { parseShow, SHOW_FILE_EXT, type Show } from '@jm/show';
 import { fehlerCode } from './verbund/fehlercode';
 
 export type ShowGelesen = { show: Show; grund?: undefined } | { show: null; grund: string };
@@ -22,4 +22,19 @@ export function leseShowMitGrund(pfad: string, lies: (pfad: string) => string): 
   } catch {
     return { show: null, grund: 'kein gültiges JSON' };
   }
+}
+
+/**
+ * Show-Editor beim Speichern (Spec 7.5, Regel 1): die Datei so lesen, wie sie JETZT ist. Nur .jmshow-Dateien.
+ * Nicht lesbar → null UND eine Warnung mit dem Grund. Still verschluckt fiele Regel 1 weg, ohne dass es jemand sieht
+ * (Owner-Regel „Diagnose, die niemand anzeigt“).
+ */
+export function leseShowFuerEditor(pfad: string, lies: (pfad: string) => string, warn: (m: string) => void): Show | null {
+  if (!pfad.toLowerCase().endsWith(SHOW_FILE_EXT)) {
+    warn('Show-Editor: keine .jmshow-Datei, nicht gelesen.');
+    return null;
+  }
+  const r = leseShowMitGrund(pfad, lies);
+  if (!r.show) warn(`Show-Editor: Show-Datei beim Speichern nicht lesbar (${r.grund}).`);
+  return r.show;
 }
