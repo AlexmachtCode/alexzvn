@@ -4,6 +4,22 @@
 import { mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { parseShow, serializeShow, type Show, type ShowAblaufItem, type ShowIveoSpeaker } from '@jm/show';
+import {
+  IveoApiError,
+  agendaToAblauf,
+  filterPrograms,
+  localTimeOfDayMs,
+  programsToAblauf,
+  type IveoAgendaItem,
+  type IveoProgram,
+  type IveoSnapshot,
+  type IveoSpeaker,
+  type IveoStage,
+} from '@jm/iveo';
+import {
+  ablaufSignatur, einPunktAblauf, erzeugeKern, type IveoClientLike, type IveoKern, type IveoSyncStatus,
+} from '../src/main/iveo-abgleich-kern';
 import { schreibeShowAtomar, warteSync, type DateiSystem } from '../src/main/show-schreiben';
 
 let pass = 0, fail = 0;
@@ -95,6 +111,413 @@ function ck(name: string, cond: boolean): void {
   const t0 = Date.now();
   warteSync(30);
   ck('warteSync wartet synchron (30 ms)', Date.now() - t0 >= 25);
+}
+
+// --- Abgleich-Kern: Prüfstand (nachgebautes iveo, Show-Dateien im Speicher) -------------------------------------
+const EVENT = 'cop31';
+const BASIS = 'https://iveo.test/api/v1';
+const TOKEN = 'iveo_live_geheim';
+const SHOW_PFAD = 'C:/Shows/COP31 Tag 1.jmshow';
+const TAG = '2026-11-10';
+
+type Abruf = 'geaendert' | 'snapshot' | 'agenda' | 'programm' | 'speakers';
+/** Nachgebautes iveo: Daten, Fehler je Abruf, Sperren („Abfrage läuft gerade“) und Mitschrift der Abrufe. */
+interface NachgebautesIveo {
+  programme: IveoProgram[];
+  agenda: Record<string, IveoAgendaItem[]>;
+  speakers: IveoSpeaker[];
+  stages: IveoStage[];
+  /** Antwort auf ?updated_since= */
+  geaendert: IveoProgram[];
+  fehler: Partial<Record<Abruf, unknown>>;
+  sperre: (abruf: Abruf, arg: string) => Promise<void> | null;
+  abrufe: string[];
+}
+
+function programm(id: string, title: string, extra: Partial<IveoProgram> = {}): IveoProgram {
+  return {
+    id, event_id: 'ev-1', title, type_slug: 'side-event', duration_minutes: 60,
+    starts_at: `${TAG}T09:00:00+00:00`, starts_at_local: `${TAG}T10:00:00`, ...extra,
+  };
+}
+function punkt(programId: string, id: string, title: string, sort: number, minuten = 10): IveoAgendaItem {
+  return { id, program_id: programId, sort_order: sort, title, duration_minutes: minuten };
+}
+/** P1 mit drei Agenda-Punkten, P2 mit zwei, P3 ohne Agenda (alle am 10.11.), P4 am 11.11. */
+function neuesIveo(): NachgebautesIveo {
+  return {
+    programme: [
+      programm('P1', 'Side Event Klima', { stage_id: 'S1', subtitle: 'Raum A' }),
+      programm('P2', 'Side Event Wasser', { starts_at: `${TAG}T11:00:00+00:00`, starts_at_local: `${TAG}T12:00:00` }),
+      programm('P3', 'Side Event Wald', { starts_at: `${TAG}T13:00:00+00:00`, starts_at_local: `${TAG}T14:00:00`, stage_id: 'S1' }),
+      programm('P4', 'Side Event Ozean', { starts_at: '2026-11-11T09:00:00+00:00', starts_at_local: '2026-11-11T10:00:00' }),
+    ],
+    agenda: {
+      P1: [punkt('P1', 'a1', 'Begrüßung', 1, 5), punkt('P1', 'a2', 'Panel', 2, 40), punkt('P1', 'a3', 'Fragen', 3, 15)],
+      P2: [punkt('P2', 'b1', 'Einführung', 1), punkt('P2', 'b2', 'Diskussion', 2, 30)],
+    },
+    speakers: [{ id: 'sp1', event_id: 'ev-1', first_name: 'Ana', last_name: 'Silva', title: 'Ministerin' }],
+    stages: [{ id: 'S1', event_id: 'ev-1', name: 'Bühne 1' }],
+    geaendert: [],
+    fehler: {},
+    sperre: () => null,
+    abrufe: [],
+  };
+}
+
+function nachgebauterClient(iv: NachgebautesIveo): IveoClientLike {
+  const schritt = async (abruf: Abruf, arg: string): Promise<void> => {
+    iv.abrufe.push(`${abruf}:${arg}`);
+    const halt = iv.sperre(abruf, arg);
+    if (halt) await halt;
+    if (iv.fehler[abruf]) throw iv.fehler[abruf];
+  };
+  return {
+    async listProgramsUpdatedSince(_event: string, seit: string) {
+      await schritt('geaendert', seit);
+      return iv.geaendert;
+    },
+    async getEventSnapshot(event: string, jetzt: string): Promise<IveoSnapshot> {
+      await schritt('snapshot', jetzt);
+      return {
+        event: { id: 'ev-1', slug: event, name: 'COP31', starts_at: null, ends_at: null, timezone: null },
+        programs: iv.programme, speakers: iv.speakers, organisations: [], stages: iv.stages, fetchedAt: jetzt,
+      };
+    },
+    async listAgendaItems(_event: string, programId: string) {
+      await schritt('agenda', programId);
+      return iv.agenda[programId] ?? [];
+    },
+    async getProgram(_event: string, programId: string) {
+      await schritt('programm', programId);
+      const p = iv.programme.find((x) => x.id === programId);
+      if (!p) throw new IveoApiError(404, 'not_found', `Programm ${programId} fehlt`);
+      return p;
+    },
+    async listSpeakers() {
+      await schritt('speakers', '');
+      return iv.speakers;
+    },
+  };
+}
+
+/** Agenda-Ablauf, wie ihn das Binden schreibt (Startzeit-Anker und Kategorie aus dem Programm). */
+function agendaAblauf(iv: NachgebautesIveo, programId: string): ShowAblaufItem[] {
+  const p = iv.programme.find((x) => x.id === programId)!;
+  return agendaToAblauf(iv.agenda[programId] ?? [], { firstStartMs: localTimeOfDayMs(p), category: p.type_slug });
+}
+/** Listen-Ablauf eines Tages, wie ihn das Binden schreibt. */
+function listenAblauf(iv: NachgebautesIveo, day: string): ShowAblaufItem[] {
+  return programsToAblauf(filterPrograms(iv.programme, { day }), {
+    stagesById: new Map(iv.stages.map((s) => [s.id, s])),
+    withSchedule: true,
+    speakerNamesById: new Map([['sp1', 'Ana Silva']]),
+  });
+}
+const ANA: ShowIveoSpeaker = { name: 'Ana Silva', title: 'Ministerin' };
+function showMit(ablauf: ShowAblaufItem[], filter: NonNullable<Show['iveo']>['filter'], speakers: ShowIveoSpeaker[] = []): Show {
+  return {
+    schemaVersion: 1,
+    name: 'COP31 Tag 1',
+    tools: [{ appId: 'jm-timer' }, { appId: 'jm-titler' }, { appId: 'jm-rundown' }],
+    ablauf,
+    iveo: {
+      event: EVENT, baseUrl: BASIS, name: 'COP31', syncedAt: '2026-10-01T08:00:00.000Z',
+      ...(speakers.length ? { speakers } : {}),
+      sideEvents: [{ id: 'P1', title: 'Side Event Klima' }, { id: 'P2', title: 'Side Event Wasser' }],
+      filter,
+    },
+  };
+}
+
+interface Umgebung {
+  kern: IveoKern;
+  iveo: NachgebautesIveo;
+  dateien: Map<string, string>;
+  token: string | undefined;
+  schreibFehler: boolean;
+  schreibversuche: number;
+  reloads: string[];
+  antworten: Record<'jm-timer' | 'jm-titler' | 'jm-rundown', number>;
+  status: IveoSyncStatus[];
+  aktivMeldungen: number;
+  info: string[];
+  warn: string[];
+  clients: string[];
+}
+/** Show-Datei anlegen, Kern bauen, Show öffnen (wie onShowOpened). */
+function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boolean } = {}): Umgebung {
+  let uhr = Date.parse('2026-10-01T10:00:00.000Z');
+  const iveo = neuesIveo();
+  const u: Umgebung = {
+    kern: undefined as unknown as IveoKern,
+    iveo,
+    dateien: new Map([[SHOW_PFAD, serializeShow(baue(iveo))]]),
+    token: opt.ohneToken ? undefined : TOKEN,
+    schreibFehler: false,
+    schreibversuche: 0,
+    reloads: [],
+    antworten: { 'jm-timer': 1, 'jm-titler': 1, 'jm-rundown': 1 },
+    status: [],
+    aktivMeldungen: 0,
+    info: [],
+    warn: [],
+    clients: [],
+  };
+  u.kern = erzeugeKern({
+    clientFabrik: (token, baseUrl) => {
+      u.clients.push(`${token}@${baseUrl}`);
+      return nachgebauterClient(u.iveo);
+    },
+    token: () => u.token,
+    leseShow: (p) => {
+      const text = u.dateien.get(p);
+      if (text === undefined) return null;
+      try {
+        return parseShow(text);
+      } catch {
+        return null;
+      }
+    },
+    schreibeShow: (p, show) => {
+      u.schreibversuche++;
+      if (u.schreibFehler) return false;
+      u.dateien.set(p, serializeShow(show));
+      return true;
+    },
+    benachrichtige: (appId, zeile) => {
+      u.reloads.push(`${appId} ${zeile}`);
+      return u.antworten[appId];
+    },
+    schreibeCache: () => {},
+    log: { info: (m) => u.info.push(m), warn: (m) => u.warn.push(m) },
+    jetztIso: () => new Date((uhr += 1000)).toISOString(),
+    meldeStatus: (s) => u.status.push({ ...s }),
+    meldeAktiv: () => { u.aktivMeldungen++; },
+    baseUrlStandard: () => 'https://standard.test/api/v1',
+  });
+  u.kern.showGeoeffnet(SHOW_PFAD, parseShow(u.dateien.get(SHOW_PFAD)!));
+  return u;
+}
+const datei = (u: Umgebung, pfad = SHOW_PFAD): Show => parseShow(u.dateien.get(pfad)!);
+const ids = (show: Show): string => (show.ablauf ?? []).map((p) => p.id ?? '-').join(',');
+const warteMs = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout(r, ms));
+function sperre(): { halt: Promise<void>; frei: () => void } {
+  let frei: () => void = () => {};
+  const halt = new Promise<void>((r) => { frei = r; });
+  return { halt, frei };
+}
+const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' });
+
+// --- ablaufSignatur (Spec 7.2) ---------------------------------------------------------------------------------
+{
+  const a: ShowAblaufItem[] = [{ id: 'a1', label: 'Begrüßung', durationMs: 300_000, category: 'side-event' }];
+  const umgestellt: ShowAblaufItem[] = [{ category: 'side-event', durationMs: 300_000, label: 'Begrüßung', id: 'a1' }];
+  ck('Signatur: Feldreihenfolge im Objekt zählt nicht', ablaufSignatur(a, []) === ablaufSignatur(umgestellt, []));
+  ck('Signatur: die Kennung zählt (Bestands-Show ohne id ≠ mit id)',
+    ablaufSignatur(a, []) !== ablaufSignatur([{ label: 'Begrüßung', durationMs: 300_000, category: 'side-event' }], []));
+  ck('Signatur: Speaker zählen (Funktion geändert)', ablaufSignatur(a, [ANA]) !== ablaufSignatur(a, [{ name: 'Ana Silva', title: 'Botschafterin' }]));
+  ck('Signatur: so normalisiert wie die Datei (Punkt ohne Titel fällt weg, doppelte id → #2)',
+    ablaufSignatur([...a, { label: '  ' }], []) === ablaufSignatur(a, [])
+    && ablaufSignatur([{ id: 'x', label: 'A' }, { id: 'x', label: 'B' }], []) === ablaufSignatur([{ id: 'x', label: 'A' }, { id: 'x#2', label: 'B' }], []));
+}
+
+// --- 9.6 Nr. 1: Öffnen + erste Abfrage mit gleichem Stand → kein Schreiben, kein RELOAD -------------------------
+// (Im Log von #235: 45 s nach dem Öffnen ein RELOAD ohne Änderung, weil lastSig beim Öffnen fehlte.)
+{
+  const u = umgebung(agendaP1);
+  ck('Öffnen: aktiv() trägt Pfad, Event und Filter, das Panel ist benachrichtigt',
+    JSON.stringify(u.kern.aktiv()) === JSON.stringify({ path: SHOW_PFAD, event: EVENT, filter: { day: TAG, programId: 'P1' } })
+    && u.aktivMeldungen === 1);
+  await u.kern.abfrage();
+  ck('Nr. 1: gleicher Stand → nichts geschrieben, kein RELOAD', u.schreibversuche === 0 && u.reloads.length === 0);
+  ck('Nr. 1: … der Client nutzt Token und Basis-URL der Bindung', u.clients[0] === `${TOKEN}@${BASIS}`);
+  ck('Nr. 1: … der Side-Event-Kontext wurde nachgeladen', u.iveo.abrufe.includes('programm:P1'));
+  await u.kern.abfrage();
+  ck('Nr. 1: zweite Abfrage: Kontext gemerkt, wieder nichts geschrieben',
+    u.iveo.abrufe.filter((x) => x === 'programm:P1').length === 1 && u.schreibversuche === 0 && u.reloads.length === 0);
+}
+
+// --- 9.6 Nr. 2: Listen-Modus, updated_since trifft, Ablauf gleich → kein Schreiben --------------------------------
+{
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  u.iveo.geaendert = [u.iveo.programme[3]]; // geändert hat sich nur P4 (anderer Tag)
+  await u.kern.abfrage();
+  ck('Nr. 2: Listen-Modus, Treffer, gefilterter Ablauf gleich → nichts geschrieben, kein RELOAD',
+    u.schreibversuche === 0 && u.reloads.length === 0);
+  await u.kern.abfrage();
+  const seit = u.iveo.abrufe.filter((x) => x.startsWith('geaendert:')).map((x) => x.slice('geaendert:'.length));
+  const snap1 = u.iveo.abrufe.find((x) => x.startsWith('snapshot:'))?.slice('snapshot:'.length) ?? '(kein Snapshot)';
+  ck('Nr. 2: … das updated_since-Fenster rückt trotzdem vor', seit[0] === '2026-10-01T08:00:00.000Z' && seit[1] === snap1);
+  u.iveo.programme[1] = { ...u.iveo.programme[1], title: 'Side Event Wasser und Meer' };
+  await u.kern.abfrage();
+  ck('Nr. 2: Gegenprobe: echte Änderung → geschrieben und RELOAD',
+    u.schreibversuche === 1 && u.reloads.length === 3 && datei(u).ablauf?.[1]?.label === 'Side Event Wasser und Meer');
+  ck('Nr. 2: … die Datei trägt die iveo-Programm-IDs als Kennungen', ids(datei(u)) === 'P1,P2,P3');
+  ck('Nr. 2: … Filter, Speaker und Side-Event-Liste bleiben in der Bindung',
+    datei(u).iveo?.filter?.day === TAG && datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva' && datei(u).iveo?.sideEvents?.length === 2);
+}
+
+// --- 9.6 Nr. 3: Agenda-Abruf scheitert → kein Schreiben, gestört; danach Erfolg → ok ------------------------------
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = u.iveo.agenda.P1.slice(0, 2); // in iveo geändert …
+  u.iveo.fehler.agenda = new Error('fetch failed'); // … aber nicht abrufbar
+  await u.kern.abfrage();
+  ck('Nr. 3: Agenda-Abruf scheitert → nichts geschrieben, kein RELOAD, kein 1-Punkt-Ablauf',
+    u.schreibversuche === 0 && u.reloads.length === 0 && datei(u).ablauf?.length === 3);
+  const st = u.status[0];
+  ck('Nr. 3: … Zustand gestört mit Text und Zeit', u.status.length === 1 && st.ok === false && st.text === 'fetch failed' && typeof st.seit === 'string');
+  const gestoertWarnungen = (): number => u.warn.filter((w) => w.startsWith('iveo-Abgleich gestört')).length;
+  ck('Nr. 3: … eine Warnung im Log', gestoertWarnungen() === 1);
+  await u.kern.abfrage();
+  ck('Nr. 3: derselbe Fehler noch einmal → keine neue Meldung, keine neue Warnung', u.status.length === 1 && gestoertWarnungen() === 1);
+  u.iveo.fehler.agenda = new IveoApiError(503, 'unavailable', 'iveo HTTP 503 @ /events [HTTP 503]');
+  await u.kern.abfrage();
+  ck('Nr. 3: anderer Fehlertext → neue Meldung und Warnung, „seit“ bleibt',
+    u.status.length === 2 && u.status[1].text !== 'fetch failed' && u.status[1].seit === st.seit && gestoertWarnungen() === 2);
+  delete u.iveo.fehler.agenda;
+  await u.kern.abfrage();
+  ck('Nr. 3: danach Erfolg → ok, der neue Stand ist geschrieben',
+    u.status.at(-1)?.ok === true && u.schreibversuche === 1 && datei(u).ablauf?.length === 2 && u.reloads.length === 3);
+}
+
+// --- 9.6 Nr. 4: getProgram scheitert bei fehlendem sideCtx → kein Schreiben, gestört ------------------------------
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = u.iveo.agenda.P1.slice(0, 2);
+  u.iveo.fehler.programm = new Error('socket hang up');
+  await u.kern.abfrage();
+  ck('Nr. 4: getProgram scheitert bei fehlendem Kontext → nichts geschrieben (kein Ablauf ohne Startzeit/Kategorie)',
+    u.schreibversuche === 0 && u.reloads.length === 0);
+  ck('Nr. 4: … Zustand gestört', u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'socket hang up');
+  delete u.iveo.fehler.programm;
+  await u.kern.abfrage();
+  const a = datei(u).ablauf ?? [];
+  ck('Nr. 4: nächster Versuch klappt → mit Startzeit-Anker und Kategorie geschrieben',
+    u.schreibversuche === 1 && a.length === 2 && a[0].plannedStartMs === localTimeOfDayMs(u.iveo.programme[0]) && a[0].category === 'side-event');
+}
+
+// --- 9.6 Nr. 5: leere Agenda → 1-Punkt-Ablauf; gleich gebunden und abgefragt → kein Schein-„geändert“ -------------
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = [];
+  await u.kern.abfrage();
+  const a = datei(u).ablauf ?? [];
+  ck('Nr. 5: erfolgreich leere Agenda → das Programm als ein Punkt, mit iveo-Programm-ID, RELOAD',
+    a.length === 1 && a[0].label === 'Side Event Klima' && a[0].id === 'P1' && u.reloads.length === 3);
+  ck('Nr. 5: … Notiz ohne Bühnennamen (ohne stagesById, Spec 7.2)', a[0].note === 'Raum A');
+  const v = umgebung((iv) => showMit([einPunktAblauf(iv.programme[2])], { day: TAG, programId: 'P3' }));
+  await v.kern.abfrage();
+  await v.kern.abfrage();
+  ck('Nr. 5: so gebunden (einPunktAblauf) und abgefragt → nichts geschrieben, kein RELOAD', v.schreibversuche === 0 && v.reloads.length === 0);
+}
+
+// --- 9.6 Nr. 6: HTTP 401 → „Token ungültig oder widerrufen“ -------------------------------------------------------
+{
+  const u = umgebung(agendaP1);
+  u.iveo.fehler.agenda = new IveoApiError(401, 'token_revoked', 'Token revoked @ /events/cop31/programs/P1/agenda-items [HTTP 401 token_revoked]');
+  await u.kern.abfrage();
+  ck('Nr. 6: HTTP 401 → Text „Token ungültig oder widerrufen“', u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'Token ungültig oder widerrufen');
+  ck('Nr. 6: … das Token steht nirgends im Log', ![...u.info, ...u.warn].some((z) => z.includes(TOKEN)));
+  const v = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  v.iveo.fehler.geaendert = new IveoApiError(401, 'unauthorized', 'iveo HTTP 401 @ /events/cop31/programs [HTTP 401]');
+  await v.kern.abfrage();
+  ck('Nr. 6: … ebenso im Listen-Modus', v.status.at(-1)?.text === 'Token ungültig oder widerrufen' && v.schreibversuche === 0);
+}
+
+// --- 9.6 Nr. 7: kein Token → „kein iveo-Token auf diesem Rechner, nur Offline-Ablauf“ -----------------------------
+{
+  const u = umgebung(agendaP1, { ohneToken: true });
+  ck('Nr. 7: kein Token beim Öffnen → Status-Text', u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'kein iveo-Token auf diesem Rechner, nur Offline-Ablauf');
+  ck('Nr. 7: … kein aktiver Abgleich, das Panel ist trotzdem benachrichtigt', u.kern.aktiv() === null && u.aktivMeldungen === 1);
+  await u.kern.abfrage();
+  ck('Nr. 7: … eine Abfrage fragt iveo nicht', u.clients.length === 0 && u.iveo.abrufe.length === 0);
+  const v = umgebung(agendaP1);
+  v.token = undefined;
+  await v.kern.abfrage();
+  ck('Nr. 7: Token fehlt bei einer Abfrage → derselbe Text, kein Abruf',
+    v.status.at(-1)?.text === 'kein iveo-Token auf diesem Rechner, nur Offline-Ablauf' && v.clients.length === 0);
+  const w = umgebung(() => ({ schemaVersion: 1, name: 'Ohne iveo', tools: [], ablauf: [{ id: 'x1', label: 'Begrüßung' }] }));
+  ck('Show ohne iveo: kein Abgleich, Status bleibt ok', w.kern.aktiv() === null && w.status.length === 0);
+}
+
+// --- 9.6 Nr. 9 und 7.3: Show-Wechsel während einer Abfrage; Abfragen nacheinander ---------------------------------
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = u.iveo.agenda.P1.slice(0, 2); // die Abfrage hätte etwas zu schreiben
+  const s = sperre();
+  u.iveo.sperre = (abruf) => (abruf === 'agenda' ? s.halt : null);
+  const lauf = u.kern.abfrage();
+  const zweite = await Promise.race([u.kern.abfrage().then(() => 'fertig'), warteMs(500).then(() => 'hängt')]);
+  ck('7.3: läuft noch eine Abfrage, startet keine zweite (kehrt sofort zurück, kein zweiter Abruf)',
+    zweite === 'fertig' && u.iveo.abrufe.filter((x) => x.startsWith('agenda:')).length === 1);
+  const tag2 = 'C:/Shows/COP31 Tag 2.jmshow';
+  u.dateien.set(tag2, serializeShow({ schemaVersion: 1, name: 'COP31 Tag 2', tools: [] }));
+  u.kern.showGeoeffnet(tag2, datei(u, tag2));
+  s.frei();
+  await lauf;
+  ck('Nr. 9: Show-Wechsel während einer Abfrage → nichts geschrieben, kein RELOAD', u.schreibversuche === 0 && u.reloads.length === 0);
+  ck('Nr. 9: … beide Dateien unverändert', datei(u).ablauf?.length === 3 && datei(u, tag2).ablauf === undefined);
+
+  const v = umgebung(agendaP1);
+  v.iveo.agenda.P1 = v.iveo.agenda.P1.slice(0, 2);
+  const s2 = sperre();
+  v.iveo.sperre = (abruf) => (abruf === 'agenda' ? s2.halt : null);
+  const lauf2 = v.kern.abfrage();
+  v.kern.showGeschlossen();
+  s2.frei();
+  await lauf2;
+  ck('Nr. 9: Show geschlossen während einer Abfrage → nichts geschrieben', v.schreibversuche === 0 && v.reloads.length === 0 && v.kern.aktiv() === null);
+}
+
+// --- 9.6 Nr. 10: Schreiben scheitert → kein RELOAD, lastSig unverändert; die nächste Abfrage schreibt erneut -------
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = u.iveo.agenda.P1.slice(0, 2);
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  ck('Nr. 10: Schreiben scheitert → kein RELOAD, Datei unverändert', u.schreibversuche === 1 && u.reloads.length === 0 && datei(u).ablauf?.length === 3);
+  ck('Nr. 10: … Zustand gestört „Show konnte nicht geschrieben werden“', u.status.at(-1)?.text === 'Show konnte nicht geschrieben werden');
+  u.schreibFehler = false;
+  await u.kern.abfrage();
+  ck('Nr. 10: nächste Abfrage mit gleichem iveo-Stand schreibt erneut und schickt RELOAD',
+    u.schreibversuche === 2 && u.reloads.length === 3 && datei(u).ablauf?.length === 2 && u.status.at(-1)?.ok === true);
+  await u.kern.abfrage();
+  ck('Nr. 10: … danach gleicher Stand → nichts mehr', u.schreibversuche === 2 && u.reloads.length === 3);
+
+  const v = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  v.iveo.geaendert = [v.iveo.programme[1]];
+  v.iveo.programme[1] = { ...v.iveo.programme[1], title: 'Side Event Wasser und Meer' };
+  v.schreibFehler = true;
+  await v.kern.abfrage();
+  v.schreibFehler = false;
+  await v.kern.abfrage();
+  const seit = v.iveo.abrufe.filter((x) => x.startsWith('geaendert:'));
+  ck('Nr. 10: Listen-Modus: nach dem Schreibfehler fragt die nächste Abfrage dasselbe Fenster ab und schreibt',
+    seit.length === 2 && seit[0] === seit[1] && v.schreibversuche === 2 && v.reloads.length === 3);
+}
+
+// --- 9.6 Nr. 12: RELOAD-Zählung enthält den Rundown (Spec 7.1) -------------------------------------------------
+{
+  const u = umgebung(agendaP1);
+  u.antworten = { 'jm-timer': 1, 'jm-titler': 0, 'jm-rundown': 2 };
+  u.iveo.agenda.P1 = [...u.iveo.agenda.P1, punkt('P1', 'a4', 'Abschluss', 4)];
+  await u.kern.abfrage();
+  ck('Nr. 12: RELOAD geht an Timer, Titler und Rundown',
+    JSON.stringify(u.reloads) === JSON.stringify(['jm-timer TIMER RELOAD', 'jm-titler TITLER RELOAD', 'jm-rundown RUNDOWN RELOAD']));
+  ck('Nr. 12: … die Logzeile zählt den Rundown', u.info.includes('iveo: RELOAD → 1 Timer, 0 Titler, 2 Rundown benachrichtigt.'));
+}
+
+// --- 7.2: Bestands-Show ohne Kennungen → die erste Abfrage schreibt sie einmal nach -------------------------------
+{
+  const u = umgebung((iv) => showMit(agendaAblauf(iv, 'P1').map(({ id: _id, ...rest }) => rest), { day: TAG, programId: 'P1' }));
+  ck('7.2: Ausgangslage: Datei ohne Kennungen', ids(datei(u)) === '-,-,-');
+  await u.kern.abfrage();
+  ck('7.2: erste Abfrage schreibt die Kennungen einmal nach und schickt RELOAD',
+    u.schreibversuche === 1 && u.reloads.length === 3 && ids(datei(u)) === 'a1,a2,a3');
+  await u.kern.abfrage();
+  ck('7.2: … danach stabil', u.schreibversuche === 1 && u.reloads.length === 3);
 }
 
 // --- Zusammenfassung ---
