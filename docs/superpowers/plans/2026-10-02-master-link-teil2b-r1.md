@@ -38,6 +38,7 @@ Der Durchgang läuft mit `tsx`, Electron und dem Chrome-DevTools-Protokoll.
 - Umfang dieses Plans: Teil A (Abschnitte 5–11) und Abschnitt 23 (M1–M3).
 - Teil B (Abschnitte 12–21, Release 2) bekommt einen eigenen Plan. Er beginnt erst, wenn Release 1 gemergt ist (Spec 26).
 - Plan und Spec gehören zusammen. Bei Widerspruch gilt die Spec, und die Abweichung wird gemeldet.
+- **Ausnahme: Entscheidungen 14 und 18** (Abschnitt „Entscheidungen, wo die Spec schweigt“). Sie weichen bewusst ab: 14 von Spec 7.4 (`hinweis?: string`), 18 von Spec 9.6 („9 wie heute“). Hat der Owner sie bestätigt (siehe „Unklarheiten“), gehen sie der Spec vor, und ein Spec-Prüfer wertet sie nicht als Verstoß. Ohne Bestätigung beginnt B13 nicht, denn Entscheidung 14 trägt B13 und B14. Ebenso beginnt B17 nicht ohne Bestätigung von Entscheidung 18. Lehnt der Owner eine davon ab, wird der Plan für die betroffenen Aufgaben überarbeitet, bevor sie beginnen.
 
 **Arbeitsort:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b`, Branch `feat/master-link-teil2b`, Stand `996f54e2b8`. Alle Pfade sind relativ dazu. Zeilenangaben gelten für diesen Stand; maßgeblich ist immer der wortgleiche Vorher-Text.
 
@@ -50,19 +51,26 @@ Der Durchgang läuft mit `tsx`, Electron und dem Chrome-DevTools-Protokoll.
 | 3 | B12–B14 | Titler: Datei, Main, Anzeige |
 | 4 | B15–B18 | Rundown, Durchgang, Abnahme und Release |
 
-**Messergebnisse M1–M3:** Aufgabe B2 trägt sie in Spec 23 ein, unter „Ergebnisse“. B4 wählt danach den Zweig im Mapper, B5 die Testdaten.
+**Messergebnisse M1–M3:** Aufgabe B2 trägt sie in Spec 23 unter „Ergebnisse“ ein und hier (Spec 23: „Die Ergebnisse kommen in diese Spec und in den Plan.“). B4 wählt danach den Zweig im Mapper, B5 die Testdaten.
+- Stand: noch nicht gemessen.
 
 **Wie dieser Plan entstanden ist:**
 - Ein Gerüst hat die Aufgaben B1–B18, die verbindlichen Schnittstellen und die Entscheidungen unten festgelegt. Vier Schreiber haben die Aufgaben ausformuliert (B1–B7, B8–B11, B12–B14, B15–B18). Jeder hat seine Codeschritte wörtlich aus dem Plantext in eine Kopie des Worktrees (Stand `996f54e2b8`) eingespielt. Die roten und grünen Ausgaben im Plan sind dort gemessen, nicht geschätzt.
 - **B1–B7:** Alle Vorher/Nachher-Ersetzungen der Reihe nach eingespielt; jeder Vorher-Text kam genau einmal vor. Der Endstand ist in allen vier Zweigen (M1 ja/nein × M3 ja/nein) grün: iveo `ALLE TESTS OK`, Launcher `194 / 47 / 75 / 6 ok`, Typecheck von Launcher, Titler, Rundown und Timer. Sieben absichtliche Fehler im Launcher-Kern fangen die Tests alle.
-- **B8–B11:** Nur aus den Code-Blöcken nachgebaut (`@jm/show` als Stand-in nach der Schnittstelle aus B3): 31, 115, 166 und 255 Zeilen `ok`, `tsc` node und web grün. 36 absichtliche Fehler fangen die Tests alle.
-- **B12–B14:** In einer Kopie von `apps/titler` mit B8–B11 und B3: Selbsttest, `typecheck:node`, `typecheck:web` und `electron-vite build` grün. Beim Zusammensetzen des Plans noch einmal wörtlich aus dem Plantext eingespielt: 283, 304 und 320 Zeilen `ok`.
+- **B8–B11:** Nur aus den Code-Blöcken nachgebaut (`@jm/show` als Stand-in nach der Schnittstelle aus B3): 31, 116, 167 und 256 Zeilen `ok` (Stand nach der Prüfung), `tsc` node und web grün. 37 absichtliche Fehler fangen die Tests alle.
+- **B12–B14:** In einer Kopie von `apps/titler` mit B8–B11 und B3: Selbsttest, `typecheck:node`, `typecheck:web` und `electron-vite build` grün. Beim Zusammensetzen des Plans und nach der Prüfung noch einmal wörtlich aus dem Plantext eingespielt: 284, 305 und 321 Zeilen `ok`.
 - **B15–B18:** Rundown-Selbsttest 399 `ok` (vorher 338), Typecheck und Build grün, beide Gegenproben je genau ein `FAIL`. B17: `node --check` und das Laden der Module grün; der Durchgang selbst ist nicht gelaufen (G11). B18: `changelog.json` gültig, die Release-Prüfung meldet `Release-Vorbereitung ok`.
 - **Beim Zusammensetzen korrigiert:**
   - B13 `rescan` behält die alten Quellen nur noch im selben Ordner (`&& !andererOrdner`), passend zur A7-Regel aus B9. Dazu ein Test, der ohne die Korrektur rot wird.
-  - Die Testzahlen in B12–B14 nachgemessen (Endstand 320 statt 317).
+  - Die Testzahlen in B12–B14 nachgemessen (Endstand damals 320 statt 317; nach der Prüfung 321).
   - Commit-Texte von B15–B18 ohne Umlaute und mit Text, wie im Repo; `git status --short` wird vor dem Commit gelesen.
   - Einheitliche Schritt-Bezeichnung `Step n`, Arbeitsverzeichnis und Voraussetzung in jeder Aufgabe ausgeschrieben.
+- **Nach der Prüfung eingearbeitet (02.10.2026):**
+  - B9: Ein Ordnerwechsel auf Sendung ohne aktiven Eintrag wählt nicht mehr Eintrag 1 (Spec 7.3 A8). Neuer Test „A8 ohne aktiven Eintrag …“, der gegen den alten Stand rot wird. Die Testzahlen ab B9 steigen um 1.
+  - B1/B2: `ids <datei>` und `vergleiche` zählen, welche Kennungen zwischen den beiden M1-Abrufen verschwunden oder neu sind. Ein neuer Speaker gilt damit nicht mehr als „instabil“, Leerraum ist kein Abbruchgrund (Spec 5.1, 8.3). Step 3 führt immer zu M2 (a). Die Ergebnisse kommen auch in diesen Kopf (Step 9). Nachgemessen: iveo-Selbsttest 136 `ok` (vorher 118), Werkzeug ohne Token, ohne Befehl, gegen eine tote Adresse und `vergleiche` wie in B1 Step 7; `ids <datei>` gegen einen nachgebauten iveo-Server.
+  - Kopf: Die Entscheidungen 14 und 18 weichen bewusst von der Spec ab und brauchen die Bestätigung des Owners vor B13 bzw. B17.
+  - B17: Step 12 prüft `electron.exe` und weicht aus; Step 14 nennt `npm ci --ignore-scripts` für den Gegenprobe-Worktree.
+  - G15 nennt die gemessenen Zeilenenden (CRLF im Arbeitsbaum, LF im Index). Der Hinweis „alle berührten Dateien liegen mit LF vor“ traf für diesen Worktree nicht zu.
 
 ## Global Constraints
 
@@ -108,7 +116,7 @@ Der Durchgang läuft mit `tsx`, Electron und dem Chrome-DevTools-Protokoll.
   - Nie pushen. Kein bare `git stash`, kein `git reset --hard`, kein `git clean`, kein Branch-Wechsel.
   - Push, PR, Merge, Tags (einzeln pushen) und Release erst nach Freigabe durch den Owner.
 - **G14 TDD:** Erst den Test rot sehen, dann den Code schreiben. Jede Aufgabe endet mit `npm run typecheck -w <paket>` grün für jedes berührte App-Paket (`@jm/launcher`, `@jm/titler`, `@jm/rundown`).
-- **G15 Zeilenenden:** `core.autocrlf=true`, einige Dateien liegen mit CRLF vor. Änderungen mit dem Edit-Werkzeug machen (Vorher-Text exakt ersetzen), nicht mit `sed`.
+- **G15 Zeilenenden:** `core.autocrlf=true`. Im Arbeitsbaum dieses Worktrees liegen die berührten Code-Dateien mit CRLF vor, im Index mit LF (`git ls-files --eol <datei>` zeigt `i/lf w/crlf`, nachgemessen am 02.10.2026 für alle Dateien unter `apps/titler`, `apps/launcher/src` und `/test`, `apps/rundown/src` und `/test`, `packages/show`, `packages/iveo`, `.github`, `docs/jm-show.md`, `changelog.json`, die `package.json` und `package-lock.json`). Die Spec liegt mit LF vor. Änderungen mit dem Edit-Werkzeug machen (Vorher-Text exakt ersetzen), nicht mit `sed`. Neue Dateien schreibt das Write-Werkzeug mit LF; `git add` warnt dann „LF will be replaced by CRLF“, das ist harmlos.
 
 ## Testläufe (wie sie wirklich heißen)
 
@@ -147,7 +155,7 @@ Der Durchgang läuft mit `tsx`, Electron und dem Chrome-DevTools-Protokoll.
 ## Dateistruktur
 
 **Neu**
-- `packages/iveo/tools/messung-2b-kern.ts`: reine Auswertung der Messung M1/M3. Form der Kennung, Leerraum, Doppelte, Mengen- und Reihenfolge-Hash, Abgleich mit dem Launcher-Cache.
+- `packages/iveo/tools/messung-2b-kern.ts`: reine Auswertung der Messung M1/M3. Form der Kennung, Leerraum, Doppelte, Mengen- und Reihenfolge-Hash, Abgleich mit dem Launcher-Cache, Mengenvergleich zweier Abrufe.
 - `packages/iveo/tools/messung-2b.ts`: Lese-Werkzeug für M1–M3, das der Owner startet. Das Token kommt nur aus `JMPS_IVEO_TOKEN` seiner Konsole und wird nie ausgegeben.
 - `apps/titler/src/shared/datalink-kern.ts`: Kern des Titlers ohne Electron und fs. Er enthält:
   - Tabellen und `schlüssel=wert` lesen, Schlüssel bilden, zusammenführen
@@ -201,6 +209,7 @@ Der Durchgang läuft mit `tsx`, Electron und dem Chrome-DevTools-Protokoll.
   - `show-zuletzt.json` beim Beiseitelegen
   - Schalter `E2E_TITLER_DIR` für die Gegenprobe
 - `docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`: Abschnitt 23 bekommt die Ergebnisse (B2).
+- `docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md` (dieser Plan): Der Kopf-Absatz „Messergebnisse M1–M3“ bekommt die Entscheidungen (B2).
 - `docs/jm-show.md`: Absatz „Grenzen“ (`:226-231`) bekommt den Titler-Absatz.
 - `apps/launcher/package.json`, `apps/rundown/package.json`: Versionen (B18).
 - `packages/suite-manifest/changelog.json`: je ein neuer erster Eintrag für `titler`, `launcher`, `rundown`.
@@ -236,16 +245,17 @@ Der Durchgang läuft mit `tsx`, Electron und dem Chrome-DevTools-Protokoll.
 11. **Messwerkzeug:** `packages/iveo/tools/messung-2b*.ts` wird eingecheckt, damit die Messung nachvollziehbar ist und FA5 sie wiederverwenden kann. Alternativ ließe es sich nur im Scratchpad halten.
 12. **`iveo-show.ts` wird electron-frei**, damit der Selbsttest es ohne Electron laden kann.
 13. **Rundown-Vorschau** im RowEditor zeigt für Speaker-Abrufe die Namensform (`loeseSpeakerZiel(…, false)`), unabhängig von der Fähigkeit des Titlers. Der Chip zeigt den aktuellen Namen.
-14. **`TitlerStatus.hinweis` ist `{ art, text }` statt `hinweis?: string`** (Spec 7.4 nennt `string`). Das Board zeigt nur H1/H5/H6 und braucht dafür die Art; der Text bleibt wörtlich aus 7.8 (B13, B14).
+14. **`TitlerStatus.hinweis` ist `{ art, text }` statt `hinweis?: string`** (Spec 7.4 nennt `string`). Das Board zeigt nur H1/H5/H6 und braucht dafür die Art; der Text bleibt wörtlich aus 7.8 (B13, B14). **Weicht von der Spec ab:** Der Owner bestätigt das vor B13 (Kopf, „Ausnahme“).
 15. **Start über die gemerkte Show gilt als „dieselbe Show“** (B11, B13). `currentShowPath` steht ab dem Start auf der gemerkten Show. Spec 7.7 sagt nur „wie Deep-Link“; ohne diese Festlegung schaltete eine gemerkte Show, die beim Neustart gerade keine Speaker trägt, auf `ordner`, statt die Liste mit H3 zu halten (7.6).
 16. **`parseTable` trimmt nur noch Zellen, nicht ganze Zeilen** (B8). Sonst verschiebt eine leere `@kennung` vorn in einer TSV alle Spalten.
 17. **Rundown-Picker bei einem Speaker ohne Kennung** (B15): Trägt eine Aktion ohne `speakerId` genau den Namen eines Speakers ohne Kennung, steht dieser Speaker selbst ausgewählt statt der Zusatzoption „⟨Name⟩ · per Name (nicht gebunden)“. Sonst ließe er sich nie sichtbar auswählen (Bestands-Show vor dem Nachschreiben, oder M1 = nein).
-18. **Durchgang Abschnitt 9** (B17): Alan wird per Name abgerufen (`TITLER RECALL Alan` statt `RECALL 3`), und der eingefügte Speaker heißt „Abel“ statt „Neu“ (Spec 9.6 sagt „wie heute“). So bleiben Prüfung und Gegenprobe gültig, auch wenn der Mapper nach M3 sortiert.
+18. **Durchgang Abschnitt 9** (B17): Alan wird per Name abgerufen (`TITLER RECALL Alan` statt `RECALL 3`), und der eingefügte Speaker heißt „Abel“ statt „Neu“ (Spec 9.6 sagt „wie heute“). So bleiben Prüfung und Gegenprobe gültig, auch wenn der Mapper nach M3 sortiert. **Weicht von der Spec ab:** Der Owner bestätigt das vor B17 (Kopf, „Ausnahme“).
 
 Weitere kleine Festlegungen stehen in jeder Aufgabe unter „Abweichungen vom Gerüst“.
 
 ## Unklarheiten und Abhängigkeiten von außen
 
+- **Entscheidungen 14 und 18 brauchen die Bestätigung des Owners**, weil sie bewusst von Spec 7.4 bzw. 9.6 abweichen (Kopf, „Ausnahme“). Am besten im selben Termin wie die Messung B2. Die steuernde Sitzung hält die Antwort im Aufgabenbericht von B2 fest: „Entscheidung 14 bestätigt: ja/nein“, „Entscheidung 18 bestätigt: ja/nein“.
 - **M1–M3 brauchen den Owner** mit Token auf Prod. M2 (a) setzt eine Speaker-Verknüpfung am unveröffentlichten Test-Side-Event und nimmt sie zurück; das ist ein Owner-Schritt in der iveo-Weboberfläche. M1 (b) und der zweite Teil von M2 (b) gehen nur mit einem unveröffentlichten Test-Speaker, sonst bleiben sie offen (Risiko 10).
 - **M1 = nein (Zweig B) ändert Testdaten:** SP9 behält `ANA` ohne `id`. In B17 entstehen die Speaker der Show-Dateien über `speakersToShowSpeakers`, also genau so, wie der Launcher sie schreibt; bei Zweig B ohne Kennung. Der Titler hält dann über Ersatz-Schlüssel.
 - **Der Durchgang B17 berührt `%APPDATA%`** (Dev-Pfade von Rundown, Timer, Titler, `master-link.json`). Er legt sie beiseite und stellt sie wieder her. Er braucht `ELECTRON_EXE` und freie Ports.
@@ -267,7 +277,7 @@ Weitere kleine Festlegungen stehen in jeder Aufgabe unter „Abweichungen vom Ge
 **Arbeitsverzeichnis:** `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b` (Branch `feat/master-link-teil2b`, Stand `996f54e2b8`). Alle Pfade unten sind relativ dazu.
 
 **Dateien:**
-- Create: `packages/iveo/tools/messung-2b-kern.ts` (reine Auswertung: Form, Leerraum, Doppelte, Hashes, Abgleich mit dem Cache)
+- Create: `packages/iveo/tools/messung-2b-kern.ts` (reine Auswertung: Form, Leerraum, Doppelte, Hashes, Abgleich mit dem Cache, Mengenvergleich zweier Abrufe)
 - Create: `packages/iveo/tools/messung-2b.ts` (Lese-Werkzeug, das nur der Owner mit seinem Token startet)
 - Modify: `packages/iveo/test/selftest.ts`
   - Import direkt nach Zeile 30 (`import { createShow, … } from '@jm/show';`)
@@ -297,9 +307,11 @@ Der Kern steht im iveo-Selbsttest, weil `@jm/iveo` dort schon gebündelt und gep
     reihenfolgeHash: string; // 16 Hex
   }
   export function kennungsBericht(ids: string[]): KennungsBericht;
+  export function vergleicheMengen(erste: string[], zweite: string[]): { nurErste: number; nurZweite: number; gleich: boolean };
   export function vergleicheMitCache(api: string[], cache: string[]): { nurApi: number; nurCache: number; gleich: boolean };
+  export function leseKennungsListe(text: string): string[] | null; // JSON-Liste aus Texten, sonst null
   ```
-  Aufruf durch den Owner: `node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event <slug> --base <url> <ids|cache|speaker|programme-seit|speaker-seit> …`
+  Aufruf durch den Owner: `node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event <slug> --base <url> <ids [datei]|cache|speaker|programme-seit|speaker-seit|vergleiche> …`. `ids <datei>` legt die Kennungen des Abrufs als JSON-Liste beim Owner ab, `vergleiche <datei1> <datei2>` zählt, welche Kennungen nur im ersten bzw. nur im zweiten Abruf stehen (B2, M1 a).
 
 **Regeln für diese Aufgabe:**
 - Kein Agent setzt oder liest `JMPS_IVEO_TOKEN`, kein Agent liest Dateien in `%APPDATA%` (G11). Das Werkzeug wird hier nur ohne Token und gegen eine nicht erreichbare Adresse mit einem erfundenen Prüf-Token gestartet.
@@ -317,7 +329,7 @@ npm ci
 ```
 Erwartet: endet mit `added … packages` und ohne Zeile `npm error`, Exitcode 0. Danach gibt es `node_modules/tsx/dist/cli.mjs` und `node_modules/esbuild`.
 
-Scheitert dabei nur ein nativer Postinstall (etwa der Bau eines Moduls ohne passende Build-Werkzeuge), danach `npm ci --ignore-scripts` ausführen, wie die CI (`.github/workflows/ci-checks.yml:43`). Das reicht für alle Selbsttests und Typprüfungen dieses Plans. Den Fehler in den Aufgabenbericht schreiben, denn der Durchgang in B17 braucht die vollständige Installation.
+Scheitert dabei nur ein nativer Postinstall (etwa der Bau eines Moduls ohne passende Build-Werkzeuge), danach `npm ci --ignore-scripts` ausführen, wie die CI (`.github/workflows/ci-checks.yml:43`). Das reicht für alle Selbsttests und Typprüfungen dieses Plans. Den Fehler in den Aufgabenbericht schreiben. Ohne Postinstall fehlt `node_modules/electron/dist/electron.exe`; B17 Step 12 prüft das vor dem Durchgang und holt die Datei nach.
 
 Ausgangslage prüfen:
 ```
@@ -334,7 +346,7 @@ import { createShow, hatEigeneTimerListe, normalizeAblauf, parseShow, serializeS
 Nachher:
 ```ts
 import { createShow, hatEigeneTimerListe, normalizeAblauf, parseShow, serializeShow } from '@jm/show';
-import { kennungsBericht, kennungsForm, vergleicheMitCache } from '../tools/messung-2b-kern';
+import { kennungsBericht, kennungsForm, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from '../tools/messung-2b-kern';
 ```
 
 Ersetzung 2 (Zeilen 588–589), Vorher:
@@ -344,7 +356,7 @@ if (failed > 0) {
 ```
 Nachher:
 ```ts
-// ── Messung M1/M3 (Teil 2b, Spec 23): Form, Leerraum, Doppelte, Hashes, Abgleich mit dem Launcher-Cache ──
+// ── Messung M1/M3 (Teil 2b, Spec 23): Form, Leerraum, Doppelte, Hashes, Abgleich mit dem Launcher-Cache, zwei Abrufe ──
 {
   ok(kennungsForm('3f2b8c1e-9a4d-4e2f-8b1a-0c6d5e4f3a21') === 'uuid', 'Messung: UUID erkannt');
   ok(kennungsForm('3F2B8C1E-9A4D-4E2F-8B1A-0C6D5E4F3A21') === 'uuid', 'Messung: UUID auch in Großbuchstaben');
@@ -377,6 +389,21 @@ Nachher:
   ok(
     JSON.stringify(vergleicheMitCache(['a'], ['a', 'x'])) === '{"nurApi":0,"nurCache":1,"gleich":false}',
     'Messung: eine Kennung nur im Cache → nurCache 1',
+  );
+
+  // Zwei Abrufe im Abstand von 10 min (M1 a): ein neuer Speaker ist etwas anderes als eine gewechselte Kennung.
+  ok(
+    JSON.stringify(vergleicheMengen(['a', 'b', 'c'], ['b', 'c', 'd', 'e'])) === '{"nurErste":1,"nurZweite":2,"gleich":false}',
+    'Messung: Mengenvergleich zählt, was nur im ersten und was nur im zweiten Abruf steht',
+  );
+  ok(
+    JSON.stringify(vergleicheMengen(['b', 'a'], ['a', 'b'])) === '{"nurErste":0,"nurZweite":0,"gleich":true}',
+    'Messung: gleiche Menge in anderer Reihenfolge → gleich',
+  );
+  ok(JSON.stringify(leseKennungsListe('["s-1","s 2"]')) === '["s-1","s 2"]', 'Messung: gespeicherte Kennungsliste wird gelesen');
+  ok(
+    leseKennungsListe('kaputt') === null && leseKennungsListe('{"a":1}') === null && leseKennungsListe('[1,2]') === null,
+    'Messung: kein JSON, kein Array oder keine Texte → null',
   );
 }
 
@@ -449,13 +476,33 @@ export function kennungsBericht(ids: string[]): KennungsBericht {
   };
 }
 
+/**
+ * Mengen-Abgleich zweier Kennungslisten: wie viele Kennungen nur in der ersten bzw. nur in der zweiten stehen.
+ * Für M1 (a) zeigt das den Unterschied zwischen „Speaker angelegt oder gelöscht“ und „Kennung gewechselt“.
+ */
+export function vergleicheMengen(erste: string[], zweite: string[]): { nurErste: number; nurZweite: number; gleich: boolean } {
+  const inErster = new Set(erste);
+  const inZweiter = new Set(zweite);
+  const nurErste = [...inErster].filter((id) => !inZweiter.has(id)).length;
+  const nurZweite = [...inZweiter].filter((id) => !inErster.has(id)).length;
+  return { nurErste, nurZweite, gleich: nurErste === 0 && nurZweite === 0 };
+}
+
 /** Mengen-Abgleich API ↔ Launcher-Cache (`speakers[].id`): wie viele Kennungen nur auf einer Seite stehen. */
 export function vergleicheMitCache(api: string[], cache: string[]): { nurApi: number; nurCache: number; gleich: boolean } {
-  const inApi = new Set(api);
-  const imCache = new Set(cache);
-  const nurApi = [...inApi].filter((id) => !imCache.has(id)).length;
-  const nurCache = [...imCache].filter((id) => !inApi.has(id)).length;
-  return { nurApi, nurCache, gleich: nurApi === 0 && nurCache === 0 };
+  const v = vergleicheMengen(api, cache);
+  return { nurApi: v.nurErste, nurCache: v.nurZweite, gleich: v.gleich };
+}
+
+/** Eine mit `ids <datei>` abgelegte Kennungsliste lesen: JSON-Liste aus Texten. Alles andere → null. */
+export function leseKennungsListe(text: string): string[] | null {
+  let roh: unknown;
+  try {
+    roh = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return Array.isArray(roh) && roh.every((x) => typeof x === 'string') ? roh : null;
 }
 ```
 
@@ -470,6 +517,8 @@ ok   Messung: UUID erkannt
 ok   Messung: Anzahl, Doppelte und Leerraum gezählt
 ok   Messung: Hash = erste 16 Hex-Zeichen von SHA-256 über die mit \n verbundenen Kennungen
 ok   Messung: eine Kennung nur im Cache → nurCache 1
+ok   Messung: Mengenvergleich zählt, was nur im ersten und was nur im zweiten Abruf steht
+ok   Messung: kein JSON, kein Array oder keine Texte → null
 ```
 (Unter Windows erscheint nach `ALLE TESTS OK` gelegentlich `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING) … async.c` von libuv beim Prozessende. Das ist harmlos, der Exitcode bleibt 0.)
 
@@ -486,23 +535,28 @@ Inhalt von `packages/iveo/tools/messung-2b.ts`:
 //   $env:JMPS_IVEO_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
 //   node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event <slug> --base <url> <befehl> …
 // Befehle:
-//   ids                          Anzahl, Formen, Leerraum, Doppelte und Hashes der Speaker-Kennungen (M1 a, M3)
+//   ids [datei]                  Anzahl, Formen, Leerraum, Doppelte und Hashes der Speaker-Kennungen (M1 a, M3);
+//                                mit [datei] legt es die Kennungen zusätzlich als JSON-Liste dort ab (für vergleiche)
+//   vergleiche <datei1> <datei2> zwei mit ids abgelegte Listen: wie viele Kennungen nur in der ersten bzw. nur in der
+//                                zweiten stehen (M1 a). Liest nur die beiden Dateien, ruft iveo nicht ab.
 //   cache <pfad>                 Kennungen der iveo-Cache-Datei des Launchers gegen die API (M1 a)
 //   speaker <name>               id, updated_at und title des Speakers mit genau diesem Anzeigenamen (M1 b)
 //   programme-seit <iso> [id]    Programme mit updated_since; ist das Programm dabei? (M2 a)
 //   speaker-seit <iso> [name]    /speakers mit updated_since, roh; Status, Anzahl, ist der Speaker dabei? (M2 b)
+// Wie alle Befehle startet auch vergleiche nur mit gesetztem JMPS_IVEO_TOKEN; also vor dem Entfernen des Tokens aufrufen.
 //
 // Liest nur. Ausgegeben werden Zahlen, Hashes, Kennungen und HTTP-Status: nie das Token, keine Bio, keine Fotos,
-// keine Namen außer dem gesuchten Test-Speaker und nie Antwortinhalte aus Fehlern.
+// keine Namen außer dem gesuchten Test-Speaker und nie Antwortinhalte aus Fehlern. Die mit ids abgelegte Datei
+// enthält nur Kennungen; sie bleibt beim Owner und wird nie eingecheckt.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { IveoApiError, createIveoClient, normalizeIveoBaseUrl, speakerName, type IveoSpeaker } from '../src/index';
-import { kennungsBericht, vergleicheMitCache } from './messung-2b-kern';
+import { kennungsBericht, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from './messung-2b-kern';
 
 const NUTZUNG =
   'Aufruf: node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event <slug> --base <url> ' +
-  '<ids | cache <pfad> | speaker <name> | programme-seit <iso> [programmId] | speaker-seit <iso> [name]>';
+  '<ids [datei] | vergleiche <datei1> <datei2> | cache <pfad> | speaker <name> | programme-seit <iso> [programmId] | speaker-seit <iso> [name]>';
 
 function abbruch(text: string, code: number): never {
   console.error(text);
@@ -538,14 +592,41 @@ function zeitOderAbbruch(iso: string | undefined): string {
   return iso;
 }
 
-async function ids(): Promise<void> {
-  const b = kennungsBericht(kennungen(await client.listSpeakers(event)));
+async function ids(datei: string | undefined): Promise<void> {
+  const liste = kennungen(await client.listSpeakers(event));
+  const b = kennungsBericht(liste);
   console.log(`Anzahl: ${b.anzahl}`);
   console.log(`Formen: uuid ${b.formen.uuid}, ziffern ${b.formen.ziffern}, andere ${b.formen.andere}`);
   console.log(`Mit Leerraum: ${b.mitLeerraum}`);
   console.log(`Doppelte: ${b.doppelte}`);
   console.log(`mengenHash: ${b.mengenHash}`);
   console.log(`reihenfolgeHash: ${b.reihenfolgeHash}`);
+  if (datei) {
+    // Nur die Kennungen, in API-Reihenfolge; keine Namen. Für den Vergleich zweier Abrufe (vergleiche).
+    writeFileSync(datei, JSON.stringify(liste), 'utf8');
+    console.log(`Kennungen abgelegt: ${liste.length}`);
+  }
+}
+
+/** Zwei mit `ids <datei>` abgelegte Listen vergleichen (M1 a). Liest nur die beiden Dateien, kein Netz. */
+function vergleiche(datei1: string | undefined, datei2: string | undefined): void {
+  if (!datei1 || !datei2) abbruch(NUTZUNG, 2);
+  const lies = (pfad: string): string[] => {
+    let text: string;
+    try {
+      text = readFileSync(pfad, 'utf8');
+    } catch (e) {
+      // Nie Dateiinhalt ausgeben, nur den Fehlercode.
+      abbruch(`Kennungsdatei nicht lesbar: ${(e as { code?: string }).code ?? 'unbekannt'}`, 2);
+    }
+    const liste = leseKennungsListe(text);
+    if (!liste) abbruch('Kennungsdatei ohne Kennungsliste (kein gültiges JSON oder keine Liste aus Texten).', 2);
+    return liste;
+  };
+  const v = vergleicheMengen(lies(datei1), lies(datei2));
+  console.log(`nurErste: ${v.nurErste}`);
+  console.log(`nurZweite: ${v.nurZweite}`);
+  console.log(`gleich: ${jaNein(v.gleich)}`);
 }
 
 async function cache(pfad: string | undefined): Promise<void> {
@@ -613,7 +694,10 @@ async function speakerSeit(iso: string | undefined, name: string | undefined): P
 try {
   switch (befehl) {
     case 'ids':
-      await ids();
+      await ids(arg1);
+      break;
+    case 'vergleiche':
+      vergleiche(arg1, arg2);
       break;
     case 'cache':
       await cache(arg1);
@@ -672,6 +756,23 @@ Abbruch: fetch failed
 ```
 Die `0` zeigt: das Token steht nirgends in der Ausgabe. Die Probedatei wird gleich wieder gelöscht und nie eingecheckt.
 
+`vergleiche` liest nur zwei Dateien und ruft iveo nicht ab. Geprüft mit zwei erfundenen Listen in einem Temp-Ordner, gegen dieselbe tote Adresse (die Antwort kommt sofort, ohne die Wiederholungen des Clients):
+```
+D=$(mktemp -d); echo '["s-1","s-2","s-3"]' > "$D/a.json"; echo '["s-2","s-3","s-4","s-5"]' > "$D/b.json"; echo 'kaputt' > "$D/c.json"
+JMPS_IVEO_TOKEN=iveo_live_PRUEFTOKEN node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event cop31 --base http://127.0.0.1:9/api/v1 vergleiche "$D/a.json" "$D/b.json"; echo "Exit=$?"
+JMPS_IVEO_TOKEN=iveo_live_PRUEFTOKEN node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event cop31 --base http://127.0.0.1:9/api/v1 vergleiche "$D/a.json" "$D/c.json"; echo "Exit=$?"
+rm -rf "$D"
+```
+Erwartet genau:
+```
+nurErste: 1
+nurZweite: 2
+gleich: nein
+Exit=0
+Kennungsdatei ohne Kennungsliste (kein gültiges JSON oder keine Liste aus Texten).
+Exit=2
+```
+
 Typprüfung des Werkzeugs (es liegt in keiner `tsconfig`, deshalb einmal direkt):
 ```
 node node_modules/typescript/bin/tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --types node --skipLibCheck packages/iveo/tools/messung-2b.ts
@@ -692,7 +793,7 @@ A  packages/iveo/tools/messung-2b.ts
 ```
 (Die Bündeldatei `packages/iveo/test/selftest.bundle.mjs` ist per `packages/iveo/.gitignore` ausgeschlossen. `node_modules` ist ignoriert.) Dann:
 ```
-git commit -m "feat(iveo): Messwerkzeug fuer M1-M3 (Teil 2b, Spec 23)" -m "messung-2b-kern.ts wertet Speaker-Kennungen aus: Form (UUID, Ziffern, andere), Leerraum, Doppelte, Mengen- und Reihenfolge-Hash, Abgleich mit dem Launcher-Cache. messung-2b.ts ist das Lese-Werkzeug fuer den Owner; das Token kommt nur aus JMPS_IVEO_TOKEN seiner Konsole und wird nie ausgegeben." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(iveo): Messwerkzeug fuer M1-M3 (Teil 2b, Spec 23)" -m "messung-2b-kern.ts wertet Speaker-Kennungen aus: Form (UUID, Ziffern, andere), Leerraum, Doppelte, Mengen- und Reihenfolge-Hash, Abgleich mit dem Launcher-Cache, Mengenvergleich zweier Abrufe. messung-2b.ts ist das Lese-Werkzeug fuer den Owner; das Token kommt nur aus JMPS_IVEO_TOKEN seiner Konsole und wird nie ausgegeben. ids kann die Kennungen beim Owner ablegen, vergleiche zaehlt, welche nur im ersten bzw. nur im zweiten Abruf stehen." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
@@ -700,36 +801,38 @@ git commit -m "feat(iveo): Messwerkzeug fuer M1-M3 (Teil 2b, Spec 23)" -m "messu
 - Der Befehl `speaker` druckt zusätzlich `Treffer: <n>`. Kommt der Anzeigename doppelt vor, sieht der Owner das, statt stillschweigend nur den ersten Speaker zu bekommen.
 - `speaker-seit` folgt dem Cursor über alle Seiten, damit „Anzahl“ die ganze gefilterte Menge zählt und nicht nur die ersten 200.
 - Eine fehlende oder leere Kennung in der API-Antwort zählt als `(ohne)` (Form `andere`). So sieht die Messung auch Speaker ohne Kennung.
-- Step 1 nennt `npm ci --ignore-scripts` als Ausweg, falls nur ein nativer Postinstall scheitert. Die Selbsttests und Typprüfungen brauchen die Postinstalls nicht (wie in der CI).
+- `ids <datei>` und `vergleiche` (nach der Prüfung ergänzt): Zwei Hashes zeigen nur „gleich“ oder „nicht gleich“. Kommt in den 10 min zwischen den Abrufen ein Speaker dazu, wäre ein anderer `mengenHash` von gewechselten Kennungen nicht zu unterscheiden. `vergleiche` zählt deshalb, was nur im ersten und was nur im zweiten Abruf steht. B2 wertet das gegen die Zahl der angelegten und gelöschten Speaker aus. `vergleicheMitCache` nutzt dieselbe Mengenregel (`vergleicheMengen`).
+- Step 1 nennt `npm ci --ignore-scripts` als Ausweg, falls nur ein nativer Postinstall scheitert. Die Selbsttests und Typprüfungen brauchen die Postinstalls nicht (wie in der CI). Nur der Durchgang braucht `electron.exe`; B17 Step 12 prüft das und holt die Datei nach.
 
 ---
 
-### Task 2: B2 · Messung M1–M3 durchführen und in Spec 23 eintragen (Owner-Schritte, kein Produktcode)
+### Task 2: B2 · Messung M1–M3 durchführen und in Spec 23 und den Plan eintragen (Owner-Schritte, kein Produktcode)
 
-**Spec:** `docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md` Abschnitt 23 (Messaufgaben), 25 Risiko 10, 24 FA5.
+**Spec:** `docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md` Abschnitt 23 (Messaufgaben), 25 Risiko 10, 24 FA5, 5.1 und 8.3 (Kennung mit Leerraum).
 
 **Arbeitsverzeichnis:** `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b` (Branch `feat/master-link-teil2b`). Alle Pfade unten sind relativ dazu.
 
 **Dateien:**
 - Modify: `docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`, Abschnitt 23: neue Unterüberschrift „Ergebnisse“ nach Zeile 1263 („Release 2 braucht keine weitere Messung vorab. …“). Die Datei hat LF-Zeilenenden.
+- Modify: `docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md` (dieser Plan), Kopf, Absatz „Messergebnisse M1–M3“: die Zeile `- Stand: noch nicht gemessen.` wird durch die Entscheidungen ersetzt (Spec 23: „Die Ergebnisse kommen in diese Spec und in den Plan.“).
 
 **Interfaces:**
-- Consumes: das Lese-Werkzeug aus B1, `node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event <slug> --base <url> <befehl> …` mit den Befehlen `ids`, `cache <pfad>`, `speaker <name>`, `programme-seit <iso> [programmId]`, `speaker-seit <iso> [name]`.
-- Produces (stehen danach in Spec 23, „Ergebnisse“, und steuern die folgenden Aufgaben):
+- Consumes: das Lese-Werkzeug aus B1, `node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event <slug> --base <url> <befehl> …` mit den Befehlen `ids [datei]`, `vergleiche <datei1> <datei2>`, `cache <pfad>`, `speaker <name>`, `programme-seit <iso> [programmId]`, `speaker-seit <iso> [name]`.
+- Produces (stehen danach in Spec 23, „Ergebnisse“, und im Plan-Kopf unter „Messergebnisse M1–M3“; sie steuern die folgenden Aufgaben):
   - `M1 = ja|nein`: steuert B4 Zweig A/B und die Testdaten in B5 (`ANA` mit oder ohne `id: 'sp1'`).
   - `M3 = ja|nein`: steuert B4, Zusatz Sortierung.
   - `M2 = A|B`: nur Folgeaufgabe FA5, kein Code in Release 1.
 
 **Wer was tut:**
-- Gemessen wird an einem echten Prod-Event mit dem iveo-Token des Owners. Die Befehle mit Token startet **nur der Owner** in seiner eigenen PowerShell (G11). Der ausführende Agent liest kein Token, setzt kein `JMPS_IVEO_TOKEN`, liest nichts in `%APPDATA%` und startet keinen dieser Befehle selbst.
+- Gemessen wird an einem echten Prod-Event mit dem iveo-Token des Owners. Die Befehle mit Token startet **nur der Owner** in seiner eigenen PowerShell (G11). Der ausführende Agent liest kein Token, setzt kein `JMPS_IVEO_TOKEN`, liest nichts in `%APPDATA%`, öffnet die abgelegten Kennungsdateien nicht und startet keinen dieser Befehle selbst.
 - Der Agent gibt dem Owner die Befehle aus diesen Schritten als Text, nimmt die Ausgaben entgegen und trägt sie ein.
 - M1 (a), der erste Teil von M2 (b) und M3 lesen nur. M2 (a) setzt am **unveröffentlichten** Test-Side-Event eine Speaker-Verknüpfung und nimmt sie danach zurück. M1 (b) und der zweite Teil von M2 (b) bearbeiten nur einen **unveröffentlichten** Test-Speaker und nehmen die Änderung zurück. Gibt es keinen, entfallen sie (Spec 25, Risiko 10).
 
-**In die Spec kommen nur:** Zahlen, Hashes, HTTP-Status, Uhrzeiten, Ja/Nein und der Event-Slug. Nie ein Token, nie ein Pfad aus `%APPDATA%`, keine Speaker-Namen.
+**In Spec und Plan kommen nur:** Zahlen, Hashes, HTTP-Status, Uhrzeiten, Ja/Nein und der Event-Slug. Nie ein Token, nie ein Pfad aus `%APPDATA%`, keine Speaker-Namen, keine einzelnen Kennungen.
 
 **Regeln für diese Aufgabe:**
 - Kein bare `git stash`, kein `git reset --hard`, kein `git clean`, kein Branch-Wechsel, nie pushen.
-- Die Spec-Datei mit dem Edit-Werkzeug ändern (Vorher-Text exakt ersetzen).
+- Spec und Plan mit dem Edit-Werkzeug ändern (Vorher-Text exakt ersetzen).
 
 ---
 
@@ -744,16 +847,18 @@ Remove-Variable s
 $base = '<Prod-Basis-URL wie im Launcher eingetragen, endet auf /api/v1>'
 $ev = '<Event-Slug>'
 function m { node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event $ev --base $base @args }
+$ids1 = Join-Path $env:TEMP 'm1-ids-1.json'
+$ids2 = Join-Path $env:TEMP 'm1-ids-2.json'
 ```
-Der Owner meldet nur den Event-Slug zurück, nicht Token und Basis-URL.
+Der Owner meldet nur den Event-Slug zurück, nicht Token und Basis-URL. Die beiden Kennungsdateien liegen außerhalb des Worktrees, damit sie nie eingecheckt werden; Step 7 löscht sie wieder.
 
 - [ ] **Step 2: M3 und erster Abruf für M1 (a)** (Owner)
 
-Dreimal direkt nacheinander, ohne in iveo etwas zu ändern:
+Dreimal direkt nacheinander, ohne in iveo etwas zu ändern. Der erste Abruf legt seine Kennungen in `$ids1` ab:
 ```powershell
-Get-Date -Format HH:mm; m ids; m ids; m ids
+Get-Date -Format HH:mm; m ids $ids1; m ids; m ids
 ```
-Erwartet je Aufruf sechs Zeilen:
+Erwartet je Aufruf sechs Zeilen, beim ersten zusätzlich `Kennungen abgelegt: <n>`:
 ```
 Anzahl: <n>
 Formen: uuid <n>, ziffern <n>, andere <n>
@@ -776,9 +881,11 @@ m speaker-seit 2099-01-01T00:00:00Z
 Erwartet: `HTTP-Status: <n>`, danach entweder `Anzahl: <n>` oder `Fehlercode: <code>`.
 
 Auswertung:
-- Status 200 und `Anzahl: 0`: iveo filtert **irgendwie**. Weiter mit Step 5.
+- Status 200 und `Anzahl: 0`: iveo filtert **irgendwie**. Ob nach `updated_at`, zeigt Step 5.
 - Status 400 oder 422: iveo kennt den Parameter nicht. **M2 = B.**
 - Status 200 und `Anzahl` größer 0: iveo filtert nicht. **M2 = B.**
+
+In allen drei Fällen geht es mit Step 4 weiter. M2 (a) wird immer gemessen und steht in der Ergebnistabelle (Spec 23, M2: „Das Ergebnis von (a) steht dabei.“).
 
 - [ ] **Step 4: M2 (a), Owner-Schritt mit Schreibänderung in iveo** (Owner)
 
@@ -820,7 +927,7 @@ Auswertung:
 - [ ] **Step 6: M1 (a), Abgleich mit dem Launcher-Cache** (Owner)
 
 1. Im installierten Launcher eine neue, leere Show anlegen (etwa „Messung 2b“), im Show-Editor das Event wählen und „Ablauf übernehmen“ klicken. Das Binden schreibt den Cache (`apps/launcher/src/main/iveo-sync.ts:334`). Speichern ist dafür nicht nötig.
-2. Die Cache-Datei liegt unter `<userData des Launchers>\iveo-cache\<Event-Slug>.json`. Sonderzeichen im Slug sind dort `_`. Den Pfad kennt nur der Owner:
+2. Die Cache-Datei liegt unter `<userData des Launchers>\iveo-cache\<Event-Slug>.json`. Sonderzeichen im Slug sind dort `_`. Den Pfad kennt nur der Owner. Direkt nach dem Binden:
    ```powershell
    m cache "<userData des Launchers>\iveo-cache\<Event-Slug>.json"
    ```
@@ -831,19 +938,40 @@ Auswertung:
    gleich: ja
    ```
 
-- [ ] **Step 7: M1 (a), zweiter Abruf** (Owner, mindestens 10 min nach Step 2)
+Auswertung: `gleich: ja` → der Cache passt. Steht `gleich: nein`, beide Punkte genau einmal wiederholen (erneut „Ablauf übernehmen“, dann sofort `m cache …`). Zwischen Binden und Abruf liegt so kaum Zeit, in der jemand in iveo Speaker anlegt oder löscht. Bleibt es bei `gleich: nein`, gilt der Cache-Abgleich als nicht bestanden.
+
+- [ ] **Step 7: M1 (a), zweiter Abruf und Mengenvergleich** (Owner, mindestens 10 min nach Step 2)
 
 ```powershell
-Get-Date -Format HH:mm; m ids
+Get-Date -Format HH:mm; m ids $ids2
+m vergleiche $ids1 $ids2
 ```
-Danach das Token aus der Konsole entfernen:
+Erwartet: der Block aus Step 2 mit `Kennungen abgelegt: <n>`, danach:
+```
+nurErste: <n>
+nurZweite: <n>
+gleich: ja|nein
+```
+`nurErste` zählt Kennungen, die nur im ersten Abruf stehen (verschwunden), `nurZweite` solche, die nur im zweiten stehen (neu).
+
+Steht `gleich: nein`, fragt der Agent den Owner: Wie viele Speaker wurden in iveo zwischen der Uhrzeit aus Step 2 und jetzt angelegt, wie viele gelöscht (eigene Änderungen und die von Kollegen, etwa laut Änderungsverlauf in iveo)? Der Owner nennt zwei Zahlen oder „nicht feststellbar“.
+
+Danach die Kennungsdateien löschen und das Token aus der Konsole entfernen (`vergleiche` startet wie alle Befehle nur mit gesetztem Token, deshalb erst jetzt):
 ```powershell
+Remove-Item $ids1, $ids2
 Remove-Item Env:JMPS_IVEO_TOKEN
 ```
 
-Auswertung:
-- **M1 (a) = ja**, wenn `mengenHash` gleich dem ersten Block aus Step 2 ist, `Doppelte: 0` und `Mit Leerraum: 0` in beiden Abrufen stehen und Step 6 `gleich: ja` ergab. Sonst **nein**.
-- **M1 = ja**, wenn M1 (a) = ja und M1 (b) = ja oder offen. Sonst **M1 = nein**. Reine Ziffern sind kein Hindernis (Spec 23).
+Auswertung durch den Agenten:
+- **Menge gleich**, wenn `vergleiche` `gleich: ja` ergab. Oder wenn `nurZweite` genau der Zahl der angelegten und `nurErste` genau der Zahl der gelöschten Speaker entspricht. Dann erklären die Änderungen in iveo den Unterschied, und keine Kennung hat gewechselt. Passt das nicht oder ist es „nicht feststellbar“, ist die Menge **nicht gleich** (instabil).
+- **M1 (a) = ja**, wenn
+  - `Doppelte: 0` in beiden Abrufen steht,
+  - die Menge gleich ist (Regel oben) und
+  - Step 6 `gleich: ja` ergab.
+
+  Sonst **nein**: Das ist „Instabil oder doppelt“ aus Spec 23.
+- **Leerraum ist kein Grund für „nein“.** `Mit Leerraum` und die Formen werden nur notiert. Spec 5.1 kürzt Leerraum am Rand. Eine Kennung mit Leerraum in der Mitte sendet der Rundown in der Namensform (Spec 8.3). Reine Ziffern sind kein Hindernis (Spec 23).
+- **M1 = ja**, wenn M1 (a) = ja und M1 (b) = ja oder offen. Sonst **M1 = nein**.
 
 - [ ] **Step 8: Ergebnisse in Spec 23 eintragen** (`docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`, nach Zeile 1263)
 
@@ -861,7 +989,7 @@ Gemessen vom Owner am Prod-Event `«Event-Slug»` mit `packages/iveo/tools/messu
 
 | # | Messwert | Antwort | Folge |
 | --- | --- | --- | --- |
-| M1 (a) | `ids` um «Uhrzeit Step 2» und «Uhrzeit Step 7»: Anzahl «n» / «n»; Formen uuid «n», ziffern «n», andere «n»; mit Leerraum «n» / «n»; Doppelte «n» / «n»; `mengenHash` gleich: «ja/nein». `cache` nach dem Binden: nurApi «n», nurCache «n», gleich: «ja/nein» | «ja/nein» | siehe M1 |
+| M1 (a) | `ids` um «Uhrzeit Step 2» und «Uhrzeit Step 7»: Anzahl «n» / «n»; Formen uuid «n», ziffern «n», andere «n»; mit Leerraum «n» / «n» (nur notiert, 5.1/8.3); Doppelte «n» / «n». `vergleiche`: nurErste «n», nurZweite «n»; laut Owner dazwischen angelegt «n», gelöscht «n» bzw. «nicht feststellbar». `cache` nach dem Binden: nurApi «n», nurCache «n», gleich: «ja/nein» («einmal/zweimal» gemessen) | «ja/nein» | siehe M1 |
 | M1 (b) | Test-Speaker: `id` vor und nach dem Bearbeiten gleich: «ja/nein/offen, kein Test-Speaker» | «ja/nein/offen» | siehe M1 |
 | M1 | (a) und (b) zusammen | «ja/nein» | ja: B4 Zweig A, der Mapper setzt `id`; B5 `ANA` mit `id: 'sp1'`. nein: B4 Zweig B, der Mapper lässt `id` weg; B5 `ANA` ohne `id` |
 | M2 (a) | `programme-seit` ab «t0» nach dem Verknüpfen am Test-Side-Event: Anzahl «n», Programm dabei: «ja/nein» | «ja/nein» | Information für FA5 |
@@ -877,37 +1005,63 @@ grep -c "«" docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md
 ```
 Erwartet: `0`.
 
-- [ ] **Step 9: Diff prüfen** (Bash-Werkzeug)
+- [ ] **Step 9: Entscheidungen in den Plan-Kopf eintragen** (`docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md`, Absatz „Messergebnisse M1–M3“ im Kopf, Zeilen 53–54)
+
+Der Vorher-Text steht im Kopf genau einmal. Hier ist er eingerückt zitiert, damit das Edit-Werkzeug nur den Kopf trifft; `old_string` und `new_string` also ohne die Einrückung übernehmen.
+
+1. Vorher:
+   ```markdown
+   **Messergebnisse M1–M3:** Aufgabe B2 trägt sie in Spec 23 unter „Ergebnisse“ ein und hier (Spec 23: „Die Ergebnisse kommen in diese Spec und in den Plan.“). B4 wählt danach den Zweig im Mapper, B5 die Testdaten.
+   - Stand: noch nicht gemessen.
+   ```
+2. Nachher (dieselben Werte wie in Step 8; in jeder «…»-Stelle bleibt nur die zutreffende Fassung):
+   ```markdown
+   **Messergebnisse M1–M3:** Aufgabe B2 trägt sie in Spec 23 unter „Ergebnisse“ ein und hier (Spec 23: „Die Ergebnisse kommen in diese Spec und in den Plan.“). B4 wählt danach den Zweig im Mapper, B5 die Testdaten.
+   - Gemessen am «Datum TT.MM.JJJJ», Einzelwerte in Spec 23 unter „Ergebnisse“:
+     - M1 = «ja/nein» → B4 «Zweig A/Zweig B», B5 `ANA` «mit/ohne» `id: 'sp1'`
+     - M3 = «ja/nein» → B4 «ohne/mit» Zusatz Sortierung
+     - M2 = «A/B» → nur FA5, kein Code in Release 1
+   - Die anderen Zweige in B4, B5 und B17 bleiben im Plan stehen, gelten aber nicht.
+   ```
+
+Danach prüfen, dass im Kopf-Absatz keine «-Stelle übrig ist (die Vorlagen in dieser Aufgabe behalten ihre «…» bewusst):
+```
+sed -n '/^\*\*Messergebnisse M1–M3:\*\*/,/^\*\*Wie dieser Plan entstanden ist:\*\*/p' docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md | grep -c "«"
+```
+Erwartet: `0`.
+
+- [ ] **Step 10: Diff prüfen** (Bash-Werkzeug)
 
 ```
 git diff --stat
-git diff docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md | grep -c "iveo_live_"
-git diff docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md | grep -ci "appdata"
+git diff -U0 -- docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md | grep '^+' | grep -c "iveo_live_"
+git diff -U0 -- docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md | grep '^+' | grep -ci "appdata"
 ```
 Erwartet:
-- `git diff --stat` nennt nur `docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`, etwa `1 file changed, 14 insertions(+)`.
-- Beide `grep -c`-Zeilen ergeben `0`.
+- `git diff --stat` nennt nur `docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md` und `docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`, etwa `2 files changed, 20 insertions(+), 1 deletion(-)`.
+- Beide `grep -c`-Zeilen ergeben `0`. Sie lesen nur die hinzugefügten Zeilen, denn der Plan nennt `%APPDATA%` an vielen anderen Stellen.
 
-Dann den Diff lesen (`git diff docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`): Kein Speaker-Name, keine Basis-URL mit Zugangsdaten, kein Pfad.
+Dann den Diff lesen (`git diff -- docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md`): Kein Speaker-Name, keine einzelne Kennung, keine Basis-URL mit Zugangsdaten, kein Pfad.
 
-- [ ] **Step 10: Commit** (Bash-Werkzeug; Commit-Text bewusst ohne Umlaute)
+- [ ] **Step 11: Commit** (Bash-Werkzeug; Commit-Text bewusst ohne Umlaute)
 
 ```
-git add docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md
+git add docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md
 git status --short
 ```
 Erwartet genau:
 ```
+M  docs/superpowers/plans/2026-10-02-master-link-teil2b-r1.md
 M  docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md
 ```
 Dann:
 ```
-git commit -m "docs(master-link): Messung M1-M3 fuer Teil 2b" -m "Spec 23 bekommt die Ergebnisse: Form, Eindeutigkeit und Stabilitaet der iveo-Speaker-Kennungen (M1), Filter updated_since (M2), Reihenfolge der Speaker (M3), dazu die Entscheidungen fuer B4 und FA5. Nur Zahlen, Hashes und Ja/Nein, kein Token, keine Namen." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "docs(master-link): Messung M1-M3 fuer Teil 2b" -m "Spec 23 bekommt die Ergebnisse: Form, Eindeutigkeit und Stabilitaet der iveo-Speaker-Kennungen (M1), Filter updated_since (M2), Reihenfolge der Speaker (M3), dazu die Entscheidungen fuer B4 und FA5. Der Plan-Kopf nennt dieselben Entscheidungen. Nur Zahlen, Hashes und Ja/Nein, kein Token, keine Namen." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git show --stat HEAD
 ```
-Erwartet: `git show --stat HEAD` nennt genau die Spec-Datei.
+Erwartet: `git show --stat HEAD` nennt genau die Spec-Datei und die Plan-Datei.
 
-- [ ] **Step 11: Entscheidung an die Folgeaufgaben weitergeben**
+- [ ] **Step 12: Entscheidung an die Folgeaufgaben weitergeben**
 
 Im Aufgabenbericht drei Zeilen, wörtlich so (mit den gemessenen Werten):
 ```
@@ -915,10 +1069,18 @@ M1 = ja|nein → B4 Zweig A|B, B5 ANA mit|ohne id
 M3 = ja|nein → B4 ohne|mit Zusatz Sortierung
 M2 = A|B → nur FA5
 ```
+Hat der Owner im selben Termin die Entscheidungen 14 und 18 beantwortet (Kopf, „Ausnahme“), dazu zwei Zeilen:
+```
+Entscheidung 14 bestätigt: ja|nein
+Entscheidung 18 bestätigt: ja|nein
+```
 
 **Abweichungen vom Gerüst:**
 - Die Reihenfolge der Owner-Schritte ist so gelegt, dass die drei `ids`-Abrufe für M3 zugleich den ersten Abruf für M1 (a) liefern und der zweite M1-Abruf am Ende mit mindestens 10 min Abstand kommt. Inhaltlich sind es dieselben Messungen wie in Spec 23.
 - „Anzahl klein“ in M2 (b) ist hier festgelegt als „kleiner als die Gesamtzahl aus `ids`“, zusammen mit „Test-Speaker dabei: ja“.
+- **M1 (a) nach der Prüfung berichtigt:** Gemessen wird an einem echten Prod-Event, und zwischen den Abrufen liegen mindestens 10 min. Ein anderer `mengenHash` allein hieße deshalb nicht „instabil“, denn es kann auch ein Speaker dazugekommen sein. `vergleiche` zählt die Unterschiede, der Owner nennt die Änderungen in iveo, und nur ein ungeklärter Unterschied gilt als instabil. Leerraum ist kein Abbruchgrund (Spec 5.1, 8.3), er wird nur notiert.
+- **Step 3 führt immer zu Step 4:** M2 (a) wird in jedem Fall gemessen. Vorher sprang der Fall „filtert irgendwie“ an M2 (a) vorbei, gerade dort, wo Spec 23 das Ergebnis von (a) verlangt.
+- **Ergebnisse auch im Plan (Step 9):** Spec 23 verlangt sie in Spec und Plan. Der Plan-Kopf nennt danach, welcher Zweig gilt.
 - Commit-Text ohne Umlaute, wie im Repo üblich.
 
 ---
@@ -1388,7 +1550,7 @@ git commit -m "feat(show): Speaker-Kennung, loeseDoppelteKennungenAuf und Merker
 
 Zeilenangaben gelten für den Stand nach B3. Maßgeblich ist immer der wortgleiche Vorher-Text.
 
-**Welcher Zweig gilt:** B2 hat die Entscheidung in Spec 23 unter „Ergebnisse“ eingetragen. Diese Aufgabe schreibt alle Fassungen vollständig aus; umgesetzt wird nur, was dort steht:
+**Welcher Zweig gilt:** B2 hat die Entscheidung in Spec 23 unter „Ergebnisse“ und im Plan-Kopf unter „Messergebnisse M1–M3“ eingetragen. Diese Aufgabe schreibt alle Fassungen vollständig aus; umgesetzt wird nur, was dort steht:
 - **[Zweig A]** M1 = ja (Standard): Der Mapper setzt `id`.
 - **[Zweig B]** M1 = nein: Der Mapper lässt `id` weg, wie heute. Nur Test und Kommentar ändern sich.
 - **[Sortierung]** nur M3 = nein: Zusätzlich sortiert der Mapper stabil nach Nachname, Vorname, Kennung (`localeCompare` mit `de`). Das gilt mit Zweig A und mit Zweig B.
@@ -1696,7 +1858,7 @@ Mit **Sortierung** im ersten `-m` jeweils ` und stabile Sortierung (M3)` anhäng
 
 Zeilenangaben gelten für den Stand nach B4. Maßgeblich ist immer der wortgleiche Vorher-Text.
 
-**Zweig aus B2/B4:** Spec 23, „Ergebnisse“ (`grep -n "Entscheidungen für den Plan von Release 1" docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`).
+**Zweig aus B2/B4:** Spec 23, „Ergebnisse“ (`grep -n "Entscheidungen für den Plan von Release 1" docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`), gleichlautend im Plan-Kopf unter „Messergebnisse M1–M3“.
 - **[Zweig A]** M1 = ja: `ANA` bekommt `id: 'sp1'` (SP9), passend zum nachgebauten iveo (`:159`). Ohne diese Kennung wiche die Signatur nach jedem Snapshot von der Datei ab, und die 2a-Prüfung „Nr. 2: … nichts geschrieben, kein RELOAD“ würde rot.
 - **[Zweig B]** M1 = nein: `ANA` bleibt ohne `id`. Die neuen Tests lesen den Zweig aus `ANA.id` ab (`MIT_KENNUNG`) und erwarten dann, dass nichts nachgeschrieben wird.
 
@@ -4123,7 +4285,7 @@ git commit -m "feat(titler): DataLink-Schluessel je Eintrag, Speaker-TSV mit @ke
      - sonst auf Sendung → **A2** (auch A8): `gehalten = { key, label, datei, vars (eingefroren), grund: 'A2' }`, Hinweis H1, Logzeile „DataLink: aktiver Eintrag „⟨Label⟩“ nicht mehr in der Liste, auf Sendung gehalten.“
      - sonst → **A3**: kein Eintrag, Hinweis H2, Logzeile „DataLink: aktiver Eintrag „⟨Label⟩“ nicht mehr in der Liste, kein aktiver Eintrag.“
   3. **Gehaltener Eintrag mit `grund 'A2'`:** Schlüssel wieder in der Liste (direkt oder über die Brücke, dann mit Brücken-Logzeile) → **A5**: wieder aktiv, Hinweis und Frist weg. Sonst bleibt er gehalten. Ein mit `grund 'A10'` gehaltener Eintrag wird nie wieder aktiv.
-  4. **Weder aktiv noch gehalten:** nur bei `o.andererOrdner` (Ordnerwechsel, auch der erste Start) Eintrag 1, alter Hinweis weg. Sonst bleibt alles, auch ein Hinweis H2/H5 (Review Focus 1: nach dem Zurückkommen der Zeile wird nicht von selbst Eintrag 1 aktiv).
+  4. **Weder aktiv noch gehalten:** nur bei `o.andererOrdner` (Ordnerwechsel, auch der erste Start) **und nicht auf Sendung** Eintrag 1 (A9), alter Hinweis weg. Auf Sendung (A8) bleibt es ohne Eintrag: Es gibt keinen Schlüssel, also auch nichts zu halten. Die Variablen bleiben leer wie beim TAKE davor (Spec 7.3: „Ein TAKE ohne aktiven Eintrag zeigt leere Platzhalter“), und ein stehender Hinweis H2/H5 bleibt. Ohne Ordnerwechsel bleibt ebenfalls alles, auch ein Hinweis H2/H5 (Review Focus 1: nach dem Zurückkommen der Zeile wird nicht von selbst Eintrag 1 aktiv).
 - **`setzeSendung(z, an, jetzt)`:** `true` → `aufSendung`, `wegAbMs = null`. `false` → bei gehaltenem Eintrag `wegAbMs = jetzt + 1000`; ist schon eine Frist gesetzt, bleibt sie (der Renderer meldet `report-state` bei jeder Zustandsänderung, nicht nur beim Wechsel). Ohne gehaltenen Eintrag keine Frist.
 - **`uhrTick(z, jetzt)`:** ab `jetzt >= wegAbMs` kein aktiver und kein gehaltener Eintrag mehr (**A4**). `grund 'A2'` → H2 mit der A3/A4-Logzeile; `grund 'A10'` → H5 mit dem `ref` des gehaltenen Eintrags, ohne Logzeile. Vorher unverändert (dasselbe Objekt).
 - **`kernSicht`:** `entries` mit `key` und `label`; `activeIndex` = Stelle des aktiven Schlüssels, sonst −1 (auch bei gehaltenem); `gehalten` nur mit Label; `variables` vom aktiven, sonst vom gehaltenen Eintrag, sonst `{}`.
@@ -4307,6 +4469,16 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(a8.zustand.gehalten?.label === 'Alan' && a8.zustand.hinweis?.art === 'H1', 'A8: anderer Ordner auf Sendung, Schlüssel fehlt → gehalten (A2)');
   ok(neueListe(kernMit(vier, 's-3', true), fuenf, wechsel).zustand.aktiv === 's-3', 'A8: anderer Ordner, Schlüssel gefunden → A1');
   ok(kernSicht(neueListe(nr6.zustand, gaeste, wechsel).zustand).activeIndex === 0 && neueListe(nr6.zustand, gaeste, wechsel).zustand.hinweis === null, 'A9 ohne aktiven Eintrag: Eintrag 1, alter Hinweis weg');
+  // A8 ohne aktiven Eintrag: Nach A3/A4 ist nichts aktiv, ein TAKE zeigt leere Platzhalter. Ein Ordnerwechsel auf Sendung
+  // (Ordnerwahl, K1, andere Show) darf die Bauchbinde nicht ohne Abruf auf Person 1 springen lassen.
+  const ohneEintragAuf: KernZustand = { ...kernMit(vier, null, true), hinweis: { art: 'H2', label: 'Alan' } };
+  const a8leer = neueListe(ohneEintragAuf, gaeste, wechsel);
+  const s8leer = kernSicht(a8leer.zustand);
+  ok(
+    s8leer.activeIndex === -1 && s8leer.gehalten === undefined && JSON.stringify(s8leer.variables) === '{}' && s8leer.entries.length === 2 &&
+      JSON.stringify(a8leer.zustand.hinweis) === '{"art":"H2","label":"Alan"}' && a8leer.log.length === 0,
+    'A8 ohne aktiven Eintrag: anderer Ordner auf Sendung → bleibt ohne Eintrag, leere Variablen, Hinweis bleibt',
+  );
   ok(kernSicht(neueListe(leererKern(), vier, { andererOrdner: true, leerHalten: true }).zustand).activeIndex === 0, 'erster Start (anderer Ordner, nichts aktiv) → Eintrag 1');
   ok(kernSicht(neueListe(leererKern(), vier, GLEICH).zustand).activeIndex === -1, 'gleicher Ordner, nichts aktiv → bleibt ohne Eintrag');
   const a7 = neueListe(nr3.zustand, [], { andererOrdner: false, leerHalten: true });
@@ -4616,8 +4788,10 @@ export function neueListe(
     return { zustand: { ...z, eintraege }, log };
   }
 
-  // Ohne aktiven und ohne gehaltenen Eintrag: nur ein Ordnerwechsel (auch der erste Start) wählt Eintrag 1.
-  if (o.andererOrdner && eintraege.length) return { zustand: aktivWird(0), log };
+  // Ohne aktiven und ohne gehaltenen Eintrag: nur ein Ordnerwechsel (auch der erste Start) ohne Sendung wählt
+  // Eintrag 1 (A9). Auf Sendung (A8) bleibt es ohne Eintrag: Die Bauchbinde zeigt weiter leere Platzhalter,
+  // statt ohne Abruf auf Person 1 zu springen; ein stehender Hinweis H2/H5 bleibt.
+  if (o.andererOrdner && !z.aufSendung && eintraege.length) return { zustand: aktivWird(0), log };
   return { zustand: { ...z, eintraege }, log };
 }
 
@@ -4683,13 +4857,14 @@ export function companionWerte(z: KernZustand): { entry: string; entryIndex: num
 ```
 npm run selftest -w @jm/titler
 ```
-Erwartet: 115 Zeilen `ok` (31 aus B8, 84 neu), keine Zeile `FAIL`, letzte Zeile `ALLE TESTS OK`, Exitcode 0. Unter anderem:
+Erwartet: 116 Zeilen `ok` (31 aus B8, 85 neu), keine Zeile `FAIL`, letzte Zeile `ALLE TESTS OK`, Exitcode 0. Unter anderem:
 ```
 ok   Nr. 3: „Neu“ davor → aktiv bleibt Alan, jetzt Stelle 4
 ok   Nr. 3: Logzeile A1 mit neuer Stelle
 ok   Gegenprobe: der Kern besteht Fall 3, die Variante „Stelle halten“ nicht
 ok   Gegenprobe: … die Variante zeigt Grace statt Alan
 ok   Nr. 7: TAKE bei 1500 → bleibt gehalten
+ok   A8 ohne aktiven Eintrag: anderer Ordner auf Sendung → bleibt ohne Eintrag, leere Variablen, Hinweis bleibt
 ok   Nr. 15: Brücke Ersatz → Kennung (auf Sendung): derselbe Eintrag, neuer Schlüssel, kein Hinweis
 ok   Nr. 19: s-3 → s-9 gleicher Name, auf Sendung → keine Brücke, A2
 ok   Review 1: CSV leer gelesen, auf Sendung → Alan gehalten mit H1, nicht Eintrag 1
@@ -4723,18 +4898,19 @@ M  apps/titler/test/selftest.ts
 ```
 Dann:
 ```
-git commit -m "feat(titler): aktiver DataLink-Eintrag ueber den Schluessel, Halten auf Sendung, Hinweise H1-H7 (Teil 2b, B9)" -m "Der Kern fuehrt den aktiven Eintrag ueber seinen Schluessel statt ueber die Nummer: A1 an neuer Stelle, A2 auf Sendung gehalten mit eingefrorenen Variablen (H1), A3 ohne Sendung kein Eintrag (H2), A4 eine Sekunde nach dem Ende der Sendung, A5 zurueck, A7 leere Liste aus Show haelt, A9 anderer Ordner Eintrag 1. Bruecke zwischen Ersatz-Schluessel und Kennung ueber Datei und Label, nie zwischen zwei Kennungen. Texte H1-H7 und Logzeilen woertlich aus Spec 7.8/7.9, Vorrang, Companion-Werte." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(titler): aktiver DataLink-Eintrag ueber den Schluessel, Halten auf Sendung, Hinweise H1-H7 (Teil 2b, B9)" -m "Der Kern fuehrt den aktiven Eintrag ueber seinen Schluessel statt ueber die Nummer: A1 an neuer Stelle, A2 auf Sendung gehalten mit eingefrorenen Variablen (H1), A3 ohne Sendung kein Eintrag (H2), A4 eine Sekunde nach dem Ende der Sendung, A5 zurueck, A7 leere Liste aus Show haelt, A9 anderer Ordner ohne Sendung Eintrag 1, auf Sendung nie von selbst. Bruecke zwischen Ersatz-Schluessel und Kennung ueber Datei und Label, nie zwischen zwei Kennungen. Texte H1-H7 und Logzeilen woertlich aus Spec 7.8/7.9, Vorrang, Companion-Werte." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
 - **A7 nur im selben Ordner:** `neueListe` hält eine leere Liste nur bei `leerHalten` **und** `!andererOrdner`. Wechselt die Quelle auf einen leeren Ordner, bliebe sonst die Liste der vorigen Quelle stehen. Dann greift die normale Tabelle (auf Sendung A2, sonst A9 ohne Eintrag). Test „Wechsel auf einen leeren Ordner: Liste leer, ohne Hinweis (kein A7)“. Die Signatur bleibt.
 - Bei einer Brücke steht nur die Brücken-Logzeile, keine zusätzliche A1-Zeile „jetzt Nr. …“.
 - `setzeSendung(false)` verschiebt eine schon gesetzte Frist nicht. Der Renderer meldet `titler:report-state` bei jeder Zustandsänderung (`index.ts:452-456`), nicht nur beim Wechsel; sonst liefe die Frist bei jeder Meldung neu an.
-- Ohne aktiven und gehaltenen Eintrag nimmt ein Ordnerwechsel einen stehenden Hinweis (H2/H5) mit weg, wenn Eintrag 1 aktiv wird.
+- Ohne aktiven und gehaltenen Eintrag nimmt ein Ordnerwechsel einen stehenden Hinweis (H2/H5) mit weg, wenn Eintrag 1 aktiv wird. Das geschieht nur ohne Sendung (A9).
+- **Ordnerwechsel auf Sendung ohne aktiven Eintrag (A8):** Das Gerüst wählte hier Eintrag 1, ohne auf die Sendung zu schauen. Nach Spec 7.3 A8 gilt auf Sendung aber nur „Schlüssel gefunden: A1; sonst A2“. Ohne Schlüssel gibt es nichts zu halten, also bleibt es ohne Eintrag mit leeren Variablen, und der Hinweis bleibt. Sonst spränge eine Bauchbinde, die nach A3/A4/A11 mit leeren Platzhaltern auf Sendung steht, bei Ordnerwahl, K1 oder einer anderen Show ohne Abruf auf Person 1. Nach der Prüfung berichtigt, Test „A8 ohne aktiven Eintrag …“. B13 braucht dafür keine Änderung: `startDataWatch` meldet weiter `andererOrdner`, die Sendung kennt der Kern.
 - `uhrzeit` liefert für einen unlesbaren Wert `--:--` (in der Spec nicht vorgesehen; `parseShow` lässt nur lesbare Zeiten durch, B3).
 - Rot meldet Node den ersten fehlenden Namen in seiner Reihenfolge, gemessen `HALTEN_NACH_SENDUNG_MS` statt `neueListe`.
 
-**Nachgerechnet** (Scratchpad-Kopie wie in B8): Step 2 rot wie angegeben, Step 4 grün mit 115 × `ok`, Typecheck node und web grün. Gegenprobe am Stand nach B9 mit je einem absichtlichen Fehler im Kern, alle gefangen: Brücke ohne Ersatz-Bedingung 2 `FAIL`, Brücke bei mehreren Kandidaten 2, Brücke ohne Datei 2, A7 ohne `leerHalten` 3, kein A9 2, Frist bei jeder Meldung neu 1, Frist mit `<=` 4, A10-Eintrag wird wieder aktiv 1, A3 lässt `aktiv` stehen 4, Vorrang H7/H3 vertauscht 1, Companion-Stelle bei gehaltenem Eintrag 1, A1 ohne Logzeile 1.
+**Nachgerechnet** (Scratchpad-Kopie wie in B8): Step 2 rot wie angegeben, Step 4 grün mit 116 × `ok`, Typecheck node und web grün. Gegenprobe am Stand nach B9 mit je einem absichtlichen Fehler im Kern, alle gefangen: Brücke ohne Ersatz-Bedingung 2 `FAIL`, Brücke bei mehreren Kandidaten 2, Brücke ohne Datei 2, A7 ohne `leerHalten` 3, kein A9 2, Frist bei jeder Meldung neu 1, Frist mit `<=` 4, A10-Eintrag wird wieder aktiv 1, A3 lässt `aktiv` stehen 4, Vorrang H7/H3 vertauscht 1, Companion-Stelle bei gehaltenem Eintrag 1, A1 ohne Logzeile 1, Ordnerwechsel auf Sendung ohne Eintrag wählt Eintrag 1 (Stand vor der Prüfung) 1.
 
 ---
 
@@ -5021,7 +5197,7 @@ export function schritt(z: KernZustand, delta: number): KernSchritt {
 ```
 npm run selftest -w @jm/titler
 ```
-Erwartet: 166 Zeilen `ok` (115 bis B9, 51 neu), keine Zeile `FAIL`, letzte Zeile `ALLE TESTS OK`, Exitcode 0. Unter anderem:
+Erwartet: 167 Zeilen `ok` (116 bis B9, 51 neu), keine Zeile `FAIL`, letzte Zeile `ALLE TESTS OK`, Exitcode 0. Unter anderem:
 ```
 ok   Nr. 11: „3“ → Nummer 3 (Grace)
 ok   Nr. 12: Weiter und Zurück ohne aktiven Eintrag → Eintrag 1
@@ -5069,7 +5245,7 @@ git commit -m "feat(titler): DataLink-Abruf ueber Schluessel und @-Form, Abruf o
 - A10 ohne bisherigen Eintrag (auf Sendung, nichts aktiv, nichts gehalten): H5 (Gerüst-Entscheidung 3). Die Logzeile endet dann mit „kein aktiver Eintrag“ statt „auf Sendung gehalten“, denn es wird nichts gehalten; beide Enden stehen so in Spec 7.9.
 - „Label exakt“ fasst Leerraum zusammen wie die Brücke (Gerüst-Entscheidung 9). Ohne Rücksicht auf Groß- und Kleinschreibung war es schon vorher.
 
-**Nachgerechnet** (Scratchpad-Kopie wie in B8): Step 2 rot wie angegeben, Step 4 grün mit 166 × `ok`, Typecheck node und web grün. Gegenprobe mit je einem absichtlichen Fehler, alle gefangen:
+**Nachgerechnet** (Scratchpad-Kopie wie in B8): Step 2 rot wie angegeben, Step 4 grün mit 167 × `ok`, Typecheck node und web grün. Gegenprobe mit je einem absichtlichen Fehler, alle gefangen:
 
 | Fehler | Ergebnis |
 | --- | --- |
@@ -5570,7 +5746,7 @@ export function zurueckKnopf(z: QuellZustand, ordner: string): string | null {
 ```
 npm run selftest -w @jm/titler
 ```
-Erwartet: 255 Zeilen `ok` (166 bis B10, 89 neu), keine Zeile `FAIL`, letzte Zeile `ALLE TESTS OK`, Exitcode 0. Unter anderem:
+Erwartet: 256 Zeilen `ok` (167 bis B10, 89 neu), keine Zeile `FAIL`, letzte Zeile `ALLE TESTS OK`, Exitcode 0. Unter anderem:
 ```
 ok   7.7: deepLink, Show mit Speakern, von ordner → show
 ok   7.6/7.7: andere Show ohne Speaker, von show → ordner, keine TSV, kein Hinweis
@@ -5631,7 +5807,7 @@ git commit -m "feat(titler): Datenquelle show/ordner/frueher und gemerkte Show a
   - `nichtLesbar` über Deep-Link oder RELOAD erzeugt in `quellSchritt` keine Logzeile; die Lesefehler-Zeile schreibt der Aufrufer (B13).
 - `zurueckKnopf` prüft iveo-data nicht selbst. Der Aufrufer übergibt den Rückgabewert von `eigenerOrdner(…)`; der ist für iveo-data immer `''`. Die Signatur aus dem Gerüst hat keinen iveo-data-Parameter.
 
-**Nachgerechnet** (Scratchpad-Kopie wie in B8): Step 2 rot wie angegeben, Step 4 grün mit 255 × `ok`, Typecheck node und web grün (die web-Prüfung von `datalink-kern.ts` und `datenquelle.ts` auch ganz ohne Node-Typen). Gegenprobe mit je einem absichtlichen Fehler, alle gefangen:
+**Nachgerechnet** (Scratchpad-Kopie wie in B8): Step 2 rot wie angegeben, Step 4 grün mit 256 × `ok`, Typecheck node und web grün (die web-Prüfung von `datalink-kern.ts` und `datenquelle.ts` auch ganz ohne Node-Typen). Gegenprobe mit je einem absichtlichen Fehler, alle gefangen:
 
 | Fehler | `FAIL`-Zeilen |
 | --- | --- |
@@ -5687,7 +5863,7 @@ B13 ruft alle vier Funktionen mit `userData = app.getPath('userData')` auf.
 
 **Vorab (gemessen an einer Kopie der App, tsx 4.22, Node 24):**
 - Erst mit B8–B11 als Stubs nach deren Signaturen, dann mit den ausgeschriebenen Fassungen aus B8–B11 und `@jm/show` mit B3.
-- Selbsttest am Ende von B14: 320 × `ok` (255 bis B11, dazu 28 aus B12, 21 aus B13 und 16 aus B14). Nachgemessen beim Zusammensetzen des Plans: Code und Testblöcke von B12–B14 wörtlich aus dem Plantext in eine Kopie mit dem Stand nach B11 eingespielt.
+- Selbsttest am Ende von B14: 321 × `ok` (256 bis B11, dazu 28 aus B12, 21 aus B13 und 16 aus B14). Nachgemessen beim Zusammensetzen des Plans: Code und Testblöcke von B12–B14 wörtlich aus dem Plantext in eine Kopie mit dem Stand nach B11 eingespielt.
 - `typecheck:node`, `typecheck:web` und `electron-vite build` grün.
 - `apps/titler/package.json` hat `"type": "module"`. `tsx test/selftest.ts` läuft deshalb als ESM, und `await` auf oberster Ebene geht.
 - Die Testblöcke dieser und der folgenden Titler-Aufgaben laden ihre Module mit `await import(…)` **innerhalb eines Blocks `{ … }`**. So überschneiden sich keine Namen mit den Importen, die B8–B11 oben in die Datei geschrieben haben (etwa ein zweites `join` aus `node:path`). Ein fehlendes Modul lässt erst die Blöcke davor laufen und bricht dann mit `ERR_MODULE_NOT_FOUND` ab.
@@ -5794,7 +5970,7 @@ Im Worktree-Wurzelordner (Git Bash):
 ```bash
 npm run selftest -w @jm/titler
 ```
-Erwartet: Die Blöcke aus B8–B11 laufen mit ihren 255 `ok`-Zeilen durch. Danach bricht der Lauf beim Laden ab, ohne eine `B12:`-Zeile, Exit-Code 1:
+Erwartet: Die Blöcke aus B8–B11 laufen mit ihren 256 `ok`-Zeilen durch. Danach bricht der Lauf beim Laden ab, ohne eine `B12:`-Zeile, Exit-Code 1:
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\apps\titler\src\main\show-quelle' imported from …\apps\titler\test\selftest.ts
 ```
@@ -5901,7 +6077,7 @@ export function leseShowSicher(
 ```bash
 npm run selftest -w @jm/titler
 ```
-Erwartet: Alle Zeilen aus B8–B11 wie bisher, dazu 28 `ok`-Zeilen mit `B12:`, zusammen 283 (von „B12: Datei heißt show-zuletzt.json (G6)“ bis „B12: Speaker ohne Kennung → leere Spalte, Zeilenende am Schluss“). Keine `FAIL`-Zeile, am Ende `ALLE TESTS OK`, Exit-Code 0. Danach liegt kein Ordner `jmtitler-*` mehr im Temp-Verzeichnis (`ls "$TMP" | grep -c jmtitler-` gibt `0` aus).
+Erwartet: Alle Zeilen aus B8–B11 wie bisher, dazu 28 `ok`-Zeilen mit `B12:`, zusammen 284 (von „B12: Datei heißt show-zuletzt.json (G6)“ bis „B12: Speaker ohne Kennung → leere Spalte, Zeilenende am Schluss“). Keine `FAIL`-Zeile, am Ende `ALLE TESTS OK`, Exit-Code 0. Danach liegt kein Ordner `jmtitler-*` mehr im Temp-Verzeichnis (`ls "$TMP" | grep -c jmtitler-` gibt `0` aus).
 
 - [ ] **Step 5: Typecheck**
 
@@ -5932,7 +6108,7 @@ git commit -m "feat(titler): gemerkte Show atomar, Show sicher lesen (Teil 2b, s
 
 **Spec:** 7.1 (Aufbau: `datalink.ts` liest nur noch Ordner, beobachtet und ruft den Kern), 7.3 (A1–A11, A4 mit 1 s), 7.4 (IPC `titler:recallSchluessel`, Status an die Fenster), 7.5 (STATE `entry`/`entry_index`/`entry_count`, neu `recall_kennung=1`), 7.6 und 7.7 (Datenquelle, gemerkte Show, Übergang, Tabelle der Ereignisse), 7.9 (Logzeilen), SP5. Behebt 2.1 Nr. 1, 2, 7, 8, 9: Nummer statt Schlüssel, Abruf hält die Zahl, Show ohne Speaker lässt den DataLink stehen, die Show überschreibt `config.dataFolder`, RELOAD nach Start über die Kachel ignoriert.
 
-**Arbeitsverzeichnis:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b`, Branch `feat/master-link-teil2b`. Alle Pfade relativ dazu. Voraussetzung: B12 ist committet.
+**Arbeitsverzeichnis:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b`, Branch `feat/master-link-teil2b`. Alle Pfade relativ dazu. Voraussetzung: B12 ist committet, und der Owner hat Entscheidung 14 bestätigt (`TitlerStatus.hinweis` als `{ art, text }`, Kopf „Ausnahme“). Ohne Bestätigung hier anhalten und der steuernden Sitzung melden.
 
 **Dateien:**
 - Modify: `apps/titler/src/main/datalink.ts` (ganz ersetzen)
@@ -6051,7 +6227,7 @@ B14 nutzt `TitlerStatus.entries`, `activeEntry`, `gehalten`, `hinweis`, `datenQu
 
 **Vorab (gemessen an einer Kopie der App, erst mit Stubs, dann mit den ausgeschriebenen Fassungen aus B8–B11 und `@jm/show` mit B3; Selbsttest, `typecheck:node`, `typecheck:web` und `electron-vite build` grün):**
 - **Kernzustand und Ordnerwechsel:** Das alte `startDataWatch` rief `stopDataWatch(true)` und setzte damit den aktiven Eintrag zurück. Neu trennt `schliesseBeobachter()` das Schließen von `fs.watch`/Poll vom Zurücksetzen. `stopDataWatch()` setzt den Kern nur noch beim Beenden zurück (und im Test). So gilt A8/A9: Der Kern gleicht beim Ordnerwechsel über den Schlüssel ab.
-- **`andererOrdner`** ist `true`, wenn sich der beobachtete Ordner ändert, auch beim allerersten Aufruf (`zuletztBeobachtet === null`). Damit wird beim ersten Start Eintrag 1 aktiv (B9: „Das gilt auch für den ersten Start“).
+- **`andererOrdner`** ist `true`, wenn sich der beobachtete Ordner ändert, auch beim allerersten Aufruf (`zuletztBeobachtet === null`). Damit wird beim ersten Start Eintrag 1 aktiv (B9: „Das gilt auch für den ersten Start“), denn beim Start ist nichts auf Sendung. Auf Sendung wählt ein Ordnerwechsel ohne aktiven Eintrag nie Eintrag 1; das regelt der Kern (B9, A8), `startDataWatch` braucht dafür nichts.
 - **A7 nur im selben Ordner:** `rescan` behält die alten Quellen (`sources`) nur, wenn auch der Kern die leere Liste behält (`leerHalten && !andererOrdner`, Regel aus B9). Wechselt die Quelle auf einen leeren Ordner, sind Liste und Quellen leer. Test „B13: Wechsel auf einen leeren Ordner …“; ohne `&& !andererOrdner` wird genau dieser Test rot (nachgemessen beim Zusammensetzen des Plans).
 - **1-s-Uhr (A4):** `setzeAufSendung(false)` lässt den Kern `wegAbMs = jetzt + 1000` setzen (B9). `datalink.ts` richtet nach jedem Kern-Schritt einen Timer an `kern.wegAbMs` aus und ruft beim Feuern `uhrTick`. Die Wartezeit ist höchstens `HALTEN_NACH_SENDUNG_MS`, auch wenn die Systemuhr zurückgestellt wird. Node-Timer können eine Millisekunde vor `Date.now()` feuern. Als „jetzt“ gilt deshalb mindestens die Frist selbst. Eine abgelaufene Frist wird nie zweimal geplant.
 - **Nur ein Wechsel der Sendung zählt:** Der Renderer meldet `titler:report-state` auch bei NDI-, Vorlagen- und Empfängerwechseln. Ein weiteres „aus“ würde die 1-s-Frist sonst neu starten. `setzeAufSendung` tut nichts, wenn `kern.aufSendung` schon stimmt.
@@ -6474,7 +6650,7 @@ export function stopDataWatch(keepListener = false): void {
 ```bash
 npm run selftest -w @jm/titler
 ```
-Erwartet: B8–B12 wie bisher, dazu 21 `ok`-Zeilen mit `B13:`, von „B13: startDataWatch meldet den Stand an den Rückruf“ bis „B13: stopDataWatch setzt den Kern zurück“, zusammen 304. Keine `FAIL`-Zeile, `ALLE TESTS OK`, Exit-Code 0. Der Lauf dauert gut 1 s länger (Uhr). Er endet von selbst: `stopDataWatch()` räumt Poll und Uhr ab.
+Erwartet: B8–B12 wie bisher, dazu 21 `ok`-Zeilen mit `B13:`, von „B13: startDataWatch meldet den Stand an den Rückruf“ bis „B13: stopDataWatch setzt den Kern zurück“, zusammen 305. Keine `FAIL`-Zeile, `ALLE TESTS OK`, Exit-Code 0. Der Lauf dauert gut 1 s länger (Uhr). Er endet von selbst: `stopDataWatch()` räumt Poll und Uhr ab.
 
 - [ ] **Step 5: Typecheck zeigt die Aufrufstelle (rot)**
 
@@ -7256,7 +7432,7 @@ export function b1Text(g: TitlerStatus['gehalten']): string | null {
 ```bash
 npm run selftest -w @jm/titler
 ```
-Erwartet: B8–B13 wie bisher, dazu 16 `ok`-Zeilen mit `B14:`, zusammen 320, von „B14: Zähler ohne aktiven (oder mit gehaltenem) Eintrag: Einträge · 5“ bis „B14: ohne gehaltenen Eintrag keine Karte“. Keine `FAIL`-Zeile, `ALLE TESTS OK`, Exit-Code 0.
+Erwartet: B8–B13 wie bisher, dazu 16 `ok`-Zeilen mit `B14:`, zusammen 321, von „B14: Zähler ohne aktiven (oder mit gehaltenem) Eintrag: Einträge · 5“ bis „B14: ohne gehaltenen Eintrag keine Karte“. Keine `FAIL`-Zeile, `ALLE TESTS OK`, Exit-Code 0.
 
 - [ ] **Step 5: `OperatorView.tsx` — Import, Konstanten, `iveoActive`, Sperre**
 
@@ -8472,7 +8648,7 @@ Worum es geht, in den Worten der Spec (9.6):
 - 9e: „`titler-config.json` mit `template: 'lowerthird'`, `name: '{{name}}'`, `subtitle: '{{funktion}}'`. Der Titler startet mit `--remote-debugging-port=9335`. Messpunkt ist die SHA-256 von `toDataURL()` des Vorschau-Canvas, gelesen über CDP, 1,5 s nach jeder Aktion.“ Kontrolle: „`TITLER RECALL 2` → Bild ungleich A; wieder Alan abrufen → Bild gleich A.“
 - „**Gegenprobe:** Abschnitt 9 einmal gegen den gebauten Titler 0.9.0 laufen lassen. Er muss rot werden. Das Ergebnis kommt in den PR-Text.“
 
-**Arbeitsverzeichnis:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b`, Branch `feat/master-link-teil2b`. Alle Pfade relativ dazu. Voraussetzung: B1–B16 sind committet.
+**Arbeitsverzeichnis:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b`, Branch `feat/master-link-teil2b`. Alle Pfade relativ dazu. Voraussetzung: B1–B16 sind committet, und der Owner hat Entscheidung 18 bestätigt (Abschnitt 9 mit `TITLER RECALL Alan` und „Abel“, Kopf „Ausnahme“). Ohne Bestätigung hier anhalten und der steuernden Sitzung melden.
 
 **Dateien:**
 - Modify: `apps/rundown/test/e2e-teil2a.mjs`
@@ -8953,10 +9129,30 @@ Expected: `88` (die Definition und 87 Aufrufe; ein Lauf führt 84 davon aus, wei
 
 Das Skript nicht ohne Freigabe starten: Schon beim Laden liest es `control.json` aus `%APPDATA%` (G11).
 
-- [ ] **Step 12: Programme bauen**
+- [ ] **Step 12: Programme bauen, Electron-Programmdatei prüfen**
 
 Run: `npm run build -w @jm/launcher -w @jm/timer -w @jm/rundown -w @jm/titler`
 Expected: alle vier ohne Fehler; danach gibt es `apps/<app>/out/main/index.cjs` für launcher, timer, rundown und titler.
+
+Der Durchgang startet die Programme mit `electron.exe`. Diese Datei lädt erst der Postinstall von `electron` herunter. Hat B1 Step 1 auf `npm ci --ignore-scripts` ausweichen müssen, fehlt sie im Worktree. Deshalb zuerst nachsehen:
+```bash
+ls node_modules/electron/dist/electron.exe
+```
+Expected: `node_modules/electron/dist/electron.exe`. Dann weiter mit Step 13.
+
+Meldet `ls` stattdessen `No such file or directory`, den Postinstall von Hand nachholen (lädt Electron 33.4.11 aus dem Netz):
+```bash
+node node_modules/electron/install.js
+ls node_modules/electron/dist/electron.exe
+```
+Expected: keine Fehlermeldung, danach der Pfad.
+
+Scheitert auch das (etwa ohne Netz), nimmt der Durchgang die Electron-Programmdatei des Haupt-Checkouts, aber nur bei gleicher Version:
+```bash
+node -p "require('./node_modules/electron/package.json').version + ' / ' + require('C:/Users/alexk/alexzvn/node_modules/electron/package.json').version"
+ls "C:/Users/alexk/alexzvn/node_modules/electron/dist/electron.exe"
+```
+Expected: `33.4.11 / 33.4.11` und der Pfad. Steps 15 und 17 nehmen diese Datei dann von selbst, weil sie im Worktree fehlt. Weichen die Versionen ab oder fehlt auch diese Datei, hier anhalten und der steuernden Sitzung melden.
 
 - [ ] **Step 13: Freigabe einholen (G11)**
 
@@ -8972,14 +9168,26 @@ ls "$GEGEN/apps/titler/out/main/index.cjs"
 ```
 Expected: `Preparing worktree (detached HEAD …)` und `HEAD is now at …`; `npm ci` endet mit `added … packages`; `electron-vite build` mit `✓ built in …`; `ls` zeigt die Datei. Das dauert einige Minuten (eigenes `node_modules`).
 
+Scheitert `npm ci` dort nur an einem nativen Postinstall, ohne Postinstalls installieren und bauen (der Worktree besteht schon):
+```bash
+GEGEN="C:/Users/alexk/AppData/Local/Temp/jm-e2e-titler-090"
+(cd "$GEGEN" && npm ci --ignore-scripts && npm run build -w @jm/titler)
+ls "$GEGEN/apps/titler/out/main/index.cjs"
+```
+Expected: wie oben, `ls` zeigt die Datei. Für den Bau reicht das. Die Gegenprobe startet den alten Titler mit der Electron-Programmdatei aus Step 12, nicht mit einer aus diesem Worktree; Titler 0.9.0 nutzt dieselbe Electron-Version 33.4.11 (`package-lock.json` am Tag).
+
 - [ ] **Step 15: Gegenprobe laufen lassen (rot)**
 
 Installierte Suite-Programme vorher beenden (das Skript prüft die Ports und bricht sonst mit `ABBRUCH: Port … belegt` ab).
 ```bash
 GEGEN="C:/Users/alexk/AppData/Local/Temp/jm-e2e-titler-090"
-E2E_TITLER_DIR="$GEGEN/apps/titler" ELECTRON_EXE="C:/Users/alexk/alexzvn/.claude/worktrees/master-link-2b/node_modules/electron/dist/electron.exe" node node_modules/tsx/dist/cli.mjs apps/rundown/test/e2e-teil2a.mjs 2>&1 | tee "$TEMP/e2e-2b-r1-gegenprobe.log"; echo "Exit: ${PIPESTATUS[0]}"
+ELEKTRON="C:/Users/alexk/alexzvn/.claude/worktrees/master-link-2b/node_modules/electron/dist/electron.exe"
+[ -f "$ELEKTRON" ] || ELEKTRON="C:/Users/alexk/alexzvn/node_modules/electron/dist/electron.exe"   # Ausweg aus Step 12 (gleiche Version geprüft)
+echo "Electron: $ELEKTRON"
+E2E_TITLER_DIR="$GEGEN/apps/titler" ELECTRON_EXE="$ELEKTRON" node node_modules/tsx/dist/cli.mjs apps/rundown/test/e2e-teil2a.mjs 2>&1 | tee "$TEMP/e2e-2b-r1-gegenprobe.log"; echo "Exit: ${PIPESTATUS[0]}"
 ```
 Expected:
+- `Electron: …/electron.exe` (der Pfad aus Step 12)
 - `GEGENPROBE: Titler aus C:\Users\alexk\AppData\Local\Temp\jm-e2e-titler-090\apps\titler`
 - Abschnitte 1–7b grün, dann `ok   9 · vorher: Alan auf Sendung, Liste mit 4 Speakern`
 - `FEHL 9 · Alan bleibt auf Sendung, nachdem ein Speaker davor eingefügt wurde (entry Alan, on_air 1) — „Grace“ Eintrag 3/5, on_air=1` (bei M3 = nein `„Ada“ Eintrag 2/5`)
@@ -9000,9 +9208,12 @@ Expected: `git worktree list` nennt `jm-e2e-titler-090` nicht mehr.
 - [ ] **Step 17: Durchgang gegen den neuen Build (grün)**
 
 ```bash
-ELECTRON_EXE="C:/Users/alexk/alexzvn/.claude/worktrees/master-link-2b/node_modules/electron/dist/electron.exe" node node_modules/tsx/dist/cli.mjs apps/rundown/test/e2e-teil2a.mjs 2>&1 | tee "$TEMP/e2e-2b-r1.log"; echo "Exit: ${PIPESTATUS[0]}"
+ELEKTRON="C:/Users/alexk/alexzvn/.claude/worktrees/master-link-2b/node_modules/electron/dist/electron.exe"
+[ -f "$ELEKTRON" ] || ELEKTRON="C:/Users/alexk/alexzvn/node_modules/electron/dist/electron.exe"   # Ausweg aus Step 12 (gleiche Version geprüft)
+echo "Electron: $ELEKTRON"
+ELECTRON_EXE="$ELEKTRON" node node_modules/tsx/dist/cli.mjs apps/rundown/test/e2e-teil2a.mjs 2>&1 | tee "$TEMP/e2e-2b-r1.log"; echo "Exit: ${PIPESTATUS[0]}"
 ```
-Expected: alle Prüfzeilen beginnen mit `ok  `, darunter
+Expected: zuerst `Electron: …/electron.exe` (der Pfad aus Step 12), dann beginnen alle Prüfzeilen mit `ok  `, darunter
 ```
 ok   9 · Alan bleibt auf Sendung, nachdem ein Speaker davor eingefügt wurde (entry Alan, on_air 1) — „Alan“ Eintrag 4/5, on_air=1
 ok   9e · Bild nach dem Einfügen gleich A
@@ -9042,6 +9253,7 @@ git commit -m "test(rundown): Durchgang prueft, dass der Titler seinen Speaker h
 4. 9e ist kein eigener Abschnitt: Messpunkt A und die Kontrolle `RECALL 2` / `RECALL Alan` stehen in Abschnitt 9, der Bildvergleich in 9b–9d nutzt A bzw. G.
 5. Die Zeile `MESSUNG 6.4` heißt jetzt `MESSUNG 9` und steht weiter im Log; sie nennt kein „Name wechselt“ mehr, das prüft jetzt `pruefe`.
 6. Geprüft an einer Kopie des Worktrees: alle Vorher-Texte treffen genau einmal (gegen Stand `996f54e2b8`), `node --check` grün, Laden der Module mit tsx grün (Lauf mit umgeleitetem `APPDATA` bis `ABBRUCH: … nicht gebaut`). Der Durchgang selbst ist nicht gelaufen (G11).
+7. Step 12 prüft `electron.exe` vor dem Durchgang (nach der Prüfung ergänzt): B1 darf auf `npm ci --ignore-scripts` ausweichen, dann fehlt die Datei im Worktree. Ausweg 1 ist der Postinstall von Hand, Ausweg 2 die Datei des Haupt-Checkouts bei gleicher Version. Steps 15 und 17 nehmen die Datei aus dem Worktree, sonst die des Haupt-Checkouts. Step 14 nennt `npm ci --ignore-scripts` als Ausweg für den Gegenprobe-Worktree, denn dort wird nur gebaut.
 
 ---
 
