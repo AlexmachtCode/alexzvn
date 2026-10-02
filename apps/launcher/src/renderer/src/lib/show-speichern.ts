@@ -276,16 +276,49 @@ export function regelEinsGreift(geladen: Show | null, f: FormularStand): boolean
   return !!geladen?.iveo && !f.iveoNeuGebunden && gleicheZeilen(f.ablauf, formularAusShow(geladen).ablauf);
 }
 
-/** Meldung, wenn Regel 1 die aktuelle Datei braucht und sie nicht lesbar ist (Text außerhalb der Spec, Owner-Ruling offen). */
+/** Beschriftung des Speichern-Knopfs beim Bearbeiten — nur dort kann Regel 1 ablehnen. Die Meldung nennt ihn wörtlich. */
+export const KNOPF_AKTUALISIEREN = 'Aktualisieren';
+/** Beschriftung des Knopfs, den der Editor nach einer Ablehnung anbietet (Owner-Entscheidung 2026-10-02). */
+export const KNOPF_TROTZDEM_SPEICHERN = 'Trotzdem speichern';
+
+/**
+ * Schlüssel eines Formularstands samt Datei. Das Angebot „Trotzdem speichern“ gilt nur, solange der Editor noch genau
+ * den abgelehnten Stand zeigt — jede Änderung im Formular (oder eine andere Datei) ergibt einen anderen Schlüssel.
+ */
+export function formularSchluessel(pfad: string | null, f: FormularStand): string {
+  return JSON.stringify([pfad, f]);
+}
+
+/**
+ * Meldung, wenn Regel 1 die aktuelle Datei braucht und sie nicht lesbar ist (Text außerhalb der Spec; vom Owner
+ * freigegeben, der Schluss 2026-10-02 auf die Knöpfe umgestellt). Was der letzte Satz über iveo sagt, ist im Kern
+ * gemessen (test/iveo-abgleich.test.ts, Block „Trotzdem speichern“): Side Event im Detail → die nächste Abfrage
+ * schreibt den iveo-Stand zurück; Listen-Modus → die nächste Abfrage, wenn der Abgleich wegen der unlesbaren Datei noch
+ * etwas nicht schreiben konnte, sonst erst, wenn iveo ein geändertes Programm meldet (Abfragefenster bleibt,
+ * iveo-abgleich-kern.ts offeneShowGespeichert). Läuft die Show nicht in diesem Launcher, gleicht hier niemand ab.
+ * Nachbesserung 2026-10-02 (Prüfer): „Trotzdem speichern“ liest die Datei noch einmal (ShowEditorModal onSave) — ist sie
+ * dann lesbar, gilt Regel 1 mit ihr, der Stand vom Öffnen wird NICHT geschrieben; darum steht er im Text nur bedingt.
+ * Der Stand vom Öffnen enthält den Filter, also die damalige Side-Event-Auswahl (baueGespeicherteShow: {...geladen}).
+ * Der Kern übernimmt den Filter aus der Datei (iveo-abgleich-kern.ts setzeAuf) und schickt RELOAD — eine Live-Umschaltung
+ * seit dem Öffnen (Panel oder LAUNCHER SIDEEVENT) ist danach zurückgenommen und kommt nie von selbst zurück (gemessen,
+ * test/iveo-abgleich.test.ts „Trotzdem/Umschaltung“). Der Satz über iveo-Änderungen gilt für diese Auswahl.
+ */
 export const TEXT_SPEICHERN_DATEI_NICHT_LESBAR =
-  'Show nicht gespeichert: Die Show-Datei ist gerade nicht lesbar, sonst gingen iveo-Änderungen seit dem Öffnen verloren (Details im Launcher-Log). Bitte erneut speichern.';
+  'Show nicht gespeichert: Die Show-Datei ist gerade nicht lesbar, sonst gingen iveo-Änderungen seit dem Öffnen verloren (Details im Launcher-Log). ' +
+  `„${KNOPF_AKTUALISIEREN}“ versucht es erneut. „${KNOPF_TROTZDEM_SPEICHERN}“ liest die Datei noch einmal; ist sie weiter nicht lesbar, ` +
+  'schreibt es Ablauf und iveo-Bindung vom Öffnen des Editors, auch die Side-Event-Auswahl von damals. ' +
+  'Läuft die Show gerade in diesem Launcher, holt der iveo-Abgleich die iveo-Änderungen spätestens zurück, sobald sich in iveo ein Programmpunkt ändert.';
 
 /**
  * Speichern ablehnen? Greift Regel 1, ist die aktuelle Datei aber nicht lesbar (null), schriebe das Speichern still den
  * Ablauf vom Öffnen des Editors — und im Listen-Modus heilte das erst die nächste iveo-Änderung. Dann nicht speichern,
  * sondern die Meldung zeigen. `geladen` = null bei einer neuen Show. Sonst null = speichern.
+ * `trotzdem` = der Bediener hat nach der Ablehnung „Trotzdem speichern“ gewählt: nie ablehnen. Der Aufrufer hat die
+ * Datei dafür noch einmal gelesen — ist sie jetzt lesbar, gilt Regel 1 mit ihr, sonst schreibt baueGespeicherteShow
+ * Ablauf und Bindung vom Öffnen des Editors.
  */
-export function speichernAbgelehnt(geladen: Show | null, f: FormularStand, aktuelleDatei: Show | null): string | null {
+export function speichernAbgelehnt(geladen: Show | null, f: FormularStand, aktuelleDatei: Show | null, trotzdem = false): string | null {
+  if (trotzdem) return null;
   return aktuelleDatei === null && regelEinsGreift(geladen, f) ? TEXT_SPEICHERN_DATEI_NICHT_LESBAR : null;
 }
 

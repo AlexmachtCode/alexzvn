@@ -3,7 +3,7 @@
 import { startShowTools } from '../src/main/show-launch.ts';
 import { PresenceStore, gueltigerVerbund } from '../src/main/presence-store.ts';
 import { kopfanzeige, kopfEingang, kopfText, kopfZeile, type KopfEingang } from '../src/renderer/src/lib/kopfanzeige.ts';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { beimSchliessen } from '../src/renderer/src/lib/verbund-schliessen.ts';
 import {
   ablehnungText, codeFeldLeeren, koppelnMoeglich, neueKennungAnbieten, speicherFehlerText, toolVerbundText, toolZeilen, zeigeCode,
@@ -537,6 +537,68 @@ await (async () => {
   } catch (e) { keinArray = (e as Error).message; }
   ck('R5: eine Antwort, die keine Liste ist, wird als Fehler gemeldet', keinArray.includes('kein Array'));
 })();
+
+// --- Show-Editor 0.13.1: Meldung sichtbar, „Trotzdem speichern“ (Verdrahtung, Quelltext-Prüfung wie oben) ----------
+// Die Regeln selbst (speichernAbgelehnt mit trotzdem, formularSchluessel, Text) prüft test/show-speichern.test.ts.
+{
+  const quelle = (datei: string): string => readFileSync(new URL(`../src/renderer/src/${datei}`, import.meta.url), 'utf8');
+  const zWert = (klasse: string): number => Number(klasse.replace(/^z-\[?/, '').replace(/\]$/, ''));
+  // M1: Die Meldung (notice) lag ohne z-index hinter dem Show-Editor (fixed inset-0 z-50).
+  const overlays: Array<[string, number]> = [];
+  for (const datei of readdirSync(new URL('../src/renderer/src/components/', import.meta.url))) {
+    if (!datei.endsWith('.tsx')) continue;
+    for (const m of quelle(`components/${datei}`).matchAll(/fixed inset-0\b[^"]*?\b(z-\[\d+\]|z-\d+)/g)) overlays.push([datei, zWert(m[1])]);
+  }
+  const toast = /\{notice && \(\s*<div className="([^"]*)"/.exec(quelle('App.tsx'))?.[1] ?? '';
+  const toastZ = /(?:^|\s)(z-\[\d+\]|z-\d+)(?=\s|$)/.exec(toast)?.[1];
+  const hoechstes = Math.max(...overlays.map(([, z]) => z));
+  ck(`M1: alle Vollbild-Overlays haben einen z-Wert (${overlays.length} gefunden, höchster ${hoechstes})`,
+    overlays.length >= 10 && Number.isFinite(hoechstes));
+  ck('M1: die Meldung liegt über JEDEM Overlay des Launchers', toastZ !== undefined && zWert(toastZ) > hoechstes);
+  ck('M1: … und ihre Ebene fängt weiter keine Klicks (pointer-events-none)', toast.includes('pointer-events-none'));
+  // M1b/M2: Ablehnung inline bei den Knöpfen, „Trotzdem speichern“ nur für den abgelehnten Stand.
+  const editor = quelle('components/ShowEditorModal.tsx');
+  ck('M2: onSave reicht trotzdem an speichernAbgelehnt durch',
+    editor.includes('speichernAbgelehnt(editPath ? geladen : null, f, aktuelleDatei, trotzdem)'));
+  ck('M2: der Knopf „Trotzdem speichern“ ruft onSave(true) und trägt die Beschriftung aus show-speichern.ts',
+    /onClick=\{\(\) => void onSave\(true\)\}>\s*\{KNOPF_TROTZDEM_SPEICHERN\}/.test(editor));
+  ck('M2: der Speichern-Knopf beim Bearbeiten trägt KNOPF_AKTUALISIEREN (die Meldung nennt ihn)',
+    editor.includes("editPath ? KNOPF_AKTUALISIEREN : 'Speichern'"));
+  ck('M2: das Angebot gilt nur ohne laufendes Speichern und für genau den abgelehnten Formularstand',
+    /ablehnung && !busy && ablehnung\.schluessel === formularSchluessel\(editPath, formular\(\)\)/.test(editor));
+  const resetForm = /const resetForm = \(\): void => \{([\s\S]*?)\n {2}\};/.exec(editor)?.[1] ?? '';
+  ck('M2: resetForm (Abbrechen, Bestehende öffnen, nach dem Speichern) räumt die Ablehnung weg', resetForm.includes('setAblehnung(null)'));
+  ck('M2: ein neuer Speicherversuch räumt die alte Ablehnung zuerst weg',
+    /const onSave = async \(trotzdem = false\): Promise<void> => \{\s*setBusy\(true\);[^]*?setAblehnung\(null\);\s*try \{/.test(editor));
+  // Schlussprüfung (GEMESSEN 02.10.2026, Electron + Build-CSS): Derselbe Text stand zusätzlich als Meldung unten und
+  // überdeckte die Inline-Meldung samt „Trotzdem speichern“ 4 s lang. Die Ablehnung steht nur inline über den Knöpfen.
+  const ablehnZweig = /if \(abgelehnt\) \{([\s\S]*?)\n {6}\}/.exec(editor)?.[1] ?? '';
+  ck('M1b: die Ablehnung steht nur inline, keine zusätzliche Meldung, die sie überdeckt',
+    ablehnZweig.includes('setAblehnung({') && !ablehnZweig.includes('setNotice('));
+  // Nachbesserung (Prüfer, GEMESSEN 02.10.2026 in Electron mit dem Build-CSS): Die innere Box der Meldung war weiter
+  // pointer-events-auto. Seit sie über den Dialogen liegt, fing sie 4 s lang Klicks auf „Trotzdem speichern“,
+  // „Aktualisieren“ und „Abbrechen“ ab (elementFromPoint = Toast). Sie enthält nur Text — keine Ebene fängt Klicks.
+  const toastBlock = /\{notice && \(([\s\S]*?)\n {6}\)\}/.exec(quelle('App.tsx'))?.[1] ?? '';
+  const toastInnen = /<div className="[^"]*">\s*<div\s+className="([^"]*)"/.exec(toastBlock)?.[1] ?? '';
+  ck('M1: … auch die innere Box der Meldung fängt keine Klicks (sie liegt über den Knöpfen der Dialoge)',
+    toastInnen.includes('pointer-events-none') && toastBlock.length > 0 && !toastBlock.includes('pointer-events-auto'));
+  // Nachbesserung (Prüfer, GEMESSEN): Die Inline-Meldung (~150 px) stand UNTER dem fest 68vh hohen Scrollbereich. Die Karte
+  // wurde höher als das Fenster, das Overlay scrollt nicht → bei 821 px Innenhöhe (Standardfenster) lagen „Aktualisieren“
+  // und „Abbrechen“ zum größten Teil, bei 601–790 px ganz außerhalb. Jetzt wie #233 (SystemStatusModal): eigener
+  // flex-col-Container höchstens fensterhoch, nur der Scrollbereich schrumpft, Meldung und Fußzeile nicht.
+  const karte = /<Card className="[^"]*">([\s\S]*?)<\/Card>/.exec(editor)?.[1] ?? '';
+  const iHuelle = karte.indexOf('<div className="flex max-h-[calc(100vh-6rem)] flex-col">');
+  const scrollKlasse = /<div className="([^"]*\boverflow-y-auto\b[^"]*)">/.exec(karte);
+  const iScroll = scrollKlasse?.index ?? -1;
+  const iAlert = karte.search(/role="alert"\s+className="[^"]*\bshrink-0\b/);
+  const iFuss = karte.search(/<div className="[^"]*\bshrink-0\b[^"]*\bborder-t\b/);
+  ck('Layout: der Show-Editor ist höchstens fensterhoch (eigener flex-col-Container in der Card, wie #233)',
+    iHuelle >= 0 && iHuelle < iScroll);
+  ck('Layout: … nur der Scrollbereich schrumpft (min-h-0, nicht shrink-0)',
+    !!scrollKlasse && /\bmin-h-0\b/.test(scrollKlasse[1]) && !/\bshrink-0\b/.test(scrollKlasse[1]));
+  ck('Layout: … Inline-Meldung und Fußzeile folgen im selben Container und schrumpfen nicht (shrink-0)',
+    iScroll < iAlert && iAlert < iFuss);
+}
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -3,8 +3,9 @@
 import { isDeepStrictEqual } from 'node:util';
 import { parseShow, serializeShow, type Show } from '@jm/show';
 import {
-  baueAblauf, baueGespeicherteShow, bindungAusEditor, formularAusShow, speichernAbgelehnt, TEXT_SPEICHERN_DATEI_NICHT_LESBAR,
-  zeilenAusAblauf, zeilenAusSeed, type FormularStand,
+  baueAblauf, baueGespeicherteShow, bindungAusEditor, formularAusShow, formularSchluessel, KNOPF_AKTUALISIEREN,
+  KNOPF_TROTZDEM_SPEICHERN, speichernAbgelehnt, TEXT_SPEICHERN_DATEI_NICHT_LESBAR, zeilenAusAblauf, zeilenAusSeed,
+  type FormularStand,
 } from '../src/renderer/src/lib/show-speichern';
 
 let pass = 0, fail = 0;
@@ -103,8 +104,57 @@ console.log('— Datei beim Speichern nicht lesbar (7.5 Regel 1): nicht still de
   const ohneIveo = parseShow(JSON.stringify({ ...ROH, iveo: undefined }));
   ck('Show ohne iveo → die Datei wird nicht gebraucht', speichernAbgelehnt(ohneIveo, formularAusShow(ohneIveo), null) === null);
   ck('neue Show (nichts geladen) → nichts abzulehnen', speichernAbgelehnt(null, basis, null) === null);
-  ck('die Meldung nennt das Log und sagt, was zu tun ist',
-    TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes('Launcher-Log') && TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes('erneut speichern'));
+  ck('die Meldung nennt das Log und beide Knöpfe mit ihrer echten Beschriftung',
+    TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes('Launcher-Log')
+    && TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes(`„${KNOPF_AKTUALISIEREN}“`)
+    && TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes(`„${KNOPF_TROTZDEM_SPEICHERN}“`));
+  ck('… und verspricht kein „erneut speichern“ (stimmt bei dauerhaft unlesbarer Datei nicht)',
+    !TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes('erneut speichern'));
+  ck('… keine ASCII-Anführungszeichen im Text', !TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes('"'));
+  // Nachbesserung (Prüfer): der Teil über „Trotzdem speichern“ muss in JEDEM Zustand stimmen.
+  const trotzdemTeil = TEXT_SPEICHERN_DATEI_NICHT_LESBAR.slice(TEXT_SPEICHERN_DATEI_NICHT_LESBAR.indexOf(`„${KNOPF_TROTZDEM_SPEICHERN}“`));
+  ck('… „Trotzdem speichern“: liest die Datei noch einmal, den Stand vom Öffnen schreibt es NUR, wenn sie weiter nicht lesbar ist',
+    trotzdemTeil.includes('liest die Datei noch einmal')
+    && trotzdemTeil.includes('weiter nicht lesbar')
+    && trotzdemTeil.indexOf('weiter nicht lesbar') < trotzdemTeil.indexOf('vom Öffnen des Editors'));
+  ck('… und sagt, dass dann auch die Side-Event-Auswahl von damals geschrieben wird (eine Live-Umschaltung seither ist weg)',
+    trotzdemTeil.includes('Side-Event-Auswahl von damals'));
+}
+
+console.log('— „Trotzdem speichern“ nach einer Ablehnung (Owner-Entscheidung 2026-10-02)');
+{
+  const basis = formularAusShow(geladen);
+  ck('Datei weiter nicht lesbar, trotzdem → nicht abgelehnt', speichernAbgelehnt(geladen, basis, null, true) === null);
+  const ohneDatei = baueGespeicherteShow(geladen, basis, null, zaehler().neueId);
+  ck('… geschrieben werden Ablauf und Bindung vom Öffnen des Editors (samt syncedAt und Filter)',
+    isDeepStrictEqual(ohneDatei.ablauf, geladen.ablauf) && isDeepStrictEqual(ohneDatei.iveo, geladen.iveo));
+  const nachAbfrage = parseShow(JSON.stringify({
+    ...ROH,
+    ablauf: [...ROH.ablauf, { id: 'aaaa-4', label: 'Nachtrag aus iveo', durationMs: 600_000 }],
+    iveo: { ...ROH.iveo, syncedAt: '2026-09-29T08:30:00.000Z' },
+  }));
+  ck('Datei beim Trotzdem-Speichern wieder lesbar → nicht abgelehnt', speichernAbgelehnt(geladen, basis, nachAbfrage, true) === null);
+  const mitDatei = baueGespeicherteShow(geladen, basis, nachAbfrage, zaehler().neueId);
+  ck('… normaler Weg: Regel 1 mit der aktuellen Datei', isDeepStrictEqual(mitDatei.ablauf, nachAbfrage.ablauf) && mitDatei.iveo?.syncedAt === '2026-09-29T08:30:00.000Z');
+  ck('ohne trotzdem bleibt es bei der Ablehnung', speichernAbgelehnt(geladen, basis, null, false) === TEXT_SPEICHERN_DATEI_NICHT_LESBAR);
+}
+
+console.log('— Formular-Schlüssel: das Trotzdem-Angebot gilt nur für den abgelehnten Formularstand');
+{
+  const basis = formularAusShow(geladen);
+  const PFAD = 'C:/Shows/Tag1.jmshow';
+  const s = formularSchluessel(PFAD, basis);
+  ck('gleicher Stand (neu gebaut) → gleicher Schlüssel', formularSchluessel(PFAD, formularAusShow(geladen)) === s);
+  ck('Name geändert → anderer Schlüssel', formularSchluessel(PFAD, { ...basis, name: 'Anders' }) !== s);
+  ck('Minuten einer Zeile geändert → anderer Schlüssel',
+    formularSchluessel(PFAD, { ...basis, ablauf: basis.ablauf.map((r, i) => (i === 0 ? { ...r, minutes: '3' } : r)) }) !== s);
+  ck('Host eines Tools geändert → anderer Schlüssel',
+    formularSchluessel(PFAD, { ...basis, tools: basis.tools.map((t, i) => (i === 0 ? { ...t, host: '10.0.0.1' } : t)) }) !== s);
+  ck('Q&A-Redezeit geändert → anderer Schlüssel', formularSchluessel(PFAD, { ...basis, qaSpeak: '60' }) !== s);
+  ck('neu gebunden → anderer Schlüssel',
+    formularSchluessel(PFAD, { ...basis, iveoNeuGebunden: bindungAusEditor({ event: 'cop31', name: 'COP31' }) }) !== s);
+  ck('andere Datei → anderer Schlüssel', formularSchluessel('C:/Shows/Tag2.jmshow', basis) !== s);
+  ck('neue Show (ohne Pfad) → anderer Schlüssel', formularSchluessel(null, basis) !== s);
 }
 
 console.log('— Tools: nur document, network.host und die Formularfelder');

@@ -7,6 +7,9 @@ import {
   baueGespeicherteShow,
   bindungAusEditor,
   formularAusShow,
+  formularSchluessel,
+  KNOPF_AKTUALISIEREN,
+  KNOPF_TROTZDEM_SPEICHERN,
   speichernAbgelehnt,
   zeilenAusAblauf,
   zeilenAusSeed,
@@ -43,7 +46,6 @@ export function ShowEditorModal() {
   const tools = useTools((s) => s.tools);
   const close = useTools((s) => s.closeShowEditor);
   const saveShow = useTools((s) => s.saveShow);
-  const setNotice = useTools((s) => s.setNotice);
   const editorSeed = useTools((s) => s.editorSeed);
   const clearEditorSeed = useTools((s) => s.clearEditorSeed);
 
@@ -62,6 +64,9 @@ export function ShowEditorModal() {
   const [geladen, setGeladen] = useState<Show | null>(null);
   // In diesem Editor neu an iveo gebunden („Ablauf übernehmen“) → die Bindung wird geschrieben.
   const [iveoNeuGebunden, setIveoNeuGebunden] = useState(false);
+  // Letzte Ablehnung beim Speichern (Spec 7.5 Regel 1, Datei nicht lesbar): Text + Schlüssel des abgelehnten
+  // Formularstands. Inline-Meldung und „Trotzdem speichern“ gelten nur, solange das Formular genau diesen Stand zeigt.
+  const [ablehnung, setAblehnung] = useState<{ text: string; schluessel: string } | null>(null);
 
   // iveo-Event-Bindung (#11). Token bleibt nur transient hier im Feld; der Main-
   // Prozess legt ihn beim Binden verschlüsselt ab und gibt ihn NIE zurück.
@@ -105,6 +110,7 @@ export function ShowEditorModal() {
     setEditPath(null);
     setGeladen(null);
     setIveoNeuGebunden(false);
+    setAblehnung(null);
     clearEditorSeed();
   }, [open, editorSeed, clearEditorSeed]);
 
@@ -304,6 +310,7 @@ export function ShowEditorModal() {
     setEditPath(null);
     setGeladen(null);
     setIveoNeuGebunden(false);
+    setAblehnung(null);
   };
 
   const cancel = (): void => {
@@ -344,17 +351,26 @@ export function ShowEditorModal() {
     );
   };
 
-  const onSave = async (): Promise<void> => {
+  /**
+   * Speichern. `trotzdem` = „Trotzdem speichern“ nach einer Ablehnung: die Datei wird trotzdem noch einmal gelesen —
+   * ist sie jetzt lesbar, gilt Regel 1 mit ihr; sonst schreibt das Speichern Ablauf und Bindung vom Öffnen des Editors.
+   */
+  const onSave = async (trotzdem = false): Promise<void> => {
     setBusy(true);
+    // Dieser Versuch entscheidet neu: eine frühere Ablehnung samt Angebot gilt nicht mehr.
+    setAblehnung(null);
     try {
       const f = formular();
       // Bearbeiten: die Datei so lesen, wie sie JETZT ist — eine iveo-Abfrage kann sie
       // seit dem Laden neu geschrieben haben (Spec 7.5, Regel 1).
       const aktuelleDatei = editPath ? await window.jmps.readShow(editPath) : null;
-      // Braucht Regel 1 die aktuelle Datei und ist sie nicht lesbar, nicht still den Stand vom Öffnen schreiben.
-      const abgelehnt = speichernAbgelehnt(editPath ? geladen : null, f, aktuelleDatei);
+      // Braucht Regel 1 die aktuelle Datei und ist sie nicht lesbar, nicht still den Stand vom Öffnen schreiben —
+      // nur, wenn der Bediener es nach der Ablehnung ausdrücklich wählt („Trotzdem speichern“).
+      const abgelehnt = speichernAbgelehnt(editPath ? geladen : null, f, aktuelleDatei, trotzdem);
       if (abgelehnt) {
-        setNotice(abgelehnt);
+        // Nur inline bei den Knöpfen, mit dem Angebot — für genau diesen Formularstand. Keine zusätzliche Meldung
+        // unten: sie läge über dem Editor und verdeckte die Inline-Meldung samt Angebot 4 s lang (gemessen).
+        setAblehnung({ text: abgelehnt, schluessel: formularSchluessel(editPath, f) });
         return;
       }
       const show = baueGespeicherteShow(editPath ? geladen : null, f, aktuelleDatei, () => crypto.randomUUID());
@@ -368,10 +384,23 @@ export function ShowEditorModal() {
     }
   };
 
+  // Ablehnung inline zeigen (mit „Trotzdem speichern“) nur, solange nicht gespeichert wird und das Formular noch
+  // genau den abgelehnten Stand zeigt — kein Angebot für einen veralteten Formularstand.
+  const angebot =
+    ablehnung && !busy && ablehnung.schluessel === formularSchluessel(editPath, formular()) ? ablehnung : null;
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6">
       <Card className="w-full max-w-lg p-6 jm-fade-in">
-        <div className="-mr-2 max-h-[68vh] overflow-y-auto pr-2">
+        {/* Höchstens fensterhoch, wie #233 (SystemStatusModal): EIGENER flex-col-Container, denn Card packt die Kinder
+            in ein eigenes <div className="relative">. Höhe: Fenster minus Außenabstand (p-6) minus Innenabstand der
+            Card (p-6). Das Overlay scrollt nicht — vorher stand die Inline-Meldung (~150 px) unter dem fest 68vh hohen
+            Scrollbereich, die Karte wurde höher als das Fenster und „Aktualisieren“/„Abbrechen“ lagen außerhalb
+            (GEMESSEN 02.10.2026, Electron mit Build-CSS: bei 821 px Innenhöhe nur 16 von 38 px sichtbar, bei
+            601–790 px ganz draußen). Jetzt schrumpft nur der Scrollbereich (min-h-0); Meldung und Fußzeile nicht
+            (shrink-0). Ohne Meldung bleibt der Scrollbereich wie bisher bei höchstens 68vh. */}
+        <div className="flex max-h-[calc(100vh-6rem)] flex-col">
+        <div className="-mr-2 max-h-[68vh] min-h-0 overflow-y-auto pr-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-lg font-extrabold tracking-tight">
@@ -749,6 +778,20 @@ export function ShowEditorModal() {
 
         </div>
 
+        {angebot && (
+          <div
+            role="alert"
+            className="mt-4 shrink-0 rounded-[var(--radius)] border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 px-3 py-2"
+          >
+            <p className="text-[11px] text-[var(--destructive)] break-words">{angebot.text}</p>
+            <div className="mt-2 flex justify-end">
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void onSave(true)}>
+                {KNOPF_TROTZDEM_SPEICHERN}
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
           <span className="text-xs text-[var(--muted-foreground)]">
             {selectedCount} Tool(s) gewählt
@@ -758,9 +801,10 @@ export function ShowEditorModal() {
               Abbrechen
             </Button>
             <Button variant="primary" disabled={!canSave} onClick={() => void onSave()}>
-              {busy ? 'Speichere…' : editPath ? 'Aktualisieren' : 'Speichern'}
+              {busy ? 'Speichere…' : editPath ? KNOPF_AKTUALISIEREN : 'Speichern'}
             </Button>
           </div>
+        </div>
         </div>
       </Card>
     </div>
