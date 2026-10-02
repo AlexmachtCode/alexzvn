@@ -46,7 +46,6 @@ export function ShowEditorModal() {
   const tools = useTools((s) => s.tools);
   const close = useTools((s) => s.closeShowEditor);
   const saveShow = useTools((s) => s.saveShow);
-  const setNotice = useTools((s) => s.setNotice);
   const editorSeed = useTools((s) => s.editorSeed);
   const clearEditorSeed = useTools((s) => s.clearEditorSeed);
 
@@ -369,8 +368,8 @@ export function ShowEditorModal() {
       // nur, wenn der Bediener es nach der Ablehnung ausdrücklich wählt („Trotzdem speichern“).
       const abgelehnt = speichernAbgelehnt(editPath ? geladen : null, f, aktuelleDatei, trotzdem);
       if (abgelehnt) {
-        setNotice(abgelehnt);
-        // Zusätzlich inline bei den Knöpfen, mit dem Angebot — für genau diesen Formularstand.
+        // Nur inline bei den Knöpfen, mit dem Angebot — für genau diesen Formularstand. Keine zusätzliche Meldung
+        // unten: sie läge über dem Editor und verdeckte die Inline-Meldung samt Angebot 4 s lang (gemessen).
         setAblehnung({ text: abgelehnt, schluessel: formularSchluessel(editPath, f) });
         return;
       }

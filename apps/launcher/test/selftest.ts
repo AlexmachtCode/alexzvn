@@ -570,6 +570,11 @@ await (async () => {
   ck('M2: resetForm (Abbrechen, Bestehende öffnen, nach dem Speichern) räumt die Ablehnung weg', resetForm.includes('setAblehnung(null)'));
   ck('M2: ein neuer Speicherversuch räumt die alte Ablehnung zuerst weg',
     /const onSave = async \(trotzdem = false\): Promise<void> => \{\s*setBusy\(true\);[^]*?setAblehnung\(null\);\s*try \{/.test(editor));
+  // Schlussprüfung (GEMESSEN 02.10.2026, Electron + Build-CSS): Derselbe Text stand zusätzlich als Meldung unten und
+  // überdeckte die Inline-Meldung samt „Trotzdem speichern“ 4 s lang. Die Ablehnung steht nur inline über den Knöpfen.
+  const ablehnZweig = /if \(abgelehnt\) \{([\s\S]*?)\n {6}\}/.exec(editor)?.[1] ?? '';
+  ck('M1b: die Ablehnung steht nur inline, keine zusätzliche Meldung, die sie überdeckt',
+    ablehnZweig.includes('setAblehnung({') && !ablehnZweig.includes('setNotice('));
   // Nachbesserung (Prüfer, GEMESSEN 02.10.2026 in Electron mit dem Build-CSS): Die innere Box der Meldung war weiter
   // pointer-events-auto. Seit sie über den Dialogen liegt, fing sie 4 s lang Klicks auf „Trotzdem speichern“,
   // „Aktualisieren“ und „Abbrechen“ ab (elementFromPoint = Toast). Sie enthält nur Text — keine Ebene fängt Klicks.
