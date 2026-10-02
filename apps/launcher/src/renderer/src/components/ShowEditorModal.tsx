@@ -1,39 +1,25 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
-import {
-  createShow,
-  type Show,
-  type ShowAblaufItem,
-  type ShowIveoProgramRef,
-  type ShowIveoSpeaker,
-  type ShowToolRef,
-} from '@jm/show';
+import type { Show } from '@jm/show';
 import type { IveoEventStub, IveoProgramRef, IveoProgramTaxonomy } from '@shared/types';
 import { useTools } from '@/store/tools';
+import {
+  baueGespeicherteShow,
+  bindungAusEditor,
+  formularAusShow,
+  speichernAbgelehnt,
+  zeilenAusAblauf,
+  zeilenAusSeed,
+  type AblaufZeile,
+  type EditorBindung,
+  type FormularStand,
+} from '@/lib/show-speichern';
 
 interface Entry {
   included: boolean;
   document: string;
   /** Optionaler Host, auf dem das Tool läuft (→ network.host). Leer = dieser PC. */
   host: string;
-}
-
-/** Eine Zeile des zentralen Show-Ablaufs (#78) im Editor. */
-interface AblaufRow {
-  label: string;
-  /** Dauer in Minuten als Eingabe-String (z. B. "5" oder "2.5"). Leer = ohne Dauer. */
-  minutes: string;
-  /** Freie Notiz (optional). */
-  note: string;
-  /**
-   * Reine Durchreich-Felder aus einer iveo-Bindung (#11/Sub-B/Sub-C) — im Editor
-   * NICHT editierbar (keine UI dafür), aber müssen den Editor unverändert
-   * durchlaufen, sonst gehen Soll-Zeit/Verantwortlich/Kategorie beim Speichern
-   * verloren (F1: der Editor ist der einzige Schreiber nach einem Bind).
-   */
-  plannedStartMs?: number;
-  owner?: string;
-  category?: string;
 }
 
 const EMPTY_ENTRY: Entry = { included: false, document: '', host: '' };
@@ -57,12 +43,13 @@ export function ShowEditorModal() {
   const tools = useTools((s) => s.tools);
   const close = useTools((s) => s.closeShowEditor);
   const saveShow = useTools((s) => s.saveShow);
+  const setNotice = useTools((s) => s.setNotice);
   const editorSeed = useTools((s) => s.editorSeed);
   const clearEditorSeed = useTools((s) => s.clearEditorSeed);
 
   const [name, setName] = useState('');
   const [entries, setEntries] = useState<Record<string, Entry>>({});
-  const [ablauf, setAblauf] = useState<AblaufRow[]>([]);
+  const [ablauf, setAblauf] = useState<AblaufZeile[]>([]);
   const [battleA, setBattleA] = useState('');
   const [battleB, setBattleB] = useState('');
   const [battleRounds, setBattleRounds] = useState('');
@@ -70,6 +57,11 @@ export function ShowEditorModal() {
   const [busy, setBusy] = useState(false);
   // Bearbeiten (statt neu): Pfad der geladenen Show — Speichern schreibt dorthin zurück.
   const [editPath, setEditPath] = useState<string | null>(null);
+  // Bearbeiten: die geladene Show unverändert — Speichern geht von ihr aus und
+  // überschreibt nur, was das Formular zeigt (Spec 7.5, baueGespeicherteShow).
+  const [geladen, setGeladen] = useState<Show | null>(null);
+  // In diesem Editor neu an iveo gebunden („Ablauf übernehmen“) → die Bindung wird geschrieben.
+  const [iveoNeuGebunden, setIveoNeuGebunden] = useState(false);
 
   // iveo-Event-Bindung (#11). Token bleibt nur transient hier im Feld; der Main-
   // Prozess legt ihn beim Binden verschlüsselt ab und gibt ihn NIE zurück.
@@ -77,14 +69,7 @@ export function ShowEditorModal() {
   const [iveoBaseUrl, setIveoBaseUrl] = useState('');
   const [iveoEvents, setIveoEvents] = useState<IveoEventStub[] | null>(null);
   const [iveoSelected, setIveoSelected] = useState('');
-  const [iveoBinding, setIveoBinding] = useState<{
-    event: string;
-    name: string;
-    baseUrl?: string;
-    speakers?: ShowIveoSpeaker[];
-    sideEvents?: ShowIveoProgramRef[];
-    filter?: { typeSlug?: string; formatSlug?: string; day?: string; excludeBlockers?: boolean; programId?: string };
-  } | null>(null);
+  const [iveoBinding, setIveoBinding] = useState<EditorBindung | null>(null);
   const [iveoBusy, setIveoBusy] = useState(false);
   const [iveoMsg, setIveoMsg] = useState<string | null>(null);
   // Ablauf-Filter (#11): nach Tag (mehrtägige iveo-Pläne → ein Tag), Typ/Format
@@ -113,16 +98,13 @@ export function ShowEditorModal() {
         editorSeed.toolIds.map((id) => [id, { included: true, document: '', host: '' }]),
       ),
     );
-    setAblauf(
-      (editorSeed.ablauf ?? []).map((a) => ({
-        label: a.label,
-        minutes: a.minutes != null ? String(a.minutes) : '',
-        note: a.note ?? '',
-      })),
-    );
+    // Szenario-Zeilen bekommen beim Übernehmen je eine feste Kennung (Spec 3.2).
+    setAblauf(zeilenAusSeed(editorSeed.ablauf, () => crypto.randomUUID()));
     setQaSpeak(editorSeed.qaSpeakSeconds != null ? String(editorSeed.qaSpeakSeconds) : '');
     setBattleRounds(editorSeed.battleRounds != null ? String(editorSeed.battleRounds) : '');
     setEditPath(null);
+    setGeladen(null);
+    setIveoNeuGebunden(false);
     clearEditorSeed();
   }, [open, editorSeed, clearEditorSeed]);
 
@@ -159,9 +141,10 @@ export function ShowEditorModal() {
     if (path) setEntry(id, { included: true, document: path });
   };
 
+  // Eine neue Zeile bekommt sofort ihre feste Kennung, die mitgespeichert wird (Spec 3.2).
   const addAblaufRow = (): void =>
-    setAblauf((rows) => [...rows, { label: '', minutes: '', note: '' }]);
-  const setAblaufRow = (i: number, patch: Partial<AblaufRow>): void =>
+    setAblauf((rows) => [...rows, { id: crypto.randomUUID(), label: '', minutes: '', note: '' }]);
+  const setAblaufRow = (i: number, patch: Partial<AblaufZeile>): void =>
     setAblauf((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const removeAblaufRow = (i: number): void =>
     setAblauf((rows) => rows.filter((_, idx) => idx !== i));
@@ -230,17 +213,10 @@ export function ShowEditorModal() {
       }
       // Der Bind hat den Token basis-weit gemerkt (Main) → Feld darf künftig leer bleiben.
       setIveoBaseTokenSaved(true);
-      const rows: AblaufRow[] = (res.ablauf ?? []).map((a) => ({
-        label: a.label,
-        minutes: a.durationMs ? String(Math.round(a.durationMs / 60000)) : '',
-        note: a.note ?? '',
-        // Durchreich-Felder aus iveo (F1) — im Editor nicht sichtbar/editierbar,
-        // müssen aber bis buildAblauf() erhalten bleiben (0 ist gültig = 00:00 Uhr).
-        ...(typeof a.plannedStartMs === 'number' ? { plannedStartMs: a.plannedStartMs } : {}),
-        ...(a.owner ? { owner: a.owner } : {}),
-        ...(a.category ? { category: a.category } : {}),
-      }));
+      // Kennungen, Durchreich-Felder (F1) und die sekundengenaue Dauer laufen mit (Spec 3.3, 7.5).
+      const rows = zeilenAusAblauf(res.ablauf);
       setAblauf(rows);
+      setIveoNeuGebunden(true);
       if (res.programTypes) setIveoProgramTypes(res.programTypes);
       if (res.programList) setIveoProgramList(res.programList);
       const bound = { event: res.event?.slug ?? event, name: res.event?.name ?? event };
@@ -282,46 +258,25 @@ export function ShowEditorModal() {
     }
   };
 
-  /** Editor-Zeilen → zentrale Show-Ablauf-Items (Titel Pflicht, Dauer/Notiz optional). */
-  const buildAblauf = (): ShowAblaufItem[] =>
-    ablauf
-      .filter((r) => r.label.trim())
-      .map((r) => {
-        const min = parseFloat(r.minutes);
-        const durationMs = Number.isFinite(min) && min > 0 ? Math.round(min * 60000) : undefined;
-        const note = r.note.trim();
-        return {
-          label: r.label.trim(),
-          ...(durationMs ? { durationMs } : {}),
-          ...(note ? { note } : {}),
-          // Durchreich-Felder aus iveo (F1): nicht editierbar, aber müssen erhalten
-          // bleiben — 0 ist ein gültiger plannedStartMs-Wert (00:00 Uhr).
-          ...(typeof r.plannedStartMs === 'number' ? { plannedStartMs: r.plannedStartMs } : {}),
-          ...(r.owner ? { owner: r.owner } : {}),
-          ...(r.category ? { category: r.category } : {}),
-        };
-      });
-
-  const buildRef = (id: string): ShowToolRef => {
-    const e = entries[id];
-    const ref: ShowToolRef = { appId: id };
-    const doc = e?.document.trim();
-    if (doc) ref.document = doc;
-    const host = e?.host.trim();
-    if (host) ref.network = { host };
-    if (id === 'jm-battle') {
-      const s: Record<string, unknown> = {};
-      if (battleA.trim()) s.nameA = battleA.trim();
-      if (battleB.trim()) s.nameB = battleB.trim();
-      const r = parseInt(battleRounds, 10);
-      if (Number.isFinite(r) && r > 0) s.rounds = r;
-      if (Object.keys(s).length) ref.settings = s;
-    }
-    if (id === 'jm-qa') {
-      const sec = parseInt(qaSpeak, 10);
-      if (Number.isFinite(sec) && sec > 0) ref.settings = { speakSeconds: sec };
-    }
-    return ref;
+  /**
+   * Formularstand für baueGespeicherteShow: gewählte Tools in Katalog-Reihenfolge,
+   * dahinter gewählte Tools, die der Katalog nicht kennt (aus der geladenen Show) —
+   * sie bleiben so erhalten, statt beim Speichern still wegzufallen.
+   */
+  const formular = (): FormularStand => {
+    const katalog = new Set(sorted.map((t) => t.id));
+    const ids = [
+      ...sorted.filter((t) => entries[t.id]?.included).map((t) => t.id),
+      ...Object.keys(entries).filter((id) => entries[id]?.included && !katalog.has(id)),
+    ];
+    return {
+      name,
+      tools: ids.map((id) => ({ appId: id, document: entries[id]?.document ?? '', host: entries[id]?.host ?? '' })),
+      ablauf,
+      battle: { nameA: battleA, nameB: battleB, rounds: battleRounds },
+      qaSpeak,
+      iveoNeuGebunden: iveoNeuGebunden && iveoBinding ? bindungAusEditor(iveoBinding) : null,
+    };
   };
 
   /** Alle Formularfelder leeren (nach Speichern / Abbrechen / „Neu"). */
@@ -347,6 +302,8 @@ export function ShowEditorModal() {
     setIveoProgramId('');
     setIveoProgramList([]);
     setEditPath(null);
+    setGeladen(null);
+    setIveoNeuGebunden(false);
   };
 
   const cancel = (): void => {
@@ -361,31 +318,18 @@ export function ShowEditorModal() {
     const { path, show } = r;
     resetForm();
     setEditPath(path);
-    setName(show.name === 'Unbenannte Show' ? '' : show.name);
-    const next: Record<string, Entry> = {};
-    for (const ref of show.tools) {
-      next[ref.appId] = { included: true, document: ref.document ?? '', host: ref.network?.host ?? '' };
-    }
-    setEntries(next);
-    setAblauf(
-      (show.ablauf ?? []).map((a) => ({
-        label: a.label,
-        minutes: a.durationMs ? String(Math.round(a.durationMs / 60000)) : '',
-        note: a.note ?? '',
-        // Durchreich-Felder aus iveo (F1) — s. Kommentar in bindIveo().
-        ...(typeof a.plannedStartMs === 'number' ? { plannedStartMs: a.plannedStartMs } : {}),
-        ...(a.owner ? { owner: a.owner } : {}),
-        ...(a.category ? { category: a.category } : {}),
-      })),
+    // Unverändert festhalten: Speichern überschreibt nur, was das Formular zeigt (Spec 7.5).
+    setGeladen(show);
+    const f = formularAusShow(show);
+    setName(f.name);
+    setEntries(
+      Object.fromEntries(f.tools.map((t) => [t.appId, { included: true, document: t.document, host: t.host }])),
     );
-    const battle = show.tools.find((t) => t.appId === 'jm-battle')?.settings as
-      | Record<string, unknown>
-      | undefined;
-    setBattleA(typeof battle?.nameA === 'string' ? battle.nameA : '');
-    setBattleB(typeof battle?.nameB === 'string' ? battle.nameB : '');
-    setBattleRounds(typeof battle?.rounds === 'number' ? String(battle.rounds) : '');
-    const qa = show.tools.find((t) => t.appId === 'jm-qa')?.settings as Record<string, unknown> | undefined;
-    setQaSpeak(typeof qa?.speakSeconds === 'number' ? String(qa.speakSeconds) : '');
+    setAblauf(f.ablauf);
+    setBattleA(f.battle.nameA);
+    setBattleB(f.battle.nameB);
+    setBattleRounds(f.battle.rounds);
+    setQaSpeak(f.qaSpeak);
     setIveoBinding(
       show.iveo
         ? {
@@ -401,35 +345,20 @@ export function ShowEditorModal() {
   };
 
   const onSave = async (): Promise<void> => {
-    const ablaufItems = buildAblauf();
-    const show: Show = {
-      ...createShow(name.trim() || 'Unbenannte Show'),
-      tools: sorted.filter((t) => entries[t.id]?.included).map((t) => buildRef(t.id)),
-      ...(ablaufItems.length ? { ablauf: ablaufItems } : {}),
-      // Token-freie iveo-Bindung (nur Slug/Name/Base-URL) — für das Live-Polling.
-      ...(iveoBinding
-        ? {
-            iveo: {
-              event: iveoBinding.event,
-              name: iveoBinding.name,
-              ...(iveoBinding.baseUrl ? { baseUrl: iveoBinding.baseUrl } : {}),
-              ...(iveoBinding.speakers?.length ? { speakers: iveoBinding.speakers } : {}),
-              ...(iveoBinding.sideEvents?.length ? { sideEvents: iveoBinding.sideEvents } : {}),
-              ...(iveoBinding.filter &&
-              (iveoBinding.filter.typeSlug ||
-                iveoBinding.filter.formatSlug ||
-                iveoBinding.filter.day ||
-                iveoBinding.filter.excludeBlockers ||
-                iveoBinding.filter.programId)
-                ? { filter: iveoBinding.filter }
-                : {}),
-            },
-          }
-        : {}),
-    };
     setBusy(true);
     try {
-      const ok = await saveShow(show, editPath ?? undefined);
+      const f = formular();
+      // Bearbeiten: die Datei so lesen, wie sie JETZT ist — eine iveo-Abfrage kann sie
+      // seit dem Laden neu geschrieben haben (Spec 7.5, Regel 1).
+      const aktuelleDatei = editPath ? await window.jmps.readShow(editPath) : null;
+      // Braucht Regel 1 die aktuelle Datei und ist sie nicht lesbar, nicht still den Stand vom Öffnen schreiben.
+      const abgelehnt = speichernAbgelehnt(editPath ? geladen : null, f, aktuelleDatei);
+      if (abgelehnt) {
+        setNotice(abgelehnt);
+        return;
+      }
+      const show = baueGespeicherteShow(editPath ? geladen : null, f, aktuelleDatei, () => crypto.randomUUID());
+      const ok = await saveShow(show, editPath ?? undefined, f.iveoNeuGebunden !== null);
       if (ok) {
         resetForm();
         close();

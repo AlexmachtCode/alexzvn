@@ -13,10 +13,11 @@ import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { advertise, type Advertiser } from '@jm/discovery';
 import { readControlConfig, mdnsSignKey } from '@jm/control-config';
-import { parseShow, parseShowDeepLink, type ShowAblaufItem } from '@jm/show';
-import type { TimetableItem } from '@shared/timer-state';
+import { hatEigeneTimerListe, parseShow, parseShowDeepLink } from '@jm/show';
+import { aktiverPunktVerschwunden } from '@shared/timer-state';
+import { ablaufToTimetable, parseTimetable } from '@shared/show-ablauf';
 import { RENDERER_CSP } from '@shared/net';
-import { loadState, dispatch } from './state';
+import { loadState, dispatch, getState } from './state';
 import {
   startServer,
   SERVER_HOST,
@@ -293,34 +294,8 @@ function registerIpc(): void {
   ipcMain.handle('auth:regenerate', () => regenerateToken());
 }
 
-/** Liest einen Ablaufplan aus den (untrusted) Show-Settings — defensiv. */
-function parseTimetable(raw: unknown): Array<Omit<TimetableItem, 'id'>> | null {
-  if (!Array.isArray(raw)) return null;
-  const items = raw
-    .filter((it): it is Record<string, unknown> => Boolean(it) && typeof it === 'object')
-    .map((it) => ({
-      label: typeof it.label === 'string' ? it.label : '',
-      durationMs:
-        typeof it.durationMs === 'number' && it.durationMs >= 0 ? it.durationMs : 0,
-      ...(typeof it.note === 'string' ? { note: it.note } : {}),
-    }));
-  return items.length ? items : null;
-}
-
-/** Zentralen Show-Ablauf (#78) in Timetable-Items überführen (gleiche Form). */
-function ablaufToTimetable(
-  ablauf: ShowAblaufItem[] | undefined,
-): Array<Omit<TimetableItem, 'id'>> | null {
-  if (!ablauf || !ablauf.length) return null;
-  return ablauf.map((a) => ({
-    label: a.label,
-    durationMs: typeof a.durationMs === 'number' && a.durationMs > 0 ? a.durationMs : 0,
-    ...(a.note ? { note: a.note } : {}),
-    ...(typeof a.plannedStartMs === 'number' ? { plannedStartMs: a.plannedStartMs } : {}),
-    ...(a.owner ? { owner: a.owner } : {}),
-    ...(a.category ? { category: a.category } : {}),
-  }));
-}
+// parseTimetable/ablaufToTimetable liegen seit Teil 2a in @shared/show-ablauf (ohne Electron,
+// testbar im Selbsttest); ablaufToTimetable gibt dort die Kennung der Ablaufpunkte mit.
 
 /**
  * Show-Integration (B4): Wird der Timer über einen Show-Deep-Link gestartet,
@@ -348,9 +323,19 @@ function applyShowFromPath(showPath: string, mode: 'initial' | 'reload'): void {
   try {
     const show = parseShow(readFileSync(showPath, 'utf8'));
     const settings = show.tools.find((t) => t.appId === 'jm-timer')?.settings;
-    const items = parseTimetable(settings?.timetable) ?? ablaufToTimetable(show.ablauf);
+    // Eigene Timer-Liste hat Vorrang vor dem Show-Ablauf. Die Prüfung kommt aus @jm/show,
+    // damit Timer und Rundown dieselbe Liste meinen (Teil 2a, Spec 6.1/6.2).
+    const items = hatEigeneTimerListe(settings)
+      ? parseTimetable(settings?.timetable)
+      : ablaufToTimetable(show.ablauf);
     if (items) {
-      dispatch({ type: mode === 'reload' ? 'tt:replaceItems' : 'tt:setAll', items });
+      const vorher = getState().timetable;
+      const nachher = dispatch({ type: mode === 'reload' ? 'tt:replaceItems' : 'tt:setAll', items }).timetable;
+      // Der aktive Punkt folgt seiner Kennung; fehlt sie im neuen Ablauf, hält der Timer
+      // die Nummer — das soll im Log stehen, statt still zu passieren.
+      if (mode === 'reload' && aktiverPunktVerschwunden(vorher, nachher, items)) {
+        getLog().info('Aktiver Punkt im neuen Ablauf nicht mehr vorhanden, Nummer gehalten');
+      }
     }
     // Countdown-Vorgabe nur beim Erst-Öffnen anwenden (nicht bei Live-Reload).
     if (

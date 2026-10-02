@@ -7,6 +7,7 @@ import type {
   FeedbackInput,
   HealthEntry,
   InstallProgress,
+  IveoAbgleichStatus,
   IveoMaterialRef,
   IveoSideEventsResult,
   LauncherUpdate,
@@ -70,6 +71,8 @@ interface ToolsStore {
   /** iveo-Live-Umschalter (#11): Zustand der offenen iveo-Show (null = keine). */
   iveoActive: { event: string; day?: string; activeProgramId?: string; canSwitch: boolean } | null;
   sideEvents: IveoSideEventsResult | null;
+  /** iveo-Abgleich (Spec 7.6): letzter Zustand; ok=false zeigt das Panel als Störung. */
+  iveoSync: IveoAbgleichStatus | null;
   sideEventsOpen: boolean;
   /** Materialien je Side Event (programId → Liste), lazy geladen. */
   materials: Record<string, IveoMaterialRef[]>;
@@ -97,7 +100,7 @@ interface ToolsStore {
   openShow: () => Promise<void>;
   openShowEditor: () => void;
   closeShowEditor: () => void;
-  saveShow: (show: Show, targetPath?: string) => Promise<boolean>;
+  saveShow: (show: Show, targetPath?: string, neuGebunden?: boolean) => Promise<boolean>;
   openSystem: () => void;
   closeSystem: () => void;
   checkUpdates: () => Promise<void>;
@@ -203,6 +206,7 @@ export const useTools = create<ToolsStore>((set) => {
     editorSeed: null,
     iveoActive: null,
     sideEvents: null,
+    iveoSync: null,
     sideEventsOpen: false,
     materials: {},
     materialsError: {},
@@ -265,6 +269,9 @@ export const useTools = create<ToolsStore>((set) => {
                 : null,
             });
             if (useTools.getState().sideEventsOpen) await useTools.getState().loadSideEvents();
+          } else if (e.type === 'iveo-sync-status') {
+            // iveo-Abgleich gestört bzw. wieder in Ordnung (Spec 7.6) → Statuszeile im Panel.
+            set({ iveoSync: { ok: e.ok, text: e.text, seit: e.seit } });
           }
         });
         // Nach Rückkehr zum Launcher (z. B. wenn der NSIS-Installer durch ist
@@ -367,8 +374,8 @@ export const useTools = create<ToolsStore>((set) => {
     openShowEditorWith: (seed) => set({ editorSeed: seed, showEditorOpen: true, scenariosOpen: false }),
     clearEditorSeed: () => set({ editorSeed: null }),
     dismissShowLaunch: () => set({ showLaunch: null }),
-    saveShow: async (show, targetPath) => {
-      const res = await window.jmps.saveShow(show, targetPath);
+    saveShow: async (show, targetPath, neuGebunden) => {
+      const res = await window.jmps.saveShow(show, targetPath, neuGebunden);
       if (res.message) set({ notice: res.message });
       return res.ok;
     },
@@ -402,7 +409,10 @@ export const useTools = create<ToolsStore>((set) => {
     closeSideEvents: () => set({ sideEventsOpen: false }),
     loadSideEvents: async (day) => {
       try {
-        set({ sideEvents: await window.jmps.listIveoSideEvents(day ? { day } : undefined) });
+        const res = await window.jmps.listIveoSideEvents(day ? { day } : undefined);
+        // Der Main liefert den Abgleich-Zustand mit: kam das Ereignis, bevor dieses
+        // Fenster zuhörte, zeigt das Panel die Störung trotzdem (Spec 7.6).
+        set(res.syncStatus ? { sideEvents: res, iveoSync: res.syncStatus } : { sideEvents: res });
       } catch {
         // Kein Cache / kein Main-Zugriff → bestehenden Stand behalten
       }

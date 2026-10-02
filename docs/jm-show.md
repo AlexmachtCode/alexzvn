@@ -37,6 +37,7 @@ beteiligten Tools auf und sagt pro Tool, **was** es laden soll:
 | `tools[].document` | Pfad zum Dokument des Tools (z. B. Foliensatz, Skript) |
 | `tools[].network` | `host`/`port` einer Quelle — für Stage Display im LAN |
 | `tools[].settings` | Tool-eigene Einstellungen (z. B. Timer-Ablaufplan, Presenter-PIN) |
+| `ablauf[]` | Zentraler Ablauf: Programmpunkte mit Titel, Dauer, Notiz und fester Kennung (`id`) — lesen Rundown und Timer (Abschnitt 8) |
 
 Die gültigen Tool-IDs (`appId`) sind dieselben wie die App-IDs der Suite:
 `jm-timer`, `jm-presenter`, `jm-prompter`, `jm-stage-display`, `jm-switcher`, …
@@ -77,6 +78,7 @@ Was die einzelnen Tools beim Öffnen tun:
 | **Presenter** | den referenzierten **Foliensatz** (`document`) und öffnet ihn im Editor. |
 | **Prompter** | das referenzierte **Skript** (`document`, `.docx`/`.txt`/`.md`) und springt an den Anfang. |
 | **Stage Display** | **verbindet sich** mit allen Quellen, die in derselben Show stehen (Timer/Switcher/Presenter) — Host/Port aus deren `network`-Angabe, sonst Standard/localhost. Die Presenter-PIN kommt aus `settings.pin`. |
+| **Rundown** | den **zentralen Ablauf** (`ablauf`) als Zeilen, bzw. sein referenziertes `.jmrundown` (relativ zur Show). Ändert sich der Ablauf, gleicht er ab, statt neu aufzubauen (Abschnitt 8). |
 
 > Für Power-User: Der Launcher startet die Tools über den Deep-Link
 > `jmps://open?show=<pfad>`. Den kann man auch direkt aufrufen (z. B. aus einem
@@ -163,3 +165,67 @@ PIN `1234`). `durationMs` ist in **Millisekunden** (5 min = 300000).
   durch die Firewall blockiert sein. Siehe [suite-discovery.md](suite-discovery.md).
 - **Ältere Show-Dateien:** Das Format wird beim Öffnen automatisch auf das
   aktuelle Schema migriert — ältere `.jmshow` öffnen also weiterhin.
+
+---
+
+## 8. Rundown folgt dem Ablauf (iveo)
+
+Seit Rundown 0.6.0, Timer 0.13.0 und Launcher 0.13.0 trägt jeder Punkt des
+zentralen Ablaufs eine **feste Kennung** (`ablauf[].id`): die iveo-ID, bei Punkten
+aus dem Show-Editor eine beim Anlegen erzeugte. Darüber halten Timer und Rundown
+ihren Punkt, auch wenn sich die Reihenfolge ändert.
+
+**Was beim Abgleich passiert.** Ändert sich der Ablauf — eine iveo-Änderung, die
+der Launcher abfragt, oder Speichern im Show-Editor —, bekommen Timer, Titler und
+Rundown ein Neu-Laden. Der Rundown gleicht dann ab, statt neu aufzubauen:
+
+- Die Zeilen aus dem Ablauf stehen in dessen Reihenfolge. Titel, Notiz und Dauer
+  kommen aus der Show, die Aktionen bleiben an ihrer Zeile.
+- Neue Punkte erscheinen an ihrer Stelle, ohne Aktionen.
+- Eigene Zeilen wandern mit dem Ablaufpunkt über ihnen.
+- Ein weggefallener Punkt ohne Aktionen verschwindet. Hat er Aktionen, bleibt er
+  als „in iveo entfallen“ bzw. „in der Show entfallen“ stehen, feuert nie und wird
+  beim Weiterschalten übersprungen. „Als eigene Zeile behalten“ macht ihn zu einer
+  normalen eigenen Zeile.
+- Die scharfe Zeile bleibt scharf, auch an neuer Stelle. Entfällt sie, wird die
+  nächste Zeile scharf, und ein Hinweis bleibt stehen.
+- Ein kurzer Hinweis fasst den Abgleich zusammen, z. B.
+  „iveo: 2 geändert · 1 neu · neu sortiert“.
+
+**Was im Rundown gesperrt ist.** Titel, Notiz und Dauer einer Ablaufzeile ändert
+man in iveo bzw. im Show-Editor; der Rundown zeigt dazu „kommt aus iveo“ bzw.
+„kommt aus der Show, im Show-Editor ändern“. Aktionen sind frei. Duplizieren
+ergibt immer eine eigene Zeile.
+
+**Side Events.** Schaltet der Launcher auf ein anderes Side Event oder eine
+andere Tagesübersicht, merkt sich der Rundown Zeilen und Aktionen je Side Event
+bzw. Tagesübersicht. Beim Zurückschalten ist alles wieder da.
+
+**Timer-Sprünge.** Eine Aktion „Timer springe zu“ zielt auf den Ablaufpunkt,
+nicht auf eine Nummer. Umgerechnet wird beim Senden, also auch nach einem
+Umsortieren richtig. Ist das Ziel entfallen, wird nichts gesendet. Ältere
+Sprünge mit fester Nummer bleiben, bis man sie mit „an diesen Punkt binden“
+bindet.
+
+**Neustart.** Der Rundown merkt sich die zuletzt geöffnete Show samt Stand und
+scharfer Zeile. Ein Start über die Launcher-Kachel kehrt zu ihr zurück, ohne den
+Timer zurückzusetzen. „Show öffnen“ setzt den Timer dagegen wie bisher zurück.
+
+**Eigene `.jmrundown` in der Show.** Auch sie wird mit dem Ablauf abgeglichen.
+In die Datei geschrieben wird nur bei „Speichern“.
+
+**Show-Editor.** Speichern ändert nur, was im Formular steht: Tool-Einstellungen,
+Port und der Zeitpunkt des letzten iveo-Abgleichs bleiben, Dauern sekundengenau.
+Speichert man die gerade offene Show, laden Timer, Titler und Rundown sofort neu.
+
+**Wenn der Abgleich hakt.** Scheitert eine iveo-Abfrage, bleibt der Ablauf, wie
+er ist. Das Side-Events-Panel im Launcher zeigt dann „iveo-Abgleich gestört:
+<Grund> (seit <Uhrzeit>)“, etwa „Token ungültig oder widerrufen“ oder „kein
+iveo-Token auf diesem Rechner, nur Offline-Ablauf“.
+
+**Grenzen.** Das gilt am Einzelplatz: Tools auf einem anderen Rechner lesen
+weiter ihre eigene Show-Datei (folgt mit Master-Link Teil 2b). Sprünge aus
+Companion (`RUNDOWN GOTO n`, `TIMER GOTO n`) und `TITLER RECALL <nr>` bleiben
+nummernbasiert. Wird eine Show-Datei umbenannt oder verschoben, beginnt der
+Rundown für sie neu. Ein älterer Rundown (bis 0.5), der eine neue `.jmrundown`
+speichert, verliert deren Archiv und Markierungen.

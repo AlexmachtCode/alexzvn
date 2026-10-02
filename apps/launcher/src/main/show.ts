@@ -1,13 +1,13 @@
 import { dialog } from 'electron';
 import { readFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
-import { parseShow, serializeShow, showOpenUrl, SHOW_FILE_EXT, type Show } from '@jm/show';
+import { parseShow, showOpenUrl, SHOW_FILE_EXT, type Show } from '@jm/show';
 import { getLog } from '@jm/app-runtime';
 import type { ActionResult, AppEvent } from '@shared/types';
 import { getTool } from './manifest';
 import { openTool } from './launch';
 import { startShowTools } from './show-launch';
-import { onShowOpened } from './iveo-sync';
+import { onShowOpened, speichereShowDatei } from './iveo-sync';
+import { leseShowFuerEditor } from './show-lesen';
 import { pushRecentShow } from './settings';
 
 /** Sender für UI-Ereignisse (Show-Start-Feedback, #76). Optional → ohne UI lautlos. */
@@ -97,9 +97,11 @@ export async function loadShowForEdit(): Promise<{ path: string; show: Show } | 
 /**
  * Speichert eine im Launcher zusammengestellte Show als .jmshow. Mit `targetPath`
  * (Bearbeiten) wird direkt an diese Datei zurückgeschrieben; ohne (Neu) fragt ein
- * Save-Dialog nach dem Ziel.
+ * Save-Dialog nach dem Ziel. Geschrieben wird atomar (Spec 7.4). Ist es die gerade
+ * offene Show, setzt sich der iveo-Kern neu auf und Timer, Titler und Rundown
+ * bekommen RELOAD (Spec 7.5). `neuGebunden` = im Editor neu an iveo gebunden.
  */
-export async function saveShow(show: Show, targetPath?: string): Promise<ActionResult> {
+export async function saveShow(show: Show, targetPath?: string, neuGebunden = false): Promise<ActionResult> {
   let filePath = targetPath;
   if (!filePath) {
     const ext = SHOW_FILE_EXT.replace(/^\./, '');
@@ -112,14 +114,21 @@ export async function saveShow(show: Show, targetPath?: string): Promise<ActionR
     if (result.canceled || !result.filePath) return { ok: false };
     filePath = result.filePath;
   }
-  try {
-    await writeFile(filePath, serializeShow(show, new Date().toISOString()), 'utf8');
-  } catch (e) {
-    const message = `Show konnte nicht gespeichert werden: ${(e as Error).message}`;
+  if (!speichereShowDatei(filePath, show, neuGebunden)) {
+    const message = 'Show konnte nicht gespeichert werden (Datei gesperrt oder nicht beschreibbar, Details im Launcher-Log).';
     getLog().error(message);
     return { ok: false, message };
   }
   return { ok: true, message: `Show „${show.name}" ${targetPath ? 'aktualisiert' : 'gespeichert'}.` };
+}
+
+/**
+ * Eine .jmshow so lesen, wie sie gerade auf der Platte liegt — der Show-Editor
+ * braucht das beim Speichern (Spec 7.5, Regel 1). Nur .jmshow-Dateien; nicht
+ * lesbar → null und eine Warnung mit dem Grund im Log (show-lesen.ts).
+ */
+export function readShowFile(path: string): Show | null {
+  return leseShowFuerEditor(path, (p) => readFileSync(p, 'utf8'), (m) => getLog().warn(m));
 }
 
 /** Datei-Dialog zur Auswahl eines Tool-Dokuments (z. B. .jmpres, .jmdaw). */

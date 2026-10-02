@@ -17,6 +17,7 @@ import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { controlClientOptions, readControlConfig, mdnsSignKey } from '@jm/control-config';
 import type { HealthEntry, ManualEndpoint } from '@shared/types';
+import { erzeugeReloadMerker } from './reload-nachholen';
 
 interface Conn {
   svc: DiscoveredService;
@@ -25,9 +26,13 @@ interface Conn {
   kv: Record<string, string>;
   /** Manuell eingetragener Endpunkt (A4) — vom mDNS-Pruning ausgenommen. */
   manual: boolean;
+  /** Seit der Verbindung kam noch kein STATE: ein verpasstes RELOAD wird mit dem ersten nachgeholt. */
+  nachholenOffen?: boolean;
 }
 
 const conns = new Map<string, Conn>(); // Schlüssel: host:port
+/** RELOAD-Zeilen, die niemanden erreichten, werden bei der Wiederverbindung des Tools nachgeholt. */
+const reloadMerker = erzeugeReloadMerker();
 const manualKeys = new Set<string>(); // A4: manuell eingetragene host:port
 let discovery: { stop: () => void } | null = null;
 let notify: (() => void) | null = null;
@@ -66,6 +71,11 @@ function addConn(svc: DiscoveredService, manual: boolean): void {
     onState: (state: SuiteState) => {
       const c = conns.get(key);
       if (!c) return;
+      if (c.nachholenOffen) {
+        c.nachholenOffen = false;
+        const nachzuholen = reloadMerker.beiVerbindung(c.svc.appId);
+        if (nachzuholen) c.client.send(nachzuholen);
+      }
       c.kv = Object.fromEntries(Object.entries(state.kv).map(([k, v]) => [k, String(v)]));
       // Manueller Endpunkt kennt Rolle/appId erst aus dem STATE-Namespace (ns).
       if (c.manual && state.ns && !c.svc.role) {
@@ -77,6 +87,7 @@ function addConn(svc: DiscoveredService, manual: boolean): void {
       const c = conns.get(key);
       if (!c) return;
       c.connected = connected;
+      c.nachholenOffen = connected; // erst nach dem ersten STATE senden: im secure-Modus ist die Auth dann durch
       emit();
     },
     reconnectMs: 3000,
@@ -189,6 +200,7 @@ export function sendControlCommand(appId: string, line: string): number {
       sent += 1;
     }
   }
+  reloadMerker.nachSenden(appId, line, sent);
   return sent;
 }
 

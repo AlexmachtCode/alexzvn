@@ -34,6 +34,13 @@ export interface TimetableItem {
   category?: string;
 }
 
+/**
+ * Ein Punkt, wie er in `tt:setAll`/`tt:replaceItems` hereinkommt (Teil 2a, Spec 6.1): wie ein
+ * `TimetableItem`, aber `id` optional — die Kennung des Show-Ablaufpunkts, wenn es eine gibt.
+ * Ob sie übernommen wird, entscheidet der Reducer (`reduce`), nicht der Absender.
+ */
+export type TimetableEingang = Omit<TimetableItem, 'id'> & { id?: string };
+
 export interface TimetableState {
   items: TimetableItem[];
   /** Index of the item currently loaded into the countdown, or null when ad-hoc. */
@@ -95,8 +102,8 @@ export type Command =
   | { type: 'tt:update'; id: string; patch: Partial<Omit<TimetableItem, 'id'>> }
   | { type: 'tt:delete'; id: string }
   | { type: 'tt:move'; id: string; direction: 'up' | 'down' }
-  | { type: 'tt:setAll'; items: Array<Omit<TimetableItem, 'id'>> }
-  | { type: 'tt:replaceItems'; items: Array<Omit<TimetableItem, 'id'>> }
+  | { type: 'tt:setAll'; items: TimetableEingang[] }
+  | { type: 'tt:replaceItems'; items: TimetableEingang[] }
   | { type: 'tt:loadItem'; index: number }
   | { type: 'tt:next' }
   | { type: 'tt:prev' }
@@ -113,6 +120,28 @@ function makeId(): string {
     (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (c?.randomUUID) return c.randomUUID();
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Verwertbare Kennung aus dem Eingang: nicht leerer String (nur Leerzeichen zählt als leer). */
+function kennungVerwertbar(id: unknown): id is string {
+  return typeof id === 'string' && id.trim().length > 0;
+}
+
+/**
+ * Kennungen für `tt:setAll`/`tt:replaceItems` vergeben (Teil 2a, Spec 6.1): die mitgegebene
+ * `id`, wenn sie verwertbar ist und in DIESER Liste noch nicht vorkommt, sonst `makeId()`.
+ * Gilt ebenso für Befehle über den Socket :7777 — dort kann alles ankommen. `id` wird zuletzt
+ * gesetzt, damit eine unbrauchbare mitgegebene `id` sie nicht überschreibt.
+ */
+function mitKennungen(eingang: TimetableEingang[]): TimetableItem[] {
+  const vergeben = new Set<string>();
+  return eingang.map((it) => {
+    const mitgegeben: unknown = it?.id;
+    let id = kennungVerwertbar(mitgegeben) && !vergeben.has(mitgegeben) ? mitgegeben : makeId();
+    while (vergeben.has(id)) id = makeId(); // makeId kollidiert praktisch nie; ausgeschlossen ist es so trotzdem
+    vergeben.add(id);
+    return { ...it, id };
+  });
 }
 
 function resetCountdownToDuration(durationMs: number): CountdownState {
@@ -257,10 +286,7 @@ export function reduce(
     }
 
     case 'tt:setAll': {
-      const items: TimetableItem[] = cmd.items.map((it) => ({
-        id: makeId(),
-        ...it,
-      }));
+      const items = mitKennungen(cmd.items);
       return {
         ...state,
         timetable: { ...tt, items, activeIndex: null },
@@ -270,11 +296,17 @@ export function reduce(
 
     case 'tt:replaceItems': {
       // Nicht-destruktives Ersetzen für Live-Updates (z. B. iveo-Reload während
-      // der Show): tauscht die Items, hält den aktiven Index (geklemmt) und lässt
-      // den Countdown UNANGETASTET — ein laufender Timer darf nie resetten.
-      const items: TimetableItem[] = cmd.items.map((it) => ({ id: makeId(), ...it }));
+      // der Show): tauscht die Items und lässt den Countdown UNANGETASTET — ein
+      // laufender Timer darf nie resetten. Der aktive Punkt folgt seiner Kennung
+      // (Teil 2a, Spec 6.1); fehlt sie im neuen Ablauf, hält der Timer wie bisher
+      // die Nummer (geklemmt). Ohne Kennungen ist das genau das alte Verhalten.
+      const items = mitKennungen(cmd.items);
+      const aktivId = tt.activeIndex !== null ? tt.items[tt.activeIndex]?.id : undefined;
+      const neueStelle = aktivId !== undefined ? items.findIndex((it) => it.id === aktivId) : -1;
       let activeIndex = tt.activeIndex;
-      if (activeIndex !== null && (items.length === 0 || activeIndex >= items.length)) {
+      if (neueStelle !== -1) {
+        activeIndex = neueStelle;
+      } else if (activeIndex !== null && (items.length === 0 || activeIndex >= items.length)) {
         activeIndex = items.length ? items.length - 1 : null;
       }
       return { ...state, timetable: { ...tt, items, activeIndex } };
@@ -347,6 +379,25 @@ export function reduce(
     case 'msg:clear':
       return { ...state, message: { text: '', blinking: false } };
   }
+}
+
+/**
+ * Für die Logzeile im Main nach `tt:replaceItems` (Teil 2a, Spec 6.1): true, wenn vorher ein
+ * Punkt aktiv war, seine Kennung im neuen Ablauf fehlt und der Timer deshalb die Nummer hält.
+ * `eingang` = die mitgegebenen Punkte. Trägt keiner eine verwertbare Kennung (eigene
+ * Timer-Liste, Show ohne Kennungen), gab es keinen Abgleich über die Kennung — dann false:
+ * „wie heute“ hat keine Logzeile, und „nicht mehr vorhanden“ wäre dort gelogen.
+ */
+export function aktiverPunktVerschwunden(
+  vorher: TimetableState,
+  nachher: TimetableState,
+  eingang?: TimetableEingang[],
+): boolean {
+  if (vorher.activeIndex === null || nachher.activeIndex === null) return false;
+  const aktiv = vorher.items[vorher.activeIndex];
+  if (!aktiv) return false;
+  if (eingang && !eingang.some((it) => kennungVerwertbar(it?.id))) return false;
+  return !nachher.items.some((it) => it.id === aktiv.id);
 }
 
 export function effectiveDurationMs(cd: CountdownState): number {

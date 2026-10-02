@@ -1,6 +1,8 @@
 // Reine Dokument-Mutationen für den Editor (geben immer ein NEUES Doc zurück;
 // der Renderer schickt es per setDoc an den Main, der es persistiert).
 import { newId } from '@shared/conductor';
+import { ersetzeEigeneZeilen } from '@shared/scharf';
+import { dupliziereZeile } from '@shared/zeilen';
 import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
 
 function withRows(doc: RundownDoc, rows: RundownRow[]): RundownDoc {
@@ -37,9 +39,19 @@ export function rowsFromImport(
   }));
 }
 
-/** Importierte Zeilen ins Dokument übernehmen — ersetzen oder anhängen. */
-export function applyImportedRows(doc: RundownDoc, rows: RundownRow[], replace: boolean): RundownDoc {
-  return withRows(doc, replace ? rows : [...doc.rows, ...rows]);
+/**
+ * Importierte Zeilen ins Dokument übernehmen — ersetzen oder anhängen. Ist eine
+ * Show gemerkt, ersetzt „Ersetzen“ nur die eigenen Zeilen: Ablaufzeilen und
+ * entfallene Zeilen bleiben, die importierten kommen ans Ende (4.5).
+ */
+export function applyImportedRows(
+  doc: RundownDoc,
+  rows: RundownRow[],
+  replace: boolean,
+  showGemerkt = false,
+): RundownDoc {
+  if (!replace) return withRows(doc, [...doc.rows, ...rows]);
+  return withRows(doc, showGemerkt ? ersetzeEigeneZeilen(doc.rows, rows) : rows);
 }
 
 export function removeRow(doc: RundownDoc, rowId: string): RundownDoc {
@@ -61,20 +73,11 @@ export function moveRow(doc: RundownDoc, from: number, to: number): RundownDoc {
  * Dupliziert eine Zeile inkl. all ihrer Aktionen direkt darunter. Alle IDs (Zeile
  * + Aktionen) werden neu vergeben, damit Original und Kopie unabhängig bleiben;
  * `args` wird kopiert (kein geteiltes Array). Label bekommt einen „(Kopie)"-Zusatz.
+ * Die Kopie ist immer eine eigene Zeile, auch die einer Ablaufzeile (4.5). Die
+ * Logik liegt in @shared/zeilen, damit der Selbsttest sie ohne Vite prüft.
  */
 export function duplicateRow(doc: RundownDoc, rowId: string): RundownDoc {
-  const idx = doc.rows.findIndex((r) => r.id === rowId);
-  if (idx < 0) return doc;
-  const src = doc.rows[idx];
-  const copy: RundownRow = {
-    ...src,
-    id: newId('r'),
-    label: `${src.label} (Kopie)`,
-    actions: src.actions.map((a) => ({ ...a, id: newId('a'), args: a.args.slice() })),
-  };
-  const rows = doc.rows.slice();
-  rows.splice(idx + 1, 0, copy);
-  return withRows(doc, rows);
+  return dupliziereZeile(doc, rowId, newId);
 }
 
 /** Dupliziert eine Aktion innerhalb ihrer Zeile direkt darunter (neue ID, kopierte args). */

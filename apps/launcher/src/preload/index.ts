@@ -50,8 +50,10 @@ const api: JmpsApi = {
   removeManualEndpoint: (host, port) => invoke<ManualEndpoint[]>('health:removeManual', host, port),
   open: (id) => invoke<ActionResult>('tool:open', id),
   openShow: () => invoke<ActionResult>('show:open'),
-  saveShow: (show: Show, targetPath?: string) => invoke<ActionResult>('show:save', show, targetPath),
+  saveShow: (show: Show, targetPath?: string, neuGebunden?: boolean) =>
+    invoke<ActionResult>('show:save', show, targetPath, neuGebunden),
   loadShowForEdit: () => invoke<{ path: string; show: Show } | null>('show:loadForEdit'),
+  readShow: (path: string) => invoke<Show | null>('show:read', path),
   getRecentShows: () => invoke<RecentShow[]>('show:recent'),
   openShowPath: (path: string) => invoke<ActionResult>('show:openPath', path),
   pickShowDocument: () => invoke<string | null>('show:pickDocument'),

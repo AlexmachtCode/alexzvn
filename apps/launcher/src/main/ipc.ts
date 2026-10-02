@@ -29,7 +29,7 @@ import { getPresence } from './presence';
 import { getHealth, setManualEndpoints } from './health';
 import { checkToolUpdates, checkLauncherUpdate } from './updates';
 import { openTool } from './launch';
-import { openShowDialog, openShow, saveShow, pickShowDocument, loadShowForEdit } from './show';
+import { openShowDialog, openShow, saveShow, pickShowDocument, loadShowForEdit, readShowFile } from './show';
 import { installTool, updateLauncher } from './installer';
 import { uninstallTool } from './uninstall';
 import {
@@ -103,8 +103,13 @@ export function registerIpc(): void {
     openShow(path, (ev) => e.sender.send('app:event', ev)),
   );
   // Show anlegen/bearbeiten: speichern + Dokument-Auswahl für die Authoring-UI.
-  ipcMain.handle('show:save', (_e, show: Show, targetPath?: string) => saveShow(show, targetPath));
+  // neuGebunden: im Editor neu an iveo gebunden → der Kern nimmt die Bindung der offenen Show auf (Spec 7.5).
+  ipcMain.handle('show:save', (_e, show: Show, targetPath?: string, neuGebunden?: boolean) =>
+    saveShow(show, targetPath, neuGebunden === true),
+  );
   ipcMain.handle('show:loadForEdit', () => loadShowForEdit());
+  // Show-Editor beim Speichern: die Datei so, wie sie JETZT ist (Spec 7.5, Regel 1).
+  ipcMain.handle('show:read', (_e, path: string) => (typeof path === 'string' ? readShowFile(path) : null));
   ipcMain.handle('show:pickDocument', () => pickShowDocument());
 
   // Download + Installation aus der konfigurierten Release-Quelle, mit

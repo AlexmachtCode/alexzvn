@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { loeseSprungZiel } from '@shared/sprung';
+import { sendeArgs, sperrenFuer, verschiebeZeilen, zeilenArt, zeilenHinweis, type ShowSicht } from '@shared/zeilen';
 import { actionLabel } from '@/lib/capabilities';
-import { addRow, duplicateRow, moveRow, removeRow } from '@/lib/doc';
+import { addRow, duplicateRow, removeRow } from '@/lib/doc';
 import type { RundownDoc } from '@shared/types';
 
 const iconBtn =
@@ -14,6 +16,7 @@ export function RundownList({
   onSelect,
   onSetCue,
   onDoc,
+  sicht,
 }: {
   doc: RundownDoc;
   index: number;
@@ -21,9 +24,11 @@ export function RundownList({
   onSelect: (rowId: string) => void;
   onSetCue: (rowIndex: number) => void;
   onDoc: (doc: RundownDoc) => void;
+  /** Gemerkte Show: Sperren (4.5) und aufgelöste Sprung-Nummern (6.2). */
+  sicht: ShowSicht;
 }) {
   // Drag&Drop-Umsortierung (Issue #84): Quell-Index festhalten, Ziel-Index für die
-  // Einfüge-Markierung. Nutzt dieselbe moveRow-Mutation wie die ↑/↓-Buttons.
+  // Einfüge-Markierung. Nutzt dieselbe bewege-Funktion wie die ↑/↓-Buttons.
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
 
@@ -31,8 +36,12 @@ export function RundownList({
     setDragIdx(null);
     setOverIdx(null);
   }
+  function bewege(from: number, to: number): void {
+    const rows = verschiebeZeilen(doc.rows, from, to, sicht.showGemerkt);
+    if (rows !== doc.rows) onDoc({ ...doc, rows });
+  }
   function drop(to: number): void {
-    if (dragIdx !== null && dragIdx !== to) onDoc(moveRow(doc, dragIdx, to));
+    if (dragIdx !== null && dragIdx !== to) bewege(dragIdx, to);
     endDrag();
   }
 
@@ -44,11 +53,16 @@ export function RundownList({
           const isSel = row.id === selectedId;
           const isDragging = dragIdx === i;
           const isDropTarget = overIdx === i && dragIdx !== null && dragIdx !== i;
+          // 4.5: Ablaufzeilen (lebend oder entfallen) sind bei gemerkter Show nicht verschiebbar.
+          const sperre = sperrenFuer(row, sicht.showGemerkt);
+          const art = zeilenArt(row);
+          const hinweis = zeilenHinweis(row, sicht.showGemerkt, sicht.mitIveo);
           return (
             <div
               key={row.id}
-              draggable
+              draggable={!sperre.verschieben}
               onDragStart={(e) => {
+                if (sperre.verschieben) return;
                 setDragIdx(i);
                 e.dataTransfer.effectAllowed = 'move';
               }}
@@ -64,18 +78,33 @@ export function RundownList({
               onDragEnd={endDrag}
               onClick={() => onSelect(row.id)}
               style={isCue ? { borderColor: 'var(--brand-yellow)' } : undefined}
-              className={`cursor-grab rounded-lg border px-3 py-2 active:cursor-grabbing ${
+              className={`${sperre.verschieben ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} rounded-lg border px-3 py-2 ${
+                art === 'entfallen' ? 'opacity-60' : ''
+              } ${
                 isCue ? 'bg-[var(--input)]/70' : 'border-[var(--border)] bg-[var(--card)]/40 hover:bg-[var(--card)]/70'
               } ${isSel ? 'ring-1 ring-[var(--muted-foreground)]' : ''} ${isDragging ? 'opacity-40' : ''} ${
                 isDropTarget ? 'border-t-2 border-t-[var(--brand-yellow)]' : ''
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className="select-none text-xs text-[var(--muted-foreground)]" title="ziehen zum Umsortieren">
+                <span
+                  className={`select-none text-xs text-[var(--muted-foreground)] ${sperre.verschieben ? 'invisible' : ''}`}
+                  title="ziehen zum Umsortieren"
+                >
                   ⠿
                 </span>
                 <span className="tabular w-6 text-right text-xs text-[var(--muted-foreground)]">{i + 1}</span>
-                <span className="font-medium">{row.label}</span>
+                <span className={`font-medium ${art === 'entfallen' ? 'line-through' : ''}`}>{row.label}</span>
+                {hinweis && (
+                  <span
+                    className={`rounded px-1.5 text-[10px] ${
+                      art === 'entfallen' ? 'text-[var(--warning)]' : 'text-[var(--muted-foreground)]'
+                    }`}
+                    title={hinweis}
+                  >
+                    {art === 'entfallen' ? hinweis : sicht.mitIveo ? 'iveo' : 'Show'}
+                  </span>
+                )}
                 {isCue && (
                   <span
                     className="rounded px-1.5 text-[10px] font-bold text-[var(--brand-dark)]"
@@ -96,22 +125,24 @@ export function RundownList({
                     ▶
                   </button>
                   <button
-                    title="nach oben"
+                    title={sperre.verschieben ? (hinweis ?? 'nach oben') : 'nach oben'}
+                    disabled={sperre.verschieben}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDoc(moveRow(doc, i, i - 1));
+                      bewege(i, i - 1);
                     }}
-                    className={iconBtn}
+                    className={`${iconBtn} disabled:opacity-30`}
                   >
                     ↑
                   </button>
                   <button
-                    title="nach unten"
+                    title={sperre.verschieben ? (hinweis ?? 'nach unten') : 'nach unten'}
+                    disabled={sperre.verschieben}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDoc(moveRow(doc, i, i + 1));
+                      bewege(i, i + 1);
                     }}
-                    className={iconBtn}
+                    className={`${iconBtn} disabled:opacity-30`}
                   >
                     ↓
                   </button>
@@ -126,12 +157,13 @@ export function RundownList({
                     ⧉
                   </button>
                   <button
-                    title="Zeile löschen"
+                    title={sperre.loeschen ? (hinweis ?? 'Zeile löschen') : 'Zeile löschen'}
+                    disabled={sperre.loeschen}
                     onClick={(e) => {
                       e.stopPropagation();
                       onDoc(removeRow(doc, row.id));
                     }}
-                    className={iconBtn}
+                    className={`${iconBtn} disabled:opacity-30`}
                   >
                     ✕
                   </button>
@@ -153,7 +185,13 @@ export function RundownList({
                           ⏱{a.delayMs}ms{' '}
                         </span>
                       ) : null}
-                      {actionLabel(a.role, a.verb, a.args)}
+                      {actionLabel(
+                        a.role,
+                        a.verb,
+                        sendeArgs(a, (x) => loeseSprungZiel(x, sicht.ablaufSchluessel, sicht.eigeneTimerListe)) ?? [
+                          'Ziel entfallen',
+                        ],
+                      )}
                     </span>
                   ))}
                 </div>

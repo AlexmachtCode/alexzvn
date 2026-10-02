@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
+import { iveoStatusZeile } from '@/lib/iveo-status';
 import { useTools } from '@/store/tools';
 
 /** YYYY-MM-DD → „Di, 12.11.2024" (lokal geparst, ohne TZ-Verschiebung). */
@@ -33,6 +34,7 @@ export function SideEventsPanel(): React.JSX.Element | null {
   const materialsError = useTools((s) => s.materialsError);
   const loadMaterials = useTools((s) => s.loadMaterials);
   const downloadMaterial = useTools((s) => s.downloadMaterial);
+  const iveoSync = useTools((s) => s.iveoSync);
   const [busy, setBusy] = useState<string | null>(null);
   const [openMat, setOpenMat] = useState<string | null>(null);
 
@@ -42,6 +44,8 @@ export function SideEventsPanel(): React.JSX.Element | null {
   const activeId = data?.activeProgramId ?? '';
   const days = data?.days ?? [];
   const programs = data?.programs ?? [];
+  // Spec 7.6: „iveo-Abgleich gestört: <Text> (seit <Uhrzeit>)“, solange eine Abfrage scheitert.
+  const stoerung = iveoStatusZeile(iveoSync);
 
   const doSwitch = async (programId?: string): Promise<void> => {
     if (!canSwitch) return;
@@ -89,6 +93,15 @@ export function SideEventsPanel(): React.JSX.Element | null {
             {canSwitch ? 'Live' : 'Nur Anzeige'}
           </span>
         </div>
+
+        {stoerung && (
+          <p
+            role="status"
+            className="mt-4 text-[11px] rounded-[var(--radius)] border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 px-3 py-2 text-[var(--destructive)] break-words"
+          >
+            {stoerung}
+          </p>
+        )}
 
         {data && !data.ok ? (
           <p className="mt-5 text-sm rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-3 text-[var(--muted-foreground)]">

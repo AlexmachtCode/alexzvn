@@ -27,7 +27,7 @@ import {
   type IveoProgram,
   type IveoSnapshot,
 } from '../src/index';
-import { createShow, parseShow, serializeShow } from '@jm/show';
+import { createShow, hatEigeneTimerListe, normalizeAblauf, parseShow, serializeShow } from '@jm/show';
 
 let failed = 0;
 function ok(cond: boolean, msg: string): void {
@@ -444,6 +444,145 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   );
   ok(!text.includes('iveo_live_'), '@jm/show: kein Token in der serialisierten Show');
   ok(!text.includes('GEHEIM-BIO'), '@jm/show: keine Bio (PII) in der serialisierten Show');
+}
+
+// ── @jm/show: Kennung am Ablaufpunkt, normalizeAblauf, hatEigeneTimerListe (Teil 2a) ──
+{
+  // Kennung wird übernommen, getrimmt und steht vorn (stabile Serialisierung).
+  const a = normalizeAblauf([{ label: 'Begrüßung', id: '  ag-1  ', durationMs: 600_000 }]);
+  ok(
+    JSON.stringify(a) === '[{"id":"ag-1","label":"Begrüßung","durationMs":600000}]',
+    '@jm/show: id übernommen, getrimmt, als erstes Feld',
+  );
+
+  // Ungültige Kennungen fallen weg, der Punkt selbst bleibt.
+  const ungueltig = normalizeAblauf([
+    { id: 42, label: 'Zahl' },
+    { id: '', label: 'Leer' },
+    { id: '   ', label: 'Nur Leerzeichen' },
+    { id: 'k'.repeat(201), label: 'Zu lang' },
+    { id: null, label: 'Null' },
+  ]);
+  ok(ungueltig.length === 5 && ungueltig.every((p) => !('id' in p)), '@jm/show: ungültige id entfällt, Punkt bleibt');
+  ok(normalizeAblauf([{ id: 'k'.repeat(200), label: 'Grenze' }])[0].id === 'k'.repeat(200), '@jm/show: id mit 200 Zeichen bleibt');
+
+  // Doppelte Kennungen: die erste behält ihre, jede weitere bekommt #2, #3 …
+  const doppelt = normalizeAblauf([
+    { id: 'X', label: 'a' },
+    { id: 'X', label: 'b' },
+    { id: 'X', label: 'c' },
+  ]);
+  ok(JSON.stringify(doppelt.map((p) => p.id)) === '["X","X#2","X#3"]', '@jm/show: doppelte id → #2, #3');
+  // … und überspringt Nummern, die in der Liste schon vergeben sind.
+  const belegt = normalizeAblauf([
+    { id: 'X', label: 'a' },
+    { id: 'X', label: 'b' },
+    { id: 'X#2', label: 'c' },
+  ]);
+  ok(JSON.stringify(belegt.map((p) => p.id)) === '["X","X#3","X#2"]', '@jm/show: belegte #2 → nächste freie Nummer');
+  ok(JSON.stringify(normalizeAblauf(belegt)) === JSON.stringify(belegt), '@jm/show: normalizeAblauf ist idempotent');
+  // Lange Kennung: Der Zusatz bleibt in 200 Zeichen, sonst verwürfe das nächste Lesen die id.
+  const grenze = normalizeAblauf([
+    { id: 'k'.repeat(200), label: 'a' },
+    { id: 'k'.repeat(200), label: 'b' },
+  ]);
+  ok(grenze[1].id === 'k'.repeat(198) + '#2', '@jm/show: Zusatz #2 kürzt eine 200-Zeichen-id');
+  ok(JSON.stringify(normalizeAblauf(grenze)) === JSON.stringify(grenze), '@jm/show: gekürzte id übersteht erneutes Normalisieren');
+
+  // Wie bisher: ohne Titel fällt der Punkt weg, ohne id bekommt er keine, kein Array → [].
+  const gemischt = normalizeAblauf([{ id: 'p1', label: '  ' }, null, 'x', { label: 'Ohne id' }]);
+  ok(JSON.stringify(gemischt) === '[{"label":"Ohne id"}]', '@jm/show: ohne Titel weg, ohne id bleibt ohne id');
+  ok(
+    normalizeAblauf(undefined).length === 0 && normalizeAblauf({ ablauf: [] }).length === 0 && normalizeAblauf('x').length === 0,
+    '@jm/show: kein Array → leere Liste',
+  );
+
+  // parseShow/serializeShow laufen über migrateShow → normalizeAblauf.
+  const gelesen = parseShow(
+    JSON.stringify({ schemaVersion: 1, name: 'Doppelt', tools: [], ablauf: [{ id: 'u1', label: 'A' }, { id: 'u1', label: 'B' }] }),
+  );
+  ok(JSON.stringify(gelesen.ablauf?.map((p) => p.id)) === '["u1","u1#2"]', '@jm/show: doppelte id beim Lesen aufgelöst');
+  const altText = serializeShow({ ...createShow('Alt'), ablauf: [{ label: 'A', durationMs: 60_000 }] });
+  ok(!altText.includes('"id"'), '@jm/show: alte Show ohne Kennungen bleibt ohne id (byte-nah)');
+
+  // hatEigeneTimerListe: genau dann, wenn settings.timetable ein Array mit mindestens einem Objekt ist.
+  ok(hatEigeneTimerListe(undefined) === false, 'hatEigeneTimerListe: keine Einstellungen → nein');
+  ok(hatEigeneTimerListe({}) === false, 'hatEigeneTimerListe: ohne timetable → nein');
+  ok(hatEigeneTimerListe({ timetable: [] }) === false, 'hatEigeneTimerListe: leeres Array → nein');
+  ok(hatEigeneTimerListe({ timetable: [null, 3, 'x'] }) === false, 'hatEigeneTimerListe: nur Nicht-Objekte → nein');
+  ok(hatEigeneTimerListe({ timetable: 'x' }) === false, 'hatEigeneTimerListe: kein Array → nein');
+  ok(hatEigeneTimerListe({ timetable: [{ label: 'A', durationMs: 60_000 }] }) === true, 'hatEigeneTimerListe: Array mit einem Objekt → ja');
+  ok(hatEigeneTimerListe({ timetable: [null, {}] }) === true, 'hatEigeneTimerListe: ein Objekt genügt, auch ein leeres');
+}
+
+// ── Kennungs-Durchlauf (Teil 2a, Spec 3.2/9.3): iveo-Antwort → Umwandler → Show → Lesen ──
+{
+  // Nachgebaute iveo-Antworten: Agenda eines Side Events (absichtlich unsortiert) und Programmliste.
+  const agendaAntwort = [
+    { id: 'ag-2', program_id: 'se1', sort_order: 1, title: 'Panel', duration_minutes: 45, notes: 'Bühne' },
+    { id: 'ag-1', program_id: 'se1', sort_order: 0, title: 'Begrüßung', duration_minutes: 10 },
+    { id: 'ag-3', program_id: 'se1', sort_order: 2, title: 'Q&A' },
+  ];
+  const programmAntwort = [
+    prog({ id: 'p-b', title: 'Zweitens', starts_at: '2026-11-12T12:00:00+00:00', duration_minutes: 30 }),
+    prog({ id: 'p-a', title: 'Erstens', starts_at: '2026-11-12T09:00:00+00:00', duration_minutes: 60 }),
+  ];
+  const seite = (data: unknown) => mkRes(200, { data, meta: { request_id: 'r', pagination: { next_cursor: null, limit: 200 } } });
+  const fetchImpl: IveoFetchLike = async (url) => (url.includes('/agenda-items') ? seite(agendaAntwort) : seite(programmAntwort));
+  const client = new IveoClient({ token: 'iveo_live_SECRET', fetchImpl });
+
+  // Agenda-Modus: Kennung = iveo-Agenda-Punkt-ID, als erstes Feld.
+  const agenda = agendaToAblauf(await client.listAgendaItems('cop30', 'se1'));
+  ok(JSON.stringify(agenda.map((a) => a.id)) === '["ag-1","ag-2","ag-3"]', 'Kennungen: agendaToAblauf setzt die Agenda-Punkt-ID');
+  ok(agenda.every((a) => Object.keys(a)[0] === 'id'), 'Kennungen: id steht im Agenda-Punkt vorn');
+
+  // Listen-Modus: Kennung = iveo-Programm-ID, auch nach dem Sortieren nach Startzeit.
+  const liste = programsToAblauf(await client.listPrograms('cop30'));
+  ok(JSON.stringify(liste.map((a) => a.id)) === '["p-a","p-b"]', 'Kennungen: programsToAblauf setzt die Programm-ID');
+  ok(liste.every((a) => Object.keys(a)[0] === 'id'), 'Kennungen: id steht im Programm-Punkt vorn');
+  ok(snapshotToAblauf(snapshot).map((a) => a.id).join(',') === 'p1,p2,p3', 'Kennungen: snapshotToAblauf trägt die Programm-IDs');
+
+  // Side Event ohne Agenda → 1 Punkt mit der Programm-ID (wie Binden/Abfrage/Umschalten ihn bauen).
+  const einzeln = programToAblaufItem(prog({ id: 'se1', title: 'Side Event' }), { withSchedule: true });
+  ok(einzeln.id === 'se1' && einzeln.label === 'Side Event', 'Kennungen: 1-Punkt-Ablauf trägt die Programm-ID');
+  // Fremddaten ohne brauchbare ID → Punkt ohne id statt leerer Kennung.
+  ok(!('id' in programToAblaufItem(prog({ id: '   ' }))), 'Kennungen: Programm mit leerer ID → kein id-Feld');
+  ok(
+    !('id' in agendaToAblauf([{ id: '', program_id: 'se1', title: 'Ohne ID' }])[0]),
+    'Kennungen: Agenda-Punkt mit leerer ID → kein id-Feld',
+  );
+
+  // Umwandler-Ausgabe ist ein Fixpunkt von normalizeAblauf (Signatur im Launcher, Spec 7.2).
+  ok(JSON.stringify(normalizeAblauf(agenda)) === JSON.stringify(agenda), 'Kennungen: normalizeAblauf lässt die Agenda unverändert');
+
+  // Show schreiben und lesen: Kennungen und Feldreihenfolge überstehen den Round-Trip.
+  const show = {
+    ...createShow('Kennungen'),
+    ablauf: normalizeAblauf(agenda),
+    iveo: { event: 'cop30', filter: { programId: 'se1' } },
+  };
+  const gelesen = parseShow(serializeShow(show));
+  ok(
+    JSON.stringify(gelesen.ablauf?.map((a) => a.id)) === '["ag-1","ag-2","ag-3"]' &&
+      JSON.stringify(gelesen.ablauf) === JSON.stringify(agenda),
+    'Kennungs-Durchlauf: iveo-IDs überstehen Schreiben und Lesen',
+  );
+
+  // Doppelte Kennung aus iveo (darf nicht vorkommen, wird trotzdem aufgefangen) → #2.
+  const doppelt = agendaToAblauf([
+    { id: 'ag-x', program_id: 'se1', sort_order: 0, title: 'A' },
+    { id: 'ag-x', program_id: 'se1', sort_order: 1, title: 'B' },
+  ]);
+  ok(
+    JSON.stringify(normalizeAblauf(doppelt).map((a) => a.id)) === '["ag-x","ag-x#2"]',
+    'Kennungs-Durchlauf: doppelte iveo-ID → normalizeAblauf vergibt #2',
+  );
+  // Von Hand verdoppelte Kennung in der Datei → beim Lesen aufgelöst.
+  const roh = JSON.stringify({ schemaVersion: 1, name: 'Kopie', tools: [], ablauf: [...agenda, { ...agenda[0], label: 'Begrüßung (Kopie)' }] });
+  ok(
+    JSON.stringify(parseShow(roh).ablauf?.map((a) => a.id)) === '["ag-1","ag-2","ag-3","ag-1#2"]',
+    'Kennungs-Durchlauf: doppelte id in der Datei → beim Lesen #2',
+  );
 }
 
 if (failed > 0) {

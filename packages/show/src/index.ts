@@ -38,6 +38,12 @@ export interface ShowToolRef {
  * einmal zentral gepflegter Ablauf von mehreren Tools (Rundown, Timer) gelesen werden kann.
  */
 export interface ShowAblaufItem {
+  /**
+   * Feste Kennung des Punkts (Teil 2a, #235): iveo-Programm- bzw. Agenda-Punkt-ID oder eine
+   * im Show-Editor erzeugte UUID. Optional, damit alte Shows weiter laden. Bleibt über
+   * Umbenennen und Umsortieren gleich — daran hängen Rundown-Aktionen und der aktive Timer-Punkt.
+   */
+  id?: string;
   /** Segment-/Programmpunkt-Titel. */
   label: string;
   /** Geplante Dauer in Millisekunden (optional). */
@@ -143,18 +149,75 @@ export function createShow(name: string): Show {
   return { schemaVersion: SHOW_SCHEMA_VERSION, name, tools: [] };
 }
 
+/** Höchstlänge einer Kennung (Spec 3.1). Längere fallen beim Lesen weg. */
+const ABLAUF_ID_MAX = 200;
+
 function normalizeAblaufItem(value: unknown): ShowAblaufItem | null {
   if (!value || typeof value !== 'object') return null;
   const o = value as Record<string, unknown>;
   const label = typeof o.label === 'string' ? o.label : '';
   if (!label.trim()) return null; // ohne Titel kein sinnvoller Programmpunkt
-  const item: ShowAblaufItem = { label };
+  // Kennung nur als String mit 1–200 Zeichen nach trim, sonst entfällt das Feld (der Punkt
+  // bleibt). `id` steht vorn, damit die Serialisierung eine feste Feldreihenfolge hat.
+  const id = typeof o.id === 'string' ? o.id.trim() : '';
+  const item: ShowAblaufItem = id && id.length <= ABLAUF_ID_MAX ? { id, label } : { label };
   if (typeof o.durationMs === 'number' && o.durationMs > 0) item.durationMs = o.durationMs;
   if (typeof o.note === 'string' && o.note) item.note = o.note;
   if (typeof o.plannedStartMs === 'number' && o.plannedStartMs >= 0) item.plannedStartMs = o.plannedStartMs;
   if (typeof o.owner === 'string' && o.owner) item.owner = o.owner;
   if (typeof o.category === 'string' && o.category) item.category = o.category;
   return item;
+}
+
+/** Nächste freie Kennung `<basis>#n` ab n = 2, gekürzt auf 200 Zeichen (Spec 3.5). */
+function freieKennung(basis: string, belegt: Set<string>): string {
+  for (let n = 2; ; n++) {
+    const zusatz = `#${n}`;
+    // Kürzen statt überlaufen: eine id über 200 Zeichen verwürfe das nächste Lesen,
+    // und normalizeAblauf wäre nicht mehr idempotent.
+    const kandidat = basis.slice(0, ABLAUF_ID_MAX - zusatz.length) + zusatz;
+    if (!belegt.has(kandidat)) return kandidat;
+  }
+}
+
+/**
+ * Ablauf normalisieren (Teil 2a, Spec 3.1/3.5): je Punkt wie beim Lesen einer Show (ohne Titel
+ * fällt er weg, `id` nur als String mit 1–200 Zeichen nach trim), danach doppelte Kennungen
+ * über die ganze Liste auflösen. Der erste Punkt behält seine Kennung, jeder weitere bekommt
+ * `<id>#2`, `#3` … — jeweils die nächste Nummer, die in der Liste noch frei ist. Kein Array → [].
+ * `migrateShow` nutzt sie, also gilt das bei jedem `parseShow` und `serializeShow`.
+ */
+export function normalizeAblauf(value: unknown): ShowAblaufItem[] {
+  if (!Array.isArray(value)) return [];
+  const items = (value as unknown[])
+    .map(normalizeAblaufItem)
+    .filter((a): a is ShowAblaufItem => a !== null);
+  // Alle vorhandenen Kennungen vorab als belegt, damit ein umbenannter Doppelter nie die
+  // Kennung eines nachfolgenden Punkts übernimmt (z. B. X, X, X#2 → X, X#3, X#2).
+  const belegt = new Set<string>();
+  for (const it of items) if (it.id !== undefined) belegt.add(it.id);
+  const gesehen = new Set<string>();
+  return items.map((it) => {
+    if (it.id === undefined) return it;
+    if (!gesehen.has(it.id)) {
+      gesehen.add(it.id);
+      return it;
+    }
+    const id = freieKennung(it.id, belegt);
+    belegt.add(id);
+    return { ...it, id };
+  });
+}
+
+/**
+ * Hat die Show eine eigene Timer-Liste (Teil 2a, Spec 6.1)? Genau dann, wenn
+ * `settings.timetable` ein Array mit mindestens einem Objekt ist — dieselbe Bedingung, unter
+ * der der Timer (`parseTimetable`) eine Liste liefert. Dann hat sie Vorrang vor `show.ablauf`,
+ * und ihre Punkte tragen keine Kennungen. Timer und Rundown nutzen beide diese Funktion.
+ */
+export function hatEigeneTimerListe(settings: Record<string, unknown> | undefined): boolean {
+  const liste = settings?.timetable;
+  return Array.isArray(liste) && liste.some((it) => Boolean(it) && typeof it === 'object');
 }
 
 function normalizeIveoBinding(value: unknown): ShowIveoBinding | null {
@@ -236,11 +299,8 @@ export function migrateShow(raw: unknown): Show {
   const tools = Array.isArray(obj.tools)
     ? (obj.tools as unknown[]).map(normalizeToolRef).filter((t): t is ShowToolRef => t !== null)
     : [];
-  const ablauf = Array.isArray(obj.ablauf)
-    ? (obj.ablauf as unknown[])
-        .map(normalizeAblaufItem)
-        .filter((a): a is ShowAblaufItem => a !== null)
-    : [];
+  // Je Punkt normalisieren + doppelte Kennungen auflösen (Teil 2a, Spec 3.5).
+  const ablauf = normalizeAblauf(obj.ablauf);
   const name =
     typeof obj.name === 'string' && obj.name.trim() ? (obj.name as string) : 'Unbenannte Show';
   const iveo = normalizeIveoBinding(obj.iveo);

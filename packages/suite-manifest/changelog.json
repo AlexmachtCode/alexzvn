@@ -23,6 +23,18 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.13.0",
+        "date": "2026-10-01",
+        "notes": [
+          "Behebt #235: Ändert sich der Ablauf in iveo, bekommt jetzt auch der Rundown das Neu-Laden, nicht nur Timer und Titler.",
+          "Jeder Ablaufpunkt trägt seine feste iveo-Kennung in der Show. Timer und Rundown halten ihren Punkt darüber, auch wenn sich die Reihenfolge ändert.",
+          "Weniger unnötiges Neu-Laden: Nach dem Öffnen einer Show und in der Programmliste schreibt der Launcher die Show nur noch, wenn sich in iveo wirklich etwas geändert hat.",
+          "Scheitert eine iveo-Abfrage, bleibt der Ablauf, wie er ist, statt kurz auf einen einzigen Punkt zu schrumpfen. Das Side-Events-Panel zeigt dann iveo-Abgleich gestört mit Grund und Uhrzeit, etwa bei ungültigem Token oder wenn auf diesem Rechner kein Token liegt.",
+          "Die Show wird sicher geschrieben, erst in eine Zwischendatei und dann umbenannt. Liest ein Tool sie gerade, versucht es der Launcher kurz darauf erneut. Jeder iveo-Abruf hat eine Zeitgrenze von 15 Sekunden.",
+          "Show-Editor: Speichern verliert nichts mehr. Eigene Timer-Liste, Presenter-PIN und andere Tool-Einstellungen, der Port und der Zeitpunkt des letzten iveo-Abgleichs bleiben erhalten, Dauern sekundengenau. Speichern der gerade offenen Show lädt Timer, Titler und Rundown sofort neu."
+        ]
+      },
+      {
         "version": "0.12.0",
         "date": "2026-10-01",
         "notes": [
@@ -590,6 +602,14 @@
     "app": "timer",
     "name": "JM Timer",
     "entries": [
+      {
+        "version": "0.13.0",
+        "date": "2026-10-01",
+        "notes": [
+          "Lädt der Timer nach einer iveo-Änderung neu, hält er seinen aktiven Punkt über dessen feste Kennung, auch wenn davor Punkte eingefügt oder umsortiert wurden. Der Countdown läuft unverändert weiter.",
+          "Fehlt der aktive Punkt im neuen Ablauf, bleibt die Nummer wie bisher, dazu steht ein Hinweis im Protokoll."
+        ]
+      },
       {
         "version": "0.12.0",
         "date": "2026-10-01",
@@ -1301,6 +1321,20 @@
     "app": "rundown",
     "name": "JM Rundown",
     "entries": [
+      {
+        "version": "0.6.0",
+        "date": "2026-10-01",
+        "notes": [
+          "Behebt #235: Der Rundown folgt jeder Änderung des Show-Ablaufs aus iveo oder dem Show-Editor, ohne Position oder Aktionen zu verlieren. Neue Punkte erscheinen an ihrer Stelle, eigene Zeilen wandern mit ihrem Punkt.",
+          "Ein Punkt mit Aktionen, der in iveo gelöscht wurde, bleibt als entfallen markiert stehen. Er feuert nie, das Weiterschalten überspringt ihn, und Als eigene Zeile behalten macht ihn zur normalen Zeile.",
+          "Side Events und Tagesübersichten: Zeilen und Aktionen bleiben je Side Event erhalten und sind nach dem Zurückschalten wieder da.",
+          "Timer-Sprünge zielen auf den Ablaufpunkt statt auf eine feste Nummer und treffen auch nach dem Umsortieren den richtigen Punkt.",
+          "Der Rundown merkt sich die zuletzt geöffnete Show samt scharfer Zeile über einen Neustart, auch beim Start über die Launcher-Kachel.",
+          "Titel, Notiz und Dauer von Ablaufzeilen pflegt man in iveo bzw. im Show-Editor, der Rundown zeigt sie gesperrt mit dem Hinweis, woher sie kommen. Eine eigene Rundown-Datei in der Show wird ebenfalls abgeglichen.",
+          "Der alte Autosave wird beim ersten Öffnen einer passenden Show übernommen und vorher als rundown.autosave.v1.jmrundown gesichert.",
+          "Bringt zum ersten Mal den Verbund-Client aus Master-Link Teil 1 mit. Er wird erst aktiv, wenn dieser Rechner im Verbund gekoppelt ist."
+        ]
+      },
       {
         "version": "0.5.0",
         "date": "2026-07-05",
