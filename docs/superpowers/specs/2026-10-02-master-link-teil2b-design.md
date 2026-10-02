@@ -1,6 +1,6 @@
 # Master-Link, Teil 2b: Der Titler hält seinen Speaker, Show-Daten über den Verbund
 
-**Stand:** 02.10.2026, **Entwurf** zur Freigabe durch den Owner. Überarbeitet nach der Spec-Prüfung vom 02.10.2026 (zwei Linsen, Code und Vollständigkeit). Offene Fragen an den Owner stehen in Abschnitt 27.
+**Stand:** 02.10.2026, **vom Owner freigegeben am 02.10.2026** (Antworten auf die offenen Fragen in Abschnitt 27). Überarbeitet nach der Spec-Prüfung vom 02.10.2026 (zwei Linsen, Code und Vollständigkeit). Offene Fragen an den Owner stehen in Abschnitt 27.
 **Anlass:** Zwei offene Punkte aus 2a. Eine Bauchbinde auf Sendung wechselt den Namen, wenn sich die Speaker-Liste verschiebt (gemessen: Alan → Grace, 2a-Spec 6.4). Tools auf einem zweiten Rechner lesen weiter ihre eigene Show-Datei (2a-Spec 12).
 **Vorgänger:** Teil 2a (Merge `9844722450`, released 02.10.2026: Launcher 0.13.0, Timer 0.13.0, Rundown 0.6.0, dazu Launcher 0.13.1). Teil 1 (PR #239, released 01.10.2026: Launcher 0.12.0, Timer 0.12.0, Titler 0.9.0). Die Zwei-PC-Abnahme von Teil 1 ist bestanden (`packages/master-link/ABNAHME.md`, 02.10.2026).
 **Bezug:** #235. 2a hat es am Einzelplatz behoben. Über das Netz trägt es erst 2b (2a-Spec `:5`).
@@ -582,6 +582,8 @@ Vorweg: Die Testdaten `ANA` bekommen die Kennung `sp1` (SP9). Die 2a-Fälle lauf
 ## 10 · Release 1: Abnahme (Owner, ein Rechner, echtes iveo-Event auf Prod)
 
 `apps/titler/ABNAHME-2b-R1.md`, je Schritt mit Ergebnisspalte. In iveo wird nichts geschrieben.
+
+**Termin (Owner 02.10.2026):** Die noch offene 2a-Abnahme (`apps/rundown/ABNAHME-2a.md`) läuft im selben Termin, vor den Schritten dieser Tabelle. Release 1 wartet nicht auf sie.
 
 | # | Schritt | Erwartung |
 | --- | --- | --- |
@@ -1316,3 +1318,9 @@ Die Spec nimmt bei jeder Frage eine Vorgabe an, damit der Plan beginnen kann. Ei
 | O1 | **Eigener DataLink-Ordner auf Rechner B.** D4 sagt „folgt immer der Show des Masters“. Soll eine Ordnerwahl auf B die Speaker vom Master anhalten können, bis der Bediener „Zurück zur Show vom Master“ drückt? Das widerspräche „immer“. | Nein. Trägt die Show am Master Speaker, ist die Ordnerwahl auf B gesperrt, mit Text; ohne Speaker ist sie frei (17.2). | 17.2, 19.5 |
 | O2 | **Rundown auf B wählt Titler und Timer nach „zuletzt gefunden“.** Laufen sie auf A und B, kann ein GO auf B das Tool an A treffen. Die Entscheidung vom 02.10.2026 (5) verschiebt „zuletzt gefunden“ in Q&A und Battle als Folgeaufgabe. Soll 2b den Rundown-Fall für alle Rollen mitlösen (Vorrang für ein Tool auf diesem Rechner)? | Nein, Folgeaufgabe FA4. Die Abnahme legt die Endpunkte auf B von Hand fest (20 Schritt 1). | 17.4, 20, 24 |
 | O3 | **Rechner C ohne Kopplung im selben Netz.** Seine Tools bekamen das RELOAD des Master-Launchers bisher mit (wirksam nur bei gemeinsamem Show-Pfad). „RELOAD an fremde Rechner durch Daten ersetzt“ deckt C nicht, weil C keine Daten bekommt. Ist der Wegfall für C gewollt? | Ja: RELOAD nur an diesen Rechner (15.3); wer Daten braucht, koppelt. Steht in den Release-Notes. | 15.3, 18, 21 |
+
+**Antworten des Owners (02.10.2026):**
+- **O1:** **Nein, gesperrt**, wie die Vorgabe. Trägt die Show am Master Speaker, ist die Ordnerwahl im Titler auf B gesperrt (17.2).
+- **O2:** nicht gesondert gefragt; die Vorgabe gilt mit der Freigabe der Spec (Folgeaufgabe FA4).
+- **O3:** **Ja**, wie die Vorgabe. RELOAD geht nur an diesen Rechner; wer Daten braucht, koppelt (15.3).
+- **2a-Abnahme:** im selben Termin wie die Abnahme von Release 1 (Abschnitt 10).
