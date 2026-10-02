@@ -570,6 +570,29 @@ await (async () => {
   ck('M2: resetForm (Abbrechen, Bestehende öffnen, nach dem Speichern) räumt die Ablehnung weg', resetForm.includes('setAblehnung(null)'));
   ck('M2: ein neuer Speicherversuch räumt die alte Ablehnung zuerst weg',
     /const onSave = async \(trotzdem = false\): Promise<void> => \{\s*setBusy\(true\);[^]*?setAblehnung\(null\);\s*try \{/.test(editor));
+  // Nachbesserung (Prüfer, GEMESSEN 02.10.2026 in Electron mit dem Build-CSS): Die innere Box der Meldung war weiter
+  // pointer-events-auto. Seit sie über den Dialogen liegt, fing sie 4 s lang Klicks auf „Trotzdem speichern“,
+  // „Aktualisieren“ und „Abbrechen“ ab (elementFromPoint = Toast). Sie enthält nur Text — keine Ebene fängt Klicks.
+  const toastBlock = /\{notice && \(([\s\S]*?)\n {6}\)\}/.exec(quelle('App.tsx'))?.[1] ?? '';
+  const toastInnen = /<div className="[^"]*">\s*<div\s+className="([^"]*)"/.exec(toastBlock)?.[1] ?? '';
+  ck('M1: … auch die innere Box der Meldung fängt keine Klicks (sie liegt über den Knöpfen der Dialoge)',
+    toastInnen.includes('pointer-events-none') && toastBlock.length > 0 && !toastBlock.includes('pointer-events-auto'));
+  // Nachbesserung (Prüfer, GEMESSEN): Die Inline-Meldung (~150 px) stand UNTER dem fest 68vh hohen Scrollbereich. Die Karte
+  // wurde höher als das Fenster, das Overlay scrollt nicht → bei 821 px Innenhöhe (Standardfenster) lagen „Aktualisieren“
+  // und „Abbrechen“ zum größten Teil, bei 601–790 px ganz außerhalb. Jetzt wie #233 (SystemStatusModal): eigener
+  // flex-col-Container höchstens fensterhoch, nur der Scrollbereich schrumpft, Meldung und Fußzeile nicht.
+  const karte = /<Card className="[^"]*">([\s\S]*?)<\/Card>/.exec(editor)?.[1] ?? '';
+  const iHuelle = karte.indexOf('<div className="flex max-h-[calc(100vh-6rem)] flex-col">');
+  const scrollKlasse = /<div className="([^"]*\boverflow-y-auto\b[^"]*)">/.exec(karte);
+  const iScroll = scrollKlasse?.index ?? -1;
+  const iAlert = karte.search(/role="alert"\s+className="[^"]*\bshrink-0\b/);
+  const iFuss = karte.search(/<div className="[^"]*\bshrink-0\b[^"]*\bborder-t\b/);
+  ck('Layout: der Show-Editor ist höchstens fensterhoch (eigener flex-col-Container in der Card, wie #233)',
+    iHuelle >= 0 && iHuelle < iScroll);
+  ck('Layout: … nur der Scrollbereich schrumpft (min-h-0, nicht shrink-0)',
+    !!scrollKlasse && /\bmin-h-0\b/.test(scrollKlasse[1]) && !/\bshrink-0\b/.test(scrollKlasse[1]));
+  ck('Layout: … Inline-Meldung und Fußzeile folgen im selben Container und schrumpfen nicht (shrink-0)',
+    iScroll < iAlert && iAlert < iFuss);
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

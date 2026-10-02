@@ -47,11 +47,13 @@ export function App() {
       </main>
 
       {/* Meldung über JEDEM Overlay: Modals liegen bei z-40/z-50, das Show-Lade-Overlay bei z-[60]. Ohne z-index lag
-          sie hinter dem abgedunkelten Show-Editor — „Speichern“ wirkte tot. Die äußere Ebene fängt keine Klicks. */}
+          sie hinter dem abgedunkelten Show-Editor — „Speichern“ wirkte tot. KEINE Ebene fängt Klicks: die Box liegt
+          über den Knöpfen der Dialoge (GEMESSEN 02.10.2026: mit pointer-events-auto fing sie 4 s lang die Klicks auf
+          „Trotzdem speichern“, „Aktualisieren“ und „Abbrechen“ ab). Sie enthält nur Text. */}
       {notice && (
         <div className="pointer-events-none fixed inset-x-0 bottom-5 z-[70] flex justify-center px-6">
           <div
-            className="pointer-events-auto jm-fade-in rounded-[var(--radius-lg)] border border-[var(--primary)]/40
+            className="pointer-events-none jm-fade-in rounded-[var(--radius-lg)] border border-[var(--primary)]/40
                        bg-[var(--card)] px-4 py-2.5 text-sm font-semibold shadow-lg max-w-xl text-center"
           >
             {notice}

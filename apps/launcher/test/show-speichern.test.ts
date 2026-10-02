@@ -111,6 +111,14 @@ console.log('— Datei beim Speichern nicht lesbar (7.5 Regel 1): nicht still de
   ck('… und verspricht kein „erneut speichern“ (stimmt bei dauerhaft unlesbarer Datei nicht)',
     !TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes('erneut speichern'));
   ck('… keine ASCII-Anführungszeichen im Text', !TEXT_SPEICHERN_DATEI_NICHT_LESBAR.includes('"'));
+  // Nachbesserung (Prüfer): der Teil über „Trotzdem speichern“ muss in JEDEM Zustand stimmen.
+  const trotzdemTeil = TEXT_SPEICHERN_DATEI_NICHT_LESBAR.slice(TEXT_SPEICHERN_DATEI_NICHT_LESBAR.indexOf(`„${KNOPF_TROTZDEM_SPEICHERN}“`));
+  ck('… „Trotzdem speichern“: liest die Datei noch einmal, den Stand vom Öffnen schreibt es NUR, wenn sie weiter nicht lesbar ist',
+    trotzdemTeil.includes('liest die Datei noch einmal')
+    && trotzdemTeil.includes('weiter nicht lesbar')
+    && trotzdemTeil.indexOf('weiter nicht lesbar') < trotzdemTeil.indexOf('vom Öffnen des Editors'));
+  ck('… und sagt, dass dann auch die Side-Event-Auswahl von damals geschrieben wird (eine Live-Umschaltung seither ist weg)',
+    trotzdemTeil.includes('Side-Event-Auswahl von damals'));
 }
 
 console.log('— „Trotzdem speichern“ nach einer Ablehnung (Owner-Entscheidung 2026-10-02)');

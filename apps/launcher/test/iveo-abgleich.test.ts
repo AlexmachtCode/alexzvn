@@ -952,6 +952,41 @@ const letztesFenster = (u: Umgebung): string =>
   await u.kern.abfrage();
   ck('Trotzdem/Side Event: die nächste Abfrage schreibt den iveo-Stand zurück', ids(datei(u)) === 'a1,a2,a3,a4' && u.schreibversuche === 2);
 }
+// Nachbesserung (Prüfer): Live-Umschaltung seit dem Öffnen des Editors, dann „Trotzdem speichern“. Der Stand vom Öffnen
+// enthält den Filter (die damalige Side-Event-Auswahl); der Kern übernimmt ihn aus der Datei (setzeAuf). Der Text sagt
+// darum „auch die Side-Event-Auswahl von damals“ — die Umschaltung kommt nicht von selbst zurück.
+{
+  // Editor geöffnet mit Side Event P1, danach live auf P2 umgeschaltet (Panel oder LAUNCHER SIDEEVENT).
+  const u = umgebung((iv) => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA]));
+  const beimOeffnen = u.dateien.get(SHOW_PFAD)!;
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Trotzdem/Umschaltung: Ausgangslage — P2 live geschaltet und geschrieben',
+    r.ok && datei(u).iveo?.filter?.programId === 'P2' && ids(datei(u)) === 'b1,b2');
+  u.dateien.set(SHOW_PFAD, beimOeffnen); // „Trotzdem speichern“: Stand vom Öffnen des Editors
+  const reloadsVorher = u.reloads.length;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('Trotzdem/Umschaltung: der Kern übernimmt die Auswahl von damals (P1) und schickt RELOAD an Timer, Titler, Rundown',
+    u.kern.aktiv()?.filter.programId === 'P1' && u.reloads.length - reloadsVorher === 3);
+  u.iveo.agenda.P1 = [...u.iveo.agenda.P1, punkt('P1', 'a4', 'Schlusswort', 4, 5)];
+  for (let i = 0; i < 3; i++) await u.kern.abfrage();
+  ck('… iveo-Änderungen dieser Auswahl kommen mit der nächsten Abfrage zurück, P2 kommt nicht von selbst zurück',
+    datei(u).iveo?.filter?.programId === 'P1' && ids(datei(u)) === 'a1,a2,a3,a4');
+}
+{
+  // Editor geöffnet mit der Tagesliste, danach live auf Side Event P2 umgeschaltet.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  const beimOeffnen = u.dateien.get(SHOW_PFAD)!;
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Trotzdem/Umschaltung, Liste: Ausgangslage — P2 live geschaltet', r.ok && datei(u).iveo?.filter?.programId === 'P2');
+  u.dateien.set(SHOW_PFAD, beimOeffnen);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  u.iveo.programme[3] = { ...u.iveo.programme[3], title: 'Side Event Ozean (neu)' };
+  u.iveo.geaendert = [u.iveo.programme[3]];
+  await u.kern.abfrage();
+  await u.kern.abfrage();
+  ck('Trotzdem/Umschaltung, Liste: zurück auf der Tagesliste von damals, P2 kommt nicht von selbst zurück',
+    u.kern.aktiv()?.filter.programId === undefined && !datei(u).iveo?.filter?.programId && datei(u).iveo?.filter?.day === TAG);
+}
 
 // --- Zusammenfassung ---
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

@@ -296,11 +296,18 @@ export function formularSchluessel(pfad: string | null, f: FormularStand): strin
  * schreibt den iveo-Stand zurück; Listen-Modus → die nächste Abfrage, wenn der Abgleich wegen der unlesbaren Datei noch
  * etwas nicht schreiben konnte, sonst erst, wenn iveo ein geändertes Programm meldet (Abfragefenster bleibt,
  * iveo-abgleich-kern.ts offeneShowGespeichert). Läuft die Show nicht in diesem Launcher, gleicht hier niemand ab.
+ * Nachbesserung 2026-10-02 (Prüfer): „Trotzdem speichern“ liest die Datei noch einmal (ShowEditorModal onSave) — ist sie
+ * dann lesbar, gilt Regel 1 mit ihr, der Stand vom Öffnen wird NICHT geschrieben; darum steht er im Text nur bedingt.
+ * Der Stand vom Öffnen enthält den Filter, also die damalige Side-Event-Auswahl (baueGespeicherteShow: {...geladen}).
+ * Der Kern übernimmt den Filter aus der Datei (iveo-abgleich-kern.ts setzeAuf) und schickt RELOAD — eine Live-Umschaltung
+ * seit dem Öffnen (Panel oder LAUNCHER SIDEEVENT) ist danach zurückgenommen und kommt nie von selbst zurück (gemessen,
+ * test/iveo-abgleich.test.ts „Trotzdem/Umschaltung“). Der Satz über iveo-Änderungen gilt für diese Auswahl.
  */
 export const TEXT_SPEICHERN_DATEI_NICHT_LESBAR =
   'Show nicht gespeichert: Die Show-Datei ist gerade nicht lesbar, sonst gingen iveo-Änderungen seit dem Öffnen verloren (Details im Launcher-Log). ' +
-  `„${KNOPF_AKTUALISIEREN}“ versucht es erneut. „${KNOPF_TROTZDEM_SPEICHERN}“ schreibt Ablauf und iveo-Bindung vom Öffnen des Editors; ` +
-  'läuft die Show gerade in diesem Launcher, holt der iveo-Abgleich die iveo-Änderungen spätestens zurück, sobald sich in iveo ein Programmpunkt ändert.';
+  `„${KNOPF_AKTUALISIEREN}“ versucht es erneut. „${KNOPF_TROTZDEM_SPEICHERN}“ liest die Datei noch einmal; ist sie weiter nicht lesbar, ` +
+  'schreibt es Ablauf und iveo-Bindung vom Öffnen des Editors, auch die Side-Event-Auswahl von damals. ' +
+  'Läuft die Show gerade in diesem Launcher, holt der iveo-Abgleich die iveo-Änderungen spätestens zurück, sobald sich in iveo ein Programmpunkt ändert.';
 
 /**
  * Speichern ablehnen? Greift Regel 1, ist die aktuelle Datei aber nicht lesbar (null), schriebe das Speichern still den

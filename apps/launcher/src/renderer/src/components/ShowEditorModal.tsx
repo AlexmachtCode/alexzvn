@@ -393,7 +393,15 @@ export function ShowEditorModal() {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6">
       <Card className="w-full max-w-lg p-6 jm-fade-in">
-        <div className="-mr-2 max-h-[68vh] overflow-y-auto pr-2">
+        {/* Höchstens fensterhoch, wie #233 (SystemStatusModal): EIGENER flex-col-Container, denn Card packt die Kinder
+            in ein eigenes <div className="relative">. Höhe: Fenster minus Außenabstand (p-6) minus Innenabstand der
+            Card (p-6). Das Overlay scrollt nicht — vorher stand die Inline-Meldung (~150 px) unter dem fest 68vh hohen
+            Scrollbereich, die Karte wurde höher als das Fenster und „Aktualisieren“/„Abbrechen“ lagen außerhalb
+            (GEMESSEN 02.10.2026, Electron mit Build-CSS: bei 821 px Innenhöhe nur 16 von 38 px sichtbar, bei
+            601–790 px ganz draußen). Jetzt schrumpft nur der Scrollbereich (min-h-0); Meldung und Fußzeile nicht
+            (shrink-0). Ohne Meldung bleibt der Scrollbereich wie bisher bei höchstens 68vh. */}
+        <div className="flex max-h-[calc(100vh-6rem)] flex-col">
+        <div className="-mr-2 max-h-[68vh] min-h-0 overflow-y-auto pr-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-lg font-extrabold tracking-tight">
@@ -774,7 +782,7 @@ export function ShowEditorModal() {
         {angebot && (
           <div
             role="alert"
-            className="mt-4 rounded-[var(--radius)] border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 px-3 py-2"
+            className="mt-4 shrink-0 rounded-[var(--radius)] border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 px-3 py-2"
           >
             <p className="text-[11px] text-[var(--destructive)] break-words">{angebot.text}</p>
             <div className="mt-2 flex justify-end">
@@ -797,6 +805,7 @@ export function ShowEditorModal() {
               {busy ? 'Speichere…' : editPath ? KNOPF_AKTUALISIEREN : 'Speichern'}
             </Button>
           </div>
+        </div>
         </div>
       </Card>
     </div>
