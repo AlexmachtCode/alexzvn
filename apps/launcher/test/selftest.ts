@@ -3,7 +3,7 @@
 import { startShowTools } from '../src/main/show-launch.ts';
 import { PresenceStore, gueltigerVerbund } from '../src/main/presence-store.ts';
 import { kopfanzeige, kopfEingang, kopfText, kopfZeile, type KopfEingang } from '../src/renderer/src/lib/kopfanzeige.ts';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { beimSchliessen } from '../src/renderer/src/lib/verbund-schliessen.ts';
 import {
   ablehnungText, codeFeldLeeren, koppelnMoeglich, neueKennungAnbieten, speicherFehlerText, toolVerbundText, toolZeilen, zeigeCode,
@@ -537,6 +537,40 @@ await (async () => {
   } catch (e) { keinArray = (e as Error).message; }
   ck('R5: eine Antwort, die keine Liste ist, wird als Fehler gemeldet', keinArray.includes('kein Array'));
 })();
+
+// --- Show-Editor 0.13.1: Meldung sichtbar, „Trotzdem speichern“ (Verdrahtung, Quelltext-Prüfung wie oben) ----------
+// Die Regeln selbst (speichernAbgelehnt mit trotzdem, formularSchluessel, Text) prüft test/show-speichern.test.ts.
+{
+  const quelle = (datei: string): string => readFileSync(new URL(`../src/renderer/src/${datei}`, import.meta.url), 'utf8');
+  const zWert = (klasse: string): number => Number(klasse.replace(/^z-\[?/, '').replace(/\]$/, ''));
+  // M1: Die Meldung (notice) lag ohne z-index hinter dem Show-Editor (fixed inset-0 z-50).
+  const overlays: Array<[string, number]> = [];
+  for (const datei of readdirSync(new URL('../src/renderer/src/components/', import.meta.url))) {
+    if (!datei.endsWith('.tsx')) continue;
+    for (const m of quelle(`components/${datei}`).matchAll(/fixed inset-0\b[^"]*?\b(z-\[\d+\]|z-\d+)/g)) overlays.push([datei, zWert(m[1])]);
+  }
+  const toast = /\{notice && \(\s*<div className="([^"]*)"/.exec(quelle('App.tsx'))?.[1] ?? '';
+  const toastZ = /(?:^|\s)(z-\[\d+\]|z-\d+)(?=\s|$)/.exec(toast)?.[1];
+  const hoechstes = Math.max(...overlays.map(([, z]) => z));
+  ck(`M1: alle Vollbild-Overlays haben einen z-Wert (${overlays.length} gefunden, höchster ${hoechstes})`,
+    overlays.length >= 10 && Number.isFinite(hoechstes));
+  ck('M1: die Meldung liegt über JEDEM Overlay des Launchers', toastZ !== undefined && zWert(toastZ) > hoechstes);
+  ck('M1: … und ihre Ebene fängt weiter keine Klicks (pointer-events-none)', toast.includes('pointer-events-none'));
+  // M1b/M2: Ablehnung inline bei den Knöpfen, „Trotzdem speichern“ nur für den abgelehnten Stand.
+  const editor = quelle('components/ShowEditorModal.tsx');
+  ck('M2: onSave reicht trotzdem an speichernAbgelehnt durch',
+    editor.includes('speichernAbgelehnt(editPath ? geladen : null, f, aktuelleDatei, trotzdem)'));
+  ck('M2: der Knopf „Trotzdem speichern“ ruft onSave(true) und trägt die Beschriftung aus show-speichern.ts',
+    /onClick=\{\(\) => void onSave\(true\)\}>\s*\{KNOPF_TROTZDEM_SPEICHERN\}/.test(editor));
+  ck('M2: der Speichern-Knopf beim Bearbeiten trägt KNOPF_AKTUALISIEREN (die Meldung nennt ihn)',
+    editor.includes("editPath ? KNOPF_AKTUALISIEREN : 'Speichern'"));
+  ck('M2: das Angebot gilt nur ohne laufendes Speichern und für genau den abgelehnten Formularstand',
+    /ablehnung && !busy && ablehnung\.schluessel === formularSchluessel\(editPath, formular\(\)\)/.test(editor));
+  const resetForm = /const resetForm = \(\): void => \{([\s\S]*?)\n {2}\};/.exec(editor)?.[1] ?? '';
+  ck('M2: resetForm (Abbrechen, Bestehende öffnen, nach dem Speichern) räumt die Ablehnung weg', resetForm.includes('setAblehnung(null)'));
+  ck('M2: ein neuer Speicherversuch räumt die alte Ablehnung zuerst weg',
+    /const onSave = async \(trotzdem = false\): Promise<void> => \{\s*setBusy\(true\);[^]*?setAblehnung\(null\);\s*try \{/.test(editor));
+}
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -7,6 +7,9 @@ import {
   baueGespeicherteShow,
   bindungAusEditor,
   formularAusShow,
+  formularSchluessel,
+  KNOPF_AKTUALISIEREN,
+  KNOPF_TROTZDEM_SPEICHERN,
   speichernAbgelehnt,
   zeilenAusAblauf,
   zeilenAusSeed,
@@ -62,6 +65,9 @@ export function ShowEditorModal() {
   const [geladen, setGeladen] = useState<Show | null>(null);
   // In diesem Editor neu an iveo gebunden („Ablauf übernehmen“) → die Bindung wird geschrieben.
   const [iveoNeuGebunden, setIveoNeuGebunden] = useState(false);
+  // Letzte Ablehnung beim Speichern (Spec 7.5 Regel 1, Datei nicht lesbar): Text + Schlüssel des abgelehnten
+  // Formularstands. Inline-Meldung und „Trotzdem speichern“ gelten nur, solange das Formular genau diesen Stand zeigt.
+  const [ablehnung, setAblehnung] = useState<{ text: string; schluessel: string } | null>(null);
 
   // iveo-Event-Bindung (#11). Token bleibt nur transient hier im Feld; der Main-
   // Prozess legt ihn beim Binden verschlüsselt ab und gibt ihn NIE zurück.
@@ -105,6 +111,7 @@ export function ShowEditorModal() {
     setEditPath(null);
     setGeladen(null);
     setIveoNeuGebunden(false);
+    setAblehnung(null);
     clearEditorSeed();
   }, [open, editorSeed, clearEditorSeed]);
 
@@ -304,6 +311,7 @@ export function ShowEditorModal() {
     setEditPath(null);
     setGeladen(null);
     setIveoNeuGebunden(false);
+    setAblehnung(null);
   };
 
   const cancel = (): void => {
@@ -344,17 +352,26 @@ export function ShowEditorModal() {
     );
   };
 
-  const onSave = async (): Promise<void> => {
+  /**
+   * Speichern. `trotzdem` = „Trotzdem speichern“ nach einer Ablehnung: die Datei wird trotzdem noch einmal gelesen —
+   * ist sie jetzt lesbar, gilt Regel 1 mit ihr; sonst schreibt das Speichern Ablauf und Bindung vom Öffnen des Editors.
+   */
+  const onSave = async (trotzdem = false): Promise<void> => {
     setBusy(true);
+    // Dieser Versuch entscheidet neu: eine frühere Ablehnung samt Angebot gilt nicht mehr.
+    setAblehnung(null);
     try {
       const f = formular();
       // Bearbeiten: die Datei so lesen, wie sie JETZT ist — eine iveo-Abfrage kann sie
       // seit dem Laden neu geschrieben haben (Spec 7.5, Regel 1).
       const aktuelleDatei = editPath ? await window.jmps.readShow(editPath) : null;
-      // Braucht Regel 1 die aktuelle Datei und ist sie nicht lesbar, nicht still den Stand vom Öffnen schreiben.
-      const abgelehnt = speichernAbgelehnt(editPath ? geladen : null, f, aktuelleDatei);
+      // Braucht Regel 1 die aktuelle Datei und ist sie nicht lesbar, nicht still den Stand vom Öffnen schreiben —
+      // nur, wenn der Bediener es nach der Ablehnung ausdrücklich wählt („Trotzdem speichern“).
+      const abgelehnt = speichernAbgelehnt(editPath ? geladen : null, f, aktuelleDatei, trotzdem);
       if (abgelehnt) {
         setNotice(abgelehnt);
+        // Zusätzlich inline bei den Knöpfen, mit dem Angebot — für genau diesen Formularstand.
+        setAblehnung({ text: abgelehnt, schluessel: formularSchluessel(editPath, f) });
         return;
       }
       const show = baueGespeicherteShow(editPath ? geladen : null, f, aktuelleDatei, () => crypto.randomUUID());
@@ -367,6 +384,11 @@ export function ShowEditorModal() {
       setBusy(false);
     }
   };
+
+  // Ablehnung inline zeigen (mit „Trotzdem speichern“) nur, solange nicht gespeichert wird und das Formular noch
+  // genau den abgelehnten Stand zeigt — kein Angebot für einen veralteten Formularstand.
+  const angebot =
+    ablehnung && !busy && ablehnung.schluessel === formularSchluessel(editPath, formular()) ? ablehnung : null;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6">
@@ -749,6 +771,20 @@ export function ShowEditorModal() {
 
         </div>
 
+        {angebot && (
+          <div
+            role="alert"
+            className="mt-4 rounded-[var(--radius)] border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 px-3 py-2"
+          >
+            <p className="text-[11px] text-[var(--destructive)] break-words">{angebot.text}</p>
+            <div className="mt-2 flex justify-end">
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void onSave(true)}>
+                {KNOPF_TROTZDEM_SPEICHERN}
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
           <span className="text-xs text-[var(--muted-foreground)]">
             {selectedCount} Tool(s) gewählt
@@ -758,7 +794,7 @@ export function ShowEditorModal() {
               Abbrechen
             </Button>
             <Button variant="primary" disabled={!canSave} onClick={() => void onSave()}>
-              {busy ? 'Speichere…' : editPath ? 'Aktualisieren' : 'Speichern'}
+              {busy ? 'Speichere…' : editPath ? KNOPF_AKTUALISIEREN : 'Speichern'}
             </Button>
           </div>
         </div>

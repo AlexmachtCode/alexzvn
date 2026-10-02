@@ -888,6 +888,71 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
     seit.length === 2 && seit[1] === snap && seit[1] !== '2026-10-01T08:00:00.000Z');
 }
 
+// --- „Trotzdem speichern“ im Show-Editor (2026-10-02): wann kommt der iveo-Stand zurück? ---------------------------
+// Messung für TEXT_SPEICHERN_DATEI_NICHT_LESBAR (renderer/src/lib/show-speichern.ts). „Trotzdem speichern“ schreibt die
+// Show so, wie sie beim Öffnen des Editors war (baueGespeicherteShow mit aktuelleDatei = null, dort getestet); die Hülle
+// meldet es dem Kern wie jedes Speichern der offenen Show (offeneShowGespeichert, gleiche Bindung, nicht neu gebunden).
+const titel = (s: Show): string[] => (s.ablauf ?? []).map((p) => p.label);
+const letztesFenster = (u: Umgebung): string =>
+  u.iveo.abrufe.filter((x) => x.startsWith('geaendert:')).at(-1)!.slice('geaendert:'.length);
+{
+  // Listen-Modus: die Abfrage hatte eine iveo-Änderung seit dem Öffnen schon geschrieben, danach war nichts mehr offen.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  const beimOeffnen = u.dateien.get(SHOW_PFAD)!;
+  u.iveo.programme[1] = { ...u.iveo.programme[1], title: 'Side Event Wasser (verlegt)' };
+  u.iveo.geaendert = [u.iveo.programme[1]];
+  await u.kern.abfrage();
+  ck('Trotzdem/Liste: Ausgangslage — die Abfrage hat die iveo-Änderung geschrieben',
+    titel(datei(u)).includes('Side Event Wasser (verlegt)') && u.schreibversuche === 1);
+  const fenster = u.iveo.abrufe.find((x) => x.startsWith('snapshot:'))!.slice('snapshot:'.length);
+  u.iveo.geaendert = []; // iveo meldet seit diesem Abgleich kein geändertes Programm
+  u.dateien.set(SHOW_PFAD, beimOeffnen); // „Trotzdem speichern“: Stand vom Öffnen des Editors
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  await u.kern.abfrage();
+  ck('Trotzdem/Liste: die nächste Abfrage fragt ab dem letzten Abgleich, nicht ab syncedAt der Datei', letztesFenster(u) === fenster);
+  ck('… und schreibt nichts: die iveo-Änderung bleibt überschrieben',
+    u.schreibversuche === 1 && !titel(datei(u)).includes('Side Event Wasser (verlegt)'));
+  // Ein anderes Programm ändert sich in iveo — sogar eines außerhalb des Tagesfilters (P4 am 11.11.).
+  u.iveo.programme[3] = { ...u.iveo.programme[3], title: 'Side Event Ozean (neu)' };
+  u.iveo.geaendert = [u.iveo.programme[3]];
+  await u.kern.abfrage();
+  ck('Trotzdem/Liste: sobald iveo irgendein geändertes Programm meldet (auch außerhalb des Filters), ist die Änderung zurück',
+    titel(datei(u)).includes('Side Event Wasser (verlegt)') && u.schreibversuche === 2);
+}
+{
+  // Listen-Modus: die Datei wurde unlesbar, bevor die Abfrage eine weitere iveo-Änderung schreiben konnte.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  const beimOeffnen = u.dateien.get(SHOW_PFAD)!;
+  u.iveo.programme[1] = { ...u.iveo.programme[1], title: 'Side Event Wasser (verlegt)' };
+  u.iveo.geaendert = [u.iveo.programme[1]];
+  await u.kern.abfrage();
+  u.dateien.set(SHOW_PFAD, '{ kaputt');
+  u.iveo.programme[2] = { ...u.iveo.programme[2], title: 'Side Event Wald (neu)' };
+  u.iveo.geaendert = [u.iveo.programme[2]];
+  await u.kern.abfrage();
+  const fenster = letztesFenster(u);
+  ck('Trotzdem/Liste, Datei unlesbar: die Abfrage kann nicht schreiben, Status „Show-Datei nicht lesbar“',
+    u.schreibversuche === 1 && u.status.at(-1)?.text === 'Show-Datei nicht lesbar');
+  u.dateien.set(SHOW_PFAD, beimOeffnen);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  await u.kern.abfrage();
+  ck('… nach „Trotzdem speichern“ fragt die nächste Abfrage im selben Fenster und schreibt beide Änderungen zurück',
+    letztesFenster(u) === fenster && u.schreibversuche === 2
+    && titel(datei(u)).includes('Side Event Wasser (verlegt)') && titel(datei(u)).includes('Side Event Wald (neu)'));
+}
+{
+  // Side Event im Detail (Agenda-Modus): die Agenda wird bei jeder Abfrage geholt.
+  const u = umgebung(agendaP1);
+  const beimOeffnen = u.dateien.get(SHOW_PFAD)!;
+  u.iveo.agenda.P1 = [...u.iveo.agenda.P1, punkt('P1', 'a4', 'Schlusswort', 4, 5)];
+  await u.kern.abfrage();
+  ck('Trotzdem/Side Event: Ausgangslage — die Abfrage hat den neuen Agenda-Punkt geschrieben', ids(datei(u)) === 'a1,a2,a3,a4');
+  u.dateien.set(SHOW_PFAD, beimOeffnen);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  await u.kern.abfrage();
+  ck('Trotzdem/Side Event: die nächste Abfrage schreibt den iveo-Stand zurück', ids(datei(u)) === 'a1,a2,a3,a4' && u.schreibversuche === 2);
+}
+
 // --- Zusammenfassung ---
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
