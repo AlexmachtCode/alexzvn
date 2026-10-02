@@ -94,6 +94,46 @@ std::string fieldFromJson(const std::string& line, const char* key);
  */
 bool numberFromJson(const std::string& line, const char* key, unsigned long long* out);
 
+/**
+ * Das Ergebnis von boolFromJson() - DREI Faelle, drei Namen.
+ *
+ * Vorher waren es drei Faelle hinter EINEM false. Der Kopfsatz unten
+ * beschrieb sie bereits, unterscheidbar waren sie nicht - und die einzige
+ * Aufrufstelle warf den Rueckgabewert weg. Ein {"audio":"false"} oder
+ * {"audio":0} bekam damit stillschweigend Ton AN, und stderr meldete
+ * zufrieden "Ton-Schalter fuer 42: an". Das verletzt "Nichts verschwindet
+ * still" an genau der Stelle, an der das Nachbarfeld zwei Zeilen darueber
+ * (resolution -> videoBadResolution) es vormacht (Schlusspruefung Stage 3,
+ * Important 6).
+ */
+enum class JsonBool {
+  /** Kein Schluessel an einer Schluesselposition. Der Aufrufer behaelt seine Vorgabe. */
+  Fehlt,
+  /** true oder false gelesen - *out traegt den Wert. */
+  Gelesen,
+  /** Der Schluessel ist da, aber es folgt weder true noch false. NICHT raten. */
+  Unlesbar,
+};
+
+/**
+ * Wahrheitswert-Gegenstueck zu fieldFromJson()/numberFromJson().
+ *
+ * WARUM ES DAS BRAUCHT: fieldFromJson() liest ausdruecklich nur
+ * Zeichenketten, numberFromJson() nur Ziffernfolgen. Ein {"audio":true}
+ * faellt durch BEIDE durch - der Schalter waere im nativen Teil unsichtbar,
+ * und "audio":false wuerde stillschweigend als "Vorgabe an" gelesen. Genau
+ * diese Luecke hat in Stage 2 bei "id" das Merkmal gegen den echten Prozess
+ * unbenutzbar gemacht.
+ *
+ * @param out wird NUR bei JsonBool::Gelesen geschrieben. Der Aufrufer setzt
+ *            seine Vorgabe also VOR dem Aufruf und laesst sie stehen, wenn
+ *            das Feld fehlt.
+ * @returns Fehlt, Gelesen oder Unlesbar - drei Ausgaenge, die der Aufrufer
+ *          verschieden beantworten MUSS: eine fehlende Angabe ist eine
+ *          Vorgabe, eine unlesbare ist ein Fehler.
+ */
+JsonBool boolFromJson(const std::string& line, const char* key, bool* out);
+
 /** Der Wert von "cmd", oder "" wenn die Zeile keiner ist. */
 std::string cmdOf(const std::string& line);
 
@@ -337,3 +377,27 @@ SDKError sessionStartRawRecording();
  * Rohdaten seien schon frei.
  */
 void sessionClearRawRecording();
+
+/**
+ * Tritt dem TONKANAL des Meetings bei. Idempotent je Meeting.
+ *
+ * WARUM DAS NOETIG IST — GEMESSEN am 18.08.2026 gegen ein echtes Meeting:
+ * ohne diesen Aufruf antwortet subscribe() des Roh-Ton-Helfers mit
+ * SDKERR_NOT_JOIN_AUDIO (32). Zoom trennt "im Meeting sein" und "am Ton des
+ * Meetings haengen"; wer nicht am Ton haengt, bekommt auch keine Rohdaten
+ * davon. Das BILD hat diese Bedingung nicht — deshalb lief Stage 2 durch,
+ * waehrend der Ton am ersten echten Meeting scheiterte.
+ *
+ * Nimmt dabei zwei Schutzmassnahmen mit, die den Regieraum betreffen und
+ * NICHT den Tonempfang: keine lokale Wiedergabe (sonst Rueckkopplung ueber
+ * die Raummikrofone) und Stummschaltung unserer selbst (JoinVoip macht uns
+ * zum Ton-Teilnehmer, und wir wollen ausschliesslich empfangen). Scheitert
+ * eine davon, wird sie auf stderr gemeldet und der Beitritt bleibt stehen.
+ *
+ * @returns SDKERR_SERVICE_FAILED, wenn es keinen Ton-Regler gibt, sonst das,
+ *          was JoinVoip() geliefert hat.
+ */
+SDKError sessionJoinVoip();
+
+/** Verlaesst den Tonkanal wieder. Tut nichts, wenn wir nie beigetreten sind. */
+void sessionLeaveVoip();

@@ -53,7 +53,7 @@ const zoomBin = process.env.ZOOM_SDK_DIR ? `${process.env.ZOOM_SDK_DIR}\\x64\\bi
  * "quit". Jeder Fall bekommt seinen EIGENEN Prozess - ein Abo-Zustand
  * (g_subs in video.cpp) darf zwischen den drei Faellen nicht mitlaufen.
  */
-function runCase(name, line, expectedCode) {
+function runCase(name, line, expectedCode, expectedId) {
   return new Promise((resolve) => {
     let settled = false;
     const settle = (result) => {
@@ -69,6 +69,13 @@ function runCase(name, line, expectedCode) {
     });
 
     let sawCode = null;
+    // ABSICHTLICH undefined als Startwert: das Fehlen der Kennung ist ein
+    // ERWARTETES Ergebnis (zwei Stellen in main.cpp melden
+    // videoUnknownParticipant, ohne je eine gelesen zu haben), und ein
+    // Vergleich gegen undefined trifft genau diesen Fall - waehrend null
+    // stillschweigend "gar keine Fehlermeldung" mit "Fehler ohne Kennung"
+    // vermengt haette.
+    let sawId = undefined;
     let spawnError = null;
     const splitter = new LineSplitter();
 
@@ -79,6 +86,7 @@ function runCase(name, line, expectedCode) {
         const ev = parseWireEvent(l);
         if (ev && ev.ev === 'error' && ev.where === 'video' && sawCode === null) {
           sawCode = ev.code;
+          sawId = ev.id;
         }
       }
     });
@@ -93,7 +101,7 @@ function runCase(name, line, expectedCode) {
     });
 
     child.on('exit', () => {
-      settle({ ok: sawCode === expectedCode, sawCode, spawnError });
+      settle({ ok: sawCode === expectedCode && sawId === expectedId, sawCode, sawId, spawnError });
     });
 
     // Sicherheitsnetz: reagiert die Bridge nie (z. B. der Prozess startet
@@ -105,7 +113,7 @@ function runCase(name, line, expectedCode) {
       } catch {
         /* schon weg */
       }
-      settle({ ok: false, sawCode, spawnError: spawnError ?? new Error('Zeitueberschreitung: kein Prozessende') });
+      settle({ ok: false, sawCode, sawId, spawnError: spawnError ?? new Error('Zeitueberschreitung: kein Prozessende') });
     }, 5000);
     safety.unref?.();
 
@@ -128,30 +136,52 @@ const cases = [
     name: 'gueltige Zahl -> Erlaubnis fehlt (Beleg: die Zahl WURDE gelesen)',
     line: '{"cmd":"videoSubscribe","id":42}',
     expected: 'videoNoPrivilege',
+    // NACHGETRAGEN nach dem Owner-Lauf vom 18.08.2026: dort stand
+    // "FEHLER bei video: VIDEO_UNKNOWN_PARTICIPANT" neben zwei abonnierten
+    // Kennungen, und welche gemeint war, stand nirgends. Ein Fehler ohne sein
+    // Abo ist keinem Abo zuzuordnen.
+    expectedId: 42,
     failExitCode: 1,
   },
   {
     name: '"id" fehlt -> unbekannte Kennung',
     line: '{"cmd":"videoSubscribe"}',
     expected: 'videoUnknownParticipant',
+    // KEINE Kennung erwartet - hier wurde keine gelesen. Dieser Fall ist die
+    // Gegenprobe zu den beiden anderen: er belegt, dass das Feld nicht
+    // pauschal angehaengt wird (eine 0 waere eine erfundene Angabe).
+    expectedId: undefined,
     failExitCode: 2,
   },
   {
     name: 'gueltige Zahl, ungueltige Aufloesung -> videoBadResolution',
     line: '{"cmd":"videoSubscribe","id":42,"resolution":"4k"}',
     expected: 'videoBadResolution',
+    expectedId: 42,
     failExitCode: 3,
+  },
+  {
+    // GEMESSEN am 30.09.2026 beim Bau von videoDelay: numberFromJson() las
+    // "42.7" als 42 - obwohl sein Kopfsatz (session.h) Nachkommastellen
+    // ausdruecklich als "nicht auswertbar" nennt. Eine abgeschnittene Kennung
+    // kann auf einen FREMDEN, existierenden Teilnehmer zeigen. Erwartet ist
+    // darum dieselbe Antwort wie bei einer fehlenden Kennung.
+    name: 'Kennung mit Nachkommastellen -> unbekannte Kennung, nicht abgeschnitten',
+    line: '{"cmd":"videoSubscribe","id":42.7}',
+    expected: 'videoUnknownParticipant',
+    expectedId: undefined,
+    failExitCode: 4,
   },
 ];
 
 let firstFailure = null;
 let anySpawnError = null;
 for (const c of cases) {
-  const r = await runCase(c.name, c.line, c.expected);
+  const r = await runCase(c.name, c.line, c.expected, c.expectedId);
   if (r.spawnError && !anySpawnError) anySpawnError = r.spawnError;
   const ok = r.ok && !r.spawnError;
   console.log(
-    `  [${c.name}] erwartet ${c.expected}, gesehen ${r.sawCode ?? '(keine video-Fehlermeldung)'} - ${ok ? 'OK' : 'FEHLGESCHLAGEN'}`,
+    `  [${c.name}] erwartet ${c.expected}/id=${c.expectedId ?? '(keine)'}, gesehen ${r.sawCode ?? '(keine video-Fehlermeldung)'}/id=${r.sawId ?? '(keine)'} - ${ok ? 'OK' : 'FEHLGESCHLAGEN'}`,
   );
   if (!ok && firstFailure === null) firstFailure = c;
 }
@@ -167,9 +197,9 @@ if (anySpawnError) {
 }
 
 if (firstFailure === null) {
-  console.log('\nOK — alle drei Faelle des nativen Befehlslesers wie erwartet.');
+  console.log(`\nOK — alle ${cases.length} Faelle des nativen Befehlslesers wie erwartet.`);
   process.exit(0);
 }
 
-console.error(`\nFEHLGESCHLAGEN — Fall "${firstFailure.name}" wich vom erwarteten Code ab.`);
+console.error(`\nFEHLGESCHLAGEN — Fall "${firstFailure.name}" wich vom erwarteten Code oder von der erwarteten Kennung ab.`);
 process.exit(firstFailure.failExitCode);

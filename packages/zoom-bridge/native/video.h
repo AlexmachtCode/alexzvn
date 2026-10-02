@@ -22,8 +22,13 @@ bool videoParseResolution(const std::string& key, ZoomSDKResolution* out);
  * Abonniert das Video eines Teilnehmers und legt dafuer einen NDI-Sender an.
  * Meldet Erfolg und jeden Fehlschlag SELBST auf stdout - der Aufrufer
  * bekommt keinen Rueckgabewert, den er vergessen koennte.
+ *
+ * audioOn entscheidet, ob dieses Abo AUCH den Ton des Teilnehmers auf die
+ * Quelle legt (Stage 3). Der Schalter steht beim Abonnieren fest - siehe
+ * Sub::audioOn in video.cpp fuer die Begruendung (Spec Abschnitt 10: kein
+ * nachtraegliches Umschalten).
  */
-void videoSubscribe(unsigned int userId, ZoomSDKResolution res);
+void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn);
 
 /** Baut ein Abo ab. Meldet ebenfalls selbst. */
 void videoUnsubscribe(unsigned int userId);

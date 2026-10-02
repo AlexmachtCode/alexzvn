@@ -25,7 +25,14 @@ jobs:
     # (gh release create <app>-v<version> + Installer-Upload). transcribe ließe
     # sich auf macos-latest perspektivisch CI-automatisieren (whisper.cpp aus
     # Quelle baubar, kein Secret) — bewusst noch nicht umgesetzt.
-    if: ${{ !startsWith(github.ref_name, 'ndi-screen-capture-v') && !startsWith(github.ref_name, 'switcher-v') && !startsWith(github.ref_name, 'recorder-v') && !startsWith(github.ref_name, 'titler-v') && !startsWith(github.ref_name, 'transcribe-v') && !startsWith(github.ref_name, 'caption-v') && !startsWith(github.ref_name, 'daw-v') && !startsWith(github.ref_name, 'connect-v') }}
+    # zoom-bridge-v* ist KEIN App-Tag: packages/zoom-bridge ist ein natives Sidecar
+    # (Zoom-Meeting-SDK + NDI-SDK, beide fehlen hier), es gibt kein apps/zoom-bridge,
+    # und der Lauf würde beim Auflösen der App rot. Das Einsatzpaket wird lokal gebaut
+    # (npm run release:build -w @jm/zoom-bridge) und das Release von Hand angelegt —
+    # NUR das öffentliche ZIP, nie das KOMPLETT-Paket (packages/zoom-bridge/README.md
+    # Abschnitt 10). Mit dem Job entfällt auch bump-manifest (needs: release): die
+    # Bridge ist kein Katalog-Tool in suite.json.
+    if: ${{ !startsWith(github.ref_name, 'ndi-screen-capture-v') && !startsWith(github.ref_name, 'switcher-v') && !startsWith(github.ref_name, 'recorder-v') && !startsWith(github.ref_name, 'titler-v') && !startsWith(github.ref_name, 'transcribe-v') && !startsWith(github.ref_name, 'caption-v') && !startsWith(github.ref_name, 'daw-v') && !startsWith(github.ref_name, 'connect-v') && !startsWith(github.ref_name, 'zoom-bridge-v') }}
     strategy:
       fail-fast: false
       matrix:

@@ -56,6 +56,26 @@ const child = spawn(binPath(), ['--ndi-selftest'], {
 // Namen, gegen die Kernregel "eine Ursache, ein Name". Mitgelesen wird per
 // LineSplitter/parseWireEvent (derselbe Zerleger wie in src/bridge.ts), nicht
 // per Text-Grep auf die Rohzeile.
+//
+// Rueckgabewerte dieses Pruefstands, EINE Ursache je Wert:
+//   0 - Quelle gefunden UND Ton angekommen.
+//   1 - Quelle nicht gefunden (Sammelfall, letzter Ausweg).
+//   2 - ndiInitFailed: die NDI-Laufzeit fehlt auf diesem Rechner.
+//   3 - die Bruecke kam nie bis "sending".
+//   4 - videoSenderFailed: NDIlib_send_create ist fehlgeschlagen.
+//   5 - Quelle gefunden, aber KEIN Ton angekommen. Das ist NICHT derselbe
+//       Fall wie 3: 3 heisst "kam nie bis sending" (die Quelle warb also nie
+//       fuer sich), 5 heisst "die Quelle warb, aber schwieg beim Ton" - zwei
+//       verschiedene Orte zum Suchen, die dieselbe Zahl gegeneinander
+//       verwechselbar gemacht haette.
+//   6 - Quelle gefunden, aber createReceiver() ist FEHLGESCHLAGEN (wirft in
+//       @jm/ndi statt false zurueckzugeben). Auch das ist NICHT derselbe Fall
+//       wie 5: 5 heisst "verbunden, aber nichts gehoert" - ein Befund UEBER
+//       DEN TONWEG. 6 heisst "gar nicht erst verbunden" - ein Befund UEBER
+//       DIE NDI-VERBINDUNG selbst, bevor der Tonweg ueberhaupt geprueft
+//       werden konnte. Wer 5 liest, sucht im Audio-Pfad; wer 6 liest, sucht
+//       in der NDI-Empfaenger-Anlage - unterschiedliche Stellen, darum
+//       unterschiedliche Zahlen.
 let sawSending = false;
 let sawNdiInitFailed = false;
 let sawVideoSenderFailed = false;
@@ -63,9 +83,9 @@ let spawnError = null;
 const splitter = new LineSplitter();
 
 // NUR aufgesetzt, NICHT hier schon abgewartet - das muss NACH der
-// Sucheschleife unten passieren, sonst wuerde auf das Prozessende gewartet,
-// BEVOR ueberhaupt einmal gesucht wurde, und die zwei Sekunden Sendezeit
-// waeren fuer die Suche verloren.
+// Sucheschleife UND der Tonpruefung unten passieren, sonst wuerde auf das
+// Prozessende gewartet, BEVOR ueberhaupt einmal gesucht oder empfangen wurde,
+// und die fuenf Sekunden Sendezeit waeren dafuer verloren.
 const exitPromise = new Promise((resolve) => {
   child.on('exit', (code) => resolve(code));
   // Eine gescheiterte spawn() (z. B. binPath() zeigt ins Leere) darf nicht
@@ -91,20 +111,94 @@ child.stdout.on('data', (d) => {
 child.stderr.setEncoding('utf8');
 child.stderr.on('data', (d) => process.stderr.write(`  [bridge] ${d}`));
 
-// Der Sender sendet zwei Sekunden. Innerhalb dieser Zeit mehrfach suchen:
-// NDI-Erkennung im Netz braucht ein paar hundert Millisekunden.
-let gefunden = false;
-for (let i = 0; i < 8 && !gefunden; i++) {
+// Der Sender sendet jetzt fuenf Sekunden (150 Durchlaeufe à 33 ms, siehe
+// Kommentar im --ndi-selftest-Zweig von native/main.cpp) - bewusst laenger
+// als frueher (zwei Sekunden): Suche UND Tonempfang muessen BEIDE noch in
+// die Sendezeit passen. Innerhalb dieser Zeit mehrfach suchen: NDI-Erkennung
+// im Netz braucht ein paar hundert Millisekunden.
+//
+// Gemerkt wird der VOLLE Fundname, nicht nur ein Ja/Nein: createReceiver()
+// unten braucht ihn woertlich (mit Rechnername/Prozess-Suffix, wie ihn NDI
+// im Netz bewirbt).
+let gefundenName = null;
+for (let i = 0; i < 8 && !gefundenName; i++) {
   for (const s of ndi.findSources(250)) {
-    if (String(s).includes(ERWARTET)) gefunden = true;
+    if (String(s).includes(ERWARTET)) {
+      gefundenName = s;
+      break;
+    }
+  }
+}
+
+// Tonpruefung: NUR moeglich, waehrend das Kind noch sendet - darum HIER, vor
+// dem Warten auf das Prozessende (exitPromise) weiter unten. Ohne das waere
+// der Sender laengst zu (TerminateProcess), bevor wir auch nur verbunden
+// haetten.
+let tonGesehen = false;
+// Getrennt von tonGesehen gehalten: "nicht verbunden bekommen" (Code 6) und
+// "verbunden, aber stumm" (Code 5) sind zwei verschiedene Ursachen und
+// duerfen nicht ueber denselben Ja/Nein-Wert zusammenfallen - sonst waere
+// receiverFehler nur eine Textzeile fuer Menschen, aber fuer die
+// Rueckgabewert-Entscheidung unten unsichtbar (dieselbe Falle, die schon
+// beim vorherigen Rueckgabewert 3-vs-5 vermieden wurde).
+let receiverFehler = null;
+if (gefundenName) {
+  let empfangBereit = false;
+  try {
+    empfangBereit = ndi.createReceiver(gefundenName);
+  } catch (e) {
+    // Nichts verschwindet still: eine gescheiterte Verbindung zur GEFUNDENEN
+    // Quelle ist eine eigene, meldenswerte Ueberraschung, kein Grund, die
+    // Tonpruefung wortlos zu ueberspringen.
+    receiverFehler = e instanceof Error ? e.message : String(e);
+    console.error(`\n  createReceiver('${gefundenName}') ist fehlgeschlagen: ${receiverFehler}`);
+  }
+  if (empfangBereit) {
+    // Bis zu 20 * 250 ms = 5 s Budget, bricht frueher ab, sobald ein
+    // Ton-Frame da ist. So grosszuegig, weil die Suche oben schon bis zu 2 s
+    // gekostet haben kann (150-Durchlaeufe-Kommentar oben) - ein zu knappes
+    // Budget wuerde einer Quelle, die tatsaechlich sendet, faelschlich
+    // "stumm" vorwerfen. Video-Frames werden dabei einfach uebergangen
+    // (nicht ausgewertet) - es geht hier nur um den Tonweg.
+    for (let i = 0; i < 20 && !tonGesehen; i++) {
+      const f = ndi.receive(250);
+      if (f && f.type === 'audio') {
+        tonGesehen = true;
+        console.log(`  audio: ${f.sampleRate} Hz, ${f.channels} Kanal/Kanaele, ${f.samples} Abtastwerte`);
+      }
+    }
+    // Nicht offen lassen: der Prozess endet zwar gleich danach, aber ein
+    // Receiver, der nie geschlossen wird, ist ein Aufraeum-Schritt, der
+    // fehlt - und genau das soll dieser Pruefstand fuer den PRODUKTIVEN Code
+    // vorleben, nicht selbst unterlassen.
+    ndi.closeReceiver();
   }
 }
 
 const exitCode = await exitPromise;
 
-if (gefunden) {
-  console.log(`\nOK — die Quelle "${ERWARTET}" war im Netz auffindbar.`);
-  process.exit(0);
+if (gefundenName) {
+  if (tonGesehen) {
+    console.log(`\nOK — die Quelle "${ERWARTET}" war auffindbar UND hat Ton geliefert.`);
+    process.exit(0);
+  }
+  // !== null, NICHT der blosse Wahrheitswert (Schlusspruefung, M15): ein
+  // Error mit leerer message setzt receiverFehler auf '' - wahrheitswertig
+  // falsch, obwohl createReceiver() nachweislich gescheitert ist. Rueckgabe 6
+  // fiele dann still auf 5 zurueck, also genau die Vermischung zweier
+  // Ursachen, gegen die der Kommentar an receiverFehler oben argumentiert.
+  if (receiverFehler !== null) {
+    // Code 6, NICHT 5: siehe Kommentar oben - "nicht verbunden" ist eine
+    // andere Ursache als "verbunden, aber stumm" und braucht darum einen
+    // eigenen Rueckgabewert, keinen geteilten.
+    console.error(
+      `\nEINRICHTUNGSFEHLER — die Quelle "${ERWARTET}" war auffindbar, aber createReceiver() ist ` +
+        `fehlgeschlagen (${receiverFehler}).`,
+    );
+    process.exit(6);
+  }
+  console.error(`\nTEILWEISE — die Quelle "${ERWARTET}" war auffindbar, aber es kam KEIN Ton an.`);
+  process.exit(5);
 }
 
 // Ab hier: NICHT gefunden. Vier unterscheidbare Ursachen, vier Meldungen,

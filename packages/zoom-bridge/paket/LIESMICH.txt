@@ -1,0 +1,205 @@
+﻿JM ZOOM BRIDGE – LIESMICH
+=========================
+
+Was ist das?
+------------
+Die JM Zoom Bridge holt Teilnehmer aus einem Zoom-Meeting als einzelne
+NDI-Quellen ins Netz: je Person ein eigenes Bild mit eigenem Ton. Im
+Bildmischer (JM Switcher, vMix, OBS mit NDI, NDI-Monitor …) steht jede Quelle
+mit dem Rechnernamen davor, zum Beispiel
+
+    STUDIO-PC (JM Connect – Zoom Anna)
+
+Den Rechnernamen setzt NDI selbst davor. Heißen zwei Personen gleich, hängt
+die Bridge an die zweite Quelle " (2)" an, an die dritte " (3)" usw.
+
+Bild und Ton werden NICHT aufgezeichnet – sie gehen nur als NDI ins Netz.
+Auf die Platte geschrieben werden nur:
+- %APPDATA%\JM Zoom Bridge\ – die gemerkten Vorgaben (Pfad der
+  Zugangsdaten-Datei, Anzeigename, Bild-Versatz). Meeting-Nummer und
+  Kenncode werden NIE gespeichert.
+- %APPDATA%\ZoomSDK\ – Einstellungen und Protokolle, die das Zoom-SDK
+  selbst anlegt.
+
+
+Voraussetzungen
+---------------
+- Windows 10 oder 11, 64 Bit.
+- Ein Zoom-Meeting im eigenen Zoom-Konto. Wir sind Gastgeber – oder der
+  Gastgeber erteilt uns im Meeting die Aufnahme-Erlaubnis (Zoom fragt ihn
+  danach, sobald die Bridge beitritt).
+- Die Zugangsdaten-Datei (JSON mit clientId und clientSecret der
+  "Meeting SDK"-App). Sie liegt NICHT im Paket und gehört nicht in fremde
+  Hände.
+- Nur beim öffentlichen Paket (ohne "KOMPLETT" im Namen): die Zoom-Dateien
+  fehlen aus Lizenzgründen. Einmalig den GESAMTEN Inhalt des Ordners
+      <Zoom-SDK>\x64\bin
+  (mit den Unterordnern) in den Ordner "bin" dieses Pakets kopieren – dorthin,
+  wo schon zoom-bridge.exe liegt. Nicht nur sdk.dll: fehlt eine einzige Datei,
+  startet die Bridge nicht. Alternativ die Umgebungsvariable ZOOM_SDK_DIR auf
+  den entpackten Zoom-SDK-Ordner setzen.
+  Beim KOMPLETT-Paket ist das schon erledigt.
+
+Den Ordner an einen festen Platz entpacken (Leerzeichen im Pfad sind kein
+Problem). Node muss nicht installiert sein. Die Microsoft-Visual-C++-Laufzeit,
+die Bridge und Zoom-Dateien brauchen, liegt im Ordner bin bei
+(msvcp140.dll, vcruntime140.dll, vcruntime140_1.dll …) – auch sie muss also
+nicht installiert werden.
+
+
+Bedienung Schritt für Schritt
+-----------------------------
+1. Doppelklick auf "Zoom-Bridge starten.cmd". Es öffnet sich ein eigenes
+   Fenster "JM Zoom Bridge".
+2. Fragen beantworten. Vorgaben in [Klammern] übernimmt Enter.
+   - Zugangsdaten-Datei: Pfad zur JSON-Datei (wird gemerkt).
+   - Modus: [1] Meeting beitreten, [2] nur Zugangsdaten prüfen.
+     Tipp: vor der Veranstaltung einmal [2] – das prüft die Anmeldung bei
+     Zoom, ohne einem Meeting beizutreten.
+   - Meeting-Nummer (Leerzeichen erlaubt) und Kenncode (wird nicht angezeigt).
+     Beides wird NICHT gespeichert.
+   - Anzeigename: so heißt die Bridge im Meeting (Vorgabe "JM Connect").
+   - Bild-Versatz in ms: siehe unten. Vorgabe ist der zuletzt bestätigte Wert.
+3. Die Bridge tritt bei. Steht "Im Warteraum" da: der Gastgeber muss
+   "JM Connect" im Zoom-Client einlassen. Die Bridge wartet so lange, wie es
+   dauert ("ende" bricht ab).
+4. Die Bridge zeigt die Teilnehmerliste:
+
+       Teilnehmer (3):
+         16778240  Anna  Rolle attendee
+         …
+
+   Die Zahl links ist die Kennung. Sie gilt nur für DIESES Meeting.
+5. Wenn Zoom fragt: im Zoom-Client die Aufnahme erlauben. Es erscheint
+   "Rohdaten-Erlaubnis: JA".
+6. Personen abonnieren: "+" und die Kennung tippen, Enter. Kurz danach ist die
+   NDI-Quelle da.
+7. Zum Schluss "ende" tippen und Enter. Die Bridge verlässt das Meeting
+   sauber und zeigt das ERGEBNIS. (Strg+C wirkt genauso.) Endet das Meeting,
+   beendet sich die Bridge von selbst.
+   Das Fenster NICHT mit dem X schließen: dann bleibt keine Zeit, das Meeting
+   sauber zu verlassen, und "JM Connect" steht unter Umständen noch eine Weile
+   im Meeting.
+
+
+Befehle im Lauf (tippen, dann Enter)
+------------------------------------
+  <Zahl>         Bild-Versatz in ms für ALLE Zoom-Quellen, 0 bis 1000.
+  +<Kennung>     Bild und Ton dieser Person als NDI-Quelle abonnieren.
+  +<Kennung> stumm
+                 nur Bild, ohne Ton.
+  -<Kennung>     dieses Abo beenden. Achtung: "-" heißt abbestellen –
+                 einen negativen Versatz gibt es nicht.
+  liste          Teilnehmer und laufende Abos anzeigen.
+  ende           Meeting verlassen und beenden.
+  hilfe  oder ?  alle Befehle anzeigen.
+
+Ton nachträglich an- oder abschalten: erst "-<Kennung>", dann neu mit
+"+<Kennung>" bzw. "+<Kennung> stumm". Ein Abo, das schon läuft, wird nicht
+ein zweites Mal geschickt ("läuft schon").
+
+Tritt jemand während des Laufs neu bei, steht kurz danach der passende Befehl
+da ("abonnieren mit +<Kennung>").
+
+Geht eine abonnierte Person und kommt wieder, bekommt sie von Zoom eine NEUE
+Kennung. Ist ihr Name im Meeting eindeutig, hängt die Bridge das Abo von
+selbst um – es erscheint "Abo automatisch umgehängt … nichts zu tun", die
+NDI-Quelle bleibt dieselbe. Heißen zwei Personen gleich (Handys heißen oft
+wie das Gerät), bleibt die Quelle schwarz: dann "-<alte Kennung>" und
+"+<neue Kennung>" tippen.
+
+
+Bild-Versatz einstellen (Klatschtest)
+-------------------------------------
+Zoom liefert den Ton später als das Bild. Die Bridge hält darum das Bild um
+einen einstellbaren Wert zurück. Der richtige Wert muss vor Ort gemessen
+werden:
+
+- KOPFHÖRER benutzen, am echten Empfang abhören (Bildmischer bzw.
+  NDI-Monitor). Über Lautsprecher im selben Raum hallt der Ton im Kreis, dann
+  misst man den Raum statt der Technik.
+- Eine Person klatscht scharf vor ihrer Kamera, dreimal.
+- Ton kommt hinterher  -> Zahl größer tippen (z. B. 400, Enter).
+  Bild kommt hinterher -> Zahl kleiner tippen.
+  Erst in 50er-, dann in 20er-Schritten, bis Knall und Hände zusammenfallen.
+- Jede Eingabe bestätigt die Bridge mit "Bild-Versatz: <n> ms (von der Bridge
+  bestaetigt …)". Nur diese bestätigte Zahl gilt.
+- Beim Ändern friert das Bild kurz ein oder springt – darum VOR der Sendung
+  einstellen, nicht währenddessen.
+- Der zuletzt bestätigte Wert wird sofort gesichert (auch wenn das Fenster
+  danach abstürzt oder geschlossen wird) und beim nächsten Start
+  vorgeschlagen. Bitte den Wert notieren und an das Entwicklungsteam geben.
+
+
+Rückgabewerte (stehen am Ende als ERGEBNIS da)
+----------------------------------------------
+  0  Im Meeting gewesen, Aufnahme-Erlaubnis war erteilt.
+     (Bei "nur Zugangsdaten prüfen": Anmeldung hat geklappt.)
+  1  Abgebrochen, bevor es losging: Zugangsdaten falsch oder abgelehnt,
+     Zoom-Dateien fehlen oder sind unvollständig, Meeting-Nummer unlesbar …
+  3  Im Meeting gewesen, aber ohne Aufnahme-Erlaubnis – ohne sie gibt es
+     kein Bild und keinen Ton.
+  4  Nicht ins Meeting gekommen (Nummer, Kenncode, Meeting läuft nicht,
+     nicht aus dem Warteraum eingelassen) – oder vorher mit "ende" bzw.
+     Strg+C abgebrochen.
+  5  Die Bridge ist unerwartet beendet worden (Absturz). Bild und Ton waren ab
+     da weg. Die Meldungen im Fenster an das Entwicklungsteam schicken.
+  6  Die Verbindung zum Meeting ist abgerissen (Netz oder Zoom). Neu starten.
+
+
+Typische Meldungen
+------------------
+  [zoom-bridge] unlesbare Zeile: getServiceHub
+      KEIN Fehler. Eine Ausgabe des Zoom-SDK, die bei jedem Start kommt.
+  ...HasRawdataLicense()=false   (in einer [zoom-bridge]-Zeile)
+      KEIN Fehler. Ein Überbleibsel von Zoom; alles funktioniert trotzdem.
+      Nicht danach suchen.
+  Die Bridge ist beim Start gestorben (0xC0000135 …: eine DLL fehlt)
+      Die Zoom-Dateien in bin sind unvollständig: den GESAMTEN Inhalt von
+      <Zoom-SDK>\x64\bin (mit Unterordnern) kopieren. Mit den Zugangsdaten
+      hat das nichts zu tun.
+  FEHLER bei exit: EXITED_UNEXPECTEDLY  (darunter exitCode=…)
+      Die Bridge ist abgestürzt. Die Zeilen darüber und darunter mitschicken.
+  FEHLER bei video: VIDEO_BAD_DELAY
+      Der eingetippte Versatz war keine ganze Zahl von 0 bis 1000 (z. B.
+      "4.5"). Der alte Wert gilt weiter.
+  FEHLER bei audio: AUDIO_VOIP_JOIN_FAILED
+      Die Bridge kam nicht in den Tonkanal des Meetings. Ohne ihn gibt es
+      keinen Ton. Meeting neu betreten; tritt es wieder auf, melden.
+  Kein Abo gesendet: die Rohdaten-Erlaubnis fehlt noch
+      Der Gastgeber muss im Zoom-Client die Aufnahme erlauben.
+  … steht nicht in der Teilnehmerliste
+      Tippfehler oder eine Kennung aus einem früheren Meeting – "liste"
+      zeigt die aktuellen.
+  … ist schon abonniert (laeuft schon)
+      Das Abo läuft bereits. Ton umschalten: erst "-<Kennung>", dann neu.
+  ACHTUNG: das wird das 6. gleichzeitige Abo
+      Geprüft sind 5 Personen gleichzeitig. Mehr kann gehen, ist aber nicht
+      erprobt.
+  Die Zoom-Laufzeitdateien fehlen
+      Öffentliches Paket: Inhalt von <Zoom-SDK>\x64\bin nach bin kopieren
+      (siehe Voraussetzungen).
+  zoom-join.exe liess sich nicht starten
+      Meist blockiert der Virenschutz oder Smart App Control die Datei (sie
+      ist nicht signiert). Dort freigeben oder das Paket neu entpacken.
+
+
+Grenzen
+-------
+- Kein Tally, kein Rückweg (IFB/Talkback) und kein Mix-Minus je Person.
+- Erprobt sind 5 gleichzeitige Abos.
+- Kein Bildschirm-Teilen-Ton, kein Mischton, kein Dolmetscherkanal.
+- Bricht die Verbindung ab, verbindet sich die Bridge nicht von selbst neu –
+  neu starten (ERGEBNIS 6).
+
+
+Lizenzen
+--------
+NDI® ist ein eingetragenes Warenzeichen der Vizrt NDI AB.
+https://ndi.video/ – Lizenztext im Ordner LIZENZEN.
+zoom-join.exe enthält die Node.js-Laufzeit (MIT-Lizenz und die Lizenzen der
+mitgelieferten Bausteine, u. a. V8, OpenSSL, ICU, libuv – Text in
+LIZENZEN\Node.js-LICENSE.txt).
+Die Dateien msvcp140*.dll, vcruntime140*.dll, concrt140.dll und
+vccorlib140.dll in bin sind die Microsoft-Visual-C++-Laufzeit, die Microsoft
+zur Weitergabe mit Anwendungen freigibt.
