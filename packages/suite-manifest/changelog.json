@@ -27,8 +27,8 @@
         "date": "2026-10-02",
         "notes": [
           "Show-Editor: Kann der Launcher die Show-Datei beim Aktualisieren gerade nicht lesen, ist die Meldung jetzt zu sehen. Bisher lag sie hinter dem abgedunkelten Editor, und Aktualisieren schien nichts zu tun. Die Meldung steht zusätzlich direkt über den Knöpfen.",
-          "Neu nach dieser Meldung: „Trotzdem speichern“. Der Launcher liest die Datei dafür noch einmal. Ist sie inzwischen lesbar, speichert er ganz normal. Ist sie weiter nicht lesbar, etwa weil sie fehlt oder beschädigt ist, schreibt er Ablauf und iveo-Bindung vom Öffnen des Editors. Läuft die Show gerade in diesem Launcher, holt der iveo-Abgleich iveo-Änderungen seit dem Öffnen spätestens zurück, sobald sich in iveo ein Programmpunkt ändert.",
-          "Hinweise des Launchers erscheinen jetzt immer über geöffneten Dialogen statt dahinter."
+          "Neu nach dieser Meldung: „Trotzdem speichern“. Der Launcher liest die Datei dafür noch einmal. Ist sie inzwischen lesbar, speichert er ganz normal. Ist sie weiter nicht lesbar, etwa weil sie fehlt oder beschädigt ist, schreibt er Ablauf und iveo-Bindung vom Öffnen des Editors, auch die Side-Event-Auswahl von damals. Wurde seitdem live auf ein anderes Side Event oder die Tagesübersicht umgeschaltet, ist das danach zurückgenommen. Läuft die Show gerade in diesem Launcher, holt der iveo-Abgleich die iveo-Änderungen seit dem Öffnen für diese Auswahl spätestens zurück, sobald sich in iveo ein Programmpunkt ändert.",
+          "Hinweise des Launchers erscheinen jetzt immer über geöffneten Dialogen statt dahinter. Knöpfe darunter bleiben dabei klickbar."
         ]
       },
       {
