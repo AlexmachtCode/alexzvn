@@ -1,6 +1,6 @@
 # Zoom Stage 4: Die Zoom-Bridge in JM Connect (connect-v0.2.0)
 
-**Datum:** 02.10.2026 · **Status:** Entwurf
+**Datum:** 02.10.2026 · **Status:** Vom Owner freigegeben am 02.10.2026 (Antworten auf die offenen Fragen in Abschnitt 19)
 **Bezug:** Issue #197, Stufe 4 von 4. Roadmap-Zeile `docs/roadmap.md:154` („4 · Integration + Release“).
 **Vorgänger:** Stage 1–3 der Bridge (`packages/zoom-bridge`), zuletzt Stage 3 „Ton je Teilnehmer“ (PR #229, gemergt als `b666e5c5f4`).
 **Arbeitsstand:** Branch `feat/zoom-stage4-connect` = `main` @ `b666e5c5f4`. Alle Fundstellen in diesem Spec sind an diesem Stand nachgelesen.
@@ -68,7 +68,7 @@ Beim Ausarbeiten kamen Stellen heraus, die die Besprechung nicht abdeckte oder a
 - **Keine Änderung am C++-Teil** der Bridge (Ergänzung 0.14).
 - **Kein eigener Katalog-Eintrag** für die Bridge. Das Einzelpaket `zoom-bridge-v0.1.0` bleibt als Notfallweg (F5).
 - **Keine Signatur** der EXE-Dateien.
-- **Keine Behebung der Altfehler** aus 17.2, außer dem Tray-Text (Ergänzung 0.8) und dem veralteten Companion-Protokoll (Ergänzung 0.12). Ob 17.2 Nr. 2 und 3 vor der ersten Auslieferung der Connect-Rolle behoben werden, ist Owner-Frage O2 (Abschnitt 19).
+- **Keine Behebung der Altfehler** aus 17.2, außer dem Tray-Text (Ergänzung 0.8), dem veralteten Companion-Protokoll (Ergänzung 0.12) und den Fernsteuer-Altfehlern 17.2 Nr. 2 und 3. Die beiden letzten behebt 4b vor der ersten Auslieferung der Connect-Rolle (Owner 02.10.2026, Abschnitt 19 O2).
 
 ---
 
@@ -1426,14 +1426,14 @@ Mitzuziehen: `docs/roadmap.md:29` („`zoom_*`-Verben zweigen in `App.tsx` … a
 Nr. 1–3 betreffen die Fernsteuerung der Rolle `connect`. Kein ausgeliefertes Companion-Modul hatte diese Rolle bisher (Ergänzung 0.12). Mit Modul 0.2.0 werden sie also **erstmals** für Companion-Nutzer sichtbar.
 
 1. Die Variable `connected` ist deklariert (`capabilities.ts:604`), wird aber nie gepusht (`App.tsx:68-81`).
-2. Die Connect-Feedbacks `onair` und `lobby` hängen an Anzahlen. Companion wertet `truthy` nur bei `'1'` aus (`lib.mjs:55-57`). Bei 2 Gästen auf Sendung bliebe die Taste dunkel. Ob das vor der ersten Auslieferung behoben wird: Owner-Frage O2.
-3. `active_label` und `standby_label` enthalten Namen mit Leerzeichen. Der STATE-Parser trennt sie (`suite-control-protocol/src/index.ts:115`), Companion sähe nur das erste Wort.
+2. Die Connect-Feedbacks `onair` und `lobby` hängen an Anzahlen. Companion wertet `truthy` nur bei `'1'` aus (`lib.mjs:55-57`). Bei 2 Gästen auf Sendung bliebe die Taste dunkel. **Wird in 4b behoben** (Owner 02.10.2026). Abnahmekriterium: Bei 1, 2 und 5 Gästen auf Sendung bzw. in der Lobby leuchtet die Taste, bei 0 nicht. Den Weg (Feedback „Anzahl > 0“ oder zusätzliche Wahrheitsvariablen mit `'1'`/`'0'`) legt der 4b-Plan fest, mit Test gegen `lib.mjs`.
+3. `active_label` und `standby_label` enthalten Namen mit Leerzeichen. Der STATE-Parser trennt sie (`suite-control-protocol/src/index.ts:115`), Companion sähe nur das erste Wort. **Wird in 4b behoben** (Owner 02.10.2026). Abnahmekriterium: Ein Gastname mit Leerzeichen (z. B. „Anna Maria Beispiel“) kommt ganz in der Companion-Variable an. Den Weg (Kodierung im STATE, die der Parser ganz liest) legt der 4b-Plan fest, mit Test durch Parser und Companion-Modul. Gilt ebenso für die Zoom-Variablen mit Anzeigenamen (11.1).
 4. Tray „Raum schließen“ ist nur bei Gast-Sendern aktiv (`tray.ts:71`), nicht bei offenem Raum ohne Gäste.
 5. Tray-Text „Gast/Gäste auf Sendung“ zählt NDI-Sender. **Wird in Stage 4 behoben** (7.3).
 6. Companion-Modul ohne die Rolle `connect` und ohne die Titler-Aktionen `graphic`/`slot` (Stand 02.07.2026). **Wird in Stage 4 behoben** (11.4) und per CI abgesichert (12.6).
 7. Die `app.asar` von Connect 0.1.0 enthält Bauartefakte von `@jm/ndi` (`build/Release/*.iobj`, `.lib`, `obj/…tlog`) und die Quellen der gebündelten `@jm/*`-Pakete (gemessen am Inhaltsverzeichnis). Ballast, kein Fehler im Betrieb. Für Zoom wird es durch Ergänzung 0.18 vermieden; der Rest gehört in ein eigenes Issue.
 
-Für 1–4 und 7 empfiehlt sich ein eigenes Issue.
+Für 1, 4 und 7 empfiehlt sich ein eigenes Issue.
 
 ### 17.3 Abstimmung mit Master-Link 2b (E1: parallel)
 
@@ -1461,7 +1461,7 @@ Ein Spec, **ein** Release `connect-v0.2.0`, aber zwei Implementierungspläne. Be
 | Teil | Inhalt | Ende |
 | --- | --- | --- |
 | **4a · Fundament** | Bridge-Paket (`sdk.ts`, `FAIL_CODE_NAMES`/`failReason`/`endReason`, `auslieferung.mjs` mit `app.asar`-Prüfung, Attrappe); Laufzeit-Ordner und Einrichtung samt Mängeln und Sperre; Kern **ohne** automatischen Wiederbeitritt (bei Abriss gleich `fehler` mit „Erneut beitreten“), aber **mit** Generationsregel (6.9), Einlass aus dem Warteraum, Verlassen/Schließen/Meldung (6.8) und `stateKv()` (ohne `zoom_cmd*`); Hülle, IPC, Oberfläche mit Meldungsbereich, Status (Abschnitt 7 vollständig); Beenden; Paketierung mit beiden Wächtern; Tests 12.1, 12.3, `zoom-text.test.ts` aus 12.4, und 12.2 **ohne** die Fälle 15, 15b, 15c, 16–18, 22, 25 und **ohne** die Fernsteuer-Teile von Fall 13 und 21; CI-Schritte für Bridge und Connect | interner Bau, Owner-Kurztest am echten Meeting: Abnahme 1–8, 10, 19, 21, 22, 24 (liefert M1, M3, M7, M9) |
-| **4b · Betrieb und Auslieferung** | Abriss und Wiederbeitritt (6.4) samt Fällen 15, 15b, 15c, 16–18, 25; Fernsteuerung (Abschnitt 11: Capabilities, Verben im Main, `zoom_cmd*`, STATE mischen) samt Fall 22, den Fernsteuer-Teilen von Fall 13 und 21, `control-state.test.ts` (12.4), Companion-Sync und CI-Schritt „Companion-Protokoll aktuell“; Abstimmung mit 2b (17.3); Handbuch und Doku; volle Abnahme (13); Release (15) | `connect-v0.2.0` |
+| **4b · Betrieb und Auslieferung** | Abriss und Wiederbeitritt (6.4) samt Fällen 15, 15b, 15c, 16–18, 25; Fernsteuerung (Abschnitt 11: Capabilities, Verben im Main, `zoom_cmd*`, STATE mischen) samt Fall 22, den Fernsteuer-Teilen von Fall 13 und 21, `control-state.test.ts` (12.4), Companion-Sync und CI-Schritt „Companion-Protokoll aktuell“; Altfehler 17.2 Nr. 2 und 3 samt Tests (Owner 02.10.2026); Abstimmung mit 2b (17.3); Handbuch und Doku; volle Abnahme (13); Release (15) | `connect-v0.2.0` |
 
 Will der Owner lieber einen einzigen Plan, trägt der Spec auch das. Dann läuft der Kurztest aus 4a als Zwischenschritt vor den Aufgaben zu 6.4 (Owner-Frage O3).
 
@@ -1476,3 +1476,8 @@ Keiner der Prüfbefunde widerspricht einer Owner-Entscheidung E1–E9; alle sind
 | O1 | Darf `zoom-bridge.exe` (gebaut gegen Zoom-Header) öffentlich weitergegeben werden, im Einzelpaket seit 01.10.2026 und jetzt im Connect-Installer? | Klären vor dem Release; nach E2 blockiert es Stage 4 nicht (10.4, 17.1). | nein |
 | O2 | Mit Companion-Modul 0.2.0 wird die Rolle `connect` erstmals ausgeliefert, samt der Altfehler 17.2 Nr. 2 (Feedbacks `onair`/`lobby` dunkel bei mehr als einem Gast) und Nr. 3 (Namen in STATE abgeschnitten). Sollen Nr. 2 und 3 vor dieser ersten Auslieferung behoben werden, oder gehen sie als bekannte Grenze ins Handbuch und in ein eigenes Issue? | Eigenes Issue, Handbuch nennt die Grenze; Stage 4 bleibt im Umfang. | nein (nur Release-Notizen) |
 | O3 | Zwei Pläne (4a, 4b) wie in Abschnitt 18 oder ein einziger Plan mit Zwischentest? | Zwei Pläne. | nein |
+
+**Antworten des Owners (02.10.2026):**
+- **O1:** offen. Vor dem Release von `connect-v0.2.0` klären; blockiert 4a und 4b nicht.
+- **O2:** **In 4b mitbeheben**, abweichend vom Vorschlag oben. 17.2 Nr. 2 und 3 werden vor der ersten Auslieferung der Connect-Rolle behoben (17.2, 18, Abschnitt 1).
+- **O3:** **Zwei Pläne**, 4a und danach 4b, ein Release.
