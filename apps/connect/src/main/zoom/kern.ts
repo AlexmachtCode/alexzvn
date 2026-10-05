@@ -51,7 +51,9 @@ import {
   fehlerDetail,
   mangelText,
   maskiere,
+  quellenFehler,
   spawnMeldung,
+  tonZustand,
   type Meldungstext,
 } from './klartext';
 import {
@@ -68,7 +70,7 @@ import {
   type SdkWahl,
 } from './laufzeit';
 import type { SollListe } from './soll';
-import { baueTeilnehmer, zaehleQuellen } from './teilnehmer';
+import { baueTeilnehmer, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
 
 /** Spec 5.2. Für Tests einspeisbar (`fristen`); `abgleichMs` bleibt in den Fällen 14/14b bei 300. */
 export const ZOOM_FRISTEN = {
@@ -136,6 +138,9 @@ export interface ZoomKern {
   beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
   erneut(): Promise<ZoomErgebnis>;
   verlassen(): Promise<void>;
+  laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis>;
+  entladen(e: { aboId: number }): Promise<ZoomErgebnis>;
+  ton(e: { id: number; an: boolean }): ZoomErgebnis;
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
@@ -226,6 +231,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   const tonVorwahl = new Map<number, boolean>();
   /** Zeilenfehler ohne laufende Quelle (Q2, Q8 …), je Teilnehmer-ID. */
   const zeilenFehler = new Map<number, string>();
+  const tonAngefragt = new Map<number, boolean>();
+  const aboFristen = new Map<number, ReturnType<typeof setTimeout>>();
 
   // ── Abbild und Drossel ───────────────────────────────────────────────────
   let letzterPush = 0;
@@ -327,6 +334,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function melde(art: 'info' | 'warnung' | 'fehler', m: Meldungstext): void {
     meldung = { art, text: m.text, detail: m.detail };
     d.log(`[zoom] Meldung (${art}): ${m.text}${m.detail ? ` [${m.detail}]` : ''}`);
+  }
+
+  function hinweis(text: string): void {
+    hinweise.push(text);
+    while (hinweise.length > HINWEISE_MAX) hinweise.shift();
+    d.log(`[zoom] Hinweis: ${text}`);
   }
 
   // ── Einrichtung (Spec 5.3, 6.1) ──────────────────────────────────────────
@@ -456,6 +469,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function versatz(e: { ms: number }): ZoomErgebnis {
     if (!Number.isInteger(e.ms) || e.ms < 0 || e.ms > 1000) return { ok: false, text: KT.Q13 };
     d.einstellungen.setzeVersatzMs(e.ms);
+    sende({ cmd: 'videoDelay', ms: e.ms });
     abbildGeaendert();
     return { ok: true };
   }
@@ -577,6 +591,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     startNr += 1;
     tonVorwahl.clear();
     zeilenFehler.clear();
+    tonAngefragt.clear();
     const ordner = lzErg.ordner;
     const bridge = fabrik(
       {
@@ -682,6 +697,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         break;
       case 'error':
         fehlerEreignis(ev as unknown as FehlerEreignis);
+        break;
+      case 'video':
+        videoEreignis(ev as unknown as VideoEreignis);
+        break;
+      case 'audio':
+        audioEreignis(ev as unknown as AudioEreignis);
         break;
     }
     abbildGeaendert();
@@ -824,6 +845,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function fehlerEreignis(e: FehlerEreignis): void {
+    if (e.where === 'video' || e.where === 'audio') {
+      quellenFehlerEreignis(e);
+      return;
+    }
     const name = e.name ?? String(e.code);
     if (e.where === 'privilege') {
       melde('warnung', { text: KT.Q12(name), detail: fehlerDetail(e) });
@@ -862,6 +887,128 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     meldung = null;
     warImMeeting = false;
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
+  }
+
+  // ── Quellen (Spec 6.3, 8.4) ──────────────────────────────────────────────
+  function aboBeantwortet(id: number): void {
+    const t = aboFristen.get(id);
+    if (t === undefined) return;
+    clearTimeout(t);
+    aboFristen.delete(id);
+  }
+
+  function abonniere(id: number, ton: boolean): void {
+    zeilenFehler.delete(id);
+    tonAngefragt.set(id, ton);
+    if (!sende({ cmd: 'videoSubscribe', id, resolution: AUFLOESUNG, audio: ton })) return;
+    aboBeantwortet(id);
+    const gen = aktiveGen;
+    aboFristen.set(
+      id,
+      zeitgeber(f.aboAntwortMs, () => {
+        aboFristen.delete(id);
+        if (gen !== aktiveGen || imAbbau.has(gen)) return;
+        zeilenFehler.set(id, KT.Q8);
+        d.log(`[zoom] Abo ${id}: keine Antwort der Zoom-Bridge`);
+        abbildGeaendert();
+      }),
+    );
+  }
+
+  function videoEreignis(e: VideoEreignis): void {
+    aboBeantwortet(e.id);
+    if (e.state === 'unsubscribed') {
+      quellen.delete(e.id);
+      return;
+    }
+    let alt = quellen.get(e.id);
+    if (e.reason === 'rebound' || e.reason === 'reboundByName') {
+      for (const [id, q] of quellen) {
+        if (id === e.id || q.gen !== aktiveGen || q.ndiName !== e.source) continue;
+        quellen.delete(id);
+        alt = alt ?? q;
+        tonAngefragt.set(e.id, tonAngefragt.get(id) ?? true);
+        d.log(`[zoom] Quelle ${id} → ${e.id} umgehängt (${e.reason})`);
+      }
+    }
+    zeilenFehler.delete(e.id);
+    quellen.set(e.id, {
+      gen: aktiveGen,
+      aboId: e.id,
+      ndiName: e.source,
+      bild: e.state,
+      bildGrund: e.reason,
+      ton: alt?.ton ?? (tonAngefragt.get(e.id) === false ? 'aus' : 'waiting'),
+      tonGrund: alt?.tonGrund ?? null,
+      fehler: alt?.fehler ?? null,
+    });
+  }
+
+  function audioEreignis(e: AudioEreignis): void {
+    const q = quellen.get(e.id);
+    if (!q || q.gen !== aktiveGen) return;
+    if (e.state === 'off' && e.reason === 'command' && tonAngefragt.get(e.id) === false) {
+      q.ton = 'aus';
+      q.tonGrund = null;
+    } else {
+      q.ton = e.state;
+      q.tonGrund = e.reason;
+    }
+    const t = tonZustand(e.state, e.reason);
+    if (t.art === 'zeile') q.fehler = t.text;
+  }
+
+  function quellenFehlerEreignis(e: FehlerEreignis): void {
+    const id = typeof e.id === 'number' ? e.id : null;
+    if (id !== null) aboBeantwortet(id);
+    const person = id !== null ? (aktiveSitzung()?.participants.get(id)?.name ?? null) : null;
+    const einordnung = quellenFehler(String(e.code), e.name ?? String(e.code), person, e.dropped);
+    if (einordnung.art === 'keine') return;
+    if (einordnung.art === 'hinweis' || id === null) {
+      hinweis(einordnung.text);
+      return;
+    }
+    const q = quellen.get(id);
+    if (q && q.gen === aktiveGen) q.fehler = einordnung.text;
+    else zeilenFehler.set(id, einordnung.text);
+  }
+
+  async function laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis> {
+    if (zustand !== 'im_meeting') return { ok: false, text: '' };
+    if (erlaubnis !== 'ja') return { ok: false, text: KT.Q1 };
+    const s = aktiveSitzung();
+    const p = s?.participants.get(e.id);
+    if (!s || !p || p.self) return { ok: false, text: KT.Q2 };
+    if (p.inWaitingRoom) return { ok: false, text: KT.Q15 };
+    const n = aktiveQuellen().size;
+    if (n >= BETRIEBSGROESSE && !e.trotzBetriebsgroesse) return { ok: false, text: KT.Q9(n + 1) };
+    const schluessel = normName(p.name);
+    abonniere(e.id, e.ton);
+    soll.set(schluessel, { name: p.name, ton: e.ton, ndiName: ndiVorschau(p.name), aboId: e.id });
+    d.log(`[zoom] Quelle laden: Teilnehmer ${e.id}${e.ton ? '' : ' (ohne Ton)'}`);
+    abbildGeaendert();
+    return { ok: true };
+  }
+
+  async function entladen(e: { aboId: number }): Promise<ZoomErgebnis> {
+    let vergessen = false;
+    for (const [k, s] of soll) {
+      if (s.aboId !== e.aboId) continue;
+      soll.delete(k);
+      vergessen = true;
+    }
+    const q = quellen.get(e.aboId);
+    const gesendet = q !== undefined && q.gen === aktiveGen && sende({ cmd: 'videoUnsubscribe', id: e.aboId });
+    if (gesendet || vergessen) d.log(`[zoom] Quelle ${e.aboId} entladen`);
+    abbildGeaendert();
+    return gesendet || vergessen ? { ok: true } : { ok: false, text: KT.Q2 };
+  }
+
+  function ton(e: { id: number; an: boolean }): ZoomErgebnis {
+    if (aktiveQuellen().has(e.id)) return { ok: false, text: KT.Q14 };
+    tonVorwahl.set(e.id, e.an);
+    abbildGeaendert();
+    return { ok: true };
   }
 
   // ── Beenden (Spec 6.6) ───────────────────────────────────────────────────
@@ -924,6 +1071,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     beitreten,
     erneut,
     verlassen,
+    laden,
+    entladen,
+    ton,
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),

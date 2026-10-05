@@ -1011,6 +1011,124 @@ console.log('— Verlassen (Fall 26, Review Focus 2) und Abriss in 4a');
   await p.aufraeumen();
 }
 
+// ── Aufgabe 14: Quellen, Laden/Entladen, Ton, Versatz, Kollision ─────────────
+const ANNA = 16778240;
+const BEN = 16778241;
+const CARLA = 16778242;
+function zeile(p: Probe, id: number): ZoomAbbild['teilnehmer'][number] | undefined {
+  return p.kern.abbild().teilnehmer.find((t) => t.id === id);
+}
+
+console.log('— Laden und Entladen (Fall 10, 10b, 11, 12)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_PRIVILEGE: 'nein' }) });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await bis(() => p.kern.kurz().erlaubnis === 'abgelehnt');
+  ck('Fall 10: Laden ohne Erlaubnis → Q1, kein videoSubscribe',
+    text(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false })) === KT.Q1 && !cmds(p).includes('videoSubscribe'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('Laden außerhalb des Meetings → ok:false ohne Text', text(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false })) === '');
+  await insMeeting(p);
+  ck('Laden eines Unbekannten → Q2', text(await p.kern.laden({ id: 4242, ton: true, trotzBetriebsgroesse: false })) === KT.Q2);
+  ck('Ton-Schalter Ben aus (ohne Quelle) → ok, nur Bens Zeile', ok(p.kern.ton({ id: BEN, an: false }))
+    && zeile(p, BEN)?.tonVorwahl === false && zeile(p, ANNA)?.tonVorwahl === true);
+  const r = await p.kern.laden({ id: BEN, ton: zeile(p, BEN)?.tonVorwahl ?? true, trotzBetriebsgroesse: false });
+  const sub = p.befehle(1).find((c) => c.cmd === 'videoSubscribe');
+  ck('Fall 11: videoSubscribe mit 720p und Ton nach Schalter (aus)', ok(r) && sub?.id === BEN && sub.resolution === '720p' && sub.audio === false);
+  ck('… Quelle „JM Connect – Zoom Ben“, ohne Ton geladen', await bis(() => zeile(p, BEN)?.quelle?.ndiName === 'JM Connect – Zoom Ben')
+    && (await bis(() => zeile(p, BEN)?.quelle?.ton === 'aus')));
+  ck('… STATE zoom_sources=1, zoom_live=1, Z9b (erstes Bild steht aus)', p.kern.stateKv()?.zoom_sources === 1 && p.kern.stateKv()?.zoom_live === 1
+    && zoomZ(p.kern.kurz()) === 'Z9b');
+  ck('Ton-Schalter bei geladener Quelle → Q14', text(p.kern.ton({ id: BEN, an: true })) === KT.Q14);
+  ck('Entladen → ok', ok(await p.kern.entladen({ aboId: BEN })));
+  ck('… Quelle weg, STATE zoom_sources=0, zoom_live=0',
+    (await bis(() => p.kern.kurz().quellen === 0)) && p.kern.stateKv()?.zoom_sources === 0 && p.kern.stateKv()?.zoom_live === 0);
+  ck('Entladen einer unbekannten Quelle → Q2', text(await p.kern.entladen({ aboId: 4242 })) === KT.Q2);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '200' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Fall 10b: Anna geladen', await bis(() => p.kern.kurz().quellen === 1));
+  ck('… Erlaubnis entzogen', await bis(() => p.kern.kurz().erlaubnis === 'entzogen'));
+  ck('… Z7b mit „vom Host entzogen“', zoomZ(p.kern.kurz()) === 'Z7b' && String(kartenZeile(p.kern.abbild(), Date.now())).includes('vom Host entzogen'));
+  await p.kern.entladen({ aboId: ANNA });
+  await bis(() => p.kern.kurz().quellen === 0);
+  const zeileZ7 = String(kartenZeile(p.kern.abbild(), Date.now()));
+  ck('… nach dem Entladen Z7 mit „Der Host hat sie entzogen.“, nicht Z6', zoomZ(p.kern.kurz()) === 'Z7' && zeileZ7.includes('Der Host hat sie entzogen.'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_TEILNEHMER: '6' }) });
+  await insMeeting(p);
+  const ids = p.kern.abbild().teilnehmer.map((t) => t.id);
+  for (const id of ids.slice(0, 5)) await p.kern.laden({ id, ton: true, trotzBetriebsgroesse: false });
+  ck('Fall 12: fünf Quellen geladen', ids.length === 6 && (await bis(() => p.kern.kurz().quellen === 5)));
+  const sechs = await p.kern.laden({ id: ids[5], ton: true, trotzBetriebsgroesse: false });
+  ck('… die 6. ohne trotzBetriebsgroesse → Q9 mit „6.“', text(sechs) === KT.Q9(6));
+  ck('… mit trotzBetriebsgroesse geladen', ok(await p.kern.laden({ id: ids[5], ton: true, trotzBetriebsgroesse: true }))
+    && (await bis(() => p.kern.kurz().quellen === 6)));
+  await p.aufraeumen();
+}
+
+console.log('— Doppelname, Versatz, Kollision, Q8 (Fall 13, 21, 23)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_DOPPELNAME: '1' }) });
+  await insMeeting(p);
+  ck('Fall 13: beide „Anna“ tragen doppelname', zeile(p, ANNA)?.doppelname === true && zeile(p, BEN)?.doppelname === true && zeile(p, BEN)?.name === 'Anna');
+  p.kern.ton({ id: BEN, an: false });
+  ck('… Ton der einen umschalten ändert die andere nicht', zeile(p, BEN)?.tonVorwahl === false && zeile(p, ANNA)?.tonVorwahl === true);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  await insMeeting(p);
+  const vorher = cmds(p, 1).filter((c) => c === 'videoDelay').length;
+  ck('Fall 21: 1001 → Q13', text(p.kern.versatz({ ms: 1001 })) === KT.Q13);
+  ck('… 1.5 → Q13', text(p.kern.versatz({ ms: 1.5 })) === KT.Q13);
+  await warte(100);
+  ck('… dabei kein videoDelay gesendet, nichts gespeichert', cmds(p, 1).filter((c) => c === 'videoDelay').length === vorher && p.einst.versatzMs === 0);
+  ck('… 250 → ok', ok(p.kern.versatz({ ms: 250 })));
+  ck('… videoDelay 250 gesendet und bestätigt', await bis(() => p.kern.abbild().versatz.bestaetigtMs === 250)
+    && p.befehle(1).filter((c) => c.cmd === 'videoDelay').at(-1)?.ms === 250);
+  ck('… gespeichert', p.einst.versatzMs === 250 && p.kern.abbild().versatz.gewuenschtMs === 250);
+  await p.aufraeumen();
+}
+{
+  let labels: string[] = [];
+  const p = baueKern({ gastLabels: () => labels });
+  await insMeeting(p);
+  ck('ohne Gast-Label keine Kollision', zeile(p, ANNA)?.kollision === null);
+  labels = ['JM Connect – zoom anna'];
+  p.kern.gastLabelsGeaendert();
+  ck('Fall 23: Gast „JM Connect – zoom anna“ → Annas Zeile trägt Q10', zeile(p, ANNA)?.kollision === KT.Q10('JM Connect – Zoom Anna') && zeile(p, BEN)?.kollision === null);
+  const vorher = p.abbilder.length;
+  p.kern.gastLabelsGeaendert();
+  ck('… gastLabelsGeaendert() stößt ein Abbild an', await bis(() => p.abbilder.length > vorher, 500));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sendeFilter: (c) => c.cmd !== 'videoSubscribe', fristen: { aboAntwortMs: 300 } });
+  await insMeeting(p);
+  ck('Q8: Laden ohne Antwort der Bridge → ok', ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false })));
+  ck('… nach aboAntwortMs trägt Annas Zeile Q8', await bis(() => zeile(p, ANNA)?.fehler === KT.Q8, 1500));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ABSTURZ_MS: '400' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('6.9: Quelle geladen, dann stürzt die Bridge ab → fehler', (await bis(() => p.kern.kurz().quellen === 1))
+    && (await bis(() => p.kern.kurz().zustand === 'fehler')));
+  ck('… ohne unsubscribed verwirft der Kern nach stop() die Quellen dieser Generation (n = 0, zoom_live=0)',
+    (await bis(() => p.kern.kurz().quellen === 0)) && p.kern.stateKv()?.zoom_live === 0);
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);
