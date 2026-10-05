@@ -996,6 +996,16 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     ok(datalink.mussNachlesen(), 'Befund 8: … der Poll liest erneut, obwohl sich Größe und Zeit nicht geändert haben');
     datalink.rescanJetzt();
     ok(logs.filter((l) => l.includes('kaputt.csv')).length === 1, 'Befund 8: … derselbe Fehler beim nächsten Lesen → keine zweite Logzeile');
+    // Schliff F3: Ein anderer Ordner mit einer gleichnamigen, ebenso nicht lesbaren Datei ist eine andere Datei → wieder
+    // eine Logzeile. Zurück zum ersten Ordner ebenso.
+    const lese2 = join(tmp, 'lese2');
+    mkdirSync(join(lese2, 'kaputt.csv'), { recursive: true });
+    datalink.startDataWatch(lese2, () => meldungen++, { leerHalten: false, log: (m: string) => logs.push(m) });
+    ok(logs.filter((l) => l.includes('kaputt.csv')).length === 2, 'Schliff F3: Ordnerwechsel, gleichnamige Datei dort ebenso nicht lesbar → wieder eine Logzeile');
+    datalink.startDataWatch(lese, () => meldungen++, { leerHalten: false, log: (m: string) => logs.push(m) });
+    ok(logs.filter((l) => l.includes('kaputt.csv')).length === 3, 'Schliff F3: … zurück zum ersten Ordner → wieder eine Logzeile');
+    datalink.rescanJetzt();
+    ok(logs.filter((l) => l.includes('kaputt.csv')).length === 3, 'Schliff F3: … im selben Ordner erneut gelesen → keine weitere Logzeile');
     rmSync(join(lese, 'kaputt.csv'), { recursive: true, force: true });
     datalink.rescanJetzt();
     ok(!datalink.mussNachlesen(), 'Befund 8: alle Dateien lesbar → der Poll liest erst bei der nächsten Änderung');

@@ -64,7 +64,10 @@ let watchedDir = '';
 /** Zuletzt beobachteter Ordner; `null` = noch keiner (der erste Start zählt als Ordnerwechsel). */
 let zuletztBeobachtet: string | null = null;
 let lastSig = '';
-/** Beim letzten Lesen nicht lesbare Dateien (Name und Code), damit jede nur einmal ins Log kommt (Befund 8). */
+/**
+ * Beim letzten Lesen nicht lesbare Dateien (Ordner, Name und Code), damit jede nur einmal ins Log kommt (Befund 8).
+ * Mit Ordner (Schliff F3): Eine gleichnamige Datei in einem anderen Ordner ist eine andere Datei.
+ */
 let zuletztNichtLesbar: string[] = [];
 /** Quelle Show/früher: eine leer gelesene Liste ändert nichts (A7, Spec 7.6). */
 let leerHalten = false;
@@ -191,7 +194,7 @@ function rescan(andererOrdner = false): void {
   // Befund 8: Eine nicht lesbare Datei kommt ins Log (je Datei und Code einmal, nicht bei jedem Nachlesen). lastSig
   // bleibt dann leer, damit der Poll erneut liest: Nach dem Entsperren ändern sich Größe und Zeit oft nicht mehr.
   const vorher = new Set(zuletztNichtLesbar);
-  zuletztNichtLesbar = r.nichtLesbar.map((f) => `${f.datei}\u0000${f.code}`);
+  zuletztNichtLesbar = r.nichtLesbar.map((f) => `${watchedDir}\u0000${f.datei}\u0000${f.code}`);
   r.nichtLesbar.forEach((f, i) => {
     if (!vorher.has(zuletztNichtLesbar[i])) logZeile?.(`DataLink: Datei „${f.datei}“ nicht lesbar (${f.code}), übersprungen, wird erneut gelesen.`);
   });
