@@ -18,6 +18,7 @@ import {
   sdkNamen,
   verboteneAsarEintraege,
   verboteneZoomDateien,
+  VC_PFAD_HINWEIS,
   waehleVcLaufzeit,
 } from '../scripts/auslieferung.mjs';
 
@@ -221,6 +222,7 @@ try {
       const kaputt = waehleVcLaufzeit(pkg, exeKaputt);
       assert(kaputt.ok === false && kaputt.text === `${exeKaputt} ist keine PE-Datei.`, 'Nicht-PE-EXE: ok false statt Ausnahme');
       assert(waehleVcLaufzeit(pkg, exeAlt).ok === true, 'gleiche Fassung wie der Linker genuegt');
+      assert(VC_PFAD_HINWEIS.includes(String.raw`...\VC\Redist\MSVC\<Fassung>\x64\Microsoft.VC14x.CRT`), 'Abbruchtext Laufzeit nicht gefunden nennt den Pfad mit echten Backslashes');
     } finally {
       if (vorher === undefined) delete process.env.VC_CRT_DIR;
       else process.env.VC_CRT_DIR = vorher;

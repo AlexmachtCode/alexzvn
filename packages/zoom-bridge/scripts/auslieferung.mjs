@@ -53,6 +53,8 @@ export const SDK_NAMEN_7_1_5 = [
 // Die VC-Laufzeit, die zoom-bridge.exe UND die Zoom-DLLs brauchen (gemessen:
 // 79 von 119 Dateien in x64\bin + Bridge brauchen msvcp140.dll; dazu einmal
 // msvcp140_codecvt_ids.dll). Das Zoom-SDK liefert sie fuer x64 NICHT mit.
+// String.raw: in einem normalen String fielen die Backslashes des Pfades weg.
+export const VC_PFAD_HINWEIS = String.raw`  Mit VC_CRT_DIR auf den Ordner ...\VC\Redist\MSVC\<Fassung>\x64\Microsoft.VC14x.CRT zeigen.`;
 export const VC_PFLICHT = ['msvcp140.dll', 'msvcp140_codecvt_ids.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'];
 
 /** Alle Dateien unter `dir`, rekursiv, als Pfade relativ zu `dir`. */
@@ -164,7 +166,7 @@ export function waehleVcLaufzeit(pkgDir, exe) {
       text:
         `Visual-C++-Laufzeit (Microsoft.VC14x.CRT mit ${VC_PFLICHT.join(', ')}) nicht gefunden.\n` +
         `  Gesucht in:\n  ${vc.kandidaten.join('\n  ') || '(keine Visual-Studio-Installation gefunden)'}\n` +
-        '  Mit VC_CRT_DIR auf den Ordner ...\VC\Redist\MSVC\<Fassung>\x64\Microsoft.VC14x.CRT zeigen.',
+        VC_PFAD_HINWEIS,
     };
   }
   if (!mindestens(vcLaufzeit.fassung, linker)) {
