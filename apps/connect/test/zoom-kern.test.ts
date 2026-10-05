@@ -588,6 +588,126 @@ console.log('— Fix-Runde 1: Diagnosen der Laufzeit ins Log (Spec 8.7)');
   await p.aufraeumen();
 }
 
+// ── Aufgabe 11: Startfolge, Generationen, „Einrichtung prüfen“ ──────────────
+console.log('— Einrichtung prüfen (Fall 24, 28), Startfolge S-d');
+{
+  const p = baueKern({ versatzMs: 120 });
+  const lauf = p.kern.pruefen();
+  ck('Fall 24: während der Prüfung Zustand bereit, pruefungLaeuft, laeuft()',
+    p.kern.kurz().zustand === 'bereit' && p.kern.abbild().pruefungLaeuft && p.kern.laeuft());
+  ck('… zweiter Aufruf während der Prüfung → ok:false ohne Text', text(await p.kern.pruefen()) === '');
+  ck('… Einrichtung währenddessen gesperrt (S10)', text(p.kern.einrichtungSperre()) === KT.S10);
+  const r = await lauf;
+  const m = p.kern.abbild().meldung;
+  ck('Fall 24: Ergebnis ok, Meldung info mit „7.1.5“', ok(r) && m?.art === 'info' && m.text === KT.PRUEFUNG_OK && m.text.includes('7.1.5'));
+  ck('… danach bereit, keine Prüfung, keine Bridge', p.kern.kurz().zustand === 'bereit' && !p.kern.abbild().pruefungLaeuft && !p.kern.laeuft());
+  ck('… der Zustand war durchgehend bereit', p.kurze.every((k) => k.zustand === 'bereit'));
+  ck('… Befehle init, auth, videoDelay, quit — kein join', cmds(p, 1).join(',') === 'init,auth,videoDelay,quit');
+  const c = p.befehle(1);
+  ck('… videoDelay mit dem gespeicherten Versatz (120)', c[2].ms === 120);
+  const teile = String(c[1].jwt ?? '').split('.');
+  const nutzlast = teile.length === 3 ? (JSON.parse(Buffer.from(teile[1], 'base64url').toString('utf8')) as { iat: number; exp: number }) : null;
+  ck('… JWT gilt 12 h (JWT_GUELTIG_S)', nutzlast !== null && nutzlast.exp - nutzlast.iat === 43_200);
+  ck('… das JWT steht nirgends im Log', !p.logs.some((z) => z.includes(String(c[1].jwt))));
+  ck('6.9: Ereignisse der gestoppten Bridge stehen nur im Log', p.logs.includes('[zoom] (Abbau) bye'));
+  p.kern.meldungWeg();
+  ck('Fall 28: meldungWeg → Meldung weg, Zustand bereit', p.kern.abbild().meldung === null && p.kern.kurz().zustand === 'bereit');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ versatzMs: 2000 });
+  await p.kern.pruefen();
+  ck('gespeicherter Versatz außerhalb 0–1000 → videoDelay 0', p.befehle(1)[2]?.cmd === 'videoDelay' && p.befehle(1)[2]?.ms === 0);
+  await p.aufraeumen();
+}
+
+console.log('— Startfolge: Fehler (Fall 24b, 7, 6, B9, S9) und Umgebung (Fall 4)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_SOFORTFEHLER: '3' }) });
+  const t0 = Date.now();
+  const r = await p.kern.pruefen();
+  ck('Fall 24b: Sofortfehler der Anmeldung → B18 binnen 1 s (nicht B16)',
+    text(r) === KT.B18('SDKERR_INVALID_PARAMETER') && Date.now() - t0 < 1000);
+  ck('… Meldung fehler, Zustand bereit, Bridge beendet',
+    p.kern.abbild().meldung?.art === 'fehler' && p.kern.kurz().zustand === 'bereit' && !p.kern.laeuft());
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_NDI_FEHLER: '1' }) });
+  const r = await p.kern.pruefen();
+  ck('Fall 24b: ndiInitFailed → Q7, nicht „Einrichtung in Ordnung“', text(r) === KT.Q7 && p.kern.abbild().meldung?.text === KT.Q7);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_SDK_FASSUNG: '7.1.6 (99999)' }) });
+  const r = await p.kern.pruefen();
+  ck('Fall 7: falsche SDK-Fassung → B7', text(r) === KT.B7('7.1.6 (99999)'));
+  ck('… Bridge gestoppt, kein join', !p.kern.laeuft() && !cmds(p).includes('join'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
+  const r = await p.kern.pruefen();
+  ck('Anmeldung abgelehnt (Code 2) → B9 mit AUTHRET_KEYORSECRETWRONG', text(r) === KT.B9('AUTHRET_KEYORSECRETWRONG'));
+  ck('… detail AUTHRET_KEYORSECRETWRONG (2)', p.kern.abbild().meldung?.detail === 'AUTHRET_KEYORSECRETWRONG (2)');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_INIT_FEHLER: '1' }) });
+  const r = await p.kern.pruefen();
+  ck('init scheitert → B8 (der spätere auth-Fehler ändert nichts)', text(r) === KT.B8('SDKERR_WRONG_USAGE'));
+  ck('… der spätere Fehler steht nur als (Abbau) im Log', p.logs.some((z) => z.startsWith('[zoom] (Abbau) Fehler where=auth')));
+  await p.aufraeumen();
+}
+{
+  let n = 0;
+  const p = baueKern({
+    laufzeit: { pruefe: () => (++n === 1 ? { ok: true, ordner: 'C:/laufzeit', ersetzt: [] } : { ok: false, mangel: 'sdk_defekt', datei: 'sdk.dll' }) },
+  });
+  const r = await p.kern.pruefen();
+  ck('Laufzeit vor dem Start defekt → S9, Zustand einrichtung', text(r) === KT.S9('sdk.dll') && p.kern.kurz().zustand === 'einrichtung'
+    && JSON.stringify(p.kern.kurz().maengel) === '["sdk_defekt"]');
+  ck('… Meldung S9 im Abbild, keine Bridge gestartet', p.kern.abbild().meldung?.text === KT.S9('sdk.dll') && p.starts() === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ skript: 'stuck', fristen: { killTimeoutMs: 300 } });
+  const r = await p.kern.pruefen();
+  ck('Drehbuch stuck meldet „7.1.5 (attrappe)“ → B7', text(r) === KT.B7('7.1.5 (attrappe)'));
+  ck('… stop() endet per Kill → Log „Zoom-Bridge hart beendet“', p.logs.includes('[zoom] Zoom-Bridge hart beendet') && !p.kern.laeuft());
+  await p.aufraeumen();
+}
+{
+  process.env.ZOOM_SDK_CLIENT_SECRET = 'PROBE-SECRET-AUS-DER-UMGEBUNG';
+  const geerbt = process.env.PATH ?? '';
+  const p = baueKern({
+    skript: 'envprobe',
+    stell: () => ({ ENV_PROBE_NAMES: 'ZOOM_SDK_CLIENT_ID,ZOOM_SDK_CLIENT_SECRET,ZOOM_SDK_CREDENTIALS' }),
+    fristen: { anmeldeMs: 500 },
+  });
+  const r = await p.kern.pruefen();
+  delete process.env.ZOOM_SDK_CLIENT_SECRET;
+  const probe = p.ereignisse.find((x) => x.ev.ev === 'envprobe')?.ev as unknown as { seen: Record<string, boolean>; path?: string } | undefined;
+  ck('Fall 4: die Attrappe hat ihre Umgebung gemeldet', probe !== undefined);
+  ck('… keine der drei ZOOM_SDK_*-Variablen beim Kind',
+    probe !== undefined && Object.keys(probe.seen).length === 3 && Object.values(probe.seen).every((v) => v === false));
+  const pfad = probe?.path ?? '';
+  const i = pfad.indexOf(p.ordner);
+  ck('… PATH: Laufzeit-Ordner vor dem geerbten Wert, geerbter Wert vollständig', i >= 0 && pfad.indexOf(geerbt, i + p.ordner.length) > i);
+  ck('… ohne Antwort auf die Anmeldung → B16', text(r) === KT.B16);
+  await p.aufraeumen();
+}
+if (process.platform === 'win32') {
+  const p = baueKern({ stell: () => ({ FAKE_SOFORT_ENDE: '0xC0000135' }) });
+  const r = await p.kern.pruefen();
+  ck('Fall 6: DLL-Tod beim Start → B3', text(r) === KT.B3);
+  ck('… nennt nicht die Zugangsdaten als Ursache', !String(text(r)).includes('Client-ID oder Client-Secret stimmen nicht'));
+  ck('… Bridge abgebaut', !p.kern.laeuft());
+  await p.aufraeumen();
+} else {
+  ueberspringe('Fall 6: DLL-Tod beim Start → B3');
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);

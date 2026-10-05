@@ -14,8 +14,18 @@
 // Wiederbeitritt starten würde, führt sofort zu `fehler` mit „Erneut beitreten“.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { readCredentials, type Bridge, type BridgeOptions } from '@jm/zoom-bridge';
-import { SDK_FASSUNG } from '@jm/zoom-bridge/sdk';
+import { join } from 'node:path';
+import {
+  Bridge,
+  buildJwt,
+  readCredentials,
+  type BridgeEvent,
+  type BridgeOptions,
+  type Command,
+  type Session,
+} from '@jm/zoom-bridge';
+import type { AudioReason, AudioState, VideoReason, VideoState } from '@jm/zoom-bridge/protocol';
+import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import type {
   ProxyKeySource,
   ZoomAbbild,
@@ -27,8 +37,21 @@ import type {
   ZoomZustand,
 } from '../../shared/types';
 import { stateKvAus, type ZoomStateKv } from '../../shared/zoom-text';
-import { KT, mangelText } from './klartext';
 import {
+  KT,
+  authMeldung,
+  dllMeldung,
+  exitCodeAus,
+  fehlerDetail,
+  mangelText,
+  maskiere,
+  spawnMeldung,
+  type Meldungstext,
+} from './klartext';
+import {
+  BRIDGE_EXE,
+  kindPfad,
+  pfadVarianten,
   pruefeLaufzeit,
   pruefeSdkOrdner,
   richteEin,
@@ -103,14 +126,23 @@ export interface ZoomKern {
   zugangWaehlen(datei: string): ZoomErgebnis;
   zugangLoeschen(): ZoomErgebnis;
   versatz(e: { ms: number }): ZoomErgebnis;
+  pruefen(): Promise<ZoomErgebnis>;
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
   beenden(fristMs: number): Promise<void>;
 }
 
+type FehlerEreignis = { ev: 'error'; where: string; code: number | string; id?: number; dropped?: number; detail?: string; name?: string };
+type VideoEreignis = { ev: 'video'; id: number; state: VideoState; source: string; reason: VideoReason; rebindable: boolean };
+type AudioEreignis = { ev: 'audio'; id: number; state: AudioState; reason: AudioReason };
 /** Eine Quelle samt der Generation der Bridge, die sie meldet (6.9). */
 interface QuelleIntern extends ZoomQuelle { gen: number }
+type StartErgebnis = { ok: true; bridge: BridgeArt; gen: number } | { ok: false; meldung: Meldungstext; mangel: ZoomMangel | null };
+type StartAusgang = { ok: true } | { ok: false; meldung: Meldungstext };
+interface StartBeobachter { gen: number; erledigt: boolean; ende(e: StartAusgang): void }
+
+const ABGEBROCHEN: Meldungstext = { text: '', detail: null };
 
 function zeitgeber(ms: number, fn: () => void): ReturnType<typeof setTimeout> {
   const t = setTimeout(fn, ms);
@@ -118,9 +150,27 @@ function zeitgeber(ms: number, fn: () => void): ReturnType<typeof setTimeout> {
   return t;
 }
 
+/** Kurzbeschreibung eines Ereignisses fürs Log — nie mit Nummer, Kenncode oder JWT (die stehen in keinem Ereignis). */
+function beschreibe(ev: BridgeEvent): string {
+  const e = ev as unknown as Record<string, unknown>;
+  switch (ev.ev) {
+    case 'status':
+      return `status ${String(e.status)} (Code ${String(e.code)})`;
+    case 'video':
+    case 'audio':
+      return `${ev.ev} ${String(e.id)} ${String(e.state)} (${String(e.reason)})`;
+    case 'privilege':
+      return `privilege canRecordRaw=${String(e.canRecordRaw)} source=${String(e.source)}`;
+    default:
+      return ev.ev;
+  }
+}
+
 export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   const f: ZoomFristen = { ...ZOOM_FRISTEN, ...d.fristen };
   const lz: LaufzeitDienste = { pruefe: pruefeLaufzeit, pruefeOrdner: pruefeSdkOrdner, richteEin, ...d.laufzeit };
+  const fabrik: BridgeFabrik = d.bridgeFabrik ?? ((o) => new Bridge(o));
+  const env = d.env ?? process.env;
 
   // ── Zustand ──────────────────────────────────────────────────────────────
   let zustand: ZoomZustand = 'bereit';
@@ -149,10 +199,25 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   const quellen = new Map<number, QuelleIntern>();
   let beendenVersprechen: Promise<void> | null = null;
 
+  // ── Bridge-Lebenslauf (Spec 5.2, 6.9) ────────────────────────────────────
+  let aktiveBridge: BridgeArt | null = null;
+  let aktiveGen = 0;
+  const imAbbau = new Set<number>();
+  const stopps = new Map<number, Promise<void>>();
+  let startNr = 0;
+  /** Jeder Abbruch (Verlassen, Beenden) zählt hoch; eine ältere Startfolge verwirft ihr Ergebnis. */
+  let laufNr = 0;
+  let jwt: string | null = null;
+  let startBeob: StartBeobachter | null = null;
+
   // ── Abbild und Drossel ───────────────────────────────────────────────────
   let letzterPush = 0;
   let pushTimer: ReturnType<typeof setTimeout> | null = null;
   let letzteKurz = '';
+
+  function aktiveSitzung(): Session | null {
+    return aktiveBridge !== null && !imAbbau.has(aktiveGen) ? aktiveBridge.session : null;
+  }
 
   function kurz(): ZoomKurz {
     const { n, k } = zaehleQuellen(quellen.values());
@@ -185,7 +250,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         zugang: { herkunft: zugang.herkunft, clientIdEnde: id ? id.slice(-4) : null, text: zugangText },
       },
       anzeigename: d.einstellungen.anzeigename(),
-      versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: null },
+      versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null },
       teilnehmer: [],
       soll: [],
       abriss: null,
@@ -227,6 +292,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     abbildGeaendert();
   }
 
+  function melde(art: 'info' | 'warnung' | 'fehler', m: Meldungstext): void {
+    meldung = { art, text: m.text, detail: m.detail };
+    d.log(`[zoom] Meldung (${art}): ${m.text}${m.detail ? ` [${m.detail}]` : ''}`);
+  }
+
   // ── Einrichtung (Spec 5.3, 6.1) ──────────────────────────────────────────
   /** Mängel neu bestimmen: Laufzeit-Mangel zuerst, dann Zugangs-Mangel. */
   function bestimmeMaengel(neu?: LaufzeitPruefung): void {
@@ -249,6 +319,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   function mangelDatei(): string | null {
     return !laufzeitStand.ok && laufzeitStand.mangel === 'sdk_defekt' ? laufzeitStand.datei : null;
+  }
+
+  /** Spec 5.3: Ein Mangel leert Soll-Liste, Nummer und Kenncode. */
+  function mangelFolgen(): void {
+    soll.clear();
+    nummer = null;
+    kenncode = null;
+    warImMeeting = false;
   }
 
   function einrichtungSperre(): ZoomErgebnis {
@@ -369,7 +447,221 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function laeuft(): boolean {
-    return kopie !== null || pruefungLaeuft;
+    return kopie !== null || pruefungLaeuft || aktiveBridge !== null || stopps.size > 0;
+  }
+
+  // ── Bridge starten und stoppen (Spec 5.2, 6.2 Startfolge, 6.9) ───────────
+  function geheimnisse(): string[] {
+    return [kenncode ?? '', nummer?.eingabe ?? '', nummer?.normiert ?? '', jwt ?? ''];
+  }
+
+  function beiLog(zeile: string): void {
+    d.log(`[zoom-bridge] ${maskiere(zeile, geheimnisse())}`);
+  }
+
+  /** Sendet an die aktive Bridge (nicht im Abbau). Nie den Inhalt loggen: join trägt Nummer und Kenncode. */
+  function sende(cmd: Command): boolean {
+    if (aktiveBridge === null || imAbbau.has(aktiveGen)) return false;
+    try {
+      aktiveBridge.send(cmd);
+      return true;
+    } catch (e) {
+      d.log(`[zoom] Befehl ${cmd.cmd} nicht gesendet: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  }
+
+  function stoppeBridge(): Promise<void> {
+    const b = aktiveBridge;
+    const gen = aktiveGen;
+    if (b === null) return Promise.resolve();
+    const laufend = stopps.get(gen);
+    if (laufend) return laufend;
+    imAbbau.add(gen);
+    if (startBeob !== null && startBeob.gen === gen) startBeob.ende({ ok: false, meldung: ABGEBROCHEN });
+    d.log(`[zoom] Zoom-Bridge ${gen} wird beendet`);
+    const p = b
+      .stop()
+      .then(
+        (code) => d.log(code === -1 ? '[zoom] Zoom-Bridge hart beendet' : `[zoom] Zoom-Bridge beendet (Rückgabewert ${code})`),
+        (e: unknown) => d.log(`[zoom] Zoom-Bridge ließ sich nicht beenden: ${e instanceof Error ? e.message : String(e)}`),
+      )
+      .then(() => {
+        // 6.9: Kehrt stop() zurück, gehören die Quellen dieser Generation nicht mehr zum Abbild.
+        for (const [id, q] of quellen) if (q.gen === gen) quellen.delete(id);
+        stopps.delete(gen);
+        if (aktiveBridge === b) {
+          aktiveBridge = null;
+          jwt = null;
+        }
+        abbildGeaendert();
+      });
+    stopps.set(gen, p);
+    return p;
+  }
+
+  function startBewerten(beob: StartBeobachter, ev: BridgeEvent): void {
+    if (beob.erledigt) return;
+    if (ev.ev === 'ready') {
+      const v = String((ev as { sdkVersion?: unknown }).sdkVersion);
+      if (v !== SDK_FASSUNG_BRIDGE) beob.ende({ ok: false, meldung: { text: KT.B7(v), detail: null } });
+      return;
+    }
+    if (ev.ev === 'auth') {
+      const code = (ev as { code: number }).code;
+      beob.ende(code === 0 ? { ok: true } : { ok: false, meldung: authMeldung(code) });
+      return;
+    }
+    if (ev.ev !== 'error') return;
+    const e = ev as unknown as FehlerEreignis;
+    const name = e.name ?? String(e.code);
+    if (e.where === 'ndi') beob.ende({ ok: false, meldung: { text: KT.Q7, detail: fehlerDetail(e) } });
+    else if (e.where === 'auth') beob.ende({ ok: false, meldung: { text: KT.B18(name), detail: fehlerDetail(e) } });
+    else if (e.where === 'init') beob.ende({ ok: false, meldung: { text: e.code === 14 ? KT.B8_14 : KT.B8(name), detail: fehlerDetail(e) } });
+    else if (e.where === 'exit') {
+      beob.ende({ ok: false, meldung: dllMeldung(exitCodeAus(e.detail)) ?? { text: KT.B6(e.detail ?? fehlerDetail(e)), detail: fehlerDetail(e) } });
+    }
+  }
+
+  /** Spec 6.2 Startfolge S-a bis S-f. Setzt keinen Zustand; jeder Fehler stoppt die Bridge. */
+  async function starteBridge(): Promise<StartErgebnis> {
+    const lauf = laufNr;
+    const abgebrochen: StartErgebnis = { ok: false, meldung: ABGEBROCHEN, mangel: null };
+    if (stopps.size > 0) await Promise.all([...stopps.values()]);
+    if (lauf !== laufNr || beendenVersprechen !== null) return abgebrochen;
+    // S-a, S-b
+    const lzErg = lz.pruefe(d.pfade);
+    bestimmeMaengel(lzErg);
+    if (!lzErg.ok) {
+      return { ok: false, meldung: { text: mangelText(lzErg.mangel, mangelDatei()), detail: null }, mangel: lzErg.mangel };
+    }
+    const daten = zugang.daten;
+    if (!daten) {
+      const m: ZoomMangel = zugang.unlesbar ? 'zugang_unlesbar' : 'zugang_fehlt';
+      return { ok: false, meldung: { text: mangelText(m, null), detail: null }, mangel: m };
+    }
+    // S-c
+    const gen = aktiveGen + 1;
+    startNr += 1;
+    const ordner = lzErg.ordner;
+    const bridge = fabrik(
+      {
+        exePath: join(ordner, BRIDGE_EXE),
+        // PATH immer selbst setzen, INKLUSIVE des geerbten Werts (Falle 3.2-4), und jede andere
+        // Schreibweise von PATH entfernen (bridge.ts mischt process.env als einfaches Objekt).
+        env: { PATH: kindPfad(env, ordner) },
+        envRemove: ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS', ...pfadVarianten(env)],
+        joinTimeoutMs: f.joinTimeoutMs,
+        killTimeoutMs: f.killTimeoutMs,
+        onEvent: (ev) => beiEreignis(gen, ev),
+        onLog: beiLog,
+      },
+      startNr,
+    );
+    aktiveBridge = bridge;
+    aktiveGen = gen;
+    d.log(`[zoom] Zoom-Bridge ${gen} startet`);
+    let anmeldeFrist: ReturnType<typeof setTimeout> | null = null;
+    const beob: StartBeobachter = { gen, erledigt: false, ende: () => {} };
+    const ausgang = new Promise<StartAusgang>((resolve) => {
+      beob.ende = (e) => {
+        if (beob.erledigt) return;
+        beob.erledigt = true;
+        if (anmeldeFrist !== null) clearTimeout(anmeldeFrist);
+        if (startBeob === beob) startBeob = null;
+        // Es zählt der ERSTE Fehler: die Bridge ist ab hier im Abbau, spätere Ereignisse nur noch Log (6.9).
+        if (!e.ok && e.meldung.text !== '') void stoppeBridge();
+        resolve(e);
+      };
+    });
+    startBeob = beob;
+    try {
+      await bridge.start();
+    } catch (e) {
+      beob.ende({ ok: false, meldung: spawnMeldung((e as { code?: string }).code) });
+    }
+    if (!beob.erledigt) {
+      // S-d
+      jwt = buildJwt({ clientId: daten.clientId, clientSecret: daten.clientSecret, ttlSeconds: JWT_GUELTIG_S });
+      const v = d.einstellungen.versatzMs();
+      const ms = Number.isInteger(v) && v >= 0 && v <= 1000 ? v : 0;
+      try {
+        bridge.send({ cmd: 'init' });
+        bridge.send({ cmd: 'auth', jwt });
+        bridge.send({ cmd: 'videoDelay', ms });
+      } catch {
+        // Bridge schon tot: ihr exit-Ereignis kam vorher und hat die Startfolge entschieden.
+      }
+      // S-f
+      if (!beob.erledigt) anmeldeFrist = zeitgeber(f.anmeldeMs, () => beob.ende({ ok: false, meldung: { text: KT.B16, detail: null } }));
+    }
+    const a = await ausgang;
+    if (!a.ok) {
+      await stopps.get(gen);
+      return lauf !== laufNr ? abgebrochen : { ok: false, meldung: a.meldung, mangel: null };
+    }
+    if (lauf !== laufNr) return abgebrochen;
+    return { ok: true, bridge, gen };
+  }
+
+  /** Ereignisse einer Bridge im Abbau oder alter Generation (6.9): nur Quellen abbauen, sonst Log. */
+  function abbauEreignis(gen: number, ev: BridgeEvent): void {
+    if (ev.ev === 'video' && (ev as unknown as VideoEreignis).state === 'unsubscribed') {
+      const id = (ev as unknown as VideoEreignis).id;
+      if (quellen.get(id)?.gen === gen) quellen.delete(id);
+      return;
+    }
+    if (ev.ev === 'audio' && (ev as unknown as AudioEreignis).state === 'off') {
+      const a = ev as unknown as AudioEreignis;
+      const q = quellen.get(a.id);
+      if (q && q.gen === gen) {
+        q.ton = 'off';
+        q.tonGrund = a.reason;
+      }
+      return;
+    }
+    if (ev.ev !== 'error') d.log(`[zoom] (Abbau) ${beschreibe(ev)}`);
+  }
+
+  function beiEreignis(gen: number, ev: BridgeEvent): void {
+    const aktiv = gen === aktiveGen && !imAbbau.has(gen);
+    if (ev.ev === 'error') {
+      const e = ev as unknown as FehlerEreignis;
+      d.log(`[zoom] ${aktiv ? '' : '(Abbau) '}Fehler where=${e.where} code=${String(e.code)} name=${e.name ?? '-'}${e.detail ? ` (${e.detail})` : ''}`);
+    }
+    if (!aktiv) {
+      abbauEreignis(gen, ev);
+      abbildGeaendert();
+      return;
+    }
+    if (startBeob !== null && startBeob.gen === gen) startBewerten(startBeob, ev);
+    abbildGeaendert();
+  }
+
+  /** Spec 6.1 „Einrichtung prüfen“: Startfolge ohne join, Zustand bleibt bereit. */
+  async function pruefen(): Promise<ZoomErgebnis> {
+    if (zustand !== 'bereit' || pruefungLaeuft) return { ok: false, text: '' };
+    const lauf = laufNr;
+    pruefungLaeuft = true;
+    meldung = null;
+    d.log('[zoom] Einrichtung prüfen');
+    abbildGeaendert();
+    const r = await starteBridge();
+    if (r.ok) await stoppeBridge();
+    pruefungLaeuft = false;
+    if (lauf !== laufNr) {
+      abbildGeaendert();
+      return { ok: false, text: '' };
+    }
+    if (r.ok) {
+      melde('info', { text: KT.PRUEFUNG_OK, detail: null });
+      abbildGeaendert();
+      return { ok: true };
+    }
+    if (r.mangel !== null) mangelFolgen();
+    melde('fehler', r.meldung);
+    setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
+    return { ok: false, text: r.meldung.text };
   }
 
   // ── Beenden (Spec 6.6) ───────────────────────────────────────────────────
@@ -419,6 +711,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     zugangWaehlen,
     zugangLoeschen,
     versatz,
+    pruefen,
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),
