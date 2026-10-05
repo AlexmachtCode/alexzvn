@@ -28,6 +28,7 @@ import {
   type IveoSnapshot,
 } from '../src/index';
 import { createShow, hatEigeneTimerListe, normalizeAblauf, parseShow, serializeShow } from '@jm/show';
+import { kennungsBericht, kennungsForm, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from '../tools/messung-2b-kern';
 
 let failed = 0;
 function ok(cond: boolean, msg: string): void {
@@ -582,6 +583,57 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   ok(
     JSON.stringify(parseShow(roh).ablauf?.map((a) => a.id)) === '["ag-1","ag-2","ag-3","ag-1#2"]',
     'Kennungs-Durchlauf: doppelte id in der Datei → beim Lesen #2',
+  );
+}
+
+// ── Messung M1/M3 (Teil 2b, Spec 23): Form, Leerraum, Doppelte, Hashes, Abgleich mit dem Launcher-Cache, zwei Abrufe ──
+{
+  ok(kennungsForm('3f2b8c1e-9a4d-4e2f-8b1a-0c6d5e4f3a21') === 'uuid', 'Messung: UUID erkannt');
+  ok(kennungsForm('3F2B8C1E-9A4D-4E2F-8B1A-0C6D5E4F3A21') === 'uuid', 'Messung: UUID auch in Großbuchstaben');
+  ok(kennungsForm('17') === 'ziffern', 'Messung: nur Ziffern');
+  ok(kennungsForm('ab c') === 'andere', 'Messung: alles andere');
+  ok(kennungsForm(' 17') === 'andere', 'Messung: Ziffern mit Leerraum zählen als andere');
+
+  const b = kennungsBericht(['b', 'a', 'a', ' c']);
+  ok(b.anzahl === 4 && b.doppelte === 1 && b.mitLeerraum === 1, 'Messung: Anzahl, Doppelte und Leerraum gezählt');
+  ok(JSON.stringify(b.formen) === '{"uuid":0,"ziffern":0,"andere":4}', 'Messung: Formen gezählt');
+
+  const ab = kennungsBericht(['a', 'b']);
+  const ba = kennungsBericht(['b', 'a']);
+  ok(ab.mengenHash === ba.mengenHash, 'Messung: mengenHash hängt nicht an der Reihenfolge');
+  ok(ab.reihenfolgeHash !== ba.reihenfolgeHash, 'Messung: reihenfolgeHash hängt an der Reihenfolge');
+  ok(
+    ab.mengenHash === '7e18f737311b2dc3' && ba.reihenfolgeHash === 'c4a78e5bdf318c85',
+    'Messung: Hash = erste 16 Hex-Zeichen von SHA-256 über die mit \\n verbundenen Kennungen',
+  );
+  ok(kennungsBericht(['a', 'c']).mengenHash !== ab.mengenHash, 'Messung: andere Menge → anderer mengenHash');
+
+  ok(
+    JSON.stringify(vergleicheMitCache(['a', 'b'], ['b', 'a'])) === '{"nurApi":0,"nurCache":0,"gleich":true}',
+    'Messung: API und Cache gleich',
+  );
+  ok(
+    JSON.stringify(vergleicheMitCache(['a', 'b', 'c'], ['a', 'b'])) === '{"nurApi":1,"nurCache":0,"gleich":false}',
+    'Messung: eine Kennung nur in der API → nurApi 1',
+  );
+  ok(
+    JSON.stringify(vergleicheMitCache(['a'], ['a', 'x'])) === '{"nurApi":0,"nurCache":1,"gleich":false}',
+    'Messung: eine Kennung nur im Cache → nurCache 1',
+  );
+
+  // Zwei Abrufe im Abstand von 10 min (M1 a): ein neuer Speaker ist etwas anderes als eine gewechselte Kennung.
+  ok(
+    JSON.stringify(vergleicheMengen(['a', 'b', 'c'], ['b', 'c', 'd', 'e'])) === '{"nurErste":1,"nurZweite":2,"gleich":false}',
+    'Messung: Mengenvergleich zählt, was nur im ersten und was nur im zweiten Abruf steht',
+  );
+  ok(
+    JSON.stringify(vergleicheMengen(['b', 'a'], ['a', 'b'])) === '{"nurErste":0,"nurZweite":0,"gleich":true}',
+    'Messung: gleiche Menge in anderer Reihenfolge → gleich',
+  );
+  ok(JSON.stringify(leseKennungsListe('["s-1","s 2"]')) === '["s-1","s 2"]', 'Messung: gespeicherte Kennungsliste wird gelesen');
+  ok(
+    leseKennungsListe('kaputt') === null && leseKennungsListe('{"a":1}') === null && leseKennungsListe('[1,2]') === null,
+    'Messung: kein JSON, kein Array oder keine Texte → null',
   );
 }
 
