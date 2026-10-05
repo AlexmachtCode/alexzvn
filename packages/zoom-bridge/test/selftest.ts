@@ -7,6 +7,10 @@ import {
   authResultName,
   enrich,
   explainStatus,
+  endReason,
+  failCodeName,
+  failReason,
+  FAIL_CODE_NAMES,
   normalizeMeetingId,
   parseWireEvent,
   sdkErrorName,
@@ -24,6 +28,12 @@ import {
 import { withNdiRuntimeOnPath } from '../src/ndi-path.ts';
 import { PE_MASCHINE_X64, PE_MASCHINE_X86, SDK_FASSUNG, SDK_FASSUNG_BRIDGE, findeSdkBin, peInfo } from '../src/sdk.ts';
 import * as paket from '../src/index.ts';
+import type {
+  AudioReason as PaketAudioReason,
+  AudioState as PaketAudioState,
+  VideoReason as PaketVideoReason,
+  VideoState as PaketVideoState,
+} from '../src/index.ts';
 import { tmpdir } from 'node:os';
 import { delimiter } from 'node:path';
 import { writeFileSync, unlinkSync } from 'node:fs';
@@ -2120,6 +2130,49 @@ console.log('\nsdk — Fassung, PE-Leser, SDK-Ordnersuche (Stage 4):');
   assert(paket.peInfo === peInfo && paket.findeSdkBin === findeSdkBin, 'src/index.ts exportiert peInfo und findeSdkBin');
   const ueberExport = (await import('@jm/zoom-bridge/sdk')) as { SDK_FASSUNG?: string };
   assert(ueberExport.SDK_FASSUNG === SDK_FASSUNG, 'package.json exportiert "./sdk" (Selbstbezug @jm/zoom-bridge/sdk)');
+}
+
+// --- Stage 4: Fehlerkatalog fuer die Klartexte in JM Connect (Spec 12.1 Nr. 3) ---
+
+console.log('\nprotocol — Fehlerkatalog Stage 4:');
+{
+  // SDK-Namen woertlich aus meeting_service_interface.h - die vier, an denen
+  // die harte Grenze "nur eigenes Zoom-Konto" haengt (E3, Spec 8.3), und 11,
+  // der in FAIL_CODES fehlte.
+  assert(failCodeName(63) === 'MEETING_FAIL_UNABLE_TO_JOIN_EXTERNAL_MEETING', 'failCodeName(63)');
+  assert(failCodeName(11) === 'MEETING_FAIL_NO_MMR', 'failCodeName(11)');
+  assert(failCodeName(64) === 'MEETING_FAIL_BLOCKED_BY_ACCOUNT_ADMIN', 'failCodeName(64)');
+  assert(failCodeName(82) === 'MEETING_FAIL_NEED_SIGN_IN_FOR_PRIVATE_MEETING', 'failCodeName(82)');
+  assert(failCodeName(503) === 'MEETING_FAIL_USER_LEVEL_TOKEN_NOT_HAVE_HOST_ZAK_OBF', 'failCodeName(503)');
+  assert(failCodeName(504) === 'MEETING_FAIL_APP_CAN_NOT_ANONYMOUS_JOIN_MEETING', 'failCodeName(504)');
+  assert(failCodeName(0) === 'MEETING_SUCCESS' && failCodeName(0xffff) === 'MEETING_FAIL_UNKNOWN', 'failCodeName(0) und (0xffff)');
+  assert(failCodeName(4242) === 'MEETING_FAIL_CODE_4242', 'ein unbekannter Code wird nicht gerundet: MEETING_FAIL_CODE_4242');
+  const namen = Object.values(FAIL_CODE_NAMES);
+  assert(Object.keys(FAIL_CODE_NAMES).length === 46, 'FAIL_CODE_NAMES hat alle 46 Werte von enum MeetingFailCode');
+  assert(new Set(namen).size === namen.length, 'kein MeetingFailCode-Name kommt zweimal vor');
+
+  // failReason/endReason: der deutsche Grund OHNE Vorsatz (Spec 8.3 "Csonst").
+  assert(failReason(11) === 'kein Medienserver gefunden', 'failReason(11) ist deutsch');
+  assert(!failReason(11).startsWith('gescheitert'), 'failReason traegt keinen Vorsatz "gescheitert: "');
+  assert(failReason(2) === 'Wiederverbinden fehlgeschlagen', 'failReason(2) wie bisher');
+  assert(failReason(9999) === 'unbekannter Grund', 'failReason eines unbekannten Codes: "unbekannter Grund"');
+  const neu = [11, 14, 15, 16, 23, 60, 61, 62, 63, 64, 82, 88, 89, 500, 501, 502, 503, 504, 505, 506];
+  assert(neu.every((c) => failReason(c) !== 'unbekannter Grund'), 'FAIL_CODES kennt 11, 14-16, 23, 60-64, 82, 88, 89, 500-506');
+  assert(endReason(2) === 'vom Gastgeber beendet', 'endReason(2)');
+  assert(endReason(99) === 'Grund 99', 'endReason eines unbekannten Grundes: "Grund 99"');
+
+  // explainStatus bleibt, wie es war (Konsole und Bridge-Log lesen es weiter).
+  assert(explainStatus('failed', 4) === 'gescheitert: falscher Kenncode', 'explainStatus(failed, 4) unveraendert');
+  assert(explainStatus('ended', 2) === 'beendet: vom Gastgeber beendet', 'explainStatus(ended, 2) unveraendert');
+  assert(explainStatus('failed', 4242) === 'gescheitert: Fehlerschluessel 4242', 'explainStatus: unbekannter Code wie bisher');
+
+  // Die oeffentliche Flaeche (src/index.ts), aus der JM Connect liest.
+  assert(
+    paket.FAIL_CODE_NAMES === FAIL_CODE_NAMES && paket.failCodeName === failCodeName && paket.failReason === failReason && paket.endReason === endReason,
+    'src/index.ts exportiert FAIL_CODE_NAMES, failCodeName, failReason, endReason',
+  );
+  const typen: [PaketAudioState, PaketAudioReason, PaketVideoState, PaketVideoReason] = ['off', 'participantLeft', 'black', 'participantLeft'];
+  assert(typen.length === 4, 'src/index.ts exportiert die Typen AudioState, AudioReason, VideoState, VideoReason (prueft tsc)');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
