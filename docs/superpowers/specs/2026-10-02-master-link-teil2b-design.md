@@ -1262,6 +1262,18 @@ Gemessen wird an einem echten Prod-Event mit dem iveo-Token des Owners. M1 (a), 
 
 Release 2 braucht keine weitere Messung vorab. Die Zeiten aus 20 (höchstens 3 s) misst die Abnahme.
 
+### Ergebnisse (05.10.2026)
+
+Nicht gemessen. Der Owner hat am 05.10.2026 entschieden, Release 1 ohne die Messung zu bauen und in der Suite zu testen. Bis zu einer Messung gelten diese sicheren Annahmen:
+
+| # | Annahme | Folge |
+| --- | --- | --- |
+| M1 | nein (nicht gemessen) | Der Mapper (SP2) lässt `id` weg. Titler und Rundown arbeiten mit Ersatz-Schlüsseln bzw. Namen, wie 7.2 und 8.3 es vorsehen. Doppelte Namen in einer Liste hält die Brücke bewusst nicht (A2/A3 mit Hinweis). |
+| M2 | nicht gemessen, darum vorsichtig Variante B | FA5 Variante B, kein Code in Release 1 |
+| M3 | ja (angenommen, nicht gemessen) | Keine Sortierung: Die Reihenfolge der API gilt wie bisher. Die Bauchbinde auf Sendung hängt seit Release 1 ohnehin nicht mehr an der Reihenfolge. |
+
+Das Messwerkzeug `packages/iveo/tools/messung-2b.ts` bleibt im Repo. Ergibt eine spätere Messung M1 = ja, schaltet eine Zeile im Mapper die Kennung ein. Ergibt sie M3 = nein, kommt die Sortierung aus der Tabelle oben dazu.
+
 ---
 
 ## 24 · Nicht in 2b: Folgeaufgaben

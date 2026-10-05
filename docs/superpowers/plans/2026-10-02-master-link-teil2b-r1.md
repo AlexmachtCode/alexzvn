@@ -52,7 +52,11 @@ Der Durchgang läuft mit `tsx`, Electron und dem Chrome-DevTools-Protokoll.
 | 4 | B15–B18 | Rundown, Durchgang, Abnahme und Release |
 
 **Messergebnisse M1–M3:** Aufgabe B2 trägt sie in Spec 23 unter „Ergebnisse“ ein und hier (Spec 23: „Die Ergebnisse kommen in diese Spec und in den Plan.“). B4 wählt danach den Zweig im Mapper, B5 die Testdaten.
-- Stand: noch nicht gemessen.
+- Nicht gemessen: Der Owner hat am 05.10.2026 entschieden, Release 1 ohne die Messung zu bauen und in der Suite zu testen. Die Annahmen stehen in Spec 23 unter „Ergebnisse“:
+  - M1 = nein → B4 Zweig B, B5 `ANA` ohne `id: 'sp1'`
+  - M3 = ja (angenommen) → B4 ohne Zusatz Sortierung
+  - M2 = B → nur FA5, kein Code in Release 1
+- Die anderen Zweige in B4, B5 und B17 bleiben im Plan stehen, gelten aber nicht. B2 entfällt.
 
 **Wie dieser Plan entstanden ist:**
 - Ein Gerüst hat die Aufgaben B1–B18, die verbindlichen Schnittstellen und die Entscheidungen unten festgelegt. Vier Schreiber haben die Aufgaben ausformuliert (B1–B7, B8–B11, B12–B14, B15–B18). Jeder hat seine Codeschritte wörtlich aus dem Plantext in eine Kopie des Worktrees (Stand `996f54e2b8`) eingespielt. Die roten und grünen Ausgaben im Plan sind dort gemessen, nicht geschätzt.
