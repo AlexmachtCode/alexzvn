@@ -133,7 +133,7 @@ export interface SpeakerOption {
 /**
  * Optionen des Speaker-Pickers im Zeilen-Editor und die ausgewählte (8.2).
  * Werte: `''` „— Speaker wählen —“; je Speaker `id:<Kennung>`, ohne Kennung `name:<Name>`;
- * dazu `alt:` (alte Aktion ohne Kennung: nie stillschweigend gebunden) oder `fehlt:`
+ * dazu `alt:` (Aktion ohne Kennung: nie stillschweigend gebunden; „per Name“, bei nur Ziffern „per Nummer“) oder `fehlt:`
  * (Kennung nicht in der Liste). `speakerPatch` übersetzt eine Auswahl zurück.
  */
 export function speakerOptionen(
@@ -151,6 +151,12 @@ export function speakerOptionen(
     return { optionen, gewaehlt: 'fehlt:' };
   }
   if (!name) return { optionen, gewaehlt: '' };
+  // Vor-Release V2: Nur Ziffern ruft der Titler als Nummer ab (z. B. die Vorgabe „1“ einer neuen Aktion), nicht per Name.
+  const nummer = name.trim();
+  if (/^\d+$/.test(nummer)) {
+    optionen.push({ wert: 'alt:', text: `Nr. ${nummer.replace(/^0+(?=\d)/, '')} · per Nummer (nicht gebunden)` });
+    return { optionen, gewaehlt: 'alt:' };
+  }
   // Ein Speaker ohne Kennung lässt sich nur per Name wählen: Dann steht er selbst ausgewählt.
   if (speakers.some((s) => !s.id && s.name === name)) return { optionen, gewaehlt: `name:${name}` };
   optionen.push({ wert: 'alt:', text: `${name} · per Name (nicht gebunden)` });

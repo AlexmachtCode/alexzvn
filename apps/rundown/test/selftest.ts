@@ -1834,6 +1834,29 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
     'speakerOptionen: speakerId nicht in der Liste → „nicht in der Speaker-Liste“ ausgewählt',
   );
   eq(speakerOptionen(abruf({ args: ['Hedy'] }), SP), { optionen: grund, gewaehlt: 'name:Hedy' }, 'speakerOptionen: Name eines Speakers ohne Kennung → er selbst ausgewählt');
+  // Vor-Release V2: Eine neue Aktion „DataLink-Eintrag abrufen“ trägt die Vorgabe ['1']. Gesendet wird
+  // `TITLER RECALL 1`, und der Titler ruft bei nur Ziffern den Eintrag mit dieser Nummer ab, nicht einen Namen.
+  eq(
+    speakerOptionen(abruf({ args: ['1'] }), SP),
+    { optionen: [...grund, { wert: 'alt:', text: 'Nr. 1 · per Nummer (nicht gebunden)' }], gewaehlt: 'alt:' },
+    'Vor-Release V2: Vorgabe [\'1\'] → „Nr. 1 · per Nummer (nicht gebunden)“, nicht „per Name“',
+  );
+  eq(buildActionLine('titler', 'recall', abruf({ args: ['1'] }).args), 'TITLER RECALL 1', 'Vor-Release V2: … gesendet wird die Nummer');
+  eq(
+    speakerOptionen(abruf({ args: [3] }), SP).optionen.at(-1),
+    { wert: 'alt:', text: 'Nr. 3 · per Nummer (nicht gebunden)' },
+    'Vor-Release V2: Nummer als Zahl → ebenso „per Nummer“',
+  );
+  eq(
+    speakerOptionen(abruf({ args: [' 007 '] }), SP).optionen.at(-1),
+    { wert: 'alt:', text: 'Nr. 7 · per Nummer (nicht gebunden)' },
+    'Vor-Release V2: Leerraum und führende Nullen → die Nummer, die der Titler abruft',
+  );
+  eq(
+    speakerOptionen(abruf({ args: ['Alan 2'] }), SP).optionen.at(-1),
+    { wert: 'alt:', text: 'Alan 2 · per Name (nicht gebunden)' },
+    'Vor-Release V2: Name mit Ziffern bleibt „per Name“',
+  );
 
   // Review Focus 3: titlerKannKennung nur bei verbundenem Titler mit recall_kennung=1.
   eq(titlerKannKennung([]), false, 'Review Focus 3: kein Titler-Link → false');
