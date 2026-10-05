@@ -1150,7 +1150,7 @@ console.log('— Teilnehmer-Wiederbeitritt (Fall 14, 14b)');
   let abgemeldetVorNeuemAbo: boolean | null = null;
   const p: Probe = baueKern({
     stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '200', FAKE_RUECKKEHR_NAME: 'anna' }),
-    // Hält fest, ob das alte Abo schon abgemeldet war, als das neue gesendet wurde (Laden Schritt 3).
+    // Hält fest, ob das alte Abo schon abgemeldet war, als das neue gesendet wurde (neuLaden im Abgleich).
     sendeFilter: (c) => {
       if (c.cmd === 'videoSubscribe' && c.id === 16778250) {
         abgemeldetVorNeuemAbo = p.ereignisse.some((x) => x.ev.ev === 'video'
@@ -1174,6 +1174,36 @@ console.log('— Teilnehmer-Wiederbeitritt (Fall 14, 14b)');
     && (zeile(p, 16778250)?.quelle?.ndiName ?? '').toLocaleLowerCase('de') === alterName.toLocaleLowerCase('de')
     && !(zeile(p, 16778250)?.quelle?.ndiName ?? '').includes(' (2)'));
   ck('… Soll-Liste erfüllt, eine Quelle', p.kern.kurz().sollOffen === 0 && (await bis(() => p.kern.kurz().quellen === 1)));
+  await p.aufraeumen();
+}
+
+{
+  // Fall 14c: Der Bediener lädt von Hand, bevor der Abgleich handelt -> Laden Schritt 3 meldet das alte Abo selbst ab.
+  let abgemeldetVorNeuemAbo: boolean | null = null;
+  const p: Probe = baueKern({
+    stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '200', FAKE_RUECKKEHR_NAME: 'anna' }),
+    sendeFilter: (c) => {
+      if (c.cmd === 'videoSubscribe' && c.id === 16778250) {
+        abgemeldetVorNeuemAbo = p.ereignisse.some((x) => x.ev.ev === 'video'
+          && (x.ev as { id?: number }).id === 16778240 && (x.ev as { state?: string }).state === 'unsubscribed');
+      }
+      return true;
+    },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: false, trotzBetriebsgroesse: false });
+  await bis(() => p.kern.kurz().quellen === 1);
+  ck('Fall 14c: „anna“ kommt zurück', await bis(() => zeile(p, 16778250) !== undefined, 2000));
+  ck('… Bediener lädt 16778250 von Hand, vor dem Abgleich', ok(await p.kern.laden({ id: 16778250, ton: false, trotzBetriebsgroesse: false })));
+  ck('… Laden meldet das alte Abo selbst ab (16778240), dann abonniert es das neue',
+    p.befehle(1).filter((x) => x.cmd === 'videoUnsubscribe').map((x) => x.id).join(',') === '16778240'
+    && p.befehle(1).filter((x) => x.cmd === 'videoSubscribe').map((x) => x.id).join(',') === '16778240,16778250');
+  ck('… das neue Abo erst, nachdem die Bridge das alte abgemeldet hat (Laden Schritt 3)', abgemeldetVorNeuemAbo === true);
+  await warte(600);
+  ck('… der Abgleich danach schickt nichts mehr dazu',
+    p.befehle(1).filter((x) => x.cmd === 'videoUnsubscribe').length === 1
+    && p.befehle(1).filter((x) => x.cmd === 'videoSubscribe').length === 2
+    && p.kern.kurz().sollOffen === 0 && p.kern.kurz().quellen === 1);
   await p.aufraeumen();
 }
 
