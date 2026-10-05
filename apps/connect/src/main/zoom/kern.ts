@@ -18,10 +18,12 @@ import { join } from 'node:path';
 import {
   Bridge,
   buildJwt,
+  normalizeMeetingId,
   readCredentials,
   type BridgeEvent,
   type BridgeOptions,
   type Command,
+  type MeetingStatusName,
   type Session,
 } from '@jm/zoom-bridge';
 import type { AudioReason, AudioState, VideoReason, VideoState } from '@jm/zoom-bridge/protocol';
@@ -33,15 +35,18 @@ import type {
   ZoomErlaubnis,
   ZoomKurz,
   ZoomMangel,
+  ZoomParticipant,
   ZoomQuelle,
   ZoomZustand,
 } from '../../shared/types';
 import { stateKvAus, type ZoomStateKv } from '../../shared/zoom-text';
 import {
   KT,
+  VORSATZ,
   authMeldung,
   dllMeldung,
   exitCodeAus,
+  failMeldung,
   fehlerDetail,
   mangelText,
   maskiere,
@@ -62,7 +67,7 @@ import {
   type SdkWahl,
 } from './laufzeit';
 import type { SollListe } from './soll';
-import { zaehleQuellen } from './teilnehmer';
+import { baueTeilnehmer, zaehleQuellen } from './teilnehmer';
 
 /** Spec 5.2. Für Tests einspeisbar (`fristen`); `abgleichMs` bleibt in den Fällen 14/14b bei 300. */
 export const ZOOM_FRISTEN = {
@@ -127,6 +132,8 @@ export interface ZoomKern {
   zugangLoeschen(): ZoomErgebnis;
   versatz(e: { ms: number }): ZoomErgebnis;
   pruefen(): Promise<ZoomErgebnis>;
+  beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
+  erneut(): Promise<ZoomErgebnis>;
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
@@ -134,6 +141,8 @@ export interface ZoomKern {
 }
 
 type FehlerEreignis = { ev: 'error'; where: string; code: number | string; id?: number; dropped?: number; detail?: string; name?: string };
+type StatusEreignis = { ev: 'status'; status: MeetingStatusName; code: number };
+type PrivilegEreignis = { ev: 'privilege'; canRecordRaw: boolean; source: 'broadcast' | 'requestAnswer' | 'check'; requested?: boolean; denied?: boolean; timedOut?: boolean };
 type VideoEreignis = { ev: 'video'; id: number; state: VideoState; source: string; reason: VideoReason; rebindable: boolean };
 type AudioEreignis = { ev: 'audio'; id: number; state: AudioState; reason: AudioReason };
 /** Eine Quelle samt der Generation der Bridge, die sie meldet (6.9). */
@@ -210,6 +219,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let jwt: string | null = null;
   let startBeob: StartBeobachter | null = null;
 
+  // ── Quellen, Teilnehmerzeilen (Spec 6.3) ─────────────────────────────────
+  /** Ton-Schalter je Teilnehmer-ID (nicht je Name), gilt beim Laden. */
+  const tonVorwahl = new Map<number, boolean>();
+  /** Zeilenfehler ohne laufende Quelle (Q2, Q8 …), je Teilnehmer-ID. */
+  const zeilenFehler = new Map<number, string>();
+
   // ── Abbild und Drossel ───────────────────────────────────────────────────
   let letzterPush = 0;
   let pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -217,6 +232,21 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   function aktiveSitzung(): Session | null {
     return aktiveBridge !== null && !imAbbau.has(aktiveGen) ? aktiveBridge.session : null;
+  }
+
+  function aktiveQuellen(): Map<number, ZoomQuelle> {
+    const m = new Map<number, ZoomQuelle>();
+    for (const q of quellen.values()) {
+      if (q.gen !== aktiveGen || imAbbau.has(aktiveGen)) continue;
+      m.set(q.aboId, { aboId: q.aboId, ndiName: q.ndiName, bild: q.bild, bildGrund: q.bildGrund, ton: q.ton, tonGrund: q.tonGrund, fehler: q.fehler });
+    }
+    return m;
+  }
+
+  function teilnehmerAbbild(): ZoomParticipant[] {
+    const s = aktiveSitzung();
+    if (!s) return [];
+    return baueTeilnehmer({ liste: [...s.participants.values()], quellen: aktiveQuellen(), tonVorwahl, zeilenFehler, gastLabels: d.gastLabels() });
   }
 
   function kurz(): ZoomKurz {
@@ -251,7 +281,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       },
       anzeigename: d.einstellungen.anzeigename(),
       versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null },
-      teilnehmer: [],
+      teilnehmer: teilnehmerAbbild(),
       soll: [],
       abriss: null,
       meldung: meldung ? { ...meldung } : null,
@@ -543,6 +573,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // S-c
     const gen = aktiveGen + 1;
     startNr += 1;
+    tonVorwahl.clear();
+    zeilenFehler.clear();
     const ordner = lzErg.ordner;
     const bridge = fabrik(
       {
@@ -635,6 +667,21 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       return;
     }
     if (startBeob !== null && startBeob.gen === gen) startBewerten(startBeob, ev);
+    if (imAbbau.has(gen)) {
+      abbildGeaendert();
+      return;
+    }
+    switch (ev.ev) {
+      case 'status':
+        statusEreignis(ev as unknown as StatusEreignis);
+        break;
+      case 'privilege':
+        privilegEreignis(ev as unknown as PrivilegEreignis);
+        break;
+      case 'error':
+        fehlerEreignis(ev as unknown as FehlerEreignis);
+        break;
+    }
     abbildGeaendert();
   }
 
@@ -662,6 +709,99 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     melde('fehler', r.meldung);
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
     return { ok: false, text: r.meldung.text };
+  }
+
+  // ── Beitritt (Spec 6.2) ──────────────────────────────────────────────────
+  function scheitert(m: Meldungstext): void {
+    melde('fehler', m);
+    void stoppeBridge();
+    setzeZustand('fehler');
+  }
+
+  async function starteBeitritt(): Promise<ZoomErgebnis> {
+    if (nummer === null) return { ok: false, text: '' };
+    const lauf = laufNr;
+    const name = d.einstellungen.anzeigename();
+    meldung = null;
+    warImMeeting = false;
+    d.log(`[zoom] Beitritt gestartet (Anzeigename „${name}“)`);
+    setzeZustand('startet');
+    const r = await starteBridge();
+    if (lauf !== laufNr) return { ok: false, text: '' };
+    if (!r.ok) {
+      if (r.mangel !== null) mangelFolgen();
+      melde('fehler', r.meldung);
+      setzeZustand(r.mangel !== null ? 'einrichtung' : 'fehler');
+      return { ok: false, text: r.meldung.text };
+    }
+    sende({ cmd: 'join', meetingId: nummer.normiert, passcode: kenncode ?? '', displayName: name });
+    setzeZustand('tritt_bei');
+    return { ok: true };
+  }
+
+  async function beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis> {
+    if (zustand === 'einrichtung') return maengel.length ? { ok: false, text: mangelText(maengel[0], mangelDatei()) } : { ok: false, text: '' };
+    if (!((zustand === 'bereit' && !pruefungLaeuft) || zustand === 'fehler')) return { ok: false, text: '' };
+    let normiert: string;
+    try {
+      normiert = normalizeMeetingId(e.nummer);
+    } catch {
+      return { ok: false, text: KT.N0 };
+    }
+    const name = e.anzeigename.trim();
+    if (name.length < 1 || name.length > 64) return { ok: false, text: KT.N0b };
+    d.einstellungen.setzeAnzeigename(name);
+    nummer = { eingabe: e.nummer, normiert };
+    kenncode = e.kenncode;
+    soll.clear();
+    return starteBeitritt();
+  }
+
+  async function erneut(): Promise<ZoomErgebnis> {
+    if (nummer === null || !((zustand === 'bereit' && !pruefungLaeuft) || zustand === 'fehler')) return { ok: false, text: '' };
+    return starteBeitritt();
+  }
+
+  function imMeetingAngekommen(): void {
+    erlaubnis = 'offen';
+    warImMeeting = true;
+    setzeZustand('im_meeting');
+  }
+
+  function statusEreignis(e: StatusEreignis): void {
+    const s = e.status;
+    const name = d.einstellungen.anzeigename();
+    if (zustand === 'tritt_bei' || zustand === 'warteraum') {
+      if (s === 'inMeeting') imMeetingAngekommen();
+      else if (s === 'failed') scheitert(failMeldung(VORSATZ.beitritt, e.code, name));
+    }
+  }
+
+  /** Spec 6.2 Schritt 6, Tabelle. */
+  function privilegEreignis(e: PrivilegEreignis): void {
+    const vorher = erlaubnis;
+    if (e.canRecordRaw) erlaubnis = 'ja';
+    else if (e.denied) erlaubnis = 'abgelehnt';
+    else if (e.timedOut) erlaubnis = 'abgelaufen';
+    else if (e.source === 'broadcast') {
+      if (vorher === 'ja') erlaubnis = 'entzogen';
+    } else if (e.source === 'check' && e.requested) erlaubnis = 'offen';
+    if (erlaubnis === vorher) return;
+    d.log(`[zoom] Aufnahme-Erlaubnis: ${erlaubnis}`);
+  }
+
+  function fehlerEreignis(e: FehlerEreignis): void {
+    const name = e.name ?? String(e.code);
+    if (e.where === 'privilege') {
+      melde('warnung', { text: KT.Q12(name), detail: fehlerDetail(e) });
+      return;
+    }
+    if (zustand !== 'tritt_bei' && zustand !== 'warteraum') return;
+    if (e.where === 'join' && e.code === 'joinTimeout') scheitert({ text: KT.CT, detail: fehlerDetail(e) });
+    else if (e.where === 'join' && typeof e.code === 'number') scheitert({ text: KT.CJ(name), detail: fehlerDetail(e) });
+    else if (e.where === 'exit' && e.code === 'exited') {
+      scheitert(dllMeldung(exitCodeAus(e.detail)) ?? { text: KT.CB(e.detail ?? fehlerDetail(e)), detail: fehlerDetail(e) });
+    }
   }
 
   // ── Beenden (Spec 6.6) ───────────────────────────────────────────────────
@@ -712,6 +852,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     zugangLoeschen,
     versatz,
     pruefen,
+    beitreten,
+    erneut,
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),

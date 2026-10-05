@@ -708,6 +708,159 @@ if (process.platform === 'win32') {
   ueberspringe('Fall 6: DLL-Tod beim Start → B3');
 }
 
+// ── Aufgabe 12: Beitritt bis im_meeting, Erlaubnis, Geheimnisse ──────────────
+/** Beitritt mit NUMMER und `kenncode`; wartet auf im_meeting mit Erlaubnis „ja“. */
+async function insMeeting(p: Probe, kenncode = KENNCODE): Promise<boolean> {
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode, anzeigename: 'JM Connect' });
+  return r.ok && (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().erlaubnis === 'ja'));
+}
+
+console.log('— Beitritt (Fall 1 zweiter Teil, 2, 5, 8, 24c), Review Focus 1 und 5');
+{
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Fall 1: Zugangsdaten fehlen → B17, keine Bridge', text(r) === KT.B17 && p.starts() === 0);
+  ck('… Zustand einrichtung, STATE zoom_status=einrichtung', p.kern.kurz().zustand === 'einrichtung' && p.kern.stateKv()?.zoom_status === 'einrichtung');
+  ck('… nichts im Arbeitsspeicher', !p.kern.abbild().erneutMoeglich);
+  await p.aufraeumen();
+}
+{
+  let n = 0;
+  const p = baueKern({
+    laufzeit: { pruefe: () => (++n === 1 ? { ok: true, ordner: 'C:/laufzeit', ersetzt: [] } : { ok: false, mangel: 'sdk_defekt', datei: 'sdk.dll' }) },
+  });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('5.3: Laufzeit beim Beitritt defekt → S9, Zustand einrichtung, keine Bridge',
+    text(r) === KT.S9('sdk.dll') && p.kern.kurz().zustand === 'einrichtung' && p.starts() === 0);
+  ck('… Nummer und Kenncode verworfen (kein „Erneut“), Meldung S9', !p.kern.abbild().erneutMoeglich && p.kern.abbild().meldung?.text === KT.S9('sdk.dll'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ versatzMs: 40 });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: '  JM Connect  ' });
+  ck('Fall 2: Beitritt angenommen, Anzeigename getrimmt gespeichert', ok(r) && p.einst.anzeigename === 'JM Connect');
+  ck('… im_meeting mit Erlaubnis ja', await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().erlaubnis === 'ja'));
+  const c = p.befehle(1);
+  ck('… Befehlsfolge init, auth, videoDelay (40), join', c.slice(0, 4).map((x) => x.cmd).join(',') === 'init,auth,videoDelay,join' && c[2].ms === 40);
+  ck('… join mit Nummer, Kenncode und Anzeigename', c[3].meetingId === NUMMER && c[3].passcode === KENNCODE && c[3].displayName === 'JM Connect');
+  const t = p.kern.abbild().teilnehmer;
+  ck('… Teilnehmer ohne eigene Zeile (100), Host zuerst', t.length === 2 && !t.some((x) => x.id === 100) && t[0].id === 16778240 && t[0].rolle === 'host');
+  ck('… Zustandsfolge startet → tritt_bei → im_meeting', folge(p).join(',') === 'startet,tritt_bei,im_meeting');
+  ck('… STATE im_meeting, privilege 1, alarm 0, erneutMoeglich',
+    p.kern.stateKv()?.zoom_status === 'im_meeting' && p.kern.stateKv()?.zoom_privilege === 1 && p.kern.stateKv()?.zoom_alarm === 0 && p.kern.abbild().erneutMoeglich);
+  ck('… Log „Beitritt gestartet (Anzeigename „JM Connect“)“', p.logs.includes('[zoom] Beitritt gestartet (Anzeigename „JM Connect“)'));
+  ck('Fall 27: im Meeting → Zugang entfernen und SDK wählen → S10', text(p.kern.zugangLoeschen()) === KT.S10 && text(await p.kern.sdkWaehlen('C:/SDK')) === KT.S10);
+  ck('… Zugangsdaten unverändert', p.kern.abbild().einrichtung.zugang.herkunft === 'stored' && p.kern.kurz().maengel.length === 0);
+  ck('… beitreten und pruefen im Meeting → ok:false ohne Text',
+    text(await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' })) === '' && text(await p.kern.pruefen()) === '');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('Fall 3: im Meeting', await insMeeting(p));
+  const alles = JSON.stringify(p.kern.abbild()) + JSON.stringify(p.kern.stateKv()) + JSON.stringify(p.kern.kurz());
+  ck('Fall 3: Nummer und Kenncode weder im Abbild noch in STATE/Kurzform', !alles.includes(NUMMER) && !alles.includes(KENNCODE));
+  const kernZeilen = p.logs.filter((z) => z.startsWith('[zoom] '));
+  ck('… nicht in [zoom]-Zeilen', kernZeilen.length > 0 && !kernZeilen.some((z) => z.includes(NUMMER) || z.includes(KENNCODE)));
+  const echo = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"'));
+  ck('… die Echo-Zeile der Attrappe erscheint nur maskiert', echo !== undefined && echo.includes('•••') && !echo.includes(NUMMER) && !echo.includes(KENNCODE));
+  ck('… keine Zeile enthält Nummer, Kenncode oder Secret', !p.logs.some((z) => z.includes(NUMMER) || z.includes(KENNCODE) || z.includes('test-secret')));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('Fall 3 (leerer Kenncode): im Meeting', await insMeeting(p, ''));
+  ck('… keine Zeile mit „•••“ zwischen Einzelzeichen', !p.logs.some((z) => /•••.•••/.test(z)));
+  const echo = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"'));
+  ck('… die Echo-Zeile ist lesbar, die Nummer maskiert', echo !== undefined && echo.includes('"passcode":""') && echo.includes('"meetingId":"•••"'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Fall 5: Anmeldung abgelehnt → B9, Zustand fehler', text(r) === KT.B9('AUTHRET_KEYORSECRETWRONG') && p.kern.kurz().zustand === 'fehler');
+  ck('… kein join in der Befehlsfolge', !cmds(p).includes('join'));
+  ck('… Meldung fehler, erneutMoeglich, STATE alarm 1',
+    p.kern.abbild().meldung?.art === 'fehler' && p.kern.abbild().erneutMoeglich && p.kern.stateKv()?.zoom_alarm === 1);
+  await p.aufraeumen();
+}
+{
+  // Fall 7 über den Beitritt: nur hier kann „kein join“ rot werden („Einrichtung prüfen“ sendet nie join).
+  const p = baueKern({ stell: () => ({ FAKE_SDK_FASSUNG: '7.1.6 (99999)' }) });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Fall 7 (Beitritt): falsche SDK-Fassung → B7, Zustand fehler', text(r) === KT.B7('7.1.6 (99999)') && p.kern.kurz().zustand === 'fehler');
+  ck('… Bridge gestoppt, kein join in der Befehlsfolge', !p.kern.laeuft() && cmds(p).includes('init') && !cmds(p).includes('join'));
+  await p.aufraeumen();
+}
+for (const code of [63, 503, 504, 4]) {
+  const p = baueKern({ stell: () => ({ FAKE_BEITRITT_SCHEITERT: String(code) }) });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await bis(() => p.kern.kurz().zustand === 'fehler');
+  const m = p.kern.abbild().meldung;
+  const erwartet = code === 63 ? 'Beitritt gescheitert: Das Meeting gehört nicht zum Zoom-Konto dieser App. JM Connect kann nur Meetings im eigenen Zoom-Konto betreten. Bitte das Meeting im eigenen Konto anlegen.'
+    : code === 4 ? 'Beitritt gescheitert: falscher Kenncode.'
+    : 'Beitritt gescheitert: Zoom verlangt für dieses Meeting einen Beitritt im Namen eines angemeldeten Nutzers (OBF-Token). Das kann JM Connect nicht — nur Meetings im eigenen Zoom-Konto.';
+  ck(`Fall 8 (Code ${code}): join gesendet, dann fehler mit dem Klartext`, ok(r) && p.kern.kurz().zustand === 'fehler' && m?.text === erwartet);
+  ck(`… detail mit SDK-Namen und Code ${code}`, m?.detail?.endsWith(` (${code})`) === true && m.detail.startsWith('MEETING_FAIL_'));
+  await warte(200);
+  ck(`… kein zweiter Bridge-Start, erneutMoeglich (Code ${code})`, p.starts() === 1 && p.kern.abbild().erneutMoeglich);
+  if (code === 4) {
+    const e = await p.kern.erneut();
+    ck('erneut() nach fehler: neuer Start mit den Daten im Arbeitsspeicher', ok(e) && p.starts() === 2
+      && p.befehle(2).find((c) => c.cmd === 'join')?.meetingId === NUMMER && p.befehle(2).find((c) => c.cmd === 'join')?.passcode === KENNCODE);
+  }
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_SOFORTFEHLER: '3' }) });
+  const t0 = Date.now();
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Fall 24c: Sofortfehler → fehler mit B18 binnen 1 s', text(r) === KT.B18('SDKERR_INVALID_PARAMETER') && p.kern.kurz().zustand === 'fehler' && Date.now() - t0 < 1000);
+  ck('… kein join', !cmds(p).includes('join'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('erneut() ohne gemerkte Nummer → ok:false ohne Text, keine Bridge', text(await p.kern.erneut()) === '' && p.starts() === 0);
+  const erster = p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  const zweiter = await p.kern.beitreten({ nummer: NUMMER, kenncode: 'KENNCODE-PROBE-ZWEI', anzeigename: 'Zweiter Name' });
+  ck('Review Focus 1: zweiter Klick während startet → ok:false ohne Text', text(zweiter) === '');
+  ck('… erster Beitritt läuft weiter', ok(await erster) && (await bis(() => p.kern.kurz().zustand === 'im_meeting')));
+  ck('… genau eine Bridge, join mit den Daten des ersten Aufrufs', p.starts() === 1
+    && p.befehle(1).filter((c) => c.cmd === 'join').length === 1 && p.befehle(1).find((c) => c.cmd === 'join')?.passcode === KENNCODE
+    && p.einst.anzeigename === 'JM Connect');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  const r1 = await p.kern.beitreten({ nummer: '12a45', kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  const r2 = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: '   ' });
+  const r2leer = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: '' });
+  const r3 = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'x'.repeat(65) });
+  ck('Review Focus 5: Nummer mit Buchstaben → N0', text(r1) === KT.N0);
+  ck('… Anzeigename leer oder nur Leerzeichen → N0b, 65 Zeichen → N0b', text(r2) === KT.N0b && text(r2leer) === KT.N0b && text(r3) === KT.N0b);
+  ck('… keine Bridge, Zustand unverändert, nichts gespeichert', p.starts() === 0 && p.kern.kurz().zustand === 'bereit'
+    && !p.kern.abbild().erneutMoeglich && p.einst.anzeigename === 'JM Connect');
+  ck('… weder Nummer noch Kenncode in Text oder Log',
+    ![text(r1), text(r2), text(r2leer), text(r3), ...p.logs].some((z) => (z ?? '').includes(NUMMER) || (z ?? '').includes(KENNCODE) || (z ?? '').includes('12a45')));
+  ck('… 64 Zeichen sind erlaubt', ok(await p.kern.beitreten({ nummer: NUMMER, kenncode: '', anzeigename: 'x'.repeat(64) })));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_PRIVILEGE: 'nein' }) });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Fall 10: Erlaubnis abgelehnt → Z7', await bis(() => p.kern.kurz().erlaubnis === 'abgelehnt') && zoomZ(p.kern.kurz()) === 'Z7');
+  ck('… STATE zoom_alarm=1, zoom_privilege=0', p.kern.stateKv()?.zoom_alarm === 1 && p.kern.stateKv()?.zoom_privilege === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_PRIVILEGE: 'offen' }) });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Erlaubnis angefragt, keine Antwort → Z6, alarm 0',
+    await bis(() => p.kern.kurz().zustand === 'im_meeting') && (await warte(200), zoomZ(p.kern.kurz()) === 'Z6') && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);
