@@ -7,7 +7,7 @@
 //   $env:JMPS_IVEO_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
 //   node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event <slug> --base <url> <befehl> …
 // Befehle:
-//   ids [datei]                  Anzahl, Formen, Leerraum, Doppelte und Hashes der Speaker-Kennungen (M1 a, M3);
+//   ids [datei]                  Anzahl, Formen, Leerraum, Doppelte, ohne Kennung und Hashes der Speaker-Kennungen (M1 a, M3);
 //                                mit [datei] legt es die Kennungen zusätzlich als JSON-Liste dort ab (für vergleiche)
 //   vergleiche <datei1> <datei2> zwei mit ids abgelegte Listen: wie viele Kennungen nur in der ersten bzw. nur in der
 //                                zweiten stehen (M1 a). Liest nur die beiden Dateien, ruft iveo nicht ab.
@@ -24,7 +24,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { IveoApiError, createIveoClient, normalizeIveoBaseUrl, speakerName, type IveoSpeaker } from '../src/index';
-import { kennungsBericht, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from './messung-2b-kern';
+import { kennungenAus, kennungsBericht, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from './messung-2b-kern';
 
 const NUTZUNG =
   'Aufruf: node node_modules/tsx/dist/cli.mjs packages/iveo/tools/messung-2b.ts --event <slug> --base <url> ' +
@@ -54,10 +54,7 @@ if (!event || !base || !befehl) abbruch(NUTZUNG, 2);
 const client = createIveoClient({ token, baseUrl: base });
 const jaNein = (b: boolean): string => (b ? 'ja' : 'nein');
 
-/** Kennungen aus einer API-Antwort; eine fehlende oder leere Kennung zählt als „(ohne)“. */
-function kennungen(speakers: Array<{ id?: unknown }>): string[] {
-  return speakers.map((s) => (typeof s?.id === 'string' && s.id ? s.id : '(ohne)'));
-}
+const echte = (liste: Array<string | null>): string[] => liste.filter((id): id is string => id !== null);
 
 function zeitOderAbbruch(iso: string | undefined): string {
   if (!iso || Number.isNaN(Date.parse(iso))) abbruch(`Zeitpunkt nicht lesbar: ${iso ?? '(fehlt)'} (Beispiel 2026-10-02T08:00:00Z)`, 2);
@@ -65,18 +62,20 @@ function zeitOderAbbruch(iso: string | undefined): string {
 }
 
 async function ids(datei: string | undefined): Promise<void> {
-  const liste = kennungen(await client.listSpeakers(event));
+  const liste = kennungenAus(await client.listSpeakers(event));
   const b = kennungsBericht(liste);
   console.log(`Anzahl: ${b.anzahl}`);
   console.log(`Formen: uuid ${b.formen.uuid}, ziffern ${b.formen.ziffern}, andere ${b.formen.andere}`);
   console.log(`Mit Leerraum: ${b.mitLeerraum}`);
   console.log(`Doppelte: ${b.doppelte}`);
+  console.log(`Ohne Kennung: ${b.ohneKennung}`);
   console.log(`mengenHash: ${b.mengenHash}`);
   console.log(`reihenfolgeHash: ${b.reihenfolgeHash}`);
   if (datei) {
     // Nur die Kennungen, in API-Reihenfolge; keine Namen. Für den Vergleich zweier Abrufe (vergleiche).
-    writeFileSync(datei, JSON.stringify(liste), 'utf8');
-    console.log(`Kennungen abgelegt: ${liste.length}`);
+    const abgelegt = echte(liste);
+    writeFileSync(datei, JSON.stringify(abgelegt), 'utf8');
+    console.log(`Kennungen abgelegt: ${abgelegt.length}`);
   }
 }
 
@@ -113,10 +112,13 @@ async function cache(pfad: string | undefined): Promise<void> {
   }
   const liste = (roh as { speakers?: unknown } | null)?.speakers;
   if (!Array.isArray(liste)) abbruch('Cache-Datei ohne Speaker-Liste (speakers[]).', 2);
-  const v = vergleicheMitCache(kennungen(await client.listSpeakers(event)), kennungen(liste));
+  const api = kennungenAus(await client.listSpeakers(event));
+  const imCache = kennungenAus(liste);
+  const v = vergleicheMitCache(echte(api), echte(imCache));
   console.log(`nurApi: ${v.nurApi}`);
   console.log(`nurCache: ${v.nurCache}`);
   console.log(`gleich: ${jaNein(v.gleich)}`);
+  console.log(`Ohne Kennung: API ${api.length - echte(api).length}, Cache ${imCache.length - echte(imCache).length}`);
 }
 
 async function speaker(name: string | undefined): Promise<void> {
@@ -159,6 +161,7 @@ async function speakerSeit(iso: string | undefined, name: string | undefined): P
     cursor = antwort.meta?.pagination?.next_cursor ?? null;
     if (!cursor) break;
   }
+  if (cursor) console.log('Abgebrochen nach 50 Seiten: Anzahl unvollständig');
   console.log(`Anzahl: ${alle.length}`);
   if (name) console.log(`${name} dabei: ${jaNein(alle.some((s) => speakerName(s) === name))}`);
 }

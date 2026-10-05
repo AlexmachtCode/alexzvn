@@ -19,10 +19,12 @@ export function kennungsForm(id: string): KennungsForm {
 
 export interface KennungsBericht {
   anzahl: number;
+  /** Speaker ohne Kennung (fehlend oder leer). Zählen in `anzahl` mit, sonst nirgends. */
+  ohneKennung: number;
   formen: Record<KennungsForm, number>;
   /** Kennungen mit Leerraum (`/\s/`). Der Normalisierer in @jm/show würde sie kürzen. */
   mitLeerraum: number;
-  /** Anzahl minus Anzahl verschiedener Kennungen. */
+  /** Anzahl echter Kennungen minus Anzahl verschiedener Kennungen. */
   doppelte: number;
   /** Erste 16 Hex-Zeichen von SHA-256 über die sortierten, mit `\n` verbundenen Kennungen: gleiche Menge? */
   mengenHash: string;
@@ -34,17 +36,28 @@ function hash16(kennungen: string[]): string {
   return createHash('sha256').update(kennungen.join('\n'), 'utf8').digest('hex').slice(0, 16);
 }
 
-export function kennungsBericht(ids: string[]): KennungsBericht {
+/** `null` steht für „ohne Kennung“; Formen, Leerraum, Doppelte und Hashes rechnen nur über die echten Kennungen. */
+export function kennungsBericht(ids: Array<string | null>): KennungsBericht {
+  const echte = ids.filter((id): id is string => id !== null);
   const formen: Record<KennungsForm, number> = { uuid: 0, ziffern: 0, andere: 0 };
-  for (const id of ids) formen[kennungsForm(id)]++;
+  for (const id of echte) formen[kennungsForm(id)]++;
   return {
     anzahl: ids.length,
+    ohneKennung: ids.length - echte.length,
     formen,
-    mitLeerraum: ids.filter((id) => /\s/.test(id)).length,
-    doppelte: ids.length - new Set(ids).size,
-    mengenHash: hash16([...ids].sort()),
-    reihenfolgeHash: hash16(ids),
+    mitLeerraum: echte.filter((id) => /\s/.test(id)).length,
+    doppelte: echte.length - new Set(echte).size,
+    mengenHash: hash16([...echte].sort()),
+    reihenfolgeHash: hash16(echte),
   };
+}
+
+/** Kennungen aus einer Speaker-Liste (API oder Cache): ein nicht-leerer Text bleibt, alles andere wird `null` („ohne Kennung“). */
+export function kennungenAus(speakers: unknown[]): Array<string | null> {
+  return speakers.map((s) => {
+    const id = (s as { id?: unknown } | null)?.id;
+    return typeof id === 'string' && id ? id : null;
+  });
 }
 
 /**

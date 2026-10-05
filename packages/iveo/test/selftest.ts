@@ -28,7 +28,7 @@ import {
   type IveoSnapshot,
 } from '../src/index';
 import { createShow, hatEigeneTimerListe, normalizeAblauf, parseShow, serializeShow } from '@jm/show';
-import { kennungsBericht, kennungsForm, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from '../tools/messung-2b-kern';
+import { kennungenAus, kennungsBericht, kennungsForm, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from '../tools/messung-2b-kern';
 
 let failed = 0;
 function ok(cond: boolean, msg: string): void {
@@ -634,6 +634,31 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   ok(
     leseKennungsListe('kaputt') === null && leseKennungsListe('{"a":1}') === null && leseKennungsListe('[1,2]') === null,
     'Messung: kein JSON, kein Array oder keine Texte → null',
+  );
+  ok(kennungsBericht(['a', null, 'b', null]).ohneKennung === 2, 'Messung: ohne Kennung gezählt');
+  ok(kennungsBericht(['a', null, 'b', null]).doppelte === 0, 'Messung: zwei ohne Kennung sind keine Doppelten');
+  ok(kennungsBericht(['a', null, 'b', null]).anzahl === 4, 'Messung: Anzahl zählt Speaker ohne Kennung mit');
+  ok(kennungsBericht(['a', null, 'b', null]).formen.andere === 2, 'Messung: Formen nur über echte Kennungen');
+  ok(
+    kennungsBericht(['a', 'a', null]).doppelte === 1 && kennungsBericht(['a', 'a', null]).ohneKennung === 1,
+    'Messung: Doppelte und ohne Kennung getrennt',
+  );
+  ok(
+    kennungsBericht(['a', null, 'b']).mengenHash === kennungsBericht(['b', 'a']).mengenHash,
+    'Messung: mengenHash ohne die Speaker ohne Kennung',
+  );
+  ok(
+    kennungsBericht([]).anzahl === 0 &&
+      kennungsBericht([]).doppelte === 0 &&
+      kennungsBericht([]).ohneKennung === 0 &&
+      /^[0-9a-f]{16}$/.test(kennungsBericht([]).mengenHash),
+    'Messung: leere Liste',
+  );
+  ok(vergleicheMengen(['a', 'a'], ['a']).gleich, 'Messung: doppelte Kennung ändert die Menge nicht');
+  ok(vergleicheMengen([], []).gleich, 'Messung: zwei leere Listen sind gleich');
+  ok(
+    JSON.stringify(kennungenAus([{ id: 'x' }, { id: '' }, {}, null, { id: 7 }])) === JSON.stringify(['x', null, null, null, null]),
+    'Messung: kennungenAus macht fehlende, leere und Nicht-Text-Kennungen zu null',
   );
 }
 
