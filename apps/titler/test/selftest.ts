@@ -392,6 +392,22 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     dn8einer.zustand.aktiv === null && dn8einer.zustand.gehalten?.vars.funktion === 'CEO' && dn8einer.zustand.hinweis?.art === 'H1',
     'Schliff F2 R2: … doppelt zurück, danach fällt einer weg → bleibt gehalten, nicht still der verbliebene gleichnamige (kein A5)',
   );
+  // Schliff F2, Runde 2, dieselbe Fehlerklasse ohne doppelten Namen: H2 entsteht, obwohl das Label schon in der Liste
+  // steht (Nr. 19: andere Kennung; Nr. 18: Name nur in einer anderen Datei). Er endet nicht beim nächsten unveränderten
+  // Einlesen, sondern mit einem Abruf.
+  const n19abNeu = neueListe(n19ab.zustand, andereKennung, GLEICH);
+  ok(n19abNeu.zustand.hinweis?.art === 'H2', 'Schliff F2 R2: Nr. 19 (andere Kennung, gleicher Name), A3 mit H2, unverändert neu eingelesen → H2 bleibt');
+  const n19A4 = uhrTick(setzeSendung(n19auf.zustand, false, 0).zustand, HALTEN_NACH_SENDUNG_MS + 1);
+  ok(
+    n19A4.zustand.hinweis?.art === 'H2' && neueListe(n19A4.zustand, andereKennung, GLEICH).zustand.hinweis?.art === 'H2',
+    'Schliff F2 R2: Nr. 19 auf Sendung gehalten, Sendung endet (A4) → H2, unverändert neu eingelesen → H2 bleibt',
+  );
+  const n18ab = neueListe(kernMit(ohneIds, 'ersatz:speakers.tsv|Alan', false), andereDatei, GLEICH);
+  ok(
+    n18ab.zustand.hinweis?.art === 'H2' && neueListe(n18ab.zustand, andereDatei, GLEICH).zustand.hinweis?.art === 'H2',
+    'Schliff F2 R2: Nr. 18 (Name nur in einer anderen Datei), A3 mit H2, unverändert neu eingelesen → H2 bleibt',
+  );
+  ok(rufeAb(n19abNeu.zustand, 'Alan').zustand.hinweis === null, 'Schliff F2 R2: … ein Abruf des Bedieners beendet den Hinweis');
 
   // Review Task 9: Die Kern-Funktionen sind rein und verändern ihre Eingabe nicht. Tief eingefroren: Ein Schreibzugriff
   // würfe im strikten Modul einen TypeError.

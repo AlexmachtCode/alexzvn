@@ -127,8 +127,10 @@ export function fuehreZusammen(teile: DataEntry[][]): DataEntry[] {
 
 /**
  * Stehender Hinweis (Spec 7.8). H1, H2, H5, H6 setzt der Kern, H3, H4, H7 die Datenquelle.
- * H2 `mehrdeutig`: wegen eines doppelten Namens (`mehrdeutig`), das Label steht weiter in der Liste. Ein solcher H2
- * endet nicht beim Neueinlesen, nur durch einen Abruf (Schliff F2).
+ * H2 `mehrdeutig`: Ob eine Zeile der Liste die Person ist, sagt die Liste nicht. Gesetzt, wenn die Person wegen eines
+ * doppelten Namens nicht feststeht (`mehrdeutig`, auch beim gehaltenen Eintrag) oder ihr Label beim Entstehen des
+ * Hinweises schon in der Liste stand (doppelter Name, andere Kennung, andere Datei). Ein solcher H2 endet nicht beim
+ * Neueinlesen, nur durch einen Abruf (auch Weiter/Zurück) oder A9 (Schliff F2, Runde 2).
  */
 export type Hinweis =
   | { art: 'H1'; label: string }
@@ -230,6 +232,11 @@ export function leererKern(): KernZustand {
 /** Label-Vergleich für Brücke und Abruf: getrimmt, Leerraum zusammengefasst, klein. */
 function normLabel(s: string): string {
   return s.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** Steht ein Eintrag mit diesem Label in der Liste (Vergleich wie `normLabel`)? */
+function labelInListe(label: string, liste: DataEntry[]): boolean {
+  return liste.some((e) => normLabel(e.label) === normLabel(label));
 }
 
 function stelleVon(eintraege: DataEntry[], key: string | null): number {
@@ -345,7 +352,7 @@ export function neueListe(
     }
     // A3: kein aktiver Eintrag.
     log.push(ohneEintragZeile(label));
-    const h2: Hinweis = { art: 'H2', label, ...(unsicher ? { mehrdeutig: true as const } : {}) };
+    const h2: Hinweis = { art: 'H2', label, ...(unsicher || labelInListe(label, eintraege) ? { mehrdeutig: true as const } : {}) };
     return { zustand: { ...z, eintraege, aktiv: null, hinweis: h2 }, log };
   }
 
@@ -378,13 +385,14 @@ export function neueListe(
 
   // Ohne aktiven und ohne gehaltenen Eintrag: nur ein Ordnerwechsel (auch der erste Start) ohne Sendung wählt
   // Eintrag 1 (A9). Auf Sendung (A8) bleibt es ohne Eintrag: Die Bauchbinde zeigt weiter leere Platzhalter,
-  // statt ohne Abruf auf Person 1 zu springen. Ein stehender Hinweis H5 bleibt; H2 nur, solange die Zeile fehlt.
+  // statt ohne Abruf auf Person 1 zu springen. Ein stehender Hinweis H5 bleibt; H2 ohne `mehrdeutig` nur, solange die Zeile fehlt.
   if (o.andererOrdner && !z.aufSendung && eintraege.length) return { zustand: aktivWird(0), log };
   // Ein stehender H2 endet, sobald die Zeile wieder in der Liste steht: Der Hinweis "nicht mehr in der Liste" wäre sonst falsch.
-  // Nicht bei einem doppelten Namen: Da stand das Label schon beim Entstehen in der Liste, sein Grund endet nicht beim
-  // Neueinlesen, sondern erst mit einem Abruf (Spec 7.8, Schliff F2).
+  // Nicht mit `mehrdeutig`: Da stand das Label schon beim Entstehen in der Liste (doppelter Name, andere Kennung, andere
+  // Datei) oder die Person steht nicht fest. Sein Grund endet nicht beim Neueinlesen, sondern erst mit einem Abruf
+  // (Spec 7.8, Schliff F2 und Runde 2).
   const h = z.hinweis;
-  const h2Erledigt = h?.art === 'H2' && !h.mehrdeutig && eintraege.some((e) => normLabel(e.label) === normLabel(h.label));
+  const h2Erledigt = h?.art === 'H2' && !h.mehrdeutig && labelInListe(h.label, eintraege);
   return { zustand: { ...z, eintraege, hinweis: h2Erledigt ? null : z.hinweis }, log };
 }
 
@@ -406,7 +414,10 @@ export function uhrTick(z: KernZustand, jetztMs: number): KernSchritt {
   // Nach A10 wird H6 zu H5, ohne Logzeile: Der Eintrag steht oft noch in der Liste.
   if (g.grund === 'A10') return { zustand: { ...leer, hinweis: { art: 'H5', ref: g.ref ?? g.label } }, log: [] };
   return {
-    zustand: { ...leer, hinweis: { art: 'H2', label: g.label, ...(g.mehrdeutig ? { mehrdeutig: true as const } : {}) } },
+    zustand: {
+      ...leer,
+      hinweis: { art: 'H2', label: g.label, ...(g.mehrdeutig || labelInListe(g.label, z.eintraege) ? { mehrdeutig: true as const } : {}) },
+    },
     log: [ohneEintragZeile(g.label)],
   };
 }
