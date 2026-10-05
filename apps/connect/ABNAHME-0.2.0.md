@@ -2,16 +2,16 @@
 
 Spec: `docs/superpowers/specs/2026-10-02-zoom-stage4-connect-design.md`, Abschnitt 13 (Voraussetzungen und Schritte wörtlich), Messfragen aus Abschnitt 16.
 
-**4a-Kurztest (Plan 4a, Spec 18):** nur die Schritte mit „ja“ in der Spalte „4a-Kurztest“ (1–8, 10, 19, 21, 22, 24). Er liefert die Messungen M1, M3, M7 und M9 (Abschnitt „Messungen aus dem Kurztest“ unten). Die übrigen Schritte gehören zur vollen Abnahme vor dem Release `connect-v0.2.0` (Plan 4b).
-- Getestet wird ein **interner Bau** mit der Version **0.1.0**; die Version steigt erst mit dem Release (Plan 4b). Schritt 1 zeigt darum 0.1.0.
-- In 4a gibt es noch keinen automatischen Wiederbeitritt: Ein Verbindungsabriss endet in der Zoom-Karte mit einer Fehlermeldung und „Erneut beitreten“. Die Companion-Schritte (12, 13, 15) brauchen das Modul 0.2.0 aus Plan 4b.
+**4a-Kurztest (Plan 4a, Spec 18):** nur die Schritte mit „ja“ in der Spalte „4a-Kurztest“ (1–8, 10, 19, 21, 22, 24). Er liefert die Messungen M1, M3, M7 und M9 (Abschnitt „Messungen aus dem Kurztest“ unten). Die übrigen Schritte, die 4b brauchen, gehören zur Abnahme von 0.3.0 (Stage 4b).
+- Getestet wird jetzt das **Release 0.2.0** (Pre-Release, Owner 05.10.2026) aus der Suite; der 4a-Kurztest bleibt. Schritt 1 zeigt darum 0.2.0.
+- In 4a gibt es noch keinen automatischen Wiederbeitritt: Ein Verbindungsabriss endet in der Zoom-Karte mit einer Fehlermeldung und „Erneut beitreten“. Die Companion-Schritte (12, 13, 15) brauchen das Modul aus Stage 4b (Release 0.3.0).
 - Meeting-Nummer und Kenncode **nie** in diese Datei, in Notizen oder in Berichte schreiben; `<Meeting-Nummer>` und `<Kenncode>` bleiben Platzhalter.
 
 **Getesteter Bau** (vom Owner auszufüllen; die SHA-256 steht im Bericht von Aufgabe 20 des Plans 4a):
 
 | Installer | SHA-256 | Datum | Raum-PC |
 | --- | --- | --- | --- |
-| `JM Connect-0.1.0-win-x64.exe` | | | |
+| `JM Connect-0.2.0-win-x64.exe` | | | |
 
 **Voraussetzungen:**
 - Raum-PC **ohne** VC-Redist: In „Apps“ gibt es kein „Microsoft Visual C++ 2015-2022 Redistributable (x64)“, und der Registrierungsschlüssel `HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64` fehlt. Zusätzlich fehlen `C:\Windows\System32\msvcp140.dll` und `C:\Windows\System32\vcruntime140.dll`. Liegen sie dort (von anderen Installern hinterlassen), Dateifassung notieren: Zooms Hilfsprogramme suchen auch in System32, M1 gilt dann als **nicht belegt**.
@@ -22,7 +22,7 @@ Spec: `docs/superpowers/specs/2026-10-02-zoom-stage4-connect-design.md`, Abschni
 
 | # | Schritt | Erwartung | 4a-Kurztest | Ergebnis |
 | --- | --- | --- | --- | --- |
-| 1 | Connect 0.2.0 auf dem Raum-PC installieren | Version sichtbar; Zoom-Karte zeigt „nicht vollständig eingerichtet: SDK-Ordner fehlt · Zugangsdaten fehlen“, „Beitreten“ fehlt, Hinweis zur Sperre; Tray „△ Zoom: Einrichtung unvollständig“ | ja | *Hinweis 4a-Kurztest: der interne Bau zeigt Version **0.1.0**, nicht 0.2.0 (siehe Kopf).* |
+| 1 | Connect 0.2.0 auf dem Raum-PC installieren | Version sichtbar; Zoom-Karte zeigt „nicht vollständig eingerichtet: SDK-Ordner fehlt · Zugangsdaten fehlen“, „Beitreten“ fehlt, Hinweis zur Sperre; Tray „△ Zoom: Einrichtung unvollständig“ | ja | *Hinweis 4a-Kurztest: das Release zeigt Version **0.2.0** (siehe Kopf).* |
 | 2 | SDK-Ordner `x86\bin` wählen | Text S2, nichts kopiert | ja | |
 | 3 | SDK-Ordner aus der JM-Ablage wählen | Fortschritt; danach „Zoom-SDK 7.1.5.43953 eingerichtet“; Ordner unter `%LOCALAPPDATA%\JM Connect\zoom-laufzeit\` | ja | |
 | 4 | Zugangsdaten-Datei wählen, danach die Datei umbenennen, Connect beenden und **aus dem Launcher** neu starten | „hinterlegt (Client-ID endet auf …)“; bleibt nach dem Neustart hinterlegt. Ab hier läuft Connect aus dem Launcher (Voraussetzung für M6 in Schritt 6) | ja | |

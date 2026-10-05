@@ -1463,6 +1463,8 @@ Ein Spec, **ein** Release `connect-v0.2.0`, aber zwei Implementierungspläne. Be
 | **4a · Fundament** | Bridge-Paket (`sdk.ts`, `FAIL_CODE_NAMES`/`failReason`/`endReason`, `auslieferung.mjs` mit `app.asar`-Prüfung, Attrappe); Laufzeit-Ordner und Einrichtung samt Mängeln und Sperre; Kern **ohne** automatischen Wiederbeitritt (bei Abriss gleich `fehler` mit „Erneut beitreten“), aber **mit** Generationsregel (6.9), Einlass aus dem Warteraum, Verlassen/Schließen/Meldung (6.8) und `stateKv()` (ohne `zoom_cmd*`); Hülle, IPC, Oberfläche mit Meldungsbereich, Status (Abschnitt 7 vollständig); Beenden; Paketierung mit beiden Wächtern; Tests 12.1, 12.3, `zoom-text.test.ts` aus 12.4, und 12.2 **ohne** die Fälle 15, 15b, 15c, 16–18, 22, 25 und **ohne** die Fernsteuer-Teile von Fall 13 und 21; CI-Schritte für Bridge und Connect | interner Bau, Owner-Kurztest am echten Meeting: Abnahme 1–8, 10, 19, 21, 22, 24 (liefert M1, M3, M7, M9) |
 | **4b · Betrieb und Auslieferung** | Abriss und Wiederbeitritt (6.4) samt Fällen 15, 15b, 15c, 16–18, 25; Fernsteuerung (Abschnitt 11: Capabilities, Verben im Main, `zoom_cmd*`, STATE mischen) samt Fall 22, den Fernsteuer-Teilen von Fall 13 und 21, `control-state.test.ts` (12.4), Companion-Sync und CI-Schritt „Companion-Protokoll aktuell“; Altfehler 17.2 Nr. 2 und 3 samt Tests (Owner 02.10.2026); Abstimmung mit 2b (17.3); Handbuch und Doku; volle Abnahme (13); Release (15) | `connect-v0.2.0` |
 
+**Nachtrag 05.10.2026 (Owner):** 4a wird als `connect-v0.2.0` (Pre-Release) released und in der Suite getestet; 4b (automatischer Wiederbeitritt, Companion-Fernsteuerung, Handbuch) wird 0.3.0.
+
 Will der Owner lieber einen einzigen Plan, trägt der Spec auch das. Dann läuft der Kurztest aus 4a als Zwischenschritt vor den Aufgaben zu 6.4 (Owner-Frage O3).
 
 ---
@@ -1481,3 +1483,4 @@ Keiner der Prüfbefunde widerspricht einer Owner-Entscheidung E1–E9; alle sind
 - **O1:** offen. Vor dem Release von `connect-v0.2.0` klären; blockiert 4a und 4b nicht.
 - **O2:** **In 4b mitbeheben**, abweichend vom Vorschlag oben. 17.2 Nr. 2 und 3 werden vor der ersten Auslieferung der Connect-Rolle behoben (17.2, 18, Abschnitt 1).
 - **O3:** **Zwei Pläne**, 4a und danach 4b, ein Release.
+- **Nachtrag 05.10.2026 (Owner):** **O1 entschieden:** Weitergabe von `zoom-bridge.exe` im öffentlichen Installer wie bei `zoom-bridge-v0.1.0` erlaubt (ohne Zoom-DLLs; die wählt der Bediener als SDK-Ordner). 4a wird als `connect-v0.2.0` released, 4b wird 0.3.0.

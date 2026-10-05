@@ -4,6 +4,8 @@
 
 **Goal:** JM Connect richtet unter Windows einmal je PC das Zoom-SDK und die Zugangsdaten ein, tritt aus dem Connect-Fenster einem Zoom-Meeting im eigenen Konto bei und lädt einzelne Teilnehmer als NDI-Quelle — mit ehrlichem Status in Karte, Kopfzeile und Tray, sauberem Verlassen und Beenden und ohne eine einzige Zoom-Datei im Installer. Ende: interner Bau für den Owner-Kurztest (Abnahme 1–8, 10, 19, 21, 22, 24). Kein Release.
 
+> **Nachtrag 05.10.2026 (Owner):** 4a wird jetzt als JM Connect 0.2.0 (`connect-v0.2.0`, Pre-Release) released; Stage 4b wird 0.3.0.
+
 **Architecture:**
 - **`@jm/zoom-bridge`** (nur TypeScript, Skripte, Attrappe; der C++-Teil bleibt unverändert): neues `src/sdk.ts` (SDK-Fassung, PE-Leser, SDK-Ordnersuche); Fehlerkatalog `FAIL_CODE_NAMES`/`failCodeName`/`failReason`/`endReason` in `src/protocol.ts`; neues `scripts/auslieferung.mjs` (Wächter für Dateien **und** `.asar`-Inhalt, VC-Laufzeit-Suche, Frische der EXE), das `build-release.mjs` und die Connect-Paketierung gemeinsam nutzen; Attrappe mit den Stellschrauben aus Spec 12.1 Nr. 4.
 - **Connect, rein und ohne Electron** (`src/main/zoom/*.ts`, `src/shared/zoom-text.ts`): `klartext.ts` (alle Texte aus Spec 8), `laufzeit.ts` (Laufzeit-Ordner, Kopie, Stempel, Prüfung, `kindPfad`), `teilnehmer.ts` und `soll.ts` (Teilnehmerzeilen, Kollision, Soll-Liste als reine Funktionen), `kern.ts` (Zustandsmaschine, Bridge-Lebenslauf mit Generationsregel 6.9, Abbild, `stateKv()`), `einstellungen.ts` (Regeln der Zoom-Felder), `zoom-text.ts` (eine Quelle für Tray, Kopfzeile, Kartentext, Knopflogik und STATE-Werte). Alles mit `tsx` gegen die echte `Bridge` und die Attrappe testbar.
