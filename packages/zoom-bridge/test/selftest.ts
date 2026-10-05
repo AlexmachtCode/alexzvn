@@ -22,6 +22,8 @@ import {
   type WireEvent,
 } from '../src/protocol.ts';
 import { withNdiRuntimeOnPath } from '../src/ndi-path.ts';
+import { PE_MASCHINE_X64, PE_MASCHINE_X86, SDK_FASSUNG, SDK_FASSUNG_BRIDGE, findeSdkBin, peInfo } from '../src/sdk.ts';
+import * as paket from '../src/index.ts';
 import { tmpdir } from 'node:os';
 import { delimiter } from 'node:path';
 import { writeFileSync, unlinkSync } from 'node:fs';
@@ -2034,6 +2036,90 @@ console.log('\nsteuerung — der bestaetigte Versatz wird SOFORT weitergegeben:'
   assert(versatz.length === 1, '... und gibt keinen Wert weiter');
   t.tippe('ende');
   await t.lauf;
+}
+
+// --- Stage 4: SDK-Fassung, PE-Leser, SDK-Ordnersuche (Spec 12.1 Nr. 1-2) -------
+
+console.log('\nsdk — Fassung, PE-Leser, SDK-Ordnersuche (Stage 4):');
+{
+  /**
+   * Kleinste PE-Datei, die peInfo lesen kann: "MZ", e_lfanew = 0x80, dort
+   * "PE\0\0" und der Maschinentyp; mit `fassung` zusaetzlich VS_FIXEDFILEINFO
+   * (Signatur BD 04 EF FE bei 0x100, dwFileVersionMS bei 0x108, LS bei 0x10c).
+   */
+  function machePe(maschine: number, fassung: [number, number, number, number] | null): Uint8Array {
+    const buf = new Uint8Array(0x200);
+    const dv = new DataView(buf.buffer);
+    buf.set([0x4d, 0x5a], 0);
+    dv.setUint32(0x3c, 0x80, true);
+    buf.set([0x50, 0x45, 0, 0], 0x80);
+    dv.setUint16(0x84, maschine, true);
+    if (fassung) {
+      const [a, b, c, d] = fassung;
+      buf.set([0xbd, 0x04, 0xef, 0xfe], 0x100);
+      dv.setUint32(0x108, ((a << 16) | b) >>> 0, true);
+      dv.setUint32(0x10c, ((c << 16) | d) >>> 0, true);
+    }
+    return buf;
+  }
+  /** Meldung des geworfenen Fehlers, '' wenn nichts geworfen wurde. */
+  const wirft = (f: () => unknown): string => {
+    try {
+      f();
+      return '';
+    } catch (e) {
+      return (e as Error).message;
+    }
+  };
+
+  assert(SDK_FASSUNG === '7.1.5.43953', 'SDK_FASSUNG ist 7.1.5.43953');
+  assert(SDK_FASSUNG_BRIDGE === '7.1.5 (43953)', 'SDK_FASSUNG_BRIDGE ist "7.1.5 (43953)" (so meldet es ready.sdkVersion)');
+  assert(PE_MASCHINE_X64 === 0x8664 && PE_MASCHINE_X86 === 0x014c, 'Maschinentypen: x64 = 0x8664, x86 = 0x014c');
+
+  const x64 = peInfo(machePe(0x8664, [7, 1, 5, 43953]));
+  assert(x64.maschine === 'x64' && x64.maschinenTyp === 0x8664 && x64.fassung === '7.1.5.43953', 'x64 + 7.1.5.43953 wird erkannt');
+  const x86 = peInfo(machePe(0x014c, [7, 1, 5, 43953]));
+  assert(x86.maschine === 'x86' && x86.maschinenTyp === 0x014c, '0x014c ist x86 (32-Bit-SDK, Text S2)');
+  const arm = peInfo(machePe(0xaa64, null));
+  assert(arm.maschine === 'andere' && arm.maschinenTyp === 0xaa64, 'ein anderer Maschinentyp heisst "andere" und behaelt seinen Wert');
+  assert(peInfo(machePe(0x8664, null)).fassung === null, 'ohne Versionsressource: fassung null (Text S3b)');
+  assert(peInfo(machePe(0x8664, [65535, 2, 65535, 4])).fassung === '65535.2.65535.4', 'Fassungsteile ueber 32767 werden vorzeichenlos gelesen');
+
+  // Ein Buffer aus readFileSync ist oft ein Ausschnitt mit byteOffset > 0: peInfo
+  // muss ab dem Anfang DIESER Datei lesen, nicht ab dem Anfang des Speichers.
+  const roh = machePe(0x8664, [7, 1, 5, 43953]);
+  const versetzt = new Uint8Array(roh.length + 7);
+  versetzt.set(roh, 7);
+  assert(peInfo(versetzt.subarray(7)).fassung === '7.1.5.43953', 'ein Ausschnitt mit byteOffset wird richtig gelesen');
+
+  const ohnePe = machePe(0x8664, [7, 1, 5, 43953]);
+  ohnePe.set([0x50, 0x58], 0x80); // "PX\0\0"
+  assert(wirft(() => peInfo(ohnePe)) === 'Keine PE-Datei (Signatur PE\\0\\0 fehlt).', 'ohne "PE\\0\\0": Fehler mit fester Meldung');
+  assert(wirft(() => peInfo(new Uint8Array(0x20))) !== '', 'ein 0x20-Byte-Puffer wirft');
+  const zuWeit = machePe(0x8664, null);
+  new DataView(zuWeit.buffer).setUint32(0x3c, 0x1fe, true);
+  assert(wirft(() => peInfo(zuWeit)) !== '', 'e_lfanew hinter dem Dateiende wirft');
+
+  // findeSdkBin: der Bediener waehlt die SDK-Wurzel, x64 oder x64\bin (Spec 6.1 Schritt 3).
+  const w = join(tmpdir(), 'jm-sdk-probe');
+  const bin = join(w, 'x64', 'bin');
+  const da = (...pfade: string[]) => {
+    const s = new Set(pfade);
+    return (p: string) => s.has(p);
+  };
+  const nurBin = da(join(bin, 'sdk.dll'));
+  assert(findeSdkBin(w, nurBin) === bin, 'Wurzel gewaehlt -> x64\\bin');
+  assert(findeSdkBin(join(w, 'x64'), nurBin) === bin, 'x64 gewaehlt -> x64\\bin');
+  assert(findeSdkBin(bin, nurBin) === bin, 'x64\\bin gewaehlt -> derselbe Ordner');
+  assert(findeSdkBin(join(w, 'leer'), da()) === null, 'leerer Ordner -> null (Text S1)');
+  assert(findeSdkBin(w, da(join(w, 'sdk.dll'), join(bin, 'sdk.dll'))) === w, 'Reihenfolge: sdk.dll direkt im gewaehlten Ordner gewinnt');
+
+  // Die oeffentliche Flaeche: src/index.ts und der Paket-Export "./sdk".
+  assert(paket.SDK_FASSUNG === SDK_FASSUNG && paket.SDK_FASSUNG_BRIDGE === SDK_FASSUNG_BRIDGE,
+    'src/index.ts exportiert SDK_FASSUNG und SDK_FASSUNG_BRIDGE');
+  assert(paket.peInfo === peInfo && paket.findeSdkBin === findeSdkBin, 'src/index.ts exportiert peInfo und findeSdkBin');
+  const ueberExport = (await import('@jm/zoom-bridge/sdk')) as { SDK_FASSUNG?: string };
+  assert(ueberExport.SDK_FASSUNG === SDK_FASSUNG, 'package.json exportiert "./sdk" (Selbstbezug @jm/zoom-bridge/sdk)');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

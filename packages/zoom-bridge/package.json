@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./protocol": "./src/protocol.ts",
     "./state": "./src/state.ts",
-    "./jwt": "./src/jwt.ts"
+    "./jwt": "./src/jwt.ts",
+    "./sdk": "./src/sdk.ts"
   },
   "scripts": {
     "install": "node scripts/maybe-build.mjs",

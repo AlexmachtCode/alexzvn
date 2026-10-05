@@ -3,6 +3,7 @@
 export { Bridge, binPath, type BridgeOptions } from './bridge.ts';
 export { buildJwt, readCredentials, type JwtOptions } from './jwt.ts';
 export { initialSession, isSettled, reduce, type Session } from './state.ts';
+export { SDK_FASSUNG, SDK_FASSUNG_BRIDGE, peInfo, findeSdkBin, type PeInfo } from './sdk.ts';
 export {
   normalizeMeetingId,
   sdkErrorName,
