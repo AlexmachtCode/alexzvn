@@ -378,6 +378,20 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     'Schliff F2: … gehalten (A2), Sendung endet (A4) → H2, unverändert neu eingelesen → H2 bleibt',
   );
   ok(rufeAb(dn2b.zustand, '2').zustand.hinweis === null, 'Schliff F2: … ein Abruf des Bedieners beendet den Hinweis');
+  // Schliff F2, Runde 2: Eine eindeutige Person fällt auf Sendung weg (A2 ohne Merkmal), ihr Name kommt doppelt zurück
+  // (dn8, weiter gehalten). Ab da steht nicht mehr fest, welche gleichnamige Zeile sie ist, auch nicht nach dem
+  // Ausblenden und nicht, wenn eine der Zeilen später wieder wegfällt.
+  const doppeltZurueck = tsvListe([{ name: 'Ada' }, CTO, CEO]);
+  const dn8A4 = uhrTick(setzeSendung(dn8.zustand, false, 0).zustand, HALTEN_NACH_SENDUNG_MS + 1);
+  ok(
+    dn8A4.zustand.hinweis?.art === 'H2' && neueListe(dn8A4.zustand, doppeltZurueck, GLEICH).zustand.hinweis?.art === 'H2',
+    'Schliff F2 R2: eindeutig weggefallen, doppelt zurück, Sendung endet (A4) → H2, unverändert neu eingelesen → H2 bleibt',
+  );
+  const dn8einer = neueListe(dn8.zustand, tsvListe([{ name: 'Ada' }, CTO]), GLEICH);
+  ok(
+    dn8einer.zustand.aktiv === null && dn8einer.zustand.gehalten?.vars.funktion === 'CEO' && dn8einer.zustand.hinweis?.art === 'H1',
+    'Schliff F2 R2: … doppelt zurück, danach fällt einer weg → bleibt gehalten, nicht still der verbliebene gleichnamige (kein A5)',
+  );
 
   // Review Task 9: Die Kern-Funktionen sind rein und verändern ihre Eingabe nicht. Tief eingefroren: Ein Schreibzugriff
   // würfe im strikten Modul einen TypeError.

@@ -197,8 +197,9 @@ export interface Gehalten {
   /** Nur bei A10: der Abruf ohne Treffer (H6, nach dem Ende der Sendung H5). */
   ref?: string;
   /**
-   * A2 wegen eines mehrdeutigen Ersatz-Schlüssels (doppelter Name, `mehrdeutig`): Welche gleichnamige Zeile die
-   * Person ist, steht nicht fest. Der Eintrag kommt deshalb nie über Schlüssel oder Brücke zurück (kein A5).
+   * A2 wegen eines mehrdeutigen Ersatz-Schlüssels (doppelter Name, `mehrdeutig`), oder der Name kam während des
+   * Haltens doppelt zurück: Welche gleichnamige Zeile die Person ist, steht nicht fest. Der Eintrag kommt deshalb nie
+   * über Schlüssel oder Brücke zurück (kein A5).
    */
   mehrdeutig?: true;
 }
@@ -362,6 +363,11 @@ export function neueListe(
       }
       if (stelle >= 0) return { zustand: aktivWird(stelle), log }; // A5
     }
+    // Kommt der Name eines eindeutig gehaltenen Eintrags doppelt zurück, steht ab jetzt nicht mehr fest, welche
+    // gleichnamige Zeile die Person ist, auch nicht, wenn eine davon später wegfällt (kein A5) oder die Sendung endet
+    // (A4 mit H2, der beim Neueinlesen nicht endet). Schliff F2, Runde 2.
+    const nunMehrdeutig = g.grund === 'A2' && !g.mehrdeutig && mehrfach(g, eintraege);
+    if (nunMehrdeutig) return { zustand: { ...z, eintraege, gehalten: { ...g, mehrdeutig: true } }, log };
     // Weiter gehalten. Ein nach A10 gehaltener Eintrag wird nie wieder aktiv.
     // Bewusst (Review Task 9): Auch im 1-s-Fenster nach dem Ende der Sendung (aufSendung false, wegAbMs gesetzt)
     // bleibt ein gehaltener Eintrag, dessen Schlüssel fehlt, bei einem Ordnerwechsel gehalten, statt nach A9 Eintrag 1
