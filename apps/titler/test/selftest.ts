@@ -220,6 +220,7 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(setzeSendung(aus, false, 1500).zustand.wegAbMs === 2000, 'Nr. 7: eine wiederholte Meldung „nicht auf Sendung“ verschiebt die Frist nicht');
   const t1999 = uhrTick(aus, 1999);
   ok(t1999.zustand.gehalten?.label === 'Alan' && t1999.log.length === 0, 'Nr. 7: bei 1999 noch gehalten');
+  ok(t1999.zustand === aus, 'Nr. 7: … vor Ablauf der Frist liefert uhrTick denselben Zustand');
   const t2000 = uhrTick(aus, 2000);
   const s7 = kernSicht(t2000.zustand);
   ok(s7.gehalten === undefined && s7.activeIndex === -1 && JSON.stringify(s7.variables) === '{}', 'Nr. 7: bei 2000 kein Eintrag mehr (A4)');
@@ -365,6 +366,32 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   const dn8 = neueListe(maxWeg, tsvListe([{ name: 'Ada' }, CTO, CEO]), GLEICH);
   ok(dn8.zustand.aktiv === null && dn8.zustand.gehalten?.vars.funktion === 'CEO', 'Doppelte Namen: … der Name kommt doppelt zurück → bleibt gehalten, nicht der erste gleichnamige (kein A5)');
   ok(neueListe(maxWeg, einMax, GLEICH).zustand.aktiv === MAX, 'Doppelte Namen: … kommt er eindeutig zurück → wieder aktiv (A5)');
+
+  // Review Task 9: Die Kern-Funktionen sind rein und verändern ihre Eingabe nicht. Tief eingefroren: Ein Schreibzugriff
+  // würfe im strikten Modul einen TypeError.
+  function tiefGefroren<T>(o: T): T {
+    if (o && typeof o === 'object' && !Object.isFrozen(o)) {
+      Object.freeze(o);
+      for (const v of Object.values(o as Record<string, unknown>)) tiefGefroren(v);
+    }
+    return o;
+  }
+  const reinVorher = JSON.stringify(kernMit(ceoCto, `${MAX}#2`, true));
+  const reinEingabe = tiefGefroren(kernMit(structuredClone(ceoCto), `${MAX}#2`, true));
+  let rein = true;
+  try {
+    const gehaltenRein = tiefGefroren(neueListe(reinEingabe, tiefGefroren(structuredClone(cfoDavor)), GLEICH).zustand);
+    const ausRein = tiefGefroren(setzeSendung(gehaltenRein, false, 0).zustand);
+    uhrTick(ausRein, HALTEN_NACH_SENDUNG_MS);
+    neueListe(reinEingabe, [], GLEICH);
+    neueListe(gehaltenRein, tiefGefroren(structuredClone(ceoCto)), GLEICH);
+    rufeAb(reinEingabe, 'Niemand');
+    rufeSchluesselAb(gehaltenRein, 'x');
+    schritt(reinEingabe, 1);
+  } catch {
+    rein = false;
+  }
+  ok(rein && JSON.stringify(reinEingabe) === reinVorher, 'Reinheit: neueListe, setzeSendung, uhrTick, rufeAb, rufeSchluesselAb und schritt verändern ihre Eingabe nicht');
 
   // Review Focus 1: eigene CSV wird beim Speichern kurz leer oder halb gelesen (Quelle ordner, leerHalten:false).
   const csv = 'name,funktion\nAda,Mathematik\nAlan,Informatik\n';
@@ -512,6 +539,9 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   const klickAuf = rufeSchluesselAb(kernMit(fuenf, 's-1', true), 'ersatz:speakers.tsv|Weg');
   ok(klickAuf.zustand.gehalten?.label === 'Ada' && klickAuf.zustand.hinweis?.art === 'H6', '… auf Sendung H6, Ada gehalten');
   ok(rufeSchluesselAb(frei, '').zustand === frei, 'Klick mit leerem Schlüssel → unverändert');
+  // Review Task 10/13: ein Schlüssel nur aus Leerraum ist wie ein leerer (kein H5 „Abruf „   ““).
+  const leerraum = rufeSchluesselAb(frei, '   ');
+  ok(leerraum.zustand === frei && leerraum.log.length === 0, 'Klick mit Schlüssel nur aus Leerraum → unverändert, keine Logzeile');
 
   // Leerer ref.
   const vorher = kernMit(fuenf, 's-2', true);
@@ -576,6 +606,7 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     const s = quellSchritt(zShow, { t: 'gelesen', weg, pfad: P1, show: ohne1, gleicheShow: true });
     ok(s.zustand.art === 'show' && s.tsv === null && s.beobachte === 'iveo-data' && s.merke.t === 'bleibt', `7.6/7.7: ${weg}, dieselbe Show ohne Speaker → show bleibt, alte TSV bleibt`);
     ok(JSON.stringify(s.zustand.quellHinweis) === '{"art":"H3"}' && s.log.length === 0, `7.6/7.7: ${weg} … Hinweis H3`);
+    ok(s.vorlage === (weg === 'deepLink'), `Review Task 11: ${weg}, dieselbe Show ohne Speaker … Vorlage nur beim Deep-Link`);
   }
   const zOrdnerMitShow = quellSchritt(zOrdner, { t: 'gelesen', weg: 'deepLink', pfad: P2, show: ohne2, gleicheShow: false }).zustand;
   const reloadOrdner = quellSchritt(zOrdnerMitShow, { t: 'gelesen', weg: 'reload', pfad: P2, show: ohne2, gleicheShow: true });
@@ -611,6 +642,7 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(st2.zustand.art === 'show' && st2.tsv === null && st2.zustand.quellHinweis?.art === 'H3', '7.6: Start, gemerkte Show jetzt ohne Speaker → dieselbe Show, alte TSV bleibt, H3');
   const st3 = quellSchritt(startOrdner, { t: 'gelesen', weg: 'start', pfad: P2, show: ohne2, gleicheShow: false });
   ok(st3.zustand.art === 'ordner' && st3.beobachte === 'eigener' && st3.merke.t === 'bleibt', '7.7: Start, gemerkte Show ohne Speaker lesbar → ordner, unverändert');
+  ok(st3.tsv === null && st3.log.length === 0 && st3.zustand.quellHinweis === null && !st3.vorlage, 'Review Task 11: … keine TSV, keine Logzeile, kein Hinweis, keine Vorlage');
 
   // 7.6/7.7: Start, gemerkte Show nicht lesbar.
   const nl5 = quellSchritt(startShow, { t: 'nichtLesbar', weg: 'start', pfad: P1, grund: 'EBUSY', gemerkt: gemerktMit, mitEigenemOrdner: false });
@@ -634,6 +666,13 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     ok(
       art === 'show' ? JSON.stringify(s.zustand.quellHinweis) === '{"art":"H4","grund":"kein gültiges JSON"}' : s.zustand.quellHinweis === null,
       `7.6: RELOAD nicht lesbar bei ${art} … H4 nur bei show`,
+    );
+    // Review Task 11: beim Deep-Link genauso, und ohne Vorlagen-Import (die Show ist nicht lesbar).
+    const dl = quellSchritt(z, { t: 'nichtLesbar', weg: 'deepLink', pfad: P1, grund: 'EBUSY', gemerkt: null, mitEigenemOrdner: false });
+    ok(
+      dl.zustand.art === art && dl.tsv === null && dl.merke.t === 'bleibt' && !dl.vorlage && dl.log.length === 0 &&
+        (art === 'show' ? dl.zustand.quellHinweis?.art === 'H4' : dl.zustand.quellHinweis === null),
+      `Review Task 11: Deep-Link nicht lesbar bei ${art} → Art und Liste bleiben, H4 nur bei show, keine Vorlage`,
     );
   }
 
@@ -896,6 +935,26 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     ok(d.hinweis?.art === 'H2' && Object.keys(d.variables).length === 0, 'B13: Hinweis H2, leere Variablen');
     ok(d.companion.entry === '' && d.companion.entryIndex === 0, 'B13: Companion leer');
 
+    // Review Task 13 (a): Ein TAKE innerhalb der 1 s bricht die Frist ab, der Eintrag bleibt gehalten (A4).
+    datalink.recall('Grace');
+    datalink.setzeAufSendung(true);
+    writeFileSync(datei, tsv([NEU, ADA, HEDY]));
+    datalink.rescanJetzt();
+    ok(datalink.getDataState().gehalten?.label === 'Grace', 'Review Task 13: Vorbedingung — Grace auf Sendung gehalten');
+    datalink.setzeAufSendung(false);
+    await new Promise((fertig) => setTimeout(fertig, 300));
+    datalink.setzeAufSendung(true);
+    await new Promise((fertig) => setTimeout(fertig, 1100));
+    ok(datalink.getDataState().gehalten?.label === 'Grace', 'Review Task 13: TAKE nach 0,3 s → auch nach 1,4 s weiter gehalten');
+    // (b): Eine wiederholte Meldung „nicht auf Sendung“ verschiebt die Frist nicht.
+    datalink.setzeAufSendung(false);
+    await new Promise((fertig) => setTimeout(fertig, 500));
+    datalink.setzeAufSendung(false);
+    await new Promise((fertig) => setTimeout(fertig, 650));
+    ok(datalink.getDataState().gehalten === undefined, 'Review Task 13: zweites „nicht auf Sendung“ nach 0,5 s verschiebt die Frist nicht → nach 1,15 s nicht mehr gehalten');
+    writeFileSync(datei, tsv([NEU, ADA, GRACE, HEDY]));
+    datalink.rescanJetzt();
+
     // A7: Quelle Show (leerHalten) und die Datei ist leer → Liste bleibt
     writeFileSync(datei, '');
     datalink.rescanJetzt();
@@ -948,6 +1007,11 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(!ende.zurueck && ende.weiter, 'B14: letzter Eintrag aktiv → nur Weiter gesperrt');
   const mitte = a.navGesperrt(2, 5);
   ok(!mitte.zurueck && !mitte.weiter, 'B14: Eintrag in der Mitte → beide frei');
+  // Review Task 14: Ränder.
+  const leerNav = a.navGesperrt(-1, 0);
+  ok(leerNav.zurueck && leerNav.weiter, 'B14: leere Liste → Weiter und Zurück gesperrt');
+  const hinterEnde = a.navGesperrt(7, 5);
+  ok(!hinterEnde.zurueck && hinterEnde.weiter, 'B14: Stelle hinter dem Ende → nur Weiter gesperrt');
   const h1 = '„Alan“ ist nicht mehr in der Liste. Die Bauchbinde bleibt stehen, bis du sie ausblendest oder einen Eintrag abrufst.';
   const h5 = 'Abruf „Niemand“: nicht in der Liste. Bitte einen Eintrag abrufen.';
   const h6 = 'Abruf „Niemand“: nicht in der Liste. Auf Sendung bleibt „Alan“, bis du sie ausblendest oder einen Eintrag abrufst.';

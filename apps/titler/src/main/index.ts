@@ -554,7 +554,10 @@ function registerIpc(): void {
   });
   ipcMain.handle('titler:recall', (_e, ref: string) => recall(ref));
   // Klick in Liste oder Board: nur der Schlüssel zählt, nie die Stelle (Spec 7.4).
-  ipcMain.handle('titler:recallSchluessel', (_e, key: string) => recallSchluessel(key));
+  // Nutzlast aus dem Renderer prüfen: nur ein String ist ein Schlüssel (Leerraum fängt der Kern ab).
+  ipcMain.handle('titler:recallSchluessel', (_e, key: unknown) => {
+    if (typeof key === 'string') recallSchluessel(key);
+  });
   ipcMain.handle('titler:stepEntry', (_e, delta: number) => step(delta));
   // Knopf K1 „Zurück zum eigenen Ordner“ (Spec 7.7).
   ipcMain.handle('titler:zurueckZumOrdner', () => eigenerOrdnerGilt('zurueckZumOrdner'));

@@ -122,6 +122,7 @@ export function fuehreZusammen(teile: DataEntry[][]): DataEntry[] {
     x.id === x.e.key ? x.e : { ...x.e, key: x.id },
   );
 }
+
 // ── Aktiver Eintrag über den Schlüssel (Spec 7.3, 7.5, 7.8, 7.9) ─────────────────────────────
 
 /** Stehender Hinweis (Spec 7.8). H1, H2, H5, H6 setzt der Kern, H3, H4, H7 die Datenquelle. */
@@ -245,6 +246,11 @@ function brueckenZeile(label: string, alt: string, neu: string): string {
   return `DataLink: „${label}“ hält seinen Eintrag, Schlüssel wechselt (${alt} → ${neu}).`;
 }
 
+/** Logzeile A3 und A4 (Spec 7.9). */
+function ohneEintragZeile(label: string): string {
+  return `DataLink: aktiver Eintrag „${label}“ nicht mehr in der Liste, kein aktiver Eintrag.`;
+}
+
 /** Herkunft eines Ersatz-Schlüssels vor dem Auflösen der Doppelten: Datei und Label, gekürzt wie in `fuehreZusammen`. */
 function ersatzHerkunft(e: { datei: string; label: string }): string {
   return ersatzSchluessel(e.datei, e.label).slice(0, SCHLUESSEL_MAX);
@@ -333,7 +339,7 @@ export function neueListe(
       return { zustand: { ...z, eintraege, aktiv: null, gehalten, hinweis: { art: 'H1', label } }, log };
     }
     // A3: kein aktiver Eintrag.
-    log.push(`DataLink: aktiver Eintrag „${label}“ nicht mehr in der Liste, kein aktiver Eintrag.`);
+    log.push(ohneEintragZeile(label));
     return { zustand: { ...z, eintraege, aktiv: null, hinweis: { art: 'H2', label } }, log };
   }
 
@@ -352,12 +358,16 @@ export function neueListe(
       if (stelle >= 0) return { zustand: aktivWird(stelle), log }; // A5
     }
     // Weiter gehalten. Ein nach A10 gehaltener Eintrag wird nie wieder aktiv.
+    // Bewusst (Review Task 9): Auch im 1-s-Fenster nach dem Ende der Sendung (aufSendung false, wegAbMs gesetzt)
+    // bleibt ein gehaltener Eintrag, dessen Schlüssel fehlt, bei einem Ordnerwechsel gehalten, statt nach A9 Eintrag 1
+    // zu wählen. Das Fenster deckt die Ausblendung ab (G4); nach A4 gibt es keinen Eintrag, ein späterer
+    // Ordnerwechsel ohne Sendung wählt dann Eintrag 1.
     return { zustand: { ...z, eintraege }, log };
   }
 
   // Ohne aktiven und ohne gehaltenen Eintrag: nur ein Ordnerwechsel (auch der erste Start) ohne Sendung wählt
   // Eintrag 1 (A9). Auf Sendung (A8) bleibt es ohne Eintrag: Die Bauchbinde zeigt weiter leere Platzhalter,
-  // statt ohne Abruf auf Person 1 zu springen; ein stehender Hinweis H2/H5 bleibt.
+  // statt ohne Abruf auf Person 1 zu springen. Ein stehender Hinweis H5 bleibt; H2 nur, solange die Zeile fehlt.
   if (o.andererOrdner && !z.aufSendung && eintraege.length) return { zustand: aktivWird(0), log };
   // Ein stehender H2 endet, sobald die Zeile wieder in der Liste steht: Der Hinweis "nicht mehr in der Liste" wäre sonst falsch.
   const h = z.hinweis;
@@ -384,7 +394,7 @@ export function uhrTick(z: KernZustand, jetztMs: number): KernSchritt {
   if (g.grund === 'A10') return { zustand: { ...leer, hinweis: { art: 'H5', ref: g.ref ?? g.label } }, log: [] };
   return {
     zustand: { ...leer, hinweis: { art: 'H2', label: g.label } },
-    log: [`DataLink: aktiver Eintrag „${g.label}“ nicht mehr in der Liste, kein aktiver Eintrag.`],
+    log: [ohneEintragZeile(g.label)],
   };
 }
 
@@ -486,9 +496,9 @@ export function rufeAb(z: KernZustand, ref: string): KernSchritt {
   return stelle >= 0 ? waehle(z, stelle) : ohneTreffer(z, t);
 }
 
-/** Klick in Liste oder Board (IPC `titler:recallSchluessel`): nur der Schlüssel, exakt. */
+/** Klick in Liste oder Board (IPC `titler:recallSchluessel`): nur der Schlüssel, exakt. Leer oder nur Leerraum → wirkungslos. */
 export function rufeSchluesselAb(z: KernZustand, key: string): KernSchritt {
-  if (!key) return { zustand: z, log: [] };
+  if (!key || !key.trim()) return { zustand: z, log: [] };
   const stelle = stelleVon(z.eintraege, key);
   return stelle >= 0 ? waehle(z, stelle) : ohneTreffer(z, key);
 }

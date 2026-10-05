@@ -59,13 +59,6 @@ export interface ShowAblaufItem {
 }
 
 /**
- * Optionale iveo-Bindung (#11): aus welchem iveo-Event der zentrale `ablauf`
- * materialisiert wurde. Enthält BEWUSST NIE ein Token — nur den Event-Slug und
- * die (nicht-geheime) Basis-URL. Der Launcher nutzt das fürs Live-Polling; das
- * Bearer-Token liegt getrennt und verschlüsselt im Launcher, nie in der Show
- * (die Show ist portabel/teilbar).
- */
-/**
  * Sanitisierter Speaker für Konsumenten (z. B. Titler-Bauchbinden). Bewusst nur
  * Anzeigefelder — KEINE PII wie Bio/Foto/Kontakt, kein Secret.
  */
@@ -91,6 +84,13 @@ export interface ShowIveoProgramRef {
   title: string;
 }
 
+/**
+ * Optionale iveo-Bindung (#11): aus welchem iveo-Event der zentrale `ablauf`
+ * materialisiert wurde. Enthält BEWUSST NIE ein Token — nur den Event-Slug und
+ * die (nicht-geheime) Basis-URL. Der Launcher nutzt das fürs Live-Polling; das
+ * Bearer-Token liegt getrennt und verschlüsselt im Launcher, nie in der Show
+ * (die Show ist portabel/teilbar).
+ */
 export interface ShowIveoBinding {
   /** iveo Event-Slug oder UUID. */
   event: string;
