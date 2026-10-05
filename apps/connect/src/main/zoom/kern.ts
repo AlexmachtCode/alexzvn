@@ -622,9 +622,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     zeilenFehler.clear();
     tonAngefragt.clear();
     const ordner = lzErg.ordner;
+    const exePfad = join(ordner, BRIDGE_EXE);
     const bridge = fabrik(
       {
-        exePath: join(ordner, BRIDGE_EXE),
+        exePath: exePfad,
         // PATH immer selbst setzen, INKLUSIVE des geerbten Werts (Falle 3.2-4), und jede andere
         // Schreibweise von PATH entfernen (bridge.ts mischt process.env als einfaches Objekt).
         env: { PATH: kindPfad(env, ordner) },
@@ -656,10 +657,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     try {
       await bridge.start();
     } catch (e) {
-      // Die Meldung trägt Grund und versuchten EXE-Pfad — die einzige Spur, wenn z. B. Smart App
-      // Control blockiert (M7) oder der Fehler keinen code hat (B2 „unbekannt“).
+      // Die Logzeile trägt Grund (mit Code) und versuchten EXE-Pfad — die einzige Spur, wenn z. B. Smart
+      // App Control blockiert (M7, B2) oder der Fehler keinen code hat (B2 „unbekannt“). Den Pfad nennt
+      // Node nur bei den asynchronen Spawn-Fehlern ENOENT, EACCES, EAGAIN, EMFILE, ENFILE („spawn <pfad>
+      // <code>“); jeden anderen Code, also auch EPERM, wirft spawn() synchron als „spawn <code>“ OHNE Pfad
+      // (Node 24, lib/internal/child_process.js; gemessen: Textdatei als EXE → „spawn UNKNOWN“). Darum
+      // hängt der Kern den Pfad selbst an, wenn er nicht schon in der Meldung steht.
       ohneProzess.add(gen);
-      d.log(`[zoom] Start der Zoom-Bridge gescheitert: ${e instanceof Error ? e.message : String(e)}`);
+      const grund = e instanceof Error ? e.message : String(e);
+      d.log(`[zoom] Start der Zoom-Bridge gescheitert: ${grund.includes(exePfad) ? grund : `${grund} (EXE: ${exePfad})`}`);
       beob.ende({ ok: false, meldung: spawnMeldung((e as { code?: string }).code) });
     }
     if (!beob.erledigt) {

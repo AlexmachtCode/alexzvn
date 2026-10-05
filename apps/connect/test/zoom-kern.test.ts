@@ -22,6 +22,7 @@ import {
 } from '../src/main/zoom/kern';
 import { KT } from '../src/main/zoom/klartext';
 import {
+  BRIDGE_EXE,
   laufzeitOrdner,
   richteEin,
   STEMPEL_DATEI,
@@ -99,8 +100,8 @@ interface BaueOptionen {
   sendeFilter?: (cmd: Command) => boolean;
   versatzMs?: number;
   anzeigename?: string;
-  /** Pfad der EXE statt Node + Attrappe (z. B. eine fehlende Datei für den Spawn-Fehler ENOENT). */
-  exe?: string;
+  /** Die EXE startet, die der Kern wählt (`join(ordner, BRIDGE_EXE)`), statt Node + Attrappe — für Spawn-Fehler. */
+  exeAusKern?: boolean;
   /** start() scheitert mit diesem Fehler, ohne ein Kind zu starten (Spawn-Fehler mit beliebigem Code). */
   startFehler?: () => Error;
 }
@@ -128,7 +129,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     startZahl += 1;
     const b = new Bridge({
       ...opts,
-      exePath: o.exe ?? process.execPath,
+      exePath: o.exeAusKern ? opts.exePath : process.execPath,
       exeArgs: [FAKE],
       env: {
         ...opts.env,
@@ -1263,24 +1264,50 @@ console.log('— Soll-Liste nach „Erneut beitreten“ (4a-Ersatz für Fall 15)
 }
 
 // ── Gesamtprüfung: Spawn-Diagnose (Abnahme 5 misst M7, Text B2) ──────────────
-console.log('— Spawn-Fehler: Grund und EXE-Pfad im Log, keine Beenden-Zeile ohne Prozess');
+// Node nennt den EXE-Pfad nur, wenn der Start ASYNCHRON scheitert („spawn <pfad> ENOENT“). EPERM und
+// UNKNOWN wirft spawn() synchron als „spawn EPERM“/„spawn UNKNOWN“ OHNE Pfad (gemessen, Node 24): den
+// Pfad muss der Kern selbst anhängen, aber nur, wenn er nicht schon in der Meldung steht.
+console.log('— Spawn-Fehler: Code und EXE-Pfad im Log, keine Beenden-Zeile ohne Prozess');
+const START_GESCHEITERT = '[zoom] Start der Zoom-Bridge gescheitert: ';
+/** Wie oft `teil` in `zeile` vorkommt. */
+const vorkommen = (zeile: string, teil: string): number => zeile.split(teil).length - 1;
 {
-  const exe = join(tmpdir(), 'jm-zoom-kern-fehlt', 'zoom-bridge.exe');
-  const p = baueKern({ exe });
+  const p = baueKern({ exeAusKern: true });
+  const exe = join(p.ordner, BRIDGE_EXE);
   const r = await p.kern.pruefen();
-  ck('Spawn ENOENT → B1, Zustand bereit, keine Bridge', text(r) === KT.B1 && p.kern.kurz().zustand === 'bereit' && !p.kern.laeuft());
-  ck('… Log nennt Grund und versuchten EXE-Pfad',
-    p.logs.some((z) => z.startsWith('[zoom] Start der Zoom-Bridge gescheitert: ') && z.includes(exe) && z.includes('ENOENT')));
+  ck('Spawn ENOENT (Laufzeit-Ordner ohne zoom-bridge.exe) → B1, Zustand bereit, keine Bridge',
+    text(r) === KT.B1 && p.kern.abbild().meldung?.detail === 'ENOENT' && p.kern.kurz().zustand === 'bereit' && !p.kern.laeuft());
+  const zeile = p.logs.find((z) => z.startsWith(START_GESCHEITERT)) ?? '';
+  ck('… Log nennt Code und versuchten EXE-Pfad, den Pfad genau einmal', zeile.includes('ENOENT') && vorkommen(zeile, exe) === 1);
   ck('… keine Beenden-Zeile für einen Prozess, der nie lief',
     !p.logs.some((z) => z.includes('wird beendet') || z.includes('Rückgabewert') || z.includes('hart beendet')));
   await p.aufraeumen();
 }
+if (process.platform === 'win32') {
+  const p = baueKern({ exeAusKern: true });
+  const exe = join(p.ordner, BRIDGE_EXE);
+  mkdirSync(p.ordner, { recursive: true });
+  writeFileSync(exe, 'Keine ausfuehrbare Datei, nur Text.\r\n');
+  const r = await p.kern.pruefen();
+  ck('Textdatei als zoom-bridge.exe → synchron „spawn UNKNOWN“ → B2, Detail UNKNOWN, keine Bridge',
+    text(r) === KT.B2('UNKNOWN') && p.kern.abbild().meldung?.detail === 'UNKNOWN' && p.kern.kurz().zustand === 'bereit' && !p.kern.laeuft());
+  const zeile = p.logs.find((z) => z.startsWith(START_GESCHEITERT)) ?? '';
+  ck('… Log nennt Code UND versuchten EXE-Pfad, obwohl Nodes Meldung keinen Pfad hat; den Pfad genau einmal',
+    zeile.includes('UNKNOWN') && vorkommen(zeile, exe) === 1);
+  ck('… keine Beenden-Zeile', !p.logs.some((z) => z.includes('wird beendet') || z.includes('Rückgabewert') || z.includes('hart beendet')));
+  await p.aufraeumen();
+} else {
+  ueberspringe('Textdatei als zoom-bridge.exe → „spawn UNKNOWN“, Code und EXE-Pfad im Log');
+}
 {
-  const grund = 'spawn C:\\Probe\\zoom-bridge.exe von einer Richtlinie blockiert';
+  const grund = 'Start von einer Richtlinie verweigert';
   const p = baueKern({ startFehler: () => new Error(grund) });
+  const exe = join(p.ordner, BRIDGE_EXE);
   const r = await p.kern.pruefen();
   ck('Spawn-Fehler ohne code → B2 „unbekannt“', text(r) === KT.B2('unbekannt') && p.kern.abbild().meldung?.detail === 'unbekannt');
-  ck('… die Fehlermeldung steht trotzdem im Log', p.logs.includes(`[zoom] Start der Zoom-Bridge gescheitert: ${grund}`));
+  const zeile = p.logs.find((z) => z.startsWith(START_GESCHEITERT)) ?? '';
+  ck('… die Fehlermeldung steht trotzdem im Log, dazu der versuchte EXE-Pfad genau einmal',
+    zeile.startsWith(START_GESCHEITERT + grund) && vorkommen(zeile, exe) === 1);
   ck('… keine Beenden-Zeile', !p.logs.some((z) => z.includes('wird beendet') || z.includes('Rückgabewert')));
   await p.aufraeumen();
 }
