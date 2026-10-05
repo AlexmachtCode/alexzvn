@@ -1,13 +1,16 @@
-// System-Tray: hält die App im Hintergrund am Leben (NDI-Sender laufen weiter,
-// während das Fenster versteckt ist) und bietet Fenster-anzeigen / Raum-schließen /
-// Beenden. Spiegelt den App-Status (Raum offen? Gäste auf Sendung?).
+// System-Tray: hält die App im Hintergrund am Leben (NDI-Sender und Zoom laufen weiter,
+// während das Fenster versteckt ist) und bietet Fenster anzeigen / Raum schließen /
+// Zoom-Meeting verlassen / Beenden. Die beiden Statuszeilen (Gäste, Zoom) und der Tooltip
+// kommen aus @shared/zoom-text, derselben Quelle wie die Kopfzeile (Spec 7.2–7.4).
 import { Menu, Tray, nativeImage, type BrowserWindow } from 'electron';
 import type { AppStatus, TrayCommand } from '@shared/types';
+import { gaesteZeile, trayTooltip, trayVerlassenAktiv, zoomZeile } from '@shared/zoom-text';
 
 let tray: Tray | null = null;
 let getWindow: () => BrowserWindow | null = () => null;
 let sendCommand: (cmd: TrayCommand) => void = () => {};
 let onQuit: () => void = () => {};
+let onZoomVerlassen: () => void = () => {};
 let status: AppStatus = {
   configured: false,
   proxyBase: null,
@@ -25,6 +28,8 @@ interface TrayDeps {
   getWindow: () => BrowserWindow | null;
   sendCommand: (cmd: TrayCommand) => void;
   onQuit: () => void;
+  /** Tray „Zoom-Meeting verlassen“: wirkt immer als „Verlassen“ nach Spec 6.8 (ohne Fehler, ohne Alarm). */
+  onZoomVerlassen: () => void;
 }
 
 export function createTray(deps: TrayDeps): void {
@@ -32,6 +37,7 @@ export function createTray(deps: TrayDeps): void {
   getWindow = deps.getWindow;
   sendCommand = deps.sendCommand;
   onQuit = deps.onQuit;
+  onZoomVerlassen = deps.onZoomVerlassen;
   const img = nativeImage.createFromPath(deps.iconPath);
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
   tray.on('click', showWindow);
@@ -57,22 +63,26 @@ export function destroyTray(): void {
   tray = null;
 }
 
-function statusLine(): string {
-  if (status.ndiSenders > 0) return `● ${status.ndiSenders} Gast/Gäste auf Sendung`;
-  if (status.configured) return '○ Bereit';
-  return '△ Cloud nicht konfiguriert';
-}
-
+// Menü nach Spec 7.3: Gäste-Zeile, Zoom-Zeile (nur Windows), Trenner, „Fenster anzeigen“,
+// „Raum schließen“ (unverändert), „Zoom-Meeting verlassen“ (aktiv in Z3–Z11), Trenner, „Beenden“.
 function rebuild(): void {
   if (!tray) return;
-  const template: Electron.MenuItemConstructorOptions[] = [
-    { label: statusLine(), enabled: false },
+  const template: Electron.MenuItemConstructorOptions[] = [{ label: gaesteZeile(status), enabled: false }];
+  const zoomText = zoomZeile(status.zoom);
+  if (zoomText !== null) template.push({ label: zoomText, enabled: false });
+  template.push(
     { type: 'separator' },
     { label: 'Fenster anzeigen', click: showWindow },
     { label: 'Raum schließen', enabled: status.ndiSenders > 0, click: () => sendCommand({ kind: 'closeRoom' }) },
-    { type: 'separator' },
-    { label: 'Beenden', click: () => onQuit() },
-  ];
+  );
+  if (status.zoom !== null) {
+    template.push({
+      label: 'Zoom-Meeting verlassen',
+      enabled: trayVerlassenAktiv(status.zoom),
+      click: () => onZoomVerlassen(),
+    });
+  }
+  template.push({ type: 'separator' }, { label: 'Beenden', click: () => onQuit() });
   tray.setContextMenu(Menu.buildFromTemplate(template));
-  tray.setToolTip(status.ndiSenders > 0 ? 'JM Connect — Zuschaltungen aktiv' : 'JM Connect');
+  tray.setToolTip(trayTooltip(status));
 }

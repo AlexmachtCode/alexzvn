@@ -4,6 +4,7 @@ import { lobbyCount, onAirGuests, standbyGuest } from '@jm/rtc/state';
 import { ndiPoolKey } from '@jm/rtc/protocol';
 import type { Guest, OperatorAction, RoomState } from '@jm/rtc/protocol';
 import type { AppStatus, GuestInvite, ProxyKeySource, ShowInfo } from '@shared/types';
+import { zoomZeile } from '@shared/zoom-text';
 import { toDataUrl } from '@/lib/qr';
 
 // Der Operator-Renderer hält die Raum-WebSocket zum ConnectRoom-DO und spiegelt dessen
@@ -243,7 +244,8 @@ export function App(): JSX.Element {
         </div>
         <div className="text-right text-xs text-neutral-400">
           <div>Steuerport {status?.controlPort ?? 8737}</div>
-          <div>{connected ? '● Raum verbunden' : '○ nicht verbunden'}</div>
+          <div>{connected ? '● Raum verbunden' : '○ Raum nicht verbunden'}</div>
+          {status?.zoom && <div>{zoomZeile(status.zoom)}</div>}
         </div>
       </header>
 
