@@ -1426,6 +1426,89 @@ const namenIn = (s: Show): string => JSON.stringify((s.iveo?.speakers ?? []).map
       === JSON.stringify(['iveo: 1 Programm(e) geändert → Ablauf neu (3 Punkte).']));
 }
 
+// --- Schliff F4: Agenda-Abfrage und Side-Event-Umschalten wie die Snapshot-Zweige (Befund 7b/7c): melden erst, wenn sie
+// noch gelten; ein gelungener Abruf der Speakerliste setzt den gemerkten Fehlertext zurück --------------------------------
+/** Show auf Side Event P1 (ohne Verknüpfung) mit Merker; das Umschalten auf P1 merkt den Kontext, der Merker bleibt. */
+async function agendaMitKontextUndMerker(): Promise<Umgebung> {
+  const u = umgebung((iv) => mitMerker(showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA])));
+  const r = await u.kern.umschalten({ programId: 'P1' });
+  ck('Schliff F4: Vorbedingung — auf P1 umgeschaltet, Kontext gemerkt, Merker bleibt',
+    r.ok && datei(u).iveo?.speakerVeraltetSeit === MERKER && speakerWarnungen(u).length === 0);
+  return u;
+}
+{
+  // Verworfene Agenda-Abfrage (Show inzwischen gespeichert): Sie meldet und merkt keinen Speaker-Fehler.
+  const u = await agendaMitKontextUndMerker();
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const s = sperre();
+  u.iveo.sperre = (abruf) => (abruf === 'speakers' ? s.halt : null);
+  const lauf = u.kern.abfrage();
+  await warteMs(5);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  s.frei();
+  await lauf;
+  u.iveo.sperre = () => null;
+  ck('Schliff F4: Agenda-Abfrage verworfen → keine Warnung zur Speakerliste', speakerWarnungen(u).length === 0);
+  const warnVorAbfrage = u.warn.length;
+  await u.kern.abfrage();
+  ck('Schliff F4: … die nächste Agenda-Abfrage meldet denselben Fehler (nicht von der verworfenen unterdrückt)',
+    u.warn.slice(warnVorAbfrage).includes('iveo: Speakerliste nicht abrufbar (kaputt), Speaker aus der Datei bleiben.'));
+}
+{
+  // Agenda-Abfrage mit gemerktem Kontext: Die Liste kommt, das Schreiben scheitert → der gemerkte Fehlertext gilt nicht mehr.
+  const u = await agendaMitKontextUndMerker();
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Schliff F4: Vorbedingung — Liste scheitert, eine Warnung', speakerWarnungen(u).length === 1);
+  delete u.iveo.fehler.speakers;
+  u.schreibFehler = true;
+  const vorher = u.schreibversuche;
+  await u.kern.abfrage();
+  ck('Schliff F4: … die Liste gelingt, das Schreiben scheitert, der Merker bleibt in der Datei',
+    u.schreibversuche === vorher + 1 && datei(u).iveo?.speakerVeraltetSeit === MERKER);
+  u.schreibFehler = false;
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Schliff F4: … derselbe Fehler später wieder → wieder eine Warnung im Log', speakerWarnungen(u).length === 2);
+}
+{
+  // Ebenso, wenn die Agenda-Abfrage den Kontext nachlädt (nach dem Speichern mit neuer Bindung fehlt er) und dabei die Liste holt.
+  const u = await agendaMitKontextUndMerker();
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  delete u.iveo.fehler.speakers;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, true);
+  u.schreibFehler = true;
+  const vorher = u.iveo.abrufe.length;
+  await u.kern.abfrage();
+  const neu = u.iveo.abrufe.slice(vorher);
+  ck('Schliff F4: Kontext nachgeladen, die Liste gelingt, das Schreiben scheitert',
+    neu.includes('programm:P1') && neu.includes('speakers:') && datei(u).iveo?.speakerVeraltetSeit === MERKER && speakerWarnungen(u).length === 1);
+  u.schreibFehler = false;
+  const r = await u.kern.umschalten({ programId: 'P1' });
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Schliff F4: … Kontext wieder gemerkt, derselbe Fehler später wieder → wieder eine Warnung im Log',
+    r.ok && speakerWarnungen(u).length === 2);
+}
+{
+  // Umschalten auf ein verknüpftes Side Event: Die Liste kommt, das Schreiben scheitert → der gemerkte Fehlertext gilt nicht mehr.
+  const u = await agendaMitKontextUndMerker();
+  u.iveo.agenda.P2 = [{ ...punkt('P2', 'b1', 'Einführung', 1), speaker_ids: ['sp1'] } as IveoAgendaItem];
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  delete u.iveo.fehler.speakers;
+  u.schreibFehler = true;
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Schliff F4: Umschalten auf ein verknüpftes Side Event, die Liste gelingt, das Schreiben scheitert',
+    !r.ok && r.message === 'Show konnte nicht geschrieben werden' && speakerWarnungen(u).length === 1);
+  u.schreibFehler = false;
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Schliff F4: … weiter auf P1, derselbe Fehler später wieder → wieder eine Warnung im Log',
+    u.kern.aktiv()?.filter.programId === 'P1' && speakerWarnungen(u).length === 2);
+}
+
 // --- Zusammenfassung ---
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

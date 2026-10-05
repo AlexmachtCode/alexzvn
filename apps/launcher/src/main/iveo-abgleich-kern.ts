@@ -389,10 +389,11 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     d.log.info('iveo: Speakerliste wieder abrufbar, Speaker aktualisiert.');
   }
   /**
-   * Ergebnis der Speakerliste eines Snapshots, nur für eine Abfrage bzw. ein Umschalten, das noch gilt (7.3), und vor
-   * dem Lesen der Datei — sonst verschluckte eine nicht lesbare Datei die Diagnose. Ein Fehlschlag kommt als Warnung ins
-   * Log; kam die Liste, gilt der gemerkte Text nicht mehr, auch wenn der Merker nie in der Show stand (etwa weil das
-   * Schreiben scheiterte). Ein späterer Fehlschlag mit demselben Text wird dann wieder gemeldet.
+   * Ergebnis eines Abrufs der Speakerliste (Snapshot, Agenda-Abfrage, Side-Event-Umschalten), nur für eine Abfrage bzw.
+   * ein Umschalten, das noch gilt (7.3), und vor dem Lesen der Datei — sonst verschluckte eine nicht lesbare Datei die
+   * Diagnose. Ein Fehlschlag kommt als Warnung ins Log; kam die Liste, gilt der gemerkte Text nicht mehr, auch wenn der
+   * Merker nie in der Show stand (etwa weil das Schreiben scheiterte). Ein späterer Fehlschlag mit demselben Text wird
+   * dann wieder gemeldet.
    */
   function speakerListeErgebnis(fehler: unknown[]): void {
     if (fehler.length) meldeSpeakerFehler(fehler[0]);
@@ -662,6 +663,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     let ctx = a.sideCtx;
     /** Volle Speakerliste, falls diese Abfrage sie geholt hat (für den Kontext oder wegen des Merkers). */
     let alle: IveoSpeaker[] | undefined;
+    /** Fehlschlag der Speakerliste bei gemerktem Kontext (mit Merker); gemeldet erst, wenn die Abfrage noch gilt. */
+    const speakerFehler: unknown[] = [];
     if (!ctx) {
       // Nach dem Öffnen einer gespeicherten Show fehlt der Kontext (er entsteht beim Binden/Umschalten). Ohne ihn
       // fehlten Startzeit, Kategorie und Verantwortlich → nachladen; scheitert das, bricht die Abfrage ab (7.6).
@@ -675,9 +678,12 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         alle = await client.listSpeakers(a.event);
       } catch (e) {
         // Speaker und Merker der Datei bleiben; der Status bleibt „gestört“ (statusNachAbfrage unten).
-        meldeSpeakerFehler(e);
+        speakerFehler.push(e);
       }
     }
+    // Wie in den Snapshot-Zweigen (Befund 7b/7c, Schliff F4): Eine verworfene Abfrage meldet und merkt nichts. Kam die
+    // Liste, gilt der gemerkte Fehlertext nicht mehr, auch wenn das Schreiben unten scheitert.
+    if ((alle || speakerFehler.length) && istAktuell(a, gen)) speakerListeErgebnis(speakerFehler);
     const names = ctx.speakerNames ? new Map(ctx.speakerNames) : undefined;
     let ablauf = agendaToAblauf(agenda, {
       firstStartMs: ctx.firstStartMs,
@@ -839,6 +845,9 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       if (programId) {
         const r = await loeseSideEventLeicht(client, a.event, programId);
         if (!r) return { ok: false, message: TEXT_AGENDA_NICHT_ABRUFBAR };
+        // Schliff F4: Kam die Speakerliste, gilt der gemerkte Fehlertext nicht mehr, auch wenn das Schreiben scheitert.
+        // Einen Fehlschlag meldet loeseSideEventLeicht selbst.
+        if (r.speakerAbruf === 'ok' && istAktuell(a, gen)) speakerListeErgebnis([]);
         ({ ablauf, speakers, warning, sideCtx } = r);
         filter = { ...a.filter, programId };
         // Teil 2b, Spec 6.2: Gelingt die Speakerliste, entfällt der Merker; scheitert sie, wird er gesetzt (ein schon
