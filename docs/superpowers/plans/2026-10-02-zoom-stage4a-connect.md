@@ -7143,7 +7143,7 @@ if (process.platform === 'win32') {
 ```
 npx tsx apps/connect/test/zoom-kern.test.ts
 ```
-Erwartet: die 62 Prüfungen aus Aufgabe 10 `ok`, danach Abbruch mit
+Erwartet: die 63 Prüfungen aus Aufgabe 10 `ok`, danach Abbruch mit
 ```
 TypeError: p.kern.pruefen is not a function
 ```
@@ -7903,7 +7903,7 @@ for (const code of [63, 503, 504, 4]) {
 ```
 npx tsx apps/connect/test/zoom-kern.test.ts
 ```
-Erwartet: die 95 Prüfungen aus den Aufgaben 10–11 `ok` (unter Linux 92 und 1 übersprungen), danach Abbruch mit
+Erwartet: die 96 Prüfungen aus den Aufgaben 10–11 `ok` (unter Linux 93 und 1 übersprungen), danach Abbruch mit
 ```
 TypeError: p.kern.beitreten is not a function
 ```
@@ -8936,7 +8936,7 @@ console.log('— Doppelname, Versatz, Kollision, Q8 (Fall 13, 21, 23)');
 ```
 npx tsx apps/connect/test/zoom-kern.test.ts
 ```
-Erwartet: die 194 Prüfungen der Aufgaben 10–13 `ok` (unter Linux 191 und 1 übersprungen), danach Abbruch mit
+Erwartet: die 195 Prüfungen der Aufgaben 10–13 `ok` (unter Linux 192 und 1 übersprungen), danach Abbruch mit
 ```
 TypeError: p.kern.laden is not a function
 ```
