@@ -4346,7 +4346,7 @@ Zeilenangaben gelten für den Stand nach Aufgabe 6. Maßgeblich ist der wortglei
   export interface KopieStand { dateien: number; dateienGesamt: number; bytes: number; bytesGesamt: number }
   export type SdkWahl = { ok: true; bin: string; fassung: string; dateien: { pfad: string; bytes: number }[]; bytesGesamt: number } | { ok: false; text: string };
   export interface LaufzeitWerkzeuge { copyFile(von: string, nach: string): Promise<void>; statfs(pfad: string): Promise<{ bavail: number; bsize: number }>; jetzt(): Date }
-  export type EinrichtungsErgebnis = { ok: true; ordner: string; stempel: Stempel } | { ok: false; text: string };
+  export type EinrichtungsErgebnis = { ok: true; ordner: string; stempel: Stempel; aufraeumFehler: string | null } | { ok: false; text: string };
   export function laufzeitOrdner(p: LaufzeitPfade): string;                    // join(p.basis, SDK_FASSUNG)
   export function eigeneQuellen(ressourcen: string): { pfad: string; quelle: string }[];
   export function pruefeSdkOrdner(gewaehlt: string, ressourcen: string): SdkWahl;
@@ -4720,7 +4720,7 @@ export interface LaufzeitWerkzeuge {
   jetzt(): Date;
 }
 
-export type EinrichtungsErgebnis = { ok: true; ordner: string; stempel: Stempel } | { ok: false; text: string };
+export type EinrichtungsErgebnis = { ok: true; ordner: string; stempel: Stempel; aufraeumFehler: string | null } | { ok: false; text: string };
 
 /** Der Laufzeit-Ordner dieser SDK-Fassung. */
 export function laufzeitOrdner(p: LaufzeitPfade): string {
@@ -5823,7 +5823,7 @@ Erwartet: keine Ausgabe.
   - Aufgabe 3 (`packages/zoom-bridge/test/fake-bridge.mjs`, Drehbuch `steuerung`): `FAKE_SDK_FASSUNG` bestimmt `ready.sdkVersion`, `FAKE_LOGDATEI` schreibt jede empfangene Befehlszeile als JSON-Zeile in die Datei.
   - Aufgabe 5 (`apps/connect/src/shared/types.ts`): `ProxyKeySource`, `ZoomZustand`, `ZoomMangel`, `ZoomErlaubnis`, `ZoomQuelle`, `ZoomKurz`, `ZoomAbbild`, `ZoomErgebnis` (Spec 5.4 wörtlich, dazu `ZoomSollEintrag.doppelname: boolean` und `ZoomParticipant.fehler: string | null`). (`apps/connect/src/shared/zoom-text.ts`): `export function stateKvAus(k: ZoomKurz): ZoomStateKv | null;`, `export interface ZoomStateKv { zoom_status; zoom_sources; zoom_live; zoom_privilege; zoom_alarm }`; im Test `export function kartenZeile(a: ZoomAbbild, jetztMs: number): string | null;` und `export function zoomZ(k: ZoomKurz): ZoomZ;`.
   - Aufgabe 6 (`apps/connect/src/main/zoom/klartext.ts`): `KT` (hier `S1`, `S6(grund)`, `S8`, `S9(datei)`, `S10`, `A1`, `A2`, `A3(code)`, `A4`, `A5`, `A6`, `Q13`), `export function mangelText(m: ZoomMangel, datei: string | null): string;`.
-  - Aufgaben 7/8 (`apps/connect/src/main/zoom/laufzeit.ts`): `LaufzeitPfade { basis; ressourcen }`, `LaufzeitPruefung` (`{ ok: true; ordner; ersetzt }` | `{ ok: false; mangel: 'sdk_fehlt' }` | `{ ok: false; mangel: 'sdk_defekt'; datei }` | `{ ok: false; mangel: 'bridge_fehlt' }`), `SdkWahl`, `EinrichtungsErgebnis`, `KopieStand`, `pruefeLaufzeit(p: LaufzeitPfade): LaufzeitPruefung`, `pruefeSdkOrdner(gewaehlt: string, ressourcen: string): SdkWahl`, `richteEin(e: { wahl; pfade; fortschritt: (k: KopieStand) => void; signal?: AbortSignal; werkzeuge?: Partial<LaufzeitWerkzeuge> }): Promise<EinrichtungsErgebnis>`; im Test zusätzlich `laufzeitOrdner(p: LaufzeitPfade): string` und `STEMPEL_DATEI = 'jm-zoom-laufzeit.json'` (Review Focus 3 mit dem echten `richteEin`).
+  - Aufgaben 7/8 (`apps/connect/src/main/zoom/laufzeit.ts`): `LaufzeitPfade { basis; ressourcen }`, `LaufzeitPruefung` (`{ ok: true; ordner; ersetzt }` | `{ ok: false; mangel: 'sdk_fehlt' }` | `{ ok: false; mangel: 'sdk_defekt'; datei }` | `{ ok: false; mangel: 'bridge_fehlt' }`), `SdkWahl`, `EinrichtungsErgebnis` (`{ ok: true; ordner; stempel; aufraeumFehler: string | null }` | `{ ok: false; text }`), `KopieStand`, `pruefeLaufzeit(p: LaufzeitPfade): LaufzeitPruefung`, `pruefeSdkOrdner(gewaehlt: string, ressourcen: string): SdkWahl`, `richteEin(e: { wahl; pfade; fortschritt: (k: KopieStand) => void; signal?: AbortSignal; werkzeuge?: Partial<LaufzeitWerkzeuge> }): Promise<EinrichtungsErgebnis>`; im Test zusätzlich `laufzeitOrdner(p: LaufzeitPfade): string` und `STEMPEL_DATEI = 'jm-zoom-laufzeit.json'` (Review Focus 3 mit dem echten `richteEin`).
   - Aufgabe 9: `export function zaehleQuellen(quellen: Iterable<ZoomQuelle>): { n: number; k: number };` (`teilnehmer.ts`), `export type SollListe = Map<string, SollEintrag>;` (`soll.ts`).
 - Produces (verbindlich für die Aufgaben 11–16; der vollständige Code steht in Step 3):
   ```ts
@@ -6265,7 +6265,7 @@ console.log('— SDK-Ordner wählen (6.1), Sperre S10, Review Focus 4');
     text(p.kern.zugangWaehlen('C:/egal.json')) === KT.S10 && text(p.kern.zugangLoeschen()) === KT.S10);
   lzStand = { ok: true, ordner: p.ordner, ersetzt: [] };
   freigabe({
-    ok: true, ordner: p.ordner,
+    ok: true, ordner: p.ordner, aufraeumFehler: null,
     stempel: { format: 1, sdkFassung: SDK_FASSUNG, eingerichtetAm: '2026-10-02T10:00:00.000Z', sdkDateien: [], eigeneDateien: [] },
   });
   const r = await lauf;
@@ -6293,6 +6293,22 @@ console.log('— SDK-Ordner wählen (6.1), Sperre S10, Review Focus 4');
   const r = await p.kern.sdkWaehlen('C:/SDK');
   ck('Kopierfehler → S6, Text im Abbild, bisherige Einrichtung bleibt (bereit)',
     text(r) === KT.S6('EIO') && p.kern.abbild().einrichtung.sdk.text === KT.S6('EIO') && p.kern.kurz().zustand === 'bereit' && p.einst.laufzeit === null);
+  await p.aufraeumen();
+}
+{
+  // Diagnose, die jemand anzeigt: der Aufräumfehler aus laufzeit.ts landet im Log, die Einrichtung gilt trotzdem.
+  const p = baueKern({
+    laufzeit: {
+      pruefeOrdner: () => ({ ok: true, bin: 'X', fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: 1 }], bytesGesamt: 1 }),
+      richteEin: async () => ({
+        ok: true, ordner: 'C:/lz', aufraeumFehler: 'EBUSY',
+        stempel: { format: 1, sdkFassung: SDK_FASSUNG, eingerichtetAm: '2026-10-02T10:00:00.000Z', sdkDateien: [], eigeneDateien: [] },
+      }),
+    },
+  });
+  const r = await p.kern.sdkWaehlen('C:/SDK');
+  ck('Aufräumfehler nach dem Tausch → Logzeile mit Code, Einrichtung trotzdem ok',
+    ok(r) && p.logs.some((z) => z.includes('Aufräumen nach der Einrichtung unvollständig (EBUSY)')));
   await p.aufraeumen();
 }
 {
@@ -6747,6 +6763,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (erg.ok) {
       d.einstellungen.setzeLaufzeit({ dir: erg.ordner, fassung: erg.stempel.sdkFassung, eingerichtetAm: erg.stempel.eingerichtetAm });
       d.log(`[zoom] Zoom-SDK eingerichtet in ${erg.ordner}`);
+      if (erg.aufraeumFehler) d.log(`[zoom] Aufräumen nach der Einrichtung unvollständig (${erg.aufraeumFehler})`);
     } else {
       sdkFehler = erg.text;
       d.log(`[zoom] Einrichtung des Zoom-SDK gescheitert: ${erg.text}`);
