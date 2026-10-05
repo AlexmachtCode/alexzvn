@@ -70,6 +70,11 @@ export interface ShowAblaufItem {
  * Anzeigefelder — KEINE PII wie Bio/Foto/Kontakt, kein Secret.
  */
 export interface ShowIveoSpeaker {
+  /**
+   * Speaker-Kennung (Teil 2b, Spec 5.1): die iveo-Speaker-ID. Optional, damit alte Shows weiter laden. Daran hält
+   * der Titler seinen Eintrag (Spalte `@kennung`), und der Rundown-Picker speichert sie (`speakerId`).
+   */
+  id?: string;
   /** Anzeigename (Anrede + Vor- + Nachname). */
   name: string;
   /** Funktion/Rolle (z. B. „Lead Negotiator"). */
@@ -100,6 +105,12 @@ export interface ShowIveoBinding {
    * token-frei, ohne PII. Speist die DataLink-Variablen/Recall-Einträge.
    */
   speakers?: ShowIveoSpeaker[];
+  /**
+   * Merker „Speaker veraltet“ (Teil 2b, Spec 6.2): ISO-Zeit (UTC) des ersten Fehlschlags der iveo-Speakerliste.
+   * Gesetzt, solange die Speaker aus einem früheren Stand stammen; der Titler zeigt daraus den Hinweis H7.
+   * Setzen und Löschen schreibt nur der Launcher-Abgleich. Fehlt im Normalfall.
+   */
+  speakerVeraltetSeit?: string;
   /**
    * Side Events des Tages (#11), token-frei (id + Titel) — Grundlage fürs Live-
    * Umschalten (Launcher-Panel / Rundown-GO), ohne dass ein Tool selbst iveo abfragt.
@@ -149,7 +160,7 @@ export function createShow(name: string): Show {
   return { schemaVersion: SHOW_SCHEMA_VERSION, name, tools: [] };
 }
 
-/** Höchstlänge einer Kennung (Spec 3.1). Längere fallen beim Lesen weg. */
+/** Höchstlänge einer Kennung (Teil 2a Spec 3.1; für Speaker Teil 2b Spec 5.1). Längere fallen beim Lesen weg. */
 const ABLAUF_ID_MAX = 200;
 
 function normalizeAblaufItem(value: unknown): ShowAblaufItem | null {
@@ -181,23 +192,19 @@ function freieKennung(basis: string, belegt: Set<string>): string {
 }
 
 /**
- * Ablauf normalisieren (Teil 2a, Spec 3.1/3.5): je Punkt wie beim Lesen einer Show (ohne Titel
- * fällt er weg, `id` nur als String mit 1–200 Zeichen nach trim), danach doppelte Kennungen
- * über die ganze Liste auflösen. Der erste Punkt behält seine Kennung, jeder weitere bekommt
- * `<id>#2`, `#3` … — jeweils die nächste Nummer, die in der Liste noch frei ist. Kein Array → [].
- * `migrateShow` nutzt sie, also gilt das bei jedem `parseShow` und `serializeShow`.
+ * Doppelte Kennungen einer Liste auflösen (Teil 2a Spec 3.5, Teil 2b Spec 5.1) — die EINE Regel für Ablaufpunkte
+ * und Speaker. Erste behält ihre Kennung, jede weitere `<id>#n` mit der nächsten freien Nummer.
+ * Alle vorhandenen Kennungen gelten vorab als belegt. Zusatz gekürzt auf 200 Zeichen.
+ * Einträge ohne id bleiben unverändert. Neue Objekte entstehen nur für umbenannte;
+ * die Eingabe wird nicht verändert.
  */
-export function normalizeAblauf(value: unknown): ShowAblaufItem[] {
-  if (!Array.isArray(value)) return [];
-  const items = (value as unknown[])
-    .map(normalizeAblaufItem)
-    .filter((a): a is ShowAblaufItem => a !== null);
+export function loeseDoppelteKennungenAuf<T extends { id?: string }>(liste: T[]): T[] {
   // Alle vorhandenen Kennungen vorab als belegt, damit ein umbenannter Doppelter nie die
-  // Kennung eines nachfolgenden Punkts übernimmt (z. B. X, X, X#2 → X, X#3, X#2).
+  // Kennung eines nachfolgenden Eintrags übernimmt (z. B. X, X, X#2 → X, X#3, X#2).
   const belegt = new Set<string>();
-  for (const it of items) if (it.id !== undefined) belegt.add(it.id);
+  for (const it of liste) if (it.id !== undefined) belegt.add(it.id);
   const gesehen = new Set<string>();
-  return items.map((it) => {
+  return liste.map((it) => {
     if (it.id === undefined) return it;
     if (!gesehen.has(it.id)) {
       gesehen.add(it.id);
@@ -207,6 +214,21 @@ export function normalizeAblauf(value: unknown): ShowAblaufItem[] {
     belegt.add(id);
     return { ...it, id };
   });
+}
+
+/**
+ * Ablauf normalisieren (Teil 2a, Spec 3.1/3.5): je Punkt wie beim Lesen einer Show (ohne Titel
+ * fällt er weg, `id` nur als String mit 1–200 Zeichen nach trim), danach doppelte Kennungen
+ * über die ganze Liste auflösen (`loeseDoppelteKennungenAuf`): Der erste Punkt behält seine Kennung,
+ * jeder weitere bekommt `<id>#2`, `#3` … — jeweils die nächste Nummer, die in der Liste noch frei ist.
+ * Kein Array → []. `migrateShow` nutzt sie, also gilt das bei jedem `parseShow` und `serializeShow`.
+ */
+export function normalizeAblauf(value: unknown): ShowAblaufItem[] {
+  if (!Array.isArray(value)) return [];
+  const items = (value as unknown[])
+    .map(normalizeAblaufItem)
+    .filter((a): a is ShowAblaufItem => a !== null);
+  return loeseDoppelteKennungenAuf(items);
 }
 
 /**
@@ -236,12 +258,21 @@ function normalizeIveoBinding(value: unknown): ShowIveoBinding | null {
         const sp = s as Record<string, unknown>;
         const name = typeof sp.name === 'string' ? sp.name.trim() : '';
         if (!name) return null;
-        const speaker: ShowIveoSpeaker = { name };
+        // Kennung wie am Ablaufpunkt (Teil 2b, Spec 5.1): nur als String mit 1–200 Zeichen nach trim, sonst
+        // entfällt das Feld (der Speaker bleibt). `id` steht vorn: feste Feldreihenfolge id, name, title.
+        const id = typeof sp.id === 'string' ? sp.id.trim() : '';
+        const speaker: ShowIveoSpeaker = id && id.length <= ABLAUF_ID_MAX ? { id, name } : { name };
         if (typeof sp.title === 'string' && sp.title.trim()) speaker.title = sp.title.trim();
         return speaker;
       })
       .filter((s): s is ShowIveoSpeaker => s !== null);
-    if (speakers.length) binding.speakers = speakers;
+    // Doppelte Kennungen → #2, #3 … (dieselbe Regel wie im Ablauf).
+    if (speakers.length) binding.speakers = loeseDoppelteKennungenAuf(speakers);
+  }
+  // Merker „Speaker veraltet“ (Teil 2b, Spec 6.2): nur eine Zeit, die Date.parse lesen kann, sonst entfällt er.
+  // Er steht in der Bindung direkt nach `speakers`.
+  if (typeof o.speakerVeraltetSeit === 'string' && !Number.isNaN(Date.parse(o.speakerVeraltetSeit))) {
+    binding.speakerVeraltetSeit = o.speakerVeraltetSeit;
   }
   if (Array.isArray(o.sideEvents)) {
     const refs = (o.sideEvents as unknown[])

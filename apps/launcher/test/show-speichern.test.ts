@@ -45,7 +45,8 @@ const ROH = {
     baseUrl: 'https://my-iveo.de/api/v1',
     name: 'COP31',
     syncedAt: '2026-09-29T07:59:00.000Z',
-    speakers: [{ name: 'Ada Lovelace', title: 'Moderation' }],
+    speakers: [{ id: 'sp-ada', name: 'Ada Lovelace', title: 'Moderation' }],
+    speakerVeraltetSeit: '2026-09-29T07:58:00.000Z',
     sideEvents: [{ id: 'p1', title: 'Side Event A' }],
     filter: { programId: 'p1' },
   },
@@ -67,8 +68,13 @@ console.log('— Laden und Speichern ohne Änderung (9.5)');
   ck('iveo.syncedAt bleibt', ergebnis.iveo?.syncedAt === ROH.iveo.syncedAt);
   ck('90-s-Dauer sekundengenau', ergebnis.ablauf?.[0].durationMs === 90_000);
   ck('Kennungen bleiben', ergebnis.ablauf?.map((a) => a.id).join(',') === 'aaaa-1,aaaa-2,aaaa-3');
+  // Teil 2b, 9.2 Nr. 8 (SP10): Speaker-Kennung und Merker „Speaker veraltet“ überstehen Laden und Speichern.
+  ck('Speaker-Kennung bleibt (9.2 Nr. 8)', ergebnis.iveo?.speakers?.[0].id === 'sp-ada');
+  ck('Merker „Speaker veraltet“ bleibt (9.2 Nr. 8)', ergebnis.iveo?.speakerVeraltetSeit === '2026-09-29T07:58:00.000Z');
   const ohneDatei = baueGespeicherteShow(geladen, formularAusShow(geladen), null, z.neueId);
   ck('… auch wenn die aktuelle Datei nicht lesbar ist', isDeepStrictEqual(ohneZeit(ohneDatei), ohneZeit(geladen)));
+  ck('… Speaker-Kennung und Merker auch ohne lesbare Datei (9.2 Nr. 8)',
+    ohneDatei.iveo?.speakers?.[0].id === 'sp-ada' && ohneDatei.iveo?.speakerVeraltetSeit === '2026-09-29T07:58:00.000Z');
 }
 
 console.log('— iveo-Abfrage zwischen Laden und Speichern (7.5 Regel 1)');

@@ -27,7 +27,7 @@ import {
   type IveoProgram,
   type IveoSnapshot,
 } from '../src/index';
-import { createShow, hatEigeneTimerListe, normalizeAblauf, parseShow, serializeShow } from '@jm/show';
+import { createShow, hatEigeneTimerListe, loeseDoppelteKennungenAuf, normalizeAblauf, parseShow, serializeShow } from '@jm/show';
 import { kennungenAus, kennungsBericht, kennungsForm, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from '../tools/messung-2b-kern';
 
 let failed = 0;
@@ -660,6 +660,101 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
     JSON.stringify(kennungenAus([{ id: 'x' }, { id: '' }, {}, null, { id: 7 }])) === JSON.stringify(['x', null, null, null, null]),
     'Messung: kennungenAus macht fehlende, leere und Nicht-Text-Kennungen zu null',
   );
+}
+
+// ── @jm/show: Speaker-Kennung, loeseDoppelteKennungenAuf, Merker speakerVeraltetSeit (Teil 2b, Spec 5.1, 6.2, 9.1) ──
+{
+  /** iveo-Bindung so, wie parseShow sie aus einer Datei liest. */
+  const binde = (iveo: Record<string, unknown>) =>
+    parseShow(JSON.stringify({ schemaVersion: 1, name: 'S', tools: [], iveo: { event: 'cop31', ...iveo } })).iveo;
+
+  // 9.1 Nr. 1: Kennung getrimmt, als erstes Feld; 200 Zeichen bleiben; 201, Nicht-Strings und Leeres entfallen.
+  ok(
+    JSON.stringify(binde({ speakers: [{ name: 'Ada', id: '  sp-1  ' }] })?.speakers?.[0]) === '{"id":"sp-1","name":"Ada"}',
+    '@jm/show: Speaker-Kennung getrimmt, als erstes Feld',
+  );
+  ok(
+    JSON.stringify(binde({ speakers: [{ title: 'Admiral', name: 'Grace', id: 'sp-2' }] })?.speakers) ===
+      '[{"id":"sp-2","name":"Grace","title":"Admiral"}]',
+    '@jm/show: Feldreihenfolge des Speakers id, name, title',
+  );
+  ok(
+    binde({ speakers: [{ id: 'k'.repeat(200), name: 'Grenze' }] })?.speakers?.[0].id === 'k'.repeat(200),
+    '@jm/show: Speaker-Kennung mit 200 Zeichen bleibt',
+  );
+  const ungueltig =
+    binde({
+      speakers: [
+        { id: 'k'.repeat(201), name: 'Zu lang' },
+        { id: 42, name: 'Zahl' },
+        { id: '   ', name: 'Leer' },
+        { id: null, name: 'Null' },
+      ],
+    })?.speakers ?? [];
+  ok(
+    ungueltig.length === 4 && ungueltig.every((s) => !('id' in s)),
+    '@jm/show: ungültige Speaker-Kennung entfällt, der Speaker bleibt',
+  );
+
+  // 9.1 Nr. 2: Doppelte → #2, #3; schon belegte Nummern werden übersprungen; der Zusatz bleibt in 200 Zeichen.
+  const dreimal = binde({ speakers: [{ id: 'X', name: 'a' }, { id: 'X', name: 'b' }, { id: 'X', name: 'c' }] })?.speakers ?? [];
+  ok(JSON.stringify(dreimal.map((s) => s.id)) === '["X","X#2","X#3"]', '@jm/show: doppelte Speaker-Kennung → #2, #3');
+  const belegt = binde({ speakers: [{ id: 'X', name: 'a' }, { id: 'X', name: 'b' }, { id: 'X#2', name: 'c' }] })?.speakers ?? [];
+  ok(JSON.stringify(belegt.map((s) => s.id)) === '["X","X#3","X#2"]', '@jm/show: belegte #2 → nächste freie Nummer (Speaker)');
+  const lang = binde({ speakers: [{ id: 'k'.repeat(200), name: 'a' }, { id: 'k'.repeat(200), name: 'b' }] })?.speakers ?? [];
+  ok(lang[1]?.id === 'k'.repeat(198) + '#2', '@jm/show: Zusatz #2 kürzt eine 200-Zeichen-Kennung (Speaker)');
+
+  // Die gemeinsame Regel direkt: gleiche Ergebnisse, Eingabe unverändert, neue Objekte nur für umbenannte.
+  const eingabe = [{ id: 'X', name: 'a' }, { name: 'ohne' }, { id: 'X', name: 'b' }, { id: 'X#2', name: 'c' }];
+  const vorherText = JSON.stringify(eingabe);
+  const aufgeloest = loeseDoppelteKennungenAuf(eingabe);
+  ok(
+    JSON.stringify(aufgeloest.map((s) => s.id ?? '-')) === '["X","-","X#3","X#2"]',
+    'loeseDoppelteKennungenAuf: X, X, X#2 → X, X#3, X#2; ohne id bleibt ohne',
+  );
+  ok(JSON.stringify(eingabe) === vorherText && aufgeloest !== eingabe, 'loeseDoppelteKennungenAuf: verändert die Eingabe nicht');
+  ok(
+    aufgeloest[0] === eingabe[0] && aufgeloest[1] === eingabe[1] && aufgeloest[2] !== eingabe[2] && aufgeloest[3] === eingabe[3],
+    'loeseDoppelteKennungenAuf: neue Objekte nur für umbenannte',
+  );
+  ok(loeseDoppelteKennungenAuf([]).length === 0, 'loeseDoppelteKennungenAuf: leere Liste → leere Liste');
+
+  // 9.1 Nr. 3: serializeShow → parseShow behält die Kennung; ein Speaker ohne Kennung bleibt ohne.
+  const rund = parseShow(
+    serializeShow({
+      ...createShow('Speaker'),
+      iveo: { event: 'cop31', speakers: [{ id: 'sp-1', name: 'Ada', title: 'Moderation' }, { name: 'Ohne Kennung' }] },
+    }),
+  );
+  ok(
+    JSON.stringify(rund.iveo?.speakers) === '[{"id":"sp-1","name":"Ada","title":"Moderation"},{"name":"Ohne Kennung"}]',
+    '@jm/show: Speaker-Kennung übersteht serializeShow → parseShow',
+  );
+
+  // 9.1 Nr. 6: Merker speakerVeraltetSeit — lesbare Zeit bleibt, Unlesbares entfällt, Rundreise und Platz nach speakers.
+  const MERKER = '2026-10-02T08:00:00.000Z';
+  ok(binde({ speakerVeraltetSeit: MERKER })?.speakerVeraltetSeit === MERKER, '@jm/show: lesbarer Merker bleibt');
+  ok(!('speakerVeraltetSeit' in (binde({ speakerVeraltetSeit: 'gestern' }) ?? {})), '@jm/show: unlesbarer Merker entfällt');
+  ok(!('speakerVeraltetSeit' in (binde({ speakerVeraltetSeit: 42 }) ?? {})), '@jm/show: Merker als Zahl entfällt');
+  const mitMerker = parseShow(
+    serializeShow({
+      ...createShow('Merker'),
+      iveo: {
+        event: 'cop31',
+        name: 'COP31',
+        speakers: [{ id: 'sp-1', name: 'Ada' }],
+        speakerVeraltetSeit: MERKER,
+        sideEvents: [{ id: 'p1', title: 'A' }],
+        filter: { day: '2026-11-10' },
+      },
+    }),
+  );
+  ok(mitMerker.iveo?.speakerVeraltetSeit === MERKER, '@jm/show: Merker übersteht serializeShow → parseShow');
+  ok(
+    JSON.stringify(Object.keys(mitMerker.iveo ?? {})) === '["event","name","speakers","speakerVeraltetSeit","sideEvents","filter"]',
+    '@jm/show: Merker steht in der Bindung direkt nach speakers',
+  );
+  ok(!('speakerVeraltetSeit' in (binde({ speakers: [{ name: 'Ada' }] }) ?? {})), '@jm/show: ohne Merker kein Feld');
 }
 
 if (failed > 0) {
