@@ -17,7 +17,7 @@ export function RecallBoard(): React.JSX.Element {
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
     return entries
-      .map((label, i) => ({ label, i }))
+      .map((e, i) => ({ key: e.key, label: e.label, i }))
       .filter((e) => !t || e.label.toLowerCase().includes(t));
   }, [entries, q]);
 
@@ -45,10 +45,10 @@ export function RecallBoard(): React.JSX.Element {
       ) : (
         <div className="flex-1 min-h-0 overflow-auto p-4">
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
-            {filtered.map(({ label, i }) => (
+            {filtered.map(({ key, label, i }) => (
               <button
-                key={`${i}-${label}`}
-                onClick={() => void window.jmtitler.recallEntry(String(i + 1))}
+                key={key}
+                onClick={() => void window.jmtitler.recallSchluessel(key)}
                 title={label}
                 className={cn(
                   'h-16 rounded-[var(--radius-lg)] border px-3 text-sm font-bold leading-tight',

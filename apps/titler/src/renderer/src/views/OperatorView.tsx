@@ -495,10 +495,10 @@ export function OperatorView(): React.JSX.Element {
                             </div>
                           </div>
                           <div className="max-h-40 overflow-auto rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
-                            {entries.map((label, i) => (
+                            {entries.map((e, i) => (
                               <button
-                                key={`${i}-${label}`}
-                                onClick={() => void window.jmtitler.recallEntry(String(i + 1))}
+                                key={e.key}
+                                onClick={() => void window.jmtitler.recallSchluessel(e.key)}
                                 className={cn(
                                   'flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs',
                                   i === activeEntry
@@ -507,7 +507,7 @@ export function OperatorView(): React.JSX.Element {
                                 )}
                               >
                                 <span className="tabular text-[10px] w-5 shrink-0 text-[var(--muted-foreground)]">{i + 1}</span>
-                                <span className="truncate">{label || '—'}</span>
+                                <span className="truncate">{e.label || '—'}</span>
                               </button>
                             ))}
                           </div>

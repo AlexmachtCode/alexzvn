@@ -723,6 +723,82 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   }
 }
 
+// ── B13 · datalink.ts über den Kern: echter Ordner, Sendung, 1-s-Uhr (Spec 7.1, 7.3, 7.5, 9.3 Nr. 3/5/7) ──
+{
+  const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const datalink = await import('../src/main/datalink');
+  const tmp = mkdtempSync(join(tmpdir(), 'jmtitler-'));
+  const datei = join(tmp, 'speakers.tsv');
+  const tsv = (zeilen: string[]): string => ['name\tfunktion\ttitle\t@kennung', ...zeilen].join('\n') + '\n';
+  const NEU = 'Neu\tGast\tGast\ts-0';
+  const ADA = 'Ada\tMathematik\tMathematik\ts-1';
+  const GRACE = 'Grace\tCompiler\tCompiler\ts-2';
+  const ALAN = 'Alan\tInformatik\tInformatik\ts-3';
+  const HEDY = 'Hedy\tFunk\tFunk\ts-4';
+  const logs: string[] = [];
+  let meldungen = 0;
+  try {
+    writeFileSync(datei, tsv([ADA, GRACE, ALAN, HEDY]));
+    datalink.startDataWatch(tmp, () => meldungen++, { leerHalten: true, log: (m: string) => logs.push(m) });
+    let d = datalink.getDataState();
+    ok(meldungen >= 1, 'B13: startDataWatch meldet den Stand an den Rückruf');
+    ok(d.entries.map((e) => e.key).join(',') === 's-1,s-2,s-3,s-4', 'B13: Schlüssel kommen aus @kennung');
+    ok(d.activeIndex === 0, 'B13: erster Start → Eintrag 1');
+    datalink.recallSchluessel('s-2');
+    ok(datalink.getDataState().companion.entry === 'Grace', 'B13: recallSchluessel trifft genau den Schlüssel');
+    datalink.recall('Alan');
+    d = datalink.getDataState();
+    ok(d.activeIndex === 2 && d.variables.funktion === 'Informatik', 'B13: recall per Name → Alan aktiv, seine Variablen');
+    ok(!('@kennung' in d.variables), 'B13: @kennung steht nicht in den Variablen');
+    ok(JSON.stringify(d.companion) === JSON.stringify({ entry: 'Alan', entryIndex: 3, entryCount: 4 }), 'B13: Companion-Werte für Alan (3 von 4)');
+    datalink.setzeAufSendung(true);
+
+    // 9.3 Nr. 3 mit echter Datei: „Neu“ kommt davor → Alan bleibt Alan, jetzt Nr. 4
+    writeFileSync(datei, tsv([NEU, ADA, GRACE, ALAN, HEDY]));
+    datalink.rescanJetzt();
+    d = datalink.getDataState();
+    ok(JSON.stringify(d.companion) === JSON.stringify({ entry: 'Alan', entryIndex: 4, entryCount: 5 }), 'B13: Alan bleibt Alan, jetzt Nr. 4 von 5');
+    ok(logs.includes('DataLink: „Alan“ hält seinen Eintrag (jetzt Nr. 4 von 5).'), 'B13: Logzeile A1 erreicht den Log-Rückruf');
+
+    // 9.3 Nr. 5: Alan fällt weg, auf Sendung → gehalten (A2)
+    writeFileSync(datei, tsv([NEU, ADA, GRACE, HEDY]));
+    datalink.rescanJetzt();
+    d = datalink.getDataState();
+    ok(d.gehalten?.label === 'Alan' && d.activeIndex === -1, 'B13: Alan gehalten, kein Eintrag markiert (A2)');
+    ok(d.variables.funktion === 'Informatik', 'B13: eingefrorene Variablen von Alan');
+    ok(d.companion.entry === 'Alan' && d.companion.entryIndex === 0 && d.companion.entryCount === 4, 'B13: Companion: entry Alan, entry_index 0');
+    ok(d.hinweis?.art === 'H1', 'B13: Hinweis H1');
+    ok(logs.includes('DataLink: aktiver Eintrag „Alan“ nicht mehr in der Liste, auf Sendung gehalten.'), 'B13: Logzeile A2');
+
+    // 9.3 Nr. 7 mit echter Uhr: Sendung endet → 1 s später kein Eintrag (A4)
+    datalink.setzeAufSendung(false);
+    ok(datalink.getDataState().gehalten?.label === 'Alan', 'B13: direkt nach dem Ende der Sendung noch gehalten');
+    await new Promise((fertig) => setTimeout(fertig, 1100));
+    d = datalink.getDataState();
+    ok(d.activeIndex === -1 && d.gehalten === undefined, 'B13: 1,1 s nach der Sendung kein aktiver und kein gehaltener Eintrag');
+    ok(d.hinweis?.art === 'H2' && Object.keys(d.variables).length === 0, 'B13: Hinweis H2, leere Variablen');
+    ok(d.companion.entry === '' && d.companion.entryIndex === 0, 'B13: Companion leer');
+
+    // A7: Quelle Show (leerHalten) und die Datei ist leer → Liste bleibt
+    writeFileSync(datei, '');
+    datalink.rescanJetzt();
+    ok(datalink.getDataState().entries.length === 4, 'B13: leere Datei bei leerHalten → Liste bleibt (A7)');
+
+    // A7 gilt nur im selben Ordner (B9): Wechsel auf einen leeren Ordner leert Liste und Quellen.
+    const leer = join(tmp, 'leer');
+    mkdirSync(leer);
+    datalink.startDataWatch(leer, () => meldungen++, { leerHalten: true, log: (m: string) => logs.push(m) });
+    d = datalink.getDataState();
+    ok(d.entries.length === 0 && d.sources.length === 0, 'B13: Wechsel auf einen leeren Ordner → keine Einträge, keine Quellen (A7 nur im selben Ordner)');
+  } finally {
+    datalink.stopDataWatch();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  ok(datalink.getDataState().entries.length === 0, 'B13: stopDataWatch setzt den Kern zurück');
+}
+
 if (failed > 0) {
   console.error(`\n${failed} FEHLGESCHLAGEN`);
   process.exit(1);

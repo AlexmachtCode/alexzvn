@@ -60,6 +60,9 @@ function toSuiteState(): SuiteState {
       entry: dataInfo.entry,
       entry_index: dataInfo.entryIndex,
       entry_count: dataInfo.entryCount,
+      // Feste Fähigkeit (Spec 7.5): dieser Titler versteht `TITLER RECALL @⟨Kennung⟩ ⟨Name⟩`.
+      // Der Rundown liest daraus, ob er die `@`-Form senden darf (Spec 8.3).
+      recall_kennung: 1,
     },
   };
 }
