@@ -804,6 +804,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         // gesetzter bleibt). Ohne Verknüpfung holt das Umschalten keine Liste, der Merker bleibt, wie er ist.
         if (r.speakerAbruf === 'ok') merker = undefined;
         else if (r.speakerAbruf === 'gescheitert') merker = a.speakerVeraltetSeit ?? d.jetztIso();
+        // Mit gesetztem Merker ersetzt die nächste Agenda-Abfrage die Liste durch die ganze Event-Liste: der Text sagt das.
+        if (r.speakerAbruf === 'ohne-verknuepfung' && merker) warning = 'Speakerliste wird bei der nächsten Abfrage aus iveo aufgefrischt (ganze Liste).';
       } else {
         // Tagesübersicht: alle Side Events des Tages (voller Snapshot nötig).
         const day = input.day || a.filter.day;

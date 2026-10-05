@@ -1193,6 +1193,8 @@ const namenIn = (s: Show): string => JSON.stringify((s.iveo?.speakers ?? []).map
   const r = await u.kern.umschalten({ programId: 'P1' });
   ck('Nr. 5 (b): Umschalten auf P1 ohne Verknüpfung → keine Speakerliste geholt, Merker unverändert',
     r.ok && u.iveo.abrufe.filter((x) => x === 'speakers:').length === 1 && datei(u).iveo?.speakerVeraltetSeit === MERKER);
+  ck('Nr. 5 (b): … Antwort ist wahr: sagt, dass die Liste bei der nächsten Abfrage aufgefrischt wird',
+    r.message === 'Umgeschaltet — Speakerliste wird bei der nächsten Abfrage aus iveo aufgefrischt (ganze Liste).');
   ck('Nr. 5 (b): … Status „gestört“ mit dem Text aus 6.3', u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET && u.status.at(-1)?.seit === MERKER);
 
   const vorher = u.iveo.abrufe.length;
