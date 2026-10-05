@@ -223,9 +223,27 @@ er ist. Das Side-Events-Panel im Launcher zeigt dann „iveo-Abgleich gestört:
 <Grund> (seit <Uhrzeit>)“, etwa „Token ungültig oder widerrufen“ oder „kein
 iveo-Token auf diesem Rechner, nur Offline-Ablauf“.
 
+**Titler hält seinen Speaker.** Seit Titler 0.10.0, Launcher 0.14.0 und
+Rundown 0.7.0 hält die Bauchbinde ihre Person, nicht ihre Nummer in der Liste:
+Der Titler merkt sich den abgerufenen Speaker über einen Ersatz-Schlüssel aus
+Datei und Namen. Kommt in iveo ein Speaker davor dazu oder schaltet der Launcher
+auf ein anderes Side Event um, bleibt dieselbe Person auf Sendung, und
+Korrekturen aus iveo erscheinen sofort. Die iveo-Kennung der Speaker wird laut
+Owner-Entscheidung vom 05.10.2026 noch nicht in Show, Titler und Rundown
+übernommen. Fehlt die Person in der neuen Liste, bleibt die Bauchbinde stehen,
+bis man sie ausblendet oder einen Eintrag abruft; Daten / Recall zeigt dazu
+einen Hinweis. Ein Abruf ohne Treffer lässt nie still den vorherigen Speaker
+aktiv. Der Rundown ruft Speaker über den aktuellen Namen ab; die Form
+`TITLER RECALL @⟨Kennung⟩ ⟨Name⟩` versteht der Titler bereits. Eine Show
+überschreibt den eigenen DataLink-Ordner des Titlers nicht mehr; „Zurück zum
+eigenen Ordner“ in den Einstellungen führt zu ihm zurück. Ist die Speakerliste
+von iveo nicht abrufbar, behält die Show ihre Speaker; Panel und Titler sagen
+dann „aus früherem Stand“.
+
 **Grenzen.** Das gilt am Einzelplatz: Tools auf einem anderen Rechner lesen
-weiter ihre eigene Show-Datei (folgt mit Master-Link Teil 2b). Sprünge aus
-Companion (`RUNDOWN GOTO n`, `TIMER GOTO n`) und `TITLER RECALL <nr>` bleiben
-nummernbasiert. Wird eine Show-Datei umbenannt oder verschoben, beginnt der
-Rundown für sie neu. Ein älterer Rundown (bis 0.5), der eine neue `.jmrundown`
-speichert, verliert deren Archiv und Markierungen.
+weiter ihre eigene Show-Datei (folgt mit Release 2 von Master-Link Teil 2b).
+Sprünge aus Companion (`RUNDOWN GOTO n`, `TIMER GOTO n`) sowie
+`TITLER RECALL <nr>`, Weiter und Zurück im Titler bleiben nummernbasiert. Wird
+eine Show-Datei umbenannt oder verschoben, beginnt der Rundown für sie neu. Ein
+älterer Rundown (bis 0.5), der eine neue `.jmrundown` speichert, verliert deren
+Archiv und Markierungen.

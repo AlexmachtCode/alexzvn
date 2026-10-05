@@ -23,6 +23,15 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.14.0",
+        "date": "2026-10-05",
+        "notes": [
+          "Die Show kann jetzt zu jedem Speaker eine iveo-Kennung tragen, und der Launcher geht damit sauber um. Die Kennung selbst wird laut Owner-Entscheidung vom 05.10.2026 noch nicht von iveo übernommen. Titler 0.10.0 und Rundown 0.7.0 halten ihren Speaker deshalb über Datei und Namen (Ersatz-Schlüssel).",
+          "Ist die Speakerliste von iveo nicht abrufbar, behält die Show ihre Speaker, und „Verantwortlich“ im Ablauf bleibt erhalten. Bisher galt ein solcher Fehler als keine Speaker. Das Side-Events-Panel zeigt dann „iveo-Abgleich gestört: Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand“ mit Uhrzeit, der Titler einen Hinweis.",
+          "Solange die Speakerliste fehlt, fragt der Launcher bei jeder Abfrage erneut nach. Kommt sie wieder, aktualisiert er die Speaker von selbst, und das Panel meldet den Abgleich wieder in Ordnung."
+        ]
+      },
+      {
         "version": "0.13.2",
         "date": "2026-10-05",
         "notes": [
@@ -1053,6 +1062,21 @@
     "name": "JM Titler",
     "entries": [
       {
+        "version": "0.10.0",
+        "date": "2026-10-05",
+        "notes": [
+          "Die Bauchbinde hält ihre Person: Der Titler merkt sich den abgerufenen Speaker über einen Schlüssel aus Datei und Namen statt über die Nummer in der Liste. Kommt in iveo ein Speaker davor dazu oder schaltet der Launcher auf ein anderes Side Event um, bleibt dieselbe Person auf Sendung. Korrekturen aus iveo, etwa an der Funktion, erscheinen sofort. Die iveo-Kennung wird laut Owner-Entscheidung vom 05.10.2026 noch nicht übernommen.",
+          "Fehlt die Person auf Sendung in der neuen Liste, bleibt die Bauchbinde stehen, bis sie ausgeblendet oder ein Eintrag abgerufen wird. Daten / Recall und das Recall-Board zeigen dazu einen Hinweis. Nach dem Ausblenden ist kein Eintrag mehr aktiv, ein folgendes Take bringt die Person also nicht zurück.",
+          "Ein Abruf ohne Treffer lässt nicht mehr den vorherigen Speaker aktiv, auch nicht eine Nummer außerhalb der Liste. Der Titler zeigt dazu einen Hinweis.",
+          "Der Titler überschreibt den eigenen DataLink-Ordner nicht mehr. Speaker aus einer Show liest er getrennt davon, Daten / Recall zeigt die Quelle, und „Zurück zum eigenen Ordner“ in den Einstellungen führt zur eigenen Liste zurück. Steht als DataLink-Ordner noch der Ordner iveo-data, den eine frühere Show eingetragen hat, wird diese Einstellung einmalig geleert; die Speaker dieser Show bleiben bis zur nächsten Show sichtbar.",
+          "Der Titler merkt sich die zuletzt angewendete Show. Nach einem Neustart über die Launcher-Kachel sind Liste und Quelle wie vorher, und ein Neu-Laden aus dem Launcher kommt wieder an.",
+          "Meldet die Show, dass die Speakerliste von iveo nicht abrufbar war, zeigt der Titler „Liste aus früherem Stand“ mit der Uhrzeit.",
+          "Neu für Companion: TITLER RECALL @⟨Kennung⟩ ⟨Name⟩ ruft einen Speaker über seine iveo-Kennung ab, mit dem Namen als Rückfall. TITLER RECALL mit Nummer, Weiter und Zurück bleiben nummernbasiert.",
+          "Rundown 0.7.0 ruft Speaker über den Namen ab; solange die Show keine iveo-Kennungen trägt, ändert sich daran nichts.",
+          "Ein Rückweg auf Titler 0.9.0 zeigt bis zur nächsten Show keine Liste."
+        ]
+      },
+      {
         "version": "0.9.0",
         "date": "2026-10-01",
         "notes": [
@@ -1337,6 +1361,15 @@
     "app": "rundown",
     "name": "JM Rundown",
     "entries": [
+      {
+        "version": "0.7.0",
+        "date": "2026-10-05",
+        "notes": [
+          "Der Speaker-Picker an einer Aktion „DataLink-Eintrag abrufen“ für den JM Titler zeigt den aktuellen Namen des Speakers aus der Show. Gesendet wird der Name; trägt die Show iveo-Kennungen, bindet der Picker über die Kennung und der Abruf geht in der Form mit Kennung an den Titler 0.10.0. Die iveo-Kennung wird laut Owner-Entscheidung vom 05.10.2026 noch nicht übernommen.",
+          "Fehlt der gewählte Speaker in der Speakerliste der Show, steht an der Aktion „nicht in der Speaker-Liste“.",
+          "Ältere Aktionen ohne Kennung rufen weiter über den Namen ab und stehen im Picker als „per Name (nicht gebunden)“; gebunden wird erst durch eine Auswahl. Wer Rolle, Aktion oder den Namen von Hand ändert, löst die Bindung."
+        ]
+      },
       {
         "version": "0.6.0",
         "date": "2026-10-01",
