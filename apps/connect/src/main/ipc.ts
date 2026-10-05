@@ -35,6 +35,7 @@ export function currentStatus(): AppStatus {
     programState: prog.state,
     programSource: prog.source,
     presenterLinked: presenterConnected(),
+    zoom: null,
   };
 }
 

@@ -17,6 +17,7 @@ let status: AppStatus = {
   programState: 'off',
   programSource: null,
   presenterLinked: false,
+  zoom: null,
 };
 
 interface TrayDeps {
