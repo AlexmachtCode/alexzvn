@@ -3,8 +3,12 @@ import { buildActionLine } from '@shared/conductor';
 import { loeseSprungZiel } from '@shared/sprung';
 import {
   ablaufPunkte,
+  istSpeakerAbruf,
   istSprung,
+  loeseSpeakerZiel,
   sendeArgs,
+  speakerOptionen,
+  speakerPatch,
   sperrenFuer,
   zeilenArt,
   zeilenHinweis,
@@ -146,19 +150,23 @@ function ActionRow({
 }) {
   const cap = capAction(action.role, action.verb);
   // 6.2: Vorschau mit der Nummer, die jetzt gesendet würde; null = Ziel entfallen.
-  const sendArgs = sendeArgs(action, (x) => loeseSprungZiel(x, sicht.ablaufSchluessel, sicht.eigeneTimerListe));
+  // Teil 2b (8.3, 8.4): Ein Speaker-Abruf zeigt den aktuellen Namen zu seiner Kennung, in der
+  // Namensform. Ob beim GO die @-Form hinausgeht, entscheidet der Main nach dem STATE des Titlers.
+  const sprungArgs = sendeArgs(action, (x) => loeseSprungZiel(x, sicht.ablaufSchluessel, sicht.eigeneTimerListe));
+  const sendArgs = sprungArgs ? loeseSpeakerZiel({ ...action, args: sprungArgs }, iveoSpeakers, false) : null;
   const line = sendArgs ? buildActionLine(action.role, action.verb, sendArgs) : null;
   // 6.2: Für `timer goto` die Ablaufpunkte zur Auswahl — nicht bei eigener Timer-Liste.
   const sprungAuswahl = istSprung(action) && !sicht.eigeneTimerListe && (punkte.length > 0 || !!action.zielId);
   const handNr = Number(action.args[0]);
   const handPunkt = Number.isInteger(handNr) ? punkte[handNr - 1] : undefined;
   const [fired, setFired] = useState<'' | 'ok' | 'off'>('');
-  // iveo-Komfort (#11): Beim Titler-Recall die Speaker der Show als Dropdown
-  // anbieten (Recall PER NAME → stabil gegenüber Umsortierung). Ersetzt für diese
-  // Aktion die generische Arg-Eingabe. Programme↔Speaker sind in iveo NICHT
-  // verknüpft → die Zuordnung Programmzeile→Speaker trifft bewusst der Operator.
-  const speakerPicker =
-    action.role === 'titler' && action.verb === 'recall' && iveoSpeakers.length > 0;
+  // iveo-Komfort (#11): Beim Titler-Recall die Speaker der Show als Dropdown anbieten.
+  // Ersetzt für diese Aktion die generische Arg-Eingabe. Teil 2b (8.2): Eine Auswahl bindet
+  // über die iveo-Kennung (`speakerId`), `args[0]` behält den Namen. iveo verknüpft Programme
+  // und Speaker zwar (Side Events, apps/launcher/src/main/iveo-abgleich-kern.ts `sideSpeakerIds`);
+  // welche Programmzeile welchen Speaker abruft, entscheidet hier aber der Operator.
+  const speakerPicker = istSpeakerAbruf(action) && iveoSpeakers.length > 0;
+  const picker = speakerOptionen(action, iveoSpeakers);
   // iveo-Komfort (#11): Beim LAUNCHER-SIDEEVENT-Cue die Side Events der Show als
   // Dropdown (Wert = programId) — ein GO schaltet die offene Show live auf dieses
   // Side Event um (Ablauf=Agenda + Speaker). Ersetzt die generische Arg-Eingabe.
@@ -187,6 +195,11 @@ function ActionRow({
     }
     const p = punkte.find((x) => x.id === id);
     if (p) onDoc(updateAction(doc, rowId, action.id, { zielId: p.id, args: [p.n, ...action.args.slice(1)] }));
+  }
+  /** 8.2: Auswahl im Speaker-Picker → Kennung und Name; `alt:`/`fehlt:` lassen die Aktion, wie sie ist. */
+  function waehleSpeaker(wert: string): void {
+    const patch = speakerPatch(wert, iveoSpeakers);
+    if (patch) onDoc(updateAction(doc, rowId, action.id, patch));
   }
   function setArg(i: number, value: string | number): void {
     const args = action.args.slice();
@@ -259,14 +272,13 @@ function ActionRow({
           <label className="text-xs text-[var(--muted-foreground)]">
             iveo-Speaker (Bauchbinde)
             <select
-              value={String(action.args[0] ?? '')}
-              onChange={(e) => setArg(0, e.target.value)}
+              value={picker.gewaehlt}
+              onChange={(e) => waehleSpeaker(e.target.value)}
               className={`${input} mt-0.5`}
             >
-              <option value="">— Speaker wählen —</option>
-              {iveoSpeakers.map((s, i) => (
-                <option key={`${s.name}-${i}`} value={s.name}>
-                  {s.title ? `${s.name} — ${s.title}` : s.name}
+              {picker.optionen.map((o, i) => (
+                <option key={`${i}-${o.wert}`} value={o.wert}>
+                  {o.text}
                 </option>
               ))}
             </select>

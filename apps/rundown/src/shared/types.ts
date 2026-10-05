@@ -29,6 +29,13 @@ export interface RundownAction {
    * binden“; der Main rechnet daraus erst beim Senden die Nummer aus.
    */
   zielId?: string;
+  /**
+   * iveo-Speaker-Kennung eines `titler recall` (Master-Link 2b, Spec 8.1). Gesetzt nur
+   * durch eine Auswahl im Speaker-Picker; `args[0]` behält den Namen (Anzeige, Rückfall).
+   * Der Main macht daraus erst beim Senden `@<Kennung> <Name>` oder den aktuellen
+   * Namen (8.3). 1 bis 200 Zeichen.
+   */
+  speakerId?: string;
 }
 
 /** Eine Zeile/Segment im Ablaufplan. */

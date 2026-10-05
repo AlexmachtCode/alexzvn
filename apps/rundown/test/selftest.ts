@@ -31,6 +31,18 @@ import * as hinweisModul from '../src/shared/hinweise.ts';
 import * as zeilenModul from '../src/shared/zeilen.ts';
 import * as sprungModul from '../src/shared/sprung.ts';
 import * as abgleichModul from '../src/shared/abgleich.ts';
+import {
+  aktionAendern,
+  istSpeakerAbruf,
+  loeseSpeakerZiel,
+  SPEAKER_NICHT_IN_LISTE,
+  speakerChipArgs,
+  speakerOptionen,
+  speakerPatch,
+  titlerKannKennung,
+} from '../src/shared/zeilen.ts';
+import { normAction } from '../src/shared/doc-format.ts';
+import type { ShowIveoSpeaker } from '@jm/show';
 
 let failed = 0;
 function eq(actual: unknown, expected: unknown, msg: string): void {
@@ -1691,6 +1703,174 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
   eq(importMeldung(3, true, 0, 0), '3 Punkte importiert (ersetzt).', '5.5: Import angenommen, ersetzt');
   eq(importMeldung(3, false, 2, 2), '3 Punkte angehängt.', '5.5: Import angenommen, angehängt');
   eq(importMeldung(3, true, 0, 1), 'Import abgewiesen, Show hat sich geändert – bitte erneut importieren.', '5.5: Abweisung statt Erfolgsmeldung');
+}
+
+// ── Teil 2b · Speaker-Aktion über die Kennung (Spec 8.1–8.4, 9.4 Nr. 1–5, Review Focus 3) ──
+{
+  const neueIdB15 = (p: 'r' | 'a'): string => `${p}-b15`;
+  const abruf = (extra: Partial<RundownAction> = {}): RundownAction => ({
+    id: 'a-b15',
+    role: 'titler',
+    verb: 'recall',
+    args: ['Alan'],
+    enabled: true,
+    ...extra,
+  });
+  const SP: ShowIveoSpeaker[] = [
+    { id: 's-1', name: 'Ada', title: 'Moderation' },
+    { id: 's-3', name: 'Alan', title: 'Panel' },
+    { id: 'id mit leer', name: 'Grace', title: 'Keynote' },
+    { name: 'Hedy' },
+  ];
+
+  // Nr. 1: normAction übernimmt speakerId nur als String mit 1 bis 200 Zeichen (8.1).
+  const roh = (speakerId: unknown): unknown => ({ id: 'a1', role: 'titler', verb: 'recall', args: ['Alan'], enabled: true, speakerId });
+  eq(
+    normAction(roh('s-3'), neueIdB15),
+    { id: 'a1', role: 'titler', verb: 'recall', args: ['Alan'], enabled: true, speakerId: 's-3' },
+    'Nr. 1: normAction behält speakerId, args[0] behält den Namen',
+  );
+  eq('speakerId' in normAction(roh(''), neueIdB15), false, "Nr. 1: speakerId '' entfällt");
+  eq('speakerId' in normAction(roh('x'.repeat(201)), neueIdB15), false, 'Nr. 1: speakerId mit 201 Zeichen entfällt');
+  eq('speakerId' in normAction(roh(42), neueIdB15), false, 'Nr. 1: speakerId 42 (keine Zeichenkette) entfällt');
+  eq(normAction(roh('x'.repeat(200)), neueIdB15).speakerId?.length, 200, 'Nr. 1: speakerId mit 200 Zeichen bleibt');
+  const docB15 = migrate(
+    JSON.parse(JSON.stringify({ schemaVersion: 2, name: 'B15', rows: [{ id: 'r1', label: 'Z', actions: [abruf({ speakerId: 's-3' })] }] })),
+    neueIdB15,
+  );
+  eq(docB15.rows[0].actions[0].speakerId, 's-3', 'Nr. 1: migrate (setDoc, Autosave, Gedächtnis) behält speakerId');
+  eq(docB15.schemaVersion, 2, 'Nr. 1: schemaVersion bleibt 2');
+
+  // istSpeakerAbruf: nur titler recall.
+  eq(
+    [istSpeakerAbruf(abruf()), istSpeakerAbruf(abruf({ verb: 'take', args: [] })), istSpeakerAbruf(abruf({ role: 'timer', verb: 'goto', args: [2] }))],
+    [true, false, false],
+    'istSpeakerAbruf: nur titler recall',
+  );
+
+  // Nr. 2: loeseSpeakerZiel, jede Zeile der Tabelle 8.3.
+  eq(loeseSpeakerZiel(abruf({ role: 'timer', verb: 'goto', args: [2], speakerId: 's-3' }), SP, true), [2], 'Nr. 2: timer goto mit übrig gebliebener speakerId → args unverändert');
+  eq(loeseSpeakerZiel(abruf({ verb: 'take', args: [], speakerId: 's-3' }), SP, true), [], 'Nr. 2: titler take mit speakerId → args unverändert');
+  eq(loeseSpeakerZiel(abruf(), SP, true), ['Alan'], 'Nr. 2: ohne speakerId, Titler versteht Kennungen → args unverändert');
+  eq(loeseSpeakerZiel(abruf(), SP, false), ['Alan'], 'Nr. 2: ohne speakerId, Titler alt → args unverändert');
+  eq(loeseSpeakerZiel(abruf({ speakerId: 's-3' }), SP, true), ['@s-3', 'Alan'], 'Nr. 2: speakerId, recall_kennung=1 → @-Form mit Namen');
+  eq(loeseSpeakerZiel(abruf({ speakerId: 's-7' }), SP, true), ['@s-7', 'Alan'], 'Nr. 2: speakerId nicht in der Liste, recall_kennung=1 → @-Form mit args[0]');
+  eq(loeseSpeakerZiel(abruf({ speakerId: 's-7', args: [''] }), SP, true), ['@s-7'], 'Nr. 2: @-Form ohne Namen, wenn keiner bekannt ist');
+  eq(loeseSpeakerZiel(abruf({ speakerId: 'id mit leer', args: ['Grace alt'] }), SP, true), ['Grace'], 'Nr. 2: speakerId mit Leerraum → aktueller Name statt @-Form');
+  eq(loeseSpeakerZiel(abruf({ speakerId: 's-3' }), SP, false), ['Alan'], 'Nr. 2: speakerId, Titler meldet es nicht → aktueller Name');
+  eq(loeseSpeakerZiel(abruf({ speakerId: 's-7', args: ['Alan'] }), SP, false), ['Alan'], 'Nr. 2: speakerId nicht in der Liste, Titler alt → args[0]');
+  eq(loeseSpeakerZiel(abruf({ speakerId: 's-1', args: ['Ada', 'x'] }), SP, false), ['Ada', 'x'], 'Nr. 2: Namensform behält weitere Argumente');
+  eq(buildActionLine('titler', 'recall', loeseSpeakerZiel(abruf({ speakerId: 's-3' }), SP, true)), 'TITLER RECALL @s-3 Alan', 'Nr. 2: gesendete Zeile in der @-Form');
+
+  // Nr. 3: Umbenennung in iveo — gesendet wird der NEUE Name.
+  const umbenannt: ShowIveoSpeaker[] = SP.map((s) => (s.id === 's-3' ? { ...s, name: 'Alan Turing' } : s));
+  eq(loeseSpeakerZiel(abruf({ speakerId: 's-3' }), umbenannt, true), ['@s-3', 'Alan Turing'], 'Nr. 3: Umbenennung, mit Fähigkeit → @s-3 und der neue Name');
+  eq(loeseSpeakerZiel(abruf({ speakerId: 's-3' }), umbenannt, false), ['Alan Turing'], 'Nr. 3: Umbenennung, ohne Fähigkeit → nur der neue Name');
+  eq(buildActionLine('titler', 'recall', loeseSpeakerZiel(abruf({ speakerId: 's-3' }), umbenannt, false)), 'TITLER RECALL Alan Turing', 'Nr. 3: gesendete Zeile ohne Fähigkeit');
+
+  // Nr. 4: Chip-Text (8.4).
+  eq(speakerChipArgs(abruf({ speakerId: 's-3' }), umbenannt), ['Alan Turing'], 'Nr. 4: Chip mit bekannter Kennung → aktueller Name');
+  eq(speakerChipArgs(abruf({ speakerId: 's-7' }), SP), ['Alan, nicht in der Speaker-Liste'], 'Nr. 4: Chip mit unbekannter Kennung');
+  eq(SPEAKER_NICHT_IN_LISTE, 'nicht in der Speaker-Liste', 'Nr. 4: Zusatz wörtlich aus 8.4');
+  eq(
+    `JM Titler · DataLink-Eintrag abrufen (${speakerChipArgs(abruf({ speakerId: 's-7' }), SP).join(' ')})`,
+    'JM Titler · DataLink-Eintrag abrufen (Alan, nicht in der Speaker-Liste)',
+    'Nr. 4: Etikett wie actionLabel es zusammensetzt',
+  );
+  eq(speakerChipArgs(abruf(), SP), ['Alan'], 'Nr. 4: Chip ohne speakerId → args unverändert');
+  eq(speakerChipArgs(abruf({ role: 'timer', verb: 'goto', args: [2], speakerId: 's-3' }), SP), [2], 'Nr. 4: Chip einer anderen Aktion → args unverändert');
+
+  // Nr. 5: aktionAendern entfernt speakerId (8.1).
+  const gebunden = abruf({ speakerId: 's-3' });
+  const r1 = aktionAendern(gebunden, { role: 'timer', verb: 'start', args: [], zielId: undefined });
+  eq(['speakerId' in r1, r1.role, r1.verb], [false, 'timer', 'start'], 'Nr. 5: Rollenwechsel entfernt speakerId');
+  const r2 = aktionAendern(gebunden, { verb: 'take', args: [], zielId: undefined });
+  eq(['speakerId' in r2, r2.verb], [false, 'take'], 'Nr. 5: Verbwechsel entfernt speakerId');
+  const leerPatch = speakerPatch('', SP);
+  const r3 = leerPatch ? aktionAendern(gebunden, leerPatch) : gebunden;
+  eq(['speakerId' in r3, r3.args], [false, ['']], 'Nr. 5: „— Speaker wählen —“ entfernt speakerId');
+  const r4 = aktionAendern(gebunden, { args: ['Grace'] });
+  eq(['speakerId' in r4, r4.args], [false, ['Grace']], 'Nr. 5: Hand-Änderung an args[0] entfernt speakerId');
+  eq(aktionAendern(gebunden, { args: ['Alan'] }).speakerId, 's-3', 'Nr. 5: gleiches args[0] (Feld verlassen ohne Änderung) behält speakerId');
+  eq(aktionAendern(gebunden, { enabled: false }).speakerId, 's-3', 'Nr. 5: andere Felder (aktiviert) behalten speakerId');
+  eq(aktionAendern(gebunden, { delayMs: 500 }).speakerId, 's-3', 'Nr. 5: Verzögerung behält speakerId');
+  eq(aktionAendern(gebunden, { role: 'titler' }).speakerId, 's-3', 'Nr. 5: dieselbe Rolle noch einmal gesetzt behält speakerId');
+  eq('speakerId' in aktionAendern(gebunden, { speakerId: undefined }), false, 'Nr. 5: speakerId undefined im Patch → kein Schlüssel speakerId im Ergebnis');
+  const wahl = speakerPatch('id:s-1', SP);
+  eq(wahl ? aktionAendern(abruf(), wahl) : null, abruf({ args: ['Ada'], speakerId: 's-1' }), 'Nr. 5: Picker-Auswahl setzt speakerId und den Namen in args[0]');
+  const umwahl = speakerPatch('id:s-1', SP);
+  eq(umwahl ? aktionAendern(gebunden, umwahl) : null, abruf({ args: ['Ada'], speakerId: 's-1' }), 'Nr. 5: Picker-Auswahl ersetzt eine vorhandene speakerId');
+  const ohneId = speakerPatch('name:Hedy', SP);
+  const r5 = ohneId ? aktionAendern(gebunden, ohneId) : gebunden;
+  eq(['speakerId' in r5, r5.args], [false, ['Hedy']], 'Nr. 5: Auswahl eines Speakers ohne Kennung → Name, keine speakerId');
+
+  // speakerPatch: alle Werte.
+  eq(speakerPatch('', SP), { args: [''] }, "speakerPatch '' → args [''] …");
+  eq('speakerId' in (speakerPatch('', SP) ?? {}), true, "speakerPatch '' → … mit speakerId: undefined (entfernt die Kennung)");
+  eq(speakerPatch('id:s-3', SP), { speakerId: 's-3', args: ['Alan'] }, 'speakerPatch id:s-3 → Kennung und Name');
+  eq(speakerPatch('id:id mit leer', SP), { speakerId: 'id mit leer', args: ['Grace'] }, 'speakerPatch: Kennung mit Leerraum bleibt ganz');
+  eq(speakerPatch('id:s-7', SP), null, 'speakerPatch: Kennung nicht (mehr) in der Liste → null');
+  eq(speakerPatch('name:Hedy', SP), { args: ['Hedy'] }, 'speakerPatch name:Hedy → nur der Name');
+  eq([speakerPatch('alt:', SP), speakerPatch('fehlt:', SP), speakerPatch('quatsch', SP)], [null, null, null], 'speakerPatch alt: / fehlt: / Unbekanntes → null');
+
+  // speakerOptionen (8.2).
+  const grund = [
+    { wert: '', text: '— Speaker wählen —' },
+    { wert: 'id:s-1', text: 'Ada — Moderation' },
+    { wert: 'id:s-3', text: 'Alan — Panel' },
+    { wert: 'id:id mit leer', text: 'Grace — Keynote' },
+    { wert: 'name:Hedy', text: 'Hedy' },
+  ];
+  eq(speakerOptionen(abruf({ args: [''] }), SP), { optionen: grund, gewaehlt: '' }, 'speakerOptionen: neue Aktion → „— Speaker wählen —“, Speaker mit und ohne Kennung');
+  eq(speakerOptionen(abruf({ speakerId: 's-3' }), SP), { optionen: grund, gewaehlt: 'id:s-3' }, 'speakerOptionen: gebundene Aktion → ihr Speaker ausgewählt');
+  eq(
+    speakerOptionen(abruf({ args: ['Alan'] }), SP),
+    { optionen: [...grund, { wert: 'alt:', text: 'Alan · per Name (nicht gebunden)' }], gewaehlt: 'alt:' },
+    'speakerOptionen: alte Aktion ohne speakerId → „per Name (nicht gebunden)“ ausgewählt, nie stillschweigend gebunden',
+  );
+  eq(
+    speakerOptionen(abruf({ speakerId: 's-7', args: ['Grace'] }), SP),
+    { optionen: [...grund, { wert: 'fehlt:', text: 'Grace · nicht in der Speaker-Liste' }], gewaehlt: 'fehlt:' },
+    'speakerOptionen: speakerId nicht in der Liste → „nicht in der Speaker-Liste“ ausgewählt',
+  );
+  eq(speakerOptionen(abruf({ args: ['Hedy'] }), SP), { optionen: grund, gewaehlt: 'name:Hedy' }, 'speakerOptionen: Name eines Speakers ohne Kennung → er selbst ausgewählt');
+  // Vor-Release V2: Eine neue Aktion „DataLink-Eintrag abrufen“ trägt die Vorgabe ['1']. Gesendet wird
+  // `TITLER RECALL 1`, und der Titler ruft bei nur Ziffern den Eintrag mit dieser Nummer ab, nicht einen Namen.
+  eq(
+    speakerOptionen(abruf({ args: ['1'] }), SP),
+    { optionen: [...grund, { wert: 'alt:', text: 'Nr. 1 · per Nummer (nicht gebunden)' }], gewaehlt: 'alt:' },
+    'Vor-Release V2: Vorgabe [\'1\'] → „Nr. 1 · per Nummer (nicht gebunden)“, nicht „per Name“',
+  );
+  eq(buildActionLine('titler', 'recall', abruf({ args: ['1'] }).args), 'TITLER RECALL 1', 'Vor-Release V2: … gesendet wird die Nummer');
+  eq(
+    speakerOptionen(abruf({ args: [3] }), SP).optionen.at(-1),
+    { wert: 'alt:', text: 'Nr. 3 · per Nummer (nicht gebunden)' },
+    'Vor-Release V2: Nummer als Zahl → ebenso „per Nummer“',
+  );
+  eq(
+    speakerOptionen(abruf({ args: [' 007 '] }), SP).optionen.at(-1),
+    { wert: 'alt:', text: 'Nr. 7 · per Nummer (nicht gebunden)' },
+    'Vor-Release V2: Leerraum und führende Nullen → die Nummer, die der Titler abruft',
+  );
+  eq(
+    speakerOptionen(abruf({ args: ['Alan 2'] }), SP).optionen.at(-1),
+    { wert: 'alt:', text: 'Alan 2 · per Name (nicht gebunden)' },
+    'Vor-Release V2: Name mit Ziffern bleibt „per Name“',
+  );
+
+  // Review Focus 3: titlerKannKennung nur bei verbundenem Titler mit recall_kennung=1.
+  eq(titlerKannKennung([]), false, 'Review Focus 3: kein Titler-Link → false');
+  eq(titlerKannKennung([{ role: 'titler', connected: true, state: null }]), false, 'Review Focus 3: verbunden, noch ohne STATE → false');
+  eq(titlerKannKennung([{ role: 'titler', connected: false, state: { recall_kennung: '1' } }]), false, 'Review Focus 3: getrennt (mit altem STATE) → false');
+  eq(titlerKannKennung([{ role: 'titler', connected: true, state: { on_air: '0', entry: 'Alan', entry_index: '3', entry_count: '4' } }]), false, 'Review Focus 3: STATE eines Titlers 0.9.0 ohne recall_kennung → false');
+  eq(titlerKannKennung([{ role: 'titler', connected: true, state: { recall_kennung: '0' } }]), false, 'Review Focus 3: recall_kennung=0 → false');
+  eq(titlerKannKennung([{ role: 'timer', connected: true, state: { recall_kennung: '1' } }]), false, 'Review Focus 3: andere Rolle → false');
+  eq(titlerKannKennung([{ role: 'titler', connected: true, state: { recall_kennung: '1' } }]), true, 'Review Focus 3: verbunden und recall_kennung=1 → true');
+  eq(
+    buildActionLine('titler', 'recall', loeseSpeakerZiel(gebunden, SP, titlerKannKennung([{ role: 'titler', connected: true, state: null }]))),
+    'TITLER RECALL Alan',
+    'Review Focus 3: ein Titler ohne bekannte Fähigkeit bekommt die @-Form nie',
+  );
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);

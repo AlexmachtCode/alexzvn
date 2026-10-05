@@ -34,8 +34,10 @@ import {
   ablaufSchluesselAusZeilen,
   ersteLebendeZeile,
   kontextIstIveo,
+  loeseSpeakerZiel,
   sendeArgs,
   sprungZielTitel,
+  titlerKannKennung,
 } from '@shared/zeilen';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type {
@@ -339,9 +341,16 @@ function cancelPendingFires(): void {
   umbenennungen = [];
 }
 
-/** Argumente, mit denen eine Aktion JETZT gesendet würde (6.2); null = Sprung-Ziel entfallen. */
+/**
+ * Argumente, mit denen eine Aktion JETZT gesendet würde; null = Sprung-Ziel entfallen.
+ * Erst das Sprung-Ziel (6.2), dann die Speaker-Kennung (Teil 2b, Spec 8.3): mit
+ * `recall_kennung=1` im STATE des Titlers `@<Kennung> <Name>`, sonst der aktuelle Name.
+ * Beides erst beim Senden, also für GO, verzögerte Aktionen und den Test-Knopf.
+ */
 function argsZumSenden(a: RundownAction): (string | number)[] | null {
-  return sendeArgs(a, (x) => loeseSprungZiel(x, ablaufSchluessel, eigeneTimerListe));
+  const args = sendeArgs(a, (x) => loeseSprungZiel(x, ablaufSchluessel, eigeneTimerListe));
+  if (!args) return null;
+  return loeseSpeakerZiel({ ...a, args }, iveoSpeakers, titlerKannKennung(conductor.snapshot()));
 }
 
 function fireOne(row: RundownRow, festgehalten: RundownAction, sent: FireReport['sent'], seitGo: number): void {

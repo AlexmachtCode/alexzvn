@@ -197,6 +197,7 @@ export function App() {
             onSetCue={(i) => void nav({ t: 'goto', n: i + 1 })}
             onDoc={aendere}
             sicht={sicht}
+            iveoSpeakers={state.iveoSpeakers ?? []}
           />
         </div>
         <div className="w-[26rem] shrink-0">

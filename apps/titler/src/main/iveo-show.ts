@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// iveo → Titler-DataLink (#11, Phase 3).
+// iveo → Titler-DataLink (#11, Phase 3; Master-Link Teil 2b, Spec 7.2).
 //
 // Der Titler holt NIE selbst bei iveo (kein Token hier — single-holder liegt im
 // Launcher). Stattdessen trägt die geöffnete .jmshow bereits die sanitisierte,
@@ -7,16 +7,21 @@
 // `speakers.tsv` in einen VERWALTETEN DataLink-Ordner; das bestehende DataLink-/
 // Recall-System (#86/#93) macht daraus Bauchbinden-Variablen. Spalten (=Variablen):
 // {{name}}, {{funktion}} und {{title}} (Alias von funktion, Abwärtskompatibilität).
+// Dazu hinten `@kennung` (Teil 2b): die iveo-Speaker-ID als Schlüssel des Eintrags,
+// keine Variable.
+//
+// Ohne Electron (Teil 2b): Der Aufrufer reicht den userData-Ordner herein, damit der
+// Selbsttest das Modul mit tsx laden kann.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { app } from 'electron';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ShowIveoSpeaker } from '@jm/show';
+import { KENNUNG_SPALTE } from '../shared/datalink-kern';
 
 /** Verwalteter DataLink-Ordner für iveo-Speaker (getrennt von manuellen Dateien). */
-export function iveoDataDir(): string {
-  return join(app.getPath('userData'), 'iveo-data');
+export function iveoDataDir(userData: string): string {
+  return join(userData, 'iveo-data');
 }
 
 /** Tab/Zeilenumbruch aus einem Zellenwert entfernen (TSV-sicher). */
@@ -25,22 +30,42 @@ function cell(v: string): string {
 }
 
 /**
- * iveo-Speaker als `speakers.tsv` in den verwalteten DataLink-Ordner schreiben und
- * dessen Pfad zurückgeben. Spalten: `name` (= Recall-Label), `funktion` (Rolle/
- * Titel) und `title` (Alias von funktion, für ältere Templates). Templates füllen
- * damit {{name}} / {{funktion}} / {{title}}. TSV (Tab) umgeht Komma-in-Namen.
+ * Inhalt der `speakers.tsv`: Kopf `name\tfunktion\ttitle\t@kennung`, je Speaker eine Zeile,
+ * `\n` am Ende. `name` ist das Recall-Label, `funktion` iveos `speaker.title`, `title` ein
+ * Alias von funktion (ältere Templates), `@kennung` die iveo-Speaker-ID (leer ohne Kennung).
  *
  * Hinweis: die „Funktion" ist iveos `speaker.title` — ist sie im Event leer, bleibt
  * {{funktion}} leer (Datenlage in iveo, nicht Titler).
  */
-export function writeSpeakersTsv(speakers: ShowIveoSpeaker[]): string {
-  const dir = iveoDataDir();
-  mkdirSync(dir, { recursive: true });
-  const header = 'name\tfunktion\ttitle';
+export function speakersTsvText(speakers: ShowIveoSpeaker[]): string {
+  const header = `name\tfunktion\ttitle\t${KENNUNG_SPALTE}`;
   const rows = speakers.map((s) => {
     const funktion = cell(s.title ?? '');
-    return `${cell(s.name)}\t${funktion}\t${funktion}`;
+    return `${cell(s.name)}\t${funktion}\t${funktion}\t${cell(s.id ?? '')}`;
   });
-  writeFileSync(join(dir, 'speakers.tsv'), [header, ...rows].join('\n') + '\n', 'utf8');
+  return [header, ...rows].join('\n') + '\n';
+}
+
+/**
+ * iveo-Speaker als `speakers.tsv` in `dir` schreiben (Ordner wird angelegt) und `dir`
+ * zurückgeben. TSV (Tab) umgeht Komma-in-Namen.
+ */
+export function writeSpeakersTsv(dir: string, speakers: ShowIveoSpeaker[]): string {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'speakers.tsv'), speakersTsvText(speakers), 'utf8');
   return dir;
+}
+
+/**
+ * `writeSpeakersTsv` ohne Wurf (Gesamtprüfung Befund 4): null, wenn die Datei steht. Sonst `grund` = der
+ * Fehlercode (EBUSY, EPERM …, ohne Pfad und Inhalt) für den Hinweis H4 und `meldung` für das Log.
+ */
+export function schreibeSpeakersTsvSicher(dir: string, speakers: ShowIveoSpeaker[]): { grund: string; meldung: string } | null {
+  try {
+    writeSpeakersTsv(dir, speakers);
+    return null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    return { grund: typeof code === 'string' && code ? code : 'Schreibfehler', meldung: (err as Error)?.message || String(err) };
+  }
 }

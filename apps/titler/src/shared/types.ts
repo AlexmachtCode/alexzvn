@@ -6,6 +6,8 @@
 // den Alpha — siehe packages/ndi). Take/Clear (on-air) ist Live-Zustand im
 // Renderer; die hier persistierte Konfiguration ist nur Inhalt/Stil/Ausgabe.
 
+import type { DatenQuelleArt } from './datenquelle';
+
 export type TemplateKind = 'lowerthird' | 'banner' | 'ticker' | 'graphic';
 
 // --- Grafik-Vorlagen (#162): importierte Bauchbinden aus PSD / jm Grafiktool ---
@@ -162,10 +164,16 @@ export interface TitlerStatus {
   dataSources: string[];
   /** Fehler beim Lesen des Watchfolders (z. B. nicht gefunden) — sonst undefined. */
   dataError?: string;
-  /** Labels aller abrufbaren DataLink-Einträge (Recall-Liste). */
-  entries: string[];
-  /** Index des aktiven Eintrags, -1 wenn keiner. */
+  /** Abrufbare DataLink-Einträge (Recall-Liste): Schlüssel (Kennung oder Ersatz, Spec 7.2) und Label. */
+  entries: Array<{ key: string; label: string }>;
+  /** Stelle des aktiven Eintrags, -1 wenn keiner — auch bei einem gehaltenen (Spec 7.4). */
   activeEntry: number;
+  /** Gehaltener Eintrag (A2/A10): auf Sendung, aber nicht mehr in der Liste bzw. nicht mehr aktiv. */
+  gehalten?: { label: string };
+  /** Stehender Hinweis H1–H7 mit wörtlichem Text (Spec 7.8); bei mehreren gilt der Vorrang. */
+  hinweis?: { art: 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'H6' | 'H7'; text: string };
+  /** Datenquelle des DataLink (Spec 7.7): Art, Zeile Q1–Q3, Knopf K1, „Kein Datenordner aktiv“. */
+  datenQuelle: { art: DatenQuelleArt; zeile: string; zurueckKnopf: string | null; ohneOrdner: boolean };
 }
 
 export interface TitlerState {
@@ -248,8 +256,12 @@ export interface JmtitlerApi {
   pickDataFolder: () => Promise<string>;
   /** DataLink-Eintrag abrufen (Nr. oder Name). */
   recallEntry: (ref: string) => Promise<void>;
+  /** DataLink-Eintrag über seinen Schlüssel abrufen — Klick in Liste oder Board (Spec 7.4). */
+  recallSchluessel: (key: string) => Promise<void>;
   /** Aktiven DataLink-Eintrag verschieben (+1 / -1). */
   stepEntry: (delta: number) => Promise<void>;
+  /** Datenquelle zurück auf den eigenen DataLink-Ordner (Knopf K1, Spec 7.7). */
+  zurueckZumEigenenOrdner: () => Promise<void>;
   /** Recall-Button-Board in einem eigenen Fenster öffnen (#152). */
   openRecall: () => Promise<void>;
   /** Verfügbare Monitore für die Zweitbildschirm-Auswahl (#161). */

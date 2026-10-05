@@ -2,7 +2,7 @@
 // der Renderer schickt es per setDoc an den Main, der es persistiert).
 import { newId } from '@shared/conductor';
 import { ersetzeEigeneZeilen } from '@shared/scharf';
-import { dupliziereZeile } from '@shared/zeilen';
+import { aktionAendern, dupliziereZeile } from '@shared/zeilen';
 import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
 
 function withRows(doc: RundownDoc, rows: RundownRow[]): RundownDoc {
@@ -108,8 +108,9 @@ export function updateAction(
 ): RundownDoc {
   const row = doc.rows.find((r) => r.id === rowId);
   if (!row) return doc;
+  // Teil 2b (Spec 8.1): aktionAendern entfernt die Speaker-Kennung, wenn Rolle, Verb oder der Name sich ändern.
   return updateRow(doc, rowId, {
-    actions: row.actions.map((a) => (a.id === actionId ? { ...a, ...patch } : a)),
+    actions: row.actions.map((a) => (a.id === actionId ? aktionAendern(a, patch) : a)),
   });
 }
 
