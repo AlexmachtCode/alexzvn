@@ -324,6 +324,46 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   const n19ab = neueListe(kernMit(mitIds, 's-3', false), andereKennung, GLEICH);
   ok(n19ab.zustand.aktiv === null && n19ab.zustand.hinweis?.art === 'H2', 'Nr. 19: … ohne Sendung → keine Brücke, A3');
 
+  // Gesamtprüfung Befund 1: doppelte Namen ohne Kennung (Spec 5.4, 23 M1 = nein). `…#2`, `…#3` hängen an der
+  // Reihenfolge der gleichnamigen Zeilen, nicht an der Person: Ändert sich an ihnen etwas, gilt A2/A3 mit Hinweis.
+  const CEO: ShowIveoSpeaker = { name: 'Max Müller', title: 'CEO' };
+  const CTO: ShowIveoSpeaker = { name: 'Max Müller', title: 'CTO' };
+  const CFO: ShowIveoSpeaker = { name: 'Max Müller', title: 'CFO' };
+  const MAX = 'ersatz:speakers.tsv|Max Müller';
+  const ceoCto = tsvListe([CEO, CTO]);
+  ok(ceoCto[0].key === MAX && ceoCto[1].key === `${MAX}#2`, 'Doppelte Namen: Vorbedingung CEO = …|Max Müller, CTO = …|Max Müller#2');
+  const cfoDavor = tsvListe([CFO, CEO, CTO]);
+  const dn1 = neueListe(kernMit(ceoCto, `${MAX}#2`, true), cfoDavor, GLEICH);
+  ok(
+    dn1.zustand.aktiv === null && dn1.zustand.gehalten?.vars.funktion === 'CTO' && JSON.stringify(dn1.zustand.hinweis) === '{"art":"H1","label":"Max Müller"}',
+    'Doppelte Namen: gleichnamiger Speaker davor, auf Sendung → der CTO wird gehalten mit H1, nicht still der CEO gezeichnet (A2)',
+  );
+  ok(dn1.log.length === 1 && dn1.log[0] === 'DataLink: aktiver Eintrag „Max Müller“ nicht mehr in der Liste, auf Sendung gehalten.', 'Doppelte Namen: … Logzeile A2');
+  const dn2 = neueListe(kernMit(ceoCto, `${MAX}#2`, false), cfoDavor, GLEICH);
+  ok(dn2.zustand.aktiv === null && dn2.zustand.gehalten === null && dn2.zustand.hinweis?.art === 'H2', 'Doppelte Namen: … ohne Sendung → kein aktiver Eintrag, H2 (A3)');
+  const nurCto = tsvListe([CTO]);
+  const dn3 = neueListe(kernMit(ceoCto, MAX, true), nurCto, GLEICH);
+  ok(dn3.zustand.aktiv === null && dn3.zustand.gehalten?.vars.funktion === 'CEO' && dn3.zustand.hinweis?.art === 'H1', 'Doppelte Namen: der erste fällt weg, auf Sendung → der CEO wird gehalten, nicht still der CTO (A2)');
+  const dn3b = neueListe(dn3.zustand, nurCto, GLEICH);
+  ok(dn3b.zustand.aktiv === null && dn3b.zustand.gehalten?.vars.funktion === 'CEO', 'Doppelte Namen: … erneut eingelesen → bleibt gehalten, der Schlüssel gehört jetzt dem CTO (kein A5)');
+  const dn4 = neueListe(kernMit(ceoCto, MAX, false), nurCto, GLEICH);
+  ok(dn4.zustand.aktiv === null && dn4.zustand.hinweis?.art === 'H2', 'Doppelte Namen: … ohne Sendung → A3 mit H2');
+  const dn5 = neueListe(kernMit(ceoCto, `${MAX}#2`, true), tsvListe([CEO, CTO]), GLEICH);
+  ok(dn5.zustand.aktiv === `${MAX}#2` && dn5.zustand.hinweis === null && dn5.log.length === 0, 'Doppelte Namen: unverändert neu eingelesen (RELOAD) → hält den CTO (A1), kein Hinweis');
+  const dn6 = neueListe(kernMit(tsvListe([{ name: 'Ada' }, CEO, CTO]), `${MAX}#2`, true), tsvListe([CEO, CTO]), GLEICH);
+  ok(dn6.zustand.aktiv === `${MAX}#2` && dn6.zustand.hinweis === null, 'Doppelte Namen: eine andere Zeile fällt weg, die gleichnamigen bleiben → hält den CTO (A1)');
+  const dn7 = neueListe(kernMit(ceoCto, `${MAX}#2`, true), tsvListe([{ id: 's-1', name: 'Max Müller', title: 'CEO' }]), GLEICH);
+  ok(
+    dn7.zustand.aktiv === null && dn7.zustand.gehalten?.vars.funktion === 'CTO' && !dn7.log.some((l) => l.includes('Schlüssel wechselt')),
+    'Doppelte Namen: Ersatz-Schlüssel eines doppelten Namens → Kennung: keine Brücke, A2',
+  );
+  const einMax = tsvListe([{ name: 'Ada' }, CEO]);
+  const maxWeg = neueListe(kernMit(einMax, MAX, true), tsvListe([{ name: 'Ada' }]), GLEICH).zustand;
+  ok(maxWeg.gehalten?.key === MAX, 'Doppelte Namen: Vorbedingung CEO eindeutig, fällt weg → gehalten (A2)');
+  const dn8 = neueListe(maxWeg, tsvListe([{ name: 'Ada' }, CTO, CEO]), GLEICH);
+  ok(dn8.zustand.aktiv === null && dn8.zustand.gehalten?.vars.funktion === 'CEO', 'Doppelte Namen: … der Name kommt doppelt zurück → bleibt gehalten, nicht der erste gleichnamige (kein A5)');
+  ok(neueListe(maxWeg, einMax, GLEICH).zustand.aktiv === MAX, 'Doppelte Namen: … kommt er eindeutig zurück → wieder aktiv (A5)');
+
   // Review Focus 1: eigene CSV wird beim Speichern kurz leer oder halb gelesen (Quelle ordner, leerHalten:false).
   const csv = 'name,funktion\nAda,Mathematik\nAlan,Informatik\n';
   const eigene = fuehreZusammen([parseTable(csv, 'gaeste.csv')]);

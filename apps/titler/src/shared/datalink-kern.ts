@@ -191,6 +191,11 @@ export interface Gehalten {
   grund: 'A2' | 'A10';
   /** Nur bei A10: der Abruf ohne Treffer (H6, nach dem Ende der Sendung H5). */
   ref?: string;
+  /**
+   * A2 wegen eines mehrdeutigen Ersatz-Schlüssels (doppelter Name, `mehrdeutig`): Welche gleichnamige Zeile die
+   * Person ist, steht nicht fest. Der Eintrag kommt deshalb nie über Schlüssel oder Brücke zurück (kein A5).
+   */
+  mehrdeutig?: true;
 }
 
 export interface KernZustand {
@@ -240,6 +245,35 @@ function brueckenZeile(label: string, alt: string, neu: string): string {
   return `DataLink: „${label}“ hält seinen Eintrag, Schlüssel wechselt (${alt} → ${neu}).`;
 }
 
+/** Herkunft eines Ersatz-Schlüssels vor dem Auflösen der Doppelten: Datei und Label, gekürzt wie in `fuehreZusammen`. */
+function ersatzHerkunft(e: { datei: string; label: string }): string {
+  return ersatzSchluessel(e.datei, e.label).slice(0, SCHLUESSEL_MAX);
+}
+
+/** Die Einträge mit Ersatz-Schlüssel derselben Herkunft, in Lesereihenfolge. */
+function namensgleiche(herkunft: string, liste: DataEntry[]): DataEntry[] {
+  return liste.filter((e) => istErsatzSchluessel(e.key) && ersatzHerkunft(e) === herkunft);
+}
+
+/** Steht ein Ersatz-Schlüssel in `liste` mehrfach (doppelter Name ohne Kennung in derselben Datei)? */
+function mehrfach(e: { key: string; datei: string; label: string }, liste: DataEntry[]): boolean {
+  return istErsatzSchluessel(e.key) && namensgleiche(ersatzHerkunft(e), liste).length > 1;
+}
+
+/**
+ * Doppelte Namen (Spec 5.4, 23 M1): Tragen mehrere Zeilen einer Datei dasselbe Label ohne Kennung, hängen ihre
+ * Ersatz-Schlüssel `…#2`, `…#3` an der Reihenfolge, nicht an der Person. Ein solcher Schlüssel hält deshalb nur,
+ * solange diese Zeilen unverändert bleiben (gleiche Anzahl, gleiche Variablen in gleicher Folge). Sonst gilt er als
+ * fehlend, ohne Brücke: A2/A3 mit Hinweis statt still einer anderen Person.
+ */
+function mehrdeutig(alt: DataEntry, vorher: DataEntry[], nachher: DataEntry[]): boolean {
+  if (!mehrfach(alt, vorher) && !mehrfach(alt, nachher)) return false;
+  const herkunft = ersatzHerkunft(alt);
+  const a = namensgleiche(herkunft, vorher);
+  const b = namensgleiche(herkunft, nachher);
+  return a.length !== b.length || a.some((e, i) => JSON.stringify(e.vars) !== JSON.stringify(b[i].vars));
+}
+
 /**
  * Eine neu eingelesene Liste anwenden (Spec 7.3: A1–A3, A5, A7–A9, Brücke).
  * - `leerHalten`: Eine leere Liste aus demselben Ordner lässt alles unverändert (A7). Der Aufrufer
@@ -265,7 +299,9 @@ export function neueListe(
   if (z.aktiv !== null) {
     const altStelle = stelleVon(z.eintraege, z.aktiv);
     const alt = altStelle >= 0 ? z.eintraege[altStelle] : null;
-    const stelle = stelleVon(eintraege, z.aktiv);
+    // Doppelter Name, an dem sich etwas geändert hat: Der Schlüssel träfe still eine andere Person → gilt als fehlend.
+    const unsicher = alt !== null && mehrdeutig(alt, z.eintraege, eintraege);
+    const stelle = unsicher ? -1 : stelleVon(eintraege, z.aktiv);
     if (stelle >= 0) {
       // A1: derselbe Eintrag an seiner neuen Stelle, gezeichnet mit den Variablen der neuen Liste.
       if (stelle !== altStelle) {
@@ -273,7 +309,7 @@ export function neueListe(
       }
       return { zustand: { ...z, eintraege }, log };
     }
-    const b = alt ? bruecke(alt, eintraege) : null;
+    const b = alt && !unsicher ? bruecke(alt, eintraege) : null;
     if (alt && b) {
       log.push(brueckenZeile(b.label, alt.key, b.key));
       return { zustand: { ...z, eintraege, aktiv: b.key }, log };
@@ -286,7 +322,14 @@ export function neueListe(
     if (z.aufSendung) {
       // A2 (auch A8): auf Sendung gehalten, Variablen eingefroren.
       log.push(`DataLink: aktiver Eintrag „${label}“ nicht mehr in der Liste, auf Sendung gehalten.`);
-      const gehalten: Gehalten = { key: z.aktiv, label, datei: alt?.datei ?? '', vars: alt?.vars ?? {}, grund: 'A2' };
+      const gehalten: Gehalten = {
+        key: z.aktiv,
+        label,
+        datei: alt?.datei ?? '',
+        vars: alt?.vars ?? {},
+        grund: 'A2',
+        ...(unsicher ? { mehrdeutig: true as const } : {}),
+      };
       return { zustand: { ...z, eintraege, aktiv: null, gehalten, hinweis: { art: 'H1', label } }, log };
     }
     // A3: kein aktiver Eintrag.
@@ -296,7 +339,8 @@ export function neueListe(
 
   if (z.gehalten !== null) {
     const g = z.gehalten;
-    if (g.grund === 'A2') {
+    // Doppelter Name: Ob ein `…#n` die gehaltene Person ist, steht nicht fest → kein A5 über Schlüssel oder Brücke.
+    if (g.grund === 'A2' && !g.mehrdeutig && !mehrfach(g, eintraege)) {
       let stelle = stelleVon(eintraege, g.key);
       if (stelle < 0) {
         const b = bruecke(g, eintraege);
