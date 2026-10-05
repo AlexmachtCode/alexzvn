@@ -2,8 +2,20 @@
 // Master-Link Teil 2b, Spec 9.3: DataLink-Kern (Schlüssel, aktiver Eintrag, Abruf), Datenquelle und
 // Speaker-TSV. Kein Netz, kein Fenster, kein Electron-Import: Die CI installiert ohne Postinstalls
 // (Spec 9.5), ein Electron-Import bräche hier ab.
-import { join } from 'node:path';
-import type { ShowIveoSpeaker } from '@jm/show';
+import path, { join } from 'node:path';
+import { createShow, type Show, type ShowIveoSpeaker } from '@jm/show';
+import {
+  eigenerOrdner,
+  gleicheShowPfad,
+  istIveoDataOrdner,
+  quellSchritt,
+  quellZeile,
+  startZustand,
+  uebergang,
+  zurueckKnopf,
+  type GemerkteShow,
+  type QuellZustand,
+} from '../src/shared/datenquelle';
 import {
   companionWerte,
   ersatzSchluessel,
@@ -462,6 +474,168 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   const weg = neueListe(s9, tsvListe([{ id: 's-7', name: 'Ana Silva', title: 'Presse' }, ADA]), GLEICH);
   ok(weg.zustand.gehalten?.key === 's-9' && weg.zustand.aktiv === null && weg.zustand.hinweis?.art === 'H1', 'Review 5: s-9 verschwindet auf Sendung → gehalten (A2)');
   ok(kernSicht(weg.zustand).variables.funktion === 'Technik' && !weg.log.some((l) => l.includes('Schlüssel wechselt')), 'Review 5: … keine Brücke auf s-7, gezeichnet bleibt s-9');
+}
+
+// ── datenquelle: Datenquelle, gemerkte Show, Übergang, Q1–Q3, K1 (Spec 7.6, 7.7, 7.8; 9.3 „datenquelle“, Nr. 22) ──
+{
+  // Windows-Pfade auf jeder Plattform gleich aufgelöst (die CI läuft unter Linux). Die Produktion
+  // übergibt path.resolve; einen Fall damit gibt es unten bei Review Focus 2.
+  const aufloesen = path.win32.resolve;
+  const IVEO = 'C:\\Users\\op\\AppData\\Roaming\\JM Titler\\iveo-data';
+  const P1 = 'C:\\Shows\\Tag1.jmshow';
+  const P2 = 'C:\\Shows\\Tag2.jmshow';
+  function showMit(name: string, speakers: ShowIveoSpeaker[], speakerVeraltetSeit?: string): Show {
+    const iveo: NonNullable<Show['iveo']> = { event: 'cop31' };
+    if (speakers.length) iveo.speakers = speakers;
+    if (speakerVeraltetSeit) iveo.speakerVeraltetSeit = speakerVeraltetSeit;
+    return { ...createShow(name), iveo };
+  }
+  const mit = showMit('Tag 1', [ADA, ALAN]);
+  const ohne1 = showMit('Tag 1', []);
+  const ohne2 = showMit('Tag 2', []);
+  const zShow: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null };
+  const zOrdner: QuellZustand = { art: 'ordner', showPfad: null, showName: null, quellHinweis: null };
+  const zFrueher = startZustand(null, true);
+  const alle = [['show', zShow], ['ordner', zOrdner], ['frueher', zFrueher]] as const;
+
+  // 7.7: Show-Deep-Link oder RELOAD, Show mit Speakern → show, gemerkt diese Show.
+  for (const [art, z] of alle) {
+    for (const weg of ['deepLink', 'reload'] as const) {
+      const s = quellSchritt(z, { t: 'gelesen', weg, pfad: P1, show: mit, gleicheShow: art === 'show' });
+      ok(s.zustand.art === 'show' && s.zustand.showName === 'Tag 1' && s.zustand.quellHinweis === null && s.beobachte === 'iveo-data', `7.7: ${weg}, Show mit Speakern, von ${art} → show`);
+      ok(s.tsv?.length === 2 && s.tsv[1].id === 's-3', `7.7: ${weg} von ${art} … TSV mit den Speakern der Show`);
+      ok(
+        JSON.stringify(s.merke) === JSON.stringify({ t: 'schreiben', wert: { showPfad: P1, showName: 'Tag 1', mitSpeakern: true } }) && s.log.length === 1 && s.log[0] === `Show gemerkt: ${P1}`,
+        `7.7: ${weg} von ${art} … gemerkt mit Speakern, Logzeile „Show gemerkt“`,
+      );
+      ok(s.vorlage === (weg === 'deepLink'), `7.7: ${weg} von ${art} … Vorlage nur beim Deep-Link`);
+    }
+  }
+
+  // 7.6/7.7: Show-Deep-Link, andere Show ohne Speaker → ordner, gemerkt ohne Speaker.
+  for (const [art, z] of alle) {
+    const s = quellSchritt(z, { t: 'gelesen', weg: 'deepLink', pfad: P2, show: ohne2, gleicheShow: false });
+    ok(s.zustand.art === 'ordner' && s.beobachte === 'eigener' && s.tsv === null && s.zustand.quellHinweis === null, `7.6/7.7: andere Show ohne Speaker, von ${art} → ordner, keine TSV, kein Hinweis`);
+    ok(JSON.stringify(s.merke) === JSON.stringify({ t: 'schreiben', wert: { showPfad: P2, showName: 'Tag 2', mitSpeakern: false } }) && s.vorlage, `7.7: … von ${art} gemerkt ohne Speaker (RELOAD wirkt weiter), Vorlage`);
+  }
+
+  // 7.6/7.7: RELOAD oder Show-Deep-Link, dieselbe Show ohne Speaker → unverändert, H3.
+  for (const weg of ['reload', 'deepLink'] as const) {
+    const s = quellSchritt(zShow, { t: 'gelesen', weg, pfad: P1, show: ohne1, gleicheShow: true });
+    ok(s.zustand.art === 'show' && s.tsv === null && s.beobachte === 'iveo-data' && s.merke.t === 'bleibt', `7.6/7.7: ${weg}, dieselbe Show ohne Speaker → show bleibt, alte TSV bleibt`);
+    ok(JSON.stringify(s.zustand.quellHinweis) === '{"art":"H3"}' && s.log.length === 0, `7.6/7.7: ${weg} … Hinweis H3`);
+  }
+  const zOrdnerMitShow = quellSchritt(zOrdner, { t: 'gelesen', weg: 'deepLink', pfad: P2, show: ohne2, gleicheShow: false }).zustand;
+  const reloadOrdner = quellSchritt(zOrdnerMitShow, { t: 'gelesen', weg: 'reload', pfad: P2, show: ohne2, gleicheShow: true });
+  ok(reloadOrdner.zustand.art === 'ordner' && reloadOrdner.zustand.quellHinweis === null && reloadOrdner.beobachte === 'eigener' && reloadOrdner.merke.t === 'bleibt', '7.7: RELOAD derselben Show ohne Speaker bei ordner → ordner, kein Hinweis');
+  const reloadFrueher = quellSchritt(zFrueher, { t: 'gelesen', weg: 'reload', pfad: P1, show: ohne1, gleicheShow: true });
+  ok(reloadFrueher.zustand.art === 'frueher' && reloadFrueher.zustand.quellHinweis === null && reloadFrueher.beobachte === 'iveo-data', '7.7: dieselbe Show ohne Speaker bei frueher → frueher, kein Hinweis');
+
+  // 7.7: Start ohne Deep-Link (Kachel, Neustart).
+  const gemerktMit: GemerkteShow = { showPfad: P1, showName: 'Tag 1', mitSpeakern: true };
+  const gemerktOhne: GemerkteShow = { showPfad: P2, showName: 'Tag 2', mitSpeakern: false };
+  const startShow = startZustand(gemerktMit, false);
+  ok(JSON.stringify(startShow) === JSON.stringify({ art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null }), 'startZustand: gemerkte Show mit Speakern → show');
+  const startOrdner = startZustand(gemerktOhne, false);
+  ok(startOrdner.art === 'ordner' && startOrdner.showPfad === P2, 'startZustand: gemerkte Show ohne Speaker → ordner');
+  ok(startZustand(null, false).art === 'ordner' && startZustand(null, true).art === 'frueher', 'startZustand: ohne gemerkte Show ordner, nach dem Übergang frueher');
+  const st1 = quellSchritt(startShow, { t: 'gelesen', weg: 'start', pfad: P1, show: mit, gleicheShow: false });
+  ok(st1.zustand.art === 'show' && st1.tsv?.length === 2 && st1.beobachte === 'iveo-data', '7.7: Start, gemerkte Show lesbar → wie Deep-Link');
+  ok(st1.vorlage === false && st1.merke.t === 'bleibt' && st1.log.length === 0, '7.7: … ohne Vorlagen-Import, gemerkte Show unverändert');
+  const st2 = quellSchritt(startShow, { t: 'gelesen', weg: 'start', pfad: P1, show: ohne1, gleicheShow: false });
+  ok(st2.zustand.art === 'show' && st2.tsv === null && st2.zustand.quellHinweis?.art === 'H3', '7.6: Start, gemerkte Show jetzt ohne Speaker → dieselbe Show, alte TSV bleibt, H3');
+  const st3 = quellSchritt(startOrdner, { t: 'gelesen', weg: 'start', pfad: P2, show: ohne2, gleicheShow: false });
+  ok(st3.zustand.art === 'ordner' && st3.beobachte === 'eigener' && st3.merke.t === 'bleibt', '7.7: Start, gemerkte Show ohne Speaker lesbar → ordner, unverändert');
+
+  // 7.6/7.7: Start, gemerkte Show nicht lesbar.
+  const nl5 = quellSchritt(startShow, { t: 'nichtLesbar', weg: 'start', pfad: P1, grund: 'EBUSY', gemerkt: gemerktMit });
+  ok(nl5.zustand.art === 'show' && JSON.stringify(nl5.zustand.quellHinweis) === '{"art":"H4","grund":"EBUSY"}' && nl5.beobachte === 'iveo-data' && nl5.tsv === null, '7.6/7.7: Start, nicht lesbar, mitSpeakern → show mit vorhandener TSV, H4');
+  ok(nl5.merke.t === 'bleibt' && nl5.vorlage === false && nl5.zustand.showName === 'Tag 1', '7.7: … gemerkte Show bleibt (ein späteres RELOAD versucht es erneut)');
+  const nl6 = quellSchritt(startOrdner, { t: 'nichtLesbar', weg: 'start', pfad: P2, grund: 'ENOENT', gemerkt: gemerktOhne });
+  ok(nl6.zustand.art === 'ordner' && nl6.beobachte === 'eigener' && nl6.zustand.quellHinweis === null && nl6.merke.t === 'bleibt', '7.7: Start, nicht lesbar, ohne Speaker → ordner, gemerkte Show bleibt');
+  ok(nl6.log.length === 1 && nl6.log[0] === 'Gemerkte Show nicht lesbar (ENOENT), eigener Ordner gilt.', '7.7: … Logzeile');
+
+  // 7.6: RELOAD bzw. Deep-Link nicht lesbar → Art und Liste bleiben, H4 nur bei show.
+  for (const [art, z] of alle) {
+    const s = quellSchritt(z, { t: 'nichtLesbar', weg: 'reload', pfad: P1, grund: 'kein gültiges JSON', gemerkt: null });
+    ok(s.zustand.art === art && s.tsv === null && s.merke.t === 'bleibt' && s.beobachte === (art === 'ordner' ? 'eigener' : 'iveo-data'), `7.6: RELOAD nicht lesbar bei ${art} → Art und Liste bleiben`);
+    ok(
+      art === 'show' ? JSON.stringify(s.zustand.quellHinweis) === '{"art":"H4","grund":"kein gültiges JSON"}' : s.zustand.quellHinweis === null,
+      `7.6: RELOAD nicht lesbar bei ${art} … H4 nur bei show`,
+    );
+  }
+
+  // 7.7: Ordner gewählt, Knopf „Zurück zum eigenen Ordner“.
+  for (const [art, z] of alle) {
+    for (const t of ['ordnerGewaehlt', 'zurueckZumOrdner'] as const) {
+      const s = quellSchritt(z, { t });
+      ok(
+        s.zustand.art === 'ordner' && s.zustand.showPfad === null && s.zustand.quellHinweis === null && s.merke.t === 'loeschen' && s.beobachte === 'eigener' && s.tsv === null && !s.vorlage,
+        `7.7: ${t} bei ${art} → ordner, gemerkte Show gelöscht`,
+      );
+    }
+  }
+
+  // 7.6 / Nr. 22: Merker speakerVeraltetSeit → H7.
+  const merker = new Date(2026, 8, 29, 9, 58).toISOString();
+  const mitMerker = quellSchritt(zShow, { t: 'gelesen', weg: 'reload', pfad: P1, show: showMit('Tag 1', [ADA], merker), gleicheShow: true });
+  ok(JSON.stringify(mitMerker.zustand.quellHinweis) === JSON.stringify({ art: 'H7', seit: merker }) && mitMerker.tsv?.length === 1, 'Nr. 22: Show mit Merker → Liste gilt, H7');
+  ok(
+    mitMerker.zustand.quellHinweis !== null && hinweisText(mitMerker.zustand.quellHinweis) === 'Liste aus früherem Stand: Speakerliste von iveo nicht abrufbar (seit 09:58).',
+    'Nr. 22: … Text mit Ortszeit',
+  );
+  ok(quellSchritt(zShow, { t: 'gelesen', weg: 'reload', pfad: P1, show: mit, gleicheShow: true }).zustand.quellHinweis === null, 'Nr. 22: ohne Merker kein H7');
+  const merkerOhneSpeaker = quellSchritt(zShow, { t: 'gelesen', weg: 'reload', pfad: P1, show: showMit('Tag 1', [], merker), gleicheShow: true });
+  ok(merkerOhneSpeaker.zustand.quellHinweis?.art === 'H7', 'dieselbe Show ohne Speaker, mit Merker → H7 statt H3');
+
+  // Übergang (7.7): config.dataFolder zeigt auf iveo-data.
+  const ueb = uebergang(IVEO, IVEO, null, aufloesen);
+  ok(ueb.dataFolderLeeren && ueb.frueher, 'Übergang: dataFolder auf iveo-data, keine gemerkte Show → leeren, frueher');
+  ok(ueb.log.length === 1 && ueb.log[0] === 'DataLink: Ordner iveo-data war von einer Show gesetzt, kein eigener Ordner mehr eingetragen.', 'Übergang: Logzeile');
+  const uebMit = uebergang(`${IVEO}\\`, IVEO, gemerktMit, aufloesen);
+  ok(uebMit.dataFolderLeeren && !uebMit.frueher, 'Übergang mit gemerkter Show: leeren, aber nicht frueher');
+  ok(JSON.stringify(uebergang('D:\\Bauchbinden', IVEO, null, aufloesen)) === '{"dataFolderLeeren":false,"frueher":false,"log":[]}', 'Übergang: ein eigener Ordner bleibt unberührt');
+  ok(!uebergang('', IVEO, null, aufloesen).dataFolderLeeren, 'Übergang: leerer Ordner → nichts zu tun');
+  const zUeb = startZustand(null, ueb.frueher);
+  ok(zUeb.art === 'frueher' && quellZeile(zUeb, '', 4) === 'Quelle: Speaker aus einer früheren Show', 'Übergang: die alte Liste bleibt sichtbar (Q3)');
+  const danach = quellSchritt(zUeb, { t: 'gelesen', weg: 'deepLink', pfad: P2, show: ohne2, gleicheShow: false });
+  ok(danach.zustand.art === 'ordner' && danach.beobachte === 'eigener' && danach.tsv === null, 'Übergang, dann andere Show ohne Speaker → ordner, eigener Ordner beobachtet, keine TSV');
+  const nachLeeren = eigenerOrdner('', IVEO, aufloesen);
+  ok(nachLeeren === '' && quellZeile(danach.zustand, nachLeeren, 0) === '', 'Übergang: … ohne eigenen Ordner leer, nicht die Speaker der vorigen Show');
+  ok(eigenerOrdner('c:/users/op/appdata/roaming/jm titler/IVEO-DATA/', IVEO, aufloesen) === '', 'dataFolder von Hand auf iveo-data (andere Schreibweise) → kein eigener Ordner');
+  ok(istIveoDataOrdner('c:/users/op/appdata/roaming/jm titler/IVEO-DATA/', IVEO, aufloesen), 'istIveoDataOrdner: Schreibweise egal');
+  ok(eigenerOrdner('D:\\Bauchbinden', IVEO, aufloesen) === 'D:\\Bauchbinden', 'eigenerOrdner: ein echter Ordner bleibt');
+  ok(!istIveoDataOrdner(`${IVEO}-alt`, IVEO, aufloesen), 'istIveoDataOrdner: ein ähnlicher Name ist nicht iveo-data');
+
+  // Q1–Q3, K1 wörtlich (7.8).
+  ok(quellZeile(zShow, 'D:\\Bauchbinden', 12) === 'Quelle: Show „Tag 1“ · 12 Speaker', 'Q1 wörtlich');
+  ok(quellZeile(zOrdner, 'D:\\Bauchbinden', 3) === 'Quelle: eigener Ordner D:\\Bauchbinden', 'Q2 wörtlich');
+  ok(quellZeile(zFrueher, '', 7) === 'Quelle: Speaker aus einer früheren Show', 'Q3 wörtlich');
+  ok(quellZeile(zOrdner, '', 0) === '', 'ordner ohne eigenen Ordner → keine Quellzeile');
+  ok(zurueckKnopf(zShow, 'D:\\Bauchbinden\\') === 'Zurück zum eigenen Ordner (Bauchbinden)', 'K1 wörtlich, Ordnername = letzter Pfadteil');
+  ok(zurueckKnopf(zShow, '/home/op/Gäste') === 'Zurück zum eigenen Ordner (Gäste)', 'K1: auch mit /');
+  ok(
+    zurueckKnopf(zShow, '') === null && zurueckKnopf(zOrdner, 'D:\\Bauchbinden') === null && zurueckKnopf(zFrueher, 'D:\\Bauchbinden') === null,
+    'K1 nur bei Quelle show und einem eigenen Ordner',
+  );
+
+  // Review Focus 2: dieselbe Show in anderer Pfad-Schreibweise.
+  ok(gleicheShowPfad('C:\\Shows\\Tag1.jmshow', 'c:/shows/tag1.jmshow', path.win32.resolve), 'Review 2: C:\\Shows\\Tag1.jmshow = c:/shows/tag1.jmshow');
+  ok(!gleicheShowPfad(P1, P2, aufloesen) && !gleicheShowPfad('', P1, aufloesen), 'gleicheShowPfad: andere Show bzw. leer → nein');
+  ok(gleicheShowPfad(path.resolve('Shows', 'Tag1.jmshow'), path.join('Shows', '.', 'TAG1.jmshow'), path.resolve), 'gleicheShowPfad mit path.resolve: relativ = absolut, Groß-/Kleinschreibung egal');
+  const r2 = quellSchritt(zShow, { t: 'gelesen', weg: 'deepLink', pfad: 'c:/shows/tag1.jmshow', show: ohne1, gleicheShow: gleicheShowPfad(P1, 'c:/shows/tag1.jmshow', aufloesen) });
+  ok(r2.zustand.art === 'show' && r2.zustand.quellHinweis?.art === 'H3' && r2.tsv === null && r2.beobachte === 'iveo-data', 'Review 2: Deep-Link derselben Show ohne Speaker → bleibt show mit H3, keine Liste verloren');
+
+  // Review Focus 4 (Quellseite): H4, danach nimmt das nächste lesbare RELOAD H4 weg.
+  const kaputt = quellSchritt(zShow, { t: 'nichtLesbar', weg: 'reload', pfad: P1, grund: 'kein gültiges JSON', gemerkt: null });
+  ok(
+    kaputt.zustand.quellHinweis !== null && hinweisText(kaputt.zustand.quellHinweis) === 'Liste aus früherem Stand: Show nicht lesbar (kein gültiges JSON).',
+    'Review 4: RELOAD mit halbem JSON → H4, Liste bleibt',
+  );
+  const geheilt = quellSchritt(kaputt.zustand, { t: 'gelesen', weg: 'reload', pfad: P1, show: mit, gleicheShow: true });
+  ok(geheilt.zustand.quellHinweis === null && geheilt.tsv?.length === 2, 'Review 4: das nächste lesbare RELOAD nimmt H4 weg');
+  const geheiltOhne = quellSchritt(kaputt.zustand, { t: 'gelesen', weg: 'reload', pfad: P1, show: ohne1, gleicheShow: true });
+  ok(geheiltOhne.zustand.quellHinweis?.art === 'H3', 'Review 4: … auch ohne Speaker (dann H3 statt H4)');
 }
 
 if (failed > 0) {
