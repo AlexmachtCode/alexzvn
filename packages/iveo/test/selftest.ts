@@ -354,12 +354,15 @@ ok(
   );
 }
 
-// ── snapshotToShowSpeakers (Phase 3, Titler) ─────────────────────────────────
+// ── snapshotToShowSpeakers (Phase 3, Titler; Teil 2b: ohne Kennung, Spec 23 M1 = nein) ──────────
 {
   const speakers = snapshotToShowSpeakers(snapshot);
   ok(speakers.length === 1 && speakers[0].name === 'Dr. Ana Ferreira', 'snapshotToShowSpeakers: Name');
   ok(speakers[0].title === 'Lead Negotiator', 'snapshotToShowSpeakers: Titel/Funktion');
   ok(!JSON.stringify(speakers).includes('GEHEIM-BIO'), 'snapshotToShowSpeakers: keine Bio (PII)');
+  ok(speakers.every((s) => !('id' in s)), 'speakersToShowSpeakers ohne Kennung (Spec 23: M1 = nein)');
+  const rund = parseShow(serializeShow({ ...createShow('Speaker'), iveo: { event: 'cop30', speakers } }));
+  ok(JSON.stringify(rund.iveo?.speakers) === JSON.stringify(speakers), 'speakersToShowSpeakers: Ausgabe ist ein Fixpunkt des Normalisierers');
 }
 
 // ── getEventSnapshot resilient (Best-Effort-Nebendaten + programsBestEffort) ──
