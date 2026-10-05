@@ -11,16 +11,13 @@
 // dort wuerde in deren Prozesse geladen (Spec 10.1).
 //
 // resources/zoom-bridge/ ist gitignored und wird bei jedem Lauf frisch gefuellt.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  VC_PFLICHT,
   bridgeExeFrisch,
-  findeVcLaufzeit,
-  linkerFassung,
-  mindestens,
   verboteneZoomDateien,
+  waehleVcLaufzeit,
 } from '../../../packages/zoom-bridge/scripts/auslieferung.mjs';
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,27 +40,9 @@ if (!frisch.ok) abbruch(frisch.text);
 
 // 3. VC-Laufzeit: mindestens die Fassung des Linkers, der die EXE gebaut hat
 //    (die STL ist nur rueckwaerts kompatibel).
-let linker;
-try {
-  linker = linkerFassung(frisch.exe);
-} catch (e) {
-  abbruch(e.message);
-}
-const vc = findeVcLaufzeit(pkgDir);
-const vcLaufzeit = vc.brauchbar[0];
-if (!vcLaufzeit) {
-  abbruch(
-    `Visual-C++-Laufzeit (Microsoft.VC14x.CRT mit ${VC_PFLICHT.join(', ')}) nicht gefunden.\n` +
-      `  Gesucht in:\n  ${vc.kandidaten.join('\n  ') || '(keine Visual-Studio-Installation gefunden)'}\n` +
-      '  Mit VC_CRT_DIR auf den Ordner ...\\VC\\Redist\\MSVC\\<Fassung>\\x64\\Microsoft.VC14x.CRT zeigen.',
-  );
-}
-if (!mindestens(vcLaufzeit.fassung, linker)) {
-  abbruch(
-    `Die Visual-C++-Laufzeit ${vcLaufzeit.fassung.join('.')} (${vcLaufzeit.dir}) ist AELTER als der Linker ${linker.join('.')}, ` +
-      'der zoom-bridge.exe gebaut hat - die Bridge koennte damit abstuerzen. Die Redist-Dateien desselben Toolsets nehmen (VC_CRT_DIR).',
-  );
-}
+const vcWahl = waehleVcLaufzeit(pkgDir, frisch.exe);
+if (!vcWahl.ok) abbruch(vcWahl.text);
+const { vcLaufzeit, linker, dateien: vcDateien } = vcWahl;
 
 // 4. resources/zoom-bridge/ leeren und fuellen.
 const resources = join(appRoot, 'resources');
@@ -71,7 +50,6 @@ const ziel = join(resources, 'zoom-bridge');
 rmSync(ziel, { recursive: true, force: true });
 mkdirSync(ziel, { recursive: true });
 copyFileSync(frisch.exe, join(ziel, 'zoom-bridge.exe'));
-const vcDateien = readdirSync(vcLaufzeit.dir).filter((f) => /\.dll$/i.test(f));
 for (const f of vcDateien) copyFileSync(join(vcLaufzeit.dir, f), join(ziel, f));
 console.log(`bundled zoom-bridge.exe → ${join(ziel, 'zoom-bridge.exe')}`);
 console.log(

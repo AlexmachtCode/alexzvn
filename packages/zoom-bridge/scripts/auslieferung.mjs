@@ -143,6 +143,43 @@ export function findeVcLaufzeit(pkgDir = PAKET) {
 }
 
 /**
+ * Die EINE Auswahlregel fuer die VC-Laufzeit, die neben zoom-bridge.exe liegt
+ * (Einsatzpaket UND JM-Connect-Installer): die neueste brauchbare, mindestens so
+ * neu wie der Linker, der `exe` gebaut hat (die STL ist nur rueckwaerts kompatibel).
+ * Liefert { ok: true, vcLaufzeit, linker, dateien } (dateien = alle *.dll des
+ * Ordners) oder { ok: false, text } - die Aufrufer rufen nur noch ihr abbruch(text).
+ */
+export function waehleVcLaufzeit(pkgDir, exe) {
+  let linker;
+  try {
+    linker = linkerFassung(exe);
+  } catch (e) {
+    return { ok: false, text: e.message };
+  }
+  const vc = findeVcLaufzeit(pkgDir);
+  const vcLaufzeit = vc.brauchbar[0];
+  if (!vcLaufzeit) {
+    return {
+      ok: false,
+      text:
+        `Visual-C++-Laufzeit (Microsoft.VC14x.CRT mit ${VC_PFLICHT.join(', ')}) nicht gefunden.\n` +
+        `  Gesucht in:\n  ${vc.kandidaten.join('\n  ') || '(keine Visual-Studio-Installation gefunden)'}\n` +
+        '  Mit VC_CRT_DIR auf den Ordner ...\VC\Redist\MSVC\<Fassung>\x64\Microsoft.VC14x.CRT zeigen.',
+    };
+  }
+  if (!mindestens(vcLaufzeit.fassung, linker)) {
+    return {
+      ok: false,
+      text:
+        `Die Visual-C++-Laufzeit ${vcLaufzeit.fassung.join('.')} (${vcLaufzeit.dir}) ist AELTER als der Linker ${linker.join('.')}, ` +
+        'der zoom-bridge.exe gebaut hat - die Bridge koennte damit abstuerzen. Die Redist-Dateien desselben Toolsets nehmen (VC_CRT_DIR).',
+    };
+  }
+  const dateien = readdirSync(vcLaufzeit.dir).filter((f) => /\.dll$/i.test(f));
+  return { ok: true, vcLaufzeit, linker, dateien };
+}
+
+/**
  * zoom-bridge.exe muss AUS DEM AKTUELLEN STAND gebaut sein: vorhanden und
  * juenger als jede Datei in native\ und als CMakeLists.txt. Ein Paket mit einer
  * alten .exe saehe aus wie der neue Stand und waere es nicht.

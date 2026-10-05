@@ -37,14 +37,11 @@ import { fileURLToPath } from 'node:url';
 // Gemeinsam mit JM Connect (tools/bundle-zoom-bridge.mjs, tools/after-pack.cjs):
 // EINE Namensliste, EINE VC-Suche, EINE Frische-Pruefung (Spec Stage 4, 5.1).
 import {
-  VC_PFLICHT,
   bridgeExeFrisch,
   dateienUnter,
-  findeVcLaufzeit,
-  linkerFassung,
-  mindestens,
   sdkNamen,
   verboteneZoomDateien,
+  waehleVcLaufzeit,
 } from './auslieferung.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -146,29 +143,10 @@ if (!ndiDir) abbruch(`NDI-Laufzeit mit Lizenztext nicht gefunden. Gesucht in:\n 
 //
 // Die Redist-Fassung muss MINDESTENS die Fassung des Linkers sein, der
 // zoom-bridge.exe gebaut hat (die STL ist nur rueckwaerts kompatibel).
-// VC_PFLICHT und findeVcLaufzeit stehen in auslieferung.mjs (gemeinsam mit JM Connect).
-let linker;
-try {
-  linker = linkerFassung(bridgeExe);
-} catch (e) {
-  abbruch(e.message);
-}
-const vc = findeVcLaufzeit(pkg);
-const vcLaufzeit = vc.brauchbar[0];
-if (!vcLaufzeit) {
-  abbruch(
-    `Visual-C++-Laufzeit (Microsoft.VC14x.CRT mit ${VC_PFLICHT.join(', ')}) nicht gefunden.\n` +
-      `  Gesucht in:\n  ${vc.kandidaten.join('\n  ') || '(keine Visual-Studio-Installation gefunden)'}\n` +
-      '  Mit VC_CRT_DIR auf den Ordner ...\\VC\\Redist\\MSVC\\<Fassung>\\x64\\Microsoft.VC14x.CRT zeigen.',
-  );
-}
-if (!mindestens(vcLaufzeit.fassung, linker)) {
-  abbruch(
-    `Die Visual-C++-Laufzeit ${vcLaufzeit.fassung.join('.')} (${vcLaufzeit.dir}) ist AELTER als der Linker ${linker.join('.')}, ` +
-      'der zoom-bridge.exe gebaut hat - die Bridge koennte damit abstuerzen. Die Redist-Dateien desselben Toolsets nehmen (VC_CRT_DIR).',
-  );
-}
-const vcDateien = readdirSync(vcLaufzeit.dir).filter((f) => /\.dll$/i.test(f));
+// VC_PFLICHT, findeVcLaufzeit und waehleVcLaufzeit stehen in auslieferung.mjs (gemeinsam mit JM Connect).
+const vcWahl = waehleVcLaufzeit(pkg, bridgeExe);
+if (!vcWahl.ok) abbruch(vcWahl.text);
+const { vcLaufzeit, linker, dateien: vcDateien } = vcWahl;
 
 // zoom-join.exe IST eine node.exe (Single Executable Application) - Node
 // wird damit weitergegeben, samt V8, OpenSSL, ICU, libuv. Deren Lizenzen

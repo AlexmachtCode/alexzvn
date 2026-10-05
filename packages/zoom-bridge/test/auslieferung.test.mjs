@@ -18,6 +18,7 @@ import {
   sdkNamen,
   verboteneAsarEintraege,
   verboteneZoomDateien,
+  waehleVcLaufzeit,
 } from '../scripts/auslieferung.mjs';
 
 let failures = 0;
@@ -183,6 +184,47 @@ try {
     assert(dateiFassung(text) === null, 'dateiFassung ohne Versionsressource: null');
     assert(mindestens([14, 44, 35211, 0], [14, 44]) && mindestens([14, 50, 0, 0], [14, 44]), 'mindestens: gleich oder neuer -> true');
     assert(!mindestens([14, 29, 30133, 0], [14, 44]), 'mindestens: aelter -> false');
+  }
+  console.log('auslieferung — waehleVcLaufzeit (EINE Auswahlregel fuer Einsatzpaket und Installer):');
+  {
+    /** Minimale PE-Datei: Linker major.minor, optional VS_FIXEDFILEINFO mit Fassung. */
+    const pe = (major, minor) => {
+      const b = Buffer.alloc(0x200);
+      b.writeUInt32LE(0x80, 0x3c);
+      b.write('PE  ', 0x80, 'latin1');
+      b[0x80 + 24 + 2] = major;
+      b[0x80 + 24 + 3] = minor;
+      b.set([0xbd, 0x04, 0xef, 0xfe], 0x100);
+      b.writeUInt32LE(((major << 16) | minor) >>> 0, 0x108);
+      return b;
+    };
+    const crt = join(temp, 'vc', 'Microsoft.VC143.CRT');
+    for (const f of VC_PFLICHT) datei(join(crt, f), pe(14, 44));
+    const pkg = join(temp, 'vc', 'pkg');
+    const exeNeu = join(temp, 'vc', 'neu.exe');
+    const exeAlt = join(temp, 'vc', 'alt.exe');
+    const exeZukunft = join(temp, 'vc', 'zukunft.exe');
+    const exeKaputt = join(temp, 'vc', 'kaputt.exe');
+    datei(exeNeu, pe(14, 40));
+    datei(exeAlt, pe(14, 44));
+    datei(exeZukunft, pe(99, 0));
+    datei(exeKaputt, 'kein PE');
+    const vorher = process.env.VC_CRT_DIR;
+    process.env.VC_CRT_DIR = crt;
+    try {
+      const ok = waehleVcLaufzeit(pkg, exeNeu);
+      assert(ok.ok === true && ok.linker.join('.') === '14.40', 'brauchbare Laufzeit: ok mit Linker-Fassung');
+      assert(ok.ok && ok.vcLaufzeit.fassung.join('.') !== '0.0.0.0' && mindestens(ok.vcLaufzeit.fassung, ok.linker), '... Laufzeit mindestens so neu wie der Linker');
+      assert(ok.ok && VC_PFLICHT.every((f) => ok.dateien.includes(f)), '... dateien nennt alle *.dll des Ordners');
+      const alt = waehleVcLaufzeit(pkg, exeZukunft);
+      assert(alt.ok === false && /AELTER als der Linker 99\.0/.test(alt.text) && /VC_CRT_DIR/.test(alt.text), 'Laufzeit aelter als der Linker: ok false mit Text');
+      const kaputt = waehleVcLaufzeit(pkg, exeKaputt);
+      assert(kaputt.ok === false && kaputt.text === `${exeKaputt} ist keine PE-Datei.`, 'Nicht-PE-EXE: ok false statt Ausnahme');
+      assert(waehleVcLaufzeit(pkg, exeAlt).ok === true, 'gleiche Fassung wie der Linker genuegt');
+    } finally {
+      if (vorher === undefined) delete process.env.VC_CRT_DIR;
+      else process.env.VC_CRT_DIR = vorher;
+    }
   }
 } finally {
   rmSync(temp, { recursive: true, force: true });
