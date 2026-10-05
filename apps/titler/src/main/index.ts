@@ -25,15 +25,17 @@ import {
   stopDataWatch,
   type DataState,
 } from './datalink';
-import { iveoDataDir, writeSpeakersTsv } from './iveo-show';
+import { iveoDataDir, schreibeSpeakersTsvSicher } from './iveo-show';
 import { leseGemerkteShow, leseShowSicher, loescheGemerkteShow, schreibeGemerkteShow } from './show-quelle';
 import { hinweisLogZeile, hinweisText, waehleHinweis } from '@shared/datalink-kern';
 import {
   eigenerOrdner,
+  logNachMerken,
   zeigtShow,
   quellSchritt,
   quellZeile,
   startZustand,
+  tsvNichtGeschrieben,
   uebergang,
   zurueckKnopf,
   type QuellEreignis,
@@ -181,25 +183,23 @@ function refreshDataWatch(beobachte: 'iveo-data' | 'eigener' = quelle.art === 'o
   }
 }
 
-/** Einen Schritt der Datenquelle ausführen: TSV, gemerkte Show, Logs, beobachteter Ordner. */
+/**
+ * Einen Schritt der Datenquelle ausführen: gemerkte Show, Logs, beobachteter Ordner. Die `speakers.tsv`
+ * schreibt `oeffneShow` vorher — scheitert das, kommt hier schon der Ersatzschritt an (Befund 4).
+ */
 function wendeQuellSchrittAn(s: QuellSchritt): QuellSchritt {
   const vorher = quelle.quellHinweis;
   quelle = s.zustand;
   const userData = userDataDir();
-  for (const zeile of s.log) getLog().info(zeile);
-  if (s.tsv) {
-    try {
-      writeSpeakersTsv(iveoDataDir(userData), s.tsv);
-      getLog().info(`iveo: ${s.tsv.length} Speaker aus Show in den DataLink übernommen.`);
-    } catch (err) {
-      getLog().error(`iveo: speakers.tsv konnte nicht geschrieben werden: ${(err as Error).message}`);
-    }
-  }
+  let gemerktGespeichert = true;
   if (s.merke.t === 'schreiben') {
-    if (!schreibeGemerkteShow(userData, s.merke.wert)) getLog().warn('Gemerkte Show konnte nicht gespeichert werden.');
+    gemerktGespeichert = schreibeGemerkteShow(userData, s.merke.wert);
+    if (!gemerktGespeichert) getLog().warn('Gemerkte Show konnte nicht gespeichert werden.');
   } else if (s.merke.t === 'loeschen') {
     loescheGemerkteShow(userData);
   }
+  // Erst nach dem Schreiben: „Show gemerkt“ nur, wenn die gemerkte Show wirklich gespeichert ist.
+  for (const zeile of logNachMerken(s, gemerktGespeichert)) getLog().info(zeile);
   const neu = quelle.quellHinweis;
   if (neu && JSON.stringify(neu) !== JSON.stringify(vorher)) {
     const zeile = hinweisLogZeile(neu);
@@ -218,16 +218,31 @@ function wendeQuellSchrittAn(s: QuellSchritt): QuellSchritt {
  */
 function oeffneShow(pfad: string, weg: QuellWeg): QuellSchritt {
   const gelesen = leseShowSicher(pfad);
+  const userData = userDataDir();
+  const iveoData = iveoDataDir(userData);
+  const mitEigenemOrdner = eigenerOrdner(getConfig().dataFolder, iveoData, path.resolve) !== '';
   let ereignis: QuellEreignis;
   if ('show' in gelesen) {
     const gleicheShow = zeigtShow(quelle, pfad, path.resolve);
     ereignis = { t: 'gelesen', weg, pfad, show: gelesen.show, gleicheShow };
   } else {
     getLog().warn(`Show nicht lesbar (${gelesen.grund}): ${pfad}`);
-    ereignis = { t: 'nichtLesbar', weg, pfad, grund: gelesen.grund, gemerkt: leseGemerkteShow(userDataDir()) };
+    ereignis = { t: 'nichtLesbar', weg, pfad, grund: gelesen.grund, gemerkt: leseGemerkteShow(userData), mitEigenemOrdner };
   }
   currentShowPath = pfad;
-  return wendeQuellSchrittAn(quellSchritt(quelle, ereignis));
+  let s = quellSchritt(quelle, ereignis);
+  if (s.tsv) {
+    // Die TSV vor dem Übernehmen schreiben: Scheitert das, gilt der Schritt nicht (Befund 4) — sonst nennte die
+    // Quellzeile die neue Show über der Liste der vorigen. Die Show zählt dann wie nicht lesbar (H4 bei Art show).
+    const fehler = schreibeSpeakersTsvSicher(iveoData, s.tsv);
+    if (fehler) {
+      getLog().error(`iveo: speakers.tsv konnte nicht geschrieben werden: ${fehler.meldung}`);
+      s = tsvNichtGeschrieben(quelle, s, { weg, pfad, grund: fehler.grund, gemerkt: leseGemerkteShow(userData), mitEigenemOrdner });
+    } else {
+      getLog().info(`iveo: ${s.tsv.length} Speaker aus Show in den DataLink übernommen.`);
+    }
+  }
+  return wendeQuellSchrittAn(s);
 }
 
 /**
@@ -253,7 +268,9 @@ function reloadCurrentShow(): boolean {
     // SICHTBAR statt still — derselbe Fall wie im Timer (Ist-Karte 30.09.2026):
     // der Launcher zählt den Titler als "benachrichtigt", ohne Show-Pfad gibt
     // es aber nichts neu zu lesen.
-    getLog().warn('RELOAD empfangen, aber keine Show geladen (nicht per Show gestartet) — nichts neu eingelesen.');
+    // Ohne verbundene Show: nie per Show gestartet, oder der Bediener hat seither den eigenen Ordner gewählt
+    // (Ordnerwahl, „Zurück zum eigenen Ordner“). Der Text gilt in beiden Fällen (Befund 9).
+    getLog().warn('RELOAD empfangen, aber keine Show verbunden (nicht per Show gestartet oder eigener Ordner gewählt) — nichts neu eingelesen.');
     return false;
   }
   oeffneShow(currentShowPath, 'reload');

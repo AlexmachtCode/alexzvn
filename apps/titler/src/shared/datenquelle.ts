@@ -35,8 +35,11 @@ export type QuellWeg = 'deepLink' | 'reload' | 'start';
 export type QuellEreignis =
   /** Show gelesen. `gleicheShow`: derselbe Pfad wie die verbundene Show (`gleicheShowPfad`). */
   | { t: 'gelesen'; weg: QuellWeg; pfad: string; show: Show; gleicheShow: boolean }
-  /** Show nicht lesbar; `grund` ohne Dateiinhalt. `gemerkt`: die gemerkte Show (beim Start). */
-  | { t: 'nichtLesbar'; weg: QuellWeg; pfad: string; grund: string; gemerkt: GemerkteShow | null }
+  /**
+   * Show nicht lesbar; `grund` ohne Dateiinhalt. `gemerkt`: die gemerkte Show (beim Start). `mitEigenemOrdner`: Ist
+   * ein eigener Ordner eingetragen (`eigenerOrdner` nicht leer)? Nur die Logzeile beim Start hängt davon ab.
+   */
+  | { t: 'nichtLesbar'; weg: QuellWeg; pfad: string; grund: string; gemerkt: GemerkteShow | null; mitEigenemOrdner: boolean }
   /** Der Bediener hat einen DataLink-Ordner gewählt. */
   | { t: 'ordnerGewaehlt' }
   /** Knopf „Zurück zum eigenen Ordner“. */
@@ -81,7 +84,12 @@ function angewendet(
   const beobachte = beobachteFuer(zustand.art);
   if (weg === 'start') return { zustand, tsv, beobachte, merke: BLEIBT, vorlage, log: [] };
   const wert: GemerkteShow = { showPfad: pfad, showName: name, mitSpeakern: zustand.art === 'show' };
-  return { zustand, tsv, beobachte, merke: { t: 'schreiben', wert }, vorlage, log: [`Show gemerkt: ${pfad}`] };
+  return { zustand, tsv, beobachte, merke: { t: 'schreiben', wert }, vorlage, log: [gemerktZeile(pfad)] };
+}
+
+/** Logzeile „Show gemerkt“ (Spec 7.9). */
+function gemerktZeile(pfad: string): string {
+  return `Show gemerkt: ${pfad}`;
 }
 
 /** Ein Ereignis der Datenquelle anwenden (Spec 7.6, 7.7). */
@@ -112,7 +120,9 @@ export function quellSchritt(z: QuellZustand, e: QuellEreignis): QuellSchritt {
           return { zustand, tsv: null, beobachte: 'iveo-data', merke: BLEIBT, vorlage: false, log: [] };
         }
         const zustand: QuellZustand = { art: 'ordner', showPfad: e.pfad, showName: e.gemerkt?.showName ?? null, quellHinweis: null };
-        return { zustand, tsv: null, beobachte: 'eigener', merke: BLEIBT, vorlage: false, log: [`Gemerkte Show nicht lesbar (${e.grund}), eigener Ordner gilt.`] };
+        // Ohne eigenen Ordner gilt keiner (die Liste ist leer, „Kein Datenordner aktiv …“): Die Zeile sagt das.
+        const folge = e.mitEigenemOrdner ? 'eigener Ordner gilt' : 'kein eigener Ordner eingetragen';
+        return { zustand, tsv: null, beobachte: 'eigener', merke: BLEIBT, vorlage: false, log: [`Gemerkte Show nicht lesbar (${e.grund}), ${folge}.`] };
       }
       // Deep-Link oder RELOAD: Art und Liste bleiben; H4 nur bei Art show.
       const quellHinweis: Hinweis | null = z.art === 'show' ? { art: 'H4', grund: e.grund } : z.quellHinweis;
@@ -129,6 +139,31 @@ export function quellSchritt(z: QuellZustand, e: QuellEreignis): QuellSchritt {
         log: [],
       };
   }
+}
+
+/**
+ * Die `speakers.tsv` einer gelesenen Show ließ sich nicht schreiben (`s` ist der Schritt, der sie schreiben wollte).
+ * Der Schritt gilt nicht: Sonst nennte Q1 die neue Show über der Liste der vorigen, und die gemerkte Show stünde mit
+ * Speakern da. Die Show zählt wie nicht lesbar — Quelle, Liste und gemerkte Show bleiben, H4 bei Art `show`, ein
+ * späteres RELOAD versucht es erneut. Nur der Vorlagen-Import (C3) des Deep-Links bleibt, wie er war.
+ */
+export function tsvNichtGeschrieben(
+  z: QuellZustand,
+  s: QuellSchritt,
+  e: { weg: QuellWeg; pfad: string; grund: string; gemerkt: GemerkteShow | null; mitEigenemOrdner: boolean },
+): QuellSchritt {
+  const nichtLesbar = quellSchritt(z, { t: 'nichtLesbar', ...e, grund: `speakers.tsv nicht schreibbar: ${e.grund}` });
+  return { ...nichtLesbar, vorlage: s.vorlage };
+}
+
+/**
+ * Logzeilen eines Schritts nach dem Schreiben der gemerkten Show: „Show gemerkt“ (Spec 7.9) nur, wenn sie wirklich
+ * gespeichert ist. Ohne Schreiben (`merke` nicht `schreiben`) bleiben die Zeilen, wie sie sind.
+ */
+export function logNachMerken(s: QuellSchritt, gespeichert: boolean): string[] {
+  if (s.merke.t !== 'schreiben' || gespeichert) return s.log;
+  const zeile = gemerktZeile(s.merke.wert.showPfad);
+  return s.log.filter((z) => z !== zeile);
 }
 
 /** Zwei Pfade gleich nach `aufloesen`, ohne Rücksicht auf Groß- und Kleinschreibung (Spec 7.7). Leer → nie gleich. */
@@ -178,10 +213,12 @@ export function uebergang(
 /**
  * Zeile über der Liste (Spec 7.8 Q1–Q3). `ordner` ist der eigene Ordner (`eigenerOrdner`), `anzahl`
  * die Zahl der Einträge. Bei `ordner` ohne eigenen Ordner leer (dann steht „Kein Datenordner aktiv …“).
+ * Bei `frueher` ohne Einträge (die alte `speakers.tsv` fehlt oder ist leer) ebenfalls leer: Q3 sagte sonst
+ * Speaker zu, wo keine sind; es greift die Leer-Anzeige.
  */
 export function quellZeile(z: QuellZustand, ordner: string, anzahl: number): string {
   if (z.art === 'show') return `Quelle: Show „${z.showName ?? ''}“ · ${anzahl} Speaker`;
-  if (z.art === 'frueher') return 'Quelle: Speaker aus einer früheren Show';
+  if (z.art === 'frueher') return anzahl > 0 ? 'Quelle: Speaker aus einer früheren Show' : '';
   return ordner ? `Quelle: eigener Ordner ${ordner}` : '';
 }
 

@@ -55,3 +55,17 @@ export function writeSpeakersTsv(dir: string, speakers: ShowIveoSpeaker[]): stri
   writeFileSync(join(dir, 'speakers.tsv'), speakersTsvText(speakers), 'utf8');
   return dir;
 }
+
+/**
+ * `writeSpeakersTsv` ohne Wurf (Gesamtprüfung Befund 4): null, wenn die Datei steht. Sonst `grund` = der
+ * Fehlercode (EBUSY, EPERM …, ohne Pfad und Inhalt) für den Hinweis H4 und `meldung` für das Log.
+ */
+export function schreibeSpeakersTsvSicher(dir: string, speakers: ShowIveoSpeaker[]): { grund: string; meldung: string } | null {
+  try {
+    writeSpeakersTsv(dir, speakers);
+    return null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    return { grund: typeof code === 'string' && code ? code : 'Schreibfehler', meldung: (err as Error)?.message || String(err) };
+  }
+}

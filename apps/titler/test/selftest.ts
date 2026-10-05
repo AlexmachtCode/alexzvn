@@ -9,9 +9,11 @@ import {
   gleicheShowPfad,
   zeigtShow,
   istIveoDataOrdner,
+  logNachMerken,
   quellSchritt,
   quellZeile,
   startZustand,
+  tsvNichtGeschrieben,
   uebergang,
   zurueckKnopf,
   type GemerkteShow,
@@ -575,7 +577,7 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   // Review B13: gleicheShow gilt gegen die ANGEZEIGTE Show, nicht gegen die zuletzt versuchte.
   {
     const zA: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null };
-    const nlB = quellSchritt(zA, { t: 'nichtLesbar', weg: 'deepLink', pfad: P2, grund: 'EBUSY', gemerkt: null });
+    const nlB = quellSchritt(zA, { t: 'nichtLesbar', weg: 'deepLink', pfad: P2, grund: 'EBUSY', gemerkt: null, mitEigenemOrdner: false });
     ok(nlB.zustand.showPfad === P1 && nlB.zustand.art === 'show', 'B13-Fix: Deep-Link auf andere Show nicht lesbar → angezeigte Show bleibt A');
     const gleich = zeigtShow(nlB.zustand, P2, (p) => p);
     ok(gleich === false, 'B13-Fix: B ist nicht die angezeigte Show');
@@ -602,16 +604,23 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(st3.zustand.art === 'ordner' && st3.beobachte === 'eigener' && st3.merke.t === 'bleibt', '7.7: Start, gemerkte Show ohne Speaker lesbar → ordner, unverändert');
 
   // 7.6/7.7: Start, gemerkte Show nicht lesbar.
-  const nl5 = quellSchritt(startShow, { t: 'nichtLesbar', weg: 'start', pfad: P1, grund: 'EBUSY', gemerkt: gemerktMit });
+  const nl5 = quellSchritt(startShow, { t: 'nichtLesbar', weg: 'start', pfad: P1, grund: 'EBUSY', gemerkt: gemerktMit, mitEigenemOrdner: false });
   ok(nl5.zustand.art === 'show' && JSON.stringify(nl5.zustand.quellHinweis) === '{"art":"H4","grund":"EBUSY"}' && nl5.beobachte === 'iveo-data' && nl5.tsv === null, '7.6/7.7: Start, nicht lesbar, mitSpeakern → show mit vorhandener TSV, H4');
   ok(nl5.merke.t === 'bleibt' && nl5.vorlage === false && nl5.zustand.showName === 'Tag 1', '7.7: … gemerkte Show bleibt (ein späteres RELOAD versucht es erneut)');
-  const nl6 = quellSchritt(startOrdner, { t: 'nichtLesbar', weg: 'start', pfad: P2, grund: 'ENOENT', gemerkt: gemerktOhne });
+  const nl6 = quellSchritt(startOrdner, { t: 'nichtLesbar', weg: 'start', pfad: P2, grund: 'ENOENT', gemerkt: gemerktOhne, mitEigenemOrdner: true });
   ok(nl6.zustand.art === 'ordner' && nl6.beobachte === 'eigener' && nl6.zustand.quellHinweis === null && nl6.merke.t === 'bleibt', '7.7: Start, nicht lesbar, ohne Speaker → ordner, gemerkte Show bleibt');
   ok(nl6.log.length === 1 && nl6.log[0] === 'Gemerkte Show nicht lesbar (ENOENT), eigener Ordner gilt.', '7.7: … Logzeile');
+  // Gesamtprüfung Befund 9: ohne eigenen Ordner gilt keiner — die Logzeile sagt das, statt „eigener Ordner gilt“.
+  const nl6ohne = quellSchritt(startOrdner, { t: 'nichtLesbar', weg: 'start', pfad: P2, grund: 'ENOENT', gemerkt: gemerktOhne, mitEigenemOrdner: false });
+  ok(nl6ohne.zustand.art === 'ordner' && nl6ohne.merke.t === 'bleibt', 'Befund 9: Start, nicht lesbar, ohne Speaker und ohne eigenen Ordner → ordner, gemerkte Show bleibt');
+  ok(
+    nl6ohne.log.length === 1 && nl6ohne.log[0] === 'Gemerkte Show nicht lesbar (ENOENT), kein eigener Ordner eingetragen.',
+    'Befund 9: … Logzeile ohne „eigener Ordner gilt“',
+  );
 
   // 7.6: RELOAD bzw. Deep-Link nicht lesbar → Art und Liste bleiben, H4 nur bei show.
   for (const [art, z] of alle) {
-    const s = quellSchritt(z, { t: 'nichtLesbar', weg: 'reload', pfad: P1, grund: 'kein gültiges JSON', gemerkt: null });
+    const s = quellSchritt(z, { t: 'nichtLesbar', weg: 'reload', pfad: P1, grund: 'kein gültiges JSON', gemerkt: null, mitEigenemOrdner: false });
     ok(s.zustand.art === art && s.tsv === null && s.merke.t === 'bleibt' && s.beobachte === (art === 'ordner' ? 'eigener' : 'iveo-data'), `7.6: RELOAD nicht lesbar bei ${art} → Art und Liste bleiben`);
     ok(
       art === 'show' ? JSON.stringify(s.zustand.quellHinweis) === '{"art":"H4","grund":"kein gültiges JSON"}' : s.zustand.quellHinweis === null,
@@ -681,7 +690,7 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(r2.zustand.art === 'show' && r2.zustand.quellHinweis?.art === 'H3' && r2.tsv === null && r2.beobachte === 'iveo-data', 'Review 2: Deep-Link derselben Show ohne Speaker → bleibt show mit H3, keine Liste verloren');
 
   // Review Focus 4 (Quellseite): H4, danach nimmt das nächste lesbare RELOAD H4 weg.
-  const kaputt = quellSchritt(zShow, { t: 'nichtLesbar', weg: 'reload', pfad: P1, grund: 'kein gültiges JSON', gemerkt: null });
+  const kaputt = quellSchritt(zShow, { t: 'nichtLesbar', weg: 'reload', pfad: P1, grund: 'kein gültiges JSON', gemerkt: null, mitEigenemOrdner: false });
   ok(
     kaputt.zustand.quellHinweis !== null && hinweisText(kaputt.zustand.quellHinweis) === 'Liste aus früherem Stand: Show nicht lesbar (kein gültiges JSON).',
     'Review 4: RELOAD mit halbem JSON → H4, Liste bleibt',
@@ -690,6 +699,40 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(geheilt.zustand.quellHinweis === null && geheilt.tsv?.length === 2, 'Review 4: das nächste lesbare RELOAD nimmt H4 weg');
   const geheiltOhne = quellSchritt(kaputt.zustand, { t: 'gelesen', weg: 'reload', pfad: P1, show: ohne1, gleicheShow: true });
   ok(geheiltOhne.zustand.quellHinweis?.art === 'H3', 'Review 4: … auch ohne Speaker (dann H3 statt H4)');
+
+  // Gesamtprüfung Befund 6: Q3 nur, wenn die frühere Show noch Speaker liefert (sonst greift die Leer-Anzeige).
+  ok(quellZeile(zFrueher, '', 0) === '', 'Befund 6: frueher ohne Einträge → keine Quellzeile (Q3 behauptete Speaker, wo keine sind)');
+  ok(quellZeile(zFrueher, '', 1) === 'Quelle: Speaker aus einer früheren Show', 'Befund 6: … mit Einträgen Q3 wie bisher');
+
+  // Gesamtprüfung Befund 4: speakers.tsv nicht schreibbar → der Schritt gilt nicht, die Show zählt wie nicht lesbar.
+  // Sonst nennte Q1 die neue Show über der Liste der vorigen, und die gemerkte Show stünde mit Speakern da.
+  const tag2 = showMit('Tag 2', [ADA]);
+  for (const [art, z] of alle) {
+    const s = quellSchritt(z, { t: 'gelesen', weg: 'deepLink', pfad: P2, show: tag2, gleicheShow: false });
+    const f = tsvNichtGeschrieben(z, s, { weg: 'deepLink', pfad: P2, grund: 'EBUSY', gemerkt: null, mitEigenemOrdner: true });
+    ok(
+      f.zustand.art === art && f.zustand.showPfad === z.showPfad && f.zustand.showName === z.showName,
+      `Befund 4: ${art}, TSV nicht schreibbar → Quelle und Showname bleiben (Q1 nennt nicht „Tag 2“ über der alten Liste)`,
+    );
+    ok(f.tsv === null && f.merke.t === 'bleibt' && f.log.length === 0, `Befund 4: ${art} … keine TSV, gemerkte Show bleibt, keine Zeile „Show gemerkt“`);
+    ok(
+      art === 'show'
+        ? JSON.stringify(f.zustand.quellHinweis) === '{"art":"H4","grund":"speakers.tsv nicht schreibbar: EBUSY"}'
+        : f.zustand.quellHinweis === z.quellHinweis,
+      `Befund 4: ${art} … H4 mit Grund nur bei show (wie eine nicht lesbare Show)`,
+    );
+    ok(f.vorlage === true && f.beobachte === (art === 'ordner' ? 'eigener' : 'iveo-data'), `Befund 4: ${art} … die Vorlage des Deep-Links (C3) bleibt, beobachtet wie bisher`);
+  }
+  const fStart = tsvNichtGeschrieben(startShow, st1, { weg: 'start', pfad: P1, grund: 'EPERM', gemerkt: gemerktMit, mitEigenemOrdner: false });
+  ok(
+    fStart.zustand.art === 'show' && fStart.zustand.quellHinweis?.art === 'H4' && fStart.beobachte === 'iveo-data' && fStart.vorlage === false,
+    'Befund 4: Start, TSV nicht schreibbar → show mit der vorhandenen TSV, H4',
+  );
+  // Befund 4: „Show gemerkt“ erst nach dem Schreiben und nur, wenn die gemerkte Show wirklich gespeichert ist.
+  const sMerk = quellSchritt(zOrdner, { t: 'gelesen', weg: 'deepLink', pfad: P1, show: mit, gleicheShow: false });
+  ok(JSON.stringify(logNachMerken(sMerk, true)) === JSON.stringify([`Show gemerkt: ${P1}`]), 'Befund 4: gemerkte Show gespeichert → Logzeile „Show gemerkt“');
+  ok(logNachMerken(sMerk, false).length === 0, 'Befund 4: … Speichern gescheitert → keine Zeile „Show gemerkt“');
+  ok(JSON.stringify(logNachMerken(nl6, false)) === JSON.stringify(nl6.log), 'Befund 4: … ohne Schreiben der gemerkten Show bleiben die Logzeilen');
 }
 
 // ── B12 · show-quelle.ts: gemerkte Show (Spec 7.7) und Show sicher lesen (7.6, G10, Review Focus 4) ──
@@ -772,6 +815,15 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     ok(zeilen[0] === 'name\tfunktion\ttitle\t@kennung', 'B12: speakers.tsv beginnt mit name\\tfunktion\\ttitle\\t@kennung');
     ok(zeilen[1] === 'Ada Lovelace\tModeration\tModeration\ts-1', 'B12: Kennung steht hinten');
     ok(zeilen[2] === 'Grace\t\t\t' && zeilen[3] === '' && zeilen.length === 4, 'B12: Speaker ohne Kennung → leere Spalte, Zeilenende am Schluss');
+
+    // Gesamtprüfung Befund 4: Schreiben ohne Wurf, der Aufrufer bekommt den Fehlercode (ohne Pfad, ohne Inhalt).
+    ok(iveoShow.schreibeSpeakersTsvSicher(dir, [{ name: 'Hedy' }]) === null, 'Befund 4: speakers.tsv schreibbar → null');
+    ok(readFileSync(join(dir, 'speakers.tsv'), 'utf8').split('\n')[1] === 'Hedy\t\t\t', 'Befund 4: … neuer Inhalt steht in der Datei');
+    const gesperrtDir = join(tmp, 'iveo-gesperrt');
+    mkdirSync(join(gesperrtDir, 'speakers.tsv'), { recursive: true });
+    const fehler = iveoShow.schreibeSpeakersTsvSicher(gesperrtDir, [{ name: 'Hedy' }]);
+    ok(fehler !== null && fehler.grund === 'EISDIR' && !fehler.grund.includes(tmp), 'Befund 4: speakers.tsv nicht schreibbar → Fehlercode (EISDIR), ohne Pfad');
+    ok(fehler !== null && fehler.meldung.length > 0, 'Befund 4: … die Meldung fürs Log bleibt erhalten');
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
