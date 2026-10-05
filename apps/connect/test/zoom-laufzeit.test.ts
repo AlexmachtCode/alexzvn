@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { KT } from '../src/main/zoom/klartext';
 import {
-  BRIDGE_EXE, EIGENE_NAMEN_FEST, eigeneQuellen, laufzeitOrdner, NDI_DLL, PLATZ_RESERVE_BYTES, pruefeSdkOrdner, richteEin,
-  STEMPEL_DATEI, type KopieStand, type LaufzeitPfade, type SdkWahl, type Stempel,
+  BRIDGE_EXE, EIGENE_NAMEN_FEST, eigeneQuellen, kindPfad, laufzeitOrdner, NDI_DLL, pfadVarianten, PLATZ_RESERVE_BYTES,
+  pruefeLaufzeit, pruefeSdkOrdner, richteEin, STEMPEL_DATEI, type KopieStand, type LaufzeitPfade, type SdkWahl, type Stempel,
 } from '../src/main/zoom/laufzeit';
 
 let pass = 0, fail = 0;
@@ -278,6 +278,88 @@ console.log('— Fix-Runde 1: Aufräumen nach dem Tausch meldet Fehler, überspr
   ck('Geschwister trotzdem gelöscht', !existsSync(andere));
   const r2 = await richteEin({ wahl: zweitesSdk(ordner('aufraeumen-ok'), pfade), pfade, fortschritt: ruhig });
   ck('ohne Fehler: aufraeumFehler null', r2.ok && r2.aufraeumFehler === null);
+}
+
+console.log('— 12.3 Nr. 9: Programmstart');
+{
+  const d = ordner('start');
+  const leer: LaufzeitPfade = { basis: join(d, 'zoom-laufzeit'), ressourcen: baueRessourcen(join(d, 'res')) };
+  ck('kein Laufzeit-Ordner → sdk_fehlt', JSON.stringify(pruefeLaufzeit(leer)) === JSON.stringify({ ok: false, mangel: 'sdk_fehlt' }));
+  const { pfade, ziel } = await eingerichtet('start-ok');
+  ck('alles in Ordnung → ok, nichts ersetzt', JSON.stringify(pruefeLaufzeit(pfade)) === JSON.stringify({ ok: true, ordner: ziel, ersetzt: [] }));
+  rmSync(join(ziel, 'sdk.dll'));
+  ck('Stempel da, sdk.dll gelöscht → sdk_defekt (nicht „Bereit“)',
+    JSON.stringify(pruefeLaufzeit(pfade)) === JSON.stringify({ ok: false, mangel: 'sdk_defekt', datei: 'sdk.dll' }));
+}
+
+console.log('— 12.3 Nr. 5: Prüfung vor dem Start (Schritte 1–3)');
+{
+  const { pfade, ziel, dir } = await eingerichtet('pruefung');
+  const quelle = (p: string): string => join(dir, 'sdk', 'x64', 'bin', ...p.split('/'));
+  const defekt = (datei: string): string => JSON.stringify({ ok: false, mangel: 'sdk_defekt', datei });
+
+  rmSync(join(ziel, 'zVideoApp.dll'));
+  ck('fehlende SDK-Datei → sdk_defekt mit ihrem Pfad', JSON.stringify(pruefeLaufzeit(pfade)) === defekt('zVideoApp.dll'));
+  writeFileSync(join(ziel, 'zVideoApp.dll'), Buffer.alloc(3));
+  ck('SDK-Datei mit anderer Größe → sdk_defekt', JSON.stringify(pruefeLaufzeit(pfade)) === defekt('zVideoApp.dll'));
+  copyFileSync(quelle('zVideoApp.dll'), join(ziel, 'zVideoApp.dll'));
+  writeFileSync(join(ziel, 'zusatz.dat'), 'vom SDK selbst geschrieben');
+  ck('zusätzliche Datei → in Ordnung', pruefeLaufzeit(pfade).ok === true);
+  rmSync(join(ziel, 'language', 'de.txt'));
+  ck('fehlende Datei im Unterordner → Pfad mit „/“', JSON.stringify(pruefeLaufzeit(pfade)) === defekt('language/de.txt'));
+  copyFileSync(quelle('language/de.txt'), join(ziel, 'language', 'de.txt'));
+
+  writeFileSync(join(ziel, 'sdk.dll'), machePe(X86, F_OK)); // gleiche Größe, aber 32 Bit
+  ck('sdk.dll mit gleicher Größe, aber 32 Bit → sdk_defekt (sdk.dll)', JSON.stringify(pruefeLaufzeit(pfade)) === defekt('sdk.dll'));
+  writeFileSync(join(ziel, 'sdk.dll'), machePe(X64, [7, 1, 5, 1]));
+  ck('sdk.dll mit anderer Fassung → sdk_defekt (sdk.dll)', JSON.stringify(pruefeLaufzeit(pfade)) === defekt('sdk.dll'));
+  writeFileSync(join(ziel, 'sdk.dll'), machePe(X64, F_OK));
+  ck('sdk.dll wieder richtig → ok', pruefeLaufzeit(pfade).ok === true);
+
+  const stempelPfad = join(ziel, STEMPEL_DATEI);
+  const st = JSON.parse(readFileSync(stempelPfad, 'utf8')) as Stempel;
+  writeFileSync(stempelPfad, JSON.stringify({ ...st, sdkFassung: '7.1.6.1' }));
+  ck('Stempel mit sdkFassung 7.1.6.1 → sdk_defekt (Stempel)', JSON.stringify(pruefeLaufzeit(pfade)) === defekt(STEMPEL_DATEI));
+  writeFileSync(stempelPfad, JSON.stringify({ ...st, format: 2 }));
+  ck('Stempel mit format 2 → sdk_defekt (Stempel)', JSON.stringify(pruefeLaufzeit(pfade)) === defekt(STEMPEL_DATEI));
+  writeFileSync(stempelPfad, '{ kein JSON');
+  ck('Stempel unlesbar → sdk_defekt (Stempel)', JSON.stringify(pruefeLaufzeit(pfade)) === defekt(STEMPEL_DATEI));
+  rmSync(stempelPfad);
+  ck('Stempel fehlt → sdk_defekt (Stempel)', JSON.stringify(pruefeLaufzeit(pfade)) === defekt(STEMPEL_DATEI));
+}
+
+console.log('— 12.3 Nr. 6: eigene Dateien abgleichen (Schritt 4)');
+{
+  const { pfade, ziel } = await eingerichtet('eigene');
+  const exeRes = join(pfade.ressourcen, 'zoom-bridge', BRIDGE_EXE);
+  writeFileSync(exeRes, 'bridge-2');
+  ck('geänderte zoom-bridge.exe → ersetzt', JSON.stringify(pruefeLaufzeit(pfade)) === JSON.stringify({ ok: true, ordner: ziel, ersetzt: [BRIDGE_EXE] }));
+  ck('Inhalt im Laufzeit-Ordner neu', readFileSync(join(ziel, BRIDGE_EXE), 'utf8') === 'bridge-2');
+  const st = JSON.parse(readFileSync(join(ziel, STEMPEL_DATEI), 'utf8')) as Stempel;
+  ck('Stempel: SHA-256 der neuen EXE', st.eigeneDateien.find((x) => x.pfad === BRIDGE_EXE)?.sha256 === sha(exeRes));
+  ck('Stempel: SDK-Teil unverändert', st.sdkFassung === '7.1.5.43953' && st.sdkDateien.length === 8);
+  ck('zweiter Aufruf → nichts ersetzt', JSON.stringify(pruefeLaufzeit(pfade)) === JSON.stringify({ ok: true, ordner: ziel, ersetzt: [] }));
+  rmSync(join(ziel, NDI_DLL));
+  ck('fehlende NDI-DLL im Laufzeit-Ordner → wieder da',
+    JSON.stringify(pruefeLaufzeit(pfade)) === JSON.stringify({ ok: true, ordner: ziel, ersetzt: [NDI_DLL] }) && existsSync(join(ziel, NDI_DLL)));
+  writeFileSync(join(pfade.ressourcen, 'zoom-bridge', 'vcruntime140_1.dll'), 'vc1');
+  const r = pruefeLaufzeit(pfade);
+  ck('neue Ressource → kopiert und im Stempel',
+    r.ok && JSON.stringify(r.ersetzt) === JSON.stringify(['vcruntime140_1.dll'])
+    && (JSON.parse(readFileSync(join(ziel, STEMPEL_DATEI), 'utf8')) as Stempel).eigeneDateien.some((x) => x.pfad === 'vcruntime140_1.dll'));
+  rmSync(exeRes);
+  ck('Ressource zoom-bridge.exe fehlt → bridge_fehlt', JSON.stringify(pruefeLaufzeit(pfade)) === JSON.stringify({ ok: false, mangel: 'bridge_fehlt' }));
+}
+
+console.log('— 12.2 Fall 4b: kindPfad und pfadVarianten (Path-Falle 3.2-4, M6)');
+{
+  ck('kindPfad({ Path: C:\\A }, L) → L;C:\\A', kindPfad({ Path: 'C:\\A' }, 'L') === 'L;C:\\A');
+  ck('kindPfad({ PATH: X }, L) → L;X', kindPfad({ PATH: 'X' }, 'L') === 'L;X');
+  ck('kindPfad({}, L) → L', kindPfad({}, 'L') === 'L');
+  ck('PATH geht vor Path', kindPfad({ Path: 'Y', PATH: 'X' }, 'L') === 'L;X');
+  ck('leerer geerbter Wert → nur der Ordner', kindPfad({ PATH: '' }, 'L') === 'L');
+  ck('pfadVarianten({ Path, PATH, path }) → [Path, path]', JSON.stringify(pfadVarianten({ Path: 'a', PATH: 'b', path: 'c' })) === JSON.stringify(['Path', 'path']));
+  ck('pfadVarianten ohne andere Schreibweise → []', pfadVarianten({ PATH: 'b', HOME: 'h' }).length === 0);
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

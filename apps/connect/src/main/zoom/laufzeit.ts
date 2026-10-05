@@ -8,7 +8,7 @@
 //     Processing.NDI.Lib.x64.dll     eigene Datei aus <resources>\bin\win\
 //     jm-zoom-laufzeit.json          Stempel
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { copyFile as fsCopyFile, statfs as fsStatfs } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { findeSdkBin, peInfo, SDK_FASSUNG } from '@jm/zoom-bridge/sdk';
@@ -296,4 +296,86 @@ export async function richteEin(e: {
     const x = err as { code?: unknown; message?: unknown };
     return { ok: false, text: KT.S6(typeof x.code === 'string' ? x.code : String(x.message ?? err)) };
   }
+}
+
+/** Ergebnis von pruefeLaufzeit (Spec 5.3). `ersetzt` = eigene Dateien, die gerade neu kopiert wurden. */
+export type LaufzeitPruefung =
+  | { ok: true; ordner: string; ersetzt: string[] }
+  | { ok: false; mangel: 'sdk_fehlt' }
+  | { ok: false; mangel: 'sdk_defekt'; datei: string }
+  | { ok: false; mangel: 'bridge_fehlt' };
+
+/**
+ * Prüfung beim Programmstart, nach jeder Einrichtung und vor jedem Bridge-Start (Spec 5.3).
+ * Synchron, wirft nie. Kein Ordner → sdk_fehlt. Schritt 1–3 → sdk_defekt (S9 mit `datei`).
+ * Schritt 4: ohne <ressourcen>/zoom-bridge/zoom-bridge.exe → bridge_fehlt (S8); sonst jede eigene
+ * Datei kopieren, die fehlt oder deren SHA-256 abweicht, und den Stempel nachziehen. So bringt ein
+ * Connect-Update eine neue zoom-bridge.exe mit, ohne dass das SDK neu kopiert wird.
+ */
+export function pruefeLaufzeit(p: LaufzeitPfade): LaufzeitPruefung {
+  const ordner = laufzeitOrdner(p);
+  if (!existsSync(ordner)) return { ok: false, mangel: 'sdk_fehlt' };
+
+  // (1) Stempel lesbar, format 1, genau diese SDK-Fassung.
+  const stempel = leseStempel(ordner);
+  if (stempel === null || stempel.sdkFassung !== SDK_FASSUNG) return { ok: false, mangel: 'sdk_defekt', datei: STEMPEL_DATEI };
+
+  // (2) Jede SDK-Datei mit gleicher Größe. Zusätzliche Dateien stören nicht (schreibt das SDK selbst? ungemessen).
+  for (const d of stempel.sdkDateien) {
+    if (groesse(unter(ordner, d.pfad)) !== d.bytes) return { ok: false, mangel: 'sdk_defekt', datei: d.pfad };
+  }
+
+  // (3) sdk.dll: x64 und genau 7.1.5.43953.
+  if (!sdkDllIstX64(join(ordner, 'sdk.dll'))) return { ok: false, mangel: 'sdk_defekt', datei: 'sdk.dll' };
+
+  // (4) Eigene Dateien abgleichen.
+  if (!existsSync(join(p.ressourcen, 'zoom-bridge', BRIDGE_EXE))) return { ok: false, mangel: 'bridge_fehlt' };
+  const ersetzt: string[] = [];
+  let datei = STEMPEL_DATEI;
+  try {
+    const eigeneDateien: Stempel['eigeneDateien'] = [];
+    for (const q of eigeneQuellen(p.ressourcen)) {
+      datei = q.pfad;
+      const soll = sha256(q.quelle);
+      const ziel = join(ordner, q.pfad);
+      if (!existsSync(ziel) || sha256(ziel) !== soll) {
+        copyFileSync(q.quelle, ziel);
+        ersetzt.push(q.pfad);
+      }
+      eigeneDateien.push({ pfad: q.pfad, sha256: soll });
+    }
+    datei = STEMPEL_DATEI;
+    if (JSON.stringify(eigeneDateien) !== JSON.stringify(stempel.eigeneDateien)) schreibeStempel(ordner, { ...stempel, eigeneDateien });
+  } catch {
+    // Eine eigene Datei ließ sich nicht ersetzen (etwa gesperrt): die Laufzeit ist unvollständig, S9 nennt die Datei.
+    return { ok: false, mangel: 'sdk_defekt', datei };
+  }
+  return { ok: true, ordner, ersetzt };
+}
+
+/** Spec 5.3 Schritt 3: sdk.dll ist eine x64-PE-Datei mit genau SDK_FASSUNG. */
+function sdkDllIstX64(datei: string): boolean {
+  try {
+    const i = peInfo(readFileSync(datei));
+    return i.maschine === 'x64' && i.fassung === SDK_FASSUNG;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * PATH für den Kindprozess (Spec 5.2): Laufzeit-Ordner VOR dem vollständigen geerbten Wert.
+ * Windows erbt den Schlüssel oft als „Path“, bridge.ts liest aber nur env.PATH (Falle 3.2-4).
+ * Darum jede Schreibweise suchen, „PATH“ zuerst. Trenner fest „;“ (die Bridge gibt es nur unter Windows).
+ */
+export function kindPfad(env: Record<string, string | undefined>, ordner: string): string {
+  const schluessel = Object.keys(env).filter((k) => k.toLowerCase() === 'path');
+  const k = schluessel.includes('PATH') ? 'PATH' : schluessel[0];
+  const wert = k === undefined ? undefined : env[k];
+  return wert ? `${ordner};${wert}` : ordner;
+}
+
+/** Alle Schreibweisen von PATH außer „PATH“ selbst, für envRemove (Spec 5.2), in Einfügereihenfolge. */
+export function pfadVarianten(env: Record<string, string | undefined>): string[] {
+  return Object.keys(env).filter((k) => k !== 'PATH' && k.toLowerCase() === 'path');
 }
