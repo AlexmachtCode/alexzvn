@@ -231,7 +231,8 @@ export function ablaufSignatur(ablauf: ShowAblaufItem[], speakers: ShowIveoSpeak
 
 /**
  * Was zwischen zwei Signaturen (`ablaufSignatur`: Ablauf, Speaker, Merker) abweicht, als Satzteil für die Logzeile
- * einer Abfrage ohne Programmänderung, etwa „der Merker „Speaker veraltet“ weicht von der Datei ab“.
+ * einer Listen-Abfrage ohne Programmänderung und jeder schreibenden Agenda-Abfrage, etwa „der Merker „Speaker
+ * veraltet“ weicht von der Datei ab“.
  */
 function abweichungVonDatei(alt: string, neu: string): string {
   const teile = ['der Ablauf', 'die Speakerliste', 'der Merker „Speaker veraltet“'];
@@ -731,7 +732,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       return;
     }
     // Erst nach erfolgreichem Schreiben (wie Schliff F1): Scheitert es, stünde sonst bei jeder Abfrage eine falsche Zeile im Log.
-    d.log.info(`iveo: Agenda von Side Event geändert → ${ablauf.length} Punkte neu.`);
+    // Die Zeile sagt wie Befund 7a, was von der Datei abwich: Oft ist es nur der Merker oder die Speakerliste, nicht die Agenda.
+    d.log.info(`iveo: Side Event abgefragt, ${abweichungVonDatei(a.lastSig, sig)} → Show neu geschrieben (${ablauf.length} Punkte).`);
     const speakerWieder = a.speakerVeraltetSeit !== undefined && merker === undefined;
     a.lastSig = sig;
     a.sideCtx = ctx;

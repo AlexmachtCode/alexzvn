@@ -1510,8 +1510,9 @@ async function agendaMitKontextUndMerker(): Promise<Umgebung> {
 }
 
 // --- Schliff Runde 2: Auch die Agenda-Abfrage loggt das Schreiben erst nach erfolgreichem Schreiben (wie F1) ----------
-/** Logzeilen der Agenda-Abfrage, die ein Schreiben melden. */
-const agendaSchreibZeilen = (u: Umgebung): string[] => u.info.filter((z) => z.includes('Agenda von Side Event geändert'));
+/** Logzeilen der Agenda-Abfrage, die ein Schreiben melden (alter und neuer Wortlaut). */
+const agendaSchreibZeilen = (u: Umgebung): string[] =>
+  u.info.filter((z) => z.includes('Agenda von Side Event geändert') || z.startsWith('iveo: Side Event abgefragt,'));
 {
   const u = umgebung(agendaP1);
   u.iveo.agenda.P1 = [...u.iveo.agenda.P1, punkt('P1', 'a4', 'Schlusswort', 4, 5)];
@@ -1525,6 +1526,19 @@ const agendaSchreibZeilen = (u: Umgebung): string[] => u.info.filter((z) => z.in
   await u.kern.abfrage();
   ck('Schliff R2: … das Schreiben gelingt → genau eine Zeile',
     u.schreibversuche === 3 && ids(datei(u)) === 'a1,a2,a3,a4' && agendaSchreibZeilen(u).length === 1);
+  ck('Schliff R2: … sie sagt, was von der Datei abwich (wie Befund 7a)',
+    agendaSchreibZeilen(u)[0] === 'iveo: Side Event abgefragt, der Ablauf weicht von der Datei ab → Show neu geschrieben (4 Punkte).');
+}
+{
+  // Nur der Merker weicht ab (die Liste kommt wieder, Agenda und Speaker gleich): Die Zeile sagt nicht „Agenda geändert“.
+  const u = await agendaMitKontextUndMerker();
+  const vorher = u.schreibversuche;
+  await u.kern.abfrage();
+  ck('Schliff R2: Agenda-Abfrage, nur der Merker weicht ab → geschrieben, Merker weg',
+    u.schreibversuche === vorher + 1 && datei(u).iveo?.speakerVeraltetSeit === undefined);
+  ck('Schliff R2: … die Logzeile nennt den Merker, nicht eine geänderte Agenda',
+    JSON.stringify(agendaSchreibZeilen(u))
+      === JSON.stringify(['iveo: Side Event abgefragt, der Merker „Speaker veraltet“ weicht von der Datei ab → Show neu geschrieben (3 Punkte).']));
 }
 
 // --- Zusammenfassung ---
