@@ -351,6 +351,17 @@ console.log('— 12.3 Nr. 6: eigene Dateien abgleichen (Schritt 4)');
   ck('Ressource zoom-bridge.exe fehlt → bridge_fehlt', JSON.stringify(pruefeLaufzeit(pfade)) === JSON.stringify({ ok: false, mangel: 'bridge_fehlt' }));
 }
 
+console.log('— Fix-Runde 1: Grund des Kopierfehlers bleibt sichtbar (Schritt 4)');
+{
+  const { pfade, ziel } = await eingerichtet('eigene-gesperrt');
+  rmSync(join(ziel, BRIDGE_EXE));
+  mkdirSync(join(ziel, BRIDGE_EXE));
+  const r = pruefeLaufzeit(pfade);
+  ck('eigene Datei nicht ersetzbar → sdk_defekt mit Datei', !r.ok && r.mangel === 'sdk_defekt' && r.datei === BRIDGE_EXE);
+  ck('... und mit Grund (Fehlercode) im Feld detail', !r.ok && r.mangel === 'sdk_defekt' && typeof r.detail === 'string' && r.detail.length > 0);
+  ck('Schritt 1–3 ohne detail', JSON.stringify(pruefeLaufzeit({ ...pfade, basis: join(pfade.basis, 'gibt-es-nicht') })) === JSON.stringify({ ok: false, mangel: 'sdk_fehlt' }));
+}
+
 console.log('— 12.2 Fall 4b: kindPfad und pfadVarianten (Path-Falle 3.2-4, M6)');
 {
   ck('kindPfad({ Path: C:\\A }, L) → L;C:\\A', kindPfad({ Path: 'C:\\A' }, 'L') === 'L;C:\\A');

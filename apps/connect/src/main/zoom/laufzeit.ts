@@ -302,12 +302,14 @@ export async function richteEin(e: {
 export type LaufzeitPruefung =
   | { ok: true; ordner: string; ersetzt: string[] }
   | { ok: false; mangel: 'sdk_fehlt' }
-  | { ok: false; mangel: 'sdk_defekt'; datei: string }
+  | { ok: false; mangel: 'sdk_defekt'; datei: string; detail?: string }
   | { ok: false; mangel: 'bridge_fehlt' };
 
 /**
  * Prüfung beim Programmstart, nach jeder Einrichtung und vor jedem Bridge-Start (Spec 5.3).
  * Synchron, wirft nie. Kein Ordner → sdk_fehlt. Schritt 1–3 → sdk_defekt (S9 mit `datei`).
+ * Scheitert das Ersetzen einer eigenen Datei, steht der Grund (Fehlercode oder Meldung) in `detail`;
+ * der Aufrufer schreibt ihn als `[zoom] …` ins Log.
  * Schritt 4: ohne <ressourcen>/zoom-bridge/zoom-bridge.exe → bridge_fehlt (S8); sonst jede eigene
  * Datei kopieren, die fehlt oder deren SHA-256 abweicht, und den Stempel nachziehen. So bringt ein
  * Connect-Update eine neue zoom-bridge.exe mit, ohne dass das SDK neu kopiert wird.
@@ -346,9 +348,10 @@ export function pruefeLaufzeit(p: LaufzeitPfade): LaufzeitPruefung {
     }
     datei = STEMPEL_DATEI;
     if (JSON.stringify(eigeneDateien) !== JSON.stringify(stempel.eigeneDateien)) schreibeStempel(ordner, { ...stempel, eigeneDateien });
-  } catch {
+  } catch (err) {
     // Eine eigene Datei ließ sich nicht ersetzen (etwa gesperrt): die Laufzeit ist unvollständig, S9 nennt die Datei.
-    return { ok: false, mangel: 'sdk_defekt', datei };
+    const x = err as { code?: unknown; message?: unknown };
+    return { ok: false, mangel: 'sdk_defekt', datei, detail: typeof x.code === 'string' ? x.code : String(x.message ?? err) };
   }
   return { ok: true, ordner, ersetzt };
 }
