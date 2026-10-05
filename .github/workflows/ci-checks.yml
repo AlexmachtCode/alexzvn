@@ -58,6 +58,11 @@ jobs:
         run: npm run selftest -w @jm/timer
       - name: Rundown (Abgleich, Sprung, scharfe Zeile)
         run: npm run selftest -w @jm/rundown
+      # Zoom Stage 4a (Spec 12.6). Keiner dieser Tests lädt Electron oder braucht das Zoom-SDK.
+      - name: Zoom-Bridge (Protokoll, Zustand, Attrappe — ohne SDK)
+        run: npm run selftest -w @jm/zoom-bridge
+      - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte)
+        run: npm run selftest -w @jm/connect
 
   secret-scan:
     name: Secret-Scan (gitleaks)
