@@ -14,7 +14,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "selftest": "tsx test/zoom-text.test.ts && tsx test/zoom-laufzeit.test.ts && tsx test/zoom-teile.test.ts && tsx test/zoom-kern.test.ts",
+    "selftest": "tsx test/zoom-text.test.ts && tsx test/zoom-laufzeit.test.ts && tsx test/zoom-teile.test.ts && tsx test/zoom-kern.test.ts && tsx test/zoom-settings.test.ts",
     "rebuild:native": "electron-rebuild --only @jm/ndi",
     "prepackage": "node tools/bundle-ndi.mjs",
     "dist": "electron-vite build && npm run prepackage && electron-builder",

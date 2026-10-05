@@ -59,13 +59,16 @@ function read(): Stored {
   }
 }
 
-function write(next: Stored): void {
+/** `false`, wenn nichts auf der Platte gelandet ist; wer davon eine Anzeige abhängig macht, muss das prüfen. */
+function write(next: Stored): boolean {
   try {
     const p = file();
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
+    return true;
   } catch (e) {
     getLog().error('[connect] Einstellungen konnten nicht gespeichert werden:', e instanceof Error ? e.message : e);
+    return false;
   }
 }
 
@@ -155,6 +158,9 @@ export interface ZoomZugangDaten {
 let zoomSitzung: ZoomZugangDaten | null = null;
 /** zoomZugangEnc, EINMAL entschlüsselt (Spec 6.1). `undefined` = noch nicht gelesen, `null` = nichts hinterlegt. */
 let zoomGespeichert: GespeicherterZugang | null | undefined;
+/** Gilt nur, solange das Schreiben der Platte scheiterte: sonst würde der Getter den alten Plattenwert zeigen. */
+let zoomAnzeigenameSitzung: string | null = null;
+let zoomVersatzSitzung: number | null = null;
 let zoomUmgebungGewarnt = false;
 let zoomSitzungGewarnt = false;
 
@@ -181,10 +187,15 @@ export function zoomZugangSpeichern(d: ZoomZugangDaten): 'stored' | 'session' {
   const next = read();
   if (safeStorage.isEncryptionAvailable()) {
     next.zoomZugangEnc = safeStorage.encryptString(JSON.stringify(daten)).toString('base64');
-    write(next);
-    zoomSitzung = null;
-    zoomGespeichert = { daten, unlesbar: false };
-    return 'stored';
+    if (write(next)) {
+      zoomSitzung = null;
+      zoomGespeichert = { daten, unlesbar: false };
+      return 'stored';
+    }
+    // Nichts auf der Platte: ehrlich „nur für diese Sitzung“ (A4), nicht „gespeichert“.
+    zoomGespeichert = null;
+    zoomSitzung = daten;
+    return 'session';
   }
   // Ohne Schlüsselbund NIE im Klartext auf die Platte (Spec 5.6, E7). Ein altes, hier nicht
   // entschlüsselbares zoomZugangEnc fliegt raus: die neue Wahl des Bedieners gilt.
@@ -209,7 +220,7 @@ export function zoomZugangLoeschen(): void {
 
 /** Ungültig oder fehlend → Vorgabe „JM Connect“ (G4). */
 export function zoomAnzeigename(): string {
-  return gueltigerAnzeigename(read().zoomAnzeigename) ?? ANZEIGENAME_VORGABE;
+  return zoomAnzeigenameSitzung ?? gueltigerAnzeigename(read().zoomAnzeigename) ?? ANZEIGENAME_VORGABE;
 }
 
 export function setzeZoomAnzeigename(n: string): void {
@@ -217,12 +228,12 @@ export function setzeZoomAnzeigename(n: string): void {
   if (v === null) return; // der Kern prüft vorher (N0b); Ungültiges wird nie gespeichert
   const next = read();
   next.zoomAnzeigename = v;
-  write(next);
+  zoomAnzeigenameSitzung = write(next) ? null : v;
 }
 
 /** Ungültig oder fehlend → 0 (G4). */
 export function zoomVersatzMs(): number {
-  return gueltigerVersatz(read().zoomVersatzMs) ?? 0;
+  return zoomVersatzSitzung ?? gueltigerVersatz(read().zoomVersatzMs) ?? 0;
 }
 
 export function setzeZoomVersatzMs(ms: number): void {
@@ -230,7 +241,7 @@ export function setzeZoomVersatzMs(ms: number): void {
   if (v === null) return; // der Kern prüft vorher (Q13)
   const next = read();
   next.zoomVersatzMs = v;
-  write(next);
+  zoomVersatzSitzung = write(next) ? null : v;
 }
 
 export function setzeZoomLaufzeit(v: { dir: string; fassung: string; eingerichtetAm: string }): void {
