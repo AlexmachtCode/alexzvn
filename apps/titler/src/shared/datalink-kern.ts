@@ -315,7 +315,10 @@ export function neueListe(
   // Eintrag 1 (A9). Auf Sendung (A8) bleibt es ohne Eintrag: Die Bauchbinde zeigt weiter leere Platzhalter,
   // statt ohne Abruf auf Person 1 zu springen; ein stehender Hinweis H2/H5 bleibt.
   if (o.andererOrdner && !z.aufSendung && eintraege.length) return { zustand: aktivWird(0), log };
-  return { zustand: { ...z, eintraege }, log };
+  // Ein stehender H2 endet, sobald die Zeile wieder in der Liste steht: Der Hinweis "nicht mehr in der Liste" wäre sonst falsch.
+  const h = z.hinweis;
+  const h2Erledigt = h?.art === 'H2' && eintraege.some((e) => normLabel(e.label) === normLabel(h.label));
+  return { zustand: { ...z, eintraege, hinweis: h2Erledigt ? null : z.hinweis }, log };
 }
 
 /**

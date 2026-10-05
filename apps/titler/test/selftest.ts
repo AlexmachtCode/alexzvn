@@ -321,6 +321,11 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   const leerAus = neueListe(kernMit(eigene, alanCsv, false), [], GLEICH);
   ok(kernSicht(leerAus.zustand).activeIndex === -1 && leerAus.zustand.hinweis?.art === 'H2', 'Review 1: ohne Sendung → kein aktiver Eintrag (A3)');
   ok(kernSicht(neueListe(leerAus.zustand, eigene, GLEICH).zustand).activeIndex === -1, 'Review 1: … nach dem Zurückkommen wird nicht von selbst Eintrag 1 aktiv');
+  ok(neueListe(leerAus.zustand, eigene, GLEICH).zustand.hinweis === null, 'Fix 1: … der Hinweis H2 endet, wenn die Zeile wieder in der Liste steht');
+  const ohneAlanCsv = fuehreZusammen([parseTable('name,funktion\nAda,Mathematik\n', 'gaeste.csv')]);
+  ok(neueListe(leerAus.zustand, ohneAlanCsv, GLEICH).zustand.hinweis?.art === 'H2', 'Fix 1: … fehlt die Zeile weiter, bleibt H2');
+  const a4h2 = uhrTick(setzeSendung(leerAuf.zustand, false, 0).zustand, HALTEN_NACH_SENDUNG_MS + 1);
+  ok(a4h2.zustand.hinweis?.art === 'H2' && neueListe(a4h2.zustand, eigene, GLEICH).zustand.hinweis === null, 'Fix 1: A4 → H2 → Person kommt zurück → Hinweis weg');
 
   // Hinweise: Texte wörtlich (7.8), Logzeilen (7.9), Vorrang.
   const lokal = new Date(2026, 8, 29, 9, 58).toISOString();
