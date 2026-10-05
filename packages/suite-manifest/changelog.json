@@ -23,6 +23,13 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.13.2",
+        "date": "2026-10-05",
+        "notes": [
+          "Vorbereitung für Master-Link Teil 2b: Show-Dateien können jetzt zu jedem Speaker eine Kennung und einen Merker für einen veralteten Stand tragen. Der Launcher setzt beides noch nicht, darum ändert sich in dieser Version nichts Sichtbares. Release 1 von Teil 2b baut darauf auf."
+        ]
+      },
+      {
         "version": "0.13.1",
         "date": "2026-10-02",
         "notes": [
