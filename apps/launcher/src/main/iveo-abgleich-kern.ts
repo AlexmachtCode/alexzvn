@@ -717,7 +717,6 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       statusNachAbfrage(a);
       return; // nichts geändert → kein RELOAD
     }
-    d.log.info(`iveo: Agenda von Side Event geändert → ${ablauf.length} Punkte neu.`);
     const ok = schreibeAblauf(a.path, basis, {
       slug: a.event,
       baseUrl: a.baseUrl,
@@ -731,6 +730,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       statusGestoert(TEXT_NICHT_GESCHRIEBEN);
       return;
     }
+    // Erst nach erfolgreichem Schreiben (wie Schliff F1): Scheitert es, stünde sonst bei jeder Abfrage eine falsche Zeile im Log.
+    d.log.info(`iveo: Agenda von Side Event geändert → ${ablauf.length} Punkte neu.`);
     const speakerWieder = a.speakerVeraltetSeit !== undefined && merker === undefined;
     a.lastSig = sig;
     a.sideCtx = ctx;

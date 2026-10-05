@@ -1509,6 +1509,24 @@ async function agendaMitKontextUndMerker(): Promise<Umgebung> {
     u.kern.aktiv()?.filter.programId === 'P1' && speakerWarnungen(u).length === 2);
 }
 
+// --- Schliff Runde 2: Auch die Agenda-Abfrage loggt das Schreiben erst nach erfolgreichem Schreiben (wie F1) ----------
+/** Logzeilen der Agenda-Abfrage, die ein Schreiben melden. */
+const agendaSchreibZeilen = (u: Umgebung): string[] => u.info.filter((z) => z.includes('Agenda von Side Event geändert'));
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = [...u.iveo.agenda.P1, punkt('P1', 'a4', 'Schlusswort', 4, 5)];
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  await u.kern.abfrage();
+  ck('Schliff R2: Agenda geändert, Schreiben scheitert zweimal → keine Zeile zum Schreiben im Log',
+    u.schreibversuche === 2 && agendaSchreibZeilen(u).length === 0);
+  ck('Schliff R2: … der Status sagt „nicht geschrieben“', u.status.at(-1)?.text === 'Show konnte nicht geschrieben werden');
+  u.schreibFehler = false;
+  await u.kern.abfrage();
+  ck('Schliff R2: … das Schreiben gelingt → genau eine Zeile',
+    u.schreibversuche === 3 && ids(datei(u)) === 'a1,a2,a3,a4' && agendaSchreibZeilen(u).length === 1);
+}
+
 // --- Zusammenfassung ---
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
