@@ -446,6 +446,11 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(schritt(kernMit(fuenf, 's-4'), 1).zustand.aktiv === 's-4' && schritt(kernMit(fuenf, 's-5'), -1).zustand.aktiv === 's-5', 'Weiter/Zurück begrenzt auf die Liste, kein Umlauf');
   const leer = kernMit([], null);
   ok(schritt(leer, 1).zustand === leer, 'Weiter bei leerer Liste → unverändert');
+  // Review Task 10: ein nicht endliches delta zählt als 0 (sonst Stelle NaN und ein TypeError in waehle).
+  ok(
+    schritt(kernMit(fuenf, 's-2'), Number.NaN).zustand.aktiv === 's-2' && schritt(kernMit(fuenf, 's-2'), Number.POSITIVE_INFINITY).zustand.aktiv === 's-2',
+    'Weiter/Zurück mit NaN oder Unendlich → bleibt beim aktiven Eintrag',
+  );
 
   // Nr. 20: Abruf ohne Treffer (unbekannter Name, Nummer 7 bei 5 Einträgen).
   for (const ref of ['Niemand', '7']) {
@@ -471,6 +476,10 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(leerAuf.log[0] === 'DataLink: Abruf „Alan“ ohne Treffer, kein aktiver Eintrag.', 'Nr. 20: … Logzeile „kein aktiver Eintrag“');
   const vonGehalten = rufeAb(gehalten, 'Niemand');
   ok(vonGehalten.zustand.gehalten?.label === 'Alan' && vonGehalten.zustand.gehalten.grund === 'A10' && vonGehalten.zustand.hinweis?.art === 'H6', 'Nr. 20: ein gehaltener Eintrag bleibt bei A10 gehalten, jetzt mit grund A10 und H6');
+  // Review Task 10: auch der aus einem gehaltenen Eintrag entstandene A10 trägt den Abruf; nach dem Ende der Sendung H5 mit ihm.
+  ok(vonGehalten.zustand.gehalten?.ref === 'Niemand', 'Nr. 20: … der gehaltene A10-Eintrag trägt den Abruf als ref');
+  const vonGehaltenEnde = uhrTick(setzeSendung(vonGehalten.zustand, false, 0).zustand, HALTEN_NACH_SENDUNG_MS);
+  ok(JSON.stringify(vonGehaltenEnde.zustand.hinweis) === '{"art":"H5","ref":"Niemand"}', 'Nr. 20: … nach dem Ende der Sendung H5 mit dem Abruf, nicht mit dem Label');
   const h6 = rufeAb(kernMit(fuenf, 's-3', true), 'Niemand').zustand;
   const wieder = rufeAb(h6, 'Grace');
   ok(wieder.zustand.aktiv === 's-2' && wieder.zustand.hinweis === null && wieder.zustand.gehalten === null, 'Nr. 20: danach ein Abruf mit Treffer → Hinweis weg');

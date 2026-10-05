@@ -1185,6 +1185,45 @@ const speakerWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.start
     u.status.length === statusVorher);
   ck('Fix 1b: … kein „wieder in Ordnung“ im Log, keine zweite Warnung',
     !u.info.slice(infoVorher).some((z) => z.includes('wieder in Ordnung')) && u.warn.length === warnVorher);
+  // Review Task 6 #6: Der Status bleibt nach dem Speichern auch intern „gestört“ — die nächste Abfrage mit weiter
+  // fehlender Liste meldet keinen neuen Status und keine neue Störung.
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const statusNachSpeichern = u.status.length;
+  const stoerungen = (): number => u.warn.filter((w) => w.startsWith('iveo-Abgleich gestört')).length;
+  const stoerungenNachSpeichern = stoerungen();
+  await u.kern.abfrage();
+  ck('Fix 1b: … der Status bleibt intern „gestört“: die nächste Abfrage meldet weder Status noch Störung neu',
+    u.status.length === statusNachSpeichern && stoerungen() === stoerungenNachSpeichern && u.schreibversuche === 0);
+}
+{
+  // Review Task 5 #1 / Task 6 #1: Der Merker zählt in der Signatur der Listen-Abfrage. Listen-Show ohne
+  // Speaker-Verknüpfung: Die Liste scheitert bei einer Titeländerung, danach gelingt sie ohne Programmänderung.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.programme[0] = { ...u.iveo.programme[0], title: 'Side Event Klima (neu)' };
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('Merker in der Signatur: Vorbedingung — Titel geändert, Liste gescheitert → geschrieben mit Merker',
+    u.schreibversuche === 1 && typeof datei(u).iveo?.speakerVeraltetSeit === 'string');
+  delete u.iveo.fehler.speakers;
+  u.iveo.geaendert = [];
+  await u.kern.abfrage();
+  ck('Merker in der Signatur: … Liste gelingt ohne Programmänderung → Merker weg, geschrieben, RELOAD, Status in Ordnung',
+    u.schreibversuche === 2 && datei(u).iveo?.speakerVeraltetSeit === undefined && u.reloads.length === 6 && u.status.at(-1)?.ok === true);
+}
+{
+  // Review Task 6 #1: lastSig nach dem Umschalten trägt den Merker. Tagesübersicht mit gescheiterter Liste, danach
+  // eine Abfrage bei weiter gescheiterter Liste ohne Änderung → nichts geschrieben, kein RELOAD.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const r = await u.kern.umschalten({ day: TAG });
+  const schreibNachUmschalten = u.schreibversuche;
+  const reloadsNachUmschalten = u.reloads.length;
+  ck('lastSig nach dem Umschalten: Vorbedingung — umgeschaltet, Merker in der Datei',
+    r.ok && typeof datei(u).iveo?.speakerVeraltetSeit === 'string');
+  await u.kern.abfrage();
+  ck('lastSig nach dem Umschalten: … Abfrage bei weiter gescheiterter Liste ohne Änderung → nichts geschrieben, kein RELOAD',
+    u.schreibversuche === schreibNachUmschalten && u.reloads.length === reloadsNachUmschalten);
 }
 
 // --- Teil 2b, 9.2 Nr. 5 und Spec 6.2: Agenda-Abfrage mit Merker, Umschalten auf ein Side Event ---------------------
