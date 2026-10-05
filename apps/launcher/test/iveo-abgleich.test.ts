@@ -1162,6 +1162,21 @@ const speakerWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.start
     datei(u).iveo?.speakerVeraltetSeit === undefined && u.schreibversuche === 1 && u.reloads.length === 3);
 }
 
+{
+  // Fix-Runde 1: Die Statuszeile folgt dem Merker auch beim Öffnen und beim Speichern der offenen Show (Spec 6.2/6.3).
+  const u = umgebung((iv) => mitMerker(showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA])));
+  ck('Fix 1a: Show mit Merker geöffnet → Status sofort „gestört“, seit = Merker',
+    JSON.stringify(u.status.at(-1)) === JSON.stringify({ ok: false, text: TEXT_SPEAKER_VERALTET, seit: MERKER }));
+  const statusVorher = u.status.length;
+  const infoVorher = u.info.length;
+  const warnVorher = u.warn.length;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('Fix 1b: Speichern der offenen Show mit unverändertem Merker → kein neues Status-Ereignis',
+    u.status.length === statusVorher);
+  ck('Fix 1b: … kein „wieder in Ordnung“ im Log, keine zweite Warnung',
+    !u.info.slice(infoVorher).some((z) => z.includes('wieder in Ordnung')) && u.warn.length === warnVorher);
+}
+
 // --- Zusammenfassung ---
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

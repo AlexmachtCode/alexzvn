@@ -466,7 +466,13 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       lastSig: ablaufSignatur(show.ablauf ?? [], binding.speakers ?? [], binding.speakerVeraltetSeit),
       speakerVeraltetSeit: binding.speakerVeraltetSeit,
     };
-    nachStoerungOk();
+    const merker = binding.speakerVeraltetSeit;
+    if (merker) {
+      // Teil 2b, Spec 6.2/6.3: Mit Merker in der Datei ist die Statuszeile von Anfang an „gestört“. Stand vorher schon
+      // derselbe Text mit demselben „seit“ (Speichern der offenen Show), bleibt er ohne Meldung und ohne Log.
+      if (!vorher.ok && vorher.text === TEXT_SPEAKER_VERALTET && vorher.seit === merker) status = vorher;
+      else statusNachAbfrage(active);
+    } else nachStoerungOk();
     d.log.info(`iveo: Live-Abgleich für Event „${binding.event}“ aktiv.`);
     return active;
   }
