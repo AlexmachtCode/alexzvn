@@ -18,6 +18,9 @@ import {
   neueListe,
   parseKvDatei,
   parseTable,
+  rufeAb,
+  rufeSchluesselAb,
+  schritt,
   SCHLUESSEL_MAX,
   setzeSendung,
   uhrTick,
@@ -354,6 +357,111 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(waehleHinweis(H5, H6) === H6 && waehleHinweis(H2, H1) === H1, 'Vorrang: H1/H6 vor H2/H5');
   ok(waehleHinweis(H1, H6) === H1 && waehleHinweis(H6, H1) === H6, 'gleicher Rang: der zuerst übergebene');
   ok(waehleHinweis(null, undefined) === null && waehleHinweis() === null, 'kein Hinweis → null');
+}
+
+// ── datalink-kern: Abruf, @-Form, Klick, Weiter/Zurück, ohne Treffer (Spec 7.4, 7.3 A6/A10/A11; 9.3 Nr. 11, 12, 20, 21) ──
+{
+  const fuenf = tsvListe([NEU, ADA, GRACE, ALAN, HEDY]);
+  const frei = kernMit(fuenf, null);
+
+  // Nr. 11: Nummer, Schlüssel, Label exakt, Teilstring — danach hält der Titler den Schlüssel.
+  ok(rufeAb(frei, '3').zustand.aktiv === 's-2', 'Nr. 11: „3“ → Nummer 3 (Grace)');
+  ok(rufeAb(frei, 'S-4').zustand.aktiv === 's-4', 'Nr. 11: Schlüssel exakt, ohne Groß-/Kleinschreibung');
+  ok(rufeAb(frei, '  alan ').zustand.aktiv === 's-3', 'Nr. 11: Label exakt (getrimmt, ohne Groß-/Kleinschreibung)');
+  ok(rufeAb(frei, 'ra').zustand.aktiv === 's-2', 'Nr. 11: Label als Teilstring, erster Treffer');
+  const vorrang: DataEntry[] = [
+    { key: 'k-1', label: 'Beta', datei: 'a.csv', vars: {} },
+    { key: 'beta', label: 'Gamma', datei: 'a.csv', vars: {} },
+    { key: 'k-3', label: 'Anabel', datei: 'a.csv', vars: {} },
+    { key: 'k-4', label: 'Ana', datei: 'a.csv', vars: {} },
+  ];
+  ok(rufeAb(kernMit(vorrang, null), 'BETA').zustand.aktiv === 'beta', 'Reihenfolge: Schlüssel vor Label');
+  ok(rufeAb(kernMit(vorrang, null), 'ana').zustand.aktiv === 'k-4', 'Reihenfolge: Label exakt vor Teilstring');
+  const gehalten = neueListe(kernMit(fuenf, 's-3', true), tsvListe([NEU, ADA]), GLEICH).zustand;
+  const a6 = rufeAb(setzeSendung(gehalten, false, 0).zustand, '2');
+  ok(
+    a6.zustand.aktiv === 's-1' && a6.zustand.gehalten === null && a6.zustand.hinweis === null && a6.zustand.wegAbMs === null && a6.log.length === 0,
+    'A6: Abruf mit Treffer → gewählter Eintrag; gehalten, Hinweis und Frist weg',
+  );
+
+  // Nr. 12: Weiter und Zurück.
+  ok(schritt(frei, 1).zustand.aktiv === 's-5' && schritt(frei, -1).zustand.aktiv === 's-5', 'Nr. 12: Weiter und Zurück ohne aktiven Eintrag → Eintrag 1');
+  ok(schritt(gehalten, 1).zustand.aktiv === 's-5' && schritt(gehalten, 1).zustand.gehalten === null, 'Nr. 12: … auch bei gehaltenem Eintrag (wirkt wie A6)');
+  ok(schritt(kernMit(fuenf, 's-2'), 1).zustand.aktiv === 's-3' && schritt(kernMit(fuenf, 's-2'), -1).zustand.aktiv === 's-1', 'Weiter/Zurück von der Stelle des aktiven Eintrags');
+  ok(schritt(kernMit(fuenf, 's-4'), 1).zustand.aktiv === 's-4' && schritt(kernMit(fuenf, 's-5'), -1).zustand.aktiv === 's-5', 'Weiter/Zurück begrenzt auf die Liste, kein Umlauf');
+  const leer = kernMit([], null);
+  ok(schritt(leer, 1).zustand === leer, 'Weiter bei leerer Liste → unverändert');
+
+  // Nr. 20: Abruf ohne Treffer (unbekannter Name, Nummer 7 bei 5 Einträgen).
+  for (const ref of ['Niemand', '7']) {
+    const aus = rufeAb(kernMit(fuenf, 's-3', false), ref);
+    ok(
+      aus.zustand.aktiv === null && aus.zustand.gehalten === null && JSON.stringify(aus.zustand.hinweis) === JSON.stringify({ art: 'H5', ref }),
+      `Nr. 20: „${ref}“ ohne Sendung → kein aktiver Eintrag, H5 (A11)`,
+    );
+    ok(aus.log.length === 1 && aus.log[0] === `DataLink: Abruf „${ref}“ ohne Treffer, kein aktiver Eintrag.`, `Nr. 20: „${ref}“ … Logzeile A11`);
+    const auf = rufeAb(kernMit(fuenf, 's-3', true), ref);
+    ok(
+      auf.zustand.aktiv === null && auf.zustand.gehalten?.label === 'Alan' && auf.zustand.gehalten.grund === 'A10' && auf.zustand.gehalten.ref === ref,
+      `Nr. 20: „${ref}“ auf Sendung → Alan gehalten, grund A10 (A10)`,
+    );
+    ok(JSON.stringify(auf.zustand.hinweis) === JSON.stringify({ art: 'H6', ref, label: 'Alan' }), `Nr. 20: „${ref}“ … Hinweis H6`);
+    ok(kernSicht(auf.zustand).variables.name === 'Alan' && kernSicht(auf.zustand).activeIndex === -1, `Nr. 20: „${ref}“ … Variablen eingefroren, nichts markiert`);
+    ok(auf.log[0] === `DataLink: Abruf „${ref}“ ohne Treffer, auf Sendung gehalten.`, `Nr. 20: „${ref}“ … Logzeile A10`);
+  }
+  const leerAus = rufeAb(kernMit([], null, false), '1');
+  ok(JSON.stringify(leerAus.zustand.hinweis) === '{"art":"H5","ref":"1"}' && leerAus.zustand.aktiv === null, 'Nr. 20: leere Liste, ohne Sendung → H5');
+  const leerAuf = rufeAb(kernMit([], null, true), 'Alan');
+  ok(leerAuf.zustand.gehalten === null && leerAuf.zustand.hinweis?.art === 'H5', 'Nr. 20: leere Liste auf Sendung, vorher kein Eintrag → H5, nichts gehalten');
+  ok(leerAuf.log[0] === 'DataLink: Abruf „Alan“ ohne Treffer, kein aktiver Eintrag.', 'Nr. 20: … Logzeile „kein aktiver Eintrag“');
+  const vonGehalten = rufeAb(gehalten, 'Niemand');
+  ok(vonGehalten.zustand.gehalten?.label === 'Alan' && vonGehalten.zustand.gehalten.grund === 'A10' && vonGehalten.zustand.hinweis?.art === 'H6', 'Nr. 20: ein gehaltener Eintrag bleibt bei A10 gehalten, jetzt mit grund A10 und H6');
+  const h6 = rufeAb(kernMit(fuenf, 's-3', true), 'Niemand').zustand;
+  const wieder = rufeAb(h6, 'Grace');
+  ok(wieder.zustand.aktiv === 's-2' && wieder.zustand.hinweis === null && wieder.zustand.gehalten === null, 'Nr. 20: danach ein Abruf mit Treffer → Hinweis weg');
+  const ende = setzeSendung(h6, false, 10_000).zustand;
+  const h5 = uhrTick(ende, 11_000);
+  ok(h5.zustand.gehalten === null && JSON.stringify(h5.zustand.hinweis) === '{"art":"H5","ref":"Niemand"}' && h5.log.length === 0, 'Nr. 20: H6 → H5 nach Ende der Sendung + 1 s, ohne Logzeile');
+  const h6NeueListe = neueListe(h6, fuenf, GLEICH).zustand;
+  ok(h6NeueListe.aktiv === null && h6NeueListe.gehalten?.grund === 'A10', 'A10: beim Neueinlesen nie wieder aktiv, auch wenn der Schlüssel in der Liste steht (nach rufeAb)');
+
+  // Nr. 21: @-Form.
+  ok(rufeAb(frei, '@s-3 Alan').zustand.aktiv === 's-3', 'Nr. 21: @-Form, die Kennung trifft');
+  ok(rufeAb(frei, '@S-3').zustand.aktiv === 's-3', 'Nr. 21: @-Form ohne Namen, ohne Groß-/Kleinschreibung');
+  ok(rufeAb(frei, '@x-404   alan ').zustand.aktiv === 's-3', 'Nr. 21: Kennung fehlt, Name genau gleich → trifft');
+  const teil = rufeAb(kernMit(fuenf, 's-1', false), '@x-404 Ala');
+  ok(teil.zustand.aktiv === null && JSON.stringify(teil.zustand.hinweis) === '{"art":"H5","ref":"Ala"}', 'Nr. 21: Name nur als Teilstring → kein Treffer (A11), ⟨ref⟩ ist der Name');
+  const teilAuf = rufeAb(kernMit(fuenf, 's-1', true), '@x-404 Ala');
+  ok(teilAuf.zustand.gehalten?.label === 'Ada' && JSON.stringify(teilAuf.zustand.hinweis) === '{"art":"H6","ref":"Ala","label":"Ada"}', 'Nr. 21: … auf Sendung A10 mit H6');
+  ok(JSON.stringify(rufeAb(frei, '@x-404').zustand.hinweis) === '{"art":"H5","ref":"x-404"}', 'Nr. 21: ohne Namen ist ⟨ref⟩ die Kennung');
+  const zwanzig: DataEntry[] = Array.from({ length: 20 }, (_v, i) => ({ key: i === 2 ? '17' : `k${i + 1}`, label: `Person ${i + 1}`, datei: 'liste.csv', vars: {} }));
+  ok(rufeAb(kernMit(zwanzig, null), '@17').zustand.aktiv === '17', 'Nr. 21: @17 trifft den Schlüssel „17“');
+  ok(rufeAb(kernMit(zwanzig, null), '17').zustand.aktiv === 'k17', 'Nr. 21: 17 trifft die Nummer 17');
+  ok(rufeAb(frei, '@').zustand === frei, '„@“ allein bleibt wirkungslos');
+  ok(JSON.stringify(rufeAb(frei, '0').zustand.hinweis) === '{"art":"H5","ref":"0"}', 'Nummer 0 → ohne Treffer');
+
+  // Klick über den Schlüssel.
+  ok(rufeSchluesselAb(frei, 's-4').zustand.aktiv === 's-4', 'Klick: der Schlüssel trifft');
+  ok(rufeSchluesselAb(frei, 'S-4').zustand.aktiv === null, 'Klick: nur der Schlüssel exakt');
+  const klick = rufeSchluesselAb(kernMit(fuenf, 's-1', false), 'ersatz:speakers.tsv|Weg');
+  ok(klick.zustand.aktiv === null && JSON.stringify(klick.zustand.hinweis) === '{"art":"H5","ref":"ersatz:speakers.tsv|Weg"}', 'Ein Schlüssel nicht in der Liste → H5 mit dem Schlüssel');
+  const klickAuf = rufeSchluesselAb(kernMit(fuenf, 's-1', true), 'ersatz:speakers.tsv|Weg');
+  ok(klickAuf.zustand.gehalten?.label === 'Ada' && klickAuf.zustand.hinweis?.art === 'H6', '… auf Sendung H6, Ada gehalten');
+  ok(rufeSchluesselAb(frei, '').zustand === frei, 'Klick mit leerem Schlüssel → unverändert');
+
+  // Leerer ref.
+  const vorher = kernMit(fuenf, 's-2', true);
+  ok(rufeAb(vorher, '').zustand === vorher && rufeAb(vorher, '   ').zustand === vorher && rufeAb(vorher, '').log.length === 0, 'Leerer ref → Zustand unverändert');
+
+  // Review Focus 5: zwei Speaker gleichen Namens mit verschiedenen Kennungen.
+  const ana = tsvListe([{ id: 's-7', name: 'Ana Silva', title: 'Presse' }, { id: 's-9', name: 'Ana Silva', title: 'Technik' }, ADA]);
+  const zAna = kernMit(ana, null);
+  ok(rufeAb(zAna, '@s-9 Ana Silva').zustand.aktiv === 's-9', 'Review 5: @s-9 Ana Silva trifft genau s-9');
+  ok(rufeAb(zAna, 'Ana Silva').zustand.aktiv === 's-7', 'Review 5: der reine Name trifft die erste, s-7');
+  const s9 = setzeSendung(rufeAb(zAna, '@s-9 Ana Silva').zustand, true, 0).zustand;
+  const weg = neueListe(s9, tsvListe([{ id: 's-7', name: 'Ana Silva', title: 'Presse' }, ADA]), GLEICH);
+  ok(weg.zustand.gehalten?.key === 's-9' && weg.zustand.aktiv === null && weg.zustand.hinweis?.art === 'H1', 'Review 5: s-9 verschwindet auf Sendung → gehalten (A2)');
+  ok(kernSicht(weg.zustand).variables.funktion === 'Technik' && !weg.log.some((l) => l.includes('Schlüssel wechselt')), 'Review 5: … keine Brücke auf s-7, gezeichnet bleibt s-9');
 }
 
 if (failed > 0) {

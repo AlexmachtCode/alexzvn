@@ -376,3 +376,87 @@ export function companionWerte(z: KernZustand): { entry: string; entryIndex: num
     entryCount: z.eintraege.length,
   };
 }
+
+// ── Abruf (Spec 7.4; 7.3 A6, A10, A11) ───────────────────────────────────────────────────────
+
+/** A6: Der gewählte Eintrag wird aktiv. Gehaltener Eintrag, Hinweis und Frist entfallen. */
+function waehle(z: KernZustand, stelle: number): KernSchritt {
+  return { zustand: { ...z, aktiv: z.eintraege[stelle].key, gehalten: null, hinweis: null, wegAbMs: null }, log: [] };
+}
+
+/**
+ * Abruf ohne Treffer (A10, A11). Der alte Eintrag bleibt nie still aktiv.
+ * - Auf Sendung (A10): Der bisher aktive oder gehaltene Eintrag wird mit seinen Variablen gehalten, H6.
+ *   Gab es keinen, bleibt es ohne Eintrag, H5.
+ * - Ohne Sendung (A11): kein aktiver und kein gehaltener Eintrag, H5.
+ */
+function ohneTreffer(z: KernZustand, ref: string): KernSchritt {
+  const stelle = stelleVon(z.eintraege, z.aktiv);
+  const e = stelle >= 0 ? z.eintraege[stelle] : null;
+  const bisher: Gehalten | null = e
+    ? { key: e.key, label: e.label, datei: e.datei, vars: e.vars, grund: 'A10', ref }
+    : z.gehalten
+      ? { ...z.gehalten, grund: 'A10', ref }
+      : null;
+  if (z.aufSendung && bisher) {
+    return {
+      zustand: { ...z, aktiv: null, gehalten: bisher, hinweis: { art: 'H6', ref, label: bisher.label }, wegAbMs: null },
+      log: [`DataLink: Abruf „${ref}“ ohne Treffer, auf Sendung gehalten.`],
+    };
+  }
+  return {
+    zustand: { ...z, aktiv: null, gehalten: null, hinweis: { art: 'H5', ref }, wegAbMs: null },
+    log: [`DataLink: Abruf „${ref}“ ohne Treffer, kein aktiver Eintrag.`],
+  };
+}
+
+/**
+ * Eintrag abrufen (Spec 7.4) — Companion, Steuerprotokoll, Rundown. Danach hält der Titler den
+ * Schlüssel, nicht die Nummer. Ein leerer `ref` bleibt wirkungslos.
+ * - `@⟨Kennung⟩ ⟨Name⟩`: Schlüssel exakt (ohne Groß-/Kleinschreibung), sonst ein Label genau gleich
+ *   dem Namen. Kein Teilstring. ⟨ref⟩ in H5/H6 ist der Name, ohne Namen die Kennung.
+ * - nur Ziffern: Nummer (1-basiert), außerhalb der Liste = ohne Treffer
+ * - sonst: Schlüssel exakt (ohne Groß-/Kleinschreibung), Label exakt, Label als Teilstring
+ */
+export function rufeAb(z: KernZustand, ref: string): KernSchritt {
+  const t = (ref ?? '').trim();
+  if (!t) return { zustand: z, log: [] };
+  const liste = z.eintraege;
+  if (t.startsWith('@')) {
+    const [kennung = '', ...rest] = t.slice(1).trim().split(/\s+/);
+    if (!kennung) return { zustand: z, log: [] };
+    const name = rest.join(' ');
+    let stelle = liste.findIndex((e) => e.key.toLowerCase() === kennung.toLowerCase());
+    if (stelle < 0 && name) stelle = liste.findIndex((e) => normLabel(e.label) === normLabel(name));
+    return stelle >= 0 ? waehle(z, stelle) : ohneTreffer(z, name || kennung);
+  }
+  if (/^\d+$/.test(t)) {
+    const stelle = Number(t) - 1;
+    return stelle >= 0 && stelle < liste.length ? waehle(z, stelle) : ohneTreffer(z, t);
+  }
+  const lc = t.toLowerCase();
+  const gesucht = normLabel(t);
+  let stelle = liste.findIndex((e) => e.key.toLowerCase() === lc);
+  if (stelle < 0) stelle = liste.findIndex((e) => normLabel(e.label) === gesucht);
+  if (stelle < 0) stelle = liste.findIndex((e) => normLabel(e.label).includes(gesucht));
+  return stelle >= 0 ? waehle(z, stelle) : ohneTreffer(z, t);
+}
+
+/** Klick in Liste oder Board (IPC `titler:recallSchluessel`): nur der Schlüssel, exakt. */
+export function rufeSchluesselAb(z: KernZustand, key: string): KernSchritt {
+  if (!key) return { zustand: z, log: [] };
+  const stelle = stelleVon(z.eintraege, key);
+  return stelle >= 0 ? waehle(z, stelle) : ohneTreffer(z, key);
+}
+
+/**
+ * Weiter (+1) / Zurück (−1) von der Stelle des aktiven Eintrags, begrenzt auf die Liste (kein Umlauf).
+ * Ohne aktiven Eintrag, auch bei einem gehaltenen, gilt Eintrag 1. Leere Liste → unverändert.
+ */
+export function schritt(z: KernZustand, delta: number): KernSchritt {
+  const n = z.eintraege.length;
+  if (!n) return { zustand: z, log: [] };
+  const stelle = stelleVon(z.eintraege, z.aktiv);
+  const d = Number.isFinite(delta) ? Math.trunc(delta) : 0;
+  return waehle(z, stelle < 0 ? 0 : Math.min(n - 1, Math.max(0, stelle + d)));
+}
