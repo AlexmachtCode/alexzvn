@@ -491,7 +491,7 @@ function ohneTreffer(z: KernZustand, ref: string): KernSchritt {
 /**
  * Eintrag abrufen (Spec 7.4) — Companion, Steuerprotokoll, Rundown. Danach hält der Titler den
  * Schlüssel, nicht die Nummer. Ein leerer `ref` bleibt wirkungslos.
- * - `@⟨Kennung⟩ ⟨Name⟩`: Schlüssel exakt (ohne Groß-/Kleinschreibung), sonst ein Label genau gleich
+ * - `@⟨Kennung⟩ ⟨Name⟩`: Kennung exakt (ohne Groß-/Kleinschreibung; nie ein Ersatz-Schlüssel), sonst ein Label genau gleich
  *   dem Namen. Kein Teilstring. ⟨ref⟩ in H5/H6 ist der Name, ohne Namen die Kennung.
  * - nur Ziffern: Nummer (1-basiert), außerhalb der Liste = ohne Treffer
  * - sonst: Schlüssel exakt (ohne Groß-/Kleinschreibung), Label exakt, Label als Teilstring
@@ -504,7 +504,8 @@ export function rufeAb(z: KernZustand, ref: string): KernSchritt {
     const [kennung = '', ...rest] = t.slice(1).trim().split(/\s+/);
     if (!kennung) return { zustand: z, log: [] };
     const name = rest.join(' ');
-    let stelle = liste.findIndex((e) => e.key.toLowerCase() === kennung.toLowerCase());
+    // Nur echte Kennungen (Spalte @kennung), nie Ersatz-Schlüssel (Vor-Release V3).
+    let stelle = liste.findIndex((e) => !istErsatzSchluessel(e.key) && e.key.toLowerCase() === kennung.toLowerCase());
     if (stelle < 0 && name) stelle = liste.findIndex((e) => normLabel(e.label) === normLabel(name));
     return stelle >= 0 ? waehle(z, stelle) : ohneTreffer(z, name || kennung);
   }

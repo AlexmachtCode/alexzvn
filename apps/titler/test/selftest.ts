@@ -571,6 +571,19 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(rufeAb(kernMit(zwanzig, null), '@17').zustand.aktiv === '17', 'Nr. 21: @17 trifft den Schlüssel „17“');
   ok(rufeAb(kernMit(zwanzig, null), '17').zustand.aktiv === 'k17', 'Nr. 21: 17 trifft die Nummer 17');
   ok(rufeAb(frei, '@').zustand === frei, '„@“ allein bleibt wirkungslos');
+  // Vor-Release V3: Die @-Form vergleicht nur echte Kennungen (Spalte @kennung), nie Ersatz-Schlüssel.
+  const gastKv = parseKvDatei('name=Gast\n', 'gast.txt');
+  const mitErsatz: DataEntry[] = [...fuenf, ...(gastKv ? [gastKv] : []), ...parseTable('@kennung,name\n,Hopper\n', 'gaeste.csv')];
+  ok(mitErsatz[5]?.key === 'ersatz:gast.txt' && mitErsatz[6]?.key === 'ersatz:gaeste.csv|Hopper','Vor-Release V3: Liste mit zwei Ersatz-Schlüsseln');
+  const v3 = rufeAb(kernMit(mitErsatz, null), '@ersatz:gast.txt');
+  ok(
+    v3.zustand.aktiv === null && JSON.stringify(v3.zustand.hinweis) === '{"art":"H5","ref":"ersatz:gast.txt"}',
+    'Vor-Release V3: @ersatz:gast.txt trifft den Ersatz-Schlüssel nicht → ohne Treffer (A11)',
+  );
+  ok(rufeAb(kernMit(mitErsatz, null), '@ERSATZ:GAST.TXT').zustand.aktiv === null, 'Vor-Release V3: … auch nicht in anderer Schreibweise');
+  ok(rufeAb(kernMit(mitErsatz, null), '@ersatz:gaeste.csv|Hopper').zustand.aktiv === null, 'Vor-Release V3: … auch nicht der einer CSV-Zeile');
+  ok(rufeAb(kernMit(mitErsatz, null), '@ersatz:gast.txt Gast').zustand.aktiv === 'ersatz:gast.txt', 'Vor-Release V3: der Name trifft weiter über das Label');
+  ok(rufeAb(kernMit(mitErsatz, null), '@s-4').zustand.aktiv === 's-4', 'Vor-Release V3: eine echte Kennung trifft weiter');
   ok(JSON.stringify(rufeAb(frei, '0').zustand.hinweis) === '{"art":"H5","ref":"0"}', 'Nummer 0 → ohne Treffer');
 
   // Klick über den Schlüssel.
