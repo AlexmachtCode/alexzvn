@@ -858,12 +858,13 @@ Dreimal direkt nacheinander, ohne in iveo etwas zu ändern. Der erste Abruf legt
 ```powershell
 Get-Date -Format HH:mm; m ids $ids1; m ids; m ids
 ```
-Erwartet je Aufruf sechs Zeilen, beim ersten zusätzlich `Kennungen abgelegt: <n>`:
+Erwartet je Aufruf sieben Zeilen, beim ersten zusätzlich `Kennungen abgelegt: <n>` (Fix-Runde 1 von B1: Speaker ohne Kennung zählen nur unter `Ohne Kennung`, nicht in Formen, Doppelten oder Hashes):
 ```
 Anzahl: <n>
 Formen: uuid <n>, ziffern <n>, andere <n>
 Mit Leerraum: <n>
 Doppelte: <n>
+Ohne Kennung: <n>
 mengenHash: <16 Hex>
 reihenfolgeHash: <16 Hex>
 ```
@@ -936,9 +937,10 @@ Auswertung:
    nurApi: 0
    nurCache: 0
    gleich: ja
+   Ohne Kennung: API 0, Cache 0
    ```
 
-Auswertung: `gleich: ja` → der Cache passt. Steht `gleich: nein`, beide Punkte genau einmal wiederholen (erneut „Ablauf übernehmen“, dann sofort `m cache …`). Zwischen Binden und Abruf liegt so kaum Zeit, in der jemand in iveo Speaker anlegt oder löscht. Bleibt es bei `gleich: nein`, gilt der Cache-Abgleich als nicht bestanden.
+Auswertung: `gleich: ja` → der Cache passt. Verglichen werden nur echte Kennungen; die Zeile `Ohne Kennung` zählt Speaker ohne Kennung je Seite. Steht `gleich: nein`, beide Punkte genau einmal wiederholen (erneut „Ablauf übernehmen“, dann sofort `m cache …`). Zwischen Binden und Abruf liegt so kaum Zeit, in der jemand in iveo Speaker anlegt oder löscht. Bleibt es bei `gleich: nein`, gilt der Cache-Abgleich als nicht bestanden.
 
 - [ ] **Step 7: M1 (a), zweiter Abruf und Mengenvergleich** (Owner, mindestens 10 min nach Step 2)
 
@@ -965,11 +967,11 @@ Remove-Item Env:JMPS_IVEO_TOKEN
 Auswertung durch den Agenten:
 - **Menge gleich**, wenn `vergleiche` `gleich: ja` ergab. Oder wenn `nurZweite` genau der Zahl der angelegten und `nurErste` genau der Zahl der gelöschten Speaker entspricht. Dann erklären die Änderungen in iveo den Unterschied, und keine Kennung hat gewechselt. Passt das nicht oder ist es „nicht feststellbar“, ist die Menge **nicht gleich** (instabil).
 - **M1 (a) = ja**, wenn
-  - `Doppelte: 0` in beiden Abrufen steht,
+  - `Doppelte: 0` und `Ohne Kennung: 0` in beiden Abrufen stehen,
   - die Menge gleich ist (Regel oben) und
-  - Step 6 `gleich: ja` ergab.
+  - Step 6 `gleich: ja` und `Ohne Kennung: API 0, Cache 0` ergab.
 
-  Sonst **nein**: Das ist „Instabil oder doppelt“ aus Spec 23.
+  Sonst **nein**: Das ist „Instabil oder doppelt“ aus Spec 23; ein Speaker ohne Kennung hat keine eindeutige Kennung.
 - **Leerraum ist kein Grund für „nein“.** `Mit Leerraum` und die Formen werden nur notiert. Spec 5.1 kürzt Leerraum am Rand. Eine Kennung mit Leerraum in der Mitte sendet der Rundown in der Namensform (Spec 8.3). Reine Ziffern sind kein Hindernis (Spec 23).
 - **M1 = ja**, wenn M1 (a) = ja und M1 (b) = ja oder offen. Sonst **M1 = nein**.
 
@@ -989,7 +991,7 @@ Gemessen vom Owner am Prod-Event `«Event-Slug»` mit `packages/iveo/tools/messu
 
 | # | Messwert | Antwort | Folge |
 | --- | --- | --- | --- |
-| M1 (a) | `ids` um «Uhrzeit Step 2» und «Uhrzeit Step 7»: Anzahl «n» / «n»; Formen uuid «n», ziffern «n», andere «n»; mit Leerraum «n» / «n» (nur notiert, 5.1/8.3); Doppelte «n» / «n». `vergleiche`: nurErste «n», nurZweite «n»; laut Owner dazwischen angelegt «n», gelöscht «n» bzw. «nicht feststellbar». `cache` nach dem Binden: nurApi «n», nurCache «n», gleich: «ja/nein» («einmal/zweimal» gemessen) | «ja/nein» | siehe M1 |
+| M1 (a) | `ids` um «Uhrzeit Step 2» und «Uhrzeit Step 7»: Anzahl «n» / «n»; Formen uuid «n», ziffern «n», andere «n»; mit Leerraum «n» / «n» (nur notiert, 5.1/8.3); Doppelte «n» / «n»; ohne Kennung «n» / «n». `vergleiche`: nurErste «n», nurZweite «n»; laut Owner dazwischen angelegt «n», gelöscht «n» bzw. «nicht feststellbar». `cache` nach dem Binden: nurApi «n», nurCache «n», gleich: «ja/nein», ohne Kennung API «n», Cache «n» («einmal/zweimal» gemessen) | «ja/nein» | siehe M1 |
 | M1 (b) | Test-Speaker: `id` vor und nach dem Bearbeiten gleich: «ja/nein/offen, kein Test-Speaker» | «ja/nein/offen» | siehe M1 |
 | M1 | (a) und (b) zusammen | «ja/nein» | ja: B4 Zweig A, der Mapper setzt `id`; B5 `ANA` mit `id: 'sp1'`. nein: B4 Zweig B, der Mapper lässt `id` weg; B5 `ANA` ohne `id` |
 | M2 (a) | `programme-seit` ab «t0» nach dem Verknüpfen am Test-Side-Event: Anzahl «n», Programm dabei: «ja/nein» | «ja/nein» | Information für FA5 |
