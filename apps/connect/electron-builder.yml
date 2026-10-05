@@ -10,6 +10,10 @@ directories:
 files:
   - out/**/*
   - package.json
+  # Zweite Absicherung (Spec Stage 4, 5.1 und Ergänzung 0.18): @jm/zoom-bridge steht nur
+  # in den devDependencies und wird gebündelt - sein Paketordner (build/, release/ mit dem
+  # KOMPLETT-ZIP) gehört nie in die app.asar.
+  - "!**/node_modules/@jm/zoom-bridge/**"
 
 extraResources:
   - from: resources
@@ -18,6 +22,11 @@ extraResources:
       - "**/*"
 
 asar: true
+
+# Wächter 2 (Spec Stage 4, 10.3): läuft, wenn release/win-unpacked steht, und vor dem
+# NSIS-Installer. Bricht ab bei einer Zoom-SDK-Datei im Ordner oder IN der app.asar und
+# unter Windows, wenn resources/zoom-bridge/zoom-bridge.exe fehlt.
+afterPack: tools/after-pack.cjs
 
 # NDI wird LOKAL auf Windows gebaut (NDI-SDK nicht in CI verfügbar; der
 # suite-release-Workflow überspringt dieses Tool — Tag-Präfix `connect-v`). electron ist
