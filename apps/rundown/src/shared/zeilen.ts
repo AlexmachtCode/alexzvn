@@ -1,6 +1,7 @@
 // Kleine reine Helfer rund um Zeilen und Sprung-Aktionen (Spec 4.4, 5.2, 6.2),
 // die Main und Renderer gleich brauchen. Ohne Laufzeit-Importe (G2): die
 // Auflösung des Sprungs (`loeseSprungZiel` aus sprung.ts) wird übergeben.
+import type { ShowIveoSpeaker } from '@jm/show';
 import type { SprungErgebnis } from './sprung';
 import type { RundownAction, RundownDoc, RundownRow } from './types';
 
@@ -47,6 +48,131 @@ export function sendeArgs(
 /** Titel des Sprung-Ziels für Hinweis und Log; ohne Zeile „Punkt <args[0]>“. */
 export function sprungZielTitel(rows: RundownRow[], a: RundownAction): string {
   return rows.find((r) => r.id === a.zielId)?.label ?? `Punkt ${String(a.args[0] ?? '?')}`;
+}
+
+// ── Speaker-Abruf über die Kennung (Master-Link 2b, Spec 8.1–8.4) ───────────────
+
+/** `titler recall` — die einzige Aktion, die eine Speaker-Kennung trägt (8.1). */
+export function istSpeakerAbruf(a: RundownAction): boolean {
+  return a.role === 'titler' && a.verb === 'recall';
+}
+
+/**
+ * Patch auf eine Aktion anwenden (8.1); `updateAction` im Editor ruft das.
+ * Ergebnis `{ ...aktion, ...patch }`. `speakerId` entfällt, wenn
+ *  - sich Rolle oder Verb ändern,
+ *  - der Patch sie als `undefined` oder `''` trägt („— Speaker wählen —“),
+ *  - sich `args[0]` ändert, ohne dass der Patch eine `speakerId` mitbringt
+ *    (freie Eingabe: eine von Hand auf „Grace“ geänderte Aktion trägt nicht mehr Alans Kennung).
+ * Ein Schlüssel `speakerId: undefined` bleibt nie im Ergebnis stehen.
+ */
+export function aktionAendern(aktion: RundownAction, patch: Partial<RundownAction>): RundownAction {
+  const neu: RundownAction = { ...aktion, ...patch };
+  const rolleOderVerb =
+    (patch.role !== undefined && patch.role !== aktion.role) || (patch.verb !== undefined && patch.verb !== aktion.verb);
+  const geleert = 'speakerId' in patch && !patch.speakerId;
+  const nameVonHand =
+    patch.args !== undefined && !patch.speakerId && String(patch.args[0] ?? '') !== String(aktion.args[0] ?? '');
+  if (rolleOderVerb || geleert || nameVonHand || !neu.speakerId) delete neu.speakerId;
+  return neu;
+}
+
+/**
+ * Argumente eines Speaker-Abrufs zum Sendezeitpunkt (8.3); `argsZumSenden` ruft das nach
+ * der Sprung-Auflösung, also für GO, verzögerte Aktionen und den Test-Knopf.
+ *  - keine `titler recall`-Aktion oder keine `speakerId` → `args` unverändert
+ *  - der Titler versteht die `@`-Form und die Kennung hat keinen Leerraum
+ *    → `['@' + Kennung, Name]`, ohne Namen nur `['@' + Kennung]`
+ *  - sonst → `[Name, ...args.slice(1)]`
+ * Name = aktueller Name zu `speakerId` in `speakers`, ohne Treffer `args[0]`.
+ */
+export function loeseSpeakerZiel(
+  aktion: RundownAction,
+  speakers: ShowIveoSpeaker[],
+  titlerKannKennung: boolean,
+): (string | number)[] {
+  const id = aktion.speakerId;
+  if (!istSpeakerAbruf(aktion) || !id) return aktion.args;
+  const name = speakers.find((s) => s.id === id)?.name ?? String(aktion.args[0] ?? '');
+  if (titlerKannKennung && !/\s/.test(id)) return name ? [`@${id}`, name] : [`@${id}`];
+  return [name, ...aktion.args.slice(1)];
+}
+
+/**
+ * Versteht der verbundene Titler die `@`-Form (7.5, 8.3)? Nur ein verbundener Link der
+ * Rolle `titler`, dessen STATE `recall_kennung=1` meldet. Noch ohne STATE, getrennt oder
+ * ein Titler 0.9.0 ohne diesen Schlüssel → false: gesendet wird dann der Name.
+ */
+export function titlerKannKennung(
+  links: Array<{ role: string; connected: boolean; state: Record<string, string> | null }>,
+): boolean {
+  return links.some((l) => l.role === 'titler' && l.connected && l.state?.recall_kennung === '1');
+}
+
+/** Zusatz an Chip und Picker, wenn die Kennung in der Speaker-Liste fehlt (8.2, 8.4). */
+export const SPEAKER_NICHT_IN_LISTE = 'nicht in der Speaker-Liste';
+
+/**
+ * Argumente für Chip und Etikett (8.4): bei `speakerId` der aktuelle Name aus `speakers`;
+ * fehlt die Kennung dort, `<args[0]>, nicht in der Speaker-Liste`. Ohne `speakerId` oder
+ * bei einer anderen Aktion die Argumente unverändert.
+ */
+export function speakerChipArgs(aktion: RundownAction, speakers: ShowIveoSpeaker[]): (string | number)[] {
+  const id = aktion.speakerId;
+  if (!istSpeakerAbruf(aktion) || !id) return aktion.args;
+  const s = speakers.find((x) => x.id === id);
+  return s ? [s.name] : [`${String(aktion.args[0] ?? '')}, ${SPEAKER_NICHT_IN_LISTE}`];
+}
+
+/** Eine Option des Speaker-Pickers (8.2): Wert im `<select>` und sichtbarer Text. */
+export interface SpeakerOption {
+  wert: string;
+  text: string;
+}
+
+/**
+ * Optionen des Speaker-Pickers im Zeilen-Editor und die ausgewählte (8.2).
+ * Werte: `''` „— Speaker wählen —“; je Speaker `id:<Kennung>`, ohne Kennung `name:<Name>`;
+ * dazu `alt:` (alte Aktion ohne Kennung: nie stillschweigend gebunden) oder `fehlt:`
+ * (Kennung nicht in der Liste). `speakerPatch` übersetzt eine Auswahl zurück.
+ */
+export function speakerOptionen(
+  aktion: RundownAction,
+  speakers: ShowIveoSpeaker[],
+): { optionen: SpeakerOption[]; gewaehlt: string } {
+  const optionen: SpeakerOption[] = [{ wert: '', text: '— Speaker wählen —' }];
+  for (const s of speakers) {
+    optionen.push({ wert: s.id ? `id:${s.id}` : `name:${s.name}`, text: s.title ? `${s.name} — ${s.title}` : s.name });
+  }
+  const name = String(aktion.args[0] ?? '');
+  if (aktion.speakerId) {
+    if (speakers.some((s) => s.id === aktion.speakerId)) return { optionen, gewaehlt: `id:${aktion.speakerId}` };
+    optionen.push({ wert: 'fehlt:', text: `${name} · ${SPEAKER_NICHT_IN_LISTE}` });
+    return { optionen, gewaehlt: 'fehlt:' };
+  }
+  if (!name) return { optionen, gewaehlt: '' };
+  // Ein Speaker ohne Kennung lässt sich nur per Name wählen: Dann steht er selbst ausgewählt.
+  if (speakers.some((s) => !s.id && s.name === name)) return { optionen, gewaehlt: `name:${name}` };
+  optionen.push({ wert: 'alt:', text: `${name} · per Name (nicht gebunden)` });
+  return { optionen, gewaehlt: 'alt:' };
+}
+
+/**
+ * Auswahl im Speaker-Picker → Patch für `aktionAendern` (8.2); null = Aktion bleibt.
+ *  - `''`       → `{ args: [''], speakerId: undefined }` („— Speaker wählen —“)
+ *  - `id:<x>`   → `{ speakerId: x, args: [Name] }`; Kennung nicht (mehr) in der Liste → null
+ *  - `name:<n>` → `{ args: [n], speakerId: undefined }` (Speaker ohne Kennung)
+ *  - `alt:`, `fehlt:` und alles andere → null
+ */
+export function speakerPatch(wert: string, speakers: ShowIveoSpeaker[]): Partial<RundownAction> | null {
+  if (wert === '') return { args: [''], speakerId: undefined };
+  if (wert.startsWith('id:')) {
+    const id = wert.slice(3);
+    const s = speakers.find((x) => x.id === id);
+    return s ? { speakerId: id, args: [s.name] } : null;
+  }
+  if (wert.startsWith('name:')) return { args: [wert.slice(5)], speakerId: undefined };
+  return null;
 }
 
 // ── Für den Renderer: Sperren, Hinweise, Sprung-Auswahl, Duplizieren (4.5, 6.2) ──

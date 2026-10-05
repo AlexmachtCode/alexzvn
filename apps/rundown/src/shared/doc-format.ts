@@ -33,6 +33,10 @@ export function normAction(raw: unknown, neueId: NeueId): RundownAction {
     ...(delay > 0 ? { delayMs: delay } : {}),
     // Sprungziel (Spec 6.2) nur als nicht leerer String übernehmen.
     ...(typeof o.zielId === 'string' && o.zielId ? { zielId: o.zielId } : {}),
+    // Speaker-Kennung (Teil 2b, Spec 8.1) nur als String mit 1 bis 200 Zeichen.
+    ...(typeof o.speakerId === 'string' && o.speakerId.length >= 1 && o.speakerId.length <= 200
+      ? { speakerId: o.speakerId }
+      : {}),
   };
 }
 
