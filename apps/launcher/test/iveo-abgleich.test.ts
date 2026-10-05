@@ -371,12 +371,15 @@ const mitMerker = (s: Show, seit = MERKER): Show => ({ ...s, iveo: { ...s.iveo!,
     && ablaufSignatur(a, [{ id: 'k'.repeat(201), name: 'A' }]) === ablaufSignatur(a, [{ name: 'A' }]));
 }
 {
-  // 9.2 Nr. 2: Bestands-Show ohne Kennungen. Die erste schreibende Listen-Abfrage trägt sie nach, danach ist Ruhe.
+  // 9.2 Nr. 2: Bestands-Show ohne Kennungen. Nur wenn der Umwandler Kennungen liefert (MIT_KENNUNG, M1 = ja), trägt die
+  // erste schreibende Listen-Abfrage sie nach; im geltenden Zweig B gibt es keine, nichts wird geschrieben. Danach ist Ruhe.
   const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA_OHNE_ID]));
   ck('Nr. 2 (2b): Ausgangslage — Bestands-Show, Speaker ohne Kennung', datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva' && datei(u).iveo?.speakers?.[0]?.id === undefined);
   u.iveo.geaendert = [u.iveo.programme[0]];
   await u.kern.abfrage();
-  ck('Nr. 2 (2b): die erste schreibende Listen-Abfrage trägt die Kennungen nach, genau ein RELOAD-Satz (M1 = nein: es gibt keine, nichts geschrieben)',
+  ck(MIT_KENNUNG
+    ? 'Nr. 2 (2b): die erste schreibende Listen-Abfrage trägt die Kennungen nach, genau ein RELOAD-Satz'
+    : 'Nr. 2 (2b): M1 = nein — der Umwandler liefert keine Kennungen, nichts nachzutragen, nichts geschrieben, kein RELOAD',
     MIT_KENNUNG
       ? u.schreibversuche === 1 && datei(u).iveo?.speakers?.[0]?.id === 'sp1' && u.reloads.length === 3
       : u.schreibversuche === 0 && u.reloads.length === 0);

@@ -210,9 +210,10 @@ function stoerungsText(e: unknown): string {
 /**
  * Signatur eines Ablaufs samt Speakern und Merker (Spec 7.2; Teil 2b, Spec 5.3 und 6.2). Gleich = nichts zu
  * schreiben, kein RELOAD. Punkte und Speaker so, wie sie in der Datei stehen (normalizeAblauf bzw. der Normalisierer
- * der Bindung), Felder in fester Reihenfolge. Die Speaker-Kennung zählt: Eine Bestands-Show ohne Kennungen weicht
- * deshalb einmal ab, und die nächste schreibende Abfrage trägt sie nach. Der Merker „Speaker veraltet“ zählt ebenso:
- * Setzen und Löschen schreiben die Show und schicken RELOAD — nur so erfährt der Titler davon.
+ * der Bindung), Felder in fester Reihenfolge. Die Speaker-Kennung zählt: Liefert der Umwandler Kennungen (Spec 23,
+ * M1 = ja), weicht eine Bestands-Show ohne Kennungen deshalb einmal ab, und die nächste schreibende Abfrage trägt sie
+ * nach. Im geltenden Zweig B (M1 = nein) setzt er keine, dann gibt es nichts nachzutragen. Der Merker „Speaker
+ * veraltet“ zählt ebenso: Setzen und Löschen schreiben die Show und schicken RELOAD — nur so erfährt der Titler davon.
  */
 export function ablaufSignatur(ablauf: ShowAblaufItem[], speakers: ShowIveoSpeaker[], speakerVeraltetSeit?: string): string {
   const punkte = normalizeAblauf(ablauf).map((p) => [

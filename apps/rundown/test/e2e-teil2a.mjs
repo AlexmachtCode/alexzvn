@@ -189,9 +189,10 @@ function agendaAblauf(programId) {
   return agendaToAblauf(iveo.agenda[programId], { firstStartMs: localTimeOfDayMs(p), category: p.type_slug });
 }
 /**
- * Speaker der Show-Datei genau so, wie der Launcher sie schreibt (SP7, 2b-Spec 5.2): über denselben Umwandler,
- * also mit Kennung `id` (Zweig A von M1) und in derselben Reihenfolge (M3). So schreibt die erste Abfrage nach
- * dem Öffnen nicht (Abschnitte 1 und 10e), und der Titler bildet seine Schlüssel von Anfang an aus der Kennung.
+ * Speaker der Show-Datei genau so, wie der Launcher sie schreibt (SP7, 2b-Spec 5.2): über denselben Umwandler und
+ * in derselben Reihenfolge (M3). Eine Kennung `id` tragen sie nur in Zweig A von M1; im geltenden Zweig B ohne
+ * Kennung, der Titler bildet dann Ersatz-Schlüssel aus Datei und Name. So schreibt die erste Abfrage nach dem
+ * Öffnen nicht (Abschnitte 1 und 10e).
  */
 function speakerListe() {
   return speakersToShowSpeakers(iveo.speakers);

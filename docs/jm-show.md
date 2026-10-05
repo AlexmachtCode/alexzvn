@@ -228,13 +228,19 @@ Rundown 0.7.0 hält die Bauchbinde ihre Person, nicht ihre Nummer in der Liste:
 Der Titler merkt sich den abgerufenen Speaker über einen Ersatz-Schlüssel aus
 Datei und Namen. Kommt in iveo ein Speaker davor dazu oder schaltet der Launcher
 auf ein anderes Side Event um, bleibt dieselbe Person auf Sendung, und
-Korrekturen aus iveo erscheinen sofort. Die iveo-Kennung der Speaker wird laut
-Owner-Entscheidung vom 05.10.2026 noch nicht in Show, Titler und Rundown
-übernommen. Fehlt die Person in der neuen Liste, bleibt die Bauchbinde stehen,
-bis man sie ausblendet oder einen Eintrag abruft; Daten / Recall zeigt dazu
-einen Hinweis. Ein Abruf ohne Treffer lässt nie still den vorherigen Speaker
-aktiv. Der Rundown ruft Speaker über den aktuellen Namen ab; die Form
-`TITLER RECALL @⟨Kennung⟩ ⟨Name⟩` versteht der Titler bereits. Eine Show
+Korrekturen aus iveo, etwa an der Funktion, erscheinen sofort. Die iveo-Kennung
+der Speaker wird laut Owner-Entscheidung vom 05.10.2026 noch nicht in Show,
+Titler und Rundown übernommen. Der Schlüssel hängt deshalb am Namen: Ändert sich
+der Name in iveo, oder kommt bei gleichnamigen Speakern einer dazu, fällt einer
+weg oder ändert sich einer, gilt die Person als nicht mehr in der Liste. Fehlt
+die Person in der neuen Liste, bleibt die Bauchbinde stehen, bis man sie
+ausblendet oder einen Eintrag abruft; Daten / Recall zeigt dazu einen Hinweis.
+Ein Abruf ohne Treffer lässt nie still den vorherigen Speaker aktiv. Der Rundown
+ruft Speaker über den Namen ab, der bei der Auswahl im Picker stand; ändert er
+sich in iveo, meldet der Titler den Abruf als nicht in der Liste. Die Form
+`TITLER RECALL @⟨Kennung⟩ ⟨Name⟩` versteht der Titler bereits: Eine Kennung
+tragen nur Einträge eigener CSV- oder TSV-Dateien mit der Spalte `@kennung`,
+sonst zählt der Name. Eine Show
 überschreibt den eigenen DataLink-Ordner des Titlers nicht mehr; „Zurück zum
 eigenen Ordner“ in den Einstellungen führt zu ihm zurück. Ist die Speakerliste
 von iveo nicht abrufbar, behält die Show ihre Speaker; Panel und Titler sagen
