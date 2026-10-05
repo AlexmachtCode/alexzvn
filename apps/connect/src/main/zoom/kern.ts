@@ -45,6 +45,7 @@ import {
   VORSATZ,
   authMeldung,
   dllMeldung,
+  endeMeldung,
   exitCodeAus,
   failMeldung,
   fehlerDetail,
@@ -134,6 +135,7 @@ export interface ZoomKern {
   pruefen(): Promise<ZoomErgebnis>;
   beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
   erneut(): Promise<ZoomErgebnis>;
+  verlassen(): Promise<void>;
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
@@ -283,7 +285,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null },
       teilnehmer: teilnehmerAbbild(),
       soll: [],
-      abriss: null,
+      abriss: zustand === 'abriss' ? { versuch: null, versuche: 5, naechsterUm: null } : null,
       meldung: meldung ? { ...meldung } : null,
       hinweise: [...hinweise],
       erneutMoeglich: nummer !== null,
@@ -768,12 +770,43 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     setzeZustand('im_meeting');
   }
 
+  function zumWarteraum(s: 'waitingRoom' | 'waitingForHost'): void {
+    warten = s === 'waitingRoom' ? 'warteraum' : 'host';
+    setzeZustand('warteraum');
+  }
+
+  /** Spec 6.5: Meeting-Ende durch den Host (nur aktive Bridge, nicht im Abbau). */
+  function meetingEnde(code: number): void {
+    const m = endeMeldung(code, d.einstellungen.anzeigename());
+    void stoppeBridge();
+    soll.clear();
+    melde('warnung', m);
+    setzeZustand('bereit');
+  }
+
   function statusEreignis(e: StatusEreignis): void {
     const s = e.status;
     const name = d.einstellungen.anzeigename();
+    if (s === 'ended') {
+      if (zustand === 'tritt_bei' || zustand === 'warteraum' || zustand === 'im_meeting' || zustand === 'abriss') meetingEnde(e.code);
+      return;
+    }
     if (zustand === 'tritt_bei' || zustand === 'warteraum') {
-      if (s === 'inMeeting') imMeetingAngekommen();
+      if (s === 'waitingRoom' || s === 'waitingForHost') zumWarteraum(s);
+      // Gemessener Einlass aus dem Warteraum (3.2-19): kein Abriss, kein Alarm.
+      else if ((s === 'reconnecting' || s === 'connecting') && zustand === 'warteraum') setzeZustand('tritt_bei');
+      else if (s === 'inMeeting') imMeetingAngekommen();
       else if (s === 'failed') scheitert(failMeldung(VORSATZ.beitritt, e.code, name));
+      return;
+    }
+    if (zustand === 'im_meeting' || zustand === 'abriss') {
+      if (s === 'reconnecting' || s === 'connecting') {
+        if (zustand === 'im_meeting') setzeZustand('abriss');
+      } else if (s === 'inMeeting') {
+        if (zustand === 'abriss') setzeZustand('im_meeting');
+      } else if (s === 'waitingRoom' || s === 'waitingForHost') zumWarteraum(s);
+      // 4a: kein Wiederbeitritt — jedes failed im Meeting ist endgültig (L1).
+      else if (s === 'failed') scheitert(failMeldung(VORSATZ.verbindung, e.code, name));
     }
   }
 
@@ -796,12 +829,39 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       melde('warnung', { text: KT.Q12(name), detail: fehlerDetail(e) });
       return;
     }
-    if (zustand !== 'tritt_bei' && zustand !== 'warteraum') return;
-    if (e.where === 'join' && e.code === 'joinTimeout') scheitert({ text: KT.CT, detail: fehlerDetail(e) });
-    else if (e.where === 'join' && typeof e.code === 'number') scheitert({ text: KT.CJ(name), detail: fehlerDetail(e) });
-    else if (e.where === 'exit' && e.code === 'exited') {
-      scheitert(dllMeldung(exitCodeAus(e.detail)) ?? { text: KT.CB(e.detail ?? fehlerDetail(e)), detail: fehlerDetail(e) });
+    const amBeitreten = zustand === 'tritt_bei' || zustand === 'warteraum';
+    const imMeeting = zustand === 'im_meeting' || zustand === 'abriss';
+    if (e.where === 'join' && e.code === 'joinTimeout') {
+      if (amBeitreten) scheitert({ text: KT.CT, detail: fehlerDetail(e) });
+    } else if (e.where === 'join' && typeof e.code === 'number') {
+      if (amBeitreten) scheitert({ text: KT.CJ(name), detail: fehlerDetail(e) });
+    } else if (e.where === 'meeting' && e.code === 'reconnectTimeout') {
+      if (amBeitreten) scheitert({ text: KT.CE, detail: fehlerDetail(e) });
+      // 4a: statt Wiederbeitritt (L1).
+      else if (zustand === 'abriss') scheitert({ text: VORSATZ.verbindung + KT.UE_RECONNECT, detail: fehlerDetail(e) });
+    } else if (e.where === 'exit' && e.code === 'exited') {
+      const dll = dllMeldung(exitCodeAus(e.detail));
+      const detail = e.detail ?? fehlerDetail(e);
+      // Ruling K2 (progress.md): im Beitritt gilt die Spec 6.2 Schritt 5 — CB, nicht B3-B5 (die gelten nur vor auth).
+      if (amBeitreten) scheitert({ text: KT.CB(detail), detail: fehlerDetail(e) });
+      // 4a: statt Wiederbeitritt (L1).
+      else if (imMeeting) scheitert(dll ?? { text: VORSATZ.verbindung + KT.UE_ABSTURZ(detail), detail: fehlerDetail(e) });
     }
+  }
+
+  /** Spec 6.8 „Verlassen“: Z3–Z11, ohne Fehler und ohne Alarm. */
+  async function verlassen(): Promise<void> {
+    if (!(zustand === 'startet' || zustand === 'tritt_bei' || zustand === 'warteraum' || zustand === 'im_meeting' || zustand === 'abriss')) return;
+    laufNr += 1;
+    d.log('[zoom] Meeting verlassen');
+    setzeZustand('verlaesst');
+    await stoppeBridge();
+    soll.clear();
+    nummer = null;
+    kenncode = null;
+    meldung = null;
+    warImMeeting = false;
+    setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
   }
 
   // ── Beenden (Spec 6.6) ───────────────────────────────────────────────────
@@ -824,11 +884,20 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function beenden(fristMs: number): Promise<void> {
     if (beendenVersprechen !== null) return beendenVersprechen;
     beendenVersprechen = (async () => {
+      laufNr += 1;
       kopieAbbruch?.abort();
       d.log(`[zoom] Connect wird beendet (Frist ${fristMs} ms)`);
       // Spec 6.1: richteEin bricht nach der laufenden Datei ab und löscht <ziel>.teil selbst. Ohne dieses
       // Warten endet der Prozess vorher (before-quit ruft danach app.quit()) und .teil bliebe liegen.
       if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
+      // Kopie und Bridge laufen nie gleichzeitig (Sperre S10): insgesamt höchstens fristMs.
+      if (aktiveBridge !== null) {
+        setzeZustand('verlaesst');
+        if (!(await mitFrist(stoppeBridge(), fristMs))) d.log('[zoom] Zoom-Bridge nicht rechtzeitig beendet');
+      }
+      soll.clear();
+      nummer = null;
+      kenncode = null;
       abbildGeaendert();
     })();
     return beendenVersprechen;
@@ -854,6 +923,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     pruefen,
     beitreten,
     erneut,
+    verlassen,
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),

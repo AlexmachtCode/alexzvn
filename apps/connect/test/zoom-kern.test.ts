@@ -861,6 +861,156 @@ for (const code of [63, 503, 504, 4]) {
   await p.aufraeumen();
 }
 
+// ── Aufgabe 13: Warteraum, Abriss (4a), Meeting-Ende, Verlassen, Beenden ─────
+console.log('— Warteraum und Einlass (Fall 9, 9b, 9c)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_WARTERAUM: '1' }), fristen: { joinTimeoutMs: 500 } });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Fall 9: im Warteraum (Z5a)', await bis(() => p.kern.kurz().zustand === 'warteraum') && zoomZ(p.kern.kurz()) === 'Z5a');
+  await warte(1000);
+  ck('… nach 1 s noch im Warteraum, keine Meldung', p.kern.kurz().zustand === 'warteraum' && p.kern.abbild().meldung === null);
+  ck('… STATE warteraum, alarm 0', p.kern.stateKv()?.zoom_status === 'warteraum' && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '300' }) });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Fall 9b: Einlass → im_meeting', await bis(() => p.kern.kurz().zustand === 'im_meeting'));
+  ck('… Folge warteraum → tritt_bei → im_meeting', folge(p).join(',').endsWith('warteraum,tritt_bei,im_meeting'));
+  ck('… nie abriss, zoom_alarm nie 1', !folge(p).includes('abriss') && p.kurze.every((k) => stateKvAus(k)?.zoom_alarm !== 1));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '300', FAKE_EINLASS_HAENGT: '1' }), fristen: { joinTimeoutMs: 500 } });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Fall 9c: Einlass hängt → fehler', await bis(() => p.kern.kurz().zustand === 'fehler'));
+  ck('… mit CE, erneutMoeglich', p.kern.abbild().meldung?.text === KT.CE && p.kern.abbild().erneutMoeglich);
+  await p.aufraeumen();
+}
+
+console.log('— Meeting-Ende (Fall 19, 28), Beenden (Fall 20)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_MEETING_ENDE_MS: '400' }) });
+  ck('Fall 19: im Meeting', await insMeeting(p));
+  ck('… nach dem Ende bereit mit Meldung', await bis(() => p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung !== null));
+  const a = p.kern.abbild();
+  ck('… Meldung genau „Meeting beendet: vom Gastgeber beendet.“ (warnung)', a.meldung?.text === 'Meeting beendet: vom Gastgeber beendet.' && a.meldung.art === 'warnung');
+  ck('… erneutMoeglich, Soll-Liste leer', a.erneutMoeglich && a.soll.length === 0 && a.kurz.sollOffen === 0);
+  await warte(300);
+  ck('… kein Wiederbeitritt (eine Bridge), STATE bereit/alarm 0', p.starts() === 1 && p.kern.stateKv()?.zoom_status === 'bereit' && p.kern.stateKv()?.zoom_alarm === 0);
+  p.kern.schliessen();
+  ck('… Schließen → Meldung weg, erneutMoeglich false', p.kern.abbild().meldung === null && !p.kern.abbild().erneutMoeglich);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_MEETING_ENDE_MS: '400' }) });
+  await insMeeting(p);
+  await bis(() => p.kern.abbild().meldung !== null);
+  p.kern.meldungWeg();
+  ck('Fall 28: meldungWeg nach Meeting-Ende → Meldung weg, Nummer bleibt (erneutMoeglich)', p.kern.abbild().meldung === null && p.kern.abbild().erneutMoeglich);
+  ck('… erneut() startet eine neue Bridge', ok(await p.kern.erneut()) && p.starts() === 2);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ABGANG_MS: '200' }) });
+  await insMeeting(p);
+  const t0 = Date.now();
+  await p.kern.beenden(15_000);
+  const dauer = Date.now() - t0;
+  ck('Fall 20: beenden → quit gesendet, Ende vor der Frist', cmds(p, 1).includes('quit') && dauer < 15_000 && dauer >= 150);
+  ck('… Zustand verlaesst, nichts läuft mehr', p.kern.kurz().zustand === 'verlaesst' && !p.kern.laeuft() && p.kern.kurz().quellen === 0);
+  ck('… kein „nicht rechtzeitig“ im Log', !p.logs.includes('[zoom] Zoom-Bridge nicht rechtzeitig beendet'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ skript: 'stuck', fristen: { killTimeoutMs: 300 } });
+  const lauf = p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  const t0 = Date.now();
+  await p.kern.beenden(15_000);
+  ck('Fall 20 (stuck): Ende per Kill nach killTimeoutMs', Date.now() - t0 < 2000 && p.logs.includes('[zoom] Zoom-Bridge hart beendet'));
+  ck('… der abgebrochene Beitritt liefert ok:false ohne Text', text(await lauf) === '');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ABGANG_MS: '5000' }), fristen: { killTimeoutMs: 10_000 } });
+  await insMeeting(p);
+  const t0 = Date.now();
+  await p.kern.beenden(300);
+  ck('beenden mit kurzer Frist → kehrt nach der Frist zurück, Log „nicht rechtzeitig“',
+    Date.now() - t0 < 1500 && p.logs.includes('[zoom] Zoom-Bridge nicht rechtzeitig beendet'));
+  await p.aufraeumen();
+}
+
+console.log('— Verlassen (Fall 26, Review Focus 2) und Abriss in 4a');
+{
+  const p = baueKern();
+  await insMeeting(p);
+  const vorher = p.kurze.length;
+  await p.kern.verlassen();
+  const danach = p.kurze.slice(vorher);
+  ck('Review Focus 2: Verlassen → verlaesst, dann bereit', danach.map((k) => k.zustand).join(',').startsWith('verlaesst') && p.kern.kurz().zustand === 'bereit');
+  ck('… keine Meldung, kein „Meeting beendet“, erneutMoeglich false',
+    p.kern.abbild().meldung === null && !p.logs.some((z) => z.includes('Meeting beendet')) && !p.kern.abbild().erneutMoeglich);
+  ck('… zoom_alarm blieb 0', danach.every((k) => k.zustand !== 'fehler') && p.kern.stateKv()?.zoom_alarm === 0);
+  ck('… das ended der stoppenden Bridge steht nur im Log', p.logs.some((z) => z.startsWith('[zoom] (Abbau) status ended')));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '200' }), fristen: { joinTimeoutMs: 20_000 } });
+  await insMeeting(p);
+  ck('Fall 26: Zoom verbindet neu → abriss (Z10)', await bis(() => p.kern.kurz().zustand === 'abriss') && zoomZ(p.kern.kurz()) === 'Z10');
+  ck('… Abbild abriss { versuch: null, versuche: 5, naechsterUm: null }, STATE alarm 1',
+    JSON.stringify(p.kern.abbild().abriss) === '{"versuch":null,"versuche":5,"naechsterUm":null}' && p.kern.stateKv()?.zoom_alarm === 1);
+  await p.kern.verlassen();
+  ck('… Verlassen → bereit, keine Meldung, kein fehler, alarm 0', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null
+    && !folge(p).includes('fehler') && p.kern.stateKv()?.zoom_alarm === 0);
+  ck('… Soll-Liste, Nummer und Kenncode leer', p.kern.abbild().soll.length === 0 && !p.kern.abbild().erneutMoeglich);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_VERBINDUNG_WEG_MS: '300' }) });
+  await insMeeting(p);
+  ck('4a: Verbindung weg → fehler', await bis(() => p.kern.kurz().zustand === 'fehler'));
+  ck('… „Verbindung verloren: Wiederverbinden fehlgeschlagen (Code 2).“',
+    p.kern.abbild().meldung?.text === 'Verbindung verloren: Wiederverbinden fehlgeschlagen (Code 2).');
+  ck('… vorher abriss, erneutMoeglich', folge(p).join(',').endsWith('abriss,fehler') && p.kern.abbild().erneutMoeglich);
+  await warte(300);
+  ck('… kein Wiederbeitritt in 4a (eine Bridge)', p.starts() === 1 && p.kern.kurz().zustand === 'fehler');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ABSTURZ_MS: '200' }) });
+  await insMeeting(p);
+  ck('4a: Absturz im Meeting → fehler', await bis(() => p.kern.kurz().zustand === 'fehler'));
+  const absturz = p.ereignisse.find((x) => x.ev.ev === 'error' && (x.ev as { where?: string }).where === 'exit')?.ev as { detail?: string } | undefined;
+  ck('… Text „Verbindung verloren: Die Zoom-Bridge ist abgestürzt (…). Details im Log.“',
+    absturz !== undefined && p.kern.abbild().meldung?.text === 'Verbindung verloren: ' + KT.UE_ABSTURZ(String(absturz.detail)));
+  ck('… erneutMoeglich, eine Bridge', p.kern.abbild().erneutMoeglich && p.starts() === 1);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '100' }), fristen: { joinTimeoutMs: 300 } });
+  await insMeeting(p);
+  ck('4a: Neuverbindung hängt → fehler', await bis(() => p.kern.kurz().zustand === 'fehler'));
+  const m = p.kern.abbild().meldung;
+  ck('… Text Verbindung verloren + UE_RECONNECT, detail RECONNECT_TIMEOUT', m?.text === 'Verbindung verloren: ' + KT.UE_RECONNECT
+    && m.detail === 'RECONNECT_TIMEOUT (reconnectTimeout)');
+  await warte(400);
+  ck('… das ended der stoppenden Bridge ändert nichts (kein R6, weiter fehler)',
+    p.kern.kurz().zustand === 'fehler' && p.kern.abbild().meldung?.text === 'Verbindung verloren: ' + KT.UE_RECONNECT);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  const lauf = p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await p.kern.verlassen();
+  ck('Verlassen während startet → bereit, keine Meldung', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
+  ck('… der Beitritt liefert ok:false ohne Text', text(await lauf) === '');
+  await warte(300);
+  ck('… auch danach bereit, kein join, eine Bridge', p.kern.kurz().zustand === 'bereit' && !cmds(p).includes('join') && p.starts() === 1);
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);
