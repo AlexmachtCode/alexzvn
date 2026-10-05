@@ -34,6 +34,18 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync,
 import { homedir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// Gemeinsam mit JM Connect (tools/bundle-zoom-bridge.mjs, tools/after-pack.cjs):
+// EINE Namensliste, EINE VC-Suche, EINE Frische-Pruefung (Spec Stage 4, 5.1).
+import {
+  VC_PFLICHT,
+  bridgeExeFrisch,
+  dateienUnter,
+  findeVcLaufzeit,
+  linkerFassung,
+  mindestens,
+  sdkNamen,
+  verboteneZoomDateien,
+} from './auslieferung.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = join(here, '..');
@@ -73,50 +85,6 @@ function lauf(exe, args, opts = {}) {
   return r;
 }
 
-/** Alle Dateien unter `dir`, rekursiv, als Pfade relativ zu `dir`. */
-function dateienUnter(dir) {
-  const out = [];
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) for (const q of dateienUnter(p)) out.push(join(e.name, q));
-    else out.push(e.name);
-  }
-  return out;
-}
-
-/** Neueste Aenderungszeit unter `dir` (rekursiv). */
-function neuesteAenderung(dir) {
-  let max = 0;
-  for (const f of dateienUnter(dir)) max = Math.max(max, statSync(join(dir, f)).mtimeMs);
-  return max;
-}
-
-/** Linker-Fassung einer PE-Datei (Optional Header: MajorLinkerVersion.MinorLinkerVersion). */
-function linkerFassung(datei) {
-  const b = readFileSync(datei);
-  const pe = b.readUInt32LE(0x3c);
-  if (b.toString('latin1', pe, pe + 4) !== 'PE\0\0') abbruch(`${datei} ist keine PE-Datei.`);
-  return [b[pe + 24 + 2], b[pe + 24 + 3]];
-}
-
-/** Dateifassung aus VS_FIXEDFILEINFO (Signatur 0xFEEF04BD), als [a, b, c, d]; null ohne Versionsressource. */
-function dateiFassung(datei) {
-  const b = readFileSync(datei);
-  const i = b.indexOf(Buffer.from([0xbd, 0x04, 0xef, 0xfe]));
-  if (i < 0) return null;
-  const ms = b.readUInt32LE(i + 8);
-  const ls = b.readUInt32LE(i + 12);
-  return [ms >>> 16, ms & 0xffff, ls >>> 16, ls & 0xffff];
-}
-
-/** a >= b, komponentenweise (gleich lange Zahlenlisten). */
-function mindestens(a, b) {
-  for (let i = 0; i < b.length; i++) {
-    if ((a[i] ?? 0) !== b[i]) return (a[i] ?? 0) > b[i];
-  }
-  return true;
-}
-
 /**
  * Textdatei ins Paket schreiben: Zeilenenden CRLF, wahlweise mit BOM. Die
  * Quellen werden von git je nach core.autocrlf mit LF oder CRLF ausgecheckt -
@@ -127,41 +95,6 @@ function textdatei(quelle, ziel, { bom, nurAscii = false }) {
   if (nurAscii && /[^\x00-\x7F]/.test(t)) abbruch(`${quelle} muss reines ASCII sein (cmd.exe liest in der OEM-Codepage).`);
   writeFileSync(ziel, (bom ? '\uFEFF' : '') + t, 'utf8');
 }
-
-// Die Dateinamen in <Zoom-SDK 7.1.5.43953>\x64\bin, rekursiv, ohne Doppelte -
-// fuer den Waechter, wenn ZOOM_SDK_DIR NICHT gesetzt ist. Erzeugt am
-// 01.10.2026 aus dem echten SDK (153 Dateien, 152 verschiedene Namen). Ist
-// ZOOM_SDK_DIR gesetzt, gilt stattdessen die ECHTE Liste aus dem SDK.
-const SDK_NAMEN_7_1_5 = [
-  "amd_ags_x64.dll", "annoter.dll", "aomagent.dll", "aomhost64.exe", "archival.pcm", "asproxy.dll",
-  "avcodec_zm-61.dll", "avformat_zm-61.dll", "avutil_zm-59.dll", "cares.dll", "clap-high.pcm",
-  "clap-medium.pcm", "clDNN64.dll", "cmmbiz.dll", "CmmBrowserEngine.dll", "Cmmlib.dll", "CptControl.exe",
-  "CptInstall.exe", "CptShare.dll", "CptUwpCapture.dll", "crashrpt_lang.ini", "dingdong.pcm",
-  "dingdong1.pcm", "directui_license.txt", "double_beep.pcm", "Droplet.pcm", "DuiLib.dll",
-  "duilib_license.txt", "dvf.dll", "G Arpeggio.pcm", "G Step.pcm", "Gamelan.pcm", "leave.pcm", "libcml.dll",
-  "libcrypto-3-zm.dll", "libcurl.dll", "libmagic.dll", "libmpg123.dll", "libssl-3-zm.dll",
-  "localization.xml", "mcm.dll", "mdnsclient.dll", "mdnsresponder.dll", "meeting_chat_chime.pcm",
-  "meeting_raisehand_chime.pcm", "mfAdapter.dll", "mkldnn.dll", "msaalib.dll", "mute.pcm",
-  "nanosvg_LICENSE.txt", "nydus.dll", "percussion.pcm", "percussion_pause.pcm", "Pizzicato Strings.pcm",
-  "record_start.pcm", "record_stop.pcm", "Reed Organ.pcm", "reslib.dll", "ring.pcm", "ringtone.xml",
-  "ring_spatial.pcm", "ryzen_ai_vart.dll", "sdk.dll", "sdkExt.dll", "Silent.pcm", "ssb_sdk.dll",
-  "swresample_zm-5.dll", "swscale_zm-8.dll", "tp.dll", "turbojpeg.dll", "UIBase.dll", "Ukulele G.pcm",
-  "Ukulele.pcm", "unmute.pcm", "util.dll", "Vibraphone.pcm", "viper.dll", "viperex.dll",
-  "viper_async_device.dll", "WebView2Loader.dll", "wr_ding.pcm", "XmppDll.dll", "zApp.dll", "zAppRes.dll",
-  "zAppUI.dll", "zbt.dll", "zBusinessUIComponent.dll", "zCommonChatRes.dll", "zContext.dll",
-  "zCrashReport64.dll", "zCrashReport64.exe", "zcsairhost.exe", "zcscpthost.exe", "zCSCptService.exe",
-  "zData.dll", "zEventTracker.dll", "zKBCrypto.dll", "zLang_de.dll", "zLang_es.dll", "zLang_fr.dll",
-  "zLang_id.dll", "zLang_it.dll", "zLang_jp.dll", "zLang_korean.dll", "zLang_nl.dll", "zLang_pl.dll",
-  "zLang_ptg.dll", "zLang_ru.dll", "zLang_sv.dll", "zLang_tr.dll", "zLang_vi.dll", "zLang_zh_cn.dll",
-  "zLang_zh_tw.dll", "zLooper.dll", "zlt.dll", "zmbRecord.dll", "zmbTranscode.dll", "ZMDB.dll", "zmp.dll",
-  "zMsgAppCommon.dll", "zm_conf_universal_ui.dll", "zm_conf_universal_ui_plugin.dll", "zNet.dll",
-  "zNetUtils.dll", "zoom.manifest", "zoombase_crypto_shared.dll", "ZoomDocConverter.exe", "ZoomProxy.dll",
-  "ZoomTask.dll", "ZoomTelemetry.dll", "zoom_meeting_bridge.dll", "zPSApp.dll", "zPTApp.dll", "zSDK.dll",
-  "zTelemetryBiz.dll", "zTscoder.exe", "ZUI.dll", "zUIClient.dll", "zUnifyWebViewApp.dll", "zVideoApp.dll",
-  "zVideoAppFrame.dll", "zVideoAppPlugin.dll", "zVideoUI.dll", "zVideoUIPlugin.dll", "zVideoUIPluginRes.dll",
-  "zWBUI.dll", "zWBUIRes.dll", "zWebService.dll", "zWebview2Agent.exe", "zWinRes.dll", "zzhost.dll",
-  "ZZHostIPCSDK.dll",
-];
 
 // --- 1. Vorbedingungen ---------------------------------------------------------
 if (process.platform !== 'win32') abbruch('das Einsatzpaket wird nur unter Windows gebaut.');
@@ -178,15 +111,11 @@ if (komplett) {
 // zoom-bridge.exe muss AUS DEM AKTUELLEN STAND gebaut sein. Ein Paket mit einer
 // alten .exe saehe aus wie der neue Stand und waere es nicht - eine Abnahme
 // im Projekt maesse dann etwas anderes als das, was im Repo steht.
-const bridgeExe = join(pkg, 'build', 'Release', 'zoom-bridge.exe');
-if (!existsSync(bridgeExe)) abbruch(`${bridgeExe} fehlt - erst ZOOM_SDK_DIR und NDI_SDK_DIR setzen und \`npm run rebuild -w @jm/zoom-bridge\`.`);
-const quellenStand = Math.max(neuesteAenderung(join(pkg, 'native')), statSync(join(pkg, 'CMakeLists.txt')).mtimeMs);
-if (statSync(bridgeExe).mtimeMs <= quellenStand) {
-  abbruch(
-    'build\\Release\\zoom-bridge.exe ist AELTER als eine Datei in native\\ oder CMakeLists.txt.\n' +
-      '  Erst neu bauen: ZOOM_SDK_DIR und NDI_SDK_DIR setzen, dann `npm run rebuild -w @jm/zoom-bridge`.',
-  );
-}
+// Pruefung und Texte stehen in auslieferung.mjs (bridgeExeFrisch) - JM Connect
+// prueft beim Packen genau dasselbe.
+const frisch = bridgeExeFrisch(pkg);
+if (!frisch.ok) abbruch(frisch.text);
+const bridgeExe = frisch.exe;
 
 // Die NDI-Laufzeit samt Lizenztext DANEBEN - nur ein Ordner, der beides hat.
 const ndiKandidaten = [
@@ -217,42 +146,14 @@ if (!ndiDir) abbruch(`NDI-Laufzeit mit Lizenztext nicht gefunden. Gesucht in:\n 
 //
 // Die Redist-Fassung muss MINDESTENS die Fassung des Linkers sein, der
 // zoom-bridge.exe gebaut hat (die STL ist nur rueckwaerts kompatibel).
-const VC_PFLICHT = ['msvcp140.dll', 'msvcp140_codecvt_ids.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'];
-function findeVcLaufzeit() {
-  const kandidaten = [];
-  if (process.env.VC_CRT_DIR) kandidaten.push(process.env.VC_CRT_DIR);
-  const cache = join(pkg, 'build', 'CMakeCache.txt');
-  const vsWurzeln = new Set();
-  if (existsSync(cache)) {
-    const m = /^CMAKE_GENERATOR_INSTANCE:INTERNAL=(.+)$/m.exec(readFileSync(cache, 'utf8'));
-    if (m) vsWurzeln.add(m[1].trim());
-  }
-  // Nur Ordner, und ein unlesbarer Ordner ist leer statt ein Absturz.
-  const ordnerIn = (d) => {
-    try {
-      return readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-    } catch {
-      return [];
-    }
-  };
-  for (const pf of ['C:\\Program Files (x86)\\Microsoft Visual Studio', 'C:\\Program Files\\Microsoft Visual Studio']) {
-    for (const jahr of ordnerIn(pf)) for (const ed of ordnerIn(join(pf, jahr))) vsWurzeln.add(join(pf, jahr, ed));
-  }
-  for (const w of vsWurzeln) {
-    const redist = join(w, 'VC', 'Redist', 'MSVC');
-    for (const v of ordnerIn(redist)) {
-      const x64 = join(redist, v, 'x64');
-      for (const d of ordnerIn(x64)) if (/^Microsoft\.VC\d+\.CRT$/i.test(d)) kandidaten.push(join(x64, d));
-    }
-  }
-  const brauchbar = kandidaten
-    .filter((d) => VC_PFLICHT.every((f) => existsSync(join(d, f))))
-    .map((d) => ({ dir: d, fassung: dateiFassung(join(d, 'msvcp140.dll')) ?? [0, 0, 0, 0] }))
-    .sort((a, b) => (mindestens(a.fassung, b.fassung) ? -1 : 1));
-  return { brauchbar, kandidaten };
+// VC_PFLICHT und findeVcLaufzeit stehen in auslieferung.mjs (gemeinsam mit JM Connect).
+let linker;
+try {
+  linker = linkerFassung(bridgeExe);
+} catch (e) {
+  abbruch(e.message);
 }
-const linker = linkerFassung(bridgeExe);
-const vc = findeVcLaufzeit();
+const vc = findeVcLaufzeit(pkg);
 const vcLaufzeit = vc.brauchbar[0];
 if (!vcLaufzeit) {
   abbruch(
@@ -385,17 +286,17 @@ const eigeneBin = dateienUnter(join(oeffentlich, 'bin')).length;
 // Zoom-SDK x64\bin. Gegen die ECHTE Liste, wenn ZOOM_SDK_DIR gesetzt ist -
 // sonst gegen die feste Liste oben. Verglichen ohne Gross-/Kleinschreibung,
 // weil Windows-Dateinamen sie nicht unterscheiden.
+// Liste und Vergleich stehen in auslieferung.mjs - derselbe Waechter prueft den
+// Installer von JM Connect (tools/bundle-zoom-bridge.mjs, tools/after-pack.cjs).
 const echteListe = sdkBin && existsSync(sdkBin);
-const sdkNamen = new Set(
-  (echteListe ? dateienUnter(sdkBin).map((f) => f.split(/[\\/]/).pop()) : SDK_NAMEN_7_1_5).map((n) => n.toLowerCase()),
-);
+const verbotenNamen = sdkNamen({ sdkBin });
 const oeffentlicheDateien = dateienUnter(oeffentlich);
-const verboten = oeffentlicheDateien.filter((f) => sdkNamen.has(f.split(/[\\/]/).pop().toLowerCase()));
+const verboten = verboteneZoomDateien(oeffentlich, { sdkBin });
 if (verboten.length > 0) {
   abbruch(`Zoom-SDK-Dateien im OEFFENTLICHEN Paket:\n  ${verboten.join('\n  ')}`);
 }
 schritt(
-  `Waechter: keine der ${sdkNamen.size} Zoom-SDK-Dateinamen im oeffentlichen Paket ` +
+  `Waechter: keine der ${verbotenNamen.size} Zoom-SDK-Dateinamen im oeffentlichen Paket ` +
     `(geprueft gegen ${echteListe ? `das SDK unter ${sdkBin}` : 'die feste Liste fuer 7.1.5.43953'}).`,
 );
 // start.ps1 MUSS mit BOM ausgeliefert werden (Windows PowerShell 5.1).
@@ -436,7 +337,7 @@ for (const f of readdirSync(releaseDir)) {
 zippe(zipOeffentlich, releaseDir, name);
 // Gegenprobe am fertigen ZIP: was drin steht, nicht was hineingehen sollte.
 const imZip = lauf(tar, ['-t', '-f', zipOeffentlich]).stdout.split(/\r?\n/).filter((l) => l && !l.endsWith('/'));
-const imZipVerboten = imZip.filter((p) => sdkNamen.has(p.split('/').pop().toLowerCase()));
+const imZipVerboten = imZip.filter((p) => verbotenNamen.has(p.split('/').pop().toLowerCase()));
 if (imZipVerboten.length > 0) abbruch(`Zoom-SDK-Dateien im oeffentlichen ZIP:\n  ${imZipVerboten.join('\n  ')}`);
 
 console.log(`\nOEFFENTLICH  ${zipOeffentlich}`);
