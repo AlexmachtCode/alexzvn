@@ -638,6 +638,91 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(geheiltOhne.zustand.quellHinweis?.art === 'H3', 'Review 4: … auch ohne Speaker (dann H3 statt H4)');
 }
 
+// ── B12 · show-quelle.ts: gemerkte Show (Spec 7.7) und Show sicher lesen (7.6, G10, Review Focus 4) ──
+// Importe im Block (await import), damit sich keine Namen mit den Importen aus B8–B11 überschneiden.
+{
+  const { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const sq = await import('../src/main/show-quelle');
+  const iveoShow = await import('../src/main/iveo-show');
+  const tmp = mkdtempSync(join(tmpdir(), 'jmtitler-'));
+  try {
+    // gemerkte Show: Rundreise, atomar, tolerant gelesen
+    const userData = join(tmp, 'userData');
+    const gemerkt = join(userData, 'show-zuletzt.json');
+    ok(sq.GEMERKT_DATEI === 'show-zuletzt.json', 'B12: Datei heißt show-zuletzt.json (G6)');
+    ok(sq.leseGemerkteShow(userData) === null, 'B12: ohne Datei → null');
+    const wert = { showPfad: 'C:\Shows\Tag 1.jmshow', showName: 'Tag 1', mitSpeakern: true };
+    ok(sq.schreibeGemerkteShow(userData, wert) === true, 'B12: schreiben → true, Ordner wird angelegt');
+    ok(JSON.stringify(sq.leseGemerkteShow(userData)) === JSON.stringify(wert), 'B12: Rundreise schreiben/lesen');
+    ok(JSON.stringify(readdirSync(userData)) === JSON.stringify(['show-zuletzt.json']), 'B12: nur show-zuletzt.json, keine .tmp-Datei');
+    const wert2 = { showPfad: 'D:\Gala.jmshow', showName: 'Gala', mitSpeakern: false };
+    sq.schreibeGemerkteShow(userData, wert2);
+    ok(JSON.stringify(sq.leseGemerkteShow(userData)) === JSON.stringify(wert2), 'B12: zweites Schreiben ersetzt den Stand');
+    writeFileSync(gemerkt, '{"showPfad":"C:\\Shows\\Ta');
+    ok(sq.leseGemerkteShow(userData) === null, 'B12: kaputtes JSON → null');
+    writeFileSync(gemerkt, JSON.stringify({ ...wert, mitSpeakern: 'ja' }));
+    ok(sq.leseGemerkteShow(userData) === null, "B12: mitSpeakern 'ja' → null");
+    writeFileSync(gemerkt, JSON.stringify({ ...wert, showPfad: '' }));
+    ok(sq.leseGemerkteShow(userData) === null, 'B12: leerer showPfad → null');
+    writeFileSync(gemerkt, JSON.stringify({ showPfad: wert.showPfad, mitSpeakern: true }));
+    ok(sq.leseGemerkteShow(userData) === null, 'B12: showName fehlt → null');
+    writeFileSync(gemerkt, '[1,2]');
+    ok(sq.leseGemerkteShow(userData) === null, 'B12: kein Objekt → null');
+    sq.schreibeGemerkteShow(userData, wert);
+    sq.loescheGemerkteShow(userData);
+    ok(sq.leseGemerkteShow(userData) === null && readdirSync(userData).length === 0, 'B12: loescheGemerkteShow → danach null, Datei weg');
+    sq.loescheGemerkteShow(userData);
+    ok(readdirSync(userData).length === 0, 'B12: zweimal löschen wirft nicht');
+    const userData2 = join(tmp, 'userData2');
+    mkdirSync(join(userData2, 'show-zuletzt.json'), { recursive: true });
+    ok(sq.schreibeGemerkteShow(userData2, wert) === false, 'B12: Umbenennen scheitert (Ziel ist ein Ordner) → false');
+    ok(readdirSync(userData2).every((n) => !n.endsWith('.tmp')), 'B12: gescheitertes Schreiben räumt die Zwischendatei weg');
+
+    // Show sicher lesen (Review Focus 4, G10)
+    const showPfad = join(tmp, 'Tag1.jmshow');
+    writeFileSync(
+      showPfad,
+      JSON.stringify({ schemaVersion: 1, name: 'Tag 1', tools: [], iveo: { event: 'cop31', speakers: [{ name: 'Ada Lovelace' }] } }),
+    );
+    const gut = sq.leseShowSicher(showPfad);
+    ok('show' in gut && gut.show.name === 'Tag 1', 'B12: gültige Show → show.name');
+    ok('show' in gut && gut.show.iveo?.speakers?.[0]?.name === 'Ada Lovelace', 'B12: Speaker der Show gelesen');
+    writeFileSync(showPfad, '{"schemaVersion":1,"name":"Geheimname","iveo":{"speakers":[{"name":"Ada Lo');
+    const halb = sq.leseShowSicher(showPfad);
+    ok('grund' in halb && halb.grund === 'kein gültiges JSON', 'B12: halb geschriebene Show → kein gültiges JSON');
+    ok(!JSON.stringify(halb).includes('Geheimname') && !JSON.stringify(halb).includes('Ada'), 'B12: Grund enthält keinen Dateiinhalt (G10)');
+    const fehlt = sq.leseShowSicher(join(tmp, 'fehlt.jmshow'));
+    ok('grund' in fehlt && fehlt.grund === 'ENOENT', 'B12: fehlende Datei → ENOENT');
+    const gesperrt = sq.leseShowSicher(showPfad, () => {
+      throw Object.assign(new Error('x'), { code: 'EBUSY' });
+    });
+    ok('grund' in gesperrt && gesperrt.grund === 'EBUSY', 'B12: gesperrte Datei (EBUSY) → EBUSY (Review Focus 4)');
+    const ohneCode = sq.leseShowSicher(showPfad, () => {
+      throw new Error('C:\geheim\inhalt');
+    });
+    ok('grund' in ohneCode && ohneCode.grund === 'nicht lesbar', 'B12: Fehler ohne code → nicht lesbar, ohne Fehlertext');
+    let gelesenerPfad = '';
+    const injiziert = sq.leseShowSicher(showPfad, (p) => {
+      gelesenerPfad = p;
+      return JSON.stringify({ schemaVersion: 1, name: 'Injiziert', tools: [] });
+    });
+    ok(gelesenerPfad === showPfad && 'show' in injiziert && injiziert.show.name === 'Injiziert', 'B12: injizierter Leser bekommt den Pfad');
+
+    // writeSpeakersTsv mit echtem fs (B8), Kopf aus G3
+    const dir = iveoShow.iveoDataDir(tmp);
+    ok(dir === join(tmp, 'iveo-data'), 'B12: iveoDataDir = <userData>/iveo-data');
+    ok(iveoShow.writeSpeakersTsv(dir, [{ id: 's-1', name: 'Ada Lovelace', title: 'Moderation' }, { name: 'Grace' }]) === dir, 'B12: writeSpeakersTsv legt den Ordner an und liefert ihn');
+    const zeilen = readFileSync(join(dir, 'speakers.tsv'), 'utf8').split('\n');
+    ok(zeilen[0] === 'name\tfunktion\ttitle\t@kennung', 'B12: speakers.tsv beginnt mit name\tfunktion\ttitle\t@kennung');
+    ok(zeilen[1] === 'Ada Lovelace\tModeration\tModeration\ts-1', 'B12: Kennung steht hinten');
+    ok(zeilen[2] === 'Grace\t\t\t' && zeilen[3] === '' && zeilen.length === 4, 'B12: Speaker ohne Kennung → leere Spalte, Zeilenende am Schluss');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 if (failed > 0) {
   console.error(`\n${failed} FEHLGESCHLAGEN`);
   process.exit(1);
