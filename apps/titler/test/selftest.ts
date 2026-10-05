@@ -366,6 +366,18 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   const dn8 = neueListe(maxWeg, tsvListe([{ name: 'Ada' }, CTO, CEO]), GLEICH);
   ok(dn8.zustand.aktiv === null && dn8.zustand.gehalten?.vars.funktion === 'CEO', 'Doppelte Namen: … der Name kommt doppelt zurück → bleibt gehalten, nicht der erste gleichnamige (kein A5)');
   ok(neueListe(maxWeg, einMax, GLEICH).zustand.aktiv === MAX, 'Doppelte Namen: … kommt er eindeutig zurück → wieder aktiv (A5)');
+  // Schliff F2: Ein H2 wegen eines doppelten Namens steht, obwohl das Label weiter in der Liste steht. Er endet deshalb
+  // nicht beim nächsten unveränderten Einlesen (jedes RELOAD), sondern erst, wenn der Bediener abruft (Spec 7.8).
+  const dn2b = neueListe(dn2.zustand, cfoDavor, GLEICH);
+  ok(dn2b.zustand.hinweis?.art === 'H2' && dn2b.zustand.aktiv === null, 'Schliff F2: gleichnamiger davor, A3 mit H2, unverändert neu eingelesen → H2 bleibt');
+  const dn4b = neueListe(dn4.zustand, nurCto, GLEICH);
+  ok(dn4b.zustand.hinweis?.art === 'H2' && dn4b.zustand.aktiv === null, 'Schliff F2: der erste fällt weg, A3 mit H2, unverändert neu eingelesen → H2 bleibt');
+  const dnA4 = uhrTick(setzeSendung(dn1.zustand, false, 0).zustand, HALTEN_NACH_SENDUNG_MS + 1);
+  ok(
+    dnA4.zustand.hinweis?.art === 'H2' && neueListe(dnA4.zustand, cfoDavor, GLEICH).zustand.hinweis?.art === 'H2',
+    'Schliff F2: … gehalten (A2), Sendung endet (A4) → H2, unverändert neu eingelesen → H2 bleibt',
+  );
+  ok(rufeAb(dn2b.zustand, '2').zustand.hinweis === null, 'Schliff F2: … ein Abruf des Bedieners beendet den Hinweis');
 
   // Review Task 9: Die Kern-Funktionen sind rein und verändern ihre Eingabe nicht. Tief eingefroren: Ein Schreibzugriff
   // würfe im strikten Modul einen TypeError.
