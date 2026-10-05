@@ -37,6 +37,7 @@ import type {
   ZoomMangel,
   ZoomParticipant,
   ZoomQuelle,
+  ZoomSollEintrag,
   ZoomZustand,
 } from '../../shared/types';
 import { stateKvAus, type ZoomStateKv } from '../../shared/zoom-text';
@@ -69,8 +70,8 @@ import {
   type LaufzeitPruefung,
   type SdkWahl,
 } from './laufzeit';
-import type { SollListe } from './soll';
-import { baueTeilnehmer, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
+import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from './soll';
+import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
 
 /** Spec 5.2. Für Tests einspeisbar (`fristen`); `abgleichMs` bleibt in den Fällen 14/14b bei 300. */
 export const ZOOM_FRISTEN = {
@@ -141,6 +142,7 @@ export interface ZoomKern {
   laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis>;
   entladen(e: { aboId: number }): Promise<ZoomErgebnis>;
   ton(e: { id: number; an: boolean }): ZoomErgebnis;
+  sollVerwerfen(e: { name: string }): void;
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
@@ -234,6 +236,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   const tonAngefragt = new Map<number, boolean>();
   const aboFristen = new Map<number, ReturnType<typeof setTimeout>>();
 
+  // ── Soll-Abgleich (Spec 6.3) ─────────────────────────────────────────────
+  let abgleichTimer: ReturnType<typeof setTimeout> | null = null;
+  const abmeldeWarter = new Map<number, Array<() => void>>();
+
   // ── Abbild und Drossel ───────────────────────────────────────────────────
   let letzterPush = 0;
   let pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -258,6 +264,22 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return baueTeilnehmer({ liste: [...s.participants.values()], quellen: aktiveQuellen(), tonVorwahl, zeilenFehler, gastLabels: d.gastLabels() });
   }
 
+  function sollLage(): SollLage {
+    const s = aktiveSitzung();
+    const alle = s ? [...s.participants.values()] : [];
+    const ids = new Set(alle.map((p) => p.id));
+    const abos = new Map<number, { verwaist: boolean }>();
+    for (const q of aktiveQuellen().values()) abos.set(q.aboId, { verwaist: istVerwaist(q.aboId, ids, { state: q.bild, reason: q.bildGrund }) });
+    return {
+      teilnehmer: alle.filter((p) => !p.self).map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom })),
+      abos,
+    };
+  }
+
+  function sollOffen(): ZoomSollEintrag[] {
+    return sollAbbild(soll, sollLage());
+  }
+
   function kurz(): ZoomKurz {
     const { n, k } = zaehleQuellen(quellen.values());
     return {
@@ -266,7 +288,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       erlaubnis: zustand === 'im_meeting' ? erlaubnis : null,
       quellen: n,
       ohneBild: k,
-      sollOffen: 0,
+      sollOffen: sollOffen().length,
       versuch: null,
       maengel: [...maengel],
       kopieLaeuft: kopie !== null,
@@ -291,7 +313,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       anzeigename: d.einstellungen.anzeigename(),
       versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null },
       teilnehmer: teilnehmerAbbild(),
-      soll: [],
+      soll: sollOffen(),
       abriss: zustand === 'abriss' ? { versuch: null, versuche: 5, naechsterUm: null } : null,
       meldung: meldung ? { ...meldung } : null,
       hinweise: [...hinweise],
@@ -704,6 +726,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       case 'audio':
         audioEreignis(ev as unknown as AudioEreignis);
         break;
+      case 'roster':
+      case 'joined':
+      case 'left':
+      case 'renamed':
+        abgleichPlanen();
+        break;
     }
     abbildGeaendert();
   }
@@ -789,6 +817,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     erlaubnis = 'offen';
     warImMeeting = true;
     setzeZustand('im_meeting');
+    abgleichPlanen();
   }
 
   function zumWarteraum(s: 'waitingRoom' | 'waitingForHost'): void {
@@ -824,7 +853,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       if (s === 'reconnecting' || s === 'connecting') {
         if (zustand === 'im_meeting') setzeZustand('abriss');
       } else if (s === 'inMeeting') {
-        if (zustand === 'abriss') setzeZustand('im_meeting');
+        if (zustand === 'abriss') {
+          setzeZustand('im_meeting');
+          abgleichPlanen();
+        }
       } else if (s === 'waitingRoom' || s === 'waitingForHost') zumWarteraum(s);
       // 4a: kein Wiederbeitritt — jedes failed im Meeting ist endgültig (L1).
       else if (s === 'failed') scheitert(failMeldung(VORSATZ.verbindung, e.code, name));
@@ -842,6 +874,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     } else if (e.source === 'check' && e.requested) erlaubnis = 'offen';
     if (erlaubnis === vorher) return;
     d.log(`[zoom] Aufnahme-Erlaubnis: ${erlaubnis}`);
+    if (erlaubnis === 'ja') abgleichPlanen();
   }
 
   function fehlerEreignis(e: FehlerEreignis): void {
@@ -919,6 +952,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     aboBeantwortet(e.id);
     if (e.state === 'unsubscribed') {
       quellen.delete(e.id);
+      abmeldungGesehen(e.id);
       return;
     }
     let alt = quellen.get(e.id);
@@ -928,6 +962,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         quellen.delete(id);
         alt = alt ?? q;
         tonAngefragt.set(e.id, tonAngefragt.get(id) ?? true);
+        // Der Soll-Eintrag folgt der neuen Kennung (Spec 6.3).
+        for (const s of soll.values()) if (s.aboId === id) s.aboId = e.id;
         d.log(`[zoom] Quelle ${id} → ${e.id} umgehängt (${e.reason})`);
       }
     }
@@ -942,6 +978,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       tonGrund: alt?.tonGrund ?? null,
       fehler: alt?.fehler ?? null,
     });
+    for (const s of soll.values()) if (s.aboId === e.id) s.ndiName = e.source;
   }
 
   function audioEreignis(e: AudioEreignis): void {
@@ -983,6 +1020,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const n = aktiveQuellen().size;
     if (n >= BETRIEBSGROESSE && !e.trotzBetriebsgroesse) return { ok: false, text: KT.Q9(n + 1) };
     const schluessel = normName(p.name);
+    const gen = aktiveGen;
+    // Schritt 3: verwaiste Quelle mit gleichem normierten Namen erst entladen, damit der NDI-Name gleich bleibt.
+    const alt = soll.get(schluessel);
+    const altQuelle = alt?.aboId != null && alt.aboId !== e.id ? quellen.get(alt.aboId) : undefined;
+    if (alt && altQuelle && altQuelle.gen === gen && istVerwaist(altQuelle.aboId, new Set(s.participants.keys()), { state: altQuelle.bild, reason: altQuelle.bildGrund })) {
+      d.log(`[zoom] Verwaiste Quelle ${altQuelle.aboId} wird vor dem Laden entladen`);
+      sende({ cmd: 'videoUnsubscribe', id: altQuelle.aboId });
+      await abmeldungAbwarten(altQuelle.aboId);
+      if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting') return { ok: false, text: '' };
+    }
     abonniere(e.id, e.ton);
     soll.set(schluessel, { name: p.name, ton: e.ton, ndiName: ndiVorschau(p.name), aboId: e.id });
     d.log(`[zoom] Quelle laden: Teilnehmer ${e.id}${e.ton ? '' : ' (ohne Ton)'}`);
@@ -1009,6 +1056,62 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     tonVorwahl.set(e.id, e.an);
     abbildGeaendert();
     return { ok: true };
+  }
+
+  // ── Soll-Liste und Abgleich (Spec 6.3) ───────────────────────────────────
+  function abmeldungAbwarten(id: number): Promise<void> {
+    if (!quellen.has(id)) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const frist = zeitgeber(f.unsubscribeWarteMs, () => resolve());
+      const liste = abmeldeWarter.get(id) ?? [];
+      liste.push(() => {
+        clearTimeout(frist);
+        resolve();
+      });
+      abmeldeWarter.set(id, liste);
+    });
+  }
+
+  function abmeldungGesehen(id: number): void {
+    const liste = abmeldeWarter.get(id);
+    if (!liste) return;
+    abmeldeWarter.delete(id);
+    for (const fertig of liste) fertig();
+  }
+
+  /** 300 ms nach roster/joined/left/renamed/inMeeting/Erlaubnis „ja“; jeder Auslöser startet den Zeitgeber neu. */
+  function abgleichPlanen(): void {
+    if (abgleichTimer !== null) clearTimeout(abgleichTimer);
+    abgleichTimer = zeitgeber(f.abgleichMs, () => {
+      abgleichTimer = null;
+      void abgleichen();
+    });
+  }
+
+  async function abgleichen(): Promise<void> {
+    if (zustand !== 'im_meeting' || erlaubnis !== 'ja') return;
+    const gen = aktiveGen;
+    for (const h of sollHandlungen(soll, sollLage())) {
+      if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting') return;
+      const eintrag = soll.get(h.schluessel);
+      if (!eintrag) continue;
+      if (h.art === 'neuLaden') {
+        d.log(`[zoom] Abgleich: verwaiste Quelle ${h.altAboId} wird für Teilnehmer ${h.id} neu geladen`);
+        sende({ cmd: 'videoUnsubscribe', id: h.altAboId });
+        await abmeldungAbwarten(h.altAboId);
+        if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting' || soll.get(h.schluessel) !== eintrag) continue;
+      } else {
+        d.log(`[zoom] Abgleich: Teilnehmer ${h.id} wird abonniert`);
+      }
+      eintrag.aboId = h.id;
+      abonniere(h.id, h.ton);
+    }
+    abbildGeaendert();
+  }
+
+  function sollVerwerfen(e: { name: string }): void {
+    if (soll.delete(normName(e.name))) d.log('[zoom] Gemerkte Quelle vergessen');
+    abbildGeaendert();
   }
 
   // ── Beenden (Spec 6.6) ───────────────────────────────────────────────────
@@ -1074,6 +1177,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     laden,
     entladen,
     ton,
+    sollVerwerfen,
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),

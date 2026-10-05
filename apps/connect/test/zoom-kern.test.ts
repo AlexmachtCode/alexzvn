@@ -1129,6 +1129,101 @@ console.log('— Doppelname, Versatz, Kollision, Q8 (Fall 13, 21, 23)');
   await p.aufraeumen();
 }
 
+// ── Aufgabe 15: Soll-Liste und Abgleich ──────────────────────────────────────
+console.log('— Teilnehmer-Wiederbeitritt (Fall 14, 14b)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '200' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Fall 14: Anna geladen', await bis(() => p.kern.kurz().quellen === 1));
+  ck('… beim Weggang black/participantLeft, Soll-Stand verwaist', await bis(() => p.kern.abbild().soll[0]?.stand === 'verwaist', 2000)
+    && p.kern.abbild().soll[0]?.aboId === ANNA && p.kern.kurz().sollOffen === 1);
+  ck('… danach hängt die Quelle unter 16778250 (reboundByName)', await bis(() => zeile(p, 16778250)?.quelle?.bildGrund === 'reboundByName', 2000));
+  await warte(600);
+  const c = cmds(p, 1);
+  ck('… Connect sendet weder videoUnsubscribe noch ein zweites videoSubscribe',
+    !c.includes('videoUnsubscribe') && c.filter((x) => x === 'videoSubscribe').length === 1);
+  ck('… eine Quelle, Soll-Liste erfüllt', p.kern.kurz().quellen === 1 && p.kern.kurz().sollOffen === 0);
+  await p.aufraeumen();
+}
+{
+  let abgemeldetVorNeuemAbo: boolean | null = null;
+  const p: Probe = baueKern({
+    stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '200', FAKE_RUECKKEHR_NAME: 'anna' }),
+    // Hält fest, ob das alte Abo schon abgemeldet war, als das neue gesendet wurde (Laden Schritt 3).
+    sendeFilter: (c) => {
+      if (c.cmd === 'videoSubscribe' && c.id === 16778250) {
+        abgemeldetVorNeuemAbo = p.ereignisse.some((x) => x.ev.ev === 'video'
+          && (x.ev as { id?: number }).id === 16778240 && (x.ev as { state?: string }).state === 'unsubscribed');
+      }
+      return true;
+    },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: false, trotzBetriebsgroesse: false });
+  await bis(() => p.kern.kurz().quellen === 1);
+  const alterName = zeile(p, ANNA)?.quelle?.ndiName ?? '';
+  ck('Fall 14b: „anna“ kommt zurück', await bis(() => zeile(p, 16778250) !== undefined, 2000));
+  ck('… Connect lädt neu: genau ein videoUnsubscribe (16778240) und ein videoSubscribe (16778250)',
+    await bis(() => p.befehle(1).some((x) => x.cmd === 'videoSubscribe' && x.id === 16778250), 2000)
+    && p.befehle(1).filter((x) => x.cmd === 'videoUnsubscribe').map((x) => x.id).join(',') === '16778240'
+    && p.befehle(1).filter((x) => x.cmd === 'videoSubscribe').map((x) => x.id).join(',') === '16778240,16778250');
+  ck('… mit dem Ton des Soll-Eintrags (aus)', p.befehle(1).find((x) => x.cmd === 'videoSubscribe' && x.id === 16778250)?.audio === false);
+  ck('… das neue Abo erst, nachdem die Bridge das alte abgemeldet hat', abgemeldetVorNeuemAbo === true);
+  ck('… neuer NDI-Name normiert gleich dem alten, ohne „ (2)“', await bis(() => zeile(p, 16778250)?.quelle !== null && zeile(p, 16778250)?.quelle !== undefined)
+    && (zeile(p, 16778250)?.quelle?.ndiName ?? '').toLocaleLowerCase('de') === alterName.toLocaleLowerCase('de')
+    && !(zeile(p, 16778250)?.quelle?.ndiName ?? '').includes(' (2)'));
+  ck('… Soll-Liste erfüllt, eine Quelle', p.kern.kurz().sollOffen === 0 && (await bis(() => p.kern.kurz().quellen === 1)));
+  await p.aufraeumen();
+}
+
+console.log('— Soll-Liste nach „Erneut beitreten“ (4a-Ersatz für Fall 15), Vergessen, Lebenslauf');
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> =>
+      n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '800', FAKE_DOPPELNAME: '1', FAKE_TEILNEHMER: '3' } : { FAKE_DOPPELNAME: '1', FAKE_TEILNEHMER: '3' },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: CARLA, ton: false, trotzBetriebsgroesse: false });
+  ck('Anna und Carla geladen', await bis(() => p.kern.kurz().quellen === 2));
+  ck('Verbindung weg → fehler mit „Verbindung verloren: …“', await bis(() => p.kern.kurz().zustand === 'fehler', 3000)
+    && String(p.kern.abbild().meldung?.text).startsWith('Verbindung verloren: '));
+  ck('… Soll-Liste bleibt (zwei offene Einträge)', await bis(() => p.kern.kurz().sollOffen === 2));
+  ck('erneut() → zweiter Start, im Meeting', ok(await p.kern.erneut()) && (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().erlaubnis === 'ja')));
+  await warte(600);
+  const subs = p.befehle(2).filter((c) => c.cmd === 'videoSubscribe');
+  ck('… Abgleich abonniert nur Carla (eindeutig), mit ihrem Ton', subs.length === 1 && subs[0].id === CARLA && subs[0].audio === false);
+  const s = p.kern.abbild().soll;
+  ck('… Anna steht als doppelname im Abbild, sollOffen 1', s.length === 1 && s[0].name === 'Anna' && s[0].stand === 'doppelname' && s[0].doppelname && p.kern.kurz().sollOffen === 1);
+  ck('… STATE zoom_alarm=1 trotz Erlaubnis', p.kern.stateKv()?.zoom_privilege === 1 && p.kern.stateKv()?.zoom_alarm === 1);
+  p.kern.sollVerwerfen({ name: 'ANNA ' });
+  ck('sollVerwerfen(„ANNA “) entfernt den Eintrag, Alarm aus', p.kern.abbild().soll.length === 0 && p.kern.kurz().sollOffen === 0 && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_MEETING_ENDE_MS: '800' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await bis(() => p.kern.kurz().quellen === 1);
+  ck('Lebenslauf: Meeting-Ende leert die Soll-Liste', await bis(() => p.kern.kurz().zustand === 'bereit', 3000) && p.kern.kurz().sollOffen === 0
+    && p.kern.abbild().soll.length === 0);
+  ck('… und nach dem Abbau keine Quelle mehr', await bis(() => p.kern.kurz().quellen === 0));
+  ck('… erneut() startet ohne Soll-Einträge (kein Abo)', ok(await p.kern.erneut()) && (await bis(() => p.kern.kurz().erlaubnis === 'ja'))
+    && (await warte(500), !cmds(p, 2).includes('videoSubscribe')));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await bis(() => p.kern.kurz().quellen === 1);
+  await p.kern.verlassen();
+  ck('Lebenslauf: Verlassen leert die Soll-Liste und die Quellen', p.kern.kurz().sollOffen === 0 && p.kern.kurz().quellen === 0);
+  ck('… neuer Beitritt danach ohne Abo', await insMeeting(p) && (await warte(500), !cmds(p, 2).includes('videoSubscribe')));
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);
