@@ -5,7 +5,7 @@
 // Bewusst NICHT wiederverwendet: PttButton, GuestActions, PhaseBadge (kein Tally, kein Talkback, keine Phasen).
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ZoomAbbild, ZoomErgebnis, ZoomParticipant, ZoomSollEintrag } from '@shared/types';
-import { kartenZeile, sdkKnopf, sdkZeile, zoomKnoepfe, zugangZeile } from '@shared/zoom-text';
+import { kartenZeile, Q9_ANFANG, sdkKnopf, sdkZeile, zoomKnoepfe, zugangZeile } from '@shared/zoom-text';
 
 // Tooltip- und Hinweistexte wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht).
 const TEXT_S10 = 'Während Zoom läuft oder die Kopie läuft, lassen sich SDK-Ordner und Zugangsdaten nicht ändern.';
@@ -13,8 +13,6 @@ const TEXT_Q11 = 'Name doppelt im Meeting — nach einem Wiederbeitritt kann Con
 const TEXT_Q13 = 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.';
 const TEXT_Q14 = 'Zum Umschalten erst entladen.';
 const TEXT_Q15 = 'Erst im Zoom-Client zulassen.';
-/** Anfang von Q9: daraus macht die Karte den zweiten Klick („trotzdem laden“, Spec 6.3 Schritt 2). */
-const Q9_ANFANG = 'Mehr als 5 Zoom-Quellen sind nicht gemessen.';
 const SPERR_HINWEIS = 'Zoom ist gesperrt, bis SDK-Ordner und Zugangsdaten vollständig eingerichtet sind.';
 const FUSSZEILE = 'Zoom-Quellen haben kein Tally, kein Talkback und kein Mix-Minus — das sind Grenzen von Zoom.';
 

@@ -21,6 +21,9 @@ export const TEXT_A4 = 'Nur für diese Sitzung gemerkt — auf diesem Rechner gi
 export const TEXT_A6 = 'Kommt aus Umgebungsvariablen (ZOOM_SDK_…) und hat Vorrang.';
 
 /** Gründe im Kartentext Z1a (Spec 7.2), je Mangel einer. */
+/** Anfang von Q9: Main (klartext.ts) und Karte teilen ihn; die Karte macht daraus den zweiten Klick „trotzdem laden“. */
+export const Q9_ANFANG = 'Mehr als 5 Zoom-Quellen sind nicht gemessen.';
+
 export const MANGEL_GRUND: Record<ZoomMangel, string> = {
   sdk_fehlt: 'SDK-Ordner fehlt',
   sdk_defekt: 'Zoom-Laufzeit unvollständig, bitte den SDK-Ordner erneut wählen',

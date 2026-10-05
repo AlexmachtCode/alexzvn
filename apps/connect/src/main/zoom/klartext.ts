@@ -5,7 +5,7 @@
 import type { AudioReason, AudioState } from '@jm/zoom-bridge/protocol';
 import { authResultName, endReason, failCodeName, failReason } from '@jm/zoom-bridge/protocol';
 import type { ZoomMangel } from '../../shared/types';
-import { TEXT_A4, TEXT_A6 } from '../../shared/zoom-text';
+import { Q9_ANFANG, TEXT_A4, TEXT_A6 } from '../../shared/zoom-text';
 
 /** Text groß in der Karte, Detail klein darunter (technischer Name und Code), Spec 8. */
 export interface Meldungstext {
@@ -93,7 +93,7 @@ export const KT = {
   Q7: 'NDI ließ sich in der Zoom-Bridge nicht starten. Details im Log.',
   Q8: 'Keine Antwort der Zoom-Bridge auf „Als Quelle laden“.',
   Q9: (n: number): string =>
-    `Mehr als 5 Zoom-Quellen sind nicht gemessen. Noch einmal klicken, um die ${n}. Quelle trotzdem zu laden.`,
+    `${Q9_ANFANG} Noch einmal klicken, um die ${n}. Quelle trotzdem zu laden.`,
   Q10: (ndiName: string): string =>
     `NDI-Name doppelt: Ein Browser-Gast und diese Zoom-Person senden beide als „${ndiName}“. Im Switcher ist nicht sicher, welche Quelle ankommt. Einen der beiden umbenennen.`,
   Q11: 'Name doppelt im Meeting — nach einem Wiederbeitritt kann Connect diese Quelle nicht von selbst zuordnen.',

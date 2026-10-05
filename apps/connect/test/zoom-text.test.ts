@@ -6,7 +6,7 @@
 // die Testtabellen selbst.
 import type { AppStatus, ProxyKeySource, ZoomAbbild, ZoomErlaubnis, ZoomKurz, ZoomMangel, ZoomZustand } from '../src/shared/types';
 import {
-  gaesteZeile, kartenZeile, MANGEL_GRUND, sdkKnopf, sdkZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6, trayTooltip,
+  gaesteZeile, kartenZeile, MANGEL_GRUND, Q9_ANFANG, sdkKnopf, sdkZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6, trayTooltip,
   trayVerlassenAktiv, zoomKnoepfe, zoomZ, zoomZeile, zugangZeile, type ZoomStatusWert, type ZoomZ,
 } from '../src/shared/zoom-text';
 import {
@@ -489,6 +489,7 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['UE_ABSTURZ', KT.UE_ABSTURZ('exitCode=3'), 'Die Zoom-Bridge ist abgestürzt (exitCode=3). Details im Log.'],
   ];
   for (const [id, ist, soll] of KT_SOLL) ck(`${id} wörtlich`, ist === soll);
+  ck('Q9 beginnt mit dem geteilten Q9_ANFANG (zweiter Klick der Karte hängt daran)', KT.Q9(6).startsWith(Q9_ANFANG));
   ck('KT hat genau diese 62 Einträge (F1–F8, R2/R4/R5/R7 erst in 4b)', Object.keys(KT).length === 62 && KT_SOLL.length === 62);
 }
 
