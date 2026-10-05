@@ -6,6 +6,7 @@ import type { Guest, OperatorAction, RoomState } from '@jm/rtc/protocol';
 import type { AppStatus, GuestInvite, ProxyKeySource, ShowInfo } from '@shared/types';
 import { zoomZeile } from '@shared/zoom-text';
 import { toDataUrl } from '@/lib/qr';
+import { ZoomCard } from './zoom/ZoomCard';
 
 // Der Operator-Renderer hält die Raum-WebSocket zum ConnectRoom-DO und spiegelt dessen
 // autoritativen Zustand. NDI-Effekte aus dem DO gehen per IPC an den Main (ndi-guests-Pool);
@@ -359,6 +360,9 @@ export function App(): JSX.Element {
           </ul>
         </>
       )}
+
+      {/* Zoom (Stage 4a, Spec 9): außerhalb des Raum-Zweigs, unabhängig vom Cloud-Raum (E4), nur unter Windows. */}
+      {window.jmconnect.platform === 'win32' && <ZoomCard />}
     </div>
   );
 }
