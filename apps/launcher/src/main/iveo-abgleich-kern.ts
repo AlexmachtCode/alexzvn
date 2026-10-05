@@ -621,8 +621,6 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       statusGestoert(TEXT_SHOW_NICHT_LESBAR);
       return;
     }
-    if (geaendert.length) d.log.info(`iveo: ${geaendert.length} Programm(e) geändert → Ablauf neu (${ablauf.length} Punkte).`);
-    else d.log.info(`iveo: kein Programm geändert, aber ${abweichungVonDatei(a.lastSig, sig)} → Show neu geschrieben (${ablauf.length} Punkte).`);
     const ok = schreibeAblauf(a.path, basis, {
       slug: snap.event.slug,
       baseUrl: a.baseUrl,
@@ -637,6 +635,9 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       statusGestoert(TEXT_NICHT_GESCHRIEBEN);
       return;
     }
+    // Erst nach erfolgreichem Schreiben (Schliff F1): Scheitert es, stünde sonst bei jeder Abfrage eine falsche Zeile im Log.
+    if (geaendert.length) d.log.info(`iveo: ${geaendert.length} Programm(e) geändert → Ablauf neu (${ablauf.length} Punkte).`);
+    else d.log.info(`iveo: kein Programm geändert, aber ${abweichungVonDatei(a.lastSig, sig)} → Show neu geschrieben (${ablauf.length} Punkte).`);
     const speakerWieder = a.speakerVeraltetSeit !== undefined && merker === undefined;
     a.lastSig = sig;
     a.lastSyncIso = snap.fetchedAt;

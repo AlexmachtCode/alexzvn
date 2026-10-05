@@ -1394,6 +1394,38 @@ const namenIn = (s: Show): string => JSON.stringify((s.iveo?.speakers ?? []).map
   ck('Befund 7c: … derselbe Fehler später wieder → wieder eine Warnung im Log', speakerWarnungen(u).length === 2);
 }
 
+// --- Schliff F1: Die Logzeile zum Schreiben steht erst nach erfolgreichem Schreiben (Owner-Regel: jeder Text wahr) ---
+{
+  // Nur der Merker hat den Snapshot ausgelöst, die Liste kommt wieder, aber das Schreiben scheitert zweimal.
+  const u = umgebung((iv) => mitMerker(showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA])));
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  await u.kern.abfrage();
+  ck('Schliff F1: ohne Programmänderung, Schreiben scheitert zweimal → keine Zeile „Show neu geschrieben“',
+    u.schreibversuche === 2 && !u.info.some((z) => z.includes('Show neu geschrieben')));
+  ck('Schliff F1: … der Status sagt „nicht geschrieben“', u.status.at(-1)?.text === 'Show konnte nicht geschrieben werden');
+  u.schreibFehler = false;
+  await u.kern.abfrage();
+  ck('Schliff F1: … das Schreiben gelingt → genau eine Zeile „Show neu geschrieben“',
+    u.schreibversuche === 3 && u.info.filter((z) => z.includes('Show neu geschrieben')).length === 1);
+}
+{
+  // Dasselbe mit Programmänderung: „n Programm(e) geändert → Ablauf neu“ steht erst, wenn der neue Ablauf in der Datei ist.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  u.iveo.programme[1] = { ...u.iveo.programme[1], title: 'Side Event Wasser und Meer' };
+  u.iveo.geaendert = [u.iveo.programme[1]];
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  await u.kern.abfrage();
+  ck('Schliff F1: Programm geändert, Schreiben scheitert zweimal → keine Zeile „Ablauf neu“',
+    u.schreibversuche === 2 && !u.info.some((z) => z.includes('→ Ablauf neu')));
+  u.schreibFehler = false;
+  await u.kern.abfrage();
+  ck('Schliff F1: … das Schreiben gelingt → genau eine Zeile „1 Programm(e) geändert → Ablauf neu (3 Punkte)“',
+    u.schreibversuche === 3 && JSON.stringify(u.info.filter((z) => z.includes('→ Ablauf neu')))
+      === JSON.stringify(['iveo: 1 Programm(e) geändert → Ablauf neu (3 Punkte).']));
+}
+
 // --- Zusammenfassung ---
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
