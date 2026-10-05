@@ -222,6 +222,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let aktiveGen = 0;
   const imAbbau = new Set<number>();
   const stopps = new Map<number, Promise<void>>();
+  /** Generationen, deren start() gescheitert ist: es lief nie ein Prozess, stop() liefert nur 0. */
+  const ohneProzess = new Set<number>();
   let startNr = 0;
   /** Jeder Abbruch (Verlassen, Beenden) zählt hoch; eine ältere Startfolge verwirft ihr Ergebnis. */
   let laufNr = 0;
@@ -547,17 +549,22 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (laufend) return laufend;
     imAbbau.add(gen);
     if (startBeob !== null && startBeob.gen === gen) startBeob.ende({ ok: false, meldung: ABGEBROCHEN });
-    d.log(`[zoom] Zoom-Bridge ${gen} wird beendet`);
+    // Ohne Prozess (Start gescheitert) gibt es nichts zu beenden: keine Beenden-Zeilen, die einen Prozess erfinden.
+    const lief = !ohneProzess.has(gen);
+    if (lief) d.log(`[zoom] Zoom-Bridge ${gen} wird beendet`);
     const p = b
       .stop()
       .then(
-        (code) => d.log(code === -1 ? '[zoom] Zoom-Bridge hart beendet' : `[zoom] Zoom-Bridge beendet (Rückgabewert ${code})`),
+        (code) => {
+          if (lief) d.log(code === -1 ? '[zoom] Zoom-Bridge hart beendet' : `[zoom] Zoom-Bridge beendet (Rückgabewert ${code})`);
+        },
         (e: unknown) => d.log(`[zoom] Zoom-Bridge ließ sich nicht beenden: ${e instanceof Error ? e.message : String(e)}`),
       )
       .then(() => {
         // 6.9: Kehrt stop() zurück, gehören die Quellen dieser Generation nicht mehr zum Abbild.
         for (const [id, q] of quellen) if (q.gen === gen) quellen.delete(id);
         stopps.delete(gen);
+        ohneProzess.delete(gen);
         if (aktiveBridge === b) {
           aktiveBridge = null;
           jwt = null;
@@ -649,6 +656,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     try {
       await bridge.start();
     } catch (e) {
+      // Die Meldung trägt Grund und versuchten EXE-Pfad — die einzige Spur, wenn z. B. Smart App
+      // Control blockiert (M7) oder der Fehler keinen code hat (B2 „unbekannt“).
+      ohneProzess.add(gen);
+      d.log(`[zoom] Start der Zoom-Bridge gescheitert: ${e instanceof Error ? e.message : String(e)}`);
       beob.ende({ ok: false, meldung: spawnMeldung((e as { code?: string }).code) });
     }
     if (!beob.erledigt) {
@@ -900,7 +911,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     } else if (e.where === 'exit' && e.code === 'exited') {
       const dll = dllMeldung(exitCodeAus(e.detail));
       const detail = e.detail ?? fehlerDetail(e);
-      // Ruling K2 (progress.md): im Beitritt gilt die Spec 6.2 Schritt 5 — CB, nicht B3-B5 (die gelten nur vor auth).
+      // Spec 6.2 Schritt 5 und 8.3: im Beitritt gilt CB, nicht B3–B5 — die nennt 8.2 nur für den Tod vor `auth`.
       if (amBeitreten) scheitert({ text: KT.CB(detail), detail: fehlerDetail(e) });
       // 4a: statt Wiederbeitritt (L1).
       else if (imMeeting) scheitert(dll ?? { text: VORSATZ.verbindung + KT.UE_ABSTURZ(detail), detail: fehlerDetail(e) });

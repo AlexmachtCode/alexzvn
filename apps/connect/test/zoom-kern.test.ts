@@ -99,6 +99,10 @@ interface BaueOptionen {
   sendeFilter?: (cmd: Command) => boolean;
   versatzMs?: number;
   anzeigename?: string;
+  /** Pfad der EXE statt Node + Attrappe (z. B. eine fehlende Datei für den Spawn-Fehler ENOENT). */
+  exe?: string;
+  /** start() scheitert mit diesem Fehler, ohne ein Kind zu starten (Spawn-Fehler mit beliebigem Code). */
+  startFehler?: () => Error;
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -124,7 +128,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     startZahl += 1;
     const b = new Bridge({
       ...opts,
-      exePath: process.execPath,
+      exePath: o.exe ?? process.execPath,
       exeArgs: [FAKE],
       env: {
         ...opts.env,
@@ -139,7 +143,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       },
     });
     const art: BridgeArt = {
-      start: () => b.start(),
+      start: () => (o.startFehler ? Promise.reject(o.startFehler()) : b.start()),
       send: (cmd) => {
         if (o.sendeFilter && !o.sendeFilter(cmd)) return;
         b.send(cmd);
@@ -1255,6 +1259,29 @@ console.log('— Soll-Liste nach „Erneut beitreten“ (4a-Ersatz für Fall 15)
   await p.kern.verlassen();
   ck('Lebenslauf: Verlassen leert die Soll-Liste und die Quellen', p.kern.kurz().sollOffen === 0 && p.kern.kurz().quellen === 0);
   ck('… neuer Beitritt danach ohne Abo', await insMeeting(p) && (await warte(500), !cmds(p, 2).includes('videoSubscribe')));
+  await p.aufraeumen();
+}
+
+// ── Gesamtprüfung: Spawn-Diagnose (Abnahme 5 misst M7, Text B2) ──────────────
+console.log('— Spawn-Fehler: Grund und EXE-Pfad im Log, keine Beenden-Zeile ohne Prozess');
+{
+  const exe = join(tmpdir(), 'jm-zoom-kern-fehlt', 'zoom-bridge.exe');
+  const p = baueKern({ exe });
+  const r = await p.kern.pruefen();
+  ck('Spawn ENOENT → B1, Zustand bereit, keine Bridge', text(r) === KT.B1 && p.kern.kurz().zustand === 'bereit' && !p.kern.laeuft());
+  ck('… Log nennt Grund und versuchten EXE-Pfad',
+    p.logs.some((z) => z.startsWith('[zoom] Start der Zoom-Bridge gescheitert: ') && z.includes(exe) && z.includes('ENOENT')));
+  ck('… keine Beenden-Zeile für einen Prozess, der nie lief',
+    !p.logs.some((z) => z.includes('wird beendet') || z.includes('Rückgabewert') || z.includes('hart beendet')));
+  await p.aufraeumen();
+}
+{
+  const grund = 'spawn C:\\Probe\\zoom-bridge.exe von einer Richtlinie blockiert';
+  const p = baueKern({ startFehler: () => new Error(grund) });
+  const r = await p.kern.pruefen();
+  ck('Spawn-Fehler ohne code → B2 „unbekannt“', text(r) === KT.B2('unbekannt') && p.kern.abbild().meldung?.detail === 'unbekannt');
+  ck('… die Fehlermeldung steht trotzdem im Log', p.logs.includes(`[zoom] Start der Zoom-Bridge gescheitert: ${grund}`));
+  ck('… keine Beenden-Zeile', !p.logs.some((z) => z.includes('wird beendet') || z.includes('Rückgabewert')));
   await p.aufraeumen();
 }
 
