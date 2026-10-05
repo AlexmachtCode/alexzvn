@@ -334,7 +334,7 @@ Ein Abruf auf Sendung ändert den Text weiter sofort, ohne Animation. Das ist he
 
   Es gilt jeweils der erste Treffer. Danach hält der Titler den **Schlüssel**, nicht die Nummer.
 - **`@`-Form:** Beginnt `ref` mit `@`, ist das erste Wort ohne `@` die Kennung, der Rest der Name (Leerraum zählt als ein Leerzeichen). Reihenfolge:
-  1. Schlüssel exakt, ohne Rücksicht auf Groß- und Kleinschreibung
+  1. Schlüssel exakt, ohne Rücksicht auf Groß- und Kleinschreibung; nur echte Kennungen (Spalte `@kennung`), nie Ersatz-Schlüssel (`ersatz:…`, 7.2). Nachgetragen 05.10.2026 (Vor-Release V3, Owner-Freigabe der Notes).
   2. Label exakt gleich dem Namen, wenn ein Name dabei ist
 
   Ein Teilstring zählt hier **nicht**. Sonst träfe „Ana“ auch „Anabel“. Die Form senden Rundown 0.7.0 und neuer (8.3), und Companion-Nutzer können sie von Hand nutzen, auch für Kennungen aus reinen Ziffern (7.2).
@@ -456,6 +456,7 @@ Fehlen derselben Show die Speaker oder ist sie nicht lesbar, leert der Titler se
 - Optionen: je Speaker der Show „⟨Name⟩ — ⟨Funktion⟩“ bzw. „⟨Name⟩“ (`RowEditor.tsx:257-275`). Der Wert ist die Kennung, ohne Kennung der Name.
 - Eine Auswahl schreibt `speakerId` (falls vorhanden) und `args[0] = Name`.
 - **Alte Aktion ohne `speakerId`:** Ausgewählt steht die zusätzliche Option „⟨Name⟩ · per Name (nicht gebunden)“. Gebunden wird erst durch eine Auswahl, nie stillschweigend (wie 2a-Spec 6.2).
+- **Eintrag nur aus Ziffern** (etwa die Vorgabe „1“ einer neuen Aktion): Ausgewählt steht „Nr. ⟨n⟩ · per Nummer (nicht gebunden)“, denn der Titler ruft ihn als Nummer ab (7.4 Stufe 1). Nachgetragen 05.10.2026 (Vor-Release V2, Text vom Owner freigegeben).
 - **`speakerId` nicht in der Liste:** Ausgewählt steht „⟨args[0]⟩ · nicht in der Speaker-Liste“.
 - Der Kommentar `RowEditor.tsx:158-159` („Programme↔Speaker sind in iveo NICHT verknüpft“) ist überholt (`iveo-abgleich-kern.ts:209-212`) und wird berichtigt.
 
