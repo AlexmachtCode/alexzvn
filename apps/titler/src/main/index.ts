@@ -30,7 +30,7 @@ import { leseGemerkteShow, leseShowSicher, loescheGemerkteShow, schreibeGemerkte
 import { hinweisLogZeile, hinweisText, waehleHinweis } from '@shared/datalink-kern';
 import {
   eigenerOrdner,
-  gleicheShowPfad,
+  zeigtShow,
   quellSchritt,
   quellZeile,
   startZustand,
@@ -220,7 +220,7 @@ function oeffneShow(pfad: string, weg: QuellWeg): QuellSchritt {
   const gelesen = leseShowSicher(pfad);
   let ereignis: QuellEreignis;
   if ('show' in gelesen) {
-    const gleicheShow = currentShowPath !== null && gleicheShowPfad(currentShowPath, pfad, path.resolve);
+    const gleicheShow = zeigtShow(quelle, pfad, path.resolve);
     ereignis = { t: 'gelesen', weg, pfad, show: gelesen.show, gleicheShow };
   } else {
     getLog().warn(`Show nicht lesbar (${gelesen.grund}): ${pfad}`);

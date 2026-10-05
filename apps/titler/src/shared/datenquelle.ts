@@ -152,6 +152,11 @@ export function gleicheShowPfad(a: string, b: string, aufloesen: (p: string) => 
   return gleicherPfad(a, b, aufloesen);
 }
 
+/** Ist `pfad` die Show, die die Datenquelle gerade anzeigt (`z.showPfad`)? Nicht die zuletzt versuchte. */
+export function zeigtShow(z: QuellZustand, pfad: string, aufloesen: (p: string) => string): boolean {
+  return z.showPfad !== null && gleicheShowPfad(z.showPfad, pfad, aufloesen);
+}
+
 /**
  * Übergang beim Start (Spec 7.7): Steht `config.dataFolder` auf iveo-data, hat ein früherer Titler ihn
  * überschrieben. Er wird einmalig geleert; ohne gemerkte Show wird die Datenquelle `frueher`.

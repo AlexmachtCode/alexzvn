@@ -7,6 +7,7 @@ import { createShow, type Show, type ShowIveoSpeaker } from '@jm/show';
 import {
   eigenerOrdner,
   gleicheShowPfad,
+  zeigtShow,
   istIveoDataOrdner,
   quellSchritt,
   quellZeile,
@@ -530,6 +531,19 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(reloadOrdner.zustand.art === 'ordner' && reloadOrdner.zustand.quellHinweis === null && reloadOrdner.beobachte === 'eigener' && reloadOrdner.merke.t === 'bleibt', '7.7: RELOAD derselben Show ohne Speaker bei ordner → ordner, kein Hinweis');
   const reloadFrueher = quellSchritt(zFrueher, { t: 'gelesen', weg: 'reload', pfad: P1, show: ohne1, gleicheShow: true });
   ok(reloadFrueher.zustand.art === 'frueher' && reloadFrueher.zustand.quellHinweis === null && reloadFrueher.beobachte === 'iveo-data', '7.7: dieselbe Show ohne Speaker bei frueher → frueher, kein Hinweis');
+
+  // Review B13: gleicheShow gilt gegen die ANGEZEIGTE Show, nicht gegen die zuletzt versuchte.
+  {
+    const zA: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null };
+    const nlB = quellSchritt(zA, { t: 'nichtLesbar', weg: 'deepLink', pfad: P2, grund: 'EBUSY', gemerkt: null });
+    ok(nlB.zustand.showPfad === P1 && nlB.zustand.art === 'show', 'B13-Fix: Deep-Link auf andere Show nicht lesbar → angezeigte Show bleibt A');
+    const gleich = zeigtShow(nlB.zustand, P2, (p) => p);
+    ok(gleich === false, 'B13-Fix: B ist nicht die angezeigte Show');
+    const rl = quellSchritt(nlB.zustand, { t: 'gelesen', weg: 'reload', pfad: P2, show: ohne2, gleicheShow: gleich });
+    ok(rl.zustand.art === 'ordner' && rl.zustand.showPfad === P2 && rl.merke.t === 'schreiben' && rl.merke.wert.showPfad === P2 && rl.zustand.quellHinweis === null, 'B13-Fix: RELOAD ohne Speaker auf B → ordner, gemerkt B');
+    ok(zeigtShow(zA, P1.toUpperCase(), (p) => p) === true, 'B13-Fix: dieselbe angezeigte Show trotz Schreibweise');
+    ok(zeigtShow(zOrdner, P1, (p) => p) === false, 'B13-Fix: ohne angezeigte Show nie gleich');
+  }
 
   // 7.7: Start ohne Deep-Link (Kachel, Neustart).
   const gemerktMit: GemerkteShow = { showPfad: P1, showName: 'Tag 1', mitSpeakern: true };
