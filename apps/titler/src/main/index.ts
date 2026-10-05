@@ -17,7 +17,7 @@ import { registerTemplateIpc } from './library';
 import { startSender, stopSender, senderActive } from './ndi/sender-process';
 import { startControlServer, stopControlServer, updateTitlerState, updateTitlerData, CONTROL_PORT } from './control-server';
 import { startDataWatch, stopDataWatch, recall, step, type DataState } from './datalink';
-import { writeSpeakersTsv } from './iveo-show';
+import { iveoDataDir, writeSpeakersTsv } from './iveo-show';
 
 declare const __dirname: string;
 
@@ -147,7 +147,7 @@ function applyShowFromPath(showPath: string): void {
     currentShowPath = showPath;
     const speakers = show.iveo?.speakers ?? [];
     if (!speakers.length) return; // Show ohne iveo-Speaker → DataLink unverändert lassen
-    const dir = writeSpeakersTsv(speakers);
+    const dir = writeSpeakersTsv(iveoDataDir(app.getPath('userData')), speakers);
     if (getConfig().dataFolder !== dir) patchConfig({ dataFolder: dir });
     refreshDataWatch();
     getLog().info(`iveo: ${speakers.length} Speaker aus Show in den DataLink übernommen.`);
