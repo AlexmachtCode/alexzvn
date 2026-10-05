@@ -9,6 +9,10 @@ import {
   gaesteZeile, kartenZeile, MANGEL_GRUND, sdkKnopf, sdkZeile, stateKvAus, TEXT_A4, TEXT_A6, trayTooltip,
   trayVerlassenAktiv, zoomKnoepfe, zoomZ, zoomZeile, zugangZeile, type ZoomStatusWert, type ZoomZ,
 } from '../src/shared/zoom-text';
+import {
+  authMeldung, dllMeldung, endeMeldung, exitCodeAus, failMeldung, failText, fehlerDetail, KT, mangelText, maskiere,
+  quellenFehler, spawnMeldung, tonZustand, VORSATZ,
+} from '../src/main/zoom/klartext';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -413,6 +417,216 @@ console.log('— Knöpfe der Karte je Lage (Spec 9 Punkte 2–6)');
   ck('Z10: „Meeting verlassen“, kein „Abbrechen“', zoomKnoepfe(lage('Z10', 0, 0)).verlassen && !zoomKnoepfe(lage('Z10', 0, 0)).abbrechen);
   ck('Z11: „Meeting verlassen“ und „Abbrechen“', zoomKnoepfe(lage('Z11', 0, 0)).verlassen && zoomKnoepfe(lage('Z11', 0, 0)).abbrechen);
   ck('Z12: kein „Meeting verlassen“ mehr', !zoomKnoepfe(lage('Z12', 0, 0)).verlassen);
+}
+
+console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die Platzhalter)');
+{
+  const KT_SOLL: Array<[string, string, string]> = [
+    ['S1', KT.S1, 'In diesem Ordner liegt kein Zoom-SDK. Bitte den entpackten SDK-Ordner wählen (der mit dem Unterordner x64\\bin) oder direkt den Ordner x64\\bin.'],
+    ['S2', KT.S2, 'Das ist die 32-Bit-Fassung des Zoom-SDK. Bitte den Ordner x64\\bin wählen oder den SDK-Ordner darüber.'],
+    ['S3', KT.S3('7.1.6.12345'), 'Dieses Zoom-SDK hat die Fassung 7.1.6.12345. Diese Connect-Fassung braucht genau 7.1.5.43953. Für eine andere SDK-Fassung braucht es einen neuen Connect-Release.'],
+    ['S3b', KT.S3b, 'Die Fassung des Zoom-SDK lässt sich nicht lesen. Bitte das unveränderte SDK aus der JM-Ablage wählen.'],
+    ['S4', KT.S4('vcruntime140.dll'), 'Im SDK-Ordner liegt eine Datei, die wie eine Connect-Datei heißt (vcruntime140.dll). Das ist kein unverändertes Zoom-SDK.'],
+    ['S5', KT.S5(415, 80), 'Für die Kopie des Zoom-SDK fehlt Platz: gebraucht 415 MB, frei 80 MB.'],
+    ['S6', KT.S6('EIO'), 'Das Zoom-SDK ließ sich nicht kopieren (EIO). Die bisherige Einrichtung bleibt unverändert.'],
+    ['S7', KT.S7(152, 153), 'Die Kopie des Zoom-SDK ist unvollständig (152 von 153 Dateien). Bitte den Ordner erneut wählen.'],
+    ['S8', KT.S8, 'Dieser Connect-Installation fehlt die Zoom-Bridge. Bitte JM Connect neu installieren.'],
+    ['S9', KT.S9('sdk.dll'), 'Die Zoom-Laufzeit auf diesem PC ist unvollständig (sdk.dll). Bitte den SDK-Ordner erneut wählen.'],
+    ['S10', KT.S10, 'Während Zoom läuft oder die Kopie läuft, lassen sich SDK-Ordner und Zugangsdaten nicht ändern.'],
+    ['A1', KT.A1, 'Die Datei ist kein gültiges JSON (Inhalt wird absichtlich nicht angezeigt).'],
+    ['A2', KT.A2, 'In der Datei fehlen Client-ID oder Client-Secret (erwartet: clientId und clientSecret).'],
+    ['A3', KT.A3('ENOENT'), 'Die Datei lässt sich nicht lesen (ENOENT).'],
+    ['A4', KT.A4, 'Nur für diese Sitzung gemerkt — auf diesem Rechner gibt es keinen Schlüsselbund.'],
+    ['A5', KT.A5, 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Datei erneut wählen.'],
+    ['A6', KT.A6, 'Kommt aus Umgebungsvariablen (ZOOM_SDK_…) und hat Vorrang.'],
+    ['B1', KT.B1, 'zoom-bridge.exe fehlt im Laufzeit-Ordner. Bitte den SDK-Ordner erneut wählen.'],
+    ['B2', KT.B2('EPERM'), 'Windows hat den Start der Zoom-Bridge verhindert (Virenschutz oder Smart App Control). Detail: EPERM.'],
+    ['B3', KT.B3, 'Die Zoom-Bridge ist beim Start gestorben: Eine DLL fehlt (0xC0000135). Mit den Zugangsdaten hat das nichts zu tun. Bitte den SDK-Ordner erneut wählen.'],
+    ['B4', KT.B4, 'Die Zoom-Bridge ist beim Start gestorben: Eine DLL ist zu alt oder passt nicht (0xC0000139). Mit den Zugangsdaten hat das nichts zu tun. Bitte den SDK-Ordner erneut wählen.'],
+    ['B5', KT.B5, 'Die Zoom-Bridge ist beim Start gestorben: Eine DLL ist kein 64-Bit-Programm oder beschädigt (0xC000007B). Mit den Zugangsdaten hat das nichts zu tun. Bitte den SDK-Ordner erneut wählen.'],
+    ['B6', KT.B6('exitCode=1'), 'Die Zoom-Bridge hat sich beendet, bevor Zoom die Anmeldung beantwortet hat (exitCode=1). Details im Log.'],
+    ['B7', KT.B7('7.1.6 (99999)'), 'Die Zoom-Laufzeit meldet die Fassung 7.1.6 (99999), erwartet ist 7.1.5 (43953). Bitte den SDK-Ordner erneut wählen.'],
+    ['B8', KT.B8('SDKERR_UNINITIALIZE'), 'Das Zoom-SDK ließ sich nicht starten (SDKERR_UNINITIALIZE). Details im Log.'],
+    ['B8_14', KT.B8_14, 'Auf diesem PC läuft schon ein anderes Programm mit dem Zoom-Meeting-SDK (zum Beispiel das Einsatzpaket „zoom-join“). Bitte es zuerst beenden.'],
+    ['B9', KT.B9('AUTHRET_KEYORSECRETWRONG'), 'Zoom hat die Anmeldung abgelehnt: Client-ID oder Client-Secret stimmen nicht (AUTHRET_KEYORSECRETWRONG). Bitte die Zugangsdaten-Datei prüfen.'],
+    ['B10', KT.B10, 'Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token passt nicht (AUTHRET_JWTTOKENWRONG). Meist stimmen die Zugangsdaten nicht, oder die Uhr dieses PCs geht falsch.'],
+    ['B11', KT.B11('AUTHRET_ACCOUNTNOTSUPPORT'), 'Das Zoom-Konto der App darf das Meeting-SDK nicht nutzen (AUTHRET_ACCOUNTNOTSUPPORT). Das klärt der Inhaber des Zoom-Kontos.'],
+    ['B12', KT.B12('AUTHRET_NETWORKISSUE'), 'Zoom ist gerade nicht erreichbar (AUTHRET_NETWORKISSUE). Netzwerk prüfen und erneut versuchen.'],
+    ['B13', KT.B13, 'Zoom lässt diese SDK-Fassung nicht mehr zu (AUTHRET_CLIENT_INCOMPATIBLE). Nötig ist ein neuer Connect-Release mit neuer SDK-Fassung.'],
+    ['B14', KT.B14, 'Zu viele Anmeldungen in kurzer Zeit (AUTHRET_LIMIT_EXCEEDED_EXCEPTION). Einige Minuten warten.'],
+    ['B15', KT.B15('AUTHRET_UNKNOWN'), 'Zoom hat die Anmeldung abgelehnt (AUTHRET_UNKNOWN).'],
+    ['B16', KT.B16, 'Zoom hat auf die Anmeldung nicht geantwortet (30 s). Netzwerk prüfen und erneut versuchen.'],
+    ['B17', KT.B17, 'Zugangsdaten fehlen — bitte die Datei wählen.'],
+    ['B18', KT.B18('SDKERR_WRONG_USAGE'), 'Das Zoom-SDK hat die Anmeldung sofort abgewiesen (SDKERR_WRONG_USAGE). Mit dem Netzwerk hat das nichts zu tun. Details im Log.'],
+    ['N0', KT.N0, 'Die Meeting-Nummer darf nur Ziffern enthalten (Leerzeichen und Bindestriche werden entfernt).'],
+    ['N0b', KT.N0b, 'Der Anzeigename muss 1 bis 64 Zeichen lang sein.'],
+    ['CT', KT.CT, 'Zoom hat den Beitritt in 30 s weder bestätigt noch abgelehnt. Netzwerk prüfen und erneut versuchen.'],
+    ['CE', KT.CE, 'Der Host hat zugelassen, aber Zoom hat den Einlass in 30 s nicht abgeschlossen. Netzwerk prüfen und erneut beitreten.'],
+    ['CJ', KT.CJ('SDKERR_INVALID_PARAMETER'), 'Zoom hat den Beitritt nicht angenommen (SDKERR_INVALID_PARAMETER).'],
+    ['CB', KT.CB('exitCode=3'), 'Die Zoom-Bridge hat sich während des Beitritts beendet (exitCode=3). Details im Log.'],
+    ['Q1', KT.Q1, 'Keine Aufnahme-Erlaubnis — der Host muss sie im Zoom-Client erteilen.'],
+    ['Q2', KT.Q2, 'Diese Person ist nicht mehr im Meeting.'],
+    ['Q4', KT.Q4('VIDEO_SENDER_FAILED'), 'Die Quelle ließ sich nicht aufbauen (VIDEO_SENDER_FAILED). Details im Log.'],
+    ['Q5', KT.Q5('AUDIO_HELPER_MISSING'), 'Ton nicht verfügbar (AUDIO_HELPER_MISSING) — das Bild läuft ohne Ton. Für einen neuen Versuch entladen und neu laden.'],
+    ['Q6', KT.Q6(12), 'Ton: 12 Pakete verworfen — dieser PC kommt nicht hinterher.'],
+    ['Q7', KT.Q7, 'NDI ließ sich in der Zoom-Bridge nicht starten. Details im Log.'],
+    ['Q8', KT.Q8, 'Keine Antwort der Zoom-Bridge auf „Als Quelle laden“.'],
+    ['Q9', KT.Q9(6), 'Mehr als 5 Zoom-Quellen sind nicht gemessen. Noch einmal klicken, um die 6. Quelle trotzdem zu laden.'],
+    ['Q10', KT.Q10('JM Connect – Zoom Anna'), 'NDI-Name doppelt: Ein Browser-Gast und diese Zoom-Person senden beide als „JM Connect – Zoom Anna“. Im Switcher ist nicht sicher, welche Quelle ankommt. Einen der beiden umbenennen.'],
+    ['Q11', KT.Q11, 'Name doppelt im Meeting — nach einem Wiederbeitritt kann Connect diese Quelle nicht von selbst zuordnen.'],
+    ['Q12', KT.Q12('SDKERR_NO_PERMISSION'), 'Zoom hat die Anfrage nach der Aufnahme-Erlaubnis nicht angenommen (SDKERR_NO_PERMISSION). Der Host kann sie im Zoom-Client trotzdem erteilen.'],
+    ['Q13', KT.Q13, 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.'],
+    ['Q14', KT.Q14, 'Zum Umschalten erst entladen.'],
+    ['Q15', KT.Q15, 'Erst im Zoom-Client zulassen.'],
+    ['Q16', KT.Q16('Anna'), 'Bild: fehlerhafte Bilder von „Anna“ verworfen (videoBufferMismatch). Die Quelle bleibt bestehen; ob wieder Bild kommt, zeigt ihr Bild-Zustand.'],
+    ['Q17', KT.Q17('Ben'), 'Ton: ein fehlerhaftes Paket von „Ben“ verworfen (audioBufferMismatch). Der Ton läuft mit dem nächsten gültigen Paket weiter.'],
+    ['R6', KT.R6('vom Gastgeber beendet'), 'Meeting beendet: vom Gastgeber beendet.'],
+    ['PRUEFUNG_OK', KT.PRUEFUNG_OK, 'Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953), Anmeldung bei Zoom erfolgreich.'],
+    ['UE_RECONNECT', KT.UE_RECONNECT, 'Zoom hat die Verbindung in 30 s nicht wiederhergestellt.'],
+    ['UE_ABSTURZ', KT.UE_ABSTURZ('exitCode=3'), 'Die Zoom-Bridge ist abgestürzt (exitCode=3). Details im Log.'],
+  ];
+  for (const [id, ist, soll] of KT_SOLL) ck(`${id} wörtlich`, ist === soll);
+  ck('KT hat genau diese 62 Einträge (F1–F8, R2/R4/R5/R7 erst in 4b)', Object.keys(KT).length === 62 && KT_SOLL.length === 62);
+}
+
+console.log('— 8.3: Vorsatz + Text, ganzer Text, nie doppelt „gescheitert:“');
+{
+  const N = 'JM Connect';
+  const C63 = 'Das Meeting gehört nicht zum Zoom-Konto dieser App. JM Connect kann nur Meetings im eigenen Zoom-Konto betreten. Bitte das Meeting im eigenen Konto anlegen.';
+  const C500 = 'Zoom verlangt für dieses Meeting einen Beitritt im Namen eines angemeldeten Nutzers (OBF-Token). Das kann JM Connect nicht — nur Meetings im eigenen Zoom-Konto.';
+  const faelle: Array<[string, { text: string; detail: string | null }, string]> = [
+    ['Beitritt, 63 → C63', failMeldung(VORSATZ.beitritt, 63, N), `Beitritt gescheitert: ${C63}`],
+    ['Beitritt, 2 → Csonst', failMeldung(VORSATZ.beitritt, 2, N), 'Beitritt gescheitert: Wiederverbinden fehlgeschlagen (Code 2).'],
+    ['Wiederbeitritt, 503 → C500', failMeldung(VORSATZ.wiederbeitritt, 503, N), `Wiederbeitritt abgebrochen: ${C500}`],
+    ['Wiederbeitritt, 2 → Csonst', failMeldung(VORSATZ.wiederbeitritt, 2, N), 'Wiederbeitritt abgebrochen: Wiederverbinden fehlgeschlagen (Code 2).'],
+    ['Verbindung, 4 → C4', failMeldung(VORSATZ.verbindung, 4, N), 'Verbindung verloren: falscher Kenncode.'],
+    ['Verbindung, 2 → Csonst', failMeldung(VORSATZ.verbindung, 2, N), 'Verbindung verloren: Wiederverbinden fehlgeschlagen (Code 2).'],
+  ];
+  for (const [name, m, soll] of faelle) {
+    ck(`${name}: ganzer Text wörtlich`, m.text === soll);
+    const nachVorsatz = m.text.slice(m.text.indexOf(': ') + 2);
+    ck(`${name}: kein zweites „gescheitert:“`, !m.text.includes('gescheitert: gescheitert') && !nachVorsatz.includes('gescheitert:'));
+    ck(`${name}: detail = failCodeName (Code)`, m.detail !== null && /^[A-Z_0-9]+ \(\d+\)$/.test(m.detail));
+  }
+  ck('detail für 63 wörtlich', failMeldung(VORSATZ.beitritt, 63, N).detail === 'MEETING_FAIL_UNABLE_TO_JOIN_EXTERNAL_MEETING (63)');
+  ck('detail für 503 wörtlich', failMeldung(VORSATZ.wiederbeitritt, 503, N).detail === 'MEETING_FAIL_USER_LEVEL_TOKEN_NOT_HAVE_HOST_ZAK_OBF (503)');
+  ck('Csonst mit Code 11: failReason deutsch, ohne Vorsatz', failText(11, N) === 'kein Medienserver gefunden (Code 11).');
+  const unbekannt = failMeldung(VORSATZ.beitritt, 4242, N);
+  ck('unbekannter Code: „unbekannter Grund (Code 4242).“ und MEETING_FAIL_CODE_4242',
+    unbekannt.text === 'Beitritt gescheitert: unbekannter Grund (Code 4242).' && unbekannt.detail === 'MEETING_FAIL_CODE_4242 (4242)');
+  ck('C61 mit Anzeigename', failText(61, 'Regie Süd') === 'Der Host hat „Regie Süd“ aus dem Meeting entfernt.');
+
+  const C13 = 'Das Meeting ist durch eine Kontoeinstellung eingeschränkt.';
+  const C88 = 'Zoom kann die Meeting-Nummer keinem Meeting eindeutig zuordnen. Bitte die Nummer prüfen.';
+  const C_83: Record<number, string> = {
+    4: 'falscher Kenncode.',
+    6: 'Das Meeting ist vorbei.',
+    7: 'Das Meeting hat noch nicht begonnen, und Warten auf den Host ist nicht erlaubt.',
+    8: 'Dieses Meeting gibt es nicht. Bitte die Nummer prüfen.',
+    9: 'Das Meeting ist voll.',
+    10: 'Zoom lässt diese SDK-Fassung nicht mehr zu (Client zu alt). Nötig ist ein neuer Connect-Release mit neuer SDK-Fassung.',
+    12: 'Das Meeting ist gesperrt.',
+    13: C13, 14: C13,
+    16: 'Zoom hat das Anmelde-Token als abgelaufen abgewiesen. Meist geht die Uhr dieses PCs falsch.',
+    23: 'Das Meeting verlangt eine Anmeldung mit einem Zoom-Konto. JM Connect tritt ohne Anmeldung bei.',
+    60: 'Das Meeting ist nur für Mitglieder des Gastgeber-Kontos freigegeben.',
+    61: 'Der Host hat „JM Connect“ aus dem Meeting entfernt.',
+    62: 'Der Host lässt niemanden von außerhalb seines Zoom-Kontos zu.',
+    63: C63,
+    64: 'Der Administrator des Gastgeber-Kontos hat diese App gesperrt.',
+    82: 'Das Meeting verlangt eine Anmeldung mit dem Konto des Veranstalters. JM Connect tritt ohne Anmeldung bei und kann nur Meetings im eigenen Zoom-Konto betreten.',
+    88: C88, 89: C88,
+    500: C500, 501: C500, 502: C500, 503: C500, 504: C500, 505: C500, 506: C500,
+  };
+  for (const [code, soll] of Object.entries(C_83)) ck(`8.3 Code ${code} wörtlich`, failText(Number(code), N) === soll);
+}
+
+console.log('— 6.5/8.5: Meeting-Ende (R6 ohne „beendet: “ aus explainStatus, Grund 1 = C61)');
+{
+  const ende = endeMeldung(2, 'JM Connect');
+  ck('Grund 2 → „Meeting beendet: vom Gastgeber beendet.“', ende.text === 'Meeting beendet: vom Gastgeber beendet.' && ende.detail === null);
+  ck('Grund 1 → C61 mit Anzeigename', endeMeldung(1, 'JM Connect').text === 'Der Host hat „JM Connect“ aus dem Meeting entfernt.');
+  ck('unbekannter Grund → „Meeting beendet: Grund 99.“', endeMeldung(99, 'JM Connect').text === 'Meeting beendet: Grund 99.');
+  ck('nie „beendet: beendet“', !endeMeldung(4, 'JM Connect').text.includes('beendet: beendet'));
+}
+
+console.log('— 8.2: Anmeldung, DLL-Tod, Spawn');
+{
+  const a2 = authMeldung(2);
+  ck('auth 2 → B9 mit AUTHRET_KEYORSECRETWRONG', a2.text === KT.B9('AUTHRET_KEYORSECRETWRONG') && a2.detail === 'AUTHRET_KEYORSECRETWRONG (2)');
+  ck('auth 1 → B9 mit AUTHRET_KEYORSECRETEMPTY', authMeldung(1).text === KT.B9('AUTHRET_KEYORSECRETEMPTY'));
+  ck('auth 11 → B10', authMeldung(11).text === KT.B10);
+  ck('auth 3 → B11', authMeldung(3).text === KT.B11('AUTHRET_ACCOUNTNOTSUPPORT'));
+  ck('auth 4 → B11', authMeldung(4).text === KT.B11('AUTHRET_ACCOUNTNOTENABLESDK'));
+  ck('auth 6 → B12', authMeldung(6).text === KT.B12('AUTHRET_SERVICE_BUSY'));
+  ck('auth 8 → B12', authMeldung(8).text === KT.B12('AUTHRET_OVERTIME'));
+  ck('auth 9 → B12', authMeldung(9).text === KT.B12('AUTHRET_NETWORKISSUE'));
+  ck('auth 10 → B13', authMeldung(10).text === KT.B13);
+  ck('auth 12 → B14', authMeldung(12).text === KT.B14);
+  ck('auth 5 → B15', authMeldung(5).text === KT.B15('AUTHRET_UNKNOWN'));
+  ck('auth 99 → B15 mit unbekanntem Namen', authMeldung(99).text === KT.B15('AUTHRET_UNKNOWN_CODE(99)'));
+
+  ck('exitCodeAus liest „exitCode=<n>“', exitCodeAus('EXITED_UNEXPECTEDLY exitCode=3221225781') === 3221225781);
+  ck('exitCodeAus: Signal → null', exitCodeAus('Signal=SIGKILL') === null && exitCodeAus(undefined) === null);
+  const b3 = dllMeldung(0xc0000135);
+  ck('0xC0000135 → B3', b3?.text === KT.B3 && b3.detail === 'STATUS_DLL_NOT_FOUND (0xC0000135)');
+  ck('B3 nennt die Zugangsdaten NICHT als Ursache', b3 !== null && b3.text.includes('Mit den Zugangsdaten hat das nichts zu tun') && !b3.text.includes('stimmen nicht'));
+  ck('0xC0000139 → B4', dllMeldung(0xc0000139)?.text === KT.B4);
+  ck('0xC000007B → B5', dllMeldung(0xc000007b)?.text === KT.B5);
+  ck('anderer Rückgabewert / keiner → null', dllMeldung(1) === null && dllMeldung(null) === null);
+  ck('Spawn ENOENT → B1', spawnMeldung('ENOENT').text === KT.B1);
+  ck('Spawn EACCES → B2 mit Code', spawnMeldung('EACCES').text === KT.B2('EACCES') && spawnMeldung('EACCES').detail === 'EACCES');
+  ck('Spawn ohne Code → B2 „unbekannt“', spawnMeldung(undefined).text === KT.B2('unbekannt'));
+  ck('fehlerDetail: „NAME (code)“', fehlerDetail({ name: 'SDKERR_UNINITIALIZE', code: 7 }) === 'SDKERR_UNINITIALIZE (7)');
+  ck('fehlerDetail ohne Namen', fehlerDetail({ code: 'x' }) === 'unbekannt (x)');
+}
+
+console.log('— Mängel → Text (6.2 Schritt 1)');
+{
+  const MANGEL_TEXT: Record<ZoomMangel, [string | null, string]> = {
+    sdk_fehlt: [null, 'Die Zoom-Laufzeit auf diesem PC ist unvollständig (jm-zoom-laufzeit.json). Bitte den SDK-Ordner erneut wählen.'],
+    sdk_defekt: ['sdk.dll', 'Die Zoom-Laufzeit auf diesem PC ist unvollständig (sdk.dll). Bitte den SDK-Ordner erneut wählen.'],
+    bridge_fehlt: [null, 'Dieser Connect-Installation fehlt die Zoom-Bridge. Bitte JM Connect neu installieren.'],
+    zugang_fehlt: [null, 'Zugangsdaten fehlen — bitte die Datei wählen.'],
+    zugang_unlesbar: [null, 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Datei erneut wählen.'],
+  };
+  for (const m of Object.keys(MANGEL_TEXT) as ZoomMangel[]) {
+    ck(`${m} → Text wörtlich`, mangelText(m, MANGEL_TEXT[m][0]) === MANGEL_TEXT[m][1]);
+  }
+}
+
+console.log('— 8.4: Bild-/Ton-Fehler → Zeile, Hinweis oder nichts');
+{
+  const e = (code: string, name: string, person: string | null = 'Anna', dropped?: number) => quellenFehler(code, name, person, dropped);
+  ck('videoNoPrivilege → Zeile Q1', JSON.stringify(e('videoNoPrivilege', 'VIDEO_NO_PRIVILEGE')) === JSON.stringify({ art: 'zeile', text: KT.Q1 }));
+  ck('videoUnknownParticipant → Zeile Q2', JSON.stringify(e('videoUnknownParticipant', 'VIDEO_UNKNOWN_PARTICIPANT')) === JSON.stringify({ art: 'zeile', text: KT.Q2 }));
+  ck('videoAlreadySubscribed → nichts (Q3)', e('videoAlreadySubscribed', 'VIDEO_ALREADY_SUBSCRIBED').art === 'keine');
+  for (const [code, name] of [['videoRendererFailed', 'VIDEO_RENDERER_FAILED'], ['videoRawRecordingFailed', 'VIDEO_RAW_RECORDING_FAILED'], ['videoSenderFailed', 'VIDEO_SENDER_FAILED']]) {
+    ck(`${code} → Zeile Q4(${name})`, JSON.stringify(e(code, name)) === JSON.stringify({ art: 'zeile', text: KT.Q4(name) }));
+  }
+  for (const [code, name] of [['audioVoipJoinFailed', 'AUDIO_VOIP_JOIN_FAILED'], ['audioHelperMissing', 'AUDIO_HELPER_MISSING'], ['audioSubscribeFailed', 'AUDIO_SUBSCRIBE_FAILED']]) {
+    ck(`${code} → Zeile Q5(${name})`, JSON.stringify(e(code, name)) === JSON.stringify({ art: 'zeile', text: KT.Q5(name) }));
+  }
+  ck('videoBadDelay → Zeile Q13', JSON.stringify(e('videoBadDelay', 'VIDEO_BAD_DELAY')) === JSON.stringify({ art: 'zeile', text: KT.Q13 }));
+  ck('audioQueueOverflow → Hinweis Q6 mit dropped', JSON.stringify(e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null, 37)) === JSON.stringify({ art: 'hinweis', text: 'Ton: 37 Pakete verworfen — dieser PC kommt nicht hinterher.' }));
+  ck('audioQueueOverflow ohne dropped → 0', e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null).art === 'hinweis' && JSON.stringify(e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null)).includes('Ton: 0 Pakete'));
+  ck('videoBufferMismatch → Hinweis Q16 (keine Zeile)', JSON.stringify(e('videoBufferMismatch', 'VIDEO_BUFFER_MISMATCH')) === JSON.stringify({ art: 'hinweis', text: KT.Q16('Anna') }));
+  ck('audioBufferMismatch → Hinweis Q17 (keine Zeile)', JSON.stringify(e('audioBufferMismatch', 'AUDIO_BUFFER_MISMATCH', 'Ben')) === JSON.stringify({ art: 'hinweis', text: KT.Q17('Ben') }));
+  ck('unbekannter Code → Zeile Q4 mit dem Namen', JSON.stringify(e('videoNeu', 'OWN_UNKNOWN(videoNeu)')) === JSON.stringify({ art: 'zeile', text: KT.Q4('OWN_UNKNOWN(videoNeu)') }));
+  ck('Ton off/command (ohne Ton geladen) → kein Fehler', tonZustand('off', 'command').art === 'keine');
+  ck('Ton off/audioUnavailable → Zeile Q5', JSON.stringify(tonZustand('off', 'audioUnavailable')) === JSON.stringify({ art: 'zeile', text: KT.Q5('audioUnavailable') }));
+  ck('Ton off/participantLeft → kein Zeilenfehler', tonZustand('off', 'participantLeft').art === 'keine');
+  ck('Ton live → kein Fehler', tonZustand('live', 'packets').art === 'keine');
+}
+
+console.log('— 8.7: Maskierung nur nicht-leerer Werte, längste zuerst');
+{
+  ck('Kenncode wird zu •••, leerer Wert stört nicht', maskiere('a KENNCODE-PROBE b', ['', 'KENNCODE-PROBE']) === 'a ••• b');
+  ck('nur leerer Wert → Zeile unverändert (kein ••• zwischen den Zeichen)', maskiere('abc', ['']) === 'abc');
+  const nummer = '7'.repeat(10);
+  ck('eingegebene und normierte Nummer beide maskiert',
+    maskiere(`join 777-777-7777 und ${nummer}`, [nummer, '777-777-7777']) === 'join ••• und •••');
+  ck('längster Wert zuerst (kein Rest vom kürzeren)', maskiere(nummer, ['77', nummer]) === '•••');
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
