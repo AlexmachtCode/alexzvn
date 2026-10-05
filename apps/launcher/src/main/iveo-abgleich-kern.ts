@@ -31,7 +31,9 @@ import {
   type IveoClient,
   type IveoProgram,
   type IveoProgramFilter,
+  type IveoSnapshot,
   type IveoSpeaker,
+  type ProgramMapOptions,
 } from '@jm/iveo';
 import { IVEO_ABRUF_ZEITGRENZE_MS } from './iveo-huelle-hilfen';
 
@@ -98,6 +100,13 @@ const TEXT_AGENDA_NICHT_ABRUFBAR = 'Agenda von iveo nicht abrufbar, bitte erneut
 const TEXT_UMSCHALTEN_VERWORFEN = 'Show wurde inzwischen gewechselt oder gespeichert, Umschalten verworfen.';
 /** Zeitgrenze je Abruf abgelaufen (Spec 7.0). Erweitert die Abbildung aus 7.6 — Text außerhalb der Spec, Ruling offen. */
 const TEXT_ZEITGRENZE = `iveo antwortet nicht innerhalb von ${IVEO_ABRUF_ZEITGRENZE_MS / 1000} s`;
+/**
+ * Teil 2b, Spec 6.3 (wortgleich): Speakerliste nicht abrufbar. Ohne Präfix — „iveo-Abgleich gestört: “ und
+ * „ (seit ⟨hh:mm⟩)“ setzt das iveo-Panel aus `status.text` und `status.seit` davor bzw. dahinter (iveo-status.ts).
+ */
+const TEXT_SPEAKER_VERALTET = 'Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand';
+/** Teil 2b, Spec 6.3: Antwort beim Umschalten auf die Tagesübersicht, hinter „Umgeschaltet — “. */
+const TEXT_UMSCHALTEN_SPEAKER_VERALTET = 'Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand.';
 
 // ── Reine Helfer (aus iveo-sync.ts hierher gezogen; die Hülle importiert sie für Binden/Discover) ──────────
 
@@ -115,6 +124,34 @@ export function compactFilter(f: IveoProgramFilter): NonNullable<Show['iveo']>['
 /** id → Anzeigename aller Event-Speaker (für „Verantwortlich" am Ablauf-Punkt). */
 export function speakerNameMap(speakers: Array<Parameters<typeof speakerName>[0]>): Map<string, string> {
   return new Map(speakers.map((s) => [s.id, speakerName(s)]));
+}
+
+/**
+ * Teil 2b, Spec 6.2: Kennung → Name aus den Speakern der Show-Datei (wie `speakerNameMap`, nur aus der Datei). Gilt,
+ * wenn die iveo-Speakerliste gescheitert ist: Ein neuer Ablaufpunkt bekommt sein „Verantwortlich“ dann aus diesen
+ * Namen. Speaker ohne Kennung fehlen, denn über sie gibt es keine Verknüpfung.
+ */
+export function speakerNamenAusDatei(speakers: ShowIveoSpeaker[]): Map<string, string> {
+  const namen = new Map<string, string>();
+  for (const s of speakers) if (s.id !== undefined) namen.set(s.id, s.name);
+  return namen;
+}
+
+/**
+ * Teil 2b, Spec 6.2: Ist die iveo-Speakerliste gescheitert, kommt „Verantwortlich“ aus der Datei. Ein Punkt mit
+ * Gegenstück gleicher Kennung in der Datei übernimmt dessen `owner`; hat das Gegenstück keinen, entfällt das Feld.
+ * Ein neuer Punkt (ohne Gegenstück) und ein Punkt ohne Kennung bleiben, wie sie sind. Neue Liste, die Eingabe bleibt.
+ */
+export function uebernimmOwnerAusDatei(ablauf: ShowAblaufItem[], datei: ShowAblaufItem[]): ShowAblaufItem[] {
+  const ownerJeKennung = new Map<string, string | undefined>();
+  for (const p of datei) if (p.id !== undefined && !ownerJeKennung.has(p.id)) ownerJeKennung.set(p.id, p.owner);
+  return ablauf.map((p) => {
+    if (p.id === undefined || !ownerJeKennung.has(p.id)) return p;
+    const owner = ownerJeKennung.get(p.id);
+    if (owner) return { ...p, owner };
+    const { owner: _ohne, ...rest } = p;
+    return rest;
+  });
 }
 
 /**
@@ -234,6 +271,12 @@ function sideKontext(detail: IveoProgram | null, alleSpeaker?: IveoSpeaker[]): S
   };
 }
 
+/**
+ * Ergebnis eines Listen-Snapshots (Listen-Abfrage, Tagesübersicht), so wie es zu schreiben ist: Ablauf, Speaker und
+ * Merker „Speaker veraltet“ (Teil 2b, Spec 6.2; `undefined` = kein Merker).
+ */
+type ListenStand = { ablauf: ShowAblaufItem[]; speakers: ShowIveoSpeaker[]; merker: string | undefined };
+
 interface AktiveShow {
   path: string;
   /** Kanonischer Event-Slug (Token-Schlüssel). */
@@ -270,6 +313,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   /** Umschaltungen laufen nacheinander (7.3). */
   let kette: Promise<unknown> = Promise.resolve();
   let status: IveoSyncStatus = { ok: true };
+  /** Zuletzt geloggter Fehlertext der Speakerliste (Spec 6.3): gleichbleibende Wiederholungen nicht erneut loggen. */
+  let letzterSpeakerFehler: string | null = null;
 
   /** 7.3: Ergebnis gilt nur, wenn Show UND Generation noch dieselben sind wie beim Start. */
   const istAktuell = (a: AktiveShow, gen: number): boolean => active === a && generation === gen;
@@ -282,12 +327,36 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     d.log.info('iveo-Abgleich wieder in Ordnung.');
     d.meldeStatus(status);
   }
-  function statusGestoert(text: string, roh?: string): void {
-    if (!status.ok && status.text === text) return;
+  /**
+   * `seit` gesetzt (Teil 2b, Spec 6.3: der Merker „Speaker veraltet“) → status.seit = seit. Die Statuszeile nennt
+   * dann die Zeit des ersten Fehlschlags, auch über einen Neustart hinweg. Ohne `seit` wie in 2a.
+   */
+  function statusGestoert(text: string, roh?: string, seit?: string): void {
+    if (!status.ok && status.text === text && (seit === undefined || status.seit === seit)) return;
     // „seit“ = Beginn der Störung; ein neuer Text innerhalb derselben Störung behält ihn.
-    status = { ok: false, text, seit: status.ok ? d.jetztIso() : status.seit };
+    status = { ok: false, text, seit: seit ?? (status.ok ? d.jetztIso() : status.seit) };
     d.log.warn(`iveo-Abgleich gestört: ${text}${roh && roh !== text ? ` [${roh}]` : ''}`);
     d.meldeStatus(status);
+  }
+  /**
+   * Teil 2b, Spec 6.2: Nach einer Abfrage oder einem Umschalten „in Ordnung“ nur ohne Merker. Mit Merker bleibt der
+   * Text aus 6.3 stehen, „seit“ = erster Fehlschlag.
+   */
+  function statusNachAbfrage(a: AktiveShow): void {
+    if (a.speakerVeraltetSeit) statusGestoert(TEXT_SPEAKER_VERALTET, undefined, a.speakerVeraltetSeit);
+    else statusOk();
+  }
+  /** Teil 2b, Spec 6.3 (wie 2a-Spec 7.6): Warnung beim ersten Fehlschlag der Speakerliste und bei jedem neuen Text. */
+  function meldeSpeakerFehler(e: unknown): void {
+    const text = (e as Error)?.message || String(e);
+    if (text === letzterSpeakerFehler) return;
+    letzterSpeakerFehler = text;
+    d.log.warn(`iveo: Speakerliste nicht abrufbar (${text}), Speaker aus der Datei bleiben.`);
+  }
+  /** Teil 2b, Spec 6.3: Die Speakerliste kam wieder und steht jetzt in der Datei. */
+  function meldeSpeakerWieder(): void {
+    letzterSpeakerFehler = null;
+    d.log.info('iveo: Speakerliste wieder abrufbar, Speaker aktualisiert.');
   }
 
   /** Spec 7.1: an allen drei Stellen geht auch RUNDOWN RELOAD hinaus. */
@@ -296,6 +365,30 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     const titler = d.benachrichtige('jm-titler', 'TITLER RELOAD');
     const rundown = d.benachrichtige('jm-rundown', 'RUNDOWN RELOAD');
     d.log.info(`iveo: RELOAD → ${timer} Timer, ${titler} Titler, ${rundown} Rundown benachrichtigt.`);
+  }
+
+  /** Stand aus einem Snapshot mit Speakerliste (wie 2a): Speaker und „Verantwortlich“ aus iveo, kein Merker. */
+  function standMitSpeakerliste(snap: IveoSnapshot, listPrograms: IveoProgram[], optionen: ProgramMapOptions): ListenStand {
+    return {
+      ablauf: programsToAblauf(listPrograms, { ...optionen, speakerNamesById: speakerNameMap(snap.speakers) }),
+      speakers: snapshotToShowSpeakers(snap),
+      merker: undefined,
+    };
+  }
+
+  /**
+   * Teil 2b, Spec 6.2: Stand, wenn die Speakerliste gescheitert ist. Es gelten die Speaker der gelesenen Datei. Der
+   * Ablauf wird mit deren Namen gebaut (ein neuer Punkt bekommt so sein „Verantwortlich“), danach übernimmt jeder
+   * Punkt mit Gegenstück in der Datei dessen `owner`. Ein schon gesetzter Merker bleibt, sonst gilt jetzt.
+   */
+  function standOhneSpeakerliste(basis: Show, listPrograms: IveoProgram[], optionen: ProgramMapOptions, a: AktiveShow): ListenStand {
+    const speakers = basis.iveo?.speakers ?? [];
+    const ablauf = programsToAblauf(listPrograms, { ...optionen, speakerNamesById: speakerNamenAusDatei(speakers) });
+    return {
+      ablauf: uebernimmOwnerAusDatei(ablauf, basis.ablauf ?? []),
+      speakers,
+      merker: a.speakerVeraltetSeit ?? d.jetztIso(),
+    };
   }
 
   /**
@@ -416,37 +509,59 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     }
   }
 
-  /** Listen-Modus (früher pollOnce): nur bei einem `updated_since`-Treffer den Snapshot holen, dann Signatur (7.2). */
+  /**
+   * Listen-Modus (früher pollOnce): nur bei einem `updated_since`-Treffer den Snapshot holen, dann Signatur (7.2).
+   * Teil 2b, Spec 6.2: Solange der Merker „Speaker veraltet“ gilt, holt jede Abfrage den Snapshot, bis die
+   * Speakerliste wieder kommt. Scheitert sie, gelten Speaker und „Verantwortlich“ der Datei, der Merker bleibt oder
+   * ist jetzt. Gelingt sie, entfällt der Merker.
+   */
   async function abfrageListe(client: IveoClientLike, a: AktiveShow, gen: number): Promise<void> {
     const geaendert = await client.listProgramsUpdatedSince(a.event, a.lastSyncIso);
-    if (!geaendert.length) {
+    if (!geaendert.length && !a.speakerVeraltetSeit) {
       if (istAktuell(a, gen)) statusOk();
       return; // nichts Neues seit dem letzten Abgleich
     }
     // Programme ESSENZIELL (kein programsBestEffort): ein transienter 500 soll den Ablauf nicht mit [] überschreiben.
+    // Speaker best effort, aber ein Fehlschlag ist NICHT „0 Speaker“ (Spec 6.2): er wird hier gemerkt.
+    const speakerFehler: unknown[] = [];
     const snap = await client.getEventSnapshot(a.event, d.jetztIso(), {
-      onSubError: (resource, e) => d.log.warn(`iveo poll: Metadaten „${resource}" übersprungen (${(e as Error).message})`),
+      onSubError: (resource, e) => {
+        if (resource === 'speakers') speakerFehler.push(e);
+        else d.log.warn(`iveo poll: Metadaten „${resource}" übersprungen (${(e as Error).message})`);
+      },
     });
     // Ab hier kein await mehr: Prüfen und Schreiben stehen direkt hintereinander (7.3).
     if (!istAktuell(a, gen)) return;
     const listPrograms = filterPrograms(snap.programs, a.filter);
-    const ablauf = programsToAblauf(listPrograms, {
+    const optionen: ProgramMapOptions = {
       stagesById: new Map(snap.stages.map((s) => [s.id, s])),
       // F3: nur bei eindeutiger Tageszugehörigkeit (s. scheduleSafeForList).
       withSchedule: scheduleSafeForList(a.filter, listPrograms),
-      speakerNamesById: speakerNameMap(snap.speakers),
-    });
-    const speakers = snapshotToShowSpeakers(snap);
+    };
+    // Spec 6.2: Scheitert die Speakerliste, wird die Datei VOR dem Vergleich gelesen — ihre Speaker und ihr
+    // „Verantwortlich“ gelten. Sonst wie in 2a erst, wenn sich etwas geändert hat.
+    let basis: Show | null = null;
+    if (speakerFehler.length) {
+      basis = d.leseShow(a.path);
+      if (!basis) {
+        statusGestoert(TEXT_SHOW_NICHT_LESBAR);
+        return;
+      }
+      meldeSpeakerFehler(speakerFehler[0]);
+    }
+    const { ablauf, speakers, merker } = basis
+      ? standOhneSpeakerliste(basis, listPrograms, optionen, a)
+      : standMitSpeakerliste(snap, listPrograms, optionen);
     d.schreibeCache(buildShowMetadata(snap, a.baseUrl));
-    const sig = ablaufSignatur(ablauf, speakers, a.speakerVeraltetSeit);
+    const sig = ablaufSignatur(ablauf, speakers, merker);
     if (sig === a.lastSig) {
       // 7.2: nichts geändert → nicht schreiben, kein RELOAD; das Abfragefenster rückt trotzdem vor.
       a.lastSyncIso = snap.fetchedAt;
-      d.log.info(`iveo: ${geaendert.length} Programm(e) geändert, Ablauf unverändert.`);
-      statusOk();
+      if (geaendert.length) d.log.info(`iveo: ${geaendert.length} Programm(e) geändert, Ablauf unverändert.`);
+      statusNachAbfrage(a);
       return;
     }
-    const basis = d.leseShow(a.path);
+    if (!basis) basis = d.leseShow(a.path);
     if (!basis) {
       statusGestoert(TEXT_SHOW_NICHT_LESBAR);
       return;
@@ -459,16 +574,19 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       ablauf,
       speakers,
       filter: a.filter,
-      speakerVeraltetSeit: a.speakerVeraltetSeit,
+      speakerVeraltetSeit: merker,
     });
     if (!ok) {
       // 7.2: kein RELOAD, Merker bleiben → die nächste Abfrage mit demselben iveo-Stand schreibt erneut.
       statusGestoert(TEXT_NICHT_GESCHRIEBEN);
       return;
     }
+    const speakerWieder = a.speakerVeraltetSeit !== undefined && merker === undefined;
     a.lastSig = sig;
     a.lastSyncIso = snap.fetchedAt;
-    statusOk();
+    a.speakerVeraltetSeit = merker;
+    if (speakerWieder) meldeSpeakerWieder();
+    statusNachAbfrage(a);
     benachrichtigeAlle();
   }
 
@@ -623,6 +741,10 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       let warning: string | undefined;
       let name: string | undefined;
       let lastSyncIso = a.lastSyncIso;
+      /** Merker „Speaker veraltet“, wie er nach dem Umschalten in der Datei steht (Teil 2b, Spec 6.2). */
+      let merker = a.speakerVeraltetSeit;
+      /** Schon gelesene Datei (nur wenn die Speakerliste gescheitert ist); genau sie wird dann auch geschrieben. */
+      let basisFrueh: Show | null = null;
       if (programId) {
         const r = await loeseSideEventLeicht(client, a.event, programId);
         if (!r) return { ok: false, message: TEXT_AGENDA_NICHT_ABRUFBAR };
@@ -631,16 +753,32 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       } else {
         // Tagesübersicht: alle Side Events des Tages (voller Snapshot nötig).
         const day = input.day || a.filter.day;
-        const snap = await client.getEventSnapshot(a.event, d.jetztIso(), { onSubError: () => {} });
+        // Teil 2b, Spec 6.2: Ein Fehlschlag der Speakerliste ist nicht „0 Speaker“. Er wird gemerkt, nicht verschluckt.
+        const speakerFehler: unknown[] = [];
+        const snap = await client.getEventSnapshot(a.event, d.jetztIso(), {
+          onSubError: (resource, e) => {
+            if (resource === 'speakers') speakerFehler.push(e);
+          },
+        });
         filter = { ...a.filter, programId: undefined, day };
         const listPrograms = filterPrograms(snap.programs, filter);
-        ablauf = programsToAblauf(listPrograms, {
+        const optionen: ProgramMapOptions = {
           stagesById: new Map(snap.stages.map((s) => [s.id, s])),
           // F3: nur bei eindeutiger Tageszugehörigkeit (s. scheduleSafeForList).
           withSchedule: scheduleSafeForList(filter, listPrograms),
-          speakerNamesById: speakerNameMap(snap.speakers),
-        });
-        speakers = snapshotToShowSpeakers(snap);
+        };
+        let stand: ListenStand;
+        if (speakerFehler.length) {
+          // Speaker und „Verantwortlich“ aus der Datei, Merker bleibt oder ist jetzt; die Antwort sagt es (6.3).
+          basisFrueh = d.leseShow(a.path);
+          if (!basisFrueh) return { ok: false, message: TEXT_NICHT_GESCHRIEBEN };
+          meldeSpeakerFehler(speakerFehler[0]);
+          stand = standOhneSpeakerliste(basisFrueh, listPrograms, optionen, a);
+          warning = TEXT_UMSCHALTEN_SPEAKER_VERALTET;
+        } else {
+          stand = standMitSpeakerliste(snap, listPrograms, optionen);
+        }
+        ({ ablauf, speakers, merker } = stand);
         name = snap.event.name;
         lastSyncIso = snap.fetchedAt;
         d.schreibeCache(buildShowMetadata(snap, a.baseUrl));
@@ -648,7 +786,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       if (!ablauf.length) return { ok: false, message: 'Side Event nicht auflösbar (leerer Ablauf).' };
       // Ab hier kein await mehr (7.3): Show inzwischen gewechselt oder gespeichert → verwerfen, nichts schreiben.
       if (!istAktuell(a, gen)) return { ok: false, message: TEXT_UMSCHALTEN_VERWORFEN };
-      const basis = d.leseShow(a.path);
+      const basis = basisFrueh ?? d.leseShow(a.path);
       // Ohne Verknüpfung bleibt die Speakerliste der Datei — aus genau diesem Lesen, das auch geschrieben wird.
       const speakersNeu = speakers ?? basis?.iveo?.speakers ?? [];
       const geschrieben =
@@ -660,14 +798,19 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
           ablauf,
           speakers: speakersNeu,
           filter,
-          speakerVeraltetSeit: a.speakerVeraltetSeit,
+          speakerVeraltetSeit: merker,
         });
       if (!geschrieben) return { ok: false, message: TEXT_NICHT_GESCHRIEBEN };
+      const speakerWieder = a.speakerVeraltetSeit !== undefined && merker === undefined;
       a.filter = filter;
       a.sideCtx = sideCtx;
-      a.lastSig = ablaufSignatur(ablauf, speakersNeu, a.speakerVeraltetSeit);
+      a.lastSig = ablaufSignatur(ablauf, speakersNeu, merker);
       a.lastSyncIso = lastSyncIso;
+      a.speakerVeraltetSeit = merker;
+      if (speakerWieder) meldeSpeakerWieder();
       d.log.info(`iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakersNeu.length} Speaker.`);
+      // Teil 2b, Spec 6.2: „in Ordnung“ nur ohne Merker.
+      statusNachAbfrage(a);
       benachrichtigeAlle();
       d.meldeAktiv();
       return { ok: true, message: warning ? `Umgeschaltet — ${warning}` : `Umgeschaltet (${ablauf.length} Punkte).` };

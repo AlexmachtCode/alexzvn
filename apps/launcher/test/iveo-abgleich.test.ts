@@ -18,7 +18,8 @@ import {
   type IveoStage,
 } from '@jm/iveo';
 import {
-  ablaufSignatur, einPunktAblauf, erzeugeKern, toClientError, type IveoClientLike, type IveoKern, type IveoSyncStatus,
+  ablaufSignatur, einPunktAblauf, erzeugeKern, speakerNamenAusDatei, toClientError, uebernimmOwnerAusDatei,
+  type IveoClientLike, type IveoKern, type IveoSyncStatus,
 } from '../src/main/iveo-abgleich-kern';
 import { schreibeShowAtomar, warteSync, type DateiSystem } from '../src/main/show-schreiben';
 
@@ -177,11 +178,22 @@ function nachgebauterClient(iv: NachgebautesIveo): IveoClientLike {
       await schritt('geaendert', seit);
       return iv.geaendert;
     },
-    async getEventSnapshot(event: string, jetzt: string): Promise<IveoSnapshot> {
+    async getEventSnapshot(
+      event: string,
+      jetzt: string,
+      opts: { onSubError?: (resource: string, err: unknown) => void } = {},
+    ): Promise<IveoSnapshot> {
       await schritt('snapshot', jetzt);
+      // Wie der echte Client (packages/iveo/src/client.ts:313-320): Speaker best effort. Ein Fehler meldet onSubError
+      // und ergibt eine leere Liste; der Snapshot selbst gelingt (Teil 2b, Spec 6.1).
+      let speakers = iv.speakers;
+      if (iv.fehler.speakers) {
+        opts.onSubError?.('speakers', iv.fehler.speakers);
+        speakers = [];
+      }
       return {
         event: { id: 'ev-1', slug: event, name: 'COP31', starts_at: null, ends_at: null, timezone: null },
-        programs: iv.programme, speakers: iv.speakers, organisations: [], stages: iv.stages, fetchedAt: jetzt,
+        programs: iv.programme, speakers, organisations: [], stages: iv.stages, fetchedAt: jetzt,
       };
     },
     async listAgendaItems(_event: string, programId: string) {
@@ -1031,6 +1043,123 @@ const letztesFenster = (u: Umgebung): string =>
   await u.kern.abfrage();
   ck('Trotzdem/Umschaltung, Liste: zurück auf der Tagesliste von damals, P2 kommt nicht von selbst zurück',
     u.kern.aktiv()?.filter.programId === undefined && !datei(u).iveo?.filter?.programId && datei(u).iveo?.filter?.day === TAG);
+}
+
+// --- Teil 2b, Spec 6.2: „Verantwortlich“ aus der Datei (reine Helfer) --------------------------------------------
+{
+  const namen = speakerNamenAusDatei([
+    { id: 'sp1', name: 'Ana Silva' },
+    { name: 'Ohne Kennung' },
+    { id: 'sp2', name: 'Bo Berg', title: 'Moderation' },
+  ]);
+  ck('speakerNamenAusDatei: nur Speaker mit Kennung, Kennung → Name', JSON.stringify([...namen]) === '[["sp1","Ana Silva"],["sp2","Bo Berg"]]');
+  ck('speakerNamenAusDatei: leere Liste → leere Map', speakerNamenAusDatei([]).size === 0);
+  const neu: ShowAblaufItem[] = [
+    { id: 'P1', label: 'A', owner: 'Ana Silva' },
+    { id: 'P2', label: 'B', owner: 'Ana Silva' },
+    { id: 'P5', label: 'Neu', owner: 'Ana Silva' },
+    { label: 'Ohne Kennung', owner: 'X' },
+  ];
+  const ausDatei: ShowAblaufItem[] = [{ id: 'P1', label: 'A', owner: 'Dr. Ana Silva (Datei)' }, { id: 'P2', label: 'B' }];
+  const r = uebernimmOwnerAusDatei(neu, ausDatei);
+  ck('uebernimmOwnerAusDatei: Gegenstück gleicher Kennung → dessen owner', r[0].owner === 'Dr. Ana Silva (Datei)');
+  ck('uebernimmOwnerAusDatei: Gegenstück ohne owner → owner entfällt', r[1].id === 'P2' && !('owner' in r[1]));
+  ck('uebernimmOwnerAusDatei: neuer Punkt und Punkt ohne Kennung bleiben unverändert', r[2] === neu[2] && r[3] === neu[3]);
+  ck('uebernimmOwnerAusDatei: die Eingabe bleibt unverändert', neu[0].owner === 'Ana Silva' && neu[1].owner === 'Ana Silva');
+  ck('uebernimmOwnerAusDatei: ein Punkt ohne owner bekommt den der Datei',
+    uebernimmOwnerAusDatei([{ id: 'P1', label: 'A' }], ausDatei)[0].owner === 'Dr. Ana Silva (Datei)');
+}
+
+// --- Teil 2b, 9.2 Nr. 3, 4, 6, 7, 9: Speakerliste nicht abrufbar ist nicht „0 Speaker“ (Spec 6.2, 6.3) -------------
+/** Listen-Show: P1 verknüpft sp1; in der Datei trägt P1 ein eigenes „Verantwortlich“. */
+function listenShowMitOwner(iv: NachgebautesIveo): Show {
+  iv.programme[0] = { ...iv.programme[0], speaker_ids: ['sp1'] } as IveoProgram;
+  const ablauf = listenAblauf(iv, TAG).map((p) => (p.id === 'P1' ? { ...p, owner: 'Dr. Ana Silva (Datei)' } : p));
+  return showMit(ablauf, { day: TAG }, [ANA]);
+}
+/** Neues Programm am selben Tag, mit sp1 verknüpft. */
+const P5 = (): IveoProgram =>
+  programm('P5', 'Side Event Boden', { starts_at: `${TAG}T15:00:00+00:00`, starts_at_local: `${TAG}T16:00:00`, speaker_ids: ['sp1'] });
+const ownerVon = (s: Show, id: string): string | undefined => s.ablauf?.find((p) => p.id === id)?.owner;
+const speakerWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.startsWith('iveo: Speakerliste nicht abrufbar'));
+{
+  // Nr. 3: /speakers scheitert im Listen-Modus, eine Programmänderung liegt vor.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.programme.push(P5());
+  u.iveo.geaendert = [u.iveo.programme[4]];
+  await u.kern.abfrage();
+  const d1 = datei(u);
+  const merker = d1.iveo?.speakerVeraltetSeit;
+  ck('Nr. 3: /speakers scheitert, Programmänderung → die Speaker der Datei bleiben', JSON.stringify(d1.iveo?.speakers) === JSON.stringify([ANA]));
+  ck('Nr. 3: … jeder Punkt behält seinen owner aus der Datei', ownerVon(d1, 'P1') === 'Dr. Ana Silva (Datei)');
+  ck('Nr. 3: … ein neuer Punkt bekommt owner aus den Speakern der Datei (M1 = nein: ohne Kennung keinen)',
+    ids(d1) === 'P1,P2,P3,P5' && ownerVon(d1, 'P5') === (MIT_KENNUNG ? 'Ana Silva' : undefined));
+  ck('Nr. 3: … der Merker steht in der Datei', typeof merker === 'string' && !Number.isNaN(Date.parse(merker)));
+  ck('Nr. 3: … Status „gestört“ mit dem Text aus 6.3, „seit“ = Merker',
+    JSON.stringify(u.status.at(-1)) === JSON.stringify({ ok: false, text: TEXT_SPEAKER_VERALTET, seit: merker }));
+  ck('Nr. 3: … genau einmal geschrieben, genau ein RELOAD-Satz', u.schreibversuche === 1 && u.reloads.length === 3);
+  ck('Nr. 3: … Warnung aus 6.3 im Log, mit dem Fehlertext',
+    JSON.stringify(speakerWarnungen(u)) === JSON.stringify(['iveo: Speakerliste nicht abrufbar (kaputt), Speaker aus der Datei bleiben.']));
+  ck('Nr. 3: … das Token steht nirgends', ![...u.info, ...u.warn].some((z) => z.includes(TOKEN)) && !JSON.stringify(u.status).includes(TOKEN));
+
+  // Nr. 4: keine Programmänderung, /speakers scheitert weiter.
+  u.iveo.geaendert = [];
+  const vorher = u.iveo.abrufe.length;
+  await u.kern.abfrage();
+  ck('Nr. 4: Merker gilt, keine Programmänderung → der Snapshot wird trotzdem geholt',
+    u.iveo.abrufe.slice(vorher).some((x) => x.startsWith('snapshot:')));
+  ck('Nr. 4: … Fehler bleibt → nichts geschrieben, kein RELOAD, Merker unverändert, keine zweite Warnung',
+    u.schreibversuche === 1 && u.reloads.length === 3 && datei(u).iveo?.speakerVeraltetSeit === merker && speakerWarnungen(u).length === 1);
+  ck('Nr. 4: … Status bleibt „gestört“', u.status.at(-1)?.ok === false && u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET);
+
+  // Nr. 4: die Liste kommt wieder.
+  delete u.iveo.fehler.speakers;
+  await u.kern.abfrage();
+  ck('Nr. 4: Liste gelingt → Merker weg, geschrieben, RELOAD',
+    datei(u).iveo?.speakerVeraltetSeit === undefined && u.schreibversuche === 2 && u.reloads.length === 6);
+  ck('Nr. 4: … Status „in Ordnung“, Info-Zeile aus 6.3',
+    u.status.at(-1)?.ok === true && u.info.includes('iveo: Speakerliste wieder abrufbar, Speaker aktualisiert.'));
+  ck('Nr. 4: … „Verantwortlich“ wieder aus iveo', ownerVon(datei(u), 'P1') === 'Ana Silva');
+  const danach = u.iveo.abrufe.length;
+  await u.kern.abfrage();
+  ck('Nr. 4: … ohne Merker und ohne Programmänderung kein Snapshot mehr', !u.iveo.abrufe.slice(danach).some((x) => x.startsWith('snapshot:')));
+}
+{
+  // Nr. 6: Umschalten auf die Tagesübersicht, die Speakerliste scheitert.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const r = await u.kern.umschalten({ day: TAG });
+  const m = datei(u).iveo?.speakerVeraltetSeit;
+  ck('Nr. 6: Tagesübersicht mit gescheiterter Speakerliste → Meldung aus 6.3',
+    r.ok && r.message === 'Umgeschaltet — Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand.');
+  ck('Nr. 6: … Speaker und owner aus der Datei, Merker gesetzt',
+    JSON.stringify(datei(u).iveo?.speakers) === JSON.stringify([ANA]) && ownerVon(datei(u), 'P1') === 'Dr. Ana Silva (Datei)' && typeof m === 'string');
+  ck('Nr. 6: … Status „gestört“ mit dem Merker als „seit“, Warnung im Log',
+    u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET && u.status.at(-1)?.seit === m && speakerWarnungen(u).length === 1);
+  delete u.iveo.fehler.speakers;
+  const r2 = await u.kern.umschalten({ day: TAG });
+  ck('Nr. 6: danach gelingt die Liste → Meldung wie bisher, Merker weg, Status „in Ordnung“',
+    r2.ok && r2.message === 'Umgeschaltet (3 Punkte).' && datei(u).iveo?.speakerVeraltetSeit === undefined && u.status.at(-1)?.ok === true);
+}
+{
+  // Nr. 7: iveo meldet erfolgreich 0 Speaker → wie bisher.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  u.iveo.speakers = [];
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('Nr. 7: iveo meldet erfolgreich 0 Speaker → Feld fehlt in der Datei, kein Merker',
+    u.schreibversuche === 1 && datei(u).iveo?.speakers === undefined && datei(u).iveo?.speakerVeraltetSeit === undefined);
+  ck('Nr. 7: … Status bleibt „in Ordnung“, keine Speaker-Warnung', u.status.length === 0 && speakerWarnungen(u).length === 0);
+}
+{
+  // Nr. 9: Öffnen einer Show mit Merker → die erste Listen-Abfrage holt den Snapshot, auch ohne Programmänderung.
+  const u = umgebung((iv) => mitMerker(showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA])));
+  await u.kern.abfrage();
+  ck('Nr. 9: Show mit Merker geöffnet, keine Programmänderung → die erste Abfrage holt den Snapshot',
+    u.iveo.abrufe.some((x) => x.startsWith('snapshot:')));
+  ck('Nr. 9: … die Liste gelingt → Merker weg, geschrieben, RELOAD',
+    datei(u).iveo?.speakerVeraltetSeit === undefined && u.schreibversuche === 1 && u.reloads.length === 3);
 }
 
 // --- Zusammenfassung ---
