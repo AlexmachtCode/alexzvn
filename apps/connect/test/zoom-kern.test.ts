@@ -556,6 +556,38 @@ console.log('— Abbild-Drossel (ABBILD_TAKT_MS 100)');
   await p.aufraeumen();
 }
 
+console.log('— Fix-Runde 1: Diagnosen der Laufzeit ins Log (Spec 8.7)');
+{
+  const p = baueKern({ laufzeit: { pruefe: () => ({ ok: false, mangel: 'sdk_defekt', datei: 'zoom-bridge.exe', detail: 'EBUSY' }) } });
+  ck('Startprüfung: detail steht im Log', p.logs.includes('[zoom] Laufzeit defekt: zoom-bridge.exe (EBUSY)'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ laufzeit: { pruefe: () => ({ ok: true, ordner: 'x', ersetzt: ['zoom-bridge.exe'] }) } });
+  ck('Startprüfung: ersetzte Dateien stehen im Log', p.logs.includes('[zoom] Eigene Dateien ersetzt: zoom-bridge.exe'));
+  await p.aufraeumen();
+}
+{
+  let aufrufe = 0;
+  const p = baueKern({
+    laufzeit: {
+      pruefe: () => (++aufrufe === 1
+        ? { ok: false, mangel: 'sdk_fehlt' }
+        : { ok: false, mangel: 'sdk_defekt', datei: 'sdk.dll', detail: 'EPERM' }),
+      pruefeOrdner: () => ({ ok: true, bin: 'C:/SDK/x64/bin', fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: 1 }], bytesGesamt: 1 }),
+      richteEin: async (e) => ({
+        ok: true, ordner: e.pfade.basis,
+        stempel: { format: 1, sdkFassung: SDK_FASSUNG, eingerichtetAm: '2026-10-02T10:00:00.000Z', sdkDateien: [], eigeneDateien: [] },
+        aufraeumFehler: 'EBUSY',
+      }),
+    },
+  });
+  await p.kern.sdkWaehlen('C:/SDK');
+  ck('Einrichtung: aufraeumFehler steht im Log', p.logs.includes('[zoom] Aufräumen nach der Einrichtung unvollständig (EBUSY)'));
+  ck('… Prüfung nach der Einrichtung: detail steht im Log', p.logs.includes('[zoom] Laufzeit defekt: sdk.dll (EPERM)'));
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);

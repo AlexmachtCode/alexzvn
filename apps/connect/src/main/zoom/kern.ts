@@ -230,12 +230,21 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   // ── Einrichtung (Spec 5.3, 6.1) ──────────────────────────────────────────
   /** Mängel neu bestimmen: Laufzeit-Mangel zuerst, dann Zugangs-Mangel. */
   function bestimmeMaengel(neu?: LaufzeitPruefung): void {
-    if (neu) laufzeitStand = neu;
+    if (neu) {
+      laufzeitStand = neu;
+      meldeLaufzeit(neu);
+    }
     zugang = d.zugang.lesen();
     const m: ZoomMangel[] = [];
     if (!laufzeitStand.ok) m.push(laufzeitStand.mangel);
     if (!zugang.daten) m.push(zugang.unlesbar ? 'zugang_unlesbar' : 'zugang_fehlt');
     maengel = m;
+  }
+
+  /** Spec 8.7: die Diagnose der Laufzeit-Prüfung (Grund, warum eine eigene Datei nicht ersetzt werden konnte) gehört ins Log. */
+  function meldeLaufzeit(l: LaufzeitPruefung): void {
+    if (!l.ok && l.mangel === 'sdk_defekt' && l.detail) d.log(`[zoom] Laufzeit defekt: ${l.datei} (${l.detail})`);
+    if (l.ok && l.ersetzt.length) d.log(`[zoom] Eigene Dateien ersetzt: ${l.ersetzt.join(', ')}`);
   }
 
   function mangelDatei(): string | null {
@@ -285,6 +294,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (erg.ok) {
       d.einstellungen.setzeLaufzeit({ dir: erg.ordner, fassung: erg.stempel.sdkFassung, eingerichtetAm: erg.stempel.eingerichtetAm });
       d.log(`[zoom] Zoom-SDK eingerichtet in ${erg.ordner}`);
+      if (erg.aufraeumFehler) d.log(`[zoom] Aufräumen nach der Einrichtung unvollständig (${erg.aufraeumFehler})`);
     } else {
       sdkFehler = erg.text;
       d.log(`[zoom] Einrichtung des Zoom-SDK gescheitert: ${erg.text}`);
@@ -396,6 +406,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   bestimmeMaengel();
   zustand = maengel.length ? 'einrichtung' : 'bereit';
   d.log(`[zoom] Zoom-Kern bereit: ${zustand}${maengel.length ? ` (Mängel: ${maengel.join(', ')})` : ''}`);
+  meldeLaufzeit(laufzeitStand);
   letzteKurz = JSON.stringify(kurz());
 
   return {
