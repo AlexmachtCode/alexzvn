@@ -898,6 +898,27 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     datalink.startDataWatch(leer, () => meldungen++, { leerHalten: true, log: (m: string) => logs.push(m) });
     d = datalink.getDataState();
     ok(d.entries.length === 0 && d.sources.length === 0, 'B13: Wechsel auf einen leeren Ordner → keine Einträge, keine Quellen (A7 nur im selben Ordner)');
+
+    // Gesamtprüfung Befund 8: Eine Datei ist nicht lesbar (gesperrt, während Excel speichert; hier ein Ordner namens
+    // kaputt.csv → EISDIR). Sie wird nicht still übersprungen, und der Poll liest erneut, auch wenn sich Größe und
+    // Zeit nach dem Entsperren nicht mehr ändern.
+    const lese = join(tmp, 'lese');
+    mkdirSync(join(lese, 'kaputt.csv'), { recursive: true });
+    writeFileSync(join(lese, 'gaeste.csv'), 'name,funktion\nAda,Mathematik\n');
+    logs.length = 0;
+    datalink.startDataWatch(lese, () => meldungen++, { leerHalten: false, log: (m: string) => logs.push(m) });
+    d = datalink.getDataState();
+    ok(d.entries.length === 1 && JSON.stringify(d.sources) === '["gaeste.csv"]', 'Befund 8: lesbare Dateien gelten, die nicht lesbare steht nicht in den Quellen');
+    ok(
+      logs.includes('DataLink: Datei „kaputt.csv“ nicht lesbar (EISDIR), übersprungen, wird erneut gelesen.'),
+      'Befund 8: Logzeile mit Datei und Fehlercode statt still übersprungen',
+    );
+    ok(datalink.mussNachlesen(), 'Befund 8: … der Poll liest erneut, obwohl sich Größe und Zeit nicht geändert haben');
+    datalink.rescanJetzt();
+    ok(logs.filter((l) => l.includes('kaputt.csv')).length === 1, 'Befund 8: … derselbe Fehler beim nächsten Lesen → keine zweite Logzeile');
+    rmSync(join(lese, 'kaputt.csv'), { recursive: true, force: true });
+    datalink.rescanJetzt();
+    ok(!datalink.mussNachlesen(), 'Befund 8: alle Dateien lesbar → der Poll liest erst bei der nächsten Änderung');
   } finally {
     datalink.stopDataWatch();
     rmSync(tmp, { recursive: true, force: true });

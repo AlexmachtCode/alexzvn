@@ -64,6 +64,8 @@ let watchedDir = '';
 /** Zuletzt beobachteter Ordner; `null` = noch keiner (der erste Start zählt als Ordnerwechsel). */
 let zuletztBeobachtet: string | null = null;
 let lastSig = '';
+/** Beim letzten Lesen nicht lesbare Dateien (Name und Code), damit jede nur einmal ins Log kommt (Befund 8). */
+let zuletztNichtLesbar: string[] = [];
 /** Quelle Show/früher: eine leer gelesene Liste ändert nichts (A7, Spec 7.6). */
 let leerHalten = false;
 let kern: KernZustand = leererKern();
@@ -114,19 +116,28 @@ function uhrLaeuft(): void {
   anwenden(uhrTick(kern, Math.max(Date.now(), ziel)));
 }
 
+/** Ergebnis eines Scans; `nichtLesbar`: Dateien, die beim Lesen scheiterten (Name und Fehlercode). */
+interface ScanErgebnis {
+  entries: DataEntry[];
+  sources: string[];
+  error?: string;
+  nichtLesbar: Array<{ datei: string; code: string }>;
+}
+
 /** Ordner scannen: alle Datendateien lesen und über den Kern zu einer Liste zusammenführen. */
-function scan(dir: string): { entries: DataEntry[]; sources: string[]; error?: string } {
-  if (!dir) return { entries: [], sources: [] };
-  if (!existsSync(dir)) return { entries: [], sources: [], error: 'Ordner nicht gefunden' };
+function scan(dir: string): ScanErgebnis {
+  if (!dir) return { entries: [], sources: [], nichtLesbar: [] };
+  if (!existsSync(dir)) return { entries: [], sources: [], error: 'Ordner nicht gefunden', nichtLesbar: [] };
   let files: string[];
   try {
     files = readdirSync(dir).filter((f) => DATA_EXT.has(extname(f).toLowerCase()));
   } catch (err) {
-    return { entries: [], sources: [], error: (err as Error).message };
+    return { entries: [], sources: [], error: (err as Error).message, nichtLesbar: [] };
   }
   files.sort((a, b) => a.localeCompare(b));
   const teile: DataEntry[][] = [];
   const sources: string[] = [];
+  const nichtLesbar: ScanErgebnis['nichtLesbar'] = [];
   for (const f of files) {
     try {
       const content = readFileSync(join(dir, f), 'utf8');
@@ -142,11 +153,13 @@ function scan(dir: string): { entries: DataEntry[]; sources: string[]; error?: s
         teile.push(es);
         sources.push(f);
       }
-    } catch {
-      // einzelne Datei korrupt oder gerade gesperrt → überspringen
+    } catch (err) {
+      // einzelne Datei gerade gesperrt oder nicht lesbar → überspringen, aber nicht still (Befund 8): rescan meldet sie.
+      const code = (err as NodeJS.ErrnoException)?.code;
+      nichtLesbar.push({ datei: f, code: typeof code === 'string' && code ? code : 'Lesefehler' });
     }
   }
-  return { entries: fuehreZusammen(teile), sources };
+  return { entries: fuehreZusammen(teile), sources, nichtLesbar };
 }
 
 /** Signatur über Datei-Namen+mtime+Größe für den Poll-Fallback. */
@@ -175,8 +188,23 @@ function rescan(andererOrdner = false): void {
   // A7 (wie neueListe nur im selben Ordner): bleibt die alte Liste stehen, bleiben auch ihre Quellen stehen.
   const behalten = r.entries.length === 0 && leerHalten && !andererOrdner;
   quellen = { sources: behalten ? quellen.sources : r.sources, error: r.error };
-  lastSig = signature(watchedDir);
+  // Befund 8: Eine nicht lesbare Datei kommt ins Log (je Datei und Code einmal, nicht bei jedem Nachlesen). lastSig
+  // bleibt dann leer, damit der Poll erneut liest: Nach dem Entsperren ändern sich Größe und Zeit oft nicht mehr.
+  const vorher = new Set(zuletztNichtLesbar);
+  zuletztNichtLesbar = r.nichtLesbar.map((f) => `${f.datei}\u0000${f.code}`);
+  r.nichtLesbar.forEach((f, i) => {
+    if (!vorher.has(zuletztNichtLesbar[i])) logZeile?.(`DataLink: Datei „${f.datei}“ nicht lesbar (${f.code}), übersprungen, wird erneut gelesen.`);
+  });
+  lastSig = r.nichtLesbar.length ? '' : signature(watchedDir);
   anwenden(neueListe(kern, r.entries, { andererOrdner, leerHalten }));
+}
+
+/**
+ * Liest der 3-s-Poll beim nächsten Takt neu? Ja, wenn sich eine Datei geändert hat (Name, Zeit, Größe) oder beim
+ * letzten Lesen eine Datei nicht lesbar war (Befund 8).
+ */
+export function mussNachlesen(): boolean {
+  return signature(watchedDir) !== lastSig;
 }
 
 function scheduleRescan(): void {
@@ -272,7 +300,7 @@ export function startDataWatch(
     watcher = null; // Ordner fehlt o. Ä. → Poll fängt es ab
   }
   poll = setInterval(() => {
-    if (signature(watchedDir) !== lastSig) rescan();
+    if (mussNachlesen()) rescan();
   }, 3000);
 }
 
@@ -288,6 +316,7 @@ export function stopDataWatch(keepListener = false): void {
   watchedDir = '';
   zuletztBeobachtet = null;
   lastSig = '';
+  zuletztNichtLesbar = [];
   kern = leererKern();
   quellen = { sources: [] };
   current = baueState();
