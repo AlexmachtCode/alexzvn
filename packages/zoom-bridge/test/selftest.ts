@@ -2175,5 +2175,205 @@ console.log('\nprotocol — Fehlerkatalog Stage 4:');
   assert(typen.length === 4, 'src/index.ts exportiert die Typen AudioState, AudioReason, VideoState, VideoReason (prueft tsc)');
 }
 
+// --- Stage 4: Attrappe mit den Stellschrauben aus Spec 12.1 Nr. 4 ---------------
+
+/** Wartet, bis ein Ereignis `pred` erfuellt (Takt 20 ms); false nach `ms`. */
+async function bisEreignis(ev: BridgeEvent[], pred: (e: BridgeEvent) => boolean, ms = 4000): Promise<boolean> {
+  const ende = Date.now() + ms;
+  while (Date.now() < ende) {
+    if (ev.some(pred)) return true;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return false;
+}
+
+/** Passt auf ein Ereignis `name`, dessen Felder die Werte aus `felder` tragen. */
+const art = (name: string, felder: Record<string, unknown> = {}) => (e: BridgeEvent): boolean =>
+  e.ev === name && Object.entries(felder).every(([k, v]) => (e as Record<string, unknown>)[k] === v);
+
+/** Stelle des ersten passenden Ereignisses, sonst -1. */
+const stelle = (ev: BridgeEvent[], pred: (e: BridgeEvent) => boolean): number => ev.findIndex(pred);
+
+/** Die Statusfolge, wie sie auf der Leitung stand. */
+const statusFolge = (ev: BridgeEvent[]): string =>
+  ev.filter((e) => e.ev === 'status').map((e) => (e as { status: string }).status).join(',');
+
+/** Ein Beitritt mit synthetischer Nummer und erfundenem Kenncode (nie echte Werte). */
+const BEITRITT = { cmd: 'join', meetingId: '7'.repeat(10), passcode: 'KENNCODE-PROBE-3', displayName: 'JM Connect' } as const;
+
+/**
+ * Echte Bridge gegen die Attrappe (Drehbuch "steuerung"), so wie JM Connect sie
+ * fuehrt: init und auth senden, auf die Antwort warten, dann `schritte`, am Ende
+ * IMMER stop(). Liefert alle Ereignisse, auch die beim Abbau.
+ */
+async function fahreSteuerung(
+  fakeEnv: Record<string, string>,
+  schritte: (b: Bridge, ev: BridgeEvent[]) => Promise<void>,
+): Promise<BridgeEvent[]> {
+  const ev: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'steuerung', ...fakeEnv },
+    joinTimeoutMs: 5000,
+    killTimeoutMs: 3000,
+    onEvent: (e) => ev.push(e),
+    onLog: () => {},
+  });
+  await b.start();
+  try {
+    b.send({ cmd: 'init' });
+    b.send({ cmd: 'auth', jwt: 'attrappe' });
+    await bisEreignis(ev, (e) => e.ev === 'auth' || art('error', { where: 'auth' })(e));
+    await schritte(b, ev);
+  } finally {
+    await b.stop();
+  }
+  return ev;
+}
+
+console.log('\nAttrappe — Stellschrauben Stage 4:');
+{
+  // FAKE_SDK_FASSUNG: JM Connect prueft die Fassung exakt (G1) - die Attrappe muss sie liefern koennen.
+  let ev = await fahreSteuerung({ FAKE_SDK_FASSUNG: '7.1.5 (43953)' }, async () => {});
+  const ready = ev.find(art('ready')) as { sdkVersion?: string } | undefined;
+  assert(ready?.sdkVersion === SDK_FASSUNG_BRIDGE, 'FAKE_SDK_FASSUNG bestimmt ready.sdkVersion');
+  ev = await fahreSteuerung({}, async () => {});
+  const vorgabe = ev.find(art('ready')) as { sdkVersion?: string } | undefined;
+  assert(vorgabe?.sdkVersion === '7.1.5 (attrappe)', 'ohne FAKE_SDK_FASSUNG bleibt die Vorgabe "7.1.5 (attrappe)"');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_NDI_FEHLER: '1' }, async () => {});
+  const iReady = stelle(ev, art('ready'));
+  const iNdi = stelle(ev, art('error', { where: 'ndi', code: 'ndiInitFailed' }));
+  assert(iReady >= 0 && iNdi === iReady + 1, 'FAKE_NDI_FEHLER: error ndi ndiInitFailed direkt nach ready');
+  assert(iNdi >= 0 && stelle(ev, art('auth')) > iNdi, '... also vor der Antwort auf die Anmeldung');
+  assert(ev[iNdi]?.name === 'NDI_INIT_FAILED', '... mit dem Namen NDI_INIT_FAILED');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_DOPPELNAME: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('roster'));
+  });
+  const roster = ev.find(art('roster')) as { list?: Participant[] } | undefined;
+  const annas = (roster?.list ?? []).filter((p) => !p.self && p.name === 'Anna').map((p) => p.id);
+  assert(annas.join(',') === '16778240,16778241', 'FAKE_DOPPELNAME: 16778240 und 16778241 heissen beide "Anna"');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '100' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('status', { status: 'inMeeting' }));
+  });
+  assert(statusFolge(ev).startsWith('connecting,waitingRoom,reconnecting,connecting,inMeeting'),
+    'FAKE_EINLASS_MS: der gemessene Einlass connecting, waitingRoom, reconnecting, connecting, inMeeting');
+}
+{
+  let mitten = '';
+  const ev = await fahreSteuerung({ FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '100', FAKE_EINLASS_HAENGT: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('status', { status: 'reconnecting' }));
+    await new Promise((r) => setTimeout(r, 300));
+    mitten = statusFolge(ev);
+  });
+  assert(mitten === 'connecting,waitingRoom,reconnecting', 'FAKE_EINLASS_HAENGT: nach reconnecting kommt nichts mehr');
+  assert(statusFolge(ev) === 'connecting,waitingRoom,reconnecting', '... auch beim Beenden nicht (nie im Meeting gewesen)');
+}
+{
+  let mitten = '';
+  const ev = await fahreSteuerung({ FAKE_VERBINDUNG_HAENGT_MS: '100' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('status', { status: 'reconnecting' }));
+    await new Promise((r) => setTimeout(r, 300));
+    mitten = statusFolge(ev);
+  });
+  assert(mitten === 'connecting,inMeeting,reconnecting', 'FAKE_VERBINDUNG_HAENGT_MS: reconnecting, dann Stille');
+  assert(statusFolge(ev) === 'connecting,inMeeting,reconnecting,disconnecting,ended',
+    '... beim stop() meldet sie disconnecting und ended (sie war noch "im Meeting")');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '100' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { source: 'broadcast' }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('error', { code: 'videoNoPrivilege' }));
+  });
+  const iJa = stelle(ev, art('privilege', { canRecordRaw: true }));
+  const iEntzug = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
+  assert(iJa >= 0 && iEntzug > iJa, 'FAKE_ENTZUG_MS: privilege broadcast canRecordRaw:false nach der Erlaubnis');
+  assert(stelle(ev, art('error', { where: 'video', code: 'videoNoPrivilege', id: 16778240 })) > iEntzug,
+    '... ein folgendes videoSubscribe wird mit videoNoPrivilege abgewiesen');
+}
+{
+  let zwischenMs = -1;
+  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '500', FAKE_RUECKKEHR_MS: '200' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('left'));
+    const weg = Date.now();
+    await bisEreignis(ev, art('joined'));
+    zwischenMs = Date.now() - weg;
+    await bisEreignis(ev, art('video', { reason: 'reboundByName' }));
+  });
+  const iLeft = stelle(ev, art('left', { id: 16778240 }));
+  const iSchwarz = stelle(ev, art('video', { id: 16778240, state: 'black', reason: 'participantLeft' }));
+  const iTonAus = stelle(ev, art('audio', { id: 16778240, state: 'off', reason: 'participantLeft' }));
+  assert(iLeft >= 0 && iSchwarz === iLeft + 1 && iTonAus === iSchwarz + 1,
+    'Weggang mit Abo: left, video black, audio off (participantLeft) - wie das Original');
+  assert((ev[iSchwarz] as { source?: string } | undefined)?.source === 'JM Connect – Zoom Anna', '... die Quelle bleibt bestehen, nur schwarz');
+  const iJoined = stelle(ev, art('joined'));
+  const zurueck = ev[iJoined] as { p?: Participant } | undefined;
+  assert(iJoined > iTonAus && zurueck?.p?.id === 16778250 && zurueck.p.name === 'Anna', 'Anna kommt als 16778250 zurueck');
+  assert(zwischenMs >= 150, 'FAKE_RUECKKEHR_MS: zwischen left und joined liegen mindestens 150 ms');
+  const iUm = stelle(ev, art('video', { id: 16778250, state: 'subscribed', reason: 'reboundByName' }));
+  assert(iUm > iJoined, '... dann haengt sich das Abo um (ERST joined, DANN video reboundByName)');
+  assert(stelle(ev, art('audio', { id: 16778250, state: 'waiting', reason: 'reboundByName' })) > iUm,
+    '... und der Ton wartet wieder (Grund reboundByName wie im Original)');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '500', FAKE_RUECKKEHR_NAME: 'anna' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('joined'));
+    await new Promise((r) => setTimeout(r, 300));
+  });
+  const zurueck = ev.find(art('joined')) as { p?: Participant } | undefined;
+  assert(zurueck?.p?.id === 16778250 && zurueck.p.name === 'anna', 'FAKE_RUECKKEHR_NAME: sie kommt als "anna" zurueck');
+  assert(!ev.some(art('video', { reason: 'reboundByName' })), '... und das Abo haengt NICHT um (Name nicht exakt gleich)');
+  assert(stelle(ev, art('video', { id: 16778240, state: 'black', reason: 'participantLeft' })) >= 0, '... es bleibt schwarz unter 16778240');
+}
+{
+  // Doppelname und Rueckkehr: "Anna" gibt es danach zweimal (16778241 und 16778250) -
+  // das Original haengt dann nicht um ("lieber ein Handgriff als die falsche Person").
+  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '500', FAKE_DOPPELNAME: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('joined'));
+    await new Promise((r) => setTimeout(r, 300));
+  });
+  assert(stelle(ev, art('joined')) >= 0 && !ev.some(art('video', { reason: 'reboundByName' })),
+    'Doppelname: bei der Rueckkehr haengt die Attrappe NICHT um (Name nicht eindeutig)');
+}
+{
+  // envprobe meldet den PATH, den das Kind bekommt. "Path" (so erbt Windows ihn)
+  // muss dafuer weg, sonst stuenden "Path" und "PATH" nebeneinander (Spec 3.2-4).
+  const marke = join(tmpdir(), 'jm-envprobe-marke');
+  const ev: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'envprobe', PATH: `${marke}${delimiter}${process.env.PATH ?? ''}` },
+    envRemove: Object.keys(process.env).filter((k) => k.toLowerCase() === 'path' && k !== 'PATH'),
+    onEvent: (e) => ev.push(e),
+  });
+  await b.start();
+  await bisEreignis(ev, art('envprobe'));
+  const probe = ev.find(art('envprobe')) as { path?: string } | undefined;
+  assert(typeof probe?.path === 'string' && probe.path.split(delimiter).includes(marke), 'envprobe meldet path: den PATH, den das Kind wirklich bekommt');
+  await b.stop();
+}
+
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
