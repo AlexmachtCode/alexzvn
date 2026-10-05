@@ -328,6 +328,51 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
     && ablaufSignatur([{ id: 'x', label: 'A' }, { id: 'x', label: 'B' }], []) === ablaufSignatur([{ id: 'x', label: 'A' }, { id: 'x#2', label: 'B' }], []));
 }
 
+// --- Teil 2b, 9.2 Nr. 1 und 2: Signatur mit Speaker-Kennung und Merker, einmaliges Nachschreiben ------------------
+/** Spec 23, M1: ja → `ANA` trägt die Kennung `sp1` (SP9); nein → ohne, und der Umwandler setzt keine. */
+const MIT_KENNUNG = ANA.id !== undefined;
+/** Bestands-Show von vor 2b: derselbe Speaker ohne Kennung (eigenes Fixture für 9.2 Nr. 2). */
+const ANA_OHNE_ID: ShowIveoSpeaker = { name: 'Ana Silva', title: 'Ministerin' };
+const TEXT_SPEAKER_VERALTET = 'Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand';
+const MERKER = '2026-10-01T07:30:00.000Z';
+/** Dieselbe Show mit Merker „Speaker veraltet“ in der Datei. */
+const mitMerker = (s: Show, seit = MERKER): Show => ({ ...s, iveo: { ...s.iveo!, speakerVeraltetSeit: seit } });
+{
+  const a: ShowAblaufItem[] = [{ id: 'a1', label: 'Begrüßung', durationMs: 300_000 }];
+  ck('Nr. 1 (2b): gleicher Name, andere Kennung → andere Signatur',
+    ablaufSignatur(a, [{ id: 'sp1', name: 'Ana Silva' }]) !== ablaufSignatur(a, [{ id: 'sp2', name: 'Ana Silva' }]));
+  ck('Nr. 1 (2b): mit und ohne Kennung → andere Signatur',
+    ablaufSignatur(a, [{ id: 'sp1', name: 'Ana Silva' }]) !== ablaufSignatur(a, [{ name: 'Ana Silva' }]));
+  ck('Nr. 1 (2b): Merker gesetzt oder nicht → andere Signatur',
+    ablaufSignatur(a, [ANA], '2026-10-02T08:00:00.000Z') !== ablaufSignatur(a, [ANA]));
+  ck('Nr. 1 (2b): ohne Merker = Merker undefined', ablaufSignatur(a, [ANA]) === ablaufSignatur(a, [ANA], undefined));
+  ck('Nr. 1 (2b): Speaker so normalisiert wie die Datei (Kennung getrimmt, doppelte → #2, über 200 Zeichen → ohne)',
+    ablaufSignatur(a, [{ id: ' sp1 ', name: 'Ana Silva' }]) === ablaufSignatur(a, [{ id: 'sp1', name: 'Ana Silva' }])
+    && ablaufSignatur(a, [{ id: 'x', name: 'A' }, { id: 'x', name: 'B' }]) === ablaufSignatur(a, [{ id: 'x', name: 'A' }, { id: 'x#2', name: 'B' }])
+    && ablaufSignatur(a, [{ id: 'k'.repeat(201), name: 'A' }]) === ablaufSignatur(a, [{ name: 'A' }]));
+}
+{
+  // 9.2 Nr. 2: Bestands-Show ohne Kennungen. Die erste schreibende Listen-Abfrage trägt sie nach, danach ist Ruhe.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA_OHNE_ID]));
+  ck('Nr. 2 (2b): Ausgangslage — Bestands-Show, Speaker ohne Kennung', datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva' && datei(u).iveo?.speakers?.[0]?.id === undefined);
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('Nr. 2 (2b): die erste schreibende Listen-Abfrage trägt die Kennungen nach, genau ein RELOAD-Satz (M1 = nein: es gibt keine, nichts geschrieben)',
+    MIT_KENNUNG
+      ? u.schreibversuche === 1 && datei(u).iveo?.speakers?.[0]?.id === 'sp1' && u.reloads.length === 3
+      : u.schreibversuche === 0 && u.reloads.length === 0);
+  await u.kern.abfrage();
+  ck('Nr. 2 (2b): … danach bleibt die Signatur gleich: kein zweites Schreiben, kein weiteres RELOAD',
+    u.schreibversuche === (MIT_KENNUNG ? 1 : 0) && u.reloads.length === (MIT_KENNUNG ? 3 : 0));
+}
+{
+  // Der Merker aus der Datei steht in `active` (setzeAuf) und geht beim Schreiben nicht verloren.
+  const u = umgebung((iv) => mitMerker(showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA])));
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Merker (2b): Umschalten auf ein Side Event ohne Verknüpfung schreibt den Merker der Datei unverändert mit',
+    r.ok && u.schreibversuche === 1 && datei(u).iveo?.speakerVeraltetSeit === MERKER);
+}
+
 // --- 9.6 Nr. 1: Öffnen + erste Abfrage mit gleichem Stand → kein Schreiben, kein RELOAD -------------------------
 // (Im Log von #235: 45 s nach dem Öffnen ein RELOAD ohne Änderung, weil lastSig beim Öffnen fehlte.)
 {

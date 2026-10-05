@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { resolve } from 'node:path';
-import { normalizeAblauf, type Show, type ShowAblaufItem, type ShowIveoSpeaker } from '@jm/show';
+import { migrateShow, normalizeAblauf, type Show, type ShowAblaufItem, type ShowIveoSpeaker } from '@jm/show';
 import {
   IveoApiError,
   agendaToAblauf,
@@ -171,10 +171,13 @@ function stoerungsText(e: unknown): string {
 }
 
 /**
- * Signatur eines Ablaufs samt Speakern (Spec 7.2). Gleich = nichts zu schreiben, kein RELOAD. Die Punkte so, wie
- * sie in der Datei stehen (normalizeAblauf), Felder in fester Reihenfolge; dazu die Speaker (Name, Funktion).
+ * Signatur eines Ablaufs samt Speakern und Merker (Spec 7.2; Teil 2b, Spec 5.3 und 6.2). Gleich = nichts zu
+ * schreiben, kein RELOAD. Punkte und Speaker so, wie sie in der Datei stehen (normalizeAblauf bzw. der Normalisierer
+ * der Bindung), Felder in fester Reihenfolge. Die Speaker-Kennung zählt: Eine Bestands-Show ohne Kennungen weicht
+ * deshalb einmal ab, und die nächste schreibende Abfrage trägt sie nach. Der Merker „Speaker veraltet“ zählt ebenso:
+ * Setzen und Löschen schreiben die Show und schicken RELOAD — nur so erfährt der Titler davon.
  */
-export function ablaufSignatur(ablauf: ShowAblaufItem[], speakers: ShowIveoSpeaker[]): string {
+export function ablaufSignatur(ablauf: ShowAblaufItem[], speakers: ShowIveoSpeaker[], speakerVeraltetSeit?: string): string {
   const punkte = normalizeAblauf(ablauf).map((p) => [
     p.id ?? null,
     p.label,
@@ -184,10 +187,17 @@ export function ablaufSignatur(ablauf: ShowAblaufItem[], speakers: ShowIveoSpeak
     p.owner ?? null,
     p.category ?? null,
   ]);
-  const sprecher = speakers
-    .map((s) => [s.name.trim(), s.title?.trim() || null] as const)
-    .filter(([name]) => name.length > 0);
-  return JSON.stringify([punkte, sprecher]);
+  const sprecher = speakerWieInDerDatei(speakers).map((s) => [s.id ?? null, s.name.trim(), s.title?.trim() || null]);
+  return JSON.stringify([punkte, sprecher, speakerVeraltetSeit ?? null]);
+}
+
+/**
+ * Speaker so, wie sie nach dem Schreiben in der Datei stehen: derselbe Normalisierer wie parseShow (Kennung nur mit
+ * 1–200 Zeichen nach trim, doppelte → #2, ohne Namen fällt der Speaker weg). Sonst wiche die Signatur einer Liste,
+ * die der Normalisierer ändert, nach jedem Abruf von der Datei ab — und jede Abfrage schriebe und schickte RELOAD.
+ */
+function speakerWieInDerDatei(speakers: ShowIveoSpeaker[]): ShowIveoSpeaker[] {
+  return migrateShow({ iveo: { event: '-', speakers } }).iveo?.speakers ?? [];
 }
 
 /**
@@ -240,6 +250,12 @@ interface AktiveShow {
    * diesen Merker fehlten Startzeit/Kategorie/Verantwortlich. Namen als Array-Paare (klonbar).
    */
   sideCtx?: SideKontext;
+  /**
+   * Merker „Speaker veraltet“ (Teil 2b, Spec 6.2): ISO-Zeit des ersten Fehlschlags der iveo-Speakerliste, so wie er in
+   * der Datei steht. `setzeAuf` liest ihn aus der Datei (Öffnen, Speichern); ein Neustart verliert ihn deshalb nicht.
+   * Er rückt wie lastSig erst nach erfolgreichem Schreiben vor.
+   */
+  speakerVeraltetSeit?: string;
 }
 
 export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
@@ -290,7 +306,16 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   function schreibeAblauf(
     pfad: string,
     basis: Show,
-    w: { slug: string; baseUrl: string; name: string; ablauf: ShowAblaufItem[]; speakers: ShowIveoSpeaker[]; filter: IveoProgramFilter },
+    w: {
+      slug: string;
+      baseUrl: string;
+      name: string;
+      ablauf: ShowAblaufItem[];
+      speakers: ShowIveoSpeaker[];
+      filter: IveoProgramFilter;
+      /** Merker „Speaker veraltet“ (Spec 6.2). Fehlt er, steht er nicht in der Datei. */
+      speakerVeraltetSeit?: string;
+    },
   ): boolean {
     const sideEvents = basis.iveo?.sideEvents;
     const compact = compactFilter(w.filter);
@@ -303,6 +328,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         name: w.name,
         syncedAt: d.jetztIso(),
         ...(w.speakers.length ? { speakers: w.speakers } : {}),
+        ...(w.speakerVeraltetSeit ? { speakerVeraltetSeit: w.speakerVeraltetSeit } : {}),
         ...(sideEvents?.length ? { sideEvents } : {}),
         ...(compact ? { filter: compact } : {}),
       },
@@ -344,7 +370,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       baseUrl: binding.baseUrl || d.baseUrlStandard(),
       lastSyncIso: binding.syncedAt || d.jetztIso(),
       filter: { ...(binding.filter ?? {}) },
-      lastSig: ablaufSignatur(show.ablauf ?? [], binding.speakers ?? []),
+      lastSig: ablaufSignatur(show.ablauf ?? [], binding.speakers ?? [], binding.speakerVeraltetSeit),
+      speakerVeraltetSeit: binding.speakerVeraltetSeit,
     };
     nachStoerungOk();
     d.log.info(`iveo: Live-Abgleich für Event „${binding.event}“ aktiv.`);
@@ -411,7 +438,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     });
     const speakers = snapshotToShowSpeakers(snap);
     d.schreibeCache(buildShowMetadata(snap, a.baseUrl));
-    const sig = ablaufSignatur(ablauf, speakers);
+    const sig = ablaufSignatur(ablauf, speakers, a.speakerVeraltetSeit);
     if (sig === a.lastSig) {
       // 7.2: nichts geändert → nicht schreiben, kein RELOAD; das Abfragefenster rückt trotzdem vor.
       a.lastSyncIso = snap.fetchedAt;
@@ -432,6 +459,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       ablauf,
       speakers,
       filter: a.filter,
+      speakerVeraltetSeit: a.speakerVeraltetSeit,
     });
     if (!ok) {
       // 7.2: kein RELOAD, Merker bleiben → die nächste Abfrage mit demselben iveo-Stand schreibt erneut.
@@ -481,7 +509,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       return;
     }
     const speakers = basis.iveo?.speakers ?? [];
-    const sig = ablaufSignatur(ablauf, speakers);
+    const sig = ablaufSignatur(ablauf, speakers, a.speakerVeraltetSeit);
     if (sig === a.lastSig) {
       // Die Datei entspricht genau diesem Kontext → merken, sonst lädt jede Abfrage ihn neu.
       a.sideCtx = ctx;
@@ -496,6 +524,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       ablauf,
       speakers,
       filter: a.filter,
+      speakerVeraltetSeit: a.speakerVeraltetSeit,
     });
     if (!ok) {
       statusGestoert(TEXT_NICHT_GESCHRIEBEN);
@@ -631,11 +660,12 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
           ablauf,
           speakers: speakersNeu,
           filter,
+          speakerVeraltetSeit: a.speakerVeraltetSeit,
         });
       if (!geschrieben) return { ok: false, message: TEXT_NICHT_GESCHRIEBEN };
       a.filter = filter;
       a.sideCtx = sideCtx;
-      a.lastSig = ablaufSignatur(ablauf, speakersNeu);
+      a.lastSig = ablaufSignatur(ablauf, speakersNeu, a.speakerVeraltetSeit);
       a.lastSyncIso = lastSyncIso;
       d.log.info(`iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakersNeu.length} Speaker.`);
       benachrichtigeAlle();
