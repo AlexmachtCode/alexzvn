@@ -19,9 +19,10 @@
 
 **Wie dieser Plan entstanden ist:**
 - Ein Gerüst hat Aufgaben, Dateien und verbindliche Schnittstellen festgelegt. Vier Schreiber haben die Aufgaben in Blöcken ausformuliert: **Block 1** = Aufgaben 1–4 und 19 (Bridge-Paket, Paketierung), **Block 2** = Aufgaben 5–9 (Connect, reine Module), **Block 3** = Aufgaben 10–15 (Kern), **Block 4** = Aufgaben 16–18 und 20 (Hülle, Oberfläche, Abschluss).
-- Jeder Schreiber hat seine Aufgaben an einer Kopie des Worktrees im Scratch-Ordner nachgebaut, jeden Test erst rot und dann grün gemessen und alle Vorher-Ausschnitte auf „genau einmal vorhanden“ geprüft. Gemessene Zählstände (Windows, Node 24): Bridge-Selbsttest 405 → 425 → 447 → 471 `ok` plus 24 in `auslieferung.test.mjs`; `zoom-text.test.ts` 317 → 485; `zoom-laufzeit.test.ts` 50 → 79; `zoom-teile.test.ts` 55 (+ 23 ab Aufgabe 16); `zoom-kern.test.ts` 54 → 87 → 141 → 184 → 217 → 241. Die Ergebnisse der Gegenprobe (absichtlich eingebaute Fehler) stehen am Ende der jeweiligen Aufgabe.
+- Jeder Schreiber hat seine Aufgaben an einer Kopie des Worktrees im Scratch-Ordner nachgebaut, jeden Test erst rot und dann grün gemessen und alle Vorher-Ausschnitte auf „genau einmal vorhanden“ geprüft. Gemessene Zählstände (Windows, Node 24): Bridge-Selbsttest 405 → 425 → 447 → 471 `ok` plus 24 in `auslieferung.test.mjs`; `zoom-text.test.ts` 319 → 487; `zoom-laufzeit.test.ts` 50 → 79; `zoom-teile.test.ts` 55 (+ 23 ab Aufgabe 16); `zoom-kern.test.ts` 62 → 95 → 151 → 194 → 227 → 251. Die Ergebnisse der Gegenprobe (absichtlich eingebaute Fehler) stehen am Ende der jeweiligen Aufgabe.
 - Die Blöcke liefen zunächst gegen Ersatz-Module für die jeweils anderen Blöcke. Bei der Montage wurde darum der fertige Plan als Ganzes nachgespielt: alle 148 Ersetzungen und 20 neuen Dateien der Aufgaben 1–20 der Reihe nach auf eine frische Kopie des Worktrees, danach alle Selbsttests, beide Typechecks und der Bau grün (Abschnitt „Selbstprüfung der Montage“ am Ende).
 - Nicht ausgeführt: der Bau der echten Bridge und des Installers (Aufgabe 19 Steps 12–15 und Aufgabe 20 Steps 7–9, braucht SDK und Visual Studio, L14) und ein Lauf der Tests unter Linux.
+- Zweite Prüfrunde (05.10.2026), sieben Befunde eingearbeitet: `kern.beenden` wartet auf eine abgebrochene SDK-Kopie, bis `.teil` gelöscht ist (Aufgabe 10/13, Review Focus 3 jetzt im Kern-Test, L24); Z2-Meldungsknöpfe „Erneut/Schließen“ nur zur Meldung des Meeting-Endes (Aufgabe 5); `.zip`-Regel des `.asar`-Wächters mit eigenem Testeintrag (Aufgabe 4); Fall 7 zusätzlich über den Beitritt (Aufgabe 12); erwartete `grep -c`-Ausgabe `1` (Aufgaben 17, 18); Commit-Schritte der Aufgaben 16, 17, 18 und 20 mit `git status --short` vor dem Commit. Danach wurde der ganze Plan erneut nachgespielt; Zählstände und Zeilenangaben unten sind die neu gemessenen.
 - Jede Aufgabe trägt am Ende ihre Abweichungen vom Gerüst.
 
 ## Global Constraints
@@ -58,7 +59,7 @@ Gemeinsame Test-Konvention Connect (wie `apps/launcher/test/iveo-huelle.test.ts`
 
 1. Doppelklick auf „Beitreten“: ein zweiter `beitreten()`, während der erste noch in `startet`/`tritt_bei` steht → `{ ok: false, text: '' }`, die Fabrik baut genau **eine** Bridge, Nummer und Kenncode bleiben die des ersten Aufrufs. → Test in **Aufgabe 12**.
 2. Normales „Meeting verlassen“ aus `im_meeting` (die stoppende Bridge meldet beim `quit` selbst `disconnecting` und `ended`) → Zustand `verlaesst`, dann `bereit`; `meldung === null`, kein „Meeting beendet: …“, `erneutMoeglich === false`, `zoom_alarm=0`. → Test in **Aufgabe 13**.
-3. Connect wird beendet, während die SDK-Kopie läuft → `richteEin` bricht über das `AbortSignal` ab, `<ziel>.teil` ist gelöscht, ein vorher eingerichteter Laufzeit-Ordner samt Stempel ist unverändert. → Test in **Aufgabe 7**.
+3. Connect wird beendet, während die SDK-Kopie läuft → `richteEin` bricht über das `AbortSignal` ab, `kern.beenden` kehrt erst zurück, wenn `richteEin` sein Ergebnis geliefert hat (höchstens `fristMs`), `<ziel>.teil` ist dann gelöscht, ein vorher eingerichteter Laufzeit-Ordner samt Stempel ist unverändert. → Test in **Aufgabe 10** (Kern mit dem echten `richteEin` über Temp-Ordner); `richteEin` allein belegt Aufgabe 7.
 4. Doppelklick „SDK-Ordner wählen …“ während die Kopie läuft → der zweite `sdkWaehlen()` liefert S10, `richteEin` wurde genau einmal aufgerufen. → Test in **Aufgabe 10**.
 5. Ungültige Beitrittsdaten: Nummer mit Buchstaben → N0; Anzeigename leer, nur Leerzeichen oder 65 Zeichen → N0b; jeweils keine Bridge gestartet, Zustand unverändert, weder Nummer noch Kenncode im Rückgabetext oder im Log. → Test in **Aufgabe 12**.
 
@@ -146,6 +147,7 @@ Die Aufgaben verweisen mit „L<n>“ auf diese Liste.
 - L21 `npm install --ignore-scripts` ändert `package-lock.json`; ohne den Lock-Commit scheitert `npm ci` in der CI.
 - L22 Die Aufgaben 10–15 schreiben dieselbe Datei `kern.ts` und dieselbe Testdatei fort; sie müssen in dieser Reihenfolge laufen. Die reinen Teile (Teilnehmer, Soll-Liste, Texte, Laufzeit) liegen deshalb in eigenen Modulen (Aufgaben 5–9).
 - L23 Ablageort dieses Plans: `docs/superpowers/plans/2026-10-02-zoom-stage4a-connect.md`.
+- L24 `kern.beenden` wartet auf eine abgebrochene SDK-Kopie, bis `richteEin` `<ziel>.teil` gelöscht hat (Spec 6.1), höchstens `fristMs`. Läuft die Frist dabei ab, steht `[zoom] SDK-Kopie nicht rechtzeitig abgebrochen` im Log; die Spec nennt nur die Logzeile für die Bridge (6.6). Das `.teil` einer so abgerissenen Kopie löscht erst die nächste Einrichtung (`richteEin` räumt es vor dem Kopieren weg).
 
 ---
 
@@ -1732,20 +1734,27 @@ try {
           },
         },
       },
-      irgendwo: { files: { 'sdk.dll': { size: 0, unpacked: true } } },
+      // paket.zip liegt AUSSERHALB von node_modules/@jm/zoom-bridge/ und heisst nicht wie eine SDK-Datei:
+      // nur die .zip-Regel (Spec 10.3, dritte Regel) kann sie melden.
+      irgendwo: { files: { 'sdk.dll': { size: 0, unpacked: true }, 'paket.zip': leer } },
     });
     const eintraege = asarEintraege(asar);
     assert(
       eintraege.join('|') ===
-        'out/main/index.cjs|package.json|node_modules/@jm/zoom-bridge/package.json|node_modules/@jm/zoom-bridge/release/x.zip|node_modules/@jm/ndi/index.js|irgendwo/sdk.dll',
+        'out/main/index.cjs|package.json|node_modules/@jm/zoom-bridge/package.json|node_modules/@jm/zoom-bridge/release/x.zip|node_modules/@jm/ndi/index.js|irgendwo/sdk.dll|irgendwo/paket.zip',
       'asarEintraege: genau die Datei-Eintraege, mit / getrennt (Ordner = Knoten mit files)',
     );
     const rel = join('resources', 'app.asar');
     const treffer = verboteneAsarEintraege(ordner);
     assert(
       treffer.join('|') ===
-        [`${rel}:node_modules/@jm/zoom-bridge/package.json`, `${rel}:node_modules/@jm/zoom-bridge/release/x.zip`, `${rel}:irgendwo/sdk.dll`].join('|'),
-      'meldet node_modules/@jm/zoom-bridge/package.json, .../release/x.zip und irgendwo/sdk.dll - je einmal',
+        [
+          `${rel}:node_modules/@jm/zoom-bridge/package.json`,
+          `${rel}:node_modules/@jm/zoom-bridge/release/x.zip`,
+          `${rel}:irgendwo/sdk.dll`,
+          `${rel}:irgendwo/paket.zip`,
+        ].join('|'),
+      'meldet node_modules/@jm/zoom-bridge/package.json, .../release/x.zip, irgendwo/sdk.dll und irgendwo/paket.zip - je einmal',
     );
 
     const sauber = join(temp, 'sauber');
@@ -2084,7 +2093,7 @@ auslieferung — Waechter fuer Ordner:
 
 auslieferung — Waechter fuer .asar:
   ok  asarEintraege: genau die Datei-Eintraege, mit / getrennt (Ordner = Knoten mit files)
-  ok  meldet node_modules/@jm/zoom-bridge/package.json, .../release/x.zip und irgendwo/sdk.dll - je einmal
+  ok  meldet node_modules/@jm/zoom-bridge/package.json, .../release/x.zip, irgendwo/sdk.dll und irgendwo/paket.zip - je einmal
   ok  .asar nur mit out/main/index.cjs: keine Treffer
   ok  eine .zip-DATEI ausserhalb einer .asar ist nicht Sache dieses Waechters
 
@@ -2439,6 +2448,7 @@ git commit -m "feat(zoom-bridge): scripts/auslieferung.mjs - Waechter fuer Ordne
 - `linkerFassung` wirft dieselbe Meldung „`<datei>` ist keine PE-Datei.“ auch für Dateien unter 0x40 Byte oder mit PE-Kopf hinter dem Dateiende (vorher: `RangeError` aus `readUInt32LE`). `dateiFassung` liefert `null`, wenn hinter der Signatur keine 16 Byte mehr stehen (vorher: `RangeError`). Für jede echte PE-Datei ist das Verhalten gleich.
 - Die Wächter-Stelle in `build-release.mjs` nutzt zusätzlich `verboteneZoomDateien` (nicht nur `sdkNamen`), damit Ordner-Wächter im Einsatzpaket und in Connect derselbe Code sind; die Zahl in der Ausgabe und die ZIP-Gegenprobe laufen über `sdkNamen` (lokale Variable `verbotenNamen`, weil `sdkNamen` jetzt der Funktionsname ist).
 - Zusätzliche Tests über das Gerüst hinaus: Länge und Eindeutigkeit der Namensliste, keine VC-Pflicht-DLL in der Liste, `sdkNamen` mit fehlendem `sdkBin`-Ordner, `.zip`-Datei außerhalb einer `.asar`, `linkerFassung`/`dateiFassung`/`mindestens` an einem erzeugten PE; dazu die Gegenprobe an der echten `app.asar` von Connect 0.1.0 (Step 5).
+- Die Test-`.asar` enthält zusätzlich `irgendwo/paket.zip` (außerhalb von `node_modules/@jm/zoom-bridge/`, kein SDK-Name). Das `.zip` unter `node_modules/@jm/zoom-bridge/release/` meldet schon die Pfad-Regel; erst `paket.zip` zeigt, ob die dritte Regel aus Spec 10.3 (`/\.zip$/i`) wirkt. Gegenprobe (am nachgespielten Stand nach Aufgabe 4 gemessen): `|| /\.zip$/i.test(eintrag)` in `verboteneAsarEintraege` entfernt → genau ein `FAIL`, `FAIL  meldet node_modules/@jm/zoom-bridge/package.json, .../release/x.zip, irgendwo/sdk.dll und irgendwo/paket.zip - je einmal`.
 
 ---
 
@@ -3184,6 +3194,13 @@ console.log('— Knöpfe der Karte je Lage (Spec 9 Punkte 2–6)');
 
   const info = abbild({ meldung: { art: 'info', text: 'Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953), Anmeldung bei Zoom erfolgreich.', detail: null } });
   ck('Z2 mit Info-Meldung: nur „OK“', JSON.stringify(zoomKnoepfe(info).meldung) === JSON.stringify({ erneut: false, schliessen: false, ok: true, logordner: false }));
+  // Nach einem Meeting-Ende stehen Nummer und Kenncode noch im Speicher; „Einrichtung prüfen“ bleibt in Z2 erlaubt.
+  const pruefungNachEnde = abbild({ erneutMoeglich: true, meldung: info.meldung });
+  ck('Z2 mit erneutMoeglich und Info-Meldung (Ergebnis von „Einrichtung prüfen“): nur „OK“',
+    JSON.stringify(zoomKnoepfe(pruefungNachEnde).meldung) === JSON.stringify({ erneut: false, schliessen: false, ok: true, logordner: false }));
+  const pruefFehlerNachEnde = abbild({ erneutMoeglich: true, meldung: { art: 'fehler', text: 'Das Zoom-SDK ließ sich nicht starten (SDKERR_UNINITIALIZE). Details im Log.', detail: null } });
+  ck('Z2 mit erneutMoeglich und Fehler-Meldung der Prüfung: „OK“ und „Logordner öffnen“, kein „Erneut“',
+    JSON.stringify(zoomKnoepfe(pruefFehlerNachEnde).meldung) === JSON.stringify({ erneut: false, schliessen: false, ok: true, logordner: true }));
   const q7 = abbild({ meldung: { art: 'fehler', text: 'NDI ließ sich in der Zoom-Bridge nicht starten. Details im Log.', detail: null } });
   ck('Text mit „Details im Log“: zusätzlich „Logordner öffnen“', JSON.stringify(zoomKnoepfe(q7).meldung) === JSON.stringify({ erneut: false, schliessen: false, ok: true, logordner: true }));
   const imLog13 = zoomKnoepfe({ ...fehler, meldung: { art: 'fehler', text: 'Das Zoom-SDK ließ sich nicht starten (SDKERR_UNINITIALIZE). Details im Log.', detail: null } });
@@ -3553,7 +3570,10 @@ export function zoomKnoepfe(a: ZoomAbbild): ZoomKnoepfe {
   if (a.meldung) {
     const logordner = a.meldung.text.includes('Details im Log');
     if (z === 'Z13') meldung = { erneut: a.erneutMoeglich, schliessen: true, ok: false, logordner };
-    else if (z === 'Z2' && a.erneutMoeglich) meldung = { erneut: true, schliessen: true, ok: false, logordner };
+    // Spec 9 Punkt 2: in Z2 nur zur Meldung des Meeting-Endes (R6/C61, 6.5) — sie ist in Z2 die einzige
+    // Warnung. Das Ergebnis von „Einrichtung prüfen“ (info/fehler) bekommt „OK“, auch wenn danach
+    // Nummer und Kenncode noch im Speicher stehen (erneutMoeglich).
+    else if (z === 'Z2' && a.erneutMoeglich && a.meldung.art === 'warnung') meldung = { erneut: true, schliessen: true, ok: false, logordner };
     else meldung = { erneut: false, schliessen: false, ok: true, logordner };
   }
   const mangel = k.maengel.length > 0;
@@ -3576,7 +3596,7 @@ export function zoomKnoepfe(a: ZoomAbbild): ZoomKnoepfe {
 ```
 npx tsx apps/connect/test/zoom-text.test.ts
 ```
-Erwartet: keine Zeile mit `FAIL`, Exitcode 0, letzte Zeile `317 ok, 0 fehlgeschlagen.` Unter anderem:
+Erwartet: keine Zeile mit `FAIL`, Exitcode 0, letzte Zeile `319 ok, 0 fehlgeschlagen.` Unter anderem:
 ```
   ok  7.2 hat 18 Zeilen (Z0 bis Z13 mit a/b)
   ok  Z1b (n=0, k=0): Kartentext wörtlich
@@ -3585,7 +3605,7 @@ Erwartet: keine Zeile mit `FAIL`, Exitcode 0, letzte Zeile `317 ok, 0 fehlgeschl
   ok  Z7 (n=0, o=0): zoom_status=im_meeting, sources=0, live=0, privilege=0, alarm=1
   ok  Z2 mit laufender Prüfung: Einrichtung gesperrt (S10), „Prüfe …“, Beitreten gesperrt
 ```
-(Die Zahl 317 ist gegen den Planstand vorab gezählt.)
+(Die Zahl 319 ist am nachgespielten Planstand gemessen.)
 
 - [ ] **Step 9: Selbsttest über npm und Typcheck**
 
@@ -3593,7 +3613,7 @@ Erwartet: keine Zeile mit `FAIL`, Exitcode 0, letzte Zeile `317 ok, 0 fehlgeschl
 npm run selftest -w @jm/connect
 npm run typecheck -w @jm/connect
 ```
-Erwartet: `selftest` zeigt die Kopfzeilen `> @jm/connect@0.1.0 selftest` / `> tsx test/zoom-text.test.ts`, dann dieselbe Ausgabe wie Step 8 mit `317 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` wie in Step 4 ohne Fehlermeldung, Exitcode 0 (jetzt mit `test/zoom-text.test.ts` und `src/shared/zoom-text.ts` in beiden Projekten).
+Erwartet: `selftest` zeigt die Kopfzeilen `> @jm/connect@0.1.0 selftest` / `> tsx test/zoom-text.test.ts`, dann dieselbe Ausgabe wie Step 8 mit `319 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` wie in Step 4 ohne Fehlermeldung, Exitcode 0 (jetzt mit `test/zoom-text.test.ts` und `src/shared/zoom-text.ts` in beiden Projekten).
 
 - [ ] **Step 10: Commit** (im Bash-Werkzeug / Git Bash; Commit-Text bewusst ohne Umlaute)
 
@@ -3625,6 +3645,7 @@ Je Zeile den Vorher-Text in `apps/connect/src/shared/zoom-text.ts` mit dem Edit-
 2. `zoom_alarm` ohne offene Soll-Einträge gerechnet (Spec 12.5): `zoom_alarm: s.alarm[k.sollOffen > 0 ? 1 : 0],` → `zoom_alarm: s.alarm[0],`. Erwartet u. a. `FAIL  Z3 (n=0, o=1): zoom_status=tritt_bei, sources=0, live=0, privilege=0, alarm=1`.
 3. Tooltip zählt Zoom-Quellen nicht: `if (s.ndiSenders > 0 || (s.zoom?.quellen ?? 0) > 0) teile.push('Zuschaltungen aktiv');` → `if (s.ndiSenders > 0) teile.push('Zuschaltungen aktiv');`. Erwartet u. a. `FAIL  Z3, n=2, g=0: „JM Connect — Zuschaltungen aktiv“`.
 4. Kein Singular: ``return n === 1 ? '1 Quelle' : `${n} Quellen`;`` → ``return `${n} Quellen`;``. Erwartet u. a. `FAIL  Z7b (n=1, k=1): Tray/Kopfzeile wörtlich`.
+5. Z2-Knöpfe nur an `erneutMoeglich` (Spec 9 Punkt 2): `else if (z === 'Z2' && a.erneutMoeglich && a.meldung.art === 'warnung') meldung` → `else if (z === 'Z2' && a.erneutMoeglich) meldung`. Erwartet `FAIL  Z2 mit erneutMoeglich und Info-Meldung (Ergebnis von „Einrichtung prüfen“): nur „OK“` und `FAIL  Z2 mit erneutMoeglich und Fehler-Meldung der Prüfung: „OK“ und „Logordner öffnen“, kein „Erneut“`.
 
 Danach:
 ```
@@ -3638,6 +3659,7 @@ Erwartet: keine Ausgabe (alles zurückgesetzt).
 - `zoom-text.ts` importiert zusätzlich `ProxyKeySource` (für die vollständige Fallunterscheidung in `zugangZeile`).
 - Tabelle 7.5 hat für Z1a, Z1b und Z2 bei o > 0 „–“ (nicht erreichbar, jeder Weg dorthin leert die Soll-Liste). `stateKvAus` liefert dort `zoom_alarm=0`; der Test prüft diese drei Zellen bewusst nicht.
 - `kartenZeile` in Z1b ohne `kopie` (sollte nie vorkommen) zeigt „0 von 0 Dateien (0 von 0 MB)“ statt zu werfen.
+- `zoomKnoepfe` erkennt in Z2 die Meldung des Meeting-Endes an `art === 'warnung'` (zusätzlich zu `erneutMoeglich`): Nach einem Meeting-Ende bleiben Nummer und Kenncode im Speicher, und „Einrichtung prüfen“ ist in `bereit` erlaubt (Aufgabe 11). Deren Ergebnis (`info` bzw. `fehler`) bekommt laut Spec 9 Punkt 2 „OK“, nicht „Erneut beitreten“/„Schließen“. In Z2 entsteht eine Warnung nur durch das Meeting-Ende (Aufgabe 13, `meetingEnde`); Q12 ist zwar auch eine Warnung, entsteht aber nur in `im_meeting` und wird beim Meeting-Ende bzw. Verlassen ersetzt oder geleert.
 - Consumes „Aufgabe 2“: Die fünf Typen exportiert `protocol.ts` schon heute; diese Aufgabe hängt nur am Stand von `protocol.ts`, nicht an den Neuerungen aus Aufgabe 2.
 
 ---
@@ -3652,7 +3674,7 @@ Erwartet: keine Ausgabe (alles zurückgesetzt).
 - Create: `apps/connect/src/main/zoom/klartext.ts` (der Ordner `src/main/zoom/` entsteht hier)
 - Test: `apps/connect/test/zoom-text.test.ts`
   - Zeilen 10–11 (Ende des Imports aus `../src/shared/zoom-text`): Import aus `klartext` dahinter
-  - Zeile 411 (Ankerzeile `// ── ENDE DER FÄLLE …`): neue Blöcke direkt darüber
+  - Zeile 418 (Ankerzeile `// ── ENDE DER FÄLLE …`): neue Blöcke direkt darüber
 
 Zeilenangaben gelten für den Stand nach Aufgabe 5. Maßgeblich ist der wortgleiche Vorher-Text.
 
@@ -3719,7 +3741,7 @@ import {
 } from '../src/main/zoom/klartext';
 ```
 
-Ersetzung 2 (Zeile 411, die Ankerzeile), Vorher:
+Ersetzung 2 (Zeile 418, die Ankerzeile), Vorher:
 ```ts
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 ```
@@ -4234,7 +4256,7 @@ export function maskiere(zeile: string, werte: ReadonlyArray<string>): string {
 ```
 npx tsx apps/connect/test/zoom-text.test.ts
 ```
-Erwartet: keine Zeile, die mit `FAIL` beginnt, Exitcode 0, letzte Zeile `485 ok, 0 fehlgeschlagen.` (317 aus Aufgabe 5 + 168 neu; vorab gezählt). Unter anderem:
+Erwartet: keine Zeile, die mit `FAIL` beginnt, Exitcode 0, letzte Zeile `487 ok, 0 fehlgeschlagen.` (319 aus Aufgabe 5 + 168 neu; am nachgespielten Planstand gemessen). Unter anderem:
 ```
   ok  KT hat genau diese 62 Einträge (F1–F8, R2/R4/R5/R7 erst in 4b)
   ok  Beitritt, 63 → C63: ganzer Text wörtlich
@@ -4253,7 +4275,7 @@ Erwartet: keine Zeile, die mit `FAIL` beginnt, Exitcode 0, letzte Zeile `485 ok,
 npm run selftest -w @jm/connect
 npm run typecheck -w @jm/connect
 ```
-Erwartet: `selftest` endet mit `485 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` ohne Fehlermeldung von `tsc`, Exitcode 0; die Ausgabe besteht nur aus den npm-Kopfzeilen von `typecheck`, `typecheck:node` (`tsc --noEmit -p tsconfig.node.json`) und `typecheck:web` (`tsc --noEmit -p tsconfig.web.json`).
+Erwartet: `selftest` endet mit `487 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` ohne Fehlermeldung von `tsc`, Exitcode 0; die Ausgabe besteht nur aus den npm-Kopfzeilen von `typecheck`, `typecheck:node` (`tsc --noEmit -p tsconfig.node.json`) und `typecheck:web` (`tsc --noEmit -p tsconfig.web.json`).
 
 - [ ] **Step 6: Commit** (im Bash-Werkzeug / Git Bash; Commit-Text bewusst ohne Umlaute)
 
@@ -4296,7 +4318,7 @@ Erwartet: keine Ausgabe.
 
 ### Task 7: Connect: Laufzeit-Ordner einrichten (`laufzeit.ts`, Teil 1)
 
-**Spec:** `docs/superpowers/specs/2026-10-02-zoom-stage4-connect-design.md` Abschnitte 5.3 (Layout, Stempel), 6.1 „SDK-Ordner wählen“ Schritte 3–10 und der Absatz darunter (Fehler in 7–10 → S6, Abbruch beim Beenden), 8.1 (S1–S7), 12.3 Nr. 1–4, 7 und 8, Begriffe „Laufzeit-Ordner“, „Eigene Dateien“, „Stempel“ (Abschnitt 4). Review Focus 3.
+**Spec:** `docs/superpowers/specs/2026-10-02-zoom-stage4-connect-design.md` Abschnitte 5.3 (Layout, Stempel), 6.1 „SDK-Ordner wählen“ Schritte 3–10 und der Absatz darunter (Fehler in 7–10 → S6, Abbruch beim Beenden), 8.1 (S1–S7), 12.3 Nr. 1–4, 7 und 8, Begriffe „Laufzeit-Ordner“, „Eigene Dateien“, „Stempel“ (Abschnitt 4). Review Focus 3, Teil `richteEin` (das Zusammenspiel mit `kern.beenden` belegt Aufgabe 10).
 
 **Arbeitsverzeichnis:** `C:\Users\alexk\alexzvn\.claude\worktrees\suite-sofort-fixes` (Branch `feat/zoom-stage4-connect`). Alle Pfade relativ dazu.
 
@@ -4592,7 +4614,7 @@ console.log('— 6.1 Schritt 8: Nachprüfung scheitert → S7');
   ck('Kopie der sdk.dll mit anderer Fassung → S7 (8 von 9 Dateien)', JSON.stringify(r2) === JSON.stringify({ ok: false, text: KT.S7(8, 9) }));
 }
 
-console.log('— Review Focus 3: Connect wird während der Kopie beendet (AbortSignal)');
+console.log('— Review Focus 3, Teil richteEin: Abbruch während der Kopie (AbortSignal)');
 {
   const { pfade, ziel, dir } = await eingerichtet('abbruch');
   const vorher = readFileSync(join(ziel, STEMPEL_DATEI));
@@ -4944,7 +4966,7 @@ Nachher:
 npm run selftest -w @jm/connect
 npm run typecheck -w @jm/connect
 ```
-Erwartet: `selftest` läuft beide Dateien nacheinander; die erste endet mit `485 ok, 0 fehlgeschlagen.`, die zweite mit `50 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` ohne Fehlermeldung von `tsc`, Exitcode 0.
+Erwartet: `selftest` läuft beide Dateien nacheinander; die erste endet mit `487 ok, 0 fehlgeschlagen.`, die zweite mit `50 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` ohne Fehlermeldung von `tsc`, Exitcode 0.
 
 - [ ] **Step 7: Commit** (im Bash-Werkzeug / Git Bash; Commit-Text bewusst ohne Umlaute)
 
@@ -5278,7 +5300,7 @@ Erwartet: keine Zeile mit `FAIL`, Exitcode 0, letzte Zeile `79 ok, 0 fehlgeschla
 npm run selftest -w @jm/connect
 npm run typecheck -w @jm/connect
 ```
-Erwartet: `selftest` endet mit `485 ok, 0 fehlgeschlagen.` und `79 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` ohne Fehlermeldung von `tsc`, Exitcode 0.
+Erwartet: `selftest` endet mit `487 ok, 0 fehlgeschlagen.` und `79 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` ohne Fehlermeldung von `tsc`, Exitcode 0.
 
 - [ ] **Step 7: Commit** (im Bash-Werkzeug / Git Bash; Commit-Text bewusst ohne Umlaute)
 
@@ -5743,7 +5765,7 @@ Nachher:
 npm run selftest -w @jm/connect
 npm run typecheck -w @jm/connect
 ```
-Erwartet: `selftest` läuft drei Dateien; sie enden mit `485 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.` und `55 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` ohne Fehlermeldung von `tsc`, Exitcode 0.
+Erwartet: `selftest` läuft drei Dateien; sie enden mit `487 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.` und `55 ok, 0 fehlgeschlagen.`, Exitcode 0. `typecheck` ohne Fehlermeldung von `tsc`, Exitcode 0.
 
 - [ ] **Step 8: Commit** (im Bash-Werkzeug / Git Bash; Commit-Text bewusst ohne Umlaute)
 
@@ -5787,11 +5809,11 @@ Erwartet: keine Ausgabe.
 
 ### Task 10: Kern: Gerüst, Einrichtung, Mängel, Sperre, Abbild-Drossel (`kern.ts`)
 
-**Spec:** 5.2 (feste Werte), 5.3 (Mängel), 5.4 (Typen), 5.6, 6.1 (Sperre S10, „SDK-Ordner wählen“ Schritte 1–11, „Zugangsdaten wählen“, „Entfernen“), 6.6 (Kopie abbrechen beim Beenden), 6.7 (Versatz speichern), 6.8 („Schließen“, „Meldung quittieren“), 7.5 (über `stateKvAus`); Review Focus 4. Global Constraints G3, G4, G5, G8, G10, G13, G14, G15.
+**Spec:** 5.2 (feste Werte), 5.3 (Mängel), 5.4 (Typen), 5.6, 6.1 (Sperre S10, „SDK-Ordner wählen“ Schritte 1–11, „Zugangsdaten wählen“, „Entfernen“), 6.1 Absatz unter Schritt 11 und 6.6 (Kopie abbrechen beim Beenden, `.teil` gelöscht), 6.7 (Versatz speichern), 6.8 („Schließen“, „Meldung quittieren“), 7.5 (über `stateKvAus`); Review Focus 3 und 4. Global Constraints G3, G4, G5, G8, G10, G13, G14, G15.
 
 **Files:**
-- Create: `apps/connect/src/main/zoom/kern.ts` (393 Zeilen)
-- Create: `apps/connect/test/zoom-kern.test.ts` (472 Zeilen; Testgerüst für die Aufgaben 10–15)
+- Create: `apps/connect/src/main/zoom/kern.ts` (416 Zeilen)
+- Create: `apps/connect/test/zoom-kern.test.ts` (560 Zeilen; Testgerüst für die Aufgaben 10–15)
 - Modify: `apps/connect/package.json` — Skript `selftest` (Stand nach Aufgabe 9)
 
 **Interfaces:**
@@ -5801,7 +5823,7 @@ Erwartet: keine Ausgabe.
   - Aufgabe 3 (`packages/zoom-bridge/test/fake-bridge.mjs`, Drehbuch `steuerung`): `FAKE_SDK_FASSUNG` bestimmt `ready.sdkVersion`, `FAKE_LOGDATEI` schreibt jede empfangene Befehlszeile als JSON-Zeile in die Datei.
   - Aufgabe 5 (`apps/connect/src/shared/types.ts`): `ProxyKeySource`, `ZoomZustand`, `ZoomMangel`, `ZoomErlaubnis`, `ZoomQuelle`, `ZoomKurz`, `ZoomAbbild`, `ZoomErgebnis` (Spec 5.4 wörtlich, dazu `ZoomSollEintrag.doppelname: boolean` und `ZoomParticipant.fehler: string | null`). (`apps/connect/src/shared/zoom-text.ts`): `export function stateKvAus(k: ZoomKurz): ZoomStateKv | null;`, `export interface ZoomStateKv { zoom_status; zoom_sources; zoom_live; zoom_privilege; zoom_alarm }`; im Test `export function kartenZeile(a: ZoomAbbild, jetztMs: number): string | null;` und `export function zoomZ(k: ZoomKurz): ZoomZ;`.
   - Aufgabe 6 (`apps/connect/src/main/zoom/klartext.ts`): `KT` (hier `S1`, `S6(grund)`, `S8`, `S9(datei)`, `S10`, `A1`, `A2`, `A3(code)`, `A4`, `A5`, `A6`, `Q13`), `export function mangelText(m: ZoomMangel, datei: string | null): string;`.
-  - Aufgaben 7/8 (`apps/connect/src/main/zoom/laufzeit.ts`): `LaufzeitPfade { basis; ressourcen }`, `LaufzeitPruefung` (`{ ok: true; ordner; ersetzt }` | `{ ok: false; mangel: 'sdk_fehlt' }` | `{ ok: false; mangel: 'sdk_defekt'; datei }` | `{ ok: false; mangel: 'bridge_fehlt' }`), `SdkWahl`, `EinrichtungsErgebnis`, `KopieStand`, `pruefeLaufzeit(p: LaufzeitPfade): LaufzeitPruefung`, `pruefeSdkOrdner(gewaehlt: string, ressourcen: string): SdkWahl`, `richteEin(e: { wahl; pfade; fortschritt: (k: KopieStand) => void; signal?: AbortSignal; werkzeuge? }): Promise<EinrichtungsErgebnis>`.
+  - Aufgaben 7/8 (`apps/connect/src/main/zoom/laufzeit.ts`): `LaufzeitPfade { basis; ressourcen }`, `LaufzeitPruefung` (`{ ok: true; ordner; ersetzt }` | `{ ok: false; mangel: 'sdk_fehlt' }` | `{ ok: false; mangel: 'sdk_defekt'; datei }` | `{ ok: false; mangel: 'bridge_fehlt' }`), `SdkWahl`, `EinrichtungsErgebnis`, `KopieStand`, `pruefeLaufzeit(p: LaufzeitPfade): LaufzeitPruefung`, `pruefeSdkOrdner(gewaehlt: string, ressourcen: string): SdkWahl`, `richteEin(e: { wahl; pfade; fortschritt: (k: KopieStand) => void; signal?: AbortSignal; werkzeuge?: Partial<LaufzeitWerkzeuge> }): Promise<EinrichtungsErgebnis>`; im Test zusätzlich `laufzeitOrdner(p: LaufzeitPfade): string` und `STEMPEL_DATEI = 'jm-zoom-laufzeit.json'` (Review Focus 3 mit dem echten `richteEin`).
   - Aufgabe 9: `export function zaehleQuellen(quellen: Iterable<ZoomQuelle>): { n: number; k: number };` (`teilnehmer.ts`), `export type SollListe = Map<string, SollEintrag>;` (`soll.ts`).
 - Produces (verbindlich für die Aufgaben 11–16; der vollständige Code steht in Step 3):
   ```ts
@@ -5836,9 +5858,9 @@ Erwartet: keine Ausgabe.
   }
   export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern;
   ```
-  Innerhalb von `erzeugeZoomKern` (Closure, für 11–15 verbindlich): Zustand `zustand`, `warten`, `erlaubnis`, `maengel`, `laufzeitStand`, `zugang`, `zugangFehler`, `sdkFehler`, `kopie`, `kopieAbbruch`, `pruefungLaeuft`, `meldung`, `hinweise`, `nummer: { eingabe; normiert } | null`, `kenncode`, `warImMeeting`, `soll: SollListe`, `quellen: Map<number, QuelleIntern>` (`QuelleIntern = ZoomQuelle & { gen }`), `beendenVersprechen`; Funktionen `kurz()`, `abbild()`, `abbildGeaendert()`, `setzeZustand(z)`, `bestimmeMaengel(neu?)`, `mangelDatei()`, `einrichtungSperre()`, `schliessen()`; Modul-Hilfe `zeitgeber(ms, fn)` (`setTimeout` mit `unref`). Ankerzeile für spätere Abschnitte: `  // ── Beenden (Spec 6.6) ───…`.
+  Innerhalb von `erzeugeZoomKern` (Closure, für 11–15 verbindlich): Zustand `zustand`, `warten`, `erlaubnis`, `maengel`, `laufzeitStand`, `zugang`, `zugangFehler`, `sdkFehler`, `kopie`, `kopieAbbruch`, `kopieLauf: Promise<EinrichtungsErgebnis> | null` (das laufende `richteEin`), `pruefungLaeuft`, `meldung`, `hinweise`, `nummer: { eingabe; normiert } | null`, `kenncode`, `warImMeeting`, `soll: SollListe`, `quellen: Map<number, QuelleIntern>` (`QuelleIntern = ZoomQuelle & { gen }`), `beendenVersprechen`; Funktionen `kurz()`, `abbild()`, `abbildGeaendert()`, `setzeZustand(z)`, `bestimmeMaengel(neu?)`, `mangelDatei()`, `einrichtungSperre()`, `schliessen()`, `mitFrist(p: Promise<unknown>, ms: number): Promise<boolean>` (wartet höchstens `ms` auf `p`, eine Ablehnung zählt als Ende; `true` = rechtzeitig); Modul-Hilfe `zeitgeber(ms, fn)` (`setTimeout` mit `unref`). Ankerzeile für spätere Abschnitte: `  // ── Beenden (Spec 6.6) ───…`.
 
-  Testgerüst `apps/connect/test/zoom-kern.test.ts` (verbindlich für 11–15): `FAKE`, `NUMMER = '7'.repeat(10)`, `KENNCODE = 'KENNCODE-PROBE-71'`, `ck`, `ueberspringe`, `warte`, `bis(pred, ms = 4000)`, `interface Probe` und `baueKern(o?: BaueOptionen): Probe` wie im Gerüst, dazu `Probe.ordner` (Laufzeit-Ordner der `pruefe`-Vorgabe) und die Hilfen `cmds(p, startNr?)`, `folge(p)`, `ok(r)`, `text(r)`; Ankerzeile `// ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──`, Schlusszeile `${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`.
+  Testgerüst `apps/connect/test/zoom-kern.test.ts` (verbindlich für 11–15): `FAKE`, `NUMMER = '7'.repeat(10)`, `KENNCODE = 'KENNCODE-PROBE-71'`, `ck`, `ueberspringe`, `warte`, `bis(pred, ms = 4000)`, `interface Probe` und `baueKern(o?: BaueOptionen): Probe` wie im Gerüst, dazu `Probe.ordner` (Laufzeit-Ordner der `pruefe`-Vorgabe), `Probe.pfade` (die `LaufzeitPfade` des Kerns, für das echte `richteEin`) und die Hilfen `cmds(p, startNr?)`, `folge(p)`, `ok(r)`, `text(r)`; Ankerzeile `// ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──`, Schlusszeile `${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`.
 
 **Verhalten (verbindlich, aus der Spec):**
 - `erzeugeZoomKern(d)`: Fristen = `ZOOM_FRISTEN` überschrieben mit `d.fristen`; Laufzeit-Dienste = echte Funktionen aus `laufzeit.ts`, überschrieben mit `d.laufzeit`. Beim Erzeugen genau einmal `pruefe(d.pfade)` und `zugang.lesen()`. **Mängel** in der Reihenfolge Laufzeit-Mangel (`sdk_fehlt`/`sdk_defekt`/`bridge_fehlt`), dann Zugangs-Mangel (`zugang_unlesbar`, wenn keine Daten und `unlesbar`, sonst `zugang_fehlt`, wenn keine Daten). Mit Mängeln Zustand `einrichtung`, sonst `bereit`. Logzeile `[zoom] Zoom-Kern bereit: <zustand> (Mängel: …)`.
@@ -5848,12 +5870,12 @@ Erwartet: keine Ausgabe.
 - **Drossel:** Jede Änderung ruft `abbildGeaendert()`. `onKurz` sofort, wenn sich `JSON.stringify(kurz())` geändert hat. `onAbbild` vorne sofort, danach höchstens alle `abbildTaktMs`; ein Nachzügler-Zeitgeber schickt den **letzten** Stand.
 - `setzeZustand(z)` loggt jeden Wechsel als `[zoom] Zustand <alt> → <neu>`, setzt `warten` außerhalb von `warteraum` auf `null` und ruft `abbildGeaendert()`.
 - `einrichtungSperre()`: `{ ok: true }` in Z1a (`einrichtung` ohne Kopie), Z2 (`bereit` ohne Prüfung) und Z13 (`fehler`), sonst `{ ok: false, text: KT.S10 }`.
-- `sdkWaehlen(ordner)`: Sperre; in Z13 zuerst `schliessen()`; `pruefeOrdner(ordner, d.pfade.ressourcen)` → Fehler: Text merken (Abbild), `{ ok: false, text }`. Sonst **synchron** vor dem ersten `await`: `AbortController`, `kopie` gesetzt (Z1b) — so bekommt ein zweiter Klick S10 (Review Focus 4). `richteEin` mit `fortschritt` (aktualisiert `abbild.einrichtung.sdk.kopie`) und `signal`; wirft es, S6 mit `err.code ?? err.message`. Danach `kopie: null`; Erfolg → `einstellungen.setzeLaufzeit({ dir, fassung, eingerichtetAm })`; in jedem Fall `pruefe` neu, Mängel neu, Zustand `einrichtung`/`bereit`.
+- `sdkWaehlen(ordner)`: Sperre; in Z13 zuerst `schliessen()`; `pruefeOrdner(ordner, d.pfade.ressourcen)` → Fehler: Text merken (Abbild), `{ ok: false, text }`. Sonst **synchron** vor dem ersten `await`: `AbortController`, `kopie` gesetzt (Z1b) — so bekommt ein zweiter Klick S10 (Review Focus 4). `richteEin` mit `fortschritt` (aktualisiert `abbild.einrichtung.sdk.kopie`) und `signal`, sein Versprechen als `kopieLauf` gemerkt; wirft es, S6 mit `err.code ?? err.message`. Danach `kopie`, `kopieAbbruch` und `kopieLauf` auf `null`; Erfolg → `einstellungen.setzeLaufzeit({ dir, fassung, eingerichtetAm })`; in jedem Fall `pruefe` neu, Mängel neu, Zustand `einrichtung`/`bereit`.
 - `zugangWaehlen(datei)`: Sperre; Z13 → `schliessen()`; `readCredentials({ ZOOM_SDK_CREDENTIALS: datei })`; Fehlertext enthält „kein gueltiges JSON“ → A1, „Zugangsdaten fehlen“ → A2, sonst A3(`err.code ?? err.name`); weder Inhalt noch Secret gehen in Text oder Log. Erfolg → `zugang.speichern(...)`, Logzeile mit „verschlüsselt“ bzw. „nur für diese Sitzung“, Mängel neu. `zugangLoeschen()`: Sperre; Z13 → `schliessen()`; `zugang.loeschen()`; Mängel neu (Herkunft `env` bleibt ohne Mangel).
 - `versatz({ ms })` (Teil 1): ganze Zahl 0–1000, sonst `{ ok: false, text: KT.Q13 }` und nichts gespeichert; gültig → `setzeVersatzMs(ms)`.
 - `schliessen()` (6.8, vollständig): nur in `bereit` und `fehler`; `meldung`, Soll-Liste, Nummer, Kenncode, Merker leeren; Zustand `einrichtung` bei Mängeln, sonst `bereit`. `meldungWeg()`: in jedem Zustand außer `fehler` nur `meldung: null`.
 - `laeuft()` (Teil 1): Kopie läuft oder Prüfung läuft.
-- `beenden(fristMs)` (Teil 1): bricht eine laufende Kopie über das Signal ab und wartet **nicht** auf das Kopieende; ein zweiter Aufruf liefert dasselbe Versprechen.
+- `beenden(fristMs)` (Teil 1): bricht eine laufende Kopie über das Signal ab und **wartet** auf `kopieLauf`, höchstens `fristMs` (`mitFrist`). `richteEin` endet nach der gerade laufenden Datei und löscht `<ziel>.teil` dabei selbst (Aufgabe 7); ohne dieses Warten ruft `before-quit` (Aufgabe 17) sofort `app.quit()`, der Prozess endet vorher und ein halbes `.teil` bleibt in `%LOCALAPPDATA%` liegen (Spec 6.1: „bricht sie ab und `.teil` wird gelöscht“). Läuft die Frist ab: Logzeile `[zoom] SDK-Kopie nicht rechtzeitig abgebrochen` und weiter (6.6 „Nach `frist` geht es ohne Warten weiter“; das nächste `richteEin` löscht ein liegengebliebenes `.teil` vor der Kopie; L24). Ein zweiter Aufruf liefert dasselbe Versprechen.
 
 - [ ] **Step 1: Testgerüst und Fälle der Aufgabe 10 schreiben (rot)**
 
@@ -5865,7 +5887,7 @@ Neue Datei `apps/connect/test/zoom-kern.test.ts` mit genau diesem Inhalt:
 // Spec 12.2 ohne die 4b-Fälle (15, 15b, 15c, 16–18, 22, 25, Fernsteuer-Teile von 13 und 21).
 // Laufzeit, Zugangsdaten und Einstellungen sind Attrappen; die Bridge-Fabrik setzt FAKE_SDK_FASSUNG
 // IMMER auf '7.1.5 (43953)' — die Prüfung im Kern bleibt exakt (G1), nur Fall 7 überschreibt den Wert.
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -5883,7 +5905,14 @@ import {
   type ZugangStand,
 } from '../src/main/zoom/kern';
 import { KT } from '../src/main/zoom/klartext';
-import type { EinrichtungsErgebnis, LaufzeitPruefung } from '../src/main/zoom/laufzeit';
+import {
+  laufzeitOrdner,
+  richteEin,
+  STEMPEL_DATEI,
+  type EinrichtungsErgebnis,
+  type LaufzeitPfade,
+  type LaufzeitPruefung,
+} from '../src/main/zoom/laufzeit';
 import type { ZoomAbbild, ZoomErgebnis, ZoomKurz } from '../src/shared/types';
 import { kartenZeile, stateKvAus, zoomZ } from '../src/shared/zoom-text';
 
@@ -5934,6 +5963,8 @@ interface Probe {
   richteEinAufrufe(): number;
   /** Laufzeit-Ordner, den die Vorgabe von `pruefe` meldet. */
   ordner: string;
+  /** Die Pfade, mit denen der Kern erzeugt ist (für das echte richteEin). */
+  pfade: LaufzeitPfade;
   /** kern.beenden(2000), jede gebaute Bridge stoppen, Temp-Ordner löschen. */
   aufraeumen(): Promise<void>;
 }
@@ -5957,6 +5988,7 @@ interface BaueOptionen {
 function baueKern(o: BaueOptionen = {}): Probe {
   const tmp = mkdtempSync(join(tmpdir(), 'jm-zoom-kern-'));
   const ordner = join(tmp, 'laufzeit');
+  const pfade: LaufzeitPfade = { basis: join(tmp, 'basis'), ressourcen: join(tmp, 'ressourcen') };
   let startZahl = 0;
   let richteEinZahl = 0;
   const bruecken: BridgeArt[] = [];
@@ -6016,7 +6048,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     };
   }
   const kern = erzeugeZoomKern({
-    pfade: { basis: join(tmp, 'basis'), ressourcen: join(tmp, 'ressourcen') },
+    pfade,
     zugang: {
       lesen: () => ({ ...zugang }),
       speichern: (dd) => {
@@ -6060,6 +6092,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     einst,
     zugangGespeichert,
     ordner,
+    pfade,
     starts: () => startZahl,
     befehle: (startNr) => {
       const nummern = startNr === undefined ? Array.from({ length: startZahl }, (_, i) => i + 1) : [startNr];
@@ -6278,15 +6311,92 @@ console.log('— SDK-Ordner wählen (6.1), Sperre S10, Review Focus 4');
     },
   });
   const lauf = p.kern.sdkWaehlen('C:/SDK');
-  const t0 = Date.now();
+  let beendet = false;
   const b1 = p.kern.beenden(2000);
   const b2 = p.kern.beenden(2000);
-  await b1;
-  ck('beenden während der Kopie: Signal abgebrochen, kehrt zurück ohne aufs Kopieende zu warten',
-    signal?.aborted === true && Date.now() - t0 < 1000);
+  void b1.then(() => {
+    beendet = true;
+  });
+  await warte(200);
+  ck('beenden während der Kopie: Signal abgebrochen, wartet auf das Ende der Kopie (Spec 6.1)', signal?.aborted === true && !beendet);
   ck('… zweiter Aufruf bekommt dasselbe Versprechen', b1 === b2);
+  const t0 = Date.now();
   freigabe({ ok: false, text: KT.S6('abgebrochen') });
-  ck('… die Kopie endet danach mit S6', text(await lauf) === KT.S6('abgebrochen'));
+  await b1;
+  ck('… kehrt zurück, sobald die Kopie ihr Ergebnis hat (nicht erst nach der Frist)', Date.now() - t0 < 1000);
+  ck('… die Kopie endet mit S6, kein „nicht rechtzeitig“ im Log',
+    text(await lauf) === KT.S6('abgebrochen') && !p.logs.includes('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    laufzeit: {
+      pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }),
+      pruefeOrdner: () => ({ ok: true, bin: 'X', fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: 1 }], bytesGesamt: 1 }),
+      // Eine Kopie, die nie fertig wird (hängendes Laufwerk): beenden darf nicht länger als die Frist warten.
+      richteEin: () => new Promise<EinrichtungsErgebnis>(() => {}),
+    },
+  });
+  void p.kern.sdkWaehlen('C:/SDK');
+  const t0 = Date.now();
+  let dauer = -1;
+  // warte(600) hält die Ereignisschleife wach: die Frist läuft über einen unref-Zeitgeber.
+  await Promise.all([
+    p.kern.beenden(300).then(() => {
+      dauer = Date.now() - t0;
+    }),
+    warte(600),
+  ]);
+  ck('Kopie hängt → beenden kehrt nach der Frist (300 ms) zurück, Log „SDK-Kopie nicht rechtzeitig abgebrochen“',
+    dauer >= 250 && dauer < 600 && p.logs.includes('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen'));
+  await p.aufraeumen();
+}
+
+console.log('— Review Focus 3: Connect wird während der SDK-Kopie beendet (echtes richteEin)');
+{
+  const quelle = mkdtempSync(join(tmpdir(), 'jm-zoom-sdk-'));
+  const dateien = ['a.dll', 'b.dll', 'c.dll', 'd.dll', 'sdk.dll'].map((pfad) => ({ pfad, bytes: 4 }));
+  for (const x of dateien) writeFileSync(join(quelle, x.pfad), 'NEU!');
+  let kopiert = 0;
+  let ergebnisDa = false;
+  const p = baueKern({
+    laufzeit: {
+      pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }),
+      pruefeOrdner: () => ({ ok: true, bin: quelle, fassung: SDK_FASSUNG, dateien, bytesGesamt: 20 }),
+      // Das echte richteEin aus laufzeit.ts; jede Datei braucht 150 ms, damit das Beenden mitten in die Kopie fällt.
+      richteEin: (e) => {
+        const r = richteEin({
+          ...e,
+          werkzeuge: {
+            copyFile: async (von, nach) => {
+              copyFileSync(von, nach);
+              kopiert += 1;
+              await warte(150);
+            },
+          },
+        });
+        void r.then(() => {
+          ergebnisDa = true;
+        });
+        return r;
+      },
+    },
+  });
+  const ziel = laufzeitOrdner(p.pfade);
+  mkdirSync(ziel, { recursive: true });
+  writeFileSync(join(ziel, 'sdk.dll'), 'ALT!');
+  writeFileSync(join(ziel, STEMPEL_DATEI), JSON.stringify({ format: 1, sdkFassung: SDK_FASSUNG, eingerichtetAm: '2026-01-01T00:00:00.000Z', sdkDateien: [], eigeneDateien: [] }));
+  const vorher = readFileSync(join(ziel, STEMPEL_DATEI));
+  const lauf = p.kern.sdkWaehlen(quelle);
+  ck('Kopie läuft in <ziel>.teil', (await bis(() => kopiert >= 1, 2000)) && existsSync(`${ziel}.teil`));
+  await p.kern.beenden(5000);
+  ck('Review Focus 3: beenden kehrt erst zurück, wenn richteEin sein Ergebnis geliefert hat', ergebnisDa);
+  ck('… <ziel>.teil ist gelöscht', !existsSync(`${ziel}.teil`));
+  ck('… nach der laufenden Datei keine weitere kopiert (1 von 5)', kopiert === 1);
+  ck('… vorher eingerichteter Ordner und Stempel unverändert',
+    readFileSync(join(ziel, STEMPEL_DATEI)).equals(vorher) && readFileSync(join(ziel, 'sdk.dll'), 'utf8') === 'ALT!' && !existsSync(join(ziel, 'a.dll')));
+  ck('… sdkWaehlen liefert S6 (abgebrochen)', text(await lauf) === KT.S6('abgebrochen'));
+  rmSync(quelle, { recursive: true, force: true });
   await p.aufraeumen();
 }
 
@@ -6487,6 +6597,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let sdkFehler: string | null = null;
   let kopie: KopieStand | null = null;
   let kopieAbbruch: AbortController | null = null;
+  /** Das laufende richteEin; beenden wartet darauf, damit `.teil` gelöscht ist (Spec 6.1, 6.6). */
+  let kopieLauf: Promise<EinrichtungsErgebnis> | null = null;
   let pruefungLaeuft = false;
   let meldung: ZoomAbbild['meldung'] = null;
   const hinweise: string[] = [];
@@ -6616,7 +6728,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     setzeZustand('einrichtung');
     let erg: EinrichtungsErgebnis;
     try {
-      erg = await lz.richteEin({
+      kopieLauf = lz.richteEin({
         wahl,
         pfade: d.pfade,
         signal: abbruch.signal,
@@ -6625,11 +6737,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
           abbildGeaendert();
         },
       });
+      erg = await kopieLauf;
     } catch (e) {
       erg = { ok: false, text: KT.S6((e as { code?: string }).code ?? (e instanceof Error ? e.message : String(e))) };
     }
     kopie = null;
     kopieAbbruch = null;
+    kopieLauf = null;
     if (erg.ok) {
       d.einstellungen.setzeLaufzeit({ dir: erg.ordner, fassung: erg.stempel.sdkFassung, eingerichtetAm: erg.stempel.eingerichtetAm });
       d.log(`[zoom] Zoom-SDK eingerichtet in ${erg.ordner}`);
@@ -6711,11 +6825,30 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   // ── Beenden (Spec 6.6) ───────────────────────────────────────────────────
+  /** Wartet höchstens `ms` auf `p` (eine Ablehnung zählt als Ende); true = `p` war rechtzeitig fertig. */
+  async function mitFrist(p: Promise<unknown>, ms: number): Promise<boolean> {
+    let frist: ReturnType<typeof setTimeout> | null = null;
+    const rechtzeitig = await Promise.race([
+      p.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((resolve) => {
+        frist = zeitgeber(ms, () => resolve(false));
+      }),
+    ]);
+    if (frist !== null) clearTimeout(frist);
+    return rechtzeitig;
+  }
+
   function beenden(fristMs: number): Promise<void> {
     if (beendenVersprechen !== null) return beendenVersprechen;
     beendenVersprechen = (async () => {
       kopieAbbruch?.abort();
       d.log(`[zoom] Connect wird beendet (Frist ${fristMs} ms)`);
+      // Spec 6.1: richteEin bricht nach der laufenden Datei ab und löscht <ziel>.teil selbst. Ohne dieses
+      // Warten endet der Prozess vorher (before-quit ruft danach app.quit()) und .teil bliebe liegen.
+      if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
       abbildGeaendert();
     })();
     return beendenVersprechen;
@@ -6752,7 +6885,7 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile
 ```
-54 ok, 0 fehlgeschlagen, 0 übersprungen.
+62 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
 Exit-Code 0 (unter Linux dieselbe Zahl; Aufgabe 10 hat keinen Windows-Fall). Meldet tsx `SyntaxError: The requested module '../src/shared/zoom-text' does not provide an export named 'stateKvAus'` oder fehlt ein `KT`-Schlüssel, fehlt Aufgabe 5 bzw. 6 — dann anhalten, nicht am Kern drehen.
 
@@ -6795,13 +6928,14 @@ git commit -m "feat(connect): Zoom-Kern - Einrichtung, Maengel, Sperre und Abbil
 ```
 Nicht pushen (G13).
 
-**Gegenprobe (beim Planen am Prototyp gemessen, kein Umsetzungsschritt):** Jede dieser absichtlichen Abweichungen macht mindestens eine Prüfung rot: Sperre ohne Kopie-Prüfung (`einrichtung` ohne `kopie === null`) → Review Focus 4 (vier `FAIL`, der Lauf endet zusätzlich mit Exit-Code 13, weil die zweite Kopie nie fertig wird); `onAbbild` bei jeder Änderung statt gedrosselt → „… höchstens 3 Abbilder in 250 ms“. `onKurz` nur gedrosselt bzw. gar nicht → erst die Zustandsfolgen ab Aufgabe 12 (Fall 2, 9b, Review Focus 2).
+**Gegenprobe (beim Planen am Prototyp gemessen, kein Umsetzungsschritt):** Jede dieser absichtlichen Abweichungen macht mindestens eine Prüfung rot: Sperre ohne Kopie-Prüfung (`einrichtung` ohne `kopie === null`) → Review Focus 4 (vier `FAIL`, der Lauf endet zusätzlich mit Exit-Code 13, weil die zweite Kopie nie fertig wird); `onAbbild` bei jeder Änderung statt gedrosselt → „… höchstens 3 Abbilder in 250 ms“. `onKurz` nur gedrosselt bzw. gar nicht → erst die Zustandsfolgen ab Aufgabe 12 (Fall 2, 9b, Review Focus 2). `beenden` wartet nicht auf die Kopie (die Zeile `if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) …` entfernt; am nachgespielten Stand nach Aufgabe 10 gemessen) → vier `FAIL`: „beenden während der Kopie: Signal abgebrochen, wartet auf das Ende der Kopie (Spec 6.1)“, „Kopie hängt → beenden kehrt nach der Frist (300 ms) zurück, …“, „Review Focus 3: beenden kehrt erst zurück, wenn richteEin sein Ergebnis geliefert hat“ und „… <ziel>.teil ist gelöscht“.
 
 **Abweichungen vom Gerüst:**
 - `Probe` hat zusätzlich `ordner: string` (der Laufzeit-Ordner, den die Vorgabe von `pruefe` meldet); Fall 4 (Aufgabe 11) braucht ihn für die PATH-Prüfung. Dazu die Testhilfen `cmds`, `folge`, `ok`, `text`. `aufraeumen()` stoppt zusätzlich jede Bridge, die die Fabrik gebaut hat (die Fabrik merkt sie sich): Bis Aufgabe 13 stoppt `beenden()` keine Bridge, und kein Fall darf Kindprozesse zurücklassen. Die Gesamtwache (180 s) macht einen hängenden Fall rot, statt den Lauf nie enden zu lassen.
 - Aufgabe 10 importiert aus Aufgabe 9 nur `zaehleQuellen` und `SollListe`, nicht `baueTeilnehmer`/`sollAbbild`: Teilnehmer und Soll-Liste bleiben laut Gerüst „hier noch leer“; Aufgabe 12 bzw. 15 importieren sie mit ihrer ersten Nutzung.
 - `schliessen()` ist schon hier vollständig (Z2 und Z13, 6.8). Aufgabe 13 ändert daran nichts mehr und belegt nur den Z13-Weg (Fall 19).
-- `beenden(fristMs)` nennt die Frist in seiner Logzeile; Teil 1 hat noch keine Bridge, gegen die die Frist liefe.
+- `beenden(fristMs)` nennt die Frist in seiner Logzeile. In Teil 1 gilt sie für das Warten auf die abgebrochene Kopie (`kopieLauf`), in Teil 2 (Aufgabe 13) zusätzlich für die Bridge. Kopie und Bridge laufen nie gleichzeitig (Sperre S10: die Kopie läuft nur aus Z1a/Z2/Z13 heraus, Beitritt und Prüfung nur aus `bereit`/`fehler`), darum wartet `beenden` insgesamt höchstens `fristMs`.
+- Das Gerüst ließ `beenden` ausdrücklich **nicht** auf die Kopie warten. Das hält Spec 6.1 („bricht sie ab und `.teil` wird gelöscht“) nicht ein: `before-quit` ruft nach `zoomBeenden` sofort `app.quit()`, die laufende `copyFile` und das Löschen in `richteEin` kämen nicht mehr dran. Jetzt wartet `beenden` auf das Ergebnis von `richteEin` (höchstens `fristMs`, danach Logzeile `[zoom] SDK-Kopie nicht rechtzeitig abgebrochen`, L24). Review Focus 3 ist darum hier im Zusammenspiel mit dem echten `richteEin` belegt; Aufgabe 7 belegt nur `richteEin` allein.
 - `einrichtung.sdk.text` nutzt `mangelText` (S9 mit Datei bzw. S8), damit Karte und Beitritts-Ablehnung denselben Text zeigen.
 
 ---
@@ -6811,8 +6945,8 @@ Nicht pushen (G13).
 **Spec:** 5.2 (Prozessmodell, Aufruf `new Bridge({...})`, `kindPfad`/`pfadVarianten`), 5.7 (JWT, Client-ID/Secret nie beim Kind), 6.1 „Einrichtung prüfen“, 6.2 Startfolge S-a bis S-f, 6.7 (bestätigter Versatz), 6.9 (Generationsregel), 8.2 (B1–B18), 8.7 (Log-Regeln, Maskierung); Tests 12.2 Fall 4, 6, 7, 24, 24b, 28. Global Constraints G1, G3, G5, G8, G9, G10, G13, G14, G15.
 
 **Files:**
-- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 10), Zeilen 17–18 (Importe der Bridge und der Fassung), 30 (Importe der Klartexte), 31–32 (Importe der Laufzeit), 105–106 (Schnittstelle: pruefen()), 112–119 (Ereignistypen und Startbeobachter), 123 (Fabrik und Umgebung), 148 (Zustand des Bridge-Lebenslaufs), 155 (aktiveSitzung()), 186 (bestätigter Versatz aus der Sitzung), 224–226 (melde()), 243 (mangelFolgen()), 358 (laeuft() kennt die Bridge), 361 (Bridge starten und stoppen, Einrichtung prüfen), 387–388 (pruefen in der öffentlichen Fläche)
-- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 10), Zeile 470 (Ankerzeile; der neue Block kommt davor)
+- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 10), Zeilen 17–18 (Importe der Bridge und der Fassung), 30 (Importe der Klartexte), 31–32 (Importe der Laufzeit), 105–106 (Schnittstelle: pruefen()), 112–119 (Ereignistypen und Startbeobachter), 123 (Fabrik und Umgebung), 150 (Zustand des Bridge-Lebenslaufs), 157 (aktiveSitzung()), 188 (bestätigter Versatz aus der Sitzung), 226–228 (melde()), 245 (mangelFolgen()), 362 (laeuft() kennt die Bridge), 365 (Bridge starten und stoppen, Einrichtung prüfen), 410–411 (pruefen in der öffentlichen Fläche)
+- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 10), Zeile 558 (Ankerzeile; der neue Block kommt davor)
 
 Zeilenangaben gelten für den Stand vor dieser Aufgabe; nach früheren Steps derselben Aufgabe verschieben sie sich. Maßgeblich ist immer der wortgleiche Vorher-Text (Edit-Werkzeug, G14).
 
@@ -6992,7 +7126,7 @@ if (process.platform === 'win32') {
 ```
 npx tsx apps/connect/test/zoom-kern.test.ts
 ```
-Erwartet: die 54 Prüfungen aus Aufgabe 10 `ok`, danach Abbruch mit
+Erwartet: die 62 Prüfungen aus Aufgabe 10 `ok`, danach Abbruch mit
 ```
 TypeError: p.kern.pruefen is not a function
 ```
@@ -7496,9 +7630,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-87 ok, 0 fehlgeschlagen, 0 übersprungen.
+95 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux (CI) `84 ok, 0 fehlgeschlagen, 1 übersprungen.` (Fall 6 nur unter Windows, Zeile `  --  Fall 6: DLL-Tod beim Start → B3 (übersprungen: nur unter Windows)`). Exit-Code 0. Lautet eine Meldung `B7` mit `7.1.5 (attrappe)` in Fällen mit dem Drehbuch `steuerung`, setzt die Attrappe `FAKE_SDK_FASSUNG` nicht (Aufgabe 3) — dann anhalten.
+unter Linux (CI) `92 ok, 0 fehlgeschlagen, 1 übersprungen.` (Fall 6 nur unter Windows, Zeile `  --  Fall 6: DLL-Tod beim Start → B3 (übersprungen: nur unter Windows)`). Exit-Code 0. Lautet eine Meldung `B7` mit `7.1.5 (attrappe)` in Fällen mit dem Drehbuch `steuerung`, setzt die Attrappe `FAKE_SDK_FASSUNG` nicht (Aufgabe 3) — dann anhalten.
 
 - [ ] **Step 10: Selbsttest und Typcheck**
 
@@ -7537,11 +7671,11 @@ Nicht pushen (G13).
 
 ### Task 12: Kern: Beitritt bis `im_meeting`, Erlaubnis, Geheimnisse
 
-**Spec:** 5.3 (Mangel beim Start), 5.7, 6.1 (Sperre S10 im Meeting), 6.2 Beitritt Schritte 1–4, Schritt 5 (nur `inMeeting`, `failed`, `joinTimeout`, `join`-Fehler, `exited`), Schritt 6 (Erlaubnis-Tabelle), 8.3 (N0, N0b, C-Texte, CT, CJ, CB), 8.4 Q12, 8.7; Tests 12.2 Fall 1 (zweiter Teil), 2, 3, 5, 8, 10 (Erlaubnis), 24c, 27; Review Focus 1 und 5. Global Constraints G4, G5, G9, G12, G13, G14, G15.
+**Spec:** 5.3 (Mangel beim Start), 5.7, 6.1 (Sperre S10 im Meeting), 6.2 Beitritt Schritte 1–4, Schritt 5 (nur `inMeeting`, `failed`, `joinTimeout`, `join`-Fehler, `exited`), Schritt 6 (Erlaubnis-Tabelle), 8.3 (N0, N0b, C-Texte, CT, CJ, CB), 8.4 Q12, 8.7; Tests 12.2 Fall 1 (zweiter Teil), 2, 3, 5, 7 (über den Beitritt), 8, 10 (Erlaubnis), 24c, 27; Review Focus 1 und 5. Global Constraints G4, G5, G9, G12, G13, G14, G15.
 
 **Files:**
-- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 11), Zeilen 20–25 (Importe der Bridge), 35–36 (Import des Teilnehmer-Typs), 41–45 (Importe der Klartexte), 65 (Import baueTeilnehmer), 129–130 (Schnittstelle: beitreten() und erneut()), 136 (Ereignistypen status und privilege), 209 (Zustand der Teilnehmerzeilen), 220 (aktiveQuellen() und teilnehmerAbbild()), 252 (Teilnehmer im Abbild), 531 (neue Bridge, neue Teilnehmer-IDs), 623–625 (Ereignisse der aktiven Bridge verteilen), 653 (Beitritt), 680–681 (beitreten und erneut in der öffentlichen Fläche)
-- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 11), Zeile 590 (Ankerzeile)
+- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 11), Zeilen 20–25 (Importe der Bridge), 35–36 (Import des Teilnehmer-Typs), 41–45 (Importe der Klartexte), 65 (Import baueTeilnehmer), 129–130 (Schnittstelle: beitreten() und erneut()), 136 (Ereignistypen status und privilege), 211 (Zustand der Teilnehmerzeilen), 222 (aktiveQuellen() und teilnehmerAbbild()), 254 (Teilnehmer im Abbild), 535 (neue Bridge, neue Teilnehmer-IDs), 627–629 (Ereignisse der aktiven Bridge verteilen), 657 (Beitritt), 703–704 (beitreten und erneut in der öffentlichen Fläche)
+- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 11), Zeile 678 (Ankerzeile)
 
 Zeilenangaben gelten für den Stand vor dieser Aufgabe; maßgeblich ist der wortgleiche Vorher-Text (G14).
 
@@ -7580,7 +7714,7 @@ Zeilenangaben gelten für den Stand vor dieser Aufgabe; maßgeblich ist der wort
 - Teilnehmer im Abbild über `baueTeilnehmer` aus der Sitzung der aktiven Bridge (ohne eigene Zeile, Host zuerst); `tonVorwahl` und `zeilenFehler` leeren sich bei jeder neuen Bridge (IDs gelten nur je Sitzung).
 - Im Meeting antworten `sdkWaehlen`, `zugangWaehlen` und `zugangLoeschen` mit S10 (die Sperre aus Aufgabe 10 greift, weil der Zustand nicht Z1a/Z2/Z13 ist); die Zugangsdaten bleiben unverändert.
 
-- [ ] **Step 1: Fehlschlagende Tests schreiben (Fall 1, 2, 3, 5, 8, 10, 24c, 27, Review Focus 1 und 5)**
+- [ ] **Step 1: Fehlschlagende Tests schreiben (Fall 1, 2, 3, 5, 7, 8, 10, 24c, 27, Review Focus 1 und 5)**
 
 In `apps/connect/test/zoom-kern.test.ts` direkt über der Ankerzeile einfügen.
 
@@ -7667,6 +7801,14 @@ console.log('— Beitritt (Fall 1 zweiter Teil, 2, 5, 8, 24c), Review Focus 1 un
     p.kern.abbild().meldung?.art === 'fehler' && p.kern.abbild().erneutMoeglich && p.kern.stateKv()?.zoom_alarm === 1);
   await p.aufraeumen();
 }
+{
+  // Fall 7 über den Beitritt: nur hier kann „kein join“ rot werden („Einrichtung prüfen“ sendet nie join).
+  const p = baueKern({ stell: () => ({ FAKE_SDK_FASSUNG: '7.1.6 (99999)' }) });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Fall 7 (Beitritt): falsche SDK-Fassung → B7, Zustand fehler', text(r) === KT.B7('7.1.6 (99999)') && p.kern.kurz().zustand === 'fehler');
+  ck('… Bridge gestoppt, kein join in der Befehlsfolge', !p.kern.laeuft() && cmds(p).includes('init') && !cmds(p).includes('join'));
+  await p.aufraeumen();
+}
 for (const code of [63, 503, 504, 4]) {
   const p = baueKern({ stell: () => ({ FAKE_BEITRITT_SCHEITERT: String(code) }) });
   const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
@@ -7744,7 +7886,7 @@ for (const code of [63, 503, 504, 4]) {
 ```
 npx tsx apps/connect/test/zoom-kern.test.ts
 ```
-Erwartet: die 87 Prüfungen aus den Aufgaben 10–11 `ok` (unter Linux 84 und 1 übersprungen), danach Abbruch mit
+Erwartet: die 95 Prüfungen aus den Aufgaben 10–11 `ok` (unter Linux 92 und 1 übersprungen), danach Abbruch mit
 ```
 TypeError: p.kern.beitreten is not a function
 ```
@@ -8089,9 +8231,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-141 ok, 0 fehlgeschlagen, 0 übersprungen.
+151 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux `138 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Liefert Fall 8 statt „Beitritt gescheitert: falscher Kenncode.“ einen Text mit „gescheitert: gescheitert“, benutzt `klartext.ts` `explainStatus` (Aufgabe 6) — dann anhalten.
+unter Linux `148 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Liefert Fall 8 statt „Beitritt gescheitert: falscher Kenncode.“ einen Text mit „gescheitert: gescheitert“, benutzt `klartext.ts` `explainStatus` (Aufgabe 6) — dann anhalten.
 
 - [ ] **Step 10: Selbsttest und Typcheck**
 
@@ -8123,6 +8265,7 @@ Nicht pushen (G13).
 - Zusätzlicher Fall „5.3: Laufzeit beim Beitritt defekt“: Ein Mangel, den erst die Startfolge findet, muss Nummer und Kenncode verwerfen und nach `einrichtung` führen; ohne diesen Fall bliebe der Zweig `mangelFolgen()` in `starteBeitritt` unbelegt.
 - `error where:'privilege'` (Q12) und die Tabellenzeile `timedOut` → `abgelaufen` haben keinen Test: Die Attrappe kennt dafür keine Stellschraube (Aufgabe 3). Belegt sind `ja`, `offen` (`check`/`requested`), `abgelehnt` (hier) und `entzogen` (Aufgabe 14, Fall 10b).
 - Fall 27 prüft zusätzlich, dass `beitreten` und `pruefen` im Meeting `{ ok: false, text: '' }` liefern (L9) — sonst entstünde eine zweite Bridge (5.2).
+- Fall 7 läuft hier ein zweites Mal, über `beitreten` (B7, Zustand `fehler`, Bridge gestoppt, `init` gesendet, aber kein `join`). Aufgabe 11 prüft ihn über „Einrichtung prüfen“; dieser Ablauf sendet nie `join`, dort kann „kein join“ also nicht rot werden.
 - `fehlerEreignis` reagiert in Aufgabe 12 nur in `tritt_bei`/`warteraum`; die Zweige für `reconnectTimeout` und Absturz im Meeting folgen in Aufgabe 13, die Bild-/Ton-Fehler in Aufgabe 14.
 
 ---
@@ -8132,14 +8275,14 @@ Nicht pushen (G13).
 **Spec:** 6.2 Schritt 5 (Warteraum, Einlass, CE), 6.4 Auslöser-Tabelle **mit der 4a-Abweichung** (Spec 18, L1), 6.5, 6.6 (Kernteil von `zoom.beenden`), 6.8 (ohne „Abbrechen“), 6.9; Tests 12.2 Fall 9, 9b, 9c, 19, 20, 26, 28; Review Focus 2. Global Constraints G3, G9, G13, G14, G15.
 
 **Files:**
-- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 12), Zeilen 47–48 (Import endeMeldung), 136–137 (Schnittstelle: verlassen()), 284 (Abriss im Abbild), 757–764 (Warteraum, Meeting-Ende, Statusfolge vollständig), 785–791 (Fehler im Meeting (4a) und Verlassen), 796–800 (Beenden mit Bridge und Frist), 822–823 (verlassen in der öffentlichen Fläche)
-- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 12), Zeile 734 (Ankerzeile)
+- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 12), Zeilen 47–48 (Import endeMeldung), 136–137 (Schnittstelle: verlassen()), 286 (Abriss im Abbild), 761–768 (Warteraum, Meeting-Ende, Statusfolge vollständig), 789–795 (Fehler im Meeting (4a) und Verlassen), 816–823 (Beenden mit Bridge und Frist), 845–846 (verlassen in der öffentlichen Fläche)
+- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 12), Zeile 831 (Ankerzeile)
 
 Zeilenangaben gelten für den Stand vor dieser Aufgabe; maßgeblich ist der wortgleiche Vorher-Text (G14).
 
 **Interfaces:**
 - Consumes:
-  - Aufgaben 11/12 (Closure): `stoppeBridge()`, `scheitert(m)`, `melde(art, m)`, `imMeetingAngekommen()`, `setzeZustand(z)`, `laufNr`, `aktiveBridge`, `kopieAbbruch`, `beendenVersprechen`, `warten`, `soll`, `nummer`, `kenncode`, `meldung`, `warImMeeting`, `maengel`, `zeitgeber(ms, fn)`; `statusEreignis` und der Teil von `fehlerEreignis` nach dem Q12-Zweig (beide wörtlich aus Aufgabe 12) werden hier ersetzt.
+  - Aufgaben 10/11/12 (Closure): `stoppeBridge()`, `scheitert(m)`, `melde(art, m)`, `imMeetingAngekommen()`, `setzeZustand(z)`, `laufNr`, `aktiveBridge`, `kopieAbbruch`, `kopieLauf`, `mitFrist(p, ms)`, `beendenVersprechen`, `warten`, `soll`, `nummer`, `kenncode`, `meldung`, `warImMeeting`, `maengel`, `zeitgeber(ms, fn)`; `statusEreignis` und der Teil von `fehlerEreignis` nach dem Q12-Zweig (beide wörtlich aus Aufgabe 12) werden hier ersetzt.
   - Aufgabe 6 (`klartext.ts`): `endeMeldung(code: number, anzeigename: string): Meldungstext` (Grund 1 → C61, sonst R6 „Meeting beendet: {endReason}.“, `detail: null`), `failMeldung`, `VORSATZ.verbindung`, `KT.CE`, `KT.UE_RECONNECT` = „Zoom hat die Verbindung in 30 s nicht wiederhergestellt.“, `KT.UE_ABSTURZ(detail)` = „Die Zoom-Bridge ist abgestürzt ({detail}). Details im Log.“, `dllMeldung`, `exitCodeAus`, `fehlerDetail`.
   - Aufgabe 3 (Attrappe): `FAKE_WARTERAUM=1`, `FAKE_EINLASS_MS`, `FAKE_EINLASS_HAENGT=1`, `FAKE_VERBINDUNG_HAENGT_MS`, `FAKE_VERBINDUNG_WEG_MS` (reconnecting, 50 ms später `failed` Code 2), `FAKE_ABSTURZ_MS` (stirbt mit `0xC0000005`), `FAKE_MEETING_ENDE_MS` (`ended` Code 2), `FAKE_ABGANG_MS`, Drehbuch `stuck`; bei `quit` im Meeting meldet die Attrappe `disconnecting` und `ended`.
   - Bridge: der Wachhund meldet `error where:'join' code:'joinTimeout'` bzw. `where:'meeting' code:'reconnectTimeout'` (`name` `RECONNECT_TIMEOUT`) nach `joinTimeoutMs`; ein unerwartetes Prozessende kommt als `error where:'exit' code:'exited'` mit `detail` „Kindprozess unerwartet beendet, exitCode=<n>“.
@@ -8163,7 +8306,7 @@ Zeilenangaben gelten für den Stand vor dieser Aufgabe; maßgeblich ist der wort
 - `ended` der aktiven Bridge (nicht im Abbau) in `tritt_bei`/`warteraum`/`im_meeting`/`abriss` → `meetingEnde(code)`: `stoppeBridge()`, Soll-Liste leer, `meldung { art: 'warnung', …endeMeldung(code, anzeigename) }`, Zustand `bereit`; Nummer und Kenncode bleiben (`erneutMoeglich: true`). Ein `ended` einer Bridge im Abbau landet nach Aufgabe 11 nur im Log.
 - `verlassen()` (Z3–Z11, sonst ohne Wirkung): `laufNr + 1` (eine laufende Startfolge verwirft ihr Ergebnis), Zustand `verlaesst`, `await stoppeBridge()`, dann Soll-Liste, Nummer, Kenncode, `meldung` und Merker leeren und Zustand `bereit` (bei Mängeln `einrichtung`). Kein `fehler`, kein Alarm.
 - `schliessen()` (Z2/Z13) und `meldungWeg()` (außer Z13) sind seit Aufgabe 10 vollständig; hier belegt Fall 19 den Weg nach einem Meeting-Ende.
-- `beenden(fristMs)` (Teil 2): `laufNr + 1`, Kopie abbrechen; mit Bridge: Zustand `verlaesst`, `stoppeBridge()` gegen `fristMs`; läuft die Frist ab: `[zoom] Zoom-Bridge nicht rechtzeitig beendet` und weiter. Danach Soll-Liste, Nummer und Kenncode leer. Zweiter Aufruf → dasselbe Versprechen.
+- `beenden(fristMs)` (Teil 2): `laufNr + 1`, Kopie abbrechen und wie in Teil 1 auf `kopieLauf` warten (`mitFrist`, höchstens `fristMs`, L24); mit Bridge: Zustand `verlaesst`, `stoppeBridge()` gegen `fristMs` (`mitFrist`); läuft die Frist ab: `[zoom] Zoom-Bridge nicht rechtzeitig beendet` und weiter. Danach Soll-Liste, Nummer und Kenncode leer. Zweiter Aufruf → dasselbe Versprechen.
 
 - [ ] **Step 1: Fehlschlagende Tests schreiben (Fall 9, 9b, 9c, 19, 20, 26, 28, Review Focus 2, Abriss in 4a)**
 
@@ -8506,6 +8649,9 @@ Vorher:
     beendenVersprechen = (async () => {
       kopieAbbruch?.abort();
       d.log(`[zoom] Connect wird beendet (Frist ${fristMs} ms)`);
+      // Spec 6.1: richteEin bricht nach der laufenden Datei ab und löscht <ziel>.teil selbst. Ohne dieses
+      // Warten endet der Prozess vorher (before-quit ruft danach app.quit()) und .teil bliebe liegen.
+      if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
       abbildGeaendert();
     })();
 ```
@@ -8516,17 +8662,13 @@ Nachher:
       laufNr += 1;
       kopieAbbruch?.abort();
       d.log(`[zoom] Connect wird beendet (Frist ${fristMs} ms)`);
+      // Spec 6.1: richteEin bricht nach der laufenden Datei ab und löscht <ziel>.teil selbst. Ohne dieses
+      // Warten endet der Prozess vorher (before-quit ruft danach app.quit()) und .teil bliebe liegen.
+      if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
+      // Kopie und Bridge laufen nie gleichzeitig (Sperre S10): insgesamt höchstens fristMs.
       if (aktiveBridge !== null) {
         setzeZustand('verlaesst');
-        let frist: ReturnType<typeof setTimeout> | null = null;
-        const rechtzeitig = await Promise.race([
-          stoppeBridge().then(() => true),
-          new Promise<boolean>((resolve) => {
-            frist = zeitgeber(fristMs, () => resolve(false));
-          }),
-        ]);
-        if (frist !== null) clearTimeout(frist);
-        if (!rechtzeitig) d.log('[zoom] Zoom-Bridge nicht rechtzeitig beendet');
+        if (!(await mitFrist(stoppeBridge(), fristMs))) d.log('[zoom] Zoom-Bridge nicht rechtzeitig beendet');
       }
       soll.clear();
       nummer = null;
@@ -8557,9 +8699,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-184 ok, 0 fehlgeschlagen, 0 übersprungen.
+194 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux `181 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Bleibt Fall 9b im Zustand `tritt_bei` hängen statt `im_meeting`, meldet die Attrappe den Einlass nicht (`FAKE_EINLASS_MS`, Aufgabe 3) — dann anhalten.
+unter Linux `191 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Bleibt Fall 9b im Zustand `tritt_bei` hängen statt `im_meeting`, meldet die Attrappe den Einlass nicht (`FAKE_EINLASS_MS`, Aufgabe 3) — dann anhalten.
 
 - [ ] **Step 10: Selbsttest und Typcheck**
 
@@ -8600,8 +8742,8 @@ Nicht pushen (G13).
 **Spec:** 6.3 Laden Schritte 1, 2, 4, 5, 6, Entladen, Ton-Schalter, Kollision; 6.7 (Versatz an die laufende Bridge); 6.9 (Quellen einer gestoppten Generation verwerfen); 8.4 (Q1, Q2, Q4–Q6, Q8, Q9, Q13–Q17); 3.2-22/23; Tests 12.2 Fall 10, 10b, 11, 12, 13 (ohne Fernsteuer-Teil), 21 (ohne Fernsteuer-Teil), 23. Global Constraints G3, G9, G13, G14, G15.
 
 **Files:**
-- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 13), Zeilen 53–55 (Importe der Klartexte), 71 (Importe der Teilnehmer-Hilfen), 138–139 (Schnittstelle: laden(), entladen(), ton()), 226 (Zustand der Abos), 327–328 (hinweis()), 444–445 (Versatz an die laufende Bridge), 565 (neue Bridge, keine alten Ton-Wünsche), 669–672 (video- und audio-Ereignisse verteilen), 812–813 (Bild- und Tonfehler zuerst), 852 (Quellen), 898–899 (laden, entladen, ton in der öffentlichen Fläche)
-- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 13), Zeile 884 (Ankerzeile)
+- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 13), Zeilen 53–55 (Importe der Klartexte), 71 (Importe der Teilnehmer-Hilfen), 138–139 (Schnittstelle: laden(), entladen(), ton()), 228 (Zustand der Abos), 329–330 (hinweis()), 448–449 (Versatz an die laufende Bridge), 569 (neue Bridge, keine alten Ton-Wünsche), 673–676 (video- und audio-Ereignisse verteilen), 816–817 (Bild- und Tonfehler zuerst), 856 (Quellen), 914–915 (laden, entladen, ton in der öffentlichen Fläche)
+- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 13), Zeile 981 (Ankerzeile)
 
 Zeilenangaben gelten für den Stand vor dieser Aufgabe; maßgeblich ist der wortgleiche Vorher-Text (G14).
 
@@ -8777,7 +8919,7 @@ console.log('— Doppelname, Versatz, Kollision, Q8 (Fall 13, 21, 23)');
 ```
 npx tsx apps/connect/test/zoom-kern.test.ts
 ```
-Erwartet: die 184 Prüfungen der Aufgaben 10–13 `ok` (unter Linux 181 und 1 übersprungen), danach Abbruch mit
+Erwartet: die 194 Prüfungen der Aufgaben 10–13 `ok` (unter Linux 191 und 1 übersprungen), danach Abbruch mit
 ```
 TypeError: p.kern.laden is not a function
 ```
@@ -9098,9 +9240,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-217 ok, 0 fehlgeschlagen, 0 übersprungen.
+227 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux `214 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Tragen in Fall 13 nicht beide „Anna“-Zeilen `doppelname`, fehlt `FAKE_DOPPELNAME` in der Attrappe (Aufgabe 3) oder `baueTeilnehmer` zählt nicht nach `normName` (Aufgabe 9) — dann anhalten.
+unter Linux `224 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Tragen in Fall 13 nicht beide „Anna“-Zeilen `doppelname`, fehlt `FAKE_DOPPELNAME` in der Attrappe (Aufgabe 3) oder `baueTeilnehmer` zählt nicht nach `normName` (Aufgabe 9) — dann anhalten.
 
 - [ ] **Step 9: Selbsttest und Typcheck**
 
@@ -9141,8 +9283,8 @@ Nicht pushen (G13).
 **Spec:** 4 (Begriffe „Soll-Liste“, „Offener Soll-Eintrag“, „Verwaiste Quelle“), 6.3 (Abgleich der Soll-Liste mit der Tabelle, Laden Schritt 3, Lebenslauf der Soll-Liste), Ergänzung 0.9 und 0.16, 7.5 (`sollOffen` → `zoom_alarm`); Tests 12.2 Fall 14 und 14b; 4a-Ersatz für Fall 15 („Erneut beitreten“ statt Wiederbeitritt). Global Constraints G3 (300 ms bleiben in 14/14b unverändert), G13, G14, G15.
 
 **Files:**
-- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 14), Zeilen 39–40 (Import des Soll-Typs), 72–73 (Importe der Soll-Liste), 143–144 (Schnittstelle: sollVerwerfen()), 233 (Zustand des Abgleichs), 259 (sollLage() und sollOffen()), 267 (sollOffen in der Kurzform), 292 (Soll-Einträge im Abbild), 690–693 (Teilnehmeränderungen lösen den Abgleich aus), 776–778 (Abgleich beim Eintritt ins Meeting), 812–814 (Abgleich nach Zooms eigener Neuverbindung), 829–831 (Abgleich nach Erlaubnis „ja“), 905–908 (Abmeldung melden), 915 (Soll-Eintrag folgt dem Umhängen), 928–930 (NDI-Name des Soll-Eintrags), 970–971 (Laden Schritt 3), 999 (Soll-Liste und Abgleich), 1048–1049 (sollVerwerfen in der öffentlichen Fläche)
-- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 14), Zeile 1002 (Ankerzeile)
+- Modify: `apps/connect/src/main/zoom/kern.ts` (Stand nach Aufgabe 14), Zeilen 39–40 (Import des Soll-Typs), 72–73 (Importe der Soll-Liste), 143–144 (Schnittstelle: sollVerwerfen()), 235 (Zustand des Abgleichs), 261 (sollLage() und sollOffen()), 269 (sollOffen in der Kurzform), 294 (Soll-Einträge im Abbild), 694–697 (Teilnehmeränderungen lösen den Abgleich aus), 780–782 (Abgleich beim Eintritt ins Meeting), 816–818 (Abgleich nach Zooms eigener Neuverbindung), 833–835 (Abgleich nach Erlaubnis „ja“), 909–912 (Abmeldung melden), 919 (Soll-Eintrag folgt dem Umhängen), 932–934 (NDI-Name des Soll-Eintrags), 974–975 (Laden Schritt 3), 1003 (Soll-Liste und Abgleich), 1064–1065 (sollVerwerfen in der öffentlichen Fläche)
+- Modify: `apps/connect/test/zoom-kern.test.ts` (Stand nach Aufgabe 14), Zeile 1099 (Ankerzeile)
 
 Zeilenangaben gelten für den Stand vor dieser Aufgabe; maßgeblich ist der wortgleiche Vorher-Text (G14).
 
@@ -9657,9 +9799,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-241 ok, 0 fehlgeschlagen, 0 übersprungen.
+251 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux `238 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0; Laufzeit der Datei etwa 30 s. Meldet Fall 14 kein `black`/`participantLeft` beim Weggang oder kommt „anna“ in Fall 14b nicht zurück, fehlen `FAKE_RUECKKEHR_MS`/`FAKE_RUECKKEHR_NAME` in der Attrappe (Aufgabe 3) — dann anhalten.
+unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0; Laufzeit der Datei etwa 30 s. Meldet Fall 14 kein `black`/`participantLeft` beim Weggang oder kommt „anna“ in Fall 14b nicht zurück, fehlen `FAKE_RUECKKEHR_MS`/`FAKE_RUECKKEHR_NAME` in der Attrappe (Aufgabe 3) — dann anhalten.
 
 - [ ] **Step 11: Selbsttest und Typcheck**
 
@@ -10622,16 +10764,32 @@ Expected: dreimal `✓ built in …` (main, preload, renderer), keine Zeile mit 
 - [ ] **Step 19: Selbsttest (grün).**
 
 Run: `npm run selftest -w @jm/connect`
-Expected: die vier Testdateien enden der Reihe nach mit `485 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `241 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `238 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0.
+Expected: die vier Testdateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0.
 
 - [ ] **Step 20: Commit.**
 
 ```bash
 git add apps/connect/src/main/zoom/einstellungen.ts apps/connect/src/main/zoom.ts apps/connect/src/main/settings.ts apps/connect/src/main/ndi-guests.ts apps/connect/src/main/ipc.ts apps/connect/src/shared/ipc.ts apps/connect/src/shared/types.ts apps/connect/src/preload/index.ts apps/connect/electron.vite.config.ts apps/connect/test/zoom-teile.test.ts
 git status --short
+```
+Erwartet genau diese gestagten Zeilen (sonst nichts Gestagtes):
+```
+M  apps/connect/electron.vite.config.ts
+M  apps/connect/src/main/ipc.ts
+M  apps/connect/src/main/ndi-guests.ts
+M  apps/connect/src/main/settings.ts
+A  apps/connect/src/main/zoom.ts
+A  apps/connect/src/main/zoom/einstellungen.ts
+M  apps/connect/src/preload/index.ts
+M  apps/connect/src/shared/ipc.ts
+M  apps/connect/src/shared/types.ts
+M  apps/connect/test/zoom-teile.test.ts
+```
+Dann:
+```bash
 git commit -m "feat(connect): Zoom-Hülle - Einstellungen, IPC-Kanäle, Preload, Gast-Labels" -m "settings.ts hält Zugangsdaten (safeStorage, ohne Schlüsselbund nur für die Sitzung), Anzeigename, Versatz und Laufzeit-Stand; die Regeln dafür stehen ohne Electron in zoom/einstellungen.ts und sind getestet. zoom.ts legt den Kern nur unter Windows an und verdrahtet die 17 Kanäle aus Spec 5.5 (ohne zoomAbbrechen) samt Dialogen und Logordner; Nutzlasten werden geprüft. AppStatus.zoom kommt aus dem Kern, activeLabels() liefert die NDI-Namen der Gast-Sender (#197)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
-`git status --short` vor dem Commit lesen: gestagt sind genau `apps/connect/src/main/zoom/einstellungen.ts` und `apps/connect/src/main/zoom.ts` (je `A`) sowie die acht übrigen Pfade (je `M`). Nicht pushen.
+Nicht pushen.
 
 **Neue Logzeilen (für den Owner-Kurztest):** `[zoom] Zugangsdaten aus der Umgebung unbrauchbar: <Meldung von readCredentials>` (Warnung, einmal je Sitzung), `[zoom] safeStorage nicht verfügbar — die Zoom-Zugangsdaten gelten nur für diese Sitzung.` (Warnung), `[zoom] Zoom-Kern ließ sich nicht anlegen: <Meldung>` (Fehler), `[zoom] Logordner ließ sich nicht öffnen: <Meldung>` (Warnung), `[zoom] Beenden fehlgeschlagen: …` und `[zoom] Verlassen fehlgeschlagen: …` (Fehler). Keine davon enthält Client-ID, Secret, Nummer oder Kenncode.
 
@@ -10876,8 +11034,9 @@ Vorher (Zeilen 124–132, eindeutig):
 ```
 Nachher:
 ```ts
-  // Spec 6.6: Läuft Zoom (Kopie, Prüfung oder Bridge), wartet das Beenden höchstens
-  // BEENDEN_FRIST_MS darauf, dass die Bridge das Meeting verlässt; erst der zweite Durchlauf räumt ab.
+  // Spec 6.1/6.6: Läuft Zoom (Kopie, Prüfung oder Bridge), wartet das Beenden höchstens
+  // BEENDEN_FRIST_MS darauf, dass die Kopie abbricht und `.teil` löscht bzw. die Bridge das Meeting
+  // verlässt; erst der zweite Durchlauf räumt ab.
   app.on('before-quit', (e) => {
     isQuitting = true;
     if (!zoomAbgebaut && zoomLaeuft()) {
@@ -11021,21 +11180,30 @@ Expected: dreimal `✓ built in …`, keine Zeile mit `error`; dann der Reihe na
 - `1` — `bridge.ts` liegt im Bündel (Text aus `Bridge.start()`),
 - mindestens `1` — Laufzeit-Pfad aus `zoom.ts`/`laufzeit.ts`,
 - `1` — `session-end`-Haken,
-- eine Zeile `…/index-<hash>.js:1`.
+- `1` — die Kopfzeile im Renderer-Bündel. Der Platzhalter `index-*.js` trifft genau eine Datei (`out/renderer/assets/` enthält daneben nur `index-<hash>.css`, `peer-*.js` und `protocol-*.js`); bei nur einer Datei gibt `grep -c` keinen Dateinamen aus.
 
 - [ ] **Step 16: Selbsttest (grün).**
 
 Run: `npm run selftest -w @jm/connect`
-Expected: die vier Testdateien enden der Reihe nach mit `485 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `241 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `238 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0. Diese Aufgabe ändert keinen Test; die Texte für Tray, Tooltip und Kopfzeile prüft `zoom-text.test.ts`.
+Expected: die vier Testdateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0. Diese Aufgabe ändert keinen Test; die Texte für Tray, Tooltip und Kopfzeile prüft `zoom-text.test.ts`.
 
 - [ ] **Step 17: Commit.**
 
 ```bash
 git add apps/connect/src/main/tray.ts apps/connect/src/main/index.ts apps/connect/src/renderer/src/App.tsx
 git status --short
-git commit -m "feat(connect): Tray mit Gäste- und Zoom-Zeile, Kopfzeile, Beenden wartet auf Zoom" -m "Das Tray zeigt die berichtigte Gäste-Zeile und die Zoom-Zeile aus shared/zoom-text (dieselbe Quelle wie die Kopfzeile), dazu Zoom-Meeting verlassen und den kombinierten Tooltip (Spec 7.2-7.4). index.ts startet Zoom nach registerIpc, meldet Gast-Sender an die Kollisionsprüfung, wartet beim Beenden höchstens 15 s auf das Verlassen des Meetings und reagiert auf session-end (Spec 6.6). Kopfzeile: Raum nicht verbunden (#197)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
-`git status --short` vor dem Commit lesen: gestagt sind genau die drei Pfade (je `M`). Nicht pushen.
+Erwartet genau diese gestagten Zeilen (sonst nichts Gestagtes):
+```
+M  apps/connect/src/main/index.ts
+M  apps/connect/src/main/tray.ts
+M  apps/connect/src/renderer/src/App.tsx
+```
+Dann:
+```bash
+git commit -m "feat(connect): Tray mit Gäste- und Zoom-Zeile, Kopfzeile, Beenden wartet auf Zoom" -m "Das Tray zeigt die berichtigte Gäste-Zeile und die Zoom-Zeile aus shared/zoom-text (dieselbe Quelle wie die Kopfzeile), dazu Zoom-Meeting verlassen und den kombinierten Tooltip (Spec 7.2-7.4). index.ts startet Zoom nach registerIpc, meldet Gast-Sender an die Kollisionsprüfung, wartet beim Beenden höchstens 15 s auf das Verlassen des Meetings bzw. das Ende einer abgebrochenen SDK-Kopie und reagiert auf session-end (Spec 6.1, 6.6). Kopfzeile: Raum nicht verbunden (#197)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+Nicht pushen.
 
 **Sichtprüfung:** im Owner-Kurztest, Abnahme 1 (Tray „△ Zoom: Einrichtung unvollständig“), 19 (Fenster schließen → Tray, Quellen laufen weiter), 21 (Tray → Beenden binnen 15 s, „JM Connect“ verschwindet sofort aus dem Zoom-Client).
 
@@ -11738,21 +11906,29 @@ Run:
 npm run build -w @jm/connect
 grep -cF "Als Quelle laden" apps/connect/out/renderer/assets/index-*.js
 ```
-Expected: dreimal `✓ built in …`, keine Zeile mit `error`; danach eine Zeile `…/index-<hash>.js:1`.
+Expected: dreimal `✓ built in …`, keine Zeile mit `error`; danach `1` (der Platzhalter `index-*.js` trifft genau eine Datei, darum gibt `grep -c` keinen Dateinamen aus).
 
 - [ ] **Step 7: Selbsttest (grün).**
 
 Run: `npm run selftest -w @jm/connect`
-Expected: die vier Testdateien enden der Reihe nach mit `485 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `241 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `238 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0.
+Expected: die vier Testdateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0.
 
 - [ ] **Step 8: Commit.**
 
 ```bash
 git add apps/connect/src/renderer/src/zoom/ZoomCard.tsx apps/connect/src/renderer/src/App.tsx
 git status --short
+```
+Erwartet genau diese gestagten Zeilen (sonst nichts Gestagtes):
+```
+M  apps/connect/src/renderer/src/App.tsx
+A  apps/connect/src/renderer/src/zoom/ZoomCard.tsx
+```
+Dann:
+```bash
 git commit -m "feat(connect): Zoom-Karte - Einrichtung, Beitritt, Teilnehmer, gemerkte Quellen" -m "Eigene Datei ZoomCard.tsx außerhalb des Raum-Zweigs, nur unter Windows (Spec 9 Punkte 1-11 ohne den Z11-Knopf Abbrechen). Statuszeile und Knopflogik aus shared/zoom-text, Fehlertexte aus dem Main; Kenncode-Feld wird nach Beitreten geleert, Q9 wird zum zweiten Klick, Versatz ungültig: Feld rot mit Q13, nichts gesendet. Tooltips S10, Q14, Q15 wörtlich aus Spec 8 (#197)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
-`git status --short` vor dem Commit lesen: gestagt sind genau `apps/connect/src/renderer/src/zoom/ZoomCard.tsx` (`A`) und `apps/connect/src/renderer/src/App.tsx` (`M`). Nicht pushen.
+Nicht pushen.
 
 **Sichtprüfung:** im Owner-Kurztest, Abnahme 1–8, 10, 19 (Aufgabe 20).
 
@@ -12201,7 +12377,7 @@ tsx test/zoom-text.test.ts && tsx test/zoom-laufzeit.test.ts && tsx test/zoom-te
 npm run selftest -w @jm/connect
 npm run typecheck -w @jm/connect
 ```
-Erwartet: Selbsttest Exitcode 0; die vier `tsx`-Dateien enden der Reihe nach mit `485 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.`, `78 ok, 0 fehlgeschlagen.` und `241 ok, 0 fehlgeschlagen, 0 übersprungen.` (unter Linux `238 ok, 0 fehlgeschlagen, 1 übersprungen.`), danach die Ausgabe aus Step 4 bis `Alle after-pack-Tests bestanden.`. Typecheck: keine Ausgabe von `tsc` (node und web), Exitcode 0 — diese Aufgabe ändert keine `.ts`-Datei, `tools/*` und `test/*.mjs` liegen außerhalb der tsconfig-`include`.
+Erwartet: Selbsttest Exitcode 0; die vier `tsx`-Dateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.`, `78 ok, 0 fehlgeschlagen.` und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), danach die Ausgabe aus Step 4 bis `Alle after-pack-Tests bestanden.`. Typecheck: keine Ausgabe von `tsc` (node und web), Exitcode 0 — diese Aufgabe ändert keine `.ts`-Datei, `tools/*` und `test/*.mjs` liegen außerhalb der tsconfig-`include`.
 
 - [ ] **Step 11: Commit** (Git Bash; Commit-Text bewusst ohne Umlaute)
 
@@ -12340,7 +12516,7 @@ npm run selftest -w @jm/connect
 npm run typecheck -w @jm/connect
 npm run typecheck -w @jm/zoom-bridge
 ```
-Expected: alle vier mit Exit-Code 0. `@jm/zoom-bridge`: `test/selftest.ts` endet mit `Alle Selbsttests bestanden.` (unter Windows 471 Zeilen `  ok  …`), danach läuft `test/auslieferung.test.mjs` ohne Zeile, die mit `FAIL` beginnt (24 Zeilen `  ok  …`, Schluss `Alle Auslieferungs-Tests bestanden.`). `@jm/connect`: die `tsx`-Dateien enden mit `485 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.`, `78 ok, 0 fehlgeschlagen.` und `241 ok, 0 fehlgeschlagen, 0 übersprungen.` (unter Linux `238 ok, 0 fehlgeschlagen, 1 übersprungen.`), `after-pack.test.mjs` ohne `FAIL`. Beide Typechecks ohne Zeile mit `error TS`. Scheitert etwas, hier aufhören und die betroffene Aufgabe nachbessern, nicht diese Aufgabe.
+Expected: alle vier mit Exit-Code 0. `@jm/zoom-bridge`: `test/selftest.ts` endet mit `Alle Selbsttests bestanden.` (unter Windows 471 Zeilen `  ok  …`), danach läuft `test/auslieferung.test.mjs` ohne Zeile, die mit `FAIL` beginnt (24 Zeilen `  ok  …`, Schluss `Alle Auslieferungs-Tests bestanden.`). `@jm/connect`: die `tsx`-Dateien enden mit `487 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.`, `78 ok, 0 fehlgeschlagen.` und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), `after-pack.test.mjs` ohne `FAIL`. Beide Typechecks ohne Zeile mit `error TS`. Scheitert etwas, hier aufhören und die betroffene Aufgabe nachbessern, nicht diese Aufgabe.
 
 - [ ] **Step 4: `apps/connect/ABNAHME-0.2.0.md` anlegen (ganzer Inhalt).** Voraussetzungen und die 25 Schritte sind wörtlich Spec 13, dazu die Spalten „4a-Kurztest“ und „Ergebnis“; die Messfragen wörtlich Spec 16.
 
@@ -12420,9 +12596,17 @@ Expected: `36` (Tabelle „Getesteter Bau“ 3 Zeilen, Schritte 2 + 25, Messunge
 ```bash
 git add .github/workflows/ci-checks.yml apps/connect/ABNAHME-0.2.0.md
 git status --short
+```
+Erwartet genau diese gestagten Zeilen (sonst nichts Gestagtes):
+```
+M  .github/workflows/ci-checks.yml
+A  apps/connect/ABNAHME-0.2.0.md
+```
+Dann:
+```bash
 git commit -m "ci(connect): Zoom-Selbsttests im Job selftests, Abnahmeliste 0.2.0 mit 4a-Kurztest" -m "Zwei Schritte nach dem Rundown-Schritt: Zoom-Bridge (Protokoll, Zustand, Attrappe) und Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte), beide ohne Electron und ohne SDK (Spec 12.6; Companion-Protokoll folgt mit 4b). ABNAHME-0.2.0.md: Voraussetzungen und 25 Schritte wörtlich aus Spec 13, Spalte 4a-Kurztest (1-8, 10, 19, 21, 22, 24), Messungen M1, M3, M7, M9 (#197)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
-`git status --short` vor dem Commit lesen: gestagt sind genau `.github/workflows/ci-checks.yml` (`M`) und `apps/connect/ABNAHME-0.2.0.md` (`A`). Nicht pushen.
+Nicht pushen.
 
 - [ ] **Step 7: Interner Bau — Voraussetzungen (nur Windows-Entwicklungs-PC).**
 
@@ -12492,7 +12676,8 @@ In den Bericht der Aufgabe: Pfad `apps/connect/release/JM Connect-0.1.0-win-x64.
 **3. Typ- und Namenskonsistenz.** Die Interfaces-Blöcke aller 20 Aufgaben wurden gegeneinander abgeglichen (Consumes ↔ Produces). Danach wurde der fertige Plan als Ganzes nachgespielt: alle 148 Vorher/Nachher-Ersetzungen und alle 20 neuen Dateien der Aufgaben 1–20 der Reihe nach auf eine frische Kopie von `packages/zoom-bridge`, `apps/connect` und `ci-checks.yml`. Dabei liefen die echten Module aus Block 2 und die echte Attrappe aus Aufgabe 3 erstmals zusammen mit dem Kern aus Block 3. Ergebnis (Windows, Node 24.16):
 - Jeder Vorher-Ausschnitt kam genau einmal vor.
 - Bridge: `test/selftest.ts` 471 `ok`, `Alle Selbsttests bestanden.`; `test/auslieferung.test.mjs` 24 `ok`.
-- Connect: `zoom-text` 485, `zoom-laufzeit` 79, `zoom-teile` 78, `zoom-kern` 241 ok, 0 fehlgeschlagen, 0 übersprungen; `after-pack.test.mjs` bestanden.
+- Connect: `zoom-text` 487, `zoom-laufzeit` 79, `zoom-teile` 78, `zoom-kern` 251 ok, 0 fehlgeschlagen, 0 übersprungen; `after-pack.test.mjs` bestanden.
+- Nach der zweiten Prüfrunde (05.10.2026) noch einmal ganz nachgespielt, diesmal mit **jedem** Testbefehl des Plans an seiner Stelle (rot und grün): 148 Ersetzungen und 20 neue Dateien ohne Fehler; rote Schritte rot wie beschrieben (Aufgabe 13: 16 `FAIL`, Aufgabe 15: 9 `FAIL`), grüne Schritte mit den oben genannten Zählständen; Typchecks und Bau grün; `grep -c` auf `index-*.js` liefert `1` (Aufgaben 17, 18). Die Zeilenangaben der Aufgaben 6 und 11–15 sind an diesem Lauf neu bestimmt. Die neuen Gegenproben (Aufgaben 4, 5, 10) sind am jeweiligen Zwischenstand gemessen.
 - `tsc` für Connect (node und web) und für die Bridge ohne Fehler.
 - `electron-vite build` grün: `import.meta` im Main-Bündel 0, `jmc:zoom-get` in Main und Preload, kein `require("@jm/zoom-bridge")`.
 - Aufgabe 20 Steps 2 und 5: die drei CI-Zeilen wie erwartet; Abnahmeliste 36 Tabellenzeilen, 13 × „ja“, „25 Schritte wörtlich“.
@@ -12503,10 +12688,10 @@ Die Abweichungen der Attrappe in Aufgabe 3 gegenüber dem Ersatz, gegen den Bloc
 **4. Review Focus.** Jede Zeile hat ihren Test in der genannten Aufgabe:
 - 1 → Aufgabe 12, Prüfung „Review Focus 1: zweiter Klick während startet“.
 - 2 → Aufgabe 13, Prüfung „Review Focus 2: Verlassen → verlaesst, dann bereit“.
-- 3 → Aufgabe 7, Block „Review Focus 3: Connect wird während der Kopie beendet“.
+- 3 → Aufgabe 10, Block „Review Focus 3: Connect wird während der SDK-Kopie beendet (echtes richteEin)“ (Kern mit dem echten `richteEin` über Temp-Ordner: `beenden` kehrt erst nach dem Ergebnis von `richteEin` zurück, `<ziel>.teil` fehlt, Stempel unverändert); `richteEin` allein belegt Aufgabe 7 („Review Focus 3, Teil richteEin“).
 - 4 → Aufgabe 10, Prüfung „Review Focus 4: zweiter Klick während der Kopie → S10“.
 - 5 → Aufgabe 12, Prüfung „Review Focus 5: Nummer mit Buchstaben → N0“ und die folgenden.
 
 Bei Zeile 5 fehlte der leere Anzeigename. Er ist jetzt im Test (`r2leer`), ohne dass sich die Zahl der Prüfungen ändert.
 
-**Nicht ausgeführt bei der Montage:** die roten Zwischenstände (die Schreiber haben sie je Aufgabe gemessen), die Gegenproben, der Bau der echten Bridge und des Installers (L14) und jeder Lauf unter Linux (CI, M14).
+**Nicht ausgeführt bei der Montage:** die roten Zwischenstände (die Schreiber haben sie je Aufgabe gemessen; beim Nachspielen der zweiten Prüfrunde liefen sie mit), die älteren Gegenproben, der Bau der echten Bridge und des Installers (L14) und jeder Lauf unter Linux (CI, M14).
