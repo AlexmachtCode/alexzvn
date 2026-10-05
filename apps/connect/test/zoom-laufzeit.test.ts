@@ -263,6 +263,23 @@ console.log('— Review Focus 3, Teil richteEin: Abbruch während der Kopie (Abo
     readFileSync(join(ziel, STEMPEL_DATEI)).equals(vorher) && !existsSync(join(ziel, 'neu.dll')) && existsSync(join(ziel, 'sdk.dll')));
 }
 
+console.log('— Fix-Runde 1: Aufräumen nach dem Tausch meldet Fehler, überspringt aber kein Geschwister');
+{
+  const { pfade, ziel, dir } = await eingerichtet('aufraeumen');
+  const andere = join(pfade.basis, '7.1.4.1');
+  mkdirSync(andere);
+  writeFileSync(join(andere, STEMPEL_DATEI), JSON.stringify({ format: 1, sdkFassung: '7.1.4.1', eingerichtetAm: '2026-01-01T00:00:00.000Z', sdkDateien: [], eigeneDateien: [] }));
+  const r = await richteEin({
+    wahl: zweitesSdk(dir, pfade), pfade, fortschritt: ruhig,
+    werkzeuge: { loesche: (pfad) => { if (pfad.endsWith('.alt')) throw Object.assign(new Error('gesperrt'), { code: 'EBUSY' }); rmSync(pfad, { recursive: true, force: true }); } },
+  });
+  ck('Einrichtung bleibt ok trotz Aufräumfehler', r.ok && existsSync(join(ziel, 'neu.dll')));
+  ck('Aufräumfehler mit Code im Ergebnis', r.ok && r.aufraeumFehler === 'EBUSY');
+  ck('Geschwister trotzdem gelöscht', !existsSync(andere));
+  const r2 = await richteEin({ wahl: zweitesSdk(ordner('aufraeumen-ok'), pfade), pfade, fortschritt: ruhig });
+  ck('ohne Fehler: aufraeumFehler null', r2.ok && r2.aufraeumFehler === null);
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 rmSync(TEMP, { recursive: true, force: true });
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

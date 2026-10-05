@@ -64,9 +64,17 @@ export interface LaufzeitWerkzeuge {
   copyFile(von: string, nach: string): Promise<void>;
   statfs(pfad: string): Promise<{ bavail: number; bsize: number }>;
   jetzt(): Date;
+  /** Löscht Ordner/Datei samt Inhalt; Fehler werfen (Aufräumen nach dem Tausch fängt sie einzeln). */
+  loesche(pfad: string): void;
 }
 
-export type EinrichtungsErgebnis = { ok: true; ordner: string; stempel: Stempel } | { ok: false; text: string };
+/**
+ * `aufraeumFehler`: Code (oder Meldung) des ersten Fehlers beim Aufräumen nach dem Tausch, sonst null.
+ * Die Einrichtung gilt trotzdem; der Aufrufer schreibt `[zoom] Aufräumen nach der Einrichtung unvollständig (<code>)` ins Log.
+ */
+export type EinrichtungsErgebnis =
+  | { ok: true; ordner: string; stempel: Stempel; aufraeumFehler: string | null }
+  | { ok: false; text: string };
 
 /** Der Laufzeit-Ordner dieser SDK-Fassung. */
 export function laufzeitOrdner(p: LaufzeitPfade): string {
@@ -193,6 +201,7 @@ export async function richteEin(e: {
     copyFile: (von, nach) => fsCopyFile(von, nach),
     statfs: (pfad) => fsStatfs(pfad),
     jetzt: () => new Date(),
+    loesche: (pfad) => rmSync(pfad, { recursive: true, force: true }),
     ...e.werkzeuge,
   };
   const { wahl, pfade } = e;
@@ -258,17 +267,30 @@ export async function richteEin(e: {
       throw err;
     }
     // Ab hier ist die neue Einrichtung in Kraft; Aufräumen darf sie nicht mehr kippen.
-    try {
-      rmSync(alt, { recursive: true, force: true });
+    let aufraeumFehler: string | null = null;
+    const raeume = (tu: () => void): void => {
+      try {
+        tu();
+      } catch (err) {
+        // Reste stören nicht (pruefeLaufzeit liest nur den Ordner dieser Fassung), aber der Fehler wird gemeldet.
+        if (aufraeumFehler === null) {
+          const x = err as { code?: unknown; message?: unknown };
+          aufraeumFehler = typeof x.code === 'string' ? x.code : String(x.message ?? err);
+        }
+      }
+    };
+    raeume(() => w.loesche(alt));
+    raeume(() => {
       for (const g of readdirSync(pfade.basis, { withFileTypes: true })) {
         if (!g.isDirectory() || g.name === SDK_FASSUNG) continue;
         // Nur Ordner anderer Fassungen mit GÜLTIGEM Stempel: alles andere hat Connect nicht angelegt.
-        if (leseStempel(join(pfade.basis, g.name)) !== null) rmSync(join(pfade.basis, g.name), { recursive: true, force: true });
+        // Jedes Geschwister für sich: ein Fehler überspringt die übrigen nicht.
+        raeume(() => {
+          if (leseStempel(join(pfade.basis, g.name)) !== null) w.loesche(join(pfade.basis, g.name));
+        });
       }
-    } catch {
-      // Reste stören nicht: pruefeLaufzeit liest nur den Ordner dieser Fassung.
-    }
-    return { ok: true, ordner: ziel, stempel };
+    });
+    return { ok: true, ordner: ziel, stempel, aufraeumFehler };
   } catch (err) {
     rmSync(teil, { recursive: true, force: true });
     const x = err as { code?: unknown; message?: unknown };
