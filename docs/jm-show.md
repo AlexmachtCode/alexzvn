@@ -233,18 +233,24 @@ der Speaker wird laut Owner-Entscheidung vom 05.10.2026 noch nicht in Show,
 Titler und Rundown übernommen. Der Schlüssel hängt deshalb am Namen: Ändert sich
 der Name in iveo, oder kommt bei gleichnamigen Speakern einer dazu, fällt einer
 weg oder ändert sich einer, gilt die Person als nicht mehr in der Liste. Fehlt
-die Person in der neuen Liste, bleibt die Bauchbinde stehen, bis man sie
-ausblendet oder einen Eintrag abruft; Daten / Recall zeigt dazu einen Hinweis.
+die Person auf Sendung in der neuen Liste, bleibt die Bauchbinde stehen, bis man
+sie ausblendet oder einen Eintrag abruft; Daten / Recall zeigt dazu einen Hinweis.
 Ein Abruf ohne Treffer lässt nie still den vorherigen Speaker aktiv. Der Rundown
-ruft Speaker über den Namen ab, der bei der Auswahl im Picker stand; ändert er
-sich in iveo, meldet der Titler den Abruf als nicht in der Liste. Die Form
+ruft Speaker über den Namen ab, der bei der Auswahl im Picker stand. Der Titler
+sucht ihn erst genau, dann als Teil eines Namens: Ändert sich der Name in iveo,
+trifft der Abruf nur noch einen Speaker, dessen Name den alten enthält (etwa nach
+einem hinzugefügten Titel), und das muss nicht dieselbe Person sein; sonst meldet
+der Titler den Abruf als nicht in der Liste. Nach einer Namensänderung den
+Speaker im Picker neu wählen. Die Form
 `TITLER RECALL @⟨Kennung⟩ ⟨Name⟩` versteht der Titler bereits: Eine Kennung
 tragen nur Einträge eigener CSV- oder TSV-Dateien mit der Spalte `@kennung`,
 sonst zählt der Name. Eine Show
 überschreibt den eigenen DataLink-Ordner des Titlers nicht mehr; „Zurück zum
 eigenen Ordner“ in den Einstellungen führt zu ihm zurück. Ist die Speakerliste
 von iveo nicht abrufbar, behält die Show ihre Speaker; Panel und Titler sagen
-dann „aus früherem Stand“.
+dann „aus früherem Stand“. Braucht die Abfrage eines Side Events die Liste, um
+dessen Angaben nachzuladen, bricht sie wie bisher ab, und das Panel nennt den
+Grund.
 
 **Grenzen.** Das gilt am Einzelplatz: Tools auf einem anderen Rechner lesen
 weiter ihre eigene Show-Datei (folgt mit Release 2 von Master-Link Teil 2b).

@@ -27,7 +27,7 @@
         "date": "2026-10-05",
         "notes": [
           "Die Show merkt sich jetzt, seit wann die Speakerliste von iveo nicht abrufbar ist, auch über einen Neustart des Launchers hinweg. Die iveo-Kennung der Speaker übernimmt der Launcher laut Owner-Entscheidung vom 05.10.2026 noch nicht in die Show. Titler 0.10.0 hält seinen Speaker deshalb über Datei und Namen (Ersatz-Schlüssel), Rundown 0.7.0 ruft ihn über den Namen ab.",
-          "Ist die Speakerliste von iveo nicht abrufbar, behält die Show ihre Speaker, und „Verantwortlich“ im Ablauf bleibt erhalten. Bisher galt ein solcher Fehler als keine Speaker. Das Side-Events-Panel zeigt dann „iveo-Abgleich gestört: Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand“ mit Uhrzeit, der Titler einen Hinweis.",
+          "Ist die Speakerliste von iveo nicht abrufbar, behält die Show ihre Speaker. Bisher galt ein solcher Fehler als keine Speaker. Das Side-Events-Panel zeigt dann „iveo-Abgleich gestört: Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand“ mit Uhrzeit, der Titler einen Hinweis. „Verantwortlich“ bleibt bei der Abfrage und beim Umschalten auf die Tagesübersicht an den Punkten erhalten, die schon in der Show standen. Beim Umschalten auf ein Side Event mit verknüpften Speakern fehlt es, bis die Liste wieder kommt. Braucht die Abfrage eines Side Events die Liste, um dessen Angaben nachzuladen (etwa nach dem Öffnen der Show oder nach einem solchen Umschalten), bricht sie wie bisher ab: Die Show bleibt, wie sie ist, und das Panel nennt den Grund.",
           "Solange die Speakerliste fehlt, fragt der Launcher bei jeder Abfrage erneut nach. Kommt sie wieder, aktualisiert er die Speaker von selbst, und das Panel meldet den Abgleich wieder in Ordnung."
         ]
       },
@@ -1066,14 +1066,14 @@
         "date": "2026-10-05",
         "notes": [
           "Die Bauchbinde hält ihre Person: Der Titler merkt sich den abgerufenen Speaker über einen Schlüssel aus Datei und Namen statt über die Nummer in der Liste. Kommt in iveo ein Speaker davor dazu oder schaltet der Launcher auf ein anderes Side Event um, bleibt dieselbe Person auf Sendung. Korrekturen aus iveo, etwa an der Funktion, erscheinen sofort. Die iveo-Kennung wird laut Owner-Entscheidung vom 05.10.2026 noch nicht übernommen. Der Schlüssel hängt deshalb am Namen: Ändert sich der Name in iveo, oder kommt bei gleichnamigen Speakern einer dazu, fällt einer weg oder ändert sich einer, gilt die Person als nicht mehr in der Liste, mit Hinweis, statt still eine andere zu zeigen.",
-          "Fehlt die Person auf Sendung in der neuen Liste, bleibt die Bauchbinde stehen, bis sie ausgeblendet oder ein Eintrag abgerufen wird. Daten / Recall und das Recall-Board zeigen dazu einen Hinweis. Nach dem Ausblenden ist kein Eintrag mehr aktiv, ein folgendes Take bringt die Person also nicht zurück.",
+          "Fehlt die Person auf Sendung in der neuen Liste, bleibt die Bauchbinde stehen, bis sie ausgeblendet oder ein Eintrag abgerufen wird. Daten / Recall und das Recall-Board zeigen dazu einen Hinweis. Eine Sekunde nach dem Ausblenden fällt die Person weg, ein späteres Take bringt sie also nicht zurück.",
           "Ein Abruf ohne Treffer lässt nicht mehr den vorherigen Speaker aktiv, auch nicht eine Nummer außerhalb der Liste. Der Titler zeigt dazu einen Hinweis.",
-          "Der Titler überschreibt den eigenen DataLink-Ordner nicht mehr. Speaker aus einer Show liest er getrennt davon, Daten / Recall zeigt die Quelle, und „Zurück zum eigenen Ordner“ in den Einstellungen führt zur eigenen Liste zurück. Steht als DataLink-Ordner noch der Ordner iveo-data, den eine frühere Show eingetragen hat, wird diese Einstellung einmalig geleert; die Speaker dieser Show bleiben bis zur nächsten Show sichtbar.",
+          "Der Titler überschreibt den eigenen DataLink-Ordner nicht mehr. Speaker aus einer Show liest er getrennt davon, Daten / Recall zeigt die Quelle, und „Zurück zum eigenen Ordner“ in den Einstellungen führt zur eigenen Liste zurück. Steht als DataLink-Ordner noch der Ordner iveo-data, den eine frühere Show eingetragen hat, wird diese Einstellung einmalig geleert; die Speaker dieser Show bleiben sichtbar, bis eine Show angewendet oder ein eigener Ordner gewählt wird, längstens bis zum nächsten Neustart des Titlers.",
           "Der Titler merkt sich die zuletzt angewendete Show. Nach einem Neustart über die Launcher-Kachel sind Liste und Quelle wie vorher, und ein Neu-Laden aus dem Launcher kommt wieder an.",
-          "Meldet die Show, dass die Speakerliste von iveo nicht abrufbar war, zeigt der Titler „Liste aus früherem Stand“ mit der Uhrzeit.",
+          "Meldet die Show, dass die Speakerliste von iveo nicht abrufbar war, zeigt der Titler bei ihren Speakern den Hinweis „Liste aus früherem Stand“ mit der Uhrzeit.",
           "Neu für Companion: TITLER RECALL @⟨Kennung⟩ ⟨Name⟩ ruft einen Eintrag über seine Kennung ab, sonst über den ganzen Namen, nie über einen Teil davon. Eine Kennung tragen nur Einträge eigener CSV- oder TSV-Dateien mit der Spalte @kennung. Speaker aus einer Show tragen noch keine, für sie zählt der Name. TITLER RECALL mit Nummer, Weiter und Zurück bleiben nummernbasiert.",
           "Rundown 0.7.0 ruft Speaker über den Namen ab; solange die Show keine iveo-Kennungen trägt, ändert sich daran nichts.",
-          "Ein Rückweg auf Titler 0.9.0 zeigt bis zur nächsten Show keine Liste."
+          "Nach einem Rückweg auf Titler 0.9.0 zeigt dieser bis zur nächsten Show den eingetragenen eigenen DataLink-Ordner, ohne eigenen Ordner keine Liste."
         ]
       },
       {
@@ -1365,7 +1365,7 @@
         "version": "0.7.0",
         "date": "2026-10-05",
         "notes": [
-          "Die iveo-Kennung der Speaker wird laut Owner-Entscheidung vom 05.10.2026 noch nicht in die Show übernommen. Der Speaker-Picker an einer Aktion „DataLink-Eintrag abrufen“ für den JM Titler bietet deshalb wie bisher die Speaker der Show an, und gesendet wird der Name, der bei der Auswahl gewählt wurde. Ändert sich dieser Name in iveo, findet der Titler 0.10.0 ihn nicht mehr und zeigt einen Hinweis, statt still den vorherigen Speaker aktiv zu lassen. Dann den Speaker im Picker neu wählen.",
+          "Die iveo-Kennung der Speaker wird laut Owner-Entscheidung vom 05.10.2026 noch nicht in die Show übernommen. Der Speaker-Picker an einer Aktion „DataLink-Eintrag abrufen“ für den JM Titler bietet deshalb wie bisher die Speaker der Show an, und gesendet wird der Name, der bei der Auswahl gewählt wurde. Der Titler 0.10.0 sucht diesen Namen erst genau, dann als Teil eines Namens. Ändert sich der Name in iveo, trifft der Abruf deshalb nur noch einen Speaker, dessen Name den alten enthält, etwa nach einem hinzugefügten Titel, und das muss nicht dieselbe Person sein. Sonst zeigt der Titler einen Hinweis, statt still den vorherigen Speaker aktiv zu lassen. Nach einer Namensänderung in iveo deshalb den Speaker im Picker neu wählen.",
           "Steht der Name einer Aktion nicht in der Speakerliste der Show, zeigt der Picker ihn jetzt als „⟨Name⟩ · per Name (nicht gebunden)“. Bisher sah die Aktion dort aus, als wäre kein Speaker gewählt."
         ]
       },
