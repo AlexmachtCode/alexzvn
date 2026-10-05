@@ -19,7 +19,7 @@
 
 **Wie dieser Plan entstanden ist:**
 - Ein Gerüst hat Aufgaben, Dateien und verbindliche Schnittstellen festgelegt. Vier Schreiber haben die Aufgaben in Blöcken ausformuliert: **Block 1** = Aufgaben 1–4 und 19 (Bridge-Paket, Paketierung), **Block 2** = Aufgaben 5–9 (Connect, reine Module), **Block 3** = Aufgaben 10–15 (Kern), **Block 4** = Aufgaben 16–18 und 20 (Hülle, Oberfläche, Abschluss).
-- Jeder Schreiber hat seine Aufgaben an einer Kopie des Worktrees im Scratch-Ordner nachgebaut, jeden Test erst rot und dann grün gemessen und alle Vorher-Ausschnitte auf „genau einmal vorhanden“ geprüft. Gemessene Zählstände (Windows, Node 24): Bridge-Selbsttest 405 → 425 → 447 → 471 `ok` plus 24 in `auslieferung.test.mjs`; `zoom-text.test.ts` 319 → 487; `zoom-laufzeit.test.ts` 50 → 79; `zoom-teile.test.ts` 55 (+ 23 ab Aufgabe 16); `zoom-kern.test.ts` 62 → 95 → 151 → 194 → 227 → 251. Die Ergebnisse der Gegenprobe (absichtlich eingebaute Fehler) stehen am Ende der jeweiligen Aufgabe.
+- Jeder Schreiber hat seine Aufgaben an einer Kopie des Worktrees im Scratch-Ordner nachgebaut, jeden Test erst rot und dann grün gemessen und alle Vorher-Ausschnitte auf „genau einmal vorhanden“ geprüft. Gemessene Zählstände (Windows, Node 24): Bridge-Selbsttest 405 → 425 → 447 → 471 `ok` plus 24 in `auslieferung.test.mjs`; `zoom-text.test.ts` 319 → 487; `zoom-laufzeit.test.ts` 50 → 79; `zoom-teile.test.ts` 55 (+ 23 ab Aufgabe 16); `zoom-kern.test.ts` 63 → 96 → 152 → 195 → 228 → 252. Die Ergebnisse der Gegenprobe (absichtlich eingebaute Fehler) stehen am Ende der jeweiligen Aufgabe.
 - Die Blöcke liefen zunächst gegen Ersatz-Module für die jeweils anderen Blöcke. Bei der Montage wurde darum der fertige Plan als Ganzes nachgespielt: alle 148 Ersetzungen und 20 neuen Dateien der Aufgaben 1–20 der Reihe nach auf eine frische Kopie des Worktrees, danach alle Selbsttests, beide Typechecks und der Bau grün (Abschnitt „Selbstprüfung der Montage“ am Ende).
 - Nicht ausgeführt: der Bau der echten Bridge und des Installers (Aufgabe 19 Steps 12–15 und Aufgabe 20 Steps 7–9, braucht SDK und Visual Studio, L14) und ein Lauf der Tests unter Linux.
 - Zweite Prüfrunde (05.10.2026), sieben Befunde eingearbeitet: `kern.beenden` wartet auf eine abgebrochene SDK-Kopie, bis `.teil` gelöscht ist (Aufgabe 10/13, Review Focus 3 jetzt im Kern-Test, L24); Z2-Meldungsknöpfe „Erneut/Schließen“ nur zur Meldung des Meeting-Endes (Aufgabe 5); `.zip`-Regel des `.asar`-Wächters mit eigenem Testeintrag (Aufgabe 4); Fall 7 zusätzlich über den Beitritt (Aufgabe 12); erwartete `grep -c`-Ausgabe `1` (Aufgaben 17, 18); Commit-Schritte der Aufgaben 16, 17, 18 und 20 mit `git status --short` vor dem Commit. Danach wurde der ganze Plan erneut nachgespielt; Zählstände und Zeilenangaben unten sind die neu gemessenen.
@@ -6902,7 +6902,7 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile
 ```
-62 ok, 0 fehlgeschlagen, 0 übersprungen.
+63 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
 Exit-Code 0 (unter Linux dieselbe Zahl; Aufgabe 10 hat keinen Windows-Fall). Meldet tsx `SyntaxError: The requested module '../src/shared/zoom-text' does not provide an export named 'stateKvAus'` oder fehlt ein `KT`-Schlüssel, fehlt Aufgabe 5 bzw. 6 — dann anhalten, nicht am Kern drehen.
 
@@ -7647,9 +7647,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-95 ok, 0 fehlgeschlagen, 0 übersprungen.
+96 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux (CI) `92 ok, 0 fehlgeschlagen, 1 übersprungen.` (Fall 6 nur unter Windows, Zeile `  --  Fall 6: DLL-Tod beim Start → B3 (übersprungen: nur unter Windows)`). Exit-Code 0. Lautet eine Meldung `B7` mit `7.1.5 (attrappe)` in Fällen mit dem Drehbuch `steuerung`, setzt die Attrappe `FAKE_SDK_FASSUNG` nicht (Aufgabe 3) — dann anhalten.
+unter Linux (CI) `93 ok, 0 fehlgeschlagen, 1 übersprungen.` (Fall 6 nur unter Windows, Zeile `  --  Fall 6: DLL-Tod beim Start → B3 (übersprungen: nur unter Windows)`). Exit-Code 0. Lautet eine Meldung `B7` mit `7.1.5 (attrappe)` in Fällen mit dem Drehbuch `steuerung`, setzt die Attrappe `FAKE_SDK_FASSUNG` nicht (Aufgabe 3) — dann anhalten.
 
 - [ ] **Step 10: Selbsttest und Typcheck**
 
@@ -8248,9 +8248,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-151 ok, 0 fehlgeschlagen, 0 übersprungen.
+152 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux `148 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Liefert Fall 8 statt „Beitritt gescheitert: falscher Kenncode.“ einen Text mit „gescheitert: gescheitert“, benutzt `klartext.ts` `explainStatus` (Aufgabe 6) — dann anhalten.
+unter Linux `149 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Liefert Fall 8 statt „Beitritt gescheitert: falscher Kenncode.“ einen Text mit „gescheitert: gescheitert“, benutzt `klartext.ts` `explainStatus` (Aufgabe 6) — dann anhalten.
 
 - [ ] **Step 10: Selbsttest und Typcheck**
 
@@ -8716,9 +8716,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-194 ok, 0 fehlgeschlagen, 0 übersprungen.
+195 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux `191 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Bleibt Fall 9b im Zustand `tritt_bei` hängen statt `im_meeting`, meldet die Attrappe den Einlass nicht (`FAKE_EINLASS_MS`, Aufgabe 3) — dann anhalten.
+unter Linux `192 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Bleibt Fall 9b im Zustand `tritt_bei` hängen statt `im_meeting`, meldet die Attrappe den Einlass nicht (`FAKE_EINLASS_MS`, Aufgabe 3) — dann anhalten.
 
 - [ ] **Step 10: Selbsttest und Typcheck**
 
@@ -9257,9 +9257,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-227 ok, 0 fehlgeschlagen, 0 übersprungen.
+228 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux `224 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Tragen in Fall 13 nicht beide „Anna“-Zeilen `doppelname`, fehlt `FAKE_DOPPELNAME` in der Attrappe (Aufgabe 3) oder `baueTeilnehmer` zählt nicht nach `normName` (Aufgabe 9) — dann anhalten.
+unter Linux `225 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0. Tragen in Fall 13 nicht beide „Anna“-Zeilen `doppelname`, fehlt `FAKE_DOPPELNAME` in der Attrappe (Aufgabe 3) oder `baueTeilnehmer` zählt nicht nach `normName` (Aufgabe 9) — dann anhalten.
 
 - [ ] **Step 9: Selbsttest und Typcheck**
 
@@ -9816,9 +9816,9 @@ npx tsx apps/connect/test/zoom-kern.test.ts
 ```
 Erwartet: keine `FAIL`-Zeile, letzte Zeile unter Windows
 ```
-251 ok, 0 fehlgeschlagen, 0 übersprungen.
+252 ok, 0 fehlgeschlagen, 0 übersprungen.
 ```
-unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0; Laufzeit der Datei etwa 30 s. Meldet Fall 14 kein `black`/`participantLeft` beim Weggang oder kommt „anna“ in Fall 14b nicht zurück, fehlen `FAKE_RUECKKEHR_MS`/`FAKE_RUECKKEHR_NAME` in der Attrappe (Aufgabe 3) — dann anhalten.
+unter Linux `249 ok, 0 fehlgeschlagen, 1 übersprungen.`, Exit-Code 0; Laufzeit der Datei etwa 30 s. Meldet Fall 14 kein `black`/`participantLeft` beim Weggang oder kommt „anna“ in Fall 14b nicht zurück, fehlen `FAKE_RUECKKEHR_MS`/`FAKE_RUECKKEHR_NAME` in der Attrappe (Aufgabe 3) — dann anhalten.
 
 - [ ] **Step 11: Selbsttest und Typcheck**
 
@@ -10781,7 +10781,7 @@ Expected: dreimal `✓ built in …` (main, preload, renderer), keine Zeile mit 
 - [ ] **Step 19: Selbsttest (grün).**
 
 Run: `npm run selftest -w @jm/connect`
-Expected: die vier Testdateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0.
+Expected: die vier Testdateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `252 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `249 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0.
 
 - [ ] **Step 20: Commit.**
 
@@ -11202,7 +11202,7 @@ Expected: dreimal `✓ built in …`, keine Zeile mit `error`; dann der Reihe na
 - [ ] **Step 16: Selbsttest (grün).**
 
 Run: `npm run selftest -w @jm/connect`
-Expected: die vier Testdateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0. Diese Aufgabe ändert keinen Test; die Texte für Tray, Tooltip und Kopfzeile prüft `zoom-text.test.ts`.
+Expected: die vier Testdateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `252 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `249 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0. Diese Aufgabe ändert keinen Test; die Texte für Tray, Tooltip und Kopfzeile prüft `zoom-text.test.ts`.
 
 - [ ] **Step 17: Commit.**
 
@@ -11928,7 +11928,7 @@ Expected: dreimal `✓ built in …`, keine Zeile mit `error`; danach `1` (der P
 - [ ] **Step 7: Selbsttest (grün).**
 
 Run: `npm run selftest -w @jm/connect`
-Expected: die vier Testdateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0.
+Expected: die vier Testdateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.` (`zoom-text`), `79 ok, 0 fehlgeschlagen.` (`zoom-laufzeit`), `78 ok, 0 fehlgeschlagen.` (`zoom-teile`) und `252 ok, 0 fehlgeschlagen, 0 übersprungen.` (`zoom-kern`; unter Linux `249 ok, 0 fehlgeschlagen, 1 übersprungen.`), keine Zeile, die mit `FAIL` beginnt, Exit-Code 0.
 
 - [ ] **Step 8: Commit.**
 
@@ -12394,7 +12394,7 @@ tsx test/zoom-text.test.ts && tsx test/zoom-laufzeit.test.ts && tsx test/zoom-te
 npm run selftest -w @jm/connect
 npm run typecheck -w @jm/connect
 ```
-Erwartet: Selbsttest Exitcode 0; die vier `tsx`-Dateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.`, `78 ok, 0 fehlgeschlagen.` und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), danach die Ausgabe aus Step 4 bis `Alle after-pack-Tests bestanden.`. Typecheck: keine Ausgabe von `tsc` (node und web), Exitcode 0 — diese Aufgabe ändert keine `.ts`-Datei, `tools/*` und `test/*.mjs` liegen außerhalb der tsconfig-`include`.
+Erwartet: Selbsttest Exitcode 0; die vier `tsx`-Dateien enden der Reihe nach mit `487 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.`, `78 ok, 0 fehlgeschlagen.` und `252 ok, 0 fehlgeschlagen, 0 übersprungen.` (unter Linux `249 ok, 0 fehlgeschlagen, 1 übersprungen.`), danach die Ausgabe aus Step 4 bis `Alle after-pack-Tests bestanden.`. Typecheck: keine Ausgabe von `tsc` (node und web), Exitcode 0 — diese Aufgabe ändert keine `.ts`-Datei, `tools/*` und `test/*.mjs` liegen außerhalb der tsconfig-`include`.
 
 - [ ] **Step 11: Commit** (Git Bash; Commit-Text bewusst ohne Umlaute)
 
@@ -12533,7 +12533,7 @@ npm run selftest -w @jm/connect
 npm run typecheck -w @jm/connect
 npm run typecheck -w @jm/zoom-bridge
 ```
-Expected: alle vier mit Exit-Code 0. `@jm/zoom-bridge`: `test/selftest.ts` endet mit `Alle Selbsttests bestanden.` (unter Windows 471 Zeilen `  ok  …`), danach läuft `test/auslieferung.test.mjs` ohne Zeile, die mit `FAIL` beginnt (24 Zeilen `  ok  …`, Schluss `Alle Auslieferungs-Tests bestanden.`). `@jm/connect`: die `tsx`-Dateien enden mit `487 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.`, `78 ok, 0 fehlgeschlagen.` und `251 ok, 0 fehlgeschlagen, 0 übersprungen.` (unter Linux `248 ok, 0 fehlgeschlagen, 1 übersprungen.`), `after-pack.test.mjs` ohne `FAIL`. Beide Typechecks ohne Zeile mit `error TS`. Scheitert etwas, hier aufhören und die betroffene Aufgabe nachbessern, nicht diese Aufgabe.
+Expected: alle vier mit Exit-Code 0. `@jm/zoom-bridge`: `test/selftest.ts` endet mit `Alle Selbsttests bestanden.` (unter Windows 471 Zeilen `  ok  …`), danach läuft `test/auslieferung.test.mjs` ohne Zeile, die mit `FAIL` beginnt (24 Zeilen `  ok  …`, Schluss `Alle Auslieferungs-Tests bestanden.`). `@jm/connect`: die `tsx`-Dateien enden mit `487 ok, 0 fehlgeschlagen.`, `79 ok, 0 fehlgeschlagen.`, `78 ok, 0 fehlgeschlagen.` und `252 ok, 0 fehlgeschlagen, 0 übersprungen.` (unter Linux `249 ok, 0 fehlgeschlagen, 1 übersprungen.`), `after-pack.test.mjs` ohne `FAIL`. Beide Typechecks ohne Zeile mit `error TS`. Scheitert etwas, hier aufhören und die betroffene Aufgabe nachbessern, nicht diese Aufgabe.
 
 - [ ] **Step 4: `apps/connect/ABNAHME-0.2.0.md` anlegen (ganzer Inhalt).** Voraussetzungen und die 25 Schritte sind wörtlich Spec 13, dazu die Spalten „4a-Kurztest“ und „Ergebnis“; die Messfragen wörtlich Spec 16.
 
@@ -12693,7 +12693,7 @@ In den Bericht der Aufgabe: Pfad `apps/connect/release/JM Connect-0.1.0-win-x64.
 **3. Typ- und Namenskonsistenz.** Die Interfaces-Blöcke aller 20 Aufgaben wurden gegeneinander abgeglichen (Consumes ↔ Produces). Danach wurde der fertige Plan als Ganzes nachgespielt: alle 148 Vorher/Nachher-Ersetzungen und alle 20 neuen Dateien der Aufgaben 1–20 der Reihe nach auf eine frische Kopie von `packages/zoom-bridge`, `apps/connect` und `ci-checks.yml`. Dabei liefen die echten Module aus Block 2 und die echte Attrappe aus Aufgabe 3 erstmals zusammen mit dem Kern aus Block 3. Ergebnis (Windows, Node 24.16):
 - Jeder Vorher-Ausschnitt kam genau einmal vor.
 - Bridge: `test/selftest.ts` 471 `ok`, `Alle Selbsttests bestanden.`; `test/auslieferung.test.mjs` 24 `ok`.
-- Connect: `zoom-text` 487, `zoom-laufzeit` 79, `zoom-teile` 78, `zoom-kern` 251 ok, 0 fehlgeschlagen, 0 übersprungen; `after-pack.test.mjs` bestanden.
+- Connect: `zoom-text` 487, `zoom-laufzeit` 79, `zoom-teile` 78, `zoom-kern` 252 ok, 0 fehlgeschlagen, 0 übersprungen; `after-pack.test.mjs` bestanden.
 - Nach der zweiten Prüfrunde (05.10.2026) noch einmal ganz nachgespielt, diesmal mit **jedem** Testbefehl des Plans an seiner Stelle (rot und grün): 148 Ersetzungen und 20 neue Dateien ohne Fehler; rote Schritte rot wie beschrieben (Aufgabe 13: 16 `FAIL`, Aufgabe 15: 9 `FAIL`), grüne Schritte mit den oben genannten Zählständen; Typchecks und Bau grün; `grep -c` auf `index-*.js` liefert `1` (Aufgaben 17, 18). Die Zeilenangaben der Aufgaben 6 und 11–15 sind an diesem Lauf neu bestimmt. Die neuen Gegenproben (Aufgaben 4, 5, 10) sind am jeweiligen Zwischenstand gemessen.
 - `tsc` für Connect (node und web) und für die Bridge ohne Fehler.
 - `electron-vite build` grün: `import.meta` im Main-Bündel 0, `jmc:zoom-get` in Main und Preload, kein `require("@jm/zoom-bridge")`.
