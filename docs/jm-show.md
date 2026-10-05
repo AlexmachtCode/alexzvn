@@ -254,15 +254,16 @@ sonst zählt der Name. Eine Show
 überschreibt den eigenen DataLink-Ordner des Titlers nicht mehr; „Zurück zum
 eigenen Ordner“ in den Einstellungen führt zu ihm zurück. Ist die Speakerliste
 von iveo beim Abgleich oder beim Umschalten nicht abrufbar, behält die Show ihre
-Speaker; das Panel sagt dann „Speaker aus früherem Stand“, der Titler „Liste aus
-früherem Stand“, sobald bei ihm kein dringenderer Hinweis steht (etwa zur Person
-auf Sendung oder zu einem Abruf). Fehlen der Abfrage eines Side Events dessen
-Angaben (etwa nach dem Öffnen der Show), holt sie die Liste mit, wenn das Side
-Event verknüpfte Speaker hat oder die Show eine fehlende Liste vermerkt;
+Speaker; das Panel sagt dann „Speaker aus früherem Stand“, der Titler bei den
+Speakern der Show „Liste aus früherem Stand“, sobald bei ihm kein dringenderer
+Hinweis steht (etwa zur Person auf Sendung oder zu einem Abruf). Fehlen der
+Abfrage eines Side Events dessen Angaben (etwa nach dem Öffnen der Show), holt
+sie die Liste mit, wenn das Side Event verknüpfte Speaker hat oder die Show
+eine fehlende Liste vermerkt;
 scheitert sie dabei, bricht die Abfrage ab, Änderungen der Agenda kommen nicht
 an, bis die Liste wieder kommt, und das Panel nennt den Grund. Beim Binden im
-Show-Editor gilt ein solcher Fehler weiter als keine Speaker: Die Show hat
-danach keine Speaker, und der Editor warnt.
+Show-Editor gilt ein solcher Fehler weiter als keine Speaker: Die Bindung bringt
+dann keine Speaker mit, und der Editor warnt.
 
 **Grenzen.** Das gilt am Einzelplatz: Tools auf einem anderen Rechner lesen
 weiter ihre eigene Show-Datei (folgt mit Release 2 von Master-Link Teil 2b).
