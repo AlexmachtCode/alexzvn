@@ -230,44 +230,54 @@ function starte(app, args = [], schalter = []) {
 }
 const warteAufPort = (port, maxMs) => bis(async () => !(await portFrei(port)), maxMs, 300);
 
-// Rundown über DevTools: getState/setDoc/nav der Preload-Brücke.
-let rundown = null;
-let rdWs = null;
-let rdNaechste = 1;
-const rdWarten = new Map();
-async function verbindeRundown() {
+// DevTools-Sitzung (gemeinsam für Rundown und Titler): Fenster per json/list suchen, WebSocket öffnen,
+// Runtime.evaluate mit Frist, Bereitschaft abwarten. passt(t) wählt das Fenster, bereit ist der Ausdruck, der true liefert.
+async function cdpSitzung({ port, passt, name, bereit, fehlt }) {
   const ziel = await bis(async () => {
     try {
-      const l = await (await fetch(`http://127.0.0.1:${CDP_RUNDOWN}/json/list`)).json();
-      return l.find((t) => t.type === 'page' && t.url.includes('index.html')) ?? null;
+      const l = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+      return l.find((t) => t.type === 'page' && passt(t)) ?? null;
     } catch {
       return null;
     }
   }, 30_000, 300);
-  if (!ziel) throw new Error('Rundown-Fenster per DevTools nicht erreichbar');
-  rdWs = new WebSocket(ziel.webSocketDebuggerUrl);
-  await new Promise((r, f) => { rdWs.addEventListener('open', r, { once: true }); rdWs.addEventListener('error', f, { once: true }); });
-  rdWs.addEventListener('message', (m) => {
+  if (!ziel) throw new Error(`${name}-Fenster per DevTools nicht erreichbar`);
+  const ws = new WebSocket(ziel.webSocketDebuggerUrl);
+  await new Promise((r, f) => { ws.addEventListener('open', r, { once: true }); ws.addEventListener('error', f, { once: true }); });
+  let naechste = 1;
+  const warten = new Map();
+  ws.addEventListener('message', (m) => {
     const d = JSON.parse(m.data);
-    const w = rdWarten.get(d.id);
-    if (w) { rdWarten.delete(d.id); w(d); }
+    const w = warten.get(d.id);
+    if (w) { warten.delete(d.id); w(d); }
   });
-  if (!(await bis(async () => (await rd('typeof window.jmrundown?.getState === "function"')) === true, 15_000))) {
-    throw new Error('window.jmrundown fehlt im Rundown-Fenster');
-  }
-}
-function rd(ausdruck, ms = 15_000) {
-  return new Promise((ok, fehler) => {
-    const id = rdNaechste++;
-    const t = setTimeout(() => { rdWarten.delete(id); fehler(new Error(`DevTools-Frist: ${ausdruck.slice(0, 60)}`)); }, ms);
-    rdWarten.set(id, (d) => {
+  const werte = (ausdruck, ms = 15_000) => new Promise((ok, fehler) => {
+    const id = naechste++;
+    const t = setTimeout(() => { warten.delete(id); fehler(new Error(`DevTools-Frist (${name}): ${ausdruck.slice(0, 60)}`)); }, ms);
+    warten.set(id, (d) => {
       clearTimeout(t);
-      if (d.result?.exceptionDetails) fehler(new Error(d.result.exceptionDetails.exception?.description ?? 'Fehler im Rundown-Fenster'));
+      if (d.result?.exceptionDetails) fehler(new Error(d.result.exceptionDetails.exception?.description ?? `Fehler im ${name}-Fenster`));
       else ok(d.result?.result?.value);
     });
-    rdWs.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression: ausdruck, returnByValue: true, awaitPromise: true } }));
+    ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression: ausdruck, returnByValue: true, awaitPromise: true } }));
+  });
+  if (!(await bis(async () => (await werte(bereit)) === true, 15_000))) throw new Error(fehlt);
+  return { werte, schliesse() { try { ws.close(); } catch { /* schon zu */ } } };
+}
+
+// Rundown über DevTools: getState/setDoc/nav der Preload-Brücke.
+let rundown = null;
+let rdSitzung = null;
+async function verbindeRundown() {
+  rdSitzung = await cdpSitzung({
+    port: CDP_RUNDOWN,
+    passt: (t) => t.url.includes('index.html'),
+    name: 'Rundown',
+    bereit: 'typeof window.jmrundown?.getState === "function"',
+    fehlt: 'window.jmrundown fehlt im Rundown-Fenster',
   });
 }
+const rd = (ausdruck, ms) => rdSitzung.werte(ausdruck, ms);
 /**
  * Hinweise (4.6) sammeln: kurze verschwinden nach 6 s, deshalb bei jedem Blick merken.
  * Schlüssel = Rundown-Lauf + Hinweis-id (die id beginnt nach einem Neustart neu).
@@ -291,8 +301,8 @@ async function starteRundown(args) {
 async function beendeRundown() {
   const p = rundown;
   rundown = null;
-  try { rdWs?.close(); } catch { /* schon zu */ }
-  rdWs = null;
+  rdSitzung?.schliesse();
+  rdSitzung = null;
   if (!p || p.exitCode !== null) return;
   const weg = new Promise((r) => p.once('exit', r));
   try {
@@ -319,43 +329,18 @@ async function wartRundown(bedingung, maxMs, name) {
 }
 
 // Titler über DevTools (2b-Spec 9.6, 9e): nur lesen, das Vorschaubild im Bedienfenster.
-let tlWs = null;
-let tlNaechste = 1;
-const tlWarten = new Map();
+let tlSitzung = null;
 async function verbindeTitler() {
-  const ziel = await bis(async () => {
-    try {
-      const l = await (await fetch(`http://127.0.0.1:${CDP_TITLER}/json/list`)).json();
-      // Bedienfenster = index.html ohne ?view= (Recall-Board und 2. Bildschirm tragen view=recall bzw. view=output).
-      return l.find((t) => t.type === 'page' && t.url.includes('index.html') && !t.url.includes('view=')) ?? null;
-    } catch {
-      return null;
-    }
-  }, 30_000, 300);
-  if (!ziel) throw new Error('Titler-Fenster per DevTools nicht erreichbar');
-  tlWs = new WebSocket(ziel.webSocketDebuggerUrl);
-  await new Promise((r, f) => { tlWs.addEventListener('open', r, { once: true }); tlWs.addEventListener('error', f, { once: true }); });
-  tlWs.addEventListener('message', (m) => {
-    const d = JSON.parse(m.data);
-    const w = tlWarten.get(d.id);
-    if (w) { tlWarten.delete(d.id); w(d); }
-  });
-  if (!(await bis(async () => (await tl("document.querySelector('canvas') !== null")) === true, 15_000))) {
-    throw new Error('Vorschau-Canvas fehlt im Titler-Fenster');
-  }
-}
-function tl(ausdruck, ms = 15_000) {
-  return new Promise((ok, fehler) => {
-    const id = tlNaechste++;
-    const t = setTimeout(() => { tlWarten.delete(id); fehler(new Error(`DevTools-Frist (Titler): ${ausdruck.slice(0, 60)}`)); }, ms);
-    tlWarten.set(id, (d) => {
-      clearTimeout(t);
-      if (d.result?.exceptionDetails) fehler(new Error(d.result.exceptionDetails.exception?.description ?? 'Fehler im Titler-Fenster'));
-      else ok(d.result?.result?.value);
-    });
-    tlWs.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression: ausdruck, returnByValue: true, awaitPromise: true } }));
+  tlSitzung = await cdpSitzung({
+    port: CDP_TITLER,
+    // Bedienfenster = index.html ohne ?view= (Recall-Board und 2. Bildschirm tragen view=recall bzw. view=output).
+    passt: (t) => t.url.includes('index.html') && !t.url.includes('view='),
+    name: 'Titler',
+    bereit: "document.querySelector('canvas') !== null",
+    fehlt: 'Vorschau-Canvas fehlt im Titler-Fenster',
   });
 }
+const tl = (ausdruck, ms) => tlSitzung.werte(ausdruck, ms);
 /** Messpunkt 9e: SHA-256 (hex) von toDataURL() des Vorschau-Canvas. Der Aufrufer wartet vorher 1,5 s nach der Aktion. */
 async function bildHash() {
   const daten = await tl("document.querySelector('canvas').toDataURL()");
@@ -412,7 +397,7 @@ async function raeumeAuf() {
   if (aufgeraeumt) return;
   aufgeraeumt = true;
   try { timerSocket?.close(); } catch { /* schon zu */ }
-  try { tlWs?.close(); } catch { /* schon zu */ }
+  tlSitzung?.schliesse();
   for (const c of steuer) c.disconnect();
   await beendeRundown().catch(() => {});
   for (const p of kinder) {
