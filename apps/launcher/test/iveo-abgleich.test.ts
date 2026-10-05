@@ -131,6 +131,8 @@ interface NachgebautesIveo {
   /** Antwort auf ?updated_since= */
   geaendert: IveoProgram[];
   fehler: Partial<Record<Abruf, unknown>>;
+  /** Teilfehler im Snapshot außer der Speakerliste (meldet onSubError, die Ressource ist dann leer). */
+  teilFehler?: Partial<Record<'stages', unknown>>;
   sperre: (abruf: Abruf, arg: string) => Promise<void> | null;
   abrufe: string[];
 }
@@ -191,9 +193,14 @@ function nachgebauterClient(iv: NachgebautesIveo): IveoClientLike {
         opts.onSubError?.('speakers', iv.fehler.speakers);
         speakers = [];
       }
+      let stages = iv.stages;
+      if (iv.teilFehler?.stages) {
+        opts.onSubError?.('stages', iv.teilFehler.stages);
+        stages = [];
+      }
       return {
         event: { id: 'ev-1', slug: event, name: 'COP31', starts_at: null, ends_at: null, timezone: null },
-        programs: iv.programme, speakers, organisations: [], stages: iv.stages, fetchedAt: jetzt,
+        programs: iv.programme, speakers, organisations: [], stages, fetchedAt: jetzt,
       };
     },
     async listAgendaItems(_event: string, programId: string) {
@@ -1270,6 +1277,79 @@ const namenIn = (s: Show): string => JSON.stringify((s.iveo?.speakers ?? []).map
   ck('Umschalten (2b): ohne Verknüpfung → keine Speakerliste geholt, Merker unverändert, Status „gestört“',
     r.ok && !u.iveo.abrufe.includes('speakers:') && datei(u).iveo?.speakerVeraltetSeit === MERKER
     && u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET);
+}
+
+// --- Gesamtprüfung Befund 7: Logzeilen und Diagnosen der Speakerliste (Spec 6.3, Owner-Regel: jeder Text wahr) ------
+{
+  // 7a: Nur der Merker hat den Snapshot ausgelöst (Show mit Merker geöffnet, die Liste kommt wieder).
+  const u = umgebung((iv) => mitMerker(showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA])));
+  await u.kern.abfrage();
+  ck('Befund 7a: ohne Programmänderung geschrieben → keine Zeile „0 Programm(e) geändert → Ablauf neu“',
+    u.schreibversuche === 1 && !u.info.some((z) => z.includes('0 Programm(e) geändert')));
+  ck('Befund 7a: … eigene Zeile, die sagt, was von der Datei abweicht',
+    u.info.includes('iveo: kein Programm geändert, aber der Merker „Speaker veraltet“ weicht von der Datei ab → Show neu geschrieben (3 Punkte).'));
+}
+{
+  // 7b: Speakerliste scheitert und die Show-Datei ist zugleich nicht lesbar → die Diagnose der Speakerliste bleibt.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  u.leseAus = 1;
+  await u.kern.abfrage();
+  ck('Befund 7b: Speakerliste scheitert, Datei nicht lesbar → nichts geschrieben, Status „Show nicht lesbar“',
+    u.schreibversuche === 0 && u.status.at(-1)?.ok === false && u.status.at(-1)?.text !== TEXT_SPEAKER_VERALTET);
+  ck('Befund 7b: … die Warnung zur Speakerliste steht trotzdem im Log',
+    JSON.stringify(speakerWarnungen(u)) === JSON.stringify(['iveo: Speakerliste nicht abrufbar (kaputt), Speaker aus der Datei bleiben.']));
+}
+{
+  // 7b: Ein verworfenes Umschalten (Show inzwischen gespeichert) meldet und merkt keinen Speaker-Fehler.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const s = sperre();
+  u.iveo.sperre = (abruf) => (abruf === 'snapshot' ? s.halt : null);
+  const lauf = u.kern.umschalten({ day: TAG });
+  await warteMs(5);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  s.frei();
+  const r = await lauf;
+  u.iveo.sperre = () => null;
+  ck('Befund 7b: Umschalten verworfen → keine Warnung zur Speakerliste',
+    !r.ok && r.message === 'Show wurde inzwischen gewechselt oder gespeichert, Umschalten verworfen.' && speakerWarnungen(u).length === 0);
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  const warnVorAbfrage = u.warn.length;
+  await u.kern.abfrage();
+  ck('Befund 7b: … die nächste Abfrage meldet denselben Fehler (nicht vom verworfenen Umschalten unterdrückt)',
+    u.warn.slice(warnVorAbfrage).includes('iveo: Speakerliste nicht abrufbar (kaputt), Speaker aus der Datei bleiben.'));
+}
+{
+  // 7b: Umschalten auf die Tagesübersicht verschluckt andere Teilfehler nicht (wie die Listen-Abfrage).
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.teilFehler = { stages: new IveoApiError(500, 'server_error', 'bühnen kaputt') };
+  const r = await u.kern.umschalten({ day: TAG });
+  ck('Befund 7b: Tagesübersicht, Bühnen-Metadaten scheitern → Umschalten gelingt, Warnung im Log',
+    r.ok && u.warn.includes('iveo switch: Metadaten „stages" übersprungen (bühnen kaputt)'));
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('Befund 7b: … die Listen-Abfrage meldet denselben Teilfehler wie bisher',
+    u.warn.includes('iveo poll: Metadaten „stages" übersprungen (bühnen kaputt)'));
+}
+{
+  // 7c: Der gemerkte Fehlertext gilt nur bis zur nächsten gelungenen Speakerliste, auch wenn der Merker nie in der
+  // Show ankam (Schreiben gescheitert). Ein späterer Fehlschlag mit demselben Text wird wieder gemeldet.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  ck('Befund 7c: Vorbedingung — Speakerliste scheitert, Schreiben scheitert, eine Warnung',
+    u.schreibversuche === 1 && datei(u).iveo?.speakerVeraltetSeit === undefined && speakerWarnungen(u).length === 1);
+  u.schreibFehler = false;
+  delete u.iveo.fehler.speakers;
+  await u.kern.abfrage();
+  ck('Befund 7c: … die Liste gelingt, geschrieben', u.schreibversuche === 2 && datei(u).iveo?.speakerVeraltetSeit === undefined);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Befund 7c: … derselbe Fehler später wieder → wieder eine Warnung im Log', speakerWarnungen(u).length === 2);
 }
 
 // --- Zusammenfassung ---

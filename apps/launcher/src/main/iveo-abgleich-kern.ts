@@ -229,6 +229,25 @@ export function ablaufSignatur(ablauf: ShowAblaufItem[], speakers: ShowIveoSpeak
 }
 
 /**
+ * Was zwischen zwei Signaturen (`ablaufSignatur`: Ablauf, Speaker, Merker) abweicht, als Satzteil für die Logzeile
+ * einer Abfrage ohne Programmänderung, etwa „der Merker „Speaker veraltet“ weicht von der Datei ab“.
+ */
+function abweichungVonDatei(alt: string, neu: string): string {
+  const teile = ['der Ablauf', 'die Speakerliste', 'der Merker „Speaker veraltet“'];
+  let anders: string[] = [];
+  try {
+    const a = JSON.parse(alt) as unknown[];
+    const b = JSON.parse(neu) as unknown[];
+    anders = teile.filter((_t, i) => JSON.stringify(a[i]) !== JSON.stringify(b[i]));
+  } catch {
+    // keine lesbare alte Signatur → ohne Einzelheiten
+  }
+  if (!anders.length) return 'der Stand weicht von der Datei ab';
+  const liste = anders.length === 1 ? anders[0] : `${anders.slice(0, -1).join(', ')} und ${anders[anders.length - 1]}`;
+  return `${liste} ${anders.length === 1 ? 'weicht' : 'weichen'} von der Datei ab`;
+}
+
+/**
  * Speaker so, wie sie nach dem Schreiben in der Datei stehen: derselbe Normalisierer wie parseShow (Kennung nur mit
  * 1–200 Zeichen nach trim, doppelte → #2, ohne Namen fällt der Speaker weg). Sonst wiche die Signatur einer Liste,
  * die der Normalisierer ändert, nach jedem Abruf von der Datei ab — und jede Abfrage schriebe und schickte RELOAD.
@@ -367,6 +386,30 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   function meldeSpeakerWieder(): void {
     letzterSpeakerFehler = null;
     d.log.info('iveo: Speakerliste wieder abrufbar, Speaker aktualisiert.');
+  }
+  /**
+   * Ergebnis der Speakerliste eines Snapshots, nur für eine Abfrage bzw. ein Umschalten, das noch gilt (7.3), und vor
+   * dem Lesen der Datei — sonst verschluckte eine nicht lesbare Datei die Diagnose. Ein Fehlschlag kommt als Warnung ins
+   * Log; kam die Liste, gilt der gemerkte Text nicht mehr, auch wenn der Merker nie in der Show stand (etwa weil das
+   * Schreiben scheiterte). Ein späterer Fehlschlag mit demselben Text wird dann wieder gemeldet.
+   */
+  function speakerListeErgebnis(fehler: unknown[]): void {
+    if (fehler.length) meldeSpeakerFehler(fehler[0]);
+    else letzterSpeakerFehler = null;
+  }
+  /**
+   * Teilfehler eines Snapshots (Spec 6.2): Ein Fehlschlag der Speakerliste wird gesammelt, nicht verschluckt; andere
+   * Metadaten (Bühnen, Organisationen) fehlen dann im Ablauf und kommen als Warnung ins Log.
+   */
+  function snapshotTeilfehler(wo: 'poll' | 'switch'): { speakerFehler: unknown[]; onSubError: (resource: string, e: unknown) => void } {
+    const speakerFehler: unknown[] = [];
+    return {
+      speakerFehler,
+      onSubError: (resource, e) => {
+        if (resource === 'speakers') speakerFehler.push(e);
+        else d.log.warn(`iveo ${wo}: Metadaten „${resource}" übersprungen (${(e as Error).message})`);
+      },
+    };
   }
 
   /** Spec 7.1: an allen drei Stellen geht auch RUNDOWN RELOAD hinaus. */
@@ -539,15 +582,11 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     }
     // Programme ESSENZIELL (kein programsBestEffort): ein transienter 500 soll den Ablauf nicht mit [] überschreiben.
     // Speaker best effort, aber ein Fehlschlag ist NICHT „0 Speaker“ (Spec 6.2): er wird hier gemerkt.
-    const speakerFehler: unknown[] = [];
-    const snap = await client.getEventSnapshot(a.event, d.jetztIso(), {
-      onSubError: (resource, e) => {
-        if (resource === 'speakers') speakerFehler.push(e);
-        else d.log.warn(`iveo poll: Metadaten „${resource}" übersprungen (${(e as Error).message})`);
-      },
-    });
+    const { speakerFehler, onSubError } = snapshotTeilfehler('poll');
+    const snap = await client.getEventSnapshot(a.event, d.jetztIso(), { onSubError });
     // Ab hier kein await mehr: Prüfen und Schreiben stehen direkt hintereinander (7.3).
     if (!istAktuell(a, gen)) return;
+    speakerListeErgebnis(speakerFehler);
     const listPrograms = filterPrograms(snap.programs, a.filter);
     const optionen: ProgramMapOptions = {
       stagesById: new Map(snap.stages.map((s) => [s.id, s])),
@@ -563,7 +602,6 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         statusGestoert(TEXT_SHOW_NICHT_LESBAR);
         return;
       }
-      meldeSpeakerFehler(speakerFehler[0]);
     }
     const { ablauf, speakers, merker } = basis
       ? standOhneSpeakerliste(basis, listPrograms, optionen, a)
@@ -582,7 +620,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       statusGestoert(TEXT_SHOW_NICHT_LESBAR);
       return;
     }
-    d.log.info(`iveo: ${geaendert.length} Programm(e) geändert → Ablauf neu (${ablauf.length} Punkte).`);
+    if (geaendert.length) d.log.info(`iveo: ${geaendert.length} Programm(e) geändert → Ablauf neu (${ablauf.length} Punkte).`);
+    else d.log.info(`iveo: kein Programm geändert, aber ${abweichungVonDatei(a.lastSig, sig)} → Show neu geschrieben (${ablauf.length} Punkte).`);
     const ok = schreibeAblauf(a.path, basis, {
       slug: snap.event.slug,
       baseUrl: a.baseUrl,
@@ -810,12 +849,10 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         // Tagesübersicht: alle Side Events des Tages (voller Snapshot nötig).
         const day = input.day || a.filter.day;
         // Teil 2b, Spec 6.2: Ein Fehlschlag der Speakerliste ist nicht „0 Speaker“. Er wird gemerkt, nicht verschluckt.
-        const speakerFehler: unknown[] = [];
-        const snap = await client.getEventSnapshot(a.event, d.jetztIso(), {
-          onSubError: (resource, e) => {
-            if (resource === 'speakers') speakerFehler.push(e);
-          },
-        });
+        const { speakerFehler, onSubError } = snapshotTeilfehler('switch');
+        const snap = await client.getEventSnapshot(a.event, d.jetztIso(), { onSubError });
+        // Ab hier kein await mehr bis zum Schreiben: Ein verworfenes Umschalten meldet und merkt keinen Speaker-Fehler.
+        if (istAktuell(a, gen)) speakerListeErgebnis(speakerFehler);
         filter = { ...a.filter, programId: undefined, day };
         const listPrograms = filterPrograms(snap.programs, filter);
         const optionen: ProgramMapOptions = {
@@ -828,7 +865,6 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
           // Speaker und „Verantwortlich“ aus der Datei, Merker bleibt oder ist jetzt; die Antwort sagt es (6.3).
           basisFrueh = d.leseShow(a.path);
           if (!basisFrueh) return { ok: false, message: TEXT_NICHT_GESCHRIEBEN };
-          meldeSpeakerFehler(speakerFehler[0]);
           stand = standOhneSpeakerliste(basisFrueh, listPrograms, optionen, a);
           warning = TEXT_UMSCHALTEN_SPEAKER_VERALTET;
         } else {
