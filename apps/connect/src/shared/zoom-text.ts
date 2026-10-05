@@ -12,6 +12,9 @@ export type ZoomZ =
   | 'Z0' | 'Z1a' | 'Z1b' | 'Z2' | 'Z3' | 'Z4' | 'Z5a' | 'Z5b' | 'Z6'
   | 'Z7' | 'Z7b' | 'Z8' | 'Z9' | 'Z9b' | 'Z10' | 'Z11' | 'Z12' | 'Z13';
 
+/** Wie A4, aber ehrlich, wenn der Schlüsselbund da war und nur die Einstellungsdatei nicht schreibbar ist. */
+export const TEXT_A4_SCHREIBFEHLER = 'Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.';
+
 /** Text A4 (Spec 8.1). Steht hier, weil Karte und Kern ihn beide brauchen; klartext.ts übernimmt ihn. */
 export const TEXT_A4 = 'Nur für diese Sitzung gemerkt — auf diesem Rechner gibt es keinen Schlüsselbund.';
 /** Text A6 (Spec 8.1). */
@@ -281,7 +284,7 @@ export function zugangZeile(a: ZoomAbbild): string {
   const z = a.einrichtung.zugang;
   const je: Record<ProxyKeySource, string> = {
     stored: `Zugangsdaten: hinterlegt (Client-ID endet auf ${z.clientIdEnde ?? ''})`,
-    session: TEXT_A4,
+    session: z.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : TEXT_A4,
     env: TEXT_A6,
     none: 'Zugangsdaten: fehlen',
   };

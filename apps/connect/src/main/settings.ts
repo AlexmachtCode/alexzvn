@@ -156,6 +156,8 @@ export interface ZoomZugangDaten {
 
 /** Nur ohne OS-Schlüsselbund belegt: dann gelten die Zugangsdaten nur für diese Sitzung (A4). */
 let zoomSitzung: ZoomZugangDaten | null = null;
+/** 'schreibfehler': die Sitzungsdaten gelten, obwohl ein Schlüsselbund da ist, weil die Einstellungsdatei nicht schreibbar war. */
+let zoomSitzungGrund: 'schreibfehler' | undefined;
 /** zoomZugangEnc, EINMAL entschlüsselt (Spec 6.1). `undefined` = noch nicht gelesen, `null` = nichts hinterlegt. */
 let zoomGespeichert: GespeicherterZugang | null | undefined;
 /** Gilt nur, solange das Schreiben der Platte scheiterte: sonst würde der Getter den alten Plattenwert zeigen. */
@@ -173,13 +175,14 @@ function zoomGespeichertLesen(): GespeicherterZugang | null {
 }
 
 /** `unlesbar`: zoomZugangEnc ist da, lässt sich aber nicht entschlüsseln (Mangel zugang_unlesbar, A5). */
-export function zoomZugangLesen(): { daten: ZoomZugangDaten | null; herkunft: ProxyKeySource; unlesbar: boolean } {
+export function zoomZugangLesen(): { daten: ZoomZugangDaten | null; herkunft: ProxyKeySource; grund?: 'schreibfehler'; unlesbar: boolean } {
   const umgebung = zugangAusUmgebung(process.env);
   if (umgebung.fehler && !zoomUmgebungGewarnt) {
     zoomUmgebungGewarnt = true;
     getLog().warn('[zoom] Zugangsdaten aus der Umgebung unbrauchbar:', umgebung.fehler);
   }
-  return waehleZugang({ umgebung: umgebung.daten, gespeichert: zoomGespeichertLesen(), sitzung: zoomSitzung });
+  const stand = waehleZugang({ umgebung: umgebung.daten, gespeichert: zoomGespeichertLesen(), sitzung: zoomSitzung });
+  return stand.herkunft === 'session' && zoomSitzungGrund ? { ...stand, grund: zoomSitzungGrund } : stand;
 }
 
 export function zoomZugangSpeichern(d: ZoomZugangDaten): 'stored' | 'session' {
@@ -189,12 +192,14 @@ export function zoomZugangSpeichern(d: ZoomZugangDaten): 'stored' | 'session' {
     next.zoomZugangEnc = safeStorage.encryptString(JSON.stringify(daten)).toString('base64');
     if (write(next)) {
       zoomSitzung = null;
+      zoomSitzungGrund = undefined;
       zoomGespeichert = { daten, unlesbar: false };
       return 'stored';
     }
     // Nichts auf der Platte: ehrlich „nur für diese Sitzung“ (A4), nicht „gespeichert“.
     zoomGespeichert = null;
     zoomSitzung = daten;
+    zoomSitzungGrund = 'schreibfehler';
     return 'session';
   }
   // Ohne Schlüsselbund NIE im Klartext auf die Platte (Spec 5.6, E7). Ein altes, hier nicht
@@ -203,6 +208,7 @@ export function zoomZugangSpeichern(d: ZoomZugangDaten): 'stored' | 'session' {
   write(next);
   zoomGespeichert = null;
   zoomSitzung = daten;
+  zoomSitzungGrund = undefined;
   if (!zoomSitzungGewarnt) {
     zoomSitzungGewarnt = true;
     getLog().warn('[zoom] safeStorage nicht verfügbar — die Zoom-Zugangsdaten gelten nur für diese Sitzung.');
@@ -215,6 +221,7 @@ export function zoomZugangLoeschen(): void {
   delete next.zoomZugangEnc;
   write(next);
   zoomSitzung = null;
+  zoomSitzungGrund = undefined;
   zoomGespeichert = null;
 }
 

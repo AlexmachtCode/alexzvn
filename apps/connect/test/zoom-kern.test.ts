@@ -30,7 +30,7 @@ import {
   type LaufzeitPruefung,
 } from '../src/main/zoom/laufzeit';
 import type { ZoomAbbild, ZoomErgebnis, ZoomKurz } from '../src/shared/types';
-import { kartenZeile, stateKvAus, zoomZ } from '../src/shared/zoom-text';
+import { kartenZeile, stateKvAus, TEXT_A4_SCHREIBFEHLER, zoomZ } from '../src/shared/zoom-text';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HIER, '..', '..', '..', 'packages', 'zoom-bridge', 'test', 'fake-bridge.mjs');
@@ -330,6 +330,10 @@ console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
   const dir = mkdtempSync(join(tmpdir(), 'jm-zoom-zugang-'));
   const gut = join(dir, 'gut.json');
   writeFileSync(gut, '{"clientId":"sitzung-9876","clientSecret":"s"}');
+  const q = baueKern({ zugang: { daten: { clientId: 'sitzung-9876', clientSecret: 's' }, herkunft: 'session', grund: 'schreibfehler' } });
+  ck('session + schreibfehler → Karte nennt die Datei, nicht den Schlüsselbund',
+    q.kern.abbild().einrichtung.zugang.text === TEXT_A4_SCHREIBFEHLER && q.kern.abbild().einrichtung.zugang.grund === 'schreibfehler');
+  await q.aufraeumen();
   ck('ohne Schlüsselbund → ok, Herkunft session, Text A4',
     ok(p.kern.zugangWaehlen(gut)) && p.kern.abbild().einrichtung.zugang.herkunft === 'session' && p.kern.abbild().einrichtung.zugang.text === KT.A4);
   rmSync(dir, { recursive: true, force: true });

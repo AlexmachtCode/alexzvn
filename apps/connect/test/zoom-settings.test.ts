@@ -53,6 +53,7 @@ const neu = { clientId: 'ID-9999', clientSecret: 'neu' };
 ck('Set: Schreiben scheitert → session statt stored', s.zoomZugangSpeichern(neu) === 'session');
 const z = s.zoomZugangLesen();
 ck('Set: Sitzungsdaten gelten, Herkunft session', z.herkunft === 'session' && z.daten?.clientId === 'ID-9999');
+ck('Set: Grund schreibfehler (Schlüsselbund ist da, die Datei nicht)', z.grund === 'schreibfehler');
 s.setzeZoomVersatzMs(300);
 ck('Set: Versatz nach gescheitertem Schreiben = neuer Wert', s.zoomVersatzMs() === 300);
 s.setzeZoomAnzeigename('Neu');
@@ -60,8 +61,16 @@ ck('Set: Name nach gescheitertem Schreiben = neuer Wert', s.zoomAnzeigename() ==
 
 // Platte wieder da: Schreiben gelingt, Platte ist maßgeblich
 g.__mock.userData = wurzel;
+s.zoomZugangSpeichern(daten);
+ck('Set: erfolgreich gespeichert → kein Grund mehr', s.zoomZugangLesen().herkunft === 'stored' && s.zoomZugangLesen().grund === undefined);
 s.setzeZoomVersatzMs(50); s.setzeZoomAnzeigename('Platte');
 ck('Set: Schreiben ok → Platte gilt', s.zoomVersatzMs() === 50 && s.zoomAnzeigename() === 'Platte');
+
+// Ohne Schlüsselbund: Sitzung ohne Grund (A4 bleibt wörtlich richtig)
+g.__mock.verschluesselung = false;
+s.zoomZugangSpeichern(neu);
+const o = s.zoomZugangLesen();
+ck('Set: ohne Schlüsselbund → session, kein Grund', o.herkunft === 'session' && o.grund === undefined);
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -40,7 +40,7 @@ import type {
   ZoomSollEintrag,
   ZoomZustand,
 } from '../../shared/types';
-import { stateKvAus, type ZoomStateKv } from '../../shared/zoom-text';
+import { stateKvAus, TEXT_A4_SCHREIBFEHLER, type ZoomStateKv } from '../../shared/zoom-text';
 import {
   KT,
   VORSATZ,
@@ -94,7 +94,7 @@ export const ANZEIGENAME_VORGABE = 'JM Connect';
 export type BridgeArt = Pick<Bridge, 'start' | 'send' | 'stop' | 'session'>;
 export type BridgeFabrik = (opts: BridgeOptions, startNr: number) => BridgeArt;
 export interface ZugangDaten { clientId: string; clientSecret: string }
-export interface ZugangStand { daten: ZugangDaten | null; herkunft: ProxyKeySource; unlesbar: boolean }
+export interface ZugangStand { daten: ZugangDaten | null; herkunft: ProxyKeySource; grund?: 'schreibfehler'; unlesbar: boolean }
 export interface LaufzeitDienste {
   pruefe(p: LaufzeitPfade): LaufzeitPruefung;
   pruefeOrdner(gewaehlt: string, ressourcen: string): SdkWahl;
@@ -300,7 +300,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const stand = kopie !== null ? 'kopiert' : !l.ok && l.mangel === 'sdk_fehlt' ? 'fehlt' : !l.ok && l.mangel === 'sdk_defekt' ? 'defekt' : 'ok';
     const sdkText = sdkFehler ?? (!l.ok && (l.mangel === 'sdk_defekt' || l.mangel === 'bridge_fehlt') ? mangelText(l.mangel, mangelDatei()) : null);
     const zugangText = !zugang.daten && zugang.unlesbar ? KT.A5
-      : zugang.herkunft === 'session' ? KT.A4
+      : zugang.herkunft === 'session' ? (zugang.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : KT.A4)
       : zugang.herkunft === 'env' ? KT.A6
       : zugangFehler;
     const id = zugang.daten?.clientId ?? null;
@@ -308,7 +308,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       kurz: kurz(),
       einrichtung: {
         sdk: { stand, fassung: stand === 'ok' ? SDK_FASSUNG : null, kopie: kopie ? { ...kopie } : null, text: sdkText },
-        zugang: { herkunft: zugang.herkunft, clientIdEnde: id ? id.slice(-4) : null, text: zugangText },
+        zugang: { herkunft: zugang.herkunft, ...(zugang.grund ? { grund: zugang.grund } : {}), clientIdEnde: id ? id.slice(-4) : null, text: zugangText },
       },
       anzeigename: d.einstellungen.anzeigename(),
       versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null },

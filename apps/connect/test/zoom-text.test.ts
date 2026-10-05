@@ -6,7 +6,7 @@
 // die Testtabellen selbst.
 import type { AppStatus, ProxyKeySource, ZoomAbbild, ZoomErlaubnis, ZoomKurz, ZoomMangel, ZoomZustand } from '../src/shared/types';
 import {
-  gaesteZeile, kartenZeile, MANGEL_GRUND, sdkKnopf, sdkZeile, stateKvAus, TEXT_A4, TEXT_A6, trayTooltip,
+  gaesteZeile, kartenZeile, MANGEL_GRUND, sdkKnopf, sdkZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6, trayTooltip,
   trayVerlassenAktiv, zoomKnoepfe, zoomZ, zoomZeile, zugangZeile, type ZoomStatusWert, type ZoomZ,
 } from '../src/shared/zoom-text';
 import {
@@ -355,6 +355,9 @@ console.log('— Einrichtungszeilen (Spec 9 Punkt 3)');
     const a = abbild({ einrichtung: { sdk: ohne.einrichtung.sdk, zugang: { herkunft: h, clientIdEnde: h === 'none' ? null : 'ab12', text: null } } });
     ck(`Zugangsdaten, Herkunft ${h}: wörtlich`, zugangZeile(a) === ZUGANG[h]);
   }
+  const schreibfehler = abbild({ einrichtung: { sdk: ohne.einrichtung.sdk, zugang: { herkunft: 'session', grund: 'schreibfehler', clientIdEnde: 'ab12', text: null } } });
+  ck('session + schreibfehler: eigener Text, nennt keinen Schlüsselbund', zugangZeile(schreibfehler) === TEXT_A4_SCHREIBFEHLER && !TEXT_A4_SCHREIBFEHLER.includes('Schlüsselbund')
+    && TEXT_A4_SCHREIBFEHLER === 'Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.');
   const unlesbar = abbild({
     kurz: { zustand: 'einrichtung', maengel: ['zugang_unlesbar'] },
     einrichtung: { sdk: ohne.einrichtung.sdk, zugang: { herkunft: 'none', clientIdEnde: null, text: null } },

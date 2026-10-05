@@ -180,7 +180,8 @@ export interface ZoomAbbild {
       kopie: { dateien: number; dateienGesamt: number; bytes: number; bytesGesamt: number } | null;
       text: string | null;
     };
-    zugang: { herkunft: ProxyKeySource; clientIdEnde: string | null; text: string | null };
+    /** `grund` nur bei `session`: 'schreibfehler' = Schlüsselbund da, die Einstellungsdatei ließ sich nicht schreiben. */
+    zugang: { herkunft: ProxyKeySource; grund?: 'schreibfehler'; clientIdEnde: string | null; text: string | null };
   };
   anzeigename: string;
   versatz: { gewuenschtMs: number; bestaetigtMs: number | null };
