@@ -813,6 +813,34 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(datalink.getDataState().entries.length === 0, 'B13: stopDataWatch setzt den Kern zurück');
 }
 
+// ── B14 · Anzeige-Helfer für Daten / Recall und das Recall-Board (Spec 7.4, 7.8) ──
+{
+  const a = await import('../src/renderer/src/lib/datalink-anzeige');
+  ok(a.zaehlerText(-1, 5) === 'Einträge · 5', 'B14: Zähler ohne aktiven (oder mit gehaltenem) Eintrag: Einträge · 5');
+  ok(a.zaehlerText(1, 5) === 'Einträge · 2/5', 'B14: Zähler mit aktivem Eintrag: Einträge · 2/5');
+  const frei = a.navGesperrt(-1, 5);
+  ok(!frei.zurueck && !frei.weiter, 'B14: ohne aktiven Eintrag sind Weiter und Zurück frei (beide wählen Eintrag 1)');
+  const anfang = a.navGesperrt(0, 5);
+  ok(anfang.zurueck && !anfang.weiter, 'B14: Eintrag 1 aktiv → nur Zurück gesperrt');
+  const ende = a.navGesperrt(4, 5);
+  ok(!ende.zurueck && ende.weiter, 'B14: letzter Eintrag aktiv → nur Weiter gesperrt');
+  const mitte = a.navGesperrt(2, 5);
+  ok(!mitte.zurueck && !mitte.weiter, 'B14: Eintrag in der Mitte → beide frei');
+  const h1 = '„Alan“ ist nicht mehr in der Liste. Die Bauchbinde bleibt stehen, bis du sie ausblendest oder einen Eintrag abrufst.';
+  const h5 = 'Abruf „Niemand“: nicht in der Liste. Bitte einen Eintrag abrufen.';
+  const h6 = 'Abruf „Niemand“: nicht in der Liste. Auf Sendung bleibt „Alan“, bis du sie ausblendest oder einen Eintrag abrufst.';
+  ok(a.boardHinweis({ art: 'H1', text: h1 }) === h1, 'B14: Board zeigt H1');
+  ok(a.boardHinweis({ art: 'H5', text: h5 }) === h5, 'B14: Board zeigt H5');
+  ok(a.boardHinweis({ art: 'H6', text: h6 }) === h6, 'B14: Board zeigt H6');
+  ok(a.boardHinweis({ art: 'H2', text: '„Alan“ ist nicht mehr in der Liste. Bitte einen Eintrag abrufen.' }) === null, 'B14: H2 nicht im Board');
+  ok(a.boardHinweis({ art: 'H3', text: 'Liste aus früherem Stand: Die Show enthält gerade keine Speaker.' }) === null, 'B14: H3 nicht im Board');
+  ok(a.boardHinweis({ art: 'H4', text: 'Liste aus früherem Stand: Show nicht lesbar (EBUSY).' }) === null, 'B14: H4 nicht im Board');
+  ok(a.boardHinweis({ art: 'H7', text: 'Liste aus früherem Stand: Speakerliste von iveo nicht abrufbar (seit 09:58).' }) === null, 'B14: H7 nicht im Board');
+  ok(a.boardHinweis(undefined) === null, 'B14: ohne Hinweis → null');
+  ok(a.b1Text({ label: 'Alan' }) === 'Auf Sendung, nicht in der Liste: Alan', 'B14: Karte B1 wörtlich');
+  ok(a.b1Text(undefined) === null, 'B14: ohne gehaltenen Eintrag keine Karte');
+}
+
 if (failed > 0) {
   console.error(`\n${failed} FEHLGESCHLAGEN`);
   process.exit(1);
