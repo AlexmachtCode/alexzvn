@@ -251,7 +251,16 @@ function pfadSchluessel(p: string): string {
   return resolve(p).toLowerCase();
 }
 
-type SideKontext = { firstStartMs: number | null; category?: string; speakerNames?: Array<[string, string]> };
+type SideKontext = {
+  firstStartMs: number | null;
+  category?: string;
+  speakerNames?: Array<[string, string]>;
+  /**
+   * Speaker-IDs aus dem Programm-Detail (Teil 2b, Spec 6.2). Die Agenda-Abfrage holt das Detail nur ohne Kontext; mit
+   * Merker braucht sie die Verknüpfungen trotzdem, um die frische Speakerliste wie beim Umschalten einzugrenzen.
+   */
+  detailSpeakerIds: string[];
+};
 
 /** Speaker-IDs, die iveo an ein Side Event (Detail oder Agenda-Punkte) hängt. */
 function sideSpeakerIds(detail: IveoProgram | null, agenda: IveoAgendaItem[]): string[] {
@@ -268,6 +277,7 @@ function sideKontext(detail: IveoProgram | null, alleSpeaker?: IveoSpeaker[]): S
     firstStartMs: detail ? localTimeOfDayMs(detail) : null,
     category: ((detail?.format_slug || detail?.type_slug) || '').trim() || undefined,
     speakerNames: alleSpeaker ? [...speakerNameMap(alleSpeaker)] : undefined,
+    detailSpeakerIds: extractSpeakerIds(detail),
   };
 }
 
@@ -600,19 +610,32 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
    * Agenda-Modus (früher pollSideEvent). Spec 7.6: Scheitert die Agenda oder das Nachladen des Side-Event-Kontexts,
    * bricht die Abfrage ab (nichts geschrieben, kein RELOAD, „gestört“). Nur eine erfolgreich LEERE Agenda wird zum
    * 1-Punkt-Ablauf. Speaker und Name kommen aus der Datei (neu eingegrenzt wird nur beim Binden und Umschalten).
+   * Teil 2b, Spec 6.2: Mit Merker „Speaker veraltet“ holt die Abfrage zusätzlich die Speakerliste, auch bei gemerktem
+   * Kontext. Gelingt sie, gelten die verknüpften Speaker (ohne Verknüpfung die ganze Liste), und der Merker entfällt.
+   * Scheitert sie, bleiben Speaker und Merker der Datei; fehlt zugleich der Kontext, bricht die Abfrage ab wie in 2a.
    */
   async function abfrageAgenda(client: IveoClientLike, a: AktiveShow, gen: number): Promise<void> {
     const programId = a.filter.programId!;
     const agenda = await client.listAgendaItems(a.event, programId);
     let detail: IveoProgram | null = null;
     let ctx = a.sideCtx;
+    /** Volle Speakerliste, falls diese Abfrage sie geholt hat (für den Kontext oder wegen des Merkers). */
+    let alle: IveoSpeaker[] | undefined;
     if (!ctx) {
       // Nach dem Öffnen einer gespeicherten Show fehlt der Kontext (er entsteht beim Binden/Umschalten). Ohne ihn
       // fehlten Startzeit, Kategorie und Verantwortlich → nachladen; scheitert das, bricht die Abfrage ab (7.6).
       detail = await client.getProgram(a.event, programId);
       // Scheitert die Speakerliste, bricht die Abfrage ab (wie getProgram): sonst entstünde ein Ablauf ohne „Verantwortlich“.
-      const alle = sideSpeakerIds(detail, agenda).length ? await client.listSpeakers(a.event) : undefined;
+      // Mit Merker wird sie auch ohne Verknüpfung geholt (Spec 6.2); ein Fehlschlag bricht dann ebenso ab.
+      alle = sideSpeakerIds(detail, agenda).length || a.speakerVeraltetSeit ? await client.listSpeakers(a.event) : undefined;
       ctx = sideKontext(detail, alle);
+    } else if (a.speakerVeraltetSeit) {
+      try {
+        alle = await client.listSpeakers(a.event);
+      } catch (e) {
+        // Speaker und Merker der Datei bleiben; der Status bleibt „gestört“ (statusNachAbfrage unten).
+        meldeSpeakerFehler(e);
+      }
     }
     const names = ctx.speakerNames ? new Map(ctx.speakerNames) : undefined;
     let ablauf = agendaToAblauf(agenda, {
@@ -632,12 +655,19 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       statusGestoert(TEXT_SHOW_NICHT_LESBAR);
       return;
     }
-    const speakers = basis.iveo?.speakers ?? [];
-    const sig = ablaufSignatur(ablauf, speakers, a.speakerVeraltetSeit);
+    let speakers = basis.iveo?.speakers ?? [];
+    let merker = a.speakerVeraltetSeit;
+    if (merker && alle) {
+      // Spec 6.2: verknüpfte Speaker wie beim Umschalten (Detail und Agenda-Punkte), ohne Verknüpfung die ganze Liste.
+      const verknuepft = new Set<string>([...ctx.detailSpeakerIds, ...agenda.flatMap((it) => extractSpeakerIds(it))]);
+      speakers = speakersToShowSpeakers(verknuepft.size ? alle.filter((s) => verknuepft.has(s.id)) : alle);
+      merker = undefined;
+    }
+    const sig = ablaufSignatur(ablauf, speakers, merker);
     if (sig === a.lastSig) {
       // Die Datei entspricht genau diesem Kontext → merken, sonst lädt jede Abfrage ihn neu.
       a.sideCtx = ctx;
-      statusOk();
+      statusNachAbfrage(a);
       return; // nichts geändert → kein RELOAD
     }
     d.log.info(`iveo: Agenda von Side Event geändert → ${ablauf.length} Punkte neu.`);
@@ -648,15 +678,18 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       ablauf,
       speakers,
       filter: a.filter,
-      speakerVeraltetSeit: a.speakerVeraltetSeit,
+      speakerVeraltetSeit: merker,
     });
     if (!ok) {
       statusGestoert(TEXT_NICHT_GESCHRIEBEN);
       return;
     }
+    const speakerWieder = a.speakerVeraltetSeit !== undefined && merker === undefined;
     a.lastSig = sig;
     a.sideCtx = ctx;
-    statusOk();
+    a.speakerVeraltetSeit = merker;
+    if (speakerWieder) meldeSpeakerWieder();
+    statusNachAbfrage(a);
     benachrichtigeAlle();
   }
 
@@ -669,7 +702,14 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     client: IveoClientLike,
     event: string,
     programId: string,
-  ): Promise<{ ablauf: ShowAblaufItem[]; speakers: ShowIveoSpeaker[] | null; warning?: string; sideCtx?: SideKontext } | null> {
+  ): Promise<{
+    ablauf: ShowAblaufItem[];
+    speakers: ShowIveoSpeaker[] | null;
+    warning?: string;
+    sideCtx?: SideKontext;
+    /** Teil 2b, Spec 6.2: Speakerliste geholt und gelungen, gescheitert oder ohne Verknüpfung gar nicht geholt. */
+    speakerAbruf: 'ok' | 'gescheitert' | 'ohne-verknuepfung';
+  } | null> {
     const detail = await client.getProgram(event, programId).catch((e: unknown) => {
       d.log.warn(`iveo switch: Detail „${programId}" nicht abrufbar (${(e as Error).message}).`);
       return null;
@@ -688,14 +728,17 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     // Vollständig nur mit der Speakerliste (Namensquelle für „Verantwortlich“); ohne Verknüpfung braucht es sie nicht.
     let vollstaendig = true;
     let alle: IveoSpeaker[] | undefined;
+    let speakerAbruf: 'ok' | 'gescheitert' | 'ohne-verknuepfung' = 'ohne-verknuepfung';
     if (ids.length) {
       try {
         alle = await client.listSpeakers(event);
         speakers = speakersToShowSpeakers(alle.filter((s) => ids.includes(s.id)));
+        speakerAbruf = 'ok';
         d.log.info(`iveo switch: ${ids.length} Speaker verknüpft, ${speakers.length} aufgelöst.`);
       } catch (e) {
         // Liste der Datei bleibt, owner bleibt leer — und kein Kontext merken: die nächste Abfrage lädt vollständig nach.
         vollstaendig = false;
+        speakerAbruf = 'gescheitert';
         d.log.warn(`iveo switch: Speakerliste nicht abrufbar (${(e as Error).message}) — Verantwortlich wird bei der nächsten Abfrage nachgeladen.`);
       }
     } else {
@@ -717,6 +760,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       warning,
       // Ohne Detail oder ohne Speakerliste keinen Kontext merken: die nächste Abfrage lädt ihn nach (7.6).
       sideCtx: detail && vollstaendig ? kontext : undefined,
+      speakerAbruf,
     };
   }
 
@@ -756,6 +800,10 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         if (!r) return { ok: false, message: TEXT_AGENDA_NICHT_ABRUFBAR };
         ({ ablauf, speakers, warning, sideCtx } = r);
         filter = { ...a.filter, programId };
+        // Teil 2b, Spec 6.2: Gelingt die Speakerliste, entfällt der Merker; scheitert sie, wird er gesetzt (ein schon
+        // gesetzter bleibt). Ohne Verknüpfung holt das Umschalten keine Liste, der Merker bleibt, wie er ist.
+        if (r.speakerAbruf === 'ok') merker = undefined;
+        else if (r.speakerAbruf === 'gescheitert') merker = a.speakerVeraltetSeit ?? d.jetztIso();
       } else {
         // Tagesübersicht: alle Side Events des Tages (voller Snapshot nötig).
         const day = input.day || a.filter.day;
