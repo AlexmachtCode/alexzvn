@@ -22,14 +22,14 @@ Spec: `docs/superpowers/specs/2026-10-02-zoom-stage4-connect-design.md`, Abschni
 
 | # | Schritt | Erwartung | 4a-Kurztest | Ergebnis |
 | --- | --- | --- | --- | --- |
-| 1 | Connect 0.2.0 auf dem Raum-PC installieren | Version sichtbar; Zoom-Karte zeigt „nicht vollständig eingerichtet: SDK-Ordner fehlt · Zugangsdaten fehlen“, „Beitreten“ fehlt, Hinweis zur Sperre; Tray „△ Zoom: Einrichtung unvollständig“ | ja | |
+| 1 | Connect 0.2.0 auf dem Raum-PC installieren | Version sichtbar; Zoom-Karte zeigt „nicht vollständig eingerichtet: SDK-Ordner fehlt · Zugangsdaten fehlen“, „Beitreten“ fehlt, Hinweis zur Sperre; Tray „△ Zoom: Einrichtung unvollständig“ | ja | *Hinweis 4a-Kurztest: der interne Bau zeigt Version **0.1.0**, nicht 0.2.0 (siehe Kopf).* |
 | 2 | SDK-Ordner `x86\bin` wählen | Text S2, nichts kopiert | ja | |
 | 3 | SDK-Ordner aus der JM-Ablage wählen | Fortschritt; danach „Zoom-SDK 7.1.5.43953 eingerichtet“; Ordner unter `%LOCALAPPDATA%\JM Connect\zoom-laufzeit\` | ja | |
 | 4 | Zugangsdaten-Datei wählen, danach die Datei umbenennen, Connect beenden und **aus dem Launcher** neu starten | „hinterlegt (Client-ID endet auf …)“; bleibt nach dem Neustart hinterlegt. Ab hier läuft Connect aus dem Launcher (Voraussetzung für M6 in Schritt 6) | ja | |
 | 5 | „Einrichtung prüfen“ | Meldung „Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953) …“ im Meldungsbereich, „OK“ quittiert sie; Tray bleibt dabei „○ Zoom: kein Meeting“ — **ohne VC-Redist** (M1, erster Teil); kein Smart-App-Control-Block (M7) | ja | |
 | 6 | Beitreten mit `<Meeting-Nummer>` und `<Kenncode>`, Anzeigename Vorgabe | Warteraum (falls an), Host lässt zu: Karte geht von „Im Warteraum …“ auf „Trete dem Meeting bei …“, **nie** „Verbindung unterbrochen“; Erlaubnis-Anfrage beim Host, nach dem Erteilen „Im Meeting. Personen unten als Quelle laden.“; Tray und Kopfzeile wie 7.2. Gelingt der Beitritt mit Connect aus dem Launcher, ist M6 belegt | ja | |
 | 7 | Teilnehmerliste ansehen | keine eigene Zeile; Host markiert; Kamera-Zustand stimmt | ja | |
-| 8 | Fünf Personen laden, bei einer vorher „Ton“ aus | fünf Quellen „JM Connect – Zoom <Name>“ im Switcher mit Bild, vier mit Ton; Tray „● Zoom: 5 Quellen geladen“. Im Task-Manager (Details, Spalte „Befehlszeile“) **alle** Prozesse aus dem Laufzeit-Ordner notieren: erwartet `zoom-bridge.exe`; jede weitere EXE von dort (zum Beispiel `aomhost64.exe`, `zeebview2Agent.exe`, `zcscpthost.exe`) belegt M1, zweiter Teil. Läuft keine Hilfs-EXE, bleibt M1 Teil 2 offen | ja | |
+| 8 | Fünf Personen laden, bei einer vorher „Ton“ aus | fünf Quellen „JM Connect – Zoom <Name>“ im Switcher mit Bild, vier mit Ton; Tray „● Zoom: 5 Quellen geladen“. Im Task-Manager (Details, Spalte „Befehlszeile“) **alle** Prozesse aus dem Laufzeit-Ordner notieren: erwartet `zoom-bridge.exe`; jede weitere EXE von dort (zum Beispiel `aomhost64.exe`, `zWebview2Agent.exe`, `zcscpthost.exe`) belegt M1, zweiter Teil. Läuft keine Hilfs-EXE, bleibt M1 Teil 2 offen | ja | |
 | 9 | Sechste Person laden (falls da) | Warnung Q9, zweiter Klick lädt | – | |
 | 10 | Versatz auf den Projekttest-Wert setzen | „bestätigt: … ms“ (ob der Wert einen Neustart übersteht, prüft Schritt 22) | ja | |
 | 11 | Eine Person verlässt das Meeting und kommt zurück | Quelle kommt mit gleichem NDI-Namen zurück, ohne Handgriff | – | |
