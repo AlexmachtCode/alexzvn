@@ -124,6 +124,94 @@ console.log('— Abgleich der Soll-Liste: die neun Zeilen der Tabelle 6.3');
   ck('leere Soll-Liste → nichts', sollAbbild(new Map(), lage).length === 0 && sollHandlungen(new Map(), lage).length === 0);
 }
 
+// ── Aufgabe 16: Zoom-Einstellungen, rein (Spec 5.6, G4, G5) ──
+{
+  const { gueltigerAnzeigename, gueltigerVersatz, zugangAusUmgebung, zugangAusKlartext, waehleZugang } = await import(
+    '../src/main/zoom/einstellungen'
+  );
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const pfad = await import('node:path');
+
+  // Anzeigename: 1 bis 64 Zeichen nach trim (G4)
+  ck('Einst: Anzeigename „JM Connect“ gültig', gueltigerAnzeigename('JM Connect') === 'JM Connect');
+  ck('Einst: Anzeigename wird getrimmt', gueltigerAnzeigename('  Regie 1  ') === 'Regie 1');
+  ck('Einst: Anzeigename mit 64 Zeichen gültig', gueltigerAnzeigename('x'.repeat(64)) === 'x'.repeat(64));
+  ck('Einst: Anzeigename mit 65 Zeichen ungültig', gueltigerAnzeigename('x'.repeat(65)) === null);
+  ck('Einst: Anzeigename nur aus Leerzeichen ungültig', gueltigerAnzeigename('   ') === null);
+  ck('Einst: Anzeigename ohne Text ungültig', gueltigerAnzeigename(undefined) === null && gueltigerAnzeigename(42) === null);
+
+  // Versatz: ganze Zahl 0 bis 1000 (G4)
+  ck(
+    'Einst: Versatz 0, 250 und 1000 gültig',
+    gueltigerVersatz(0) === 0 && gueltigerVersatz(250) === 250 && gueltigerVersatz(1000) === 1000,
+  );
+  ck(
+    'Einst: Versatz 1001, -1, 1.5, NaN, "250", undefined ungültig',
+    [1001, -1, 1.5, Number.NaN, '250', undefined].every((v) => gueltigerVersatz(v) === null),
+  );
+
+  // Umgebung (Entwicklungsweg, Herkunft 'env')
+  const leer = zugangAusUmgebung({});
+  ck('Einst: leere Umgebung → keine Daten, kein Fehler', leer.daten === null && leer.fehler === null);
+  const beide = zugangAusUmgebung({ ZOOM_SDK_CLIENT_ID: 'env-id-9876', ZOOM_SDK_CLIENT_SECRET: 'env-secret' });
+  ck(
+    'Einst: Umgebung mit ID und Secret',
+    beide.daten?.clientId === 'env-id-9876' && beide.daten?.clientSecret === 'env-secret' && beide.fehler === null,
+  );
+  const halb = zugangAusUmgebung({ ZOOM_SDK_CLIENT_ID: 'env-id-9876' });
+  ck(
+    'Einst: Umgebung nur mit ID → Fehler, der den Wert nicht nennt',
+    halb.daten === null && halb.fehler !== null && !halb.fehler.includes('env-id-9876'),
+  );
+  const ordner = fs.mkdtempSync(pfad.join(os.tmpdir(), 'jmc-zoom-einst-'));
+  try {
+    const gut = pfad.join(ordner, 'zugang.json');
+    fs.writeFileSync(gut, String.fromCharCode(0xfeff) + JSON.stringify({ clientId: 'datei-id-4321', clientSecret: 'datei-secret' }));
+    const ausDatei = zugangAusUmgebung({ ZOOM_SDK_CREDENTIALS: gut });
+    ck(
+      'Einst: Umgebung mit Datei (mit BOM) liefert die Daten',
+      ausDatei.daten?.clientId === 'datei-id-4321' && ausDatei.daten?.clientSecret === 'datei-secret',
+    );
+    const kaputt = pfad.join(ordner, 'kaputt.json');
+    fs.writeFileSync(kaputt, '{ "clientSecret": GEHEIM-INHALT');
+    const k = zugangAusUmgebung({ ZOOM_SDK_CREDENTIALS: kaputt });
+    ck(
+      'Einst: kaputte Datei → Fehler, Inhalt nicht zitiert',
+      k.daten === null && k.fehler !== null && !k.fehler.includes('GEHEIM-INHALT'),
+    );
+  } finally {
+    fs.rmSync(ordner, { recursive: true, force: true });
+  }
+
+  // Inhalt von zoomZugangEnc nach dem Entschlüsseln
+  const gelesen = zugangAusKlartext(JSON.stringify({ clientId: 'gesp-id-0002', clientSecret: 'g' }));
+  ck(
+    'Einst: Klartext gültig',
+    gelesen.unlesbar === false && gelesen.daten?.clientId === 'gesp-id-0002' && gelesen.daten?.clientSecret === 'g',
+  );
+  ck('Einst: nicht entschlüsselbar → unlesbar', zugangAusKlartext(null).unlesbar === true && zugangAusKlartext(null).daten === null);
+  ck('Einst: entschlüsselt, aber kein JSON → unlesbar', zugangAusKlartext('{kaputt').unlesbar === true);
+  ck('Einst: entschlüsselt, Feld fehlt → unlesbar', zugangAusKlartext('{"clientId":"a"}').unlesbar === true);
+
+  // Rangfolge Umgebung > Gespeichertes > Sitzung (Spec 5.6)
+  const U = { clientId: 'env-id-0001', clientSecret: 'u' };
+  const G = { clientId: 'gesp-id-0002', clientSecret: 'g' };
+  const S = { clientId: 'sitz-id-0003', clientSecret: 's' };
+  const r1 = waehleZugang({ umgebung: U, gespeichert: { daten: G, unlesbar: false }, sitzung: S });
+  ck('Einst: Umgebung hat Vorrang', r1.herkunft === 'env' && r1.daten === U && r1.unlesbar === false);
+  const r2 = waehleZugang({ umgebung: null, gespeichert: { daten: G, unlesbar: false }, sitzung: S });
+  ck('Einst: Gespeichertes vor Sitzung', r2.herkunft === 'stored' && r2.daten === G);
+  const r3 = waehleZugang({ umgebung: null, gespeichert: null, sitzung: S });
+  ck('Einst: nur Sitzung', r3.herkunft === 'session' && r3.daten === S && r3.unlesbar === false);
+  const r4 = waehleZugang({ umgebung: null, gespeichert: { daten: null, unlesbar: true }, sitzung: null });
+  ck('Einst: unlesbar ohne Ersatz → none + unlesbar', r4.herkunft === 'none' && r4.daten === null && r4.unlesbar === true);
+  const r5 = waehleZugang({ umgebung: U, gespeichert: { daten: null, unlesbar: true }, sitzung: null });
+  ck('Einst: unlesbar, aber Umgebung da → kein Mangel', r5.herkunft === 'env' && r5.unlesbar === false);
+  const r6 = waehleZugang({ umgebung: null, gespeichert: null, sitzung: null });
+  ck('Einst: nichts hinterlegt → none', r6.herkunft === 'none' && r6.daten === null && r6.unlesbar === false);
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -240,4 +240,29 @@ export interface JmConnectApi {
   onTrayCommand: (cb: (cmd: TrayCommand) => void) => () => void;
   /** Steuerbefehle (Companion/Rundown) empfangen und an den DO relayen. Liefert Unsubscribe. */
   onControlCommand: (cb: (cmd: ControlCommand) => void) => () => void;
+
+  // ── Zoom (Stage 4a, Spec 5.5). Nur unter Windows verdrahtet; der Renderer ruft sie nur dort.
+  /** Aktuelles Zoom-Abbild. */
+  zoomGet: () => Promise<ZoomAbbild>;
+  /** Zoom-Abbild abonnieren. Liefert Unsubscribe. */
+  onZoom: (cb: (a: ZoomAbbild) => void) => () => void;
+  /** Ordner-Dialog, dann SDK prüfen und kopieren. */
+  zoomSdkWaehlen: () => Promise<ZoomErgebnis>;
+  /** Datei-Dialog für die Zugangsdaten. */
+  zoomZugangWaehlen: () => Promise<ZoomErgebnis>;
+  zoomZugangLoeschen: () => Promise<ZoomErgebnis>;
+  /** „Einrichtung prüfen“: Bridge starten, anmelden, beenden, ohne Meeting. */
+  zoomPruefen: () => Promise<ZoomErgebnis>;
+  /** Der Kenncode geht nur hier in den Main und kommt nie zurück. */
+  zoomBeitreten: (p: { nummer: string; kenncode: string; anzeigename: string }) => Promise<ZoomErgebnis>;
+  zoomVerlassen: () => Promise<void>;
+  zoomLaden: (p: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }) => Promise<ZoomErgebnis>;
+  zoomEntladen: (p: { aboId: number }) => Promise<ZoomErgebnis>;
+  zoomTon: (p: { id: number; an: boolean }) => Promise<ZoomErgebnis>;
+  zoomSollVerwerfen: (p: { name: string }) => Promise<void>;
+  zoomVersatz: (p: { ms: number }) => Promise<ZoomErgebnis>;
+  zoomErneut: () => Promise<ZoomErgebnis>;
+  zoomSchliessen: () => Promise<void>;
+  zoomMeldungWeg: () => Promise<void>;
+  zoomLogordner: () => Promise<void>;
 }

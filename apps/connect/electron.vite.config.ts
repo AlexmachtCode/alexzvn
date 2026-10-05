@@ -15,6 +15,9 @@ const internalPackages = [
   '@jm/rtc',
   '@jm/show',
   '@jm/suite-control-protocol',
+  // Zoom-Bridge (nur TypeScript-Quellen). Steht in den devDependencies und wird darum ohnehin
+  // gebündelt; der Eintrag hält das fest, falls sie je in die dependencies wandert (Spec 5.1).
+  '@jm/zoom-bridge',
 ];
 
 export default defineConfig({

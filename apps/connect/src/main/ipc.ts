@@ -14,6 +14,7 @@ import { programStatus, startProgram, stopProgram } from './ndi-program';
 import { CONTROL_PORT, pushControlState } from './control-server';
 import { initShow, showInfo } from './show-open';
 import { presenterConnected, slideCue } from './presenter-link';
+import { zoomKurz } from './zoom';
 
 let getWindow: () => BrowserWindow | null = () => null;
 let getPeer: () => BrowserWindow | null = () => null;
@@ -35,7 +36,7 @@ export function currentStatus(): AppStatus {
     programState: prog.state,
     programSource: prog.source,
     presenterLinked: presenterConnected(),
-    zoom: null,
+    zoom: zoomKurz(),
   };
 }
 

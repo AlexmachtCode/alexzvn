@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppStatus, ControlCommand, GuestInvite, JmConnectApi, ProxyInfo, RoomSession, ShowInfo, TrayCommand } from '@shared/types';
+import type {
+  AppStatus,
+  ControlCommand,
+  GuestInvite,
+  JmConnectApi,
+  ProxyInfo,
+  RoomSession,
+  ShowInfo,
+  TrayCommand,
+  ZoomAbbild,
+  ZoomErgebnis,
+} from '@shared/types';
 import { IPC, PEER_CONNECT, PEER_FRAME_PORT, PEER_PROGRAM_PORT } from '@shared/ipc';
 
 // Versteckter Peer-Renderer: den vom Main übertragenen Frame-MessagePort (je Gast)
@@ -55,6 +66,30 @@ const api: JmConnectApi = {
     ipcRenderer.on(IPC.controlCommand, listener);
     return () => ipcRenderer.off(IPC.controlCommand, listener);
   },
+  // ── Zoom (Stage 4a, Spec 5.5). Nutzlasten werden Feld für Feld weitergereicht, nichts darüber hinaus.
+  zoomGet: () => ipcRenderer.invoke(IPC.zoomGet) as Promise<ZoomAbbild>,
+  onZoom: (cb) => {
+    const listener = (_e: unknown, a: ZoomAbbild) => cb(a);
+    ipcRenderer.on(IPC.zoom, listener);
+    return () => ipcRenderer.off(IPC.zoom, listener);
+  },
+  zoomSdkWaehlen: () => ipcRenderer.invoke(IPC.zoomSdkWaehlen) as Promise<ZoomErgebnis>,
+  zoomZugangWaehlen: () => ipcRenderer.invoke(IPC.zoomZugangWaehlen) as Promise<ZoomErgebnis>,
+  zoomZugangLoeschen: () => ipcRenderer.invoke(IPC.zoomZugangLoeschen) as Promise<ZoomErgebnis>,
+  zoomPruefen: () => ipcRenderer.invoke(IPC.zoomPruefen) as Promise<ZoomErgebnis>,
+  zoomBeitreten: (p) =>
+    ipcRenderer.invoke(IPC.zoomBeitreten, { nummer: p.nummer, kenncode: p.kenncode, anzeigename: p.anzeigename }) as Promise<ZoomErgebnis>,
+  zoomVerlassen: () => ipcRenderer.invoke(IPC.zoomVerlassen) as Promise<void>,
+  zoomLaden: (p) =>
+    ipcRenderer.invoke(IPC.zoomLaden, { id: p.id, ton: p.ton, trotzBetriebsgroesse: p.trotzBetriebsgroesse }) as Promise<ZoomErgebnis>,
+  zoomEntladen: (p) => ipcRenderer.invoke(IPC.zoomEntladen, { aboId: p.aboId }) as Promise<ZoomErgebnis>,
+  zoomTon: (p) => ipcRenderer.invoke(IPC.zoomTon, { id: p.id, an: p.an }) as Promise<ZoomErgebnis>,
+  zoomSollVerwerfen: (p) => ipcRenderer.invoke(IPC.zoomSollVerwerfen, { name: p.name }) as Promise<void>,
+  zoomVersatz: (p) => ipcRenderer.invoke(IPC.zoomVersatz, { ms: p.ms }) as Promise<ZoomErgebnis>,
+  zoomErneut: () => ipcRenderer.invoke(IPC.zoomErneut) as Promise<ZoomErgebnis>,
+  zoomSchliessen: () => ipcRenderer.invoke(IPC.zoomSchliessen) as Promise<void>,
+  zoomMeldungWeg: () => ipcRenderer.invoke(IPC.zoomMeldungWeg) as Promise<void>,
+  zoomLogordner: () => ipcRenderer.invoke(IPC.zoomLogordner) as Promise<void>,
 };
 
 if (process.contextIsolated) {
