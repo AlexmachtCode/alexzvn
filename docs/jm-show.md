@@ -227,8 +227,14 @@ iveo-Token auf diesem Rechner, nur Offline-Ablauf“.
 Rundown 0.7.0 hält die Bauchbinde ihre Person, nicht ihre Nummer in der Liste:
 Der Titler merkt sich den abgerufenen Speaker über einen Ersatz-Schlüssel aus
 Datei und Namen. Kommt in iveo ein Speaker davor dazu oder schaltet der Launcher
-auf ein anderes Side Event um, bleibt dieselbe Person auf Sendung, und
-Korrekturen aus iveo, etwa an der Funktion, erscheinen sofort. Die iveo-Kennung
+auf ein anderes Side Event um, bleibt dieselbe Person auf Sendung. Stehen
+Korrekturen aus iveo, etwa an der Funktion, in der Show, zeigt der Titler sie
+sofort. Der Launcher holt Speaker beim Binden, beim Umschalten auf die
+Tagesübersicht oder auf ein Side Event mit verknüpften Speakern, ohne gewähltes
+Side Event bei einer Abfrage, in der iveo ein Programm als geändert meldet, und
+bei jeder Abfrage, solange die Show eine fehlende Speakerliste vermerkt. Eine
+Korrektur allein an einem Speaker erreicht die Show also nicht mit jeder
+Abfrage. Die iveo-Kennung
 der Speaker wird laut Owner-Entscheidung vom 05.10.2026 noch nicht in Show,
 Titler und Rundown übernommen. Der Schlüssel hängt deshalb am Namen: Ändert sich
 der Name in iveo, oder kommt bei gleichnamigen Speakern einer dazu, fällt einer
@@ -247,10 +253,16 @@ tragen nur Einträge eigener CSV- oder TSV-Dateien mit der Spalte `@kennung`,
 sonst zählt der Name. Eine Show
 überschreibt den eigenen DataLink-Ordner des Titlers nicht mehr; „Zurück zum
 eigenen Ordner“ in den Einstellungen führt zu ihm zurück. Ist die Speakerliste
-von iveo nicht abrufbar, behält die Show ihre Speaker; Panel und Titler sagen
-dann „aus früherem Stand“. Braucht die Abfrage eines Side Events die Liste, um
-dessen Angaben nachzuladen, bricht sie wie bisher ab, und das Panel nennt den
-Grund.
+von iveo beim Abgleich oder beim Umschalten nicht abrufbar, behält die Show ihre
+Speaker; das Panel sagt dann „Speaker aus früherem Stand“, der Titler „Liste aus
+früherem Stand“, sobald bei ihm kein dringenderer Hinweis steht (etwa zur Person
+auf Sendung oder zu einem Abruf). Fehlen der Abfrage eines Side Events dessen
+Angaben (etwa nach dem Öffnen der Show), holt sie die Liste mit, wenn das Side
+Event verknüpfte Speaker hat oder die Show eine fehlende Liste vermerkt;
+scheitert sie dabei, bricht die Abfrage ab, Änderungen der Agenda kommen nicht
+an, bis die Liste wieder kommt, und das Panel nennt den Grund. Beim Binden im
+Show-Editor gilt ein solcher Fehler weiter als keine Speaker: Die Show hat
+danach keine Speaker, und der Editor warnt.
 
 **Grenzen.** Das gilt am Einzelplatz: Tools auf einem anderen Rechner lesen
 weiter ihre eigene Show-Datei (folgt mit Release 2 von Master-Link Teil 2b).
