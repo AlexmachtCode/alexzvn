@@ -325,6 +325,8 @@ export function speakerName(s: IveoSpeaker): string {
  * Funktion (Titel). KEINE PII (Bio/Foto/Social) und kein Token — darf in die
  * portable .jmshow und speist die Titler-DataLink/Recall-Einträge. Speaker ohne
  * Namen werden ausgelassen.
+ * Bewusst OHNE Kennung (Teil 2b, Spec 23: M1 = nein — die iveo-Speaker-IDs sind nicht eindeutig oder nicht
+ * stabil). Titler und Rundown arbeiten dann mit Ersatz-Schlüsseln bzw. Namen (Spec 7.2, 8.3).
  */
 export function speakersToShowSpeakers(speakers: IveoSpeaker[]): ShowIveoSpeaker[] {
   return speakers

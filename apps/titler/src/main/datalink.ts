@@ -6,148 +6,163 @@
 // liefert die Variablen-Tabelle, aus der die `{{schlüssel}}`-Platzhalter in den
 // Textfeldern aufgelöst werden (siehe shared/vars.ts). Vgl. TriCaster DataLink.
 //
+// Master-Link Teil 2b (Spec 7.1): Dieses Modul liest und beobachtet nur noch den
+// Ordner. Dateien lesen, Schlüssel bilden, den aktiven Eintrag über seinen SCHLÜSSEL
+// halten (nicht über die Nummer), Abruf und Hinweise macht der reine Kern
+// `shared/datalink-kern.ts`. Hier dazu: die Uhr, die einen gehaltenen Eintrag 1 s
+// nach dem Ende der Sendung fallen lässt (A4, HALTEN_NACH_SENDUNG_MS über
+// `wegAbMs` im Kern).
+//
 // Quellformate (alle Dateien im Ordner werden alphabetisch zusammengeführt):
 //   • CSV/TSV  → tabellarische LISTE: erste Zeile = Spaltennamen (= Variablen),
-//                jede weitere Zeile = ein Eintrag.
+//                jede weitere Zeile = ein Eintrag; Spalte `@kennung` = Schlüssel.
 //   • .txt/.env/.ini/.properties → `schlüssel=wert` / `schlüssel: wert`,
-//                die ganze Datei = EIN Eintrag (Label aus name/label/titel
-//                oder Dateiname).
+//                die ganze Datei = EIN Eintrag.
 //
 // Bewusst ohne Zusatz-Dependency (kein chokidar): fs.watch auf das Verzeichnis,
 // entprellt, plus ein niederfrequenter mtime-Poll als Sicherheitsnetz gegen
 // verschluckte Events (fs.watch ist je nach Plattform unzuverlässig).
+// Ohne Electron: der Titler-Selbsttest (tsx) lädt das Modul direkt.
 import { existsSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { extname, join } from 'node:path';
+import {
+  companionWerte,
+  fuehreZusammen,
+  HALTEN_NACH_SENDUNG_MS,
+  kernSicht,
+  leererKern,
+  neueListe,
+  parseKvDatei,
+  parseTable,
+  rufeAb,
+  rufeSchluesselAb,
+  schritt,
+  setzeSendung,
+  uhrTick,
+  type DataEntry,
+  type KernSchritt,
+  type KernSicht,
+  type KernZustand,
+} from '../shared/datalink-kern';
 
 /** Vom Watchfolder akzeptierte Endungen. */
 const DATA_EXT = new Set(['.txt', '.env', '.csv', '.tsv', '.ini', '.properties']);
-/** Spaltennamen/Schlüssel, die als Eintrags-Label (für Recall-by-name) dienen. */
-const LABEL_KEYS = ['name', 'label', 'titel', 'title'];
 
-export interface DataEntry {
-  /** Anzeige-/Recall-Name des Eintrags. */
-  label: string;
-  /** Variablen dieses Eintrags (schlüssel → wert). */
-  vars: Record<string, string>;
-}
-
-export interface DataState {
-  /** Alle abrufbaren Einträge (Reihenfolge = Recall-Reihenfolge). */
-  entries: DataEntry[];
-  /** Index des aktiven Eintrags, -1 wenn keiner. */
-  activeIndex: number;
-  /** Variablen des aktiven Eintrags (Convenience; {} wenn keiner). */
-  variables: Record<string, string>;
+export interface DataState extends KernSicht {
   /** Dateinamen, die beigetragen haben. */
   sources: string[];
   /** Lesefehler (z. B. Ordner fehlt) — sonst undefined. */
   error?: string;
+  /** Werte für den Companion-STATE: entry, entry_index, entry_count (Spec 7.5). */
+  companion: { entry: string; entryIndex: number; entryCount: number };
 }
-
-const EMPTY: DataState = { entries: [], activeIndex: -1, variables: {}, sources: [] };
 
 let watcher: FSWatcher | null = null;
 let debounce: NodeJS.Timeout | null = null;
 let poll: NodeJS.Timeout | null = null;
 let watchedDir = '';
+/** Zuletzt beobachteter Ordner; `null` = noch keiner (der erste Start zählt als Ordnerwechsel). */
+let zuletztBeobachtet: string | null = null;
 let lastSig = '';
-let activeIndex = -1;
-let current: DataState = EMPTY;
+/**
+ * Beim letzten Lesen nicht lesbare Dateien (Ordner, Name und Code), damit jede nur einmal ins Log kommt (Befund 8).
+ * Mit Ordner (Schliff F3): Eine gleichnamige Datei in einem anderen Ordner ist eine andere Datei.
+ */
+let zuletztNichtLesbar: string[] = [];
+/** Quelle Show/früher: eine leer gelesene Liste ändert nichts (A7, Spec 7.6). */
+let leerHalten = false;
+let kern: KernZustand = leererKern();
+let quellen: { sources: string[]; error?: string } = { sources: [] };
+let current: DataState = baueState();
 let listener: ((d: DataState) => void) | null = null;
+let logZeile: ((m: string) => void) | null = null;
+/** Uhr für A4: feuert, wenn `kern.wegAbMs` erreicht ist. */
+let uhr: NodeJS.Timeout | null = null;
+let uhrZiel: number | null = null;
+/** Schon abgelaufene Frist — wird nie ein zweites Mal geplant. */
+let uhrErledigt: number | null = null;
 
-/** Eine Datenzeile `key=value` / `key: value` parsen. Kommentare (#, //, ;) raus. */
-function parseLine(line: string): [string, string] | null {
-  const t = line.trim();
-  if (!t || t.startsWith('#') || t.startsWith('//') || t.startsWith(';')) return null;
-  let idx = t.indexOf('=');
-  if (idx < 0) idx = t.indexOf(':');
-  if (idx <= 0) return null;
-  const key = t.slice(0, idx).trim();
-  let value = t.slice(idx + 1).trim();
-  if (value.length >= 2 && ((value[0] === '"' && value.endsWith('"')) || (value[0] === "'" && value.endsWith("'")))) {
-    value = value.slice(1, -1);
-  }
-  return key ? [key, value] : null;
+function baueState(): DataState {
+  return { ...kernSicht(kern), sources: quellen.sources, error: quellen.error, companion: companionWerte(kern) };
 }
 
-/** `schlüssel=wert`-Datei → ein Eintrag (Variablen-Map). */
-function parseKvFile(content: string): Record<string, string> {
-  const vars: Record<string, string> = {};
-  for (const line of content.split(/\r?\n/)) {
-    const kv = parseLine(line);
-    if (kv) vars[kv[0]] = kv[1];
-  }
-  return vars;
+/** Einen Kern-Schritt übernehmen: Zustand, Logzeilen (Spec 7.9), Uhr, Meldung an den Main. */
+function anwenden(s: KernSchritt): void {
+  kern = s.zustand;
+  for (const zeile of s.log) logZeile?.(zeile);
+  planeUhr();
+  current = baueState();
+  listener?.(current);
 }
 
-function splitDelimited(line: string, delim: string): string[] {
-  return line.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
+/** Die Uhr an `kern.wegAbMs` ausrichten: planen, verschieben oder abbrechen. */
+function planeUhr(): void {
+  const ziel = kern.wegAbMs;
+  if (ziel === uhrZiel || (ziel !== null && ziel === uhrErledigt)) return;
+  if (uhr) clearTimeout(uhr);
+  uhr = null;
+  uhrZiel = ziel;
+  if (ziel === null) return;
+  // Höchstens HALTEN_NACH_SENDUNG_MS: eine zurückgestellte Systemuhr verlängert das Halten nicht.
+  const warten = Math.min(Math.max(0, ziel - Date.now()), HALTEN_NACH_SENDUNG_MS);
+  uhr = setTimeout(uhrLaeuft, warten);
 }
 
-/** CSV/TSV mit Kopfzeile → Liste von Einträgen (Spalten = Variablen). */
-function parseTable(content: string): DataEntry[] {
-  const rows = content
-    .split(/\r?\n/)
-    .map((r) => r.trim())
-    .filter((r) => r && !r.startsWith('#'));
-  if (rows.length < 2) return []; // nur Kopfzeile oder leer → keine Einträge
-  const delim = rows[0].includes('\t') ? '\t' : rows[0].includes(';') ? ';' : ',';
-  const header = splitDelimited(rows[0], delim);
-  let labelCol = header.findIndex((h) => LABEL_KEYS.includes(h.toLowerCase()));
-  if (labelCol < 0) labelCol = 0;
-  const out: DataEntry[] = [];
-  for (let r = 1; r < rows.length; r++) {
-    const cells = splitDelimited(rows[r], delim);
-    if (cells.every((c) => !c)) continue;
-    const vars: Record<string, string> = {};
-    for (let i = 0; i < header.length; i++) if (header[i]) vars[header[i]] = cells[i] ?? '';
-    const label = (cells[labelCol] || cells[0] || `#${out.length + 1}`).trim();
-    out.push({ label, vars });
-  }
-  return out;
+function uhrLaeuft(): void {
+  const ziel = uhrZiel;
+  uhr = null;
+  uhrZiel = null;
+  uhrErledigt = ziel; // eine abgelaufene Frist wird nie ein zweites Mal geplant
+  if (ziel === null) return;
+  // Feuert die Uhr, ist die Frist um. Node-Timer können eine Millisekunde vor Date.now()
+  // feuern, deshalb gilt mindestens die Frist selbst als „jetzt“.
+  anwenden(uhrTick(kern, Math.max(Date.now(), ziel)));
 }
 
-/** Label für einen key=wert-Eintrag aus bevorzugten Schlüsseln (sonst Dateiname). */
-function labelFor(vars: Record<string, string>, file: string): string {
-  for (const k of Object.keys(vars)) if (LABEL_KEYS.includes(k.toLowerCase()) && vars[k].trim()) return vars[k].trim();
-  return basename(file, extname(file));
+/** Ergebnis eines Scans; `nichtLesbar`: Dateien, die beim Lesen scheiterten (Name und Fehlercode). */
+interface ScanErgebnis {
+  entries: DataEntry[];
+  sources: string[];
+  error?: string;
+  nichtLesbar: Array<{ datei: string; code: string }>;
 }
 
-/** Ordner scannen: alle Datendateien lesen + zu einer Eintrags-Liste bündeln. */
-function scan(dir: string): { entries: DataEntry[]; sources: string[]; error?: string } {
-  if (!dir) return { entries: [], sources: [] };
-  if (!existsSync(dir)) return { entries: [], sources: [], error: 'Ordner nicht gefunden' };
+/** Ordner scannen: alle Datendateien lesen und über den Kern zu einer Liste zusammenführen. */
+function scan(dir: string): ScanErgebnis {
+  if (!dir) return { entries: [], sources: [], nichtLesbar: [] };
+  if (!existsSync(dir)) return { entries: [], sources: [], error: 'Ordner nicht gefunden', nichtLesbar: [] };
   let files: string[];
   try {
     files = readdirSync(dir).filter((f) => DATA_EXT.has(extname(f).toLowerCase()));
   } catch (err) {
-    return { entries: [], sources: [], error: (err as Error).message };
+    return { entries: [], sources: [], error: (err as Error).message, nichtLesbar: [] };
   }
   files.sort((a, b) => a.localeCompare(b));
-  const entries: DataEntry[] = [];
+  const teile: DataEntry[][] = [];
   const sources: string[] = [];
+  const nichtLesbar: ScanErgebnis['nichtLesbar'] = [];
   for (const f of files) {
     try {
       const content = readFileSync(join(dir, f), 'utf8');
       const ext = extname(f).toLowerCase();
+      let es: DataEntry[];
       if (ext === '.csv' || ext === '.tsv') {
-        const es = parseTable(content);
-        if (es.length) {
-          entries.push(...es);
-          sources.push(f);
-        }
+        es = parseTable(content, f);
       } else {
-        const vars = parseKvFile(content);
-        if (Object.keys(vars).length) {
-          entries.push({ label: labelFor(vars, f), vars });
-          sources.push(f);
-        }
+        const e = parseKvDatei(content, f);
+        es = e ? [e] : [];
       }
-    } catch {
-      // einzelne Datei korrupt → überspringen
+      if (es.length) {
+        teile.push(es);
+        sources.push(f);
+      }
+    } catch (err) {
+      // einzelne Datei gerade gesperrt oder nicht lesbar → überspringen, aber nicht still (Befund 8): rescan meldet sie.
+      const code = (err as NodeJS.ErrnoException)?.code;
+      nichtLesbar.push({ datei: f, code: typeof code === 'string' && code ? code : 'Lesefehler' });
     }
   }
-  return { entries, sources };
+  return { entries: fuehreZusammen(teile), sources, nichtLesbar };
 }
 
 /** Signatur über Datei-Namen+mtime+Größe für den Poll-Fallback. */
@@ -171,89 +186,36 @@ function signature(dir: string): string {
   }
 }
 
-function emit(): void {
-  current = {
-    entries: current.entries,
-    activeIndex,
-    variables: activeIndex >= 0 ? current.entries[activeIndex].vars : {},
-    sources: current.sources,
-    error: current.error,
-  };
-  listener?.(current);
+function rescan(andererOrdner = false): void {
+  const r = scan(watchedDir);
+  // A7 (wie neueListe nur im selben Ordner): bleibt die alte Liste stehen, bleiben auch ihre Quellen stehen.
+  const behalten = r.entries.length === 0 && leerHalten && !andererOrdner;
+  quellen = { sources: behalten ? quellen.sources : r.sources, error: r.error };
+  // Befund 8: Eine nicht lesbare Datei kommt ins Log (je Datei und Code einmal, nicht bei jedem Nachlesen). lastSig
+  // bleibt dann leer, damit der Poll erneut liest: Nach dem Entsperren ändern sich Größe und Zeit oft nicht mehr.
+  const vorher = new Set(zuletztNichtLesbar);
+  zuletztNichtLesbar = r.nichtLesbar.map((f) => `${watchedDir}\u0000${f.datei}\u0000${f.code}`);
+  r.nichtLesbar.forEach((f, i) => {
+    if (!vorher.has(zuletztNichtLesbar[i])) logZeile?.(`DataLink: Datei „${f.datei}“ nicht lesbar (${f.code}), übersprungen, wird erneut gelesen.`);
+  });
+  lastSig = r.nichtLesbar.length ? '' : signature(watchedDir);
+  anwenden(neueListe(kern, r.entries, { andererOrdner, leerHalten }));
 }
 
-function rescan(): void {
-  const r = scan(watchedDir);
-  if (r.entries.length === 0) activeIndex = -1;
-  else if (activeIndex < 0 || activeIndex >= r.entries.length) activeIndex = 0;
-  current = { entries: r.entries, activeIndex, variables: {}, sources: r.sources, error: r.error };
-  lastSig = signature(watchedDir);
-  emit();
+/**
+ * Liest der 3-s-Poll beim nächsten Takt neu? Ja, wenn sich eine Datei geändert hat (Name, Zeit, Größe) oder beim
+ * letzten Lesen eine Datei nicht lesbar war (Befund 8).
+ */
+export function mussNachlesen(): boolean {
+  return signature(watchedDir) !== lastSig;
 }
 
 function scheduleRescan(): void {
   if (debounce) clearTimeout(debounce);
-  debounce = setTimeout(rescan, 250);
+  debounce = setTimeout(() => rescan(), 250);
 }
 
-export function getDataState(): DataState {
-  return current;
-}
-
-/** Eintrag abrufen — `ref` = 1-basierte Nummer oder (Teil-)Name. */
-export function recall(ref: string): void {
-  if (!current.entries.length) return;
-  const t = (ref ?? '').trim();
-  if (!t) return;
-  let idx = -1;
-  if (/^\d+$/.test(t)) {
-    idx = Number(t) - 1;
-  } else {
-    const lc = t.toLowerCase();
-    idx = current.entries.findIndex((e) => e.label.toLowerCase() === lc);
-    if (idx < 0) idx = current.entries.findIndex((e) => e.label.toLowerCase().includes(lc));
-  }
-  if (idx < 0 || idx >= current.entries.length) return;
-  activeIndex = idx;
-  emit();
-}
-
-/** Aktiven Eintrag um `delta` verschieben (geklemmt, kein Umlauf). */
-export function step(delta: number): void {
-  if (!current.entries.length) return;
-  let idx = (activeIndex < 0 ? 0 : activeIndex) + delta;
-  if (idx < 0) idx = 0;
-  if (idx >= current.entries.length) idx = current.entries.length - 1;
-  activeIndex = idx;
-  emit();
-}
-
-/**
- * Watchfolder (neu) setzen. Leerer Pfad = deaktivieren. `cb` wird bei jeder
- * Änderung (und initial) mit dem neuen Zustand aufgerufen.
- */
-export function startDataWatch(dir: string, cb: (d: DataState) => void): void {
-  listener = cb;
-  if (dir === watchedDir && watcher) {
-    rescan(); // gleicher Ordner → nur frisch einlesen (activeIndex bleibt)
-    return;
-  }
-  stopDataWatch(true);
-  watchedDir = dir || '';
-  activeIndex = -1; // neuer Ordner → erster Eintrag wird aktiv
-  rescan();
-  if (!watchedDir) return;
-  try {
-    watcher = watch(watchedDir, { persistent: false }, () => scheduleRescan());
-  } catch {
-    watcher = null; // Ordner fehlt o. Ä. → Poll fängt es ab
-  }
-  poll = setInterval(() => {
-    if (signature(watchedDir) !== lastSig) rescan();
-  }, 3000);
-}
-
-export function stopDataWatch(keepListener = false): void {
+function schliesseBeobachter(): void {
   if (debounce) {
     clearTimeout(debounce);
     debounce = null;
@@ -270,8 +232,99 @@ export function stopDataWatch(keepListener = false): void {
     }
     watcher = null;
   }
+}
+
+export function getDataState(): DataState {
+  return current;
+}
+
+/** Eintrag abrufen (Spec 7.4): Nummer, Schlüssel, Label, Teilstring oder `@⟨Kennung⟩ ⟨Name⟩`. */
+export function recall(ref: string): void {
+  anwenden(rufeAb(kern, ref));
+}
+
+/** Klick in Liste oder Board: sucht nur den Schlüssel (Spec 7.4). */
+export function recallSchluessel(key: string): void {
+  anwenden(rufeSchluesselAb(kern, key));
+}
+
+/** Aktiven Eintrag um `delta` verschieben (geklemmt; ohne aktiven Eintrag → Eintrag 1). */
+export function step(delta: number): void {
+  anwenden(schritt(kern, delta));
+}
+
+/**
+ * Sendung an den Kern melden (A2/A4). Nur ein Wechsel zählt: der Renderer meldet seinen
+ * Zustand auch bei NDI- oder Vorlagen-Änderungen, und jede weitere Meldung „aus“ würde
+ * die 1-s-Frist sonst neu starten.
+ */
+export function setzeAufSendung(onAir: boolean): void {
+  if (kern.aufSendung === onAir) return;
+  anwenden(setzeSendung(kern, onAir, Date.now()));
+}
+
+/** Ordner sofort neu einlesen (für Tests; im Betrieb lesen fs.watch und der Poll). */
+export function rescanJetzt(): void {
+  if (debounce) {
+    clearTimeout(debounce);
+    debounce = null;
+  }
+  rescan();
+}
+
+/**
+ * Watchfolder (neu) setzen. Leerer Pfad = nichts lesen (leere Liste). `cb` bekommt jeden
+ * neuen Stand (und den ersten). Der Kernzustand bleibt bei einem Ordnerwechsel erhalten
+ * (A8/A9): der Kern gleicht den aktiven Eintrag über seinen Schlüssel ab.
+ * `leerHalten`: Quelle Show/früher (A7). `log`: Logzeilen des Kerns (Spec 7.9).
+ */
+export function startDataWatch(
+  dir: string,
+  cb: (d: DataState) => void,
+  o: { leerHalten: boolean; log?: (m: string) => void },
+): void {
+  listener = cb;
+  leerHalten = o.leerHalten;
+  logZeile = o.log ?? null;
+  const ziel = dir || '';
+  if (ziel === watchedDir && watcher) {
+    rescan(); // gleicher Ordner → nur frisch einlesen
+    return;
+  }
+  schliesseBeobachter();
+  const andererOrdner = ziel !== zuletztBeobachtet;
+  watchedDir = ziel;
+  zuletztBeobachtet = ziel;
+  rescan(andererOrdner);
+  if (!watchedDir) return;
+  try {
+    watcher = watch(watchedDir, { persistent: false }, () => scheduleRescan());
+  } catch {
+    watcher = null; // Ordner fehlt o. Ä. → Poll fängt es ab
+  }
+  poll = setInterval(() => {
+    if (mussNachlesen()) rescan();
+  }, 3000);
+}
+
+/** Beobachtung beenden und den Kern zurücksetzen — nur beim Beenden der App (und im Test). */
+export function stopDataWatch(keepListener = false): void {
+  schliesseBeobachter();
+  if (uhr) {
+    clearTimeout(uhr);
+    uhr = null;
+  }
+  uhrZiel = null;
+  uhrErledigt = null;
   watchedDir = '';
-  activeIndex = -1;
-  current = EMPTY;
-  if (!keepListener) listener = null;
+  zuletztBeobachtet = null;
+  lastSig = '';
+  zuletztNichtLesbar = [];
+  kern = leererKern();
+  quellen = { sources: [] };
+  current = baueState();
+  if (!keepListener) {
+    listener = null;
+    logZeile = null;
+  }
 }

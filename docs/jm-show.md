@@ -223,9 +223,52 @@ er ist. Das Side-Events-Panel im Launcher zeigt dann „iveo-Abgleich gestört:
 <Grund> (seit <Uhrzeit>)“, etwa „Token ungültig oder widerrufen“ oder „kein
 iveo-Token auf diesem Rechner, nur Offline-Ablauf“.
 
+**Titler hält seinen Speaker.** Seit Titler 0.10.0, Launcher 0.14.0 und
+Rundown 0.7.0 hält die Bauchbinde ihre Person, nicht ihre Nummer in der Liste:
+Der Titler merkt sich den abgerufenen Speaker über einen Ersatz-Schlüssel aus
+Datei und Namen. Kommt in iveo ein Speaker davor dazu oder schaltet der Launcher
+auf ein anderes Side Event um, bleibt dieselbe Person auf Sendung. Stehen
+Korrekturen aus iveo, etwa an der Funktion, in der Show, zeigt der Titler sie
+sofort. Der Launcher holt Speaker beim Binden, beim Umschalten auf die
+Tagesübersicht oder auf ein Side Event mit verknüpften Speakern, ohne gewähltes
+Side Event bei einer Abfrage, in der iveo ein Programm als geändert meldet, und
+bei jeder Abfrage, solange die Show eine fehlende Speakerliste vermerkt. Eine
+Korrektur allein an einem Speaker erreicht die Show also nicht mit jeder
+Abfrage. Die iveo-Kennung
+der Speaker wird laut Owner-Entscheidung vom 05.10.2026 noch nicht in Show,
+Titler und Rundown übernommen. Der Schlüssel hängt deshalb am Namen: Ändert sich
+der Name in iveo, oder kommt bei gleichnamigen Speakern einer dazu, fällt einer
+weg oder ändert sich einer, gilt die Person als nicht mehr in der Liste. Fehlt
+die Person auf Sendung in der neuen Liste, bleibt die Bauchbinde stehen, bis man
+sie ausblendet oder einen Eintrag abruft; Daten / Recall zeigt dazu einen Hinweis.
+Ein Abruf ohne Treffer lässt nie still den vorherigen Speaker aktiv. Der Rundown
+ruft Speaker über den Namen ab, der bei der Auswahl im Picker stand. Der Titler
+sucht ihn erst genau, dann als Teil eines Namens: Ändert sich der Name in iveo,
+trifft der Abruf nur noch einen Speaker, dessen Name den alten enthält (etwa nach
+einem hinzugefügten Titel), und das muss nicht dieselbe Person sein; sonst meldet
+der Titler den Abruf als nicht in der Liste. Nach einer Namensänderung den
+Speaker im Picker neu wählen. Die Form
+`TITLER RECALL @⟨Kennung⟩ ⟨Name⟩` versteht der Titler bereits: Eine Kennung
+tragen nur Einträge eigener CSV- oder TSV-Dateien mit der Spalte `@kennung`,
+sonst zählt der Name. Eine Show
+überschreibt den eigenen DataLink-Ordner des Titlers nicht mehr; „Zurück zum
+eigenen Ordner“ in den Einstellungen führt zu ihm zurück. Ist die Speakerliste
+von iveo beim Abgleich oder beim Umschalten nicht abrufbar, behält die Show ihre
+Speaker; das Panel sagt dann „Speaker aus früherem Stand“, der Titler bei den
+Speakern der Show „Liste aus früherem Stand“, sobald bei ihm kein dringenderer
+Hinweis steht (etwa zur Person auf Sendung oder zu einem Abruf). Fehlen der
+Abfrage eines Side Events dessen Angaben (etwa nach dem Öffnen der Show), holt
+sie die Liste mit, wenn das Side Event verknüpfte Speaker hat oder die Show
+eine fehlende Liste vermerkt;
+scheitert sie dabei, bricht die Abfrage ab, Änderungen der Agenda kommen nicht
+an, bis die Liste wieder kommt, und das Panel nennt den Grund. Beim Binden im
+Show-Editor gilt ein solcher Fehler weiter als keine Speaker: Die Bindung bringt
+dann keine Speaker mit, und der Editor warnt.
+
 **Grenzen.** Das gilt am Einzelplatz: Tools auf einem anderen Rechner lesen
-weiter ihre eigene Show-Datei (folgt mit Master-Link Teil 2b). Sprünge aus
-Companion (`RUNDOWN GOTO n`, `TIMER GOTO n`) und `TITLER RECALL <nr>` bleiben
-nummernbasiert. Wird eine Show-Datei umbenannt oder verschoben, beginnt der
-Rundown für sie neu. Ein älterer Rundown (bis 0.5), der eine neue `.jmrundown`
-speichert, verliert deren Archiv und Markierungen.
+weiter ihre eigene Show-Datei (folgt mit Release 2 von Master-Link Teil 2b).
+Sprünge aus Companion (`RUNDOWN GOTO n`, `TIMER GOTO n`) sowie
+`TITLER RECALL <nr>`, Weiter und Zurück im Titler bleiben nummernbasiert. Wird
+eine Show-Datei umbenannt oder verschoben, beginnt der Rundown für sie neu. Ein
+älterer Rundown (bis 0.5), der eine neue `.jmrundown` speichert, verliert deren
+Archiv und Markierungen.

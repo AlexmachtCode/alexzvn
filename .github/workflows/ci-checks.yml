@@ -58,6 +58,9 @@ jobs:
         run: npm run selftest -w @jm/timer
       - name: Rundown (Abgleich, Sprung, scharfe Zeile)
         run: npm run selftest -w @jm/rundown
+      # Master-Link Teil 2b (Spec 9.5): DataLink-Kern und Datenquelle des Titlers, mit tsx, ohne Electron.
+      - name: Titler (DataLink-Schlüssel, Datenquelle)
+        run: npm run selftest -w @jm/titler
 
   secret-scan:
     name: Secret-Scan (gitleaks)

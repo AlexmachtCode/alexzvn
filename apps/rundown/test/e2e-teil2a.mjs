@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Durchgang Master-Link Teil 2a mit den GEBAUTEN Programmen (Spec 9.8, Titler-Messung 6.4).
+// Durchgang Master-Link Teil 2a/2b mit den GEBAUTEN Programmen (2a-Spec 9.8; 2b-Spec 9.6: Titler hält seinen Speaker).
 // NICHT in CI: startet Launcher, Timer, Titler und Rundown aus diesem Repo als echte
 // Electron-Apps und dazu einen nachgebauten iveo-Server auf 127.0.0.1.
 //
@@ -7,23 +7,32 @@
 //   ELECTRON_EXE=<Pfad zu electron.exe> node node_modules/tsx/dist/cli.mjs apps/rundown/test/e2e-teil2a.mjs
 // tsx, weil das Skript Suite-Pakete als TypeScript-Quelle lädt (Steuer-Client, Show-Format, iveo-Umwandler).
 //
-// Vorher darf kein Launcher/Timer/Titler/Rundown laufen (Ports 7777, 8724, 8726, 8731, 8736, 8738, 9334 frei).
+// Gegenprobe (2b-Spec 9.6): Mit E2E_TITLER_DIR=<Ordner apps\titler eines gebauten Titlers 0.9.0> startet das
+// Skript den Titler von dort. Abschnitt 9 muss dann rot werden („FEHL 9 · Alan bleibt auf Sendung …“).
+//
+// Vorher darf kein Launcher/Timer/Titler/Rundown laufen (Ports 7777, 8724, 8726, 8731, 8736, 8738, 9334, 9335 frei).
 // Das Skript legt die Daten, die es verändert, VOR dem Lauf beiseite (umbenennen nach <name>.e2e-vorher) und
 // stellt sie in jedem Ausgang wieder her (auch Abbruch und Strg+C):
 //   %APPDATA%\@jm\rundown\regie, rundown.autosave.jmrundown, rundown.autosave.v1.jmrundown,
 //   %APPDATA%\@jm\timer\state.json, %APPDATA%\@jm\titler\titler-config.json, %APPDATA%\@jm\titler\iveo-data,
+//   %APPDATA%\@jm\titler\show-zuletzt.json,
 //   %APPDATA%\JM Production Suite\master-link.json (der Dev-Launcher soll nicht als Master/Slave mitlaufen).
+// Danach schreibt es eine eigene titler-config.json (Vorlage Bauchbinde, {{name}} / {{funktion}}), damit das
+// Vorschaubild des Titlers den abgerufenen Speaker zeigt.
 // Nebenwirkung: Der Dev-Launcher meldet sich als Empfänger für jmps://-Links an; der installierte Launcher
 // holt sich das bei seinem nächsten Start zurück.
 //
 // Messpunkte (9.8): Gedächtnis-Datei regie/<schlüssel>.json · STATE des Rundowns auf 8731 · Timer-Socket 7777 ·
 // Logzeilen der drei Programme. Den Rundown liest und bedient das Skript über seine Preload-Brücke
 // window.jmrundown (Chrome-DevTools-Protokoll auf Port 9334) — derselbe Weg wie der Editor.
-// Reihenfolge: 1–7b, dann 9 (Titler hängt an Show 1), zuletzt 8 (wechselt den Rundown auf Show 2).
+// Titler (2b-Spec 9.6): STATE auf 8726, Titler-Log und das Vorschaubild — SHA-256 von toDataURL() des Canvas im
+// Bedienfenster, gelesen über DevTools auf Port 9335, jeweils 1,5 s nach der Aktion (9e).
+// Reihenfolge: 1–7b, dann 9 (Titler hängt an Show 1), dann 8 (wechselt den Rundown auf Show 2) und 10–14,
+// zuletzt 9b–9d (der Launcher öffnet Show 1 wieder; neues Side Event p-c verknüpft Ada und Grace, nicht Alan).
 // ─────────────────────────────────────────────────────────────────────────────
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -31,7 +40,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { io } from 'socket.io-client';
 import { controlClientOptions, readControlConfig } from '@jm/control-config';
-import { agendaToAblauf, localTimeOfDayMs } from '@jm/iveo';
+import { agendaToAblauf, localTimeOfDayMs, speakersToShowSpeakers } from '@jm/iveo';
 import { serializeShow } from '@jm/show';
 import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 
@@ -44,7 +53,11 @@ const LOGS = Object.fromEntries(['launcher', 'timer', 'titler', 'rundown'].map((
 const TOKEN = 'e2e-teil2a-token';
 const EVENT = 'e2e-teil2a';
 const CDP_RUNDOWN = 9334;
-const PORTS = { timerSocket: 7777, timer: 8724, titler: 8726, rundown: 8731, launcher: 8736, verbund: 8738, rundownDevTools: CDP_RUNDOWN };
+const CDP_TITLER = 9335;
+const PORTS = { timerSocket: 7777, timer: 8724, titler: 8726, rundown: 8731, launcher: 8736, verbund: 8738, rundownDevTools: CDP_RUNDOWN, titlerDevTools: CDP_TITLER };
+/** Titler-Programmordner: für die Gegenprobe (2b-Spec 9.6) aus E2E_TITLER_DIR, sonst wie alle anderen aus diesem Repo. */
+const TITLER_DIR = process.env.E2E_TITLER_DIR ? resolve(process.env.E2E_TITLER_DIR) : join(REPO, 'apps', 'titler');
+const appOrdner = (app) => (app === 'titler' ? TITLER_DIR : join(REPO, 'apps', app));
 const VORHER = '.e2e-vorher';
 const SICHERN = [
   join(DEV('rundown'), 'regie'),
@@ -53,6 +66,7 @@ const SICHERN = [
   join(DEV('timer'), 'state.json'),
   join(DEV('titler'), 'titler-config.json'),
   join(DEV('titler'), 'iveo-data'),
+  join(DEV('titler'), 'show-zuletzt.json'), // gemerkte Show des Titlers (2b-Spec 7.7); sonst bliebe die des Laufs liegen
   join(APPDATA, 'JM Production Suite', 'master-link.json'),
 ];
 const env = { ...process.env, JMPS_IVEO_TOKEN: TOKEN, JMPS_IVEO_POLL_MS: '2000' };
@@ -174,8 +188,14 @@ function agendaAblauf(programId) {
   const p = iveo.programs.find((x) => x.id === programId);
   return agendaToAblauf(iveo.agenda[programId], { firstStartMs: localTimeOfDayMs(p), category: p.type_slug });
 }
+/**
+ * Speaker der Show-Datei genau so, wie der Launcher sie schreibt (SP7, 2b-Spec 5.2): über denselben Umwandler und
+ * in derselben Reihenfolge (M3). Eine Kennung `id` tragen sie nur in Zweig A von M1; im geltenden Zweig B ohne
+ * Kennung, der Titler bildet dann Ersatz-Schlüssel aus Datei und Name. So schreibt die erste Abfrage nach dem
+ * Öffnen nicht (Abschnitte 1 und 10e).
+ */
 function speakerListe() {
-  return iveo.speakers.map((s) => ({ name: [s.first_name, s.last_name].filter(Boolean).join(' '), ...(s.title ? { title: s.title } : {}) }));
+  return speakersToShowSpeakers(iveo.speakers);
 }
 /** Show-Datei mit Bindung an den nachgebauten Server (tools leer: die Tools startet das Skript selbst). */
 function schreibeShowDatei(pfad, { name, programId, mitKennung }) {
@@ -205,50 +225,60 @@ function schreibeShowDatei(pfad, { name, programId, mitKennung }) {
 // ── Prozesse ──────────────────────────────────────────────────────────────────
 const kinder = [];
 function starte(app, args = [], schalter = []) {
-  const p = spawn(ELECTRON, [...schalter, join(REPO, 'apps', app), ...args], { env, stdio: 'ignore' });
+  const p = spawn(ELECTRON, [...schalter, appOrdner(app), ...args], { env, stdio: 'ignore' });
   kinder.push(p);
   return p;
 }
 const warteAufPort = (port, maxMs) => bis(async () => !(await portFrei(port)), maxMs, 300);
 
-// Rundown über DevTools: getState/setDoc/nav der Preload-Brücke.
-let rundown = null;
-let rdWs = null;
-let rdNaechste = 1;
-const rdWarten = new Map();
-async function verbindeRundown() {
+// DevTools-Sitzung (gemeinsam für Rundown und Titler): Fenster per json/list suchen, WebSocket öffnen,
+// Runtime.evaluate mit Frist, Bereitschaft abwarten. passt(t) wählt das Fenster, bereit ist der Ausdruck, der true liefert.
+async function cdpSitzung({ port, passt, name, bereit, fehlt }) {
   const ziel = await bis(async () => {
     try {
-      const l = await (await fetch(`http://127.0.0.1:${CDP_RUNDOWN}/json/list`)).json();
-      return l.find((t) => t.type === 'page' && t.url.includes('index.html')) ?? null;
+      const l = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+      return l.find((t) => t.type === 'page' && passt(t)) ?? null;
     } catch {
       return null;
     }
   }, 30_000, 300);
-  if (!ziel) throw new Error('Rundown-Fenster per DevTools nicht erreichbar');
-  rdWs = new WebSocket(ziel.webSocketDebuggerUrl);
-  await new Promise((r, f) => { rdWs.addEventListener('open', r, { once: true }); rdWs.addEventListener('error', f, { once: true }); });
-  rdWs.addEventListener('message', (m) => {
+  if (!ziel) throw new Error(`${name}-Fenster per DevTools nicht erreichbar`);
+  const ws = new WebSocket(ziel.webSocketDebuggerUrl);
+  await new Promise((r, f) => { ws.addEventListener('open', r, { once: true }); ws.addEventListener('error', f, { once: true }); });
+  let naechste = 1;
+  const warten = new Map();
+  ws.addEventListener('message', (m) => {
     const d = JSON.parse(m.data);
-    const w = rdWarten.get(d.id);
-    if (w) { rdWarten.delete(d.id); w(d); }
+    const w = warten.get(d.id);
+    if (w) { warten.delete(d.id); w(d); }
   });
-  if (!(await bis(async () => (await rd('typeof window.jmrundown?.getState === "function"')) === true, 15_000))) {
-    throw new Error('window.jmrundown fehlt im Rundown-Fenster');
-  }
-}
-function rd(ausdruck, ms = 15_000) {
-  return new Promise((ok, fehler) => {
-    const id = rdNaechste++;
-    const t = setTimeout(() => { rdWarten.delete(id); fehler(new Error(`DevTools-Frist: ${ausdruck.slice(0, 60)}`)); }, ms);
-    rdWarten.set(id, (d) => {
+  const werte = (ausdruck, ms = 15_000) => new Promise((ok, fehler) => {
+    const id = naechste++;
+    const t = setTimeout(() => { warten.delete(id); fehler(new Error(`DevTools-Frist (${name}): ${ausdruck.slice(0, 60)}`)); }, ms);
+    warten.set(id, (d) => {
       clearTimeout(t);
-      if (d.result?.exceptionDetails) fehler(new Error(d.result.exceptionDetails.exception?.description ?? 'Fehler im Rundown-Fenster'));
+      if (d.result?.exceptionDetails) fehler(new Error(d.result.exceptionDetails.exception?.description ?? `Fehler im ${name}-Fenster`));
       else ok(d.result?.result?.value);
     });
-    rdWs.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression: ausdruck, returnByValue: true, awaitPromise: true } }));
+    ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression: ausdruck, returnByValue: true, awaitPromise: true } }));
+  });
+  if (!(await bis(async () => (await werte(bereit)) === true, 15_000))) throw new Error(fehlt);
+  return { werte, schliesse() { try { ws.close(); } catch { /* schon zu */ } } };
+}
+
+// Rundown über DevTools: getState/setDoc/nav der Preload-Brücke.
+let rundown = null;
+let rdSitzung = null;
+async function verbindeRundown() {
+  rdSitzung = await cdpSitzung({
+    port: CDP_RUNDOWN,
+    passt: (t) => t.url.includes('index.html'),
+    name: 'Rundown',
+    bereit: 'typeof window.jmrundown?.getState === "function"',
+    fehlt: 'window.jmrundown fehlt im Rundown-Fenster',
   });
 }
+const rd = (ausdruck, ms) => rdSitzung.werte(ausdruck, ms);
 /**
  * Hinweise (4.6) sammeln: kurze verschwinden nach 6 s, deshalb bei jedem Blick merken.
  * Schlüssel = Rundown-Lauf + Hinweis-id (die id beginnt nach einem Neustart neu).
@@ -272,8 +302,8 @@ async function starteRundown(args) {
 async function beendeRundown() {
   const p = rundown;
   rundown = null;
-  try { rdWs?.close(); } catch { /* schon zu */ }
-  rdWs = null;
+  rdSitzung?.schliesse();
+  rdSitzung = null;
   if (!p || p.exitCode !== null) return;
   const weg = new Promise((r) => p.once('exit', r));
   try {
@@ -297,6 +327,32 @@ async function wartRundown(bedingung, maxMs, name) {
   }, maxMs, 200);
   if (!ok) console.log(`  (Frist abgelaufen: ${name}) Zeilen: ${zeilenKurz(letzter)}`);
   return letzter;
+}
+
+// Titler über DevTools (2b-Spec 9.6, 9e): nur lesen, das Vorschaubild im Bedienfenster.
+let tlSitzung = null;
+async function verbindeTitler() {
+  tlSitzung = await cdpSitzung({
+    port: CDP_TITLER,
+    // Bedienfenster = index.html ohne ?view= (Recall-Board und 2. Bildschirm tragen view=recall bzw. view=output).
+    passt: (t) => t.url.includes('index.html') && !t.url.includes('view='),
+    name: 'Titler',
+    bereit: "document.querySelector('canvas') !== null",
+    fehlt: 'Vorschau-Canvas fehlt im Titler-Fenster',
+  });
+}
+const tl = (ausdruck, ms) => tlSitzung.werte(ausdruck, ms);
+/** Messpunkt 9e: SHA-256 (hex) von toDataURL() des Vorschau-Canvas. Der Aufrufer wartet vorher 1,5 s nach der Aktion. */
+async function bildHash() {
+  const daten = await tl("document.querySelector('canvas').toDataURL()");
+  if (typeof daten !== 'string' || !daten.startsWith('data:image/png')) throw new Error('Vorschau-Canvas liefert kein Bild');
+  return createHash('sha256').update(daten).digest('hex');
+}
+/** Vorlage Bauchbinde mit {{name}} und {{funktion}} (9e): So zeigt das Vorschaubild den abgerufenen Speaker. */
+function schreibeTitlerConfig() {
+  mkdirSync(DEV('titler'), { recursive: true });
+  const config = { template: 'lowerthird', name: '{{name}}', subtitle: '{{funktion}}' };
+  writeFileSync(join(DEV('titler'), 'titler-config.json'), JSON.stringify(config, null, 2), 'utf8');
 }
 
 // Steuer-Clients (open- oder secure-Modus wie die Tools: control.json in %APPDATA%).
@@ -342,6 +398,7 @@ async function raeumeAuf() {
   if (aufgeraeumt) return;
   aufgeraeumt = true;
   try { timerSocket?.close(); } catch { /* schon zu */ }
+  tlSitzung?.schliesse();
   for (const c of steuer) c.disconnect();
   await beendeRundown().catch(() => {});
   for (const p of kinder) {
@@ -366,11 +423,12 @@ process.on('SIGINT', () => { void raeumeAuf().then(() => process.exit(130)); });
 // ── Ablauf ────────────────────────────────────────────────────────────────────
 async function main() {
   for (const app of ['launcher', 'timer', 'titler', 'rundown']) {
-    if (!existsSync(join(REPO, 'apps', app, 'out', 'main', 'index.cjs'))) {
-      console.log(`ABBRUCH: apps/${app} ist nicht gebaut — erst npm run build -w @jm/${app}.`);
+    if (!existsSync(join(appOrdner(app), 'out', 'main', 'index.cjs'))) {
+      console.log(`ABBRUCH: ${appOrdner(app)} ist nicht gebaut — erst npm run build -w @jm/${app}.`);
       process.exit(2);
     }
   }
+  if (process.env.E2E_TITLER_DIR) console.log(`GEGENPROBE: Titler aus ${TITLER_DIR}`);
   if (!existsSync(ELECTRON)) {
     console.log(`ABBRUCH: ${ELECTRON} fehlt — ELECTRON_EXE auf eine electron.exe (Version 33) setzen.`);
     process.exit(2);
@@ -382,6 +440,7 @@ async function main() {
     }
   }
   legeBeiseite();
+  schreibeTitlerConfig();
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   BASE = `http://127.0.0.1:${server.address().port}/api/v1`;
   TMP = mkdtempSync(join(tmpdir(), 'jm-e2e-2a-'));
@@ -391,11 +450,12 @@ async function main() {
 
   // Tools zuerst (mit Show 1), dann der Launcher.
   starte('timer', ['--show', SHOW1]);
-  starte('titler', ['--show', SHOW1]);
+  starte('titler', ['--show', SHOW1], [`--remote-debugging-port=${CDP_TITLER}`]);
   await starteRundown(['--show', SHOW1]);
   for (const port of [PORTS.timer, PORTS.titler, PORTS.rundown, PORTS.timerSocket]) {
     if (!(await warteAufPort(port, 60_000))) throw new Error(`Port ${port} kommt nicht hoch`);
   }
+  await verbindeTitler();
   const rundownSt = steuerClient(PORTS.rundown);
   const timerSt = steuerClient(PORTS.timer);
   const titlerSt = steuerClient(PORTS.titler);
@@ -531,26 +591,41 @@ async function main() {
   st = await rdStand();
   pruefe('7b · Stand und scharfe Zeile nach dem Start per Deep-Link', JSON.stringify(st.doc.rows) === JSON.stringify(vor7b.doc.rows) && st.scharfId === vor7b.scharfId, `scharf ${st.scharfId}`);
 
-  console.log('\n— 9 · Titler-Messung (6.4): Bauchbinde auf Sendung, dann ein Speaker davor');
+  console.log('\n— 9 · Titler hält seinen Speaker (2b-Spec 9.6): Bauchbinde auf Sendung, dann ein Speaker davor; Bild 9e');
   launcherSt.sende('LAUNCHER SIDEEVENT'); // Tagesübersicht: Listen-Modus, alle Event-Speaker
   await bis(() => launcherSt.kv().iveo_side_event === '', 15_000);
   const vier = await bis(() => Number(titlerSt.kv().entry_count) === 4, 15_000);
-  titlerSt.sende('TITLER RECALL 3');
+  // Abruf über den Namen statt „RECALL 3“: Alans Stelle hängt davon ab, ob der Mapper sortiert (M3).
+  titlerSt.sende('TITLER RECALL Alan');
   await bis(() => titlerSt.kv().entry === 'Alan', 5_000);
   titlerSt.sende('TITLER TAKE');
   await bis(() => titlerSt.kv().on_air === '1', 10_000);
+  await sleep(1_500); // 9e: Messpunkt 1,5 s nach der Aktion (das Einblenden dauert 450 ms)
   const vorher9 = { ...titlerSt.kv() };
-  iveo.speakers.unshift({ id: 's-0', event_id: 'ev-e2e', first_name: 'Neu', last_name: '', title: 'Gast' });
+  const bildA = await bildHash(); // Messpunkt A: Alan auf Sendung
+  pruefe('9 · vorher: Alan auf Sendung, Liste mit 4 Speakern', !!vier && vorher9.entry === 'Alan' && vorher9.on_air === '1',
+    `„${vorher9.entry}“ Eintrag ${vorher9.entry_index}/${vorher9.entry_count}, on_air=${vorher9.on_air}`);
+  // „Abel“ steht in der API vorn und sortiert auch nach dem Namen vor Alan: So kommt in jedem Fall ein Speaker davor (M3).
+  iveo.speakers.unshift({ id: 's-0', event_id: 'ev-e2e', first_name: 'Abel', last_name: '', title: 'Gast' });
   iveo.programs = iveo.programs.map((p) => (p.id === 'p-a' ? { ...p, updated_at: new Date().toISOString() } : p));
   const fuenf = await bis(() => Number(titlerSt.kv().entry_count) === 5, 15_000);
-  await sleep(1_000); // der Titler liest seinen Datenordner entprellt neu
+  await sleep(1_500); // der Titler liest seinen Datenordner entprellt neu; danach 1,5 s wie in 9e
   const nachher9 = { ...titlerSt.kv() };
   console.log(
-    `MESSUNG 6.4: auf Sendung vorher „${vorher9.entry}“ (Eintrag ${vorher9.entry_index}/${vorher9.entry_count}, on_air=${vorher9.on_air}), ` +
-      `nach dem Einfügen „${nachher9.entry}“ (Eintrag ${nachher9.entry_index}/${nachher9.entry_count}, on_air=${nachher9.on_air}) ` +
-      `→ Name wechselt auf Sendung: ${vorher9.entry !== nachher9.entry ? 'JA' : 'nein'}`,
+    `MESSUNG 9: auf Sendung vorher „${vorher9.entry}“ (Eintrag ${vorher9.entry_index}/${vorher9.entry_count}, on_air=${vorher9.on_air}), ` +
+      `nach dem Einfügen „${nachher9.entry}“ (Eintrag ${nachher9.entry_index}/${nachher9.entry_count}, on_air=${nachher9.on_air})`,
   );
-  pruefe('9 · Messung durchgeführt (Bauchbinde auf Sendung, Speaker-Liste von 4 auf 5)', !!vier && !!fuenf && vorher9.on_air === '1');
+  pruefe('9 · Alan bleibt auf Sendung, nachdem ein Speaker davor eingefügt wurde (entry Alan, on_air 1)',
+    !!fuenf && nachher9.entry === 'Alan' && nachher9.on_air === '1',
+    `„${nachher9.entry}“ Eintrag ${nachher9.entry_index}/${nachher9.entry_count}, on_air=${nachher9.on_air}`);
+  pruefe('9e · Bild nach dem Einfügen gleich A', (await bildHash()) === bildA);
+  // Kontrolle, dass der Messpunkt einen Namenswechsel sehen kann (9e).
+  titlerSt.sende('TITLER RECALL 2');
+  await sleep(1_500);
+  pruefe('9e · Kontrolle: TITLER RECALL 2 → Bild ungleich A', (await bildHash()) !== bildA, `entry „${titlerSt.kv().entry}“`);
+  titlerSt.sende('TITLER RECALL Alan');
+  await sleep(1_500);
+  pruefe('9e · Kontrolle: TITLER RECALL Alan → Bild wieder gleich A', (await bildHash()) === bildA, `entry „${titlerSt.kv().entry}“`);
 
   console.log('\n— 8 · Bestands-Show ohne Kennungen: Aktion anlegen, dann schreibt der Launcher die Kennungen');
   schreibeShowDatei(SHOW2, { name: 'E2E Bestand', programId: 'p-b', mitKennung: false });
@@ -714,6 +789,78 @@ async function main() {
       await sleep(1_000);
       pruefe('14b · die Gedächtnis-Datei ist nach der Freigabe byte-gleich wie vorher', dateiHash(datei) === vorHash && !readFileSync(datei, 'utf8').includes('e2e-gesperrt'));
     }
+  }
+
+  console.log('\n— 9b–9d · Titler: Umschalten, Ausblenden, Umbenennen (2b-Spec 9.6), Bild wie in 9e');
+  {
+    // Vorbereitung: Launcher wieder auf Show 1, Tagesübersicht (Listen-Modus, alle Event-Speaker).
+    const mZurueck = logMarke('launcher');
+    starte('launcher', [`jmps://open?show=${encodeURIComponent(SHOW1)}`]); // zweite Instanz reicht den Deep-Link weiter
+    pruefe('9b · Launcher hat Show 1 wieder geöffnet', await bis(() => logAb('launcher', mZurueck).includes(`Live-Polling für Event „${EVENT}" aktiv`), 20_000));
+    launcherSt.sende('LAUNCHER SIDEEVENT');
+    await bis(() => launcherSt.kv().iveo_side_event === '', 15_000);
+    // Erst jetzt das dritte Side Event: verknüpft Ada und Grace, NICHT Alan (p-a und p-b bleiben ohne Verknüpfung).
+    iveo.programs.push({
+      id: 'p-c', event_id: 'ev-e2e', type_slug: 'side-event', title: 'Side Event C', starts_at_local: '2026-10-01T16:00:00',
+      duration_minutes: 30, updated_at: new Date().toISOString(), speaker_ids: ['s-1', 's-2'],
+    });
+    iveo.agenda['p-c'] = [{ id: 'c-1', program_id: 'p-c', sort_order: 1, title: 'Gespräch', duration_minutes: 30 }];
+    pruefe('9b · Show 1 enthält das neue Side Event p-c (Listen-Abfrage)', await bis(() => readFileSync(SHOW1, 'utf8').includes('"id": "p-c"'), 20_000));
+    const alle = iveo.speakers.length;
+    pruefe(`9b · Titler-Liste mit allen ${alle} Speakern`, await bis(() => Number(titlerSt.kv().entry_count) === alle, 15_000), `entry_count=${titlerSt.kv().entry_count}`);
+
+    // 9b: Alan auf Sendung, dann auf p-c umschalten — dort fehlt Alan.
+    titlerSt.sende('TITLER CLEAR');
+    await sleep(2_000);
+    titlerSt.sende('TITLER RECALL Alan');
+    await bis(() => titlerSt.kv().entry === 'Alan', 5_000);
+    titlerSt.sende('TITLER TAKE');
+    await bis(() => titlerSt.kv().on_air === '1', 10_000);
+    await sleep(1_500);
+    pruefe('9b · vorher: Alan auf Sendung, Bild gleich A', titlerSt.kv().entry === 'Alan' && titlerSt.kv().on_air === '1' && (await bildHash()) === bildA);
+    const mTitler9b = logMarke('titler');
+    launcherSt.sende('LAUNCHER SIDEEVENT p-c');
+    const zwei = await bis(() => Number(titlerSt.kv().entry_count) === 2, 20_000);
+    await sleep(1_500);
+    const kv9b = { ...titlerSt.kv() };
+    pruefe('9b · Umschalten auf p-c: Liste mit den 2 verknüpften Speakern', !!zwei, `entry_count=${kv9b.entry_count}`);
+    pruefe('9b · Alan bleibt auf Sendung, gehalten (entry Alan, entry_index 0)', kv9b.entry === 'Alan' && kv9b.entry_index === '0' && kv9b.on_air === '1',
+      `„${kv9b.entry}“ Eintrag ${kv9b.entry_index}/${kv9b.entry_count}, on_air=${kv9b.on_air}`);
+    pruefe('9b · Logzeile A2 im Titler-Log', logAb('titler', mTitler9b).includes('DataLink: aktiver Eintrag „Alan“ nicht mehr in der Liste, auf Sendung gehalten.'));
+    pruefe('9b · Bild gleich A (die eingefrorenen Variablen erreichen das Bild)', (await bildHash()) === bildA);
+
+    // 9c: Ausblenden → 1 s später kein Eintrag mehr; ein TAKE zeigt danach leere Platzhalter, nicht Alan.
+    titlerSt.sende('TITLER CLEAR');
+    await sleep(2_000);
+    const kv9c = { ...titlerSt.kv() };
+    pruefe('9c · nach dem Ausblenden kein Eintrag mehr (entry leer)', (kv9c.entry ?? '') === '' && kv9c.on_air === '0', `entry „${kv9c.entry}“, on_air=${kv9c.on_air}`);
+    titlerSt.sende('TITLER TAKE');
+    await sleep(1_500);
+    pruefe('9c · TAKE danach zeigt nicht Alan (Bild ungleich A)', (await bildHash()) !== bildA);
+    titlerSt.sende('TITLER CLEAR');
+    await sleep(1_500);
+
+    // 9d: zurück auf die Tagesübersicht, Grace auf Sendung; in iveo ändert sich ihre Funktion.
+    launcherSt.sende('LAUNCHER SIDEEVENT');
+    await bis(() => launcherSt.kv().iveo_side_event === '', 15_000);
+    pruefe(`9d · Tagesübersicht: wieder alle ${alle} Speaker`, await bis(() => Number(titlerSt.kv().entry_count) === alle, 20_000), `entry_count=${titlerSt.kv().entry_count}`);
+    titlerSt.sende('TITLER RECALL Grace');
+    await bis(() => titlerSt.kv().entry === 'Grace', 5_000);
+    titlerSt.sende('TITLER TAKE');
+    await bis(() => titlerSt.kv().on_air === '1', 10_000);
+    await sleep(1_500);
+    const bildG = await bildHash(); // Messpunkt G: Grace mit der alten Funktion
+    pruefe('9d · vorher: Grace auf Sendung', titlerSt.kv().entry === 'Grace' && titlerSt.kv().on_air === '1');
+    iveo.speakers = iveo.speakers.map((s) => (s.id === 's-2' ? { ...s, title: 'Keynote (neu)' } : s));
+    // Ohne Programmänderung holt der Listen-Modus die Speaker nicht (2b-Spec 2.3 Nr. 4): Muster wie in Abschnitt 9.
+    iveo.programs = iveo.programs.map((p) => (p.id === 'p-a' ? { ...p, updated_at: new Date().toISOString() } : p));
+    const anders = await bis(async () => (await bildHash()) !== bildG, 20_000, 1_500);
+    await sleep(1_500);
+    const kv9d = { ...titlerSt.kv() };
+    pruefe('9d · Funktion auf Sendung aktualisiert, Name bleibt (entry Grace, Bild ungleich G)',
+      !!anders && kv9d.entry === 'Grace' && kv9d.on_air === '1' && (await bildHash()) !== bildG,
+      `„${kv9d.entry}“ Eintrag ${kv9d.entry_index}/${kv9d.entry_count}, on_air=${kv9d.on_air}`);
+    titlerSt.sende('TITLER CLEAR');
   }
 }
 

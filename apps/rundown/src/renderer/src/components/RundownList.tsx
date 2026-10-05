@@ -1,8 +1,18 @@
 import { useState } from 'react';
 import { loeseSprungZiel } from '@shared/sprung';
-import { sendeArgs, sperrenFuer, verschiebeZeilen, zeilenArt, zeilenHinweis, type ShowSicht } from '@shared/zeilen';
+import {
+  istSpeakerAbruf,
+  sendeArgs,
+  speakerChipArgs,
+  sperrenFuer,
+  verschiebeZeilen,
+  zeilenArt,
+  zeilenHinweis,
+  type ShowSicht,
+} from '@shared/zeilen';
 import { actionLabel } from '@/lib/capabilities';
 import { addRow, duplicateRow, removeRow } from '@/lib/doc';
+import type { ShowIveoSpeaker } from '@jm/show';
 import type { RundownDoc } from '@shared/types';
 
 const iconBtn =
@@ -17,6 +27,7 @@ export function RundownList({
   onSetCue,
   onDoc,
   sicht,
+  iveoSpeakers,
 }: {
   doc: RundownDoc;
   index: number;
@@ -26,6 +37,8 @@ export function RundownList({
   onDoc: (doc: RundownDoc) => void;
   /** Gemerkte Show: Sperren (4.5) und aufgelöste Sprung-Nummern (6.2). */
   sicht: ShowSicht;
+  /** iveo-Speaker der Show: Chips von Speaker-Abrufen zeigen den aktuellen Namen zur Kennung (Teil 2b, 8.4). */
+  iveoSpeakers: ShowIveoSpeaker[];
 }) {
   // Drag&Drop-Umsortierung (Issue #84): Quell-Index festhalten, Ziel-Index für die
   // Einfüge-Markierung. Nutzt dieselbe bewege-Funktion wie die ↑/↓-Buttons.
@@ -188,9 +201,12 @@ export function RundownList({
                       {actionLabel(
                         a.role,
                         a.verb,
-                        sendeArgs(a, (x) => loeseSprungZiel(x, sicht.ablaufSchluessel, sicht.eigeneTimerListe)) ?? [
-                          'Ziel entfallen',
-                        ],
+                        // Teil 2b (8.4): Speaker-Abruf mit dem aktuellen Namen zur Kennung, sonst die Sendeargumente (6.2).
+                        istSpeakerAbruf(a)
+                          ? speakerChipArgs(a, iveoSpeakers)
+                          : (sendeArgs(a, (x) => loeseSprungZiel(x, sicht.ablaufSchluessel, sicht.eigeneTimerListe)) ?? [
+                              'Ziel entfallen',
+                            ]),
                       )}
                     </span>
                   ))}

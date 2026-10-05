@@ -16,8 +16,33 @@ import { getConfig, patchConfig } from './config';
 import { registerTemplateIpc } from './library';
 import { startSender, stopSender, senderActive } from './ndi/sender-process';
 import { startControlServer, stopControlServer, updateTitlerState, updateTitlerData, CONTROL_PORT } from './control-server';
-import { startDataWatch, stopDataWatch, recall, step, type DataState } from './datalink';
-import { writeSpeakersTsv } from './iveo-show';
+import {
+  recall,
+  recallSchluessel,
+  setzeAufSendung,
+  startDataWatch,
+  step,
+  stopDataWatch,
+  type DataState,
+} from './datalink';
+import { iveoDataDir, schreibeSpeakersTsvSicher } from './iveo-show';
+import { leseGemerkteShow, leseShowSicher, loescheGemerkteShow, schreibeGemerkteShow } from './show-quelle';
+import { hinweisLogZeile, hinweisText, waehleHinweis } from '@shared/datalink-kern';
+import {
+  eigenerOrdner,
+  logNachMerken,
+  zeigtShow,
+  quellSchritt,
+  quellZeile,
+  startZustand,
+  tsvNichtGeschrieben,
+  uebergang,
+  zurueckKnopf,
+  type QuellEreignis,
+  type QuellSchritt,
+  type QuellWeg,
+  type QuellZustand,
+} from '@shared/datenquelle';
 
 declare const __dirname: string;
 
@@ -29,7 +54,11 @@ let outputWindow: BrowserWindow | null = null;
 /** Zuletzt vom Operator gemeldeter On-Air-Zustand (für frisch geöffnetes Output-Fenster). */
 let lastOnAir = false;
 const preloadPath = join(__dirname, '../preload/index.cjs');
-/** Pfad der aktuell geladenen Show (für Live-Reload nach iveo-Update). */
+/**
+ * Pfad der verbundenen Show (Ziel von RELOAD nach iveo-Update, Vergleich „dieselbe Show“).
+ * Beim Start die gemerkte Show (Spec 7.7), danach die zuletzt geöffnete — auch wenn sie
+ * gerade nicht lesbar war. Nach Ordnerwahl oder „Zurück zum eigenen Ordner“ null.
+ */
 let currentShowPath: string | null = null;
 
 const status: TitlerStatus = {
@@ -40,6 +69,7 @@ const status: TitlerStatus = {
   dataSources: [],
   entries: [],
   activeEntry: -1,
+  datenQuelle: { art: 'ordner', zeile: '', zurueckKnopf: null, ohneOrdner: true },
 };
 
 function buildState(): TitlerState {
@@ -97,63 +127,139 @@ function toDisplayInfo(): DisplayInfo[] {
   });
 }
 
-/** DataLink-Watchfolder (neu) starten/aktualisieren — Einträge/Variablen spiegeln. */
-function refreshDataWatch(): void {
-  const folder = getConfig().dataFolder;
-  if (!folder) {
-    stopDataWatch();
-    status.variables = {};
-    status.dataSources = [];
-    status.dataError = undefined;
-    status.entries = [];
-    status.activeEntry = -1;
-    broadcastStatus();
-    updateTitlerData({ entry: '', entryIndex: 0, entryCount: 0 });
-    return;
-  }
-  startDataWatch(folder, (d: DataState) => {
-    status.variables = d.variables;
-    status.dataSources = d.sources;
-    status.dataError = d.error;
-    status.entries = d.entries.map((e) => e.label);
-    status.activeEntry = d.activeIndex;
-    broadcastStatus();
-    updateTitlerData({
-      entry: d.activeIndex >= 0 ? d.entries[d.activeIndex].label : '',
-      entryIndex: d.activeIndex >= 0 ? d.activeIndex + 1 : 0,
-      entryCount: d.entries.length,
-    });
-  });
+// ── DataLink und Datenquelle (Master-Link Teil 2b, Spec 7.6/7.7) ─────────────
+// `config.dataFolder` ist nur noch der Ordner des Bedieners — die Show schreibt ihn nie
+// mehr. Woher die Einträge kommen, sagt die Datenquelle: `show` und `frueher` lesen
+// `userData/iveo-data` (speakers.tsv aus der Show), `ordner` den eigenen Ordner. Die
+// gemerkte Show (`show-zuletzt.json`) übersteht einen Neustart, damit RELOAD auch nach
+// einem Start über die Kachel wirkt. Die Regeln stehen rein in `shared/datenquelle.ts`.
+let quelle: QuellZustand = startZustand(null, false);
+/** Erst nach dem Start (Übergang, gemerkte Show) darf ein Deep-Link die Datenquelle ändern. */
+let datenquelleGestartet = false;
+/** Deep-Link, der vor dem Start kam (macOS open-url vor whenReady). */
+let wartenderDeepLink: string | null = null;
+
+function userDataDir(): string {
+  return app.getPath('userData');
+}
+
+/** Logzeilen des DataLink-Kerns (Spec 7.9) ins App-Log. */
+function logDataLink(zeile: string): void {
+  getLog().info(zeile);
+}
+
+/** DataLink-Stand in den Status (alle Fenster) und an Companion spiegeln. */
+function uebernimmDataState(d: DataState): void {
+  status.variables = d.variables;
+  status.dataSources = d.sources;
+  status.dataError = d.error;
+  status.entries = d.entries;
+  status.activeEntry = d.activeIndex;
+  status.gehalten = d.gehalten;
+  const h = waehleHinweis(d.hinweis, quelle.quellHinweis);
+  status.hinweis = h ? { art: h.art, text: hinweisText(h) } : undefined;
+  const eigener = eigenerOrdner(getConfig().dataFolder, iveoDataDir(userDataDir()), path.resolve);
+  status.datenQuelle = {
+    art: quelle.art,
+    zeile: quellZeile(quelle, eigener, d.entries.length),
+    zurueckKnopf: zurueckKnopf(quelle, eigener),
+    ohneOrdner: quelle.art === 'ordner' && !eigener,
+  };
+  broadcastStatus();
+  updateTitlerData(d.companion);
 }
 
 /**
- * Show-Integration (#11, Phase 3): Wird der Titler per Show-Deep-Link gestartet und
- * trägt die Show eine iveo-Speaker-Liste, materialisieren wir sie als `speakers.tsv`
- * im verwalteten DataLink-Ordner und richten den Watchfolder darauf aus. Das
- * bestehende DataLink/Recall-System füllt daraus die Bauchbinden. Kein Token nötig
- * (die Daten stehen bereits sanitisiert in der Show).
+ * Beobachteten Ordner nach der Datenquelle setzen: `show`/`frueher` → iveo-data (eine leer
+ * gelesene Liste ändert nichts, A7), `ordner` → der eigene Ordner ('' = keiner: leere Liste).
+ */
+function refreshDataWatch(beobachte: 'iveo-data' | 'eigener' = quelle.art === 'ordner' ? 'eigener' : 'iveo-data'): void {
+  const iveoData = iveoDataDir(userDataDir());
+  if (beobachte === 'iveo-data') {
+    startDataWatch(iveoData, uebernimmDataState, { leerHalten: true, log: logDataLink });
+  } else {
+    const eigener = eigenerOrdner(getConfig().dataFolder, iveoData, path.resolve);
+    startDataWatch(eigener, uebernimmDataState, { leerHalten: false, log: logDataLink });
+  }
+}
+
+/**
+ * Einen Schritt der Datenquelle ausführen: gemerkte Show, Logs, beobachteter Ordner. Die `speakers.tsv`
+ * schreibt `oeffneShow` vorher — scheitert das, kommt hier schon der Ersatzschritt an (Befund 4).
+ */
+function wendeQuellSchrittAn(s: QuellSchritt): QuellSchritt {
+  const vorher = quelle.quellHinweis;
+  quelle = s.zustand;
+  const userData = userDataDir();
+  let gemerktGespeichert = true;
+  if (s.merke.t === 'schreiben') {
+    gemerktGespeichert = schreibeGemerkteShow(userData, s.merke.wert);
+    if (!gemerktGespeichert) getLog().warn('Gemerkte Show konnte nicht gespeichert werden.');
+  } else if (s.merke.t === 'loeschen') {
+    loescheGemerkteShow(userData);
+  }
+  // Erst nach dem Schreiben: „Show gemerkt“ nur, wenn die gemerkte Show wirklich gespeichert ist.
+  for (const zeile of logNachMerken(s, gemerktGespeichert)) getLog().info(zeile);
+  const neu = quelle.quellHinweis;
+  if (neu && JSON.stringify(neu) !== JSON.stringify(vorher)) {
+    const zeile = hinweisLogZeile(neu);
+    if (zeile) {
+      if (neu.art === 'H7') getLog().warn(zeile);
+      else getLog().info(zeile);
+    }
+  }
+  refreshDataWatch(s.beobachte);
+  return s;
+}
+
+/**
+ * Show lesen und als Datenquelle anwenden (Deep-Link, RELOAD, Start). Nie mit Dateiinhalt im
+ * Log (G10). RELOAD gilt danach dieser Show, auch wenn sie gerade nicht lesbar ist (Spec 7.7).
+ */
+function oeffneShow(pfad: string, weg: QuellWeg): QuellSchritt {
+  const gelesen = leseShowSicher(pfad);
+  const userData = userDataDir();
+  const iveoData = iveoDataDir(userData);
+  const mitEigenemOrdner = eigenerOrdner(getConfig().dataFolder, iveoData, path.resolve) !== '';
+  let ereignis: QuellEreignis;
+  if ('show' in gelesen) {
+    const gleicheShow = zeigtShow(quelle, pfad, path.resolve);
+    ereignis = { t: 'gelesen', weg, pfad, show: gelesen.show, gleicheShow };
+  } else {
+    getLog().warn(`Show nicht lesbar (${gelesen.grund}): ${pfad}`);
+    ereignis = { t: 'nichtLesbar', weg, pfad, grund: gelesen.grund, gemerkt: leseGemerkteShow(userData), mitEigenemOrdner };
+  }
+  currentShowPath = pfad;
+  let s = quellSchritt(quelle, ereignis);
+  if (s.tsv) {
+    // Die TSV vor dem Übernehmen schreiben: Scheitert das, gilt der Schritt nicht (Befund 4) — sonst nennte die
+    // Quellzeile die neue Show über der Liste der vorigen. Die Show zählt dann wie nicht lesbar (H4 bei Art show).
+    const fehler = schreibeSpeakersTsvSicher(iveoData, s.tsv);
+    if (fehler) {
+      getLog().error(`iveo: speakers.tsv konnte nicht geschrieben werden: ${fehler.meldung}`);
+      s = tsvNichtGeschrieben(quelle, s, { weg, pfad, grund: fehler.grund, gemerkt: leseGemerkteShow(userData), mitEigenemOrdner });
+    } else {
+      getLog().info(`iveo: ${s.tsv.length} Speaker aus Show in den DataLink übernommen.`);
+    }
+  }
+  return wendeQuellSchrittAn(s);
+}
+
+/**
+ * Show-Integration (#11, Phase 3): Per Show-Deep-Link gestartet → die Show wird zur
+ * Datenquelle (Speaker als `speakers.tsv` in userData/iveo-data, Spec 7.7). Kein Token
+ * nötig (die Daten stehen bereits sanitisiert in der Show).
  */
 function applyShowFromDeepLink(url: string): void {
   const showPath = parseShowDeepLink(url);
   if (!showPath) return;
-  applyShowFromPath(showPath);
-  // C3: zusätzlich die referenzierte Bauchbinden-Vorlage (Dokument-Ref) öffnen.
-  void openShowDocument(showPath);
-}
-
-function applyShowFromPath(showPath: string): void {
-  try {
-    const show = parseShow(readFileSync(showPath, 'utf8'));
-    currentShowPath = showPath;
-    const speakers = show.iveo?.speakers ?? [];
-    if (!speakers.length) return; // Show ohne iveo-Speaker → DataLink unverändert lassen
-    const dir = writeSpeakersTsv(speakers);
-    if (getConfig().dataFolder !== dir) patchConfig({ dataFolder: dir });
-    refreshDataWatch();
-    getLog().info(`iveo: ${speakers.length} Speaker aus Show in den DataLink übernommen.`);
-  } catch (err) {
-    getLog().error(`Show konnte nicht geladen werden: ${(err as Error).message}`);
+  if (!datenquelleGestartet) {
+    wartenderDeepLink = url; // starteDatenquelle holt ihn nach
+    return;
   }
+  const schritt = oeffneShow(showPath, 'deepLink');
+  // C3: die referenzierte Bauchbinden-Vorlage nur beim Deep-Link öffnen (Spec 7.7).
+  if (schritt.vorlage) void openShowDocument(showPath);
 }
 
 /** Aktuelle Show neu einlesen (Launcher schickt `TITLER RELOAD` nach iveo-Update). */
@@ -162,11 +268,43 @@ function reloadCurrentShow(): boolean {
     // SICHTBAR statt still — derselbe Fall wie im Timer (Ist-Karte 30.09.2026):
     // der Launcher zählt den Titler als "benachrichtigt", ohne Show-Pfad gibt
     // es aber nichts neu zu lesen.
-    getLog().warn('RELOAD empfangen, aber keine Show geladen (nicht per Show gestartet) — nichts neu eingelesen.');
+    // Ohne verbundene Show: nie per Show gestartet, oder der Bediener hat seither den eigenen Ordner gewählt
+    // (Ordnerwahl, „Zurück zum eigenen Ordner“). Der Text gilt in beiden Fällen (Befund 9).
+    getLog().warn('RELOAD empfangen, aber keine Show verbunden (nicht per Show gestartet oder eigener Ordner gewählt) — nichts neu eingelesen.');
     return false;
   }
-  applyShowFromPath(currentShowPath);
+  oeffneShow(currentShowPath, 'reload');
   return true;
+}
+
+/** Bediener wählt einen DataLink-Ordner oder drückt „Zurück zum eigenen Ordner“ (Spec 7.7). */
+function eigenerOrdnerGilt(t: 'ordnerGewaehlt' | 'zurueckZumOrdner'): void {
+  currentShowPath = null; // gemerkte Show wird gelöscht → ein späteres RELOAD warnt wie früher
+  wendeQuellSchrittAn(quellSchritt(quelle, { t }));
+}
+
+/**
+ * Start der Datenquelle (Spec 7.7): Übergang für ein von einer Show gesetztes iveo-data,
+ * gemerkte Show lesen, dann Deep-Link oder — ohne Deep-Link — die gemerkte Show anwenden.
+ */
+function starteDatenquelle(deepLink: string | null): void {
+  const userData = userDataDir();
+  const gemerkt = leseGemerkteShow(userData);
+  const ue = uebergang(getConfig().dataFolder, iveoDataDir(userData), gemerkt, path.resolve);
+  for (const zeile of ue.log) getLog().info(zeile);
+  if (ue.dataFolderLeeren) {
+    patchConfig({ dataFolder: '' });
+    broadcastConfig();
+  }
+  quelle = startZustand(gemerkt, ue.frueher);
+  // Die gemerkte Show ist die verbundene Show: Ziel von RELOAD und Vergleich „dieselbe Show“.
+  currentShowPath = gemerkt?.showPfad ?? null;
+  datenquelleGestartet = true;
+  const link = deepLink ?? wartenderDeepLink;
+  wartenderDeepLink = null;
+  if (link && parseShowDeepLink(link)) applyShowFromDeepLink(link);
+  else if (gemerkt) oeffneShow(gemerkt.showPfad, 'start');
+  else refreshDataWatch();
 }
 
 // ── Show-Integration (C3): referenzierte Bauchbinden-Vorlage öffnen ──────────
@@ -399,7 +537,8 @@ function registerIpc(): void {
   ipcMain.handle('titler:setConfig', (_e, patch: PartialTitlerConfig) => {
     const before = getConfig().dataFolder;
     patchConfig(patch);
-    if (patch.dataFolder !== undefined && patch.dataFolder !== before) refreshDataWatch();
+    // Spec 7.7: Wählt der Bediener einen DataLink-Ordner, gilt der eigene Ordner (gemerkte Show gelöscht).
+    if (patch.dataFolder !== undefined && patch.dataFolder !== before) eigenerOrdnerGilt('ordnerGewaehlt');
     // Neuen Stand an alle Fenster (u. a. Output/2. Bildschirm) spiegeln (#161).
     broadcastConfig();
     reconcileOutputWindow();
@@ -414,7 +553,14 @@ function registerIpc(): void {
     return r.canceled || !r.filePaths[0] ? '' : r.filePaths[0];
   });
   ipcMain.handle('titler:recall', (_e, ref: string) => recall(ref));
+  // Klick in Liste oder Board: nur der Schlüssel zählt, nie die Stelle (Spec 7.4).
+  // Nutzlast aus dem Renderer prüfen: nur ein String ist ein Schlüssel (Leerraum fängt der Kern ab).
+  ipcMain.handle('titler:recallSchluessel', (_e, key: unknown) => {
+    if (typeof key === 'string') recallSchluessel(key);
+  });
   ipcMain.handle('titler:stepEntry', (_e, delta: number) => step(delta));
+  // Knopf K1 „Zurück zum eigenen Ordner“ (Spec 7.7).
+  ipcMain.handle('titler:zurueckZumOrdner', () => eigenerOrdnerGilt('zurueckZumOrdner'));
   ipcMain.handle('titler:openRecall', () => createRecallWindow());
   ipcMain.handle('titler:listDisplays', () => toDisplayInfo());
   // Grafik-Vorlagen-Library (#162): list/add/remove/read-bg + Änderungs-Broadcast.
@@ -452,6 +598,8 @@ function registerIpc(): void {
   ipcMain.handle('titler:report-state', (_e, st: TitlerRemoteState) => {
     updateTitlerState(st);
     lastOnAir = st.onAir;
+    // Sendung an den DataLink-Kern: halten nur auf Sendung (A2), 1 s nach dem Ende weg (A4).
+    setzeAufSendung(st.onAir);
     if (outputWindow && !outputWindow.isDestroyed()) outputWindow.webContents.send('titler:onair', st.onAir);
   });
 }
@@ -484,11 +632,10 @@ if (!gotLock) {
     createMainWindow();
     // C3: eine vor dem Fenster eingetroffene Show-Vorlage jetzt nachliefern.
     flushPendingShowFile();
-    // DataLink-Watchfolder (#86) starten, falls konfiguriert.
-    refreshDataWatch();
-    // Per Show gestartet? iveo-Speaker aus der Show in den DataLink übernehmen (#11)
-    // + die referenzierte Bauchbinden-Vorlage (C3) laden.
-    if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
+    // DataLink (#86) und Datenquelle (Spec 7.7): Übergang, gemerkte Show, Datenordner.
+    // Per Show gestartet? Speaker aus der Show (#11) + Bauchbinden-Vorlage (C3); ohne
+    // Deep-Link wirkt die gemerkte Show (Start über die Kachel), ohne Vorlagen-Import.
+    starteDatenquelle(runtime.initialDeepLink);
     // 2. Bildschirm (#161): bei persistiert aktivierter Ausgabe direkt öffnen und
     // auf Monitor-Wechsel reagieren (verwaistes Fenster bei Hot-Unplug vermeiden,
     // Auswahl-Dropdown im Operator aktuell halten).
@@ -513,7 +660,8 @@ if (!gotLock) {
           broadcastStatus();
         },
         // DataLink-Recall im Main behandeln (ändert den aktiven Eintrag, kein
-        // Renderer-Push) → true = erledigt.
+        // Renderer-Push) → true = erledigt. Der Kern versteht Nummer, Name und die
+        // `@`-Form `TITLER RECALL @⟨Kennung⟩ ⟨Name⟩`; ohne Treffer gilt A10/A11 (Spec 7.4).
         (rc) => {
           if (rc.t === 'recall') {
             recall(rc.ref);

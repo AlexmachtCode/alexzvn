@@ -18,7 +18,8 @@ import {
   type IveoStage,
 } from '@jm/iveo';
 import {
-  ablaufSignatur, einPunktAblauf, erzeugeKern, toClientError, type IveoClientLike, type IveoKern, type IveoSyncStatus,
+  ablaufSignatur, einPunktAblauf, erzeugeKern, speakerNamenAusDatei, toClientError, uebernimmOwnerAusDatei,
+  type IveoClientLike, type IveoKern, type IveoSyncStatus,
 } from '../src/main/iveo-abgleich-kern';
 import { schreibeShowAtomar, warteSync, type DateiSystem } from '../src/main/show-schreiben';
 
@@ -130,6 +131,8 @@ interface NachgebautesIveo {
   /** Antwort auf ?updated_since= */
   geaendert: IveoProgram[];
   fehler: Partial<Record<Abruf, unknown>>;
+  /** Teilfehler im Snapshot außer der Speakerliste (meldet onSubError, die Ressource ist dann leer). */
+  teilFehler?: Partial<Record<'stages', unknown>>;
   sperre: (abruf: Abruf, arg: string) => Promise<void> | null;
   abrufe: string[];
 }
@@ -177,11 +180,27 @@ function nachgebauterClient(iv: NachgebautesIveo): IveoClientLike {
       await schritt('geaendert', seit);
       return iv.geaendert;
     },
-    async getEventSnapshot(event: string, jetzt: string): Promise<IveoSnapshot> {
+    async getEventSnapshot(
+      event: string,
+      jetzt: string,
+      opts: { onSubError?: (resource: string, err: unknown) => void } = {},
+    ): Promise<IveoSnapshot> {
       await schritt('snapshot', jetzt);
+      // Wie der echte Client (packages/iveo/src/client.ts:313-320): Speaker best effort. Ein Fehler meldet onSubError
+      // und ergibt eine leere Liste; der Snapshot selbst gelingt (Teil 2b, Spec 6.1).
+      let speakers = iv.speakers;
+      if (iv.fehler.speakers) {
+        opts.onSubError?.('speakers', iv.fehler.speakers);
+        speakers = [];
+      }
+      let stages = iv.stages;
+      if (iv.teilFehler?.stages) {
+        opts.onSubError?.('stages', iv.teilFehler.stages);
+        stages = [];
+      }
       return {
         event: { id: 'ev-1', slug: event, name: 'COP31', starts_at: null, ends_at: null, timezone: null },
-        programs: iv.programme, speakers: iv.speakers, organisations: [], stages: iv.stages, fetchedAt: jetzt,
+        programs: iv.programme, speakers, organisations: [], stages, fetchedAt: jetzt,
       };
     },
     async listAgendaItems(_event: string, programId: string) {
@@ -326,6 +345,54 @@ const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'),
   ck('Signatur: so normalisiert wie die Datei (Punkt ohne Titel fällt weg, doppelte id → #2)',
     ablaufSignatur([...a, { label: '  ' }], []) === ablaufSignatur(a, [])
     && ablaufSignatur([{ id: 'x', label: 'A' }, { id: 'x', label: 'B' }], []) === ablaufSignatur([{ id: 'x', label: 'A' }, { id: 'x#2', label: 'B' }], []));
+}
+
+// --- Teil 2b, 9.2 Nr. 1 und 2: Signatur mit Speaker-Kennung und Merker, einmaliges Nachschreiben ------------------
+/** Spec 23, M1: ja → `ANA` trägt die Kennung `sp1` (SP9); nein → ohne, und der Umwandler setzt keine. */
+const MIT_KENNUNG = ANA.id !== undefined;
+/** Bestands-Show von vor 2b: derselbe Speaker ohne Kennung (eigenes Fixture für 9.2 Nr. 2). */
+const ANA_OHNE_ID: ShowIveoSpeaker = { name: 'Ana Silva', title: 'Ministerin' };
+const TEXT_SPEAKER_VERALTET = 'Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand';
+const MERKER = '2026-10-01T07:30:00.000Z';
+/** Dieselbe Show mit Merker „Speaker veraltet“ in der Datei. */
+const mitMerker = (s: Show, seit = MERKER): Show => ({ ...s, iveo: { ...s.iveo!, speakerVeraltetSeit: seit } });
+{
+  const a: ShowAblaufItem[] = [{ id: 'a1', label: 'Begrüßung', durationMs: 300_000 }];
+  ck('Nr. 1 (2b): gleicher Name, andere Kennung → andere Signatur',
+    ablaufSignatur(a, [{ id: 'sp1', name: 'Ana Silva' }]) !== ablaufSignatur(a, [{ id: 'sp2', name: 'Ana Silva' }]));
+  ck('Nr. 1 (2b): mit und ohne Kennung → andere Signatur',
+    ablaufSignatur(a, [{ id: 'sp1', name: 'Ana Silva' }]) !== ablaufSignatur(a, [{ name: 'Ana Silva' }]));
+  ck('Nr. 1 (2b): Merker gesetzt oder nicht → andere Signatur',
+    ablaufSignatur(a, [ANA], '2026-10-02T08:00:00.000Z') !== ablaufSignatur(a, [ANA]));
+  ck('Nr. 1 (2b): ohne Merker = Merker undefined', ablaufSignatur(a, [ANA]) === ablaufSignatur(a, [ANA], undefined));
+  ck('Nr. 1 (2b): Speaker so normalisiert wie die Datei (Kennung getrimmt, doppelte → #2, über 200 Zeichen → ohne)',
+    ablaufSignatur(a, [{ id: ' sp1 ', name: 'Ana Silva' }]) === ablaufSignatur(a, [{ id: 'sp1', name: 'Ana Silva' }])
+    && ablaufSignatur(a, [{ id: 'x', name: 'A' }, { id: 'x', name: 'B' }]) === ablaufSignatur(a, [{ id: 'x', name: 'A' }, { id: 'x#2', name: 'B' }])
+    && ablaufSignatur(a, [{ id: 'k'.repeat(201), name: 'A' }]) === ablaufSignatur(a, [{ name: 'A' }]));
+}
+{
+  // 9.2 Nr. 2: Bestands-Show ohne Kennungen. Nur wenn der Umwandler Kennungen liefert (MIT_KENNUNG, M1 = ja), trägt die
+  // erste schreibende Listen-Abfrage sie nach; im geltenden Zweig B gibt es keine, nichts wird geschrieben. Danach ist Ruhe.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA_OHNE_ID]));
+  ck('Nr. 2 (2b): Ausgangslage — Bestands-Show, Speaker ohne Kennung', datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva' && datei(u).iveo?.speakers?.[0]?.id === undefined);
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck(MIT_KENNUNG
+    ? 'Nr. 2 (2b): die erste schreibende Listen-Abfrage trägt die Kennungen nach, genau ein RELOAD-Satz'
+    : 'Nr. 2 (2b): M1 = nein — der Umwandler liefert keine Kennungen, nichts nachzutragen, nichts geschrieben, kein RELOAD',
+    MIT_KENNUNG
+      ? u.schreibversuche === 1 && datei(u).iveo?.speakers?.[0]?.id === 'sp1' && u.reloads.length === 3
+      : u.schreibversuche === 0 && u.reloads.length === 0);
+  await u.kern.abfrage();
+  ck('Nr. 2 (2b): … danach bleibt die Signatur gleich: kein zweites Schreiben, kein weiteres RELOAD',
+    u.schreibversuche === (MIT_KENNUNG ? 1 : 0) && u.reloads.length === (MIT_KENNUNG ? 3 : 0));
+}
+{
+  // Der Merker aus der Datei steht in `active` (setzeAuf) und geht beim Schreiben nicht verloren.
+  const u = umgebung((iv) => mitMerker(showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA])));
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Merker (2b): Umschalten auf ein Side Event ohne Verknüpfung schreibt den Merker der Datei unverändert mit',
+    r.ok && u.schreibversuche === 1 && datei(u).iveo?.speakerVeraltetSeit === MERKER);
 }
 
 // --- 9.6 Nr. 1: Öffnen + erste Abfrage mit gleichem Stand → kein Schreiben, kein RELOAD -------------------------
@@ -986,6 +1053,492 @@ const letztesFenster = (u: Umgebung): string =>
   await u.kern.abfrage();
   ck('Trotzdem/Umschaltung, Liste: zurück auf der Tagesliste von damals, P2 kommt nicht von selbst zurück',
     u.kern.aktiv()?.filter.programId === undefined && !datei(u).iveo?.filter?.programId && datei(u).iveo?.filter?.day === TAG);
+}
+
+// --- Teil 2b, Spec 6.2: „Verantwortlich“ aus der Datei (reine Helfer) --------------------------------------------
+{
+  const namen = speakerNamenAusDatei([
+    { id: 'sp1', name: 'Ana Silva' },
+    { name: 'Ohne Kennung' },
+    { id: 'sp2', name: 'Bo Berg', title: 'Moderation' },
+  ]);
+  ck('speakerNamenAusDatei: nur Speaker mit Kennung, Kennung → Name', JSON.stringify([...namen]) === '[["sp1","Ana Silva"],["sp2","Bo Berg"]]');
+  ck('speakerNamenAusDatei: leere Liste → leere Map', speakerNamenAusDatei([]).size === 0);
+  const neu: ShowAblaufItem[] = [
+    { id: 'P1', label: 'A', owner: 'Ana Silva' },
+    { id: 'P2', label: 'B', owner: 'Ana Silva' },
+    { id: 'P5', label: 'Neu', owner: 'Ana Silva' },
+    { label: 'Ohne Kennung', owner: 'X' },
+  ];
+  const ausDatei: ShowAblaufItem[] = [{ id: 'P1', label: 'A', owner: 'Dr. Ana Silva (Datei)' }, { id: 'P2', label: 'B' }];
+  const r = uebernimmOwnerAusDatei(neu, ausDatei);
+  ck('uebernimmOwnerAusDatei: Gegenstück gleicher Kennung → dessen owner', r[0].owner === 'Dr. Ana Silva (Datei)');
+  ck('uebernimmOwnerAusDatei: Gegenstück ohne owner → owner entfällt', r[1].id === 'P2' && !('owner' in r[1]));
+  ck('uebernimmOwnerAusDatei: neuer Punkt und Punkt ohne Kennung bleiben unverändert', r[2] === neu[2] && r[3] === neu[3]);
+  ck('uebernimmOwnerAusDatei: die Eingabe bleibt unverändert', neu[0].owner === 'Ana Silva' && neu[1].owner === 'Ana Silva');
+  ck('uebernimmOwnerAusDatei: ein Punkt ohne owner bekommt den der Datei',
+    uebernimmOwnerAusDatei([{ id: 'P1', label: 'A' }], ausDatei)[0].owner === 'Dr. Ana Silva (Datei)');
+}
+
+// --- Teil 2b, 9.2 Nr. 3, 4, 6, 7, 9: Speakerliste nicht abrufbar ist nicht „0 Speaker“ (Spec 6.2, 6.3) -------------
+/** Listen-Show: P1 verknüpft sp1; in der Datei trägt P1 ein eigenes „Verantwortlich“. */
+function listenShowMitOwner(iv: NachgebautesIveo): Show {
+  iv.programme[0] = { ...iv.programme[0], speaker_ids: ['sp1'] } as IveoProgram;
+  const ablauf = listenAblauf(iv, TAG).map((p) => (p.id === 'P1' ? { ...p, owner: 'Dr. Ana Silva (Datei)' } : p));
+  return showMit(ablauf, { day: TAG }, [ANA]);
+}
+/** Neues Programm am selben Tag, mit sp1 verknüpft. */
+const P5 = (): IveoProgram =>
+  programm('P5', 'Side Event Boden', { starts_at: `${TAG}T15:00:00+00:00`, starts_at_local: `${TAG}T16:00:00`, speaker_ids: ['sp1'] });
+const ownerVon = (s: Show, id: string): string | undefined => s.ablauf?.find((p) => p.id === id)?.owner;
+const speakerWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.startsWith('iveo: Speakerliste nicht abrufbar'));
+{
+  // Nr. 3: /speakers scheitert im Listen-Modus, eine Programmänderung liegt vor.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.programme.push(P5());
+  u.iveo.geaendert = [u.iveo.programme[4]];
+  await u.kern.abfrage();
+  const d1 = datei(u);
+  const merker = d1.iveo?.speakerVeraltetSeit;
+  ck('Nr. 3: /speakers scheitert, Programmänderung → die Speaker der Datei bleiben', JSON.stringify(d1.iveo?.speakers) === JSON.stringify([ANA]));
+  ck('Nr. 3: … jeder Punkt behält seinen owner aus der Datei', ownerVon(d1, 'P1') === 'Dr. Ana Silva (Datei)');
+  ck('Nr. 3: … ein neuer Punkt bekommt owner aus den Speakern der Datei (M1 = nein: ohne Kennung keinen)',
+    ids(d1) === 'P1,P2,P3,P5' && ownerVon(d1, 'P5') === (MIT_KENNUNG ? 'Ana Silva' : undefined));
+  ck('Nr. 3: … der Merker steht in der Datei', typeof merker === 'string' && !Number.isNaN(Date.parse(merker)));
+  ck('Nr. 3: … Status „gestört“ mit dem Text aus 6.3, „seit“ = Merker',
+    JSON.stringify(u.status.at(-1)) === JSON.stringify({ ok: false, text: TEXT_SPEAKER_VERALTET, seit: merker }));
+  ck('Nr. 3: … genau einmal geschrieben, genau ein RELOAD-Satz', u.schreibversuche === 1 && u.reloads.length === 3);
+  ck('Nr. 3: … Warnung aus 6.3 im Log, mit dem Fehlertext',
+    JSON.stringify(speakerWarnungen(u)) === JSON.stringify(['iveo: Speakerliste nicht abrufbar (kaputt), Speaker aus der Datei bleiben.']));
+  ck('Nr. 3: … das Token steht nirgends', ![...u.info, ...u.warn].some((z) => z.includes(TOKEN)) && !JSON.stringify(u.status).includes(TOKEN));
+
+  // Nr. 4: keine Programmänderung, /speakers scheitert weiter.
+  u.iveo.geaendert = [];
+  const vorher = u.iveo.abrufe.length;
+  await u.kern.abfrage();
+  ck('Nr. 4: Merker gilt, keine Programmänderung → der Snapshot wird trotzdem geholt',
+    u.iveo.abrufe.slice(vorher).some((x) => x.startsWith('snapshot:')));
+  ck('Nr. 4: … Fehler bleibt → nichts geschrieben, kein RELOAD, Merker unverändert, keine zweite Warnung',
+    u.schreibversuche === 1 && u.reloads.length === 3 && datei(u).iveo?.speakerVeraltetSeit === merker && speakerWarnungen(u).length === 1);
+  ck('Nr. 4: … Status bleibt „gestört“', u.status.at(-1)?.ok === false && u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET);
+
+  // Nr. 4: die Liste kommt wieder.
+  delete u.iveo.fehler.speakers;
+  await u.kern.abfrage();
+  ck('Nr. 4: Liste gelingt → Merker weg, geschrieben, RELOAD',
+    datei(u).iveo?.speakerVeraltetSeit === undefined && u.schreibversuche === 2 && u.reloads.length === 6);
+  ck('Nr. 4: … Status „in Ordnung“, Info-Zeile aus 6.3',
+    u.status.at(-1)?.ok === true && u.info.includes('iveo: Speakerliste wieder abrufbar, Speaker aktualisiert.'));
+  ck('Nr. 4: … „Verantwortlich“ wieder aus iveo', ownerVon(datei(u), 'P1') === 'Ana Silva');
+  const danach = u.iveo.abrufe.length;
+  await u.kern.abfrage();
+  ck('Nr. 4: … ohne Merker und ohne Programmänderung kein Snapshot mehr', !u.iveo.abrufe.slice(danach).some((x) => x.startsWith('snapshot:')));
+}
+{
+  // Nr. 6: Umschalten auf die Tagesübersicht, die Speakerliste scheitert.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const r = await u.kern.umschalten({ day: TAG });
+  const m = datei(u).iveo?.speakerVeraltetSeit;
+  ck('Nr. 6: Tagesübersicht mit gescheiterter Speakerliste → Meldung aus 6.3',
+    r.ok && r.message === 'Umgeschaltet — Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand.');
+  ck('Nr. 6: … Speaker und owner aus der Datei, Merker gesetzt',
+    JSON.stringify(datei(u).iveo?.speakers) === JSON.stringify([ANA]) && ownerVon(datei(u), 'P1') === 'Dr. Ana Silva (Datei)' && typeof m === 'string');
+  ck('Nr. 6: … Status „gestört“ mit dem Merker als „seit“, Warnung im Log',
+    u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET && u.status.at(-1)?.seit === m && speakerWarnungen(u).length === 1);
+  delete u.iveo.fehler.speakers;
+  const r2 = await u.kern.umschalten({ day: TAG });
+  ck('Nr. 6: danach gelingt die Liste → Meldung wie bisher, Merker weg, Status „in Ordnung“',
+    r2.ok && r2.message === 'Umgeschaltet (3 Punkte).' && datei(u).iveo?.speakerVeraltetSeit === undefined && u.status.at(-1)?.ok === true);
+}
+{
+  // Nr. 7: iveo meldet erfolgreich 0 Speaker → wie bisher.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  u.iveo.speakers = [];
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('Nr. 7: iveo meldet erfolgreich 0 Speaker → Feld fehlt in der Datei, kein Merker',
+    u.schreibversuche === 1 && datei(u).iveo?.speakers === undefined && datei(u).iveo?.speakerVeraltetSeit === undefined);
+  ck('Nr. 7: … Status bleibt „in Ordnung“, keine Speaker-Warnung', u.status.length === 0 && speakerWarnungen(u).length === 0);
+}
+{
+  // Nr. 9: Öffnen einer Show mit Merker → die erste Listen-Abfrage holt den Snapshot, auch ohne Programmänderung.
+  const u = umgebung((iv) => mitMerker(showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA])));
+  await u.kern.abfrage();
+  ck('Nr. 9: Show mit Merker geöffnet, keine Programmänderung → die erste Abfrage holt den Snapshot',
+    u.iveo.abrufe.some((x) => x.startsWith('snapshot:')));
+  ck('Nr. 9: … die Liste gelingt → Merker weg, geschrieben, RELOAD',
+    datei(u).iveo?.speakerVeraltetSeit === undefined && u.schreibversuche === 1 && u.reloads.length === 3);
+}
+
+{
+  // Fix-Runde 1: Die Statuszeile folgt dem Merker auch beim Öffnen und beim Speichern der offenen Show (Spec 6.2/6.3).
+  const u = umgebung((iv) => mitMerker(showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA])));
+  ck('Fix 1a: Show mit Merker geöffnet → Status sofort „gestört“, seit = Merker',
+    JSON.stringify(u.status.at(-1)) === JSON.stringify({ ok: false, text: TEXT_SPEAKER_VERALTET, seit: MERKER }));
+  const statusVorher = u.status.length;
+  const infoVorher = u.info.length;
+  const warnVorher = u.warn.length;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('Fix 1b: Speichern der offenen Show mit unverändertem Merker → kein neues Status-Ereignis',
+    u.status.length === statusVorher);
+  ck('Fix 1b: … kein „wieder in Ordnung“ im Log, keine zweite Warnung',
+    !u.info.slice(infoVorher).some((z) => z.includes('wieder in Ordnung')) && u.warn.length === warnVorher);
+  // Review Task 6 #6: Der Status bleibt nach dem Speichern auch intern „gestört“ — die nächste Abfrage mit weiter
+  // fehlender Liste meldet keinen neuen Status und keine neue Störung.
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const statusNachSpeichern = u.status.length;
+  const stoerungen = (): number => u.warn.filter((w) => w.startsWith('iveo-Abgleich gestört')).length;
+  const stoerungenNachSpeichern = stoerungen();
+  await u.kern.abfrage();
+  ck('Fix 1b: … der Status bleibt intern „gestört“: die nächste Abfrage meldet weder Status noch Störung neu',
+    u.status.length === statusNachSpeichern && stoerungen() === stoerungenNachSpeichern && u.schreibversuche === 0);
+}
+{
+  // Review Task 5 #1 / Task 6 #1: Der Merker zählt in der Signatur der Listen-Abfrage. Listen-Show ohne
+  // Speaker-Verknüpfung: Die Liste scheitert bei einer Titeländerung, danach gelingt sie ohne Programmänderung.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.programme[0] = { ...u.iveo.programme[0], title: 'Side Event Klima (neu)' };
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('Merker in der Signatur: Vorbedingung — Titel geändert, Liste gescheitert → geschrieben mit Merker',
+    u.schreibversuche === 1 && typeof datei(u).iveo?.speakerVeraltetSeit === 'string');
+  delete u.iveo.fehler.speakers;
+  u.iveo.geaendert = [];
+  await u.kern.abfrage();
+  ck('Merker in der Signatur: … Liste gelingt ohne Programmänderung → Merker weg, geschrieben, RELOAD, Status in Ordnung',
+    u.schreibversuche === 2 && datei(u).iveo?.speakerVeraltetSeit === undefined && u.reloads.length === 6 && u.status.at(-1)?.ok === true);
+}
+{
+  // Review Task 6 #1: lastSig nach dem Umschalten trägt den Merker. Tagesübersicht mit gescheiterter Liste, danach
+  // eine Abfrage bei weiter gescheiterter Liste ohne Änderung → nichts geschrieben, kein RELOAD.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const r = await u.kern.umschalten({ day: TAG });
+  const schreibNachUmschalten = u.schreibversuche;
+  const reloadsNachUmschalten = u.reloads.length;
+  ck('lastSig nach dem Umschalten: Vorbedingung — umgeschaltet, Merker in der Datei',
+    r.ok && typeof datei(u).iveo?.speakerVeraltetSeit === 'string');
+  await u.kern.abfrage();
+  ck('lastSig nach dem Umschalten: … Abfrage bei weiter gescheiterter Liste ohne Änderung → nichts geschrieben, kein RELOAD',
+    u.schreibversuche === schreibNachUmschalten && u.reloads.length === reloadsNachUmschalten);
+}
+
+// --- Teil 2b, 9.2 Nr. 5 und Spec 6.2: Agenda-Abfrage mit Merker, Umschalten auf ein Side Event ---------------------
+/** Zweiter Speaker im nachgebauten iveo. */
+const BO: IveoSpeaker = { id: 'sp2', event_id: 'ev-1', first_name: 'Bo', last_name: 'Berg', title: 'Moderation' };
+/** Speaker-Namen der Datei, sortiert: so gilt der Test mit und ohne Zusatz Sortierung (Spec 23, M3). */
+const namenIn = (s: Show): string => JSON.stringify((s.iveo?.speakers ?? []).map((sp) => sp.name).sort());
+{
+  // Nr. 5: Show auf Side Event P1 (ohne Speaker-Verknüpfung) mit Merker in der Datei.
+  const u = umgebung((iv) => mitMerker(showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA])));
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Nr. 5 (a): Merker, Kontext fehlt, Speakerliste scheitert → Abbruch wie in 2a: nichts geschrieben, Status gestört, Merker bleibt',
+    u.schreibversuche === 0 && u.reloads.length === 0 && u.status.at(-1)?.ok === false && datei(u).iveo?.speakerVeraltetSeit === MERKER);
+
+  const r = await u.kern.umschalten({ programId: 'P1' });
+  ck('Nr. 5 (b): Umschalten auf P1 ohne Verknüpfung → keine Speakerliste geholt, Merker unverändert',
+    r.ok && u.iveo.abrufe.filter((x) => x === 'speakers:').length === 1 && datei(u).iveo?.speakerVeraltetSeit === MERKER);
+  ck('Nr. 5 (b): … Antwort ist wahr: sagt, dass die Liste bei der nächsten Abfrage aufgefrischt wird',
+    r.message === 'Umgeschaltet — Speakerliste wird bei der nächsten Abfrage aus iveo aufgefrischt (ganze Liste).');
+  ck('Nr. 5 (b): … Status „gestört“ mit dem Text aus 6.3', u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET && u.status.at(-1)?.seit === MERKER);
+
+  const vorher = u.iveo.abrufe.length;
+  await u.kern.abfrage();
+  const neu = u.iveo.abrufe.slice(vorher);
+  ck('Nr. 5 (c): Kontext gemerkt → kein Detail-Abruf, aber die Speakerliste wird zusätzlich geholt',
+    neu.includes('speakers:') && !neu.includes('programm:P1'));
+  ck('Nr. 5 (c): … sie scheitert → Status bleibt „gestört“ (Text aus 6.3, „seit“ = Merker), Merker bleibt, nichts geschrieben',
+    u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET && u.status.at(-1)?.seit === MERKER
+    && datei(u).iveo?.speakerVeraltetSeit === MERKER && u.schreibversuche === 1);
+  ck('Nr. 5 (c): … Warnung aus 6.3 im Log', u.warn.includes('iveo: Speakerliste nicht abrufbar (kaputt), Speaker aus der Datei bleiben.'));
+
+  delete u.iveo.fehler.speakers;
+  u.iveo.speakers.push(BO);
+  await u.kern.abfrage();
+  ck('Nr. 5 (d): Liste gelingt, Side Event ohne Verknüpfung → die ganze Liste geschrieben, Merker weg, RELOAD',
+    namenIn(datei(u)) === '["Ana Silva","Bo Berg"]' && datei(u).iveo?.speakerVeraltetSeit === undefined
+    && u.schreibversuche === 2 && u.reloads.length === 6);
+  ck('Nr. 5 (d): … Status „in Ordnung“, Info-Zeile aus 6.3',
+    u.status.at(-1)?.ok === true && u.info.includes('iveo: Speakerliste wieder abrufbar, Speaker aktualisiert.'));
+  const danach = u.iveo.abrufe.length;
+  await u.kern.abfrage();
+  ck('Nr. 5 (d): … ohne Merker holt die Agenda-Abfrage keine Speakerliste mehr, nichts geschrieben',
+    !u.iveo.abrufe.slice(danach).includes('speakers:') && u.schreibversuche === 2);
+}
+{
+  // Nr. 5 (e): Ein Agenda-Punkt von P2 verknüpft sp2 → nur die verknüpften Speaker.
+  const u = umgebung((iv) => {
+    iv.speakers.push(BO);
+    iv.agenda.P2 = [{ ...punkt('P2', 'b1', 'Einführung', 1), speaker_ids: ['sp2'] } as IveoAgendaItem, punkt('P2', 'b2', 'Diskussion', 2, 30)];
+    return mitMerker(showMit(agendaAblauf(iv, 'P2'), { day: TAG, programId: 'P2' }, [ANA]));
+  });
+  await u.kern.abfrage();
+  ck('Nr. 5 (e): Agenda-Punkt verknüpft sp2 → nur dieser Speaker geschrieben, Merker weg, RELOAD',
+    namenIn(datei(u)) === '["Bo Berg"]' && datei(u).iveo?.speakerVeraltetSeit === undefined && u.reloads.length === 3);
+}
+{
+  // Nr. 5 (f): Die Verknüpfung steht nur im Programm-Detail, nicht an den Agenda-Punkten → sie zählt ebenso.
+  const u = umgebung((iv) => {
+    iv.speakers.push(BO);
+    iv.programme[1] = { ...iv.programme[1], speaker_ids: ['sp2'] } as IveoProgram;
+    return mitMerker(showMit(agendaAblauf(iv, 'P2'), { day: TAG, programId: 'P2' }, [ANA]));
+  });
+  await u.kern.abfrage();
+  ck('Nr. 5 (f): Verknüpfung nur im Programm-Detail → nur dieser Speaker geschrieben, Merker weg',
+    namenIn(datei(u)) === '["Bo Berg"]' && datei(u).iveo?.speakerVeraltetSeit === undefined);
+}
+{
+  // Umschalten auf ein verknüpftes Side Event, die Speakerliste gelingt → Merker weg.
+  const u = umgebung((iv) => mitMerker(showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA])));
+  u.iveo.agenda.P2 = [{ ...punkt('P2', 'b1', 'Einführung', 1), speaker_ids: ['sp1'] } as IveoAgendaItem];
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Umschalten (2b): verknüpftes Side Event, Speakerliste gelingt → Merker weg, Info-Zeile, Status in Ordnung',
+    r.ok && datei(u).iveo?.speakerVeraltetSeit === undefined
+    && u.info.includes('iveo: Speakerliste wieder abrufbar, Speaker aktualisiert.') && u.status.at(-1)?.ok === true);
+}
+{
+  // … die Speakerliste scheitert → Merker gesetzt, Status gestört, Antwort wie bisher.
+  const u = umgebung((iv) => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA]));
+  u.iveo.agenda.P2 = [{ ...punkt('P2', 'b1', 'Einführung', 1), speaker_ids: ['sp1'] } as IveoAgendaItem];
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  const m = datei(u).iveo?.speakerVeraltetSeit;
+  ck('Umschalten (2b): Speakerliste scheitert → Merker gesetzt, Speaker der Datei bleiben',
+    r.ok && typeof m === 'string' && JSON.stringify(datei(u).iveo?.speakers) === JSON.stringify([ANA]));
+  ck('Umschalten (2b): … Status „gestört“ mit dem Merker als „seit“, Antwort wie bisher',
+    u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET && u.status.at(-1)?.seit === m && r.message === 'Umgeschaltet (1 Punkte).');
+}
+{
+  // … ohne Verknüpfung → keine Speakerliste, Merker unverändert, Status bleibt gestört.
+  const u = umgebung((iv) => mitMerker(showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA])));
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Umschalten (2b): ohne Verknüpfung → keine Speakerliste geholt, Merker unverändert, Status „gestört“',
+    r.ok && !u.iveo.abrufe.includes('speakers:') && datei(u).iveo?.speakerVeraltetSeit === MERKER
+    && u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET);
+}
+
+// --- Gesamtprüfung Befund 7: Logzeilen und Diagnosen der Speakerliste (Spec 6.3, Owner-Regel: jeder Text wahr) ------
+{
+  // 7a: Nur der Merker hat den Snapshot ausgelöst (Show mit Merker geöffnet, die Liste kommt wieder).
+  const u = umgebung((iv) => mitMerker(showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA])));
+  await u.kern.abfrage();
+  ck('Befund 7a: ohne Programmänderung geschrieben → keine Zeile „0 Programm(e) geändert → Ablauf neu“',
+    u.schreibversuche === 1 && !u.info.some((z) => z.includes('0 Programm(e) geändert')));
+  ck('Befund 7a: … eigene Zeile, die sagt, was von der Datei abweicht',
+    u.info.includes('iveo: kein Programm geändert, aber der Merker „Speaker veraltet“ weicht von der Datei ab → Show neu geschrieben (3 Punkte).'));
+}
+{
+  // 7b: Speakerliste scheitert und die Show-Datei ist zugleich nicht lesbar → die Diagnose der Speakerliste bleibt.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  u.leseAus = 1;
+  await u.kern.abfrage();
+  ck('Befund 7b: Speakerliste scheitert, Datei nicht lesbar → nichts geschrieben, Status „Show nicht lesbar“',
+    u.schreibversuche === 0 && u.status.at(-1)?.ok === false && u.status.at(-1)?.text !== TEXT_SPEAKER_VERALTET);
+  ck('Befund 7b: … die Warnung zur Speakerliste steht trotzdem im Log',
+    JSON.stringify(speakerWarnungen(u)) === JSON.stringify(['iveo: Speakerliste nicht abrufbar (kaputt), Speaker aus der Datei bleiben.']));
+}
+{
+  // 7b: Ein verworfenes Umschalten (Show inzwischen gespeichert) meldet und merkt keinen Speaker-Fehler.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const s = sperre();
+  u.iveo.sperre = (abruf) => (abruf === 'snapshot' ? s.halt : null);
+  const lauf = u.kern.umschalten({ day: TAG });
+  await warteMs(5);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  s.frei();
+  const r = await lauf;
+  u.iveo.sperre = () => null;
+  ck('Befund 7b: Umschalten verworfen → keine Warnung zur Speakerliste',
+    !r.ok && r.message === 'Show wurde inzwischen gewechselt oder gespeichert, Umschalten verworfen.' && speakerWarnungen(u).length === 0);
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  const warnVorAbfrage = u.warn.length;
+  await u.kern.abfrage();
+  ck('Befund 7b: … die nächste Abfrage meldet denselben Fehler (nicht vom verworfenen Umschalten unterdrückt)',
+    u.warn.slice(warnVorAbfrage).includes('iveo: Speakerliste nicht abrufbar (kaputt), Speaker aus der Datei bleiben.'));
+}
+{
+  // 7b: Umschalten auf die Tagesübersicht verschluckt andere Teilfehler nicht (wie die Listen-Abfrage).
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.teilFehler = { stages: new IveoApiError(500, 'server_error', 'bühnen kaputt') };
+  const r = await u.kern.umschalten({ day: TAG });
+  ck('Befund 7b: Tagesübersicht, Bühnen-Metadaten scheitern → Umschalten gelingt, Warnung im Log',
+    r.ok && u.warn.includes('iveo switch: Metadaten „stages" übersprungen (bühnen kaputt)'));
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('Befund 7b: … die Listen-Abfrage meldet denselben Teilfehler wie bisher',
+    u.warn.includes('iveo poll: Metadaten „stages" übersprungen (bühnen kaputt)'));
+}
+{
+  // 7c: Der gemerkte Fehlertext gilt nur bis zur nächsten gelungenen Speakerliste, auch wenn der Merker nie in der
+  // Show ankam (Schreiben gescheitert). Ein späterer Fehlschlag mit demselben Text wird wieder gemeldet.
+  const u = umgebung(listenShowMitOwner);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  ck('Befund 7c: Vorbedingung — Speakerliste scheitert, Schreiben scheitert, eine Warnung',
+    u.schreibversuche === 1 && datei(u).iveo?.speakerVeraltetSeit === undefined && speakerWarnungen(u).length === 1);
+  u.schreibFehler = false;
+  delete u.iveo.fehler.speakers;
+  await u.kern.abfrage();
+  ck('Befund 7c: … die Liste gelingt, geschrieben', u.schreibversuche === 2 && datei(u).iveo?.speakerVeraltetSeit === undefined);
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Befund 7c: … derselbe Fehler später wieder → wieder eine Warnung im Log', speakerWarnungen(u).length === 2);
+}
+
+// --- Schliff F1: Die Logzeile zum Schreiben steht erst nach erfolgreichem Schreiben (Owner-Regel: jeder Text wahr) ---
+{
+  // Nur der Merker hat den Snapshot ausgelöst, die Liste kommt wieder, aber das Schreiben scheitert zweimal.
+  const u = umgebung((iv) => mitMerker(showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA])));
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  await u.kern.abfrage();
+  ck('Schliff F1: ohne Programmänderung, Schreiben scheitert zweimal → keine Zeile „Show neu geschrieben“',
+    u.schreibversuche === 2 && !u.info.some((z) => z.includes('Show neu geschrieben')));
+  ck('Schliff F1: … der Status sagt „nicht geschrieben“', u.status.at(-1)?.text === 'Show konnte nicht geschrieben werden');
+  u.schreibFehler = false;
+  await u.kern.abfrage();
+  ck('Schliff F1: … das Schreiben gelingt → genau eine Zeile „Show neu geschrieben“',
+    u.schreibversuche === 3 && u.info.filter((z) => z.includes('Show neu geschrieben')).length === 1);
+}
+{
+  // Dasselbe mit Programmänderung: „n Programm(e) geändert → Ablauf neu“ steht erst, wenn der neue Ablauf in der Datei ist.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]));
+  u.iveo.programme[1] = { ...u.iveo.programme[1], title: 'Side Event Wasser und Meer' };
+  u.iveo.geaendert = [u.iveo.programme[1]];
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  await u.kern.abfrage();
+  ck('Schliff F1: Programm geändert, Schreiben scheitert zweimal → keine Zeile „Ablauf neu“',
+    u.schreibversuche === 2 && !u.info.some((z) => z.includes('→ Ablauf neu')));
+  u.schreibFehler = false;
+  await u.kern.abfrage();
+  ck('Schliff F1: … das Schreiben gelingt → genau eine Zeile „1 Programm(e) geändert → Ablauf neu (3 Punkte)“',
+    u.schreibversuche === 3 && JSON.stringify(u.info.filter((z) => z.includes('→ Ablauf neu')))
+      === JSON.stringify(['iveo: 1 Programm(e) geändert → Ablauf neu (3 Punkte).']));
+}
+
+// --- Schliff F4: Agenda-Abfrage und Side-Event-Umschalten wie die Snapshot-Zweige (Befund 7b/7c): melden erst, wenn sie
+// noch gelten; ein gelungener Abruf der Speakerliste setzt den gemerkten Fehlertext zurück --------------------------------
+/** Show auf Side Event P1 (ohne Verknüpfung) mit Merker; das Umschalten auf P1 merkt den Kontext, der Merker bleibt. */
+async function agendaMitKontextUndMerker(): Promise<Umgebung> {
+  const u = umgebung((iv) => mitMerker(showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA])));
+  const r = await u.kern.umschalten({ programId: 'P1' });
+  ck('Schliff F4: Vorbedingung — auf P1 umgeschaltet, Kontext gemerkt, Merker bleibt',
+    r.ok && datei(u).iveo?.speakerVeraltetSeit === MERKER && speakerWarnungen(u).length === 0);
+  return u;
+}
+{
+  // Verworfene Agenda-Abfrage (Show inzwischen gespeichert): Sie meldet und merkt keinen Speaker-Fehler.
+  const u = await agendaMitKontextUndMerker();
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  const s = sperre();
+  u.iveo.sperre = (abruf) => (abruf === 'speakers' ? s.halt : null);
+  const lauf = u.kern.abfrage();
+  await warteMs(5);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  s.frei();
+  await lauf;
+  u.iveo.sperre = () => null;
+  ck('Schliff F4: Agenda-Abfrage verworfen → keine Warnung zur Speakerliste', speakerWarnungen(u).length === 0);
+  const warnVorAbfrage = u.warn.length;
+  await u.kern.abfrage();
+  ck('Schliff F4: … die nächste Agenda-Abfrage meldet denselben Fehler (nicht von der verworfenen unterdrückt)',
+    u.warn.slice(warnVorAbfrage).includes('iveo: Speakerliste nicht abrufbar (kaputt), Speaker aus der Datei bleiben.'));
+}
+{
+  // Agenda-Abfrage mit gemerktem Kontext: Die Liste kommt, das Schreiben scheitert → der gemerkte Fehlertext gilt nicht mehr.
+  const u = await agendaMitKontextUndMerker();
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Schliff F4: Vorbedingung — Liste scheitert, eine Warnung', speakerWarnungen(u).length === 1);
+  delete u.iveo.fehler.speakers;
+  u.schreibFehler = true;
+  const vorher = u.schreibversuche;
+  await u.kern.abfrage();
+  ck('Schliff F4: … die Liste gelingt, das Schreiben scheitert, der Merker bleibt in der Datei',
+    u.schreibversuche === vorher + 1 && datei(u).iveo?.speakerVeraltetSeit === MERKER);
+  u.schreibFehler = false;
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Schliff F4: … derselbe Fehler später wieder → wieder eine Warnung im Log', speakerWarnungen(u).length === 2);
+}
+{
+  // Ebenso, wenn die Agenda-Abfrage den Kontext nachlädt (nach dem Speichern mit neuer Bindung fehlt er) und dabei die Liste holt.
+  const u = await agendaMitKontextUndMerker();
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  delete u.iveo.fehler.speakers;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, true);
+  u.schreibFehler = true;
+  const vorher = u.iveo.abrufe.length;
+  await u.kern.abfrage();
+  const neu = u.iveo.abrufe.slice(vorher);
+  ck('Schliff F4: Kontext nachgeladen, die Liste gelingt, das Schreiben scheitert',
+    neu.includes('programm:P1') && neu.includes('speakers:') && datei(u).iveo?.speakerVeraltetSeit === MERKER && speakerWarnungen(u).length === 1);
+  u.schreibFehler = false;
+  const r = await u.kern.umschalten({ programId: 'P1' });
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Schliff F4: … Kontext wieder gemerkt, derselbe Fehler später wieder → wieder eine Warnung im Log',
+    r.ok && speakerWarnungen(u).length === 2);
+}
+{
+  // Umschalten auf ein verknüpftes Side Event: Die Liste kommt, das Schreiben scheitert → der gemerkte Fehlertext gilt nicht mehr.
+  const u = await agendaMitKontextUndMerker();
+  u.iveo.agenda.P2 = [{ ...punkt('P2', 'b1', 'Einführung', 1), speaker_ids: ['sp1'] } as IveoAgendaItem];
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  delete u.iveo.fehler.speakers;
+  u.schreibFehler = true;
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('Schliff F4: Umschalten auf ein verknüpftes Side Event, die Liste gelingt, das Schreiben scheitert',
+    !r.ok && r.message === 'Show konnte nicht geschrieben werden' && speakerWarnungen(u).length === 1);
+  u.schreibFehler = false;
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  ck('Schliff F4: … weiter auf P1, derselbe Fehler später wieder → wieder eine Warnung im Log',
+    u.kern.aktiv()?.filter.programId === 'P1' && speakerWarnungen(u).length === 2);
+}
+
+// --- Schliff Runde 2: Auch die Agenda-Abfrage loggt das Schreiben erst nach erfolgreichem Schreiben (wie F1) ----------
+/** Logzeilen der Agenda-Abfrage, die ein Schreiben melden (alter und neuer Wortlaut). */
+const agendaSchreibZeilen = (u: Umgebung): string[] =>
+  u.info.filter((z) => z.includes('Agenda von Side Event geändert') || z.startsWith('iveo: Side Event abgefragt,'));
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = [...u.iveo.agenda.P1, punkt('P1', 'a4', 'Schlusswort', 4, 5)];
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  await u.kern.abfrage();
+  ck('Schliff R2: Agenda geändert, Schreiben scheitert zweimal → keine Zeile zum Schreiben im Log',
+    u.schreibversuche === 2 && agendaSchreibZeilen(u).length === 0);
+  ck('Schliff R2: … der Status sagt „nicht geschrieben“', u.status.at(-1)?.text === 'Show konnte nicht geschrieben werden');
+  u.schreibFehler = false;
+  await u.kern.abfrage();
+  ck('Schliff R2: … das Schreiben gelingt → genau eine Zeile',
+    u.schreibversuche === 3 && ids(datei(u)) === 'a1,a2,a3,a4' && agendaSchreibZeilen(u).length === 1);
+  ck('Schliff R2: … sie sagt, was von der Datei abwich (wie Befund 7a)',
+    agendaSchreibZeilen(u)[0] === 'iveo: Side Event abgefragt, der Ablauf weicht von der Datei ab → Show neu geschrieben (4 Punkte).');
+}
+{
+  // Nur der Merker weicht ab (die Liste kommt wieder, Agenda und Speaker gleich): Die Zeile sagt nicht „Agenda geändert“.
+  const u = await agendaMitKontextUndMerker();
+  const vorher = u.schreibversuche;
+  await u.kern.abfrage();
+  ck('Schliff R2: Agenda-Abfrage, nur der Merker weicht ab → geschrieben, Merker weg',
+    u.schreibversuche === vorher + 1 && datei(u).iveo?.speakerVeraltetSeit === undefined);
+  ck('Schliff R2: … die Logzeile nennt den Merker, nicht eine geänderte Agenda',
+    JSON.stringify(agendaSchreibZeilen(u))
+      === JSON.stringify(['iveo: Side Event abgefragt, der Merker „Speaker veraltet“ weicht von der Datei ab → Show neu geschrieben (3 Punkte).']));
 }
 
 // --- Zusammenfassung ---

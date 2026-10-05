@@ -11,6 +11,7 @@ import { resolveConfigVars, usedVars } from '@shared/vars';
 import { useTitler } from '@/store/titler';
 import { useTitlerEngine } from '@/lib/engine';
 import { activeGraphic } from '@/lib/graphic';
+import { navGesperrt, zaehlerText } from '@/lib/datalink-anzeige';
 import { encodeCanvasPng, importFileToTemplate, makeThumbPng, type ParsedTemplate } from '@/lib/psd-import';
 import { ImportDialog } from './ImportDialog';
 
@@ -51,6 +52,9 @@ export function OperatorView(): React.JSX.Element {
   const dataError = state?.status.dataError;
   const entries = state?.status.entries ?? [];
   const activeEntry = state?.status.activeEntry ?? -1;
+  // Master-Link Teil 2b (Spec 7.8): stehender Hinweis H1–H7 und Datenquelle (Q1–Q3, K1).
+  const hinweis = state?.status.hinweis;
+  const datenQuelle = state?.status.datenQuelle;
 
   const previewRef = useRef<HTMLCanvasElement>(null);
   // Zum Zeichnen werden {{variablen}} aufgelöst; die Eingabefelder zeigen weiter
@@ -232,11 +236,12 @@ export function OperatorView(): React.JSX.Element {
   }
   const c = config;
 
-  // iveo speist Speaker automatisch als verwalteten DataLink-Ordner ein (speakers.tsv,
-  // #11) — der Titler hält kein Token/Backend. Hier nur ableiten, ob dieser Ordner
-  // gerade aktiv ist (beitragende Datei bzw. verwalteter Ordnername).
-  const iveoActive =
-    dataSources.includes('speakers.tsv') || /[\\/]iveo-data[\\/]?$/.test(c.dataFolder);
+  // iveo speist Speaker über die Datenquelle „Show“ ein (speakers.tsv in userData/iveo-data,
+  // #11, Spec 7.7) — der Titler hält kein Token/Backend. `config.dataFolder` ist nur noch
+  // der eigene Ordner des Bedieners und sagt darüber nichts mehr.
+  const iveoActive = datenQuelle?.art === 'show';
+  // Weiter/Zurück: gesperrt nur an den Rändern; ohne aktiven Eintrag beide frei (Spec 7.4).
+  const nav = navGesperrt(activeEntry, entries.length);
 
   return (
     <div className="h-screen flex flex-col bg-[var(--background)] text-[var(--foreground)]">
@@ -446,7 +451,21 @@ export function OperatorView(): React.JSX.Element {
                 {/* Daten / Recall (#86/#152): Live-Abruf der DataLink-Einträge.
                     Der Datenordner selbst wird im Reiter „Einstellungen" gewählt. */}
                 <Collapsible title="Daten / Recall" persistId="titler.recall" defaultOpen>
-                  {!c.dataFolder ? (
+                  {/* Quelle über der Liste (Q1–Q3) und stehender Hinweis (H1–H7), Spec 7.8 */}
+                  {datenQuelle?.zeile ? (
+                    <p className="truncate text-[11px] text-[var(--muted-foreground)]" title={datenQuelle.zeile}>
+                      {datenQuelle.zeile}
+                    </p>
+                  ) : null}
+                  {hinweis ? (
+                    <p
+                      role="status"
+                      className="rounded-[var(--radius)] border border-[var(--warning)]/50 bg-[var(--warning)]/15 px-3 py-2 text-[11px] text-[var(--foreground)]"
+                    >
+                      {hinweis.text}
+                    </p>
+                  ) : null}
+                  {datenQuelle?.ohneOrdner ? (
                     <p className="text-[11px] text-[var(--muted-foreground)]">
                       Kein Datenordner aktiv. Im Reiter <b>Einstellungen › DataLink</b> einen Ordner wählen — oder den
                       Titler über eine <b>JM Show</b> mit iveo-Daten öffnen. Abrufbare Einträge erscheinen dann hier.
@@ -460,7 +479,7 @@ export function OperatorView(): React.JSX.Element {
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
-                              Einträge {activeEntry >= 0 ? `· ${activeEntry + 1}/${entries.length}` : `· ${entries.length}`}
+                              {zaehlerText(activeEntry, entries.length)}
                             </span>
                             <div className="ml-auto flex gap-1">
                               <Button
@@ -476,7 +495,7 @@ export function OperatorView(): React.JSX.Element {
                                 variant="outline"
                                 size="sm"
                                 uppercase={false}
-                                disabled={activeEntry <= 0}
+                                disabled={nav.zurueck}
                                 onClick={() => void window.jmtitler.stepEntry(-1)}
                                 title="Vorheriger Eintrag"
                               >
@@ -486,7 +505,7 @@ export function OperatorView(): React.JSX.Element {
                                 variant="outline"
                                 size="sm"
                                 uppercase={false}
-                                disabled={activeEntry >= entries.length - 1}
+                                disabled={nav.weiter}
                                 onClick={() => void window.jmtitler.stepEntry(1)}
                                 title="Nächster Eintrag"
                               >
@@ -495,10 +514,10 @@ export function OperatorView(): React.JSX.Element {
                             </div>
                           </div>
                           <div className="max-h-40 overflow-auto rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
-                            {entries.map((label, i) => (
+                            {entries.map((e, i) => (
                               <button
-                                key={`${i}-${label}`}
-                                onClick={() => void window.jmtitler.recallEntry(String(i + 1))}
+                                key={e.key}
+                                onClick={() => void window.jmtitler.recallSchluessel(e.key)}
                                 className={cn(
                                   'flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs',
                                   i === activeEntry
@@ -507,7 +526,7 @@ export function OperatorView(): React.JSX.Element {
                                 )}
                               >
                                 <span className="tabular text-[10px] w-5 shrink-0 text-[var(--muted-foreground)]">{i + 1}</span>
-                                <span className="truncate">{label || '—'}</span>
+                                <span className="truncate">{e.label || '—'}</span>
                               </button>
                             ))}
                           </div>
@@ -611,6 +630,18 @@ export function OperatorView(): React.JSX.Element {
                       </Button>
                     ) : null}
                   </div>
+                  {/* K1 (Spec 7.7/7.8): nur bei Quelle Show und einem eigenen Ordner, der nicht iveo-data ist */}
+                  {datenQuelle?.zurueckKnopf ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      uppercase={false}
+                      className="w-full"
+                      onClick={() => void window.jmtitler.zurueckZumEigenenOrdner()}
+                    >
+                      {datenQuelle.zurueckKnopf}
+                    </Button>
+                  ) : null}
                   {dataError ? (
                     <p className="text-[11px] text-[var(--destructive)]">DataLink: {dataError}</p>
                   ) : null}

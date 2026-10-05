@@ -23,6 +23,24 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.14.0",
+        "date": "2026-10-05",
+        "notes": [
+          "Ist die Speakerliste von iveo beim Abgleich oder beim Umschalten im Side-Events-Panel nicht abrufbar, behält die Show ihre bisherigen Speaker. Bisher konnte ein solcher Fehler bei der Abfrage ohne gewähltes Side Event und beim Umschalten auf die Tagesübersicht die Speaker leeren.",
+          "Schreibt der Launcher die Show dabei, meldet das Side-Events-Panel eine Störung, und die Show vermerkt das mit Uhrzeit, auch über einen Neustart des Launchers hinweg; Titler 0.10.0 zeigt bei ihren Speakern dann den Hinweis „Liste aus früherem Stand“, solange kein dringenderer Hinweis steht.",
+          "Solange die Show eine fehlende Speakerliste vermerkt, fragt der Launcher sie bei jeder Abfrage erneut an, die nicht vorher scheitert. Gelingt eine Abfrage samt Liste und kann er die Show schreiben, aktualisiert er die Speaker, nimmt den Vermerk zurück, und die Störungsmeldung im Panel verschwindet.",
+          "„Verantwortlich“ im Ablauf kann während einer solchen Störung an einzelnen Punkten fehlen, etwa nach dem Umschalten auf ein Side Event mit verknüpften Speakern oder an Punkten, die erst während der Störung dazukommen.",
+          "Die iveo-Kennung der Speaker übernimmt der Launcher noch nicht in die Show. Titler 0.10.0 und Rundown 0.7.0 arbeiten bei Speakern aus dem Launcher deshalb über den Namen."
+        ]
+      },
+      {
+        "version": "0.13.2",
+        "date": "2026-10-05",
+        "notes": [
+          "Vorbereitung für Master-Link Teil 2b: Show-Dateien können jetzt zu jedem Speaker eine Kennung und einen Merker für einen veralteten Stand tragen. Der Launcher setzt beides noch nicht, darum ändert sich in dieser Version nichts Sichtbares. Release 1 von Teil 2b baut darauf auf."
+        ]
+      },
+      {
         "version": "0.13.1",
         "date": "2026-10-02",
         "notes": [
@@ -1046,6 +1064,21 @@
     "name": "JM Titler",
     "entries": [
       {
+        "version": "0.10.0",
+        "date": "2026-10-05",
+        "notes": [
+          "Die Bauchbinde hält ihre Person: Der Titler merkt sich den abgerufenen Speaker über Datei und Namen statt über die Nummer in der Liste. Kommt in iveo ein Speaker davor dazu oder schaltet der Launcher das Side Event um, rutscht die Bauchbinde nicht mehr auf eine andere Person, die nun an derselben Nummer steht.",
+          "Korrekturen aus iveo, etwa an der Funktion, zeigt der Titler in der Regel, sobald der Launcher die Show neu laden lässt. Eine Änderung nur an einem Speaker erreicht die Show allerdings nicht mit jeder Abfrage des Launchers.",
+          "Weil die iveo-Kennung noch nicht übernommen wird, hängt das Halten am Namen. Ändert sich der Name in iveo oder gibt es gleichnamige Speaker, hält der Titler die Bauchbinde in der Regel mit dem bisherigen Stand und zeigt einen Hinweis. Trägt danach genau ein anderer Speaker ihren alten Namen, etwa ein Namensvetter im neuen Side Event, zeigt der Titler dessen Angaben ohne Hinweis.",
+          "Fehlt die Person auf Sendung in einer neuen Liste mit Einträgen, bleibt die Bauchbinde stehen, bis sie ausgeblendet oder ein Eintrag abgerufen wird; Daten / Recall und das Recall-Board zeigen einen Hinweis. Eine Sekunde nach dem Ausblenden fällt die Person weg, wenn sie bis dahin nicht wieder eingeblendet wird oder in die Liste zurückkommt.",
+          "Ein Abruf mit Namen oder Nummer, der nichts findet, lässt nicht mehr den vorherigen Speaker aktiv, auch nicht eine Nummer außerhalb der Liste. Der Titler zeigt dazu einen Hinweis.",
+          "Der Titler überschreibt den eigenen DataLink-Ordner nicht mehr. Speaker aus einer Show liest er getrennt davon, Daten / Recall zeigt die Quelle, und „Zurück zum eigenen Ordner“ in den Einstellungen führt zur eigenen Liste zurück. Steht beim Start der Ordner iveo-data als DataLink-Ordner eingetragen, leert der Titler diese Einstellung. Hat er sich noch keine Show gemerkt, bleiben die Speaker aus diesem Ordner bis zum nächsten Neustart sichtbar, längstens bis eine Show angewendet oder ein eigener Ordner gewählt wird; sonst gilt die gemerkte Show.",
+          "Der Titler merkt sich die zuletzt angewendete Show, bis der Bediener den DataLink-Ordner ändert oder „Zurück zum eigenen Ordner“ drückt. Ein Neustart über die Launcher-Kachel liest sie erneut, und ein Neu-Laden aus dem Launcher liest wieder diese Show.",
+          "Neu für Companion: TITLER RECALL @⟨Kennung⟩ ⟨Name⟩ ruft einen Eintrag über seine Kennung ab (ohne Leerzeichen, höchstens 200 Zeichen, nicht mit „ersatz:“ beginnend; Groß- und Kleinschreibung zählen nicht), sonst über den ganzen Namen, nie über einen Teil davon. Eine Kennung tragen nur Einträge aus CSV- oder TSV-Dateien mit der Spalte @kennung; der Launcher schreibt noch keine in die Show. TITLER RECALL mit Nummer, Weiter und Zurück bleiben nummernbasiert.",
+          "Nach einem Rückweg auf Titler 0.9.0 zeigt dieser bis zur nächsten Show den eingetragenen eigenen DataLink-Ordner, ohne eigenen Ordner keine Liste."
+        ]
+      },
+      {
         "version": "0.9.0",
         "date": "2026-10-01",
         "notes": [
@@ -1330,6 +1363,15 @@
     "app": "rundown",
     "name": "JM Rundown",
     "entries": [
+      {
+        "version": "0.7.0",
+        "date": "2026-10-05",
+        "notes": [
+          "Der Speaker-Picker an der Aktion „DataLink-Eintrag abrufen“ für den JM Titler sendet wie bisher den gewählten Namen, weil die iveo-Kennung noch nicht übernommen wird. Nach einer Namensänderung in iveo kann der Abruf im Titler deshalb eine andere Person treffen oder keinen Treffer finden; ohne Treffer zeigt der Titler einen Hinweis. Nach einer Namensänderung den Speaker im Picker neu wählen.",
+          "Hat die Show Speaker und steht in einer Aktion ein nicht leerer Eintrag, der nicht als Name in ihrer Speakerliste steht, zeigt der Picker ihn jetzt als „⟨Name⟩ · per Name (nicht gebunden)“, eine Nummer wie die Vorgabe „1“ einer neuen Aktion als „Nr. 1 · per Nummer (nicht gebunden)“. Bisher stand dort „— Speaker wählen —“.",
+          "Bekannt: Speaker mit gleichem Namen kann der Picker nicht unterscheiden; der Titler ruft dann den ersten passenden Eintrag ab."
+        ]
+      },
       {
         "version": "0.6.0",
         "date": "2026-10-01",

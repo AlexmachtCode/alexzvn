@@ -1,23 +1,28 @@
 import { useMemo, useState } from 'react';
 import { cn, Logo } from '@jm/ui';
 import { useTitler } from '@/store/titler';
+import { b1Text, boardHinweis } from '@/lib/datalink-anzeige';
 
 /**
  * Recall-Button-Board (#152): ein Raster aus Buttons, je einer pro DataLink-
- * Eintrag (z. B. Personenname). Klick ruft den Eintrag ab (RECALL) → dessen
- * Variablen füllen die Bauchbinde. Für einen zweiten Bildschirm/Touch gedacht;
- * live-aktualisiert (teilt sich den Zustand mit dem Operator-Fenster).
+ * Eintrag (z. B. Personenname). Klick ruft den Eintrag über seinen Schlüssel ab
+ * → dessen Variablen füllen die Bauchbinde. Für einen zweiten Bildschirm/Touch
+ * gedacht; live-aktualisiert (teilt sich den Zustand mit dem Operator-Fenster).
+ * Master-Link Teil 2b (Spec 7.8): oben der Hinweis H1/H5/H6, über den Einträgen
+ * die Karte B1 für einen gehaltenen Eintrag.
  */
 export function RecallBoard(): React.JSX.Element {
   const state = useTitler((s) => s.state);
   const entries = state?.status.entries ?? [];
   const activeEntry = state?.status.activeEntry ?? -1;
+  const hinweis = boardHinweis(state?.status.hinweis);
+  const karte = b1Text(state?.status.gehalten);
   const [q, setQ] = useState('');
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
     return entries
-      .map((label, i) => ({ label, i }))
+      .map((e, i) => ({ key: e.key, label: e.label, i }))
       .filter((e) => !t || e.label.toLowerCase().includes(t));
   }, [entries, q]);
 
@@ -38,6 +43,23 @@ export function RecallBoard(): React.JSX.Element {
         />
       </header>
 
+      {hinweis ? (
+        <div
+          role="status"
+          className="shrink-0 border-b border-[var(--warning)]/50 bg-[var(--warning)]/15 px-5 py-2.5 text-sm font-semibold"
+        >
+          {hinweis}
+        </div>
+      ) : null}
+
+      {karte ? (
+        <div className="shrink-0 px-4 pt-4">
+          <div className="min-h-16 rounded-[var(--radius-lg)] border-2 border-dashed border-[var(--warning)] px-3 py-2 flex items-center justify-center text-center text-sm font-bold">
+            {karte}
+          </div>
+        </div>
+      ) : null}
+
       {entries.length === 0 ? (
         <div className="flex-1 grid place-items-center px-6 text-center text-sm text-[var(--muted-foreground)]">
           Keine Einträge. Wähle im Operator-Fenster einen DataLink-Ordner (oder öffne eine iveo-Show mit Speakern).
@@ -45,10 +67,10 @@ export function RecallBoard(): React.JSX.Element {
       ) : (
         <div className="flex-1 min-h-0 overflow-auto p-4">
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
-            {filtered.map(({ label, i }) => (
+            {filtered.map(({ key, label, i }) => (
               <button
-                key={`${i}-${label}`}
-                onClick={() => void window.jmtitler.recallEntry(String(i + 1))}
+                key={key}
+                onClick={() => void window.jmtitler.recallSchluessel(key)}
                 title={label}
                 className={cn(
                   'h-16 rounded-[var(--radius-lg)] border px-3 text-sm font-bold leading-tight',

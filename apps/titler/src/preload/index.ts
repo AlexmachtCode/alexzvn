@@ -27,7 +27,9 @@ const api: JmtitlerApi = {
     ipcRenderer.invoke('titler:setConfig', patch) as Promise<TitlerState>,
   pickDataFolder: () => ipcRenderer.invoke('titler:pickDataFolder') as Promise<string>,
   recallEntry: (ref: string) => ipcRenderer.invoke('titler:recall', ref) as Promise<void>,
+  recallSchluessel: (key: string) => ipcRenderer.invoke('titler:recallSchluessel', key) as Promise<void>,
   stepEntry: (delta: number) => ipcRenderer.invoke('titler:stepEntry', delta) as Promise<void>,
+  zurueckZumEigenenOrdner: () => ipcRenderer.invoke('titler:zurueckZumOrdner') as Promise<void>,
   openRecall: () => ipcRenderer.invoke('titler:openRecall') as Promise<void>,
   listDisplays: () => ipcRenderer.invoke('titler:listDisplays') as Promise<DisplayInfo[]>,
   onDisplaysChanged: (cb) => {
