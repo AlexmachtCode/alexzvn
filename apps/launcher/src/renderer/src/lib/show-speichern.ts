@@ -358,5 +358,26 @@ export function baueGespeicherteShow(geladen: Show | null, f: FormularStand, akt
     else delete show.ablauf;
   }
   if (f.iveoNeuGebunden) show.iveo = f.iveoNeuGebunden;
+  else if (show.iveo && aktuelleDatei?.iveo?.speakerVeraltetSeit && gleicheBindung(show.iveo, aktuelleDatei.iveo)) {
+    // Vor-Release V1: Der Abgleich hat den Merker „Speaker veraltet“ seit dem Öffnen in die Datei geschrieben. Die
+    // Bindung vom Öffnen trägt ihn nicht (oder einen älteren); ginge er verloren, meldete der Kern „in Ordnung“ und holte
+    // die Speaker im Listen-Modus erst bei der nächsten Programmänderung. Steht in der Datei keiner, bleibt der vom
+    // Öffnen: geschrieben werden dann die Speaker vom Öffnen, und solange er steht, holt die nächste Abfrage die Liste.
+    show.iveo = { ...show.iveo, speakerVeraltetSeit: aktuelleDatei.iveo.speakerVeraltetSeit };
+  }
   return show;
+}
+
+/** Dieselbe iveo-Bindung: gleiches Event, gleiche Auswahl (Filter samt Side Event). */
+function gleicheBindung(a: ShowIveoBinding, b: ShowIveoBinding): boolean {
+  const fa = a.filter ?? {};
+  const fb = b.filter ?? {};
+  return (
+    a.event === b.event &&
+    (fa.typeSlug ?? '') === (fb.typeSlug ?? '') &&
+    (fa.formatSlug ?? '') === (fb.formatSlug ?? '') &&
+    (fa.day ?? '') === (fb.day ?? '') &&
+    !!fa.excludeBlockers === !!fb.excludeBlockers &&
+    (fa.programId ?? '') === (fb.programId ?? '')
+  );
 }

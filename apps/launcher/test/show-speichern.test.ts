@@ -97,6 +97,48 @@ console.log('— iveo-Abfrage zwischen Laden und Speichern (7.5 Regel 1)');
   ck('… Bindung bleibt die geladene (ohne neue Bindung)', mitFormular.iveo?.syncedAt === ROH.iveo.syncedAt);
 }
 
+console.log('— Merker „Speaker veraltet“ kam nach dem Öffnen in die Datei, Ablauf im Formular geändert (Vor-Release V1)');
+{
+  // Editor geöffnet ohne Merker; danach scheitert die Speakerliste, der Abgleich schreibt den Merker in die Datei.
+  // Ohne ihn meldete der Kern nach dem Speichern „in Ordnung“ und holte die Speaker nie wieder (Listen-Modus).
+  const MERKER = '2026-09-29T08:15:00.000Z';
+  const ohneMerker = parseShow(JSON.stringify({ ...ROH, iveo: { ...ROH.iveo, speakerVeraltetSeit: undefined } }));
+  const dateiMitMerker = parseShow(JSON.stringify({
+    ...ROH,
+    iveo: { ...ROH.iveo, syncedAt: '2026-09-29T08:30:00.000Z', speakerVeraltetSeit: MERKER },
+  }));
+  const geaendert = (s: Show): FormularStand => {
+    const basis = formularAusShow(s);
+    return { ...basis, ablauf: basis.ablauf.map((r, i) => (i === 1 ? { ...r, minutes: '25' } : r)) };
+  };
+  const e = baueGespeicherteShow(ohneMerker, geaendert(ohneMerker), dateiMitMerker, zaehler().neueId);
+  ck('gleiche Bindung → der Merker aus der Datei bleibt', e.iveo?.speakerVeraltetSeit === MERKER);
+  ck('… der Ablauf kommt aus dem Formular', e.ablauf?.length === 3 && e.ablauf?.[1].durationMs === 1_500_000);
+  ck('… der Rest der Bindung bleibt der vom Öffnen (syncedAt)', e.iveo?.syncedAt === ROH.iveo.syncedAt);
+  const neuer = baueGespeicherteShow(geladen, geaendert(geladen), dateiMitMerker, zaehler().neueId);
+  ck('Merker beim Öffnen, in der Datei inzwischen ein neuerer → der aus der Datei', neuer.iveo?.speakerVeraltetSeit === MERKER);
+  // Gegenproben: nur bei derselben Bindung (gleiches Event, gleiche Auswahl).
+  const andereAuswahl = parseShow(JSON.stringify({
+    ...ROH,
+    iveo: { ...ROH.iveo, speakerVeraltetSeit: MERKER, filter: { programId: 'p2' } },
+  }));
+  ck('Datei mit anderer Side-Event-Auswahl → ihr Merker wird nicht übernommen',
+    isDeepStrictEqual(baueGespeicherteShow(ohneMerker, geaendert(ohneMerker), andereAuswahl, zaehler().neueId).iveo, ohneMerker.iveo));
+  const anderesEvent = parseShow(JSON.stringify({ ...ROH, iveo: { ...ROH.iveo, event: 'cop32', speakerVeraltetSeit: MERKER } }));
+  ck('Datei mit anderem Event → ihr Merker wird nicht übernommen',
+    isDeepStrictEqual(baueGespeicherteShow(ohneMerker, geaendert(ohneMerker), anderesEvent, zaehler().neueId).iveo, ohneMerker.iveo));
+  const neu = bindungAusEditor({ event: 'cop31', name: 'COP31', filter: { programId: 'p1' } });
+  const neuGebunden = baueGespeicherteShow(ohneMerker, { ...geaendert(ohneMerker), iveoNeuGebunden: neu }, dateiMitMerker, zaehler().neueId);
+  ck('neu gebunden → die neue Bindung ersetzt iveo ganz, ohne Merker', isDeepStrictEqual(neuGebunden.iveo, neu));
+  // Merker beim Öffnen, Datei inzwischen ohne: geschrieben werden die Speaker vom Öffnen, also gilt ihr Merker weiter
+  // (die nächste Abfrage holt die Liste, solange er steht).
+  const dateiOhneMerker = parseShow(JSON.stringify({ ...ROH, iveo: { ...ROH.iveo, speakerVeraltetSeit: undefined } }));
+  ck('Merker beim Öffnen, Datei inzwischen ohne → der Merker vom Öffnen bleibt (Speaker vom Öffnen)',
+    baueGespeicherteShow(geladen, geaendert(geladen), dateiOhneMerker, zaehler().neueId).iveo?.speakerVeraltetSeit === ROH.iveo.speakerVeraltetSeit);
+  ck('Datei nicht lesbar → Bindung vom Öffnen (wie bisher)',
+    isDeepStrictEqual(baueGespeicherteShow(ohneMerker, geaendert(ohneMerker), null, zaehler().neueId).iveo, ohneMerker.iveo));
+}
+
 console.log('— Datei beim Speichern nicht lesbar (7.5 Regel 1): nicht still den Stand vom Öffnen schreiben');
 {
   const basis = formularAusShow(geladen);
