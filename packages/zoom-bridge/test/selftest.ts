@@ -36,7 +36,7 @@ import type {
 } from '../src/index.ts';
 import { tmpdir } from 'node:os';
 import { delimiter } from 'node:path';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, unlinkSync } from 'node:fs';
 
 let failures = 0;
 function assert(cond: boolean, name: string): void {
@@ -46,6 +46,21 @@ function assert(cond: boolean, name: string): void {
     console.error(`FAIL  ${name}`);
   }
 }
+
+// Ein eigener Temp-Ordner JE LAUF fuer die Zugangsdaten-Dateien unten. Frueher hiessen sie
+// `${tmpdir()}/zoom-test-${Date.now()}-…` direkt in %TEMP%: zwei gleichzeitige Laeufe (z. B.
+// zwei Worktrees) trafen dieselbe Millisekunde, der eine loeschte die Datei des anderen.
+// GEMESSEN (Schliff S2, 10 Paare parallel): 4 von 20 Laeufen rot - dreimal Absturz in
+// unlinkSync (ENOENT), einmal FAIL "UTF-16 BE mit BOM (FE FF): wird gelesen wie ohne BOM".
+// `join` kommt aus dem Import weiter unten (Importe gelten im ganzen Modul).
+const testTemp = mkdtempSync(join(tmpdir(), 'jm-bridge-test-'));
+process.on('exit', () => {
+  try {
+    rmSync(testTemp, { recursive: true, force: true });
+  } catch {
+    // Aufraeumen darf das Ergebnis nicht aendern; ein liegengebliebener Ordner stoert keinen Lauf.
+  }
+});
 
 function decodePart(part: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
@@ -105,7 +120,7 @@ console.log('readCredentials — Umgebung und Datei:');
     // Dateiweg mit clientId/clientSecret
     delete process.env.ZOOM_SDK_CLIENT_ID;
     delete process.env.ZOOM_SDK_CLIENT_SECRET;
-    const tempFile1 = `${tmpdir()}/zoom-test-${Date.now()}-1.json`;
+    const tempFile1 = join(testTemp, 'zugang-1.json');
     writeFileSync(tempFile1, JSON.stringify({ clientId: 'file-clientid', clientSecret: 'file-secret' }), 'utf8');
     process.env.ZOOM_SDK_CREDENTIALS = tempFile1;
     creds = readCredentials();
@@ -113,7 +128,7 @@ console.log('readCredentials — Umgebung und Datei:');
     unlinkSync(tempFile1);
 
     // Namensvarianten client_id/client_secret
-    const tempFile2 = `${tmpdir()}/zoom-test-${Date.now()}-2.json`;
+    const tempFile2 = join(testTemp, 'zugang-2.json');
     writeFileSync(tempFile2, JSON.stringify({ client_id: 'alt-clientid', client_secret: 'alt-secret' }), 'utf8');
     process.env.ZOOM_SDK_CREDENTIALS = tempFile2;
     creds = readCredentials();
@@ -121,7 +136,7 @@ console.log('readCredentials — Umgebung und Datei:');
     unlinkSync(tempFile2);
 
     // Namensvarianten appKey/sdkSecret
-    const tempFile3 = `${tmpdir()}/zoom-test-${Date.now()}-3.json`;
+    const tempFile3 = join(testTemp, 'zugang-3.json');
     writeFileSync(tempFile3, JSON.stringify({ appKey: 'app-key', sdkSecret: 'sdk-secret' }), 'utf8');
     process.env.ZOOM_SDK_CREDENTIALS = tempFile3;
     creds = readCredentials();
@@ -131,7 +146,7 @@ console.log('readCredentials — Umgebung und Datei:');
     // Vorrang: Umgebung gewinnt ueber Datei
     process.env.ZOOM_SDK_CLIENT_ID = 'env-wins';
     process.env.ZOOM_SDK_CLIENT_SECRET = 'env-wins-secret';
-    const tempFile4 = `${tmpdir()}/zoom-test-${Date.now()}-4.json`;
+    const tempFile4 = join(testTemp, 'zugang-4.json');
     writeFileSync(tempFile4, JSON.stringify({ clientId: 'file-loses', clientSecret: 'file-loses-secret' }), 'utf8');
     process.env.ZOOM_SDK_CREDENTIALS = tempFile4;
     creds = readCredentials();
@@ -181,7 +196,7 @@ console.log('\nreadCredentials — eine uebergebene Umgebung statt process.env:'
     const creds = readCredentials({ ZOOM_SDK_CLIENT_ID: 'uebergeben', ZOOM_SDK_CLIENT_SECRET: 'uebergeben-secret' });
     assert(creds.clientId === 'uebergeben' && creds.clientSecret === 'uebergeben-secret', 'die uebergebene Umgebung wird gelesen, nicht process.env');
 
-    const tempFile = `${tmpdir()}/zoom-test-${Date.now()}-env.json`;
+    const tempFile = join(testTemp, 'zugang-env.json');
     writeFileSync(tempFile, JSON.stringify({ clientId: 'datei-id', client_secret: 'datei-secret' }), 'utf8');
     const ausDatei = readCredentials({ ZOOM_SDK_CREDENTIALS: tempFile });
     unlinkSync(tempFile);
@@ -199,7 +214,7 @@ console.log('\nreadCredentials — eine uebergebene Umgebung statt process.env:'
     // AUSSCHNITT DER EINGABE ('..."tSecret": GEHEIM-xyz"... is not valid
     // JSON'). Die Steuerung druckt e.message - eine kaputte Zugangsdaten-Datei
     // braechte so das Secret auf den Schirm des Operators.
-    const kaputtDatei = `${tmpdir()}/zoom-test-${Date.now()}-kaputt.json`;
+    const kaputtDatei = join(testTemp, 'zugang-kaputt.json');
     writeFileSync(kaputtDatei, '{"clientId": "id-ok", "clientSecret": GEHEIM-xyz}', 'utf8');
     let meldung = '';
     try {
@@ -233,7 +248,7 @@ console.log('\nreadCredentials — Datei mit BOM (UTF-8 mit BOM, UTF-16):');
     ['UTF-16 BE mit BOM (FE FF)', Buffer.concat([Buffer.from([0xfe, 0xff]), be])],
   ];
   for (const [name, inhalt] of varianten) {
-    const datei = `${tmpdir()}/zoom-test-${Date.now()}-bom.json`;
+    const datei = join(testTemp, 'zugang-bom.json');
     writeFileSync(datei, inhalt);
     let ergebnis = '';
     try {
