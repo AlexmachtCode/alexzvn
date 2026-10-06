@@ -1049,6 +1049,9 @@ console.log('— Laden und Entladen (Fall 10, 10b, 11, 12)');
   ck('Ton-Schalter Ben aus (ohne Quelle) → ok, nur Bens Zeile', ok(p.kern.ton({ id: BEN, an: false }))
     && zeile(p, BEN)?.tonVorwahl === false && zeile(p, ANNA)?.tonVorwahl === true);
   const r = await p.kern.laden({ id: BEN, ton: zeile(p, BEN)?.tonVorwahl ?? true, trotzBetriebsgroesse: false });
+  // laden() kehrt nach dem Senden zurück; die Attrappe protokolliert im eigenen Prozess danach
+  // (Wettlauf, rot im Linux-CI-Lauf am 2026-10-06).
+  await bis(() => p.befehle(1).some((c) => c.cmd === 'videoSubscribe'));
   const sub = p.befehle(1).find((c) => c.cmd === 'videoSubscribe');
   ck('Fall 11: videoSubscribe mit 720p und Ton nach Schalter (aus)', ok(r) && sub?.id === BEN && sub.resolution === '720p' && sub.audio === false);
   ck('… Quelle „JM Connect – Zoom Ben“, ohne Ton geladen', await bis(() => zeile(p, BEN)?.quelle?.ndiName === 'JM Connect – Zoom Ben')
@@ -1208,6 +1211,8 @@ console.log('— Teilnehmer-Wiederbeitritt (Fall 14, 14b)');
   await bis(() => p.kern.kurz().quellen === 1);
   ck('Fall 14c: „anna“ kommt zurück', await bis(() => zeile(p, 16778250) !== undefined, 2000));
   ck('… Bediener lädt 16778250 von Hand, vor dem Abgleich', ok(await p.kern.laden({ id: 16778250, ton: false, trotzBetriebsgroesse: false })));
+  // Wie Fall 11: erst warten, bis die Attrappe das neue Abo protokolliert hat.
+  await bis(() => p.befehle(1).some((x) => x.cmd === 'videoSubscribe' && x.id === 16778250));
   ck('… Laden meldet das alte Abo selbst ab (16778240), dann abonniert es das neue',
     p.befehle(1).filter((x) => x.cmd === 'videoUnsubscribe').map((x) => x.id).join(',') === '16778240'
     && p.befehle(1).filter((x) => x.cmd === 'videoSubscribe').map((x) => x.id).join(',') === '16778240,16778250');
