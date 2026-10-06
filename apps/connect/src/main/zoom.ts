@@ -9,12 +9,17 @@ import { IPC } from '@shared/ipc';
 import type { ZoomErgebnis, ZoomKurz } from '@shared/types';
 import { erzeugeZoomKern, type ZoomKern } from './zoom/kern';
 import { pruefeZugangEingabe } from './zoom/zugang-eingabe';
+import { pruefeSdkSchluesselEingabe } from './zoom/sdk-schluessel-eingabe';
 import { activeLabels } from './ndi-guests';
 import {
+  proxyUrl,
   setzeZoomAnzeigename,
   setzeZoomLaufzeit,
   setzeZoomVersatzMs,
   zoomAnzeigename,
+  zoomSdkSchluesselLesen,
+  zoomSdkSchluesselLoeschen,
+  zoomSdkSchluesselSpeichern,
   zoomVersatzMs,
   zoomZugangLesen,
   zoomZugangLoeschen,
@@ -59,6 +64,7 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
     kern = erzeugeZoomKern({
       pfade: { basis, ressourcen },
       zugang: { lesen: zoomZugangLesen, speichern: zoomZugangSpeichern, loeschen: zoomZugangLoeschen },
+      sdkSchluessel: { lesen: zoomSdkSchluesselLesen, speichern: zoomSdkSchluesselSpeichern, loeschen: zoomSdkSchluesselLoeschen },
       einstellungen: {
         anzeigename: zoomAnzeigename,
         setzeAnzeigename: setzeZoomAnzeigename,
@@ -66,6 +72,8 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         setzeVersatzMs: setzeZoomVersatzMs,
         setzeLaufzeit: setzeZoomLaufzeit,
       },
+      // „Zoom-SDK laden“ (Spec SDK nachladen 4.3): Umgebung JMPS_PROXY_URL, Einstellung oder Vorgabe; kein Proxy-Schlüssel.
+      proxyUrl,
       gastLabels: activeLabels,
       // Der Kern liefert fertige Zeilen: Präfix [zoom]/[zoom-bridge], Geheimnisse schon maskiert (8.7).
       log: (zeile) => getLog().info(zeile),
@@ -93,6 +101,10 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
     return ordner === null ? NICHTS : k.sdkWaehlen(ordner);
   });
 
+  // „Zoom-SDK laden“ (Spec SDK nachladen 4.3): Sperre S10, Schlüssel S11 und Platz S5 prüft der Kern.
+  ipcMain.handle(IPC.zoomSdkLaden, (): Promise<ZoomErgebnis> => k.sdkLaden());
+  ipcMain.handle(IPC.zoomSdkLadenAbbrechen, (): void => k.sdkLadenAbbrechen());
+
   // Spec 6.1 „Zugangsdaten wählen“. Den Pfad merkt sich Connect nicht.
   ipcMain.handle(IPC.zoomZugangWaehlen, async (): Promise<ZoomErgebnis> => {
     const sperre = k.einrichtungSperre();
@@ -112,6 +124,14 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
   });
 
   ipcMain.handle(IPC.zoomZugangLoeschen, (): ZoomErgebnis => k.zugangLoeschen());
+
+  // SDK-Schlüssel (Spec SDK nachladen 4.2): Form prüfen (über 512 Zeichen, falsche Typen → stumm abgewiesen),
+  // dann der Kern (Trimmen, S18, Sperre S10). Weder Antwort noch Log enthalten je den Wert.
+  ipcMain.handle(IPC.zoomSdkSchluesselEintragen, (_e, p: unknown): ZoomErgebnis => {
+    const e = pruefeSdkSchluesselEingabe(p);
+    return e === null ? NICHTS : k.sdkSchluesselEintragen(e);
+  });
+  ipcMain.handle(IPC.zoomSdkSchluesselLoeschen, (): ZoomErgebnis => k.sdkSchluesselLoeschen());
   ipcMain.handle(IPC.zoomPruefen, (): Promise<ZoomErgebnis> => k.pruefen());
 
   // Der Kenncode kommt nur hier herein und geht nie zurück (Spec 5.5, 5.7).

@@ -40,7 +40,13 @@ import type {
   ZoomSollEintrag,
   ZoomZustand,
 } from '../../shared/types';
-import { stateKvAus, TEXT_A4_SCHREIBFEHLER, type ZoomStateKv } from '../../shared/zoom-text';
+import {
+  stateKvAus,
+  TEXT_A4_SCHREIBFEHLER,
+  TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
+  TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
+  type ZoomStateKv,
+} from '../../shared/zoom-text';
 import {
   KT,
   VORSATZ,
@@ -61,6 +67,7 @@ import {
   BRIDGE_EXE,
   kindPfad,
   pfadVarianten,
+  PLATZ_RESERVE_BYTES,
   pruefeLaufzeit,
   pruefeSdkOrdner,
   richteEin,
@@ -70,6 +77,8 @@ import {
   type LaufzeitPruefung,
   type SdkWahl,
 } from './laufzeit';
+import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
+import { SDK_PAKET } from './sdk-paket';
 import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from './soll';
 import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
 
@@ -95,6 +104,8 @@ export type BridgeArt = Pick<Bridge, 'start' | 'send' | 'stop' | 'session'>;
 export type BridgeFabrik = (opts: BridgeOptions, startNr: number) => BridgeArt;
 export interface ZugangDaten { clientId: string; clientSecret: string }
 export interface ZugangStand { daten: ZugangDaten | null; herkunft: ProxyKeySource; grund?: 'schreibfehler'; unlesbar: boolean }
+/** SDK-Schlüssel für „Zoom-SDK laden“ (Spec SDK nachladen 4.2). Der Wert bleibt im Main, das Abbild trägt nur die Herkunft. */
+export interface SdkSchluesselStand { wert: string | null; herkunft: ProxyKeySource }
 export interface LaufzeitDienste {
   pruefe(p: LaufzeitPfade): LaufzeitPruefung;
   pruefeOrdner(gewaehlt: string, ressourcen: string): SdkWahl;
@@ -102,7 +113,10 @@ export interface LaufzeitDienste {
 }
 export interface ZoomKernAbhaengigkeiten {
   pfade: LaufzeitPfade;
-  zugang: { lesen(): ZugangStand; speichern(d: ZugangDaten): 'stored' | 'session'; loeschen(): void };
+  /** loeschen(): für diese Sitzung immer weg; `false` = steht noch in der Einstellungsdatei (nicht schreibbar). */
+  zugang: { lesen(): ZugangStand; speichern(d: ZugangDaten): 'stored' | 'session'; loeschen(): boolean };
+  /** Umgebung JMPS_ZOOM_SDK_KEY > gespeichert (safeStorage) > Sitzung; speichern() bekommt den getrimmten Wert. loeschen() wie bei zugang. */
+  sdkSchluessel: { lesen(): SdkSchluesselStand; speichern(wert: string): 'stored' | 'session'; loeschen(): boolean };
   einstellungen: {
     anzeigename(): string;
     setzeAnzeigename(n: string): void;
@@ -121,6 +135,10 @@ export interface ZoomKernAbhaengigkeiten {
   bridgeFabrik?: BridgeFabrik;
   /** Vorgabe: die echten Funktionen aus laufzeit.ts. */
   laufzeit?: Partial<LaufzeitDienste>;
+  /** Adresse des Release-Proxys für „Zoom-SDK laden“ (settings.proxyUrl()). Ein Proxy-Schlüssel wird nicht gebraucht. */
+  proxyUrl(): string;
+  /** Vorgabe: die echten Funktionen aus sdk-laden.ts. */
+  sdkLaden?: Partial<SdkLadenDienste>;
   /** Vorgabe: process.env. */
   env?: Record<string, string | undefined>;
   fristen?: Partial<ZoomFristen>;
@@ -132,9 +150,15 @@ export interface ZoomKern {
   laeuft(): boolean;
   einrichtungSperre(): ZoomErgebnis;
   sdkWaehlen(ordner: string): Promise<ZoomErgebnis>;
+  /** „Zoom-SDK laden“ (Spec SDK nachladen 4.3): Link, Download, Prüfung, Entpacken, dann dieselbe Strecke wie sdkWaehlen. */
+  sdkLaden(): Promise<ZoomErgebnis>;
+  /** Bricht ein laufendes Laden ab (Phasen link bis entpacken); während der Kopie wirkungslos. */
+  sdkLadenAbbrechen(): void;
   zugangWaehlen(datei: string): ZoomErgebnis;
   zugangEintragen(e: { clientId: string; clientSecret: string }): ZoomErgebnis;
   zugangLoeschen(): ZoomErgebnis;
+  sdkSchluesselEintragen(e: { schluessel: string }): ZoomErgebnis;
+  sdkSchluesselLoeschen(): ZoomErgebnis;
   versatz(e: { ms: number }): ZoomErgebnis;
   pruefen(): Promise<ZoomErgebnis>;
   beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
@@ -161,7 +185,12 @@ type StartErgebnis = { ok: true; bridge: BridgeArt; gen: number } | { ok: false;
 type StartAusgang = { ok: true } | { ok: false; meldung: Meldungstext };
 interface StartBeobachter { gen: number; erledigt: boolean; ende(e: StartAusgang): void }
 
+const GEHEIM = ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS', 'JMPS_ZOOM_SDK_KEY', 'JMPS_PROXY_KEY'];
+
 const ABGEBROCHEN: Meldungstext = { text: '', detail: null };
+const MIB = 1024 * 1024;
+/** Phase und Bytes von „Zoom-SDK laden“ im Abbild (Spec SDK nachladen 4.4). */
+type LadenStand = NonNullable<ZoomAbbild['einrichtung']['sdk']['laden']>;
 
 function zeitgeber(ms: number, fn: () => void): ReturnType<typeof setTimeout> {
   const t = setTimeout(fn, ms);
@@ -188,6 +217,7 @@ function beschreibe(ev: BridgeEvent): string {
 export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   const f: ZoomFristen = { ...ZOOM_FRISTEN, ...d.fristen };
   const lz: LaufzeitDienste = { pruefe: pruefeLaufzeit, pruefeOrdner: pruefeSdkOrdner, richteEin, ...d.laufzeit };
+  const ld: SdkLadenDienste = { ...SDK_LADEN_DIENSTE, ...d.sdkLaden };
   const fabrik: BridgeFabrik = d.bridgeFabrik ?? ((o) => new Bridge(o));
   const env = d.env ?? process.env;
 
@@ -201,11 +231,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let laufzeitStand: LaufzeitPruefung = lz.pruefe(d.pfade);
   let zugang: ZugangStand = { daten: null, herkunft: 'none', unlesbar: false };
   let zugangFehler: string | null = null;
+  /** Nur die Herkunft; den Wert liest erst das Laden (Spec SDK nachladen 4.2). */
+  let sdkSchluesselHerkunft: ProxyKeySource = d.sdkSchluessel.lesen().herkunft;
   let sdkFehler: string | null = null;
   let kopie: KopieStand | null = null;
   let kopieAbbruch: AbortController | null = null;
   /** Das laufende richteEin; beenden wartet darauf, damit `.teil` gelöscht ist (Spec 6.1, 6.6). */
   let kopieLauf: Promise<EinrichtungsErgebnis> | null = null;
+  /** „Zoom-SDK laden“: Phase und Bytes bis zum Ende des Entpackens, danach null (die Kopie zeigt `kopie`). */
+  let ladung: LadenStand | null = null;
+  /** Bricht die Phasen link bis entpacken ab; danach null (Spec SDK nachladen 4.3 „Abbrechen“). */
+  let ladeAbbruch: AbortController | null = null;
+  /** Das ganze Laden samt Kopie und Aufräumen; Sperre, laeuft() und beenden hängen daran (L24-Muster). */
+  let ladeLauf: Promise<ZoomErgebnis> | null = null;
   let pruefungLaeuft = false;
   let meldung: ZoomAbbild['meldung'] = null;
   const hinweise: string[] = [];
@@ -294,7 +332,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       sollOffen: sollOffen().length,
       versuch: null,
       maengel: [...maengel],
-      kopieLaeuft: kopie !== null,
+      // Spec SDK nachladen 4.4: Kopfzeile und Tray zeigen beim Laden dieselbe Einrichtungszeile wie bei der Kopie (Z1b).
+      kopieLaeuft: kopie !== null || ladung !== null,
     };
   }
 
@@ -310,8 +349,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return {
       kurz: kurz(),
       einrichtung: {
-        sdk: { stand, fassung: stand === 'ok' ? SDK_FASSUNG : null, kopie: kopie ? { ...kopie } : null, text: sdkText },
+        sdk: { stand, fassung: stand === 'ok' ? SDK_FASSUNG : null, kopie: kopie ? { ...kopie } : null, laden: ladung ? { ...ladung } : null, text: sdkText },
         zugang: { herkunft: zugang.herkunft, ...(zugang.grund ? { grund: zugang.grund } : {}), clientIdEnde: id ? id.slice(-4) : null, text: zugangText },
+        sdkSchluessel: { herkunft: sdkSchluesselHerkunft },
       },
       anzeigename: d.einstellungen.anzeigename(),
       versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null },
@@ -400,7 +440,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function einrichtungSperre(): ZoomErgebnis {
-    const frei = (zustand === 'einrichtung' && kopie === null) || (zustand === 'bereit' && !pruefungLaeuft) || zustand === 'fehler';
+    // Spec SDK nachladen 4.4: zusätzlich nur ohne laufendes Laden (ladeLauf umfasst ladung !== null und die Kopie danach).
+    const frei = ladeLauf === null
+      && ((zustand === 'einrichtung' && kopie === null) || (zustand === 'bereit' && !pruefungLaeuft) || zustand === 'fehler');
     return frei ? { ok: true } : { ok: false, text: KT.S10 };
   }
 
@@ -409,11 +451,22 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (!sperre.ok) return sperre;
     if (zustand === 'fehler') schliessen();
     sdkFehler = null;
+    return pruefeUndRichteEin(ordner, 'Ordner');
+  }
+
+  /**
+   * Gemeinsame Strecke von „SDK-Ordner wählen“ und „Zoom-SDK laden“ (Spec SDK nachladen 4.3 Schritt 6): Ordner
+   * prüfen, kopieren mit dem `kopie`-Fortschritt, Einstellungen, Mängel, Zustand. Sperre, fehler→schliessen und
+   * `sdkFehler = null` stehen bei den Aufrufern. `herkunft` ändert nur die Logzeile einer Abweisung.
+   */
+  async function pruefeUndRichteEin(ordner: string, herkunft: 'Ordner' | 'Laden'): Promise<ZoomErgebnis> {
     const wahl = lz.pruefeOrdner(ordner, d.pfade.ressourcen);
     if (!wahl.ok) {
       sdkFehler = wahl.text;
-      d.log(`[zoom] SDK-Ordner abgewiesen: ${wahl.text}`);
-      abbildGeaendert();
+      d.log(herkunft === 'Ordner' ? `[zoom] SDK-Ordner abgewiesen: ${wahl.text}` : `[zoom] Geladenes Zoom-SDK abgewiesen: ${wahl.text}`);
+      // Beim Ordner steht der Zustand schon so (kein Wechsel, keine Logzeile). Beim Laden steht noch der Lade-Zustand
+      // `einrichtung`, ohne ladung und ohne kopie: Ein bloßes abbildGeaendert() meldete kurz Z1a an Tray und Kopfzeile.
+      setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
       return { ok: false, text: wahl.text };
     }
     const abbruch = new AbortController();
@@ -450,6 +503,121 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     bestimmeMaengel(lz.pruefe(d.pfade));
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
     return erg.ok ? { ok: true } : { ok: false, text: erg.text };
+  }
+
+  // ── Zoom-SDK laden (Spec 2026-10-06, 4.3, 4.4) ───────────────────────────
+  /**
+   * Schritte 1–2 hier, synchron: Sperre (S10), fehler→schliessen, Schlüssel (S11). Danach sind `ladung`,
+   * `ladeAbbruch` und `ladeLauf` gesetzt, bevor irgendetwas wartet: ein zweiter Klick trifft schon die Sperre.
+   */
+  function sdkLaden(): Promise<ZoomErgebnis> {
+    const sperre = einrichtungSperre();
+    if (!sperre.ok) return Promise.resolve(sperre);
+    if (zustand === 'fehler') schliessen();
+    const schluessel = d.sdkSchluessel.lesen().wert;
+    if (schluessel === null) {
+      d.log('[zoom] Zoom-SDK laden abgewiesen: ' + KT.S11);
+      return Promise.resolve({ ok: false, text: KT.S11 });
+    }
+    sdkFehler = null;
+    const abbruch = new AbortController();
+    ladeAbbruch = abbruch;
+    ladung = { phase: 'link', bytes: 0, bytesGesamt: SDK_PAKET.bytes };
+    d.log(`[zoom] Zoom-SDK wird geladen (${Math.round(SDK_PAKET.bytes / MIB)} MB)`);
+    setzeZustand('einrichtung');
+    const lauf = ladeAblauf(schluessel, abbruch.signal).finally(() => {
+      ladeLauf = null;
+    });
+    ladeLauf = lauf;
+    return lauf;
+  }
+
+  /** Schritte 3–8. Jeder Ausgang räumt den Arbeitsordner (Schritt 7) und lässt die bisherige Einrichtung stehen. */
+  async function ladeAblauf(schluessel: string, signal: AbortSignal): Promise<ZoomErgebnis> {
+    const arbeit = join(d.pfade.basis, LADE_ORDNER);
+    const zip = join(arbeit, SDK_PAKET.datei);
+    const entpackt = join(arbeit, 'sdk');
+    const phase = (p: LadenStand['phase'], bytes = ladung?.bytes ?? 0): void => {
+      ladung = { phase: p, bytes, bytesGesamt: SDK_PAKET.bytes };
+      abbildGeaendert();
+    };
+    /** Ende ohne Kopie: ladung weg, Text ins Abbild, Zustand wie vorher (die Laufzeit hat sich nicht geändert). */
+    const ende = (text: string, zeile: string): ZoomErgebnis => {
+      ladung = null;
+      sdkFehler = text;
+      d.log(zeile);
+      setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
+      return { ok: false, text };
+    };
+    const scheitert = (text: string): ZoomErgebnis => ende(text, `[zoom] Laden des Zoom-SDK gescheitert: ${text}`);
+    const abgebrochen = (): ZoomErgebnis => ende(KT.S17, '[zoom] Laden des Zoom-SDK abgebrochen');
+    // Ein Abbruch zählt immer als Abbruch (S17), auch wenn entpacke ihn als `entpacken` meldet.
+    const fehlschlag = (f: LadeFehler): ZoomErgebnis => (signal.aborted || f.art === 'abgebrochen' ? abgebrochen() : scheitert(ladeFehlerText(f)));
+    try {
+      // (4) Arbeitsordner: Reste eines früheren Laufs weg, und zwar VOR der Platzmessung (A12): Sie zählen sonst
+      // gegen den Bedarf (ZIP und Entpackordner, bis rund 460 MB). Angelegt wird dabei nichts.
+      ld.loesche(arbeit);
+      // (3) Platz: ZIP + Entpackordner + Kopie + Reserve, sonst S5 — dann ist noch nichts angelegt.
+      const bedarf = SDK_PAKET.bytes + 2 * SDK_PAKET.bytesEntpackt + PLATZ_RESERVE_BYTES;
+      const frei = await ld.freierPlatz(d.pfade.basis);
+      if (frei < bedarf) return scheitert(KT.S5(Math.ceil(bedarf / MIB), Math.floor(frei / MIB)));
+      // (5) Phasen link → download → pruefen → entpacken. Vom Proxy steht nur der Host im Log.
+      const base = d.proxyUrl();
+      let host = 'unbekannt';
+      try {
+        host = new URL(base).host;
+      } catch {
+        // ungültige Adresse: holeLink meldet sie als S14
+      }
+      d.log(`[zoom] SDK-Link angefragt bei ${host}`);
+      const link = await ld.holeLink({ base, schluessel, fassung: SDK_PAKET.fassung, signal });
+      if (!link.ok) return fehlschlag(link);
+      phase('download', 0);
+      const geladen = await ld.lade({
+        url: link.url,
+        size: link.size,
+        ziel: zip,
+        erwartet: SDK_PAKET,
+        signal,
+        fortschritt: (bytes) => phase('download', bytes),
+        beimPruefen: () => phase('pruefen'),
+      });
+      if (!geladen.ok) return fehlschlag(geladen);
+      if (signal.aborted) return abgebrochen();
+      phase('entpacken');
+      const ausgepackt = await ld.entpacke({ zip, ordner: entpackt, signal });
+      if (!ausgepackt.ok) {
+        // Die einzige Diagnose von tar.exe (Platte, Rechte, Virenscanner, Pfadlänge) gehört ins Log; nur lokale Pfade.
+        if (ausgepackt.art === 'entpacken' && ausgepackt.ausgabe) d.log(`[zoom] Ausgabe von tar.exe: ${ausgepackt.ausgabe}`);
+        return fehlschlag(ausgepackt);
+      }
+      if (signal.aborted) return abgebrochen();
+      d.log('[zoom] Zoom-SDK geladen und geprüft');
+      // (6) Dieselbe Strecke wie „SDK-Ordner wählen“. Ab hier greift „Abbrechen“ nicht mehr (die Kopie hat keinen).
+      ladung = null;
+      ladeAbbruch = null;
+      // Danach steht der Zustand: nach der Kopie wie bei der Ordnerwahl, nach einer Abweisung setzt ihn deren Zweig.
+      const r = await pruefeUndRichteEin(entpackt, 'Laden');
+      // Auch nach Abweisung oder Kopierfehler endet ein gescheitertes Laden mit der Zeile aus Spec 4.3.
+      if (!r.ok) d.log(`[zoom] Laden des Zoom-SDK gescheitert: ${r.text}`);
+      return r;
+    } catch (e) {
+      return signal.aborted ? abgebrochen() : scheitert(KT.S16(fehlerCode(e)));
+    } finally {
+      ladung = null;
+      ladeAbbruch = null;
+      // (7) ZIP und Entpackordner immer weg; ein Fehler hier wird nur geloggt.
+      try {
+        ld.loesche(arbeit);
+      } catch (e) {
+        d.log(`[zoom] Aufräumen nach dem Laden unvollständig (${fehlerCode(e)})`);
+      }
+      abbildGeaendert();
+    }
+  }
+
+  function sdkLadenAbbrechen(): void {
+    if (ladung !== null) ladeAbbruch?.abort();
   }
 
   function zugangWaehlen(datei: string): ZoomErgebnis {
@@ -505,12 +673,55 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const sperre = einrichtungSperre();
     if (!sperre.ok) return sperre;
     if (zustand === 'fehler') schliessen();
-    d.zugang.loeschen();
+    // false: für diese Sitzung weg, aber noch in der Einstellungsdatei; nach einem Neustart wären sie wieder da.
+    const vonPlatte = d.zugang.loeschen();
     zugangFehler = null;
-    d.log('[zoom] Zugangsdaten entfernt');
+    d.log(vonPlatte ? '[zoom] Zugangsdaten entfernt' : '[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)');
     bestimmeMaengel();
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
+    return vonPlatte ? { ok: true } : { ok: false, text: TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT };
+  }
+
+  /** Spec SDK nachladen 4.2: getrimmt, nur druckbare ASCII-Zeichen, sonst S18 (A13). Der Wert geht nie in Log, Abbild oder Rückgabe. */
+  function sdkSchluesselEintragen(e: { schluessel: string }): ZoomErgebnis {
+    const sperre = einrichtungSperre();
+    if (!sperre.ok) return sperre;
+    if (zustand === 'fehler') schliessen();
+    const wert = e.schluessel.trim();
+    // Nur druckbare ASCII-Zeichen: kein Leerraum in der Mitte (Spec 4.2) und nichts, was kein HTTP-Header tragen kann.
+    if (!/^[\x21-\x7e]+$/.test(wert)) {
+      // Eingabefehler, kein Zustand des hinterlegten Schlüssels: nur im Ergebnis, nicht im Abbild.
+      d.log('[zoom] SDK-Schlüssel abgewiesen: ' + KT.S18);
+      return { ok: false, text: KT.S18 };
+    }
+    const herkunft = d.sdkSchluessel.speichern(wert);
+    sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
+    sdkAblehnungVergessen();
+    d.log(`[zoom] SDK-Schlüssel hinterlegt (${herkunft === 'session' ? 'nur für diese Sitzung' : 'verschlüsselt'})`);
+    abbildGeaendert();
     return { ok: true };
+  }
+
+  /**
+   * S12 („Schlüssel abgelehnt“) gilt dem Schlüssel, der damals galt. Nach einem neuen oder entfernten Schlüssel
+   * stünde er sonst bis zum nächsten Laden neben „SDK-Schlüssel: hinterlegt“ bzw. „fehlt“. Andere Fehler bleiben
+   * stehen. Ein Schlüssel aus der Umgebung hat Vorrang und gilt weiter: dann bleibt auch S12.
+   */
+  function sdkAblehnungVergessen(): void {
+    if (sdkFehler === KT.S12 && sdkSchluesselHerkunft !== 'env') sdkFehler = null;
+  }
+
+  function sdkSchluesselLoeschen(): ZoomErgebnis {
+    const sperre = einrichtungSperre();
+    if (!sperre.ok) return sperre;
+    if (zustand === 'fehler') schliessen();
+    // false: für diese Sitzung weg, aber noch in der Einstellungsdatei; nach einem Neustart wäre er wieder da.
+    const vonPlatte = d.sdkSchluessel.loeschen();
+    sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
+    sdkAblehnungVergessen();
+    d.log(vonPlatte ? '[zoom] SDK-Schlüssel entfernt' : '[zoom] SDK-Schlüssel nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)');
+    abbildGeaendert();
+    return vonPlatte ? { ok: true } : { ok: false, text: TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT };
   }
 
   function versatz(e: { ms: number }): ZoomErgebnis {
@@ -540,7 +751,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function laeuft(): boolean {
-    return kopie !== null || pruefungLaeuft || aktiveBridge !== null || stopps.size > 0;
+    return kopie !== null || ladeLauf !== null || pruefungLaeuft || aktiveBridge !== null || stopps.size > 0;
   }
 
   // ── Bridge starten und stoppen (Spec 5.2, 6.2 Startfolge, 6.9) ───────────
@@ -652,7 +863,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         // PATH immer selbst setzen, INKLUSIVE des geerbten Werts (Falle 3.2-4), und jede andere
         // Schreibweise von PATH entfernen (bridge.ts mischt process.env als einfaches Objekt).
         env: { PATH: kindPfad(env, ordner) },
-        envRemove: ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS', ...pfadVarianten(env)],
+        // Nie an die Bridge (sie lädt die Zoom-DLLs): Zoom-Zugangsdaten und Schlüssel für den Release-Proxy (G2).
+        // Auch abweichend geschriebene Namen (Windows liest process.env ohne Rücksicht auf Groß-/Kleinschreibung,
+        // bridge.ts mischt aber ein einfaches Objekt ein, dessen Schlüssel ihre Schreibung behalten).
+        envRemove: [
+          ...GEHEIM,
+          ...Object.keys(process.env).filter((k) => GEHEIM.includes(k.toUpperCase())),
+          ...pfadVarianten(env),
+        ],
         joinTimeoutMs: f.joinTimeoutMs,
         killTimeoutMs: f.killTimeoutMs,
         onEvent: (ev) => beiEreignis(gen, ev),
@@ -1175,11 +1393,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (beendenVersprechen !== null) return beendenVersprechen;
     beendenVersprechen = (async () => {
       laufNr += 1;
+      ladeAbbruch?.abort();
       kopieAbbruch?.abort();
       d.log(`[zoom] Connect wird beendet (Frist ${fristMs} ms)`);
       // Spec 6.1: richteEin bricht nach der laufenden Datei ab und löscht <ziel>.teil selbst. Ohne dieses
       // Warten endet der Prozess vorher (before-quit ruft danach app.quit()) und .teil bliebe liegen.
-      if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
+      // Ein Laden schließt seine Kopie und das Aufräumen von ZIP und Entpackordner ein: dann auf das Laden warten.
+      if (ladeLauf !== null) {
+        if (!(await mitFrist(ladeLauf, fristMs))) d.log('[zoom] Laden des Zoom-SDK nicht rechtzeitig abgebrochen');
+      } else if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
       // Kopie und Bridge laufen nie gleichzeitig (Sperre S10): insgesamt höchstens fristMs.
       if (aktiveBridge !== null) {
         setzeZustand('verlaesst');
@@ -1207,9 +1429,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     laeuft,
     einrichtungSperre,
     sdkWaehlen,
+    sdkLaden,
+    sdkLadenAbbrechen,
     zugangWaehlen,
     zugangEintragen,
     zugangLoeschen,
+    sdkSchluesselEintragen,
+    sdkSchluesselLoeschen,
     versatz,
     pruefen,
     beitreten,

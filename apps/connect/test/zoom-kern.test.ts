@@ -30,8 +30,17 @@ import {
   type LaufzeitPfade,
   type LaufzeitPruefung,
 } from '../src/main/zoom/laufzeit';
-import type { ZoomAbbild, ZoomErgebnis, ZoomKurz } from '../src/shared/types';
-import { kartenZeile, stateKvAus, TEXT_A4_SCHREIBFEHLER, zoomZ } from '../src/shared/zoom-text';
+import type { SdkLadenDienste } from '../src/main/zoom/sdk-laden';
+import { SDK_PAKET } from '../src/main/zoom/sdk-paket';
+import type { ProxyKeySource, ZoomAbbild, ZoomErgebnis, ZoomKurz } from '../src/shared/types';
+import {
+  kartenZeile,
+  stateKvAus,
+  TEXT_A4_SCHREIBFEHLER,
+  TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
+  TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
+  zoomZ,
+} from '../src/shared/zoom-text';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HIER, '..', '..', '..', 'packages', 'zoom-bridge', 'test', 'fake-bridge.mjs');
@@ -77,6 +86,9 @@ interface Probe {
   ereignisse: Array<{ startNr: number; ev: BridgeEvent }>;
   einst: { anzeigename: string; versatzMs: number; laufzeit: { dir: string; fassung: string; eingerichtetAm: string } | null };
   zugangGespeichert: ZugangDaten[];
+  /** Werte, mit denen der Kern sdkSchluessel.speichern() aufrief (nur im Test sichtbar). */
+  sdkSchluesselGespeichert: string[];
+  sdkSchluesselGeloescht(): number;
   richteEinAufrufe(): number;
   /** Laufzeit-Ordner, den die Vorgabe von `pruefe` meldet. */
   ordner: string;
@@ -104,6 +116,15 @@ interface BaueOptionen {
   exeAusKern?: boolean;
   /** start() scheitert mit diesem Fehler, ohne ein Kind zu starten (Spawn-Fehler mit beliebigem Code). */
   startFehler?: () => Error;
+  /** SDK-Schlüssel beim Start (Spec SDK nachladen 4.2); Vorgabe: keiner. */
+  sdkSchluessel?: { wert: string | null; herkunft: ProxyKeySource };
+  /** Was sdkSchluessel.speichern() meldet; Vorgabe 'stored'. */
+  sdkSchluesselLiefert?: 'stored' | 'session';
+  /** Was zugang.loeschen() bzw. sdkSchluessel.loeschen() meldet; false = Einstellungsdatei nicht schreibbar. Vorgabe true. */
+  zugangLoeschenLiefert?: boolean;
+  sdkSchluesselLoeschenLiefert?: boolean;
+  /** Dienste für „Zoom-SDK laden“ (Attrappen); ohne Angabe die echten aus sdk-laden.ts gegen https://proxy.test. */
+  sdkLaden?: Partial<SdkLadenDienste>;
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -118,6 +139,9 @@ function baueKern(o: BaueOptionen = {}): Probe {
   const kurze: ZoomKurz[] = [];
   const ereignisse: Probe['ereignisse'] = [];
   const zugangGespeichert: ZugangDaten[] = [];
+  let sdkSchluessel: { wert: string | null; herkunft: ProxyKeySource } = { wert: null, herkunft: 'none', ...o.sdkSchluessel };
+  const sdkSchluesselGespeichert: string[] = [];
+  let sdkSchluesselGeloescht = 0;
   const einst: Probe['einst'] = { anzeigename: o.anzeigename ?? ANZEIGENAME_VORGABE, versatzMs: o.versatzMs ?? 0, laufzeit: null };
   let zugang: ZugangStand = {
     daten: { clientId: 'test-id-1234', clientSecret: 'test-secret' },
@@ -180,6 +204,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       },
       loeschen: () => {
         if (zugang.herkunft !== 'env') zugang = { daten: null, herkunft: 'none', unlesbar: false };
+        return o.zugangLoeschenLiefert ?? true;
       },
     },
     einstellungen: {
@@ -195,12 +220,28 @@ function baueKern(o: BaueOptionen = {}): Probe {
         einst.laufzeit = { ...v };
       },
     },
+    sdkSchluessel: {
+      lesen: () => ({ ...sdkSchluessel }),
+      speichern: (w) => {
+        sdkSchluesselGespeichert.push(w);
+        const herkunft = o.sdkSchluesselLiefert ?? 'stored';
+        if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: w, herkunft };
+        return herkunft;
+      },
+      loeschen: () => {
+        sdkSchluesselGeloescht += 1;
+        if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: null, herkunft: 'none' };
+        return o.sdkSchluesselLoeschenLiefert ?? true;
+      },
+    },
     gastLabels: o.gastLabels ?? (() => []),
     log: (z) => logs.push(z),
     onAbbild: (a) => abbilder.push(a),
     onKurz: (k) => kurze.push(k),
     bridgeFabrik: fabrik,
     laufzeit,
+    proxyUrl: () => 'https://proxy.test',
+    sdkLaden: o.sdkLaden,
     env: o.env,
     fristen: { anmeldeMs: 3000, joinTimeoutMs: 3000, killTimeoutMs: 2000, ...o.fristen },
   });
@@ -212,6 +253,8 @@ function baueKern(o: BaueOptionen = {}): Probe {
     ereignisse,
     einst,
     zugangGespeichert,
+    sdkSchluesselGespeichert,
+    sdkSchluesselGeloescht: () => sdkSchluesselGeloescht,
     ordner,
     pfade,
     starts: () => startZahl,
@@ -1413,6 +1456,752 @@ if (process.platform === 'win32') {
   ck('… die Fehlermeldung steht trotzdem im Log, dazu der versuchte EXE-Pfad genau einmal',
     zeile.startsWith(START_GESCHEITERT + grund) && vorkommen(zeile, exe) === 1);
   ck('… keine Beenden-Zeile', !p.logs.some((z) => z.includes('wird beendet') || z.includes('Rückgabewert')));
+  await p.aufraeumen();
+}
+
+console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2, S18, S10)');
+{
+  const p = baueKern();
+  ck('anfangs: Abbild ohne SDK-Schlüssel (none)', p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
+  const r = p.kern.sdkSchluesselEintragen({ schluessel: '  sdk-geheim-test \t\n' });
+  ck('Review Focus SDK-4: eingefügt mit Leerraum und Zeilenumbruch → ok, getrimmt gespeichert',
+    ok(r) && p.sdkSchluesselGespeichert.length === 1 && p.sdkSchluesselGespeichert[0] === 'sdk-geheim-test');
+  ck('… Abbild: Herkunft stored', p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'stored');
+  ck('… Logzeile ohne Wert', p.logs.includes('[zoom] SDK-Schlüssel hinterlegt (verschlüsselt)'));
+  ck('… der Wert steht weder im Log noch im Abbild',
+    !p.logs.some((z) => z.includes('sdk-geheim')) && !JSON.stringify(p.kern.abbild()).includes('sdk-geheim'));
+  ck('… Zustand unverändert (bereit)', p.kern.kurz().zustand === 'bereit');
+  for (const w of ['', '   ', 'sdk geheim', 'sdk\tgeheim', 'sdk\ngeheim', 'sdk€geheim']) {
+    ck(`${JSON.stringify(w)} → S18, nichts gespeichert`,
+      text(p.kern.sdkSchluesselEintragen({ schluessel: w })) === KT.S18 && p.sdkSchluesselGespeichert.length === 1);
+  }
+  ck('… Abweisung im Log, ohne Wert', p.logs.includes('[zoom] SDK-Schlüssel abgewiesen: ' + KT.S18) && !p.logs.some((z) => z.includes('sdk geheim')));
+  ck('… S18 ist ein Eingabefehler: nicht im Abbild', !JSON.stringify(p.kern.abbild()).includes(KT.S18));
+  const l = p.kern.sdkSchluesselLoeschen();
+  ck('Entfernen → ok, Herkunft none, Log', ok(l) && p.sdkSchluesselGeloescht() === 1
+    && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none' && p.logs.includes('[zoom] SDK-Schlüssel entfernt'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sdkSchluesselLiefert: 'session' });
+  ck('ohne Schlüsselbund: hinterlegt nur für diese Sitzung',
+    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'session'
+      && p.logs.includes('[zoom] SDK-Schlüssel hinterlegt (nur für diese Sitzung)'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sdkSchluessel: { wert: 'sdk-test', herkunft: 'env' } });
+  ck('aus der Umgebung: Abbild env, der Wert nirgends',
+    p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'env' && !JSON.stringify(p.kern.abbild()).includes('sdk-test'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Vorbereitung: Zustand fehler (B9)', p.kern.kurz().zustand === 'fehler');
+  const r = p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' });
+  ck('im Zustand fehler: zuerst schließen, dann speichern → bereit, Meldung weg',
+    ok(r) && p.sdkSchluesselGespeichert.length === 1 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('Vorbereitung: im Meeting', await insMeeting(p));
+  ck('während Zoom läuft: SDK-Schlüssel eintragen und entfernen → S10, nichts geändert',
+    text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10 && text(p.kern.sdkSchluesselLoeschen()) === KT.S10
+      && p.sdkSchluesselGespeichert.length === 0 && p.sdkSchluesselGeloescht() === 0);
+  await p.aufraeumen();
+}
+{
+  let freigabe: (e: EinrichtungsErgebnis) => void = () => {};
+  const p = baueKern({
+    laufzeit: {
+      pruefeOrdner: () => ({ ok: true, bin: 'X', fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: 1 }], bytesGesamt: 1 }),
+      richteEin: () => new Promise<EinrichtungsErgebnis>((resolve) => {
+        freigabe = resolve;
+      }),
+    },
+  });
+  const lauf = p.kern.sdkWaehlen('C:/SDK');
+  ck('während der SDK-Kopie: SDK-Schlüssel eintragen und entfernen → S10',
+    text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10 && text(p.kern.sdkSchluesselLoeschen()) === KT.S10
+      && p.sdkSchluesselGespeichert.length === 0 && p.sdkSchluesselGeloescht() === 0);
+  freigabe({ ok: false, text: KT.S6('EIO') });
+  await lauf;
+  await p.aufraeumen();
+}
+{
+  // G2: Weder der SDK-Schlüssel noch der Proxy-Schlüssel erreichen die Zoom-Bridge (sie lädt die Zoom-DLLs).
+  const vorher = { sdk: process.env.JMPS_ZOOM_SDK_KEY, proxy: process.env.JMPS_PROXY_KEY };
+  process.env.JMPS_ZOOM_SDK_KEY = 'sdk-test';
+  process.env.JMPS_PROXY_KEY = 'sdk-test';
+  const p = baueKern({
+    skript: 'envprobe',
+    stell: () => ({ ENV_PROBE_NAMES: 'JMPS_ZOOM_SDK_KEY,JMPS_PROXY_KEY' }),
+    fristen: { anmeldeMs: 500 },
+  });
+  // Auch wenn pruefen() wirft: Die Umgebung kommt zurück, sonst erbten spätere Blöcke die Schlüssel (Task 4 minor 2).
+  try {
+    await p.kern.pruefen();
+  } finally {
+    for (const [name, wert] of [['JMPS_ZOOM_SDK_KEY', vorher.sdk], ['JMPS_PROXY_KEY', vorher.proxy]] as const) {
+      if (wert === undefined) delete process.env[name];
+      else process.env[name] = wert;
+    }
+  }
+  const probe = p.ereignisse.find((x) => x.ev.ev === 'envprobe')?.ev as unknown as { seen: Record<string, boolean> } | undefined;
+  ck('G2: Bridge-Umgebung ohne JMPS_ZOOM_SDK_KEY und JMPS_PROXY_KEY',
+    probe !== undefined && JSON.stringify(probe.seen) === '{"JMPS_ZOOM_SDK_KEY":false,"JMPS_PROXY_KEY":false}');
+  await p.aufraeumen();
+}
+if (process.platform === 'win32') {
+  // G2 (Fix-Runde 1): Windows liest process.env ohne Rücksicht auf Groß-/Kleinschreibung, bridge.ts mischt aber
+  // ein einfaches Objekt ein - eine abweichend geschriebene Variable darf trotzdem nicht bis zur Bridge reichen.
+  const vorher = { sdk: process.env.JMPS_ZOOM_SDK_KEY, proxy: process.env.JMPS_PROXY_KEY };
+  delete process.env.JMPS_ZOOM_SDK_KEY;
+  delete process.env.JMPS_PROXY_KEY;
+  process.env.Jmps_Zoom_Sdk_Key = 'sdk-test';
+  process.env.Jmps_Proxy_Key = 'sdk-test';
+  const p = baueKern({
+    skript: 'envprobe',
+    stell: () => ({ ENV_PROBE_NAMES: 'JMPS_ZOOM_SDK_KEY,JMPS_PROXY_KEY' }),
+    fristen: { anmeldeMs: 500 },
+  });
+  try {
+    await p.kern.pruefen();
+  } finally {
+    delete process.env.Jmps_Zoom_Sdk_Key;
+    delete process.env.Jmps_Proxy_Key;
+    for (const [name, wert] of [['JMPS_ZOOM_SDK_KEY', vorher.sdk], ['JMPS_PROXY_KEY', vorher.proxy]] as const) {
+      if (wert !== undefined) process.env[name] = wert;
+    }
+  }
+  const probe = p.ereignisse.find((x) => x.ev.ev === 'envprobe')?.ev as unknown as { seen: Record<string, boolean> } | undefined;
+  ck('G2: Bridge-Umgebung ohne die Schlüssel auch in gemischter Schreibung (Windows)',
+    probe !== undefined && JSON.stringify(probe.seen) === '{"JMPS_ZOOM_SDK_KEY":false,"JMPS_PROXY_KEY":false}');
+  await p.aufraeumen();
+}
+
+console.log('— sdkWaehlen wörtlich (Regression zur Teilung in pruefeUndRichteEin, Spec SDK nachladen 4.3 Schritt 6)');
+const REG_WAHL = {
+  ok: true as const, bin: 'C:/SDK/x64/bin', fassung: SDK_FASSUNG,
+  dateien: [{ pfad: 'sdk.dll', bytes: 1 }, { pfad: 'a.dll', bytes: 2 }], bytesGesamt: 3,
+};
+const REG_STEMPEL = { format: 1 as const, sdkFassung: SDK_FASSUNG, eingerichtetAm: '2026-10-06T10:00:00.000Z', sdkDateien: [], eigeneDateien: [] };
+{
+  let gewaehlt: [string, string] | null = null;
+  let kopieWaehrend: number | null = null;
+  const p: Probe = baueKern({
+    laufzeit: {
+      pruefeOrdner: (g, r) => {
+        gewaehlt = [g, r];
+        return REG_WAHL;
+      },
+      richteEin: async (e) => {
+        e.fortschritt({ dateien: 2, dateienGesamt: 2, bytes: 3, bytesGesamt: 3 });
+        kopieWaehrend = p.kern.abbild().einrichtung.sdk.kopie?.bytes ?? null;
+        return { ok: true, ordner: p.ordner, stempel: REG_STEMPEL, aufraeumFehler: null };
+      },
+    },
+  });
+  const vor = p.logs.length;
+  const r = await p.kern.sdkWaehlen('C:/SDK');
+  ck('Erfolg aus bereit: Logzeilen wörtlich und in dieser Reihenfolge', ok(r) && JSON.stringify(p.logs.slice(vor)) === JSON.stringify([
+    '[zoom] Zoom-SDK 7.1.5.43953 wird kopiert (2 Dateien)',
+    '[zoom] Zustand bereit → einrichtung',
+    `[zoom] Zoom-SDK eingerichtet in ${p.ordner}`,
+    '[zoom] Zustand einrichtung → bereit',
+  ]));
+  ck('… pruefeOrdner(ordner, ressourcen), Kopie-Fortschritt im Abbild, Laufzeit gespeichert',
+    JSON.stringify(gewaehlt) === JSON.stringify(['C:/SDK', p.pfade.ressourcen]) && kopieWaehrend === 3
+      && JSON.stringify(p.einst.laufzeit) === JSON.stringify({ dir: p.ordner, fassung: SDK_FASSUNG, eingerichtetAm: '2026-10-06T10:00:00.000Z' }));
+  ck('… danach bereit, keine Kopie, kein Text', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.sdk.kopie === null
+    && p.kern.abbild().einrichtung.sdk.text === null);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ laufzeit: { pruefeOrdner: () => ({ ok: false, text: KT.S1 }), richteEin: async () => ({ ok: false, text: 'darf nicht laufen' }) } });
+  const vor = p.logs.length;
+  const r = await p.kern.sdkWaehlen('C:/leer');
+  ck('Abweisung: genau eine Logzeile, kein Zustandswechsel, keine Kopie',
+    text(r) === KT.S1 && JSON.stringify(p.logs.slice(vor)) === JSON.stringify([`[zoom] SDK-Ordner abgewiesen: ${KT.S1}`])
+      && p.richteEinAufrufe() === 0 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.sdk.text === KT.S1);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ laufzeit: { pruefeOrdner: () => REG_WAHL, richteEin: async () => ({ ok: false, text: KT.S6('EIO') }) } });
+  const vor = p.logs.length;
+  const r = await p.kern.sdkWaehlen('C:/SDK');
+  ck('Kopierfehler: Logzeilen wörtlich', text(r) === KT.S6('EIO') && JSON.stringify(p.logs.slice(vor)) === JSON.stringify([
+    '[zoom] Zoom-SDK 7.1.5.43953 wird kopiert (2 Dateien)',
+    '[zoom] Zustand bereit → einrichtung',
+    `[zoom] Einrichtung des Zoom-SDK gescheitert: ${KT.S6('EIO')}`,
+    '[zoom] Zustand einrichtung → bereit',
+  ]));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    laufzeit: {
+      pruefeOrdner: () => REG_WAHL,
+      richteEin: async () => {
+        throw Object.assign(new Error('Zugriff verweigert'), { code: 'EACCES' });
+      },
+    },
+  });
+  const r = await p.kern.sdkWaehlen('C:/SDK');
+  ck('richteEin wirft: S6 mit dem Code, nicht mit der Meldung', text(r) === KT.S6('EACCES')
+    && p.logs.includes(`[zoom] Einrichtung des Zoom-SDK gescheitert: ${KT.S6('EACCES')}`) && p.kern.kurz().zustand === 'bereit');
+  await p.aufraeumen();
+}
+{
+  let lzStand: LaufzeitPruefung = { ok: false, mangel: 'sdk_fehlt' };
+  const p: Probe = baueKern({
+    laufzeit: {
+      pruefe: () => lzStand,
+      pruefeOrdner: () => REG_WAHL,
+      richteEin: async () => {
+        lzStand = { ok: true, ordner: p.ordner, ersetzt: [] };
+        return { ok: true, ordner: p.ordner, stempel: REG_STEMPEL, aufraeumFehler: 'EBUSY' };
+      },
+    },
+  });
+  const vor = p.logs.length;
+  const r = await p.kern.sdkWaehlen('C:/SDK');
+  ck('aus einrichtung mit Aufräumfehler: Logzeilen wörtlich', ok(r) && JSON.stringify(p.logs.slice(vor)) === JSON.stringify([
+    '[zoom] Zoom-SDK 7.1.5.43953 wird kopiert (2 Dateien)',
+    `[zoom] Zoom-SDK eingerichtet in ${p.ordner}`,
+    '[zoom] Aufräumen nach der Einrichtung unvollständig (EBUSY)',
+    '[zoom] Zustand einrichtung → bereit',
+  ]));
+  await p.aufraeumen();
+}
+
+console.log('— Zoom-SDK laden (Spec SDK nachladen 4.3, 4.4; Tests 6 Kern; Review Focus SDK-1, SDK-2, SDK-5)');
+const LADE_MIB = 1024 * 1024;
+const LINK = 'https://signed.test/zoom-77?sig=geheim-link';
+const SCHLUESSEL: { wert: string; herkunft: 'stored' } = { wert: 'sdk-geheim-test', herkunft: 'stored' };
+/** Attrappen für das Laden: alles klappt, einzelne Schritte überschreibbar. */
+function ladeDienste(o: Partial<SdkLadenDienste> = {}): Partial<SdkLadenDienste> {
+  return {
+    freierPlatz: async () => 10 * 1024 * LADE_MIB,
+    holeLink: async () => ({ ok: true, url: LINK, size: SDK_PAKET.bytes }),
+    lade: async (e) => {
+      mkdirSync(dirname(e.ziel), { recursive: true });
+      writeFileSync(e.ziel, 'zip');
+      e.fortschritt(SDK_PAKET.bytes);
+      e.beimPruefen?.();
+      return { ok: true };
+    },
+    entpacke: async (e) => {
+      mkdirSync(e.ordner, { recursive: true });
+      writeFileSync(join(e.ordner, 'sdk.dll'), 'MZ');
+      return { ok: true };
+    },
+    ...o,
+  };
+}
+const arbeitsordner = (p: Probe): string => join(p.pfade.basis, 'laden');
+/** Phase und Bytes des Ladens | Zeile Z… | Sperre | laeuft() — für die Phasenfolge. */
+function ladeStand(p: Probe): string {
+  const l = p.kern.abbild().einrichtung.sdk.laden;
+  return `${l ? `${l.phase}:${l.bytes}` : 'kein-laden'}|${zoomZ(p.kern.kurz())}|${text(p.kern.einrichtungSperre()) === KT.S10 ? 'S10' : 'frei'}|${p.kern.laeuft() ? 'laeuft' : 'ruht'}`;
+}
+{
+  let lzStand: LaufzeitPruefung = { ok: false, mangel: 'sdk_fehlt' };
+  const gesehen: string[] = [];
+  let linkEingabe: Parameters<SdkLadenDienste['holeLink']>[0] | undefined;
+  let ladeEingabe: Parameters<SdkLadenDienste['lade']>[0] | undefined;
+  let entpackEingabe: Parameters<SdkLadenDienste['entpacke']>[0] | undefined;
+  let gewaehlt: string | undefined;
+  let platzPfad: string | undefined;
+  let resteBeimPlatz: boolean | undefined;
+  let resteBeimLink: boolean | undefined;
+  const p: Probe = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: {
+      pruefe: () => lzStand,
+      pruefeOrdner: (g) => {
+        gewaehlt = g;
+        return { ok: true, bin: g, fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: 2 }], bytesGesamt: 2 };
+      },
+      richteEin: async (e) => {
+        e.fortschritt({ dateien: 1, dateienGesamt: 1, bytes: 2, bytesGesamt: 2 });
+        gesehen.push(`kopie ${ladeStand(p)} kopie=${p.kern.abbild().einrichtung.sdk.kopie?.bytes}`);
+        lzStand = { ok: true, ordner: p.ordner, ersetzt: [] };
+        return { ok: true, ordner: p.ordner, stempel: REG_STEMPEL, aufraeumFehler: null };
+      },
+    },
+    sdkLaden: ladeDienste({
+      freierPlatz: async (pfad) => {
+        platzPfad = pfad;
+        resteBeimPlatz = existsSync(arbeitsordner(p));
+        return 10 * 1024 * LADE_MIB;
+      },
+      holeLink: async (e) => {
+        linkEingabe = e;
+        resteBeimLink = existsSync(arbeitsordner(p));
+        gesehen.push(`link ${ladeStand(p)}`);
+        return { ok: true, url: LINK, size: SDK_PAKET.bytes };
+      },
+      lade: async (e) => {
+        ladeEingabe = e;
+        mkdirSync(dirname(e.ziel), { recursive: true });
+        writeFileSync(e.ziel, 'zip');
+        e.fortschritt(63 * LADE_MIB);
+        gesehen.push(`download ${ladeStand(p)}`);
+        e.beimPruefen?.();
+        gesehen.push(`pruefen ${ladeStand(p)}`);
+        return { ok: true };
+      },
+      entpacke: async (e) => {
+        entpackEingabe = e;
+        gesehen.push(`entpacken ${ladeStand(p)}`);
+        mkdirSync(e.ordner, { recursive: true });
+        writeFileSync(join(e.ordner, 'sdk.dll'), 'MZ');
+        return { ok: true };
+      },
+    }),
+  });
+  // Review Focus SDK-5: Reste eines abgebrochenen früheren Laufs liegen im Arbeitsordner.
+  mkdirSync(join(arbeitsordner(p), 'sdk'), { recursive: true });
+  writeFileSync(join(arbeitsordner(p), `${SDK_PAKET.datei}.teil`), 'alt');
+  writeFileSync(join(arbeitsordner(p), 'sdk', 'alt.dll'), 'alt');
+  const vor = p.logs.length;
+  const r = await p.kern.sdkLaden();
+  ck('Erfolg → ok, bereit, keine Mängel, nichts läuft mehr',
+    ok(r) && p.kern.kurz().zustand === 'bereit' && p.kern.kurz().maengel.length === 0 && !p.kern.laeuft());
+  ck('… Phasen link → download → pruefen → entpacken, danach die Kopie (laden dann null), überall Z1b und S10',
+    JSON.stringify(gesehen) === JSON.stringify([
+      'link link:0|Z1b|S10|laeuft',
+      `download download:${63 * LADE_MIB}|Z1b|S10|laeuft`,
+      `pruefen pruefen:${63 * LADE_MIB}|Z1b|S10|laeuft`,
+      `entpacken entpacken:${63 * LADE_MIB}|Z1b|S10|laeuft`,
+      'kopie kein-laden|Z1b|S10|laeuft kopie=2',
+    ]));
+  ck('Review Focus SDK-5: Reste des früheren Laufs waren schon vor der Platzmessung weg (A12), erst recht vor dem Link',
+    resteBeimPlatz === false && resteBeimLink === false);
+  ck('… Link: Proxy-Adresse, SDK-Schlüssel, gepinnte Fassung',
+    linkEingabe?.base === 'https://proxy.test' && linkEingabe?.schluessel === 'sdk-geheim-test' && linkEingabe?.fassung === SDK_FASSUNG);
+  ck('… Download: Link und Größe vom Proxy, ZIP im Arbeitsordner, erwartet = SDK_PAKET',
+    ladeEingabe?.url === LINK && ladeEingabe?.size === SDK_PAKET.bytes && ladeEingabe?.ziel === join(arbeitsordner(p), SDK_PAKET.datei)
+      && ladeEingabe?.erwartet.sha256 === SDK_PAKET.sha256 && ladeEingabe?.erwartet.bytes === SDK_PAKET.bytes);
+  ck('… Entpacken nach laden/sdk, derselbe Ordner geht in pruefeOrdner',
+    entpackEingabe?.zip === join(arbeitsordner(p), SDK_PAKET.datei) && entpackEingabe?.ordner === join(arbeitsordner(p), 'sdk')
+      && gewaehlt === join(arbeitsordner(p), 'sdk'));
+  ck('… Platz am Laufzeit-Ordner gemessen', platzPfad === p.pfade.basis);
+  ck('… ZIP und Entpackordner danach weg', !existsSync(arbeitsordner(p)));
+  const sdk = p.kern.abbild().einrichtung.sdk;
+  ck('… Laufzeit in den Einstellungen, Abbild ohne laden, kopie und Text',
+    p.einst.laufzeit?.dir === p.ordner && sdk.laden === null && sdk.kopie === null && sdk.text === null);
+  ck('… Logzeilen wörtlich', JSON.stringify(p.logs.slice(vor)) === JSON.stringify([
+    '[zoom] Zoom-SDK wird geladen (143 MB)',
+    '[zoom] SDK-Link angefragt bei proxy.test',
+    '[zoom] Zoom-SDK geladen und geprüft',
+    '[zoom] Zoom-SDK 7.1.5.43953 wird kopiert (1 Dateien)',
+    `[zoom] Zoom-SDK eingerichtet in ${p.ordner}`,
+    '[zoom] Zustand einrichtung → bereit',
+  ]));
+  const alles = p.logs.join('\n') + JSON.stringify(p.kern.abbild()) + JSON.stringify(p.abbilder);
+  ck('… weder SDK-Schlüssel noch Link in Log oder Abbild', !alles.includes('sdk-geheim') && !alles.includes('signed.test') && !alles.includes('geheim-link'));
+  await p.aufraeumen();
+}
+const LADE_FEHLER: Array<[string, Partial<SdkLadenDienste>, string]> = [
+  ['Schlüssel abgelehnt', { holeLink: async () => ({ ok: false, art: 'schluessel' }) }, KT.S12],
+  ['gedrosselt 125 s', { holeLink: async () => ({ ok: false, art: 'gedrosselt', sekunden: 125 }) }, KT.S13(125)],
+  ['Proxy nicht erreichbar', { holeLink: async () => ({ ok: false, art: 'proxy', grund: 'ENOTFOUND' }) }, KT.S14('ENOTFOUND')],
+  ['kein passendes Paket auf dem Proxy', { holeLink: async () => ({ ok: false, art: 'fehlt' }) }, KT.S15],
+  ['Download abgerissen', { lade: async () => ({ ok: false, art: 'unvollstaendig', grund: 'UND_ERR_SOCKET' }) }, KT.S16('UND_ERR_SOCKET')],
+  ['Prüfsumme falsch', { lade: async () => ({ ok: false, art: 'pruefsumme' }) }, KT.S16b],
+  ['Entpacken gescheitert', {
+    entpacke: async (e) => {
+      mkdirSync(e.ordner, { recursive: true });
+      writeFileSync(join(e.ordner, 'halb.dll'), 'x');
+      return { ok: false, art: 'entpacken', grund: 'Exit 1' };
+    },
+  }, KT.S16c('Exit 1')],
+  ['Ausnahme in einem Dienst', {
+    holeLink: async () => {
+      throw Object.assign(new Error('E/A'), { code: 'EIO' });
+    },
+  }, KT.S16('EIO')],
+];
+for (const [name, dienste, soll] of LADE_FEHLER) {
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: {
+      pruefeOrdner: () => {
+        throw new Error('pruefeOrdner darf nicht laufen');
+      },
+      richteEin: async () => ({ ok: false, text: 'richteEin darf nicht laufen' }),
+    },
+    sdkLaden: ladeDienste(dienste),
+  });
+  const r = await p.kern.sdkLaden();
+  const sdk = p.kern.abbild().einrichtung.sdk;
+  ck(`${name} → Text wörtlich, im Abbild, im Log`, text(r) === soll && sdk.text === soll
+    && p.logs.includes(`[zoom] Laden des Zoom-SDK gescheitert: ${soll}`));
+  ck('… bisherige Einrichtung unverändert: bereit, keine Kopie, keine Einstellung, Arbeitsordner weg, nichts läuft',
+    p.kern.kurz().zustand === 'bereit' && p.richteEinAufrufe() === 0 && p.einst.laufzeit === null && sdk.laden === null
+      && !existsSync(arbeitsordner(p)) && !p.kern.laeuft() && !p.kern.kurz().kopieLaeuft);
+  await p.aufraeumen();
+}
+{
+  let linkGefragt = false;
+  const bedarf = SDK_PAKET.bytes + 2 * SDK_PAKET.bytesEntpackt + 100 * LADE_MIB;
+  let frei = bedarf - 1;
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    sdkLaden: ladeDienste({
+      freierPlatz: async () => frei,
+      holeLink: async () => {
+        linkGefragt = true;
+        return { ok: false, art: 'fehlt' };
+      },
+    }),
+  });
+  const r = await p.kern.sdkLaden();
+  ck('Platzmangel (1 Byte zu wenig) → S5 mit ZIP + 2 × entpackt + 100 MB (gebraucht 872 MB, frei 871 MB)',
+    text(r) === KT.S5(872, 871) && p.kern.abbild().einrichtung.sdk.text === KT.S5(872, 871));
+  ck('… kein Link angefragt, Zustand bereit, nichts angelegt', !linkGefragt && p.kern.kurz().zustand === 'bereit' && !existsSync(arbeitsordner(p)));
+  frei = bedarf;
+  await p.kern.sdkLaden();
+  ck('… genau genug Platz → es geht weiter zum Link', linkGefragt);
+  await p.aufraeumen();
+}
+{
+  let linkGefragt = false;
+  const p = baueKern({
+    sdkLaden: ladeDienste({
+      holeLink: async () => {
+        linkGefragt = true;
+        return { ok: false, art: 'fehlt' };
+      },
+    }),
+  });
+  const vor = p.logs.length;
+  const r = await p.kern.sdkLaden();
+  ck('ohne SDK-Schlüssel → S11, kein Link, Zustand bleibt, kein Text im Abbild',
+    text(r) === KT.S11 && !linkGefragt && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.sdk.text === null);
+  ck('… Log: nur die Abweisung', JSON.stringify(p.logs.slice(vor)) === JSON.stringify(['[zoom] Zoom-SDK laden abgewiesen: ' + KT.S11]));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    sdkLaden: ladeDienste({
+      holeLink: async () => {
+        throw new Error('holeLink darf nicht laufen');
+      },
+    }),
+  });
+  ck('Vorbereitung: im Meeting', await insMeeting(p));
+  ck('im Meeting → S10, nichts geladen', text(await p.kern.sdkLaden()) === KT.S10 && p.kern.abbild().einrichtung.sdk.laden === null
+    && p.kern.kurz().zustand === 'im_meeting');
+  await p.aufraeumen();
+}
+{
+  let linkAufrufe = 0;
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    sdkLaden: ladeDienste({
+      holeLink: (e) => {
+        linkAufrufe++;
+        return new Promise((resolve) => e.signal.addEventListener('abort', () => resolve({ ok: false, art: 'abgebrochen' }), { once: true }));
+      },
+    }),
+  });
+  const lauf = p.kern.sdkLaden();
+  ck('während des Ladens: Z1b, laeuft(), Sperre S10',
+    (await bis(() => linkAufrufe === 1)) && zoomZ(p.kern.kurz()) === 'Z1b' && p.kern.laeuft() && text(p.kern.einrichtungSperre()) === KT.S10);
+  const zweit = await Promise.race([p.kern.sdkLaden(), warte(1000).then((): ZoomErgebnis => ({ ok: false, text: '(keine Antwort)' }))]);
+  ck('Review Focus SDK-1: zweiter Klick auf „Zoom-SDK laden“ → S10, der Link wird nur einmal angefragt',
+    text(zweit) === KT.S10 && linkAufrufe === 1);
+  ck('… SDK-Ordner wählen, Zugangsdaten entfernen und SDK-Schlüssel eintragen ebenfalls S10',
+    text(await p.kern.sdkWaehlen('C:/SDK')) === KT.S10 && text(p.kern.zugangLoeschen()) === KT.S10
+      && text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10);
+  ck('… SDK-Schlüssel entfernen ebenfalls S10, nichts gelöscht (Gesamtprüfung: Task 7 minor 1)',
+    text(p.kern.sdkSchluesselLoeschen()) === KT.S10 && p.sdkSchluesselGeloescht() === 0);
+  p.kern.sdkLadenAbbrechen();
+  const r = await lauf;
+  ck('Abbrechen → S17, als Text im Abbild', text(r) === KT.S17 && p.kern.abbild().einrichtung.sdk.text === KT.S17);
+  ck('… Log „abgebrochen“, kein „gescheitert“',
+    p.logs.includes('[zoom] Laden des Zoom-SDK abgebrochen') && !p.logs.some((z) => z.includes('Laden des Zoom-SDK gescheitert')));
+  ck('… Zustand zurück auf bereit, Arbeitsordner weg, nichts läuft',
+    p.kern.kurz().zustand === 'bereit' && !existsSync(arbeitsordner(p)) && !p.kern.laeuft() && p.kern.abbild().einrichtung.sdk.laden === null);
+  await p.aufraeumen();
+}
+{
+  let freigabe: (e: EinrichtungsErgebnis) => void = () => {};
+  let linkGefragt = false;
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: {
+      pruefeOrdner: () => REG_WAHL,
+      richteEin: () => new Promise<EinrichtungsErgebnis>((resolve) => {
+        freigabe = resolve;
+      }),
+    },
+    sdkLaden: ladeDienste({
+      holeLink: async () => {
+        linkGefragt = true;
+        return { ok: false, art: 'fehlt' };
+      },
+    }),
+  });
+  const wahl = p.kern.sdkWaehlen('C:/SDK');
+  ck('während der Kopie aus „SDK-Ordner wählen …“: „Zoom-SDK laden“ → S10, kein Link, kein Laden im Abbild',
+    (await bis(() => p.kern.kurz().kopieLaeuft)) && text(await p.kern.sdkLaden()) === KT.S10 && !linkGefragt
+      && p.kern.abbild().einrichtung.sdk.laden === null);
+  freigabe({ ok: false, text: KT.S6('EIO') });
+  await wahl;
+  await p.aufraeumen();
+}
+{
+  let entpackLaeuft = false;
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: { richteEin: async () => ({ ok: false, text: 'richteEin darf nicht laufen' }) },
+    sdkLaden: ladeDienste({
+      entpacke: (e) => {
+        entpackLaeuft = true;
+        return new Promise((resolve) =>
+          e.signal.addEventListener('abort', () => resolve({ ok: false, art: 'entpacken', grund: 'abgebrochen' }), { once: true }));
+      },
+    }),
+  });
+  const lauf = p.kern.sdkLaden();
+  ck('Vorbereitung: Entpacken läuft', (await bis(() => entpackLaeuft)) && p.kern.abbild().einrichtung.sdk.laden?.phase === 'entpacken');
+  p.kern.sdkLadenAbbrechen();
+  ck('Abbrechen beim Entpacken → S17 (nicht S16c), keine Kopie', text(await lauf) === KT.S17 && p.richteEinAufrufe() === 0);
+  await p.aufraeumen();
+}
+{
+  let signal: AbortSignal | undefined;
+  let freigabe: (e: EinrichtungsErgebnis) => void = () => {};
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: {
+      pruefeOrdner: () => REG_WAHL,
+      richteEin: (e) => {
+        signal = e.signal;
+        return new Promise<EinrichtungsErgebnis>((resolve) => {
+          freigabe = resolve;
+        });
+      },
+    },
+    sdkLaden: ladeDienste(),
+  });
+  const lauf = p.kern.sdkLaden();
+  ck('Vorbereitung: nach dem Laden läuft die Kopie',
+    (await bis(() => signal !== undefined)) && p.kern.abbild().einrichtung.sdk.laden === null && p.kern.kurz().kopieLaeuft);
+  p.kern.sdkLadenAbbrechen();
+  ck('„Abbrechen“ während der Kopie greift nicht mehr (Spec 4.3)', signal?.aborted === false);
+  freigabe({ ok: false, text: KT.S6('EIO') });
+  const r = await lauf;
+  ck('… Kopierfehler danach: S6 im Abbild und in „Laden … gescheitert“, bereit, Arbeitsordner weg',
+    text(r) === KT.S6('EIO') && p.kern.abbild().einrichtung.sdk.text === KT.S6('EIO') && p.kern.kurz().zustand === 'bereit'
+      && p.logs.includes(`[zoom] Laden des Zoom-SDK gescheitert: ${KT.S6('EIO')}`) && !existsSync(arbeitsordner(p)));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sdkSchluessel: SCHLUESSEL, laufzeit: { pruefeOrdner: () => ({ ok: false, text: KT.S4('vcruntime140.dll') }) }, sdkLaden: ladeDienste() });
+  const r = await p.kern.sdkLaden();
+  ck('geladenes Paket von pruefeOrdner abgewiesen → Text, eigene Logzeile und „Laden … gescheitert“, bereit, Arbeitsordner weg',
+    text(r) === KT.S4('vcruntime140.dll') && p.logs.includes(`[zoom] Geladenes Zoom-SDK abgewiesen: ${KT.S4('vcruntime140.dll')}`)
+      && p.logs.includes(`[zoom] Laden des Zoom-SDK gescheitert: ${KT.S4('vcruntime140.dll')}`)
+      && p.kern.kurz().zustand === 'bereit' && !p.kern.kurz().kopieLaeuft && !existsSync(arbeitsordner(p)));
+  await p.aufraeumen();
+}
+{
+  let loeschAufrufe = 0;
+  const p: Probe = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: {
+      pruefeOrdner: () => REG_WAHL,
+      richteEin: async () => ({ ok: true, ordner: p.ordner, stempel: REG_STEMPEL, aufraeumFehler: null }),
+    },
+    sdkLaden: ladeDienste({
+      loesche: (pfad) => {
+        loeschAufrufe++;
+        if (loeschAufrufe === 2) throw Object.assign(new Error('belegt'), { code: 'EBUSY' });
+        rmSync(pfad, { recursive: true, force: true });
+      },
+    }),
+  });
+  const r = await p.kern.sdkLaden();
+  ck('Aufräumfehler am Ende → trotzdem ok, nur geloggt', ok(r) && loeschAufrufe === 2
+    && p.logs.includes('[zoom] Aufräumen nach dem Laden unvollständig (EBUSY)'));
+  await p.aufraeumen();
+}
+{
+  let linkLaeuft = false;
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    sdkLaden: ladeDienste({
+      holeLink: (e) => {
+        linkLaeuft = true;
+        return new Promise((resolve) =>
+          e.signal.addEventListener('abort', () => setTimeout(() => resolve({ ok: false, art: 'abgebrochen' }), 150), { once: true }));
+      },
+    }),
+  });
+  const lauf = p.kern.sdkLaden();
+  ck('Vorbereitung: das Laden hängt am Link', await bis(() => linkLaeuft));
+  mkdirSync(arbeitsordner(p), { recursive: true });
+  writeFileSync(join(arbeitsordner(p), `${SDK_PAKET.datei}.teil`), 'halb');
+  const t0 = Date.now();
+  await p.kern.beenden(2000);
+  ck('Review Focus SDK-2: beenden bricht ab und wartet, bis das Laden aufgeräumt hat',
+    Date.now() - t0 >= 100 && !existsSync(arbeitsordner(p)) && !p.logs.some((z) => z.includes('nicht rechtzeitig')));
+  ck('… das Laden endet mit S17', text(await lauf) === KT.S17);
+  await p.aufraeumen();
+}
+{
+  let freigabe: () => void = () => {};
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    sdkLaden: ladeDienste({
+      holeLink: () => new Promise((resolve) => {
+        freigabe = () => resolve({ ok: false, art: 'abgebrochen' });
+      }),
+    }),
+  });
+  const lauf = p.kern.sdkLaden();
+  // Hält die Ereignisschleife wach: mitFrist nutzt einen unref-Zeitgeber, und sonst wartet hier nichts.
+  const spaeter = setTimeout(() => freigabe(), 2000);
+  await warte(50);
+  await p.kern.beenden(300);
+  ck('beenden mit Frist: hört das Laden den Abbruch nicht, steht es nach der Frist im Log',
+    p.logs.includes('[zoom] Laden des Zoom-SDK nicht rechtzeitig abgebrochen'));
+  clearTimeout(spaeter);
+  freigabe();
+  await lauf;
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }), sdkSchluessel: SCHLUESSEL, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'fehlt' }) }) });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Vorbereitung: Zustand fehler (B9)', p.kern.kurz().zustand === 'fehler');
+  const r = await p.kern.sdkLaden();
+  ck('im Zustand fehler: zuerst schließen, dann laden → S15, bereit, Meldung weg',
+    text(r) === KT.S15 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
+  await p.aufraeumen();
+}
+console.log('— S12 gilt dem damaligen Schlüssel (Gesamtprüfung: Task 7 minor 3, Abnahme 0.2.2 Schritt 4 → 5)');
+{
+  const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel' }) }) });
+  await p.kern.sdkLaden();
+  ck('Vorbereitung: S12 im Abbild', p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  ck('neuer SDK-Schlüssel nach S12 → ok, die Ablehnung steht nicht mehr im Abbild',
+    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdk.text === null);
+  await p.kern.sdkLaden();
+  ck('Vorbereitung: wieder S12', p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  ck('SDK-Schlüssel entfernen nach S12 → die Ablehnung steht nicht mehr im Abbild',
+    ok(p.kern.sdkSchluesselLoeschen()) && p.kern.abbild().einrichtung.sdk.text === null
+      && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'fehlt' }) }) });
+  await p.kern.sdkLaden();
+  ck('ein anderer Ladefehler (S15) bleibt nach neuem SDK-Schlüssel stehen',
+    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S15);
+  await p.aufraeumen();
+}
+{
+  // Ein Schlüssel aus der Umgebung hat Vorrang und gilt weiter: Ein eingetragener Wert ändert an S12 nichts.
+  const p = baueKern({ sdkSchluessel: { wert: 'sdk-test', herkunft: 'env' }, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel' }) }) });
+  await p.kern.sdkLaden();
+  ck('Schlüssel aus der Umgebung: S12 bleibt nach einem eingetragenen Schlüssel stehen (Umgebung hat Vorrang)',
+    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-geheim-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  await p.aufraeumen();
+}
+console.log('— Diagnose von tar.exe im Log (Gesamtprüfung: Task 5 minor 2)');
+{
+  const AUSGABE = "tar.exe: Can't create 'sdk\\x64\\bin\\sdk.dll': Write failed";
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: { richteEin: async () => ({ ok: false, text: 'richteEin darf nicht laufen' }) },
+    sdkLaden: ladeDienste({ entpacke: async () => ({ ok: false, art: 'entpacken', grund: 'Exit 1', ausgabe: AUSGABE }) }),
+  });
+  const r = await p.kern.sdkLaden();
+  const zeile = p.logs.indexOf(`[zoom] Ausgabe von tar.exe: ${AUSGABE}`);
+  ck('Entpacken mit Ausgabe → eigene Logzeile vor „Laden … gescheitert“',
+    zeile >= 0 && zeile < p.logs.indexOf(`[zoom] Laden des Zoom-SDK gescheitert: ${KT.S16c('Exit 1')}`));
+  ck('… Text bleibt S16c mit dem Code, die Ausgabe steht nicht im Abbild',
+    text(r) === KT.S16c('Exit 1') && p.kern.abbild().einrichtung.sdk.text === KT.S16c('Exit 1')
+      && !JSON.stringify(p.kern.abbild()).includes('Write failed'));
+  await p.aufraeumen();
+}
+console.log('— Entfernen bei nicht schreibbarer Einstellungsdatei (Gesamtprüfung: Task 3 minor 1, Task 4 minor 1)');
+{
+  const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkSchluesselLoeschenLiefert: false });
+  const vor = p.logs.length;
+  const r = p.kern.sdkSchluesselLoeschen();
+  ck('SDK-Schlüssel entfernen, Datei nicht schreibbar → „nur für diese Sitzung entfernt“, Herkunft none',
+    text(r) === TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT && p.sdkSchluesselGeloescht() === 1
+      && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
+  ck('… die Logzeile sagt es, statt „SDK-Schlüssel entfernt“', JSON.stringify(p.logs.slice(vor))
+    === JSON.stringify(['[zoom] SDK-Schlüssel nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)']));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ zugangLoeschenLiefert: false });
+  const vor = p.logs.length;
+  const r = p.kern.zugangLoeschen();
+  ck('Zugangsdaten entfernen, Datei nicht schreibbar → „nur für diese Sitzung entfernt“, Mangel zugang_fehlt',
+    text(r) === TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT && p.kern.kurz().zustand === 'einrichtung' && p.kern.kurz().maengel.includes('zugang_fehlt'));
+  ck('… die Logzeile sagt es, statt „Zugangsdaten entfernt“',
+    p.logs.slice(vor).includes('[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)')
+      && !p.logs.slice(vor).includes('[zoom] Zugangsdaten entfernt'));
+  await p.aufraeumen();
+}
+console.log('— Kein Z1a zwischendurch, wenn pruefeOrdner das geladene Paket abweist (Gesamtprüfung: Task 7 minor 2)');
+{
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: { pruefeOrdner: () => ({ ok: false, text: KT.S4('vcruntime140.dll') }) },
+    sdkLaden: ladeDienste(),
+    fristen: { abbildTaktMs: 0 },
+  });
+  const kurzVor = p.kurze.length;
+  const abbilderVor = p.abbilder.length;
+  await p.kern.sdkLaden();
+  const zeilen = p.kurze.slice(kurzVor).map(zoomZ);
+  ck('Kurzform beim Laden: Z1b → Z2, nie Z1a dazwischen (Tray, Kopfzeile, stateKv)',
+    JSON.stringify(zeilen) === JSON.stringify(['Z1b', 'Z2']));
+  ck('… auch kein Abbild mit Z1a', !p.abbilder.slice(abbilderVor).some((a) => zoomZ(a.kurz) === 'Z1a'));
+  await p.aufraeumen();
+}
+console.log('— Die Phasen des Ladens kommen auch an, nicht nur im synchronen abbild() (Gesamtprüfung: Task 7 minor 1)');
+{
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: { pruefeOrdner: () => REG_WAHL, richteEin: async () => ({ ok: false, text: KT.S6('EIO') }) },
+    sdkLaden: ladeDienste({
+      lade: async (e) => {
+        mkdirSync(dirname(e.ziel), { recursive: true });
+        writeFileSync(e.ziel, 'zip');
+        e.fortschritt(63 * LADE_MIB);
+        e.beimPruefen?.();
+        return { ok: true };
+      },
+    }),
+    fristen: { abbildTaktMs: 0 },
+  });
+  const vor = p.abbilder.length;
+  const kurzVor = p.kurze.length;
+  await p.kern.sdkLaden();
+  const phasen: string[] = [];
+  for (const a of p.abbilder.slice(vor)) {
+    const l = a.einrichtung.sdk.laden;
+    if (l && phasen.at(-1) !== `${l.phase}:${l.bytes}`) phasen.push(`${l.phase}:${l.bytes}`);
+  }
+  ck('ausgelieferte Abbilder: link → download 0 → download 63 MiB → pruefen → entpacken',
+    JSON.stringify(phasen) === JSON.stringify(['link:0', 'download:0', `download:${63 * LADE_MIB}`, `pruefen:${63 * LADE_MIB}`, `entpacken:${63 * LADE_MIB}`]));
+  ck('… die Kurzform meldete das Laden sofort (einrichtung mit kopieLaeuft, Z1b)',
+    p.kurze.slice(kurzVor).some((k) => k.zustand === 'einrichtung' && k.kopieLaeuft));
   await p.aufraeumen();
 }
 

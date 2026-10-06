@@ -4,6 +4,7 @@ import type { Participant } from '@jm/zoom-bridge/protocol';
 import type { ZoomQuelle } from '../src/shared/types';
 import { KT } from '../src/main/zoom/klartext';
 import { pruefeZugangEingabe } from '../src/main/zoom/zugang-eingabe';
+import { pruefeSdkSchluesselEingabe } from '../src/main/zoom/sdk-schluessel-eingabe';
 import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from '../src/main/zoom/soll';
 import {
   baueTeilnehmer, gleicherNdiName, istVerwaist, kameraVon, NDI_PRAEFIX, ndiVorschau, normName, zaehleQuellen,
@@ -229,6 +230,19 @@ console.log('— Zugangsdaten von Hand: Nutzlast-Prüfung (IPC)');
     pruefeZugangEingabe({ clientId: 'x'.repeat(512), clientSecret: 'a' }) !== null
     && pruefeZugangEingabe({ clientId: 'x'.repeat(513), clientSecret: 'a' }) === null
     && pruefeZugangEingabe({ clientId: 'a', clientSecret: 'y'.repeat(513) }) === null);
+}
+
+console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachladen 4.2)');
+{
+  const g = pruefeSdkSchluesselEingabe({ schluessel: 'sdk-test' });
+  ck('gültig → der Wert', g !== null && g.schluessel === 'sdk-test');
+  ck('Wert wird hier nicht verändert (Leerraum bleibt für den Kern)', pruefeSdkSchluesselEingabe({ schluessel: ' a b ' })?.schluessel === ' a b ');
+  ck('leerer String ist eine Eingabe (S18 gibt der Kern)', pruefeSdkSchluesselEingabe({ schluessel: '' })?.schluessel === '');
+  ck('kein Objekt → null', pruefeSdkSchluesselEingabe(null) === null && pruefeSdkSchluesselEingabe('sdk-test') === null
+    && pruefeSdkSchluesselEingabe(undefined) === null && pruefeSdkSchluesselEingabe(42) === null);
+  ck('fehlendes Feld oder Zahl → null', pruefeSdkSchluesselEingabe({}) === null && pruefeSdkSchluesselEingabe({ schluessel: 7 }) === null);
+  ck('genau 512 Zeichen → gültig, 513 → null',
+    pruefeSdkSchluesselEingabe({ schluessel: 'x'.repeat(512) }) !== null && pruefeSdkSchluesselEingabe({ schluessel: 'x'.repeat(513) }) === null);
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

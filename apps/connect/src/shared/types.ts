@@ -168,6 +168,7 @@ export interface ZoomKurz {
   versuch: number | null;
   /** Alle Mängel der Einrichtung. Nicht leer ⇒ Zustand 'einrichtung'. Während einer laufenden Bridge kann kein Mangel entstehen (Sperre S10). */
   maengel: ZoomMangel[];
+  /** Die Kopie ODER „Zoom-SDK laden“ läuft (Z1b; Spec SDK nachladen 4.4: dieselbe Einrichtungszeile). */
   kopieLaeuft: boolean;
 }
 
@@ -178,10 +179,14 @@ export interface ZoomAbbild {
       stand: 'fehlt' | 'kopiert' | 'ok' | 'defekt';
       fassung: string | null;
       kopie: { dateien: number; dateienGesamt: number; bytes: number; bytesGesamt: number } | null;
+      /** „Zoom-SDK laden“ bis zum Ende des Entpackens (Spec SDK nachladen 4.4); danach folgt die Kopie mit `kopie`. */
+      laden: { phase: 'link' | 'download' | 'pruefen' | 'entpacken'; bytes: number; bytesGesamt: number } | null;
       text: string | null;
     };
     /** `grund` nur bei `session`: 'schreibfehler' = Schlüsselbund da, die Einstellungsdatei ließ sich nicht schreiben. */
     zugang: { herkunft: ProxyKeySource; grund?: 'schreibfehler'; clientIdEnde: string | null; text: string | null };
+    /** Nur die Herkunft, nie der Wert (Spec SDK nachladen 4.2). */
+    sdkSchluessel: { herkunft: ProxyKeySource };
   };
   anzeigename: string;
   versatz: { gewuenschtMs: number; bestaetigtMs: number | null };
@@ -249,11 +254,18 @@ export interface JmConnectApi {
   onZoom: (cb: (a: ZoomAbbild) => void) => () => void;
   /** Ordner-Dialog, dann SDK prüfen und kopieren. */
   zoomSdkWaehlen: () => Promise<ZoomErgebnis>;
+  /** „Zoom-SDK laden“: Link vom Proxy, Download, Prüfung, Entpacken, dann dieselbe Kopie wie die Ordnerwahl. */
+  zoomSdkLaden: () => Promise<ZoomErgebnis>;
+  /** Bricht ein laufendes Laden ab (Phasen link bis entpacken). */
+  zoomSdkLadenAbbrechen: () => Promise<void>;
   /** Datei-Dialog für die Zugangsdaten. */
   zoomZugangWaehlen: () => Promise<ZoomErgebnis>;
   /** Zugangsdaten von Hand: nur hinein, es gibt keinen Weg zurück ins Fenster. */
   zoomZugangEintragen: (p: { clientId: string; clientSecret: string }) => Promise<ZoomErgebnis>;
   zoomZugangLoeschen: () => Promise<ZoomErgebnis>;
+  /** SDK-Schlüssel für „Zoom-SDK laden“: nur hinein, es gibt keinen Weg zurück ins Fenster. */
+  zoomSdkSchluesselEintragen: (p: { schluessel: string }) => Promise<ZoomErgebnis>;
+  zoomSdkSchluesselLoeschen: () => Promise<ZoomErgebnis>;
   /** „Einrichtung prüfen“: Bridge starten, anmelden, beenden, ohne Meeting. */
   zoomPruefen: () => Promise<ZoomErgebnis>;
   /** Der Kenncode geht nur hier in den Main und kommt nie zurück. */

@@ -5,7 +5,7 @@
 import type { AudioReason, AudioState } from '@jm/zoom-bridge/protocol';
 import { authResultName, endReason, failCodeName, failReason } from '@jm/zoom-bridge/protocol';
 import type { ZoomMangel } from '../../shared/types';
-import { Q9_ANFANG, TEXT_A4, TEXT_A6 } from '../../shared/zoom-text';
+import { Q9_ANFANG, TEXT_A4, TEXT_A6, TEXT_S11, TEXT_S17 } from '../../shared/zoom-text';
 
 /** Text groß in der Karte, Detail klein darunter (technischer Name und Code), Spec 8. */
 export interface Meldungstext {
@@ -40,7 +40,7 @@ export const KT = {
   S8: 'Dieser Connect-Installation fehlt die Zoom-Bridge. Bitte JM Connect neu installieren.',
   S9: (datei: string): string =>
     `Die Zoom-Laufzeit auf diesem PC ist unvollständig (${datei}). Bitte den SDK-Ordner erneut wählen.`,
-  S10: 'Während Zoom läuft oder die Kopie läuft, lassen sich SDK-Ordner und Zugangsdaten nicht ändern.',
+  S10: 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.',
   A1: 'Die Datei ist kein gültiges JSON (Inhalt wird absichtlich nicht angezeigt).',
   A2: 'In der Datei fehlen Client-ID oder Client-Secret (erwartet: clientId und clientSecret).',
   A3: (code: string): string => `Die Datei lässt sich nicht lesen (${code}).`,
@@ -48,6 +48,24 @@ export const KT = {
   A5: 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Zugangsdaten erneut eintragen oder die Datei erneut wählen.',
   A6: TEXT_A6,
   A7: 'Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.',
+
+  // Zoom-SDK nachladen (Spec 2026-10-06, Abschnitt 5). Platzmangel nutzt S5; {grund} ist nur ein Code, nie ein Link.
+  S11: TEXT_S11,
+  S12: 'Der Proxy hat den SDK-Schlüssel abgelehnt. Bitte den Schlüssel prüfen.',
+  S13: (sekunden: number): string => {
+    const minuten = Math.max(1, Math.ceil(sekunden / 60));
+    return `Zu viele Versuche. Bitte in ${minuten} ${minuten === 1 ? 'Minute' : 'Minuten'} erneut versuchen.`;
+  },
+  S14: (grund: string): string =>
+    `Der Proxy ist nicht erreichbar (${grund}). Bitte die Netzverbindung prüfen oder den SDK-Ordner von Hand wählen.`,
+  S15: 'Auf dem Proxy liegt kein passendes Zoom-SDK 7.1.5.43953. Bitte den SDK-Ordner von Hand wählen.',
+  S16: (grund: string): string =>
+    `Das Zoom-SDK ließ sich nicht laden (${grund}). Die bisherige Einrichtung bleibt unverändert.`,
+  S16b: 'Das geladene Zoom-SDK hat nicht die erwartete Prüfsumme und wurde verworfen. Die bisherige Einrichtung bleibt unverändert.',
+  S16c: (grund: string): string =>
+    `Das geladene Zoom-SDK ließ sich nicht entpacken (${grund}). Die bisherige Einrichtung bleibt unverändert.`,
+  S17: TEXT_S17,
+  S18: 'Bitte den SDK-Schlüssel eintragen, ohne Leerzeichen.',
 
   // 8.2 Start und Anmeldung
   B1: 'zoom-bridge.exe fehlt im Laufzeit-Ordner. Bitte den SDK-Ordner erneut wählen.',

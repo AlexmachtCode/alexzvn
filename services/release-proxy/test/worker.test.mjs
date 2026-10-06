@@ -293,6 +293,250 @@ async function run() {
     const r = await worker.fetch(new Request(url, hdr), { ...baseEnv, CONNECT_ROOM: plain });
     check('Jurisdiction verlangt, aber nicht unterstützt → 503 statt stiller Rückfall', r.status === 503);
   }
+
+  // ── Zoom-SDK nachladen (JM Connect 0.2.2): GET /zoom-sdk/:fassung ──
+
+  // 20) Eigener Schlüssel, Antwort, Fehlerfälle, Drosselung, kein Proxy-Key, nichts Geheimes in der Konsole.
+  {
+    const FASSUNG = '7.1.5.43953';
+    const ZIP = `zoom-sdk-win-x64-${FASSUNG}.zip`;
+    const zEnv = { ...baseEnv, ZOOM_SDK_KEY: 'sdk-geheim-test', ZOOM_SDK_REPO: 'owner/jm-zoom-sdk' };
+    const zReq = (fassung, schluessel, opts = {}) =>
+      req(`/zoom-sdk/${fassung}`, {
+        key: null,
+        ...opts,
+        headers: schluessel === null ? {} : { 'X-Zoom-Sdk-Key': schluessel },
+      });
+    const aufrufe = [];
+    let release = { assets: [{ id: 77, name: ZIP, size: 150120193 }] };
+    let tagStatus = 200;
+    let assetOhneLink = false;
+    /** Rohtext statt Release-JSON (unlesbare Antwort) bzw. ein Fehler, den fetch wirft (Netz). */
+    let tagRoh = null;
+    let tagWirft = null;
+    stub = async (u) => {
+      const url = String(u);
+      aufrufe.push(url);
+      if (url.includes('/releases/assets/')) {
+        if (assetOhneLink) return new Response('{}', { status: 200 });
+        const id = url.split('/').pop();
+        return new Response(null, { status: 302, headers: { Location: `https://signed.test/zoom-${id}?sig=geheim-link` } });
+      }
+      if (url.includes('/releases/tags/')) {
+        if (tagWirft) throw tagWirft;
+        if (tagRoh !== null) return new Response(tagRoh, { status: 200 });
+        if (tagStatus !== 200) return new Response('GITHUB-FEHLTEXT-LEAK', { status: tagStatus });
+        return new Response(JSON.stringify(release), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    };
+    // Konsole mitschneiden: weder Schlüssel noch signierter Link dürfen dort landen (Spec 3.2).
+    const mitschnitt = [];
+    const merke = (...a) => mitschnitt.push(a.map(String).join(' '));
+    const infoVorher = console.info;
+    console.warn = merke;
+    console.error = merke;
+    console.info = merke;
+
+    let r = await worker.fetch(zReq(FASSUNG, null), zEnv);
+    check('zoom-sdk ohne Header → 401 unauthorized', r.status === 401 && (await r.json()).error === 'unauthorized');
+    r = await worker.fetch(zReq(FASSUNG, 'falsch'), zEnv);
+    check('zoom-sdk falscher Schlüssel → 401', r.status === 401);
+    check('… mit Secret: kein Hinweis auf ein fehlendes Secret im Worker-Log', !mitschnitt.some((z) => z.includes('ZOOM_SDK_KEY fehlt')));
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), { ...zEnv, ZOOM_SDK_KEY: undefined });
+    check('zoom-sdk ohne Secret ZOOM_SDK_KEY → 401, auch mit Header', r.status === 401);
+    check('… Fehleinrichtung steht im Worker-Log (ohne Wert): Secret ZOOM_SDK_KEY fehlt',
+      mitschnitt.some((z) => z.startsWith('zoom-sdk: Secret ZOOM_SDK_KEY fehlt')));
+    let seit = mitschnitt.length;
+    r = await worker.fetch(zReq(FASSUNG, ''), { ...zEnv, ZOOM_SDK_KEY: '' });
+    check('zoom-sdk leeres Secret und leerer Header → 401', r.status === 401);
+    check('… leeres Secret gilt im Worker-Log als fehlend', mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: Secret ZOOM_SDK_KEY fehlt')));
+    check('… ohne gültigen Schlüssel fragt der Proxy GitHub nicht', aufrufe.length === 0);
+
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    const out = await r.json();
+    check('zoom-sdk richtiger Schlüssel → 200 { fassung, url, size }',
+      r.status === 200 && out.fassung === FASSUNG && out.url === 'https://signed.test/zoom-77?sig=geheim-link'
+        && out.size === 150120193 && JSON.stringify(Object.keys(out).sort()) === '["fassung","size","url"]');
+    check('… Antwort mit Cache-Control no-store', r.headers.get('cache-control') === 'no-store');
+    check('… Release über ZOOM_SDK_REPO und Tag zoom-sdk-<fassung>',
+      aufrufe.includes(`https://api.github.com/repos/owner/jm-zoom-sdk/releases/tags/zoom-sdk-${FASSUNG}`));
+    check('… signierter Link aus demselben Repo', aufrufe.includes('https://api.github.com/repos/owner/jm-zoom-sdk/releases/assets/77'));
+    check('… nie das Monorepo REPO', !aufrufe.some((u) => u.includes('/repos/owner/repo/')));
+
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { key: 'falsch' }), zEnv);
+    check('zoom-sdk verlangt keinen Proxy-Schlüssel (ein falscher X-Proxy-Key stört nicht)', r.status === 200);
+    r = await worker.fetch(zReq(FASSUNG, null, { key: 'k' }), zEnv);
+    check('… und der richtige Proxy-Schlüssel ersetzt den SDK-Schlüssel nicht', r.status === 401);
+
+    aufrufe.length = 0;
+    for (const f of ['7.1.5', 'abc', '7.1.5.43953x', '7.1.5.43953.1', '..%2F..', '']) {
+      r = await worker.fetch(zReq(f, 'sdk-geheim-test'), zEnv);
+      check(`zoom-sdk ungültige Fassung „${f}“ → 404`, r.status === 404);
+    }
+    check('… ohne GitHub-Abfrage', aufrufe.length === 0);
+
+    tagStatus = 404;
+    seit = mitschnitt.length;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk Release fehlt → 404 not_found', r.status === 404 && (await r.json()).error === 'not_found');
+    check('… Worker-Log nennt GitHub-Status, Release und Repo (Token ohne Zugriff sieht genauso aus)',
+      mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: GitHub 404') && z.includes(`zoom-sdk-${FASSUNG}`) && z.includes('owner/jm-zoom-sdk')));
+    tagStatus = 200;
+    release = { assets: [{ id: 5, name: 'etwas-anderes.zip', size: 1 }] };
+    seit = mitschnitt.length;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk Asset fehlt → 404 not_found', r.status === 404 && (await r.json()).error === 'not_found');
+    check('… Worker-Log nennt den gesuchten Asset-Namen', mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: Asset') && z.includes(ZIP)));
+    release = { assets: [{ id: 77, name: ZIP, size: 150120193 }] };
+    tagStatus = 500;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    const t500 = await r.text();
+    check('zoom-sdk GitHub 500 → 502 upstream ohne GitHub-Fehlertext',
+      r.status === 502 && JSON.parse(t500).error === 'upstream' && !t500.includes('LEAK'));
+    tagStatus = 200;
+    assetOhneLink = true;
+    seit = mitschnitt.length;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk signierter Link nicht auflösbar → 502 upstream', r.status === 502 && (await r.json()).error === 'upstream');
+    check('… Worker-Log nennt das Asset', mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: signierter Link') && z.includes(ZIP)));
+    assetOhneLink = false;
+    tagRoh = 'kein json';
+    seit = mitschnitt.length;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk Release-Antwort unlesbar → 502 upstream', r.status === 502 && (await r.json()).error === 'upstream');
+    check('… Worker-Log nennt den Fehlernamen (SyntaxError), nicht die Meldung',
+      mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: GitHub nicht erreichbar oder Antwort unlesbar') && z.includes('SyntaxError')));
+    tagRoh = null;
+    tagWirft = new TypeError('Netz weg zu https://signed.test/geheim-link');
+    seit = mitschnitt.length;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk GitHub nicht erreichbar → 502 upstream', r.status === 502 && (await r.json()).error === 'upstream');
+    check('… Worker-Log nennt den Fehlernamen (TypeError)', mitschnitt.slice(seit).some((z) => z.includes('TypeError')));
+    tagWirft = null;
+
+    // A10: andere Methoden als GET → 404, auch mit gültigem Schlüssel, ohne GitHub.
+    aufrufe.length = 0;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { method: 'POST' }), zEnv);
+    check('zoom-sdk POST mit gültigem Schlüssel → 404 (A10), ohne GitHub-Abfrage', r.status === 404 && aufrufe.length === 0);
+    // Ohne Variable ZOOM_SDK_REPO gilt die Vorgabe (fetch ist hier die Attrappe, es geht nichts ins Netz).
+    aufrufe.length = 0;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), { ...zEnv, ZOOM_SDK_REPO: undefined });
+    check('zoom-sdk ohne ZOOM_SDK_REPO → Vorgabe AlexmachtCode/jm-zoom-sdk',
+      r.status === 200 && aufrufe.includes(`https://api.github.com/repos/AlexmachtCode/jm-zoom-sdk/releases/tags/zoom-sdk-${FASSUNG}`));
+    // KV wirft (Ausfall oder Schreibgrenze): vertragsgemäß 502 upstream als JSON, nicht als ungefangene Ausnahme.
+    const kaputtesKV = {
+      async get() {
+        throw new TypeError('KV nicht erreichbar');
+      },
+      async put() {},
+    };
+    seit = mitschnitt.length;
+    let rk = null;
+    try {
+      rk = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), { ...zEnv, RATELIMIT: kaputtesKV });
+    } catch {
+      rk = null;
+    }
+    check('zoom-sdk KV wirft bei der Drosselung → 502 upstream (JSON), keine ungefangene Ausnahme',
+      rk !== null && rk.status === 502 && (await rk.json()).error === 'upstream');
+    check('… Worker-Log nennt Drosselung und Fehlernamen, nicht die Meldung',
+      mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: Drosselung') && z.includes('TypeError'))
+        && !mitschnitt.some((z) => z.includes('KV nicht erreichbar')));
+
+    // Drosselung VOR dem Schlüsselvergleich: 20 Anfragen je IP und 10 Minuten, die 21. → 429, auch mit gültigem Schlüssel.
+    const rlEnv = { ...zEnv, RATELIMIT: makeKV() };
+    const vorab = [];
+    for (let i = 0; i < 20; i++) vorab.push((await worker.fetch(zReq(FASSUNG, 'falsch', { ip: '3.3.3.3' }), rlEnv)).status);
+    check('zoom-sdk Drosselung: die 20 Anfragen davor kommen durch (401 wegen falschem Schlüssel, kein 429)',
+      vorab.length === 20 && vorab.every((s) => s === 401));
+    aufrufe.length = 0;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { ip: '3.3.3.3' }), rlEnv);
+    check('zoom-sdk Drosselung: 21. Anfrage je IP → 429, auch mit gültigem Schlüssel', r.status === 429);
+    check('… mit Retry-After', Number(r.headers.get('Retry-After')) > 0);
+    check('… ohne GitHub-Abfrage', aufrufe.length === 0);
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { ip: '4.4.4.4' }), rlEnv);
+    check('… andere IP unabhängig', r.status === 200);
+
+    const alles = mitschnitt.join('\n');
+    check('zoom-sdk: weder Schlüssel noch signierter Link in der Konsole',
+      !alles.includes('sdk-geheim-test') && !alles.includes('signed.test') && !alles.includes('geheim-link'));
+    console.warn = () => {};
+    console.error = () => {};
+    console.info = infoVorher;
+    stub = async () => new Response('{}', { status: 200 });
+  }
+
+  // 21) Regression: /tools/… löst den signierten Link weiter im Monorepo REPO auf, auch mit ZOOM_SDK_REPO.
+  {
+    const aufrufe = [];
+    stub = async (u) => {
+      const url = String(u);
+      aufrufe.push(url);
+      if (url.includes('/releases/assets/')) return new Response(null, { status: 302, headers: { Location: 'https://signed.test/9' } });
+      if (url.includes('/releases?')) {
+        return new Response(JSON.stringify([{ tag_name: 'copy-v1.0.0', draft: false, assets: [{ id: 9, name: 'JM.Copy.Setup.1.0.0.exe', size: 5 }] }]), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    };
+    const r = await worker.fetch(req('/tools/jm-copy/latest?platform=win'), { ...baseEnv, ZOOM_SDK_REPO: 'owner/jm-zoom-sdk' });
+    check('tools: signierter Link weiter aus REPO, nicht aus ZOOM_SDK_REPO',
+      r.status === 200 && aufrufe.includes('https://api.github.com/repos/owner/repo/releases/assets/9')
+        && !aufrufe.some((u) => u.includes('jm-zoom-sdk')));
+    stub = async () => new Response('{}', { status: 200 });
+  }
+
+  // 22) Regression: die Kopfzeilen JEDER GitHub-Anfrage, wörtlich je Aufrufstelle (Feedback, ghJson, ghRaw,
+  // ghApi, resolveSignedUrl, zoom-sdk). Pinnt das Verhalten vor und nach dem Bündeln in ghHeaders().
+  {
+    const UA = 'JM-Suite-Release-Proxy';
+    const GH = { Accept: 'application/vnd.github+json', Authorization: 'Bearer gh', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': UA };
+    const MIT_JSON = { ...GH, 'content-type': 'application/json' };
+    const norm = (h) => JSON.stringify(Object.entries(h || {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    const gesehen = [];
+    stub = async (u, init = {}) => {
+      const url = String(u);
+      gesehen.push({ url, methode: init.method || 'GET', kopf: init.headers });
+      if (url.includes('/releases/assets/')) return new Response(null, { status: 302, headers: { Location: 'https://signed.test/1' } });
+      if (url.includes('/releases?')) {
+        return new Response(JSON.stringify([{ tag_name: 'copy-v1.0.0', draft: false, assets: [{ id: 9, name: 'JM.Copy.Setup.1.0.0.exe', size: 5 }] }]), { status: 200 });
+      }
+      if (url.includes('/releases/tags/')) {
+        return new Response(JSON.stringify({ assets: [{ id: 77, name: 'zoom-sdk-win-x64-7.1.5.43953.zip', size: 150120193 }] }), { status: 200 });
+      }
+      if (url.includes('/git/ref/heads/')) return new Response(JSON.stringify({ object: { sha: 'abc' } }), { status: 200 });
+      if (url.endsWith('/pulls') || url.endsWith('/issues')) return new Response(JSON.stringify({ number: 3, html_url: 'https://x/3' }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    };
+    const kopfVon = (teil, methode = 'GET') => gesehen.find((g) => g.url.includes(teil) && g.methode === methode)?.kopf;
+    const zEnv = { ...baseEnv, ZOOM_SDK_KEY: 'sdk-geheim-test', ZOOM_SDK_REPO: 'owner/jm-zoom-sdk' };
+
+    let r = await worker.fetch(req('/tools/jm-copy/latest?platform=win'), baseEnv);
+    check('Kopfzeilen: /tools → 200', r.status === 200);
+    check('… ghJson (Release-Liste) wörtlich', norm(kopfVon('/releases?')) === norm(GH));
+    check('… resolveSignedUrl wörtlich (octet-stream, ohne API-Version)',
+      norm(kopfVon('/releases/assets/9')) === norm({ Accept: 'application/octet-stream', Authorization: 'Bearer gh', 'User-Agent': UA }));
+    r = await worker.fetch(req('/suite.json'), baseEnv);
+    check('… ghRaw (suite.json) wörtlich, Accept raw', r.status === 200
+      && norm(kopfVon('/contents/packages/suite-manifest/suite.json')) === norm({ ...GH, Accept: 'application/vnd.github.raw' }));
+    r = await worker.fetch(req('/feedback', { method: 'POST', body: { title: 't', description: 'd' } }), baseEnv);
+    check('… Feedback (Issue anlegen) wörtlich, mit content-type', r.status === 200 && norm(kopfVon('/issues', 'POST')) === norm(MIT_JSON));
+    const rezept = {
+      id: 'kopf-probe', title: 'Kopf-Probe', category: 'Technik-Setups', difficulty: 'einfach', setupTimeMin: 5, teamSize: 1,
+      equipmentOwner: 'jm', lastReviewed: '2026-10-06', owner: 'probe', summary: 's', blocks: { ingredients: [], steps: {} },
+    };
+    r = await worker.fetch(req('/cookbook/draft', { method: 'POST', body: { mode: 'form', recipe: rezept } }), baseEnv);
+    check('… ghApi: Kochbuch-Entwurf → 200', r.status === 200);
+    check('… ghApi GET ohne Body: ohne content-type', norm(kopfVon('/git/ref/heads/')) === norm(GH));
+    check('… ghApi POST/PUT mit Body: mit content-type',
+      norm(kopfVon('/git/refs', 'POST')) === norm(MIT_JSON) && norm(kopfVon('/contents/', 'PUT')) === norm(MIT_JSON)
+        && norm(kopfVon('/pulls', 'POST')) === norm(MIT_JSON));
+    r = await worker.fetch(req('/zoom-sdk/7.1.5.43953', { key: null, headers: { 'X-Zoom-Sdk-Key': 'sdk-geheim-test' } }), zEnv);
+    check('… zoom-sdk (Release per Tag) wörtlich', r.status === 200 && norm(kopfVon('/releases/tags/')) === norm(GH));
+    check('… zoom-sdk 200: content-type JSON und no-store',
+      r.headers.get('content-type') === 'application/json; charset=utf-8' && r.headers.get('cache-control') === 'no-store');
+    stub = async () => new Response('{}', { status: 200 });
+  }
 }
 
 run()
