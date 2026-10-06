@@ -683,9 +683,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
     const herkunft = d.sdkSchluessel.speichern(wert);
     sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
+    sdkAblehnungVergessen();
     d.log(`[zoom] SDK-Schlüssel hinterlegt (${herkunft === 'session' ? 'nur für diese Sitzung' : 'verschlüsselt'})`);
     abbildGeaendert();
     return { ok: true };
+  }
+
+  /**
+   * S12 („Schlüssel abgelehnt“) gilt dem Schlüssel, der damals galt. Nach einem neuen oder entfernten Schlüssel
+   * stünde er sonst bis zum nächsten Laden neben „SDK-Schlüssel: hinterlegt“ bzw. „fehlt“. Andere Fehler bleiben
+   * stehen. Ein Schlüssel aus der Umgebung hat Vorrang und gilt weiter: dann bleibt auch S12.
+   */
+  function sdkAblehnungVergessen(): void {
+    if (sdkFehler === KT.S12 && sdkSchluesselHerkunft !== 'env') sdkFehler = null;
   }
 
   function sdkSchluesselLoeschen(): ZoomErgebnis {
@@ -694,6 +704,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (zustand === 'fehler') schliessen();
     d.sdkSchluessel.loeschen();
     sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
+    sdkAblehnungVergessen();
     d.log('[zoom] SDK-Schlüssel entfernt');
     abbildGeaendert();
     return { ok: true };

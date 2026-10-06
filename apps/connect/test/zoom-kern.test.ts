@@ -2067,6 +2067,35 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
     text(r) === KT.S15 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
   await p.aufraeumen();
 }
+console.log('— S12 gilt dem damaligen Schlüssel (Gesamtprüfung: Task 7 minor 3, Abnahme 0.2.2 Schritt 4 → 5)');
+{
+  const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel' }) }) });
+  await p.kern.sdkLaden();
+  ck('Vorbereitung: S12 im Abbild', p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  ck('neuer SDK-Schlüssel nach S12 → ok, die Ablehnung steht nicht mehr im Abbild',
+    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdk.text === null);
+  await p.kern.sdkLaden();
+  ck('Vorbereitung: wieder S12', p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  ck('SDK-Schlüssel entfernen nach S12 → die Ablehnung steht nicht mehr im Abbild',
+    ok(p.kern.sdkSchluesselLoeschen()) && p.kern.abbild().einrichtung.sdk.text === null
+      && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'fehlt' }) }) });
+  await p.kern.sdkLaden();
+  ck('ein anderer Ladefehler (S15) bleibt nach neuem SDK-Schlüssel stehen',
+    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S15);
+  await p.aufraeumen();
+}
+{
+  // Ein Schlüssel aus der Umgebung hat Vorrang und gilt weiter: Ein eingetragener Wert ändert an S12 nichts.
+  const p = baueKern({ sdkSchluessel: { wert: 'sdk-test', herkunft: 'env' }, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel' }) }) });
+  await p.kern.sdkLaden();
+  ck('Schlüssel aus der Umgebung: S12 bleibt nach einem eingetragenen Schlüssel stehen (Umgebung hat Vorrang)',
+    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-geheim-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  await p.aufraeumen();
+}
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
