@@ -1570,6 +1570,20 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.2.0",
+        "date": "2026-10-06",
+        "notes": [
+          "Neu: JM Connect tritt einem Zoom-Meeting bei und gibt einzelne Teilnehmer als NDI-Quelle aus; bedient wird das über die neue Karte „Zoom-Meeting“ im Connect-Fenster. Zoom gibt es nur unter Windows; unter macOS zeigt Connect keine Zoom-Karte. Zoom-Quellen haben kein Tally, kein Talkback und kein Mix-Minus; das sind Grenzen von Zoom.",
+          "Der Bediener braucht ein eigenes Zoom-Meeting-SDK für Windows in der Fassung 7.1.5.43953 und die Zugangsdaten einer eigenen Meeting-SDK-App als JSON-Datei mit Client-ID und Client-Secret. Der Installer enthält keine Dateien aus dem Zoom-SDK; die übernimmt Connect aus dem SDK-Ordner, den der Bediener wählt. Connect kann nur Meetings im Zoom-Konto dieser App betreten.",
+          "„SDK-Ordner wählen …“ kopiert die Zoom-Laufzeit (rund 315 MB) auf den PC, „Datei wählen …“ hinterlegt die Zugangsdaten, in der Regel verschlüsselt für das angemeldete Windows-Konto. „Einrichtung prüfen“ meldet sich bei Zoom an, ohne einem Meeting beizutreten, und zeigt das Ergebnis in der Karte. Solange die Einrichtung unvollständig ist, bleibt Zoom gesperrt, und die Karte nennt, was fehlt.",
+          "Zum Beitreten gibt der Bediener Meeting-Nummer, Kenncode und den Anzeigenamen in Zoom ein (Vorgabe „JM Connect“); Nummer und Kenncode speichert Connect nicht dauerhaft. Warteraum und Warten auf den Host zeigt die Karte an; sobald Zoom Connect einlässt, tritt es ohne Handgriff des Bedieners bei. Im Meeting fragt Connect selbst nach der Aufnahme-Erlaubnis; der Host erteilt sie im Zoom-Client, auch später noch, und erst danach lassen sich Personen laden.",
+          "Die Teilnehmerliste zeigt die Personen im Meeting mit Kennzeichen wie Host, Kamera aus oder im Warteraum; „Als Quelle laden“ gibt eine Person als eigene NDI-Quelle aus, deren Name in der Regel „JM Connect – Zoom“ und ihren Namen in Zoom enthält. Beim Laden von Hand legt der Schalter „Ton“ in ihrer Zeile fest, ob ihr Ton mitkommt. Der Bild-Versatz (0 bis 1000 ms) verzögert das Bild aller Zoom-Quellen, damit Bild und Ton zusammenpassen; Connect merkt ihn sich in der Regel über einen Neustart hinaus. Mehr als fünf Zoom-Quellen sind nicht gemessen; ab fünf laufenden Quellen verlangt „Als Quelle laden“ einen zweiten Klick.",
+          "Kopfzeile und Tray zeigen den Zoom-Stand in derselben Zeile, etwa „● Zoom: 2 Quellen geladen“ oder „△ Zoom: im Meeting ohne Aufnahme-Erlaubnis“; die Karte beschreibt ihn ausführlicher. Fehler erklärt die Karte im Klartext, meist mit dem nächsten Schritt; „Logordner öffnen“ führt zum Log. Die Kopfzeile sagt jetzt „Raum verbunden“ bzw. „Raum nicht verbunden“, und die Gäste-Zeile im Tray zählt die NDI-Quellen der Browser-Gäste (Kamera und Bildschirm je eine) statt Gäste „auf Sendung“.",
+          "„Meeting verlassen“ in der Karte oder „Zoom-Meeting verlassen“ im Tray verlässt das Meeting; laufen noch Quellen, fragt die Karte vorher einmal nach. Schließt man das Fenster, läuft Connect samt Quellen im Tray weiter; „Beenden“ verlässt zuerst ein laufendes Meeting und wartet darauf höchstens 15 Sekunden. Beendet der Host das Meeting oder entfernt er Connect, sagt die Karte das; „Erneut beitreten“ versucht mit denselben Daten einen neuen Beitritt, „Schließen“ schließt die Meldung.",
+          "Noch nicht in 0.2.0: Nach einem Abriss tritt Connect nicht von selbst wieder bei. Stellt Zoom eine unterbrochene Verbindung nicht selbst wieder her oder beendet sich die Zoom-Bridge im Meeting, fallen die Zoom-Quellen weg, und die Karte bietet „Erneut beitreten“ an; die zuvor geladenen Personen lädt Connect danach in der Regel von selbst wieder, sobald die Aufnahme-Erlaubnis vorliegt. Companion kann Zoom ebenfalls noch nicht steuern und zeigt keinen Zoom-Stand; beides ist für 0.3.0 vorgesehen."
+        ]
+      },
+      {
         "version": "0.1.0",
         "date": "2026-07-09",
         "notes": [
