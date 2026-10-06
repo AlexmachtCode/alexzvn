@@ -39,6 +39,8 @@ interface Stored {
   zoomAnzeigename?: string;
   /** Zoom: ganze Zahl 0 bis 1000; fehlt = 0. */
   zoomVersatzMs?: number;
+  /** Zoom: SDK-Schlüssel für „Zoom-SDK laden“, safeStorage-verschlüsselt, base64. Nie im Klartext (Spec SDK nachladen 4.2). */
+  zoomSdkKeyEnc?: string;
 }
 
 /** Nur belegt, wenn kein OS-Schlüsselbund da ist: dann lebt der Key nur für diese Sitzung. */
@@ -255,4 +257,65 @@ export function setzeZoomLaufzeit(v: { dir: string; fassung: string; eingerichte
   const next = read();
   next.zoomLaufzeit = { dir: v.dir, fassung: v.fassung, eingerichtetAm: v.eingerichtetAm };
   write(next);
+}
+
+// ── Zoom-SDK nachladen (Spec 2026-10-06, 4.2) ────────────────────────────────────────────────
+// Eigener SDK-Schlüssel für GET /zoom-sdk/:fassung. Muster wie die Zugangsdaten: Umgebung
+// JMPS_ZOOM_SDK_KEY > zoomSdkKeyEnc (safeStorage) > Sitzung. Ohne Schlüsselbund oder wenn die Datei
+// nicht schreibbar ist, gilt er nur für diese Sitzung, nie im Klartext auf der Platte. Der Renderer
+// erfährt nur die Herkunft (der Kern trägt sie ins Abbild), nie den Wert.
+
+/** Nur belegt, wenn nichts auf der Platte gelandet ist. */
+let zoomSdkSitzung: string | null = null;
+/** zoomSdkKeyEnc, EINMAL entschlüsselt. `undefined` = noch nicht gelesen, `null` = nichts (oder nicht entschlüsselbar). */
+let zoomSdkGespeichert: string | null | undefined;
+let zoomSdkSitzungGewarnt = false;
+
+function zoomSdkGespeichertLesen(): string | null {
+  if (zoomSdkGespeichert === undefined) zoomSdkGespeichert = decryptKey(read().zoomSdkKeyEnc);
+  return zoomSdkGespeichert;
+}
+
+export function zoomSdkSchluesselLesen(): { wert: string | null; herkunft: ProxyKeySource } {
+  const env = (process.env.JMPS_ZOOM_SDK_KEY || '').trim();
+  if (env) return { wert: env, herkunft: 'env' };
+  const gespeichert = zoomSdkGespeichertLesen();
+  if (gespeichert) return { wert: gespeichert, herkunft: 'stored' };
+  if (zoomSdkSitzung) return { wert: zoomSdkSitzung, herkunft: 'session' };
+  return { wert: null, herkunft: 'none' };
+}
+
+/** Der Kern hat getrimmt und geprüft (S18). 'session', wenn nichts auf der Platte gelandet ist. */
+export function zoomSdkSchluesselSpeichern(wert: string): 'stored' | 'session' {
+  const next = read();
+  if (safeStorage.isEncryptionAvailable()) {
+    next.zoomSdkKeyEnc = safeStorage.encryptString(wert).toString('base64');
+    if (write(next)) {
+      zoomSdkGespeichert = wert;
+      zoomSdkSitzung = null;
+      return 'stored';
+    }
+    // Nichts auf der Platte: ehrlich „nur für diese Sitzung“, und der neue Wert gilt, nicht ein alter von der Platte.
+    zoomSdkGespeichert = null;
+    zoomSdkSitzung = wert;
+    return 'session';
+  }
+  // Ohne Schlüsselbund NIE im Klartext auf die Platte; ein altes, hier nicht entschlüsselbares Feld fliegt raus.
+  delete next.zoomSdkKeyEnc;
+  write(next);
+  zoomSdkGespeichert = null;
+  zoomSdkSitzung = wert;
+  if (!zoomSdkSitzungGewarnt) {
+    zoomSdkSitzungGewarnt = true;
+    getLog().warn('[zoom] safeStorage nicht verfügbar — der SDK-Schlüssel gilt nur für diese Sitzung.');
+  }
+  return 'session';
+}
+
+export function zoomSdkSchluesselLoeschen(): void {
+  const next = read();
+  delete next.zoomSdkKeyEnc;
+  write(next);
+  zoomSdkGespeichert = null;
+  zoomSdkSitzung = null;
 }

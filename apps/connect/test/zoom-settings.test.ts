@@ -1,7 +1,7 @@
 // Zoom-Einstellungen: ein gescheitertes Schreiben darf die Anzeige nicht belügen (Fix-Runde 1, Aufgabe 16).
 // settings.ts braucht Electron und das Log; beides wird per Modul-Hook durch Attrappen ersetzt. npm run selftest -w @jm/connect
 import { registerHooks } from 'node:module';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { chmodSync, mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -71,6 +71,32 @@ g.__mock.verschluesselung = false;
 s.zoomZugangSpeichern(neu);
 const o = s.zoomZugangLesen();
 ck('Set: ohne Schlüsselbund → session, kein Grund', o.herkunft === 'session' && o.grund === undefined);
+
+// SDK-Schlüssel (Spec SDK nachladen 4.2): Umgebung > gespeichert > Sitzung, nie im Klartext auf der Platte
+const datei = (): string => readFileSync(join(wurzel, 'connect-settings.json'), 'utf8');
+g.__mock.verschluesselung = true;
+g.__mock.userData = wurzel;
+const leer = s.zoomSdkSchluesselLesen();
+ck('SDK: anfangs fehlt der Schlüssel', leer.herkunft === 'none' && leer.wert === null);
+ck('SDK: Speichern mit Schlüsselbund → stored', s.zoomSdkSchluesselSpeichern('sdk-geheim-test') === 'stored');
+ck('SDK: verschlüsselt in der Datei, nie im Klartext', datei().includes('zoomSdkKeyEnc') && !datei().includes('sdk-geheim-test'));
+const gespeichert = s.zoomSdkSchluesselLesen();
+ck('SDK: Lesen → stored mit Wert', gespeichert.herkunft === 'stored' && gespeichert.wert === 'sdk-geheim-test');
+process.env.JMPS_ZOOM_SDK_KEY = '  sdk-test  ';
+const umgebung = s.zoomSdkSchluesselLesen();
+ck('SDK: Umgebung JMPS_ZOOM_SDK_KEY hat Vorrang, getrimmt', umgebung.herkunft === 'env' && umgebung.wert === 'sdk-test');
+delete process.env.JMPS_ZOOM_SDK_KEY;
+// Datei lesbar, aber schreibgeschützt: der alte Wert steht noch auf der Platte, der neue kommt nicht hin.
+chmodSync(join(wurzel, 'connect-settings.json'), 0o444);
+ck('SDK: Schreiben scheitert → session statt stored', s.zoomSdkSchluesselSpeichern('sdk-test') === 'session');
+const sitzung = s.zoomSdkSchluesselLesen();
+ck('SDK: … der neue Wert gilt für die Sitzung, nicht der alte von der Platte', sitzung.herkunft === 'session' && sitzung.wert === 'sdk-test');
+chmodSync(join(wurzel, 'connect-settings.json'), 0o644);
+s.zoomSdkSchluesselLoeschen();
+ck('SDK: Entfernen → fehlt, Feld aus der Datei', s.zoomSdkSchluesselLesen().herkunft === 'none' && !datei().includes('zoomSdkKeyEnc'));
+g.__mock.verschluesselung = false;
+ck('SDK: ohne Schlüsselbund → session', s.zoomSdkSchluesselSpeichern('sdk-test') === 'session' && s.zoomSdkSchluesselLesen().herkunft === 'session');
+ck('SDK: … nichts davon auf der Platte', !datei().includes('zoomSdkKeyEnc') && !datei().includes('sdk-test'));
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
