@@ -1570,6 +1570,15 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.2.1",
+        "date": "2026-10-06",
+        "notes": [
+          "Zugangsdaten lassen sich jetzt auch von Hand eintragen: „Eintragen …“ in der Zeile Zugangsdaten der Zoom-Karte öffnet zwei Felder für Client-ID und Client-Secret. Das Secret ist verdeckt und lässt sich mit „anzeigen“ sichtbar machen. „Speichern“ hinterlegt beides wie die JSON-Datei, in der Regel verschlüsselt für das angemeldete Windows-Konto; danach sind die Felder wieder leer. „Datei wählen …“ bleibt erhalten.",
+          "Leerzeichen am Anfang und Ende schneidet Connect ab. Ein leeres Feld oder ein Leerzeichen mitten im Wert weist es mit einem Hinweis am Formular ab, weil das meist ein Fehler beim Einfügen ist. Ins Log schreibt Connect nur, dass Zugangsdaten hinterlegt wurden, nie die Werte. Solange Zoom läuft oder Connect das SDK kopiert, ist das Eintragen gesperrt, wie beim Datei-Weg.",
+          "Die Hinweise zu fehlenden oder nicht entschlüsselbaren Zugangsdaten nennen jetzt beide Wege."
+        ]
+      },
+      {
         "version": "0.2.0",
         "date": "2026-10-06",
         "notes": [
