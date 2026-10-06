@@ -193,6 +193,11 @@ export function ZoomCard(): JSX.Element {
   useEffect(() => {
     if (!verlassenMoeglich) setVerlassenFrage(false);
   }, [verlassenMoeglich]);
+  // Klappt die Einrichtung zu (von Hand oder weil der letzte Mangel weg ist), schließt auch die Handeingabe.
+  const einrichtungSichtbar = (knoepfe?.einrichtungOffen ?? false) || einrichtungAuf;
+  useEffect(() => {
+    if (!einrichtungSichtbar) setHandAuf(false);
+  }, [einrichtungSichtbar]);
 
   /** Führt einen Aufruf aus; ein abgelehnter mit Text erscheint am Ort `ort` (null = nirgends, weil das Abbild ihn zeigt). */
   const fuehreAus = useCallback(
@@ -236,7 +241,6 @@ export function ZoomCard(): JSX.Element {
   const imMeeting = k.zustand === 'im_meeting';
   const n = k.quellen;
   const frage = verlassenFrage && n > 0;
-  const einrichtungSichtbar = kn.einrichtungOffen || einrichtungAuf;
   const sperrTitel = kn.einrichtungAenderbar ? undefined : TEXT_S10;
   const zugangEntfernbar =
     zugang.herkunft === 'stored' || zugang.herkunft === 'session' || k.maengel.includes('zugang_unlesbar');
