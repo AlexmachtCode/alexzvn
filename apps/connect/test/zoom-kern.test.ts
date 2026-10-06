@@ -815,6 +815,10 @@ for (const code of [63, 503, 504, 4]) {
   ck(`… kein zweiter Bridge-Start, erneutMoeglich (Code ${code})`, p.starts() === 1 && p.kern.abbild().erneutMoeglich);
   if (code === 4) {
     const e = await p.kern.erneut();
+    // erneut() kehrt zurück, sobald join gesendet ist; die Attrappe schreibt den Befehl erst
+    // danach in ihr Protokoll (eigener Prozess). Ohne Warten ein Wettlauf, rot im ersten
+    // Linux-CI-Lauf am 2026-10-06.
+    await bis(() => p.befehle(2).some((c) => c.cmd === 'join'));
     ck('erneut() nach fehler: neuer Start mit den Daten im Arbeitsspeicher', ok(e) && p.starts() === 2
       && p.befehle(2).find((c) => c.cmd === 'join')?.meetingId === NUMMER && p.befehle(2).find((c) => c.cmd === 'join')?.passcode === KENNCODE);
   }
