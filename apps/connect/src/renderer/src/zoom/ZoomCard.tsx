@@ -67,6 +67,79 @@ function MitTooltip({ titel, children }: { titel: string | undefined; children: 
   );
 }
 
+/**
+ * Zugangsdaten von Hand. Client-ID und Client-Secret stehen NUR im State dieser Komponente: Hängt sie aus
+ * (Speichern, Abbrechen, Datei gewählt, Einrichtung zugeklappt), sind beide Werte und der Schalter weg.
+ * A7 und andere Ablehnungen erscheinen hier am Formular, bis zum nächsten Speichern oder Zuklappen.
+ */
+function ZugangEingabe({
+  gesperrt,
+  speichern,
+  zu,
+}: {
+  gesperrt: boolean;
+  speichern: (clientId: string, clientSecret: string) => Promise<ZoomErgebnis>;
+  zu: () => void;
+}): JSX.Element {
+  const [id, setId] = useState('');
+  const [secret, setSecret] = useState('');
+  const [zeigen, setZeigen] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const absenden = (): void => {
+    if (gesperrt) return;
+    setFehler(null);
+    void speichern(id, secret).then((r) => {
+      if (r.ok) zu();
+      else setFehler(r.text || null);
+    });
+  };
+  return (
+    <form
+      className="mt-2 grid gap-2 sm:grid-cols-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        absenden();
+      }}
+    >
+      <label className="text-xs text-neutral-400">
+        Client-ID
+        <input
+          value={id}
+          onChange={(e) => setId(e.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          className={`${INP} mt-1 border-neutral-700`}
+        />
+      </label>
+      <div className="text-xs text-neutral-400">
+        <label>
+          Client-Secret
+          <input
+            type={zeigen ? 'text' : 'password'}
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            className={`${INP} mt-1 border-neutral-700`}
+          />
+        </label>
+        <button type="button" onClick={() => setZeigen((z) => !z)} className={`${RAND} mt-1`}>
+          {zeigen ? 'verbergen' : 'anzeigen'}
+        </button>
+      </div>
+      <div className="flex items-center gap-2 sm:col-span-2">
+        <button type="submit" disabled={gesperrt} className={GELB}>
+          Speichern
+        </button>
+        <button type="button" onClick={zu} className={RAND}>
+          Abbrechen
+        </button>
+        {fehler && <span className="text-xs text-red-300">{fehler}</span>}
+      </div>
+    </form>
+  );
+}
+
 export function ZoomCard(): JSX.Element {
   const [abbild, setAbbild] = useState<ZoomAbbild | null>(null);
   const [ladeFehler, setLadeFehler] = useState<string | null>(null);
@@ -79,6 +152,8 @@ export function ZoomCard(): JSX.Element {
   const [versatz, setVersatz] = useState<string | null>(null);
   const [versatzFehler, setVersatzFehler] = useState<string | null>(null);
   const [einrichtungAuf, setEinrichtungAuf] = useState(false);
+  /** Zugangsdaten von Hand: Eingabe offen. Die Werte selbst leben nur in `ZugangEingabe` und verschwinden mit dem Aushängen. */
+  const [handAuf, setHandAuf] = useState(false);
   const [verlassenFrage, setVerlassenFrage] = useState(false);
   /** Zeile, für die Q9 kam: der nächste Klick dort lädt trotzdem. */
   const [trotzId, setTrotzId] = useState<number | null>(null);
@@ -118,6 +193,11 @@ export function ZoomCard(): JSX.Element {
   useEffect(() => {
     if (!verlassenMoeglich) setVerlassenFrage(false);
   }, [verlassenMoeglich]);
+  // Klappt die Einrichtung zu (von Hand oder weil der letzte Mangel weg ist), schließt auch die Handeingabe.
+  const einrichtungSichtbar = (knoepfe?.einrichtungOffen ?? false) || einrichtungAuf;
+  useEffect(() => {
+    if (!einrichtungSichtbar) setHandAuf(false);
+  }, [einrichtungSichtbar]);
 
   /** Führt einen Aufruf aus; ein abgelehnter mit Text erscheint am Ort `ort` (null = nirgends, weil das Abbild ihn zeigt). */
   const fuehreAus = useCallback(
@@ -161,7 +241,6 @@ export function ZoomCard(): JSX.Element {
   const imMeeting = k.zustand === 'im_meeting';
   const n = k.quellen;
   const frage = verlassenFrage && n > 0;
-  const einrichtungSichtbar = kn.einrichtungOffen || einrichtungAuf;
   const sperrTitel = kn.einrichtungAenderbar ? undefined : TEXT_S10;
   const zugangEntfernbar =
     zugang.herkunft === 'stored' || zugang.herkunft === 'session' || k.maengel.includes('zugang_unlesbar');
@@ -407,10 +486,23 @@ export function ZoomCard(): JSX.Element {
                 <MitTooltip titel={sperrTitel}>
                   <button
                     disabled={!kn.einrichtungAenderbar || laeuft.has('zugang')}
-                    onClick={() => void fuehreAus('zugang', 'einrichtung', () => window.jmconnect.zoomZugangWaehlen())}
+                    onClick={() =>
+                      void fuehreAus('zugang', 'einrichtung', () => window.jmconnect.zoomZugangWaehlen()).then((r) => {
+                        if (r.ok) setHandAuf(false); // Eingabe schließt sich, ihre Werte verschwinden mit ihr
+                      })
+                    }
                     className={RAND}
                   >
                     Datei wählen …
+                  </button>
+                </MitTooltip>
+                <MitTooltip titel={sperrTitel}>
+                  <button
+                    disabled={!kn.einrichtungAenderbar || laeuft.has('zugang')}
+                    onClick={() => setHandAuf(true)}
+                    className={RAND}
+                  >
+                    Eintragen …
                   </button>
                 </MitTooltip>
                 {zugangEntfernbar && (
@@ -426,6 +518,15 @@ export function ZoomCard(): JSX.Element {
                 )}
               </span>
             </div>
+            {handAuf && (
+              <ZugangEingabe
+                gesperrt={!kn.einrichtungAenderbar || laeuft.has('zugang')}
+                speichern={(clientId, clientSecret) =>
+                  fuehreAus('zugang', null, () => window.jmconnect.zoomZugangEintragen({ clientId, clientSecret }))
+                }
+                zu={() => setHandAuf(false)}
+              />
+            )}
             {zugang.text && zugang.text !== zugangText && <p className="mt-1 text-xs text-red-300">{zugang.text}</p>}
           </div>
           {einrichtungAntwort && einrichtungAntwort !== sdk.text && einrichtungAntwort !== zugang.text && (

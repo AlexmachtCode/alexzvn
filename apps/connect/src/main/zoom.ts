@@ -8,6 +8,7 @@ import { resourcePath } from '@jm/electron-kit';
 import { IPC } from '@shared/ipc';
 import type { ZoomErgebnis, ZoomKurz } from '@shared/types';
 import { erzeugeZoomKern, type ZoomKern } from './zoom/kern';
+import { pruefeZugangEingabe } from './zoom/zugang-eingabe';
 import { activeLabels } from './ndi-guests';
 import {
   setzeZoomAnzeigename,
@@ -101,6 +102,13 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
       filters: [{ name: 'Zugangsdaten', extensions: ['json'] }],
     });
     return datei === null ? NICHTS : k.zugangWaehlen(datei);
+  });
+
+  // Zugangsdaten von Hand: Form prüfen (kein Objekt, falsche Typen, über 512 Zeichen → stumm abgewiesen),
+  // dann der Kern. Weder Antwort noch Log enthalten je einen Wert.
+  ipcMain.handle(IPC.zoomZugangEintragen, (_e, p: unknown): ZoomErgebnis => {
+    const e = pruefeZugangEingabe(p);
+    return e === null ? NICHTS : k.zugangEintragen(e);
   });
 
   ipcMain.handle(IPC.zoomZugangLoeschen, (): ZoomErgebnis => k.zugangLoeschen());

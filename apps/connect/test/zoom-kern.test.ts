@@ -352,6 +352,101 @@ console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
   await p.aufraeumen();
 }
 
+console.log('— Datei-Weg: Logzeile unverändert (Regression)');
+for (const [herk, zeile] of [['stored', '[zoom] Zugangsdaten hinterlegt (verschlüsselt)'], ['session', '[zoom] Zugangsdaten hinterlegt (nur für diese Sitzung)']] as const) {
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, speichernLiefert: herk });
+  const dir = mkdtempSync(join(tmpdir(), 'jm-zoom-zugang-'));
+  const gut = join(dir, 'gut.json');
+  writeFileSync(gut, '{"clientId":"datei-id-1234","clientSecret":"datei-secret"}');
+  ck(`zugangWaehlen (${herk}) → Logzeile wörtlich`, ok(p.kern.zugangWaehlen(gut)) && p.logs.includes(zeile));
+  rmSync(dir, { recursive: true, force: true });
+  await p.aufraeumen();
+}
+
+console.log('— Zugangsdaten von Hand eintragen (A7, S10, A4)');
+{
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
+  const r = p.kern.zugangEintragen({ clientId: '  id-test-4321 \t', clientSecret: ' geheim-test\n' });
+  ck('Eintragen → ok, gespeichert, Werte getrimmt', ok(r) && p.zugangGespeichert.length === 1
+    && p.zugangGespeichert[0].clientId === 'id-test-4321' && p.zugangGespeichert[0].clientSecret === 'geheim-test');
+  const a = p.kern.abbild();
+  ck('… Zustand wie nach dem Datei-Weg: bereit, stored, Ende 4321, kein Fehlertext',
+    a.kurz.zustand === 'bereit' && a.einrichtung.zugang.herkunft === 'stored' && a.einrichtung.zugang.clientIdEnde === '4321' && a.einrichtung.zugang.text === null);
+  ck('… Logzeile ohne Wert, mit „von Hand, verschlüsselt“', p.logs.includes('[zoom] Zugangsdaten hinterlegt (von Hand, verschlüsselt)'));
+  ck('… weder ID noch Secret in einer Logzeile',
+    !p.logs.some((z) => z.includes('id-test-4321') || z.includes('geheim-test') || z.includes('id-test') || z.includes('geheim')));
+  ck('… Abbild: nur die letzten 4 Zeichen der ID, kein Secret',
+    !JSON.stringify(a).includes('id-test-4321') && !JSON.stringify(a).includes('geheim'));
+  await p.aufraeumen();
+}
+{
+  const falsch: Array<[string, { clientId: string; clientSecret: string }]> = [
+    ['ID leer', { clientId: '', clientSecret: 'geheim-test' }],
+    ['Secret leer', { clientId: 'id-test', clientSecret: '' }],
+    ['ID nur Leerraum', { clientId: '  \t ', clientSecret: 'geheim-test' }],
+    ['Secret nur Leerraum', { clientId: 'id-test', clientSecret: ' \n ' }],
+    ['ID mit Leerzeichen in der Mitte', { clientId: 'id test', clientSecret: 'geheim-test' }],
+    ['Secret mit Leerzeichen in der Mitte', { clientId: 'id-test', clientSecret: 'geheim test' }],
+    ['ID mit Tabulator in der Mitte', { clientId: 'id\ttest', clientSecret: 'geheim-test' }],
+    ['Secret mit Zeilenumbruch in der Mitte', { clientId: 'id-test', clientSecret: 'geheim\ntest' }],
+  ];
+  for (const [name, e] of falsch) {
+    const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
+    const r = p.kern.zugangEintragen(e);
+    ck(`${name} → A7, nichts gespeichert, Zustand bleibt`, text(r) === KT.A7 && p.zugangGespeichert.length === 0
+      && p.kern.kurz().zustand === 'einrichtung');
+    ck('… A7 ist ein Eingabefehler: kein A7 im Abbild', !JSON.stringify(p.kern.abbild()).includes(KT.A7));
+    const teile = [e.clientId, e.clientSecret, e.clientId.trim(), e.clientSecret.trim(), 'id-test', 'geheim']
+      .flatMap((w) => [w, ...w.split(/\s+/)]).filter((w) => w.length >= 3);
+    ck('… weder ID noch Secret (auch getrimmt oder in Teilen) in einer Logzeile',
+      !p.logs.some((z) => teile.some((w) => z.includes(w))));
+    await p.aufraeumen();
+  }
+}
+{
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, speichernLiefert: 'session' });
+  ck('ohne Schlüsselbund → ok, Herkunft session, Text A4, Log „nur für diese Sitzung“',
+    ok(p.kern.zugangEintragen({ clientId: 'id-test-9876', clientSecret: 'geheim-test' })) && p.kern.abbild().einrichtung.zugang.herkunft === 'session'
+    && p.kern.abbild().einrichtung.zugang.text === KT.A4 && p.logs.includes('[zoom] Zugangsdaten hinterlegt (von Hand, nur für diese Sitzung)'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Vorbereitung: Zustand fehler (B9)', p.kern.kurz().zustand === 'fehler' && p.kern.abbild().meldung !== null);
+  const r = p.kern.zugangEintragen({ clientId: 'id-test-1111', clientSecret: 'geheim-test' });
+  ck('im Zustand fehler: zuerst schließen, dann speichern → bereit, Meldung weg',
+    ok(r) && p.zugangGespeichert.length === 1 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('Vorbereitung: im Meeting', await insMeeting(p));
+  const r = p.kern.zugangEintragen({ clientId: 'id-test-2222', clientSecret: 'geheim-test' });
+  ck('während Zoom läuft → S10, nichts gespeichert, Zustand bleibt', text(r) === KT.S10 && p.zugangGespeichert.length === 0
+    && p.kern.kurz().zustand === 'im_meeting');
+  await p.aufraeumen();
+}
+{
+  const MiB = 1024 * 1024;
+  let freigabe: (e: EinrichtungsErgebnis) => void = () => {};
+  const p = baueKern({
+    laufzeit: {
+      pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }),
+      pruefeOrdner: () => ({ ok: true, bin: 'C:/SDK/x64/bin', fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: MiB }], bytesGesamt: MiB }),
+      richteEin: () => new Promise<EinrichtungsErgebnis>((resolve) => {
+        freigabe = resolve;
+      }),
+    },
+  });
+  const lauf = p.kern.sdkWaehlen('C:/SDK');
+  ck('während der SDK-Kopie → S10, nichts gespeichert',
+    text(p.kern.zugangEintragen({ clientId: 'id-test-3333', clientSecret: 'geheim-test' })) === KT.S10 && p.zugangGespeichert.length === 0);
+  freigabe({ ok: false, text: KT.S6('EIO') });
+  await lauf;
+  await p.aufraeumen();
+}
+
 console.log('— SDK-Ordner wählen (6.1), Sperre S10, Review Focus 4');
 {
   let lzStand: LaufzeitPruefung = { ok: false, mangel: 'sdk_fehlt' };

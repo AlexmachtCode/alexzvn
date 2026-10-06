@@ -3,6 +3,7 @@
 import type { Participant } from '@jm/zoom-bridge/protocol';
 import type { ZoomQuelle } from '../src/shared/types';
 import { KT } from '../src/main/zoom/klartext';
+import { pruefeZugangEingabe } from '../src/main/zoom/zugang-eingabe';
 import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from '../src/main/zoom/soll';
 import {
   baueTeilnehmer, gleicherNdiName, istVerwaist, kameraVon, NDI_PRAEFIX, ndiVorschau, normName, zaehleQuellen,
@@ -210,6 +211,24 @@ console.log('— Abgleich der Soll-Liste: die neun Zeilen der Tabelle 6.3');
   ck('Einst: unlesbar, aber Umgebung da → kein Mangel', r5.herkunft === 'env' && r5.unlesbar === false);
   const r6 = waehleZugang({ umgebung: null, gespeichert: null, sitzung: null });
   ck('Einst: nichts hinterlegt → none', r6.herkunft === 'none' && r6.daten === null && r6.unlesbar === false);
+}
+
+console.log('— Zugangsdaten von Hand: Nutzlast-Prüfung (IPC)');
+{
+  const g = pruefeZugangEingabe({ clientId: 'id-test', clientSecret: 'geheim-test' });
+  ck('gültig → beide Werte', g !== null && g.clientId === 'id-test' && g.clientSecret === 'geheim-test');
+  ck('Werte werden hier nicht verändert (Leerraum bleibt für den Kern)',
+    pruefeZugangEingabe({ clientId: ' a ', clientSecret: '' })?.clientId === ' a ');
+  ck('kein Objekt → null', pruefeZugangEingabe(null) === null && pruefeZugangEingabe('x') === null
+    && pruefeZugangEingabe(undefined) === null && pruefeZugangEingabe(42) === null);
+  ck('fehlende Felder → null', pruefeZugangEingabe({ clientId: 'a' }) === null && pruefeZugangEingabe({ clientSecret: 'a' }) === null
+    && pruefeZugangEingabe({}) === null);
+  ck('Zahl statt String → null', pruefeZugangEingabe({ clientId: 1, clientSecret: 'a' }) === null
+    && pruefeZugangEingabe({ clientId: 'a', clientSecret: 2 }) === null);
+  ck('genau 512 Zeichen → gültig, 513 → null',
+    pruefeZugangEingabe({ clientId: 'x'.repeat(512), clientSecret: 'a' }) !== null
+    && pruefeZugangEingabe({ clientId: 'x'.repeat(513), clientSecret: 'a' }) === null
+    && pruefeZugangEingabe({ clientId: 'a', clientSecret: 'y'.repeat(513) }) === null);
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

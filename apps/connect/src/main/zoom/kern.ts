@@ -133,6 +133,7 @@ export interface ZoomKern {
   einrichtungSperre(): ZoomErgebnis;
   sdkWaehlen(ordner: string): Promise<ZoomErgebnis>;
   zugangWaehlen(datei: string): ZoomErgebnis;
+  zugangEintragen(e: { clientId: string; clientSecret: string }): ZoomErgebnis;
   zugangLoeschen(): ZoomErgebnis;
   versatz(e: { ms: number }): ZoomErgebnis;
   pruefen(): Promise<ZoomErgebnis>;
@@ -470,12 +471,34 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       abbildGeaendert();
       return { ok: false, text };
     }
+    return zugangUebernehmen(daten, 'Datei');
+  }
+
+  /** Gemeinsamer Schluss von Datei-Weg und Handeingabe: speichern, loggen (nie einen Wert), Mängel und Zustand neu. */
+  // Sperre und fehler→schliessen stehen bewusst bei den beiden Aufrufern: sonst änderte sich der Datei-Weg bei A1–A3.
+  function zugangUebernehmen(daten: ZugangDaten, weg: 'Datei' | 'Hand'): ZoomErgebnis {
     zugangFehler = null;
     const herkunft = d.zugang.speichern({ clientId: daten.clientId, clientSecret: daten.clientSecret });
-    d.log(`[zoom] Zugangsdaten hinterlegt (${herkunft === 'session' ? 'nur für diese Sitzung' : 'verschlüsselt'})`);
+    const wo = herkunft === 'session' ? 'nur für diese Sitzung' : 'verschlüsselt';
+    d.log(`[zoom] Zugangsdaten hinterlegt (${weg === 'Hand' ? `von Hand, ${wo}` : wo})`);
     bestimmeMaengel();
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
     return { ok: true };
+  }
+
+  /** Von Hand eingetragen (A7): getrimmt, ohne Leerraum in den Werten. Nichts davon in Log, Text oder Rückgabe. */
+  function zugangEintragen(e: { clientId: string; clientSecret: string }): ZoomErgebnis {
+    const sperre = einrichtungSperre();
+    if (!sperre.ok) return sperre;
+    if (zustand === 'fehler') schliessen();
+    const clientId = e.clientId.trim();
+    const clientSecret = e.clientSecret.trim();
+    if (!clientId || !clientSecret || /\s/.test(clientId) || /\s/.test(clientSecret)) {
+      // Eingabefehler, kein Zustand der hinterlegten Zugangsdaten: nur im Ergebnis, nicht im Abbild.
+      d.log('[zoom] Zugangsdaten von Hand abgewiesen: ' + KT.A7);
+      return { ok: false, text: KT.A7 };
+    }
+    return zugangUebernehmen({ clientId, clientSecret }, 'Hand');
   }
 
   function zugangLoeschen(): ZoomErgebnis {
@@ -1185,6 +1208,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     einrichtungSperre,
     sdkWaehlen,
     zugangWaehlen,
+    zugangEintragen,
     zugangLoeschen,
     versatz,
     pruefen,

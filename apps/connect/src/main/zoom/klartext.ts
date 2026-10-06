@@ -45,8 +45,9 @@ export const KT = {
   A2: 'In der Datei fehlen Client-ID oder Client-Secret (erwartet: clientId und clientSecret).',
   A3: (code: string): string => `Die Datei lässt sich nicht lesen (${code}).`,
   A4: TEXT_A4,
-  A5: 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Datei erneut wählen.',
+  A5: 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Zugangsdaten erneut eintragen oder die Datei erneut wählen.',
   A6: TEXT_A6,
+  A7: 'Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.',
 
   // 8.2 Start und Anmeldung
   B1: 'zoom-bridge.exe fehlt im Laufzeit-Ordner. Bitte den SDK-Ordner erneut wählen.',
@@ -62,7 +63,7 @@ export const KT = {
   B8: (name: string): string => `Das Zoom-SDK ließ sich nicht starten (${name}). Details im Log.`,
   B8_14: 'Auf diesem PC läuft schon ein anderes Programm mit dem Zoom-Meeting-SDK (zum Beispiel das Einsatzpaket „zoom-join“). Bitte es zuerst beenden.',
   B9: (result: string): string =>
-    `Zoom hat die Anmeldung abgelehnt: Client-ID oder Client-Secret stimmen nicht (${result}). Bitte die Zugangsdaten-Datei prüfen.`,
+    `Zoom hat die Anmeldung abgelehnt: Client-ID oder Client-Secret stimmen nicht (${result}). Bitte die Zugangsdaten prüfen.`,
   B10: 'Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token passt nicht (AUTHRET_JWTTOKENWRONG). Meist stimmen die Zugangsdaten nicht, oder die Uhr dieses PCs geht falsch.',
   B11: (result: string): string =>
     `Das Zoom-Konto der App darf das Meeting-SDK nicht nutzen (${result}). Das klärt der Inhaber des Zoom-Kontos.`,
@@ -71,7 +72,7 @@ export const KT = {
   B14: 'Zu viele Anmeldungen in kurzer Zeit (AUTHRET_LIMIT_EXCEEDED_EXCEPTION). Einige Minuten warten.',
   B15: (result: string): string => `Zoom hat die Anmeldung abgelehnt (${result}).`,
   B16: 'Zoom hat auf die Anmeldung nicht geantwortet (30 s). Netzwerk prüfen und erneut versuchen.',
-  B17: 'Zugangsdaten fehlen — bitte die Datei wählen.',
+  B17: 'Zugangsdaten fehlen — bitte eintragen oder die Datei wählen.',
   B18: (name: string): string =>
     `Das Zoom-SDK hat die Anmeldung sofort abgewiesen (${name}). Mit dem Netzwerk hat das nichts zu tun. Details im Log.`,
 
