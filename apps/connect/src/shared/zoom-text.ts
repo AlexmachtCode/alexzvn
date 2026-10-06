@@ -152,6 +152,9 @@ export function kartenZeile(a: ZoomAbbild, jetztMs: number): string | null {
     case 'Z1a':
       return `Zoom ist nicht vollständig eingerichtet: ${k.maengel.map((m) => MANGEL_GRUND[m]).join(' · ')}.`;
     case 'Z1b': {
+      // Spec SDK nachladen 4.4: Tray und Kopfzeile bleiben bei „Einrichtung läuft“, nur die Karte zeigt die Phase.
+      const l = a.einrichtung.sdk.laden;
+      if (l) return sdkLadenZeile(l);
       const c = a.einrichtung.sdk.kopie ?? { dateien: 0, dateienGesamt: 0, bytes: 0, bytesGesamt: 0 };
       return `Zoom-SDK wird kopiert: ${c.dateien} von ${c.dateienGesamt} Dateien (${mb(c.bytes)} von ${mb(c.bytesGesamt)} MB).`;
     }
@@ -281,6 +284,44 @@ export function sdkZeile(a: ZoomAbbild): string {
   return 'Zoom-SDK 7.1.5.43953 eingerichtet';
 }
 
+/** Fortschritt von „Zoom-SDK laden“ in der Zeile „Zoom-SDK“ und in der Statuszeile der Karte (Spec SDK nachladen 4.5). */
+export function sdkLadenZeile(l: NonNullable<ZoomAbbild['einrichtung']['sdk']['laden']>): string {
+  switch (l.phase) {
+    case 'link':
+      return 'Zoom-SDK wird geladen …';
+    case 'download':
+      return `Zoom-SDK wird geladen … ${mb(l.bytes)} von ${mb(l.bytesGesamt)} MB`;
+    case 'pruefen':
+      return 'Zoom-SDK wird geprüft …';
+    case 'entpacken':
+      return 'Zoom-SDK wird entpackt …';
+  }
+}
+
+/** Zeile „SDK-Schlüssel“ im Einrichtungsbereich (Spec SDK nachladen 4.5): nur die Herkunft, nie ein Wert. */
+export function sdkSchluesselZeile(a: ZoomAbbild): string {
+  const je: Record<ProxyKeySource, string> = {
+    stored: 'SDK-Schlüssel: hinterlegt',
+    session: 'SDK-Schlüssel: hinterlegt (nur für diese Sitzung)',
+    env: 'SDK-Schlüssel: aus der Umgebung',
+    none: 'SDK-Schlüssel: fehlt',
+  };
+  return je[a.einrichtung.sdkSchluessel.herkunft];
+}
+
+/** Ein Balken für Download und Kopie (Spec SDK nachladen 4.5): Prozent 0–100, `null` = kein Balken. */
+export function sdkBalken(sdk: ZoomAbbild['einrichtung']['sdk']): number | null {
+  const anteil = (teil: number, ganz: number): number => (ganz > 0 ? Math.min(100, Math.round((teil / ganz) * 100)) : 0);
+  if (sdk.kopie) return anteil(sdk.kopie.bytes, sdk.kopie.bytesGesamt);
+  if (sdk.laden?.phase === 'download') return anteil(sdk.laden.bytes, sdk.laden.bytesGesamt);
+  return null;
+}
+
+/** S17 (Laden abgebrochen) ist ein Hinweis und steht grau, jeder andere Einrichtungstext ist ein Fehler (rot). */
+export function einrichtungsTextArt(text: string): 'hinweis' | 'fehler' {
+  return text === TEXT_S17 ? 'hinweis' : 'fehler';
+}
+
 /** Beschriftung des SDK-Knopfs (Spec 9 Punkt 3). */
 export function sdkKnopf(a: ZoomAbbild): 'SDK-Ordner wählen …' | 'Neu wählen …' {
   return a.kurz.maengel.includes('sdk_fehlt') ? 'SDK-Ordner wählen …' : 'Neu wählen …';
@@ -305,6 +346,12 @@ export interface ZoomKnoepfe {
   meldung: { erneut: boolean; schliessen: boolean; ok: boolean; logordner: boolean } | null;
   /** SDK-Ordner/Zugangsdaten wählen oder entfernen: nur Z1a, Z2 ohne Prüfung, Z13 (sonst Tooltip S10). */
   einrichtungAenderbar: boolean;
+  /** „Zoom-SDK laden“ (Spec SDK nachladen 4.5): frei, gesperrt wie die Ordnerwahl (Tooltip S10) oder ohne Schlüssel (Tooltip S11). */
+  sdkLaden: 'frei' | 'gesperrt' | 'ohneSchluessel';
+  /** „Abbrechen“ neben dem Ladefortschritt: solange `einrichtung.sdk.laden` steht, nicht während der Kopie. */
+  sdkLadenAbbrechen: boolean;
+  /** „Entfernen“ beim SDK-Schlüssel: bei hinterlegt oder Sitzung; nicht aus der Umgebung, nicht ohne Schlüssel. */
+  sdkSchluesselEntfernbar: boolean;
   /** „Einrichtung prüfen“: nur in `bereit`; während der Prüfung „Prüfe …“. */
   pruefen: 'aus' | 'bereit' | 'laeuft';
   /** Beitrittsfelder in `bereit` und `fehler`. */
@@ -335,9 +382,14 @@ export function zoomKnoepfe(a: ZoomAbbild): ZoomKnoepfe {
     else meldung = { erneut: false, schliessen: false, ok: true, logordner };
   }
   const mangel = k.maengel.length > 0;
+  const einrichtungAenderbar = z === 'Z1a' || (z === 'Z2' && !a.pruefungLaeuft) || z === 'Z13';
+  const schluessel = a.einrichtung.sdkSchluessel.herkunft;
   return {
     meldung,
-    einrichtungAenderbar: z === 'Z1a' || (z === 'Z2' && !a.pruefungLaeuft) || z === 'Z13',
+    einrichtungAenderbar,
+    sdkLaden: !einrichtungAenderbar ? 'gesperrt' : schluessel === 'none' ? 'ohneSchluessel' : 'frei',
+    sdkLadenAbbrechen: a.einrichtung.sdk.laden !== null,
+    sdkSchluesselEntfernbar: schluessel === 'stored' || schluessel === 'session',
     pruefen: k.zustand === 'bereit' ? (a.pruefungLaeuft ? 'laeuft' : 'bereit') : 'aus',
     beitrittSichtbar: k.zustand === 'bereit' || k.zustand === 'fehler',
     beitretenGesperrt: a.pruefungLaeuft,
