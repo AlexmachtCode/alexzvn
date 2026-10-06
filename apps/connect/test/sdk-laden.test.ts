@@ -68,6 +68,8 @@ let linkModus: LinkModus = { status: 200, body: '{}' };
 let anfragen: Array<{ pfad: string; schluessel: string | undefined; proxyKey: string | undefined }> = [];
 /** /paket/endlos: was der Server gesendet hat und ob der Client die Verbindung geschlossen hat. */
 const endlos = { gesendet: 0, zu: false };
+/** /paket/beobachtet: wie /paket/haengt, merkt aber, ob der Client die Verbindung schließt. */
+const beobachtet = { zu: false };
 
 /** Schreibt `daten` in 10 Stücken mit kurzer Pause, damit der Client mehrere Stücke liest. */
 function stueckweise(res: ServerResponse, daten: Buffer, dann: () => void): void {
@@ -139,6 +141,14 @@ function route(req: IncomingMessage, res: ServerResponse): void {
       res.writeHead(200, { 'content-length': String(PAKET.length) });
       res.write(haelfte);
       return; // nie zu Ende
+    case '/paket/beobachtet':
+      beobachtet.zu = false;
+      res.on('close', () => {
+        beobachtet.zu = true;
+      });
+      res.writeHead(200, { 'content-length': String(PAKET.length) });
+      res.write(haelfte);
+      return; // nie zu Ende: zu geht die Verbindung nur, wenn der Client sie schließt
     default:
       res.writeHead(403);
       res.end('nein');
@@ -233,10 +243,32 @@ ck('200 ohne url → proxy „Antwort ungültig“',
   const qPort = (quelle.address() as AddressInfo).port;
   const r = merke(await holeLink({ base: `http://127.0.0.1:${qPort}`, schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig() }));
   ck('Weiterleitung auf anderen Ursprung → proxy-Fehler, Zielserver sieht keinen Schlüssel', !r.ok && r.art === 'proxy' && gesehen === undefined);
+  // Der Grund nennt die Weiterleitung als Code (nicht „TypeError“) und unterscheidet sich von „Antwort ungültig“,
+  // das ein gefolgter Aufruf hier ergäbe (Gesamtprüfung: Task 5 minor 4 und 5).
+  ck('… Grund „HTTP 302“', !r.ok && r.art === 'proxy' && r.grund === 'HTTP 302');
   quelle.closeAllConnections();
   ziel.closeAllConnections();
   await new Promise<void>((r2) => quelle.close(() => r2()));
   await new Promise<void>((r2) => ziel.close(() => r2()));
+}
+{
+  // Der Produktionsweg: https an einen fremden Host (Gesamtprüfung: Task 5 minor 3). Alle Fälle oben laufen über http
+  // an 127.0.0.1; eine Regression, die auch https sperrt, bliebe dort grün.
+  const gesehen: Array<{ url: string; schluessel: string | null; redirect: RequestRedirect | undefined }> = [];
+  const attrappe: typeof fetch = async (eingabe, init) => {
+    gesehen.push({ url: String(eingabe), schluessel: new Headers(init?.headers).get('X-Zoom-Sdk-Key'), redirect: init?.redirect });
+    return new Response(JSON.stringify({ fassung: SDK_FASSUNG, url: 'https://signed.test/zoom-77?sig=geheim-link', size: MINI.bytes }), { status: 200 });
+  };
+  const r = await holeLink({ base: 'https://proxy.test', schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: attrappe } });
+  ck('https an einen fremden Host → genau eine Anfrage mit X-Zoom-Sdk-Key, Ergebnis aus der Antwort',
+    r.ok && r.url === 'https://signed.test/zoom-77?sig=geheim-link' && r.size === MINI.bytes && gesehen.length === 1
+      && gesehen[0].url === `https://proxy.test/zoom-sdk/${SDK_FASSUNG}` && gesehen[0].schluessel === 'sdk-test');
+  ck('… eine Weiterleitung wird nicht verfolgt (redirect „manual“)', gesehen[0]?.redirect === 'manual');
+  for (const base of ['http://localhost:9', 'http://[::1]:9']) {
+    gesehen.length = 0;
+    const r2 = await holeLink({ base, schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: attrappe } });
+    ck(`http an die eigene Maschine (${base}) → erlaubt, genau eine Anfrage`, r2.ok && gesehen.length === 1);
+  }
 }
 {
   linkModus = 'haengt';
@@ -327,6 +359,27 @@ async function ladeVon(modus: string, extra: Partial<Parameters<typeof lade>[0]>
   const r = merke(await lade({ url: `${BASIS}/paket/haengt`, size: MINI.bytes, ziel, erwartet: MINI, signal: ac.signal, fortschritt: () => ac.abort() }));
   ck('Abbruch mitten im Strom → abgebrochen', JSON.stringify(r) === '{"ok":false,"art":"abgebrochen"}');
   ck('… .teil weg, kein Ziel', !existsSync(`${ziel}.teil`) && !existsSync(ziel));
+}
+{
+  // Aufräumen in jedem Ausgang (Gesamtprüfung: Task 5 minor 1): Wirft das Schreibziel, bleibt keine Verbindung offen.
+  const ziel = neuesZiel();
+  const voll = Object.assign(new Error('Platte voll'), { code: 'ENOSPC' });
+  const r = merke(await lade({
+    url: `${BASIS}/paket/beobachtet`, size: MINI.bytes, ziel, erwartet: MINI, signal: sig(), fortschritt: () => {},
+    werkzeuge: { oeffne: async () => ({ write: async () => { throw voll; }, close: async () => {} }) },
+  }));
+  ck('Schreiben wirft ENOSPC → unvollstaendig „ENOSPC“', JSON.stringify(r) === '{"ok":false,"art":"unvollstaendig","grund":"ENOSPC"}');
+  ck('… und die Verbindung zum Storage ist danach zu', await bis(() => beobachtet.zu, 1000));
+}
+{
+  const ziel = neuesZiel();
+  const verweigert = Object.assign(new Error('verweigert'), { code: 'EACCES' });
+  const r = merke(await lade({
+    url: `${BASIS}/paket/beobachtet`, size: MINI.bytes, ziel, erwartet: MINI, signal: sig(), fortschritt: () => {},
+    werkzeuge: { oeffne: async () => { throw verweigert; } },
+  }));
+  ck('Öffnen des Ziels wirft EACCES → unvollstaendig „EACCES“', JSON.stringify(r) === '{"ok":false,"art":"unvollstaendig","grund":"EACCES"}');
+  ck('… und die Verbindung zum Storage ist danach zu', await bis(() => beobachtet.zu, 1000));
 }
 {
   anfragen = [];

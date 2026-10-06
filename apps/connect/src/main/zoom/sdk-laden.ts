@@ -123,7 +123,9 @@ export async function holeLink(e: {
   try {
     const res = await w.fetch(ziel, {
       headers: { 'X-Zoom-Sdk-Key': e.schluessel },
-      redirect: 'error', // eine Weiterleitung würde den Schlüssel an einen fremden Ursprung mitschicken
+      // Einer Weiterleitung nie folgen: Sie würde den Schlüssel an einen fremden Ursprung mitschicken. 'manual' statt
+      // 'error': Nodes fetch liefert die 3xx-Antwort selbst, der Grund heißt dann „HTTP 302“ statt „TypeError“.
+      redirect: 'manual',
       signal: e.signal,
     });
     if (res.status !== 200) {
@@ -170,7 +172,8 @@ export async function lade(e: {
   if (e.size !== e.erwartet.bytes) return { ok: false, art: 'fehlt' };
   const w = werkzeuge(e.werkzeuge);
   const teil = `${e.ziel}.teil`;
-  const offen: { datei: Schreibziel | null } = { datei: null };
+  /** Was im Aufräumteil zu schließen ist: Datei und, solange der Strom nicht zu Ende gelesen ist, der Leser. */
+  const offen: { datei: Schreibziel | null; leser: ReadableStreamDefaultReader<Uint8Array> | null } = { datei: null, leser: null };
   const strom = async (): Promise<LadeErgebnis> => {
     mkdirSync(dirname(teil), { recursive: true });
     const res = await w.fetch(e.url, { signal: e.signal });
@@ -178,16 +181,22 @@ export async function lade(e: {
       await res.body?.cancel().catch(() => undefined);
       return { ok: false, art: 'unvollstaendig', grund: `HTTP ${res.status}` };
     }
+    // Leser vor dem Schreibziel: Wirft oeffne() (EACCES), schließt der Aufräumteil trotzdem die Verbindung.
+    const leser = res.body.getReader();
+    offen.leser = leser;
     offen.datei = await w.oeffne(teil);
     const hash = createHash('sha256');
-    const leser = res.body.getReader();
     let bytes = 0;
     let zuletzt = Number.NEGATIVE_INFINITY;
     for (;;) {
       const { done, value } = await leser.read();
-      if (done) break;
+      if (done) {
+        offen.leser = null;
+        break;
+      }
       bytes += value.byteLength;
       if (bytes > e.erwartet.bytes) {
+        offen.leser = null;
         await leser.cancel().catch(() => undefined);
         return { ok: false, art: 'unvollstaendig', grund: 'zu groß' };
       }
@@ -218,6 +227,9 @@ export async function lade(e: {
   } catch (err) {
     erg = e.signal.aborted ? { ok: false, art: 'abgebrochen' } : { ok: false, art: 'unvollstaendig', grund: fehlerCode(err) };
   }
+  // Brach der Ablauf mitten im Strom ab (Schreibziel, Fortschritt oder beimPruefen warf), hinge sonst die
+  // Verbindung zum Storage, bis undici sie nach Minuten schließt.
+  if (offen.leser !== null) await offen.leser.cancel().catch(() => undefined);
   if (offen.datei !== null) await offen.datei.close().catch(() => undefined);
   if (!erg.ok) {
     try {
