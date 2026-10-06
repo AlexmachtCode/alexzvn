@@ -2096,6 +2096,23 @@ console.log('— S12 gilt dem damaligen Schlüssel (Gesamtprüfung: Task 7 minor
     ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-geheim-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S12);
   await p.aufraeumen();
 }
+console.log('— Diagnose von tar.exe im Log (Gesamtprüfung: Task 5 minor 2)');
+{
+  const AUSGABE = "tar.exe: Can't create 'sdk\\x64\\bin\\sdk.dll': Write failed";
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: { richteEin: async () => ({ ok: false, text: 'richteEin darf nicht laufen' }) },
+    sdkLaden: ladeDienste({ entpacke: async () => ({ ok: false, art: 'entpacken', grund: 'Exit 1', ausgabe: AUSGABE }) }),
+  });
+  const r = await p.kern.sdkLaden();
+  const zeile = p.logs.indexOf(`[zoom] Ausgabe von tar.exe: ${AUSGABE}`);
+  ck('Entpacken mit Ausgabe → eigene Logzeile vor „Laden … gescheitert“',
+    zeile >= 0 && zeile < p.logs.indexOf(`[zoom] Laden des Zoom-SDK gescheitert: ${KT.S16c('Exit 1')}`));
+  ck('… Text bleibt S16c mit dem Code, die Ausgabe steht nicht im Abbild',
+    text(r) === KT.S16c('Exit 1') && p.kern.abbild().einrichtung.sdk.text === KT.S16c('Exit 1')
+      && !JSON.stringify(p.kern.abbild()).includes('Write failed'));
+  await p.aufraeumen();
+}
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);

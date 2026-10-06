@@ -413,6 +413,34 @@ const WIN = { plattform: 'win32', systemRoot: 'C:\\Windows' };
   ck('Start wirft → entpacken mit Code', JSON.stringify(r) === '{"ok":false,"art":"entpacken","grund":"EPERM"}');
 }
 {
+  // Die einzige Diagnose von tar.exe steht auf stderr (Gesamtprüfung: Task 5 minor 2). Sie kommt als `ausgabe` mit,
+  // `grund` bleibt ein Code. Die Attrappe schreibt in Stücken und in der ANSI-Codepage (wie bsdtar, gemessen).
+  const mitStderr = (stuecke: Buffer[], code: number): ((befehl: string, args: readonly string[]) => KindProzess) => () => {
+    const k = new EventEmitter() as EventEmitter & { kill(): boolean; stderr: EventEmitter };
+    k.stderr = new EventEmitter();
+    k.kill = () => true;
+    setImmediate(() => {
+      for (const s of stuecke) k.stderr.emit('data', s);
+      k.emit('close', code);
+    });
+    return k;
+  };
+  const zeilen = [Buffer.from('tar.exe: Write failed\r\n', 'latin1'), Buffer.from("tar.exe: Can't create 'C:\\Users\\Jörg\\sdk.dll'\r\n", 'latin1')];
+  const r = merke(await entpacke({ zip: 'p.zip', ordner: join(tmp, 'aus-10'), signal: sig(), werkzeuge: { ...WIN, starte: mitStderr(zeilen, 1) } }));
+  ck('Exit 1 mit stderr → grund bleibt der Code „Exit 1“, die Ausgabe kommt als eine Zeile mit',
+    !r.ok && r.art === 'entpacken' && r.grund === 'Exit 1'
+      && r.ausgabe === "tar.exe: Write failed tar.exe: Can't create 'C:\\Users\\Jörg\\sdk.dll'");
+  const lang = Array.from({ length: 40 }, (_, i) => Buffer.from(`tar.exe: Write failed: datei-${i}.dll\r\n`, 'latin1'));
+  const r2 = merke(await entpacke({ zip: 'p.zip', ordner: join(tmp, 'aus-11'), signal: sig(), werkzeuge: { ...WIN, starte: mitStderr(lang, 1) } }));
+  ck('… lange Ausgabe: höchstens 300 Zeichen, vom Anfang (die erste Meldung zählt)',
+    !r2.ok && r2.art === 'entpacken' && typeof r2.ausgabe === 'string' && r2.ausgabe.length <= 300 && r2.ausgabe.length >= 250
+      && r2.ausgabe.startsWith('tar.exe: Write failed: datei-0.dll'));
+  const r3 = merke(await entpacke({ zip: 'p.zip', ordner: join(tmp, 'aus-12'), signal: sig(), werkzeuge: { ...WIN, starte: mitStderr([Buffer.from('tar.exe: Warnung\r\n')], 0) } }));
+  ck('… Exit 0 mit stderr → trotzdem ok', r3.ok);
+  const r4 = merke(await entpacke({ zip: 'p.zip', ordner: join(tmp, 'aus-13'), signal: sig(), werkzeuge: { ...WIN, starte: mitStderr([Buffer.from(' \r\n')], 2) } }));
+  ck('… nur Leerraum auf stderr → kein Feld ausgabe', JSON.stringify(r4) === '{"ok":false,"art":"entpacken","grund":"Exit 2"}');
+}
+{
   // Echter Start, aber SystemRoot zeigt ins Leere: tar.exe fehlt wirklich. Läuft auf jeder Plattform.
   const r = merke(await entpacke({ zip: join(tmp, 'egal.zip'), ordner: join(tmp, 'aus-9'), signal: sig(), werkzeuge: { plattform: 'win32', systemRoot: join(tmp, 'kein-windows') } }));
   ck('fehlendes tar.exe (echter Start) → entpacken „ENOENT“', !r.ok && r.art === 'entpacken' && r.grund === 'ENOENT');
@@ -437,10 +465,13 @@ if (process.platform === 'win32') {
   writeFileSync(kaputt, Buffer.alloc(500, 7));
   const r2 = merke(await entpacke({ zip: kaputt, ordner: join(tmp, 'tar-aus-2'), signal: sig() }));
   ck('echtes tar.exe: kaputtes ZIP → entpacken „Exit …“', !r2.ok && r2.art === 'entpacken' && r2.grund.startsWith('Exit '));
+  ck('… mit der Meldung von tar.exe als ausgabe (stderr, gemessen: „Unrecognized archive format“)',
+    !r2.ok && r2.art === 'entpacken' && typeof r2.ausgabe === 'string' && r2.ausgabe.includes('Unrecognized archive format'));
 } else {
   ueberspringe('Vorbereitung: Test-ZIP mit tar.exe -a gebaut');
   ueberspringe('echtes tar.exe: Erfolg, Dateien samt Unterordner da');
   ueberspringe('echtes tar.exe: kaputtes ZIP → entpacken „Exit …“');
+  ueberspringe('… mit der Meldung von tar.exe als ausgabe (stderr, gemessen: „Unrecognized archive format“)');
 }
 
 // ── Texte, Codes, Dienste ──

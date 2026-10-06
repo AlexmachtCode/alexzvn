@@ -24,12 +24,20 @@ export const LADE_ORDNER = 'laden';
 export const FORTSCHRITT_TAKT_MS = 250;
 /** Fehlt Retry-After oder ist er unbrauchbar: eine Minute. */
 const WARTEN_VORGABE_S = 60;
+/** So viel von der stderr-Ausgabe von tar.exe kommt ins Log (vom Anfang: die erste Meldung zählt). */
+export const TAR_AUSGABE_MAX = 300;
 
 /** Fehlerarten (Spec 4.3); die Texte dazu liefert ladeFehlerText (Spec 5). */
 export type LadeFehler =
   | { ok: false; art: 'schluessel' | 'fehlt' | 'pruefsumme' | 'abgebrochen' }
   | { ok: false; art: 'gedrosselt'; sekunden: number }
-  | { ok: false; art: 'proxy' | 'unvollstaendig' | 'entpacken'; grund: string };
+  | { ok: false; art: 'proxy' | 'unvollstaendig'; grund: string }
+  /**
+   * `ausgabe`: was tar.exe auf stderr schrieb („Write failed“, „Can't create …“), eine Zeile, höchstens
+   * TAR_AUSGABE_MAX Zeichen. Die einzige Diagnose von bsdtar; trägt nur lokale Pfade. Sie gehört ins Log, nie in
+   * den Text: `grund` bleibt ein Code.
+   */
+  | { ok: false; art: 'entpacken'; grund: string; ausgabe?: string };
 export type LinkErgebnis = { ok: true; url: string; size: number } | LadeFehler;
 export type LadeErgebnis = { ok: true } | LadeFehler;
 export type EntpackErgebnis = { ok: true } | LadeFehler;
@@ -39,6 +47,8 @@ export interface KindProzess {
   on(ereignis: 'error', f: (e: Error) => void): unknown;
   on(ereignis: 'close', f: (code: number | null) => void): unknown;
   kill(): boolean;
+  /** Die Diagnose von tar.exe; fehlt sie (Attrappe), gibt es eben keine. */
+  stderr?: { on(ereignis: 'data', f: (d: Buffer | string) => void): unknown } | null;
 }
 
 /** Die Datei `<ziel>.teil`, so weit lade() sie braucht (FileHandle erfüllt das). */
@@ -55,7 +65,7 @@ export interface LadeWerkzeuge {
   jetzt(): number;
   /** Öffnet `<ziel>.teil` zum Schreiben (neu oder geleert). */
   oeffne(pfad: string): Promise<Schreibziel>;
-  /** Startet ohne Shell, ohne Fenster, ohne Ein- und Ausgabe. */
+  /** Startet ohne Shell, ohne Fenster, ohne Eingabe und Standardausgabe; stderr als Pipe (Diagnose von tar.exe). */
   starte(befehl: string, args: readonly string[]): KindProzess;
   plattform: string;
   /** %SystemRoot%, z. B. C:\Windows. */
@@ -67,7 +77,7 @@ function werkzeuge(w?: Partial<LadeWerkzeuge>): LadeWerkzeuge {
     fetch: (eingabe, init) => fetch(eingabe, init),
     jetzt: () => Date.now(),
     oeffne: (pfad) => open(pfad, 'w'),
-    starte: (befehl, args) => spawn(befehl, [...args], { shell: false, windowsHide: true, stdio: 'ignore' }),
+    starte: (befehl, args) => spawn(befehl, [...args], { shell: false, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] }),
     plattform: process.platform,
     systemRoot: process.env.SystemRoot,
     ...w,
@@ -223,6 +233,8 @@ export async function lade(e: {
  * Spec 4.3: `%SystemRoot%\System32\tar.exe -xf <zip> -C <ordner>` mit absolutem Pfad, ohne Shell. Exit-Code
  * ungleich 0, fehlende tar.exe oder Abbruch → `entpacken`. bsdtar lehnt absolute Pfade und `..` ab; das ZIP ist
  * hier schon gegen den gepinnten SHA geprüft. Zoom gibt es nur unter Windows: anderswo sofort `entpacken`.
+ * Bei Exit ungleich 0 kommt die stderr-Ausgabe als `ausgabe` mit: Nach dem SHA bleiben als Ursachen gerade Platte,
+ * Rechte, Virenscanner und Pfadlänge, und die nennt nur bsdtar selbst.
  */
 export function entpacke(e: {
   zip: string;
@@ -231,7 +243,10 @@ export function entpacke(e: {
   werkzeuge?: Partial<LadeWerkzeuge>;
 }): Promise<EntpackErgebnis> {
   const w = werkzeuge(e.werkzeuge);
-  const fehler = (grund: string): EntpackErgebnis => ({ ok: false, art: 'entpacken', grund });
+  const fehler = (grund: string, ausgabe = ''): EntpackErgebnis => {
+    const zeile = ausgabe.replace(/\s+/g, ' ').trim().slice(0, TAR_AUSGABE_MAX);
+    return zeile ? { ok: false, art: 'entpacken', grund, ausgabe: zeile } : { ok: false, art: 'entpacken', grund };
+  };
   if (w.plattform !== 'win32') return Promise.resolve(fehler('nur Windows'));
   if (!w.systemRoot) return Promise.resolve(fehler('SystemRoot fehlt'));
   if (e.signal.aborted) return Promise.resolve(fehler('abgebrochen'));
@@ -258,8 +273,15 @@ export function entpacke(e: {
       return;
     }
     e.signal.addEventListener('abort', abbrechen, { once: true });
+    // bsdtar schreibt in der ANSI-Codepage (gemessen: „ö“ im Pfad kommt als 0xF6), latin1 liest das für cp1252
+    // richtig. Gelesen wird bis zum Ende, damit die Pipe nie vollläuft; gemerkt nur der Anfang.
+    let ausgabe = '';
+    kind.stderr?.on('data', (d) => {
+      if (ausgabe.length < TAR_AUSGABE_MAX) ausgabe += typeof d === 'string' ? d : d.toString('latin1');
+    });
     kind.on('error', (err) => ende(fehler(abgebrochen ? 'abgebrochen' : fehlerCode(err))));
-    kind.on('close', (code) => ende(abgebrochen ? fehler('abgebrochen') : code === 0 ? { ok: true } : fehler(`Exit ${code}`)));
+    // 'close' kommt erst, wenn stderr zu ist: Die Ausgabe ist dann vollständig da.
+    kind.on('close', (code) => ende(abgebrochen ? fehler('abgebrochen') : code === 0 ? { ok: true } : fehler(`Exit ${code}`, ausgabe)));
   });
 }
 

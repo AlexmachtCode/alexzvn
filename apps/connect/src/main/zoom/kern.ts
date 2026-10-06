@@ -577,7 +577,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       if (signal.aborted) return abgebrochen();
       phase('entpacken');
       const ausgepackt = await ld.entpacke({ zip, ordner: entpackt, signal });
-      if (!ausgepackt.ok) return fehlschlag(ausgepackt);
+      if (!ausgepackt.ok) {
+        // Die einzige Diagnose von tar.exe (Platte, Rechte, Virenscanner, Pfadlänge) gehört ins Log; nur lokale Pfade.
+        if (ausgepackt.art === 'entpacken' && ausgepackt.ausgabe) d.log(`[zoom] Ausgabe von tar.exe: ${ausgepackt.ausgabe}`);
+        return fehlschlag(ausgepackt);
+      }
       if (signal.aborted) return abgebrochen();
       d.log('[zoom] Zoom-SDK geladen und geprüft');
       // (6) Dieselbe Strecke wie „SDK-Ordner wählen“. Ab hier greift „Abbrechen“ nicht mehr (die Kopie hat keinen).
