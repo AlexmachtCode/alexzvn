@@ -7,7 +7,7 @@ eigentlichen Downloads laufen direkt von GitHubs Storage (nicht über den Worker
 
 ## Was du brauchst
 - Cloudflare-Account (Free-Tier reicht).
-- GitHub **fine-grained PAT**: Repository nur `alexzvn`, Permission **Contents: Read-only**.
+- GitHub **fine-grained PAT**: Repositories `alexzvn` und `jm-zoom-sdk` (nur für `/zoom-sdk`, JM Connect 0.2.2), Permission **Contents: Read-only**.
 - Einen **Proxy-Key** (zufälliger String), z. B. `openssl rand -hex 24`.
 
 ## Deploy (wrangler, empfohlen — ~5 Min)
@@ -68,6 +68,11 @@ Body: { "mode": "ai",   "input":  { "title"?, "category"?, "notes" } }
 → 200 { ok, prUrl, number, branch }
    (validiert das Rezept, rendert die .md und öffnet einen PR; mode "ai" ruft Claude)
    braucht GITHUB_TOKEN mit Contents:write + Pull requests:write; mode "ai" zusätzlich ANTHROPIC_API_KEY
+
+GET /zoom-sdk/:fassung
+Header: X-Zoom-Sdk-Key: <ZOOM_SDK_KEY>       (KEIN Proxy-Key)
+→ 200 { fassung, url, size }   (url = kurzlebiger, signierter Storage-Link des ZIP)
+→ 401 unauthorized · 404 not_found · 429 mit Retry-After · 502 upstream
 ```
 - `:id` = Tool-ID aus suite.json (`jm-copy`, `jm-sync`, … oder `launcher`).
 - Auf macOS bestimmt `arch` das richtige DMG (arm64/x64); auf Windows ist es x64.
@@ -116,6 +121,28 @@ Die **schreibenden** Endpunkte `/feedback` (legt Issues an) und `/cookbook/draft
   ```
   **Solange die Bindung fehlt, ist NUR das Rate-Limit inaktiv** (der Worker warnt
   pro Aufruf im Log); Größenlimits + Redaktion laufen unabhängig davon.
+
+## Zoom-SDK nachladen (JM Connect 0.2.2)
+`GET /zoom-sdk/:fassung` liefert JM Connect den kurzlebigen, signierten Link auf das Paket
+`zoom-sdk-win-x64-<fassung>.zip` aus dem Release `zoom-sdk-<fassung>` im **privaten** Repo `ZOOM_SDK_REPO`
+(Vorgabe `AlexmachtCode/jm-zoom-sdk`). Der Download läuft direkt von GitHubs Storage, der Worker streamt nichts.
+
+- **Eigener Schlüssel:** Header `X-Zoom-Sdk-Key`, verglichen mit dem Secret `ZOOM_SDK_KEY` (zeitkonstant über
+  SHA-256). Der `PROXY_KEY` gilt hier nicht, weil der Launcher ihn in öffentliche Installer einbackt. Fehlt das
+  Secret, antwortet die Route immer 401.
+- **Drosselung:** eigener Bucket `zoomsdk`, 20 Anfragen je 10 Minuten je IP, VOR dem Schlüsselvergleich, auch für
+  gültige Schlüssel → `429` mit `Retry-After`. Braucht die KV-Bindung `RATELIMIT` (siehe oben).
+- **Antworten:** 200 `{ fassung, url, size }` (mit `Cache-Control: no-store`) · 401 `unauthorized` ·
+  404 `not_found` (ungültige Fassung, Release oder Asset fehlt) · 502 `upstream` (andere GitHub-Fehler, ohne GitHub-Text).
+- **Nie:** Schlüssel oder signierter Link im Log. Eine Prüfsumme liefert der Proxy nicht; die steht nur im Connect-Code.
+- **Token:** `GITHUB_TOKEN` braucht zusätzlich `Contents: Read-only` auf `ZOOM_SDK_REPO`. Ohne diesen Zugriff
+  antwortet GitHub 404, und die Route meldet `not_found`.
+- **Einrichtung (einmalig, nur durch den Owner):** Der Owner erweitert den Token-Zugriff in GitHub und setzt das Secret
+  mit `npx wrangler secret put ZOOM_SDK_KEY` (ein selbst gewählter Schlüssel, der in keinem Chat, Log oder Repo
+  erscheint). Ein Deploy (`npx wrangler deploy`) geschieht nur mit seinem ausdrücklichen Okay.
+- **Wahl des Schlüssels:** zufällig erzeugt, mindestens 32 Zeichen, nur druckbare ASCII-Zeichen ohne Leerzeichen
+  (JM Connect lehnt alles andere mit S18 ab). Gegen Raten schützt sonst nur die Drosselung von 20 Anfragen je
+  10 Minuten und IP.
 
 Lokaler Test (ohne Deploy): `node services/release-proxy/test/worker.test.mjs`.
 

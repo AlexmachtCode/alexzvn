@@ -10,11 +10,18 @@
 //   Header: X-Proxy-Key: <PROXY_KEY>   (oder Authorization: Bearer <PROXY_KEY>)
 //   → 200 { version, assets: { <platform>: { url, size, fileName } } }
 //
+//   GET /zoom-sdk/:fassung              (JM Connect 0.2.2, KEIN Proxy-Key)
+//   Header: X-Zoom-Sdk-Key: <ZOOM_SDK_KEY>
+//   → 200 { fassung, url, size }        (url = kurzlebiger, signierter Storage-Link des ZIP)
+//
 // Secrets (verschlüsselt, via `wrangler secret put` oder Dashboard):
-//   GITHUB_TOKEN  fine-grained PAT, read-only Contents auf REPO
+//   GITHUB_TOKEN  fine-grained PAT, read-only Contents auf REPO und auf ZOOM_SDK_REPO
 //   PROXY_KEY     gemeinsamer Key, den die Clients mitschicken
+//   ZOOM_SDK_KEY  eigener Schlüssel nur für /zoom-sdk/:fassung; steht in keinem Repo, CI-Secret
+//                 oder Build (der PROXY_KEY steckt in öffentlichen Launcher-Installern)
 // Variable (Klartext, in wrangler.toml [vars]):
 //   REPO          z. B. "AlexmachtCode/alexzvn"
+//   ZOOM_SDK_REPO privates Repo mit dem Zoom-SDK-Paket, Vorgabe "AlexmachtCode/jm-zoom-sdk"
 
 // Geteilter Rezept-Kern (pur, Worker-tauglich) für den KI-Authoring-Flow.
 // wrangler/esbuild bündelt diese ESM-Module beim Deploy mit ein.
@@ -37,6 +44,8 @@ const USER_AGENT = 'JM-Suite-Release-Proxy';
 const LIMITS = {
   feedback: { maxBytes: 16 * 1024, rlMax: 10, rlWindowSec: 600 },
   draft: { maxBytes: 32 * 1024, rlMax: 5, rlWindowSec: 3600 },
+  // GET /zoom-sdk/:fassung: gedrosselt VOR dem Schlüsselvergleich, auch für gültige Schlüssel.
+  zoomsdk: { rlMax: 20, rlWindowSec: 600 },
 };
 // Harte Feld-Kappungen (Zeichen) — begrenzen Body und Prompt-Injection-Fläche.
 const FIELD = { title: 200, description: 8000, context: 8000, notes: 12000, category: 80 };
@@ -125,6 +134,11 @@ export default {
     // `null` = kein Connect-Pfad → normal weiter.
     const conn = await handleConnect(request, env, url);
     if (conn) return conn;
+
+    // Zoom-SDK nachladen (JM Connect 0.2.2). VOR dem PROXY_KEY-Gate: Die Route prüft ihren eigenen
+    // Schlüssel ZOOM_SDK_KEY. Der Proxy-Key scheidet dafür aus, er steckt in öffentlichen Installern.
+    const zoomSdk = url.pathname.match(/^\/zoom-sdk\/([^/]*)\/?$/);
+    if (zoomSdk) return handleZoomSdk(request, env, zoomSdk[1]);
 
     // Ab hier: Proxy-Key Pflicht.
     const provided =
@@ -392,6 +406,76 @@ async function resolveSignedUrl(repo, assetId, env) {
   // Falls die Laufzeit doch gefolgt ist: finale URL nehmen.
   if (res.ok && res.url) return res.url;
   return null;
+}
+
+// --- Zoom-SDK nachladen (JM Connect 0.2.2) -----------------------------------
+
+const ZOOM_SDK_REPO_VORGABE = 'AlexmachtCode/jm-zoom-sdk';
+const ZOOM_SDK_FASSUNG = /^\d+\.\d+\.\d+\.\d+$/;
+
+/**
+ * GET /zoom-sdk/:fassung → 200 { fassung, url, size }: der kurzlebige, signierte Storage-Link des ZIP
+ * `zoom-sdk-win-x64-<fassung>.zip` aus dem Release `zoom-sdk-<fassung>` im privaten Repo ZOOM_SDK_REPO.
+ * Reihenfolge: Drosselung (auch für gültige Schlüssel), Fassung, Schlüssel, GitHub. Nie in Log oder
+ * Antwort: Schlüssel, signierter Link, GitHub-Fehlertext. Eine Prüfsumme liefert der Proxy bewusst
+ * nicht: Die steht nur im Connect-Code, ein manipulierter Proxy kann ein falsches Paket nicht tarnen.
+ */
+async function handleZoomSdk(request, env, fassung) {
+  const rl = await rateLimit(env, 'zoomsdk', clientIp(request), LIMITS.zoomsdk.rlMax, LIMITS.zoomsdk.rlWindowSec);
+  if (!rl.ok) return tooMany(rl.retryAfter);
+  if (request.method !== 'GET' || !ZOOM_SDK_FASSUNG.test(fassung)) return json({ error: 'not_found' }, 404);
+  if (!(await zoomSdkSchluesselPasst(request.headers.get('X-Zoom-Sdk-Key'), env.ZOOM_SDK_KEY))) {
+    return json({ error: 'unauthorized' }, 401);
+  }
+  const repo = env.ZOOM_SDK_REPO || ZOOM_SDK_REPO_VORGABE;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/releases/tags/zoom-sdk-${fassung}`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': USER_AGENT,
+      },
+    });
+    if (res.status === 404) return json({ error: 'not_found' }, 404);
+    if (!res.ok) {
+      console.warn(`zoom-sdk: GitHub antwortet ${res.status}`);
+      return json({ error: 'upstream' }, 502);
+    }
+    const release = await res.json();
+    const name = `zoom-sdk-win-x64-${fassung}.zip`;
+    const assets = Array.isArray(release && release.assets) ? release.assets : [];
+    const asset = assets.find((a) => a && a.name === name);
+    if (!asset) return json({ error: 'not_found' }, 404);
+    const signiert = await resolveSignedUrl(repo, asset.id, env);
+    if (!signiert) return json({ error: 'upstream' }, 502);
+    return new Response(JSON.stringify({ fassung, url: signiert, size: asset.size }), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    });
+  } catch {
+    console.warn('zoom-sdk: GitHub nicht erreichbar oder Antwort unlesbar');
+    return json({ error: 'upstream' }, 502);
+  }
+}
+
+/**
+ * Zeitkonstanter Vergleich (Spec 3.1): beide Werte per SHA-256 auf 32 Byte bringen, dann eine
+ * XOR-Schleife ohne frühen Ausstieg. `crypto.subtle.timingSafeEqual` gibt es nur in der Workers-
+ * Laufzeit, nicht in Node (worker.test.mjs); die Schleife läuft in beiden. Ohne Secret: nie gleich.
+ */
+async function zoomSdkSchluesselPasst(geliefert, secret) {
+  if (!secret || typeof geliefert !== 'string') return false;
+  const kodierer = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', kodierer.encode(geliefert)),
+    crypto.subtle.digest('SHA-256', kodierer.encode(secret)),
+  ]);
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
 }
 
 /** Dotted-Versionsvergleich; >0 wenn a neuer als b. */

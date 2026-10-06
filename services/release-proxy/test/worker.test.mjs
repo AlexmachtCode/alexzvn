@@ -293,6 +293,136 @@ async function run() {
     const r = await worker.fetch(new Request(url, hdr), { ...baseEnv, CONNECT_ROOM: plain });
     check('Jurisdiction verlangt, aber nicht unterstützt → 503 statt stiller Rückfall', r.status === 503);
   }
+
+  // ── Zoom-SDK nachladen (JM Connect 0.2.2): GET /zoom-sdk/:fassung ──
+
+  // 20) Eigener Schlüssel, Antwort, Fehlerfälle, Drosselung, kein Proxy-Key, nichts Geheimes in der Konsole.
+  {
+    const FASSUNG = '7.1.5.43953';
+    const ZIP = `zoom-sdk-win-x64-${FASSUNG}.zip`;
+    const zEnv = { ...baseEnv, ZOOM_SDK_KEY: 'sdk-geheim-test', ZOOM_SDK_REPO: 'owner/jm-zoom-sdk' };
+    const zReq = (fassung, schluessel, opts = {}) =>
+      req(`/zoom-sdk/${fassung}`, {
+        key: null,
+        ...opts,
+        headers: schluessel === null ? {} : { 'X-Zoom-Sdk-Key': schluessel },
+      });
+    const aufrufe = [];
+    let release = { assets: [{ id: 77, name: ZIP, size: 150120193 }] };
+    let tagStatus = 200;
+    let assetOhneLink = false;
+    stub = async (u) => {
+      const url = String(u);
+      aufrufe.push(url);
+      if (url.includes('/releases/assets/')) {
+        if (assetOhneLink) return new Response('{}', { status: 200 });
+        const id = url.split('/').pop();
+        return new Response(null, { status: 302, headers: { Location: `https://signed.test/zoom-${id}?sig=geheim-link` } });
+      }
+      if (url.includes('/releases/tags/')) {
+        if (tagStatus !== 200) return new Response('GITHUB-FEHLTEXT-LEAK', { status: tagStatus });
+        return new Response(JSON.stringify(release), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    };
+    // Konsole mitschneiden: weder Schlüssel noch signierter Link dürfen dort landen (Spec 3.2).
+    const mitschnitt = [];
+    const merke = (...a) => mitschnitt.push(a.map(String).join(' '));
+    const infoVorher = console.info;
+    console.warn = merke;
+    console.error = merke;
+    console.info = merke;
+
+    let r = await worker.fetch(zReq(FASSUNG, null), zEnv);
+    check('zoom-sdk ohne Header → 401 unauthorized', r.status === 401 && (await r.json()).error === 'unauthorized');
+    r = await worker.fetch(zReq(FASSUNG, 'falsch'), zEnv);
+    check('zoom-sdk falscher Schlüssel → 401', r.status === 401);
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), { ...zEnv, ZOOM_SDK_KEY: undefined });
+    check('zoom-sdk ohne Secret ZOOM_SDK_KEY → 401, auch mit Header', r.status === 401);
+    r = await worker.fetch(zReq(FASSUNG, ''), { ...zEnv, ZOOM_SDK_KEY: '' });
+    check('zoom-sdk leeres Secret und leerer Header → 401', r.status === 401);
+    check('… ohne gültigen Schlüssel fragt der Proxy GitHub nicht', aufrufe.length === 0);
+
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    const out = await r.json();
+    check('zoom-sdk richtiger Schlüssel → 200 { fassung, url, size }',
+      r.status === 200 && out.fassung === FASSUNG && out.url === 'https://signed.test/zoom-77?sig=geheim-link'
+        && out.size === 150120193 && JSON.stringify(Object.keys(out).sort()) === '["fassung","size","url"]');
+    check('… Antwort mit Cache-Control no-store', r.headers.get('cache-control') === 'no-store');
+    check('… Release über ZOOM_SDK_REPO und Tag zoom-sdk-<fassung>',
+      aufrufe.includes(`https://api.github.com/repos/owner/jm-zoom-sdk/releases/tags/zoom-sdk-${FASSUNG}`));
+    check('… signierter Link aus demselben Repo', aufrufe.includes('https://api.github.com/repos/owner/jm-zoom-sdk/releases/assets/77'));
+    check('… nie das Monorepo REPO', !aufrufe.some((u) => u.includes('/repos/owner/repo/')));
+
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { key: 'falsch' }), zEnv);
+    check('zoom-sdk verlangt keinen Proxy-Schlüssel (ein falscher X-Proxy-Key stört nicht)', r.status === 200);
+    r = await worker.fetch(zReq(FASSUNG, null, { key: 'k' }), zEnv);
+    check('… und der richtige Proxy-Schlüssel ersetzt den SDK-Schlüssel nicht', r.status === 401);
+
+    aufrufe.length = 0;
+    for (const f of ['7.1.5', 'abc', '7.1.5.43953x', '7.1.5.43953.1', '..%2F..', '']) {
+      r = await worker.fetch(zReq(f, 'sdk-geheim-test'), zEnv);
+      check(`zoom-sdk ungültige Fassung „${f}“ → 404`, r.status === 404);
+    }
+    check('… ohne GitHub-Abfrage', aufrufe.length === 0);
+
+    tagStatus = 404;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk Release fehlt → 404 not_found', r.status === 404 && (await r.json()).error === 'not_found');
+    tagStatus = 200;
+    release = { assets: [{ id: 5, name: 'etwas-anderes.zip', size: 1 }] };
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk Asset fehlt → 404 not_found', r.status === 404 && (await r.json()).error === 'not_found');
+    release = { assets: [{ id: 77, name: ZIP, size: 150120193 }] };
+    tagStatus = 500;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    const t500 = await r.text();
+    check('zoom-sdk GitHub 500 → 502 upstream ohne GitHub-Fehlertext',
+      r.status === 502 && JSON.parse(t500).error === 'upstream' && !t500.includes('LEAK'));
+    tagStatus = 200;
+    assetOhneLink = true;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk signierter Link nicht auflösbar → 502 upstream', r.status === 502 && (await r.json()).error === 'upstream');
+    assetOhneLink = false;
+
+    // Drosselung VOR dem Schlüsselvergleich: 20 Anfragen je IP und 10 Minuten, die 21. → 429, auch mit gültigem Schlüssel.
+    const rlEnv = { ...zEnv, RATELIMIT: makeKV() };
+    for (let i = 0; i < 20; i++) await worker.fetch(zReq(FASSUNG, 'falsch', { ip: '3.3.3.3' }), rlEnv);
+    aufrufe.length = 0;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { ip: '3.3.3.3' }), rlEnv);
+    check('zoom-sdk Drosselung: 21. Anfrage je IP → 429, auch mit gültigem Schlüssel', r.status === 429);
+    check('… mit Retry-After', Number(r.headers.get('Retry-After')) > 0);
+    check('… ohne GitHub-Abfrage', aufrufe.length === 0);
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { ip: '4.4.4.4' }), rlEnv);
+    check('… andere IP unabhängig', r.status === 200);
+
+    const alles = mitschnitt.join('\n');
+    check('zoom-sdk: weder Schlüssel noch signierter Link in der Konsole',
+      !alles.includes('sdk-geheim-test') && !alles.includes('signed.test') && !alles.includes('geheim-link'));
+    console.warn = () => {};
+    console.error = () => {};
+    console.info = infoVorher;
+    stub = async () => new Response('{}', { status: 200 });
+  }
+
+  // 21) Regression: /tools/… löst den signierten Link weiter im Monorepo REPO auf, auch mit ZOOM_SDK_REPO.
+  {
+    const aufrufe = [];
+    stub = async (u) => {
+      const url = String(u);
+      aufrufe.push(url);
+      if (url.includes('/releases/assets/')) return new Response(null, { status: 302, headers: { Location: 'https://signed.test/9' } });
+      if (url.includes('/releases?')) {
+        return new Response(JSON.stringify([{ tag_name: 'copy-v1.0.0', draft: false, assets: [{ id: 9, name: 'JM.Copy.Setup.1.0.0.exe', size: 5 }] }]), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    };
+    const r = await worker.fetch(req('/tools/jm-copy/latest?platform=win'), { ...baseEnv, ZOOM_SDK_REPO: 'owner/jm-zoom-sdk' });
+    check('tools: signierter Link weiter aus REPO, nicht aus ZOOM_SDK_REPO',
+      r.status === 200 && aufrufe.includes('https://api.github.com/repos/owner/repo/releases/assets/9')
+        && !aufrufe.some((u) => u.includes('jm-zoom-sdk')));
+    stub = async () => new Response('{}', { status: 200 });
+  }
 }
 
 run()

@@ -63,6 +63,9 @@ MANIFEST_REF = "main"
 # Objekt-ID, bestehende Räume wären verwaist. Die MEDIEN (Realtime-SFU/TURN) deckt das nicht ab —
 # siehe docs/security/connect-datenresidenz.md.
 CONNECT_JURISDICTION = "eu"
+# Privates Repo mit dem Zoom-SDK-Paket für GET /zoom-sdk/:fassung (JM Connect 0.2.2). Das GITHUB_TOKEN
+# braucht darauf Contents: read, sonst antwortet GitHub 404 und die Route meldet not_found.
+ZOOM_SDK_REPO = "AlexmachtCode/jm-zoom-sdk"
 
 # Secrets NICHT hier eintragen — verschlüsselt setzen:
 #   npx wrangler secret put GITHUB_TOKEN      (fine-grained PAT; read-only Contents reicht
@@ -70,3 +73,7 @@ CONNECT_JURISDICTION = "eu"
 #                                              zusätzlich Contents:write + Pull requests:write)
 #   npx wrangler secret put PROXY_KEY         (gemeinsamer Zugriffs-Key)
 #   npx wrangler secret put ANTHROPIC_API_KEY (nur für /cookbook/draft mode "ai")
+#   npx wrangler secret put ZOOM_SDK_KEY      (nur für /zoom-sdk/:fassung; der Owner tippt ihn ein,
+#                                              er steht in keinem Repo, CI-Secret oder Build;
+#                                              zufällig, mindestens 32 Zeichen; nur druckbare ASCII-
+#                                              Zeichen ohne Leerzeichen, anderes lehnt Connect ab)
