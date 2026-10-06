@@ -76,6 +76,8 @@ ck('Set: ohne Schlüsselbund → session, kein Grund', o.herkunft === 'session' 
 const datei = (): string => readFileSync(join(wurzel, 'connect-settings.json'), 'utf8');
 g.__mock.verschluesselung = true;
 g.__mock.userData = wurzel;
+// Unabhängig von der Umgebung des Testlaufs: Eine gesetzte Variable hätte Vorrang (Gesamtprüfung: Task 3 minor 2).
+delete process.env.JMPS_ZOOM_SDK_KEY;
 const leer = s.zoomSdkSchluesselLesen();
 ck('SDK: anfangs fehlt der Schlüssel', leer.herkunft === 'none' && leer.wert === null);
 ck('SDK: Speichern mit Schlüsselbund → stored', s.zoomSdkSchluesselSpeichern('sdk-geheim-test') === 'stored');
@@ -97,6 +99,36 @@ ck('SDK: Entfernen → fehlt, Feld aus der Datei', s.zoomSdkSchluesselLesen().he
 g.__mock.verschluesselung = false;
 ck('SDK: ohne Schlüsselbund → session', s.zoomSdkSchluesselSpeichern('sdk-test') === 'session' && s.zoomSdkSchluesselLesen().herkunft === 'session');
 ck('SDK: … nichts davon auf der Platte', !datei().includes('zoomSdkKeyEnc') && !datei().includes('sdk-test'));
+
+// Entfernen und Speichern, wenn die Datei nicht schreibbar ist (Gesamtprüfung: Task 3 minor 1 und 3, Task 4 minor 1):
+// Für diese Sitzung ist der Wert weg, auf der Platte steht er noch. Das meldet `false`, damit der Kern es sagen kann.
+const schreibschutz = (an: boolean): void => chmodSync(join(wurzel, 'connect-settings.json'), an ? 0o444 : 0o644);
+g.__mock.verschluesselung = true;
+ck('SDK: Vorbereitung: gespeichert', s.zoomSdkSchluesselSpeichern('sdk-geheim-test') === 'stored');
+schreibschutz(true);
+ck('SDK: Entfernen bei schreibgeschützter Datei → false', s.zoomSdkSchluesselLoeschen() === false);
+ck('SDK: … für diese Sitzung weg, auf der Platte noch da', s.zoomSdkSchluesselLesen().herkunft === 'none' && datei().includes('zoomSdkKeyEnc'));
+g.__mock.verschluesselung = false;
+ck('SDK: ohne Schlüsselbund, Datei schreibgeschützt → session (Zweig ohne Schlüsselbund, Schreiben scheitert)',
+  s.zoomSdkSchluesselSpeichern('sdk-test') === 'session' && s.zoomSdkSchluesselLesen().wert === 'sdk-test');
+ck('SDK: … nie im Klartext auf der Platte', !datei().includes('sdk-test'));
+ck('SDK: … Entfernen → false, solange das alte Feld noch auf der Platte steht', s.zoomSdkSchluesselLoeschen() === false
+  && s.zoomSdkSchluesselLesen().herkunft === 'none');
+schreibschutz(false);
+ck('SDK: Entfernen bei schreibbarer Datei → true, Feld weg', s.zoomSdkSchluesselLoeschen() === true && !datei().includes('zoomSdkKeyEnc'));
+g.__mock.userData = kaputt;
+s.zoomSdkSchluesselSpeichern('sdk-test');
+ck('SDK: nur in der Sitzung und nichts auf der Platte → Entfernen → true, auch wenn das Schreiben scheitert',
+  s.zoomSdkSchluesselLoeschen() === true && s.zoomSdkSchluesselLesen().herkunft === 'none');
+g.__mock.userData = wurzel;
+g.__mock.verschluesselung = true;
+s.zoomZugangSpeichern(daten);
+ck('Zugang: Vorbereitung: gespeichert', s.zoomZugangLesen().herkunft === 'stored' && datei().includes('zoomZugangEnc'));
+schreibschutz(true);
+ck('Zugang: Entfernen bei schreibgeschützter Datei → false', s.zoomZugangLoeschen() === false);
+ck('Zugang: … für diese Sitzung weg, auf der Platte noch da', s.zoomZugangLesen().daten === null && datei().includes('zoomZugangEnc'));
+schreibschutz(false);
+ck('Zugang: Entfernen bei schreibbarer Datei → true, Feld weg', s.zoomZugangLoeschen() === true && !datei().includes('zoomZugangEnc'));
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

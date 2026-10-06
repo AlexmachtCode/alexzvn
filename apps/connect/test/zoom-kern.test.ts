@@ -33,7 +33,14 @@ import {
 import type { SdkLadenDienste } from '../src/main/zoom/sdk-laden';
 import { SDK_PAKET } from '../src/main/zoom/sdk-paket';
 import type { ProxyKeySource, ZoomAbbild, ZoomErgebnis, ZoomKurz } from '../src/shared/types';
-import { kartenZeile, stateKvAus, TEXT_A4_SCHREIBFEHLER, zoomZ } from '../src/shared/zoom-text';
+import {
+  kartenZeile,
+  stateKvAus,
+  TEXT_A4_SCHREIBFEHLER,
+  TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
+  TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
+  zoomZ,
+} from '../src/shared/zoom-text';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HIER, '..', '..', '..', 'packages', 'zoom-bridge', 'test', 'fake-bridge.mjs');
@@ -113,6 +120,9 @@ interface BaueOptionen {
   sdkSchluessel?: { wert: string | null; herkunft: ProxyKeySource };
   /** Was sdkSchluessel.speichern() meldet; Vorgabe 'stored'. */
   sdkSchluesselLiefert?: 'stored' | 'session';
+  /** Was zugang.loeschen() bzw. sdkSchluessel.loeschen() meldet; false = Einstellungsdatei nicht schreibbar. Vorgabe true. */
+  zugangLoeschenLiefert?: boolean;
+  sdkSchluesselLoeschenLiefert?: boolean;
   /** Dienste für „Zoom-SDK laden“ (Attrappen); ohne Angabe die echten aus sdk-laden.ts gegen https://proxy.test. */
   sdkLaden?: Partial<SdkLadenDienste>;
 }
@@ -194,6 +204,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       },
       loeschen: () => {
         if (zugang.herkunft !== 'env') zugang = { daten: null, herkunft: 'none', unlesbar: false };
+        return o.zugangLoeschenLiefert ?? true;
       },
     },
     einstellungen: {
@@ -220,6 +231,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       loeschen: () => {
         sdkSchluesselGeloescht += 1;
         if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: null, herkunft: 'none' };
+        return o.sdkSchluesselLoeschenLiefert ?? true;
       },
     },
     gastLabels: o.gastLabels ?? (() => []),
@@ -2111,6 +2123,29 @@ console.log('— Diagnose von tar.exe im Log (Gesamtprüfung: Task 5 minor 2)');
   ck('… Text bleibt S16c mit dem Code, die Ausgabe steht nicht im Abbild',
     text(r) === KT.S16c('Exit 1') && p.kern.abbild().einrichtung.sdk.text === KT.S16c('Exit 1')
       && !JSON.stringify(p.kern.abbild()).includes('Write failed'));
+  await p.aufraeumen();
+}
+console.log('— Entfernen bei nicht schreibbarer Einstellungsdatei (Gesamtprüfung: Task 3 minor 1, Task 4 minor 1)');
+{
+  const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkSchluesselLoeschenLiefert: false });
+  const vor = p.logs.length;
+  const r = p.kern.sdkSchluesselLoeschen();
+  ck('SDK-Schlüssel entfernen, Datei nicht schreibbar → „nur für diese Sitzung entfernt“, Herkunft none',
+    text(r) === TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT && p.sdkSchluesselGeloescht() === 1
+      && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
+  ck('… die Logzeile sagt es, statt „SDK-Schlüssel entfernt“', JSON.stringify(p.logs.slice(vor))
+    === JSON.stringify(['[zoom] SDK-Schlüssel nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)']));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ zugangLoeschenLiefert: false });
+  const vor = p.logs.length;
+  const r = p.kern.zugangLoeschen();
+  ck('Zugangsdaten entfernen, Datei nicht schreibbar → „nur für diese Sitzung entfernt“, Mangel zugang_fehlt',
+    text(r) === TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT && p.kern.kurz().zustand === 'einrichtung' && p.kern.kurz().maengel.includes('zugang_fehlt'));
+  ck('… die Logzeile sagt es, statt „Zugangsdaten entfernt“',
+    p.logs.slice(vor).includes('[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)')
+      && !p.logs.slice(vor).includes('[zoom] Zugangsdaten entfernt'));
   await p.aufraeumen();
 }
 

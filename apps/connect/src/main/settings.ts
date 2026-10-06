@@ -218,13 +218,20 @@ export function zoomZugangSpeichern(d: ZoomZugangDaten): 'stored' | 'session' {
   return 'session';
 }
 
-export function zoomZugangLoeschen(): void {
+/**
+ * Für diese Sitzung sind die Zugangsdaten danach immer weg. `false`: Sie stehen noch in der Einstellungsdatei
+ * (nicht schreibbar) und gelten nach einem Neustart wieder; das muss der Kern sagen. Stand nichts auf der Platte,
+ * ist ein gescheitertes Schreiben egal.
+ */
+export function zoomZugangLoeschen(): boolean {
   const next = read();
+  const aufPlatte = next.zoomZugangEnc !== undefined;
   delete next.zoomZugangEnc;
-  write(next);
+  const geschrieben = write(next);
   zoomSitzung = null;
   zoomSitzungGrund = undefined;
   zoomGespeichert = null;
+  return geschrieben || !aufPlatte;
 }
 
 /** Ungültig oder fehlend → Vorgabe „JM Connect“ (G4). */
@@ -312,10 +319,13 @@ export function zoomSdkSchluesselSpeichern(wert: string): 'stored' | 'session' {
   return 'session';
 }
 
-export function zoomSdkSchluesselLoeschen(): void {
+/** Wie zoomZugangLoeschen: `false`, wenn der Schlüssel noch in der (nicht schreibbaren) Einstellungsdatei steht. */
+export function zoomSdkSchluesselLoeschen(): boolean {
   const next = read();
+  const aufPlatte = next.zoomSdkKeyEnc !== undefined;
   delete next.zoomSdkKeyEnc;
-  write(next);
+  const geschrieben = write(next);
   zoomSdkGespeichert = null;
   zoomSdkSitzung = null;
+  return geschrieben || !aufPlatte;
 }

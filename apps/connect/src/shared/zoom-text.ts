@@ -14,6 +14,14 @@ export type ZoomZ =
 
 /** Wie A4, aber ehrlich, wenn der Schlüsselbund da war und nur die Einstellungsdatei nicht schreibbar ist. */
 export const TEXT_A4_SCHREIBFEHLER = 'Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.';
+/**
+ * Kein Spec-Text (Gesamtprüfung 2026-10-06, Muster TEXT_A4_SCHREIBFEHLER): „Entfernen“, wenn die Einstellungsdatei
+ * nicht schreibbar ist. Für diese Sitzung ist der Wert weg, nach einem Neustart gilt er wieder.
+ */
+export const TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT =
+  'Die Zugangsdaten sind nur für diese Sitzung entfernt — die Einstellungsdatei ließ sich nicht schreiben. Nach einem Neustart gelten sie wieder.';
+export const TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT =
+  'Der SDK-Schlüssel ist nur für diese Sitzung entfernt — die Einstellungsdatei ließ sich nicht schreiben. Nach einem Neustart gilt er wieder.';
 
 /** Text A4 (Spec 8.1). Steht hier, weil Karte und Kern ihn beide brauchen; klartext.ts übernimmt ihn. */
 export const TEXT_A4 = 'Nur für diese Sitzung gemerkt — auf diesem Rechner gibt es keinen Schlüsselbund.';

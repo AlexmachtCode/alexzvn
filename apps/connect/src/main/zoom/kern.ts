@@ -40,7 +40,13 @@ import type {
   ZoomSollEintrag,
   ZoomZustand,
 } from '../../shared/types';
-import { stateKvAus, TEXT_A4_SCHREIBFEHLER, type ZoomStateKv } from '../../shared/zoom-text';
+import {
+  stateKvAus,
+  TEXT_A4_SCHREIBFEHLER,
+  TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
+  TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
+  type ZoomStateKv,
+} from '../../shared/zoom-text';
 import {
   KT,
   VORSATZ,
@@ -107,9 +113,10 @@ export interface LaufzeitDienste {
 }
 export interface ZoomKernAbhaengigkeiten {
   pfade: LaufzeitPfade;
-  zugang: { lesen(): ZugangStand; speichern(d: ZugangDaten): 'stored' | 'session'; loeschen(): void };
-  /** Umgebung JMPS_ZOOM_SDK_KEY > gespeichert (safeStorage) > Sitzung; speichern() bekommt den getrimmten Wert. */
-  sdkSchluessel: { lesen(): SdkSchluesselStand; speichern(wert: string): 'stored' | 'session'; loeschen(): void };
+  /** loeschen(): für diese Sitzung immer weg; `false` = steht noch in der Einstellungsdatei (nicht schreibbar). */
+  zugang: { lesen(): ZugangStand; speichern(d: ZugangDaten): 'stored' | 'session'; loeschen(): boolean };
+  /** Umgebung JMPS_ZOOM_SDK_KEY > gespeichert (safeStorage) > Sitzung; speichern() bekommt den getrimmten Wert. loeschen() wie bei zugang. */
+  sdkSchluessel: { lesen(): SdkSchluesselStand; speichern(wert: string): 'stored' | 'session'; loeschen(): boolean };
   einstellungen: {
     anzeigename(): string;
     setzeAnzeigename(n: string): void;
@@ -665,12 +672,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const sperre = einrichtungSperre();
     if (!sperre.ok) return sperre;
     if (zustand === 'fehler') schliessen();
-    d.zugang.loeschen();
+    // false: für diese Sitzung weg, aber noch in der Einstellungsdatei; nach einem Neustart wären sie wieder da.
+    const vonPlatte = d.zugang.loeschen();
     zugangFehler = null;
-    d.log('[zoom] Zugangsdaten entfernt');
+    d.log(vonPlatte ? '[zoom] Zugangsdaten entfernt' : '[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)');
     bestimmeMaengel();
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
-    return { ok: true };
+    return vonPlatte ? { ok: true } : { ok: false, text: TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT };
   }
 
   /** Spec SDK nachladen 4.2: getrimmt, nur druckbare ASCII-Zeichen, sonst S18 (A13). Der Wert geht nie in Log, Abbild oder Rückgabe. */
@@ -706,12 +714,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const sperre = einrichtungSperre();
     if (!sperre.ok) return sperre;
     if (zustand === 'fehler') schliessen();
-    d.sdkSchluessel.loeschen();
+    // false: für diese Sitzung weg, aber noch in der Einstellungsdatei; nach einem Neustart wäre er wieder da.
+    const vonPlatte = d.sdkSchluessel.loeschen();
     sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
     sdkAblehnungVergessen();
-    d.log('[zoom] SDK-Schlüssel entfernt');
+    d.log(vonPlatte ? '[zoom] SDK-Schlüssel entfernt' : '[zoom] SDK-Schlüssel nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)');
     abbildGeaendert();
-    return { ok: true };
+    return vonPlatte ? { ok: true } : { ok: false, text: TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT };
   }
 
   function versatz(e: { ms: number }): ZoomErgebnis {
