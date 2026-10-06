@@ -1495,7 +1495,7 @@ Vom Owner am 06.10.2026 freigegeben. Zusätzlich zur JSON-Datei (6.1, `zugangWae
 **Ablauf (Kern `zugangEintragen({ clientId, clientSecret })`).** Er verhält sich wie `zugangWaehlen`, nur ohne Datei, und teilt sich mit ihm den Schluss in einer privaten Hilfsmethode:
 
 1. Sperre `einrichtungSperre()` (S10); im Zustand `fehler` zuerst `schliessen()`.
-2. Beide Werte werden am Rand getrimmt. Ist danach ein Wert leer oder enthält er Leerraum in der Mitte (Leerzeichen, Tabulator, Zeilenumbruch), lautet die Antwort **A7**. Es wird nichts gespeichert, der Zustand bleibt, A7 steht als Fehlertext der Zugangsdaten im Abbild.
+2. Beide Werte werden am Rand getrimmt. Ist danach ein Wert leer oder enthält er Leerraum in der Mitte (Leerzeichen, Tabulator, Zeilenumbruch), lautet die Antwort **A7**. Es wird nichts gespeichert, der Zustand bleibt. A7 ist ein Eingabefehler: Er steht nur im Ergebnis, nicht im Abbild.
 3. Speichern über `d.zugang.speichern(...)`; Herkunft `stored` oder `session` (A4) wie beim Datei-Weg.
 4. Logzeile ohne jeden Wert: `[zoom] Zugangsdaten hinterlegt (von Hand, verschlüsselt)` bzw. `(von Hand, nur für diese Sitzung)`.
 5. `bestimmeMaengel()` und `setzeZustand(...)` wie beim Datei-Weg.
@@ -1523,5 +1523,8 @@ Weder Client-ID noch Client-Secret stehen je in einer Logzeile, einer Fehlermeld
 - Feld „Client-ID“ (Text) und Feld „Client-Secret“ (verdeckt, Schalter „anzeigen“ wechselt zwischen `password` und `text`); beide ohne Autovervollständigung und Rechtschreibprüfung.
 - Knöpfe „Speichern“ und „Abbrechen“.
 - Erfolg: alles klappt zu, beide Felder sind leer, der Schalter steht wieder auf verdeckt. „Abbrechen“ klappt ebenfalls zu und leert.
-- Fehler (A7, S10 usw.): die Eingabe bleibt offen, die Werte bleiben stehen, der Text erscheint dort, wo die Karte Fehler der Einrichtung zeigt.
+- Fehler (A7, S10 usw.): die Eingabe bleibt offen, die Werte bleiben stehen, der Text erscheint am offenen Formular, bis zum nächsten Speichern, zu „Abbrechen“ oder zum Zuklappen.
+- Die Werte leben nur im State der Eingabe-Komponente und verschwinden bei jedem Zuklappen (auch bei Zustandswechsel oder erfolgreicher Dateiwahl).
 - Der Datei-Weg und „Entfernen“ bleiben unverändert.
+
+**Datenfluss (zu Tabelle 5.7, die unverändert bleibt):** Bei der Handeingabe gehen Client-ID und Client-Secret einmal vom Fenster an den Main-Prozess. Zurück geht nie etwas außer den letzten 4 Zeichen der Client-ID, wie bisher.
