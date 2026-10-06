@@ -87,7 +87,9 @@ const scripts = {
     const names = (process.env.ENV_PROBE_NAMES ?? '').split(',').filter(Boolean);
     const seen = {};
     for (const n of names) seen[n] = Object.prototype.hasOwnProperty.call(process.env, n);
-    say({ ev: 'envprobe', seen });
+    // path: der PATH, den das Kind WIRKLICH bekommt (Stage 4, Spec 12.1 Nr. 4) -
+    // damit prueft JM Connect kindPfad()/pfadVarianten() von der empfangenden Seite.
+    say({ ev: 'envprobe', seen, path: process.env.PATH });
   },
   // Ein Abo, wie es der native Teil meldet: erst steht der Sender, dann
   // fliessen Bilder. Wartet auf den Befehl, damit die Reihenfolge stimmt.
@@ -142,13 +144,40 @@ const scripts = {
   //   FAKE_VERBINDUNG_WEG_MS  so lange nach dem Beitritt: reconnecting, dann
   //                         failed (2 = Wiederverbinden fehlgeschlagen)
   //   FAKE_WIEDERBEITRITT_MS  "Anna" (16778240, OHNE persistentId) geht und kommt
-  //                         als 16778250 zurueck. Laeuft ein Abo auf sie, haengt
-  //                         es sich ueber den Namen um (reboundByName) - in der
-  //                         Reihenfolge von native/callbacks.cpp onUserJoin:
-  //                         ERST joined, DANN das video-Ereignis.
+  //                         als 16778250 zurueck. Beim Weggang wie das Original
+  //                         (native/callbacks.cpp onUserLeft, native/video.cpp
+  //                         videoParticipantLeft): left, dann - falls ein Abo auf
+  //                         ihr laeuft - video black (participantLeft), dann, falls
+  //                         ihr Ton lief, audio off (participantLeft). Das Abo
+  //                         BLEIBT. Bei der Rueckkehr haengt es sich ueber den
+  //                         Namen um (reboundByName), wenn der Name EXAKT gleich
+  //                         und eindeutig ist (je ein Teilnehmer und ein Abo) - in
+  //                         der Reihenfolge von onUserJoin: ERST joined, DANN das
+  //                         video-Ereignis.
   //   FAKE_ABGANG_MS        quit braucht so lange, bevor das Meeting verlassen wird
   //   FAKE_LOGDATEI         jede empfangene Befehlszeile auch in diese Datei
   //                         (fuer den Konsolen-Pruefstand, der stderr nicht sieht)
+  //
+  // Stage 4 (JM Connect, Spec 12.1 Nr. 4):
+  //   FAKE_SDK_FASSUNG      sdkVersion im ready-Ereignis (Vorgabe '7.1.5 (attrappe)');
+  //                         die Connect-Tests setzen immer '7.1.5 (43953)'
+  //   FAKE_NDI_FEHLER=1     direkt nach ready: error where:'ndi' code:'ndiInitFailed',
+  //                         also noch VOR der Antwort auf die Anmeldung (native/main.cpp)
+  //   FAKE_DOPPELNAME=1     der zweite fremde Teilnehmer (16778241) heisst ebenfalls "Anna"
+  //   FAKE_EINLASS_MS       nur mit FAKE_WARTERAUM=1: so lange nach waitingRoom laesst
+  //                         der Host ein - gemessene Folge reconnecting, connecting,
+  //                         inMeeting
+  //   FAKE_EINLASS_HAENGT=1 mit FAKE_EINLASS_MS: nur reconnecting, dann Stille
+  //   FAKE_VERBINDUNG_HAENGT_MS  so lange nach dem Beitritt: reconnecting, dann
+  //                         Stille. Die Attrappe bleibt "im Meeting", quit meldet
+  //                         darum disconnecting und ended
+  //   FAKE_ENTZUG_MS        so lange nach der Erlaubnis entzieht der Host sie:
+  //                         privilege canRecordRaw:false, source:'broadcast'
+  //   FAKE_RUECKKEHR_MS     mit FAKE_WIEDERBEITRITT_MS: Abstand zwischen left und
+  //                         joined (Vorgabe 0 = sofort, wie bisher)
+  //   FAKE_RUECKKEHR_NAME   mit FAKE_WIEDERBEITRITT_MS: Name bei der Rueckkehr
+  //                         (Vorgabe: unveraendert). Weicht er ab, haengt die
+  //                         Attrappe NICHT um - das Abo bleibt schwarz unter 16778240
   //
   // Der Vertrag folgt dem Original: Fehler tragen die Kennung, wo eine gelesen
   // wurde; videoDelay prueft ganze Zahl 0..1000 und bestaetigt den geltenden
@@ -174,7 +203,9 @@ const scripts = {
     let canRecordRaw = false;
     let imMeeting = false;
     let sdkOben = true;
-    const abos = new Map(); // id -> { source, audio, rebindable }
+    // id -> { source, audio, rebindable, name, tonLaeuft }. audio = Ton bestellt
+    // (wie audioOn im Original), tonLaeuft = Ton noch nicht "off" gemeldet.
+    const abos = new Map();
     const logDatei = process.env.FAKE_LOGDATEI;
 
     const abbauen = (grund) => {
@@ -194,7 +225,9 @@ const scripts = {
         // Fuer den Wiederbeitritt OHNE persistentId - der Weg ueber den Namen
         // braucht keine (native/video.cpp, videoParticipantJoined).
         if (i === 0 && wiederbeitritt) ueber.persistentId = '';
-        teilnehmer.set(16778240 + i, person(16778240 + i, namen[i] ?? `Gast ${i}`, ueber));
+        // FAKE_DOPPELNAME: zwei Fremde mit demselben Namen (Spec 4 "Doppelname").
+        const name = i === 1 && process.env.FAKE_DOPPELNAME === '1' ? 'Anna' : (namen[i] ?? `Gast ${i}`);
+        teilnehmer.set(16778240 + i, person(16778240 + i, name, ueber));
       }
       say({ ev: 'roster', list: [...teilnehmer.values()] });
       say({ ev: 'privilege', canRecordRaw: false, source: 'check', requested: true });
@@ -204,6 +237,14 @@ const scripts = {
           say({ ev: 'privilege', canRecordRaw: true, source: 'requestAnswer' });
           if (process.env.FAKE_ABSTURZ_MS) {
             setTimeout(() => process.exit(0xc0000005 | 0), Number(process.env.FAKE_ABSTURZ_MS));
+          }
+          if (process.env.FAKE_ENTZUG_MS) {
+            // Der Host entzieht die Erlaubnis (native/callbacks.cpp
+            // onRecordPrivilegeChanged): ein unaufgeforderter Rundruf.
+            setTimeout(() => {
+              canRecordRaw = false;
+              say({ ev: 'privilege', canRecordRaw: false, source: 'broadcast' });
+            }, Number(process.env.FAKE_ENTZUG_MS));
           }
         }, 50);
       } else if (privileg === 'nein') {
@@ -221,17 +262,39 @@ const scripts = {
           const alt = teilnehmer.get(16778240);
           teilnehmer.delete(16778240);
           say({ ev: 'left', id: 16778240 });
-          const neu = { ...alt, id: 16778250 };
-          teilnehmer.set(neu.id, neu);
-          // ERST joined, DANN das Umhaengen (native/callbacks.cpp onUserJoin).
-          say({ ev: 'joined', p: neu });
-          const a = abos.get(16778240);
-          if (a) {
-            abos.delete(16778240);
-            abos.set(neu.id, a);
-            say({ ev: 'video', id: neu.id, state: 'subscribed', source: a.source, reason: 'reboundByName', rebindable: a.rebindable });
-            if (a.audio) say({ ev: 'audio', id: neu.id, state: 'waiting', reason: 'command' });
+          // Wie native/video.cpp videoParticipantLeft: das Abo BLEIBT (die Quelle
+          // darf nicht wegbrechen), das Bild wird schwarz, der Ton endet - aber
+          // nur, wenn er noch lief.
+          const weg = abos.get(16778240);
+          if (weg) {
+            say({ ev: 'video', id: 16778240, state: 'black', source: weg.source, reason: 'participantLeft', rebindable: weg.rebindable });
+            if (weg.tonLaeuft) {
+              weg.tonLaeuft = false;
+              say({ ev: 'audio', id: 16778240, state: 'off', reason: 'participantLeft' });
+            }
           }
+          const rueckkehr = () => {
+            const neu = { ...alt, id: 16778250, name: process.env.FAKE_RUECKKEHR_NAME ?? alt.name };
+            teilnehmer.set(neu.id, neu);
+            // ERST joined, DANN das Umhaengen (native/callbacks.cpp onUserJoin).
+            say({ ev: 'joined', p: neu });
+            // Umhaengen nur bei EXAKT gleichem Namen, der unter den Teilnehmern
+            // UND unter den Abos genau einmal vorkommt (native/video.cpp:1305-1316).
+            const gleichnamigeTeilnehmer = [...teilnehmer.values()].filter((p) => p.name === neu.name).length;
+            const kandidaten = [...abos].filter(([id, a]) => id !== neu.id && a.name === neu.name);
+            if (gleichnamigeTeilnehmer === 1 && kandidaten.length === 1) {
+              const [altId, a] = kandidaten[0];
+              abos.delete(altId);
+              abos.set(neu.id, a);
+              a.tonLaeuft = a.audio;
+              say({ ev: 'video', id: neu.id, state: 'subscribed', source: a.source, reason: 'reboundByName', rebindable: a.rebindable });
+              // Grund wie das Original (native/video.cpp:1491): der Umhaenge-Grund.
+              if (a.audio) say({ ev: 'audio', id: neu.id, state: 'waiting', reason: 'reboundByName' });
+            }
+          };
+          const rueckkehrMs = Number(process.env.FAKE_RUECKKEHR_MS ?? '0');
+          if (rueckkehrMs > 0) setTimeout(rueckkehr, rueckkehrMs);
+          else rueckkehr();
         }, Number(wiederbeitritt));
       }
       if (process.env.FAKE_MEETING_ENDE_MS) {
@@ -252,12 +315,29 @@ const scripts = {
           }, 50);
         }, Number(process.env.FAKE_VERBINDUNG_WEG_MS));
       }
+      if (process.env.FAKE_VERBINDUNG_HAENGT_MS) {
+        // Zoom verbindet neu und kommt nie an: reconnecting, dann Stille.
+        // imMeeting bleibt true - quit verlaesst darum das Meeting (disconnecting, ended).
+        setTimeout(() => {
+          say({ ev: 'status', status: 'reconnecting', raw: 7, code: 0 });
+        }, Number(process.env.FAKE_VERBINDUNG_HAENGT_MS));
+      }
     };
 
     const beitreten = () => {
       say({ ev: 'status', status: 'connecting', raw: 1, code: 0 });
       if (process.env.FAKE_WARTERAUM === '1') {
         say({ ev: 'status', status: 'waitingRoom', raw: 8, code: 0 });
+        if (process.env.FAKE_EINLASS_MS) {
+          // Der Host laesst ein. GEMESSEN (Owner-Abnahme): reconnecting,
+          // connecting, inMeeting (Spec 3.2-19).
+          setTimeout(() => {
+            say({ ev: 'status', status: 'reconnecting', raw: 7, code: 0 });
+            if (process.env.FAKE_EINLASS_HAENGT === '1') return; // und dann Stille
+            say({ ev: 'status', status: 'connecting', raw: 1, code: 0 });
+            imMeetingAnkommen();
+          }, Number(process.env.FAKE_EINLASS_MS));
+        }
         return; // und dann Stille - bis jemand einlaesst oder wir gehen
       }
       if (process.env.FAKE_BEITRITT_SCHEITERT) {
@@ -295,7 +375,10 @@ const scripts = {
         if (process.env.FAKE_INIT_FEHLER === '1') {
           sdkOben = false;
           say({ ev: 'error', where: 'init', code: 2 });
-        } else say({ ev: 'ready', sdkVersion: '7.1.5 (attrappe)' });
+        } else {
+          say({ ev: 'ready', sdkVersion: process.env.FAKE_SDK_FASSUNG ?? '7.1.5 (attrappe)' });
+          if (process.env.FAKE_NDI_FEHLER === '1') say({ ev: 'error', where: 'ndi', code: 'ndiInitFailed' });
+        }
       } else if (c.cmd === 'auth') {
         if (!sdkOben) say({ ev: 'error', where: 'auth', code: 7 });
         else if (process.env.FAKE_AUTH_SOFORTFEHLER) say({ ev: 'error', where: 'auth', code: Number(process.env.FAKE_AUTH_SOFORTFEHLER) });
@@ -316,7 +399,7 @@ const scripts = {
         // Wie emitVideo() in native/video.cpp: umhaengbar ueber die persistentId
         // nur, wenn sie nicht leer ist.
         const rebindable = teilnehmer.get(c.id).persistentId !== '';
-        abos.set(c.id, { source, audio, rebindable });
+        abos.set(c.id, { source, audio, rebindable, name: teilnehmer.get(c.id).name, tonLaeuft: audio });
         say({ ev: 'video', id: c.id, state: 'subscribed', source, reason: 'command', rebindable });
         say({ ev: 'audio', id: c.id, state: audio ? 'waiting' : 'off', reason: 'command' });
       } else if (c.cmd === 'videoUnsubscribe') {

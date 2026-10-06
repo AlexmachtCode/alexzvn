@@ -12,10 +12,14 @@ import { startControlServer, stopControlServer } from './control-server';
 import { createTray, destroyTray, setTrayStatus } from './tray';
 import { handleShowDeepLink } from './show-open';
 import { startPresenterLink, stopPresenterLink } from './presenter-link';
+import { startZoom, zoomBeenden, zoomGastLabelsGeaendert, zoomLaeuft, zoomVerlassen } from './zoom';
+import { BEENDEN_FRIST_MS } from './zoom/kern';
 
 declare const __dirname: string;
 
 let isQuitting = false;
+/** Zoom ist abgebaut (Spec 6.6): der zweite before-quit-Durchlauf räumt den Rest ab. */
+let zoomAbgebaut = false;
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence. Ein Show-Deep-Link liefert
 // die Sprecher-Liste der Veranstaltung (iveo, Welle 6.3b) → Join-Links/QR mit einem Klick.
@@ -54,6 +58,9 @@ function createWindow(): BrowserWindow {
       win.hide();
     }
   });
+  // Windows-Abmeldung oder Herunterfahren: das Zoom-Meeting noch sauber verlassen (Spec 6.6).
+  // Ob Windows so lange wartet, ist ungemessen (Spec 17.1).
+  win.on('session-end', () => void zoomBeenden(BEENDEN_FRIST_MS));
   return win;
 }
 
@@ -78,7 +85,14 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
 
     // Versteckter WebRTC-Peer (Medien) — vor dem NDI-Pool, der ihm Frame-Ports gibt.
     createPeerWindow(preloadPath);
-    initNdiGuests({ getPeer: () => getPeerWindow(), onChange: () => notifyStatusChanged() });
+    // Gast-Sender ändern sich → Status pushen und die Kollisionsprüfung Gast ↔ Zoom neu rechnen (Spec 6.3).
+    initNdiGuests({
+      getPeer: () => getPeerWindow(),
+      onChange: () => {
+        notifyStatusChanged();
+        zoomGastLabelsGeaendert();
+      },
+    });
     // Programm-Rückkanal-Empfang (Welle 6.2a): Status-Änderungen an die Operator-UI/Tray.
     initNdiProgram({ getPeer: () => getPeerWindow(), onStatus: () => notifyStatusChanged() });
 
@@ -87,6 +101,10 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
       getPeer: () => getPeerWindow(),
       onStatusChange: (s) => setTrayStatus(s),
     });
+
+    // Zoom (Stage 4, nur Windows) – unabhängig vom Cloud-Raum (E4). Jede Änderung der Kurzform geht
+    // als AppStatus an Tray und Kopfzeile.
+    startZoom({ getWindow: () => getMainWindow(), logDir: runtime.logDir, onKurz: () => notifyStatusChanged() });
 
     // Folien-Kopplung (6.3c): JM Presenter im LAN suchen, damit ein freigegebener Remote-Sprecher
     // seine Folien selbst weiterblättern kann.
@@ -110,6 +128,7 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
         isQuitting = true;
         app.quit();
       },
+      onZoomVerlassen: () => zoomVerlassen(),
     });
     setTrayStatus(currentStatus());
 
@@ -121,8 +140,20 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     // absichtlich leer: Hintergrundbetrieb via Tray
   });
 
-  app.on('before-quit', () => {
+  // Spec 6.1/6.6: Läuft Zoom (Kopie, Prüfung oder Bridge), wartet das Beenden höchstens
+  // BEENDEN_FRIST_MS darauf, dass die Kopie abbricht und `.teil` löscht bzw. die Bridge das Meeting
+  // verlässt; erst der zweite Durchlauf räumt ab.
+  app.on('before-quit', (e) => {
     isQuitting = true;
+    if (!zoomAbgebaut && zoomLaeuft()) {
+      e.preventDefault();
+      // Ein zweiter Aufruf während des Wartens bekommt dasselbe Versprechen (kern.beenden).
+      void zoomBeenden(BEENDEN_FRIST_MS).finally(() => {
+        zoomAbgebaut = true;
+        app.quit();
+      });
+      return;
+    }
     tearDownAll();
     stopProgram();
     destroyPeerWindow();

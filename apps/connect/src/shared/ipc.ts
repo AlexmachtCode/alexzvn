@@ -37,6 +37,43 @@ export const IPC = {
   audit: 'jmc:audit',
   /** send (Renderer → Main): Folie im JM Presenter blättern (Control-Plane, Welle 6.3c). */
   slideCue: 'jmc:slide-cue',
+
+  // ── Zoom (Stage 4a, Spec 5.5). Der Kenncode geht nur mit zoomBeitreten in den Main und kommt nie
+  // zurück. `zoomAbbrechen` (Wiederbeitritt abbrechen) kommt erst mit Plan 4b.
+  /** invoke (Renderer → Main): aktuelles Zoom-Abbild → ZoomAbbild. */
+  zoomGet: 'jmc:zoom-get',
+  /** push (Main → Renderer): Zoom-Abbild (höchstens alle 100 ms). */
+  zoom: 'jmc:zoom',
+  /** invoke: Ordner-Dialog, dann SDK prüfen und kopieren → ZoomErgebnis. */
+  zoomSdkWaehlen: 'jmc:zoom-sdk-waehlen',
+  /** invoke: Datei-Dialog für die Zugangsdaten → ZoomErgebnis. */
+  zoomZugangWaehlen: 'jmc:zoom-zugang-waehlen',
+  /** invoke: hinterlegte Zugangsdaten entfernen → ZoomErgebnis (gesperrt wie die Wahl, S10). */
+  zoomZugangLoeschen: 'jmc:zoom-zugang-loeschen',
+  /** invoke: „Einrichtung prüfen“ (anmelden ohne Meeting) → ZoomErgebnis; das Ergebnis steht auch als Meldung im Abbild. */
+  zoomPruefen: 'jmc:zoom-pruefen',
+  /** invoke: { nummer, kenncode, anzeigename } → ZoomErgebnis. */
+  zoomBeitreten: 'jmc:zoom-beitreten',
+  /** invoke: Meeting verlassen (auch Tray „Zoom-Meeting verlassen“) → void. */
+  zoomVerlassen: 'jmc:zoom-verlassen',
+  /** invoke: { id, ton, trotzBetriebsgroesse } → ZoomErgebnis. */
+  zoomLaden: 'jmc:zoom-laden',
+  /** invoke: { aboId } → ZoomErgebnis. */
+  zoomEntladen: 'jmc:zoom-entladen',
+  /** invoke: { id, an } → ZoomErgebnis (Ton-Vorwahl, nur ohne Quelle). */
+  zoomTon: 'jmc:zoom-ton',
+  /** invoke: { name } → void (gemerkte Quelle vergessen). */
+  zoomSollVerwerfen: 'jmc:zoom-soll-verwerfen',
+  /** invoke: { ms } → ZoomErgebnis (Bild-Versatz). */
+  zoomVersatz: 'jmc:zoom-versatz',
+  /** invoke: Beitritt mit den Daten im Arbeitsspeicher → ZoomErgebnis. */
+  zoomErneut: 'jmc:zoom-erneut',
+  /** invoke: Meldung weg, Nummer, Kenncode und gemerkte Quellen leeren → void. */
+  zoomSchliessen: 'jmc:zoom-schliessen',
+  /** invoke: Meldung quittieren → void. */
+  zoomMeldungWeg: 'jmc:zoom-meldung-weg',
+  /** invoke: Connect-Logordner im Explorer öffnen → void. */
+  zoomLogordner: 'jmc:zoom-logordner',
 } as const;
 
 /** Interner Kanal Main → versteckter Peer-Renderer: Frame-Port für einen Gast. */

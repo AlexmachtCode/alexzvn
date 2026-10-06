@@ -4,3 +4,6 @@
 # `git add -A` knapp 30 MB Fremd-Binaries in den nächsten Commit.
 # Die Wurzel-.gitignore deckt node_modules/out/release bereits ab.
 resources/bin/
+# Von tools/bundle-zoom-bridge.mjs vor dem Packen gestaged (Spec Stage 4, 10.2):
+# zoom-bridge.exe und die Visual-C++-Laufzeit. Gebaut bzw. aus Visual Studio kopiert.
+resources/zoom-bridge/

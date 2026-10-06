@@ -13,6 +13,9 @@
     "isolatedModules": true,
     "noEmit": true,
     "allowSyntheticDefaultImports": true,
+    // Die Zoom-Bridge (@jm/zoom-bridge) exportiert .ts-Quellen und importiert intern mit
+    // `.ts`-Endung (packages/zoom-bridge/src/index.ts). Präzedenz: apps/interpreter/tsconfig.node.json.
+    "allowImportingTsExtensions": true,
     "paths": {
       "@shared/*": ["./src/shared/*"]
     }
@@ -22,6 +25,7 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/utility/**/*.ts",
-    "src/shared/**/*.ts"
+    "src/shared/**/*.ts",
+    "test/**/*.ts"
   ]
 }

@@ -431,6 +431,67 @@ export function authResultName(code: number): string {
 // --- Status und sein Code ---------------------------------------------------
 // onMeetingStatusChanged liefert in iResult ZWEI verschiedene Aufzaehlungen:
 // MeetingFailCode bei FAILED, EndMeetingReason bei ENDED. Sonst nichts Verwertbares.
+
+// Woertlich aus meeting_service_interface.h (enum MeetingFailCode, SDK 7.1.5.43953,
+// x64\zoom_sdk_c_sharp_wrap\h, Zeilen 57-150): ALLE 46 Werte, auch die hinter den
+// Luecken der Zaehlung. JM Connect nennt den Namen in meldung.detail, etwa
+// "MEETING_FAIL_UNABLE_TO_JOIN_EXTERNAL_MEETING (63)" - nie im grossen Text.
+export const FAIL_CODE_NAMES: Record<number, string> = {
+  0: 'MEETING_SUCCESS',
+  1: 'MEETING_FAIL_CONNECTION_ERR',
+  2: 'MEETING_FAIL_RECONNECT_ERR',
+  3: 'MEETING_FAIL_MMR_ERR',
+  4: 'MEETING_FAIL_PASSWORD_ERR',
+  5: 'MEETING_FAIL_SESSION_ERR',
+  6: 'MEETING_FAIL_MEETING_OVER',
+  7: 'MEETING_FAIL_MEETING_NOT_START',
+  8: 'MEETING_FAIL_MEETING_NOT_EXIST',
+  9: 'MEETING_FAIL_MEETING_USER_FULL',
+  10: 'MEETING_FAIL_CLIENT_INCOMPATIBLE',
+  11: 'MEETING_FAIL_NO_MMR',
+  12: 'MEETING_FAIL_CONFLOCKED',
+  13: 'MEETING_FAIL_MEETING_RESTRICTED',
+  14: 'MEETING_FAIL_MEETING_RESTRICTED_JBH',
+  15: 'MEETING_FAIL_CANNOT_EMIT_WEBREQUEST',
+  16: 'MEETING_FAIL_CANNOT_START_TOKENEXPIRE',
+  17: 'SESSION_VIDEO_ERR',
+  18: 'SESSION_AUDIO_AUTOSTARTERR',
+  19: 'MEETING_FAIL_REGISTERWEBINAR_FULL',
+  20: 'MEETING_FAIL_REGISTERWEBINAR_HOSTREGISTER',
+  21: 'MEETING_FAIL_REGISTERWEBINAR_PANELISTREGISTER',
+  22: 'MEETING_FAIL_REGISTERWEBINAR_DENIED_EMAIL',
+  23: 'MEETING_FAIL_ENFORCE_LOGIN',
+  24: 'CONF_FAIL_ZC_CERTIFICATE_CHANGED',
+  27: 'CONF_FAIL_VANITY_NOT_EXIST',
+  28: 'CONF_FAIL_JOIN_WEBINAR_WITHSAMEEMAIL',
+  29: 'CONF_FAIL_DISALLOW_HOST_MEETING',
+  50: 'MEETING_FAIL_WRITE_CONFIG_FILE',
+  60: 'MEETING_FAIL_FORBID_TO_JOIN_INTERNAL_MEETING',
+  61: 'CONF_FAIL_REMOVED_BY_HOST',
+  62: 'MEETING_FAIL_HOST_DISALLOW_OUTSIDE_USER_JOIN',
+  63: 'MEETING_FAIL_UNABLE_TO_JOIN_EXTERNAL_MEETING',
+  64: 'MEETING_FAIL_BLOCKED_BY_ACCOUNT_ADMIN',
+  82: 'MEETING_FAIL_NEED_SIGN_IN_FOR_PRIVATE_MEETING',
+  88: 'MEETING_FAIL_NEED_CONFIRM_PLINK',
+  89: 'MEETING_FAIL_NEED_INPUT_PLINK',
+  500: 'MEETING_FAIL_APP_PRIVILEGE_TOKEN_ERROR',
+  501: 'MEETING_FAIL_AUTHORIZED_USER_NOT_INMEETING',
+  502: 'MEETING_FAIL_ON_BEHALF_TOKEN_CONFLICT_LOGIN_ERROR',
+  503: 'MEETING_FAIL_USER_LEVEL_TOKEN_NOT_HAVE_HOST_ZAK_OBF',
+  504: 'MEETING_FAIL_APP_CAN_NOT_ANONYMOUS_JOIN_MEETING',
+  505: 'MEETING_FAIL_ON_BEHALF_TOKEN_INVALID',
+  506: 'MEETING_FAIL_ON_BEHALF_TOKEN_NOT_MATCH_MEETING',
+  1143: 'MEETING_FAIL_JMAK_USER_EMAIL_NOT_MATCH',
+  0xffff: 'MEETING_FAIL_UNKNOWN',
+};
+
+export function failCodeName(code: number): string {
+  // Wie sdkErrorName: NIE auf den naechstaehnlichen runden.
+  return FAIL_CODE_NAMES[code] ?? `MEETING_FAIL_CODE_${code}`;
+}
+
+// Deutsche Gruende, ohne Vorsatz. 11 fehlte bis Stage 4 ("Fehlerschluessel 11"),
+// 14-16, 23, 60-64, 82, 88, 89 und 500-506 kamen mit Stage 4 dazu (Spec 5.1).
 const FAIL_CODES: Record<number, string> = {
   1: 'Verbindungsfehler',
   2: 'Wiederverbinden fehlgeschlagen',
@@ -442,8 +503,28 @@ const FAIL_CODES: Record<number, string> = {
   8: 'dieses Meeting gibt es nicht',
   9: 'das Meeting ist voll',
   10: 'Client zu alt',
+  11: 'kein Medienserver gefunden',
   12: 'das Meeting ist gesperrt',
   13: 'das Meeting ist eingeschraenkt',
+  14: 'das Meeting ist eingeschraenkt (Beitritt vor dem Gastgeber)',
+  15: 'Web-Anfrage nicht gesendet',
+  16: 'Anmelde-Token abgelaufen',
+  23: 'Anmeldung mit Zoom-Konto verlangt',
+  60: 'internes Meeting, Beitritt nicht erlaubt',
+  61: 'vom Gastgeber entfernt',
+  62: 'Gastgeber laesst niemanden von ausserhalb zu',
+  63: 'Meeting eines fremden Zoom-Kontos',
+  64: 'vom Administrator des Gastgeber-Kontos gesperrt',
+  82: 'Anmeldung mit dem Konto des Veranstalters verlangt',
+  88: 'Meeting-Link nicht eindeutig',
+  89: 'Meeting-Link im Konto nicht vorhanden',
+  500: 'Fehler im Beitritts-Token der App',
+  501: 'berechtigter Nutzer nicht im Meeting',
+  502: 'OBF-Token widerspricht der Anmeldung',
+  503: 'Nutzer-Token ohne ZAK/OBF des Gastgebers',
+  504: 'App darf nicht anonym beitreten',
+  505: 'OBF-Token ungueltig',
+  506: 'OBF-Token passt nicht zum Meeting',
   0xffff: 'unbekannter Grund',
 };
 
@@ -458,6 +539,20 @@ const END_REASONS: Record<number, string> = {
   7: 'undefiniert',
   8: 'der berechtigte Nutzer hat das Meeting verlassen',
 };
+
+/**
+ * Der deutsche Grund zu einem MeetingFailCode, OHNE Vorsatz - fuer Klartexte, die
+ * ihren eigenen Vorsatz tragen ("Beitritt gescheitert: ", Spec 8.3). explainStatus()
+ * setzt "gescheitert: " davor und taugt dafuer nicht.
+ */
+export function failReason(code: number): string {
+  return FAIL_CODES[code] ?? 'unbekannter Grund';
+}
+
+/** Der deutsche Grund zu einem EndMeetingReason, OHNE Vorsatz (Gegenstueck zu failReason). */
+export function endReason(code: number): string {
+  return END_REASONS[code] ?? `Grund ${code}`;
+}
 
 export function explainStatus(status: MeetingStatusName, code: number): string {
   if (status === 'failed') return `gescheitert: ${FAIL_CODES[code] ?? `Fehlerschluessel ${code}`}`;

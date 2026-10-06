@@ -8,13 +8,14 @@
     ".": "./src/index.ts",
     "./protocol": "./src/protocol.ts",
     "./state": "./src/state.ts",
-    "./jwt": "./src/jwt.ts"
+    "./jwt": "./src/jwt.ts",
+    "./sdk": "./src/sdk.ts"
   },
   "scripts": {
     "install": "node scripts/maybe-build.mjs",
     "rebuild": "node scripts/make-implib.mjs && cmake -S . -B build -A x64 && cmake --build build --config Release",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "selftest": "node --experimental-strip-types test/selftest.ts",
+    "selftest": "node --experimental-strip-types test/selftest.ts && node test/auslieferung.test.mjs",
     "delay-test": "cmake --build build --config Release --target delay-line-test && build\\Release\\delay-line-test.exe",
     "join": "node test/join.mjs",
     "release:build": "node scripts/build-release.mjs",

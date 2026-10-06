@@ -7,6 +7,10 @@ import {
   authResultName,
   enrich,
   explainStatus,
+  endReason,
+  failCodeName,
+  failReason,
+  FAIL_CODE_NAMES,
   normalizeMeetingId,
   parseWireEvent,
   sdkErrorName,
@@ -22,9 +26,17 @@ import {
   type WireEvent,
 } from '../src/protocol.ts';
 import { withNdiRuntimeOnPath } from '../src/ndi-path.ts';
+import { PE_MASCHINE_X64, PE_MASCHINE_X86, SDK_FASSUNG, SDK_FASSUNG_BRIDGE, findeSdkBin, peInfo } from '../src/sdk.ts';
+import * as paket from '../src/index.ts';
+import type {
+  AudioReason as PaketAudioReason,
+  AudioState as PaketAudioState,
+  VideoReason as PaketVideoReason,
+  VideoState as PaketVideoState,
+} from '../src/index.ts';
 import { tmpdir } from 'node:os';
 import { delimiter } from 'node:path';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, unlinkSync } from 'node:fs';
 
 let failures = 0;
 function assert(cond: boolean, name: string): void {
@@ -34,6 +46,21 @@ function assert(cond: boolean, name: string): void {
     console.error(`FAIL  ${name}`);
   }
 }
+
+// Ein eigener Temp-Ordner JE LAUF fuer die Zugangsdaten-Dateien unten. Frueher hiessen sie
+// `${tmpdir()}/zoom-test-${Date.now()}-…` direkt in %TEMP%: zwei gleichzeitige Laeufe (z. B.
+// zwei Worktrees) trafen dieselbe Millisekunde, der eine loeschte die Datei des anderen.
+// GEMESSEN (Schliff S2, 10 Paare parallel): 4 von 20 Laeufen rot - dreimal Absturz in
+// unlinkSync (ENOENT), einmal FAIL "UTF-16 BE mit BOM (FE FF): wird gelesen wie ohne BOM".
+// `join` kommt aus dem Import weiter unten (Importe gelten im ganzen Modul).
+const testTemp = mkdtempSync(join(tmpdir(), 'jm-bridge-test-'));
+process.on('exit', () => {
+  try {
+    rmSync(testTemp, { recursive: true, force: true });
+  } catch {
+    // Aufraeumen darf das Ergebnis nicht aendern; ein liegengebliebener Ordner stoert keinen Lauf.
+  }
+});
 
 function decodePart(part: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
@@ -93,7 +120,7 @@ console.log('readCredentials — Umgebung und Datei:');
     // Dateiweg mit clientId/clientSecret
     delete process.env.ZOOM_SDK_CLIENT_ID;
     delete process.env.ZOOM_SDK_CLIENT_SECRET;
-    const tempFile1 = `${tmpdir()}/zoom-test-${Date.now()}-1.json`;
+    const tempFile1 = join(testTemp, 'zugang-1.json');
     writeFileSync(tempFile1, JSON.stringify({ clientId: 'file-clientid', clientSecret: 'file-secret' }), 'utf8');
     process.env.ZOOM_SDK_CREDENTIALS = tempFile1;
     creds = readCredentials();
@@ -101,7 +128,7 @@ console.log('readCredentials — Umgebung und Datei:');
     unlinkSync(tempFile1);
 
     // Namensvarianten client_id/client_secret
-    const tempFile2 = `${tmpdir()}/zoom-test-${Date.now()}-2.json`;
+    const tempFile2 = join(testTemp, 'zugang-2.json');
     writeFileSync(tempFile2, JSON.stringify({ client_id: 'alt-clientid', client_secret: 'alt-secret' }), 'utf8');
     process.env.ZOOM_SDK_CREDENTIALS = tempFile2;
     creds = readCredentials();
@@ -109,7 +136,7 @@ console.log('readCredentials — Umgebung und Datei:');
     unlinkSync(tempFile2);
 
     // Namensvarianten appKey/sdkSecret
-    const tempFile3 = `${tmpdir()}/zoom-test-${Date.now()}-3.json`;
+    const tempFile3 = join(testTemp, 'zugang-3.json');
     writeFileSync(tempFile3, JSON.stringify({ appKey: 'app-key', sdkSecret: 'sdk-secret' }), 'utf8');
     process.env.ZOOM_SDK_CREDENTIALS = tempFile3;
     creds = readCredentials();
@@ -119,7 +146,7 @@ console.log('readCredentials — Umgebung und Datei:');
     // Vorrang: Umgebung gewinnt ueber Datei
     process.env.ZOOM_SDK_CLIENT_ID = 'env-wins';
     process.env.ZOOM_SDK_CLIENT_SECRET = 'env-wins-secret';
-    const tempFile4 = `${tmpdir()}/zoom-test-${Date.now()}-4.json`;
+    const tempFile4 = join(testTemp, 'zugang-4.json');
     writeFileSync(tempFile4, JSON.stringify({ clientId: 'file-loses', clientSecret: 'file-loses-secret' }), 'utf8');
     process.env.ZOOM_SDK_CREDENTIALS = tempFile4;
     creds = readCredentials();
@@ -169,7 +196,7 @@ console.log('\nreadCredentials — eine uebergebene Umgebung statt process.env:'
     const creds = readCredentials({ ZOOM_SDK_CLIENT_ID: 'uebergeben', ZOOM_SDK_CLIENT_SECRET: 'uebergeben-secret' });
     assert(creds.clientId === 'uebergeben' && creds.clientSecret === 'uebergeben-secret', 'die uebergebene Umgebung wird gelesen, nicht process.env');
 
-    const tempFile = `${tmpdir()}/zoom-test-${Date.now()}-env.json`;
+    const tempFile = join(testTemp, 'zugang-env.json');
     writeFileSync(tempFile, JSON.stringify({ clientId: 'datei-id', client_secret: 'datei-secret' }), 'utf8');
     const ausDatei = readCredentials({ ZOOM_SDK_CREDENTIALS: tempFile });
     unlinkSync(tempFile);
@@ -187,7 +214,7 @@ console.log('\nreadCredentials — eine uebergebene Umgebung statt process.env:'
     // AUSSCHNITT DER EINGABE ('..."tSecret": GEHEIM-xyz"... is not valid
     // JSON'). Die Steuerung druckt e.message - eine kaputte Zugangsdaten-Datei
     // braechte so das Secret auf den Schirm des Operators.
-    const kaputtDatei = `${tmpdir()}/zoom-test-${Date.now()}-kaputt.json`;
+    const kaputtDatei = join(testTemp, 'zugang-kaputt.json');
     writeFileSync(kaputtDatei, '{"clientId": "id-ok", "clientSecret": GEHEIM-xyz}', 'utf8');
     let meldung = '';
     try {
@@ -221,7 +248,7 @@ console.log('\nreadCredentials — Datei mit BOM (UTF-8 mit BOM, UTF-16):');
     ['UTF-16 BE mit BOM (FE FF)', Buffer.concat([Buffer.from([0xfe, 0xff]), be])],
   ];
   for (const [name, inhalt] of varianten) {
-    const datei = `${tmpdir()}/zoom-test-${Date.now()}-bom.json`;
+    const datei = join(testTemp, 'zugang-bom.json');
     writeFileSync(datei, inhalt);
     let ergebnis = '';
     try {
@@ -2034,6 +2061,333 @@ console.log('\nsteuerung — der bestaetigte Versatz wird SOFORT weitergegeben:'
   assert(versatz.length === 1, '... und gibt keinen Wert weiter');
   t.tippe('ende');
   await t.lauf;
+}
+
+// --- Stage 4: SDK-Fassung, PE-Leser, SDK-Ordnersuche (Spec 12.1 Nr. 1-2) -------
+
+console.log('\nsdk — Fassung, PE-Leser, SDK-Ordnersuche (Stage 4):');
+{
+  /**
+   * Kleinste PE-Datei, die peInfo lesen kann: "MZ", e_lfanew = 0x80, dort
+   * "PE\0\0" und der Maschinentyp; mit `fassung` zusaetzlich VS_FIXEDFILEINFO
+   * (Signatur BD 04 EF FE bei 0x100, dwFileVersionMS bei 0x108, LS bei 0x10c).
+   */
+  function machePe(maschine: number, fassung: [number, number, number, number] | null): Uint8Array {
+    const buf = new Uint8Array(0x200);
+    const dv = new DataView(buf.buffer);
+    buf.set([0x4d, 0x5a], 0);
+    dv.setUint32(0x3c, 0x80, true);
+    buf.set([0x50, 0x45, 0, 0], 0x80);
+    dv.setUint16(0x84, maschine, true);
+    if (fassung) {
+      const [a, b, c, d] = fassung;
+      buf.set([0xbd, 0x04, 0xef, 0xfe], 0x100);
+      dv.setUint32(0x108, ((a << 16) | b) >>> 0, true);
+      dv.setUint32(0x10c, ((c << 16) | d) >>> 0, true);
+    }
+    return buf;
+  }
+  /** Meldung des geworfenen Fehlers, '' wenn nichts geworfen wurde. */
+  const wirft = (f: () => unknown): string => {
+    try {
+      f();
+      return '';
+    } catch (e) {
+      return (e as Error).message;
+    }
+  };
+
+  assert(SDK_FASSUNG === '7.1.5.43953', 'SDK_FASSUNG ist 7.1.5.43953');
+  assert(SDK_FASSUNG_BRIDGE === '7.1.5 (43953)', 'SDK_FASSUNG_BRIDGE ist "7.1.5 (43953)" (so meldet es ready.sdkVersion)');
+  assert(PE_MASCHINE_X64 === 0x8664 && PE_MASCHINE_X86 === 0x014c, 'Maschinentypen: x64 = 0x8664, x86 = 0x014c');
+
+  const x64 = peInfo(machePe(0x8664, [7, 1, 5, 43953]));
+  assert(x64.maschine === 'x64' && x64.maschinenTyp === 0x8664 && x64.fassung === '7.1.5.43953', 'x64 + 7.1.5.43953 wird erkannt');
+  const x86 = peInfo(machePe(0x014c, [7, 1, 5, 43953]));
+  assert(x86.maschine === 'x86' && x86.maschinenTyp === 0x014c, '0x014c ist x86 (32-Bit-SDK, Text S2)');
+  const arm = peInfo(machePe(0xaa64, null));
+  assert(arm.maschine === 'andere' && arm.maschinenTyp === 0xaa64, 'ein anderer Maschinentyp heisst "andere" und behaelt seinen Wert');
+  assert(peInfo(machePe(0x8664, null)).fassung === null, 'ohne Versionsressource: fassung null (Text S3b)');
+  assert(peInfo(machePe(0x8664, [65535, 2, 65535, 4])).fassung === '65535.2.65535.4', 'Fassungsteile ueber 32767 werden vorzeichenlos gelesen');
+
+  // Ein Buffer aus readFileSync ist oft ein Ausschnitt mit byteOffset > 0: peInfo
+  // muss ab dem Anfang DIESER Datei lesen, nicht ab dem Anfang des Speichers.
+  const roh = machePe(0x8664, [7, 1, 5, 43953]);
+  const versetzt = new Uint8Array(roh.length + 7);
+  versetzt.set(roh, 7);
+  assert(peInfo(versetzt.subarray(7)).fassung === '7.1.5.43953', 'ein Ausschnitt mit byteOffset wird richtig gelesen');
+
+  const ohnePe = machePe(0x8664, [7, 1, 5, 43953]);
+  ohnePe.set([0x50, 0x58], 0x80); // "PX\0\0"
+  assert(wirft(() => peInfo(ohnePe)) === 'Keine PE-Datei (Signatur PE\\0\\0 fehlt).', 'ohne "PE\\0\\0": Fehler mit fester Meldung');
+  assert(wirft(() => peInfo(new Uint8Array(0x20))) !== '', 'ein 0x20-Byte-Puffer wirft');
+  const zuWeit = machePe(0x8664, null);
+  new DataView(zuWeit.buffer).setUint32(0x3c, 0x1fe, true);
+  assert(wirft(() => peInfo(zuWeit)) !== '', 'e_lfanew hinter dem Dateiende wirft');
+
+  // findeSdkBin: der Bediener waehlt die SDK-Wurzel, x64 oder x64\bin (Spec 6.1 Schritt 3).
+  const w = join(tmpdir(), 'jm-sdk-probe');
+  const bin = join(w, 'x64', 'bin');
+  const da = (...pfade: string[]) => {
+    const s = new Set(pfade);
+    return (p: string) => s.has(p);
+  };
+  const nurBin = da(join(bin, 'sdk.dll'));
+  assert(findeSdkBin(w, nurBin) === bin, 'Wurzel gewaehlt -> x64\\bin');
+  assert(findeSdkBin(join(w, 'x64'), nurBin) === bin, 'x64 gewaehlt -> x64\\bin');
+  assert(findeSdkBin(bin, nurBin) === bin, 'x64\\bin gewaehlt -> derselbe Ordner');
+  assert(findeSdkBin(join(w, 'leer'), da()) === null, 'leerer Ordner -> null (Text S1)');
+  assert(findeSdkBin(w, da(join(w, 'sdk.dll'), join(bin, 'sdk.dll'))) === w, 'Reihenfolge: sdk.dll direkt im gewaehlten Ordner gewinnt');
+
+  // Die oeffentliche Flaeche: src/index.ts und der Paket-Export "./sdk".
+  assert(paket.SDK_FASSUNG === SDK_FASSUNG && paket.SDK_FASSUNG_BRIDGE === SDK_FASSUNG_BRIDGE,
+    'src/index.ts exportiert SDK_FASSUNG und SDK_FASSUNG_BRIDGE');
+  assert(paket.peInfo === peInfo && paket.findeSdkBin === findeSdkBin, 'src/index.ts exportiert peInfo und findeSdkBin');
+  const ueberExport = (await import('@jm/zoom-bridge/sdk')) as { SDK_FASSUNG?: string };
+  assert(ueberExport.SDK_FASSUNG === SDK_FASSUNG, 'package.json exportiert "./sdk" (Selbstbezug @jm/zoom-bridge/sdk)');
+}
+
+// --- Stage 4: Fehlerkatalog fuer die Klartexte in JM Connect (Spec 12.1 Nr. 3) ---
+
+console.log('\nprotocol — Fehlerkatalog Stage 4:');
+{
+  // SDK-Namen woertlich aus meeting_service_interface.h - die vier, an denen
+  // die harte Grenze "nur eigenes Zoom-Konto" haengt (E3, Spec 8.3), und 11,
+  // der in FAIL_CODES fehlte.
+  assert(failCodeName(63) === 'MEETING_FAIL_UNABLE_TO_JOIN_EXTERNAL_MEETING', 'failCodeName(63)');
+  assert(failCodeName(11) === 'MEETING_FAIL_NO_MMR', 'failCodeName(11)');
+  assert(failCodeName(64) === 'MEETING_FAIL_BLOCKED_BY_ACCOUNT_ADMIN', 'failCodeName(64)');
+  assert(failCodeName(82) === 'MEETING_FAIL_NEED_SIGN_IN_FOR_PRIVATE_MEETING', 'failCodeName(82)');
+  assert(failCodeName(503) === 'MEETING_FAIL_USER_LEVEL_TOKEN_NOT_HAVE_HOST_ZAK_OBF', 'failCodeName(503)');
+  assert(failCodeName(504) === 'MEETING_FAIL_APP_CAN_NOT_ANONYMOUS_JOIN_MEETING', 'failCodeName(504)');
+  assert(failCodeName(0) === 'MEETING_SUCCESS' && failCodeName(0xffff) === 'MEETING_FAIL_UNKNOWN', 'failCodeName(0) und (0xffff)');
+  assert(failCodeName(4242) === 'MEETING_FAIL_CODE_4242', 'ein unbekannter Code wird nicht gerundet: MEETING_FAIL_CODE_4242');
+  const namen = Object.values(FAIL_CODE_NAMES);
+  assert(Object.keys(FAIL_CODE_NAMES).length === 46, 'FAIL_CODE_NAMES hat alle 46 Werte von enum MeetingFailCode');
+  assert(new Set(namen).size === namen.length, 'kein MeetingFailCode-Name kommt zweimal vor');
+
+  // failReason/endReason: der deutsche Grund OHNE Vorsatz (Spec 8.3 "Csonst").
+  assert(failReason(11) === 'kein Medienserver gefunden', 'failReason(11) ist deutsch');
+  assert(!failReason(11).startsWith('gescheitert'), 'failReason traegt keinen Vorsatz "gescheitert: "');
+  assert(failReason(2) === 'Wiederverbinden fehlgeschlagen', 'failReason(2) wie bisher');
+  assert(failReason(9999) === 'unbekannter Grund', 'failReason eines unbekannten Codes: "unbekannter Grund"');
+  const neu = [11, 14, 15, 16, 23, 60, 61, 62, 63, 64, 82, 88, 89, 500, 501, 502, 503, 504, 505, 506];
+  assert(neu.every((c) => failReason(c) !== 'unbekannter Grund'), 'FAIL_CODES kennt 11, 14-16, 23, 60-64, 82, 88, 89, 500-506');
+  assert(endReason(2) === 'vom Gastgeber beendet', 'endReason(2)');
+  assert(endReason(99) === 'Grund 99', 'endReason eines unbekannten Grundes: "Grund 99"');
+
+  // explainStatus bleibt, wie es war (Konsole und Bridge-Log lesen es weiter).
+  assert(explainStatus('failed', 4) === 'gescheitert: falscher Kenncode', 'explainStatus(failed, 4) unveraendert');
+  assert(explainStatus('ended', 2) === 'beendet: vom Gastgeber beendet', 'explainStatus(ended, 2) unveraendert');
+  assert(explainStatus('failed', 4242) === 'gescheitert: Fehlerschluessel 4242', 'explainStatus: unbekannter Code wie bisher');
+
+  // Die oeffentliche Flaeche (src/index.ts), aus der JM Connect liest.
+  assert(
+    paket.FAIL_CODE_NAMES === FAIL_CODE_NAMES && paket.failCodeName === failCodeName && paket.failReason === failReason && paket.endReason === endReason,
+    'src/index.ts exportiert FAIL_CODE_NAMES, failCodeName, failReason, endReason',
+  );
+  const typen: [PaketAudioState, PaketAudioReason, PaketVideoState, PaketVideoReason] = ['off', 'participantLeft', 'black', 'participantLeft'];
+  assert(typen.length === 4, 'src/index.ts exportiert die Typen AudioState, AudioReason, VideoState, VideoReason (prueft tsc)');
+}
+
+// --- Stage 4: Attrappe mit den Stellschrauben aus Spec 12.1 Nr. 4 ---------------
+
+/** Wartet, bis ein Ereignis `pred` erfuellt (Takt 20 ms); false nach `ms`. */
+async function bisEreignis(ev: BridgeEvent[], pred: (e: BridgeEvent) => boolean, ms = 4000): Promise<boolean> {
+  const ende = Date.now() + ms;
+  while (Date.now() < ende) {
+    if (ev.some(pred)) return true;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return false;
+}
+
+/** Passt auf ein Ereignis `name`, dessen Felder die Werte aus `felder` tragen. */
+const art = (name: string, felder: Record<string, unknown> = {}) => (e: BridgeEvent): boolean =>
+  e.ev === name && Object.entries(felder).every(([k, v]) => (e as Record<string, unknown>)[k] === v);
+
+/** Stelle des ersten passenden Ereignisses, sonst -1. */
+const stelle = (ev: BridgeEvent[], pred: (e: BridgeEvent) => boolean): number => ev.findIndex(pred);
+
+/** Die Statusfolge, wie sie auf der Leitung stand. */
+const statusFolge = (ev: BridgeEvent[]): string =>
+  ev.filter((e) => e.ev === 'status').map((e) => (e as { status: string }).status).join(',');
+
+/** Ein Beitritt mit synthetischer Nummer und erfundenem Kenncode (nie echte Werte). */
+const BEITRITT = { cmd: 'join', meetingId: '7'.repeat(10), passcode: 'KENNCODE-PROBE-3', displayName: 'JM Connect' } as const;
+
+/**
+ * Echte Bridge gegen die Attrappe (Drehbuch "steuerung"), so wie JM Connect sie
+ * fuehrt: init und auth senden, auf die Antwort warten, dann `schritte`, am Ende
+ * IMMER stop(). Liefert alle Ereignisse, auch die beim Abbau.
+ */
+async function fahreSteuerung(
+  fakeEnv: Record<string, string>,
+  schritte: (b: Bridge, ev: BridgeEvent[]) => Promise<void>,
+): Promise<BridgeEvent[]> {
+  const ev: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'steuerung', ...fakeEnv },
+    joinTimeoutMs: 5000,
+    killTimeoutMs: 3000,
+    onEvent: (e) => ev.push(e),
+    onLog: () => {},
+  });
+  await b.start();
+  try {
+    b.send({ cmd: 'init' });
+    b.send({ cmd: 'auth', jwt: 'attrappe' });
+    await bisEreignis(ev, (e) => e.ev === 'auth' || art('error', { where: 'auth' })(e));
+    await schritte(b, ev);
+  } finally {
+    await b.stop();
+  }
+  return ev;
+}
+
+console.log('\nAttrappe — Stellschrauben Stage 4:');
+{
+  // FAKE_SDK_FASSUNG: JM Connect prueft die Fassung exakt (G1) - die Attrappe muss sie liefern koennen.
+  let ev = await fahreSteuerung({ FAKE_SDK_FASSUNG: '7.1.5 (43953)' }, async () => {});
+  const ready = ev.find(art('ready')) as { sdkVersion?: string } | undefined;
+  assert(ready?.sdkVersion === SDK_FASSUNG_BRIDGE, 'FAKE_SDK_FASSUNG bestimmt ready.sdkVersion');
+  ev = await fahreSteuerung({}, async () => {});
+  const vorgabe = ev.find(art('ready')) as { sdkVersion?: string } | undefined;
+  assert(vorgabe?.sdkVersion === '7.1.5 (attrappe)', 'ohne FAKE_SDK_FASSUNG bleibt die Vorgabe "7.1.5 (attrappe)"');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_NDI_FEHLER: '1' }, async () => {});
+  const iReady = stelle(ev, art('ready'));
+  const iNdi = stelle(ev, art('error', { where: 'ndi', code: 'ndiInitFailed' }));
+  assert(iReady >= 0 && iNdi === iReady + 1, 'FAKE_NDI_FEHLER: error ndi ndiInitFailed direkt nach ready');
+  assert(iNdi >= 0 && stelle(ev, art('auth')) > iNdi, '... also vor der Antwort auf die Anmeldung');
+  assert(ev[iNdi]?.name === 'NDI_INIT_FAILED', '... mit dem Namen NDI_INIT_FAILED');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_DOPPELNAME: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('roster'));
+  });
+  const roster = ev.find(art('roster')) as { list?: Participant[] } | undefined;
+  const annas = (roster?.list ?? []).filter((p) => !p.self && p.name === 'Anna').map((p) => p.id);
+  assert(annas.join(',') === '16778240,16778241', 'FAKE_DOPPELNAME: 16778240 und 16778241 heissen beide "Anna"');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '100' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('status', { status: 'inMeeting' }));
+  });
+  assert(statusFolge(ev).startsWith('connecting,waitingRoom,reconnecting,connecting,inMeeting'),
+    'FAKE_EINLASS_MS: der gemessene Einlass connecting, waitingRoom, reconnecting, connecting, inMeeting');
+}
+{
+  let mitten = '';
+  const ev = await fahreSteuerung({ FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '100', FAKE_EINLASS_HAENGT: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('status', { status: 'reconnecting' }));
+    await new Promise((r) => setTimeout(r, 300));
+    mitten = statusFolge(ev);
+  });
+  assert(mitten === 'connecting,waitingRoom,reconnecting', 'FAKE_EINLASS_HAENGT: nach reconnecting kommt nichts mehr');
+  assert(statusFolge(ev) === 'connecting,waitingRoom,reconnecting', '... auch beim Beenden nicht (nie im Meeting gewesen)');
+}
+{
+  let mitten = '';
+  const ev = await fahreSteuerung({ FAKE_VERBINDUNG_HAENGT_MS: '100' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('status', { status: 'reconnecting' }));
+    await new Promise((r) => setTimeout(r, 300));
+    mitten = statusFolge(ev);
+  });
+  assert(mitten === 'connecting,inMeeting,reconnecting', 'FAKE_VERBINDUNG_HAENGT_MS: reconnecting, dann Stille');
+  assert(statusFolge(ev) === 'connecting,inMeeting,reconnecting,disconnecting,ended',
+    '... beim stop() meldet sie disconnecting und ended (sie war noch "im Meeting")');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '100' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { source: 'broadcast' }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('error', { code: 'videoNoPrivilege' }));
+  });
+  const iJa = stelle(ev, art('privilege', { canRecordRaw: true }));
+  const iEntzug = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
+  assert(iJa >= 0 && iEntzug > iJa, 'FAKE_ENTZUG_MS: privilege broadcast canRecordRaw:false nach der Erlaubnis');
+  assert(stelle(ev, art('error', { where: 'video', code: 'videoNoPrivilege', id: 16778240 })) > iEntzug,
+    '... ein folgendes videoSubscribe wird mit videoNoPrivilege abgewiesen');
+}
+{
+  let zwischenMs = -1;
+  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '500', FAKE_RUECKKEHR_MS: '200' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('left'));
+    const weg = Date.now();
+    await bisEreignis(ev, art('joined'));
+    zwischenMs = Date.now() - weg;
+    await bisEreignis(ev, art('video', { reason: 'reboundByName' }));
+  });
+  const iLeft = stelle(ev, art('left', { id: 16778240 }));
+  const iSchwarz = stelle(ev, art('video', { id: 16778240, state: 'black', reason: 'participantLeft' }));
+  const iTonAus = stelle(ev, art('audio', { id: 16778240, state: 'off', reason: 'participantLeft' }));
+  assert(iLeft >= 0 && iSchwarz === iLeft + 1 && iTonAus === iSchwarz + 1,
+    'Weggang mit Abo: left, video black, audio off (participantLeft) - wie das Original');
+  assert((ev[iSchwarz] as { source?: string } | undefined)?.source === 'JM Connect – Zoom Anna', '... die Quelle bleibt bestehen, nur schwarz');
+  const iJoined = stelle(ev, art('joined'));
+  const zurueck = ev[iJoined] as { p?: Participant } | undefined;
+  assert(iJoined > iTonAus && zurueck?.p?.id === 16778250 && zurueck.p.name === 'Anna', 'Anna kommt als 16778250 zurueck');
+  assert(zwischenMs >= 150, 'FAKE_RUECKKEHR_MS: zwischen left und joined liegen mindestens 150 ms');
+  const iUm = stelle(ev, art('video', { id: 16778250, state: 'subscribed', reason: 'reboundByName' }));
+  assert(iUm > iJoined, '... dann haengt sich das Abo um (ERST joined, DANN video reboundByName)');
+  assert(stelle(ev, art('audio', { id: 16778250, state: 'waiting', reason: 'reboundByName' })) > iUm,
+    '... und der Ton wartet wieder (Grund reboundByName wie im Original)');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '500', FAKE_RUECKKEHR_NAME: 'anna' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('joined'));
+    await new Promise((r) => setTimeout(r, 300));
+  });
+  const zurueck = ev.find(art('joined')) as { p?: Participant } | undefined;
+  assert(zurueck?.p?.id === 16778250 && zurueck.p.name === 'anna', 'FAKE_RUECKKEHR_NAME: sie kommt als "anna" zurueck');
+  assert(!ev.some(art('video', { reason: 'reboundByName' })), '... und das Abo haengt NICHT um (Name nicht exakt gleich)');
+  assert(stelle(ev, art('video', { id: 16778240, state: 'black', reason: 'participantLeft' })) >= 0, '... es bleibt schwarz unter 16778240');
+}
+{
+  // Doppelname und Rueckkehr: "Anna" gibt es danach zweimal (16778241 und 16778250) -
+  // das Original haengt dann nicht um ("lieber ein Handgriff als die falsche Person").
+  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '500', FAKE_DOPPELNAME: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('joined'));
+    await new Promise((r) => setTimeout(r, 300));
+  });
+  assert(stelle(ev, art('joined')) >= 0 && !ev.some(art('video', { reason: 'reboundByName' })),
+    'Doppelname: bei der Rueckkehr haengt die Attrappe NICHT um (Name nicht eindeutig)');
+}
+{
+  // envprobe meldet den PATH, den das Kind bekommt. "Path" (so erbt Windows ihn)
+  // muss dafuer weg, sonst stuenden "Path" und "PATH" nebeneinander (Spec 3.2-4).
+  const marke = join(tmpdir(), 'jm-envprobe-marke');
+  const ev: BridgeEvent[] = [];
+  const b = new Bridge({
+    exePath: process.execPath,
+    exeArgs: [fake],
+    env: { FAKE_SCRIPT: 'envprobe', PATH: `${marke}${delimiter}${process.env.PATH ?? ''}` },
+    envRemove: Object.keys(process.env).filter((k) => k.toLowerCase() === 'path' && k !== 'PATH'),
+    onEvent: (e) => ev.push(e),
+  });
+  await b.start();
+  await bisEreignis(ev, art('envprobe'));
+  const probe = ev.find(art('envprobe')) as { path?: string } | undefined;
+  assert(typeof probe?.path === 'string' && probe.path.split(delimiter).includes(marke), 'envprobe meldet path: den PATH, den das Kind wirklich bekommt');
+  await b.stop();
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

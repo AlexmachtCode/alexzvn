@@ -107,3 +107,8 @@ export function tearDownAll(): void {
 export function activeCount(): number {
   return senders.size;
 }
+
+/** NDI-Namen aller laufenden Gast-Sender, für die Kollisionsprüfung mit Zoom-Quellen (Spec 6.3, Q10). */
+export function activeLabels(): string[] {
+  return [...senders.values()].map((s) => s.label);
+}

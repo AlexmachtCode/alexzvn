@@ -14,6 +14,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
 import type { ProxyKeySource } from '@shared/types';
+import { ANZEIGENAME_VORGABE } from './zoom/kern';
+import {
+  gueltigerAnzeigename,
+  gueltigerVersatz,
+  waehleZugang,
+  zugangAusKlartext,
+  zugangAusUmgebung,
+  type GespeicherterZugang,
+} from './zoom/einstellungen';
 
 /** Öffentlicher Suite-Proxy — dieselbe Adresse, die der Launcher als Vorgabe nutzt. */
 export const DEFAULT_PROXY_URL = 'https://jm-suite-proxy.jm-production-suite.workers.dev';
@@ -22,6 +31,14 @@ interface Stored {
   proxyUrl?: string;
   /** PROXY_KEY, safeStorage-verschlüsselt, base64. Nie im Klartext. */
   proxyKeyEnc?: string;
+  /** Zoom: safeStorage(JSON { clientId, clientSecret }), base64. Nie im Klartext (Spec 5.6). */
+  zoomZugangEnc?: string;
+  /** Zoom: Laufzeit-Ordner und Fassung, nach erfolgreicher Einrichtung. */
+  zoomLaufzeit?: { dir: string; fassung: string; eingerichtetAm: string };
+  /** Zoom: 1 bis 64 Zeichen; fehlt = „JM Connect“. */
+  zoomAnzeigename?: string;
+  /** Zoom: ganze Zahl 0 bis 1000; fehlt = 0. */
+  zoomVersatzMs?: number;
 }
 
 /** Nur belegt, wenn kein OS-Schlüsselbund da ist: dann lebt der Key nur für diese Sitzung. */
@@ -42,13 +59,16 @@ function read(): Stored {
   }
 }
 
-function write(next: Stored): void {
+/** `false`, wenn nichts auf der Platte gelandet ist; wer davon eine Anzeige abhängig macht, muss das prüfen. */
+function write(next: Stored): boolean {
   try {
     const p = file();
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
+    return true;
   } catch (e) {
     getLog().error('[connect] Einstellungen konnten nicht gespeichert werden:', e instanceof Error ? e.message : e);
+    return false;
   }
 }
 
@@ -121,4 +141,118 @@ export function setProxyKey(key: string): void {
     warned = true;
     getLog().warn('[connect] safeStorage nicht verfügbar — der Proxy-Key wird nur für diese Sitzung gehalten.');
   }
+}
+
+// ── Zoom (Stage 4, Spec 5.6) ────────────────────────────────────────────────────────────────
+// Zugangsdaten der Meeting-SDK-App: Umgebung > gespeichert (safeStorage) > Sitzung, wie beim
+// Proxy-Key. Die Regeln selbst stehen ohne Electron in zoom/einstellungen.ts (getestet); hier
+// kommen nur Datei, safeStorage und die Sitzung dazu. Der Renderer erfährt nie die Werte, nur
+// Herkunft und die letzten 4 Zeichen der Client-ID (rechnet der Kern aus, Spec 5.7).
+
+export interface ZoomZugangDaten {
+  clientId: string;
+  clientSecret: string;
+}
+
+/** Nur ohne OS-Schlüsselbund belegt: dann gelten die Zugangsdaten nur für diese Sitzung (A4). */
+let zoomSitzung: ZoomZugangDaten | null = null;
+/** 'schreibfehler': die Sitzungsdaten gelten, obwohl ein Schlüsselbund da ist, weil die Einstellungsdatei nicht schreibbar war. */
+let zoomSitzungGrund: 'schreibfehler' | undefined;
+/** zoomZugangEnc, EINMAL entschlüsselt (Spec 6.1). `undefined` = noch nicht gelesen, `null` = nichts hinterlegt. */
+let zoomGespeichert: GespeicherterZugang | null | undefined;
+/** Gilt nur, solange das Schreiben der Platte scheiterte: sonst würde der Getter den alten Plattenwert zeigen. */
+let zoomAnzeigenameSitzung: string | null = null;
+let zoomVersatzSitzung: number | null = null;
+let zoomUmgebungGewarnt = false;
+let zoomSitzungGewarnt = false;
+
+function zoomGespeichertLesen(): GespeicherterZugang | null {
+  if (zoomGespeichert === undefined) {
+    const enc = read().zoomZugangEnc;
+    zoomGespeichert = enc ? zugangAusKlartext(decryptKey(enc)) : null;
+  }
+  return zoomGespeichert;
+}
+
+/** `unlesbar`: zoomZugangEnc ist da, lässt sich aber nicht entschlüsseln (Mangel zugang_unlesbar, A5). */
+export function zoomZugangLesen(): { daten: ZoomZugangDaten | null; herkunft: ProxyKeySource; grund?: 'schreibfehler'; unlesbar: boolean } {
+  const umgebung = zugangAusUmgebung(process.env);
+  if (umgebung.fehler && !zoomUmgebungGewarnt) {
+    zoomUmgebungGewarnt = true;
+    getLog().warn('[zoom] Zugangsdaten aus der Umgebung unbrauchbar:', umgebung.fehler);
+  }
+  const stand = waehleZugang({ umgebung: umgebung.daten, gespeichert: zoomGespeichertLesen(), sitzung: zoomSitzung });
+  return stand.herkunft === 'session' && zoomSitzungGrund ? { ...stand, grund: zoomSitzungGrund } : stand;
+}
+
+export function zoomZugangSpeichern(d: ZoomZugangDaten): 'stored' | 'session' {
+  const daten = { clientId: d.clientId, clientSecret: d.clientSecret };
+  const next = read();
+  if (safeStorage.isEncryptionAvailable()) {
+    next.zoomZugangEnc = safeStorage.encryptString(JSON.stringify(daten)).toString('base64');
+    if (write(next)) {
+      zoomSitzung = null;
+      zoomSitzungGrund = undefined;
+      zoomGespeichert = { daten, unlesbar: false };
+      return 'stored';
+    }
+    // Nichts auf der Platte: ehrlich „nur für diese Sitzung“ (A4), nicht „gespeichert“.
+    zoomGespeichert = null;
+    zoomSitzung = daten;
+    zoomSitzungGrund = 'schreibfehler';
+    return 'session';
+  }
+  // Ohne Schlüsselbund NIE im Klartext auf die Platte (Spec 5.6, E7). Ein altes, hier nicht
+  // entschlüsselbares zoomZugangEnc fliegt raus: die neue Wahl des Bedieners gilt.
+  delete next.zoomZugangEnc;
+  write(next);
+  zoomGespeichert = null;
+  zoomSitzung = daten;
+  zoomSitzungGrund = undefined;
+  if (!zoomSitzungGewarnt) {
+    zoomSitzungGewarnt = true;
+    getLog().warn('[zoom] safeStorage nicht verfügbar — die Zoom-Zugangsdaten gelten nur für diese Sitzung.');
+  }
+  return 'session';
+}
+
+export function zoomZugangLoeschen(): void {
+  const next = read();
+  delete next.zoomZugangEnc;
+  write(next);
+  zoomSitzung = null;
+  zoomSitzungGrund = undefined;
+  zoomGespeichert = null;
+}
+
+/** Ungültig oder fehlend → Vorgabe „JM Connect“ (G4). */
+export function zoomAnzeigename(): string {
+  return zoomAnzeigenameSitzung ?? gueltigerAnzeigename(read().zoomAnzeigename) ?? ANZEIGENAME_VORGABE;
+}
+
+export function setzeZoomAnzeigename(n: string): void {
+  const v = gueltigerAnzeigename(n);
+  if (v === null) return; // der Kern prüft vorher (N0b); Ungültiges wird nie gespeichert
+  const next = read();
+  next.zoomAnzeigename = v;
+  zoomAnzeigenameSitzung = write(next) ? null : v;
+}
+
+/** Ungültig oder fehlend → 0 (G4). */
+export function zoomVersatzMs(): number {
+  return zoomVersatzSitzung ?? gueltigerVersatz(read().zoomVersatzMs) ?? 0;
+}
+
+export function setzeZoomVersatzMs(ms: number): void {
+  const v = gueltigerVersatz(ms);
+  if (v === null) return; // der Kern prüft vorher (Q13)
+  const next = read();
+  next.zoomVersatzMs = v;
+  zoomVersatzSitzung = write(next) ? null : v;
+}
+
+export function setzeZoomLaufzeit(v: { dir: string; fassung: string; eingerichtetAm: string }): void {
+  const next = read();
+  next.zoomLaufzeit = { dir: v.dir, fassung: v.fassung, eingerichtetAm: v.eingerichtetAm };
+  write(next);
 }
