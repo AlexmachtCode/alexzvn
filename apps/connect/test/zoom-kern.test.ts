@@ -352,6 +352,17 @@ console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
   await p.aufraeumen();
 }
 
+console.log('— Datei-Weg: Logzeile unverändert (Regression)');
+for (const [herk, zeile] of [['stored', '[zoom] Zugangsdaten hinterlegt (verschlüsselt)'], ['session', '[zoom] Zugangsdaten hinterlegt (nur für diese Sitzung)']] as const) {
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, speichernLiefert: herk });
+  const dir = mkdtempSync(join(tmpdir(), 'jm-zoom-zugang-'));
+  const gut = join(dir, 'gut.json');
+  writeFileSync(gut, '{"clientId":"datei-id-1234","clientSecret":"datei-secret"}');
+  ck(`zugangWaehlen (${herk}) → Logzeile wörtlich`, ok(p.kern.zugangWaehlen(gut)) && p.logs.includes(zeile));
+  rmSync(dir, { recursive: true, force: true });
+  await p.aufraeumen();
+}
+
 console.log('— Zugangsdaten von Hand eintragen (A7, S10, A4)');
 {
   const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
@@ -362,8 +373,10 @@ console.log('— Zugangsdaten von Hand eintragen (A7, S10, A4)');
   ck('… Zustand wie nach dem Datei-Weg: bereit, stored, Ende 4321, kein Fehlertext',
     a.kurz.zustand === 'bereit' && a.einrichtung.zugang.herkunft === 'stored' && a.einrichtung.zugang.clientIdEnde === '4321' && a.einrichtung.zugang.text === null);
   ck('… Logzeile ohne Wert, mit „von Hand, verschlüsselt“', p.logs.includes('[zoom] Zugangsdaten hinterlegt (von Hand, verschlüsselt)'));
-  ck('… weder ID noch Secret in einer Logzeile oder im Abbild',
-    !p.logs.some((z) => z.includes('id-test-4321') || z.includes('geheim-test')) && !JSON.stringify(a).includes('geheim-test'));
+  ck('… weder ID noch Secret in einer Logzeile',
+    !p.logs.some((z) => z.includes('id-test-4321') || z.includes('geheim-test') || z.includes('id-test') || z.includes('geheim')));
+  ck('… Abbild: nur die letzten 4 Zeichen der ID, kein Secret',
+    !JSON.stringify(a).includes('id-test-4321') && !JSON.stringify(a).includes('geheim'));
   await p.aufraeumen();
 }
 {
@@ -381,9 +394,12 @@ console.log('— Zugangsdaten von Hand eintragen (A7, S10, A4)');
     const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
     const r = p.kern.zugangEintragen(e);
     ck(`${name} → A7, nichts gespeichert, Zustand bleibt`, text(r) === KT.A7 && p.zugangGespeichert.length === 0
-      && p.kern.kurz().zustand === 'einrichtung' && p.kern.abbild().einrichtung.zugang.text === KT.A7);
-    ck('… A7 enthält keinen Wert, kein Wert im Log',
-      !KT.A7.includes('geheim') && !p.logs.some((z) => z.includes('geheim') && z.includes('test')));
+      && p.kern.kurz().zustand === 'einrichtung');
+    ck('… A7 ist ein Eingabefehler: kein A7 im Abbild', !JSON.stringify(p.kern.abbild()).includes(KT.A7));
+    const teile = [e.clientId, e.clientSecret, e.clientId.trim(), e.clientSecret.trim(), 'id-test', 'geheim']
+      .flatMap((w) => [w, ...w.split(/\s+/)]).filter((w) => w.length >= 3);
+    ck('… weder ID noch Secret (auch getrimmt oder in Teilen) in einer Logzeile',
+      !p.logs.some((z) => teile.some((w) => z.includes(w))));
     await p.aufraeumen();
   }
 }

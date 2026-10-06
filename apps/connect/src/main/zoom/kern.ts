@@ -475,6 +475,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   /** Gemeinsamer Schluss von Datei-Weg und Handeingabe: speichern, loggen (nie einen Wert), Mängel und Zustand neu. */
+  // Sperre und fehler→schliessen stehen bewusst bei den beiden Aufrufern: sonst änderte sich der Datei-Weg bei A1–A3.
   function zugangUebernehmen(daten: ZugangDaten, weg: 'Datei' | 'Hand'): ZoomErgebnis {
     zugangFehler = null;
     const herkunft = d.zugang.speichern({ clientId: daten.clientId, clientSecret: daten.clientSecret });
@@ -493,9 +494,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const clientId = e.clientId.trim();
     const clientSecret = e.clientSecret.trim();
     if (!clientId || !clientSecret || /\s/.test(clientId) || /\s/.test(clientSecret)) {
-      zugangFehler = KT.A7;
+      // Eingabefehler, kein Zustand der hinterlegten Zugangsdaten: nur im Ergebnis, nicht im Abbild.
       d.log('[zoom] Zugangsdaten von Hand abgewiesen: ' + KT.A7);
-      abbildGeaendert();
       return { ok: false, text: KT.A7 };
     }
     return zugangUebernehmen({ clientId, clientSecret }, 'Hand');
