@@ -1528,3 +1528,71 @@ Weder Client-ID noch Client-Secret stehen je in einer Logzeile, einer Fehlermeld
 - Der Datei-Weg und „Entfernen“ bleiben unverändert.
 
 **Datenfluss (zu Tabelle 5.7, die unverändert bleibt):** Bei der Handeingabe gehen Client-ID und Client-Secret einmal vom Fenster an den Main-Prozess. Zurück geht nie etwas außer den letzten 4 Zeichen der Client-ID, wie bisher.
+
+## Nachtrag 2026-10-06: Umfang 4b (Connect 0.3.0) – Ergänzungen
+
+Der Owner hat diesen Nachtrag am 06.10.2026 freigegeben („passt“). 4b behält den Umfang aus Abschnitt 18, Zeile „4b · Betrieb und Auslieferung“, und bekommt drei Ergänzungen. Die Teile A und B stammen aus den Unterlagen zum Zoom-Marketplace-Review (`docs/zoom-marketplace/04-luecken-vor-einreichung.md`, Punkte L10 und L14). Sie sind aber auch ohne das Review sinnvoll.
+
+### N4b.1 Entzug der Aufnahme-Erlaubnis stoppt laufende Quellen (L10)
+
+- **Ist (4a):**
+  - Die Bridge setzt beim Entzug (`privilege canRecordRaw=false`) nur ein Flag. Damit sperrt sie neue Abos.
+  - Laufende Abos bleiben bestehen (`native/callbacks.cpp`, `native/video.cpp`). Ob das Zoom-SDK die Lieferung selbst einstellt, ist nicht gemessen.
+  - Zoom verlangt: „The app must stop accessing content if permission is revoked.“
+- **Soll, Bridge:** Beim Entzug baut die Bridge **alle laufenden Abos aktiv ab**. Sie meldet die Bild- und Ton-Rohdaten ab und schließt die NDI-Sender. Jeder Abbau wird an Connect gemeldet. Ein „Grund: Entzug“ muss vom Entladen durch den Bediener unterscheidbar sein. Die Form legt der Plan fest.
+- **Soll, Connect:**
+  - Die Soll-Liste (wer geladen war und mit welcher Ton-Einstellung) **bleibt erhalten**, wie beim Abriss (6.4).
+  - Die Karte zeigt „Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt“. Den genauen Text legt der Plan in der Text-Tabelle fest, nach dem Muster des vorhandenen Entzug-Texts.
+- **Wiedererteilung:** Erteilt der Host die Erlaubnis erneut, lädt Connect die Soll-Einträge **automatisch wieder**. Es gelten dieselben Regeln wie beim Abgleich nach dem Wiederbeitritt: eindeutiger Name, Ton-Einstellung aus dem Soll und die Betriebsgröße von höchstens 5 (siehe N4b.3).
+- **Tests:**
+  - Die Attrappe bekommt Stellschrauben für Entzug und Wiedererteilung während laufender Abos.
+  - Kern-Fälle:
+    - Entzug baut ab und behält das Soll.
+    - Die Wiedererteilung lädt wieder.
+    - Ein Entzug während eines offenen Abos.
+    - Ein Entzug und dann das Verlassen des Meetings.
+- **Abnahme (Owner, eigenes Meeting):**
+  - Zwei Quellen laufen. Der Host entzieht die Erlaubnis: Im NDI-Monitor stoppen Bild und Ton **sofort**, und die Karte zeigt den Text.
+  - Der Host erteilt die Erlaubnis wieder: Beide Quellen kommen zurück, mit unveränderter Ton-Einstellung.
+
+### N4b.2 Logs: keine Teilnehmernamen, Löschfrist 14 Tage (L14)
+
+- **Keine Namen im Log:**
+  - Bridge und Connect schreiben **keine Anzeigenamen von Teilnehmern** mehr ins Log, sondern deren Kennung (Teilnehmer- bzw. Abo-Kennung).
+  - Betroffene Stellen laut 4a: die Zeilen zum Wiederbeitritt und Umhängen (`native/video.cpp`) sowie die geloggten Hinweise Q16 und Q17 (`kern.ts`, `klartext.ts`). Der Plan sucht alle Stellen.
+  - Karte, Abbild und NDI-Name zeigen die Namen weiterhin.
+- **Löschfrist:**
+  - Logdateien, die älter als **14 Tage** sind, werden gelöscht. Die Regel liegt im gemeinsamen Laufzeit-Paket (`packages/app-runtime`) und gilt damit für **alle Suite-Apps**, jeweils ab ihrem nächsten Release.
+  - Die Größenrotation (5 × 5 MB) bleibt.
+  - Wann gelöscht wird (beim Start, dazu periodisch) und wie mit gesperrten Dateien umgegangen wird, legt der Plan fest. Ein Fehler beim Löschen darf den Start einer App nie verhindern.
+- **Tests:**
+  - Die Löschfrist wird mit eingespeister Uhr und Temp-Ordner geprüft.
+  - Für die Kern-Fälle mit Wiederbeitritt und Hinweisen gilt: Kein Anzeigename steht in einer Logzeile.
+- **Abnahme (Owner):**
+  - Den Logordner nach Kenncode, Meeting-Nummer und Teilnehmernamen durchsuchen. Damit wird der offene Abnahmeschritt 25 aus 0.2.0 nachgeholt.
+  - Einmal messen: Legt das Zoom-SDK trotz abgeschalteter SDK-Logs eigene Dateien unter `%APPDATA%` an? Den Ordner vorher und nachher vergleichen.
+
+### N4b.3 Gesammelte 0.3.0-Randfälle
+
+Diese Randfälle hat der Owner am 06.10.2026 für 0.3.0 vorgemerkt („Randfälle in 0.3.0“). Die Quellen sind die Widerlegung der 0.2.0-Notes und die Gesamtprüfung von 4a. Beides steht im 4a-Ledger `.superpowers/sdd/2026-10-02-zoom-stage4a-connect/progress.md` (Worktree suite-sofort-fixes) mit Datei:Zeile.
+
+1. **Doppelname:** Sind beide Personen geladen, zeigt die Karte den tatsächlichen NDI-Namen. Die Bridge vergibt „… Anna (2)“, die Karte sagt heute „… Anna“.
+2. **Ton-Schalter nach „Erneut beitreten“ oder Rückkehr:** Er zeigt den Ton aus dem Soll, mit dem der Abgleich lädt. Heute zeigt er „an“.
+3. **Betriebsgröße:** Die Grenze von 5 gilt auch beim automatischen Abgleich, nicht nur in `laden()`. Gezählt werden auch Abos, die gesendet, aber noch nicht bestätigt sind.
+4. **Versatz:** Ist er nur für die Sitzung gültig, weil `connect-settings.json` nicht schreibbar ist, sagt die Karte das.
+5. **„Schließen“** leert die Meeting-Nummer im Feld der Karte.
+6. **Hinweise** werden bei einem neuen Beitritt mit eingegebenen Daten geleert.
+7. **Entladen bei offenem Abo:** Ein noch unbestätigtes Abo wird abgemeldet, statt still weiterzulaufen.
+8. **Aus der 4a-Gesamtprüfung:**
+   - S10-Sperre während des Bridge-Abbaus;
+   - Z12 beim Beenden ohne Meeting;
+   - Z2 mit n > 0 nach Meeting-Ende;
+   - Rohwerte von Bild und Ton in der Karte;
+   - Wächter-Namenslisten vereinigen statt ersetzen;
+   - ein Test für abriss → im_meeting;
+   - Fassung und Fristen in den Klartexten aus den Konstanten ableiten statt als Literal.
+
+### N4b.4 Nicht in 4b
+
+- **OAuth und OBF für Meetings fremder Konten.** Das wartet auf die Owner-Entscheidungen E1–E6 und das Zoom-Review. Die Bridge-Änderung `onBehalfToken` liegt auf dem Branch `spike/zoom-obf`.
+- **Release, Proxy-Deploy und Katalog** sind keine Plan-Aufgaben. Sie laufen wie bisher nach Owner-Freigabe.
