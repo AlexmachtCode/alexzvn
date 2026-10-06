@@ -311,6 +311,9 @@ async function run() {
     let release = { assets: [{ id: 77, name: ZIP, size: 150120193 }] };
     let tagStatus = 200;
     let assetOhneLink = false;
+    /** Rohtext statt Release-JSON (unlesbare Antwort) bzw. ein Fehler, den fetch wirft (Netz). */
+    let tagRoh = null;
+    let tagWirft = null;
     stub = async (u) => {
       const url = String(u);
       aufrufe.push(url);
@@ -320,6 +323,8 @@ async function run() {
         return new Response(null, { status: 302, headers: { Location: `https://signed.test/zoom-${id}?sig=geheim-link` } });
       }
       if (url.includes('/releases/tags/')) {
+        if (tagWirft) throw tagWirft;
+        if (tagRoh !== null) return new Response(tagRoh, { status: 200 });
         if (tagStatus !== 200) return new Response('GITHUB-FEHLTEXT-LEAK', { status: tagStatus });
         return new Response(JSON.stringify(release), { status: 200 });
       }
@@ -337,10 +342,15 @@ async function run() {
     check('zoom-sdk ohne Header → 401 unauthorized', r.status === 401 && (await r.json()).error === 'unauthorized');
     r = await worker.fetch(zReq(FASSUNG, 'falsch'), zEnv);
     check('zoom-sdk falscher Schlüssel → 401', r.status === 401);
+    check('… mit Secret: kein Hinweis auf ein fehlendes Secret im Worker-Log', !mitschnitt.some((z) => z.includes('ZOOM_SDK_KEY fehlt')));
     r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), { ...zEnv, ZOOM_SDK_KEY: undefined });
     check('zoom-sdk ohne Secret ZOOM_SDK_KEY → 401, auch mit Header', r.status === 401);
+    check('… Fehleinrichtung steht im Worker-Log (ohne Wert): Secret ZOOM_SDK_KEY fehlt',
+      mitschnitt.some((z) => z.startsWith('zoom-sdk: Secret ZOOM_SDK_KEY fehlt')));
+    let seit = mitschnitt.length;
     r = await worker.fetch(zReq(FASSUNG, ''), { ...zEnv, ZOOM_SDK_KEY: '' });
     check('zoom-sdk leeres Secret und leerer Header → 401', r.status === 401);
+    check('… leeres Secret gilt im Worker-Log als fehlend', mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: Secret ZOOM_SDK_KEY fehlt')));
     check('… ohne gültigen Schlüssel fragt der Proxy GitHub nicht', aufrufe.length === 0);
 
     r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
@@ -367,12 +377,17 @@ async function run() {
     check('… ohne GitHub-Abfrage', aufrufe.length === 0);
 
     tagStatus = 404;
+    seit = mitschnitt.length;
     r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
     check('zoom-sdk Release fehlt → 404 not_found', r.status === 404 && (await r.json()).error === 'not_found');
+    check('… Worker-Log nennt GitHub-Status, Release und Repo (Token ohne Zugriff sieht genauso aus)',
+      mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: GitHub 404') && z.includes(`zoom-sdk-${FASSUNG}`) && z.includes('owner/jm-zoom-sdk')));
     tagStatus = 200;
     release = { assets: [{ id: 5, name: 'etwas-anderes.zip', size: 1 }] };
+    seit = mitschnitt.length;
     r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
     check('zoom-sdk Asset fehlt → 404 not_found', r.status === 404 && (await r.json()).error === 'not_found');
+    check('… Worker-Log nennt den gesuchten Asset-Namen', mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: Asset') && z.includes(ZIP)));
     release = { assets: [{ id: 77, name: ZIP, size: 150120193 }] };
     tagStatus = 500;
     r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
@@ -381,13 +396,60 @@ async function run() {
       r.status === 502 && JSON.parse(t500).error === 'upstream' && !t500.includes('LEAK'));
     tagStatus = 200;
     assetOhneLink = true;
+    seit = mitschnitt.length;
     r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
     check('zoom-sdk signierter Link nicht auflösbar → 502 upstream', r.status === 502 && (await r.json()).error === 'upstream');
+    check('… Worker-Log nennt das Asset', mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: signierter Link') && z.includes(ZIP)));
     assetOhneLink = false;
+    tagRoh = 'kein json';
+    seit = mitschnitt.length;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk Release-Antwort unlesbar → 502 upstream', r.status === 502 && (await r.json()).error === 'upstream');
+    check('… Worker-Log nennt den Fehlernamen (SyntaxError), nicht die Meldung',
+      mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: GitHub nicht erreichbar oder Antwort unlesbar') && z.includes('SyntaxError')));
+    tagRoh = null;
+    tagWirft = new TypeError('Netz weg zu https://signed.test/geheim-link');
+    seit = mitschnitt.length;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), zEnv);
+    check('zoom-sdk GitHub nicht erreichbar → 502 upstream', r.status === 502 && (await r.json()).error === 'upstream');
+    check('… Worker-Log nennt den Fehlernamen (TypeError)', mitschnitt.slice(seit).some((z) => z.includes('TypeError')));
+    tagWirft = null;
+
+    // A10: andere Methoden als GET → 404, auch mit gültigem Schlüssel, ohne GitHub.
+    aufrufe.length = 0;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { method: 'POST' }), zEnv);
+    check('zoom-sdk POST mit gültigem Schlüssel → 404 (A10), ohne GitHub-Abfrage', r.status === 404 && aufrufe.length === 0);
+    // Ohne Variable ZOOM_SDK_REPO gilt die Vorgabe (fetch ist hier die Attrappe, es geht nichts ins Netz).
+    aufrufe.length = 0;
+    r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), { ...zEnv, ZOOM_SDK_REPO: undefined });
+    check('zoom-sdk ohne ZOOM_SDK_REPO → Vorgabe AlexmachtCode/jm-zoom-sdk',
+      r.status === 200 && aufrufe.includes(`https://api.github.com/repos/AlexmachtCode/jm-zoom-sdk/releases/tags/zoom-sdk-${FASSUNG}`));
+    // KV wirft (Ausfall oder Schreibgrenze): vertragsgemäß 502 upstream als JSON, nicht als ungefangene Ausnahme.
+    const kaputtesKV = {
+      async get() {
+        throw new TypeError('KV nicht erreichbar');
+      },
+      async put() {},
+    };
+    seit = mitschnitt.length;
+    let rk = null;
+    try {
+      rk = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), { ...zEnv, RATELIMIT: kaputtesKV });
+    } catch {
+      rk = null;
+    }
+    check('zoom-sdk KV wirft bei der Drosselung → 502 upstream (JSON), keine ungefangene Ausnahme',
+      rk !== null && rk.status === 502 && (await rk.json()).error === 'upstream');
+    check('… Worker-Log nennt Drosselung und Fehlernamen, nicht die Meldung',
+      mitschnitt.slice(seit).some((z) => z.startsWith('zoom-sdk: Drosselung') && z.includes('TypeError'))
+        && !mitschnitt.some((z) => z.includes('KV nicht erreichbar')));
 
     // Drosselung VOR dem Schlüsselvergleich: 20 Anfragen je IP und 10 Minuten, die 21. → 429, auch mit gültigem Schlüssel.
     const rlEnv = { ...zEnv, RATELIMIT: makeKV() };
-    for (let i = 0; i < 20; i++) await worker.fetch(zReq(FASSUNG, 'falsch', { ip: '3.3.3.3' }), rlEnv);
+    const vorab = [];
+    for (let i = 0; i < 20; i++) vorab.push((await worker.fetch(zReq(FASSUNG, 'falsch', { ip: '3.3.3.3' }), rlEnv)).status);
+    check('zoom-sdk Drosselung: die 20 Anfragen davor kommen durch (401 wegen falschem Schlüssel, kein 429)',
+      vorab.length === 20 && vorab.every((s) => s === 401));
     aufrufe.length = 0;
     r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { ip: '3.3.3.3' }), rlEnv);
     check('zoom-sdk Drosselung: 21. Anfrage je IP → 429, auch mit gültigem Schlüssel', r.status === 429);

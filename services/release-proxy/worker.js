@@ -419,11 +419,21 @@ const ZOOM_SDK_FASSUNG = /^\d+\.\d+\.\d+\.\d+$/;
  * Reihenfolge: Drosselung (auch für gültige Schlüssel), Fassung, Schlüssel, GitHub. Nie in Log oder
  * Antwort: Schlüssel, signierter Link, GitHub-Fehlertext. Eine Prüfsumme liefert der Proxy bewusst
  * nicht: Die steht nur im Connect-Code, ein manipulierter Proxy kann ein falsches Paket nicht tarnen.
+ * Jede Fehleinrichtung (Secret fehlt, Token ohne Zugriff, Asset fehlt) hinterlässt eine Zeile im
+ * Worker-Log, sonst sähe Connect nur 401/404 und nennte eine falsche Ursache. Von Fehlern nur der Name.
  */
 async function handleZoomSdk(request, env, fassung) {
-  const rl = await rateLimit(env, 'zoomsdk', clientIp(request), LIMITS.zoomsdk.rlMax, LIMITS.zoomsdk.rlWindowSec);
+  let rl;
+  try {
+    rl = await rateLimit(env, 'zoomsdk', clientIp(request), LIMITS.zoomsdk.rlMax, LIMITS.zoomsdk.rlWindowSec);
+  } catch (e) {
+    // KV-Ausfall oder Schreibgrenze: abweisen (fail-closed), aber im Vertrag (JSON 502) statt als Ausnahme.
+    console.warn(`zoom-sdk: Drosselung nicht prüfbar (${fehlerName(e)}) — Anfrage abgewiesen`);
+    return json({ error: 'upstream' }, 502);
+  }
   if (!rl.ok) return tooMany(rl.retryAfter);
   if (request.method !== 'GET' || !ZOOM_SDK_FASSUNG.test(fassung)) return json({ error: 'not_found' }, 404);
+  if (!env.ZOOM_SDK_KEY) console.warn('zoom-sdk: Secret ZOOM_SDK_KEY fehlt — jede Anfrage endet mit 401');
   if (!(await zoomSdkSchluesselPasst(request.headers.get('X-Zoom-Sdk-Key'), env.ZOOM_SDK_KEY))) {
     return json({ error: 'unauthorized' }, 401);
   }
@@ -437,7 +447,11 @@ async function handleZoomSdk(request, env, fassung) {
         'User-Agent': USER_AGENT,
       },
     });
-    if (res.status === 404) return json({ error: 'not_found' }, 404);
+    if (res.status === 404) {
+      // Ein Token ohne Zugriff auf das private Repo bekommt von GitHub ebenfalls 404.
+      console.warn(`zoom-sdk: GitHub 404 für Release zoom-sdk-${fassung} in ${repo} — Release fehlt oder GITHUB_TOKEN hat keinen Zugriff`);
+      return json({ error: 'not_found' }, 404);
+    }
     if (!res.ok) {
       console.warn(`zoom-sdk: GitHub antwortet ${res.status}`);
       return json({ error: 'upstream' }, 502);
@@ -446,17 +460,28 @@ async function handleZoomSdk(request, env, fassung) {
     const name = `zoom-sdk-win-x64-${fassung}.zip`;
     const assets = Array.isArray(release && release.assets) ? release.assets : [];
     const asset = assets.find((a) => a && a.name === name);
-    if (!asset) return json({ error: 'not_found' }, 404);
+    if (!asset) {
+      console.warn(`zoom-sdk: Asset ${name} fehlt im Release zoom-sdk-${fassung} in ${repo}`);
+      return json({ error: 'not_found' }, 404);
+    }
     const signiert = await resolveSignedUrl(repo, asset.id, env);
-    if (!signiert) return json({ error: 'upstream' }, 502);
+    if (!signiert) {
+      console.warn(`zoom-sdk: signierter Link für ${name} nicht auflösbar (Asset ${asset.id})`);
+      return json({ error: 'upstream' }, 502);
+    }
     return new Response(JSON.stringify({ fassung, url: signiert, size: asset.size }), {
       status: 200,
       headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
     });
-  } catch {
-    console.warn('zoom-sdk: GitHub nicht erreichbar oder Antwort unlesbar');
+  } catch (e) {
+    console.warn(`zoom-sdk: GitHub nicht erreichbar oder Antwort unlesbar (${fehlerName(e)})`);
     return json({ error: 'upstream' }, 502);
   }
+}
+
+/** Nur der Name eines Fehlers (TypeError, SyntaxError …), nie die Meldung: Die könnte eine Adresse zitieren. */
+function fehlerName(e) {
+  return (e && typeof e.name === 'string' && e.name) || 'unbekannt';
 }
 
 /**
