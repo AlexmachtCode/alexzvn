@@ -174,8 +174,11 @@ function sdkDllPasst(datei: string, fassung: string): boolean {
   }
 }
 
-/** Freier Platz am nächsten existierenden Vorfahren von `pfad` (basis gibt es vor der ersten Einrichtung nicht). */
-async function freierPlatz(pfad: string, w: LaufzeitWerkzeuge): Promise<number> {
+/**
+ * Freier Platz am nächsten existierenden Vorfahren von `pfad` (basis gibt es vor der ersten Einrichtung nicht).
+ * Auch für „Zoom-SDK laden“ (sdk-laden.ts), das vor der Kopie ZIP und Entpackordner braucht.
+ */
+export async function freierPlatz(pfad: string, w: Pick<LaufzeitWerkzeuge, 'statfs'>): Promise<number> {
   let d = pfad;
   while (!existsSync(d)) {
     const oben = dirname(d);
