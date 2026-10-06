@@ -167,6 +167,8 @@ type StartErgebnis = { ok: true; bridge: BridgeArt; gen: number } | { ok: false;
 type StartAusgang = { ok: true } | { ok: false; meldung: Meldungstext };
 interface StartBeobachter { gen: number; erledigt: boolean; ende(e: StartAusgang): void }
 
+const GEHEIM = ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS', 'JMPS_ZOOM_SDK_KEY', 'JMPS_PROXY_KEY'];
+
 const ABGEBROCHEN: Meldungstext = { text: '', detail: null };
 
 function zeitgeber(ms: number, fn: () => void): ReturnType<typeof setTimeout> {
@@ -692,12 +694,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         // Schreibweise von PATH entfernen (bridge.ts mischt process.env als einfaches Objekt).
         env: { PATH: kindPfad(env, ordner) },
         // Nie an die Bridge (sie lädt die Zoom-DLLs): Zoom-Zugangsdaten und Schlüssel für den Release-Proxy (G2).
+        // Auch abweichend geschriebene Namen (Windows liest process.env ohne Rücksicht auf Groß-/Kleinschreibung,
+        // bridge.ts mischt aber ein einfaches Objekt ein, dessen Schlüssel ihre Schreibung behalten).
         envRemove: [
-          'ZOOM_SDK_CLIENT_ID',
-          'ZOOM_SDK_CLIENT_SECRET',
-          'ZOOM_SDK_CREDENTIALS',
-          'JMPS_ZOOM_SDK_KEY',
-          'JMPS_PROXY_KEY',
+          ...GEHEIM,
+          ...Object.keys(process.env).filter((k) => GEHEIM.includes(k.toUpperCase())),
           ...pfadVarianten(env),
         ],
         joinTimeoutMs: f.joinTimeoutMs,

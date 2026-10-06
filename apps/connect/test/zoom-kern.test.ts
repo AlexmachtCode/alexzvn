@@ -1532,6 +1532,30 @@ console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2,
     probe !== undefined && JSON.stringify(probe.seen) === '{"JMPS_ZOOM_SDK_KEY":false,"JMPS_PROXY_KEY":false}');
   await p.aufraeumen();
 }
+if (process.platform === 'win32') {
+  // G2 (Fix-Runde 1): Windows liest process.env ohne Rücksicht auf Groß-/Kleinschreibung, bridge.ts mischt aber
+  // ein einfaches Objekt ein - eine abweichend geschriebene Variable darf trotzdem nicht bis zur Bridge reichen.
+  const vorher = { sdk: process.env.JMPS_ZOOM_SDK_KEY, proxy: process.env.JMPS_PROXY_KEY };
+  delete process.env.JMPS_ZOOM_SDK_KEY;
+  delete process.env.JMPS_PROXY_KEY;
+  process.env.Jmps_Zoom_Sdk_Key = 'sdk-test';
+  process.env.Jmps_Proxy_Key = 'sdk-test';
+  const p = baueKern({
+    skript: 'envprobe',
+    stell: () => ({ ENV_PROBE_NAMES: 'JMPS_ZOOM_SDK_KEY,JMPS_PROXY_KEY' }),
+    fristen: { anmeldeMs: 500 },
+  });
+  await p.kern.pruefen();
+  delete process.env.Jmps_Zoom_Sdk_Key;
+  delete process.env.Jmps_Proxy_Key;
+  for (const [name, wert] of [['JMPS_ZOOM_SDK_KEY', vorher.sdk], ['JMPS_PROXY_KEY', vorher.proxy]] as const) {
+    if (wert !== undefined) process.env[name] = wert;
+  }
+  const probe = p.ereignisse.find((x) => x.ev.ev === 'envprobe')?.ev as unknown as { seen: Record<string, boolean> } | undefined;
+  ck('G2: Bridge-Umgebung ohne die Schlüssel auch in gemischter Schreibung (Windows)',
+    probe !== undefined && JSON.stringify(probe.seen) === '{"JMPS_ZOOM_SDK_KEY":false,"JMPS_PROXY_KEY":false}');
+  await p.aufraeumen();
+}
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
