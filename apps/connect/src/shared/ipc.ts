@@ -46,6 +46,10 @@ export const IPC = {
   zoom: 'jmc:zoom',
   /** invoke: Ordner-Dialog, dann SDK prüfen und kopieren → ZoomErgebnis. */
   zoomSdkWaehlen: 'jmc:zoom-sdk-waehlen',
+  /** invoke: „Zoom-SDK laden“ (Link vom Proxy, Download, Prüfung, Entpacken, Kopie) → ZoomErgebnis. */
+  zoomSdkLaden: 'jmc:zoom-sdk-laden',
+  /** invoke: laufendes Laden abbrechen (bis zum Entpacken, nicht mehr während der Kopie) → void. */
+  zoomSdkLadenAbbrechen: 'jmc:zoom-sdk-laden-abbrechen',
   /** invoke: Datei-Dialog für die Zugangsdaten → ZoomErgebnis. */
   zoomZugangWaehlen: 'jmc:zoom-zugang-waehlen',
   /** invoke: { clientId, clientSecret } von Hand → ZoomErgebnis (gesperrt wie die Wahl, S10). Die Werte gehen nie zurück. */

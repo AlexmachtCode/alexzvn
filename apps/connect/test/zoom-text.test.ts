@@ -31,7 +31,7 @@ function abbild(a: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz
   return {
     kurz: kurz(kz),
     einrichtung: {
-      sdk: { stand: 'ok', fassung: '7.1.5.43953', kopie: null, text: null },
+      sdk: { stand: 'ok', fassung: '7.1.5.43953', kopie: null, laden: null, text: null },
       zugang: { herkunft: 'stored', clientIdEnde: '1234', text: null },
       sdkSchluessel: { herkunft: 'stored' },
     },
@@ -73,7 +73,7 @@ const T72: Record<ZoomZ, Fall72> = {
     lage: { zustand: 'einrichtung', maengel: ['sdk_fehlt'], kopieLaeuft: true },
     abbild: {
       einrichtung: {
-        sdk: { stand: 'kopiert', fassung: null, kopie: { dateien: 40, dateienGesamt: 153, bytes: 105_500_000, bytesGesamt: 329_657_415 }, text: null },
+        sdk: { stand: 'kopiert', fassung: null, kopie: { dateien: 40, dateienGesamt: 153, bytes: 105_500_000, bytesGesamt: 329_657_415 }, laden: null, text: null },
         zugang: { herkunft: 'stored', clientIdEnde: '1234', text: null },
         sdkSchluessel: { herkunft: 'stored' },
       },
