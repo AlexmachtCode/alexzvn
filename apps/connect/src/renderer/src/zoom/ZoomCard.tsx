@@ -8,7 +8,7 @@ import type { ZoomAbbild, ZoomErgebnis, ZoomParticipant, ZoomSollEintrag } from 
 import { kartenZeile, Q9_ANFANG, sdkKnopf, sdkZeile, zoomKnoepfe, zugangZeile } from '@shared/zoom-text';
 
 // Tooltip- und Hinweistexte wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht).
-const TEXT_S10 = 'Während Zoom läuft oder die Kopie läuft, lassen sich SDK-Ordner und Zugangsdaten nicht ändern.';
+const TEXT_S10 = 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.';
 const TEXT_Q11 = 'Name doppelt im Meeting — nach einem Wiederbeitritt kann Connect diese Quelle nicht von selbst zuordnen.';
 const TEXT_Q13 = 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.';
 const TEXT_Q14 = 'Zum Umschalten erst entladen.';

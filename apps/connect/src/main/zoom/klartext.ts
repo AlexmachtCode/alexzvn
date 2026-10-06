@@ -40,7 +40,7 @@ export const KT = {
   S8: 'Dieser Connect-Installation fehlt die Zoom-Bridge. Bitte JM Connect neu installieren.',
   S9: (datei: string): string =>
     `Die Zoom-Laufzeit auf diesem PC ist unvollständig (${datei}). Bitte den SDK-Ordner erneut wählen.`,
-  S10: 'Während Zoom läuft oder die Kopie läuft, lassen sich SDK-Ordner und Zugangsdaten nicht ändern.',
+  S10: 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.',
   A1: 'Die Datei ist kein gültiges JSON (Inhalt wird absichtlich nicht angezeigt).',
   A2: 'In der Datei fehlen Client-ID oder Client-Secret (erwartet: clientId und clientSecret).',
   A3: (code: string): string => `Die Datei lässt sich nicht lesen (${code}).`,

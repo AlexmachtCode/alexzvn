@@ -190,6 +190,8 @@ In der Einrichtung gibt es zwei Zeilen.
 | S17 | Laden abgebrochen. Die bisherige Einrichtung bleibt unverändert. |
 | S18 | Bitte den SDK-Schlüssel eintragen, ohne Leerzeichen. |
 
+- **S10 (neu gefasst, Owner 06.10.2026):** Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.
+
 - **Zuordnung der Fehlerarten zu Texten:**
 
 | Fehlerart | Text |
