@@ -1,7 +1,7 @@
 # JM Connect: Zoom-SDK nachladen (Design)
 
 - **Stand:** 06.10.2026
-- **Status:** Entwurf vom Owner freigegeben (06.10.), Spec zur Durchsicht
+- **Status:** Entwurf und Spec vom Owner freigegeben (06.10.2026); privates Repo und Upload freigegeben
 - **Ziel-Release:** connect-v0.2.2, unabhängig von Stage 4b
 - **Baut auf:** `2026-10-02-zoom-stage4-connect-design.md` (Spec 5.3 Laufzeit, 5.6 Zugangsdaten, S1–S10) und dem Nachtrag „Zugangsdaten von Hand“ (0.2.1)
 
