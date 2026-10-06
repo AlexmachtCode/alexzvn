@@ -79,6 +79,11 @@ export function ZoomCard(): JSX.Element {
   const [versatz, setVersatz] = useState<string | null>(null);
   const [versatzFehler, setVersatzFehler] = useState<string | null>(null);
   const [einrichtungAuf, setEinrichtungAuf] = useState(false);
+  /** Zugangsdaten von Hand: Eingabe offen, die beiden Werte (nur hier im Fenster) und der Schalter „anzeigen“. */
+  const [handAuf, setHandAuf] = useState(false);
+  const [handId, setHandId] = useState('');
+  const [handSecret, setHandSecret] = useState('');
+  const [handZeigen, setHandZeigen] = useState(false);
   const [verlassenFrage, setVerlassenFrage] = useState(false);
   /** Zeile, für die Q9 kam: der nächste Klick dort lädt trotzdem. */
   const [trotzId, setTrotzId] = useState<number | null>(null);
@@ -167,6 +172,23 @@ export function ZoomCard(): JSX.Element {
     zugang.herkunft === 'stored' || zugang.herkunft === 'session' || k.maengel.includes('zugang_unlesbar');
   const antwortText = (ort: Ort): string | null => (antwort && antwort.ort === ort ? antwort.text : null);
   const einrichtungAntwort = antwortText('einrichtung');
+
+  /** Klappt zu und leert beide Felder; der Schalter steht wieder auf verdeckt. */
+  const handZu = (): void => {
+    setHandAuf(false);
+    setHandId('');
+    setHandSecret('');
+    setHandZeigen(false);
+  };
+
+  // Erfolg: zu und leer. Fehler (A7, S10 …): offen lassen, Eingaben bleiben, der Text erscheint wie bei der Einrichtung.
+  const speichereHand = (): void => {
+    void fuehreAus('zugang', 'einrichtung', () =>
+      window.jmconnect.zoomZugangEintragen({ clientId: handId, clientSecret: handSecret }),
+    ).then((r) => {
+      if (r.ok) handZu();
+    });
+  };
 
   const beitreten = (): void => {
     const code = kenncode;
@@ -413,6 +435,15 @@ export function ZoomCard(): JSX.Element {
                     Datei wählen …
                   </button>
                 </MitTooltip>
+                <MitTooltip titel={sperrTitel}>
+                  <button
+                    disabled={!kn.einrichtungAenderbar || laeuft.has('zugang')}
+                    onClick={() => setHandAuf(true)}
+                    className={RAND}
+                  >
+                    Eintragen …
+                  </button>
+                </MitTooltip>
                 {zugangEntfernbar && (
                   <MitTooltip titel={sperrTitel}>
                     <button
@@ -426,6 +457,50 @@ export function ZoomCard(): JSX.Element {
                 )}
               </span>
             </div>
+            {handAuf && (
+              <form
+                className="mt-2 grid gap-2 sm:grid-cols-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (kn.einrichtungAenderbar && !laeuft.has('zugang')) speichereHand();
+                }}
+              >
+                <label className="text-xs text-neutral-400">
+                  Client-ID
+                  <input
+                    value={handId}
+                    onChange={(e) => setHandId(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className={`${INP} mt-1 border-neutral-700`}
+                  />
+                </label>
+                <label className="text-xs text-neutral-400">
+                  Client-Secret
+                  <span className="mt-1 flex items-center gap-2">
+                    <input
+                      type={handZeigen ? 'text' : 'password'}
+                      value={handSecret}
+                      onChange={(e) => setHandSecret(e.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className={`${INP} border-neutral-700`}
+                    />
+                    <button type="button" onClick={() => setHandZeigen((z) => !z)} className={RAND}>
+                      {handZeigen ? 'verbergen' : 'anzeigen'}
+                    </button>
+                  </span>
+                </label>
+                <div className="flex items-center gap-2 sm:col-span-2">
+                  <button type="submit" disabled={!kn.einrichtungAenderbar || laeuft.has('zugang')} className={GELB}>
+                    Speichern
+                  </button>
+                  <button type="button" onClick={handZu} className={RAND}>
+                    Abbrechen
+                  </button>
+                </div>
+              </form>
+            )}
             {zugang.text && zugang.text !== zugangText && <p className="mt-1 text-xs text-red-300">{zugang.text}</p>}
           </div>
           {einrichtungAntwort && einrichtungAntwort !== sdk.text && einrichtungAntwort !== zugang.text && (

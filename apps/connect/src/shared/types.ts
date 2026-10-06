@@ -251,6 +251,8 @@ export interface JmConnectApi {
   zoomSdkWaehlen: () => Promise<ZoomErgebnis>;
   /** Datei-Dialog für die Zugangsdaten. */
   zoomZugangWaehlen: () => Promise<ZoomErgebnis>;
+  /** Zugangsdaten von Hand: nur hinein, es gibt keinen Weg zurück ins Fenster. */
+  zoomZugangEintragen: (p: { clientId: string; clientSecret: string }) => Promise<ZoomErgebnis>;
   zoomZugangLoeschen: () => Promise<ZoomErgebnis>;
   /** „Einrichtung prüfen“: Bridge starten, anmelden, beenden, ohne Meeting. */
   zoomPruefen: () => Promise<ZoomErgebnis>;
