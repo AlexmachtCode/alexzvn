@@ -1484,3 +1484,44 @@ Keiner der Prüfbefunde widerspricht einer Owner-Entscheidung E1–E9; alle sind
 - **O2:** **In 4b mitbeheben**, abweichend vom Vorschlag oben. 17.2 Nr. 2 und 3 werden vor der ersten Auslieferung der Connect-Rolle behoben (17.2, 18, Abschnitt 1).
 - **O3:** **Zwei Pläne**, 4a und danach 4b, ein Release.
 - **Nachtrag 05.10.2026 (Owner):** **O1 entschieden:** Weitergabe von `zoom-bridge.exe` im öffentlichen Installer wie bei `zoom-bridge-v0.1.0` erlaubt (ohne Zoom-DLLs; die wählt der Bediener als SDK-Ordner). 4a wird als `connect-v0.2.0` released, 4b wird 0.3.0.
+
+
+---
+
+## Nachtrag 2026-10-06: Zugangsdaten von Hand eintragen
+
+Vom Owner am 06.10.2026 freigegeben. Zusätzlich zur JSON-Datei (6.1, `zugangWaehlen`) lassen sich Client-ID und Client-Secret in der Zoom-Karte von Hand eintragen. Die alten Abschnitte bleiben unverändert; dieser Nachtrag verweist auf 5.5, 6.1, 8 und 9.
+
+**Ablauf (Kern `zugangEintragen({ clientId, clientSecret })`).** Er verhält sich wie `zugangWaehlen`, nur ohne Datei, und teilt sich mit ihm den Schluss in einer privaten Hilfsmethode:
+
+1. Sperre `einrichtungSperre()` (S10); im Zustand `fehler` zuerst `schliessen()`.
+2. Beide Werte werden am Rand getrimmt. Ist danach ein Wert leer oder enthält er Leerraum in der Mitte (Leerzeichen, Tabulator, Zeilenumbruch), lautet die Antwort **A7**. Es wird nichts gespeichert, der Zustand bleibt, A7 steht als Fehlertext der Zugangsdaten im Abbild.
+3. Speichern über `d.zugang.speichern(...)`; Herkunft `stored` oder `session` (A4) wie beim Datei-Weg.
+4. Logzeile ohne jeden Wert: `[zoom] Zugangsdaten hinterlegt (von Hand, verschlüsselt)` bzw. `(von Hand, nur für diese Sitzung)`.
+5. `bestimmeMaengel()` und `setzeZustand(...)` wie beim Datei-Weg.
+
+Weder Client-ID noch Client-Secret stehen je in einer Logzeile, einer Fehlermeldung oder einer Antwort an das Fenster. Es gibt keinen Weg, die Werte ins Fenster zurückzulesen.
+
+**Texte.**
+
+| Text | Neu |
+| --- | --- |
+| **A7** (neu) | `Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.` |
+| **B9** (Satzende) | `… Bitte die Zugangsdaten prüfen.` (vorher „… die Zugangsdaten-Datei prüfen.“) |
+| **B17** | `Zugangsdaten fehlen — bitte eintragen oder die Datei wählen.` |
+| **A5** | `Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Zugangsdaten erneut eintragen oder die Datei erneut wählen.` |
+| `zugang_unlesbar` (Kurztext) | `Zugangsdaten lassen sich nicht entschlüsseln, bitte erneut eintragen oder die Datei erneut wählen` |
+
+**Neue Zeile in der IPC-Tabelle (5.5).**
+
+| Konstante | Kanal | Art | Nutzlast → Antwort |
+| --- | --- | --- | --- |
+| `zoomZugangEintragen` | `jmc:zoom-zugang-eintragen` | invoke | `{ clientId, clientSecret }` → `ZoomErgebnis` (gesperrt wie die Wahl, S10). Ist die Nutzlast kein Objekt mit zwei Strings oder ein String länger als 512 Zeichen, lautet die Antwort `{ ok: false, text: '' }`, und der Kern wird nicht aufgerufen (reine Funktion `pruefeZugangEingabe`, `main/zoom/zugang-eingabe.ts`). |
+
+**Neue Kartenzeile (9, Einrichtung).** In der Zeile „Zugangsdaten“ steht neben „Datei wählen …“ der Knopf „Eintragen …“ (gesperrt genau dann, wenn „Datei wählen …“ gesperrt ist, Tooltip S10). Er klappt in der Karte auf:
+
+- Feld „Client-ID“ (Text) und Feld „Client-Secret“ (verdeckt, Schalter „anzeigen“ wechselt zwischen `password` und `text`); beide ohne Autovervollständigung und Rechtschreibprüfung.
+- Knöpfe „Speichern“ und „Abbrechen“.
+- Erfolg: alles klappt zu, beide Felder sind leer, der Schalter steht wieder auf verdeckt. „Abbrechen“ klappt ebenfalls zu und leert.
+- Fehler (A7, S10 usw.): die Eingabe bleibt offen, die Werte bleiben stehen, der Text erscheint dort, wo die Karte Fehler der Einrichtung zeigt.
+- Der Datei-Weg und „Entfernen“ bleiben unverändert.

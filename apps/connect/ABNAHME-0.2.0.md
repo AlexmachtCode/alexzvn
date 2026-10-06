@@ -47,6 +47,7 @@ Spec: `docs/superpowers/specs/2026-10-02-zoom-stage4-connect-design.md`, Abschni
 | 23 | Connect starten, beitreten, zwei Quellen laden, 65 min im Meeting bleiben | keine Unterbrechung | – | |
 | 24 | Beitritt in das Meeting des fremden Kontos | Text C63 bzw. C500; Code aus dem Log notieren (M9) | ja | |
 | 25 | Logordner (Knopf „Logordner öffnen“) nach dem Kenncode und der Meeting-Nummer durchsuchen | kein Treffer | – | |
+| 26 | **Zugangsdaten von Hand:** den Datei-Zugang „Entfernen“, dann „Eintragen …“: Client-ID und Client-Secret eintragen (Secret zuerst verdeckt, „anzeigen“ zeigt es), „Speichern“. Danach „Einrichtung prüfen“. Dann „Entfernen“ und erneut „Eintragen …“ mit einem Leerzeichen mitten in der Client-ID | Nach dem Speichern klappt die Eingabe zu, beide Felder sind leer, die Zeile zeigt „hinterlegt (Client-ID endet auf …)“; „Einrichtung prüfen“ meldet Erfolg. Mit Leerzeichen bleibt die Eingabe offen, die Werte bleiben stehen, und es erscheint „Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.“ (A7); gespeichert wird nichts. Im Log steht „Zugangsdaten hinterlegt (von Hand, …)“ und **kein** Wert | ja | |
 
 ## Messungen aus dem Kurztest
 
