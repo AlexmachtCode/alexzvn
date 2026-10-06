@@ -19,5 +19,13 @@ description = "Wegwerf-Material in Tests/Doku — keine echten Geheimnisse"
 paths = [
   # Selbstsigniertes Throwaway-EC-Zertifikat (embedded) für den TLS-Integrationstest
   # des Steuerprotokolls — generiert, nicht produktiv, kein echtes Secret.
-  '''packages/suite-control-protocol/test/integration\.ts''',
+  # [\\/] statt /, damit der Ausschluss auch bei einem lokalen Lauf unter Windows greift.
+  '''packages[\\/]suite-control-protocol[\\/]test[\\/]integration\.ts''',
+]
+# Erfundene Testwerte, die die Standardregel generic-api-key trifft. Nur der genaue Wert,
+# nicht die Datei: ein echtes Secret in derselben Testdatei würde weiter gemeldet.
+regexes = [
+  # Zoom Stage 4a: Client-ID der Zugangsdaten-Fälle in apps/connect/test/zoom-kern.test.ts
+  # und im Plan docs/superpowers/plans/2026-10-02-zoom-stage4a-connect.md, der sie zitiert.
+  '''^sitzung-9876$''',
 ]
