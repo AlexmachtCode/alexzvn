@@ -485,6 +485,58 @@ async function run() {
         && !aufrufe.some((u) => u.includes('jm-zoom-sdk')));
     stub = async () => new Response('{}', { status: 200 });
   }
+
+  // 22) Regression: die Kopfzeilen JEDER GitHub-Anfrage, wörtlich je Aufrufstelle (Feedback, ghJson, ghRaw,
+  // ghApi, resolveSignedUrl, zoom-sdk). Pinnt das Verhalten vor und nach dem Bündeln in ghHeaders().
+  {
+    const UA = 'JM-Suite-Release-Proxy';
+    const GH = { Accept: 'application/vnd.github+json', Authorization: 'Bearer gh', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': UA };
+    const MIT_JSON = { ...GH, 'content-type': 'application/json' };
+    const norm = (h) => JSON.stringify(Object.entries(h || {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    const gesehen = [];
+    stub = async (u, init = {}) => {
+      const url = String(u);
+      gesehen.push({ url, methode: init.method || 'GET', kopf: init.headers });
+      if (url.includes('/releases/assets/')) return new Response(null, { status: 302, headers: { Location: 'https://signed.test/1' } });
+      if (url.includes('/releases?')) {
+        return new Response(JSON.stringify([{ tag_name: 'copy-v1.0.0', draft: false, assets: [{ id: 9, name: 'JM.Copy.Setup.1.0.0.exe', size: 5 }] }]), { status: 200 });
+      }
+      if (url.includes('/releases/tags/')) {
+        return new Response(JSON.stringify({ assets: [{ id: 77, name: 'zoom-sdk-win-x64-7.1.5.43953.zip', size: 150120193 }] }), { status: 200 });
+      }
+      if (url.includes('/git/ref/heads/')) return new Response(JSON.stringify({ object: { sha: 'abc' } }), { status: 200 });
+      if (url.endsWith('/pulls') || url.endsWith('/issues')) return new Response(JSON.stringify({ number: 3, html_url: 'https://x/3' }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    };
+    const kopfVon = (teil, methode = 'GET') => gesehen.find((g) => g.url.includes(teil) && g.methode === methode)?.kopf;
+    const zEnv = { ...baseEnv, ZOOM_SDK_KEY: 'sdk-geheim-test', ZOOM_SDK_REPO: 'owner/jm-zoom-sdk' };
+
+    let r = await worker.fetch(req('/tools/jm-copy/latest?platform=win'), baseEnv);
+    check('Kopfzeilen: /tools → 200', r.status === 200);
+    check('… ghJson (Release-Liste) wörtlich', norm(kopfVon('/releases?')) === norm(GH));
+    check('… resolveSignedUrl wörtlich (octet-stream, ohne API-Version)',
+      norm(kopfVon('/releases/assets/9')) === norm({ Accept: 'application/octet-stream', Authorization: 'Bearer gh', 'User-Agent': UA }));
+    r = await worker.fetch(req('/suite.json'), baseEnv);
+    check('… ghRaw (suite.json) wörtlich, Accept raw', r.status === 200
+      && norm(kopfVon('/contents/packages/suite-manifest/suite.json')) === norm({ ...GH, Accept: 'application/vnd.github.raw' }));
+    r = await worker.fetch(req('/feedback', { method: 'POST', body: { title: 't', description: 'd' } }), baseEnv);
+    check('… Feedback (Issue anlegen) wörtlich, mit content-type', r.status === 200 && norm(kopfVon('/issues', 'POST')) === norm(MIT_JSON));
+    const rezept = {
+      id: 'kopf-probe', title: 'Kopf-Probe', category: 'Technik-Setups', difficulty: 'einfach', setupTimeMin: 5, teamSize: 1,
+      equipmentOwner: 'jm', lastReviewed: '2026-10-06', owner: 'probe', summary: 's', blocks: { ingredients: [], steps: {} },
+    };
+    r = await worker.fetch(req('/cookbook/draft', { method: 'POST', body: { mode: 'form', recipe: rezept } }), baseEnv);
+    check('… ghApi: Kochbuch-Entwurf → 200', r.status === 200);
+    check('… ghApi GET ohne Body: ohne content-type', norm(kopfVon('/git/ref/heads/')) === norm(GH));
+    check('… ghApi POST/PUT mit Body: mit content-type',
+      norm(kopfVon('/git/refs', 'POST')) === norm(MIT_JSON) && norm(kopfVon('/contents/', 'PUT')) === norm(MIT_JSON)
+        && norm(kopfVon('/pulls', 'POST')) === norm(MIT_JSON));
+    r = await worker.fetch(req('/zoom-sdk/7.1.5.43953', { key: null, headers: { 'X-Zoom-Sdk-Key': 'sdk-geheim-test' } }), zEnv);
+    check('… zoom-sdk (Release per Tag) wörtlich', r.status === 200 && norm(kopfVon('/releases/tags/')) === norm(GH));
+    check('… zoom-sdk 200: content-type JSON und no-store',
+      r.headers.get('content-type') === 'application/json; charset=utf-8' && r.headers.get('cache-control') === 'no-store');
+    stub = async () => new Response('{}', { status: 200 });
+  }
 }
 
 run()

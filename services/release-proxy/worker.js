@@ -37,6 +37,16 @@ export { ConnectRoom };
 
 const USER_AGENT = 'JM-Suite-Release-Proxy';
 
+/** Kopfzeilen jeder GitHub-API-Anfrage mit dem Server-Token; `accept` je nach Antwortform (JSON oder raw). */
+function ghHeaders(env, accept = 'application/vnd.github+json') {
+  return {
+    Accept: accept,
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': USER_AGENT,
+  };
+}
+
 // Anti-Missbrauch (P3, #61): Body-Größen- und Rate-Limit-Grenzen für die
 // SCHREIBENDEN Endpunkte. /feedback legt GitHub-Issues an, /cookbook/draft öffnet
 // PRs (und ruft ggf. die teure Anthropic-API) → ohne Limits offen für Spam und
@@ -174,13 +184,7 @@ export default {
 
         const res = await fetch(`https://api.github.com/repos/${env.REPO}/issues`, {
           method: 'POST',
-          headers: {
-            Accept: 'application/vnd.github+json',
-            Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-            'X-GitHub-Api-Version': '2022-11-28',
-            'User-Agent': USER_AGENT,
-            'content-type': 'application/json',
-          },
+          headers: { ...ghHeaders(env), 'content-type': 'application/json' },
           body: JSON.stringify({
             title: `[${isBug ? 'Bug' : 'Wunsch'}] ${title}`,
             body,
@@ -361,28 +365,14 @@ async function alleReleases(env) {
 
 /** GitHub-JSON mit Server-Token holen. */
 async function ghJson(apiUrl, env) {
-  const res = await fetch(apiUrl, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': USER_AGENT,
-    },
-  });
+  const res = await fetch(apiUrl, { headers: ghHeaders(env) });
   if (!res.ok) throw new Error(`GitHub API ${res.status} ${res.statusText}`);
   return res.json();
 }
 
 /** Rohinhalt einer Datei aus dem Repo holen (Contents-API, raw). */
 async function ghRaw(apiUrl, env) {
-  const res = await fetch(apiUrl, {
-    headers: {
-      Accept: 'application/vnd.github.raw',
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': USER_AGENT,
-    },
-  });
+  const res = await fetch(apiUrl, { headers: ghHeaders(env, 'application/vnd.github.raw') });
   if (!res.ok) throw new Error(`GitHub contents ${res.status} ${res.statusText}`);
   return res.text();
 }
@@ -439,14 +429,7 @@ async function handleZoomSdk(request, env, fassung) {
   }
   const repo = env.ZOOM_SDK_REPO || ZOOM_SDK_REPO_VORGABE;
   try {
-    const res = await fetch(`https://api.github.com/repos/${repo}/releases/tags/zoom-sdk-${fassung}`, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': USER_AGENT,
-      },
-    });
+    const res = await fetch(`https://api.github.com/repos/${repo}/releases/tags/zoom-sdk-${fassung}`, { headers: ghHeaders(env) });
     if (res.status === 404) {
       // Ein Token ohne Zugriff auf das private Repo bekommt von GitHub ebenfalls 404.
       console.warn(`zoom-sdk: GitHub 404 für Release zoom-sdk-${fassung} in ${repo} — Release fehlt oder GITHUB_TOKEN hat keinen Zugriff`);
@@ -469,10 +452,7 @@ async function handleZoomSdk(request, env, fassung) {
       console.warn(`zoom-sdk: signierter Link für ${name} nicht auflösbar (Asset ${asset.id})`);
       return json({ error: 'upstream' }, 502);
     }
-    return new Response(JSON.stringify({ fassung, url: signiert, size: asset.size }), {
-      status: 200,
-      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-    });
+    return json({ fassung, url: signiert, size: asset.size }, 200, { 'cache-control': 'no-store' });
   } catch (e) {
     console.warn(`zoom-sdk: GitHub nicht erreichbar oder Antwort unlesbar (${fehlerName(e)})`);
     return json({ error: 'upstream' }, 502);
@@ -514,10 +494,11 @@ function compareVersions(a, b) {
   return 0;
 }
 
-function json(obj, status = 200) {
+/** `extra`: zusätzliche Kopfzeilen, etwa `cache-control: no-store` für den signierten Link. */
+function json(obj, status = 200, extra = {}) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: { 'content-type': 'application/json; charset=utf-8', ...extra },
   });
 }
 
@@ -680,13 +661,7 @@ async function openRecipePR(env, { path, md, recipe }) {
 async function ghApi(apiUrl, env, method = 'GET', body) {
   const res = await fetch(apiUrl, {
     method,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': USER_AGENT,
-      ...(body ? { 'content-type': 'application/json' } : {}),
-    },
+    headers: { ...ghHeaders(env), ...(body ? { 'content-type': 'application/json' } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   if (!res.ok) {
