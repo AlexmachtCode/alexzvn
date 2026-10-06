@@ -113,6 +113,7 @@ export async function holeLink(e: {
   try {
     const res = await w.fetch(ziel, {
       headers: { 'X-Zoom-Sdk-Key': e.schluessel },
+      redirect: 'error', // eine Weiterleitung würde den Schlüssel an einen fremden Ursprung mitschicken
       signal: e.signal,
     });
     if (res.status !== 200) {

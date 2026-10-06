@@ -215,6 +215,30 @@ ck('200 ohne url → proxy „Antwort ungültig“',
   ck('Netzfehler (Port zu) → proxy „ECONNREFUSED“', !r.ok && r.art === 'proxy' && r.grund === 'ECONNREFUSED');
 }
 {
+  // Weiterleitung auf fremden Ursprung: der SDK-Schlüssel darf dort nie ankommen.
+  let gesehen: string | undefined;
+  const ziel = createServer((req, res) => {
+    gesehen = req.headers['x-zoom-sdk-key'] as string | undefined;
+    res.statusCode = 200;
+    res.end('{}');
+  });
+  await new Promise<void>((r) => ziel.listen(0, 'localhost', r));
+  const zielPort = (ziel.address() as AddressInfo).port;
+  const quelle = createServer((_req, res) => {
+    res.statusCode = 302;
+    res.setHeader('Location', `http://localhost:${zielPort}/x`);
+    res.end();
+  });
+  await new Promise<void>((r) => quelle.listen(0, '127.0.0.1', r));
+  const qPort = (quelle.address() as AddressInfo).port;
+  const r = merke(await holeLink({ base: `http://127.0.0.1:${qPort}`, schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig() }));
+  ck('Weiterleitung auf anderen Ursprung → proxy-Fehler, Zielserver sieht keinen Schlüssel', !r.ok && r.art === 'proxy' && gesehen === undefined);
+  quelle.closeAllConnections();
+  ziel.closeAllConnections();
+  await new Promise<void>((r2) => quelle.close(() => r2()));
+  await new Promise<void>((r2) => ziel.close(() => r2()));
+}
+{
   linkModus = 'haengt';
   const ac = new AbortController();
   const lauf = holeLink({ base: BASIS, schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: ac.signal });
