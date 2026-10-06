@@ -19,7 +19,8 @@ import {
   zugangZeile,
 } from '@shared/zoom-text';
 
-// Tooltip- und Hinweistexte wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht).
+// Tooltip- und Hinweistexte wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht). TEXT_S10 ist
+// neu gefasst und steht wörtlich in Spec 2026-10-06 (Zoom-SDK nachladen), Abschnitt 5 (Owner 06.10.2026).
 const TEXT_S10 = 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.';
 const TEXT_Q11 = 'Name doppelt im Meeting — nach einem Wiederbeitritt kann Connect diese Quelle nicht von selbst zuordnen.';
 const TEXT_Q13 = 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.';
@@ -187,6 +188,8 @@ function SchluesselEingabe({
             type={zeigen ? 'text' : 'password'}
             value={wert}
             onChange={(e) => setWert(e.target.value)}
+            // Mehr nimmt der Main nicht an (pruefeSdkSchluesselEingabe): Ein längerer Text käme dort stumm als Nichts zurück.
+            maxLength={512}
             autoComplete="off"
             spellCheck={false}
             className={`${INP} mt-1 border-neutral-700`}
