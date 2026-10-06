@@ -1525,7 +1525,7 @@ console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2,
   const lauf = p.kern.sdkWaehlen('C:/SDK');
   ck('während der SDK-Kopie: SDK-Schlüssel eintragen und entfernen → S10',
     text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10 && text(p.kern.sdkSchluesselLoeschen()) === KT.S10
-      && p.sdkSchluesselGespeichert.length === 0);
+      && p.sdkSchluesselGespeichert.length === 0 && p.sdkSchluesselGeloescht() === 0);
   freigabe({ ok: false, text: KT.S6('EIO') });
   await lauf;
   await p.aufraeumen();
@@ -1540,10 +1540,14 @@ console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2,
     stell: () => ({ ENV_PROBE_NAMES: 'JMPS_ZOOM_SDK_KEY,JMPS_PROXY_KEY' }),
     fristen: { anmeldeMs: 500 },
   });
-  await p.kern.pruefen();
-  for (const [name, wert] of [['JMPS_ZOOM_SDK_KEY', vorher.sdk], ['JMPS_PROXY_KEY', vorher.proxy]] as const) {
-    if (wert === undefined) delete process.env[name];
-    else process.env[name] = wert;
+  // Auch wenn pruefen() wirft: Die Umgebung kommt zurück, sonst erbten spätere Blöcke die Schlüssel (Task 4 minor 2).
+  try {
+    await p.kern.pruefen();
+  } finally {
+    for (const [name, wert] of [['JMPS_ZOOM_SDK_KEY', vorher.sdk], ['JMPS_PROXY_KEY', vorher.proxy]] as const) {
+      if (wert === undefined) delete process.env[name];
+      else process.env[name] = wert;
+    }
   }
   const probe = p.ereignisse.find((x) => x.ev.ev === 'envprobe')?.ev as unknown as { seen: Record<string, boolean> } | undefined;
   ck('G2: Bridge-Umgebung ohne JMPS_ZOOM_SDK_KEY und JMPS_PROXY_KEY',
@@ -1563,11 +1567,14 @@ if (process.platform === 'win32') {
     stell: () => ({ ENV_PROBE_NAMES: 'JMPS_ZOOM_SDK_KEY,JMPS_PROXY_KEY' }),
     fristen: { anmeldeMs: 500 },
   });
-  await p.kern.pruefen();
-  delete process.env.Jmps_Zoom_Sdk_Key;
-  delete process.env.Jmps_Proxy_Key;
-  for (const [name, wert] of [['JMPS_ZOOM_SDK_KEY', vorher.sdk], ['JMPS_PROXY_KEY', vorher.proxy]] as const) {
-    if (wert !== undefined) process.env[name] = wert;
+  try {
+    await p.kern.pruefen();
+  } finally {
+    delete process.env.Jmps_Zoom_Sdk_Key;
+    delete process.env.Jmps_Proxy_Key;
+    for (const [name, wert] of [['JMPS_ZOOM_SDK_KEY', vorher.sdk], ['JMPS_PROXY_KEY', vorher.proxy]] as const) {
+      if (wert !== undefined) process.env[name] = wert;
+    }
   }
   const probe = p.ereignisse.find((x) => x.ev.ev === 'envprobe')?.ev as unknown as { seen: Record<string, boolean> } | undefined;
   ck('G2: Bridge-Umgebung ohne die Schlüssel auch in gemischter Schreibung (Windows)',
@@ -1913,6 +1920,8 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
   ck('… SDK-Ordner wählen, Zugangsdaten entfernen und SDK-Schlüssel eintragen ebenfalls S10',
     text(await p.kern.sdkWaehlen('C:/SDK')) === KT.S10 && text(p.kern.zugangLoeschen()) === KT.S10
       && text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10);
+  ck('… SDK-Schlüssel entfernen ebenfalls S10, nichts gelöscht (Gesamtprüfung: Task 7 minor 1)',
+    text(p.kern.sdkSchluesselLoeschen()) === KT.S10 && p.sdkSchluesselGeloescht() === 0);
   p.kern.sdkLadenAbbrechen();
   const r = await lauf;
   ck('Abbrechen → S17, als Text im Abbild', text(r) === KT.S17 && p.kern.abbild().einrichtung.sdk.text === KT.S17);
@@ -2146,6 +2155,53 @@ console.log('— Entfernen bei nicht schreibbarer Einstellungsdatei (Gesamtprüf
   ck('… die Logzeile sagt es, statt „Zugangsdaten entfernt“',
     p.logs.slice(vor).includes('[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)')
       && !p.logs.slice(vor).includes('[zoom] Zugangsdaten entfernt'));
+  await p.aufraeumen();
+}
+console.log('— Kein Z1a zwischendurch, wenn pruefeOrdner das geladene Paket abweist (Gesamtprüfung: Task 7 minor 2)');
+{
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: { pruefeOrdner: () => ({ ok: false, text: KT.S4('vcruntime140.dll') }) },
+    sdkLaden: ladeDienste(),
+    fristen: { abbildTaktMs: 0 },
+  });
+  const kurzVor = p.kurze.length;
+  const abbilderVor = p.abbilder.length;
+  await p.kern.sdkLaden();
+  const zeilen = p.kurze.slice(kurzVor).map(zoomZ);
+  ck('Kurzform beim Laden: Z1b → Z2, nie Z1a dazwischen (Tray, Kopfzeile, stateKv)',
+    JSON.stringify(zeilen) === JSON.stringify(['Z1b', 'Z2']));
+  ck('… auch kein Abbild mit Z1a', !p.abbilder.slice(abbilderVor).some((a) => zoomZ(a.kurz) === 'Z1a'));
+  await p.aufraeumen();
+}
+console.log('— Die Phasen des Ladens kommen auch an, nicht nur im synchronen abbild() (Gesamtprüfung: Task 7 minor 1)');
+{
+  const p = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    laufzeit: { pruefeOrdner: () => REG_WAHL, richteEin: async () => ({ ok: false, text: KT.S6('EIO') }) },
+    sdkLaden: ladeDienste({
+      lade: async (e) => {
+        mkdirSync(dirname(e.ziel), { recursive: true });
+        writeFileSync(e.ziel, 'zip');
+        e.fortschritt(63 * LADE_MIB);
+        e.beimPruefen?.();
+        return { ok: true };
+      },
+    }),
+    fristen: { abbildTaktMs: 0 },
+  });
+  const vor = p.abbilder.length;
+  const kurzVor = p.kurze.length;
+  await p.kern.sdkLaden();
+  const phasen: string[] = [];
+  for (const a of p.abbilder.slice(vor)) {
+    const l = a.einrichtung.sdk.laden;
+    if (l && phasen.at(-1) !== `${l.phase}:${l.bytes}`) phasen.push(`${l.phase}:${l.bytes}`);
+  }
+  ck('ausgelieferte Abbilder: link → download 0 → download 63 MiB → pruefen → entpacken',
+    JSON.stringify(phasen) === JSON.stringify(['link:0', 'download:0', `download:${63 * LADE_MIB}`, `pruefen:${63 * LADE_MIB}`, `entpacken:${63 * LADE_MIB}`]));
+  ck('… die Kurzform meldete das Laden sofort (einrichtung mit kopieLaeuft, Z1b)',
+    p.kurze.slice(kurzVor).some((k) => k.zustand === 'einrichtung' && k.kopieLaeuft));
   await p.aufraeumen();
 }
 

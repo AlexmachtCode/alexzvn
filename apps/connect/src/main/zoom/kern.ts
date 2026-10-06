@@ -464,7 +464,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (!wahl.ok) {
       sdkFehler = wahl.text;
       d.log(herkunft === 'Ordner' ? `[zoom] SDK-Ordner abgewiesen: ${wahl.text}` : `[zoom] Geladenes Zoom-SDK abgewiesen: ${wahl.text}`);
-      abbildGeaendert();
+      // Beim Ordner steht der Zustand schon so (kein Wechsel, keine Logzeile). Beim Laden steht noch der Lade-Zustand
+      // `einrichtung`, ohne ladung und ohne kopie: Ein bloßes abbildGeaendert() meldete kurz Z1a an Tray und Kopfzeile.
+      setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
       return { ok: false, text: wahl.text };
     }
     const abbruch = new AbortController();
@@ -594,9 +596,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       // (6) Dieselbe Strecke wie „SDK-Ordner wählen“. Ab hier greift „Abbrechen“ nicht mehr (die Kopie hat keinen).
       ladung = null;
       ladeAbbruch = null;
+      // Danach steht der Zustand: nach der Kopie wie bei der Ordnerwahl, nach einer Abweisung setzt ihn deren Zweig.
       const r = await pruefeUndRichteEin(entpackt, 'Laden');
-      // Nach einer Kopie steht der Zustand schon; eine Abweisung vorher ließe ihn auf dem Lade-Zustand stehen.
-      setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
       // Auch nach Abweisung oder Kopierfehler endet ein gescheitertes Laden mit der Zeile aus Spec 4.3.
       if (!r.ok) d.log(`[zoom] Laden des Zoom-SDK gescheitert: ${r.text}`);
       return r;
