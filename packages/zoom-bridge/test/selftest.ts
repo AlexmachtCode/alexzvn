@@ -1414,16 +1414,21 @@ console.log('\nbridge — Video: ein Abo über die Attrappe:');
 // Erweiterung, die es nie hatte. Diese Zusicherungen halten die Reihenfolge
 // fest, nicht nur die Funktion.
 {
-  const mitPfad = withNdiRuntimeOnPath({ PATH: 'C:\\a' }, 'C:\\ndi');
-  assert(mitPfad.PATH === `C:\\ndi${delimiter}C:\\a`, 'NDI-Laufzeit kommt VORN auf den PATH');
+  // Beispielpfade passend zur Plattform: Unter Linux ist der PATH-Trenner ':',
+  // ein Windows-Pfad wie C:\ndi zerfiele dort am Laufwerksdoppelpunkt
+  // (gemessen im ersten Linux-CI-Lauf am 2026-10-06).
+  const A = process.platform === 'win32' ? 'C:\\a' : '/a';
+  const NDI = process.platform === 'win32' ? 'C:\\ndi' : '/opt/ndi';
+  const mitPfad = withNdiRuntimeOnPath({ PATH: A }, NDI);
+  assert(mitPfad.PATH === `${NDI}${delimiter}${A}`, 'NDI-Laufzeit kommt VORN auf den PATH');
 
-  const ohneFund = { PATH: 'C:\\a' };
+  const ohneFund = { PATH: A };
   assert(withNdiRuntimeOnPath(ohneFund, null) === ohneFund, 'ohne gefundene DLL bleibt die Umgebung unveraendert');
 
-  const schonDa = { PATH: `C:\\ndi${delimiter}C:\\a` };
-  assert(withNdiRuntimeOnPath(schonDa, 'C:\\ndi') === schonDa, 'ein bereits vorhandener Eintrag wird nicht verdoppelt');
+  const schonDa = { PATH: `${NDI}${delimiter}${A}` };
+  assert(withNdiRuntimeOnPath(schonDa, NDI) === schonDa, 'ein bereits vorhandener Eintrag wird nicht verdoppelt');
 
-  assert(withNdiRuntimeOnPath({}, 'C:\\ndi').PATH === 'C:\\ndi', 'ohne PATH entsteht ein PATH mit genau diesem Eintrag');
+  assert(withNdiRuntimeOnPath({}, NDI).PATH === NDI, 'ohne PATH entsteht ein PATH mit genau diesem Eintrag');
 
   const original = { PATH: 'C:\\a' };
   withNdiRuntimeOnPath(original, 'C:\\ndi');
