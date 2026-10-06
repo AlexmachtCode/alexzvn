@@ -1570,6 +1570,16 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.2.2",
+        "date": "2026-10-06",
+        "notes": [
+          "Neu: „Zoom-SDK laden“ in der Einrichtung der Zoom-Karte lädt das Zoom-SDK 7.1.5.43953 auf JM-eigene Rechner, prüft es und richtet es ein; den SDK-Ordner muss der Bediener nicht mehr selbst besorgen. Dafür braucht Connect einmal pro Rechner den SDK-Schlüssel (neue Zeile „SDK-Schlüssel“, in der Regel verschlüsselt gespeichert). „SDK-Ordner wählen …“ bleibt als Weg ohne Netz.",
+          "Während des Ladens zeigt die Karte den Fortschritt (rund 143 MB) und bietet „Abbrechen“; danach folgt wie bisher die Kopie. Bricht etwas ab oder passt die Prüfsumme nicht, bleibt die bisherige Einrichtung unverändert, und die Karte nennt den Grund.",
+          "Die Sperrmeldung lautet jetzt „Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.“",
+          "Lässt sich die Einstellungsdatei nicht schreiben, sagt die Karte beim Entfernen von Zugangsdaten oder SDK-Schlüssel, dass das nur für diese Sitzung gilt."
+        ]
+      },
+      {
         "version": "0.2.1",
         "date": "2026-10-06",
         "notes": [
