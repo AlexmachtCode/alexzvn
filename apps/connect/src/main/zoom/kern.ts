@@ -420,10 +420,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (!sperre.ok) return sperre;
     if (zustand === 'fehler') schliessen();
     sdkFehler = null;
+    return pruefeUndRichteEin(ordner, 'Ordner');
+  }
+
+  /**
+   * Gemeinsame Strecke von „SDK-Ordner wählen“ und „Zoom-SDK laden“ (Spec SDK nachladen 4.3 Schritt 6): Ordner
+   * prüfen, kopieren mit dem `kopie`-Fortschritt, Einstellungen, Mängel, Zustand. Sperre, fehler→schliessen und
+   * `sdkFehler = null` stehen bei den Aufrufern. `herkunft` ändert nur die Logzeile einer Abweisung.
+   */
+  async function pruefeUndRichteEin(ordner: string, herkunft: 'Ordner' | 'Laden'): Promise<ZoomErgebnis> {
     const wahl = lz.pruefeOrdner(ordner, d.pfade.ressourcen);
     if (!wahl.ok) {
       sdkFehler = wahl.text;
-      d.log(`[zoom] SDK-Ordner abgewiesen: ${wahl.text}`);
+      d.log(herkunft === 'Ordner' ? `[zoom] SDK-Ordner abgewiesen: ${wahl.text}` : `[zoom] Geladenes Zoom-SDK abgewiesen: ${wahl.text}`);
       abbildGeaendert();
       return { ok: false, text: wahl.text };
     }

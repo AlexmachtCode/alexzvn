@@ -1557,6 +1557,101 @@ if (process.platform === 'win32') {
   await p.aufraeumen();
 }
 
+console.log('— sdkWaehlen wörtlich (Regression zur Teilung in pruefeUndRichteEin, Spec SDK nachladen 4.3 Schritt 6)');
+const REG_WAHL = {
+  ok: true as const, bin: 'C:/SDK/x64/bin', fassung: SDK_FASSUNG,
+  dateien: [{ pfad: 'sdk.dll', bytes: 1 }, { pfad: 'a.dll', bytes: 2 }], bytesGesamt: 3,
+};
+const REG_STEMPEL = { format: 1 as const, sdkFassung: SDK_FASSUNG, eingerichtetAm: '2026-10-06T10:00:00.000Z', sdkDateien: [], eigeneDateien: [] };
+{
+  let gewaehlt: [string, string] | null = null;
+  let kopieWaehrend: number | null = null;
+  const p: Probe = baueKern({
+    laufzeit: {
+      pruefeOrdner: (g, r) => {
+        gewaehlt = [g, r];
+        return REG_WAHL;
+      },
+      richteEin: async (e) => {
+        e.fortschritt({ dateien: 2, dateienGesamt: 2, bytes: 3, bytesGesamt: 3 });
+        kopieWaehrend = p.kern.abbild().einrichtung.sdk.kopie?.bytes ?? null;
+        return { ok: true, ordner: p.ordner, stempel: REG_STEMPEL, aufraeumFehler: null };
+      },
+    },
+  });
+  const vor = p.logs.length;
+  const r = await p.kern.sdkWaehlen('C:/SDK');
+  ck('Erfolg aus bereit: Logzeilen wörtlich und in dieser Reihenfolge', ok(r) && JSON.stringify(p.logs.slice(vor)) === JSON.stringify([
+    '[zoom] Zoom-SDK 7.1.5.43953 wird kopiert (2 Dateien)',
+    '[zoom] Zustand bereit → einrichtung',
+    `[zoom] Zoom-SDK eingerichtet in ${p.ordner}`,
+    '[zoom] Zustand einrichtung → bereit',
+  ]));
+  ck('… pruefeOrdner(ordner, ressourcen), Kopie-Fortschritt im Abbild, Laufzeit gespeichert',
+    JSON.stringify(gewaehlt) === JSON.stringify(['C:/SDK', p.pfade.ressourcen]) && kopieWaehrend === 3
+      && JSON.stringify(p.einst.laufzeit) === JSON.stringify({ dir: p.ordner, fassung: SDK_FASSUNG, eingerichtetAm: '2026-10-06T10:00:00.000Z' }));
+  ck('… danach bereit, keine Kopie, kein Text', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.sdk.kopie === null
+    && p.kern.abbild().einrichtung.sdk.text === null);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ laufzeit: { pruefeOrdner: () => ({ ok: false, text: KT.S1 }), richteEin: async () => ({ ok: false, text: 'darf nicht laufen' }) } });
+  const vor = p.logs.length;
+  const r = await p.kern.sdkWaehlen('C:/leer');
+  ck('Abweisung: genau eine Logzeile, kein Zustandswechsel, keine Kopie',
+    text(r) === KT.S1 && JSON.stringify(p.logs.slice(vor)) === JSON.stringify([`[zoom] SDK-Ordner abgewiesen: ${KT.S1}`])
+      && p.richteEinAufrufe() === 0 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.sdk.text === KT.S1);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ laufzeit: { pruefeOrdner: () => REG_WAHL, richteEin: async () => ({ ok: false, text: KT.S6('EIO') }) } });
+  const vor = p.logs.length;
+  const r = await p.kern.sdkWaehlen('C:/SDK');
+  ck('Kopierfehler: Logzeilen wörtlich', text(r) === KT.S6('EIO') && JSON.stringify(p.logs.slice(vor)) === JSON.stringify([
+    '[zoom] Zoom-SDK 7.1.5.43953 wird kopiert (2 Dateien)',
+    '[zoom] Zustand bereit → einrichtung',
+    `[zoom] Einrichtung des Zoom-SDK gescheitert: ${KT.S6('EIO')}`,
+    '[zoom] Zustand einrichtung → bereit',
+  ]));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    laufzeit: {
+      pruefeOrdner: () => REG_WAHL,
+      richteEin: async () => {
+        throw Object.assign(new Error('Zugriff verweigert'), { code: 'EACCES' });
+      },
+    },
+  });
+  const r = await p.kern.sdkWaehlen('C:/SDK');
+  ck('richteEin wirft: S6 mit dem Code, nicht mit der Meldung', text(r) === KT.S6('EACCES')
+    && p.logs.includes(`[zoom] Einrichtung des Zoom-SDK gescheitert: ${KT.S6('EACCES')}`) && p.kern.kurz().zustand === 'bereit');
+  await p.aufraeumen();
+}
+{
+  let lzStand: LaufzeitPruefung = { ok: false, mangel: 'sdk_fehlt' };
+  const p: Probe = baueKern({
+    laufzeit: {
+      pruefe: () => lzStand,
+      pruefeOrdner: () => REG_WAHL,
+      richteEin: async () => {
+        lzStand = { ok: true, ordner: p.ordner, ersetzt: [] };
+        return { ok: true, ordner: p.ordner, stempel: REG_STEMPEL, aufraeumFehler: 'EBUSY' };
+      },
+    },
+  });
+  const vor = p.logs.length;
+  const r = await p.kern.sdkWaehlen('C:/SDK');
+  ck('aus einrichtung mit Aufräumfehler: Logzeilen wörtlich', ok(r) && JSON.stringify(p.logs.slice(vor)) === JSON.stringify([
+    '[zoom] Zoom-SDK 7.1.5.43953 wird kopiert (2 Dateien)',
+    `[zoom] Zoom-SDK eingerichtet in ${p.ordner}`,
+    '[zoom] Aufräumen nach der Einrichtung unvollständig (EBUSY)',
+    '[zoom] Zustand einrichtung → bereit',
+  ]));
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);
