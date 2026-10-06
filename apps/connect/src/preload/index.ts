@@ -78,6 +78,9 @@ const api: JmConnectApi = {
   zoomZugangEintragen: ({ clientId, clientSecret }) =>
     ipcRenderer.invoke(IPC.zoomZugangEintragen, { clientId, clientSecret }) as Promise<ZoomErgebnis>,
   zoomZugangLoeschen: () => ipcRenderer.invoke(IPC.zoomZugangLoeschen) as Promise<ZoomErgebnis>,
+  zoomSdkSchluesselEintragen: ({ schluessel }) =>
+    ipcRenderer.invoke(IPC.zoomSdkSchluesselEintragen, { schluessel }) as Promise<ZoomErgebnis>,
+  zoomSdkSchluesselLoeschen: () => ipcRenderer.invoke(IPC.zoomSdkSchluesselLoeschen) as Promise<ZoomErgebnis>,
   zoomPruefen: () => ipcRenderer.invoke(IPC.zoomPruefen) as Promise<ZoomErgebnis>,
   zoomBeitreten: (p) =>
     ipcRenderer.invoke(IPC.zoomBeitreten, { nummer: p.nummer, kenncode: p.kenncode, anzeigename: p.anzeigename }) as Promise<ZoomErgebnis>,

@@ -33,6 +33,7 @@ function abbild(a: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz
     einrichtung: {
       sdk: { stand: 'ok', fassung: '7.1.5.43953', kopie: null, text: null },
       zugang: { herkunft: 'stored', clientIdEnde: '1234', text: null },
+      sdkSchluessel: { herkunft: 'stored' },
     },
     anzeigename: 'Regie Süd',
     versatz: { gewuenschtMs: 0, bestaetigtMs: null },
@@ -74,6 +75,7 @@ const T72: Record<ZoomZ, Fall72> = {
       einrichtung: {
         sdk: { stand: 'kopiert', fassung: null, kopie: { dateien: 40, dateienGesamt: 153, bytes: 105_500_000, bytesGesamt: 329_657_415 }, text: null },
         zugang: { herkunft: 'stored', clientIdEnde: '1234', text: null },
+        sdkSchluessel: { herkunft: 'stored' },
       },
     },
     nk: [[0, 0]],
@@ -352,15 +354,15 @@ console.log('— Einrichtungszeilen (Spec 9 Punkt 3)');
     none: 'Zugangsdaten: fehlen',
   };
   for (const h of Object.keys(ZUGANG) as ProxyKeySource[]) {
-    const a = abbild({ einrichtung: { sdk: ohne.einrichtung.sdk, zugang: { herkunft: h, clientIdEnde: h === 'none' ? null : 'ab12', text: null } } });
+    const a = abbild({ einrichtung: { ...ohne.einrichtung, zugang: { herkunft: h, clientIdEnde: h === 'none' ? null : 'ab12', text: null } } });
     ck(`Zugangsdaten, Herkunft ${h}: wörtlich`, zugangZeile(a) === ZUGANG[h]);
   }
-  const schreibfehler = abbild({ einrichtung: { sdk: ohne.einrichtung.sdk, zugang: { herkunft: 'session', grund: 'schreibfehler', clientIdEnde: 'ab12', text: null } } });
+  const schreibfehler = abbild({ einrichtung: { ...ohne.einrichtung, zugang: { herkunft: 'session', grund: 'schreibfehler', clientIdEnde: 'ab12', text: null } } });
   ck('session + schreibfehler: eigener Text, nennt keinen Schlüsselbund', zugangZeile(schreibfehler) === TEXT_A4_SCHREIBFEHLER && !TEXT_A4_SCHREIBFEHLER.includes('Schlüsselbund')
     && TEXT_A4_SCHREIBFEHLER === 'Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.');
   const unlesbar = abbild({
     kurz: { zustand: 'einrichtung', maengel: ['zugang_unlesbar'] },
-    einrichtung: { sdk: ohne.einrichtung.sdk, zugang: { herkunft: 'none', clientIdEnde: null, text: null } },
+    einrichtung: { ...ohne.einrichtung, zugang: { herkunft: 'none', clientIdEnde: null, text: null } },
   });
   ck('zugang_unlesbar: „Zugangsdaten: lassen sich nicht entschlüsseln“', zugangZeile(unlesbar) === 'Zugangsdaten: lassen sich nicht entschlüsseln');
 }

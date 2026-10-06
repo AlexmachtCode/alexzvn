@@ -52,6 +52,10 @@ export const IPC = {
   zoomZugangEintragen: 'jmc:zoom-zugang-eintragen',
   /** invoke: hinterlegte Zugangsdaten entfernen → ZoomErgebnis (gesperrt wie die Wahl, S10). */
   zoomZugangLoeschen: 'jmc:zoom-zugang-loeschen',
+  /** invoke: { schluessel } → ZoomErgebnis (gesperrt wie die Wahl, S10). Der Wert geht nie zurück. */
+  zoomSdkSchluesselEintragen: 'jmc:zoom-sdk-schluessel-eintragen',
+  /** invoke: hinterlegten SDK-Schlüssel entfernen → ZoomErgebnis (gesperrt wie die Wahl, S10). */
+  zoomSdkSchluesselLoeschen: 'jmc:zoom-sdk-schluessel-loeschen',
   /** invoke: „Einrichtung prüfen“ (anmelden ohne Meeting) → ZoomErgebnis; das Ergebnis steht auch als Meldung im Abbild. */
   zoomPruefen: 'jmc:zoom-pruefen',
   /** invoke: { nummer, kenncode, anzeigename } → ZoomErgebnis. */

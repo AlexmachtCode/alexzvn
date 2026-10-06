@@ -30,7 +30,7 @@ import {
   type LaufzeitPfade,
   type LaufzeitPruefung,
 } from '../src/main/zoom/laufzeit';
-import type { ZoomAbbild, ZoomErgebnis, ZoomKurz } from '../src/shared/types';
+import type { ProxyKeySource, ZoomAbbild, ZoomErgebnis, ZoomKurz } from '../src/shared/types';
 import { kartenZeile, stateKvAus, TEXT_A4_SCHREIBFEHLER, zoomZ } from '../src/shared/zoom-text';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +77,9 @@ interface Probe {
   ereignisse: Array<{ startNr: number; ev: BridgeEvent }>;
   einst: { anzeigename: string; versatzMs: number; laufzeit: { dir: string; fassung: string; eingerichtetAm: string } | null };
   zugangGespeichert: ZugangDaten[];
+  /** Werte, mit denen der Kern sdkSchluessel.speichern() aufrief (nur im Test sichtbar). */
+  sdkSchluesselGespeichert: string[];
+  sdkSchluesselGeloescht(): number;
   richteEinAufrufe(): number;
   /** Laufzeit-Ordner, den die Vorgabe von `pruefe` meldet. */
   ordner: string;
@@ -104,6 +107,10 @@ interface BaueOptionen {
   exeAusKern?: boolean;
   /** start() scheitert mit diesem Fehler, ohne ein Kind zu starten (Spawn-Fehler mit beliebigem Code). */
   startFehler?: () => Error;
+  /** SDK-Schlüssel beim Start (Spec SDK nachladen 4.2); Vorgabe: keiner. */
+  sdkSchluessel?: { wert: string | null; herkunft: ProxyKeySource };
+  /** Was sdkSchluessel.speichern() meldet; Vorgabe 'stored'. */
+  sdkSchluesselLiefert?: 'stored' | 'session';
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -118,6 +125,9 @@ function baueKern(o: BaueOptionen = {}): Probe {
   const kurze: ZoomKurz[] = [];
   const ereignisse: Probe['ereignisse'] = [];
   const zugangGespeichert: ZugangDaten[] = [];
+  let sdkSchluessel: { wert: string | null; herkunft: ProxyKeySource } = { wert: null, herkunft: 'none', ...o.sdkSchluessel };
+  const sdkSchluesselGespeichert: string[] = [];
+  let sdkSchluesselGeloescht = 0;
   const einst: Probe['einst'] = { anzeigename: o.anzeigename ?? ANZEIGENAME_VORGABE, versatzMs: o.versatzMs ?? 0, laufzeit: null };
   let zugang: ZugangStand = {
     daten: { clientId: 'test-id-1234', clientSecret: 'test-secret' },
@@ -195,6 +205,19 @@ function baueKern(o: BaueOptionen = {}): Probe {
         einst.laufzeit = { ...v };
       },
     },
+    sdkSchluessel: {
+      lesen: () => ({ ...sdkSchluessel }),
+      speichern: (w) => {
+        sdkSchluesselGespeichert.push(w);
+        const herkunft = o.sdkSchluesselLiefert ?? 'stored';
+        if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: w, herkunft };
+        return herkunft;
+      },
+      loeschen: () => {
+        sdkSchluesselGeloescht += 1;
+        if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: null, herkunft: 'none' };
+      },
+    },
     gastLabels: o.gastLabels ?? (() => []),
     log: (z) => logs.push(z),
     onAbbild: (a) => abbilder.push(a),
@@ -212,6 +235,8 @@ function baueKern(o: BaueOptionen = {}): Probe {
     ereignisse,
     einst,
     zugangGespeichert,
+    sdkSchluesselGespeichert,
+    sdkSchluesselGeloescht: () => sdkSchluesselGeloescht,
     ordner,
     pfade,
     starts: () => startZahl,
@@ -1413,6 +1438,98 @@ if (process.platform === 'win32') {
   ck('… die Fehlermeldung steht trotzdem im Log, dazu der versuchte EXE-Pfad genau einmal',
     zeile.startsWith(START_GESCHEITERT + grund) && vorkommen(zeile, exe) === 1);
   ck('… keine Beenden-Zeile', !p.logs.some((z) => z.includes('wird beendet') || z.includes('Rückgabewert')));
+  await p.aufraeumen();
+}
+
+console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2, S18, S10)');
+{
+  const p = baueKern();
+  ck('anfangs: Abbild ohne SDK-Schlüssel (none)', p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
+  const r = p.kern.sdkSchluesselEintragen({ schluessel: '  sdk-geheim-test \t\n' });
+  ck('Review Focus SDK-4: eingefügt mit Leerraum und Zeilenumbruch → ok, getrimmt gespeichert',
+    ok(r) && p.sdkSchluesselGespeichert.length === 1 && p.sdkSchluesselGespeichert[0] === 'sdk-geheim-test');
+  ck('… Abbild: Herkunft stored', p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'stored');
+  ck('… Logzeile ohne Wert', p.logs.includes('[zoom] SDK-Schlüssel hinterlegt (verschlüsselt)'));
+  ck('… der Wert steht weder im Log noch im Abbild',
+    !p.logs.some((z) => z.includes('sdk-geheim')) && !JSON.stringify(p.kern.abbild()).includes('sdk-geheim'));
+  ck('… Zustand unverändert (bereit)', p.kern.kurz().zustand === 'bereit');
+  for (const w of ['', '   ', 'sdk geheim', 'sdk\tgeheim', 'sdk\ngeheim', 'sdk€geheim']) {
+    ck(`${JSON.stringify(w)} → S18, nichts gespeichert`,
+      text(p.kern.sdkSchluesselEintragen({ schluessel: w })) === KT.S18 && p.sdkSchluesselGespeichert.length === 1);
+  }
+  ck('… Abweisung im Log, ohne Wert', p.logs.includes('[zoom] SDK-Schlüssel abgewiesen: ' + KT.S18) && !p.logs.some((z) => z.includes('sdk geheim')));
+  ck('… S18 ist ein Eingabefehler: nicht im Abbild', !JSON.stringify(p.kern.abbild()).includes(KT.S18));
+  const l = p.kern.sdkSchluesselLoeschen();
+  ck('Entfernen → ok, Herkunft none, Log', ok(l) && p.sdkSchluesselGeloescht() === 1
+    && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none' && p.logs.includes('[zoom] SDK-Schlüssel entfernt'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sdkSchluesselLiefert: 'session' });
+  ck('ohne Schlüsselbund: hinterlegt nur für diese Sitzung',
+    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'session'
+      && p.logs.includes('[zoom] SDK-Schlüssel hinterlegt (nur für diese Sitzung)'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sdkSchluessel: { wert: 'sdk-test', herkunft: 'env' } });
+  ck('aus der Umgebung: Abbild env, der Wert nirgends',
+    p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'env' && !JSON.stringify(p.kern.abbild()).includes('sdk-test'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('Vorbereitung: Zustand fehler (B9)', p.kern.kurz().zustand === 'fehler');
+  const r = p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' });
+  ck('im Zustand fehler: zuerst schließen, dann speichern → bereit, Meldung weg',
+    ok(r) && p.sdkSchluesselGespeichert.length === 1 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('Vorbereitung: im Meeting', await insMeeting(p));
+  ck('während Zoom läuft: SDK-Schlüssel eintragen und entfernen → S10, nichts geändert',
+    text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10 && text(p.kern.sdkSchluesselLoeschen()) === KT.S10
+      && p.sdkSchluesselGespeichert.length === 0 && p.sdkSchluesselGeloescht() === 0);
+  await p.aufraeumen();
+}
+{
+  let freigabe: (e: EinrichtungsErgebnis) => void = () => {};
+  const p = baueKern({
+    laufzeit: {
+      pruefeOrdner: () => ({ ok: true, bin: 'X', fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: 1 }], bytesGesamt: 1 }),
+      richteEin: () => new Promise<EinrichtungsErgebnis>((resolve) => {
+        freigabe = resolve;
+      }),
+    },
+  });
+  const lauf = p.kern.sdkWaehlen('C:/SDK');
+  ck('während der SDK-Kopie: SDK-Schlüssel eintragen und entfernen → S10',
+    text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10 && text(p.kern.sdkSchluesselLoeschen()) === KT.S10
+      && p.sdkSchluesselGespeichert.length === 0);
+  freigabe({ ok: false, text: KT.S6('EIO') });
+  await lauf;
+  await p.aufraeumen();
+}
+{
+  // G2: Weder der SDK-Schlüssel noch der Proxy-Schlüssel erreichen die Zoom-Bridge (sie lädt die Zoom-DLLs).
+  const vorher = { sdk: process.env.JMPS_ZOOM_SDK_KEY, proxy: process.env.JMPS_PROXY_KEY };
+  process.env.JMPS_ZOOM_SDK_KEY = 'sdk-test';
+  process.env.JMPS_PROXY_KEY = 'sdk-test';
+  const p = baueKern({
+    skript: 'envprobe',
+    stell: () => ({ ENV_PROBE_NAMES: 'JMPS_ZOOM_SDK_KEY,JMPS_PROXY_KEY' }),
+    fristen: { anmeldeMs: 500 },
+  });
+  await p.kern.pruefen();
+  for (const [name, wert] of [['JMPS_ZOOM_SDK_KEY', vorher.sdk], ['JMPS_PROXY_KEY', vorher.proxy]] as const) {
+    if (wert === undefined) delete process.env[name];
+    else process.env[name] = wert;
+  }
+  const probe = p.ereignisse.find((x) => x.ev.ev === 'envprobe')?.ev as unknown as { seen: Record<string, boolean> } | undefined;
+  ck('G2: Bridge-Umgebung ohne JMPS_ZOOM_SDK_KEY und JMPS_PROXY_KEY',
+    probe !== undefined && JSON.stringify(probe.seen) === '{"JMPS_ZOOM_SDK_KEY":false,"JMPS_PROXY_KEY":false}');
   await p.aufraeumen();
 }
 

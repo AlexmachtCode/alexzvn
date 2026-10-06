@@ -9,12 +9,16 @@ import { IPC } from '@shared/ipc';
 import type { ZoomErgebnis, ZoomKurz } from '@shared/types';
 import { erzeugeZoomKern, type ZoomKern } from './zoom/kern';
 import { pruefeZugangEingabe } from './zoom/zugang-eingabe';
+import { pruefeSdkSchluesselEingabe } from './zoom/sdk-schluessel-eingabe';
 import { activeLabels } from './ndi-guests';
 import {
   setzeZoomAnzeigename,
   setzeZoomLaufzeit,
   setzeZoomVersatzMs,
   zoomAnzeigename,
+  zoomSdkSchluesselLesen,
+  zoomSdkSchluesselLoeschen,
+  zoomSdkSchluesselSpeichern,
   zoomVersatzMs,
   zoomZugangLesen,
   zoomZugangLoeschen,
@@ -59,6 +63,7 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
     kern = erzeugeZoomKern({
       pfade: { basis, ressourcen },
       zugang: { lesen: zoomZugangLesen, speichern: zoomZugangSpeichern, loeschen: zoomZugangLoeschen },
+      sdkSchluessel: { lesen: zoomSdkSchluesselLesen, speichern: zoomSdkSchluesselSpeichern, loeschen: zoomSdkSchluesselLoeschen },
       einstellungen: {
         anzeigename: zoomAnzeigename,
         setzeAnzeigename: setzeZoomAnzeigename,
@@ -112,6 +117,14 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
   });
 
   ipcMain.handle(IPC.zoomZugangLoeschen, (): ZoomErgebnis => k.zugangLoeschen());
+
+  // SDK-Schlüssel (Spec SDK nachladen 4.2): Form prüfen (über 512 Zeichen, falsche Typen → stumm abgewiesen),
+  // dann der Kern (Trimmen, S18, Sperre S10). Weder Antwort noch Log enthalten je den Wert.
+  ipcMain.handle(IPC.zoomSdkSchluesselEintragen, (_e, p: unknown): ZoomErgebnis => {
+    const e = pruefeSdkSchluesselEingabe(p);
+    return e === null ? NICHTS : k.sdkSchluesselEintragen(e);
+  });
+  ipcMain.handle(IPC.zoomSdkSchluesselLoeschen, (): ZoomErgebnis => k.sdkSchluesselLoeschen());
   ipcMain.handle(IPC.zoomPruefen, (): Promise<ZoomErgebnis> => k.pruefen());
 
   // Der Kenncode kommt nur hier herein und geht nie zurück (Spec 5.5, 5.7).

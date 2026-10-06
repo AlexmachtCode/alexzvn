@@ -95,6 +95,8 @@ export type BridgeArt = Pick<Bridge, 'start' | 'send' | 'stop' | 'session'>;
 export type BridgeFabrik = (opts: BridgeOptions, startNr: number) => BridgeArt;
 export interface ZugangDaten { clientId: string; clientSecret: string }
 export interface ZugangStand { daten: ZugangDaten | null; herkunft: ProxyKeySource; grund?: 'schreibfehler'; unlesbar: boolean }
+/** SDK-Schlüssel für „Zoom-SDK laden“ (Spec SDK nachladen 4.2). Der Wert bleibt im Main, das Abbild trägt nur die Herkunft. */
+export interface SdkSchluesselStand { wert: string | null; herkunft: ProxyKeySource }
 export interface LaufzeitDienste {
   pruefe(p: LaufzeitPfade): LaufzeitPruefung;
   pruefeOrdner(gewaehlt: string, ressourcen: string): SdkWahl;
@@ -103,6 +105,8 @@ export interface LaufzeitDienste {
 export interface ZoomKernAbhaengigkeiten {
   pfade: LaufzeitPfade;
   zugang: { lesen(): ZugangStand; speichern(d: ZugangDaten): 'stored' | 'session'; loeschen(): void };
+  /** Umgebung JMPS_ZOOM_SDK_KEY > gespeichert (safeStorage) > Sitzung; speichern() bekommt den getrimmten Wert. */
+  sdkSchluessel: { lesen(): SdkSchluesselStand; speichern(wert: string): 'stored' | 'session'; loeschen(): void };
   einstellungen: {
     anzeigename(): string;
     setzeAnzeigename(n: string): void;
@@ -135,6 +139,8 @@ export interface ZoomKern {
   zugangWaehlen(datei: string): ZoomErgebnis;
   zugangEintragen(e: { clientId: string; clientSecret: string }): ZoomErgebnis;
   zugangLoeschen(): ZoomErgebnis;
+  sdkSchluesselEintragen(e: { schluessel: string }): ZoomErgebnis;
+  sdkSchluesselLoeschen(): ZoomErgebnis;
   versatz(e: { ms: number }): ZoomErgebnis;
   pruefen(): Promise<ZoomErgebnis>;
   beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
@@ -201,6 +207,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let laufzeitStand: LaufzeitPruefung = lz.pruefe(d.pfade);
   let zugang: ZugangStand = { daten: null, herkunft: 'none', unlesbar: false };
   let zugangFehler: string | null = null;
+  /** Nur die Herkunft; den Wert liest erst das Laden (Spec SDK nachladen 4.2). */
+  let sdkSchluesselHerkunft: ProxyKeySource = d.sdkSchluessel.lesen().herkunft;
   let sdkFehler: string | null = null;
   let kopie: KopieStand | null = null;
   let kopieAbbruch: AbortController | null = null;
@@ -312,6 +320,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       einrichtung: {
         sdk: { stand, fassung: stand === 'ok' ? SDK_FASSUNG : null, kopie: kopie ? { ...kopie } : null, text: sdkText },
         zugang: { herkunft: zugang.herkunft, ...(zugang.grund ? { grund: zugang.grund } : {}), clientIdEnde: id ? id.slice(-4) : null, text: zugangText },
+        sdkSchluessel: { herkunft: sdkSchluesselHerkunft },
       },
       anzeigename: d.einstellungen.anzeigename(),
       versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null },
@@ -513,6 +522,36 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return { ok: true };
   }
 
+  /** Spec SDK nachladen 4.2: getrimmt, nur druckbare ASCII-Zeichen, sonst S18 (A13). Der Wert geht nie in Log, Abbild oder Rückgabe. */
+  function sdkSchluesselEintragen(e: { schluessel: string }): ZoomErgebnis {
+    const sperre = einrichtungSperre();
+    if (!sperre.ok) return sperre;
+    if (zustand === 'fehler') schliessen();
+    const wert = e.schluessel.trim();
+    // Nur druckbare ASCII-Zeichen: kein Leerraum in der Mitte (Spec 4.2) und nichts, was kein HTTP-Header tragen kann.
+    if (!/^[\x21-\x7e]+$/.test(wert)) {
+      // Eingabefehler, kein Zustand des hinterlegten Schlüssels: nur im Ergebnis, nicht im Abbild.
+      d.log('[zoom] SDK-Schlüssel abgewiesen: ' + KT.S18);
+      return { ok: false, text: KT.S18 };
+    }
+    const herkunft = d.sdkSchluessel.speichern(wert);
+    sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
+    d.log(`[zoom] SDK-Schlüssel hinterlegt (${herkunft === 'session' ? 'nur für diese Sitzung' : 'verschlüsselt'})`);
+    abbildGeaendert();
+    return { ok: true };
+  }
+
+  function sdkSchluesselLoeschen(): ZoomErgebnis {
+    const sperre = einrichtungSperre();
+    if (!sperre.ok) return sperre;
+    if (zustand === 'fehler') schliessen();
+    d.sdkSchluessel.loeschen();
+    sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
+    d.log('[zoom] SDK-Schlüssel entfernt');
+    abbildGeaendert();
+    return { ok: true };
+  }
+
   function versatz(e: { ms: number }): ZoomErgebnis {
     if (!Number.isInteger(e.ms) || e.ms < 0 || e.ms > 1000) return { ok: false, text: KT.Q13 };
     d.einstellungen.setzeVersatzMs(e.ms);
@@ -652,7 +691,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         // PATH immer selbst setzen, INKLUSIVE des geerbten Werts (Falle 3.2-4), und jede andere
         // Schreibweise von PATH entfernen (bridge.ts mischt process.env als einfaches Objekt).
         env: { PATH: kindPfad(env, ordner) },
-        envRemove: ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS', ...pfadVarianten(env)],
+        // Nie an die Bridge (sie lädt die Zoom-DLLs): Zoom-Zugangsdaten und Schlüssel für den Release-Proxy (G2).
+        envRemove: [
+          'ZOOM_SDK_CLIENT_ID',
+          'ZOOM_SDK_CLIENT_SECRET',
+          'ZOOM_SDK_CREDENTIALS',
+          'JMPS_ZOOM_SDK_KEY',
+          'JMPS_PROXY_KEY',
+          ...pfadVarianten(env),
+        ],
         joinTimeoutMs: f.joinTimeoutMs,
         killTimeoutMs: f.killTimeoutMs,
         onEvent: (ev) => beiEreignis(gen, ev),
@@ -1210,6 +1257,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     zugangWaehlen,
     zugangEintragen,
     zugangLoeschen,
+    sdkSchluesselEintragen,
+    sdkSchluesselLoeschen,
     versatz,
     pruefen,
     beitreten,

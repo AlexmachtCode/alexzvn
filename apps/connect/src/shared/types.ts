@@ -182,6 +182,8 @@ export interface ZoomAbbild {
     };
     /** `grund` nur bei `session`: 'schreibfehler' = Schlüsselbund da, die Einstellungsdatei ließ sich nicht schreiben. */
     zugang: { herkunft: ProxyKeySource; grund?: 'schreibfehler'; clientIdEnde: string | null; text: string | null };
+    /** Nur die Herkunft, nie der Wert (Spec SDK nachladen 4.2). */
+    sdkSchluessel: { herkunft: ProxyKeySource };
   };
   anzeigename: string;
   versatz: { gewuenschtMs: number; bestaetigtMs: number | null };
@@ -254,6 +256,9 @@ export interface JmConnectApi {
   /** Zugangsdaten von Hand: nur hinein, es gibt keinen Weg zurück ins Fenster. */
   zoomZugangEintragen: (p: { clientId: string; clientSecret: string }) => Promise<ZoomErgebnis>;
   zoomZugangLoeschen: () => Promise<ZoomErgebnis>;
+  /** SDK-Schlüssel für „Zoom-SDK laden“: nur hinein, es gibt keinen Weg zurück ins Fenster. */
+  zoomSdkSchluesselEintragen: (p: { schluessel: string }) => Promise<ZoomErgebnis>;
+  zoomSdkSchluesselLoeschen: () => Promise<ZoomErgebnis>;
   /** „Einrichtung prüfen“: Bridge starten, anmelden, beenden, ohne Meeting. */
   zoomPruefen: () => Promise<ZoomErgebnis>;
   /** Der Kenncode geht nur hier in den Main und kommt nie zurück. */
