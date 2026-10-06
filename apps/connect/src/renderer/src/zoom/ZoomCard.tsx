@@ -5,7 +5,19 @@
 // Bewusst NICHT wiederverwendet: PttButton, GuestActions, PhaseBadge (kein Tally, kein Talkback, keine Phasen).
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ZoomAbbild, ZoomErgebnis, ZoomParticipant, ZoomSollEintrag } from '@shared/types';
-import { kartenZeile, Q9_ANFANG, sdkKnopf, sdkZeile, zoomKnoepfe, zugangZeile } from '@shared/zoom-text';
+import {
+  einrichtungsTextArt,
+  kartenZeile,
+  Q9_ANFANG,
+  sdkBalken,
+  sdkKnopf,
+  sdkLadenZeile,
+  sdkSchluesselZeile,
+  sdkZeile,
+  TEXT_S11,
+  zoomKnoepfe,
+  zugangZeile,
+} from '@shared/zoom-text';
 
 // Tooltip- und Hinweistexte wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht).
 const TEXT_S10 = 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.';
@@ -36,10 +48,6 @@ const MELDUNG_FARBE: Record<MeldungsArt, string> = {
 async function ohneText(p: Promise<void>): Promise<ZoomErgebnis> {
   await p;
   return { ok: true };
-}
-
-function prozent(teil: number, ganz: number): number {
-  return ganz > 0 ? Math.min(100, Math.round((teil / ganz) * 100)) : 0;
 }
 
 function sollText(e: ZoomSollEintrag): string {
@@ -140,6 +148,67 @@ function ZugangEingabe({
   );
 }
 
+/**
+ * SDK-Schlüssel von Hand (Spec SDK nachladen 4.5). Der Wert steht NUR im State dieser Komponente: Hängt sie aus
+ * (Speichern, Abbrechen, Einrichtung zugeklappt), ist er weg. S18 und andere Ablehnungen erscheinen hier am Formular.
+ */
+function SchluesselEingabe({
+  gesperrt,
+  speichern,
+  zu,
+}: {
+  gesperrt: boolean;
+  speichern: (schluessel: string) => Promise<ZoomErgebnis>;
+  zu: () => void;
+}): JSX.Element {
+  const [wert, setWert] = useState('');
+  const [zeigen, setZeigen] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const absenden = (): void => {
+    if (gesperrt) return;
+    setFehler(null);
+    void speichern(wert).then((r) => {
+      if (r.ok) zu();
+      else setFehler(r.text || null);
+    });
+  };
+  return (
+    <form
+      className="mt-2 grid gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        absenden();
+      }}
+    >
+      <div className="text-xs text-neutral-400">
+        <label>
+          SDK-Schlüssel
+          <input
+            type={zeigen ? 'text' : 'password'}
+            value={wert}
+            onChange={(e) => setWert(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            className={`${INP} mt-1 border-neutral-700`}
+          />
+        </label>
+        <button type="button" onClick={() => setZeigen((z) => !z)} className={`${RAND} mt-1`}>
+          {zeigen ? 'verbergen' : 'anzeigen'}
+        </button>
+      </div>
+      <div className="flex items-center gap-2">
+        <button type="submit" disabled={gesperrt} className={GELB}>
+          Speichern
+        </button>
+        <button type="button" onClick={zu} className={RAND}>
+          Abbrechen
+        </button>
+        {fehler && <span className="text-xs text-red-300">{fehler}</span>}
+      </div>
+    </form>
+  );
+}
+
 export function ZoomCard(): JSX.Element {
   const [abbild, setAbbild] = useState<ZoomAbbild | null>(null);
   const [ladeFehler, setLadeFehler] = useState<string | null>(null);
@@ -154,6 +223,8 @@ export function ZoomCard(): JSX.Element {
   const [einrichtungAuf, setEinrichtungAuf] = useState(false);
   /** Zugangsdaten von Hand: Eingabe offen. Die Werte selbst leben nur in `ZugangEingabe` und verschwinden mit dem Aushängen. */
   const [handAuf, setHandAuf] = useState(false);
+  /** SDK-Schlüssel von Hand: Eingabe offen. Der Wert selbst lebt nur in `SchluesselEingabe`. */
+  const [schluesselAuf, setSchluesselAuf] = useState(false);
   const [verlassenFrage, setVerlassenFrage] = useState(false);
   /** Zeile, für die Q9 kam: der nächste Klick dort lädt trotzdem. */
   const [trotzId, setTrotzId] = useState<number | null>(null);
@@ -196,7 +267,10 @@ export function ZoomCard(): JSX.Element {
   // Klappt die Einrichtung zu (von Hand oder weil der letzte Mangel weg ist), schließt auch die Handeingabe.
   const einrichtungSichtbar = (knoepfe?.einrichtungOffen ?? false) || einrichtungAuf;
   useEffect(() => {
-    if (!einrichtungSichtbar) setHandAuf(false);
+    if (!einrichtungSichtbar) {
+      setHandAuf(false);
+      setSchluesselAuf(false);
+    }
   }, [einrichtungSichtbar]);
 
   /** Führt einen Aufruf aus; ein abgelehnter mit Text erscheint am Ort `ort` (null = nirgends, weil das Abbild ihn zeigt). */
@@ -246,6 +320,12 @@ export function ZoomCard(): JSX.Element {
     zugang.herkunft === 'stored' || zugang.herkunft === 'session' || k.maengel.includes('zugang_unlesbar');
   const antwortText = (ort: Ort): string | null => (antwort && antwort.ort === ort ? antwort.text : null);
   const einrichtungAntwort = antwortText('einrichtung');
+  // „Zoom-SDK laden“: Tooltip S10 wie die Ordnerwahl, ohne Schlüssel S11 (Spec SDK nachladen 4.5).
+  const ladenTitel = kn.sdkLaden === 'gesperrt' ? TEXT_S10 : kn.sdkLaden === 'ohneSchluessel' ? TEXT_S11 : undefined;
+  // Ein Balken für beide Abschnitte: erst der Download, danach die bestehende Kopie (sdkBalken, Aufgabe 8).
+  const balken = sdkBalken(sdk);
+  // S17 ist ein Hinweis (grau), alles andere rot (Spec SDK nachladen 4.3) — auch als Antwort, bevor das Abbild kommt.
+  const textFarbe = (t: string): string => (einrichtungsTextArt(t) === 'hinweis' ? 'text-neutral-400' : 'text-red-300');
 
   const beitreten = (): void => {
     const code = kenncode;
@@ -462,22 +542,82 @@ export function ZoomCard(): JSX.Element {
           <div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm">{sdkZeile(a)}</span>
-              <MitTooltip titel={sperrTitel}>
+              <span className="flex shrink-0 gap-2">
+                <MitTooltip titel={sperrTitel}>
+                  <button
+                    disabled={!kn.einrichtungAenderbar || laeuft.has('sdk')}
+                    onClick={() => void fuehreAus('sdk', 'einrichtung', () => window.jmconnect.zoomSdkWaehlen())}
+                    className={RAND}
+                  >
+                    {sdkKnopf(a)}
+                  </button>
+                </MitTooltip>
+                <MitTooltip titel={ladenTitel}>
+                  <button
+                    disabled={kn.sdkLaden !== 'frei' || laeuft.has('sdk')}
+                    onClick={() => void fuehreAus('sdk', 'einrichtung', () => window.jmconnect.zoomSdkLaden())}
+                    className={RAND}
+                  >
+                    Zoom-SDK laden
+                  </button>
+                </MitTooltip>
+              </span>
+            </div>
+            {sdk.laden && (
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <span className="text-xs text-neutral-300">{sdkLadenZeile(sdk.laden)}</span>
                 <button
-                  disabled={!kn.einrichtungAenderbar || laeuft.has('sdk')}
-                  onClick={() => void fuehreAus('sdk', 'einrichtung', () => window.jmconnect.zoomSdkWaehlen())}
+                  disabled={!kn.sdkLadenAbbrechen || laeuft.has('sdk-abbrechen')}
+                  onClick={() => void fuehreAus('sdk-abbrechen', null, () => ohneText(window.jmconnect.zoomSdkLadenAbbrechen()))}
                   className={RAND}
                 >
-                  {sdkKnopf(a)}
+                  Abbrechen
                 </button>
-              </MitTooltip>
-            </div>
-            {sdk.kopie && (
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-neutral-800">
-                <div className="h-full bg-yellow-400" style={{ width: `${prozent(sdk.kopie.bytes, sdk.kopie.bytesGesamt)}%` }} />
               </div>
             )}
-            {sdk.text && <p className="mt-1 text-xs text-red-300">{sdk.text}</p>}
+            {balken !== null && (
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-neutral-800">
+                <div className="h-full bg-yellow-400" style={{ width: `${balken}%` }} />
+              </div>
+            )}
+            {/* S17 (abgebrochen) ist ein Hinweis, kein Fehler: grau statt rot (Spec SDK nachladen 4.3). */}
+            {sdk.text && <p className={`mt-1 text-xs ${textFarbe(sdk.text)}`}>{sdk.text}</p>}
+          </div>
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm">{sdkSchluesselZeile(a)}</span>
+              <span className="flex shrink-0 gap-2">
+                <MitTooltip titel={sperrTitel}>
+                  <button
+                    disabled={!kn.einrichtungAenderbar || laeuft.has('sdk-schluessel')}
+                    onClick={() => setSchluesselAuf(true)}
+                    className={RAND}
+                  >
+                    Eintragen …
+                  </button>
+                </MitTooltip>
+                {kn.sdkSchluesselEntfernbar && (
+                  <MitTooltip titel={sperrTitel}>
+                    <button
+                      disabled={!kn.einrichtungAenderbar || laeuft.has('sdk-schluessel')}
+                      onClick={() => void fuehreAus('sdk-schluessel', 'einrichtung', () => window.jmconnect.zoomSdkSchluesselLoeschen())}
+                      className={RAND}
+                    >
+                      Entfernen
+                    </button>
+                  </MitTooltip>
+                )}
+              </span>
+            </div>
+            {schluesselAuf && (
+              <SchluesselEingabe
+                gesperrt={!kn.einrichtungAenderbar || laeuft.has('sdk-schluessel')}
+                speichern={(schluessel) =>
+                  fuehreAus('sdk-schluessel', null, () => window.jmconnect.zoomSdkSchluesselEintragen({ schluessel }))
+                }
+                zu={() => setSchluesselAuf(false)}
+              />
+            )}
           </div>
           <div>
             <div className="flex items-center justify-between gap-3">
@@ -530,7 +670,7 @@ export function ZoomCard(): JSX.Element {
             {zugang.text && zugang.text !== zugangText && <p className="mt-1 text-xs text-red-300">{zugang.text}</p>}
           </div>
           {einrichtungAntwort && einrichtungAntwort !== sdk.text && einrichtungAntwort !== zugang.text && (
-            <p className="text-xs text-red-300">{einrichtungAntwort}</p>
+            <p className={`text-xs ${textFarbe(einrichtungAntwort)}`}>{einrichtungAntwort}</p>
           )}
           {kn.pruefen !== 'aus' && (
             <button
