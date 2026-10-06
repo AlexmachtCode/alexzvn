@@ -129,14 +129,18 @@ Die **schreibenden** Endpunkte `/feedback` (legt Issues an) und `/cookbook/draft
 
 - **Eigener Schlüssel:** Header `X-Zoom-Sdk-Key`, verglichen mit dem Secret `ZOOM_SDK_KEY` (zeitkonstant über
   SHA-256). Der `PROXY_KEY` gilt hier nicht, weil der Launcher ihn in öffentliche Installer einbackt. Fehlt das
-  Secret, antwortet die Route immer 401.
+  Secret (oder ist es falsch benannt), antwortet die Route immer 401, und `wrangler tail` zeigt
+  `zoom-sdk: Secret ZOOM_SDK_KEY fehlt …` (ohne Wert).
 - **Drosselung:** eigener Bucket `zoomsdk`, 20 Anfragen je 10 Minuten je IP, VOR dem Schlüsselvergleich, auch für
-  gültige Schlüssel → `429` mit `Retry-After`. Braucht die KV-Bindung `RATELIMIT` (siehe oben).
+  gültige Schlüssel → `429` mit `Retry-After`. Braucht die KV-Bindung `RATELIMIT` (siehe oben). Wirft KV, wird die
+  Anfrage mit 502 `upstream` abgewiesen (Log `zoom-sdk: Drosselung nicht prüfbar (<Fehlername>) …`).
 - **Antworten:** 200 `{ fassung, url, size }` (mit `Cache-Control: no-store`) · 401 `unauthorized` ·
   404 `not_found` (ungültige Fassung, Release oder Asset fehlt) · 502 `upstream` (andere GitHub-Fehler, ohne GitHub-Text).
 - **Nie:** Schlüssel oder signierter Link im Log. Eine Prüfsumme liefert der Proxy nicht; die steht nur im Connect-Code.
 - **Token:** `GITHUB_TOKEN` braucht zusätzlich `Contents: Read-only` auf `ZOOM_SDK_REPO`. Ohne diesen Zugriff
-  antwortet GitHub 404, und die Route meldet `not_found`.
+  antwortet GitHub 404, und die Route meldet `not_found`. Im Worker-Log steht dann
+  `zoom-sdk: GitHub 404 für Release zoom-sdk-<fassung> in <repo> …`; fehlt nur das Asset, steht dort sein Name.
+  Von Ausnahmen loggt die Route nur den Fehlernamen (`TypeError`, `SyntaxError`), nie die Meldung.
 - **Einrichtung (einmalig, nur durch den Owner):** Der Owner erweitert den Token-Zugriff in GitHub und setzt das Secret
   mit `npx wrangler secret put ZOOM_SDK_KEY` (ein selbst gewählter Schlüssel, der in keinem Chat, Log oder Repo
   erscheint). Ein Deploy (`npx wrangler deploy`) geschieht nur mit seinem ausdrücklichen Okay.
