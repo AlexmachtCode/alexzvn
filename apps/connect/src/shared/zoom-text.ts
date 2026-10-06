@@ -29,7 +29,7 @@ export const MANGEL_GRUND: Record<ZoomMangel, string> = {
   sdk_defekt: 'Zoom-Laufzeit unvollständig, bitte den SDK-Ordner erneut wählen',
   bridge_fehlt: 'Zoom-Bridge fehlt in dieser Installation, bitte JM Connect neu installieren',
   zugang_fehlt: 'Zugangsdaten fehlen',
-  zugang_unlesbar: 'Zugangsdaten lassen sich nicht entschlüsseln, bitte die Datei erneut wählen',
+  zugang_unlesbar: 'Zugangsdaten lassen sich nicht entschlüsseln, bitte erneut eintragen oder die Datei erneut wählen',
 };
 
 /** Spec 7.1: Zustand + Erlaubnis + n + k → Zeile der Tabelle. */
