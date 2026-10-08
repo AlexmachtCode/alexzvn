@@ -15,9 +15,11 @@ import {
   TEXT_S17, tonText, trayTooltip, trayVerlassenAktiv, versatzUebernommen, versatzZeile, WIEDERBEITRITT_VERSUCHE, zoomKnoepfe, zoomZ,
   zoomZeile, zugangZeile, type ZoomStatusWert, type ZoomZ,
 } from '../src/shared/zoom-text';
+import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
+import * as fristen from '../src/main/zoom/fristen';
 import {
-  authMeldung, dllMeldung, endeMeldung, exitCodeAus, failMeldung, failText, fehlerDetail, KT, mangelText, maskiere,
-  quellenFehler, spawnMeldung, tonZustand, VORSATZ,
+  authMeldung, dllMeldung, endeMeldung, ENDGUELTIGE_FAIL_CODES, exitCodeAus, failMeldung, failText, fehlerDetail, fernLogText, FT,
+  istEndgueltig, KT, mangelText, maskiere, maskiereNamen, quellenFehler, spawnMeldung, tonZustand, VORSATZ, type VersuchsAusgang,
 } from '../src/main/zoom/klartext';
 
 let pass = 0, fail = 0;
@@ -507,13 +509,19 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['Q16', KT.Q16('Anna'), 'Bild: fehlerhafte Bilder von „Anna“ verworfen (videoBufferMismatch). Die Quelle bleibt bestehen; ob wieder Bild kommt, zeigt ihr Bild-Zustand.'],
     ['Q17', KT.Q17('Ben'), 'Ton: ein fehlerhaftes Paket von „Ben“ verworfen (audioBufferMismatch). Der Ton läuft mit dem nächsten gültigen Paket weiter.'],
     ['R6', KT.R6('vom Gastgeber beendet'), 'Meeting beendet: vom Gastgeber beendet.'],
+    ['R2', KT.R2('Zoom hat den Beitritt in 30 s weder bestätigt noch abgelehnt. Netzwerk prüfen und erneut versuchen.'),
+      'Wiederbeitritt gescheitert (Zoom hat den Beitritt in 30 s weder bestätigt noch abgelehnt. Netzwerk prüfen und erneut versuchen). „Erneut beitreten“ versucht es noch einmal.'],
+    ['R4', KT.R4('EXITED_UNEXPECTEDLY exitCode=3'), 'Die Zoom-Bridge ist abgestürzt (EXITED_UNEXPECTEDLY exitCode=3). Connect tritt neu bei.'],
+    ['R5', KT.R5(2, 3), 'Wieder im Meeting. 2 Quellen neu geladen, 3 warten auf eine eindeutige Person.'],
+    ['R7', KT.R7, 'Wiederbeitritt abgebrochen.'],
     ['PRUEFUNG_OK', KT.PRUEFUNG_OK, 'Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953), Anmeldung bei Zoom erfolgreich.'],
     ['UE_RECONNECT', KT.UE_RECONNECT, 'Zoom hat die Verbindung in 30 s nicht wiederhergestellt.'],
     ['UE_ABSTURZ', KT.UE_ABSTURZ('exitCode=3'), 'Die Zoom-Bridge ist abgestürzt (exitCode=3). Details im Log.'],
   ];
   for (const [id, ist, soll] of KT_SOLL) ck(`${id} wörtlich`, ist === soll);
   ck('Q9 beginnt mit dem geteilten Q9_ANFANG (zweiter Klick der Karte hängt daran)', KT.Q9(6).startsWith(Q9_ANFANG));
-  ck('KT hat genau diese 73 Einträge (F1–F8, R2/R4/R5/R7 erst in 4b)', Object.keys(KT).length === 73 && KT_SOLL.length === 73);
+  ck('KT und die Tabelle haben dieselben Schlüssel (jeder Text genau einmal wörtlich geprüft)',
+    JSON.stringify(Object.keys(KT).sort()) === JSON.stringify(KT_SOLL.map(([id]) => id).sort()));
   ck('S13: ⌈s/60⌉ Minuten, bei 1 die Einzahl (60 s → 1 Minute, 61 s → 2 Minuten, 600 s → 10), nie 0',
     KT.S13(60).includes(' in 1 Minute erneut') && KT.S13(61).includes(' in 2 Minuten erneut')
       && KT.S13(600).includes(' in 10 Minuten erneut') && KT.S13(0).includes(' in 1 Minute erneut'));
@@ -639,10 +647,22 @@ console.log('— 8.4: Bild-/Ton-Fehler → Zeile, Hinweis oder nichts');
     ck(`${code} → Zeile Q5(${name})`, JSON.stringify(e(code, name)) === JSON.stringify({ art: 'zeile', text: KT.Q5(name) }));
   }
   ck('videoBadDelay → Zeile Q13', JSON.stringify(e('videoBadDelay', 'VIDEO_BAD_DELAY')) === JSON.stringify({ art: 'zeile', text: KT.Q13 }));
-  ck('audioQueueOverflow → Hinweis Q6 mit dropped', JSON.stringify(e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null, 37)) === JSON.stringify({ art: 'hinweis', text: 'Ton: 37 Pakete verworfen — dieser PC kommt nicht hinterher.' }));
+  ck('audioQueueOverflow → Hinweis Q6 mit dropped, Logtext gleich (kein Name darin)',
+    JSON.stringify(e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null, 37)) === JSON.stringify({
+      art: 'hinweis', text: 'Ton: 37 Pakete verworfen — dieser PC kommt nicht hinterher.', logText: 'Ton: 37 Pakete verworfen — dieser PC kommt nicht hinterher.',
+    }));
   ck('audioQueueOverflow ohne dropped → 0', e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null).art === 'hinweis' && JSON.stringify(e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null)).includes('Ton: 0 Pakete'));
-  ck('videoBufferMismatch → Hinweis Q16 (keine Zeile)', JSON.stringify(e('videoBufferMismatch', 'VIDEO_BUFFER_MISMATCH')) === JSON.stringify({ art: 'hinweis', text: KT.Q16('Anna') }));
-  ck('audioBufferMismatch → Hinweis Q17 (keine Zeile)', JSON.stringify(e('audioBufferMismatch', 'AUDIO_BUFFER_MISMATCH', 'Ben')) === JSON.stringify({ art: 'hinweis', text: KT.Q17('Ben') }));
+  ck('videoBufferMismatch → Hinweis Q16 (keine Zeile), Logtext mit Kennung statt Name',
+    JSON.stringify(quellenFehler('videoBufferMismatch', 'VIDEO_BUFFER_MISMATCH', 'Anna', undefined, 16778240)) === JSON.stringify({
+      art: 'hinweis', text: KT.Q16('Anna'), logText: 'Bild: fehlerhafte Bilder von Teilnehmer 16778240 verworfen (videoBufferMismatch).',
+    }));
+  ck('audioBufferMismatch → Hinweis Q17 (keine Zeile), Logtext mit Kennung statt Name',
+    JSON.stringify(quellenFehler('audioBufferMismatch', 'AUDIO_BUFFER_MISMATCH', 'Ben', undefined, 16778243)) === JSON.stringify({
+      art: 'hinweis', text: KT.Q17('Ben'), logText: 'Ton: ein fehlerhaftes Paket von Teilnehmer 16778243 verworfen (audioBufferMismatch).',
+    }));
+  const ohneId = quellenFehler('videoBufferMismatch', 'VIDEO_BUFFER_MISMATCH', 'Anna');
+  ck('Q16 ohne Kennung im Ereignis: Logtext „Teilnehmer unbekannt“, nie der Name',
+    ohneId.art === 'hinweis' && ohneId.logText.includes('Teilnehmer unbekannt') && !ohneId.logText.includes('Anna'));
   ck('unbekannter Code → Zeile Q4 mit dem Namen', JSON.stringify(e('videoNeu', 'OWN_UNKNOWN(videoNeu)')) === JSON.stringify({ art: 'zeile', text: KT.Q4('OWN_UNKNOWN(videoNeu)') }));
   ck('Ton off/command (ohne Ton geladen) → kein Fehler', tonZustand('off', 'command').art === 'keine');
   ck('Ton off/audioUnavailable → Zeile Q5', JSON.stringify(tonZustand('off', 'audioUnavailable')) === JSON.stringify({ art: 'zeile', text: KT.Q5('audioUnavailable') }));
@@ -882,6 +902,124 @@ console.log('— 4b: Sperre S10 auch während des Abbaus (L13)');
   ck('Z1a mit abbauLaeuft: Einrichtung gesperrt',
     !zoomKnoepfe(abbild({ kurz: { zustand: 'einrichtung', maengel: ['zugang_fehlt'] }, abbauLaeuft: true })).einrichtungAenderbar);
   ck('ohne Abbau: Z2 und Z13 wie bisher änderbar', zoomKnoepfe(abbild()).einrichtungAenderbar && zoomKnoepfe({ ...z13, abbauLaeuft: false }).einrichtungAenderbar);
+}
+
+// ── Aufgabe 5 (4b): Konstanten, Wiederbeitritt, Einordnung, Fernsteuer-Hinweise, Logtexte ohne Namen ──
+console.log('— 4b: fristen.ts (Spec 5.2, G3) und die Weitergabe über kern.ts');
+{
+  ck('ZOOM_FRISTEN wie Spec 5.2', JSON.stringify(fristen.ZOOM_FRISTEN) === JSON.stringify({
+    anmeldeMs: 30_000, joinTimeoutMs: 30_000, killTimeoutMs: 12_000, abgleichMs: 300, aboAntwortMs: 10_000, abbildTaktMs: 100, unsubscribeWarteMs: 2_000,
+  }));
+  ck('WIEDERBEITRITT_PLAN_S = 2, 5, 10, 20, 30 (eine Wartezeit je Versuch)',
+    JSON.stringify(fristen.WIEDERBEITRITT_PLAN_S) === '[2,5,10,20,30]' && fristen.WIEDERBEITRITT_PLAN_S.length === WIEDERBEITRITT_VERSUCHE);
+  ck('übrige Konstanten wie bisher', fristen.BEENDEN_FRIST_MS === 15_000 && fristen.JWT_GUELTIG_S === 43_200 && fristen.AUFLOESUNG === '720p'
+    && fristen.HINWEISE_MAX === 5 && fristen.ANZEIGENAME_VORGABE === 'JM Connect');
+  ck('fristen.ts reicht BETRIEBSGROESSE aus shared/zoom-text weiter (L16)', fristen.BETRIEBSGROESSE === BETRIEBSGROESSE);
+  const kern = await import('../src/main/zoom/kern');
+  ck('kern.ts reicht dieselben Konstanten weiter (zoom.ts, index.ts, settings.ts und die Tests importieren von dort)',
+    kern.ZOOM_FRISTEN === fristen.ZOOM_FRISTEN && kern.WIEDERBEITRITT_PLAN_S === fristen.WIEDERBEITRITT_PLAN_S
+      && kern.BEENDEN_FRIST_MS === fristen.BEENDEN_FRIST_MS && kern.JWT_GUELTIG_S === fristen.JWT_GUELTIG_S
+      && kern.BETRIEBSGROESSE === BETRIEBSGROESSE && kern.AUFLOESUNG === fristen.AUFLOESUNG
+      && kern.HINWEISE_MAX === fristen.HINWEISE_MAX && kern.ANZEIGENAME_VORGABE === fristen.ANZEIGENAME_VORGABE);
+}
+
+console.log('— 4b: Klartexte aus Konstanten statt Literal (N4b.3 Nr. 8)');
+{
+  const f = fristen.ZOOM_FRISTEN;
+  ck('S3 nennt SDK_FASSUNG', KT.S3('7.1.6.1')
+    === `Dieses Zoom-SDK hat die Fassung 7.1.6.1. Diese Connect-Fassung braucht genau ${SDK_FASSUNG}. Für eine andere SDK-Fassung braucht es einen neuen Connect-Release.`);
+  ck('S15 nennt SDK_FASSUNG', KT.S15 === `Auf dem Proxy liegt kein passendes Zoom-SDK ${SDK_FASSUNG}. Bitte den SDK-Ordner von Hand wählen.`);
+  ck('B7 nennt SDK_FASSUNG_BRIDGE', KT.B7('x') === `Die Zoom-Laufzeit meldet die Fassung x, erwartet ist ${SDK_FASSUNG_BRIDGE}. Bitte den SDK-Ordner erneut wählen.`);
+  ck('PRUEFUNG_OK nennt SDK_FASSUNG_BRIDGE', KT.PRUEFUNG_OK === `Einrichtung in Ordnung: Zoom-SDK ${SDK_FASSUNG_BRIDGE}, Anmeldung bei Zoom erfolgreich.`);
+  ck('B16 nennt anmeldeMs in Sekunden', KT.B16 === `Zoom hat auf die Anmeldung nicht geantwortet (${f.anmeldeMs / 1000} s). Netzwerk prüfen und erneut versuchen.`);
+  ck('CT nennt joinTimeoutMs in Sekunden', KT.CT === `Zoom hat den Beitritt in ${f.joinTimeoutMs / 1000} s weder bestätigt noch abgelehnt. Netzwerk prüfen und erneut versuchen.`);
+  ck('CE nennt joinTimeoutMs in Sekunden (derselbe Wachhund der Bridge)',
+    KT.CE === `Der Host hat zugelassen, aber Zoom hat den Einlass in ${f.joinTimeoutMs / 1000} s nicht abgeschlossen. Netzwerk prüfen und erneut beitreten.`);
+  ck('Q9 nennt BETRIEBSGROESSE', KT.Q9(6) === `Mehr als ${BETRIEBSGROESSE} Zoom-Quellen sind nicht gemessen. Noch einmal klicken, um die 6. Quelle trotzdem zu laden.`);
+  const quelle = readFileSync(new URL('../src/main/zoom/klartext.ts', import.meta.url), 'utf8');
+  ck('Quelltext-Wächter: klartext.ts schreibt die SDK-Fassung nicht als Literal', !quelle.includes('7.1.5'));
+  ck('Quelltext-Wächter: B16, CT und CE schreiben „30 s“ nicht als Literal',
+    !quelle.includes('nicht geantwortet (30 s)') && !quelle.includes('Beitritt in 30 s') && !quelle.includes('Einlass in 30 s'));
+}
+
+console.log('— 4b: 8.5 Wiederbeitritt (R2, R4, R5, R7) und Vorsatz 8.3');
+{
+  ck('R2: der Schlusspunkt des letzten Grunds fällt weg', KT.R2('Das Meeting ist voll.')
+    === 'Wiederbeitritt gescheitert (Das Meeting ist voll). „Erneut beitreten“ versucht es noch einmal.');
+  ck('R2: ein Grund ohne Schlusspunkt bleibt, wie er ist', KT.R2('Wiederverbinden fehlgeschlagen (Code 2)')
+    === 'Wiederbeitritt gescheitert (Wiederverbinden fehlgeschlagen (Code 2)). „Erneut beitreten“ versucht es noch einmal.');
+  ck('R2 mit Csonst als letztem Grund: kein „.)“', KT.R2(failText(11, 'JM Connect'))
+    === 'Wiederbeitritt gescheitert (kein Medienserver gefunden (Code 11)). „Erneut beitreten“ versucht es noch einmal.');
+  ck('R4 wörtlich', KT.R4('EXITED_UNEXPECTEDLY exitCode=3') === 'Die Zoom-Bridge ist abgestürzt (EXITED_UNEXPECTEDLY exitCode=3). Connect tritt neu bei.');
+  ck('R5 (0, 0)', KT.R5(0, 0) === 'Wieder im Meeting. 0 Quellen neu geladen, 0 warten auf eine eindeutige Person.');
+  ck('R5 (1, 1) im Singular (L3)', KT.R5(1, 1) === 'Wieder im Meeting. 1 Quelle neu geladen, 1 wartet auf eine eindeutige Person.');
+  ck('R5 (2, 3, 1) mit Grenze', KT.R5(2, 3, 1) === 'Wieder im Meeting. 2 Quellen neu geladen, 3 warten auf eine eindeutige Person, 1 über der Grenze von 5 nicht geladen.');
+  ck('R7 wörtlich', KT.R7 === 'Wiederbeitritt abgebrochen.');
+  const C63 = 'Das Meeting gehört nicht zum Zoom-Konto dieser App. JM Connect kann nur Meetings im eigenen Zoom-Konto betreten. Bitte das Meeting im eigenen Konto anlegen.';
+  ck('Vorsatz „Wiederbeitritt abgebrochen: “ + C63 als ganzer Text', failMeldung(VORSATZ.wiederbeitritt, 63, 'JM Connect').text === `Wiederbeitritt abgebrochen: ${C63}`);
+  ck('Vorsatz „Wiederbeitritt abgebrochen: “ + Csonst als ganzer Text',
+    failMeldung(VORSATZ.wiederbeitritt, 11, 'JM Connect').text === 'Wiederbeitritt abgebrochen: kein Medienserver gefunden (Code 11).');
+}
+
+console.log('— 4b: Einordnung 6.4 (istEndgueltig: Tabelle und L5)');
+{
+  // Spec 6.4 wörtlich abgeschrieben, NICHT aus ENDGUELTIGE_FAIL_CODES abgeleitet (sonst prüfte der Test sich selbst).
+  const ENDGUELTIG = [4, 6, 7, 8, 9, 10, 12, 13, 14, 16, 23, 60, 61, 62, 63, 64, 82, 88, 89, 500, 501, 502, 503, 504, 505, 506];
+  for (const code of ENDGUELTIG) ck(`failed ${code}: endgültig`, istEndgueltig({ art: 'failed', code }));
+  ck('ENDGUELTIGE_FAIL_CODES hat genau diese 26 Codes', ENDGUELTIGE_FAIL_CODES.size === 26 && ENDGUELTIG.every((c) => ENDGUELTIGE_FAIL_CODES.has(c)));
+  for (const code of [1, 2, 3, 5, 11, 15, 0xffff, 4242]) ck(`failed ${code}: vorübergehend`, !istEndgueltig({ art: 'failed', code }));
+  for (const code of [6, 8, 9]) ck(`auth ${code}: vorübergehend`, !istEndgueltig({ art: 'auth', code }));
+  for (const code of [1, 2, 3, 10, 12]) ck(`auth ${code}: endgültig`, istEndgueltig({ art: 'auth', code }));
+  ck('ended: endgültig', istEndgueltig({ art: 'ended' }));
+  for (const exitCode of [0xc0000135, 0xc0000139, 0xc000007b]) {
+    ck(`exited 0x${exitCode.toString(16).toUpperCase()}: endgültig (DLL-Tod, B3–B5)`, istEndgueltig({ art: 'exited', exitCode }));
+  }
+  ck('exited 5 und exited ohne Rückgabewert: vorübergehend', !istEndgueltig({ art: 'exited', exitCode: 5 }) && !istEndgueltig({ art: 'exited', exitCode: null }));
+  const VORUEBERGEHEND: VersuchsAusgang[] = [{ art: 'joinTimeout' }, { art: 'reconnectTimeout' }, { art: 'keineAuthAntwort' }];
+  for (const a of VORUEBERGEHEND) ck(`${a.art}: vorübergehend`, !istEndgueltig(a));
+  const ENDGUELTIG_SONST: VersuchsAusgang[] = [
+    { art: 'init' }, { art: 'joinFehler' }, { art: 'ndi' }, { art: 'sdkFassung' }, { art: 'spawn' }, { art: 'zugang' }, { art: 'authSofort' },
+  ];
+  for (const a of ENDGUELTIG_SONST) ck(`${a.art}: endgültig`, istEndgueltig(a));
+}
+
+console.log('— 4b: 8.6 Fernsteuer-Hinweise (Vorsatz „Companion: “) und Logtext ohne Namen');
+{
+  const FT_SOLL: Array<[string, string, string]> = [
+    ['F1', FT.F1, 'Companion: kein Anzeigename angegeben.'],
+    ['F2', FT.F2('Anna Maria Beispiel'), 'Companion: niemand namens „Anna Maria Beispiel“ im Meeting.'],
+    ['F3', FT.F3('Anna', 2), 'Companion: „Anna“ ist nicht eindeutig (2 Personen) — bitte in Connect von Hand laden.'],
+    ['F4 nicht im Meeting', FT.F4('nicht im Meeting'), 'Companion: Laden nicht möglich — nicht im Meeting.'],
+    ['F4 keine Erlaubnis', FT.F4('keine Aufnahme-Erlaubnis'), 'Companion: Laden nicht möglich — keine Aufnahme-Erlaubnis.'],
+    ['F4 Warteraum', FT.F4('die Person ist im Warteraum'), 'Companion: Laden nicht möglich — die Person ist im Warteraum.'],
+    ['F5', FT.F5('Ben'), 'Companion: keine geladene Quelle „Ben“.'],
+    ['F6', FT.F6('1,5'), 'Companion: Versatz „1,5“ ungültig — erlaubt sind ganze Zahlen von 0 bis 1000.'],
+    ['F7', FT.F7('zoom_xyz'), 'Companion: unbekannter Befehl „zoom_xyz“.'],
+    ['F8', FT.F8(6), 'Companion: 6. Quelle geladen — mehr als 5 sind nicht gemessen.'],
+  ];
+  for (const [id, ist, soll] of FT_SOLL) ck(`${id} wörtlich`, ist === soll);
+  ck('FT hat genau F1 bis F8', JSON.stringify(Object.keys(FT).sort()) === '["F1","F2","F3","F4","F5","F6","F7","F8"]');
+  ck('F8 nennt BETRIEBSGROESSE', FT.F8(7) === `Companion: 7. Quelle geladen — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`);
+  ck('fernLogText: Kennung groß, Verb in Klammern',
+    fernLogText('f3', 'zoom_load') === 'Companion: F3 (zoom_load)' && fernLogText('ok', 'zoom_delay') === 'Companion: OK (zoom_delay)');
+  ck('fernLogText hat keinen Namensparameter (Kennung und Verb)', fernLogText.length === 2);
+}
+
+console.log('— 4b: maskiereNamen (N4b.2, L11): ganze Wörter, längste zuerst');
+{
+  const P = '‹Name›';
+  ck('Platzhalter „‹Name›“ (U+2039, U+203A)', maskiereNamen('Anna', ['Anna']) === P && P.charCodeAt(0) === 0x2039 && P.charCodeAt(5) === 0x203a);
+  ck('„Anna, Ben“ → „‹Name›, ‹Name›“', maskiereNamen('Namensprobe: Anna, Ben', ['Anna', 'Ben']) === `Namensprobe: ${P}, ${P}`);
+  ck('„Annabell“ bleibt bei Name „Anna“ (nur ganze Wörter)', maskiereNamen('Annabell kommt', ['Anna']) === 'Annabell kommt');
+  ck('Ziffer direkt dahinter: „Anna2“ bleibt', maskiereNamen('Anna2', ['Anna']) === 'Anna2');
+  ck('Umlaut als Wortteil: „Jörgen“ bleibt bei Name „Jörg“', maskiereNamen('Jörgen', ['Jörg']) === 'Jörgen');
+  ck('„Anna Maria“ vor „Anna“ (längste zuerst)', maskiereNamen('Wiederbeitritt 7 (Anna Maria)', ['Anna', 'Anna Maria']) === `Wiederbeitritt 7 (${P})`);
+  ck('Name mit „.“, „(“, „)“ wird maskiert', maskiereNamen('Abo für Dr. Ben (Gast) steht', ['Dr. Ben (Gast)']) === `Abo für ${P} steht`);
+  ck('„.“ im Namen ist kein Joker: „DrX Ben“ bleibt', maskiereNamen('DrX Ben', ['Dr. Ben']) === 'DrX Ben');
+  ck('mehrfach in einer Zeile', maskiereNamen('Ben geht, Ben kommt', ['Ben']) === `${P} geht, ${P} kommt`);
+  ck('leere Liste → Zeile unverändert', maskiereNamen('Anna, Ben', []) === 'Anna, Ben');
+  ck('Namen unter 2 Zeichen und leere Namen bleiben aus', maskiereNamen('A B Carla', ['A', '', ' ', 'Carla']) === `A B ${P}`);
+  ck('NDI-Name: der Name hinter dem Gedankenstrich wird maskiert', maskiereNamen('JM Connect – Zoom Anna (2)', ['Anna']) === `JM Connect – Zoom ${P} (2)`);
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

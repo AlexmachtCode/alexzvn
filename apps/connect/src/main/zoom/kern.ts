@@ -82,23 +82,13 @@ import { SDK_PAKET } from './sdk-paket';
 import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from './soll';
 import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
 
-/** Spec 5.2. Für Tests einspeisbar (`fristen`); `abgleichMs` bleibt in den Fällen 14/14b bei 300. */
-export const ZOOM_FRISTEN = {
-  anmeldeMs: 30_000,
-  joinTimeoutMs: 30_000,
-  killTimeoutMs: 12_000,
-  abgleichMs: 300,
-  aboAntwortMs: 10_000,
-  abbildTaktMs: 100,
-  unsubscribeWarteMs: 2_000,
-} as const;
-export type ZoomFristen = { [K in keyof typeof ZOOM_FRISTEN]: number };
-export const BEENDEN_FRIST_MS = 15_000;
-export const JWT_GUELTIG_S = 43_200;
-export const BETRIEBSGROESSE = 5;
-export const AUFLOESUNG = '720p' as const;
-export const HINWEISE_MAX = 5;
-export const ANZEIGENAME_VORGABE = 'JM Connect';
+// Feste Werte (Spec 5.2) stehen ab 4b in fristen.ts (rein). kern.ts reicht sie unverändert weiter, damit zoom.ts,
+// index.ts, settings.ts und die Tests weiter von hier importieren.
+import { AUFLOESUNG, BETRIEBSGROESSE, HINWEISE_MAX, JWT_GUELTIG_S, ZOOM_FRISTEN, type ZoomFristen } from './fristen';
+export {
+  ANZEIGENAME_VORGABE, AUFLOESUNG, BEENDEN_FRIST_MS, BETRIEBSGROESSE, HINWEISE_MAX, JWT_GUELTIG_S, WIEDERBEITRITT_PLAN_S, ZOOM_FRISTEN,
+} from './fristen';
+export type { ZoomFristen } from './fristen';
 
 export type BridgeArt = Pick<Bridge, 'start' | 'send' | 'stop' | 'session'>;
 export type BridgeFabrik = (opts: BridgeOptions, startNr: number) => BridgeArt;

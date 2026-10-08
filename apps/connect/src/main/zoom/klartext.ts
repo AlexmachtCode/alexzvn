@@ -1,11 +1,14 @@
-// Klartexte der Zoom-Anbindung (Spec 8.1–8.5) und ihre Zuordnung zu Codes und Ereignissen.
+// Klartexte der Zoom-Anbindung (Spec 8.1–8.6) und ihre Zuordnung zu Codes und Ereignissen.
 // Ohne Electron (G8): nur relative Importe und @jm/zoom-bridge. Die Texte stehen WÖRTLICH wie in
-// der Spec; Platzhalter {…} sind Funktionsparameter. Die Fernsteuer-Hinweise F1–F8 (8.6) und die
-// Wiederbeitritts-Texte R2, R4, R5, R7 kommen mit Plan 4b.
+// der Spec; Platzhalter {…} sind Funktionsparameter. Fassung, Fristen und Betriebsgröße kommen aus
+// den Konstanten (N4b.3 Nr. 8). Logzeilen nennen nie den Namen eines Teilnehmers (N4b.2): Hinweise
+// mit Namen tragen einen eigenen `logText`, Zeilen der Bridge laufen durch maskiereNamen.
 import type { AudioReason, AudioState } from '@jm/zoom-bridge/protocol';
 import { authResultName, endReason, failCodeName, failReason } from '@jm/zoom-bridge/protocol';
-import type { ZoomMangel } from '../../shared/types';
-import { Q9_ANFANG, TEXT_A4, TEXT_A6, TEXT_S11, TEXT_S17 } from '../../shared/zoom-text';
+import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
+import type { ZoomBefehlKennung, ZoomMangel } from '../../shared/types';
+import { BETRIEBSGROESSE, Q9_ANFANG, TEXT_A4, TEXT_A6, TEXT_S11, TEXT_S17 } from '../../shared/zoom-text';
+import { ZOOM_FRISTEN } from './fristen';
 
 /** Text groß in der Karte, Detail klein darunter (technischer Name und Code), Spec 8. */
 export interface Meldungstext {
@@ -27,7 +30,7 @@ export const KT = {
   S1: 'In diesem Ordner liegt kein Zoom-SDK. Bitte den entpackten SDK-Ordner wählen (der mit dem Unterordner x64\\bin) oder direkt den Ordner x64\\bin.',
   S2: 'Das ist die 32-Bit-Fassung des Zoom-SDK. Bitte den Ordner x64\\bin wählen oder den SDK-Ordner darüber.',
   S3: (gefunden: string): string =>
-    `Dieses Zoom-SDK hat die Fassung ${gefunden}. Diese Connect-Fassung braucht genau 7.1.5.43953. Für eine andere SDK-Fassung braucht es einen neuen Connect-Release.`,
+    `Dieses Zoom-SDK hat die Fassung ${gefunden}. Diese Connect-Fassung braucht genau ${SDK_FASSUNG}. Für eine andere SDK-Fassung braucht es einen neuen Connect-Release.`,
   S3b: 'Die Fassung des Zoom-SDK lässt sich nicht lesen. Bitte das unveränderte SDK aus der JM-Ablage wählen.',
   S4: (name: string): string =>
     `Im SDK-Ordner liegt eine Datei, die wie eine Connect-Datei heißt (${name}). Das ist kein unverändertes Zoom-SDK.`,
@@ -58,7 +61,7 @@ export const KT = {
   },
   S14: (grund: string): string =>
     `Der Proxy ist nicht erreichbar (${grund}). Bitte die Netzverbindung prüfen oder den SDK-Ordner von Hand wählen.`,
-  S15: 'Auf dem Proxy liegt kein passendes Zoom-SDK 7.1.5.43953. Bitte den SDK-Ordner von Hand wählen.',
+  S15: `Auf dem Proxy liegt kein passendes Zoom-SDK ${SDK_FASSUNG}. Bitte den SDK-Ordner von Hand wählen.`,
   S16: (grund: string): string =>
     `Das Zoom-SDK ließ sich nicht laden (${grund}). Die bisherige Einrichtung bleibt unverändert.`,
   S16b: 'Das geladene Zoom-SDK hat nicht die erwartete Prüfsumme und wurde verworfen. Die bisherige Einrichtung bleibt unverändert.',
@@ -77,7 +80,7 @@ export const KT = {
   B6: (detail: string): string =>
     `Die Zoom-Bridge hat sich beendet, bevor Zoom die Anmeldung beantwortet hat (${detail}). Details im Log.`,
   B7: (x: string): string =>
-    `Die Zoom-Laufzeit meldet die Fassung ${x}, erwartet ist 7.1.5 (43953). Bitte den SDK-Ordner erneut wählen.`,
+    `Die Zoom-Laufzeit meldet die Fassung ${x}, erwartet ist ${SDK_FASSUNG_BRIDGE}. Bitte den SDK-Ordner erneut wählen.`,
   B8: (name: string): string => `Das Zoom-SDK ließ sich nicht starten (${name}). Details im Log.`,
   B8_14: 'Auf diesem PC läuft schon ein anderes Programm mit dem Zoom-Meeting-SDK (zum Beispiel das Einsatzpaket „zoom-join“). Bitte es zuerst beenden.',
   B9: (result: string): string =>
@@ -89,7 +92,7 @@ export const KT = {
   B13: 'Zoom lässt diese SDK-Fassung nicht mehr zu (AUTHRET_CLIENT_INCOMPATIBLE). Nötig ist ein neuer Connect-Release mit neuer SDK-Fassung.',
   B14: 'Zu viele Anmeldungen in kurzer Zeit (AUTHRET_LIMIT_EXCEEDED_EXCEPTION). Einige Minuten warten.',
   B15: (result: string): string => `Zoom hat die Anmeldung abgelehnt (${result}).`,
-  B16: 'Zoom hat auf die Anmeldung nicht geantwortet (30 s). Netzwerk prüfen und erneut versuchen.',
+  B16: `Zoom hat auf die Anmeldung nicht geantwortet (${ZOOM_FRISTEN.anmeldeMs / 1000} s). Netzwerk prüfen und erneut versuchen.`,
   B17: 'Zugangsdaten fehlen — bitte eintragen oder die Datei wählen.',
   B18: (name: string): string =>
     `Das Zoom-SDK hat die Anmeldung sofort abgewiesen (${name}). Mit dem Netzwerk hat das nichts zu tun. Details im Log.`,
@@ -97,8 +100,9 @@ export const KT = {
   // 8.3 Beitritt (ohne die C-Texte, die liefert failText)
   N0: 'Die Meeting-Nummer darf nur Ziffern enthalten (Leerzeichen und Bindestriche werden entfernt).',
   N0b: 'Der Anzeigename muss 1 bis 64 Zeichen lang sein.',
-  CT: 'Zoom hat den Beitritt in 30 s weder bestätigt noch abgelehnt. Netzwerk prüfen und erneut versuchen.',
-  CE: 'Der Host hat zugelassen, aber Zoom hat den Einlass in 30 s nicht abgeschlossen. Netzwerk prüfen und erneut beitreten.',
+  // CT und CE: beide Wachhunde der Bridge laufen mit joinTimeoutMs (bridge.ts armWatchdog).
+  CT: `Zoom hat den Beitritt in ${ZOOM_FRISTEN.joinTimeoutMs / 1000} s weder bestätigt noch abgelehnt. Netzwerk prüfen und erneut versuchen.`,
+  CE: `Der Host hat zugelassen, aber Zoom hat den Einlass in ${ZOOM_FRISTEN.joinTimeoutMs / 1000} s nicht abgeschlossen. Netzwerk prüfen und erneut beitreten.`,
   CJ: (name: string): string => `Zoom hat den Beitritt nicht angenommen (${name}).`,
   CB: (detail: string): string => `Die Zoom-Bridge hat sich während des Beitritts beendet (${detail}). Details im Log.`,
 
@@ -126,11 +130,24 @@ export const KT = {
   Q17: (person: string): string =>
     `Ton: ein fehlerhaftes Paket von „${person}“ verworfen (audioBufferMismatch). Der Ton läuft mit dem nächsten gültigen Paket weiter.`,
 
-  // 8.5 Abriss (R6; R2, R4, R5, R7 mit Plan 4b)
+  // 8.5 Abriss und Wiederbeitritt (6.4)
   R6: (grund: string): string => `Meeting beendet: ${grund}.`,
+  /** {letzter Grund} = Text der letzten Versuchsmeldung, ohne ihren Schlusspunkt (sonst „… versuchen.).“). */
+  R2: (letzterGrund: string): string =>
+    `Wiederbeitritt gescheitert (${letzterGrund.trim().replace(/\.+$/, '')}). „Erneut beitreten“ versucht es noch einmal.`,
+  R4: (detail: string): string => `Die Zoom-Bridge ist abgestürzt (${detail}). Connect tritt neu bei.`,
+  /**
+   * Singular wie L6 aus 4a (L3): „1 Quelle neu geladen“, „1 wartet auf eine eindeutige Person“.
+   * Ruling R-R5: bei g > 0 nennt der Satz auch die Einträge über der Betriebsgrenze, die nicht geladen wurden.
+   */
+  R5: (k: number, d: number, g = 0): string =>
+    `Wieder im Meeting. ${k === 1 ? '1 Quelle' : `${k} Quellen`} neu geladen, ${d} ${d === 1 ? 'wartet' : 'warten'} auf eine eindeutige Person${
+      g > 0 ? `, ${g} über der Grenze von ${BETRIEBSGROESSE} nicht geladen` : ''
+    }.`,
+  R7: 'Wiederbeitritt abgebrochen.',
 
   // 6.1 Schritt 5: Ergebnis von „Einrichtung prüfen“
-  PRUEFUNG_OK: 'Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953), Anmeldung bei Zoom erfolgreich.',
+  PRUEFUNG_OK: `Einrichtung in Ordnung: Zoom-SDK ${SDK_FASSUNG_BRIDGE}, Anmeldung bei Zoom erfolgreich.`,
 
   // Nur 4a, in 4b durch den Wiederbeitritt ersetzt: Abriss ohne Wiederbeitritt führt sofort zu
   // `fehler` (Plan-Kopf „Nicht in 4a“). Vorsatz davor ist VORSATZ.verbindung.
@@ -242,12 +259,23 @@ export function mangelText(m: ZoomMangel, datei: string | null): string {
   }
 }
 
-/** Wohin ein Fehler gehört: an die Zeile/Quelle, unter „Hinweise“ oder nirgends (8.4). */
-export type Einordnung = { art: 'zeile'; text: string } | { art: 'hinweis'; text: string } | { art: 'keine' };
+/**
+ * Wohin ein Fehler gehört: an die Zeile/Quelle, unter „Hinweise“ oder nirgends (8.4). Ein Hinweis trägt
+ * zusätzlich `logText`: dieselbe Aussage ohne Teilnehmernamen, mit der Kennung (N4b.2, L11).
+ */
+export type Einordnung = { art: 'zeile'; text: string } | { art: 'hinweis'; text: string; logText: string } | { art: 'keine' };
 
-/** `error where:'video'|'audio'` → Einordnung (8.4). `name` = Fehlername aus enrich(), `person` = Anzeigename. */
-export function quellenFehler(code: string, name: string, person: string | null, dropped?: number): Einordnung {
+/** Logtexte der Hinweise Q16/Q17 (Texttabelle 4b): Kennung statt Name. */
+const LOG_Q16 = (kennung: string): string => `Bild: fehlerhafte Bilder von Teilnehmer ${kennung} verworfen (videoBufferMismatch).`;
+const LOG_Q17 = (kennung: string): string => `Ton: ein fehlerhaftes Paket von Teilnehmer ${kennung} verworfen (audioBufferMismatch).`;
+
+/**
+ * `error where:'video'|'audio'` → Einordnung (8.4). `name` = Fehlername aus enrich(), `person` = Anzeigename
+ * (nur für die Karte), `id` = Teilnehmer-Kennung aus dem Ereignis (nur für das Log).
+ */
+export function quellenFehler(code: string, name: string, person: string | null, dropped?: number, id?: number): Einordnung {
   const wer = person ?? 'unbekannt';
+  const kennung = id === undefined ? 'unbekannt' : String(id);
   switch (code) {
     case 'videoNoPrivilege':
       return { art: 'zeile', text: KT.Q1 };
@@ -266,11 +294,11 @@ export function quellenFehler(code: string, name: string, person: string | null,
     case 'videoBadDelay':
       return { art: 'zeile', text: KT.Q13 };
     case 'audioQueueOverflow':
-      return { art: 'hinweis', text: KT.Q6(dropped ?? 0) };
+      return { art: 'hinweis', text: KT.Q6(dropped ?? 0), logText: KT.Q6(dropped ?? 0) };
     case 'videoBufferMismatch':
-      return { art: 'hinweis', text: KT.Q16(wer) };
+      return { art: 'hinweis', text: KT.Q16(wer), logText: LOG_Q16(kennung) };
     case 'audioBufferMismatch':
-      return { art: 'hinweis', text: KT.Q17(wer) };
+      return { art: 'hinweis', text: KT.Q17(wer), logText: LOG_Q17(kennung) };
     default:
       return { art: 'zeile', text: KT.Q4(name) };
   }
@@ -291,4 +319,95 @@ export function maskiere(zeile: string, werte: ReadonlyArray<string>): string {
   let aus = zeile;
   for (const w of liste) aus = aus.replaceAll(w, '•••');
   return aus;
+}
+
+/** Platzhalter für einen Teilnehmernamen in Logzeilen (N4b.2, Texttabelle 4b). */
+export const NAME_PLATZHALTER = '‹Name›';
+
+/**
+ * Teilnehmernamen in einer Logzeile durch „‹Name›“ ersetzen (N4b.2, L11). Nur ganze Wörter: davor und dahinter
+ * steht kein Buchstabe und keine Ziffer (Unicode), so bleibt „Annabell“ bei „Anna“ stehen. Längste Namen zuerst
+ * („Anna Maria“ vor „Anna“). Namen unter 2 Zeichen bleiben aus, sie träfen sonst einzelne Buchstaben jeder Zeile.
+ * Groß- und Kleinschreibung zählt: Der Kern übergibt die Namen so, wie Zoom sie meldet.
+ */
+export function maskiereNamen(zeile: string, namen: readonly string[]): string {
+  const liste = [...new Set(namen.map((n) => n.trim()).filter((n) => n.length >= 2))].sort((a, b) => b.length - a.length);
+  if (liste.length === 0) return zeile;
+  const muster = liste.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return zeile.replace(new RegExp(`(?<![\\p{L}\\p{N}])(?:${muster})(?![\\p{L}\\p{N}])`, 'gu'), NAME_PLATZHALTER);
+}
+
+/**
+ * Ausgang eines Wiederbeitritts-Versuchs bzw. Auslöser in Z10 (Spec 6.4, Einordnung). Der Kern übersetzt
+ * Ereignisse und Startfehler in diese Form; istEndgueltig entscheidet, ob Connect es noch einmal versucht.
+ */
+export type VersuchsAusgang =
+  | { art: 'failed'; code: number } // status failed
+  | { art: 'ended' } // status ended
+  | { art: 'auth'; code: number } // auth mit Code ≠ 0 (B9–B15)
+  | { art: 'authSofort' } // error where:'auth' ohne auth-Ereignis (B18)
+  | { art: 'keineAuthAntwort' } // 30 s ohne auth (B16)
+  | { art: 'init' } // error where:'init' (B8), L5
+  | { art: 'ndi' } // ndiInitFailed (Q7)
+  | { art: 'sdkFassung' } // ready.sdkVersion falsch (B7)
+  | { art: 'spawn' } // Spawn-Fehler (B1, B2)
+  | { art: 'zugang' } // Zugangsdaten fehlen (B17)
+  | { art: 'exited'; exitCode: number | null } // error exit exited; DLL-Codes → B3–B5
+  | { art: 'joinTimeout' }
+  | { art: 'reconnectTimeout' }
+  | { art: 'joinFehler' }; // error where:'join' mit SDK-Code (CJ), L5
+
+/** Spec 6.4, Tabelle „Einordnung“: diese Codes von `status failed` sind endgültig. */
+export const ENDGUELTIGE_FAIL_CODES: ReadonlySet<number> = new Set([
+  4, 6, 7, 8, 9, 10, 12, 13, 14, 16, 23, 60, 61, 62, 63, 64, 82, 88, 89, 500, 501, 502, 503, 504, 505, 506,
+]);
+
+/** auth-Codes, die vorübergehend sind (B12: Zoom gerade nicht erreichbar). */
+const AUTH_VORUEBERGEHEND: ReadonlySet<number> = new Set([6, 8, 9]);
+
+/**
+ * Spec 6.4 „Einordnung“ plus L5: endgültig heißt, Connect versucht es nicht noch einmal. Unbekannte failed-Codes
+ * sind vorübergehend (die Versuche sind auf fünf begrenzt). Ein Mangel aus pruefeLaufzeit (S8, S9) ist kein
+ * Ausgang: Er führt zum Zustand `einrichtung`.
+ */
+export function istEndgueltig(a: VersuchsAusgang): boolean {
+  switch (a.art) {
+    case 'failed':
+      return ENDGUELTIGE_FAIL_CODES.has(a.code);
+    case 'auth':
+      return a.code !== 0 && !AUTH_VORUEBERGEHEND.has(a.code);
+    case 'exited':
+      return dllMeldung(a.exitCode) !== null;
+    case 'keineAuthAntwort':
+    case 'joinTimeout':
+    case 'reconnectTimeout':
+      return false;
+    case 'ended':
+    case 'authSofort':
+    case 'init':
+    case 'ndi':
+    case 'sdkFassung':
+    case 'spawn':
+    case 'zugang':
+    case 'joinFehler':
+      return true;
+  }
+}
+
+/** Fernsteuer-Hinweise (Spec 8.6) mit Vorsatz „Companion: “. Sie stehen unter „Hinweise“, nie im STATE (11.1). */
+export const FT = {
+  F1: 'Companion: kein Anzeigename angegeben.',
+  F2: (name: string): string => `Companion: niemand namens „${name}“ im Meeting.`,
+  F3: (name: string, n: number): string => `Companion: „${name}“ ist nicht eindeutig (${n} Personen) — bitte in Connect von Hand laden.`,
+  F4: (grund: 'nicht im Meeting' | 'keine Aufnahme-Erlaubnis' | 'die Person ist im Warteraum'): string =>
+    `Companion: Laden nicht möglich — ${grund}.`,
+  F5: (name: string): string => `Companion: keine geladene Quelle „${name}“.`,
+  F6: (arg: string): string => `Companion: Versatz „${arg}“ ungültig — erlaubt sind ganze Zahlen von 0 bis 1000.`,
+  F7: (verb: string): string => `Companion: unbekannter Befehl „${verb}“.`,
+  F8: (n: number): string => `Companion: ${n}. Quelle geladen — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`,
+};
+
+/** Logzeile zu einem zoom_*-Befehl (Texttabelle 4b): nur Kennung und Verb, nie ein Name (N4b.2, L11). */
+export function fernLogText(kennung: ZoomBefehlKennung, verb: string): string {
+  return `Companion: ${kennung.toUpperCase()} (${verb})`;
 }
