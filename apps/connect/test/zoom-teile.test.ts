@@ -245,6 +245,80 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
     pruefeSdkSchluesselEingabe({ schluessel: 'x'.repeat(512) }) !== null && pruefeSdkSchluesselEingabe({ schluessel: 'x'.repeat(513) }) === null);
 }
 
+// ── Aufgabe 6 (4b): Plätze bis zur Betriebsgröße, Vorschau „(2)“, Ton aus dem Soll ──
+console.log('— 4b: Soll-Liste mit Plätzen (L7, N4b.3 Nr. 3)');
+{
+  const t = (id: number, name: string, imWarteraum = false) => ({ id, name, imWarteraum });
+  const eintrag = (name: string, aboId: number | null = null, ton = true) => ({ name, ton, ndiName: `JM Connect – Zoom ${name}`, aboId });
+  // Drei Einträge ohne Abo, je genau ein Treffer außerhalb des Warteraums: alle drei würden abonniert.
+  const drei: SollListe = new Map([['anna', eintrag('Anna')], ['ben', eintrag('Ben', null, false)], ['carla', eintrag('Carla')]]);
+  const lage3: SollLage = { teilnehmer: [t(16778240, 'Anna'), t(16778241, 'Ben'), t(16778242, 'Carla')], abos: new Map() };
+  ck('plaetze 2 bei drei Einträgen: zwei abonnieren, in der Reihenfolge der Soll-Liste',
+    JSON.stringify(sollHandlungen(drei, lage3, 2)) === JSON.stringify([
+      { art: 'abonnieren', schluessel: 'anna', id: 16778240, ton: true },
+      { art: 'abonnieren', schluessel: 'ben', id: 16778241, ton: false },
+    ]));
+  ck('… im Abbild: Anna und Ben wartet, Carla grenze (ohne Doppelname, ohne aboId)',
+    JSON.stringify(sollAbbild(drei, lage3, 2).map((e) => [e.name, e.stand, e.doppelname, e.aboId]))
+      === JSON.stringify([['Anna', 'wartet', false, null], ['Ben', 'wartet', false, null], ['Carla', 'grenze', false, null]]));
+  ck('plaetze 0: keine Handlung, alle drei grenze',
+    sollHandlungen(drei, lage3, 0).length === 0 && sollAbbild(drei, lage3, 0).every((e) => e.stand === 'grenze'));
+  ck('negative plaetze (mehr belegt als die Betriebsgröße) zählen wie 0',
+    sollHandlungen(drei, lage3, -1).length === 0 && sollAbbild(drei, lage3, -1).every((e) => e.stand === 'grenze'));
+  ck('ohne plaetze: alle drei abonnieren, keiner grenze (Vorgabe unbegrenzt)',
+    sollHandlungen(drei, lage3).length === 3 && sollAbbild(drei, lage3).every((e) => e.stand === 'wartet'));
+
+  // neuLaden ersetzt ein Abo, das schon einen Platz belegt: es verbraucht keinen weiteren.
+  const mitVerwaist: SollListe = new Map([['anna', eintrag('Anna', 16778200)], ['ben', eintrag('Ben')]]);
+  const lageV: SollLage = { teilnehmer: [t(16778250, 'Anna'), t(16778241, 'Ben')], abos: new Map([[16778200, { verwaist: true }]]) };
+  ck('neuLaden verbraucht keinen Platz (plaetze 1: neuLaden Anna, abonnieren Ben)',
+    JSON.stringify(sollHandlungen(mitVerwaist, lageV, 1).map((h) => h.art)) === JSON.stringify(['neuLaden', 'abonnieren']));
+  ck('plaetze 0: neuLaden bleibt, Anna verwaist, Ben grenze',
+    JSON.stringify(sollHandlungen(mitVerwaist, lageV, 0).map((h) => h.art)) === JSON.stringify(['neuLaden'])
+      && JSON.stringify(sollAbbild(mitVerwaist, lageV, 0).map((e) => [e.name, e.stand])) === JSON.stringify([['Anna', 'verwaist'], ['Ben', 'grenze']]));
+
+  // Wer ohnehin nicht abonniert würde, verbraucht keinen Platz und steht nie auf grenze.
+  const gemischt: SollListe = new Map([['anna', eintrag('Anna')], ['ben', eintrag('Ben')], ['carla', eintrag('Carla')], ['dora', eintrag('Dora')]]);
+  const lageG: SollLage = { teilnehmer: [t(16778240, 'Anna'), t(16778241, 'anna'), t(16778242, 'Ben', true), t(16778243, 'Dora')], abos: new Map() };
+  ck('Doppelname, Warteraum und Abwesende verbrauchen keinen Platz (plaetze 1 → Dora)',
+    JSON.stringify(sollHandlungen(gemischt, lageG, 1)) === JSON.stringify([{ art: 'abonnieren', schluessel: 'dora', id: 16778243, ton: true }]));
+  ck('… und behalten ihren Stand (doppelname, wartet, wartet, wartet)',
+    JSON.stringify(sollAbbild(gemischt, lageG, 1).map((e) => [e.name, e.stand])) === JSON.stringify([['Anna', 'doppelname'], ['Ben', 'wartet'], ['Carla', 'wartet'], ['Dora', 'wartet']]));
+}
+
+console.log('— 4b: NDI-Vorschau wie uniqueSourceName (L22, N4b.3 Nr. 1)');
+{
+  ck('frei → ohne Zusatz', ndiVorschau('Anna', new Set()) === 'JM Connect – Zoom Anna');
+  ck('belegt → „ (2)“', ndiVorschau('Anna', new Set(['JM Connect – Zoom Anna'])) === 'JM Connect – Zoom Anna (2)');
+  ck('mit „ (2)“ belegt → „ (3)“', ndiVorschau('Anna', new Set(['JM Connect – Zoom Anna', 'JM Connect – Zoom Anna (2)'])) === 'JM Connect – Zoom Anna (3)');
+  ck('nur „ (2)“ belegt → ohne Zusatz (die Bridge prüft zuerst den Grundnamen)',
+    ndiVorschau('Anna', new Set(['JM Connect – Zoom Anna (2)'])) === 'JM Connect – Zoom Anna');
+  ck('Vergleich wie in der Bridge: genau, mit Groß-/Kleinschreibung', ndiVorschau('anna', new Set(['JM Connect – Zoom Anna'])) === 'JM Connect – Zoom anna');
+  ck('ohne zweiten Parameter wie bisher', ndiVorschau('Anna') === 'JM Connect – Zoom Anna');
+}
+
+console.log('— 4b: baueTeilnehmer: Vorschau der zweiten Anna, Ton aus dem Soll (N4b.3 Nr. 1, 2)');
+{
+  const liste: Participant[] = [p(16778240, 'Anna'), p(16778241, 'Anna'), p(16778243, 'Ben'), p(16778244, 'Carla')];
+  const annaGeladen = new Map([[16778240, quelle(16778240, 'JM Connect – Zoom Anna')]]);
+  const zeilen = baueTeilnehmer({
+    liste,
+    quellen: annaGeladen,
+    tonVorwahl: new Map([[16778244, true]]),
+    zeilenFehler: new Map(),
+    gastLabels: [],
+    sollTon: (name) => (name === 'Ben' || name === 'Carla' ? false : undefined),
+  });
+  const z = (id: number) => zeilen.find((x) => x.id === id);
+  ck('erste Anna geladen → Vorschau der zweiten endet auf „ (2)“', z(16778241)?.ndiNameVorschau === 'JM Connect – Zoom Anna (2)');
+  ck('sollTon false → tonVorwahl false (Ben)', z(16778243)?.tonVorwahl === false);
+  ck('ein eigener Wert in tonVorwahl gewinnt (Carla: true trotz Soll false)', z(16778244)?.tonVorwahl === true);
+  ck('kein Soll-Eintrag → Vorgabe true (zweite Anna)', z(16778241)?.tonVorwahl === true);
+  const mitGast = baueTeilnehmer({ liste, quellen: annaGeladen, tonVorwahl: new Map(), zeilenFehler: new Map(), gastLabels: ['JM Connect – Zoom Anna (2)'] });
+  ck('Kollision prüft die Vorschau mit „ (2)“', mitGast.find((x) => x.id === 16778241)?.kollision === KT.Q10('JM Connect – Zoom Anna (2)'));
+  ck('ohne sollTon wie bisher: Vorgabe true', mitGast.every((x) => x.tonVorwahl === true));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

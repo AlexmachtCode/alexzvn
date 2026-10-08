@@ -13,9 +13,16 @@ export function normName(name: string): string {
   return name.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('de');
 }
 
-/** NDI-Name, den die Bridge für diese Person vergeben wird, solange noch keine Quelle läuft. */
-export function ndiVorschau(name: string): string {
-  return NDI_PRAEFIX + name;
+/**
+ * NDI-Name, den die Bridge für diese Person vergeben wird, solange noch keine Quelle läuft. Wie
+ * uniqueSourceName (native/video.cpp:188-201): Ist der Name unter den laufenden Quellen schon belegt,
+ * folgen „ (2)“, „ (3)“ … Der Vergleich ist genau wie dort, also mit Groß-/Kleinschreibung.
+ */
+export function ndiVorschau(name: string, belegt: ReadonlySet<string> = new Set()): string {
+  const grund = NDI_PRAEFIX + name;
+  let kandidat = grund;
+  for (let n = 2; belegt.has(kandidat); n++) kandidat = `${grund} (${n})`;
+  return kandidat;
 }
 
 /** Gleicher NDI-Name im Sinne der Kollisionsprüfung (Spec 6.3): nach NFC, ohne Groß-/Kleinschreibung. */
@@ -38,8 +45,10 @@ function rang(r: UserRoleName): number {
 /**
  * Teilnehmerzeilen für das Abbild: ohne die eigene Zeile der Bridge, Host und Co-Host zuerst, dann
  * nach Name (de). `doppelname` zählt alle fremden Teilnehmer mit gleichem normierten Namen, auch
- * solche im Warteraum. `tonVorwahl` gilt je Teilnehmer-ID (Vorgabe true). `kollision` vergleicht den
- * NDI-Namen der Zeile (Quelle, sonst Vorschau) mit den NDI-Namen der Browser-Gäste.
+ * solche im Warteraum. `tonVorwahl` gilt je Teilnehmer-ID; ohne eigenen Wert zeigt die Zeile den Ton
+ * aus der Soll-Liste (`sollTon`, N4b.3 Nr. 2), sonst true. `ndiNameVorschau` rechnet die NDI-Namen der
+ * laufenden Quellen ein („ (2)“, N4b.3 Nr. 1). `kollision` vergleicht den NDI-Namen der Zeile (Quelle,
+ * sonst Vorschau) mit den NDI-Namen der Browser-Gäste.
  */
 export function baueTeilnehmer(e: {
   liste: readonly Participant[];
@@ -47,13 +56,16 @@ export function baueTeilnehmer(e: {
   tonVorwahl: ReadonlyMap<number, boolean>;
   zeilenFehler: ReadonlyMap<number, string>;
   gastLabels: readonly string[];
+  /** Ton des Soll-Eintrags zu diesem Namen (der Aufrufer normiert); undefined = kein Soll-Eintrag. */
+  sollTon?: (name: string) => boolean | undefined;
 }): ZoomParticipant[] {
   const fremde = e.liste.filter((p) => !p.self);
   const anzahl = new Map<string, number>();
   for (const p of fremde) anzahl.set(normName(p.name), (anzahl.get(normName(p.name)) ?? 0) + 1);
+  const belegt = new Set([...e.quellen.values()].map((q) => q.ndiName));
   const zeilen = fremde.map((p): ZoomParticipant => {
     const quelle = e.quellen.get(p.id) ?? null;
-    const ndiNameVorschau = ndiVorschau(p.name);
+    const ndiNameVorschau = ndiVorschau(p.name, belegt);
     const ndiName = quelle?.ndiName ?? ndiNameVorschau;
     return {
       id: p.id,
@@ -62,7 +74,7 @@ export function baueTeilnehmer(e: {
       kamera: kameraVon(p),
       imWarteraum: p.inWaitingRoom,
       doppelname: (anzahl.get(normName(p.name)) ?? 0) >= 2,
-      tonVorwahl: e.tonVorwahl.get(p.id) ?? true,
+      tonVorwahl: e.tonVorwahl.get(p.id) ?? e.sollTon?.(p.name) ?? true,
       quelle,
       ndiNameVorschau,
       kollision: e.gastLabels.some((l) => gleicherNdiName(l, ndiName)) ? KT.Q10(ndiName) : null,

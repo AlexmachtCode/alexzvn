@@ -46,17 +46,47 @@ function bewerte(soll: SollListe, lage: SollLage): Bewertung[] {
   });
 }
 
+/** Je Eintrag: Bewertung, Handlung (oder keine) und ob er an der Betriebsgröße scheitert. */
+interface Planung {
+  b: Bewertung;
+  handlung: SollHandlung | null;
+  /** Würde abonniert, aber es ist kein Platz mehr frei (L7). */
+  grenze: boolean;
+}
+
+/**
+ * Handlungen nach Spec 6.3: nur bei GENAU einem Treffer, der nicht im Warteraum ist. Kein Abo → abonnieren;
+ * verwaistes Abo → neu laden (altes entladen, neues mit dem Ton des Soll-Eintrags). `plaetze` = freie Plätze
+ * bis zur Betriebsgröße (L7, N4b.3 Nr. 3): Nur „abonnieren“ verbraucht einen Platz, „neu laden“ ersetzt ein
+ * belegtes Abo. Ohne Platz keine Handlung, der Eintrag steht auf 'grenze'. Reihenfolge der Plätze: die
+ * Einfügereihenfolge der Soll-Liste. Werte ≤ 0 heißen „kein Platz“.
+ */
+function plane(soll: SollListe, lage: SollLage, plaetze: number): Planung[] {
+  let frei = plaetze;
+  return bewerte(soll, lage).map((b): Planung => {
+    if (b.abo === 'verbunden' || b.treffer.length !== 1 || b.treffer[0].imWarteraum) return { b, handlung: null, grenze: false };
+    const id = b.treffer[0].id;
+    if (b.abo === 'verwaist' && b.eintrag.aboId !== null) {
+      return { b, handlung: { art: 'neuLaden', schluessel: b.schluessel, altAboId: b.eintrag.aboId, id, ton: b.eintrag.ton }, grenze: false };
+    }
+    if (frei <= 0) return { b, handlung: null, grenze: true };
+    frei -= 1;
+    return { b, handlung: { art: 'abonnieren', schluessel: b.schluessel, id, ton: b.eintrag.ton }, grenze: false };
+  });
+}
+
 /**
  * Offene Soll-Einträge fürs Abbild (Spec 6.3, Spalte „Stand“): alles außer „verbunden“.
- * verwaist → 'verwaist' (mit aboId zum Entladen); kein Abo und ≥ 2 Treffer → 'doppelname';
- * sonst 'wartet'. `doppelname` = 2 oder mehr Treffer (auch bei verwaist: rot mit Q11).
+ * verwaist → 'verwaist' (mit aboId zum Entladen); würde abonniert, hat aber keinen Platz → 'grenze';
+ * kein Abo und ≥ 2 Treffer → 'doppelname'; sonst 'wartet'. `doppelname` = 2 oder mehr Treffer
+ * (auch bei verwaist: rot mit Q11). `plaetze` wie bei sollHandlungen; Vorgabe: unbegrenzt.
  */
-export function sollAbbild(soll: SollListe, lage: SollLage): ZoomSollEintrag[] {
+export function sollAbbild(soll: SollListe, lage: SollLage, plaetze = Infinity): ZoomSollEintrag[] {
   const aus: ZoomSollEintrag[] = [];
-  for (const b of bewerte(soll, lage)) {
+  for (const { b, grenze } of plane(soll, lage, plaetze)) {
     if (b.abo === 'verbunden') continue;
     const doppelname = b.treffer.length >= 2;
-    const stand: ZoomSollEintrag['stand'] = b.abo === 'verwaist' ? 'verwaist' : doppelname ? 'doppelname' : 'wartet';
+    const stand: ZoomSollEintrag['stand'] = b.abo === 'verwaist' ? 'verwaist' : grenze ? 'grenze' : doppelname ? 'doppelname' : 'wartet';
     aus.push({
       name: b.eintrag.name,
       ton: b.eintrag.ton,
@@ -70,20 +100,9 @@ export function sollAbbild(soll: SollListe, lage: SollLage): ZoomSollEintrag[] {
 }
 
 /**
- * Handlungen nach Spec 6.3: nur bei GENAU einem Treffer, der nicht im Warteraum ist.
- * Kein Abo → abonnieren; verwaistes Abo → neu laden (altes entladen, neues mit dem Ton des
- * Soll-Eintrags). Doppelnamen, Warteraum und fehlende Person: nichts.
+ * Handlungen nach Spec 6.3 (Regeln bei plane): abonnieren bzw. neu laden, höchstens `plaetze`-mal abonnieren.
+ * Doppelnamen, Warteraum, fehlende Person und Einträge ohne Platz: nichts. Vorgabe: unbegrenzt.
  */
-export function sollHandlungen(soll: SollListe, lage: SollLage): SollHandlung[] {
-  const aus: SollHandlung[] = [];
-  for (const b of bewerte(soll, lage)) {
-    if (b.abo === 'verbunden' || b.treffer.length !== 1 || b.treffer[0].imWarteraum) continue;
-    const id = b.treffer[0].id;
-    if (b.abo === 'verwaist' && b.eintrag.aboId !== null) {
-      aus.push({ art: 'neuLaden', schluessel: b.schluessel, altAboId: b.eintrag.aboId, id, ton: b.eintrag.ton });
-    } else {
-      aus.push({ art: 'abonnieren', schluessel: b.schluessel, id, ton: b.eintrag.ton });
-    }
-  }
-  return aus;
+export function sollHandlungen(soll: SollListe, lage: SollLage, plaetze = Infinity): SollHandlung[] {
+  return plane(soll, lage, plaetze).flatMap((x) => (x.handlung ? [x.handlung] : []));
 }
