@@ -137,12 +137,28 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
   panelTaste(taste(' ', false, { tagName: 'DIV', isContentEditable: true }), zu);
   gleich(protokoll, ['stop', 'stop', 'stop', 'stop', 'stop', 'stop'], 'panelTaste Taste auf Feld/Auswahl/contentEditable → stopPropagation, schließt nicht');
   protokoll.length = 0;
-  // Kürzel mit Strg/Meta/Alt verbraucht kein Feld: sie erreichen das Tool (DAW Strg+S).
-  for (const mod of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) panelTaste(taste('s', false, { tagName: 'INPUT', type: 'text' }, mod), zu);
-  gleich(protokoll, [], 'panelTaste Strg/Meta/Alt+Taste im Feld → nichts (Tool-Kürzel erreichen das Tool)');
+  // Felder verbrauchen auch Tasten mit Strg/Meta/Alt (Strg+Pfeil, Strg+Rücktaste, Strg+Pos1, Strg+A/Z im Text; Alt+Pfeil runter
+  // öffnet die Auswahl): auch die bleiben im Panel. Strg-Kürzel der Tools (DAW Strg+S) nehmen Felder ohnehin selbst aus.
+  panelTaste(taste('ArrowLeft', false, { tagName: 'INPUT', type: 'text' }, { ctrlKey: true }), zu);
+  panelTaste(taste('Backspace', false, { tagName: 'TEXTAREA' }, { ctrlKey: true }), zu);
+  panelTaste(taste('Home', false, { tagName: 'INPUT', type: 'text' }, { ctrlKey: true }), zu);
+  panelTaste(taste('z', false, { tagName: 'DIV', isContentEditable: true }, { ctrlKey: true }), zu);
+  panelTaste(taste('ArrowDown', false, { tagName: 'SELECT' }, { altKey: true }), zu);
+  panelTaste(taste('r', false, { tagName: 'SELECT' }, { ctrlKey: true }), zu);
+  panelTaste(taste('a', false, { tagName: 'INPUT', type: 'text' }, { metaKey: true }), zu);
+  gleich(
+    protokoll,
+    ['stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop'],
+    'panelTaste Strg/Meta/Alt+Taste im Feld → stopPropagation, schließt nicht (das Feld verbraucht sie)',
+  );
+  protokoll.length = 0;
   // Pfeile/Entf/Pos1 auf einem Knopf: der Knopf verbraucht sie nicht.
   for (const key of ['ArrowUp', 'ArrowDown', 'Delete', 'Home', 'r']) panelTaste(taste(key, false, { tagName: 'BUTTON' }), zu);
   gleich(protokoll, [], 'panelTaste andere Tasten auf einem Knopf → nichts');
+  // Strg/Meta-Kürzel außerhalb eines Felds (Knopf, Panel) erreichen das Tool.
+  panelTaste(taste('s', false, { tagName: 'BUTTON' }, { ctrlKey: true }), zu);
+  panelTaste(taste('z', false, { tagName: 'ASIDE' }, { metaKey: true }), zu);
+  gleich(protokoll, [], 'panelTaste Strg/Meta+Taste auf Knopf/Panel → nichts (Tool-Kürzel erreichen das Tool)');
   protokoll.length = 0;
   panelTaste(taste('Escape', false, { tagName: 'DIV' }), zu);
   gleich(protokoll, ['stop', 'prevent', 'zu'], 'panelTaste Escape auch ohne Bedienelement → stopPropagation, preventDefault, onClose');

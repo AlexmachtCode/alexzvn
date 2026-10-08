@@ -32,7 +32,8 @@ export function useSettingsPanel(): { hervorgehoben?: string } {
 const KNOPF_TYPEN = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'image']);
 
 /**
- * Felder, die Zeichen- und Navigationstasten selbst verbrauchen (Text, Zahl, Bereich, Auswahl, contentEditable).
+ * Felder, die Zeichen- und Navigationstasten selbst verbrauchen (Text, Zahl, Bereich, Auswahl, contentEditable) – auch mit
+ * Strg/Meta/Alt (Strg+Pfeil, Strg+Rücktaste, Strg+Pos1, Strg+A/Z im Text; Alt+Pfeil runter öffnet die Auswahl).
  * Knöpfe, Schalter, Links und Häkchen gehören nicht dazu: ihre Aktivierung per Leertaste unterdrücken die Tool-Handler
  * (preventDefault), dort gilt Spec 10 – Leertaste = GO.
  */
@@ -46,26 +47,16 @@ function verbrauchtTasten(ziel: unknown): boolean {
 
 /**
  * Tasten im Panel (E8, Spec 10 „Tastaturkürzel bleiben gleich“): Escape bleibt im Panel und schließt es, wenn die Taste noch
- * niemandem gehört (nicht defaultPrevented). Jede andere Taste bleibt nur im Panel, wenn ein Feld sie wirklich verbraucht
- * (Text tippen, Pfeile in Auswahl/Bereich) und kein Strg/Meta/Alt gedrückt ist. Alles andere – Knöpfe, Schalter, Links,
- * Panel und Abschnitte, Kürzel mit Strg – erreicht das Tool wie bisher (Leertaste = GO auch auf einem fokussierten Schalter).
- * Hängt am Panel selbst. Nur aus dieser Datei exportiert.
+ * niemandem gehört (nicht defaultPrevented). Jede andere Taste bleibt im Panel, wenn ihr Ziel ein Feld ist (Text tippen,
+ * Pfeile in Auswahl/Bereich, auch mit Strg/Meta/Alt); die Strg-Kürzel der Tools nehmen Felder ohnehin selbst aus. Alles
+ * andere – Knöpfe, Schalter, Links, Panel und Abschnitte – erreicht das Tool wie bisher (Leertaste = GO auch auf einem
+ * fokussierten Schalter, Strg-Kürzel). Hängt am Panel selbst. Nur aus dieser Datei exportiert.
  */
 export function panelTaste(
-  e: {
-    key: string;
-    defaultPrevented: boolean;
-    target?: unknown;
-    ctrlKey?: boolean;
-    metaKey?: boolean;
-    altKey?: boolean;
-    stopPropagation(): void;
-    preventDefault(): void;
-  },
+  e: { key: string; defaultPrevented: boolean; target?: unknown; stopPropagation(): void; preventDefault(): void },
   onClose: () => void,
 ): void {
-  const kuerzel = e.ctrlKey === true || e.metaKey === true || e.altKey === true;
-  if (e.key === 'Escape' || (!kuerzel && verbrauchtTasten(e.target))) e.stopPropagation();
+  if (e.key === 'Escape' || verbrauchtTasten(e.target)) e.stopPropagation();
   if (e.key !== 'Escape' || e.defaultPrevented) return;
   e.preventDefault();
   onClose();
