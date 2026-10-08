@@ -164,6 +164,9 @@ const drei: AudioDeviceSectionProps = {
   ok(vor(html, '>Floor (O-Ton)<', '>Dolmetscher<') && vor(html, '>Dolmetscher<', '>Ausgabe (virtuelles Kabel)<'), 'Audio: Wahlen in der Reihenfolge des Arrays');
   ok((html.match(/Pegel: /g) ?? []).length === 2, 'Audio: Pegel für die zwei Wahlen mit gemessenem Pegel, keiner für den Ausgang ohne Pegel');
   enthaelt(html, '>Systemstandard</option>', 'Audio: Standard-Option des Ausgangs');
+  const leerHtml = render(<AudioDeviceSection {...basis} choices={[ausgabe({ devices: [], value: '' })]} />);
+  enthaeltNicht(leerHtml, '>Systemstandard</option>', 'Audio gemessen leere Liste: keine Standard-Option, die „gewählt“ zeigt, während die Pille „aus“ sagt');
+  enthaelt(leerHtml, 'bitte wählen', 'Audio gemessen leere Liste: Platzhalter statt Standard-Auswahl');
   enthaelt(html, '>3 Geräte gewählt</span>', 'Audio: Statuspille „3 Geräte gewählt“');
   pruefeIdVerweise(html, 'Audio: alle id-Verweise gültig');
   gleich(sperrZaehlung(html).gesperrt, 0, 'Audio ohne Sperre: nichts gesperrt');

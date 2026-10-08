@@ -91,6 +91,7 @@ function pegel(db: number): { text: string; prozent: number } {
 
 function wahlView(c: AudioChoice, level: boolean): AudioWahlView {
   const leer = c.devices !== undefined && c.devices.length === 0 ? (c.direction === 'input' ? AUDIO_TEXTE.keinEingang : AUDIO_TEXTE.keinAusgang) : undefined;
+  const standardOption = c.defaultLabel !== undefined && c.defaultLabel !== '' && leer === undefined;   // gemessen leere Liste: auch den Systemstandard gibt es nicht (Spec 7, Regel 3; wahlStatus)
   const hinweis = [leer, c.changeWarning].filter((t): t is string => typeof t === 'string' && t !== '').join(' ');
   return {
     key: c.key,
@@ -98,10 +99,10 @@ function wahlView(c: AudioChoice, level: boolean): AudioWahlView {
     status: wahlStatus(c),
     listeBekannt: c.devices !== undefined,
     optionen: [
-      ...(c.defaultLabel ? [{ value: '', label: c.defaultLabel }] : []),
+      ...(standardOption ? [{ value: '', label: c.defaultLabel as string }] : []),
       ...(c.devices ?? []).map((d) => ({ value: d.id, label: d.label || d.id })),
     ],
-    platzhalter: c.defaultLabel ? undefined : ABSCHNITT_TEXTE.bitteWaehlen,
+    platzhalter: standardOption ? undefined : ABSCHNITT_TEXTE.bitteWaehlen,
     hinweis: hinweis === '' ? undefined : hinweis,
     pegel: level && gemessen(c.levelDb) ? pegel(c.levelDb) : undefined,
   };

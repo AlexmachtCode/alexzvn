@@ -134,6 +134,12 @@ function ersterZustand(html: string): string | undefined {
   const dreiWahlen = render(settingsBeispiele('dark').find((b) => b.name === 'audio-drei-wahlen')!.element);
   ok((dreiWahlen.match(/>Pegel: /g) ?? []).length === 3, 'Abschnitts-Beispiel audio-drei-wahlen: Pegel je Wahl, auch für den Ausgang (E26)');
 
+  enthaeltNicht(
+    render(settingsBeispiele('dark').find((b) => b.name === 'audio-leer')!.element),
+    '>System-Standard<',
+    'Abschnitts-Beispiel audio-leer: Pille „aus“ und Auswahl widersprechen sich nicht (kein gewählter System-Standard)',
+  );
+
   for (const b of uiBeispiele('dark')) {
     const pruefung = UI_PRUEFUNG[b.name];
     if (!pruefung) continue;
