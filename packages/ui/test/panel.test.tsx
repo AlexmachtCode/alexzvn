@@ -107,9 +107,10 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
 // ── Escape (panelTaste) ──
 {
   const protokoll: string[] = [];
-  const taste = (key: string, defaultPrevented = false) => ({
+  const taste = (key: string, defaultPrevented = false, target?: { tagName: string }) => ({
     key,
     defaultPrevented,
+    target,
     stopPropagation: () => void protokoll.push('stop'),
     preventDefault: () => void protokoll.push('prevent'),
   });
@@ -119,7 +120,15 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
   protokoll.length = 0;
   panelTaste(taste('Enter'), zu);
   panelTaste(taste(' '), zu);
-  gleich(protokoll, ['stop', 'stop'], 'panelTaste andere Taste → nur stopPropagation (Leertaste/Pfeile erreichen die Tool-Kürzel nicht), schließt nicht');
+  panelTaste(taste(' ', false, { tagName: 'ASIDE' }), zu);
+  panelTaste(taste(' ', false, { tagName: 'DIV' }), zu);
+  gleich(protokoll, [], 'panelTaste Taste mit Fokus auf Panel/Abschnitt → nichts (Leertaste/Pfeile erreichen die Tool-Kürzel, Spec 10)');
+  for (const tagName of ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A']) panelTaste(taste(' ', false, { tagName }), zu);
+  panelTaste(taste(' ', false, { tagName: 'DIV', isContentEditable: true } as { tagName: string }), zu);
+  gleich(protokoll, ['stop', 'stop', 'stop', 'stop', 'stop', 'stop'], 'panelTaste Taste auf einem Bedienelement im Panel → stopPropagation (Toggle + GO nie zugleich), schließt nicht');
+  protokoll.length = 0;
+  panelTaste(taste('Escape', false, { tagName: 'DIV' }), zu);
+  gleich(protokoll, ['stop', 'prevent', 'zu'], 'panelTaste Escape auch ohne Bedienelement → stopPropagation, preventDefault, onClose');
   protokoll.length = 0;
   panelTaste(taste('Escape', true), zu);
   gleich(protokoll, ['stop'], 'panelTaste defaultPrevented → nur stopPropagation (Escape gehört schon jemand anderem, schließt nicht)');

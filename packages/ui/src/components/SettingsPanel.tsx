@@ -28,16 +28,32 @@ export function useSettingsPanel(): { hervorgehoben?: string } {
   return useContext(PanelKontext);
 }
 
+/** Bedienelemente, die Tasten selbst verbrauchen (Leertaste schaltet, Pfeile wählen): dort bleibt die Taste im Panel. */
+const BEDIENELEMENTE = new Set(['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A']);
+
+function istBedienelement(ziel: unknown): boolean {
+  const el = ziel as { tagName?: string; isContentEditable?: boolean } | null | undefined;
+  return !!el && (BEDIENELEMENTE.has(el.tagName ?? '') || el.isContentEditable === true);
+}
+
 /**
- * Tasten im Panel (E8): jede Taste bleibt im Panel und erreicht die globalen Kürzel des Tools nicht (Leertaste = GO,
- * Pfeile = Blättern, Transport). Escape schließt zusätzlich, wenn die Taste noch niemandem gehört (nicht defaultPrevented).
- * Hängt am Panel selbst, greift also nur, wenn der Fokus im Panel liegt. Nur aus dieser Datei exportiert.
+ * Tasten im Panel (E8, Spec 10 „Tastaturkürzel bleiben gleich“): Escape bleibt im Panel und schließt es, wenn die Taste noch
+ * niemandem gehört (nicht defaultPrevented). Jede andere Taste bleibt nur im Panel, wenn sie auf einem Bedienelement liegt
+ * (Toggle, Feld, Auswahl, Knopf, Link) – dort würde sie sonst zugleich schalten und ein Tool-Kürzel (Leertaste = GO) auslösen.
+ * Liegt der Fokus auf dem Panel oder einem Abschnitt (z. B. nach einem Klick auf ⚙), erreichen die Kürzel das Tool wie bisher.
+ * Hängt am Panel selbst. Nur aus dieser Datei exportiert.
  */
 export function panelTaste(
-  e: { key: string; defaultPrevented: boolean; stopPropagation(): void; preventDefault(): void },
+  e: {
+    key: string;
+    defaultPrevented: boolean;
+    target?: unknown;
+    stopPropagation(): void;
+    preventDefault(): void;
+  },
   onClose: () => void,
 ): void {
-  e.stopPropagation();
+  if (e.key === 'Escape' || istBedienelement(e.target)) e.stopPropagation();
   if (e.key !== 'Escape' || e.defaultPrevented) return;
   e.preventDefault();
   onClose();
