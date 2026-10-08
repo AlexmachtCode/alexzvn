@@ -97,6 +97,11 @@ export type ZoomMangel =
 /** 'entzogen': war 'ja', dann broadcast mit canRecordRaw:false (3.2-23). */
 export type ZoomErlaubnis = 'offen' | 'ja' | 'abgelehnt' | 'abgelaufen' | 'entzogen';
 
+/** Ergebnis eines zoom_*-Befehls als Kennung (Spec 8.6): 'ok' oder die Hinweis-ID in Kleinbuchstaben. */
+export type ZoomBefehlKennung = 'ok' | 'f1' | 'f2' | 'f3' | 'f4' | 'f5' | 'f6' | 'f7' | 'f8';
+/** `abgelehnt` ist true bei F1–F7. F8 ist eine Warnung, der Befehl wurde ausgeführt (Spec 11.2). */
+export interface ZoomBefehlErgebnis { kennung: ZoomBefehlKennung; abgelehnt: boolean }
+
 /** Ein laufendes Abo der Bridge. */
 export interface ZoomQuelle {
   /** Teilnehmer-ID zum Zeitpunkt des Abos. Gilt nur in dieser Sitzung. */
@@ -141,7 +146,8 @@ export interface ZoomSollEintrag {
   ton: boolean;
   /** Zuletzt gemeldeter NDI-Name, sonst die Vorschau. */
   ndiName: string;
-  stand: 'wartet' | 'doppelname' | 'verwaist';
+  /** 'grenze': würde abonniert, aber die Betriebsgröße ist erreicht (L7, N4b.3 Nr. 3); zählt als offen. */
+  stand: 'wartet' | 'doppelname' | 'verwaist' | 'grenze';
   /** Nur bei 'verwaist': das alte Abo, zum Entladen. */
   aboId: number | null;
   /**
@@ -170,6 +176,8 @@ export interface ZoomKurz {
   maengel: ZoomMangel[];
   /** Die Kopie ODER „Zoom-SDK laden“ läuft (Z1b; Spec SDK nachladen 4.4: dieselbe Einrichtungszeile). */
   kopieLaeuft: boolean;
+  /** Letzter zoom_*-Befehl der Fernsteuerung (Spec 11.2, 8.6); null vor dem ersten. Hängt nicht am Zustand (7.5). */
+  befehl: ZoomBefehlErgebnis | null;
 }
 
 export interface ZoomAbbild {
@@ -189,7 +197,8 @@ export interface ZoomAbbild {
     sdkSchluessel: { herkunft: ProxyKeySource };
   };
   anzeigename: string;
-  versatz: { gewuenschtMs: number; bestaetigtMs: number | null };
+  /** `nurSitzung`: Die Einstellungsdatei ließ sich nicht schreiben, der Wert gilt nur bis zum Beenden (N4b.3 Nr. 4, L14). */
+  versatz: { gewuenschtMs: number; bestaetigtMs: number | null; nurSitzung: boolean };
   /** Ohne eigene Zeile. Host und Co-Host zuerst, dann nach Name (de). */
   teilnehmer: ZoomParticipant[];
   soll: ZoomSollEintrag[];
@@ -202,6 +211,8 @@ export interface ZoomAbbild {
   erneutMoeglich: boolean;
   /** „Einrichtung prüfen“ läuft (Zustand bleibt 'bereit', 6.1). */
   pruefungLaeuft: boolean;
+  /** Eine gestoppte Bridge baut noch ab (Sperre S10, L13). */
+  abbauLaeuft: boolean;
 }
 
 export type ZoomErgebnis = { ok: true } | { ok: false; text: string };

@@ -334,6 +334,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       maengel: [...maengel],
       // Spec SDK nachladen 4.4: Kopfzeile und Tray zeigen beim Laden dieselbe Einrichtungszeile wie bei der Kopie (Z1b).
       kopieLaeuft: kopie !== null || ladung !== null,
+      // Aufgabe 13 (4b) setzt den letzten zoom_*-Befehl; bis dahin gibt es keinen.
+      befehl: null,
     };
   }
 
@@ -354,7 +356,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         sdkSchluessel: { herkunft: sdkSchluesselHerkunft },
       },
       anzeigename: d.einstellungen.anzeigename(),
-      versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null },
+      // nurSitzung liest ab Aufgabe 11 (4b) einstellungen.versatzNurSitzung().
+      versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null, nurSitzung: false },
       teilnehmer: teilnehmerAbbild(),
       soll: sollOffen(),
       abriss: zustand === 'abriss' ? { versuch: null, versuche: 5, naechsterUm: null } : null,
@@ -362,6 +365,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       hinweise: [...hinweise],
       erneutMoeglich: nummer !== null,
       pruefungLaeuft,
+      // L13: Eine gestoppte Bridge baut noch ab; die Karte sperrt die Einrichtung (S10).
+      abbauLaeuft: stopps.size > 0,
     };
   }
 
