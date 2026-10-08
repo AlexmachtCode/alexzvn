@@ -20,10 +20,14 @@ export interface HaltenSteuerung {
 export function erzeugeHalten(r: HaltenRueckrufe): HaltenSteuerung {
   let rueckrufe = r;
   let gehaltenVon: HaltenQuelle | null = null;
+  // Release zum Zeitpunkt des Drückens: Fehlt onRelease später im neuesten Satz, geht das Release nicht verloren.
+  let gemerktesRelease: (() => void) | undefined;
 
   const loesen = (): void => {
     gehaltenVon = null;
-    rueckrufe.onRelease?.();
+    const release = rueckrufe.onRelease ?? gemerktesRelease;
+    gemerktesRelease = undefined;
+    release?.();
   };
 
   return {
@@ -35,6 +39,7 @@ export function erzeugeHalten(r: HaltenRueckrufe): HaltenSteuerung {
       if (gehaltenVon !== null) return;
       // Erst halten, dann melden: Wirft onPress, bleibt der Druck gehalten, und onRelease folgt trotzdem.
       gehaltenVon = quelle;
+      gemerktesRelease = rueckrufe.onRelease;
       rueckrufe.onPress?.();
     },
     loslassen(quelle: HaltenQuelle): void {

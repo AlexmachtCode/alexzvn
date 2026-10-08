@@ -208,3 +208,25 @@ function mitZaehler(): { z: { press: number; release: number }; rueckrufe: Halte
   ok(fehler.length === 0 && folgen.length === 780, `Halten: Kreuzprodukt Quelle × Abfolge (${folgen.length} Folgen bis Länge 4)`);
   for (const zeile of fehler.slice(0, 5)) console.log(`     ${zeile}`);
 }
+
+// Befund Fix-Runde 1: Fehlt onRelease im neuesten Satz (Handler weg, weil gesperrt), muss das Release zum schon
+// gemeldeten onPress trotzdem genau einmal kommen (der Rückruf vom Zeitpunkt des Drückens).
+{
+  const { z, rueckrufe } = mitZaehler();
+  const h = erzeugeHalten(rueckrufe);
+  h.druecken('zeiger');
+  h.aktualisiere({});
+  h.abbrechen();
+  h.abbrechen();
+  ok(z.press === 1 && z.release === 1 && !h.gehalten, 'Halten: onRelease fehlt im neuesten Satz → Release des alten Satzes genau einmal');
+}
+
+{
+  const alt = mitZaehler();
+  const neu = mitZaehler();
+  const h = erzeugeHalten(alt.rueckrufe);
+  h.druecken('taste');
+  h.aktualisiere(neu.rueckrufe);
+  h.loslassen('taste');
+  ok(alt.z.release === 0 && neu.z.release === 1, 'Halten: ist onRelease im neuesten Satz gesetzt, gewinnt der neueste');
+}
