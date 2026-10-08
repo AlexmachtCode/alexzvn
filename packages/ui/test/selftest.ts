@@ -9,4 +9,5 @@ import './werkzeug.test';
 import './bestand.test';
 import './tokens.test';
 import './quellregeln.test';
+import './kontrast.test';
 abschluss();
