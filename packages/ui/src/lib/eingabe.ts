@@ -101,6 +101,16 @@ export function zahlSchrittMitSperre(
   return zahlSchritt(z, e, regeln, aktuell);
 }
 
+/**
+ * Zeigt das Feld eine Zahl, die gilt? Gültig ist ein unveränderter Entwurf (er zeigt den Wert) oder einer, den Übernehmen
+ * annähme; ungültig ist alles, was das Feld mit Fehlertext stehen ließe – schon beim Tippen. Für Aufrufer, die neben dem
+ * Feld handeln (z. B. „Setzen“): onChange meldet nur gültige Zahlen, der zuletzt gemeldete Wert ist bei einem ungültigen
+ * Entwurf also nicht das, was das Feld zeigt.
+ */
+export function zahlEntwurfGueltig(z: ZahlEntwurf, regeln: ZahlRegeln): boolean {
+  return !z.geaendert || parseZahl(z.text, regeln).ok;
+}
+
 // ── Frist nach dem Melden (E27) ──
 
 /** So lange wartet ein Feld auf den gemeldeten Wert, bevor es „Noch nicht übernommen.“ zeigt. */

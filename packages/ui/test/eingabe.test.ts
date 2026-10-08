@@ -9,6 +9,7 @@ import {
   starteFrist,
   UEBERNAHME_FRIST_MS,
   zahlEntwurfAus,
+  zahlEntwurfGueltig,
   zahlSchritt,
   zahlSchrittMitSperre,
   type SelectOption,
@@ -170,6 +171,28 @@ gleich(
       80,
     ],
     'Eingabe: gesperrt – Verlassen und Tippen ändern und melden nichts, Verwerfen zeigt den echten Wert, entsperrt wird gemeldet',
+  );
+}
+
+// Gültigkeit des Entwurfs (für Aufrufer, die neben dem Feld handeln, z. B. „Setzen“ in den Gegenstellen): gültig ist ein
+// unveränderter Entwurf oder einer, den Übernehmen annähme; ungültig ist alles, was das Feld mit Fehlertext stehen ließe –
+// schon beim Tippen, nicht erst nach Enter oder Verlassen.
+{
+  const tippe = (text: string) => zahlSchritt(zahlEntwurfAus(9000), { art: 'tippen', text }, PORT, 9000).z;
+  gleich(
+    [
+      zahlEntwurfGueltig(zahlEntwurfAus(9000), PORT),
+      zahlEntwurfGueltig(zahlEntwurfAus(null), PORT),
+      zahlEntwurfGueltig(tippe('8080'), PORT),
+      zahlEntwurfGueltig(tippe('abc'), PORT),
+      zahlEntwurfGueltig(tippe('70000'), PORT),
+      zahlEntwurfGueltig(tippe(''), PORT),
+      zahlEntwurfGueltig(tippe('80,5'), PORT),
+      zahlEntwurfGueltig(zahlSchritt(tippe('abc'), { art: 'uebernehmen' }, PORT, 9000).z, PORT),
+      zahlEntwurfGueltig(zahlSchritt(tippe('abc'), { art: 'verwerfen' }, PORT, 9000).z, PORT),
+    ],
+    [true, true, true, false, false, false, false, false, true],
+    'Eingabe: zahlEntwurfGueltig – unverändert oder übernehmbar gültig; „abc“, „70000“, leer, „80,5“ (ganzzahl) ungültig schon beim Tippen; Escape macht wieder gültig',
   );
 }
 

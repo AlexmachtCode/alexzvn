@@ -239,3 +239,14 @@ const textVonId = (html: string, id: string, ende = '</p>'): string =>
   ok(fehlt.length === 0 && !/\son[A-Z]\w*=\{/.test(input), 'NumberInput Verdrahtung: Handler per Spread, Wert von außen und Frist (E27) im Effekt');
   for (const z of fehlt) console.log(`     fehlt: ${z}`);
 }
+{
+  // Die Gültigkeit des Entwurfs geht an den Aufrufer (Gegenstellen: „Setzen“ sendet nie einen Port, den das Feld nicht zeigt).
+  const quelle = leseText('src/components/NumberInput.tsx');
+  const fehlt = [
+    'onEntwurfGueltig?(gueltig: boolean): void;',
+    'const gueltig = zahlEntwurfGueltig(entwurf, { min, max, ganzzahl });',
+    'useEffect(() => onEntwurfGueltigRef.current?.(gueltig), [gueltig]);',
+  ].filter((z) => quelle.split(z).length !== 2);
+  ok(fehlt.length === 0, 'NumberInput Verdrahtung: meldet die Gültigkeit des Entwurfs per onEntwurfGueltig (im Effekt, bei jedem Wechsel)');
+  for (const z of fehlt) console.log(`     fehlt: ${z}`);
+}

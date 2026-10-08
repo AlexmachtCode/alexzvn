@@ -1,12 +1,17 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { cn } from '../lib/cn';
-import { starteFrist, zahlEntwurfAus, zahlSchrittMitSperre, type ZahlEntwurf, type ZahlEreignis, type ZahlRegeln } from '../lib/eingabe';
+import { starteFrist, zahlEntwurfAus, zahlEntwurfGueltig, zahlSchrittMitSperre, type ZahlEntwurf, type ZahlEreignis, type ZahlRegeln } from '../lib/eingabe';
 import { STATUS_SYMBOL, STATUS_SYMBOL_KLASSE } from '../lib/status';
 import { EINGABE_KLASSE, useFeld, verbindeIds } from './Field';
 
 export interface NumberInputProps {
   value: number | null;
   onChange(value: number): void;
+  /**
+   * Optional: meldet bei jedem Wechsel, ob der Entwurf gilt (zahlEntwurfGueltig). onChange meldet nur gültige Zahlen;
+   * wer neben dem Feld handelt (z. B. „Setzen“), sperrt damit bei einem ungültigen Entwurf, statt den letzten Wert zu nehmen.
+   */
+  onEntwurfGueltig?(gueltig: boolean): void;
   min?: number;
   max?: number;
   ganzzahl?: boolean;
@@ -38,7 +43,7 @@ export function zahlTaste(
   }
 }
 
-export interface NumberInputAnsichtProps extends Omit<NumberInputProps, 'value' | 'onChange' | 'min' | 'max'> {
+export interface NumberInputAnsichtProps extends Omit<NumberInputProps, 'value' | 'onChange' | 'onEntwurfGueltig' | 'min' | 'max'> {
   entwurf: ZahlEntwurf;
   onTippen(text: string): void;
   onUebernehmen(): void;
@@ -129,7 +134,7 @@ export function NumberInputAnsicht({
  * Zahlenfeld (Spec 3.5; E12): Entwurf als Text, Komma und Punkt als Dezimaltrenner. Enter und Verlassen übernehmen nur
  * eine gültige Zahl im Bereich, sonst bleibt der Entwurf mit Fehlertext. Escape verwirft. Einheit rechts als Text.
  */
-export function NumberInput({ value, onChange, min, max, ganzzahl, ...ansicht }: NumberInputProps): React.JSX.Element {
+export function NumberInput({ value, onChange, onEntwurfGueltig, min, max, ganzzahl, ...ansicht }: NumberInputProps): React.JSX.Element {
   const [entwurf, setEntwurf] = useState<ZahlEntwurf>(() => zahlEntwurfAus(value));
   const entwurfRef = useRef(entwurf);
   const wertRef = useRef(value);
@@ -138,6 +143,8 @@ export function NumberInput({ value, onChange, min, max, ganzzahl, ...ansicht }:
   regelnRef.current = { min, max, ganzzahl };
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onEntwurfGueltigRef = useRef(onEntwurfGueltig);
+  onEntwurfGueltigRef.current = onEntwurfGueltig;
   // Gesperrt wie in der Ansicht (eigenes disabled oder Sperrgrund des Field): ein gesperrtes Feld meldet nichts.
   const feld = useFeld();
   const gesperrt = Boolean(ansicht.disabled || feld?.gesperrt);
@@ -169,6 +176,10 @@ export function NumberInput({ value, onChange, min, max, ganzzahl, ...ansicht }:
     () => (entwurf.gesendet === undefined ? undefined : starteFrist(() => schrittRef.current({ art: 'frist' }))),
     [entwurf.gesendet],
   );
+
+  // Gültigkeit des Entwurfs an den Aufrufer, bei jedem Wechsel (auch nach Escape, Sperren oder einem Wert von außen).
+  const gueltig = zahlEntwurfGueltig(entwurf, { min, max, ganzzahl });
+  useEffect(() => onEntwurfGueltigRef.current?.(gueltig), [gueltig]);
 
   return (
     <NumberInputAnsicht {...ansicht} ganzzahl={ganzzahl} entwurf={entwurf} {...zahlAnsichtHandler(schritt)} />
