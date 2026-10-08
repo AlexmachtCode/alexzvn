@@ -54,11 +54,13 @@ export function verbindeIds(...ids: Array<string | undefined>): string | undefin
 export function Field({ label, hint, error, lockedReason, id, className, children }: FieldProps): React.JSX.Element {
   const eigeneId = useId();
   const ids = feldIds(id ?? eigeneId);
+  // Ein Grund nur aus Leerzeichen zählt wie ein leerer nicht (gesperrt nie ohne Grund, wie istGesperrt in @jm/settings).
+  const sperrgrund = lockedReason?.trim() ? lockedReason : undefined;
   const kontext: FeldKontext = {
     ids,
-    describedBy: beschreibtDurch(ids, { hilfe: Boolean(hint), sperre: Boolean(lockedReason), fehler: Boolean(error) }),
+    describedBy: beschreibtDurch(ids, { hilfe: Boolean(hint), sperre: Boolean(sperrgrund), fehler: Boolean(error) }),
     invalid: Boolean(error),
-    gesperrt: Boolean(lockedReason),
+    gesperrt: Boolean(sperrgrund),
   };
   return (
     <div className={cn('flex flex-col gap-1', className)}>
@@ -71,9 +73,9 @@ export function Field({ label, hint, error, lockedReason, id, className, childre
           {hint}
         </p>
       ) : null}
-      {lockedReason ? (
+      {sperrgrund ? (
         <p id={ids.sperre} className="text-[11px] text-[var(--muted-foreground)]">
-          {UI_TEXTE.gesperrt(lockedReason)}
+          {UI_TEXTE.gesperrt(sperrgrund)}
         </p>
       ) : null}
       {error ? (

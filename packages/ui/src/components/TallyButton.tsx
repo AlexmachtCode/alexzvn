@@ -100,9 +100,12 @@ export function tallyHandler(p: TallyButtonProps, halten: HaltenSteuerung): Tall
   };
 }
 
-/** Sichtbarer Sperrgrund: fehlt er oder ist er leer, steht „gesperrt – kein Grund angegeben“ (E9). Nur aus dieser Datei. */
+/**
+ * Sichtbarer Sperrgrund: fehlt er oder ist er leer (auch nur Leerzeichen), steht „gesperrt – kein Grund angegeben“ (E9).
+ * Nur aus dieser Datei.
+ */
 export function tallyGrund(disabledReason: string | undefined): string {
-  return disabledReason || UI_TEXTE.gesperrtOhneGrund;
+  return disabledReason?.trim() || UI_TEXTE.gesperrtOhneGrund;
 }
 
 const BASIS =

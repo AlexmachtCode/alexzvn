@@ -74,6 +74,11 @@ const textVonId = (html: string, id: string): string =>
     text(leer).includes(UI_TEXTE.gesperrtOhneGrund) && attr(tags(leer, 'button')[0], 'title') === UI_TEXTE.gesperrtOhneGrund,
     'Tally gesperrt mit leerem Grund: ebenfalls „gesperrt – kein Grund angegeben“ (gesperrt nie ohne Grund)',
   );
+  const leerraum = render(<TallyButton state="gesperrt" label="Take" disabledReason="   " />);
+  ok(
+    text(leerraum).includes(UI_TEXTE.gesperrtOhneGrund) && attr(tags(leerraum, 'button')[0], 'title') === UI_TEXTE.gesperrtOhneGrund,
+    'Tally gesperrt mit Grund nur aus Leerzeichen: ebenfalls „gesperrt – kein Grund angegeben“ (keine leere Grund-Zeile)',
+  );
 }
 {
   const mit = render(<TallyButton state="bereit" label="Take" shortcut="F1" />);

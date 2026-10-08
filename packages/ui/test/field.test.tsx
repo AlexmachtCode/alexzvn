@@ -78,6 +78,15 @@ const textVonId = (html: string, id: string, ende = '</p>'): string =>
     attr(tags(leer, 'input')[0], 'disabled') === undefined && !leer.includes('ordner-sperre') && !leer.includes('Gesperrt'),
     'Field mit leerem Sperrgrund: nicht gesperrt, kein Sperrtext (gesperrt nie ohne Grund)',
   );
+  const leerraum = render(
+    <Field label="Ordner" id="ordner" lockedReason="   ">
+      <TextInput value="D:/Show" onChange={nichts} />
+    </Field>,
+  );
+  ok(
+    attr(tags(leerraum, 'input')[0], 'disabled') === undefined && !leerraum.includes('ordner-sperre') && !leerraum.includes('Gesperrt'),
+    'Field mit Sperrgrund nur aus Leerzeichen: nicht gesperrt, kein leerer „Gesperrt: “ (wie istGesperrt in @jm/settings)',
+  );
 }
 {
   const html = render(
