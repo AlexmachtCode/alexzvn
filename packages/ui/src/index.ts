@@ -24,3 +24,4 @@ export { Select } from './components/Select';
 export { useTheme } from './lib/useTheme';
 export { ThemeToggle } from './components/ThemeToggle';
 export { SettingsPanel, PanelAnker, useSettingsPanel } from './components/SettingsPanel';
+export { AppHeader } from './components/AppHeader';

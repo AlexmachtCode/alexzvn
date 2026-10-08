@@ -20,4 +20,5 @@ import './field.test';
 import './toggle-select.test';
 import './themetoggle.test';
 import './panel.test';
+import './header.test';
 abschluss();
