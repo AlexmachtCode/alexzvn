@@ -45,6 +45,11 @@ const optionen = (html: string): Array<[string | undefined, boolean, boolean, st
       attr(an, 'aria-label') === 'Ausgabe',
     'Toggle: h-[var(--control-h)], an = --tally-selected mit gelber Kante, aria-label durchgereicht',
   );
+  // Fix-Runde 1: Spur 'aus' nimmt die Feldkante (3 : 1, E3), nicht --border (1,2 bis 1,4 : 1)
+  ok(
+    hatKlassen(aus, 'border-[var(--field-border)] bg-[var(--input)]') && !hatKlassen(aus, 'border-[var(--border)]'),
+    'Toggle aus: Spur mit --field-border auf --input (Grafik 3 : 1), nicht --border',
+  );
 }
 {
   const [k] = tags(render(<Toggle checked onChange={nichts} disabled aria-label="Ausgabe" />), 'button');

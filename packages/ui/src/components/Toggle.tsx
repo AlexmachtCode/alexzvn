@@ -34,7 +34,7 @@ export function Toggle({ checked, onChange, disabled, id, className, 'aria-label
         'disabled:cursor-not-allowed disabled:opacity-60 motion-safe:transition-colors motion-safe:duration-150',
         checked
           ? 'justify-end border-[var(--brand-yellow)] bg-[var(--tally-selected)]'
-          : 'justify-start border-[var(--border)] bg-[var(--input)]',
+          : 'justify-start border-[var(--field-border)] bg-[var(--input)]',
         className,
       )}
     >
