@@ -16,9 +16,9 @@ import { fileURLToPath } from 'node:url';
 const PAKET = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Die Dateinamen in <Zoom-SDK 7.1.5.43953>\x64\bin, rekursiv, ohne Doppelte -
-// fuer den Waechter, wenn ZOOM_SDK_DIR NICHT gesetzt ist. Erzeugt am
-// 01.10.2026 aus dem echten SDK (153 Dateien, 152 verschiedene Namen). Ist
-// ZOOM_SDK_DIR gesetzt, gilt stattdessen die ECHTE Liste aus dem SDK.
+// fuer den Waechter, IMMER. Erzeugt am 01.10.2026 aus dem echten SDK (153
+// Dateien, 152 verschiedene Namen). Ist ZOOM_SDK_DIR gesetzt, kommen die Namen
+// aus dem echten SDK-Ordner DAZU (Vereinigung, Stage 4b - siehe sdkNamen()).
 export const SDK_NAMEN_7_1_5 = [
   "amd_ags_x64.dll", "annoter.dll", "aomagent.dll", "aomhost64.exe", "archival.pcm", "asproxy.dll",
   "avcodec_zm-61.dll", "avformat_zm-61.dll", "avutil_zm-59.dll", "cares.dll", "clap-high.pcm",
@@ -203,16 +203,38 @@ export function bridgeExeFrisch(pkgDir) {
   return { ok: true, exe };
 }
 
+/** Die Dateinamen unter `sdkBin` (rekursiv, ohne Pfad); [] ohne Ordner. */
+function echteSdkNamen(sdkBin) {
+  if (!sdkBin || !existsSync(sdkBin)) return [];
+  return dateienUnter(sdkBin).map((f) => f.split(/[\\/]/).pop());
+}
+
 /**
- * Die verbotenen Dateinamen, klein geschrieben: die ECHTE Liste aus `sdkBin`
- * (rekursiv), wenn der Ordner existiert, sonst SDK_NAMEN_7_1_5. Klein, weil
- * Windows-Dateinamen Gross-/Kleinschreibung nicht unterscheiden.
+ * Die verbotenen Dateinamen, klein geschrieben: IMMER die feste Liste
+ * SDK_NAMEN_7_1_5 und - wenn `sdkBin` existiert - DAZU jeder Dateiname darunter
+ * (rekursiv). VEREINIGUNG statt Ersatz (Stage 4b, Spec N4b.3 Nr. 8): zeigt
+ * ZOOM_SDK_DIR auf einen falschen oder fast leeren Ordner, darf das den Waechter
+ * nicht schwaechen (G6) - frueher liess ein leeres x64\bin alles durch. Klein,
+ * weil Windows-Dateinamen Gross-/Kleinschreibung nicht unterscheiden.
  */
 export function sdkNamen(opts = {}) {
-  const { sdkBin } = opts;
-  const echt = Boolean(sdkBin) && existsSync(sdkBin);
-  const namen = echt ? dateienUnter(sdkBin).map((f) => f.split(/[\\/]/).pop()) : SDK_NAMEN_7_1_5;
+  const namen = [...SDK_NAMEN_7_1_5, ...echteSdkNamen(opts.sdkBin)];
   return new Set(namen.map((n) => n.toLowerCase()));
+}
+
+/**
+ * Woher die Namen der Waechter kommen, als Text fuer Statuszeilen
+ * (build-release.mjs). Nennt IMMER die feste Liste, dazu den SDK-Ordner samt Zahl
+ * seiner Namen - ein leerer Ordner steht dann als "(0 Namen)" da, statt still zu
+ * schwaechen. Dieselbe Regel wie sdkNamen(), keine zweite Kopie.
+ */
+export function sdkNamenQuellen(opts = {}) {
+  const { sdkBin } = opts;
+  const fest = 'die feste Liste fuer 7.1.5.43953';
+  if (!sdkBin) return fest;
+  if (!existsSync(sdkBin)) return `${fest} (SDK-Ordner ${sdkBin} fehlt)`;
+  const n = new Set(echteSdkNamen(sdkBin).map((x) => x.toLowerCase())).size;
+  return `${fest} und das SDK unter ${sdkBin} (${n === 1 ? '1 Name' : `${n} Namen`})`;
 }
 
 /** Waechter fuer Ordner: alle Dateien unter `ordner` (relativ), die wie eine Zoom-SDK-Datei heissen. */

@@ -40,6 +40,7 @@ import {
   bridgeExeFrisch,
   dateienUnter,
   sdkNamen,
+  sdkNamenQuellen,
   verboteneZoomDateien,
   waehleVcLaufzeit,
 } from './auslieferung.mjs';
@@ -261,12 +262,13 @@ const eigeneBin = dateienUnter(join(oeffentlich, 'bin')).length;
 
 // --- 4. DER WAECHTER -------------------------------------------------------------
 // Keine Datei im oeffentlichen Paket darf so heissen wie eine Datei im
-// Zoom-SDK x64\bin. Gegen die ECHTE Liste, wenn ZOOM_SDK_DIR gesetzt ist -
-// sonst gegen die feste Liste oben. Verglichen ohne Gross-/Kleinschreibung,
-// weil Windows-Dateinamen sie nicht unterscheiden.
-// Liste und Vergleich stehen in auslieferung.mjs - derselbe Waechter prueft den
-// Installer von JM Connect (tools/bundle-zoom-bridge.mjs, tools/after-pack.cjs).
-const echteListe = sdkBin && existsSync(sdkBin);
+// Zoom-SDK x64\bin. Gegen die feste Liste oben UND, wenn ZOOM_SDK_DIR gesetzt
+// ist, zusaetzlich gegen die echte Liste aus dem SDK (Vereinigung, Stage 4b).
+// Verglichen ohne Gross-/Kleinschreibung, weil Windows-Dateinamen sie nicht
+// unterscheiden.
+// Liste, Vergleich und die Herkunftsangabe der Statuszeile stehen in
+// auslieferung.mjs - derselbe Waechter prueft den Installer von JM Connect
+// (tools/bundle-zoom-bridge.mjs, tools/after-pack.cjs).
 const verbotenNamen = sdkNamen({ sdkBin });
 const oeffentlicheDateien = dateienUnter(oeffentlich);
 const verboten = verboteneZoomDateien(oeffentlich, { sdkBin });
@@ -275,7 +277,7 @@ if (verboten.length > 0) {
 }
 schritt(
   `Waechter: keine der ${verbotenNamen.size} Zoom-SDK-Dateinamen im oeffentlichen Paket ` +
-    `(geprueft gegen ${echteListe ? `das SDK unter ${sdkBin}` : 'die feste Liste fuer 7.1.5.43953'}).`,
+    `(geprueft gegen ${sdkNamenQuellen({ sdkBin })}).`,
 );
 // start.ps1 MUSS mit BOM ausgeliefert werden (Windows PowerShell 5.1).
 if (!readFileSync(join(oeffentlich, 'start.ps1')).subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) {
