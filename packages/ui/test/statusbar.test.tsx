@@ -171,6 +171,12 @@ for (const s of ZUSTAENDE) {
     hatKlassen(knopf, 'hover:underline') && !klassen(knopf).some((k) => k.startsWith('hover:bg-')),
     'StatusBar: Hover eines Knopfs nur als Unterstreichung, ohne Fläche (Statussymbol nie auf --muted, E14)',
   );
+  // Die Region hat overflow-hidden und ist nur so hoch wie der Knopf (h-5): ein Ring außen würde abgeschnitten.
+  const ks = klassen(knopf);
+  ok(
+    hatKlassen(knopf, 'focus-visible:outline-2 focus-visible:-outline-offset-2') && !ks.some((k) => /^focus-visible:outline-offset-\d/.test(k)),
+    'StatusBar: Fokusring des Knopfs liegt innen (negativer Offset), weil die Region overflow-hidden hat',
+  );
 }
 
 {

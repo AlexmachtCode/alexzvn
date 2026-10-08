@@ -151,7 +151,7 @@ function Eintrag({
           'cursor-pointer',
           // Hover ohne Fläche: auf --muted erreichte das ▲ von --status-warn hell nur 2,91 : 1 (Task 4, E14)
           'hover:underline',
-          'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)]',
+          'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ring)]',
           'motion-safe:transition-colors motion-safe:duration-150',
         )}
       >
