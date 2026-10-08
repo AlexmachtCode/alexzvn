@@ -11,4 +11,5 @@ import './tokens.test';
 import './quellregeln.test';
 import './kontrast.test';
 import './status.test';
+import './halten.test';
 abschluss();
