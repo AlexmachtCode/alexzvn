@@ -2416,21 +2416,29 @@ for (const weg of ['beenden', 'verlassen'] as const) {
 }
 {
   const p = baueKern({
-    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '200' }),
+    // Die zweite Bridge reisst nach dem Einlass erneut ab (HAENGT): ein liegengebliebener Folgenrest zeigte sich als Z11.
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '200', FAKE_VERBINDUNG_HAENGT_MS: '300' }),
   });
   await insMeeting(p);
   ck('Warteraum im Versuch → warteraum, die Folge endet', await bis(() => p.kern.kurz().zustand === 'warteraum', 4000));
   ck('… nach dem Einlass im Meeting, nie wieder abriss, zwei Bridges', await bis(() => p.kern.kurz().zustand === 'im_meeting', 3000)
     && folge(p).join(',').endsWith('abriss,warteraum,tritt_bei,im_meeting') && p.starts() === 2);
   ck('… Log: Versuch 1 mit Dauer', p.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 erfolgreich nach \d+ ms$/.test(z)));
+  ck('… die Folge ist beendet: der nächste Abriss ist Z10 (Zoom verbindet selbst), kein Versuch, abbrechen() wirkt dort nicht',
+    await bis(() => p.kern.kurz().zustand === 'abriss', 3000) && zoomZ(p.kern.kurz()) === 'Z10' && p.kern.abbild().abriss?.naechsterUm === null
+    && (p.kern.abbrechen(), p.kern.kurz().zustand === 'abriss' && !p.logs.includes('[zoom] Wiederbeitritt abgebrochen')));
   await p.aufraeumen();
 }
 {
   let pruefungen = 0;
   const p = baueKern({
-    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_BEITRITT_SCHEITERT: '2' }),
-    // Aufrufe von pruefe: 1 beim Anlegen des Kerns, 2 Start 1, 3 Versuch 1, 4 Versuch 2 → Mangel.
-    laufzeit: { pruefe: () => (++pruefungen >= 4 ? { ok: false, mangel: 'sdk_defekt', datei: 'sdk.dll' } : { ok: true, ordner: 'C:/laufzeit', ersetzt: [] }) },
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : n === 2 ? { FAKE_BEITRITT_SCHEITERT: '2' } : { FAKE_VERBINDUNG_HAENGT_MS: '300' }),
+    // Aufrufe von pruefe: 1 beim Anlegen des Kerns, 2 Start 1, 3 Versuch 1, 4 Versuch 2 → Mangel (nur dieser eine; danach behoben).
+    laufzeit: {
+      pruefe: () => (++pruefungen === 4 ? { ok: false, mangel: 'sdk_defekt', datei: 'sdk.dll' } : { ok: true, ordner: 'C:/laufzeit', ersetzt: [] }),
+      pruefeOrdner: () => ({ ok: true, bin: 'X', fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: 1 }], bytesGesamt: 1 }),
+      richteEin: async () => ({ ok: true, ordner: 'C:/laufzeit', stempel: { sdkFassung: SDK_FASSUNG, eingerichtetAm: 0 } } as unknown as EinrichtungsErgebnis),
+    },
   });
   await insMeeting(p);
   await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
@@ -2438,6 +2446,10 @@ for (const weg of ['beenden', 'verlassen'] as const) {
     && p.kern.abbild().meldung?.text === KT.S9('sdk.dll'));
   ck('… Soll-Liste, Nummer und Kenncode leer, keine Bridge für Versuch 2', p.kern.abbild().soll.length === 0 && !p.kern.abbild().erneutMoeglich
     && p.starts() === 2 && p.kern.kurz().versuch === null);
+  // Die Folge ist beendet, nicht nur unsichtbar: nach der Reparatur und einem neuen Beitritt ist der nächste Abriss Z10.
+  ck('… SDK repariert → bereit', ok(await p.kern.sdkWaehlen('C:/SDK')) && p.kern.kurz().zustand === 'bereit');
+  ck('… neuer Beitritt, nächster Abriss ist Z10 (keine Z11-Reste, keine Versuchszeit)', ok(await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' }))
+    && (await bis(() => p.kern.kurz().zustand === 'abriss', 4000)) && zoomZ(p.kern.kurz()) === 'Z10' && p.kern.abbild().abriss?.naechsterUm === null);
   await p.aufraeumen();
 }
 
