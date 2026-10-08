@@ -204,15 +204,24 @@ export function VariablesPanel(): JSX.Element {
             + Neu
           </Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* pb-6: Platz für den Namens-Hinweis unter der letzten Zeile. Ohne ihn
+            ragte der Hinweis über den Rand, eine Scrollleiste erschiene, und die
+            ✕-Knöpfe rückten seitlich weg. */}
+        <div className="min-h-0 flex-1 overflow-y-auto pb-6">
           {doc.variables.length === 0 && (
             <p className="text-sm text-[var(--muted-foreground)]">
               Variablen merken sich Punkte, Runden oder Ergebnisse.
             </p>
           )}
-          {/* Schlüssel = Position: die Liste ändert ihre Reihenfolge nur durch
-              Anlegen/Löschen. Mit dem Namen als Schlüssel baute React die Zeile
-              bei jedem Buchstaben neu, und das Feld verlor den Fokus (#231). */}
+          {/* Schlüssel = Position, nicht der Name: mit dem Namen als Schlüssel
+              baute React die Zeile bei jedem Buchstaben neu, und das Feld verlor
+              den Fokus (#231). Die Liste ändert sich trotzdem — durch Anlegen,
+              Löschen, Undo/Redo und das Öffnen einer Datei; dann zeigt eine Zeile
+              eben eine andere Variable. Das ist unbedenklich: Ein Entwurf im
+              Namensfeld lebt nur, solange man darin tippt (all diese Aktionen
+              laufen über einen Klick, der das Feld vorher verlässt und den Entwurf
+              übernimmt; Strg+Z/Y greift in Textfeldern nicht), und ein Hinweis
+              gilt nur für den Wert, bei dem er entstand. */}
           {doc.variables.map((v, i) => (
             <div key={i} className="mb-1 flex items-center gap-1">
               <div className="flex-1">
