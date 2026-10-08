@@ -7,8 +7,9 @@ import { NDI_TEXTE, ndiOutputView, type NdiOutputSectionProps } from './ndi-outp
 
 export function NdiOutputSection(p: NdiOutputSectionProps): React.JSX.Element {
   const view = ndiOutputView(p);
-  const sperre = istGesperrt(view) ? true : undefined;
-  const name = useTextEntwurf(p.sourceName, (neu) => p.onRename?.(neu));
+  const gesperrt = istGesperrt(view);
+  const sperre = gesperrt ? true : undefined;
+  const name = useTextEntwurf(p.sourceName, (neu) => p.onRename?.(neu), undefined, gesperrt);
   return (
     <SectionFrame view={view} titel={NDI_TEXTE.titel}>
       {view.sichtbar.ausgabe ? (

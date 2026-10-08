@@ -1,7 +1,7 @@
 // NdiOutputSection (Spec 6.2, 7): Ableitung als Kreuzprodukt, Darstellung je capabilities, Sperre, Fehler.
 import { enthaelt, enthaeltNicht, gleich, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import { abschnittStatusItem, NDI_TEXTE, NdiOutputSection, ndiOutputView, type NdiOutputSectionProps, type SectionStatus } from '../src/index';
-import { textSchritt, textZustandAus } from '../src/entwurf';
+import { textSchritt, textSchrittMitSperre, textZustandAus, type TextZustand } from '../src/entwurf';
 import { leseText } from '@jm/ui/testhilfe';
 import { bewegungsVerstoesse, kreuz, nachLetztem, pruefeFaelle, sperrZaehlung, statusText, vergleiche, vor } from './hilfe';
 
@@ -202,4 +202,43 @@ const alle: NdiOutputSectionProps = {
       ndi.includes('<TextInput {...name.feld} disabled={sperre} />'),
     'Text-Entwurf Verdrahtung: Wert von außen und Frist im Effekt, „Noch nicht übernommen.“ als Feldfehler am Quellennamen',
   );
+}
+// Gesperrt × angefangener Entwurf (wie NumberInput, Task-10-Ruling): Ein gesperrtes Feld nimmt nichts an und meldet nichts
+// (auch kein blur beim Sperren); das Sperren verwirft den Entwurf, damit das Feld den echten Wert zeigt und nach dem
+// Entsperren nichts Altes meldet.
+{
+  const entwurf: TextZustand = { text: 'REGIE', geaendert: true };
+  const farbe = (t: string): boolean => /^#[0-9a-fA-F]{6}$/.test(t);
+  gleich(
+    [
+      textSchrittMitSperre(true, entwurf, { art: 'uebernehmen' }, 'JM Titler'),
+      textSchrittMitSperre(true, entwurf, { art: 'tippen', text: 'REGIE-2' }, 'JM Titler'),
+      textSchrittMitSperre(true, entwurf, { art: 'verwerfen' }, 'JM Titler').z,
+      textSchrittMitSperre(true, textZustandAus('JM Titler'), { art: 'aussen', wert: 'REGIE-PC' }, 'REGIE-PC').z,
+      textSchrittMitSperre(false, entwurf, { art: 'uebernehmen' }, 'JM Titler').neu,
+      textSchrittMitSperre(false, { text: '#12', geaendert: true }, { art: 'uebernehmen' }, '#000000', farbe).neu,
+    ],
+    [
+      { z: entwurf, verbraucht: false },
+      { z: entwurf, verbraucht: false },
+      { text: 'JM Titler', geaendert: false },
+      { text: 'REGIE-PC', geaendert: false },
+      'REGIE',
+      undefined,
+    ],
+    'Text-Entwurf gesperrt: Verlassen und Tippen ändern und melden nichts, Verwerfen zeigt den echten Wert, Wert von außen folgt, entsperrt wie textSchritt',
+  );
+  const entwurfQuelle = leseText('src/entwurf.ts');
+  const ndiQuelle = leseText('src/abschnitte/NdiOutputSection.tsx');
+  const fehlt = [
+    [entwurfQuelle, 'gesperrtRef.current = gesperrt;'],
+    [entwurfQuelle, 'textSchrittMitSperre(gesperrtRef.current, zRef.current, e, wertRef.current, rueckrufe.current.gueltig)'],
+    [entwurfQuelle, "if (gesperrt) schrittRef.current({ art: 'verwerfen' });"],
+    [ndiQuelle, 'const gesperrt = istGesperrt(view);'],
+    [ndiQuelle, 'useTextEntwurf(p.sourceName, (neu) => p.onRename?.(neu), undefined, gesperrt)'],
+  ]
+    .filter(([quelle, zeile]) => quelle.split(zeile).length !== 2)
+    .map(([, zeile]) => zeile);
+  ok(fehlt.length === 0, 'Text-Entwurf Verdrahtung Sperre: Sperre per Ref im Schritt, Verwerfen beim Sperren im Effekt, der Quellenname übergibt die Sperre');
+  for (const z of fehlt) console.log(`     fehlt: ${z}`);
 }

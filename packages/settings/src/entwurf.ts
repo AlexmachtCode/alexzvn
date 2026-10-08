@@ -70,20 +70,46 @@ export function textSchritt(
 }
 
 /**
+ * textSchritt für ein Feld, das gesperrt sein kann (wie zahlSchrittMitSperre in @jm/ui): Ein gesperrtes Feld nimmt weder
+ * Tippen noch Verlassen an und meldet nichts (ein blur beim Sperren darf keinen Text aus dem gesperrten Feld senden).
+ * Verwerfen und aussen laufen weiter; das Feld verwirft beim Sperren den Entwurf, damit es den echten Wert zeigt und beim
+ * Entsperren nichts Altes meldet.
+ */
+export function textSchrittMitSperre(
+  gesperrt: boolean,
+  z: TextZustand,
+  e: TextEreignis,
+  wert: string,
+  gueltig?: (neu: string) => boolean,
+): { z: TextZustand; neu?: string; verbraucht: boolean } {
+  if (gesperrt && (e.art === 'tippen' || e.art === 'uebernehmen')) return { z, verbraucht: false };
+  return textSchritt(z, e, wert, gueltig);
+}
+
+/**
  * Text-Entwurf für ein Feld, das erst bei Enter oder Verlassen gilt. Wie NumberInput (Task 10): Jeder Schritt rechnet
  * textSchritt auf dem Stand in der Ref und schreibt Ref und State sofort; kein Updater liest eine Ref, die danach
- * überschrieben wird.
+ * überschrieben wird. `gesperrt` wie das disabled des Felds: Ein gesperrtes Feld meldet nichts, und das Sperren verwirft
+ * einen angefangenen Entwurf (textSchrittMitSperre).
  */
-export function useTextEntwurf(wert: string, uebernehmen: (neu: string) => void, gueltig?: (neu: string) => boolean): TextEntwurf {
+export function useTextEntwurf(
+  wert: string,
+  uebernehmen: (neu: string) => void,
+  gueltig?: (neu: string) => boolean,
+  gesperrt = false,
+): TextEntwurf {
   const [z, setZ] = useState<TextZustand>(() => textZustandAus(wert));
   const zRef = useRef(z);
   const wertRef = useRef(wert);
   wertRef.current = wert;
   const rueckrufe = useRef({ uebernehmen, gueltig });
   rueckrufe.current = { uebernehmen, gueltig };
+  // Im Rendern gesetzt, damit ein blur, das beim Sperren vor den Effekten kommt, die Sperre schon sieht.
+  const gesperrtRef = useRef(gesperrt);
+  gesperrtRef.current = gesperrt;
 
   const schritt = (e: TextEreignis): { verbraucht: boolean } => {
-    const r = textSchritt(zRef.current, e, wertRef.current, rueckrufe.current.gueltig);
+    const r = textSchrittMitSperre(gesperrtRef.current, zRef.current, e, wertRef.current, rueckrufe.current.gueltig);
     zRef.current = r.z;
     setZ(r.z);
     if (r.neu !== undefined) rueckrufe.current.uebernehmen(r.neu);
@@ -95,6 +121,10 @@ export function useTextEntwurf(wert: string, uebernehmen: (neu: string) => void,
   useEffect(() => {
     schrittRef.current({ art: 'aussen', wert });
   }, [wert]);
+  // Wird das Feld gesperrt, fällt ein angefangener Entwurf weg: Es zeigt den echten Wert (Escape geht im gesperrten Feld nicht).
+  useEffect(() => {
+    if (gesperrt) schrittRef.current({ art: 'verwerfen' });
+  }, [gesperrt]);
   useEffect(
     () => (z.gesendet === undefined ? undefined : starteFrist(() => schrittRef.current({ art: 'frist' }))),
     [z.gesendet],

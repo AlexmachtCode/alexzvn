@@ -9,8 +9,9 @@ const FARBE = /^#[0-9a-fA-F]{6}$/;
 
 export function ScreenOutputSection(p: ScreenOutputSectionProps): React.JSX.Element {
   const view = screenOutputView(p);
-  const sperre = istGesperrt(view) ? true : undefined;
-  const farbe = useTextEntwurf(p.background ?? '', (neu) => p.onBackground?.(neu), (neu) => FARBE.test(neu));
+  const gesperrt = istGesperrt(view);
+  const sperre = gesperrt ? true : undefined;
+  const farbe = useTextEntwurf(p.background ?? '', (neu) => p.onBackground?.(neu), (neu) => FARBE.test(neu), gesperrt);
   const farbeFalsch = farbe.feld.value.trim() !== '' && !FARBE.test(farbe.feld.value.trim());
   return (
     <SectionFrame view={view} titel={SCREEN_TEXTE.titel}>

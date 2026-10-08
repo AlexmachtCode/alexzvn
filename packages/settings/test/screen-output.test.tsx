@@ -161,10 +161,11 @@ const alle: ScreenOutputSectionProps = {
   // E27: Der Text-Entwurf meldet nur eine gültige Farbe; „Noch nicht übernommen.“ steht als Feldfehler (Task 17).
   const quelle = leseText('src/abschnitte/ScreenOutputSection.tsx');
   ok(
-    quelle.includes("useTextEntwurf(p.background ?? '', (neu) => p.onBackground?.(neu), (neu) => FARBE.test(neu))") &&
+    quelle.includes('const gesperrt = istGesperrt(view);') &&
+      quelle.includes("useTextEntwurf(p.background ?? '', (neu) => p.onBackground?.(neu), (neu) => FARBE.test(neu), gesperrt)") &&
       quelle.includes('error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : farbe.fehler}') &&
       quelle.includes('<TextInput {...farbe.feld} disabled={sperre} />'),
-    'Bildschirm Verdrahtung: Hintergrund wird nur als gültige Farbe gemeldet, „Noch nicht übernommen.“ als Feldfehler (E27)',
+    'Bildschirm Verdrahtung: Hintergrund wird nur als gültige Farbe gemeldet, „Noch nicht übernommen.“ als Feldfehler (E27), die Sperre geht an den Entwurf',
   );
 }
 {
