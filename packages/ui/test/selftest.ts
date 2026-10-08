@@ -14,4 +14,5 @@ import './status.test';
 import './halten.test';
 import './theme.test';
 import './eingabe.test';
+import './statusbar.test';
 abschluss();

@@ -13,3 +13,5 @@ export { UNBEKANNT, zahlText } from './lib/texte';
 export { type StatusState, type StatusGroup, type StatusItem, STATUS_SYMBOL, ordneStatus, unbekannt, formatUhrzeit, formatUhrzeitKurz } from './lib/status';
 export { type Theme, THEME_SCHLUESSEL } from './lib/theme';
 export { type SelectOption, parseZahl, starteFrist } from './lib/eingabe';
+export { StatusPill } from './components/StatusPill';
+export { StatusBar } from './components/StatusBar';
