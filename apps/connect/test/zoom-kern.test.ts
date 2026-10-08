@@ -69,11 +69,12 @@ async function bis(pred: () => boolean, ms = 4000): Promise<boolean> {
   }
   return pred();
 }
-// Gesamtwache: hängt ein Fall, endet der Lauf rot statt nie.
+// Gesamtwache: hängt ein Fall, endet der Lauf rot statt nie. Gemessen 08.10.2026: etwa 120 s ohne Fremdlast (vorher 180 s
+// Wache bei etwa 109 s Laufzeit; angehoben, damit die Reserve unter Speicherdruck nicht weiter schrumpft).
 const wache = setTimeout(() => {
-  console.log('FAIL  Gesamtlaufzeit über 180 s – ein Fall hängt');
+  console.log('FAIL  Gesamtlaufzeit über 240 s – ein Fall hängt');
   process.exit(1);
-}, 180_000);
+}, 240_000);
 wache.unref();
 
 interface Probe {
@@ -3193,9 +3194,12 @@ function wiederbeitrittNurDraussen(p: Probe): boolean {
     (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 2, 5000)) && p.kern.abbild().soll.length === 0
     && p.kern.stateKv()?.zoom_alarm === 0);
   ck('… R5 unverändert „Wieder im Meeting. 2 Quellen neu geladen, 0 warten …“', p.kern.abbild().hinweise.includes(KT.R5(2, 0)));
+  // Prüfung 08.10.2026 (Testgüte): „wieder die bisherigen Stände“ nur in Abbildern NACH dem Abriss suchen; „wird geladen …“
+  // direkt nach laden() stand schon vorher da und bewiese nichts über die Rückkehr.
+  const nachAbriss = p.abbilder.slice(p.abbilder.findIndex((a) => a.kurz.zustand === 'abriss'));
   ck('… jedes Abbild: außerhalb von im_meeting nur „wartet auf den Wiederbeitritt“, im Meeting wieder die bisherigen Stände',
     wiederbeitrittNurDraussen(p) && p.abbilder.some((a) => a.kurz.zustand === 'abriss' && a.soll.length === 2)
-    && p.abbilder.some((a) => a.kurz.zustand === 'im_meeting' && a.soll.some((e) => e.stand === 'erlaubnis' || e.stand === 'laedt')));
+    && nachAbriss.some((a) => a.kurz.zustand === 'im_meeting' && a.soll.some((e) => e.stand === 'erlaubnis' || e.stand === 'laedt')));
   await p.aufraeumen();
 }
 {
@@ -3325,6 +3329,74 @@ console.log('— Prüfung 08.10.2026: „Vergessen“ bei offenem Abo (wie Entla
     (await bis(() => p.kern.kurz().zustand === 'im_meeting', 3000)) && (await warte(1500), true) && p.kern.kurz().quellen === 0
     && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1
     && !p.ereignisse.some((x) => x.ev.ev === 'video' && (x.ev as { state?: string }).state === 'subscribed'));
+  await p.aufraeumen();
+}
+
+// ── Prüfung 08.10.2026 (Kern und Tests, Befunde 1 und 2): weitere Zustände außerhalb des Meetings ──
+console.log('— Prüfung 08.10.2026: offenes Abo in Z10 bestätigt bzw. ohne Antwort, fehler nach R2, Warteraum bei „Erneut beitreten“');
+/** Abbilder ab dem ersten Abriss. */
+const abAbriss = (p: Probe): ZoomAbbild[] => p.abbilder.slice(Math.max(0, p.abbilder.findIndex((a) => a.kurz.zustand === 'abriss')));
+{
+  // Das offene Abo wird WÄHREND Z10 bestätigt (die Bridge lebt, Anna bleibt in der Liste): Der Eintrag ist verbunden und
+  // verschwindet aus „Gemerkte Quellen“, die Quelle läuft, nach der Rückkehr kein zweites Abo.
+  const p = baueKern({
+    stell: () => ({ FAKE_ABO_VERZOEGERUNG_MS: '1200', FAKE_VERBINDUNG_HAENGT_MS: '300', FAKE_VERBINDUNG_ZURUECK_MS: '2500' }),
+    fristen: { aboAntwortMs: 6000, joinTimeoutMs: 20_000, abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Offenes Abo, in Z10 bestätigt: zuerst „Anna — wartet auf den Wiederbeitritt“',
+    await bis(() => p.abbilder.some((a) => zoomZ(a.kurz) === 'Z10' && a.kurz.quellen === 0 && sollStaende(a) === 'Anna:wiederbeitritt'), 2000));
+  ck('… mit subscribed noch in Z10: Quelle läuft, keine gemerkte Quelle offen (sollOffen 0), zoom_alarm=1 (Z10)',
+    await bis(() => p.abbilder.some((a) => zoomZ(a.kurz) === 'Z10' && a.kurz.quellen === 1 && a.soll.length === 0 && a.kurz.sollOffen === 0
+      && stateKvAus(a.kurz)?.zoom_alarm === 1), 3000));
+  ck('… nach der Rückkehr verbunden, kein zweites videoSubscribe, jedes Abbild ohne Lüge',
+    (await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000)) && (await warte(500), true) && p.kern.kurz().quellen === 1
+    && p.kern.abbild().soll.length === 0 && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1 && wiederbeitrittNurDraussen(p));
+  await p.aufraeumen();
+}
+{
+  // … und das offene Abo bleibt in Z10 ohne Antwort (Q8): Der Eintrag hat dann kein Abo mehr und wartet weiter auf den
+  // Wiederbeitritt; nach der Rückkehr lädt der Abgleich neu („wird geladen …“), mit einem zweiten videoSubscribe.
+  let gesendet = 0;
+  const p = baueKern({
+    stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '300', FAKE_VERBINDUNG_ZURUECK_MS: '2500' }),
+    // Das erste videoSubscribe kommt nie an (Q8), das zweite schon.
+    sendeFilter: (c) => c.cmd !== 'videoSubscribe' || ++gesendet > 1,
+    fristen: { aboAntwortMs: 900, joinTimeoutMs: 20_000, abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Offenes Abo, in Z10 ohne Antwort (Q8): Annas Zeile trägt Q8, „Anna — wartet auf den Wiederbeitritt“',
+    await bis(() => p.abbilder.some((a) => zoomZ(a.kurz) === 'Z10' && sollStaende(a) === 'Anna:wiederbeitritt'
+      && a.teilnehmer.find((t) => t.id === ANNA)?.fehler === KT.Q8), 3000));
+  ck('… nach der Rückkehr „wird geladen …“, neu abonniert, verbunden: zwei videoSubscribe, jedes Abbild ohne Lüge',
+    (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 1, 5000)) && p.kern.abbild().soll.length === 0
+    && abAbriss(p).some((a) => a.kurz.zustand === 'im_meeting' && sollStaende(a) === 'Anna:laedt') && gesendet === 2
+    && wiederbeitrittNurDraussen(p));
+  await p.aufraeumen();
+}
+{
+  // fehler nach R2 (fünf gescheiterte Versuche) mit gemerkter Quelle, dann „Erneut beitreten“ über den Warteraum.
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : n <= 6 ? { FAKE_BEITRITT_SCHEITERT: '2' }
+      : { FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '400' }),
+    fristen: { abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('R2 mit gemerkter Quelle: fünf Versuche gescheitert → fehler mit R2', (await bis(() => p.kern.kurz().zustand === 'fehler', 10_000))
+    && p.starts() === 6 && p.kern.abbild().meldung?.text === KT.R2(failText(2, 'JM Connect')));
+  ck('… „Anna — wartet auf den Wiederbeitritt“, sollOffen 1, zoom_alarm=1', sollStaende(p.kern.abbild()) === 'Anna:wiederbeitritt'
+    && sollZeile(p.kern.abbild().soll[0]) === 'Anna — wartet auf den Wiederbeitritt' && p.kern.kurz().sollOffen === 1
+    && p.kern.stateKv()?.zoom_alarm === 1);
+  const ab = p.abbilder.length;
+  const imWarteraum = (): ZoomAbbild[] => p.abbilder.slice(ab).filter((a) => a.kurz.zustand === 'warteraum');
+  ck('„Erneut beitreten“ über den Warteraum: dort „Anna — wartet auf den Wiederbeitritt“', ok(await p.kern.erneut())
+    && (await bis(() => imWarteraum().length > 0, 4000)) && imWarteraum().every((a) => sollStaende(a) === 'Anna:wiederbeitritt'));
+  ck('… nach dem Einlass im Meeting mit Erlaubnis: Anna verbunden, keine gemerkte Quelle offen, zoom_alarm=0, jedes Abbild ohne Lüge',
+    (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 1, 4000)) && p.kern.abbild().soll.length === 0
+    && p.kern.stateKv()?.zoom_alarm === 0 && wiederbeitrittNurDraussen(p));
   await p.aufraeumen();
 }
 
