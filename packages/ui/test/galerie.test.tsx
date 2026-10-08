@@ -28,7 +28,7 @@ const UI_NAMEN = [
   'tally-bereit', 'tally-live', 'tally-gesperrt', 'tally-gesperrt-ohne-grund', 'tally-halten',
   'eingabe-text', 'eingabe-text-fehler', 'eingabe-text-gesperrt', 'eingabe-zahl', 'eingabe-zahl-einheit',
   'eingabe-zahl-ohne-feld', 'eingabe-schalter', 'eingabe-schalter-gesperrt', 'eingabe-auswahl', 'eingabe-auswahl-leer',
-  'eingabe-auswahl-fehlt', 'eingabe-auswahl-gesperrt',
+  'eingabe-auswahl-fehlt', 'eingabe-auswahl-fehler', 'eingabe-auswahl-gesperrt',
   'theme',
   'panel',
   'kopf-live', 'kopf-bereit', 'kopf-mac', 'kopf-panel-offen',
@@ -78,6 +78,7 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   'eingabe-schalter': ['role="switch"'],
   'eingabe-auswahl-leer': [UI_TEXTE.bitteWaehlen],
   'eingabe-auswahl-fehlt': [UI_TEXTE.nichtVerfuegbar('Shure MV7')],
+  'eingabe-auswahl-fehler': ['aria-invalid="true"', 'Bitte einen Eingang wählen.'],
   'theme': [UI_TEXTE.themeUmschalten(UI_TEXTE.dunkel, UI_TEXTE.hell)],
   'panel': ['aria-label="Einstellungen"', 'data-hervorgehoben="true"'],
   'kopf-live': [UI_TEXTE.onAir, 'h-[var(--header-h)]', 'pl-4'],
@@ -190,6 +191,7 @@ function ersterZustand(html: string): string | undefined {
       offen.includes('data-hervorgehoben="true"'),
     'ShellSeite hell, Panel offen, kompakt: Klasse light, data-dichte, Panel mit hervorgehobenem Abschnitt',
   );
+  ok(/<input[^>]*inputMode="numeric"/i.test(offen) || /<input[^>]*inputmode="numeric"/.test(offen), 'ShellSeite, Panel offen: Zahlenfeld im Panel (Escape-Kette des NumberInput prüfbar)');
   enthaelt(offen, `aria-label="${UI_TEXTE.statusOeffnen('Companion')}"`, 'ShellSeite: Statuseintrag öffnet seinen Abschnitt');
   const zu = render(<ShellSeite modus="dark" panel={false} dichte="normal" sitzung />);
   ok(zu.startsWith('<div class="dark ') && !zu.includes('aria-label="Einstellungen"'), 'ShellSeite dunkel, Panel zu: kein Panel');

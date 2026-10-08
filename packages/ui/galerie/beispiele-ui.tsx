@@ -229,10 +229,10 @@ const GERAETE = [
   { value: 'mic-1', label: 'Focusrite USB (Eingang 1/2)' },
   { value: 'mic-2', label: 'Dante Virtual Soundcard' },
 ];
-function AuswahlBeispiel(p: { start: string; gesperrt?: string }): React.JSX.Element {
+function AuswahlBeispiel(p: { start: string; gesperrt?: string; fehler?: string }): React.JSX.Element {
   const [wert, setWert] = useState(p.start);
   return (
-    <Field label="Eingang" lockedReason={p.gesperrt}>
+    <Field label="Eingang" error={p.fehler} lockedReason={p.gesperrt}>
       <Select options={GERAETE} value={wert} onChange={setWert} placeholder={UI_TEXTE.bitteWaehlen} fehlendLabel="Shure MV7" />
     </Field>
   );
@@ -330,6 +330,7 @@ export function uiBeispiele(modus: Modus): Beispiel[] {
     { name: 'eingabe-auswahl', gruppe: 'Eingaben', titel: 'Auswahl', element: <AuswahlBeispiel start="mic-1" /> },
     { name: 'eingabe-auswahl-leer', gruppe: 'Eingaben', titel: 'Auswahl ohne Wert (Platzhalter)', element: <AuswahlBeispiel start="" /> },
     { name: 'eingabe-auswahl-fehlt', gruppe: 'Eingaben', titel: 'Gewähltes Gerät fehlt: bleibt gewählt', element: <AuswahlBeispiel start="mic-9" /> },
+    { name: 'eingabe-auswahl-fehler', gruppe: 'Eingaben', titel: 'Auswahl mit Fehler', element: <AuswahlBeispiel start="" fehler="Bitte einen Eingang wählen." /> },
     { name: 'eingabe-auswahl-gesperrt', gruppe: 'Eingaben', titel: 'Auswahl gesperrt', element: <AuswahlBeispiel start="mic-2" gesperrt="Gesperrt, solange der Eingang offen ist" /> },
     { name: 'theme', gruppe: 'ThemeToggle', titel: 'zeigt den Zustand; wirkt auf <html>, die Spalten bleiben fest', element: <ThemeToggle /> },
     { name: 'panel', gruppe: 'SettingsPanel', titel: 'offen, Abschnitt B angesprungen', element: <PanelBeispiel modus={modus} /> },

@@ -192,7 +192,7 @@ function gegenstellen(id: string, extra: Partial<PeersSectionProps>): PeersSecti
 /** Abschnitte für die Rahmen-Seite (eine Seite, deshalb feste ids). */
 export const SHELL_ABSCHNITTE = {
   ndi: ndi('ndi', {}),
-  fernsteuerung: fernsteuerung('fernsteuerung', { clients: 1 }),
+  fernsteuerung: fernsteuerung('fernsteuerung', { clients: 1, capabilities: { portEditable: true }, onPortChange: nichts }),
   iveo: iveo('iveo', { delivery: 'veraltet', staleSince: '2026-10-08T09:12:00' }),
   datalink: datalink('datalink', {}),
 };
