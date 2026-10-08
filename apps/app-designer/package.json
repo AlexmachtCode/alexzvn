@@ -1,6 +1,6 @@
 {
   "name": "@jm/app-designer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "JM App Designer — Baukasten für interaktive Messe-/Lernspiele (Glücksrad, Quiz, Memory, Drag&Drop) mit Sandbox-Vorschau, Kiosk-Ausgabe und Web-Export",
   "main": "out/main/index.cjs",
@@ -14,6 +14,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "selftest": "node --experimental-strip-types test/snap.test.ts && node --experimental-strip-types --import ./test/register.mjs test/vars-store.test.ts",
     "smoketest": "npm run prepackage && node test/run-smoke.mjs",
     "csptest": "npm run prepackage && node test/run-smoke.mjs --csp",
     "dist": "npm run build && electron-builder",

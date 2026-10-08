@@ -2,7 +2,7 @@
 // die Apps rollen ihre eigenen. Hier zentral, damit Inspector und Regel-Editor
 // gleich aussehen.
 
-import type { ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 
 const INPUT =
   'w-full rounded border border-[var(--border)] bg-[var(--input,rgba(255,255,255,.05))] px-2 py-1 text-sm ' +
@@ -33,6 +33,96 @@ export function TextField({
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
     />
+  );
+}
+
+/**
+ * Textfeld mit Entwurf: Tippen ändert nur den lokalen Entwurf, übernommen wird
+ * mit Enter oder beim Verlassen des Felds; Escape verwirft den Entwurf.
+ *
+ * Für Werte, die nicht bei jedem Buchstaben ins Dokument dürfen — ein
+ * Variablenname ist zugleich der Verweis in Regeln und Elementen (#231).
+ * `onCommit` gibt einen Hinweis zurück, wenn der Wert abgelehnt wird; das Feld
+ * zeigt dann wieder den alten Wert und darunter den Hinweis.
+ *
+ * Der Hinweis liegt absolut unter dem Feld und lässt Klicks durch: Er darf die
+ * Zeile nicht höher machen. Sonst erscheint er beim Verlassen des Felds (schon
+ * beim mousedown auf ✕ der nächsten Zeile), schiebt den Knopf unter dem
+ * Mauszeiger weg, und der Klick geht verloren. Der Aufrufer reserviert unter
+ * der letzten Zeile Platz dafür. Weil der Hinweis die Zeile darunter überdeckt,
+ * verschwindet er beim nächsten Klick (und wie bisher beim Tippen, mit Escape
+ * oder wenn sich der Wert ändert).
+ */
+export function CommitTextField({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (draft: string) => string | null;
+}): JSX.Element {
+  // null = kein Entwurf, das Feld zeigt den Wert aus dem Dokument.
+  const [draft, setDraft] = useState<string | null>(null);
+  // Der Hinweis gilt nur für den Wert, bei dem er entstand: ändert sich der Wert
+  // von außen (Undo, eine Zeile darüber gelöscht), verschwindet er.
+  const [rejected, setRejected] = useState<{ value: string; hint: string } | null>(null);
+  const hint = rejected && rejected.value === value ? rejected.hint : null;
+  const setHint = (h: string | null): void => setRejected(h ? { value, hint: h } : null);
+  const hintId = useId();
+
+  // Der Hinweis überdeckt die Zeile darunter — beim nächsten Klick irgendwo hat
+  // er seinen Zweck erfüllt und verschwindet. Bewusst `pointerdown`: Entsteht der
+  // Hinweis selbst durch einen Klick (Feld verlassen), ist dessen pointerdown
+  // schon vorbei, wenn der Fokus wechselt — er löscht sich also nicht sofort.
+  useEffect(() => {
+    if (!hint) return;
+    const dismiss = (): void => setRejected(null);
+    document.addEventListener('pointerdown', dismiss, true);
+    return () => document.removeEventListener('pointerdown', dismiss, true);
+  }, [hint]);
+
+  const commit = (): void => {
+    if (draft === null) return;
+    setDraft(null);
+    setHint(onCommit(draft));
+  };
+
+  return (
+    <div className="relative">
+      <input
+        className={INPUT}
+        value={draft ?? value}
+        aria-invalid={hint ? true : undefined}
+        aria-describedby={hint ? hintId : undefined}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setHint(null);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setDraft(null);
+            setHint(null);
+          }
+        }}
+      />
+      {hint && (
+        <p
+          id={hintId}
+          role="alert"
+          className={
+            'pointer-events-none absolute left-0 top-full z-10 mt-0.5 whitespace-nowrap rounded border ' +
+            'border-[var(--destructive,#e5484d)] bg-[var(--popover,#1c1c1c)] px-1.5 py-0.5 text-xs ' +
+            'text-[var(--destructive,#e5484d)] shadow'
+          }
+        >
+          {hint}
+        </p>
+      )}
+    </div>
   );
 }
 
