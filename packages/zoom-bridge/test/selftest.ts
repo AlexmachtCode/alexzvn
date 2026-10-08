@@ -2224,11 +2224,13 @@ const BEITRITT = { cmd: 'join', meetingId: '7'.repeat(10), passcode: 'KENNCODE-P
 /**
  * Echte Bridge gegen die Attrappe (Drehbuch "steuerung"), so wie JM Connect sie
  * fuehrt: init und auth senden, auf die Antwort warten, dann `schritte`, am Ende
- * IMMER stop(). Liefert alle Ereignisse, auch die beim Abbau.
+ * IMMER stop(). Liefert alle Ereignisse, auch die beim Abbau. `zeilen` sammelt
+ * auf Wunsch die stderr-Zeilen der Attrappe (Stage 4b, FAKE_NAMENSZEILE).
  */
 async function fahreSteuerung(
   fakeEnv: Record<string, string>,
   schritte: (b: Bridge, ev: BridgeEvent[]) => Promise<void>,
+  zeilen: string[] = [],
 ): Promise<BridgeEvent[]> {
   const ev: BridgeEvent[] = [];
   const b = new Bridge({
@@ -2238,7 +2240,7 @@ async function fahreSteuerung(
     joinTimeoutMs: 5000,
     killTimeoutMs: 3000,
     onEvent: (e) => ev.push(e),
-    onLog: () => {},
+    onLog: (l) => zeilen.push(l),
   });
   await b.start();
   try {
@@ -2393,6 +2395,198 @@ console.log('\nAttrappe — Stellschrauben Stage 4:');
   const probe = ev.find(art('envprobe')) as { path?: string } | undefined;
   assert(typeof probe?.path === 'string' && probe.path.split(delimiter).includes(marke), 'envprobe meldet path: den PATH, den das Kind wirklich bekommt');
   await b.stop();
+}
+
+// --- Stage 4b: Entzug, Wiedererteilung, Rueckkehr, verzoegertes Abo, "(2)", Pufferfehler ---
+
+/** Wie viele Ereignisse `pred` erfuellen. */
+const anzahl = (ev: BridgeEvent[], pred: (e: BridgeEvent) => boolean): number => ev.filter(pred).length;
+
+/** Kurz warten (nur dort, wo ein AUSBLEIBEN geprueft wird). */
+const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+console.log('\nAttrappe — Stage 4b:');
+{
+  // Der neue Grund ist ein EIGENER Name (G18). Die beiden Zuweisungen prueft tsc:
+  // fehlt 'privilegeRevoked' in VideoReason oder AudioReason, ist der Typecheck rot.
+  const bild: PaketVideoReason = 'privilegeRevoked';
+  const ton: AudioReason = 'privilegeRevoked';
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'subscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'waiting', reason: 'command' } as WireEvent));
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'off', reason: ton } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'unsubscribed', source: 'JM Connect – Zoom Anna', reason: bild, rebindable: true } as WireEvent));
+  assert(s.videoSubs.size === 0 && s.audioSubs.size === 0,
+    'Reducer: video unsubscribed mit privilegeRevoked entfernt das Abo aus Session.videoSubs (audio off ebenso aus audioSubs)');
+}
+{
+  // FAKE_ENTZUG_MS baut ab 4b alle Abos ab (N4b.1, L1/L2): erst privilege false,
+  // dann je Abo audio off (falls Ton) vor video unsubscribed, Grund privilegeRevoked.
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p', audio: false });
+    await bisEreignis(ev, art('video', { id: 16778241, state: 'unsubscribed' }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('error', { code: 'videoNoPrivilege' }));
+  });
+  const iEntzug = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
+  const iAnnaTon = stelle(ev, art('audio', { id: 16778240, state: 'off', reason: 'privilegeRevoked' }));
+  const iAnna = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  const iBen = stelle(ev, art('video', { id: 16778241, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  assert(stelle(ev, art('video', { id: 16778240, state: 'subscribed' })) >= 0 && stelle(ev, art('video', { id: 16778241, state: 'subscribed' })) >= 0,
+    'Entzug: vorher liefen zwei Abos (Anna mit Ton, Ben ohne)');
+  assert(iEntzug >= 0 && iAnnaTon > iEntzug && iAnna === iAnnaTon + 1 && iBen > iEntzug,
+    'Entzug baut jedes Abo ab: audio off vor video unsubscribed, Grund privilegeRevoked');
+  assert(!ev.some(art('audio', { id: 16778241, reason: 'privilegeRevoked' })), '... ein Abo ohne Ton meldet kein audio off');
+  assert(ev.filter(art('video', { state: 'unsubscribed' })).every((e) => (e as { reason?: string }).reason === 'privilegeRevoked'),
+    '... kein Abbau mit command oder meetingEnded (eine Ursache, ein Name)');
+  assert(stelle(ev, art('error', { where: 'video', code: 'videoNoPrivilege', id: 16778240 })) > iAnna,
+    'nach dem Entzug: videoSubscribe → videoNoPrivilege');
+  assert(anzahl(ev, art('video', { state: 'subscribed' })) === 2, '... und es entsteht kein neues Abo');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '200' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, () => anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 2);
+  });
+  const iAbbau = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  const iErteilung = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+  const neu = ev.filter(art('video', { id: 16778240, state: 'subscribed' }))[1] as { source?: string } | undefined;
+  assert(iAbbau >= 0 && iErteilung > iAbbau, "Wiedererteilung: privilege canRecordRaw:true source:'broadcast' nach dem Abbau (FAKE_ERTEILUNG_MS)");
+  assert(ev.indexOf(neu as BridgeEvent) > iErteilung && neu?.source === 'JM Connect – Zoom Anna',
+    '... videoSubscribe danach → subscribed, mit demselben NDI-Namen (ohne „(2)“)');
+}
+{
+  // FAKE_ERTEILUNG_MS=0: beide Rundrufe in derselben Pumprunde der Bridge (L2).
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '0' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'unsubscribed' }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, () => anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 2);
+  });
+  const iFalsch = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
+  const iWahr = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+  const iAbbau = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  assert(iFalsch >= 0 && iWahr === iFalsch + 1 && iAbbau > iWahr, 'FAKE_ERTEILUNG_MS=0: Reihenfolge privilege false, privilege true, dann unsubscribed');
+  const neu = ev.filter(art('video', { id: 16778240, state: 'subscribed' }))[1] as { source?: string } | undefined;
+  assert(ev.indexOf(neu as BridgeEvent) > iAbbau && neu?.source === 'JM Connect – Zoom Anna', '... danach geht videoSubscribe wieder durch, ohne „(2)“');
+}
+{
+  let mitten = '';
+  const ev = await fahreSteuerung({ FAKE_VERBINDUNG_HAENGT_MS: '300', FAKE_VERBINDUNG_ZURUECK_MS: '200' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, () => anzahl(ev, art('roster')) === 2);
+    mitten = statusFolge(ev);
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('error', { code: 'videoAlreadySubscribed' }));
+  });
+  const iZurueck = ev.findIndex((e, i) => art('status', { status: 'inMeeting' })(e) && i > stelle(ev, art('status', { status: 'reconnecting' })));
+  assert(mitten === 'connecting,inMeeting,reconnecting,connecting,inMeeting', 'Rückkehr aus reconnecting: connecting, inMeeting (FAKE_VERBINDUNG_ZURUECK_MS)');
+  assert(iZurueck >= 0 && !ev.slice(0, iZurueck).some(art('video', { state: 'unsubscribed' })), '... Abos bestehen: kein unsubscribed bis zur Rückkehr');
+  const roster2 = ev.filter(art('roster'))[1] as { list?: Participant[] } | undefined;
+  assert(ev.indexOf(roster2 as BridgeEvent) > iZurueck && (roster2?.list ?? []).map((p) => p.id).join(',') === '100,16778240,16778241',
+    '... danach wie das Original roster mit denselben Kennungen');
+  assert(stelle(ev, art('privilege', { canRecordRaw: true, source: 'check' })) > iZurueck, "... und privilege canRecordRaw:true source:'check'");
+  assert(iZurueck >= 0 && stelle(ev, art('error', { code: 'videoAlreadySubscribed', id: 16778240 })) > iZurueck,
+    '... das Abo auf Anna lebt noch (videoAlreadySubscribed)');
+}
+{
+  let frueh = true;
+  let dauerMs = -1;
+  const ev = await fahreSteuerung({ FAKE_ABO_VERZOEGERUNG_MS: '300' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    const start = Date.now();
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await warte(100);
+    frueh = ev.some(art('video', { id: 16778240 }));
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'subscribed' }));
+    dauerMs = Date.now() - start;
+    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p' });
+    b.send({ cmd: 'videoUnsubscribe', id: 16778241 });
+    await bisEreignis(ev, art('video', { id: 16778241, state: 'unsubscribed' }));
+    await warte(500);
+  });
+  assert(!frueh && dauerMs >= 250, 'verzögertes Abo: subscribed erst nach der Frist (FAKE_ABO_VERZOEGERUNG_MS)');
+  assert(stelle(ev, art('audio', { id: 16778240, state: 'waiting' })) > stelle(ev, art('video', { id: 16778240, state: 'subscribed' })),
+    '... der Ton meldet sich erst danach');
+  assert(stelle(ev, art('video', { id: 16778241, state: 'unsubscribed', reason: 'command' })) >= 0
+      && !ev.some(art('video', { id: 16778241, state: 'subscribed' })) && !ev.some(art('audio', { id: 16778241 })),
+    'videoUnsubscribe davor → unsubscribed(command), kein subscribed danach');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_ABO_VERZOEGERUNG_MS: '600', FAKE_ENTZUG_MS: '200' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'unsubscribed' }));
+    await warte(800);
+  });
+  assert(stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' })) >= 0
+      && !ev.some(art('video', { id: 16778240, state: 'subscribed' })) && !ev.some(art('audio', { id: 16778240 })),
+    'offenes Abo beim Entzug: unsubscribed(privilegeRevoked) ohne audio off, kein subscribed danach');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_DOPPELNAME: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p' });
+    await bisEreignis(ev, art('video', { id: 16778241, state: 'subscribed' }));
+    b.send({ cmd: 'videoUnsubscribe', id: 16778240 });
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, () => anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 2);
+  });
+  const quellen = ev.filter(art('video', { state: 'subscribed' })).map((e) => (e as { source?: string }).source);
+  assert(quellen[0] === 'JM Connect – Zoom Anna' && quellen[1] === 'JM Connect – Zoom Anna (2)',
+    "Doppelname: zweite Quelle heißt '… Anna (2)' (wie uniqueSourceName)");
+  assert(quellen[2] === 'JM Connect – Zoom Anna', '... ist der Name wieder frei, bekommt das nächste Abo ihn ohne Zusatz');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_PUFFERFEHLER_MS: '100' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p', audio: false });
+    await bisEreignis(ev, art('error', { code: 'videoBufferMismatch', id: 16778241 }));
+    await warte(400);
+  });
+  assert(anzahl(ev, art('error', { where: 'video', code: 'videoBufferMismatch', id: 16778240 })) === 1
+      && anzahl(ev, art('error', { where: 'video', code: 'videoBufferMismatch', id: 16778241 })) === 1,
+    'Pufferfehler: je Abo ein videoBufferMismatch mit id');
+  assert(anzahl(ev, art('error', { where: 'audio', code: 'audioBufferMismatch', id: 16778240 })) === 1
+      && !ev.some(art('error', { code: 'audioBufferMismatch', id: 16778241 })),
+    '... audioBufferMismatch nur bei einem Abo mit Ton');
+  assert(ev.find(art('error', { code: 'videoBufferMismatch' }))?.name === 'VIDEO_BUFFER_MISMATCH'
+      && ev.find(art('error', { code: 'audioBufferMismatch' }))?.name === 'AUDIO_BUFFER_MISMATCH',
+    '... mit den Namen VIDEO_BUFFER_MISMATCH und AUDIO_BUFFER_MISMATCH');
+}
+{
+  const zeilen: string[] = [];
+  await fahreSteuerung({ FAKE_NAMENSZEILE: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('roster'));
+    const ende = Date.now() + 2000;
+    while (Date.now() < ende && !zeilen.some((z) => z.startsWith('Namensprobe:'))) await warte(20);
+  }, zeilen);
+  assert(zeilen.includes('Namensprobe: Anna, Ben'), 'Namensprobe auf stderr nennt die fremden Teilnehmer (FAKE_NAMENSZEILE=1)');
+  const ohne: string[] = [];
+  await fahreSteuerung({}, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('roster'));
+    await warte(200);
+  }, ohne);
+  assert(ohne.length > 0 && !ohne.some((z) => z.startsWith('Namensprobe')), '... ohne FAKE_NAMENSZEILE keine solche Zeile');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

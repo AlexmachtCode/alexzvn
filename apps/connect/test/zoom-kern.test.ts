@@ -1209,7 +1209,9 @@ console.log('— Laden und Entladen (Fall 10, 10b, 11, 12)');
   await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
   ck('Fall 10b: Anna geladen', await bis(() => p.kern.kurz().quellen === 1));
   ck('… Erlaubnis entzogen', await bis(() => p.kern.kurz().erlaubnis === 'entzogen'));
-  ck('… Z7b mit „vom Host entzogen“', zoomZ(p.kern.kurz()) === 'Z7b' && String(kartenZeile(p.kern.abbild(), Date.now())).includes('vom Host entzogen'));
+  // Ab 4b baut die Attrappe beim Entzug ab wie die Bridge (Grund privilegeRevoked,
+  // Aufgabe 1). Aufgabe 8 schreibt diesen Fall neu.
+  ck('… die Bridge baut die Quelle ab (privilegeRevoked)', await bis(() => p.kern.kurz().quellen === 0));
   await p.kern.entladen({ aboId: ANNA });
   await bis(() => p.kern.kurz().quellen === 0);
   const zeileZ7 = String(kartenZeile(p.kern.abbild(), Date.now()));

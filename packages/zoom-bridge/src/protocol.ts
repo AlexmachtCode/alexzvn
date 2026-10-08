@@ -70,7 +70,16 @@ export type VideoReason =
   // EINDEUTIGEM Namen (je genau ein Teilnehmer und ein Abo); sonst bleibt die
   // Quelle schwarz. Wer im Protokoll "reboundByName" liest, weiss, dass die
   // Zuordnung auf einem Namen beruht und nicht auf einer Kennung.
-  | 'reboundByName';
+  | 'reboundByName'
+  // Der Host hat die Aufnahme-Erlaubnis entzogen (privilege canRecordRaw:false,
+  // source:'broadcast'), und die Bridge baut darum JEDES Abo ab (Stage 4b,
+  // N4b.1: "The app must stop accessing content if permission is revoked").
+  // Ein EIGENER Name: weder hat der Aufrufer etwas befohlen ('command') noch
+  // ist das Meeting zu Ende ('meetingEnded'). Wer 'privilegeRevoked' liest,
+  // weiss: das Meeting laeuft weiter, und erteilt der Host die Erlaubnis neu,
+  // darf neu abonniert werden. Zwei Ursachen, ein Name - genau das schliesst
+  // die Kernregel aus.
+  | 'privilegeRevoked';
 
 export const AUDIO_STATES = ['waiting', 'live', 'silent', 'off'] as const;
 export type AudioState = (typeof AUDIO_STATES)[number];
@@ -105,7 +114,10 @@ export type AudioReason =
   | 'participantLeft'
   | 'meetingEnded'
   | 'rebound'
-  | 'reboundByName';
+  | 'reboundByName'
+  // Beim Entzug der Aufnahme-Erlaubnis meldet sich der Ton mit DEMSELBEN Grund
+  // ab wie das Bild (VideoReason oben) - der Ton haengt am Bild-Abo.
+  | 'privilegeRevoked';
 
 export type Command =
   | { cmd: 'init' }
