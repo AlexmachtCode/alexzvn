@@ -60,7 +60,9 @@ export function hatFehler(input: Pick<SectionBase, 'error'>): input is { error: 
 
 /**
  * Statusleisten-Eintrag aus der Sicht eines Abschnitts: gleicher Zustand wie die Statuspille,
- * Detail = Statustext (oder ein eigenes Detail des Tools), Klick springt zum Abschnitt.
+ * Detail = Statustext, Klick springt zum Abschnitt. Ein eigenes Detail des Tools ersetzt den Statustext nur bei
+ * `ok`; in jedem anderen Zustand steht der Statustext dahinter (Spec 7.2/7.3: „unbekannt“, „ohne Rückmeldung“
+ * und „Fehler: …“ dürfen nie verschwinden).
  */
 export function abschnittStatusItem(
   view: SectionBase,
@@ -71,7 +73,7 @@ export function abschnittStatusItem(
     group: eintrag.group,
     label: eintrag.label,
     state: view.status.state,
-    detail: eintrag.detail ?? view.status.text,
+    detail: eintrag.detail === undefined ? view.status.text : view.status.state === 'ok' ? eintrag.detail : `${eintrag.detail} · ${view.status.text}`,
     settingsSection: view.id,
   };
 }

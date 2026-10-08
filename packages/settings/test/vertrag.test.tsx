@@ -59,10 +59,29 @@ import { bewegungsVerstoesse, fallText, kreuz, sperrZaehlung } from './hilfe';
     'Vertrag: abschnittStatusItem übernimmt id als settingsSection, state und Text',
   );
   gleich(
-    abschnittStatusItem(view, { group: 'ausgabe', label: 'NDI', detail: 'JM Titler (REGIE-PC)' }).detail,
+    abschnittStatusItem({ id: 'ndi', status: { state: 'ok', text: 'sendet' } }, { group: 'ausgabe', label: 'NDI', detail: 'JM Titler (REGIE-PC)' }).detail,
     'JM Titler (REGIE-PC)',
-    'Vertrag: abschnittStatusItem – eigenes detail überschreibt den Statustext',
+    'Vertrag: abschnittStatusItem – bei ok ersetzt das eigene detail den Statustext',
   );
+  // Spec 7.1/7.2/7.3: Detail × Zustand. Nur bei `ok` darf das Detail den Statustext ersetzen; in jedem anderen
+  // Zustand muss der Statustext („unbekannt“, „an (ohne Rückmeldung)“, „Fehler: …“) im Eintrag stehen bleiben.
+  const ZUSTAENDE: { status: SectionBase['status']; ohne: string; mit: string }[] = [
+    { status: { state: 'ok', text: 'sendet' }, ohne: 'sendet', mit: 'JM Titler (REGIE-PC)' },
+    { status: { state: 'warn', text: 'an (ohne Rückmeldung)' }, ohne: 'an (ohne Rückmeldung)', mit: 'JM Titler (REGIE-PC) · an (ohne Rückmeldung)' },
+    { status: { state: 'warn', text: 'startet' }, ohne: 'startet', mit: 'JM Titler (REGIE-PC) · startet' },
+    { status: fehlerStatus('Port belegt'), ohne: 'Fehler: Port belegt', mit: 'JM Titler (REGIE-PC) · Fehler: Port belegt' },
+    { status: STATUS_UNBEKANNT, ohne: 'unbekannt', mit: 'JM Titler (REGIE-PC) · unbekannt' },
+    { status: { state: 'off', text: 'aus' }, ohne: 'aus', mit: 'JM Titler (REGIE-PC) · aus' },
+  ];
+  for (const z of ZUSTAENDE) {
+    const v: SectionBase = { id: 'ndi', status: z.status };
+    gleich(abschnittStatusItem(v, { group: 'ausgabe', label: 'NDI' }).detail, z.ohne, `Vertrag: Detail × Zustand ${z.status.state}/${z.status.text} – ohne Detail der Statustext`);
+    gleich(
+      abschnittStatusItem(v, { group: 'ausgabe', label: 'NDI', detail: 'JM Titler (REGIE-PC)' }).detail,
+      z.mit,
+      `Vertrag: Detail × Zustand ${z.status.state}/${z.status.text} – mit Detail bleibt der Statustext, wo er etwas aussagt`,
+    );
+  }
   gleich(
     abschnittStatusItem({ id: 'iveo', status: STATUS_UNBEKANNT }, { group: 'verbindung', label: 'iveo' }).state,
     'off',

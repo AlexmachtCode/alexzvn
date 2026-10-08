@@ -31,11 +31,31 @@ function regel(liste: string[], msg: string): void {
 
 ok(QUELLEN.includes('src/vertrag.ts') && QUELLEN.includes('src/SectionFrame.tsx'), `Quellregel settings: Dateiliste gelesen (${QUELLEN.length} Dateien)`);
 
-regel(
-  treffer(/\b(bg|text|border|ring|outline|fill|stroke|from|to|via)-(red|green|yellow|orange|amber|lime|emerald|neutral|gray|zinc|slate|stone|white|black)\b/),
-  'Quellregel settings: keine rohen Farbklassen',
-);
-// Dieselben Muster wie die Quellregeln in packages/ui (Task 3): `var(--…${`, `prefix-${`, `prefix-[…${`.
+// Dieselben Muster wie die Quellregeln in packages/ui (Task 3, nach dem Ruling zu Task 3 nachgeschärft).
+const ROHE_FARBKLASSE =
+  /\b(bg|text|border(?:-[xytrblse])?|ring|ring-offset|outline|fill|stroke|from|to|via|divide|placeholder|decoration|accent|caret|shadow|inset-shadow|inset-ring|drop-shadow)-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone|mauve|olive|mist|taupe|white|black)\b/;
+// Ein Token darf in einer Klasse nur als `var(--name)` stehen: nicht `bg-(--x)`, nicht `bg-(color:--x)`, nicht `bg-[--x]` (ungültiges CSS).
+const TOKEN_OHNE_VAR = /(?<!var)[[(:,]\s*--[a-z]/;
+const ELECTRON_NODE_IMPORT = /(from\s+|import\s*\(\s*|import\s+|require\s*\(\s*)['"](electron|electron\/[^'"]*|@electron[^'"]*|node:[^'"]*)['"]/;
+// Die Muster selbst werden geprüft: Fälle, die anschlagen müssen, und solche, die nie anschlagen dürfen.
+for (const klasse of ['bg-red-500', 'bg-sky-500', 'text-blue-400', 'divide-neutral-800', 'border-t-red-500', 'shadow-rose-500', 'placeholder-gray-500', 'text-white', 'hover:bg-purple-600']) {
+  ok(ROHE_FARBKLASSE.test(klasse), `Quellregel-Muster settings: rohe Farbklasse ${klasse} wird erkannt`);
+}
+for (const klasse of ['bg-[var(--surface)]', 'text-sm', 'border-current', 'border-transparent', 'bg-transparent', 'shadow-sm']) {
+  ok(!ROHE_FARBKLASSE.test(klasse), `Quellregel-Muster settings: ${klasse} ist keine rohe Farbklasse`);
+}
+for (const klasse of ['bg-(--x)', 'bg-(color:--status-error)', 'text-(color:--status-error)', 'bg-[--status-error]', 'h-[--control-h]']) {
+  ok(TOKEN_OHNE_VAR.test(klasse), `Quellregel-Muster settings: Token ohne var() ${klasse} wird erkannt`);
+}
+for (const klasse of ['bg-[var(--surface)]', 'h-[var(--control-h)]', 'bg-[color:var(--surface)]', 'p-[calc(var(--a)+var(--b))]']) {
+  ok(!TOKEN_OHNE_VAR.test(klasse), `Quellregel-Muster settings: ${klasse} ist korrekt`);
+}
+for (const zeile of ["await import('electron')", "from 'electron/renderer'", "import 'electron'", "from 'node:fs'", "require('electron')", "from '@electron/remote'"]) {
+  ok(ELECTRON_NODE_IMPORT.test(zeile), `Quellregel-Muster settings: Import ${zeile} wird erkannt`);
+}
+ok(!ELECTRON_NODE_IMPORT.test("from '@jm/ui'") && !ELECTRON_NODE_IMPORT.test("import type { X } from './vertrag'"), 'Quellregel-Muster settings: Importe aus @jm/ui und relativ sind erlaubt');
+regel(treffer(ROHE_FARBKLASSE), 'Quellregel settings: keine rohen Farbklassen');
+// `var(--…${`, `prefix-${`, `prefix-[…${` (wie in packages/ui).
 const UTILITY =
   'bg|text|border|ring|outline|fill|stroke|h|w|min-h|min-w|max-h|max-w|p[xytrbl]?|m[xytrbl]?|gap|rounded|top|left|right|bottom|inset|z|opacity|duration|leading|tracking|font|grid-cols|col-span';
 regel(
@@ -46,9 +66,8 @@ regel(
   ],
   'Quellregel settings: keine zusammengesetzten Klassen',
 );
-// Wie Regel 9 in packages/ui (Task 3): Tailwind v4 kennt die Kurzform `bg-(--x)` für `bg-[var(--x)]`; sie liefe an den
-// Regeln vorbei, die `var(--` suchen.
-regel(treffer(/\b[\w:-]+-\(\s*--/), 'Quellregel settings: Tokens nur als …-[var(--…)], keine Kurzform …-(--…) (Tailwind v4)');
+// Wie in packages/ui (Task 3): Kurzform `bg-(--x)`, `bg-(color:--x)` und `bg-[--x]` liefen an den Regeln vorbei, die `var(--` suchen.
+regel(treffer(TOKEN_OHNE_VAR), 'Quellregel settings: Tokens nur als var(--…), nie …-(--…), …-(typ:--…) oder …-[--…] (Tailwind v4)');
 {
   const definiert = new Set<string>();
   for (const datei of UI_TOKENS) {
@@ -64,7 +83,7 @@ regel(treffer(/\b[\w:-]+-\(\s*--/), 'Quellregel settings: Tokens nur als …-[va
   regel(fehlt, 'Quellregel settings: jede var(--…) ist in @jm/ui definiert');
 }
 regel(
-  treffer(/\b(window|document|navigator|globalThis)\b|from ['"](electron|node:[^'"]+)['"]|require\(|\bprocess\./),
+  [...treffer(/\b(window|document|navigator|globalThis)\b|\bprocess\./), ...treffer(ELECTRON_NODE_IMPORT)],
   'Quellregel settings: kein window/document/navigator/globalThis, kein electron-, node:-Import, kein process. (Spec 3.8)',
 );
 regel(treffer(/localStorage|sessionStorage/), 'Quellregel settings: kein localStorage');
