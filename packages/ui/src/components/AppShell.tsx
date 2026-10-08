@@ -40,6 +40,11 @@ export function zahnradKlick(p: Pick<AppShellProps, 'settingsOpen' | 'onSettings
   return () => p.onSettingsChange(!p.settingsOpen);
 }
 
+/** Escape und ✕ des Panels schließen es, ohne Abschnitt (Spec 3.1). Nur aus dieser Datei exportiert. */
+export function panelSchliessen(p: Pick<AppShellProps, 'onSettingsChange'>): () => void {
+  return () => p.onSettingsChange(false);
+}
+
 /**
  * Rahmen jedes Tools (Spec 3.1, 3.8): senkrecht Kopfzeile · Werkzeugleiste (nur wenn gesetzt) · Inhalt mit dem
  * Einstellungs-Panel rechts daneben · Statusleiste. Das Panel liegt in der Inhaltszeile und verdeckt Kopf- und
@@ -56,7 +61,6 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
     settings,
     settingsOpen,
     settingsSection,
-    onSettingsChange,
     dichte = 'normal',
     children,
   } = p;
@@ -82,7 +86,7 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
       ) : null}
       <div data-bereich="inhalt" className="relative flex min-h-0 flex-1">
         <main className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
-        <SettingsPanel open={offen} onClose={() => onSettingsChange(false)} sectionId={settingsSection} id={panelId}>
+        <SettingsPanel open={offen} onClose={panelSchliessen(p)} sectionId={settingsSection} id={panelId}>
           {settings}
         </SettingsPanel>
       </div>

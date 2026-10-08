@@ -1,10 +1,10 @@
 // Task 15 · AppShell (Spec 3.1, 3.8, 4.3; E6, E7, E8, E14): Kopfzeile · Werkzeugleiste · Inhalt mit Panel daneben ·
 // Statusleiste. Ohne settings kein ⚙, kein Panel und keine klickbaren Statuseinträge; Rahmen auch ohne Sitzung.
-import { AppShell, statusKlick, zahnradKlick, type AppShellProps } from '../src/components/AppShell';
+import { AppShell, panelSchliessen, statusKlick, zahnradKlick, type AppShellProps } from '../src/components/AppShell';
 import { PanelAnker } from '../src/components/SettingsPanel';
 import type { StatusItem } from '../src/lib/status';
-import { gleich, ok, pruefeIdVerweise, render } from './harness';
-import { attr, hatKlassen, klassen, tags } from './lib/markup';
+import { gleich, leseText, ok, pruefeIdVerweise, render } from './harness';
+import { attr, hatKlassen, klassen, tags, zwischen } from './lib/markup';
 
 const nichts = (): void => undefined;
 const STATUS: StatusItem[] = [
@@ -99,6 +99,35 @@ const statusKnoepfe = (html: string): string[] => tags(html, 'button').filter((t
   zahnradKlick({ settingsOpen: false, onSettingsChange })();
   zahnradKlick({ settingsOpen: true, onSettingsChange })();
   gleich(aufrufe, [[true], [false]], 'zahnradKlick → onSettingsChange(!open), ohne Abschnitt');
+  aufrufe.length = 0;
+  panelSchliessen({ onSettingsChange })();
+  gleich(aufrufe, [[false]], 'panelSchliessen → onSettingsChange(false), ohne Abschnitt (Escape und ✕)');
+}
+{
+  // Kernzusage Spec 3.1 / E7: Das Panel verdeckt Kopf- und Statusleiste nie. Dafür tragen die Inhaltszeile und <main> Klassen.
+  const html = render(<AppShell {...basis({ settings: EINSTELLUNGEN, settingsOpen: true })} />);
+  const zeile = tags(html, 'div').find((t) => attr(t, 'data-bereich') === 'inhalt') ?? '';
+  ok(
+    hatKlassen(zeile, 'relative flex min-h-0 flex-1'),
+    'Shell: Inhaltszeile relative flex min-h-0 flex-1 (Panel bezieht sich auf die Zeile, Statusleiste bleibt sichtbar)',
+  );
+  ok(hatKlassen(tags(html, 'main')[0] ?? '', 'min-h-0 min-w-0 flex-1 overflow-auto'), 'Shell: <main> min-h-0 min-w-0 flex-1 overflow-auto');
+}
+{
+  // Weiterleitungen an die Kopfzeile: onAir und headerCenter müssen ankommen.
+  const live = render(<AppShell {...basis({ onAir: { live: true } })} />);
+  ok(zwischen(live, '<header', '</header>').includes('ON AIR'), 'Shell onAir live → ON AIR in der Kopfzeile');
+  const mitte = render(<AppShell {...basis({ headerCenter: <span>Mitte-Text</span> })} />);
+  ok(zwischen(mitte, 'data-bereich="mitte"', '</div>').includes('Mitte-Text'), 'Shell headerCenter → erscheint in data-bereich="mitte"');
+}
+{
+  // Bindungen, die kein Render zeigt (Klick-Rückrufe): Pflichtzeilen im Quelltext.
+  const quelle = leseText('src/components/AppShell.tsx');
+  ok(
+    quelle.includes('onSettingsToggle={zahnradKlick(p)}') && quelle.includes('onClose={panelSchliessen(p)}') &&
+      quelle.includes('onAir={onAir}') && quelle.includes('center={headerCenter}'),
+    'Shell Quelltext: ⚙ → zahnradKlick(p), Panel onClose → panelSchliessen(p), onAir und headerCenter an die Kopfzeile',
+  );
 }
 {
   const html = render(
