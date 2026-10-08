@@ -4,8 +4,9 @@
 // dass JEDE generierte Befehlszeile vom Suite-Protokoll-Parser wieder korrekt
 // (ns + verb) gelesen wird (Round-Trip Modul → Tool).
 import crypto from 'node:crypto'
-import { CAPABILITIES, KNOWN_ROLES, parseSuiteCommand, parseAuthReq, formatAuth, isAuthOk, isAuthFail } from '../generated/protocol.mjs'
-import { buildCommandLine, matchesRole, isControlService, pickEndpoint } from '../lib.mjs'
+import { readFileSync } from 'node:fs'
+import { CAPABILITIES, KNOWN_ROLES, parseSuiteCommand, parseSuiteState, formatSuiteState, parseAuthReq, formatAuth, isAuthOk, isAuthFail } from '../generated/protocol.mjs'
+import { buildCommandLine, matchesRole, isControlService, pickEndpoint, isTruthy } from '../lib.mjs'
 import { computeAuthProof, normalizeFingerprint } from '../auth.mjs'
 
 let failed = 0
@@ -114,6 +115,53 @@ eq(
 eq(normalizeFingerprint('AB:CD:EF:01'), 'abcdef01', 'normalizeFingerprint: Doppelpunkte weg + klein')
 eq(normalizeFingerprint('  abcdef01  '), 'abcdef01', 'normalizeFingerprint: Whitespace weg')
 eq(normalizeFingerprint('AB:CD:EF:01'), normalizeFingerprint('abcdef01'), 'normalizeFingerprint: beide Seiten vergleichbar')
+
+// ── isTruthy: Anzahlen > 0 leuchten (Zoom Stage 4b, Spec 17.2 Nr. 2, L9) ────────
+// onair und lobby der Rolle connect sind Anzahlen. Bei 2 Gästen auf Sendung blieb
+// die Taste bisher dunkel, weil nur '1', 'an' und 'true' als wahr galten.
+for (const v of ['1', '2', '5', '17', 'an', 'true']) eq(isTruthy(v), true, `isTruthy(${JSON.stringify(v)}) → an`)
+for (const v of ['0', '', '-1', '01', '1.5', '2 ', 'aus', 'false', undefined]) eq(isTruthy(v), false, `isTruthy(${JSON.stringify(v)}) → aus`)
+
+// ── Rolle JM Connect samt Zoom, Titler graphic/slot (Zoom Stage 4b, Spec 11.4, Ergänzung 0.12) ──
+// Kommt erst mit der Neu-Generierung von generated/protocol.mjs ins Modul (npm run sync).
+const C = CAPABILITIES.connect
+eq(KNOWN_ROLES.includes('connect'), true, 'Rolle connect ist im Modul wählbar (KNOWN_ROLES)')
+eq(C?.label ?? null, 'JM Connect', 'Rolle connect heißt „JM Connect“')
+eq(C ? [C.actions.length, C.variables.length, C.feedbacks.length] : null, [12, 16, 6], 'connect: 12 Aktionen, 16 Variablen, 6 Feedbacks (9/9/3 + Zoom)')
+eq(['zoom_load', 'zoom_unload', 'zoom_delay'].every((id) => C?.actions.some((a) => a.id === id && a.verb === id)), true, 'connect: zoom_load, zoom_unload, zoom_delay')
+eq(['graphic', 'slot'].every((id) => CAPABILITIES.titler.actions.some((a) => a.id === id)), true, 'titler: graphic und slot')
+const zl = C?.actions.find((a) => a.id === 'zoom_load')
+const zeile = zl ? buildCommandLine('connect', zl, { name: 'Anna Maria' }, {}) : null
+eq(zeile, 'CONNECT ZOOM_LOAD Anna Maria', 'zoom_load mit „Anna Maria“ → CONNECT ZOOM_LOAD Anna Maria')
+const geparst = zeile ? parseSuiteCommand(zeile) : null
+eq(geparst ? [geparst.ns, geparst.verb, geparst.args.join(' ')] : null, ['connect', 'zoom_load', 'Anna Maria'], '… Connect liest ns, verb und den ganzen Namen (args.join)')
+const zu = C?.actions.find((a) => a.id === 'zoom_unload')
+eq(zu ? buildCommandLine('connect', zu, { name: 'Ben' }, {}) : null, 'CONNECT ZOOM_UNLOAD Ben', 'zoom_unload Ben → CONNECT ZOOM_UNLOAD Ben')
+const zd = C?.actions.find((a) => a.id === 'zoom_delay')
+eq(zd ? buildCommandLine('connect', zd, { ms: 300 }, {}) : null, 'CONNECT ZOOM_DELAY 300', 'zoom_delay 300 → CONNECT ZOOM_DELAY 300')
+const go = C?.actions.find((a) => a.id === 'go')
+eq(go ? buildCommandLine('connect', go, {}, {}) : null, 'CONNECT GO', 'connect GO (Connect erstmals per Companion steuerbar)')
+const st = parseSuiteState('STATE ns=connect onair=2 lobby=0 active_label=Anna%20Maria%20Beispiel zoom_status=im_meeting zoom_cmd=')
+eq(st ? [matchesRole('connect', st.ns), st.kv.active_label, st.kv.zoom_cmd] : null, [true, 'Anna Maria Beispiel', ''], 'STATE: „Anna Maria Beispiel“ kommt ganz in der Variable an (17.2 Nr. 3), zoom_cmd leer')
+eq(parseSuiteState(formatSuiteState({ ns: 'connect', kv: { standby_label: 'Jörg Müller' } }))?.kv.standby_label, 'Jörg Müller', 'STATE-Rundweg mit Leerzeichen über das Modul-Protokoll')
+// Feedbacks wie main.js buildFeedbacks: Abnahmekriterium 17.2 Nr. 2 – 1, 2 und 5 Gäste → an, 0 → aus.
+const leuchtet = (id, wert) => {
+  const f = C?.feedbacks.find((x) => x.id === id)
+  return f ? f.match === 'truthy' && isTruthy(wert) : null
+}
+for (const id of ['onair', 'lobby', 'zoom_live', 'zoom_alarm', 'zoom_cmd_rejected']) {
+  eq(['1', '2', '5', '0'].map((w) => leuchtet(id, w)), [true, true, true, false], `Feedback ${id}: 1, 2, 5 → an; 0 → aus`)
+}
+// Modul-Kopf (Spec 11.4 Nr. 2): eine Version in package.json und manifest.json, JM Connect genannt.
+const lies = (rel) => JSON.parse(readFileSync(new URL(rel, import.meta.url), 'utf8'))
+const paket = lies('../package.json')
+const manifest = lies('../companion/manifest.json')
+eq(manifest.version, paket.version, 'Version in companion/manifest.json = package.json')
+eq(
+  [manifest.products.includes('JM Connect'), manifest.description.includes('Connect'), paket.description.includes('Connect')],
+  [true, true, true],
+  'JM Connect in products und in beiden Beschreibungen',
+)
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`)
 process.exit(failed === 0 ? 0 : 1)

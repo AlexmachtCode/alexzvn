@@ -32,6 +32,10 @@ await build({
     loader: 'ts',
     sourcefile: 'protocol-entry.ts',
   },
+  // esbuild schreibt die Quellpfade als Kommentare relativ zum Arbeitsordner. Fest auf die Repo-Wurzel,
+  // sonst ergäbe `npm run sync` im Modulordner „// ../suite-control-protocol/…“ statt
+  // „// packages/suite-control-protocol/…“, und der CI-Schritt „Companion-Protokoll aktuell“ würde rot.
+  absWorkingDir: root,
   bundle: true,
   format: 'esm',
   platform: 'node',

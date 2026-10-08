@@ -51,9 +51,13 @@ export function matchesRole(role, ns) {
   return ns === role;
 }
 
-/** Ein STATE-Feld als Boolean interpretieren (für truthy-Feedbacks). */
+/**
+ * Ein STATE-Feld als Boolean interpretieren (für truthy-Feedbacks): '1', 'an', 'true' oder eine
+ * positive ganze Zahl. So leuchten auch Anzahlen wie onair=2 (Gäste auf Sendung) oder lobby=5
+ * (Zoom Stage 4b, Spec 17.2 Nr. 2). '0', leer, negativ, mit führender Null oder Leerraum → aus.
+ */
 export function isTruthy(v) {
-  return v === '1' || v === 'an' || v === 'true';
+  return v === 'an' || v === 'true' || (typeof v === 'string' && /^[1-9]\d*$/.test(v));
 }
 
 /**

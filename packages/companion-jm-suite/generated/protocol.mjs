@@ -27,9 +27,22 @@ function formatSuiteCommand(c) {
   return `${head}${tail}
 `;
 }
+function kodiereStateWert(v) {
+  return v.replace(/[\s%]/gu, (zeichen) => encodeURIComponent(zeichen));
+}
+function dekodiereStateWert(v) {
+  if (!v.includes("%")) return v;
+  return v.replace(/(?:%[0-9A-Fa-f]{2})+/g, (folge) => {
+    try {
+      return decodeURIComponent(folge);
+    } catch {
+      return folge;
+    }
+  });
+}
 function serializeValue(v) {
   if (typeof v === "boolean") return v ? "1" : "0";
-  return String(v);
+  return typeof v === "string" ? kodiereStateWert(v) : String(v);
 }
 function formatSuiteState(s) {
   const parts = ["STATE"];
@@ -46,7 +59,7 @@ function parseSuiteState(line) {
     const eq = tok.indexOf("=");
     if (eq <= 0) continue;
     const key = tok.slice(0, eq);
-    const val = tok.slice(eq + 1);
+    const val = dekodiereStateWert(tok.slice(eq + 1));
     if (key.toLowerCase() === "ns") ns = val;
     else kv[key] = val;
   }
@@ -329,7 +342,8 @@ var CAPABILITIES = {
             choices: [
               { id: "lowerthird", label: "Bauchbinde" },
               { id: "banner", label: "Banner" },
-              { id: "ticker", label: "Ticker" }
+              { id: "ticker", label: "Ticker" },
+              { id: "graphic", label: "Grafik-Vorlage" }
             ]
           }
         ]
@@ -354,7 +368,24 @@ var CAPABILITIES = {
         args: [{ id: "ref", label: "Eintrag (Nr. oder Name)", type: "string", default: "1" }]
       },
       { id: "next", label: "N\xE4chster DataLink-Eintrag", verb: "next" },
-      { id: "prev", label: "Vorheriger DataLink-Eintrag", verb: "prev" }
+      { id: "prev", label: "Vorheriger DataLink-Eintrag", verb: "prev" },
+      {
+        // Importierte Grafik-Vorlage (Bauchbinde aus dem jm Grafiktool / PSD) wählen (#162).
+        id: "graphic",
+        label: "Grafik-Vorlage w\xE4hlen",
+        verb: "graphic",
+        args: [{ id: "ref", label: "Vorlage (Nr. oder Name)", type: "string", default: "1" }]
+      },
+      {
+        // Einzelnes Textfeld einer Grafik-Vorlage setzen. Token whitespace-frei ('_'=Leerzeichen).
+        id: "slot",
+        label: "Grafik-Slot-Text setzen",
+        verb: "slot",
+        args: [
+          { id: "key", label: "Slot-Schl\xFCssel (z. B. titel)", type: "string", default: "" },
+          { id: "text", label: "Text (Leerzeichen als _)", type: "string", default: "" }
+        ]
+      }
     ],
     variables: [
       { id: "on_air", label: "On Air (1/0)" },
@@ -666,6 +697,77 @@ var CAPABILITIES = {
       { id: "iveo_side_event", label: "Aktives Side Event (ID)" }
     ],
     feedbacks: []
+  },
+  // ── Connect (Remote-Zuschaltung / Green Room, Welle 6) ─────────────────────
+  // Ein GO holt den vorbereiteten (Standby-)Gast auf Sendung — die eine Rundown-
+  // Zeile für Zuschaltungen. Guest-IDs sind die opaken Bezeichner aus dem Raum;
+  // im Companion typischerweise als Variable/Text hinterlegt.
+  connect: {
+    role: "connect",
+    label: "JM Connect",
+    port: 8737,
+    actions: [
+      { id: "go", label: "GO \u2014 Standby-Gast auf Sendung", verb: "go" },
+      { id: "next", label: "N\xE4chsten Gast vormerken (Standby)", verb: "next" },
+      { id: "standby", label: "Gast als Standby vormerken", verb: "standby", args: [{ id: "guest", label: "Gast-ID", type: "string", default: "" }] },
+      { id: "onair", label: "Gast auf Sendung", verb: "onair", args: [{ id: "guest", label: "Gast-ID", type: "string", default: "" }] },
+      { id: "off", label: "Gast aus Sendung", verb: "off", args: [{ id: "guest", label: "Gast-ID", type: "string", default: "" }] },
+      { id: "approve", label: "Gast aus dem Warteraum freigeben", verb: "approve", args: [{ id: "guest", label: "Gast-ID", type: "string", default: "" }] },
+      { id: "talkback", label: "Talkback (Regie ins Ohr)", verb: "talkback", args: [modeArg], toggleKey: "talkback" },
+      // Der Remote-Sprecher blättert seine Folien im JM Presenter selbst weiter (Welle 6.3c).
+      { id: "slides", label: "Folien-Steuerung f\xFCr Gast", verb: "slides", args: [{ id: "guest", label: "Gast-ID", type: "string", default: "" }, modeArg] },
+      { id: "kick", label: "Gast entfernen", verb: "kick", args: [{ id: "guest", label: "Gast-ID", type: "string", default: "" }] },
+      // ── Zoom (Stage 4, #197). Eigene Verben, im Main abgefangen, nie an den DO. Anzeigename statt
+      // Teilnehmer-ID, weil Zooms IDs nur innerhalb einer Sitzung gelten. Kein Beitritt per Fernsteuerung.
+      // Mehrwortige Namen gehen: Connect setzt die Argumente mit einem Leerzeichen wieder zusammen.
+      {
+        id: "zoom_load",
+        label: "Zoom: Person als Quelle laden",
+        verb: "zoom_load",
+        args: [{ id: "name", label: "Anzeigename in Zoom", type: "string", default: "" }]
+      },
+      {
+        id: "zoom_unload",
+        label: "Zoom: Quelle entladen",
+        verb: "zoom_unload",
+        args: [{ id: "name", label: "Anzeigename in Zoom", type: "string", default: "" }]
+      },
+      {
+        id: "zoom_delay",
+        label: "Zoom: Bild-Versatz setzen",
+        verb: "zoom_delay",
+        args: [{ id: "ms", label: "Versatz (ms)", type: "number", default: 0, min: 0, max: 1e3 }]
+      }
+    ],
+    variables: [
+      { id: "room", label: "Raum" },
+      { id: "connected", label: "SFU verbunden (1/0)" },
+      { id: "guests", label: "G\xE4ste gesamt" },
+      { id: "lobby", label: "Im Warteraum" },
+      { id: "onair", label: "Auf Sendung (Anzahl)" },
+      { id: "active_label", label: "Aktiver Gast (Name)" },
+      { id: "standby", label: "Standby-Gast (ID)" },
+      { id: "standby_label", label: "Standby-Gast (Name)" },
+      { id: "talkback", label: "Talkback aktiv (1/0)" },
+      // Zoom (Spec 11.1, 7.5). Ohne Namen: Den Grund eines abgelehnten Befehls zeigt Connect unter „Hinweise“.
+      // Unter macOS fehlen die zoom_*-Schlüssel im STATE ganz.
+      { id: "zoom_status", label: "Zoom: Status (einrichtung/bereit/tritt_bei/warteraum/im_meeting/abriss/verlaesst/fehler)" },
+      { id: "zoom_sources", label: "Zoom: geladene Quellen (Anzahl)" },
+      { id: "zoom_live", label: "Zoom: mindestens eine Quelle geladen (1/0)" },
+      { id: "zoom_privilege", label: "Zoom: Aufnahme-Erlaubnis erteilt (1/0)" },
+      { id: "zoom_alarm", label: "Zoom: Eingriff n\xF6tig (1/0)" },
+      { id: "zoom_cmd", label: "Zoom: Ergebnis des letzten Zoom-Befehls (ok, f1 \u2026 f8)" },
+      { id: "zoom_cmd_rejected", label: "Zoom: letzter Zoom-Befehl abgelehnt (1/0)" }
+    ],
+    feedbacks: [
+      // onair und lobby sind Anzahlen: 'truthy' leuchtet bei jeder positiven ganzen Zahl (17.2 Nr. 2).
+      { id: "onair", label: "Connect: es ist ein Gast auf Sendung", stateKey: "onair", match: "truthy", bgcolor: RED, color: WHITE },
+      { id: "lobby", label: "Connect: G\xE4ste im Warteraum", stateKey: "lobby", match: "truthy", bgcolor: YELLOW, color: BLACK },
+      { id: "talkback", label: "Connect: Talkback aktiv", stateKey: "talkback", match: "truthy", bgcolor: YELLOW, color: BLACK },
+      { id: "zoom_live", label: "Connect: Zoom-Quellen geladen", stateKey: "zoom_live", match: "truthy", bgcolor: GREEN, color: WHITE },
+      { id: "zoom_alarm", label: "Connect: Zoom braucht einen Eingriff", stateKey: "zoom_alarm", match: "truthy", bgcolor: RED, color: WHITE },
+      { id: "zoom_cmd_rejected", label: "Connect: letzter Zoom-Befehl abgelehnt", stateKey: "zoom_cmd_rejected", match: "truthy", bgcolor: YELLOW, color: BLACK }
+    ]
   }
 };
 var KNOWN_ROLES = Object.keys(CAPABILITIES);
@@ -677,6 +779,7 @@ export {
   DEFAULT_CONTROL_PORT,
   KNOWN_ROLES,
   createLineBuffer,
+  dekodiereStateWert,
   formatAuth,
   formatAuthReq,
   formatState,
@@ -684,6 +787,7 @@ export {
   formatSuiteState,
   isAuthFail,
   isAuthOk,
+  kodiereStateWert,
   parseAuth,
   parseAuthReq,
   parseCommand,

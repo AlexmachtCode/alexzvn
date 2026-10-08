@@ -2,8 +2,8 @@
   "id": "jm-suite",
   "name": "jm-suite",
   "shortname": "JM Suite",
-  "description": "Steuert die JM Production Suite (Switcher, Timer, Player, Titler, Presenter, Prompter, Recorder, DAW) über TCP. Eine Verbindung je Tool — Rolle wählen, Rest wird automatisch generiert.",
-  "version": "0.1.0",
+  "description": "Steuert die JM Production Suite (Switcher, Timer, Player, Titler, Presenter, Prompter, Recorder, DAW, Connect) über TCP. Eine Verbindung je Tool — Rolle wählen, Rest wird automatisch generiert.",
+  "version": "0.2.0",
   "license": "MIT",
   "repository": "https://github.com/AlexmachtCode/alexzvn",
   "bugs": "https://github.com/AlexmachtCode/alexzvn/issues",
@@ -29,7 +29,8 @@
     "JM Presenter",
     "JM Prompter",
     "JM Audio Recorder",
-    "JM DAW"
+    "JM DAW",
+    "JM Connect"
   ],
   "keywords": ["video", "switcher", "timer", "teleprompter", "playback", "broadcast"]
 }

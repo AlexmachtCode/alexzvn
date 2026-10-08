@@ -2,7 +2,7 @@
 
 > **Ein Modul für die ganze Suite.** Statt pro Tool ein eigenes Companion-Modul
 > gibt es **eine** Verbindung je Tool: Rolle wählen (Switcher, Timer, Player,
-> Titler, Presenter, Prompter, Recorder, DAW) — Actions, Feedbacks (Button-
+> Titler, Presenter, Prompter, Recorder, DAW, Connect …) — Actions, Feedbacks (Button-
 > Farben/Tally) und Variablen werden **automatisch** aus der geteilten
 > Capabilities-Tabelle der Suite generiert.
 
@@ -17,7 +17,7 @@ Gesprochen wird das suite-weite TCP-Zeilenprotokoll
      LAN selbst und verbindet sich — Tool starten genügt (UDP 5353 offen).
    - **Manuell (IP/Port):** **IP-Adresse** des Tool-Rechners und **Port** setzen.
      Standard-Ports: Switcher 8723, Timer 8724, Player 8725, Titler 8726,
-     Prompter 8727, Presenter 8728, Recorder 8729, DAW 8730.
+     Prompter 8727, Presenter 8728, Recorder 8729, DAW 8730, Connect 8737.
 3. Für mehrere Tools einfach mehrere „JM Suite"-Verbindungen anlegen (eine je
    Tool). Das Feld **Gefunden im LAN** zeigt die aktuell per mDNS entdeckten
    Steuer-Endpunkte als Hilfe.
@@ -29,6 +29,39 @@ liefern fertige Buttons je Tool.
 > daneben einen eigenen Socket.IO-/SSE-Dienst betreiben — Timer, Presenter,
 > Prompter — werden so eindeutig vom anderen Endpunkt unterschieden). Der
 > Switcher ist der Sonderfall ohne Marker; das Modul erkennt ihn an `role=switcher`.
+
+**Feedbacks „an/aus“** leuchten bei `1`, `an`, `true` **und bei jeder positiven
+ganzen Zahl** (ab Modul 0.2.0). So leuchtet „Connect: es ist ein Gast auf
+Sendung“ auch bei 2 oder 5 Gästen; bei `0` ist die Taste aus.
+
+**Namen mit Leerzeichen** kommen ab Modul 0.2.0 ganz in der Variable an: Das Tool
+schreibt Leerraum und `%` im STATE als `%XX` (z. B. `Anna%20Maria`), das Modul
+liest es zurück. Ein Tool, das noch ohne diese Kodierung sendet, wird unverändert
+gelesen.
+
+## Rolle „JM Connect“ (ab Modul 0.2.0)
+
+Bis Modul 0.1.0 fehlte die Rolle ganz; mit 0.2.0 ist Connect erstmals steuerbar
+(Port 8737, mDNS `jm-connect-ctl`).
+
+- **Raum:** GO, NEXT, Standby, Auf Sendung, Aus Sendung, Freigeben, Talkback,
+  Folien-Steuerung, Entfernen (Gast-ID); Variablen `room`, `guests`, `lobby`,
+  `onair`, `active_label`, `standby`, `standby_label`, `talkback`, `connected`.
+- **Zoom (nur Connect unter Windows):**
+  - Aktionen „Zoom: Person als Quelle laden“ (`CONNECT ZOOM_LOAD <Anzeigename>`),
+    „Zoom: Quelle entladen“ (`CONNECT ZOOM_UNLOAD <Anzeigename>`) und
+    „Zoom: Bild-Versatz setzen“ (`CONNECT ZOOM_DELAY <ms>`, 0–1000). Der
+    Anzeigename ist der Name in Zoom; Leerzeichen sind erlaubt
+    („Anna Maria“). Beitreten oder Verlassen geht nicht per Companion.
+  - Variablen `zoom_status`, `zoom_sources`, `zoom_live`, `zoom_privilege`,
+    `zoom_alarm`, `zoom_cmd` (Ergebnis des letzten Zoom-Befehls: `ok` oder
+    `f1` … `f8`, vor dem ersten Befehl leer) und `zoom_cmd_rejected` (1/0).
+  - Feedbacks „Zoom-Quellen geladen“ (grün), „Zoom braucht einen Eingriff“
+    (rot) und „letzter Zoom-Befehl abgelehnt“ (gelb). Den Grund einer Ablehnung
+    zeigt JM Connect im Fenster unter „Hinweise“.
+- Unter macOS sendet Connect keine `zoom_*`-Werte (die Variablen bleiben leer);
+  Zoom-Befehle schreibt Connect dort nur ins Log.
+- JM Rundown bietet die Zoom-Aktionen erst mit seinem nächsten Release an.
 
 ## Aufbau
 
@@ -51,13 +84,16 @@ npm run sync      # → generated/protocol.mjs neu bauen (esbuild)
 ```
 
 Die generierte Datei ist eingecheckt, damit das Modul ohne Monorepo-Quelle
-baubar/verteilbar bleibt.
+baubar/verteilbar bleibt. `npm run sync` hier und `node scripts/sync-companion-protocol.mjs`
+in der Repo-Wurzel erzeugen dieselbe Datei, Byte für Byte. Der CI-Schritt
+„Companion-Protokoll aktuell“ erzeugt sie neu und wird rot, sobald die eingecheckte
+Datei von den Capabilities abweicht.
 
 ## Bauen / Testen
 
 ```
 npm install       # einmalig: @companion-module/base + tools + bonjour-service
-npm run selftest  # Zeilenbau + Round-Trip + Discovery-Auswahl (ohne Companion-Runtime)
+npm run selftest  # Zeilenbau + Round-Trip + Discovery-Auswahl + Feedbacks/Rolle Connect/STATE (ohne Companion-Runtime)
 npm run build     # companion-module-build → Verteilpaket (pkg/)
 ```
 
