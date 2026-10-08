@@ -180,6 +180,10 @@ der ausführenden Sitzung zu ersetzen (G16).
 | Klassen-Probe gegen ein anderes CSS | `(cd packages/ui && npx tsx galerie/pruefe-klassen.ts --css <ordner> --ohne-settings)` | Task 24, Titler-Renderer |
 | CI-Datei | `node -e "require('js-yaml').load(require('fs').readFileSync('.github/workflows/ci-checks.yml','utf8'))"` | js-yaml (vorhanden) |
 
+**Nachtrag nach der Umsetzung (09.10.2026):** Die Endstände 520/329 sind die des Plantexts. Nach den Abweichungen der
+Umsetzung zählt der Branch nach Task 24 601/397 `ok`, nach der Fix-Welle der Gesamtprüfung 605/412 (Abschnitt
+„Umsetzung: Abweichungen vom Plantext“ am Ende).
+
 ## Review Focus (in die Tests der genannten Aufgabe)
 
 1. **Eine Klasse aus den neuen Bausteinen kommt in einer App nicht im CSS an** (zusammengesetzter Klassenname, Tippfehler im
@@ -555,6 +559,10 @@ Hash) und Step 11 (Dev-Server), Task 24 Steps 1–4 (CI-Datei, YAML-Gegenprobe),
 ändert keine Abhängigkeit) und die Gegenproben 16 und 2 der Titler-Probe (Titler-CSS byte-gleich), Task 25. Die
 Typprüfung aller 31 Workspaces lief diesmal ohne Speicher-Abbruch durch (`Exit=0`, 0 `error TS`); in der ersten
 Nachbesserung brach ein Lauf bei `@jm/transcribe` mit „JavaScript heap out of memory“ ab und wurde einzeln nachgeholt.
+
+**Nachtrag nach der Umsetzung (09.10.2026):** Diese Tabelle ist der gemessene Stand des Plantexts und bleibt so stehen.
+Die Umsetzung weicht an benannten Stellen davon ab (Rulings des Controllers, Fix-Welle); jede Abweichung, die Zählstände
+und die offenen Owner-Fragen stehen im Abschnitt „Umsetzung: Abweichungen vom Plantext“ am Ende.
 
 ---
 
@@ -1595,6 +1603,12 @@ git commit -m "test(ui): Bestandsschutz - alte Tokens und Komponenten bleiben by
 ---
 
 ### Task 3: Neue Tokens (Farben mit fester Bedeutung, Flächen, Größen, Dichte) und Quellregeln
+
+> **Nachtrag nach der Umsetzung:** Die Muster der Quellregeln 1 und 9 unten sind überholt. Umgesetzt sind ein weiteres
+> Farbmuster (`ROHE_FARBKLASSE`: alle 26 Paletten aus Tailwind 4.3.0 und weitere Präfixe; `current`/`transparent`
+> erlaubt) und statt Regel 9 die Regel `TOKEN_OHNE_VAR`; dazu `--field-border` als achtes Token in `signal-colors.css`
+> (Task 10). Maßgeblich ist `packages/ui/test/quellregeln.test.ts` im Branch; Grund und Zählstände stehen unter
+> „Umsetzung: Abweichungen vom Plantext“ (T3, T10).
 
 **Spec:** Abschnitt 4.1 (nur neue Namen), 4.2 (Farben mit fester Bedeutung, Werte), 4.3 (Panel-Fläche `--surface-raised`,
 Größen, Bewegung ≤ 150 ms und `prefers-reduced-motion`), 3.8 (Dichte kompakt: Kopfzeile 36 px, Statusleiste 24 px; ohne
@@ -17510,6 +17524,25 @@ Dieser Abschnitt beschreibt, was nach Task 25 geschieht. Er ist keine Aufgabe f�
      Statuseintrag; Escape mit Fokus im Inhalt schließt es nicht.
   6. **Rahmen** (Task 15, 23): 1200 px mit Panel daneben, 800 px mit Panel über dem Inhalt, kompakt mit 36/24 px, der Rahmen
      ohne Sitzung mit leerer Statusleiste, Uhr und ohne ⚙; Kopf- und Statusleiste bleiben immer ganz sichtbar.
+
+  Nachgetragen nach der Umsetzung (Gesamtprüfung 09.10.2026; Grund je Punkt unter „Umsetzung: Abweichungen vom Plantext“):
+
+  7. **Take ziehen** (Task 9, Ruling T9): „Take“ (Knopf nur mit Klick) drücken, mit gedrückter Maus vom Knopf wegziehen,
+     außerhalb loslassen → „Klicks“ bleibt unverändert. Erst danach gilt der Fix (kein Pointer Capture ohne Halten) als
+     gemessen; ohne Browser ist nur „kein `setPointerCapture`“ geprüft.
+  8. **Panel-Schalter + Leertaste** (Task 13): Im offenen Panel einen Schalter anklicken, dann Leertaste. Die Galerie hat
+     kein Tool-Kürzel; dort schaltet die Leertaste den Schalter (Browser-Standard). In einem Tool mit Leertaste = GO
+     (Rundown, Player) geht die Taste nach heutiger Regel ans Tool: GO, und der Schalter schaltet nicht. Ob das so bleibt,
+     ist die offene Owner-Frage O1 (unten); geprüft wird es mit dem ersten Tool, das ein Panel und ein Leertasten-Kürzel hat.
+  9. **800 px: alle Statuseinträge sichtbar** (Task 8, 15): In beiden 800-px-Rahmen steht jeder Statuseintrag ganz da
+     (Symbol und Label), keiner ist rechts abgeschnitten oder umgebrochen. Ein fehlender Eintrag ist ein Befund (die
+     Leiste schneidet mit `overflow-hidden` ohne Hinweis ab).
+  10. **Gegenstellen: Port ungültig** (Fix-Welle, Task 22): In einem Gegenstellen-Beispiel ins Portfeld „abc“ tippen →
+      „Setzen“ ist sofort gesperrt, darunter „Setzen geht erst mit einem gültigen Port.“; Escape → der Port steht wieder
+      da, „Setzen“ ist frei.
+- Vor dem Merge entscheidet bzw. bestätigt der Owner die Punkte unter „Umsetzung: Abweichungen vom Plantext“ →
+  „Offene Owner-Fragen“ (O1–O4) und nimmt die Owner-Info zum Badge-Kontrast zur Kenntnis. O1 und O2 müssen spätestens vor
+  Welle 1 entschieden sein, O3 und O4 vor dem Merge.
 - Gemergt wird nach Freigabe durch den Owner. Es gibt **keinen** Release: `@jm/ui` und `@jm/settings` werden mit den Apps
   gebündelt; die Apps sehen unverändert aus (4.1), ihr CSS wird nur etwas größer. Der erste Release mit den neuen Bausteinen
   ist der Titler-Pilot. Er bekommt einen **eigenen Plan nach dem Merge von Master-Link 2b R2 und Zoom 4b**; dort kommen auch
@@ -17517,3 +17550,123 @@ Dieser Abschnitt beschreibt, was nach Task 25 geschieht. Er ist keine Aufgabe f�
   einrichten“ (E15).
 - Danach werden `docs/roadmap.md` (Lane E: „Fundament gemergt“; Abschnitt 3 „Was läuft wann“, den Task 25 wegen der
   Parallel-Vorhaben nicht anfasst) und der Roadmap-Index nachgeführt.
+
+## Umsetzung: Abweichungen vom Plantext (Nachtrag 09.10.2026)
+
+Dieser Abschnitt ist ein Nachtrag nach der Umsetzung. Der Plantext oben bleibt als gemessener Stand vor der Umsetzung
+stehen (alter Text bleibt, er wird hier widerrufen, nicht umgeschrieben). Umgesetzt wurde per Workflow (subagent-driven)
+auf dem Branch `feat/ux-welle0-fundament` ab `43f10e9be7`. Wo die Umsetzung vom Plantext abweicht, hat der Controller
+entschieden („Ruling“, Politik „Spec vor Plantext“: ein vom Plan verordneter Befund gegen die Spec wird behoben), und ein
+Review hat jede Fix-Runde geprüft; die letzte Runde jeder Aufgabe endete mit 0 offenen Punkten. Das Protokoll der
+Umsetzung liegt git-ignoriert unter `.superpowers/sdd/`; die Begründungen stehen deshalb hier. Maßgeblich für den Code ist
+der Branch.
+
+### Ablauf-Entscheide K1–K6 (ohne Wirkung auf den Code)
+
+| # | Entscheid |
+| --- | --- |
+| K1 | Der Scratchpad-Ordner aus G16 (`…/ux-sdd`) fehlte; er wurde vor Task 1 Step 9 einmal angelegt, danach liefen die G16-Ketten unverändert. |
+| K2 | Das Bash-Werkzeug startete im Protokoll-Ordner; jeder Befehlsblock des Plans lief als Subshell `( cd <worktree> && … )`. |
+| K3 | Es gilt die Dateiliste aus G1, obwohl Spec 9.2 nur `packages/ui` und `packages/settings` nennt (CI-Schritt, Lockfile und Roadmap-Kurzfassung verlangt die Spec selbst; G15 hält Abstand zu 2b R2 und 4b). |
+| K4 | Junctions werden in der Plan-Form `MSYS_NO_PATHCONV=1 cmd /c rmdir` einzeln entfernt, erst danach `rm -rf`. |
+| K5 | iveo (Task 21) ohne eigenes Feld „Status“: der Status steht in der Kopf-Pille, Event, Bühne und Speaker als Zeilen. |
+| K6 | Task 12 Probe e braucht zusätzlich den Import-Tausch `useSyncExternalStore` → `useState`; sonst bricht sie mit `ReferenceError` ab statt mit 1 `FAIL`. |
+
+### Abweichungen im Code (23 Rulings)
+
+| Task | Abweichung (Plantext → Branch) | Grund | Commit(s) |
+| --- | --- | --- | --- |
+| 3 | Quellregel 1: statt 14 Farbtönen `ROHE_FARBKLASSE` mit allen 26 Paletten aus Tailwind 4.3.0 (auch mauve, olive, mist, taupe) und weiteren Präfixen (border-x/t/r/b/l/s/e, ring-offset, divide, placeholder, decoration, accent, caret, shadow, inset-shadow, inset-ring, drop-shadow); `white`/`black` verboten, `current`/`transparent` erlaubt | `bg-sky-500`, `text-violet-400` u. a. liefen durch (G3); Tasks 9 und 13 brauchen `transparent`/`current` | a40ab380ff, d19c0ee59c |
+| 3 | Quellregel 9 („keine Kurzform `-(--…)`“) ersetzt durch `TOKEN_OHNE_VAR` (`/(?<!var)[[(:,]\s*--[a-z]/`): ein Token nach `[ ( : ,` nur als `var(--name)` | Die v3-Form `bg-[--x]` erzeugt mit Tailwind 4.3.0 ungültiges CSS, `bg-(color:--x)` lief an Regel 9 vorbei (gemessen) | a40ab380ff |
+| 6 | `halten.ts`: `druecken` merkt sich `onRelease` des Drucks, `loesen` ruft den neuesten, sonst den gemerkten | Fehlte `onRelease` im neuesten Satz während des Haltens, ging das Release zu einem gemeldeten `onPress` verloren (hängender Talkback) | 319a8063fe |
+| 7 | Feldtext und Grenzen im Fehlertext über `zahlTextVoll` (ohne Rundung) statt `zahlText` | Das Zahlenfeld zeigte gerundete Werte und konnte sie dann nicht setzen; der Fehlertext nannte eine falsche Grenze | 3dbf7c8722 |
+| 8 | Fokusring des Statusknopfs innen (`focus-visible:-outline-offset-2` statt `outline-offset-1`) | Die `overflow-hidden`-Region ist so hoch wie der Knopf und schnitt den Ring ab | 0e01abdd75 |
+| 9 | `TallyButton` setzt `setPointerCapture` nur bei echtem Halten (`onPress`/`onRelease`), nicht bei einem reinen Klick-Knopf | Mit Capture käme der Klick auch nach „drücken, wegziehen, loslassen“ (Pointer Events L3, abgeleitet, ohne Browser nicht gemessen; Owner-Prüfpunkt 7) | e7c66efc9e |
+| 10 | `NumberInput` verwirft beim Sperren einen angefangenen Entwurf; ein gesperrtes Feld nimmt weder Tippen noch Verlassen an (`zahlSchrittMitSperre`, Sperre per Ref) | Kreuzfall gesperrt × Entwurf: das gesperrte Feld zeigte den ungemeldeten Text und meldete ihn nach dem Entsperren bzw. bei einem blur beim Sperren | 19951cce04 |
+| 10 | Neues Token `--field-border` für den Eingaberand (`EINGABE_KLASSE`) statt `--border` | `--border` erreicht auf den Flächen nur 1,2–1,4 : 1, E3 verlangt für Ränder 3 : 1; Owner-Freigabe offen (O3) | 19951cce04 |
+| 11 | `Toggle` „aus“: Spur mit `--field-border` statt `--border`; zwei Kontrastpaare mehr (`--muted-foreground` auf `--input` und `--background`) | wie Task 10 (Grafik 3 : 1) | fec9fc9d2a |
+| 13 | `panelTaste`: Der Plan stoppte nur Escape. Nach vier Fix-Runden stoppt das Panel Escape (schließt, wenn nicht `defaultPrevented`) und jede Taste, deren Ziel ein Feld ist (INPUT außer Knopf-Typen, SELECT, TEXTAREA, contentEditable), auch mit Strg/Meta/Alt; Knöpfe, Schalter, Links, Panel und Abschnitte lassen alle Tasten zum Tool | Tippen in einem Panel-Feld löste Tool-Kürzel aus (Rundown GO, Presenter Strg+Pfeil, Prompter Alt+Pfeil, Timer Strg+R). Ein Stopp auch auf Knöpfen (Runde 2) verletzte Spec 10 „Kürzel bleiben gleich“. Die Folgen auf Panel-Schaltern und bei Escape sind offene Owner-Frage O1 | 45a17f179c, 2f75cec41e, 6b62a2b34c, ed5a30e4d6 |
+| 13 | Der Sprung zu `sectionId` setzt den Fokus auf den angesprungenen `PanelAnker` (`tabIndex={-1}`) | Der Fokus landete unsichtbar auf dem `<aside>` (`outline-none`) statt im Abschnitt | 45a17f179c |
+| 15 | Tests sichern die Kernzusage „verdeckt Kopf- und Statusleiste nie“ (Klassen der Inhaltszeile und von `<main>`) | Kein Test prüfte sie | 2a92adbd21 |
+| 15 | `onClose={panelSchliessen(p)}` als reiner Prop-Bauer; Tests der Weiterleitungen `onAir`, `headerCenter`, Schließen | Vier Weiterleitungen waren ungetestet; eine leere `onClose` bliebe grün | 2a92adbd21 |
+| 16 | Quellregeln in `@jm/settings` übernehmen `ROHE_FARBKLASSE`, `TOKEN_OHNE_VAR` und das Importmuster (auch `import 'electron'`) aus `@jm/ui` | Plantext Task 16 hatte die alten, engen Muster; die Lücke aus Task 3 stünde sonst in settings offen | 5f01ed10d2 |
+| 16 | `abschnittStatusItem`: ein eigenes Detail des Tools ersetzt den Statustext nur bei `ok`, sonst `{detail} · {status}` | „unbekannt“, „an (ohne Rückmeldung)“ und „Fehler: …“ verschwanden sonst aus der Statusleiste (Spec 7.2/7.3) | 5f01ed10d2 |
+| 19 | Schalter „Steuerserver“ nur bei `typeof enabled === 'boolean'`, sonst Anzeige „unbekannt“ | `enabled === true` las `undefined` als „aus“ (G6) | 13d26ac365 |
+| 20 | Audio: gemessen leere Geräteliste mit `value ''` ist nie `ok` (off „kein Gerät gewählt“, Pflichtwahl warn) | Sonst „ok {Systemstandard}“ ohne jedes Gerät | 485785c214 |
+| 22 | Erklärung zu Setzen/Auto nur, wenn der Auto-Knopf (`capabilities.auto` und `onAuto`) und `onSet` da sind | Sonst stand die Erklärung ohne die Knöpfe, die sie nennt | a52ae1bed8 |
+| 22 | Setzen über `peerSetzen`: kein Aufruf ohne gültigen Port (das `?? row.port` entfällt), Knopf dann gesperrt | Setzen sendete eine Zahl, die das Feld nicht zeigte (Port 0 statt Standardport). Restlücke bei ungültigem Entwurf: F1 unten | a52ae1bed8 |
+| 22 | Auto setzt Host und Port des lokalen Entwurfs zurück (`peerAuto`) | Nach Auto blieb ein getippter Host stehen | a52ae1bed8 |
+| 22 | Quelle „manuell: …“ nur mit Host | Sonst „manuell: :7777“ neben „nicht gefunden“ | a52ae1bed8 |
+| 22 | Verhaltenstests ohne DOM für `peerSetzen`, `peerAuto`, `peerToggle` und die Sperre im Stage-Muster | Die Tests prüften nur das Markup | a52ae1bed8 |
+| 23 | Galerie: Zahlenfeld im offenen Panel (`fernsteuerung` mit `portEditable`); in den Fix-Runden dazu „Auswahl mit Fehler“ und Audio ohne Geräte ohne gewählten System-Standard (Ursache in `audio-device.ts` `wahlView`) | Owner-Prüfpunkt 3 war sonst nicht durchführbar; Pille „off“ und Auswahl „System-Standard“ widersprachen sich | 53150dbb00, 10a187fd8c |
+
+### Fix-Welle nach der Gesamtprüfung (09.10.2026)
+
+| # | Befund | Änderung | Commit(s) |
+| --- | --- | --- | --- |
+| F1 | Setzen (Gegenstellen) schickte bei einem ungültigen Entwurf im Portfeld („abc“, „70000“, leer) den letzten gültigen Port, während unter dem Feld der Fehler stand | `NumberInput` meldet auf Wunsch die Gültigkeit des Entwurfs (`onEntwurfGueltig`, rein: `zahlEntwurfGueltig`, ungültig schon beim Tippen); `peerSetzen` ruft ohne gültigen Port nicht auf; der Knopf ist dann gesperrt mit dem sichtbaren Grund „Setzen geht erst mit einem gültigen Port.“ (`aria-describedby`), auch bei leerem Portfeld; ist der Abschnitt gesperrt, steht nur dessen Grund. Neuer Text: O4 | afae09b29f, 894ccb64ea |
+| F2 | Transparenz (NDI) und Vollbild (Bildschirm) zeigten bei gesetzter Capability und nicht gemeldetem Wert den Schalter „aus“ (G6, Spec 7.2) | Anzeige „unbekannt“ statt Schalter, wie der Steuerserver (Task 19) | e24dd60c81 |
+| F3 | Text-Entwurf (Quellenname, Hintergrund) kannte keine Sperre: das gesperrte Feld zeigte den ungemeldeten Text, das erste Verlassen nach dem Entsperren meldete ihn (NDI-Sender startet neu) | wie `NumberInput` (Task 10): `textSchrittMitSperre`, Sperre per Ref im Rendern, Verwerfen beim Sperren; `NdiOutputSection` und `ScreenOutputSection` geben die Sperre weiter | 12f3e7c9aa |
+| F4 | Ein Sperrgrund nur aus Leerzeichen ergab eine leere Grund-Zeile (`TallyButton`) bzw. „Gesperrt: “ ohne Grund (`Field`, `istGesperrt`) | gilt jetzt als leer: `TallyButton` zeigt „gesperrt – kein Grund angegeben“, `Field` und Abschnitt sind nicht gesperrt (wie bei einem leeren Grund) | 9349628f70, 29a04dcd10 |
+| F5 | Nachvollziehbarkeit: Rulings nur im git-ignorierten Protokoll, Zählstände und Task 3 im Plan veraltet, Prüfpunkte fehlten | dieser Abschnitt, die Nachträge bei „Testläufe“, „Gemessene Zählstände“ und Task 3, Owner-Prüfpunkte 7–10, Spec 10 (Panel-Tasten in der Funktionsliste) | Doku-Commit der Fix-Welle |
+
+Restpunkt aus F1 (nicht behoben, kein Live-Risiko): Drückt man „Auto“, während im Portfeld ein ungültiger Entwurf steht,
+setzt die Zeile den Port auf den angezeigten Wert zurück; ist das derselbe Wert wie vorher, bleibt der ungültige Entwurf
+im Feld stehen (`NumberInput` folgt einem Wert von außen nur ohne angefangenen Entwurf). „Setzen“ bleibt dann mit Grund
+gesperrt, Escape stellt den Port her.
+
+### Zählstände
+
+| Stand | `@jm/ui` ok | `@jm/settings` ok | Galerie-Probe | Titler-Probe (Task 24, 5.5) |
+| --- | --- | --- | --- | --- |
+| Plantext (Tasks 23–25) | 520 | 329 | 20 `ok`, CSS 36,83 kB | 19 `ok`, CSS 49,37 kB |
+| nach Task 24 | 601 | 397 | 20 `ok`, CSS 37,03 kB | 19 `ok`, CSS 49,61 kB |
+| nach der Fix-Welle | 605 | 412 | 20 `ok`, CSS 37,03 kB | 19 `ok`, CSS 49,61 kB (dieselbe Datei `index-BGcmn55R.css`) |
+
+Die Differenz zum Plantext kommt nur aus den Rulings oben (zusätzliche Prüfungen; `--field-border` und neue Klassen im
+CSS). Typprüfung aller Workspaces nach der Fix-Welle: `Exit=0`, 31 Workspaces, 0 `error TS`.
+
+### Neues Token `--field-border` (Owner-Freigabe O3)
+
+Rand von Eingabefeldern (`EINGABE_KLASSE` in `Field.tsx`) und Spur des ausgeschalteten `Toggle`; rein additiv (G2), in
+`signal-colors.css` als achtes Token. Werte: dunkel `oklch(0.58 0 0)`, hell `oklch(0.6 0 0)`. Kontrast (Grafik, 3 : 1
+verlangt) dunkel auf `--background`/`--card`/`--surface-raised`/`--input` 4,41/4,09/3,74/3,52, hell 3,95/3,78/3,95/3,12.
+Spec 4.2 kennt den Namen nicht; `tokens.test.ts` führt ihn. Noch nicht nachgezogen (darf nach dem Merge folgen, sinnvoll
+erst nach der Freigabe): die Farbkachel der Galerie (`FARBEN` in `galerie/beispiele-ui.tsx`) und `NEUE_TOKENS` der
+Klassen-Probe (`galerie/pruefe-klassen.ts`, heute 12; der Galerie-Test prüft `NEUE_TOKENS.length === 12`).
+
+### Owner-Info: Badge-Kontrast hell
+
+Zur Kenntnis genommen hat der Owner am 08.10. die Bestands-Befunde `--success` bzw. `--warning` auf `--background` hell
+mit 3,40 bzw. 2,54 : 1. Der Bestands-`Badge` setzt die Schrift aber auf seine eigene Tönung (`bg-[var(--success)]/12`
+bzw. `bg-[var(--warning)]/15`). Darauf gemessen (gleicher Rechenweg wie `kontrast.test.ts`) sind es hell 2,98 bzw. 2,23
+über `--background` und `--surface-raised`, 2,87 bzw. 2,14 über `--card`; dunkel bleibt die Klasse erfüllt (6,76 bzw.
+10,38 über `--background`, 5,57 bzw. 8,43 über `--surface-raised`). Keine Änderung in diesem Fundament (Bestandsschutz,
+Spec 4.1); die Zahlen im Test bleiben die der Paare ohne Tönung.
+
+### Offene Owner-Fragen
+
+| # | Frage | Heute im Branch | Bis wann |
+| --- | --- | --- | --- |
+| O1 | **Tasten im Panel.** (a) Leertaste auf einem fokussierten Schalter oder Knopf im Panel: Soll sie ans Tool gehen (Rundown, Player: GO; der Schalter schaltet dann nicht, weil das Tool `preventDefault` ruft) oder im Panel bleiben (der Schalter schaltet, kein GO)? (b) Escape mit Fokus im Panel schließt das Panel und erreicht das Tool nie; beim Player ist Escape = Stop. Spec 10 löst Kollisionen „zugunsten des bestehenden Kürzels“, der Baustein hat dafür keinen Schalter. | (a) Taste geht ans Tool (Fix-Runden 3–4 von Task 13: Spec 10 „Kürzel bleiben gleich“); (b) Escape bleibt immer im Panel. Steht als Pflichtpunkt in Spec 10 (Funktionsliste) | vor Welle 1 (Rundown) bzw. Welle 2 (Player); Code je nach Entscheid |
+| O2 | **live × gesperrt.** `TallyButton.state` ist genau einer aus „bereit“, „live“, „gesperrt“. Ist eine Quelle auf Sendung und ihr Knopf zugleich gesperrt (z. B. Switcher während einer Überblendung), muss das Tool „gesperrt“ wählen, und die LIVE-Kennung verschwindet. Soll der Baustein „auf Sendung und gesperrt“ zeigen können? | nicht darstellbar | Spec-/Owner-Entscheid vor Welle 1 (Switcher) |
+| O3 | **Token `--field-border`** (Name und Werte oben) freigeben. | im Code, ohne Freigabe | vor dem Merge |
+| O4 | **Neuer Text** „Setzen geht erst mit einem gültigen Port.“ (Grund am gesperrten „Setzen“, F1) freigeben oder umformulieren. | `PEERS_TEXTE.setzenOhnePort` | vor dem Merge |
+
+### Vorgemerkt für die Wellen (aus der Prüfung, keine Aktion vor dem Merge)
+
+Die Prüfung hat weitere kleine Punkte notiert; sie ändern heute kein Verhalten einer App (kein Tool nutzt die Bausteine
+vor dem Pilot). Wer einen Baustein in einer Welle einbaut, prüft die passenden Zeilen; nachgemessen sind sie nicht.
+
+| Baustein | Punkt |
+| --- | --- |
+| `StatusBar` (Task 8) | Einträge ohne `whitespace-nowrap`; eine schmale Leiste schneidet hintere Einträge mit `overflow-hidden` ohne Hinweis ab (Owner-Prüfpunkt 9) |
+| `TallyButton` (Task 9) | Leertaste und Enter zählen als dieselbe Quelle, `pointerup` prüft die `pointerId` nicht: ein zweiter Finger oder ein Enter beendet ein Halten früher (sichere Richtung). Ein Knopf mit `onClick` und Halten fängt weiter den Zeiger (Klick nach Wegziehen möglich) |
+| `Field`/`NumberInput` (Task 10) | Fehlerzeile und „Noch nicht übernommen.“ ohne `aria-live` |
+| `AppHeader` (Task 14) | On-Air-Wechsel ohne `role="status"`; ⚙ mit `aria-expanded` auch ohne `onSettingsToggle` |
+| `AppShell` (Task 15) | `settings={liste.length && …}` mit 0 zeigt ⚙ und ein leeres Panel; fallen `settings` bei offenem Panel weg, kommt kein `onSettingsChange(false)`; Werkzeugleiste ohne Umbruch; `h-screen` im mobilen Browser-Tab (Sync-PWA) |
+| Text-Entwurf (Task 17) | nach „Noch nicht übernommen.“ kein erneutes Melden ohne Änderung am Text |
+| Bildschirm (Task 18) | Tipp „Zweiten Bildschirm wählen …“ auch bei nur einem Bildschirm oder ausgeschalteter Ausgabe; leere Liste mit fehlender Wahl zeigt „nicht verfügbar“ statt „Kein Bildschirm gefunden“ |
+| Fernsteuerung (Task 19) | „Aktivieren“ bleibt bei unbekanntem Modus bedienbar; das einmalige Token hängt an `revealedToken`, nicht an `mode === 'secure'` |
+| iveo/DataLink (Task 21) | `fileCount`/`speakerCount` ohne `Number.isFinite` (NaN, negativ); Event, Bühne und Speaker stehen bei veralteter Lieferung ohne Kennzeichnung |
+| Gegenstellen (Task 22) | Host und Port bleiben ohne `onSet` editierbar; `key={row.role}` vermischt bei doppelten Rollen den Zustand der Zeilen |
