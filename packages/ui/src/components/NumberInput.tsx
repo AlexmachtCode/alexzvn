@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { cn } from '../lib/cn';
-import { starteFrist, zahlEntwurfAus, zahlSchritt, type ZahlEntwurf, type ZahlEreignis, type ZahlRegeln } from '../lib/eingabe';
+import { starteFrist, zahlEntwurfAus, zahlSchrittMitSperre, type ZahlEntwurf, type ZahlEreignis, type ZahlRegeln } from '../lib/eingabe';
 import { STATUS_SYMBOL, STATUS_SYMBOL_KLASSE } from '../lib/status';
 import { EINGABE_KLASSE, useFeld, verbindeIds } from './Field';
 
@@ -138,9 +138,14 @@ export function NumberInput({ value, onChange, min, max, ganzzahl, ...ansicht }:
   regelnRef.current = { min, max, ganzzahl };
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  // Gesperrt wie in der Ansicht (eigenes disabled oder Sperrgrund des Field): ein gesperrtes Feld meldet nichts.
+  const feld = useFeld();
+  const gesperrt = Boolean(ansicht.disabled || feld?.gesperrt);
+  const gesperrtRef = useRef(gesperrt);
+  gesperrtRef.current = gesperrt;
 
   const schritt = (e: ZahlEreignis): { verbraucht: boolean } => {
-    const r = zahlSchritt(entwurfRef.current, e, regelnRef.current, wertRef.current);
+    const r = zahlSchrittMitSperre(gesperrtRef.current, entwurfRef.current, e, regelnRef.current, wertRef.current);
     entwurfRef.current = r.z;
     setEntwurf(r.z);
     if (r.neuerWert !== undefined) onChangeRef.current(r.neuerWert);
@@ -153,6 +158,11 @@ export function NumberInput({ value, onChange, min, max, ganzzahl, ...ansicht }:
   useEffect(() => {
     schrittRef.current({ art: 'aussen', wert: value });
   }, [value]);
+
+  // Wird das Feld gesperrt, fällt ein angefangener Entwurf weg: Es zeigt den echten Wert (Escape geht im gesperrten Feld nicht).
+  useEffect(() => {
+    if (gesperrt) schrittRef.current({ art: 'verwerfen' });
+  }, [gesperrt]);
 
   // Frist (E27): Kommt ein gemeldeter Wert nicht zurück, zeigt das Feld nach 2 s „Noch nicht übernommen.“.
   useEffect(

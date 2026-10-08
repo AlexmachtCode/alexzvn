@@ -36,7 +36,7 @@ export function useFeld(): FeldKontext | null {
  * Nur aus dieser Datei exportiert, nicht aus index.ts.
  */
 export const EINGABE_KLASSE =
-  'h-[var(--control-h)] w-full min-w-0 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--input)] px-2.5 ' +
+  'h-[var(--control-h)] w-full min-w-0 rounded-[var(--radius-md)] border border-[var(--field-border)] bg-[var(--input)] px-2.5 ' +
   'text-[13px] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] select-text ' +
   'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)] ' +
   'disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-[var(--status-error)]';

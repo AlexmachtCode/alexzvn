@@ -27,6 +27,7 @@ const textVonId = (html: string, id: string, ende = '</p>'): string =>
     'Field: label for = input id',
   );
   ok(hatKlassen(label, 'text-xs font-semibold text-[var(--foreground)]'), 'Field: ein Beschriftungsstil (text-xs, halbfett, Vordergrund)');
+  ok(hatKlassen(input, 'border-[var(--field-border)] bg-[var(--input)]') && !hatKlassen(input, 'border-[var(--border)]'), 'Field: der Eingaberand ist --field-border (Grafik 3 : 1), nicht --border');
   ok(
     attr(input, 'aria-describedby') === undefined && attr(input, 'aria-invalid') === undefined && attr(input, 'disabled') === undefined,
     'Field ohne Hilfe, Sperre, Fehler: keine Verweise, kein aria-invalid, nicht gesperrt',
@@ -230,6 +231,8 @@ const textVonId = (html: string, id: string, ende = '</p>'): string =>
     '{...zahlFeldHandler({ onTippen, onUebernehmen, onTaste })}',
     '{...zahlAnsichtHandler(schritt)}',
     "schrittRef.current({ art: 'aussen', wert: value });",
+    "if (gesperrt) schrittRef.current({ art: 'verwerfen' });",
+    'zahlSchrittMitSperre(gesperrtRef.current, entwurfRef.current, e, regelnRef.current, wertRef.current)',
     "starteFrist(() => schrittRef.current({ art: 'frist' }))",
   ].filter((z) => quelle.split(z).length !== 2);
   const input = quelle.slice(quelle.indexOf('<input'), quelle.indexOf('/>', quelle.indexOf('<input')));

@@ -10,6 +10,7 @@ import {
   UEBERNAHME_FRIST_MS,
   zahlEntwurfAus,
   zahlSchritt,
+  zahlSchrittMitSperre,
   type SelectOption,
   type ZahlRegeln,
 } from '../src/lib/eingabe';
@@ -149,6 +150,28 @@ gleich(
   ],
   'Eingabe: zahlSchritt aussen – ohne Änderung übernommen, mit Änderung bleibt der Entwurf',
 );
+
+// Gesperrt × angefangener Entwurf: Ein gesperrtes Feld meldet nichts und nimmt nichts mehr an; das Sperren verwirft den
+// Entwurf (Escape), damit das Feld den echten Wert zeigt und nach dem Entsperren nichts Altes gemeldet wird.
+{
+  const entwurf = { text: '80', geaendert: true };
+  const gesperrt = [
+    zahlSchrittMitSperre(true, entwurf, { art: 'uebernehmen' }, PORT, 9000),
+    zahlSchrittMitSperre(true, entwurf, { art: 'tippen', text: '81' }, PORT, 9000),
+  ];
+  gleich(
+    [gesperrt, zahlSchrittMitSperre(true, entwurf, { art: 'verwerfen' }, PORT, 9000).z, zahlSchrittMitSperre(false, entwurf, { art: 'uebernehmen' }, PORT, 9000).neuerWert],
+    [
+      [
+        { z: entwurf, verbraucht: false },
+        { z: entwurf, verbraucht: false },
+      ],
+      { text: '9000', geaendert: false },
+      80,
+    ],
+    'Eingabe: gesperrt – Verlassen und Tippen ändern und melden nichts, Verwerfen zeigt den echten Wert, entsperrt wird gemeldet',
+  );
+}
 
 // ── selectOptionen (E11: der Wert springt nie still um) ──
 {

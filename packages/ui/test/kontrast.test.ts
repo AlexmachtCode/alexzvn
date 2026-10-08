@@ -73,6 +73,9 @@ for (const zeichen of ['--tally-live', '--tally-ready', '--status-warn', '--stat
 }
 // Ränder auf der Hover-Fläche --muted: grüne Kante des TallyButton „bereit“ und Rand des ⚙ bei offenem Panel (Task 9, 14)
 NEUE_PAARE.push(['--tally-ready', '--muted', 'Grafik'], ['--tally-selected', '--muted', 'Grafik']);
+// Rand der Eingabefelder (Task 10, Fix-Runde 1): E3 verlangt für Ränder 3 : 1 gegen jede Fläche, auf der ein Feld steht,
+// und gegen die eigene Füllung --input. --border (1,2 bis 1,4) und --input als Fläche reichen dafür nicht.
+for (const grund of ['--background', '--card', '--surface-raised', '--input']) NEUE_PAARE.push(['--field-border', grund, 'Grafik']);
 
 for (const modus of ['dunkel', 'hell'] as const) {
   const tabelle = modusTabelle(modus);

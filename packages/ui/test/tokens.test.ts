@@ -16,6 +16,7 @@ const SOLL_DUNKEL: Record<string, string> = {
   '--status-error': 'var(--destructive)',
   '--status-off': 'var(--muted-foreground)',
   '--surface-raised': 'oklch(0.25 0 0)',
+  '--field-border': 'oklch(0.58 0 0)',
 };
 const SOLL_HELL: Record<string, string> = {
   '--tally-live': 'oklch(0.55 0.22 27)',
@@ -25,14 +26,15 @@ const SOLL_HELL: Record<string, string> = {
   '--status-error': 'var(--destructive)',
   '--status-off': 'var(--muted-foreground)',
   '--surface-raised': 'oklch(1 0 0)',
+  '--field-border': 'oklch(0.6 0 0)',
 };
 
 const dunkel = tokenTabelle(signal, ':root, .dark');
 const hell = tokenTabelle(signal, '.light');
 for (const [name, wert] of Object.entries(SOLL_DUNKEL)) ok(dunkel[name] === wert, `Tokens dunkel: ${name} = ${wert}`);
 for (const [name, wert] of Object.entries(SOLL_HELL)) ok(hell[name] === wert, `Tokens hell: ${name} = ${wert}`);
-gleich(Object.keys(dunkel), Object.keys(SOLL_DUNKEL), 'Tokens dunkel: genau die 7 neuen Namen');
-gleich(Object.keys(hell), Object.keys(SOLL_HELL), 'Tokens hell: genau die 7 neuen Namen');
+gleich(Object.keys(dunkel), Object.keys(SOLL_DUNKEL), 'Tokens dunkel: genau die 8 neuen Namen');
+gleich(Object.keys(hell), Object.keys(SOLL_HELL), 'Tokens hell: genau die 8 neuen Namen');
 
 // Spec 4.3 (Größen) und E6 (Dichte), wörtlich
 gleich(

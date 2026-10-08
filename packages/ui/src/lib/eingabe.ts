@@ -85,6 +85,22 @@ export function zahlSchritt(
   return { z, verbraucht: false };
 }
 
+/**
+ * zahlSchritt für ein Feld, das gesperrt sein kann: Ein gesperrtes Feld nimmt weder Tippen noch Verlassen an und meldet
+ * nichts (ein blur beim Sperren darf keinen Wert aus dem gesperrten Feld senden). Verwerfen und aussen laufen weiter; das
+ * Feld verwirft beim Sperren den Entwurf, damit es den echten Wert zeigt und beim Entsperren nichts Altes meldet.
+ */
+export function zahlSchrittMitSperre(
+  gesperrt: boolean,
+  z: ZahlEntwurf,
+  e: ZahlEreignis,
+  regeln: ZahlRegeln,
+  aktuell: number | null,
+): { z: ZahlEntwurf; neuerWert?: number; verbraucht: boolean } {
+  if (gesperrt && (e.art === 'tippen' || e.art === 'uebernehmen')) return { z, verbraucht: false };
+  return zahlSchritt(z, e, regeln, aktuell);
+}
+
 // ── Frist nach dem Melden (E27) ──
 
 /** So lange wartet ein Feld auf den gemeldeten Wert, bevor es „Noch nicht übernommen.“ zeigt. */
