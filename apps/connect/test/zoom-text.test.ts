@@ -671,9 +671,10 @@ console.log('— 8.4: Bild-/Ton-Fehler → Zeile, Hinweis oder nichts');
 console.log('— Owner 08.10.2026: Welche Zeilenfehler ein gescheitertes Laden genau dieser Person bedeuten (Stand „gescheitert“)');
 {
   // Die Bridge lehnt das Abo der Person ab (video.cpp videoSubscribe, main.cpp; jeweils mit Kennung): Q1, Q2, Q4; dazu Q5,
-  // falls ein Tonfehler je eine Kennung trüge, und jeder unbekannte Code (wie quellenFehler: Zeile Q4).
+  // falls ein Tonfehler je eine Kennung trüge, und jeder unbekannte Code (wie quellenFehler: Zeile Q4), etwa die beiden
+  // Befehlsfeld-Fehler aus main.cpp (videoBadResolution, videoBadAudioFlag).
   const JA = ['videoNoPrivilege', 'videoUnknownParticipant', 'videoRendererFailed', 'videoRawRecordingFailed', 'videoSenderFailed',
-    'videoBadAudioFlag', 'videoNeu', 'audioVoipJoinFailed', 'audioHelperMissing', 'audioSubscribeFailed'];
+    'videoBadResolution', 'videoBadAudioFlag', 'videoNeu', 'audioVoipJoinFailed', 'audioHelperMissing', 'audioSubscribeFailed'];
   for (const code of JA) ck(`${code} → Ladefehler`, istLadeFehler(code) && quellenFehler(code, code, 'Anna', undefined, 16778240).art === 'zeile');
   // Q13 gilt dem Bild-Versatz aller Quellen, kein Laden; Q3, videoNotSubscribed und die Hinweise stehen an keiner Zeile.
   const NEIN = ['videoBadDelay', 'videoAlreadySubscribed', 'videoNotSubscribed', 'audioQueueOverflow', 'videoBufferMismatch', 'audioBufferMismatch'];
