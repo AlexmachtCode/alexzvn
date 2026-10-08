@@ -12,4 +12,6 @@ import './quellregeln.test';
 import './kontrast.test';
 import './status.test';
 import './halten.test';
+import './theme.test';
+import './eingabe.test';
 abschluss();
