@@ -9,6 +9,8 @@
     "./base.css": "./src/base.css",
     "./tokens/colors.css": "./src/tokens/colors.css",
     "./tokens/typography.css": "./src/tokens/typography.css",
+    "./tokens/signal-colors.css": "./src/tokens/signal-colors.css",
+    "./tokens/sizes.css": "./src/tokens/sizes.css",
     "./testhilfe": "./test/harness.ts"
   },
   "scripts": {

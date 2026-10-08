@@ -7,4 +7,6 @@
 import { abschluss } from './harness';
 import './werkzeug.test';
 import './bestand.test';
+import './tokens.test';
+import './quellregeln.test';
 abschluss();

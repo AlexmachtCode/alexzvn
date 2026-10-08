@@ -1,0 +1,30 @@
+/*
+ * Farben mit fester Bedeutung und die Panel-Fläche (Suite-UX-Update, Spec 4.2 und 4.3).
+ * Rein additiv (Spec 4.1): nur neue Namen; colors.css bleibt unverändert.
+ * Dunkel ist Standard (:root, .dark), Hell überschreibt (.light), wie in colors.css.
+ * --status-error und --status-off stehen in beiden Blöcken, damit der Verweis im jeweiligen Modus aufgelöst wird,
+ * auch in einem .light-Bereich unter einem dunklen html-Element (Galerie).
+ * Statusfarben färben nur Symbole, Ränder und Flächen, nie Wörter (Kontrast-Klassen: test/kontrast.test.ts).
+ */
+@layer base {
+  :root,
+  .dark {
+    --tally-live:     oklch(0.62 0.23 27);
+    --tally-ready:    oklch(0.72 0.17 145);
+    --tally-selected: var(--brand-yellow);
+    --status-warn:    oklch(0.76 0.16 60);
+    --status-error:   var(--destructive);
+    --status-off:     var(--muted-foreground);
+    --surface-raised: oklch(0.25 0 0);
+  }
+
+  .light {
+    --tally-live:     oklch(0.55 0.22 27);
+    --tally-ready:    oklch(0.60 0.17 145);
+    --tally-selected: var(--brand-dark);
+    --status-warn:    oklch(0.66 0.16 55);
+    --status-error:   var(--destructive);
+    --status-off:     var(--muted-foreground);
+    --surface-raised: oklch(1 0 0);
+  }
+}

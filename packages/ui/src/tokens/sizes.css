@@ -1,0 +1,19 @@
+/*
+ * Größen des Sendepults (Suite-UX-Update, Spec 4.3) und die Dichte „kompakt“ (Spec 3.8). Rein additiv, nur neue Namen.
+ * AppShell setzt data-dichte an ihr Wurzelelement. Kompakt ändert nur Kopf- und Statuszeile;
+ * Bedienelemente bleiben 32 px hoch (Spec 3.5).
+ */
+@layer base {
+  :root {
+    --header-h:     44px;
+    --statusbar-h:  28px;
+    --control-h:    32px;
+    --control-h-lg: 48px;
+    --panel-w:      360px;
+  }
+
+  [data-dichte="kompakt"] {
+    --header-h:    36px;
+    --statusbar-h: 24px;
+  }
+}
