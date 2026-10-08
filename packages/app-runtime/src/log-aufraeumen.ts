@@ -14,11 +14,18 @@
 // - Gekürzt wird byte-genau über eine Hilfsdatei `<name>.kuerzen` und Umbenennen. Bleibt sie nach einem harten
 //   Ende liegen, löscht sie der nächste Lauf.
 // - Jeder Fehler wird je Datei gemeldet, nie geworfen (EBUSY, EPERM, ENOENT): Aufräumen verhindert nie den Start.
+// - Aufgeräumt wird erst 30 s nach dem Start und nur im Prozess mit dem Single-Instance-Lock (planeLogAufraeumen):
+//   Eine zweite Instanz kürzt nie die Logdatei, in die die laufende gerade schreibt.
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
 
 export const LOG_FRIST_MS = 14 * 24 * 60 * 60 * 1000;
 export const LOG_AUFRAEUMEN_TAKT_MS = 6 * 60 * 60 * 1000;
+/**
+ * Der erste Lauf kommt erst so lange nach dem Start (Gesamtprüfung 4b): initAppRuntime läuft VOR dem
+ * Single-Instance-Lock, und erst danach weiß der Prozess, ob er die laufende Instanz ist.
+ */
+export const LOG_AUFRAEUMEN_VERZOEGERUNG_MS = 30 * 1000;
 /** Die Dateien des Loggers in `userData/logs` (index.ts): main.log, renderer.log, Rotation .1–.n, Crash-Marke. */
 export const LOG_DATEIMUSTER = /^(?:(?:main|renderer)\.log(?:\.[1-9]\d*)?|last-crash\.json)$/;
 /** Hilfsdatei beim Kürzen. */
@@ -163,6 +170,30 @@ export function raeumeLogsAuf(e: { ordner: string; jetztMs: number; fristMs?: nu
     }
   }
   return bericht;
+}
+
+/**
+ * Plant das Aufräumen eines Log-Ordners: der erste Lauf `verzoegerungMs` nach dem Aufruf (Vorgabe
+ * LOG_AUFRAEUMEN_VERZOEGERUNG_MS), danach alle `taktMs` (Vorgabe LOG_AUFRAEUMEN_TAKT_MS; Langläufer wie Launcher und
+ * Connect im Tray). Nie sofort, und jeder Lauf nur, wenn `darf()` zutrifft (index.ts: app.hasSingleInstanceLock()).
+ * Sonst kürzte eine zweite Instanz (Doppelklick, Deep-Link, .jmshow, Launcher-Start einer laufenden App) main.log und
+ * renderer.log der laufenden, während diese per appendFileSync schreibt, und deren Zeile ginge verloren. Jeder Bericht
+ * geht an `melde`. Beide Zeitgeber tragen unref(): Sie halten keine App am Leben.
+ */
+export function planeLogAufraeumen(e: {
+  ordner: string;
+  melde: (b: AufraeumBericht) => void;
+  darf: () => boolean;
+  verzoegerungMs?: number;
+  taktMs?: number;
+}): void {
+  const lauf = (): void => {
+    if (e.darf()) e.melde(raeumeLogsAuf({ ordner: e.ordner, jetztMs: Date.now() }));
+  };
+  setTimeout(() => {
+    lauf();
+    setInterval(lauf, e.taktMs ?? LOG_AUFRAEUMEN_TAKT_MS).unref();
+  }, e.verzoegerungMs ?? LOG_AUFRAEUMEN_VERZOEGERUNG_MS).unref();
 }
 
 /** Zeilen fürs Log: eine Info-Zeile nur, wenn etwas geschah; je Fehler eine Warnung. */

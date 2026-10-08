@@ -13,7 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { buildCsp, type CspConfig } from './csp';
-import { berichtZeilen, LOG_AUFRAEUMEN_TAKT_MS, raeumeLogsAuf, type AufraeumBericht } from './log-aufraeumen';
+import { berichtZeilen, planeLogAufraeumen, type AufraeumBericht } from './log-aufraeumen';
 import { MasterLinkClient, masterLinkPfad, verbundWert, type ClientZustand } from '@jm/master-link';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -557,10 +557,6 @@ export function initAppRuntime(opts: AppRuntimeOptions): AppRuntime {
   } catch {
     /* notfalls schreibt der Logger einfach nichts */
   }
-  // Löschfrist 14 Tage (Spec Zoom Stage 4, N4b.2): vor dem ersten Schreiben, solange keine Logdatei offen ist.
-  // raeumeLogsAuf wirft nie; was schiefging, steht gleich danach im Log.
-  const ersterBericht = raeumeLogsAuf({ ordner: logDir, jetztMs: Date.now() });
-
   const log = createLogger({
     appId: opts.appId,
     logDir,
@@ -569,12 +565,11 @@ export function initAppRuntime(opts: AppRuntimeOptions): AppRuntime {
     toConsole: isDev,
   });
   defaultLogger = log;
-  meldeAufraeumen(log, ersterBericht);
-  // Langläufer (Launcher, Connect im Tray) räumen alle 6 h nach. unref: Der Takt hält keine App am Leben.
-  setInterval(
-    () => meldeAufraeumen(log, raeumeLogsAuf({ ordner: logDir, jetztMs: Date.now() })),
-    LOG_AUFRAEUMEN_TAKT_MS,
-  ).unref();
+  // Löschfrist 14 Tage (Spec Zoom Stage 4, N4b.2): erst 30 s nach dem Start, dann alle 6 h, und nur im Prozess mit dem
+  // Single-Instance-Lock (Gesamtprüfung 4b). initAppRuntime läuft VOR requestSingleInstanceLock; eine zweite Instanz
+  // (Doppelklick, Deep-Link, .jmshow) kürzte sonst main.log und renderer.log der laufenden, während diese schreibt.
+  // Jeder Bericht geht ins Log; unref: Die Zeitgeber halten keine App am Leben.
+  planeLogAufraeumen({ ordner: logDir, melde: (b) => meldeAufraeumen(log, b), darf: () => app.hasSingleInstanceLock() });
 
   installCrashHandlers(log, logDir, opts.appId);
 

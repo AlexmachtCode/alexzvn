@@ -8,6 +8,7 @@
 //
 // Dazu die Löschfrist der Logs (Plan Zoom 4b, Aufgabe 17; Spec N4b.2): log-aufraeumen.ts ist wie csp.ts
 // frei von Electron und läuft hier gegen Temp-Ordner mit eingespeister Uhr.
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,9 +17,12 @@ import {
   berichtZeilen,
   KUERZEN_MAX_BYTES,
   LOG_AUFRAEUMEN_TAKT_MS,
+  LOG_AUFRAEUMEN_VERZOEGERUNG_MS,
   LOG_DATEIMUSTER,
   LOG_FRIST_MS,
+  planeLogAufraeumen,
   raeumeLogsAuf,
+  type AufraeumBericht,
 } from '../src/log-aufraeumen.ts';
 
 let passed = 0;
@@ -262,15 +266,57 @@ const fsFehler = (code: string): Error => Object.assign(new Error(`${code}: Prob
 }
 
 {
+  // Gesamtprüfung 4b: initAppRuntime läuft VOR dem Single-Instance-Lock. Eine zweite Instanz (Doppelklick, Deep-Link,
+  // .jmshow, Launcher-Start einer laufenden App) darf main.log und renderer.log der laufenden nicht kürzen: Schreibt diese
+  // im Fenster zwischen Lesen und Umbenennen, ist ihre Zeile weg. planeLogAufraeumen räumt darum nie sofort auf, sondern
+  // erst nach einer Wartezeit und nur, wenn `darf` (der Lock) es erlaubt; danach im Takt.
+  const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  const alt = (o: string, name: string): void => lege(o, name, zeile(Date.now() - 16 * TAG, 'alt'), Date.now() - 15 * TAG);
+  check('Wartezeit vor dem ersten Lauf: 30 s', LOG_AUFRAEUMEN_VERZOEGERUNG_MS === 30 * 1000);
+
+  const o = neuerOrdner();
+  alt(o, 'main.log.2');
+  const berichte: AufraeumBericht[] = [];
+  planeLogAufraeumen({ ordner: o, melde: (b) => berichte.push(b), darf: () => true, verzoegerungMs: 100, taktMs: 150 });
+  check('planen räumt nicht sofort auf (die App hat den Lock noch nicht angefragt)', da(o, 'main.log.2') && berichte.length === 0);
+  await warte(250);
+  check('… nach der Wartezeit: alte Datei gelöscht, der Bericht geht an melde',
+    !da(o, 'main.log.2') && berichte.length >= 1 && JSON.stringify(berichte[0].geloescht) === '["main.log.2"]');
+  alt(o, 'main.log.3');
+  await warte(400);
+  check('… danach im Takt wieder', !da(o, 'main.log.3') && berichte.some((b) => b.geloescht.includes('main.log.3')));
+
+  const o2 = neuerOrdner();
+  alt(o2, 'main.log.2');
+  const berichte2: AufraeumBericht[] = [];
+  let gefragt = 0;
+  planeLogAufraeumen({ ordner: o2, melde: (b) => berichte2.push(b), darf: () => (gefragt += 1, false), verzoegerungMs: 50, taktMs: 50 });
+  await warte(300);
+  check('ohne Lock (zweite Instanz): nie aufräumen, nichts melden, aber bei jedem Lauf gefragt',
+    da(o2, 'main.log.2') && berichte2.length === 0 && gefragt >= 2);
+
+  // Die Zeitgeber halten keine App am Leben (unref): Ein Node-Prozess, der nur plant, endet sofort.
+  const modul = new URL('../src/log-aufraeumen.ts', import.meta.url).href;
+  const t0 = Date.now();
+  const kind = spawnSync(
+    process.execPath,
+    ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e',
+      `const m = await import(${JSON.stringify(modul)}); m.planeLogAufraeumen({ ordner: ${JSON.stringify(neuerOrdner())}, melde: () => {}, darf: () => true });`],
+    { encoding: 'utf8', timeout: 20_000 },
+  );
+  check('… ohne verzoegerungMs (30 s) endet ein Prozess, der nur plant, sofort (unref)', kind.status === 0 && Date.now() - t0 < 10_000);
+
   // index.ts importiert electron und lässt sich hier nicht laden. Geprüft wird darum der Aufrufort im Quelltext:
-  // Eine Regel, die nie gerufen wird, löscht nichts.
+  // Eine Regel, die nie gerufen wird, löscht nichts; ein Bericht, der nicht ins Log geht, zeigt niemand an.
   const quelle = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
   const init = quelle.slice(quelle.indexOf('export function initAppRuntime('));
-  const mk = init.indexOf('mkdirSync(logDir');
-  const auf = init.indexOf('raeumeLogsAuf(');
   const logger = init.indexOf('createLogger(');
-  check('initAppRuntime räumt nach mkdirSync und vor dem ersten Logger auf', mk >= 0 && auf > mk && logger > auf);
-  check('… und danach alle 6 Stunden, ohne die App am Leben zu halten', /setInterval\([\s\S]*?LOG_AUFRAEUMEN_TAKT_MS,?\s*\)\.unref\(\)/.test(init));
+  const plan = init.indexOf('planeLogAufraeumen(');
+  check('initAppRuntime plant das Aufräumen nach dem Logger, nur mit dem Lock, der Bericht geht ins Log',
+    logger >= 0 && plan > logger && /planeLogAufraeumen\(\{[\s\S]*?darf: \(\) => app\.hasSingleInstanceLock\(\)/.test(init)
+      && /planeLogAufraeumen\(\{[\s\S]*?melde: \(b\) => meldeAufraeumen\(log, b\)/.test(init));
+  check('… und index.ts räumt nirgends sofort auf (kein raeumeLogsAuf, kein eigener Takt)',
+    !quelle.includes('raeumeLogsAuf(') && !quelle.includes('LOG_AUFRAEUMEN_TAKT_MS'));
 }
 
 for (const o of temp) {
