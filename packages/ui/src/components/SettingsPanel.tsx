@@ -28,19 +28,27 @@ export function useSettingsPanel(): { hervorgehoben?: string } {
   return useContext(PanelKontext);
 }
 
-/** Bedienelemente, die Tasten selbst verbrauchen (Leertaste schaltet, Pfeile wählen): dort bleibt die Taste im Panel. */
-const BEDIENELEMENTE = new Set(['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A']);
+/** INPUT-Typen ohne Texteingabe: wie ein Knopf, sie verbrauchen die Leertaste nicht. */
+const KNOPF_TYPEN = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'image']);
 
-function istBedienelement(ziel: unknown): boolean {
-  const el = ziel as { tagName?: string; isContentEditable?: boolean } | null | undefined;
-  return !!el && (BEDIENELEMENTE.has(el.tagName ?? '') || el.isContentEditable === true);
+/**
+ * Felder, die Zeichen- und Navigationstasten selbst verbrauchen (Text, Zahl, Bereich, Auswahl, contentEditable).
+ * Knöpfe, Schalter, Links und Häkchen gehören nicht dazu: ihre Aktivierung per Leertaste unterdrücken die Tool-Handler
+ * (preventDefault), dort gilt Spec 10 – Leertaste = GO.
+ */
+function verbrauchtTasten(ziel: unknown): boolean {
+  const el = ziel as { tagName?: string; type?: string; isContentEditable?: boolean } | null | undefined;
+  if (!el) return false;
+  if (el.isContentEditable === true) return true;
+  if (el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return true;
+  return el.tagName === 'INPUT' && !KNOPF_TYPEN.has(el.type ?? '');
 }
 
 /**
  * Tasten im Panel (E8, Spec 10 „Tastaturkürzel bleiben gleich“): Escape bleibt im Panel und schließt es, wenn die Taste noch
- * niemandem gehört (nicht defaultPrevented). Jede andere Taste bleibt nur im Panel, wenn sie auf einem Bedienelement liegt
- * (Toggle, Feld, Auswahl, Knopf, Link) – dort würde sie sonst zugleich schalten und ein Tool-Kürzel (Leertaste = GO) auslösen.
- * Liegt der Fokus auf dem Panel oder einem Abschnitt (z. B. nach einem Klick auf ⚙), erreichen die Kürzel das Tool wie bisher.
+ * niemandem gehört (nicht defaultPrevented). Jede andere Taste bleibt nur im Panel, wenn ein Feld sie wirklich verbraucht
+ * (Text tippen, Pfeile in Auswahl/Bereich) und kein Strg/Meta/Alt gedrückt ist. Alles andere – Knöpfe, Schalter, Links,
+ * Panel und Abschnitte, Kürzel mit Strg – erreicht das Tool wie bisher (Leertaste = GO auch auf einem fokussierten Schalter).
  * Hängt am Panel selbst. Nur aus dieser Datei exportiert.
  */
 export function panelTaste(
@@ -48,12 +56,16 @@ export function panelTaste(
     key: string;
     defaultPrevented: boolean;
     target?: unknown;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    altKey?: boolean;
     stopPropagation(): void;
     preventDefault(): void;
   },
   onClose: () => void,
 ): void {
-  if (e.key === 'Escape' || istBedienelement(e.target)) e.stopPropagation();
+  const kuerzel = e.ctrlKey === true || e.metaKey === true || e.altKey === true;
+  if (e.key === 'Escape' || (!kuerzel && verbrauchtTasten(e.target))) e.stopPropagation();
   if (e.key !== 'Escape' || e.defaultPrevented) return;
   e.preventDefault();
   onClose();

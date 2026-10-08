@@ -107,10 +107,13 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
 // ── Escape (panelTaste) ──
 {
   const protokoll: string[] = [];
-  const taste = (key: string, defaultPrevented = false, target?: { tagName: string }) => ({
+  type Ziel = { tagName: string; type?: string; isContentEditable?: boolean };
+  type Mod = { ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean };
+  const taste = (key: string, defaultPrevented = false, target?: Ziel, mod: Mod = {}) => ({
     key,
     defaultPrevented,
     target,
+    ...mod,
     stopPropagation: () => void protokoll.push('stop'),
     preventDefault: () => void protokoll.push('prevent'),
   });
@@ -123,9 +126,23 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
   panelTaste(taste(' ', false, { tagName: 'ASIDE' }), zu);
   panelTaste(taste(' ', false, { tagName: 'DIV' }), zu);
   gleich(protokoll, [], 'panelTaste Taste mit Fokus auf Panel/Abschnitt → nichts (Leertaste/Pfeile erreichen die Tool-Kürzel, Spec 10)');
-  for (const tagName of ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A']) panelTaste(taste(' ', false, { tagName }), zu);
-  panelTaste(taste(' ', false, { tagName: 'DIV', isContentEditable: true } as { tagName: string }), zu);
-  gleich(protokoll, ['stop', 'stop', 'stop', 'stop', 'stop', 'stop'], 'panelTaste Taste auf einem Bedienelement im Panel → stopPropagation (Toggle + GO nie zugleich), schließt nicht');
+  // Knöpfe, Schalter, Links, Häkchen verbrauchen die Leertaste nicht (Tool-Handler rufen preventDefault): Spec 10, Leertaste = GO bleibt.
+  for (const tagName of ['BUTTON', 'A']) panelTaste(taste(' ', false, { tagName }), zu);
+  for (const type of ['checkbox', 'radio', 'button']) panelTaste(taste(' ', false, { tagName: 'INPUT', type }), zu);
+  gleich(protokoll, [], 'panelTaste Leertaste auf Knopf/Link/Häkchen → nichts (Tool-Kürzel gilt wie bisher, Spec 10)');
+  // Felder verbrauchen Zeichen- und Navigationstasten: die bleiben im Panel.
+  for (const tagName of ['INPUT', 'SELECT', 'TEXTAREA']) panelTaste(taste(' ', false, { tagName }), zu);
+  panelTaste(taste('ArrowLeft', false, { tagName: 'INPUT', type: 'range' }), zu);
+  panelTaste(taste('a', false, { tagName: 'INPUT', type: 'text' }), zu);
+  panelTaste(taste(' ', false, { tagName: 'DIV', isContentEditable: true }), zu);
+  gleich(protokoll, ['stop', 'stop', 'stop', 'stop', 'stop', 'stop'], 'panelTaste Taste auf Feld/Auswahl/contentEditable → stopPropagation, schließt nicht');
+  protokoll.length = 0;
+  // Kürzel mit Strg/Meta/Alt verbraucht kein Feld: sie erreichen das Tool (DAW Strg+S).
+  for (const mod of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) panelTaste(taste('s', false, { tagName: 'INPUT', type: 'text' }, mod), zu);
+  gleich(protokoll, [], 'panelTaste Strg/Meta/Alt+Taste im Feld → nichts (Tool-Kürzel erreichen das Tool)');
+  // Pfeile/Entf/Pos1 auf einem Knopf: der Knopf verbraucht sie nicht.
+  for (const key of ['ArrowUp', 'ArrowDown', 'Delete', 'Home', 'r']) panelTaste(taste(key, false, { tagName: 'BUTTON' }), zu);
+  gleich(protokoll, [], 'panelTaste andere Tasten auf einem Knopf → nichts');
   protokoll.length = 0;
   panelTaste(taste('Escape', false, { tagName: 'DIV' }), zu);
   gleich(protokoll, ['stop', 'prevent', 'zu'], 'panelTaste Escape auch ohne Bedienelement → stopPropagation, preventDefault, onClose');
