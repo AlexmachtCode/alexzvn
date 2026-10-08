@@ -483,7 +483,7 @@ console.log('— Owner 08.10.2026: Stände „keineAntwort“ (Q8) und „gesche
     teilnehmer: [t(16778240, 'Anna'), t(16778241, 'Ben'), t(16778242, 'Carla', true), t(16778243, 'Dora'), t(16778244, 'dora'),
       t(16778250, 'Emil'), t(16778255, 'Fritz')],
     abos: new Map([[16778299, { verwaist: true }]]),
-    ladeFehler: new Map([[16778240, 'keineAntwort'], [16778241, 'gescheitert'], [16778242, 'gescheitert'], [16778243, 'keineAntwort'],
+    zeilenStand: new Map([[16778240, 'keineAntwort'], [16778241, 'gescheitert'], [16778242, 'gescheitert'], [16778243, 'keineAntwort'],
       [16778250, 'gescheitert'], [16778245, 'keineAntwort'], [16778246, 'gescheitert']]),
   };
   const staende = (l: SollLage, plaetze?: number): string => JSON.stringify(sollAbbild(soll, l, plaetze).map((e) => [e.name, e.stand]));
@@ -495,7 +495,7 @@ console.log('— Owner 08.10.2026: Stände „keineAntwort“ (Q8) und „gesche
     && sollAbbild(soll, lage).filter((e) => e.stand === 'keineAntwort' || e.stand === 'gescheitert').every((e) => e.aboId === null && !e.doppelname));
   const ohne: SollLage = { teilnehmer: lage.teilnehmer, abos: lage.abos };
   ck('… endet der Fehler (Zeilenfehler gelöscht), stimmt der alte Stand wieder: „wartet“',
-    staende({ ...lage, ladeFehler: new Map() }) === staende(ohne) && staende(ohne).startsWith('[["Anna","wartet"],["Ben","wartet"]'));
+    staende({ ...lage, zeilenStand: new Map() }) === staende(ohne) && staende(ohne).startsWith('[["Anna","wartet"],["Ben","wartet"]'));
   ck('… Zählung und Handlungen unverändert (kein automatischer neuer Versuch über den Stand)',
     JSON.stringify(sollAbbild(soll, lage).map((e) => e.name)) === JSON.stringify(sollAbbild(soll, ohne).map((e) => e.name))
     && JSON.stringify(sollHandlungen(soll, lage)) === JSON.stringify(sollHandlungen(soll, ohne)));
@@ -544,14 +544,14 @@ console.log('— Owner 08.10.2026: Stände „keineAntwort“ (Q8) und „gesche
           teilnehmer: TREFFER[tr],
           abos: abo === 'verwaist' ? new Map([[ALT, { verwaist: true }]]) : new Map(),
           erlaubnisFehlt, abgleichGeplant: geplant, ausserhalbMeeting: aussen,
-          ...(FEHLER[f] ? { ladeFehler: FEHLER[f] } : {}),
+          ...(FEHLER[f] ? { zeilenStand: FEHLER[f] } : {}),
         };
         const ist = sollAbbild(einer, l, plaetze);
-        const ohneFehler = sollAbbild(einer, { ...l, ladeFehler: undefined }, plaetze);
+        const ohneFehler = sollAbbild(einer, { ...l, zeilenStand: undefined }, plaetze);
         const erwartet = vorrang(abo, tr, aussen, plaetze, erlaubnisFehlt, geplant, f);
         // Zählung (offen ja oder nein) und Handlungen hängen nicht am Fehler an der Zeile.
         const gleich = ist.length === 1 && ist[0].stand === erwartet && ohneFehler.length === 1
-          && JSON.stringify(sollHandlungen(einer, l, plaetze)) === JSON.stringify(sollHandlungen(einer, { ...l, ladeFehler: undefined }, plaetze));
+          && JSON.stringify(sollHandlungen(einer, l, plaetze)) === JSON.stringify(sollHandlungen(einer, { ...l, zeilenStand: undefined }, plaetze));
         if (!gleich) {
           abweichung.push(`${abo}/${tr}/${aussen ? 'außerhalb' : 'im Meeting'}/Plätze ${plaetze}/${erlaubnisFehlt ? 'ohne Erlaubnis' : 'Erlaubnis'}/`
             + `${geplant ? 'geplant' : '-'}: ${ist[0]?.stand ?? 'nichts'} statt ${erwartet}`);
@@ -560,6 +560,92 @@ console.log('— Owner 08.10.2026: Stände „keineAntwort“ (Q8) und „gesche
     if (abweichung.length > 0) console.log(`     (${f}: ${abweichung.length} Abweichungen, etwa ${abweichung.slice(0, 3).join(' | ')})`);
     ck(`Kreuzprodukt, Fehler an der Zeile „${f}“: alle ${n} Lagen nach der Vorrangtabelle, Zählung und Handlungen wie ohne Fehler`,
       abweichung.length === 0 && n === 128);
+  }
+}
+
+console.log('— Ruling 08.10.2026 (R1, R2): Q1 an ihrer Zeile → „erlaubnis“, Q2 ist kein Ladefehler (Rückfall „wartet“); Vorrang-Kreuzprodukt');
+{
+  const t = (id: number, name: string, imWarteraum = false) => ({ id, name, imWarteraum });
+  // Lesbarer Fall: im Meeting, Connect führt die Aufnahme-Erlaubnis als „ja“ (kein erlaubnisFehlt), kein Abgleich geplant. An Annas
+  // Zeile steht Q1 (der Kern trägt dafür 'erlaubnis' ein), an Bens Zeile Q2 (der Kern trägt nichts ein, R1). Carla steht mit Q1 im
+  // Warteraum, Dora ist doppelt da (Q1 an einer der beiden), Emil ist mit neuer Kennung da, Q1 steht an seiner alten.
+  const eintrag = (name: string, aboId: number) => ({ name, ton: true, ndiName: `JM Connect – Zoom ${name}`, aboId });
+  const soll: SollListe = new Map([
+    ['anna', eintrag('Anna', 16778240)], ['ben', eintrag('Ben', 16778241)], ['carla', eintrag('Carla', 16778242)],
+    ['dora', eintrag('Dora', 16778243)], ['emil', eintrag('Emil', 16778245)],
+  ]);
+  const lage: SollLage = {
+    teilnehmer: [t(16778240, 'Anna'), t(16778241, 'Ben'), t(16778242, 'Carla', true), t(16778243, 'Dora'), t(16778244, 'dora'),
+      t(16778255, 'Emil')],
+    abos: new Map(),
+    zeilenStand: new Map([[16778240, 'erlaubnis'], [16778242, 'erlaubnis'], [16778243, 'erlaubnis'], [16778245, 'erlaubnis']]),
+  };
+  const ohne: SollLage = { teilnehmer: lage.teilnehmer, abos: lage.abos };
+  const staende = (l: SollLage, plaetze?: number): string => JSON.stringify(sollAbbild(soll, l, plaetze).map((e) => [e.name, e.stand]));
+  ck('Q1 an Annas Zeile → „erlaubnis“, obwohl Connect die Erlaubnis als „ja“ führt; Q2 an Bens Zeile → „wartet“; Warteraum, doppelt und alte Kennung wie ohne',
+    staende(lage) === JSON.stringify([['Anna', 'erlaubnis'], ['Ben', 'wartet'], ['Carla', 'wartet'], ['Dora', 'doppelname'], ['Emil', 'wartet']])
+    && staende(ohne) === JSON.stringify([['Anna', 'wartet'], ['Ben', 'wartet'], ['Carla', 'wartet'], ['Dora', 'doppelname'], ['Emil', 'wartet']]));
+  ck('… „erlaubnis“ aus der Zeile ohne aboId und ohne Doppelname-Markierung',
+    sollAbbild(soll, lage).filter((e) => e.stand === 'erlaubnis').length === 1
+    && sollAbbild(soll, lage).filter((e) => e.stand === 'erlaubnis').every((e) => e.aboId === null && !e.doppelname));
+  ck('… ein geplanter Abgleich lädt Anna gleich neu: „laedt“ hat Vorrang wie bei keineAntwort und gescheitert',
+    staende({ ...lage, abgleichGeplant: true })
+      === JSON.stringify([['Anna', 'laedt'], ['Ben', 'laedt'], ['Carla', 'wartet'], ['Dora', 'doppelname'], ['Emil', 'laedt']]));
+  ck('… Zählung und Handlungen wie ohne Q1 an der Zeile',
+    JSON.stringify(sollAbbild(soll, lage).map((e) => e.name)) === JSON.stringify(sollAbbild(soll, ohne).map((e) => e.name))
+    && JSON.stringify(sollHandlungen(soll, lage)) === JSON.stringify(sollHandlungen(soll, ohne)));
+
+  // Kreuzprodukt wie im Block davor, für Q1 an IHRER Zeile bzw. an einer fremden (alte Kennung, Bens Zeile). Vorrang:
+  // verwaist > wiederbeitritt > grenze > doppelname > erlaubnis (ohne Erlaubnis) > laedt > erlaubnis (Q1 an ihrer Zeile) > wartet.
+  type Abo = 'keins' | 'verwaist';
+  type Treffer = 'keiner' | 'da' | 'warteraum' | 'doppelt';
+  type Q1 = 'an ihrer Zeile' | 'an fremder Zeile';
+  const ANNA = 16778240, ALT = 16778299;
+  const TREFFER: Record<Treffer, SollLage['teilnehmer']> = {
+    keiner: [t(16778241, 'Ben')],
+    da: [t(ANNA, 'Anna'), t(16778241, 'Ben')],
+    warteraum: [t(ANNA, 'Anna', true)],
+    doppelt: [t(ANNA, 'Anna'), t(16778244, 'ANNA ')],
+  };
+  const ZEILE: Record<Q1, SollLage['zeilenStand']> = {
+    'an ihrer Zeile': new Map([[ANNA, 'erlaubnis']]),
+    'an fremder Zeile': new Map([[ALT, 'erlaubnis'], [16778241, 'erlaubnis']]),
+  };
+  const vorrang = (abo: Abo, tr: Treffer, aussen: boolean, plaetze: number, erlaubnisFehlt: boolean, geplant: boolean, q: Q1): string => {
+    if (abo === 'verwaist') return 'verwaist';
+    if (aussen) return 'wiederbeitritt';
+    const personDa = tr === 'da';
+    if (personDa && plaetze <= 0) return 'grenze';
+    if (tr === 'doppelt') return 'doppelname';
+    if (personDa && erlaubnisFehlt) return 'erlaubnis';
+    if (personDa && geplant) return 'laedt';
+    if (personDa && q === 'an ihrer Zeile') return 'erlaubnis';
+    return 'wartet';
+  };
+  const B = [false, true];
+  for (const q of Object.keys(ZEILE) as Q1[]) {
+    const abweichung: string[] = [];
+    let n = 0;
+    for (const abo of ['keins', 'verwaist'] as Abo[]) for (const tr of Object.keys(TREFFER) as Treffer[]) for (const aussen of B)
+      for (const plaetze of [Infinity, 0]) for (const erlaubnisFehlt of B) for (const geplant of B) {
+        n += 1;
+        const einer: SollListe = new Map([['anna', { name: 'Anna', ton: true, ndiName: 'JM Connect – Zoom Anna', aboId: abo === 'verwaist' ? ALT : ANNA }]]);
+        const l: SollLage = {
+          teilnehmer: TREFFER[tr],
+          abos: abo === 'verwaist' ? new Map([[ALT, { verwaist: true }]]) : new Map(),
+          erlaubnisFehlt, abgleichGeplant: geplant, ausserhalbMeeting: aussen, zeilenStand: ZEILE[q],
+        };
+        const ist = sollAbbild(einer, l, plaetze);
+        const erwartet = vorrang(abo, tr, aussen, plaetze, erlaubnisFehlt, geplant, q);
+        const gleich = ist.length === 1 && ist[0].stand === erwartet && sollAbbild(einer, { ...l, zeilenStand: undefined }, plaetze).length === 1
+          && JSON.stringify(sollHandlungen(einer, l, plaetze)) === JSON.stringify(sollHandlungen(einer, { ...l, zeilenStand: undefined }, plaetze));
+        if (!gleich) {
+          abweichung.push(`${abo}/${tr}/${aussen ? 'außerhalb' : 'im Meeting'}/Plätze ${plaetze}/${erlaubnisFehlt ? 'ohne Erlaubnis' : 'Erlaubnis'}/`
+            + `${geplant ? 'geplant' : '-'}: ${ist[0]?.stand ?? 'nichts'} statt ${erwartet}`);
+        }
+      }
+    if (abweichung.length > 0) console.log(`     (Q1 ${q}: ${abweichung.length} Abweichungen, etwa ${abweichung.slice(0, 3).join(' | ')})`);
+    ck(`Kreuzprodukt, Q1 ${q}: alle ${n} Lagen nach der Vorrangtabelle, Zählung und Handlungen wie ohne`, abweichung.length === 0 && n === 128);
   }
 }
 

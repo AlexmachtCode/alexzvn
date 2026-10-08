@@ -305,15 +305,27 @@ export function quellenFehler(code: string, name: string, person: string | null,
  * Owner 08.10.2026 („Laden gescheitert, bitte von Hand laden“): Steht dieser Bild- oder Tonfehler an der Zeile einer Person
  * ohne laufende Quelle, hat die Bridge das Laden genau dieser Person abgelehnt. Mit Kennung meldet die Bridge solche Fehler nur
  * als Antwort auf videoSubscribe (video.cpp videoSubscribe, main.cpp videoBadResolution und videoBadAudioFlag) und beim
- * Umhängen (video.cpp, videoRendererFailed an der neuen Kennung). Ja für jeden Zeilenfehler aus quellenFehler außer Q13: Q1
- * (videoNoPrivilege), Q2 (videoUnknownParticipant), Q4 (videoRendererFailed, videoRawRecordingFailed, videoSenderFailed und
- * jeder unbekannte Code, etwa videoBadResolution, den Connect mit seiner festen Auflösung 720p praktisch nie auslöst, und
- * videoBadAudioFlag) und Q5 (audio…; die Bridge meldet sie heute ohne Kennung, also als Hinweis, nie an einer Zeile).
- * Nein für Q13 (videoBadDelay gilt dem Bild-Versatz aller Quellen und kommt ohne Kennung), für Q3 und videoNotSubscribed
- * (kein Text) und für die Hinweise Q6, Q16, Q17.
+ * Umhängen (video.cpp, videoRendererFailed an der neuen Kennung). Ja für jeden Zeilenfehler aus quellenFehler außer Q1, Q2 und
+ * Q13: Q4 (videoRendererFailed, videoRawRecordingFailed, videoSenderFailed und jeder unbekannte Code, etwa videoBadResolution,
+ * den Connect mit seiner festen Auflösung 720p praktisch nie auslöst, und videoBadAudioFlag) und Q5 (audio…; die Bridge meldet
+ * sie heute ohne Kennung, also als Hinweis, nie an einer Zeile).
+ * Nein (Ruling 08.10.2026, R1 und R2: „von Hand laden“ brächte nichts) für Q2 (videoUnknownParticipant: Die Person ist nicht mehr
+ * im Meeting, der Eintrag fällt auf „wartet auf die Person“ zurück) und Q1 (videoNoPrivilege: der Eintrag wartet auf die
+ * Aufnahme-Erlaubnis, istErlaubnisFehler). Nein auch für Q13 (videoBadDelay gilt dem Bild-Versatz aller Quellen und kommt ohne
+ * Kennung), für Q3 und videoNotSubscribed (kein Text) und für die Hinweise Q6, Q16, Q17.
  */
 export function istLadeFehler(code: string): boolean {
-  return code !== 'videoBadDelay' && quellenFehler(code, code, null).art === 'zeile';
+  if (code === 'videoNoPrivilege' || code === 'videoUnknownParticipant' || code === 'videoBadDelay') return false;
+  return quellenFehler(code, code, null).art === 'zeile';
+}
+
+/**
+ * Ruling 08.10.2026 (R2): Q1 (videoNoPrivilege) an der Zeile einer Person ohne laufende Quelle heißt, die Bridge hat ihr Abo
+ * abgelehnt, weil die Aufnahme-Erlaubnis fehlt. Ist die Person eindeutig da, wartet ihr gemerkter Eintrag dann auf die
+ * Erlaubnis (Stand 'erlaubnis'), auch wenn Connect die Erlaubnis noch als „ja“ führt (bis zum privilege-Ereignis).
+ */
+export function istErlaubnisFehler(code: string): boolean {
+  return code === 'videoNoPrivilege';
 }
 
 /** Ton-Zustand einer Quelle: nur `off`/`audioUnavailable` ist ein Fehler (Q5); `off`/`command` ist „ohne Ton geladen“. */

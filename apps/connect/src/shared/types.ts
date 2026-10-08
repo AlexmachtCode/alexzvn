@@ -148,7 +148,9 @@ export interface ZoomSollEintrag {
   ndiName: string;
   /**
    * 'grenze': würde abonniert, aber die Betriebsgröße ist erreicht (L7, N4b.3 Nr. 3); zählt als offen.
-   * 'erlaubnis': die Person ist eindeutig da, aber im Meeting fehlt die Aufnahme-Erlaubnis (Z6, Z7).
+   * 'erlaubnis': die Person ist eindeutig da, aber im Meeting fehlt die Aufnahme-Erlaubnis (Z6, Z7). Ruling 08.10.2026 (R2):
+   * auch, wenn an IHRER Zeile Q1 steht (die Bridge lehnte ihr Abo mangels Erlaubnis ab), obwohl Connect die Erlaubnis noch als
+   * „ja“ führt; wie 'keineAntwort' und 'gescheitert' ersetzt das nur den Rückfall 'wartet'.
    * 'laedt': das Abo ist gesendet, die Bridge hat es noch nicht bestätigt (höchstens bis zur Frist Q8), oder im Meeting
    * mit Erlaubnis ist ein Abgleich geplant, der diesen Eintrag abonnieren wird (noch kein Abo gesendet).
    * Beide Zusätze aus der Gesamtprüfung 4b („Statuszeile lügt“); zählen als offen.
@@ -160,7 +162,8 @@ export interface ZoomSollEintrag {
    * läuft weiter und muss sich per „Entladen“ abbauen lassen (Ruling 08.10.2026). Zählt als offen.
    * 'keineAntwort' und 'gescheitert' (Owner 08.10.2026): im Meeting mit Erlaubnis, die Person ist eindeutig da, und an IHRER
    * Teilnehmerzeile steht, dass ihr Laden gescheitert ist: 'keineAntwort' = das Abo blieb ohne Antwort der Bridge (Q8),
-   * 'gescheitert' = die Bridge hat das Abo mit Fehler abgelehnt (istLadeFehler in klartext.ts). Sie ersetzen nur den
+   * 'gescheitert' = die Bridge hat das Abo mit Fehler abgelehnt (istLadeFehler in klartext.ts; nicht Q1 und nicht Q2, Ruling
+   * 08.10.2026: bei Q2 ist die Person weg, es bleibt 'wartet'). Sie ersetzen nur den
    * Rückfall 'wartet'; alle anderen Stände (auch 'laedt' bei geplantem Abgleich) behalten Vorrang. Kein automatischer neuer
    * Versuch. Zählen als offen.
    */

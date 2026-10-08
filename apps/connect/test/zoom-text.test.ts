@@ -19,7 +19,7 @@ import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import * as fristen from '../src/main/zoom/fristen';
 import {
   authMeldung, dllMeldung, endeMeldung, ENDGUELTIGE_FAIL_CODES, exitCodeAus, failMeldung, failText, fehlerDetail, fernLogText, FT,
-  istEndgueltig, istLadeFehler, KT, mangelText, maskiere, maskiereNamen, quellenFehler, spawnMeldung, tonZustand, VORSATZ, type VersuchsAusgang,
+  istEndgueltig, istErlaubnisFehler, istLadeFehler, KT, mangelText, maskiere, maskiereNamen, quellenFehler, spawnMeldung, tonZustand, VORSATZ, type VersuchsAusgang,
 } from '../src/main/zoom/klartext';
 
 let pass = 0, fail = 0;
@@ -670,15 +670,27 @@ console.log('— 8.4: Bild-/Ton-Fehler → Zeile, Hinweis oder nichts');
 
 console.log('— Owner 08.10.2026: Welche Zeilenfehler ein gescheitertes Laden genau dieser Person bedeuten (Stand „gescheitert“)');
 {
-  // Die Bridge lehnt das Abo der Person ab (video.cpp videoSubscribe, main.cpp; jeweils mit Kennung): Q1, Q2, Q4; dazu Q5,
+  // Die Bridge lehnt das Abo der Person ab (video.cpp videoSubscribe, main.cpp; jeweils mit Kennung): Q4; dazu Q5,
   // falls ein Tonfehler je eine Kennung trüge, und jeder unbekannte Code (wie quellenFehler: Zeile Q4), etwa die beiden
   // Befehlsfeld-Fehler aus main.cpp (videoBadResolution, videoBadAudioFlag).
-  const JA = ['videoNoPrivilege', 'videoUnknownParticipant', 'videoRendererFailed', 'videoRawRecordingFailed', 'videoSenderFailed',
+  const JA = ['videoRendererFailed', 'videoRawRecordingFailed', 'videoSenderFailed',
     'videoBadResolution', 'videoBadAudioFlag', 'videoNeu', 'audioVoipJoinFailed', 'audioHelperMissing', 'audioSubscribeFailed'];
   for (const code of JA) ck(`${code} → Ladefehler`, istLadeFehler(code) && quellenFehler(code, code, 'Anna', undefined, 16778240).art === 'zeile');
   // Q13 gilt dem Bild-Versatz aller Quellen, kein Laden; Q3, videoNotSubscribed und die Hinweise stehen an keiner Zeile.
   const NEIN = ['videoBadDelay', 'videoAlreadySubscribed', 'videoNotSubscribed', 'audioQueueOverflow', 'videoBufferMismatch', 'audioBufferMismatch'];
   for (const code of NEIN) ck(`${code} → kein Ladefehler`, !istLadeFehler(code));
+  // Ruling 08.10.2026 (R1, R2): Q1 und Q2 stehen an der Zeile, sind aber kein Ladefehler, denn „von Hand laden“ brächte nichts.
+  // Q2 („Diese Person ist nicht mehr im Meeting.“): Die Person ist weg, der Eintrag wartet auf sie. Q1 („Keine Aufnahme-Erlaubnis …“):
+  // Der Eintrag wartet auf die Aufnahme-Erlaubnis (istErlaubnisFehler), auch wenn Connect sie noch als „ja“ führt.
+  for (const code of ['videoNoPrivilege', 'videoUnknownParticipant']) {
+    ck(`${code} → Zeile, aber kein Ladefehler (Ruling 08.10.2026)`,
+      !istLadeFehler(code) && quellenFehler(code, code, 'Anna', undefined, 16778240).art === 'zeile');
+  }
+  ck('videoNoPrivilege (Q1) → Erlaubnisfehler (Ruling 08.10.2026)', istErlaubnisFehler('videoNoPrivilege'));
+  const andere = [...JA, ...NEIN, 'videoUnknownParticipant'];
+  const auchErlaubnis = andere.filter((code) => istErlaubnisFehler(code));
+  if (auchErlaubnis.length > 0) console.log(`     (fälschlich Erlaubnisfehler: ${auchErlaubnis.join(', ')})`);
+  ck(`jeder andere Code (${andere.length}, auch Q2) → kein Erlaubnisfehler`, andere.length === 16 && auchErlaubnis.length === 0);
 }
 
 console.log('— 8.7: Maskierung nur nicht-leerer Werte, längste zuerst');

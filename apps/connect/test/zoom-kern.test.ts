@@ -3405,16 +3405,21 @@ const abAbriss = (p: Probe): ZoomAbbild[] => p.abbilder.slice(Math.max(0, p.abbi
 console.log('— Owner 08.10.2026: „keine Antwort der Zoom-Bridge“ (Q8) und „Laden gescheitert“ (Ladefehler), jeweils „bitte von Hand laden“');
 /**
  * Owner-Regel „Statuszeile lügt“ über JEDES ausgelieferte Abbild: „keine Antwort …“ nur im Meeting mit Q8 an der Zeile der
- * Person, „Laden gescheitert …“ nur mit einem anderen Zeilenfehler dort; und nie „wartet auf die Person“, solange sie im Meeting
- * mit Erlaubnis eindeutig da ist (nicht im Warteraum) und an ihrer Zeile Q8 oder ein Ladefehler steht.
+ * Person, „Laden gescheitert …“ nur mit einem anderen Zeilenfehler dort, nicht mit Q1 oder Q2 (Ruling 08.10.2026, R1 und R2);
+ * „wartet auf die Aufnahme-Erlaubnis“ nur im Meeting, wenn Connect die Erlaubnis nicht als „ja“ führt oder an ihrer Zeile Q1 steht
+ * (R2); und nie „wartet auf die Person“, solange sie im Meeting mit Erlaubnis eindeutig da ist (nicht im Warteraum) und an ihrer
+ * Zeile Q8 oder ein Ladefehler steht. Q2 dort ist kein Ladefehler (R1): Die Bridge kennt die Person nicht mehr.
  */
 function ladeStaendeEhrlich(p: Probe): boolean {
   return p.abbilder.every((a) => a.soll.every((e) => {
     const t = a.teilnehmer.filter((x) => x.name === e.name);
     const fehler = t.length === 1 && !t[0].imWarteraum ? t[0].fehler : null;
     if (e.stand === 'keineAntwort') return a.kurz.zustand === 'im_meeting' && fehler === KT.Q8;
-    if (e.stand === 'gescheitert') return a.kurz.zustand === 'im_meeting' && fehler !== null && fehler !== KT.Q8;
-    if (e.stand === 'wartet') return !(a.kurz.zustand === 'im_meeting' && a.kurz.erlaubnis === 'ja' && fehler !== null);
+    if (e.stand === 'gescheitert') {
+      return a.kurz.zustand === 'im_meeting' && fehler !== null && fehler !== KT.Q8 && fehler !== KT.Q1 && fehler !== KT.Q2;
+    }
+    if (e.stand === 'erlaubnis') return a.kurz.zustand === 'im_meeting' && (a.kurz.erlaubnis !== 'ja' || fehler === KT.Q1);
+    if (e.stand === 'wartet') return !(a.kurz.zustand === 'im_meeting' && a.kurz.erlaubnis === 'ja' && fehler !== null && fehler !== KT.Q2);
     return true;
   }));
 }
@@ -3631,6 +3636,46 @@ console.log('— Ruling 08.10.2026: Verlassen und Beenden leeren die Soll-Liste 
   ck('„Schließen“ nach Fehler (R7) mit gemerkter Quelle: bereit, in keinem Abbild danach eine gemerkte Quelle',
     bereitZumAbbruch && imFehler && p.kern.kurz().zustand === 'bereit' && p.abbilder.length > ab
     && p.abbilder.slice(ab).every((a) => a.soll.length === 0 && a.kurz.sollOffen === 0));
+  await p.aufraeumen();
+}
+
+// ── Ruling 08.10.2026 (R1, R2): Q1 und Q2 an der Zeile sind kein Ladefehler; „von Hand laden“ brächte nichts ──
+console.log('— Ruling 08.10.2026: Q1 an der Zeile → „wartet auf die Aufnahme-Erlaubnis“, Q2 an der Zeile → „wartet auf die Person“');
+{
+  // R2: Connect führt die Erlaubnis als „ja“, die Bridge lehnt Annas Abo aber mit videoNoPrivilege ab (FAKE_ABO_FEHLER; am echten
+  // SDK der Übergang bis zum privilege-Ereignis). Der Eintrag wartet auf die Erlaubnis, nicht „Laden gescheitert …“.
+  const p = baueKern({ stell: () => ({ FAKE_ABO_FEHLER: 'videoNoPrivilege' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  // Erst nach dem Abgleich, den der Beitritt plant (wie bei „Ladefehler im Meeting“).
+  await warte(500);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Q1 an Annas Zeile, Connect führt die Erlaubnis als „ja“: „Anna — wartet auf die Aufnahme-Erlaubnis“, nicht „Laden gescheitert …“',
+    (await bis(() => zeile(p, ANNA)?.fehler === KT.Q1 && sollStaende(p.kern.abbild()) === 'Anna:erlaubnis', 3000))
+    && p.kern.kurz().erlaubnis === 'ja' && sollZeile(p.kern.abbild().soll[0]) === 'Anna — wartet auf die Aufnahme-Erlaubnis');
+  await warte(1000);
+  ck('… Zählung unverändert (sollOffen 1, zoom_alarm=1); kein automatischer neuer Versuch (ein einziges videoSubscribe); nie „gescheitert“',
+    p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1 && sollStaende(p.kern.abbild()) === 'Anna:erlaubnis'
+    && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1 && p.abbilder.every((a) => sollStaende(a) !== 'Anna:gescheitert'));
+  ck('… nimmt die Bridge das nächste Abo an (hier von Hand geladen): verbunden, Zeile ohne Fehler, keine gemerkte Quelle offen, jedes Abbild ohne Lüge',
+    ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false })) && (await bis(() => p.kern.kurz().quellen === 1, 3000))
+    && zeile(p, ANNA)?.fehler === null && p.kern.abbild().soll.length === 0 && p.kern.stateKv()?.zoom_alarm === 0 && ladeStaendeEhrlich(p));
+  await p.aufraeumen();
+}
+{
+  // R1: Die Bridge kennt Anna nicht mehr (videoUnknownParticipant; am echten SDK der Übergang bis zum left-Ereignis), Connects Liste
+  // zeigt sie noch. Die Person ist tatsächlich weg, „von Hand laden“ brächte nichts: Der Eintrag bleibt „wartet auf die Person“.
+  const p = baueKern({ stell: () => ({ FAKE_ABO_FEHLER: 'videoUnknownParticipant' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  await warte(500);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Q2 an Annas Zeile, Connects Liste zeigt sie noch: „Anna — wartet auf die Person“, nicht „Laden gescheitert …“',
+    (await bis(() => zeile(p, ANNA)?.fehler === KT.Q2 && sollStaende(p.kern.abbild()) === 'Anna:wartet', 3000))
+    && sollZeile(p.kern.abbild().soll[0]) === 'Anna — wartet auf die Person');
+  await warte(1000);
+  ck('… Zählung unverändert (sollOffen 1, zoom_alarm=1); kein automatischer neuer Versuch (ein einziges videoSubscribe); nie „gescheitert“',
+    p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1 && sollStaende(p.kern.abbild()) === 'Anna:wartet'
+    && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1 && p.abbilder.every((a) => sollStaende(a) !== 'Anna:gescheitert'));
+  ck('… jedes Abbild ohne Lüge', ladeStaendeEhrlich(p));
   await p.aufraeumen();
 }
 

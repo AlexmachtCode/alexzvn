@@ -41,16 +41,22 @@ export interface SollLage {
    */
   ausserhalbMeeting?: boolean;
   /**
-   * Owner 08.10.2026: Fehler an der Teilnehmerzeile je Teilnehmer-ID, die ein gescheitertes Laden genau dieser Person bedeuten
-   * (der Kern führt sie mit den Zeilenfehlern): 'keineAntwort' = Q8 (das Abo blieb 10 s ohne Antwort), 'gescheitert' = die
-   * Bridge hat das Abo abgelehnt (istLadeFehler in klartext.ts). Ist die Person eindeutig da und steht der Fehler an IHRER
-   * Zeile, ersetzt er den Rückfall 'wartet'; alle anderen Stände behalten Vorrang. Fehlt das Feld, gibt es keinen.
+   * Was ein Fehler an der Teilnehmerzeile für die gemerkte Quelle dieser Person heißt, je Teilnehmer-ID (der Kern führt es mit
+   * den Zeilenfehlern, höchstens einen je ID). Owner 08.10.2026, ein gescheitertes Laden: 'keineAntwort' = Q8 (das Abo blieb
+   * 10 s ohne Antwort), 'gescheitert' = die Bridge hat das Abo abgelehnt (istLadeFehler in klartext.ts). Ruling 08.10.2026
+   * (R2), kein Ladefehler: 'erlaubnis' = Q1, die Bridge hat das Abo mangels Aufnahme-Erlaubnis abgelehnt (istErlaubnisFehler),
+   * auch wenn Connect die Erlaubnis noch als „ja“ führt. Q2 (R1) trägt der Kern nicht ein: Die Person ist weg, es bleibt
+   * 'wartet'. Ist die Person eindeutig da und steht der Eintrag an IHRER Zeile, ersetzt er den Rückfall 'wartet'; alle
+   * anderen Stände (auch 'laedt' bei geplantem Abgleich) behalten Vorrang. Fehlt das Feld, gibt es keinen.
    */
-  ladeFehler?: ReadonlyMap<number, SollLadeFehler>;
+  zeilenStand?: ReadonlyMap<number, SollZeilenStand>;
 }
 
-/** Was ein Fehler an der Zeile einer eindeutig anwesenden Person für ihre gemerkte Quelle heißt (Owner 08.10.2026). */
-export type SollLadeFehler = Extract<ZoomSollEintrag['stand'], 'keineAntwort' | 'gescheitert'>;
+/**
+ * Was ein Fehler an der Zeile einer eindeutig anwesenden Person für ihre gemerkte Quelle heißt (Owner 08.10.2026: Q8 und
+ * Ladefehler; Ruling 08.10.2026 R2: Q1 wartet auf die Erlaubnis).
+ */
+export type SollZeilenStand = Extract<ZoomSollEintrag['stand'], 'keineAntwort' | 'gescheitert' | 'erlaubnis'>;
 
 /**
  * Owner 08.10.2026: Connect ist außerhalb des Meetings, sobald der Zustand nicht im_meeting ist, etwa beim eigenen
@@ -123,8 +129,8 @@ function plane(soll: SollListe, lage: SollLage, plaetze: number): Planung[] {
  * Im Meeting: würde abonniert, hat aber keinen Platz → 'grenze';
  * kein Abo und ≥ 2 Treffer → 'doppelname'; genau 1 Treffer außerhalb des Warteraums ohne Erlaubnis
  * (lage.erlaubnisFehlt) → 'erlaubnis'; wird beim geplanten Abgleich abonniert (lage.abgleichGeplant) → 'laedt';
- * genau 1 Treffer außerhalb des Warteraums mit einem Ladefehler an IHRER Zeile (lage.ladeFehler) → 'keineAntwort' (Q8) bzw.
- * 'gescheitert' (Owner 08.10.2026); sonst 'wartet'. `doppelname` = 2 oder mehr Treffer
+ * genau 1 Treffer außerhalb des Warteraums mit einem Fehler an IHRER Zeile (lage.zeilenStand) → 'keineAntwort' (Q8) bzw.
+ * 'gescheitert' (Owner 08.10.2026) bzw. 'erlaubnis' (Q1, Ruling 08.10.2026); sonst 'wartet'. `doppelname` = 2 oder mehr Treffer
  * (auch bei verwaist: rot mit Q11). `plaetze` wie bei sollHandlungen; Vorgabe: unbegrenzt.
  */
 export function sollAbbild(soll: SollListe, lage: SollLage, plaetze = Infinity): ZoomSollEintrag[] {
@@ -144,7 +150,8 @@ export function sollAbbild(soll: SollListe, lage: SollLage, plaetze = Infinity):
       : personDa && lage.erlaubnisFehlt === true ? 'erlaubnis'
       : handlung?.art === 'abonnieren' && lage.abgleichGeplant === true ? 'laedt'
       // Owner 08.10.2026: Ihr Laden ist gescheitert (Q8 oder Ablehnung der Bridge an IHRER Zeile); kein neuer Versuch von selbst.
-      : (personDa ? lage.ladeFehler?.get(b.treffer[0].id) : undefined) ?? 'wartet';
+      // Ruling 08.10.2026: Q1 an IHRER Zeile wartet auf die Erlaubnis (R2); Q2 trägt der Kern nicht ein, es bleibt 'wartet' (R1).
+      : (personDa ? lage.zeilenStand?.get(b.treffer[0].id) : undefined) ?? 'wartet';
     aus.push({
       name: b.eintrag.name,
       ton: b.eintrag.ton,

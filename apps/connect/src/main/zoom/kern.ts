@@ -63,6 +63,7 @@ import {
   fernLogText,
   FT,
   istEndgueltig,
+  istErlaubnisFehler,
   istLadeFehler,
   mangelText,
   maskiere,
@@ -90,7 +91,7 @@ import {
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
 import { deuteZoomBefehl, ladeZiel } from './fernsteuerung';
-import { istAusserhalbMeeting, sollAbbild, sollHandlungen, type SollLadeFehler, type SollLage, type SollListe } from './soll';
+import { istAusserhalbMeeting, sollAbbild, sollHandlungen, type SollLage, type SollListe, type SollZeilenStand } from './soll';
 import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
 import { WIEDERBEITRITT_PLAN_S } from './fristen';
 
@@ -300,9 +301,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   const tonVorwahl = new Map<number, boolean>();
   /**
    * Zeilenfehler ohne laufende Quelle (Q2, Q8 …), je Teilnehmer-ID. `laden`: was er für die gemerkte Quelle dieser Person heißt
-   * (Owner 08.10.2026): 'keineAntwort' bei Q8, 'gescheitert', wenn die Bridge ihr Abo abgelehnt hat (istLadeFehler), sonst null.
+   * (Owner 08.10.2026): 'keineAntwort' bei Q8, 'gescheitert', wenn die Bridge ihr Abo abgelehnt hat (istLadeFehler);
+   * Ruling 08.10.2026: 'erlaubnis' bei Q1 (istErlaubnisFehler, R2); sonst null, auch bei Q2 (R1: die Person ist weg).
    */
-  const zeilenFehler = new Map<number, { text: string; laden: SollLadeFehler | null }>();
+  const zeilenFehler = new Map<number, { text: string; laden: SollZeilenStand | null }>();
   const tonAngefragt = new Map<number, boolean>();
   const aboFristen = new Map<number, ReturnType<typeof setTimeout>>();
   /** L11: Anzeigenamen fremder Teilnehmer, die der Kern in dieser Programmsitzung gesehen hat; nur im Arbeitsspeicher. */
@@ -375,8 +377,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       // Owner 08.10.2026: Ohne Meeting (Z10, Z11, fehler, „Erneut beitreten“) wartet jeder offene Eintrag auf den Wiederbeitritt,
       // außer einem verwaisten: dessen schwarze Quelle lebt in Z10 weiter und bleibt entladbar (Ruling 08.10.2026).
       ausserhalbMeeting: istAusserhalbMeeting(zustand),
-      // Owner 08.10.2026: Q8 oder ein Ladefehler an der Zeile einer eindeutig anwesenden Person ersetzt dort den Rückfall 'wartet'.
-      ladeFehler: new Map([...zeilenFehler].flatMap(([id, z]) => (z.laden === null ? [] : [[id, z.laden] as const]))),
+      // Owner 08.10.2026: Q8 oder ein Ladefehler an der Zeile einer eindeutig anwesenden Person ersetzt dort den Rückfall 'wartet';
+      // Q1 ebenso, mit 'erlaubnis' (Ruling 08.10.2026, R2).
+      zeilenStand: new Map([...zeilenFehler].flatMap(([id, z]) => (z.laden === null ? [] : [[id, z.laden] as const]))),
     };
   }
 
@@ -1555,8 +1558,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const q = quellen.get(id);
     if (q && q.gen === aktiveGen) q.fehler = einordnung.text;
     // Owner 08.10.2026: Ohne laufende Quelle hat die Bridge das Laden dieser Person abgelehnt („Laden gescheitert, bitte von Hand
-    // laden“), außer bei Q13 (istLadeFehler). Kein neuer Versuch von selbst.
-    else zeilenFehler.set(id, { text: einordnung.text, laden: istLadeFehler(String(e.code)) ? 'gescheitert' : null });
+    // laden“), außer bei Q1, Q2 und Q13 (istLadeFehler). Kein neuer Versuch von selbst. Ruling 08.10.2026: Q1 wartet auf die
+    // Aufnahme-Erlaubnis (R2), Q2 auf die Person (R1, null), denn „von Hand laden“ brächte bei beiden nichts.
+    else {
+      const code = String(e.code);
+      const laden = istLadeFehler(code) ? 'gescheitert' : istErlaubnisFehler(code) ? 'erlaubnis' : null;
+      zeilenFehler.set(id, { text: einordnung.text, laden });
+    }
   }
 
   async function laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis> {
