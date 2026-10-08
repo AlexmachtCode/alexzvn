@@ -205,6 +205,10 @@ const scripts = {
   //                         vorher videoUnsubscribe oder ein Abbau, meldet sie nur
   //                         video unsubscribed (command bzw. Abbaugrund), kein audio
   //                         off, und subscribed kommt nie
+  //   FAKE_ABO_FEHLER       das erste videoSubscribe, das Erlaubnis, Teilnehmer und
+  //                         Doppel-Abo besteht, beantwortet die Attrappe mit error
+  //                         where:'video', diesem Code und der Kennung, OHNE Abo (wie
+  //                         videoSenderFailed in native/video.cpp); jedes weitere geht
   //   FAKE_PUFFERFEHLER_MS  so lange nach video subscribed je Abo einmal error
   //                         where:'video' code:'videoBufferMismatch' mit id, bei
   //                         laufendem Ton dazu where:'audio' code:'audioBufferMismatch'
@@ -243,6 +247,8 @@ const scripts = {
     // "off". offen = subscribed noch nicht gemeldet (FAKE_ABO_VERZOEGERUNG_MS),
     // zeit = der Zeitgeber, der es melden wird.
     const abos = new Map();
+    // FAKE_ABO_FEHLER: gilt genau einmal, danach null.
+    let aboFehler = process.env.FAKE_ABO_FEHLER || null;
     const logDatei = process.env.FAKE_LOGDATEI;
 
     const abbauen = (grund) => {
@@ -475,6 +481,12 @@ const scripts = {
         if (!canRecordRaw) return say({ ev: 'error', where: 'video', code: 'videoNoPrivilege', id: c.id });
         if (!teilnehmer.has(c.id)) return say({ ev: 'error', where: 'video', code: 'videoUnknownParticipant', id: c.id });
         if (abos.has(c.id)) return say({ ev: 'error', where: 'video', code: 'videoAlreadySubscribed', id: c.id });
+        if (aboFehler !== null) {
+          // Wie videoSenderFailed in native/video.cpp: Fehler mit Kennung, kein Abo, kein video- oder audio-Ereignis.
+          const code = aboFehler;
+          aboFehler = null;
+          return say({ ev: 'error', where: 'video', code, id: c.id });
+        }
         // Wie uniqueSourceName() in native/video.cpp: traegt ein EIGENES Abo den
         // Namen schon (exakter Vergleich), folgen " (2)", " (3)" ...
         const basis = `JM Connect – Zoom ${teilnehmer.get(c.id).name}`;

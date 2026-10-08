@@ -2598,6 +2598,29 @@ console.log('\nAttrappe — Stage 4b:');
     '... mit den Namen VIDEO_BUFFER_MISMATCH und AUDIO_BUFFER_MISMATCH');
 }
 {
+  // FAKE_ABO_FEHLER (JM Connect 0.3.0, Owner 08.10.2026, „Laden gescheitert, bitte von Hand laden“): Das erste Abo, das die
+  // Vorbedingungen besteht, lehnt die Attrappe mit diesem Code und der Kennung ab, wie videoSenderFailed in native/video.cpp
+  // (kein Abo, kein video- und kein audio-Ereignis). Das nächste Abo geht.
+  const ev = await fahreSteuerung({ FAKE_ABO_FEHLER: 'videoSenderFailed' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('error', { code: 'videoSenderFailed' }));
+    await warte(200);
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'subscribed' }));
+  });
+  const iFehler = stelle(ev, art('error', { where: 'video', code: 'videoSenderFailed', id: 16778240 }));
+  const iAbo = stelle(ev, art('video', { id: 16778240, state: 'subscribed' }));
+  assert(iFehler >= 0 && ev[iFehler]?.name === 'VIDEO_SENDER_FAILED',
+    'FAKE_ABO_FEHLER: das erste Abo → error where:video code:videoSenderFailed mit id und dem Namen VIDEO_SENDER_FAILED');
+  assert(iFehler >= 0 && !ev.slice(0, iAbo < 0 ? ev.length : iAbo).some((e) => (e.ev === 'video' || e.ev === 'audio') && (e as { id?: number }).id === 16778240),
+    '... dabei kein Abo: weder video- noch audio-Ereignis für diese Kennung');
+  assert(iAbo > iFehler && anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 1
+      && !ev.some(art('error', { code: 'videoAlreadySubscribed' })),
+    '... das zweite Abo geht (subscribed, kein videoAlreadySubscribed)');
+}
+{
   const zeilen: string[] = [];
   await fahreSteuerung({ FAKE_NAMENSZEILE: '1' }, async (b, ev) => {
     b.send(BEITRITT);
