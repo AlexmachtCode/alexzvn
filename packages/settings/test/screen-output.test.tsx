@@ -141,6 +141,12 @@ const alle: ScreenOutputSectionProps = {
   enthaelt(html, 'Kein Bildschirm gefunden', 'Bildschirm leere Liste: Grund in der Auswahl sichtbar');
 }
 {
+  // G6/Spec 7.2: Capability gesetzt, Wert nicht gemeldet – kein Schalter, der „aus“ behauptet (wie der Steuerserver, Task 19).
+  const html = render(<ScreenOutputSection {...alle} fullscreen={undefined} />);
+  ok((html.match(/role="switch"/g) ?? []).length === 1, 'Bildschirm fullscreen unbekannt: nur der Schalter Ausgabe, keiner, der „aus“ behauptet');
+  ok(vor(html, '>Vollbild<', '>unbekannt</div>'), 'Bildschirm fullscreen unbekannt: Vollbild als „unbekannt“');
+}
+{
   const html = render(<ScreenOutputSection {...alle} screens={undefined} />);
   enthaeltNicht(html, '<select', 'Bildschirm Liste unbekannt: keine Auswahl (nichts Erfundenes)');
   enthaelt(html, '>unbekannt</div>', 'Bildschirm Liste unbekannt: Anzeige „unbekannt“');

@@ -33,9 +33,13 @@ export function ScreenOutputSection(p: ScreenOutputSectionProps): React.JSX.Elem
         <Anzeige label={SCREEN_TEXTE.bildschirm}>{UNBEKANNT}</Anzeige>
       )}
       {view.sichtbar.vollbild ? (
-        <Field label={SCREEN_TEXTE.vollbild}>
-          <Toggle checked={p.fullscreen === true} onChange={(n) => p.onFullscreen?.(n)} disabled={sperre} />
-        </Field>
+        typeof p.fullscreen === 'boolean' ? (
+          <Field label={SCREEN_TEXTE.vollbild}>
+            <Toggle checked={p.fullscreen} onChange={(n) => p.onFullscreen?.(n)} disabled={sperre} />
+          </Field>
+        ) : (
+          <Anzeige label={SCREEN_TEXTE.vollbild}>{UNBEKANNT}</Anzeige>
+        )
       ) : null}
       {view.sichtbar.hintergrund ? (
         <Field label={SCREEN_TEXTE.hintergrund} error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : farbe.fehler}>

@@ -129,6 +129,12 @@ const alle: NdiOutputSectionProps = {
   enthaelt(render(<NdiOutputSection {...alle} receivers={0} />), '0 Empfänger', 'NDI receivers 0: „0 Empfänger“');
 }
 {
+  // G6/Spec 7.2: Capability gesetzt, Wert nicht gemeldet – kein Schalter, der „aus“ behauptet (wie der Steuerserver, Task 19).
+  const html = render(<NdiOutputSection {...alle} transparency={undefined} />);
+  ok((html.match(/role="switch"/g) ?? []).length === 1, 'NDI transparency unbekannt: nur der Schalter Ausgabe, keiner, der „aus“ behauptet');
+  ok(vor(html, '>Transparenz<', '>unbekannt</div>'), 'NDI transparency unbekannt: Transparenz als „unbekannt“');
+}
+{
   const html = render(<NdiOutputSection {...alle} locked="Vom Master vorgegeben" />);
   const z = sperrZaehlung(html);
   ok(z.alle === 5 && z.gesperrt === 5, `NDI locked: alle Bedienelemente disabled (${z.gesperrt} von ${z.alle})`);

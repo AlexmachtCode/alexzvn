@@ -1,5 +1,5 @@
 // --- @jm/settings: NdiOutputSection (Spec 6.2) ---
-import { Field, Select, TextInput, Toggle } from '@jm/ui';
+import { Field, Select, TextInput, Toggle, UNBEKANNT } from '@jm/ui';
 import { useTextEntwurf } from '../entwurf';
 import { Anzeige, SectionFrame } from '../SectionFrame';
 import { ABSCHNITT_TEXTE, istGesperrt } from '../vertrag';
@@ -50,9 +50,13 @@ export function NdiOutputSection(p: NdiOutputSectionProps): React.JSX.Element {
         </Field>
       ) : null}
       {view.sichtbar.transparenz ? (
-        <Field label={NDI_TEXTE.transparenz}>
-          <Toggle checked={p.transparency === true} onChange={(n) => p.onTransparency?.(n)} disabled={sperre} />
-        </Field>
+        typeof p.transparency === 'boolean' ? (
+          <Field label={NDI_TEXTE.transparenz}>
+            <Toggle checked={p.transparency} onChange={(n) => p.onTransparency?.(n)} disabled={sperre} />
+          </Field>
+        ) : (
+          <Anzeige label={NDI_TEXTE.transparenz}>{UNBEKANNT}</Anzeige>
+        )
       ) : null}
     </SectionFrame>
   );
