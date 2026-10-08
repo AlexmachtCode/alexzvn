@@ -47,8 +47,14 @@ export interface KindProzess {
   on(ereignis: 'error', f: (e: Error) => void): unknown;
   on(ereignis: 'close', f: (code: number | null) => void): unknown;
   kill(): boolean;
-  /** Die Diagnose von tar.exe; fehlt sie (Attrappe), gibt es eben keine. */
-  stderr?: { on(ereignis: 'data', f: (d: Buffer | string) => void): unknown } | null;
+  /**
+   * Die Diagnose von tar.exe; fehlt sie (Attrappe), gibt es eben keine. 'error' braucht einen Zuhörer: Ohne ihn
+   * wirft Node einen Lesefehler der Pipe als Ausnahme, und der Main-Prozess stürzt ab.
+   */
+  stderr?: {
+    on(ereignis: 'data', f: (d: Buffer | string) => void): unknown;
+    on(ereignis: 'error', f: (e: Error) => void): unknown;
+  } | null;
 }
 
 /** Die Datei `<ziel>.teil`, so weit lade() sie braucht (FileHandle erfüllt das). */
@@ -94,6 +100,19 @@ export function fehlerCode(e: unknown): string {
   if (typeof x.cause === 'object' && x.cause !== null && typeof x.cause.code === 'string') return x.cause.code;
   if (typeof x.code === 'string') return x.code;
   return typeof x.name === 'string' && x.name ? x.name : 'unbekannt';
+}
+
+/**
+ * Text aus der ANSI-Codepage von tar.exe (windows-1252): 0x80–0x9F sind dort €, „, “, ” und andere Zeichen, in
+ * latin1 Steuerzeichen. Fehlt die Kodierung (Node ohne volle ICU), bleibt es bei latin1; der Selbsttest
+ * (sdk-laden.test.ts) wird dann rot.
+ */
+function ansiText(d: Buffer): string {
+  try {
+    return new TextDecoder('windows-1252').decode(d);
+  } catch {
+    return d.toString('latin1');
+  }
 }
 
 function wartezeit(kopf: string | null): number {
@@ -285,11 +304,16 @@ export function entpacke(e: {
       return;
     }
     e.signal.addEventListener('abort', abbrechen, { once: true });
-    // bsdtar schreibt in der ANSI-Codepage (gemessen: „ö“ im Pfad kommt als 0xF6), latin1 liest das für cp1252
-    // richtig. Gelesen wird bis zum Ende, damit die Pipe nie vollläuft; gemerkt nur der Anfang.
+    // bsdtar schreibt in der ANSI-Codepage (gemessen: „ö“ im Pfad kommt als 0xF6). Gelesen wird bis zum Ende,
+    // damit die Pipe nie vollläuft; gemerkt nur der Anfang.
     let ausgabe = '';
     kind.stderr?.on('data', (d) => {
-      if (ausgabe.length < TAR_AUSGABE_MAX) ausgabe += typeof d === 'string' ? d : d.toString('latin1');
+      if (ausgabe.length < TAR_AUSGABE_MAX) ausgabe += typeof d === 'string' ? d : ansiText(d);
+    });
+    // Ein Lesefehler der Pipe darf Connect nicht abstürzen lassen. Er kommt als Vermerk in die Diagnose; das
+    // Ergebnis bestimmt weiter 'close'.
+    kind.stderr?.on('error', (err) => {
+      if (ausgabe.length < TAR_AUSGABE_MAX) ausgabe += ` (stderr nicht lesbar: ${fehlerCode(err)})`;
     });
     kind.on('error', (err) => ende(fehler(abgebrochen ? 'abgebrochen' : fehlerCode(err))));
     // 'close' kommt erst, wenn stderr zu ist: Die Ausgabe ist dann vollständig da.

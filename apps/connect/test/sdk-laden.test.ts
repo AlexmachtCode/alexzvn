@@ -564,6 +564,53 @@ ck('fehlerCode: cause.code vor code vor name, sonst „unbekannt“',
   ck('loesche: Ordner samt Inhalt weg, fehlender Ordner ist kein Fehler', !existsSync(weg));
 }
 
+// ── Aufgabe 19 (4b): stderr von tar.exe – Lesefehler abfangen, ANSI-Codepage richtig lesen ──
+console.log('— Entpacken: Fehler auf stderr, Dekodierung windows-1252 (aus 0.2.2 geparkt)');
+{
+  // Meldet die stderr-Pipe 'error' und hört niemand zu, wirft Node den Fehler als Ausnahme: im Main-Prozess ein
+  // Absturz von Connect. Die Attrappe fängt diesen Wurf selbst, damit der rote Lauf zählt statt abzubrechen.
+  const mitStderrFehler = (code: number, geworfen: { ja: boolean }): ((befehl: string, args: readonly string[]) => KindProzess) => () => {
+    const k = new EventEmitter() as EventEmitter & { kill(): boolean; stderr: EventEmitter };
+    k.stderr = new EventEmitter();
+    k.kill = () => true;
+    setImmediate(() => {
+      try {
+        k.stderr.emit('error', Object.assign(new Error('read EPIPE'), { code: 'EPIPE' }));
+      } catch {
+        geworfen.ja = true;
+      }
+      k.emit('close', code);
+    });
+    return k;
+  };
+  const g1 = { ja: false };
+  const r1 = merke(await entpacke({ zip: 'p.zip', ordner: join(tmp, 'aus-14'), signal: sig(), werkzeuge: { ...WIN, starte: mitStderrFehler(1, g1) } }));
+  ck('stderr meldet error → kein Wurf', !g1.ja);
+  ck('… Exit 1: grund bleibt „Exit 1“, die Diagnose nennt den Lesefehler mit Code',
+    JSON.stringify(r1) === '{"ok":false,"art":"entpacken","grund":"Exit 1","ausgabe":"(stderr nicht lesbar: EPIPE)"}');
+  const g2 = { ja: false };
+  const r2 = merke(await entpacke({ zip: 'p.zip', ordner: join(tmp, 'aus-15'), signal: sig(), werkzeuge: { ...WIN, starte: mitStderrFehler(0, g2) } }));
+  ck('… Exit 0 trotz Fehler auf stderr → ok, kein Wurf', r2.ok && !g2.ja);
+}
+{
+  // bsdtar schreibt in der ANSI-Codepage (windows-1252). Dort sind 0x80–0x9F Zeichen (€ „ “ ” ’), in latin1
+  // Steuerzeichen. Was hier ankommt, steht wörtlich im Log („[zoom] Ausgabe von tar.exe: …“, kern.ts).
+  const bytes = Buffer.concat([Buffer.from('tar.exe: '), Buffer.from([0x80, 0xf6, 0x93, 0x94, 0x0d, 0x0a])]);
+  const starte = (): KindProzess => {
+    const k = new EventEmitter() as EventEmitter & { kill(): boolean; stderr: EventEmitter };
+    k.stderr = new EventEmitter();
+    k.kill = () => true;
+    setImmediate(() => {
+      k.stderr.emit('data', bytes);
+      k.emit('close', 1);
+    });
+    return k;
+  };
+  const r = merke(await entpacke({ zip: 'p.zip', ordner: join(tmp, 'aus-16'), signal: sig(), werkzeuge: { ...WIN, starte } }));
+  ck('Bytes 0x80 0xF6 0x93 0x94 → Euro, ö und zwei Anführungszeichen in der Ausgabe (windows-1252, nicht latin1)',
+    !r.ok && r.art === 'entpacken' && r.ausgabe === 'tar.exe: €ö“”');
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 {
   const alles = JSON.stringify(fehlerErgebnisse);
