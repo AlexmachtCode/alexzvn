@@ -3054,6 +3054,20 @@ console.log('— Fernsteuerung: F4, F5, F8, mehrere Annas, Soll-Eintrag, Taste p
   await p.aufraeumen();
 }
 
+{
+  const p = baueKern();
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('Taste prellt bei zoom_unload: Ben ist geladen', await bis(() => p.kern.kurz().quellen === 1, 2000));
+  befehl(p, 'zoom_unload', 'Ben');
+  befehl(p, 'zoom_unload', 'Ben');
+  ck('… zoom_cmd=ok, Quelle weg', cmdKv(p) === 'ok/0' && (await bis(() => p.kern.kurz().quellen === 0, 2000)));
+  await warte(300);
+  ck('… Bens Zeile zeigt keinen Fehler (videoNotSubscribed ist kein Fehler, das Ziel ist erreicht)',
+    (zeile(p, BEN)?.fehler ?? null) === null && !JSON.stringify(p.kern.abbild()).includes('VIDEO_NOT_SUBSCRIBED'));
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);

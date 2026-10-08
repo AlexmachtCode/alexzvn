@@ -278,6 +278,8 @@ export function quellenFehler(code: string, name: string, person: string | null,
       return { art: 'zeile', text: KT.Q2 };
     case 'videoAlreadySubscribed':
       return { art: 'keine' }; // Q3: kein Text, das Abbild gleicht sich an
+    case 'videoNotSubscribed':
+      return { art: 'keine' }; // Abmeldung doppelt gesendet (Taste prellt bei zoom_unload): das Ziel ist erreicht
     case 'videoRendererFailed':
     case 'videoRawRecordingFailed':
     case 'videoSenderFailed':
