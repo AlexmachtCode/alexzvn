@@ -36,7 +36,7 @@ export interface SollLage {
   /**
    * Connect selbst ist nicht im Meeting (Zustand ≠ im_meeting, siehe istAusserhalbMeeting): Teilnehmerliste und Abos gelten
    * dann nicht, jeder offene Eintrag wartet auf den Wiederbeitritt (Owner 08.10.2026, Vorrang vor allen anderen Ständen außer
-   * 'verwaist': eine verwaiste Quelle lebt in Z10 schwarz weiter und bleibt entladbar, Ruling 08.10.2026).
+   * 'verwaist': eine verwaiste Quelle lebt mit der Bridge schwarz weiter, etwa in Z10, und bleibt entladbar, Ruling 08.10.2026).
    * Welche Einträge offen sind, ändert das nicht. Fehlt das Feld, gilt false (im Meeting).
    */
   ausserhalbMeeting?: boolean;
@@ -44,8 +44,9 @@ export interface SollLage {
 
 /**
  * Owner 08.10.2026: Connect ist außerhalb des Meetings, sobald der Zustand nicht im_meeting ist, etwa beim eigenen
- * Wiederbeitritt (Z11), während Zoom selbst neu verbindet (Z10), in fehler nach R2/R7 und bei „Erneut beitreten“
- * (startet, tritt_bei, warteraum). Der Kern setzt damit SollLage.ausserhalbMeeting.
+ * Wiederbeitritt (Z11), während Zoom selbst neu verbindet (Z10), in jedem fehler mit gemerkten Quellen (R2, R7,
+ * „Verbindung verloren: …“, B3–B5), bei „Erneut beitreten“ (startet, tritt_bei, warteraum), im Warteraum mitten im Meeting
+ * und kurz in verlaesst. In einrichtung und bereit ist die Soll-Liste leer. Der Kern setzt damit SollLage.ausserhalbMeeting.
  */
 export function istAusserhalbMeeting(zustand: ZoomZustand): boolean {
   return zustand !== 'im_meeting';
@@ -103,9 +104,10 @@ function plane(soll: SollListe, lage: SollLage, plaetze: number): Planung[] {
 }
 
 /**
- * Offene Soll-Einträge fürs Abbild (Spec 6.3, Spalte „Stand“): alles außer „verbunden“.
- * verwaist → 'verwaist' (mit aboId zum Entladen), auch außerhalb des Meetings: Die schwarze Quelle lebt dort (Z10) weiter
- * und muss sich abbauen lassen (Ruling 08.10.2026, Vorrang vor 'wiederbeitritt'). Sonst außerhalb des Meetings
+ * Offene Soll-Einträge fürs Abbild (Spec 6.3, Spalte „Stand“, dazu Spec 9 Punkt 9, Nachtrag 4b): alles außer „verbunden“.
+ * verwaist → 'verwaist' (mit aboId zum Entladen), auch außerhalb des Meetings: Die schwarze Quelle lebt mit der Bridge
+ * (Z10, Warteraum mitten im Meeting) weiter und muss sich abbauen lassen (Ruling 08.10.2026, Vorrang vor
+ * 'wiederbeitritt'). Sonst außerhalb des Meetings
  * (lage.ausserhalbMeeting) → 'wiederbeitritt' vor allen übrigen Regeln, ohne aboId und ohne doppelname (Owner 08.10.2026).
  * Im Meeting: würde abonniert, hat aber keinen Platz → 'grenze';
  * kein Abo und ≥ 2 Treffer → 'doppelname'; genau 1 Treffer außerhalb des Warteraums ohne Erlaubnis

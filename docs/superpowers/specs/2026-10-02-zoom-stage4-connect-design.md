@@ -177,7 +177,7 @@ Beim Ausarbeiten kamen Stellen heraus, die die Besprechung nicht abdeckte oder a
 | **Abbild** | Ein serialisierbarer Schnappschuss des Zoom-Zustands (`ZoomAbbild`). Der Main schickt ihn an den Renderer. |
 | **Abriss** | Connect war in dieser Sitzung im Meeting, und die Verbindung ist weg: Zoom verbindet neu, scheitert, oder die Bridge stirbt. Nicht gemeint ist ein Meeting-Ende durch den Host. |
 | **Soll-Liste** | Die Quellen, die der Bediener geladen hat, gemerkt über den normierten Namen, je Eintrag mit eigenem Ton-Wert. Sie überlebt einen Wiederbeitritt, nicht aber „Verlassen“, „Schließen“ oder ein Meeting-Ende. |
-| **Offener Soll-Eintrag** | Ein Soll-Eintrag, zu dem gerade keine Quelle mit anwesender Person läuft, also im Stand `wartet`, `doppelname` oder `verwaist` (6.3). Ihre Zahl heißt `sollOffen` (5.4), kurz o. |
+| **Offener Soll-Eintrag** | Ein Soll-Eintrag, zu dem gerade keine Quelle mit anwesender Person läuft, also im Stand `wartet`, `doppelname` oder `verwaist` (6.3), seit 4b auch `grenze`, `erlaubnis`, `laedt` oder `wiederbeitritt` (9 Punkt 9, Nachtrag 4b). Ihre Zahl heißt `sollOffen` (5.4), kurz o. |
 | **Normierter Name** | Anzeigename nach Unicode-NFC, `trim`, Leerraum zu einem Leerzeichen, klein geschrieben (`de`). Connect gleicht nach dem normierten Namen ab; die Bridge hängt dagegen nur bei **exakt** gleichem Namen um (3.2-20). |
 | **Doppelname** | Zwei oder mehr fremde Teilnehmer haben denselben normierten Namen. |
 | **Verwaiste Quelle** | Ein Abo, dessen Teilnehmer nicht mehr in der Teilnehmerliste steht oder dessen Bild `black` mit Grund `participantLeft` meldet. Die Bridge hängt es selbst um, wenn jemand mit exakt gleichem, eindeutigem Namen zurückkommt; sonst lädt Connect neu (6.3). |
@@ -364,7 +364,7 @@ export interface ZoomSollEintrag {
   ton: boolean;
   /** Zuletzt gemeldeter NDI-Name, sonst die Vorschau. */
   ndiName: string;
-  stand: 'wartet' | 'doppelname' | 'verwaist';
+  stand: 'wartet' | 'doppelname' | 'verwaist'; // 4b: dazu 'grenze', 'erlaubnis', 'laedt', 'wiederbeitritt' (9 Punkt 9)
   /** Nur bei 'verwaist': das alte Abo, zum Entladen. */
   aboId: number | null;
 }
@@ -589,6 +589,8 @@ Connect wertet **nicht** `session.phase` als „Bridge tot“ aus, denn `phase:'
 | kein Abo | 2 oder mehr | **nichts** | `doppelname` (rot) |
 
 Ein Abo gilt als verwaist, sobald sein Teilnehmer nicht mehr in der Liste steht, auch wenn das `black`-Ereignis noch nicht da ist (Begriffe, Abschnitt 4).
+
+**Nachtrag 4b:** Die Spalte „Stand“ gilt im Meeting. Weitere Stände (`grenze` nach N4b.3 Nr. 3, `erlaubnis`, `laedt`) und der Stand außerhalb des Meetings (`wiederbeitritt`, Owner 08.10.2026, mit Vorrang vor allen außer `verwaist`) stehen in 9 Punkt 9 (Nachtrag 4b).
 
 Die Soll-Liste leert sich bei „Verlassen“, „Schließen“, beim Meeting-Ende durch den Host (6.5) und beim Beenden von Connect. Sie bleibt bei einem Abriss und bei „Erneut beitreten“.
 
@@ -1007,7 +1009,8 @@ Die Karte steht **außerhalb** des `connected`-Zweigs, direkt nach dem Raum-Absc
    - Nachtrag 4b (Owner 08.10.2026): drei weitere Stände, jeweils mit Knopf „Vergessen“; sie zählen als offen wie „wartet“ (`sollOffen`, `zoom_alarm`; R5 unverändert).
      - `erlaubnis`: „{Name} — wartet auf die Aufnahme-Erlaubnis“. Die Person ist eindeutig da (nicht im Warteraum), aber im Meeting fehlt die Aufnahme-Erlaubnis (Z6, Z7).
      - `laedt`: „{Name} — wird geladen …“. Das Abo ist gesendet und noch nicht bestätigt (höchstens bis zur Frist Q8), oder im Meeting mit Erlaubnis ist ein Abgleich geplant, der diesen Eintrag abonnieren wird.
-     - `wiederbeitritt`: „{Name} — wartet auf den Wiederbeitritt“. Connect selbst ist nicht im Meeting (Zustand ≠ `im_meeting`: Z10, Z11, `fehler` nach R2 oder R7, „Erneut beitreten“ in `startet`, `tritt_bei`, `warteraum`). Teilnehmerliste und Abos gelten dann nicht; dieser Stand hat Vorrang vor allen anderen außer `verwaist` (Ruling 08.10.2026): Eine verwaiste Quelle lebt in Z10 mit der Bridge schwarz weiter, ihr Eintrag bleibt „{Name} — Person weg, Quelle schwarz“ mit „Entladen“. Ein gesendetes, noch unbestätigtes Abo gilt nur in einer lebenden Sitzung als verwaist; baut die Bridge ab (Z11), wartet sein Eintrag auf den Wiederbeitritt.
+     - `wiederbeitritt`: „{Name} — wartet auf den Wiederbeitritt“. Connect selbst ist nicht im Meeting (jeder Zustand ≠ `im_meeting`: Z10, Z11, jedes `fehler` mit gemerkten Quellen, also nach R2 oder R7, „Verbindung verloren: …“, „Wiederbeitritt abgebrochen: …“ oder B3–B5, „Erneut beitreten“ in `startet`, `tritt_bei`, `warteraum`, der Warteraum mitten im Meeting und kurz `verlaesst`, bis die Soll-Liste geleert ist; in `einrichtung` und `bereit` ist sie immer leer). Teilnehmerliste und Abos gelten dann nicht; dieser Stand hat Vorrang vor allen anderen außer `verwaist` (Ruling 08.10.2026): Eine verwaiste Quelle lebt mit der Bridge schwarz weiter (Z10, Warteraum mitten im Meeting und das folgende `tritt_bei`), ihr Eintrag bleibt „{Name} — Person weg, Quelle schwarz“ mit „Entladen“. Ein gesendetes, noch unbestätigtes Abo gilt nur in einer lebenden Sitzung als verwaist; baut die Bridge ab (Z11), wartet sein Eintrag auf den Wiederbeitritt.
+     - „Vergessen“ bei einem gesendeten, noch unbestätigten Abo (`laedt`, `erlaubnis` oder `wiederbeitritt`, solange die Frist Q8 läuft) meldet das Abo ab wie „Entladen“ (N4b.3 Nr. 7; Prüfung 08.10.2026). Sonst liefe nach der Bestätigung eine Quelle, die der Bediener eben vergessen hat, ohne Soll-Eintrag.
 10. **Hinweise:** die letzten 5 (darunter Fernsteuer-Hinweise F1–F8, Q6, Q16, Q17, R4, R5).
 11. Fußzeile: „Zoom-Quellen haben kein Tally, kein Talkback und kein Mix-Minus — das sind Grenzen von Zoom.“ · Knopf „Logordner öffnen“.
 

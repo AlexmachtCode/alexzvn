@@ -152,9 +152,11 @@ export interface ZoomSollEintrag {
    * 'laedt': das Abo ist gesendet, die Bridge hat es noch nicht bestätigt (höchstens bis zur Frist Q8), oder im Meeting
    * mit Erlaubnis ist ein Abgleich geplant, der diesen Eintrag abonnieren wird (noch kein Abo gesendet).
    * Beide Zusätze aus der Gesamtprüfung 4b („Statuszeile lügt“); zählen als offen.
-   * 'wiederbeitritt': Connect selbst ist nicht im Meeting (Zustand ≠ im_meeting: Z10, Z11, fehler nach R2/R7,
-   * „Erneut beitreten“). Teilnehmerliste und Abos gelten dann nicht; Vorrang vor allen anderen Ständen außer 'verwaist'
-   * (Owner 08.10.2026). 'verwaist' bleibt auch außerhalb des Meetings: die schwarze Quelle lebt in Z10 weiter und muss sich
+   * 'wiederbeitritt': Connect selbst ist nicht im Meeting (jeder Zustand ≠ im_meeting: Z10, Z11, jedes fehler mit gemerkten
+   * Quellen, etwa R2, R7, „Verbindung verloren: …“ oder B3–B5, „Erneut beitreten“, der Warteraum mitten im Meeting und kurz
+   * verlaesst; in einrichtung und bereit ist die Soll-Liste leer). Teilnehmerliste und Abos gelten dann nicht; Vorrang vor
+   * allen anderen Ständen außer 'verwaist' (Owner 08.10.2026). 'verwaist' bleibt auch außerhalb des Meetings, solange die
+   * Bridge lebt (Z10, Warteraum mitten im Meeting und das folgende tritt_bei): die schwarze Quelle läuft weiter und muss sich
    * per „Entladen“ abbauen lassen (Ruling 08.10.2026). Zählt als offen.
    */
   stand: 'wartet' | 'erlaubnis' | 'laedt' | 'wiederbeitritt' | 'doppelname' | 'verwaist' | 'grenze';
