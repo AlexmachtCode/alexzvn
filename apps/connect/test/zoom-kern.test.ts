@@ -3072,7 +3072,7 @@ console.log('— Fernsteuerung: F4, F5, F8, mehrere Annas, Soll-Eintrag, Taste p
   await p.aufraeumen();
 }
 
-// ── Fix-Welle (4b, Gesamtprüfung): Stand der gemerkten Quellen ──
+// ── Fix-Welle (4b, Gesamtprüfung): Stand der gemerkten Quellen, Abgleich nach spätem Abbau, Ausnahme im Versuch ──
 console.log('— Fix-Welle: „Gemerkte Quellen“ nennen den wahren Grund (Z6 nach dem Wiederbeitritt, Entzug mit offenem Abo, Wiedererteilung)');
 {
   const p = baueKern({
@@ -3109,6 +3109,57 @@ console.log('— Fix-Welle: „Gemerkte Quellen“ nennen den wahren Grund (Z6 n
     (await bis(() => p.kern.kurz().erlaubnis === 'entzogen', 2000)) && (await bis(() => p.kern.kurz().erlaubnis === 'ja', 2000))
     && p.kern.abbild().soll.map((e) => `${e.name}:${e.stand}`).join(',') === 'Anna:laedt');
   ck('… danach läuft Anna wieder, keine gemerkte Quelle offen', (await bis(() => p.kern.kurz().quellen === 1, 3000)) && p.kern.abbild().soll.length === 0);
+  await p.aufraeumen();
+}
+
+console.log('— Fix-Welle: Erlaubnis flattert, die Bridge baut erst nach dem Abgleich ab (Abgleich nach dem Abbau)');
+{
+  // privilege false und true in derselben Pumprunde, der Abbau erst 800 ms später: Der Abgleich nach „ja“ (300 ms)
+  // sieht die Quellen noch verbunden. Ohne einen Abgleich nach dem Abbau blieben sie aus (zoom_alarm=1).
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '400', FAKE_ERTEILUNG_MS: '0', FAKE_ABBAU_MS: '800' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: BEN, ton: false, trotzBetriebsgroesse: false });
+  ck('Flattern mit spätem Abbau: zwei Quellen geladen', await bis(() => p.kern.kurz().quellen === 2));
+  ck('… der Abbau kommt nach der Wiedererteilung: beide gestoppt, die Erlaubnis steht schon wieder auf ja',
+    await bis(() => p.logs.includes(`[zoom] Quelle ${ANNA} gestoppt (Entzug)`) && p.logs.includes(`[zoom] Quelle ${BEN} gestoppt (Entzug)`), 3000)
+    && p.kern.kurz().erlaubnis === 'ja');
+  ck('… ein Abgleich nach dem Abbau lädt beide wieder, mit dem Ton aus dem Soll (Anna mit, Ben ohne)',
+    await bis(() => p.befehle(1).filter((c) => c.cmd === 'videoSubscribe').length === 4, 3000)
+    && p.befehle(1).filter((c) => c.cmd === 'videoSubscribe' && c.id === ANNA).map((c) => c.audio).join(',') === 'true,true'
+    && p.befehle(1).filter((c) => c.cmd === 'videoSubscribe' && c.id === BEN).map((c) => c.audio).join(',') === 'false,false');
+  ck('… zwei Quellen ohne „(2)“, keine gemerkte Quelle offen, zoom_alarm=0', await bis(() => p.kern.kurz().quellen === 2, 2000)
+    && !(zeile(p, ANNA)?.quelle?.ndiName ?? '').includes(' (2)') && p.kern.abbild().soll.length === 0 && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+
+console.log('— Fix-Welle: Ausnahme in der Startfolge eines Wiederbeitritts-Versuchs');
+{
+  let pruefungen = 0;
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : {}),
+    // Aufrufe von pruefe: 1 beim Anlegen des Kerns, 2 Start 1, 3 Versuch 1 → wirft (wie lz.pruefe, fabrik oder buildJwt),
+    // danach wieder in Ordnung („Erneut beitreten“).
+    laufzeit: {
+      pruefe: () => {
+        if (++pruefungen === 3) throw new Error('Probe: Startfolge wirft');
+        return { ok: true, ordner: 'C:/laufzeit', ersetzt: [] };
+      },
+    },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Ausnahme in der Startfolge von Versuch 1 → fehler „Wiederbeitritt abgebrochen: …“ statt eines ewigen „läuft …“',
+    await bis(() => p.kern.kurz().zustand === 'fehler', 4000) && p.kern.abbild().meldung?.text === `${VORSATZ.wiederbeitritt}Probe: Startfolge wirft`);
+  ck('… die Folge ist beendet, „Erneut beitreten“ möglich, die Soll-Liste bleibt', p.kern.kurz().versuch === null && p.kern.abbild().abriss === null
+    && p.kern.abbild().erneutMoeglich && p.kern.abbild().soll.map((s) => s.name).join(',') === 'Anna');
+  ck('… Log: die Ausnahme und „gescheitert … (endgültig)“',
+    p.logs.includes('[zoom] Wiederbeitritt: Versuch 1: Ausnahme in der Startfolge: Probe: Startfolge wirft')
+    && p.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(endgültig\)$/.test(z)));
+  await warte(300);
+  ck('… keine weitere Bridge', p.starts() === 1 && p.kern.kurz().zustand === 'fehler');
+  ck('… „Erneut beitreten“ führt wieder ins Meeting, Anna wird abonniert', ok(await p.kern.erneut())
+    && (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 1, 4000)) && p.starts() === 2);
   await p.aufraeumen();
 }
 

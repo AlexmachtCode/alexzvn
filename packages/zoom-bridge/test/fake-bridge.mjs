@@ -192,6 +192,10 @@ const scripts = {
   //                         source:'broadcast'. 0 = synchron direkt nach privilege
   //                         false, also VOR dem Abbau (beide Rundrufe in derselben
   //                         Pumprunde der Bridge); abgebaut wird trotzdem
+  //   FAKE_ABBAU_MS         nur mit FAKE_ENTZUG_MS: so lange nach dem Entzug baut die
+  //                         Attrappe ab (Vorgabe: einen Takt spaeter, setImmediate).
+  //                         Bildet eine Bridge nach, deren Abbau laenger dauert als der
+  //                         Abgleich von JM Connect (300 ms) - am echten SDK ungemessen (M18)
   //   FAKE_VERBINDUNG_ZURUECK_MS  nur mit FAKE_VERBINDUNG_HAENGT_MS: so lange nach
   //                         reconnecting verbindet Zoom selbst: connecting, inMeeting,
   //                         dann wie das Original roster und privilege source:'check'.
@@ -302,7 +306,9 @@ const scripts = {
               // 0: beide Rundrufe kamen in derselben Pumprunde - privilege true
               // steht VOR dem Abbau auf der Leitung, abgebaut wird trotzdem.
               if (erteilung === '0') erteilen();
-              setImmediate(() => abbauen('privilegeRevoked'));
+              const abbauMs = process.env.FAKE_ABBAU_MS;
+              if (abbauMs === undefined) setImmediate(() => abbauen('privilegeRevoked'));
+              else setTimeout(() => abbauen('privilegeRevoked'), Number(abbauMs));
               if (erteilung !== undefined && erteilung !== '0') setTimeout(erteilen, Number(erteilung));
             }, Number(process.env.FAKE_ENTZUG_MS));
           }

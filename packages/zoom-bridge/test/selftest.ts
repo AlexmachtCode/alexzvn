@@ -2487,6 +2487,25 @@ console.log('\nAttrappe — Stage 4b:');
   assert(ev.indexOf(neu as BridgeEvent) > iAbbau && neu?.source === 'JM Connect – Zoom Anna', '... danach geht videoSubscribe wieder durch, ohne „(2)“');
 }
 {
+  // FAKE_ABBAU_MS: Die Bridge baut langsamer ab, als JM Connect bis zum Abgleich wartet (300 ms; Gesamtprüfung 4b, M18).
+  let wahrUm = 0;
+  let abbauUm = 0;
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '0', FAKE_ABBAU_MS: '600' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+    wahrUm = Date.now();
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'unsubscribed' }));
+    abbauUm = Date.now();
+  });
+  const iWahr = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+  const iAbbau = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  if (!(abbauUm - wahrUm >= 400)) console.log(`     (Abstand Wiedererteilung → Abbau gemessen: ${abbauUm - wahrUm} ms)`);
+  assert(iWahr >= 0 && iAbbau > iWahr && abbauUm - wahrUm >= 400,
+    'FAKE_ABBAU_MS=600: der Abbau (privilegeRevoked) kommt erst mindestens 400 ms nach der Wiedererteilung');
+}
+{
   let mitten = '';
   const ev = await fahreSteuerung({ FAKE_VERBINDUNG_HAENGT_MS: '300', FAKE_VERBINDUNG_ZURUECK_MS: '200' }, async (b, ev) => {
     b.send(BEITRITT);

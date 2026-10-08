@@ -1339,9 +1339,24 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     folge.zeitgeber = zeitgeber(ms, () => {
       if (folge === null) return;
       folge.zeitgeber = null;
-      void versuchStarten(i);
+      const lauf = laufNr;
+      versuchStarten(i).catch((err: unknown) => versuchAusnahme(i, lauf, err));
     });
     setzeZustand('abriss');
+  }
+
+  /**
+   * Eine Ausnahme in der Startfolge eines Versuchs (lz.pruefe, Bridge-Fabrik, buildJwt, Einstellungen) beendet die Folge
+   * wie ein endgültiger Fehler. Ohne das bliebe Z11 für immer auf „läuft …“, und niemand sähe den Grund.
+   */
+  function versuchAusnahme(i: number, lauf: number, err: unknown): void {
+    const grund = err instanceof Error ? err.message : String(err);
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i}: Ausnahme in der Startfolge: ${grund}`);
+    // Verlassen, Abbrechen oder Beenden in der Zwischenzeit: Die Folge ist schon beendet.
+    if (folge === null || folge.versuch !== i || lauf !== laufNr) return;
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i} gescheitert nach ${Date.now() - folge.beginn} ms (endgültig)`);
+    folgeBeenden();
+    scheitert({ text: VORSATZ.wiederbeitritt + grund, detail: null });
   }
 
   /** Schritte 2.2 und 2.3: Startfolge mit neuer Bridge, dann join. Der Zustand bleibt abriss mit versuch i. */
@@ -1454,6 +1469,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       if (e.reason === 'privilegeRevoked') d.log(`[zoom] Quelle ${e.id} gestoppt (Entzug)`);
       quellen.delete(e.id);
       abmeldungGesehen(e.id);
+      // Erlaubnis flattert (Review Focus 2): Kommt der Abbau erst nach der Wiedererteilung und ihrem Abgleich, sah dieser
+      // die Quelle noch verbunden. Ein neuer Abgleich lädt sie dann wieder; sonst bliebe sie bis zum nächsten roster aus.
+      if (e.reason === 'privilegeRevoked' && erlaubnis === 'ja') abgleichPlanen();
       return;
     }
     let alt = quellen.get(e.id);
