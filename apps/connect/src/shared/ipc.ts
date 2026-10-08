@@ -38,8 +38,8 @@ export const IPC = {
   /** send (Renderer → Main): Folie im JM Presenter blättern (Control-Plane, Welle 6.3c). */
   slideCue: 'jmc:slide-cue',
 
-  // ── Zoom (Stage 4a, Spec 5.5). Der Kenncode geht nur mit zoomBeitreten in den Main und kommt nie
-  // zurück. `zoomAbbrechen` (Wiederbeitritt abbrechen) kommt erst mit Plan 4b.
+  // ── Zoom (Stage 4, Spec 5.5). Der Kenncode geht nur mit zoomBeitreten in den Main und kommt nie
+  // zurück.
   /** invoke (Renderer → Main): aktuelles Zoom-Abbild → ZoomAbbild. */
   zoomGet: 'jmc:zoom-get',
   /** push (Main → Renderer): Zoom-Abbild (höchstens alle 100 ms). */
@@ -66,6 +66,8 @@ export const IPC = {
   zoomBeitreten: 'jmc:zoom-beitreten',
   /** invoke: Meeting verlassen (auch Tray „Zoom-Meeting verlassen“) → void. */
   zoomVerlassen: 'jmc:zoom-verlassen',
+  /** invoke: Wiederbeitritt abbrechen (nur Z11; sonst wirkungslos) → void (Spec 5.5, 6.8). */
+  zoomAbbrechen: 'jmc:zoom-abbrechen',
   /** invoke: { id, ton, trotzBetriebsgroesse } → ZoomErgebnis. */
   zoomLaden: 'jmc:zoom-laden',
   /** invoke: { aboId } → ZoomErgebnis. */

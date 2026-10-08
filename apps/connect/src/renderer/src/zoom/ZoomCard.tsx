@@ -9,12 +9,16 @@ import {
   einrichtungsTextArt,
   kartenZeile,
   Q9_ANFANG,
+  quellenZustandText,
   sdkBalken,
   sdkKnopf,
   sdkLadenZeile,
   sdkSchluesselZeile,
   sdkZeile,
+  sollZeile,
   TEXT_S11,
+  versatzUebernommen,
+  versatzZeile,
   zoomKnoepfe,
   zugangZeile,
 } from '@shared/zoom-text';
@@ -49,12 +53,6 @@ const MELDUNG_FARBE: Record<MeldungsArt, string> = {
 async function ohneText(p: Promise<void>): Promise<ZoomErgebnis> {
   await p;
   return { ok: true };
-}
-
-function sollText(e: ZoomSollEintrag): string {
-  if (e.stand === 'wartet') return `${e.name} — wartet auf die Person`;
-  if (e.stand === 'doppelname') return `${e.name} — Name doppelt, bitte von Hand laden`;
-  return `${e.name} — Person weg, Quelle schwarz`;
 }
 
 function Kennzeichen({ children, rot = false }: { children: string; rot?: boolean }): JSX.Element {
@@ -253,7 +251,7 @@ export function ZoomCard(): JSX.Element {
     };
   }, []);
 
-  // Countdown der Statuszeile (Z11, kommt mit 4b): nur ticken, solange ein Zeitpunkt ansteht.
+  // Countdown der Statuszeile (Z11): nur ticken, solange ein Zeitpunkt ansteht.
   const naechsterUm = abbild?.abriss?.naechsterUm ?? null;
   useEffect(() => {
     if (naechsterUm === null) return;
@@ -358,10 +356,12 @@ export function ZoomCard(): JSX.Element {
       return;
     }
     void fuehreAus('versatz', null, () => window.jmconnect.zoomVersatz({ ms })).then((r) => {
-      if (r.ok) {
+      // „Nur für diese Sitzung gemerkt“ (L14) ist kein Fehler: Der Wert gilt; dass er einen Neustart nicht
+      // übersteht, steht dauerhaft unter dem Feld (versatzZeile). Die Regel steckt getestet in versatzUebernommen.
+      if (versatzUebernommen(r)) {
         setVersatz(null);
         setVersatzFehler(null);
-      } else if (r.text) {
+      } else if (!r.ok && r.text) {
         setVersatzFehler(r.text);
       }
     });
@@ -427,8 +427,7 @@ export function ZoomCard(): JSX.Element {
         <div className="mt-1 text-xs text-neutral-400">
           {q ? (
             <>
-              {q.ndiName} · Bild {q.bild} ({q.bildGrund}) · Ton {q.ton}
-              {q.tonGrund ? ` (${q.tonGrund})` : ''}
+              {q.ndiName} · {quellenZustandText(q)}
             </>
           ) : (
             <span className="text-neutral-500">wird: {t.ndiNameVorschau}</span>
@@ -443,15 +442,17 @@ export function ZoomCard(): JSX.Element {
     );
   };
 
-  const sollZeile = (e: ZoomSollEintrag): JSX.Element => {
+  const sollEintrag = (e: ZoomSollEintrag): JSX.Element => {
     const rot = e.stand === 'doppelname' || (e.stand === 'verwaist' && e.doppelname);
+    // 'grenze' (L7): nicht automatisch geladen, weil schon 5 Zoom-Quellen laufen. Von Hand laden geht (Q9).
+    const farbe = rot ? 'text-red-300' : e.stand === 'grenze' ? 'text-yellow-200' : 'text-neutral-300';
     const ort: Ort = `soll:${e.name}`;
     const text = antwortText(ort);
     const aboId = e.stand === 'verwaist' ? e.aboId : null;
     return (
       <li key={e.name} className="text-xs">
         <div className="flex items-center gap-2">
-          <span className={rot ? 'text-red-300' : 'text-neutral-300'}>{sollText(e)}</span>
+          <span className={farbe}>{sollZeile(e)}</span>
           {aboId !== null ? (
             <button
               disabled={laeuft.has(`entladen:${aboId}`)}
@@ -507,7 +508,11 @@ export function ZoomCard(): JSX.Element {
             )}
             {mk.schliessen && (
               <button
-                onClick={() => void fuehreAus('schliessen', 'karte', () => ohneText(window.jmconnect.zoomSchliessen()))}
+                onClick={() => {
+                  // N4b.3 Nr. 5: „Schließen“ leert auch das Nummernfeld der Karte (der Kenncode ist seit dem Klick auf „Beitreten“ leer).
+                  setNummer('');
+                  void fuehreAus('schliessen', 'karte', () => ohneText(window.jmconnect.zoomSchliessen()));
+                }}
                 className={RAND}
               >
                 Schließen
@@ -734,12 +739,21 @@ export function ZoomCard(): JSX.Element {
         </form>
       )}
 
-      {/* 5 · Laufend (Z3–Z11). Der Z11-Knopf „Abbrechen“ kommt mit Plan 4b. */}
+      {/* 5 · Laufend (Z3–Z11). 6 · Nur in Z11 zusätzlich „Abbrechen“: Wiederbeitritt beenden, die Daten für „Erneut beitreten“ bleiben (Spec 6.8). */}
       {kn.verlassen && (
-        <div className="mb-3">
+        <div className="mb-3 flex flex-wrap gap-2">
           <button disabled={laeuft.has('verlassen')} onClick={verlassen} className={frage ? ROT : RAND}>
             {frage ? (n === 1 ? 'Ja, verlassen (1 Quelle läuft)' : `Ja, verlassen (${n} Quellen laufen)`) : 'Meeting verlassen'}
           </button>
+          {kn.abbrechen && (
+            <button
+              disabled={laeuft.has('abbrechen')}
+              onClick={() => void fuehreAus('abbrechen', 'karte', () => ohneText(window.jmconnect.zoomAbbrechen()))}
+              className={RAND}
+            >
+              Abbrechen
+            </button>
+          )}
         </div>
       )}
 
@@ -764,20 +778,23 @@ export function ZoomCard(): JSX.Element {
             className={`${INP} mt-1 block w-32 ${versatzFehler ? 'border-red-500' : 'border-neutral-700'}`}
           />
         </label>
-        <p className="mt-1 text-xs text-neutral-500">
-          {a.versatz.bestaetigtMs !== null ? `bestätigt: ${a.versatz.bestaetigtMs} ms` : 'gilt ab dem nächsten Beitritt'}
-        </p>
+        {/* „bestätigt: … ms“ bzw. „gilt ab dem nächsten Beitritt“; nur für die Sitzung gemerkt zusätzlich gelb (L14). */}
+        {versatzZeile(a).map((z, i) => (
+          <p key={z} className={`mt-1 text-xs ${i === 0 ? 'text-neutral-500' : 'text-yellow-200'}`}>
+            {z}
+          </p>
+        ))}
         {versatzFehler && <p className="mt-1 text-xs text-red-300">{versatzFehler}</p>}
       </div>
 
       {/* 8 · Teilnehmerliste (ohne eigene Zeile; Host und Co-Host zuerst, sortiert der Kern) */}
       {a.teilnehmer.length > 0 && <ul className="mb-3 space-y-2">{a.teilnehmer.map((t) => zeile(t))}</ul>}
 
-      {/* 9 · Gemerkte Quellen (offene Soll-Einträge, Spec 6.3) */}
+      {/* 9 · Gemerkte Quellen (offene Soll-Einträge, Spec 6.3; Stand 'grenze' über der Betriebsgröße, L7) */}
       {a.soll.length > 0 && (
         <div className="mb-3">
           <div className="mb-1 text-xs font-semibold text-neutral-400">Gemerkte Quellen</div>
-          <ul className="space-y-1">{a.soll.map((e) => sollZeile(e))}</ul>
+          <ul className="space-y-1">{a.soll.map((e) => sollEintrag(e))}</ul>
         </div>
       )}
 

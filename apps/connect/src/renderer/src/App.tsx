@@ -338,7 +338,8 @@ export function App(): JSX.Element {
                   <button
                     onClick={() => {
                       send({ t: 'slides', guestId: g.id, on: !g.canAdvance });
-                      window.jmconnect.audit('slides', `${g.canAdvance ? 'entzogen' : 'erteilt'} für ${g.name}`);
+                      // Kennung statt Name: Gastnamen gehören nicht ins Log (Spec N4b.2, L11), wie bei „slides“ per Steuerprotokoll.
+                      window.jmconnect.audit('slides', `${g.canAdvance ? 'entzogen' : 'erteilt'} für ${g.id}`);
                     }}
                     title={
                       status?.presenterLinked

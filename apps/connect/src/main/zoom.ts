@@ -170,6 +170,9 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
     await k.verlassen();
   });
 
+  // Spec 6.8: nur in Z11 wirksam (der Kern prüft den Zustand); Nummer, Kenncode und gemerkte Quellen bleiben.
+  ipcMain.handle(IPC.zoomAbbrechen, (): void => k.abbrechen());
+
   ipcMain.handle(IPC.zoomLaden, (_e, p: unknown): ZoomErgebnis | Promise<ZoomErgebnis> => {
     const id = feld(p, 'id');
     const ton = feld(p, 'ton');
