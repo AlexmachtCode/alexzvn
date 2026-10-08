@@ -9,4 +9,6 @@ import './ndi-output.test';
 import './screen-output.test';
 import './remote-control.test';
 import './audio-device.test';
+import './iveo.test';
+import './datalink.test';
 abschluss();

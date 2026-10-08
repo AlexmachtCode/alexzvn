@@ -21,3 +21,7 @@ export { type ControlMode, type RemoteControlLauncherProps, type RemoteControlSe
 export { RemoteControlSection } from './abschnitte/RemoteControlSection';
 export { type AudioDeviceOption, type AudioChoice, type AudioDeviceSectionProps, type AudioDeviceView, type AudioWahlView, AUDIO_TEXTE, PEGEL_MIN_DB, audioDeviceView } from './abschnitte/audio-device';
 export { AudioDeviceSection } from './abschnitte/AudioDeviceSection';
+export { type IveoSectionProps, type IveoView, IVEO_TEXTE, iveoView } from './abschnitte/iveo';
+export { IveoSection } from './abschnitte/IveoSection';
+export { type DataLinkSectionProps, type DataLinkView, DATALINK_TEXTE, dataLinkView } from './abschnitte/datalink';
+export { DataLinkSection } from './abschnitte/DataLinkSection';
