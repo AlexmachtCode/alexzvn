@@ -169,6 +169,11 @@ const tool: RemoteControlSectionProps = {
   ok(vor(gesperrt, 'Gesperrt: Vom Master vorgegeben', 'role="switch"'), 'Fernsteuerung locked: Grund vor den Feldern');
 }
 {
+  const html = render(<RemoteControlSection {...tool} capabilities={{ portEditable: true, enableToggle: true }} />);
+  enthaeltNicht(html, 'role="switch"', 'Fernsteuerung enabled unbekannt: kein Schalter, der „aus“ behauptet');
+  ok(vor(html, '>Steuerserver<', '>unbekannt</div>'), 'Fernsteuerung enabled unbekannt: Steuerserver als „unbekannt“');
+}
+{
   const html = render(<RemoteControlSection {...tool} error="Steuerserver abgestürzt" />);
   ok(nachLetztem(html, 'data-fehler="true"', 'Im Launcher einrichten'), 'Fernsteuerung error: Fehlertext nach den Feldern');
   enthaelt(html, 'Fehler: Steuerserver abgestürzt', 'Fernsteuerung error: Statustext');

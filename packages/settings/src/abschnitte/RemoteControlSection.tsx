@@ -12,9 +12,13 @@ export function RemoteControlSection(p: RemoteControlSectionProps): React.JSX.El
   return (
     <SectionFrame view={view} titel={REMOTE_TEXTE.titel}>
       {view.sichtbar.steuerung ? (
-        <Field label={REMOTE_TEXTE.steuerung}>
-          <Toggle checked={p.enabled === true} onChange={(n) => p.onToggle?.(n)} disabled={sperre} />
-        </Field>
+        typeof p.enabled === 'boolean' ? (
+          <Field label={REMOTE_TEXTE.steuerung}>
+            <Toggle checked={p.enabled} onChange={(n) => p.onToggle?.(n)} disabled={sperre} />
+          </Field>
+        ) : (
+          <Anzeige label={REMOTE_TEXTE.steuerung}>{UNBEKANNT}</Anzeige>
+        )
       ) : null}
       <Anzeige label={REMOTE_TEXTE.modus} hinweis={view.variante === 'launcher' ? REMOTE_TEXTE.wirktBeimStart : undefined}>
         {view.modusText}
