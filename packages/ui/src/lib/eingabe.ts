@@ -1,5 +1,5 @@
 // Reine Logik der Eingaben (Spec 3.5; E11, E12, E13). Ohne DOM testbar; Field, NumberInput und Select nutzen sie.
-import { UI_TEXTE, zahlText } from './texte';
+import { UI_TEXTE, zahlTextVoll } from './texte';
 
 // ── Zahlen (NumberInput) ──
 
@@ -43,7 +43,7 @@ export type ZahlEreignis =
   | { art: 'frist' }; // die Frist nach dem Melden ist um (E27)
 
 export function zahlEntwurfAus(wert: number | null): ZahlEntwurf {
-  return { text: wert === null ? '' : zahlText(wert), geaendert: false };
+  return { text: wert === null ? '' : zahlTextVoll(wert), geaendert: false };
 }
 
 /**
@@ -69,7 +69,7 @@ export function zahlSchritt(
     // Gemeldet ist noch nicht übernommen: Der Entwurf bleibt geändert und merkt sich den Wert, bis er von außen
     // zurückkommt („aussen“); bleibt die Antwort aus, zeigt das Feld nach der Frist „Noch nicht übernommen.“ („frist“).
     // Escape gehört bis dahin weiter dem Feld.
-    return { z: { text: zahlText(ergebnis.wert), geaendert: true, gesendet: ergebnis.wert }, neuerWert: ergebnis.wert, verbraucht: false };
+    return { z: { text: zahlTextVoll(ergebnis.wert), geaendert: true, gesendet: ergebnis.wert }, neuerWert: ergebnis.wert, verbraucht: false };
   }
   if (e.art === 'verwerfen') {
     return { z: zahlEntwurfAus(aktuell), verbraucht: z.geaendert };

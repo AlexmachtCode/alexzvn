@@ -205,4 +205,19 @@ gleich(
   );
 }
 
+// ── Fix-Runde 1: Entwurfstext ungerundet (Anzeige darf keinen Wert verschweigen) ──
+{
+  const fein: ZahlRegeln = { min: 0 };
+  const a = zahlSchritt({ text: '0,0004', geaendert: true }, { art: 'uebernehmen' }, fein, 5);
+  gleich([a.neuerWert, a.z.text], [0.0004, '0,0004'], 'Eingabe: 0,0004 wird gemeldet und im Feld unverkürzt gezeigt');
+  const b = zahlSchritt({ text: '1,2345', geaendert: true }, { art: 'uebernehmen' }, {}, 5);
+  gleich([b.neuerWert, b.z.text], [1.2345, '1,2345'], 'Eingabe: 1,2345 bleibt im Feld 1,2345 (4 Nachkommastellen)');
+  const c = zahlEntwurfAus(0.0004);
+  const d = zahlSchritt(c, { art: 'tippen', text: '0' }, fein, 0.0004);
+  const e = zahlSchritt(d.z, { art: 'uebernehmen' }, fein, 0.0004);
+  gleich([c.text, d.z.geaendert, e.neuerWert], ['0,0004', true, 0], 'Eingabe: bei 0.0004 lässt sich 0 eingeben');
+  gleich(parseZahl('0', { min: 0.0005 }), { ok: false, fehler: 'Mindestens 0,0005.' }, 'Eingabe: Fehlertext nennt die echte Grenze 0,0005');
+  gleich(zahlEntwurfAus(1e-7).text, '0,0000001', 'Eingabe: sehr kleiner Wert ohne Exponent');
+}
+
 ok(typeof ui.parseZahl === 'function' && ui.parseZahl('3').ok && typeof ui.starteFrist === 'function', 'Eingabe: Export parseZahl und starteFrist aus src/index.ts');

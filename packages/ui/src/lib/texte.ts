@@ -8,6 +8,11 @@ export function zahlText(n: number): string {
   return n.toLocaleString('de-DE', { useGrouping: false, maximumFractionDigits: 3 });
 }
 
+/** Wie zahlText, aber ohne Rundung (Feldtext und Grenzen: nie weniger Stellen zeigen, als die Eingabe annimmt). */
+export function zahlTextVoll(n: number): string {
+  return n.toLocaleString('de-DE', { useGrouping: false, maximumFractionDigits: 20 });
+}
+
 export const UI_TEXTE = {
   zustand: { ok: 'in Ordnung', warn: 'Warnung', error: 'Fehler', off: 'aus', live: 'auf Sendung' },
   onAir: 'ON AIR',
@@ -23,8 +28,8 @@ export const UI_TEXTE = {
   bitteWaehlen: '– bitte wählen –',
   zahlFehlt: 'Bitte eine Zahl eingeben.',
   ganzzahlFehlt: 'Bitte eine ganze Zahl eingeben.',
-  mindestens: (min: number) => `Mindestens ${zahlText(min)}.`,
-  hoechstens: (max: number) => `Höchstens ${zahlText(max)}.`,
+  mindestens: (min: number) => `Mindestens ${zahlTextVoll(min)}.`,
+  hoechstens: (max: number) => `Höchstens ${zahlTextVoll(max)}.`,
   nochNichtUebernommen: 'Noch nicht übernommen.',
   dunkel: 'Dunkel',
   hell: 'Hell',
