@@ -1249,8 +1249,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         if (zustand === 'im_meeting') setzeZustand('abriss');
       } else if (s === 'inMeeting') {
         if (zustand === 'abriss') {
-          setzeZustand('im_meeting');
+          // Erst planen, dann den Zustand setzen (Prüfung Code Q8, Befund 1): setzeZustand schickt sofort ein Abbild. Ohne
+          // geplanten Abgleich zeigte es nach Q8 oder einem Ladefehler in Z10 kurz „… bitte von Hand laden“, obwohl der Abgleich
+          // die Person gleich neu lädt („wird geladen …“ hat Vorrang).
           abgleichPlanen();
+          setzeZustand('im_meeting');
         }
       } else if (s === 'waitingRoom' || s === 'waitingForHost') zumWarteraum(s);
       else if (s === 'failed') {

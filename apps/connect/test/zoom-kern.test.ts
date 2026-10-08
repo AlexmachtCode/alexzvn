@@ -3519,6 +3519,53 @@ const TEXT_GESCHEITERT = 'Anna — Laden gescheitert, bitte von Hand laden';
     p.kern.abbild().hinweise.includes(KT.R5(2, 0)) && wiederbeitrittNurDraussen(p) && ladeStaendeEhrlich(p));
   await p.aufraeumen();
 }
+/** Abbilder nach dem letzten Abbild in abriss (Z10, Z11). */
+const nachLetztemAbriss = (p: Probe): ZoomAbbild[] => {
+  const i = p.abbilder.map((a) => a.kurz.zustand).lastIndexOf('abriss');
+  return i < 0 ? [] : p.abbilder.slice(i + 1);
+};
+{
+  // Prüfung Code Q8, Befund 1: Q8 in Z10, dann verbindet Zoom selbst neu. Der Abgleich, den die Rückkehr plant, lädt Anna gleich
+  // neu („wird geladen …“ hat Vorrang). Schon das erste Abbild im Meeting zeigt das, keines „keine Antwort …, bitte von Hand laden“.
+  let gesendet = 0;
+  const p = baueKern({
+    stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '300', FAKE_VERBINDUNG_ZURUECK_MS: '2500' }),
+    // Das erste videoSubscribe kommt nie an (Q8 in Z10), das zweite schon.
+    sendeFilter: (c) => c.cmd !== 'videoSubscribe' || ++gesendet > 1,
+    fristen: { aboAntwortMs: 900, joinTimeoutMs: 20_000, abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Q8 in Z10: Annas Zeile trägt Q8, „Anna — wartet auf den Wiederbeitritt“',
+    await bis(() => p.abbilder.some((a) => zoomZ(a.kurz) === 'Z10' && sollStaende(a) === 'Anna:wiederbeitritt'
+      && a.teilnehmer.find((t) => t.id === ANNA)?.fehler === KT.Q8), 3000));
+  const zurueck = await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 1, 5000);
+  const imMeeting = nachLetztemAbriss(p).filter((a) => a.kurz.zustand === 'im_meeting');
+  ck('… Zoom verbindet selbst neu: schon das erste Abbild im Meeting „Anna — wird geladen …“, keines „keine Antwort …“; verbunden, zwei videoSubscribe',
+    zurueck && imMeeting.length > 0 && sollStaende(imMeeting[0]) === 'Anna:laedt' && imMeeting.every((a) => sollStaende(a) !== 'Anna:keineAntwort')
+    && gesendet === 2 && ladeStaendeEhrlich(p));
+  await p.aufraeumen();
+}
+{
+  // Dasselbe nach einem Ladefehler: Anna steht auf „Laden gescheitert …“, dann verbindet Zoom neu (Z10) und kommt selbst zurück.
+  const p = baueKern({
+    stell: () => ({ FAKE_ABO_FEHLER: 'videoSenderFailed', FAKE_VERBINDUNG_HAENGT_MS: '1500', FAKE_VERBINDUNG_ZURUECK_MS: '1000' }),
+    fristen: { joinTimeoutMs: 20_000, abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  // Erst nach dem Abgleich, den der Beitritt plant (wie bei „Ladefehler im Meeting“).
+  await warte(500);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Ladefehler, dann Z10: zuerst „Laden gescheitert …“, in Z10 „wartet auf den Wiederbeitritt“',
+    (await bis(() => p.abbilder.some((a) => a.kurz.zustand === 'im_meeting' && sollStaende(a) === 'Anna:gescheitert'), 2000))
+    && (await bis(() => p.abbilder.some((a) => zoomZ(a.kurz) === 'Z10' && sollStaende(a) === 'Anna:wiederbeitritt'), 3000)));
+  const zurueck = await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 1, 5000);
+  const imMeeting = nachLetztemAbriss(p).filter((a) => a.kurz.zustand === 'im_meeting');
+  ck('… Zoom verbindet selbst neu: schon das erste Abbild im Meeting „Anna — wird geladen …“, keines „Laden gescheitert …“; verbunden, zwei videoSubscribe',
+    zurueck && imMeeting.length > 0 && sollStaende(imMeeting[0]) === 'Anna:laedt' && imMeeting.every((a) => sollStaende(a) !== 'Anna:gescheitert')
+    && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 2 && zeile(p, ANNA)?.fehler === null && ladeStaendeEhrlich(p));
+  await p.aufraeumen();
+}
 
 // ── Ruling 08.10.2026 (Prüfung Zustände, Befund 2): Verlassen und Beenden leeren die Soll-Liste, bevor die Bridge abbaut ──
 console.log('— Ruling 08.10.2026: Verlassen und Beenden leeren die Soll-Liste vor dem Abbau; Meeting-Ende und „Schließen“ ebenso');
