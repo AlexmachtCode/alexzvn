@@ -13,6 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { buildCsp, type CspConfig } from './csp';
+import { berichtZeilen, LOG_AUFRAEUMEN_TAKT_MS, raeumeLogsAuf, type AufraeumBericht } from './log-aufraeumen';
 import { MasterLinkClient, masterLinkPfad, verbundWert, type ClientZustand } from '@jm/master-link';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -188,6 +189,13 @@ function createLogger(opts: {
     warn: (m, ...r) => write('warn', m, r),
     error: (m, ...r) => write('error', m, r),
   };
+}
+
+/** Ergebnis des Log-Aufräumens ins Log (log-aufraeumen.ts): eine Info-Zeile, wenn etwas geschah, je Fehler eine Warnung. */
+function meldeAufraeumen(log: Logger, b: AufraeumBericht): void {
+  const z = berichtZeilen(b);
+  if (z.info) log.info(z.info);
+  for (const w of z.warn) log.warn(w);
 }
 
 function consoleFallback(): Logger {
@@ -549,6 +557,9 @@ export function initAppRuntime(opts: AppRuntimeOptions): AppRuntime {
   } catch {
     /* notfalls schreibt der Logger einfach nichts */
   }
+  // Löschfrist 14 Tage (Spec Zoom Stage 4, N4b.2): vor dem ersten Schreiben, solange keine Logdatei offen ist.
+  // raeumeLogsAuf wirft nie; was schiefging, steht gleich danach im Log.
+  const ersterBericht = raeumeLogsAuf({ ordner: logDir, jetztMs: Date.now() });
 
   const log = createLogger({
     appId: opts.appId,
@@ -558,6 +569,12 @@ export function initAppRuntime(opts: AppRuntimeOptions): AppRuntime {
     toConsole: isDev,
   });
   defaultLogger = log;
+  meldeAufraeumen(log, ersterBericht);
+  // Langläufer (Launcher, Connect im Tray) räumen alle 6 h nach. unref: Der Takt hält keine App am Leben.
+  setInterval(
+    () => meldeAufraeumen(log, raeumeLogsAuf({ ordner: logDir, jetztMs: Date.now() })),
+    LOG_AUFRAEUMEN_TAKT_MS,
+  ).unref();
 
   installCrashHandlers(log, logDir, opts.appId);
 
