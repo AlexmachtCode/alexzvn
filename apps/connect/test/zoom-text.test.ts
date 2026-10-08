@@ -11,7 +11,7 @@ import type {
 } from '../src/shared/types';
 import {
   BETRIEBSGROESSE, bildText, einrichtungsTextArt, gaesteZeile, kartenZeile, MANGEL_GRUND, Q9_ANFANG, quellenZustandText, sdkBalken,
-  sdkKnopf, sdkLadenZeile, sdkSchluesselZeile, sdkZeile, sollZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6, TEXT_S11,
+  sdkKnopf, sdkLadenZeile, sdkSchluesselZeile, sdkZeile, sollFarbe, sollZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6, TEXT_S11,
   TEXT_S17, tonText, trayTooltip, trayVerlassenAktiv, versatzUebernommen, versatzZeile, WIEDERBEITRITT_VERSUCHE, zoomKnoepfe, zoomZ,
   zoomZeile, zugangZeile, type ZoomStatusWert, type ZoomZ,
 } from '../src/shared/zoom-text';
@@ -860,6 +860,25 @@ console.log('— 4b: Gemerkte Quellen (Spec 9 Punkt 9, Stand grenze)');
   };
   ck('ZoomSollEintrag kennt neun Stände', Object.keys(SOLL).length === 9);
   for (const s of Object.keys(SOLL) as Array<ZoomSollEintrag['stand']>) ck(`sollZeile ${s} wörtlich`, sollZeile(e(s)) === SOLL[s]);
+}
+
+console.log('— Ruling 08.10.2026 (R3): Farbe der gemerkten Quellen, „keine Antwort …“ und „Laden gescheitert …“ gelb wie grenze');
+{
+  const e = (stand: ZoomSollEintrag['stand'], doppelname = false): ZoomSollEintrag => ({
+    name: 'Anna', ton: true, ndiName: 'JM Connect – Zoom Anna', stand, aboId: stand === 'verwaist' ? 16778240 : null, doppelname,
+  });
+  // Die drei Stände „…, bitte von Hand laden“ ohne Doppelnamen stehen gelb (grenze seit 4b, keineAntwort und gescheitert seit R3);
+  // doppelname rot; verwaist rot nur mit Doppelname (Q11); der Rest grau. Der Record fängt einen neuen Stand im Typcheck.
+  const FARBE: Record<ZoomSollEintrag['stand'], 'rot' | 'gelb' | 'grau'> = {
+    wartet: 'grau', erlaubnis: 'grau', laedt: 'grau', wiederbeitritt: 'grau', keineAntwort: 'gelb', gescheitert: 'gelb',
+    doppelname: 'rot', verwaist: 'grau', grenze: 'gelb',
+  };
+  const STAENDE = Object.keys(FARBE) as Array<ZoomSollEintrag['stand']>;
+  for (const s of STAENDE) ck(`sollFarbe ${s}: ${FARBE[s]}`, sollFarbe(e(s)) === FARBE[s]);
+  ck('sollFarbe verwaist mit Doppelname: rot (Q11)', sollFarbe(e('verwaist', true)) === 'rot');
+  const anders = STAENDE.filter((s) => s !== 'verwaist' && sollFarbe(e(s, true)) !== FARBE[s]);
+  if (anders.length > 0) console.log(`     (mit Doppelname-Markierung anders: ${anders.join(', ')})`);
+  ck('… die Doppelname-Markierung ändert die Farbe der übrigen acht Stände nicht', STAENDE.length === 9 && anders.length === 0);
 }
 
 console.log('— 4b: Bild und Ton der Quelle im Klartext (Spec 9 Punkt 8, N4b.3 Nr. 8 „Rohwerte“)');

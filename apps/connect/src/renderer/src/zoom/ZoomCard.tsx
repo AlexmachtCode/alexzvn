@@ -15,6 +15,7 @@ import {
   sdkLadenZeile,
   sdkSchluesselZeile,
   sdkZeile,
+  sollFarbe,
   sollZeile,
   TEXT_S11,
   versatzUebernommen,
@@ -32,6 +33,8 @@ const TEXT_Q14 = 'Zum Umschalten erst entladen.';
 const TEXT_Q15 = 'Erst im Zoom-Client zulassen.';
 const SPERR_HINWEIS = 'Zoom ist gesperrt, bis SDK-Ordner und Zugangsdaten vollständig eingerichtet sind.';
 const FUSSZEILE = 'Zoom-Quellen haben kein Tally, kein Talkback und kein Mix-Minus — das sind Grenzen von Zoom.';
+/** Klassen zu sollFarbe: rot wie Q11, gelb wie die Warnung Q10, sonst grau. */
+const SOLL_FARBE = { rot: 'text-red-300', gelb: 'text-yellow-200', grau: 'text-neutral-300' } as const;
 
 /** Wo eine abgelehnte Antwort (ZoomErgebnis.text) erscheint; 'karte' = unter der Statuszeile, auch für unerwartete IPC-Fehler. */
 type Ort = 'karte' | 'einrichtung' | 'beitritt' | `zeile:${number}` | `soll:${string}`;
@@ -443,9 +446,8 @@ export function ZoomCard(): JSX.Element {
   };
 
   const sollEintrag = (e: ZoomSollEintrag): JSX.Element => {
-    const rot = e.stand === 'doppelname' || (e.stand === 'verwaist' && e.doppelname);
-    // 'grenze' (L7): nicht automatisch geladen, weil schon 5 Zoom-Quellen laufen. Von Hand laden geht (Q9).
-    const farbe = rot ? 'text-red-300' : e.stand === 'grenze' ? 'text-yellow-200' : 'text-neutral-300';
+    // Welcher Stand welche Farbe hat, entscheidet sollFarbe (@shared/zoom-text, dort geprüft).
+    const farbe = SOLL_FARBE[sollFarbe(e)];
     const ort: Ort = `soll:${e.name}`;
     const text = antwortText(ort);
     const aboId = e.stand === 'verwaist' ? e.aboId : null;

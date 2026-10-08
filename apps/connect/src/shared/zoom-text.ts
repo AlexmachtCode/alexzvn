@@ -468,6 +468,16 @@ export function sollZeile(e: ZoomSollEintrag): string {
   return `${e.name} — ${SOLL_STAND[e.stand]}`;
 }
 
+/**
+ * Farbe einer Zeile unter „Gemerkte Quellen“ (die Karte setzt sie in Klassen um). Rot: Name doppelt, auch „Person weg, Quelle
+ * schwarz“ bei Doppelname (Q11). Gelb: die übrigen Stände mit „…, bitte von Hand laden“, also 'grenze' (L7) und, Ruling
+ * 08.10.2026 (R3), 'keineAntwort' und 'gescheitert'. Sonst grau.
+ */
+export function sollFarbe(e: ZoomSollEintrag): 'rot' | 'gelb' | 'grau' {
+  if (e.stand === 'doppelname' || (e.stand === 'verwaist' && e.doppelname)) return 'rot';
+  return e.stand === 'grenze' || e.stand === 'keineAntwort' || e.stand === 'gescheitert' ? 'gelb' : 'grau';
+}
+
 /** Bild `black` je Grund (Texttabelle 4b). Record über alle Gründe: ein neuer Grund scheitert im Typcheck. */
 const BILD_SCHWARZ: Record<VideoReason, string> = {
   command: 'kein Bild von Zoom',
