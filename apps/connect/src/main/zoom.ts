@@ -21,6 +21,7 @@ import {
   zoomSdkSchluesselLoeschen,
   zoomSdkSchluesselSpeichern,
   zoomVersatzMs,
+  zoomVersatzNurSitzung,
   zoomZugangLesen,
   zoomZugangLoeschen,
   zoomZugangSpeichern,
@@ -70,6 +71,7 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         setzeAnzeigename: setzeZoomAnzeigename,
         versatzMs: zoomVersatzMs,
         setzeVersatzMs: setzeZoomVersatzMs,
+        versatzNurSitzung: zoomVersatzNurSitzung,
         setzeLaufzeit: setzeZoomLaufzeit,
       },
       // „Zoom-SDK laden“ (Spec SDK nachladen 4.3): Umgebung JMPS_PROXY_URL, Einstellung oder Vorgabe; kein Proxy-Schlüssel.

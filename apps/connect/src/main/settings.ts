@@ -252,12 +252,20 @@ export function zoomVersatzMs(): number {
   return zoomVersatzSitzung ?? gueltigerVersatz(read().zoomVersatzMs) ?? 0;
 }
 
-export function setzeZoomVersatzMs(ms: number): void {
+/** true = in connect-settings.json gespeichert; false = nur für diese Sitzung (Datei nicht schreibbar) oder ungültig. */
+export function setzeZoomVersatzMs(ms: number): boolean {
   const v = gueltigerVersatz(ms);
-  if (v === null) return; // der Kern prüft vorher (Q13)
+  if (v === null) return false; // der Kern prüft vorher (Q13)
   const next = read();
   next.zoomVersatzMs = v;
-  zoomVersatzSitzung = write(next) ? null : v;
+  const gespeichert = write(next);
+  zoomVersatzSitzung = gespeichert ? null : v;
+  return gespeichert;
+}
+
+/** Der geltende Versatz steht nur im Arbeitsspeicher (N4b.3 Nr. 4). */
+export function zoomVersatzNurSitzung(): boolean {
+  return zoomVersatzSitzung !== null;
 }
 
 export function setzeZoomLaufzeit(v: { dir: string; fassung: string; eingerichtetAm: string }): void {

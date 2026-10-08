@@ -132,6 +132,8 @@ interface BaueOptionen {
    * z. B. den Code von `failed` oder das `detail` von `exited`). Die Sitzung der Bridge bleibt unberührt.
    */
   ereignis?: (ev: BridgeEvent, startNr: number) => BridgeEvent;
+  /** Was einstellungen.setzeVersatzMs() meldet; false = Einstellungsdatei nicht schreibbar (nur Sitzung). Vorgabe true. */
+  versatzSpeichernLiefert?: boolean;
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -149,6 +151,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
   let sdkSchluessel: { wert: string | null; herkunft: ProxyKeySource } = { wert: null, herkunft: 'none', ...o.sdkSchluessel };
   const sdkSchluesselGespeichert: string[] = [];
   let sdkSchluesselGeloescht = 0;
+  let versatzNurSitzung = false;
   const einst: Probe['einst'] = { anzeigename: o.anzeigename ?? ANZEIGENAME_VORGABE, versatzMs: o.versatzMs ?? 0, laufzeit: null };
   let zugang: ZugangStand = {
     daten: { clientId: 'test-id-1234', clientSecret: 'test-secret' },
@@ -223,7 +226,10 @@ function baueKern(o: BaueOptionen = {}): Probe {
       versatzMs: () => einst.versatzMs,
       setzeVersatzMs: (ms) => {
         einst.versatzMs = ms;
+        versatzNurSitzung = !(o.versatzSpeichernLiefert ?? true);
+        return !versatzNurSitzung;
       },
+      versatzNurSitzung: () => versatzNurSitzung,
       setzeLaufzeit: (v) => {
         einst.laufzeit = { ...v };
       },
@@ -2720,6 +2726,111 @@ console.log('— Nach jedem await auch Soll-Liste, Abos und Plätze neu prüfen;
   const s = p.kern.abbild().soll;
   ck('… der sechste Eintrag steht als grenze unter „Gemerkte Quellen“, zoom_alarm=1',
     s.length === 1 && s[0].stand === 'grenze' && p.kern.stateKv()?.zoom_alarm === 1);
+  await p.aufraeumen();
+}
+
+// ── Aufgabe 11 (4b): Randfälle 0.3.0 (N4b.3 Nr. 1, 2, 4, 6, 7, 8) ──────────────
+console.log('— Randfälle 0.3.0: Hinweise (Nr. 6), offenes Abo (Nr. 7), Sperre, Z12, Z2 (Nr. 8)');
+{
+  const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_ABSTURZ_MS: '300' } : n === 2 ? { FAKE_BEITRITT_SCHEITERT: '63' } : {}) });
+  await insMeeting(p);
+  ck('Nr. 6: Absturz → R4 unter „Hinweise“, der Versuch scheitert endgültig → fehler', await bis(() => p.kern.kurz().zustand === 'fehler', 4000)
+    && p.kern.abbild().hinweise.length === 1 && p.kern.abbild().hinweise[0].startsWith('Die Zoom-Bridge ist abgestürzt ('));
+  ck('… erneut() behält die Hinweise (L15)', ok(await p.kern.erneut()) && (await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000))
+    && p.kern.abbild().hinweise.length === 1);
+  await p.kern.verlassen();
+  ck('… ein neuer Beitritt mit eingegebenen Daten leert sie',
+    ok(await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' })) && p.kern.abbild().hinweise.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ABO_VERZOEGERUNG_MS: '500' }), fristen: { aboAntwortMs: 800 } });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Nr. 7: Entladen bei offenem Abo → ok', ok(await p.kern.entladen({ aboId: ANNA })));
+  ck('… videoUnsubscribe geht hinaus', await bis(() => p.befehle(1).some((c) => c.cmd === 'videoUnsubscribe' && c.id === ANNA), 2000));
+  await warte(1000);
+  ck('… am Ende keine Quelle, kein Q8, Soll-Liste leer, nie subscribed', p.kern.kurz().quellen === 0 && zeile(p, ANNA)?.fehler === null
+    && p.kern.abbild().soll.length === 0 && !p.ereignisse.some((x) => x.ev.ev === 'video' && (x.ev as { state?: string }).state === 'subscribed'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_MEETING_ENDE_MS: '400', FAKE_ABGANG_MS: '600' }) });
+  await insMeeting(p);
+  ck('Nr. 8 (S10 im Abbau): nach dem Meeting-Ende bereit, die Bridge baut noch ab',
+    await bis(() => p.kern.kurz().zustand === 'bereit', 3000) && p.kern.laeuft() && p.kern.abbild().abbauLaeuft);
+  ck('… Zugangsdaten entfernen → S10, Zugang unverändert', text(p.kern.zugangLoeschen()) === KT.S10
+    && p.kern.abbild().einrichtung.zugang.herkunft === 'stored');
+  ck('… nach dem Abbau wieder frei', await bis(() => !p.kern.laeuft(), 3000) && !p.kern.abbild().abbauLaeuft && p.kern.einrichtungSperre().ok);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ skript: 'envprobe', fristen: { anmeldeMs: 20_000 } });
+  const lauf = p.kern.pruefen();
+  ck('Nr. 8 (Z12 nur mit Meeting): „Einrichtung prüfen“ hängt vor ready', await bis(() => p.starts() === 1 && p.kern.abbild().pruefungLaeuft, 2000));
+  await p.kern.beenden(1000);
+  ck('… beenden zeigt nie verlaesst', !folge(p).includes('verlaesst') && !p.kurze.some((k) => zoomZ(k) === 'Z12'));
+  ck('… die Prüfung liefert ok:false ohne Text, nichts läuft', text(await lauf) === '' && !p.kern.laeuft());
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_MEETING_ENDE_MS: '600' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Nr. 8 (Z2 nach Meeting-Ende): Anna geladen, dann bereit', (await bis(() => p.kern.kurz().quellen === 1))
+    && (await bis(() => p.kern.kurz().zustand === 'bereit', 3000)));
+  const bereit = p.kurze.filter((k) => k.zustand === 'bereit');
+  ck('… jede Kurzform mit Zustand bereit hat 0 Quellen (L12)', bereit.length > 0 && bereit.every((k) => k.quellen === 0));
+  await p.aufraeumen();
+}
+
+console.log('— Randfälle 0.3.0: Versatz nur Sitzung (Nr. 4), Ton aus dem Soll (Nr. 2), Doppelname (Nr. 1)');
+{
+  const p = baueKern({ versatzSpeichernLiefert: false });
+  await insMeeting(p);
+  const r = p.kern.versatz({ ms: 250 });
+  ck('Nr. 4: Datei nicht schreibbar → Antwort TEXT_A4_SCHREIBFEHLER', text(r) === TEXT_A4_SCHREIBFEHLER);
+  ck('… videoDelay trotzdem gesendet und bestätigt', await bis(() => p.kern.abbild().versatz.bestaetigtMs === 250, 2000)
+    && p.befehle(1).filter((c) => c.cmd === 'videoDelay').at(-1)?.ms === 250);
+  ck('… das Abbild sagt „nur für diese Sitzung“, der Wert gilt', p.kern.abbild().versatz.nurSitzung && p.kern.abbild().versatz.gewuenschtMs === 250);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('… Datei schreibbar → ok, nurSitzung false', ok(p.kern.versatz({ ms: 100 })) && !p.kern.abbild().versatz.nurSitzung);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '600' } : { FAKE_ABO_VERZOEGERUNG_MS: '800' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: false, trotzBetriebsgroesse: false });
+  ck('Nr. 2: Anna ohne Ton geladen, dann Abriss', (await bis(() => p.kern.kurz().quellen === 1)) && (await bis(() => p.kern.kurz().versuch === 1, 3000)));
+  ck('… nach dem Wiederbeitritt, vor dem video-Ereignis: Annas Schalter zeigt „ohne Ton“', await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000)
+    && (await bis(() => p.befehle(2).some((c) => c.cmd === 'videoSubscribe' && c.id === ANNA), 2000))
+    && zeile(p, ANNA)?.quelle === null && zeile(p, ANNA)?.tonVorwahl === false);
+  ck('… Ben ohne Soll-Eintrag zeigt die Vorgabe „mit Ton“', zeile(p, BEN)?.tonVorwahl === true);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '600' } : n === 2 ? { FAKE_BEITRITT_SCHEITERT: '63' } : { FAKE_ABO_VERZOEGERUNG_MS: '800' }),
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: false, trotzBetriebsgroesse: false });
+  ck('… ebenso nach „Erneut beitreten“: fehler mit gemerkter Anna', await bis(() => p.kern.kurz().zustand === 'fehler', 4000) && p.kern.abbild().soll.length === 1);
+  ck('… nach erneut(), vor dem video-Ereignis: „ohne Ton“', ok(await p.kern.erneut()) && (await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000))
+    && (await bis(() => p.befehle(3).some((c) => c.cmd === 'videoSubscribe' && c.id === ANNA), 2000))
+    && zeile(p, ANNA)?.quelle === null && zeile(p, ANNA)?.tonVorwahl === false);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_DOPPELNAME: '1' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Nr. 1: erste Anna geladen, die Vorschau der zweiten endet auf „ (2)“',
+    await bis(() => zeile(p, ANNA)?.quelle?.ndiName === 'JM Connect – Zoom Anna') && zeile(p, BEN)?.ndiNameVorschau === 'JM Connect – Zoom Anna (2)');
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  ck('… beide geladen: die Quelle der zweiten heißt „… Anna (2)“', await bis(() => zeile(p, BEN)?.quelle?.ndiName === 'JM Connect – Zoom Anna (2)'));
   await p.aufraeumen();
 }
 

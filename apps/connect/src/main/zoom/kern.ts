@@ -116,7 +116,10 @@ export interface ZoomKernAbhaengigkeiten {
     anzeigename(): string;
     setzeAnzeigename(n: string): void;
     versatzMs(): number;
-    setzeVersatzMs(ms: number): void;
+    /** true = in der Einstellungsdatei gespeichert; false = gilt nur für diese Sitzung (Datei nicht schreibbar, L14). */
+    setzeVersatzMs(ms: number): boolean;
+    /** Der geltende Versatz steht nur im Arbeitsspeicher (N4b.3 Nr. 4). */
+    versatzNurSitzung(): boolean;
     setzeLaufzeit(v: { dir: string; fassung: string; eingerichtetAm: string }): void;
   };
   gastLabels(): string[];
@@ -326,7 +329,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function teilnehmerAbbild(): ZoomParticipant[] {
     const s = aktiveSitzung();
     if (!s) return [];
-    return baueTeilnehmer({ liste: [...s.participants.values()], quellen: aktiveQuellen(), tonVorwahl, zeilenFehler, gastLabels: d.gastLabels() });
+    return baueTeilnehmer({
+      liste: [...s.participants.values()],
+      quellen: aktiveQuellen(),
+      tonVorwahl,
+      zeilenFehler,
+      gastLabels: d.gastLabels(),
+      // N4b.3 Nr. 2: ohne eigene Vorwahl zeigt der Schalter den Ton, mit dem der Abgleich lädt.
+      sollTon: (name) => soll.get(normName(name))?.ton,
+    });
   }
 
   function sollLage(): SollLage {
@@ -381,7 +392,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       },
       anzeigename: d.einstellungen.anzeigename(),
       // nurSitzung liest ab Aufgabe 11 (4b) einstellungen.versatzNurSitzung().
-      versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null, nurSitzung: false },
+      versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null, nurSitzung: d.einstellungen.versatzNurSitzung() },
       teilnehmer: teilnehmerAbbild(),
       soll: sollOffen(),
       abriss: zustand === 'abriss' ? { versuch: folge?.versuch ?? null, versuche: WIEDERBEITRITT_VERSUCHE, naechsterUm: folge?.naechsterUm ?? null } : null,
@@ -469,7 +480,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   function einrichtungSperre(): ZoomErgebnis {
     // Spec SDK nachladen 4.4: zusätzlich nur ohne laufendes Laden (ladeLauf umfasst ladung !== null und die Kopie danach).
-    const frei = ladeLauf === null
+    // N4b.3 Nr. 8, L13: auch solange eine gestoppte Bridge noch abbaut (stopps), bleibt die Einrichtung gesperrt.
+    const frei = ladeLauf === null && stopps.size === 0
       && ((zustand === 'einrichtung' && kopie === null) || (zustand === 'bereit' && !pruefungLaeuft) || zustand === 'fehler');
     return frei ? { ok: true } : { ok: false, text: KT.S10 };
   }
@@ -754,10 +766,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   function versatz(e: { ms: number }): ZoomErgebnis {
     if (!Number.isInteger(e.ms) || e.ms < 0 || e.ms > 1000) return { ok: false, text: KT.Q13 };
-    d.einstellungen.setzeVersatzMs(e.ms);
+    const gespeichert = d.einstellungen.setzeVersatzMs(e.ms);
     sende({ cmd: 'videoDelay', ms: e.ms });
     abbildGeaendert();
-    return { ok: true };
+    // L14: nur für diese Sitzung gemerkt → ehrliche Antwort (Muster „Entfernen“); der Versatz gilt trotzdem.
+    return gespeichert ? { ok: true } : { ok: false, text: TEXT_A4_SCHREIBFEHLER };
   }
 
   /** Spec 6.8 „Schließen“: nur in Z2 und Z13. */
@@ -1102,6 +1115,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     nummer = { eingabe: e.nummer, normiert };
     kenncode = e.kenncode;
     soll.clear();
+    // N4b.3 Nr. 6, L15: Hinweise gehören zum letzten Meeting; „Erneut beitreten“ behält sie.
+    hinweise.length = 0;
     return starteBeitritt();
   }
 
@@ -1127,6 +1142,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // L4: auch während eines Versuchs ist ended ein Meeting-Ende, die Folge endet.
     folgeBeenden();
     void stoppeBridge();
+    // L12: Mit ended sind die Quellen der aktiven Generation weg (n = 0 in Z2); die Bridge baut sie ohnehin selbst ab.
+    for (const [id, q] of quellen) if (q.gen === aktiveGen) quellen.delete(id);
     soll.clear();
     melde('warnung', m);
     setzeZustand('bereit');
@@ -1484,7 +1501,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       vergessen = true;
     }
     const q = quellen.get(e.aboId);
-    const gesendet = q !== undefined && q.gen === aktiveGen && sende({ cmd: 'videoUnsubscribe', id: e.aboId });
+    // N4b.3 Nr. 7: auch ein gesendetes, noch unbestätigtes Abo (offene Frist) abmelden. Ohne Abo nichts senden (sonst Q4).
+    const offen = aboFristen.has(e.aboId);
+    const gesendet = ((q !== undefined && q.gen === aktiveGen) || offen) && sende({ cmd: 'videoUnsubscribe', id: e.aboId });
+    if (offen) aboBeantwortet(e.aboId);
     if (gesendet || vergessen) d.log(`[zoom] Quelle ${e.aboId} entladen`);
     abbildGeaendert();
     return gesendet || vergessen ? { ok: true } : { ok: false, text: KT.Q2 };
@@ -1606,7 +1626,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       } else if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
       // Kopie und Bridge laufen nie gleichzeitig (Sperre S10): insgesamt höchstens fristMs.
       if (aktiveBridge !== null) {
-        setzeZustand('verlaesst');
+        // N4b.3 Nr. 8: Z12 („verlässt das Meeting …“) nur mit Meeting, nicht bei „Einrichtung prüfen“.
+        const imMeetingZustand = zustand === 'startet' || zustand === 'tritt_bei' || zustand === 'warteraum' || zustand === 'im_meeting' || zustand === 'abriss';
+        if (imMeetingZustand) setzeZustand('verlaesst');
         if (!(await mitFrist(stoppeBridge(), fristMs))) d.log('[zoom] Zoom-Bridge nicht rechtzeitig beendet');
       }
       soll.clear();

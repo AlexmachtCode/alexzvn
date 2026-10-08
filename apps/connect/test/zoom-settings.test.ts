@@ -54,8 +54,10 @@ ck('Set: Schreiben scheitert → session statt stored', s.zoomZugangSpeichern(ne
 const z = s.zoomZugangLesen();
 ck('Set: Sitzungsdaten gelten, Herkunft session', z.herkunft === 'session' && z.daten?.clientId === 'ID-9999');
 ck('Set: Grund schreibfehler (Schlüsselbund ist da, die Datei nicht)', z.grund === 'schreibfehler');
-s.setzeZoomVersatzMs(300);
+const versatzGespeichert = s.setzeZoomVersatzMs(300);
 ck('Set: Versatz nach gescheitertem Schreiben = neuer Wert', s.zoomVersatzMs() === 300);
+ck('Set: … setzeZoomVersatzMs meldet false, der Versatz gilt nur für diese Sitzung (N4b.3 Nr. 4)',
+  versatzGespeichert === false && s.zoomVersatzNurSitzung());
 s.setzeZoomAnzeigename('Neu');
 ck('Set: Name nach gescheitertem Schreiben = neuer Wert', s.zoomAnzeigename() === 'Neu');
 
@@ -63,8 +65,9 @@ ck('Set: Name nach gescheitertem Schreiben = neuer Wert', s.zoomAnzeigename() ==
 g.__mock.userData = wurzel;
 s.zoomZugangSpeichern(daten);
 ck('Set: erfolgreich gespeichert → kein Grund mehr', s.zoomZugangLesen().herkunft === 'stored' && s.zoomZugangLesen().grund === undefined);
-s.setzeZoomVersatzMs(50); s.setzeZoomAnzeigename('Platte');
+const wiederGespeichert = s.setzeZoomVersatzMs(50); s.setzeZoomAnzeigename('Platte');
 ck('Set: Schreiben ok → Platte gilt', s.zoomVersatzMs() === 50 && s.zoomAnzeigename() === 'Platte');
+ck('Set: … setzeZoomVersatzMs meldet true, nicht mehr nur Sitzung', wiederGespeichert === true && !s.zoomVersatzNurSitzung());
 
 // Ohne Schlüsselbund: Sitzung ohne Grund (A4 bleibt wörtlich richtig)
 g.__mock.verschluesselung = false;
