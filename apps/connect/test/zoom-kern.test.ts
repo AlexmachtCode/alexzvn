@@ -1,6 +1,6 @@
 // Zoom-Kern OHNE Electron (tsx): echte Bridge gegen die Attrappe packages/zoom-bridge/test/fake-bridge.mjs.
 //   npm run selftest -w @jm/connect   ·   einzeln: npx tsx apps/connect/test/zoom-kern.test.ts
-// Spec 12.2 ohne die 4b-Fälle (15, 15b, 15c, 16–18, 22, 25, Fernsteuer-Teile von 13 und 21).
+// Spec 12.2; die Fernsteuer-Fälle (22, Fernsteuer-Teile von 13 und 21) kommen mit Aufgabe 13 (4b).
 // Laufzeit, Zugangsdaten und Einstellungen sind Attrappen; die Bridge-Fabrik setzt FAKE_SDK_FASSUNG
 // IMMER auf '7.1.5 (43953)' — die Prüfung im Kern bleibt exakt (G1), nur Fall 7 überschreibt den Wert.
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -20,7 +20,7 @@ import {
   type ZugangDaten,
   type ZugangStand,
 } from '../src/main/zoom/kern';
-import { KT } from '../src/main/zoom/klartext';
+import { failText, KT, VORSATZ } from '../src/main/zoom/klartext';
 import {
   BRIDGE_EXE,
   laufzeitOrdner,
@@ -125,6 +125,13 @@ interface BaueOptionen {
   sdkSchluesselLoeschenLiefert?: boolean;
   /** Dienste für „Zoom-SDK laden“ (Attrappen); ohne Angabe die echten aus sdk-laden.ts gegen https://proxy.test. */
   sdkLaden?: Partial<SdkLadenDienste>;
+  /** Wartezeiten vor den Wiederbeitritts-Versuchen 1–5 in ms (Spec 12.2: einspeisbar). Vorgabe hier [30, 30, 30, 30, 30]. */
+  wiederbeitrittPlanMs?: readonly number[];
+  /**
+   * Ändert ein Ereignis der Attrappe, bevor der Kern es sieht (nur Felder, die der Kern aus dem Ereignis liest,
+   * z. B. den Code von `failed` oder das `detail` von `exited`). Die Sitzung der Bridge bleibt unberührt.
+   */
+  ereignis?: (ev: BridgeEvent, startNr: number) => BridgeEvent;
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -162,7 +169,8 @@ function baueKern(o: BaueOptionen = {}): Probe {
         FAKE_LOGDATEI: join(tmp, `befehle-${nr}.log`),
         ...(o.stell?.(nr) ?? {}),
       },
-      onEvent: (ev, s) => {
+      onEvent: (roh, s) => {
+        const ev = o.ereignis ? o.ereignis(roh, nr) : roh;
         ereignisse.push({ startNr: nr, ev });
         opts.onEvent?.(ev, s);
       },
@@ -244,6 +252,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     sdkLaden: o.sdkLaden,
     env: o.env,
     fristen: { anmeldeMs: 3000, joinTimeoutMs: 3000, killTimeoutMs: 2000, ...o.fristen },
+    wiederbeitrittPlanMs: o.wiederbeitrittPlanMs ?? [30, 30, 30, 30, 30],
   });
   return {
     kern,
@@ -1092,7 +1101,7 @@ console.log('— Meeting-Ende (Fall 19, 28), Beenden (Fall 20)');
   await p.aufraeumen();
 }
 
-console.log('— Verlassen (Fall 26, Review Focus 2) und Abriss in 4a');
+console.log('— Verlassen (Fall 26, Review Focus 2) und Wiederbeitritt (Fall 16, 18, 15c)');
 {
   const p = baueKern();
   await insMeeting(p);
@@ -1119,36 +1128,46 @@ console.log('— Verlassen (Fall 26, Review Focus 2) und Abriss in 4a');
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ stell: () => ({ FAKE_VERBINDUNG_WEG_MS: '300' }) });
+  const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_BEITRITT_SCHEITERT: '2' }) });
   await insMeeting(p);
-  ck('4a: Verbindung weg → fehler', await bis(() => p.kern.kurz().zustand === 'fehler'));
-  ck('… „Verbindung verloren: Wiederverbinden fehlgeschlagen (Code 2).“',
-    p.kern.abbild().meldung?.text === 'Verbindung verloren: Wiederverbinden fehlgeschlagen (Code 2).');
-  ck('… vorher abriss, erneutMoeglich', folge(p).join(',').endsWith('abriss,fehler') && p.kern.abbild().erneutMoeglich);
+  ck('Fall 16: Verbindung weg (Code 2, vorübergehend) → Z10, dann Wiederbeitritt', await bis(() => p.kern.kurz().versuch === 1, 3000)
+    && p.kurze.some((k) => k.zustand === 'abriss' && k.versuch === null));
+  ck('… nach fünf gescheiterten Versuchen fehler', await bis(() => p.kern.kurz().zustand === 'fehler', 10_000));
   await warte(300);
-  ck('… kein Wiederbeitritt in 4a (eine Bridge)', p.starts() === 1 && p.kern.kurz().zustand === 'fehler');
-  await p.aufraeumen();
-}
-{
-  const p = baueKern({ stell: () => ({ FAKE_ABSTURZ_MS: '200' }) });
-  await insMeeting(p);
-  ck('4a: Absturz im Meeting → fehler', await bis(() => p.kern.kurz().zustand === 'fehler'));
-  const absturz = p.ereignisse.find((x) => x.ev.ev === 'error' && (x.ev as { where?: string }).where === 'exit')?.ev as { detail?: string } | undefined;
-  ck('… Text „Verbindung verloren: Die Zoom-Bridge ist abgestürzt (…). Details im Log.“',
-    absturz !== undefined && p.kern.abbild().meldung?.text === 'Verbindung verloren: ' + KT.UE_ABSTURZ(String(absturz.detail)));
-  ck('… erneutMoeglich, eine Bridge', p.kern.abbild().erneutMoeglich && p.starts() === 1);
-  await p.aufraeumen();
-}
-{
-  const p = baueKern({ stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '100' }), fristen: { joinTimeoutMs: 300 } });
-  await insMeeting(p);
-  ck('4a: Neuverbindung hängt → fehler', await bis(() => p.kern.kurz().zustand === 'fehler'));
+  ck('… genau fünf weitere Bridges, Versuche 1 bis 5 der Reihe nach', p.starts() === 6
+    && JSON.stringify([...new Set(p.kurze.map((k) => k.versuch).filter((v) => v !== null))]) === '[1,2,3,4,5]');
   const m = p.kern.abbild().meldung;
-  ck('… Text Verbindung verloren + UE_RECONNECT, detail RECONNECT_TIMEOUT', m?.text === 'Verbindung verloren: ' + KT.UE_RECONNECT
-    && m.detail === 'RECONNECT_TIMEOUT (reconnectTimeout)');
-  await warte(400);
-  ck('… das ended der stoppenden Bridge ändert nichts (kein R6, weiter fehler)',
-    p.kern.kurz().zustand === 'fehler' && p.kern.abbild().meldung?.text === 'Verbindung verloren: ' + KT.UE_RECONNECT);
+  ck('… Meldung R2 mit dem Grund des letzten Versuchs, erneutMoeglich',
+    m?.text === KT.R2(failText(2, 'JM Connect')) && m.detail?.endsWith('(2)') === true && p.kern.abbild().erneutMoeglich);
+  ck('… das Log nennt die Dauer jedes Versuchs',
+    p.logs.filter((z) => /^\[zoom\] Wiederbeitritt: Versuch [1-5] gescheitert nach \d+ ms \(vorübergehend\)$/.test(z)).length === 5);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_ABSTURZ_MS: '300' } : {}) });
+  await insMeeting(p);
+  await p.kern.laden({ id: 16778240, ton: false, trotzBetriebsgroesse: false });
+  ck('Fall 18: Absturz im Meeting → Wiederbeitritt', await bis(() => p.kern.kurz().versuch === 1, 3000));
+  const absturz = p.ereignisse.find((x) => x.startNr === 1 && x.ev.ev === 'error' && (x.ev as { where?: string }).where === 'exit')?.ev as { detail?: string } | undefined;
+  ck('… Hinweis R4 mit dem Detail des Absturzes', absturz !== undefined && p.kern.abbild().hinweise.includes(KT.R4(String(absturz.detail))));
+  ck('… wieder im Meeting, Anna ohne Ton neu abonniert', await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000)
+    && (await bis(() => p.befehle(2).some((c) => c.cmd === 'videoSubscribe' && c.id === 16778240 && c.audio === false), 2000)));
+  ck('… keine Meldung, zwei Bridges', p.kern.abbild().meldung === null && p.starts() === 2);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_HAENGT_MS: '600' } : {}), fristen: { joinTimeoutMs: 300 } });
+  await insMeeting(p);
+  await p.kern.laden({ id: 16778240, ton: true, trotzBetriebsgroesse: false });
+  ck('Fall 15c: Anna geladen, Zoom verbindet neu (Z10)', (await bis(() => p.kern.kurz().quellen === 1))
+    && (await bis(() => p.kern.kurz().zustand === 'abriss', 2000)));
+  ck('… der Wachhund (reconnectTimeout) startet den Wiederbeitritt', await bis(() => p.kern.kurz().versuch === 1, 3000));
+  ck('… wieder im Meeting, Anna neu abonniert', await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000)
+    && (await bis(() => p.befehle(2).some((c) => c.cmd === 'videoSubscribe' && c.id === 16778240), 2000)));
+  ck('… das ended der stoppenden Bridge steht nur im Log', p.logs.some((z) => z.startsWith('[zoom] (Abbau) status ended')));
+  ck('… kein R6, nie bereit, keine Meldung, Soll-Liste blieb und ist erfüllt', !folge(p).includes('bereit')
+    && !p.logs.some((z) => z.includes('Meeting beendet')) && p.kern.abbild().meldung === null
+    && (await bis(() => p.kern.kurz().quellen === 1 && p.kern.kurz().sollOffen === 0)));
   await p.aufraeumen();
 }
 {
@@ -1208,14 +1227,17 @@ console.log('— Laden und Entladen (Fall 10, 10b, 11, 12)');
   await insMeeting(p);
   await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
   ck('Fall 10b: Anna geladen', await bis(() => p.kern.kurz().quellen === 1));
-  ck('… Erlaubnis entzogen', await bis(() => p.kern.kurz().erlaubnis === 'entzogen'));
-  // Ab 4b baut die Attrappe beim Entzug ab wie die Bridge (Grund privilegeRevoked,
-  // Aufgabe 1). Aufgabe 8 schreibt diesen Fall neu.
-  ck('… die Bridge baut die Quelle ab (privilegeRevoked)', await bis(() => p.kern.kurz().quellen === 0));
-  await p.kern.entladen({ aboId: ANNA });
-  await bis(() => p.kern.kurz().quellen === 0);
-  const zeileZ7 = String(kartenZeile(p.kern.abbild(), Date.now()));
-  ck('… nach dem Entladen Z7 mit „Der Host hat sie entzogen.“, nicht Z6', zoomZ(p.kern.kurz()) === 'Z7' && zeileZ7.includes('Der Host hat sie entzogen.'));
+  ck('… Erlaubnis entzogen, die Bridge baut die Quelle ab (N4b.1)', await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0));
+  const a = p.kern.abbild();
+  ck('… Soll-Eintrag bleibt (wartet), Z7 „Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt. …“',
+    a.soll.length === 1 && a.soll[0].name === 'Anna' && a.soll[0].stand === 'wartet' && zoomZ(a.kurz) === 'Z7'
+    && String(kartenZeile(a, Date.now())).startsWith('Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt.'));
+  ck('… STATE zoom_alarm=1, zoom_sources=0, zoom_privilege=0',
+    p.kern.stateKv()?.zoom_alarm === 1 && p.kern.stateKv()?.zoom_sources === 0 && p.kern.stateKv()?.zoom_privilege === 0);
+  p.kern.sollVerwerfen({ name: 'Anna' });
+  ck('… nach dem Vergessen keine gemerkte Quelle: Z7 „Der Host hat sie entzogen.“ ohne „Quellen gestoppt“ (zoom_alarm bleibt 1, 7.5)',
+    zoomZ(p.kern.kurz()) === 'Z7' && String(kartenZeile(p.kern.abbild(), Date.now())).includes('Der Host hat sie entzogen.')
+    && !String(kartenZeile(p.kern.abbild(), Date.now())).includes('Quellen gestoppt') && p.kern.stateKv()?.zoom_alarm === 1);
   await p.aufraeumen();
 }
 {
@@ -1275,13 +1297,13 @@ console.log('— Doppelname, Versatz, Kollision, Q8 (Fall 13, 21, 23)');
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ stell: () => ({ FAKE_ABSTURZ_MS: '400' }) });
+  const p = baueKern({ stell: () => ({ FAKE_ABSTURZ_MS: '400' }), wiederbeitrittPlanMs: [5000, 30, 30, 30, 30] });
   await insMeeting(p);
   await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
-  ck('6.9: Quelle geladen, dann stürzt die Bridge ab → fehler', (await bis(() => p.kern.kurz().quellen === 1))
-    && (await bis(() => p.kern.kurz().zustand === 'fehler')));
+  ck('6.9: Quelle geladen, dann stürzt die Bridge ab → Wiederbeitritt wartet (Z11)', (await bis(() => p.kern.kurz().quellen === 1))
+    && (await bis(() => p.kern.kurz().versuch === 1)));
   ck('… ohne unsubscribed verwirft der Kern nach stop() die Quellen dieser Generation (n = 0, zoom_live=0)',
-    (await bis(() => p.kern.kurz().quellen === 0)) && p.kern.stateKv()?.zoom_live === 0);
+    (await bis(() => p.kern.kurz().quellen === 0)) && p.kern.stateKv()?.zoom_live === 0 && p.starts() === 1);
   await p.aufraeumen();
 }
 
@@ -1365,26 +1387,34 @@ console.log('— Teilnehmer-Wiederbeitritt (Fall 14, 14b)');
   await p.aufraeumen();
 }
 
-console.log('— Soll-Liste nach „Erneut beitreten“ (4a-Ersatz für Fall 15), Vergessen, Lebenslauf');
+console.log('— Wiederbeitritt mit Soll-Liste (Fall 15, R5), Vergessen, Lebenslauf');
 {
+  const DORA = 16778243;
   const p = baueKern({
     stell: (n): Record<string, string> =>
-      n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '800', FAKE_DOPPELNAME: '1', FAKE_TEILNEHMER: '3' } : { FAKE_DOPPELNAME: '1', FAKE_TEILNEHMER: '3' },
+      n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '800', FAKE_TEILNEHMER: '4' } : { FAKE_DOPPELNAME: '1', FAKE_TEILNEHMER: '4' },
   });
   await insMeeting(p);
   await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
   await p.kern.laden({ id: CARLA, ton: false, trotzBetriebsgroesse: false });
-  ck('Anna und Carla geladen', await bis(() => p.kern.kurz().quellen === 2));
-  ck('Verbindung weg → fehler mit „Verbindung verloren: …“', await bis(() => p.kern.kurz().zustand === 'fehler', 3000)
-    && String(p.kern.abbild().meldung?.text).startsWith('Verbindung verloren: '));
-  ck('… Soll-Liste bleibt (zwei offene Einträge)', await bis(() => p.kern.kurz().sollOffen === 2));
-  ck('erneut() → zweiter Start, im Meeting', ok(await p.kern.erneut()) && (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().erlaubnis === 'ja')));
-  await warte(600);
+  await p.kern.laden({ id: DORA, ton: true, trotzBetriebsgroesse: false });
+  ck('Fall 15: Anna, Carla und Dora geladen', await bis(() => p.kern.kurz().quellen === 3));
+  ck('… Verbindung weg → Z10, dann Z11 mit Versuch 1', await bis(() => p.kern.kurz().versuch === 1, 3000)
+    && p.kurze.some((k) => k.zustand === 'abriss' && k.versuch === null));
+  ck('… wieder im Meeting mit Erlaubnis', await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().erlaubnis === 'ja', 4000));
+  ck('… genau eine zweite Bridge, nach dem Abriss nie startet/tritt_bei, nie Versuch 2', p.starts() === 2
+    && folge(p).join(',') === 'startet,tritt_bei,im_meeting,abriss,im_meeting' && !p.kurze.some((k) => (k.versuch ?? 0) > 1));
+  await bis(() => p.befehle(2).filter((c) => c.cmd === 'videoSubscribe').length >= 2, 2000);
+  await warte(400);
   const subs = p.befehle(2).filter((c) => c.cmd === 'videoSubscribe');
-  ck('… Abgleich abonniert nur Carla (eindeutig), mit ihrem Ton', subs.length === 1 && subs[0].id === CARLA && subs[0].audio === false);
+  ck('… die zweite Bridge abonniert jeden eindeutigen Soll-Namen mit seinem Ton (Carla ohne, Dora mit), Anna nicht',
+    subs.length === 2 && subs.some((c) => c.id === CARLA && c.audio === false) && subs.some((c) => c.id === DORA && c.audio === true));
   const s = p.kern.abbild().soll;
   ck('… Anna steht als doppelname im Abbild, sollOffen 1', s.length === 1 && s[0].name === 'Anna' && s[0].stand === 'doppelname' && s[0].doppelname && p.kern.kurz().sollOffen === 1);
   ck('… STATE zoom_alarm=1 trotz Erlaubnis', p.kern.stateKv()?.zoom_privilege === 1 && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('R5 nach dem ersten Abgleich: „Wieder im Meeting. 2 Quellen neu geladen, 1 wartet …“', p.kern.abbild().hinweise.includes(KT.R5(2, 1)));
+  ck('… das Log nennt Plan und Dauer von Versuch 1', p.logs.some((z) => z.startsWith('[zoom] Wiederbeitritt: Versuch 1 von 5 in '))
+    && p.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 erfolgreich nach \d+ ms$/.test(z)));
   p.kern.sollVerwerfen({ name: 'ANNA ' });
   ck('sollVerwerfen(„ANNA “) entfernt den Eintrag, Alarm aus', p.kern.abbild().soll.length === 0 && p.kern.kurz().sollOffen === 0 && p.kern.stateKv()?.zoom_alarm === 0);
   await p.aufraeumen();
@@ -2204,6 +2234,144 @@ console.log('— Die Phasen des Ladens kommen auch an, nicht nur im synchronen a
     JSON.stringify(phasen) === JSON.stringify(['link:0', 'download:0', `download:${63 * LADE_MIB}`, `pruefen:${63 * LADE_MIB}`, `entpacken:${63 * LADE_MIB}`]));
   ck('… die Kurzform meldete das Laden sofort (einrichtung mit kopieLaeuft, Z1b)',
     p.kurze.slice(kurzVor).some((k) => k.zustand === 'einrichtung' && k.kopieLaeuft));
+  await p.aufraeumen();
+}
+
+// ── Aufgabe 8 (4b): Abriss und Wiederbeitritts-Folge (6.4) ───────────────────
+console.log('— Wiederbeitritt: Erlaubnis bleibt aus (15b), endgültiger Code (17), Einordnung in Z10, Zoom verbindet selbst');
+{
+  const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '600' } : { FAKE_PRIVILEGE: 'offen' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await bis(() => p.kern.kurz().quellen === 1);
+  ck('Fall 15b: nach dem Wiederbeitritt im Meeting', await bis(() => p.starts() === 2 && p.kern.kurz().zustand === 'im_meeting', 4000));
+  await warte(500);
+  ck('… ohne Erlaubnis: Z6, sollOffen 1, zoom_alarm=1', zoomZ(p.kern.kurz()) === 'Z6' && p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… kein Abo, kein R5', !cmds(p, 2).includes('videoSubscribe') && !p.kern.abbild().hinweise.some((h) => h.startsWith('Wieder im Meeting.')));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_BEITRITT_SCHEITERT: '63' }) });
+  await insMeeting(p);
+  ck('Fall 17: endgültiger Code im Versuch → fehler', await bis(() => p.kern.kurz().zustand === 'fehler', 4000));
+  await warte(300);
+  const m = p.kern.abbild().meldung;
+  ck('… die Folge endet nach Versuch 1 (zwei Bridges)', p.starts() === 2);
+  ck('… „Wiederbeitritt abgebrochen: “ + C63, detail mit dem Code', m?.text === VORSATZ.wiederbeitritt + failText(63, 'JM Connect') && m.detail?.endsWith('(63)') === true);
+  ck('… erneutMoeglich, Log „endgültig“', p.kern.abbild().erneutMoeglich
+    && p.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(endgültig\)$/.test(z)));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: () => ({ FAKE_VERBINDUNG_WEG_MS: '300' }),
+    // Die Attrappe meldet bei WEG immer Code 2; hier soll der Kern einen endgültigen Code sehen.
+    ereignis: (ev) => (ev.ev === 'status' && (ev as { status?: string }).status === 'failed' ? ({ ...ev, code: 63 } as unknown as BridgeEvent) : ev),
+  });
+  await insMeeting(p);
+  ck('failed mit endgültigem Code in Z10 → fehler', await bis(() => p.kern.kurz().zustand === 'fehler', 3000));
+  await warte(300);
+  ck('… „Verbindung verloren: “ + C63, kein Versuch, eine Bridge', p.kern.abbild().meldung?.text === VORSATZ.verbindung + failText(63, 'JM Connect')
+    && p.starts() === 1 && p.kurze.some((k) => k.zustand === 'abriss' && k.versuch === null) && !p.kurze.some((k) => k.versuch !== null));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: () => ({ FAKE_ABSTURZ_MS: '300' }),
+    // Plattformunabhängig: Linux kürzt Rückgabewerte auf 8 Bit (Fall 6); der Kern sieht hier den Windows-Wert 0xC0000135.
+    ereignis: (ev) => (ev.ev === 'error' && (ev as { where?: string }).where === 'exit'
+      ? ({ ...ev, detail: 'Kindprozess unerwartet beendet, exitCode=3221225781' } as unknown as BridgeEvent) : ev),
+  });
+  await insMeeting(p);
+  ck('exited mit 0xC0000135 im Meeting → fehler B3', await bis(() => p.kern.kurz().zustand === 'fehler', 3000) && p.kern.abbild().meldung?.text === KT.B3);
+  await warte(300);
+  ck('… kein Versuch, kein R4, eine Bridge', p.starts() === 1 && !p.kurze.some((k) => k.versuch !== null) && p.kern.abbild().hinweise.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_SOFORT_ENDE: '1' }),
+    // Die Versuchs-Bridge stirbt beim Start; der Kern sieht den Windows-Wert 0xC0000135 (plattformunabhängig wie oben).
+    ereignis: (ev, n) => (n === 2 && ev.ev === 'error' && (ev as { where?: string }).where === 'exit'
+      ? ({ ...ev, detail: 'Kindprozess unerwartet beendet, exitCode=3221225781' } as unknown as BridgeEvent) : ev),
+  });
+  await insMeeting(p);
+  ck('DLL-Tod in einem Versuch → fehler „Wiederbeitritt abgebrochen: “ + B3 (6.4 Schritt 2.4)',
+    await bis(() => p.kern.kurz().zustand === 'fehler', 4000) && p.kern.abbild().meldung?.text === VORSATZ.wiederbeitritt + KT.B3);
+  await warte(300);
+  ck('… die Folge endet nach Versuch 1 (zwei Bridges), Log „endgültig“, erneutMoeglich', p.starts() === 2 && p.kern.abbild().erneutMoeglich
+    && p.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(endgültig\)$/.test(z)));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '600' } : {}),
+    // L4: Statt des inMeeting der Versuchs-Bridge sieht der Kern ein ended (der Host beendet das Meeting während des Versuchs).
+    ereignis: (ev, n) => (n === 2 && ev.ev === 'status' && (ev as { status?: string }).status === 'inMeeting'
+      ? ({ ...ev, status: 'ended', code: 0 } as unknown as BridgeEvent) : ev),
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('L4: ended während eines Versuchs → Meeting-Ende (bereit, warnung „Meeting beendet: …“)', (await bis(() => p.kern.kurz().versuch === 1, 3000))
+    && (await bis(() => p.kern.kurz().zustand === 'bereit', 4000)) && p.kern.abbild().meldung?.art === 'warnung'
+    && String(p.kern.abbild().meldung?.text).startsWith('Meeting beendet: '));
+  await warte(300);
+  ck('… Soll-Liste leer, erneutMoeglich, kein weiterer Versuch (zwei Bridges)', p.kern.abbild().soll.length === 0 && p.kern.abbild().erneutMoeglich
+    && p.starts() === 2 && !p.kurze.some((k) => (k.versuch ?? 0) > 1));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '600', FAKE_VERBINDUNG_ZURUECK_MS: '300' }), fristen: { joinTimeoutMs: 5000 } });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await bis(() => p.kern.kurz().quellen === 1);
+  ck('abriss → im_meeting: Zoom verbindet neu (Z10, zoom_alarm 1)', await bis(() => p.kern.kurz().zustand === 'abriss', 2000)
+    && zoomZ(p.kern.kurz()) === 'Z10' && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… Zoom kommt selbst zurück → im_meeting, zoom_alarm 0', await bis(() => p.kern.kurz().zustand === 'im_meeting', 2000)
+    && p.kern.stateKv()?.zoom_alarm === 0);
+  await warte(500);
+  ck('… eine Bridge, kein neues videoSubscribe, Quelle und Soll unverändert', p.starts() === 1
+    && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1 && p.kern.kurz().quellen === 1 && p.kern.kurz().sollOffen === 0);
+  await p.aufraeumen();
+}
+
+console.log('— Wiederbeitritt: Abbild in Z11, Vergessen in der Wartezeit (Review Focus 4)');
+{
+  const p = baueKern({
+    // Die zweite Bridge (envprobe) meldet nie ready: Versuch 1 läuft, bis aufgeräumt wird.
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_SCRIPT: 'envprobe' }),
+    wiederbeitrittPlanMs: [600, 30, 30, 30, 30],
+  });
+  await insMeeting(p);
+  ck('Abbild in Z11: Versuch 1 wartet', await bis(() => p.kern.kurz().versuch === 1, 3000));
+  const a = p.kern.abbild();
+  const jetzt = Date.now();
+  ck('… abriss { versuch: 1, versuche: 5, naechsterUm in den nächsten 600 ms }, Countdown in der Karte',
+    a.abriss?.versuch === 1 && a.abriss.versuche === 5 && a.abriss.naechsterUm !== null && a.abriss.naechsterUm > jetzt
+    && a.abriss.naechsterUm <= jetzt + 600 && zoomZ(a.kurz) === 'Z11' && String(kartenZeile(a, jetzt)).includes('Wiederbeitritt 1 von 5 in '));
+  ck('… STATE abriss, alarm 1', p.kern.stateKv()?.zoom_status === 'abriss' && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… während des Versuchs naechsterUm null, Karte „läuft …“', await bis(() => p.starts() === 2 && p.kern.abbild().abriss?.naechsterUm === null, 3000)
+    && p.kern.kurz().versuch === 1 && String(kartenZeile(p.kern.abbild(), Date.now())).endsWith('Wiederbeitritt 1 von 5 läuft …'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '600', FAKE_TEILNEHMER: '3' } : { FAKE_TEILNEHMER: '3' }),
+    wiederbeitrittPlanMs: [800, 30, 30, 30, 30],
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: CARLA, ton: true, trotzBetriebsgroesse: false });
+  await bis(() => p.kern.kurz().quellen === 3);
+  ck('Review Focus 4 (Wiederbeitritt): Z11 wartet', await bis(() => p.kern.kurz().versuch === 1, 3000));
+  p.kern.sollVerwerfen({ name: 'Ben' });
+  ck('… Ben vergessen, Carla entladen in der Wartezeit', ok(await p.kern.entladen({ aboId: CARLA }))
+    && p.kern.abbild().soll.map((s) => s.name).join(',') === 'Anna');
+  ck('… nach dem Erfolg kommt nur Anna zurück', await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000)
+    && (await bis(() => p.befehle(2).some((c) => c.cmd === 'videoSubscribe'), 2000)) && (await warte(500), true)
+    && p.befehle(2).filter((c) => c.cmd === 'videoSubscribe').map((c) => c.id).join(',') === String(ANNA));
+  ck('… R5 „1 Quelle neu geladen, 0 warten …“', p.kern.abbild().hinweise.includes(KT.R5(1, 0)));
   await p.aufraeumen();
 }
 

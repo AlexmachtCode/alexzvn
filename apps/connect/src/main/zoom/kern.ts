@@ -10,8 +10,8 @@
 // und gehen nur in den join-Befehl. Jede stderr-Zeile der Bridge läuft durch `maskiere`.
 // Client-ID/Secret gehen nur in buildJwt, nie an den Kindprozess (envRemove).
 //
-// 4a (Spec 18): KEIN automatischer Wiederbeitritt. Jeder Auslöser aus 6.4, der einen
-// Wiederbeitritt starten würde, führt sofort zu `fehler` mit „Erneut beitreten“.
+// WIEDERBEITRITT (Spec 6.4): Ein vorübergehender Abriss im Meeting startet bis zu fünf Versuche nach
+// WIEDERBEITRITT_PLAN_S, jeder mit einer neuen Bridge; der Zustand bleibt die ganze Folge über `abriss`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { join } from 'node:path';
@@ -45,6 +45,7 @@ import {
   TEXT_A4_SCHREIBFEHLER,
   TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
   TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
+  WIEDERBEITRITT_VERSUCHE,
   type ZoomStateKv,
 } from '../../shared/zoom-text';
 import {
@@ -55,13 +56,16 @@ import {
   endeMeldung,
   exitCodeAus,
   failMeldung,
+  failText,
   fehlerDetail,
+  istEndgueltig,
   mangelText,
   maskiere,
   quellenFehler,
   spawnMeldung,
   tonZustand,
   type Meldungstext,
+  type VersuchsAusgang,
 } from './klartext';
 import {
   BRIDGE_EXE,
@@ -81,6 +85,7 @@ import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFe
 import { SDK_PAKET } from './sdk-paket';
 import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from './soll';
 import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
+import { WIEDERBEITRITT_PLAN_S } from './fristen';
 
 // Feste Werte (Spec 5.2) stehen ab 4b in fristen.ts (rein). kern.ts reicht sie unverändert weiter, damit zoom.ts,
 // index.ts, settings.ts und die Tests weiter von hier importieren.
@@ -132,6 +137,8 @@ export interface ZoomKernAbhaengigkeiten {
   /** Vorgabe: process.env. */
   env?: Record<string, string | undefined>;
   fristen?: Partial<ZoomFristen>;
+  /** Wartezeit vor Versuch 1–5 in ms (Spec 6.4, 12.2). Vorgabe WIEDERBEITRITT_PLAN_S × 1000; Länge = WIEDERBEITRITT_VERSUCHE. */
+  wiederbeitrittPlanMs?: readonly number[];
 }
 export interface ZoomKern {
   abbild(): ZoomAbbild;
@@ -171,8 +178,11 @@ type VideoEreignis = { ev: 'video'; id: number; state: VideoState; source: strin
 type AudioEreignis = { ev: 'audio'; id: number; state: AudioState; reason: AudioReason };
 /** Eine Quelle samt der Generation der Bridge, die sie meldet (6.9). */
 interface QuelleIntern extends ZoomQuelle { gen: number }
-type StartErgebnis = { ok: true; bridge: BridgeArt; gen: number } | { ok: false; meldung: Meldungstext; mangel: ZoomMangel | null };
-type StartAusgang = { ok: true } | { ok: false; meldung: Meldungstext };
+/** `ausgang` ordnet einen Fehler der Startfolge für den Wiederbeitritt ein (6.4); null bei Mangel oder Abbruch. */
+type StartErgebnis =
+  | { ok: true; bridge: BridgeArt; gen: number }
+  | { ok: false; meldung: Meldungstext; mangel: ZoomMangel | null; ausgang: VersuchsAusgang | null };
+type StartAusgang = { ok: true } | { ok: false; meldung: Meldungstext; ausgang: VersuchsAusgang | null };
 interface StartBeobachter { gen: number; erledigt: boolean; ende(e: StartAusgang): void }
 
 const GEHEIM = ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS', 'JMPS_ZOOM_SDK_KEY', 'JMPS_PROXY_KEY'];
@@ -210,6 +220,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   const ld: SdkLadenDienste = { ...SDK_LADEN_DIENSTE, ...d.sdkLaden };
   const fabrik: BridgeFabrik = d.bridgeFabrik ?? ((o) => new Bridge(o));
   const env = d.env ?? process.env;
+  const plan: readonly number[] = d.wiederbeitrittPlanMs ?? WIEDERBEITRITT_PLAN_S.map((s) => s * 1000);
 
   // ── Zustand ──────────────────────────────────────────────────────────────
   let zustand: ZoomZustand = 'bereit';
@@ -240,8 +251,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** Nur im Arbeitsspeicher (Spec 5.7). */
   let nummer: { eingabe: string; normiert: string } | null = null;
   let kenncode: string | null = null;
-  /** Merker „war im Meeting“ (Ergänzung 0.10); 4b entscheidet daran über den Wiederbeitritt. */
-  let warImMeeting = false;
+  /**
+   * Wiederbeitritts-Folge (6.4), nur in `abriss`: gesetzt heißt Z11. `naechsterUm` nur in der Wartezeit vor einem
+   * Versuch, `letzte` = Meldung des letzten gescheiterten Versuchs (R2), `beginn` = Start des laufenden Versuchs.
+   * Den früheren Merker „war im Meeting“ (Ergänzung 0.10) tragen die Zustände: Auslöser gelten nur in im_meeting/abriss (L6).
+   */
+  let folge: { versuch: number; naechsterUm: number | null; zeitgeber: ReturnType<typeof setTimeout> | null; letzte: Meldungstext | null; beginn: number } | null = null;
+  /** R5 steht aus: gesetzt beim Erfolg eines Versuchs, verbraucht vom ersten Abgleich mit Erlaubnis 'ja' (L3). */
+  let r5Offen = false;
   const soll: SollListe = new Map();
   const quellen = new Map<number, QuelleIntern>();
   let beendenVersprechen: Promise<void> | null = null;
@@ -320,7 +337,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       quellen: n,
       ohneBild: k,
       sollOffen: sollOffen().length,
-      versuch: null,
+      versuch: zustand === 'abriss' ? (folge?.versuch ?? null) : null,
       maengel: [...maengel],
       // Spec SDK nachladen 4.4: Kopfzeile und Tray zeigen beim Laden dieselbe Einrichtungszeile wie bei der Kopie (Z1b).
       kopieLaeuft: kopie !== null || ladung !== null,
@@ -350,7 +367,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null, nurSitzung: false },
       teilnehmer: teilnehmerAbbild(),
       soll: sollOffen(),
-      abriss: zustand === 'abriss' ? { versuch: null, versuche: 5, naechsterUm: null } : null,
+      abriss: zustand === 'abriss' ? { versuch: folge?.versuch ?? null, versuche: WIEDERBEITRITT_VERSUCHE, naechsterUm: folge?.naechsterUm ?? null } : null,
       meldung: meldung ? { ...meldung } : null,
       hinweise: [...hinweise],
       erneutMoeglich: nummer !== null,
@@ -431,7 +448,6 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     soll.clear();
     nummer = null;
     kenncode = null;
-    warImMeeting = false;
   }
 
   function einrichtungSperre(): ZoomErgebnis {
@@ -734,7 +750,6 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     soll.clear();
     nummer = null;
     kenncode = null;
-    warImMeeting = false;
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
   }
 
@@ -777,7 +792,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const laufend = stopps.get(gen);
     if (laufend) return laufend;
     imAbbau.add(gen);
-    if (startBeob !== null && startBeob.gen === gen) startBeob.ende({ ok: false, meldung: ABGEBROCHEN });
+    if (startBeob !== null && startBeob.gen === gen) startBeob.ende({ ok: false, meldung: ABGEBROCHEN, ausgang: null });
     // Ohne Prozess (Start gescheitert) gibt es nichts zu beenden: keine Beenden-Zeilen, die einen Prozess erfinden.
     const lief = !ohneProzess.has(gen);
     if (lief) d.log(`[zoom] Zoom-Bridge ${gen} wird beendet`);
@@ -808,41 +823,47 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (beob.erledigt) return;
     if (ev.ev === 'ready') {
       const v = String((ev as { sdkVersion?: unknown }).sdkVersion);
-      if (v !== SDK_FASSUNG_BRIDGE) beob.ende({ ok: false, meldung: { text: KT.B7(v), detail: null } });
+      if (v !== SDK_FASSUNG_BRIDGE) beob.ende({ ok: false, meldung: { text: KT.B7(v), detail: null }, ausgang: { art: 'sdkFassung' } });
       return;
     }
     if (ev.ev === 'auth') {
       const code = (ev as { code: number }).code;
-      beob.ende(code === 0 ? { ok: true } : { ok: false, meldung: authMeldung(code) });
+      beob.ende(code === 0 ? { ok: true } : { ok: false, meldung: authMeldung(code), ausgang: { art: 'auth', code } });
       return;
     }
     if (ev.ev !== 'error') return;
     const e = ev as unknown as FehlerEreignis;
     const name = e.name ?? String(e.code);
-    if (e.where === 'ndi') beob.ende({ ok: false, meldung: { text: KT.Q7, detail: fehlerDetail(e) } });
-    else if (e.where === 'auth') beob.ende({ ok: false, meldung: { text: KT.B18(name), detail: fehlerDetail(e) } });
-    else if (e.where === 'init') beob.ende({ ok: false, meldung: { text: e.code === 14 ? KT.B8_14 : KT.B8(name), detail: fehlerDetail(e) } });
-    else if (e.where === 'exit') {
-      beob.ende({ ok: false, meldung: dllMeldung(exitCodeAus(e.detail)) ?? { text: KT.B6(e.detail ?? fehlerDetail(e)), detail: fehlerDetail(e) } });
+    if (e.where === 'ndi') beob.ende({ ok: false, meldung: { text: KT.Q7, detail: fehlerDetail(e) }, ausgang: { art: 'ndi' } });
+    else if (e.where === 'auth') beob.ende({ ok: false, meldung: { text: KT.B18(name), detail: fehlerDetail(e) }, ausgang: { art: 'authSofort' } });
+    else if (e.where === 'init') {
+      beob.ende({ ok: false, meldung: { text: e.code === 14 ? KT.B8_14 : KT.B8(name), detail: fehlerDetail(e) }, ausgang: { art: 'init' } });
+    } else if (e.where === 'exit') {
+      const exitCode = exitCodeAus(e.detail);
+      beob.ende({
+        ok: false,
+        meldung: dllMeldung(exitCode) ?? { text: KT.B6(e.detail ?? fehlerDetail(e)), detail: fehlerDetail(e) },
+        ausgang: { art: 'exited', exitCode },
+      });
     }
   }
 
   /** Spec 6.2 Startfolge S-a bis S-f. Setzt keinen Zustand; jeder Fehler stoppt die Bridge. */
   async function starteBridge(): Promise<StartErgebnis> {
     const lauf = laufNr;
-    const abgebrochen: StartErgebnis = { ok: false, meldung: ABGEBROCHEN, mangel: null };
+    const abgebrochen: StartErgebnis = { ok: false, meldung: ABGEBROCHEN, mangel: null, ausgang: null };
     if (stopps.size > 0) await Promise.all([...stopps.values()]);
     if (lauf !== laufNr || beendenVersprechen !== null) return abgebrochen;
     // S-a, S-b
     const lzErg = lz.pruefe(d.pfade);
     bestimmeMaengel(lzErg);
     if (!lzErg.ok) {
-      return { ok: false, meldung: { text: mangelText(lzErg.mangel, mangelDatei()), detail: null }, mangel: lzErg.mangel };
+      return { ok: false, meldung: { text: mangelText(lzErg.mangel, mangelDatei()), detail: null }, mangel: lzErg.mangel, ausgang: null };
     }
     const daten = zugang.daten;
     if (!daten) {
       const m: ZoomMangel = zugang.unlesbar ? 'zugang_unlesbar' : 'zugang_fehlt';
-      return { ok: false, meldung: { text: mangelText(m, null), detail: null }, mangel: m };
+      return { ok: false, meldung: { text: mangelText(m, null), detail: null }, mangel: m, ausgang: null };
     }
     // S-c
     const gen = aktiveGen + 1;
@@ -902,7 +923,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       ohneProzess.add(gen);
       const grund = e instanceof Error ? e.message : String(e);
       d.log(`[zoom] Start der Zoom-Bridge gescheitert: ${grund.includes(exePfad) ? grund : `${grund} (EXE: ${exePfad})`}`);
-      beob.ende({ ok: false, meldung: spawnMeldung((e as { code?: string }).code) });
+      beob.ende({ ok: false, meldung: spawnMeldung((e as { code?: string }).code), ausgang: { art: 'spawn' } });
     }
     if (!beob.erledigt) {
       // S-d
@@ -917,12 +938,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         // Bridge schon tot: ihr exit-Ereignis kam vorher und hat die Startfolge entschieden.
       }
       // S-f
-      if (!beob.erledigt) anmeldeFrist = zeitgeber(f.anmeldeMs, () => beob.ende({ ok: false, meldung: { text: KT.B16, detail: null } }));
+      if (!beob.erledigt) {
+        anmeldeFrist = zeitgeber(f.anmeldeMs, () => beob.ende({ ok: false, meldung: { text: KT.B16, detail: null }, ausgang: { art: 'keineAuthAntwort' } }));
+      }
     }
     const a = await ausgang;
     if (!a.ok) {
       await stopps.get(gen);
-      return lauf !== laufNr ? abgebrochen : { ok: false, meldung: a.meldung, mangel: null };
+      return lauf !== laufNr ? abgebrochen : { ok: false, meldung: a.meldung, mangel: null, ausgang: a.ausgang };
     }
     if (lauf !== laufNr) return abgebrochen;
     return { ok: true, bridge, gen };
@@ -1027,7 +1050,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const lauf = laufNr;
     const name = d.einstellungen.anzeigename();
     meldung = null;
-    warImMeeting = false;
+    r5Offen = false;
     d.log(`[zoom] Beitritt gestartet (Anzeigename „${name}“)`);
     setzeZustand('startet');
     const r = await starteBridge();
@@ -1068,7 +1091,6 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   function imMeetingAngekommen(): void {
     erlaubnis = 'offen';
-    warImMeeting = true;
     setzeZustand('im_meeting');
     abgleichPlanen();
   }
@@ -1081,6 +1103,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** Spec 6.5: Meeting-Ende durch den Host (nur aktive Bridge, nicht im Abbau). */
   function meetingEnde(code: number): void {
     const m = endeMeldung(code, d.einstellungen.anzeigename());
+    // L4: auch während eines Versuchs ist ended ein Meeting-Ende, die Folge endet.
+    folgeBeenden();
     void stoppeBridge();
     soll.clear();
     melde('warnung', m);
@@ -1102,6 +1126,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       else if (s === 'failed') scheitert(failMeldung(VORSATZ.beitritt, e.code, name));
       return;
     }
+    if (zustand === 'abriss' && folge !== null) {
+      // 6.4 Schritt 2.4: Ausgang des laufenden Versuchs (Z11); connecting und reconnecting ändern nichts.
+      if (s === 'inMeeting') versuchErfolgreich();
+      else if (s === 'failed') {
+        versuchGescheitert({ art: 'failed', code: e.code }, { text: failText(e.code, name), detail: failMeldung(VORSATZ.wiederbeitritt, e.code, name).detail });
+      }
+      return;
+    }
     if (zustand === 'im_meeting' || zustand === 'abriss') {
       if (s === 'reconnecting' || s === 'connecting') {
         if (zustand === 'im_meeting') setzeZustand('abriss');
@@ -1111,8 +1143,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
           abgleichPlanen();
         }
       } else if (s === 'waitingRoom' || s === 'waitingForHost') zumWarteraum(s);
-      // 4a: kein Wiederbeitritt — jedes failed im Meeting ist endgültig (L1).
-      else if (s === 'failed') scheitert(failMeldung(VORSATZ.verbindung, e.code, name));
+      else if (s === 'failed') {
+        // 6.4: ein endgültiger Code endet mit „Verbindung verloren: “, jeder andere startet den Wiederbeitritt.
+        const m = failMeldung(VORSATZ.verbindung, e.code, name);
+        if (istEndgueltig({ art: 'failed', code: e.code })) scheitert(m);
+        else starteWiederbeitritt({ text: failText(e.code, name), detail: m.detail });
+      }
     }
   }
 
@@ -1141,22 +1177,33 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       return;
     }
     const amBeitreten = zustand === 'tritt_bei' || zustand === 'warteraum';
+    // Z11: Fehler der Versuchs-Bridge sind Ausgänge des Versuchs (6.4 Schritt 2.4), keine neuen Auslöser.
+    const imVersuch = zustand === 'abriss' && folge !== null;
     const imMeeting = zustand === 'im_meeting' || zustand === 'abriss';
     if (e.where === 'join' && e.code === 'joinTimeout') {
       if (amBeitreten) scheitert({ text: KT.CT, detail: fehlerDetail(e) });
+      else if (imVersuch) versuchGescheitert({ art: 'joinTimeout' }, { text: KT.CT, detail: fehlerDetail(e) });
     } else if (e.where === 'join' && typeof e.code === 'number') {
       if (amBeitreten) scheitert({ text: KT.CJ(name), detail: fehlerDetail(e) });
+      else if (imVersuch) versuchGescheitert({ art: 'joinFehler' }, { text: KT.CJ(name), detail: fehlerDetail(e) });
     } else if (e.where === 'meeting' && e.code === 'reconnectTimeout') {
       if (amBeitreten) scheitert({ text: KT.CE, detail: fehlerDetail(e) });
-      // 4a: statt Wiederbeitritt (L1).
-      else if (zustand === 'abriss') scheitert({ text: VORSATZ.verbindung + KT.UE_RECONNECT, detail: fehlerDetail(e) });
+      else if (imVersuch) versuchGescheitert({ art: 'reconnectTimeout' }, { text: KT.CT, detail: fehlerDetail(e) });
+      // 6.4: In Z10 hat Zoom selbst nicht neu verbunden: Wiederbeitritt.
+      else if (zustand === 'abriss') starteWiederbeitritt(null);
     } else if (e.where === 'exit' && e.code === 'exited') {
-      const dll = dllMeldung(exitCodeAus(e.detail));
+      const exitCode = exitCodeAus(e.detail);
+      const dll = dllMeldung(exitCode);
       const detail = e.detail ?? fehlerDetail(e);
       // Spec 6.2 Schritt 5 und 8.3: im Beitritt gilt CB, nicht B3–B5 — die nennt 8.2 nur für den Tod vor `auth`.
       if (amBeitreten) scheitert({ text: KT.CB(detail), detail: fehlerDetail(e) });
-      // 4a: statt Wiederbeitritt (L1).
-      else if (imMeeting) scheitert(dll ?? { text: VORSATZ.verbindung + KT.UE_ABSTURZ(detail), detail: fehlerDetail(e) });
+      else if (imVersuch) versuchGescheitert({ art: 'exited', exitCode }, { text: KT.CB(detail), detail: fehlerDetail(e) });
+      // 6.4: Die drei DLL-Rückgabewerte sind endgültig (B3–B5); jeder andere Tod im Meeting startet den Wiederbeitritt mit R4.
+      else if (imMeeting && dll) scheitert(dll);
+      else if (imMeeting) {
+        hinweis(KT.R4(detail));
+        starteWiederbeitritt(null);
+      }
     }
   }
 
@@ -1171,8 +1218,89 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     nummer = null;
     kenncode = null;
     meldung = null;
-    warImMeeting = false;
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
+  }
+
+  // ── Wiederbeitritt (Spec 6.4) ────────────────────────────────────────────
+  /** Schritt 1: Die alte Bridge stoppen (ab jetzt im Abbau, 6.9), Zustand abriss, Versuch 1 planen. */
+  function starteWiederbeitritt(anlass: Meldungstext | null): void {
+    if (folge !== null) return;
+    void stoppeBridge();
+    folge = { versuch: 1, naechsterUm: null, zeitgeber: null, letzte: anlass, beginn: 0 };
+    planeVersuch(1);
+  }
+
+  /** Schritt 2.1: Versuch i nach plan[i - 1] ms; das Abbild zeigt den Countdown über `naechsterUm`. */
+  function planeVersuch(i: number): void {
+    if (folge === null) return;
+    const ms = plan[i - 1] ?? 0;
+    folge.versuch = i;
+    folge.naechsterUm = Date.now() + ms;
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i} von ${WIEDERBEITRITT_VERSUCHE} in ${ms / 1000} s`);
+    folge.zeitgeber = zeitgeber(ms, () => {
+      if (folge === null) return;
+      folge.zeitgeber = null;
+      void versuchStarten(i);
+    });
+    setzeZustand('abriss');
+  }
+
+  /** Schritte 2.2 und 2.3: Startfolge mit neuer Bridge, dann join. Der Zustand bleibt abriss mit versuch i. */
+  async function versuchStarten(i: number): Promise<void> {
+    if (folge === null) return;
+    const lauf = laufNr;
+    folge.naechsterUm = null;
+    folge.beginn = Date.now();
+    abbildGeaendert();
+    const r = await starteBridge();
+    // Verlassen, Abbrechen oder Beenden während der Startfolge: kein weiterer Schritt, keine Meldung.
+    if (folge === null || folge.versuch !== i || lauf !== laufNr || nummer === null) return;
+    if (!r.ok) {
+      // ausgang null = Mangel aus der Startfolge (5.3); den Weg in die Einrichtung baut Aufgabe 9.
+      if (r.ausgang !== null) versuchGescheitert(r.ausgang, r.meldung);
+      return;
+    }
+    if (imAbbau.has(r.gen)) return;
+    sende({ cmd: 'join', meetingId: nummer.normiert, passcode: kenncode ?? '', displayName: d.einstellungen.anzeigename() });
+  }
+
+  /** Schritt 2.4 „inMeeting“: Erfolg. Der Abgleich lädt die Soll-Liste, sobald die Erlaubnis da ist; danach R5 (L3). */
+  function versuchErfolgreich(): void {
+    if (folge === null) return;
+    d.log(`[zoom] Wiederbeitritt: Versuch ${folge.versuch} erfolgreich nach ${Date.now() - folge.beginn} ms`);
+    folgeBeenden();
+    r5Offen = true;
+    imMeetingAngekommen();
+  }
+
+  /** Schritte 2.4 und 3: einordnen. Endgültig → fehler; vorübergehend → nächster Versuch; nach dem letzten R2. */
+  function versuchGescheitert(a: VersuchsAusgang, m: Meldungstext): void {
+    if (folge === null) return;
+    const i = folge.versuch;
+    const endgueltig = istEndgueltig(a);
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i} gescheitert nach ${Date.now() - folge.beginn} ms (${endgueltig ? 'endgültig' : 'vorübergehend'})`);
+    if (endgueltig) {
+      folgeBeenden();
+      // 6.4 Schritt 2.4: jeder endgültige Fehler im Versuch bekommt „Wiederbeitritt abgebrochen: “, auch der DLL-Tod (dann B3–B5).
+      const t = (a.art === 'exited' ? dllMeldung(a.exitCode) : null) ?? m;
+      scheitert({ text: VORSATZ.wiederbeitritt + t.text, detail: t.detail });
+      return;
+    }
+    folge.letzte = m;
+    if (i >= WIEDERBEITRITT_VERSUCHE) {
+      const letzte = folge.letzte;
+      folgeBeenden();
+      scheitert({ text: KT.R2(letzte.text), detail: letzte.detail });
+      return;
+    }
+    void stoppeBridge();
+    planeVersuch(i + 1);
+  }
+
+  /** Zeitgeber löschen, Folge vergessen (G17). */
+  function folgeBeenden(): void {
+    if (folge?.zeitgeber) clearTimeout(folge.zeitgeber);
+    folge = null;
   }
 
   // ── Quellen (Spec 6.3, 8.4) ──────────────────────────────────────────────
@@ -1344,7 +1472,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   async function abgleichen(): Promise<void> {
     if (zustand !== 'im_meeting' || erlaubnis !== 'ja') return;
     const gen = aktiveGen;
-    for (const h of sollHandlungen(soll, sollLage())) {
+    const lage = sollLage();
+    const handlungen = sollHandlungen(soll, lage);
+    // L3: R5 nach dem ersten Abgleich mit Erlaubnis nach einem Wiederbeitritt; d = offene Einträge ohne Handlung.
+    const r5 = r5Offen;
+    r5Offen = false;
+    const ohneHandlung = sollAbbild(soll, lage).length - handlungen.length;
+    let k = 0;
+    for (const h of handlungen) {
       if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting') return;
       const eintrag = soll.get(h.schluessel);
       if (!eintrag) continue;
@@ -1358,7 +1493,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       }
       eintrag.aboId = h.id;
       abonniere(h.id, h.ton);
+      k += 1;
     }
+    if (r5) hinweis(KT.R5(k, ohneHandlung));
     abbildGeaendert();
   }
 

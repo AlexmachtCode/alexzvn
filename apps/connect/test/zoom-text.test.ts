@@ -515,8 +515,6 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['R5', KT.R5(2, 3), 'Wieder im Meeting. 2 Quellen neu geladen, 3 warten auf eine eindeutige Person.'],
     ['R7', KT.R7, 'Wiederbeitritt abgebrochen.'],
     ['PRUEFUNG_OK', KT.PRUEFUNG_OK, 'Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953), Anmeldung bei Zoom erfolgreich.'],
-    ['UE_RECONNECT', KT.UE_RECONNECT, 'Zoom hat die Verbindung in 30 s nicht wiederhergestellt.'],
-    ['UE_ABSTURZ', KT.UE_ABSTURZ('exitCode=3'), 'Die Zoom-Bridge ist abgestürzt (exitCode=3). Details im Log.'],
   ];
   for (const [id, ist, soll] of KT_SOLL) ck(`${id} wörtlich`, ist === soll);
   ck('Q9 beginnt mit dem geteilten Q9_ANFANG (zweiter Klick der Karte hängt daran)', KT.Q9(6).startsWith(Q9_ANFANG));

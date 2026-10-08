@@ -148,11 +148,6 @@ export const KT = {
 
   // 6.1 Schritt 5: Ergebnis von „Einrichtung prüfen“
   PRUEFUNG_OK: `Einrichtung in Ordnung: Zoom-SDK ${SDK_FASSUNG_BRIDGE}, Anmeldung bei Zoom erfolgreich.`,
-
-  // Nur 4a, in 4b durch den Wiederbeitritt ersetzt: Abriss ohne Wiederbeitritt führt sofort zu
-  // `fehler` (Plan-Kopf „Nicht in 4a“). Vorsatz davor ist VORSATZ.verbindung.
-  UE_RECONNECT: 'Zoom hat die Verbindung in 30 s nicht wiederhergestellt.',
-  UE_ABSTURZ: (detail: string): string => `Die Zoom-Bridge ist abgestürzt (${detail}). Details im Log.`,
 };
 
 // ── 8.3: Texte nach dem Vorsatz, je Fehlercode von `status failed` ──
