@@ -47,7 +47,7 @@ const UTILITY =
   'bg|text|border|ring|outline|fill|stroke|h|w|min-h|min-w|max-h|max-w|p[xytrbl]?|m[xytrbl]?|gap|rounded|top|left|right|bottom|inset|z|opacity|duration|leading|tracking|font|grid-cols|col-span';
 
 const ROHE_FARBKLASSE =
-  /\b(bg|text|border(?:-[xytrblse])?|ring|ring-offset|outline|fill|stroke|from|to|via|divide|placeholder|decoration|accent|caret|shadow|inset-shadow|inset-ring|drop-shadow)-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone|white|black|transparent|current)\b/;
+  /\b(bg|text|border(?:-[xytrblse])?|ring|ring-offset|outline|fill|stroke|from|to|via|divide|placeholder|decoration|accent|caret|shadow|inset-shadow|inset-ring|drop-shadow)-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone|mauve|olive|mist|taupe|white|black)\b/;
 
 // Die Muster selbst werden geprüft: Fälle, die anschlagen müssen, und solche, die nie anschlagen dürfen.
 for (const klasse of [
@@ -63,13 +63,16 @@ for (const klasse of [
   'accent-indigo-500',
   'caret-cyan-400',
   'shadow-fuchsia-500',
+  'bg-mauve-500',
+  'text-olive-400',
+  'border-mist-600',
+  'bg-taupe-200',
   'text-white',
-  'bg-transparent',
   'hover:bg-purple-600',
 ]) {
   ok(ROHE_FARBKLASSE.test(klasse), `Quellregel-Muster: rohe Farbklasse ${klasse} wird erkannt`);
 }
-for (const klasse of ['bg-[var(--surface)]', 'text-[var(--text-muted)]', 'border-[var(--border)]', 'shadow-sm', 'text-sm']) {
+for (const klasse of ['bg-[var(--surface)]', 'text-[var(--text-muted)]', 'border-[var(--border)]', 'shadow-sm', 'text-sm', 'border-current', 'border-transparent', 'fill-current', 'text-current', 'bg-transparent']) {
   ok(!ROHE_FARBKLASSE.test(klasse), `Quellregel-Muster: ${klasse} ist keine rohe Farbklasse`);
 }
 
