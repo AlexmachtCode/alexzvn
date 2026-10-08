@@ -6,4 +6,5 @@
 
 import { abschluss } from './harness';
 import './werkzeug.test';
+import './bestand.test';
 abschluss();
