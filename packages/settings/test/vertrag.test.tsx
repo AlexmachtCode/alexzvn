@@ -37,6 +37,7 @@ import { bewegungsVerstoesse, fallText, kreuz, sperrZaehlung } from './hilfe';
   }
   ok(geworfen, "Vertrag: st() lehnt 'live' zur Laufzeit ab (wirft, Spec 7.4)");
   ok(istGesperrt({ locked: 'Vom Master vorgegeben' }) && !istGesperrt({}) && !istGesperrt({ locked: '' }), 'Vertrag: istGesperrt – leerer Grund zählt nicht');
+  ok(!istGesperrt({ locked: '   ' }), 'Vertrag: istGesperrt – Grund nur aus Leerzeichen zählt nicht (kein leerer „Gesperrt: “)');
   ok(hatFehler({ error: 'x' }) && !hatFehler({}) && !hatFehler({ error: '' }), 'Vertrag: hatFehler – leerer Text zählt nicht');
   gleich<unknown>(
     ABSCHNITT_TEXTE,

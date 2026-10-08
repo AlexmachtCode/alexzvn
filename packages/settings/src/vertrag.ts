@@ -48,9 +48,9 @@ export function fehlerStatus(detail: string): SectionStatus {
   return st('error', `Fehler: ${detail}`);
 }
 
-/** Ist der Abschnitt gesperrt? Ein leerer Grund zählt nicht (gesperrt nie ohne Grund). */
+/** Ist der Abschnitt gesperrt? Ein leerer Grund (auch nur Leerzeichen) zählt nicht (gesperrt nie ohne Grund). */
 export function istGesperrt(view: Pick<SectionBase, 'locked'>): boolean {
-  return typeof view.locked === 'string' && view.locked !== '';
+  return typeof view.locked === 'string' && view.locked.trim() !== '';
 }
 
 /** Hat der Abschnitt einen Fehlertext? Ein leerer Text zählt nicht. */
