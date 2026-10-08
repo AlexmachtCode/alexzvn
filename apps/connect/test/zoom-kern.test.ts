@@ -2485,6 +2485,244 @@ console.log('— Wiederbeitritt abbrechen (Fall 25)');
   await p.aufraeumen();
 }
 
+// ── Aufgabe 10 (4b): Entzug stoppt Quellen, Wiedererteilung lädt neu, Betriebsgröße im Abgleich ──
+console.log('— Entzug und Wiedererteilung (N4b.1, Review Focus 2 und 4)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '200' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  ck('Entzug: zwei Quellen geladen, dann gestoppt', (await bis(() => p.kern.kurz().quellen === 2))
+    && (await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0)));
+  ck('… das Log nennt jede gestoppte Quelle mit ihrer Kennung',
+    p.logs.includes(`[zoom] Quelle ${ANNA} gestoppt (Entzug)`) && p.logs.includes(`[zoom] Quelle ${BEN} gestoppt (Entzug)`));
+  ck('… beide Soll-Einträge bleiben (wartet)', p.kern.abbild().soll.map((s) => `${s.name}:${s.stand}`).join(',') === 'Anna:wartet,Ben:wartet');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '200', FAKE_ERTEILUNG_MS: '300' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: false, trotzBetriebsgroesse: false });
+  ck('Wiedererteilung: Anna ohne Ton geladen, dann gestoppt', (await bis(() => p.kern.kurz().quellen === 1))
+    && (await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0)));
+  ck('… nach der Wiedererteilung ein neues videoSubscribe mit audio:false',
+    await bis(() => p.befehle(1).filter((c) => c.cmd === 'videoSubscribe').length === 2, 3000)
+    && p.befehle(1).filter((c) => c.cmd === 'videoSubscribe')[1].audio === false);
+  ck('… die Quelle ist zurück: gleicher NDI-Name, ohne Ton, Alarm aus', await bis(() => zeile(p, ANNA)?.quelle?.ton === 'aus', 2000)
+    && zeile(p, ANNA)?.quelle?.ndiName === 'JM Connect – Zoom Anna' && p.kern.kurz().sollOffen === 0 && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '200', FAKE_ABO_VERZOEGERUNG_MS: '400' }), fristen: { aboAntwortMs: 600 } });
+  await insMeeting(p);
+  ck('Entzug während eines offenen Abos: Laden gesendet', ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false })));
+  ck('… Erlaubnis entzogen', await bis(() => p.kern.kurz().erlaubnis === 'entzogen', 2000));
+  await warte(800);
+  ck('… keine Quelle, kein Q8, Soll-Eintrag bleibt', p.kern.kurz().quellen === 0 && zeile(p, ANNA)?.fehler === null
+    && p.kern.abbild().soll.map((s) => s.name).join(',') === 'Anna');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '200', FAKE_ERTEILUNG_MS: '600' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Entzug und dann Verlassen: Quelle gestoppt', await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0));
+  await p.kern.verlassen();
+  ck('… bereit, Soll-Liste leer, zoom_alarm=0', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().soll.length === 0 && p.kern.stateKv()?.zoom_alarm === 0);
+  await warte(900);
+  ck('… auch nach der späteren Erteilung kein weiteres videoSubscribe', cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '0' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: false, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  ck('Review Focus 2: zwei Quellen, die Erlaubnis flattert (entzogen, sofort wieder erteilt, dann Abbau)', (await bis(() => p.kern.kurz().quellen === 2))
+    && (await bis(() => p.ereignisse.some((x) => x.ev.ev === 'video' && (x.ev as { reason?: string }).reason === 'privilegeRevoked'), 2000)));
+  ck('… je Soll-Name genau ein neues videoSubscribe, Ton unverändert', await bis(() => p.befehle(1).filter((c) => c.cmd === 'videoSubscribe').length === 4, 3000)
+    && (await warte(500), true) && p.befehle(1).filter((c) => c.cmd === 'videoSubscribe').length === 4
+    && JSON.stringify(p.befehle(1).filter((c) => c.cmd === 'videoSubscribe').slice(2).map((c) => [c.id, c.audio]).sort())
+      === JSON.stringify([[ANNA, false], [BEN, true]]));
+  ck('… beide Quellen laufen wieder, ohne „(2)“, ohne Q8', (await bis(() => p.kern.kurz().quellen === 2, 2000))
+    && zeile(p, ANNA)?.quelle?.ton === 'aus' && zeile(p, BEN)?.quelle?.ton !== 'aus'
+    && !p.kern.abbild().teilnehmer.some((t) => (t.quelle?.ndiName ?? '').includes(' (2)'))
+    && zeile(p, ANNA)?.fehler === null && zeile(p, BEN)?.fehler === null && p.kern.kurz().sollOffen === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '200', FAKE_ERTEILUNG_MS: '600' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  ck('Review Focus 4 (Entzug): beide gestoppt', (await bis(() => p.kern.kurz().quellen === 2))
+    && (await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0)));
+  p.kern.sollVerwerfen({ name: 'Ben' });
+  ck('… Ben in Z7 vergessen', p.kern.abbild().soll.map((s) => s.name).join(',') === 'Anna');
+  ck('… nach der Erteilung kommt nur Anna zurück', await bis(() => p.kern.kurz().erlaubnis === 'ja' && p.kern.kurz().quellen === 1, 3000)
+    && (await warte(500), true) && p.befehle(1).filter((c) => c.cmd === 'videoSubscribe').map((c) => c.id).join(',') === `${ANNA},${BEN},${ANNA}`);
+  await p.aufraeumen();
+}
+
+console.log('— Betriebsgröße im Abgleich und beim Laden (N4b.3 Nr. 3, L7)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_TEILNEHMER: '6', FAKE_ENTZUG_MS: '1000', FAKE_ERTEILUNG_MS: '300' }) });
+  await insMeeting(p);
+  const ids = p.kern.abbild().teilnehmer.map((t) => t.id);
+  for (const id of ids) await p.kern.laden({ id, ton: true, trotzBetriebsgroesse: true });
+  ck('Betriebsgröße im Abgleich: sechs Quellen geladen (trotzBetriebsgroesse)', ids.length === 6 && (await bis(() => p.kern.kurz().quellen === 6)));
+  ck('… der Entzug stoppt alle sechs', await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0, 3000));
+  ck('… nach der Erteilung genau fünf neue videoSubscribe', await bis(() => p.kern.kurz().erlaubnis === 'ja' && p.kern.kurz().quellen === 5, 3000)
+    && (await warte(500), true) && p.befehle(1).filter((c) => c.cmd === 'videoSubscribe').length === 11);
+  const s = p.kern.abbild().soll;
+  ck('… der sechste Eintrag steht als grenze, sollOffen 1, zoom_alarm=1', s.length === 1 && s[0].name === 'Frieda' && s[0].stand === 'grenze'
+    && p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… das Log nennt die Grenze', p.logs.includes('[zoom] Abgleich: 1 gemerkte Quelle über der Betriebsgröße, nicht geladen'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_TEILNEHMER: '6', FAKE_ABO_VERZOEGERUNG_MS: '300' }) });
+  await insMeeting(p);
+  const ids = p.kern.abbild().teilnehmer.map((t) => t.id);
+  for (const id of ids.slice(0, 3)) await p.kern.laden({ id, ton: true, trotzBetriebsgroesse: false });
+  ck('Zwei Laden ohne await: drei Quellen bestätigt', await bis(() => p.kern.kurz().quellen === 3, 2000));
+  ck('… die vierte ist offen (gesendet, noch nicht bestätigt)', ok(await p.kern.laden({ id: ids[3], ton: true, trotzBetriebsgroesse: false }))
+    && p.kern.kurz().quellen === 3);
+  const fuenfte = p.kern.laden({ id: ids[4], ton: true, trotzBetriebsgroesse: false });
+  const sechste = p.kern.laden({ id: ids[5], ton: true, trotzBetriebsgroesse: false });
+  ck('… genau eines ok, das andere Q9 (offene Abos zählen mit)', ok(await fuenfte) && text(await sechste) === KT.Q9(6));
+  ck('… am Ende fünf Quellen', await bis(() => p.kern.kurz().quellen === 5, 2000) && (await warte(400), p.kern.kurz().quellen === 5));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1
+      ? { FAKE_TEILNEHMER: '6', FAKE_ABO_VERZOEGERUNG_MS: '3000', FAKE_VERBINDUNG_WEG_MS: '600' }
+      : { FAKE_TEILNEHMER: '6' }),
+  });
+  await insMeeting(p);
+  const ids = p.kern.abbild().teilnehmer.map((t) => t.id);
+  for (const id of ids.slice(0, 5)) await p.kern.laden({ id, ton: true, trotzBetriebsgroesse: false });
+  ck('Offene Abos beim Abriss: fünf gesendet, keins bestätigt', await bis(() => p.befehle(1).filter((c) => c.cmd === 'videoSubscribe').length === 5, 2000)
+    && p.kern.kurz().quellen === 0);
+  ck('… nach dem Wiederbeitritt abonniert der Abgleich alle fünf (die alten Abos belegen keinen Platz)',
+    await bis(() => p.starts() === 2 && p.kern.kurz().zustand === 'im_meeting', 4000)
+    && (await bis(() => p.befehle(2).filter((c) => c.cmd === 'videoSubscribe').length === 5, 2000)));
+  await p.aufraeumen();
+}
+
+console.log('— Erlaubnis nach jedem await neu prüfen (Entzug während des Neu-Ladens)');
+for (const weg of ['Abgleich', 'Laden'] as const) {
+  const p: Probe = baueKern({
+    stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '200', FAKE_RUECKKEHR_NAME: 'anna', FAKE_ENTZUG_MS: '1300' }),
+    // Das videoUnsubscribe für die alte Quelle verschlucken: Neu-Laden wartet dann bis unsubscribeWarteMs auf die Abmeldung,
+    // und der Entzug (abbauen in der Attrappe) beendet das Warten.
+    sendeFilter: (c) => !(c.cmd === 'videoUnsubscribe' && c.id === ANNA),
+    fristen: { unsubscribeWarteMs: 1000 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck(`Entzug während des Neu-Ladens (${weg}): „anna“ kommt zurück`, await bis(() => zeile(p, 16778250) !== undefined, 2000));
+  if (weg === 'Laden') {
+    const r = await p.kern.laden({ id: 16778250, ton: true, trotzBetriebsgroesse: false });
+    ck('… Laden von Hand wartet auf die Abmeldung, der Entzug kommt dazwischen → Q1', text(r) === KT.Q1);
+  } else {
+    ck('… der Abgleich lädt neu und wartet auf die Abmeldung', await bis(() => p.logs.some((z) => z.includes('wird für Teilnehmer 16778250 neu geladen')), 2000));
+  }
+  ck('… Erlaubnis entzogen', await bis(() => p.kern.kurz().erlaubnis === 'entzogen', 2000));
+  await warte(1200);
+  ck('… danach kein videoSubscribe für 16778250', !p.befehle(1).some((c) => c.cmd === 'videoSubscribe' && c.id === 16778250));
+  await p.aufraeumen();
+}
+
+console.log('— Nach jedem await auch Soll-Liste, Abos und Plätze neu prüfen; R5 mit Grenze (L3, L7)');
+{
+  const p = baueKern({
+    stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '200', FAKE_RUECKKEHR_NAME: 'anna' }),
+    // Die Abmeldung der alten Quelle verschlucken: Laden von Hand wartet dann bis unsubscribeWarteMs.
+    sendeFilter: (c) => !(c.cmd === 'videoUnsubscribe' && c.id === ANNA),
+    fristen: { unsubscribeWarteMs: 1000 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Vergessen, während Laden von Hand auf die Abmeldung wartet: „anna“ kommt zurück', await bis(() => zeile(p, 16778250) !== undefined, 2000));
+  const laden = p.kern.laden({ id: 16778250, ton: true, trotzBetriebsgroesse: false });
+  await warte(100);
+  p.kern.sollVerwerfen({ name: 'Anna' });
+  ck('… Laden endet ohne Abo (ok: false, ohne Text)', text(await laden) === '');
+  await warte(1300);
+  ck('… kein videoSubscribe für 16778250, keine gemerkte Quelle', !p.befehle(1).some((c) => c.cmd === 'videoSubscribe' && c.id === 16778250)
+    && p.kern.abbild().soll.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '200', FAKE_RUECKKEHR_NAME: 'anna' }),
+    sendeFilter: (c) => !(c.cmd === 'videoUnsubscribe' && c.id === ANNA),
+    fristen: { unsubscribeWarteMs: 1000 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Zweimal Laden derselben Person in der Wartezeit (Taste doppelt): „anna“ kommt zurück', await bis(() => zeile(p, 16778250) !== undefined, 2000));
+  const erstes = p.kern.laden({ id: 16778250, ton: true, trotzBetriebsgroesse: false });
+  const zweites = p.kern.laden({ id: 16778250, ton: true, trotzBetriebsgroesse: false });
+  ck('… beide ok', ok(await erstes) && ok(await zweites));
+  await warte(1300);
+  ck('… genau ein videoSubscribe für 16778250 (auch mit dem Abgleich)',
+    p.befehle(1).filter((c) => c.cmd === 'videoSubscribe' && c.id === 16778250).length === 1);
+  await p.aufraeumen();
+}
+{
+  const DORA = 16778243;
+  const EMIL = 16778244;
+  const FRIEDA = 16778245;
+  let doraVerschluckt = false;
+  const p = baueKern({
+    stell: () => ({ FAKE_TEILNEHMER: '6', FAKE_WIEDERBEITRITT_MS: '1500', FAKE_RUECKKEHR_MS: '200', FAKE_RUECKKEHR_NAME: 'anna' }),
+    sendeFilter: (c) => {
+      // Annas Abmeldung kommt nie an: Der Abgleich wartet beim Neu-Laden die Frist ab.
+      if (c.cmd === 'videoUnsubscribe' && c.id === ANNA) return false;
+      // Doras erstes Abo bleibt ohne Antwort (Q8): Sie steht danach als gemerkte Quelle ohne Abo da.
+      if (c.cmd === 'videoSubscribe' && c.id === DORA && !doraVerschluckt) {
+        doraVerschluckt = true;
+        return false;
+      }
+      return true;
+    },
+    fristen: { unsubscribeWarteMs: 1000, aboAntwortMs: 300 },
+  });
+  await insMeeting(p);
+  await warte(400);
+  for (const id of [ANNA, BEN, CARLA, DORA, FRIEDA]) await p.kern.laden({ id, ton: true, trotzBetriebsgroesse: false });
+  ck('Plätze nach einem await neu prüfen: vier Quellen, Dora ohne Antwort (Q8)',
+    await bis(() => p.kern.kurz().quellen === 4 && zeile(p, DORA)?.fehler === KT.Q8, 2000));
+  ck('… „anna“ kommt zurück, der Abgleich lädt neu und wartet auf die Abmeldung (Dora bekäme den letzten Platz)',
+    await bis(() => p.logs.some((z) => z.includes('wird für Teilnehmer 16778250 neu geladen')), 3000));
+  ck('… Laden von Hand belegt in der Wartezeit den letzten Platz', ok(await p.kern.laden({ id: EMIL, ton: true, trotzBetriebsgroesse: false })));
+  await warte(1300);
+  ck('… danach kein videoSubscribe für Dora (der Abgleich lädt nie über 5), Dora steht als grenze',
+    !p.befehle(1).some((c) => c.cmd === 'videoSubscribe' && c.id === DORA)
+    && p.kern.abbild().soll.some((s) => s.name === 'Dora' && s.stand === 'grenze'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_TEILNEHMER: '6', FAKE_VERBINDUNG_WEG_MS: '1200' } : { FAKE_TEILNEHMER: '6' }),
+  });
+  await insMeeting(p);
+  const ids = p.kern.abbild().teilnehmer.map((t) => t.id);
+  for (const id of ids) await p.kern.laden({ id, ton: true, trotzBetriebsgroesse: true });
+  ck('R5 mit Grenze: sechs Quellen geladen, dann Abriss und Wiederbeitritt', ids.length === 6 && (await bis(() => p.kern.kurz().quellen === 6, 2000))
+    && (await bis(() => p.starts() === 2 && p.befehle(2).filter((c) => c.cmd === 'videoSubscribe').length === 5, 5000)));
+  await warte(400);
+  ck('… genau fünf neue Abos; R5 „5 Quellen neu geladen, 0 warten auf eine eindeutige Person, 1 über der Grenze von 5 nicht geladen.“ (grenze wartet auf keine Person)',
+    p.befehle(2).filter((c) => c.cmd === 'videoSubscribe').length === 5 && p.kern.abbild().hinweise.includes(KT.R5(5, 0, 1)));
+  const s = p.kern.abbild().soll;
+  ck('… der sechste Eintrag steht als grenze unter „Gemerkte Quellen“, zoom_alarm=1',
+    s.length === 1 && s[0].stand === 'grenze' && p.kern.stateKv()?.zoom_alarm === 1);
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);

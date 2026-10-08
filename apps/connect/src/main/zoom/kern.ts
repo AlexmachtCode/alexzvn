@@ -311,6 +311,18 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return m;
   }
 
+  /** L7: bestätigte Quellen der aktiven Generation ∪ offene Abos (aboFristen), ohne Doppelzählung. */
+  function belegteAbos(): Set<number> {
+    const belegt = new Set(aktiveQuellen().keys());
+    for (const id of aboFristen.keys()) belegt.add(id);
+    return belegt;
+  }
+
+  /** Freie Plätze bis zur Betriebsgröße (N4b.3 Nr. 3): so viele Soll-Einträge darf der Abgleich abonnieren. */
+  function freiePlaetze(): number {
+    return Math.max(0, BETRIEBSGROESSE - belegteAbos().size);
+  }
+
   function teilnehmerAbbild(): ZoomParticipant[] {
     const s = aktiveSitzung();
     if (!s) return [];
@@ -330,7 +342,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function sollOffen(): ZoomSollEintrag[] {
-    return sollAbbild(soll, sollLage());
+    return sollAbbild(soll, sollLage(), freiePlaetze());
   }
 
   function kurz(): ZoomKurz {
@@ -877,6 +889,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     tonVorwahl.clear();
     zeilenFehler.clear();
     tonAngefragt.clear();
+    // Offene Abos der alten Bridge belegen keinen Platz mehr (L7); ihre Q8-Frist zählt ohnehin nur in ihrer Generation.
+    for (const t of aboFristen.values()) clearTimeout(t);
+    aboFristen.clear();
     const ordner = lzErg.ordner;
     const exePfad = join(ordner, BRIDGE_EXE);
     const bridge = fabrik(
@@ -1366,6 +1381,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function videoEreignis(e: VideoEreignis): void {
     aboBeantwortet(e.id);
     if (e.state === 'unsubscribed') {
+      // N4b.1: Beim Entzug baut die Bridge jedes Abo ab. Die Soll-Liste bleibt; die Wiedererteilung lädt über den Abgleich neu.
+      if (e.reason === 'privilegeRevoked') d.log(`[zoom] Quelle ${e.id} gestoppt (Entzug)`);
       quellen.delete(e.id);
       abmeldungGesehen(e.id);
       return;
@@ -1432,7 +1449,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const p = s?.participants.get(e.id);
     if (!s || !p || p.self) return { ok: false, text: KT.Q2 };
     if (p.inWaitingRoom) return { ok: false, text: KT.Q15 };
-    const n = aktiveQuellen().size;
+    // L7: offene Abos zählen mit, sonst kämen zwei schnelle Klicks (oder Companion) über die Betriebsgröße.
+    const n = belegteAbos().size;
     if (n >= BETRIEBSGROESSE && !e.trotzBetriebsgroesse) return { ok: false, text: KT.Q9(n + 1) };
     const schluessel = normName(p.name);
     const gen = aktiveGen;
@@ -1444,6 +1462,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       sende({ cmd: 'videoUnsubscribe', id: altQuelle.aboId });
       await abmeldungAbwarten(altQuelle.aboId);
       if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting') return { ok: false, text: '' };
+      // Nach dem await die Erlaubnis neu prüfen: Ein Entzug in der Wartezeit lädt nichts mehr (N4b.1).
+      if (erlaubnis !== 'ja') return { ok: false, text: KT.Q1 };
+      // … und Abos und Soll-Liste: Hat ein zweiter Aufruf (Taste doppelt, Companion) die Person in der Wartezeit schon
+      // abonniert, ist das erledigt; wurde der Eintrag entladen oder vergessen, lädt nichts mehr.
+      if (belegteAbos().has(e.id)) return { ok: true };
+      if (soll.get(schluessel) !== alt) return { ok: false, text: '' };
     }
     abonniere(e.id, e.ton);
     soll.set(schluessel, { name: p.name, ton: e.ton, ndiName: ndiVorschau(p.name), aboId: e.id });
@@ -1507,29 +1531,39 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (zustand !== 'im_meeting' || erlaubnis !== 'ja') return;
     const gen = aktiveGen;
     const lage = sollLage();
-    const handlungen = sollHandlungen(soll, lage);
-    // L3: R5 nach dem ersten Abgleich mit Erlaubnis nach einem Wiederbeitritt; d = offene Einträge ohne Handlung.
+    // N4b.3 Nr. 3: höchstens bis zur Betriebsgröße; Einträge ohne Platz stehen als 'grenze' und bleiben offen (L7).
+    const plaetze = freiePlaetze();
+    const handlungen = sollHandlungen(soll, lage, plaetze);
+    const offen = sollAbbild(soll, lage, plaetze);
+    const ueber = offen.filter((e) => e.stand === 'grenze').length;
+    if (ueber > 0) d.log(`[zoom] Abgleich: ${ueber === 1 ? '1 gemerkte Quelle' : `${ueber} gemerkte Quellen`} über der Betriebsgröße, nicht geladen`);
+    // L3: R5 nach dem ersten Abgleich mit Erlaubnis nach einem Wiederbeitritt; d = offene Einträge ohne Handlung, die auf
+    // eine eindeutige Person warten. 'grenze' wartet auf einen Platz, nicht auf eine Person, und zählt darum nicht.
     const r5 = r5Offen;
     r5Offen = false;
-    const ohneHandlung = sollAbbild(soll, lage).length - handlungen.length;
+    const ohneHandlung = offen.length - ueber - handlungen.length;
     let k = 0;
     for (const h of handlungen) {
-      if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting') return;
+      if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting' || erlaubnis !== 'ja') return;
       const eintrag = soll.get(h.schluessel);
       if (!eintrag) continue;
       if (h.art === 'neuLaden') {
         d.log(`[zoom] Abgleich: verwaiste Quelle ${h.altAboId} wird für Teilnehmer ${h.id} neu geladen`);
         sende({ cmd: 'videoUnsubscribe', id: h.altAboId });
         await abmeldungAbwarten(h.altAboId);
-        if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting' || soll.get(h.schluessel) !== eintrag) continue;
+        // Nach dem await auch die Erlaubnis neu prüfen: Ein Entzug in der Wartezeit lädt nichts mehr (N4b.1).
+        if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting' || erlaubnis !== 'ja' || soll.get(h.schluessel) !== eintrag) continue;
       } else {
+        // L7: Nach einem await in dieser Runde (Neu-Laden) kann ein Laden von Hand oder per Companion den Platz belegt
+        // haben, den die Planung vorsah. Ohne freien Platz bleibt der Eintrag offen und steht im Abbild als 'grenze'.
+        if (freiePlaetze() <= 0) continue;
         d.log(`[zoom] Abgleich: Teilnehmer ${h.id} wird abonniert`);
       }
       eintrag.aboId = h.id;
       abonniere(h.id, h.ton);
       k += 1;
     }
-    if (r5) hinweis(KT.R5(k, ohneHandlung));
+    if (r5) hinweis(KT.R5(k, ohneHandlung, ueber));
     abbildGeaendert();
   }
 
