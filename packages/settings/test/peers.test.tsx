@@ -6,6 +6,7 @@ import {
   peerAuto,
   PeersSection,
   peerSetzen,
+  peerSetzenGrund,
   peersView,
   peerToggle,
   peerZeileStatus,
@@ -182,6 +183,10 @@ const rundown: PeersSectionProps = {
   gleich(aufrufe, [['set', 'titler', '10.0.0.5', 7790]], 'Gegenstellen Setzen: Rolle, Host ohne Leerraum und der gezeigte Port gehen an onSet');
   aufrufe.length = 0;
   ok(peerSetzen(mit, r, '10.0.0.5', null) === false && aufrufe.length === 0, 'Gegenstellen Setzen: Port leer oder ungültig löst keinen Aufruf aus (nie der Port 0 des Modells)');
+  ok(
+    peerSetzen(mit, r, '10.0.0.5', 7790, false) === false && aufrufe.length === 0,
+    'Gegenstellen Setzen: ungültiger Port-Entwurf („abc“, „70000“, leer) löst keinen Aufruf aus, auch nicht mit dem letzten gültigen Port',
+  );
   ok(peerSetzen({ ...basis }, r, 'h', 1) === false, 'Gegenstellen Setzen ohne onSet: kein Aufruf, kein Absturz');
   const entwurf = peerAuto(mit, { ...r, host: '' });
   gleich(aufrufe, [['auto', 'titler']], 'Gegenstellen Auto: onAuto mit der Rolle');
@@ -211,10 +216,45 @@ const rundown: PeersSectionProps = {
   const ohnePort = render(<PeersSection {...stage} peers={[zeile({ port: 0 })]} />);
   const zp = sperrZaehlung(ohnePort);
   ok(zp.alle === 4 && zp.gesperrt === 1 && /<button[^>]*disabled=""[^>]*>Setzen</.test(ohnePort), `Gegenstellen ohne gültigen Port: nur Setzen disabled (${zp.gesperrt} von ${zp.alle})`);
+  // Gesperrt nie ohne Grund (Spec 6.1): der Grund steht sichtbar beim Knopf und ist ihm per aria-describedby zugeordnet.
+  const grundId = /<p id="([^"]+)"[^>]*>Setzen geht erst mit einem gültigen Port\.<\/p>/.exec(ohnePort)?.[1];
+  ok(
+    grundId !== undefined && new RegExp(`<button[^>]*aria-describedby="${grundId}"[^>]*>Setzen<`).test(ohnePort),
+    'Gegenstellen ohne gültigen Port: Grund „Setzen geht erst mit einem gültigen Port.“ sichtbar und am Knopf (aria-describedby)',
+  );
+  pruefeIdVerweise(ohnePort, 'Gegenstellen ohne gültigen Port: alle id-Verweise gültig');
+  const gesperrtOhnePort = render(<PeersSection {...stage} peers={[zeile({ port: 0 })]} locked="Vom Master vorgegeben" />);
+  enthaeltNicht(gesperrtOhnePort, PEERS_TEXTE.setzenOhnePort, 'Gegenstellen locked ohne Port: nur der Sperrgrund des Abschnitts, kein zweiter Grund am Knopf');
+  enthaelt(render(<PeersSection {...stage} />), '>Setzen</button>', 'Gegenstellen mit gültigem Port: Setzen ohne Grund');
+  enthaeltNicht(render(<PeersSection {...stage} />), PEERS_TEXTE.setzenOhnePort, 'Gegenstellen mit gültigem Port: kein Grund am Knopf');
+}
+{
+  // Setzen ist gesperrt, solange das Portfeld keinen gültigen Port zeigt: leer (port null) oder ein ungültiger Entwurf, den
+  // NumberInput nicht meldet (der lokale Port stünde sonst beim letzten gültigen Wert). Gesperrt nennt den Abschnitt selbst.
+  gleich(
+    [
+      peerSetzenGrund(false, 7777, true),
+      peerSetzenGrund(false, 7777, false),
+      peerSetzenGrund(false, null, true),
+      peerSetzenGrund(false, null, false),
+      peerSetzenGrund(true, 7777, false),
+      peerSetzenGrund(true, null, true),
+    ],
+    [undefined, PEERS_TEXTE.setzenOhnePort, PEERS_TEXTE.setzenOhnePort, PEERS_TEXTE.setzenOhnePort, undefined, undefined],
+    'Gegenstellen Setzen-Grund: ohne gültigen Port (leer oder ungültiger Entwurf) „Setzen geht erst mit einem gültigen Port.“, gesperrt ohne eigenen Grund',
+  );
+  gleich(PEERS_TEXTE.setzenOhnePort, 'Setzen geht erst mit einem gültigen Port.', 'Gegenstellen: Text des Setzen-Grunds wörtlich');
 }
 {
   // Der Klick selbst läuft ohne DOM nicht; die Verdrahtung wird an der Quelle geprüft (Auto verwirft den lokalen Entwurf).
   const q = leseText('src/abschnitte/PeersSection.tsx').replace(/\s+/g, ' ');
   ok(q.includes('const e = peerAuto(p, row); setHost(e.host); setPort(e.port);'), 'Gegenstellen Auto: der Klick setzt Host und Port des Entwurfs zurück');
-  ok(q.includes('peerSetzen(p, row, host, port)') && q.includes('disabled={gesperrt || port === null}'), 'Gegenstellen Setzen: gleicher Host/Port wie im Feld, gesperrt ohne gültigen Port');
+  const fehlt = [
+    'onEntwurfGueltig={setPortGueltig}',
+    'const setzenGrund = peerSetzenGrund(gesperrt, port, portGueltig);',
+    'peerSetzen(p, row, host, port, portGueltig)',
+    'disabled={gesperrt || setzenGrund !== undefined}',
+  ].filter((z) => !q.includes(z));
+  ok(fehlt.length === 0, 'Gegenstellen Setzen: gleicher Host/Port wie im Feld, gesperrt ohne gültigen Port oder bei ungültigem Port-Entwurf');
+  for (const z of fehlt) console.log(`     fehlt: ${z}`);
 }

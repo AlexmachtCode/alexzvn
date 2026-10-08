@@ -25,5 +25,5 @@ export { type IveoSectionProps, type IveoView, IVEO_TEXTE, iveoView } from './ab
 export { IveoSection } from './abschnitte/IveoSection';
 export { type DataLinkSectionProps, type DataLinkView, DATALINK_TEXTE, dataLinkView } from './abschnitte/datalink';
 export { DataLinkSection } from './abschnitte/DataLinkSection';
-export { type PeerRow, type PeersSectionProps, type PeersView, type PeerZeileView, PEERS_TEXTE, peerAuto, peerSetzen, peersView, peerToggle, peerZeileStatus, startPort } from './abschnitte/peers';
+export { type PeerRow, type PeersSectionProps, type PeersView, type PeerZeileView, PEERS_TEXTE, peerAuto, peerSetzen, peerSetzenGrund, peersView, peerToggle, peerZeileStatus, startPort } from './abschnitte/peers';
 export { PeersSection } from './abschnitte/PeersSection';

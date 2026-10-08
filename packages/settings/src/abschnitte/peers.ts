@@ -44,6 +44,7 @@ export const PEERS_TEXTE = {
   setzenFuer: (label: string) => `Setzen: ${label}`,
   autoFuer: (label: string) => `Auto: ${label}`,
   platzhalterHost: 'leer = automatisch',
+  setzenOhnePort: 'Setzen geht erst mit einem gültigen Port.',
   erklaerung:
     'Standard ist automatisch (mDNS). Für ein anderes Subnetz oder blockiertes mDNS Host und Port setzen – das überschreibt den Fund. „Auto“ nimmt das wieder zurück.',
 } as const;
@@ -112,11 +113,24 @@ export function startPort(row: PeerRow): number | null {
   return row.port > 0 ? row.port : (row.defaultPort ?? null);
 }
 
-/** Setzen: Host ohne Leerraum und der Port aus dem Feld. Ohne gültigen Port kein Aufruf (nie eine Zahl, die das Feld nicht zeigt). */
-export function peerSetzen(p: PeersSectionProps, row: PeerRow, host: string, port: number | null): boolean {
-  if (!p.onSet || port === null) return false;
+/**
+ * Setzen: Host ohne Leerraum und der Port aus dem Feld. Ohne gültigen Port kein Aufruf (nie eine Zahl, die das Feld nicht
+ * zeigt): weder bei leerem Feld (port null) noch bei einem ungültigen Entwurf (portGueltig false; NumberInput meldet nur
+ * gültige Zahlen, port stünde dann noch beim letzten gültigen Wert).
+ */
+export function peerSetzen(p: PeersSectionProps, row: PeerRow, host: string, port: number | null, portGueltig = true): boolean {
+  if (!p.onSet || port === null || !portGueltig) return false;
   p.onSet(row.role, host.trim(), port);
   return true;
+}
+
+/**
+ * Warum „Setzen“ gesperrt ist, sichtbar am Knopf (gesperrt nie ohne Grund, Spec 6.1): ohne gültigen Port im Feld. Ist der
+ * Abschnitt gesperrt, nennt SectionFrame den Grund schon vor den Feldern; dann kein zweiter.
+ */
+export function peerSetzenGrund(gesperrt: boolean, port: number | null, portGueltig: boolean): string | undefined {
+  if (gesperrt) return undefined;
+  return port === null || !portGueltig ? PEERS_TEXTE.setzenOhnePort : undefined;
 }
 
 /** Auto: meldet es und gibt den Entwurf zurück, auf den die Zeile zurückfällt (Host leer, Port wie angezeigt). */
