@@ -1004,6 +1004,10 @@ Die Karte steht **außerhalb** des `connected`-Zweigs, direkt nach dem Raum-Absc
    - je Zeile: Name; Kennzeichen „Host“, „Co-Host“, „Kamera aus“, „keine Kamera“, „im Warteraum“, „Name doppelt“ (rot); NDI-Name (Quelle) bzw. grau „wird: {Vorschau}“; Bild- und Ton-Zustand der Quelle; Schalter „Ton“ (je Zeile, 6.3); Knopf „Als Quelle laden“ bzw. „Entladen“; Kollisionswarnung Q10 und Zeilenfehler (Q2, Q4, Q5, Q8).
    - Kein Tally, kein Talkback, keine Phasen: Die Gast-Bausteine `PttButton`, `GuestActions` und `PhaseBadge` werden **nicht** wiederverwendet.
 9. **Gemerkte Quellen** (Soll-Einträge aus 6.3): „{Name} — wartet auf die Person“ · „{Name} — Name doppelt, bitte von Hand laden“ (rot) · „{Name} — Person weg, Quelle schwarz“ (bei Doppelname rot mit Q11) · Knöpfe „Entladen“ (verwaist) bzw. „Vergessen“ (wartet, doppelname).
+   - Nachtrag 4b (Owner 08.10.2026): drei weitere Stände, jeweils mit Knopf „Vergessen“; sie zählen als offen wie „wartet“ (`sollOffen`, `zoom_alarm`; R5 unverändert).
+     - `erlaubnis`: „{Name} — wartet auf die Aufnahme-Erlaubnis“. Die Person ist eindeutig da (nicht im Warteraum), aber im Meeting fehlt die Aufnahme-Erlaubnis (Z6, Z7).
+     - `laedt`: „{Name} — wird geladen …“. Das Abo ist gesendet und noch nicht bestätigt (höchstens bis zur Frist Q8), oder im Meeting mit Erlaubnis ist ein Abgleich geplant, der diesen Eintrag abonnieren wird.
+     - `wiederbeitritt`: „{Name} — wartet auf den Wiederbeitritt“. Connect selbst ist nicht im Meeting (Zustand ≠ `im_meeting`: Z10, Z11, `fehler` nach R2 oder R7, „Erneut beitreten“ in `startet`, `tritt_bei`, `warteraum`). Teilnehmerliste und Abos gelten dann nicht; dieser Stand hat Vorrang vor allen anderen.
 10. **Hinweise:** die letzten 5 (darunter Fernsteuer-Hinweise F1–F8, Q6, Q16, Q17, R4, R5).
 11. Fußzeile: „Zoom-Quellen haben kein Tally, kein Talkback und kein Mix-Minus — das sind Grenzen von Zoom.“ · Knopf „Logordner öffnen“.
 

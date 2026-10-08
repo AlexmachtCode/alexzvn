@@ -303,6 +303,9 @@ Neu (Plan-Vorschlag, Owner prüft):
 | Z7 bei `entzogen` ohne gemerkte Quelle (`sollOffen` = 0) | unverändert aus 4a: Tray `△ Zoom: im Meeting ohne Aufnahme-Erlaubnis`, Karte „Im Meeting ohne Aufnahme-Erlaubnis. Der Host hat sie entzogen. …“ (Spec 7: kein „Quellen gestoppt“, wenn keine lief oder alle vergessen sind) |
 | Z7b bei `entzogen` (n > 0, nur solange die Bridge abbaut), Karte | „Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt {n} Quellen …“ (Singular „1 Quelle“) — Tray-Zeile Z7b bleibt `△ Zoom: {n} Quellen, Aufnahme-Erlaubnis fehlt` |
 | Gemerkte Quelle, Stand `grenze` | „{Name} — nicht automatisch geladen (mehr als 5 Zoom-Quellen), bitte von Hand laden“ |
+| Gemerkte Quelle, Stand `erlaubnis` (Owner 08.10.2026) | „{Name} — wartet auf die Aufnahme-Erlaubnis“ |
+| Gemerkte Quelle, Stand `laedt` (Owner 08.10.2026) | „{Name} — wird geladen …“ |
+| Gemerkte Quelle, Stand `wiederbeitritt` (Owner 08.10.2026; Connect nicht im Meeting, Vorrang vor allen anderen Ständen) | „{Name} — wartet auf den Wiederbeitritt“ |
 | Versatz nur Sitzung (Antwort und Karte) | `TEXT_A4_SCHREIBFEHLER` = „Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.“ (vorhanden, `zoom-text.ts:16`) |
 | Bild der Quelle (`bildText`) | `subscribed` „Bild: erstes Bild steht aus“ · `live` „Bild läuft“ · `black`+`cameraOff` „Bild schwarz: Kamera aus“ · `black`+`participantLeft` „Bild schwarz: Person weg“ · `black`+`bufferMismatch` „Bild schwarz: fehlerhafte Bilder“ · `black`+jeder andere Grund „Bild schwarz: kein Bild von Zoom“ |
 | Ton der Quelle (`tonText`) | `'aus'` „ohne Ton“ · `waiting` „Ton: wartet auf das erste Paket“ · `live` „Ton läuft“ · `silent` „Ton: Stille“ · `off`+`audioUnavailable` „Ton nicht verfügbar“ · `off`+`participantLeft` „Ton aus: Person weg“ · `off` sonst „Ton aus“ |
