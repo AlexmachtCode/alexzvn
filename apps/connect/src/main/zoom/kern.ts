@@ -1324,9 +1324,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 6.8: Wiederbeitritts-Zeitgeber löschen; ein laufender Versuch verwirft sein Ergebnis (laufNr).
     folgeBeenden();
     d.log('[zoom] Meeting verlassen');
+    // Ruling 08.10.2026 (Spec 6.3: „Verlassen“ leert die Liste): VOR Z12 und vor dem Warten auf die Bridge (bis 5 s, hängt sie, bis
+    // killTimeoutMs), sonst stünde neben „Verlasse das Meeting …“ jede Quelle als „wartet auf den Wiederbeitritt“. Im Abbau liest
+    // niemand die Soll-Liste: laden und abgleichen verlangen im_meeting, Ereignisse der Bridge im Abbau gehen an abbauEreignis.
+    soll.clear();
     setzeZustand('verlaesst');
     await stoppeBridge();
-    soll.clear();
     nummer = null;
     kenncode = null;
     meldung = null;
@@ -1792,6 +1795,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       if (ladeLauf !== null) {
         if (!(await mitFrist(ladeLauf, fristMs))) d.log('[zoom] Laden des Zoom-SDK nicht rechtzeitig abgebrochen');
       } else if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
+      // Ruling 08.10.2026: Die Soll-Liste geht wie beim Verlassen VOR Z12 und vor dem Warten auf die Bridge (sonst stünde neben
+      // „Verlasse das Meeting …“ jede Quelle als „wartet auf den Wiederbeitritt“). Im Abbau liest niemand die Liste.
+      soll.clear();
       // Kopie und Bridge laufen nie gleichzeitig (Sperre S10): insgesamt höchstens fristMs.
       if (aktiveBridge !== null) {
         // N4b.3 Nr. 8: Z12 („verlässt das Meeting …“) nur mit Meeting, nicht bei „Einrichtung prüfen“.
@@ -1799,7 +1805,6 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         if (imMeetingZustand) setzeZustand('verlaesst');
         if (!(await mitFrist(stoppeBridge(), fristMs))) d.log('[zoom] Zoom-Bridge nicht rechtzeitig beendet');
       }
-      soll.clear();
       nummer = null;
       kenncode = null;
       gesehenNamen.clear();

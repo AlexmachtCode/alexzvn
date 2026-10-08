@@ -70,7 +70,8 @@ async function bis(pred: () => boolean, ms = 4000): Promise<boolean> {
   return pred();
 }
 // Gesamtwache: hängt ein Fall, endet der Lauf rot statt nie. Gemessen 08.10.2026: etwa 120 s ohne Fremdlast (vorher 180 s
-// Wache bei etwa 109 s Laufzeit; angehoben, damit die Reserve unter Speicherdruck nicht weiter schrumpft).
+// Wache bei etwa 109 s Laufzeit; angehoben, damit die Reserve unter Speicherdruck nicht weiter schrumpft). Mit den Proben zu
+// Q8, Ladefehler und Verlassen (Owner und Ruling 08.10.2026) gemessen 138 bis 145 s.
 const wache = setTimeout(() => {
   console.log('FAIL  Gesamtlaufzeit über 240 s – ein Fall hängt');
   process.exit(1);
@@ -3516,6 +3517,73 @@ const TEXT_GESCHEITERT = 'Anna — Laden gescheitert, bitte von Hand laden';
     && sollZeile(p.kern.abbild().soll[0]) === TEXT_GESCHEITERT && p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1);
   ck('… R5 unverändert „2 Quellen neu geladen, 0 warten …“ (gezählt wird das Abo, nicht die Antwort), jedes Abbild ohne Lüge',
     p.kern.abbild().hinweise.includes(KT.R5(2, 0)) && wiederbeitrittNurDraussen(p) && ladeStaendeEhrlich(p));
+  await p.aufraeumen();
+}
+
+// ── Ruling 08.10.2026 (Prüfung Zustände, Befund 2): Verlassen und Beenden leeren die Soll-Liste, bevor die Bridge abbaut ──
+console.log('— Ruling 08.10.2026: Verlassen und Beenden leeren die Soll-Liste vor dem Abbau; Meeting-Ende und „Schließen“ ebenso');
+{
+  const p = baueKern({ stell: () => ({ FAKE_ABGANG_MS: '800' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  const geladen = await bis(() => p.kern.kurz().quellen === 2);
+  const ab = p.abbilder.length;
+  const kab = p.kurze.length;
+  await p.kern.verlassen();
+  const inZ12 = p.abbilder.slice(ab).filter((a) => a.kurz.zustand === 'verlaesst');
+  ck('Verlassen mit zwei geladenen Quellen: ab dem ersten Abbild in verlaesst keine gemerkte Quelle, auch nicht „wartet auf den Wiederbeitritt“',
+    geladen && inZ12.length > 0 && inZ12.every((a) => a.soll.length === 0 && a.kurz.sollOffen === 0)
+    && p.kurze.slice(kab).filter((k) => k.zustand === 'verlaesst').every((k) => k.sollOffen === 0));
+  ck('… danach bereit, Liste leer, zoom_alarm=0', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().soll.length === 0
+    && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ABGANG_MS: '800' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  const geladen = await bis(() => p.kern.kurz().quellen === 1);
+  const ab = p.abbilder.length;
+  await p.kern.beenden(5000);
+  const inZ12 = p.abbilder.slice(ab).filter((a) => a.kurz.zustand === 'verlaesst');
+  ck('Beenden im Meeting: ab dem ersten Abbild in verlaesst keine gemerkte Quelle (sollOffen 0)',
+    geladen && inZ12.length > 0 && inZ12.every((a) => a.soll.length === 0 && a.kurz.sollOffen === 0));
+  await p.aufraeumen();
+}
+{
+  // Meeting-Ende durch den Host: meetingEnde() leert die Liste im selben Schritt, in dem es bereit setzt (vor jedem Abbild).
+  const p = baueKern({ stell: () => ({ FAKE_MEETING_ENDE_MS: '1200', FAKE_ABGANG_MS: '600' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  const geladen = await bis(() => p.kern.kurz().quellen === 1);
+  const ende = await bis(() => p.kern.kurz().zustand === 'bereit', 4000);
+  await bis(() => !p.kern.laeuft(), 3000);
+  // Ab dem ersten Abbild im Meeting (vor dem Beitritt stand der Kern auch in bereit), dann ab dem ersten bereit.
+  const abMeeting = p.abbilder.slice(Math.max(0, p.abbilder.findIndex((a) => a.kurz.zustand === 'im_meeting')));
+  const nachEnde = abMeeting.slice(Math.max(0, abMeeting.findIndex((a) => a.kurz.zustand === 'bereit')));
+  ck('Meeting-Ende durch den Host: in keinem Abbild danach eine gemerkte Quelle (auch nicht während die Bridge abbaut)',
+    geladen && ende && nachEnde[0]?.kurz.zustand === 'bereit' && nachEnde.every((a) => a.soll.length === 0 && a.kurz.sollOffen === 0));
+  await p.aufraeumen();
+}
+{
+  // „Schließen“ nach einem Fehler mit gemerkter Quelle (R7 nach „Abbrechen“): schliessen() leert die Liste vor dem Abbild.
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : n === 2 ? { FAKE_BEITRITT_SCHEITERT: '2' } : {}),
+    wiederbeitrittPlanMs: [30, 1500, 30, 30, 30],
+    fristen: { abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  const bereitZumAbbruch = (await bis(() => p.kern.kurz().quellen === 1)) && (await bis(() => p.kern.kurz().versuch === 2, 4000));
+  p.kern.abbrechen();
+  const imFehler = p.kern.kurz().zustand === 'fehler' && sollStaende(p.kern.abbild()) === 'Anna:wiederbeitritt';
+  const ab = p.abbilder.length;
+  p.kern.schliessen();
+  await warte(300);
+  ck('„Schließen“ nach Fehler (R7) mit gemerkter Quelle: bereit, in keinem Abbild danach eine gemerkte Quelle',
+    bereitZumAbbruch && imFehler && p.kern.kurz().zustand === 'bereit' && p.abbilder.length > ab
+    && p.abbilder.slice(ab).every((a) => a.soll.length === 0 && a.kurz.sollOffen === 0));
   await p.aufraeumen();
 }
 

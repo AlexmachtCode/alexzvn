@@ -55,8 +55,9 @@ export type SollLadeFehler = Extract<ZoomSollEintrag['stand'], 'keineAntwort' | 
 /**
  * Owner 08.10.2026: Connect ist außerhalb des Meetings, sobald der Zustand nicht im_meeting ist, etwa beim eigenen
  * Wiederbeitritt (Z11), während Zoom selbst neu verbindet (Z10), in jedem fehler mit gemerkten Quellen (R2, R7,
- * „Verbindung verloren: …“, B3–B5), bei „Erneut beitreten“ (startet, tritt_bei, warteraum), im Warteraum mitten im Meeting
- * und kurz in verlaesst. In einrichtung und bereit ist die Soll-Liste leer. Der Kern setzt damit SollLage.ausserhalbMeeting.
+ * „Verbindung verloren: …“, B3–B5), bei „Erneut beitreten“ (startet, tritt_bei, warteraum) und im Warteraum mitten im
+ * Meeting. In verlaesst (Ruling 08.10.2026: Verlassen und Beenden leeren sie vor Z12), einrichtung und bereit ist die
+ * Soll-Liste leer. Der Kern setzt damit SollLage.ausserhalbMeeting.
  */
 export function istAusserhalbMeeting(zustand: ZoomZustand): boolean {
   return zustand !== 'im_meeting';

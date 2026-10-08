@@ -153,11 +153,11 @@ export interface ZoomSollEintrag {
    * mit Erlaubnis ist ein Abgleich geplant, der diesen Eintrag abonnieren wird (noch kein Abo gesendet).
    * Beide Zusätze aus der Gesamtprüfung 4b („Statuszeile lügt“); zählen als offen.
    * 'wiederbeitritt': Connect selbst ist nicht im Meeting (jeder Zustand ≠ im_meeting: Z10, Z11, jedes fehler mit gemerkten
-   * Quellen, etwa R2, R7, „Verbindung verloren: …“ oder B3–B5, „Erneut beitreten“, der Warteraum mitten im Meeting und kurz
-   * verlaesst; in einrichtung und bereit ist die Soll-Liste leer). Teilnehmerliste und Abos gelten dann nicht; Vorrang vor
-   * allen anderen Ständen außer 'verwaist' (Owner 08.10.2026). 'verwaist' bleibt auch außerhalb des Meetings, solange die
-   * Bridge lebt (Z10, Warteraum mitten im Meeting und das folgende tritt_bei): die schwarze Quelle läuft weiter und muss sich
-   * per „Entladen“ abbauen lassen (Ruling 08.10.2026). Zählt als offen.
+   * Quellen, etwa R2, R7, „Verbindung verloren: …“ oder B3–B5, „Erneut beitreten“ und der Warteraum mitten im Meeting; in
+   * verlaesst, einrichtung und bereit ist die Soll-Liste leer, Ruling 08.10.2026). Teilnehmerliste und Abos gelten dann
+   * nicht; Vorrang vor allen anderen Ständen außer 'verwaist' (Owner 08.10.2026). 'verwaist' bleibt auch außerhalb des
+   * Meetings, solange die Bridge lebt (Z10, Warteraum mitten im Meeting und das folgende tritt_bei): die schwarze Quelle
+   * läuft weiter und muss sich per „Entladen“ abbauen lassen (Ruling 08.10.2026). Zählt als offen.
    * 'keineAntwort' und 'gescheitert' (Owner 08.10.2026): im Meeting mit Erlaubnis, die Person ist eindeutig da, und an IHRER
    * Teilnehmerzeile steht, dass ihr Laden gescheitert ist: 'keineAntwort' = das Abo blieb ohne Antwort der Bridge (Q8),
    * 'gescheitert' = die Bridge hat das Abo mit Fehler abgelehnt (istLadeFehler in klartext.ts). Sie ersetzen nur den
