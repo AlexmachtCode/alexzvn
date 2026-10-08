@@ -1,6 +1,6 @@
 {
   "name": "@jm/app-designer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "JM App Designer — Baukasten für interaktive Messe-/Lernspiele (Glücksrad, Quiz, Memory, Drag&Drop) mit Sandbox-Vorschau, Kiosk-Ausgabe und Web-Export",
   "main": "out/main/index.cjs",
