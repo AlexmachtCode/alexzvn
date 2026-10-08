@@ -3,7 +3,7 @@ import { Button, Field, NumberInput, StatusPill, TextInput, Toggle } from '@jm/u
 import { useEffect, useId, useState } from 'react';
 import { Anzeige, SectionFrame } from '../SectionFrame';
 import { istGesperrt } from '../vertrag';
-import { PEERS_TEXTE, peersView, type PeerRow, type PeersSectionProps, type PeersView, type PeerZeileView } from './peers';
+import { PEERS_TEXTE, peerAuto, peerSetzen, peersView, peerToggle, startPort, type PeerRow, type PeersSectionProps, type PeersView, type PeerZeileView } from './peers';
 
 interface ZeileProps {
   row: PeerRow;
@@ -11,10 +11,6 @@ interface ZeileProps {
   p: PeersSectionProps;
   sichtbar: PeersView['sichtbar'];
   gesperrt: boolean;
-}
-
-function startPort(row: PeerRow): number | null {
-  return row.port > 0 ? row.port : (row.defaultPort ?? null);
 }
 
 function PeerZeile({ row, zeile, p, sichtbar, gesperrt }: ZeileProps): React.JSX.Element {
@@ -31,7 +27,7 @@ function PeerZeile({ row, zeile, p, sichtbar, gesperrt }: ZeileProps): React.JSX
       </p>
       {sichtbar.schalter ? (
         <Field label={PEERS_TEXTE.aktiv}>
-          <Toggle checked={zeile.aktiv} onChange={(n) => p.onToggle?.(row.role, n)} disabled={sperre} />
+          <Toggle checked={zeile.aktiv} onChange={(n) => peerToggle(p, row, n)} disabled={sperre} />
         </Field>
       ) : null}
       <Field label={PEERS_TEXTE.host}>
@@ -54,8 +50,8 @@ function PeerZeile({ row, zeile, p, sichtbar, gesperrt }: ZeileProps): React.JSX
               uppercase={false}
               className="motion-reduce:transition-none"
               aria-label={PEERS_TEXTE.setzenFuer(row.label)}
-              onClick={() => p.onSet?.(row.role, host.trim(), port ?? row.port)}
-              disabled={gesperrt}
+              onClick={() => peerSetzen(p, row, host, port)}
+              disabled={gesperrt || port === null}
             >
               {PEERS_TEXTE.setzen}
             </Button>
@@ -68,7 +64,11 @@ function PeerZeile({ row, zeile, p, sichtbar, gesperrt }: ZeileProps): React.JSX
               uppercase={false}
               className="motion-reduce:transition-none"
               aria-label={PEERS_TEXTE.autoFuer(row.label)}
-              onClick={() => p.onAuto?.(row.role)}
+              onClick={() => {
+                const e = peerAuto(p, row);
+                setHost(e.host);
+                setPort(e.port);
+              }}
               disabled={gesperrt}
             >
               {PEERS_TEXTE.auto}

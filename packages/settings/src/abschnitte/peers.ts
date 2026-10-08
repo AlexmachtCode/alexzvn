@@ -76,7 +76,11 @@ function zeileView(r: PeerRow): PeerZeileView {
     status: peerZeileStatus(r),
     aktiv: r.enabled !== false,
     quelleText:
-      r.source === 'mdns' ? PEERS_TEXTE.quelleGefunden : r.source === 'manual' ? PEERS_TEXTE.quelleManuell(r.host, r.port) : undefined,
+      r.source === 'mdns'
+        ? PEERS_TEXTE.quelleGefunden
+        : r.source === 'manual' && r.host !== '' // manuell ohne Host ist automatisch, wie im Status (peerZeileStatus)
+          ? PEERS_TEXTE.quelleManuell(r.host, r.port)
+          : undefined,
   };
 }
 
@@ -92,13 +96,35 @@ function peersStatus(p: PeersSectionProps, zeilen: readonly PeerZeileView[]): Se
 
 export function peersView(p: PeersSectionProps): PeersView {
   const zeilen = p.peers.map(zeileView);
-  const auto = p.capabilities.auto === true;
+  const auto = p.capabilities.auto === true && typeof p.onAuto === 'function';
   return {
     id: p.id,
     status: peersStatus(p, zeilen),
     locked: p.locked,
     error: p.error,
-    sichtbar: { auto: auto && typeof p.onAuto === 'function', schalter: p.capabilities.toggle === true, erklaerung: auto },
+    sichtbar: { auto, schalter: p.capabilities.toggle === true, erklaerung: auto && typeof p.onSet === 'function' }, // die Erklärung nennt Setzen und Auto
     zeilen,
   };
+}
+
+/** Port, den das Feld zeigt: der gesetzte, sonst der Standardport; null = das Feld ist leer. */
+export function startPort(row: PeerRow): number | null {
+  return row.port > 0 ? row.port : (row.defaultPort ?? null);
+}
+
+/** Setzen: Host ohne Leerraum und der Port aus dem Feld. Ohne gültigen Port kein Aufruf (nie eine Zahl, die das Feld nicht zeigt). */
+export function peerSetzen(p: PeersSectionProps, row: PeerRow, host: string, port: number | null): boolean {
+  if (!p.onSet || port === null) return false;
+  p.onSet(row.role, host.trim(), port);
+  return true;
+}
+
+/** Auto: meldet es und gibt den Entwurf zurück, auf den die Zeile zurückfällt (Host leer, Port wie angezeigt). */
+export function peerAuto(p: PeersSectionProps, row: PeerRow): { host: string; port: number | null } {
+  p.onAuto?.(row.role);
+  return { host: '', port: startPort(row) };
+}
+
+export function peerToggle(p: PeersSectionProps, row: PeerRow, enabled: boolean): void {
+  p.onToggle?.(row.role, enabled);
 }

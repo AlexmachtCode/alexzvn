@@ -1,10 +1,13 @@
 // PeersSection „Gegenstellen“ (Spec 6.2, UO4, 7): unbekannt ist nicht „nicht gefunden“, Aus zählt nicht mit.
-import { enthaelt, enthaeltNicht, gleich, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
+import { enthaelt, enthaeltNicht, gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import {
   abschnittStatusItem,
   PEERS_TEXTE,
+  peerAuto,
   PeersSection,
+  peerSetzen,
   peersView,
+  peerToggle,
   peerZeileStatus,
   type PeerRow,
   type PeersSectionProps,
@@ -148,6 +151,11 @@ const rundown: PeersSectionProps = {
 {
   const html = render(<PeersSection {...rundown} onSet={undefined} onAuto={undefined} />);
   enthaeltNicht(html, '</button>', 'Gegenstellen ohne Rückrufe: keine Knöpfe');
+  enthaeltNicht(html, PEERS_TEXTE.erklaerung, 'Gegenstellen ohne Rückrufe: keine Erklärung zu Setzen und Auto');
+  const nurAuto = render(<PeersSection {...rundown} onSet={undefined} />);
+  enthaeltNicht(nurAuto, PEERS_TEXTE.erklaerung, 'Gegenstellen nur mit Auto: keine Erklärung zum Setzen');
+  const nurSetzen = render(<PeersSection {...rundown} onAuto={undefined} />);
+  enthaeltNicht(nurSetzen, PEERS_TEXTE.erklaerung, 'Gegenstellen nur mit Setzen: keine Erklärung zu Auto');
 }
 {
   const html = render(<PeersSection {...rundown} locked="Vom Master vorgegeben" />);
@@ -163,4 +171,50 @@ const rundown: PeersSectionProps = {
   const item = abschnittStatusItem(peersView(rundown), { group: 'verbindung', label: 'Gegenstellen' });
   const html = render(<PeersSection {...rundown} />);
   ok(item.state === 'warn' && html.includes(`>${item.detail}</span>`), 'Gegenstellen: abschnittStatusItem = Statuspille (Zustand und Text)');
+}
+
+// ── Verhalten: Rückrufe, Entwurf, Sperre, Quelle ──
+{
+  const aufrufe: unknown[][] = [];
+  const mit: PeersSectionProps = { ...basis, onSet: (...a) => aufrufe.push(['set', ...a]), onAuto: (...a) => aufrufe.push(['auto', ...a]), onToggle: (...a) => aufrufe.push(['toggle', ...a]) };
+  const r = zeile({ role: 'titler', host: '', port: 0, defaultPort: 8729 });
+  ok(peerSetzen(mit, r, '  10.0.0.5  ', 7790) === true, 'Gegenstellen Setzen: Aufruf gemeldet');
+  gleich(aufrufe, [['set', 'titler', '10.0.0.5', 7790]], 'Gegenstellen Setzen: Rolle, Host ohne Leerraum und der gezeigte Port gehen an onSet');
+  aufrufe.length = 0;
+  ok(peerSetzen(mit, r, '10.0.0.5', null) === false && aufrufe.length === 0, 'Gegenstellen Setzen: Port leer oder ungültig löst keinen Aufruf aus (nie der Port 0 des Modells)');
+  ok(peerSetzen({ ...basis }, r, 'h', 1) === false, 'Gegenstellen Setzen ohne onSet: kein Aufruf, kein Absturz');
+  const entwurf = peerAuto(mit, { ...r, host: '' });
+  gleich(aufrufe, [['auto', 'titler']], 'Gegenstellen Auto: onAuto mit der Rolle');
+  gleich(entwurf, { host: '', port: 8729 }, 'Gegenstellen Auto: Entwurf zurück auf automatisch (Host leer, Port wie angezeigt), auch wenn row.host schon leer war');
+  gleich(peerAuto({ ...basis }, r), { host: '', port: 8729 }, 'Gegenstellen Auto ohne onAuto: kein Aufruf, Entwurf trotzdem zurückgesetzt');
+  aufrufe.length = 0;
+  peerToggle(mit, r, false);
+  peerToggle(mit, r, true);
+  gleich(aufrufe, [['toggle', 'titler', false], ['toggle', 'titler', true]], 'Gegenstellen Toggle: Rolle und neuer Zustand gehen an onToggle');
+  peerToggle({ ...basis }, r, true);
+  ok(aufrufe.length === 2, 'Gegenstellen Toggle ohne onToggle: kein Aufruf');
+}
+{
+  // Quelle und Verbunden dürfen sich nicht widersprechen: manuell ohne Host ist automatisch.
+  const leer = peersView({ ...basis, peers: [zeile({ source: 'manual', host: '', connected: false })] }).zeilen[0];
+  gleich(statusText(leer.status), 'warn nicht gefunden', 'Gegenstellen manuell ohne Host: Verbunden „nicht gefunden“');
+  gleich(leer.quelleText, undefined, 'Gegenstellen manuell ohne Host: keine Quelle „manuell: :7777“');
+  const html = render(<PeersSection {...basis} peers={[zeile({ source: 'manual', host: '', connected: false })]} capabilities={{ auto: true }} onSet={() => {}} onAuto={() => {}} />);
+  enthaeltNicht(html, 'manuell: :', 'Gegenstellen manuell ohne Host: in der Darstellung keine Quelle ohne Host');
+  gleich(peersView({ ...basis, peers: [zeile({ source: 'manual', host: '10.0.0.5', connected: false })] }).zeilen[0].quelleText, 'manuell: 10.0.0.5:7777', 'Gegenstellen manuell mit Host: Quelle „manuell: Host:Port“');
+}
+{
+  // Sperre: Schalter, Felder und Knöpfe im Stage-Muster; Setzen ohne gültigen Port gesperrt.
+  const stage: PeersSectionProps = { ...basis, peers: [zeile({ host: '10.0.0.7', connected: true, enabled: true })], capabilities: { toggle: true }, onSet: () => {}, onToggle: () => {} };
+  const z = sperrZaehlung(render(<PeersSection {...stage} locked="Vom Master vorgegeben" />));
+  ok(z.alle === 4 && z.gesperrt === 4, `Gegenstellen locked im Stage-Muster: Schalter, Host, Port und Setzen disabled (${z.gesperrt} von ${z.alle})`);
+  const ohnePort = render(<PeersSection {...stage} peers={[zeile({ port: 0 })]} />);
+  const zp = sperrZaehlung(ohnePort);
+  ok(zp.alle === 4 && zp.gesperrt === 1 && /<button[^>]*disabled=""[^>]*>Setzen</.test(ohnePort), `Gegenstellen ohne gültigen Port: nur Setzen disabled (${zp.gesperrt} von ${zp.alle})`);
+}
+{
+  // Der Klick selbst läuft ohne DOM nicht; die Verdrahtung wird an der Quelle geprüft (Auto verwirft den lokalen Entwurf).
+  const q = leseText('src/abschnitte/PeersSection.tsx').replace(/\s+/g, ' ');
+  ok(q.includes('const e = peerAuto(p, row); setHost(e.host); setPort(e.port);'), 'Gegenstellen Auto: der Klick setzt Host und Port des Entwurfs zurück');
+  ok(q.includes('peerSetzen(p, row, host, port)') && q.includes('disabled={gesperrt || port === null}'), 'Gegenstellen Setzen: gleicher Host/Port wie im Feld, gesperrt ohne gültigen Port');
 }
