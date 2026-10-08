@@ -38,7 +38,9 @@ Vorgaben UO1–UO8 (UO3 ja, aber Status-Brücken **nicht** in diesem Plan; UO4 j
 - Plan und Spec gehören zusammen. Bei Widerspruch gilt die Spec, und die Abweichung wird gemeldet. Die Auslegungen in
   „Entscheidungen, wo die Spec schweigt“ sind keine Abweichungen; E1–E4 bittet der Plan den Owner zur Kenntnis zu nehmen.
   **Ausnahme:** E24 und E25 stehen ebenfalls dort, sind aber bewusste Abweichungen von Spec 6.2 bzw. 6.1 (je mit Grund);
-  sie brauchen die Zustimmung des Owners.
+  sie brauchen die Zustimmung des Owners, und zwar **vor Task 16** (bei der Freigabe dieses Plans): Lehnt er ab, ändern
+  sich Tasks 17–22. Alles, was der Owner vor bzw. nach der Umsetzung sieht oder entscheidet, steht am Ende unter
+  „Vor der Umsetzung“ und „Nach der Umsetzung“.
 
 **Arbeitsort:** ein eigener Worktree ab dem Spec-Stand `5a14352934` (Branch legt der Controller fest), mit `node_modules`
 aus `npm ci --ignore-scripts` (`node_modules/.package-lock.json` existiert). Alle Pfade relativ zur Repo-Wurzel, Befehle im
@@ -62,8 +64,11 @@ liefen Selbsttest und Typprüfung, jede Rot-Meldung und jede Mutationsprobe wurd
 Zusammenspiel der Blöcke auf; sie sind im Plantext behoben und unten unter „Beim Zusammensetzen“ (Z1, Z4, Z5) begründet.
 Danach hat ein Review den Plan gegen Spec und Code geprüft; die Befunde sind eingearbeitet (je Aufgabe unter
 „Nachbesserung nach dem Review“, neue Entscheidungen E23–E26), und der ganze Plantext wurde noch einmal maschinell in
-frische Kopien eingespielt, jede Aufgabe mit allen ihren Mutationsproben. Alle Zahlen in diesem Plan sind die gemessenen
-(Tabelle „Gemessene Zählstände“).
+frische Kopien eingespielt, jede geänderte Aufgabe mit ihren Mutationsproben (Ausnahmen unter der Tabelle „Gemessene
+Zählstände“). Eine zweite Prüfrunde (Vollständigkeit; neuer Code) fand weitere Restpunkte; sie sind eingearbeitet (je
+Aufgabe unter „Zweite Nachbesserung“, neue Entscheidung E27) oder dort begründet abgelehnt, und der Plantext wurde wieder
+Aufgabe für Aufgabe in frische Kopien eingespielt. Alle Zahlen in diesem Plan sind die gemessenen (Tabelle „Gemessene
+Zählstände“).
 
 **Verweise auf das Gerüst:** Angaben wie „(9.3)“, „Gerüst 9.7“, „nach Abschnitt 9“ oder „wörtlich 9.10“ meinen Abschnitte
 des Gerüsts, **nicht** der Spec (Spec 9 ist „Rollout“). Das Gerüst ist nicht Teil dieses Plans; sein Inhalt steht
@@ -110,8 +115,11 @@ der ausführenden Sitzung zu ersetzen (G16).
   Kreuzprodukt ihrer Eingänge getestet (Schleifen über alle Kombinationen, Erwartung je Kombination aus einer Tabelle).
 - **G7 Barrierefreiheit und Kontrast:** Jeder Zustand mit Symbol **und** Text, nie nur Farbe. `--tally-*`/`--status-*` färben
   nur Symbole, Ränder und Flächen, nie Wörter: `text-[var(--tally-…)]`/`text-[var(--status-…)]` steht ausschließlich in
-  `STATUS_SYMBOL_KLASSE` (`lib/status.ts`). Text auf der LIVE-Fläche ist `LIVE_FLAECHE_KLASSE` (weiß, 19 px, extrafett =
-  „große Schrift“). Symbole `aria-hidden="true"`, daneben ein `sr-only`-Zustandswort.
+  `STATUS_SYMBOL_KLASSE` (`lib/status.ts`). Text auf der LIVE-Fläche des `TallyButton` und der On-Air-Anzeige ist
+  `LIVE_FLAECHE_KLASSE` (weiß, 19 px, extrafett = „große Schrift“); der live-Eintrag der Statusleiste und die
+  live-`StatusPill` tragen `LIVE_EINTRAG_KLASSE` (normale Schrift in `--background`, dunkel 4,63, hell 5,43; E14).
+  Statussymbole stehen nie auf einer Hover-Fläche `--muted` (E14). Symbole `aria-hidden="true"`, daneben ein
+  `sr-only`-Zustandswort.
 - **G8 Bewegung (Spec 4.3):** nur `motion-safe:transition-*` mit `duration-150` oder kürzer; kein `animate-*`.
 - **G9 Tests:** ohne Electron und ohne Browser: `tsx` + `react-dom/server` `renderToStaticMarkup`. Testhilfe
   `@jm/ui/testhilfe` (Task 1). Ausgabe `ok   <msg>` / `FAIL <msg>`, Abschluss `ALLE TESTS OK` bzw.
@@ -165,8 +173,8 @@ der ausführenden Sitzung zu ersetzen (G16).
 
 | Paket | Befehl | Laufzeit |
 | --- | --- | --- |
-| `@jm/ui` | `npm run selftest -w @jm/ui` | `tsx test/selftest.ts`, unter 1 s, Endstand 505 `ok` |
-| `@jm/settings` | `npm run selftest -w @jm/settings` | `tsx test/selftest.ts`, unter 1 s, Endstand 323 `ok` |
+| `@jm/ui` | `npm run selftest -w @jm/ui` | `tsx test/selftest.ts`, unter 1 s, Endstand 520 `ok` |
+| `@jm/settings` | `npm run selftest -w @jm/settings` | `tsx test/selftest.ts`, unter 1 s, Endstand 329 `ok` |
 | Typprüfung | `npm run typecheck -w @jm/ui`, `npm run typecheck -w @jm/settings`; Task 24: `npm run typecheck --workspaces --if-present` | `tsc --noEmit -p tsconfig.json`; alle Workspaces 1,5–2 min |
 | Galerie | `npm run galerie -w @jm/ui` (Dev-Server `127.0.0.1:5199`), `npm run galerie:bauen -w @jm/ui` (`vite build` nach `galerie/dist`), `npm run galerie:pruefen -w @jm/ui` (Bau + Klassen-Probe) | Vite 5, Bau unter 2 s, nicht in der CI (E21) |
 | Klassen-Probe gegen ein anderes CSS | `(cd packages/ui && npx tsx galerie/pruefe-klassen.ts --css <ordner> --ohne-settings)` | Task 24, Titler-Renderer |
@@ -183,6 +191,7 @@ der ausführenden Sitzung zu ersetzen (G16).
      Klassen-Probe mit zwei Gegenproben).
 2. **Halten-zum-Sprechen endet ohne `pointerup`:** Zeiger verlässt das Fenster (`pointercancel`/`lostpointercapture`),
    Alt+Tab (`blur`), Leertaste gehalten und Fokus springt weg, `pointerup` **und** `lostpointercapture` nacheinander,
+   gehaltenes Enter (der Browser klickte mit jeder Wiederholung erneut; E9),
    Auto-Repeat der Taste, rechte Maustaste, Zustand wechselt beim Halten auf `gesperrt`, `onPress` wirft.
    - Erwartet: `onPress` genau einmal je Druck, `onRelease` danach genau einmal, auch wenn `onPress` geworfen hat.
    - Test: **Task 6** (Logik, Kreuzprodukt 780 Folgen), **Task 9**: Prop-Objekt `tallyKnopfProps` (genau die acht Handler,
@@ -202,8 +211,12 @@ der ausführenden Sitzung zu ersetzen (G16).
    auf Hover- und Hervorhebungsflächen.
    - Erwartet: jedes Paar erfüllt seine Klasse (Text 4,5 : 1, groß/Grafik 3 : 1); Statusfarben färben nie Wörter; LIVE-Text
      auf dem `TallyButton` ist groß und fett, der live-Eintrag der Statusleiste nutzt `--background` auf `--tally-live`
-     (normale Schrift, 4,63/5,43); keine neue Fläche aus `--highlight` (gedämpfte Schrift darauf 3,60 bzw. 4,01, E23).
-   - Test: **Task 4** (Paare, darunter `--background` auf `--tally-live`, `--foreground` auf `--muted` und die vier
+     (normale Schrift, 4,63/5,43); keine neue Fläche aus `--highlight` (gedämpfte Schrift darauf 3,60 bzw. 4,01, E23;
+     bekannte Ausnahme: die Hover-Fläche des Bestands-`Button` in den Abschnitten, Schrift `--foreground` darauf ≥ 11,16);
+     auf der Hover-Fläche `--muted` nur Schrift, Ränder in `--tally-ready`/`--tally-selected` und keine Statussymbole
+     (`--status-warn` hell darauf 2,91 : 1, E14).
+   - Test: **Task 4** (Paare, darunter `--background` auf `--tally-live`, `--foreground` auf `--muted`, die Ränder
+     `--tally-ready`/`--tally-selected` auf `--muted`, der Grund-Wert `--status-warn` auf `--muted` und die vier
      `--highlight`-Paare über `--surface-raised`/`--card` als Befund), **Task 5** (`LIVE_FLAECHE_KLASSE`,
      `LIVE_EINTRAG_KLASSE`), **Task 3** (Quellregeln Statusfarbe und „kein `--highlight`“), **Task 16** (dieselbe Regel für
      settings), **Tasks 8, 9, 14** (Render-Prüfung).
@@ -218,12 +231,13 @@ der ausführenden Sitzung zu ersetzen (G16).
   `--status-off`, `--surface-raised` für Dunkel (`:root, .dark`) und Hell (`.light`).
 - `src/tokens/sizes.css`: `--header-h`, `--statusbar-h`, `--control-h`, `--control-h-lg`, `--panel-w`; `[data-dichte="kompakt"]`.
 - `src/lib/texte.ts`: alle festen Texte von `@jm/ui`, `UNBEKANNT`, `zahlText`.
-- `src/lib/status.ts`: Typen aus Spec 3.3, Reihenfolge, Symbole, Symbol-/Randklassen, `LIVE_FLAECHE_KLASSE`, Uhrzeit.
+- `src/lib/status.ts`: Typen aus Spec 3.3, Reihenfolge, Symbole, Symbol-/Randklassen, `LIVE_FLAECHE_KLASSE`,
+  `LIVE_EINTRAG_KLASSE`, Uhrzeit.
 - `src/lib/halten.ts`: Zustandsmaschine Halten-zum-Sprechen.
 - `src/lib/theme.ts`: Hell/Dunkel lesen, schreiben, anwenden und der eine Store des Dokuments (`themeStore`; einziger Ort
   mit `localStorage`).
 - `src/lib/useTheme.ts`: Hook über `lib/theme.ts`.
-- `src/lib/eingabe.ts`: `parseZahl`, `zahlSchritt`, `selectOptionen`, `feldIds`, `beschreibtDurch`.
+- `src/lib/eingabe.ts`: `parseZahl`, `zahlSchritt`, `starteFrist` (E27), `selectOptionen`, `feldIds`, `beschreibtDurch`.
 - `src/components/StatusPill.tsx`, `StatusBar.tsx`, `TallyButton.tsx`, `Field.tsx`, `TextInput.tsx`, `NumberInput.tsx`,
   `Toggle.tsx`, `Select.tsx`, `ThemeToggle.tsx`, `SettingsPanel.tsx` (mit `PanelAnker`), `AppHeader.tsx`, `AppShell.tsx`.
 - `test/harness.ts` (Export `@jm/ui/testhilfe`), `test/selftest.ts` (Einstieg; **Einfügemarke für neue Testmodule ist die
@@ -313,6 +327,8 @@ der ausführenden Sitzung zu ersetzen (G16).
   - Halten: Zeiger (nur linke Taste, `setPointerCapture` in `try/catch`) und Tasten Leertaste/Enter (ohne `repeat`).
     Loslassen über dieselbe Quelle; `pointercancel`, `lostpointercapture`, `blur`, Wechsel auf `gesperrt` und Unmount
     brechen ab. `onClick` ist der normale Klick (auch per Tastatur) und kommt unabhängig vom Halten.
+  - Ein gehaltenes Enter klickt im Browser mit jeder Wiederholung erneut (mehrfaches „Take“). Deshalb ruft `onKeyDown` bei
+    Enter mit `repeat` `preventDefault()`: Nur der erste Druck klickt. Die Leertaste klickt ohnehin erst beim Loslassen.
   - Der Knopf füllt die Breite seines Behälters (`w-full`); die Anordnung (höchstens vier) macht das Tool.
 - **E10 `ThemeToggle`** zeigt den **Zustand** („Dunkel“/„Hell“ mit Symbol), `aria-label` „Darstellung: Dunkel. Umschalten auf
   Hell“. Schlüssel `jm-theme`, Werte `dark`/`light`, jeder andere Wert und jeder Fehler → Dunkel. Auf `<html>` steht danach
@@ -335,10 +351,13 @@ der ausführenden Sitzung zu ersetzen (G16).
     umrandet mit ⚠ (Spec 3.3 „live ■ rot gefüllt“, 4.2 „gefüllt + LIVE gegen Rahmen + ⚠“). Die erste Fassung dieses Plans
     hatte `live` nur umrandet und ohne „LIVE“; das war eine Abweichung von 3.3/4.2 und ist nach dem Review behoben.
   - Die Uhr steht außerhalb der `role="status"`-Region (sonst läse ein Screenreader jede Sekunde vor). `jetzt?: () => Date`
-    macht sie testbar.
+    macht sie testbar. Sie tickt kurz nach jeder vollen Sekunde (`starteUhr` plant jeden Takt neu); ein fester
+    1-s-Takt ab dem Einhängen ginge bis zu 1 s nach und übersprünge durch Drift gelegentlich eine Sekunde.
   - Detail: gekürzt, voller Text im `title` (`{label}: {detail}`), unter 900 px nur noch für Screenreader
     (`max-[900px]:sr-only`, nicht `hidden`: ein reiner Anzeige-Eintrag wäre sonst für Screenreader leer); Werte `select-text`.
-  - Hover eines Eintrags mit Knopf: Fläche `--muted` (E23), bei `live` Unterstreichung (die rote Fläche bleibt).
+  - Hover eines Eintrags mit Knopf: Unterstreichung, ohne Fläche (bei `live` bleibt die rote Fläche). Eine Hover-Fläche
+    `--muted` drückte das ▲ von `--status-warn` hell auf 2,91 : 1, unter die 3 : 1 für Grafik (Task 4); die erste
+    Nachbesserung hatte dort `--muted` gesetzt.
 - **E15 Deep-Link „Im Launcher einrichten“** (Spec 6.2 „der Plan prüft, ob der vorhandene Weg das trägt“): **trägt nicht.**
   `jmps://` kennt nur `open?show=` (`showOpenUrl`/`parseShowDeepLink` in `packages/show/src/index.ts:362-376`, Behandlung
   im Launcher `apps/launcher/src/main/index.ts:34-35`). Der Knopf ist der Rückruf `onOpenLauncher?: () => void`;
@@ -368,7 +387,12 @@ der ausführenden Sitzung zu ersetzen (G16).
   `--card` 4,01 : 1 (Task 4, als Befund festgeschrieben). Die neuen Bausteine nutzen für Hover- und Sperrflächen `--muted`
   (`--foreground` darauf dunkel 14,43, hell 16,80) und heben einen Abschnitt im Panel nur über den Rand `--tally-selected`
   hervor, ohne Fläche. Gelb bleibt so „ausgewählt“ vorbehalten (Spec 4.2). Quellregel 8 in Task 3 und die entsprechende
-  Regel in Task 16 verbieten `var(--highlight)` in den neuen Dateien beider Pakete.
+  Regel in Task 16 verbieten `var(--highlight)` in den neuen Dateien beider Pakete. **Bekannte Ausnahme** (Owner-Liste):
+  Die Abschnitte in `@jm/settings` rendern den Bestands-`Button` (`variant="primary"`/`"outline"`/`"ghost"`), dessen
+  Hover-Fläche `--highlight` ist (`packages/ui/src/components/Button.tsx`; ändern verbietet Spec 4.1). Die Knopfschrift
+  `--foreground` erreicht darauf dunkel 11,16/12,41, hell 18,24/17,55 (Task 4), gedämpfte Schrift steht in diesen Knöpfen
+  nicht. Im Panel ist Gelb damit nicht ganz „ausgewählt“ vorbehalten; die Alternative wäre ein eigener Knopf in `@jm/ui`.
+  Die Quellregeln sehen das nicht, weil die Klasse in einer Bestandsdatei steht.
 - **E24 Felder an einer Capability, die Spec 6.2 ohne `*` nennt, und Zusatzfelder aus Anhang A** (Abweichung, Owner).
   NDI „Ausgabe an/aus“ (`capabilities.toggle`) und Bildschirm „Vollbild“ (`capabilities.fullscreen`) erscheinen nur mit
   ihrer Capability: Laut Anhang A hat kein Tool einen NDI-Schalter in den Einstellungen, Vollbild gibt es nur bei Prompter,
@@ -380,12 +404,29 @@ der ausführenden Sitzung zu ersetzen (G16).
 - **E25 DataLink-Texte kommen vom Tool** (Abweichung von Spec 6.1, Owner). `sourceLine`, `notice` und `backLabel` sind
   fertige Texte des Titlers (Q1–Q3, H1–H7, K1) mit Laufzeitdaten (Ordner- und Personennamen). Master-Link 2b R2 ändert
   genau diese Texte gerade im Titler (`lib/datalink-anzeige.ts`); eine Kopie im Paket liefe sofort auseinander. Die
-  Quellregel in Task 16 lässt nur `DataLinkSectionProps.backLabel` als Text-Prop zu. Ob die Texte ins Paket wandern,
-  entscheidet der Owner; umgesetzt würde es im Titler-Pilot nach dem Merge von 2b R2.
+  Quellregel in Task 16 macht jede Prop der Abschnitts-Props rot, deren Name auf …titel/…title/…text/…texte/…label/…labels
+  endet, und jede Prop vom Typ `string`, die nicht als Daten-Prop gelistet ist (Namen, Werte, Pfade und Zeitstempel des
+  Tools, z. B. `sourceName`, `folder`, `staleSince`). Ausgenommen sind nur diese drei: `DataLinkSectionProps.sourceLine`,
+  `.notice` und `.backLabel`. Ob die Texte ins Paket wandern, entscheidet der Owner; umgesetzt würde es im Titler-Pilot
+  nach dem Merge von 2b R2.
 - **E26 Pegel je Wahl, nicht je Richtung** (Spec 6.2 „je Wahl Pegelanzeige*“, „jede Wahl hat … optional einen Pegel“). Mit
   `capabilities.level` zeigt jede Wahl einen Pegel, für die das Tool einen gemessenen `levelDb` liefert, auch ein Ausgang;
   `levelDb === undefined` heißt „kein Pegel gemeldet“ und zeigt nichts (Regel 7.3), `-Infinity` zeigt „Pegel: kein
-  Signal“. Die erste Fassung zeigte Pegel nur für Eingänge und erfand für `undefined` „kein Signal“.
+  Signal“. `NaN` und `+Infinity` sind keine Messung und zeigen wie `undefined` nichts; ein Wert zwischen −0,5 und 0 dB
+  steht als „Pegel: 0 dB“, nicht „-0 dB“. Die erste Fassung zeigte Pegel nur für Eingänge und erfand für `undefined` „kein
+  Signal“.
+- **E27 Gemeldet ist nicht übernommen** (Zahlenfeld und Text-Entwurf; Spec 3.5 sagt nicht, was ein Feld zeigt, wenn das
+  Tool einen gemeldeten Wert nicht übernimmt). `zahlSchritt` (Task 7, `NumberInput` Task 10) und `textSchritt` (Task 17,
+  Quellenname und Hintergrundfarbe der Abschnitte) merken sich den gemeldeten Wert (`gesendet`):
+  - Verlassen oder Enter melden ihn nicht noch einmal (sonst versuchte etwa jeder Fokuswechsel einen Neustart des
+    Steuerservers erneut); erst eine neue Eingabe meldet wieder.
+  - Kommt ein Wert von außen, nachdem gemeldet wurde, zeigt das Feld ihn, auch wenn das Tool ihn anders übernimmt (8081
+    statt 8080).
+  - Bleibt die Antwort `UEBERNAHME_FRIST_MS` = 2 s aus (`starteFrist`, Effekt im Baustein), steht unter dem Feld
+    „⚠ Noch nicht übernommen.“ mit `aria-invalid`. Der getippte Text bleibt stehen, Escape stellt den echten Wert her, eine
+    späte Antwort schließt den Entwurf. Der Text ist wahr, ob das Tool ablehnt oder nur langsam ist.
+  - Die erste Fassung setzte nach Enter still den neuen Wert ein (abgelehnt stand er trotzdem da). Die erste Nachbesserung
+    hielt den Entwurf unsichtbar „geändert“ und meldete ihn bei jedem Verlassen erneut (Review-Befund der zweiten Runde).
 
 ## Unklarheiten und Abhängigkeiten von außen
 
@@ -397,8 +438,8 @@ der ausführenden Sitzung zu ersetzen (G16).
   „Befund“. Ob und wann
   sie angepasst werden, entscheidet der Owner (frühestens mit der Welle, die die betroffenen Stellen umbaut).
 - **E1, E2, E3, E4** sind Auslegungen; der Owner nimmt sie bei der Plan-Freigabe zur Kenntnis. **E24 und E25** sind
-  Abweichungen von Spec 6.2 bzw. 6.1 und brauchen seine Zustimmung; lehnt er ab, ändern sich nur Tasks 17–22 (E24) bzw.
-  Task 21 (E25).
+  Abweichungen von Spec 6.2 bzw. 6.1 und brauchen seine Zustimmung vor Task 16; lehnt er ab, ändern sich nur Tasks 17–22
+  (E24) bzw. Task 21 (E25). Die vollständige Liste steht am Ende unter „Vor der Umsetzung“.
 - **Spec 6.2 Interpreter-Satz** (E17) stimmt nicht mit dem Code überein; Klärung in Welle 2. Dazu: `Field` stellt jedem
   Sperrgrund „Gesperrt: “ voran, deshalb lautet `AUDIO_TEXTE.sperreEingangOffen` „solange der Eingang offen ist“ (angezeigt:
   „Gesperrt: solange der Eingang offen ist“; Task 20, „Abweichungen“).
@@ -438,7 +479,8 @@ entschieden bzw. berichtigt:
 - **Z4 Galerie-Test erkannte den Fehlertext an `'⚠ '`.** Der echte `SectionFrame` setzt ⚠ in ein eigenes `aria-hidden`-Span;
   die sieben Fälle `…-fehlertext` waren rot. Jetzt prüft der Test `data-fehler="true"` (Kennzeichen aus Task 16).
 - **Z5 Hinweis der Klassen-Probe verglich Teilstrings.** `pl-2` galt als „auch in ui“, weil `AppHeader` `pl-20` enthält; der
-  Hinweis nannte 4 Klassen, die Probe a meldete 5 fehlend. Jetzt werden ganze Wörter verglichen (Hinweis und Probe a: 5).
+  Hinweis nannte 4 Klassen, die Probe a meldete 5 fehlend. Jetzt werden ganze Wörter verglichen (Hinweis und Probe a
+  nannten damals 5, seit der Nachbesserung 6, weil `motion-reduce:transition-none` dazukam).
 - **Z6 Gegenseitiges `include`.** `packages/settings/tsconfig.json` nimmt `../ui/src` auf (Task 16), `packages/ui/tsconfig.json`
   `../settings/src` (Task 23). Ohne die Zeilen bricht der jeweilige Selbsttest mit `ReferenceError: React is not defined` ab
   (gemessen). Nebenwirkung: `tsc -p packages/ui` prüft die Abschnitte mit; beide Typprüfungen sind grün.
@@ -451,11 +493,15 @@ entschieden bzw. berichtigt:
   Effekt-Körper ohne Browser prüfbar sind (je nur aus ihrer Datei, nicht aus `index.ts`): `LIVE_EINTRAG_KLASSE` (5),
   `erzeugeThemeStore`, `themeStore`, `browserHtml` (7), `starteUhr` (8), `tallyKnopfProps`, `tallyGrund`,
   `haltenFuerRender`, `haltenBeiZustand`, `haltenBeiAbbau` (9), `zahlFeldHandler`, `zahlAnsichtHandler` (10),
-  `themeKnopfProps` (12), `panelProps`, `panelFokus`, `panelSprung` (13), `textAussen` (17), `PEERS_TEXTE.setzenFuer`/
-  `autoFuer` (22) und die Testhilfe `bewegungsVerstoesse` (16). `src/index.ts` bekommt weiterhin genau 17 Zeilen.
+  `themeKnopfProps` (12), `panelProps`, `panelFokus`, `panelSprung` (13), `PEERS_TEXTE.setzenFuer`/`autoFuer` (22) und
+  die Testhilfe `bewegungsVerstoesse` (16). Nach der zweiten Prüfrunde (E27): `textSchritt`, `textZustandAus`,
+  `TextZustand`, `TextEreignis` (17, statt `textAussen`) aus `src/entwurf.ts`; `starteFrist` (7) steht zusätzlich in der
+  vorhandenen Export-Zeile von `lib/eingabe` in `src/index.ts`, weil `@jm/settings` ihn braucht. `src/index.ts` bekommt
+  weiterhin genau 17 Zeilen.
 - **Z8 Gleicher Text an zwei Stellen:** „– bitte wählen –“ steht als `UI_TEXTE.bitteWaehlen` in `@jm/ui` (nicht exportiert)
-  und als `ABSCHNITT_TEXTE.bitteWaehlen` in `@jm/settings` (G5: Texte je Paket fest). Beide sind getestet; wer den Wortlaut
-  ändert, ändert beide.
+  und als `ABSCHNITT_TEXTE.bitteWaehlen` in `@jm/settings` (G5: Texte je Paket fest); ebenso „Noch nicht übernommen.“ als
+  `UI_TEXTE.nochNichtUebernommen` und `ABSCHNITT_TEXTE.nochNichtUebernommen` (E27). Alle vier sind getestet; wer einen
+  Wortlaut ändert, ändert beide Stellen.
 - **Z9 Lane E:** Task 25 ersetzt die Phasentabelle nicht, sondern stellt die Wellen-Tabelle davor und lässt den alten Text
   wortgleich in einem `<details>`-Block stehen (Muster der Datei, Owner-Regel „alten Text stehen lassen und widerrufen“).
   Die Zeilen 397–398 (Historie) und Abschnitt 3 „Was läuft wann“ (Konflikt mit 2b R2/4b) bleiben unverändert; das Gerüst
@@ -464,49 +510,51 @@ entschieden bzw. berichtigt:
 
 ## Gemessene Zählstände
 
-Gemessen nach der Nachbesserung (Review) in frischen Kopien des Spec-Stands: der Plantext maschinell und wörtlich
-eingespielt, Aufgabe für Aufgabe in Planreihenfolge, nach jeder Aufgabe alle ihre Mutationsproben je allein (danach
-zurückgebaut). „Rot“ ist die erste Meldung des roten Laufs, „ok“ die Zahl der `ok`-Zeilen im grünen Lauf (Gesamtstand des
-Pakets), „Proben“ die `FAIL`-Zahl je Mutationsprobe in Planreihenfolge. Nach jeder Aufgabe war
-`npm run typecheck -w @jm/ui` grün, ab Task 16 auch `-w @jm/settings`. Jede `ok`-Zeile, die der Plan als erwartete Ausgabe
-nennt (463), kam im Lauf ihrer Aufgabe vor (maschinell verglichen).
+Gemessen nach der zweiten Nachbesserung (Prüfrunde 2) in frischen Kopien des Spec-Stands: der Plantext maschinell und
+wörtlich eingespielt, Aufgabe für Aufgabe in Planreihenfolge; je Aufgabe zuerst jeder rote Zwischenstand (Step mit „rot“),
+dann der grüne Endstand mit Typprüfung, danach alle Mutationsproben der Aufgabe je allein (danach zurückgebaut). „Rot“ ist
+die erste Meldung des roten Laufs, „ok“ die Zahl der `ok`-Zeilen im grünen Lauf (Gesamtstand des Pakets), „Proben“ die
+`FAIL`-Zahl je Mutationsprobe in Planreihenfolge. Nach jeder Aufgabe war `npm run typecheck -w @jm/ui` grün, ab Task 16
+auch `-w @jm/settings`. Jede `ok`-Zeile, die der Plan als erwartete Ausgabe nennt (486), und jede `FAIL`-Zeile und
+`FAIL`-Zahl, die eine Mutationsprobe der Tasks 3–22 nennt, kam im Lauf ihrer Aufgabe vor (maschinell verglichen).
 
 | Task | Rot | `@jm/ui` ok | `@jm/settings` ok | Proben (FAIL je Probe) |
 | --- | --- | --- | --- | --- |
 | 1 | `ERR_MODULE_NOT_FOUND …test\harness`; ohne tsconfig `ReferenceError: React is not defined` | 8 | – | 1 |
 | 2 | `ERR_MODULE_NOT_FOUND …test\lib\css` | 29 | – | 2, 1, 1, 1 |
-| 3 | `ENOENT …signal-colors.css` (nach 29 `ok`), dann 2 `FAIL` | 63 | – | 1, 2; Probedateien 1, 1, 2, 1, 1, 1, 1, 1, 1; 1, 1 |
-| 4 | `ERR_MODULE_NOT_FOUND …test\lib\oklch` | 152 | – | 4, 6, 4 |
-| 5 | `ERR_MODULE_NOT_FOUND …src\lib\status`, dann 1 `FAIL` | 173 | – | 3, 1, 2, 2, 1, 2 |
-| 6 | `ERR_MODULE_NOT_FOUND …src\lib\halten` | 184 | – | 4, 1, 2 |
-| 7 | `ERR_MODULE_NOT_FOUND …src\lib\theme`, dann 2 `FAIL` | 224 | – | 2, 2, 1, 2, 1, 1 |
-| 8 | `ERR_MODULE_NOT_FOUND …components\StatusBar` | 246 | – | 1, 1, 4, 1, 1, 1 |
-| 9 | `ERR_MODULE_NOT_FOUND …components\TallyButton` | 282 | – | 2, 2, 1, 1, 1, 1, 7, 1, 1, 1, 1, 1 |
-| 10 | `ERR_MODULE_NOT_FOUND …components\Field` | 307 | – | 1, 1, 2, 1, 1, 1, 1, 1 |
-| 11 | `ERR_MODULE_NOT_FOUND …components\Select` | 324 | – | 1, 4, 2, 1 |
-| 12 | `ERR_MODULE_NOT_FOUND …components\ThemeToggle` | 332 | – | 3, 1, 2, 1, 1 |
-| 13 | `ERR_MODULE_NOT_FOUND …components\SettingsPanel` | 351 | – | 2, 1, 2, 1, 1, 1, 1 |
-| 14 | `ERR_MODULE_NOT_FOUND …components\AppHeader` | 363 | – | 1, 1, 1 |
-| 15 | `ERR_MODULE_NOT_FOUND …components\AppShell` | 381 | – | 1, 1, 1 |
-| 16 | Prüfschritt grün (1 `ok`); Gegenprobe `ReferenceError`; dann `ERR_MODULE_NOT_FOUND …settings\src\index` | 381 | 31, dann 44 | 2, 1, 2, 1, 2, 1, 1, 1, 2, 1 |
-| 17 | `… does not provide an export named 'NDI_TEXTE'` | 381 | 90 | 4, 2, 1, 1, 4, 1, 2, 2, 1 |
-| 18 | `… 'SCREEN_TEXTE'` | 381 | 131 | 3, 2, 1, 2, 1, 1, 2 |
-| 19 | `… 'REMOTE_TEXTE'` | 381 | 190 | 4, 1, 3, 1, 1, 1, 2, 2, 1; M3 erste Ersetzung allein 1 |
-| 20 | `… 'AUDIO_TEXTE'` | 381 | 237 | 5, 3, 1, 3, 1, 1, 1, 1, 3, 2 |
-| 21 | `… 'IVEO_TEXTE'` | 381 | 289 | 2, 1, 1, 1, 3, 1, 1, 1 |
-| 22 | `… 'PEERS_TEXTE'` | 381 | 323 | 3, 2, 3, 1, 3, 1, 1, 1 |
-| 23 | `ERR_MODULE_NOT_FOUND …galerie\Galerie`; dann `ReferenceError` in `NdiOutputSection` nach 392 `ok` | 505 | 323 | a 1, b 15, c 2, d 1, e 1, f `TS2322`; Probe ohne Bau 20 `FAIL`, mit Bau 20 `ok` (CSS 36,83 kB; Klassen 71/30/6) |
-| 24 | CI-Datei 16 → 18 Schritte | 505 | 323 | YAML-Gegenprobe `(74:8)`; alle Workspaces 31 / 0 Fehler; Titler-Probe 19 `ok` (CSS 49,37 kB), Gegenproben 16 und 2 |
-| 25 | – (Doku) | 505 | 323 | Zeilennummern 350 352 397 398 430 → 370 372 419 420; Gegenprobe `details: 2 / 1` (vom Schreiber gemessen) |
+| 3 | `ENOENT …signal-colors.css` (nach 29 `ok`), dann 2 `FAIL` | 64 | – | 1, 2; Probedateien 1, 1, 2, 1, 1, 1, 1, 1, 1, 1; 1, 1 |
+| 4 | `ERR_MODULE_NOT_FOUND …test\lib\oklch` | 158 | – | 5, 6, 4, 2 |
+| 5 | `ERR_MODULE_NOT_FOUND …src\lib\status`, dann 1 `FAIL` | 179 | – | 3, 1, 2, 2, 1, 2 |
+| 6 | `ERR_MODULE_NOT_FOUND …src\lib\halten` | 190 | – | 4, 1, 2 |
+| 7 | `ERR_MODULE_NOT_FOUND …src\lib\theme`, dann 2 `FAIL` | 234 | – | 2, 2, 1, 4, 1, 1, 2, 1, 1, 1 |
+| 8 | `ERR_MODULE_NOT_FOUND …components\StatusBar` | 257 | – | 1, 1, 4, 1, 1, 1, 1, 1 |
+| 9 | `ERR_MODULE_NOT_FOUND …components\TallyButton` | 294 | – | 2, 2, 1, 1, 1, 1, 7, 1, 1, 1, 1, 1, 1, 1 |
+| 10 | `ERR_MODULE_NOT_FOUND …components\Field` | 319 | – | 1, 1, 2, 1, 1, 1, 1, 1, 1 |
+| 11 | `ERR_MODULE_NOT_FOUND …components\Select` | 336 | – | 1, 4, 2, 1 |
+| 12 | `ERR_MODULE_NOT_FOUND …components\ThemeToggle` | 344 | – | 3, 1, 2, 1, 1 |
+| 13 | `ERR_MODULE_NOT_FOUND …components\SettingsPanel` | 363 | – | 2, 1, 2, 1, 1, 1, 1 |
+| 14 | `ERR_MODULE_NOT_FOUND …components\AppHeader` | 375 | – | 1, 1, 1 |
+| 15 | `ERR_MODULE_NOT_FOUND …components\AppShell` | 393 | – | 1, 1, 1 |
+| 16 | Prüfschritt grün (1 `ok`); Gegenprobe `ReferenceError`; dann `ERR_MODULE_NOT_FOUND …settings\src\index` | 393 | 31, dann 45 | 2, 1, 2, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1 |
+| 17 | `ERR_MODULE_NOT_FOUND …settings\src\entwurf` (die frühere Angabe `… 'NDI_TEXTE'` war schon vor dieser Runde überholt) | 393 | 94 | 4, 2, 1, 1, 4, 1, 2, 2, 1, 1, 1, 1, 1 |
+| 18 | `… 'SCREEN_TEXTE'` | 393 | 136 | 3, 2, 1, 2, 1, 2, 2, 1, 1 |
+| 19 | `… 'REMOTE_TEXTE'` | 393 | 195 | 4, 1, 3, 1, 1, 1, 2, 2, 1; M3 erste Ersetzung allein 1 |
+| 20 | `… 'AUDIO_TEXTE'` | 393 | 243 | 5, 3, 1, 3, 1, 1, 1, 1, 4, 2, 1, 1 |
+| 21 | `… 'IVEO_TEXTE'` | 393 | 295 | 2, 1, 1, 1, 3, 1, 1, 1 |
+| 22 | `… 'PEERS_TEXTE'` | 393 | 329 | 3, 2, 3, 1, 3, 1, 1, 1 |
+| 23 | `ERR_MODULE_NOT_FOUND …galerie\Galerie`; dann `ReferenceError` in `NdiOutputSection` nach 404 `ok` | 520 | 329 | g 1, h 1, i 1 (Galerie-Test); a–f wie in der ersten Nachbesserung (a 1, b 15, c 2, d 1, e 1, f `TS2322`); Probe ohne Bau 20 `FAIL`, mit Bau 20 `ok` (CSS 36,83 kB, byte-gleich; Klassen 71/30/6) |
+| 24 | CI-Datei 16 → 18 Schritte | 520 | 329 | YAML-Gegenprobe `(74:8)`; alle Workspaces 31 / 0 Fehler; Titler-Probe 19 `ok` (CSS 49,37 kB, byte-gleich), Gegenproben 16 und 2 |
+| 25 | – (Doku) | 520 | 329 | Zeilennummern 350 352 397 398 430 → 370 372 419 420; Gegenprobe `details: 2 / 1` (vom Schreiber gemessen) |
 
 Lockfile (abgetrennte Kopie ohne `node_modules`): Task 1 +9 Zeilen, Task 16 +25, Task 23 +5/−1; keine Version geändert.
 `--package-lock-only` schreibt zusätzlich das versteckte `node_modules/.package-lock.json` (G12).
 
-Nicht in dieser Runde neu gemessen, weil Code und Tests dieser Stellen unverändert sind: Tasks 1, 2, 6 (Proben wie in der
-ersten Fassung), die Gegenproben der Titler-Probe (16 und 2) und Task 25 `details: 2 / 1`. Ein Lauf von
-`npm run typecheck --workspaces --if-present` brach in der Messkopie bei `@jm/transcribe` mit „JavaScript heap out of
-memory“ ab (Arbeitsspeicher des Rechners, kein Typfehler); 30 Workspaces liefen ohne Fehler, `@jm/transcribe` allein
-danach `Exit=0` ohne Fehler.
+Nicht in der zweiten Nachbesserung neu gemessen, weil Code, Tests und gebautes CSS dieser Stellen unverändert sind: die
+Proben der Tasks 1, 2 und 6 (wie in der ersten Fassung), Task 23 Step 9 a–f (das Galerie-CSS ist byte-gleich, gleicher
+Hash) und Step 11 (Dev-Server), Task 24 Steps 1–4 (CI-Datei, YAML-Gegenprobe), 5.4 und 5.6 (Diff und Lockfile; dieser Plan
+ändert keine Abhängigkeit) und die Gegenproben 16 und 2 der Titler-Probe (Titler-CSS byte-gleich), Task 25. Die
+Typprüfung aller 31 Workspaces lief diesmal ohne Speicher-Abbruch durch (`Exit=0`, 0 `error TS`); in der ersten
+Nachbesserung brach ein Lauf bei `@jm/transcribe` mit „JavaScript heap out of memory“ ab und wurde einzeln nachgeholt.
 
 ---
 
@@ -531,11 +579,13 @@ danach `Exit=0` ohne Fehler.
   gelöscht wird. Kopie anlegen (ein Bash-Aufruf an der Worktree-Wurzel; die Junction zeigt auf die `node_modules` des
   Worktrees):
   ```
-  SP='<eigener Scratchpad>'; K="$SP/jm-ui-probe"; [ -d "$SP" ] && { [ ! -e "$K/node_modules" ] || MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/node_modules")"; } && rm -rf "${K:?}" && mkdir -p "$K/packages" && cp -r packages/ui "$K/packages/ui" && MSYS_NO_PATHCONV=1 cmd /c mklink /J "$(cygpath -w "$K/node_modules")" "$(cygpath -w "$PWD/node_modules")" && cygpath -w "$K"
+  SP='<eigener Scratchpad>'; K="$SP/jm-ui-probe"; [ -d "$SP" ] && { [ ! -e "$K/node_modules" ] || MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/node_modules")"; } && [ ! -e "$K/node_modules" ] && [ -z "$(MSYS_NO_PATHCONV=1 cmd /c dir /AL /S /B "$(cygpath -w "$K")" 2>/dev/null)" ] && rm -rf "${K:?}" && mkdir -p "$K/packages" && cp -r packages/ui "$K/packages/ui" && MSYS_NO_PATHCONV=1 cmd /c mklink /J "$(cygpath -w "$K/node_modules")" "$(cygpath -w "$PWD/node_modules")" && cygpath -w "$K"
   ```
   Erwartet: `Verbindung erstellt für …\jm-ui-probe\node_modules <<===>> …\node_modules`, danach der Windows-Pfad der Kopie
   (für das Edit-Werkzeug, im Folgenden `<Kopie>`). Eine alte Junction aus einem abgebrochenen Lauf wird zuerst einzeln
-  entfernt; scheitert das, bricht die Kette ab, und `rm -rf` läuft nicht (`&&` statt `;`, Junction-Falle). `MSYS_NO_PATHCONV=1` ist nötig: Ohne ihn macht Git Bash aus `/J` einen Pfad,
+  entfernt; scheitert das, bricht die Kette ab, und `rm -rf` läuft nicht (`&&` statt `;`, Junction-Falle). Vor `rm -rf`
+  prüft die Kette außerdem, dass `node_modules` weg ist und `cmd /c dir /AL /S /B` in der alten Kopie keinen Reparsepunkt
+  mehr findet (zweite Nachbesserung: `rmdir` meldet nicht jeden Fehlschlag über den Exitcode). `MSYS_NO_PATHCONV=1` ist nötig: Ohne ihn macht Git Bash aus `/J` einen Pfad,
   und `cmd` meldet „Ungültige Option“ (gemessen). Lauf in der Kopie:
   ```
   SP='<eigener Scratchpad>'; K="$SP/jm-ui-probe"; [ -d "$K/packages/ui" ] && (cd "$K/packages/ui" && node ../../node_modules/tsx/dist/cli.mjs test/selftest.ts > ../../lauf.txt 2>&1; echo "Exit=$?"; grep -E "^(FAIL|     )|FEHLGESCHLAGEN|ALLE TESTS OK|Error" ../../lauf.txt)
@@ -543,20 +593,25 @@ danach `Exit=0` ohne Fehler.
   (Die Klammern halten das Arbeitsverzeichnis an der Worktree-Wurzel.)
   Jede Probe einzeln einbauen (Edit-Werkzeug in der Kopie), laufen lassen, Ergebnis notieren, mit dem Edit-Werkzeug
   zurückbauen (Nachher → Vorher), dann die nächste. Am Ende **erst die Junction einzeln entfernen, prüfen, dann den Rest**
-  (nie `rm -rf` über eine Junction):
+  (nie `rm -rf` über eine Junction; eine halb angelegte Kopie ohne Junction räumt das Anlegen oben beim nächsten Lauf mit
+  auf):
   ```
   SP='<eigener Scratchpad>'; K="$SP/jm-ui-probe"; [ -d "$K/packages" ] && MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/node_modules")" && [ ! -e "$K/node_modules" ] && rm -rf "${K:?}" && echo "Kopie weg" && ls node_modules/.package-lock.json
   ```
   Erwartet: `Kopie weg`, zuletzt `node_modules/.package-lock.json` (die Worktree-`node_modules` sind unberührt). Ohne
   `Kopie weg` ist nichts gelöscht worden (Junction noch da oder `SP` falsch). Gemessen mit gültigem `SP` (angelegt, Lauf,
-  zweites Anlegen über eine stehende Kopie, aufgeräumt) und mit leerem `SP` (keine Ausgabe, nichts gelöscht).
+  zweites Anlegen über eine stehende Kopie, aufgeräumt) und mit leerem `SP` (keine Ausgabe, nichts gelöscht); nach der
+  zweiten Nachbesserung zusätzlich mit halb angelegten Kopien: nur Junction ohne `packages` (Aufräumen tut nichts, das
+  nächste Anlegen entfernt die Junction und legt neu an), `packages` ohne Junction (Aufräumen bricht am `rmdir` ab, das
+  Anlegen räumt auf) und eine verwaiste Junction mit gelöschtem Ziel (Anlegen bricht vor `rm -rf` ab, nichts gelöscht);
+  mit nicht ersetztem `SP` keine Ausgabe.
 - Gemessen wurde jeder Schritt dieses Blocks in einer Kopie des Spec-Stands (`git archive 5a14352934`, `node_modules` als
   Junction auf einen Worktree mit `npm ci`), Node 24.16, npm 11.17, tsx 4.22.4, TypeScript 5.9.3, React 18.3.1. Die
   angegebenen Ausgaben sind die gemessenen; nur Pfade sind durch `<worktree>` ersetzt. Danach wurde der Plantext selbst
   (jeder Code-Block und jede Vorher/Nachher-Ersetzung) maschinell in eine zweite frische Kopie eingespielt: dieselbe
   Rot/Grün-Folge in jeder Aufgabe, dieselben Zählstände, alle 38 Dateien unter `packages/ui` gleich, Typprüfung grün.
-- Zählstände über den Block: nach Task 1 **8**, Task 2 **29**, Task 3 **63**, Task 4 **152**, Task 5 **173**, Task 6 **184**,
-  Task 7 **224** `ok`-Zeilen, je ohne `FAIL`, letzte Zeile `ALLE TESTS OK`. Ein ganzer Lauf dauert unter 1 s.
+- Zählstände über den Block: nach Task 1 **8**, Task 2 **29**, Task 3 **64**, Task 4 **158**, Task 5 **179**, Task 6 **190**,
+  Task 7 **234** `ok`-Zeilen, je ohne `FAIL`, letzte Zeile `ALLE TESTS OK`. Ein ganzer Lauf dauert unter 1 s.
 - Beim Zusammensetzen wurde der ganze Plan (Tasks 1–25) noch einmal maschinell aus diesem Text in eine frische Kopie
   eingespielt (Kopf „Gemessene Zählstände“). Für Block A: jede Vorher-Stelle genau einmal gefunden, dieselben Rot-Meldungen,
   dieselben Zählstände, jede Mutationsprobe mit derselben `FAIL`-Zahl.
@@ -1577,7 +1632,9 @@ Electron; `localStorage` nur in `try/catch`). Entscheidungen E4, E5, E6. Global 
     5. `localStorage` nur in `src/lib/theme.ts`;
     6. `text-[var(--tally-…` / `text-[var(--status-…` nur in `src/lib/status.ts`;
     7. `transition` nur als `motion-safe:transition…`, `duration-<n>` nur bis 150, kein `duration-[…]`, kein `animate-`;
-    8. kein `var(--highlight)` in neuen Bausteinen (E23).
+    8. kein `var(--highlight)` in neuen Bausteinen (E23);
+    9. keine Klammer-Kurzform `…-(--name)`: Tailwind v4 erzeugt `text-(--tally-live)` als `color: var(--tally-live)`
+       (gemessen mit 4.3.0), die Regeln 2, 3, 6 und 8 suchen aber nach `var(--`. G3 erlaubt nur `…-[var(--…)]`.
 
 **Verhalten (verbindlich):**
 - Neue CSS-Dateien deklarieren **nur** Custom Properties, keine Eigenschaft wie `color:` oder `height:` (G2; Test prüft das).
@@ -1771,6 +1828,9 @@ regel(
   ],
   'Quellregel: keine zusammengesetzten Klassen',
 );
+
+// Tailwind v4 kennt die Kurzform `bg-(--x)` für `bg-[var(--x)]`. Sie liefe an allen Regeln vorbei, die `var(--` suchen.
+regel(suche(code, /\b[\w:-]+-\(\s*--/), 'Quellregel: Tokens nur als …-[var(--…)], keine Kurzform …-(--…) (Tailwind v4)');
 
 {
   const definiert = new Set(
@@ -1977,6 +2037,7 @@ ok   Tokens: package.json exportiert ./tokens/signal-colors.css und ./tokens/siz
 ok   Quellregel: neueQuellen findet die neuen Dateien, nicht den Bestand
 ok   Quellregel: keine rohen Farbklassen
 ok   Quellregel: keine zusammengesetzten Klassen
+ok   Quellregel: Tokens nur als …-[var(--…)], keine Kurzform …-(--…) (Tailwind v4)
 ok   Quellregel: jede var(--…) ist definiert
 ok   Quellregel: kein window.jm, kein electron-, node:-Import, kein process.
 ok   Quellregel: localStorage nur in src/lib/theme.ts
@@ -1986,7 +2047,7 @@ ok   Quellregel: Übergänge nur motion-safe und höchstens 150 ms, kein animate
 
 ALLE TESTS OK
 Exit=0
-63
+64
 ```
 (Zusätzlich gemessen, nicht Teil des Plans: ein `vite build` mit `@tailwindcss/vite` über eine CSS mit
 `@import "tailwindcss"; @import "<packages/ui>/src/base.css";` enthält alle 12 neuen Namen und die Regel
@@ -2025,6 +2086,7 @@ Exit=0
    | `export const probe = 'transition-colors duration-300';` | `FAIL Quellregel: Übergänge nur motion-safe und höchstens 150 ms, kein animate-` (`transition`, `duration-300`) · `1 FEHLGESCHLAGEN` |
    | `export const probe = () => process.env.X;` | `FAIL Quellregel: kein window.jm, kein electron-, node:-Import, kein process.` · `1 FEHLGESCHLAGEN` |
    | `export const probe = 'hover:bg-[var(--highlight)]';` | `FAIL Quellregel: kein --highlight in neuen Bausteinen (…)` · `src/components/Probe.tsx:1: var(--highlight)` · `1 FEHLGESCHLAGEN` |
+   | `export const probe = 'text-(--tally-live) hover:bg-(--highlight) h-(--control-hx)';` | `FAIL Quellregel: Tokens nur als …-[var(--…)], keine Kurzform …-(--…) (Tailwind v4)` · `src/components/Probe.tsx:1: text-(--`, `…:1: hover:bg-(--`, `…:1: h-(--` · `1 FEHLGESCHLAGEN`: Statusfarbe als Schrift, `--highlight` und der falsche Token meldet sonst keine Regel |
 
    Jede Fassung endet mit `Exit=1`. Danach die Probedatei löschen.
 4. `<Kopie>\packages\ui\src\tokens\sizes.css`: vor der Zeile `  [data-dichte="kompakt"] {` einen weiteren Block
@@ -2090,6 +2152,10 @@ git commit -m "feat(ui): Tokens fuer Tally, Status, Flaechen und Groessen (rein 
   Fälle). Gemessen blieb vorher `body { --spacing: 0.3rem; --radius-xs: 0px; }` in `sizes.css` bzw.
   `.rounded-md, .bg-card { --tw-ring-color: red; }` in `signal-colors.css` grün (Probe 4). Neue Quellregel 8 „kein
   `--highlight`“ (E23).
+- Zweite Nachbesserung (Prüfrunde 2): Quellregel 9 gegen die Tailwind-v4-Kurzform `…-(--name)`. Vorher kamen
+  `text-(--tally-live)` (Statusfarbe als Schrift), `hover:bg-(--highlight)` und `h-(--control-hx)` (Token gibt es nicht)
+  an allen Regeln vorbei; Tailwind 4.3.0 erzeugt alle drei (gemessen mit `compile(…).build([…])`). Die letzte Probezeile
+  in Step 7 zeigt, dass nur Regel 9 sie meldet.
 
 ---
 
@@ -2098,7 +2164,7 @@ git commit -m "feat(ui): Tokens fuer Tally, Status, Flaechen und Groessen (rein 
 **Spec:** Abschnitt 4.2 (Kontrast: Text auf allen Flächen mindestens WCAG AA 4,5 : 1, große Schrift 3 : 1; „der Plan misst
 die Paare“), 11 (Kontrast-Test aus den oklch-Werten), 8 (beide Modi). Entscheidung E3. Global Constraint G7. Review Focus 5.
 
-**Arbeitsverzeichnis/Voraussetzung:** Plan-Worktree nach Task 3 (Selbsttest grün mit 63 `ok`).
+**Arbeitsverzeichnis/Voraussetzung:** Plan-Worktree nach Task 3 (Selbsttest grün mit 64 `ok`).
 
 **Dateien:**
 - Create: `packages/ui/test/lib/oklch.ts`
@@ -2130,14 +2196,19 @@ die Paare“), 11 (Kontrast-Test aus den oklch-Werten), 8 (beide Modi). Entschei
     `--foreground` auf `--muted` (Hover- und Sperrfläche der neuen Bausteine, E23).
   - Groß: `--brand-fg-on-dark` auf `--tally-live` (Text auf der LIVE-Fläche, dunkel 3,90, hell 5,20).
   - Grafik: `--tally-live`, `--tally-ready`, `--status-warn`, `--status-error`, `--status-off`, `--tally-selected` je auf
-    `--background`, `--card`, `--surface-raised`.
+    `--background`, `--card`, `--surface-raised`; dazu die Ränder auf der Hover-Fläche `--muted`: `--tally-ready`
+    (TallyButton „bereit“) und `--tally-selected` (⚙ bei offenem Panel, Task 14).
+- Statussymbole stehen nie auf `--muted`: Das ▲ von `--status-warn` erreichte dort hell nur 2,91 : 1, unter 3 für Grafik.
+  Der Test schreibt diesen Wert als Begründung fest (wie einen Befund); die Statusleiste hebt einen Knopf beim Hover deshalb
+  nur mit Unterstreichung hervor (E14, Task 8).
 - Dass Text auf der LIVE-Fläche wirklich groß und fett ist (`LIVE_FLAECHE_KLASSE`: `text-[19px]`, `font-extrabold`), prüft
   **Task 5** (`status.test.ts`), weil `src/lib/status.ts` erst dort entsteht. Dass Statusfarben nie Wörter färben, prüft die
   Quellregel aus Task 3.
 - `--highlight` (Gelb mit 12 %, Hover-Fläche von `Button`, `Tabs`, `Modal`) wird als Bestands-Paar über `--surface-raised`
   und `--card` gemessen: gedämpfte Schrift darauf erreicht dunkel nur 3,60 bzw. 4,01. Die neuen Bausteine nutzen
   `--highlight` deshalb gar nicht (E23, Quellregel 8 in Task 3); Hover und Sperre nutzen `--muted`.
-- Bestand (18 Text-Paare je Modus aus `colors.css`, die vier `--highlight`-Paare über `--surface-raised` bzw. `--card`):
+- Bestand (je Modus 14 Text-Paare aus `colors.css` und die vier `--highlight`-Paare über `--surface-raised` bzw. `--card`,
+  zusammen 18):
   Paare unter 4,5 sind **Befunde** mit festgeschriebenem Wert (±0,01),
   der Test druckt dazu eine Zeile `Befund: …`. Alle übrigen Bestands-Paare müssen 4,5 erreichen. Ein Befund, der sich
   verbessert oder verschlechtert, macht den Test ebenfalls rot (Regressionsschutz in beide Richtungen; ändern darf die
@@ -2222,6 +2293,8 @@ const NEUE_PAARE: Array<[vorne: string, hinten: string, klasse: Klasse]> = [
 for (const zeichen of ['--tally-live', '--tally-ready', '--status-warn', '--status-error', '--status-off', '--tally-selected']) {
   for (const grund of ['--background', '--card', '--surface-raised']) NEUE_PAARE.push([zeichen, grund, 'Grafik']);
 }
+// Ränder auf der Hover-Fläche --muted: grüne Kante des TallyButton „bereit“ und Rand des ⚙ bei offenem Panel (Task 9, 14)
+NEUE_PAARE.push(['--tally-ready', '--muted', 'Grafik'], ['--tally-selected', '--muted', 'Grafik']);
 
 for (const modus of ['dunkel', 'hell'] as const) {
   const tabelle = modusTabelle(modus);
@@ -2232,6 +2305,17 @@ for (const modus of ['dunkel', 'hell'] as const) {
       `Kontrast ${modus}: ${vorne} auf ${hinten} ≥ ${grenzText(GRENZE[klasse])} (${klasse}) · ${zahl(wert)}`,
     );
   }
+}
+
+// Statussymbole stehen nie auf --muted: das ▲ von --status-warn erreichte dort hell nur 2,91 : 1 (Grafik 3 : 1). Deshalb
+// hebt die Statusleiste einen Knopf beim Hover nur mit Unterstreichung hervor (E14, Task 8). Festgeschrieben wie ein
+// Befund: Ändert sich der Wert, wird der Test rot, und die Entscheidung ist neu zu prüfen.
+{
+  const wert = paar(modusTabelle('hell'), '--status-warn', '--muted');
+  ok(
+    Math.abs(wert - 2.91) <= 0.01,
+    `Kontrast hell: --status-warn auf --muted = 2,91, unter 3 (Grafik) – Statussymbole nie auf der Hover-Fläche (E14) · ${zahl(wert)}`,
+  );
 }
 
 // ── Bestand: Text-Paare aus colors.css ──
@@ -2397,7 +2481,7 @@ export function modusTabelle(modus: 'dunkel' | 'hell'): Record<string, string> {
 npm run selftest -w @jm/ui; echo "Exit=$?"
 npm run selftest -w @jm/ui 2>&1 | grep -c "^ok "
 ```
-Erwartet (gemessen), nach den 59 Zeilen aus Task 1–3:
+Erwartet (gemessen), nach den 64 Zeilen aus Task 1–3:
 ```
 ok   Kontrast: Referenz Weiß/Schwarz = 21,00
 ok   Kontrast: oklch(0.178 0 0) auf Weiß = 18,87
@@ -2428,6 +2512,8 @@ ok   Kontrast dunkel: --status-off auf --surface-raised ≥ 3 (Grafik) · 4,95
 ok   Kontrast dunkel: --tally-selected auf --background ≥ 3 (Grafik) · 14,93
 ok   Kontrast dunkel: --tally-selected auf --card ≥ 3 (Grafik) · 13,86
 ok   Kontrast dunkel: --tally-selected auf --surface-raised ≥ 3 (Grafik) · 12,66
+ok   Kontrast dunkel: --tally-ready auf --muted ≥ 3 (Grafik) · 6,47
+ok   Kontrast dunkel: --tally-selected auf --muted ≥ 3 (Grafik) · 11,92
 ok   Kontrast hell: --foreground auf --surface-raised ≥ 4,5 (Text) · 18,87
 ok   Kontrast hell: --muted-foreground auf --surface-raised ≥ 4,5 (Text) · 7,44
 ok   Kontrast hell: --primary-foreground auf --tally-selected ≥ 4,5 (Text) · 18,07
@@ -2452,6 +2538,9 @@ ok   Kontrast hell: --status-off auf --surface-raised ≥ 3 (Grafik) · 7,44
 ok   Kontrast hell: --tally-selected auf --background ≥ 3 (Grafik) · 18,87
 ok   Kontrast hell: --tally-selected auf --card ≥ 3 (Grafik) · 18,07
 ok   Kontrast hell: --tally-selected auf --surface-raised ≥ 3 (Grafik) · 18,87
+ok   Kontrast hell: --tally-ready auf --muted ≥ 3 (Grafik) · 3,28
+ok   Kontrast hell: --tally-selected auf --muted ≥ 3 (Grafik) · 16,80
+ok   Kontrast hell: --status-warn auf --muted = 2,91, unter 3 (Grafik) – Statussymbole nie auf der Hover-Fläche (E14) · 2,91
 ok   Kontrast Bestand dunkel: --foreground auf --background ≥ 4,5 (Text) · 18,07
 ok   Kontrast Bestand dunkel: --card-foreground auf --card ≥ 4,5 (Text) · 16,78
 ok   Kontrast Bestand dunkel: --popover-foreground auf --popover ≥ 4,5 (Text) · 16,78
@@ -2498,7 +2587,7 @@ ok   Kontrast Bestand hell: --muted-foreground auf --highlight (über --card) �
 
 ALLE TESTS OK
 Exit=0
-152
+158
 ```
 Die Werte stimmen mit den Referenzskripten der Planung überein (`kontrast-referenz.mjs`, `kontrast-extra.mjs`,
 `kontrast-bestand.mjs`), mit einer Ausnahme: Hell `--brand-fg-on-dark` auf `--tally-live` ist **5,20**, nicht 5,43
@@ -2514,7 +2603,8 @@ Die Werte stimmen mit den Referenzskripten der Planung überein (`kontrast-refer
    FAIL Kontrast hell: --tally-ready auf --background ≥ 3 (Grafik) · 1,76
    FAIL Kontrast hell: --tally-ready auf --card ≥ 3 (Grafik) · 1,69
    FAIL Kontrast hell: --tally-ready auf --surface-raised ≥ 3 (Grafik) · 1,76
-   4 FEHLGESCHLAGEN
+   FAIL Kontrast hell: --tally-ready auf --muted ≥ 3 (Grafik) · 1,57
+   5 FEHLGESCHLAGEN
    ```
 2. `<Kopie>\packages\ui\src\tokens\signal-colors.css` (`:root, .dark`): `--surface-raised: oklch(0.25 0 0);` →
    `--surface-raised: oklch(0.42 0 0);`. Erwartet (gemessen):
@@ -2538,6 +2628,14 @@ Die Werte stimmen mit den Referenzskripten der Planung überein (`kontrast-refer
    FAIL Kontrast Bestand dunkel: --muted-foreground auf --highlight (über --surface-raised) = 3,60 (Befund, festgeschrieben) · 2,06
    FAIL Kontrast Bestand dunkel: --muted-foreground auf --highlight (über --card) = 4,01 (Befund, festgeschrieben) · 2,13
    4 FEHLGESCHLAGEN
+   ```
+4. `<Kopie>\packages\ui\src\tokens\signal-colors.css` (`.light`): `--status-warn:    oklch(0.66 0.16 55);` →
+   `--status-warn:    oklch(0.60 0.16 55);` (der festgeschriebene Grund-Wert auf `--muted` verschiebt sich). Erwartet (gemessen):
+   ```
+   Exit=1
+   FAIL Tokens hell: --status-warn = oklch(0.66 0.16 55)
+   FAIL Kontrast hell: --status-warn auf --muted = 2,91, unter 3 (Grafik) – Statussymbole nie auf der Hover-Fläche (E14) · 3,70
+   2 FEHLGESCHLAGEN
    ```
 Kopie aufräumen (Junction zuerst).
 
@@ -2575,16 +2673,23 @@ git commit -m "test(ui): Kontrast der Token-Paare in Hell und Dunkel aus den okl
 - Nachbesserung nach dem Review: Paare `--background` auf `--tally-live` (E14) und `--foreground` auf `--muted` (E23) neu;
   die vier `--highlight`-Paare stehen im Bestand. Der Review hatte nachgerechnet, dass gedämpfte Schrift auf `--highlight`
   über `--surface-raised` nur 3,60 : 1 erreicht, während der Plan volle Abdeckung meldete (Befunde 3,60 und 4,01).
+- Zweite Nachbesserung (Prüfrunde 2): Die erste Nachbesserung hatte die Hover-Fläche `--muted` nur mit `--foreground`
+  gemessen. Neu sind die Ränder `--tally-ready` und `--tally-selected` auf `--muted` (Grafik, beide Modi) und der
+  festgeschriebene Grund-Wert `--status-warn` auf `--muted` hell = 2,91 (Probe 4); die Statusleiste hat deshalb keine
+  Hover-Fläche mehr (Task 8). Mit dem Rechenweg dieser Aufgabe nachgerechnet, alle sechs Statusfarben auf `--muted`:
+  dunkel 3,70 / 6,47 / 6,74 / 4,24 / 4,66 / 11,92, hell 4,84 / 3,28 / **2,91** / 4,84 / 6,62 / 16,80 (Reihenfolge live,
+  ready, warn, error, off, selected).
 
 ---
 
 ### Task 5: Statuslogik und feste UI-Texte
 
 **Spec:** Abschnitt 3.3 (`StatusState`, `StatusGroup`, `StatusItem` wörtlich; feste Reihenfolge; Symbol und Text je Zustand;
-Uhrzeit hh:mm:ss), 7.2 (unbekannt ist nicht ok), 4.2 (LIVE und Fehler unterscheiden sich durch Form und Text). Entscheidung
-E3 (LIVE-Text groß). Global Constraints G5, G6, G7.
+Uhrzeit hh:mm:ss), 7.2 (unbekannt ist nicht ok), 4.2 (LIVE und Fehler unterscheiden sich durch Form und Text). Entscheidungen
+E3 (LIVE-Text auf dem `TallyButton` groß), E14 (live-Eintrag mit `LIVE_EINTRAG_KLASSE`), E27 (Text „Noch nicht
+übernommen.“). Global Constraints G5, G6, G7.
 
-**Arbeitsverzeichnis/Voraussetzung:** Plan-Worktree nach Task 4 (Selbsttest grün mit 152 `ok`).
+**Arbeitsverzeichnis/Voraussetzung:** Plan-Worktree nach Task 4 (Selbsttest grün mit 158 `ok`).
 
 **Dateien:**
 - Create: `packages/ui/src/lib/texte.ts`
@@ -2875,6 +2980,7 @@ export const UI_TEXTE = {
   ganzzahlFehlt: 'Bitte eine ganze Zahl eingeben.',
   mindestens: (min: number) => `Mindestens ${zahlText(min)}.`,
   hoechstens: (max: number) => `Höchstens ${zahlText(max)}.`,
+  nochNichtUebernommen: 'Noch nicht übernommen.',
   dunkel: 'Dunkel',
   hell: 'Hell',
   themeUmschalten: (jetzt: string, ziel: string) => `Darstellung: ${jetzt}. Umschalten auf ${ziel}`,
@@ -3011,7 +3117,7 @@ export { type StatusState, type StatusGroup, type StatusItem, STATUS_SYMBOL, ord
 npm run selftest -w @jm/ui; echo "Exit=$?"
 npm run selftest -w @jm/ui 2>&1 | grep -c "^ok "
 ```
-Erwartet (gemessen), nach den 136 Zeilen aus Task 1–4:
+Erwartet (gemessen), nach den 158 Zeilen aus Task 1–4:
 ```
 ok   Status: Gruppenreihenfolge verbindung → ausgabe → fernsteuerung → tool
 ok   Status: innerhalb einer Gruppe Array-Reihenfolge (stabil)
@@ -3037,7 +3143,7 @@ ok   Status: Exporte aus src/index.ts (UNBEKANNT, zahlText, STATUS_SYMBOL, ordne
 
 ALLE TESTS OK
 Exit=0
-156
+179
 ```
 
 - [ ] **Step 7: Mutationsprobe** (Kopie nach „Gemeinsam für Block A“; je eine Probe allein in
@@ -3106,6 +3212,8 @@ git commit -m "feat(ui): Statuslogik (Reihenfolge, Symbole, unbekannt) und feste
 - Nachbesserung nach dem Review: `LIVE_EINTRAG_KLASSE` (rot gefüllt, Schrift in `--background`) für den live-Eintrag der
   Statusleiste und die live-`StatusPill` (Spec 3.3, 4.2; E14); `STATUS_SYMBOL_KLASSE.live` ist deshalb die Schriftfarbe der
   Fläche. Neue Probe 6 (Fläche fehlt) → 2 `FAIL`.
+- Zweite Nachbesserung: `UI_TEXTE.nochNichtUebernommen` „Noch nicht übernommen.“ (E27). Den Wortlaut prüft Task 7
+  (`zahlSchritt` mit `frist`); die Zählstände dieser Aufgabe ändern sich dadurch nicht.
 
 ---
 
@@ -3114,7 +3222,7 @@ git commit -m "feat(ui): Statuslogik (Reihenfolge, Symbole, unbekannt) und feste
 **Spec:** Abschnitt 3.4 (`onPress` beim Drücken, `onRelease` beim Loslassen oder Abbrechen; „`onRelease` kommt in jedem Fall
 genau einmal, auch wenn der Zeiger das Fenster verlässt“). Entscheidung E9. Review Focus 2.
 
-**Arbeitsverzeichnis/Voraussetzung:** Plan-Worktree nach Task 5 (Selbsttest grün mit 173 `ok`).
+**Arbeitsverzeichnis/Voraussetzung:** Plan-Worktree nach Task 5 (Selbsttest grün mit 179 `ok`).
 
 **Dateien:**
 - Create: `packages/ui/src/lib/halten.ts`
@@ -3448,7 +3556,7 @@ export function erzeugeHalten(r: HaltenRueckrufe): HaltenSteuerung {
 npm run selftest -w @jm/ui; echo "Exit=$?"
 npm run selftest -w @jm/ui 2>&1 | grep -c "^ok "
 ```
-Erwartet (gemessen), nach den 156 Zeilen aus Task 1–5:
+Erwartet (gemessen), nach den 179 Zeilen aus Task 1–5:
 ```
 ok   Halten: druecken → onPress einmal; zweites druecken nichts
 ok   Halten: loslassen → onRelease einmal; zweites loslassen nichts
@@ -3464,7 +3572,7 @@ ok   Halten: Kreuzprodukt Quelle × Abfolge (780 Folgen bis Länge 4)
 
 ALLE TESTS OK
 Exit=0
-167
+190
 ```
 
 - [ ] **Step 5: Mutationsprobe** (Kopie nach „Gemeinsam für Block A“; je eine Probe allein in
@@ -3537,7 +3645,7 @@ git commit -m "feat(ui): Halten-Logik fuer TallyButton - onRelease genau einmal"
 (Dunkel ist Standard, Hell setzt `light` auf `<html>`, Schlüssel `jm-theme`, `try/catch`, Fehler → Dunkel), 3.8 (ohne
 Electron), 8. Entscheidungen E10, E11, E12, E13. Global Constraint G4.
 
-**Arbeitsverzeichnis/Voraussetzung:** Plan-Worktree nach Task 6 (Selbsttest grün mit 184 `ok`).
+**Arbeitsverzeichnis/Voraussetzung:** Plan-Worktree nach Task 6 (Selbsttest grün mit 190 `ok`).
 
 **Dateien:**
 - Create: `packages/ui/src/lib/theme.ts` (einzige Datei mit `localStorage`)
@@ -3569,11 +3677,15 @@ Electron), 8. Entscheidungen E10, E11, E12, E13. Global Constraint G4.
   export interface ZahlRegeln { min?: number; max?: number; ganzzahl?: boolean }
   export type ZahlErgebnis = { ok: true; wert: number } | { ok: false; fehler: string };
   export function parseZahl(text: string, regeln?: ZahlRegeln): ZahlErgebnis;
-  export interface ZahlEntwurf { text: string; fehler?: string; geaendert: boolean }
-  export type ZahlEreignis = { art: 'tippen'; text: string } | { art: 'uebernehmen' } | { art: 'verwerfen' } | { art: 'aussen'; wert: number | null };
+  export interface ZahlEntwurf { text: string; fehler?: string; geaendert: boolean; gesendet?: number }   // gesendet: E27
+  export type ZahlEreignis = { art: 'tippen'; text: string } | { art: 'uebernehmen' } | { art: 'verwerfen' }
+    | { art: 'aussen'; wert: number | null } | { art: 'frist' };
   export function zahlEntwurfAus(wert: number | null): ZahlEntwurf;
   export function zahlSchritt(z: ZahlEntwurf, e: ZahlEreignis, regeln: ZahlRegeln, aktuell: number | null):
     { z: ZahlEntwurf; neuerWert?: number; verbraucht: boolean };
+  export const UEBERNAHME_FRIST_MS = 2000;                                             // E27
+  export interface FristTakt { setTimeout(f: () => void, ms: number): unknown; clearTimeout(id: unknown): void }
+  export function starteFrist(melde: () => void, takt?: FristTakt): () => void;       // Körper des Frist-Effekts
   export interface SelectOption { value: string; label: string }
   export function selectOptionen(options: readonly SelectOption[], value: string,
     opts?: { placeholder?: string; fehlendLabel?: string }): Array<SelectOption & { disabled?: boolean }>;
@@ -3581,10 +3693,10 @@ Electron), 8. Entscheidungen E10, E11, E12, E13. Global Constraint G4.
   export function feldIds(basis: string): FeldIds;
   export function beschreibtDurch(ids: FeldIds, hat: { hilfe?: boolean; sperre?: boolean; fehler?: boolean; extra?: string[] }): string | undefined;
   ```
-  Neue Zeilen in `packages/ui/src/index.ts` (9.8):
+  Neue Zeilen in `packages/ui/src/index.ts` (9.8; `starteFrist` zusätzlich für `@jm/settings`, Task 17, E27):
   ```ts
   export { type Theme, THEME_SCHLUESSEL } from './lib/theme';
-  export { type SelectOption, parseZahl } from './lib/eingabe';
+  export { type SelectOption, parseZahl, starteFrist } from './lib/eingabe';
   ```
 
 **Verhalten (verbindlich):**
@@ -3601,13 +3713,19 @@ Electron), 8. Entscheidungen E10, E11, E12, E13. Global Constraint G4.
   - `tippen`: Text übernehmen, Fehler weg, `geaendert` = Text weicht vom Text des aktuellen Werts ab.
   - `uebernehmen` (Enter, Verlassen): ungeändert → Text des aktuellen Werts, kein `neuerWert`. Ungültig → Fehler, Text
     bleibt, kein `neuerWert`. Gültig → Text normalisiert (`zahlText`), `neuerWert` nur, wenn er sich vom aktuellen Wert
-    unterscheidet (`'1,50'` bei 1,5 löst kein `onChange` aus). Nach einem `neuerWert` bleibt der Entwurf **geändert**, bis
-    der Wert von außen zurückkommt (`aussen`): Lehnt das Tool ab, zeigt das Feld nicht still einen Wert, den es nicht gibt,
-    und Escape gehört weiter dem Feld (verwirft auf den echten Wert).
+    unterscheidet (`'1,50'` bei 1,5 löst kein `onChange` aus) und noch nicht gemeldet ist (`gesendet`, E27). Nach einem
+    `neuerWert` bleibt der Entwurf **geändert** und merkt sich `gesendet`, bis der Wert von außen zurückkommt (`aussen`):
+    Ein zweites Übernehmen desselben Werts (Verlassen nach Enter, abgelehnter Wert) meldet nichts mehr, Escape gehört
+    weiter dem Feld (verwirft auf den echten Wert).
   - `verwerfen` (Escape): Text des aktuellen Werts; `verbraucht = geaendert` (nur dann gehört Escape dem Feld, sonst dem
     Panel, E8).
-  - `aussen` (neuer Wert von außen): ein ungeänderter Entwurf folgt; ein geänderter bleibt stehen (nichts Getipptes geht
-    verloren), außer er entspricht schon dem neuen Wert.
+  - `frist` (die Frist nach dem Melden ist um, E27): mit `gesendet` → Fehler „Noch nicht übernommen.“, Text und `gesendet`
+    bleiben; ohne `gesendet` nichts.
+  - `aussen` (neuer Wert von außen): ein ungeänderter oder schon gemeldeter Entwurf folgt (das Tool hat geantwortet, auch
+    mit einem anderen Wert); ein angefangener bleibt stehen (nichts Getipptes geht verloren), außer er entspricht schon dem
+    neuen Wert.
+- `starteFrist(melde, takt)` (E27): meldet einmal nach `UEBERNAHME_FRIST_MS` = 2000 ms und liefert das Aufräumen; der Takt
+  ist austauschbar wie bei `starteUhr` (Task 8), damit der Effekt-Körper ohne Browser prüfbar ist.
 - `selectOptionen` (E11): Wert vorhanden → Kopie der Liste. Wert `''` und keine Option `''` → vorn
   `{ value: '', label: placeholder ?? '– bitte wählen –' }`. Wert fehlt → vorn
   `{ value, label: 'nicht verfügbar: {fehlendLabel ?? value}', disabled: true }`. Die Eingabe wird nie verändert.
@@ -3760,6 +3878,8 @@ import {
   feldIds,
   parseZahl,
   selectOptionen,
+  starteFrist,
+  UEBERNAHME_FRIST_MS,
   zahlEntwurfAus,
   zahlSchritt,
   type SelectOption,
@@ -3802,7 +3922,7 @@ gleich(
 );
 gleich(
   zahlSchritt({ text: '8080', geaendert: true }, { art: 'uebernehmen' }, PORT, 8000),
-  { z: { text: '8080', geaendert: true }, neuerWert: 8080, verbraucht: false },
+  { z: { text: '8080', geaendert: true, gesendet: 8080 }, neuerWert: 8080, verbraucht: false },
   'Eingabe: zahlSchritt uebernehmen gültig → neuerWert, Entwurf bleibt geändert, bis der Wert zurückkommt',
 );
 {
@@ -3818,6 +3938,49 @@ gleich(
     ],
     'Eingabe: zahlSchritt nach dem Übernehmen – abgelehnt: Escape verwirft auf den echten Wert und gehört dem Feld; angenommen: der Wert von außen schließt den Entwurf',
   );
+}
+// E27: gemeldet ist nicht übernommen – nicht doppelt melden, nach der Frist sichtbar, die Antwort des Tools gilt
+{
+  const gemeldet = zahlSchritt({ text: '8080', geaendert: true }, { art: 'uebernehmen' }, PORT, 8000);
+  const nochmal = zahlSchritt(gemeldet.z, { art: 'uebernehmen' }, PORT, 8000);
+  const neu = zahlSchritt(zahlSchritt(gemeldet.z, { art: 'tippen', text: '8081' }, PORT, 8000).z, { art: 'uebernehmen' }, PORT, 8000);
+  gleich(
+    [nochmal, neu.neuerWert],
+    [{ z: gemeldet.z, verbraucht: false }, 8081],
+    'Eingabe: zahlSchritt – ein gemeldeter Wert wird nicht noch einmal gemeldet (Verlassen nach Enter, Tool lehnt ab); eine neue Eingabe meldet wieder',
+  );
+  const frist = zahlSchritt(gemeldet.z, { art: 'frist' }, PORT, 8000);
+  gleich(
+    [frist, zahlSchritt(frist.z, { art: 'uebernehmen' }, PORT, 8000).neuerWert, zahlSchritt(zahlEntwurfAus(8000), { art: 'frist' }, PORT, 8000)],
+    [
+      { z: { text: '8080', geaendert: true, gesendet: 8080, fehler: 'Noch nicht übernommen.' }, verbraucht: false },
+      undefined,
+      { z: { text: '8000', geaendert: false }, verbraucht: false },
+    ],
+    'Eingabe: zahlSchritt frist – ohne Antwort „Noch nicht übernommen.“, der Text bleibt und wird nicht erneut gemeldet; ohne gemeldeten Wert nichts',
+  );
+  gleich(
+    [zahlSchritt(gemeldet.z, { art: 'aussen', wert: 8081 }, PORT, 8081).z, zahlSchritt(frist.z, { art: 'aussen', wert: 8081 }, PORT, 8081).z],
+    [{ text: '8081', geaendert: false }, { text: '8081', geaendert: false }],
+    'Eingabe: zahlSchritt aussen nach dem Melden – das Feld zeigt den Wert, mit dem das Tool antwortet (auch nach der Frist)',
+  );
+}
+{
+  let geplant: { f: () => void; ms: number } | undefined;
+  let gemeldet = 0;
+  let angehalten: unknown;
+  const aufraeumen = starteFrist(() => void gemeldet++, {
+    setTimeout: (f, ms) => {
+      geplant = { f, ms };
+      return 9;
+    },
+    clearTimeout: (id) => {
+      angehalten = id;
+    },
+  });
+  geplant?.f();
+  aufraeumen();
+  gleich([geplant?.ms, UEBERNAHME_FRIST_MS, gemeldet, angehalten], [2000, 2000, 1, 9], 'Eingabe: starteFrist meldet einmal nach 2 s, das Aufräumen hält die Frist an');
 }
 gleich(
   zahlSchritt({ text: '70000', geaendert: true }, { art: 'uebernehmen' }, PORT, 8000),
@@ -3914,7 +4077,7 @@ gleich(
   );
 }
 
-ok(typeof ui.parseZahl === 'function' && ui.parseZahl('3').ok, 'Eingabe: Export parseZahl aus src/index.ts');
+ok(typeof ui.parseZahl === 'function' && ui.parseZahl('3').ok && typeof ui.starteFrist === 'function', 'Eingabe: Export parseZahl und starteFrist aus src/index.ts');
 ```
 
 `packages/ui/test/selftest.ts`, Vorher:
@@ -4072,18 +4235,23 @@ export function parseZahl(text: string, regeln: ZahlRegeln = {}): ZahlErgebnis {
   return { ok: true, wert };
 }
 
-/** Entwurf im Feld: Text, wie getippt; fehler nach einem misslungenen Übernehmen; geaendert = weicht vom Wert ab. */
+/**
+ * Entwurf im Feld: Text, wie getippt; fehler nach einem misslungenen Übernehmen oder nach der Frist; geaendert = weicht vom
+ * Wert ab; gesendet = per onChange gemeldet, aber noch nicht als Wert zurückgekommen (E27).
+ */
 export interface ZahlEntwurf {
   text: string;
   fehler?: string;
   geaendert: boolean;
+  gesendet?: number;
 }
 
 export type ZahlEreignis =
   | { art: 'tippen'; text: string }
   | { art: 'uebernehmen' } // Enter oder Verlassen
   | { art: 'verwerfen' } // Escape
-  | { art: 'aussen'; wert: number | null }; // neuer Wert von außen
+  | { art: 'aussen'; wert: number | null } // neuer Wert von außen
+  | { art: 'frist' }; // die Frist nach dem Melden ist um (E27)
 
 export function zahlEntwurfAus(wert: number | null): ZahlEntwurf {
   return { text: wert === null ? '' : zahlText(wert), geaendert: false };
@@ -4107,16 +4275,47 @@ export function zahlSchritt(
     const ergebnis = parseZahl(z.text, regeln);
     if (!ergebnis.ok) return { z: { text: z.text, fehler: ergebnis.fehler, geaendert: true }, verbraucht: false };
     if (ergebnis.wert === aktuell) return { z: zahlEntwurfAus(aktuell), verbraucht: false };
-    // Gemeldet ist noch nicht übernommen: Der Entwurf bleibt geändert, bis der Wert von außen zurückkommt („aussen“).
-    // Lehnt das Tool ab, zeigt das Feld so keinen Wert, den es nicht gibt, und Escape gehört weiter dem Feld.
-    return { z: { text: zahlText(ergebnis.wert), geaendert: true }, neuerWert: ergebnis.wert, verbraucht: false };
+    // Schon gemeldet und noch nicht zurück: nicht noch einmal melden (Verlassen nach Enter, abgelehnter Wert; E27).
+    if (ergebnis.wert === z.gesendet) return { z, verbraucht: false };
+    // Gemeldet ist noch nicht übernommen: Der Entwurf bleibt geändert und merkt sich den Wert, bis er von außen
+    // zurückkommt („aussen“); bleibt die Antwort aus, zeigt das Feld nach der Frist „Noch nicht übernommen.“ („frist“).
+    // Escape gehört bis dahin weiter dem Feld.
+    return { z: { text: zahlText(ergebnis.wert), geaendert: true, gesendet: ergebnis.wert }, neuerWert: ergebnis.wert, verbraucht: false };
   }
   if (e.art === 'verwerfen') {
     return { z: zahlEntwurfAus(aktuell), verbraucht: z.geaendert };
   }
-  // aussen: ein ungeänderter Entwurf folgt dem neuen Wert; ein geänderter bleibt stehen (nichts Getipptes geht verloren)
-  if (!z.geaendert || z.text === zahlEntwurfAus(e.wert).text) return { z: zahlEntwurfAus(e.wert), verbraucht: false };
+  if (e.art === 'frist') {
+    return { z: z.gesendet === undefined || z.fehler ? z : { ...z, fehler: UI_TEXTE.nochNichtUebernommen }, verbraucht: false };
+  }
+  // aussen: ein ungeänderter oder schon gemeldeter Entwurf folgt dem neuen Wert (das Tool hat geantwortet); ein
+  // angefangener bleibt stehen (nichts Getipptes geht verloren)
+  if (!z.geaendert || z.gesendet !== undefined || z.text === zahlEntwurfAus(e.wert).text) {
+    return { z: zahlEntwurfAus(e.wert), verbraucht: false };
+  }
   return { z, verbraucht: false };
+}
+
+// ── Frist nach dem Melden (E27) ──
+
+/** So lange wartet ein Feld auf den gemeldeten Wert, bevor es „Noch nicht übernommen.“ zeigt. */
+export const UEBERNAHME_FRIST_MS = 2000;
+
+/** Was starteFrist vom Takt braucht (setTimeout/clearTimeout passen). */
+export interface FristTakt {
+  setTimeout(f: () => void, ms: number): unknown;
+  clearTimeout(id: unknown): void;
+}
+
+const ECHTE_FRIST: FristTakt = {
+  setTimeout: (f, ms) => setTimeout(f, ms),
+  clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+};
+
+/** Körper des Frist-Effekts: meldet einmal nach UEBERNAHME_FRIST_MS; liefert das Aufräumen (neue Eingabe, Antwort, Abbau). */
+export function starteFrist(melde: () => void, takt: FristTakt = ECHTE_FRIST): () => void {
+  const id = takt.setTimeout(melde, UEBERNAHME_FRIST_MS);
+  return () => takt.clearTimeout(id);
 }
 
 // ── Auswahl (Select) ──
@@ -4178,7 +4377,7 @@ npm run selftest -w @jm/ui; echo "Exit=$?"
 Erwartet (gemessen):
 ```
 FAIL Theme: Export THEME_SCHLUESSEL aus src/index.ts
-FAIL Eingabe: Export parseZahl aus src/index.ts
+FAIL Eingabe: Export parseZahl und starteFrist aus src/index.ts
 
 2 FEHLGESCHLAGEN
 Exit=1
@@ -4194,7 +4393,7 @@ Nachher:
 ```ts
 export { type StatusState, type StatusGroup, type StatusItem, STATUS_SYMBOL, ordneStatus, unbekannt, formatUhrzeit, formatUhrzeitKurz } from './lib/status';
 export { type Theme, THEME_SCHLUESSEL } from './lib/theme';
-export { type SelectOption, parseZahl } from './lib/eingabe';
+export { type SelectOption, parseZahl, starteFrist } from './lib/eingabe';
 ```
 
 - [ ] **Step 6: Test laufen lassen (grün)**
@@ -4203,7 +4402,7 @@ export { type SelectOption, parseZahl } from './lib/eingabe';
 npm run selftest -w @jm/ui; echo "Exit=$?"
 npm run selftest -w @jm/ui 2>&1 | grep -c "^ok "
 ```
-Erwartet (gemessen), nach den 167 Zeilen aus Task 1–6:
+Erwartet (gemessen), nach den 190 Zeilen aus Task 1–6:
 ```
 ok   Theme: kein Speicher → dark
 ok   Theme: getItem wirft → dark, kein Wurf
@@ -4230,6 +4429,10 @@ ok   Eingabe: zahlEntwurfAus – null → leer, 1.5 → 1,5
 ok   Eingabe: zahlSchritt tippen – Entwurf ändert sich, zurückgetippt ist nichts geändert
 ok   Eingabe: zahlSchritt uebernehmen gültig → neuerWert, Entwurf bleibt geändert, bis der Wert zurückkommt
 ok   Eingabe: zahlSchritt nach dem Übernehmen – abgelehnt: Escape verwirft auf den echten Wert und gehört dem Feld; angenommen: der Wert von außen schließt den Entwurf
+ok   Eingabe: zahlSchritt – ein gemeldeter Wert wird nicht noch einmal gemeldet (Verlassen nach Enter, Tool lehnt ab); eine neue Eingabe meldet wieder
+ok   Eingabe: zahlSchritt frist – ohne Antwort „Noch nicht übernommen.“, der Text bleibt und wird nicht erneut gemeldet; ohne gemeldeten Wert nichts
+ok   Eingabe: zahlSchritt aussen nach dem Melden – das Feld zeigt den Wert, mit dem das Tool antwortet (auch nach der Frist)
+ok   Eingabe: starteFrist meldet einmal nach 2 s, das Aufräumen hält die Frist an
 ok   Eingabe: zahlSchritt uebernehmen ungültig → Fehler, Text bleibt, kein neuerWert
 ok   Eingabe: zahlSchritt uebernehmen ohne Änderung oder mit gleichem Wert → kein neuerWert
 ok   Eingabe: zahlSchritt verwerfen mit Änderung → verbraucht, Text = aktueller Wert
@@ -4244,11 +4447,11 @@ ok   Eingabe: selectOptionen verändert die Eingabe nie
 ok   Eingabe: feldIds
 ok   Eingabe: beschreibtDurch – Reihenfolge Hilfe, Sperre, Fehler, extra
 ok   Eingabe: beschreibtDurch – nichts → undefined
-ok   Eingabe: Export parseZahl aus src/index.ts
+ok   Eingabe: Export parseZahl und starteFrist aus src/index.ts
 
 ALLE TESTS OK
 Exit=0
-203
+234
 ```
 
 - [ ] **Step 7: Mutationsprobe** (Kopie nach „Gemeinsam für Block A“; je eine Probe allein, danach zurückbauen)
@@ -4291,15 +4494,16 @@ Exit=0
    1 FEHLGESCHLAGEN
    ```
 4. `<Kopie>\packages\ui\src\lib\eingabe.ts`, „gemeldet gilt schon als übernommen“ (alte Fassung): Vorher
-   `    return { z: { text: zahlText(ergebnis.wert), geaendert: true }, neuerWert: ergebnis.wert, verbraucht: false };` →
+   `    return { z: { text: zahlText(ergebnis.wert), geaendert: true, gesendet: ergebnis.wert }, neuerWert: ergebnis.wert, verbraucht: false };` →
    Nachher `    return { z: zahlEntwurfAus(ergebnis.wert), neuerWert: ergebnis.wert, verbraucht: false };`. Erwartet (gemessen):
    ```
    Exit=1
    FAIL Eingabe: zahlSchritt uebernehmen gültig → neuerWert, Entwurf bleibt geändert, bis der Wert zurückkommt
-        ist: {"z":{"text":"8080","geaendert":false},"neuerWert":8080,"verbraucht":false} soll: {"z":{"text":"8080","geaendert":true},"neuerWert":8080,"verbraucht":false}
+        ist: {"z":{"text":"8080","geaendert":false},"neuerWert":8080,"verbraucht":false} soll: {"z":{"text":"8080","geaendert":true,"gesendet":8080},"neuerWert":8080,"verbraucht":false}
    FAIL Eingabe: zahlSchritt nach dem Übernehmen – abgelehnt: Escape verwirft auf den echten Wert und gehört dem Feld; angenommen: der Wert von außen schließt den Entwurf
-        ist: [{"z":{"text":"8000","geaendert":false},"verbraucht":false},{"z":{"text":"8080","geaendert":false},"verbraucht":false}] soll: [{"z":{"text":"8000","geaendert":false},"verbraucht":true},{"z":{"text":"8080","geaendert":false},"verbraucht":false}]
-   2 FEHLGESCHLAGEN
+   FAIL Eingabe: zahlSchritt – ein gemeldeter Wert wird nicht noch einmal gemeldet (Verlassen nach Enter, Tool lehnt ab); eine neue Eingabe meldet wieder
+   FAIL Eingabe: zahlSchritt frist – ohne Antwort „Noch nicht übernommen.“, der Text bleibt und wird nicht erneut gemeldet; ohne gemeldeten Wert nichts
+   4 FEHLGESCHLAGEN
    ```
 5. `<Kopie>\packages\ui\src\lib\theme.ts`, der Store meldet nichts: Vorher `      for (const h of [...hoerer]) h();` →
    Nachher: Zeile löschen. Erwartet (gemessen):
@@ -4318,6 +4522,42 @@ Exit=0
         ist: ["dark","dark"] soll: ["dark","light"]
    1 FEHLGESCHLAGEN
    ```
+7. `<Kopie>\packages\ui\src\lib\eingabe.ts`, ein gemeldeter Wert wird bei jedem Verlassen erneut gemeldet (Fassung der
+   ersten Nachbesserung, E27): die Zeile `    if (ergebnis.wert === z.gesendet) return { z, verbraucht: false };` löschen.
+   Erwartet (gemessen):
+   ```
+   Exit=1
+   FAIL Eingabe: zahlSchritt – ein gemeldeter Wert wird nicht noch einmal gemeldet (Verlassen nach Enter, Tool lehnt ab); eine neue Eingabe meldet wieder
+        ist: [{"z":{"text":"8080","geaendert":true,"gesendet":8080},"neuerWert":8080,"verbraucht":false},8081] soll: [{"z":{"text":"8080","geaendert":true,"gesendet":8080},"verbraucht":false},8081]
+   FAIL Eingabe: zahlSchritt frist – ohne Antwort „Noch nicht übernommen.“, der Text bleibt und wird nicht erneut gemeldet; ohne gemeldeten Wert nichts
+   2 FEHLGESCHLAGEN
+   ```
+8. `<Kopie>\packages\ui\src\lib\eingabe.ts`, die Frist zeigt nichts: Vorher
+   `    return { z: z.gesendet === undefined || z.fehler ? z : { ...z, fehler: UI_TEXTE.nochNichtUebernommen }, verbraucht: false };`
+   → Nachher `    return { z, verbraucht: false };`. Erwartet (gemessen):
+   ```
+   Exit=1
+   FAIL Eingabe: zahlSchritt frist – ohne Antwort „Noch nicht übernommen.“, der Text bleibt und wird nicht erneut gemeldet; ohne gemeldeten Wert nichts
+   1 FEHLGESCHLAGEN
+   ```
+9. `<Kopie>\packages\ui\src\lib\eingabe.ts`, die Antwort des Tools wird übergangen (der gemeldete Entwurf bleibt stehen,
+   auch wenn 8081 statt 8080 zurückkommt): Vorher `  if (!z.geaendert || z.gesendet !== undefined || z.text === zahlEntwurfAus(e.wert).text) {`
+   → Nachher `  if (!z.geaendert || z.text === zahlEntwurfAus(e.wert).text) {`. Erwartet (gemessen):
+   ```
+   Exit=1
+   FAIL Eingabe: zahlSchritt aussen nach dem Melden – das Feld zeigt den Wert, mit dem das Tool antwortet (auch nach der Frist)
+        ist: [{"text":"8080","geaendert":true,"gesendet":8080},{"text":"8080","geaendert":true,"gesendet":8080,"fehler":"Noch nicht übernommen."}] soll: [{"text":"8081","geaendert":false},{"text":"8081","geaendert":false}]
+   1 FEHLGESCHLAGEN
+   ```
+10. `<Kopie>\packages\ui\src\lib\eingabe.ts`, die Frist meldet nie: Vorher
+    `  const id = takt.setTimeout(melde, UEBERNAHME_FRIST_MS);` → Nachher `  const id = takt.setTimeout(() => undefined, UEBERNAHME_FRIST_MS);`.
+    Erwartet (gemessen):
+    ```
+    Exit=1
+    FAIL Eingabe: starteFrist meldet einmal nach 2 s, das Aufräumen hält die Frist an
+         ist: [2000,2000,0,9] soll: [2000,2000,1,9]
+    1 FEHLGESCHLAGEN
+    ```
 Kopie aufräumen (Junction zuerst).
 
 - [ ] **Step 8: Typprüfung**
@@ -4344,7 +4584,7 @@ A  packages/ui/test/theme.test.ts
 ```
 Dann:
 ```
-git commit -m "feat(ui): Theme-Speicher und Eingabe-Logik (Zahl, Auswahl, Feld-IDs)" -m "Spec 3.7/8: Hell/Dunkel unter jm-theme, jeder Zugriff in try/catch, jeder Fehler und jeder fremde Wert faellt auf Dunkel zurueck; auf html steht danach genau eine der Klassen dark/light. Spec 3.5: parseZahl prueft ohne stilles Klemmen (Komma und Punkt, ganzzahl, min, max), zahlSchritt fuehrt den Entwurf fuer Enter, Verlassen, Escape und neue Werte von aussen; selectOptionen laesst einen fehlenden Wert als nicht verfuegbar gewaehlt, statt still umzuspringen; feldIds und beschreibtDurch fuer aria-describedby in der Reihenfolge Hilfe, Sperre, Fehler." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(ui): Theme-Speicher und Eingabe-Logik (Zahl, Auswahl, Feld-IDs)" -m "Spec 3.7/8: Hell/Dunkel unter jm-theme, jeder Zugriff in try/catch, jeder Fehler und jeder fremde Wert faellt auf Dunkel zurueck; auf html steht danach genau eine der Klassen dark/light. Spec 3.5: parseZahl prueft ohne stilles Klemmen (Komma und Punkt, ganzzahl, min, max), zahlSchritt fuehrt den Entwurf fuer Enter, Verlassen, Escape und neue Werte von aussen, meldet einen Wert nur einmal und zeigt nach der Frist (starteFrist, 2 s) Noch nicht uebernommen; selectOptionen laesst einen fehlenden Wert als nicht verfuegbar gewaehlt, statt still umzuspringen; feldIds und beschreibtDurch fuer aria-describedby in der Reihenfolge Hilfe, Sperre, Fehler." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst (Auslegungen, wo 9.6 schweigt):**
@@ -4358,6 +4598,13 @@ git commit -m "feat(ui): Theme-Speicher und Eingabe-Logik (Zahl, Auswahl, Feld-I
   zeigten zwei `ThemeToggle` nach einem Klick Verschiedenes) und `zahlSchritt` hält den Entwurf nach einem `neuerWert`
   „geändert“, bis der Wert von außen zurückkommt (vorher zeigte das Feld still einen Wert, den das Tool abgelehnt hatte, und
   Escape gehörte dann dem Panel). Neue Proben 4–6; Probe 1 trifft jetzt auch den Store mit gesperrtem Speicher (2 `FAIL`).
+- Zweite Nachbesserung (Prüfrunde 2, E27): Der Entwurf merkt sich den gemeldeten Wert (`gesendet`). Vorher meldete jedes
+  weitere Verlassen einen abgelehnten Wert erneut (ein Neustart des Steuerservers wurde bei jedem Fokuswechsel neu
+  versucht), ein abgelehnter Wert stand ohne Hinweis im Feld, und ein normalisiert zurückkommender Wert (8081 statt 8080)
+  ersetzte den Entwurf nicht. Neu: Ereignis `frist` mit „Noch nicht übernommen.“, `aussen` folgt nach dem Melden jeder
+  Antwort, `starteFrist` als Körper des Frist-Effekts (Task 10, 17) und im Paket-Index für `@jm/settings`. Neue Proben 7–10,
+  Probe 4 an die neue Zeile angepasst. Der Kommentar „zeigt das Feld so keinen Wert, den es nicht gibt“ der ersten
+  Nachbesserung stimmte nicht: Der abgelehnte Wert stand weiter sichtbar im Feld.
 
 ---
 
@@ -4366,10 +4613,10 @@ git commit -m "feat(ui): Theme-Speicher und Eingabe-Logik (Zahl, Auswahl, Feld-I
 Gemeinsam für Block B (gilt für jede Aufgabe dieses Blocks):
 - Jede Aufgabe hängt ihre Export-Zeilen aus 9.8 ans Ende von `packages/ui/src/index.ts` und ihr Testmodul als `import`-Zeile direkt vor `abschluss();` in `packages/ui/test/selftest.ts`.
 - Gerendert wird nur über `render()` aus der Testhilfe (`./harness`, 9.1). Die Lesehilfen für das erzeugte HTML (`tags`, `attr`, `klassen`, `hatKlassen`, `text`, `ohneVersteckt`, `zwischen`) entstehen in Task 8 in `packages/ui/test/lib/markup.ts` und gelten nur für die Tests dieses Blocks.
-- Interaktion wird über reine Handler-Funktionen getestet: `tallyHandler` (9), `zahlTaste` (10), `panelTaste` (13), `statusKlick` und `zahnradKlick` (15). Seit der Nachbesserung auch die **Bindung**: Prop-Bauer liefern alle Props eines Elements, der Baustein reicht sie per Spread durch, und der Test ruft jeden Handler auf (`tallyKnopfProps` 9, `zahlFeldHandler`/`zahlAnsichtHandler` 10, `themeKnopfProps` 12, `panelProps` 13). Die Körper der Effekte sind reine Funktionen mit nachgestellter Uhr bzw. nachgestellten Elementen (`starteUhr` 8, `haltenBeiZustand`/`haltenBeiAbbau`/`haltenFuerRender` 9, `panelFokus`/`panelSprung` 13; Hell/Dunkel über den Store aus Task 7), und ein Quelltext-Test prüft, dass genau diese Aufrufe im Baustein stehen. Alles ist nur aus seiner Datei exportiert, **nicht** aus `index.ts`. Dass React die Effekte im Browser wirklich ausführt, misst kein Test unter `renderToStaticMarkup`; das prüft der Owner in der Galerie (Task 23, Owner-Prüfpunkte 1–6 unter „Nach der Umsetzung“). Jede Aufgabe nennt unter „Für die Galerie“, was dort zu sehen sein muss.
+- Interaktion wird über reine Handler-Funktionen getestet: `tallyHandler` (9), `zahlTaste` (10), `panelTaste` (13), `statusKlick` und `zahnradKlick` (15). Seit der Nachbesserung auch die **Bindung**: Prop-Bauer liefern alle Props eines Elements, der Baustein reicht sie per Spread durch, und der Test ruft jeden Handler auf (`tallyKnopfProps` 9, `zahlFeldHandler`/`zahlAnsichtHandler` 10, `themeKnopfProps` 12, `panelProps` 13). Die Körper der Effekte sind reine Funktionen mit nachgestellter Uhr bzw. nachgestellten Elementen (`starteUhr` 8, `haltenBeiZustand`/`haltenBeiAbbau`/`haltenFuerRender` 9, `panelFokus`/`panelSprung` 13; Hell/Dunkel über den Store aus Task 7), und ein Quelltext-Test prüft, dass genau diese Aufrufe im Baustein stehen. Ein Quelltext-Test sichert nur den Wortlaut (die Pflichtzeilen stehen da, kein Handler daneben), nicht die Wirkung; deshalb gehören auch Zeilen wie `useRef` für die Halten-Steuerung zu den Pflichtzeilen (Task 9, Probe n), und die Wirkung prüft der Owner. Alles ist nur aus seiner Datei exportiert, **nicht** aus `index.ts`. Dass React die Effekte im Browser wirklich ausführt, misst kein Test unter `renderToStaticMarkup`; das prüft der Owner in der Galerie (Task 23, Owner-Prüfpunkte 1–6 unter „Nach der Umsetzung“). Jede Aufgabe nennt unter „Für die Galerie“, was dort zu sehen sein muss.
 - Die Quellregeln aus Task 3 laufen bei jedem Selbsttest über alle neuen Dateien unter `packages/ui/src` mit und müssen grün bleiben (keine rohen Farben, keine zusammengesetzten Klassen, jede `var(--…)` definiert, `text-[var(--tally-…|--status-…)]` nur in `lib/status.ts`, nur `motion-safe:`-Übergänge, kein `localStorage` außerhalb von `lib/theme.ts`).
 - Rot heißt in diesem Block: Solange die Komponente fehlt, bricht `tsx` beim Laden der Testmodule ab (`ERR_MODULE_NOT_FOUND`), es läuft gar kein Test, Exit-Code 1.
-- Zählweise: Jede Aufgabe nennt die Zahl **ihrer** Zeilen und den Befehl, der genau sie zählt (alle Testnamen eines Moduls beginnen mit einem eigenen Präfix), dazu die Gesamtzahl nach der Aufgabe. Die Gesamtzahlen sind mit dem echten Code aus Block A gemessen (nach der Nachbesserung): nach Task 8 **246**, 9 **282**, 10 **307**, 11 **324**, 12 **332**, 13 **351**, 14 **363**, 15 **381** `ok`-Zeilen.
+- Zählweise: Jede Aufgabe nennt die Zahl **ihrer** Zeilen und den Befehl, der genau sie zählt (alle Testnamen eines Moduls beginnen mit einem eigenen Präfix), dazu die Gesamtzahl nach der Aufgabe. Die Gesamtzahlen sind mit dem echten Code aus Block A gemessen (nach der zweiten Nachbesserung): nach Task 8 **257**, 9 **294**, 10 **319**, 11 **336**, 12 **344**, 13 **363**, 14 **375**, 15 **393** `ok`-Zeilen.
 - Die Abschnitte „Nachgerechnet“ beschreiben die Messung des Schreibers mit nachgebautem Block A. Beim Zusammensetzen lief jede Aufgabe noch einmal mit dem echten Block A: dieselben Rot-Meldungen, dieselben eigenen `ok`-Zahlen, jede Mutationsprobe rot mit denselben `FAIL`-Zeilen. Einzige Ausnahme war die alte Probe 11c; sie ist ersetzt (Task 11, „Abweichungen“).
 - Mutationsprobe (G9) im Plan-Worktree, vor dem Stagen: je eine Ersetzung **allein** einbauen, Selbsttest muss rot werden, Ersetzung mit dem Edit-Werkzeug zurücknehmen (Nachher → Vorher), Selbsttest wieder `ALLE TESTS OK`. Ohne Commit. Das Ergebnis kommt in den Aufgabenbericht. Erst danach wird gestagt; der grüne Lauf nach der letzten Probe und `git status --short` beim Commit zeigen, dass keine Probe stehen geblieben ist (Entscheidung Z3).
 - React 18.3 schreibt im Server-Rendering `inputMode` in Kamel-Schreibweise (`inputMode="numeric"`, gemessen) und warnt bei `useLayoutEffect` auf dem Server; die Bausteine nutzen deshalb `useLayoutEffect` nur im Browser (Task 13).
@@ -4402,12 +4649,12 @@ Gemeinsam für Block B (gilt für jede Aufgabe dieses Blocks):
   export interface StatusBarProps {
     items: readonly StatusItem[];
     onOpenSection?(sectionId: string): void;
-    jetzt?: () => Date;            // Vorgabe () => new Date(); Uhr tickt per Effekt jede Sekunde
+    jetzt?: () => Date;            // Vorgabe () => new Date(); Uhr tickt per Effekt kurz nach jeder vollen Sekunde
     className?: string;
   }
   export function StatusBar(p: StatusBarProps): React.JSX.Element;
   // nur aus der Datei (Körper des Uhr-Effekts, ohne Browser prüfbar):
-  export interface Takt { setInterval(f: () => void, ms: number): unknown; clearInterval(id: unknown): void }
+  export interface Takt { setTimeout(f: () => void, ms: number): unknown; clearTimeout(id: unknown): void }
   export function starteUhr(jetzt: () => Date, melde: (uhr: string) => void, takt?: Takt): () => void;
   ```
   Pflichtklassen: Wurzel `<footer class="… h-[var(--statusbar-h)] …">`; Detail `max-[900px]:sr-only` und `select-text`; Uhr `tabular`.
@@ -4415,9 +4662,9 @@ Gemeinsam für Block B (gilt für jede Aufgabe dieses Blocks):
 
 **Verhalten (verbindlich):**
 - `StatusPill`: `<span data-state="{state}">` mit Rand `STATUS_RAND_KLASSE[state]` und Schrift `--foreground`; darin das Symbol `<span aria-hidden="true" class="{STATUS_SYMBOL_KLASSE[state]}">`, das Zustandswort `<span class="sr-only">{UI_TEXTE.zustand[state]}: </span>`, dann der Text. Die Statusfarbe färbt nur Symbol und Rand, nie das Wort (G7). `live` ist rot **gefüllt** (`LIVE_EINTRAG_KLASSE`, Schrift in Hintergrundfarbe) und zeigt nach dem Symbol die Kennung „LIVE“ (`aria-hidden`, das Zustandswort liest der Screenreader); `error` bleibt nur umrandet (Spec 3.3, 4.2; E14).
-- `StatusBar`: `<footer>` · `<div role="status" aria-live="polite">` mit den Einträgen in der Reihenfolge von `ordneStatus` · rechts außerhalb der Region die Uhr `<span data-uhr class="tabular …">` mit sr-only „Uhrzeit: “ und `hh:mm:ss` aus `jetzt()`. Die Uhr tickt im Browser jede Sekunde; der Effekt ruft nur `starteUhr` (reine Funktion mit eigenem Takt, getestet). Sie steht bewusst außerhalb der Live-Region (E14), sonst läse ein Screenreader jede Sekunde vor.
+- `StatusBar`: `<footer>` · `<div role="status" aria-live="polite">` mit den Einträgen in der Reihenfolge von `ordneStatus` · rechts außerhalb der Region die Uhr `<span data-uhr class="tabular …">` mit sr-only „Uhrzeit: “ und `hh:mm:ss` aus `jetzt()`. Die Uhr tickt im Browser kurz nach jeder vollen Sekunde; der Effekt ruft nur `starteUhr` (reine Funktion mit eigenem Takt, getestet), die den nächsten Takt jeweils aus `jetzt()` neu plant (ein fester 1-s-Takt ab dem Einhängen ginge bis zu 1 s nach, E14). Sie steht bewusst außerhalb der Live-Region (E14), sonst läse ein Screenreader jede Sekunde vor.
 - Eintrag: Symbol (aria-hidden) · bei `live` die Kennung „LIVE“ (aria-hidden) · sr-only Zustandswort · Label · Detail **nur, wenn das Tool eines liefert** (kein „–“, kein Ersatz). Detail `truncate max-[900px]:sr-only select-text` (unter 900 px unsichtbar, aber vorlesbar), `title` = „{label}: {detail}“ nur mit Detail. `live` ist rot **gefüllt** (`LIVE_EINTRAG_KLASSE`): Symbol, Kennung, Label und Detail in Hintergrundfarbe (dunkel 4,63, hell 5,43, normale Schrift; Task 4). Alle anderen Zustände haben Schrift in Vordergrundfarbe, das Detail gedämpft; `error` ist nur rot umrandet (E14).
-- Knopf **genau dann**, wenn der Eintrag `settingsSection` hat **und** die Leiste `onOpenSection` bekommt: `<button type="button" aria-label="{label}: Einstellungen öffnen">`, Klick → `onOpenSection(settingsSection)`. Hover: Fläche `--muted` (E23), bei `live` statt dessen Unterstreichung (die rote Fläche bleibt). Damit das aria-label den Zustand nicht verschluckt, zeigt `aria-describedby` auf das sr-only Zustandswort und das Detail (ids per `useId`). Sonst `<span>`.
+- Knopf **genau dann**, wenn der Eintrag `settingsSection` hat **und** die Leiste `onOpenSection` bekommt: `<button type="button" aria-label="{label}: Einstellungen öffnen">`, Klick → `onOpenSection(settingsSection)`. Hover: Unterstreichung, ohne Fläche (bei `live` bleibt die rote Fläche); eine Fläche `--muted` drückte das ▲ von `--status-warn` hell auf 2,91 : 1 (Task 4, E14). Damit das aria-label den Zustand nicht verschluckt, zeigt `aria-describedby` auf das sr-only Zustandswort und das Detail (ids per `useId`). Sonst `<span>`.
 - Leere Liste: Leiste mit Uhr, leere Region (Zustand ohne Sitzung, Spec 3.8).
 
 **Regeln für diese Aufgabe:** TDD (G9). Neue Dateien mit dem Write-Werkzeug, `selftest.ts` und `index.ts` mit dem Edit-Werkzeug (G11, Arbeitsbaum CRLF). Nur Arbiträrklassen auf Tokens, jede Klasse als vollständiges Literal (G3). Kein bare `git stash`, kein `git reset --hard`, kein `git clean`, kein Branch-Wechsel, nie pushen (G13).
@@ -4498,7 +4745,7 @@ import {
 } from '../src/lib/status';
 import { UI_TEXTE } from '../src/lib/texte';
 import { fehlendeIdVerweise, gleich, leseText, ok, pruefeIdVerweise, render } from './harness';
-import { attr, hatKlassen, ohneVersteckt, tags, text, zwischen } from './lib/markup';
+import { attr, hatKlassen, klassen, ohneVersteckt, tags, text, zwischen } from './lib/markup';
 
 const ZUSTAENDE: StatusState[] = ['ok', 'warn', 'error', 'off', 'live'];
 /** Feste Uhr: 08.10.2026, 09:05:07 Ortszeit. */
@@ -4648,6 +4895,18 @@ for (const s of ZUSTAENDE) {
 }
 
 {
+  // E14: Hover nur als Unterstreichung. Auf einer Fläche --muted erreichte das ▲ von --status-warn hell nur 2,91 : 1 (Task 4).
+  const html = render(
+    <StatusBar items={[{ id: 'iveo', group: 'verbindung', label: 'iveo', state: 'warn', settingsSection: 'iveo' }]} onOpenSection={() => undefined} jetzt={UHR} />,
+  );
+  const [knopf] = tags(html, 'button');
+  ok(
+    hatKlassen(knopf, 'hover:underline') && !klassen(knopf).some((k) => k.startsWith('hover:bg-')),
+    'StatusBar: Hover eines Knopfs nur als Unterstreichung, ohne Fläche (Statussymbol nie auf --muted, E14)',
+  );
+}
+
+{
   const html = render(<StatusBar items={[{ id: 'ndi', group: 'ausgabe', label: 'NDI', state: 'ok' }]} jetzt={UHR} />);
   const uhr = tags(html, 'span').find((t) => attr(t, 'data-uhr') !== undefined);
   ok(
@@ -4692,20 +4951,26 @@ for (const s of ZUSTAENDE) {
 
 {
   const gemeldet: string[] = [];
-  let takt: { f: () => void; ms: number } | undefined;
+  const geplant: Array<{ f: () => void; ms: number }> = [];
   let angehalten: unknown;
-  const anhalten = starteUhr(UHR, (u) => void gemeldet.push(u), {
-    setInterval: (f, ms) => {
-      takt = { f, ms };
-      return 7;
+  let t = new Date(2026, 9, 8, 9, 5, 7, 300);
+  const anhalten = starteUhr(() => t, (u) => void gemeldet.push(u), {
+    setTimeout: (f, ms) => {
+      geplant.push({ f, ms });
+      return geplant.length;
     },
-    clearInterval: (id) => {
+    clearTimeout: (id) => {
       angehalten = id;
     },
   });
-  takt?.f();
+  t = new Date(2026, 9, 8, 9, 5, 8, 4);
+  geplant[0]?.f();
   anhalten();
-  gleich([takt?.ms, gemeldet, angehalten], [1000, ['09:05:07'], 7], 'StatusBar Uhr: Takt jede Sekunde meldet hh:mm:ss aus jetzt(), Aufräumen hält ihn an');
+  gleich(
+    [geplant.map((g) => g.ms), gemeldet, angehalten],
+    [[700, 996], ['09:05:08'], 2],
+    'StatusBar Uhr: tickt kurz nach der vollen Sekunde (700 ms nach 09:05:07,300), meldet hh:mm:ss aus jetzt() und plant neu; Aufräumen hält den letzten Takt an',
+  );
   ok(
     leseText('src/components/StatusBar.tsx').split('useEffect(() => starteUhr(() => jetztRef.current(), setUhr), []);').length === 2,
     'StatusBar Verdrahtung: die Uhr läuft über starteUhr im Effekt (genau einmal)',
@@ -4808,24 +5073,33 @@ export interface StatusBarProps {
 
 const jetztVorgabe = (): Date => new Date();
 
-/** Was starteUhr vom Takt braucht (setInterval/clearInterval passen). */
+/** Was starteUhr vom Takt braucht (setTimeout/clearTimeout passen). */
 export interface Takt {
-  setInterval(f: () => void, ms: number): unknown;
-  clearInterval(id: unknown): void;
+  setTimeout(f: () => void, ms: number): unknown;
+  clearTimeout(id: unknown): void;
 }
 
 const ECHTER_TAKT: Takt = {
-  setInterval: (f, ms) => setInterval(f, ms),
-  clearInterval: (id) => clearInterval(id as ReturnType<typeof setInterval>),
+  setTimeout: (f, ms) => setTimeout(f, ms),
+  clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
 };
 
 /**
- * Körper des Uhr-Effekts (E14): jede Sekunde hh:mm:ss aus jetzt() melden; liefert das Aufräumen. Reine Funktion mit
- * austauschbarem Takt, damit sie ohne Browser prüfbar ist. Nur aus dieser Datei exportiert.
+ * Körper des Uhr-Effekts (E14): meldet hh:mm:ss aus jetzt() jeweils kurz nach der vollen Sekunde und plant den nächsten
+ * Takt aus jetzt() neu; liefert das Aufräumen. Ein fester 1-s-Takt ab dem Einhängen ginge bis zu 1 s nach und übersprünge
+ * durch Drift gelegentlich eine Sekunde. Reine Funktion mit austauschbarem Takt, damit sie ohne Browser prüfbar ist. Nur
+ * aus dieser Datei exportiert.
  */
 export function starteUhr(jetzt: () => Date, melde: (uhr: string) => void, takt: Takt = ECHTER_TAKT): () => void {
-  const id = takt.setInterval(() => melde(formatUhrzeit(jetzt())), 1000);
-  return () => takt.clearInterval(id);
+  let id: unknown;
+  const plane = (): void => {
+    id = takt.setTimeout(() => {
+      melde(formatUhrzeit(jetzt()));
+      plane();
+    }, 1000 - jetzt().getMilliseconds());
+  };
+  plane();
+  return () => takt.clearTimeout(id);
 }
 
 /**
@@ -4927,7 +5201,8 @@ function Eintrag({
         className={cn(
           klasse,
           'cursor-pointer',
-          live ? 'hover:underline' : 'hover:bg-[var(--muted)]',
+          // Hover ohne Fläche: auf --muted erreichte das ▲ von --status-warn hell nur 2,91 : 1 (Task 4, E14)
+          'hover:underline',
           'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)]',
           'motion-safe:transition-colors motion-safe:duration-150',
         )}
@@ -4948,11 +5223,11 @@ function Eintrag({
 
 Vorher (die letzte Zeile, die Task 7 angehängt hat):
 ```ts
-export { type SelectOption, parseZahl } from './lib/eingabe';
+export { type SelectOption, parseZahl, starteFrist } from './lib/eingabe';
 ```
 Nachher:
 ```ts
-export { type SelectOption, parseZahl } from './lib/eingabe';
+export { type SelectOption, parseZahl, starteFrist } from './lib/eingabe';
 export { StatusPill } from './components/StatusPill';
 export { StatusBar } from './components/StatusBar';
 ```
@@ -4978,14 +5253,15 @@ ok   StatusBar: ohne Detail kein title
 ok   StatusBar: Knopf aria-label „{label}: Einstellungen öffnen“
 ok   StatusBar: Knopf beschreibt Zustandswort und Detail per aria-describedby
 ok   StatusBar: alle id-Verweise des Knopfs gültig
+ok   StatusBar: Hover eines Knopfs nur als Unterstreichung, ohne Fläche (Statussymbol nie auf --muted, E14)
 ok   StatusBar: Uhr 09:05:07 aus jetzt(), tabular, außerhalb von role=status
 ok   StatusBar: leere Liste → Leiste mit Uhr (Zustand ohne Sitzung)
 ok   StatusBar: live-Eintrag rot gefüllt mit ■ und sichtbarem „LIVE“, Schrift und Detail in Hintergrundfarbe (Spec 3.3, 4.2; E14)
 ok   StatusBar: error-Eintrag nur rot umrandet, ohne Fläche und ohne „LIVE“ (Form statt nur Farbton)
-ok   StatusBar Uhr: Takt jede Sekunde meldet hh:mm:ss aus jetzt(), Aufräumen hält ihn an
+ok   StatusBar Uhr: tickt kurz nach der vollen Sekunde (700 ms nach 09:05:07,300), meldet hh:mm:ss aus jetzt() und plant neu; Aufräumen hält den letzten Takt an
 ok   StatusBar Verdrahtung: die Uhr läuft über starteUhr im Effekt (genau einmal)
 ```
-Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (StatusPill|StatusBar)"` → `22`. Gesamt nach dieser Aufgabe (gemessen): `246` `ok`-Zeilen.
+Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (StatusPill|StatusBar)"` → `23`. Gesamt nach dieser Aufgabe (gemessen): `257` `ok`-Zeilen.
 
 - [ ] **Step 9: Typecheck**
 
@@ -5127,6 +5403,39 @@ FAIL StatusBar: Detail gekürzt, title = „{label}: {detail}“, unter 900 px m
 1 FEHLGESCHLAGEN
 ```
 
+g) Die Uhr tickt in festem 1-s-Takt ab dem Einhängen (geht bis zu 1 s nach):
+Vorher (`packages/ui/src/components/StatusBar.tsx`):
+```tsx
+    }, 1000 - jetzt().getMilliseconds());
+```
+Nachher:
+```tsx
+    }, 1000);
+```
+Run: `npm run selftest -w @jm/ui`
+Expected (Exit-Code 1):
+```
+FAIL StatusBar Uhr: tickt kurz nach der vollen Sekunde (700 ms nach 09:05:07,300), meldet hh:mm:ss aus jetzt() und plant neu; Aufräumen hält den letzten Takt an
+     ist: [[1000,1000],["09:05:08"],2] soll: [[700,996],["09:05:08"],2]
+1 FEHLGESCHLAGEN
+```
+
+h) Hover-Fläche `--muted` (Fassung der ersten Nachbesserung):
+Vorher (`packages/ui/src/components/StatusBar.tsx`):
+```tsx
+          'hover:underline',
+```
+Nachher:
+```tsx
+          live ? 'hover:underline' : 'hover:bg-[var(--muted)]',
+```
+Run: `npm run selftest -w @jm/ui`
+Expected (Exit-Code 1):
+```
+FAIL StatusBar: Hover eines Knopfs nur als Unterstreichung, ohne Fläche (Statussymbol nie auf --muted, E14)
+1 FEHLGESCHLAGEN
+```
+
 Nach jeder Probe die Ersetzung zurücknehmen; `npm run selftest -w @jm/ui` → wieder `ALLE TESTS OK`.
 
 - [ ] **Step 11: Commit** (Commit-Text bewusst ohne Umlaute)
@@ -5146,12 +5455,12 @@ A  packages/ui/test/statusbar.test.tsx
 ```
 Dann:
 ```bash
-git commit -m "feat(ui): StatusPill und StatusBar - Symbol und Text, feste Reihenfolge, Uhr" -m "StatusPill zeigt Zustand mit Symbol (aria-hidden), sr-only Zustandswort und Text in Vordergrundfarbe. StatusBar ordnet nach Gruppen, Eintrag ist nur mit settingsSection UND onOpenSection ein Knopf (aria-label plus aria-describedby auf Zustand und Detail), Detail nur wenn geliefert, gekuerzt und unter 900 px ausgeblendet, Uhr ausserhalb der role=status-Region. Selbsttest mit Kreuzprodukt 5 Zustaende x Detail x settingsSection x onOpenSection (40 Faelle)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(ui): StatusPill und StatusBar - Symbol und Text, feste Reihenfolge, Uhr" -m "StatusPill zeigt Zustand mit Symbol (aria-hidden), sr-only Zustandswort und Text; live ist rot gefuellt mit LIVE-Kennung und Schrift in Hintergrundfarbe, error nur umrandet. StatusBar ordnet nach Gruppen, Eintrag ist nur mit settingsSection UND onOpenSection ein Knopf (aria-label plus aria-describedby auf Zustand und Detail, Hover nur als Unterstreichung), Detail nur wenn geliefert, gekuerzt und unter 900 px nur noch fuer Screenreader, Uhr ausserhalb der role=status-Region, tickt kurz nach der vollen Sekunde. Selbsttest mit Kreuzprodukt 5 Zustaende x Detail x settingsSection x onOpenSection (40 Faelle)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-**Für die Galerie (Task 23) muss zu sehen sein:** Die Uhr läuft sekündlich weiter. Im 800-px-`iframe` zeigen die Einträge nur Symbol und Label; das Detail steht im Tooltip. Ein Eintrag mit Knopf reagiert auf Hover (graue Fläche, bei `live` Unterstreichung) und Fokus-Ring, ein Klick öffnet das Panel beim Abschnitt. Ein `live`-Eintrag ist rot gefüllt mit ■ und „LIVE“, die Schrift darauf dunkel (Dunkel) bzw. weiß (Hell); ein `error`-Eintrag daneben ist nur rot umrandet mit ⚠.
+**Für die Galerie (Task 23) muss zu sehen sein:** Die Uhr springt im Gleichtakt mit der Systemuhr weiter (kurz nach jeder vollen Sekunde). Im 800-px-`iframe` zeigen die Einträge nur Symbol und Label; das Detail steht im Tooltip. Ein Eintrag mit Knopf reagiert auf Hover (Unterstreichung, ohne Fläche) und Fokus-Ring, ein Klick öffnet das Panel beim Abschnitt. Ein `live`-Eintrag ist rot gefüllt mit ■ und „LIVE“, die Schrift darauf dunkel (Dunkel) bzw. weiß (Hell); ein `error`-Eintrag daneben ist nur rot umrandet mit ⚠.
 
-**Nachgerechnet** (Kopie `scratchpad\ux-plan\kopie-b`, Stand `5a14352934`; Testhilfe, Tokens, `texte.ts`, `status.ts` und eine Näherung der Quellregeln aus Block A nach Abschnitt 9 nachgebaut; tsx 4.22.4, TypeScript 5.9.3, React 18.3.1, Node 24.16): Step 4 rot mit genau der `ERR_MODULE_NOT_FOUND`-Meldung; Step 8 grün mit 19 `ok`-Zeilen dieser Aufgabe, keine React-Warnung; Typecheck grün; alle drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–8 maschinell eingespielt): 22 `ok`-Zeilen dieser Aufgabe, gesamt 246, Proben a–f rot mit 1, 1, 4, 1, 1, 1 `FAIL`. Ein Probe-Bau mit `vite build` (`react()`, `tailwindcss()`, `@source "../src"`) enthielt `h-[var(--statusbar-h)]`, `max-[900px]:hidden` (als `@media not all and (min-width:900px)`), `select-text`, `tabular`, `sr-only`, `motion-safe:transition-colors`.
+**Nachgerechnet** (Kopie `scratchpad\ux-plan\kopie-b`, Stand `5a14352934`; Testhilfe, Tokens, `texte.ts`, `status.ts` und eine Näherung der Quellregeln aus Block A nach Abschnitt 9 nachgebaut; tsx 4.22.4, TypeScript 5.9.3, React 18.3.1, Node 24.16): Step 4 rot mit genau der `ERR_MODULE_NOT_FOUND`-Meldung; Step 8 grün mit 19 `ok`-Zeilen dieser Aufgabe, keine React-Warnung; Typecheck grün; alle drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–8 maschinell eingespielt): 22 `ok`-Zeilen dieser Aufgabe, gesamt 246, Proben a–f rot mit 1, 1, 4, 1, 1, 1 `FAIL`. Ein Probe-Bau mit `vite build` (`react()`, `tailwindcss()`, `@source "../src"`) enthielt vor der Nachbesserung `h-[var(--statusbar-h)]`, `max-[900px]:hidden` (als `@media not all and (min-width:900px)`; heute `max-[900px]:sr-only`, im Galerie-Bau von Task 23 geprüft), `select-text`, `tabular`, `sr-only`, `motion-safe:transition-colors`. **Zweite Nachbesserung:** frische Kopie, Plantext Tasks 1–8 maschinell eingespielt: Step 4 rot mit derselben `ERR_MODULE_NOT_FOUND`-Meldung, Step 8 grün mit 23 `ok`-Zeilen dieser Aufgabe (gesamt 257), Proben a–h rot mit 1, 1, 4, 1, 1, 1, 1, 1 `FAIL`, Typprüfung grün.
 
 **Abweichungen vom Gerüst:**
 1. Neue, nur testinterne Datei `packages/ui/test/lib/markup.ts` (nicht in der Dateistruktur von Abschnitt 5). Sie spart in acht Testmodulen dieselben Lesehilfen.
@@ -5161,6 +5470,10 @@ git commit -m "feat(ui): StatusPill und StatusBar - Symbol und Text, feste Reihe
    umrandet), das Detail unter 900 px `sr-only` statt `hidden` (sonst für Screenreader weg), Hover `--muted` statt
    `--highlight` (E23), die Uhr über `starteUhr` (Takt getestet, Verdrahtung im Quelltext geprüft; vorher blieb eine Uhr,
    die nie tickt, grün).
+5. Zweite Nachbesserung (Prüfrunde 2): Hover nur noch als Unterstreichung, ohne Fläche (auf `--muted` erreichte das ▲ von
+   `--status-warn` hell 2,91 : 1, Task 4; Probe h); die Uhr plant jeden Takt an der vollen Sekunde neu (vorher fester
+   1-s-Takt ab dem Einhängen, bis zu 1 s nach; Probe g). `Takt` hat dafür `setTimeout`/`clearTimeout` statt
+   `setInterval`/`clearInterval`.
 
 ---
 
@@ -5193,7 +5506,7 @@ git commit -m "feat(ui): StatusPill und StatusBar - Symbol und Text, feste Reihe
   export function TallyButton(p: TallyButtonProps): React.JSX.Element;
   export interface ZeigerEreignisArt { button: number; pointerId: number;
     currentTarget: { setPointerCapture?(id: number): void } | null }
-  export interface TastenEreignisArt { key: string; repeat: boolean }
+  export interface TastenEreignisArt { key: string; repeat: boolean; preventDefault(): void }
   export interface TallyHandler {
     onClick(): void; onPointerDown(e: ZeigerEreignisArt): void; onPointerUp(): void; onPointerCancel(): void;
     onLostPointerCapture(): void; onKeyDown(e: TastenEreignisArt): void; onKeyUp(e: TastenEreignisArt): void; onBlur(): void;
@@ -5215,7 +5528,7 @@ git commit -m "feat(ui): StatusPill und StatusBar - Symbol und Text, feste Reihe
 - `bereit`: Fläche `--card` (Hover `--muted`, kein Gelb: E23), Rand `--tally-ready` (grüne Kante), Schrift 15 px extrafett in `--foreground`. `live`: Rand und Fläche `--tally-live` mit `LIVE_FLAECHE_KLASSE` (weiß, 19 px, extrafett), davor die Kennung „LIVE“; auf der LIVE-Fläche setzt nichts eine kleinere Schrift, auch das Kürzel nicht (E3: Weiß auf der dunklen LIVE-Fläche erreicht nur „große Schrift“). `gesperrt`: Fläche `--muted`, Schrift `--muted-foreground`, darunter der Grund (11 px).
 - `gesperrt` = `aria-disabled="true"` (kein `disabled`, der Knopf bleibt fokussierbar), Grund sichtbar, als `title` und per `aria-describedby`; ohne `disabledReason` **oder mit leerem** `disabledReason` steht „gesperrt – kein Grund angegeben“ (E9, `tallyGrund`).
 - `shortcut` als `<kbd>` mit sr-only „Kürzel: “; ohne `shortcut` kein `<kbd>`.
-- `tallyHandler` (rein, testbar): Halten startet nur mit `button === 0` (linke Taste bzw. Kontakt) oder Leertaste/Enter ohne `repeat`, und nur wenn noch nicht gehalten (sonst auch kein Pointer-Capture, damit ein späteres `lostpointercapture` kein Halten per Taste beendet). `setPointerCapture` in `try/catch`. Loslassen über dieselbe Quelle; `pointercancel`, `lostpointercapture` und `blur` brechen ab. `onClick` kommt unabhängig vom Halten. Gesperrt: weder `onClick` noch Halten; Loslassen bleibt möglich.
+- `tallyHandler` (rein, testbar): Halten startet nur mit `button === 0` (linke Taste bzw. Kontakt) oder Leertaste/Enter ohne `repeat`, und nur wenn noch nicht gehalten (sonst auch kein Pointer-Capture, damit ein späteres `lostpointercapture` kein Halten per Taste beendet). `setPointerCapture` in `try/catch`. Loslassen über dieselbe Quelle; `pointercancel`, `lostpointercapture` und `blur` brechen ab. `onClick` kommt unabhängig vom Halten. Gesperrt: weder `onClick` noch Halten; Loslassen bleibt möglich. Enter mit `repeat` ruft `preventDefault()`: Ein gehaltenes Enter klickte im Browser sonst mit jeder Wiederholung erneut (E9).
 - Bindung über reine Funktionen (Review Focus 2): `tallyKnopfProps` liefert **alle** Props des `<button>` (Attribute, Klassen und die acht Handler aus `tallyHandler`); der Baustein reicht sie unverändert per Spread durch und setzt keinen Handler daneben. `haltenFuerRender` erzeugt die Steuerung beim ersten Render in einer Ref und übergibt bei jedem weiteren die neuesten Rückrufe (`aktualisiere`). Die beiden Effekte rufen nur `haltenBeiZustand` (bricht ab, wenn `state` zu `gesperrt` wird) bzw. beim Abbau `haltenBeiAbbau`. Der Test prüft das Prop-Objekt, die Effekt-Körper und am Quelltext, dass genau diese vier Zeilen im Baustein stehen. Dass React die Effekte wirklich ausführt, ist ohne Browser nicht messbar: Owner-Prüfpunkt 2 unter „Nach der Umsetzung“.
 - `touch-none select-none`, damit Halten auf Touch nicht in Scrollen übergeht. Der Knopf füllt die Breite seines Behälters; die Anordnung (höchstens vier) macht das Tool.
 
@@ -5354,7 +5667,7 @@ const zeiger = (button = 0, currentTarget: ZeigerEreignisArt['currentTarget'] = 
   pointerId: 7,
   currentTarget,
 });
-const taste = (key: string, repeat = false) => ({ key, repeat });
+const taste = (key: string, repeat = false) => ({ key, repeat, preventDefault: () => undefined });
 
 {
   const { z, h } = aufbau();
@@ -5417,6 +5730,25 @@ const taste = (key: string, repeat = false) => ({ key, repeat });
   h.onKeyDown(taste('Enter', true));
   h.onKeyUp(taste('Enter'));
   gleich([z.press, z.release], [1, 1], 'Tally Halten: Enter ebenso');
+}
+{
+  // E9: Ein gehaltenes Enter klickt im Browser mit jeder Wiederholung erneut; nur der erste Druck darf klicken.
+  const { z, h } = aufbau();
+  let verhindert = 0;
+  const druck = (key: string, repeat: boolean) => ({ key, repeat, preventDefault: () => void verhindert++ });
+  h.onKeyDown(druck('Enter', false));
+  const nachErstem = verhindert;
+  h.onKeyDown(druck('Enter', true));
+  h.onKeyDown(druck('Enter', true));
+  h.onKeyUp(druck('Enter', false));
+  h.onKeyDown(druck(' ', false));
+  h.onKeyDown(druck(' ', true));
+  h.onKeyUp(druck(' ', false));
+  gleich(
+    [nachErstem, verhindert, z.press, z.release],
+    [0, 2, 2, 2],
+    'Tally: Enter gehalten – Auto-Repeat ruft preventDefault (kein zweiter Klick), der erste Druck nicht; die Leertaste bleibt unberührt',
+  );
 }
 {
   const { z, h } = aufbau();
@@ -5561,6 +5893,7 @@ const taste = (key: string, repeat = false) => ({ key, repeat });
   const quelle = leseText('src/components/TallyButton.tsx');
   const baustein = quelle.slice(quelle.indexOf('export function TallyButton('));
   const PFLICHT = [
+    'const haltenRef = useRef<HaltenSteuerung | null>(null);',
     'const halten = haltenFuerRender(haltenRef, p);',
     'useEffect(() => haltenBeiZustand(state, halten), [state, halten]);',
     'useEffect(() => () => haltenBeiAbbau(halten), [halten]);',
@@ -5630,6 +5963,7 @@ export interface ZeigerEreignisArt {
 export interface TastenEreignisArt {
   key: string;
   repeat: boolean;
+  preventDefault(): void;
 }
 export interface TallyHandler {
   onClick(): void;
@@ -5685,6 +6019,8 @@ export function tallyHandler(p: TallyButtonProps, halten: HaltenSteuerung): Tall
       halten.abbrechen();
     },
     onKeyDown(e) {
+      // Ein gehaltenes Enter klickt im Browser mit jeder Wiederholung erneut (mehrfaches Take); nur der erste Druck zählt.
+      if (e.key === 'Enter' && e.repeat) e.preventDefault();
       if (gesperrt || e.repeat || !HALTE_TASTEN.has(e.key)) return;
       halten.druecken('taste');
     },
@@ -5841,6 +6177,7 @@ ok   Tally Halten: lostpointercapture allein (Capture verloren, pointerup kommt 
 ok   Tally Halten: pointerup und lostpointercapture nacheinander → ein onRelease
 ok   Tally Halten: Leertaste → onPress, Auto-Repeat ignoriert, keyup → onRelease
 ok   Tally Halten: Enter ebenso
+ok   Tally: Enter gehalten – Auto-Repeat ruft preventDefault (kein zweiter Klick), der erste Druck nicht; die Leertaste bleibt unberührt
 ok   Tally Halten: Auto-Repeat allein (Taste war schon gedrückt) startet kein Halten
 ok   Tally Halten: Zeiger los, Leertaste noch gehalten – Auto-Repeat drückt nicht neu
 ok   Tally Halten: andere Taste hält nicht
@@ -5859,7 +6196,7 @@ ok   Tally Halten: Abbau beim Halten → onRelease genau einmal
 ok   Tally Halten: neue Rückrufe nach erneutem Rendern – Loslassen ruft das neueste onRelease
 ok   Tally Verdrahtung: Knopf-Props per Spread, Effekte für gesperrt und Abbau, neueste Rückrufe – je genau einmal im Baustein
 ```
-Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   Tally"` → `36`. Gesamt nach dieser Aufgabe (gemessen): `282` `ok`-Zeilen.
+Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   Tally"` → `37`. Gesamt nach dieser Aufgabe (gemessen): `294` `ok`-Zeilen.
 
 - [ ] **Step 7: Typecheck**
 
@@ -6082,6 +6419,40 @@ FAIL Tally gesperrt mit leerem Grund: ebenfalls „gesperrt – kein Grund angeg
 1 FEHLGESCHLAGEN
 ```
 
+m) Gehaltenes Enter klickt mehrfach (Auto-Repeat ohne `preventDefault`):
+Vorher (`packages/ui/src/components/TallyButton.tsx`):
+```tsx
+      if (e.key === 'Enter' && e.repeat) e.preventDefault();
+```
+Nachher: diese Zeile ersatzlos löschen.
+Run: `npm run selftest -w @jm/ui`
+Expected (Exit-Code 1):
+```
+FAIL Tally: Enter gehalten – Auto-Repeat ruft preventDefault (kein zweiter Klick), der erste Druck nicht; die Leertaste bleibt unberührt
+     ist: [0,0,2,2] soll: [0,2,2,2]
+1 FEHLGESCHLAGEN
+```
+
+n) Halten-Steuerung ohne `useRef` (bei jedem Render eine neue; das Aufräumen des alten Effekts beendete ein laufendes Halten
+beim ersten Neu-Rendern):
+Vorher (`packages/ui/src/components/TallyButton.tsx`):
+```tsx
+  const haltenRef = useRef<HaltenSteuerung | null>(null);
+```
+Nachher:
+```tsx
+  const haltenRef: { current: HaltenSteuerung | null } = { current: null };
+```
+Run: `npm run selftest -w @jm/ui`
+Expected (Exit-Code 1):
+```
+FAIL Tally Verdrahtung: Knopf-Props per Spread, Effekte für gesperrt und Abbau, neueste Rückrufe – je genau einmal im Baustein
+     fehlt: const haltenRef = useRef<HaltenSteuerung | null>(null);
+1 FEHLGESCHLAGEN
+```
+Die Verdrahtung wird am Quelltext geprüft, also am Wortlaut, nicht an der Wirkung (unter `renderToStaticMarkup` laufen keine
+Effekte). Wirkung prüft der Owner (Owner-Prüfpunkt 2).
+
 Nach jeder Probe die Ersetzung zurücknehmen; `npm run selftest -w @jm/ui` → wieder `ALLE TESTS OK`.
 
 - [ ] **Step 9: Commit** (Commit-Text bewusst ohne Umlaute)
@@ -6099,17 +6470,18 @@ A  packages/ui/test/tally.test.tsx
 ```
 Dann:
 ```bash
-git commit -m "feat(ui): TallyButton - bereit/live/gesperrt, Halten mit Zeiger und Taste" -m "bereit mit gruener Kante, live rot gefuellt mit LIVE-Kennung in grosser Schrift (LIVE_FLAECHE_KLASSE, auch das Kuerzel), gesperrt mit aria-disabled und sichtbarem Grund. tallyHandler als reine Funktion: Halten nur mit linker Taste oder Leertaste/Enter ohne Auto-Repeat, pointercancel, lostpointercapture und blur brechen ab, onRelease genau einmal je Druck. tallyKnopfProps liefert alle Props des Knopfs (Spread), die Effekte rufen nur haltenBeiZustand und haltenBeiAbbau; der Test prueft Prop-Objekt, Effekt-Koerper und die Verdrahtung im Quelltext." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(ui): TallyButton - bereit/live/gesperrt, Halten mit Zeiger und Taste" -m "bereit mit gruener Kante, live rot gefuellt mit LIVE-Kennung in grosser Schrift (LIVE_FLAECHE_KLASSE, auch das Kuerzel), gesperrt mit aria-disabled und sichtbarem Grund. tallyHandler als reine Funktion: Halten nur mit linker Taste oder Leertaste/Enter ohne Auto-Repeat, pointercancel, lostpointercapture und blur brechen ab, onRelease genau einmal je Druck; ein gehaltenes Enter klickt nur einmal. tallyKnopfProps liefert alle Props des Knopfs (Spread), die Effekte rufen nur haltenBeiZustand und haltenBeiAbbau; der Test prueft Prop-Objekt, Effekt-Koerper und die Verdrahtung im Quelltext." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-**Für die Galerie (Task 23) muss zu sehen sein:** Ein `TallyButton` mit den Zählern „gedrückt“/„losgelassen“ (je `onPress`/`onRelease` +1). Drücken und Halten mit Maus, Leertaste und Enter erhöht „gedrückt“ genau um 1, Loslassen „losgelassen“ genau um 1; langes Halten der Leertaste (Auto-Repeat) zählt nicht mehrfach. Maus gedrückt aus dem Fenster ziehen und dort loslassen, Alt+Tab während des Haltens, Zustand während des Haltens auf `gesperrt` schalten (Umschalter neben dem Knopf) und den Knopf während des Haltens ausblenden (Unmount) → jeweils „losgelassen“ +1, danach sind beide Zähler gleich. Rechte Maustaste zählt nicht. Dazu die drei Zustände nebeneinander, `live` mit Kürzel.
+**Für die Galerie (Task 23) muss zu sehen sein:** Ein `TallyButton` mit den Zählern „gedrückt“/„losgelassen“ (je `onPress`/`onRelease` +1). Drücken und Halten mit Maus, Leertaste und Enter erhöht „gedrückt“ genau um 1, Loslassen „losgelassen“ genau um 1; langes Halten der Leertaste (Auto-Repeat) zählt nicht mehrfach. Maus gedrückt aus dem Fenster ziehen und dort loslassen, Alt+Tab während des Haltens, Zustand während des Haltens auf `gesperrt` schalten (Knopf „in 2 s sperren (dabei halten)“) und den Knopf während des Haltens ausblenden (Knopf „in 2 s ausblenden (dabei halten)“, danach „wieder einblenden“; Unmount) → jeweils „losgelassen“ +1, danach sind beide Zähler gleich. Rechte Maustaste zählt nicht. Enter lange halten erhöht „Klicks“ genau um 1. Dazu die drei Zustände nebeneinander, `live` mit Kürzel.
 
-**Nachgerechnet** (Kopie wie in Task 8, `halten.ts` nach Task 6 nachgebaut): Step 3 rot wie angegeben; Typecheck grün; vier Mutationsproben rot wie angegeben, danach wieder grün. Im Probe-Bau vorhanden: `min-h-[var(--control-h-lg)]`, `bg-[var(--tally-live)]`, `border-[var(--tally-ready)]`, `text-[19px]`, `touch-none`, `border-current`. **Nachbesserung nach dem Review** (frische Kopie, Plantext Task 1–9 maschinell eingespielt): Step 6 grün mit 36 `ok`-Zeilen dieser Aufgabe (gesamt 282), Proben a–l rot mit 2, 2, 1, 1, 1, 1, 7, 1, 1, 1, 1, 1 `FAIL`. Vorher hatte der Test nur `tallyHandler` als Objekt geprüft; gemessen blieben ein leeres `onPointerCancel`/`onLostPointerCapture`, fehlende Handler im JSX, ein gelöschter Abbruch-Effekt und ein gelöschtes `aktualisiere` jeweils grün.
+**Nachgerechnet** (Kopie wie in Task 8, `halten.ts` nach Task 6 nachgebaut): Step 3 rot wie angegeben; Typecheck grün; vier Mutationsproben rot wie angegeben, danach wieder grün. Im Probe-Bau vorhanden: `min-h-[var(--control-h-lg)]`, `bg-[var(--tally-live)]`, `border-[var(--tally-ready)]`, `text-[19px]`, `touch-none`, `border-current`. **Nachbesserung nach dem Review** (frische Kopie, Plantext Task 1–9 maschinell eingespielt): Step 6 grün mit 36 `ok`-Zeilen dieser Aufgabe (gesamt 282), Proben a–l rot mit 2, 2, 1, 1, 1, 1, 7, 1, 1, 1, 1, 1 `FAIL`. Vorher hatte der Test nur `tallyHandler` als Objekt geprüft; gemessen blieben ein leeres `onPointerCancel`/`onLostPointerCapture`, fehlende Handler im JSX, ein gelöschter Abbruch-Effekt und ein gelöschtes `aktualisiere` jeweils grün. **Zweite Nachbesserung:** frische Kopie, Plantext Tasks 1–9: 37 `ok`-Zeilen dieser Aufgabe (gesamt 294), Proben a–n rot mit 2, 2, 1, 1, 1, 1, 7, 1, 1, 1, 1, 1, 1, 1 `FAIL`, Typprüfung grün.
 
 **Abweichungen vom Gerüst:**
 1. `onPointerDown` tut nichts, solange schon gehalten wird (auch kein Pointer-Capture). Grund: Hält jemand per Leertaste und klickt zusätzlich, beendete das spätere `lostpointercapture` sonst das Halten per Taste vorzeitig (Probe 9d).
 2. Zusätzliche Testfälle über die Gliederung hinaus: Auto-Repeat ohne vorheriges Drücken, Auto-Repeat nach dem Loslassen des Zeigers, Alt+Tab mit gedrückter Maus, ohne `currentTarget`, `onPress` wirft, `pointercancel` allein und `lostpointercapture` allein, leerer Sperrgrund.
 3. Zusätzliche Exporte nur aus der Datei: `tallyKnopfProps`, `TallyKnopfProps`, `tallyGrund`, `haltenFuerRender`, `haltenBeiZustand`, `haltenBeiAbbau`. Grund: Bindung und Effekte sollen ohne Browser prüfbar sein (Review-Befund „Halten-Abdeckung nur über tallyHandler“). Die Effekte selbst bleiben ein Owner-Prüfpunkt.
+4. Zweite Nachbesserung (Prüfrunde 2): `TastenEreignisArt` hat `preventDefault()`, `onKeyDown` ruft es bei Enter mit `repeat` (vorher klickte ein gehaltenes Enter auf einem „Take“ mehrfach; Probe m). Die Pflichtzeilen der Verdrahtung enthalten jetzt auch `useRef` für die Halten-Steuerung (vorher blieb `{ current: null }` grün; Probe n).
 
 ---
 
@@ -6171,7 +6543,7 @@ git commit -m "feat(ui): TallyButton - bereit/live/gesperrt, Halten mit Zeiger u
 - `Field`: Basis-id = `id`-Prop, sonst `useId()`; `feldIds(basis)`. Reihenfolge im DOM: `<label for>` (ein Stil: `text-xs font-semibold`, Vordergrund) · Eingabe · Hilfe (`text-[11px]`, gedämpft) · Sperre „Gesperrt: {grund}“ · Fehler „⚠ {text}“ mit ⚠ in `STATUS_SYMBOL_KLASSE.error` (aria-hidden). `aria-describedby` der Eingabe in der Reihenfolge Hilfe, Sperre, Fehler (`beschreibtDurch`). Fehler → `aria-invalid="true"`; Sperre → `disabled`.
 - Eingaben lesen den Kontext über `useFeld()`. Eigene `id` geht vor; `aria-describedby` wird ergänzt, nicht ersetzt; eine Sperre aus dem Field gewinnt immer (auch gegen `disabled={false}` der Eingabe).
 - `EINGABE_KLASSE`: Höhe `h-[var(--control-h)]` (Dichte über den Token, nicht über überschreibbare Klassen, G3), `rounded-[var(--radius-md)]`, Fokus-Ring `focus-visible:outline-[var(--ring)]`, `select-text`, Fehlerrand `aria-[invalid=true]:border-[var(--status-error)]`.
-- `NumberInput`: Entwurf als Text (`zahlEntwurfAus`), `type="text"` mit `inputMode` `numeric` (ganzzahl) bzw. `decimal`. Tippen, Verlassen (`onBlur` → `uebernehmen`) und Tasten laufen über `zahlSchritt`; nur eine gültige Zahl im Bereich geht an `onChange`. Die Bindung steht in zwei reinen Funktionen: `zahlFeldHandler` liefert `onChange`/`onBlur`/`onKeyDown` des `<input>` (per Spread, kein Handler daneben), `zahlAnsichtHandler` macht aus jedem Ereignis einen `zahlSchritt`; der Test ruft beide auf und prüft die Verdrahtung im Quelltext. Im `Field` übernimmt auch das Zahlenfeld Sperre (`disabled`), Fehler (`aria-invalid`) und Hilfe/Sperre/Fehler in `aria-describedby` (vor der Einheit). Ein ungültiger Entwurf bleibt stehen, mit „⚠ {fehler}“ direkt unter dem Feld und `aria-invalid` (kein stilles Klemmen, E12). Neuer Wert von außen über `zahlSchritt` `'aussen'`. Einheit als Text rechts, per `aria-describedby` verknüpft.
+- `NumberInput`: Entwurf als Text (`zahlEntwurfAus`), `type="text"` mit `inputMode` `numeric` (ganzzahl) bzw. `decimal`. Tippen, Verlassen (`onBlur` → `uebernehmen`) und Tasten laufen über `zahlSchritt`; nur eine gültige Zahl im Bereich geht an `onChange`. Die Bindung steht in zwei reinen Funktionen: `zahlFeldHandler` liefert `onChange`/`onBlur`/`onKeyDown` des `<input>` (per Spread, kein Handler daneben), `zahlAnsichtHandler` macht aus jedem Ereignis einen `zahlSchritt`; der Test ruft beide auf und prüft die Verdrahtung im Quelltext. Im `Field` übernimmt auch das Zahlenfeld Sperre (`disabled`), Fehler (`aria-invalid`) und Hilfe/Sperre/Fehler in `aria-describedby` (vor der Einheit). Ein ungültiger Entwurf bleibt stehen, mit „⚠ {fehler}“ direkt unter dem Feld und `aria-invalid` (kein stilles Klemmen, E12). Neuer Wert von außen über `zahlSchritt` `'aussen'`. Nach dem Melden wartet das Feld `UEBERNAHME_FRIST_MS` auf den Wert; bleibt er aus, steht dort „⚠ Noch nicht übernommen.“ (Effekt mit `starteFrist` und `zahlSchritt` `'frist'`, E27). Einheit als Text rechts, per `aria-describedby` verknüpft.
 - `zahlTaste`: Enter → `uebernehmen`. Escape → `verwerfen`; war der Entwurf geändert (`verbraucht`), dann `stopPropagation()` und `preventDefault()`, damit ein offenes Einstellungs-Panel nicht schließt (E8). Ohne Änderung bleibt Escape frei.
 
 **Regeln für diese Aufgabe:** wie Task 8 (G9, G11, G3, G13).
@@ -6413,9 +6785,10 @@ const textVonId = (html: string, id: string, ende = '</p>'): string =>
     '{...zahlFeldHandler({ onTippen, onUebernehmen, onTaste })}',
     '{...zahlAnsichtHandler(schritt)}',
     "schrittRef.current({ art: 'aussen', wert: value });",
+    "starteFrist(() => schrittRef.current({ art: 'frist' }))",
   ].filter((z) => quelle.split(z).length !== 2);
   const input = quelle.slice(quelle.indexOf('<input'), quelle.indexOf('/>', quelle.indexOf('<input')));
-  ok(fehlt.length === 0 && !/\son[A-Z]\w*=\{/.test(input), 'NumberInput Verdrahtung: Handler per Spread, Wert von außen im Effekt');
+  ok(fehlt.length === 0 && !/\son[A-Z]\w*=\{/.test(input), 'NumberInput Verdrahtung: Handler per Spread, Wert von außen und Frist (E27) im Effekt');
   for (const z of fehlt) console.log(`     fehlt: ${z}`);
 }
 ```
@@ -6583,7 +6956,7 @@ export function TextInput({
 ```tsx
 import { useEffect, useId, useRef, useState } from 'react';
 import { cn } from '../lib/cn';
-import { zahlEntwurfAus, zahlSchritt, type ZahlEntwurf, type ZahlEreignis, type ZahlRegeln } from '../lib/eingabe';
+import { starteFrist, zahlEntwurfAus, zahlSchritt, type ZahlEntwurf, type ZahlEreignis, type ZahlRegeln } from '../lib/eingabe';
 import { STATUS_SYMBOL, STATUS_SYMBOL_KLASSE } from '../lib/status';
 import { EINGABE_KLASSE, useFeld, verbindeIds } from './Field';
 
@@ -6737,6 +7110,12 @@ export function NumberInput({ value, onChange, min, max, ganzzahl, ...ansicht }:
     schrittRef.current({ art: 'aussen', wert: value });
   }, [value]);
 
+  // Frist (E27): Kommt ein gemeldeter Wert nicht zurück, zeigt das Feld nach 2 s „Noch nicht übernommen.“.
+  useEffect(
+    () => (entwurf.gesendet === undefined ? undefined : starteFrist(() => schrittRef.current({ art: 'frist' }))),
+    [entwurf.gesendet],
+  );
+
   return (
     <NumberInputAnsicht {...ansicht} ganzzahl={ganzzahl} entwurf={entwurf} {...zahlAnsichtHandler(schritt)} />
   );
@@ -6786,9 +7165,9 @@ ok   NumberInput: Escape ohne Änderung bleibt frei (Panel darf schließen)
 ok   NumberInput: Enter übernimmt, andere Tasten tun nichts
 ok   NumberInput Feld-Handler: Tippen, Verlassen (onBlur) und Tasten (onKeyDown) erreichen die Ansicht
 ok   NumberInput Ansicht-Handler: jedes Ereignis als zahlSchritt, Escape über zahlTaste
-ok   NumberInput Verdrahtung: Handler per Spread, Wert von außen im Effekt
+ok   NumberInput Verdrahtung: Handler per Spread, Wert von außen und Frist (E27) im Effekt
 ```
-Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (Field|TextInput|NumberInput)"` → `25`. Gesamt nach dieser Aufgabe (gemessen): `307` `ok`-Zeilen.
+Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (Field|TextInput|NumberInput)"` → `25`. Gesamt nach dieser Aufgabe (gemessen): `319` `ok`-Zeilen.
 
 - [ ] **Step 9: Typecheck**
 
@@ -6934,6 +7313,23 @@ FAIL Field mit leerem Sperrgrund: nicht gesperrt, kein Sperrtext (gesperrt nie o
 1 FEHLGESCHLAGEN
 ```
 
+i) Ohne Frist-Effekt (ein abgelehnter Wert stünde ohne Hinweis im Feld, E27):
+Vorher (`packages/ui/src/components/NumberInput.tsx`):
+```tsx
+    () => (entwurf.gesendet === undefined ? undefined : starteFrist(() => schrittRef.current({ art: 'frist' }))),
+```
+Nachher:
+```tsx
+    () => undefined,
+```
+Run: `npm run selftest -w @jm/ui`
+Expected (Exit-Code 1):
+```
+FAIL NumberInput Verdrahtung: Handler per Spread, Wert von außen und Frist (E27) im Effekt
+     fehlt: starteFrist(() => schrittRef.current({ art: 'frist' }))
+1 FEHLGESCHLAGEN
+```
+
 Nach jeder Probe die Ersetzung zurücknehmen; `npm run selftest -w @jm/ui` → wieder `ALLE TESTS OK`.
 
 - [ ] **Step 11: Commit** (Commit-Text bewusst ohne Umlaute)
@@ -6953,17 +7349,18 @@ M  packages/ui/test/selftest.ts
 ```
 Dann:
 ```bash
-git commit -m "feat(ui): Field, TextInput und NumberInput mit Fehler- und Sperrgrund-Verknuepfung" -m "Field stellt id, aria-describedby (Hilfe, Sperre, Fehler), aria-invalid und Sperre per Kontext bereit; ein Beschriftungsstil, Fehler als Warnsymbol plus Text. Eingaben 32 px ueber --control-h. NumberInput haelt einen Text-Entwurf: nur gueltige Zahlen im Bereich werden uebernommen, sonst bleibt der Entwurf mit Fehlertext; Escape verwirft einen geaenderten Entwurf und verbraucht die Taste (zahlTaste), damit das Einstellungs-Panel offen bleibt." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(ui): Field, TextInput und NumberInput mit Fehler- und Sperrgrund-Verknuepfung" -m "Field stellt id, aria-describedby (Hilfe, Sperre, Fehler), aria-invalid und Sperre per Kontext bereit; ein Beschriftungsstil, Fehler als Warnsymbol plus Text. Eingaben 32 px ueber --control-h. NumberInput haelt einen Text-Entwurf: nur gueltige Zahlen im Bereich werden uebernommen, sonst bleibt der Entwurf mit Fehlertext; ein gemeldeter Wert wird nur einmal gemeldet, und kommt er nicht innerhalb von 2 s zurueck, steht Noch nicht uebernommen unter dem Feld; Escape verwirft einen geaenderten Entwurf und verbraucht die Taste (zahlTaste), damit das Einstellungs-Panel offen bleibt." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-**Für die Galerie (Task 23) muss zu sehen sein:** Ein `NumberInput` „Port“ (1–65535, ganzzahl, Einheit „TCP“): „abc“ tippen und Enter → „⚠ Bitte eine Zahl eingeben.“ unter dem Feld und roter Rand, der Text bleibt stehen; „70000“ → „⚠ Höchstens 65535.“; „1,5“ in einem Dezimalfeld wird als 1,5 übernommen; Escape nach einer Änderung stellt den alten Wert her. Im offenen Panel schließt dieses Escape das Panel **nicht**; ein zweites Escape (ohne Änderung) schließt es. Fokus-Ring sichtbar, Felder mit Hilfe, Sperre und Fehler je einmal.
+**Für die Galerie (Task 23) muss zu sehen sein:** Ein `NumberInput` „Port“ (1–65535, ganzzahl, Einheit „TCP“): „abc“ tippen und Enter → „⚠ Bitte eine Zahl eingeben.“ unter dem Feld und roter Rand, der Text bleibt stehen; „70000“ → „⚠ Höchstens 65535.“; „1,5“ in einem Dezimalfeld wird als 1,5 übernommen; Escape nach einer Änderung stellt den alten Wert her. Im offenen Panel schließt dieses Escape das Panel **nicht**; ein zweites Escape (ohne Änderung) schließt es. Lehnt das Tool ab (das Galerie-Beispiel „Port“ übernimmt keine Werte unter 1024): „80“ und Enter → nach etwa 2 s „⚠ Noch nicht übernommen.“, der Text bleibt; Tab aus dem Feld meldet nicht erneut; Escape stellt den alten Wert her (E27). Fokus-Ring sichtbar, Felder mit Hilfe, Sperre und Fehler je einmal.
 
-**Nachgerechnet** (Kopie wie in Task 8, `eingabe.ts` nach 9.6 nachgebaut): Step 3 rot wie angegeben; Step 8 grün mit 20 `ok`-Zeilen dieser Aufgabe; Typecheck grün; drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–10): 25 `ok`-Zeilen dieser Aufgabe, gesamt 307, Proben a–h rot mit 1, 1, 2, 1, 1, 1, 1, 1 `FAIL`. Im Probe-Bau vorhanden: `h-[var(--control-h)]`, `aria-[invalid=true]:border-[var(--status-error)]` (Selektor `[aria-invalid=true]`), `focus-visible:outline-[var(--ring)]` (`outline-color:var(--ring)`), `placeholder:text-[var(--muted-foreground)]`.
+**Nachgerechnet** (Kopie wie in Task 8, `eingabe.ts` nach 9.6 nachgebaut): Step 3 rot wie angegeben; Step 8 grün mit 20 `ok`-Zeilen dieser Aufgabe; Typecheck grün; drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–10): 25 `ok`-Zeilen dieser Aufgabe, gesamt 307, Proben a–h rot mit 1, 1, 2, 1, 1, 1, 1, 1 `FAIL`. **Zweite Nachbesserung:** frische Kopie, Plantext Tasks 1–10: 25 `ok`-Zeilen dieser Aufgabe (gesamt 319), Proben a–i rot mit 1, 1, 2, 1, 1, 1, 1, 1, 1 `FAIL`, Typprüfung grün. Im Probe-Bau vorhanden: `h-[var(--control-h)]`, `aria-[invalid=true]:border-[var(--status-error)]` (Selektor `[aria-invalid=true]`), `focus-visible:outline-[var(--ring)]` (`outline-color:var(--ring)`), `placeholder:text-[var(--muted-foreground)]`.
 
 **Abweichungen vom Gerüst:**
 1. Zusätzliche Exporte nur aus ihrer Datei (nicht aus `index.ts`): `EINGABE_KLASSE` und `verbindeIds` (Field.tsx, gemeinsam für TextInput, NumberInput, Select), `zahlTaste` und `NumberInputAnsicht`/`NumberInputAnsichtProps` (NumberInput.tsx). `zahlTaste` macht die Escape-Regel aus E8 ohne Browser testbar; `NumberInputAnsicht` macht den Fehlerzustand renderbar (unter `renderToStaticMarkup` hat der Entwurf sonst nie einen Fehler).
 2. „Eigene Props gehen vor“ gilt für `id`; `aria-describedby` wird ergänzt statt ersetzt, und die Sperre des Field gewinnt gegen `disabled={false}` der Eingabe (eine Sperre darf nicht aus Versehen aufgehoben werden).
 3. Nachbesserung nach dem Review: `zahlFeldHandler` und `zahlAnsichtHandler` (nur aus der Datei) machen die Bindung prüfbar; neue Fälle für das Zahlenfeld in einem Field mit Hilfe, Sperre und Fehler und für einen leeren Sperrgrund. Gemessen blieben vorher ein Zahlenfeld ohne Sperre/Fehler/Verweise des Field, ein Feld ohne `onBlur`/`onKeyDown` und `gesperrt: lockedReason !== undefined` grün (Proben d–h).
+4. Zweite Nachbesserung (Prüfrunde 2, E27): Effekt „Frist“ über `starteFrist` (Task 7). Die Verdrahtung prüft auch ihn (Probe i). Dass React ihn ausführt, prüft der Owner (Owner-Prüfpunkt 3).
 
 ---
 
@@ -7324,7 +7721,7 @@ ok   Select in Field: id, aria-describedby und aria-invalid
 ok   Select in Field: alle id-Verweise gültig
 ok   Select in Field mit Sperre: disabled und Sperrgrund
 ```
-Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (Toggle|Select)"` → `17`. Gesamt nach dieser Aufgabe (gemessen): `324` `ok`-Zeilen.
+Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (Toggle|Select)"` → `17`. Gesamt nach dieser Aufgabe (gemessen): `336` `ok`-Zeilen.
 
 - [ ] **Step 8: Typecheck**
 
@@ -7433,7 +7830,8 @@ git commit -m "feat(ui): Toggle (role switch) und Select (fehlender Wert bleibt 
    Fehler) und Probe 11d; vorher blieb ein Schalter ohne `aria-invalid` grün.
 
 **Nachgerechnet nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–11 maschinell eingespielt): 17 `ok`-Zeilen dieser
-Aufgabe, gesamt 324; Proben a–d rot mit 1, 4, 2, 1 `FAIL`.
+Aufgabe, gesamt 324; Proben a–d rot mit 1, 4, 2, 1 `FAIL`. Nach der zweiten Nachbesserung (Tasks 3–10 geändert):
+gesamt 336, eigene Zeilen und Proben unverändert.
 
 ---
 
@@ -7717,7 +8115,7 @@ ok   ThemeToggle: Speicher wirft → Dunkel
 ok   ThemeToggle Knopf-Props: Klick schaltet um, Zustand und Ziel im aria-label
 ok   useTheme Verdrahtung: ein Store für alle Aufrufe, <html> im Effekt, Knopf-Props per Spread
 ```
-Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (ThemeToggle|useTheme)"` → `8`. Gesamt nach dieser Aufgabe (gemessen): `332` `ok`-Zeilen.
+Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (ThemeToggle|useTheme)"` → `8`. Gesamt nach dieser Aufgabe (gemessen): `344` `ok`-Zeilen.
 
 - [ ] **Step 8: Typecheck**
 
@@ -7831,7 +8229,7 @@ git commit -m "feat(ui): useTheme und ThemeToggle - gemerkt je Tool, Dunkel als 
 
 **Für die Galerie (Task 23) muss zu sehen sein:** Ein Klick auf den `ThemeToggle` wechselt die Klasse auf `<html>` zwischen `dark` und `light` (Entwicklerwerkzeuge: genau eine der beiden), die Beschriftung zeigt danach den neuen Zustand – **auf beiden** Schaltern der Galerie (je Spalte einer). Nach Neuladen der Seite bleibt der gewählte Modus. Mit gesperrtem Speicher (z. B. privates Fenster mit blockierten Website-Daten) startet die Galerie in Dunkel ohne Fehler in der Konsole, und das Umschalten wirkt trotzdem bis zum Neuladen (Owner-Prüfpunkt 4).
 
-**Nachgerechnet** (Kopie wie in Task 8, `theme.ts` nach 9.5 nachgebaut, `browserSpeicher()` liest `window.localStorage` in `try/catch`): Step 3 rot wie angegeben; Step 7 grün mit 6 `ok`-Zeilen dieser Aufgabe; Typecheck grün; drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–12): 8 `ok`-Zeilen dieser Aufgabe, gesamt 332, Proben a–e rot mit 3, 1, 2, 1, 1 `FAIL`. Das React-Server-Rendering schreibt `style={noDragRegion}` als `style="-webkit-app-region:no-drag"` (gemessen).
+**Nachgerechnet** (Kopie wie in Task 8, `theme.ts` nach 9.5 nachgebaut, `browserSpeicher()` liest `window.localStorage` in `try/catch`): Step 3 rot wie angegeben; Step 7 grün mit 6 `ok`-Zeilen dieser Aufgabe; Typecheck grün; drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–12): 8 `ok`-Zeilen dieser Aufgabe, gesamt 332, Proben a–e rot mit 3, 1, 2, 1, 1 `FAIL` (nach der zweiten Nachbesserung gesamt 344, sonst gleich). Das React-Server-Rendering schreibt `style={noDragRegion}` als `style="-webkit-app-region:no-drag"` (gemessen).
 
 **Abweichungen vom Gerüst:**
 1. Zusätzlicher Testfall mit nachgestelltem `window.localStorage` (gemerktes „light“, Speicher wirft). Die Gliederung sah nur den Fall „unter Node → Dunkel“ vor; der fängt eine Beschriftung, die das Ziel zeigt, nur im Dunkel-Fall und einen Hook ohne Gedächtnis gar nicht (Probe 12c).
@@ -8371,7 +8769,7 @@ ok   Panel-Fokus: beim Öffnen aufs Panel; beim Schließen zurück zum ⚙ – n
 ok   Panel-Sprung: hervorheben, Anker in Sicht, nach 1500 ms enden; Aufräumen löscht die Uhr; ohne Abschnitt nur zurücksetzen
 ok   Panel Verdrahtung: Fokus- und Sprung-Effekt, Panel-Props per Spread (je genau einmal)
 ```
-Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (Panel|panelTaste|useSettingsPanel)"` → `19`. Gesamt nach dieser Aufgabe (gemessen): `351` `ok`-Zeilen.
+Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (Panel|panelTaste|useSettingsPanel)"` → `19`. Gesamt nach dieser Aufgabe (gemessen): `363` `ok`-Zeilen.
 
 - [ ] **Step 7: Typecheck**
 
@@ -8515,7 +8913,7 @@ git commit -m "feat(ui): SettingsPanel mit Sprungziel, Hervorhebung und Escape n
 
 **Für die Galerie (Task 23) muss zu sehen sein:** Öffnen über einen Statuseintrag springt zum Abschnitt und hebt ihn etwa 1,5 s mit gelbem Rand (Hell: dunklem Rand) hervor, ohne Fläche, danach verschwindet der Rand. Escape mit Fokus im Panel schließt es, der Fokus steht danach wieder auf ⚙ bzw. dem Statuseintrag; Escape mit Fokus im Inhalt schließt es nicht. Im 800-px-`iframe` liegt das Panel über dem Inhalt am rechten Rand, Kopf- und Statusleiste bleiben frei. Hinweis für die Galerie: Steht derselbe Abschnitt in der Dunkel- und der Hell-Spalte, gibt es die id `einstellung-<id>` zweimal; das Panel sucht den Anker deshalb nur in sich selbst.
 
-**Nachgerechnet** (Kopie wie in Task 8): Step 3 rot wie angegeben; Step 6 grün mit 15 `ok`-Zeilen dieser Aufgabe und ohne React-Warnung; Typecheck grün; drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–13): 19 `ok`-Zeilen dieser Aufgabe, gesamt 351, ohne React-Warnung, Proben a–g rot mit 2, 1, 2, 1, 1, 1, 1 `FAIL`. Gegenprobe zur Warnung: Ein Probe-Render mit `useLayoutEffect` gab unter `renderToStaticMarkup` „Warning: useLayoutEffect does nothing on the server …“ aus; mit der Umschaltung `typeof document` kommt keine. Im Probe-Bau vorhanden: `w-[var(--panel-w)]`, `bg-[var(--surface-raised)]`, `max-[900px]:absolute`, `rounded-[var(--radius-lg)]`, `border-[var(--tally-selected)]`, `scroll-mt-2`.
+**Nachgerechnet** (Kopie wie in Task 8): Step 3 rot wie angegeben; Step 6 grün mit 15 `ok`-Zeilen dieser Aufgabe und ohne React-Warnung; Typecheck grün; drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–13): 19 `ok`-Zeilen dieser Aufgabe, gesamt 351, ohne React-Warnung, Proben a–g rot mit 2, 1, 2, 1, 1, 1, 1 `FAIL` (nach der zweiten Nachbesserung gesamt 363, sonst gleich). Gegenprobe zur Warnung: Ein Probe-Render mit `useLayoutEffect` gab unter `renderToStaticMarkup` „Warning: useLayoutEffect does nothing on the server …“ aus; mit der Umschaltung `typeof document` kommt keine. Im Probe-Bau vorhanden: `w-[var(--panel-w)]`, `bg-[var(--surface-raised)]`, `max-[900px]:absolute`, `rounded-[var(--radius-lg)]`, `border-[var(--tally-selected)]`, `scroll-mt-2`.
 
 **Abweichungen vom Gerüst:**
 1. Fokus-Rückgabe auf das Element, das vor dem Öffnen den Fokus hatte (⚙ **oder** der Statuseintrag, über den geöffnet wurde), statt fest auf ⚙ (E8). Das ⚙ ist über `aria-controls` nicht verlässlich zu finden, weil es `aria-controls` nur bei offenem Panel trägt (Task 14) und React es beim Schließen vor dem Panel-Abbau entfernt.
@@ -8850,7 +9248,7 @@ ok   Header ⚙: aria-expanded, aria-controls nur bei offenem Panel, aria-label 
 ok   Header ⚙: type=button, Größe --control-h
 ok   Header ⚙: Symbol aria-hidden (Name kommt aus aria-label)
 ```
-Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   Header"` → `12`. Gesamt nach dieser Aufgabe (gemessen): `363` `ok`-Zeilen.
+Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   Header"` → `12`. Gesamt nach dieser Aufgabe (gemessen): `375` `ok`-Zeilen.
 
 - [ ] **Step 7: Typecheck**
 
@@ -8938,7 +9336,7 @@ git commit -m "feat(ui): AppHeader - Ziehflaeche mit Mac-Freiraum, On-Air-Anzeig
 2. Test-Haken als Datenattribute: `data-zahnrad`, `data-onair="live|bereit"`, `data-bereich="mitte"`.
 3. Nachbesserung nach dem Review: ⚙ offen bzw. Hover mit Fläche `--muted` statt `--highlight` (E23); Rand
    `--tally-selected` bleibt das Zeichen für „offen“. Nach der Nachbesserung gemessen: 12 `ok`-Zeilen dieser Aufgabe,
-   gesamt 363, Proben a–c rot mit 1, 1, 1 `FAIL`.
+   gesamt 363, Proben a–c rot mit 1, 1, 1 `FAIL` (nach der zweiten Nachbesserung gesamt 375, sonst gleich).
 
 ---
 
@@ -9272,7 +9670,7 @@ ok   zahnradKlick → onSettingsChange(!open), ohne Abschnitt
 ok   Shell Zustand ohne Sitzung: status [], keine settings → Rahmen mit Uhr
 ok   Shell: Übergänge nur motion-safe, kein animate-
 ```
-Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (Shell|statusKlick|zahnradKlick)"` → `18`. Block B zusammen: `grep -cE "^ok   (StatusPill|StatusBar|Tally|Field|TextInput|NumberInput|Toggle|Select|ThemeToggle|useTheme|Panel|panelTaste|useSettingsPanel|Header|Shell|statusKlick|zahnradKlick)"` → `157`. Gesamt nach dieser Aufgabe (gemessen): `381` `ok`-Zeilen (224 aus Block A + 157).
+Zählen: `npm run selftest -w @jm/ui | grep -cE "^ok   (Shell|statusKlick|zahnradKlick)"` → `18`. Block B zusammen: `grep -cE "^ok   (StatusPill|StatusBar|Tally|Field|TextInput|NumberInput|Toggle|Select|ThemeToggle|useTheme|Panel|panelTaste|useSettingsPanel|Header|Shell|statusKlick|zahnradKlick)"` → `159`. Gesamt nach dieser Aufgabe (gemessen): `393` `ok`-Zeilen (234 aus Block A + 159).
 
 - [ ] **Step 7: Typecheck**
 
@@ -9360,7 +9758,7 @@ git commit -m "feat(ui): AppShell - Kopfzeile, Werkzeugleiste, Inhalt mit Einste
 
 **Für die Galerie (Task 23) muss zu sehen sein:** `ShellSeite` in den `iframe`s mit 1200 px und 800 px Breite: Panel zu und offen (1200 px: der Inhalt wird schmaler; 800 px: das Panel liegt über dem Inhalt), Kopf- und Statusleiste bleiben in beiden Fällen ganz sichtbar; `dichte=kompakt` mit 36 px Kopf- und 24 px Statusleiste; Klick auf einen Statuseintrag öffnet das Panel beim Abschnitt; ⚙ öffnet und schließt; der Rahmen ohne Sitzung (leere Statusleiste mit Uhr, kein ⚙).
 
-**Nachgerechnet** (Kopie wie in Task 8): Step 3 rot wie angegeben; Step 6 grün mit 18 `ok`-Zeilen dieser Aufgabe, Block B zusammen 134 `ok`-Zeilen (dazu in der Kopie 7 Zeilen der nachgebauten Quellregeln, Gesamtlauf 141 `ok`, keine React-Warnung); Typecheck grün; drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–15): 18 `ok`-Zeilen dieser Aufgabe, Block B zusammen 157, gesamt 381, Proben a–c rot mit 1, 1, 1 `FAIL`. Der Probe-Bau (`vite build` mit `react()` und `tailwindcss()`, CSS `@import "tailwindcss"; @import "../src/base.css"; @source "../src";`) fand alle 42 geprüften Klassen von Block B im CSS, dazu die Definition von `--tally-live` und die Regel `[data-dichte="kompakt"]`.
+**Nachgerechnet** (Kopie wie in Task 8): Step 3 rot wie angegeben; Step 6 grün mit 18 `ok`-Zeilen dieser Aufgabe, Block B zusammen 134 `ok`-Zeilen (dazu in der Kopie 7 Zeilen der nachgebauten Quellregeln, Gesamtlauf 141 `ok`, keine React-Warnung); Typecheck grün; drei Mutationsproben rot wie angegeben, danach wieder grün. **Nach der Nachbesserung** (frische Kopie, Plantext Tasks 1–15): 18 `ok`-Zeilen dieser Aufgabe, Block B zusammen 157, gesamt 381, Proben a–c rot mit 1, 1, 1 `FAIL` (nach der zweiten Nachbesserung Block B 159, gesamt 393, Proben gleich). Der Probe-Bau (`vite build` mit `react()` und `tailwindcss()`, CSS `@import "tailwindcss"; @import "../src/base.css"; @source "../src";`) fand alle 42 geprüften Klassen von Block B im CSS, dazu die Definition von `--tally-live` und die Regel `[data-dichte="kompakt"]`.
 
 **Abweichungen vom Gerüst:**
 1. `settings={false}` und `settings={null}` zählen wie ein fehlendes `settings` (ein Tool schreibt leicht `settings={bedingung && <…/>}`).
@@ -9394,7 +9792,8 @@ Gemeinsam für Block C:
   Bausteine: Derselbe Endstand von `packages/settings` lief zusätzlich gegen `packages/ui` aus der Messkopie des
   Block-B-Schreibers (`kopie-b`, Bausteine aus Tasks 8–15 samt deren Grundlagen) – damals 301 × `ok`, `ALLE TESTS OK`, `tsc`
   für `@jm/settings` ohne Meldung. Nach der Nachbesserung (Review) neu gemessen, Plantext Tasks 1–22 maschinell in eine
-  frische Kopie: Zählstände 1, 31, 44, 90, 131, 190, 237, 289, 323, jede Mutation rot wie angegeben.
+  frische Kopie: Zählstände 1, 31, 44, 90, 131, 190, 237, 289, 323, jede Mutation rot wie angegeben. Nach der zweiten
+  Nachbesserung (Tasks 16, 17, 18, 20, 21 geändert) ebenso: 1, 31, 45, 94, 136, 195, 243, 295, 329.
 
 ---
 
@@ -9435,6 +9834,7 @@ bestehende `SettingsSection`.
     gesperrtVomMaster: 'Vom Master vorgegeben';
     gesperrt: (grund: string) => string;            // Zusatz: „Gesperrt: {grund}“
     bitteWaehlen: '– bitte wählen –';               // Zusatz: Platzhalter, wenn '' keine echte Option ist
+    nochNichtUebernommen: 'Noch nicht übernommen.'; // Zusatz (E27): Text-Entwurf nach der Frist (Task 17)
   };
   export function st(state: AbschnittZustand, text: string): SectionStatus;   // wirft bei 'live'
   export const STATUS_UNBEKANNT: SectionStatus;                               // { state: 'off', text: 'unbekannt' }, eingefroren
@@ -9470,6 +9870,10 @@ bestehende `SettingsSection`.
 - Das Paket importiert `@jm/control-config` nur per `import type`, nutzt kein `window`, `document`, `navigator`,
   `globalThis`, `process.`, kein `electron` und kein `node:`. Alle festen Texte stehen in `vertrag.ts` bzw. in den
   `…_TEXTE` der Abschnitte; `.tsx`-Dateien enthalten keine Wörter als JSX-Text.
+- Die Quellregeln (Step 8) gelten wie in Task 3 auch hier: keine rohen Farben, keine zusammengesetzten Klassen, keine
+  Kurzform `…-(--…)`, jede `var(--…)` in `@jm/ui` definiert, Statusfarbe nie als Schrift, kein `--highlight`, Übergänge nur
+  `motion-safe` und höchstens 150 ms. Dazu: keine Text-Prop in den Abschnitts-Props (Name auf …titel/…text/…label oder
+  `string` außerhalb der Daten-Liste), Ausnahmen nur die drei aus E25.
 - **tsconfig mit `../ui/src` im `include`:** tsx wendet die `compilerOptions` einer tsconfig nur auf Dateien an, die
   deren `include` erfasst. Ohne `../ui/src` übersetzt tsx die `@jm/ui`-Komponenten mit dem klassischen JSX-Transform,
   und der Test bricht mit `ReferenceError: React is not defined` ab (gemessen, Step 4). `tsc` prüft die `@jm/ui`-Quellen
@@ -9761,6 +10165,7 @@ import { bewegungsVerstoesse, fallText, kreuz, sperrZaehlung } from './hilfe';
       aus: 'aus',
       gesperrtVomMaster: 'Vom Master vorgegeben',
       bitteWaehlen: '– bitte wählen –',
+      nochNichtUebernommen: 'Noch nicht übernommen.',
     },
     'Vertrag: ABSCHNITT_TEXTE wörtlich (ohne Funktionen)',
   );
@@ -9886,6 +10291,7 @@ export const ABSCHNITT_TEXTE = {
   gesperrtVomMaster: 'Vom Master vorgegeben',
   gesperrt: (grund: string) => `Gesperrt: ${grund}`,
   bitteWaehlen: '– bitte wählen –',
+  nochNichtUebernommen: 'Noch nicht übernommen.',
 } as const;
 
 /** Status eines Abschnitts bauen. Wirft bei `live` (Spec 7.4), auch wenn der Typ umgangen wird. */
@@ -10073,6 +10479,9 @@ regel(
   ],
   'Quellregel settings: keine zusammengesetzten Klassen',
 );
+// Wie Regel 9 in packages/ui (Task 3): Tailwind v4 kennt die Kurzform `bg-(--x)` für `bg-[var(--x)]`; sie liefe an den
+// Regeln vorbei, die `var(--` suchen.
+regel(treffer(/\b[\w:-]+-\(\s*--/), 'Quellregel settings: Tokens nur als …-[var(--…)], keine Kurzform …-(--…) (Tailwind v4)');
 {
   const definiert = new Set<string>();
   for (const datei of UI_TOKENS) {
@@ -10098,24 +10507,36 @@ regel(
   [
     ...treffer(/\banimate-|(?<!motion-safe:)(?<!motion-reduce:)\btransition(-[a-z]+)?\b(?=[\s'"`])/),
     ...treffer(/motion-reduce:(?!transition-none\b)/),
+    // Dauer wie in packages/ui (Task 3, G8): duration-<n> höchstens 150, kein duration-[…]
+    ...treffer(/\bduration-\[|\bduration-(?:15[1-9]|1[6-9]\d|[2-9]\d\d|\d{4,})\b/),
   ],
-  'Quellregel settings: Übergänge nur motion-safe (motion-reduce nur als transition-none für den Bestands-Button), kein animate-',
+  'Quellregel settings: Übergänge nur motion-safe und höchstens 150 ms (motion-reduce nur als transition-none für den Bestands-Button), kein animate-',
 );
 regel(treffer(/import\s+(?!type\b)[^;]*from\s+['"]@jm\/control-config['"]/), 'Quellregel settings: @jm/control-config nur per import type');
 {
-  // Spec 6.1: Texte fest im Paket. Gesucht wird jede Prop, deren Name auf titel/title/text/texte/label/labels endet
-  // (also auch `backLabel`). Einzige Ausnahme: DataLinkSectionProps.backLabel (E25, fertiger Knopftext der App).
-  const AUSNAHMEN = new Set(['DataLinkSectionProps.backLabel']);
+  // Spec 6.1: Texte fest im Paket. Als Text-Prop gilt jede Prop der Abschnitts-Props, deren Name auf
+  // titel/title/text/texte/label/labels endet (jeder Typ, also auch `backLabel`), und jede Prop vom Typ string, die
+  // nicht in DATEN steht (Namen, Werte, Pfade und Zeitstempel des Tools). Ausgenommen sind nur die drei fertigen Texte
+  // der App aus E25. Eine neue string-Prop muss also bewusst als Daten-Prop eingetragen werden.
+  const DATEN = new Set([
+    'NdiOutputSectionProps.sourceName', 'NdiOutputSectionProps.networkName', 'NdiOutputSectionProps.resolution',
+    'NdiOutputSectionProps.fps', 'ScreenOutputSectionProps.background', 'RemoteControlSectionProps.companionModule',
+    'IveoSectionProps.eventName', 'IveoSectionProps.stage', 'IveoSectionProps.staleSince',
+    'DataLinkSectionProps.folder', 'DataLinkSectionProps.lastChange',
+  ]);
+  const AUSNAHMEN = new Set(['DataLinkSectionProps.sourceLine', 'DataLinkSectionProps.notice', 'DataLinkSectionProps.backLabel']);
   const mitText: string[] = [];
   for (const [p, t] of TEXT) {
     for (const m of t.matchAll(/export interface (\w+SectionProps) extends SectionInput \{([\s\S]*?)\n\}/g)) {
-      for (const prop of m[2].matchAll(/(?:^|[;{\n])\s*(\w+)\??\s*[:(]/g)) {
+      for (const prop of m[2].matchAll(/(?:^|[;{\n])\s*(\w+)\??\s*(?::\s*([^;\n]*)|\()/g)) {
         const name = `${m[1]}.${prop[1]}`;
-        if (/(titel|title|text|texte|label|labels)$/i.test(prop[1]) && !AUSNAHMEN.has(name)) mitText.push(`${p}: ${name}`);
+        const nachName = /(titel|title|text|texte|label|labels)$/i.test(prop[1]);
+        const freierText = /^string\b/.test((prop[2] ?? '').trim()) && !DATEN.has(name);
+        if ((nachName || freierText) && !AUSNAHMEN.has(name)) mitText.push(`${p}: ${name}`);
       }
     }
   }
-  regel(mitText, 'Quellregel settings: keine Text-Prop (…titel, …text, …label) in den Abschnitts-Props außer E25 (Spec 6.1)');
+  regel(mitText, 'Quellregel settings: keine Text-Prop in den Abschnitts-Props (Name …titel/…text/…label oder string außerhalb der Daten-Liste) außer E25 (Spec 6.1)');
 }
 regel(
   treffer(/(?<![=-])>\s*[A-Za-zÄÖÜäöüß][^<>{}]*[<{]/, (p) => p.endsWith('.tsx')),
@@ -10136,15 +10557,17 @@ abschluss();
 ```
 npm run selftest -w @jm/settings
 ```
-Erwartet (gemessen): 44 Zeilen `ok`, keine `FAIL`, `ALLE TESTS OK`, Exitcode 0. Neu unter anderem:
+Erwartet (gemessen): 45 Zeilen `ok`, keine `FAIL`, `ALLE TESTS OK`, Exitcode 0. Neu unter anderem:
 ```
 ok   Quellregel settings: Dateiliste gelesen (3 Dateien)
 ok   Quellregel settings: jede var(--…) ist in @jm/ui definiert
 ok   Quellregel settings: @jm/control-config nur per import type
-ok   Quellregel settings: keine Text-Prop (…titel, …text, …label) in den Abschnitts-Props außer E25 (Spec 6.1)
+ok   Quellregel settings: Tokens nur als …-[var(--…)], keine Kurzform …-(--…) (Tailwind v4)
+ok   Quellregel settings: Übergänge nur motion-safe und höchstens 150 ms (motion-reduce nur als transition-none für den Bestands-Button), kein animate-
+ok   Quellregel settings: keine Text-Prop in den Abschnitts-Props (Name …titel/…text/…label oder string außerhalb der Daten-Liste) außer E25 (Spec 6.1)
 ok   Quellregel settings: keine festen Texte in .tsx (Texte stehen in vertrag.ts bzw. …_TEXTE)
 ```
-Die Regeln sind hier schon grün, weil der Code sie einhält; dass sie greifen, zeigt die Mutationsprobe (Step 10, M2, M7–M10).
+Die Regeln sind hier schon grün, weil der Code sie einhält; dass sie greifen, zeigt die Mutationsprobe (Step 10, M2, M7–M13).
 
 - [ ] **Step 9: Typprüfung**
 
@@ -10286,14 +10709,53 @@ export interface ProbeSectionProps extends SectionInput {
   hinweisText?: string;
 }
 ```
-Erwartet: `FAIL Quellregel settings: keine Text-Prop (…titel, …text, …label) in den Abschnitts-Props außer E25 (Spec 6.1)`. Detail: `in: src/vertrag.ts: ProbeSectionProps.hinweisText`.
+Erwartet: `FAIL Quellregel settings: keine Text-Prop in den Abschnitts-Props (Name …titel/…text/…label oder string außerhalb der Daten-Liste) außer E25 (Spec 6.1)`. Detail: `in: src/vertrag.ts: ProbeSectionProps.hinweisText`.
+
+**M11 · Übergang länger als 150 ms** (`packages/settings/src/SectionFrame.tsx`; zweite Prüfrunde: die Regel prüfte keine
+Dauer). Vorher:
+```tsx
+          <p data-fehler="true" className="border-l-2 border-[var(--status-error)] pl-2 text-xs text-[var(--foreground)] select-text">
+```
+Nachher:
+```tsx
+          <p data-fehler="true" className="border-l-2 border-[var(--status-error)] pl-2 text-xs text-[var(--foreground)] select-text motion-safe:transition-colors motion-safe:duration-300">
+```
+Erwartet: `FAIL Quellregel settings: Übergänge nur motion-safe und höchstens 150 ms (motion-reduce nur als transition-none für den Bestands-Button), kein animate-`. Detail: `in: src/SectionFrame.tsx`.
+
+**M12 · Tailwind-Kurzform `…-(--…)`** (`packages/settings/src/SectionFrame.tsx`). Vorher:
+```tsx
+          <p data-fehler="true" className="border-l-2 border-[var(--status-error)] pl-2 text-xs text-[var(--foreground)] select-text">
+```
+Nachher:
+```tsx
+          <p data-fehler="true" className="border-l-2 border-(--status-error) pl-2 text-xs text-(--status-error) select-text">
+```
+Erwartet: `FAIL Quellregel settings: Tokens nur als …-[var(--…)], keine Kurzform …-(--…) (Tailwind v4)`, sonst keine Regel (auch `text-(--status-error)` fällt der Regel gegen Statusfarbe als Schrift nicht auf). Detail: `in: src/SectionFrame.tsx`.
+
+**M13 · Freier Text in einer string-Prop ohne verräterischen Namen** (`packages/settings/src/vertrag.ts`; zweite
+Prüfrunde: die alte Regel sah nur die Namensendung). Vorher:
+```ts
+    settingsSection: view.id,
+  };
+}
+```
+Nachher:
+```ts
+    settingsSection: view.id,
+  };
+}
+export interface ProbeSectionProps extends SectionInput {
+  meldung?: string;
+}
+```
+Erwartet: `FAIL Quellregel settings: keine Text-Prop in den Abschnitts-Props (Name …titel/…text/…label oder string außerhalb der Daten-Liste) außer E25 (Spec 6.1)`. Detail: `in: src/vertrag.ts: ProbeSectionProps.meldung`.
 
 Nach der letzten Probe:
 ```
 git status --short
 npm run selftest -w @jm/settings
 ```
-Erwartet: nur Zeilen mit leerer zweiter Spalte (siehe Step 11) und wieder 44 × `ok`, `ALLE TESTS OK`.
+Erwartet: nur Zeilen mit leerer zweiter Spalte (siehe Step 11) und wieder 45 × `ok`, `ALLE TESTS OK`.
 
 - [ ] **Step 11: Commit** (im Bash-Werkzeug / Git Bash; Commit-Text ohne Umlaute)
 
@@ -10337,12 +10799,21 @@ git commit -m "feat(settings): Paket @jm/settings - Vertrag, SectionFrame, Selbs
 - Step 2 beim Zusammensetzen auf denselben Lockfile-Weg wie Task 1 und 23 umgestellt (`--package-lock-only --offline`, Z2)
   und gemessen. Der Schreiber hatte ein volles `npm install --ignore-scripts` vorgesehen (nicht gemessen); das hätte im
   Worktree auch `node_modules` umgebaut, ohne dass der Plan den Link braucht.
+- Zweite Nachbesserung (Prüfrunde 2): Die Quellregeln dieser Aufgabe sind an die von `packages/ui` angeglichen, wo sie
+  auseinandergelaufen waren: Dauer `duration-<n>` ≤ 150 und kein `duration-[…]` (G8; vorher blieb `duration-300` grün,
+  M11) und die Kurzform `…-(--…)` (Regel 9 aus Task 3; M12). Die Regel gegen Text-Props erfasst zusätzlich jede
+  `string`-Prop außerhalb einer Daten-Liste (vorher sah sie nur die Namensendung, `sourceLine`, `notice` oder eine neue
+  `meldung` kamen durch; M13), die Ausnahmen aus E25 stehen ausdrücklich da. `ABSCHNITT_TEXTE.nochNichtUebernommen` (E27,
+  Task 17). Eine gemeinsame Regel-Datei für beide Pakete gibt es weiterhin nicht: Die Regeln laufen über verschiedene
+  Hilfen (`suche` mit Zeilennummern in `packages/ui`, `treffer` je Datei hier), und `@jm/settings` dürfte Testcode aus
+  `packages/ui/test` nur über einen weiteren Paket-Export lesen. Die Regeln stehen deshalb in beiden Dateien, mit derselben
+  Wirkung; die Regeln hier verweisen auf Task 3.
 
 **Nachgerechnet** (Kopie `kopie-c2` des Stands `5a14352934`, `node_modules` per Junction auf den Worktree,
 `packages/settings/node_modules/@jm/ui` per Junction auf die Kopie-`packages/ui`; dort Block A/B als Stand-ins nach 9.1–9.8:
 `test/harness.ts`, `tsconfig.json`, `lib/texte.ts`, `lib/status.ts`, `lib/eingabe.ts`, `StatusPill`, `Field`, `TextInput`,
 `NumberInput`, `Toggle`, `Select`, `PanelAnker`, Token-Dateien aus Task 3; tsx 4.22.4, TypeScript 5.9.3, React 18.3.1, Node 24;
-alle Code-Schritte wörtlich aus diesem Text eingespielt): Step 3 grün mit 1 × `ok`; Gegenprobe Step 4 rot mit `ReferenceError: React is not defined` in `packages/ui/src/components/StatusPill.tsx:9` (Zeile des Stand-ins); Step 5 rot mit `ERR_MODULE_NOT_FOUND … packages/settings/src/index`; Step 7 grün mit 30 × `ok`; Step 8 grün mit 42 × `ok`; Typprüfung `@jm/settings` und `@jm/ui` ohne Meldung. Mutationsprobe M1–M8 je rot mit genau den genannten Zeilen (2, 1, 2, 1, 2, 1, 1, 1 FAIL), danach wieder 42 × `ok`. Nach der Nachbesserung (Review: Hilfe `bewegungsVerstoesse`, Regeln „kein `--highlight`“, Template-Klassen, Text-Props) neu gemessen in einer frischen Kopie mit dem Plantext der Tasks 1–16: Step 7 grün mit 31 × `ok`, Step 8 grün mit 44 × `ok`, Mutationsprobe M1–M10 je rot (2, 1, 2, 1, 2, 1, 1, 1, 2, 1 FAIL). Vor dem Einspielen ins Gerüst zusätzlich gemessen: Das frühere Muster `window.jm` ließ `(window as any).jmps` durch (grün) – daher die strengere Umgebungsregel. Nicht gemessen: die `git`-Schritte. Step 2 ist beim Zusammensetzen in einer abgetrennten Kopie ohne `node_modules` gemessen (Ausgabe dort).
+alle Code-Schritte wörtlich aus diesem Text eingespielt): Step 3 grün mit 1 × `ok`; Gegenprobe Step 4 rot mit `ReferenceError: React is not defined` in `packages/ui/src/components/StatusPill.tsx:9` (Zeile des Stand-ins); Step 5 rot mit `ERR_MODULE_NOT_FOUND … packages/settings/src/index`; Step 7 grün mit 30 × `ok`; Step 8 grün mit 42 × `ok`; Typprüfung `@jm/settings` und `@jm/ui` ohne Meldung. Mutationsprobe M1–M8 je rot mit genau den genannten Zeilen (2, 1, 2, 1, 2, 1, 1, 1 FAIL), danach wieder 42 × `ok`. Nach der Nachbesserung (Review: Hilfe `bewegungsVerstoesse`, Regeln „kein `--highlight`“, Template-Klassen, Text-Props) neu gemessen in einer frischen Kopie mit dem Plantext der Tasks 1–16: Step 7 grün mit 31 × `ok`, Step 8 grün mit 44 × `ok`, Mutationsprobe M1–M10 je rot (2, 1, 2, 1, 2, 1, 1, 1, 2, 1 FAIL). Vor dem Einspielen ins Gerüst zusätzlich gemessen: Das frühere Muster `window.jm` ließ `(window as any).jmps` durch (grün) – daher die strengere Umgebungsregel. Nicht gemessen: die `git`-Schritte. Step 2 ist beim Zusammensetzen in einer abgetrennten Kopie ohne `node_modules` gemessen (Ausgabe dort). Zweite Nachbesserung: frische Kopie, Plantext Tasks 1–16: Step 8 grün mit 45 × `ok`, Mutationsprobe M1–M13 je rot (2, 1, 2, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1 FAIL), Typprüfung beider Pakete grün. Gegenprobe mit den Quellregeln der ersten Nachbesserung (Test-Datei aus jener Fassung, sonst Endstand): M11, M12 und M13 blieben `ALLE TESTS OK`, die alte Regel ließ sie also durch; ebenso die Kurzform-Probe 3j aus Task 3 gegen die alte Regel dort.
 
 ---
 ### Task 17: `NdiOutputSection`
@@ -10360,7 +10831,7 @@ Transparenz*“), 7.1–7.4. Plan: E2 („an (ohne Rückmeldung)“ = `warn`), G
 
 **Interfaces:**
 - Consumes: 9.9 (`SectionInput`, `SectionBase`, `ABSCHNITT_TEXTE`, `st`, `fehlerStatus`, `hatFehler`, `istGesperrt`,
-  `SectionFrame`, `Anzeige`); aus `@jm/ui`: `zahlText`, `type SelectOption`, `Field({ label, hint })`,
+  `SectionFrame`, `Anzeige`); aus `@jm/ui`: `zahlText`, `starteFrist` (Task 7, E27), `type SelectOption`, `Field({ label, hint, error })`,
   `TextInput({ value, onChange, onBlur, onKeyDown, disabled })`, `Toggle({ checked, onChange, disabled })`,
   `Select({ options, value, placeholder, onChange, disabled })`; Testhilfen aus `test/hilfe.ts`.
 - Produces (Props wörtlich 9.10):
@@ -10386,10 +10857,16 @@ Transparenz*“), 7.1–7.4. Plan: E2 („an (ohne Rückmeldung)“ = `warn`), G
   export function ndiOutputView(p: NdiOutputSectionProps): NdiOutputView;
   // packages/settings/src/abschnitte/NdiOutputSection.tsx
   export function NdiOutputSection(p: NdiOutputSectionProps): React.JSX.Element;
-  // packages/settings/src/entwurf.ts (intern, nicht in index.ts)
-  export interface TextEntwurf { value: string; onChange(value: string): void; onBlur(): void; onKeyDown(e: KeyboardEvent<HTMLInputElement>): void }
-  export function useTextEntwurf(wert: string, uebernehmen: (neu: string) => void): TextEntwurf;
-  export function textAussen(entwurf: string, alt: string, neu: string): string;   // Wert von außen: wie zahlSchritt 'aussen'
+  // packages/settings/src/entwurf.ts (intern, nicht in index.ts; E27)
+  export interface TextFeld { value: string; onChange(value: string): void; onBlur(): void; onKeyDown(e: KeyboardEvent<HTMLInputElement>): void }
+  export interface TextEntwurf { feld: TextFeld; fehler?: string }          // feld per Spread an TextInput, fehler an Field
+  export interface TextZustand { text: string; geaendert: boolean; gesendet?: string; fehler?: string }
+  export type TextEreignis = { art: 'tippen'; text: string } | { art: 'uebernehmen' } | { art: 'verwerfen' }
+    | { art: 'aussen'; wert: string } | { art: 'frist' };
+  export function textZustandAus(wert: string): TextZustand;
+  export function textSchritt(z: TextZustand, e: TextEreignis, wert: string, gueltig?: (neu: string) => boolean):
+    { z: TextZustand; neu?: string; verbraucht: boolean };                  // dieselben Regeln wie zahlSchritt (Task 7)
+  export function useTextEntwurf(wert: string, uebernehmen: (neu: string) => void, gueltig?: (neu: string) => boolean): TextEntwurf;
   ```
 
 **Verhalten (verbindlich):**
@@ -10405,9 +10882,16 @@ Transparenz*“), 7.1–7.4. Plan: E2 („an (ohne Rückmeldung)“ = `warn`), G
   Bildrate (`Select`, nur mit der jeweiligen Capability, Platzhalter „– bitte wählen –“) · Transparenz (`Toggle`, nur mit
   Capability). Fehlende Capability blendet aus, graut nicht aus.
 - Der Name gilt erst bei Enter oder beim Verlassen (`useTextEntwurf`): Ein NDI-Sender startet sonst je Tastendruck neu.
-  Escape verwirft einen geänderten Entwurf und verbraucht die Taste (`preventDefault`, `stopPropagation`; Plan E8). Ein
-  neuer Wert von außen ersetzt einen angefangenen Entwurf **nicht** (`textAussen`, dieselbe Regel wie `zahlSchritt`
-  `'aussen'` in Task 7): Er folgt nur, wenn der Entwurf unverändert war oder schon dem neuen Wert entspricht.
+  Escape verwirft einen geänderten Entwurf und verbraucht die Taste (`preventDefault`, `stopPropagation`; Plan E8). Die
+  Schritte rechnet die reine Funktion `textSchritt` mit denselben Regeln wie `zahlSchritt` in Task 7 (E27):
+  - Ein neuer Wert von außen ersetzt einen angefangenen Entwurf **nicht**; er folgt nur, wenn der Entwurf unverändert war,
+    schon gemeldet ist (das Tool hat geantwortet) oder schon dem neuen Wert entspricht.
+  - Ein geänderter Text wird genau einmal gemeldet; ein zweites Verlassen meldet ihn nicht noch einmal.
+  - Bleibt die Antwort `UEBERNAHME_FRIST_MS` aus (Effekt mit `starteFrist`), steht „⚠ Noch nicht übernommen.“ als Fehler
+    am Feld (`Field` `error`), der Text bleibt.
+  - `gueltig` (Task 18: Farbe `#RRGGBB`) verhindert, dass ein ungültiger Text gemeldet wird.
+  Der Zustand liegt wie bei `NumberInput` in einer Ref, die jeder Schritt sofort schreibt; kein Updater liest eine Ref, die
+  danach überschrieben wird (Review-Befund der zweiten Runde zur ersten Nachbesserung).
 - `capabilities`: Jedes Feld erscheint genau dann, wenn **seine** Capability gesetzt ist (Kreuzprodukt über alle 32
   Kombinationen; dazu je Capability allein ein Render-Fall). Auch „Ausgabe an/aus“ hängt an `capabilities.toggle`, obwohl
   Spec 6.2 es ohne `*` nennt (E24: kein Tool hat heute einen NDI-Schalter in den Einstellungen).
@@ -10422,7 +10906,7 @@ Transparenz*“), 7.1–7.4. Plan: E2 („an (ohne Rückmeldung)“ = `warn`), G
 // NdiOutputSection (Spec 6.2, 7): Ableitung als Kreuzprodukt, Darstellung je capabilities, Sperre, Fehler.
 import { enthaelt, enthaeltNicht, gleich, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import { abschnittStatusItem, NDI_TEXTE, NdiOutputSection, ndiOutputView, type NdiOutputSectionProps, type SectionStatus } from '../src/index';
-import { textAussen } from '../src/entwurf';
+import { textSchritt, textZustandAus } from '../src/entwurf';
 import { leseText } from '@jm/ui/testhilfe';
 import { bewegungsVerstoesse, kreuz, nachLetztem, pruefeFaelle, sperrZaehlung, statusText, vergleiche, vor } from './hilfe';
 
@@ -10573,16 +11057,49 @@ const alle: NdiOutputSectionProps = {
   );
   gleich(item.detail, 'an (ohne Rückmeldung)', 'NDI: Statusleiste zeigt „an (ohne Rückmeldung)“');
 }
-// Text-Entwurf: ein neuer Wert von außen ersetzt keinen angefangenen Entwurf (wie zahlSchritt 'aussen', Task 7)
+// Text-Entwurf (E27, dieselben Regeln wie zahlSchritt in Task 7): Wert von außen, einmal melden, Frist, gültig, Escape
 {
+  const z0 = textZustandAus('JM Titler');
   gleich(
-    [textAussen('JM Titler', 'JM Titler', 'REGIE'), textAussen('JM Tit', 'JM Titler', 'REGIE'), textAussen('REGIE ', 'JM Titler', 'REGIE')],
+    [
+      textSchritt(z0, { art: 'aussen', wert: 'REGIE' }, 'JM Titler').z.text,
+      textSchritt({ text: 'JM Tit', geaendert: true }, { art: 'aussen', wert: 'REGIE' }, 'JM Titler').z.text,
+      textSchritt({ text: 'REGIE ', geaendert: true }, { art: 'aussen', wert: 'REGIE' }, 'JM Titler').z.text,
+    ],
     ['REGIE', 'JM Tit', 'REGIE'],
     'Text-Entwurf: Wert von außen folgt nur ohne angefangenen Entwurf (oder wenn der Entwurf ihm schon entspricht)',
   );
+  const gemeldet = textSchritt({ text: 'REGIE', geaendert: true }, { art: 'uebernehmen' }, 'JM Titler');
+  const nochmal = textSchritt(gemeldet.z, { art: 'uebernehmen' }, 'JM Titler');
+  gleich(
+    [gemeldet.neu, gemeldet.z, nochmal.neu],
+    ['REGIE', { text: 'REGIE', geaendert: true, gesendet: 'REGIE' }, undefined],
+    'Text-Entwurf: Enter oder Verlassen meldet einen geänderten Text genau einmal (kein Neustart je Fokuswechsel)',
+  );
+  const frist = textSchritt(gemeldet.z, { art: 'frist' }, 'JM Titler');
+  gleich(
+    [frist.z.fehler, frist.z.text, textSchritt(frist.z, { art: 'aussen', wert: 'REGIE-PC' }, 'REGIE-PC').z, textSchritt(z0, { art: 'frist' }, 'JM Titler').z],
+    ['Noch nicht übernommen.', 'REGIE', { text: 'REGIE-PC', geaendert: false }, z0],
+    'Text-Entwurf: ohne Antwort nach der Frist „Noch nicht übernommen.“, der Text bleibt; die Antwort des Tools schließt den Entwurf',
+  );
+  const farbe = (t: string): boolean => /^#[0-9a-fA-F]{6}$/.test(t);
+  gleich(
+    [
+      textSchritt({ text: '#12', geaendert: true }, { art: 'uebernehmen' }, '#000000', farbe).neu,
+      textSchritt({ text: 'REG', geaendert: true }, { art: 'verwerfen' }, 'JM Titler'),
+      textSchritt(z0, { art: 'verwerfen' }, 'JM Titler').verbraucht,
+    ],
+    [undefined, { z: { text: 'JM Titler', geaendert: false }, verbraucht: true }, false],
+    'Text-Entwurf: ungültiger Text wird nicht gemeldet; Escape verwirft einen geänderten Entwurf und gehört dann dem Feld',
+  );
+  const entwurf = leseText('src/entwurf.ts');
+  const ndi = leseText('src/abschnitte/NdiOutputSection.tsx');
   ok(
-    leseText('src/entwurf.ts').split('setEntwurf((e) => textAussen(e, vorher.current, wert));').length === 2,
-    'Text-Entwurf Verdrahtung: der Effekt für Werte von außen nutzt textAussen',
+    entwurf.split("schrittRef.current({ art: 'aussen', wert });").length === 2 &&
+      entwurf.split("starteFrist(() => schrittRef.current({ art: 'frist' }))").length === 2 &&
+      ndi.includes('error={name.fehler}') &&
+      ndi.includes('<TextInput {...name.feld} disabled={sperre} />'),
+    'Text-Entwurf Verdrahtung: Wert von außen und Frist im Effekt, „Noch nicht übernommen.“ als Feldfehler am Quellennamen',
   );
 }
 ```
@@ -10604,8 +11121,11 @@ npm run selftest -w @jm/settings
 ```
 Erwartet (gemessen): Abbruch vor dem ersten Test, Exitcode 1:
 ```
-SyntaxError: The requested module '../src/index' does not provide an export named 'NDI_TEXTE'
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\packages\settings\src\entwurf' imported from …\packages\settings\test\ndi-output.test.tsx
 ```
+(Der Test importiert auch `../src/entwurf`, das erst Step 3 anlegt. Die frühere Angabe „does not provide an export named
+'NDI_TEXTE'“ stammte aus der Zeit vor diesem Import; gemessen in der zweiten Nachbesserung, mit der Fassung der ersten
+Nachbesserung ebenso.)
 
 - [ ] **Step 3: Text-Entwurf `packages/settings/src/entwurf.ts`** (neue Datei)
 
@@ -10614,46 +11134,117 @@ SyntaxError: The requested module '../src/index' does not provide an export name
 //
 // Ein Quellenname oder eine Farbe soll nicht bei jedem Tastendruck beim Tool ankommen (ein NDI-
 // Sender startete sonst je Buchstabe neu). Enter und Verlassen übernehmen, Escape verwirft einen
-// geänderten Entwurf und verbraucht die Taste (das Panel bleibt offen, Plan E8).
+// geänderten Entwurf und verbraucht die Taste (das Panel bleibt offen, Plan E8). Ein gemeldeter Text
+// wird nur einmal gemeldet; kommt er nicht innerhalb der Frist als Wert zurück, steht „Noch nicht
+// übernommen.“ am Feld (E27, dieselben Regeln wie zahlSchritt in @jm/ui).
+import { starteFrist } from '@jm/ui';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { ABSCHNITT_TEXTE } from './vertrag';
 
-export interface TextEntwurf {
+/** Props des Eingabefelds (per Spread an TextInput). */
+export interface TextFeld {
   value: string;
   onChange(value: string): void;
   onBlur(): void;
   onKeyDown(e: KeyboardEvent<HTMLInputElement>): void;
 }
 
-/**
- * Neuer Wert von außen (dieselbe Regel wie zahlSchritt 'aussen' in @jm/ui): Ein unveränderter Entwurf folgt; ein
- * angefangener bleibt stehen (nichts Getipptes geht verloren), außer er entspricht schon dem neuen Wert.
- */
-export function textAussen(entwurf: string, alt: string, neu: string): string {
-  return entwurf === alt || entwurf.trim() === neu ? neu : entwurf;
+/** feld geht an TextInput, fehler (nach der Frist „Noch nicht übernommen.“) an Field. */
+export interface TextEntwurf {
+  feld: TextFeld;
+  fehler?: string;
 }
 
-export function useTextEntwurf(wert: string, uebernehmen: (neu: string) => void): TextEntwurf {
-  const [entwurf, setEntwurf] = useState(wert);
-  const vorher = useRef(wert);
-  useEffect(() => {
-    setEntwurf((e) => textAussen(e, vorher.current, wert));
-    vorher.current = wert;
-  }, [wert]);
-  const commit = (): void => {
-    const neu = entwurf.trim();
-    if (neu !== wert) uebernehmen(neu);
+/** Text wie getippt; geaendert = weicht vom Wert ab; gesendet = gemeldet, aber noch nicht zurückgekommen (E27). */
+export interface TextZustand {
+  text: string;
+  geaendert: boolean;
+  gesendet?: string;
+  fehler?: string;
+}
+
+export type TextEreignis =
+  | { art: 'tippen'; text: string }
+  | { art: 'uebernehmen' } // Enter oder Verlassen
+  | { art: 'verwerfen' } // Escape
+  | { art: 'aussen'; wert: string } // neuer Wert von außen
+  | { art: 'frist' }; // die Frist nach dem Melden ist um
+
+export function textZustandAus(wert: string): TextZustand {
+  return { text: wert, geaendert: false };
+}
+
+/**
+ * Ein Schritt des Entwurfs (dieselben Regeln wie zahlSchritt in @jm/ui). neu nur, wenn ein geänderter, gültiger Text
+ * übernommen wird, der vom Wert abweicht und noch nicht gemeldet ist. verbraucht = Escape hat einen geänderten Entwurf
+ * verworfen (dann gehört Escape dem Feld, nicht dem Panel).
+ */
+export function textSchritt(
+  z: TextZustand,
+  e: TextEreignis,
+  wert: string,
+  gueltig: (neu: string) => boolean = () => true,
+): { z: TextZustand; neu?: string; verbraucht: boolean } {
+  if (e.art === 'tippen') return { z: { text: e.text, geaendert: e.text !== wert }, verbraucht: false };
+  if (e.art === 'uebernehmen') {
+    const neu = z.text.trim();
+    if (!z.geaendert || neu === wert) return { z: textZustandAus(wert), verbraucht: false };
+    if (neu === z.gesendet || !gueltig(neu)) return { z, verbraucht: false };
+    return { z: { text: z.text, geaendert: true, gesendet: neu }, neu, verbraucht: false };
+  }
+  if (e.art === 'verwerfen') return { z: textZustandAus(wert), verbraucht: z.geaendert };
+  if (e.art === 'frist') {
+    return { z: z.gesendet === undefined || z.fehler ? z : { ...z, fehler: ABSCHNITT_TEXTE.nochNichtUebernommen }, verbraucht: false };
+  }
+  // aussen: ein ungeänderter oder schon gemeldeter Entwurf folgt; ein angefangener bleibt stehen (nichts Getipptes geht verloren)
+  if (!z.geaendert || z.gesendet !== undefined || z.text.trim() === e.wert) return { z: textZustandAus(e.wert), verbraucht: false };
+  return { z, verbraucht: false };
+}
+
+/**
+ * Text-Entwurf für ein Feld, das erst bei Enter oder Verlassen gilt. Wie NumberInput (Task 10): Jeder Schritt rechnet
+ * textSchritt auf dem Stand in der Ref und schreibt Ref und State sofort; kein Updater liest eine Ref, die danach
+ * überschrieben wird.
+ */
+export function useTextEntwurf(wert: string, uebernehmen: (neu: string) => void, gueltig?: (neu: string) => boolean): TextEntwurf {
+  const [z, setZ] = useState<TextZustand>(() => textZustandAus(wert));
+  const zRef = useRef(z);
+  const wertRef = useRef(wert);
+  wertRef.current = wert;
+  const rueckrufe = useRef({ uebernehmen, gueltig });
+  rueckrufe.current = { uebernehmen, gueltig };
+
+  const schritt = (e: TextEreignis): { verbraucht: boolean } => {
+    const r = textSchritt(zRef.current, e, wertRef.current, rueckrufe.current.gueltig);
+    zRef.current = r.z;
+    setZ(r.z);
+    if (r.neu !== undefined) rueckrufe.current.uebernehmen(r.neu);
+    return r;
   };
+  const schrittRef = useRef(schritt);
+  schrittRef.current = schritt;
+
+  useEffect(() => {
+    schrittRef.current({ art: 'aussen', wert });
+  }, [wert]);
+  useEffect(
+    () => (z.gesendet === undefined ? undefined : starteFrist(() => schrittRef.current({ art: 'frist' }))),
+    [z.gesendet],
+  );
+
   return {
-    value: entwurf,
-    onChange: setEntwurf,
-    onBlur: commit,
-    onKeyDown: (e) => {
-      if (e.key === 'Enter') commit();
-      else if (e.key === 'Escape' && entwurf !== wert) {
-        setEntwurf(wert);
-        e.preventDefault();
-        e.stopPropagation();
-      }
+    fehler: z.fehler,
+    feld: {
+      value: z.text,
+      onChange: (text) => schritt({ art: 'tippen', text }),
+      onBlur: () => schritt({ art: 'uebernehmen' }),
+      onKeyDown: (e) => {
+        if (e.key === 'Enter') schritt({ art: 'uebernehmen' });
+        else if (e.key === 'Escape' && schritt({ art: 'verwerfen' }).verbraucht) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
     },
   };
 }
@@ -10766,8 +11357,8 @@ export function NdiOutputSection(p: NdiOutputSectionProps): React.JSX.Element {
         <p className="text-xs text-[var(--muted-foreground)] tabular">{view.empfaenger}</p>
       ) : null}
       {view.sichtbar.umbenennen ? (
-        <Field label={NDI_TEXTE.quellenname} hint={view.hinweis}>
-          <TextInput {...name} disabled={sperre} />
+        <Field label={NDI_TEXTE.quellenname} hint={view.hinweis} error={name.fehler}>
+          <TextInput {...name.feld} disabled={sperre} />
         </Field>
       ) : (
         <Anzeige label={NDI_TEXTE.quellenname} hinweis={view.hinweis}>
@@ -10823,11 +11414,15 @@ export { NdiOutputSection } from './abschnitte/NdiOutputSection';
 ```
 npm run selftest -w @jm/settings
 ```
-Erwartet (gemessen): 90 Zeilen `ok` (44 aus Task 16, 46 neu), keine `FAIL`, `ALLE TESTS OK`, Exitcode 0. Neu unter anderem:
+Erwartet (gemessen): 94 Zeilen `ok` (45 aus Task 16, 49 neu), keine `FAIL`, `ALLE TESTS OK`, Exitcode 0. Neu unter anderem:
 ```
 ok   NDI capabilities: jedes Feld genau dann sichtbar, wenn seine eigene Capability gesetzt ist (32 Fälle)
 ok   NDI je Capability allein: genau ihr Feld erscheint, kein anderes
 ok   Text-Entwurf: Wert von außen folgt nur ohne angefangenen Entwurf (oder wenn der Entwurf ihm schon entspricht)
+ok   Text-Entwurf: Enter oder Verlassen meldet einen geänderten Text genau einmal (kein Neustart je Fokuswechsel)
+ok   Text-Entwurf: ohne Antwort nach der Frist „Noch nicht übernommen.“, der Text bleibt; die Antwort des Tools schließt den Entwurf
+ok   Text-Entwurf: ungültiger Text wird nicht gemeldet; Escape verwirft einen geänderten Entwurf und gehört dann dem Feld
+ok   Text-Entwurf Verdrahtung: Wert von außen und Frist im Effekt, „Noch nicht übernommen.“ als Feldfehler am Quellennamen
 ok   NDI Kreuzprodukt: Eingang → status aus der Tabelle (216 Fälle)
 ok   NDI Kreuzprodukt: nie live, unbekanntes Senden nie ok (216 Fälle)
 ok   NDI Kreuzprodukt: Empfänger nur, wenn gemessen; „0 Empfänger“ nur bei 0 (216 Fälle)
@@ -10944,15 +11539,55 @@ Erwartet: `FAIL NDI capabilities: jedes Feld genau dann sichtbar, wenn seine eig
 
 **M9 · Wert von außen überschreibt den Entwurf** (`packages/settings/src/entwurf.ts`). Vorher:
 ```ts
-    setEntwurf((e) => textAussen(e, vorher.current, wert));
+  if (!z.geaendert || z.gesendet !== undefined || z.text.trim() === e.wert) return { z: textZustandAus(e.wert), verbraucht: false };
 ```
 Nachher:
 ```ts
-    setEntwurf(wert);
+  return { z: textZustandAus(e.wert), verbraucht: false };
 ```
-Erwartet: `FAIL Text-Entwurf Verdrahtung: der Effekt für Werte von außen nutzt textAussen`.
+Erwartet: `FAIL Text-Entwurf: Wert von außen folgt nur ohne angefangenen Entwurf (oder wenn der Entwurf ihm schon entspricht)` mit `ist: ["REGIE","REGIE","REGIE"] soll: ["REGIE","JM Tit","REGIE"]`.
 
-Danach `git status --short` (nur `A `/`M `) und `npm run selftest -w @jm/settings` wieder 90 × `ok`.
+**M10 · Jedes Verlassen meldet erneut** (`packages/settings/src/entwurf.ts`; Fassung der ersten Nachbesserung, E27). Vorher:
+```ts
+    if (neu === z.gesendet || !gueltig(neu)) return { z, verbraucht: false };
+```
+Nachher:
+```ts
+    if (!gueltig(neu)) return { z, verbraucht: false };
+```
+Erwartet: `FAIL Text-Entwurf: Enter oder Verlassen meldet einen geänderten Text genau einmal (kein Neustart je Fokuswechsel)`.
+
+**M11 · Die Frist zeigt nichts** (`packages/settings/src/entwurf.ts`). Vorher:
+```ts
+    return { z: z.gesendet === undefined || z.fehler ? z : { ...z, fehler: ABSCHNITT_TEXTE.nochNichtUebernommen }, verbraucht: false };
+```
+Nachher:
+```ts
+    return { z, verbraucht: false };
+```
+Erwartet: `FAIL Text-Entwurf: ohne Antwort nach der Frist „Noch nicht übernommen.“, der Text bleibt; die Antwort des Tools schließt den Entwurf`.
+
+**M12 · „Noch nicht übernommen.“ erreicht das Feld nicht** (`packages/settings/src/abschnitte/NdiOutputSection.tsx`). Vorher:
+```tsx
+        <Field label={NDI_TEXTE.quellenname} hint={view.hinweis} error={name.fehler}>
+```
+Nachher:
+```tsx
+        <Field label={NDI_TEXTE.quellenname} hint={view.hinweis}>
+```
+Erwartet: `FAIL Text-Entwurf Verdrahtung: Wert von außen und Frist im Effekt, „Noch nicht übernommen.“ als Feldfehler am Quellennamen`.
+
+**M13 · Ungültiger Text wird gemeldet** (`packages/settings/src/entwurf.ts`). Vorher:
+```ts
+    if (neu === z.gesendet || !gueltig(neu)) return { z, verbraucht: false };
+```
+Nachher:
+```ts
+    if (neu === z.gesendet) return { z, verbraucht: false };
+```
+Erwartet: `FAIL Text-Entwurf: ungültiger Text wird nicht gemeldet; Escape verwirft einen geänderten Entwurf und gehört dann dem Feld`.
+
+Danach `git status --short` (nur `A `/`M `) und `npm run selftest -w @jm/settings` wieder 94 × `ok`.
 
 - [ ] **Step 10: Commit**
 
@@ -10976,7 +11611,8 @@ git commit -m "feat(settings): NdiOutputSection - nur Gemessenes, Kreuzprodukt" 
 **Abweichungen vom Gerüst:**
 - Kreuzprodukt mit `starting` in drei Werten (`undefined`/`false`/`true`) statt zwei: 216 statt 144 Fälle. So fällt sowohl
   „`undefined` gilt als startend“ als auch „`false` gilt als startend“ auf.
-- Neue interne Datei `src/entwurf.ts` (`useTextEntwurf`, `textAussen`), auch von Task 18 genutzt; nicht in `index.ts`.
+- Neue interne Datei `src/entwurf.ts` (`useTextEntwurf`, `textSchritt`, `textZustandAus`), auch von Task 18 genutzt;
+  nicht in `index.ts`.
 - `NdiOutputView` hat zusätzlich `empfaenger?` und `hinweis?` (fertige Texte für die Darstellung und die Galerie).
 - „Ausgabe an/aus“ hängt an `capabilities.toggle`, obwohl Spec 6.2 das Feld ohne `*` nennt (E24, Owner-Liste): Laut
   Anhang A hat kein Tool einen NDI-Schalter in den Einstellungen (Titler, Caption: „NDI-Ausgabe (Quellname, Auflösung, fps)“,
@@ -10985,8 +11621,15 @@ git commit -m "feat(settings): NdiOutputSection - nur Gemessenes, Kreuzprodukt" 
 - Nachbesserung nach dem Review: Kreuzprodukt über alle Capability-Bits und je Bit ein Render-Fall (vorher blieb
   `bildrate: c.fps || c.resolution` grün, M8); `textAussen` statt `setEntwurf(wert)` (vorher überschrieb ein Wert von
   außen den angefangenen Namen, M9).
+- Zweite Nachbesserung (Prüfrunde 2, E27): `textAussen` ist durch die reine Funktion `textSchritt` ersetzt. Gründe: Jedes
+  Verlassen meldete einen abgelehnten Namen erneut (ein NDI-Sender wurde bei jedem Fokuswechsel neu gestartet), ein
+  abgelehnter Name stand ohne Hinweis im Feld, und der Effekt las im Updater `vorher.current`, das im nächsten Satz
+  überschrieben wurde: Lief der Updater erst im nächsten Render (React rechnet ihn nur ohne offene Updates sofort aus),
+  folgte ein unveränderter Entwurf einem Wert von außen nicht mehr, und das nächste Verlassen schickte den alten Namen
+  zurück. Jetzt rechnet jeder Schritt synchron auf der Ref wie `NumberInput`; dazu Frist und Feldfehler. `useTextEntwurf`
+  liefert `{ feld, fehler }`. Neue Proben M10–M13, M9 an den neuen Code angepasst.
 
-**Nachgerechnet:** Gleiche Kopie, Schritte wörtlich nach Task 16 eingespielt: Step 2 rot mit `does not provide an export named 'NDI_TEXTE'`; Typprüfung beider Pakete ohne Meldung; die Detailzeile bei M1 wörtlich wie oben. Nach der Nachbesserung neu gemessen: Step 7 grün mit 90 × `ok`, Mutationsprobe M1–M9 je rot (4, 2, 1, 1, 4, 1, 2, 2, 1 FAIL).
+**Nachgerechnet:** Gleiche Kopie, Schritte wörtlich nach Task 16 eingespielt: Step 2 rot mit `does not provide an export named 'NDI_TEXTE'` (damals noch ohne den Import von `../src/entwurf`); Typprüfung beider Pakete ohne Meldung; die Detailzeile bei M1 wörtlich wie oben. Nach der Nachbesserung neu gemessen: Step 7 grün mit 90 × `ok`, Mutationsprobe M1–M9 je rot (4, 2, 1, 1, 4, 1, 2, 2, 1 FAIL). Zweite Nachbesserung: frische Kopie, Plantext Tasks 1–17: Step 2 rot mit `ERR_MODULE_NOT_FOUND … settings\src\entwurf` (siehe Step 2), Step 7 grün mit 94 × `ok`, Mutationsprobe M1–M13 je rot (4, 2, 1, 1, 4, 1, 2, 2, 1, 1, 1, 1, 1 FAIL), Typprüfung beider Pakete grün.
 
 ---
 
@@ -11050,7 +11693,8 @@ git commit -m "feat(settings): NdiOutputSection - nur Gemessenes, Kreuzprodukt" 
   einzige Option „Kein Bildschirm gefunden“, Auswahl gesperrt (der Grund steht in der Auswahl). Liste unbekannt → keine
   Auswahl, sondern die Nur-Lese-Zeile „Bildschirm: unbekannt“.
 - Hintergrund (nur `capabilities.background`): Text `#RRGGBB`, gilt erst bei Enter/Verlassen und nur, wenn gültig;
-  ungültig → Fehlertext „Farbe als #RRGGBB eingeben.“ am Feld (`aria-invalid` über `Field`).
+  ungültig → Fehlertext „Farbe als #RRGGBB eingeben.“ am Feld (`aria-invalid` über `Field`). Eine gültige, gemeldete Farbe,
+  die nicht innerhalb der Frist zurückkommt, zeigt „Noch nicht übernommen.“ (Text-Entwurf aus Task 17, E27).
 - Ausgabe- und Vollbild-Schalter nur mit ihrer Capability (E24); `locked` sperrt alle Bedienelemente. Jedes Feld erscheint
   genau dann, wenn **seine** Capability gesetzt ist (Kreuzprodukt über alle 8 Kombinationen, je Capability ein Render-Fall).
 
@@ -11060,7 +11704,7 @@ git commit -m "feat(settings): NdiOutputSection - nur Gemessenes, Kreuzprodukt" 
 
 ```tsx
 // ScreenOutputSection (Spec 6.2, 7, Plan E18): fehlender Bildschirm wird gemeldet, nie still ersetzt.
-import { enthaelt, enthaeltNicht, gleich, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
+import { enthaelt, enthaeltNicht, gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import {
   abschnittStatusItem,
   SCREEN_TEXTE,
@@ -11211,6 +11855,16 @@ const alle: ScreenOutputSectionProps = {
   enthaelt(html, 'Farbe als #RRGGBB eingeben.', 'Bildschirm: ungültige Farbe zeigt den Fehlertext am Feld');
   enthaelt(html, 'aria-invalid="true"', 'Bildschirm: ungültige Farbe setzt aria-invalid');
   pruefeIdVerweise(html, 'Bildschirm: Fehlertext per aria-describedby verknüpft');
+}
+{
+  // E27: Der Text-Entwurf meldet nur eine gültige Farbe; „Noch nicht übernommen.“ steht als Feldfehler (Task 17).
+  const quelle = leseText('src/abschnitte/ScreenOutputSection.tsx');
+  ok(
+    quelle.includes("useTextEntwurf(p.background ?? '', (neu) => p.onBackground?.(neu), (neu) => FARBE.test(neu))") &&
+      quelle.includes('error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : farbe.fehler}') &&
+      quelle.includes('<TextInput {...farbe.feld} disabled={sperre} />'),
+    'Bildschirm Verdrahtung: Hintergrund wird nur als gültige Farbe gemeldet, „Noch nicht übernommen.“ als Feldfehler (E27)',
+  );
 }
 {
   const html = render(<ScreenOutputSection {...alle} locked="Vom Master vorgegeben" />);
@@ -11368,10 +12022,8 @@ const FARBE = /^#[0-9a-fA-F]{6}$/;
 export function ScreenOutputSection(p: ScreenOutputSectionProps): React.JSX.Element {
   const view = screenOutputView(p);
   const sperre = istGesperrt(view) ? true : undefined;
-  const farbe = useTextEntwurf(p.background ?? '', (neu) => {
-    if (FARBE.test(neu)) p.onBackground?.(neu);
-  });
-  const farbeFalsch = farbe.value.trim() !== '' && !FARBE.test(farbe.value.trim());
+  const farbe = useTextEntwurf(p.background ?? '', (neu) => p.onBackground?.(neu), (neu) => FARBE.test(neu));
+  const farbeFalsch = farbe.feld.value.trim() !== '' && !FARBE.test(farbe.feld.value.trim());
   return (
     <SectionFrame view={view} titel={SCREEN_TEXTE.titel}>
       {view.sichtbar.ausgabe ? (
@@ -11398,8 +12050,8 @@ export function ScreenOutputSection(p: ScreenOutputSectionProps): React.JSX.Elem
         </Field>
       ) : null}
       {view.sichtbar.hintergrund ? (
-        <Field label={SCREEN_TEXTE.hintergrund} error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : undefined}>
-          <TextInput {...farbe} disabled={sperre} />
+        <Field label={SCREEN_TEXTE.hintergrund} error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : farbe.fehler}>
+          <TextInput {...farbe.feld} disabled={sperre} />
         </Field>
       ) : null}
     </SectionFrame>
@@ -11424,7 +12076,7 @@ export { ScreenOutputSection } from './abschnitte/ScreenOutputSection';
 ```
 npm run selftest -w @jm/settings
 ```
-Erwartet (gemessen): 131 Zeilen `ok` (41 neu), keine `FAIL`, `ALLE TESTS OK`. Neu unter anderem:
+Erwartet (gemessen): 136 Zeilen `ok` (42 neu), keine `FAIL`, `ALLE TESTS OK`. Neu unter anderem:
 ```
 ok   Bildschirm capabilities: jedes Feld genau dann sichtbar, wenn seine eigene Capability gesetzt ist (8 Fälle)
 ok   Bildschirm je Capability allein: genau ihr Feld erscheint, kein anderes
@@ -11434,6 +12086,7 @@ ok   Bildschirm Kreuzprodukt: ok nur mit gemessen offenem Fenster (108 Fälle)
 ok   Bildschirm fehlt: Auswahl zeigt „nicht verfügbar: …“ statt still den Hauptmonitor
 ok   Bildschirm Liste unbekannt: keine Auswahl (nichts Erfundenes)
 ok   Bildschirm: ungültige Farbe zeigt den Fehlertext am Feld
+ok   Bildschirm Verdrahtung: Hintergrund wird nur als gültige Farbe gemeldet, „Noch nicht übernommen.“ als Feldfehler (E27)
 ok   Bildschirm locked: alle Bedienelemente disabled (4 von 4)
 ok   Bildschirm: abschnittStatusItem = Statuspille (Zustand und Text)
 ```
@@ -11507,13 +12160,13 @@ Erwartet: `FAIL Bildschirm Kreuzprodukt: Eingang → status aus der Tabelle (108
 
 **M6 · Sperre erreicht den Hintergrund nicht** (`packages/settings/src/abschnitte/ScreenOutputSection.tsx`). Vorher:
 ```tsx
-          <TextInput {...farbe} disabled={sperre} />
+          <TextInput {...farbe.feld} disabled={sperre} />
 ```
 Nachher:
 ```tsx
-          <TextInput {...farbe} />
+          <TextInput {...farbe.feld} />
 ```
-Erwartet: `FAIL Bildschirm locked: alle Bedienelemente disabled (3 von 4)`.
+Erwartet: `FAIL Bildschirm locked: alle Bedienelemente disabled (3 von 4)`, `FAIL Bildschirm Verdrahtung: Hintergrund wird nur als gültige Farbe gemeldet, „Noch nicht übernommen.“ als Feldfehler (E27)`.
 
 **M7 · Fremde Capability blendet den Vollbild-Schalter ein** (`packages/settings/src/abschnitte/screen-output.ts`). Vorher:
 ```ts
@@ -11525,7 +12178,27 @@ Nachher:
 ```
 Erwartet: `FAIL Bildschirm capabilities: jedes Feld genau dann sichtbar, wenn seine eigene Capability gesetzt ist (8 Fälle)`, `FAIL Bildschirm je Capability allein: genau ihr Feld erscheint, kein anderes`.
 
-Danach `git status --short` (nur `A `/`M `) und wieder 131 × `ok`.
+**M8 · Eine ungültige Farbe wird gemeldet** (`packages/settings/src/abschnitte/ScreenOutputSection.tsx`; E27). Vorher:
+```tsx
+  const farbe = useTextEntwurf(p.background ?? '', (neu) => p.onBackground?.(neu), (neu) => FARBE.test(neu));
+```
+Nachher:
+```tsx
+  const farbe = useTextEntwurf(p.background ?? '', (neu) => p.onBackground?.(neu));
+```
+Erwartet: `FAIL Bildschirm Verdrahtung: Hintergrund wird nur als gültige Farbe gemeldet, „Noch nicht übernommen.“ als Feldfehler (E27)`.
+
+**M9 · „Noch nicht übernommen.“ erreicht das Farbfeld nicht** (`packages/settings/src/abschnitte/ScreenOutputSection.tsx`). Vorher:
+```tsx
+        <Field label={SCREEN_TEXTE.hintergrund} error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : farbe.fehler}>
+```
+Nachher:
+```tsx
+        <Field label={SCREEN_TEXTE.hintergrund} error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : undefined}>
+```
+Erwartet: `FAIL Bildschirm Verdrahtung: Hintergrund wird nur als gültige Farbe gemeldet, „Noch nicht übernommen.“ als Feldfehler (E27)`.
+
+Danach `git status --short` (nur `A `/`M `) und wieder 136 × `ok`.
 
 - [ ] **Step 9: Commit**
 
@@ -11561,8 +12234,11 @@ git commit -m "feat(settings): ScreenOutputSection - fehlender Bildschirm wird g
   bildet Titler „Ausgabe auf Bildschirm (Display, Chroma-Farbe, an/aus)“ aus Anhang A ab und verhindert dort Funktionsverlust.
 - Nachbesserung nach dem Review: Kreuzprodukt über die drei Capability-Bits und je Bit ein Render-Fall (vorher blieb
   `vollbild: c.fullscreen || c.toggle` grün, M7).
+- Zweite Nachbesserung (E27): Die Hintergrundfarbe nutzt den neuen Text-Entwurf aus Task 17. Die Prüfung `FARBE` steht als
+  `gueltig` im Entwurf (eine ungültige Farbe wird nicht gemeldet und gilt nicht als „gesendet“), „Noch nicht übernommen.“
+  erscheint als Feldfehler, solange die Farbe gültig ist (Proben M8, M9).
 
-**Nachgerechnet:** Gleiche Kopie, nach Task 17: Step 2 rot mit `… export named 'SCREEN_TEXTE'`; Typprüfung ohne Meldung. Nach der Nachbesserung neu gemessen: Step 6 grün mit 131 × `ok`, Mutationsprobe M1–M7 je rot (3, 2, 1, 2, 1, 1, 2 FAIL).
+**Nachgerechnet:** Gleiche Kopie, nach Task 17: Step 2 rot mit `… export named 'SCREEN_TEXTE'`; Typprüfung ohne Meldung. Nach der Nachbesserung neu gemessen: Step 6 grün mit 131 × `ok`, Mutationsprobe M1–M7 je rot (3, 2, 1, 2, 1, 1, 2 FAIL). Zweite Nachbesserung: Step 6 grün mit 136 × `ok`, Mutationsprobe M1–M9 je rot (3, 2, 1, 2, 1, 2, 2, 1, 1 FAIL).
 
 ---
 
@@ -12103,7 +12779,7 @@ export { RemoteControlSection } from './abschnitte/RemoteControlSection';
 ```
 npm run selftest -w @jm/settings
 ```
-Erwartet (gemessen): 190 Zeilen `ok` (59 neu), keine `FAIL`, `ALLE TESTS OK`. Neu unter anderem:
+Erwartet (gemessen): 195 Zeilen `ok` (59 neu), keine `FAIL`, `ALLE TESTS OK`. Neu unter anderem:
 ```
 ok   Fernsteuerung capabilities: Schalter genau mit enableToggle, Zahlenfeld genau mit portEditable (4 Fälle)
 ok   Fernsteuerung Tool Kreuzprodukt: Eingang → status aus der Tabelle (216 Fälle)
@@ -12231,7 +12907,7 @@ Nachher:
 ```
 Erwartet: `FAIL Fernsteuerung Tool: Übergänge nur motion-safe oder mit motion-reduce:transition-none (G8)`. Detail: `ist: ["transition-opacity transition-colors"] soll: []`.
 
-Danach `git status --short` (nur `A `/`M `) und wieder 190 × `ok`.
+Danach `git status --short` (nur `A `/`M `) und wieder 195 × `ok`.
 
 - [ ] **Step 9: Commit**
 
@@ -12265,7 +12941,7 @@ git commit -m "feat(settings): RemoteControlSection - Tool-Anzeige und Launcher-
 - Nachbesserung nach dem Review: Kreuzprodukt über die zwei Capability-Bits (M8), `motion-reduce:transition-none` an den
   Bestands-Knöpfen (M9, G8).
 
-**Nachgerechnet:** Gleiche Kopie, nach Task 18: Step 2 rot mit `… export named 'REMOTE_TEXTE'`; Typprüfung ohne Meldung, also löst `import type { SuiteControlConfig } from '@jm/control-config'` auf und `packages/control-config/src/index.ts` besteht die strenge Prüfung mit. Nach der Nachbesserung neu gemessen: Step 6 grün mit 190 × `ok`, Mutationsprobe M1–M9 je rot (4, 1, 3, 1, 1, 1, 2, 2, 1 FAIL); M3 nur mit der ersten Ersetzung: 1 FAIL (Sicht-Test).
+**Nachgerechnet:** Gleiche Kopie, nach Task 18: Step 2 rot mit `… export named 'REMOTE_TEXTE'`; Typprüfung ohne Meldung, also löst `import type { SuiteControlConfig } from '@jm/control-config'` auf und `packages/control-config/src/index.ts` besteht die strenge Prüfung mit. Nach der Nachbesserung neu gemessen: Step 6 grün mit 190 × `ok`, Mutationsprobe M1–M9 je rot (4, 1, 3, 1, 1, 1, 2, 2, 1 FAIL); M3 nur mit der ersten Ersetzung: 1 FAIL (Sicht-Test). Nach der zweiten Nachbesserung (Tasks 16–18 geändert): 195 × `ok`, Proben gleich.
 
 ---
 ### Task 20: `AudioDeviceSection`
@@ -12331,7 +13007,8 @@ Sperrgrund, Wechsel-Warnung, „nie still auf den Standard“), 7.1–7.3. Plan:
   sperrt alle Auswahlen und den Knopf.
 - Pegel je Wahl (Spec 6.2 „je Wahl Pegelanzeige*“, „jede Wahl hat … optional einen Pegel“), unabhängig von der Richtung:
   nur mit `capabilities.level` **und** einem gemessenen `levelDb` (`undefined` = das Tool liefert für diese Wahl keinen Pegel,
-  also keine Anzeige, Spec 7.3). „Pegel: {dB gerundet} dB“, `-Infinity` → „Pegel: kein Signal“; Balken −60 dB … 0 dB
+  also keine Anzeige, Spec 7.3; ebenso `NaN` und `+Infinity`, die keine Messung sind). „Pegel: {dB gerundet} dB“ (−0,4 dB
+  → „Pegel: 0 dB“, nie „-0“), `-Infinity` → „Pegel: kein Signal“; Balken −60 dB … 0 dB
   (Fläche in `--tally-ready`, `aria-hidden`). So bekommt auch ein Ausgang mit Pegel (Interpreter „Ausgabe“) eine Anzeige.
 - Knopf „Geräte aktualisieren“ nur mit `capabilities.refresh` **und** `onRefresh`; er trägt `motion-reduce:transition-none` (G8).
 - `capabilities`: Pegel genau mit `level`, Knopf genau mit `refresh` (Kreuzprodukt über die vier Kombinationen, je
@@ -12482,6 +13159,15 @@ const ausgabe = (c: Partial<AudioChoice> = {}): AudioChoice =>
   gleich(audioDeviceView({ ...basis, capabilities: { level: true }, choices: [floor()] }).wahlen[0].pegel, undefined, 'Audio Pegel: ohne gemessenen Pegel keine Anzeige (nichts Erfundenes, Spec 7.3)');
   gleich(audioDeviceView({ ...basis, capabilities: { level: true }, choices: [ausgabe({ levelDb: -6 })] }).wahlen[0].pegel, { text: 'Pegel: -6 dB', prozent: 90 }, 'Audio Pegel: auch für einen Ausgang, wenn das Tool einen Pegel liefert (Spec 6.2 „je Wahl“)');
   gleich(audioDeviceView({ ...basis, choices: [floor({ levelDb: -6 })] }).wahlen[0].pegel, undefined, 'Audio Pegel: nur mit capabilities.level');
+  gleich(
+    [
+      audioDeviceView({ ...basis, capabilities: { level: true }, choices: [floor({ levelDb: -0.4 })] }).wahlen[0].pegel?.text,
+      audioDeviceView({ ...basis, capabilities: { level: true }, choices: [floor({ levelDb: Number.NaN })] }).wahlen[0].pegel,
+      audioDeviceView({ ...basis, capabilities: { level: true }, choices: [floor({ levelDb: Number.POSITIVE_INFINITY })] }).wahlen[0].pegel,
+    ],
+    ['Pegel: 0 dB', undefined, undefined],
+    'Audio Pegel: -0,4 dB → „Pegel: 0 dB“ (nicht „-0“); NaN und +Infinity sind keine Messung → kein Pegel (E26)',
+  );
 }
 
 // ── Darstellung ──
@@ -12631,7 +13317,7 @@ export const AUDIO_TEXTE = {
   wahlPraefix: (wahl: string, text: string) => `${wahl}: ${text}`,
   keinEingang: 'Kein Eingang gefunden',
   keinAusgang: 'Kein Ausgang gefunden',
-  pegelWert: (db: number) => `Pegel: ${zahlText(Math.round(db))} dB`,
+  pegelWert: (db: number) => `Pegel: ${zahlText(Math.round(db) || 0)} dB`,   // || 0: -0,4 dB ergäbe sonst „-0 dB“
   keinSignal: 'Pegel: kein Signal',
   aktualisieren: 'Geräte aktualisieren',
   sperreEingangOffen: 'solange der Eingang offen ist',
@@ -12672,8 +13358,13 @@ function wahlStatus(c: AudioChoice): SectionStatus {
   return st('off', AUDIO_TEXTE.keinGeraet);
 }
 
+/** Gemessen ist eine endliche Zahl oder -Infinity (kein Signal); NaN und +Infinity sind keine Messung (E26). */
+function gemessen(db: number | undefined): db is number {
+  return db === -Infinity || (typeof db === 'number' && Number.isFinite(db));
+}
+
 function pegel(db: number): { text: string; prozent: number } {
-  if (!Number.isFinite(db)) return { text: AUDIO_TEXTE.keinSignal, prozent: 0 };
+  if (db === -Infinity) return { text: AUDIO_TEXTE.keinSignal, prozent: 0 };
   const prozent = Math.round(Math.min(1, Math.max(0, (db - PEGEL_MIN_DB) / -PEGEL_MIN_DB)) * 100);
   return { text: AUDIO_TEXTE.pegelWert(db), prozent };
 }
@@ -12692,7 +13383,7 @@ function wahlView(c: AudioChoice, level: boolean): AudioWahlView {
     ],
     platzhalter: c.defaultLabel ? undefined : ABSCHNITT_TEXTE.bitteWaehlen,
     hinweis: hinweis === '' ? undefined : hinweis,
-    pegel: level && c.levelDb !== undefined ? pegel(c.levelDb) : undefined,
+    pegel: level && gemessen(c.levelDb) ? pegel(c.levelDb) : undefined,
   };
 }
 
@@ -12792,7 +13483,7 @@ export { AudioDeviceSection } from './abschnitte/AudioDeviceSection';
 ```
 npm run selftest -w @jm/settings
 ```
-Erwartet (gemessen): 237 Zeilen `ok` (47 neu), keine `FAIL`, `ALLE TESTS OK`. Neu unter anderem:
+Erwartet (gemessen): 243 Zeilen `ok` (48 neu), keine `FAIL`, `ALLE TESTS OK`. Neu unter anderem:
 ```
 ok   Audio Kreuzprodukt (eine Wahl): Eingang → status aus der Tabelle (144 Fälle)
 ok   Audio Kreuzprodukt (drei Wahlen): schlechteste Wahl, Text der ersten davon mit „{Wahl}: “ (64 Fälle)
@@ -12801,6 +13492,7 @@ ok   Audio fehlendes Gerät: bleibt gewählt, als „nicht verfügbar: {zuletzt}
 ok   Audio Sperrgrund je Wahl: nur diese Auswahl gesperrt
 ok   Audio Pegel: -12,4 dB → „-12 dB“, 79 %
 ok   Audio Pegel: auch für einen Ausgang, wenn das Tool einen Pegel liefert (Spec 6.2 „je Wahl“)
+ok   Audio Pegel: -0,4 dB → „Pegel: 0 dB“ (nicht „-0“); NaN und +Infinity sind keine Messung → kein Pegel (E26)
 ok   Audio capabilities: Pegel genau mit level, Knopf genau mit refresh (4 Fälle)
 ok   Audio locked: alle Bedienelemente disabled (4 von 4)
 ```
@@ -12874,11 +13566,11 @@ Erwartet: `FAIL Audio Kreuzprodukt (drei Wahlen): schlechteste Wahl, Text der er
 **M6 · Pegel nur für Eingänge** (`packages/settings/src/abschnitte/audio-device.ts`; die Einschränkung der ersten Fassung,
 Review-Befund gegen Spec 6.2). Vorher:
 ```ts
-    pegel: level && c.levelDb !== undefined ? pegel(c.levelDb) : undefined,
+    pegel: level && gemessen(c.levelDb) ? pegel(c.levelDb) : undefined,
 ```
 Nachher:
 ```ts
-    pegel: level && c.direction === 'input' && c.levelDb !== undefined ? pegel(c.levelDb) : undefined,
+    pegel: level && c.direction === 'input' && gemessen(c.levelDb) ? pegel(c.levelDb) : undefined,
 ```
 Erwartet: `FAIL Audio Pegel: auch für einen Ausgang, wenn das Tool einen Pegel liefert (Spec 6.2 „je Wahl“)`.
 
@@ -12906,13 +13598,13 @@ Erwartet: `FAIL Audio fehlendes Gerät: bleibt gewählt, als „nicht verfügbar
 
 **M9 · Pegel ohne Messwert erfunden** (`packages/settings/src/abschnitte/audio-device.ts`). Vorher:
 ```ts
-    pegel: level && c.levelDb !== undefined ? pegel(c.levelDb) : undefined,
+    pegel: level && gemessen(c.levelDb) ? pegel(c.levelDb) : undefined,
 ```
 Nachher:
 ```ts
     pegel: level ? pegel(c.levelDb ?? -Infinity) : undefined,
 ```
-Erwartet: `FAIL Audio Pegel: ohne gemessenen Pegel keine Anzeige (nichts Erfundenes, Spec 7.3)`, `FAIL Audio: Pegel für die zwei Wahlen mit gemessenem Pegel, keiner für den Ausgang ohne Pegel`, `FAIL Audio capabilities: Pegel genau mit level, Knopf genau mit refresh (4 Fälle)`.
+Erwartet: `FAIL Audio Pegel: ohne gemessenen Pegel keine Anzeige (nichts Erfundenes, Spec 7.3)`, `FAIL Audio Pegel: -0,4 dB → „Pegel: 0 dB“ (nicht „-0“); NaN und +Infinity sind keine Messung → kein Pegel (E26)`, `FAIL Audio: Pegel für die zwei Wahlen mit gemessenem Pegel, keiner für den Ausgang ohne Pegel`, `FAIL Audio capabilities: Pegel genau mit level, Knopf genau mit refresh (4 Fälle)`.
 
 **M10 · Fremde Capability blendet den Pegel ein** (`packages/settings/src/abschnitte/audio-device.ts`). Vorher:
 ```ts
@@ -12924,7 +13616,28 @@ Nachher:
 ```
 Erwartet: `FAIL Audio capabilities: Pegel genau mit level, Knopf genau mit refresh (4 Fälle)`, `FAIL Audio je Capability allein: genau ihr Feld erscheint, kein anderes`.
 
-Danach `git status --short` (nur `A `/`M `) und wieder 237 × `ok`.
+**M11 · „-0 dB“** (`packages/settings/src/abschnitte/audio-device.ts`; zweite Prüfrunde). Vorher:
+```ts
+  pegelWert: (db: number) => `Pegel: ${zahlText(Math.round(db) || 0)} dB`,   // || 0: -0,4 dB ergäbe sonst „-0 dB“
+```
+Nachher:
+```ts
+  pegelWert: (db: number) => `Pegel: ${zahlText(Math.round(db))} dB`,
+```
+Erwartet: `FAIL Audio Pegel: -0,4 dB → „Pegel: 0 dB“ (nicht „-0“); NaN und +Infinity sind keine Messung → kein Pegel (E26)` mit `ist: ["Pegel: -0 dB",null,null]`.
+
+**M12 · NaN und +Infinity gelten als gemessen** (`packages/settings/src/abschnitte/audio-device.ts`; die erste Fassung
+zeigte für beide „Pegel: kein Signal“). Vorher:
+```ts
+  return db === -Infinity || (typeof db === 'number' && Number.isFinite(db));
+```
+Nachher:
+```ts
+  return db !== undefined;
+```
+Erwartet: `FAIL Audio Pegel: -0,4 dB → „Pegel: 0 dB“ (nicht „-0“); NaN und +Infinity sind keine Messung → kein Pegel (E26)` mit `ist: ["Pegel: 0 dB",{"text":"Pegel: 0 dB","prozent":null},{"text":"Pegel: ∞ dB","prozent":100}]`.
+
+Danach `git status --short` (nur `A `/`M `) und wieder 243 × `ok`.
 
 - [ ] **Step 9: Commit**
 
@@ -12941,7 +13654,7 @@ A  packages/settings/test/audio-device.test.tsx
 M  packages/settings/test/selftest.ts
 ```
 ```
-git commit -m "feat(settings): AudioDeviceSection - mehrere benannte Wahlen, nie still auf Standard" -m "audioDeviceView je Wahl: unbekannte Liste unbekannt, fehlendes Geraet error 'Geraet nicht gefunden, zuletzt: {name}' und bleibt in der Auswahl als 'nicht verfuegbar' (Plan E11), Pflichtwahl ohne Geraet warn. Abschnitt: schlechteste Wahl mit Praefix, sonst '{n} Geraete gewaehlt'. Sperrgrund je Wahl ueber Field, Wechsel-Warnung als Hinweis (Plan E17), Pegel nur fuer Eingaenge mit capabilities.level. Kreuzprodukt 144 Faelle je Wahl und 64 fuer drei Wahlen (Interpreter)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(settings): AudioDeviceSection - mehrere benannte Wahlen, nie still auf Standard" -m "audioDeviceView je Wahl: unbekannte Liste unbekannt, fehlendes Geraet error 'Geraet nicht gefunden, zuletzt: {name}' und bleibt in der Auswahl als 'nicht verfuegbar' (Plan E11), Pflichtwahl ohne Geraet warn. Abschnitt: schlechteste Wahl mit Praefix, sonst '{n} Geraete gewaehlt'. Sperrgrund je Wahl ueber Field, Wechsel-Warnung als Hinweis (Plan E17), Pegel je Wahl mit capabilities.level und gemessenem levelDb, auch fuer Ausgaenge (Plan E26; NaN und +Infinity zeigen nichts, -0 erscheint als 0 dB). Kreuzprodukt 144 Faelle je Wahl und 64 fuer drei Wahlen (Interpreter)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
@@ -12958,8 +13671,12 @@ git commit -m "feat(settings): AudioDeviceSection - mehrere benannte Wahlen, nie
 - Nachbesserung nach dem Review (E26): Der Pegel hängt nicht mehr an der Richtung, sondern an einem gemessenen `levelDb`
   (Spec 6.2 „je Wahl“). Die erste Fassung zeigte ihn nur für Eingänge und für `undefined` „Pegel: kein Signal“ (erfunden,
   Regel 7.3). Dazu das Kreuzprodukt über die Capability-Bits (M10) und `motion-reduce:transition-none` am Knopf (G8).
+- Zweite Nachbesserung (Prüfrunde 2): `gemessen(levelDb)` lässt nur endliche Zahlen und `-Infinity` zu; `NaN` und
+  `+Infinity` zeigten vorher „Pegel: kein Signal“, also etwas nicht Gemessenes (M12). `Math.round(-0,4)` ergibt `-0`, und
+  `zahlText(-0)` ergab „-0“ (gemessen, Node 24, `de-DE`); jetzt „Pegel: 0 dB“ (M11). Der Commit-Text sprach noch von
+  „Pegel nur fuer Eingaenge“ und ist berichtigt.
 
-**Nachgerechnet:** Gleiche Kopie, nach Task 19: Step 2 rot mit `… export named 'AUDIO_TEXTE'`; Typprüfung ohne Meldung. Nach der Nachbesserung neu gemessen: Step 6 grün mit 237 × `ok`, Mutationsprobe M1–M10 je rot (5, 3, 1, 3, 1, 1, 1, 1, 3, 2 FAIL).
+**Nachgerechnet:** Gleiche Kopie, nach Task 19: Step 2 rot mit `… export named 'AUDIO_TEXTE'`; Typprüfung ohne Meldung. Nach der Nachbesserung neu gemessen: Step 6 grün mit 237 × `ok`, Mutationsprobe M1–M10 je rot (5, 3, 1, 3, 1, 1, 1, 1, 3, 2 FAIL). Zweite Nachbesserung: Step 6 grün mit 243 × `ok`, Mutationsprobe M1–M12 je rot (5, 3, 1, 3, 1, 1, 1, 1, 4, 2, 1, 1 FAIL).
 
 ---
 
@@ -13508,7 +14225,7 @@ export { DataLinkSection } from './abschnitte/DataLinkSection';
 ```
 npm run selftest -w @jm/settings
 ```
-Erwartet (gemessen): 289 Zeilen `ok` (28 iveo, 24 DataLink), keine `FAIL`, `ALLE TESTS OK`. Neu unter anderem:
+Erwartet (gemessen): 295 Zeilen `ok` (28 iveo, 24 DataLink), keine `FAIL`, `ALLE TESTS OK`. Neu unter anderem:
 ```
 ok   iveo Kreuzprodukt: Eingang → status aus der Tabelle (72 Fälle)
 ok   iveo Kreuzprodukt: ok nur mit gemessener Lieferung (72 Fälle)
@@ -13621,7 +14338,7 @@ onClick={() => p.onBack?.()}>
 ```
 Erwartet: `FAIL DataLink locked: alle Bedienelemente disabled (1 von 2)`.
 
-Danach `git status --short` (nur `A `/`M `) und wieder 289 × `ok`.
+Danach `git status --short` (nur `A `/`M `) und wieder 295 × `ok`.
 
 - [ ] **Step 11: Commit**
 
@@ -13652,15 +14369,16 @@ git commit -m "feat(settings): IveoSection und DataLinkSection" -m "iveoView: oh
   „{n} Dateien“, „{n} Dateien · hh:mm“); `eineDatei` bleibt als Konstante.
 - Zusatzfeld „Speaker“ im iveo-Abschnitt (Spec 6.2 nennt „Status (verbunden, Event, Bühne)“): Die Speakerzahl ist das, was
   die Tools heute von iveo zeigen (Rundown `state.iveoSpeakers`, Connect „Sprecher aus der Show“, Anhang A). Ohne die Zeile
-  ginge diese Anzeige beim Umbau verloren (Spec 10).
+  ginge diese Anzeige beim Umbau verloren (Spec 10; E24, Owner-Liste).
 - `sourceLine`, `notice` und `backLabel` sind fertige Texte der App (Titler Q1–Q3, H1–H7, K1) und damit eine Ausnahme von
   Spec 6.1 („Texte fest im Paket“; E25, Owner-Liste). Gründe: Die Texte enthalten Laufzeitdaten (Ordner- und Personennamen,
   z. B. „„Ada“ ist nicht mehr in der Liste“), und Master-Link 2b R2 ändert gerade genau diese Texte im Titler
   (`lib/datalink-anzeige.ts`, Anhang A); eine Kopie in `@jm/settings` liefe sofort auseinander. Die Quellregel aus Task 16
-  lässt nur `DataLinkSectionProps.backLabel` als Text-Prop zu. Übernimmt der Owner die Texte ins Paket, geschieht das im
-  Titler-Pilot nach dem Merge von 2b R2.
+  lässt in den Abschnitts-Props genau diese drei Text-Props zu (`AUSNAHMEN`); jede andere Prop, deren Name auf …label/…text
+  endet, und jede `string`-Prop außerhalb der Daten-Liste macht sie rot (seit der zweiten Nachbesserung, E25). Übernimmt
+  der Owner die Texte ins Paket, geschieht das im Titler-Pilot nach dem Merge von 2b R2.
 
-**Nachgerechnet:** Gleiche Kopie, nach Task 20: Step 2 rot mit `… export named 'IVEO_TEXTE'`; Typprüfung ohne Meldung. Mutationsprobe M1–M8 je rot (2, 1, 1, 1, 3, 1, 1, 1 FAIL). Nach der Nachbesserung (Knöpfe mit `motion-reduce:transition-none`, je eine Zeile „Übergänge“) neu gemessen: Step 8 grün mit 289 × `ok`, Proben wie angegeben (2, 1, 1, 1, 3, 1, 1, 1 FAIL). Die Uhrzeit-Fälle nutzen eine ISO-Zeit aus Ortszeit 09:05 und sind damit von der Zeitzone unabhängig.
+**Nachgerechnet:** Gleiche Kopie, nach Task 20: Step 2 rot mit `… export named 'IVEO_TEXTE'`; Typprüfung ohne Meldung. Mutationsprobe M1–M8 je rot (2, 1, 1, 1, 3, 1, 1, 1 FAIL). Nach der Nachbesserung (Knöpfe mit `motion-reduce:transition-none`, je eine Zeile „Übergänge“) neu gemessen: Step 8 grün mit 289 × `ok`, Proben wie angegeben (2, 1, 1, 1, 3, 1, 1, 1 FAIL). Nach der zweiten Nachbesserung: 295 × `ok`, Proben gleich. Die Uhrzeit-Fälle nutzen eine ISO-Zeit aus Ortszeit 09:05 und sind damit von der Zeitzone unabhängig.
 
 ---
 
@@ -14146,7 +14864,7 @@ export { PeersSection } from './abschnitte/PeersSection';
 ```
 npm run selftest -w @jm/settings
 ```
-Erwartet (gemessen): 323 Zeilen `ok` (34 neu), keine `FAIL`, `ALLE TESTS OK`, Exitcode 0. Neu unter anderem:
+Erwartet (gemessen): 329 Zeilen `ok` (34 neu), keine `FAIL`, `ALLE TESTS OK`, Exitcode 0. Neu unter anderem:
 ```
 ok   Gegenstellen Kreuzprodukt je Zeile: Eingang → status aus der Tabelle (108 Fälle)
 ok   Gegenstellen Kreuzprodukt eine Zeile: Abschnitt aus der Tabelle, error schlägt alles (108 Fälle)
@@ -14257,7 +14975,7 @@ Nachher:
 ```
 Erwartet: `FAIL Gegenstellen: jede Zeile ist eine benannte Gruppe (role="group", aria-labelledby auf den Namen)`. Detail: `ist: [] soll: ["JM Timer","JM Titler","JM Switcher"]`.
 
-Danach `git status --short` (nur `A `/`M `) und wieder 323 × `ok`.
+Danach `git status --short` (nur `A `/`M `) und wieder 329 × `ok`.
 
 - [ ] **Step 9: Commit**
 
@@ -14291,7 +15009,7 @@ git commit -m "feat(settings): PeersSection - Gegenstellen mit Auto und manuelle
 - Nachbesserung nach dem Review: Zeilen als benannte Gruppen, Knöpfe mit „Setzen: {Name}“/„Auto: {Name}“ (WCAG 1.3.1,
   2.4.6; Texte `setzenFuer`/`autoFuer` in `PEERS_TEXTE`), `motion-reduce:transition-none` an den Knöpfen.
 
-**Nachgerechnet:** Gleiche Kopie, nach Task 21: Step 2 rot mit `… export named 'PEERS_TEXTE'`; `Quellregel settings: Dateiliste gelesen (18 Dateien)`; Typprüfung ohne Meldung. Nach der Nachbesserung neu gemessen: Step 6 grün mit 323 × `ok`, Mutationsprobe M1–M8 je rot (3, 2, 3, 1, 3, 1, 1, 1 FAIL). Endstand der Kopie: `packages/settings/src` byte-gleich mit dem Plantext.
+**Nachgerechnet:** Gleiche Kopie, nach Task 21: Step 2 rot mit `… export named 'PEERS_TEXTE'`; `Quellregel settings: Dateiliste gelesen (18 Dateien)`; Typprüfung ohne Meldung. Nach der Nachbesserung neu gemessen: Step 6 grün mit 323 × `ok`, Mutationsprobe M1–M8 je rot (3, 2, 3, 1, 3, 1, 1, 1 FAIL). Nach der zweiten Nachbesserung: 329 × `ok`, Proben gleich. Endstand der Kopie: `packages/settings/src` byte-gleich mit dem Plantext.
 
 ---
 
@@ -14309,12 +15027,12 @@ grün. Befehle im Bash-Werkzeug (Git Bash); PowerShell nur, wo es dasteht. Zeile
 maßgeblich ist immer der wortgleiche Vorher-Text.
 
 **Dateien:**
-- Create: `packages/ui/test/galerie.test.tsx` (243 Zeilen)
+- Create: `packages/ui/test/galerie.test.tsx` (256 Zeilen)
 - Modify: `packages/ui/test/selftest.ts` (eine Import-Zeile direkt vor `abschluss();`)
 - Create: `packages/ui/vite.config.ts` (16 Zeilen)
 - Create: `packages/ui/galerie/index.html` (12), `galerie/main.tsx` (16), `galerie/galerie.css` (15),
-  `galerie/beispiele-ui.tsx` (313), `galerie/beispiele-settings.tsx` (319), `galerie/ShellSeite.tsx` (89),
-  `galerie/Galerie.tsx` (82), `galerie/pruefe-klassen.ts` (171), alle unter `packages/ui/`
+  `galerie/beispiele-ui.tsx` (341), `galerie/beispiele-settings.tsx` (319), `galerie/ShellSeite.tsx` (97),
+  `galerie/Galerie.tsx` (83), `galerie/pruefe-klassen.ts` (171), alle unter `packages/ui/`
 - Modify: `packages/ui/tsconfig.json` (`include` bekommt `"../settings/src"`)
 - Modify: `packages/ui/package.json` (`scripts`: drei Zeilen; `devDependencies`: vier Zeilen)
 - Modify: `package-lock.json` (Eintrag `"packages/ui"` → `devDependencies`: vier Zeilen, nur über
@@ -14497,8 +15215,10 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   'tally-live': [UI_TEXTE.live, 'text-[19px]'],
   'tally-gesperrt': ['aria-disabled="true"', 'Nur im Live-Modus'],
   'tally-gesperrt-ohne-grund': ['aria-disabled="true"', UI_TEXTE.gesperrtOhneGrund],
+  'tally-halten': ['in 2 s sperren (dabei halten)', 'in 2 s ausblenden (dabei halten)', 'wieder einblenden'],
   'eingabe-text-fehler': ['aria-invalid="true"'],
   'eingabe-text-gesperrt': ['disabled=""', UI_TEXTE.gesperrt('Vom Master vorgegeben')],
+  'eingabe-zahl': ['Werte unter 1024 lehnt dieses Beispiel ab'],
   'eingabe-zahl-einheit': ['>s<'],
   'eingabe-schalter': ['role="switch"'],
   'eingabe-auswahl-leer': [UI_TEXTE.bitteWaehlen],
@@ -14555,6 +15275,8 @@ function ersterZustand(html: string): string | undefined {
     '0000-0000-0000-0000',
     'Launcher-Vollform: das frisch erzeugte Beispiel-Token ist sichtbar',
   );
+  const dreiWahlen = render(settingsBeispiele('dark').find((b) => b.name === 'audio-drei-wahlen')!.element);
+  ok((dreiWahlen.match(/>Pegel: /g) ?? []).length === 3, 'Abschnitts-Beispiel audio-drei-wahlen: Pegel je Wahl, auch für den Ausgang (E26)');
 
   for (const b of uiBeispiele('dark')) {
     const pruefung = UI_PRUEFUNG[b.name];
@@ -14912,18 +15634,23 @@ function StatusBarMitKnoepfen(): React.JSX.Element {
 
 function HaltenProbe(): React.JSX.Element {
   const [zustand, setZustand] = useState<TallyButtonProps['state']>('bereit');
+  const [sichtbar, setSichtbar] = useState(true);
   const [zahl, setZahl] = useState({ gedrueckt: 0, losgelassen: 0, klicks: 0 });
   return (
     <div className="space-y-2">
-      <TallyButton
-        state={zustand}
-        label="Sprechen (halten)"
-        shortcut="Leertaste"
-        disabledReason="Zum Ausprobieren gesperrt"
-        onPress={() => setZahl((z) => ({ ...z, gedrueckt: z.gedrueckt + 1 }))}
-        onRelease={() => setZahl((z) => ({ ...z, losgelassen: z.losgelassen + 1 }))}
-        onClick={() => setZahl((z) => ({ ...z, klicks: z.klicks + 1 }))}
-      />
+      {sichtbar ? (
+        <TallyButton
+          state={zustand}
+          label="Sprechen (halten)"
+          shortcut="Leertaste"
+          disabledReason="Zum Ausprobieren gesperrt"
+          onPress={() => setZahl((z) => ({ ...z, gedrueckt: z.gedrueckt + 1 }))}
+          onRelease={() => setZahl((z) => ({ ...z, losgelassen: z.losgelassen + 1 }))}
+          onClick={() => setZahl((z) => ({ ...z, klicks: z.klicks + 1 }))}
+        />
+      ) : (
+        <p className="text-[11px]">Knopf ausgeblendet (Unmount)</p>
+      )}
       <p className="tabular text-[11px]">
         gedrückt {zahl.gedrueckt} · losgelassen {zahl.losgelassen} · Klicks {zahl.klicks}
       </p>
@@ -14941,6 +15668,18 @@ function HaltenProbe(): React.JSX.Element {
           onClick={() => window.setTimeout(() => setZustand('gesperrt'), 2000)}
         >
           in 2 s sperren (dabei halten)
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          uppercase={false}
+          onClick={() => window.setTimeout(() => setSichtbar(false), 2000)}
+        >
+          in 2 s ausblenden (dabei halten)
+        </Button>
+        <Button type="button" size="sm" variant="outline" uppercase={false} onClick={() => setSichtbar(true)}>
+          wieder einblenden
         </Button>
       </div>
     </div>
@@ -14964,8 +15703,19 @@ function ZahlBeispiel(p: { einheit?: string; ohneFeld?: boolean }): React.JSX.El
       <NumberInput value={wert} onChange={setWert} min={0} max={60} unit={p.einheit} />
     </Field>
   ) : (
-    <Field label="Port" hint="1 bis 65535. Enter oder Verlassen übernimmt, Escape verwirft.">
-      <NumberInput value={wert} onChange={setWert} min={1} max={65535} ganzzahl />
+    <Field
+      label="Port"
+      hint="1 bis 65535. Enter oder Verlassen übernimmt, Escape verwirft. Werte unter 1024 lehnt dieses Beispiel ab (nach 2 s „Noch nicht übernommen.“)."
+    >
+      <NumberInput
+        value={wert}
+        onChange={(n) => {
+          if (n >= 1024) setWert(n);
+        }}
+        min={1}
+        max={65535}
+        ganzzahl
+      />
     </Field>
   );
 }
@@ -15350,14 +16100,14 @@ export function settingsBeispiele(modus: Modus): Beispiel[] {
     b(
       'audio-drei-wahlen',
       A,
-      'Interpreter-Muster: drei Wahlen mit Pegel, eine fehlt',
+      'Interpreter-Muster: drei Wahlen, jede mit Pegel (auch der Ausgang), eine fehlt',
       <AudioDeviceSection
         {...audio(id('audio-drei-wahlen'), {
           capabilities: { level: true, refresh: true },
           choices: [
             wahl({ key: 'floor', label: 'Floor', levelDb: -18, changeWarning: AUDIO_TEXTE.wechselStoppt }),
             wahl({ key: 'dolmetscher', label: 'Dolmetscher', value: 'mic-7', lastLabel: 'Sennheiser e835', levelDb: -Infinity }),
-            wahl({ key: 'ausgabe', label: 'Ausgabe', direction: 'output', devices: AUSGAENGE, value: 'out-2' }),
+            wahl({ key: 'ausgabe', label: 'Ausgabe', direction: 'output', devices: AUSGAENGE, value: 'out-2', levelDb: -12 }),
           ],
         })}
       />,
@@ -15811,17 +16561,20 @@ Nachher:
 ```
 npm run selftest -w @jm/ui; echo "Exit=$?"
 ```
-Erwartet: keine `FAIL`-Zeile, letzte Zeile `ALLE TESTS OK`, `Exit=0`. `galerie.test.tsx` trägt genau 124 `ok`-Zeilen bei:
-4 Namenslisten, 7 Abschnitte, 55 Abschnitts-Beispiele, 1 Launcher-Token, 24 Baustein-Beispiele, 1 Panel-Anker,
-10 Seiten- und Rahmenprüfungen, 7 Rahmen-Seite, 10 Probe, 5 Quellregeln und Electron. Gesamtzahl (gemessen) = 381 nach
-Task 22 + 124 = **505** `ok`-Zeilen. Unter anderem:
+Erwartet: keine `FAIL`-Zeile, letzte Zeile `ALLE TESTS OK`, `Exit=0`. `galerie.test.tsx` trägt genau 127 `ok`-Zeilen bei:
+4 Namenslisten, 7 Abschnitte, 55 Abschnitts-Beispiele, 1 Launcher-Token, 1 Pegel je Wahl, 26 Baustein-Beispiele,
+1 Panel-Anker, 10 Seiten- und Rahmenprüfungen, 7 Rahmen-Seite, 10 Probe, 5 Quellregeln und Electron. Gesamtzahl
+(gemessen) = 393 nach Task 22 + 127 = **520** `ok`-Zeilen. Unter anderem:
 ```
 ok   Galerie dark: alle 35 Baustein-Beispiele
 ok   Galerie dark: alle 55 Abschnitts-Beispiele
 ok   Galerie: Abschnitt ndi zeigt ok, Warnung, Fehler, aus/unbekannt, gesperrt und Fehlertext
 ok   Abschnitts-Beispiel fernsteuerung-unbekannt: Statuspille off
 ok   Launcher-Vollform: das frisch erzeugte Beispiel-Token ist sichtbar
+ok   Abschnitts-Beispiel audio-drei-wahlen: Pegel je Wahl, auch für den Ausgang (E26)
 ok   Baustein-Beispiel tally-gesperrt-ohne-grund: aria-disabled="true" · gesperrt – kein Grund angegeben
+ok   Baustein-Beispiel tally-halten: in 2 s sperren (dabei halten) · in 2 s ausblenden (dabei halten) · wieder einblenden
+ok   Baustein-Beispiel eingabe-zahl: Werte unter 1024 lehnt dieses Beispiel ab
 ok   Galerie: jedes der 90 Beispiele genau einmal je Spalte
 ok   Galerie: keine id doppelt (Anker beider Spalten getrennt)
 ok   Galerie: Rahmen in 1200 px und 800 px (schmal), je Dunkel und Hell, dazu der Rahmen ohne Sitzung
@@ -15994,7 +16747,7 @@ Proben ändern. Erwartet zuerst `ALLE TESTS OK`.
 
 Dann je ein Fehler allein (Edit-Werkzeug in der Kopie), Lauf mit
 `SP='<eigener Scratchpad>'; K="$SP/mutation-23"; [ -d "$K/packages/ui" ] && (cd "$K" && npm run galerie:pruefen -w @jm/ui; echo "Exit=$?")`
-(bei e: `selftest`, bei f: `typecheck`), danach die Datei aus der Sicherung zurück, z. B.
+(bei e, g, h, i: `selftest`, bei f: `typecheck`), danach die Datei aus der Sicherung zurück, z. B.
 `SP='<eigener Scratchpad>'; K="$SP/mutation-23"; [ -d "$K/sicherung" ] && cp "$K/sicherung/galerie.css" "$K/packages/ui/galerie/galerie.css"`:
 
 | Probe | Eingriff in der Kopie | Erwartet (gemessen) |
@@ -16005,20 +16758,25 @@ Dann je ein Fehler allein (Edit-Werkzeug in der Kopie), Lauf mit
 | d | in `packages/ui/src/components/TallyButton.tsx` `min-h-[var(--control-h-lg)]` → `min-h-[var(--control-hlg)]` | `FAIL Klassen-Probe: Pflichtklasse min-h-[var(--control-h-lg)]`, `1 FEHLGESCHLAGEN` |
 | e | in `packages/ui/galerie/beispiele-ui.tsx` einen Kommentar `// w-[var(--panel-w)]` ergänzen | `npm run selftest -w @jm/ui` → `FAIL Galerie-Quelltext ohne Pflichtklassen …` mit `ist: ["beispiele-ui.tsx: w-[var(--panel-w)]"]`. Gemessen beim Schreiben, weil der erste Entwurf dieser Datei die Klassen im Kopfkommentar nannte. |
 | f | in `beispiele-settings.tsx` `sourceName: 'JM Titler',` → `sourceName: 3,` | `npm run typecheck -w @jm/ui` → `galerie/beispiele-settings.tsx(51,5): error TS2322: Type 'number' is not assignable to type 'string'.` (Zeile mit dem Stand dieses Plans) |
+| g | in `beispiele-ui.tsx` den Knopf „in 2 s ausblenden (dabei halten)“ (`<Button` … `</Button>`) löschen | `npm run selftest -w @jm/ui` → `FAIL Baustein-Beispiel tally-halten: in 2 s sperren (dabei halten) · in 2 s ausblenden (dabei halten) · wieder einblenden`, `1 FEHLGESCHLAGEN` (zweite Nachbesserung) |
+| h | in `beispiele-settings.tsx` `value: 'out-2', levelDb: -12 }),` → `value: 'out-2' }),` | `npm run selftest -w @jm/ui` → `FAIL Abschnitts-Beispiel audio-drei-wahlen: Pegel je Wahl, auch für den Ausgang (E26)`, `1 FEHLGESCHLAGEN` |
+| i | in `beispiele-ui.tsx` den Satz „ Werte unter 1024 lehnt dieses Beispiel ab (nach 2 s „Noch nicht übernommen.“).“ aus dem Hinweis löschen | `npm run selftest -w @jm/ui` → `FAIL Baustein-Beispiel eingabe-zahl: Werte unter 1024 lehnt dieses Beispiel ab`, `1 FEHLGESCHLAGEN` |
 
 Aufräumen, nur so: erst die Junctions einzeln entfernen, dann prüfen, dass keine mehr übrig ist, dann den Rest (ein Aufruf,
 eigenes `SP`/`K`, kein `cd -`):
 ```
 SP='<eigener Scratchpad>'; K="$SP/mutation-23"
-[ -d "$K/packages" ] \
-  && MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/packages/settings/node_modules/@jm/ui")" \
-  && MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/node_modules")" \
+[ -d "$K" ] \
+  && { [ ! -e "$K/packages/settings/node_modules/@jm/ui" ] || MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/packages/settings/node_modules/@jm/ui")"; } \
+  && { [ ! -e "$K/node_modules" ] || MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/node_modules")"; } \
   && [ ! -e "$K/node_modules" ] && [ -z "$(MSYS_NO_PATHCONV=1 cmd /c dir /AL /S /B "$(cygpath -w "$K")" 2>/dev/null)" ] \
   && rm -rf "${K:?}" && echo "Kopie weg" && ls node_modules/.package-lock.json
 ```
 Erwartet: `Kopie weg` und `node_modules/.package-lock.json` (Ziel der Junction unberührt). Fehlt `Kopie weg`, ist nichts
 gelöscht worden: Dann steht noch eine Junction (`cmd /c dir /AL /S /B <Kopie>` zeigt sie) oder `SP` zeigt nicht auf den
-Scratchpad. Ein leeres `K` kann so nie zu `rm -rf` führen, und die Kontrolle bestätigt nichts, was nicht da ist.
+Scratchpad. Ein leeres `K` kann so nie zu `rm -rf` führen, und die Kontrolle bestätigt nichts, was nicht da ist. Jede
+Junction wird nur entfernt, wenn sie da ist: So räumt derselbe Block auch eine Kopie auf, deren Anlegen nach der ersten
+Junction abgebrochen ist (das Anlegen verweigert eine stehende Kopie). Gemessen mit einer vollständigen Kopie, mit nur der ersten bzw. nur der zweiten Junction (je `Kopie weg`, Ziel der Junctions unberührt) und mit leerem bzw. nicht ersetztem `SP` (keine Ausgabe, nichts gelöscht).
 
 - [ ] **Step 10: Typprüfung**
 
@@ -16124,7 +16882,13 @@ git commit -m "feat(ui): Galerie - alle Bausteine und Abschnitte in jedem Zustan
     sieben Fälle `…-fehlertext` waren deshalb rot. Geprüft wird jetzt das Kennzeichen `data-fehler="true"` aus Task 16.
   - `pruefe-klassen.ts` verglich für den `Hinweis:` mit `includes()` auf dem ganzen Quelltext. `pl-2` (nur in
     `SectionFrame`) galt deshalb als „auch in ui“, weil `AppHeader` `pl-20` enthält. Der Hinweis nannte 4 Klassen, die Probe a
-    meldete aber 5 als fehlend. Jetzt werden ganze Wörter verglichen; Hinweis und Probe a nennen dieselben 5 Klassen.
+    meldete aber 5 als fehlend. Jetzt werden ganze Wörter verglichen; Hinweis und Probe a nennen dieselben Klassen
+    (damals 5, seit der Nachbesserung 6).
+- Zweite Nachbesserung (Prüfrunde 2): `HaltenProbe` kann den Knopf während des Haltens ausblenden (Owner-Prüfpunkt 2
+  verlangte das, die Galerie bot es nicht an); das Port-Beispiel lehnt Werte unter 1024 ab, damit der Owner „Noch nicht
+  übernommen.“ sieht (E27, Owner-Prüfpunkt 3); die Wahl „Ausgabe“ im Interpreter-Muster hat einen Pegel (E26: sonst zeigte
+  die Galerie das alte Bild „Pegel nur für Eingänge“). Der Galerie-Test prüft alle drei (je eine Zeile mehr). Die
+  Aufräum-Kette in Step 9 entfernt jede Junction nur, wenn sie da ist, und räumt so auch eine halb angelegte Kopie auf.
 
 **Nachgerechnet beim Zusammensetzen** (frische Kopie, alle Tasks 1–22 wörtlich aus diesem Plan eingespielt, dann Task 23):
 Step 2 rot mit `ERR_MODULE_NOT_FOUND … galerie\Galerie`; Step 4 rot mit `ReferenceError: React is not defined` in
@@ -16132,7 +16896,9 @@ Step 2 rot mit `ERR_MODULE_NOT_FOUND … galerie\Galerie`; Step 4 rot mit `Refer
 Dev-Server `200`/`200`/`200`, nur `127.0.0.1:5199`, danach Port frei und `000`. Nach der Nachbesserung (Tasks 3–22 und
 diese Aufgabe geändert) neu gemessen: Step 4 rot nach 392 `ok` (381 + 11), Step 6 grün mit 505 `ok`, CSS 36,83 kB,
 Klassen 71/30/6, Mutationen a 1, b 15, c 2, d 1, e 1 `FAIL`, f `error TS2322` in Zeile 51. Die Aufräum-Kette ist mit leerem
-und mit gültigem `SP` gemessen (leer: keine Ausgabe, nichts gelöscht; gültig: `Kopie weg`).
+und mit gültigem `SP` gemessen (leer: keine Ausgabe, nichts gelöscht; gültig: `Kopie weg`). **Zweite Nachbesserung**
+(HaltenProbe mit Ausblenden, Port-Beispiel lehnt Werte unter 1024 ab, Ausgang mit Pegel, drei neue Prüfzeilen im
+Galerie-Test, Aufräum-Kette): Step 2 rot wie angegeben, Step 4 rot nach 404 `ok` (393 + 11), Step 6 grün mit 520 `ok` (127 aus diesem Test); Step 8 ohne Bau 20 `FAIL`, mit Bau 20 `ok`, CSS 36,83 kB mit demselben Hash wie vorher (`index-DVXDjJ73.css`), Klassen 71/30/6. Neue Proben im Galerie-Test (je allein, Selbsttest): ohne „in 2 s ausblenden“ 1 `FAIL`, Ausgang ohne Pegel 1 `FAIL`, Port-Beispiel ohne den Hinweis auf die Ablehnung 1 `FAIL`. Die Proben a–f von Step 9 sind nicht neu gemessen: Das gebaute CSS ist byte-gleich, `galerie.css`, `TallyButton.tsx` und die Zeile 51 von `beispiele-settings.tsx` sind unverändert.
 
 **Nachgerechnet vom Schreiber** (Kopie `scratchpad\ux-plan\kopie-d`, Stand `5a14352934`; Testhilfe, Tokens, `texte.ts`, `status.ts`,
 `halten.ts`, `theme.ts`, `eingabe.ts`, alle Bausteine aus 9.7 und alle sieben Abschnitte aus 9.9/9.10 als vorläufige
@@ -16141,7 +16907,7 @@ Nachbauten mit den Schnittstellen und Pflichtklassen aus Abschnitt 9; tsx 4.22.4
 - Step 4 rot mit `ReferenceError: React is not defined at NdiOutputSection` (nach 11 `ok`).
 - Step 6 grün mit 122 `ok` aus `galerie.test.tsx` (nach der Nachbesserung 124, siehe oben).
 - Step 8 ohne Bau 20 `FAIL`, mit Bau 20 `ok` und der Hinweis „6 … nur in packages/settings/src“ (Bau in 0,6 s,
-  CSS 34,36 kB; mit dem echten Code: 5 Klassen, 36,50 kB, siehe oben).
+  CSS 34,36 kB; mit dem echten Code beim Zusammensetzen 5 Klassen und 36,50 kB, nach den Nachbesserungen die Werte oben).
 - Mutationen a–f wie in der Tabelle.
 - `npm run typecheck -w @jm/ui` und `-w @jm/settings` grün.
 - Dev-Server: `200`/`200`/`200`, nur an `127.0.0.1` gebunden, nach `Stop-Process` Port frei und `000`.
@@ -16247,8 +17013,8 @@ Stelle verrutschten Schritt.
 npm run selftest -w @jm/ui; echo "Exit=$?"
 npm run selftest -w @jm/settings; echo "Exit=$?"
 ```
-Erwartet (gemessen): keine `FAIL`-Zeile, je `ALLE TESTS OK` und `Exit=0`; `@jm/ui` **505** `ok`-Zeilen (Task 1–15: 381,
-dazu 124 aus `galerie.test.tsx`), `@jm/settings` **323** `ok`-Zeilen (Task 16–22). Keine Zeile `Warning:`. Zusätzlich
+Erwartet (gemessen): keine `FAIL`-Zeile, je `ALLE TESTS OK` und `Exit=0`; `@jm/ui` **520** `ok`-Zeilen (Task 1–15: 393,
+dazu 127 aus `galerie.test.tsx`), `@jm/settings` **329** `ok`-Zeilen (Task 16–22). Keine Zeile `Warning:`. Zusätzlich
 `npm run galerie:pruefen -w @jm/ui` → 20 `ok`, `ALLE TESTS OK` (Task 23, Step 8).
 
 **5.3 Typprüfung aller Workspaces**
@@ -16326,14 +17092,15 @@ die es in `packages/ui/src` findet. Jede der 24 Apps wird dadurch beim nächsten
 weil keine bestehende Klasse sich ändert. Aufräumen, nur so (ein Aufruf; erst die Junctions, Kontrolle, dann der Rest):
 ```
 SP='<eigener Scratchpad>'; K="$SP/titler-probe"
-[ -d "$K/apps" ] \
-  && MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/apps/titler/node_modules/@jm/ui")" \
-  && MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/node_modules")" \
+[ -d "$K" ] \
+  && { [ ! -e "$K/apps/titler/node_modules/@jm/ui" ] || MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/apps/titler/node_modules/@jm/ui")"; } \
+  && { [ ! -e "$K/node_modules" ] || MSYS_NO_PATHCONV=1 cmd /c rmdir "$(cygpath -w "$K/node_modules")"; } \
   && [ ! -e "$K/node_modules" ] && [ -z "$(MSYS_NO_PATHCONV=1 cmd /c dir /AL /S /B "$(cygpath -w "$K")" 2>/dev/null)" ] \
   && rm -rf "${K:?}" && echo "Kopie weg" && ls node_modules/.package-lock.json
 ```
 Erwartet: `Kopie weg` und `node_modules/.package-lock.json`. Ohne `Kopie weg` ist nichts gelöscht worden (eine Junction
-steht noch, `cmd /c dir /AL /S /B <Kopie>` zeigt sie, oder `SP` ist falsch).
+steht noch, `cmd /c dir /AL /S /B <Kopie>` zeigt sie, oder `SP` ist falsch). Jede Junction wird nur entfernt, wenn sie da
+ist; so räumt derselbe Block auch eine Kopie auf, deren Anlegen nach der ersten Junction abgebrochen ist.
 
 **5.6 Keine zweite Version durch diesen Plan** (Lockfile-Prüfung wie Task 1, Step 2)
 ```
@@ -16396,12 +17163,14 @@ git commit -m "ci: Selbsttests fuer @jm/ui und @jm/settings" -m "Zwei Schritte i
 
 **Nachgerechnet beim Zusammensetzen** (frische Kopie mit allen Tasks 1–24 aus diesem Plan; jedes `@jm/*` der Kopie zeigte
 auf die Kopie): Step 1/3/4 wie angegeben (16 → 18 Schritte, Hunk `@@ -70,0 +71,6 @@`, `CRLF 112 Zeilen 112`, `(74:8)`);
-5.2 `@jm/ui` 459 und `@jm/settings` 301 `ok`; 5.3 `Exit=0`, 31 Workspaces, 0 `error TS`, 1 min 32 s, Gegenprobe
+5.2 `@jm/ui` 459 und `@jm/settings` 301 `ok` (Stand vor den Nachbesserungen; heute siehe 5.2); 5.3 `Exit=0`, 31 Workspaces, 0 `error TS`, 1 min 32 s, Gegenprobe
 `StatusPill.tsx(24,35): error TS2551` über `typecheck:web -w @jm/titler`; 5.4 alle 13 Bestandsdateien gleich, Hunks
-`@@ -8,0 +9,2 @@` und `@@ -11,0 +12,17 @@`; 5.5 `electron-vite build` in 2,5 s, Renderer-CSS 49,02 kB, Probe 19 `ok`,
+`@@ -8,0 +9,2 @@` und `@@ -11,0 +12,17 @@`; 5.5 `electron-vite build` in 2,5 s, Renderer-CSS 49,02 kB (vor den Nachbesserungen), Probe 19 `ok`,
 Gegenproben 16 und 2 `FAIL`; 5.6 in einer abgetrennten Kopie ohne `node_modules`: Lockfile-Deltas 9 / 25 / 5+1−, Sollwerte
 wie angegeben.
 - Alle Junctions der Kopie einzeln entfernt (26 Stück); das Worktree-`node_modules` war danach unverändert vorhanden.
+
+**Nachgerechnet nach der zweiten Nachbesserung:** 5.2 `@jm/ui` 520 und `@jm/settings` 329 `ok`; 5.3 `Exit=0`, 31 Workspaces, 0 `error TS` (diesmal ohne Speicher-Abbruch); 5.5 `electron-vite build` grün, Renderer-CSS 49,37 kB mit demselben Hash wie vorher (`index-CRgH0p-g.css`), Probe 19 `ok`. Die Gegenproben 16 und 2 sind nicht neu gemessen (das CSS ist byte-gleich). Die Aufräum-Kette aus 5.5 ist mit einer vollständigen und einer halb angelegten Kopie (nur die erste Junction) gemessen: je `Kopie weg`, Ziel der Junctions unberührt; mit leerem `SP` keine Ausgabe, nichts gelöscht.
 
 ---
 
@@ -16645,14 +17414,14 @@ git commit -m "docs(ux): UX-Roadmap als Kurzfassung (Spec F3), Lane E nachgefueh
 | 3.2 | `AppHeader`: Logo + Toolname, Mac-Ampel, Ziehfläche, Bedienelemente `noDragRegion`, Mitte, On-Air mit Text, `ThemeToggle`, ⚙ nur mit `settings` | 14, 15 |
 | 3.3 | `StatusBar`/`StatusItem`: feste Gruppenreihenfolge, Symbol + Text je Zustand, Knopf nur mit Ziel, Uhr hh:mm:ss tabellarisch, < 900 px ohne Detail | 5 (Logik), 8 (Kreuzprodukt 40 Fälle) |
 | 3.4 | `TallyButton`: 48 px, bereit/live/gesperrt mit Form und Text, Grund Pflicht, Halten mit `onRelease` genau einmal, Kürzel nur Anzeige | 6 (780 Folgen), 9 |
-| 3.5 | `Field`, `TextInput`, `NumberInput` (Einheit, Min/Max), `Toggle`, `Select` nativ; 32 px; `aria-invalid`/`aria-describedby` | 7 (Logik), 10, 11 |
+| 3.5 | `Field`, `TextInput`, `NumberInput` (Einheit, Min/Max), `Toggle`, `Select` nativ; 32 px; `aria-invalid`/`aria-describedby` | 7 (Logik, Frist E27), 10, 11; Text-Entwurf 17 |
 | 3.6 | `SettingsPanel`: Titel, Schließen, Sprung zum Abschnitt, kurze Hervorhebung | 13 |
 | 3.7 | `ThemeToggle`/`useTheme`: Dunkel Standard, `light` auf `<html>`, `jm-theme` in `try/catch`, Fehler → Dunkel | 7, 12 |
 | 3.8 | Dichte kompakt 36/24 px; ohne Electron; Zustand ohne Sitzung; Mac-Ziehfläche | 3 (Tokens), 15 (`data-dichte`, Rahmen ohne Sitzung), 14 (`mac`), Quellregeln 3 und 16 |
 | 3.9 | Status-Brücken | bewusst nicht (eigener Plan) |
 | 3.10 | Galerie: jeder Baustein und Abschnitt in jedem Zustand, beide Modi, ohne Electron, `npm run galerie -w @jm/ui` | 23 (Galerie, Galerie-Test, Klassen-Probe, Dev-Server-Prüfung) |
 | 4.1 | Rein additiv, per Test geprüft | 2 (Bestandsschutz), 3 (nur neue Namen, nur Custom Properties), 24 (Diff gegen `5a14352934`) |
-| 4.2 | Farben mit fester Bedeutung, Werte beider Modi; LIVE und Fehler durch Form und Text; Kontrast gemessen | 3 (Werte), 4 (Kontrast), 5 (Symbole, `LIVE_FLAECHE_KLASSE`), 8/9/14 (Render) |
+| 4.2 | Farben mit fester Bedeutung, Werte beider Modi; LIVE und Fehler durch Form und Text; Kontrast gemessen | 3 (Werte), 4 (Kontrast, auch Hover-Fläche `--muted`), 5 (Symbole, `LIVE_FLAECHE_KLASSE`, `LIVE_EINTRAG_KLASSE`), 8/9/14 (Render) |
 | 4.3 | `--surface-raised`, Rundungen, Größen, `.tabular`, Bewegung ≤ 150 ms und `prefers-reduced-motion` | 3 (Tokens, Quellregel Bewegung), G3, G8 |
 | 6 | Paket `@jm/settings`, privat, hängt von `@jm/ui` ab, `@jm/control-config` nur über Typen | 16 (Gerüst, Quellregel `import type`) |
 | 6.1 | Vertrag wörtlich, Statuspille im Kopf, Fehlertext immer nach den Feldern, gesperrt nie ohne Grund, ausblenden statt ausgrauen, Texte fest | 16 (`SectionFrame`, Quellregeln „keine Prop titel“, „keine Texte in .tsx“), 17–22 (capabilities, locked) |
@@ -16685,8 +17454,25 @@ Zusätzlich geprüft und gedeckt: doppelte ids in der Galerie (Task 23), Escape-
 und Bindung (`zahlTaste`, `zahlFeldHandler`, `panelTaste`, `panelProps`; Task 10, 13), fehlender Bildschirm bei
 ausgeschalteter Ausgabe (Task 18), Token nie in `variante: 'tool'` (Task 19), jedes Feld genau mit seiner eigenen
 Capability (Kreuzprodukt über alle Capability-Bits, Tasks 17–20). **Nur im Browser messbar** und deshalb nicht durch Tests
-gedeckt: dass React die Effekte ausführt (Uhr, Halten-Abbruch bei Sperre und Abbau, Fokus-Rückgabe, Ende der Hervorhebung,
-`<html>`-Klasse) und das Aussehen; das sind die Owner-Prüfpunkte 1–6 unter „Nach der Umsetzung“.
+gedeckt: dass React die Effekte ausführt (Uhr, Halten-Abbruch bei Sperre und Abbau, Frist „Noch nicht übernommen.“,
+Fokus-Rückgabe, Ende der Hervorhebung, `<html>`-Klasse) und das Aussehen; das sind die Owner-Prüfpunkte 1–6 unter „Nach der
+Umsetzung“. Die Owner-Entscheidungen vor Task 16 stehen unter „Vor der Umsetzung“.
+
+## Vor der Umsetzung (nur Controller und Owner)
+
+Dieser Abschnitt ist keine Aufgabe für ausführende Agenten. Der Owner entscheidet bei der Freigabe dieses Plans,
+spätestens vor Task 16 (davon hängen Tasks 17–22 ab):
+
+1. **Zustimmung** zu E24 (Felder an einer Capability, die Spec 6.2 ohne `*` nennt, und Zusatzfelder aus Anhang A, je mit
+   Fundstelle in Tasks 17–22) und E25 (DataLink-Texte kommen vom Tool). Lehnt er E24 ab, ändern sich Tasks 17–22, lehnt er
+   E25 ab, ändert sich Task 21.
+2. **Zur Kenntnis:** die Auslegungen E1–E4; E27 (Zahlen- und Textfeld zeigen nach 2 s ohne Antwort des Tools „Noch nicht
+   übernommen.“); die sieben Kontrast-Befunde im Bestand („Unklarheiten“); die bekannte Ausnahme aus E23 (die Abschnitte
+   rendern den Bestands-`Button`, dessen Hover-Fläche `--highlight` ist; Gelb ist im Panel damit nicht ganz „ausgewählt“
+   vorbehalten).
+3. **Zur Kenntnis, Wortlaut:** Der Sperrtext lautet „Gesperrt: solange der Eingang offen ist“ statt Spec 6.2 „Gesperrt,
+   solange der Eingang offen ist“, weil `Field` jedem Grund „Gesperrt: “ voranstellt (Task 20, „Abweichungen“). Der
+   Interpreter-Satz aus Spec 6.2 passt nicht zum Code (E17); geklärt wird er in Welle 2.
 
 ## Nach der Umsetzung (nur Controller und Owner)
 
@@ -16697,16 +17483,21 @@ Dieser Abschnitt beschreibt, was nach Task 25 geschieht. Er ist keine Aufgabe f�
 - Ein Pull Request gegen `main` zeigt in der CI „Typecheck (alle Workspaces)“ und „Selbsttests“ grün; reine Doku-Commits
   lösen keine CI aus (`paths-ignore`). Der Link `node_modules/@jm/settings` entsteht dort durch `npm ci`.
 - Der Owner sieht die Galerie (`npm run galerie -w @jm/ui`, `http://127.0.0.1:5199/`) in Dunkel und Hell und in der
-  Schmal-Ansicht durch, nimmt die Entscheidungen E1–E4 und die Kontrast-Befunde im Bestand zur Kenntnis und entscheidet
-  über E24 und E25 (Abweichungen von Spec 6.2 bzw. 6.1). Was kein Test ohne Browser messen kann, prüft er an diesen Punkten
-  (je mit erwartetem Ergebnis; Einzelheiten unter „Für die Galerie“ der genannten Aufgabe):
-  1. **Statusleiste** (Task 8): Die Uhr zählt jede Sekunde weiter. Ein live-Eintrag ist rot gefüllt mit ■ und „LIVE“, ein
-     error-Eintrag daneben nur rot umrandet mit ⚠. Im 800-px-Rahmen zeigen die Einträge nur Symbol und Label.
+  Schmal-Ansicht durch (die Entscheidungen hat er unter „Vor der Umsetzung“ getroffen). Was kein Test ohne Browser messen
+  kann, prüft er an diesen Punkten (je mit erwartetem Ergebnis; Einzelheiten unter „Für die Galerie“ der genannten Aufgabe):
+  1. **Statusleiste** (Task 8): Die Uhr springt im Gleichtakt mit der Systemuhr weiter (etwa neben der Uhr der Taskleiste),
+     ohne eine Sekunde zu überspringen. Ein live-Eintrag ist rot gefüllt mit ■ und „LIVE“, ein error-Eintrag daneben nur
+     rot umrandet mit ⚠. Hover über einem Eintrag mit Knopf unterstreicht ihn, ohne Fläche. Im 800-px-Rahmen zeigen die
+     Einträge nur Symbol und Label.
   2. **TallyButton** (Task 9): Maus, Leertaste und Enter erhöhen „gedrückt“ und „losgelassen“ je genau um 1; Auto-Repeat
-     zählt nicht. Maus aus dem Fenster ziehen, Alt+Tab, Umschalten auf `gesperrt` und Ausblenden während des Haltens → je
-     „losgelassen“ +1, danach sind beide Zähler gleich. Rechte Maustaste zählt nicht.
+     zählt nicht, und Enter lange halten erhöht „Klicks“ genau um 1. Maus aus dem Fenster ziehen, Alt+Tab, „in 2 s sperren
+     (dabei halten)“ und „in 2 s ausblenden (dabei halten)“ → je „losgelassen“ +1, danach sind beide Zähler gleich
+     („wieder einblenden“ holt den Knopf zurück). Rechte Maustaste zählt nicht.
   3. **Zahlenfeld im Panel** (Task 10): „abc“ bzw. „70000“ und Enter → Fehlertext unter dem Feld, der Text bleibt. Escape
-     nach einer Änderung stellt den alten Wert her und lässt das Panel offen; ein zweites Escape schließt es.
+     nach einer Änderung stellt den alten Wert her und lässt das Panel offen; ein zweites Escape schließt es. Tool lehnt ab
+     (E27): Im Port-Beispiel „80“ und Enter → nach etwa 2 s „⚠ Noch nicht übernommen.“, der Text bleibt; Tab aus dem Feld
+     meldet nicht erneut; Escape stellt den alten Wert her. Ebenso der Quellenname im NDI-Abschnitt (die Galerie übernimmt
+     keine Namen).
   4. **Hell/Dunkel** (Task 12): Ein Klick wechselt `<html>` und **beide** Schalter der Galerie; nach Neuladen bleibt der
      Modus. Mit blockierten Website-Daten startet die Galerie in Dunkel ohne Konsolenfehler, Umschalten wirkt bis zum
      Neuladen.
