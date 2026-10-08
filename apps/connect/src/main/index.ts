@@ -12,7 +12,8 @@ import { startControlServer, stopControlServer } from './control-server';
 import { createTray, destroyTray, setTrayStatus } from './tray';
 import { handleShowDeepLink } from './show-open';
 import { startPresenterLink, stopPresenterLink } from './presenter-link';
-import { startZoom, zoomBeenden, zoomGastLabelsGeaendert, zoomLaeuft, zoomVerlassen } from './zoom';
+import { startZoom, zoomBeenden, zoomGastLabelsGeaendert, zoomLaeuft, zoomSteuerbefehl, zoomVerlassen } from './zoom';
+import { leiteSteuerbefehl } from './control-state';
 import { BEENDEN_FRIST_MS } from './zoom/kern';
 
 declare const __dirname: string;
@@ -110,10 +111,15 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     // seine Folien selbst weiterblättern kann.
     startPresenterLink({ onChange: () => notifyStatusChanged() });
 
-    // Steuerprotokoll (Companion/Rundown): Befehle an den Operator-Renderer relayen,
-    // der sie über die Raum-WS an den DO schickt.
+    // Steuerprotokoll (Companion/Rundown): zoom_*-Verben gehen an die Zoom-Hülle im Main, nie an den
+    // Renderer oder den DO (Spec 11.2, Ergänzung 0.3). Alle anderen Befehle an den Operator-Renderer
+    // relayen, der sie über die Raum-WS an den DO schickt.
     const res = await startControlServer({
-      onCommand: (cmd) => getMainWindow()?.webContents.send(IPC.controlCommand, { verb: cmd.verb, args: cmd.args }),
+      onCommand: (cmd) =>
+        leiteSteuerbefehl(cmd, {
+          zoom: zoomSteuerbefehl,
+          renderer: (c) => getMainWindow()?.webContents.send(IPC.controlCommand, { verb: c.verb, args: c.args }),
+        }),
     });
     if (!res.ok) getLog().error('[control] Steuerserver-Start fehlgeschlagen:', res.error);
 
