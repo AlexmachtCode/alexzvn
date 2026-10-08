@@ -520,10 +520,11 @@ void videoUnsubscribe(unsigned int userId) {
 }
 
 // Baut ALLE Abos ab und meldet jedes einzeln mit der uebergebenen Ursache.
-// Zwei Aufrufer, zwei WAHRE Ursachen: der Aufrufer hat es befohlen ("command",
-// ueber leave/quit/EOF) oder das Meeting ist zu Ende ("meetingEnded"). Ein
-// gemeinsamer Rumpf, damit die beiden Wege nicht auseinanderlaufen - der
-// Abbau selbst ist in beiden Faellen derselbe.
+// Drei Aufrufer, drei WAHRE Ursachen: der Aufrufer hat es befohlen ("command",
+// ueber leave/quit/EOF), das Meeting ist zu Ende ("meetingEnded") oder der Host
+// hat die Aufnahme-Erlaubnis entzogen ("privilegeRevoked", Stage 4b). Ein
+// gemeinsamer Rumpf, damit die Wege nicht auseinanderlaufen - der Abbau selbst
+// ist in allen Faellen derselbe.
 // ABBAU-MARKEN AUF stderr (Owner-Lauf 18.08.2026): der Prozess ist nach
 // "Status: ended (vom Gastgeber beendet)" mit exitCode 3221225477 = 0xC0000005
 // = STATUS_ACCESS_VIOLATION gestorben. Wo genau, sagte nichts - zwischen der
@@ -623,6 +624,18 @@ static void videoAbbauAlle(const char* reason, bool sdkAbmelden) {
 // Meeting LEBT noch (leave/quit/EOF) - das SDK gehoert ordentlich abgemeldet.
 void videoShutdownAll() {
   videoAbbauAlle("command", true);
+}
+
+// Die Aufnahme-Erlaubnis ist ENTZOGEN (Stage 4b, N4b.1). Das Meeting LEBT noch,
+// die Renderer sind gueltig: also MIT SDK-Abmeldung wie beim Befehl, aber mit der
+// EIGENEN Ursache "privilegeRevoked" (src/protocol.ts). Nur aus main() nach
+// pumpOnce() rufen, nie aus einem SDK-Rueckruf (callbacks.h,
+// callbacksTakePrivilegeRevokedTeardown). Ob unSubscribe() nach einem Entzug
+// fehlerfrei zurueckkehrt, ist UNGEMESSEN (Messung M18); die Abbau-Marken in
+// videoAbbauAlle() benennen bei einem Absturz die Zeile.
+void videoPrivilegeRevoked() {
+  if (g_subs.empty()) return;
+  videoAbbauAlle("privilegeRevoked", true);
 }
 
 void videoMeetingEnded() {
@@ -1323,8 +1336,10 @@ void videoParticipantJoined(unsigned int userId) {
       // NICHT STILL: dass ein Abo mit genau diesem Namen existiert und
       // trotzdem nichts passiert, ist der Fall, den ein Operator sonst fuer
       // einen Fehler haelt.
-      emitLog(L"Wiederbeitritt " + std::to_wstring(userId) + L" (" + name +
-              L"): Name ist nicht eindeutig (" + std::to_wstring(gleichnamigeTeilnehmer) +
+      // OHNE den Namen (Stage 4b, N4b.2): stderr landet im Log von JM Connect,
+      // und dort stehen keine Teilnehmernamen - die Kennung genuegt.
+      emitLog(L"Wiederbeitritt " + std::to_wstring(userId) +
+              L": Name ist nicht eindeutig (" + std::to_wstring(gleichnamigeTeilnehmer) +
               L" Teilnehmer, " + std::to_wstring(gleichnamigeAbos) +
               L" Abos) - kein Umhaengen, die Quelle bleibt schwarz.");
     }
@@ -1334,8 +1349,8 @@ void videoParticipantJoined(unsigned int userId) {
     // Weder ueber die Kennung noch ueber den Namen. Der Normalfall in einem
     // grossen Meeting: der Gast war schlicht nie abonniert.
     if (interessant) {
-      emitLog(L"Wiederbeitritt " + std::to_wstring(userId) + L" (" + name +
-              L"): kein Abo gehoert zu diesem Gast - kein Umhaengen.");
+      emitLog(L"Wiederbeitritt " + std::to_wstring(userId) +
+              L": kein Abo gehoert zu diesem Gast - kein Umhaengen.");
       emitLog(L"  neu:  " + fingerprint(persistentId));
       for (const auto& [id, sub] : g_subs) {
         emitLog(L"  Abo " + std::to_wstring(id) + L": " + fingerprint(sub->persistentId));

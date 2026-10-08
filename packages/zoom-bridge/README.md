@@ -281,7 +281,7 @@ mit Namen — die Reihenfolge herzustellen ist Sache der aufrufenden Seite
 | `joined` | Ein Teilnehmer (`p`) ist dazugekommen oder wurde aktualisiert. |
 | `left` | Ein Teilnehmer (`id`) ist weg. |
 | `renamed` | Ein Teilnehmer (`id`) hat einen neuen Namen (`name`). |
-| `privilege` | Stand der Rohdaten-Erlaubnis (`canRecordRaw`, `source`, optional `requested`/`denied`/`timedOut`). |
+| `privilege` | Stand der Rohdaten-Erlaubnis (`canRecordRaw`, `source`, optional `requested`/`denied`/`timedOut`). Entzieht der Host sie (`canRecordRaw:false`, `source:"broadcast"`), baut die Bridge danach alle Abos ab (Grund `privilegeRevoked`, Abschnitt 7). |
 | `video` | Zustand eines Video-Abos (`id`, `state`, `source`, `reason`, `rebindable`, gemessen auch `rotation`/`limitedRange`) — **Einzelheiten in Abschnitt 7**. |
 | `error` | Eine benannte Ursache (`where`, `code`, angereichert zu `name`) — nie ein stiller Abbruch. |
 | `bye` | `zoom-bridge.exe` beendet sich sauber (siehe Ausnahme unten). |
@@ -331,7 +331,7 @@ auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video
 | `id` | Teilnehmerkennung (Zahl). |
 | `state` | `subscribed` \| `live` \| `black` \| `unsubscribed`. |
 | `source` | der **tatsächlich vergebene** NDI-Quellenname (siehe Namensvergabe unten). |
-| `reason` | `command` \| `frames` \| `cameraOff` \| `participantLeft` \| `rebound` \| `reboundByName` \| `bufferMismatch` \| `meetingEnded`. |
+| `reason` | `command` \| `frames` \| `cameraOff` \| `participantLeft` \| `rebound` \| `reboundByName` \| `bufferMismatch` \| `meetingEnded` \| `privilegeRevoked`. |
 | `rebindable` | ob das Abo über die **`persistentId`** umgehängt werden kann (sie ist nicht leer). **Nicht** „ob es überhaupt umgehängt werden kann": der Weg über den eindeutigen **Anzeigenamen** (`reboundByName`, siehe unten) gilt für **jedes** Abo, auch mit `rebindable:false` — und bei Gästen trägt gemessen **nur** dieser. Die Steuerung druckt darum „umhaengbar (persistentId oder Name)" bzw. „umhaengbar nur ueber den Namen" (bis 01.10.2026 hieß Letzteres fälschlich „NICHT umhaengbar"). |
 | `rotation`, `limitedRange` | **nur vorhanden**, sobald ein Bild sie geliefert hat (`YUVRawDataI420::GetRotation()`/`IsLimitedI420()`) — bei `state:"subscribed"` fehlen sie also immer. Ein Wert wäre dort erfunden, und eine erfundene `0` ließe sich später nicht von einer gemessenen `0` unterscheiden. |
 
@@ -414,6 +414,27 @@ beendete Sitzung.
 > Zu diesem Zeitpunkt weiß niemand, dass das Meeting endet — die Statusmeldung
 > kommt erst danach. Diese eine Zeile bleibt also mehrdeutig; **der letzte**
 > Stand des Abos ist mit `meetingEnded` jedoch eindeutig.
+
+**Ein Abo überlebt den Entzug der Aufnahme-Erlaubnis NICHT** (Stage 4b, JM
+Connect 0.3.0). Zoom verlangt: „The app must stop accessing content if
+permission is revoked." Kommt `privilege` mit `canRecordRaw:false` und
+`source:"broadcast"`, baut die Bridge **alle** Abos ab und meldet jedes
+**einzeln** mit `reason:"privilegeRevoked"` — Ton (`audio off`) vor Bild
+(`video unsubscribed`), die NDI-Sender schließen, danach wird der
+Rohdaten-Schalter (`StopRawRecording()`) zurückgenommen. Ein eigener Grund,
+ausdrücklich **nicht** `command` (niemand hat etwas befohlen) und **nicht**
+`meetingEnded` (das Meeting läuft weiter). Der Abbau läuft wie beim
+Meeting-Ende **nicht** im SDK-Rückruf, sondern in `main()` direkt nach
+`pumpOnce()` — ein `unSubscribe()` aus dem Rückruf heraus hat die Bridge am
+18.08.2026 mit `0xC0000005` beendet. Kommen Entzug und Wiedererteilung in
+derselben Pumprunde, steht `privilege … true` schon vor dem Abbau auf der
+Leitung; abgebaut wird trotzdem. Nach der Wiedererteilung abonniert der
+Aufrufer neu (JM Connect tut das selbst), `StartRawRecording()` läuft dann
+erneut. **Ungemessen** (Messung M18 der Abnahme 0.3.0): ob das SDK die
+Lieferung beim Entzug ohnehin selbst einstellt und ob `unSubscribe()`,
+`StopRawRecording()` und danach `StartRawRecording()` fehlerfrei laufen —
+stderr nennt jeden Schritt (`Entzug: …`) und den Rückgabewert von
+`StopRawRecording()`.
 
 **Ein Abo überlebt einen Wiederbeitritt.** Verlässt ein abonnierter Gast das
 Meeting, bleibt sein Abo bestehen (`reason:"participantLeft"`, der Herzschlag
@@ -510,7 +531,8 @@ Umhängen nicht. Die einzige Erholung ist `videoUnsubscribe` und ein neues
 `videoSubscribe` — wer darauf wartet, dass der Ton von selbst kommt,
 wartet vergeblich), `packets` (erstes/erneutes Paket),
 `gap` (der Stille-Herzschlag hat zugeschlagen), `participantLeft`,
-`meetingEnded`, sowie `rebound`/`reboundByName` — der Ton folgt hier
+`meetingEnded`, `privilegeRevoked` (der Host hat die Aufnahme-Erlaubnis
+entzogen, Abschnitt 7), sowie `rebound`/`reboundByName` — der Ton folgt hier
 **demselben Grund** wie das umgehängte Video-Abo, es gibt keinen eigenen
 Ton-Mechanismus fürs Umhängen. `sampleRate`/`channels` stehen **nur** dabei,
 sobald ein Paket sie geliefert hat — dieselbe Regel wie `rotation`/

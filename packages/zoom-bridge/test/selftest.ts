@@ -977,6 +977,13 @@ console.log('\nbridge - kaputte Zeilen reissen nichts ab:');
   await b.waitFor((s) => s.phase === 'inMeeting', 4000);
   assert(b.session.phase === 'inMeeting', 'trotz halber Zeile und Muell wird inMeeting erreicht');
   assert(logs.some((l) => l.includes('das hier ist kein json')), 'die unlesbare Zeile wird ueber onLog gemeldet, nicht nur uebersprungen');
+  // Stage 4b (N4b.2): Eine kaputte EREIGNIS-Zeile kann Teilnehmernamen tragen. Von ihr stehen nur
+  // Laenge und Ereignisart im Log; fremde Zeilen des SDK (oben) bleiben woertlich.
+  assert(
+    logs.some((l) => /^unlesbare Zeile \(\d+ Zeichen, beginnt mit \{"ev":"roster"\)$/.test(l)),
+    'eine kaputte roster-Zeile steht nur mit Laenge und Ereignisart im Log',
+  );
+  assert(!logs.some((l) => l.includes('Anna Maria')), 'kein Teilnehmername aus der kaputten Zeile im Log (N4b.2)');
   await b.stop();
 }
 
@@ -2587,6 +2594,135 @@ console.log('\nAttrappe — Stage 4b:');
     await warte(200);
   }, ohne);
   assert(ohne.length > 0 && !ohne.some((z) => z.startsWith('Namensprobe')), '... ohne FAKE_NAMENSZEILE keine solche Zeile');
+}
+
+// --- Stage 4b: nativer Teil - Quelltext-Waechter ------------------------------------
+// Laufen OHNE Compiler und ohne SDK, auch unter Linux (CI). Sie sichern nur die
+// STRUKTUR (wer ruft was, in welcher Reihenfolge, was steht im Log); ob die Bridge
+// sich am echten SDK so verhaelt, belegt erst die Abnahme 0.3.0 (Messung M18).
+
+import { readFileSync, readdirSync } from 'node:fs';
+
+const nativOrdner = join(testDir, '..', 'native');
+
+/**
+ * C++-Quelltext ohne Kommentare: jedes Zeichen eines Kommentars wird ein Leerzeichen,
+ * Zeilenumbrueche bleiben (Zeilennummern stimmen weiter). Mit `ohneTexte` werden auch
+ * die INHALTE von "..."- und '...'-Literalen geleert (die Anfuehrungszeichen bleiben):
+ * ein Wort in einem Logtext ist kein Bezeichner.
+ */
+function cppOhneKommentare(src: string, ohneTexte = false): string {
+  let aus = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    const n = src[i + 1];
+    if (c === '/' && n === '/') {
+      while (i < src.length && src[i] !== '\n') { aus += ' '; i++; }
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      const ende = src.indexOf('*/', i + 2);
+      const bis = ende < 0 ? src.length : ende + 2;
+      aus += src.slice(i, bis).replace(/[^\n]/g, ' ');
+      i = bis;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      aus += c;
+      i++;
+      while (i < src.length && src[i] !== c) {
+        const schritt = src[i] === '\\' ? 2 : 1;
+        const stueck = src.slice(i, i + schritt);
+        aus += ohneTexte ? stueck.replace(/[^\n]/g, ' ') : stueck;
+        i += schritt;
+      }
+      aus += c;
+      i++;
+      continue;
+    }
+    aus += c;
+    i++;
+  }
+  return aus;
+}
+
+/** Der Rumpf `{ ... }` nach der ersten Fundstelle von `kopf` (Klammern gezaehlt), sonst ''. */
+function rumpf(src: string, kopf: string): string {
+  const stelleKopf = src.indexOf(kopf);
+  if (stelleKopf < 0) return '';
+  const auf = src.indexOf('{', stelleKopf + kopf.length);
+  if (auf < 0) return '';
+  let tiefe = 0;
+  for (let i = auf; i < src.length; i++) {
+    if (src[i] === '{') tiefe++;
+    else if (src[i] === '}' && --tiefe === 0) return src.slice(auf, i + 1);
+  }
+  return '';
+}
+
+const nativ = (datei: string, ohneTexte = false): string =>
+  cppOhneKommentare(readFileSync(join(nativOrdner, datei), 'utf8'), ohneTexte);
+
+console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
+{
+  // N4b.2: keine emitLog-Anweisung fuehrt einen Teilnehmernamen. Je Aufruf
+  // `emitLog(` bis zum naechsten `;`, Texte vorher geleert.
+  const namensBezeichner = /\b(name|displayName|userName|nameOut)\b|GetUserName/;
+  let gefunden = 0;
+  const treffer: string[] = [];
+  for (const datei of readdirSync(nativOrdner).filter((f) => f.endsWith('.cpp')).sort()) {
+    const src = nativ(datei, true);
+    const aufruf = /(?<!void\s)\bemitLog\s*\(/g;
+    let m: RegExpExecArray | null;
+    while ((m = aufruf.exec(src)) !== null) {
+      gefunden++;
+      const anweisung = src.slice(m.index, src.indexOf(';', m.index));
+      if (namensBezeichner.test(anweisung)) treffer.push(`${datei}:${src.slice(0, m.index).split('\n').length}`);
+    }
+  }
+  assert(gefunden > 40, 'nativ: der Waechter findet die emitLog-Anweisungen (mehr als 40)');
+  assert(treffer.length === 0, 'nativ: keine emitLog-Anweisung führt einen Teilnehmernamen');
+  if (treffer.length > 0) console.error(`      Treffer: ${treffer.join(', ')}`);
+}
+{
+  // L1 / Lehre vom 18.08.2026: im Rundruf NUR den Merker setzen - unSubscribe() aus
+  // einem SDK-Rueckruf beendete die Bridge mit 0xC0000005.
+  const koerper = rumpf(nativ('callbacks.cpp', true), 'void RecordingListener::onRecordPrivilegeChanged(bool bCanRec)');
+  assert(/if\s*\(\s*!\s*bCanRec\s*\)\s*\{[^}]*g_entzugAbbauOffen\s*=\s*true/.test(koerper),
+    'nativ: onRecordPrivilegeChanged setzt bei false den Merker g_entzugAbbauOffen');
+  assert(koerper !== '' && !/\b(videoAbbauAlle|videoPrivilegeRevoked|videoShutdownAll|videoMeetingEnded|videoUnsubscribe|audioClearSubscribed|audioShutdown|unSubscribe|destroyRenderer|StopRawRecording|sessionStopRawRecording)\b/.test(koerper),
+    'nativ: onRecordPrivilegeChanged ruft keinen Abbau und kein unSubscribe/StopRawRecording');
+}
+{
+  const main = nativ('main.cpp', true);
+  const schleife = main.slice(Math.max(0, main.indexOf('while (!g_quit) {')));
+  const iPumpe = schleife.indexOf('pumpOnce(');
+  const iEnde = schleife.indexOf('callbacksTakeMeetingEndTeardown(');
+  const iEntzug = schleife.indexOf('callbacksTakePrivilegeRevokedTeardown(');
+  const iTakt = schleife.indexOf('videoTick(');
+  assert(main.includes('while (!g_quit) {') && iPumpe >= 0 && iEnde > iPumpe && iEntzug > iEnde && iTakt > iEntzug,
+    'nativ: main.cpp arbeitet den Entzug nach pumpOnce() und vor videoTick() ab (nach dem Meeting-Ende-Abbau)');
+  const block = rumpf(schleife, 'if (callbacksTakePrivilegeRevokedTeardown())');
+  const iTon = block.indexOf('audioClearSubscribed(');
+  const iBild = block.indexOf('videoPrivilegeRevoked(');
+  const iRoh = block.indexOf('sessionStopRawRecording(');
+  assert(iTon >= 0 && iBild > iTon && iRoh > iBild,
+    'nativ: Reihenfolge im Entzug-Block: audioClearSubscribed, videoPrivilegeRevoked, sessionStopRawRecording');
+}
+{
+  const koerper = rumpf(nativ('video.cpp'), 'void videoPrivilegeRevoked()');
+  assert(/videoAbbauAlle\(\s*"privilegeRevoked"\s*,\s*true\s*\)/.test(koerper),
+    'nativ: videoPrivilegeRevoked baut mit videoAbbauAlle("privilegeRevoked", true) ab');
+  const stopp = rumpf(nativ('session.cpp', true), 'SDKError sessionStopRawRecording()');
+  const iZurueck = stopp.indexOf('g_rawRecordingOn.exchange(false)');
+  const iReturn = stopp.indexOf('return');
+  assert(iZurueck >= 0 && iReturn > iZurueck && stopp.includes('StopRawRecording()'),
+    'nativ: sessionStopRawRecording setzt das Merkzeichen vor jedem return zurück und ruft StopRawRecording()');
+  assert(/\bbool\s+callbacksTakePrivilegeRevokedTeardown\(\s*\)\s*;/.test(nativ('callbacks.h'))
+      && /\bvoid\s+videoPrivilegeRevoked\(\s*\)\s*;/.test(nativ('video.h'))
+      && /\bSDKError\s+sessionStopRawRecording\(\s*\)\s*;/.test(nativ('session.h')),
+    'nativ: callbacks.h, video.h und session.h erklären die drei neuen Funktionen');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

@@ -70,6 +70,9 @@ const scripts = {
     process.stdout.write('{"ev":"re');
     process.stdout.write('ady","sdkVersion":"7.1.5"}\n');
     process.stdout.write('das hier ist kein json\n');
+    // Stage 4b (N4b.2): eine abgeschnittene Ereigniszeile MIT Teilnehmernamen. Die Bruecke darf
+    // von ihr nur Laenge und Ereignisart ins Log geben, nie den Inhalt.
+    process.stdout.write('{"ev":"roster","list":[{"id":7,"name":"Anna Maria Beispiel","self":false\n');
     say({ ev: 'auth', code: 0 });
     say({ ev: 'status', status: 'inMeeting', raw: 3, code: 0 });
   },

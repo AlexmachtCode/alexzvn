@@ -56,6 +56,18 @@ void videoShutdownAll();
 void videoMeetingEnded();
 
 /**
+ * Baut alle Abos ab, weil der Host die AUFNAHME-ERLAUBNIS ENTZOGEN hat (Stage 4b,
+ * N4b.1), und meldet jedes einzeln mit reason:"privilegeRevoked" - Ton vor Bild,
+ * NDI-Sender zu. Das Meeting lebt noch: die Abos werden beim SDK abgemeldet
+ * (unSubscribe()/destroyRenderer()).
+ *
+ * NIE aus einem SDK-Rueckruf rufen - main() ruft sie nach pumpOnce(), wenn
+ * callbacksTakePrivilegeRevokedTeardown() true liefert (callbacks.h). Tut nichts,
+ * wenn es keine Abos gibt.
+ */
+void videoPrivilegeRevoked();
+
+/**
  * Schwarzbild-Herzschlag: von der Hauptschleife alle 10 ms gerufen (siehe
  * main.cpp, direkt nach pumpOnce()). Faellt der Bildstrom eines Abos aus
  * (Kamera aus, Teilnehmer weg, Aussetzer), sendet dieses Abo statt eines

@@ -112,6 +112,13 @@ class ParticipantsListener : public IMeetingParticipantsCtrlEvent {
 // Durchlauf der Schleife, aber ausserhalb des Rueckrufs.
 bool callbacksTakeMeetingEndTeardown();
 
+// NIMMT das Merkzeichen "die Aufnahme-Erlaubnis ist entzogen, die Abos gehoeren
+// abgebaut" und LOESCHT es dabei (exchange): true genau einmal je Entzug.
+// Gesetzt in onRecordPrivilegeChanged(false), genommen in main() unmittelbar
+// NACH pumpOnce() und nach dem Meeting-Ende-Abbau - aus demselben gemessenen
+// Grund wie oben nie aus dem Rueckruf (Stage 4b, N4b.1).
+bool callbacksTakePrivilegeRevokedTeardown();
+
 class RecordingListener : public IMeetingRecordingCtrlEvent {
  public:
   void onRecordPrivilegeChanged(bool bCanRec) override;
