@@ -73,6 +73,7 @@ function wahlStatus(c: AudioChoice): SectionStatus {
     return st('error', c.lastLabel ? AUDIO_TEXTE.nichtGefundenZuletzt(c.lastLabel) : AUDIO_TEXTE.nichtGefunden);
   }
   if (c.required === true) return st('warn', AUDIO_TEXTE.keinGeraet);
+  if (c.devices.length === 0) return st('off', AUDIO_TEXTE.keinGeraet);   // leere gemessene Liste: auch den Systemstandard gibt es nicht (Spec 7, Regel 3)
   if (c.defaultLabel) return st('ok', c.defaultLabel);
   return st('off', AUDIO_TEXTE.keinGeraet);
 }

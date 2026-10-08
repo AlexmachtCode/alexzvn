@@ -37,7 +37,7 @@ const WAHL: Record<string, [Soll, Soll, Soll, Soll]> = {
   'unbekannt|leer': [U, U, U, U],
   'unbekannt|vorhanden': [U, U, U, U],
   'unbekannt|fehlt': [U, U, U, U],
-  'leer|leer': [KEINS_OFF, STANDARD, KEINS_WARN, KEINS_WARN],
+  'leer|leer': [KEINS_OFF, KEINS_OFF, KEINS_WARN, KEINS_WARN],
   'leer|vorhanden': ['fehlt', 'fehlt', 'fehlt', 'fehlt'],
   'leer|fehlt': ['fehlt', 'fehlt', 'fehlt', 'fehlt'],
   'liste|leer': [KEINS_OFF, STANDARD, KEINS_WARN, KEINS_WARN],
@@ -128,6 +128,7 @@ const ausgabe = (c: Partial<AudioChoice> = {}): AudioChoice =>
   );
   gleich(fall([floor(), dolmetscher(), ausgabe({ value: '' })]), 'ok 3 Geräte gewählt', 'Audio drei Wahlen: Ausgabe auf Systemstandard ist ok');
   gleich(fall([]), 'off kein Gerät gewählt', 'Audio ohne Wahl: off „kein Gerät gewählt“');
+  gleich(fall([floor(), dolmetscher(), ausgabe({ devices: [], value: '' })]), 'off Ausgabe (virtuelles Kabel): kein Gerät gewählt', 'Audio leere Ausgangsliste: nie „ok“, kein Systemstandard ohne Gerät (Spec 7, Regel 3)');
 }
 
 {
