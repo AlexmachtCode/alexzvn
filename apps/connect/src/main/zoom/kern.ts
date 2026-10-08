@@ -363,13 +363,21 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return {
       teilnehmer: alle.filter((p) => !p.self).map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom })),
       abos,
+      erlaubnisFehlt: erlaubnisFehlt(),
+      // Das Fenster bis zum Abgleich (300 ms): Wen er abonnieren wird, der wird gerade geladen (Gesamtprüfung 4b).
+      abgleichGeplant: abgleichTimer !== null && zustand === 'im_meeting' && erlaubnis === 'ja',
     };
+  }
+
+  /** Im Meeting ohne Aufnahme-Erlaubnis (Z6, Z7): Der Abgleich handelt nicht, gemerkte Quellen warten auf die Erlaubnis. */
+  function erlaubnisFehlt(): boolean {
+    return zustand === 'im_meeting' && erlaubnis !== 'ja';
   }
 
   /**
    * Offene Soll-Einträge fürs Abbild, für sollOffen und zoom_alarm (Spec 4, 7.5). Ein gesendetes, noch unbestätigtes Abo
-   * gilt im Abgleich als verbunden (sollLage), ist aber noch keine laufende Quelle: Der Eintrag bleibt offen (wartet), bis
-   * die Bridge subscribed meldet oder die Frist Q8 abläuft. Reihenfolge wie die Soll-Liste.
+   * gilt im Abgleich als verbunden (sollLage), ist aber noch keine laufende Quelle: Der Eintrag bleibt offen ('laedt', ohne
+   * Erlaubnis 'erlaubnis'), bis die Bridge subscribed meldet oder die Frist Q8 abläuft. Reihenfolge wie die Soll-Liste.
    */
   function sollOffen(): ZoomSollEintrag[] {
     const offen = new Map(sollAbbild(soll, sollLage(), freiePlaetze()).map((e) => [normName(e.name), e]));
@@ -379,7 +387,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       const e = offen.get(schluessel);
       if (e) aus.push(e);
       else if (s.aboId !== null && aboFristen.has(s.aboId) && !laeuft.has(s.aboId)) {
-        aus.push({ name: s.name, ton: s.ton, ndiName: s.ndiName, stand: 'wartet', aboId: null, doppelname: false });
+        // Gesamtprüfung 4b („Statuszeile lügt“): Die Person ist da, Connect wartet auf die Bridge, nicht auf sie.
+        aus.push({ name: s.name, ton: s.ton, ndiName: s.ndiName, stand: erlaubnisFehlt() ? 'erlaubnis' : 'laedt', aboId: null, doppelname: false });
       }
     }
     return aus;

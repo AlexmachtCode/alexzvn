@@ -366,6 +366,40 @@ console.log('— 4b: baueTeilnehmer: Vorschau der zweiten Anna, Ton aus dem Soll
     j(ladeZiel('Ben', [...liste, t(16778245, 'BEN', true)])) === j({ art: 'mehrdeutig', n: 2 }));
 }
 
+console.log('— Fix-Welle: Stand „erlaubnis“ (die Person ist da, es fehlt nur die Aufnahme-Erlaubnis; Z6, Z7)');
+{
+  const t = (id: number, name: string, imWarteraum = false) => ({ id, name, imWarteraum });
+  const soll: SollListe = new Map([
+    ['anna', { name: 'Anna', ton: true, ndiName: 'JM Connect – Zoom Anna', aboId: 16778240 }],
+    ['ben', { name: 'Ben', ton: true, ndiName: 'JM Connect – Zoom Ben', aboId: null }],
+    ['carla', { name: 'Carla', ton: true, ndiName: 'JM Connect – Zoom Carla', aboId: null }],
+    ['dora', { name: 'Dora', ton: true, ndiName: 'JM Connect – Zoom Dora', aboId: null }],
+    ['emil', { name: 'Emil', ton: true, ndiName: 'JM Connect – Zoom Emil', aboId: 16778299 }],
+  ]);
+  // Anna: ihre Quelle ist nach dem Entzug abgebaut (kein Abo mehr), sie ist im Meeting. Ben im Warteraum, Carla nicht da,
+  // Dora zweimal da, Emil verwaist (weg, sein altes Abo steht noch).
+  const lage: SollLage = {
+    teilnehmer: [t(16778240, 'Anna'), t(16778241, 'Ben', true), t(16778243, 'Dora'), t(16778244, 'dora')],
+    abos: new Map([[16778299, { verwaist: true }]]),
+    erlaubnisFehlt: true,
+  };
+  ck('ohne Erlaubnis: genau 1 Treffer, nicht im Warteraum, kein Abo → erlaubnis; die übrigen Stände bleiben',
+    JSON.stringify(sollAbbild(soll, lage).map((e) => [e.name, e.stand]))
+      === JSON.stringify([['Anna', 'erlaubnis'], ['Ben', 'wartet'], ['Carla', 'wartet'], ['Dora', 'doppelname'], ['Emil', 'verwaist']]));
+  ck('… mit Erlaubnis, aber ohne geplanten Abgleich (etwa nach einem gescheiterten Abo) bleibt Anna „wartet“',
+    sollAbbild(soll, { ...lage, erlaubnisFehlt: false })[0]?.stand === 'wartet');
+  ck('… ohne Angabe wie mit Erlaubnis (Vorgabe)', sollAbbild(soll, { teilnehmer: lage.teilnehmer, abos: lage.abos })[0]?.stand === 'wartet');
+  ck('… die Handlungen hängen nicht daran (der Kern handelt ohnehin nur mit Erlaubnis)',
+    JSON.stringify(sollHandlungen(soll, lage)) === JSON.stringify(sollHandlungen(soll, { ...lage, erlaubnisFehlt: false, abgleichGeplant: true })));
+  ck('… ohne freien Platz bleibt es grenze, auch ohne Erlaubnis', sollAbbild(soll, lage, 0)[0]?.stand === 'grenze');
+  // Mit Erlaubnis und geplantem Abgleich (300 ms nach roster, inMeeting, Erlaubnis „ja“): Die Person ist da, das Abo folgt gleich.
+  const geplant: SollLage = { ...lage, erlaubnisFehlt: false, abgleichGeplant: true };
+  ck('Abgleich geplant: genau 1 Treffer, kein Abo, Platz frei → laedt; Warteraum, fehlend, doppelt, verwaist bleiben',
+    JSON.stringify(sollAbbild(soll, geplant).map((e) => [e.name, e.stand]))
+      === JSON.stringify([['Anna', 'laedt'], ['Ben', 'wartet'], ['Carla', 'wartet'], ['Dora', 'doppelname'], ['Emil', 'verwaist']]));
+  ck('… ohne freien Platz grenze (es folgt kein Abo)', sollAbbild(soll, geplant, 0)[0]?.stand === 'grenze');
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

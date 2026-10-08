@@ -447,6 +447,9 @@ export function zoomKnoepfe(a: ZoomAbbild): ZoomKnoepfe {
 /** Gemerkte Quellen (Spec 9 Punkt 9, Texttabelle 4b): Text je Stand eines offenen Soll-Eintrags. */
 const SOLL_STAND: Record<ZoomSollEintrag['stand'], string> = {
   wartet: 'wartet auf die Person',
+  // Gesamtprüfung 4b („Statuszeile lügt“): Die Person ist da. Texte als Vorschlag, der Owner gibt sie frei.
+  erlaubnis: 'wartet auf die Aufnahme-Erlaubnis',
+  laedt: 'wird geladen …',
   doppelname: 'Name doppelt, bitte von Hand laden',
   verwaist: 'Person weg, Quelle schwarz',
   grenze: `nicht automatisch geladen (mehr als ${BETRIEBSGROESSE} Zoom-Quellen), bitte von Hand laden`,

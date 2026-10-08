@@ -35,6 +35,7 @@ import { SDK_PAKET } from '../src/main/zoom/sdk-paket';
 import type { ProxyKeySource, ZoomAbbild, ZoomErgebnis, ZoomKurz } from '../src/shared/types';
 import {
   kartenZeile,
+  sollZeile,
   stateKvAus,
   TEXT_A4_SCHREIBFEHLER,
   TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
@@ -1240,8 +1241,9 @@ console.log('— Laden und Entladen (Fall 10, 10b, 11, 12)');
   ck('Fall 10b: Anna geladen', await bis(() => p.kern.kurz().quellen === 1));
   ck('… Erlaubnis entzogen, die Bridge baut die Quelle ab (N4b.1)', await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0));
   const a = p.kern.abbild();
-  ck('… Soll-Eintrag bleibt (wartet), Z7 „Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt. …“',
-    a.soll.length === 1 && a.soll[0].name === 'Anna' && a.soll[0].stand === 'wartet' && zoomZ(a.kurz) === 'Z7'
+  ck('… Soll-Eintrag bleibt (wartet auf die Aufnahme-Erlaubnis, Anna ist ja da), Z7 „Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt. …“',
+    a.soll.length === 1 && a.soll[0].name === 'Anna' && a.soll[0].stand === 'erlaubnis' && zoomZ(a.kurz) === 'Z7'
+    && sollZeile(a.soll[0]) === 'Anna — wartet auf die Aufnahme-Erlaubnis'
     && String(kartenZeile(a, Date.now())).startsWith('Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt.'));
   ck('… STATE zoom_alarm=1, zoom_sources=0, zoom_privilege=0',
     p.kern.stateKv()?.zoom_alarm === 1 && p.kern.stateKv()?.zoom_sources === 0 && p.kern.stateKv()?.zoom_privilege === 0);
@@ -2504,7 +2506,8 @@ console.log('— Entzug und Wiedererteilung (N4b.1, Review Focus 2 und 4)');
     && (await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0)));
   ck('… das Log nennt jede gestoppte Quelle mit ihrer Kennung',
     p.logs.includes(`[zoom] Quelle ${ANNA} gestoppt (Entzug)`) && p.logs.includes(`[zoom] Quelle ${BEN} gestoppt (Entzug)`));
-  ck('… beide Soll-Einträge bleiben (wartet)', p.kern.abbild().soll.map((s) => `${s.name}:${s.stand}`).join(',') === 'Anna:wartet,Ben:wartet');
+  ck('… beide Soll-Einträge bleiben (wartet auf die Aufnahme-Erlaubnis)',
+    p.kern.abbild().soll.map((s) => `${s.name}:${s.stand}`).join(',') === 'Anna:erlaubnis,Ben:erlaubnis');
   await p.aufraeumen();
 }
 {
@@ -3022,8 +3025,8 @@ console.log('— Fernsteuerung: F4, F5, F8, mehrere Annas, Soll-Eintrag, Taste p
   const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '200' }) });
   await insMeeting(p);
   await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
-  ck('zoom_unload eines Soll-Eintrags: nach dem Entzug wartet Ben', await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0)
-    && p.kern.abbild().soll[0]?.stand === 'wartet');
+  ck('zoom_unload eines Soll-Eintrags: nach dem Entzug wartet Ben auf die Aufnahme-Erlaubnis', await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0)
+    && p.kern.abbild().soll[0]?.stand === 'erlaubnis');
   befehl(p, 'zoom_unload', 'ben');
   ck('… vergessen, zoom_cmd=ok', cmdKv(p) === 'ok/0' && p.kern.abbild().soll.length === 0);
   await p.aufraeumen();
@@ -3043,8 +3046,9 @@ console.log('— Fernsteuerung: F4, F5, F8, mehrere Annas, Soll-Eintrag, Taste p
   const p = baueKern({ stell: () => ({ FAKE_ABO_VERZOEGERUNG_MS: '600' }) });
   await insMeeting(p);
   await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
-  ck('Offenes Abo (gesendet, noch nicht bestätigt) ist noch keine Quelle: Anna wartet unter „Gemerkte Quellen“, sollOffen 1, zoom_alarm=1',
-    p.kern.abbild().soll.map((e) => `${e.name}:${e.stand}`).join(',') === 'Anna:wartet' && p.kern.kurz().sollOffen === 1
+  ck('Offenes Abo (gesendet, noch nicht bestätigt) ist noch keine Quelle: „Anna — wird geladen …“ unter „Gemerkte Quellen“, sollOffen 1, zoom_alarm=1',
+    p.kern.abbild().soll.map((e) => `${e.name}:${e.stand}`).join(',') === 'Anna:laedt' && sollZeile(p.kern.abbild().soll[0]) === 'Anna — wird geladen …'
+    && p.kern.kurz().sollOffen === 1
     && p.kern.stateKv()?.zoom_alarm === 1);
   ck('… mit subscribed: keine gemerkte Quelle mehr, zoom_alarm=0', (await bis(() => p.kern.kurz().quellen === 1, 2000))
     && p.kern.abbild().soll.length === 0 && p.kern.stateKv()?.zoom_alarm === 0);
@@ -3065,6 +3069,46 @@ console.log('— Fernsteuerung: F4, F5, F8, mehrere Annas, Soll-Eintrag, Taste p
   await warte(300);
   ck('… Bens Zeile zeigt keinen Fehler (videoNotSubscribed ist kein Fehler, das Ziel ist erreicht)',
     (zeile(p, BEN)?.fehler ?? null) === null && !JSON.stringify(p.kern.abbild()).includes('VIDEO_NOT_SUBSCRIBED'));
+  await p.aufraeumen();
+}
+
+// ── Fix-Welle (4b, Gesamtprüfung): Stand der gemerkten Quellen ──
+console.log('— Fix-Welle: „Gemerkte Quellen“ nennen den wahren Grund (Z6 nach dem Wiederbeitritt, Entzug mit offenem Abo, Wiedererteilung)');
+{
+  const p = baueKern({
+    // Bridge 1 reißt ab; Bridge 2 tritt wieder bei, der Host hat die Erlaubnis noch nicht neu erteilt (Z6).
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_PRIVILEGE: 'offen' }),
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  // 6 s statt 4 s: Vor Versuch 1 baut die erste Bridge ab (bis killTimeoutMs = 2 s). Ein Lauf unter Last war hier einmal rot,
+  // die Ursache ist nicht gemessen; darum steht bei Rot der Stand im Log des Tests.
+  const z6 = await bis(() => p.starts() === 2 && p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().erlaubnis === 'offen', 6000);
+  if (!z6) console.log(`     (Stand: starts=${p.starts()}, kurz=${JSON.stringify(p.kern.kurz())}, Folge ${folge(p).join(' > ')}; Log-Ende:\n       ${p.logs.slice(-12).join('\n       ')})`);
+  ck('Z6 nach dem Wiederbeitritt: wieder im Meeting, die Erlaubnis ist angefragt', z6 && zoomZ(p.kern.kurz()) === 'Z6');
+  ck('… Anna ist im Meeting: „Anna — wartet auf die Aufnahme-Erlaubnis“, nicht „wartet auf die Person“',
+    (await bis(() => zeile(p, ANNA) !== undefined, 2000)) && p.kern.abbild().soll.map((e) => `${e.name}:${e.stand}`).join(',') === 'Anna:erlaubnis'
+    && sollZeile(p.kern.abbild().soll[0]) === 'Anna — wartet auf die Aufnahme-Erlaubnis');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '300', FAKE_ABO_VERZOEGERUNG_MS: '600' }), fristen: { aboAntwortMs: 900 } });
+  await insMeeting(p);
+  ck('Offenes Abo vor dem Entzug: „Anna — wird geladen …“', ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false }))
+    && p.kern.abbild().soll.map((e) => `${e.name}:${e.stand}`).join(',') === 'Anna:laedt');
+  ck('… nach dem Entzug: „Anna — wartet auf die Aufnahme-Erlaubnis“', await bis(() => p.kern.kurz().erlaubnis === 'entzogen', 2000)
+    && p.kern.abbild().soll.map((e) => `${e.name}:${e.stand}`).join(',') === 'Anna:erlaubnis');
+  await p.aufraeumen();
+}
+{
+  // Der Abgleich wartet hier 1 s statt 300 ms, damit das Fenster zwischen Wiedererteilung und Abo sicher zu sehen ist.
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '200', FAKE_ERTEILUNG_MS: '300' }), fristen: { abgleichMs: 1000 } });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Wiedererteilung: bis der Abgleich lädt, steht „Anna — wird geladen …“, nicht „wartet auf die Person“',
+    (await bis(() => p.kern.kurz().erlaubnis === 'entzogen', 2000)) && (await bis(() => p.kern.kurz().erlaubnis === 'ja', 2000))
+    && p.kern.abbild().soll.map((e) => `${e.name}:${e.stand}`).join(',') === 'Anna:laedt');
+  ck('… danach läuft Anna wieder, keine gemerkte Quelle offen', (await bis(() => p.kern.kurz().quellen === 1, 3000)) && p.kern.abbild().soll.length === 0);
   await p.aufraeumen();
 }
 

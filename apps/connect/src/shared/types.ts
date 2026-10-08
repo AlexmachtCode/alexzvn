@@ -146,8 +146,13 @@ export interface ZoomSollEintrag {
   ton: boolean;
   /** Zuletzt gemeldeter NDI-Name, sonst die Vorschau. */
   ndiName: string;
-  /** 'grenze': würde abonniert, aber die Betriebsgröße ist erreicht (L7, N4b.3 Nr. 3); zählt als offen. */
-  stand: 'wartet' | 'doppelname' | 'verwaist' | 'grenze';
+  /**
+   * 'grenze': würde abonniert, aber die Betriebsgröße ist erreicht (L7, N4b.3 Nr. 3); zählt als offen.
+   * 'erlaubnis': die Person ist eindeutig da, aber im Meeting fehlt die Aufnahme-Erlaubnis (Z6, Z7).
+   * 'laedt': das Abo ist gesendet, die Bridge hat es noch nicht bestätigt (höchstens bis zur Frist Q8).
+   * Beide Zusätze aus der Gesamtprüfung 4b („Statuszeile lügt“); zählen als offen.
+   */
+  stand: 'wartet' | 'erlaubnis' | 'laedt' | 'doppelname' | 'verwaist' | 'grenze';
   /** Nur bei 'verwaist': das alte Abo, zum Entladen. */
   aboId: number | null;
   /**

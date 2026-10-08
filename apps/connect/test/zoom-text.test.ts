@@ -821,11 +821,14 @@ console.log('— 4b: Gemerkte Quellen (Spec 9 Punkt 9, Stand grenze)');
   });
   const SOLL: Record<ZoomSollEintrag['stand'], string> = {
     wartet: 'Anna Maria — wartet auf die Person',
+    // Fix-Welle 4b (Gesamtprüfung, „Statuszeile lügt“): die Person ist da, es fehlt die Erlaubnis bzw. die Antwort der Bridge.
+    erlaubnis: 'Anna Maria — wartet auf die Aufnahme-Erlaubnis',
+    laedt: 'Anna Maria — wird geladen …',
     doppelname: 'Anna Maria — Name doppelt, bitte von Hand laden',
     verwaist: 'Anna Maria — Person weg, Quelle schwarz',
     grenze: 'Anna Maria — nicht automatisch geladen (mehr als 5 Zoom-Quellen), bitte von Hand laden',
   };
-  ck('ZoomSollEintrag kennt vier Stände', Object.keys(SOLL).length === 4);
+  ck('ZoomSollEintrag kennt sechs Stände', Object.keys(SOLL).length === 6);
   for (const s of Object.keys(SOLL) as Array<ZoomSollEintrag['stand']>) ck(`sollZeile ${s} wörtlich`, sollZeile(e(s)) === SOLL[s]);
 }
 

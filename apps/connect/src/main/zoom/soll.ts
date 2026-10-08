@@ -22,6 +22,17 @@ export interface SollLage {
   teilnehmer: ReadonlyArray<{ id: number; name: string; imWarteraum: boolean }>;
   /** Abos der AKTIVEN Bridge; `verwaist` nach istVerwaist (teilnehmer.ts). */
   abos: ReadonlyMap<number, { verwaist: boolean }>;
+  /**
+   * Im Meeting, aber ohne Aufnahme-Erlaubnis (Z6 angefragt, Z7 entzogen, abgelehnt, abgelaufen): Der Abgleich handelt
+   * nicht. Ein Eintrag, dessen Person eindeutig da ist, wartet dann auf die Erlaubnis, nicht auf die Person.
+   * Fehlt das Feld, gilt false (Abgleich mit Erlaubnis).
+   */
+  erlaubnisFehlt?: boolean;
+  /**
+   * Im Meeting mit Erlaubnis ist ein Abgleich geplant (300 ms nach roster, inMeeting, Erlaubnis „ja“, Abbau): Ein Eintrag,
+   * den er abonnieren wird, wird gerade geladen und wartet nicht auf die Person. Fehlt das Feld, gilt false.
+   */
+  abgleichGeplant?: boolean;
 }
 
 export type SollHandlung =
@@ -78,15 +89,21 @@ function plane(soll: SollListe, lage: SollLage, plaetze: number): Planung[] {
 /**
  * Offene Soll-Einträge fürs Abbild (Spec 6.3, Spalte „Stand“): alles außer „verbunden“.
  * verwaist → 'verwaist' (mit aboId zum Entladen); würde abonniert, hat aber keinen Platz → 'grenze';
- * kein Abo und ≥ 2 Treffer → 'doppelname'; sonst 'wartet'. `doppelname` = 2 oder mehr Treffer
+ * kein Abo und ≥ 2 Treffer → 'doppelname'; genau 1 Treffer außerhalb des Warteraums ohne Erlaubnis
+ * (lage.erlaubnisFehlt) → 'erlaubnis'; wird beim geplanten Abgleich abonniert (lage.abgleichGeplant) → 'laedt';
+ * sonst 'wartet'. `doppelname` = 2 oder mehr Treffer
  * (auch bei verwaist: rot mit Q11). `plaetze` wie bei sollHandlungen; Vorgabe: unbegrenzt.
  */
 export function sollAbbild(soll: SollListe, lage: SollLage, plaetze = Infinity): ZoomSollEintrag[] {
   const aus: ZoomSollEintrag[] = [];
-  for (const { b, grenze } of plane(soll, lage, plaetze)) {
+  for (const { b, handlung, grenze } of plane(soll, lage, plaetze)) {
     if (b.abo === 'verbunden') continue;
     const doppelname = b.treffer.length >= 2;
-    const stand: ZoomSollEintrag['stand'] = b.abo === 'verwaist' ? 'verwaist' : grenze ? 'grenze' : doppelname ? 'doppelname' : 'wartet';
+    // Gesamtprüfung 4b („Statuszeile lügt“): Ist die Person eindeutig da, wartet der Eintrag nicht auf sie.
+    const personDa = b.treffer.length === 1 && !b.treffer[0].imWarteraum;
+    const stand: ZoomSollEintrag['stand'] = b.abo === 'verwaist' ? 'verwaist' : grenze ? 'grenze' : doppelname ? 'doppelname'
+      : personDa && lage.erlaubnisFehlt === true ? 'erlaubnis'
+      : handlung?.art === 'abonnieren' && lage.abgleichGeplant === true ? 'laedt' : 'wartet';
     aus.push({
       name: b.eintrag.name,
       ton: b.eintrag.ton,
