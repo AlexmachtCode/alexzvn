@@ -7,4 +7,5 @@ import './vertrag.test';
 import './quellregeln.test';
 import './ndi-output.test';
 import './screen-output.test';
+import './remote-control.test';
 abschluss();

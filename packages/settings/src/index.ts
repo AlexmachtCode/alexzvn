@@ -17,3 +17,5 @@ export { type NdiOutputSectionProps, type NdiOutputView, NDI_TEXTE, ndiOutputVie
 export { NdiOutputSection } from './abschnitte/NdiOutputSection';
 export { type ScreenOption, type ScreenOutputSectionProps, type ScreenOutputView, SCREEN_TEXTE, SCREEN_AUTO, screenOutputView } from './abschnitte/screen-output';
 export { ScreenOutputSection } from './abschnitte/ScreenOutputSection';
+export { type ControlMode, type RemoteControlLauncherProps, type RemoteControlSectionProps, type RemoteControlView, REMOTE_TEXTE, remoteControlView } from './abschnitte/remote-control';
+export { RemoteControlSection } from './abschnitte/RemoteControlSection';
