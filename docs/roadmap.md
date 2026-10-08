@@ -173,11 +173,12 @@ Zoom-Teilnehmer bekommen **kein Tally**, **kein privates Talkback/IFB** und **ke
   eigene Domain.
 - ⚪ **Aktiver Sprecher als eigene NDI-Quelle** [#227](https://github.com/AlexmachtCode/alexzvn/issues/227) — für digitale
   Pressekonferenzen. Das SDK meldet den Sprecherwechsel (`onActiveSpeakerVideoUserChanged`).
-- ⚪ **Bildschirmfreigaben als eigene NDI-Quelle** (Owner-Wunsch 08.10.2026, noch ohne Issue). Laut SDK-Headern 7.1.5 machbar:
-  Der Renderer abonniert eine Freigabe mit `subscribe(shareSourceID, RAW_DATA_TYPE_SHARE)`, `onSharingStatus` meldet Beginn,
-  Ende und Pause, der Ton der Freigabe kommt über `onShareAudioRawDataReceived`. ⚠️ Die Review-Unterlagen sagen bisher
-  ausdrücklich „keine Bildschirmfreigabe“; das muss vor dem Einreichen entschieden werden. Gehört mit #227 in eine eigene
-  Stufe „zusätzliche Quellen“.
+- ⚪ **Bildschirmfreigaben als eigene NDI-Quelle** [#247](https://github.com/AlexmachtCode/alexzvn/issues/247) (Owner-Wunsch
+  08.10.2026). Laut SDK-Headern 7.1.5 machbar: Der Renderer abonniert eine Freigabe mit
+  `subscribe(shareSourceID, RAW_DATA_TYPE_SHARE)`, `onSharingStatus` meldet Beginn, Ende und Pause, der Ton der Freigabe kommt
+  über `onShareAudioRawDataReceived`. Gehört mit #227 in eine eigene Stufe „zusätzliche Quellen“. **Review-Unterlagen:**
+  Owner 08.10.: vor dem Einreichen aufnehmen — erledigt auf `spike/zoom-obf`, als „kommende Fassung“ erklärt. Neue
+  Owner-Entscheidung **E7**: vorher bauen (A) oder als kommende Fassung einreichen (B, Empfehlung).
 - 🟡 **Bild-Versatz:** Den Wert aus dem Klatschtest (01.10.) hat niemand notiert. Connect hat deshalb noch keinen Vorgabewert.
 
 ---
@@ -211,14 +212,13 @@ Laufen neben den beiden Leitprojekten. Alle Spuren sind freigegeben.
 
 Stand 2026-10-08, am Code nachgesehen:
 
-- **Presenter [#228](https://github.com/AlexmachtCode/alexzvn/issues/228)** 🟢 „On Air“ erst im Präsentationsmodus.
-  Ursache gefunden: `apps/presenter/src/main/control-server.ts` meldet `live: s.screen === 'live'`, und `screen` steht
-  schon beim Start auf `'live'` (= „nicht schwarz/weiß“). Der Launcher zeigt bei `live=1` „ON AIR“. Abhilfe in einer Zeile:
-  `live` nur bei laufender Präsentation.
-- **App Designer [#231](https://github.com/AlexmachtCode/alexzvn/issues/231)** 🟢 Variablenname nimmt nur einen Buchstaben.
-  Ursache gefunden: Die Zeilen im Variablen-Feld haben den Namen selbst als React-`key`
-  (`apps/app-designer/src/renderer/src/components/SidePanels.tsx`), jede Taste baut die Zeile neu und der Fokus geht verloren.
-  Dazu verwaisen Regeln, die die Variable beim alten Namen nennen.
+- **Presenter [#228](https://github.com/AlexmachtCode/alexzvn/issues/228)** ✅ `presenter-v0.10.1` (08.10., PR #248):
+  „On Air“ erst im Präsentationsmodus. Ursache war `live: s.screen === 'live'` — `screen` steht schon im Leerlauf auf
+  `'live'` (= „nicht schwarz/weiß“). Jetzt `live = active && screen === 'live'`, mit erstem Selbsttest des Presenters.
+- **App Designer [#231](https://github.com/AlexmachtCode/alexzvn/issues/231)** ✅ `app-designer-v0.1.1` (08.10., PR #248):
+  Variablenname nimmt wieder ganze Wörter. Ursache war der Name als React-`key`. Der Name wird jetzt beim Verlassen/Enter
+  übernommen, und das Umbenennen nimmt alle Verweise mit (`renameVariable` in `@jm/appkit`). 🟡 Handtest im echten
+  Fenster steht aus (Electron fehlt in der Testumgebung). Offen, ohne Issue: Löschen einer Variable lässt Verweise stehen.
 - **App Designer [#232](https://github.com/AlexmachtCode/alexzvn/issues/232)** Schriftart wählbar, eigenes App-Icon statt
   Electron-Standard · **[#230](https://github.com/AlexmachtCode/alexzvn/issues/230)** Objekte mit mehreren Zuständen, Farbe
   ändern bei Wenn → Dann. Gehören zu Welle 3 ([#200](https://github.com/AlexmachtCode/alexzvn/issues/200)).
@@ -357,9 +357,15 @@ nächsten Switcher-Änderung zu erledigen.
   **Connect** hat keinen einzigen `@jm/ui`-Import.
 - Issue #165 ist „JM Titler“ und seit dem 05.07. geschlossen. Die Spur lebt nur in diesem Dokument und in
   `docs/ux/suite-ux-roadmap.md`.
-- 🔵 **Owner 08.10.2026: „UX-Update für alle Tools“.** Der bisherige Plan deckt nur 5 der 26 Apps ab. Vor dem
-  nächsten Schritt den Umfang klären (Brainstorming): welche Tools, in welcher Reihenfolge, und ob Phase 5 (geteilte
-  Sektionen) vorgezogen wird, damit nicht jede App einzeln umgebaut wird.
+- 🟢 **Owner 08.10.2026: „UX-Update für alle Tools“, Brainstorming läuft.** Optik-Richtung gewählt: **„Sendepult mit
+  der Dichte der Konsole“** — Statusleiste unten, Tally-Farben und große Haupttasten in jedem Tool, Inhalte und
+  Einstellungen kompakt. Umfang: alle Tools nach einem gemeinsamen
+  Muster, zuerst die gemeinsamen Bausteine (Phase 5 vorgezogen), dann App für App nach Wichtigkeit im Live-Betrieb.
+  Ziele: gleiches Bediengefühl überall · Live-Bedienung entrümpeln · schneller einrichten · **Optik modernisieren**
+  (bisher ein Nicht-Ziel; Varianten werden erst gezeigt, dann entschieden). Bestandsaufnahme der 26 Apps vom 08.10.:
+  drei Grundmuster, Kopfzeile und Statusanzeige in jeder App neu gebaut, 7 Apps ohne Logo, Einstellungen an fünf
+  verschiedenen Orten, 4 Apps (Connect, Battle, Caption, Interpreter) mit festen dunklen Farben statt Tokens. Danach
+  Spec → Plan; `docs/ux/suite-ux-roadmap.md` wird dabei nachgeführt.
 
 ---
 
@@ -368,8 +374,9 @@ nächsten Switcher-Änderung zu erledigen.
 **Stand 2026-10-08 (Owner-Auswahl vom selben Tag):**
 
 - 🟢 **Läuft:** Zoom 4b (Connect 0.3.0), subagent-driven.
-- 🟢 **Parallel dazu:** diese Roadmap nachführen · #228 Presenter und #231 App Designer beheben · UX-Spur: Umfang klären ·
-  Master-Launcher 2b R2: Plan schreiben.
+- 🟢 **Parallel dazu:** ~~diese Roadmap nachführen~~ ✅ · ~~#228 Presenter und #231 App Designer beheben~~ ✅ released ·
+  UX-Spur: Brainstorming (Ziele und Umfang geklärt, Optik-Varianten als Nächstes) · Master-Launcher 2b R2: Plan wird
+  geschrieben · Review-Unterlagen um Bildschirmfreigaben ergänzt (#247, E7).
 - 🟡 **Beim Owner:** Abnahmen und Live-Tests (Lane B), Review-Entscheidungen E1–E6 für Zoom, Prüfung von #236.
 - 🔵 **Danach:** UX-Spur nach geklärtem Umfang · 2b R2 umsetzen · Zoom „zusätzliche Quellen“ (#227 + Freigaben) ·
   #213 Battle-Judges · Lane D2b.
@@ -397,8 +404,9 @@ nächsten Switcher-Änderung zu erledigen.
 ## 4 · Issue-Hygiene (Aufräum-Empfehlung)
 
 - ✅ **08.10.2026 geschlossen:** [#57](https://github.com/AlexmachtCode/alexzvn/issues/57) Optimierung (Sammel-Issue),
-  [#61](https://github.com/AlexmachtCode/alexzvn/issues/61) P3 und [#234](https://github.com/AlexmachtCode/alexzvn/issues/234)
-  Netzwerkwahl. Die Reste aus #61 laufen als [#246](https://github.com/AlexmachtCode/alexzvn/issues/246) (A3) und
+  [#61](https://github.com/AlexmachtCode/alexzvn/issues/61) P3, [#234](https://github.com/AlexmachtCode/alexzvn/issues/234)
+  Netzwerkwahl sowie [#228](https://github.com/AlexmachtCode/alexzvn/issues/228) und
+  [#231](https://github.com/AlexmachtCode/alexzvn/issues/231) nach dem Release. Die Reste aus #61 laufen als [#246](https://github.com/AlexmachtCode/alexzvn/issues/246) (A3) und
   [#245](https://github.com/AlexmachtCode/alexzvn/issues/245) (C3) weiter.
 - **[#235](https://github.com/AlexmachtCode/alexzvn/issues/235) Rundown** und **[#236](https://github.com/AlexmachtCode/alexzvn/issues/236) Launcher:**
   vermutlich erledigt (Abschnitt 1b bzw. Launcher 0.13.1) → nach Owner-Prüfung schließen.
