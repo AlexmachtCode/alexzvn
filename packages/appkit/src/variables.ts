@@ -12,12 +12,19 @@
 //   • Aktions-Argumente, deren ArgSpec die Art 'variable' hat (ACTION_SPECS)
 //   • Element-Bindungen, siehe NODE_VAR_PROPS
 // Kommt eine neue Stelle hinzu, gehört sie hierher — sonst reißt das Umbenennen.
+//
+// Sonderfall Altdokument: migrateVar lässt jeden nicht-leeren Namen zu, auch eine
+// echte Variable namens `$result`. Die Runtime trennt eindeutig — in Bedingungen
+// ist `$result` IMMER das Trigger-Ergebnis (evalConditions), überall sonst die
+// Variable. Eine solche Variable lässt sich deshalb umbenennen: alle Verweise
+// ziehen mit, nur Bedingungen bleiben beim Trigger-Ergebnis. Das Verhalten des
+// Dokuments ändert sich dabei nicht.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ACTION_SPECS, type Action, type Condition, type Rule, type Trigger } from './logic';
 import type { AppNode, AppProject, NodeType, Scene, VarName } from './model';
 
-/** Pseudo-Variable für das Ergebnis des auslösenden Triggers — nie umbenennen. */
+/** Pseudo-Variable für das Ergebnis des auslösenden Triggers (in Bedingungen). */
 const RESULT_VAR = '$result';
 
 /** Props, in denen ein Element eine Variable bindet, je Node-Typ. */
@@ -50,19 +57,21 @@ export function checkVariableName(doc: AppProject, oldName: VarName, newName: st
  * Verweis im ganzen Dokument mit. Rein: das Eingangsdokument bleibt unverändert.
  *
  * Gibt `doc` selbst zurück, wenn es nichts zu tun gibt oder der Name nicht geht
- * (leer, vergeben, unverändert, unbekannte Variable, `$result`) — der Aufrufer
- * erkennt „keine Änderung" an der Identität.
+ * (leer, vergeben, unverändert, unbekannte Variable) — der Aufrufer erkennt
+ * „keine Änderung" an der Identität. `$result` ohne gleichnamige Definition ist
+ * nur die Pseudo-Variable und damit „unbekannt".
  */
 export function renameVariable(doc: AppProject, oldName: VarName, newName: string): AppProject {
   const name = newName.trim();
-  if (oldName === RESULT_VAR || name === oldName) return doc;
+  if (name === oldName) return doc;
   if (!doc.variables.some((v) => v.name === oldName)) return doc;
   if (checkVariableName(doc, oldName, name) !== null) return doc;
 
   const renameTrigger = (t: Trigger): Trigger => (t.varName === oldName ? { ...t, varName: name } : t);
 
+  // In Bedingungen bedeutet `$result` das Trigger-Ergebnis, nie die Variable.
   const renameCondition = (c: Condition): Condition =>
-    c.varName === oldName ? { ...c, varName: name } : c;
+    c.varName === oldName && c.varName !== RESULT_VAR ? { ...c, varName: name } : c;
 
   const renameAction = (a: Action): Action => {
     const specs = ACTION_SPECS[a.verb]?.args ?? [];

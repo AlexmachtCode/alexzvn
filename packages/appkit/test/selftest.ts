@@ -462,7 +462,7 @@ check('renameVariable: Element-Bindungen ziehen mit (Text, Rad, Quiz, Memory)', 
 check('renameVariable: $result bleibt unberührt', () => {
   const out = renameVariable(varProject(), 'punkte', 'score');
   assert.deepEqual(out.scenes[0].rules[0].conditions[2], { varName: '$result', op: '==', value: 'punkte' });
-  // $result selbst lässt sich nicht umbenennen.
+  // Ohne gleichnamige Definition ist $result nur die Pseudo-Variable — nichts umzubenennen.
   const doc = varProject();
   assert.equal(renameVariable(doc, '$result', 'ergebnis'), doc);
 });
@@ -518,6 +518,90 @@ check('checkVariableName: leer, vergeben, $result, unverändert', () => {
   assert.equal(checkVariableName(doc, 'punkte', '$result'), 'taken', '$result ist reserviert');
   assert.equal(checkVariableName(doc, 'punkte', 'punkte'), null, 'unverändert ist kein Fehler');
   assert.equal(checkVariableName(doc, 'punkte', 'score'), null);
+});
+
+/**
+ * Altdokument mit einer echten Variable, die wörtlich `$result` heißt —
+ * migrateVar lässt jeden nicht-leeren Namen durch. Die Runtime trennt eindeutig:
+ * in Bedingungen ist `$result` IMMER das Trigger-Ergebnis (evalConditions),
+ * überall sonst (Bindung, setVar/addVar, onVarChange) die Variable.
+ */
+function legacyResultProject(): AppProject {
+  const doc = makeEmptyProject('Alt');
+  doc.variables = [
+    { name: '$result', type: 'string', initial: '' },
+    { name: 'punkte', type: 'number', initial: 0 },
+  ];
+  const text = makeNode('text');
+  const wheel = makeNode('wheel');
+  if (text.type !== 'text' || wheel.type !== 'wheel') throw new Error('makeNode lieferte den falschen Typ');
+  text.props.bindTextTo = '$result';
+  wheel.props.resultVar = '$result';
+  wheel.rules = [
+    {
+      id: 'r_rad',
+      enabled: true,
+      trigger: { type: 'onWheelStop' },
+      conditions: [{ varName: '$result', op: '==', value: 'gewinn' }],
+      actions: [{ verb: 'addVar', args: ['punkte', 1], enabled: true }],
+    },
+  ];
+  doc.scenes[0].nodes = [text, wheel];
+  doc.scenes[0].rules = [
+    {
+      id: 'r_alt',
+      enabled: true,
+      trigger: { type: 'onVarChange', varName: '$result' },
+      conditions: [{ varName: '$result', op: '!=', value: '' }],
+      actions: [
+        { verb: 'setVar', args: ['$result', 'leer'], enabled: true },
+        { verb: 'addVar', args: ['$result', 1], enabled: true },
+      ],
+    },
+  ];
+  return doc;
+}
+
+check('renameVariable: Alt-Variable namens $result lässt sich umbenennen — Bedingungen bleiben beim Trigger-Ergebnis', () => {
+  const out = renameVariable(legacyResultProject(), '$result', 'ergebnis');
+  assert.deepEqual(
+    out.variables.map((v) => v.name),
+    ['ergebnis', 'punkte'],
+  );
+  const rule = out.scenes[0].rules[0];
+  assert.deepEqual(rule.trigger, { type: 'onVarChange', varName: 'ergebnis' });
+  assert.deepEqual(rule.actions[0].args, ['ergebnis', 'leer']);
+  assert.deepEqual(rule.actions[1].args, ['ergebnis', 1]);
+  assert.deepEqual(rule.conditions, [{ varName: '$result', op: '!=', value: '' }], 'Bedingung liest das Trigger-Ergebnis');
+  const [text, wheel] = out.scenes[0].nodes;
+  assert.ok(text.type === 'text' && wheel.type === 'wheel');
+  assert.equal(text.props.bindTextTo, 'ergebnis');
+  assert.equal(wheel.props.resultVar, 'ergebnis');
+  assert.deepEqual(wheel.rules[0].conditions, [{ varName: '$result', op: '==', value: 'gewinn' }]);
+});
+
+check('checkVariableName: Alt-Variable $result — gültiger Name geht, leer/vergeben nicht', () => {
+  const doc = legacyResultProject();
+  assert.equal(checkVariableName(doc, '$result', 'ergebnis'), null);
+  assert.equal(checkVariableName(doc, '$result', ''), 'empty');
+  assert.equal(checkVariableName(doc, '$result', 'punkte'), 'taken');
+  assert.equal(checkVariableName(doc, '$result', '$result'), null, 'unverändert ist kein Fehler');
+});
+
+check('checkVariableName und renameVariable sind sich einig (kein stilles Zurückspringen)', () => {
+  // Der Editor zeigt nur bei einem gemeldeten Problem einen Hinweis. Meldet
+  // checkVariableName „in Ordnung" für einen NEUEN Namen, muss renameVariable
+  // auch umbenennen — sonst springt das Feld ohne Hinweis zurück.
+  for (const doc of [varProject(), legacyResultProject()]) {
+    for (const { name: oldName } of doc.variables) {
+      for (const n of ['', '  ', 'neu', ' neu ', '$result', 'punkte', 'punkte2', oldName, ` ${oldName} `]) {
+        const problem = checkVariableName(doc, oldName, n);
+        const changed = renameVariable(doc, oldName, n) !== doc;
+        const expected = problem === null && n.trim() !== oldName;
+        assert.equal(changed, expected, `${oldName} → „${n}": Problem ${problem}, umbenannt ${changed}`);
+      }
+    }
+  }
 });
 
 console.log(`\n${checks} Prüfungen bestanden.`);
