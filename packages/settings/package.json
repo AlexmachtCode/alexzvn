@@ -1,0 +1,31 @@
+{
+  "name": "@jm/settings",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Einstellungs-Abschnitte der Suite (Suite-UX-Update, Spec 6): gemeinsamer Vertrag, Rahmen und sieben Abschnitte. Rein darstellend, ohne IPC und ohne Electron.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "selftest": "tsx test/selftest.ts"
+  },
+  "dependencies": {
+    "@jm/control-config": "*",
+    "@jm/ui": "*"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
