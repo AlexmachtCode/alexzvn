@@ -31,6 +31,8 @@ import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import type {
   ProxyKeySource,
   ZoomAbbild,
+  ZoomBefehlErgebnis,
+  ZoomBefehlKennung,
   ZoomErgebnis,
   ZoomErlaubnis,
   ZoomKurz,
@@ -58,6 +60,8 @@ import {
   failMeldung,
   failText,
   fehlerDetail,
+  fernLogText,
+  FT,
   istEndgueltig,
   mangelText,
   maskiere,
@@ -84,6 +88,7 @@ import {
 } from './laufzeit';
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
+import { deuteZoomBefehl, ladeZiel } from './fernsteuerung';
 import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from './soll';
 import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
 import { WIEDERBEITRITT_PLAN_S } from './fristen';
@@ -177,6 +182,8 @@ export interface ZoomKern {
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
+  /** Spec 11.2: Fernsteuer-Verb (verb klein, args wie vom Parser). Setzt kurz().befehl; ruft nie den Renderer. */
+  steuerbefehl(cmd: { verb: string; args: string[] }): void;
   beenden(fristMs: number): Promise<void>;
 }
 
@@ -257,6 +264,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let pruefungLaeuft = false;
   let meldung: ZoomAbbild['meldung'] = null;
   const hinweise: string[] = [];
+  /** Ergebnis des letzten zoom_*-Befehls (11.2, zoom_cmd); null vor dem ersten. */
+  let befehl: ZoomBefehlErgebnis | null = null;
   /** Nur im Arbeitsspeicher (Spec 5.7). */
   let nummer: { eingabe: string; normiert: string } | null = null;
   let kenncode: string | null = null;
@@ -349,14 +358,31 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const ids = new Set(alle.map((p) => p.id));
     const abos = new Map<number, { verwaist: boolean }>();
     for (const q of aktiveQuellen().values()) abos.set(q.aboId, { verwaist: istVerwaist(q.aboId, ids, { state: q.bild, reason: q.bildGrund }) });
+    // Review Focus 1: Ein gesendetes, noch unbestätigtes Abo gilt als verbunden; sonst abonnierte der Abgleich es ein zweites Mal.
+    for (const id of aboFristen.keys()) if (!abos.has(id)) abos.set(id, { verwaist: !ids.has(id) });
     return {
       teilnehmer: alle.filter((p) => !p.self).map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom })),
       abos,
     };
   }
 
+  /**
+   * Offene Soll-Einträge fürs Abbild, für sollOffen und zoom_alarm (Spec 4, 7.5). Ein gesendetes, noch unbestätigtes Abo
+   * gilt im Abgleich als verbunden (sollLage), ist aber noch keine laufende Quelle: Der Eintrag bleibt offen (wartet), bis
+   * die Bridge subscribed meldet oder die Frist Q8 abläuft. Reihenfolge wie die Soll-Liste.
+   */
   function sollOffen(): ZoomSollEintrag[] {
-    return sollAbbild(soll, sollLage(), freiePlaetze());
+    const offen = new Map(sollAbbild(soll, sollLage(), freiePlaetze()).map((e) => [normName(e.name), e]));
+    const laeuft = aktiveQuellen();
+    const aus: ZoomSollEintrag[] = [];
+    for (const [schluessel, s] of soll) {
+      const e = offen.get(schluessel);
+      if (e) aus.push(e);
+      else if (s.aboId !== null && aboFristen.has(s.aboId) && !laeuft.has(s.aboId)) {
+        aus.push({ name: s.name, ton: s.ton, ndiName: s.ndiName, stand: 'wartet', aboId: null, doppelname: false });
+      }
+    }
+    return aus;
   }
 
   function kurz(): ZoomKurz {
@@ -372,8 +398,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       maengel: [...maengel],
       // Spec SDK nachladen 4.4: Kopfzeile und Tray zeigen beim Laden dieselbe Einrichtungszeile wie bei der Kopie (Z1b).
       kopieLaeuft: kopie !== null || ladung !== null,
-      // Aufgabe 13 (4b) setzt den letzten zoom_*-Befehl; bis dahin gibt es keinen.
-      befehl: null,
+      befehl: befehl ? { ...befehl } : null,
     };
   }
 
@@ -1615,6 +1640,67 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     abbildGeaendert();
   }
 
+  // ── Fernsteuerung (Spec 11.2, 8.6) ───────────────────────────────────────
+  /** Name zu einer Quelle oder einem offenen Abo: aus der Sitzung, sonst (verwaist) aus dem Soll-Eintrag. */
+  function quellenName(aboId: number): string | null {
+    const p = aktiveSitzung()?.participants.get(aboId);
+    if (p) return p.name;
+    for (const s of soll.values()) if (s.aboId === aboId) return s.name;
+    return null;
+  }
+
+  /** zoom_load: F4 ohne Meeting oder Erlaubnis, F2/F3/F4 nach dem Ladeziel; schon belegt → nichts; ab der 6. Quelle F8. */
+  function fernLaden(name: string): { kennung: ZoomBefehlKennung; text: string | null } {
+    if (zustand !== 'im_meeting') return { kennung: 'f4', text: FT.F4('nicht im Meeting') };
+    if (erlaubnis !== 'ja') return { kennung: 'f4', text: FT.F4('keine Aufnahme-Erlaubnis') };
+    const fremde = [...(aktiveSitzung()?.participants.values() ?? [])]
+      .filter((p) => !p.self)
+      .map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom }));
+    const ziel = ladeZiel(name, fremde);
+    if (ziel.art === 'niemand') return { kennung: 'f2', text: FT.F2(name) };
+    if (ziel.art === 'mehrdeutig') return { kennung: 'f3', text: FT.F3(name, ziel.n) };
+    if (ziel.art === 'warteraum') return { kennung: 'f4', text: FT.F4('die Person ist im Warteraum') };
+    const belegt = belegteAbos();
+    // Schon geladen oder das Abo ist unterwegs (Taste doppelt gedrückt, Review Focus 1): nichts tun.
+    if (belegt.has(ziel.id)) return { kennung: 'ok', text: null };
+    const ton = teilnehmerAbbild().find((t) => t.id === ziel.id)?.tonVorwahl ?? true;
+    void laden({ id: ziel.id, ton, trotzBetriebsgroesse: true });
+    // Die Fernsteuerung lädt auch über die Betriebsgröße, mit der Warnung F8 (nicht abgelehnt).
+    return belegt.size >= BETRIEBSGROESSE ? { kennung: 'f8', text: FT.F8(belegt.size + 1) } : { kennung: 'ok', text: null };
+  }
+
+  /** zoom_unload: alle Quellen und offenen Abos mit diesem normierten Namen entladen, sonst den Soll-Eintrag vergessen; nichts → F5. */
+  function fernEntladen(name: string): { kennung: ZoomBefehlKennung; text: string | null } {
+    const ziel = normName(name);
+    const aboIds = [...belegteAbos()].filter((id) => {
+      const n = quellenName(id);
+      return n !== null && normName(n) === ziel;
+    });
+    const eintrag = soll.get(ziel);
+    const nurSoll = eintrag !== undefined && (eintrag.aboId === null || !aboIds.includes(eintrag.aboId));
+    if (aboIds.length === 0 && !nurSoll) return { kennung: 'f5', text: FT.F5(name) };
+    for (const id of aboIds) void entladen({ aboId: id });
+    if (nurSoll) sollVerwerfen({ name });
+    return { kennung: 'ok', text: null };
+  }
+
+  function steuerbefehl(cmd: { verb: string; args: string[] }): void {
+    const verb = cmd.verb.toLowerCase();
+    const b = deuteZoomBefehl(cmd.verb, cmd.args);
+    let erg: { kennung: ZoomBefehlKennung; text: string | null } = { kennung: 'ok', text: null };
+    if (b.art === 'abgelehnt') erg = { kennung: b.kennung, text: b.text };
+    else if (b.art === 'laden') erg = fernLaden(b.name);
+    else if (b.art === 'entladen') erg = fernEntladen(b.name);
+    // Wie 6.7; „nur für diese Sitzung gemerkt“ zählt über die Fernsteuerung als ausgeführt (L14).
+    else versatz({ ms: b.ms });
+    // 8.6: F1–F7 sind abgelehnt, F8 ist eine Warnung zu einem ausgeführten Befehl.
+    befehl = { kennung: erg.kennung, abgelehnt: erg.kennung !== 'ok' && erg.kennung !== 'f8' };
+    // N4b.2: der Hinweis nennt den Namen, das Log nur Kennung und Verb.
+    if (erg.text !== null) hinweis(erg.text, fernLogText(erg.kennung, verb));
+    else d.log(`[zoom] ${fernLogText(erg.kennung, verb)}`);
+    abbildGeaendert();
+  }
+
   // ── Beenden (Spec 6.6) ───────────────────────────────────────────────────
   /** Wartet höchstens `ms` auf `p` (eine Ablehnung zählt als Ende); true = `p` war rechtzeitig fertig. */
   async function mitFrist(p: Promise<unknown>, ms: number): Promise<boolean> {
@@ -1697,6 +1783,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),
+    steuerbefehl,
     beenden,
   };
 }

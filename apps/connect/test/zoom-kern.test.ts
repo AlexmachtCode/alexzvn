@@ -1,13 +1,13 @@
 // Zoom-Kern OHNE Electron (tsx): echte Bridge gegen die Attrappe packages/zoom-bridge/test/fake-bridge.mjs.
 //   npm run selftest -w @jm/connect   ·   einzeln: npx tsx apps/connect/test/zoom-kern.test.ts
-// Spec 12.2; die Fernsteuer-Fälle (22, Fernsteuer-Teile von 13 und 21) kommen mit Aufgabe 13 (4b).
+// Spec 12.2 vollständig, mit den 4b-Fällen (15, 15b, 15c, 16–18, 22, 25, Fernsteuer-Teile von 13 und 21).
 // Laufzeit, Zugangsdaten und Einstellungen sind Attrappen; die Bridge-Fabrik setzt FAKE_SDK_FASSUNG
 // IMMER auf '7.1.5 (43953)' — die Prüfung im Kern bleibt exakt (G1), nur Fall 7 überschreibt den Wert.
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Bridge, type BridgeEvent, type Command } from '@jm/zoom-bridge';
+import { Bridge, type BridgeEvent, type Command, type Session } from '@jm/zoom-bridge';
 import { SDK_FASSUNG } from '@jm/zoom-bridge/sdk';
 import {
   ANZEIGENAME_VORGABE,
@@ -20,7 +20,7 @@ import {
   type ZugangDaten,
   type ZugangStand,
 } from '../src/main/zoom/kern';
-import { failText, KT, quellenFehler, VORSATZ } from '../src/main/zoom/klartext';
+import { failText, FT, KT, quellenFehler, VORSATZ } from '../src/main/zoom/klartext';
 import {
   BRIDGE_EXE,
   laufzeitOrdner,
@@ -134,6 +134,8 @@ interface BaueOptionen {
   ereignis?: (ev: BridgeEvent, startNr: number) => BridgeEvent;
   /** Was einstellungen.setzeVersatzMs() meldet; false = Einstellungsdatei nicht schreibbar (nur Sitzung). Vorgabe true. */
   versatzSpeichernLiefert?: boolean;
+  /** Ändert die Sitzung, die der Kern von der Bridge liest (z. B. einen Teilnehmer in den Warteraum setzen). */
+  sitzung?: (s: Session, startNr: number) => Session;
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -186,7 +188,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       },
       stop: () => b.stop(),
       get session() {
-        return b.session;
+        return o.sitzung ? o.sitzung(b.session, nr) : b.session;
       },
     };
     bruecken.push(art);
@@ -2903,6 +2905,153 @@ console.log('— Logzeilen ohne Teilnehmernamen (N4b.2, L11)');
   const empfaenger = readFileSync(new URL('ndi-program-receiver.ts', utility), 'utf8');
   ck('… der Programm-Empfänger lässt Quellen von JM Connect aus seiner Diagnose (nur die Anzahl)',
     empfaenger.includes(".filter((s) => !s.includes('JM Connect – '))"));
+}
+
+// ── Aufgabe 13 (4b): Fernsteuerung im Kern (11.2; Fall 22, Fernsteuer-Teile von 13 und 21) ──
+/** Ein Fernsteuer-Befehl, wie ihn der Steuerserver liefert (verb klein, args an Leerzeichen getrennt). */
+function befehl(p: Probe, verb: string, ...args: string[]): void {
+  p.kern.steuerbefehl({ verb, args });
+}
+/** `zoom_cmd/zoom_cmd_rejected` aus dem STATE. */
+function cmdKv(p: Probe): string {
+  return `${p.kern.stateKv()?.zoom_cmd}/${p.kern.stateKv()?.zoom_cmd_rejected}`;
+}
+
+console.log('— Fernsteuerung: zoom_load, zoom_unload, zoom_delay, zoom_cmd (Fall 22, Fernteile von 13 und 21)');
+{
+  const p = baueKern();
+  ck('Fall 22: vor dem ersten Befehl zoom_cmd leer, rejected 0', cmdKv(p) === '/0');
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('… zoom_load Ben → zoom_cmd=ok, Quelle Ben', cmdKv(p) === 'ok/0' && (await bis(() => zeile(p, BEN)?.quelle?.ndiName === 'JM Connect – Zoom Ben')));
+  befehl(p, 'zoom_load', 'Anna', 'Maria');
+  ck('… [„Anna“, „Maria“] sucht „Anna Maria“ → F2, rejected 1', cmdKv(p) === 'f2/1' && p.kern.abbild().hinweise.at(-1) === FT.F2('Anna Maria'));
+  befehl(p, 'zoom_unload', 'Ben');
+  ck('… zoom_unload Ben → ok, Quelle weg, Soll leer', cmdKv(p) === 'ok/0' && (await bis(() => p.kern.kurz().quellen === 0)) && p.kern.abbild().soll.length === 0);
+  befehl(p, 'zoom_load');
+  ck('… leeres Argument → F1, rejected 1', cmdKv(p) === 'f1/1' && p.kern.abbild().hinweise.at(-1) === FT.F1);
+  befehl(p, 'zoom_xyz');
+  ck('… zoom_xyz → F7', cmdKv(p) === 'f7/1' && p.kern.abbild().hinweise.at(-1) === FT.F7('zoom_xyz'));
+  befehl(p, 'zoom_delay', '0');
+  ck('… danach ein gültiger Befehl → zoom_cmd_rejected=0', cmdKv(p) === 'ok/0');
+  ck('… stateKv() führt die sieben Schlüssel', JSON.stringify(Object.keys(p.kern.stateKv() ?? {}).sort())
+    === '["zoom_alarm","zoom_cmd","zoom_cmd_rejected","zoom_live","zoom_privilege","zoom_sources","zoom_status"]');
+  ck('… das Log nennt Kennung und Verb, nie einen Namen', p.logs.includes('[zoom] Companion: OK (zoom_load)')
+    && p.logs.includes('[zoom] Hinweis: Companion: F2 (zoom_load)') && keinTeilnehmernameImLog(p, [...ATTRAPPEN_NAMEN, 'Maria']));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_DOPPELNAME: '1' }) });
+  await insMeeting(p);
+  befehl(p, 'ZOOM_LOAD', 'anna');
+  ck('Fall 13 (Fernteil): zoom_load Anna bei Doppelname → F3 mit 2 Personen, zoom_cmd=f3, rejected 1', cmdKv(p) === 'f3/1'
+    && p.kern.abbild().hinweise.at(-1) === FT.F3('anna', 2));
+  await warte(300);
+  ck('… kein videoSubscribe', !cmds(p, 1).includes('videoSubscribe'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  await insMeeting(p);
+  befehl(p, 'zoom_delay', '300');
+  ck('Fall 21 (Fernteil): zoom_delay 300 → ok, gespeichert, videoDelay 300', cmdKv(p) === 'ok/0' && p.einst.versatzMs === 300
+    && (await bis(() => p.befehle(1).some((c) => c.cmd === 'videoDelay' && c.ms === 300), 2000)));
+  befehl(p, 'zoom_delay', '1001');
+  ck('… zoom_delay 1001 → F6, nichts gespeichert', cmdKv(p) === 'f6/1' && p.einst.versatzMs === 300 && p.kern.abbild().hinweise.at(-1) === FT.F6('1001'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ versatzSpeichernLiefert: false });
+  befehl(p, 'zoom_delay', '200');
+  ck('… Datei nicht schreibbar: zoom_cmd=ok (L14), das Abbild sagt „nur Sitzung“', cmdKv(p) === 'ok/0' && p.kern.abbild().versatz.nurSitzung);
+  await p.aufraeumen();
+}
+
+console.log('— Fernsteuerung: F4, F5, F8, mehrere Annas, Soll-Eintrag, Taste prellt (Review Focus 1)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_PRIVILEGE: 'nein' }) });
+  befehl(p, 'zoom_load', 'Ben');
+  ck('F4 außerhalb des Meetings: „nicht im Meeting“', cmdKv(p) === 'f4/1' && p.kern.abbild().hinweise.at(-1) === FT.F4('nicht im Meeting'));
+  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await bis(() => p.kern.kurz().erlaubnis === 'abgelehnt');
+  befehl(p, 'zoom_load', 'Ben');
+  ck('… ohne Erlaubnis: „keine Aufnahme-Erlaubnis“', cmdKv(p) === 'f4/1' && p.kern.abbild().hinweise.at(-1) === FT.F4('keine Aufnahme-Erlaubnis'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    // Die Attrappe kennt keinen fremden Teilnehmer im Warteraum: Die Sitzung, die der Kern liest, setzt Ben dorthin.
+    sitzung: (s) => ({ ...s, participants: new Map([...s.participants].map(([id, t]) => [id, id === BEN ? { ...t, inWaitingRoom: true } : t])) }),
+  });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('… Person im Warteraum: „die Person ist im Warteraum“', cmdKv(p) === 'f4/1' && p.kern.abbild().hinweise.at(-1) === FT.F4('die Person ist im Warteraum'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  await insMeeting(p);
+  befehl(p, 'zoom_unload', 'Zora');
+  ck('F5: zoom_unload ohne Quelle und ohne Soll-Eintrag dieses Namens', cmdKv(p) === 'f5/1' && p.kern.abbild().hinweise.at(-1) === FT.F5('Zora'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_TEILNEHMER: '6' }) });
+  await insMeeting(p);
+  const ids = p.kern.abbild().teilnehmer.map((t) => t.id);
+  for (const id of ids.slice(0, 5)) await p.kern.laden({ id, ton: true, trotzBetriebsgroesse: false });
+  await bis(() => p.kern.kurz().quellen === 5);
+  befehl(p, 'zoom_load', 'Frieda');
+  ck('F8: zoom_load Frieda bei fünf Quellen → geladen, zoom_cmd=f8, rejected 0', cmdKv(p) === 'f8/0'
+    && p.kern.abbild().hinweise.at(-1) === FT.F8(6) && (await bis(() => p.kern.kurz().quellen === 6)));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_DOPPELNAME: '1' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  await bis(() => p.kern.kurz().quellen === 2);
+  befehl(p, 'zoom_unload', 'Anna');
+  ck('zoom_unload Anna bei zwei geladenen Annas → beide entladen, ok', cmdKv(p) === 'ok/0'
+    && (await bis(() => p.kern.kurz().quellen === 0)) && p.kern.abbild().soll.length === 0
+    && p.befehle(1).filter((c) => c.cmd === 'videoUnsubscribe').length === 2);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '200' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  ck('zoom_unload eines Soll-Eintrags: nach dem Entzug wartet Ben', await bis(() => p.kern.kurz().erlaubnis === 'entzogen' && p.kern.kurz().quellen === 0)
+    && p.kern.abbild().soll[0]?.stand === 'wartet');
+  befehl(p, 'zoom_unload', 'ben');
+  ck('… vergessen, zoom_cmd=ok', cmdKv(p) === 'ok/0' && p.kern.abbild().soll.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ABO_VERZOEGERUNG_MS: '300' }) });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  befehl(p, 'zoom_load', 'Ben');
+  ck('Review Focus 1: Taste prellt (zweimal zoom_load Ben vor subscribed) → zoom_cmd=ok, rejected 0', cmdKv(p) === 'ok/0');
+  ck('… genau ein videoSubscribe für Ben', await bis(() => (zeile(p, BEN)?.quelle ?? null) !== null, 2000)
+    && (await warte(300), true) && p.befehle(1).filter((c) => c.cmd === 'videoSubscribe' && c.id === BEN).length === 1);
+  ck('… eine Quelle, ohne „(2)“', p.kern.kurz().quellen === 1 && !(zeile(p, BEN)?.quelle?.ndiName ?? '').includes(' (2)'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_ABO_VERZOEGERUNG_MS: '600' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Offenes Abo (gesendet, noch nicht bestätigt) ist noch keine Quelle: Anna wartet unter „Gemerkte Quellen“, sollOffen 1, zoom_alarm=1',
+    p.kern.abbild().soll.map((e) => `${e.name}:${e.stand}`).join(',') === 'Anna:wartet' && p.kern.kurz().sollOffen === 1
+    && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… mit subscribed: keine gemerkte Quelle mehr, zoom_alarm=0', (await bis(() => p.kern.kurz().quellen === 1, 2000))
+    && p.kern.abbild().soll.length === 0 && p.kern.stateKv()?.zoom_alarm === 0);
+  await warte(400);
+  ck('… der Abgleich nach der Erlaubnis hat Anna nicht ein zweites Mal abonniert',
+    p.befehle(1).filter((c) => c.cmd === 'videoSubscribe' && c.id === ANNA).length === 1);
+  await p.aufraeumen();
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
