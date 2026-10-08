@@ -11,4 +11,5 @@ import './remote-control.test';
 import './audio-device.test';
 import './iveo.test';
 import './datalink.test';
+import './peers.test';
 abschluss();
