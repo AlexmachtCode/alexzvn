@@ -15,4 +15,5 @@ import './halten.test';
 import './theme.test';
 import './eingabe.test';
 import './statusbar.test';
+import './tally.test';
 abschluss();

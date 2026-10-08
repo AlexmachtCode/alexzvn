@@ -15,3 +15,4 @@ export { type Theme, THEME_SCHLUESSEL } from './lib/theme';
 export { type SelectOption, parseZahl, starteFrist } from './lib/eingabe';
 export { StatusPill } from './components/StatusPill';
 export { StatusBar } from './components/StatusBar';
+export { TallyButton, type TallyButtonProps } from './components/TallyButton';
