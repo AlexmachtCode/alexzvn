@@ -21,3 +21,5 @@ export { TextInput } from './components/TextInput';
 export { NumberInput } from './components/NumberInput';
 export { Toggle } from './components/Toggle';
 export { Select } from './components/Select';
+export { useTheme } from './lib/useTheme';
+export { ThemeToggle } from './components/ThemeToggle';

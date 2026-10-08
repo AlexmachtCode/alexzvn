@@ -18,4 +18,5 @@ import './statusbar.test';
 import './tally.test';
 import './field.test';
 import './toggle-select.test';
+import './themetoggle.test';
 abschluss();
