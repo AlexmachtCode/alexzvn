@@ -161,6 +161,11 @@ export interface ZoomKern {
   beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
   erneut(): Promise<ZoomErgebnis>;
   verlassen(): Promise<void>;
+  /**
+   * Spec 6.8 „Abbrechen“, nur Z11 (Folge wartet oder läuft): Zeitgeber löschen, Versuchs-Bridge stop(), Zustand
+   * fehler mit R7, erneutMoeglich true; Soll-Liste, Nummer und Kenncode bleiben. Sonst wirkungslos.
+   */
+  abbrechen(): void;
   laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis>;
   entladen(e: { aboId: number }): Promise<ZoomErgebnis>;
   ton(e: { id: number; an: boolean }): ZoomErgebnis;
@@ -746,6 +751,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** Spec 6.8 „Schließen“: nur in Z2 und Z13. */
   function schliessen(): void {
     if (zustand !== 'bereit' && zustand !== 'fehler') return;
+    folgeBeenden();
     meldung = null;
     soll.clear();
     nummer = null;
@@ -1129,7 +1135,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (zustand === 'abriss' && folge !== null) {
       // 6.4 Schritt 2.4: Ausgang des laufenden Versuchs (Z11); connecting und reconnecting ändern nichts.
       if (s === 'inMeeting') versuchErfolgreich();
-      else if (s === 'failed') {
+      else if (s === 'waitingRoom' || s === 'waitingForHost') {
+        // Angekommen: keine weiteren Versuche, ab hier gilt 6.2 Schritt 5 (Einlass, reconnectTimeout → CE).
+        d.log(`[zoom] Wiederbeitritt: Versuch ${folge.versuch} erfolgreich nach ${Date.now() - folge.beginn} ms`);
+        folgeBeenden();
+        zumWarteraum(s);
+      } else if (s === 'failed') {
         versuchGescheitert({ art: 'failed', code: e.code }, { text: failText(e.code, name), detail: failMeldung(VORSATZ.wiederbeitritt, e.code, name).detail });
       }
       return;
@@ -1211,6 +1222,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   async function verlassen(): Promise<void> {
     if (!(zustand === 'startet' || zustand === 'tritt_bei' || zustand === 'warteraum' || zustand === 'im_meeting' || zustand === 'abriss')) return;
     laufNr += 1;
+    // 6.8: Wiederbeitritts-Zeitgeber löschen; ein laufender Versuch verwirft sein Ergebnis (laufNr).
+    folgeBeenden();
     d.log('[zoom] Meeting verlassen');
     setzeZustand('verlaesst');
     await stoppeBridge();
@@ -1258,7 +1271,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // Verlassen, Abbrechen oder Beenden während der Startfolge: kein weiterer Schritt, keine Meldung.
     if (folge === null || folge.versuch !== i || lauf !== laufNr || nummer === null) return;
     if (!r.ok) {
-      // ausgang null = Mangel aus der Startfolge (5.3); den Weg in die Einrichtung baut Aufgabe 9.
+      if (r.mangel !== null) {
+        // Schritt 2.4 „Mangel aus der Startfolge“ (Einordnung: endgültig): Zustand einrichtung (5.3), die Folge endet.
+        d.log(`[zoom] Wiederbeitritt: Versuch ${i} gescheitert nach ${Date.now() - folge.beginn} ms (endgültig)`);
+        folgeBeenden();
+        mangelFolgen();
+        melde('fehler', r.meldung);
+        setzeZustand('einrichtung');
+        return;
+      }
       if (r.ausgang !== null) versuchGescheitert(r.ausgang, r.meldung);
       return;
     }
@@ -1304,6 +1325,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function folgeBeenden(): void {
     if (folge?.zeitgeber) clearTimeout(folge.zeitgeber);
     folge = null;
+  }
+
+  /** Spec 6.8 „Abbrechen“ (nur Z11): Zeitgeber weg, Versuchs-Bridge stoppen, fehler mit R7; Soll, Nummer, Kenncode bleiben. */
+  function abbrechen(): void {
+    if (zustand !== 'abriss' || folge === null) return;
+    // Eine laufende Startfolge verwirft ihr Ergebnis (wie Verlassen).
+    laufNr += 1;
+    folgeBeenden();
+    d.log('[zoom] Wiederbeitritt abgebrochen');
+    scheitert({ text: KT.R7, detail: null });
   }
 
   // ── Quellen (Spec 6.3, 8.4) ──────────────────────────────────────────────
@@ -1528,6 +1559,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (beendenVersprechen !== null) return beendenVersprechen;
     beendenVersprechen = (async () => {
       laufNr += 1;
+      // 6.6: Wiederbeitritt abbrechen (G17): kein Versuch startet mehr eine Bridge.
+      folgeBeenden();
       ladeAbbruch?.abort();
       kopieAbbruch?.abort();
       d.log(`[zoom] Connect wird beendet (Frist ${fristMs} ms)`);
@@ -1576,6 +1609,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     beitreten,
     erneut,
     verlassen,
+    abbrechen,
     laden,
     entladen,
     ton,

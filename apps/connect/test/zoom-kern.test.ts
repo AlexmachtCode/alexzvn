@@ -2378,6 +2378,101 @@ console.log('— Wiederbeitritt: Abbild in Z11, Vergessen in der Wartezeit (Revi
   await p.aufraeumen();
 }
 
+// ── Aufgabe 9 (4b): Wiederbeitritt verlassen, beenden, abbrechen; Warteraum und Mangel im Versuch ──
+console.log('— Wiederbeitritt verlassen und beenden (Review Focus 3), Warteraum und Mangel im Versuch');
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_BEITRITT_SCHEITERT: '2' }),
+    wiederbeitrittPlanMs: [30, 1500, 30, 30, 30],
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Verlassen in der Wartezeit vor Versuch 2: Versuch 2 wartet', await bis(() => p.kern.kurz().versuch === 2, 4000) && p.starts() === 2);
+  await p.kern.verlassen();
+  ck('… verlaesst → bereit, keine Meldung (kein R7), zoom_alarm=0', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null
+    && folge(p).slice(-2).join(',') === 'verlaesst,bereit' && p.kern.stateKv()?.zoom_alarm === 0);
+  ck('… Soll-Liste, Nummer und Kenncode leer', p.kern.abbild().soll.length === 0 && !p.kern.abbild().erneutMoeglich);
+  await warte(1800);
+  ck('… auch nach Ablauf der Wartezeit keine weitere Bridge', p.starts() === 2 && p.kern.kurz().zustand === 'bereit' && !p.kern.laeuft());
+  await p.aufraeumen();
+}
+for (const weg of ['beenden', 'verlassen'] as const) {
+  const p = baueKern({
+    // Die zweite Bridge (envprobe) meldet nie ready: die Startfolge von Versuch 1 hängt.
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_SCRIPT: 'envprobe' }),
+    fristen: { anmeldeMs: 20_000 },
+  });
+  await insMeeting(p);
+  ck(`Review Focus 3 (${weg}): die Startfolge von Versuch 1 hängt vor ready`,
+    await bis(() => p.starts() === 2 && p.kern.abbild().abriss?.naechsterUm === null, 4000));
+  const t0 = Date.now();
+  if (weg === 'beenden') await p.kern.beenden(2000);
+  else await p.kern.verlassen();
+  ck(`… ${weg} kehrt binnen 2 s zurück`, Date.now() - t0 < 2000);
+  await warte(300);
+  ck(`… keine dritte Bridge, keine Meldung (weder R2 noch R7), nichts läuft`, p.starts() === 2 && p.kern.abbild().meldung === null && !p.kern.laeuft());
+  if (weg === 'verlassen') ck('… bereit, zoom_alarm=0', p.kern.kurz().zustand === 'bereit' && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_WARTERAUM: '1', FAKE_EINLASS_MS: '200' }),
+  });
+  await insMeeting(p);
+  ck('Warteraum im Versuch → warteraum, die Folge endet', await bis(() => p.kern.kurz().zustand === 'warteraum', 4000));
+  ck('… nach dem Einlass im Meeting, nie wieder abriss, zwei Bridges', await bis(() => p.kern.kurz().zustand === 'im_meeting', 3000)
+    && folge(p).join(',').endsWith('abriss,warteraum,tritt_bei,im_meeting') && p.starts() === 2);
+  ck('… Log: Versuch 1 mit Dauer', p.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 erfolgreich nach \d+ ms$/.test(z)));
+  await p.aufraeumen();
+}
+{
+  let pruefungen = 0;
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : { FAKE_BEITRITT_SCHEITERT: '2' }),
+    // Aufrufe von pruefe: 1 beim Anlegen des Kerns, 2 Start 1, 3 Versuch 1, 4 Versuch 2 → Mangel.
+    laufzeit: { pruefe: () => (++pruefungen >= 4 ? { ok: false, mangel: 'sdk_defekt', datei: 'sdk.dll' } : { ok: true, ordner: 'C:/laufzeit', ersetzt: [] }) },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Mangel vor Versuch 2 → einrichtung mit S9', await bis(() => p.kern.kurz().zustand === 'einrichtung', 4000)
+    && p.kern.abbild().meldung?.text === KT.S9('sdk.dll'));
+  ck('… Soll-Liste, Nummer und Kenncode leer, keine Bridge für Versuch 2', p.kern.abbild().soll.length === 0 && !p.kern.abbild().erneutMoeglich
+    && p.starts() === 2 && p.kern.kurz().versuch === null);
+  await p.aufraeumen();
+}
+
+console.log('— Wiederbeitritt abbrechen (Fall 25)');
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : n === 2 ? { FAKE_BEITRITT_SCHEITERT: '2' } : {}),
+    wiederbeitrittPlanMs: [30, 800, 30, 30, 30],
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Fall 25: Versuch 1 gescheitert, Versuch 2 wartet', await bis(() => p.kern.kurz().versuch === 2, 4000) && p.starts() === 2);
+  p.kern.abbrechen();
+  const m = p.kern.abbild().meldung;
+  ck('… fehler mit R7, erneutMoeglich, Log', p.kern.kurz().zustand === 'fehler' && m?.text === KT.R7 && p.kern.abbild().erneutMoeglich
+    && p.logs.includes('[zoom] Wiederbeitritt abgebrochen'));
+  await warte(1200);
+  ck('… nach Ablauf der Wartezeit keine weitere Bridge, Soll-Liste blieb', p.starts() === 2 && p.kern.kurz().zustand === 'fehler'
+    && p.kern.abbild().soll.map((s) => s.name).join(',') === 'Anna');
+  ck('Erneut beitreten nach R7: dritte Bridge, Anna wird wieder abonniert', ok(await p.kern.erneut())
+    && (await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000))
+    && (await bis(() => p.befehle(3).some((c) => c.cmd === 'videoSubscribe' && c.id === ANNA), 2000)));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '600' }), fristen: { joinTimeoutMs: 20_000 } });
+  await insMeeting(p);
+  p.kern.abbrechen();
+  ck('abbrechen() in im_meeting wirkungslos', p.kern.kurz().zustand === 'im_meeting' && p.kern.abbild().meldung === null);
+  await bis(() => p.kern.kurz().zustand === 'abriss', 2000);
+  p.kern.abbrechen();
+  ck('… und in Z10 wirkungslos', zoomZ(p.kern.kurz()) === 'Z10' && p.kern.abbild().meldung === null && !p.logs.includes('[zoom] Wiederbeitritt abgebrochen'));
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);
