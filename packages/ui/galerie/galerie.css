@@ -1,0 +1,15 @@
+/* Galerie (Spec 3.10): Tailwind wie in den Apps, dazu beide Paketquellen. */
+@import "tailwindcss";
+@import "../src/base.css";
+
+/* Vite-Wurzel ist `galerie`. Klassen außerhalb davon findet Tailwind v4 nur über @source
+   (die Apps tun dasselbe mit `@source "../../../../../packages/ui/src"`). */
+@source "../src";
+@source "../../settings/src";
+/* Die Klassen-Probe enthält die gesuchten Klassen als Text. Gescannt, erzeugte sie sich ihre Klassen selbst. */
+@source not "./pruefe-klassen.ts";
+
+/* base.css sperrt das Scrollen (feste App-Fenster); die Galerie ist eine lange Seite. */
+body {
+  overflow: auto;
+}

@@ -22,4 +22,5 @@ import './themetoggle.test';
 import './panel.test';
 import './header.test';
 import './shell.test';
+import './galerie.test';
 abschluss();
