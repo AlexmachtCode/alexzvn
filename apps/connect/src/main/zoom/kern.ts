@@ -89,7 +89,7 @@ import {
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
 import { deuteZoomBefehl, ladeZiel } from './fernsteuerung';
-import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from './soll';
+import { istAusserhalbMeeting, sollAbbild, sollHandlungen, type SollLage, type SollListe } from './soll';
 import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
 import { WIEDERBEITRITT_PLAN_S } from './fristen';
 
@@ -366,6 +366,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       erlaubnisFehlt: erlaubnisFehlt(),
       // Das Fenster bis zum Abgleich (300 ms): Wen er abonnieren wird, der wird gerade geladen (Gesamtprüfung 4b).
       abgleichGeplant: abgleichTimer !== null && zustand === 'im_meeting' && erlaubnis === 'ja',
+      // Owner 08.10.2026: Ohne Meeting (Z10, Z11, fehler, „Erneut beitreten“) wartet jeder offene Eintrag auf den Wiederbeitritt.
+      ausserhalbMeeting: istAusserhalbMeeting(zustand),
     };
   }
 
@@ -377,18 +379,22 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /**
    * Offene Soll-Einträge fürs Abbild, für sollOffen und zoom_alarm (Spec 4, 7.5). Ein gesendetes, noch unbestätigtes Abo
    * gilt im Abgleich als verbunden (sollLage), ist aber noch keine laufende Quelle: Der Eintrag bleibt offen ('laedt', ohne
-   * Erlaubnis 'erlaubnis'), bis die Bridge subscribed meldet oder die Frist Q8 abläuft. Reihenfolge wie die Soll-Liste.
+   * Erlaubnis 'erlaubnis', außerhalb des Meetings 'wiederbeitritt'), bis die Bridge subscribed meldet oder die Frist Q8
+   * abläuft. Reihenfolge wie die Soll-Liste.
    */
   function sollOffen(): ZoomSollEintrag[] {
-    const offen = new Map(sollAbbild(soll, sollLage(), freiePlaetze()).map((e) => [normName(e.name), e]));
+    const lage = sollLage();
+    const offen = new Map(sollAbbild(soll, lage, freiePlaetze()).map((e) => [normName(e.name), e]));
     const laeuft = aktiveQuellen();
     const aus: ZoomSollEintrag[] = [];
     for (const [schluessel, s] of soll) {
       const e = offen.get(schluessel);
       if (e) aus.push(e);
       else if (s.aboId !== null && aboFristen.has(s.aboId) && !laeuft.has(s.aboId)) {
-        // Gesamtprüfung 4b („Statuszeile lügt“): Die Person ist da, Connect wartet auf die Bridge, nicht auf sie.
-        aus.push({ name: s.name, ton: s.ton, ndiName: s.ndiName, stand: erlaubnisFehlt() ? 'erlaubnis' : 'laedt', aboId: null, doppelname: false });
+        // Gesamtprüfung 4b („Statuszeile lügt“): Die Person ist da, Connect wartet auf die Bridge, nicht auf sie. Außerhalb des
+        // Meetings (Z10 mit offenem Abo) aber auf den Wiederbeitritt (Owner 08.10.2026, Vorrang wie in sollAbbild).
+        const stand = lage.ausserhalbMeeting === true ? 'wiederbeitritt' : erlaubnisFehlt() ? 'erlaubnis' : 'laedt';
+        aus.push({ name: s.name, ton: s.ton, ndiName: s.ndiName, stand, aboId: null, doppelname: false });
       }
     }
     return aus;

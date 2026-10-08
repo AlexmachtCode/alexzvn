@@ -2,7 +2,7 @@
 // Die Soll-Liste merkt sich die Quellen, die der Bediener geladen hat, über den normierten Namen.
 // Der Kern hält sie und ruft diese Funktionen: sollAbbild bei jedem Abbild (Stand, sollOffen),
 // sollHandlungen nur im Zustand im_meeting mit Erlaubnis 'ja', 300 ms nach einer Teilnehmeränderung.
-import type { ZoomSollEintrag } from '../../shared/types';
+import type { ZoomSollEintrag, ZoomZustand } from '../../shared/types';
 import { normName } from './teilnehmer';
 
 /** Ein Eintrag der Soll-Liste. `aboId` = Teilnehmer-ID des letzten Abos (gilt nur in dessen Sitzung). */
@@ -33,6 +33,21 @@ export interface SollLage {
    * den er abonnieren wird, wird gerade geladen und wartet nicht auf die Person. Fehlt das Feld, gilt false.
    */
   abgleichGeplant?: boolean;
+  /**
+   * Connect selbst ist nicht im Meeting (Zustand ≠ im_meeting, siehe istAusserhalbMeeting): Teilnehmerliste und Abos gelten
+   * dann nicht, jeder offene Eintrag wartet auf den Wiederbeitritt (Owner 08.10.2026, Vorrang vor allen anderen Ständen).
+   * Welche Einträge offen sind, ändert das nicht. Fehlt das Feld, gilt false (im Meeting).
+   */
+  ausserhalbMeeting?: boolean;
+}
+
+/**
+ * Owner 08.10.2026: Connect ist außerhalb des Meetings, sobald der Zustand nicht im_meeting ist, etwa beim eigenen
+ * Wiederbeitritt (Z11), während Zoom selbst neu verbindet (Z10), in fehler nach R2/R7 und bei „Erneut beitreten“
+ * (startet, tritt_bei, warteraum). Der Kern setzt damit SollLage.ausserhalbMeeting.
+ */
+export function istAusserhalbMeeting(zustand: ZoomZustand): boolean {
+  return zustand !== 'im_meeting';
 }
 
 export type SollHandlung =
@@ -88,6 +103,8 @@ function plane(soll: SollListe, lage: SollLage, plaetze: number): Planung[] {
 
 /**
  * Offene Soll-Einträge fürs Abbild (Spec 6.3, Spalte „Stand“): alles außer „verbunden“.
+ * Außerhalb des Meetings (lage.ausserhalbMeeting) → 'wiederbeitritt' vor allen anderen Regeln, ohne aboId und ohne
+ * doppelname (Owner 08.10.2026). Sonst:
  * verwaist → 'verwaist' (mit aboId zum Entladen); würde abonniert, hat aber keinen Platz → 'grenze';
  * kein Abo und ≥ 2 Treffer → 'doppelname'; genau 1 Treffer außerhalb des Warteraums ohne Erlaubnis
  * (lage.erlaubnisFehlt) → 'erlaubnis'; wird beim geplanten Abgleich abonniert (lage.abgleichGeplant) → 'laedt';
@@ -98,6 +115,11 @@ export function sollAbbild(soll: SollListe, lage: SollLage, plaetze = Infinity):
   const aus: ZoomSollEintrag[] = [];
   for (const { b, handlung, grenze } of plane(soll, lage, plaetze)) {
     if (b.abo === 'verbunden') continue;
+    if (lage.ausserhalbMeeting === true) {
+      // Owner 08.10.2026 („Statuszeile lügt“): Ohne Meeting wartet jeder Eintrag auf den Wiederbeitritt, nicht auf die Person.
+      aus.push({ name: b.eintrag.name, ton: b.eintrag.ton, ndiName: b.eintrag.ndiName, stand: 'wiederbeitritt', aboId: null, doppelname: false });
+      continue;
+    }
     const doppelname = b.treffer.length >= 2;
     // Gesamtprüfung 4b („Statuszeile lügt“): Ist die Person eindeutig da, wartet der Eintrag nicht auf sie.
     const personDa = b.treffer.length === 1 && !b.treffer[0].imWarteraum;

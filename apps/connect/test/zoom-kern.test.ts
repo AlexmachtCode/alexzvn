@@ -3163,6 +3163,83 @@ console.log('— Fix-Welle: Ausnahme in der Startfolge eines Wiederbeitritts-Ver
   await p.aufraeumen();
 }
 
+// ── Owner 08.10.2026: Gemerkte Quellen außerhalb des Meetings warten auf den Wiederbeitritt ──
+console.log('— Owner 08.10.2026: „Gemerkte Quellen“, solange Connect nicht im Meeting ist (Z10, Z11, fehler, „Erneut beitreten“)');
+/** Stände der gemerkten Quellen als „Name:Stand“, in der Reihenfolge der Soll-Liste. */
+const sollStaende = (a: ZoomAbbild): string => a.soll.map((e) => `${e.name}:${e.stand}`).join(',');
+/** Jedes ausgelieferte Abbild: außerhalb von im_meeting nur 'wiederbeitritt', in im_meeting nie (Owner-Regel, Vorrang). */
+function wiederbeitrittNurDraussen(p: Probe): boolean {
+  return p.abbilder.every((a) => a.soll.every((e) => (e.stand === 'wiederbeitritt') === (a.kurz.zustand !== 'im_meeting')));
+}
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '600' } : {}),
+    wiederbeitrittPlanMs: [800, 30, 30, 30, 30],
+    fristen: { abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  ck('Wiederbeitritts-Probe: zwei Quellen geladen', await bis(() => p.kern.kurz().quellen === 2));
+  ck('Wiederbeitritt läuft (Z11): „Anna — wartet auf den Wiederbeitritt“, Ben ebenso, nicht „wartet auf die Person“',
+    (await bis(() => p.kern.kurz().versuch === 1, 3000)) && zoomZ(p.kern.kurz()) === 'Z11'
+    && sollStaende(p.kern.abbild()) === 'Anna:wiederbeitritt,Ben:wiederbeitritt'
+    && sollZeile(p.kern.abbild().soll[0]) === 'Anna — wartet auf den Wiederbeitritt');
+  ck('… Zählung unverändert: sollOffen 2, zoom_alarm=1', p.kern.kurz().sollOffen === 2 && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… wieder im Meeting mit Erlaubnis: beide verbunden, keine gemerkte Quelle offen, zoom_alarm=0',
+    (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 2, 5000)) && p.kern.abbild().soll.length === 0
+    && p.kern.stateKv()?.zoom_alarm === 0);
+  ck('… R5 unverändert „Wieder im Meeting. 2 Quellen neu geladen, 0 warten …“', p.kern.abbild().hinweise.includes(KT.R5(2, 0)));
+  ck('… jedes Abbild: außerhalb von im_meeting nur „wartet auf den Wiederbeitritt“, im Meeting wieder die bisherigen Stände',
+    wiederbeitrittNurDraussen(p) && p.abbilder.some((a) => a.kurz.zustand === 'abriss' && a.soll.length === 2)
+    && p.abbilder.some((a) => a.kurz.zustand === 'im_meeting' && a.soll.some((e) => e.stand === 'erlaubnis' || e.stand === 'laedt')));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : n === 2 ? { FAKE_BEITRITT_SCHEITERT: '2' } : {}),
+    wiederbeitrittPlanMs: [30, 1500, 30, 30, 30],
+    fristen: { abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Abbrechen-Probe: Anna geladen, Versuch 1 gescheitert, Versuch 2 wartet', (await bis(() => p.kern.kurz().quellen === 1))
+    && (await bis(() => p.kern.kurz().versuch === 2, 4000)));
+  p.kern.abbrechen();
+  ck('nach „Abbrechen“ (fehler, R7): „Anna — wartet auf den Wiederbeitritt“, nicht „wartet auf die Person“',
+    p.kern.kurz().zustand === 'fehler' && p.kern.abbild().meldung?.text === KT.R7
+    && sollStaende(p.kern.abbild()) === 'Anna:wiederbeitritt' && sollZeile(p.kern.abbild().soll[0]) === 'Anna — wartet auf den Wiederbeitritt');
+  ck('… Zählung unverändert: sollOffen 1, zoom_alarm=1', p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1);
+  const ab = p.abbilder.length;
+  ck('„Erneut beitreten“: wieder im Meeting mit Erlaubnis, Anna verbunden, keine gemerkte Quelle offen, zoom_alarm=0',
+    ok(await p.kern.erneut()) && (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 1, 4000))
+    && p.kern.abbild().soll.length === 0 && p.kern.stateKv()?.zoom_alarm === 0);
+  ck('… solange Connect beitrat (startet, tritt_bei), stand Anna auf wiederbeitritt; im Meeting nie',
+    wiederbeitrittNurDraussen(p) && p.abbilder.slice(ab).some((a) => a.kurz.zustand === 'startet' && sollStaende(a) === 'Anna:wiederbeitritt')
+    && p.abbilder.slice(ab).some((a) => a.kurz.zustand === 'tritt_bei' && sollStaende(a) === 'Anna:wiederbeitritt'));
+  await p.aufraeumen();
+}
+{
+  // Das Abo ist gesendet, aber noch nicht bestätigt (3 s), da verbindet Zoom neu (Z10) und kommt nach 800 ms selbst zurück.
+  // Im Abgleich gilt das offene Abo als verbunden; die Zeile kommt aus dem Zusatzweg in sollOffen (offenes Abo).
+  const p = baueKern({
+    stell: () => ({ FAKE_ABO_VERZOEGERUNG_MS: '3000', FAKE_VERBINDUNG_HAENGT_MS: '600', FAKE_VERBINDUNG_ZURUECK_MS: '800' }),
+    fristen: { aboAntwortMs: 6000, joinTimeoutMs: 20_000, abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  ck('Offenes Abo vor Z10: „Anna — wird geladen …“', ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false }))
+    && sollStaende(p.kern.abbild()) === 'Anna:laedt');
+  ck('… Zoom verbindet neu (Z10): „Anna — wartet auf den Wiederbeitritt“, nicht „wird geladen …“; sollOffen 1, zoom_alarm=1',
+    (await bis(() => p.kern.kurz().zustand === 'abriss', 2000)) && zoomZ(p.kern.kurz()) === 'Z10'
+    && sollStaende(p.kern.abbild()) === 'Anna:wiederbeitritt' && p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… Zoom kommt selbst zurück: wieder „wird geladen …“ (das Abo steht noch aus)',
+    (await bis(() => p.kern.kurz().zustand === 'im_meeting', 2000)) && sollStaende(p.kern.abbild()) === 'Anna:laedt');
+  ck('… mit subscribed verbunden, keine gemerkte Quelle offen, kein zweites videoSubscribe',
+    (await bis(() => p.kern.kurz().quellen === 1, 4000)) && p.kern.abbild().soll.length === 0
+    && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1 && wiederbeitrittNurDraussen(p));
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);

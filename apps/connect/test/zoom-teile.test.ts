@@ -1,11 +1,11 @@
 // Teilnehmerzeilen und Soll-Liste als reine Funktionen OHNE Electron (tsx): npm run selftest -w @jm/connect
 // Spec 4 (Normierter Name, Doppelname, Verwaiste Quelle), 5.4 (ZoomParticipant), 6.3 (Abgleich-Tabelle, Kollision).
 import type { Participant } from '@jm/zoom-bridge/protocol';
-import type { ZoomQuelle } from '../src/shared/types';
+import type { ZoomQuelle, ZoomZustand } from '../src/shared/types';
 import { KT } from '../src/main/zoom/klartext';
 import { pruefeZugangEingabe } from '../src/main/zoom/zugang-eingabe';
 import { pruefeSdkSchluesselEingabe } from '../src/main/zoom/sdk-schluessel-eingabe';
-import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from '../src/main/zoom/soll';
+import { istAusserhalbMeeting, sollAbbild, sollHandlungen, type SollLage, type SollListe } from '../src/main/zoom/soll';
 import {
   baueTeilnehmer, gleicherNdiName, istVerwaist, kameraVon, NDI_PRAEFIX, ndiVorschau, normName, zaehleQuellen,
 } from '../src/main/zoom/teilnehmer';
@@ -398,6 +398,53 @@ console.log('— Fix-Welle: Stand „erlaubnis“ (die Person ist da, es fehlt n
     JSON.stringify(sollAbbild(soll, geplant).map((e) => [e.name, e.stand]))
       === JSON.stringify([['Anna', 'laedt'], ['Ben', 'wartet'], ['Carla', 'wartet'], ['Dora', 'doppelname'], ['Emil', 'verwaist']]));
   ck('… ohne freien Platz grenze (es folgt kein Abo)', sollAbbild(soll, geplant, 0)[0]?.stand === 'grenze');
+}
+
+console.log('— Owner 08.10.2026: Stand „wiederbeitritt“ (Connect selbst ist nicht im Meeting: Z10, Z11, fehler, „Erneut beitreten“)');
+{
+  const t = (id: number, name: string, imWarteraum = false) => ({ id, name, imWarteraum });
+  const soll: SollListe = new Map([
+    ['anna', { name: 'Anna', ton: true, ndiName: 'JM Connect – Zoom Anna', aboId: null }],
+    ['ben', { name: 'Ben', ton: true, ndiName: 'JM Connect – Zoom Ben', aboId: null }],
+    ['carla', { name: 'Carla', ton: true, ndiName: 'JM Connect – Zoom Carla', aboId: null }],
+    ['dora', { name: 'Dora', ton: true, ndiName: 'JM Connect – Zoom Dora', aboId: null }],
+    ['emil', { name: 'Emil', ton: true, ndiName: 'JM Connect – Zoom Emil', aboId: 16778299 }],
+    ['fritz', { name: 'Fritz', ton: true, ndiName: 'JM Connect – Zoom Fritz', aboId: 16778245 }],
+  ]);
+  // Die letzte bekannte Lage (in Z10 die Sitzung der alten Bridge): Anna eindeutig da, Ben im Warteraum, Carla fehlt, Dora
+  // doppelt, Emil verwaist (weg, sein altes Abo steht noch), Fritz verbunden (seine Quelle läuft).
+  const lage: SollLage = {
+    teilnehmer: [t(16778240, 'Anna'), t(16778241, 'Ben', true), t(16778243, 'Dora'), t(16778244, 'dora'), t(16778245, 'Fritz')],
+    abos: new Map([[16778299, { verwaist: true }], [16778245, { verwaist: false }]]),
+  };
+  const staende = (l: SollLage, plaetze?: number): string => JSON.stringify(sollAbbild(soll, l, plaetze).map((e) => [e.name, e.stand]));
+  const alleWarten = JSON.stringify(['Anna', 'Ben', 'Carla', 'Dora', 'Emil'].map((n) => [n, 'wiederbeitritt']));
+  const draussen: SollLage = { ...lage, ausserhalbMeeting: true };
+  ck('außerhalb des Meetings: jeder offene Eintrag → wiederbeitritt (statt wartet, doppelname, verwaist), nicht „wartet auf die Person“',
+    staende(draussen) === alleWarten);
+  ck('… Vorrang vor erlaubnis (auch wenn die Lage „Erlaubnis fehlt“ meldet)', staende({ ...draussen, erlaubnisFehlt: true }) === alleWarten);
+  ck('… Vorrang vor laedt (auch mit geplantem Abgleich)', staende({ ...draussen, abgleichGeplant: true }) === alleWarten);
+  ck('… Vorrang vor grenze (kein freier Platz)', staende(draussen, 0) === alleWarten);
+  ck('… ohne Abo zum Entladen und ohne Doppelname-Markierung: Teilnehmerliste und Abos gelten außerhalb des Meetings nicht',
+    sollAbbild(soll, draussen).every((e) => e.aboId === null && !e.doppelname));
+  ck('… Zählung unverändert: dieselben Einträge offen wie im Meeting, der verbundene (Fritz) bleibt draußen',
+    JSON.stringify(sollAbbild(soll, draussen).map((e) => e.name)) === JSON.stringify(sollAbbild(soll, lage).map((e) => e.name))
+    && sollAbbild(soll, draussen, 0).length === sollAbbild(soll, lage, 0).length && !sollAbbild(soll, draussen).some((e) => e.name === 'Fritz'));
+  ck('… die Handlungen hängen nicht daran (sollHandlungen unverändert)',
+    JSON.stringify(sollHandlungen(soll, draussen)) === JSON.stringify(sollHandlungen(soll, lage)));
+  ck('im Meeting (Feld false oder fehlend) bleiben die bisherigen Stände',
+    staende({ ...lage, ausserhalbMeeting: false }) === staende(lage)
+    && staende(lage) === JSON.stringify([['Anna', 'wartet'], ['Ben', 'wartet'], ['Carla', 'wartet'], ['Dora', 'doppelname'], ['Emil', 'verwaist']])
+    && staende({ ...lage, ausserhalbMeeting: false, erlaubnisFehlt: true }).startsWith('[["Anna","erlaubnis"]'));
+  // Welche Zustände „außerhalb“ sind: jeder außer im_meeting (Owner 08.10.2026), darunter abriss (Z10, Z11), fehler (R2, R7),
+  // startet, tritt_bei und warteraum („Erneut beitreten“). Record über alle Zustände: ein neuer scheitert im Typcheck.
+  const AUSSERHALB: Record<ZoomZustand, boolean> = {
+    nicht_verfuegbar: true, einrichtung: true, bereit: true, startet: true, tritt_bei: true, warteraum: true,
+    im_meeting: false, abriss: true, verlaesst: true, fehler: true,
+  };
+  for (const z of Object.keys(AUSSERHALB) as ZoomZustand[]) {
+    ck(`istAusserhalbMeeting(${z}) = ${AUSSERHALB[z]}`, istAusserhalbMeeting(z) === AUSSERHALB[z]);
+  }
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

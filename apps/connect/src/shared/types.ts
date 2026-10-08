@@ -149,10 +149,14 @@ export interface ZoomSollEintrag {
   /**
    * 'grenze': würde abonniert, aber die Betriebsgröße ist erreicht (L7, N4b.3 Nr. 3); zählt als offen.
    * 'erlaubnis': die Person ist eindeutig da, aber im Meeting fehlt die Aufnahme-Erlaubnis (Z6, Z7).
-   * 'laedt': das Abo ist gesendet, die Bridge hat es noch nicht bestätigt (höchstens bis zur Frist Q8).
+   * 'laedt': das Abo ist gesendet, die Bridge hat es noch nicht bestätigt (höchstens bis zur Frist Q8), oder im Meeting
+   * mit Erlaubnis ist ein Abgleich geplant, der diesen Eintrag abonnieren wird (noch kein Abo gesendet).
    * Beide Zusätze aus der Gesamtprüfung 4b („Statuszeile lügt“); zählen als offen.
+   * 'wiederbeitritt': Connect selbst ist nicht im Meeting (Zustand ≠ im_meeting: Z10, Z11, fehler nach R2/R7,
+   * „Erneut beitreten“). Teilnehmerliste und Abos gelten dann nicht; Vorrang vor allen anderen Ständen (Owner 08.10.2026).
+   * Zählt als offen.
    */
-  stand: 'wartet' | 'erlaubnis' | 'laedt' | 'doppelname' | 'verwaist' | 'grenze';
+  stand: 'wartet' | 'erlaubnis' | 'laedt' | 'wiederbeitritt' | 'doppelname' | 'verwaist' | 'grenze';
   /** Nur bei 'verwaist': das alte Abo, zum Entladen. */
   aboId: number | null;
   /**

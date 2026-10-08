@@ -824,11 +824,13 @@ console.log('— 4b: Gemerkte Quellen (Spec 9 Punkt 9, Stand grenze)');
     // Fix-Welle 4b (Gesamtprüfung, „Statuszeile lügt“): die Person ist da, es fehlt die Erlaubnis bzw. die Antwort der Bridge.
     erlaubnis: 'Anna Maria — wartet auf die Aufnahme-Erlaubnis',
     laedt: 'Anna Maria — wird geladen …',
+    // Owner 08.10.2026: Connect selbst ist nicht im Meeting (Z10, Z11, fehler, „Erneut beitreten“); Vorrang vor allen anderen.
+    wiederbeitritt: 'Anna Maria — wartet auf den Wiederbeitritt',
     doppelname: 'Anna Maria — Name doppelt, bitte von Hand laden',
     verwaist: 'Anna Maria — Person weg, Quelle schwarz',
     grenze: 'Anna Maria — nicht automatisch geladen (mehr als 5 Zoom-Quellen), bitte von Hand laden',
   };
-  ck('ZoomSollEintrag kennt sechs Stände', Object.keys(SOLL).length === 6);
+  ck('ZoomSollEintrag kennt sieben Stände', Object.keys(SOLL).length === 7);
   for (const s of Object.keys(SOLL) as Array<ZoomSollEintrag['stand']>) ck(`sollZeile ${s} wörtlich`, sollZeile(e(s)) === SOLL[s]);
 }
 
