@@ -46,13 +46,34 @@ ok(
 const UTILITY =
   'bg|text|border|ring|outline|fill|stroke|h|w|min-h|min-w|max-h|max-w|p[xytrbl]?|m[xytrbl]?|gap|rounded|top|left|right|bottom|inset|z|opacity|duration|leading|tracking|font|grid-cols|col-span';
 
-regel(
-  suche(
-    code,
-    /\b(bg|text|border|ring|outline|fill|stroke|from|to|via)-(red|green|yellow|orange|amber|lime|emerald|neutral|gray|zinc|slate|stone|white|black)\b/,
-  ),
-  'Quellregel: keine rohen Farbklassen',
-);
+const ROHE_FARBKLASSE =
+  /\b(bg|text|border(?:-[xytrblse])?|ring|ring-offset|outline|fill|stroke|from|to|via|divide|placeholder|decoration|accent|caret|shadow|inset-shadow|inset-ring|drop-shadow)-(red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone|white|black|transparent|current)\b/;
+
+// Die Muster selbst werden geprüft: Fälle, die anschlagen müssen, und solche, die nie anschlagen dürfen.
+for (const klasse of [
+  'bg-red-500',
+  'bg-sky-500',
+  'text-violet-400',
+  'border-blue-600',
+  'ring-rose-500',
+  'divide-neutral-800',
+  'placeholder-gray-500',
+  'border-t-teal-400',
+  'decoration-pink-300',
+  'accent-indigo-500',
+  'caret-cyan-400',
+  'shadow-fuchsia-500',
+  'text-white',
+  'bg-transparent',
+  'hover:bg-purple-600',
+]) {
+  ok(ROHE_FARBKLASSE.test(klasse), `Quellregel-Muster: rohe Farbklasse ${klasse} wird erkannt`);
+}
+for (const klasse of ['bg-[var(--surface)]', 'text-[var(--text-muted)]', 'border-[var(--border)]', 'shadow-sm', 'text-sm']) {
+  ok(!ROHE_FARBKLASSE.test(klasse), `Quellregel-Muster: ${klasse} ist keine rohe Farbklasse`);
+}
+
+regel(suche(code, ROHE_FARBKLASSE), 'Quellregel: keine rohen Farbklassen');
 
 regel(
   [
@@ -63,8 +84,25 @@ regel(
   'Quellregel: keine zusammengesetzten Klassen',
 );
 
-// Tailwind v4 kennt die Kurzform `bg-(--x)` für `bg-[var(--x)]`. Sie liefe an allen Regeln vorbei, die `var(--` suchen.
-regel(suche(code, /\b[\w:-]+-\(\s*--/), 'Quellregel: Tokens nur als …-[var(--…)], keine Kurzform …-(--…) (Tailwind v4)');
+// Ein Token darf in einer Klasse nur als `var(--name)` stehen. Alles andere umgeht die Regeln, die `var(--` suchen:
+// die v4-Kurzform `bg-(--x)`, die Kurzform mit Typ-Hinweis `bg-(color:--x)` und die v3-Form `bg-[--x]` (ungültiges CSS).
+const TOKEN_OHNE_VAR = /(?<!var)[[(:,]\s*--[a-z]/;
+
+for (const klasse of [
+  'bg-(--x)',
+  'bg-(color:--highlight)',
+  'h-(length:--control-hx)',
+  'bg-[--tally-live]',
+  'h-[--control-h]',
+  'hover:text-(color:--status-warn)',
+]) {
+  ok(TOKEN_OHNE_VAR.test(klasse), `Quellregel-Muster: Token ohne var() ${klasse} wird erkannt`);
+}
+for (const klasse of ['bg-[var(--surface)]', 'h-[var(--control-h)]', 'bg-[color:var(--surface)]', 'p-[calc(var(--a)+var(--b))]']) {
+  ok(!TOKEN_OHNE_VAR.test(klasse), `Quellregel-Muster: ${klasse} ist korrekt`);
+}
+
+regel(suche(code, TOKEN_OHNE_VAR), 'Quellregel: Tokens nur als var(--…), nie …-(--…), …-(typ:--…) oder …-[--…] (Tailwind v4)');
 
 {
   const definiert = new Set(
