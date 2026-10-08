@@ -8,4 +8,5 @@ import './quellregeln.test';
 import './ndi-output.test';
 import './screen-output.test';
 import './remote-control.test';
+import './audio-device.test';
 abschluss();

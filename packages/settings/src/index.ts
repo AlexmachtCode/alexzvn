@@ -19,3 +19,5 @@ export { type ScreenOption, type ScreenOutputSectionProps, type ScreenOutputView
 export { ScreenOutputSection } from './abschnitte/ScreenOutputSection';
 export { type ControlMode, type RemoteControlLauncherProps, type RemoteControlSectionProps, type RemoteControlView, REMOTE_TEXTE, remoteControlView } from './abschnitte/remote-control';
 export { RemoteControlSection } from './abschnitte/RemoteControlSection';
+export { type AudioDeviceOption, type AudioChoice, type AudioDeviceSectionProps, type AudioDeviceView, type AudioWahlView, AUDIO_TEXTE, PEGEL_MIN_DB, audioDeviceView } from './abschnitte/audio-device';
+export { AudioDeviceSection } from './abschnitte/AudioDeviceSection';
