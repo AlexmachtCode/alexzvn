@@ -19,3 +19,5 @@ export { TallyButton, type TallyButtonProps } from './components/TallyButton';
 export { Field, useFeld } from './components/Field';
 export { TextInput } from './components/TextInput';
 export { NumberInput } from './components/NumberInput';
+export { Toggle } from './components/Toggle';
+export { Select } from './components/Select';
