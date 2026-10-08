@@ -1141,6 +1141,9 @@ console.log('— Verlassen (Fall 26, Review Focus 2) und Wiederbeitritt (Fall 16
     m?.text === KT.R2(failText(2, 'JM Connect')) && m.detail?.endsWith('(2)') === true && p.kern.abbild().erneutMoeglich);
   ck('… das Log nennt die Dauer jedes Versuchs',
     p.logs.filter((z) => /^\[zoom\] Wiederbeitritt: Versuch [1-5] gescheitert nach \d+ ms \(vorübergehend\)$/.test(z)).length === 5);
+  ck('… das Log nennt den Anlass des Abrisses (Text und Code) und den Grund jedes Versuchs',
+    p.logs.filter((z) => z.startsWith('[zoom] Wiederbeitritt: Anlass: ') && z.includes(failText(2, 'JM Connect')) && z.includes('(2)')).length === 1
+    && p.logs.filter((z) => /^\[zoom\] Wiederbeitritt: Versuch [1-5] Grund: /.test(z) && z.includes(failText(2, 'JM Connect')) && z.includes('(2)')).length === 5);
   await p.aufraeumen();
 }
 {

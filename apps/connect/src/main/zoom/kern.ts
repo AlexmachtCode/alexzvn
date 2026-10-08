@@ -253,7 +253,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let kenncode: string | null = null;
   /**
    * Wiederbeitritts-Folge (6.4), nur in `abriss`: gesetzt heißt Z11. `naechsterUm` nur in der Wartezeit vor einem
-   * Versuch, `letzte` = Meldung des letzten gescheiterten Versuchs (R2), `beginn` = Start des laufenden Versuchs.
+   * Versuch, `letzte` = Meldung des letzten gescheiterten Versuchs (R2; bis dahin der Anlass des Abrisses, beide stehen zusätzlich im Log), `beginn` = Start des laufenden Versuchs.
    * Den früheren Merker „war im Meeting“ (Ergänzung 0.10) tragen die Zustände: Auslöser gelten nur in im_meeting/abriss (L6).
    */
   let folge: { versuch: number; naechsterUm: number | null; zeitgeber: ReturnType<typeof setTimeout> | null; letzte: Meldungstext | null; beginn: number } | null = null;
@@ -1226,6 +1226,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function starteWiederbeitritt(anlass: Meldungstext | null): void {
     if (folge !== null) return;
     void stoppeBridge();
+    // Der Anlass wäre sonst nirgends zu sehen (kein Leser außer R2 nach Versuch 5, und dort überschrieben).
+    if (anlass !== null) d.log(`[zoom] Wiederbeitritt: Anlass: ${anlass.text}${anlass.detail ? ` [${anlass.detail}]` : ''}`);
     folge = { versuch: 1, naechsterUm: null, zeitgeber: null, letzte: anlass, beginn: 0 };
     planeVersuch(1);
   }
@@ -1279,6 +1281,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const i = folge.versuch;
     const endgueltig = istEndgueltig(a);
     d.log(`[zoom] Wiederbeitritt: Versuch ${i} gescheitert nach ${Date.now() - folge.beginn} ms (${endgueltig ? 'endgültig' : 'vorübergehend'})`);
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i} Grund: ${m.text}${m.detail ? ` [${m.detail}]` : ''}`);
     if (endgueltig) {
       folgeBeenden();
       // 6.4 Schritt 2.4: jeder endgültige Fehler im Versuch bekommt „Wiederbeitritt abgebrochen: “, auch der DLL-Tod (dann B3–B5).
