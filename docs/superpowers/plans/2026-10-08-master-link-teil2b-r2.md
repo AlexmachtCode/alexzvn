@@ -17,8 +17,8 @@
   - `MasterRolle` reicht die Server-Ereignisse an den Verteiler; RELOAD geht in der Rolle Master nur an Endpunkte dieses Rechners, auch beim Nachholen.
   - Das Verbund-Modal zeigt „Show im Verbund …“ und je Tool „bezieht Show-Daten“.
 - **Tool-Seite (`@jm/app-runtime`, Spec 16):** reine Module `verbund-typen.ts`, `verbund-anzeige.ts` (V1–V15), `verbund-daten.ts` (Zustandsmaschine `VerbundFolger` mit übergebener Uhr), `verbund-speicher.ts` (Zwischenspeicher `master-stand.json`), dazu `verbund.ts`/`verbund-ipc.ts` als Electron-Anbindung. `src/index.ts` bekommt nur drei kleine Einfügungen (Zoom Stage 4b, G2).
-- **Tools (Spec 17):** Timer `timerAktionenAusShow`, Titler Datenquelle `master` mit gesperrter Ordnerwahl (O1), Rundown Gedächtnis und Zeiger mit Master-Schlüssel, `waehleLauncher` (Z2). Alle drei ignorieren RELOAD und Show-Deep-Link im Verbundmodus und zeigen die V-Zeile.
-- **Absicherung:** Kettentest ohne Electron (Spec 18), Durchgang mit gebauten Tools und Test-Master (Spec 19.7, nur nach Owner-Freigabe), Abnahme-Datei an zwei Rechnern (Spec 20).
+- **Tools (Spec 17):** Timer `timerAktionenAusShow`, Titler Datenquelle `master` mit gesperrter Ordnerwahl (O1), Rundown Gedächtnis und Zeiger mit Master-Schlüssel, `waehleLauncher` (Z2). Alle drei ignorieren RELOAD im Verbundmodus und zeigen die V-Zeile. Ein Show-Deep-Link ändert dort die Show-Daten nicht: Der Timer ignoriert ihn, der Titler übernimmt nur die Vorlage, der Rundown lädt nichts daraus (E24).
+- **Absicherung:** Kettentest ohne Electron (Spec 18), Durchgang mit gebauten Tools und Test-Master (Spec 19.7, nur nach Owner-Freigabe; erteilt am 08.10.2026), Abnahme-Datei an zwei Rechnern (Spec 20) mit Zusatzprüfungen für das, was der Durchgang nicht erreicht (N17, N23).
 
 **Tech Stack:** TypeScript (ESM), Electron 33, React 18. Selbsttests:
 - `tsx` für master-link, Launcher `selftest:verbund` und `selftest:iveo`, Titler, app-runtime `test/verbund.test.ts`
@@ -30,9 +30,11 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
 **Spec:** `docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`, vom Owner freigegeben am 02.10.2026.
 - Umfang dieses Plans: Teil B (Abschnitte 12–21) mit 0 und 1 (Ergänzungen, D1–D5), 22 (Sicherheit), 24 (Folgeaufgaben), 25 (Risiken), 27 (O1–O3).
 - Teil A (Release 1) ist gemergt und released (Launcher 0.14.0, Titler 0.10.0, Rundown 0.7.0; Timer 0.13.0 unverändert).
-- Plan und Spec gehören zusammen. Bei Widerspruch gilt die Spec, und die Abweichung wird gemeldet. Ausnahmen sind nur die Entscheidungen im Abschnitt „Entscheidungen, wo die Spec schweigt“. Bewusste Abweichungen von der Spec sind dort mit **„Weicht ab“** markiert (E6, E9, E14, E15, E47). Sie gelten, bis der Owner eine davon ablehnt (Abschnitt „Owner-Fragen und Freigaben“); dann wird die betroffene Aufgabe überarbeitet, bevor sie beginnt.
+- Plan und Spec gehören zusammen. Bei Widerspruch gilt die Spec, und die Abweichung wird gemeldet. Ausnahmen sind nur die Entscheidungen im Abschnitt „Entscheidungen, wo die Spec schweigt“. Bewusste Abweichungen von der Spec sind dort mit **„Weicht ab“** markiert (E6, E9, E14, E15, E47). Der Owner hat alle fünf am 08.10.2026 bestätigt (Owner-Frage 1, N19). Dazu kommt eine Textabweichung, die der Owner selbst entschieden hat: die Einzahl „· 1 Tool bezieht sie“ im Verbund-Modal (E43, Owner-Frage 3, N16).
 
-**Arbeitsort:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2`, Branch `feat/master-link-teil2b-r2`, Stand `5f8ed15ef8` (= `origin/main`). Alle Pfade sind relativ dazu. Zeilenangaben gelten für diesen Stand bzw. den Stand nach der genannten Aufgabe; maßgeblich ist immer der wortgleiche Vorher-Text.
+**Arbeitsort:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2`, Branch `feat/master-link-teil2b-r2`, Stand `5f8ed15ef8` (beim Planen `origin/main`; am 08.10.2026 steht `origin/main` schon auf `b7e959866d`, N20). Alle Pfade sind relativ dazu. Zeilenangaben und Zählstände gelten für diesen Stand bzw. den Stand nach der genannten Aufgabe; maßgeblich ist immer der wortgleiche Vorher-Text.
+
+**Umsetzung (Owner, 08.10.2026, N19):** per Workflow (subagent-driven), und zwar **nach** Zoom Stage 4b. Vor C1 setzt die steuernde Sitzung den Branch auf den dann aktuellen `main` (mit 4b) neu auf und lässt die Anker (Vorher-Texte) und Zählstände der berührten Stellen in einem eigenen Durchgang nachmessen; die Berührungspunkte stehen im Schlussabschnitt. Dieser Neuaufsatz ist nicht Teil der Aufgaben C1–C21.
 
 **Aufbau:** 21 Aufgaben C1–C21 in fünf Blöcken. Jede Aufgabe braucht nur, was davor fertig ist. Ausgeführt wird der Reihe nach.
 
@@ -46,24 +48,26 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
 
 **M1 gilt weiter als „nein“** (Spec 23 „Ergebnisse“, R1-Ruling K1): Der Mapper setzt keine iveo-Kennung. Speaker in Shows tragen deshalb keine `id`; der Titler hält über Ersatz-Schlüssel. Nichts in R2 (Testdaten, Doku, Notes, Abnahme) sagt Kennungen zu. Tests, die Kennungen brauchen, bauen sie ausdrücklich in ihre Testdaten.
 
-**Parallelarbeit Zoom Stage 4b (Merge klein halten):** Auf `feat/zoom-stage4b` läuft Connect 0.3.0. Es ändert in `packages/app-runtime` nur `src/index.ts` (Log-Aufräumen), das neue Modul `src/log-aufraeumen.ts` und `test/selftest.ts` (`git diff 5f8ed15ef8 feat/zoom-stage4b`, nachgeprüft am 08.10.2026; `package.json` bleibt dort unverändert), dazu `packages/suite-control-protocol`, `packages/companion-jm-suite` und `.github/workflows/ci-checks.yml`. Dieser Plan baut gegen `main` und hält die Berührung klein (G2):
+**Parallelarbeit Zoom Stage 4b (Merge klein halten):** Auf `feat/zoom-stage4b` läuft Connect 0.3.0 (Stand 08.10.2026, 21:30: `85dcba597d`, neu aufgesetzt auf `main` `b7e959866d`). Es ändert in `packages/app-runtime` nur `src/index.ts` (Log-Aufräumen), das neue Modul `src/log-aufraeumen.ts` und `test/selftest.ts` (`git diff b7e959866d 85dcba597d`, lesend nachgeprüft am 08.10.2026; `package.json` bleibt dort unverändert), dazu `packages/suite-control-protocol`, `packages/companion-jm-suite` und `.github/workflows/ci-checks.yml`. Seit `9611b31c1e` ändert 4b nur noch `apps/connect`, `packages/zoom-bridge/test` und Doku; CI-Schritte und `packages/app-runtime` sind dort gleich geblieben (`git diff --stat 9611b31c1e 85dcba597d -- .github packages/app-runtime` leer). Dieser Plan baut gegen `5f8ed15ef8` und hält die Berührung klein (G2); vor C1 kommt der Neuaufsatz auf `main` mit 4b (siehe „Umsetzung“ oben):
 - In `packages/app-runtime` liegt alles Neue in sieben neuen Dateien (`src/verbund-typen.ts`, `verbund-anzeige.ts`, `verbund-daten.ts`, `verbund-speicher.ts`, `verbund.ts`, `verbund-ipc.ts`, `test/verbund.test.ts`).
-- `src/index.ts` bekommt genau drei Einfügungen (14 Zeilen, C13). Keine bestehende Zeile wird verschoben, umformatiert oder gelöscht. Zoom 4b fügt dort an anderen Stellen ein; die Dreiwege-Zusammenführung von `index.ts` lief ohne Konflikt (nachgespielt mit `git merge-file`).
+- `src/index.ts` bekommt genau drei Einfügungen (15 Zeilen, C13). Keine bestehende Zeile wird verschoben, umformatiert oder gelöscht. Zoom 4b fügt dort an anderen Stellen ein; die Dreiwege-Zusammenführung von `index.ts` mit `85dcba597d` lief ohne Konflikt (nachgespielt mit `git merge-file`, Ergebnis 675 Zeilen = 648 + 15 aus R2 + 12 aus 4b).
 - `package.json` und der app-runtime-Block in `package-lock.json` gehen in einen eigenen Commit (C11, Commit 1).
-- CI: Zoom 4b hängt im Job `selftests` an dieselbe Stelle (nach „Connect …“) vier Schritte an, der letzte ist „App-Laufzeit (Log-Aufräumen, CSP)“ mit **demselben Befehl** `npm run selftest -w @jm/app-runtime`. Der R2-Schritt aus C11 heißt deshalb nach demselben Muster „App-Laufzeit (CSP, Verbund-Anzeige, Abo-Zustand)“. Beim Zusammenführen gibt es in `ci-checks.yml` sicher einen Textkonflikt (nachgespielt mit `git merge-file`); aufgelöst wird er zu **genau einem** Schritt mit diesem Befehl, Name „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“, sonst liefe derselbe Selbsttest zweimal (Spec 19.6 verlangt einen Schritt). Dieser Branch steht auf `5f8ed15ef8` und sieht den 4b-Schritt nicht; C11 legt seinen Schritt deshalb immer an.
-- Zählstände: Zoom 4b erweitert `packages/app-runtime/test/selftest.ts` (CSP und Log-Aufräumen). Nach dem Zusammenführen nennt der erste Teil von `npm run selftest -w @jm/app-runtime` die Zahl aus 4b statt „15 passed“ (an der 4b-Spitze `5e5cd7fca7` gemessen: `43 passed`); der Verbund-Teil bleibt `207 passed`. Die Erwartungen in C11–C13 und C21 gelten für diesen Branch vor dem Zusammenführen.
+- CI: Auf `main` hat der Job `selftests` am 08.10.2026 schon 16 Schritte (13 auf `5f8ed15ef8`, dazu Presenter, Appkit und App Designer aus PR #248). Zoom 4b hängt an dieselbe Stelle (nach „Connect …“) vier Schritte an, zusammen 20; der letzte ist „App-Laufzeit (Log-Aufräumen, CSP)“ mit **demselben Befehl** `npm run selftest -w @jm/app-runtime`. Der R2-Schritt aus C11 heißt deshalb nach demselben Muster „App-Laufzeit (CSP, Verbund-Anzeige, Abo-Zustand)“. Beim Zusammenführen gibt es in `ci-checks.yml` sicher einen Textkonflikt (nachgespielt mit `git merge-file`); aufgelöst wird er zu **genau einem** Schritt mit diesem Befehl, Name „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“, sonst liefe derselbe Selbsttest zweimal (Spec 19.6 verlangt einen Schritt). Auf `5f8ed15ef8` sieht dieser Branch den 4b-Schritt nicht, C11 legt seinen Schritt deshalb an. Nach dem Neuaufsatz auf `main` mit 4b (vor C1) bleibt im Job genau **ein** app-runtime-Schritt, der Job hat dann 20 Schritte; den Vorher/Nachher-Text von C11 Step 12 passt der Nachmess-Durchgang an (Schlussabschnitt).
+- Zählstände: Zoom 4b erweitert `packages/app-runtime/test/selftest.ts` (CSP und Log-Aufräumen). Mit 4b nennt der erste Teil von `npm run selftest -w @jm/app-runtime` die Zahl aus 4b statt „15 passed“ (an `85dcba597d` am 08.10.2026 in einer Kopie gemessen: `50 passed`; die früher genannte Spitze `5e5cd7fca7` gibt es auf dem Branch nicht mehr); der Verbund-Teil bleibt `208 passed`. Die Erwartungen in C11–C13 und C21 gelten für den Stand `5f8ed15ef8`; nach dem Neuaufsatz werden sie nachgemessen.
 - `packages/suite-control-protocol` und `packages/companion-jm-suite` bleiben unberührt; es gibt keinen neuen STATE-Schlüssel.
-- Vor dem Merge prüft der Zusammenführer lesend (`git log`), ob `feat/zoom-stage4b` schon auf `main` liegt (Schlussabschnitt).
+- `main` hat sich seit `5f8ed15ef8` auch ohne 4b bewegt: Es ändert unter anderem `package-lock.json`, `packages/suite-manifest/changelog.json` und `.github/workflows/ci-checks.yml`, die C11 und C21 ebenfalls anfassen (Liste im Schlussabschnitt).
 
 **Freigaben, an denen die Ausführung hält** (Ledger-Zeilen, die nur der Owner bzw. die steuernde Sitzung setzt):
-- „Owner-Freigabe C20“: Ohne sie endet C20 nach dem Commit des Skripts (Step 6); der Lauf wird nachgeholt, und zwar **vor dem Merge** (Pflicht, N14): Für die Main-Verdrahtung von Titler und Rundown (C16, C18) ist der Durchgang neben Typecheck und Build der einzige Verhaltensnachweis.
-- „Owner-Freigabe Notes R2“: Ohne sie endet C21 mit dem Entwurf im Bericht (Step 10); der Commit von C21 folgt erst danach.
+- „Owner-Freigabe C20“: Der Owner hat den Durchgang am 08.10.2026 freigegeben (Owner-Frage 8, N19). Die Ledger-Zeile setzt die steuernde Sitzung beim Start der Umsetzung; C20 läuft dann ganz. Fehlt sie trotzdem, endet C20 nach dem Commit des Skripts (Step 6), und der Lauf wird **vor dem Merge** nachgeholt (Pflicht, N14). Was C20 an der Main-Verdrahtung von Titler und Rundown (C16, C18) prüft und was nicht, steht in C16 und C18 unter „Regeln“; was er nicht erreicht (Show-Link, Startreihenfolge, gesperrte Ordnerwahl, Rundown-Datei am Master mit „Öffnen…“/„Neu“ im Verbund, eigene Wahl nach dem Entkoppeln), steht als „Zusatzprüfungen (nicht in Spec 20)“ in der Abnahme-Datei (C21, N17, N23). Von Hand nicht erreichbar ist die Ablehnung im Main des Titlers, solange die Oberfläche die Ordnerwahl schon sperrt; sie ist als reine Regel getestet (C15).
+- „Owner-Freigabe Notes R2“: Ohne sie endet C21 mit dem Entwurf im Bericht (Step 10); der Commit von C21 folgt erst danach. Diese Freigabe und die der Texte ohne Spec-Vorgabe sind die einzigen offenen Owner-Punkte (Stand 08.10.2026).
 
 **Wie dieser Plan entstanden ist:**
 - Eine Gliederung hat die Aufgaben C1–C21, das Schnittstellen-Register, die Entscheidungen E1–E29 und die Liste „R2 oder Folgeaufgabe“ festgelegt. Fünf Schreiber haben die Blöcke A–E ausformuliert, jeder in einer eigenen Kopie des Worktrees (Stand `5f8ed15ef8`). Block A und B waren gegeneinander gemessen; C, D und E hatten für frühere Blöcke Stand-ins nach dem Register.
 - **Zusammengeführt und durchgespielt am 08.10.2026:** Alle 282 Operationen (Vorher/Nachher-Ersetzungen, Einfügungen, neue Dateien; ohne Gegenproben) wurden der Reihe nach aus dem Plantext auf eine frische Kopie (`git archive HEAD`, `node_modules` per Junction, `@jm/*` auf die Pakete der Kopie) angewendet. Jeder Vorher-Text kam genau einmal vor. Nach jeder Aufgabe liefen ihre Rot- und Grünläufe und der Typecheck; jede `FAIL`- und Fehlerzeile der Rotläufe steht wörtlich im Plan. Windows 11, Node 24.16.0.
 - Zum Schluss wurde der fertige Plantext noch einmal ohne Tests auf eine zweite frische Kopie abgespielt; alle 81 berührten Dateien waren danach Byte für Byte gleich der gemessenen Kopie.
 - **Nachbesserung nach der Plan-Prüfung (08.10.2026, N1–N14, Abschnitt „Nachbesserung nach der Plan-Prüfung“):** Der geänderte Plan wurde noch einmal ganz auf eine frische Kopie abgespielt (jetzt 283 Operationen, jeder Vorher-Text genau einmal), mit den Rot- und Grünläufen, Gegenproben und Typechecks von C4–C19 und den Prüfungen von C21 (C1–C3 und C20 sind unverändert), und einem Gesamtlauf am Ende (alle Selbsttests grün, `typecheck --workspaces` Exit 0). Ein zweites Abspielen ohne Tests auf eine weitere frische Kopie ergab in allen berührten Dateien dieselben Bytes. Die Zahlen in diesem Plan sind die dabei gemessenen. Windows 11, Node 24.16.0; die CI läuft auf `ubuntu-latest` mit Node 22 und ist der erste Lauf unter Linux (N12).
+- **Zweite Runde (08.10.2026, N15–N21, Owner-Antworten und Nachprüfung):** Der Plan wurde wieder ganz auf eine frische Kopie abgespielt (283 Operationen, jeder Vorher-Text genau einmal), mit den Rot- und Grünläufen, Gegenproben und Typechecks von C10–C19 und den Prüfungen von C21 (C1–C9 sind nur angewendet, ihr Code ist unverändert; vom Durchgang C20 nur das Anlegen des Skripts, `tsc` und die Zählung, nie ein Lauf), und einem Gesamtlauf am Ende. Ein zweites Abspielen ohne Tests auf eine weitere frische Kopie ergab in allen 81 berührten Dateien dieselben Bytes. Die Zahlen in diesem Plan sind die dabei gemessenen, wieder Windows 11, Node 24.16.0.
+- **Dritte Runde (08.10.2026, N22–N24, zweite Nachprüfung):** Der Plan wurde wieder ganz auf eine frische Kopie abgespielt (283 Operationen, jeder Vorher-Text genau einmal), diesmal mit den Rot- und Grünläufen, Typechecks, Builds und Zählungen aller Aufgaben C1–C19, den Gegenproben, deren Änderung der Plan wörtlich nennt (C1, C3, C4, C8, C10–C13, die Zeilen mit N-Verweis in C15 und C17, C19), den Prüfungen von C21 samt ihren Gegenproben und einem Gesamtlauf am Ende (alle Selbsttests grün, `typecheck --workspaces` Exit 0). Nicht gelaufen sind die Gegenproben, die nur der jeweilige Schreiber gemessen hat (C14, die Zeilen ohne N-Verweis in C15 und C17), C20 Step 3 und der Durchgang selbst (von C20 nur das Anlegen des Skripts, `tsc` und die Zählung); `npm install --package-lock-only` aus C11 Step 2 lief in der Kopie nicht, dort wurde der erwartete Lockfile-Abschnitt eingespielt. Ein zweites Abspielen ohne Tests auf eine weitere frische Kopie ergab in allen 81 berührten Dateien dieselben Bytes. Laufzeiten stehen als Spannen über alle Runden. Windows 11, Node 24.16.0.
 
 | Aufgabe | Rot (gemessen) | Grün (gemessen) |
 | --- | --- | --- |
@@ -76,18 +80,18 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
 | C7 | `257 ok, 17 fehlgeschlagen.`; Hülle `ERR_MODULE_NOT_FOUND … iveo-side-events` | 274 / 52 / 84 / 6 |
 | C8 | 188, dann `ERR_MODULE_NOT_FOUND … verbund\verteiler` | 188 + 44 |
 | C9 | `SyntaxError … 'waehleReloadZiele'`; `276 ok, 1 fehlgeschlagen.`; `191 ok, 8 fehlgeschlagen.` | 277 / 52 / 84 / 12; 199 + 44; Build Launcher |
-| C10 | `200 ok, 3 fehlgeschlagen.`; `SyntaxError … 'toolDatenText'` | 203 + 52; Launcher `selftest` 113; Build Launcher |
-| C11 | 15, dann `ERR_MODULE_NOT_FOUND` (Test, dann `verbund-anzeige`) | 15 + 64; Lockfile genau ein Abschnitt (+5/−1); CI-Liste 14 Schritte; `typecheck --workspaces` exit 0 |
-| C12 | 15 + 64, dann `ERR_MODULE_NOT_FOUND … verbund-daten` | 15 + 173 (nach ZF1 und N3–N5) |
-| C13 | `ERR_MODULE_NOT_FOUND … verbund-speicher` | 15 + 207; `index.ts` 14 Zeilen dazu, 0 weg; `typecheck --workspaces` exit 0; Bündel Sync/Timer |
+| C10 | `200 ok, 3 fehlgeschlagen.`; `SyntaxError … 'toolDatenText'` | 203 + 53; Launcher `selftest` 113; Build Launcher; Gegenprobe Einzahl `52 ok, 1 fehlgeschlagen.` (N16) |
+| C11 | 15, dann `ERR_MODULE_NOT_FOUND` (Test, dann `verbund-anzeige`) | 15 + 64; Lockfile genau ein Abschnitt (+5/−1); CI-Liste 14 Schritte (mit 4b nach dem Neuaufsatz 20, nachzumessen); `typecheck --workspaces` exit 0 |
+| C12 | 15 + 64, dann `ERR_MODULE_NOT_FOUND … verbund-daten` | 15 + 174 (nach ZF1, N3–N5 und N18); Gegenprobe N18 1 `FAIL` |
+| C13 | `ERR_MODULE_NOT_FOUND … verbund-speicher` | 15 + 208; `index.ts` 15 Zeilen dazu, 0 weg (663 von 663 CRLF); `typecheck --workspaces` exit 0; Bündel Sync/Timer |
 | C14 | `ERR_MODULE_NOT_FOUND … show-anwenden.ts`; Typecheck `TS5097` | 59 passed; Typecheck, Build, Preload 3 |
-| C15 | `SyntaxError … 'ordnerWahlGesperrt'`; Zwischenstand 471 + 3 `FAIL`; 4 Typfehler im Main | 474; Typecheck |
-| C16 | – | 474; Typecheck, Build, Preload 3, eine Registrierung |
-| C17 | zwei `SyntaxError`; Zwischenstand 109; 4 Typfehler im Main | 440 + 109; Typecheck |
-| C18 | – | 440 + 109; Typecheck, Build, Preload 3, `showPfad` in 20 Zeilen |
-| C19 | vor ZF2: `61 ok, 2 fehlgeschlagen.` (beide in M) | `63 ok`, 9–10 s (nach N12 mit Stille-Frist 2 s: 11 s); Gegenproben 29 bzw. 7 `FAIL`; `selftest:verbund` 203 / 52 / 63 |
-| C20 | Laden ohne `ELECTRON_EXE`: `ABBRUCH …`, Exit 2 | tsc ohne Meldung, 33 × `pruefe(`; der Durchgang selbst nicht (G8) |
-| C21 | – | JSON gültig, `Release-Vorbereitung ok`, Abnahme-Tabelle wortgleich (14 Schritte), CRLF = LF; Gesamtlauf aller Tests grün, `typecheck --workspaces` exit 0 |
+| C15 | `SyntaxError … 'ordnerPatchAbgelehnt'`; Zwischenstand 474 + 3 `FAIL`; 4 Typfehler im Main | 477; Typecheck; Gegenproben E22 je 1 `FAIL` (N17) |
+| C16 | – | 477; Typecheck, Build, Preload 3, eine Registrierung |
+| C17 | zwei `SyntaxError`; Zwischenstand 109; 4 Typfehler im Main | 443 + 109; Typecheck; Gegenproben `showLinkWeg` 2 / 1 / 2 `FAIL` (N15) |
+| C18 | – | 443 + 109; Typecheck, Build, Preload 3, `showPfad` in 20 Zeilen, kein `verbundIgnoriert('deeplink'` |
+| C19 | vor ZF2: `61 ok, 2 fehlgeschlagen.` (beide in M) | `63 ok`, 9–10 s (nach N12 mit Stille-Frist 2 s: 10,6–11 s); Gegenproben 29 bzw. 7 `FAIL`; `selftest:verbund` 203 / 53 / 63 |
+| C20 | Laden ohne `ELECTRON_EXE`: `ABBRUCH …`, Exit 2 (in der ersten Runde) | tsc ohne Meldung, 33 × `pruefe(`; der Durchgang selbst nicht (G8, beim Planen nie gelaufen) |
+| C21 | – | JSON gültig, `Release-Vorbereitung ok`, Abnahme-Tabelle wortgleich (14 Schritte; die Zusatzprüfungen stehen als Liste unter der Tabelle), CRLF = LF; Gesamtlauf aller Tests grün, `typecheck --workspaces` exit 0 |
 
 ## Global Constraints
 
@@ -96,7 +100,9 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
   - In `packages/app-runtime` kommt alles Neue in **neue Dateien**: `src/verbund-typen.ts`, `src/verbund-anzeige.ts`, `src/verbund-daten.ts`, `src/verbund-speicher.ts`, `src/verbund.ts`, `src/verbund-ipc.ts`, `test/verbund.test.ts`.
   - `src/index.ts` bekommt genau drei Einfügungen: (a) ein Export-Block direkt nach `export type { CspConfig } from './csp';` (Ist `:47`), (b) eine Importzeile `import { verbundAnClient } from './verbund';` direkt nach der Importzeile von `@jm/master-link` (Ist `:16`), (c) eine Zeile `verbundAnClient(client, { userData: app.getPath('userData'), log: info.log });` in `startMasterLink` direkt nach `client.starte();` (Ist `:379`): Der Folger startet erst, wenn der Client seine `master-link.json` gelesen hat (Zusammenführung ZF2). Keine bestehende Zeile wird verschoben, umformatiert oder gelöscht.
   - `packages/app-runtime/package.json` (Abhängigkeit `@jm/show`, devDependency `tsx`, Skript `selftest`) und der zugehörige Block in `package-lock.json` gehen in einen **eigenen Commit** (C11, Commit 1).
-  - `.github/workflows/ci-checks.yml`: Der neue Schritt wird **ans Ende** der Schrittliste im Job `selftests` gehängt (nach „Connect …“), Name „App-Laufzeit (CSP, Verbund-Anzeige, Abo-Zustand)“. Zoom 4b hängt an dieselbe Stelle einen Schritt mit demselben Befehl („App-Laufzeit (Log-Aufräumen, CSP)“): Der Konflikt beim Zusammenführen ist sicher und wird zu genau einem Schritt aufgelöst (siehe „Parallelarbeit“ oben und Schlussabschnitt). Das hält den Merge nicht konfliktfrei, aber klein.
+  - `.github/workflows/ci-checks.yml`: Im Job `selftests` steht danach **genau ein** Schritt mit `npm run selftest -w @jm/app-runtime` (Spec 19.6). Zwei Fälle (N22):
+    - Stand ohne Zoom 4b (`5f8ed15ef8`; so sind C11 Step 12 und seine Erwartung geschrieben): Der neue Schritt kommt **ans Ende** der Schrittliste (nach „Connect …“), Name „App-Laufzeit (CSP, Verbund-Anzeige, Abo-Zustand)“. Beim späteren Zusammenführen mit 4b ist der Textkonflikt sicher und wird zu genau einem Schritt „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ aufgelöst. Das hält den Merge nicht konfliktfrei, aber klein.
+    - Stand mit Zoom 4b (nach dem Neuaufsatz vor C1, Kopf „Umsetzung“; der vorgesehene Fall): Der 4b-Schritt „App-Laufzeit (Log-Aufräumen, CSP)“ mit demselben Befehl steht schon zuletzt im Job. C11 hängt dann nichts an, sondern benennt ihn um in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ (Job mit 20 Schritten). Vorher/Nachher und Erwartung von C11 Step 12 stellt der Nachmess-Durchgang darauf um (Schlussabschnitt).
   - Kein STATE-Schlüssel und keine Änderung in `packages/suite-control-protocol` oder `packages/companion-jm-suite`.
 - **G3 Protokoll und Grenzen (Spec 13):** `PROTOKOLL` bleibt `1`, Fassung `1` (`SHOW_FASSUNG`). Neue `t` nur `abo`, `stand`, `aenderung`, mit lockeren Prüfern. Werte wörtlich:
   - Zeile nach der Anmeldung 1 MiB (`GRENZEN.nachAnmeldung = 1048576`, unverändert)
@@ -107,7 +113,7 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
   - Zwischenspeicher schreiben: bis zu 5 Versuche im Abstand von 50 ms
   - „ohne Show-Daten (Update nötig)“ 10 s nach der Anmeldung (reine Anzeige im Verbund-Modal; Ausnahme von G13, siehe dort); Log-Drossel für „ignoriert“-Zeilen 60 s
 - **G4 Ausschnitt (Spec 14, 22):** nur über `showFuerVerbund` und `VERBUND_EINSTELLUNGEN` (Freigabeliste). Nie `iveo.baseUrl`, `tools[].document`, `tools[].network`, nie ein Token. Tools schreiben nichts an den Master zurück; der Master wertet `stand`/`aenderung` von Clients nicht aus.
-- **G5 Texte:** wörtlich aus Spec 15.5, 15.6, 16.1, 16.4 (V1–V15), 17.2, 17.3, 6.3/7.8 (wo berührt), mit deutschen Anführungszeichen „…“. Texte, die die Spec nicht vorgibt, stehen in der Liste „Texte ohne Spec-Vorgabe“ (Abschnitt „Entscheidungen“, E13) und gehen vor dem Release an den Owner.
+- **G5 Texte:** wörtlich aus Spec 15.5, 15.6, 16.1, 16.4 (V1–V15), 17.2, 17.3, 6.3/7.8 (wo berührt), mit deutschen Anführungszeichen „…“. Ausnahmen: Die Modal-Zeile heißt bei genau einem Bezieher „· 1 Tool bezieht sie“ (Owner-Entscheid 08.10.2026, E43, N16); zum Show-Link im Verbundmodus schreibt der Rundown statt der 16.1-Zeile eine eigene Zeile (E24, Auslegung 17.3 vor 16.1). Texte, die die Spec nicht vorgibt, stehen in der Liste „Texte ohne Spec-Vorgabe“ (Abschnitt „Entscheidungen“, E13) und gehen vor dem Release an den Owner.
 - **G6 Logs:** nie ein Token, nie Dateiinhalt, nie die Meldung eines JSON-Parse-Fehlers. Gründe sind Feldnamen oder Fehlercodes (`EBUSY`), nie Werte aus dem Netz.
 - **G7 Testläufer und Importe:**
   - Kein Test lädt Electron (die CI installiert mit `npm ci --ignore-scripts`).
@@ -126,26 +132,26 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
 - **G12 Zeilenenden:** `core.autocrlf=true`; die berührten Dateien liegen im Arbeitsbaum mit CRLF vor (`git ls-files --eol`). Änderungen mit dem Edit-Werkzeug (Vorher-Text exakt ersetzen), nicht mit `sed`. Neue Dateien schreibt das Write-Werkzeug mit LF; die Warnung „LF will be replaced by CRLF“ ist harmlos. Nach jeder Änderung gilt: Zahl der CRLF in einer geänderten Datei gleich ihrer Zeilenzahl, in einer neuen Datei 0. Gemessen wird mit dem Befehl unter „Konventionen in jeder Aufgabe“ (nicht mit `grep -c $'\r'`, das in der Git-Bash jede Zeile zählt).
 - **G13 Uhr und Fristen:** Neue Fristen (app-runtime, Verteiler) laufen über eine übergebene Uhr bzw. Zeitgeber (`setTimeout`), nie über `Date.now()`-Differenzen. Die Empfangszeit „Stand hh:mm“ ist bewusst die Uhr von Rechner B (Spec 16.4). **Ausnahme (bewusst):** Die 10-s-Regel „ohne Show-Daten (Update nötig)“ im Verbund-Modal (C10, `toolDatenText`) vergleicht `Date.now()` im Renderer mit `seit` des Servers. Beides ist die Uhr des Master-Rechners, und es ist reine Anzeige: Springt dort die Uhr, erscheint der Hinweis zu früh, zu spät oder gar nicht; an Daten und Abos ändert das nichts. Ein Zeitgeber je Teilnehmer wäre der Weg ohne Uhrsprung (gehört zu FA12).
 - **G14 Zweitinstanz:** Ohne Single-Instance-Lock gibt es keinen Client, kein Abo und kein Schreiben von `master-stand.json` (app-runtime startet den Client nur mit Lock, `index.ts:368-371`).
-- **G15 Electron-Verdrahtung:** Logik steckt in reinen Funktionen mit Tests. Die dünne Electron-Schicht (IPC, Preload, Main-Aufrufe) prüfen Typecheck, `electron-vite build` der App und der Durchgang C20.
+- **G15 Electron-Verdrahtung:** Logik steckt in reinen Funktionen mit Tests. Die dünne Electron-Schicht (IPC, Preload, Main-Aufrufe) prüfen Typecheck, `electron-vite build` der App und der Durchgang C20, soweit er sie erreicht; was er nicht startet (Show-Link, Startreihenfolge, Ordnerwahl, „Öffnen…“/„Neu“, Hinweis zur Rundown-Datei), steht in C16 und C18 unter „Regeln“ und als Handprüfung in der Abnahme-Datei (N17, N23).
 - **G16 Abbruchregel:** Weicht ein gemessener Wert von der Erwartung im Plan ab (Rot- oder Grünzählung, `FAIL`-Zeile, Laufzeit über der genannten Grenze), hält der Ausführende an und meldet, statt Tests oder Erwartungen anzupassen. Ausnahme: Messwerte in Klammern einer grünen `ok`-Zeile (Kopierzähler, Rückdruck, Größen) sind Bezugswerte; eine andere Zahl dort gehört in den Bericht, ist aber kein Abbruchgrund.
 
 ## Testläufe (wie sie wirklich heißen)
 
-Vorher gemessen am 08.10.2026 im Stand `5f8ed15ef8`; nachher gemessen beim Durchspielen aller 21 Aufgaben in einer frischen Kopie, zuletzt nach der Nachbesserung N1–N14 (siehe „Wie dieser Plan entstanden ist“). Alle Messungen: Windows 11, Node 24.16.0. Die CI (`ubuntu-latest`, `node-version: 22`) ist der erste Lauf unter Linux; zeitabhängige Prüfungen haben dafür Abstand zu ihren Fristen (N12).
+Vorher gemessen am 08.10.2026 im Stand `5f8ed15ef8`; nachher gemessen beim Durchspielen aller 21 Aufgaben in einer frischen Kopie, zuletzt nach der dritten Runde N22–N24 (siehe „Wie dieser Plan entstanden ist“). Alle Messungen: Windows 11, Node 24.16.0. Die CI (`ubuntu-latest`, `node-version: 22`) ist der erste Lauf unter Linux; zeitabhängige Prüfungen haben dafür Abstand zu ihren Fristen (N12).
 
 | Paket | Befehl | Vorher | Nach C21 |
 | --- | --- | --- | --- |
 | `@jm/master-link` | `npm run selftest -w @jm/master-link` (tsx) | 572 ok, ca. 35 s | 756 ok, ca. 40 s |
 | `@jm/launcher` | `npm run selftest -w @jm/launcher` (strip-types) | 113 ok | 113 ok |
-| `@jm/launcher` | `npm run selftest:verbund -w @jm/launcher` (tsx; ab C8 `&& tsx test/verteiler.test.ts`, ab C19 `&& tsx test/verbund-kette.test.ts`) | 188 ok, ca. 16 s | 203 + 52 + 63 ok, ca. 25–28 s |
+| `@jm/launcher` | `npm run selftest:verbund -w @jm/launcher` (tsx; ab C8 `&& tsx test/verteiler.test.ts`, ab C19 `&& tsx test/verbund-kette.test.ts`) | 188 ok, ca. 16 s | 203 + 53 + 63 ok, ca. 25–28 s |
 | `@jm/launcher` | `npm run selftest:iveo -w @jm/launcher` (tsx, vier Dateien) | 239 / 47 / 84 / 6 ok | 277 / 52 / 84 / 12 ok |
 | `@jm/iveo` (mit `@jm/show`) | `npm run selftest -w @jm/iveo` | 166 ok-Zeilen, „ALLE TESTS OK“ | 190 ok-Zeilen, „ALLE TESTS OK“ |
 | `@jm/timer` | `npm run selftest -w @jm/timer` | 41 passed | 59 passed |
-| `@jm/rundown` | `npm run selftest -w @jm/rundown` (zwei Läufe: `test/selftest.ts`, `test/gedaechtnis.test.ts`) | 404 + 81 ok-Zeilen, zweimal „ALLE TESTS OK“ | 440 + 109 ok-Zeilen |
-| `@jm/titler` | `npm run selftest -w @jm/titler` (tsx) | 407 ok-Zeilen, „ALLE TESTS OK“ | 474 ok-Zeilen |
-| `@jm/app-runtime` | `npm run selftest -w @jm/app-runtime` (ab C11 `… && tsx test/verbund.test.ts`) | 15 passed | 15 + 207 passed (nach dem Merge mit Zoom 4b: dessen CSP- und Log-Aufräumen-Zahl statt 15, an der 4b-Spitze `5e5cd7fca7` gemessen 43) |
+| `@jm/rundown` | `npm run selftest -w @jm/rundown` (zwei Läufe: `test/selftest.ts`, `test/gedaechtnis.test.ts`) | 404 + 81 ok-Zeilen, zweimal „ALLE TESTS OK“ | 443 + 109 ok-Zeilen |
+| `@jm/titler` | `npm run selftest -w @jm/titler` (tsx) | 407 ok-Zeilen, „ALLE TESTS OK“ | 477 ok-Zeilen |
+| `@jm/app-runtime` | `npm run selftest -w @jm/app-runtime` (ab C11 `… && tsx test/verbund.test.ts`) | 15 passed | 15 + 208 passed (mit Zoom 4b: dessen CSP- und Log-Aufräumen-Zahl statt 15, an `85dcba597d` am 08.10.2026 gemessen `50 passed`) |
 | Typecheck | `npm run typecheck -w @jm/master-link` / `-w @jm/launcher` / `-w @jm/timer` / `-w @jm/titler` / `-w @jm/rundown`; bei app-runtime/show `npm run typecheck --workspaces --if-present` | exit 0 | exit 0 |
-| Durchgang (nicht in der CI) | `npm run build -w @jm/timer -w @jm/titler -w @jm/rundown`, dann `ELECTRON_EXE=<electron.exe> node node_modules/tsx/dist/cli.mjs apps/launcher/test/e2e-teil2b-verbund.ts` | – | neu (C20), Lauf nur nach Freigabe |
+| Durchgang (nicht in der CI) | `npm run build -w @jm/timer -w @jm/titler -w @jm/rundown`, dann `ELECTRON_EXE=<electron.exe> node node_modules/tsx/dist/cli.mjs apps/launcher/test/e2e-teil2b-verbund.ts` | – | neu (C20); Lauf in der Umsetzung, freigegeben am 08.10.2026 |
 
 „ok-Zeilen“ zählt `grep -cE '^\s*ok\b'` in der Ausgabe; Läufe mit eigener Zusammenfassung nennen sie (`… ok, 0 fehlgeschlagen.`, `… passed, 0 failed`).
 
@@ -210,7 +216,7 @@ Die Liste ist aus den Vorher/Nachher-Schritten des Plans abgeleitet (beim Durchs
 - Timer (C14): `src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/sync/jm.d.ts`, `src/renderer/src/components/Topbar.tsx`, `tsconfig.node.json`, `tsconfig.web.json`, `test/selftest.ts`.
 - Titler: `src/shared/datenquelle.ts`, `src/main/show-quelle.ts`, `test/selftest.ts` (C15); `src/main/index.ts` (Typ-Brücke C15, Verdrahtung C16); `src/shared/types.ts`, `src/preload/index.ts`, `src/renderer/src/views/OperatorView.tsx` mit der Einstellung › DataLink (C16).
 - Rundown: `src/shared/ausgangsstand.ts` (Typen `GedaechtnisQuelle`, `Zeiger`), `src/main/gedaechtnis.ts`, `src/shared/conductor.ts`, `test/gedaechtnis.test.ts`, `test/selftest.ts` (C17); `src/main/index.ts` (Typ-Brücke C17, Ladewege C18); `src/main/conductor.ts`, `src/shared/types.ts`, `src/preload/index.ts`, `src/renderer/src/components/ToolLinks.tsx` (C18).
-- CI: `.github/workflows/ci-checks.yml` (ein Schritt am Ende des Jobs `selftests`, C11).
+- CI: `.github/workflows/ci-checks.yml` (genau ein app-runtime-Schritt im Job `selftests`: am Ende angehängt, nach dem Neuaufsatz mit 4b der 4b-Schritt umbenannt; C11, G2).
 - Doku und Release (C21): `docs/suite-verbund.md` (Stand-Satz und neuer Abschnitt „Show-Daten im Verbund“), `docs/jm-show.md` (Absatz „Grenzen“), die vier `package.json` von Launcher, Timer, Titler, Rundown, `package-lock.json` (app-runtime-Block in C11, Versionen in C21), `packages/suite-manifest/changelog.json`.
 
 **Unverändert, obwohl die Gliederung sie nannte:** `apps/titler/src/renderer/src/jmtitler.d.ts`, `apps/rundown/src/renderer/src/jmrundown.d.ts` (die Brücke kommt über `JmtitlerApi` bzw. `JmRundownApi` in `src/shared/types.ts`), `apps/rundown/src/renderer/src/App.tsx` (die V-Zeile abonniert `ToolLinks` selbst), `packages/master-link/test/aufbau.ts` und `test/rohclient.ts` (reichen aus).
@@ -222,11 +228,11 @@ Die Liste ist aus den Vorher/Nachher-Schritten des Plans abgeleitet (beim Durchs
 - Folgeaufgaben FA1–FA10 der Spec (Abschnitt 24) und die neuen FA11–FA23 (Abschnitt „Folgeaufgaben aus diesem Plan“).
 - Release, Tags, Katalog, PR: nur beschreibend im Schlussabschnitt.
 - Die Zwei-Rechner-Abnahme selbst (Owner, nach dem Release; C21 legt nur die Datei an).
-- **Zusatzbitte des Owners „Zoom-Bridge: Shared Content als eigenständiges Signal“:** gehört nicht zu R2 (anderes Paket, laufende Arbeit auf `feat/zoom-stage4b`). Stichprobe auf `main`: `packages/zoom-bridge` kennt keinen Share-Empfang, nur die Fehlercodes `SDKERR_*SHARE*` (`src/protocol.ts:239-248`) und `shareRawdataMemoryMode` (`native/session.cpp:99`). Der Stand auf `feat/zoom-stage4b` ist nicht geprüft. Das braucht einen eigenen Prüfauftrag.
+- **Zusatzbitte des Owners „Zoom-Bridge: Shared Content als eigenständiges Signal“:** gehört nicht zu R2 (anderes Paket, laufende Arbeit auf `feat/zoom-stage4b`). Erledigt: Issue #247 (steuernde Sitzung, 08.10.2026: Machbarkeit geprüft, eigene Zoom-Stufe nach 4b); kein Punkt dieses Plans.
 
-## Entscheidungen, wo die Spec schweigt (Owner bzw. Reviewer bitte bestätigen)
+## Entscheidungen, wo die Spec schweigt
 
-E1–E29 stammen aus der Gliederung. E30–E61 haben die Schreiber der Blöcke beim Ausformulieren getroffen; jede steht mit Grund in der genannten Aufgabe unter „Abweichungen vom Gerüst“. Bewusste Abweichungen von der Spec tragen **„Weicht ab“**.
+E1–E29 stammen aus der Gliederung. E30–E61 haben die Schreiber der Blöcke beim Ausformulieren getroffen; jede steht mit Grund in der genannten Aufgabe unter „Abweichungen vom Gerüst“. Bewusste Abweichungen von der Spec tragen **„Weicht ab“**; der Owner hat alle fünf (E6, E9, E14, E15, E47) am 08.10.2026 bestätigt. Eine Bestätigung steht für keine Entscheidung mehr aus (Owner 08.10.2026, N19); vor dem Release freizugeben sind nur die Texte ohne Spec-Vorgabe (Tabelle unten).
 
 ### Aus der Gliederung
 
@@ -235,28 +241,28 @@ E1–E29 stammen aus der Gliederung. E30–E61 haben die Schreiber der Blöcke b
 3. **E3 `abo` vor der Anmeldung** gilt wie jede unerwartete erste Nachricht: Verbindung zu (Ist `server.ts:250`). (C3)
 4. **E4 `getrennt` in `stoppe()`:** synchron für jede angemeldete Sitzung, bevor die Map geleert wird; das spätere `ende` meldet nichts mehr (Merker je Sitzung). (C3)
 5. **E5 Stau:** geprüft wird vor dem Schreiben (`writableLength > GRENZEN.stauBytes`). Nach `entstaut` schickt der Verteiler den neuesten Stand als `aenderung`, wenn er neuer ist als der zuletzt an diese Sitzung gesendete. (C3, C8)
-6. **E6 `kopplung().letzteAdresse`:** Adresse der letzten Verbindung dieses Prozesses, sonst `kopplung.letzteAdresse` aus der Datei (wie `runde`, `client.ts:445`). **Weicht ab** von Spec 13.7 („aus master-link.json“): Ohne Launcher auf B veraltet der Dateiwert. (C4)
+6. **E6 `kopplung().letzteAdresse`:** Adresse der letzten Verbindung dieses Prozesses, sonst `kopplung.letzteAdresse` aus der Datei (wie `runde`, `client.ts:445`). **Weicht ab** von Spec 13.7 („aus master-link.json“): Ohne Launcher auf B veraltet der Dateiwert. Vom Owner bestätigt am 08.10.2026. (C4)
 7. **E7 `istDieserRechner`:** wahr für `127.0.0.0/8`, `::1`, `localhost` und jede Adresse einer eigenen Karte (nach Entfernen von `::ffff:`, Klammern und IPv6-Zone, IPv6 ohne Rücksicht auf Groß/Klein); für einen Hostnamen nur, wenn er dem eigenen Hostnamen gleicht (ohne `.local`, ohne Schlusspunkt, ohne Rücksicht auf Groß/Klein). Jeder andere Hostname gilt als fremd (Ist-Karte Master 4: `svc.host` kann ein Hostname sein). (C4)
 8. **E8 Vergleich des Ausschnitts** über die serialisierte Form einschließlich `updatedAt` (Spec 13.3 wörtlich). Jedes Speichern am Master ergibt deshalb einen neuen Stand; die Tools wenden ihn idempotent an. (C8)
-9. **E9 Spec 18 („dieselbe Show wieder öffnen = neue Epoche“) gegen 19.3 Nr. 2 („keine neue Folge“):** Die Epoche wechselt nur beim Start der Rolle Master (13.3, 15.1). Wird dieselbe Show unverändert erneut gemeldet, entsteht keine neue Folge und keine `aenderung`. Die Zeile in 18 gilt für einen Launcher-Neustart mit derselben Show. Beides endet in V4 und gleichem Ergebnis. **Weicht ab** von Spec 18 („Master öffnet dieselbe Show wieder | neue Epoche“) für den Fall ohne Neustart der Rolle (N2). Hinweis an den Owner, kein Blocker. (C8, C19 C und I)
+9. **E9 Spec 18 („dieselbe Show wieder öffnen = neue Epoche“) gegen 19.3 Nr. 2 („keine neue Folge“):** Die Epoche wechselt nur beim Start der Rolle Master (13.3, 15.1). Wird dieselbe Show unverändert erneut gemeldet, entsteht keine neue Folge und keine `aenderung`. Die Zeile in 18 gilt für einen Launcher-Neustart mit derselben Show. Beides endet in V4 und gleichem Ergebnis. **Weicht ab** von Spec 18 („Master öffnet dieselbe Show wieder | neue Epoche“) für den Fall ohne Neustart der Rolle (N2). Vom Owner bestätigt am 08.10.2026. (C8, C19 C und I)
 10. **E10 `meldeShow` nach dem Schreiben** liest die Datei über `leseShow(pfad)` zurück („wie sie in der Datei steht“, mit dem `updatedAt`, das die Hülle beim Schreiben setzt, `iveo-sync.ts:384-386`). Scheitert gerade dieses Zurücklesen (etwa EBUSY), meldet der Kern die eben geschriebene Show (ohne das `updatedAt` der Hülle), nie `null`: „nicht-lesbar“ gehört nur zu `offeneShowGespeichert` (15.1, N6). Die Abhängigkeit `meldeShow` ist optional; ohne sie liest der Kern nicht zurück, und die 239 bestehenden Kern-Prüfungen bleiben unverändert. (C6)
 11. **E11 Fehlgeschlagenes `openShow`** (Parse-Fehler, `show.ts:32-37`) löst nichts aus; der Verbund verteilt weiter die Show, die der Launcher noch offen hat.
 12. **E12 „Rolle Master läuft“** für den RELOAD-Filter heißt: Die Rolle in der `master-link.json` des Launchers ist `master` (nicht der Serverzustand). Der Verbund-Kern bekommt dafür `rolle()`. Tools auf B sind ohnehin im Verbundmodus und ignorieren RELOAD. (C9)
 13. **E13 Texte ohne Spec-Vorgabe:** stehen gesammelt in der Liste unten („Texte ohne Spec-Vorgabe“); Owner-Freigabe vor dem Release, im Ledger vermerken.
-14. **E14 Timer:** `timerAktionenAusShow(show, mode, eigeneListe)` mit drittem Parameter `eigeneListe: boolean`, weil der Timer-Selbsttest `@jm/show` nicht zur Laufzeit lädt (G7); der Aufrufer rechnet `hatEigeneTimerListe(settings)`. `show-anwenden.ts` importiert `./show-ablauf.ts` mit Endung; `tsconfig.node.json` und `tsconfig.web.json` des Timers bekommen `"allowImportingTsExtensions": true` (Präzedenz `apps/connect`, `apps/interpreter`, `apps/switcher`). **Weicht ab** von der Signatur in Spec 17.1. (C14)
-15. **E15 Rundown:** `waehleLauncher(funde, kopplung, istHier)` mit einer Prüffunktion `istHier: (host: string) => boolean` statt `eigeneAdressen`, weil `src/shared` keine Paket-Laufzeitimporte hat (G7). Der Main übergibt `istHostDieserRechner` aus `@jm/app-runtime`. Der Rundown bekommt dadurch keine neue Abhängigkeit und keine Änderung der Bündel-Liste. **Weicht ab** von der Signatur in Spec 17.4. (C17, C18)
+14. **E14 Timer:** `timerAktionenAusShow(show, mode, eigeneListe)` mit drittem Parameter `eigeneListe: boolean`, weil der Timer-Selbsttest `@jm/show` nicht zur Laufzeit lädt (G7); der Aufrufer rechnet `hatEigeneTimerListe(settings)`. `show-anwenden.ts` importiert `./show-ablauf.ts` mit Endung; `tsconfig.node.json` und `tsconfig.web.json` des Timers bekommen `"allowImportingTsExtensions": true` (Präzedenz `apps/connect`, `apps/interpreter`, `apps/switcher`). **Weicht ab** von der Signatur in Spec 17.1. Vom Owner bestätigt am 08.10.2026. (C14)
+15. **E15 Rundown:** `waehleLauncher(funde, kopplung, istHier)` mit einer Prüffunktion `istHier: (host: string) => boolean` statt `eigeneAdressen`, weil `src/shared` keine Paket-Laufzeitimporte hat (G7). Der Main übergibt `istHostDieserRechner` aus `@jm/app-runtime`. Der Rundown bekommt dadurch keine neue Abhängigkeit und keine Änderung der Bündel-Liste. **Weicht ab** von der Signatur in Spec 17.4. Vom Owner bestätigt am 08.10.2026. (C17, C18)
 16. **E16 `verbundDatenErsetzt()`** löscht den Zwischenspeicher und setzt `angewendet` auf `null`. Aus `frueher` wird `einzelplatz`; andere Arten bleiben (die Verbindung läuft weiter). Die Tools rufen es nach jeder eigenen angewendeten Show außerhalb des Verbundmodus; Ergänzung siehe E56. (C12, C14, C16, C18)
 17. **E17 Reihenfolge beim Start:** Der Zwischenspeicher wird angewendet, sobald beides gilt: Das Tool hat `folgeMasterShow` registriert, und der Client läuft (Lock, `whenReady`). Die Tools registrieren erst, wenn sie bereit sind: Timer nach `loadState()`, Titler in `starteDatenquelle`, Rundown vor dem ersten Laden einer Show; Ergänzung siehe E55. (C12, C13, C14, C16, C18)
 18. **E18 Zwischenspeicher schreiben:** eigene kleine asynchrone Funktion (Zwischendatei, umbenennen, bis zu 5 Versuche à 50 ms bei `EPERM`/`EBUSY`/`EACCES`), nicht `schreibeAtomar` aus `@jm/master-link` (das blockiert bis zu 2 s synchron, `datei.ts:119-150`). (C13)
 19. **E19 Drossel zentral:** `verbundIgnoriert(weg, pfad?)` in app-runtime schreibt die beiden Zeilen aus 16.1 höchstens einmal je Minute und Weg. Die Drossel liegt im reinen `VerbundFolger.ignoriert` (übergebene Uhr, E44). (C12, C13)
 20. **E20 Verbund-Modal:** Die Texte sind reine Funktionen in `apps/launcher/src/renderer/src/lib/verbund-texte.ts`. Für die 10-s-Regel rendert das Modal alle 2 s neu, solange es offen ist. (C10)
 21. **E21 Titler, gleiche Show im Master-Weg:** `quellSchritt` bestimmt sie selbst aus dem Zustand (`masterId` + `schluessel`), nicht aus einem Parameter des Aufrufers. Der Pfad-Weg bleibt wie in R1 (die doppelte Wahrheit `gleicheShow`/`showPfad` dort ist FA21). (C15)
-22. **E22 Titler-Sperre im Main:** Bei Datenquelle `master` lehnen `titler:pickDataFolder`, `titler:setConfig` mit `dataFolder` und `titler:zurueckZumOrdner` ab (Log, Status unverändert); der Renderer zeigt den Text aus 17.2. (C16)
+22. **E22 Titler-Sperre im Main:** Bei Datenquelle `master` lehnen `titler:pickDataFolder`, `titler:setConfig` mit `dataFolder` und `titler:zurueckZumOrdner` ab (Log, Status unverändert); der Renderer zeigt den Text aus 17.2. Die Regeln sind rein und in C15 getestet: `ordnerWahlGesperrt` (Dialog, Knopf K1) und `ordnerPatchAbgelehnt` (Config-Patch, N17); im Main bleibt nur der Aufruf. (C15, C16)
 23. **E23 Side-Event-Cache des Panels** bleibt, wie er ist; aufgefrischt wird die Liste in der Show (15.4). Das Panel liest weiter den Cache (FA22). (C7)
-24. **E24 Rundown, Show-Deep-Link im Verbundmodus** (nach Spec, N1): Die Show-Daten bleiben die des Masters (17.3 „Daten ignoriert“), der Link liefert nur das Dokument (16.1): Trägt die verlinkte Show eine eigene `.jmrundown`, wird sie wie „Öffnen…“ Ausgangsstand und sofort mit der Show vom Master abgeglichen; die Show vom Master bleibt gemerkt. Dazu die gedrosselte Logzeile aus 16.1, die damit stimmt. Die frühere Fassung (Link ganz ignoriert) wich ohne Markierung von 16.1/17.3 ab. (C18)
+24. **E24 Rundown, Show-Deep-Link im Verbundmodus** (Auslegung: 17.3 vor 16.1; N15, ersetzt die Fassung aus N1): Der Rundown lädt aus dem Link nichts, weder Daten noch Dokument. 17.3 ist die Rundown-eigene Regel („Show-Deep-Link | Daten ignoriert“, „Eigene Rundown-Datei der Show: wird auf B nicht geladen“) und geht der allgemeinen Regel 16.1 („liefert nur noch Dokumente“) vor. Ein Show-Link kommt oft ohne bewusste Handlung (Launcher, Doppelklick) und darf einen laufenden Rundown nicht auf die erste Zeile setzen, GO-Folgen abbrechen oder das Gedächtnis der Master-Show überschreiben; „Öffnen…“ bleibt wie in 17.3 der bewusste Weg, eine `.jmrundown` zu laden. Der Rundown schreibt nicht die 16.1-Zeile („… liefert hier nur Dokumente …“, die hier nicht stimmte), sondern je Link eine eigene Infozeile „Verbund: Show-Link „⟨Name⟩“ – der Rundown folgt der Show vom Master und lädt daraus nichts.“ (⟨Name⟩ = Dateiname des Links über `kuerzeName`; ohne Drossel, ein Link ist eine einzelne Handlung). Die Entscheidung ist die reine Funktion `showLinkWeg` (C17, rot zuerst); C18 nutzt sie. Der stehende Hinweis aus 17.3 bleibt unverändert, weil nichts geladen wird. (C17, C18)
 25. **E25 Rundown-Übergang „Name gleicht der Show“:** Vergleich nach `trim()`, ohne Rücksicht auf Groß/Klein; ein leerer Name gleicht nie. (C17)
 26. **E26 Durchgang:** eigene Helfer im neuen Skript; `e2e-teil2a.mjs` bleibt unverändert. Die bekannten Schwächen werden nicht geerbt (`bis` mit `try/catch`, CDP wertet `error` aus, jede Prüfzeile mit Detail, Bildvergleich mit Gegenprobe „nicht leer“). (C20)
-27. **E27 Namen:** app-runtime führt `VerbundDaten` nach Spec 16.2; `@jm/master-link` exportiert einen gleichnamigen anderen Typ (`speicher.ts:30`). app-runtime importiert aus `@jm/master-link` nur einzeln benannte Typen und re-exportiert es nie als Ganzes. Die app-runtime-Prüfung heißt `istHostDieserRechner(host)`, die reine Funktion in master-link `istDieserRechner(host, eigeneAdressen, eigenerName?)`. (C4, C13)
+27. **E27 Namen:** app-runtime führt `VerbundDaten` nach Spec 16.2; `@jm/master-link` exportiert einen gleichnamigen anderen Typ (`speicher.ts:30`). app-runtime importiert aus `@jm/master-link` nur einzeln benannte Typen und Funktionen (etwa `kuerzeName`, N5; über `index.ts` auch re-exportiert, N15) und re-exportiert es nie als Ganzes. Die app-runtime-Prüfung heißt `istHostDieserRechner(host)`, die reine Funktion in master-link `istDieserRechner(host, eigeneAdressen, eigenerName?)`. (C4, C13)
 28. **E28 Brücken-Typ in den Tools:** Jede Tool-App führt `interface VerbundAnzeigeZeile { text: string; farbe: 'gruen' | 'gelb' | 'rot' | 'gedaempft' }` (strukturgleich mit `VerbundAnzeige` aus app-runtime), damit `tsconfig.web.json` app-runtime (Electron-Typen) nicht einliest. Titler und Rundown in `src/shared/types.ts`; der Timer hat keine `types.ts` und bekommt dafür die neue Datei `src/shared/verbund.ts` (nur dieser Typ). Preload und Renderer-Typdatei importieren ihn mit `import type`. (C14, C16, C18)
 29. **E29 Tools auf dem Master-Rechner** (Rolle `master` in der Datei) senden kein Abo. Bekäme der Verteiler doch ein Abo von `dieserRechner`, bedient er es wie jedes andere. (C8, C12)
 
@@ -278,34 +284,34 @@ E1–E29 stammen aus der Gliederung. E30–E61 haben die Schreiber der Blöcke b
 40. **E40 Verteiler und Rolle:** `MasterRolle.stoppe()` stoppt den Verteiler nur, wenn die Rolle einen Server hatte. `showImVerbund` setzt der Verbund-Kern aus `Verteiler.stand()`; `MasterRolle.stand()` liefert `showImVerbund: null`. Dafür schließt `VerbundKernDeps.verteiler` `stand` ein (`MasterAbhaengigkeiten.verteiler` bleibt ohne). (C9, C10)
 41. **E41 `neuAufsetzen` außerhalb „daten-beschaedigt“:** Warnung und Rückkehr ohne Wurf (die Oberfläche bietet den Knopf nur dort an); zwei alte Prüfungen in `verbund.test.ts` bringen den Master deshalb zuerst in „daten-beschaedigt“ (Vormerkung 9). (C9)
 42. **E42 RELOAD-Ziele:** `health.ts` liest bei jedem Aufruf `eigeneAdressen(networkInterfaces())` und `hostname()` neu (Karten können wechseln, kein Zwischenspeicher). (C9)
-43. **E43 Modal, Tools auf dem Master-Rechner:** Bei ihnen zeigt das Modal weder „bezieht Show-Daten“ noch „ohne Show-Daten (Update nötig)“: Sie abonnieren nicht (16.1, E29). Die Regel steht im Aufrufer (`VerbundMaster.tsx`); `toolDatenText` behält die Register-Signatur, dazu `OHNE_DATEN_NACH_MS`. „⟨n⟩ Tools beziehen sie“ steht wörtlich auch bei n = 1 (Owner-Frage). Alte Prüfungen, die Block B bewusst ändert: C7 Fixture `showMit` (P1–P3 statt P1–P2), `iveo-abgleich.test.ts:434` (Länge 3 statt 2), Prüfung „Nr. 13“; C9 die beiden `neuAufsetzen`-Prüfungen. (C7, C9, C10)
+43. **E43 Modal, Tools auf dem Master-Rechner:** Bei ihnen zeigt das Modal weder „bezieht Show-Daten“ noch „ohne Show-Daten (Update nötig)“: Sie abonnieren nicht (16.1, E29). Die Regel steht im Aufrufer (`VerbundMaster.tsx`); `toolDatenText` behält die Register-Signatur, dazu `OHNE_DATEN_NACH_MS`. Bei genau einem Bezieher heißt es „· 1 Tool bezieht sie“ (Owner 08.10.2026, N16), sonst wörtlich „⟨n⟩ Tools beziehen sie“. Alte Prüfungen, die Block B bewusst ändert: C7 Fixture `showMit` (P1–P3 statt P1–P2), `iveo-abgleich.test.ts:434` (Länge 3 statt 2), Prüfung „Nr. 13“; C9 die beiden `neuAufsetzen`-Prüfungen. (C7, C9, C10)
 
 ### Aus den Blöcken (Tool-Seite, C11–C13)
 
 44. **E44 `VerbundFolger.ignoriert(weg, pfad?)`:** Die Drossel aus E19 liegt im reinen Folger (übergebene Uhr, Name des Masters); `verbundIgnoriert` ruft sie nur weiter. Der Test steht deshalb in C12. (C12, C13)
 45. **E45 `VERBUND_FRISTEN` ist `Readonly<VerbundFristen>`** mit eigenem Interface statt `as const`, und der Konstruktor nimmt `fristen?: Partial<VerbundFristen>`. Mit `as const` ließe `Partial<typeof VERBUND_FRISTEN>` nur die Vorgabewerte zu; die Kette C19 braucht kurze Fristen. Werte unverändert. (C12)
 46. **E46 V4 nennt den angewendeten Stand;** nur wenn von diesem Master noch nichts angewendet ist (Start, Handler noch nicht registriert, früherer Master), den empfangenen `letzter`. `grund` ohne Wert bei `show: null` zeigt wie `keine-show`. (C11)
-47. **E47 Abo nur, wenn das Tool folgt:** Ein Tool schickt `abo` erst, wenn `folge()` gerufen ist; ist es da schon verbunden, sofort, sonst nach der nächsten Anmeldung (einmal je Verbindung). `startMasterLink` läuft in jedem Tool mit Master-Link (25 Apps); ohne diese Bedingung abonnierten auch Q&A, Battle, Caption usw. und belegten Plätze der 32-Abo-Grenze. Folge: Registriert ein Tool später als 10 s nach seiner Anmeldung, zeigt der Master bis dahin „ohne Show-Daten (Update nötig)“; die drei Tools registrieren gleich nach dem Start (E17). **Weicht ab** von Spec 12 und 16.1 („Abo nach jeder Anmeldung“ für Rolle Slave mit Kopplung): Tools ohne Anwenden abonnieren nie (N2). (C12)
-48. **E48 Anwende-Ziel:** Ein gerade versuchter Stand zählt beim Vergleich „neu“ mit; ein Stand, der nicht neuer ist als das laufende Ziel, ersetzt es nicht. Wirft `anwenden`, folgen bis zu fünf neue Versuche im Abstand von 1 s (16.2 „bis zu fünfmal … erneut“, also höchstens sechs Aufrufe; Zusammenführung ZF1). Danach fällt das Ziel weg (`fehler` bleibt stehen); der nächste Stand, der neuer ist als der angewendete, wird wieder versucht, auch derselbe nach einem Neuabo. Ein älterer Stand derselben Epoche ersetzt `letzter` nicht (Review Focus 2). (C12)
+47. **E47 Abo nur, wenn das Tool folgt:** Ein Tool schickt `abo` erst, wenn `folge()` gerufen ist; ist es da schon verbunden, sofort, sonst nach der nächsten Anmeldung (einmal je Verbindung). `startMasterLink` läuft in jedem Tool mit Master-Link (25 Apps); ohne diese Bedingung abonnierten auch Q&A, Battle, Caption usw. und belegten Plätze der 32-Abo-Grenze. Folge: Registriert ein Tool später als 10 s nach seiner Anmeldung, zeigt der Master bis dahin „ohne Show-Daten (Update nötig)“; die drei Tools registrieren gleich nach dem Start (E17). **Weicht ab** von Spec 12 und 16.1 („Abo nach jeder Anmeldung“ für Rolle Slave mit Kopplung): Tools ohne Anwenden abonnieren nie (N2). Vom Owner bestätigt am 08.10.2026. (C12)
+48. **E48 Anwende-Ziel:** Ein gerade versuchter Stand zählt beim Vergleich „neu“ mit; ein Stand, der nicht neuer ist als das laufende Ziel, ersetzt es nicht. Wirft `anwenden`, folgen bis zu fünf neue Versuche im Abstand von 1 s (16.2 „bis zu fünfmal … erneut“, also höchstens sechs Aufrufe; Zusammenführung ZF1). Danach fällt das Ziel weg (`fehler` bleibt stehen); der nächste Stand, der neuer ist als der angewendete, wird wieder versucht, auch derselbe nach einem Neuabo. Ein älterer Stand derselben Epoche ersetzt `letzter` nicht (Review Focus 2). Die Versuche mit einem Stand vom Master enden auch, wenn der Verbund endet (N4) oder die Kopplung direkt auf einen anderen Master wechselt (16.1 „Anderer Master“, N18). (C12)
 49. **E49 ⟨M⟩ und Grund:** ⟨M⟩ ist der Name aus der laufenden Anmeldung, sonst `kopplung.masterName`, sonst „Master“; in `frueher` der Name, der mit dem angewendeten Stand kam. Der Grund in `fehler` ist `err.code`, sonst der Fehlertyp, höchstens 40 Zeichen aus `[A-Za-z0-9_.-]`, nie die Meldung (G6). (C12)
 50. **E50 Zwischenspeicher der Reihe nach:** Der Folger schreibt nie zwei Stände gleichzeitig; kommt während des Schreibens ein neuer, folgt danach nur der neueste. Kommt `ersetzt()` während des Schreibens, löscht er die Datei danach noch einmal. `darfSchreiben: false` unterdrückt Schreiben **und** Löschen (G14). `ersetzt()` vor `starte()` verhindert das spätere Anwenden des Zwischenspeichers; ein Stand vor `folge()` wird gemerkt und nach dem Zwischenspeicher angewendet, wenn er neuer ist. (C12)
-51. **E51 Electron-Anbindung:** zusätzliche Exporte `standDatei(userData)`, `VERBUND_ANZEIGE_KANAL`, `registriereVerbundIpc(quelle)` (nicht über `index.ts`). `folgeMasterShow` und `verbundDatenErsetzt` dürfen vor dem Client-Start kommen und werden nachgereicht. `darfSchreiben` kommt aus `app.hasSingleInstanceLock()`. `index.ts` exportiert `verbundAnzeige` nicht (die Tools lesen die Zeile über IPC). `verbundAnClient` wirft nie (eine Warnung), sonst bräche auch der Master-Link-Client ab; es läuft direkt nach `client.starte()` (ZF2). (C13)
+51. **E51 Electron-Anbindung:** zusätzliche Exporte `standDatei(userData)`, `VERBUND_ANZEIGE_KANAL`, `registriereVerbundIpc(quelle)` (nicht über `index.ts`). `folgeMasterShow` und `verbundDatenErsetzt` dürfen vor dem Client-Start kommen und werden nachgereicht. `darfSchreiben` kommt aus `app.hasSingleInstanceLock()`. `index.ts` exportiert `verbundAnzeige` nicht (die Tools lesen die Zeile über IPC); zusätzlich exportiert es `nichtAngewendet` (N3) und `kuerzeName` aus `@jm/master-link` (für die Logzeile des Rundowns zum Show-Link, der `@jm/master-link` nicht als eigene Abhängigkeit hat, N15). `verbundAnClient` wirft nie (eine Warnung), sonst bräche auch der Master-Link-Client ab; es läuft direkt nach `client.starte()` (ZF2). (C13)
 
 ### Aus den Blöcken (Tools, C14–C18)
 
 52. **E52 Timer:** `currentShowPath` bleibt beim Anwenden eines Master-Stands unverändert; nach dem Ende des Verbunds liest ein RELOAD wieder die zuletzt geöffnete eigene Show (wie 2a). Privater Helfer `wendeTimerShowAn(show, mode)` im Main. (C14)
 53. **E53 Titler, reine Regeln:** `startZustand` hat den dritten Parameter mit Vorgabe `= null`; `nichtLesbar.gemerkt` und `tsvNichtGeschrieben(…).gemerkt` sind `GemerkteShowPfad | null`; H4 gilt auch bei Art `master` (nicht schreibbare TSV im Master-Weg, Wortlaut wie R1, FA19); zusätzlicher Typwächter `istMasterForm`. Wo 17.2 schweigt: gemerkt wird im Master-Weg nur bei Änderung; eine neue Show ohne Speaker im Verbund löscht `show-zuletzt.json`; `verbundEnde` ändert nur die Art `master`; Q4 nennt den vollen Showname (die Oberfläche kürzt). (C15)
 54. **E54 Typ-Brücken eine Aufgabe früher:** `apps/titler/src/main/index.ts` wird schon in C15 und `apps/rundown/src/main/index.ts` schon in C17 berührt (je eine verhaltensgleiche Typ-Brücke), weil die neuen Unions sonst den Typecheck brechen (G11). C16 bzw. C18 bauen die Stellen danach aus. (C15, C17)
-55. **E55 Start-Deep-Link nach der Registrierung** (Titler und Rundown): Die Registrierung `folgeMasterShow` kommt vor dem Show-Deep-Link beim Start, damit `imVerbundmodus()` beim Start-Deep-Link schon stimmt (16.3 „sofort Verbundmodus“, 17.2, E24). Ergänzt E17. (C16, C18)
+55. **E55 Start-Deep-Link nach der Registrierung** (Titler und Rundown): Die Registrierung `folgeMasterShow` kommt vor dem Show-Deep-Link beim Start, damit `imVerbundmodus()` beim Start-Deep-Link schon stimmt (16.3 „sofort Verbundmodus“, 17.2, E24). Ergänzt E17. Die Reihenfolge ist Verdrahtung im Main ohne eigene Entscheidung, die sich als reine Funktion testen ließe; C20 startet ohne Deep-Link. Sie steht deshalb als Handprüfung unter „Zusatzprüfungen (nicht in Spec 20)“ in der Abnahme-Datei (C21, N17). (C16, C18)
 56. **E56 Ergänzung zu E16:** Titler-Ordnerwahl und Knopf K1 sowie Rundown „Öffnen…“ und „Neu“ außerhalb des Verbundmodus rufen ebenfalls `verbundDatenErsetzt()`. Sonst holte ein Neustart nach dem Entkoppeln die Daten des früheren Masters aus dem Zwischenspeicher zurück und verdrängte die Wahl des Bedieners. (C16, C18)
 57. **E57 Titler, Main:** Name des Masters beim Start aus `verbundKopplung().masterName` (die Master-Form der gemerkten Show trägt keinen Namen; der Sperrtext braucht ihn). V12 bei Wurf: Der Main wirft `nichtAngewendet(⟨Fehlercode⟩)`, V12 lautet also „Show vom Master nicht übernommen: ⟨Fehlercode⟩“ (etwa `EBUSY`); den Zusammenhang mit der TSV zeigt H4 in der Quellzeile des Titlers (N3; ein einfaches `Error` ergab „…: Error“). Das Ende des Verbunds erkennt der Titler über `verbundEndetFuer` (N8). (C16)
 58. **E58 Rundown, Gedächtnis:** Die Typen `GedaechtnisQuelle` und `Zeiger` sind in `src/shared/ausgangsstand.ts` definiert und aus `src/main/gedaechtnis.ts` re-exportiert (`entscheideMasterStand` in `src/shared/conductor.ts` braucht `Zeiger`, G7). `schreibeGedaechtnis` ohne gültige Quelle → `false` (bisher Hash des Arbeitsordners, #235). Zusätzlicher Export `mitRundownDokument`. (C17)
-59. **E59 Rundown, Ladewege:** `Conductor` bekommt einen zweiten Konstruktor-Parameter `LauncherWahl` und `neuWaehlen()` (intern); vor `start()` baut `neuWaehlen()` keine Clients. Ein Slave ohne `masterId` geht als Einzelplatz (`null`) in `waehleLauncher`. „Übergang“ und „leer“ setzen `filePath` auf `null` und `dirty` auf `false`. Eine Master-Show ohne Ablauf und ohne Gedächtnis lässt das Dokument stehen (wie 2a 5.2). Ohne Schlüssel im Stand wirft `anwenden` `nichtAngewendet('SCHLUESSEL_FEHLT')`, V12 „Show vom Master nicht übernommen: SCHLUESSEL_FEHLT“ (N3). Ladeweg und Hinweis-Merker sind reine Funktionen aus C17 (`masterAusgang`, `dokumentHinweis`); `ladeMasterShow` rechnet erst und setzt dann den Zustand (N9). (C18)
+59. **E59 Rundown, Ladewege:** `Conductor` bekommt einen zweiten Konstruktor-Parameter `LauncherWahl` und `neuWaehlen()` (intern); vor `start()` baut `neuWaehlen()` keine Clients. Ein Slave ohne `masterId` geht als Einzelplatz (`null`) in `waehleLauncher`. „Übergang“ und „leer“ setzen `filePath` auf `null` und `dirty` auf `false`. Eine Master-Show ohne Ablauf und ohne Gedächtnis lässt das Dokument stehen (wie 2a 5.2). Ohne Schlüssel im Stand wirft `anwenden` `nichtAngewendet('SCHLUESSEL_FEHLT')`, V12 „Show vom Master nicht übernommen: SCHLUESSEL_FEHLT“ (N3). Ladeweg und Hinweis-Merker sind reine Funktionen aus C17 (`masterAusgang`, `dokumentHinweis`), ebenso die Entscheidung zum Show-Link (`showLinkWeg`, N15); `ladeMasterShow` rechnet erst und setzt dann den Zustand (N9). (C18)
 
 ### Aus den Blöcken (Kette, Durchgang, Abschluss, C19–C21)
 
 60. **E60 Kette und Durchgang:** Am Master laufen in C19 `MasterLinkServer` und `Verteiler` direkt, verdrahtet wie `MasterRolle` (die Rolle selbst prüft C9). C19 deckt zusätzlich die Zeilen „Netz kurz/länger weg“, Slave-Launcher und Rolle „aus“; die Gegenproben laufen über den Schalter `KETTE_GEGENPROBE`. C20 prüft zusätzlich Port 8736, liest den Timer-Ablauf über den Timer-Socket 7777, startet in Prüfung 5 alle drei Tools neu und legt die ganzen `verbund`-Ordner beiseite. (C19, C20)
-61. **E61 Abnahme und Doku:** Die Abnahme-Datei trägt über der wortgleichen Tabelle drei Voraussetzungen und darunter die vier Hinweise (M1, FA15, FA17, FA4). `docs/suite-verbund.md` bekommt auch einen neuen Stand-Satz in Zeile 5. Die Notes nennen über die Pflichtpunkte hinaus, was ein Bediener merkt. (C21)
+61. **E61 Abnahme und Doku:** Die Abnahme-Datei trägt über der wortgleichen Tabelle drei Voraussetzungen, darunter die vier Hinweise (M1, FA15, FA17, FA4) und den Abschnitt „Zusatzprüfungen (nicht in Spec 20)“ mit fünf Handprüfungen (N17, N23). `docs/suite-verbund.md` bekommt auch einen neuen Stand-Satz in Zeile 5. Die Notes nennen über die Pflichtpunkte hinaus, was ein Bediener merkt. (C21)
 
 ### Texte ohne Spec-Vorgabe (Owner-Freigabe vor dem Release)
 
@@ -319,7 +325,7 @@ E1–E29 stammen aus der Gliederung. E30–E61 haben die Schreiber der Blöcke b
 | Verteiler, Launcher-Abo (15.2 „mit einer Logzeile“) | „Verbund: Abo von ⟨Rechnername⟩/⟨appId⟩ ignoriert, ein Launcher braucht keine Show-Daten.“ (einmal je Sitzung) | info | C8 |
 | Verteiler, Stufen der Zeilen aus 15.6 | „verteilt“, „neues Abo“, Launcher-Abo = info; „zu groß“, „nicht lesbar“, „Abo-Grenze“, „gestaut“ = warn | – | C8 |
 | MasterRolle, `neuAufsetzen` im falschen Zustand | „Master: „Verbund neu aufsetzen“ nur bei beschädigten Verbunddaten, nichts gelöscht.“ | warn | C9 |
-| Modal, ein Bezieher | „· 1 Tools beziehen sie“ (Spec 15.5 wörtlich; der Owner kann eine Einzahl wünschen) | – | C10 |
+| Modal, ein Bezieher | „· 1 Tool bezieht sie“ (Owner-Entscheid 08.10.2026, N16; Spec 15.5 wörtlich ergäbe „· 1 Tools beziehen sie“) | – | C10 |
 | app-runtime, ungültiger Stand (13.2) | „Verbund: Show-Daten von „⟨M⟩“ verworfen (⟨t⟩, Feld ⟨Feld⟩).“ | warn | C12 |
 | app-runtime, übernommen | „Verbund: Show „⟨S⟩“ vom Master „⟨M⟩“ übernommen (Stand ⟨Folge⟩[, neue Show]).“ | info | C12 |
 | app-runtime, nicht übernommen | „Verbund: Show vom Master „⟨M⟩“ nicht übernommen (⟨Code⟩), neuer Versuch in 1 s.“ bzw. „… nicht übernommen (⟨Code⟩), weiter erst mit dem nächsten Stand.“ | warn | C12 |
@@ -330,6 +336,7 @@ E1–E29 stammen aus der Gliederung. E30–E61 haben die Schreiber der Blöcke b
 | Titler, Ordnerwahl abgelehnt | „DataLink: Ordnerwahl abgelehnt. ⟨Text aus 17.2⟩“ | – | C16 |
 | Titler, V12-Grund | der Fehlercode der TSV, also „Show vom Master nicht übernommen: ⟨Fehlercode⟩“ (etwa `EBUSY`; `nichtAngewendet`, N3) | – | C16 |
 | Rundown, V12-Grund ohne Schlüssel | „Show vom Master nicht übernommen: SCHLUESSEL_FEHLT“ (`nichtAngewendet('SCHLUESSEL_FEHLT')`, N3; laut 13.1 ausgeschlossen) | – | C18 |
+| Rundown, Show-Link im Verbundmodus (statt der 16.1-Zeile, E24) | „Verbund: Show-Link „⟨Name⟩“ – der Rundown folgt der Show vom Master und lädt daraus nichts.“ (je Link; ⟨Name⟩ = Dateiname über `kuerzeName`; `showLinkWeg`, N15) | info | C17, C18 |
 
 ## Vormerkungen: in R2 oder Folgeaufgabe
 
@@ -580,7 +587,8 @@ export function verbundKopplung(): VerbundKopplung | null;
 export function verbundIgnoriert(weg: 'reload' | 'deeplink', pfad?: string): void;   // Texte 16.1, 60-s-Drossel je Weg
 export function istHostDieserRechner(host: string): boolean;   // istDieserRechner mit os.networkInterfaces() und os.hostname()
 export function verbundAnClient(client: MasterLinkClient, o: { userData: string; log: Logger }): void;  // nur intern (index.ts, direkt nach client.starte(), ZF2), wirft nie
-// index.ts exportiert zusätzlich nichtAngewendet (aus verbund-daten, N3) und die Typen MasterStand, VerbundDaten, VerbundKopplung, VerbundAnzeige, FolgeHandler — nicht verbundAnzeige.
+// index.ts exportiert zusätzlich nichtAngewendet (aus verbund-daten, N3), kuerzeName (aus @jm/master-link, für den Rundown, N15)
+//   und die Typen MasterStand, VerbundDaten, VerbundKopplung, VerbundAnzeige, FolgeHandler — nicht verbundAnzeige.
 // IPC: ipcMain.handle('jmps:verbund-anzeige') → VerbundAnzeige | null; bei 'wechsel' webContents.send('jmps:verbund-anzeige', anzeige) an alle Fenster
 ```
 
@@ -608,6 +616,7 @@ export function istMasterForm(g: GemerkteShow | null): g is GemerkteShowMaster;
 export function startZustand(gemerkt: GemerkteShow | null, frueher: boolean, gekoppelterMaster: string | null = null): QuellZustand;
 export function ordnerWahlGesperrt(z: QuellZustand): string | null;   // Text 17.2 bei art 'master', sonst null
 export function verbundEndetFuer(z: QuellZustand, lage: string): boolean;   // master und Lage frueher/einzelplatz/datei-defekt (N8)
+export function ordnerPatchAbgelehnt(neu: string | undefined, vorher: string, z: QuellZustand): string | null;   // E22 Config-Patch (N17)
 // quellZeile: Q4 „Quelle: Show vom Master „⟨S⟩““ bei art 'master'
 // apps/titler/src/main/show-quelle.ts: leseGemerkteShow(userData): GemerkteShow | null; schreibeGemerkteShow(userData, wert: GemerkteShow): boolean
 // apps/titler/src/shared/types.ts: TitlerStatus.datenQuelle.ordnerGesperrt?: string (C16)
@@ -633,6 +642,8 @@ export function gleicherShowName(docName: string, showName: string): boolean;
 export function dokumentHinweis(vorher: string | null, stand: { masterId: string; mitDokument: readonly string[] }, masterSchluessel: string): { fuer: string | null; zeigen: boolean };   // N9
 export type MasterAusgang = 'gedaechtnis' | 'uebergang' | 'leer' | 'bleibt';
 export function masterAusgang(o: { mitGedaechtnis: boolean; ablaufLeer: boolean; docName: string; showName: string }): MasterAusgang;   // N9
+export function showLinkWeg(imVerbund: boolean, pfad: string, kuerze: (name: string) => string):
+  { weg: 'laden' } | { weg: 'ignorieren'; log: string };   // E24: im Verbundmodus nichts laden, eigene Logzeile (N15)
 // apps/rundown/src/main/conductor.ts (intern) — C18, E59
 export interface LauncherWahl { kopplung(): KopplungFuerWahl | null; istHier(host: string): boolean }
 // class Conductor { constructor(onChange: () => void, launcherWahl?: LauncherWahl); neuWaehlen(): void }
@@ -647,9 +658,9 @@ export interface LauncherWahl { kopplung(): KopplungFuerWahl | null; istHier(hos
 
 Beim Zusammensetzen der fünf Blöcke und beim Durchspielen gefunden und im Plantext aufgelöst. ZF1, ZF2 und ZF10 ändern Verhalten; ZF1 und ZF2 fand der Kettentest C19 erst gegen den echten Code der früheren Blöcke, ZF10 der Abgleich der Zusagen von C13 mit Block D.
 
-1. **ZF1 · Anwende-Versuche: der erste und bis zu fünf neue** (C12, gefunden von C19 J). Block C rief `anwenden` insgesamt fünfmal; Block E prüfte sechs Aufrufe. Die Spec entscheidet: 16.2 „wendet … bis zu fünfmal im Abstand von 1 s **erneut** an“, 18 „bis zu fünf neue Versuche“, 19.4 „fünf neue Versuche im Abstand von 1 s“. Geändert in C12: `rest: 1 + this.f.anwendeVersuche` mit Kommentar, drei Erwartungen im Test (`versuche === 6`, `9`, `11`), Kopfkommentar, Commit-Text und E48. Die Zahl der Prüfungen bleibt (103 in C12); gemessen danach `15 passed` und `201 passed`, C19 J grün. (Nach der Nachbesserung N3–N5: 109 in C12, `207 passed`.)
-2. **ZF2 · Der Folger startet direkt nach `client.starte()`** (G2 c, C13, C19; gefunden von C19 M). Die Gliederung setzte Einfügung (c) vor `client.starte()`. Dort liefert `client.kopplung()` noch `null`; ein schon registrierter Handler bekam den Zwischenspeicher mit „keine Kopplung“: beim Start kurz V13, und Titler oder Rundown gingen über `beiWechsel` auf `frueher` (16.3 verlangt „sofort Verbundmodus“). Gemessen: `61 ok, 2 fehlgeschlagen.` (beide in M). Geändert: G2 (c) und C13 Step 7 (c) stehen jetzt hinter `client.starte();`, der Kommentar in `verbund.ts` und die Begründung in C13 „Vorab“, die Reihenfolge in `baueWerkzeug` von C19. Das synchrone `zustand` des Clients verpasst der Folger dabei nicht folgenreich: `starte()` leitet die Lage neu ab und meldet sie. Danach `63 ok, 0 fehlgeschlagen.`; die Einfügungen in `index.ts` bleiben 13 Zeilen ohne gelöschte Zeile (nach N3: 14, eine Exportzeile mehr).
-3. **ZF3 · Rundown-Zählung:** Der Rundown-Selbsttest hat vor R2 **404 + 81** `ok`-Zeilen (zusammen 485), nicht „485 + 81“ wie in der Gliederung. Blöcke B und D hatten das schon gemessen; Testläufe und C21 nennen 404 + 81, nach R2 430 + 109 (nach der Nachbesserung N9: 440 + 109).
+1. **ZF1 · Anwende-Versuche: der erste und bis zu fünf neue** (C12, gefunden von C19 J). Block C rief `anwenden` insgesamt fünfmal; Block E prüfte sechs Aufrufe. Die Spec entscheidet: 16.2 „wendet … bis zu fünfmal im Abstand von 1 s **erneut** an“, 18 „bis zu fünf neue Versuche“, 19.4 „fünf neue Versuche im Abstand von 1 s“. Geändert in C12: `rest: 1 + this.f.anwendeVersuche` mit Kommentar, drei Erwartungen im Test (`versuche === 6`, `9`, `11`), Kopfkommentar, Commit-Text und E48. Die Zahl der Prüfungen bleibt (103 in C12); gemessen danach `15 passed` und `201 passed`, C19 J grün. (Nach der Nachbesserung N3–N5: 109 in C12, `207 passed`; nach N18: 110, `208 passed`.)
+2. **ZF2 · Der Folger startet direkt nach `client.starte()`** (G2 c, C13, C19; gefunden von C19 M). Die Gliederung setzte Einfügung (c) vor `client.starte()`. Dort liefert `client.kopplung()` noch `null`; ein schon registrierter Handler bekam den Zwischenspeicher mit „keine Kopplung“: beim Start kurz V13, und Titler oder Rundown gingen über `beiWechsel` auf `frueher` (16.3 verlangt „sofort Verbundmodus“). Gemessen: `61 ok, 2 fehlgeschlagen.` (beide in M). Geändert: G2 (c) und C13 Step 7 (c) stehen jetzt hinter `client.starte();`, der Kommentar in `verbund.ts` und die Begründung in C13 „Vorab“, die Reihenfolge in `baueWerkzeug` von C19. Das synchrone `zustand` des Clients verpasst der Folger dabei nicht folgenreich: `starte()` leitet die Lage neu ab und meldet sie. Danach `63 ok, 0 fehlgeschlagen.`; die Einfügungen in `index.ts` bleiben 13 Zeilen ohne gelöschte Zeile (nach N3: 14, nach N15: 15, je eine Exportzeile mehr).
+3. **ZF3 · Rundown-Zählung:** Der Rundown-Selbsttest hat vor R2 **404 + 81** `ok`-Zeilen (zusammen 485), nicht „485 + 81“ wie in der Gliederung. Blöcke B und D hatten das schon gemessen; Testläufe und C21 nennen 404 + 81, nach R2 430 + 109 (nach der Nachbesserung N9: 440 + 109, nach N15: 443 + 109).
 4. **ZF4 · Nummern:** Die Entscheidungen der Blöcke stehen als E30–E61 im Abschnitt „Entscheidungen“. Verweise auf den Bericht von Block B („Bericht Nr. …“) sind durch diese Nummern ersetzt; die Berichte der Schreiber gehören nicht in den Plan.
 5. **ZF5 · Keine „gleiche Ersetzung“:** C14 Step 6 nannte für `apps/timer/tsconfig.web.json` nur „dieselbe Ersetzung“. Jetzt steht dort der eigene Vorher/Nachher-Text (beim Durchspielen genau einmal gefunden).
 6. **ZF6 · Register auf Stand gebracht:** Gegenüber der Gliederung kamen dazu bzw. änderten sich `Verbindung.sende` (E30), `VerbundFristen` und `Partial<VerbundFristen>` (E45; die Kette braucht kurze Fristen, Block E hatte das als Befund gemeldet), `VerbundFolger.ignoriert` (E44), `standDatei`, `VERBUND_ANZEIGE_KANAL`, `registriereVerbundIpc` (E51), `toProgramList`, `IveoClientLike`, Signatur mit Side Events (C7), `rolle()` und `stand` am Verbund-Kern (E12, E40), `OHNE_DATEN_NACH_MS` (E43), `istMasterForm` (E53), Typen im Rundown in `src/shared/ausgangsstand.ts` und `mitRundownDokument` (E58), `LauncherWahl` (E59).
@@ -662,7 +673,7 @@ Beim Zusammensetzen der fünf Blöcke und beim Durchspielen gefunden und im Plan
 
 Drei Prüfer (Spec, Code, Robustheit) haben den zusammengeführten Plan gelesen und nachgespielt. Was übernommen wurde, steht hier; der Plantext der genannten Aufgaben ist danach geändert und auf einer frischen Kopie neu gemessen (alle Zahlen in den Aufgaben sind die neuen).
 
-1. **N1 · Rundown, Show-Deep-Link im Verbundmodus nach Spec** (E24, C18): Er liefert nur das Dokument (16.1) — die eigene Rundown-Datei der verlinkten Show wird wie „Öffnen…“ Ausgangsstand und sofort abgeglichen (17.3); die Daten bleiben die des Masters. Vorher ignorierte der Rundown den Link ganz, ohne „Weicht ab“, und schrieb die 16.1-Zeile „… liefert hier nur Dokumente …“, die dann nicht stimmte. Notes und `docs/suite-verbund.md` (C21) sagen es jetzt so.
+1. **N1 · Rundown, Show-Deep-Link im Verbundmodus nach Spec** (E24, C18; **ersetzt durch N15**, der Text bleibt zur Nachvollziehbarkeit stehen): Er liefert nur das Dokument (16.1) — die eigene Rundown-Datei der verlinkten Show wird wie „Öffnen…“ Ausgangsstand und sofort abgeglichen (17.3); die Daten bleiben die des Masters. Vorher ignorierte der Rundown den Link ganz, ohne „Weicht ab“, und schrieb die 16.1-Zeile „… liefert hier nur Dokumente …“, die dann nicht stimmte. Notes und `docs/suite-verbund.md` (C21) sagen es jetzt so.
 2. **N2 · „Weicht ab“ nachgetragen** für E9 (Spec 18, neue Epoche) und E47 (Spec 12/16.1, Abo nach jeder Anmeldung); beide stehen jetzt in Owner-Frage Nr. 1.
 3. **N3 · V12 zeigt den Grund des Tools** (C12, C13, C16, C18): Neuer Export `nichtAngewendet(code)` aus `verbund-daten.ts` (über `index.ts` öffentlich, eine Zeile mehr im Export-Block: 14 statt 13). Titler (`EBUSY` u. a.) und Rundown (`SCHLUESSEL_FEHLT`) werfen damit; ein einfaches `Error` zeigte „Show vom Master nicht übernommen: Error“. Drei Prüfungen in C12.
 4. **N4 · Keine Anwende-Versuche nach dem Ende des Verbunds** (C12): `aufZustand` beendet die Versuche mit einem Stand vom Master, sobald die Kopplung keinen Slave mehr zeigt; ein Stand aus dem Zwischenspeicher wird weiter versucht (16.3). Zwei Prüfungen.
@@ -672,25 +683,47 @@ Drei Prüfer (Spec, Code, Robustheit) haben den zusammengeführten Plan gelesen 
 8. **N8 · Titler erkennt jedes Ende des Verbunds** (C15, C16): reine Regel `verbundEndetFuer` für `frueher`, `einzelplatz` und `datei-defekt`; vorher blieb der Titler nach einem Start mit Master-Form ohne lesbaren Zwischenspeicher und anschließendem Entkoppeln in Quelle `master` (Q4 und gesperrte Ordnerwahl ohne Verbund). Sechs Prüfungen.
 9. **N9 · Rundown-Ladeweg und Hinweis-Merker als reine Funktionen** (C17, C18): `masterAusgang` und `dokumentHinweis` mit zehn Prüfungen, rot zuerst; `ladeMasterShow` rechnet erst und setzt dann Zeiger, `masterQuelle` und `masterShow` (ein Wurf lässt nichts halb gemerkt zurück, der nächste Versuch lädt wieder als neue Show).
 10. **N10 · `iveo` im Ausschnitt über eine Freigabeliste** (C5): die sieben Felder ausdrücklich statt „alles außer `baseUrl`“ (Spec 0 Nr. 4, 14.1, 22). Prüfzahl unverändert.
-11. **N11 · Zoom Stage 4b** (Kopf, G2, C11, Schlussabschnitt): CI-Konflikt und gemeinsamer Schritt, Zählstand des CSP-Teils nach dem Merge, berichtigte Aussage zu `package.json`.
+11. **N11 · Zoom Stage 4b** (Kopf, G2, C11, Schlussabschnitt): CI-Konflikt und gemeinsamer Schritt, Zählstand des CSP-Teils nach dem Merge, berichtigte Aussage zu `package.json`. Die Zahlen daraus (17 Schritte, `5e5cd7fca7`, `43 passed`) sind durch N20 überholt.
 12. **N12 · Zeitabhängige Tests mit Abstand** (C13, C19): C13 wartet auf die Datei statt fest 50 ms; C19 nutzt eine Stille-Frist von 2 s statt 1,2 s (Abschnitt E wartet bis 5 s auf die Trennung). C19 gemessen 11 s, Gegenproben unverändert 29 bzw. 7 `FAIL`. Die CI unter Linux/Node 22 ist der erste Lauf dort.
 13. **N13 · Text- und Angabenkorrekturen:** G13 nennt die Modal-Regel als bewusste Ausnahme (FA12); FA18 richtig begründet; die Rücknahme der Gegenprobe in C4 Step 8 eindeutig mit Vorzeile; Bereichsangaben, die nicht zur Fundstelle passten, nachgezogen.
-14. **N14 · Durchgang C20 vor dem Merge Pflicht:** C16 und C18 haben außer Typecheck und Build nur diesen Verhaltensnachweis.
+14. **N14 · Durchgang C20 vor dem Merge Pflicht:** C16 und C18 haben außer Typecheck und Build nur diesen Verhaltensnachweis. (Seit N17 genauer: Was C20 davon prüft und was nicht, steht in C16 und C18; der Rest steht als Handprüfung in der Abnahme-Datei.)
 
 Abgelehnt wurde keiner der 17 Befunde. Zwei waren derselbe (CI-Schritt mit Zoom 4b).
 
+### Zweite Runde: Owner-Antworten und Nachprüfung (08.10.2026)
+
+Eine unabhängige Nachprüfung hat die Behebung gelesen und nachgespielt (16 Befunde behoben, Befund 11 nur teilweise, neue Befunde N-W1 und N-K1 bis N-K8). Der Owner hat am selben Tag die offenen Fragen beantwortet, die steuernde Sitzung hat zu den Befunden entschieden. Umgesetzt ist das hier; der ganze Plan ist danach neu abgespielt und gemessen (siehe „Wie dieser Plan entstanden ist“).
+
+15. **N15 · Rundown ignoriert einen Show-Deep-Link im Verbundmodus ganz** (zu N-W1; ersetzt N1; E24, C13, C17, C18, C21): Weder Daten noch Dokument. Auslegung „17.3 vor 16.1“: 17.3 ist die Rundown-eigene Regel („Show-Deep-Link | Daten ignoriert“, „Eigene Rundown-Datei der Show: wird auf B nicht geladen“). Ein Show-Link kommt oft ohne bewusste Handlung (Launcher, Doppelklick) und darf einen laufenden Rundown nicht auf die erste Zeile setzen, GO-Folgen abbrechen (`cancelPendingFires`) oder das Gedächtnis der Master-Show überschreiben, wie es N1 über `gleicheMitMasterAb` tat; „Öffnen…“ bleibt der bewusste Weg. Statt der 16.1-Zeile schreibt der Rundown eine eigene, wahre Infozeile „Verbund: Show-Link „⟨Name⟩“ – der Rundown folgt der Show vom Master und lädt daraus nichts.“ (⟨Name⟩ = Dateiname über `kuerzeName`). Die Entscheidung ist die reine Funktion `showLinkWeg` in C17 (drei Prüfungen, rot zuerst mit `SyntaxError`, Gegenproben 2 / 1 / 2 `FAIL`); C18 nutzt sie, `ladeDokumentImVerbund` entfällt. `kuerzeName` kommt über `@jm/app-runtime` (eine Exportzeile mehr in `index.ts`, jetzt 15 Zeilen, 663 von 663), weil der Rundown `@jm/master-link` nicht als eigene Abhängigkeit hat. Der Hinweis aus 17.3 bleibt unverändert. Notes und `docs/suite-verbund.md` (C21): „Im Verbund lädt der Rundown auf einem gekoppelten Rechner aus einem Show-Link nichts; eine eigene Rundown-Datei lässt sich mit „Öffnen…“ laden.“
+16. **N16 · Modal bei genau einem Bezieher „· 1 Tool bezieht sie“** (Owner-Antwort auf Frage 3; C10, E43, C21): sonst wörtlich 15.5 „· ⟨n⟩ Tools beziehen sie“. Eine Prüfung in `verteiler.test.ts` Nr. 10 (jetzt 53), Gegenprobe Step 10 mit genau dieser `FAIL`-Zeile (`52 ok, 1 fehlgeschlagen.`). Texttabelle, Doku und `selftest:verbund` (203 / 53 / 63) nachgezogen.
+17. **N17 · Ehrlich, was C20 prüft; Sperre E22 als reine Funktion; Zusatzprüfungen** (zu Befund 11; C15, C16, C18, C21, Kopf, Schlussabschnitt): C16 und C18 sagen jetzt Prüfung für Prüfung, was der Durchgang abdeckt und was nicht (Show-Link, Startreihenfolge, Ordnerwahl, „Öffnen…“/„Neu“, Launcher-Wahl). Die Regel der Sperre für einen Config-Patch ist die reine Funktion `ordnerPatchAbgelehnt` in C15 (drei Prüfungen, rot zuerst mit `SyntaxError … 'ordnerPatchAbgelehnt'`, Gegenproben je 1 `FAIL`); der Main ruft sie, eine Warnung bleibt an einer Stelle. Die Startreihenfolge (E55) ist Verdrahtung ohne testbare Entscheidung: Sie steht mit dem Show-Link und der gesperrten Ordnerwahl als Handprüfung unter „Zusatzprüfungen (nicht in Spec 20)“ in der Abnahme-Datei, unter der unveränderten Tabelle aus Spec 20.
+18. **N18 · Anwende-Versuche enden auch beim direkten Wechsel an einen anderen Master** (zu N-K7; C12, E48): `aufZustand` beendet die Versuche mit einem Stand vom Master, wenn die Kopplung weiter einen Slave zeigt, aber eine andere `masterId` (16.1 „Anderer Master“). Eine Prüfung; rot gegen die Fassung vor N18 (Gegenprobe: 1 `FAIL`). C12 jetzt 110 Prüfungen, `174 passed`; C13 `208 passed`.
+19. **N19 · Owner-Antworten vom 08.10.2026:** alle fünf „Weicht ab“ bestätigt (E6, E9, E14, E15, E47; Owner-Fragen 1, 4, 7); Durchgang C20 freigegeben (Frage 8; die Ledger-Zeile setzt die steuernde Sitzung beim Start der Umsetzung, C20 läuft dann ganz); Umsetzung per Workflow nach Zoom 4b, vor C1 Neuaufsatz auf `main` mit Nachmessen der Anker und Zählstände (Kopf, Schlussabschnitt). Offen bleiben nur die Texte ohne Spec-Vorgabe und die Notes R2 (Freigabe vor dem Commit von C21).
+20. **N20 · Fakten zu `main` und Zoom 4b auf dem Stand vom 08.10.2026** (zu N-K5; Kopf, Testläufe, Schlussabschnitt), lesend mit `git` nachgeprüft: `origin/main` = `b7e959866d` mit 16 Schritten im Job `selftests` (dazu Presenter, Appkit, App Designer aus PR #248) und `docs/roadmap.md` aus PR #249; gegen `5f8ed15ef8` ändert `main` außerdem `package-lock.json`, `packages/suite-manifest/changelog.json` und `ci-checks.yml`. `feat/zoom-stage4b` = `85dcba597d` (neu aufgesetzt auf `b7e959866d`; seit `9611b31c1e` nur `apps/connect`, `packages/zoom-bridge/test` und Doku), 20 Schritte, letzter „App-Laufzeit (Log-Aufräumen, CSP)“; app-runtime-Selbsttest dort `50 passed` (in einer Kopie gemessen). Nach beiden bleibt **ein** app-runtime-Schritt, der Job hat 20 Schritte. Die Zusammenführung von `index.ts` mit `85dcba597d` ist konfliktfrei (675 Zeilen).
+21. **N21 · Kleinkorrekturen** (N-K1 bis N-K4, N-K6, N-K8): `index.ts` nach C13 mit Zeilenzahl (jetzt 663, wegen N15; mit 14 Zeilen wären es 662 gewesen, N-K1); `nichtAngewendet` (und `kuerzeName`) im Produces-Block und im Commit-Text von C13 (N-K2); C21 Step 10 nennt die Zeilenzahl der Texttabelle nach dem neuen Stand (20, N-K3); Architektur, Commit-Texte von C16 und C18 und die Lesestellen in C18 folgen dem Plan (N-K4); Zoom-Bridge-Zusatzbitte überall „erledigt: Issue #247“ (N-K6); die Gegenproben-Zeile „Sperre auch bei `ordner` im Verbund“ in C15 nennt die gemessenen 3 `FAIL`-Zeilen einzeln (N-K8).
+
+### Dritte Runde: zweite Nachprüfung (08.10.2026)
+
+Eine zweite unabhängige Nachprüfung hat die zweite Runde gelesen und nachgespielt: kein kritischer oder wichtiger Befund, zehn kleine (K1–K10). Übernommen ist, was zutraf; der ganze Plan ist danach wieder abgespielt und gemessen (siehe „Wie dieser Plan entstanden ist“). Unverändert bleibt `kuerzeName` über `@jm/app-runtime` (N15, K9): Der Rundown braucht den Namen für seine Logzeile und hat `@jm/master-link` nicht als eigene Abhängigkeit; `index.ts` hat deshalb nach C13 663 Zeilen. Bestätigt von der steuernden Sitzung am 08.10.2026: Der Export über `@jm/app-runtime` gilt; eine neue Abhängigkeit des Rundowns auf `@jm/master-link` wäre der größere Eingriff (E15).
+
+Eine dritte Nachprüfung fand danach nur noch kleine Text- und Angabenpunkte (Liste der Handprüfungen in N17 ohne die Zusatzprüfungen 4 und 5, Satzbau im Doku-Satz zur Log-Drossel und in zwei Notes-Einträgen, „über/unter der Tabelle“ in der Kopf-Tabelle zu C21, Step 10 von C21 nennt nur Changelog-Einträge als Ort geänderter Texte, Erwartung zum stehenden Hinweis nach „Öffnen…“ in der Abnahme). Sie werden im Nachmess-Durchgang nach O-4 (Neuaufsatz auf `main` mit 4b) mit erledigt.
+
+22. **N22 · CI-Schritt für beide Stände** (zu K1; G2, C11, Kopf-Tabelle, Dateistruktur, Selbstprüfung, Schlussabschnitt): G2 nennt jetzt beide Fälle. Ohne 4b wird der Schritt angehängt; mit 4b (nach dem Neuaufsatz, der vorgesehene Fall) wird der 4b-Schritt umbenannt. In jedem Fall steht genau ein app-runtime-Schritt im Job (Spec 19.6). Der Commit-Text von C11 sagt „genau ein CI-Schritt“ statt „am Ende“. Der Schlussabschnitt nennt alle Stellen, die der Nachmess-Durchgang dafür mitzieht.
+23. **N23 · Zusatzprüfungen 4 und 5; offen gesagt, was nirgends zur Laufzeit läuft** (zu K3; C21 Step 2, Kopf, G15, C16, C18, E61, Owner-Frage 5, Schlussabschnitt): Die Abnahme-Datei bekommt zwei Handprüfungen dazu: die Rundown-Datei am Master mit dem stehenden Hinweis und „Öffnen…“/„Neu“ im Verbundmodus (17.3), und die eigene Wahl nach dem Entkoppeln (Titler-Ordner, Rundown „Neu“, E56). Die Einleitung nennt auch den Timer, die Logzeile heißt wie in der Texttabelle „⟨Name⟩“, und sie sagt, was nur als reine Regel geprüft ist: die Ablehnung im Main des Titlers, solange die Oberfläche die Wahl schon sperrt (E22). Die Tabelle aus Spec 20 bleibt wortgleich.
+24. **N24 · Text- und Angabenkorrekturen** (zu K2, K4–K8, K10): Keine Bitte um Bestätigung mehr zu geschlossenen Owner-Fragen (Überschrift der Entscheidungen, C15, C16, C18); Owner-Fragen 5 und 6 sind als vom Owner geschlossen vermerkt (offen bleiben nur Texte und Notes, N19). Die Doku zur Log-Drossel unterscheidet Neu-Laden und Show-Link (der Rundown vermerkt jeden Show-Link). Zu 4b in `index.ts`: 13 Zeilen eingefügt, eine Leerzeile gelöscht (netto +12). Der Code-Kommentar in C18 beschreibt keine nie committete Fassung mehr; der Funktionsname der Fassung aus N1 steht nur noch in N15. G5 und der Kopf nennen die Modal-Einzahl als Owner-Entscheid (und G5 die eigene Show-Link-Zeile des Rundowns). E61, die Kopf-Tabelle zu C21 und „nie von selbst geladen“ in C18 sind genauer gefasst.
+
 ## Owner-Fragen und Freigaben
 
-Keine dieser Fragen hält den Beginn der Umsetzung auf. Wo eine Antwort Code ändert, steht die betroffene Aufgabe dabei; lehnt der Owner eine Entscheidung ab, wird diese Aufgabe überarbeitet, bevor sie beginnt.
+Keine dieser Fragen hält den Beginn der Umsetzung auf. **Stand 08.10.2026 (N19): offen ist nur Nr. 2.** Die Antworten des Owners stehen bei den Fragen.
 
-1. **„Weicht ab“ bestätigen:** E6 (`kopplung().letzteAdresse` aus der laufenden Verbindung, C4), E9 (dieselbe Show unverändert erneut gemeldet → keine neue Epoche, Spec 18; Nr. 7), E14 (`timerAktionenAusShow` mit drittem Parameter, C14), E15 (`waehleLauncher` mit `istHier` statt `eigeneAdressen`, C17/C18), E47 (Abo nur, wenn das Tool folgt, Spec 12/16.1; Nr. 4).
-2. **Texte ohne Spec-Vorgabe** (Tabelle unter „Entscheidungen“) vor dem Release freigeben; dazu die Notes-Texte aus C21 Step 7 (Ledger-Zeile „Owner-Freigabe Notes R2“).
-3. **Modal bei einem Bezieher:** Spec 15.5 wörtlich ergibt „· 1 Tools beziehen sie“. Soll es „· 1 Tool bezieht sie“ heißen? (C10, eine Zeile in `verbund-texte.ts` und ein Test)
-4. **E47 Abo nur, wenn das Tool folgt (Weicht ab, Nr. 1):** Tools ohne Anwenden (Q&A, Battle, Caption …) abonnieren nicht. Folge: Ein Tool, das sich später als 10 s nach seiner Anmeldung registriert, steht am Master bis dahin auf „ohne Show-Daten (Update nötig)“. Die drei Tools registrieren gleich nach dem Start.
-5. **E55/E56 Tools beim Start und nach dem Entkoppeln:** Start-Deep-Link erst nach der Registrierung (Titler, Rundown); eigene Ordnerwahl bzw. „Öffnen…“/„Neu“ außerhalb des Verbundmodus löschen den Zwischenspeicher des früheren Masters.
-6. **E53 Titler, wo 17.2 schweigt:** Eine neue Master-Show ohne Speaker löscht `show-zuletzt.json`; `verbundEnde` ändert nur die Quelle `master`; Q4 nennt den vollen Showname.
-7. **E9 (Weicht ab, Nr. 1; Hinweis, kein Blocker):** „Master öffnet dieselbe Show wieder“ ergibt nur nach einem Neustart der Rolle eine neue Epoche; ein erneutes Melden derselben unveränderten Show erzeugt keine `aenderung`.
-8. **Durchgang C20:** braucht die Ledger-Zeile „Owner-Freigabe C20“ (berührt `%APPDATA%`, startet gebaute Tools). Er ist Pflicht vor dem Merge (N14).
+1. **„Weicht ab“ bestätigen:** E6 (`kopplung().letzteAdresse` aus der laufenden Verbindung, C4), E9 (dieselbe Show unverändert erneut gemeldet → keine neue Epoche, Spec 18; Nr. 7), E14 (`timerAktionenAusShow` mit drittem Parameter, C14), E15 (`waehleLauncher` mit `istHier` statt `eigeneAdressen`, C17/C18), E47 (Abo nur, wenn das Tool folgt, Spec 12/16.1; Nr. 4). **Beantwortet (Owner 08.10.2026): alle fünf bestätigt.**
+2. **Texte ohne Spec-Vorgabe** (Tabelle unter „Entscheidungen“) vor dem Release freigeben; dazu die Notes-Texte aus C21 Step 7 (Ledger-Zeile „Owner-Freigabe Notes R2“). **Offen** (Freigabe vor dem Commit von C21).
+3. **Modal bei einem Bezieher:** Spec 15.5 wörtlich ergibt „· 1 Tools beziehen sie“. Soll es „· 1 Tool bezieht sie“ heißen? (C10, eine Zeile in `verbund-texte.ts` und ein Test) **Beantwortet (Owner 08.10.2026): ja, Einzahl;** umgesetzt in C10 mit einer Prüfung, rot in der Gegenprobe (N16).
+4. **E47 Abo nur, wenn das Tool folgt (Weicht ab, Nr. 1):** Tools ohne Anwenden (Q&A, Battle, Caption …) abonnieren nicht. Folge: Ein Tool, das sich später als 10 s nach seiner Anmeldung registriert, steht am Master bis dahin auf „ohne Show-Daten (Update nötig)“. Die drei Tools registrieren gleich nach dem Start. **Beantwortet (Owner 08.10.2026): bestätigt.**
+5. **E55/E56 Tools beim Start und nach dem Entkoppeln:** Start-Deep-Link erst nach der Registrierung (Titler, Rundown); eigene Ordnerwahl bzw. „Öffnen…“/„Neu“ außerhalb des Verbundmodus löschen den Zwischenspeicher des früheren Masters. Kein offener Punkt mehr (Owner 08.10.2026: offen bleiben nur die Texte ohne Spec-Vorgabe und die Notes R2, N19); die Startreihenfolge und die eigene Wahl nach dem Entkoppeln stehen als Zusatzprüfungen in der Abnahme-Datei (N17, N23).
+6. **E53 Titler, wo 17.2 schweigt:** Eine neue Master-Show ohne Speaker löscht `show-zuletzt.json`; `verbundEnde` ändert nur die Quelle `master`; Q4 nennt den vollen Showname. Kein offener Punkt mehr (Owner 08.10.2026: offen bleiben nur die Texte ohne Spec-Vorgabe und die Notes R2, N19).
+7. **E9 (Weicht ab, Nr. 1; Hinweis, kein Blocker):** „Master öffnet dieselbe Show wieder“ ergibt nur nach einem Neustart der Rolle eine neue Epoche; ein erneutes Melden derselben unveränderten Show erzeugt keine `aenderung`. **Beantwortet (Owner 08.10.2026): bestätigt.**
+8. **Durchgang C20:** braucht die Ledger-Zeile „Owner-Freigabe C20“ (berührt `%APPDATA%`, startet gebaute Tools). Er ist Pflicht vor dem Merge (N14). **Beantwortet (Owner 08.10.2026): freigegeben.** Die Ledger-Zeile setzt die steuernde Sitzung beim Start der Umsetzung; C20 läuft dann ganz.
 9. **Zusatzbitte Zoom-Bridge** („Shared Content als eigenständiges Signal“): nicht Teil von R2. Erledigt in der steuernden Sitzung am 08.10.2026: Machbarkeit geprüft, Issue #247 angelegt, eigene Zoom-Stufe nach 4b; kein Owner-Punkt für diesen Plan.
 
 ---
@@ -1750,7 +1783,7 @@ Nachher:
 ```
 npm run selftest -w @jm/master-link
 ```
-Erwartet: keine `FAIL`-Zeile, letzte Zeile `670 ok, 0 fehlgeschlagen.` (591 + 16 im Rahmen-Test + 63 in `show-daten.test.ts`), Exitcode 0, Laufzeit gemessen 33 s. Darunter unter anderem:
+Erwartet: keine `FAIL`-Zeile, letzte Zeile `670 ok, 0 fehlgeschlagen.` (591 + 16 im Rahmen-Test + 63 in `show-daten.test.ts`), Exitcode 0, Laufzeit gemessen 31–33 s. Darunter unter anderem:
 ```
 ── Rahmen: Show-Daten mit lockeren Prüfern (Teil 2b, Spec 13.2)
   ok  abo: kodiere → dekodiere hin und zurück
@@ -2511,7 +2544,7 @@ Nachher:
 ```
 npm run selftest -w @jm/master-link
 ```
-Erwartet: keine `FAIL`-Zeile (die Zeile `ok  CERT_SIGNATURE_FAILURE → zertifikat` ist keine), letzte Zeile `715 ok, 0 fehlgeschlagen.` (670 + 45), Exitcode 0. Laufzeit gemessen 43–46 s ohne Fremdlast. Die neuen Abschnitte:
+Erwartet: keine `FAIL`-Zeile (die Zeile `ok  CERT_SIGNATURE_FAILURE → zertifikat` ist keine), letzte Zeile `715 ok, 0 fehlgeschlagen.` (670 + 45), Exitcode 0. Laufzeit gemessen 34–46 s ohne Fremdlast. Die neuen Abschnitte:
 ```
 ── Server: Show-Daten — Sitzung, daten, getrennt (Teil 2b, Spec 13.6, 13.7)          14 ok
 ── Server: Ersetzung, die neue Sitzung schickt ihr abo, bevor die alte zu ist (…)    13 ok
@@ -2555,7 +2588,7 @@ npm run typecheck -w @jm/launcher
 npm run selftest:verbund -w @jm/launcher
 node -e "for (const f of process.argv.slice(1)) { const t = require('fs').readFileSync(f, 'utf8'); console.log(f, (t.match(/\n/g) || []).length, (t.match(/\r\n/g) || []).length); }" packages/master-link/src/server.ts packages/master-link/test/server.test.ts
 ```
-Erwartet: beide Typechecks ohne Fehler, Exitcode 0 (der Launcher nutzt `teilnehmer()` in `verbund/master.ts:507`; `sitzung` kommt nur dazu). `selftest:verbund` endet mit `188 ok, 0 fehlgeschlagen.` (gemessen 14–16 s; der Launcher-Test fährt den echten Server und Client). Dann:
+Erwartet: beide Typechecks ohne Fehler, Exitcode 0 (der Launcher nutzt `teilnehmer()` in `verbund/master.ts:507`; `sitzung` kommt nur dazu). `selftest:verbund` endet mit `188 ok, 0 fehlgeschlagen.` (gemessen 13–16 s; der Launcher-Test fährt den echten Server und Client). Dann:
 ```
 packages/master-link/src/server.ts 676 676
 packages/master-link/test/server.test.ts 680 680
@@ -3138,7 +3171,7 @@ export function istDieserRechner(host: string, eigeneAdressen: readonly string[]
 ```
 npm run selftest -w @jm/master-link
 ```
-Erwartet: keine `FAIL`-Zeile (die Zeile `ok  CERT_SIGNATURE_FAILURE → zertifikat` ist keine), letzte Zeile `756 ok, 0 fehlgeschlagen.` (715 + 21 Adresswahl + 20 Client), Exitcode 0. Laufzeit gemessen 37–39 s ohne Fremdlast. Darunter:
+Erwartet: keine `FAIL`-Zeile (die Zeile `ok  CERT_SIGNATURE_FAILURE → zertifikat` ist keine), letzte Zeile `756 ok, 0 fehlgeschlagen.` (715 + 21 Adresswahl + 20 Client), Exitcode 0. Laufzeit gemessen 36–39 s ohne Fremdlast. Darunter:
 ```
 ── Adresswahl: eigene Adressen und istDieserRechner (Teil 2b, Spec 13.7, E7)           21 ok
 ── Client: angemeldet und Show-Daten im selben Stück (Teil 2b, Spec 13.5)             4 ok
@@ -3188,7 +3221,7 @@ npm run selftest:verbund -w @jm/launcher
 npm run typecheck --workspaces --if-present
 node -e "for (const f of process.argv.slice(1)) { const t = require('fs').readFileSync(f, 'utf8'); console.log(f, (t.match(/\n/g) || []).length, (t.match(/\r\n/g) || []).length); }" packages/master-link/src/client.ts packages/master-link/src/adresswahl.ts packages/master-link/test/client.test.ts packages/master-link/test/adresswahl.test.ts
 ```
-Erwartet: alle Typechecks ohne `error TS`, Exitcode 0 (`--workspaces`: 29 Typecheck-Skripte, gemessen 108 s; nötig, weil `@jm/app-runtime` den Client importiert und 25 Apps app-runtime typprüfen). `selftest:verbund` endet mit `188 ok, 0 fehlgeschlagen.` Dann:
+Erwartet: alle Typechecks ohne `error TS`, Exitcode 0 (`--workspaces`: 29 Typecheck-Skripte, gemessen 80–108 s; nötig, weil `@jm/app-runtime` den Client importiert und 25 Apps app-runtime typprüfen). `selftest:verbund` endet mit `188 ok, 0 fehlgeschlagen.` Dann:
 ```
 packages/master-link/src/client.ts 679 679
 packages/master-link/src/adresswahl.ts 173 173
@@ -3566,7 +3599,7 @@ Erwartet: Timer endet mit `41 passed, 0 failed`. Rundown: zwei Läufe, je `ALLE 
 ```
 npm run typecheck --workspaces --if-present
 ```
-Erwartet: Exitcode 0, keine Zeile mit `error TS`. Laufzeit gemessen 1 min 47 s bzw. 2 min 34 s (zwei Läufe).
+Erwartet: Exitcode 0, keine Zeile mit `error TS`. Laufzeit gemessen 59 s bis 2 min 34 s (drei Runden).
 
 - [ ] **Step 7: Commit** (Bash-Werkzeug; Commit-Text bewusst ohne Umlaute)
 
@@ -6244,7 +6277,7 @@ FAIL  R2 15.6: Rolle Master → RELOAD-Logzeile wörtlich mit den Tools anderer 
 ```
 npx tsx apps/launcher/test/verbund.test.ts
 ```
-Erwartet (Laufzeit gemessen etwa 30 s, weil zwei Wartefristen ablaufen), Exitcode 1:
+Erwartet (Laufzeit gemessen etwa 23–30 s, weil zwei Wartefristen ablaufen), Exitcode 1:
 ```
 FAIL  Vormerkung 9: neuAufsetzen im Zustand „läuft“ → nichts gelöscht, der Master läuft mit derselben Identität weiter
 FAIL  Vormerkung 9: … eine Warnung
@@ -6791,7 +6824,7 @@ Erwartet, je Exitcode 0:
 199 ok, 0 fehlgeschlagen.
 44 ok, 0 fehlgeschlagen.
 ```
-`selftest:verbund` dauert gemessen etwa 17 bis 20 s; dreimal hintereinander gleich.
+`selftest:verbund` dauert gemessen etwa 14 bis 20 s; dreimal hintereinander gleich.
 
 - [ ] **Step 13: Typecheck und Build**
 
@@ -6799,7 +6832,7 @@ Erwartet, je Exitcode 0:
 npm run typecheck -w @jm/launcher
 npm run build -w @jm/launcher
 ```
-Erwartet: beide Exitcode 0 (`electron-vite build` bündelt `health.ts`, `verbund/index.ts`, `iveo-sync.ts`; gemessen 5 bis 15 s). Die Ausgabe in `apps/launcher/out` ist in `.gitignore` (`out`).
+Erwartet: beide Exitcode 0 (`electron-vite build` bündelt `health.ts`, `verbund/index.ts`, `iveo-sync.ts`; gemessen 4 bis 15 s). Die Ausgabe in `apps/launcher/out` ist in `.gitignore` (`out`).
 
 Der Server bleibt privat (Spec 15.2, Gliederung C9 „Server bleibt privat“). Die Launcher-Tests werden nicht typgeprüft, deshalb hier zwei Befehle statt einer Testzeile (Bash-Werkzeug):
 ```
@@ -6874,7 +6907,7 @@ git commit -m "feat(launcher): Verteiler an der Master-Rolle, RELOAD nur an dies
   ```
 
 **Texte (wörtlich Spec 15.5):**
-- mit Show: „Show im Verbund: „⟨Show⟩“ · Stand ⟨hh:mm⟩ · ⟨n⟩ Tools beziehen sie“
+- mit Show: „Show im Verbund: „⟨Show⟩“ · Stand ⟨hh:mm⟩ · ⟨n⟩ Tools beziehen sie“; bei genau einem Bezieher „… · 1 Tool bezieht sie“ (Owner 08.10.2026, N16)
 - `keine-show`: „Show im Verbund: keine Show offen“
 - `zu-gross`: „Show „⟨Show⟩“ nicht verteilt: zu groß für den Verbund (⟨n⟩ KiB)“ (rot)
 - `nicht-lesbar`: „Show „⟨Dateiname⟩“ nicht verteilt: nicht lesbar“ (rot)
@@ -6920,6 +6953,8 @@ Nachher:
   const zeile = (x: Parameters<typeof verbundShowZeile>[0]): string => JSON.stringify(verbundShowZeile(x, uhr));
   ck('Nr. 10: mit Show → „Show im Verbund: „⟨Show⟩“ · Stand ⟨hh:mm⟩ · ⟨n⟩ Tools beziehen sie“',
     zeile({ ...s, grund: null }) === JSON.stringify({ text: 'Show im Verbund: „COP31 Tag 1“ · Stand U42 · 3 Tools beziehen sie', rot: false }));
+  ck('Nr. 10: genau ein Bezieher → „· 1 Tool bezieht sie“ (Owner 08.10.2026)',
+    zeile({ ...s, grund: null, bezieher: 1 }) === JSON.stringify({ text: 'Show im Verbund: „COP31 Tag 1“ · Stand U42 · 1 Tool bezieht sie', rot: false }));
   ck('Nr. 10: keine-show → „Show im Verbund: keine Show offen“',
     zeile({ ...s, grund: 'keine-show', showName: null }) === JSON.stringify({ text: 'Show im Verbund: keine Show offen', rot: false }));
   ck('Nr. 10: zu-gross → rot, mit Showname und KiB',
@@ -7175,7 +7210,10 @@ export function speicherFehlerText(code: string): string {
 
 // ── Teil 2b R2, Spec 15.5: Show-Daten im Verbund-Modal am Master (wörtlich) ──
 
-/** Zeile unter „Gekoppelte Rechner“ je nach `grund` des zuletzt verteilten Stands; `rot` bei zu-gross und nicht-lesbar. */
+/**
+ * Zeile unter „Gekoppelte Rechner“ je nach `grund` des zuletzt verteilten Stands; `rot` bei zu-gross und nicht-lesbar.
+ * Bei genau einem Bezieher „1 Tool bezieht sie“ (Owner 08.10.2026), sonst wörtlich 15.5 „⟨n⟩ Tools beziehen sie“.
+ */
 export function verbundShowZeile(s: VerbundShowStand, uhrzeit: (ms: number) => string): { text: string; rot: boolean } {
   switch (s.grund) {
     case 'keine-show':
@@ -7186,7 +7224,7 @@ export function verbundShowZeile(s: VerbundShowStand, uhrzeit: (ms: number) => s
       return { text: `Show „${s.dateiName ?? ''}“ nicht verteilt: nicht lesbar`, rot: true };
     default:
       return {
-        text: `Show im Verbund: „${s.showName ?? ''}“ · Stand ${s.verteiltAm === null ? '–' : uhrzeit(s.verteiltAm)} · ${s.bezieher} Tools beziehen sie`,
+        text: `Show im Verbund: „${s.showName ?? ''}“ · Stand ${s.verteiltAm === null ? '–' : uhrzeit(s.verteiltAm)} · ${s.bezieher === 1 ? '1 Tool bezieht sie' : `${s.bezieher} Tools beziehen sie`}`,
         rot: false,
       };
   }
@@ -7295,22 +7333,31 @@ npm run selftest -w @jm/launcher
 Erwartet, je Exitcode 0:
 ```
 203 ok, 0 fehlgeschlagen.
-52 ok, 0 fehlgeschlagen.
+53 ok, 0 fehlgeschlagen.
 ```
 ```
 113 ok, 0 fehlgeschlagen.
 ```
 (Der Launcher-Selbsttest unter `node --experimental-strip-types` bleibt bei 113: `verbund-texte.ts` hat weiter nur Typ-Importe.)
 
-- [ ] **Step 10: Typecheck und Build**
+- [ ] **Step 10: Gegenprobe Einzahl (nicht committen)**
+
+In `apps/launcher/src/renderer/src/lib/verbund-texte.ts` vorübergehend ``${s.bezieher === 1 ? '1 Tool bezieht sie' : `${s.bezieher} Tools beziehen sie`}`` durch ``${s.bezieher} Tools beziehen sie`` ersetzen (15.5 wörtlich, auch bei einem Bezieher), dann `npx tsx apps/launcher/test/verteiler.test.ts`. Erwartet, Exitcode 1, genau:
+```
+FAIL  Nr. 10: genau ein Bezieher → „· 1 Tool bezieht sie“ (Owner 08.10.2026)
+52 ok, 1 fehlgeschlagen.
+```
+Zurückbauen; derselbe Lauf zeigt wieder `53 ok, 0 fehlgeschlagen.`
+
+- [ ] **Step 11: Typecheck und Build**
 
 ```
 npm run typecheck -w @jm/launcher
 npm run build -w @jm/launcher
 ```
-Erwartet: beide Exitcode 0 (Typecheck node und web; Build gemessen 5 bis 15 s).
+Erwartet: beide Exitcode 0 (Typecheck node und web; Build gemessen 4 bis 15 s).
 
-- [ ] **Step 11: Commit** (Bash-Werkzeug)
+- [ ] **Step 12: Commit** (Bash-Werkzeug)
 
 ```
 git add apps/launcher/src/shared/types.ts apps/launcher/src/main/verbund/master.ts apps/launcher/src/main/verbund/kern.ts apps/launcher/src/renderer/src/lib/verbund-texte.ts apps/launcher/src/renderer/src/components/VerbundMaster.tsx apps/launcher/test/verteiler.test.ts apps/launcher/test/verbund.test.ts
@@ -7328,13 +7375,13 @@ M  apps/launcher/test/verteiler.test.ts
 ```
 Dann:
 ```
-git commit -m "feat(launcher): Verbund-Modal zeigt die Show im Verbund und je Tool die Show-Daten (Teil 2b R2)" -m "Spec 15.5: Zeile Show im Verbund unter Gekoppelte Rechner (mit Show, keine Show offen, zu gross rot mit KiB, nicht lesbar rot mit Dateiname) und je Timer, Titler, Rundown bezieht Show-Daten bzw. nach 10 s ohne Abo ohne Show-Daten (Update noetig). Texte als reine Funktionen in verbund-texte.ts (verteiler.test.ts Nr. 10), der Kern setzt showImVerbund aus dem Verteiler, die MasterRolle bezieht je Sitzung. Das Modal zeichnet alle 2 s neu (E20)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(launcher): Verbund-Modal zeigt die Show im Verbund und je Tool die Show-Daten (Teil 2b R2)" -m "Spec 15.5: Zeile Show im Verbund unter Gekoppelte Rechner (mit Show, bei genau einem Bezieher 1 Tool bezieht sie nach Owner-Entscheid, keine Show offen, zu gross rot mit KiB, nicht lesbar rot mit Dateiname) und je Timer, Titler, Rundown bezieht Show-Daten bzw. nach 10 s ohne Abo ohne Show-Daten (Update noetig). Texte als reine Funktionen in verbund-texte.ts (verteiler.test.ts Nr. 10), der Kern setzt showImVerbund aus dem Verteiler, die MasterRolle bezieht je Sitzung. Das Modal zeichnet alle 2 s neu (E20)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
 - `showImVerbund` setzt der Kern, `MasterRolle.stand()` liefert `null` (E40).
 - Keine Daten-Zeile bei „dieser Rechner“ (E43); die Regel steht im Aufrufer, `toolDatenText` behält die Register-Signatur. Zusätzlich exportiert: `OHNE_DATEN_NACH_MS`.
-- „⟨n⟩ Tools beziehen sie“ wörtlich auch bei n = 1 (Owner-Frage, Abschnitt „Owner-Fragen und Freigaben“).
+- Bei genau einem Bezieher heißt es „1 Tool bezieht sie“ statt 15.5 wörtlich „1 Tools beziehen sie“ (Owner-Antwort vom 08.10.2026 auf Owner-Frage 3, N16); sonst wörtlich „⟨n⟩ Tools beziehen sie“. Eine Prüfung in Nr. 10, Gegenprobe in Step 10 (gemessen: genau diese `FAIL`-Zeile).
 - `verbund.test.ts`-Zählstände beim Durchspielen des ganzen Plans nachgemessen (echter Server und Client aus C3/C4): gleich.
 
 ---
@@ -7353,7 +7400,7 @@ git commit -m "feat(launcher): Verbund-Modal zeigt die Show im Verbund und je To
   - Create: `packages/app-runtime/src/verbund-typen.ts`
   - Create: `packages/app-runtime/src/verbund-anzeige.ts`
   - Create: `packages/app-runtime/test/verbund.test.ts`
-  - Modify: `.github/workflows/ci-checks.yml:67-68` (neuer Schritt am Ende der Schrittliste im Job `selftests`, nach „Connect …“)
+  - Modify: `.github/workflows/ci-checks.yml:67-68` (neuer Schritt am Ende der Schrittliste im Job `selftests`, nach „Connect …“; nach dem Neuaufsatz mit 4b stattdessen den 4b-Schritt umbenennen, G2)
 
 **Interfaces:**
 
@@ -7391,7 +7438,7 @@ export function kuerzeShowName(name: string): string;   // höchstens 40 Code Po
 ```
 C12 und C13 bauen darauf. C19 (Kette) importiert `verbund-anzeige.ts` per Relativpfad (S-E).
 
-**Regeln:** G2 (nur neue Dateien; `package.json`/`package-lock.json` als eigener Commit; CI-Schritt ans Ende), G5 (V1–V15 wörtlich), G7 (Test mit `tsx`, lädt kein Electron), G11, G12, G16.
+**Regeln:** G2 (nur neue Dateien; `package.json`/`package-lock.json` als eigener Commit; genau ein CI-Schritt für app-runtime, ohne 4b ans Ende, mit 4b umbenannt), G5 (V1–V15 wörtlich), G7 (Test mit `tsx`, lädt kein Electron), G11, G12, G16.
 
 **Vorab (gemessen):**
 - Alle berührten Dateien liegen im Worktree mit CRLF vor (gezählt: `package.json` 19 von 19 Zeilen, `package-lock.json` 17 618 von 17 618, `ci-checks.yml` 99 von 99). npm behält beim Nachziehen die CRLF des Lockfiles (danach 17 622 von 17 622).
@@ -7775,7 +7822,7 @@ Dann alle Workspaces (G11):
 ```bash
 npm run typecheck --workspaces --if-present
 ```
-Erwartet: Exit-Code 0, keine Zeile mit `error TS` (Laufzeit 1–3 min).
+Erwartet: Exit-Code 0, keine Zeile mit `error TS` (Laufzeit unter 3 min, gemessen 55–125 s).
 
 - [ ] **Step 11: Gegenprobe (nicht committen)**
 
@@ -7790,7 +7837,7 @@ Danach zeigt `npx tsx packages/app-runtime/test/verbund.test.ts` wieder `64 pass
 
 - [ ] **Step 12: CI-Schritt anhängen (19.6, G2)**
 
-In `.github/workflows/ci-checks.yml` ersetzen. Der Name folgt dem Muster, das Zoom Stage 4b für denselben Befehl nutzt („App-Laufzeit (…)“, G2): Beim späteren Zusammenführen wird aus beiden Schritten genau einer (Schlussabschnitt). Dieser Branch steht auf `5f8ed15ef8`; die Datei hier kennt den Schritt aus 4b also nicht, auch wenn 4b inzwischen auf `main` liegt.
+In `.github/workflows/ci-checks.yml` ersetzen. Der Name folgt dem Muster, das Zoom Stage 4b für denselben Befehl nutzt („App-Laufzeit (…)“, G2): Beim späteren Zusammenführen wird aus beiden Schritten genau einer (Schlussabschnitt). Dieser Branch steht auf `5f8ed15ef8`; die Datei hier kennt den Schritt aus 4b also nicht. Nach dem Neuaufsatz auf `main` mit 4b (vor C1, Kopf „Umsetzung“) steht der 4b-Schritt „App-Laufzeit (Log-Aufräumen, CSP)“ mit demselben Befehl schon zuletzt im Job; dann wird kein zweiter Schritt angehängt, sondern dieser eine in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ umbenannt (20 Schritte). Vorher/Nachher und Erwartung dieses Steps stellt der Nachmess-Durchgang darauf um.
 
 Vorher (`.github/workflows/ci-checks.yml`, genau einmal):
 ```yaml
@@ -7829,7 +7876,7 @@ A  packages/app-runtime/test/verbund.test.ts
 ```
 Dann:
 ```bash
-git commit -m "feat(app-runtime): Verbund-Typen und Anzeige V1-V15 der Tool-Seite (Teil 2b R2)" -m "verbund-typen.ts mit MasterStand und VerbundDaten wie Spec 16.2 (DatenGrund aus @jm/master-link, nur einzeln benannte Typen, E27). verbund-anzeige.ts als reine Funktion mit vollstaendiger Pruefung des Union-Typs: Vorrang V12 vor V15, Zusatz L genau mit angewendetem Stand, Showname hoechstens 40 Code Points, V11 mit dem Text des Clients. Selbsttest test/verbund.test.ts mit tsx (jede Zeile woertlich, V11 fuer alle 13 Fehlercodes). CI-Schritt app-runtime am Ende des Jobs selftests." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(app-runtime): Verbund-Typen und Anzeige V1-V15 der Tool-Seite (Teil 2b R2)" -m "verbund-typen.ts mit MasterStand und VerbundDaten wie Spec 16.2 (DatenGrund aus @jm/master-link, nur einzeln benannte Typen, E27). verbund-anzeige.ts als reine Funktion mit vollstaendiger Pruefung des Union-Typs: Vorrang V12 vor V15, Zusatz L genau mit angewendetem Stand, Showname hoechstens 40 Code Points, V11 mit dem Text des Clients. Selbsttest test/verbund.test.ts mit tsx (jede Zeile woertlich, V11 fuer alle 13 Fehlercodes). Genau ein CI-Schritt app-runtime im Job selftests (Spec 19.6)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst (C11):**
@@ -8213,6 +8260,24 @@ Einfügen in `packages/app-runtime/test/verbund.test.ts` direkt vor der Zeile `/
     h.wirft = null;
     u.vor(1000);
     check('C12 … ein Stand aus dem Zwischenspeicher wird weiter versucht (16.3)', versuche === 2 && h.aufrufe.length === 1, versuche);
+  }
+  {
+    // Die Kopplung wechselt direkt an einen anderen Master (16.1 „Anderer Master“, kein Ende des Verbunds): Ein Stand des
+    // bisherigen Masters wird nicht weiter versucht; erst ein Stand des neuen Masters wird angewendet.
+    const { u, client, folger, h } = aufbau();
+    folger.folge(h);
+    folger.starte();
+    client.verbinde();
+    let versuche = 0;
+    h.wirft = () => nichtAngewendet('EBUSY');
+    const altesAnwenden = h.anwenden;
+    h.anwenden = (s, n) => { versuche++; altesAnwenden(s, n); };
+    client.emit('daten', stand(0));
+    client.k = { ...SLAVE, masterId: 'M2', masterName: 'Ton-PC' };
+    client.setze({ art: 'sucht' });
+    h.wirft = null;
+    u.vor(10_000);
+    check('C12 Kopplung wechselt an einen anderen Master → keine weiteren Versuche mit dem Stand des bisherigen (16.1)', versuche === 1 && h.aufrufe.length === 0, versuche);
   }
 
   // Logzeile „übernommen“: der Showname aus dem Netz einzeilig und gekürzt (G6, kuerzeName aus @jm/master-link)
@@ -8786,9 +8851,11 @@ export class VerbundFolger extends EventEmitter {
   private aufZustand(z: ClientZustand): void {
     if (this.gestoppt) return;
     if (z.art !== 'verbunden') this.verbindungVorbei();
-    // Ende des Verbunds (entkoppelt, Rolle aus oder Master, Datei beschädigt): Ein Stand vom Master wird nicht weiter
-    // versucht (16.1). Ein Stand aus dem Zwischenspeicher gehört zum Start (16.3) und bleibt im Versuch.
-    if (this.ziel && !this.ziel.ausSpeicher && !this.istSlave(this.client.kopplung())) this.beendeVersuche();
+    // Ende des Verbunds (entkoppelt, Rolle aus oder Master, Datei beschädigt) oder direkt ein anderer Master (16.1
+    // „Anderer Master“): Ein Stand des bisherigen Masters wird nicht weiter versucht. Ein Stand aus dem
+    // Zwischenspeicher gehört zum Start (16.3) und bleibt im Versuch.
+    const k = this.client.kopplung();
+    if (this.ziel && !this.ziel.ausSpeicher && (!this.istSlave(k) || this.ziel.stand.masterId !== k.masterId)) this.beendeVersuche();
     this.melde();
   }
 
@@ -9060,7 +9127,7 @@ export class VerbundFolger extends EventEmitter {
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: `15 passed, 0 failed`, dann 64 Zeilen `  ok  C11 …` und 109 Zeilen `  ok  C12 …` (von „C12 Fristen: 5 s, 30 s, 5 Versuche, 1 s“ bis „C12 ignoriert: nach 60 s wieder eine Zeile“), keine `FAIL`-Zeile, am Ende `173 passed, 0 failed`, Exit-Code 0.
+Erwartet: `15 passed, 0 failed`, dann 64 Zeilen `  ok  C11 …` und 110 Zeilen `  ok  C12 …` (von „C12 Fristen: 5 s, 30 s, 5 Versuche, 1 s“ bis „C12 ignoriert: nach 60 s wieder eine Zeile“), keine `FAIL`-Zeile, am Ende `174 passed, 0 failed`, Exit-Code 0.
 
 - [ ] **Step 5: Typprüfung**
 
@@ -9083,11 +9150,12 @@ Je eine Änderung in `packages/app-runtime/src/verbund-daten.ts` einspielen, `np
 | `this.setzeZiel(v as MitShow, false, true);` → `this.setzeZiel(v as MitShow, true, true);` | 2: „C12 Start: Zwischenspeicher genau einmal mit neueShow false“, „C12 Live-Stand gleich dem Zwischenspeicher → nur einmal angewendet“ |
 | `if (!this.gewarnt.has(schluessel)) {` → `if (true) {` | 2: „C12 Warnung einmal je Typ und Feld“, „C12 neue Verbindung → dieselbe Warnung noch einmal“ |
 | ``Show „${kuerzeName(z.stand.show.name)}“`` → ``Show „${z.stand.show.name}“`` (N5) | 1: „C12 Logzeile „übernommen“: Showname einzeilig und gekürzt (kuerzeName)“ |
-| die Zeile `if (this.ziel && !this.ziel.ausSpeicher && !this.istSlave(this.client.kopplung())) this.beendeVersuche();` in `aufZustand` entfernen (N4) | 1: „C12 Verbund endet während der Versuche → keine weiteren Versuche (16.1)“ |
-| `if (this.ziel && !this.ziel.ausSpeicher && !this.istSlave` → `if (this.ziel && !this.istSlave` (N4) | 1: „C12 … ein Stand aus dem Zwischenspeicher wird weiter versucht (16.3)“ |
+| die Zeile `if (this.ziel && !this.ziel.ausSpeicher && (!this.istSlave(k) \|\| this.ziel.stand.masterId !== k.masterId)) this.beendeVersuche();` in `aufZustand` entfernen (N4, N18) | 2: „C12 Verbund endet während der Versuche → keine weiteren Versuche (16.1)“, „C12 Kopplung wechselt an einen anderen Master → keine weiteren Versuche mit dem Stand des bisherigen (16.1)“ |
+| `if (this.ziel && !this.ziel.ausSpeicher && (!this.istSlave(k)` → `if (this.ziel && (!this.istSlave(k)` (N4) | 1: „C12 … ein Stand aus dem Zwischenspeicher wird weiter versucht (16.3)“ |
+| ` \|\| this.ziel.stand.masterId !== k.masterId)) this.beendeVersuche();` → `)) this.beendeVersuche();` (N18) | 1: „C12 Kopplung wechselt an einen anderen Master → keine weiteren Versuche mit dem Stand des bisherigen (16.1)“ |
 | in `nichtAngewendet` `{ code }` → `{ code: undefined as unknown as string }` (N3) | 2: „C12 nichtAngewendet(code) → V12 mit dem Code“, „C12 … Logzeile mit dem Code“ |
 
-Danach zeigt `npx tsx packages/app-runtime/test/verbund.test.ts` wieder `173 passed, 0 failed`.
+Danach zeigt `npx tsx packages/app-runtime/test/verbund.test.ts` wieder `174 passed, 0 failed`.
 
 - [ ] **Step 7: Commit**
 
@@ -9102,7 +9170,7 @@ M  packages/app-runtime/test/verbund.test.ts
 ```
 Dann:
 ```bash
-git commit -m "feat(app-runtime): Zustandsmaschine VerbundFolger der Tool-Seite (Teil 2b R2)" -m "Rein, mit uebergebener Uhr (G13): Abo nach jeder Anmeldung nur fuer ein Tool, das folgt, mit Rolle Slave und Kopplung; nach 5 s ohne-daten, Abo alle 30 s erneut. Neu = andere Epoche oder groessere Folge als angewendet bzw. gerade versucht; neueShow bei anderem Master oder Schluessel. anwenden wirft -> fehler (Code, nie die Meldung), bis zu fuenf neue Versuche im Abstand von 1 s. Ungueltiger Stand -> verworfen, Warnung je Verbindung einmal je Typ und Feld. Zwischenspeicher beim Start genau einmal mit neueShow false (E17), Schreiben der Reihe nach, nur der neueste, nie ohne Sperre (G14). ersetzt() (E16), kopplung(), Drossel der ignoriert-Zeilen (E19)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(app-runtime): Zustandsmaschine VerbundFolger der Tool-Seite (Teil 2b R2)" -m "Rein, mit uebergebener Uhr (G13): Abo nach jeder Anmeldung nur fuer ein Tool, das folgt, mit Rolle Slave und Kopplung; nach 5 s ohne-daten, Abo alle 30 s erneut. Neu = andere Epoche oder groessere Folge als angewendet bzw. gerade versucht; neueShow bei anderem Master oder Schluessel. anwenden wirft -> fehler (Code, nie die Meldung), bis zu fuenf neue Versuche im Abstand von 1 s. Ungueltiger Stand -> verworfen, Warnung je Verbindung einmal je Typ und Feld. Zwischenspeicher beim Start genau einmal mit neueShow false (E17), Schreiben der Reihe nach, nur der neueste, nie ohne Sperre (G14). ersetzt() (E16), kopplung(), Drossel der ignoriert-Zeilen (E19). Versuche mit einem Stand vom Master enden mit dem Verbund oder beim Wechsel an einen anderen Master (16.1)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst (C12):**
@@ -9114,6 +9182,7 @@ git commit -m "feat(app-runtime): Zustandsmaschine VerbundFolger der Tool-Seite 
 - **⟨M⟩:** der Name aus der laufenden Anmeldung (`hallo`, gekürzt vom Client), sonst `kopplung.masterName`, sonst „Master“. In `frueher` steht der Name, der mit dem angewendeten Stand kam (der frühere Master).
 - **Grund in `fehler`:** `err.code`, sonst der Fehlertyp (`TypeError` …), höchstens 40 Zeichen aus `[A-Za-z0-9_.-]`, nie die Meldung (G6). V12 zeigt also etwa „Show vom Master nicht übernommen: EBUSY“. Ein Tool, das einen lesbaren Grund zeigen will, wirft `nichtAngewendet(code)` (neuer Export, über `index.ts` öffentlich, N3); ein einfaches `Error` ergäbe nur „Error“. Titler (C16) und Rundown (C18) werfen so.
 - **Ende des Verbunds während der Anwende-Versuche** (N4): `aufZustand` beendet die Versuche, wenn die Kopplung keinen Slave mehr zeigt (entkoppelt, Rolle aus oder Master, Datei beschädigt) und das Ziel ein Stand vom Master ist. Ein Stand aus dem Zwischenspeicher gehört zum Start (16.3) und wird weiter versucht. 16.1 sagt nur, dass nach dem Ende der Einzelplatz-Weg gilt.
+- **Direkter Wechsel an einen anderen Master während der Anwende-Versuche** (N18): Ebenso enden die Versuche, wenn die Kopplung weiter einen Slave zeigt, aber mit einer anderen `masterId` als der Stand im Versuch. Sonst könnte ein später gelungener Versuch den Stand des bisherigen Masters noch anwenden und in den Zwischenspeicher schreiben; 16.1 „Anderer Master“ lässt die alten Daten nur stehen, bis der erste Stand des neuen Masters sie ersetzt. Eine Prüfung, rot gegen die Fassung vor N18 (Gegenprobe in Step 6).
 - **Showname in der Logzeile „übernommen“** läuft durch `kuerzeName` aus `@jm/master-link` (einzeilig, höchstens 60 Zeichen, N5): Er kommt aus dem Netz, und `migrateShow` säubert ihn nicht.
 - **Zwischenspeicher der Reihe nach:** Der Folger schreibt nie zwei Stände gleichzeitig; kommt während des Schreibens ein neuer, folgt danach nur der neueste. Kommt `ersetzt()` während des Schreibens, löscht er die Datei danach noch einmal. `darfSchreiben: false` unterdrückt Schreiben **und** Löschen (G14).
 - **`ersetzt()` vor `starte()`** verhindert, dass der Zwischenspeicher später noch angewendet wird (das Tool hat schon eine eigene Show).
@@ -9169,11 +9238,12 @@ export function istHostDieserRechner(host: string): boolean;   // istDieserRechn
 export function verbundAnClient(client: MasterLinkClient, o: { userData: string; log: Logger }): void;   // nur intern (index.ts)
 // packages/app-runtime/src/index.ts — neu öffentlich (Einfügung a):
 //   folgeMasterShow, verbundDaten, imVerbundmodus, verbundDatenErsetzt, verbundKopplung, verbundIgnoriert, istHostDieserRechner
+//   nichtAngewendet (aus ./verbund-daten, N3), kuerzeName (aus @jm/master-link, für den Rundown, N15)
 //   type MasterStand, VerbundDaten, VerbundKopplung, VerbundAnzeige, FolgeHandler
 ```
 Für Block D (Preloads, S-D): Der Renderer liest die Zeile mit `ipcRenderer.invoke('jmps:verbund-anzeige')` → `VerbundAnzeige | null` und bekommt jeden Wechsel als `ipcRenderer.on('jmps:verbund-anzeige', (_e, a) => …)` mit demselben Wert. Ohne laufenden Client (Zweitinstanz, Fehler beim Start) gibt es keinen Handler und `invoke` lehnt ab; der Preload fängt das ab und liefert `null`. `folgeMasterShow` und `verbundDatenErsetzt` dürfen vor dem Client-Start gerufen werden.
 
-**Regeln:** G2 (in `index.ts` genau die Einfügungen a–c, 14 Zeilen, nichts verschoben; alles andere in neuen Dateien), G6 (Warnungen ohne Dateiinhalt, nur Feldname oder Fehlercode), G11, G12 (`index.ts` liegt mit CRLF vor, 648 von 648 Zeilen; nach C13 661 von 661), G14 (ohne Sperre der App kein Folger; `darfSchreiben` zusätzlich aus `app.hasSingleInstanceLock()`), G15 (`verbund.ts`, `verbund-ipc.ts` und die Einfügungen prüfen Typecheck, Bündel und C20), G16.
+**Regeln:** G2 (in `index.ts` genau die Einfügungen a–c, 15 Zeilen, nichts verschoben; alles andere in neuen Dateien), G6 (Warnungen ohne Dateiinhalt, nur Feldname oder Fehlercode), G11, G12 (`index.ts` liegt mit CRLF vor, 648 von 648 Zeilen; nach C13 663 von 663, gemessen), G14 (ohne Sperre der App kein Folger; `darfSchreiben` zusätzlich aus `app.hasSingleInstanceLock()`), G15 (`verbund.ts`, `verbund-ipc.ts` und die Einfügungen prüfen Typecheck, Bündel und C20), G16.
 
 **Vorab (gemessen):**
 - **Reihenfolge im Tool (E17, Ist-Karte Laufzeit F2):** `initAppRuntime` läuft vor der Sperre; `startMasterLink` baut den Client im ersten `whenReady`-Zuhörer, nur mit Sperre. Einfügung (c) steht direkt nach `client.starte()` (Zusammenführung ZF2): `client.starte()` liest `master-link.json` synchron und meldet bei Rolle Slave oder Master noch im selben Takt `sucht`; erst danach liest der Folger den Zwischenspeicher und hängt seine Zuhörer an. Das synchrone `zustand` verpasst er dabei, aber `starte()` leitet die Lage ohnehin neu ab und meldet sie; `angemeldet` kommt frühestens nach dem TLS-Aufbau. Stünde (c) vor `client.starte()`, liefe ein vorher registrierter Handler mit `kopplung() = null` an: Das Tool zeigte beim Start kurz V13, und Titler oder Rundown gingen über `beiWechsel` auf `frueher` (C19 M prüft das). Den Zwischenspeicher wendet der Folger erst an, wenn auch der Handler registriert ist.
@@ -9316,7 +9386,7 @@ Einfügen in `packages/app-runtime/test/verbund.test.ts` direkt vor der Zeile `/
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: `15 passed, 0 failed`, danach 64 Zeilen `  ok  C11 …` und 109 Zeilen `  ok  C12 …`, keine `C13`-Zeile, Abbruch beim Laden, Exit-Code 1:
+Erwartet: `15 passed, 0 failed`, danach 64 Zeilen `  ok  C11 …` und 110 Zeilen `  ok  C12 …`, keine `C13`-Zeile, Abbruch beim Laden, Exit-Code 1:
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\packages\app-runtime\src\verbund-speicher' imported from …\packages\app-runtime\test\verbund.test.ts
 ```
@@ -9481,7 +9551,7 @@ export function erzeugeStandSpeicher(
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: `15 passed, 0 failed`, dann 64 Zeilen `C11`, 109 Zeilen `C12` und 34 Zeilen `  ok  C13 …` (von „C13 standDatei = <userData>/verbund/master-stand.json“ bis „C13 Neustart, Master fehlt: Verbundmodus, Daten bleiben“), keine `FAIL`-Zeile, am Ende `207 passed, 0 failed`, Exit-Code 0. Danach liegt kein Ordner `jm-verbund-*` mehr im Temp-Verzeichnis (`ls "$TMP" | grep -c jm-verbund-` gibt `0` aus).
+Erwartet: `15 passed, 0 failed`, dann 64 Zeilen `C11`, 110 Zeilen `C12` und 34 Zeilen `  ok  C13 …` (von „C13 standDatei = <userData>/verbund/master-stand.json“ bis „C13 Neustart, Master fehlt: Verbundmodus, Daten bleiben“), keine `FAIL`-Zeile, am Ende `208 passed, 0 failed`, Exit-Code 0. Danach liegt kein Ordner `jm-verbund-*` mehr im Temp-Verzeichnis (`ls "$TMP" | grep -c jm-verbund-` gibt `0` aus).
 
 - [ ] **Step 5: IPC anlegen**
 
@@ -9637,8 +9707,10 @@ export {
   istHostDieserRechner,
 } from './verbund';
 export { nichtAngewendet } from './verbund-daten';
+export { kuerzeName } from '@jm/master-link';
 export type { MasterStand, VerbundDaten, VerbundKopplung, VerbundAnzeige, FolgeHandler } from './verbund-typen';
 ```
+(`kuerzeName` säubert und kürzt einen Namen für eine Logzeile; der Rundown braucht es für seine Zeile zum Show-Link im Verbundmodus, C18, N15. Er hat `@jm/master-link` nicht als eigene Abhängigkeit.)
 
 (b) Import. Vorher (`packages/app-runtime/src/index.ts`, genau einmal):
 ```ts
@@ -9667,7 +9739,7 @@ Prüfen, dass nur eingefügt wurde:
 git diff --stat packages/app-runtime/src/index.ts
 git diff packages/app-runtime/src/index.ts | grep -c '^-[^-]'
 ```
-Erwartet: `1 file changed, 14 insertions(+)` und `0`.
+Erwartet: `1 file changed, 15 insertions(+)` und `0`.
 
 - [ ] **Step 8: Selbsttest und Typecheck**
 
@@ -9675,7 +9747,7 @@ Erwartet: `1 file changed, 14 insertions(+)` und `0`.
 npm run selftest -w @jm/app-runtime
 npm run typecheck --workspaces --if-present
 ```
-Erwartet: Selbsttest unverändert `15 passed, 0 failed` und `207 passed, 0 failed` (kein Test lädt `verbund.ts`); Typecheck Exit-Code 0 ohne `error TS` (1–3 min). Ab jetzt prüfen alle 25 Apps, die `@jm/app-runtime` importieren, die neuen Module mit.
+Erwartet: Selbsttest unverändert `15 passed, 0 failed` und `208 passed, 0 failed` (kein Test lädt `verbund.ts`); Typecheck Exit-Code 0 ohne `error TS` (1–3 min). Ab jetzt prüfen alle 25 Apps, die `@jm/app-runtime` importieren, die neuen Module mit.
 
 - [ ] **Step 9: Gegenprobe Typecheck (nicht committen)**
 
@@ -9696,7 +9768,7 @@ npm run build -w @jm/sync
 grep -c "jmps:verbund-anzeige" apps/sync/out/main/index.cjs
 grep -c 'require("@jm/' apps/sync/out/main/index.cjs
 ```
-Erwartet: Build grün (etwa 3 s), dann `1` und `0`. Sync führt `@jm/show` nicht als Abhängigkeit; der Lauf zeigt, dass `@jm/show` und `@jm/master-link` über `@jm/app-runtime` mitgebündelt werden. `apps/sync/out` ist von Git ignoriert (vorher mit `git check-ignore apps/sync/out/main/index.cjs` prüfen; Ausgabe des Pfads = ignoriert).
+Erwartet: Build grün (etwa 2–3 s), dann `1` und `0`. Sync führt `@jm/show` nicht als Abhängigkeit; der Lauf zeigt, dass `@jm/show` und `@jm/master-link` über `@jm/app-runtime` mitgebündelt werden. `apps/sync/out` ist von Git ignoriert (vorher mit `git check-ignore apps/sync/out/main/index.cjs` prüfen; Ausgabe des Pfads = ignoriert).
 
 - [ ] **Step 11: Gegenprobe Zwischenspeicher (nicht committen)**
 
@@ -9709,7 +9781,7 @@ Je eine Änderung in `packages/app-runtime/src/verbund-speicher.ts`, `npx tsx pa
 | `const PAUSE_MS = 50;` → `const PAUSE_MS = 0;` | 1: „C13 Abstand zwischen den Versuchen 50 ms (vier Pausen ≥ 190 ms)“ |
 | `if (!istObj(s.show)) return 'show';` → `if (Array.isArray(s.show)) return 'show';` | 1: „C13 show fehlt → null, eine Warnung (show)“ |
 
-Danach wieder `207 passed, 0 failed`.
+Danach wieder `208 passed, 0 failed`.
 
 - [ ] **Step 12: Commit**
 
@@ -9727,12 +9799,13 @@ M  packages/app-runtime/test/verbund.test.ts
 ```
 Dann:
 ```bash
-git commit -m "feat(app-runtime): Zwischenspeicher, Verbund-API und IPC der Tool-Seite (Teil 2b R2)" -m "master-stand.json unter <userData>/verbund mit fassung 1: asynchron, Zwischendatei und Umbenennen, bis zu 5 Versuche im Abstand von 50 ms bei EPERM/EBUSY/EACCES (nicht schreibeAtomar, das synchron bis 2 s wartet, E18); Lesen tolerant mit einer Warnung ohne Dateiinhalt. verbund.ts haengt den VerbundFolger an den Client aus startMasterLink (nur mit Sperre, G14) und fuehrt folgeMasterShow, verbundDaten, imVerbundmodus, verbundDatenErsetzt, verbundKopplung, verbundIgnoriert, istHostDieserRechner. verbund-ipc.ts: jmps:verbund-anzeige. index.ts nur drei Einfuegungen (Zoom Stage 4b)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(app-runtime): Zwischenspeicher, Verbund-API und IPC der Tool-Seite (Teil 2b R2)" -m "master-stand.json unter <userData>/verbund mit fassung 1: asynchron, Zwischendatei und Umbenennen, bis zu 5 Versuche im Abstand von 50 ms bei EPERM/EBUSY/EACCES (nicht schreibeAtomar, das synchron bis 2 s wartet, E18); Lesen tolerant mit einer Warnung ohne Dateiinhalt. verbund.ts haengt den VerbundFolger an den Client aus startMasterLink (nur mit Sperre, G14) und fuehrt folgeMasterShow, verbundDaten, imVerbundmodus, verbundDatenErsetzt, verbundKopplung, verbundIgnoriert, istHostDieserRechner. verbund-ipc.ts: jmps:verbund-anzeige. index.ts nur drei Einfuegungen (Zoom Stage 4b), dazu oeffentlich nichtAngewendet (V12 mit Code) und kuerzeName (Logzeile des Rundowns)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst (C13):**
 - **Zusätzliche Exporte:** `standDatei(userData)` in `verbund-speicher.ts` (der Pfad aus 16.3 an einer Stelle; der Test prüft ihn), `VERBUND_ANZEIGE_KANAL` und `registriereVerbundIpc(quelle)` in `verbund-ipc.ts` (S-C nannte nur den Kanal). Nach außen (über `index.ts`) geht keiner davon.
 - **`nichtAngewendet` im Export-Block (a)** (N3): eine Zeile mehr, also 14 statt 13 eingefügte Zeilen. Die Tools werfen damit, wenn sie einen Stand nicht anwenden können; V12 zeigt den Code.
+- **`kuerzeName` im Export-Block (a)** (N15): noch eine Zeile, also 15 eingefügte Zeilen, `index.ts` danach 663 von 663 Zeilen mit CRLF. Der Rundown säubert damit den Dateinamen in seiner Logzeile zum Show-Link (C18); er hat `@jm/master-link` nicht als eigene Abhängigkeit, und eine neue Abhängigkeit hätte `package.json`, Lockfile und Bündel-Liste des Rundowns berührt (E15). Ein einzeln benannter Export, kein `export *` (E27). Die Zusammenführung mit der 4b-Fassung von `index.ts` (`85dcba597d`) bleibt konfliktfrei (nachgespielt mit `git merge-file`, N20).
 - **Neustart-Prüfung wartet auf die Datei** (N12): statt einer festen Pause von 50 ms höchstens 5 s, bis `master-stand.json` da ist. Unter Last (CI) war die feste Pause zu knapp.
 - **Der Test zu `verbundIgnoriert`** steht in C12 (die Drossel liegt im reinen Folger, siehe dort).
 - **Gemerkt vor dem Client-Start:** `folgeMasterShow` merkt den Handler immer; `verbundDatenErsetzt` vor dem Start setzt einen Merker, der beim Start `ersetzt()` ruft, bevor der Zwischenspeicher gelesen wird. So verliert ein früher Aufruf nichts (E17).
@@ -10409,7 +10482,7 @@ git commit -m "feat(timer): Show anwenden als reine Funktion, dem Master folgen 
 **Arbeitsverzeichnis:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2`, Branch `feat/master-link-teil2b-r2`. Voraussetzung: C14 ist committet (fachlich unabhängig).
 
 **Dateien:**
-- Modify: `apps/titler/src/shared/datenquelle.ts`: `:6-30` (Kopf, Typen), `:39-46` (`QuellEreignis`), `:68-73` (`startZustand`), `:95-142` (`quellSchritt`), `:153` (`tsvNichtGeschrieben`), `:163-164` (`logNachMerken`), `:219-220` (`quellZeile`), `:229-233` (Dateiende: `ordnerWahlGesperrt`, `verbundEndetFuer`)
+- Modify: `apps/titler/src/shared/datenquelle.ts`: `:6-30` (Kopf, Typen), `:39-46` (`QuellEreignis`), `:68-73` (`startZustand`), `:95-142` (`quellSchritt`), `:153` (`tsvNichtGeschrieben`), `:163-164` (`logNachMerken`), `:219-220` (`quellZeile`), `:229-233` (Dateiende: `ordnerWahlGesperrt`, `ordnerPatchAbgelehnt`, `verbundEndetFuer`)
 - Modify: `apps/titler/src/main/show-quelle.ts`: `:18` (Import), `:26-36` (`leseGemerkteShow`), `:47-48` (`schreibeGemerkteShow`)
 - Modify (nur Typ-Brücke, verhaltensgleich): `apps/titler/src/main/index.ts`: `:31-45` (Import aus `@shared/datenquelle`), `:142-144` (neuer Helfer nach `userDataDir`), `:230`, `:240`, `:299-307`
 - Test: `apps/titler/test/selftest.ts`: Import `:7-21`, alte Literale `:633-634`, `:674`, `:689`, neuer Block nach dem datenquelle-Block (vor `// ── B12 · show-quelle.ts`), neuer Block nach dem B12-Block (vor `// ── B13 · datalink.ts`)
@@ -10435,6 +10508,7 @@ git commit -m "feat(timer): Show anwenden als reine Funktion, dem Master folgen 
     | { t: 'verbundEnde' };
   export function startZustand(gemerkt: GemerkteShow | null, frueher: boolean, gekoppelterMaster: string | null = null): QuellZustand;
   export function ordnerWahlGesperrt(z: QuellZustand): string | null;
+  export function ordnerPatchAbgelehnt(neu: string | undefined, vorher: string, z: QuellZustand): string | null;   // zusätzlich (N17): Sperre E22 für einen Config-Patch
   export function verbundEndetFuer(z: QuellZustand, lage: string): boolean;   // zusätzlich (N8): Ende des Verbunds für Quelle master
   // quellZeile: Q4 „Quelle: Show vom Master „⟨S⟩““ bei art 'master'
   // show-quelle.ts: leseGemerkteShow(userData): GemerkteShow | null; schreibeGemerkteShow(userData, wert: GemerkteShow): boolean
@@ -10452,6 +10526,7 @@ git commit -m "feat(timer): Show anwenden als reine Funktion, dem Master folgen 
 - **`nichtLesbar`** über Deep-Link/RELOAD setzt H4 jetzt bei Art `show` **und** `master` (der Master-Weg nutzt bei einer nicht schreibbaren TSV `tsvNichtGeschrieben`, Vormerkung 14).
 - `ordnerGewaehlt`/`zurueckZumOrdner` setzen `master` auf `null`.
 - `ordnerWahlGesperrt(z)`: bei Art `master` der Text aus 17.2 mit `masterName`, sonst `null` (auch bei `ordner` im Verbund: die Show am Master hat dann keine Speaker, die Wahl ist frei).
+- `ordnerPatchAbgelehnt(neu, vorher, z)` (E22, N17): die Sperre im Main für `titler:setConfig`. Abgelehnt (Text aus 17.2) nur, wenn der Patch einen `dataFolder` trägt, der sich vom bisherigen unterscheidet, und `ordnerWahlGesperrt(z)` einen Text liefert; sonst `null`. Der Rest des Patches gilt in jedem Fall (C16).
 - `verbundEndetFuer(z, lage)` (N8): `true` genau bei Art `master` und einer Lage ohne Master (`frueher`, `einzelplatz`, `datei-defekt`); C16 ruft damit `verbundEnde`. `einzelplatz` und `datei-defekt` kommen, wenn nichts angewendet ist — etwa nach einem Start mit gemerkter Master-Form ohne lesbaren Zwischenspeicher.
 - `quellZeile`: Art `master` → Q4 mit dem vollen Showname (die Zeile kürzt die Oberfläche per CSS, `OperatorView.tsx:456`).
 - `zurueckKnopf`: K1 nur bei Art `show` (unverändert) — bei `master` also `null`.
@@ -10477,6 +10552,7 @@ Ersetzung 1 (Import, Zeilen 12–21), Vorher:
 Nachher:
 ```ts
   logNachMerken,
+  ordnerPatchAbgelehnt,
   ordnerWahlGesperrt,
   quellSchritt,
   quellZeile,
@@ -10672,6 +10748,17 @@ Nachher:
     ordnerWahlGesperrt(zOrdnerImVerbund) === null && ordnerWahlGesperrt(zShow) === null && ordnerWahlGesperrt(zFrueher) === null && ordnerWahlGesperrt(zOrdner) === null,
     'R2 O1: bei ordner (auch im Verbund), show und frueher frei',
   );
+  // Sperre im Main für einen Config-Patch (E22): abgelehnt wird nur ein geänderter dataFolder bei Quelle master.
+  const sperrText = ordnerWahlGesperrt(zMaster);
+  ok(sperrText !== null && ordnerPatchAbgelehnt('D:\\Eigen', '', zMaster) === sperrText, 'R2 E22: Config-Patch mit neuem dataFolder bei Quelle master → abgelehnt, Text 17.2');
+  ok(
+    ordnerPatchAbgelehnt(undefined, 'D:\\Alt', zMaster) === null && ordnerPatchAbgelehnt('D:\\Alt', 'D:\\Alt', zMaster) === null,
+    'R2 E22: … ohne dataFolder oder mit unverändertem → nicht abgelehnt, der Rest des Patches gilt',
+  );
+  ok(
+    ordnerPatchAbgelehnt('D:\\Eigen', '', zOrdnerImVerbund) === null && ordnerPatchAbgelehnt('', 'D:\\Alt', zShow) === null,
+    'R2 E22: bei ordner (auch im Verbund) und show nicht abgelehnt',
+  );
   ok(quellZeile(zMaster, 'D:\\Bauchbinden', 2) === 'Quelle: Show vom Master „Gala“', 'R2 Q4 wörtlich');
   ok(zurueckKnopf(zMaster, 'D:\\Bauchbinden') === null, 'R2: kein Knopf K1 bei Quelle master');
 
@@ -10760,7 +10847,7 @@ npm run selftest -w @jm/titler
 ```
 Erwartet: tsx bricht vor dem ersten `ok` ab, Exitcode 1:
 ```
-SyntaxError: The requested module '../src/shared/datenquelle' does not provide an export named 'ordnerWahlGesperrt'
+SyntaxError: The requested module '../src/shared/datenquelle' does not provide an export named 'ordnerPatchAbgelehnt'
 ```
 
 - [ ] **Step 3: `apps/titler/src/shared/datenquelle.ts` ändern** (Edit-Werkzeug, CRLF bleibt)
@@ -11095,6 +11182,16 @@ export function ordnerWahlGesperrt(z: QuellZustand): string | null {
 }
 
 /**
+ * Sperre im Main für einen Config-Patch (E22): Lehnt der Main den `dataFolder` des Patches ab? Nur wenn er gesetzt
+ * ist, sich vom bisherigen Ordner unterscheidet und die Ordnerwahl gesperrt ist; dann der Text aus 17.2 für die
+ * Warnung, sonst `null`. Der Rest des Patches gilt in jedem Fall.
+ */
+export function ordnerPatchAbgelehnt(neu: string | undefined, vorher: string, z: QuellZustand): string | null {
+  if (neu === undefined || neu === vorher) return null;
+  return ordnerWahlGesperrt(z);
+}
+
+/**
  * Endet mit dieser Lage aus app-runtime (`VerbundDaten.art`) der Verbund für die Quelle `master` (Spec 16.1, 17.2)?
  * Ja bei `frueher`, `einzelplatz` und `datei-defekt`: Der Rechner folgt keinem Master mehr — auch dann, wenn noch
  * nichts angewendet ist (Start mit gemerkter Master-Form ohne lesbaren Zwischenspeicher, danach entkoppelt). Sonst
@@ -11111,7 +11208,7 @@ export function verbundEndetFuer(z: QuellZustand, lage: string): boolean {
 ```
 npm run selftest -w @jm/titler
 ```
-Erwartet: Exitcode 1, 471 `ok`-Zeilen, genau diese drei `FAIL`-Zeilen (alle aus dem neuen show-quelle-Block):
+Erwartet: Exitcode 1, 474 `ok`-Zeilen, genau diese drei `FAIL`-Zeilen (alle aus dem neuen show-quelle-Block):
 ```
 FAIL R2 show-quelle: Master-Form schreiben und lesen
 FAIL R2 show-quelle: schluessel null bleibt null
@@ -11191,7 +11288,7 @@ Nachher:
 npm run selftest -w @jm/titler 2>&1 | grep -c "^ok "
 npm run selftest -w @jm/titler 2>&1 | tail -1
 ```
-Erwartet: `474` (407 vorher + 67 neu) und `ALLE TESTS OK`, Exitcode 0.
+Erwartet: `477` (407 vorher + 70 neu) und `ALLE TESTS OK`, Exitcode 0.
 
 - [ ] **Step 7: Typecheck zeigt, wo der Main die neue Union berührt**
 
@@ -11309,7 +11406,7 @@ npm run typecheck -w @jm/titler
 npm run selftest -w @jm/titler 2>&1 | grep -c "^ok "
 grep -n "^import" apps/titler/src/shared/datenquelle.ts
 ```
-Erwartet: Typecheck ohne Meldung (node und web), Exitcode 0; `474`; die Importe genau:
+Erwartet: Typecheck ohne Meldung (node und web), Exitcode 0; `477`; die Importe genau:
 ```
 apps/titler/src/shared/datenquelle.ts:11:import type { Show, ShowIveoSpeaker } from '@jm/show';
 apps/titler/src/shared/datenquelle.ts:12:import type { Hinweis } from './datalink-kern';
@@ -11330,7 +11427,7 @@ M  apps/titler/test/selftest.ts
 ```
 Dann:
 ```
-git commit -m "feat(titler): Datenquelle master und gemerkte Show in Master-Form als reine Regeln (Teil 2b R2, C15)" -m "Ereignisse masterStand und verbundEnde: Stand mit Speakern wird Quelle master (iveo-data, TSV mit Kennung), gleiche Show ohne Speaker behaelt die Liste mit H3/H7, neue Show ohne Speaker schaltet auf den eigenen Ordner und loescht die gemerkte Show, Ende des Verbunds macht aus master frueher; verbundEndetFuer erkennt es an frueher, einzelplatz und datei-defekt. Gleiche Show bestimmt quellSchritt aus masterId und Schluessel. show-zuletzt.json kennt die Master-Form { quelle, masterId, schluessel, showName }; Start damit: gleicher Master gekoppelt master, sonst frueher. ordnerWahlGesperrt (O1) und Q4 woertlich. Main nur Typ-Bruecke fuer die Union." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(titler): Datenquelle master und gemerkte Show in Master-Form als reine Regeln (Teil 2b R2, C15)" -m "Ereignisse masterStand und verbundEnde: Stand mit Speakern wird Quelle master (iveo-data, TSV mit Kennung), gleiche Show ohne Speaker behaelt die Liste mit H3/H7, neue Show ohne Speaker schaltet auf den eigenen Ordner und loescht die gemerkte Show, Ende des Verbunds macht aus master frueher; verbundEndetFuer erkennt es an frueher, einzelplatz und datei-defekt. Gleiche Show bestimmt quellSchritt aus masterId und Schluessel. show-zuletzt.json kennt die Master-Form { quelle, masterId, schluessel, showName }; Start damit: gleicher Master gekoppelt master, sonst frueher. ordnerWahlGesperrt (O1) und Q4 woertlich, ordnerPatchAbgelehnt fuer die Sperre im Main (E22). Main nur Typ-Bruecke fuer die Union." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
@@ -11339,27 +11436,30 @@ git commit -m "feat(titler): Datenquelle master und gemerkte Show in Master-Form
 - **`startZustand`**: dritter Parameter mit Vorgabe `= null`. Die Signatur bleibt die des Registers; alte Aufrufe mit zwei Argumenten (Test, Ist-Main) bleiben gültig.
 - **`nichtLesbar.gemerkt` und `tsvNichtGeschrieben(…).gemerkt`** sind jetzt `GemerkteShowPfad | null`: Nur eine Pfad-Show kann „nicht lesbar“ sein; die Master-Form hat keinen Pfad.
 - **H4 auch bei Art `master`** im Zweig `nichtLesbar` (Deep-Link/RELOAD-Regel): nötig, damit eine nicht schreibbare TSV im Master-Weg über `tsvNichtGeschrieben` H4 zeigt (Vormerkung 14; Wortlaut wie R1, FA19).
-- Wo die Spec schweigt, gilt (zur Bestätigung durch Reviewer/Owner):
+- Wo die Spec schweigt, gilt (E53; Owner-Frage 6, vom Owner am 08.10.2026 geschlossen):
   - Gemerkt wird im Master-Weg nur bei Änderung (Show, Master, Name).
   - Neue Show ohne Speaker im Verbund löscht `show-zuletzt.json` (statt einer Master-Form ohne Speaker, die das Register nicht kennt).
   - `verbundEnde` ändert nur die Art `master`; ein eigener Ordner oder eine eigene Show bleiben. `quellHinweis` wird dabei `null` (Q3 trägt keinen Hinweis).
   - Q4 nennt den vollen Showname; die Oberfläche kürzt die Zeile (`truncate`, Tooltip).
 - Zusätzlicher Export `istMasterForm` (Typwächter), von `show-quelle.ts` und dem Main genutzt.
 - Zusätzlicher Export `verbundEndetFuer` (N8): Die Regel „Ende des Verbunds für Quelle `master`“ ist rein und getestet; C16 hatte sie nur im Main und nur für `frueher`. Ohne angewendeten Stand meldet app-runtime beim Entkoppeln `einzelplatz` (bzw. `datei-defekt`), und der Titler bliebe in Quelle `master`: Q4, gesperrte Ordnerwahl (E22), aber keine V-Zeile.
+- Zusätzlicher Export `ordnerPatchAbgelehnt` (N17): Die Regel der Sperre im Main für einen Config-Patch (E22) stand vorher nur in C16 und war ungetestet. Drei Prüfungen; rot zuerst (Step 2 bricht mit genau diesem Namen ab), Gegenproben unten.
 
-**Nachgerechnet** (beim Durchspielen des ganzen Plans): Step 2 rot wie angegeben; Step 4 471 `ok` + genau die drei `FAIL`; Step 6 `474`, „ALLE TESTS OK“ (nach N8 nachgemessen); Step 7 genau die vier Meldungen; Step 9 Typecheck node und web grün. Gegenprobe (vom Schreiber gemessen) mit je einem absichtlichen Fehler in `datenquelle.ts`, alle gefangen:
+**Nachgerechnet** (beim Durchspielen des ganzen Plans): Step 2 rot wie angegeben; Step 4 474 `ok` + genau die drei `FAIL`; Step 6 `477`, „ALLE TESTS OK“ (nach N17 nachgemessen); Step 7 genau die vier Meldungen; Step 9 Typecheck node und web grün. Gegenprobe mit je einem absichtlichen Fehler in `datenquelle.ts`, alle gefangen (die Zeilen ohne N-Verweis hat der Schreiber gemessen; die mit N8, N17 und N21 sind in der zweiten Runde mit genau der genannten Änderung nachgemessen, Befehl `npm run selftest -w @jm/titler`, danach zurückbauen):
 
 | Fehler | `FAIL`-Zeilen |
 | --- | --- |
 | gleiche Show nur über `masterId` (Schlüssel übergangen) | 5 |
 | `verbundEnde` macht jede Quelle zu `frueher` | 2 |
 | neue Show ohne Speaker löscht die gemerkte Show nicht | 2 |
-| Sperre auch bei `ordner` im Verbund (`z.master !== null`) | 2 (nach N8 nachgemessen: dazu „R2 16.1: Start mit Master-Form ohne angewendeten Stand, dann entkoppelt …“) |
+| Sperre auch bei `ordner` im Verbund: in `ordnerWahlGesperrt` `if (z.art !== 'master') return null;` → `if (z.master === null) return null;` (N21) | 3: „R2 16.1: Start mit Master-Form ohne angewendeten Stand, dann entkoppelt → frueher, Ordnerwahl wieder frei“, „R2 O1: bei ordner (auch im Verbund), show und frueher frei“, „R2 E22: bei ordner (auch im Verbund) und show nicht abgelehnt“ |
 | H4 nicht bei `master` | 1 |
 | Start mit Master-Form immer `master` | 2 |
 | Namenswechsel nicht gemerkt | 1 |
 | Schlüssel `null` gilt als gleich | 1 |
-| `verbundEndetFuer` nur bei `frueher` (die Regel vor N8) | 3: „R2 16.1: Lage einzelplatz …“, „R2 16.1: Lage datei-defekt …“, „R2 16.1: Start mit Master-Form ohne angewendeten Stand, dann entkoppelt …“ |
+| `verbundEndetFuer` nur bei `frueher` (die Regel vor N8): `(lage === 'frueher' \|\| lage === 'einzelplatz' \|\| lage === 'datei-defekt')` → `(lage === 'frueher')` | 3: „R2 16.1: Lage einzelplatz beendet den Verbund für Quelle master“, „R2 16.1: Lage datei-defekt beendet den Verbund für Quelle master“, „R2 16.1: Start mit Master-Form ohne angewendeten Stand, dann entkoppelt → frueher, Ordnerwahl wieder frei“ |
+| E22 lehnt auch einen unveränderten Ordner ab: `if (neu === undefined \|\| neu === vorher) return null;` → `if (neu === undefined) return null;` (N17) | 1: „R2 E22: … ohne dataFolder oder mit unverändertem → nicht abgelehnt, der Rest des Patches gilt“ |
+| E22 sperrt unabhängig von der Quelle: in `ordnerPatchAbgelehnt` `return ordnerWahlGesperrt(z);` → `return ordnerWahlGesperrt({ ...z, art: 'master' });` (N17) | 1: „R2 E22: bei ordner (auch im Verbund) und show nicht abgelehnt“ |
 
 ---
 
@@ -11388,7 +11488,7 @@ git commit -m "feat(titler): Datenquelle master und gemerkte Show in Master-Form
   onVerbundAnzeige: (cb: (a: VerbundAnzeigeZeile | null) => void) => () => void;
   ```
 
-**Regeln:** G5, G6 (Logzeilen ohne Netzwerte außer dem Namen, den app-runtime liefert), G11, G12, G14, G15 (keine neuen Unit-Tests: die Regeln sind in C15 getestet; hier Typecheck, Build, C20 Prüfungen 1, 3, 6), G16.
+**Regeln:** G5, G6 (Logzeilen ohne Netzwerte außer dem Namen, den app-runtime liefert), G11, G12, G14, G15, G16. Zu G15: keine neuen Unit-Tests, die Regeln sind in C15 getestet (`quellSchritt`, `verbundEndetFuer`, `ordnerWahlGesperrt`, seit N17 auch `ordnerPatchAbgelehnt`); hier Typecheck und Build. Der Durchgang C20 prüft am Titler: Stand vom Master anwenden (Prüfung 1), Bauchbinde auf Sendung bei neuer Liste (3), Master weg und neue Epoche (4), Neustart aus dem Zwischenspeicher (5), RELOAD im Verbundmodus (6), Entkoppeln mit V13 und bleibenden Daten (7). **Nicht in C20:** ein Show-Deep-Link (C20 startet ohne, Spec 19.7), also auch die Startreihenfolge E55, und die gesperrte Ordnerwahl (E22). Die stehen als Handprüfung unter „Zusatzprüfungen (nicht in Spec 20)“ in der Abnahme-Datei (C21, N17), dazu die eigene Ordnerwahl nach dem Entkoppeln (E56, N23). Von Hand nicht erreichbar ist die Ablehnung im Main selbst (`titler:pickDataFolder`, `titler:setConfig`, `titler:zurueckZumOrdner`), solange die Oberfläche die Wahl sperrt; sie ist als reine Regel in C15 getestet und hier nur über Typecheck und Build abgesichert (N23).
 
 **Verhalten (verbindlich):**
 - **`wendeMasterStandAn(stand)`** (Handler `anwenden`): `quellSchritt(quelle, { t: 'masterStand', … })`; mit TSV: `schreibeSpeakersTsvSicher(iveoData, tsv)`. Scheitert das, gilt `tsvNichtGeschrieben(quelle, s, { weg: 'reload', pfad: '', grund, gemerkt: null, … })` (Quelle und Liste bleiben, H4), und die Funktion **wirft** `nichtAngewendet(⟨Code⟩)` (N3) — app-runtime zeigt V12 „Show vom Master nicht übernommen: ⟨Code⟩“ und versucht es fünfmal im Abstand von 1 s erneut (16.2, „etwa bei EBUSY auf der TSV“). Ein einfaches `Error` ergäbe in V12 nur „Error“ (E49: der Folger nimmt `err.code`, nie die Meldung). `neueShow` wertet der Titler nicht aus (E21).
@@ -11396,7 +11496,7 @@ git commit -m "feat(titler): Datenquelle master und gemerkte Show in Master-Form
 - **Deep-Link im Verbundmodus**: `verbundIgnoriert('deeplink', pfad)` und nur die Vorlage (`openShowDocument`, C3). **RELOAD im Verbundmodus**: `verbundIgnoriert('reload')`, Rückgabe `false`.
 - **Eigene Show außerhalb**: `oeffneShow` ruft nach einer gelesenen und übernommenen Show `verbundDatenErsetzt()` (Deep-Link, RELOAD, Start mit eigener gemerkter Show, E16). Eine nicht lesbare Show oder eine nicht schreibbare TSV ersetzt nichts.
 - **Ordnerwahl/Knopf außerhalb des Verbundmodus** rufen ebenfalls `verbundDatenErsetzt()`: Der Bediener wählt damit auch die Daten eines früheren Masters ab; ein Neustart soll sie nicht aus dem Zwischenspeicher zurückholen (Ergänzung zu E16, siehe Abweichungen).
-- **Sperre im Main (E22)**: Bei Quelle `master` lehnen `titler:pickDataFolder` (liefert `''` wie „abgebrochen“), `titler:setConfig` mit geändertem `dataFolder` (der Rest des Patches gilt) und `titler:zurueckZumOrdner` ab; je eine Warnung „DataLink: Ordnerwahl abgelehnt. ⟨Text 17.2⟩“; der Status bleibt.
+- **Sperre im Main (E22)**: Bei Quelle `master` lehnen `titler:pickDataFolder` (liefert `''` wie „abgebrochen“), `titler:setConfig` mit geändertem `dataFolder` (der Rest des Patches gilt; die Regel ist `ordnerPatchAbgelehnt` aus C15, N17) und `titler:zurueckZumOrdner` ab; je eine Warnung „DataLink: Ordnerwahl abgelehnt. ⟨Text 17.2⟩“ aus einer Stelle (`ordnerWahlAbgelehnt`); der Status bleibt.
 - **Start (E17)**: `starteDatenquelle` liest die Kopplung (`verbundKopplung()`), setzt `startZustand(gemerkt, frueher, masterId nur bei Rolle slave)`, übernimmt bei Master-Form den Namen des Masters aus der Kopplung (der Text der Sperre braucht ihn, bevor der erste Stand kommt), startet die gemerkte Pfad-Show bzw. den Datenordner **nur ohne Show-Deep-Link**, registriert dann `folgeMasterShow` (ein Zwischenspeicher wird dabei angewendet) und wendet **erst danach** den Deep-Link an. So liefert ein Deep-Link beim Start im Verbundmodus nur die Vorlage (16.3 „sofort Verbundmodus“); am Einzelplatz ist die Reihenfolge wie bisher (Deep-Link statt gemerkter Show).
 - **Anzeige**: Abzeichen vor „Suite · ⟨n⟩ verbunden“ mit der V-Zeile (gekürzt, Tooltip); es trägt den Abstand `ml-auto`, auch leer am Einzelplatz. Einstellungen › DataLink: Eingabe, „Durchsuchen…“ und „✕“ gesperrt, darunter der Text aus 17.2. `iveoActive` gilt auch für Quelle `master`.
 - **Vormerkung 17** (OperatorView-Zweig `ohneOrdner`): geprüft, kein Befund — `ohneOrdner` ist `art === 'ordner' && !eigener`; bei Quelle `master` also `false` (die Liste wird gezeigt), bei `ordner` im Verbund ohne eigenen Ordner gilt „Kein Datenordner aktiv …“ zu Recht.
@@ -11435,6 +11535,7 @@ Nachher:
 ```ts
   istMasterForm,
   logNachMerken,
+  ordnerPatchAbgelehnt,
   ordnerWahlGesperrt,
   verbundEndetFuer,
   zeigtShow,
@@ -11621,9 +11722,11 @@ function eigenerOrdnerGilt(t: 'ordnerGewaehlt' | 'zurueckZumOrdner'): void {
   if (!imVerbundmodus()) verbundDatenErsetzt();
 }
 
-/** Bei Quelle master (Spec 17.2, O1) ist die Ordnerwahl gesperrt — auch im Main (E22). true = abgelehnt. */
-function ordnerWahlAbgelehnt(): boolean {
-  const gesperrt = ordnerWahlGesperrt(quelle);
+/**
+ * Bei Quelle master (Spec 17.2, O1) ist die Ordnerwahl gesperrt — auch im Main (E22). true = abgelehnt, mit Warnung.
+ * `gesperrt` ist der Text aus 17.2 oder null; ohne Angabe gilt `ordnerWahlGesperrt(quelle)` (Dialog, Knopf K1).
+ */
+function ordnerWahlAbgelehnt(gesperrt: string | null = ordnerWahlGesperrt(quelle)): boolean {
   if (!gesperrt) return false;
   getLog().warn(`DataLink: Ordnerwahl abgelehnt. ${gesperrt}`);
   return true;
@@ -11692,7 +11795,8 @@ Nachher:
   ipcMain.handle('titler:setConfig', (_e, patch: PartialTitlerConfig) => {
     const before = getConfig().dataFolder;
     // E22: Bei Quelle master bleibt der Ordner, wie er ist — auch ohne Dialog (Config-Patch). Der Rest gilt.
-    if (patch.dataFolder !== undefined && patch.dataFolder !== before && ordnerWahlAbgelehnt()) {
+    // Die Regel ist rein und in C15 getestet (ordnerPatchAbgelehnt).
+    if (ordnerWahlAbgelehnt(ordnerPatchAbgelehnt(patch.dataFolder, before, quelle))) {
       patch = { ...patch };
       delete patch.dataFolder;
     }
@@ -11937,7 +12041,7 @@ npm run build -w @jm/titler
 grep -c "jmps:verbund-anzeige" apps/titler/out/preload/index.cjs
 grep -c "folgeMasterShow(" apps/titler/src/main/index.ts
 ```
-Erwartet: Typecheck node und web ohne Meldung, Exitcode 0; `474` (unverändert); `electron-vite build` dreimal `✓ built in …`, Exitcode 0; `3` (invoke, on, off); `1` (genau eine Registrierung).
+Erwartet: Typecheck node und web ohne Meldung, Exitcode 0; `477` (unverändert); `electron-vite build` dreimal `✓ built in …`, Exitcode 0; `3` (invoke, on, off); `1` (genau eine Registrierung).
 
 - [ ] **Step 11: Commit** (Git Bash, Commit-Text ohne Umlaute)
 
@@ -11954,25 +12058,26 @@ M  apps/titler/src/shared/types.ts
 ```
 Dann:
 ```
-git commit -m "feat(titler): dem Master folgen, Ordnerwahl im Verbund gesperrt, Verbund-Abzeichen (Teil 2b R2, C16)" -m "folgeMasterShow nach dem Start der Datenquelle: Stand vom Master wird ueber quellSchritt angewendet, eine nicht schreibbare TSV laesst Quelle und Liste mit H4 stehen und wirft (app-runtime zeigt V12 und versucht es erneut). frueher beendet die Quelle master. Im Verbundmodus liefert ein Show-Deep-Link nur die Vorlage, RELOAD wird ignoriert; ein Deep-Link beim Start kommt erst nach der Registrierung. Eigene Show, Ordnerwahl und Knopf ausserhalb des Verbunds rufen verbundDatenErsetzt. Bei Quelle master lehnen pickDataFolder, setConfig.dataFolder und zurueckZumOrdner ab (E22). Abzeichen vor Suite, Einstellungen zeigen den Sperrtext." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(titler): dem Master folgen, Ordnerwahl im Verbund gesperrt, Verbund-Abzeichen (Teil 2b R2, C16)" -m "folgeMasterShow nach dem Start der Datenquelle: Stand vom Master wird ueber quellSchritt angewendet, eine nicht schreibbare TSV laesst Quelle und Liste mit H4 stehen und wirft nichtAngewendet mit dem Fehlercode (app-runtime zeigt V12 und versucht es erneut). frueher, einzelplatz und datei-defekt beenden die Quelle master (verbundEndetFuer). Im Verbundmodus liefert ein Show-Deep-Link nur die Vorlage, RELOAD wird ignoriert; ein Deep-Link beim Start kommt erst nach der Registrierung. Eigene Show, Ordnerwahl und Knopf ausserhalb des Verbunds rufen verbundDatenErsetzt. Bei Quelle master lehnen pickDataFolder, setConfig.dataFolder (ordnerPatchAbgelehnt) und zurueckZumOrdner ab (E22). Abzeichen vor Suite, Einstellungen zeigen den Sperrtext." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
 - **Deep-Link beim Start nach der Registrierung.** E17 sagt nur „Titler registriert nach `starteDatenquelle`“. Liefe der Start-Deep-Link vor der Registrierung, wäre `imVerbundmodus()` noch falsch (der Zwischenspeicher ist erst beim Registrieren angewendet), die lokale Show würde angewendet und `verbundDatenErsetzt()` löschte den Zwischenspeicher. Das widerspräche 16.3 („beim Start … sofort Verbundmodus“) und 17.2 („Deep-Link im Verbundmodus: nur die Vorlage“). Die Registrierung liegt deshalb in `starteDatenquelle` zwischen „gemerkte Show/Datenordner“ und „Deep-Link“. Am Einzelplatz bleibt alles wie bisher (der Deep-Link ersetzt die gemerkte Show; ohne Zwischenspeicher tut die Registrierung nichts).
-- **Ergänzung zu E16** (Reviewer/Owner bitte bestätigen): Ordnerwahl und Knopf K1 außerhalb des Verbundmodus rufen ebenfalls `verbundDatenErsetzt()`. Ohne das holte ein Neustart nach „entkoppelt, dann eigener Ordner gewählt“ die Speaker des früheren Masters aus dem Zwischenspeicher zurück (C12: der Zwischenspeicher wird beim Start immer angewendet) und verdrängte den gewählten Ordner. Im Verbundmodus (Quelle `ordner`, weil die Master-Show keine Speaker hat) bleibt der Zwischenspeicher.
+- **Ergänzung zu E16** (E56; Owner-Frage 5, vom Owner am 08.10.2026 geschlossen): Ordnerwahl und Knopf K1 außerhalb des Verbundmodus rufen ebenfalls `verbundDatenErsetzt()`. Ohne das holte ein Neustart nach „entkoppelt, dann eigener Ordner gewählt“ die Speaker des früheren Masters aus dem Zwischenspeicher zurück (C12: der Zwischenspeicher wird beim Start immer angewendet) und verdrängte den gewählten Ordner. Im Verbundmodus (Quelle `ordner`, weil die Master-Show keine Speaker hat) bleibt der Zwischenspeicher.
 - **Name des Masters beim Start** aus `verbundKopplung().masterName`: Die Master-Form der gemerkten Show trägt nach Register keinen Namen; der Sperrtext (O1) braucht ihn, bevor der erste Stand kommt.
 - **Neuer Logtext ohne Spec-Vorgabe (für E13, Owner-Freigabe vor dem Release):** „DataLink: Ordnerwahl abgelehnt. ⟨Text aus 17.2⟩“. Der Text aus 17.2 selbst ist wörtlich.
 - **Grund für V12** beim Wurf: `nichtAngewendet(⟨Fehlercode⟩)`, V12 also „Show vom Master nicht übernommen: ⟨Fehlercode⟩“ (N3). Die frühere Fassung warf `new Error('speakers.tsv nicht schreibbar: …')`; der Folger nimmt aber nur `err.code` oder den Fehlertyp (E49, G6), V12 hätte „…: Error“ gezeigt. Den Zusammenhang mit der TSV zeigt H4 in der Quellzeile.
 - **Ende des Verbunds über `verbundEndetFuer`** (N8): auch `einzelplatz` und `datei-defekt` beenden die Quelle `master`, nicht nur `frueher`.
+- **Sperre im Main über `ordnerPatchAbgelehnt`** (N17): `titler:setConfig` nimmt die Regel aus C15; `ordnerWahlAbgelehnt(gesperrt)` schreibt die Warnung für alle drei Wege an einer Stelle.
 - `apps/titler/src/renderer/src/jmtitler.d.ts` bleibt unverändert (die Brücke kommt über `JmtitlerApi`).
 
-**Nachgerechnet** (beim Durchspielen des ganzen Plans, mit C11–C13 aus diesem Plan): Typecheck node und web grün, Selbsttest `474`, „ALLE TESTS OK“, `electron-vite build` grün, Preload-Zählung `3`, im gebauten Main `Ordnerwahl abgelehnt` genau einmal. Laufzeitverhalten prüft C20 (Prüfungen 1, 3, 6).
+**Nachgerechnet** (beim Durchspielen des ganzen Plans, mit C11–C13 aus diesem Plan): Typecheck node und web grün, Selbsttest `477`, „ALLE TESTS OK“, `electron-vite build` grün, Preload-Zählung `3`, `folgeMasterShow(` einmal, im gebauten Main `Ordnerwahl abgelehnt` genau einmal. Was davon zur Laufzeit C20 prüft und was nur die Abnahme, steht oben unter „Regeln“.
 
 ---
 
 ### Task 17: C17 · Rundown rein: Gedächtnis und Zeiger mit Master-Schlüssel, `ausShow`, `waehleLauncher`, neu oder gleich
 
-**Spec:** 17.3 (Gedächtnis-Teil: eine Schlüsselfunktion, Inhalt mit `quelle: 'master'`, Zeiger, Übergang, stehender Hinweis), 17.4 (Tabelle), 19.5 (Rundown); #235. Entscheidungen E15, E25.
+**Spec:** 17.3 (Gedächtnis-Teil: eine Schlüsselfunktion, Inhalt mit `quelle: 'master'`, Zeiger, Übergang, stehender Hinweis; „Show-Deep-Link | Daten ignoriert“), 17.4 (Tabelle), 19.5 (Rundown); #235. Entscheidungen E15, E24, E25.
 
 **Arbeitsverzeichnis:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2`, Branch `feat/master-link-teil2b-r2`. Voraussetzung: C16 ist committet (fachlich unabhängig).
 
@@ -12009,6 +12114,8 @@ git commit -m "feat(titler): dem Master folgen, Ordnerwahl im Verbund gesperrt, 
   export function dokumentHinweis(vorher: string | null, stand: { masterId: string; mitDokument: readonly string[] }, masterSchluessel: string): { fuer: string | null; zeigen: boolean };
   export type MasterAusgang = 'gedaechtnis' | 'uebergang' | 'leer' | 'bleibt';
   export function masterAusgang(o: { mitGedaechtnis: boolean; ablaufLeer: boolean; docName: string; showName: string }): MasterAusgang;
+  // zusätzlich (N15): Show-Deep-Link im Verbundmodus (E24), hier getestet; C18 nutzt es mit kuerzeName
+  export function showLinkWeg(imVerbund: boolean, pfad: string, kuerze: (name: string) => string): { weg: 'laden' } | { weg: 'ignorieren'; log: string };
   ```
 
 **Regeln:** G5 (Hinweis wörtlich), G7 (Rundown-`src/shared`: keine `electron`-, `node:`- oder Paket-Laufzeitimporte, zwischen Modulen nur `import type`; `gedaechtnis.ts` liegt in `src/main` und läuft im Test mit dem Endungs-Hook), G11, G12, G16.
@@ -12024,6 +12131,7 @@ git commit -m "feat(titler): dem Master folgen, Ordnerwahl im Verbund gesperrt, 
 - `gleicherShowName`: nach `trim()`, ohne Rücksicht auf Groß/Klein; ein leerer Name gleicht nie.
 - `masterAusgang` (N9): Gedächtnis vorhanden → `gedaechtnis`; sonst Show ohne Ablauf → `bleibt` (das Dokument bleibt, 5.2); sonst gleicher Name → `uebergang`, sonst `leer`. C18 `ladeMasterShow` nimmt den Weg daraus.
 - `dokumentHinweis` (N9): ohne `jm-rundown` in `mitDokument` → `{ fuer: null, zeigen: false }` (Hinweis weg); sonst `fuer = masterId|masterSchluessel`, `zeigen` genau dann, wenn `fuer` vom vorigen Merker abweicht (einmal je Show). C18 `zeigeDokumentHinweis` nutzt es.
+- `showLinkWeg(imVerbund, pfad, kuerze)` (E24, N15): außerhalb des Verbundmodus `{ weg: 'laden' }` (Weg aus 2a); im Verbundmodus `{ weg: 'ignorieren', log }` mit „Verbund: Show-Link „⟨Name⟩“ – der Rundown folgt der Show vom Master und lädt daraus nichts.“, ⟨Name⟩ = letzter Pfadteil (Trenner `\` und `/`) durch `kuerze`. C18 `applyShowFromDeepLink` nutzt es mit `kuerzeName`.
 
 ---
 
@@ -12156,6 +12264,7 @@ import {
   HINWEIS_RUNDOWN_DATEI_AM_MASTER,
   masterAusgang,
   mitRundownDokument,
+  showLinkWeg,
   waehleLauncher,
   type KopplungFuerWahl,
 } from '../src/shared/conductor.ts';
@@ -12254,6 +12363,21 @@ Nachher:
   eq(dokumentHinweis(h1.fuer, mitDatei, 'fedcba9876543210').zeigen, true, '17.3 Hinweis: andere Show am Master → wieder zeigen');
   eq(dokumentHinweis(h1.fuer, { masterId: 'm2', mitDokument: ['jm-rundown'] }, '0123456789abcdef').zeigen, true, '17.3 Hinweis: anderer Master → wieder zeigen');
   eq(dokumentHinweis(h1.fuer, { masterId: 'm1', mitDokument: ['jm-titler'] }, '0123456789abcdef'), { fuer: null, zeigen: false }, '17.3 Hinweis: Show ohne Rundown-Datei → entfernen, Merker leer');
+
+  // Show-Deep-Link (17.3 vor 16.1, E24, N15): im Verbundmodus lädt der Rundown daraus nichts, weder Daten noch Dokument,
+  // und schreibt eine eigene Logzeile; außerhalb gilt der Weg aus 2a.
+  const ohneKuerzen = (n: string): string => n;
+  eq(showLinkWeg(false, 'C:\\Shows\\Gala 2026.jmshow', ohneKuerzen), { weg: 'laden' }, '17.3 Show-Link außerhalb des Verbundmodus → laden wie 2a');
+  eq(
+    showLinkWeg(true, 'C:\\Shows\\Gala 2026.jmshow', ohneKuerzen),
+    { weg: 'ignorieren', log: 'Verbund: Show-Link „Gala 2026.jmshow“ – der Rundown folgt der Show vom Master und lädt daraus nichts.' },
+    '17.3 Show-Link im Verbundmodus → nichts laden, eigene Logzeile mit dem Dateinamen (E24)',
+  );
+  eq(
+    showLinkWeg(true, '/home/regie/Shows/Gala.jmshow', (n) => `[${n}]`),
+    { weg: 'ignorieren', log: 'Verbund: Show-Link „[Gala.jmshow]“ – der Rundown folgt der Show vom Master und lädt daraus nichts.' },
+    '17.3 … der Name läuft durch die Kürzung (im Main kuerzeName), auch bei Pfaden mit /',
+  );
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
@@ -12669,6 +12793,24 @@ export function gleicherShowName(docName: string, showName: string): boolean {
 }
 
 /**
+ * Show-Deep-Link im Rundown (Spec 17.3 „Show-Deep-Link | Daten ignoriert“ und „Eigene Rundown-Datei der Show: wird auf
+ * B nicht geladen“; die Rundown-eigene Regel geht 16.1 vor, E24): Im Verbundmodus lädt der Rundown aus dem Link nichts,
+ * weder Daten noch Dokument. Ein Show-Link kommt oft ohne bewusste Handlung (Launcher, Doppelklick); er darf einen
+ * laufenden Rundown nicht auf die erste Zeile setzen, GO-Folgen abbrechen oder das Gedächtnis der Master-Show
+ * überschreiben. Statt der 16.1-Zeile eine eigene, wahre Logzeile; ⟨Name⟩ ist der Dateiname des Links, gesäubert und
+ * gekürzt über `kuerze` (im Main `kuerzeName`). Außerhalb des Verbundmodus gilt der Weg aus 2a (`laden`).
+ */
+export function showLinkWeg(
+  imVerbund: boolean,
+  pfad: string,
+  kuerze: (name: string) => string,
+): { weg: 'laden' } | { weg: 'ignorieren'; log: string } {
+  if (!imVerbund) return { weg: 'laden' };
+  const name = pfad.split(/[\\/]/).filter((t) => t !== '').pop() ?? pfad;
+  return { weg: 'ignorieren', log: `Verbund: Show-Link „${kuerze(name)}“ – der Rundown folgt der Show vom Master und lädt daraus nichts.` };
+}
+
+/**
  * Protokollzeile für eine Aktion bauen. Switcher-Verben haben KEINEN Namespace
 ```
 
@@ -12678,7 +12820,7 @@ export function gleicherShowName(docName: string, showName: string): boolean {
 npm run selftest -w @jm/rundown 2>&1 | grep -c "^ok "
 npm run selftest -w @jm/rundown 2>&1 | grep -c "ALLE TESTS OK"
 ```
-Erwartet: `549` (440 aus `test/selftest.ts` = 404 + 36 neu, 109 aus `test/gedaechtnis.test.ts` = 81 + 28 neu) und `2`, Exitcode 0.
+Erwartet: `552` (443 aus `test/selftest.ts` = 404 + 39 neu, 109 aus `test/gedaechtnis.test.ts` = 81 + 28 neu) und `2`, Exitcode 0.
 
 - [ ] **Step 8: Typecheck zeigt den Zeiger als Union im Main**
 
@@ -12737,7 +12879,7 @@ M  apps/rundown/test/selftest.ts
 ```
 Dann:
 ```
-git commit -m "feat(rundown): Gedaechtnis und Zeiger mit Master-Schluessel, Launcher-Wahl, neu oder gleich (Teil 2b R2, C17)" -m "gedaechtnisSchluesselFuer fuer Pfad und Master (sha256 master|masterId|schluessel). Gedaechtnis mit quelle master verlangt masterId und masterSchluessel; schreibeGedaechtnis nimmt den Dateinamen aus der Quelle und schreibt ohne gueltige Quelle nichts (#235). Zeiger in Master-Form mit leerem showPfad. ausShow als reiner Teil von leseShowSicher. waehleLauncher nach 17.4, entscheideMasterStand ueber den Zeiger, gleicherShowName, Hinweis 17.3 woertlich. Main nur Typ-Bruecke." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(rundown): Gedaechtnis und Zeiger mit Master-Schluessel, Launcher-Wahl, neu oder gleich (Teil 2b R2, C17)" -m "gedaechtnisSchluesselFuer fuer Pfad und Master (sha256 master|masterId|schluessel). Gedaechtnis mit quelle master verlangt masterId und masterSchluessel; schreibeGedaechtnis nimmt den Dateinamen aus der Quelle und schreibt ohne gueltige Quelle nichts (#235). Zeiger in Master-Form mit leerem showPfad. ausShow als reiner Teil von leseShowSicher. waehleLauncher nach 17.4, entscheideMasterStand ueber den Zeiger, gleicherShowName, Hinweis 17.3 woertlich. masterAusgang, dokumentHinweis und showLinkWeg (Show-Link im Verbundmodus laedt nichts, eigene Logzeile) als reine Regeln fuer C18. Main nur Typ-Bruecke." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
@@ -12747,8 +12889,9 @@ git commit -m "feat(rundown): Gedaechtnis und Zeiger mit Master-Schluessel, Laun
 - **`schreibeGedaechtnis` ohne gültige Quelle → `false`** (bisher: Hash von `resolve('')`, also des Arbeitsordners). Kein 2a-Aufrufer übergibt einen leeren Pfad (`sichere()` schreibt nur mit gemerkter Show); C18 stellt das für die Master-Show sicher.
 - `gleicherShowName`: ein leerer Name gleicht nie (E25 sagt dazu nichts; ein unbenanntes Dokument soll keine Show übernehmen).
 - **Zusätzliche Exporte `masterAusgang` und `dokumentHinweis`** (N9, Nachbesserung): Die Entscheidungen der Ladewege aus C18 (welcher Ausgangsstand, Hinweis einmal je Show) sind reine Funktionen und hier rot zuerst getestet; C18 hat dafür keine eigenen Tests (G15).
+- **Zusätzlicher Export `showLinkWeg`** (N15, E24): Die Entscheidung „Show-Link im Verbundmodus → nichts laden, eigene Logzeile; sonst wie 2a“ ist rein und hier mit drei Prüfungen rot zuerst getestet (Step 2 bricht ab, solange die Exporte fehlen). Die Kürzung kommt als Parameter herein, weil `src/shared` keine Paket-Laufzeitimporte hat (G7); im Main ist es `kuerzeName` aus `@jm/app-runtime` (C13).
 
-**Nachgerechnet** (beim Durchspielen des ganzen Plans): Step 2 beide Meldungen wie angegeben; Step 5 `109`, Selbsttest weiter rot; Step 7 `549` (nach N9 nachgemessen), zweimal „ALLE TESTS OK“; Step 8 genau die vier Meldungen; Step 10 Typecheck node und web grün. Gegenprobe (vom Schreiber gemessen) mit je einem absichtlichen Fehler, alle gefangen (`FAIL` in `selftest.ts` / `gedaechtnis.test.ts`):
+**Nachgerechnet** (beim Durchspielen des ganzen Plans): Step 2 beide Meldungen wie angegeben; Step 5 `109`, Selbsttest weiter rot; Step 7 `552` (nach N15 nachgemessen), zweimal „ALLE TESTS OK“; Step 8 genau die vier Meldungen; Step 10 Typecheck node und web grün. Gegenprobe mit je einem absichtlichen Fehler, alle gefangen (`FAIL` in `selftest.ts` / `gedaechtnis.test.ts`; die Zeilen ohne N-Verweis hat der Schreiber gemessen, die mit N9 und N15 sind in der zweiten Runde nachgemessen, für N15 mit genau der genannten Änderung in `conductor.ts` und `node --experimental-strip-types apps/rundown/test/selftest.ts`, danach zurückbauen):
 
 | Fehler | selftest | gedaechtnis |
 | --- | --- | --- |
@@ -12764,12 +12907,15 @@ git commit -m "feat(rundown): Gedaechtnis und Zeiger mit Master-Schluessel, Laun
 | Hinweis bei jedem Stand neu (`zeigen: true`, N9) | 1 | 0 |
 | Show ohne Ablauf vor dem Gedächtnis geprüft (N9) | 1 | 0 |
 | kein Übergang über den Namen (N9) | 1 | 0 |
+| im Verbundmodus doch laden: `if (!imVerbund) return { weg: 'laden' };` → `if (imVerbund \|\| !imVerbund) return { weg: 'laden' };` (N15) | 2: „17.3 Show-Link im Verbundmodus → nichts laden, eigene Logzeile mit dem Dateinamen (E24)“, „17.3 … der Name läuft durch die Kürzung (im Main kuerzeName), auch bei Pfaden mit /“ | 0 |
+| Name ohne Kürzung: ``„${kuerze(name)}“`` → ``„${name}“`` (N15) | 1: „17.3 … der Name läuft durch die Kürzung (im Main kuerzeName), auch bei Pfaden mit /“ | 0 |
+| ganzer Pfad statt Dateiname: die Zeile `const name = pfad.split(…)…` → `const name = pfad;` (N15) | 2: dieselben zwei wie in der ersten N15-Zeile | 0 |
 
 ---
 
 ### Task 18: C18 · Rundown: Ladewege im Verbund, alle 21 `showPfad`-Stellen (#235), Conductor wählt den Launcher (Z2), V-Zeile
 
-**Spec:** 16.1 (Verbundmodus, Logzeilen, `verbundDatenErsetzt()`), 16.5 (Statusstreifen), 17.3 (Tabelle „Ladewege im Verbundmodus“, Übergang, eigene Rundown-Datei, Hinweise), 17.4 (Conductor sammelt Launcher-Funde, Wahl über `waehleLauncher`). Entscheidungen E15, E16, E17, E24, E28.
+**Spec:** 16.1 (Verbundmodus, Logzeilen, `verbundDatenErsetzt()`), 16.5 (Statusstreifen), 17.3 (Tabelle „Ladewege im Verbundmodus“ mit „Show-Deep-Link | Daten ignoriert“, Übergang, eigene Rundown-Datei, Hinweise), 17.4 (Conductor sammelt Launcher-Funde, Wahl über `waehleLauncher`). Entscheidungen E15, E16, E17, E24 (17.3 vor 16.1), E28.
 
 **Arbeitsverzeichnis:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2`, Branch `feat/master-link-teil2b-r2`. Voraussetzung: C13 und C17 sind committet.
 
@@ -12782,7 +12928,7 @@ git commit -m "feat(rundown): Gedaechtnis und Zeiger mit Master-Schluessel, Laun
 - Unverändert: `apps/rundown/src/renderer/src/App.tsx` (die V-Zeile abonniert `ToolLinks` selbst), `apps/rundown/src/renderer/src/jmrundown.d.ts` (nimmt `JmRundownApi`)
 
 **Interfaces:**
-- Consumes (C13, S-C): `folgeMasterShow`, `imVerbundmodus`, `istHostDieserRechner`, `nichtAngewendet` (N3), `verbundDatenErsetzt`, `verbundIgnoriert`, `verbundKopplung` (`VerbundKopplung | null`: `rolle`, `masterId`, `masterAdresse`, `adressen`, `letzteAdresse`), Typ `MasterStand`, IPC `jmps:verbund-anzeige`. Aus C17: `gedaechtnisSchluesselFuer`, `GedaechtnisQuelle`, `Zeiger`, `leseZeiger`, `schreibeZeiger`, `ausShow`, `schreibeGedaechtnis` (Quelle aus dem Inhalt), `waehleLauncher`, `KopplungFuerWahl`, `entscheideMasterStand`, `HINWEIS_RUNDOWN_DATEI_AM_MASTER`, `masterAusgang` und `dokumentHinweis` (N9; sie nutzen `gleicherShowName` und `mitRundownDokument`).
+- Consumes (C13, S-C): `folgeMasterShow`, `imVerbundmodus`, `istHostDieserRechner`, `nichtAngewendet` (N3), `verbundDatenErsetzt`, `verbundIgnoriert`, `verbundKopplung` (`VerbundKopplung | null`: `rolle`, `masterId`, `masterAdresse`, `adressen`, `letzteAdresse`), Typ `MasterStand`, IPC `jmps:verbund-anzeige`. Aus C17: `gedaechtnisSchluesselFuer`, `GedaechtnisQuelle`, `Zeiger`, `leseZeiger`, `schreibeZeiger`, `ausShow`, `schreibeGedaechtnis` (Quelle aus dem Inhalt), `waehleLauncher`, `KopplungFuerWahl`, `entscheideMasterStand`, `HINWEIS_RUNDOWN_DATEI_AM_MASTER`, `masterAusgang` und `dokumentHinweis` (N9; sie nutzen `gleicherShowName` und `mitRundownDokument`), `showLinkWeg` (N15). Aus C13 außerdem `kuerzeName` (über `@jm/app-runtime`, N15).
 - Produces (S-D, exakt):
   ```ts
   // apps/rundown/src/shared/types.ts (E28)
@@ -12795,17 +12941,17 @@ git commit -m "feat(rundown): Gedaechtnis und Zeiger mit Master-Schluessel, Laun
   class Conductor { constructor(onChange: () => void, launcherWahl?: LauncherWahl); neuWaehlen(): void }
   ```
 
-**Regeln:** G5 (Texte 17.3 wörtlich: „Show vom Master „⟨S⟩“ übernommen.“ kurz; Hinweis zur Rundown-Datei stehend und als Logzeile), G6, G11, G12, G14, G15 (keine neuen Unit-Tests: die Regeln sind in C17 getestet, seit N9 auch Ladeweg und Hinweis-Merker; hier Typecheck, Build und der Durchgang C20 mit den Prüfungen 1, 2, 4, der vor dem Merge laufen muss, N14), G16.
+**Regeln:** G5 (Texte 17.3 wörtlich: „Show vom Master „⟨S⟩“ übernommen.“ kurz; Hinweis zur Rundown-Datei stehend und als Logzeile), G6, G11, G12, G14, G15, G16. Zu G15: keine neuen Unit-Tests, die Regeln sind in C17 getestet (seit N9 Ladeweg und Hinweis-Merker, seit N15 die Entscheidung zum Show-Link); hier Typecheck und Build. Der Durchgang C20 (vor dem Merge Pflicht, N14) prüft am Rundown: Stand vom Master anwenden (Prüfung 1), neuer Stand derselben Show in höchstens 2 s (2), Master weg und neue Epoche ohne neuen Hinweis (4), Neustart aus dem Zwischenspeicher (5), RELOAD im Verbundmodus (6), Entkoppeln mit V13 und bleibenden Daten (7). **Nicht in C20:** ein Show-Deep-Link, im Lauf und beim Start (C20 startet ohne, Spec 19.7; Startreihenfolge E55), „Öffnen…“/„Neu“ im Verbundmodus, der stehende Hinweis zur Rundown-Datei (die Test-Show trägt keine) und die Launcher-Wahl des Conductors (17.4, Abnahme Schritt 6). Show-Link, Startreihenfolge, „Öffnen…“/„Neu“ im Verbundmodus mit dem stehenden Hinweis und „Neu“ nach dem Entkoppeln (E56) stehen als Handprüfung unter „Zusatzprüfungen (nicht in Spec 20)“ in der Abnahme-Datei (C21, N17, N23).
 
 **Verhalten (Spec 17.3, verbindlich):**
 - **Gemerkte Show** ist jetzt eine von zwei Formen: `showPfad` (eigene Show, wie 2a) oder `masterQuelle = { masterId, masterSchluessel }` (Show vom Master). Sie schließen sich aus. Jede Stelle, die „gemerkte Show“ meint, fragt `hatShow()`; jede, die das Gedächtnis meint, `gedaechtnisQuelle()` — nie einen leeren Pfad (#235).
-- **Stand vom Master** (`anwenden`): `entscheideMasterStand(aktuellerZeiger(), stand)` — `gleich` → `aktualisiereMasterShow` (wie `reloadShow`: `wendeShowAn`, Position nach R7/4.4, bricht keine GO-Folge ab; Ablauf neu entstanden → wie andere Show); `neu` → `ladeMasterShow` (wie `ladeAndereShow`: Gedächtnis mit Master-Schlüssel → Übergang über den Namen → leer, dann `wendeShowAn`; Show ohne Ablauf und ohne Gedächtnis: das Dokument bleibt wie in 5.2; den Weg wählt `masterAusgang` aus C17; erst rechnen, dann den Zustand setzen, damit ein Wurf nichts halb gemerkt zurücklässt (N9); Zeiger in Master-Form; kurzer Hinweis „Show vom Master „⟨S⟩“ übernommen.“). Die eigene Rundown-Datei der Show wird auf B nie geladen. Ein Stand mit Show, aber ohne Schlüssel (laut 13.1 ausgeschlossen) wirft `nichtAngewendet('SCHLUESSEL_FEHLT')` (V12 „Show vom Master nicht übernommen: SCHLUESSEL_FEHLT“, N3).
+- **Stand vom Master** (`anwenden`): `entscheideMasterStand(aktuellerZeiger(), stand)` — `gleich` → `aktualisiereMasterShow` (wie `reloadShow`: `wendeShowAn`, Position nach R7/4.4, bricht keine GO-Folge ab; Ablauf neu entstanden → wie andere Show); `neu` → `ladeMasterShow` (wie `ladeAndereShow`: Gedächtnis mit Master-Schlüssel → Übergang über den Namen → leer, dann `wendeShowAn`; Show ohne Ablauf und ohne Gedächtnis: das Dokument bleibt wie in 5.2; den Weg wählt `masterAusgang` aus C17; erst rechnen, dann den Zustand setzen, damit ein Wurf nichts halb gemerkt zurücklässt (N9); Zeiger in Master-Form; kurzer Hinweis „Show vom Master „⟨S⟩“ übernommen.“). Die eigene Rundown-Datei der Show wird auf B nie von selbst geladen (eine Kopie lädt der Bediener bewusst mit „Öffnen…“, 17.3). Ein Stand mit Show, aber ohne Schlüssel (laut 13.1 ausgeschlossen) wirft `nichtAngewendet('SCHLUESSEL_FEHLT')` (V12 „Show vom Master nicht übernommen: SCHLUESSEL_FEHLT“, N3).
 - **Hinweis zur Rundown-Datei**: `mitDokument` enthält `jm-rundown` → stehender Hinweis mit dem Text aus 17.3 und dieselbe Logzeile, beides einmal je Show (weggeklickt bleibt er weg, bis eine andere Show kommt); ohne → Hinweis entfernt. Die Regel ist `dokumentHinweis` aus C17 (N9).
 - **„Öffnen…“ / „Neu“ im Verbundmodus**: Die Show vom Master bleibt gemerkt; die Datei bzw. ein leeres Dokument mit dem Namen der Show wird Ausgangsstand und sofort mit dem zuletzt angewendeten Stand abgeglichen; „Speichern“ schreibt in die geöffnete Datei. Außerhalb wie 2a, und dazu `verbundDatenErsetzt()` (siehe Abweichungen).
-- **`RUNDOWN RELOAD` im Verbundmodus**: `verbundIgnoriert('reload')`. **Show-Deep-Link im Verbundmodus** (E24, Spec 16.1 „liefert nur noch Dokumente“, 17.3 „Daten ignoriert“): `verbundIgnoriert('deeplink', pfad)`; die Show-Daten bleiben die des Masters. Trägt die verlinkte Show eine eigene Rundown-Datei, wird sie wie „Öffnen…“ Ausgangsstand und sofort mit der Show vom Master abgeglichen (`ladeDokumentImVerbund` → `gleicheMitMasterAb`); ohne Datei bleibt das Dokument. Rückgabe `true`.
+- **`RUNDOWN RELOAD` im Verbundmodus**: `verbundIgnoriert('reload')`. **Show-Deep-Link im Verbundmodus** (E24, Auslegung 17.3 vor 16.1, N15): Der Rundown lädt daraus nichts, weder Daten noch Dokument; Position, GO-Folgen und Gedächtnis der Master-Show bleiben. Statt der 16.1-Zeile eine Infozeile „Verbund: Show-Link „⟨Name⟩“ – der Rundown folgt der Show vom Master und lädt daraus nichts.“ (⟨Name⟩ = Dateiname über `kuerzeName`). Die Entscheidung ist `showLinkWeg` aus C17; `verbundIgnoriert('deeplink')` ruft der Rundown nicht. Rückgabe `true`. Eine eigene Rundown-Datei lädt der Bediener mit „Öffnen…“ (17.3).
 - **Eigene Show** (`ladeAndereShow` aus Deep-Link, RELOAD oder Start über einen Pfad-Zeiger; der Start-Zweig „Show nicht lesbar“) vergisst die Show vom Master und ruft `verbundDatenErsetzt()` (E16).
 - **Start ohne Deep-Link, Zeiger in Master-Form**: Gedächtnis mit Master-Schlüssel laden (Schlüssel aus Ablaufzeilen, iveo aus dem Kontext wie im Zweig „nicht lesbar“). Ohne lesbares Gedächtnis bleibt der Autosave, und der erste Stand lädt die Show wie eine andere (dann greift der Übergang).
-- **Reihenfolge beim Start (E17, E24)**: ohne Show-Deep-Link `starteOhneDeepLink()`, dann `folgeMasterShow` (ein Zwischenspeicher wird dabei angewendet), dann erst ein Show-Deep-Link (im Verbundmodus liefert er also nur das Dokument).
+- **Reihenfolge beim Start (E17, E24)**: ohne Show-Deep-Link `starteOhneDeepLink()`, dann `folgeMasterShow` (ein Zwischenspeicher wird dabei angewendet), dann erst ein Show-Deep-Link (im Verbundmodus lädt der Rundown also nichts daraus).
 - **Conductor (17.4)**: sammelt alle Funde der Rolle `launcher`; gewählt wird über `waehleLauncher(funde, kopplungFuerWahl(), istHostDieserRechner)` bei jedem Fund und bei jedem Verbund-Wechsel (`beiWechsel` → `neuWaehlen()`). Ein Slave ohne Kopplung (`masterId` leer) gilt als Einzelplatz (16.1). Manuelle Endpunkte behalten Vorrang (`mergeEndpoints`). `neuWaehlen()` baut erst nach `start()` Clients (Token/TLS sind dann gelesen). Andere Rollen bleiben bei „zuletzt gefunden“ (FA4).
 
 **Die 21 `showPfad`-Treffer in `apps/rundown/src/main/index.ts`** (`grep -n showPfad`, Stand `5f8ed15ef8`; nach C18 sind es 20 Zeilen: sechs Treffer verlieren `showPfad` (137, 157, 181, 182, 299, 412), fünf neue kommen in Kommentar und Helfern dazu):
@@ -12828,13 +12974,13 @@ git commit -m "feat(rundown): Gedaechtnis und Zeiger mit Master-Schluessel, Laun
 | 14 | 753 | `reloadShow`: `leseShowSicher(showPfad)` | unverändert (nur eigene Show) |
 | 15 | 765 | `reloadShow`: `ladeAndereShow(showPfad, g)` | unverändert (`ladeAndereShow` vergisst den Master) |
 | 16 | 769 | `reloadShow`: `rundownDateiDerShow(showPfad, …)` | unverändert |
-| 17 | 790 | `applyShowFromDeepLink`: gleiche Show über `gedaechtnisSchluessel(showPfad)` | unverändert; im Verbundmodus vorher abgefangen (nur das Dokument, E24); mit Master-Show außerhalb ist `showPfad` `null` → „andere Show“ |
+| 17 | 790 | `applyShowFromDeepLink`: gleiche Show über `gedaechtnisSchluessel(showPfad)` | unverändert; im Verbundmodus vorher abgefangen (nichts geladen, E24, `showLinkWeg`); mit Master-Show außerhalb ist `showPfad` `null` → „andere Show“ |
 | 18 | 815 | `starteOhneDeepLink`: `leseShowSicher(z.showPfad)` | davor Master-Zeiger → `starteMitMasterZeiger(z)`; Pfad-Zweig unverändert |
 | 19 | 817 | `starteOhneDeepLink`: `ladeAndereShow(z.showPfad, g)` | unverändert |
 | 20 | 822 | `starteOhneDeepLink`: `gedaechtnisSchluessel(z.showPfad)` | unverändert (Pfad-Zeiger) |
 | 21 | 824 | `starteOhneDeepLink`: `showPfad = z.showPfad` | bleibt, danach `vergissMaster()` |
 
-Neue Lesestellen für die Master-Show stehen nur in den neuen Funktionen (`gedaechtnisQuelle`, `aktuellerZeiger`, `starteMitMasterZeiger`, `ladeMasterShow`, `aktualisiereMasterShow`); keine davon bildet einen Schlüssel aus einem leeren Pfad.
+Neue Lesestellen für die Master-Show stehen nur in den neuen Funktionen (`hatShow`, `gedaechtnisQuelle`, `aktuellerZeiger`, `vergissMaster`, `starteMitMasterZeiger`, `ladeMasterShow`, `aktualisiereMasterShow`) und in `openDialog` und `rundown:new`, die im Verbundmodus `masterShow` an `gleicheMitMasterAb` geben; keine davon bildet einen Schlüssel aus einem leeren Pfad. `applyShowFromDeepLink` liest im Verbundmodus nichts von der Master-Show (N15).
 
 ---
 
@@ -12951,6 +13097,7 @@ import {
   folgeMasterShow,
   imVerbundmodus,
   istHostDieserRechner,
+  kuerzeName,
   nichtAngewendet,
   verbundDatenErsetzt,
   verbundIgnoriert,
@@ -12972,6 +13119,7 @@ import {
   masterAusgang,
   navigate,
   newId,
+  showLinkWeg,
   type KopplungFuerWahl,
 } from '@shared/conductor';
 ```
@@ -13327,34 +13475,16 @@ function applyShowFromDeepLink(url: string): boolean {
 ```
 Nachher:
 ```ts
-/**
- * Show-Deep-Link im Verbundmodus (Spec 16.1 „liefert nur noch Dokumente“, 17.3, E24): Die Show-Daten bleiben die des
- * Masters. Trägt die verlinkte Show eine eigene Rundown-Datei, wird sie wie „Öffnen…“ Ausgangsstand und sofort mit
- * der Show vom Master abgeglichen; die Show vom Master bleibt gemerkt, „Speichern“ schreibt in die Datei (4.8).
- * Ohne angewendete Master-Show, ohne lesbare Show oder ohne Datei bleibt das Dokument, wie es ist.
- */
-function ladeDokumentImVerbund(pfad: string): void {
-  if (!masterShow) return;
-  const g = leseShowSicher(pfad);
-  if (!g.ok) {
-    getLog().error(`Show-Deep-Link konnte nicht geladen werden: ${g.grund}`);
-    hinweis(showNichtLesbarText(g.grund), 'kurz');
-    broadcast();
-    return;
-  }
-  const rdPfad = rundownDateiDerShow(pfad, g.show);
-  const datei = rdPfad ? leseRundownDatei(rdPfad) : null;
-  if (rdPfad && datei) gleicheMitMasterAb(datei.doc, rdPfad, masterShow);
-}
-
 /** Show-Deep-Link (5.2). Liefert true, wenn es ein Show-Link war. */
 function applyShowFromDeepLink(url: string): boolean {
   const roh = parseShowDeepLink(url);
   if (!roh) return false;
-  // Im Verbundmodus liefert er nur das Dokument (E24, Spec 16.1), gedrosselte Logzeile aus 16.1.
-  if (imVerbundmodus()) {
-    verbundIgnoriert('deeplink', roh);
-    ladeDokumentImVerbund(path.resolve(roh));
+  // Im Verbundmodus lädt der Rundown aus dem Link nichts, weder Daten noch Dokument (17.3 vor 16.1, E24); die Regel
+  // und die eigene Logzeile sind rein und in C17 getestet (showLinkWeg). Die allgemeine 16.1-Zeile „… liefert hier
+  // nur Dokumente …“ träfe hier nicht zu: Der Rundown lädt nichts.
+  const weg = showLinkWeg(imVerbundmodus(), roh, kuerzeName);
+  if (weg.weg === 'ignorieren') {
+    getLog().info(weg.log);
     return true;
   }
   const pfad = path.resolve(roh);
@@ -13595,7 +13725,7 @@ Nachher:
     createMainWindow();
     // Ein Show-Deep-Link hat Vorrang; sonst führt der Zeiger zur gemerkten Show (5.2). Dem Master folgen
     // (Spec 16, 17.3) erst danach (E17): ein Zwischenspeicher wird dabei angewendet. Der Show-Deep-Link
-    // kommt erst nach der Anmeldung beim Verbund: Im Verbundmodus liefert er so nur das Dokument (E24, 16.1, 16.3).
+    // kommt erst nach der Anmeldung beim Verbund: Im Verbundmodus lädt der Rundown so nichts daraus (E24, 17.3, 16.3).
     const link = runtime.initialDeepLink;
     const showLink = link !== null && parseShowDeepLink(link) !== null ? link : null;
     if (!showLink) starteOhneDeepLink();
@@ -13735,11 +13865,14 @@ grep -c "jmps:verbund-anzeige" apps/rundown/out/preload/index.cjs
 grep -c "folgeMasterShow(" apps/rundown/src/main/index.ts
 grep -c "showPfad" apps/rundown/src/main/index.ts
 grep -n "gedaechtnisSchluessel(showPfad)\|showPfad,$" apps/rundown/src/main/index.ts
+grep -c "verbundIgnoriert('deeplink'" apps/rundown/src/main/index.ts
+grep -c "showLinkWeg(" apps/rundown/src/main/index.ts
 ```
-Erwartet: Typecheck node und web ohne Meldung, Exitcode 0; `549` (unverändert); `electron-vite build` dreimal `✓ built in …`, Exitcode 0; `3`; `1`; `20`; die letzte Suche genau eine Zeile, der durch `showPfad &&` geschützte Vergleich „dieselbe Show“ im Deep-Link (Treffer 17) — kein Gedächtnis-Schlüssel und kein Gedächtnis-Inhalt mehr direkt aus `showPfad` (#235):
+Erwartet: Typecheck node und web ohne Meldung, Exitcode 0; `552` (unverändert); `electron-vite build` dreimal `✓ built in …`, Exitcode 0; `3`; `1`; `20`; die nächste Suche genau eine Zeile, der durch `showPfad &&` geschützte Vergleich „dieselbe Show“ im Deep-Link (Treffer 17) — kein Gedächtnis-Schlüssel und kein Gedächtnis-Inhalt mehr direkt aus `showPfad` (#235):
 ```
-940:  if (showPfad && gedaechtnisSchluessel(pfad) === gedaechtnisSchluessel(showPfad)) {
+924:  if (showPfad && gedaechtnisSchluessel(pfad) === gedaechtnisSchluessel(showPfad)) {
 ```
+danach `0` (die 16.1-Zeile „… liefert hier nur Dokumente …“ ruft der Rundown nicht, E24) und `1` (der Show-Link geht über die Regel aus C17).
 
 - [ ] **Step 12: Commit** (Git Bash, Commit-Text ohne Umlaute)
 
@@ -13757,20 +13890,21 @@ M  apps/rundown/src/shared/types.ts
 ```
 Dann:
 ```
-git commit -m "feat(rundown): Show vom Master mit eigenem Gedaechtnis, Launcher-Wahl im Verbund, Verbund-Zeile (Teil 2b R2, C18)" -m "folgeMasterShow nach starteOhneDeepLink: neue oder gleiche Show entscheidet der Zeiger. Neue Show laedt das Gedaechtnis mit Master-Schluessel, Uebergang ueber den Namen, sonst leer; gleiche Show gleicht ab wie RELOAD. Eigene Rundown-Datei der Show bleibt auf B ungeladen, stehender Hinweis einmal je Show. Alle 21 showPfad-Stellen gehen ueber hatShow bzw. gedaechtnisQuelle (#235). RELOAD im Verbundmodus ignoriert; ein Show-Deep-Link liefert dort nur das Dokument: die Rundown-Datei der verlinkten Show wird wie Oeffnen mit der Master-Show abgeglichen; Oeffnen und Neu gleichen mit der Master-Show ab; Ladeweg und Hinweis ueber masterAusgang und dokumentHinweis, erst rechnen, dann Zustand setzen; eigene Show vergisst den Master (verbundDatenErsetzt). Conductor sammelt Launcher-Funde und waehlt ueber waehleLauncher, neu bei jedem Fund und Verbund-Wechsel." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(rundown): Show vom Master mit eigenem Gedaechtnis, Launcher-Wahl im Verbund, Verbund-Zeile (Teil 2b R2, C18)" -m "folgeMasterShow nach starteOhneDeepLink: neue oder gleiche Show entscheidet der Zeiger. Neue Show laedt das Gedaechtnis mit Master-Schluessel, Uebergang ueber den Namen, sonst leer; gleiche Show gleicht ab wie RELOAD. Eigene Rundown-Datei der Show bleibt auf B ungeladen, stehender Hinweis einmal je Show. Alle 21 showPfad-Stellen gehen ueber hatShow bzw. gedaechtnisQuelle (#235). RELOAD im Verbundmodus ignoriert; aus einem Show-Deep-Link laedt der Rundown dort nichts, weder Daten noch Dokument, mit eigener Logzeile (showLinkWeg, 17.3 vor 16.1); Oeffnen und Neu gleichen mit der Master-Show ab; Ladeweg und Hinweis ueber masterAusgang und dokumentHinweis, erst rechnen, dann Zustand setzen; eigene Show vergisst den Master (verbundDatenErsetzt). Conductor sammelt Launcher-Funde und waehlt ueber waehleLauncher, neu bei jedem Fund und Verbund-Wechsel." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
 - **Show-Deep-Link beim Start nach der Registrierung** (wie C16): E17 nennt „nach `starteOhneDeepLink()`“; mit einem Show-Deep-Link läuft `starteOhneDeepLink()` wie bisher nicht, die Registrierung kommt dann direkt vor dem Deep-Link. Sonst wäre `imVerbundmodus()` beim Start-Deep-Link noch falsch, und der Start-Deep-Link ersetzte die Master-Daten (E24 griffe beim Start nicht).
-- **Ergänzung zu E16** (Reviewer/Owner bitte bestätigen): „Öffnen…“ und „Neu“ außerhalb des Verbundmodus vergessen auch die Show eines früheren Masters und rufen `verbundDatenErsetzt()` — wie 2a „gemerkte Show und Zeiger vergessen“. Ohne das legte ein Neustart nach „entkoppelt, dann Datei geöffnet“ das Master-Gedächtnis über das geöffnete Dokument (C12 wendet den Zwischenspeicher beim Start immer an).
+- **Ergänzung zu E16** (E56; Owner-Frage 5, vom Owner am 08.10.2026 geschlossen): „Öffnen…“ und „Neu“ außerhalb des Verbundmodus vergessen auch die Show eines früheren Masters und rufen `verbundDatenErsetzt()` — wie 2a „gemerkte Show und Zeiger vergessen“. Ohne das legte ein Neustart nach „entkoppelt, dann Datei geöffnet“ das Master-Gedächtnis über das geöffnete Dokument (C12 wendet den Zwischenspeicher beim Start immer an).
 - **`App.tsx` unverändert**: Die V-Zeile abonniert `ToolLinks` selbst; `App.tsx:163` reicht wie bisher nur `links`.
 - **`Conductor`**: zweiter Konstruktor-Parameter `LauncherWahl` und Methode `neuWaehlen()` (nicht im Register, nur Rundown-intern). `neuWaehlen()` baut vor `start()` keine Clients, damit kein Client ohne Token/TLS entsteht (Kommentar `index.ts:921-922`).
 - **`kopplungFuerWahl()`**: Ein Slave ohne `masterId` wird als Einzelplatz übergeben (`null`), weil `KopplungFuerWahl` nach Register kein `masterId` trägt, 16.1 diese Lage aber als Einzelplatz führt.
 - Wo die Spec schweigt, gilt: „Übergang“ und „leer“ setzen `filePath` auf `null` und `dirty` auf `false` (das Dokument gehört danach zur Master-Show; „Speichern unter …“ legt eine Datei an). Eine Master-Show ohne Ablauf und ohne Gedächtnis lässt das Dokument stehen wie 5.2. Ohne Schlüssel im Stand wirft `anwenden` `nichtAngewendet('SCHLUESSEL_FEHLT')` (V12 „…: SCHLUESSEL_FEHLT“, N3).
-- **Nachbesserung (N1, N9):** Der Show-Deep-Link im Verbundmodus folgt jetzt Spec 16.1/17.3 (nur das Dokument, wie „Öffnen…“, E24) statt ihn ganz zu ignorieren; die 16.1-Logzeile „… liefert hier nur Dokumente …“ stimmt damit. `ladeMasterShow` rechnet erst (Gedächtnis, Weg aus `masterAusgang`, `wendeShowAn`, `migrate`) und setzt danach Zeiger, `masterQuelle` und `masterShow`; `zeigeDokumentHinweis` nimmt die Regel aus `dokumentHinweis`. Neue Texte entstehen nicht (der Deep-Link-Fehler nutzt die Zeile aus 2a).
+- **Nachbesserung (N9):** `ladeMasterShow` rechnet erst (Gedächtnis, Weg aus `masterAusgang`, `wendeShowAn`, `migrate`) und setzt danach Zeiger, `masterQuelle` und `masterShow`; `zeigeDokumentHinweis` nimmt die Regel aus `dokumentHinweis`.
+- **Show-Deep-Link im Verbundmodus (N15, ersetzt N1):** Der Rundown lädt daraus nichts, weder Daten noch Dokument (E24, Auslegung 17.3 vor 16.1). Die Fassung aus N1 (Dokument aus dem Link über `gleicheMitMasterAb` abgleichen) brach laufende GO-Folgen ab, setzte die scharfe Zeile auf die erste und überschrieb das Gedächtnis der Master-Show, auch bei einer Kopie derselben Show; sie entfällt. Statt der 16.1-Zeile schreibt der Rundown eine eigene Infozeile (neuer Text, Tabelle „Texte ohne Spec-Vorgabe“); die Regel ist `showLinkWeg` aus C17, der Name läuft durch `kuerzeName` aus `@jm/app-runtime` (C13).
 - `apps/rundown/src/renderer/src/jmrundown.d.ts` bleibt unverändert (Brücke über `JmRundownApi`).
 
-**Nachgerechnet** (beim Durchspielen des ganzen Plans, mit C11–C13 aus diesem Plan): Typecheck node und web grün, Selbsttest `549` mit zweimal „ALLE TESTS OK“, `electron-vite build` grün, Preload-Zählung `3`, `folgeMasterShow(` einmal, `showPfad` in 20 Zeilen, die #235-Suche nur mit dem geschützten Deep-Link-Vergleich (Zeile 940, nach N1), im gebauten Main der Hinweistext genau einmal (die Konstante). Laufzeitverhalten prüft C20 (Prüfungen 1, 2, 4).
+**Nachgerechnet** (beim Durchspielen des ganzen Plans, mit C11–C13 aus diesem Plan): Typecheck node und web grün, Selbsttest `552` mit zweimal „ALLE TESTS OK“, `electron-vite build` grün, Preload-Zählung `3`, `folgeMasterShow(` einmal, `showPfad` in 20 Zeilen, die #235-Suche nur mit dem geschützten Deep-Link-Vergleich (Zeile 924, nach N15), `verbundIgnoriert('deeplink'` nicht und `showLinkWeg(` einmal im Main, im gebauten Main der Hinweistext genau einmal (die Konstante) und die neue Show-Link-Zeile genau einmal. Was davon zur Laufzeit C20 prüft und was nur die Abnahme, steht oben unter „Regeln“.
 
 ---
 
@@ -14382,7 +14516,7 @@ Erwartet: 18 Abschnitte `── A · …` bis `── R · …`, jede Prüfzeile
 63 ok, 0 fehlgeschlagen.
 Exit: 0
 ```
-und `real` unter `1m0s` (beim Zusammenführen gemessen: 63 Prüfungen, keine in einer Schleife, 9–10 s; nach N12 mit der Stille-Frist 2 s gemessen 11 s, Gegenproben unverändert 29 bzw. 7 `FAIL`).
+und `real` unter `1m0s` (beim Zusammenführen gemessen: 63 Prüfungen, keine in einer Schleife, 9–10 s; nach N12 mit der Stille-Frist 2 s gemessen 10,6–11 s, Gegenproben unverändert 29 bzw. 7 `FAIL`).
 
 Bei `FAIL`: Der Test druckt danach das Verteiler-Log und das Tool-Log. Ursache mit `superpowers:systematic-debugging` suchen und nach G16 verfahren. Zwei Stellen sind bekannte Kandidaten:
 - `FAIL  M · beim Start nie V13 …`: Der Folger startet vor `client.starte()`. Bis der Client seine Datei gelesen hat, liefert `kopplung()` `null`; ein schon registrierter Handler bekommt den Zwischenspeicher dann mit „keine Kopplung“ (V13, `frueher`). Richtig ist die Reihenfolge aus G2 (c): erst `client.starte()`, dann `verbundAnClient` (ZF2). Beim Zusammenführen gemessen: mit der umgekehrten Reihenfolge genau diese zwei `FAIL`-Zeilen in M, `61 ok, 2 fehlgeschlagen.`
@@ -14462,7 +14596,7 @@ Befehl: `npm run selftest:verbund -w @jm/launcher; echo "Exit: $?"`
 Erwartet (gemessen, 25–27 s): drei Zählzeilen
 ```
 203 ok, 0 fehlgeschlagen.
-52 ok, 0 fehlgeschlagen.
+53 ok, 0 fehlgeschlagen.
 63 ok, 0 fehlgeschlagen.
 ```
 und `Exit: 0`.
@@ -14512,7 +14646,7 @@ git commit -m "test(launcher): Kette Master-Verteiler-Tool ohne Electron (Teil 2
 
 ---
 
-### Task 20: C20 · Durchgang mit gebauten Tools und Test-Master (19.7, nur nach Owner-Freigabe)
+### Task 20: C20 · Durchgang mit gebauten Tools und Test-Master (19.7, nur nach Owner-Freigabe; erteilt am 08.10.2026)
 
 **Spec:** 19.7 vollständig, 25 Nr. 8 (Port 8738 vorher prüfen); G8 (`%APPDATA%` nur hier und nur nach Freigabe); Entscheidung E26.
 
@@ -14525,7 +14659,7 @@ Worum es geht, in den Worten der Spec (19.7):
 
 **Arbeitsverzeichnis:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2`, Branch `feat/master-link-teil2b-r2`, Bash. Voraussetzung: C1–C19 sind committet (inhaltlich: C14, C16, C18 mit den Preload-Funktionen `verbundAnzeige()`, C13 Zwischenspeicher, C8 Verteiler).
 
-**Freigabe:** Steps 1–6 laufen ohne Freigabe, sie fassen weder `%APPDATA%` noch Electron an. Ab Step 7 geht es nur weiter, wenn im Ledger der Lauf die Zeile **„Owner-Freigabe C20“** steht. Die schreibt die steuernde Sitzung erst nach der Antwort des Owners; sie erteilt sie nicht selbst (R1-Ruling K3). Fehlt die Zeile, endet C20 nach Step 6 mit dem Commit des Skripts, und der Lauf (Steps 7–11) wird nachgeholt.
+**Freigabe:** Steps 1–6 laufen ohne Freigabe, sie fassen weder `%APPDATA%` noch Electron an. Ab Step 7 geht es nur weiter, wenn im Ledger der Lauf die Zeile **„Owner-Freigabe C20“** steht. Die schreibt die steuernde Sitzung erst nach der Antwort des Owners; sie erteilt sie nicht selbst (R1-Ruling K3). Der Owner hat den Durchgang am 08.10.2026 freigegeben (Owner-Frage 8, N19); die steuernde Sitzung setzt die Zeile beim Start der Umsetzung, C20 läuft dann ganz. Fehlt die Zeile trotzdem, endet C20 nach Step 6 mit dem Commit des Skripts, und der Lauf (Steps 7–11) wird vor dem Merge nachgeholt (N14). Was der Durchgang nicht erreicht (Show-Link, Startreihenfolge, gesperrte Ordnerwahl), steht als Handprüfung in der Abnahme-Datei (C21, N17).
 
 **Dateien:**
 - Create: `apps/launcher/test/e2e-teil2b-verbund.ts`
@@ -15255,7 +15389,7 @@ Erwartet: `git status --short` leer (die Bauten unter `out/` sind ignoriert). Da
 3. Zusätzliche Prüfzeilen über 19.7 hinaus, damit ein roter Lauf zeigt, woran es lag: in 1 der Master mit drei Abos; in 3 „vorher“, die Gegenprobe „nicht leer“, zwei Kontrollen (RECALL Grace ≠ A, RECALL Alan = A), „Liste ohne Alan angekommen“ und die Logzeile A2; in 4 die neue Epoche; in 5 „Zwischenspeicher liegt da“ je Tool; in 6 „vorher V4“.
 4. Prüfung 5 startet alle drei Tools neu, nicht eines: Jedes Tool hat seinen eigenen Zwischenspeicher.
 5. Die Beiseitelegen-Liste nennt die Ordner `verbund` statt nur `verbund\master-stand.json`: So verschwinden auch Zwischendateien eines abgebrochenen Schreibvorgangs.
-6. Beim Zusammenführen mit dem ganzen Plan gemessen: tsc ohne Meldung; Laden ohne `ELECTRON_EXE` (mit umgeleitetem `APPDATA`) → `ABBRUCH: ELECTRON_EXE ist nicht gesetzt …`, `Exit: 2`, der umgeleitete Ordner bleibt leer; `grep -c "pruefe("` = `33`. Der Schreiber hat zusätzlich mit einer vorhandenen Programmdatei und ohne Bauten `ABBRUCH: apps/timer ist nicht gebaut …`, `Exit: 2` gemessen. Der Durchgang selbst ist nicht gelaufen (G8, keine Freigabe).
+6. Beim Zusammenführen mit dem ganzen Plan gemessen: tsc ohne Meldung; Laden ohne `ELECTRON_EXE` (mit umgeleitetem `APPDATA`) → `ABBRUCH: ELECTRON_EXE ist nicht gesetzt …`, `Exit: 2`, der umgeleitete Ordner bleibt leer; `grep -c "pruefe("` = `33`. Der Schreiber hat zusätzlich mit einer vorhandenen Programmdatei und ohne Bauten `ABBRUCH: apps/timer ist nicht gebaut …`, `Exit: 2` gemessen. Der Durchgang selbst ist beim Planen nicht gelaufen (G8; die Freigabe vom 08.10.2026 gilt für die Umsetzung). In der zweiten Runde (N15–N21) ist das Skript unverändert: angelegt, `tsc` ohne Meldung, `33` × `pruefe(`; das Laden ohne `ELECTRON_EXE` ist dabei nicht wiederholt worden.
 
 ---
 
@@ -15333,6 +15467,16 @@ Rechner A = Master, Rechner B gekoppelt wie in Teil 1 (`packages/master-link/ABN
 **Hinweis zum Merker „Speaker veraltet“ (Folgeaufgabe FA17):** Der Merker reist mit der Show (Spec 14.1). Speichert jemand an A im Show-Editor eine Show, die mit gesetztem Merker geöffnet war, nachdem die Speakerliste wiederkam, zeigen das Side-Events-Panel an A und der Titler auf B bis zur nächsten Abfrage (höchstens 45 s) „… aus früherem Stand“. Das ist der bekannte Rest aus Release 1, kein Befund dieser Abnahme.
 
 **Hinweis zu Schritt 1 (Endpunkte von Hand, Folgeaufgabe FA4):** Titler und Timer wählt der Rundown weiter nach „zuletzt gefunden“ (Owner-Antwort O2). Laufen sie an A und B, könnte ein GO auf B das Tool an A treffen. Deshalb setzt Schritt 1 die Endpunkte im Rundown auf B von Hand auf `127.0.0.1`. Nur „Launcher · Side Event“ wählt der Rundown selbst über die Kopplung (Schritt 6).
+
+## Zusatzprüfungen (nicht in Spec 20)
+
+Diese Punkte stehen nicht in der Tabelle der Spec. Sie prüfen die Verdrahtung im Main von Timer, Titler und Rundown, die weder ein Selbsttest noch der Durchgang C20 erreicht: C20 startet die Tools ohne Show-Link (Spec 19.7), fasst Ordnerwahl, „Öffnen…“ und „Neu“ nicht an, und seine Test-Show trägt keine Rundown-Datei. Die Regeln dahinter sind reine Funktionen mit Tests (`showLinkWeg`, `ordnerWahlGesperrt`, `ordnerPatchAbgelehnt`, `dokumentHinweis`); hier geht es darum, dass der Main sie an der richtigen Stelle und in der richtigen Reihenfolge ruft. Von Hand nicht erreichbar ist die Ablehnung im Main des Titlers selbst (Ordnerdialog, Einstellung, Knopf „Zurück zum eigenen Ordner …“), solange die Oberfläche die Wahl schon sperrt: Sie ist als reine Regel getestet und im Main nur über Typecheck und Build abgesichert. Ergebnis und Datum hinter jedem Punkt eintragen.
+
+1. **Show-Link im Verbund (E24):** Auf B folgen Timer, Titler und Rundown der Show vom Master, im Rundown ist eine Zeile scharf. Auf B eine eigene Show öffnen (im Launcher oder per Doppelklick auf eine `.jmshow`), so dass ein Show-Link an die Tools geht. Erwartung: Der Rundown bleibt auf derselben Zeile, keine GO-Folge bricht ab, kein neuer Hinweis; sein Log nennt „Verbund: Show-Link „⟨Name⟩“ – der Rundown folgt der Show vom Master und lädt daraus nichts.“ (⟨Name⟩ ist der Dateiname der Show.) Timer und Titler behalten die Daten vom Master, der Titler öffnet nur die Vorlage. Ergebnis / Datum:
+2. **Start mit Show-Link im Verbund (E55):** Titler und Rundown auf B haben schon einen Stand vom Master bekommen (etwa nach Punkt 1). Beide schließen und mit einer eigenen Show wieder starten (Show-Link beim Start, etwa über den Launcher auf B). Erwartung: Beide zeigen nach dem Start „Show vom Master: ⟨S⟩ · Stand ⟨hh:mm⟩“ mit den Daten des Masters; der Titler übernimmt aus dem Link nur die Vorlage, der Rundown lädt nichts (Logzeile wie in 1). Ergebnis / Datum:
+3. **Ordnerwahl im Titler gesperrt (O1, E22):** Trägt die Show an A Speaker, sind auf B im Titler unter Einstellungen › DataLink die Eingabe, „Durchsuchen…“ und „✕“ gesperrt, darunter steht „Im Verbund kommen die Speaker vom Master „⟨M⟩“. Ein eigener Ordner gilt, solange die Show dort keine Speaker hat.“ An A danach eine Show ohne Speaker öffnen: Auf B ist die Wahl wieder frei. Ergebnis / Datum:
+4. **Rundown-Datei am Master, „Öffnen…“ und „Neu“ im Verbund (17.3):** An A eine Show öffnen, die für den Rundown eine eigene Rundown-Datei (`.jmrundown`) einträgt; der Rundown auf B folgt ihr. Erwartung: Er zeigt stehend „Die Rundown-Datei dieser Show liegt am Master und wird hier nicht geladen. Ihre Aktionen fehlen auf diesem Rechner.“, sein Log dieselbe Zeile, beides einmal je Show. Danach auf B im Rundown mit „Öffnen…“ eine Kopie dieser Rundown-Datei laden: Der Ablauf bleibt der vom Master, die Aktionen aus der Datei stehen an ihren Zeilen, die Anzeige bleibt „Show vom Master: ⟨S⟩ · Stand ⟨hh:mm⟩“; „Speichern“ schreibt in die geöffnete Datei. Dann „Neu“: der Ablauf vom Master ohne Aktionen, die Anzeige bleibt. Ergebnis / Datum:
+5. **Eigene Wahl nach dem Entkoppeln (E56):** B entkoppeln wie in Schritt 10b, aber noch keine eigene Show öffnen; Titler und Rundown zeigen „Daten vom früheren Master ⟨M⟩ (nicht mehr gekoppelt) …“. Im Titler unter Einstellungen › DataLink einen eigenen Ordner wählen, im Rundown „Neu“. Erwartung: In beiden verschwindet die Anzeige. Nach einem Neustart beider Tools erscheint sie nicht wieder; der Titler nimmt den gewählten Ordner, der Rundown zeigt nicht wieder die Show des früheren Masters. Danach B wieder koppeln. Ergebnis / Datum:
 ```
 
 Prüfen, dass die Tabelle ohne die Ergebnisspalte Zeile für Zeile der Spec gleicht:
@@ -15389,7 +15533,7 @@ Anwenden tun die Daten bisher nur Timer, Titler und Rundown.
 
 **Was am Master bleibt:** Dokumente der Tools (etwa die eigene Rundown-Datei einer Show; der Rundown auf dem anderen Rechner sagt das mit einem Hinweis), Netzwerk-Angaben der Tools, die iveo-Adresse und jedes Token. Das Log des Masters nennt bei jedem neuen Stand, was lokal geblieben ist.
 
-**Am Master** zeigt das Modal unter „Gekoppelte Rechner“ eine Zeile „Show im Verbund: „⟨Show⟩“ · Stand ⟨hh:mm⟩ · ⟨n⟩ Tools beziehen sie“, ohne offene Show „Show im Verbund: keine Show offen“, in Rot „… nicht verteilt: zu groß für den Verbund (⟨n⟩ KiB)“ oder „… nicht verteilt: nicht lesbar“. Bei Timer, Titler und Rundown der anderen Rechner steht „bezieht Show-Daten“. Steht dort nach 10 s „ohne Show-Daten (Update nötig)“, läuft auf diesem Rechner ein älteres Tool.
+**Am Master** zeigt das Modal unter „Gekoppelte Rechner“ eine Zeile „Show im Verbund: „⟨Show⟩“ · Stand ⟨hh:mm⟩ · ⟨n⟩ Tools beziehen sie“ (bei einem Tool „· 1 Tool bezieht sie“), ohne offene Show „Show im Verbund: keine Show offen“, in Rot „… nicht verteilt: zu groß für den Verbund (⟨n⟩ KiB)“ oder „… nicht verteilt: nicht lesbar“. Bei Timer, Titler und Rundown der anderen Rechner steht „bezieht Show-Daten“. Steht dort nach 10 s „ohne Show-Daten (Update nötig)“, läuft auf diesem Rechner ein älteres Tool.
 
 **In den Tools** (Timer: neben „Sync“, Titler: vor „Suite · ⟨n⟩ verbunden“, Rundown: im Statusstreifen):
 
@@ -15411,7 +15555,7 @@ Anwenden tun die Daten bisher nur Timer, Titler und Rundown.
 
 Steht „· letzter Stand: ⟨Show⟩ ⟨hh:mm⟩“ dahinter, arbeitet das Tool mit diesem Stand weiter, auch nach einem Neustart.
 
-**Solange ein Tool dem Master folgt,** kommen Ablauf, Speaker und Einstellungen nur vom Master. Ein Neu-Laden ändert dann nichts, und ein Show-Link ändert die Show-Daten nicht; der Titler übernimmt daraus nur die Vorlage, der Rundown nur die eigene Rundown-Datei der Show (wie „Öffnen…“, abgeglichen mit der Show vom Master). Das Log nennt beides höchstens einmal je Minute. Trägt die Show am Master Speaker, ist im Titler die Wahl eines eigenen DataLink-Ordners gesperrt. Öffnet der Master eine andere Show, setzt der Timer seinen Ablauf neu wie beim Öffnen einer Show und setzt dabei den Countdown zurück.
+**Solange ein Tool dem Master folgt,** kommen Ablauf, Speaker und Einstellungen nur vom Master. Ein Neu-Laden ändert dann nichts, und ein Show-Link ändert die Show-Daten nicht; der Titler übernimmt daraus nur die Vorlage. Im Verbund lädt der Rundown auf einem gekoppelten Rechner aus einem Show-Link nichts; eine eigene Rundown-Datei lässt sich mit „Öffnen…“ laden. Das Log vermerkt beides: ein Neu-Laden höchstens einmal je Minute, einen Show-Link Timer und Titler höchstens einmal je Minute, der Rundown bei jedem Link. Trägt die Show am Master Speaker, ist im Titler die Wahl eines eigenen DataLink-Ordners gesperrt. Öffnet der Master eine andere Show, setzt der Timer seinen Ablauf neu wie beim Öffnen einer Show und setzt dabei den Countdown zurück.
 
 **Neu-Laden nur an diesen Rechner:** Als Master schickt der Launcher das Neu-Laden nach einer iveo-Änderung nur noch an Timer, Titler und Rundown auf seinem eigenen Rechner. Tools auf einem Rechner ohne Kopplung im selben Netz bekommen es nicht mehr; wer dort die Show-Daten braucht, koppelt den Rechner.
 
@@ -15644,7 +15788,7 @@ Nachher:
           "Auf einem gekoppelten Rechner übernimmt der Rundown Ablauf und Speaker der Show, die am Master offen ist (Master mit Launcher 0.15.0), auch ohne Launcher auf diesem Rechner. Seine Aktionen merkt er sich je Show des Masters, auch über einen Neustart. Im Statusstreifen steht „Show vom Master: … · Stand …“ oder der Zustand der Verbindung.",
           "Die eigene Rundown-Datei einer Show lädt der Rundown auf dem anderen Rechner nicht; ein stehender Hinweis sagt das. Ihre Aktionen fehlen dort.",
           "Solange er mit dem Master verbunden ist, schickt der Rundown „Launcher · Side Event“ an den Launcher des Masters, auch wenn auf seinem Rechner ein eigener Launcher läuft.",
-          "Solange der Rundown dem Master folgt, ändert Neu-Laden nichts am Dokument; ein Show-Link übernimmt nur die eigene Rundown-Datei der Show wie „Öffnen…“, Ablauf und Speaker bleiben die des Masters. Nach dem Entkoppeln bleibt das Dokument, bis eine eigene Show geöffnet wird.",
+          "Im Verbund lädt der Rundown auf einem gekoppelten Rechner aus einem Show-Link nichts; eine eigene Rundown-Datei lässt sich mit „Öffnen…“ laden. Neu-Laden ändert dann nichts am Dokument. Nach dem Entkoppeln bleibt das Dokument, bis eine eigene Show geöffnet wird.",
           "Bekannt: Titler und Timer wählt der Rundown weiter nach dem zuletzt gefundenen. Laufen sie auf beiden Rechnern, im Rundown die Endpunkte von Hand festlegen."
         ]
       },
@@ -15688,22 +15832,22 @@ Erwartet: jeder Lauf ohne `FAIL`/`FEHL` und mit `Exit: 0`, die Zählstände glei
 ```
 756 ok, 0 fehlgeschlagen.                          (@jm/master-link, ca. 40 s)
 113 ok, 0 fehlgeschlagen.                          (Launcher selftest)
-203 / 52 / 63 ok, je 0 fehlgeschlagen.             (selftest:verbund, ca. 25–28 s)
+203 / 53 / 63 ok, je 0 fehlgeschlagen.             (selftest:verbund, ca. 25–28 s)
 277 / 52 / 84 / 12 ok, je 0 fehlgeschlagen.        (selftest:iveo)
 190 ok-Zeilen, ALLE TESTS OK                       (@jm/iveo)
 59 passed, 0 failed                                (Timer)
-440 + 109 ok-Zeilen, zweimal ALLE TESTS OK         (Rundown)
-474 ok-Zeilen, ALLE TESTS OK                       (Titler)
-15 passed, 0 failed / 207 passed, 0 failed         (app-runtime)
+443 + 109 ok-Zeilen, zweimal ALLE TESTS OK         (Rundown)
+477 ok-Zeilen, ALLE TESTS OK                       (Titler)
+15 passed, 0 failed / 208 passed, 0 failed         (app-runtime)
 ```
-Vor R2 waren es 572, 113, 188, 239/47/84/6, 166, 41, 404 + 81, 407, 15. `typecheck --workspaces` ohne Fehler (25 Apps importieren app-runtime; gemessen 78–125 s).
+Vor R2 waren es 572, 113, 188, 239/47/84/6, 166, 41, 404 + 81, 407, 15. `typecheck --workspaces` ohne Fehler (25 Apps importieren app-runtime; gemessen 55–125 s).
 
 - [ ] **Step 10: Notes zur Freigabe vorlegen, auf „Owner-Freigabe Notes R2“ warten**
 
 In den Aufgabenbericht, für die steuernde Sitzung zur Vorlage beim Owner:
 1. die vier Note-Listen aus Step 7 wörtlich, mit dem Datum;
-2. die Texte ohne Spec-Vorgabe: alle 20 Zeilen der Tabelle „Texte ohne Spec-Vorgabe“ im Abschnitt „Entscheidungen“ (Logzeilen, Statuszeile, Modal-Einzahl, V12-Gründe), wörtlich wie im Code;
-3. der Stand des Durchgangs (C20) und der Hinweis, dass die Abnahme-Datei die Hinweise M1 = nein, FA15, FA17 und FA4 trägt.
+2. die Texte ohne Spec-Vorgabe: alle 20 Zeilen der Tabelle „Texte ohne Spec-Vorgabe“ im Abschnitt „Entscheidungen“ (Stand nach N15/N16: Logzeilen, Statuszeile, V12-Gründe, die neue Zeile des Rundowns zum Show-Link; die Modal-Einzahl hat der Owner am 08.10.2026 schon entschieden und steht nur zur Vollständigkeit dabei), wörtlich wie im Code;
+3. der Stand des Durchgangs (C20) und der Hinweis, dass die Abnahme-Datei die Hinweise M1 = nein, FA15, FA17 und FA4 und den Abschnitt „Zusatzprüfungen (nicht in Spec 20)“ trägt.
 
 Ändert der Owner einen Wortlaut, den neuen Text wörtlich in die betroffenen Einträge übernehmen (ohne ASCII-Anführungszeichen) und Step 8 wiederholen. Ohne die Zeile „Owner-Freigabe Notes R2“ im Ledger endet C21 hier, ohne Commit.
 
@@ -15727,7 +15871,7 @@ M  packages/suite-manifest/changelog.json
 ```
 Dann (Commit-Text ohne Umlaute):
 ```bash
-git commit -m "release(suite): Launcher 0.15.0, Timer 0.14.0, Titler 0.11.0, Rundown 0.8.0 - Master-Link Teil 2b, Release 2" -m "Abnahme-Datei packages/master-link/ABNAHME-2b.md nach Spec 20 mit Hinweisen zu M1, FA15, FA17 und FA4. Abschnitt Show-Daten im Verbund in docs/suite-verbund.md, Verweis in docs/jm-show.md. Versionen in package.json und package-lock.json, Changelog-Eintraege fuer launcher, timer, titler und rundown nach Freigabe der Notes durch den Owner." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "release(suite): Launcher 0.15.0, Timer 0.14.0, Titler 0.11.0, Rundown 0.8.0 - Master-Link Teil 2b, Release 2" -m "Abnahme-Datei packages/master-link/ABNAHME-2b.md nach Spec 20 mit Hinweisen zu M1, FA15, FA17 und FA4 und Zusatzpruefungen (nicht in Spec 20). Abschnitt Show-Daten im Verbund in docs/suite-verbund.md, Verweis in docs/jm-show.md. Versionen in package.json und package-lock.json, Changelog-Eintraege fuer launcher, timer, titler und rundown nach Freigabe der Notes durch den Owner." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 12: Stand melden**
@@ -15736,10 +15880,10 @@ Befehl: `git log --oneline -25` und `git status --short`.
 In den Aufgabenbericht: die Commits von C1–C21 und dass `git status --short` leer ist. Was danach mit dem Branch geschieht, steht im Abschnitt „Nach der Umsetzung“ und ist nicht Teil dieser Aufgabe.
 
 **Abweichungen vom Gerüst:**
-1. Die Abnahme-Datei trägt über der Tabelle drei Voraussetzungen (gekoppelt, Show mit Speakern und Side Events, offene Abnahmen 2a/R1 nach Spec 25 Nr. 1) und unter der Tabelle die vier Hinweise aus dem Gerüst. Die Tabelle selbst ist wortgleich; geprüft in Step 2.
+1. Die Abnahme-Datei trägt über der Tabelle drei Voraussetzungen (gekoppelt, Show mit Speakern und Side Events, offene Abnahmen 2a/R1 nach Spec 25 Nr. 1) und unter der Tabelle die vier Hinweise aus dem Gerüst. Die Tabelle selbst ist wortgleich; geprüft in Step 2. Dahinter steht der Abschnitt „Zusatzprüfungen (nicht in Spec 20)“ mit fünf Handprüfungen (Show-Link im Verbund, Start mit Show-Link, gesperrte Ordnerwahl, N17; Rundown-Datei am Master mit „Öffnen…“/„Neu“ im Verbund, eigene Wahl nach dem Entkoppeln, N23) als nummerierte Liste, damit die Prüfung in Step 2 nur die Tabelle der Spec zählt.
 2. `docs/suite-verbund.md` bekommt außer dem neuen Abschnitt auch den Stand-Satz in Zeile 5 („Stand Teil 1 … folgen in den nächsten Teilen“), der sonst Show-Daten als künftig nennte.
-3. Die Notes nennen mehr als die Pflichtpunkte, nämlich das, was ein Bediener merkt: die Anzeige je Tool, die Sperre der Ordnerwahl (O1), die nicht geladene Rundown-Datei (17.3), „Launcher · Side Event“ an den Master (Z2), die Side-Event-Liste (Z3) und die Endpunkte von Hand (FA4).
-4. Beim Zusammenführen nach C1–C20 gemessen: alle Vorher-Texte trafen genau einmal; danach gültiges JSON, `Release-Vorbereitung ok`, Abnahme-Tabelle wortgleich (14 Schritte), CRLF = LF in allen acht Dateien. Die Anker in `apps/launcher/package.json` und `package-lock.json` überschneiden sich nicht mit C8, C11 und C19.
+3. Die Notes nennen mehr als die Pflichtpunkte, nämlich das, was ein Bediener merkt: die Anzeige je Tool, die Sperre der Ordnerwahl (O1), die nicht geladene Rundown-Datei (17.3), den Show-Link, aus dem der Rundown im Verbund nichts lädt (E24, N15), „Launcher · Side Event“ an den Master (Z2), die Side-Event-Liste (Z3) und die Endpunkte von Hand (FA4).
+4. Beim Zusammenführen nach C1–C20 gemessen und in der zweiten Runde (N15–N21) wiederholt: alle Vorher-Texte trafen genau einmal; danach gültiges JSON, `Release-Vorbereitung ok`, Abnahme-Tabelle wortgleich (14 Schritte), CRLF = LF in allen acht Dateien. Die Anker in `apps/launcher/package.json` und `package-lock.json` überschneiden sich nicht mit C8, C11 und C19.
 
 ---
 
@@ -15766,14 +15910,14 @@ In den Aufgabenbericht: die Commits von C1–C21 und dass `git status --short` l
 | 15.4 | Side-Event-Liste auffrischen (Z3) | C7 |
 | 15.5 | Modal-Zeile und „bezieht Show-Daten“ | C10 |
 | 15.6 | Logzeilen | C8 (Verteiler), C9 (RELOAD) |
-| 16.1 | Wann ein Tool folgt (E47 weicht ab), Verbundmodus, Deep-Link liefert nur Dokumente (Titler die Vorlage, Rundown die eigene Rundown-Datei, N1), RELOAD ignoriert, Ende des Verbundmodus (Titler über `verbundEndetFuer`, N8; keine Anwende-Versuche mehr, N4), `verbundDatenErsetzt` | C12, C13, C14, C15, C16, C17, C18 |
+| 16.1 | Wann ein Tool folgt (E47 weicht ab, vom Owner bestätigt), Verbundmodus, Deep-Link liefert nur Dokumente (Titler die Vorlage; der Rundown lädt nach 17.3 nichts, E24, N15), RELOAD ignoriert, Ende des Verbundmodus (Titler über `verbundEndetFuer`, N8; keine Anwende-Versuche mehr, N4), anderer Master (keine Versuche mit dem Stand des bisherigen, N18), `verbundDatenErsetzt` | C12, C13, C14, C15, C16, C17, C18 |
 | 16.2 | API, `neueShow`, `fehler` mit fünf neuen Versuchen, `verworfen`, `@jm/show` als Abhängigkeit | C11, C12 (ZF1), C13 |
 | 16.3 | Zwischenspeicher | C12, C13 |
 | 16.4 | Anzeige V1–V15 | C11 |
 | 16.5 | IPC und Platz in den Tools | C13, C14, C16, C18 |
 | 17.1 | Timer | C14 (E14 weicht ab) |
 | 17.2 | Titler, O1 | C15, C16 |
-| 17.3 | Rundown: Gedächtnis, Zeiger, Ladewege, Übergang, Hinweis | C17, C18 |
+| 17.3 | Rundown: Gedächtnis, Zeiger, Ladewege, Übergang, Hinweis, Show-Deep-Link: Daten ignoriert (geht 16.1 vor, E24, `showLinkWeg`) | C17, C18 |
 | 17.4 | Zwei Launcher (Z2) | C17, C18 (E15 weicht ab) |
 | 18 | Verhalten bei Master weg, Show zu, gemischten Versionen (E9 weicht ab) | C19 (Abschnitte A–R), C20 Prüfungen 4, 5, 7; Kabel 25 s nur Abnahme Schritt 7 (Spec 25 Nr. 11) |
 | 19.1 | Tests master-link | C1–C4 |
@@ -15781,9 +15925,9 @@ In den Aufgabenbericht: die Commits von C1–C21 und dass `git status --short` l
 | 19.3 | Verteiler-Tests Nr. 1–10, Kern, RELOAD-Merker | C6, C7, C8, C9, C10 |
 | 19.4 | app-runtime-Tests | C11, C12, C13 |
 | 19.5 | Tool-Tests | C14, C15, C17 |
-| 19.6 | CI-Schritt, `selftest:verbund` erweitert, kein Electron, 15 min | C11, C8, C19 |
-| 19.7 | Durchgang Prüfungen 1–7 | C20 (Lauf nach Owner-Freigabe) |
-| 20 | Abnahme-Datei | C21 |
+| 19.6 | CI-Schritt (genau einer; mit 4b dessen Schritt umbenannt, G2), `selftest:verbund` erweitert, kein Electron, 15 min | C11, C8, C19 |
+| 19.7 | Durchgang Prüfungen 1–7 | C20 (vom Owner am 08.10.2026 freigegeben; was er nicht erreicht, steht in C16/C18 unter „Regeln“) |
+| 20 | Abnahme-Datei (Tabelle wortgleich; darunter „Zusatzprüfungen (nicht in Spec 20)“, N17, N23) | C21 |
 | 21 | Aufbau, Versionen, Notes, Doku | C21 (Release selbst: Schlussabschnitt) |
 | 22 | Sicherheit: kein Token, Freigabeliste, Begrenzung, eine Richtung | C5 (PIN, `baseUrl`), C8 Nr. 8 (Token in keiner Zeile), C3/C8 (32, 900 KiB, 1 MiB), C3 (`stand` vom Client ignoriert) |
 | 24 | Folgeaufgaben FA1–FA10 nicht in 2b; FA4 als Hinweis in Abnahme und Notes | Abschnitt „Bewusst nicht“, C21 |
@@ -15798,7 +15942,7 @@ Gesucht im ganzen Plantext nach `TBD`, `TODO`, `später ausfüllen`, `nach A–D
 
 ### 3 · Typ-Konsistenz
 
-- Geprüft durch Durchspielen: Alle 282 Operationen der 21 Aufgaben (nach der Nachbesserung 283) wurden der Reihe nach auf eine frische Kopie angewendet; jeder Vorher-Text kam genau einmal vor. Danach liefen nach jeder Aufgabe der Typecheck der berührten Pakete und, wo die Aufgabe `packages/app-runtime/src` oder `packages/show/src` ändert, `npm run typecheck --workspaces --if-present` ohne `error TS`.
+- Geprüft durch Durchspielen: Alle 282 Operationen der 21 Aufgaben (nach der Nachbesserung 283, auch nach der zweiten und dritten Runde N15–N24) wurden der Reihe nach auf eine frische Kopie angewendet; jeder Vorher-Text kam genau einmal vor. Danach liefen nach jeder Aufgabe der Typecheck der berührten Pakete und, wo die Aufgabe `packages/app-runtime/src` oder `packages/show/src` ändert, `npm run typecheck --workspaces --if-present` ohne `error TS`.
 - Namen aus dem Register und den Produces-Blöcken stimmen mit den Code-Blöcken überein; die beim Zusammenführen gefundenen Widersprüche stehen unter „Abweichungen und Entscheidungen bei der Zusammenführung“ (ZF1–ZF10).
 - `git add`-Listen: Für jede Aufgabe ist die Menge der Pfade in `git add` gleich der Menge der Dateien, die ihre Steps ändern oder anlegen (C11 zusätzlich `package-lock.json` aus `npm install --package-lock-only`).
 
@@ -15810,14 +15954,17 @@ Die fünf Punkte stehen oben unter „Review Focus“; jeder hat seine Prüfzeil
 
 Dieser Abschnitt beschreibt, was nach C21 außerhalb des Plans geschieht. Kein Agent führt davon etwas aus; er ist keine Aufgabe und keine Anweisung.
 
-- Der Owner sieht die Abweichungen dieses Plans durch, insbesondere die mit „Weicht ab“ markierten Entscheidungen (E6, E9, E14, E15, E47), die Zusammenführungs-Entscheidungen ZF1–ZF10, die Nachbesserung N1–N14 und die Texte ohne Spec-Vorgabe, und gibt die Release-Notes frei. Erst danach entsteht der Commit von C21.
-- Steht der Durchgang C20 noch aus, holt ihn die steuernde Sitzung nach der Zeile „Owner-Freigabe C20“ nach; sein Ergebnis gehört in den PR-Text. Ohne grünen Durchgang geht der Branch nicht in den Merge (N14).
+- **Stand der Owner-Punkte (08.10.2026, N19):** Die mit „Weicht ab“ markierten Entscheidungen (E6, E9, E14, E15, E47) hat der Owner bestätigt, die Modal-Einzahl entschieden (N16) und den Durchgang C20 freigegeben. Offen sind nur die Texte ohne Spec-Vorgabe und die Release-Notes (Ledger-Zeile „Owner-Freigabe Notes R2“); erst danach entsteht der Commit von C21. Zur Durchsicht stehen außerdem die Zusammenführungs-Entscheidungen ZF1–ZF10 und die Nachbesserungen N1–N24 bereit.
+- **Umsetzung (Owner, 08.10.2026):** per Workflow (subagent-driven) nach Zoom Stage 4b. Vorher, außerhalb der Aufgaben C1–C21, setzt die steuernde Sitzung den Branch auf den dann aktuellen `main` (mit 4b) neu auf und lässt in einem eigenen Durchgang die Anker (Vorher-Texte, Zeilenangaben) und Zählstände der berührten Stellen nachmessen und im Plan nachziehen. Berührungspunkte, lesend mit `git` ermittelt am 08.10.2026 (`main` `b7e959866d`, `feat/zoom-stage4b` `85dcba597d`; von den 81 Dateien dieses Plans ändern `main` bzw. 4b genau die vier in der Liste darunter).
+  - `.github/workflows/ci-checks.yml` (C11 Step 12): `main` hat 16 Schritte im Job `selftests` (Presenter, Appkit, App Designer dazu), 4b hängt vier an, der letzte „App-Laufzeit (Log-Aufräumen, CSP)“ mit `run: npm run selftest -w @jm/app-runtime`. Nach dem Neuaufsatz wird dieser eine Schritt umbenannt in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ statt einen zweiten anzuhängen; der Job hat dann 20 Schritte, darin genau ein app-runtime-Schritt (Spec 19.6). Die frühere Angabe „17 Schritte“ (N11) ist überholt. Mitzuziehen sind dabei alle Stellen, die vom Anhängen sprechen (N22): G2 (nennt beide Fälle), Kopf „Parallelarbeit“ (CI), Kopf-Tabelle C11 („CI-Liste 14 Schritte“), C11 „Dateien“ und „Regeln“, C11 Step 12 (Einleitung, Vorher/Nachher, YAML-Prüfung mit Erwartung „14 Schritte, letzter: …“), Commit-Text C11 Step 13, Dateistruktur (CI) und Selbstprüfung 19.6.
+  - `package-lock.json` (C11 Step 2, Block `packages/app-runtime`; C21 Step 6, Versionsblöcke): `main` ändert dort zwei Zeilen (+2/−2); Zeilenangaben und Eindeutigkeit der Vorher-Texte nachmessen.
+  - `packages/suite-manifest/changelog.json` (C21 Step 7): `main` fügt 16 Zeilen hinzu; die Vorher-Texte der vier Einträge und ihre Zeilenangaben nachmessen.
+  - `packages/app-runtime/src/index.ts` (C13 Step 7, drei Einfügungen mit 15 Zeilen): 4b fügt 13 Zeilen ein und löscht eine Leerzeile (netto +12); die Dreiwege-Zusammenführung mit `85dcba597d` lief ohne Konflikt (675 Zeilen). Die Ist-Zeilen `:16`, `:47`, `:379` und die Erwartungen `648 von 648` bzw. `663 von 663` verschieben sich.
+  - Ohne Textänderung durch R2, aber mit anderen Zählständen: `packages/app-runtime/test/selftest.ts` (nur 4b) und `src/log-aufraeumen.ts` (neu in 4b). Der erste Teil von `npm run selftest -w @jm/app-runtime` zeigt dann `50 passed` statt `15 passed` (an `85dcba597d` in einer Kopie gemessen), dahinter `208 passed`; das betrifft C11–C13, C21 Step 9 und die Testläufe. `packages/app-runtime/package.json` ändert 4b nicht.
+  - Die Doku-Dateien, die C21 ändert (`docs/suite-verbund.md`, `docs/jm-show.md`), ändern weder `main` noch 4b; `docs/roadmap.md` aus PR #249 fasst R2 nicht an.
+- Der Durchgang C20 läuft in der Umsetzung ganz, sobald die steuernde Sitzung beim Start die Ledger-Zeile „Owner-Freigabe C20“ gesetzt hat; sein Ergebnis gehört in den PR-Text. Ohne grünen Durchgang geht der Branch nicht in den Merge (N14). Was C20 nicht erreicht (Show-Link im Verbund, Start mit Show-Link, gesperrte Ordnerwahl, Rundown-Datei am Master mit „Öffnen…“/„Neu“, eigene Wahl nach dem Entkoppeln), prüft der Owner von Hand nach dem Abschnitt „Zusatzprüfungen (nicht in Spec 20)“ der Abnahme-Datei (N17); die Tabelle aus Spec 20 bleibt wortgleich.
 - Der Branch `feat/master-link-teil2b-r2` geht als PR „Master-Link Teil 2b, Release 2: Show-Daten über den Verbund“ in die Prüfung, mit den Ergebnissen von C19 (Kette, Gegenproben) und C20 (Durchgang) im PR-Text, und danach in `main`.
-- Vor dem Merge prüft der Zusammenführer lesend (`git log`), ob `feat/zoom-stage4b` schon auf `main` liegt. Berührungspunkte:
-  - `.github/workflows/ci-checks.yml`: **sicherer Textkonflikt** (beide hängen nach „Connect …“ an; nachgespielt mit `git merge-file`). Aufgelöst wird zu den drei 4b-Schritten für Steuerprotokoll und Companion und **genau einem** Schritt `run: npm run selftest -w @jm/app-runtime` mit dem Namen „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“, zuletzt im Job. Die Schrittzahl im Job `selftests` ist danach 17 (13 vor beiden, 4 aus 4b, der R2-Schritt geht im gemeinsamen auf).
-  - `packages/app-runtime/src/index.ts`: die drei Einfügungen aus G2 (14 Zeilen); die Dreiwege-Zusammenführung mit dem 4b-Stand lief ohne Konflikt (nachgespielt).
-  - `packages/app-runtime/package.json` und der app-runtime-Block in `package-lock.json` (eigener Commit aus C11): 4b ändert beide nicht.
-  - `packages/app-runtime/test/selftest.ts` ändert nur 4b. Nach dem Zusammenführen nennt der erste Teil von `npm run selftest -w @jm/app-runtime` die Zahl aus 4b statt „15 passed“ (an der 4b-Spitze `5e5cd7fca7`: `43 passed`), dahinter `207 passed`; beide Zahlen werden nach dem Merge neu gemessen und genannt.
+- Liegt 4b beim Merge entgegen dem Plan noch nicht auf `main` (lesend mit `git log` prüfbar), gelten die Berührungspunkte oben sinngemäß für die Zusammenführung: In `ci-checks.yml` ist der Textkonflikt sicher und wird zu genau einem app-runtime-Schritt mit dem Namen „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ aufgelöst.
 - Veröffentlicht werden Launcher 0.15.0, Timer 0.14.0 und Rundown 0.8.0 über CI-Tags, der Titler 0.11.0 lokal gebaut und von Hand (`docs/release-titler.md`). `main` liegt vor den Tags auf dem Server, weil der CI-Bump auf `main` schreibt; die Tags gehen einzeln hinaus, weil mehr als drei Tags in einem Push keine Workflows auslösen. `suite.json` zieht der Bot nach.
 - Die Abnahme an zwei Rechnern nach `packages/master-link/ABNAHME-2b.md` macht der Owner; die offenen Abnahmen 2a und 2b Release 1 können im selben Termin davor laufen (Spec 25 Nr. 1).
-- Die Zusatzbitte des Owners „Zoom-Bridge: Shared Content als eigenständiges Signal“ gehört nicht zu R2 und braucht einen eigenen Prüfauftrag (Abschnitt „Bewusst nicht in diesem Plan“).
+- Die Zusatzbitte des Owners „Zoom-Bridge: Shared Content als eigenständiges Signal“ gehört nicht zu R2; erledigt: Issue #247 (Abschnitt „Bewusst nicht in diesem Plan“).
