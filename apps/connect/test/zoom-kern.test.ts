@@ -3290,6 +3290,44 @@ function wiederbeitrittNurDraussen(p: Probe): boolean {
   await p.aufraeumen();
 }
 
+// ── Prüfung 08.10.2026 (Zustände, Befund 5): „Vergessen“ meldet ein gesendetes, noch unbestätigtes Abo ab ──
+console.log('— Prüfung 08.10.2026: „Vergessen“ bei offenem Abo (wie Entladen, N4b.3 Nr. 7)');
+{
+  // Ohne Abmeldung liefe nach der Bestätigung eine Quelle, die der Bediener eben vergessen hat, und sie stünde in keiner
+  // Soll-Liste mehr (ein Wiederbeitritt lüde sie nicht). Plan 4b, Review Focus 4: Was vergessen ist, kommt nicht zurück.
+  const p = baueKern({ stell: () => ({ FAKE_ABO_VERZOEGERUNG_MS: '500' }), fristen: { aboAntwortMs: 900 } });
+  await insMeeting(p);
+  ck('Vergessen bei offenem Abo: „Anna — wird geladen …“', ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false }))
+    && sollStaende(p.kern.abbild()) === 'Anna:laedt');
+  p.kern.sollVerwerfen({ name: 'Anna' });
+  ck('… „Vergessen“: keine gemerkte Quelle mehr, videoUnsubscribe geht hinaus', p.kern.abbild().soll.length === 0
+    && (await bis(() => p.befehle(1).some((c) => c.cmd === 'videoUnsubscribe' && c.id === ANNA), 2000)));
+  await warte(1200);
+  ck('… am Ende keine Quelle, kein Q8, sollOffen 0, nie subscribed', p.kern.kurz().quellen === 0 && zeile(p, ANNA)?.fehler === null
+    && p.kern.kurz().sollOffen === 0 && !p.ereignisse.some((x) => x.ev.ev === 'video' && (x.ev as { state?: string }).state === 'subscribed'));
+  await p.aufraeumen();
+}
+{
+  // Dasselbe in Z10 („Anna — wartet auf den Wiederbeitritt“ über den Zusatzweg in sollOffen): Die Bridge lebt, die Abmeldung
+  // erreicht sie, und nach der Rückkehr lädt der Abgleich nichts.
+  const p = baueKern({
+    stell: () => ({ FAKE_ABO_VERZOEGERUNG_MS: '1500', FAKE_VERBINDUNG_HAENGT_MS: '300', FAKE_VERBINDUNG_ZURUECK_MS: '900' }),
+    fristen: { aboAntwortMs: 6000, joinTimeoutMs: 20_000, abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Vergessen in Z10 bei offenem Abo: „Anna — wartet auf den Wiederbeitritt“', (await bis(() => p.kern.kurz().zustand === 'abriss', 2000))
+    && zoomZ(p.kern.kurz()) === 'Z10' && sollStaende(p.kern.abbild()) === 'Anna:wiederbeitritt');
+  p.kern.sollVerwerfen({ name: 'Anna' });
+  ck('… „Vergessen“ in Z10: keine gemerkte Quelle mehr, videoUnsubscribe an die lebende Bridge', p.kern.abbild().soll.length === 0
+    && (await bis(() => p.befehle(1).some((c) => c.cmd === 'videoUnsubscribe' && c.id === ANNA), 1000)));
+  ck('… nach der Rückkehr kommt Anna nicht zurück: keine Quelle, ein einziges videoSubscribe, nie subscribed',
+    (await bis(() => p.kern.kurz().zustand === 'im_meeting', 3000)) && (await warte(1500), true) && p.kern.kurz().quellen === 0
+    && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1
+    && !p.ereignisse.some((x) => x.ev.ev === 'video' && (x.ev as { state?: string }).state === 'subscribed'));
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -1672,7 +1672,20 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function sollVerwerfen(e: { name: string }): void {
-    if (soll.delete(normName(e.name))) d.log('[zoom] Gemerkte Quelle vergessen');
+    const schluessel = normName(e.name);
+    const eintrag = soll.get(schluessel);
+    if (eintrag !== undefined) {
+      soll.delete(schluessel);
+      d.log('[zoom] Gemerkte Quelle vergessen');
+      // Prüfung 08.10.2026: Ein gesendetes, noch unbestätigtes Abo ('laedt', 'erlaubnis', 'wiederbeitritt' über den Zusatzweg in
+      // sollOffen) wie beim Entladen abmelden (N4b.3 Nr. 7). Sonst liefe nach der Bestätigung eine Quelle, die der Bediener eben
+      // vergessen hat, ohne Soll-Eintrag (Plan 4b, Review Focus 4: Was vergessen ist, kommt nicht zurück).
+      const id = eintrag.aboId;
+      if (id !== null && aboFristen.has(id)) {
+        if (sende({ cmd: 'videoUnsubscribe', id })) d.log(`[zoom] Offenes Abo ${id} abgemeldet`);
+        aboBeantwortet(id);
+      }
+    }
     abbildGeaendert();
   }
 
