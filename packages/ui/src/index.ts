@@ -9,3 +9,5 @@ export { Collapsible } from './components/Collapsible';
 export { Modal } from './components/Modal';
 export { SettingsSection } from './components/SettingsSection';
 export { Tabs, type TabItem } from './components/Tabs';
+export { UNBEKANNT, zahlText } from './lib/texte';
+export { type StatusState, type StatusGroup, type StatusItem, STATUS_SYMBOL, ordneStatus, unbekannt, formatUhrzeit, formatUhrzeitKurz } from './lib/status';

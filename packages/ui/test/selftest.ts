@@ -10,4 +10,5 @@ import './bestand.test';
 import './tokens.test';
 import './quellregeln.test';
 import './kontrast.test';
+import './status.test';
 abschluss();
