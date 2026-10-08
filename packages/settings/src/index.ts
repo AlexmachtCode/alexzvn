@@ -13,3 +13,5 @@ export {
   abschnittStatusItem,
 } from './vertrag';
 export { SectionFrame, type SectionFrameProps } from './SectionFrame';
+export { type NdiOutputSectionProps, type NdiOutputView, NDI_TEXTE, ndiOutputView } from './abschnitte/ndi-output';
+export { NdiOutputSection } from './abschnitte/NdiOutputSection';
