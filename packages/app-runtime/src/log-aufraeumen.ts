@@ -26,6 +26,8 @@ export const LOG_AUFRAEUMEN_TAKT_MS = 6 * 60 * 60 * 1000;
  * Single-Instance-Lock, und erst danach weiß der Prozess, ob er die laufende Instanz ist.
  */
 export const LOG_AUFRAEUMEN_VERZOEGERUNG_MS = 30 * 1000;
+/** Eintrag in `fehler`, wenn ein geplanter Lauf ohne Single-Instance-Lock übersprungen wurde (planeLogAufraeumen). */
+const OHNE_LOCK = 'übersprungen, dieser Prozess hält den Single-Instance-Lock nicht';
 /** Die Dateien des Loggers in `userData/logs` (index.ts): main.log, renderer.log, Rotation .1–.n, Crash-Marke. */
 export const LOG_DATEIMUSTER = /^(?:(?:main|renderer)\.log(?:\.[1-9]\d*)?|last-crash\.json)$/;
 /** Hilfsdatei beim Kürzen. */
@@ -188,7 +190,10 @@ export function planeLogAufraeumen(e: {
   taktMs?: number;
 }): void {
   const lauf = (): void => {
-    if (e.darf()) e.melde(raeumeLogsAuf({ ordner: e.ordner, jetztMs: Date.now() }));
+    // Ohne Lock wird nie aufgeräumt. Dass es übersprungen wurde, steht als Warnung im Log (eine App ohne Lock räumte sonst
+    // still nie auf); eine zweite Instanz beendet sich vor dem ersten Lauf und schreibt die Zeile darum nicht.
+    if (!e.darf()) e.melde({ geloescht: [], gekuerzt: [], fehler: [OHNE_LOCK] });
+    else e.melde(raeumeLogsAuf({ ordner: e.ordner, jetztMs: Date.now() }));
   };
   setTimeout(() => {
     lauf();

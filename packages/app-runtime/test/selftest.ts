@@ -292,8 +292,12 @@ const fsFehler = (code: string): Error => Object.assign(new Error(`${code}: Prob
   let gefragt = 0;
   planeLogAufraeumen({ ordner: o2, melde: (b) => berichte2.push(b), darf: () => (gefragt += 1, false), verzoegerungMs: 50, taktMs: 50 });
   await warte(300);
-  check('ohne Lock (zweite Instanz): nie aufräumen, nichts melden, aber bei jedem Lauf gefragt',
-    da(o2, 'main.log.2') && berichte2.length === 0 && gefragt >= 2);
+  check('ohne Lock (zweite Instanz): nie aufräumen, aber bei jedem Lauf gefragt', da(o2, 'main.log.2') && gefragt >= 2);
+  // Eine zweite Instanz beendet sich lange vor dem ersten Lauf. Läuft er doch ohne Lock (eine App ohne Lock, eine hängende
+  // zweite Instanz), steht das als Warnung im Log, statt still nie aufzuräumen.
+  check('… je Lauf ohne Lock genau ein Bericht mit der Warnung „übersprungen“, nichts gelöscht oder gekürzt',
+    berichte2.length === gefragt && berichte2.every((b) => b.geloescht.length === 0 && b.gekuerzt.length === 0
+      && JSON.stringify(berichtZeilen(b).warn) === JSON.stringify(['[runtime] Log-Aufräumen: übersprungen, dieser Prozess hält den Single-Instance-Lock nicht'])));
 
   // Die Zeitgeber halten keine App am Leben (unref): Ein Node-Prozess, der nur plant, endet sofort.
   const modul = new URL('../src/log-aufraeumen.ts', import.meta.url).href;
