@@ -40,7 +40,17 @@ export interface SollLage {
    * Welche Einträge offen sind, ändert das nicht. Fehlt das Feld, gilt false (im Meeting).
    */
   ausserhalbMeeting?: boolean;
+  /**
+   * Owner 08.10.2026: Fehler an der Teilnehmerzeile je Teilnehmer-ID, die ein gescheitertes Laden genau dieser Person bedeuten
+   * (der Kern führt sie mit den Zeilenfehlern): 'keineAntwort' = Q8 (das Abo blieb 10 s ohne Antwort), 'gescheitert' = die
+   * Bridge hat das Abo abgelehnt (istLadeFehler in klartext.ts). Ist die Person eindeutig da und steht der Fehler an IHRER
+   * Zeile, ersetzt er den Rückfall 'wartet'; alle anderen Stände behalten Vorrang. Fehlt das Feld, gibt es keinen.
+   */
+  ladeFehler?: ReadonlyMap<number, SollLadeFehler>;
 }
+
+/** Was ein Fehler an der Zeile einer eindeutig anwesenden Person für ihre gemerkte Quelle heißt (Owner 08.10.2026). */
+export type SollLadeFehler = Extract<ZoomSollEintrag['stand'], 'keineAntwort' | 'gescheitert'>;
 
 /**
  * Owner 08.10.2026: Connect ist außerhalb des Meetings, sobald der Zustand nicht im_meeting ist, etwa beim eigenen
@@ -112,7 +122,8 @@ function plane(soll: SollListe, lage: SollLage, plaetze: number): Planung[] {
  * Im Meeting: würde abonniert, hat aber keinen Platz → 'grenze';
  * kein Abo und ≥ 2 Treffer → 'doppelname'; genau 1 Treffer außerhalb des Warteraums ohne Erlaubnis
  * (lage.erlaubnisFehlt) → 'erlaubnis'; wird beim geplanten Abgleich abonniert (lage.abgleichGeplant) → 'laedt';
- * sonst 'wartet'. `doppelname` = 2 oder mehr Treffer
+ * genau 1 Treffer außerhalb des Warteraums mit einem Ladefehler an IHRER Zeile (lage.ladeFehler) → 'keineAntwort' (Q8) bzw.
+ * 'gescheitert' (Owner 08.10.2026); sonst 'wartet'. `doppelname` = 2 oder mehr Treffer
  * (auch bei verwaist: rot mit Q11). `plaetze` wie bei sollHandlungen; Vorgabe: unbegrenzt.
  */
 export function sollAbbild(soll: SollListe, lage: SollLage, plaetze = Infinity): ZoomSollEintrag[] {
@@ -130,7 +141,9 @@ export function sollAbbild(soll: SollListe, lage: SollLage, plaetze = Infinity):
     const personDa = b.treffer.length === 1 && !b.treffer[0].imWarteraum;
     const stand: ZoomSollEintrag['stand'] = b.abo === 'verwaist' ? 'verwaist' : grenze ? 'grenze' : doppelname ? 'doppelname'
       : personDa && lage.erlaubnisFehlt === true ? 'erlaubnis'
-      : handlung?.art === 'abonnieren' && lage.abgleichGeplant === true ? 'laedt' : 'wartet';
+      : handlung?.art === 'abonnieren' && lage.abgleichGeplant === true ? 'laedt'
+      // Owner 08.10.2026: Ihr Laden ist gescheitert (Q8 oder Ablehnung der Bridge an IHRER Zeile); kein neuer Versuch von selbst.
+      : (personDa ? lage.ladeFehler?.get(b.treffer[0].id) : undefined) ?? 'wartet';
     aus.push({
       name: b.eintrag.name,
       ton: b.eintrag.ton,

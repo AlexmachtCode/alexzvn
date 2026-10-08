@@ -3400,6 +3400,125 @@ const abAbriss = (p: Probe): ZoomAbbild[] => p.abbilder.slice(Math.max(0, p.abbi
   await p.aufraeumen();
 }
 
+// ── Owner 08.10.2026: Q8 und Ladefehler an der Zeile einer anwesenden Person (Befund 1); Verlassen leert die Liste sofort ──
+console.log('— Owner 08.10.2026: „keine Antwort der Zoom-Bridge“ (Q8) und „Laden gescheitert“ (Ladefehler), jeweils „bitte von Hand laden“');
+/**
+ * Owner-Regel „Statuszeile lügt“ über JEDES ausgelieferte Abbild: „keine Antwort …“ nur im Meeting mit Q8 an der Zeile der
+ * Person, „Laden gescheitert …“ nur mit einem anderen Zeilenfehler dort; und nie „wartet auf die Person“, solange sie im Meeting
+ * mit Erlaubnis eindeutig da ist (nicht im Warteraum) und an ihrer Zeile Q8 oder ein Ladefehler steht.
+ */
+function ladeStaendeEhrlich(p: Probe): boolean {
+  return p.abbilder.every((a) => a.soll.every((e) => {
+    const t = a.teilnehmer.filter((x) => x.name === e.name);
+    const fehler = t.length === 1 && !t[0].imWarteraum ? t[0].fehler : null;
+    if (e.stand === 'keineAntwort') return a.kurz.zustand === 'im_meeting' && fehler === KT.Q8;
+    if (e.stand === 'gescheitert') return a.kurz.zustand === 'im_meeting' && fehler !== null && fehler !== KT.Q8;
+    if (e.stand === 'wartet') return !(a.kurz.zustand === 'im_meeting' && a.kurz.erlaubnis === 'ja' && fehler !== null);
+    return true;
+  }));
+}
+const TEXT_KEINE_ANTWORT = 'Anna — keine Antwort der Zoom-Bridge, bitte von Hand laden';
+const TEXT_GESCHEITERT = 'Anna — Laden gescheitert, bitte von Hand laden';
+{
+  // Q8 im Meeting: Erlaubnis „ja“, Anna eindeutig da, ihr erstes Abo kommt nie an (keine Antwort), das zweite schon.
+  let gesendet = 0;
+  const p = baueKern({ sendeFilter: (c) => c.cmd !== 'videoSubscribe' || ++gesendet > 1, fristen: { aboAntwortMs: 600, abbildTaktMs: 0 } });
+  await insMeeting(p);
+  ck('Q8 im Meeting: zuerst „Anna — wird geladen …“', ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false }))
+    && sollStaende(p.kern.abbild()) === 'Anna:laedt');
+  const stateLaedt = JSON.stringify(p.kern.stateKv());
+  ck('… nach der Frist: Annas Zeile Q8, „Anna — keine Antwort der Zoom-Bridge, bitte von Hand laden“, nicht „wartet auf die Person“',
+    (await bis(() => zeile(p, ANNA)?.fehler === KT.Q8 && sollStaende(p.kern.abbild()) === 'Anna:keineAntwort', 3000))
+    && sollZeile(p.kern.abbild().soll[0]) === TEXT_KEINE_ANTWORT);
+  ck('… Zählung unverändert: sollOffen 1, zoom_alarm=1, Companion-STATE gleich wie bei „wird geladen …“',
+    p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1 && JSON.stringify(p.kern.stateKv()) === stateLaedt);
+  await warte(1500);
+  ck('… kein automatischer neuer Versuch: 1,5 s später weiter „keine Antwort …“, ein einziges videoSubscribe',
+    sollStaende(p.kern.abbild()) === 'Anna:keineAntwort' && gesendet === 1);
+  ck('… von Hand laden: „wird geladen …“, dann verbunden, Zeile ohne Fehler, keine gemerkte Quelle offen, zoom_alarm=0',
+    ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false })) && sollStaende(p.kern.abbild()) === 'Anna:laedt'
+    && (await bis(() => p.kern.kurz().quellen === 1, 3000)) && zeile(p, ANNA)?.fehler === null && p.kern.abbild().soll.length === 0
+    && p.kern.stateKv()?.zoom_alarm === 0 && gesendet === 2);
+  ck('… jedes Abbild ohne Lüge', ladeStaendeEhrlich(p) && p.abbilder.some((a) => sollStaende(a) === 'Anna:keineAntwort'));
+  await p.aufraeumen();
+}
+{
+  // Q8, dann geht Anna (left) und kommt als 16778250 zurück: Weg ist „wartet auf die Person“ wieder wahr; bei der Rückkehr
+  // lädt der Abgleich sie neu (das zweite Abo kommt an).
+  let gesendet = 0;
+  const p = baueKern({
+    stell: () => ({ FAKE_WIEDERBEITRITT_MS: '2000', FAKE_RUECKKEHR_MS: '1200' }),
+    sendeFilter: (c) => c.cmd !== 'videoSubscribe' || ++gesendet > 1,
+    fristen: { aboAntwortMs: 500, abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Q8, dann geht Anna: zuerst „keine Antwort …“', await bis(() => sollStaende(p.kern.abbild()) === 'Anna:keineAntwort', 3000));
+  ck('… Anna weg: „wartet auf die Person“',
+    await bis(() => p.abbilder.some((a) => !a.teilnehmer.some((t) => t.name === 'Anna') && sollStaende(a) === 'Anna:wartet'), 4000));
+  ck('… Anna zurück (16778250): der Abgleich lädt sie, verbunden, zwei videoSubscribe, jedes Abbild ohne Lüge',
+    (await bis(() => p.kern.kurz().quellen === 1 && p.kern.abbild().soll.length === 0, 5000)) && gesendet === 2
+    && p.befehle(1).some((c) => c.cmd === 'videoSubscribe' && c.id === 16778250) && ladeStaendeEhrlich(p));
+  await p.aufraeumen();
+}
+{
+  // Ladefehler im Meeting: Die Bridge lehnt das erste Abo ab (FAKE_ABO_FEHLER, wie videoSenderFailed in native/video.cpp).
+  const p = baueKern({ stell: () => ({ FAKE_ABO_FEHLER: 'videoSenderFailed' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  // Erst nach dem Abgleich, den der Beitritt plant (300 ms nach inMeeting und Erlaubnis): Liefe er noch, lüde er Anna nach der
+  // Ablehnung gleich neu („wird geladen …“ hat Vorrang, gemessen 08.10.2026: zweites videoSubscribe, dann verbunden).
+  await warte(500);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Ladefehler im Meeting (videoSenderFailed): Annas Zeile Q4, „Anna — Laden gescheitert, bitte von Hand laden“',
+    (await bis(() => zeile(p, ANNA)?.fehler === KT.Q4('VIDEO_SENDER_FAILED') && sollStaende(p.kern.abbild()) === 'Anna:gescheitert', 3000))
+    && sollZeile(p.kern.abbild().soll[0]) === TEXT_GESCHEITERT);
+  await warte(1000);
+  ck('… Zählung unverändert (sollOffen 1, zoom_alarm=1); kein automatischer neuer Versuch (ein einziges videoSubscribe)',
+    p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1 && sollStaende(p.kern.abbild()) === 'Anna:gescheitert'
+    && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1);
+  ck('… von Hand laden: verbunden, Zeile ohne Fehler, keine gemerkte Quelle offen, zoom_alarm=0, jedes Abbild ohne Lüge',
+    ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false })) && (await bis(() => p.kern.kurz().quellen === 1, 3000))
+    && zeile(p, ANNA)?.fehler === null && p.kern.abbild().soll.length === 0 && p.kern.stateKv()?.zoom_alarm === 0 && ladeStaendeEhrlich(p));
+  await p.aufraeumen();
+}
+{
+  // Ladefehler, danach tritt Carla bei: Der geplante Abgleich lädt Anna gleich neu („wird geladen …“ hat Vorrang), dann verbunden.
+  const p = baueKern({ stell: () => ({ FAKE_ABO_FEHLER: 'videoSenderFailed', FAKE_BEITRITT_MS: '2500' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  // Erst nach dem Abgleich, den der Beitritt plant (300 ms nach inMeeting und Erlaubnis): Liefe er noch, lüde er Anna nach der
+  // Ablehnung gleich neu („wird geladen …“ hat Vorrang, gemessen 08.10.2026: zweites videoSubscribe, dann verbunden).
+  await warte(500);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Ladefehler, dann ein späterer Abgleich (Carla tritt bei): zuerst „Laden gescheitert …“',
+    await bis(() => sollStaende(p.kern.abbild()) === 'Anna:gescheitert', 2000));
+  const ab = p.abbilder.length;
+  ck('… der Abgleich lädt Anna: „wird geladen …“, dann verbunden, zwei videoSubscribe, jedes Abbild ohne Lüge',
+    (await bis(() => p.kern.kurz().quellen === 1 && p.kern.abbild().soll.length === 0, 5000))
+    && p.abbilder.slice(ab).some((a) => sollStaende(a) === 'Anna:laedt') && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 2
+    && zeile(p, ANNA)?.fehler === null && ladeStaendeEhrlich(p));
+  await p.aufraeumen();
+}
+{
+  // Nach einem Wiederbeitritt lehnt die neue Bridge Annas Abo ab, Bens geht: R5 zählt wie bisher (beide abonniert), Anna steht
+  // als „Laden gescheitert …“, sollOffen 1.
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '600' } : { FAKE_ABO_FEHLER: 'videoSenderFailed' }),
+    wiederbeitrittPlanMs: [800, 30, 30, 30, 30],
+    fristen: { abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
+  ck('Ladefehler nach dem Wiederbeitritt: zwei Quellen, Abriss, wieder im Meeting', (await bis(() => p.kern.kurz().quellen === 2))
+    && (await bis(() => p.starts() === 2 && p.kern.kurz().zustand === 'im_meeting', 6000)));
+  ck('… Ben verbunden, „Anna — Laden gescheitert, bitte von Hand laden“, sollOffen 1, zoom_alarm=1',
+    (await bis(() => p.kern.kurz().quellen === 1 && sollStaende(p.kern.abbild()) === 'Anna:gescheitert', 4000))
+    && sollZeile(p.kern.abbild().soll[0]) === TEXT_GESCHEITERT && p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… R5 unverändert „2 Quellen neu geladen, 0 warten …“ (gezählt wird das Abo, nicht die Antwort), jedes Abbild ohne Lüge',
+    p.kern.abbild().hinweise.includes(KT.R5(2, 0)) && wiederbeitrittNurDraussen(p) && ladeStaendeEhrlich(p));
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);

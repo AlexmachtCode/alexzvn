@@ -19,7 +19,7 @@ import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import * as fristen from '../src/main/zoom/fristen';
 import {
   authMeldung, dllMeldung, endeMeldung, ENDGUELTIGE_FAIL_CODES, exitCodeAus, failMeldung, failText, fehlerDetail, fernLogText, FT,
-  istEndgueltig, KT, mangelText, maskiere, maskiereNamen, quellenFehler, spawnMeldung, tonZustand, VORSATZ, type VersuchsAusgang,
+  istEndgueltig, istLadeFehler, KT, mangelText, maskiere, maskiereNamen, quellenFehler, spawnMeldung, tonZustand, VORSATZ, type VersuchsAusgang,
 } from '../src/main/zoom/klartext';
 
 let pass = 0, fail = 0;
@@ -668,6 +668,18 @@ console.log('— 8.4: Bild-/Ton-Fehler → Zeile, Hinweis oder nichts');
   ck('Ton live → kein Fehler', tonZustand('live', 'packets').art === 'keine');
 }
 
+console.log('— Owner 08.10.2026: Welche Zeilenfehler ein gescheitertes Laden genau dieser Person bedeuten (Stand „gescheitert“)');
+{
+  // Die Bridge lehnt das Abo der Person ab (video.cpp videoSubscribe, main.cpp; jeweils mit Kennung): Q1, Q2, Q4; dazu Q5,
+  // falls ein Tonfehler je eine Kennung trüge, und jeder unbekannte Code (wie quellenFehler: Zeile Q4).
+  const JA = ['videoNoPrivilege', 'videoUnknownParticipant', 'videoRendererFailed', 'videoRawRecordingFailed', 'videoSenderFailed',
+    'videoBadAudioFlag', 'videoNeu', 'audioVoipJoinFailed', 'audioHelperMissing', 'audioSubscribeFailed'];
+  for (const code of JA) ck(`${code} → Ladefehler`, istLadeFehler(code) && quellenFehler(code, code, 'Anna', undefined, 16778240).art === 'zeile');
+  // Q13 gilt dem Bild-Versatz aller Quellen, kein Laden; Q3, videoNotSubscribed und die Hinweise stehen an keiner Zeile.
+  const NEIN = ['videoBadDelay', 'videoAlreadySubscribed', 'videoNotSubscribed', 'audioQueueOverflow', 'videoBufferMismatch', 'audioBufferMismatch'];
+  for (const code of NEIN) ck(`${code} → kein Ladefehler`, !istLadeFehler(code));
+}
+
 console.log('— 8.7: Maskierung nur nicht-leerer Werte, längste zuerst');
 {
   ck('Kenncode wird zu •••, leerer Wert stört nicht', maskiere('a KENNCODE-PROBE b', ['', 'KENNCODE-PROBE']) === 'a ••• b');
@@ -826,11 +838,14 @@ console.log('— 4b: Gemerkte Quellen (Spec 9 Punkt 9, Stand grenze)');
     laedt: 'Anna Maria — wird geladen …',
     // Owner 08.10.2026: Connect selbst ist nicht im Meeting (Z10, Z11, fehler, „Erneut beitreten“); Vorrang vor allen außer verwaist.
     wiederbeitritt: 'Anna Maria — wartet auf den Wiederbeitritt',
+    // Owner 08.10.2026: Die Person ist eindeutig da, ihr Abo blieb ohne Antwort (Q8) bzw. die Bridge lehnte es ab (Zeilenfehler).
+    keineAntwort: 'Anna Maria — keine Antwort der Zoom-Bridge, bitte von Hand laden',
+    gescheitert: 'Anna Maria — Laden gescheitert, bitte von Hand laden',
     doppelname: 'Anna Maria — Name doppelt, bitte von Hand laden',
     verwaist: 'Anna Maria — Person weg, Quelle schwarz',
     grenze: 'Anna Maria — nicht automatisch geladen (mehr als 5 Zoom-Quellen), bitte von Hand laden',
   };
-  ck('ZoomSollEintrag kennt sieben Stände', Object.keys(SOLL).length === 7);
+  ck('ZoomSollEintrag kennt neun Stände', Object.keys(SOLL).length === 9);
   for (const s of Object.keys(SOLL) as Array<ZoomSollEintrag['stand']>) ck(`sollZeile ${s} wörtlich`, sollZeile(e(s)) === SOLL[s]);
 }
 

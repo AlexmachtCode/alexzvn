@@ -453,6 +453,10 @@ const SOLL_STAND: Record<ZoomSollEintrag['stand'], string> = {
   // Connect selbst ist nicht im Meeting (jeder Zustand außer im_meeting, etwa Z10, Z11, fehler, „Erneut beitreten“);
   // Vorrang vor allen Ständen außer verwaist.
   wiederbeitritt: 'wartet auf den Wiederbeitritt',
+  // Owner 08.10.2026 (freigegeben): Die Person ist eindeutig da, an ihrer Zeile steht Q8 bzw. ein Ladefehler der Bridge.
+  // Kein automatischer neuer Versuch; ein geplanter Abgleich („wird geladen …“) und alle übrigen Stände haben Vorrang.
+  keineAntwort: 'keine Antwort der Zoom-Bridge, bitte von Hand laden',
+  gescheitert: 'Laden gescheitert, bitte von Hand laden',
   doppelname: 'Name doppelt, bitte von Hand laden',
   verwaist: 'Person weg, Quelle schwarz',
   grenze: `nicht automatisch geladen (mehr als ${BETRIEBSGROESSE} Zoom-Quellen), bitte von Hand laden`,

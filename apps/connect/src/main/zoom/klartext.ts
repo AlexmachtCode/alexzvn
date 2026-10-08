@@ -301,6 +301,20 @@ export function quellenFehler(code: string, name: string, person: string | null,
   }
 }
 
+/**
+ * Owner 08.10.2026 („Laden gescheitert, bitte von Hand laden“): Steht dieser Bild- oder Tonfehler an der Zeile einer Person
+ * ohne laufende Quelle, hat die Bridge das Laden genau dieser Person abgelehnt. Mit Kennung meldet die Bridge solche Fehler nur
+ * als Antwort auf videoSubscribe (video.cpp videoSubscribe, main.cpp videoBadAudioFlag) und beim Umhängen (video.cpp,
+ * videoRendererFailed an der neuen Kennung). Ja für jeden Zeilenfehler aus quellenFehler außer Q13: Q1 (videoNoPrivilege),
+ * Q2 (videoUnknownParticipant), Q4 (videoRendererFailed, videoRawRecordingFailed, videoSenderFailed und jeder unbekannte Code,
+ * etwa videoBadAudioFlag) und Q5 (audio…; die Bridge meldet sie heute ohne Kennung, also als Hinweis, nie an einer Zeile).
+ * Nein für Q13 (videoBadDelay gilt dem Bild-Versatz aller Quellen und kommt ohne Kennung), für Q3 und videoNotSubscribed
+ * (kein Text) und für die Hinweise Q6, Q16, Q17.
+ */
+export function istLadeFehler(code: string): boolean {
+  return code !== 'videoBadDelay' && quellenFehler(code, code, null).art === 'zeile';
+}
+
 /** Ton-Zustand einer Quelle: nur `off`/`audioUnavailable` ist ein Fehler (Q5); `off`/`command` ist „ohne Ton geladen“. */
 export function tonZustand(state: AudioState, reason: AudioReason): Einordnung {
   if (state === 'off' && reason === 'audioUnavailable') return { art: 'zeile', text: KT.Q5('audioUnavailable') };

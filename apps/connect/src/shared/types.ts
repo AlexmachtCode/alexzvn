@@ -158,8 +158,13 @@ export interface ZoomSollEintrag {
    * allen anderen Ständen außer 'verwaist' (Owner 08.10.2026). 'verwaist' bleibt auch außerhalb des Meetings, solange die
    * Bridge lebt (Z10, Warteraum mitten im Meeting und das folgende tritt_bei): die schwarze Quelle läuft weiter und muss sich
    * per „Entladen“ abbauen lassen (Ruling 08.10.2026). Zählt als offen.
+   * 'keineAntwort' und 'gescheitert' (Owner 08.10.2026): im Meeting mit Erlaubnis, die Person ist eindeutig da, und an IHRER
+   * Teilnehmerzeile steht, dass ihr Laden gescheitert ist: 'keineAntwort' = das Abo blieb ohne Antwort der Bridge (Q8),
+   * 'gescheitert' = die Bridge hat das Abo mit Fehler abgelehnt (istLadeFehler in klartext.ts). Sie ersetzen nur den
+   * Rückfall 'wartet'; alle anderen Stände (auch 'laedt' bei geplantem Abgleich) behalten Vorrang. Kein automatischer neuer
+   * Versuch. Zählen als offen.
    */
-  stand: 'wartet' | 'erlaubnis' | 'laedt' | 'wiederbeitritt' | 'doppelname' | 'verwaist' | 'grenze';
+  stand: 'wartet' | 'erlaubnis' | 'laedt' | 'wiederbeitritt' | 'keineAntwort' | 'gescheitert' | 'doppelname' | 'verwaist' | 'grenze';
   /** Nur bei 'verwaist': das alte Abo, zum Entladen. */
   aboId: number | null;
   /**

@@ -63,6 +63,7 @@ import {
   fernLogText,
   FT,
   istEndgueltig,
+  istLadeFehler,
   mangelText,
   maskiere,
   maskiereNamen,
@@ -89,7 +90,7 @@ import {
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
 import { deuteZoomBefehl, ladeZiel } from './fernsteuerung';
-import { istAusserhalbMeeting, sollAbbild, sollHandlungen, type SollLage, type SollListe } from './soll';
+import { istAusserhalbMeeting, sollAbbild, sollHandlungen, type SollLadeFehler, type SollLage, type SollListe } from './soll';
 import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
 import { WIEDERBEITRITT_PLAN_S } from './fristen';
 
@@ -297,8 +298,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   // ── Quellen, Teilnehmerzeilen (Spec 6.3) ─────────────────────────────────
   /** Ton-Schalter je Teilnehmer-ID (nicht je Name), gilt beim Laden. */
   const tonVorwahl = new Map<number, boolean>();
-  /** Zeilenfehler ohne laufende Quelle (Q2, Q8 …), je Teilnehmer-ID. */
-  const zeilenFehler = new Map<number, string>();
+  /**
+   * Zeilenfehler ohne laufende Quelle (Q2, Q8 …), je Teilnehmer-ID. `laden`: was er für die gemerkte Quelle dieser Person heißt
+   * (Owner 08.10.2026): 'keineAntwort' bei Q8, 'gescheitert', wenn die Bridge ihr Abo abgelehnt hat (istLadeFehler), sonst null.
+   */
+  const zeilenFehler = new Map<number, { text: string; laden: SollLadeFehler | null }>();
   const tonAngefragt = new Map<number, boolean>();
   const aboFristen = new Map<number, ReturnType<typeof setTimeout>>();
   /** L11: Anzeigenamen fremder Teilnehmer, die der Kern in dieser Programmsitzung gesehen hat; nur im Arbeitsspeicher. */
@@ -345,7 +349,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       liste: [...s.participants.values()],
       quellen: aktiveQuellen(),
       tonVorwahl,
-      zeilenFehler,
+      zeilenFehler: new Map([...zeilenFehler].map(([id, z]) => [id, z.text])),
       gastLabels: d.gastLabels(),
       // N4b.3 Nr. 2: ohne eigene Vorwahl zeigt der Schalter den Ton, mit dem der Abgleich lädt.
       sollTon: (name) => soll.get(normName(name))?.ton,
@@ -371,6 +375,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       // Owner 08.10.2026: Ohne Meeting (Z10, Z11, fehler, „Erneut beitreten“) wartet jeder offene Eintrag auf den Wiederbeitritt,
       // außer einem verwaisten: dessen schwarze Quelle lebt in Z10 weiter und bleibt entladbar (Ruling 08.10.2026).
       ausserhalbMeeting: istAusserhalbMeeting(zustand),
+      // Owner 08.10.2026: Q8 oder ein Ladefehler an der Zeile einer eindeutig anwesenden Person ersetzt dort den Rückfall 'wartet'.
+      ladeFehler: new Map([...zeilenFehler].flatMap(([id, z]) => (z.laden === null ? [] : [[id, z.laden] as const]))),
     };
   }
 
@@ -1464,7 +1470,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       zeitgeber(f.aboAntwortMs, () => {
         aboFristen.delete(id);
         if (gen !== aktiveGen || imAbbau.has(gen)) return;
-        zeilenFehler.set(id, KT.Q8);
+        // Owner 08.10.2026: Die gemerkte Quelle steht dann auf „keine Antwort der Zoom-Bridge, bitte von Hand laden“. Kein neuer
+        // Versuch von selbst (kein abgleichPlanen); erst ein späterer Abgleich (roster, joined …) oder „Als Quelle laden“ lädt neu.
+        zeilenFehler.set(id, { text: KT.Q8, laden: 'keineAntwort' });
         d.log(`[zoom] Abo ${id}: keine Antwort der Zoom-Bridge`);
         abbildGeaendert();
       }),
@@ -1540,7 +1548,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
     const q = quellen.get(id);
     if (q && q.gen === aktiveGen) q.fehler = einordnung.text;
-    else zeilenFehler.set(id, einordnung.text);
+    // Owner 08.10.2026: Ohne laufende Quelle hat die Bridge das Laden dieser Person abgelehnt („Laden gescheitert, bitte von Hand
+    // laden“), außer bei Q13 (istLadeFehler). Kein neuer Versuch von selbst.
+    else zeilenFehler.set(id, { text: einordnung.text, laden: istLadeFehler(String(e.code)) ? 'gescheitert' : null });
   }
 
   async function laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis> {
