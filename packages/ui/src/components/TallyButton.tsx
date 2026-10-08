@@ -66,10 +66,13 @@ export function tallyHandler(p: TallyButtonProps, halten: HaltenSteuerung): Tall
     },
     onPointerDown(e) {
       if (gesperrt || e.button !== 0 || halten.gehalten) return;
-      try {
-        e.currentTarget?.setPointerCapture?.(e.pointerId);
-      } catch {
-        // Capture ist optional; ohne sie beendet spätestens blur oder pointercancel das Halten.
+      // Nur wenn wirklich ein Halten startet: bei gesetztem Capture ginge der click sonst auch nach dem Wegziehen an den Knopf (versehentliches Take).
+      if (p.onPress || p.onRelease) {
+        try {
+          e.currentTarget?.setPointerCapture?.(e.pointerId);
+        } catch {
+          // Capture ist optional; ohne sie beendet spätestens blur oder pointercancel das Halten.
+        }
       }
       halten.druecken('zeiger');
     },

@@ -291,6 +291,9 @@ const taste = (key: string, repeat = false) => ({ key, repeat, preventDefault: (
   nurKlick.h.onPointerUp();
   nurKlick.h.onClick();
   gleich([nurKlick.z.click, nurKlick.halten.gehalten], [1, false], 'Tally: nur onClick – Zeiger hält nichts, Klick kommt');
+  gefangen = [];
+  nurKlick.h.onPointerDown(zeiger());
+  gleich(gefangen, [], 'Tally: nur onClick – kein setPointerCapture (Wegziehen und Loslassen löst keinen Klick aus)');
 }
 {
   let losgelassen = 0;
