@@ -4,6 +4,15 @@
     "name": "JM App Designer",
     "entries": [
       {
+        "version": "0.1.1",
+        "date": "2026-10-08",
+        "notes": [
+          "Variablennamen lassen sich wieder in einem Zug eintippen. Bisher war nach jedem Buchstaben der Cursor weg.",
+          "Der neue Name gilt, sobald man das Feld verlässt oder Enter drückt; Escape stellt den alten wieder her. Regeln und Elemente, die die Variable verwenden, werden beim Umbenennen mitgenommen. Bisher verloren sie ihre Verbindung, ohne dass man es merkte.",
+          "Ein leerer oder schon vergebener Name wird abgelehnt, dazu erscheint ein Hinweis unter dem Feld."
+        ]
+      },
+      {
         "version": "0.1.0",
         "date": "2026-07-10",
         "notes": [
@@ -498,6 +507,13 @@
     "app": "presenter",
     "name": "JM Presenter",
     "entries": [
+      {
+        "version": "0.10.1",
+        "date": "2026-10-08",
+        "notes": [
+          "Im Systemzustand des Launchers, in Companion und in der Werkzeugleiste des Rundowns zeigt der Presenter „On Air“ jetzt erst, wenn eine Präsentation läuft. Bisher stand er schon direkt nach dem Start auf „On Air“."
+        ]
+      },
       {
         "version": "0.10.0",
         "date": "2026-07-05",

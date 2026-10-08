@@ -10,6 +10,7 @@ export * from './constants';
 export * from './model';
 export * from './logic';
 export * from './migrate';
+export * from './variables';
 export { mountApp } from './runtime/player';
 export type { MountOptions, RuntimeEvent, RuntimeHandle } from './runtime/player';
 export { shuffled } from './runtime/widget';

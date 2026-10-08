@@ -7,6 +7,7 @@
 //                        PRESENTER BLACK|WHITE|LIVE|STOP | STATE?
 //   Presenter → Client:  STATE ns=presenter slide=<n> total=<n> active=0|1
 //                        live=0|1 black=0|1 white=0|1
+//                        (live=1 nur bei laufender Präsentation, siehe suite-state.ts)
 //
 // mDNS: als Steuer-Endpunkt annonciert (controlEndpoint:true → TXT ctl=1, Name
 // jm-presenter-ctl). Presenter hat DANEBEN einen role=presenter-Advert für sein
@@ -17,6 +18,7 @@ import { app } from 'electron';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { getState, goto, next, prev, setScreen, stopPresentation, subscribe } from './present';
 import { openByPath } from './control-open';
+import { presenterStateKv } from './suite-state';
 
 /** Eigener TCP-Steuerport (getrennt vom HTTP-Remote 7330). */
 export const CONTROL_PORT = 8728;
@@ -25,18 +27,7 @@ let server: SuiteControlServer | null = null;
 let unsubscribe: (() => void) | null = null;
 
 function toSuiteState(): SuiteState {
-  const s = getState();
-  return {
-    ns: 'presenter',
-    kv: {
-      slide: s.total > 0 ? s.index + 1 : 0, // 1-basiert (0 = keine Präsentation)
-      total: s.total,
-      active: s.active,
-      live: s.screen === 'live',
-      black: s.screen === 'black',
-      white: s.screen === 'white',
-    },
-  };
+  return { ns: 'presenter', kv: presenterStateKv(getState()) };
 }
 
 export function startControlServer(): Promise<{ ok: boolean; error?: string; port?: number }> {

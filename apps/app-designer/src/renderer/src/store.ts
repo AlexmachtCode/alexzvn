@@ -3,6 +3,7 @@ import {
   makeEmptyProject,
   makeNode,
   newId,
+  renameVariable,
   type AppNode,
   type AppProject,
   type NodeId,
@@ -57,9 +58,18 @@ export interface EditorState {
   removeNode(id: NodeId): void;
   reorderNode(id: NodeId, dir: -1 | 1): void;
 
+  // Variablen werden über ihre Position adressiert, nicht über den Namen: der
+  // Name ändert sich beim Umbenennen und ist zugleich der Verweis in Regeln und
+  // Elementen (#231).
   addVar(): void;
-  patchVar(name: string, patch: Partial<VarDef>): void;
-  removeVar(name: string): void;
+  /** Typ/Startwert ändern. Der Name läuft ausschließlich über `renameVar`. */
+  patchVar(index: number, patch: Partial<Omit<VarDef, 'name'>>): void;
+  /**
+   * Umbenennen samt aller Verweise im Dokument — EIN Undo-Schritt. Leer,
+   * vergeben oder unverändert: keine Änderung, kein Undo-Schritt.
+   */
+  renameVar(index: number, name: string): void;
+  removeVar(index: number): void;
 
   addAssets(blobs: AssetBlob[]): void;
 
@@ -294,17 +304,28 @@ export const useEditor = create<EditorState>((set) => {
         };
       }),
 
-    patchVar: (name, patch) =>
-      edit(`var:${name}`, (st) => ({
+    // Schlüssel über die Position: er bleibt stabil, solange der Nutzer an EINER
+    // Variable tippt (der frühere Schlüssel `var:<name>` wechselte beim Umbenennen
+    // mit jedem Buchstaben).
+    patchVar: (index, patch) =>
+      edit(`var:${index}:${Object.keys(patch).sort().join(',')}`, (st) => ({
         doc: {
           ...st.doc,
-          variables: st.doc.variables.map((v) => (v.name === name ? { ...v, ...patch } : v)),
+          variables: st.doc.variables.map((v, i) => (i === index ? { ...v, ...patch } : v)),
         },
       })),
 
-    removeVar: (name) =>
+    renameVar: (index, name) =>
+      edit(null, (st) => {
+        const v = st.doc.variables[index];
+        // renameVariable gibt bei ungültigem/unverändertem Namen dasselbe Dokument
+        // zurück — `edit` legt dann keinen Undo-Schritt an.
+        return v ? { doc: renameVariable(st.doc, v.name, name) } : {};
+      }),
+
+    removeVar: (index) =>
       edit(null, (st) => ({
-        doc: { ...st.doc, variables: st.doc.variables.filter((v) => v.name !== name) },
+        doc: { ...st.doc, variables: st.doc.variables.filter((_, i) => i !== index) },
       })),
 
     addAssets: (blobs) =>

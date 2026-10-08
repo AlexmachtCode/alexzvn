@@ -1,7 +1,13 @@
-import { NODE_LABELS, type NodeType } from '@jm/appkit';
+import { NODE_LABELS, checkVariableName, type NodeType, type VarNameProblem } from '@jm/appkit';
 import { Badge, Button } from '@jm/ui';
 import { useCurrentScene, useEditor } from '../store';
-import { NumberField, SelectField, TextField } from './fields';
+import { CommitTextField, NumberField, SelectField, TextField } from './fields';
+
+/** Hinweis unter dem Namensfeld, wenn ein neuer Variablenname abgelehnt wird. */
+const VAR_NAME_HINTS: Record<VarNameProblem, string> = {
+  empty: 'Name darf nicht leer sein.',
+  taken: 'Diesen Namen gibt es schon.',
+};
 
 const BUILDING_BLOCKS: NodeType[] = ['text', 'image', 'shape', 'button', 'video'];
 const GAME_WIDGETS: NodeType[] = ['wheel', 'quiz', 'memory', 'dragitem', 'dropzone'];
@@ -183,6 +189,7 @@ export function VariablesPanel(): JSX.Element {
   const log = useEditor((s) => s.log);
   const addVar = useEditor((s) => s.addVar);
   const patchVar = useEditor((s) => s.patchVar);
+  const renameVar = useEditor((s) => s.renameVar);
   const removeVar = useEditor((s) => s.removeVar);
   const clearLog = useEditor((s) => s.clearLog);
 
@@ -197,16 +204,36 @@ export function VariablesPanel(): JSX.Element {
             + Neu
           </Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* pb-6: Platz für den Namens-Hinweis unter der letzten Zeile. Ohne ihn
+            ragte der Hinweis über den Rand, eine Scrollleiste erschiene, und die
+            ✕-Knöpfe rückten seitlich weg. */}
+        <div className="min-h-0 flex-1 overflow-y-auto pb-6">
           {doc.variables.length === 0 && (
             <p className="text-sm text-[var(--muted-foreground)]">
               Variablen merken sich Punkte, Runden oder Ergebnisse.
             </p>
           )}
-          {doc.variables.map((v) => (
-            <div key={v.name} className="mb-1 flex items-center gap-1">
+          {/* Schlüssel = Position, nicht der Name: mit dem Namen als Schlüssel
+              baute React die Zeile bei jedem Buchstaben neu, und das Feld verlor
+              den Fokus (#231). Die Liste ändert sich trotzdem — durch Anlegen,
+              Löschen, Undo/Redo und das Öffnen einer Datei; dann zeigt eine Zeile
+              eben eine andere Variable. Das ist unbedenklich: Ein Entwurf im
+              Namensfeld lebt nur, solange man darin tippt (all diese Aktionen
+              laufen über einen Klick, der das Feld vorher verlässt und den Entwurf
+              übernimmt; Strg+Z/Y greift in Textfeldern nicht), und ein Hinweis
+              gilt nur für den Wert, bei dem er entstand. */}
+          {doc.variables.map((v, i) => (
+            <div key={i} className="mb-1 flex items-center gap-1">
               <div className="flex-1">
-                <TextField value={v.name} onChange={(name) => patchVar(v.name, { name })} />
+                <CommitTextField
+                  value={v.name}
+                  onCommit={(draft) => {
+                    const problem = checkVariableName(doc, v.name, draft);
+                    if (problem) return VAR_NAME_HINTS[problem];
+                    renameVar(i, draft);
+                    return null;
+                  }}
+                />
               </div>
               <div className="w-24">
                 <SelectField
@@ -217,7 +244,7 @@ export function VariablesPanel(): JSX.Element {
                     { value: 'boolean', label: 'Ja/Nein' },
                   ]}
                   onChange={(t) =>
-                    patchVar(v.name, {
+                    patchVar(i, {
                       type: t as 'number',
                       initial: t === 'number' ? 0 : t === 'boolean' ? false : '',
                     })
@@ -226,9 +253,9 @@ export function VariablesPanel(): JSX.Element {
               </div>
               <div className="w-20">
                 {v.type === 'number' ? (
-                  <NumberField value={Number(v.initial)} onChange={(initial) => patchVar(v.name, { initial })} />
+                  <NumberField value={Number(v.initial)} onChange={(initial) => patchVar(i, { initial })} />
                 ) : (
-                  <TextField value={String(v.initial)} onChange={(initial) => patchVar(v.name, { initial })} />
+                  <TextField value={String(v.initial)} onChange={(initial) => patchVar(i, { initial })} />
                 )}
               </div>
               <span
@@ -237,7 +264,7 @@ export function VariablesPanel(): JSX.Element {
               >
                 {vars[v.name] !== undefined ? String(vars[v.name]) : '—'}
               </span>
-              <button className="rounded px-1 text-xs hover:bg-[var(--muted)]" onClick={() => removeVar(v.name)}>
+              <button className="rounded px-1 text-xs hover:bg-[var(--muted)]" onClick={() => removeVar(i)}>
                 ✕
               </button>
             </div>

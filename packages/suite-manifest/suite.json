@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-06T15:35:18.196Z",
+  "updatedAt": "2026-10-08T09:36:12.003Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -199,7 +199,7 @@
       "category": "Utilities",
       "appId": "gmbh.jakobs.presenter",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.10.0",
+      "latestVersion": "0.10.1",
       "platforms": {
         "mac": {
           "artifact": "JM Presenter-${version}-mac-${arch}.dmg",
@@ -451,7 +451,7 @@
       "category": "Grafik",
       "appId": "gmbh.jakobs.appdesigner",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.1.0",
+      "latestVersion": "0.1.1",
       "platforms": {
         "mac": {
           "artifact": "JM App Designer-${version}-mac-${arch}.dmg",
