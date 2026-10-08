@@ -1,7 +1,7 @@
 // Teilnehmerzeilen und Soll-Liste als reine Funktionen OHNE Electron (tsx): npm run selftest -w @jm/connect
 // Spec 4 (Normierter Name, Doppelname, Verwaiste Quelle), 5.4 (ZoomParticipant), 6.3 (Abgleich-Tabelle, Kollision).
 import type { Participant } from '@jm/zoom-bridge/protocol';
-import type { ZoomQuelle, ZoomZustand } from '../src/shared/types';
+import type { ZoomQuelle, ZoomSollEintrag, ZoomZustand } from '../src/shared/types';
 import { KT } from '../src/main/zoom/klartext';
 import { pruefeZugangEingabe } from '../src/main/zoom/zugang-eingabe';
 import { pruefeSdkSchluesselEingabe } from '../src/main/zoom/sdk-schluessel-eingabe';
@@ -418,15 +418,31 @@ console.log('— Owner 08.10.2026: Stand „wiederbeitritt“ (Connect selbst is
     abos: new Map([[16778299, { verwaist: true }], [16778245, { verwaist: false }]]),
   };
   const staende = (l: SollLage, plaetze?: number): string => JSON.stringify(sollAbbild(soll, l, plaetze).map((e) => [e.name, e.stand]));
-  const alleWarten = JSON.stringify(['Anna', 'Ben', 'Carla', 'Dora', 'Emil'].map((n) => [n, 'wiederbeitritt']));
+  // Ruling 08.10.2026: 'verwaist' behält Vorrang vor 'wiederbeitritt'. Ein verwaister Eintrag hat eine echte, schwarze
+  // NDI-Quelle (aboId), die der Bediener per „Entladen“ abbauen können muss; in Z10 leben Bridge und Quelle weiter.
+  const draussenErwartet = JSON.stringify([
+    ['Anna', 'wiederbeitritt'], ['Ben', 'wiederbeitritt'], ['Carla', 'wiederbeitritt'], ['Dora', 'wiederbeitritt'], ['Emil', 'verwaist'],
+  ]);
   const draussen: SollLage = { ...lage, ausserhalbMeeting: true };
-  ck('außerhalb des Meetings: jeder offene Eintrag → wiederbeitritt (statt wartet, doppelname, verwaist), nicht „wartet auf die Person“',
-    staende(draussen) === alleWarten);
-  ck('… Vorrang vor erlaubnis (auch wenn die Lage „Erlaubnis fehlt“ meldet)', staende({ ...draussen, erlaubnisFehlt: true }) === alleWarten);
-  ck('… Vorrang vor laedt (auch mit geplantem Abgleich)', staende({ ...draussen, abgleichGeplant: true }) === alleWarten);
-  ck('… Vorrang vor grenze (kein freier Platz)', staende(draussen, 0) === alleWarten);
-  ck('… ohne Abo zum Entladen und ohne Doppelname-Markierung: Teilnehmerliste und Abos gelten außerhalb des Meetings nicht',
-    sollAbbild(soll, draussen).every((e) => e.aboId === null && !e.doppelname));
+  ck('außerhalb des Meetings: jeder offene Eintrag → wiederbeitritt (statt wartet, doppelname), nicht „wartet auf die Person“; nur verwaist bleibt',
+    staende(draussen) === draussenErwartet);
+  ck('… Vorrang vor erlaubnis (auch wenn die Lage „Erlaubnis fehlt“ meldet)', staende({ ...draussen, erlaubnisFehlt: true }) === draussenErwartet);
+  ck('… Vorrang vor laedt (auch mit geplantem Abgleich)', staende({ ...draussen, abgleichGeplant: true }) === draussenErwartet);
+  ck('… Vorrang vor grenze (kein freier Platz)', staende(draussen, 0) === draussenErwartet);
+  ck('… wiederbeitritt ohne Abo zum Entladen und ohne Doppelname-Markierung',
+    sollAbbild(soll, draussen).filter((e) => e.stand === 'wiederbeitritt').every((e) => e.aboId === null && !e.doppelname));
+  const emil = (l: SollLage): ZoomSollEintrag | undefined => sollAbbild(soll, l).find((e) => e.name === 'Emil');
+  ck('nicht im Meeting + verwaist → „verwaist“ mit aboId (Knopf „Entladen“ bleibt), genau wie im Meeting',
+    emil(draussen)?.stand === 'verwaist' && emil(draussen)?.aboId === 16778299 && JSON.stringify(emil(draussen)) === JSON.stringify(emil(lage)));
+  {
+    // Verwaist und Name doppelt: auch außerhalb des Meetings rot mit Q11 und mit aboId, wie im Meeting.
+    const soll2: SollListe = new Map([['gerd', { name: 'Gerd', ton: false, ndiName: 'JM Connect – Zoom Gerd', aboId: 16778300 }]]);
+    const lage2: SollLage = { teilnehmer: [t(16778301, 'Gerd'), t(16778302, 'gerd')], abos: new Map([[16778300, { verwaist: true }]]) };
+    const g = sollAbbild(soll2, { ...lage2, ausserhalbMeeting: true });
+    ck('… auch mit Doppelname: verwaist, aboId, doppelname wie im Meeting',
+      g.length === 1 && g[0].stand === 'verwaist' && g[0].aboId === 16778300 && g[0].doppelname
+      && JSON.stringify(g) === JSON.stringify(sollAbbild(soll2, lage2)));
+  }
   ck('… Zählung unverändert: dieselben Einträge offen wie im Meeting, der verbundene (Fritz) bleibt draußen',
     JSON.stringify(sollAbbild(soll, draussen).map((e) => e.name)) === JSON.stringify(sollAbbild(soll, lage).map((e) => e.name))
     && sollAbbild(soll, draussen, 0).length === sollAbbild(soll, lage, 0).length && !sollAbbild(soll, draussen).some((e) => e.name === 'Fritz'));

@@ -35,7 +35,8 @@ export interface SollLage {
   abgleichGeplant?: boolean;
   /**
    * Connect selbst ist nicht im Meeting (Zustand ≠ im_meeting, siehe istAusserhalbMeeting): Teilnehmerliste und Abos gelten
-   * dann nicht, jeder offene Eintrag wartet auf den Wiederbeitritt (Owner 08.10.2026, Vorrang vor allen anderen Ständen).
+   * dann nicht, jeder offene Eintrag wartet auf den Wiederbeitritt (Owner 08.10.2026, Vorrang vor allen anderen Ständen außer
+   * 'verwaist': eine verwaiste Quelle lebt in Z10 schwarz weiter und bleibt entladbar, Ruling 08.10.2026).
    * Welche Einträge offen sind, ändert das nicht. Fehlt das Feld, gilt false (im Meeting).
    */
   ausserhalbMeeting?: boolean;
@@ -103,9 +104,10 @@ function plane(soll: SollListe, lage: SollLage, plaetze: number): Planung[] {
 
 /**
  * Offene Soll-Einträge fürs Abbild (Spec 6.3, Spalte „Stand“): alles außer „verbunden“.
- * Außerhalb des Meetings (lage.ausserhalbMeeting) → 'wiederbeitritt' vor allen anderen Regeln, ohne aboId und ohne
- * doppelname (Owner 08.10.2026). Sonst:
- * verwaist → 'verwaist' (mit aboId zum Entladen); würde abonniert, hat aber keinen Platz → 'grenze';
+ * verwaist → 'verwaist' (mit aboId zum Entladen), auch außerhalb des Meetings: Die schwarze Quelle lebt dort (Z10) weiter
+ * und muss sich abbauen lassen (Ruling 08.10.2026, Vorrang vor 'wiederbeitritt'). Sonst außerhalb des Meetings
+ * (lage.ausserhalbMeeting) → 'wiederbeitritt' vor allen übrigen Regeln, ohne aboId und ohne doppelname (Owner 08.10.2026).
+ * Im Meeting: würde abonniert, hat aber keinen Platz → 'grenze';
  * kein Abo und ≥ 2 Treffer → 'doppelname'; genau 1 Treffer außerhalb des Warteraums ohne Erlaubnis
  * (lage.erlaubnisFehlt) → 'erlaubnis'; wird beim geplanten Abgleich abonniert (lage.abgleichGeplant) → 'laedt';
  * sonst 'wartet'. `doppelname` = 2 oder mehr Treffer
@@ -115,8 +117,9 @@ export function sollAbbild(soll: SollListe, lage: SollLage, plaetze = Infinity):
   const aus: ZoomSollEintrag[] = [];
   for (const { b, handlung, grenze } of plane(soll, lage, plaetze)) {
     if (b.abo === 'verbunden') continue;
-    if (lage.ausserhalbMeeting === true) {
-      // Owner 08.10.2026 („Statuszeile lügt“): Ohne Meeting wartet jeder Eintrag auf den Wiederbeitritt, nicht auf die Person.
+    if (lage.ausserhalbMeeting === true && b.abo !== 'verwaist') {
+      // Owner 08.10.2026 („Statuszeile lügt“): Ohne Meeting wartet der Eintrag auf den Wiederbeitritt, nicht auf die Person.
+      // Ausnahme verwaist (Ruling 08.10.2026): Die schwarze Quelle lebt (Z10) und muss sich per „Entladen“ abbauen lassen.
       aus.push({ name: b.eintrag.name, ton: b.eintrag.ton, ndiName: b.eintrag.ndiName, stand: 'wiederbeitritt', aboId: null, doppelname: false });
       continue;
     }

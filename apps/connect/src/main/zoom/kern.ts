@@ -359,14 +359,17 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const abos = new Map<number, { verwaist: boolean }>();
     for (const q of aktiveQuellen().values()) abos.set(q.aboId, { verwaist: istVerwaist(q.aboId, ids, { state: q.bild, reason: q.bildGrund }) });
     // Review Focus 1: Ein gesendetes, noch unbestätigtes Abo gilt als verbunden; sonst abonnierte der Abgleich es ein zweites Mal.
-    for (const id of aboFristen.keys()) if (!abos.has(id)) abos.set(id, { verwaist: !ids.has(id) });
+    // Verwaist ist es nur in einer lebenden Sitzung (Ruling 08.10.2026): Baut die Bridge ab (Z11), gibt es keine schwarze Quelle
+    // zum Entladen; der Eintrag wartet dann über sollOffen auf den Wiederbeitritt, nicht „Person weg, Quelle schwarz“.
+    for (const id of aboFristen.keys()) if (!abos.has(id)) abos.set(id, { verwaist: s !== null && !ids.has(id) });
     return {
       teilnehmer: alle.filter((p) => !p.self).map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom })),
       abos,
       erlaubnisFehlt: erlaubnisFehlt(),
       // Das Fenster bis zum Abgleich (300 ms): Wen er abonnieren wird, der wird gerade geladen (Gesamtprüfung 4b).
       abgleichGeplant: abgleichTimer !== null && zustand === 'im_meeting' && erlaubnis === 'ja',
-      // Owner 08.10.2026: Ohne Meeting (Z10, Z11, fehler, „Erneut beitreten“) wartet jeder offene Eintrag auf den Wiederbeitritt.
+      // Owner 08.10.2026: Ohne Meeting (Z10, Z11, fehler, „Erneut beitreten“) wartet jeder offene Eintrag auf den Wiederbeitritt,
+      // außer einem verwaisten: dessen schwarze Quelle lebt in Z10 weiter und bleibt entladbar (Ruling 08.10.2026).
       ausserhalbMeeting: istAusserhalbMeeting(zustand),
     };
   }
@@ -392,7 +395,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       if (e) aus.push(e);
       else if (s.aboId !== null && aboFristen.has(s.aboId) && !laeuft.has(s.aboId)) {
         // Gesamtprüfung 4b („Statuszeile lügt“): Die Person ist da, Connect wartet auf die Bridge, nicht auf sie. Außerhalb des
-        // Meetings (Z10 mit offenem Abo) aber auf den Wiederbeitritt (Owner 08.10.2026, Vorrang wie in sollAbbild).
+        // Meetings (Z10 mit offenem Abo, Z11 während des Abbaus) aber auf den Wiederbeitritt (Owner 08.10.2026, wie in sollAbbild).
         const stand = lage.ausserhalbMeeting === true ? 'wiederbeitritt' : erlaubnisFehlt() ? 'erlaubnis' : 'laedt';
         aus.push({ name: s.name, ton: s.ton, ndiName: s.ndiName, stand, aboId: null, doppelname: false });
       }

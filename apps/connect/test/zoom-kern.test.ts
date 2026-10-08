@@ -3167,9 +3167,12 @@ console.log('— Fix-Welle: Ausnahme in der Startfolge eines Wiederbeitritts-Ver
 console.log('— Owner 08.10.2026: „Gemerkte Quellen“, solange Connect nicht im Meeting ist (Z10, Z11, fehler, „Erneut beitreten“)');
 /** Stände der gemerkten Quellen als „Name:Stand“, in der Reihenfolge der Soll-Liste. */
 const sollStaende = (a: ZoomAbbild): string => a.soll.map((e) => `${e.name}:${e.stand}`).join(',');
-/** Jedes ausgelieferte Abbild: außerhalb von im_meeting nur 'wiederbeitritt', in im_meeting nie (Owner-Regel, Vorrang). */
+/**
+ * Jedes ausgelieferte Abbild: außerhalb von im_meeting nur 'wiederbeitritt' (oder 'verwaist', Ruling 08.10.2026: die schwarze
+ * Quelle lebt weiter und muss sich entladen lassen), in im_meeting nie 'wiederbeitritt' (Owner-Regel).
+ */
 function wiederbeitrittNurDraussen(p: Probe): boolean {
-  return p.abbilder.every((a) => a.soll.every((e) => (e.stand === 'wiederbeitritt') === (a.kurz.zustand !== 'im_meeting')));
+  return p.abbilder.every((a) => a.soll.every((e) => (e.stand === 'wiederbeitritt') === (a.kurz.zustand !== 'im_meeting' && e.stand !== 'verwaist')));
 }
 {
   const p = baueKern({
@@ -3237,6 +3240,53 @@ function wiederbeitrittNurDraussen(p: Probe): boolean {
   ck('… mit subscribed verbunden, keine gemerkte Quelle offen, kein zweites videoSubscribe',
     (await bis(() => p.kern.kurz().quellen === 1, 4000)) && p.kern.abbild().soll.length === 0
     && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1 && wiederbeitrittNurDraussen(p));
+  await p.aufraeumen();
+}
+{
+  // Ruling 08.10.2026: 'verwaist' behält Vorrang vor 'wiederbeitritt'. Anna geht (ihr Abo bleibt schwarz, sie kommt im Test
+  // nicht zurück), danach verbindet Zoom neu (Z10): Bridge und schwarze Quelle leben weiter, „Entladen“ muss bleiben.
+  const p = baueKern({
+    stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '60000', FAKE_VERBINDUNG_HAENGT_MS: '1400', FAKE_VERBINDUNG_ZURUECK_MS: '3000' }),
+    fristen: { joinTimeoutMs: 20_000, abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Z10 mit verwaister Quelle: Anna geladen und gegangen, „Anna — Person weg, Quelle schwarz“',
+    (await bis(() => p.kern.kurz().quellen === 1)) && (await bis(() => p.kern.abbild().soll[0]?.stand === 'verwaist', 2000)));
+  ck('… Zoom verbindet neu (Z10): weiter „verwaist“ mit aboId (Knopf „Entladen“), nicht „wartet auf den Wiederbeitritt“; sollOffen 1, zoom_alarm=1',
+    (await bis(() => p.kern.kurz().zustand === 'abriss', 3000)) && zoomZ(p.kern.kurz()) === 'Z10'
+    && sollStaende(p.kern.abbild()) === 'Anna:verwaist' && p.kern.abbild().soll[0]?.aboId === ANNA
+    && sollZeile(p.kern.abbild().soll[0]) === 'Anna — Person weg, Quelle schwarz' && p.kern.kurz().sollOffen === 1
+    && p.kern.stateKv()?.zoom_alarm === 1);
+  const aboId = p.kern.abbild().soll[0]?.aboId ?? -1;
+  // zoom_alarm bleibt in Z10 ohnehin 1 (Spec 7.5); gezählt wird an sollOffen.
+  ck('… „Entladen“ in Z10 wirkt: videoUnsubscribe an die lebende Bridge, keine gemerkte Quelle mehr (sollOffen 0)',
+    ok(await p.kern.entladen({ aboId })) && (await bis(() => cmds(p, 1).includes('videoUnsubscribe'), 2000))
+    && p.kern.abbild().soll.length === 0 && p.kern.kurz().sollOffen === 0 && zoomZ(p.kern.kurz()) === 'Z10');
+  ck('… jedes Abbild: außerhalb von im_meeting nur „verwaist“ oder „wartet auf den Wiederbeitritt“, in Z10 „verwaist“',
+    wiederbeitrittNurDraussen(p) && p.abbilder.some((a) => a.kurz.zustand === 'abriss' && sollStaende(a) === 'Anna:verwaist'));
+  await p.aufraeumen();
+}
+{
+  // Gegenprobe zum Ruling: Ein gesendetes, unbestätigtes Abo, dann reißt die Verbindung ab (Z11, die Bridge baut ab). Da gibt
+  // es keine lebende schwarze Quelle zum Entladen: Anna wartet auf den Wiederbeitritt, nie „Person weg, Quelle schwarz“.
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_ABO_VERZOEGERUNG_MS: '3000', FAKE_VERBINDUNG_WEG_MS: '600' } : {}),
+    wiederbeitrittPlanMs: [800, 30, 30, 30, 30],
+    fristen: { aboAntwortMs: 6000, abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  ck('Offenes Abo, dann Z11: „Anna — wird geladen …“ vor dem Abriss', ok(await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false }))
+    && sollStaende(p.kern.abbild()) === 'Anna:laedt');
+  const zurueck = await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 1, 6000);
+  const gegenprobe = zurueck && p.abbilder.some((a) => a.kurz.zustand === 'abriss' && sollStaende(a) === 'Anna:wiederbeitritt')
+    && !p.abbilder.some((a) => a.soll.some((e) => e.stand === 'verwaist')) && wiederbeitrittNurDraussen(p);
+  if (!gegenprobe) {
+    const z: string[] = [];
+    for (const a of p.abbilder) { const s = `${zoomZ(a.kurz)} ${sollStaende(a) || '-'}`; if (z.at(-1) !== s) z.push(s); }
+    console.log(`     (Stand: zurück=${zurueck}, Folge der Abbilder: ${z.join(' > ')})`);
+  }
+  ck('… in Z11 „Anna — wartet auf den Wiederbeitritt“, in keinem Abbild „verwaist“; danach wieder verbunden', gegenprobe);
   await p.aufraeumen();
 }
 

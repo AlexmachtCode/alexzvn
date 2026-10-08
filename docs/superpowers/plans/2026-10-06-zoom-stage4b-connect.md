@@ -305,7 +305,7 @@ Neu (Plan-Vorschlag, Owner prüft):
 | Gemerkte Quelle, Stand `grenze` | „{Name} — nicht automatisch geladen (mehr als 5 Zoom-Quellen), bitte von Hand laden“ |
 | Gemerkte Quelle, Stand `erlaubnis` (Owner 08.10.2026) | „{Name} — wartet auf die Aufnahme-Erlaubnis“ |
 | Gemerkte Quelle, Stand `laedt` (Owner 08.10.2026) | „{Name} — wird geladen …“ |
-| Gemerkte Quelle, Stand `wiederbeitritt` (Owner 08.10.2026; Connect nicht im Meeting, Vorrang vor allen anderen Ständen) | „{Name} — wartet auf den Wiederbeitritt“ |
+| Gemerkte Quelle, Stand `wiederbeitritt` (Owner 08.10.2026; Connect nicht im Meeting, Vorrang vor allen anderen Ständen außer `verwaist`) | „{Name} — wartet auf den Wiederbeitritt“ |
 | Versatz nur Sitzung (Antwort und Karte) | `TEXT_A4_SCHREIBFEHLER` = „Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.“ (vorhanden, `zoom-text.ts:16`) |
 | Bild der Quelle (`bildText`) | `subscribed` „Bild: erstes Bild steht aus“ · `live` „Bild läuft“ · `black`+`cameraOff` „Bild schwarz: Kamera aus“ · `black`+`participantLeft` „Bild schwarz: Person weg“ · `black`+`bufferMismatch` „Bild schwarz: fehlerhafte Bilder“ · `black`+jeder andere Grund „Bild schwarz: kein Bild von Zoom“ |
 | Ton der Quelle (`tonText`) | `'aus'` „ohne Ton“ · `waiting` „Ton: wartet auf das erste Paket“ · `live` „Ton läuft“ · `silent` „Ton: Stille“ · `off`+`audioUnavailable` „Ton nicht verfügbar“ · `off`+`participantLeft` „Ton aus: Person weg“ · `off` sonst „Ton aus“ |

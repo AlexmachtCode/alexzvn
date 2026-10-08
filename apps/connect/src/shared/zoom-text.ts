@@ -450,7 +450,7 @@ const SOLL_STAND: Record<ZoomSollEintrag['stand'], string> = {
   // Gesamtprüfung 4b („Statuszeile lügt“): Die Person ist da. Texte vom Owner freigegeben 08.10.2026.
   erlaubnis: 'wartet auf die Aufnahme-Erlaubnis',
   laedt: 'wird geladen …',
-  // Connect selbst ist nicht im Meeting (Z10, Z11, fehler, „Erneut beitreten“); Vorrang vor allen anderen Ständen.
+  // Connect selbst ist nicht im Meeting (Z10, Z11, fehler, „Erneut beitreten“); Vorrang vor allen Ständen außer verwaist.
   wiederbeitritt: 'wartet auf den Wiederbeitritt',
   doppelname: 'Name doppelt, bitte von Hand laden',
   verwaist: 'Person weg, Quelle schwarz',
