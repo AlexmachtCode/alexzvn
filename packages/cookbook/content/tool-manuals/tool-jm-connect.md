@@ -65,7 +65,7 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 ### Logs und Datenschutz
 - JM Connect schreibt Meeting-Nummer und Kenncode nie auf die Platte, nie ins Log und nie in den Companion-Status. Nach einem Neustart von Connect müssen sie neu eingegeben werden.
 - Das Log nennt Zoom-Teilnehmer und Browser-Gäste nur mit ihrer Kennung, nie mit dem Anzeigenamen. Karte und NDI-Namen zeigen die Namen weiter.
-- Alle Suite-Apps löschen Logzeilen, die älter als 14 Tage sind, beim Start und danach alle 6 Stunden, jeweils ab ihrem nächsten Release.
+- Alle Suite-Apps löschen Logzeilen, die älter als 14 Tage sind, 30 Sekunden nach dem Start und danach alle 6 Stunden, jeweils ab ihrem nächsten Release. Ein zweiter Start einer schon laufenden App räumt nicht auf.
 - Den Logordner öffnet der Knopf „Logordner öffnen“ in der Zoom-Karte.
 
 ### Deinstallieren
@@ -91,7 +91,7 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 - Name doppelt im Meeting: Connect markiert beide Zeilen rot. Von Hand laden; die zweite Quelle heißt „JM Connect – Zoom <Name> (2)“.
 - Verbindung weg: Erst versucht Zoom selbst, neu zu verbinden („Verbindung unterbrochen …“). Gelingt das nicht, tritt Connect mit bis zu 5 Versuchen neu bei (nach 2, 5, 10, 20 und 30 s, mit Countdown in der Karte). „Abbrechen“ beendet die Versuche, „Erneut beitreten“ startet später mit denselben Daten.
 - Nach dem Wiederbeitritt muss der Host gegebenenfalls wieder zulassen und die Aufnahme-Erlaubnis erteilen. Dann lädt Connect alle gemerkten Quellen mit eindeutigem Namen von selbst, mit derselben Ton-Einstellung und demselben NDI-Namen.
-- Gemerkte Quellen: Wer geladen war und gerade fehlt, steht unter „Gemerkte Quellen“ (wartet auf die Person, Name doppelt, Person weg, oder über 5 Quellen nicht automatisch geladen). „Vergessen“ nimmt einen Eintrag heraus. Solange Einträge fehlen, steht zoom_alarm auf 1.
+- Gemerkte Quellen: Wer geladen war und gerade fehlt, steht unter „Gemerkte Quellen“ (wartet auf die Person, wartet auf die Aufnahme-Erlaubnis, wird geladen, Name doppelt, Person weg, oder über 5 Quellen nicht automatisch geladen). „Vergessen“ nimmt einen Eintrag heraus. Solange Einträge fehlen, steht zoom_alarm auf 1.
 - Entzieht der Host die Aufnahme-Erlaubnis, stoppt Connect sofort Bild und Ton aller Zoom-Quellen. Erteilt er sie wieder, lädt Connect die gemerkten Quellen von selbst, höchstens 5.
 - Companion: ZOOM_LOAD, ZOOM_UNLOAD und ZOOM_DELAY wirken wie die Knöpfe der Karte. Leuchtet „letzter Zoom-Befehl abgelehnt“, steht der Grund unter „Hinweise“ in der Karte.
 
@@ -155,10 +155,13 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 | „NDI-Name doppelt: Ein Browser-Gast und diese Zoom-Person senden beide als …“ | Ein Browser-Gast heißt wie eine Zoom-Quelle. Einen der beiden umbenennen. |
 | „Name doppelt im Meeting …“ | Zwei Personen tragen denselben Anzeigenamen. Nach einem Wiederbeitritt lädt Connect sie nicht von selbst; von Hand laden oder die Personen umbenennen lassen. |
 | „… nicht automatisch geladen (mehr als 5 Zoom-Quellen), bitte von Hand laden“ | Die gemerkte Quelle liegt über der Betriebsgröße 5. In der Teilnehmerliste von Hand laden (zweiter Klick nach der Warnung) oder vergessen. |
+| „… — wartet auf die Aufnahme-Erlaubnis“ (unter „Gemerkte Quellen“) | Die Person ist im Meeting, aber der Host hat die Aufnahme-Erlaubnis entzogen oder nach einem Wiederbeitritt noch nicht neu erteilt. Erteilen lassen; Connect lädt die Quelle dann von selbst. |
+| „… — wird geladen …“ (unter „Gemerkte Quellen“) | Connect hat die Quelle bei der Zoom-Bridge angefordert und wartet auf die Bestätigung. Kommt sie nicht binnen 10 s, steht an der Zeile „Keine Antwort der Zoom-Bridge auf „Als Quelle laden“.“ |
 | „Verbindung unterbrochen. Zoom versucht selbst, neu zu verbinden …“ | Das Netz war kurz weg. Abwarten: Zoom verbindet selbst, die Quellen laufen danach weiter. |
 | „Verbindung zum Meeting verloren. Wiederbeitritt … von 5 …“ | Connect tritt selbst neu bei. Netz prüfen; „Abbrechen“ beendet die Versuche. |
 | „Wiederbeitritt gescheitert (…). „Erneut beitreten“ versucht es noch einmal.“ | Alle 5 Versuche sind gescheitert, der letzte Grund steht in Klammern. Netz prüfen, dann „Erneut beitreten“. |
 | „Wiederbeitritt abgebrochen.“ | „Abbrechen“ wurde gedrückt. „Erneut beitreten“ startet neu; die gemerkten Quellen bleiben. |
+| „Wiederbeitritt abgebrochen: …“ | Ein Versuch ist endgültig gescheitert, der Grund steht dahinter (zum Beispiel abgelehnte Zugangsdaten oder ein Fehler beim Start der Zoom-Bridge). Den Grund beheben, dann „Erneut beitreten“; die gemerkten Quellen bleiben. Details im Log. |
 | „Meeting beendet: …“ | Der Host hat das Meeting beendet. „Erneut beitreten“, sobald er es neu startet, sonst „Schließen“. |
 | „Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.“ (unter dem Versatz) | connect-settings.json ist schreibgeschützt oder gesperrt. Der Versatz gilt bis zum Beenden von Connect. Schreibrechte im Ordner %APPDATA%\JM Connect prüfen. |
 | Companion-Taste „letzter Zoom-Befehl abgelehnt“ leuchtet | Der Grund steht unter „Hinweise“ in der Zoom-Karte, zum Beispiel „Companion: niemand namens … im Meeting.“ Namen prüfen und die Taste erneut drücken. |
