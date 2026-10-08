@@ -882,13 +882,17 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
   ausschließlich über das **Pro-Teilnehmer-Abo**
   (`IZoomSDKRenderer::subscribe`, Abschnitt 7), nie über einen Meeting-weiten
   Mitschnitt.
-- **Keine Anbindung an `apps/connect`.** Aufrufer sind `test/join.mjs`/
-  `test/video-limit.mjs` und — seit dem Einsatzpaket (Abschnitt 10) — die
-  Konsolen-Start-EXE `zoom-join.exe` mit Start-Skript. Kein UI.
+- **Keine eigene Oberfläche.** Die Bedienung liegt in **JM Connect** (ab 0.2.0,
+  Spec `docs/superpowers/specs/2026-10-02-zoom-stage4-connect-design.md`):
+  Connect startet die Bridge über die Klasse `Bridge` (`src/bridge.ts`) aus
+  seinem Laufzeit-Ordner. Weitere Aufrufer sind `test/join.mjs`/
+  `test/video-limit.mjs` und die Konsolen-Start-EXE `zoom-join.exe` des
+  Einsatzpakets (Abschnitt 10).
 - **Kein Wiederbeitritt der Bridge selbst.** Bricht die Verbindung ab, endet die
-  Bridge; sie verbindet sich nicht von selbst neu. (Ein **einzelnes Video-Abo**
-  überlebt dagegen einen Wiederbeitritt **desselben Teilnehmers** — siehe
-  Abschnitt 7.)
+  Bridge; sie verbindet sich nicht von selbst neu. Den Wiederbeitritt übernimmt
+  JM Connect ab 0.3.0 mit einem **neuen** Bridge-Prozess (Spec Stage 4,
+  Abschnitt 6.4). (Ein **einzelnes Video-Abo** überlebt dagegen einen
+  Wiederbeitritt **desselben Teilnehmers** — siehe Abschnitt 7.)
 - **Kein Bündeln der Zoom-/NDI-DLLs — außer im Einsatzpaket.** Im Repo müssen
   beide zur Laufzeit im `PATH` stehen, und sie kommen aus **verschiedenen
   Händen**: `%ZOOM_SDK_DIR%\x64\bin` setzt der Aufrufer (`test/join.mjs`,
@@ -896,12 +900,16 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
   selbst), das Verzeichnis der **NDI-Laufzeit** setzt `Bridge.start()` selbst
   (`src/ndi-path.ts`) — dort, weil kein Aufrufer es vergessen darf. Das
   Einsatzpaket (Abschnitt 10) legt die NDI-Laufzeit neben `zoom-bridge.exe`;
-  die Zoom-DLLs liegen nur im **privaten** Komplett-Paket bei. Die
-  Weitergabe-Lizenz der Zoom-DLLs ist weiterhin **ungeklärt** (Stage 4).
+  die Zoom-DLLs liegen nur im **privaten** Komplett-Paket bei. JM Connect
+  verteilt die Zoom-DLLs **nicht** (Owner-Entscheid E2, Spec Stage 4): Der
+  Installer bringt nur `zoom-bridge.exe` samt VC-Laufzeit mit. Die Zoom-DLLs
+  richtet der Bediener einmal je PC ein (SDK-Ordner aus der JM-Ablage oder
+  „Zoom-SDK laden“ auf JM-eigenen Rechnern), und Connect kopiert sie in
+  seinen Laufzeit-Ordner `%LOCALAPPDATA%\JM Connect\zoom-laufzeit\`.
 
 Die vier Ton-Punkte oben sind **ausdrücklich nicht** vorgesehen (Spec Abschnitt 10),
-keine spätere Stage — der Rest ist Stage 4 (`docs/roadmap.md`): Integration +
-Release.
+keine spätere Stage. Die Einbindung in JM Connect (Stage 4, `docs/roadmap.md`)
+ist mit Connect 0.2.0 bis 0.3.0 umgesetzt.
 
 ## 10 · Einsatzpaket (Release)
 

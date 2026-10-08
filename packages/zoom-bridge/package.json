@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Zoom-Meeting-SDK-Bruecke (natives Windows-Sidecar) fuer JM Connect — Stage 1+2: Beitritt, Teilnehmer, Aufnahme-Erlaubnis, Video je Teilnehmer als NDI-Quelle",
+  "description": "Zoom-Meeting-SDK-Bruecke (natives Windows-Sidecar) fuer JM Connect: Beitritt, Teilnehmer, Aufnahme-Erlaubnis, Bild und Ton je Teilnehmer als NDI-Quelle, Bild-Versatz; in JM Connect eingebunden ab 0.2.0 (Stage 4)",
   "exports": {
     ".": "./src/index.ts",
     "./protocol": "./src/protocol.ts",
