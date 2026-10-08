@@ -61,6 +61,7 @@ import {
   istEndgueltig,
   mangelText,
   maskiere,
+  maskiereNamen,
   quellenFehler,
   spawnMeldung,
   tonZustand,
@@ -291,6 +292,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   const zeilenFehler = new Map<number, string>();
   const tonAngefragt = new Map<number, boolean>();
   const aboFristen = new Map<number, ReturnType<typeof setTimeout>>();
+  /** L11: Anzeigenamen fremder Teilnehmer, die der Kern in dieser Programmsitzung gesehen hat; nur im Arbeitsspeicher. */
+  const gesehenNamen = new Set<string>();
 
   // ── Soll-Abgleich (Spec 6.3) ─────────────────────────────────────────────
   let abgleichTimer: ReturnType<typeof setTimeout> | null = null;
@@ -441,10 +444,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     d.log(`[zoom] Meldung (${art}): ${m.text}${m.detail ? ` [${m.detail}]` : ''}`);
   }
 
-  function hinweis(text: string): void {
+  /** Das Abbild bekommt `text`, das Log `logText` (N4b.2: dort nie ein Teilnehmername). */
+  function hinweis(text: string, logText = text): void {
     hinweise.push(text);
     while (hinweise.length > HINWEISE_MAX) hinweise.shift();
-    d.log(`[zoom] Hinweis: ${text}`);
+    d.log(`[zoom] Hinweis: ${logText}`);
   }
 
   // ── Einrichtung (Spec 5.3, 6.1) ──────────────────────────────────────────
@@ -801,7 +805,20 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function beiLog(zeile: string): void {
-    d.log(`[zoom-bridge] ${maskiere(zeile, geheimnisse())}`);
+    // N4b.2, L11: erst die Namen der Teilnehmer (‹Name›), dann Nummer, Kenncode und JWT (•••).
+    d.log(`[zoom-bridge] ${maskiere(maskiereNamen(zeile, [...gesehenNamen]), geheimnisse())}`);
+  }
+
+  /** L11: Namen aus roster, joined und renamed merken (jede Generation), die eigene Zeile nicht. */
+  function namenMerken(ev: BridgeEvent): void {
+    const e = ev as unknown as { list?: Array<{ name: string; self: boolean }>; p?: { name: string; self: boolean }; name?: unknown };
+    if (ev.ev === 'roster') {
+      for (const t of e.list ?? []) if (!t.self) gesehenNamen.add(t.name);
+    } else if (ev.ev === 'joined') {
+      if (e.p && !e.p.self) gesehenNamen.add(e.p.name);
+    } else if (ev.ev === 'renamed') {
+      if (typeof e.name === 'string') gesehenNamen.add(e.name);
+    }
   }
 
   /** Sendet an die aktive Bridge (nicht im Abbau). Nie den Inhalt loggen: join trägt Nummer und Kenncode. */
@@ -1005,6 +1022,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function beiEreignis(gen: number, ev: BridgeEvent): void {
+    namenMerken(ev);
     const aktiv = gen === aktiveGen && !imAbbau.has(gen);
     if (ev.ev === 'error') {
       const e = ev as unknown as FehlerEreignis;
@@ -1448,9 +1466,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const id = typeof e.id === 'number' ? e.id : null;
     if (id !== null) aboBeantwortet(id);
     const person = id !== null ? (aktiveSitzung()?.participants.get(id)?.name ?? null) : null;
-    const einordnung = quellenFehler(String(e.code), e.name ?? String(e.code), person, e.dropped);
+    const einordnung = quellenFehler(String(e.code), e.name ?? String(e.code), person, e.dropped, id ?? undefined);
     if (einordnung.art === 'keine') return;
-    if (einordnung.art === 'hinweis' || id === null) {
+    // N4b.2: Q16/Q17 zeigen den Namen unter „Hinweise“, das Log nennt nur die Kennung (logText).
+    if (einordnung.art === 'hinweis') {
+      hinweis(einordnung.text, einordnung.logText);
+      return;
+    }
+    if (id === null) {
       hinweis(einordnung.text);
       return;
     }
@@ -1634,6 +1657,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       soll.clear();
       nummer = null;
       kenncode = null;
+      gesehenNamen.clear();
       abbildGeaendert();
     })();
     return beendenVersprechen;

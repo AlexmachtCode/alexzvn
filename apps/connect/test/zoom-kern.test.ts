@@ -3,7 +3,7 @@
 // Spec 12.2; die Fernsteuer-Fälle (22, Fernsteuer-Teile von 13 und 21) kommen mit Aufgabe 13 (4b).
 // Laufzeit, Zugangsdaten und Einstellungen sind Attrappen; die Bridge-Fabrik setzt FAKE_SDK_FASSUNG
 // IMMER auf '7.1.5 (43953)' — die Prüfung im Kern bleibt exakt (G1), nur Fall 7 überschreibt den Wert.
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,7 @@ import {
   type ZugangDaten,
   type ZugangStand,
 } from '../src/main/zoom/kern';
-import { failText, KT, VORSATZ } from '../src/main/zoom/klartext';
+import { failText, KT, quellenFehler, VORSATZ } from '../src/main/zoom/klartext';
 import {
   BRIDGE_EXE,
   laufzeitOrdner,
@@ -2832,6 +2832,77 @@ console.log('— Randfälle 0.3.0: Versatz nur Sitzung (Nr. 4), Ton aus dem Soll
   await p.kern.laden({ id: BEN, ton: true, trotzBetriebsgroesse: false });
   ck('… beide geladen: die Quelle der zweiten heißt „… Anna (2)“', await bis(() => zeile(p, BEN)?.quelle?.ndiName === 'JM Connect – Zoom Anna (2)'));
   await p.aufraeumen();
+}
+
+// ── Aufgabe 12 (4b): Logzeilen ohne Teilnehmernamen (N4b.2, L11) ─────────────
+/** N4b.2: true, wenn keine Logzeile einen dieser Namen als ganzes Wort enthält (ohne Groß-/Kleinschreibung). */
+function keinTeilnehmernameImLog(p: Probe, namen: readonly string[]): boolean {
+  return !p.logs.some((z) => namen.some((n) => new RegExp(`(?<![\\p{L}\\p{N}])${n}(?![\\p{L}\\p{N}])`, 'iu').test(z)));
+}
+/** Die Namen der Attrappe (fake-bridge.mjs, Drehbuch steuerung). */
+const ATTRAPPEN_NAMEN = ['Anna', 'Ben', 'Carla', 'Dora', 'Emil', 'Frieda'];
+
+console.log('— Logzeilen ohne Teilnehmernamen (N4b.2, L11)');
+{
+  const p = baueKern({ stell: () => ({ FAKE_NAMENSZEILE: '1' }) });
+  await insMeeting(p);
+  ck('Namensprobe der Bridge erscheint maskiert: „Namensprobe: ‹Name›, ‹Name›“',
+    await bis(() => p.logs.includes('[zoom-bridge] Namensprobe: ‹Name›, ‹Name›'), 2000));
+  ck('… keine Logzeile nennt einen Teilnehmernamen', keinTeilnehmernameImLog(p, ATTRAPPEN_NAMEN));
+  ck('… der eigene Anzeigename bleibt im Log', p.logs.includes('[zoom] Beitritt gestartet (Anzeigename „JM Connect“)'));
+  ck('… Karte und Abbild behalten die Namen', zeile(p, ANNA)?.name === 'Anna' && zeile(p, BEN)?.name === 'Ben');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_PUFFERFEHLER_MS: '200' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Q16/Q17: beide Hinweise mit dem Namen im Abbild', await bis(() => p.kern.abbild().hinweise.length === 2, 2000)
+    && p.kern.abbild().hinweise.includes(KT.Q16('Anna')) && p.kern.abbild().hinweise.includes(KT.Q17('Anna')));
+  const q16 = quellenFehler('videoBufferMismatch', 'VIDEO_BUFFER_MISMATCH', 'Anna', undefined, ANNA);
+  const q17 = quellenFehler('audioBufferMismatch', 'AUDIO_BUFFER_MISMATCH', 'Anna', undefined, ANNA);
+  ck('… im Log mit der Kennung statt des Namens', q16.art === 'hinweis' && q17.art === 'hinweis'
+    && p.logs.includes(`[zoom] Hinweis: ${q16.logText}`) && p.logs.includes(`[zoom] Hinweis: ${q17.logText}`)
+    && keinTeilnehmernameImLog(p, ATTRAPPEN_NAMEN));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '200', FAKE_RUECKKEHR_NAME: 'anna', FAKE_NAMENSZEILE: '1' }) });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  ck('Teilnehmer-Rückkehr („anna“ wird neu geladen): kein Name im Log',
+    await bis(() => p.befehle(1).some((c) => c.cmd === 'videoSubscribe' && c.id === 16778250), 3000)
+    && keinTeilnehmernameImLog(p, [...ATTRAPPEN_NAMEN, 'anna']));
+  await p.aufraeumen();
+}
+{
+  const DORA = 16778243;
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1
+      ? { FAKE_VERBINDUNG_WEG_MS: '800', FAKE_TEILNEHMER: '4', FAKE_NAMENSZEILE: '1' }
+      : { FAKE_DOPPELNAME: '1', FAKE_TEILNEHMER: '4', FAKE_NAMENSZEILE: '1' }),
+  });
+  await insMeeting(p);
+  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: CARLA, ton: false, trotzBetriebsgroesse: false });
+  await p.kern.laden({ id: DORA, ton: true, trotzBetriebsgroesse: false });
+  ck('Wiederbeitritt (Aufbau Fall 15): R5 erscheint', await bis(() => p.kern.abbild().hinweise.includes(KT.R5(2, 1)), 6000));
+  ck('… kein Teilnehmername im Log, auch nicht aus der zweiten Bridge', p.logs.some((z) => z.startsWith('[zoom-bridge] Namensprobe: ‹Name›, ‹Name›, ‹Name›, ‹Name›'))
+    && keinTeilnehmernameImLog(p, ATTRAPPEN_NAMEN));
+  await p.aufraeumen();
+}
+{
+  // Die Utility-Prozesse (NDI-Gast-Sender, Programm-Empfänger) schreiben über ndi-guests.ts bzw. ndi-program.ts ins main.log.
+  // Sie laden @jm/ndi und process.parentPort und lassen sich hier nicht ausführen: Geprüft wird ihr Quelltext.
+  const utility = new URL('../src/utility/', import.meta.url);
+  const logZeilen = readdirSync(utility).filter((n) => n.endsWith('.ts')).flatMap((n) => readFileSync(new URL(n, utility), 'utf8')
+    .split(/\r?\n/).filter((z) => /console\.(log|warn|error)\(/.test(z)).map((z) => `${n}: ${z.trim()}`));
+  const verdaechtig = logZeilen.filter((z) => /\bd\.name\b|\blabel\b|\bseen\b|\[\.\.\./.test(z));
+  ck('Quelltext-Wächter (N4b.2): keine Logzeile der Utility-Prozesse nennt einen Sender- oder Quellnamen', logZeilen.length > 10 && verdaechtig.length === 0);
+  if (verdaechtig.length > 0) console.log(`      Treffer: ${verdaechtig.join(' / ')}`);
+  const empfaenger = readFileSync(new URL('ndi-program-receiver.ts', utility), 'utf8');
+  ck('… der Programm-Empfänger lässt Quellen von JM Connect aus seiner Diagnose (nur die Anzahl)',
+    empfaenger.includes(".filter((s) => !s.includes('JM Connect – '))"));
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

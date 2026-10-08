@@ -75,13 +75,17 @@ function resolveSource(nameHint: string): string | null {
       return hit;
     }
   }
-  // Diagnose: ALLE gesehenen NDI-Quellnamen ausgeben (damit ein Namens-Mismatch sichtbar wird).
-  const list = [...seen].sort().join(' | ') || '(keine)';
+  // Diagnose: die gesehenen NDI-Quellnamen ausgeben (damit ein Namens-Mismatch sichtbar wird), aber nur fremde. Quellen
+  // von JM Connect („… (JM Connect – Zoom <Name>)“, „… (JM Connect – <Gast>)“) tragen Teilnehmer- und Gastnamen und
+  // sind nie die Programmquelle: von ihnen steht nur die Anzahl im Log (Spec Zoom Stage 4, N4b.2).
+  const fremde = [...seen].filter((s) => !s.includes('JM Connect – ')).sort();
+  const eigene = seen.size - fremde.length;
+  const anzeige = `${fremde.join(' | ') || '(keine)'}${eigene > 0 ? ` (dazu ${eigene} von JM Connect, ohne Namen)` : ''}`;
   const now = Date.now();
-  if (list !== lastMissSeen || now - lastMissAt >= MISS_LOG_GAP_MS) {
-    lastMissSeen = list;
+  if (anzeige !== lastMissSeen || now - lastMissAt >= MISS_LOG_GAP_MS) {
+    lastMissSeen = anzeige;
     lastMissAt = now;
-    console.log(`[ndi-program-receiver] Hinweis „${nameHint}" nicht gefunden. Gesehene NDI-Quellen:`, list);
+    console.log(`[ndi-program-receiver] Hinweis „${nameHint}" nicht gefunden. Gesehene NDI-Quellen:`, anzeige);
   }
   return null;
 }

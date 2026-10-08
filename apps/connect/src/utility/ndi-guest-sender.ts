@@ -56,7 +56,8 @@ process.parentPort.on('message', (e) => {
       ndi.init();
       ndi.createSender(d.name);
       started = true;
-      console.log('[ndi-guest-sender] NDI-Sender aktiv:', d.name);
+      // N4b.2: Der Sendername trägt den Gastnamen. Die Kennung steht schon im Präfix, das ndi-guests.ts voranstellt.
+      console.log('[ndi-guest-sender] NDI-Sender aktiv.');
       startWatchdog();
     } catch (err) {
       started = false;
