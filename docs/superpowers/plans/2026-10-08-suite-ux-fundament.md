@@ -17474,6 +17474,10 @@ spätestens vor Task 16 (davon hängen Tasks 17–22 ab):
    solange der Eingang offen ist“, weil `Field` jedem Grund „Gesperrt: “ voranstellt (Task 20, „Abweichungen“). Der
    Interpreter-Satz aus Spec 6.2 passt nicht zum Code (E17); geklärt wird er in Welle 2.
 
+**Entschieden (Owner, 08.10.2026):** E24 zugestimmt, E25 zugestimmt, der Text aus E27 „Noch nicht übernommen.“ freigegeben;
+E1–E4, die Kontrast-Befunde, die Ausnahme aus E23 und der Sperrtext mit Doppelpunkt sind zur Kenntnis genommen. Umsetzung
+per Workflow (subagent-driven), Start nach dem Neustart des Rechners am 08.10.2026.
+
 ## Nach der Umsetzung (nur Controller und Owner)
 
 Dieser Abschnitt beschreibt, was nach Task 25 geschieht. Er ist keine Aufgabe für ausführende Agenten.
