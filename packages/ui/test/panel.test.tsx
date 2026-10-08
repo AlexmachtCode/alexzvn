@@ -85,6 +85,7 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
     attr(tag, 'id') === 'einstellung-ndi' && attr(tag, 'data-section-id') === 'ndi' && attr(tag, 'data-hervorgehoben') === 'false',
     'PanelAnker ohne Panel: id einstellung-<id>, nicht hervorgehoben',
   );
+  ok(attr(tag, 'tabindex') === '-1', 'PanelAnker: tabIndex -1 (Fokusziel des Sprungs)');
   function Zeige(): React.JSX.Element {
     return <span>{useSettingsPanel().hervorgehoben ?? '-'}</span>;
   }
@@ -117,10 +118,11 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
   gleich(protokoll, ['stop', 'prevent', 'zu'], 'panelTaste Escape → stopPropagation, preventDefault, onClose');
   protokoll.length = 0;
   panelTaste(taste('Enter'), zu);
-  panelTaste(taste('a'), zu);
-  gleich(protokoll, [], 'panelTaste andere Taste → nichts');
+  panelTaste(taste(' '), zu);
+  gleich(protokoll, ['stop', 'stop'], 'panelTaste andere Taste → nur stopPropagation (Leertaste/Pfeile erreichen die Tool-Kürzel nicht), schließt nicht');
+  protokoll.length = 0;
   panelTaste(taste('Escape', true), zu);
-  gleich(protokoll, [], 'panelTaste defaultPrevented → nichts (Escape gehört schon jemand anderem)');
+  gleich(protokoll, ['stop'], 'panelTaste defaultPrevented → nur stopPropagation (Escape gehört schon jemand anderem, schließt nicht)');
 }
 {
   // E8: Ein Zahlenfeld mit geändertem Entwurf verbraucht Escape – das Panel bleibt offen.
@@ -175,6 +177,11 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
     [['fokus panel', 'fokus zahnrad'], ['fokus panel']],
     'Panel-Fokus: beim Öffnen aufs Panel; beim Schließen zurück zum ⚙ – nur, wenn der Fokus im Panel lag',
   );
+  log.length = 0;
+  const abschnitt = ziel('abschnitt');
+  panelFokus(panel, () => zahnrad, abschnitt);
+  panelFokus(panel, () => zahnrad, null);
+  gleich(log, ['fokus abschnitt', 'fokus panel'], 'Panel-Fokus: mit Sprungziel aufs Ziel, ohne Ziel (null) aufs Panel');
 }
 {
   const gesetzt: Array<string | undefined> = [];
@@ -204,7 +211,7 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
 {
   const quelle = leseText('src/components/SettingsPanel.tsx');
   const fehlt = [
-    'useLayoutEffektImBrowser(() => panelFokus(panelRef.current, aktivesElement), []);',
+    'useLayoutEffektImBrowser(() => panelFokus(panelRef.current, aktivesElement, sectionId ? ankerIn(panelRef.current, sectionId) : null), []);',
     'useEffect(() => panelSprung(sectionId, (ziel) => ankerIn(panelRef.current, ziel), setHervorgehoben), [sectionId]);',
     '<aside ref={panelRef} {...panelProps({ id, onClose })}>',
   ].filter((zeile) => quelle.split(zeile).length !== 2);

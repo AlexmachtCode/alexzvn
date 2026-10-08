@@ -29,15 +29,16 @@ export function useSettingsPanel(): { hervorgehoben?: string } {
 }
 
 /**
- * Escape im Panel (E8): schließt, wenn die Taste noch niemandem gehört (nicht defaultPrevented), und hält sie vom Tool
- * fern. Hängt am Panel selbst, greift also nur, wenn der Fokus im Panel liegt. Nur aus dieser Datei exportiert.
+ * Tasten im Panel (E8): jede Taste bleibt im Panel und erreicht die globalen Kürzel des Tools nicht (Leertaste = GO,
+ * Pfeile = Blättern, Transport). Escape schließt zusätzlich, wenn die Taste noch niemandem gehört (nicht defaultPrevented).
+ * Hängt am Panel selbst, greift also nur, wenn der Fokus im Panel liegt. Nur aus dieser Datei exportiert.
  */
 export function panelTaste(
   e: { key: string; defaultPrevented: boolean; stopPropagation(): void; preventDefault(): void },
   onClose: () => void,
 ): void {
-  if (e.key !== 'Escape' || e.defaultPrevented) return;
   e.stopPropagation();
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
   e.preventDefault();
   onClose();
 }
@@ -80,12 +81,12 @@ export interface FokusPanel extends FokusZiel {
 }
 
 /**
- * Körper des Fokus-Effekts (E8): Fokus beim Öffnen aufs Panel; das Aufräumen gibt ihn dorthin zurück, wo er vorher war
+ * Körper des Fokus-Effekts (E8): Fokus beim Öffnen auf den angesprungenen Abschnitt (`ziel`), sonst aufs Panel; das Aufräumen gibt ihn dorthin zurück, wo er vorher war
  * (⚙ oder Statuseintrag) – nur, wenn er im Panel lag. Nicht modal. Nur aus dieser Datei exportiert.
  */
-export function panelFokus(panel: FokusPanel | null, aktiv: () => FokusZiel | null): () => void {
+export function panelFokus(panel: FokusPanel | null, aktiv: () => FokusZiel | null, ziel?: FokusZiel | null): () => void {
   const vorher = aktiv();
-  panel?.focus({ preventScroll: true });
+  (ziel ?? panel)?.focus({ preventScroll: true });
   return () => {
     if (panel && panel.contains(aktiv())) vorher?.focus();
   };
@@ -147,7 +148,7 @@ export function SettingsPanel(p: SettingsPanelProps): React.JSX.Element | null {
 function OffenesPanel({ onClose, sectionId, id, children }: SettingsPanelProps): React.JSX.Element {
   const panelRef = useRef<HTMLElement>(null);
   const [hervorgehoben, setHervorgehoben] = useState<string | undefined>(sectionId);
-  useLayoutEffektImBrowser(() => panelFokus(panelRef.current, aktivesElement), []);
+  useLayoutEffektImBrowser(() => panelFokus(panelRef.current, aktivesElement, sectionId ? ankerIn(panelRef.current, sectionId) : null), []);
   useEffect(() => panelSprung(sectionId, (ziel) => ankerIn(panelRef.current, ziel), setHervorgehoben), [sectionId]);
 
   return (
@@ -187,6 +188,7 @@ export function PanelAnker({ id, className, children }: PanelAnkerProps): React.
     <div
       id={`einstellung-${id}`}
       data-section-id={id}
+      tabIndex={-1}
       data-hervorgehoben={an ? 'true' : 'false'}
       className={cn(
         'scroll-mt-2 rounded-[var(--radius-lg)] border-2 p-2 motion-safe:transition-colors motion-safe:duration-150',
