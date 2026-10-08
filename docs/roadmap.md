@@ -333,8 +333,28 @@ Für D2b vorgemerkt (aus dem Abschluss-Review von D2a):
 
 ### Lane E — Steuerpulte vereinheitlichen (#165)
 
-Eigene Roadmap: [`docs/ux/suite-ux-roadmap.md`](ux/suite-ux-roadmap.md). Leitprinzip: **Live-Bedienung
-sichtbar, Einrichtung weggeräumt.** Stand am 2026-08-07 **am Code gemessen** (das UX-Dokument selbst war
+Spec: [`docs/superpowers/specs/2026-10-08-suite-ux-update-design.md`](superpowers/specs/2026-10-08-suite-ux-update-design.md),
+vom Owner am 2026-10-08 freigegeben (Vorgaben UO1–UO8). Sie löst die Phasen 2–5 ab; Phase 1 (PR #168) bleibt die
+Grundlage. [`docs/ux/suite-ux-roadmap.md`](ux/suite-ux-roadmap.md) ist nur noch eine Kurzfassung mit Verweis.
+Leitprinzip: **Live-Bedienung sichtbar, Einrichtung weggeräumt.**
+
+| Welle | Inhalt | Stand |
+|---|---|---|
+| 0 · Fundament (ohne Pilot) | `@jm/ui`: Rahmen, Statusleiste, `TallyButton`, Eingaben, Einstellungs-Panel, Hell/Dunkel, neue Tokens; neues `@jm/settings` mit sieben Abschnitten; Galerie; Selbsttests in der CI | Plan [`docs/superpowers/plans/2026-10-08-suite-ux-fundament.md`](superpowers/plans/2026-10-08-suite-ux-fundament.md), umgesetzt in den Aufgaben 1–24; Sichtprüfung über die Galerie (`npm run galerie -w @jm/ui`). Kein eigener Release: die Pakete gehen mit den Apps raus. |
+| 0 · Titler-Pilot | Titler im gemeinsamen Rahmen, Status-Brücken in `@jm/app-runtime` (Spec 3.9) | eigener Plan, nach dem Merge von Master-Link 2b R2 und Zoom 4b (Spec 9.2) |
+| 1 · Live-Kern | Switcher, Timer, Rundown, Q&A, Battle | nach der Owner-Abnahme des Pilots |
+| 2 · übrige Live-Tools | Connect, Caption, Interpreter, Presenter, Prompter, Stage-Display, Recorder, Player, Studio-Control | nach Welle 1; Connect erst nach dem Merge von Zoom 4b |
+| 3 · Launcher + Werkzeuge | Launcher, Copy, Grafiktool, Media-Converter, Sync, DAW, Editor, Transcribe, App Designer, NDI-Screen-Capture | nach Welle 2 |
+
+Released wird gesammelt je Welle, nach der Abnahme und nur mit Owner-Freigabe (Spec 9.1, 12).
+
+⚠️ **Nicht doppelt planen:** „Onboarding-Reste D1-Teil-2 (timer/switcher-Primitive auf `@jm/ui`)“ unter *Geparkt*
+geht in Welle 1 (Switcher, Timer) auf.
+
+<details>
+<summary>Alte Phasen (Stand 2026-08-07, nachgemessen 2026-10-08; durch die Spec abgelöst, stehen gelassen)</summary>
+
+Stand am 2026-08-07 **am Code gemessen** (das UX-Dokument selbst war
 nicht nachgeführt, und drei seiner fünf Dateipfade zeigen inzwischen ins Leere — alle Apps haben ein
 `src/` dazubekommen):
 
@@ -366,6 +386,8 @@ nächsten Switcher-Änderung zu erledigen.
   drei Grundmuster, Kopfzeile und Statusanzeige in jeder App neu gebaut, 7 Apps ohne Logo, Einstellungen an fünf
   verschiedenen Orten, 4 Apps (Connect, Battle, Caption, Interpreter) mit festen dunklen Farben statt Tokens. Danach
   Spec → Plan; `docs/ux/suite-ux-roadmap.md` wird dabei nachgeführt.
+
+</details>
 
 ---
 
@@ -427,7 +449,7 @@ nächsten Switcher-Änderung zu erledigen.
 
 - **App-Designer Welle 3** [#200](https://github.com/AlexmachtCode/alexzvn/issues/200) (Bundle-Optimierung, CSV-Auswertung, Autosave) — ausdrücklich „nach Bedarf".
 - **Onboarding-Reste:** D2/D3-Reste. (D1-Teil-2 „timer/switcher-Primitive auf `@jm/ui`" ist **dieselbe
-  Arbeit wie Lane E Phase 2+3** — dort geführt, hier nicht noch einmal.)
+  Arbeit wie Lane E Welle 1 (Switcher, Timer)** — dort geführt, hier nicht noch einmal.)
 - **C4-c iveo-Speaker-Join** — extern blockiert (iveo-API v1 liefert `program_speakers` nicht).
 - **Kochbuch:** Polaris-API-Vertrag (Endpoint + Schema-Steuerung, Owner liefert nach) + cookbook-web-Deploy.
 - **Binär-Signierung C3** [#245](https://github.com/AlexmachtCode/alexzvn/issues/245) — Zertifikate/Budget offen.
