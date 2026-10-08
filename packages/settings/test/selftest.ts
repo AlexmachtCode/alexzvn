@@ -6,4 +6,5 @@ import { abschluss } from '@jm/ui/testhilfe';
 import './vertrag.test';
 import './quellregeln.test';
 import './ndi-output.test';
+import './screen-output.test';
 abschluss();

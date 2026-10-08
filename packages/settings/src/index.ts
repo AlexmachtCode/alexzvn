@@ -15,3 +15,5 @@ export {
 export { SectionFrame, type SectionFrameProps } from './SectionFrame';
 export { type NdiOutputSectionProps, type NdiOutputView, NDI_TEXTE, ndiOutputView } from './abschnitte/ndi-output';
 export { NdiOutputSection } from './abschnitte/NdiOutputSection';
+export { type ScreenOption, type ScreenOutputSectionProps, type ScreenOutputView, SCREEN_TEXTE, SCREEN_AUTO, screenOutputView } from './abschnitte/screen-output';
+export { ScreenOutputSection } from './abschnitte/ScreenOutputSection';
