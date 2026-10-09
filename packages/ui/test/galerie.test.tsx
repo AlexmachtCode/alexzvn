@@ -74,6 +74,8 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   'tally-gesperrt': ['aria-disabled="true"', 'Nur im Live-Modus'],
   'tally-gesperrt-ohne-grund': ['aria-disabled="true"', UI_TEXTE.gesperrtOhneGrund],
   'tally-halten': ['in 2 s sperren (dabei halten)', 'in 2 s live sperren (dabei halten)', 'in 2 s ausblenden (dabei halten)', 'wieder einblenden', '>live + gesperrt<'],
+  // Owner-Entscheid O3 (09.10.2026): --field-border ist freigegeben und hat eine Farbkachel.
+  'farben': ['--field-border'],
   'eingabe-text-fehler': ['aria-invalid="true"'],
   'eingabe-text-gesperrt': ['disabled=""', UI_TEXTE.gesperrt('Vom Master vorgegeben')],
   'eingabe-zahl': ['Werte unter 1024 lehnt dieses Beispiel ab'],
@@ -265,7 +267,10 @@ function ersterZustand(html: string): string | undefined {
     ['a', 'b-[x]', 'group'],
     'Probe: classNameLiterale liest nur className="…"',
   );
-  ok(NEUE_TOKENS.length === 12 && PFLICHTKLASSEN.length === 13, 'Probe: 12 Token-Namen und 13 Pflichtklassen');
+  ok(
+    NEUE_TOKENS.length === 13 && NEUE_TOKENS.includes('--field-border') && PFLICHTKLASSEN.length === 13,
+    'Probe: 13 Token-Namen (mit --field-border, Owner-Freigabe O3) und 13 Pflichtklassen',
+  );
 }
 
 // ── Quellregeln der Galerie (statisch, laufen in der CI) ──

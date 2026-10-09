@@ -46,6 +46,7 @@ const FARBEN: Array<{ name: string; hinweis: string }> = [
   { name: '--status-error', hinweis: 'Fehler' },
   { name: '--status-off', hinweis: 'aus / unbekannt' },
   { name: '--surface-raised', hinweis: 'Panel-Fläche' },
+  { name: '--field-border', hinweis: 'Rand von Eingabefeldern' },
 ];
 const GROESSEN: Array<{ name: string; normal: string; kompakt: string; breite?: boolean }> = [
   { name: '--header-h', normal: '44 px', kompakt: '36 px' },

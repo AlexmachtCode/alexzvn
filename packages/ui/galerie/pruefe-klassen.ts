@@ -14,7 +14,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { abschluss, ok } from '../test/harness';
 
-/** Die zwölf neuen Token-Namen (Spec 4.2, 4.3). */
+/** Die 13 neuen Token-Namen (Spec 4.2, 4.3; --field-border aus Task 10, Owner-Freigabe O3 vom 09.10.2026). */
 export const NEUE_TOKENS = [
   '--tally-live',
   '--tally-ready',
@@ -23,6 +23,7 @@ export const NEUE_TOKENS = [
   '--status-error',
   '--status-off',
   '--surface-raised',
+  '--field-border',
   '--header-h',
   '--statusbar-h',
   '--control-h',
