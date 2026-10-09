@@ -6,6 +6,8 @@
 @import "@fontsource-variable/manrope";
 @import "./tokens/colors.css";
 @import "./tokens/typography.css";
+@import "./tokens/signal-colors.css";
+@import "./tokens/sizes.css";
 
 @theme {
   --font-sans: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
