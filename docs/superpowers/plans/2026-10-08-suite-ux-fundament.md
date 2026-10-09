@@ -17530,6 +17530,16 @@ Dieser Abschnitt beschreibt, was nach Task 25 geschieht. Er ist keine Aufgabe f�
   7. **Take ziehen** (Task 9, Ruling T9): „Take“ (Knopf nur mit Klick) drücken, mit gedrückter Maus vom Knopf wegziehen,
      außerhalb loslassen → „Klicks“ bleibt unverändert. Erst danach gilt der Fix (kein Pointer Capture ohne Halten) als
      gemessen; ohne Browser ist nur „kein `setPointerCapture`“ geprüft.
+     **Widerrufen (Restpunkte 09.10.2026, R1):** Der Zähler „Klicks“ gehört zum Knopf „Sprechen (halten)“ (HaltenProbe,
+     mit `onPress`/`onRelease`, also mit Pointer Capture); im Beispiel mit dem Knopf „Take“ gab es keinen Zähler. Der Text
+     oben misst deshalb den falschen Knopf. **Es gilt:** Galerie, Gruppe „TallyButton“, Beispiel „bereit“: Knopf „Take“ (nur
+     Klick, ohne Halten) mit dem Zähler „Take-Klicks: n“ darunter.
+     (a) „Take“ einmal normal anklicken → „Take-Klicks“ steigt um 1 (der Zähler lebt).
+     (b) „Take“ mit der linken Maustaste drücken, mit gedrückter Taste den Zeiger ganz vom Knopf wegziehen, außerhalb des
+     Knopfs loslassen → „Take-Klicks“ bleibt gleich. Steigt er, ist der Fix nicht wirksam (Befund).
+     Gegenprobe (abgeleitet aus Pointer Events L3, nicht gemessen): dasselbe Ziehen am Knopf „Sprechen (halten)“ erhöht dort
+     „Klicks“ um 1, weil dieser Knopf den Zeiger fängt. Bleibt auch dort „Klicks“ gleich, zeigt (b) allein nicht, dass der
+     Weg den Fehler hätte zeigen können; ein Befund gegen den Fix ist das nicht.
   8. **Panel-Schalter + Leertaste** (Task 13): Im offenen Panel einen Schalter anklicken, dann Leertaste. Die Galerie hat
      kein Tool-Kürzel; dort schaltet die Leertaste den Schalter (Browser-Standard). In einem Tool mit Leertaste = GO
      (Rundown, Player) geht die Taste nach heutiger Regel ans Tool: GO, und der Schalter schaltet nicht. Ob das so bleibt,
@@ -17615,6 +17625,20 @@ setzt die Zeile den Port auf den angezeigten Wert zurück; ist das derselbe Wert
 im Feld stehen (`NumberInput` folgt einem Wert von außen nur ohne angefangenen Entwurf). „Setzen“ bleibt dann mit Grund
 gesperrt, Escape stellt den Port her.
 
+### Restpunkte nach der Nachprüfung der Fix-Welle (09.10.2026)
+
+Die Nachprüfung der Fix-Welle fand drei Restpunkte; der Controller hat sie entschieden (Rulings P1–P3). Tests jeweils
+zuerst rot, dann grün; jede Prüfung zusätzlich mit einer Mutationsprobe (Eingriff im Code → die neue Prüfung schlägt fehl).
+
+| # | Befund | Änderung | Commit(s) |
+| --- | --- | --- | --- |
+| R1 | Owner-Prüfpunkt 7 („Take ziehen“) maß am Zähler „Klicks“ der HaltenProbe, deren Knopf `onPress`/`onRelease` hat und damit den Zeiger fängt, also nicht den Fix aus Ruling T9 (kein Pointer Capture ohne Halten); der reine Klick-Knopf „Take“ hatte keinen Zähler | Galerie, Beispiel „bereit“ (`TakeProbe`): unter „Take“ (nur `onClick`) steht „Take-Klicks: n“. Prüfpunkt 7 oben widerrufen und neu beschrieben (Knopf, Ziehen, Ergebnis, Gegenprobe). Galerie-Test: Pflichtmarke „Take-Klicks: 0“ im Beispiel `tally-bereit` und Quellprüfung, dass der Baustein mit dem Zähler kein `onPress`/`onRelease` übergibt | 46e9e3d655 |
+| R2 | Bildschirm: Mit `capabilities.background` und nicht gemeldetem `background` stand ein leeres Farbfeld (G6, Spec 7.2) | Anzeige „unbekannt“ statt des Felds, wie Vollbild und Transparenz (F2) | d86f6ddc66 |
+| R3 | Gegenstellen: `PeerRow.enabled` undefined galt als „an“ (Schalter „Aktiv“ an, Zeile zählte als aktiv) | Nur mit `capabilities.toggle` (Stage-Display-Muster, das Ein/Aus je Quelle meldet): `enabled` undefined ist „unbekannt“; statt des Schalters steht „Aktiv: unbekannt“, die Zeile zählt nicht in n von „{k} von {n} verbunden“ und lässt weder „verbunden“ noch „keine Gegenstellen“ zu (dann „unbekannt“; sonst läse der Status das fehlende `enabled` als „aus“). `PeerZeileView.aktiv` ist `boolean \| undefined`. Ohne `capabilities.toggle` bleibt ein weggelassenes `enabled` „an“: Rundown, Q&A und Battle kennen kein Aus je Gegenstelle (Spec 6.2 nennt kein Ein/Aus, Anhang A nur beim Stage-Display „Quellen (an/aus …)“, `ConnectionsPanel` und `ToolLink` haben kein `enabled`; `PeerRow`: „nur mit capabilities.toggle“) | 6c48060908 |
+
+Nicht ohne Browser messbar bleibt R1 selbst (ob der Klick nach dem Wegziehen ausbleibt): dafür Owner-Prüfpunkt 7 in
+der neuen Fassung. Neue Nutzertexte: keine außer dem Galerie-Zähler „Take-Klicks: n“ (nur Galerie, kein Tool).
+
 ### Zählstände
 
 | Stand | `@jm/ui` ok | `@jm/settings` ok | Galerie-Probe | Titler-Probe (Task 24, 5.5) |
@@ -17622,9 +17646,11 @@ gesperrt, Escape stellt den Port her.
 | Plantext (Tasks 23–25) | 520 | 329 | 20 `ok`, CSS 36,83 kB | 19 `ok`, CSS 49,37 kB |
 | nach Task 24 | 601 | 397 | 20 `ok`, CSS 37,03 kB | 19 `ok`, CSS 49,61 kB |
 | nach der Fix-Welle | 605 | 412 | 20 `ok`, CSS 37,03 kB | 19 `ok`, CSS 49,61 kB (dieselbe Datei `index-BGcmn55R.css`) |
+| nach den Restpunkten R1–R3 | 606 | 419 | 20 `ok`, CSS 37,03 kB (dieselbe Datei `index-MHt1Wgnh.css`, Klassen 71/30) | nicht neu gebaut |
 
 Die Differenz zum Plantext kommt nur aus den Rulings oben (zusätzliche Prüfungen; `--field-border` und neue Klassen im
 CSS). Typprüfung aller Workspaces nach der Fix-Welle: `Exit=0`, 31 Workspaces, 0 `error TS`.
+Nach den Restpunkten R1–R3 ebenso: `Exit=0`, 31 Workspaces, 0 `error TS`.
 
 ### Neues Token `--field-border` (Owner-Freigabe O3)
 
