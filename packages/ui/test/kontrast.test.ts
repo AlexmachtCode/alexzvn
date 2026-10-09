@@ -101,6 +101,27 @@ for (const modus of ['dunkel', 'hell'] as const) {
   );
 }
 
+// Grund-Zeile auf der LIVE-Fläche (TallyButton „auf Sendung und gesperrt“, Owner-Entscheid O2 vom 09.10.2026). Die Zeile
+// aus „gesperrt“ (11 px, --muted-foreground) erreicht auf --tally-live nicht einmal Grafik 3 : 1; deshalb steht der Grund
+// dort in der Schrift der LIVE-Fläche (LIVE_FLAECHE_KLASSE: 19 px extrafett, --brand-fg-on-dark, „groß“ nach E3).
+// Festgeschrieben wie ein Befund: Ändert sich der Wert, wird der Test rot, und die Entscheidung ist neu zu prüfen.
+{
+  const WIE_GESPERRT = { dunkel: 1.26, hell: 1.37 } as const;
+  for (const modus of ['dunkel', 'hell'] as const) {
+    const tabelle = modusTabelle(modus);
+    const wieGesperrt = paar(tabelle, '--muted-foreground', '--tally-live');
+    ok(
+      Math.abs(wieGesperrt - WIE_GESPERRT[modus]) <= 0.01 && wieGesperrt < GRENZE.Text,
+      `Kontrast ${modus}: Grund-Zeile wie bei „gesperrt“ (--muted-foreground) auf --tally-live = ${zahl(WIE_GESPERRT[modus])}, unter 4,5 (Text) – so nicht auf der LIVE-Fläche (O2) · ${zahl(wieGesperrt)}`,
+    );
+    const gewaehlt = paar(tabelle, '--brand-fg-on-dark', '--tally-live');
+    ok(
+      gewaehlt >= GRENZE.groß,
+      `Kontrast ${modus}: Grund-Zeile in der Schrift der LIVE-Fläche (--brand-fg-on-dark, 19 px extrafett) auf --tally-live ≥ 3 (groß) · ${zahl(gewaehlt)}`,
+    );
+  }
+}
+
 // ── Bestand: Text-Paare aus colors.css ──
 const BESTAND: Array<[vorne: string, hinten: string, unterlage?: string]> = [
   ['--foreground', '--background'],

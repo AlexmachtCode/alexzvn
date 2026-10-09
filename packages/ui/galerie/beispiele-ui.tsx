@@ -128,18 +128,36 @@ function StatusBarMitKnoepfen(): React.JSX.Element {
   );
 }
 
+export type HaltenProbeWahl = 'bereit' | 'live' | 'gesperrt' | 'live-gesperrt';
+
+const PROBE_WAHLEN: Array<{ wahl: HaltenProbeWahl; text: string }> = [
+  { wahl: 'bereit', text: 'bereit' },
+  { wahl: 'live', text: 'live' },
+  { wahl: 'gesperrt', text: 'gesperrt' },
+  { wahl: 'live-gesperrt', text: 'live + gesperrt' },
+];
+
+/**
+ * Zustand und Grund des Probe-Knopfs je Wahl. Der Grund geht nur bei „gesperrt“ und „live + gesperrt“ mit: Seit dem
+ * Owner-Entscheid O2 (09.10.2026) sperrt ein Grund auch einen Knopf im Zustand live.
+ */
+export function haltenProbeZustand(wahl: HaltenProbeWahl): Pick<TallyButtonProps, 'state' | 'disabledReason'> {
+  if (wahl === 'gesperrt') return { state: 'gesperrt', disabledReason: 'Zum Ausprobieren gesperrt' };
+  if (wahl === 'live-gesperrt') return { state: 'live', disabledReason: 'Zum Ausprobieren gesperrt' };
+  return { state: wahl };
+}
+
 function HaltenProbe(): React.JSX.Element {
-  const [zustand, setZustand] = useState<TallyButtonProps['state']>('bereit');
+  const [wahl, setWahl] = useState<HaltenProbeWahl>('bereit');
   const [sichtbar, setSichtbar] = useState(true);
   const [zahl, setZahl] = useState({ gedrueckt: 0, losgelassen: 0, klicks: 0 });
   return (
     <div className="space-y-2">
       {sichtbar ? (
         <TallyButton
-          state={zustand}
+          {...haltenProbeZustand(wahl)}
           label="Sprechen (halten)"
           shortcut="Leertaste"
-          disabledReason="Zum Ausprobieren gesperrt"
           onPress={() => setZahl((z) => ({ ...z, gedrueckt: z.gedrueckt + 1 }))}
           onRelease={() => setZahl((z) => ({ ...z, losgelassen: z.losgelassen + 1 }))}
           onClick={() => setZahl((z) => ({ ...z, klicks: z.klicks + 1 }))}
@@ -151,9 +169,9 @@ function HaltenProbe(): React.JSX.Element {
         gedrückt {zahl.gedrueckt} · losgelassen {zahl.losgelassen} · Klicks {zahl.klicks}
       </p>
       <div className="flex flex-wrap gap-2">
-        {(['bereit', 'live', 'gesperrt'] as const).map((z) => (
-          <Button key={z} type="button" size="sm" variant="outline" uppercase={false} onClick={() => setZustand(z)}>
-            {z}
+        {PROBE_WAHLEN.map((w) => (
+          <Button key={w.wahl} type="button" size="sm" variant="outline" uppercase={false} onClick={() => setWahl(w.wahl)}>
+            {w.text}
           </Button>
         ))}
         <Button
@@ -161,9 +179,18 @@ function HaltenProbe(): React.JSX.Element {
           size="sm"
           variant="outline"
           uppercase={false}
-          onClick={() => window.setTimeout(() => setZustand('gesperrt'), 2000)}
+          onClick={() => window.setTimeout(() => setWahl('gesperrt'), 2000)}
         >
           in 2 s sperren (dabei halten)
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          uppercase={false}
+          onClick={() => window.setTimeout(() => setWahl('live-gesperrt'), 2000)}
+        >
+          in 2 s live sperren (dabei halten)
         </Button>
         <Button
           type="button"
@@ -328,6 +355,7 @@ export function uiBeispiele(modus: Modus): Beispiel[] {
     { name: 'statusbar-leer', gruppe: 'StatusBar', titel: 'Ohne Sitzung: nur die Uhr', element: <StatusBar items={[]} /> },
     { name: 'tally-bereit', gruppe: 'TallyButton', titel: 'bereit', element: <Tallys><TakeProbe /></Tallys> },
     { name: 'tally-live', gruppe: 'TallyButton', titel: 'live', element: <Tallys><TallyButton state="live" label="Bauchbinde 1" shortcut="Enter" onClick={nichts} /></Tallys> },
+    { name: 'tally-live-gesperrt', gruppe: 'TallyButton', titel: 'auf Sendung und gesperrt', element: <Tallys><TallyButton state="live" label="Kamera 2" disabledReason="Während der Überblendung gesperrt" onClick={nichts} /></Tallys> },
     { name: 'tally-gesperrt', gruppe: 'TallyButton', titel: 'gesperrt mit Grund', element: <Tallys><TallyButton state="gesperrt" label="Clear" disabledReason="Nur im Live-Modus" onClick={nichts} /></Tallys> },
     { name: 'tally-gesperrt-ohne-grund', gruppe: 'TallyButton', titel: 'gesperrt ohne Grund (Fehler des Tools, sichtbar gemacht)', element: <Tallys><TallyButton state="gesperrt" label="Clear" onClick={nichts} /></Tallys> },
     { name: 'tally-halten', gruppe: 'TallyButton', titel: 'Halten zum Sprechen: Zähler zum Ausprobieren', element: <Tallys><HaltenProbe /></Tallys> },

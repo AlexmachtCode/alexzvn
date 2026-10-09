@@ -1,6 +1,7 @@
 // Task 9 · TallyButton (Spec 3.4, 4.2; E3, E9, Review Focus 2/5): bereit/live/gesperrt mit Form und Text,
 // Halten mit Zeiger und Taste – onRelease genau einmal je Druck, auch bei Abbruch. Geprüft wird das Prop-Objekt, das
 // der Baustein per Spread an den <button> hängt, dazu die Effekt-Körper und die Verdrahtung im Quelltext.
+// Nachtrag Owner-Entscheid O2 (09.10.2026): live mit Grund ist auf Sendung UND gesperrt.
 import {
   TallyButton,
   haltenBeiAbbau,
@@ -87,6 +88,48 @@ const textVonId = (html: string, id: string): string =>
     'Tally: shortcut als <kbd> mit sr-only „Kürzel“',
   );
   ok(tags(render(<TallyButton state="bereit" label="Take" />), 'kbd').length === 0, 'Tally: ohne shortcut kein <kbd>');
+}
+
+// ── Auf Sendung und gesperrt (Owner-Entscheid O2, 09.10.2026): state 'live' mit Grund ──
+{
+  const grund = 'Während der Überblendung gesperrt';
+  const html = render(<TallyButton state="live" label="Kamera 2" shortcut="F2" disabledReason={grund} onClick={() => undefined} />);
+  const [knopf] = tags(html, 'button');
+  ok(
+    attr(knopf, 'data-state') === 'live' &&
+      hatKlassen(knopf, LIVE_FLAECHE_KLASSE) &&
+      html.includes(`>${UI_TEXTE.live}<`) &&
+      text(html).includes('Kamera 2'),
+    'Tally live + gesperrt: LIVE-Fläche (LIVE_FLAECHE_KLASSE) und Kennung „LIVE“ bleiben, Label sichtbar',
+  );
+  ok(
+    attr(knopf, 'aria-disabled') === 'true' &&
+      attr(knopf, 'disabled') === undefined &&
+      attr(knopf, 'title') === grund &&
+      textVonId(html, attr(knopf, 'aria-describedby') ?? '-') === grund &&
+      hatKlassen(knopf, 'cursor-not-allowed'),
+    'Tally live + gesperrt: aria-disabled=true (bleibt fokussierbar), Grund sichtbar, title = Grund, aria-describedby zeigt auf den Grund, Zeiger „nicht erlaubt“',
+  );
+  const ohneFlaeche = html.replace(LIVE_FLAECHE_KLASSE, '');
+  ok(
+    !/text-\[\d+px\]|text-xs|text-sm/.test(ohneFlaeche) && !/text-\[var\(/.test(ohneFlaeche),
+    'Tally live + gesperrt: die Grund-Zeile steht in der Schrift der LIVE-Fläche – keine kleinere Schrift, keine eigene Farbe (E3; Kontrast in kontrast.test.ts)',
+  );
+  pruefeIdVerweise(html, 'Tally live + gesperrt: alle id-Verweise gültig');
+}
+{
+  // Wächter (bestand schon vorher): dieselbe Regel wie tallyGrund – leer oder nur Leerzeichen ist kein Grund.
+  const ohne = render(<TallyButton state="live" label="Take" shortcut="F1" onClick={() => undefined} />);
+  const leer = render(<TallyButton state="live" label="Take" shortcut="F1" disabledReason="" onClick={() => undefined} />);
+  const leerraum = render(<TallyButton state="live" label="Take" shortcut="F1" disabledReason="   " onClick={() => undefined} />);
+  ok(
+    leer === ohne && leerraum === ohne && attr(tags(ohne, 'button')[0], 'aria-disabled') === undefined && !ohne.includes('title='),
+    'Tally live mit leerem Grund oder Grund nur aus Leerzeichen: unverändert live (nicht gesperrt, keine Grund-Zeile)',
+  );
+  ok(
+    render(<TallyButton state="bereit" label="Take" disabledReason="Kein Signal" />) === render(<TallyButton state="bereit" label="Take" />),
+    'Tally bereit mit Grund: unverändert bereit (der Grund wirkt nur bei live und gesperrt)',
+  );
 }
 
 // ── Knopf-Props: genau die acht Handler hängen am <button> (Spread im Baustein) ──
@@ -288,6 +331,44 @@ const taste = (key: string, repeat = false) => ({ key, repeat, preventDefault: (
   gleich([z.click, z.press, z.release], [0, 0, 0], 'Tally gesperrt: weder onClick noch onPress');
 }
 {
+  gefangen = [];
+  const { z, h } = aufbau({ state: 'live', disabledReason: 'Während der Überblendung gesperrt' });
+  h.onClick();
+  h.onPointerDown(zeiger());
+  h.onPointerUp();
+  h.onKeyDown(taste(' '));
+  h.onKeyUp(taste(' '));
+  h.onKeyDown(taste('Enter'));
+  h.onKeyUp(taste('Enter'));
+  gleich(
+    [z.click, z.press, z.release, gefangen.length],
+    [0, 0, 0, 0],
+    'Tally live + gesperrt: weder onClick noch onPress noch onRelease, kein Pointer Capture',
+  );
+}
+{
+  const { z, h } = aufbau({ state: 'live', disabledReason: '   ' });
+  h.onClick();
+  h.onPointerDown(zeiger());
+  h.onPointerUp();
+  gleich([z.click, z.press, z.release], [1, 1, 1], 'Tally live mit Grund nur aus Leerzeichen: bedienbar wie live');
+}
+{
+  // Halten beginnt live, dann rendert der Knopf live + gesperrt: Loslassen bleibt möglich, ein neuer Druck startet nicht.
+  const z = { press: 0, release: 0 };
+  const rueckrufe = { onPress: () => void z.press++, onRelease: () => void z.release++ };
+  const halten = erzeugeHalten(rueckrufe);
+  tallyKnopfProps({ state: 'live', label: 'Talk', ...rueckrufe }, halten, 'g').onPointerDown(zeiger());
+  const gesperrt = tallyKnopfProps({ state: 'live', label: 'Talk', disabledReason: 'Überblendung', ...rueckrufe }, halten, 'g');
+  gesperrt.onPointerUp();
+  gesperrt.onPointerDown(zeiger());
+  gleich(
+    [z.press, z.release, halten.gehalten],
+    [1, 1, false],
+    'Tally live → live + gesperrt beim Halten: Loslassen löst einmal, ein neuer Druck startet nicht',
+  );
+}
+{
   const { z, h } = aufbau();
   h.onClick();
   gleich([z.click, z.press, z.release], [1, 0, 0], 'Tally: onClick kommt unabhängig vom Halten');
@@ -338,6 +419,23 @@ const taste = (key: string, repeat = false) => ({ key, repeat, preventDefault: (
 }
 {
   const z = { release: 0 };
+  const halten = erzeugeHalten({ onPress: () => undefined, onRelease: () => void z.release++ });
+  halten.druecken('zeiger');
+  haltenBeiZustand('live', halten);
+  haltenBeiZustand('live', halten, '');
+  haltenBeiZustand('live', halten, '   ');
+  haltenBeiZustand('bereit', halten, 'Kein Signal');
+  const vorSperre = z.release;
+  haltenBeiZustand('live', halten, 'Während der Überblendung gesperrt');
+  haltenBeiZustand('live', halten, 'Während der Überblendung gesperrt');
+  gleich(
+    [vorSperre, z.release, halten.gehalten],
+    [0, 1, false],
+    'Tally Halten: Wechsel live → live + gesperrt beim Halten → onRelease genau einmal; live ohne Grund (auch leer oder nur Leerzeichen) und bereit mit Grund brechen nicht ab',
+  );
+}
+{
+  const z = { release: 0 };
   const halten = erzeugeHalten({ onRelease: () => void z.release++ });
   halten.druecken('taste');
   haltenBeiAbbau(halten);
@@ -362,7 +460,7 @@ const taste = (key: string, repeat = false) => ({ key, repeat, preventDefault: (
   const PFLICHT = [
     'const haltenRef = useRef<HaltenSteuerung | null>(null);',
     'const halten = haltenFuerRender(haltenRef, p);',
-    'useEffect(() => haltenBeiZustand(state, halten), [state, halten]);',
+    'useEffect(() => haltenBeiZustand(state, halten, disabledReason), [state, halten, disabledReason]);',
     'useEffect(() => () => haltenBeiAbbau(halten), [halten]);',
     '<button {...tallyKnopfProps(p, halten, grundId)}>',
   ];

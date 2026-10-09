@@ -5,7 +5,7 @@ import { readdirSync } from 'node:fs';
 import type { StatusState } from '../src/lib/status';
 import { UI_TEXTE } from '../src/lib/texte';
 import { Galerie, RAHMEN_ANSICHTEN } from '../galerie/Galerie';
-import { uiBeispiele } from '../galerie/beispiele-ui';
+import { haltenProbeZustand, uiBeispiele } from '../galerie/beispiele-ui';
 import { settingsBeispiele } from '../galerie/beispiele-settings';
 import { leseShellParameter, shellAdresse, ShellSeite, type ShellParameter } from '../galerie/ShellSeite';
 import {
@@ -25,7 +25,7 @@ const UI_NAMEN = [
   'farben', 'auswahl', 'groessen', 'groessen-kompakt',
   'statuspill-ok', 'statuspill-warn', 'statuspill-error', 'statuspill-off', 'statuspill-live',
   'statusbar-gemischt', 'statusbar-knoepfe', 'statusbar-leer',
-  'tally-bereit', 'tally-live', 'tally-gesperrt', 'tally-gesperrt-ohne-grund', 'tally-halten',
+  'tally-bereit', 'tally-live', 'tally-live-gesperrt', 'tally-gesperrt', 'tally-gesperrt-ohne-grund', 'tally-halten',
   'eingabe-text', 'eingabe-text-fehler', 'eingabe-text-gesperrt', 'eingabe-zahl', 'eingabe-zahl-einheit',
   'eingabe-zahl-ohne-feld', 'eingabe-schalter', 'eingabe-schalter-gesperrt', 'eingabe-auswahl', 'eingabe-auswahl-leer',
   'eingabe-auswahl-fehlt', 'eingabe-auswahl-fehler', 'eingabe-auswahl-gesperrt',
@@ -69,9 +69,11 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   // „Take-Klicks: 0“: eigener Zähler des reinen Klick-Knopfs „Take“, Messgerät für Owner-Prüfpunkt 7 (Take ziehen).
   'tally-bereit': ['border-[var(--tally-ready)]', 'min-h-[var(--control-h-lg)]', '>Take<', 'Take-Klicks: 0'],
   'tally-live': [UI_TEXTE.live, 'text-[19px]'],
+  // Owner-Entscheid O2 (09.10.2026): auf Sendung und gesperrt – LIVE-Fläche und Kennung bleiben, dazu Sperre und Grund.
+  'tally-live-gesperrt': ['data-state="live"', `>${UI_TEXTE.live}<`, 'text-[19px]', 'aria-disabled="true"', 'Während der Überblendung gesperrt'],
   'tally-gesperrt': ['aria-disabled="true"', 'Nur im Live-Modus'],
   'tally-gesperrt-ohne-grund': ['aria-disabled="true"', UI_TEXTE.gesperrtOhneGrund],
-  'tally-halten': ['in 2 s sperren (dabei halten)', 'in 2 s ausblenden (dabei halten)', 'wieder einblenden'],
+  'tally-halten': ['in 2 s sperren (dabei halten)', 'in 2 s live sperren (dabei halten)', 'in 2 s ausblenden (dabei halten)', 'wieder einblenden', '>live + gesperrt<'],
   'eingabe-text-fehler': ['aria-invalid="true"'],
   'eingabe-text-gesperrt': ['disabled=""', UI_TEXTE.gesperrt('Vom Master vorgegeben')],
   'eingabe-zahl': ['Werte unter 1024 lehnt dieses Beispiel ab'],
@@ -156,6 +158,24 @@ function ersterZustand(html: string): string | undefined {
   ok(
     takeProbe.length === 1 && takeProbe[0].includes('onClick=') && !/onPress|onRelease/.test(takeProbe[0]),
     'Galerie Take-Zähler: genau ein Baustein zählt „Take-Klicks“, als reiner Klick-Knopf (onClick, ohne onPress/onRelease)',
+  );
+  // „Auf Sendung und gesperrt“ (O2) in beiden Modi, nicht nur in der dunklen Spalte.
+  for (const modus of ['dark', 'light'] as const) {
+    const beispiel = uiBeispiele(modus).find((b) => b.name === 'tally-live-gesperrt');
+    const marken = UI_PRUEFUNG['tally-live-gesperrt'];
+    const fehlt = beispiel ? marken.filter((teil) => !render(beispiel.element).includes(teil)) : marken;
+    ok(fehlt.length === 0, `Galerie ${modus}: Beispiel „auf Sendung und gesperrt“ – LIVE-Fläche, Kennung, Sperre und Grund`);
+  }
+  // HaltenProbe: Der Grund geht nur bei „gesperrt“ und „live + gesperrt“ an den Knopf; sonst wäre „live“ seit O2 gesperrt.
+  gleich(
+    (['bereit', 'live', 'gesperrt', 'live-gesperrt'] as const).map((wahl) => haltenProbeZustand(wahl)),
+    [
+      { state: 'bereit' },
+      { state: 'live' },
+      { state: 'gesperrt', disabledReason: 'Zum Ausprobieren gesperrt' },
+      { state: 'live', disabledReason: 'Zum Ausprobieren gesperrt' },
+    ],
+    'Galerie HaltenProbe: Grund nur bei „gesperrt“ und „live + gesperrt“',
   );
   const panel = render(uiBeispiele('light').find((b) => b.name === 'panel')!.element);
   ok((panel.match(/data-hervorgehoben="true"/g) ?? []).length === 1, 'Panel-Beispiel: genau ein Anker hervorgehoben');

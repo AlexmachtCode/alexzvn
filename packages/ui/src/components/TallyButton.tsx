@@ -10,7 +10,10 @@ export interface TallyButtonProps {
   label: string;
   /** Nur Anzeige eines vorhandenen Kürzels (z. B. „F1“); das Kürzel selbst bleibt im Tool. */
   shortcut?: string;
-  /** Pflicht bei 'gesperrt': sichtbar, als title und per aria-describedby. */
+  /**
+   * Pflicht bei 'gesperrt': sichtbar, als title und per aria-describedby. Bei 'live' gesetzt (nicht leer, nicht nur
+   * Leerzeichen): auf Sendung UND gesperrt (Owner-Entscheid O2, 09.10.2026).
+   */
   disabledReason?: string;
   onClick?(): void;
   onPress?(): void;
@@ -52,14 +55,22 @@ export interface TallyKnopfProps extends TallyHandler {
 const HALTE_TASTEN = new Set([' ', 'Enter']);
 
 /**
+ * Ist der Knopf gesperrt? 'gesperrt' immer; 'live' nur mit einem Grund, der nicht leer ist und nicht nur aus Leerzeichen
+ * besteht (dieselbe Regel wie tallyGrund): auf Sendung UND gesperrt (Owner-Entscheid O2, 09.10.2026). 'bereit' nie.
+ */
+function tallyGesperrt(p: Pick<TallyButtonProps, 'state' | 'disabledReason'>): boolean {
+  return p.state === 'gesperrt' || (p.state === 'live' && Boolean(p.disabledReason?.trim()));
+}
+
+/**
  * Die Ereignis-Verdrahtung des TallyButton als reine Funktion (E9), damit sie ohne Browser testbar ist.
  * - Halten nur mit der linken Taste bzw. Kontakt (button 0) oder Leertaste/Enter ohne Auto-Repeat.
  * - Loslassen über dieselbe Quelle; pointercancel, lostpointercapture und blur brechen ab (onRelease genau einmal).
- * - Gesperrt: nichts startet, nichts klickt; Loslassen bleibt möglich.
+ * - Gesperrt (auch live + gesperrt): nichts startet, nichts klickt; Loslassen bleibt möglich.
  * Nur aus dieser Datei exportiert, nicht aus index.ts.
  */
 export function tallyHandler(p: TallyButtonProps, halten: HaltenSteuerung): TallyHandler {
-  const gesperrt = p.state === 'gesperrt';
+  const gesperrt = tallyGesperrt(p);
   return {
     onClick() {
       if (!gesperrt) p.onClick?.();
@@ -136,14 +147,15 @@ const KUERZEL: Record<TallyButtonProps['state'], string> = {
  * das prüft, was am Knopf hängt. Nur aus dieser Datei exportiert.
  */
 export function tallyKnopfProps(p: TallyButtonProps, halten: HaltenSteuerung, grundId: string): TallyKnopfProps {
-  const gesperrt = p.state === 'gesperrt';
+  const gesperrt = tallyGesperrt(p);
   return {
     type: 'button',
     'data-state': p.state,
     'aria-disabled': gesperrt ? true : undefined,
     'aria-describedby': gesperrt ? grundId : undefined,
     title: gesperrt ? tallyGrund(p.disabledReason) : undefined,
-    className: cn(BASIS, FLAECHE[p.state]),
+    // live + gesperrt behält die LIVE-Fläche; nur der Zeiger zeigt die Sperre wie bei 'gesperrt'.
+    className: cn(BASIS, FLAECHE[p.state], p.state === 'live' && gesperrt && 'cursor-not-allowed'),
     ...tallyHandler(p, halten),
   };
 }
@@ -161,9 +173,12 @@ export function haltenFuerRender(ref: { current: HaltenSteuerung | null }, r: Ha
   return ref.current;
 }
 
-/** Körper des Effekts „Zustand gewechselt“: Wird der Knopf beim Halten gesperrt, endet das Halten (onRelease einmal). */
-export function haltenBeiZustand(state: TallyButtonProps['state'], halten: HaltenSteuerung): void {
-  if (state === 'gesperrt') halten.abbrechen();
+/**
+ * Körper des Effekts „Zustand gewechselt“: Wird der Knopf beim Halten gesperrt – auf 'gesperrt' oder auf live + gesperrt
+ * (O2) –, endet das Halten (onRelease einmal).
+ */
+export function haltenBeiZustand(state: TallyButtonProps['state'], halten: HaltenSteuerung, disabledReason?: string): void {
+  if (tallyGesperrt({ state, disabledReason })) halten.abbrechen();
 }
 
 /** Körper des Aufräumens beim Abbau: ein laufendes Halten endet (onRelease einmal). */
@@ -173,15 +188,17 @@ export function haltenBeiAbbau(halten: HaltenSteuerung): void {
 
 /**
  * Großer Sende-Knopf (Spec 3.4): `bereit` neutral mit grüner Kante, `live` rot gefüllt mit „LIVE“-Kennung, `gesperrt`
- * gedimmt mit sichtbarem Grund. Halten-zum-Sprechen über onPress/onRelease; onRelease kommt in jedem Fall genau einmal,
- * auch beim Wechsel auf `gesperrt` und beim Unmount. Füllt die Breite seines Behälters; die Anordnung macht das Tool.
+ * gedimmt mit sichtbarem Grund; `live` mit Grund ist auf Sendung UND gesperrt (O2): LIVE-Fläche und Kennung bleiben, der
+ * Grund steht darunter in der Schrift der LIVE-Fläche. Halten-zum-Sprechen über onPress/onRelease; onRelease kommt in
+ * jedem Fall genau einmal, auch beim Sperren und beim Unmount. Füllt die Breite seines Behälters; die Anordnung macht das
+ * Tool.
  * Die Verdrahtung (Spread, zwei Effekte, haltenFuerRender) prüft tally.test.tsx am Quelltext dieser Datei.
  */
 export function TallyButton(p: TallyButtonProps): React.JSX.Element {
-  const { state, label, shortcut } = p;
+  const { state, label, shortcut, disabledReason } = p;
   const haltenRef = useRef<HaltenSteuerung | null>(null);
   const halten = haltenFuerRender(haltenRef, p);
-  useEffect(() => haltenBeiZustand(state, halten), [state, halten]);
+  useEffect(() => haltenBeiZustand(state, halten, disabledReason), [state, halten, disabledReason]);
   useEffect(() => () => haltenBeiAbbau(halten), [halten]);
   const grundId = useId();
 
@@ -203,8 +220,13 @@ export function TallyButton(p: TallyButtonProps): React.JSX.Element {
       </span>
       {state === 'gesperrt' ? (
         <span id={grundId} className="text-[11px] font-semibold text-[var(--muted-foreground)]">
-          {tallyGrund(p.disabledReason)}
+          {tallyGrund(disabledReason)}
         </span>
+      ) : null}
+      {state === 'live' && tallyGesperrt(p) ? (
+        // Ohne eigene Schrift und Farbe: Die Zeile aus 'gesperrt' erreicht auf der LIVE-Fläche nur 1,26 (dunkel) bzw.
+        // 1,37 : 1 (hell); in der Schrift der LIVE-Fläche ist sie „groß“ mit 3,90 bzw. 5,20 : 1 (E3, kontrast.test.ts).
+        <span id={grundId}>{tallyGrund(disabledReason)}</span>
       ) : null}
     </button>
   );
