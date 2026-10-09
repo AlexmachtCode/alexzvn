@@ -95,6 +95,45 @@ const EINE: Record<string, SectionStatus> = {
   });
   gleich(peersView(basis).status, KEINE, 'Gegenstellen ohne Zeilen: „keine Gegenstellen“');
 }
+{
+  // Ohne capabilities.toggle (Rundown, Q&A, Battle) kennt das Tool kein Aus je Gegenstelle: ein weggelassenes enabled heißt
+  // „an“ (PeerRow: enabled nur mit capabilities.toggle). Das bleibt so.
+  const v = peersView({ ...basis, peers: [zeile({ connected: true, source: 'mdns' })], capabilities: { auto: true } });
+  ok(v.zeilen[0].aktiv === true && statusText(v.status) === 'ok verbunden', 'Gegenstellen ohne toggle: enabled weggelassen = an (kein Aus-Zustand im Tool)');
+}
+{
+  // Mit capabilities.toggle (Stage-Display) meldet das Tool Ein/Aus je Quelle. Fehlt enabled, ist es unbekannt (G6, Spec 7.2):
+  // die Zeile zählt nicht als aktiv, und der Abschnitt behauptet weder „verbunden“ noch „keine Gegenstellen“.
+  const mitSchalter: PeersSectionProps = { ...basis, capabilities: { toggle: true } };
+  const faelle = kreuz({ connected: [undefined, false, true] } as const);
+  pruefeFaelle('Gegenstellen mit toggle, enabled nicht gemeldet: Zeile nicht aktiv (unbekannt), Abschnitt „unbekannt“', faelle, (f) => {
+    const v = peersView({ ...mitSchalter, peers: [zeile({ connected: f.connected, source: 'mdns' })] });
+    return v.zeilen[0].aktiv !== undefined ? `aktiv: ${v.zeilen[0].aktiv}` : vergleiche(statusText(v.status), 'off unbekannt');
+  });
+  // Zwei Zeilen, je Zeile aus, offen (enabled nicht gemeldet), verbunden, Warnung oder unbekannt (5² = 25 Fälle).
+  // Schlüssel = Anzahl aus·offen·verbunden·warn·unbekannt. Offene Zeilen zählen nie in n; sie verhindern „ok“ und „keine“.
+  const ART: Record<string, Partial<PeerRow>> = {
+    aus: { enabled: false, connected: true },
+    offen: { enabled: undefined, connected: true },
+    verbunden: { enabled: true, connected: true },
+    warn: { enabled: true, connected: false, source: 'mdns' },
+    unbekannt: { enabled: true, connected: undefined },
+  };
+  const ZWEI: Record<string, string> = {
+    '20000': 'off keine Gegenstellen', '11000': 'off unbekannt', '10100': 'ok verbunden', '10010': 'warn 0 von 1 verbunden',
+    '10001': 'off unbekannt', '02000': 'off unbekannt', '01100': 'off unbekannt', '01010': 'warn 0 von 1 verbunden',
+    '01001': 'off unbekannt', '00200': 'ok verbunden', '00110': 'warn 1 von 2 verbunden', '00101': 'off unbekannt',
+    '00020': 'warn 0 von 2 verbunden', '00011': 'warn 0 von 2 verbunden', '00002': 'off unbekannt',
+  };
+  const ARTEN = ['aus', 'offen', 'verbunden', 'warn', 'unbekannt'] as const;
+  const paare = kreuz({ a: ARTEN, b: ARTEN } as const);
+  pruefeFaelle('Gegenstellen mit toggle, zwei Zeilen: Abschnitt aus der Tabelle, nicht gemeldetes enabled zählt nicht als aktiv', paare, (f) => {
+    const arten = [f.a, f.b];
+    const schluessel = ARTEN.map((a) => arten.filter((x) => x === a).length).join('');
+    const peers = arten.map((a, i) => zeile({ role: `r${i}`, ...ART[a] }));
+    return vergleiche(statusText(peersView({ ...mitSchalter, peers }).status), ZWEI[schluessel]);
+  });
+}
 
 // ── Darstellung ──
 const rundown: PeersSectionProps = {
@@ -148,6 +187,13 @@ const rundown: PeersSectionProps = {
   enthaeltNicht(html, 'placeholder=', 'Gegenstellen Stage-Muster: kein Platzhalter „leer = automatisch“');
   enthaeltNicht(html, '>Quelle<', 'Gegenstellen Stage-Muster: ohne source keine Quelle');
   enthaelt(html, '>verbunden</span>', 'Gegenstellen Stage-Muster: ausgeschaltete Zeile zählt nicht, Abschnitt „verbunden“');
+  // G6/Spec 7.2: enabled nicht gemeldet – kein Schalter, der „an“ behauptet, sondern „unbekannt“ (wie Vollbild, Transparenz).
+  const offen = render(<PeersSection {...stage} peers={[stage.peers[0], { ...stage.peers[1], enabled: undefined }]} />);
+  ok((offen.match(/role="switch"/g) ?? []).length === 1, 'Gegenstellen Stage-Muster, enabled nicht gemeldet: nur der Schalter der gemeldeten Zeile');
+  ok(
+    offen.includes('data-anzeige="Aktiv"') && vor(offen, '>Presenter<', 'data-anzeige="Aktiv"') && vor(offen, 'data-anzeige="Aktiv"', '>unbekannt</div>'),
+    'Gegenstellen Stage-Muster, enabled nicht gemeldet: „Aktiv“ als „unbekannt“ in der Zeile Presenter',
+  );
 }
 {
   const html = render(<PeersSection {...rundown} onSet={undefined} onAuto={undefined} />);
@@ -213,7 +259,8 @@ const rundown: PeersSectionProps = {
   const stage: PeersSectionProps = { ...basis, peers: [zeile({ host: '10.0.0.7', connected: true, enabled: true })], capabilities: { toggle: true }, onSet: () => {}, onToggle: () => {} };
   const z = sperrZaehlung(render(<PeersSection {...stage} locked="Vom Master vorgegeben" />));
   ok(z.alle === 4 && z.gesperrt === 4, `Gegenstellen locked im Stage-Muster: Schalter, Host, Port und Setzen disabled (${z.gesperrt} von ${z.alle})`);
-  const ohnePort = render(<PeersSection {...stage} peers={[zeile({ port: 0 })]} />);
+  // Stage-Muster meldet Ein/Aus je Zeile (enabled); ohne Meldung stünde „Aktiv: unbekannt“ statt des Schalters.
+  const ohnePort = render(<PeersSection {...stage} peers={[zeile({ port: 0, enabled: true })]} />);
   const zp = sperrZaehlung(ohnePort);
   ok(zp.alle === 4 && zp.gesperrt === 1 && /<button[^>]*disabled=""[^>]*>Setzen</.test(ohnePort), `Gegenstellen ohne gültigen Port: nur Setzen disabled (${zp.gesperrt} von ${zp.alle})`);
   // Gesperrt nie ohne Grund (Spec 6.1): der Grund steht sichtbar beim Knopf und ist ihm per aria-describedby zugeordnet.
@@ -223,7 +270,7 @@ const rundown: PeersSectionProps = {
     'Gegenstellen ohne gültigen Port: Grund „Setzen geht erst mit einem gültigen Port.“ sichtbar und am Knopf (aria-describedby)',
   );
   pruefeIdVerweise(ohnePort, 'Gegenstellen ohne gültigen Port: alle id-Verweise gültig');
-  const gesperrtOhnePort = render(<PeersSection {...stage} peers={[zeile({ port: 0 })]} locked="Vom Master vorgegeben" />);
+  const gesperrtOhnePort = render(<PeersSection {...stage} peers={[zeile({ port: 0, enabled: true })]} locked="Vom Master vorgegeben" />);
   enthaeltNicht(gesperrtOhnePort, PEERS_TEXTE.setzenOhnePort, 'Gegenstellen locked ohne Port: nur der Sperrgrund des Abschnitts, kein zweiter Grund am Knopf');
   enthaelt(render(<PeersSection {...stage} />), '>Setzen</button>', 'Gegenstellen mit gültigem Port: Setzen ohne Grund');
   enthaeltNicht(render(<PeersSection {...stage} />), PEERS_TEXTE.setzenOhnePort, 'Gegenstellen mit gültigem Port: kein Grund am Knopf');

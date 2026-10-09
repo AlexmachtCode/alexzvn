@@ -1,5 +1,5 @@
 // --- @jm/settings: PeersSection „Gegenstellen“ (Spec 6.2, UO4) ---
-import { Button, Field, NumberInput, StatusPill, TextInput, Toggle } from '@jm/ui';
+import { Button, Field, NumberInput, StatusPill, TextInput, Toggle, UNBEKANNT } from '@jm/ui';
 import { useEffect, useId, useState } from 'react';
 import { Anzeige, SectionFrame } from '../SectionFrame';
 import { istGesperrt } from '../vertrag';
@@ -31,9 +31,13 @@ function PeerZeile({ row, zeile, p, sichtbar, gesperrt }: ZeileProps): React.JSX
         {row.label}
       </p>
       {sichtbar.schalter ? (
-        <Field label={PEERS_TEXTE.aktiv}>
-          <Toggle checked={zeile.aktiv} onChange={(n) => peerToggle(p, row, n)} disabled={sperre} />
-        </Field>
+        typeof zeile.aktiv === 'boolean' ? (
+          <Field label={PEERS_TEXTE.aktiv}>
+            <Toggle checked={zeile.aktiv} onChange={(n) => peerToggle(p, row, n)} disabled={sperre} />
+          </Field>
+        ) : (
+          <Anzeige label={PEERS_TEXTE.aktiv}>{UNBEKANNT}</Anzeige>
+        )
       ) : null}
       <Field label={PEERS_TEXTE.host}>
         <TextInput value={host} onChange={setHost} placeholder={sichtbar.auto ? PEERS_TEXTE.platzhalterHost : undefined} disabled={sperre} />

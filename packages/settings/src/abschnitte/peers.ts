@@ -13,7 +13,7 @@ export interface PeerRow {
   port: number; defaultPort?: number;
   connected?: boolean;               // gemessen; undefined = unbekannt
   source?: 'mdns' | 'manual';        // undefined = Modell ohne Auto (Stage-Display)
-  enabled?: boolean;                 // nur mit capabilities.toggle
+  enabled?: boolean;                 // nur mit capabilities.toggle; dort undefined = nicht gemeldet (unbekannt)
 }
 
 export interface PeersSectionProps extends SectionInput {
@@ -53,7 +53,9 @@ export interface PeerZeileView {
   role: string;
   label: string;
   status: SectionStatus;
-  aktiv: boolean;                    // enabled !== false
+  // Ohne capabilities.toggle: enabled !== false (das Tool kennt kein Aus, weggelassen heißt an). Mit toggle: der gemeldete
+  // Wert; undefined = nicht gemeldet, unbekannt (G6, Spec 7.2) – die Zeile zählt dann nicht als aktiv.
+  aktiv: boolean | undefined;
   quelleText?: string;               // „gefunden“ bzw. „manuell: {host}:{port}“; ohne source keins
 }
 
@@ -70,12 +72,12 @@ export function peerZeileStatus(r: PeerRow): SectionStatus {
   return st('warn', PEERS_TEXTE.zeileNichtGefunden);
 }
 
-function zeileView(r: PeerRow): PeerZeileView {
+function zeileView(r: PeerRow, schalter: boolean): PeerZeileView {
   return {
     role: r.role,
     label: r.label,
     status: peerZeileStatus(r),
-    aktiv: r.enabled !== false,
+    aktiv: schalter ? r.enabled : r.enabled !== false,
     quelleText:
       r.source === 'mdns'
         ? PEERS_TEXTE.quelleGefunden
@@ -87,16 +89,18 @@ function zeileView(r: PeerRow): PeerZeileView {
 
 function peersStatus(p: PeersSectionProps, zeilen: readonly PeerZeileView[]): SectionStatus {
   if (hatFehler(p)) return fehlerStatus(p.error);
-  const aktive = zeilen.filter((z) => z.aktiv);
-  if (aktive.length === 0) return st('off', PEERS_TEXTE.keineGegenstellen);
+  const aktive = zeilen.filter((z) => z.aktiv === true);
+  // Eine Zeile mit nicht gemeldetem Ein/Aus zählt nicht in n; sie lässt aber weder „keine Gegenstellen“ noch „verbunden“ zu.
+  const offen = zeilen.some((z) => z.aktiv === undefined);
+  if (aktive.length === 0) return offen ? STATUS_UNBEKANNT : st('off', PEERS_TEXTE.keineGegenstellen);
   const hat = (state: StatusState): boolean => aktive.some((z) => z.status.state === state);
   if (hat('warn')) return st('warn', PEERS_TEXTE.kVonN(aktive.filter((z) => z.status.state === 'ok').length, aktive.length));
-  if (hat('off')) return STATUS_UNBEKANNT;
+  if (hat('off') || offen) return STATUS_UNBEKANNT;
   return st('ok', PEERS_TEXTE.alleVerbunden);
 }
 
 export function peersView(p: PeersSectionProps): PeersView {
-  const zeilen = p.peers.map(zeileView);
+  const zeilen = p.peers.map((r) => zeileView(r, p.capabilities.toggle === true));
   const auto = p.capabilities.auto === true && typeof p.onAuto === 'function';
   return {
     id: p.id,
