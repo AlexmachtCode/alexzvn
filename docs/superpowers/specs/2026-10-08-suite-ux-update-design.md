@@ -138,6 +138,12 @@ interface TallyButtonProps {
   grüner Kante, `gesperrt` = gedimmt plus Grund.
 - **Halten-zum-Sprechen** (Connect-Talkback) über `onPress`/`onRelease`; `onRelease` kommt in jedem Fall genau einmal, auch
   wenn der Zeiger das Fenster verlässt — ein hängender Talkback wäre ein Live-Fehler.
+- **Auf Sendung und gesperrt** (Nachtrag, Owner 09.10.2026; Frage O2 im Fundament-Plan): `state` bleibt einer aus
+  `'bereit' | 'live' | 'gesperrt'`. Ist `state` `'live'` und `disabledReason` gesetzt (nicht leer, nicht nur Leerzeichen),
+  zeigt der Knopf weiter die LIVE-Fläche mit „LIVE“-Kennung, dazu den Grund wie bei `gesperrt` (sichtbar, als Tooltip und
+  für Screenreader), und er ist nicht bedienbar; ein laufendes Halten endet wie beim Wechsel auf `gesperrt` (`onRelease`
+  genau einmal). Auf der LIVE-Fläche steht der Grund in deren großer Schrift (Kontrast, 4.2). `live` ohne Grund und
+  `gesperrt` bleiben unverändert. Beispiel: Switcher, Quelle auf Sendung, Knopf während einer Überblendung gesperrt.
 - Ein Tool zeigt höchstens **vier** `TallyButton`s nebeneinander (5.1). Ausnahme Studio-Control: Tallys je Gerätepanel,
   keine globale Leiste (Anhang A).
 - Ein `shortcut` zeigt nur ein **vorhandenes** Kürzel an. Wo die Beschriftung heute falsch ist (Player: „GO ⏎“, ausgelöst
@@ -373,11 +379,12 @@ Abnahme der Welle (Abschnitt 12) und nur mit Owner-Freigabe.
 - **Nach dem Umbau** wird jeder Punkt abgehakt, mit Ort im neuen Aufbau. Ein Punkt ohne Haken blockiert die Welle.
 - **Tastaturkürzel bleiben gleich.** Kollisionen mit neuen Kürzeln (Escape im Panel, 3.1) löst der Plan zugunsten des
   bestehenden Kürzels.
-- **Pflichtpunkt jeder Funktionsliste mit Einstellungs-Panel** (Nachtrag 09.10.2026 nach dem Fundament; Owner-Entscheid
-  offen, Frage O1 im Fundament-Plan unter „Umsetzung: Abweichungen vom Plantext“): was Leertaste und Escape auslösen,
-  wenn der Fokus im Panel liegt – auf einem Feld (die Taste bleibt im Panel), auf einem Schalter oder Knopf (die Taste
-  geht heute ans Tool: Leertaste = GO, der Schalter schaltet dann nicht) und Escape (schließt heute immer das Panel und
-  erreicht das Tool nie, z. B. Player: Escape = Stop). Bis zum Entscheid gilt der Stand des Bausteins `SettingsPanel`.
+- **Pflichtpunkt jeder Funktionsliste mit Einstellungs-Panel** (Nachtrag 09.10.2026 nach dem Fundament; entschieden
+  09.10.2026 – Owner: wie umgesetzt, Frage O1 im Fundament-Plan unter „Umsetzung: Abweichungen vom Plantext“): was
+  Leertaste und Escape auslösen, wenn der Fokus im Panel liegt – auf einem Feld (die Taste bleibt im Panel), auf einem
+  Schalter oder Knopf (die Taste geht heute ans Tool: Leertaste = GO, der Schalter schaltet dann nicht) und Escape
+  (schließt heute immer das Panel und erreicht das Tool nie, z. B. Player: Escape = Stop). Es gilt der Stand des
+  Bausteins `SettingsPanel` (Owner-Entscheid 09.10.2026).
 - **Bedienlogik, Protokolle, Ports, IPC und Hauptprozesse bleiben unverändert** (U6). Ändert sich beim Umbau doch etwas
   daran, ist das ein eigener, benannter Punkt im Plan.
 

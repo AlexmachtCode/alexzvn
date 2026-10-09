@@ -17544,15 +17544,32 @@ Dieser Abschnitt beschreibt, was nach Task 25 geschieht. Er ist keine Aufgabe f�
      kein Tool-Kürzel; dort schaltet die Leertaste den Schalter (Browser-Standard). In einem Tool mit Leertaste = GO
      (Rundown, Player) geht die Taste nach heutiger Regel ans Tool: GO, und der Schalter schaltet nicht. Ob das so bleibt,
      ist die offene Owner-Frage O1 (unten); geprüft wird es mit dem ersten Tool, das ein Panel und ein Leertasten-Kürzel hat.
+     **Nachtrag 09.10.2026:** O1 ist entschieden – es bleibt so (Leertaste auf Schalter oder Knopf im Panel geht ans Tool,
+     Escape mit Fokus im Panel schließt immer das Panel). Der Punkt prüft beim ersten solchen Tool, dass es so wirkt.
   9. **800 px: alle Statuseinträge sichtbar** (Task 8, 15): In beiden 800-px-Rahmen steht jeder Statuseintrag ganz da
      (Symbol und Label), keiner ist rechts abgeschnitten oder umgebrochen. Ein fehlender Eintrag ist ein Befund (die
      Leiste schneidet mit `overflow-hidden` ohne Hinweis ab).
   10. **Gegenstellen: Port ungültig** (Fix-Welle, Task 22): In einem Gegenstellen-Beispiel ins Portfeld „abc“ tippen →
       „Setzen“ ist sofort gesperrt, darunter „Setzen geht erst mit einem gültigen Port.“; Escape → der Port steht wieder
       da, „Setzen“ ist frei.
+
+  Nachgetragen nach den Owner-Entscheiden O1–O4 (09.10.2026; Grund unter „Owner-Entscheide O1–O4“):
+
+  11. **Auf Sendung und gesperrt** (O2): Galerie, Gruppe „TallyButton“, Beispiel „auf Sendung und gesperrt“, in Dunkel
+      und Hell: rote Fläche mit „LIVE“ und „Kamera 2“, darunter „Während der Überblendung gesperrt“ in derselben großen
+      hellen Schrift, in beiden Modi gut lesbar; über dem Knopf zeigt der Mauszeiger „nicht erlaubt“. Dann im Beispiel
+      „Halten zum Sprechen“:
+      (a) „live + gesperrt“ wählen → der Knopf zeigt „LIVE“ und „Zum Ausprobieren gesperrt“; Maus, Leertaste und Enter
+      ändern keinen Zähler.
+      (b) „live“ wählen, „in 2 s live sperren (dabei halten)“ anklicken und den Knopf mit der Maus (danach noch einmal
+      mit der Leertaste) halten → nach etwa 2 s „losgelassen“ +1, „LIVE“ bleibt sichtbar, danach sind „gedrückt“ und
+      „losgelassen“ gleich. Steigt „losgelassen“ nicht, wirkt der Effekt nicht (Befund).
+      Wirkt die große Grund-Zeile zu wuchtig, ist das ein Gestaltungsbefund; die Alternativen stehen unter
+      „Owner-Entscheide O1–O4“.
 - Vor dem Merge entscheidet bzw. bestätigt der Owner die Punkte unter „Umsetzung: Abweichungen vom Plantext“ →
   „Offene Owner-Fragen“ (O1–O4) und nimmt die Owner-Info zum Badge-Kontrast zur Kenntnis. O1 und O2 müssen spätestens vor
-  Welle 1 entschieden sein, O3 und O4 vor dem Merge.
+  Welle 1 entschieden sein, O3 und O4 vor dem Merge. **Nachtrag 09.10.2026:** O1–O4 sind entschieden (siehe
+  „Owner-Entscheide O1–O4“).
 - Gemergt wird nach Freigabe durch den Owner. Es gibt **keinen** Release: `@jm/ui` und `@jm/settings` werden mit den Apps
   gebündelt; die Apps sehen unverändert aus (4.1), ihr CSS wird nur etwas größer. Der erste Release mit den neuen Bausteinen
   ist der Titler-Pilot. Er bekommt einen **eigenen Plan nach dem Merge von Master-Link 2b R2 und Zoom 4b**; dort kommen auch
@@ -17647,10 +17664,13 @@ der neuen Fassung. Neue Nutzertexte: keine außer dem Galerie-Zähler „Take-Kl
 | nach Task 24 | 601 | 397 | 20 `ok`, CSS 37,03 kB | 19 `ok`, CSS 49,61 kB |
 | nach der Fix-Welle | 605 | 412 | 20 `ok`, CSS 37,03 kB | 19 `ok`, CSS 49,61 kB (dieselbe Datei `index-BGcmn55R.css`) |
 | nach den Restpunkten R1–R3 | 606 | 419 | 20 `ok`, CSS 37,03 kB (dieselbe Datei `index-MHt1Wgnh.css`, Klassen 71/30) | nicht neu gebaut |
+| nach den Owner-Entscheiden O1–O4 | 625 | 419 | 20 `ok`, 13 Tokens, CSS 37,03 kB (dieselbe Datei `index-MHt1Wgnh.css`, Klassen 71/30) | nicht neu gebaut |
 
 Die Differenz zum Plantext kommt nur aus den Rulings oben (zusätzliche Prüfungen; `--field-border` und neue Klassen im
 CSS). Typprüfung aller Workspaces nach der Fix-Welle: `Exit=0`, 31 Workspaces, 0 `error TS`.
 Nach den Restpunkten R1–R3 ebenso: `Exit=0`, 31 Workspaces, 0 `error TS`.
+Nach den Owner-Entscheiden O1–O4 ebenso: `Exit=0`, 31 Workspaces, 0 `error TS`. Die 19 neuen `ok` in `@jm/ui`: 10 im
+TallyButton-Test, 4 im Kontrast-Test, 5 im Galerie-Test (O2 und O3).
 
 ### Neues Token `--field-border` (Owner-Freigabe O3)
 
@@ -17660,6 +17680,9 @@ verlangt) dunkel auf `--background`/`--card`/`--surface-raised`/`--input` 4,41/4
 Spec 4.2 kennt den Namen nicht; `tokens.test.ts` führt ihn. Noch nicht nachgezogen (darf nach dem Merge folgen, sinnvoll
 erst nach der Freigabe): die Farbkachel der Galerie (`FARBEN` in `galerie/beispiele-ui.tsx`) und `NEUE_TOKENS` der
 Klassen-Probe (`galerie/pruefe-klassen.ts`, heute 12; der Galerie-Test prüft `NEUE_TOKENS.length === 12`).
+**Nachtrag 09.10.2026:** Der Owner hat das Token freigegeben (O3). Farbkachel („Rand von Eingabefeldern“) und
+`NEUE_TOKENS` (jetzt 13) sind nachgezogen (3e2c07f845); der Galerie-Test prüft 13 Namen mit `--field-border` und die
+Kachel im Beispiel „farben“, die Klassen-Probe die Definition im gebauten CSS.
 
 ### Owner-Info: Badge-Kontrast hell
 
@@ -17672,12 +17695,43 @@ Spec 4.1); die Zahlen im Test bleiben die der Paare ohne Tönung.
 
 ### Offene Owner-Fragen
 
+**Nachtrag 09.10.2026:** Alle vier sind entschieden (Abschnitt „Owner-Entscheide O1–O4“ unter der Tabelle). Die Tabelle
+bleibt als Stand vor dem Entscheid stehen.
+
 | # | Frage | Heute im Branch | Bis wann |
 | --- | --- | --- | --- |
 | O1 | **Tasten im Panel.** (a) Leertaste auf einem fokussierten Schalter oder Knopf im Panel: Soll sie ans Tool gehen (Rundown, Player: GO; der Schalter schaltet dann nicht, weil das Tool `preventDefault` ruft) oder im Panel bleiben (der Schalter schaltet, kein GO)? (b) Escape mit Fokus im Panel schließt das Panel und erreicht das Tool nie; beim Player ist Escape = Stop. Spec 10 löst Kollisionen „zugunsten des bestehenden Kürzels“, der Baustein hat dafür keinen Schalter. | (a) Taste geht ans Tool (Fix-Runden 3–4 von Task 13: Spec 10 „Kürzel bleiben gleich“); (b) Escape bleibt immer im Panel. Steht als Pflichtpunkt in Spec 10 (Funktionsliste) | vor Welle 1 (Rundown) bzw. Welle 2 (Player); Code je nach Entscheid |
 | O2 | **live × gesperrt.** `TallyButton.state` ist genau einer aus „bereit“, „live“, „gesperrt“. Ist eine Quelle auf Sendung und ihr Knopf zugleich gesperrt (z. B. Switcher während einer Überblendung), muss das Tool „gesperrt“ wählen, und die LIVE-Kennung verschwindet. Soll der Baustein „auf Sendung und gesperrt“ zeigen können? | nicht darstellbar | Spec-/Owner-Entscheid vor Welle 1 (Switcher) |
 | O3 | **Token `--field-border`** (Name und Werte oben) freigeben. | im Code, ohne Freigabe | vor dem Merge |
 | O4 | **Neuer Text** „Setzen geht erst mit einem gültigen Port.“ (Grund am gesperrten „Setzen“, F1) freigeben oder umformulieren. | `PEERS_TEXTE.setzenOhnePort` | vor dem Merge |
+
+### Owner-Entscheide O1–O4 (09.10.2026)
+
+Der Owner hat am 09.10.2026 entschieden; die Form von O2 hat die steuernde Sitzung festgelegt (Ruling, additiv, keine
+Bruchstelle). Tests jeweils zuerst rot, dann grün; die neuen Prüfungen von O2 zusätzlich mit Mutationsproben (Eingriff im
+Code → die passende Prüfung schlägt fehl).
+
+| # | Entscheid | Umsetzung | Commit |
+| --- | --- | --- | --- |
+| O1 | **Entschieden: wie umgesetzt.** (a) Die Leertaste auf einem fokussierten Schalter oder Knopf im Panel geht ans Tool (GO bleibt gleich; der Schalter schaltet dann nicht). (b) Escape mit Fokus im Panel schließt immer das Panel | Kein Code. Spec 10 (Pflichtpunkt „Panel-Tasten“) steht auf „entschieden 09.10.2026“; Owner-Prüfpunkt 8 nachgetragen | Doku-Commit |
+| O2 | **Entschieden: Der `TallyButton` kann „auf Sendung und gesperrt“ zeigen.** Form: `state` bleibt `'bereit' \| 'live' \| 'gesperrt'`; `'live'` mit `disabledReason` (nicht leer, nicht nur Leerzeichen, dieselbe Regel wie `tallyGrund`) ist auf Sendung UND gesperrt. `'live'` ohne Grund und `'gesperrt'` bleiben unverändert | LIVE-Fläche (`LIVE_FLAECHE_KLASSE`) und Kennung „LIVE“ bleiben, `data-state="live"`; dazu der Grund sichtbar, als `title` und per `aria-describedby`, `aria-disabled="true"` (bleibt fokussierbar), `cursor-not-allowed`. `onClick`, `onPress` und `onRelease` feuern nicht, kein Pointer Capture; ein laufendes Halten lässt sich weiter loslassen. Beim Wechsel live → live + gesperrt endet ein laufendes Halten (`haltenBeiZustand(state, halten, disabledReason)`, der Effekt hängt am Grund). Galerie: Beispiel „auf Sendung und gesperrt“ (beide Modi, Pflichtmarke im Galerie-Test); die HaltenProbe gibt den Grund nur noch bei „gesperrt“ und dem neuen „live + gesperrt“ mit (sonst wäre „live“ seit O2 gesperrt) und hat „in 2 s live sperren (dabei halten)“. Spec 3.4 nachgetragen; Owner-Prüfpunkt 11 | a3af9eef0a |
+| O3 | **Freigegeben:** Token `--field-border` (Name und Werte wie im Abschnitt oben) | Farbkachel in der Galerie und `NEUE_TOKENS` (13) nachgezogen, mit Tests | 3e2c07f845 |
+| O4 | **Freigegeben:** Text „Setzen geht erst mit einem gültigen Port.“ | Kein Code (`PEERS_TEXTE.setzenOhnePort` bleibt wörtlich) | Doku-Commit |
+
+**Kontrast der Grund-Zeile auf der LIVE-Fläche (O2, gemessen im Kontrast-Test, beide Modi).** Die Grund-Zeile aus
+„gesperrt“ (11 px halbfett, `--muted-foreground`) erreicht auf `--tally-live` nur 1,26 (dunkel) bzw. 1,37 : 1 (hell), also
+weder Text (4,5) noch Grafik (3). Deshalb trägt die Zeile auf der LIVE-Fläche keine eigene Schrift und Farbe, sie steht in
+`LIVE_FLAECHE_KLASSE` (19 px extrafett, `--brand-fg-on-dark`): 3,90 bzw. 5,20 : 1, „groß“ nach E3 (3 : 1). Beide Werte sind
+in `kontrast.test.ts` festgeschrieben, und auf der LIVE-Fläche gilt weiter E3: nichts darin setzt eine kleinere Schrift.
+Nicht umgesetzt, falls die große Zeile zu wuchtig wirkt (Owner-Prüfpunkt 11): (1) der Grund in normaler Größe in
+`--background` wie der live-Eintrag der Statusleiste (4,63 bzw. 5,43 : 1, Text) – dann stünden helle und dunkle Schrift auf
+derselben Fläche, und E3 bekäme eine Ausnahme; (2) der Grund unter dem Knopf außerhalb der Fläche – das bräuchte ein
+Element neben dem `<button>` und änderte die Anordnung im Tool (der Knopf füllt heute allein seinen Behälter).
+
+**Sperr-Symbol.** Das Ruling nennt „das Sperr-Symbol und den Sperrgrund wie im Zustand `gesperrt`“. Der Zustand
+„gesperrt“ hat kein Symbol (gedimmte Fläche und Grund, E9); umgesetzt ist deshalb, was „gesperrt“ zeigt: Grund, Sperre
+(`aria-disabled`) und Zeiger, kein neues Zeichen. Ein Schloss-Symbol für „gesperrt“ und „auf Sendung und gesperrt“ wäre eine
+eigene Owner-Entscheidung (es änderte auch „gesperrt“).
 
 ### Vorgemerkt für die Wellen (aus der Prüfung, keine Aktion vor dem Merge)
 
