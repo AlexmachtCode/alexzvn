@@ -66,7 +66,8 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   'statusbar-gemischt': ['role="status"', 'h-[var(--statusbar-h)]'],
   'statusbar-knoepfe': ['<button', UI_TEXTE.statusOeffnen('NDI')],
   'statusbar-leer': ['role="status"', 'tabular'],
-  'tally-bereit': ['border-[var(--tally-ready)]', 'min-h-[var(--control-h-lg)]'],
+  // „Take-Klicks: 0“: eigener Zähler des reinen Klick-Knopfs „Take“, Messgerät für Owner-Prüfpunkt 7 (Take ziehen).
+  'tally-bereit': ['border-[var(--tally-ready)]', 'min-h-[var(--control-h-lg)]', '>Take<', 'Take-Klicks: 0'],
   'tally-live': [UI_TEXTE.live, 'text-[19px]'],
   'tally-gesperrt': ['aria-disabled="true"', 'Nur im Live-Modus'],
   'tally-gesperrt-ohne-grund': ['aria-disabled="true"', UI_TEXTE.gesperrtOhneGrund],
@@ -147,6 +148,15 @@ function ersterZustand(html: string): string | undefined {
     const fehlt = pruefung.filter((teil) => !html.includes(teil));
     ok(fehlt.length === 0, `Baustein-Beispiel ${b.name}: ${pruefung.join(' · ')}`);
   }
+  // Owner-Prüfpunkt 7 (Take ziehen) misst nur am reinen Klick-Knopf: Ohne Halten setzt TallyButton keinen Pointer Capture
+  // (Ruling T9). Darum übergibt der Baustein mit dem Take-Zähler weder onPress noch onRelease.
+  const takeProbe = leseText('galerie/beispiele-ui.tsx')
+    .split(/\n(?=function |export function )/)
+    .filter((teil) => teil.includes('Take-Klicks'));
+  ok(
+    takeProbe.length === 1 && takeProbe[0].includes('onClick=') && !/onPress|onRelease/.test(takeProbe[0]),
+    'Galerie Take-Zähler: genau ein Baustein zählt „Take-Klicks“, als reiner Klick-Knopf (onClick, ohne onPress/onRelease)',
+  );
   const panel = render(uiBeispiele('light').find((b) => b.name === 'panel')!.element);
   ok((panel.match(/data-hervorgehoben="true"/g) ?? []).length === 1, 'Panel-Beispiel: genau ein Anker hervorgehoben');
 

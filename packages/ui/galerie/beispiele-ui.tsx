@@ -182,6 +182,18 @@ function HaltenProbe(): React.JSX.Element {
   );
 }
 
+// Reiner Klick-Knopf (ohne Halten) mit eigenem Zähler: Messgerät für Owner-Prüfpunkt 7 „Take ziehen“ (drücken, vom Knopf
+// wegziehen, loslassen: der Zähler bleibt gleich). Ohne Halten setzt TallyButton keinen Pointer Capture (Ruling T9).
+function TakeProbe(): React.JSX.Element {
+  const [klicks, setKlicks] = useState(0);
+  return (
+    <div className="space-y-2">
+      <TallyButton state="bereit" label="Take" shortcut="Enter" onClick={() => setKlicks((n) => n + 1)} />
+      <p className="tabular text-[11px]">{`Take-Klicks: ${klicks}`}</p>
+    </div>
+  );
+}
+
 function TextBeispiel(p: { fehler?: string; gesperrt?: string }): React.JSX.Element {
   const [wert, setWert] = useState(p.fehler ? '' : 'JM Titler');
   return (
@@ -314,7 +326,7 @@ export function uiBeispiele(modus: Modus): Beispiel[] {
     { name: 'statusbar-gemischt', gruppe: 'StatusBar', titel: 'Gruppen gemischt übergeben, Leiste ordnet; ohne Knöpfe', element: <StatusBar items={STATUS_GEMISCHT} /> },
     { name: 'statusbar-knoepfe', gruppe: 'StatusBar', titel: 'Einträge mit Abschnitt öffnen das Panel', element: <StatusBarMitKnoepfen /> },
     { name: 'statusbar-leer', gruppe: 'StatusBar', titel: 'Ohne Sitzung: nur die Uhr', element: <StatusBar items={[]} /> },
-    { name: 'tally-bereit', gruppe: 'TallyButton', titel: 'bereit', element: <Tallys><TallyButton state="bereit" label="Take" shortcut="Enter" onClick={nichts} /></Tallys> },
+    { name: 'tally-bereit', gruppe: 'TallyButton', titel: 'bereit', element: <Tallys><TakeProbe /></Tallys> },
     { name: 'tally-live', gruppe: 'TallyButton', titel: 'live', element: <Tallys><TallyButton state="live" label="Bauchbinde 1" shortcut="Enter" onClick={nichts} /></Tallys> },
     { name: 'tally-gesperrt', gruppe: 'TallyButton', titel: 'gesperrt mit Grund', element: <Tallys><TallyButton state="gesperrt" label="Clear" disabledReason="Nur im Live-Modus" onClick={nichts} /></Tallys> },
     { name: 'tally-gesperrt-ohne-grund', gruppe: 'TallyButton', titel: 'gesperrt ohne Grund (Fehler des Tools, sichtbar gemacht)', element: <Tallys><TallyButton state="gesperrt" label="Clear" onClick={nichts} /></Tallys> },
