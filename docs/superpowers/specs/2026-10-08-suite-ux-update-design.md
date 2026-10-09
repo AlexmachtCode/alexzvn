@@ -144,6 +144,8 @@ interface TallyButtonProps {
   für Screenreader), und er ist nicht bedienbar; ein laufendes Halten endet wie beim Wechsel auf `gesperrt` (`onRelease`
   genau einmal). Auf der LIVE-Fläche steht der Grund in deren großer Schrift (Kontrast, 4.2). `live` ohne Grund und
   `gesperrt` bleiben unverändert. Beispiel: Switcher, Quelle auf Sendung, Knopf während einer Überblendung gesperrt.
+  Vor dem Grund steht „Gesperrt: “ (wie die Sperre im `Field`), sichtbar, im Tooltip und für Screenreader: Die LIVE-Fläche
+  sieht aus wie bei `live`, also nennt das Wort die Sperre (Nachbesserung nach Prüfung, 09.10.2026).
 - Ein Tool zeigt höchstens **vier** `TallyButton`s nebeneinander (5.1). Ausnahme Studio-Control: Tallys je Gerätepanel,
   keine globale Leiste (Anhang A).
 - Ein `shortcut` zeigt nur ein **vorhandenes** Kürzel an. Wo die Beschriftung heute falsch ist (Player: „GO ⏎“, ausgelöst

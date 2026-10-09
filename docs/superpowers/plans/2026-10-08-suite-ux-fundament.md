@@ -17556,11 +17556,13 @@ Dieser Abschnitt beschreibt, was nach Task 25 geschieht. Er ist keine Aufgabe f�
   Nachgetragen nach den Owner-Entscheiden O1–O4 (09.10.2026; Grund unter „Owner-Entscheide O1–O4“):
 
   11. **Auf Sendung und gesperrt** (O2): Galerie, Gruppe „TallyButton“, Beispiel „auf Sendung und gesperrt“, in Dunkel
-      und Hell: rote Fläche mit „LIVE“ und „Kamera 2“, darunter „Während der Überblendung gesperrt“ in derselben großen
-      hellen Schrift, in beiden Modi gut lesbar; über dem Knopf zeigt der Mauszeiger „nicht erlaubt“. Dann im Beispiel
-      „Halten zum Sprechen“:
-      (a) „live + gesperrt“ wählen → der Knopf zeigt „LIVE“ und „Zum Ausprobieren gesperrt“; Maus, Leertaste und Enter
-      ändern keinen Zähler.
+      und Hell: rote Fläche mit „LIVE“ und „Kamera 2“, darunter „Gesperrt: Während der Überblendung gesperrt“ in
+      derselben großen hellen Schrift, in beiden Modi gut lesbar; über dem Knopf zeigt der Mauszeiger „nicht erlaubt“, der
+      Tooltip zeigt denselben Text. Dann im Beispiel „Halten zum Sprechen“:
+      (a) „live + gesperrt“ wählen → der Knopf zeigt „LIVE“ und „Gesperrt: Zum Ausprobieren gesperrt“; Maus, Leertaste
+      und Enter ändern keinen Zähler.
+      Das doppelte „gesperrt“ kommt aus den Beispielgründen der Galerie, nicht aus dem Baustein: „Gesperrt: “ steht seit
+      der Nachbesserung nach Prüfung immer vor dem Grund (siehe „Owner-Entscheide O1–O4“, Absatz „Sperr-Symbol“).
       (b) „live“ wählen, „in 2 s live sperren (dabei halten)“ anklicken und den Knopf mit der Maus (danach noch einmal
       mit der Leertaste) halten → nach etwa 2 s „losgelassen“ +1, „LIVE“ bleibt sichtbar, danach sind „gedrückt“ und
       „losgelassen“ gleich. Steigt „losgelassen“ nicht, wirkt der Effekt nicht (Befund).
@@ -17665,12 +17667,14 @@ der neuen Fassung. Neue Nutzertexte: keine außer dem Galerie-Zähler „Take-Kl
 | nach der Fix-Welle | 605 | 412 | 20 `ok`, CSS 37,03 kB | 19 `ok`, CSS 49,61 kB (dieselbe Datei `index-BGcmn55R.css`) |
 | nach den Restpunkten R1–R3 | 606 | 419 | 20 `ok`, CSS 37,03 kB (dieselbe Datei `index-MHt1Wgnh.css`, Klassen 71/30) | nicht neu gebaut |
 | nach den Owner-Entscheiden O1–O4 | 625 | 419 | 20 `ok`, 13 Tokens, CSS 37,03 kB (dieselbe Datei `index-MHt1Wgnh.css`, Klassen 71/30) | nicht neu gebaut |
+| nach der Nachbesserung O2 („Gesperrt: “) | 627 | 419 | 20 `ok`, 13 Tokens, CSS 37,03 kB (dieselbe Datei `index-MHt1Wgnh.css`, Klassen 71/30) | nicht neu gebaut |
 
 Die Differenz zum Plantext kommt nur aus den Rulings oben (zusätzliche Prüfungen; `--field-border` und neue Klassen im
 CSS). Typprüfung aller Workspaces nach der Fix-Welle: `Exit=0`, 31 Workspaces, 0 `error TS`.
 Nach den Restpunkten R1–R3 ebenso: `Exit=0`, 31 Workspaces, 0 `error TS`.
 Nach den Owner-Entscheiden O1–O4 ebenso: `Exit=0`, 31 Workspaces, 0 `error TS`. Die 19 neuen `ok` in `@jm/ui`: 10 im
-TallyButton-Test, 4 im Kontrast-Test, 5 im Galerie-Test (O2 und O3).
+TallyButton-Test, 4 im Kontrast-Test, 5 im Galerie-Test (O2 und O3). Nach der Nachbesserung O2 ebenso (`Exit=0`, 31
+Workspaces, 0 `error TS`); die 2 neuen `ok` stehen im TallyButton-Test.
 
 ### Neues Token `--field-border` (Owner-Freigabe O3)
 
@@ -17714,7 +17718,7 @@ Code → die passende Prüfung schlägt fehl).
 | # | Entscheid | Umsetzung | Commit |
 | --- | --- | --- | --- |
 | O1 | **Entschieden: wie umgesetzt.** (a) Die Leertaste auf einem fokussierten Schalter oder Knopf im Panel geht ans Tool (GO bleibt gleich; der Schalter schaltet dann nicht). (b) Escape mit Fokus im Panel schließt immer das Panel | Kein Code. Spec 10 (Pflichtpunkt „Panel-Tasten“) steht auf „entschieden 09.10.2026“; Owner-Prüfpunkt 8 nachgetragen | Doku-Commit |
-| O2 | **Entschieden: Der `TallyButton` kann „auf Sendung und gesperrt“ zeigen.** Form: `state` bleibt `'bereit' \| 'live' \| 'gesperrt'`; `'live'` mit `disabledReason` (nicht leer, nicht nur Leerzeichen, dieselbe Regel wie `tallyGrund`) ist auf Sendung UND gesperrt. `'live'` ohne Grund und `'gesperrt'` bleiben unverändert | LIVE-Fläche (`LIVE_FLAECHE_KLASSE`) und Kennung „LIVE“ bleiben, `data-state="live"`; dazu der Grund sichtbar, als `title` und per `aria-describedby`, `aria-disabled="true"` (bleibt fokussierbar), `cursor-not-allowed`. `onClick`, `onPress` und `onRelease` feuern nicht, kein Pointer Capture; ein laufendes Halten lässt sich weiter loslassen. Beim Wechsel live → live + gesperrt endet ein laufendes Halten (`haltenBeiZustand(state, halten, disabledReason)`, der Effekt hängt am Grund). Galerie: Beispiel „auf Sendung und gesperrt“ (beide Modi, Pflichtmarke im Galerie-Test); die HaltenProbe gibt den Grund nur noch bei „gesperrt“ und dem neuen „live + gesperrt“ mit (sonst wäre „live“ seit O2 gesperrt) und hat „in 2 s live sperren (dabei halten)“. Spec 3.4 nachgetragen; Owner-Prüfpunkt 11 | a3af9eef0a |
+| O2 | **Entschieden: Der `TallyButton` kann „auf Sendung und gesperrt“ zeigen.** Form: `state` bleibt `'bereit' \| 'live' \| 'gesperrt'`; `'live'` mit `disabledReason` (nicht leer, nicht nur Leerzeichen, dieselbe Regel wie `tallyGrund`) ist auf Sendung UND gesperrt. `'live'` ohne Grund und `'gesperrt'` bleiben unverändert | LIVE-Fläche (`LIVE_FLAECHE_KLASSE`) und Kennung „LIVE“ bleiben, `data-state="live"`; dazu der Grund sichtbar, als `title` und per `aria-describedby` (Nachbesserung nach Prüfung: mit „Gesperrt: “ davor, `UI_TEXTE.gesperrt`; Absatz „Sperr-Symbol“), `aria-disabled="true"` (bleibt fokussierbar), `cursor-not-allowed`. `onClick`, `onPress` und `onRelease` feuern nicht, kein Pointer Capture; ein laufendes Halten lässt sich weiter loslassen. Beim Wechsel live → live + gesperrt endet ein laufendes Halten (`haltenBeiZustand(state, halten, disabledReason)`, der Effekt hängt am Grund). Galerie: Beispiel „auf Sendung und gesperrt“ (beide Modi, Pflichtmarke im Galerie-Test); die HaltenProbe gibt den Grund nur noch bei „gesperrt“ und dem neuen „live + gesperrt“ mit (sonst wäre „live“ seit O2 gesperrt) und hat „in 2 s live sperren (dabei halten)“. Spec 3.4 nachgetragen; Owner-Prüfpunkt 11 | a3af9eef0a, Nachbesserung ed35944eb0 |
 | O3 | **Freigegeben:** Token `--field-border` (Name und Werte wie im Abschnitt oben) | Farbkachel in der Galerie und `NEUE_TOKENS` (13) nachgezogen, mit Tests | 3e2c07f845 |
 | O4 | **Freigegeben:** Text „Setzen geht erst mit einem gültigen Port.“ | Kein Code (`PEERS_TEXTE.setzenOhnePort` bleibt wörtlich) | Doku-Commit |
 
@@ -17733,6 +17737,17 @@ Element neben dem `<button>` und änderte die Anordnung im Tool (der Knopf füll
 (`aria-disabled`) und Zeiger, kein neues Zeichen. Ein Schloss-Symbol für „gesperrt“ und „auf Sendung und gesperrt“ wäre eine
 eigene Owner-Entscheidung (es änderte auch „gesperrt“).
 
+**Widerrufen (Nachbesserung nach Prüfung, 09.10.2026):** Die Begründung oben trägt nicht. Bei „gesperrt“ zeigt die
+gedimmte Fläche die Sperre ohne Worte; bei „auf Sendung und gesperrt“ sieht die Fläche aus wie bei „live“, die Sperre hing
+also allein am Grundtext des Tools. `<TallyButton state="live" label="Take" disabledReason="Kein Signal">` zeigte
+„LIVE Take / Kein Signal“ – das Wort „gesperrt“ stand nirgends, nur der Mauszeiger deutete die Sperre an (bei Touch und
+Tastatur nichts). Jetzt steht bei „auf Sendung und gesperrt“ vor dem Grund „Gesperrt: “ (`UI_TEXTE.gesperrt`, kein neuer
+Text; dieselbe Sperr-Kennung wie im `Field`), sichtbar, als `title` und per `aria-describedby`, in der Schrift der
+LIVE-Fläche (Kontrast unverändert 3,90 bzw. 5,20 : 1). „gesperrt“ und „live“ ohne Grund bleiben byte-gleich (Vergleich
+altes/neues HTML über Zustand × Grund × Kürzel: 26 von 30 gleich, die 4 Abweichungen sind genau „live“ mit echtem Grund).
+Kein Zeichen statt des Worts: Die Bausteine haben kein Schloss-Zeichen (Symbole der Statusleiste ● ▲ ⚠ ○ ■), ein Emoji
+brächte eigene Farben je System mit; das Wort ist die Kennung, die die Suite schon hat. Commit ed35944eb0.
+
 ### Vorgemerkt für die Wellen (aus der Prüfung, keine Aktion vor dem Merge)
 
 Die Prüfung hat weitere kleine Punkte notiert; sie ändern heute kein Verhalten einer App (kein Tool nutzt die Bausteine
@@ -17741,7 +17756,7 @@ vor dem Pilot). Wer einen Baustein in einer Welle einbaut, prüft die passenden 
 | Baustein | Punkt |
 | --- | --- |
 | `StatusBar` (Task 8) | Einträge ohne `whitespace-nowrap`; eine schmale Leiste schneidet hintere Einträge mit `overflow-hidden` ohne Hinweis ab (Owner-Prüfpunkt 9) |
-| `TallyButton` (Task 9) | Leertaste und Enter zählen als dieselbe Quelle, `pointerup` prüft die `pointerId` nicht: ein zweiter Finger oder ein Enter beendet ein Halten früher (sichere Richtung). Ein Knopf mit `onClick` und Halten fängt weiter den Zeiger (Klick nach Wegziehen möglich) |
+| `TallyButton` (Task 9) | Leertaste und Enter zählen als dieselbe Quelle, `pointerup` prüft die `pointerId` nicht: ein zweiter Finger oder ein Enter beendet ein Halten früher (sichere Richtung). Ein Knopf mit `onClick` und Halten fängt weiter den Zeiger (Klick nach Wegziehen möglich). Klick nach dem Entsperren (nach O2, vor Welle 1 Switcher): Der Knopf ist nur `aria-disabled`; wer unter der Sperre drückt (Zeiger oder Leertaste) und erst nach dem Entsperren loslässt, löst den nativen click aus, und `onClick` ist dann frei (Take). Galt schon für „gesperrt“ → „bereit“, mit O2 („gesperrt während der Überblendung“) aber der Normalfall; Vorschlag: Druckbeginn unter Sperre merken und den folgenden click verwerfen |
 | `Field`/`NumberInput` (Task 10) | Fehlerzeile und „Noch nicht übernommen.“ ohne `aria-live` |
 | `AppHeader` (Task 14) | On-Air-Wechsel ohne `role="status"`; ⚙ mit `aria-expanded` auch ohne `onSettingsToggle` |
 | `AppShell` (Task 15) | `settings={liste.length && …}` mit 0 zeigt ⚙ und ein leeres Panel; fallen `settings` bei offenem Panel weg, kommt kein `onSettingsChange(false)`; Werkzeugleiste ohne Umbruch; `h-screen` im mobilen Browser-Tab (Sync-PWA) |
