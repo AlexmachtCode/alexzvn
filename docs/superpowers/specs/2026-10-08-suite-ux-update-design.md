@@ -380,7 +380,8 @@ Abnahme der Welle (Abschnitt 12) und nur mit Owner-Freigabe.
   Tastaturkürzel, jeder Dialog, jede Einstellung (Datei `docs/ux/funktionslisten/<app>.md`).
 - **Nach dem Umbau** wird jeder Punkt abgehakt, mit Ort im neuen Aufbau. Ein Punkt ohne Haken blockiert die Welle.
 - **Tastaturkürzel bleiben gleich.** Kollisionen mit neuen Kürzeln (Escape im Panel, 3.1) löst der Plan zugunsten des
-  bestehenden Kürzels.
+  bestehenden Kürzels. Ausnahme (Owner-Entscheid O1, 09.10.2026): Escape mit Fokus im Panel schließt immer das Panel und
+  erreicht das Tool nicht.
 - **Pflichtpunkt jeder Funktionsliste mit Einstellungs-Panel** (Nachtrag 09.10.2026 nach dem Fundament; entschieden
   09.10.2026 – Owner: wie umgesetzt, Frage O1 im Fundament-Plan unter „Umsetzung: Abweichungen vom Plantext“): was
   Leertaste und Escape auslösen, wenn der Fokus im Panel liegt – auf einem Feld (die Taste bleibt im Panel), auf einem

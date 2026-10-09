@@ -144,7 +144,7 @@ const PROBE_WAHLEN: Array<{ wahl: HaltenProbeWahl; text: string }> = [
  */
 export function haltenProbeZustand(wahl: HaltenProbeWahl): Pick<TallyButtonProps, 'state' | 'disabledReason'> {
   if (wahl === 'gesperrt') return { state: 'gesperrt', disabledReason: 'Zum Ausprobieren gesperrt' };
-  if (wahl === 'live-gesperrt') return { state: 'live', disabledReason: 'Zum Ausprobieren gesperrt' };
+  if (wahl === 'live-gesperrt') return { state: 'live', disabledReason: 'zum Ausprobieren' };
   return { state: wahl };
 }
 
@@ -356,7 +356,7 @@ export function uiBeispiele(modus: Modus): Beispiel[] {
     { name: 'statusbar-leer', gruppe: 'StatusBar', titel: 'Ohne Sitzung: nur die Uhr', element: <StatusBar items={[]} /> },
     { name: 'tally-bereit', gruppe: 'TallyButton', titel: 'bereit', element: <Tallys><TakeProbe /></Tallys> },
     { name: 'tally-live', gruppe: 'TallyButton', titel: 'live', element: <Tallys><TallyButton state="live" label="Bauchbinde 1" shortcut="Enter" onClick={nichts} /></Tallys> },
-    { name: 'tally-live-gesperrt', gruppe: 'TallyButton', titel: 'auf Sendung und gesperrt', element: <Tallys><TallyButton state="live" label="Kamera 2" disabledReason="Während der Überblendung gesperrt" onClick={nichts} /></Tallys> },
+    { name: 'tally-live-gesperrt', gruppe: 'TallyButton', titel: 'auf Sendung und gesperrt', element: <Tallys><TallyButton state="live" label="Kamera 2" disabledReason="während der Überblendung" onClick={nichts} /></Tallys> },
     { name: 'tally-gesperrt', gruppe: 'TallyButton', titel: 'gesperrt mit Grund', element: <Tallys><TallyButton state="gesperrt" label="Clear" disabledReason="Nur im Live-Modus" onClick={nichts} /></Tallys> },
     { name: 'tally-gesperrt-ohne-grund', gruppe: 'TallyButton', titel: 'gesperrt ohne Grund (Fehler des Tools, sichtbar gemacht)', element: <Tallys><TallyButton state="gesperrt" label="Clear" onClick={nichts} /></Tallys> },
     { name: 'tally-halten', gruppe: 'TallyButton', titel: 'Halten zum Sprechen: Zähler zum Ausprobieren', element: <Tallys><HaltenProbe /></Tallys> },

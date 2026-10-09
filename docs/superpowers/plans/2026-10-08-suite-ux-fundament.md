@@ -17556,10 +17556,10 @@ Dieser Abschnitt beschreibt, was nach Task 25 geschieht. Er ist keine Aufgabe f�
   Nachgetragen nach den Owner-Entscheiden O1–O4 (09.10.2026; Grund unter „Owner-Entscheide O1–O4“):
 
   11. **Auf Sendung und gesperrt** (O2): Galerie, Gruppe „TallyButton“, Beispiel „auf Sendung und gesperrt“, in Dunkel
-      und Hell: rote Fläche mit „LIVE“ und „Kamera 2“, darunter „Gesperrt: Während der Überblendung gesperrt“ in
+      und Hell: rote Fläche mit „LIVE“ und „Kamera 2“, darunter „Gesperrt: während der Überblendung“ in
       derselben großen hellen Schrift, in beiden Modi gut lesbar; über dem Knopf zeigt der Mauszeiger „nicht erlaubt“, der
       Tooltip zeigt denselben Text. Dann im Beispiel „Halten zum Sprechen“:
-      (a) „live + gesperrt“ wählen → der Knopf zeigt „LIVE“ und „Gesperrt: Zum Ausprobieren gesperrt“; Maus, Leertaste
+      (a) „live + gesperrt“ wählen → der Knopf zeigt „LIVE“ und „Gesperrt: zum Ausprobieren“; Maus, Leertaste
       und Enter ändern keinen Zähler.
       Das doppelte „gesperrt“ kommt aus den Beispielgründen der Galerie, nicht aus dem Baustein: „Gesperrt: “ steht seit
       der Nachbesserung nach Prüfung immer vor dem Grund (siehe „Owner-Entscheide O1–O4“, Absatz „Sperr-Symbol“).
