@@ -119,6 +119,16 @@ export function tallyGrund(disabledReason: string | undefined): string {
   return disabledReason?.trim() || UI_TEXTE.gesperrtOhneGrund;
 }
 
+/**
+ * Text der Sperre für title und Grund-Zeile; ohne Sperre undefined. 'gesperrt': der Grund (die gedimmte Fläche zeigt die
+ * Sperre). live + gesperrt (O2): „Gesperrt: {Grund}“ (UI_TEXTE.gesperrt, wie die Sperre im Field) – die LIVE-Fläche sieht
+ * hier aus wie bei 'live', also nennt das Wort die Sperre, auch bei Touch und Tastatur (Nachbesserung nach Prüfung).
+ */
+function tallySperrText(p: Pick<TallyButtonProps, 'state' | 'disabledReason'>): string | undefined {
+  if (p.state === 'gesperrt') return tallyGrund(p.disabledReason);
+  return tallyGesperrt(p) ? UI_TEXTE.gesperrt(tallyGrund(p.disabledReason)) : undefined;
+}
+
 const BASIS =
   'flex w-full min-h-[var(--control-h-lg)] flex-col items-center justify-center gap-1 rounded-[var(--radius-md)] border-2 ' +
   'px-4 py-2 text-center select-none touch-none ' +
@@ -153,8 +163,8 @@ export function tallyKnopfProps(p: TallyButtonProps, halten: HaltenSteuerung, gr
     'data-state': p.state,
     'aria-disabled': gesperrt ? true : undefined,
     'aria-describedby': gesperrt ? grundId : undefined,
-    title: gesperrt ? tallyGrund(p.disabledReason) : undefined,
-    // live + gesperrt behält die LIVE-Fläche; nur der Zeiger zeigt die Sperre wie bei 'gesperrt'.
+    title: tallySperrText(p),
+    // live + gesperrt behält die LIVE-Fläche; die Sperre zeigen der Zeiger wie bei 'gesperrt' und „Gesperrt: “ vor dem Grund.
     className: cn(BASIS, FLAECHE[p.state], p.state === 'live' && gesperrt && 'cursor-not-allowed'),
     ...tallyHandler(p, halten),
   };
@@ -189,9 +199,9 @@ export function haltenBeiAbbau(halten: HaltenSteuerung): void {
 /**
  * Großer Sende-Knopf (Spec 3.4): `bereit` neutral mit grüner Kante, `live` rot gefüllt mit „LIVE“-Kennung, `gesperrt`
  * gedimmt mit sichtbarem Grund; `live` mit Grund ist auf Sendung UND gesperrt (O2): LIVE-Fläche und Kennung bleiben, der
- * Grund steht darunter in der Schrift der LIVE-Fläche. Halten-zum-Sprechen über onPress/onRelease; onRelease kommt in
- * jedem Fall genau einmal, auch beim Sperren und beim Unmount. Füllt die Breite seines Behälters; die Anordnung macht das
- * Tool.
+ * Grund steht darunter als „Gesperrt: {Grund}“ in der Schrift der LIVE-Fläche. Halten-zum-Sprechen über
+ * onPress/onRelease; onRelease kommt in jedem Fall genau einmal, auch beim Sperren und beim Unmount. Füllt die Breite
+ * seines Behälters; die Anordnung macht das Tool.
  * Die Verdrahtung (Spread, zwei Effekte, haltenFuerRender) prüft tally.test.tsx am Quelltext dieser Datei.
  */
 export function TallyButton(p: TallyButtonProps): React.JSX.Element {
@@ -226,7 +236,8 @@ export function TallyButton(p: TallyButtonProps): React.JSX.Element {
       {state === 'live' && tallyGesperrt(p) ? (
         // Ohne eigene Schrift und Farbe: Die Zeile aus 'gesperrt' erreicht auf der LIVE-Fläche nur 1,26 (dunkel) bzw.
         // 1,37 : 1 (hell); in der Schrift der LIVE-Fläche ist sie „groß“ mit 3,90 bzw. 5,20 : 1 (E3, kontrast.test.ts).
-        <span id={grundId}>{tallyGrund(disabledReason)}</span>
+        // „Gesperrt: “ steht davor (tallySperrText): Die Fläche allein zeigt hier keine Sperre.
+        <span id={grundId}>{tallySperrText(p)}</span>
       ) : null}
     </button>
   );

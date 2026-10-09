@@ -70,7 +70,7 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   'tally-bereit': ['border-[var(--tally-ready)]', 'min-h-[var(--control-h-lg)]', '>Take<', 'Take-Klicks: 0'],
   'tally-live': [UI_TEXTE.live, 'text-[19px]'],
   // Owner-Entscheid O2 (09.10.2026): auf Sendung und gesperrt – LIVE-Fläche und Kennung bleiben, dazu Sperre und Grund.
-  'tally-live-gesperrt': ['data-state="live"', `>${UI_TEXTE.live}<`, 'text-[19px]', 'aria-disabled="true"', 'Während der Überblendung gesperrt'],
+  'tally-live-gesperrt': ['data-state="live"', `>${UI_TEXTE.live}<`, 'text-[19px]', 'aria-disabled="true"', UI_TEXTE.gesperrt('Während der Überblendung gesperrt')],
   'tally-gesperrt': ['aria-disabled="true"', 'Nur im Live-Modus'],
   'tally-gesperrt-ohne-grund': ['aria-disabled="true"', UI_TEXTE.gesperrtOhneGrund],
   'tally-halten': ['in 2 s sperren (dabei halten)', 'in 2 s live sperren (dabei halten)', 'in 2 s ausblenden (dabei halten)', 'wieder einblenden', '>live + gesperrt<'],

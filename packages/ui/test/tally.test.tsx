@@ -105,10 +105,10 @@ const textVonId = (html: string, id: string): string =>
   ok(
     attr(knopf, 'aria-disabled') === 'true' &&
       attr(knopf, 'disabled') === undefined &&
-      attr(knopf, 'title') === grund &&
-      textVonId(html, attr(knopf, 'aria-describedby') ?? '-') === grund &&
+      attr(knopf, 'title') === UI_TEXTE.gesperrt(grund) &&
+      textVonId(html, attr(knopf, 'aria-describedby') ?? '-') === UI_TEXTE.gesperrt(grund) &&
       hatKlassen(knopf, 'cursor-not-allowed'),
-    'Tally live + gesperrt: aria-disabled=true (bleibt fokussierbar), Grund sichtbar, title = Grund, aria-describedby zeigt auf den Grund, Zeiger „nicht erlaubt“',
+    'Tally live + gesperrt: aria-disabled=true (bleibt fokussierbar), Grund sichtbar, title und aria-describedby mit „Gesperrt: “ davor, Zeiger „nicht erlaubt“',
   );
   const ohneFlaeche = html.replace(LIVE_FLAECHE_KLASSE, '');
   ok(
@@ -116,6 +116,23 @@ const textVonId = (html: string, id: string): string =>
     'Tally live + gesperrt: die Grund-Zeile steht in der Schrift der LIVE-Fläche – keine kleinere Schrift, keine eigene Farbe (E3; Kontrast in kontrast.test.ts)',
   );
   pruefeIdVerweise(html, 'Tally live + gesperrt: alle id-Verweise gültig');
+}
+{
+  // Nachbesserung nach Prüfung: Die LIVE-Fläche sieht aus wie bei „live“; ohne Kennung hinge die Sperre allein am Grundtext
+  // des Tools. Ein Grund ohne das Wort („Kein Signal“) muss die Sperre trotzdem nennen – mit „Gesperrt: “ wie im Field.
+  const html = render(<TallyButton state="live" label="Take" disabledReason="  Kein Signal " onClick={() => undefined} />);
+  const [knopf] = tags(html, 'button');
+  ok(
+    text(html) === `${UI_TEXTE.live}Take${UI_TEXTE.gesperrt('Kein Signal')}` &&
+      attr(knopf, 'title') === UI_TEXTE.gesperrt('Kein Signal') &&
+      textVonId(html, attr(knopf, 'aria-describedby') ?? '-') === UI_TEXTE.gesperrt('Kein Signal'),
+    'Tally live + gesperrt mit Grund ohne das Wort: sichtbar, als title und per aria-describedby „Gesperrt: Kein Signal“ (Grund getrimmt)',
+  );
+  const gesperrt = render(<TallyButton state="gesperrt" label="Take" disabledReason="Kein Signal" onClick={() => undefined} />);
+  ok(
+    !text(gesperrt).includes(UI_TEXTE.gesperrt('Kein Signal')) && attr(tags(gesperrt, 'button')[0], 'title') === 'Kein Signal',
+    'Tally gesperrt: Grund weiter ohne „Gesperrt: “ (die gedimmte Fläche zeigt die Sperre; unverändert)',
+  );
 }
 {
   // Wächter (bestand schon vorher): dieselbe Regel wie tallyGrund – leer oder nur Leerzeichen ist kein Grund.
