@@ -147,6 +147,15 @@ const alle: ScreenOutputSectionProps = {
   ok(vor(html, '>Vollbild<', '>unbekannt</div>'), 'Bildschirm fullscreen unbekannt: Vollbild als „unbekannt“');
 }
 {
+  // G6/Spec 7.2: Capability background gesetzt, Farbe nicht gemeldet – kein leeres Farbfeld, sondern „unbekannt“ (wie Vollbild).
+  const html = render(<ScreenOutputSection {...alle} background={undefined} />);
+  enthaeltNicht(html, '<input', 'Bildschirm background unbekannt: kein leeres Farbfeld');
+  ok(
+    html.includes('data-anzeige="Hintergrund"') && vor(html, '>Hintergrund<', '>unbekannt</div>'),
+    'Bildschirm background unbekannt: Hintergrund als „unbekannt“',
+  );
+}
+{
   const html = render(<ScreenOutputSection {...alle} screens={undefined} />);
   enthaeltNicht(html, '<select', 'Bildschirm Liste unbekannt: keine Auswahl (nichts Erfundenes)');
   enthaelt(html, '>unbekannt</div>', 'Bildschirm Liste unbekannt: Anzeige „unbekannt“');

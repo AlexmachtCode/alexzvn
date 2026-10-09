@@ -43,9 +43,13 @@ export function ScreenOutputSection(p: ScreenOutputSectionProps): React.JSX.Elem
         )
       ) : null}
       {view.sichtbar.hintergrund ? (
-        <Field label={SCREEN_TEXTE.hintergrund} error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : farbe.fehler}>
-          <TextInput {...farbe.feld} disabled={sperre} />
-        </Field>
+        typeof p.background === 'string' ? (
+          <Field label={SCREEN_TEXTE.hintergrund} error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : farbe.fehler}>
+            <TextInput {...farbe.feld} disabled={sperre} />
+          </Field>
+        ) : (
+          <Anzeige label={SCREEN_TEXTE.hintergrund}>{UNBEKANNT}</Anzeige>
+        )
       ) : null}
     </SectionFrame>
   );
