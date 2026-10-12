@@ -1586,6 +1586,20 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.3.0",
+        "date": "2026-10-12",
+        "notes": [
+          "Neu: Reißt die Verbindung zum Zoom-Meeting ab und gelingt Zoom die Neuverbindung nicht selbst, tritt JM Connect von selbst wieder bei, ebenso nach einem Absturz der Zoom-Bridge im Meeting: bis zu 5 Versuche, vor jedem eine Pause von 2, 5, 10, 20 bzw. 30 s, mit Countdown in der Zoom-Karte. „Abbrechen“ beendet die Versuche, „Erneut beitreten“ startet später mit denselben Daten. Bei einem endgültigen Fehler („Verbindung verloren: …“) tritt Connect nicht selbst bei; dann hilft „Erneut beitreten“.",
+          "Nach dem Wiederbeitritt muss der Host Connect gegebenenfalls wieder zulassen und die Aufnahme-Erlaubnis neu erteilen. Danach lädt Connect die vorher geladenen Personen mit eindeutigem Namen von selbst, höchstens 5, mit derselben Ton-Einstellung und unter demselben NDI-Namen, solange die Person ihren Anzeigenamen nicht geändert hat.",
+          "Entzieht der Host die Aufnahme-Erlaubnis, stoppt Connect sofort Bild und Ton aller Zoom-Quellen; ihre NDI-Quellen verschwinden bis zur Wiedererteilung aus dem Switcher. Erteilt der Host sie wieder, lädt Connect die gemerkten Quellen von selbst, höchstens 5.",
+          "Unter „Gemerkte Quellen“ steht, worauf ein Eintrag wartet, etwa „wartet auf die Person“, „wartet auf die Aufnahme-Erlaubnis“, „wird geladen …“ oder „wartet auf den Wiederbeitritt“. Braucht es einen Handgriff, endet der Eintrag auf „bitte von Hand laden“: gelb bei „keine Antwort der Zoom-Bridge“, „Laden gescheitert“ und „nicht automatisch geladen (mehr als 5 Zoom-Quellen)“, rot bei „Name doppelt“. „Vergessen“ nimmt einen Eintrag heraus und bricht dabei auch ein laufendes Laden ab; „Meeting verlassen“ leert die Liste sofort.",
+          "JM Connect ist jetzt per Companion steuerbar, mit dem Companion-Modul 0.2.0 (Rolle „JM Connect“, Port 8737; ältere Module kennen die Rolle nicht): die Gast-Aktionen wie GO, Standby, Auf Sendung, Freigeben und Talkback, für Zoom das Laden und Entladen von Personen per Anzeigename und der Bild-Versatz, dazu Statuswerte und Feedbacks (Zoom-Quellen geladen, Eingriff nötig, Befehl abgelehnt). Den Grund eines abgelehnten Befehls zeigt die Zoom-Karte unter „Hinweise“. Beitreten oder Verlassen per Companion gibt es bewusst nicht.",
+          "Das Modul liegt dem Release connect-v0.3.0 auf GitHub als Datei jm-suite-companion-0.2.0.tgz bei, der Launcher lädt es nicht mit; in Companion über „Import custom module“ importieren. Außerdem neu im Modul: für den Titler die Aktionen „Grafik-Vorlage wählen“ und „Grafik-Slot-Text setzen“ (im Slot-Text Leerzeichen als _ schreiben), und Feedbacks auf Anzahlen leuchten bei jeder Zahl über 0.",
+          "Die Zoom-Karte zeigt Bild und Ton jeder Quelle im Klartext, zum Beispiel „Bild schwarz: Kamera aus · Ton läuft“. Ab der 6. Zoom-Quelle lädt erst ein zweiter Klick (mehr als 5 sind nicht gemessen); angeforderte, noch nicht bestätigte Quellen zählen dabei mit. „Schließen“ nach einer Fehlermeldung leert Meeting-Nummer, Kenncode und gemerkte Quellen; wer die gemerkten Quellen behalten will, nimmt „Erneut beitreten“.",
+          "Das Log nennt Zoom-Teilnehmer und Browser-Gäste nur noch mit ihrer Kennung, Zeilen der Zoom-Bridge zeigen statt eines Namens „‹Name›“; Meeting-Nummer und Kenncode stehen wie bisher nie darin. Logdateien und Logzeilen, die älter als 14 Tage sind, löscht Connect 30 s nach dem Start und danach alle 6 Stunden. Zeilen älterer Versionen mit Namen verschwinden so spätestens nach 14 Tagen."
+        ]
+      },
+      {
         "version": "0.2.2",
         "date": "2026-10-06",
         "notes": [
