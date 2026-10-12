@@ -30,11 +30,11 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
 **Spec:** `docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md`, vom Owner freigegeben am 02.10.2026.
 - Umfang dieses Plans: Teil B (Abschnitte 12–21) mit 0 und 1 (Ergänzungen, D1–D5), 22 (Sicherheit), 24 (Folgeaufgaben), 25 (Risiken), 27 (O1–O3).
 - Teil A (Release 1) ist gemergt und released (Launcher 0.14.0, Titler 0.10.0, Rundown 0.7.0; Timer 0.13.0 unverändert).
-- Plan und Spec gehören zusammen. Bei Widerspruch gilt die Spec, und die Abweichung wird gemeldet. Ausnahmen sind nur die Entscheidungen im Abschnitt „Entscheidungen, wo die Spec schweigt“. Bewusste Abweichungen von der Spec sind dort mit **„Weicht ab“** markiert (E6, E9, E14, E15, E47). Der Owner hat alle fünf am 08.10.2026 bestätigt (Owner-Frage 1, N19). Dazu kommt eine Textabweichung, die der Owner selbst entschieden hat: die Einzahl „· 1 Tool bezieht sie“ im Verbund-Modal (E43, Owner-Frage 3, N16).
+- Plan und Spec gehören zusammen. Bei Widerspruch gilt die Spec, und die Abweichung wird gemeldet. Ausnahmen sind nur die Entscheidungen im Abschnitt „Entscheidungen, wo die Spec schweigt“. Bewusste Abweichungen von der Spec sind dort mit **„Weicht ab“** markiert (E6, E9, E14, E15, E47). Der Owner hat alle fünf am 08.10.2026 bestätigt (Owner-Frage 1, N19). Dazu kommt eine Textabweichung, die der Owner selbst entschieden hat: die Einzahl „· 1 Tool bezieht sie“ im Verbund-Modal (E43, Owner-Frage 3, N16). Gemeldet ist außerdem eine Abweichung im Wortlaut von 19.6, die der Neuaufsatz auf `main` mit sich bringt: C11 legt den CI-Schritt „app-runtime (CSP, Verbund-Anzeige, Abo-Zustand)“ nicht neu an, sondern benennt den Schritt aus Zoom 4b mit demselben Befehl um; der Zweck von 19.6 (genau ein Schritt, der beide Teile ausführt) bleibt (C11 „Abweichungen“, N40).
 
-**Arbeitsort:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2`, Branch `feat/master-link-teil2b-r2`, Stand `5f8ed15ef8` (beim Planen `origin/main`; am 08.10.2026 steht `origin/main` schon auf `b7e959866d`, N20). Alle Pfade sind relativ dazu. Zeilenangaben und Zählstände gelten für diesen Stand bzw. den Stand nach der genannten Aufgabe; maßgeblich ist immer der wortgleiche Vorher-Text.
+**Arbeitsort:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2`, Branch `feat/master-link-teil2b-r2`, Basis `adda584693` (`origin/main` am 12.10.2026, mit Zoom Stage 4b und UX Welle 0; Neuaufsatz N25). Geplant wurde gegen `5f8ed15ef8` (beim Planen `origin/main`; am 08.10.2026 stand `origin/main` auf `b7e959866d`, N20). Alle Pfade sind relativ zum Worktree. Zeilenangaben und Zählstände gelten für die Basis `adda584693` bzw. den Stand nach der genannten Aufgabe; maßgeblich ist immer der wortgleiche Vorher-Text.
 
-**Umsetzung (Owner, 08.10.2026, N19):** per Workflow (subagent-driven), und zwar **nach** Zoom Stage 4b. Vor C1 setzt die steuernde Sitzung den Branch auf den dann aktuellen `main` (mit 4b) neu auf und lässt die Anker (Vorher-Texte) und Zählstände der berührten Stellen in einem eigenen Durchgang nachmessen; die Berührungspunkte stehen im Schlussabschnitt. Dieser Neuaufsatz ist nicht Teil der Aufgaben C1–C21.
+**Umsetzung (Owner, 08.10.2026, N19):** per Workflow (subagent-driven), und zwar **nach** Zoom Stage 4b. Vor C1 setzt die steuernde Sitzung den Branch auf den dann aktuellen `main` (mit 4b) neu auf und lässt die Anker (Vorher-Texte) und Zählstände der berührten Stellen in einem eigenen Durchgang nachmessen; die Berührungspunkte stehen im Schlussabschnitt. Dieser Neuaufsatz ist nicht Teil der Aufgaben C1–C21. **Erledigt am 12.10.2026 (N25):** Basis `adda584693`, darin Zoom 4b (PR #251, `2df1f79357`) und UX Welle 0 (PR #250, `efcfff3c5a`). Nachgemessen und nachgezogen sind C11–C21 und die globalen Abschnitte (vierte Runde, N25–N32), C1–C10 in einem eigenen Messgang (N33); danach ist beides zusammengeführt und der Plan zweimal ohne Tests abgespielt (N34). Eine Nachprüfung dieses Durchgangs hat Angaben, Spannen und Vermerke nachgezogen, ohne eine Operation zu ändern (N35–N42). Nicht erledigt sind die Textpunkte der dritten Nachprüfung (Absatz vor N22); sie bleiben offen und gehören vor C21 (N39).
 
 **Aufbau:** 21 Aufgaben C1–C21 in fünf Blöcken. Jede Aufgabe braucht nur, was davor fertig ist. Ausgeführt wird der Reihe nach.
 
@@ -48,14 +48,13 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
 
 **M1 gilt weiter als „nein“** (Spec 23 „Ergebnisse“, R1-Ruling K1): Der Mapper setzt keine iveo-Kennung. Speaker in Shows tragen deshalb keine `id`; der Titler hält über Ersatz-Schlüssel. Nichts in R2 (Testdaten, Doku, Notes, Abnahme) sagt Kennungen zu. Tests, die Kennungen brauchen, bauen sie ausdrücklich in ihre Testdaten.
 
-**Parallelarbeit Zoom Stage 4b (Merge klein halten):** Auf `feat/zoom-stage4b` läuft Connect 0.3.0 (Stand 08.10.2026, 21:30: `85dcba597d`, neu aufgesetzt auf `main` `b7e959866d`). Es ändert in `packages/app-runtime` nur `src/index.ts` (Log-Aufräumen), das neue Modul `src/log-aufraeumen.ts` und `test/selftest.ts` (`git diff b7e959866d 85dcba597d`, lesend nachgeprüft am 08.10.2026; `package.json` bleibt dort unverändert), dazu `packages/suite-control-protocol`, `packages/companion-jm-suite` und `.github/workflows/ci-checks.yml`. Seit `9611b31c1e` ändert 4b nur noch `apps/connect`, `packages/zoom-bridge/test` und Doku; CI-Schritte und `packages/app-runtime` sind dort gleich geblieben (`git diff --stat 9611b31c1e 85dcba597d -- .github packages/app-runtime` leer). Dieser Plan baut gegen `5f8ed15ef8` und hält die Berührung klein (G2); vor C1 kommt der Neuaufsatz auf `main` mit 4b (siehe „Umsetzung“ oben):
+**Zoom Stage 4b und UX Welle 0 auf `main` (Berührung klein halten):** Zoom Stage 4b (Connect 0.3.0) ist mit PR #251 (`2df1f79357`) auf `main`, UX Welle 0 mit PR #250 (`efcfff3c5a`); der Branch steht seit dem Neuaufsatz vom 12.10.2026 darauf (N25). 4b ändert in `packages/app-runtime` nur `src/index.ts` (Log-Aufräumen), das neue Modul `src/log-aufraeumen.ts` und `test/selftest.ts` (`package.json` bleibt unverändert), dazu `packages/suite-control-protocol`, `packages/companion-jm-suite` und `.github/workflows/ci-checks.yml`. UX Welle 0 bringt `packages/ui`, das neue `packages/settings` und zwei CI-Schritte. Von den 81 Dateien dieses Plans ändert `main` seit `5f8ed15ef8` genau vier (`git diff --numstat 5f8ed15ef8 adda584693`: `ci-checks.yml` +25/−0, `package-lock.json` +41/−3, `packages/app-runtime/src/index.ts` +13/−1, `packages/suite-manifest/changelog.json` +30/−0; Liste im Schlussabschnitt). Dieser Plan hält die Berührung klein (G2):
 - In `packages/app-runtime` liegt alles Neue in sieben neuen Dateien (`src/verbund-typen.ts`, `verbund-anzeige.ts`, `verbund-daten.ts`, `verbund-speicher.ts`, `verbund.ts`, `verbund-ipc.ts`, `test/verbund.test.ts`).
-- `src/index.ts` bekommt genau drei Einfügungen (15 Zeilen, C13). Keine bestehende Zeile wird verschoben, umformatiert oder gelöscht. Zoom 4b fügt dort an anderen Stellen ein; die Dreiwege-Zusammenführung von `index.ts` mit `85dcba597d` lief ohne Konflikt (nachgespielt mit `git merge-file`, Ergebnis 675 Zeilen = 648 + 15 aus R2 + 12 aus 4b).
+- `src/index.ts` bekommt genau drei Einfügungen (15 Zeilen, C13). Keine bestehende Zeile wird verschoben, umformatiert oder gelöscht. Sie sitzen auf der 4b-Fassung (660 Zeilen); nach C13 hat die Datei 675 Zeilen, wie die Dreiwege-Zusammenführung vom 08.10.2026 vorhersagte (648 + 15 aus R2 + 12 aus 4b; gemessen 12.10.2026, N29). Die Quelltext-Wächter des 4b-Selbsttests zu `index.ts` bleiben dabei grün.
 - `package.json` und der app-runtime-Block in `package-lock.json` gehen in einen eigenen Commit (C11, Commit 1).
-- CI: Auf `main` hat der Job `selftests` am 08.10.2026 schon 16 Schritte (13 auf `5f8ed15ef8`, dazu Presenter, Appkit und App Designer aus PR #248). Zoom 4b hängt an dieselbe Stelle (nach „Connect …“) vier Schritte an, zusammen 20; der letzte ist „App-Laufzeit (Log-Aufräumen, CSP)“ mit **demselben Befehl** `npm run selftest -w @jm/app-runtime`. Der R2-Schritt aus C11 heißt deshalb nach demselben Muster „App-Laufzeit (CSP, Verbund-Anzeige, Abo-Zustand)“. Beim Zusammenführen gibt es in `ci-checks.yml` sicher einen Textkonflikt (nachgespielt mit `git merge-file`); aufgelöst wird er zu **genau einem** Schritt mit diesem Befehl, Name „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“, sonst liefe derselbe Selbsttest zweimal (Spec 19.6 verlangt einen Schritt). Auf `5f8ed15ef8` sieht dieser Branch den 4b-Schritt nicht, C11 legt seinen Schritt deshalb an. Nach dem Neuaufsatz auf `main` mit 4b (vor C1) bleibt im Job genau **ein** app-runtime-Schritt, der Job hat dann 20 Schritte; den Vorher/Nachher-Text von C11 Step 12 passt der Nachmess-Durchgang an (Schlussabschnitt).
-- Zählstände: Zoom 4b erweitert `packages/app-runtime/test/selftest.ts` (CSP und Log-Aufräumen). Mit 4b nennt der erste Teil von `npm run selftest -w @jm/app-runtime` die Zahl aus 4b statt „15 passed“ (an `85dcba597d` am 08.10.2026 in einer Kopie gemessen: `50 passed`; die früher genannte Spitze `5e5cd7fca7` gibt es auf dem Branch nicht mehr); der Verbund-Teil bleibt `208 passed`. Die Erwartungen in C11–C13 und C21 gelten für den Stand `5f8ed15ef8`; nach dem Neuaufsatz werden sie nachgemessen.
-- `packages/suite-control-protocol` und `packages/companion-jm-suite` bleiben unberührt; es gibt keinen neuen STATE-Schlüssel.
-- `main` hat sich seit `5f8ed15ef8` auch ohne 4b bewegt: Es ändert unter anderem `package-lock.json`, `packages/suite-manifest/changelog.json` und `.github/workflows/ci-checks.yml`, die C11 und C21 ebenfalls anfassen (Liste im Schlussabschnitt).
+- CI: Der Job `selftests` hat auf `adda584693` 22 Schritte (13 auf `5f8ed15ef8`, dazu Presenter, Appkit und App Designer aus PR #248, „UI-Bausteine …“ und „Einstellungs-Abschnitte …“ aus PR #250, Steuerprotokoll, Companion-Modul, Companion-Protokoll aktuell und App-Laufzeit aus PR #251). Der letzte ist „App-Laufzeit (Log-Aufräumen, CSP)“ mit **demselben Befehl** `npm run selftest -w @jm/app-runtime`, den R2 braucht. C11 hängt deshalb keinen zweiten Schritt an, sondern benennt diesen um in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“; der Job behält 22 Schritte, darin genau **einer** mit diesem Befehl (Spec 19.6, N26). Der frühere Weg (auf `5f8ed15ef8` einen eigenen Schritt anhängen und den Textkonflikt beim Zusammenführen auflösen, N11, N22) ist mit dem Neuaufsatz entfallen.
+- Zählstände: Zoom 4b erweitert `packages/app-runtime/test/selftest.ts` (CSP und Log-Aufräumen). Der erste Teil von `npm run selftest -w @jm/app-runtime` zeigt deshalb `50 passed` statt `15 passed` (gemessen am 12.10.2026 auf `adda584693`, wie am 08.10.2026 an `85dcba597d`); der Verbund-Teil bleibt `208 passed`. Die Erwartungen in C11–C13 und C21 nennen diese Zahlen (N27).
+- `packages/suite-control-protocol` und `packages/companion-jm-suite` bleiben unberührt; es gibt keinen neuen STATE-Schlüssel. Die STATE-Kodierung aus 4b (Leerraum und `%` als `%XX`) berührt R2 nicht (N31).
 
 **Freigaben, an denen die Ausführung hält** (Ledger-Zeilen, die nur der Owner bzw. die steuernde Sitzung setzt):
 - „Owner-Freigabe C20“: Der Owner hat den Durchgang am 08.10.2026 freigegeben (Owner-Frage 8, N19). Die Ledger-Zeile setzt die steuernde Sitzung beim Start der Umsetzung; C20 läuft dann ganz. Fehlt sie trotzdem, endet C20 nach dem Commit des Skripts (Step 6), und der Lauf wird **vor dem Merge** nachgeholt (Pflicht, N14). Was C20 an der Main-Verdrahtung von Titler und Rundown (C16, C18) prüft und was nicht, steht in C16 und C18 unter „Regeln“; was er nicht erreicht (Show-Link, Startreihenfolge, gesperrte Ordnerwahl, Rundown-Datei am Master mit „Öffnen…“/„Neu“ im Verbund, eigene Wahl nach dem Entkoppeln), steht als „Zusatzprüfungen (nicht in Spec 20)“ in der Abnahme-Datei (C21, N17, N23). Von Hand nicht erreichbar ist die Ablehnung im Main des Titlers, solange die Oberfläche die Ordnerwahl schon sperrt; sie ist als reine Regel getestet (C15).
@@ -68,6 +67,7 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
 - **Nachbesserung nach der Plan-Prüfung (08.10.2026, N1–N14, Abschnitt „Nachbesserung nach der Plan-Prüfung“):** Der geänderte Plan wurde noch einmal ganz auf eine frische Kopie abgespielt (jetzt 283 Operationen, jeder Vorher-Text genau einmal), mit den Rot- und Grünläufen, Gegenproben und Typechecks von C4–C19 und den Prüfungen von C21 (C1–C3 und C20 sind unverändert), und einem Gesamtlauf am Ende (alle Selbsttests grün, `typecheck --workspaces` Exit 0). Ein zweites Abspielen ohne Tests auf eine weitere frische Kopie ergab in allen berührten Dateien dieselben Bytes. Die Zahlen in diesem Plan sind die dabei gemessenen. Windows 11, Node 24.16.0; die CI läuft auf `ubuntu-latest` mit Node 22 und ist der erste Lauf unter Linux (N12).
 - **Zweite Runde (08.10.2026, N15–N21, Owner-Antworten und Nachprüfung):** Der Plan wurde wieder ganz auf eine frische Kopie abgespielt (283 Operationen, jeder Vorher-Text genau einmal), mit den Rot- und Grünläufen, Gegenproben und Typechecks von C10–C19 und den Prüfungen von C21 (C1–C9 sind nur angewendet, ihr Code ist unverändert; vom Durchgang C20 nur das Anlegen des Skripts, `tsc` und die Zählung, nie ein Lauf), und einem Gesamtlauf am Ende. Ein zweites Abspielen ohne Tests auf eine weitere frische Kopie ergab in allen 81 berührten Dateien dieselben Bytes. Die Zahlen in diesem Plan sind die dabei gemessenen, wieder Windows 11, Node 24.16.0.
 - **Dritte Runde (08.10.2026, N22–N24, zweite Nachprüfung):** Der Plan wurde wieder ganz auf eine frische Kopie abgespielt (283 Operationen, jeder Vorher-Text genau einmal), diesmal mit den Rot- und Grünläufen, Typechecks, Builds und Zählungen aller Aufgaben C1–C19, den Gegenproben, deren Änderung der Plan wörtlich nennt (C1, C3, C4, C8, C10–C13, die Zeilen mit N-Verweis in C15 und C17, C19), den Prüfungen von C21 samt ihren Gegenproben und einem Gesamtlauf am Ende (alle Selbsttests grün, `typecheck --workspaces` Exit 0). Nicht gelaufen sind die Gegenproben, die nur der jeweilige Schreiber gemessen hat (C14, die Zeilen ohne N-Verweis in C15 und C17), C20 Step 3 und der Durchgang selbst (von C20 nur das Anlegen des Skripts, `tsc` und die Zählung); `npm install --package-lock-only` aus C11 Step 2 lief in der Kopie nicht, dort wurde der erwartete Lockfile-Abschnitt eingespielt. Ein zweites Abspielen ohne Tests auf eine weitere frische Kopie ergab in allen 81 berührten Dateien dieselben Bytes. Laufzeiten stehen als Spannen über alle Runden. Windows 11, Node 24.16.0.
+- **Vierte Runde (12.10.2026, N25–N42, Neuaufsatz auf `main`):** Der Plan wurde auf eine frische Kopie der neuen Basis `adda584693` abgespielt (283 Operationen, jeder Vorher-Text genau einmal). C1–C10 dort nur angewendet; C11–C21 Step für Step mit allen Rot- und Grünläufen, den Gegenproben mit wörtlich genannter Änderung (C11, C12, C13, die Zeilen mit N-Verweis in C15 und C17, C19, C21), Typechecks, Builds und Zählungen und dem Gesamtlauf aus C21 Step 9 (alle Selbsttests grün, `typecheck --workspaces` Exit 0). Von C20 nur das Anlegen des Skripts, `tsc`, die Zählung und der Launcher-Typecheck; nie ein Lauf. `npm install --package-lock-only` aus C11 Step 2 lief in der Kopie wieder nicht, dort wurde der erwartete Lockfile-Abschnitt eingespielt. Ein zweites Abspielen des geänderten Plans ohne Tests auf eine weitere frische Kopie ergab in allen 81 berührten Dateien dieselben Bytes (47 davon berühren C11–C21). C1–C10 hat ein eigener Messgang auf einer weiteren frischen Kopie Step für Step gemessen: alle Rot-, Grün- und Gegenprobenläufe, Typechecks (darunter `typecheck --workspaces` nach C4 und C5), Builds und Zählungen, ohne die Commit-Steps (N33). Nach dem Zusammenführen beider Messgänge wurde der fertige Plan zweimal ohne Tests auf je eine frische Kopie abgespielt: 283 Operationen, 0 Fehler, alle 81 berührten Dateien in beiden Kopien Byte für Byte gleich (N34). Nach der Nachprüfung (N35–N42, keine Operation geändert) sind die geänderten Laufzeiten auf einer frischen Kopie nachgemessen, und der fertige Plan ist noch einmal ohne Tests auf eine weitere frische Kopie abgespielt: 283 Operationen, 0 Fehler, alle 81 berührten Dateien Byte für Byte gleich der Messkopie. Windows 11, Node 24.16.0.
 
 | Aufgabe | Rot (gemessen) | Grün (gemessen) |
 | --- | --- | --- |
@@ -81,28 +81,26 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
 | C8 | 188, dann `ERR_MODULE_NOT_FOUND … verbund\verteiler` | 188 + 44 |
 | C9 | `SyntaxError … 'waehleReloadZiele'`; `276 ok, 1 fehlgeschlagen.`; `191 ok, 8 fehlgeschlagen.` | 277 / 52 / 84 / 12; 199 + 44; Build Launcher |
 | C10 | `200 ok, 3 fehlgeschlagen.`; `SyntaxError … 'toolDatenText'` | 203 + 53; Launcher `selftest` 113; Build Launcher; Gegenprobe Einzahl `52 ok, 1 fehlgeschlagen.` (N16) |
-| C11 | 15, dann `ERR_MODULE_NOT_FOUND` (Test, dann `verbund-anzeige`) | 15 + 64; Lockfile genau ein Abschnitt (+5/−1); CI-Liste 14 Schritte (mit 4b nach dem Neuaufsatz 20, nachzumessen); `typecheck --workspaces` exit 0 |
-| C12 | 15 + 64, dann `ERR_MODULE_NOT_FOUND … verbund-daten` | 15 + 174 (nach ZF1, N3–N5 und N18); Gegenprobe N18 1 `FAIL` |
-| C13 | `ERR_MODULE_NOT_FOUND … verbund-speicher` | 15 + 208; `index.ts` 15 Zeilen dazu, 0 weg (663 von 663 CRLF); `typecheck --workspaces` exit 0; Bündel Sync/Timer |
+| C11 | 50, dann `ERR_MODULE_NOT_FOUND` (Test, dann `verbund-anzeige`) | 50 + 64; Lockfile genau ein Abschnitt (+5/−1); CI-Liste 22 Schritte, der 4b-Schritt umbenannt, genau ein app-runtime-Schritt (N26); `typecheck --workspaces` exit 0 |
+| C12 | 50 + 64, dann `ERR_MODULE_NOT_FOUND … verbund-daten` | 50 + 174 (nach ZF1, N3–N5 und N18); Gegenprobe N18 1 `FAIL` |
+| C13 | `ERR_MODULE_NOT_FOUND … verbund-speicher` | 50 + 208; `index.ts` 15 Zeilen dazu, 0 weg (675 von 675 CRLF); `typecheck --workspaces` exit 0; Bündel Sync/Timer |
 | C14 | `ERR_MODULE_NOT_FOUND … show-anwenden.ts`; Typecheck `TS5097` | 59 passed; Typecheck, Build, Preload 3 |
 | C15 | `SyntaxError … 'ordnerPatchAbgelehnt'`; Zwischenstand 474 + 3 `FAIL`; 4 Typfehler im Main | 477; Typecheck; Gegenproben E22 je 1 `FAIL` (N17) |
 | C16 | – | 477; Typecheck, Build, Preload 3, eine Registrierung |
 | C17 | zwei `SyntaxError`; Zwischenstand 109; 4 Typfehler im Main | 443 + 109; Typecheck; Gegenproben `showLinkWeg` 2 / 1 / 2 `FAIL` (N15) |
 | C18 | – | 443 + 109; Typecheck, Build, Preload 3, `showPfad` in 20 Zeilen, kein `verbundIgnoriert('deeplink'` |
-| C19 | vor ZF2: `61 ok, 2 fehlgeschlagen.` (beide in M) | `63 ok`, 9–10 s (nach N12 mit Stille-Frist 2 s: 10,6–11 s); Gegenproben 29 bzw. 7 `FAIL`; `selftest:verbund` 203 / 53 / 63 |
+| C19 | vor ZF2: `61 ok, 2 fehlgeschlagen.` (beide in M) | `63 ok`, 9–10 s (nach N12 mit Stille-Frist 2 s: 10,4–11 s, N35); Gegenproben 29 bzw. 7 `FAIL`; `selftest:verbund` 203 / 53 / 63 |
 | C20 | Laden ohne `ELECTRON_EXE`: `ABBRUCH …`, Exit 2 (in der ersten Runde) | tsc ohne Meldung, 33 × `pruefe(`; der Durchgang selbst nicht (G8, beim Planen nie gelaufen) |
 | C21 | – | JSON gültig, `Release-Vorbereitung ok`, Abnahme-Tabelle wortgleich (14 Schritte; die Zusatzprüfungen stehen als Liste unter der Tabelle), CRLF = LF; Gesamtlauf aller Tests grün, `typecheck --workspaces` exit 0 |
 
 ## Global Constraints
 
 - **G1 Nicht anfassen:** `packages/suite-control-protocol`, `packages/companion-jm-suite`, `packages/zoom-bridge`, `apps/connect`, `apps/qa`, `apps/battle`, der Timer-Socket `:7777` (Server im Timer), `packages/master-link/src/koppeln.ts` (Spec 13.5), `apps/rundown/test/e2e-teil2a.mjs`, `packages/suite-manifest/suite.json` (zieht der Bot nach).
-- **G2 Parallelarbeit Zoom Stage 4b (Merge klein halten):**
+- **G2 Zoom Stage 4b auf `main` (Berührung klein halten):**
   - In `packages/app-runtime` kommt alles Neue in **neue Dateien**: `src/verbund-typen.ts`, `src/verbund-anzeige.ts`, `src/verbund-daten.ts`, `src/verbund-speicher.ts`, `src/verbund.ts`, `src/verbund-ipc.ts`, `test/verbund.test.ts`.
-  - `src/index.ts` bekommt genau drei Einfügungen: (a) ein Export-Block direkt nach `export type { CspConfig } from './csp';` (Ist `:47`), (b) eine Importzeile `import { verbundAnClient } from './verbund';` direkt nach der Importzeile von `@jm/master-link` (Ist `:16`), (c) eine Zeile `verbundAnClient(client, { userData: app.getPath('userData'), log: info.log });` in `startMasterLink` direkt nach `client.starte();` (Ist `:379`): Der Folger startet erst, wenn der Client seine `master-link.json` gelesen hat (Zusammenführung ZF2). Keine bestehende Zeile wird verschoben, umformatiert oder gelöscht.
+  - `src/index.ts` bekommt genau drei Einfügungen: (a) ein Export-Block direkt nach `export type { CspConfig } from './csp';` (Ist `:48`), (b) eine Importzeile `import { verbundAnClient } from './verbund';` direkt nach der Importzeile von `@jm/master-link` (Ist `:17`), (c) eine Zeile `verbundAnClient(client, { userData: app.getPath('userData'), log: info.log });` in `startMasterLink` direkt nach `client.starte();` (Ist `:387`): Der Folger startet erst, wenn der Client seine `master-link.json` gelesen hat (Zusammenführung ZF2). Keine bestehende Zeile wird verschoben, umformatiert oder gelöscht. (Ist-Zeilen auf `adda584693`; auf `5f8ed15ef8` waren es `:47`, `:16`, `:379`, N29.)
   - `packages/app-runtime/package.json` (Abhängigkeit `@jm/show`, devDependency `tsx`, Skript `selftest`) und der zugehörige Block in `package-lock.json` gehen in einen **eigenen Commit** (C11, Commit 1).
-  - `.github/workflows/ci-checks.yml`: Im Job `selftests` steht danach **genau ein** Schritt mit `npm run selftest -w @jm/app-runtime` (Spec 19.6). Zwei Fälle (N22):
-    - Stand ohne Zoom 4b (`5f8ed15ef8`; so sind C11 Step 12 und seine Erwartung geschrieben): Der neue Schritt kommt **ans Ende** der Schrittliste (nach „Connect …“), Name „App-Laufzeit (CSP, Verbund-Anzeige, Abo-Zustand)“. Beim späteren Zusammenführen mit 4b ist der Textkonflikt sicher und wird zu genau einem Schritt „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ aufgelöst. Das hält den Merge nicht konfliktfrei, aber klein.
-    - Stand mit Zoom 4b (nach dem Neuaufsatz vor C1, Kopf „Umsetzung“; der vorgesehene Fall): Der 4b-Schritt „App-Laufzeit (Log-Aufräumen, CSP)“ mit demselben Befehl steht schon zuletzt im Job. C11 hängt dann nichts an, sondern benennt ihn um in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ (Job mit 20 Schritten). Vorher/Nachher und Erwartung von C11 Step 12 stellt der Nachmess-Durchgang darauf um (Schlussabschnitt).
+  - `.github/workflows/ci-checks.yml`: Im Job `selftests` steht danach **genau ein** Schritt mit `npm run selftest -w @jm/app-runtime` (Spec 19.6). Seit dem Neuaufsatz auf `adda584693` (N25) steht der 4b-Schritt „App-Laufzeit (Log-Aufräumen, CSP)“ mit diesem Befehl schon zuletzt im Job. C11 hängt nichts an, sondern benennt ihn um in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“; der Job behält 22 Schritte (C11 Step 12, gemessen, N26). Der zweite Fall aus N22 (Stand ohne 4b, `5f8ed15ef8`: Schritt „App-Laufzeit (CSP, Verbund-Anzeige, Abo-Zustand)“ ans Ende anhängen, Textkonflikt beim Zusammenführen) ist mit dem Neuaufsatz entfallen.
   - Kein STATE-Schlüssel und keine Änderung in `packages/suite-control-protocol` oder `packages/companion-jm-suite`.
 - **G3 Protokoll und Grenzen (Spec 13):** `PROTOKOLL` bleibt `1`, Fassung `1` (`SHOW_FASSUNG`). Neue `t` nur `abo`, `stand`, `aenderung`, mit lockeren Prüfern. Werte wörtlich:
   - Zeile nach der Anmeldung 1 MiB (`GRENZEN.nachAnmeldung = 1048576`, unverändert)
@@ -131,26 +129,26 @@ Echte TLS-Sockets nur auf `127.0.0.1`. Der Durchgang läuft mit `tsx`, Electron 
 - **G11 TDD und Typecheck:** Erst den Test rot sehen, dann Code. Jede Aufgabe endet mit `npm run typecheck -w <paket>` für jedes berührte Paket mit Typecheck (`@jm/master-link`, `@jm/launcher`, `@jm/timer`, `@jm/titler`, `@jm/rundown`). Ändert eine Aufgabe `packages/app-runtime/src` oder `packages/show/src`, läuft zusätzlich `npm run typecheck --workspaces --if-present` (25 Apps importieren app-runtime; app-runtime und show haben selbst keinen Typecheck). Ändert eine Aufgabe `packages/show/src`, laufen zusätzlich `npm run selftest -w @jm/timer` und `npm run selftest -w @jm/rundown` (beide laden `packages/show/src/index.ts` per Typ-Stripping, R1-Ruling zu B3).
 - **G12 Zeilenenden:** `core.autocrlf=true`; die berührten Dateien liegen im Arbeitsbaum mit CRLF vor (`git ls-files --eol`). Änderungen mit dem Edit-Werkzeug (Vorher-Text exakt ersetzen), nicht mit `sed`. Neue Dateien schreibt das Write-Werkzeug mit LF; die Warnung „LF will be replaced by CRLF“ ist harmlos. Nach jeder Änderung gilt: Zahl der CRLF in einer geänderten Datei gleich ihrer Zeilenzahl, in einer neuen Datei 0. Gemessen wird mit dem Befehl unter „Konventionen in jeder Aufgabe“ (nicht mit `grep -c $'\r'`, das in der Git-Bash jede Zeile zählt).
 - **G13 Uhr und Fristen:** Neue Fristen (app-runtime, Verteiler) laufen über eine übergebene Uhr bzw. Zeitgeber (`setTimeout`), nie über `Date.now()`-Differenzen. Die Empfangszeit „Stand hh:mm“ ist bewusst die Uhr von Rechner B (Spec 16.4). **Ausnahme (bewusst):** Die 10-s-Regel „ohne Show-Daten (Update nötig)“ im Verbund-Modal (C10, `toolDatenText`) vergleicht `Date.now()` im Renderer mit `seit` des Servers. Beides ist die Uhr des Master-Rechners, und es ist reine Anzeige: Springt dort die Uhr, erscheint der Hinweis zu früh, zu spät oder gar nicht; an Daten und Abos ändert das nichts. Ein Zeitgeber je Teilnehmer wäre der Weg ohne Uhrsprung (gehört zu FA12).
-- **G14 Zweitinstanz:** Ohne Single-Instance-Lock gibt es keinen Client, kein Abo und kein Schreiben von `master-stand.json` (app-runtime startet den Client nur mit Lock, `index.ts:368-371`).
+- **G14 Zweitinstanz:** Ohne Single-Instance-Lock gibt es keinen Client, kein Abo und kein Schreiben von `master-stand.json` (app-runtime startet den Client nur mit Lock, `index.ts:376-379`).
 - **G15 Electron-Verdrahtung:** Logik steckt in reinen Funktionen mit Tests. Die dünne Electron-Schicht (IPC, Preload, Main-Aufrufe) prüfen Typecheck, `electron-vite build` der App und der Durchgang C20, soweit er sie erreicht; was er nicht startet (Show-Link, Startreihenfolge, Ordnerwahl, „Öffnen…“/„Neu“, Hinweis zur Rundown-Datei), steht in C16 und C18 unter „Regeln“ und als Handprüfung in der Abnahme-Datei (N17, N23).
 - **G16 Abbruchregel:** Weicht ein gemessener Wert von der Erwartung im Plan ab (Rot- oder Grünzählung, `FAIL`-Zeile, Laufzeit über der genannten Grenze), hält der Ausführende an und meldet, statt Tests oder Erwartungen anzupassen. Ausnahme: Messwerte in Klammern einer grünen `ok`-Zeile (Kopierzähler, Rückdruck, Größen) sind Bezugswerte; eine andere Zahl dort gehört in den Bericht, ist aber kein Abbruchgrund.
 
 ## Testläufe (wie sie wirklich heißen)
 
-Vorher gemessen am 08.10.2026 im Stand `5f8ed15ef8`; nachher gemessen beim Durchspielen aller 21 Aufgaben in einer frischen Kopie, zuletzt nach der dritten Runde N22–N24 (siehe „Wie dieser Plan entstanden ist“). Alle Messungen: Windows 11, Node 24.16.0. Die CI (`ubuntu-latest`, `node-version: 22`) ist der erste Lauf unter Linux; zeitabhängige Prüfungen haben dafür Abstand zu ihren Fristen (N12).
+Vorher gemessen am 08.10.2026 im Stand `5f8ed15ef8`; nachher gemessen beim Durchspielen aller 21 Aufgaben in einer frischen Kopie, zuletzt nach der dritten Runde N22–N24 (siehe „Wie dieser Plan entstanden ist“). Nach dem Neuaufsatz (vierte Runde, 12.10.2026, Basis `adda584693`) sind beide Spalten ganz nachgemessen: „Nach C21“ in C21 Step 9, „Vorher“ im Messgang C1–C10 vor C1 (Titler und app-runtime dort nach C10, das beide nicht berührt; N33). Geändert hat sich nur app-runtime (jetzt `50 passed`, N27); alle übrigen Vorher-Werte sind gleich geblieben, die Pakete ändert `main` seit `5f8ed15ef8` nicht. Alle Messungen: Windows 11, Node 24.16.0. Die CI (`ubuntu-latest`, `node-version: 22`) ist der erste Lauf unter Linux; zeitabhängige Prüfungen haben dafür Abstand zu ihren Fristen (N12).
 
 | Paket | Befehl | Vorher | Nach C21 |
 | --- | --- | --- | --- |
 | `@jm/master-link` | `npm run selftest -w @jm/master-link` (tsx) | 572 ok, ca. 35 s | 756 ok, ca. 40 s |
 | `@jm/launcher` | `npm run selftest -w @jm/launcher` (strip-types) | 113 ok | 113 ok |
-| `@jm/launcher` | `npm run selftest:verbund -w @jm/launcher` (tsx; ab C8 `&& tsx test/verteiler.test.ts`, ab C19 `&& tsx test/verbund-kette.test.ts`) | 188 ok, ca. 16 s | 203 + 53 + 63 ok, ca. 25–28 s |
+| `@jm/launcher` | `npm run selftest:verbund -w @jm/launcher` (tsx; ab C8 `&& tsx test/verteiler.test.ts`, ab C19 `&& tsx test/verbund-kette.test.ts`) | 188 ok, ca. 16 s | 203 + 53 + 63 ok, 24,7–28 s (N35) |
 | `@jm/launcher` | `npm run selftest:iveo -w @jm/launcher` (tsx, vier Dateien) | 239 / 47 / 84 / 6 ok | 277 / 52 / 84 / 12 ok |
 | `@jm/iveo` (mit `@jm/show`) | `npm run selftest -w @jm/iveo` | 166 ok-Zeilen, „ALLE TESTS OK“ | 190 ok-Zeilen, „ALLE TESTS OK“ |
 | `@jm/timer` | `npm run selftest -w @jm/timer` | 41 passed | 59 passed |
 | `@jm/rundown` | `npm run selftest -w @jm/rundown` (zwei Läufe: `test/selftest.ts`, `test/gedaechtnis.test.ts`) | 404 + 81 ok-Zeilen, zweimal „ALLE TESTS OK“ | 443 + 109 ok-Zeilen |
 | `@jm/titler` | `npm run selftest -w @jm/titler` (tsx) | 407 ok-Zeilen, „ALLE TESTS OK“ | 477 ok-Zeilen |
-| `@jm/app-runtime` | `npm run selftest -w @jm/app-runtime` (ab C11 `… && tsx test/verbund.test.ts`) | 15 passed | 15 + 208 passed (mit Zoom 4b: dessen CSP- und Log-Aufräumen-Zahl statt 15, an `85dcba597d` am 08.10.2026 gemessen `50 passed`) |
-| Typecheck | `npm run typecheck -w @jm/master-link` / `-w @jm/launcher` / `-w @jm/timer` / `-w @jm/titler` / `-w @jm/rundown`; bei app-runtime/show `npm run typecheck --workspaces --if-present` | exit 0 | exit 0 |
+| `@jm/app-runtime` | `npm run selftest -w @jm/app-runtime` (ab C11 `… && tsx test/verbund.test.ts`) | 50 passed (CSP und Log-Aufräumen aus Zoom 4b; auf `5f8ed15ef8` waren es 15) | 50 + 208 passed |
+| Typecheck | `npm run typecheck -w @jm/master-link` / `-w @jm/launcher` / `-w @jm/timer` / `-w @jm/titler` / `-w @jm/rundown`; bei app-runtime/show `npm run typecheck --workspaces --if-present` (31 Workspaces mit Typecheck, darunter `@jm/ui` und `@jm/settings` aus UX Welle 0) | exit 0 | exit 0 |
 | Durchgang (nicht in der CI) | `npm run build -w @jm/timer -w @jm/titler -w @jm/rundown`, dann `ELECTRON_EXE=<electron.exe> node node_modules/tsx/dist/cli.mjs apps/launcher/test/e2e-teil2b-verbund.ts` | – | neu (C20); Lauf in der Umsetzung, freigegeben am 08.10.2026 |
 
 „ok-Zeilen“ zählt `grep -cE '^\s*ok\b'` in der Ausgabe; Läufe mit eigener Zusammenfassung nennen sie (`… ok, 0 fehlgeschlagen.`, `… passed, 0 failed`).
@@ -216,7 +214,7 @@ Die Liste ist aus den Vorher/Nachher-Schritten des Plans abgeleitet (beim Durchs
 - Timer (C14): `src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/sync/jm.d.ts`, `src/renderer/src/components/Topbar.tsx`, `tsconfig.node.json`, `tsconfig.web.json`, `test/selftest.ts`.
 - Titler: `src/shared/datenquelle.ts`, `src/main/show-quelle.ts`, `test/selftest.ts` (C15); `src/main/index.ts` (Typ-Brücke C15, Verdrahtung C16); `src/shared/types.ts`, `src/preload/index.ts`, `src/renderer/src/views/OperatorView.tsx` mit der Einstellung › DataLink (C16).
 - Rundown: `src/shared/ausgangsstand.ts` (Typen `GedaechtnisQuelle`, `Zeiger`), `src/main/gedaechtnis.ts`, `src/shared/conductor.ts`, `test/gedaechtnis.test.ts`, `test/selftest.ts` (C17); `src/main/index.ts` (Typ-Brücke C17, Ladewege C18); `src/main/conductor.ts`, `src/shared/types.ts`, `src/preload/index.ts`, `src/renderer/src/components/ToolLinks.tsx` (C18).
-- CI: `.github/workflows/ci-checks.yml` (genau ein app-runtime-Schritt im Job `selftests`: am Ende angehängt, nach dem Neuaufsatz mit 4b der 4b-Schritt umbenannt; C11, G2).
+- CI: `.github/workflows/ci-checks.yml` (genau ein app-runtime-Schritt im Job `selftests`: der Schritt aus Zoom 4b, umbenannt; C11, G2, N26).
 - Doku und Release (C21): `docs/suite-verbund.md` (Stand-Satz und neuer Abschnitt „Show-Daten im Verbund“), `docs/jm-show.md` (Absatz „Grenzen“), die vier `package.json` von Launcher, Timer, Titler, Rundown, `package-lock.json` (app-runtime-Block in C11, Versionen in C21), `packages/suite-manifest/changelog.json`.
 
 **Unverändert, obwohl die Gliederung sie nannte:** `apps/titler/src/renderer/src/jmtitler.d.ts`, `apps/rundown/src/renderer/src/jmrundown.d.ts` (die Brücke kommt über `JmtitlerApi` bzw. `JmRundownApi` in `src/shared/types.ts`), `apps/rundown/src/renderer/src/App.tsx` (die V-Zeile abonniert `ToolLinks` selbst), `packages/master-link/test/aufbau.ts` und `test/rohclient.ts` (reichen aus).
@@ -228,7 +226,7 @@ Die Liste ist aus den Vorher/Nachher-Schritten des Plans abgeleitet (beim Durchs
 - Folgeaufgaben FA1–FA10 der Spec (Abschnitt 24) und die neuen FA11–FA23 (Abschnitt „Folgeaufgaben aus diesem Plan“).
 - Release, Tags, Katalog, PR: nur beschreibend im Schlussabschnitt.
 - Die Zwei-Rechner-Abnahme selbst (Owner, nach dem Release; C21 legt nur die Datei an).
-- **Zusatzbitte des Owners „Zoom-Bridge: Shared Content als eigenständiges Signal“:** gehört nicht zu R2 (anderes Paket, laufende Arbeit auf `feat/zoom-stage4b`). Erledigt: Issue #247 (steuernde Sitzung, 08.10.2026: Machbarkeit geprüft, eigene Zoom-Stufe nach 4b); kein Punkt dieses Plans.
+- **Zusatzbitte des Owners „Zoom-Bridge: Shared Content als eigenständiges Signal“:** gehört nicht zu R2 (anderes Paket; Zoom Stage 4b ist seit PR #251 auf `main`, die Zusatzbitte ist eine eigene Zoom-Stufe danach, N37). Erledigt: Issue #247 (steuernde Sitzung, 08.10.2026: Machbarkeit geprüft, eigene Zoom-Stufe nach 4b); kein Punkt dieses Plans.
 
 ## Entscheidungen, wo die Spec schweigt
 
@@ -694,23 +692,58 @@ Abgelehnt wurde keiner der 17 Befunde. Zwei waren derselbe (CI-Schritt mit Zoom 
 
 Eine unabhängige Nachprüfung hat die Behebung gelesen und nachgespielt (16 Befunde behoben, Befund 11 nur teilweise, neue Befunde N-W1 und N-K1 bis N-K8). Der Owner hat am selben Tag die offenen Fragen beantwortet, die steuernde Sitzung hat zu den Befunden entschieden. Umgesetzt ist das hier; der ganze Plan ist danach neu abgespielt und gemessen (siehe „Wie dieser Plan entstanden ist“).
 
-15. **N15 · Rundown ignoriert einen Show-Deep-Link im Verbundmodus ganz** (zu N-W1; ersetzt N1; E24, C13, C17, C18, C21): Weder Daten noch Dokument. Auslegung „17.3 vor 16.1“: 17.3 ist die Rundown-eigene Regel („Show-Deep-Link | Daten ignoriert“, „Eigene Rundown-Datei der Show: wird auf B nicht geladen“). Ein Show-Link kommt oft ohne bewusste Handlung (Launcher, Doppelklick) und darf einen laufenden Rundown nicht auf die erste Zeile setzen, GO-Folgen abbrechen (`cancelPendingFires`) oder das Gedächtnis der Master-Show überschreiben, wie es N1 über `gleicheMitMasterAb` tat; „Öffnen…“ bleibt der bewusste Weg. Statt der 16.1-Zeile schreibt der Rundown eine eigene, wahre Infozeile „Verbund: Show-Link „⟨Name⟩“ – der Rundown folgt der Show vom Master und lädt daraus nichts.“ (⟨Name⟩ = Dateiname über `kuerzeName`). Die Entscheidung ist die reine Funktion `showLinkWeg` in C17 (drei Prüfungen, rot zuerst mit `SyntaxError`, Gegenproben 2 / 1 / 2 `FAIL`); C18 nutzt sie, `ladeDokumentImVerbund` entfällt. `kuerzeName` kommt über `@jm/app-runtime` (eine Exportzeile mehr in `index.ts`, jetzt 15 Zeilen, 663 von 663), weil der Rundown `@jm/master-link` nicht als eigene Abhängigkeit hat. Der Hinweis aus 17.3 bleibt unverändert. Notes und `docs/suite-verbund.md` (C21): „Im Verbund lädt der Rundown auf einem gekoppelten Rechner aus einem Show-Link nichts; eine eigene Rundown-Datei lässt sich mit „Öffnen…“ laden.“
+15. **N15 · Rundown ignoriert einen Show-Deep-Link im Verbundmodus ganz** (zu N-W1; ersetzt N1; E24, C13, C17, C18, C21): Weder Daten noch Dokument. Auslegung „17.3 vor 16.1“: 17.3 ist die Rundown-eigene Regel („Show-Deep-Link | Daten ignoriert“, „Eigene Rundown-Datei der Show: wird auf B nicht geladen“). Ein Show-Link kommt oft ohne bewusste Handlung (Launcher, Doppelklick) und darf einen laufenden Rundown nicht auf die erste Zeile setzen, GO-Folgen abbrechen (`cancelPendingFires`) oder das Gedächtnis der Master-Show überschreiben, wie es N1 über `gleicheMitMasterAb` tat; „Öffnen…“ bleibt der bewusste Weg. Statt der 16.1-Zeile schreibt der Rundown eine eigene, wahre Infozeile „Verbund: Show-Link „⟨Name⟩“ – der Rundown folgt der Show vom Master und lädt daraus nichts.“ (⟨Name⟩ = Dateiname über `kuerzeName`). Die Entscheidung ist die reine Funktion `showLinkWeg` in C17 (drei Prüfungen, rot zuerst mit `SyntaxError`, Gegenproben 2 / 1 / 2 `FAIL`); C18 nutzt sie, `ladeDokumentImVerbund` entfällt. `kuerzeName` kommt über `@jm/app-runtime` (eine Exportzeile mehr in `index.ts`, jetzt 15 Zeilen, 663 von 663; überholt durch N29: auf `adda584693` 675 von 675), weil der Rundown `@jm/master-link` nicht als eigene Abhängigkeit hat. Der Hinweis aus 17.3 bleibt unverändert. Notes und `docs/suite-verbund.md` (C21): „Im Verbund lädt der Rundown auf einem gekoppelten Rechner aus einem Show-Link nichts; eine eigene Rundown-Datei lässt sich mit „Öffnen…“ laden.“
 16. **N16 · Modal bei genau einem Bezieher „· 1 Tool bezieht sie“** (Owner-Antwort auf Frage 3; C10, E43, C21): sonst wörtlich 15.5 „· ⟨n⟩ Tools beziehen sie“. Eine Prüfung in `verteiler.test.ts` Nr. 10 (jetzt 53), Gegenprobe Step 10 mit genau dieser `FAIL`-Zeile (`52 ok, 1 fehlgeschlagen.`). Texttabelle, Doku und `selftest:verbund` (203 / 53 / 63) nachgezogen.
 17. **N17 · Ehrlich, was C20 prüft; Sperre E22 als reine Funktion; Zusatzprüfungen** (zu Befund 11; C15, C16, C18, C21, Kopf, Schlussabschnitt): C16 und C18 sagen jetzt Prüfung für Prüfung, was der Durchgang abdeckt und was nicht (Show-Link, Startreihenfolge, Ordnerwahl, „Öffnen…“/„Neu“, Launcher-Wahl). Die Regel der Sperre für einen Config-Patch ist die reine Funktion `ordnerPatchAbgelehnt` in C15 (drei Prüfungen, rot zuerst mit `SyntaxError … 'ordnerPatchAbgelehnt'`, Gegenproben je 1 `FAIL`); der Main ruft sie, eine Warnung bleibt an einer Stelle. Die Startreihenfolge (E55) ist Verdrahtung ohne testbare Entscheidung: Sie steht mit dem Show-Link und der gesperrten Ordnerwahl als Handprüfung unter „Zusatzprüfungen (nicht in Spec 20)“ in der Abnahme-Datei, unter der unveränderten Tabelle aus Spec 20.
 18. **N18 · Anwende-Versuche enden auch beim direkten Wechsel an einen anderen Master** (zu N-K7; C12, E48): `aufZustand` beendet die Versuche mit einem Stand vom Master, wenn die Kopplung weiter einen Slave zeigt, aber eine andere `masterId` (16.1 „Anderer Master“). Eine Prüfung; rot gegen die Fassung vor N18 (Gegenprobe: 1 `FAIL`). C12 jetzt 110 Prüfungen, `174 passed`; C13 `208 passed`.
 19. **N19 · Owner-Antworten vom 08.10.2026:** alle fünf „Weicht ab“ bestätigt (E6, E9, E14, E15, E47; Owner-Fragen 1, 4, 7); Durchgang C20 freigegeben (Frage 8; die Ledger-Zeile setzt die steuernde Sitzung beim Start der Umsetzung, C20 läuft dann ganz); Umsetzung per Workflow nach Zoom 4b, vor C1 Neuaufsatz auf `main` mit Nachmessen der Anker und Zählstände (Kopf, Schlussabschnitt). Offen bleiben nur die Texte ohne Spec-Vorgabe und die Notes R2 (Freigabe vor dem Commit von C21).
-20. **N20 · Fakten zu `main` und Zoom 4b auf dem Stand vom 08.10.2026** (zu N-K5; Kopf, Testläufe, Schlussabschnitt), lesend mit `git` nachgeprüft: `origin/main` = `b7e959866d` mit 16 Schritten im Job `selftests` (dazu Presenter, Appkit, App Designer aus PR #248) und `docs/roadmap.md` aus PR #249; gegen `5f8ed15ef8` ändert `main` außerdem `package-lock.json`, `packages/suite-manifest/changelog.json` und `ci-checks.yml`. `feat/zoom-stage4b` = `85dcba597d` (neu aufgesetzt auf `b7e959866d`; seit `9611b31c1e` nur `apps/connect`, `packages/zoom-bridge/test` und Doku), 20 Schritte, letzter „App-Laufzeit (Log-Aufräumen, CSP)“; app-runtime-Selbsttest dort `50 passed` (in einer Kopie gemessen). Nach beiden bleibt **ein** app-runtime-Schritt, der Job hat 20 Schritte. Die Zusammenführung von `index.ts` mit `85dcba597d` ist konfliktfrei (675 Zeilen).
-21. **N21 · Kleinkorrekturen** (N-K1 bis N-K4, N-K6, N-K8): `index.ts` nach C13 mit Zeilenzahl (jetzt 663, wegen N15; mit 14 Zeilen wären es 662 gewesen, N-K1); `nichtAngewendet` (und `kuerzeName`) im Produces-Block und im Commit-Text von C13 (N-K2); C21 Step 10 nennt die Zeilenzahl der Texttabelle nach dem neuen Stand (20, N-K3); Architektur, Commit-Texte von C16 und C18 und die Lesestellen in C18 folgen dem Plan (N-K4); Zoom-Bridge-Zusatzbitte überall „erledigt: Issue #247“ (N-K6); die Gegenproben-Zeile „Sperre auch bei `ordner` im Verbund“ in C15 nennt die gemessenen 3 `FAIL`-Zeilen einzeln (N-K8).
+20. **N20 · Fakten zu `main` und Zoom 4b auf dem Stand vom 08.10.2026** (zu N-K5; Kopf, Testläufe, Schlussabschnitt), lesend mit `git` nachgeprüft: `origin/main` = `b7e959866d` mit 16 Schritten im Job `selftests` (dazu Presenter, Appkit, App Designer aus PR #248) und `docs/roadmap.md` aus PR #249; gegen `5f8ed15ef8` ändert `main` außerdem `package-lock.json`, `packages/suite-manifest/changelog.json` und `ci-checks.yml`. `feat/zoom-stage4b` = `85dcba597d` (neu aufgesetzt auf `b7e959866d`; seit `9611b31c1e` nur `apps/connect`, `packages/zoom-bridge/test` und Doku), 20 Schritte, letzter „App-Laufzeit (Log-Aufräumen, CSP)“; app-runtime-Selbsttest dort `50 passed` (in einer Kopie gemessen). Nach beiden bleibt **ein** app-runtime-Schritt, der Job hat 20 Schritte (überholt durch N26: auf `adda584693` 22 Schritte, dazu zwei aus UX Welle 0). Die Zusammenführung von `index.ts` mit `85dcba597d` ist konfliktfrei (675 Zeilen).
+21. **N21 · Kleinkorrekturen** (N-K1 bis N-K4, N-K6, N-K8): `index.ts` nach C13 mit Zeilenzahl (jetzt 663, wegen N15; mit 14 Zeilen wären es 662 gewesen, N-K1; überholt durch N29: 675 auf `adda584693`); `nichtAngewendet` (und `kuerzeName`) im Produces-Block und im Commit-Text von C13 (N-K2); C21 Step 10 nennt die Zeilenzahl der Texttabelle nach dem neuen Stand (20, N-K3); Architektur, Commit-Texte von C16 und C18 und die Lesestellen in C18 folgen dem Plan (N-K4); Zoom-Bridge-Zusatzbitte überall „erledigt: Issue #247“ (N-K6); die Gegenproben-Zeile „Sperre auch bei `ordner` im Verbund“ in C15 nennt die gemessenen 3 `FAIL`-Zeilen einzeln (N-K8).
 
 ### Dritte Runde: zweite Nachprüfung (08.10.2026)
 
-Eine zweite unabhängige Nachprüfung hat die zweite Runde gelesen und nachgespielt: kein kritischer oder wichtiger Befund, zehn kleine (K1–K10). Übernommen ist, was zutraf; der ganze Plan ist danach wieder abgespielt und gemessen (siehe „Wie dieser Plan entstanden ist“). Unverändert bleibt `kuerzeName` über `@jm/app-runtime` (N15, K9): Der Rundown braucht den Namen für seine Logzeile und hat `@jm/master-link` nicht als eigene Abhängigkeit; `index.ts` hat deshalb nach C13 663 Zeilen. Bestätigt von der steuernden Sitzung am 08.10.2026: Der Export über `@jm/app-runtime` gilt; eine neue Abhängigkeit des Rundowns auf `@jm/master-link` wäre der größere Eingriff (E15).
+Eine zweite unabhängige Nachprüfung hat die zweite Runde gelesen und nachgespielt: kein kritischer oder wichtiger Befund, zehn kleine (K1–K10). Übernommen ist, was zutraf; der ganze Plan ist danach wieder abgespielt und gemessen (siehe „Wie dieser Plan entstanden ist“). Unverändert bleibt `kuerzeName` über `@jm/app-runtime` (N15, K9): Der Rundown braucht den Namen für seine Logzeile und hat `@jm/master-link` nicht als eigene Abhängigkeit; `index.ts` hat deshalb nach C13 663 Zeilen (überholt durch N29: 675 auf `adda584693`). Bestätigt von der steuernden Sitzung am 08.10.2026: Der Export über `@jm/app-runtime` gilt; eine neue Abhängigkeit des Rundowns auf `@jm/master-link` wäre der größere Eingriff (E15).
 
-Eine dritte Nachprüfung fand danach nur noch kleine Text- und Angabenpunkte (Liste der Handprüfungen in N17 ohne die Zusatzprüfungen 4 und 5, Satzbau im Doku-Satz zur Log-Drossel und in zwei Notes-Einträgen, „über/unter der Tabelle“ in der Kopf-Tabelle zu C21, Step 10 von C21 nennt nur Changelog-Einträge als Ort geänderter Texte, Erwartung zum stehenden Hinweis nach „Öffnen…“ in der Abnahme). Sie werden im Nachmess-Durchgang nach O-4 (Neuaufsatz auf `main` mit 4b) mit erledigt.
+Eine dritte Nachprüfung fand danach nur noch kleine Text- und Angabenpunkte (Liste der Handprüfungen in N17 ohne die Zusatzprüfungen 4 und 5, Satzbau im Doku-Satz zur Log-Drossel und in zwei Notes-Einträgen, „über/unter der Tabelle“ in der Kopf-Tabelle zu C21, Step 10 von C21 nennt nur Changelog-Einträge als Ort geänderter Texte, Erwartung zum stehenden Hinweis nach „Öffnen…“ in der Abnahme). Sie werden im Nachmess-Durchgang nach O-4 (Neuaufsatz auf `main` mit 4b) mit erledigt. (Stand 12.10.2026: In der vierten Runde, N25–N42, nicht mit erledigt, weil es keine Messwerte sind; offen, Zeitpunkt in N39.)
 
 22. **N22 · CI-Schritt für beide Stände** (zu K1; G2, C11, Kopf-Tabelle, Dateistruktur, Selbstprüfung, Schlussabschnitt): G2 nennt jetzt beide Fälle. Ohne 4b wird der Schritt angehängt; mit 4b (nach dem Neuaufsatz, der vorgesehene Fall) wird der 4b-Schritt umbenannt. In jedem Fall steht genau ein app-runtime-Schritt im Job (Spec 19.6). Der Commit-Text von C11 sagt „genau ein CI-Schritt“ statt „am Ende“. Der Schlussabschnitt nennt alle Stellen, die der Nachmess-Durchgang dafür mitzieht.
 23. **N23 · Zusatzprüfungen 4 und 5; offen gesagt, was nirgends zur Laufzeit läuft** (zu K3; C21 Step 2, Kopf, G15, C16, C18, E61, Owner-Frage 5, Schlussabschnitt): Die Abnahme-Datei bekommt zwei Handprüfungen dazu: die Rundown-Datei am Master mit dem stehenden Hinweis und „Öffnen…“/„Neu“ im Verbundmodus (17.3), und die eigene Wahl nach dem Entkoppeln (Titler-Ordner, Rundown „Neu“, E56). Die Einleitung nennt auch den Timer, die Logzeile heißt wie in der Texttabelle „⟨Name⟩“, und sie sagt, was nur als reine Regel geprüft ist: die Ablehnung im Main des Titlers, solange die Oberfläche die Wahl schon sperrt (E22). Die Tabelle aus Spec 20 bleibt wortgleich.
 24. **N24 · Text- und Angabenkorrekturen** (zu K2, K4–K8, K10): Keine Bitte um Bestätigung mehr zu geschlossenen Owner-Fragen (Überschrift der Entscheidungen, C15, C16, C18); Owner-Fragen 5 und 6 sind als vom Owner geschlossen vermerkt (offen bleiben nur Texte und Notes, N19). Die Doku zur Log-Drossel unterscheidet Neu-Laden und Show-Link (der Rundown vermerkt jeden Show-Link). Zu 4b in `index.ts`: 13 Zeilen eingefügt, eine Leerzeile gelöscht (netto +12). Der Code-Kommentar in C18 beschreibt keine nie committete Fassung mehr; der Funktionsname der Fassung aus N1 steht nur noch in N15. G5 und der Kopf nennen die Modal-Einzahl als Owner-Entscheid (und G5 die eigene Show-Link-Zeile des Rundowns). E61, die Kopf-Tabelle zu C21 und „nie von selbst geladen“ in C18 sind genauer gefasst.
+
+### Vierte Runde: Neuaufsatz auf `main` (12.10.2026)
+
+Vor C1 ist der Branch auf `main` `adda584693` neu aufgesetzt (Owner-Entscheid O-4, N19). Dieser Durchgang hat C11–C21 und die globalen Abschnitte nachgemessen und nachgezogen (siehe „Wie dieser Plan entstanden ist“, vierte Runde); C1–C10 hat ein eigener Messgang nachgemessen (N33), danach ist beides zusammengeführt und gegengeprüft (N34). „Alle Anker greifen“ hieß dabei nicht „alles stimmt“: Mit dem alten C11 Step 12 griffen alle 283 Operationen, der Job hatte danach aber zwei app-runtime-Schritte. Nicht Teil dieses Durchgangs sind die Textpunkte der dritten Nachprüfung (Absatz vor N22); sie sind keine Messwerte und bleiben offen (N39).
+
+25. **N25 · Neuaufsatz** (Kopf „Arbeitsort“, „Umsetzung“, Abschnitt zu Zoom 4b und UX Welle 0, Schlussabschnitt): Basis `adda584693` = `origin/main` am 12.10.2026, darin Zoom 4b (PR #251, `2df1f79357`), UX Welle 0 (PR #250, `efcfff3c5a`), `f118fcd215` (`suite.json` Connect 0.3.0) und PR #252 (Roadmap). Von den 81 Dateien des Plans ändert `main` seit `5f8ed15ef8` genau vier (`git diff --numstat 5f8ed15ef8 adda584693`: `ci-checks.yml` +25/−0, `package-lock.json` +41/−3, `packages/app-runtime/src/index.ts` +13/−1, `changelog.json` +30/−0); ohne R2-Text dazu `packages/app-runtime/test/selftest.ts` und `src/log-aufraeumen.ts`. Gemessen: Der Plan vom 08.10.2026 greift auf einer frischen Kopie mit allen 283 Operationen, 0 Fehler. Der Absatz „Liegt 4b beim Merge … noch nicht auf `main`“ im Schlussabschnitt ist als überholt markiert.
+26. **N26 · CI-Schritt umbenannt statt angehängt** (C11 Step 12 und 13, „Dateien“, „Regeln“, G2, Kopf, Kopf-Tabelle, Dateistruktur, Selbstprüfung 19.6, Schlussabschnitt): Vorher/Nachher von Step 12 treffen jetzt den 4b-Schritt „App-Laufzeit (Log-Aufräumen, CSP)“ (Zeilen 92–93) und benennen ihn um in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“, mit zwei Kommentarzeilen davor. Die YAML-Prüfung zählt zusätzlich die Schritte mit dem app-runtime-Befehl. Gemessen: `22 Schritte, letzter: App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand) | npm run selftest -w @jm/app-runtime | app-runtime-Schritte: 1`, Datei 124 → 126 Zeilen, CRLF durchgehend. Gegenprobe mit dem alten Anhängen: `23 Schritte, … | app-runtime-Schritte: 2`. 22 statt der früher erwarteten 20 Schritte, weil UX Welle 0 „UI-Bausteine …“ und „Einstellungs-Abschnitte …“ dazugebracht hat. Der Commit-Text von C11 Step 4 begründet den eigenen Commit nicht mehr mit `feat/zoom-stage4b`, der von Step 13 nennt die Umbenennung.
+27. **N27 · app-runtime-Zählstände** (C11 Step 3, 6, 9; C12 Step 2, 4; C13 Step 2, 4, 8; C21 Step 9; Kopf, Unterpunkt „Zählstände“; Kopf-Tabelle; Testläufe): Der CSP-Teil des Selbsttests zeigt mit 4b `50 passed, 0 failed` statt `15 passed` (vor C11 und nach jeder dieser Aufgaben gemessen). Der Verbund-Teil ist unverändert: `64`, `174`, `208 passed`, die Rotläufe mit denselben `ERR_MODULE_NOT_FOUND`-Zeilen. Alle Gegenproben von C11 (1 und 2 `FAIL`), C12 (8, 1, 1, 2, 2, 2, 1, 2, 1, 1, 2 `FAIL`) und C13 (Step 9 `verbund.ts(53,3): error TS2322 …`; Step 11 3, 1, 1, 1 `FAIL`) wörtlich wie im Plan.
+28. **N28 · Lockfile in C11** (C11 „Dateien“, „Vorab“, Step 2, Commit-Text Step 4; C21 Step 8): Block `packages/app-runtime` bei `:17400-17409` statt `:17396-17405`, Hunk `@@ -17401,7 +17401,11 @@` statt `@@ -17397,7 +17397,11 @@`, Lockfile 17 656 → 17 660 Zeilen statt 17 618 → 17 622; `+5/−1` und `package.json` `+6/−2` unverändert. `npm install --package-lock-only` lief in der Kopie nicht (wie in der dritten Runde); der erwartete Abschnitt ist eingespielt, Hunk-Kopf und `--stat` sind mit `git diff --no-index` gemessen. Ob npm auf der neuen Basis offline genau diesen Abschnitt schreibt, zeigt erst die Umsetzung; sonst hält Step 2 nach G16.
+29. **N29 · `index.ts`** (G2, G14, C13 „Dateien“, „Regeln“, Step 8, „Abweichungen“, Kopf, Schlussabschnitt): Ist-Zeilen `:17` (Import), `:48` (`CspConfig`), `:387` (`client.starte()`), Sperre `:376-379`, `index.ts:379` in den Abweichungen. 660 → 675 Zeilen, 15 Einfügungen, 0 gelöschte (Hunks `@@ -15,6 +15,7 @@`, `@@ -46,6 +47,19 @@`, `@@ -385,6 +399,7 @@`). Wechselwirkung mit 4b: Die beiden Quelltext-Wächter im 4b-Selbsttest („initAppRuntime plant das Aufräumen nach dem Logger …“, „… und index.ts räumt nirgends sofort auf …“) bleiben nach C13 grün (`50 passed`); C13 Step 8 sagt jetzt, warum.
+30. **N30 · Changelog und Versionen in C21** (C21 „Dateien“, Step 7, Step 8, Step 9, „Abweichungen“ Nr. 4): Vorher-Texte bei `:31-35`, `:645-649`, `:1079-1083`, `:1379-1383` (vor C21; vorher `:22-26`, `:629-633`, `:1063-1067`, `:1363-1367`), jeder genau einmal; nach C21 `changelog.json 1716/1716`, `package-lock.json 17660/17660`. Unverändert gemessen: Lockfile-Blöcke bei `:293`, `:546`, `:704`, `:736`, JSON gültig, `Release-Vorbereitung ok`, Abnahme-Tabelle wortgleich mit 14 Schritten, beide Gegenproben (`Error: launcher: ASCII-Anführungszeichen`, `nicht wortgleich: {"soll":16,"ist":16,"fehler":[2]}`). Gesamtlauf Step 9: 756; 113; 203 / 53 / 63; 277 / 52 / 84 / 12; 190; 59; 443 + 109; 477; 50 / 208; `typecheck --workspaces` Exit 0.
+31. **N31 · Wechselwirkungen ohne Textänderung** (Kopf, Testläufe, Schlussabschnitt):
+    - STATE-Kodierung aus 4b (`formatSuiteState` kodiert Leerraum und `%` als `%XX`): R2 erzeugt keinen STATE-Wert, und kein R2-Test prüft STATE-Text. Nur der Durchgang C20 liest STATE, über `SuiteControlClient` (dekodiert mit `parseSuiteState`), und vergleicht `entry` (Einwort-Name), `entry_count`, `total` und `on_air`. Gemessen: `formatSuiteState` ergibt für diese Werte unverändert `STATE ns=titler entry=Alan entry_index=2 entry_count=4 on_air=1`, und `parseSuiteState` liest sie zurück. Der Kommentar „Einwort-Namen: STATE trennt an Leerzeichen“ in C20 bleibt richtig; mehrteilige Namen kämen seit 4b als `%20` an und würden dekodiert. Nötig sind die Einwort-Namen damit nicht mehr, sie schaden aber nicht (der Messgang C1–C10 nannte den Kommentar „überholt, aber unschädlich“; derselbe Befund, der Code von C20 bleibt).
+    - `typecheck --workspaces` prüft jetzt 31 Workspaces, darunter `@jm/ui` und `@jm/settings`: Exit 0 nach C11, C12, C13 und C21, 60–88 s (in der Nachprüfung nach C11 87 und 90 s; maßgeblich ist die Spanne 55–125 s in C11 Step 10 und C21 Step 9, N35). 25 Apps importieren weiter `@jm/app-runtime`.
+    - Titler, Timer, Rundown, Launcher, master-link und iveo ändert `main` nicht: alle Rot- und Grünläufe, Typecheck-Meldungen (C14 `TS5097`, C15 und C17 je vier), Builds und Zählungen von C14–C19 wörtlich wie im Plan, ebenso die Gegenproben von C15 (N8, N17, N21), C17 (N15) und C19 (29 bzw. 7 `FAIL`). Die Gegenproben ohne wörtlich genannte Änderung (C14, Zeilen ohne N-Verweis in C15 und C17) liefen wie in der dritten Runde nicht.
+32. **N32 · Zeilenangaben, die schon vor dem Neuaufsatz nicht stimmten** (C15 Step 1 und „Abweichungen“, C18 „Dateien“ und Step 8): Gemessen wurde für jede Operation von C11–C21 die Lage des Vorher-Texts im Stand vor ihrer Aufgabe. Abweichend standen nur Angaben in Dateien, die `main` nicht ändert: Im Titler-Selbsttest (C15) liegen die alten Literale bei Zeile 633–636, 674 und 689 (nach Ersetzung 1: 637–640, 678, 693), der Plan nannte 635–638, 676 und 691. Im Rundown-Main (C18, „Stand nach C17“) stehen `starteOhneDeepLink` bei `:812-826`, sein Ende bei `:842` und der Start in `whenReady` bei `:917-921`; der Plan nannte die Zeilen vor der Typ-Brücke aus C17 (`:812-825`, `:841`, `:916-920`). Die Vorher-Texte selbst waren richtig und trafen genau einmal; nur die Angaben sind nachgezogen.
+33. **N33 · Messgang C1–C10** (C4 Step 9, C6, C7, C9 und C10 „Dateien“, C8 Step 5; Kopf „Umsetzung“, „Wie dieser Plan entstanden ist“, Testläufe, Schlussabschnitt): Auf einer eigenen frischen Kopie von `cd6c8394ee` (Basis `adda584693` mit den beiden Plan-Commits) liefen C1–C10 Step für Step: 144 Operationen, jeder Vorher-Text genau einmal; alle Rot-, Grün- und Gegenprobenläufe, Typechecks, Builds und Zählungen, ohne die Commit-Steps. Alle `FAIL`-Zeilen, Fehlermeldungen (Text und Ort), Zählstände und Zeilenangaben der Steps von C1–C10 stimmen; `main` ändert keine Datei dieser Aufgaben (`git diff --stat 5f8ed15ef8 adda584693` ist leer für `packages/master-link`, `packages/show`, `packages/iveo`, `apps/launcher`, `apps/timer`, `apps/rundown`, `apps/titler`). Die Spalte „Vorher“ der Testläufe ist bestätigt: 572, 113, 188, 239 / 47 / 84 / 6, 166, 41, 404 + 81, 407, dazu app-runtime `50 passed` (N27). Nachgezogen:
+    - C4 Step 9: `typecheck --workspaces` hat 31 Typecheck-Skripte statt 29 (`@jm/ui` hat mit UX Welle 0 ein Typecheck-Skript bekommen, `@jm/settings` ist neu); Exit 0, 0 × `error TS`, 90 s nach C4 und 65 s nach C5 (C5 Step 6 nennt keine Zahl).
+    - C7 „Dateien“: Der Kern ist nach C6 um 40 Zeilen länger (`iveo-abgleich-kern.ts` 971 → 1011), nicht „rund 25“; die Vorher-Texte von C7 liegen deshalb 0 bis 40 Zeilen hinter den Ist-Zeilen von `5f8ed15ef8`. Alter Fehler, nicht durch `main`.
+    - C8 Step 5: `verteiler.test.ts` allein lief in 1,1 bis 1,3 s, unter der alten Spanne „1,5 bis 4 s“; jetzt „1,1 bis 4 s“ (die Untergrenze ist nach G16 kein Abbruchgrund).
+    - Kopf der Aufgaben, je eine Zeile neben dem Vorher-Text des Steps (alte Fehler; die Steps nannten die richtige Spanne): C6 Objekt `u` `:288-290` statt `:288-289`, `schreibeShow` `:309-312` statt `:309-311`, Listen-Abfrage `:645-650` statt `:645-649`, Agenda-Abfrage `:739-744` statt `:739-743`; C9 Prüfung „neuAufsetzen mit Löschfehler“ `:440-452` statt `:439-451` (der Block beginnt mit seinem Kommentar); C10 `master.ts` `stand()` `:529-532` statt `:530-531`.
+    - C10 „Dateien“: Die Ist-Zeilen in `master.ts` und `kern.ts` gelten wie die Angaben in Step 5 und 6 für die Basis; im Stand nach C9 stehen die Vorher-Texte zu `stand()` 24 bzw. 7 Zeilen weiter hinten (`master.ts:543`, `:553-556`; `kern.ts:245-257`), der Import in `kern.ts` bleibt bei `:8`. Das steht jetzt in C10 „Dateien“.
+    - Wechselwirkungen mit `main`: C1–C10 erzeugen keinen STATE-Wert (RELOAD geht als Befehlszeile hinaus, und Befehlszeilen kodiert 4b nie, `packages/suite-control-protocol/src/index.ts:16-17`). Timer 41 und Rundown 404 + 81 vor C1 und nach C5 (G11), Titler 407. Der fehlende Link `@jm/settings` im `node_modules` des Worktrees stört keinen Typecheck.
+34. **N34 · Zusammenführung und Gegenprüfung** (ganzer Plan, darin Selbstprüfung 3): Die Messgänge zu C1–C10 (N33) und zu C11–C21 mit den globalen Abschnitten (N25–N32) sind zusammengeführt. Zählstände, die an mehreren Stellen stehen (Kopf-Tabelle, Testläufe, Aufgabentext, C21 Step 8 und 9, Selbstprüfung, Schlussabschnitt), sind abgeglichen; die Plan-Datei hat durchgehend CRLF. N33 ändert keinen Vorher-, Nachher- oder Dateitext: Die 283 Operationen sind dieselben wie nach N25–N32. Danach wurde der fertige Plan zweimal ohne Tests auf je eine frische Kopie von `cd6c8394ee` abgespielt (der Lockfile-Abschnitt aus C11 Step 2 in beiden gleich eingespielt, N28): 283 Operationen, 0 Fehler, alle 81 berührten Dateien in beiden Kopien Byte für Byte gleich. `git add` jeder Aufgabe nennt genau die Dateien ihrer Steps, außer `package-lock.json` in C11 (aus `npm install --package-lock-only`, Selbstprüfung 3). Auf der ersten Kopie lief zusätzlich: die Länge des Kerns nach C6 (1011 Zeilen), nach C8 `verteiler.test.ts` dreimal (`44 ok`, 1,1–1,2 s), die Lage der Vorher-Texte von C6, C9 und C10 vor ihrer Aufgabe und der Grünlauf von C10 (Kopf in „Dateien“ ergänzt): `203 ok` und `53 ok`, Launcher `selftest` `113 ok`, je 0 fehlgeschlagen.
+
+Eine unabhängige Nachprüfung der vierten Runde (Code: C11–C21 auf einer frischen Kopie nachgespielt und gemessen; Stimmigkeit: Plan gegen Spec, Git und sich selbst) fand einen wichtigen und sieben kleine Befunde, keinen kritischen. Übernommen sind alle acht (N35–N42). Keiner ändert einen Vorher-, Nachher- oder Dateitext: Die 283 Operationen und die `git add`-Listen sind dieselben wie nach N34 (gleicher Hash; `--pruefe-add` wie in N34, nur C11 zusätzlich `package-lock.json`). Gemessen wurde auf einer frischen Kopie von `cd6c8394ee`, auf die der Plan Aufgabe für Aufgabe abgespielt war (Lockfile-Abschnitt aus C11 Step 2 eingespielt wie in N28): `typecheck --workspaces` nach C11, der app-runtime-Selbsttest nach C12, C19 Step 3 und 7 (N35) und die YAML-Prüfung aus C11 Step 12 (N40). Danach ist der fertige Plan ohne Tests auf eine weitere frische Kopie abgespielt: 283 Operationen, 0 Fehler, alle 81 berührten Dateien Byte für Byte gleich der Messkopie (dort zusätzlich nur die von Git ignorierten `*.tsbuildinfo` aus dem Typecheck).
+
+35. **N35 · Laufzeit-Bezugswerte** (Kopf-Tabelle C19; Testläufe; N31; C12 „Vorab“; C19 Step 3 und 7; C21 Step 9): Einige Bezugswerte lagen knapp außerhalb ihrer Spannen, und für `typecheck --workspaces` nannte N31 eine andere Spanne (60–88 s) als C11 Step 10 und C21 Step 9 (55–125 s). Nachgemessen auf einer frischen Kopie von `cd6c8394ee`, je dreimal: `verbund-kette.test.ts` allein 10,49–10,57 s (`63 ok, 0 fehlgeschlagen.`, 18 Abschnitte, 0 `FAIL`), `selftest:verbund` 24,9–25,1 s (203 / 53 / 63), `npm run selftest -w @jm/app-runtime` nach C12 1,9–2,0 s (`50 passed`, `174 passed`); dazu einmal `typecheck --workspaces` nach C11: 87 s, 31 Workspaces, Exit 0. Die Prüfung hatte 10,48 s, 24,8 s, 1,9 s und 90 s gemessen. Nachgezogen: C19 Step 3 und Kopf-Tabelle 10,4–11 s, C19 Step 7 24,7–27 s, Testläufe und C21 Step 9 24,7–28 s. C12 „Vorab“ nennt die 1,3 s jetzt als Messung vom 08.10.2026 ohne 4b; der CSP-Teil aus 4b startet einen Kindprozess (`spawnSync` in `packages/app-runtime/test/selftest.ts`). N31 verweist auf die Spanne 55–125 s. Keine dieser Zahlen ist eine Grenze; G16 hält nur über einer genannten Grenze (C19 Step 3: unter 60 s).
+36. **N36 · Arbeitsverzeichnis von C1** (der wichtige Befund; C1 „Arbeitsverzeichnis“, über „wie C1“ auch C2–C4; die Sätze zu den Zeilenangaben in C1, C5 und C7): C1 nannte als Stand des Branches noch `5f8ed15ef8`, als einzige Stelle in einer Aufgabe. Jetzt steht dort die Basis `adda584693` (N25) und dass `packages/master-link` seit `5f8ed15ef8` unverändert ist. Die Sätze „Zeilenangaben gelten für (den Stand) `5f8ed15ef8`“ in C1, C5 und C7 sagen dazu, dass die Angaben in diesen Dateien auch für `adda584693` gelten: `git diff --numstat 5f8ed15ef8 adda584693` ist für `packages/master-link`, `packages/show`, `packages/iveo` und `apps/launcher` leer (nachgeprüft wie in N33). Die übrigen Nennungen von `5f8ed15ef8` stehen als Geschichte („auf `5f8ed15ef8` waren es …“) oder als Lage in Dateien, die `main` nicht ändert (C2 „Dateien“, C18 `showPfad`).
+37. **N37 · Überschrift G2 und Zusatzbitte** (G2; „Bewusst nicht in diesem Plan“): G2 hieß noch „Parallelarbeit Zoom Stage 4b (Merge klein halten)“, jetzt „Zoom Stage 4b auf `main` (Berührung klein halten)“ wie der Abschnitt im Kopf. Die Zusatzbitte nannte 4b im Präsens als laufende Arbeit auf `feat/zoom-stage4b`; jetzt steht dort, dass 4b seit PR #251 auf `main` ist (`2df1f79357`) und die Zusatzbitte eine eigene Zoom-Stufe danach (Issue #247).
+38. **N38 · Vermerk zur dritten Nachprüfung** (Absatz vor N22): Der Vermerk vom 12.10.2026 nannte die vierte Runde als N25–N32; jetzt N25–N42, mit Verweis auf N39.
+39. **N39 · Textpunkte der dritten Nachprüfung: offen, mit Zeitpunkt** (Kopf „Umsetzung“; Einleitung der vierten Runde; Schlussabschnitt, „Stand der Owner-Punkte“ und „Umsetzung“): Kopf und Schlussabschnitt meldeten den Neuaufsatz ohne Einschränkung als erledigt, und die Aufzählung der offenen Punkte im Schlussabschnitt nannte die Textpunkte nicht, obwohl der Absatz vor N22 sie in diesen Durchgang gelegt hatte. Jetzt sagen beide Stellen, dass sie offen sind und vor C21 gehören. Drei der sechs Punkte betreffen Texte, die C21 schreibt: die Erwartung zum stehenden Hinweis nach „Öffnen…“ in der Abnahme-Datei (Step 2), den Doku-Satz zur Log-Drossel (Step 3) und zwei Notes-Einträge (Step 7). Werden sie geändert, ist C21 neu abzuspielen. Die übrigen drei (Liste in N17, „über/unter der Tabelle“ in der Kopf-Tabelle zu C21, Ort geänderter Texte in C21 Step 10) sind Plantext ohne Operation. Den Zeitpunkt vor C21 legt die steuernde Sitzung fest; spätestens gehören die Notes-Einträge zum Entwurf, der in C21 Step 10 dem Owner vorliegt.
+40. **N40 · Spec 19.6 im Wortlaut: Abweichung gemeldet** (Kopf „Spec“; C11 Step 12 und „Abweichungen“; Selbstprüfung 19.6): 19.6 sagt: Neuer Schritt im Job `selftests` „app-runtime (CSP, Verbund-Anzeige, Abo-Zustand)“. C11 benennt seit N26 den 4b-Schritt um. Der Plan gab 19.6 als „Spec 19.6 verlangt einen Schritt“ wieder und führte die Abweichung im Wortlaut (anderer Name; Umbenennen statt Anlegen) nirgends. Jetzt gibt C11 Step 12 die Spec richtig wieder, C11 „Abweichungen“ begründet den Weg (ein zweiter Schritt mit demselben Befehl liefe dieselben Tests doppelt), und der Kopf (Absatz „Spec“) und Selbstprüfung 19.6 melden die Abweichung. Der Zweck von 19.6 bleibt: genau ein Schritt, der beide Teile aus 19.4 ausführt, ohne Electron, in der Zeitgrenze von 15 min (`timeout-minutes: 15` im Job). Keine Operation ändert sich; nachgeprüft auf der frischen Kopie: C11 Step 12 ergibt weiter `22 Schritte, letzter: App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand) | npm run selftest -w @jm/app-runtime | app-runtime-Schritte: 1`. Eine „Weicht ab“-Entscheidung mit Owner-Bestätigung ist das nicht; nach der Regel im Kopf ist die Abweichung gemeldet.
+41. **N41 · Überholt-Vermerke an Ort und Stelle** (N15, N20, N21, Absatz nach N21): Diese Punkte nannten im Präsens Zahlen vom 08.10.2026 (`index.ts` nach C13 663 Zeilen, der Job mit 20 Schritten). Wie bei N11 trägt jede Stelle jetzt einen Vermerk: 675 Zeilen (N29) bzw. 22 Schritte (N26).
+42. **N42 · Ortsangaben in N27 und N34**: N27 nennt jetzt auch den Kopf (Unterpunkt „Zählstände“: `50 passed` statt `15 passed`), N34 die Selbstprüfung 3 (dort steht die vierte Runde). Beide Änderungen waren inhaltlich gedeckt; es fehlte nur die Ortsangabe.
 
 ## Owner-Fragen und Freigaben
 
@@ -734,7 +767,7 @@ Keine dieser Fragen hält den Beginn der Umsetzung auf. **Stand 08.10.2026 (N19)
 
 **Spec:** `docs/superpowers/specs/2026-10-02-master-link-teil2b-design.md` 2.4 Nr. 3; 13.4 (Tabelle); 13.5 Zeilen 1 und 2 („Grenze je Stück statt je Zeile“, „Kopieren je Stück“) samt ihren Tests; 19.1 erster Punkt („alle Tests aus 13.5“). Gliederung: E1, Vormerkung 1, Review Focus 1.
 
-**Arbeitsverzeichnis:** `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2` (Branch `feat/master-link-teil2b-r2`, Stand `5f8ed15ef8`). Alle Pfade relativ dazu. Voraussetzung: `node_modules\.package-lock.json` existiert, und `npm run selftest -w @jm/master-link` endet mit `572 ok, 0 fehlgeschlagen.`
+**Arbeitsverzeichnis:** `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2` (Branch `feat/master-link-teil2b-r2`, Basis `adda584693` nach dem Neuaufsatz N25; `packages/master-link` ist seit `5f8ed15ef8` unverändert, N33, N36). Alle Pfade relativ dazu. Voraussetzung: `node_modules\.package-lock.json` existiert, und `npm run selftest -w @jm/master-link` endet mit `572 ok, 0 fehlgeschlagen.`
 
 **Dateien:**
 - Modify: `packages/master-link/src/fristen.ts` Zeilen 68–70 (Ende von `GRENZEN`)
@@ -742,7 +775,7 @@ Keine dieser Fragen hält den Beginn der Umsetzung auf. **Stand 08.10.2026 (N19)
 - Modify: `packages/master-link/src/verbindung.ts` Zeilen 36–47 (`aufDaten` bis einschließlich `const r = dekodiere(zeile);`)
 - Test: `packages/master-link/test/rahmen.test.ts` Zeilen 3–4 (Importe), 73–85 (Abschnitt „Rahmen: Zeilenleser“), 206–210 (Dateiende)
 
-Zeilenangaben gelten für `5f8ed15ef8`. Maßgeblich ist immer der wortgleiche Vorher-Text.
+Zeilenangaben gelten für `5f8ed15ef8` (in diesen Dateien gleich `adda584693`, N33, N36). Maßgeblich ist immer der wortgleiche Vorher-Text.
 
 **Interfaces:**
 - Consumes: keine.
@@ -3221,7 +3254,7 @@ npm run selftest:verbund -w @jm/launcher
 npm run typecheck --workspaces --if-present
 node -e "for (const f of process.argv.slice(1)) { const t = require('fs').readFileSync(f, 'utf8'); console.log(f, (t.match(/\n/g) || []).length, (t.match(/\r\n/g) || []).length); }" packages/master-link/src/client.ts packages/master-link/src/adresswahl.ts packages/master-link/test/client.test.ts packages/master-link/test/adresswahl.test.ts
 ```
-Erwartet: alle Typechecks ohne `error TS`, Exitcode 0 (`--workspaces`: 29 Typecheck-Skripte, gemessen 80–108 s; nötig, weil `@jm/app-runtime` den Client importiert und 25 Apps app-runtime typprüfen). `selftest:verbund` endet mit `188 ok, 0 fehlgeschlagen.` Dann:
+Erwartet: alle Typechecks ohne `error TS`, Exitcode 0 (`--workspaces`: 31 Typecheck-Skripte, auf `5f8ed15ef8` waren es 29, dazu `@jm/ui` und `@jm/settings` aus UX Welle 0, N33; gemessen 80–108 s; nötig, weil `@jm/app-runtime` den Client importiert und 25 Apps app-runtime typprüfen). `selftest:verbund` endet mit `188 ok, 0 fehlgeschlagen.` Dann:
 ```
 packages/master-link/src/client.ts 679 679
 packages/master-link/src/adresswahl.ts 173 173
@@ -3270,7 +3303,7 @@ git commit -m "feat(master-link): Client sende, daten auch fuer nachgeholte Zeil
   - Zeile 30 (Import aus `@jm/show`)
   - neuer Block direkt vor `if (failed > 0) {` (Ist `:763`)
 
-Zeilenangaben gelten für den Stand `5f8ed15ef8`. Maßgeblich ist immer der wortgleiche Vorher-Text.
+Zeilenangaben gelten für den Stand `5f8ed15ef8` (in diesen Dateien gleich `adda584693`, N33, N36). Maßgeblich ist immer der wortgleiche Vorher-Text.
 
 Die `@jm/show`-Fälle stehen im iveo-Selbsttest, weil `@jm/show` keinen eigenen Testlauf hat und esbuild es dort mitbündelt (Spec 19.2). Testhilfe dort: `ok(cond: boolean, msg: string)`, sie druckt `ok   <msg>` bzw. `FAIL <msg>`, am Ende `ALLE TESTS OK`. Das Bündel `packages/iveo/test/selftest.bundle.mjs` ist in `packages/iveo/.gitignore` und erscheint nicht in `git status`.
 
@@ -3635,10 +3668,10 @@ git commit -m "feat(show): Ausschnitt fuer den Verbund ueber die Freigabeliste V
   - `KernAbhaengigkeiten` (Ist `:54-75`, Anker `baseUrlStandard(): string;` `:74`)
   - hinter `benachrichtigeAlle` (Ist `:419-424`): neue Helfer `melde`, `meldeGeschrieben`
   - `showGeoeffnet` (Ist `:536-539`)
-  - Schreibstellen vor `benachrichtigeAlle()`: Listen-Abfrage (Ist `:645-649`), Agenda-Abfrage (Ist `:739-743`), Umschalten (Ist `:919-921`)
+  - Schreibstellen vor `benachrichtigeAlle()`: Listen-Abfrage (Ist `:645-650`), Agenda-Abfrage (Ist `:739-744`), Umschalten (Ist `:919-921`)
   - `offeneShowGespeichert` (Ist `:946-950`)
 - Test: `apps/launcher/test/iveo-abgleich.test.ts`
-  - `interface Umgebung` (Ist `:267-269`), `function umgebung` (Ist `:270-271`), Objekt `u` (Ist `:288-289`), `leseShow` (Ist `:297-298`), `schreibeShow` (Ist `:309-311`), Ende der Kern-Abhängigkeiten (Ist `:322-324`)
+  - `interface Umgebung` (Ist `:267-269`), `function umgebung` (Ist `:270-271`), Objekt `u` (Ist `:288-290`), `leseShow` (Ist `:297-298`), `schreibeShow` (Ist `:309-312`), Ende der Kern-Abhängigkeiten (Ist `:322-324`)
   - neuer Block direkt vor `// --- Zusammenfassung ---` (Ist `:1544`)
 
 **Interfaces:**
@@ -4115,7 +4148,7 @@ git commit -m "feat(launcher): iveo-Kern meldet die offene Show an den Verbund (
 - Test: `apps/launcher/test/iveo-abgleich.test.ts` — `type Abruf` (Ist `:124`), nachgebauter Client (Ist `:216-221`), Fixture `showMit` (Ist `:246`), Prüfung `:434`, Prüfung „Nr. 13“ (Ist `:820-821`), neuer Block vor `// --- Zusammenfassung ---`.
 - Test: `apps/launcher/test/iveo-huelle.test.ts` — Importe (Ist `:6`, `:13`), neuer Block vor der Zusammenfassung (Ist `:207`).
 
-Zeilenangaben gelten für den Stand `5f8ed15ef8`; der Kern ist seit C6 um rund 25 Zeilen länger. Maßgeblich ist der wortgleiche Vorher-Text.
+Zeilenangaben gelten für den Stand `5f8ed15ef8` (in diesen Dateien gleich `adda584693`, N33, N36); der Kern ist seit C6 um 40 Zeilen länger (971 → 1011, gemessen am 12.10.2026, N33), die Vorher-Texte liegen deshalb je nach Stelle 0 bis 40 Zeilen weiter hinten. Maßgeblich ist der wortgleiche Vorher-Text.
 
 **Interfaces:**
 - Consumes: C6 (`meldeShow`, `melde`, `meldeGeschrieben` im Kern), C5 nicht.
@@ -5870,7 +5903,7 @@ Erwartet: zwei Zusammenfassungen ohne Fehlschlag, Exitcode 0:
 188 ok, 0 fehlgeschlagen.
 44 ok, 0 fehlgeschlagen.
 ```
-`verteiler.test.ts` allein dauert gemessen 1,5 bis 4 s (`npx tsx apps/launcher/test/verteiler.test.ts`). Die Prüfzeile „Nr. 4: … Warnung wörtlich 15.6 mit KiB“ trägt die gemessene Größe in Klammern (gemessen `919 KiB`).
+`verteiler.test.ts` allein dauert gemessen 1,1 bis 4 s (`npx tsx apps/launcher/test/verteiler.test.ts`; am 12.10.2026 1,1–1,3 s, N33). Die Prüfzeile „Nr. 4: … Warnung wörtlich 15.6 mit KiB“ trägt die gemessene Größe in Klammern (gemessen `919 KiB`).
 
 - [ ] **Step 6: Gegenprobe Review Focus 1 (Bytes, nicht Zeichen)** — nur zur Kontrolle, nicht committen
 
@@ -5940,7 +5973,7 @@ git commit -m "feat(launcher): Verteiler der Show-Daten am Master (Teil 2b R2)" 
 - Modify: `apps/launcher/src/main/iveo-sync.ts` — Import (Ist `:53`), Kern-Abhängigkeiten (Ist `:439`, `:445-447`)
 - Test: `apps/launcher/test/reload-nachholen.test.ts` (Import `:3`, neuer Block nach `:32`)
 - Test: `apps/launcher/test/iveo-abgleich.test.ts` (`function umgebung` aus C6, Ende der Kern-Abhängigkeiten, neuer Block vor der Zusammenfassung)
-- Test: `apps/launcher/test/verbund.test.ts` — Importe (Ist `:15`), Prüfung „neuAufsetzen mit Löschfehler“ (Ist `:439-451`), Prüfung „B5 … behält den Master-Namen“ (Ist `:991-992`), neue Blöcke nach `await ohneId.neuAufsetzen();` (Ist `:1138`)
+- Test: `apps/launcher/test/verbund.test.ts` — Importe (Ist `:15`), Prüfung „neuAufsetzen mit Löschfehler“ (Ist `:440-452`), Prüfung „B5 … behält den Master-Namen“ (Ist `:991-992`), neue Blöcke nach `await ohneId.neuAufsetzen();` (Ist `:1138`)
 
 **Interfaces:**
 - Consumes: `istDieserRechner(host, eigeneAdressen, eigenerName?)`, `eigeneAdressen(ni)` (C4); `MasterLinkServer` Ereignisse `daten (t: TeilnehmerDaten, abo: AboInhalt)`, `getrennt (sitzung)`, `entstaut (sitzung)`, Methode `sendeDaten` (C3); `MasterLinkClient.sende` und Ereignis `daten` (C4, nur Tests); `KernAbhaengigkeiten.meldeShow?` (C6); `Verteiler` (C8).
@@ -6882,12 +6915,14 @@ git commit -m "feat(launcher): Verteiler an der Master-Rolle, RELOAD nur an dies
 
 **Dateien:**
 - Modify: `apps/launcher/src/shared/types.ts` — `VerbundTool` (Ist `:477-483`), neu `VerbundShowStand` dahinter, `VerbundMasterStand` (Ist `:521-524`)
-- Modify: `apps/launcher/src/main/verbund/master.ts` — `stand()` (Ist `:519`, `:530-531`)
+- Modify: `apps/launcher/src/main/verbund/master.ts` — `stand()` (Ist `:519`, `:529-532`)
 - Modify: `apps/launcher/src/main/verbund/kern.ts` — Import (Ist `:8`), `stand()` (Ist `:238-250`)
 - Modify: `apps/launcher/src/renderer/src/lib/verbund-texte.ts` — Import (`:1`), Dateiende (Ist `:137-140`)
 - Modify: `apps/launcher/src/renderer/src/components/VerbundMaster.tsx` — Importe (`:1-4`), `jetzt` (Ist `:14-15`), Abschnitt „Gekoppelte Rechner“ (Ist `:59-60`), Tool-Zeilen (Ist `:89-93`)
 - Test: `apps/launcher/test/verteiler.test.ts` (Import, neuer Block Nr. 10 vor der Zusammenfassung)
 - Test: `apps/launcher/test/verbund.test.ts` (neuer Block hinter dem Kern-Block aus C9)
+
+Die Ist-Zeilen in `master.ts` und `kern.ts` (hier und in Step 5 und 6) gelten für die Basis. C9 verlängert beide Dateien: Im Stand nach C9 stehen die Vorher-Texte zu `stand()` 24 bzw. 7 Zeilen weiter hinten (`master.ts:543`, `:553-556`; `kern.ts:245-257`), der Import in `kern.ts` bleibt bei `:8` (gemessen am 12.10.2026, N33). Maßgeblich ist der wortgleiche Vorher-Text.
 
 **Interfaces:**
 - Consumes: `Verteiler.stand(): VerteilerStand`, `Verteiler.hatAbo(sitzung)` (C8), `VerbundKernDeps.verteiler` mit `stand` (C9), `TeilnehmerStand.sitzung` (C3).
@@ -7395,12 +7430,12 @@ git commit -m "feat(launcher): Verbund-Modal zeigt die Show im Verbund und je To
 **Dateien:**
 - Commit 1 (G2, eigener Commit):
   - Modify: `packages/app-runtime/package.json:10-16` (Skript `selftest`, Abhängigkeit `@jm/show`, neu `devDependencies` mit `tsx`)
-  - Modify: `package-lock.json:17396-17405` (nur der Block `"packages/app-runtime"`; npm zieht ihn nach)
+  - Modify: `package-lock.json:17400-17409` (nur der Block `"packages/app-runtime"`; npm zieht ihn nach)
 - Commit 2:
   - Create: `packages/app-runtime/src/verbund-typen.ts`
   - Create: `packages/app-runtime/src/verbund-anzeige.ts`
   - Create: `packages/app-runtime/test/verbund.test.ts`
-  - Modify: `.github/workflows/ci-checks.yml:67-68` (neuer Schritt am Ende der Schrittliste im Job `selftests`, nach „Connect …“; nach dem Neuaufsatz mit 4b stattdessen den 4b-Schritt umbenennen, G2)
+  - Modify: `.github/workflows/ci-checks.yml:92-93` (der 4b-Schritt „App-Laufzeit (Log-Aufräumen, CSP)“, zuletzt im Job `selftests`, wird umbenannt; kein zweiter Schritt, G2, N26)
 
 **Interfaces:**
 
@@ -7438,10 +7473,10 @@ export function kuerzeShowName(name: string): string;   // höchstens 40 Code Po
 ```
 C12 und C13 bauen darauf. C19 (Kette) importiert `verbund-anzeige.ts` per Relativpfad (S-E).
 
-**Regeln:** G2 (nur neue Dateien; `package.json`/`package-lock.json` als eigener Commit; genau ein CI-Schritt für app-runtime, ohne 4b ans Ende, mit 4b umbenannt), G5 (V1–V15 wörtlich), G7 (Test mit `tsx`, lädt kein Electron), G11, G12, G16.
+**Regeln:** G2 (nur neue Dateien; `package.json`/`package-lock.json` als eigener Commit; genau ein CI-Schritt für app-runtime: der aus 4b, umbenannt), G5 (V1–V15 wörtlich), G7 (Test mit `tsx`, lädt kein Electron), G11, G12, G16.
 
 **Vorab (gemessen):**
-- Alle berührten Dateien liegen im Worktree mit CRLF vor (gezählt: `package.json` 19 von 19 Zeilen, `package-lock.json` 17 618 von 17 618, `ci-checks.yml` 99 von 99). npm behält beim Nachziehen die CRLF des Lockfiles (danach 17 622 von 17 622).
+- Alle berührten Dateien liegen im Worktree mit CRLF vor (gezählt auf `adda584693`: `package.json` 19 von 19 Zeilen, `package-lock.json` 17 656 von 17 656, `ci-checks.yml` 124 von 124). npm behält beim Nachziehen die CRLF des Lockfiles (danach 17 660 von 17 660; `package.json` 23 von 23, `ci-checks.yml` nach Step 12 126 von 126).
 - `npm install --package-lock-only --ignore-scripts --offline` braucht etwa 1,5 s. `node_modules/tsx` (4.22.4) steht schon im Lockfile, weil `@jm/master-link` und `@jm/titler` es führen; es wird nichts geladen. Geändert wird nur der Block `"packages/app-runtime"`.
 - Bis C13 bindet `src/index.ts` die neuen Module nicht ein; `npm run typecheck --workspaces --if-present` sieht sie also noch nicht. Step 10 prüft sie deshalb direkt mit `tsc` und den Optionen der App-`tsconfig.node.json` (`strict`, `isolatedModules`, `moduleResolution: Bundler`, `types: node`). Gegenprobe: ein absichtlicher Typfehler in einer übergebenen Datei ergibt `error TS2322` und Exit-Code 2.
 - `test/verbund.test.ts` lädt jedes Modul mit `await import(…)` **innerhalb eines Blocks `{ … }`** (Muster aus R1, Titler-Selbsttest). Fehlt das Modul einer späteren Aufgabe, laufen die Blöcke davor durch, dann bricht der Lauf mit `ERR_MODULE_NOT_FOUND` ab. `packages/app-runtime/package.json` hat `"type": "module"`; `await` auf oberster Ebene geht.
@@ -7488,7 +7523,7 @@ git diff package-lock.json
 ```
 Erwartet: `npm install` endet mit `found 0 vulnerabilities`, Exit-Code 0. `git diff --stat` nennt genau zwei Dateien: `package-lock.json` mit 6 Zeilen (5 dazu, 1 weg) und `packages/app-runtime/package.json` mit 8 Zeilen (6 dazu, 2 weg). `git diff package-lock.json` zeigt genau diesen einen Abschnitt:
 ```diff
-@@ -17397,7 +17397,11 @@
+@@ -17401,7 +17401,11 @@
        "name": "@jm/app-runtime",
        "version": "0.1.1",
        "dependencies": {
@@ -7502,14 +7537,14 @@ Erwartet: `npm install` endet mit `found 0 vulnerabilities`, Exit-Code 0. `git d
        "peerDependencies": {
          "electron": ">=30"
 ```
-Meldet npm `ENOTCACHED` oder zeigt der Diff mehr als diesen Abschnitt, hier anhalten und melden (G16); nicht ohne `--offline` wiederholen.
+Meldet npm `ENOTCACHED` oder zeigt der Diff mehr als diesen Abschnitt, hier anhalten und melden (G16); nicht ohne `--offline` wiederholen. (Nachgemessen am 12.10.2026 auf `adda584693` mit dem eingespielten Abschnitt, npm lief in der Kopie nicht: Hunk-Kopf wie oben, `package-lock.json` +5/−1, `packages/app-runtime/package.json` +6/−2, N28.)
 
 - [ ] **Step 3: Lauf zeigt, dass das Skript schon auf den neuen Test zeigt (erwartet rot)**
 
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: der CSP-Teil wie bisher mit `15 passed, 0 failed`, danach bricht `tsx` ab, Exit-Code 1:
+Erwartet: der CSP-Teil (mit Log-Aufräumen aus Zoom 4b) wie bisher mit `50 passed, 0 failed`, danach bricht `tsx` ab, Exit-Code 1:
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\packages\app-runtime\test\verbund.test.ts' imported from …\packages\app-runtime\
 ```
@@ -7528,7 +7563,7 @@ M  packages/app-runtime/package.json
 ```
 Dann:
 ```bash
-git commit -m "chore(app-runtime): @jm/show und tsx fuer den Verbund der Tool-Seite (Teil 2b R2)" -m "Eigener Commit, weil feat/zoom-stage4b package.json und Lockfile von app-runtime ebenfalls aendert (Merge klein halten). selftest ruft danach zusaetzlich tsx test/verbund.test.ts; der Test folgt im naechsten Commit. Lockfile nur im Block packages/app-runtime nachgezogen (npm install --package-lock-only --ignore-scripts --offline)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "chore(app-runtime): @jm/show und tsx fuer den Verbund der Tool-Seite (Teil 2b R2)" -m "Eigener Commit nach dem Plan (G2): Paket und Lockfile getrennt vom Code. selftest ruft danach zusaetzlich tsx test/verbund.test.ts; der Test folgt im naechsten Commit. Lockfile nur im Block packages/app-runtime nachgezogen (npm install --package-lock-only --ignore-scripts --offline)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 5: Failing Test schreiben**
@@ -7648,7 +7683,7 @@ process.exit(failed ? 1 : 0);
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: `15 passed, 0 failed` aus dem CSP-Teil, dann keine `C11`-Zeile und Abbruch beim Laden, Exit-Code 1:
+Erwartet: `50 passed, 0 failed` aus dem CSP-Teil, dann keine `C11`-Zeile und Abbruch beim Laden, Exit-Code 1:
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\packages\app-runtime\src\verbund-anzeige' imported from …\packages\app-runtime\test\verbund.test.ts
 ```
@@ -7808,7 +7843,7 @@ export function verbundAnzeige(d: VerbundDaten, uhrzeit: (ms: number) => string 
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: `15 passed, 0 failed`, danach 64 Zeilen `  ok  C11 …` (von „C11 V1: einzelplatz → keine Anzeige“ bis „C11 Vorgabe-Uhrzeit hh:mm (Ortszeit)“), keine `FAIL`-Zeile, am Ende `64 passed, 0 failed`, Exit-Code 0.
+Erwartet: `50 passed, 0 failed`, danach 64 Zeilen `  ok  C11 …` (von „C11 V1: einzelplatz → keine Anzeige“ bis „C11 Vorgabe-Uhrzeit hh:mm (Ortszeit)“), keine `FAIL`-Zeile, am Ende `64 passed, 0 failed`, Exit-Code 0.
 
 - [ ] **Step 10: Typprüfung**
 
@@ -7835,31 +7870,29 @@ Je eine Änderung in `packages/app-runtime/src/verbund-anzeige.ts` einspielen, `
 
 Danach zeigt `npx tsx packages/app-runtime/test/verbund.test.ts` wieder `64 passed, 0 failed`.
 
-- [ ] **Step 12: CI-Schritt anhängen (19.6, G2)**
+- [ ] **Step 12: CI-Schritt umbenennen (19.6, G2)**
 
-In `.github/workflows/ci-checks.yml` ersetzen. Der Name folgt dem Muster, das Zoom Stage 4b für denselben Befehl nutzt („App-Laufzeit (…)“, G2): Beim späteren Zusammenführen wird aus beiden Schritten genau einer (Schlussabschnitt). Dieser Branch steht auf `5f8ed15ef8`; die Datei hier kennt den Schritt aus 4b also nicht. Nach dem Neuaufsatz auf `main` mit 4b (vor C1, Kopf „Umsetzung“) steht der 4b-Schritt „App-Laufzeit (Log-Aufräumen, CSP)“ mit demselben Befehl schon zuletzt im Job; dann wird kein zweiter Schritt angehängt, sondern dieser eine in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ umbenannt (20 Schritte). Vorher/Nachher und Erwartung dieses Steps stellt der Nachmess-Durchgang darauf um.
+In `.github/workflows/ci-checks.yml` ersetzen. Seit dem Neuaufsatz auf `main` (12.10.2026, Basis `adda584693` mit Zoom 4b `2df1f79357`, N25) steht der 4b-Schritt „App-Laufzeit (Log-Aufräumen, CSP)“ mit demselben Befehl `npm run selftest -w @jm/app-runtime` schon zuletzt im Job `selftests`. Spec 19.6 verlangt einen neuen Schritt „app-runtime (CSP, Verbund-Anzeige, Abo-Zustand)“ mit diesem Befehl, der beide Teile ausführt; ein zweiter Schritt mit demselben Befehl liefe dieselben Tests doppelt. C11 hängt deshalb keinen an, sondern benennt diesen um, nach dem Muster, das 4b für den Befehl nutzt („App-Laufzeit (…)“; Abweichung im Wortlaut von 19.6, siehe „Abweichungen“ unten, N40). Der Befehl bleibt gleich; seit Step 1 ruft er zusätzlich `tsx test/verbund.test.ts`. Die Schrittzahl bleibt 22 (13 auf `5f8ed15ef8`, dazu Presenter, Appkit, App Designer aus PR #248, UI-Bausteine und Einstellungs-Abschnitte aus PR #250, Steuerprotokoll, Companion-Modul, Companion-Protokoll aktuell und App-Laufzeit aus PR #251).
 
 Vorher (`.github/workflows/ci-checks.yml`, genau einmal):
 ```yaml
-      - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte)
-        run: npm run selftest -w @jm/connect
+      - name: App-Laufzeit (Log-Aufräumen, CSP)
+        run: npm run selftest -w @jm/app-runtime
 ```
 
 Nachher:
 ```yaml
-      - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte)
-        run: npm run selftest -w @jm/connect
-      # Master-Link Teil 2b, Release 2 (Spec 19.6): CSP und Verbund der Tool-Seite (Anzeige V1–V15,
-      # Abo-Zustand, Zwischenspeicher), mit tsx, ohne Electron.
-      - name: App-Laufzeit (CSP, Verbund-Anzeige, Abo-Zustand)
+      # Master-Link Teil 2b, Release 2 (Spec 19.6): derselbe Befehl prüft auch den Verbund der Tool-Seite
+      # (Anzeige V1–V15, Abo-Zustand, Zwischenspeicher) mit tsx, ohne Electron. Genau ein Schritt dafür.
+      - name: App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)
         run: npm run selftest -w @jm/app-runtime
 ```
 
-Prüfen, dass die Datei gültiges YAML ist und der Schritt zuletzt im Job steht:
+Prüfen, dass die Datei gültiges YAML ist, der Schritt zuletzt im Job steht und es im Job genau einen app-runtime-Schritt gibt:
 ```bash
-node -e "const y=require('js-yaml');const d=y.load(require('fs').readFileSync('.github/workflows/ci-checks.yml','utf8'));const s=d.jobs.selftests.steps;console.log(s.length+' Schritte, letzter: '+s.at(-1).name+' | '+s.at(-1).run)"
+node -e "const y=require('js-yaml');const d=y.load(require('fs').readFileSync('.github/workflows/ci-checks.yml','utf8'));const s=d.jobs.selftests.steps;console.log(s.length+' Schritte, letzter: '+s.at(-1).name+' | '+s.at(-1).run+' | app-runtime-Schritte: '+s.filter((x)=>x.run==='npm run selftest -w @jm/app-runtime').length)"
 ```
-Erwartet: `14 Schritte, letzter: App-Laufzeit (CSP, Verbund-Anzeige, Abo-Zustand) | npm run selftest -w @jm/app-runtime`.
+Erwartet: `22 Schritte, letzter: App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand) | npm run selftest -w @jm/app-runtime | app-runtime-Schritte: 1` (gemessen am 12.10.2026; der Schritt steht in Zeile 94–95, die Datei hat danach 126 von 126 Zeilen mit CRLF). Gegenprobe (in einer Kopie gemessen, N26): Mit dem früheren Anhängen nach „Connect …“ meldet dieselbe Prüfung `23 Schritte, letzter: App-Laufzeit (Log-Aufräumen, CSP) | npm run selftest -w @jm/app-runtime | app-runtime-Schritte: 2`.
 
 - [ ] **Step 13: Commit 2**
 
@@ -7876,13 +7909,14 @@ A  packages/app-runtime/test/verbund.test.ts
 ```
 Dann:
 ```bash
-git commit -m "feat(app-runtime): Verbund-Typen und Anzeige V1-V15 der Tool-Seite (Teil 2b R2)" -m "verbund-typen.ts mit MasterStand und VerbundDaten wie Spec 16.2 (DatenGrund aus @jm/master-link, nur einzeln benannte Typen, E27). verbund-anzeige.ts als reine Funktion mit vollstaendiger Pruefung des Union-Typs: Vorrang V12 vor V15, Zusatz L genau mit angewendetem Stand, Showname hoechstens 40 Code Points, V11 mit dem Text des Clients. Selbsttest test/verbund.test.ts mit tsx (jede Zeile woertlich, V11 fuer alle 13 Fehlercodes). Genau ein CI-Schritt app-runtime im Job selftests (Spec 19.6)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(app-runtime): Verbund-Typen und Anzeige V1-V15 der Tool-Seite (Teil 2b R2)" -m "verbund-typen.ts mit MasterStand und VerbundDaten wie Spec 16.2 (DatenGrund aus @jm/master-link, nur einzeln benannte Typen, E27). verbund-anzeige.ts als reine Funktion mit vollstaendiger Pruefung des Union-Typs: Vorrang V12 vor V15, Zusatz L genau mit angewendetem Stand, Showname hoechstens 40 Code Points, V11 mit dem Text des Clients. Selbsttest test/verbund.test.ts mit tsx (jede Zeile woertlich, V11 fuer alle 13 Fehlercodes). Der CI-Schritt app-runtime aus Zoom 4b heisst jetzt App-Laufzeit (Log-Aufraeumen, CSP, Verbund-Anzeige, Abo-Zustand); genau ein Schritt mit diesem Befehl im Job selftests (Spec 19.6)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst (C11):**
 - V4 nennt ⟨S⟩ ⟨hh:mm⟩ des **angewendeten** Stands, wie 16.4 sagt; nur wenn noch nichts von **diesem** Master angewendet ist (Start, Handler noch nicht registriert, oder angewendet ist der Stand eines früheren Masters), die des empfangenen `letzter`. 16.4 schweigt zu diesem Fall; so nennt die grüne Zeile nie die Show eines anderen Masters.
 - `grund` ohne Wert bei `show: null` (kann nach `pruefeStand` nicht vorkommen) zeigt wie `keine-show` V5/V6, damit die Funktion für jede Eingabe eine Zeile liefert.
 - `MasterStand.grund` hat den Typ `DatenGrund` aus `@jm/master-link`; das ist dieselbe Vereinigung wie in Spec 16.2 (Gliederung S-C).
+- **Spec 19.6 im Wortlaut** (N40): 19.6 nennt einen neuen Schritt „app-runtime (CSP, Verbund-Anzeige, Abo-Zustand)“ mit `npm run selftest -w @jm/app-runtime`. Seit Zoom 4b steht der Schritt „App-Laufzeit (Log-Aufräumen, CSP)“ mit demselben Befehl schon im Job `selftests`; ein zweiter Schritt liefe dieselben Tests doppelt. Step 12 benennt ihn deshalb nach dem 4b-Muster um (N22, N26). Der Zweck von 19.6 bleibt: genau ein Schritt, der beide Teile aus 19.4 ausführt, ohne Electron, in der Zeitgrenze von 15 min. Abweichend sind nur der Name und der Weg (Umbenennen statt Anlegen); die Abweichung ist im Kopf (Absatz „Spec“) gemeldet.
 
 ---
 
@@ -7951,7 +7985,7 @@ C13 (`verbund.ts`) verdrahtet die Klasse mit dem echten Client und `erzeugeStand
 **Ableitung `daten()`** (Gliederung, übernommen): Datei beschädigt (Client `fehler`/`datei`) → `frueher` mit `grund: 'datei'`, wenn etwas angewendet ist, sonst `datei-defekt`. Keine Kopplung oder Rolle nicht `slave` (oder ohne `masterId`) → `frueher` mit `grund: 'entkoppelt'`, wenn etwas angewendet ist, sonst `einzelplatz`. Slave mit Kopplung und Client nicht verbunden → `getrennt`. Verbunden ohne gültige Antwort in dieser Verbindung → `warte` bis 5 s nach dem Abo, dann `ohne-daten`. Sonst `aktuell` mit `letzter`. `imVerbundmodus()` = Slave mit Kopplung, Datei nicht beschädigt, `angewendet.masterId === kopplung.masterId`.
 
 **Vorab (gemessen):**
-- Der Test läuft mit einer nachgebauten Uhr: `setTimeout` merkt sich die Zeitgeber, `vor(ms)` stellt die Zeit vor und löst die fälligen der Reihe nach aus. Kein echter Zeitgeber, keine Wartezeit; der ganze Selbsttest (CSP und Verbund) lief nach C12 in 1,3 s.
+- Der Test läuft mit einer nachgebauten Uhr: `setTimeout` merkt sich die Zeitgeber, `vor(ms)` stellt die Zeit vor und löst die fälligen der Reihe nach aus. Kein echter Zeitgeber, keine Wartezeit; der ganze Selbsttest (CSP und Verbund) lief nach C12 in 1,3 s (Messung vom 08.10.2026, ohne 4b; mit dem CSP-Teil aus 4b, der einen Kindprozess startet, am 12.10.2026 1,9–2,0 s über `npm run`, N35).
 - Der nachgebaute Client ist ein `EventEmitter` mit `zustand()`, `kopplung()`, `sende()`; `verbinde()` meldet erst `zustand` (verbunden), dann `angemeldet`, in dieser Reihenfolge wie `client.ts` (`betreibe`).
 - Der Zwischenspeicher im Test schreibt im selben Takt; `await ruhe()` (ein `setImmediate`) lässt die Schreibkette weiterlaufen. Werden mehrere Stände ohne Pause dazwischen angewendet, schreibt der Folger nach dem laufenden nur den neuesten (gemessen `0,1,1`: Folge 0, dann 1, dann der zuletzt angewendete Stand mit Folge 1 der Epoche `e2`).
 - `pruefeStand` aus Block A liefert bei genau einem falschen Feld dessen Namen (Tabelle 13.2). Die Tests geben deshalb nur Stände mit genau einem falschen Feld vor, wenn sie den Feldnamen prüfen.
@@ -8583,7 +8617,7 @@ Einfügen in `packages/app-runtime/test/verbund.test.ts` direkt vor der Zeile `/
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: `15 passed, 0 failed` aus dem CSP-Teil, danach die 64 Zeilen `  ok  C11 …`, keine `C12`-Zeile, Abbruch beim Laden, Exit-Code 1:
+Erwartet: `50 passed, 0 failed` aus dem CSP-Teil, danach die 64 Zeilen `  ok  C11 …`, keine `C12`-Zeile, Abbruch beim Laden, Exit-Code 1:
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\packages\app-runtime\src\verbund-daten' imported from …\packages\app-runtime\test\verbund.test.ts
 ```
@@ -9127,7 +9161,7 @@ export class VerbundFolger extends EventEmitter {
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: `15 passed, 0 failed`, dann 64 Zeilen `  ok  C11 …` und 110 Zeilen `  ok  C12 …` (von „C12 Fristen: 5 s, 30 s, 5 Versuche, 1 s“ bis „C12 ignoriert: nach 60 s wieder eine Zeile“), keine `FAIL`-Zeile, am Ende `174 passed, 0 failed`, Exit-Code 0.
+Erwartet: `50 passed, 0 failed`, dann 64 Zeilen `  ok  C11 …` und 110 Zeilen `  ok  C12 …` (von „C12 Fristen: 5 s, 30 s, 5 Versuche, 1 s“ bis „C12 ignoriert: nach 60 s wieder eine Zeile“), keine `FAIL`-Zeile, am Ende `174 passed, 0 failed`, Exit-Code 0.
 
 - [ ] **Step 5: Typprüfung**
 
@@ -9201,7 +9235,7 @@ git commit -m "feat(app-runtime): Zustandsmaschine VerbundFolger der Tool-Seite 
 - Create: `packages/app-runtime/src/verbund-speicher.ts`
 - Create: `packages/app-runtime/src/verbund-ipc.ts`
 - Create: `packages/app-runtime/src/verbund.ts`
-- Modify: `packages/app-runtime/src/index.ts` — genau drei Einfügungen (G2): (a) nach `:47` `export type { CspConfig } from './csp';`, (b) nach `:16` (Import aus `@jm/master-link`), (c) in `startMasterLink` nach `:379` `client.starte();`
+- Modify: `packages/app-runtime/src/index.ts` — genau drei Einfügungen (G2): (a) nach `:48` `export type { CspConfig } from './csp';`, (b) nach `:17` (Import aus `@jm/master-link`), (c) in `startMasterLink` nach `:387` `client.starte();` (Ist-Zeilen auf `adda584693` mit Zoom 4b, N29)
 - Modify: `packages/app-runtime/test/verbund.test.ts` (neuer Block direkt vor `// ── Abschluss …`)
 
 **Interfaces:**
@@ -9243,7 +9277,7 @@ export function verbundAnClient(client: MasterLinkClient, o: { userData: string;
 ```
 Für Block D (Preloads, S-D): Der Renderer liest die Zeile mit `ipcRenderer.invoke('jmps:verbund-anzeige')` → `VerbundAnzeige | null` und bekommt jeden Wechsel als `ipcRenderer.on('jmps:verbund-anzeige', (_e, a) => …)` mit demselben Wert. Ohne laufenden Client (Zweitinstanz, Fehler beim Start) gibt es keinen Handler und `invoke` lehnt ab; der Preload fängt das ab und liefert `null`. `folgeMasterShow` und `verbundDatenErsetzt` dürfen vor dem Client-Start gerufen werden.
 
-**Regeln:** G2 (in `index.ts` genau die Einfügungen a–c, 15 Zeilen, nichts verschoben; alles andere in neuen Dateien), G6 (Warnungen ohne Dateiinhalt, nur Feldname oder Fehlercode), G11, G12 (`index.ts` liegt mit CRLF vor, 648 von 648 Zeilen; nach C13 663 von 663, gemessen), G14 (ohne Sperre der App kein Folger; `darfSchreiben` zusätzlich aus `app.hasSingleInstanceLock()`), G15 (`verbund.ts`, `verbund-ipc.ts` und die Einfügungen prüfen Typecheck, Bündel und C20), G16.
+**Regeln:** G2 (in `index.ts` genau die Einfügungen a–c, 15 Zeilen, nichts verschoben; alles andere in neuen Dateien), G6 (Warnungen ohne Dateiinhalt, nur Feldname oder Fehlercode), G11, G12 (`index.ts` liegt mit CRLF vor, 660 von 660 Zeilen; nach C13 675 von 675, gemessen am 12.10.2026), G14 (ohne Sperre der App kein Folger; `darfSchreiben` zusätzlich aus `app.hasSingleInstanceLock()`), G15 (`verbund.ts`, `verbund-ipc.ts` und die Einfügungen prüfen Typecheck, Bündel und C20), G16.
 
 **Vorab (gemessen):**
 - **Reihenfolge im Tool (E17, Ist-Karte Laufzeit F2):** `initAppRuntime` läuft vor der Sperre; `startMasterLink` baut den Client im ersten `whenReady`-Zuhörer, nur mit Sperre. Einfügung (c) steht direkt nach `client.starte()` (Zusammenführung ZF2): `client.starte()` liest `master-link.json` synchron und meldet bei Rolle Slave oder Master noch im selben Takt `sucht`; erst danach liest der Folger den Zwischenspeicher und hängt seine Zuhörer an. Das synchrone `zustand` verpasst er dabei, aber `starte()` leitet die Lage ohnehin neu ab und meldet sie; `angemeldet` kommt frühestens nach dem TLS-Aufbau. Stünde (c) vor `client.starte()`, liefe ein vorher registrierter Handler mit `kopplung() = null` an: Das Tool zeigte beim Start kurz V13, und Titler oder Rundown gingen über `beiWechsel` auf `frueher` (C19 M prüft das). Den Zwischenspeicher wendet der Folger erst an, wenn auch der Handler registriert ist.
@@ -9386,7 +9420,7 @@ Einfügen in `packages/app-runtime/test/verbund.test.ts` direkt vor der Zeile `/
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: `15 passed, 0 failed`, danach 64 Zeilen `  ok  C11 …` und 110 Zeilen `  ok  C12 …`, keine `C13`-Zeile, Abbruch beim Laden, Exit-Code 1:
+Erwartet: `50 passed, 0 failed`, danach 64 Zeilen `  ok  C11 …` und 110 Zeilen `  ok  C12 …`, keine `C13`-Zeile, Abbruch beim Laden, Exit-Code 1:
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\packages\app-runtime\src\verbund-speicher' imported from …\packages\app-runtime\test\verbund.test.ts
 ```
@@ -9551,7 +9585,7 @@ export function erzeugeStandSpeicher(
 ```bash
 npm run selftest -w @jm/app-runtime
 ```
-Erwartet: `15 passed, 0 failed`, dann 64 Zeilen `C11`, 110 Zeilen `C12` und 34 Zeilen `  ok  C13 …` (von „C13 standDatei = <userData>/verbund/master-stand.json“ bis „C13 Neustart, Master fehlt: Verbundmodus, Daten bleiben“), keine `FAIL`-Zeile, am Ende `208 passed, 0 failed`, Exit-Code 0. Danach liegt kein Ordner `jm-verbund-*` mehr im Temp-Verzeichnis (`ls "$TMP" | grep -c jm-verbund-` gibt `0` aus).
+Erwartet: `50 passed, 0 failed`, dann 64 Zeilen `C11`, 110 Zeilen `C12` und 34 Zeilen `  ok  C13 …` (von „C13 standDatei = <userData>/verbund/master-stand.json“ bis „C13 Neustart, Master fehlt: Verbundmodus, Daten bleiben“), keine `FAIL`-Zeile, am Ende `208 passed, 0 failed`, Exit-Code 0. Danach liegt kein Ordner `jm-verbund-*` mehr im Temp-Verzeichnis (`ls "$TMP" | grep -c jm-verbund-` gibt `0` aus).
 
 - [ ] **Step 5: IPC anlegen**
 
@@ -9747,7 +9781,9 @@ Erwartet: `1 file changed, 15 insertions(+)` und `0`.
 npm run selftest -w @jm/app-runtime
 npm run typecheck --workspaces --if-present
 ```
-Erwartet: Selbsttest unverändert `15 passed, 0 failed` und `208 passed, 0 failed` (kein Test lädt `verbund.ts`); Typecheck Exit-Code 0 ohne `error TS` (1–3 min). Ab jetzt prüfen alle 25 Apps, die `@jm/app-runtime` importieren, die neuen Module mit.
+Erwartet: Selbsttest unverändert `50 passed, 0 failed` und `208 passed, 0 failed` (kein Test lädt `verbund.ts`); Typecheck Exit-Code 0 ohne `error TS` (1–3 min). Ab jetzt prüfen alle 25 Apps, die `@jm/app-runtime` importieren, die neuen Module mit.
+
+Der erste Teil enthält zwei Quelltext-Wächter aus Zoom 4b, die `src/index.ts` lesen: „initAppRuntime plant das Aufräumen nach dem Logger, nur mit dem Lock, der Bericht geht ins Log“ und „… und index.ts räumt nirgends sofort auf (kein raeumeLogsAuf, kein eigener Takt)“. Beide bleiben mit den drei Einfügungen grün (gemessen am 12.10.2026, N29): Der erste liest nur den Text ab `export function initAppRuntime(`, und alle drei Einfügungen stehen davor; keine enthält `raeumeLogsAuf(` oder `LOG_AUFRAEUMEN_TAKT_MS`.
 
 - [ ] **Step 9: Gegenprobe Typecheck (nicht committen)**
 
@@ -9805,11 +9841,11 @@ git commit -m "feat(app-runtime): Zwischenspeicher, Verbund-API und IPC der Tool
 **Abweichungen vom Gerüst (C13):**
 - **Zusätzliche Exporte:** `standDatei(userData)` in `verbund-speicher.ts` (der Pfad aus 16.3 an einer Stelle; der Test prüft ihn), `VERBUND_ANZEIGE_KANAL` und `registriereVerbundIpc(quelle)` in `verbund-ipc.ts` (S-C nannte nur den Kanal). Nach außen (über `index.ts`) geht keiner davon.
 - **`nichtAngewendet` im Export-Block (a)** (N3): eine Zeile mehr, also 14 statt 13 eingefügte Zeilen. Die Tools werfen damit, wenn sie einen Stand nicht anwenden können; V12 zeigt den Code.
-- **`kuerzeName` im Export-Block (a)** (N15): noch eine Zeile, also 15 eingefügte Zeilen, `index.ts` danach 663 von 663 Zeilen mit CRLF. Der Rundown säubert damit den Dateinamen in seiner Logzeile zum Show-Link (C18); er hat `@jm/master-link` nicht als eigene Abhängigkeit, und eine neue Abhängigkeit hätte `package.json`, Lockfile und Bündel-Liste des Rundowns berührt (E15). Ein einzeln benannter Export, kein `export *` (E27). Die Zusammenführung mit der 4b-Fassung von `index.ts` (`85dcba597d`) bleibt konfliktfrei (nachgespielt mit `git merge-file`, N20).
+- **`kuerzeName` im Export-Block (a)** (N15): noch eine Zeile, also 15 eingefügte Zeilen, `index.ts` danach 675 von 675 Zeilen mit CRLF (auf `5f8ed15ef8` waren es 663, N29). Der Rundown säubert damit den Dateinamen in seiner Logzeile zum Show-Link (C18); er hat `@jm/master-link` nicht als eigene Abhängigkeit, und eine neue Abhängigkeit hätte `package.json`, Lockfile und Bündel-Liste des Rundowns berührt (E15). Ein einzeln benannter Export, kein `export *` (E27). Seit dem Neuaufsatz setzen die Einfügungen direkt auf die 4b-Fassung von `index.ts` auf (660 → 675 Zeilen, gemessen am 12.10.2026, N29); die Zusammenführung vom 08.10.2026 mit `85dcba597d` (`git merge-file`, N20) hatte dasselbe Ergebnis vorhergesagt.
 - **Neustart-Prüfung wartet auf die Datei** (N12): statt einer festen Pause von 50 ms höchstens 5 s, bis `master-stand.json` da ist. Unter Last (CI) war die feste Pause zu knapp.
 - **Der Test zu `verbundIgnoriert`** steht in C12 (die Drossel liegt im reinen Folger, siehe dort).
 - **Gemerkt vor dem Client-Start:** `folgeMasterShow` merkt den Handler immer; `verbundDatenErsetzt` vor dem Start setzt einen Merker, der beim Start `ersetzt()` ruft, bevor der Zwischenspeicher gelesen wird. So verliert ein früher Aufruf nichts (E17).
-- **`darfSchreiben`** kommt aus `app.hasSingleInstanceLock()`; ohne Sperre entsteht schon gar kein Client (`index.ts:371`), der Wert sichert G14 doppelt ab.
+- **`darfSchreiben`** kommt aus `app.hasSingleInstanceLock()`; ohne Sperre entsteht schon gar kein Client (`index.ts:379`), der Wert sichert G14 doppelt ab.
 - **`index.ts` exportiert `verbundAnzeige` nicht.** Die Tools lesen die Zeile über IPC; ihr Renderer bindet `@jm/app-runtime` nicht ein (E28). Die Kette C19 importiert `verbund-anzeige.ts` per Relativpfad.
 - **`verbundAnClient` wirft nie** (alles in `try`/`catch`, eine Warnung „Verbund: nicht gestartet (⟨Code⟩).“). Sonst bräche die Ausnahme in `startMasterLink` auch den Master-Link-Client ab („Master-Link nicht gestartet“).
 - **Neue Logzeile ohne Spec-Vorgabe** (E13, Owner-Freigabe): „Verbund: Zwischenspeicher nicht geschrieben (⟨Code⟩).“ (warn) und „Verbund: nicht gestartet (⟨Code⟩).“ (warn). Die Zeile zum nicht lesbaren Zwischenspeicher ist wörtlich E13; ⟨Grund⟩ ist ein Feldname, „kein gültiges JSON“, „kein Objekt“ oder ein Fehlercode.
@@ -10567,7 +10603,7 @@ Nachher:
 } from '../src/shared/datenquelle';
 ```
 
-Ersetzung 2 (alte Literale bekommen das neue Pflichtfeld; nach Ersetzung 1 die Zeilen 635–638), Vorher:
+Ersetzung 2 (alte Literale bekommen das neue Pflichtfeld; Zeilen 633–636, nach Ersetzung 1 die Zeilen 637–640), Vorher:
 ```ts
   const zShow: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null };
   const zOrdner: QuellZustand = { art: 'ordner', showPfad: null, showName: null, quellHinweis: null };
@@ -10582,7 +10618,7 @@ Nachher:
   const alle = [['show', zShow], ['ordner', zOrdner], ['frueher', zFrueher]] as const;
 ```
 
-Ersetzung 3 (Zeile 676), Vorher:
+Ersetzung 3 (Zeile 674, nach Ersetzung 1 Zeile 678), Vorher:
 ```ts
     const zA: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null };
 ```
@@ -10591,7 +10627,7 @@ Nachher:
     const zA: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null, master: null };
 ```
 
-Ersetzung 4 (Zeile 691, der einzige alte Vergleich über die ganze JSON-Form des Zustands), Vorher:
+Ersetzung 4 (Zeile 689, nach Ersetzung 1 Zeile 693; der einzige alte Vergleich über die ganze JSON-Form des Zustands), Vorher:
 ```ts
   ok(JSON.stringify(startShow) === JSON.stringify({ art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null }), 'startZustand: gemerkte Show mit Speakern → show');
 ```
@@ -11432,7 +11468,7 @@ git commit -m "feat(titler): Datenquelle master und gemerkte Show in Master-Form
 
 **Abweichungen vom Gerüst:**
 - **`apps/titler/src/main/index.ts` wird schon hier berührt** (Steps 7–8), obwohl das Gerüst die Datei erst in C16 nennt. Grund: `GemerkteShow` wird nach Register eine Union; ohne die Brücke bricht der Typecheck (G11). Die Brücke ändert kein Verhalten der Pfad-Form; eine Master-Form startet bis C16 als `frueher` (ohne Kopplungswissen).
-- **Vier alte Testzeilen** bekommen `master: null` (das neue Pflichtfeld aus dem Register). Nur Zeile 691 ist laufzeitrelevant (Vergleich der ganzen JSON-Form); die drei Literale sind für die Typtreue.
+- **Vier alte Testzeilen** bekommen `master: null` (das neue Pflichtfeld aus dem Register). Nur die Zeile aus Ersetzung 4 (vor C15 Zeile 689) ist laufzeitrelevant (Vergleich der ganzen JSON-Form); die drei Literale sind für die Typtreue.
 - **`startZustand`**: dritter Parameter mit Vorgabe `= null`. Die Signatur bleibt die des Registers; alte Aufrufe mit zwei Argumenten (Test, Ist-Main) bleiben gültig.
 - **`nichtLesbar.gemerkt` und `tsvNichtGeschrieben(…).gemerkt`** sind jetzt `GemerkteShowPfad | null`: Nur eine Pfad-Show kann „nicht lesbar“ sein; die Master-Form hat keinen Pfad.
 - **H4 auch bei Art `master`** im Zweig `nichtLesbar` (Deep-Link/RELOAD-Regel): nötig, damit eine nicht schreibbare TSV im Master-Weg über `tsvNichtGeschrieben` H4 zeigt (Vormerkung 14; Wortlaut wie R1, FA19).
@@ -12920,7 +12956,7 @@ git commit -m "feat(rundown): Gedaechtnis und Zeiger mit Master-Schluessel, Laun
 **Arbeitsverzeichnis:** Worktree `C:\Users\alexk\alexzvn\.claude\worktrees\master-link-2b-r2`, Branch `feat/master-link-teil2b-r2`. Voraussetzung: C13 und C17 sind committet.
 
 **Dateien:**
-- Modify: `apps/rundown/src/main/index.ts` (Stand nach C17): Importe `:4`, `:8`, `:55-70`; Zustand `:95`; `:128` (Conductor) plus Helfer; `:137`, `:157`, `:179-198` (`sichere`), `:244-248` (`case 'reload'`), `:299`, `:319-322` (`vergissShow`) plus zwei neue Funktionen nach `:329`, `:412`, `:423-425` (`openDialog`), `:546-550` (`rundown:new`), `:657` (`ladeAndereShow`), `:786-789` (`applyShowFromDeepLink`), `:812-825` (`starteOhneDeepLink`) plus fünf neue Funktionen nach `:841`, `:916-920` (`whenReady`)
+- Modify: `apps/rundown/src/main/index.ts` (Stand nach C17): Importe `:4`, `:8`, `:55-70`; Zustand `:95`; `:128` (Conductor) plus Helfer; `:137`, `:157`, `:179-198` (`sichere`), `:244-248` (`case 'reload'`), `:299`, `:319-322` (`vergissShow`) plus zwei neue Funktionen nach `:329`, `:412`, `:423-425` (`openDialog`), `:546-550` (`rundown:new`), `:657` (`ladeAndereShow`), `:786-789` (`applyShowFromDeepLink`), `:812-826` (`starteOhneDeepLink`) plus fünf neue Funktionen nach `:842`, `:917-921` (`whenReady`) (die drei letzten Angaben nach der Typ-Brücke aus C17, eine Zeile weiter als vor C17, N32)
 - Modify: `apps/rundown/src/main/conductor.ts:12-13`, `:39-42`, `:53`, `:84-94`
 - Modify: `apps/rundown/src/shared/types.ts:165` (neuer Typ `VerbundAnzeigeZeile`, E28), `:199-201` (`JmRundownApi`)
 - Modify: `apps/rundown/src/preload/index.ts:2`, `:33-34`
@@ -13711,7 +13747,7 @@ function wendeMasterStandAn(stand: MasterStand & { show: Show }): void {
 function rendererUrl(): string | undefined {
 ```
 
-- [ ] **Step 8: Main — Reihenfolge beim Start** (Zeilen 916–920), Vorher:
+- [ ] **Step 8: Main — Reihenfolge beim Start** (Zeilen 917–921 im Stand nach C17), Vorher:
 ```ts
     registerIpc();
     createMainWindow();
@@ -14516,7 +14552,7 @@ Erwartet: 18 Abschnitte `── A · …` bis `── R · …`, jede Prüfzeile
 63 ok, 0 fehlgeschlagen.
 Exit: 0
 ```
-und `real` unter `1m0s` (beim Zusammenführen gemessen: 63 Prüfungen, keine in einer Schleife, 9–10 s; nach N12 mit der Stille-Frist 2 s gemessen 10,6–11 s, Gegenproben unverändert 29 bzw. 7 `FAIL`).
+und `real` unter `1m0s` (beim Zusammenführen gemessen: 63 Prüfungen, keine in einer Schleife, 9–10 s; nach N12 mit der Stille-Frist 2 s gemessen 10,4–11 s (am 12.10.2026 10,5–10,6 s, N35), Gegenproben unverändert 29 bzw. 7 `FAIL`).
 
 Bei `FAIL`: Der Test druckt danach das Verteiler-Log und das Tool-Log. Ursache mit `superpowers:systematic-debugging` suchen und nach G16 verfahren. Zwei Stellen sind bekannte Kandidaten:
 - `FAIL  M · beim Start nie V13 …`: Der Folger startet vor `client.starte()`. Bis der Client seine Datei gelesen hat, liefert `kopplung()` `null`; ein schon registrierter Handler bekommt den Zwischenspeicher dann mit „keine Kopplung“ (V13, `frueher`). Richtig ist die Reihenfolge aus G2 (c): erst `client.starte()`, dann `verbundAnClient` (ZF2). Beim Zusammenführen gemessen: mit der umgekehrten Reihenfolge genau diese zwei `FAIL`-Zeilen in M, `61 ok, 2 fehlgeschlagen.`
@@ -14593,7 +14629,7 @@ Nachher:
 - [ ] **Step 7: Lauf über das Skript (grün)**
 
 Befehl: `npm run selftest:verbund -w @jm/launcher; echo "Exit: $?"`
-Erwartet (gemessen, 25–27 s): drei Zählzeilen
+Erwartet (gemessen, 24,7–27 s, N35): drei Zählzeilen
 ```
 203 ok, 0 fehlgeschlagen.
 53 ok, 0 fehlgeschlagen.
@@ -15413,7 +15449,7 @@ Worum es geht:
 - Modify: `docs/jm-show.md:268-269` (Absatz „Grenzen“)
 - Modify: `apps/launcher/package.json:3`, `apps/timer/package.json:3`, `apps/titler/package.json:3`, `apps/rundown/package.json:3`
 - Modify: `package-lock.json` (Blöcke `apps/launcher` `:293-295`, `apps/rundown` `:546-548`, `apps/timer` `:704-706`, `apps/titler` `:736-738`; Zeilen gelten vor C11, maßgeblich ist der Vorher-Text)
-- Modify: `packages/suite-manifest/changelog.json` (je ein neuer erster Eintrag unter `launcher` `:22-26`, `timer` `:629-633`, `titler` `:1063-1067`, `rundown` `:1363-1367`)
+- Modify: `packages/suite-manifest/changelog.json` (je ein neuer erster Eintrag unter `launcher` `:31-35`, `timer` `:645-649`, `titler` `:1079-1083`, `rundown` `:1379-1383`; Zeilen auf `adda584693` vor C21, N30)
 - Nicht anfassen: `packages/suite-manifest/suite.json` (zieht der Bot nach), `.github/workflows/ci-checks.yml` (C11).
 
 **Interfaces:**
@@ -15688,7 +15724,7 @@ Andere Zeilen mit `0.14.0`, `0.13.0`, `0.10.0` oder `0.7.0` im Lockfile gehören
 
 - [ ] **Step 7: Changelog `packages/suite-manifest/changelog.json` (Entwurf)**
 
-Ersetzung 1 (`launcher`), Vorher (eindeutig, Zeilen 22–26):
+Ersetzung 1 (`launcher`), Vorher (eindeutig, Zeilen 31–35):
 ```json
     "app": "launcher",
     "name": "JM Production Suite",
@@ -15715,7 +15751,7 @@ Nachher:
       {
         "version": "0.14.0",
 ```
-Ersetzung 2 (`timer`), Vorher (eindeutig, Zeilen 629–633):
+Ersetzung 2 (`timer`), Vorher (eindeutig, Zeilen 645–649 vor Ersetzung 1):
 ```json
     "app": "timer",
     "name": "JM Timer",
@@ -15741,7 +15777,7 @@ Nachher:
       {
         "version": "0.13.0",
 ```
-Ersetzung 3 (`titler`), Vorher (eindeutig, Zeilen 1063–1067):
+Ersetzung 3 (`titler`), Vorher (eindeutig, Zeilen 1079–1083 vor Ersetzung 1):
 ```json
     "app": "titler",
     "name": "JM Titler",
@@ -15768,7 +15804,7 @@ Nachher:
       {
         "version": "0.10.0",
 ```
-Ersetzung 4 (`rundown`), Vorher (eindeutig, Zeilen 1363–1367):
+Ersetzung 4 (`rundown`), Vorher (eindeutig, Zeilen 1379–1383 vor Ersetzung 1):
 ```json
     "app": "rundown",
     "name": "JM Rundown",
@@ -15811,7 +15847,7 @@ node -e "const c=require('./packages/suite-manifest/changelog.json');const l=req
 node -e "for (const f of ['docs/suite-verbund.md','docs/jm-show.md','apps/launcher/package.json','apps/timer/package.json','apps/titler/package.json','apps/rundown/package.json','package-lock.json','packages/suite-manifest/changelog.json']) { const s=require('fs').readFileSync(f,'utf8'); const cr=(s.match(/\r\n/g)||[]).length, lf=(s.match(/\n/g)||[]).length; console.log((cr===lf?'ok   ':'FEHL ')+f+' '+cr+'/'+lf); }"
 npm run typecheck -w @jm/launcher -w @jm/timer -w @jm/titler -w @jm/rundown; echo "Exit: $?"
 ```
-Erwartet: `Exit: 0` nach der JSON-Prüfung; `Release-Vorbereitung ok`; acht Zeilen mit `ok`; der Typecheck ohne Meldung, `Exit: 0`. Beim Zusammenführen gemessen (nach C1–C20): `docs/suite-verbund.md 179/179`, `docs/jm-show.md 276/276`, `apps/launcher/package.json 61/61`, `apps/timer/package.json 51/51`, `apps/titler/package.json 50/50`, `apps/rundown/package.json 50/50`, `package-lock.json 17622/17622`, `packages/suite-manifest/changelog.json 1686/1686`; maßgeblich ist CRLF = LF. Die Gegenprobe der Release-Prüfung ist in der Kopie gemessen: Ein ASCII-Anführungszeichen in einer Launcher-Note ergibt `Error: launcher: ASCII-Anführungszeichen`.
+Erwartet: `Exit: 0` nach der JSON-Prüfung; `Release-Vorbereitung ok`; acht Zeilen mit `ok`; der Typecheck ohne Meldung, `Exit: 0`. Gemessen am 12.10.2026 auf `adda584693` (nach C1–C20): `docs/suite-verbund.md 179/179`, `docs/jm-show.md 276/276`, `apps/launcher/package.json 61/61`, `apps/timer/package.json 51/51`, `apps/titler/package.json 50/50`, `apps/rundown/package.json 50/50`, `package-lock.json 17660/17660`, `packages/suite-manifest/changelog.json 1716/1716` (auf `5f8ed15ef8` waren es 17622 und 1686, N28, N30); maßgeblich ist CRLF = LF. Die Gegenprobe der Release-Prüfung ist in der Kopie gemessen: Ein ASCII-Anführungszeichen in einer Launcher-Note ergibt `Error: launcher: ASCII-Anführungszeichen`.
 
 - [ ] **Step 9: Gesamtlauf aller Testläufe und Typecheck aller Workspaces**
 
@@ -15828,19 +15864,19 @@ npm run selftest -w @jm/titler; echo "Exit: $?"
 npm run selftest -w @jm/app-runtime; echo "Exit: $?"
 npm run typecheck --workspaces --if-present; echo "Exit: $?"
 ```
-Erwartet: jeder Lauf ohne `FAIL`/`FEHL` und mit `Exit: 0`, die Zählstände gleich denen aus Step 1. Beim Zusammenführen gemessen:
+Erwartet: jeder Lauf ohne `FAIL`/`FEHL` und mit `Exit: 0`, die Zählstände gleich denen aus Step 1. Gemessen am 12.10.2026 auf `adda584693` (vierte Runde; bis auf app-runtime dieselben Zahlen wie beim Zusammenführen):
 ```
 756 ok, 0 fehlgeschlagen.                          (@jm/master-link, ca. 40 s)
 113 ok, 0 fehlgeschlagen.                          (Launcher selftest)
-203 / 53 / 63 ok, je 0 fehlgeschlagen.             (selftest:verbund, ca. 25–28 s)
+203 / 53 / 63 ok, je 0 fehlgeschlagen.             (selftest:verbund, 24,7–28 s)
 277 / 52 / 84 / 12 ok, je 0 fehlgeschlagen.        (selftest:iveo)
 190 ok-Zeilen, ALLE TESTS OK                       (@jm/iveo)
 59 passed, 0 failed                                (Timer)
 443 + 109 ok-Zeilen, zweimal ALLE TESTS OK         (Rundown)
 477 ok-Zeilen, ALLE TESTS OK                       (Titler)
-15 passed, 0 failed / 208 passed, 0 failed         (app-runtime)
+50 passed, 0 failed / 208 passed, 0 failed         (app-runtime)
 ```
-Vor R2 waren es 572, 113, 188, 239/47/84/6, 166, 41, 404 + 81, 407, 15. `typecheck --workspaces` ohne Fehler (25 Apps importieren app-runtime; gemessen 55–125 s).
+Vor R2 waren es 572, 113, 188, 239/47/84/6, 166, 41, 404 + 81, 407, 50 (app-runtime auf `5f8ed15ef8`: 15). `typecheck --workspaces` ohne Fehler (25 Apps importieren app-runtime; 31 Workspaces mit Typecheck, darunter `@jm/ui` und `@jm/settings`; gemessen 55–125 s).
 
 - [ ] **Step 10: Notes zur Freigabe vorlegen, auf „Owner-Freigabe Notes R2“ warten**
 
@@ -15883,7 +15919,7 @@ In den Aufgabenbericht: die Commits von C1–C21 und dass `git status --short` l
 1. Die Abnahme-Datei trägt über der Tabelle drei Voraussetzungen (gekoppelt, Show mit Speakern und Side Events, offene Abnahmen 2a/R1 nach Spec 25 Nr. 1) und unter der Tabelle die vier Hinweise aus dem Gerüst. Die Tabelle selbst ist wortgleich; geprüft in Step 2. Dahinter steht der Abschnitt „Zusatzprüfungen (nicht in Spec 20)“ mit fünf Handprüfungen (Show-Link im Verbund, Start mit Show-Link, gesperrte Ordnerwahl, N17; Rundown-Datei am Master mit „Öffnen…“/„Neu“ im Verbund, eigene Wahl nach dem Entkoppeln, N23) als nummerierte Liste, damit die Prüfung in Step 2 nur die Tabelle der Spec zählt.
 2. `docs/suite-verbund.md` bekommt außer dem neuen Abschnitt auch den Stand-Satz in Zeile 5 („Stand Teil 1 … folgen in den nächsten Teilen“), der sonst Show-Daten als künftig nennte.
 3. Die Notes nennen mehr als die Pflichtpunkte, nämlich das, was ein Bediener merkt: die Anzeige je Tool, die Sperre der Ordnerwahl (O1), die nicht geladene Rundown-Datei (17.3), den Show-Link, aus dem der Rundown im Verbund nichts lädt (E24, N15), „Launcher · Side Event“ an den Master (Z2), die Side-Event-Liste (Z3) und die Endpunkte von Hand (FA4).
-4. Beim Zusammenführen nach C1–C20 gemessen und in der zweiten Runde (N15–N21) wiederholt: alle Vorher-Texte trafen genau einmal; danach gültiges JSON, `Release-Vorbereitung ok`, Abnahme-Tabelle wortgleich (14 Schritte), CRLF = LF in allen acht Dateien. Die Anker in `apps/launcher/package.json` und `package-lock.json` überschneiden sich nicht mit C8, C11 und C19.
+4. Beim Zusammenführen nach C1–C20 gemessen, in der zweiten Runde (N15–N21) und nach dem Neuaufsatz auf `adda584693` (vierte Runde, N30) wiederholt: alle Vorher-Texte trafen genau einmal; danach gültiges JSON, `Release-Vorbereitung ok`, Abnahme-Tabelle wortgleich (14 Schritte), CRLF = LF in allen acht Dateien. Die Anker in `apps/launcher/package.json` und `package-lock.json` überschneiden sich nicht mit C8, C11 und C19.
 
 ---
 
@@ -15925,7 +15961,7 @@ In den Aufgabenbericht: die Commits von C1–C21 und dass `git status --short` l
 | 19.3 | Verteiler-Tests Nr. 1–10, Kern, RELOAD-Merker | C6, C7, C8, C9, C10 |
 | 19.4 | app-runtime-Tests | C11, C12, C13 |
 | 19.5 | Tool-Tests | C14, C15, C17 |
-| 19.6 | CI-Schritt (genau einer; mit 4b dessen Schritt umbenannt, G2), `selftest:verbund` erweitert, kein Electron, 15 min | C11, C8, C19 |
+| 19.6 | CI-Schritt (genau einer: der Schritt aus Zoom 4b, umbenannt statt neu angelegt, G2, N26; Abweichung im Wortlaut gemeldet, C11 „Abweichungen“, N40), `selftest:verbund` erweitert, kein Electron, 15 min | C11, C8, C19 |
 | 19.7 | Durchgang Prüfungen 1–7 | C20 (vom Owner am 08.10.2026 freigegeben; was er nicht erreicht, steht in C16/C18 unter „Regeln“) |
 | 20 | Abnahme-Datei (Tabelle wortgleich; darunter „Zusatzprüfungen (nicht in Spec 20)“, N17, N23) | C21 |
 | 21 | Aufbau, Versionen, Notes, Doku | C21 (Release selbst: Schlussabschnitt) |
@@ -15942,7 +15978,7 @@ Gesucht im ganzen Plantext nach `TBD`, `TODO`, `später ausfüllen`, `nach A–D
 
 ### 3 · Typ-Konsistenz
 
-- Geprüft durch Durchspielen: Alle 282 Operationen der 21 Aufgaben (nach der Nachbesserung 283, auch nach der zweiten und dritten Runde N15–N24) wurden der Reihe nach auf eine frische Kopie angewendet; jeder Vorher-Text kam genau einmal vor. Danach liefen nach jeder Aufgabe der Typecheck der berührten Pakete und, wo die Aufgabe `packages/app-runtime/src` oder `packages/show/src` ändert, `npm run typecheck --workspaces --if-present` ohne `error TS`.
+- Geprüft durch Durchspielen: Alle 282 Operationen der 21 Aufgaben (nach der Nachbesserung 283, auch nach der zweiten und dritten Runde N15–N24 und nach dem Neuaufsatz auf `adda584693`, vierte Runde N25–N42, dort nach N34 zweimal und nach N35–N42 noch einmal ohne Tests mit denselben Bytes) wurden der Reihe nach auf eine frische Kopie angewendet; jeder Vorher-Text kam genau einmal vor. Danach liefen nach jeder Aufgabe der Typecheck der berührten Pakete und, wo die Aufgabe `packages/app-runtime/src` oder `packages/show/src` ändert, `npm run typecheck --workspaces --if-present` ohne `error TS`.
 - Namen aus dem Register und den Produces-Blöcken stimmen mit den Code-Blöcken überein; die beim Zusammenführen gefundenen Widersprüche stehen unter „Abweichungen und Entscheidungen bei der Zusammenführung“ (ZF1–ZF10).
 - `git add`-Listen: Für jede Aufgabe ist die Menge der Pfade in `git add` gleich der Menge der Dateien, die ihre Steps ändern oder anlegen (C11 zusätzlich `package-lock.json` aus `npm install --package-lock-only`).
 
@@ -15954,17 +15990,18 @@ Die fünf Punkte stehen oben unter „Review Focus“; jeder hat seine Prüfzeil
 
 Dieser Abschnitt beschreibt, was nach C21 außerhalb des Plans geschieht. Kein Agent führt davon etwas aus; er ist keine Aufgabe und keine Anweisung.
 
-- **Stand der Owner-Punkte (08.10.2026, N19):** Die mit „Weicht ab“ markierten Entscheidungen (E6, E9, E14, E15, E47) hat der Owner bestätigt, die Modal-Einzahl entschieden (N16) und den Durchgang C20 freigegeben. Offen sind nur die Texte ohne Spec-Vorgabe und die Release-Notes (Ledger-Zeile „Owner-Freigabe Notes R2“); erst danach entsteht der Commit von C21. Zur Durchsicht stehen außerdem die Zusammenführungs-Entscheidungen ZF1–ZF10 und die Nachbesserungen N1–N24 bereit.
-- **Umsetzung (Owner, 08.10.2026):** per Workflow (subagent-driven) nach Zoom Stage 4b. Vorher, außerhalb der Aufgaben C1–C21, setzt die steuernde Sitzung den Branch auf den dann aktuellen `main` (mit 4b) neu auf und lässt in einem eigenen Durchgang die Anker (Vorher-Texte, Zeilenangaben) und Zählstände der berührten Stellen nachmessen und im Plan nachziehen. Berührungspunkte, lesend mit `git` ermittelt am 08.10.2026 (`main` `b7e959866d`, `feat/zoom-stage4b` `85dcba597d`; von den 81 Dateien dieses Plans ändern `main` bzw. 4b genau die vier in der Liste darunter).
-  - `.github/workflows/ci-checks.yml` (C11 Step 12): `main` hat 16 Schritte im Job `selftests` (Presenter, Appkit, App Designer dazu), 4b hängt vier an, der letzte „App-Laufzeit (Log-Aufräumen, CSP)“ mit `run: npm run selftest -w @jm/app-runtime`. Nach dem Neuaufsatz wird dieser eine Schritt umbenannt in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ statt einen zweiten anzuhängen; der Job hat dann 20 Schritte, darin genau ein app-runtime-Schritt (Spec 19.6). Die frühere Angabe „17 Schritte“ (N11) ist überholt. Mitzuziehen sind dabei alle Stellen, die vom Anhängen sprechen (N22): G2 (nennt beide Fälle), Kopf „Parallelarbeit“ (CI), Kopf-Tabelle C11 („CI-Liste 14 Schritte“), C11 „Dateien“ und „Regeln“, C11 Step 12 (Einleitung, Vorher/Nachher, YAML-Prüfung mit Erwartung „14 Schritte, letzter: …“), Commit-Text C11 Step 13, Dateistruktur (CI) und Selbstprüfung 19.6.
-  - `package-lock.json` (C11 Step 2, Block `packages/app-runtime`; C21 Step 6, Versionsblöcke): `main` ändert dort zwei Zeilen (+2/−2); Zeilenangaben und Eindeutigkeit der Vorher-Texte nachmessen.
-  - `packages/suite-manifest/changelog.json` (C21 Step 7): `main` fügt 16 Zeilen hinzu; die Vorher-Texte der vier Einträge und ihre Zeilenangaben nachmessen.
-  - `packages/app-runtime/src/index.ts` (C13 Step 7, drei Einfügungen mit 15 Zeilen): 4b fügt 13 Zeilen ein und löscht eine Leerzeile (netto +12); die Dreiwege-Zusammenführung mit `85dcba597d` lief ohne Konflikt (675 Zeilen). Die Ist-Zeilen `:16`, `:47`, `:379` und die Erwartungen `648 von 648` bzw. `663 von 663` verschieben sich.
-  - Ohne Textänderung durch R2, aber mit anderen Zählständen: `packages/app-runtime/test/selftest.ts` (nur 4b) und `src/log-aufraeumen.ts` (neu in 4b). Der erste Teil von `npm run selftest -w @jm/app-runtime` zeigt dann `50 passed` statt `15 passed` (an `85dcba597d` in einer Kopie gemessen), dahinter `208 passed`; das betrifft C11–C13, C21 Step 9 und die Testläufe. `packages/app-runtime/package.json` ändert 4b nicht.
-  - Die Doku-Dateien, die C21 ändert (`docs/suite-verbund.md`, `docs/jm-show.md`), ändern weder `main` noch 4b; `docs/roadmap.md` aus PR #249 fasst R2 nicht an.
+- **Stand der Owner-Punkte (08.10.2026, N19):** Die mit „Weicht ab“ markierten Entscheidungen (E6, E9, E14, E15, E47) hat der Owner bestätigt, die Modal-Einzahl entschieden (N16) und den Durchgang C20 freigegeben. Offen sind beim Owner nur die Texte ohne Spec-Vorgabe und die Release-Notes (Ledger-Zeile „Owner-Freigabe Notes R2“); erst danach entsteht der Commit von C21. Im Plan offen sind außerdem die Textpunkte der dritten Nachprüfung (Absatz vor N22); sie gehören vor C21, weil drei davon Texte betreffen, die C21 schreibt (N39). Gemeldet ist die Abweichung im Wortlaut von Spec 19.6 (CI-Schritt umbenannt statt neu angelegt, N40). Zur Durchsicht stehen außerdem die Zusammenführungs-Entscheidungen ZF1–ZF10 und die Nachbesserungen N1–N42 bereit (N25–N42: Neuaufsatz und seine Nachprüfung, 12.10.2026).
+- **Umsetzung (Owner, 08.10.2026):** per Workflow (subagent-driven) nach Zoom Stage 4b. Vorher, außerhalb der Aufgaben C1–C21, setzt die steuernde Sitzung den Branch auf den dann aktuellen `main` (mit 4b) neu auf und lässt in einem eigenen Durchgang die Anker (Vorher-Texte, Zeilenangaben) und Zählstände der berührten Stellen nachmessen und im Plan nachziehen. **Erledigt am 12.10.2026 (N25):** Basis `adda584693` (darin Zoom 4b, PR #251, `2df1f79357`; UX Welle 0, PR #250, `efcfff3c5a`; Manifest `f118fcd215`; Roadmap PR #252). Nachgemessen und nachgezogen sind C11–C21 und die globalen Abschnitte (vierte Runde, N25–N32), C1–C10 in einem eigenen Messgang (N33); zusammengeführt und zweimal ohne Tests abgespielt (N34); nach einer Nachprüfung Angaben, Spannen und Vermerke nachgezogen (N35–N42). Nicht erledigt sind die Textpunkte der dritten Nachprüfung (Absatz vor N22); sie bleiben offen und gehören vor C21 (N39). Die Berührungspunkte darunter sind am 08.10.2026 lesend mit `git` ermittelt (`main` `b7e959866d`, `feat/zoom-stage4b` `85dcba597d`) und stehen hier als erledigte Liste mit den Werten vom 12.10.2026 (von den 81 Dateien dieses Plans ändert `main` seit `5f8ed15ef8` genau die vier ersten).
+  - Erledigt: `.github/workflows/ci-checks.yml` (C11 Step 12, N26): Der Job `selftests` hat auf `adda584693` 22 Schritte (16 auf `b7e959866d`, dazu zwei aus UX Welle 0 und vier aus 4b), der letzte „App-Laufzeit (Log-Aufräumen, CSP)“ mit `run: npm run selftest -w @jm/app-runtime` (Zeilen 92–93). C11 benennt diesen einen Schritt um in „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ statt einen zweiten anzuhängen; der Job behält 22 Schritte, darin genau ein app-runtime-Schritt (Spec 19.6, gemessen). Die früheren Angaben „17 Schritte“ (N11) und „20 Schritte“ (N20, N22) sind überholt. Mitgezogen sind alle Stellen, die vom Anhängen sprachen (N22): G2, Kopf (Abschnitt zu Zoom 4b und UX Welle 0), Kopf-Tabelle C11, C11 „Dateien“ und „Regeln“, C11 Step 12 (Titel, Einleitung, Vorher/Nachher, YAML-Prüfung mit gemessener Erwartung und Gegenprobe), Commit-Text C11 Step 13, Dateistruktur (CI) und Selbstprüfung 19.6.
+  - Erledigt: `package-lock.json` (C11 Step 2, Block `packages/app-runtime`; C21 Step 6, Versionsblöcke; N28): `main` ändert dort +41/−3 Zeilen (17 618 → 17 656; bis `b7e959866d` waren es +2/−2). Der Block `packages/app-runtime` steht jetzt bei `:17400-17409`, Hunk `@@ -17401,7 +17401,11 @@`, nach C11 17 660 Zeilen; die vier App-Blöcke für C21 stehen unverändert bei `:293`, `:546`, `:704`, `:736`. Jeder Vorher-Text genau einmal.
+  - Erledigt: `packages/suite-manifest/changelog.json` (C21 Step 7, N30): `main` fügt 30 Zeilen hinzu (16 bis `b7e959866d`, 14 mit Connect 0.3.0). Die Vorher-Texte der vier Einträge stehen jetzt bei `:31-35`, `:645-649`, `:1079-1083`, `:1379-1383`, jeder genau einmal; nach C21 1716 Zeilen.
+  - Erledigt: `packages/app-runtime/src/index.ts` (C13 Step 7, drei Einfügungen mit 15 Zeilen, N29): 4b fügt 13 Zeilen ein und löscht eine Leerzeile (netto +12, 660 Zeilen). Die Ist-Zeilen sind jetzt `:17`, `:48`, `:387` (vorher `:16`, `:47`, `:379`), die Sperre in G14 `:376-379`; nach C13 675 von 675 Zeilen (vorher 663), 15 Einfügungen, 0 gelöschte Zeilen, wie die Dreiwege-Zusammenführung mit `85dcba597d` vorhersagte. Die Quelltext-Wächter des 4b-Selbsttests bleiben grün.
+  - Erledigt, ohne Textänderung durch R2, aber mit anderen Zählständen (N27): `packages/app-runtime/test/selftest.ts` (nur 4b) und `src/log-aufraeumen.ts` (neu in 4b). Der erste Teil von `npm run selftest -w @jm/app-runtime` zeigt `50 passed` statt `15 passed` (am 12.10.2026 auf `adda584693` gemessen), dahinter `64`, `174` bzw. `208 passed`; nachgezogen in C11–C13, C21 Step 9, Kopf-Tabelle und Testläufe. `packages/app-runtime/package.json` ändert 4b nicht.
+  - Nachgeprüft am 12.10.2026: Die Doku-Dateien, die C21 ändert (`docs/suite-verbund.md`, `docs/jm-show.md`), ändern weder `main` noch 4b; `docs/roadmap.md` aus PR #249 und #252 fasst R2 nicht an.
+  - Neu seit dem 08.10.2026, ohne Textänderung durch R2 (N31): UX Welle 0 (`packages/ui`, `packages/settings`); `typecheck --workspaces` prüft jetzt 31 Workspaces, darunter `@jm/ui` und `@jm/settings`, Exit 0 nach C11, C12, C13 und C21. Die STATE-Kodierung aus 4b (Leerraum und `%` als `%XX`) berührt R2 nicht.
 - Der Durchgang C20 läuft in der Umsetzung ganz, sobald die steuernde Sitzung beim Start die Ledger-Zeile „Owner-Freigabe C20“ gesetzt hat; sein Ergebnis gehört in den PR-Text. Ohne grünen Durchgang geht der Branch nicht in den Merge (N14). Was C20 nicht erreicht (Show-Link im Verbund, Start mit Show-Link, gesperrte Ordnerwahl, Rundown-Datei am Master mit „Öffnen…“/„Neu“, eigene Wahl nach dem Entkoppeln), prüft der Owner von Hand nach dem Abschnitt „Zusatzprüfungen (nicht in Spec 20)“ der Abnahme-Datei (N17); die Tabelle aus Spec 20 bleibt wortgleich.
 - Der Branch `feat/master-link-teil2b-r2` geht als PR „Master-Link Teil 2b, Release 2: Show-Daten über den Verbund“ in die Prüfung, mit den Ergebnissen von C19 (Kette, Gegenproben) und C20 (Durchgang) im PR-Text, und danach in `main`.
-- Liegt 4b beim Merge entgegen dem Plan noch nicht auf `main` (lesend mit `git log` prüfbar), gelten die Berührungspunkte oben sinngemäß für die Zusammenführung: In `ci-checks.yml` ist der Textkonflikt sicher und wird zu genau einem app-runtime-Schritt mit dem Namen „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ aufgelöst.
+- **Überholt (12.10.2026, N25):** 4b liegt seit `2df1f79357` auf `main`, und der Branch ist darauf neu aufgesetzt; der Text dahinter bleibt zur Nachvollziehbarkeit stehen. Liegt 4b beim Merge entgegen dem Plan noch nicht auf `main` (lesend mit `git log` prüfbar), gelten die Berührungspunkte oben sinngemäß für die Zusammenführung: In `ci-checks.yml` ist der Textkonflikt sicher und wird zu genau einem app-runtime-Schritt mit dem Namen „App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)“ aufgelöst.
 - Veröffentlicht werden Launcher 0.15.0, Timer 0.14.0 und Rundown 0.8.0 über CI-Tags, der Titler 0.11.0 lokal gebaut und von Hand (`docs/release-titler.md`). `main` liegt vor den Tags auf dem Server, weil der CI-Bump auf `main` schreibt; die Tags gehen einzeln hinaus, weil mehr als drei Tags in einem Push keine Workflows auslösen. `suite.json` zieht der Bot nach.
 - Die Abnahme an zwei Rechnern nach `packages/master-link/ABNAHME-2b.md` macht der Owner; die offenen Abnahmen 2a und 2b Release 1 können im selben Termin davor laufen (Spec 25 Nr. 1).
 - Die Zusatzbitte des Owners „Zoom-Bridge: Shared Content als eigenständiges Signal“ gehört nicht zu R2; erledigt: Issue #247 (Abschnitt „Bewusst nicht in diesem Plan“).
