@@ -1,6 +1,6 @@
 # JM Production Suite — Roadmap
 
-> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-10-09**.
+> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-10-12**.
 > Zwei Leitprojekte: die **Zoom-Einbindung (Welle 6.7)**, Abschnitt 1, und seit dem 30.09. der
 > **Master-Launcher / Suite im Netz**, Abschnitt 1b. Alles andere läuft in den Parallel-Spuren (Abschnitt 2).
 >
@@ -197,7 +197,7 @@ nicht über Freigaben; Rechner werden einmal mit einem Code gekoppelt.
 | **1 · Master-Link-Fundament** | Rolle Master/Slave, Koppeln per Code, Finden per mDNS je Netzwerkkarte, Netzwerkwahl ([#234](https://github.com/AlexmachtCode/alexzvn/issues/234), geschlossen), verschlüsselte Leitung. Launcher 0.12.0, Timer 0.12.0, Titler 0.9.0 (01.10., PR #239). [Spec](superpowers/specs/2026-09-30-master-link-teil1-design.md) · [Abnahme](../packages/master-link/ABNAHME.md) | ✅ released, Zwei-PC-Abnahme bestanden (01.10.) |
 | **2a · Stabile Ablauf-Kennungen** | Jeder Ablauf-Punkt behält seine Kennung; Timer und Rundown gleichen nach einer iveo-Änderung ohne Positions- oder Aktionsverlust ab. Behebt [#235](https://github.com/AlexmachtCode/alexzvn/issues/235) am Einzelplatz. Launcher/Timer 0.13.0, Rundown 0.6.0 (02.10.); Restbefunde in Launcher 0.13.1 (02.10.). [Spec](superpowers/specs/2026-10-01-master-link-teil2a-design.md) | ✅ released · 🟡 Owner: [ABNAHME-2a.md](../apps/rundown/ABNAHME-2a.md) |
 | **2b R1 · Titler hält seinen Speaker** | Speaker-Kennung aus iveo bis in den Titler, ein Abruffehler leert die Speaker nicht mehr, Rundown-Speaker-Aktion über die Kennung. Launcher 0.13.2 (Vorbereitung) und 0.14.0, Titler 0.10.0, Rundown 0.7.0 (05.10.). Bekannte Grenze: Trägt nach einer Änderung ein **anderer** Speaker den Namen der Person auf Sendung, zeigt der Titler dessen Angaben. [Spec](superpowers/specs/2026-10-02-master-link-teil2b-design.md) Teil A | ✅ released · 🟡 Owner: Test in der Suite, [ABNAHME-2b-R1.md](../apps/titler/ABNAHME-2b-R1.md) |
-| **2b R2 · Show-Daten über den Verbund** | `abo` → `stand` → `aenderung` über die Leitung aus Teil 1; Timer, Titler und Rundown auf Rechner B folgen der offenen Show des Masters, auch ohne Launcher auf B. Spec Teil B (ab Abschnitt 12) ist freigegeben. [Plan](superpowers/plans/2026-10-08-master-link-teil2b-r2.md) mit 21 Aufgaben, durchgespielt und dreimal nachgeprüft; Owner-Antworten vom 08.10. eingearbeitet (Branch `feat/master-link-teil2b-r2`). Umsetzung nach dem Merge von Zoom 4b, vorher Neuaufsatz auf `main` und Nachmessen. | 🟡 Plan fertig, wartet auf 4b |
+| **2b R2 · Show-Daten über den Verbund** | `abo` → `stand` → `aenderung` über die Leitung aus Teil 1; Timer, Titler und Rundown auf Rechner B folgen der offenen Show des Masters, auch ohne Launcher auf B. Spec Teil B (ab Abschnitt 12) ist freigegeben. [Plan](superpowers/plans/2026-10-08-master-link-teil2b-r2.md) mit 21 Aufgaben, durchgespielt und dreimal nachgeprüft; Owner-Antworten vom 08.10. eingearbeitet (Branch `feat/master-link-teil2b-r2`). Zoom 4b ist seit dem 12.10. gemergt; als Nächstes Neuaufsatz auf `main` und Nachmessen, dann die Umsetzung. | 🟢 Plan fertig, Nachmessen als Nächstes |
 | **2c · iveo live je Bühne** | gegen den Prod-Server: je Bühne Abfrage von `/stages/{s}/live`, Anwesenheit je Speaker | ⚪ |
 | **Binärdaten** | Dokumente bis 33 MB, Materialien, Fotos über den Verbund | ⚪ |
 | **3 · Fernstart** | Tools auf anderen Rechnern starten | ⚪ |
@@ -344,7 +344,7 @@ Leitprinzip: **Live-Bedienung sichtbar, Einrichtung weggeräumt.**
 | 0 · Fundament (ohne Pilot) | `@jm/ui`: Rahmen, Statusleiste, `TallyButton`, Eingaben, Einstellungs-Panel, Hell/Dunkel, neue Tokens; neues `@jm/settings` mit sieben Abschnitten; Galerie; Selbsttests in der CI | ✅ **gemergt 09.10.2026** (PR #250). Plan [`docs/superpowers/plans/2026-10-08-suite-ux-fundament.md`](superpowers/plans/2026-10-08-suite-ux-fundament.md); Owner-Entscheide E24, E25, E27, O1–O4; Galerie vom Owner gesehen (`npm run galerie -w @jm/ui`). Kein eigener Release: Die Pakete gehen mit den Apps raus, sichtbar wird es mit dem Titler-Pilot. |
 | 0 · Titler-Pilot | Titler im gemeinsamen Rahmen, Status-Brücken in `@jm/app-runtime` (Spec 3.9) | eigener Plan, nach dem Merge von Master-Link 2b R2 und Zoom 4b (Spec 9.2) |
 | 1 · Live-Kern | Switcher, Timer, Rundown, Q&A, Battle | nach der Owner-Abnahme des Pilots |
-| 2 · übrige Live-Tools | Connect, Caption, Interpreter, Presenter, Prompter, Stage-Display, Recorder, Player, Studio-Control | nach Welle 1; Connect erst nach dem Merge von Zoom 4b |
+| 2 · übrige Live-Tools | Connect, Caption, Interpreter, Presenter, Prompter, Stage-Display, Recorder, Player, Studio-Control | nach Welle 1; Connect erst nach dem Merge von Zoom 4b (gemergt 12.10.) |
 | 3 · Launcher + Werkzeuge | Launcher, Copy, Grafiktool, Media-Converter, Sync, DAW, Editor, Transcribe, App Designer, NDI-Screen-Capture | nach Welle 2 |
 
 Released wird gesammelt je Welle, nach der Abnahme und nur mit Owner-Freigabe (Spec 9.1, 12).
@@ -401,7 +401,7 @@ Release, Merge und Push nur mit Owner-Okay.
 
 | # | Release | Voraussetzung | Aufwand (Schätzung) |
 |---|---|---|---|
-| 1 | **Connect 0.3.0** + Companion-Modul 0.2.0 (Zoom 4b) | Owner-Abnahme nach `apps/connect/ABNAHME-0.3.0.md` (läuft, Test in der Suite seit 09.10.); M18/M19 ins Handbuch; Notes freigeben | ca. 1 h nach dem Abnahme-Ergebnis: Handbuch, Version, Changelog, Bau, Pre-Release, dann Merge |
+| 1 | ✅ **Connect 0.3.0** + Companion-Modul 0.2.0 (Zoom 4b), **released 12.10.2026** (`connect-v0.3.0`, PR #251) | Owner-Abnahme nach `apps/connect/ABNAHME-0.3.0.md` (läuft, Test in der Suite seit 09.10.); M18/M19 ins Handbuch; Notes freigeben | ca. 1 h nach dem Abnahme-Ergebnis: Handbuch, Version, Changelog, Bau, Pre-Release, dann Merge |
 | 2 | **Master-Link 2b R2**: Launcher 0.15.0, Timer 0.14.0, Titler 0.11.0, Rundown 0.8.0 | Merge von 4b; Plan auf den neuen `main` neu aufsetzen und nachmessen | ca. 1–2 h Nachmessen, 6–8 h Umsetzung (Hintergrund, auch über Nacht); dann Zwei-Rechner-Abnahme, Freigabe der R2-Texte und -Notes |
 | 3 | **UX Welle 0 sichtbar**: Titler-Pilot als Titler-Release | R2 released und gemergt (beide ändern den Titler) | Plan ca. 3 h (kann schon während der R2-Umsetzung entstehen), Umsetzung ca. 5 h, dann Owner-Durchsicht |
 | 4 | **UX Welle 1**: Switcher, Timer, Rundown, Q&A, Battle, gesammelt | Titler-Pilot abgenommen | Plan je Welle, vorher je App die Funktionsliste; im Switcher O2 (auf Sendung und gesperrt) |
@@ -409,6 +409,20 @@ Release, Merge und Push nur mit Owner-Okay.
 
 Realistisch: Connect 0.3.0 am Tag der bestandenen Abnahme; R2 direkt danach, zur Abnahme am Folgetag; der Titler-Pilot
 nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreiben des Pilot-Plans.
+
+**Stand 2026-10-12:**
+
+- ✅ **Erledigt:** Connect 0.3.0 released (PR #251; Owner-Abnahme ohne Befunde, Notes vor der Freigabe Punkt für Punkt gegen den
+  Code geprüft) · UX Welle 0 (Fundament) gemergt (PR #250) · „Zoom-SDK laden“ läuft (SDK-Schlüssel gesetzt, Proxy-Token liest `jm-zoom-sdk`).
+- 🟢 **Als Nächstes:** Master-Link 2b R2 — Plan auf den neuen `main` neu aufsetzen und nachmessen, dann umsetzen; während der Umsetzung
+  entsteht der Plan für den Titler-Pilot.
+- 🟡 **Beim Owner:** Messwerte M2, M5, M8, M17, M18 und M19 aus der Abnahme 0.3.0 · Review-Entscheidungen E1–E7 für Zoom · Abnahmen
+  und Live-Tests (Lane B) · Prüfung von #236.
+- 🔵 **Danach:** siehe Release-Reihenfolge · Zoom „zusätzliche Quellen“ (#227 + Freigaben #247) · #213 Battle-Judges · Lane D2b.
+- ⚪ **Später:** 2c, Fernstart, Show-Zentrale · App-Designer-Welle 3 · C3.
+
+<details>
+<summary>Stand 2026-10-09 (überholt, stehen gelassen)</summary>
 
 **Stand 2026-10-09:**
 
@@ -418,6 +432,8 @@ nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreibe
   (SDK-Schlüssel gesetzt, Proxy-Token liest `jm-zoom-sdk`).
 - 🔵 **Danach:** siehe Release-Reihenfolge · Zoom „zusätzliche Quellen“ (#227 + Freigaben #247) · #213 Battle-Judges · Lane D2b.
 - ⚪ **Später:** 2c, Fernstart, Show-Zentrale · App-Designer-Welle 3 · C3.
+
+</details>
 
 <details>
 <summary>Stand 2026-10-08 (überholt, stehen gelassen)</summary>
