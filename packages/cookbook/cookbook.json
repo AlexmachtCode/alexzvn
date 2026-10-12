@@ -1518,7 +1518,7 @@
               "STATE der Browser-Gäste: room, connected, guests, lobby, onair, active_label, standby, standby_label, talkback.",
               "STATE von Zoom: zoom_status (einrichtung, bereit, tritt_bei, warteraum, im_meeting, abriss, verlaesst, fehler), zoom_sources (Anzahl geladener Quellen), zoom_live (1/0), zoom_privilege (Aufnahme-Erlaubnis, 1/0), zoom_alarm (Eingriff nötig, 1/0), zoom_cmd (Ergebnis des letzten Zoom-Befehls: ok oder f1 bis f8), zoom_cmd_rejected (letzter Zoom-Befehl abgelehnt, 1/0). Die zoom_*-Werte enthalten nie einen Namen.",
               "Feedbacks: Gast auf Sendung (rot), Gäste im Warteraum (gelb), Talkback (gelb), Zoom-Quellen geladen (grün), Zoom braucht einen Eingriff (rot), letzter Zoom-Befehl abgelehnt (gelb).",
-              "Ab Modul 0.2.0 leuchten „Gast auf Sendung“ und „Gäste im Warteraum“ bei jeder Anzahl über 0, und Namen mit Leerzeichen (active_label, standby_label) kommen ganz an. Ältere Module zeigen solche Namen kodiert, zum Beispiel Anna%20Maria.",
+              "Ab Modul 0.2.0 leuchten „Gast auf Sendung“ und „Gäste im Warteraum“ bei jeder Anzahl über 0, und Namen mit Leerzeichen (active_label, standby_label) kommen ganz an. Ältere Module kennen die Rolle „JM Connect“ nicht.",
               "JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release; bis dahin steuert er Zoom nicht."
             ]
           },
