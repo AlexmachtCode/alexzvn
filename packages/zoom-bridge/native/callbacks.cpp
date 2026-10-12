@@ -15,6 +15,13 @@ static std::atomic<bool> g_meetingEndeOffen{false};
 
 bool callbacksTakeMeetingEndTeardown() { return g_meetingEndeOffen.exchange(false); }
 
+// Dasselbe Muster fuer den ENTZUG der Aufnahme-Erlaubnis (Stage 4b, N4b.1):
+// onRecordPrivilegeChanged(false) setzt es, main() nimmt es nach pumpOnce() und
+// baut dort ab - nie im Rueckruf (siehe das Meeting-Ende unten, 0xC0000005).
+static std::atomic<bool> g_entzugAbbauOffen{false};
+
+bool callbacksTakePrivilegeRevokedTeardown() { return g_entzugAbbauOffen.exchange(false); }
+
 namespace {
 ParticipantsListener g_participantsListener;
 }
@@ -246,6 +253,24 @@ void RecordingListener::onRecordPrivilegeChanged(bool bCanRec) {
   sessionSetCanRecordRaw(bCanRec);
   emitRaw(std::string("{\"ev\":\"privilege\",\"canRecordRaw\":") + (bCanRec ? "true" : "false") +
           ",\"source\":\"broadcast\"}");
+  if (!bCanRec) {
+    // ENTZUG (Stage 4b, N4b.1). Zoom verlangt: "The app must stop accessing
+    // content if permission is revoked." Bis 4a sperrte der Entzug nur NEUE
+    // Abos (videoSubscribe() prueft sessionCanRecordRaw()); laufende sendeten
+    // weiter.
+    //
+    // NICHT HIER ABBAUEN - dieselbe Lehre wie beim Meeting-Ende (18.08.2026):
+    // dieser Rueckruf kommt INNERHALB von pumpOnce(), und unSubscribe() aus
+    // einem SDK-Rueckruf beendete die Bridge mit 0xC0000005. Nur das
+    // Merkzeichen setzen; main() baut nach pumpOnce() ab, im selben
+    // Schleifendurchlauf.
+    //
+    // Kommt die Wiedererteilung in DERSELBEN Pumprunde (true nach false), steht
+    // sie schon auf der Leitung, BEVOR abgebaut wird - abgebaut wird trotzdem:
+    // die Abos gehoerten zur entzogenen Erlaubnis, neu abonniert der Aufrufer.
+    g_entzugAbbauOffen = true;
+    emitLog(L"Entzug: Abbau angemeldet, laeuft nach pumpOnce()");
+  }
 }
 
 void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecordingStatus status) {

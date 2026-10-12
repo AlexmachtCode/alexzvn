@@ -3,9 +3,10 @@
 // Frische der EXE und die PE-Leser. Alles gegen Temp-Ordner - kein SDK, kein
 // Windows, kein Compiler noetig.
 //   node packages/zoom-bridge/test/auslieferung.test.mjs
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   SDK_NAMEN_7_1_5,
   VC_PFLICHT,
@@ -16,6 +17,7 @@ import {
   linkerFassung,
   mindestens,
   sdkNamen,
+  sdkNamenQuellen,
   verboteneAsarEintraege,
   verboteneZoomDateien,
   VC_PFAD_HINWEIS,
@@ -83,12 +85,30 @@ try {
     );
     assert(dateienUnter(ordner).length === 5, 'dateienUnter: alle Dateien, rekursiv');
 
-    // Mit sdkBin gilt die ECHTE Liste aus dem SDK-Ordner, nicht die feste.
+    // Mit sdkBin kommen die Namen des ECHTEN SDK-Ordners zur festen Liste DAZU
+    // (Vereinigung, Stage 4b): ein falscher oder fast leerer Ordner schwaecht den
+    // Waechter nicht (G6). Dieser Ordner enthaelt absichtlich KEIN sdk.dll.
     const sdkBin = join(temp, 'sdk', 'x64', 'bin');
     datei(join(sdkBin, 'nur-echt.dll'));
+    datei(join(sdkBin, 'unter', 'GROSS-ECHT.DLL'));
     datei(join(ordner, 'nur-echt.dll'));
+    datei(join(ordner, 'gross-echt.dll'));
     const echt = verboteneZoomDateien(ordner, { sdkBin });
-    assert(echt.join('|') === 'nur-echt.dll', 'mit sdkBin: meldet nur-echt.dll und nicht mehr sdk.dll');
+    assert(echt.includes(join('unter', 'sdk.dll')) && echt.includes(join('tief', 'x', 'SDK.DLL')),
+      'mit sdkBin ohne sdk.dll: sdk.dll bleibt verboten');
+    assert(echt.includes('nur-echt.dll') && echt.includes('gross-echt.dll') && echt.length === 4,
+      'mit sdkBin: zusaetzlicher Name aus dem echten Ordner wird gemeldet (rekursiv, ohne Gross-/Kleinschreibung)');
+    const leererBin = join(temp, 'sdk-leer', 'x64', 'bin');
+    mkdirSync(leererBin, { recursive: true });
+    const nurFest = [join('tief', 'x', 'SDK.DLL'), join('unter', 'sdk.dll')].join('|');
+    assert(
+      verboteneZoomDateien(ordner, { sdkBin: leererBin }).sort().join('|') === nurFest &&
+        verboteneZoomDateien(ordner, { sdkBin: null }).sort().join('|') === nurFest &&
+        verboteneZoomDateien(ordner, { sdkBin: join(temp, 'gibt es nicht') }).sort().join('|') === nurFest,
+      'sdkBin fehlt oder ist leer: feste Liste',
+    );
+    assert(sdkNamen({ sdkBin }).size === 154 && sdkNamen({ sdkBin: leererBin }).size === 152,
+      'sdkNamen mit sdkBin: 152 feste und 2 echte Namen; mit leerem Ordner die 152 festen');
   }
 
   console.log('\nauslieferung — Waechter fuer .asar:');
@@ -136,6 +156,26 @@ try {
     assert(verboteneAsarEintraege(sauber).length === 0, '.asar nur mit out/main/index.cjs: keine Treffer');
     datei(join(sauber, 'resources', 'irgendwas.zip'));
     assert(verboteneAsarEintraege(sauber).length === 0, 'eine .zip-DATEI ausserhalb einer .asar ist nicht Sache dieses Waechters');
+
+    // Dieselbe Vereinigung fuer den INHALT einer .asar (Stage 4b, Spec 10.3).
+    const binAsar = join(temp, 'sdk-asar', 'x64', 'bin');
+    datei(join(binAsar, 'nur-echt.dll'));
+    const leerAsar = join(temp, 'sdk-asar-leer');
+    mkdirSync(leerAsar, { recursive: true });
+    const mitEcht = join(temp, 'asar-echt');
+    baueAsar(join(mitEcht, 'resources', 'app.asar'), {
+      irgendwo: { files: { 'SDK.DLL': leer, 'Nur-Echt.dll': leer, 'eigen.js': leer } },
+    });
+    const relEcht = join('resources', 'app.asar');
+    const mit = verboteneAsarEintraege(mitEcht, { sdkBin: binAsar });
+    assert(mit.includes(`${relEcht}:irgendwo/SDK.DLL`), '.asar mit sdkBin ohne sdk.dll: SDK.DLL bleibt verboten');
+    assert(mit.includes(`${relEcht}:irgendwo/Nur-Echt.dll`) && mit.length === 2,
+      '.asar mit sdkBin: zusaetzlicher Name aus dem echten Ordner wird gemeldet (ohne Gross-/Kleinschreibung)');
+    assert(
+      verboteneAsarEintraege(mitEcht, { sdkBin: leerAsar }).join('|') === `${relEcht}:irgendwo/SDK.DLL` &&
+        verboteneAsarEintraege(mitEcht, { sdkBin: null }).join('|') === `${relEcht}:irgendwo/SDK.DLL`,
+      '.asar, sdkBin fehlt oder ist leer: feste Liste',
+    );
   }
 
   console.log('\nauslieferung — Frische der EXE:');
@@ -227,6 +267,21 @@ try {
       if (vorher === undefined) delete process.env.VC_CRT_DIR;
       else process.env.VC_CRT_DIR = vorher;
     }
+  }
+
+  console.log('\nauslieferung — Statuszeile der Waechter (Stage 4b):');
+  {
+    const fest = 'die feste Liste fuer 7.1.5.43953';
+    assert(sdkNamenQuellen() === fest && sdkNamenQuellen({ sdkBin: null }) === fest, 'sdkNamenQuellen ohne sdkBin: nur die feste Liste');
+    const bin = join(temp, 'status', 'x64', 'bin');
+    datei(join(bin, 'sdk.dll'));
+    assert(sdkNamenQuellen({ sdkBin: bin }) === `${fest} und das SDK unter ${bin} (1 Name)`,
+      'Statuszeile von build-release nennt beide Quellen');
+    const fehlt = join(temp, 'status', 'gibt es nicht');
+    assert(sdkNamenQuellen({ sdkBin: fehlt }) === `${fest} (SDK-Ordner ${fehlt} fehlt)`, '... und einen fehlenden SDK-Ordner');
+    const bau = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'build-release.mjs'), 'utf8');
+    assert(bau.includes('sdkNamenQuellen({ sdkBin })') && !bau.includes('echteListe'),
+      'build-release.mjs baut die Statuszeile aus sdkNamenQuellen (keine zweite Kopie der Regel)');
   }
 } finally {
   rmSync(temp, { recursive: true, force: true });

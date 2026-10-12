@@ -9,15 +9,23 @@
 // spiegelt ihn und meldet den abgeleiteten STATE via IPC hierher. controlEndpoint:true
 // annonciert den Endpunkt per mDNS (TXT ctl=1, Name jm-connect-ctl) → Companion/Health
 // finden ihn automatisch.
+//
+// Zoom (Stage 4b, Spec 11.3): Die zoom_*-Werte meldet die Zoom-Hülle (setZoomControlState). Raum-Teil
+// und Zoom-Teil liegen getrennt (control-state.ts); jeder Push ersetzt nur seinen Teil.
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
+import { erzeugeStateSpeicher, type Kv } from './control-state';
 
 /** Eigener TCP-Steuerport (nächster nach Launcher 8736). */
 export const CONTROL_PORT = 8737;
 
 let server: SuiteControlServer | null = null;
-let lastState: SuiteState = { ns: 'connect', kv: { room: '', onair: 0, lobby: 0, guests: 0, talkback: 0 } };
+const stand = erzeugeStateSpeicher((kv) => {
+  lastState = { ns: 'connect', kv };
+  server?.pushState(lastState);
+});
+let lastState: SuiteState = { ns: 'connect', kv: stand.aktuell() };
 
 export interface ConnectControlHandlers {
   onCommand: (cmd: SuiteCommand) => void;
@@ -47,8 +55,12 @@ export function stopControlServer(): void {
   }
 }
 
-/** Abgeleiteten Zustand (vom Operator-Renderer) an alle Steuer-Clients broadcasten. */
-export function pushControlState(kv: Record<string, string | number | boolean>): void {
-  lastState = { ns: 'connect', kv };
-  server?.pushState(lastState);
+/** Raum-Teil (vom Operator-Renderer) setzen und den gemischten STATE an alle Steuer-Clients broadcasten. */
+export function pushControlState(kv: Kv): void {
+  stand.raum(kv);
+}
+
+/** Zoom-Teil (von der Zoom-Hülle, nur bei Änderung) setzen und den gemischten STATE broadcasten. */
+export function setZoomControlState(kv: Kv): void {
+  stand.zoom(kv);
 }

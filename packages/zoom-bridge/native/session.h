@@ -379,6 +379,22 @@ SDKError sessionStartRawRecording();
 void sessionClearRawRecording();
 
 /**
+ * Legt den Rohdaten-Schalter wieder um (IMeetingRecordingController::
+ * StopRawRecording), weil der Host die Aufnahme-Erlaubnis ENTZOGEN hat (Stage 4b,
+ * N4b.1) - das Gegenstueck zu sessionStartRawRecording(). Ruft das SDK nur, wenn
+ * der Schalter in diesem Meeting gelegt war, und meldet den Rueckgabewert auf
+ * stderr (Messung M18).
+ *
+ * Setzt das Merkzeichen IMMER zurueck, auch wenn StopRawRecording() scheitert:
+ * das naechste Abo nach der Wiedererteilung muss StartRawRecording() neu rufen.
+ * Nur aus main() nach pumpOnce() rufen (callbacksTakePrivilegeRevokedTeardown).
+ *
+ * @returns SDKERR_SUCCESS, wenn der Schalter nicht lag; SDKERR_SERVICE_FAILED ohne
+ *          Aufnahme-Regler; sonst das, was StopRawRecording() geliefert hat.
+ */
+SDKError sessionStopRawRecording();
+
+/**
  * Tritt dem TONKANAL des Meetings bei. Idempotent je Meeting.
  *
  * WARUM DAS NOETIG IST — GEMESSEN am 18.08.2026 gegen ein echtes Meeting:

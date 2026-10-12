@@ -60,7 +60,19 @@ Beliebige `key=value`-Paare; Booleans werden als `1`/`0` serialisiert. Beispiele
 STATE ns=timer running=1 remaining_s=270 block_label=Block-A
 STATE ns=switcher program=2 preview=1 recording=1 streaming=0 scenes=3
 STATE ns=titler on_air=1 active=2 active_label=Max-Mustermann
+STATE ns=connect onair=1 active_label=Anna%20Maria%20Beispiel
 ```
+
+**Text-Werte sind kodiert:** `formatSuiteState` schreibt in Text-Werten jeden
+Leerraum (Leerzeichen, Tab, Zeilenumbruch, geschütztes Leerzeichen …) und `%`
+als `%XX` (UTF-8-Bytes, `kodiereStateWert`); `parseSuiteState` dekodiert
+(`dekodiereStateWert`). So kommt „Anna Maria Beispiel“ ganz an, statt am ersten
+Leerzeichen abzubrechen. Zahlen, Booleans und Schlüssel bleiben unkodiert.
+Zeilen älterer Sender ohne Kodierung liest der Parser unverändert; eine
+ungültige `%`-Folge (`100%`) bleibt wörtlich stehen. Ein Leser, der noch den
+alten Parser bündelt, zeigt `Anna%20Maria` – erst sein nächstes Release
+dekodiert. Befehlszeilen werden **nicht** kodiert: Argumente trennt der Parser
+wie bisher am Leerraum (`CONNECT ZOOM_LOAD Anna Maria` → `['Anna', 'Maria']`).
 
 ---
 
@@ -93,8 +105,10 @@ ab (u. a. „Legacy parseState liest ns=switcher-Zeile korrekt").
 import {
   parseSuiteCommand,   // (line) → { ns, verb, args } | null
   formatSuiteCommand,  // ({ ns, verb, args }) → "NS VERB args\n"
-  formatSuiteState,    // ({ ns, kv }) → "STATE ns=… k=v …\n"  (bool → 1/0)
-  parseSuiteState,     // (line) → { ns, kv } | null
+  formatSuiteState,    // ({ ns, kv }) → "STATE ns=… k=v …\n"  (bool → 1/0, Text kodiert)
+  parseSuiteState,     // (line) → { ns, kv } | null              (Text dekodiert)
+  kodiereStateWert,    // (text) → Leerraum und % als %XX
+  dekodiereStateWert,  // (text) → %XX-Folgen zurück; ungültige bleiben wörtlich
   createLineBuffer,    // (onLine) → (chunk) => void  (TCP-Zeilenpuffer)
   // Legacy-Switcher-Brücke:
   parseCommand, formatState, parseState,

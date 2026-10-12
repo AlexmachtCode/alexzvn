@@ -1,8 +1,8 @@
 {
   "name": "jm-suite",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Bitfocus Companion module for the JM Production Suite — one module, all tools (Switcher/Timer/Player/Titler/Presenter/Prompter/Recorder/DAW)",
+  "description": "Bitfocus Companion module for the JM Production Suite — one module, all tools (Switcher/Timer/Player/Titler/Presenter/Prompter/Recorder/DAW/Connect)",
   "main": "main.js",
   "scripts": {
     "sync": "node ../../scripts/sync-companion-protocol.mjs",

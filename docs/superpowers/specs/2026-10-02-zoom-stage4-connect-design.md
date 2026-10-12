@@ -177,7 +177,7 @@ Beim Ausarbeiten kamen Stellen heraus, die die Besprechung nicht abdeckte oder a
 | **Abbild** | Ein serialisierbarer Schnappschuss des Zoom-Zustands (`ZoomAbbild`). Der Main schickt ihn an den Renderer. |
 | **Abriss** | Connect war in dieser Sitzung im Meeting, und die Verbindung ist weg: Zoom verbindet neu, scheitert, oder die Bridge stirbt. Nicht gemeint ist ein Meeting-Ende durch den Host. |
 | **Soll-Liste** | Die Quellen, die der Bediener geladen hat, gemerkt über den normierten Namen, je Eintrag mit eigenem Ton-Wert. Sie überlebt einen Wiederbeitritt, nicht aber „Verlassen“, „Schließen“ oder ein Meeting-Ende. |
-| **Offener Soll-Eintrag** | Ein Soll-Eintrag, zu dem gerade keine Quelle mit anwesender Person läuft, also im Stand `wartet`, `doppelname` oder `verwaist` (6.3). Ihre Zahl heißt `sollOffen` (5.4), kurz o. |
+| **Offener Soll-Eintrag** | Ein Soll-Eintrag, zu dem gerade keine Quelle mit anwesender Person läuft, also im Stand `wartet`, `doppelname` oder `verwaist` (6.3), seit 4b auch `grenze`, `erlaubnis`, `laedt`, `wiederbeitritt`, `keineAntwort` oder `gescheitert` (9 Punkt 9, Nachtrag 4b). Ihre Zahl heißt `sollOffen` (5.4), kurz o. |
 | **Normierter Name** | Anzeigename nach Unicode-NFC, `trim`, Leerraum zu einem Leerzeichen, klein geschrieben (`de`). Connect gleicht nach dem normierten Namen ab; die Bridge hängt dagegen nur bei **exakt** gleichem Namen um (3.2-20). |
 | **Doppelname** | Zwei oder mehr fremde Teilnehmer haben denselben normierten Namen. |
 | **Verwaiste Quelle** | Ein Abo, dessen Teilnehmer nicht mehr in der Teilnehmerliste steht oder dessen Bild `black` mit Grund `participantLeft` meldet. Die Bridge hängt es selbst um, wenn jemand mit exakt gleichem, eindeutigem Namen zurückkommt; sonst lädt Connect neu (6.3). |
@@ -364,7 +364,7 @@ export interface ZoomSollEintrag {
   ton: boolean;
   /** Zuletzt gemeldeter NDI-Name, sonst die Vorschau. */
   ndiName: string;
-  stand: 'wartet' | 'doppelname' | 'verwaist';
+  stand: 'wartet' | 'doppelname' | 'verwaist'; // 4b: dazu 'grenze', 'erlaubnis', 'laedt', 'wiederbeitritt', 'keineAntwort', 'gescheitert' (9 Punkt 9)
   /** Nur bei 'verwaist': das alte Abo, zum Entladen. */
   aboId: number | null;
 }
@@ -568,7 +568,7 @@ Connect wertet **nicht** `session.phase` als „Bridge tot“ aus, denn `phase:'
 3. Gibt es eine **verwaiste** Quelle mit gleichem normierten Namen: zuerst `videoUnsubscribe(aboId)`, auf `unsubscribed` warten (höchstens 2 s). So bleibt der NDI-Name gleich.
 4. `videoSubscribe { id, resolution: '720p', audio: ton }`.
 5. Soll-Liste: Eintrag für den normierten Namen setzen bzw. ersetzen (`ton` aus diesem Aufruf, NDI-Name).
-6. Kommt binnen 10 s weder ein `video`-Ereignis noch ein Fehler mit dieser `id` → Q8 an der Zeile.
+6. Kommt binnen 10 s weder ein `video`-Ereignis noch ein Fehler mit dieser `id` → Q8 an der Zeile. Nachtrag 4b (Owner 08.10.2026): Der Soll-Eintrag steht dann auf `keineAntwort`, nach einem Ladefehler an der Zeile auf `gescheitert` (9 Punkt 9); kein neuer Versuch von selbst.
 
 **Entladen** (`zoomEntladen { aboId }`): Soll-Eintrag entfernen, dann `videoUnsubscribe(aboId)`. Der Ton meldet sich vor dem Bild ab (Bridge-Verhalten).
 
@@ -590,7 +590,9 @@ Connect wertet **nicht** `session.phase` als „Bridge tot“ aus, denn `phase:'
 
 Ein Abo gilt als verwaist, sobald sein Teilnehmer nicht mehr in der Liste steht, auch wenn das `black`-Ereignis noch nicht da ist (Begriffe, Abschnitt 4).
 
-Die Soll-Liste leert sich bei „Verlassen“, „Schließen“, beim Meeting-Ende durch den Host (6.5) und beim Beenden von Connect. Sie bleibt bei einem Abriss und bei „Erneut beitreten“.
+**Nachtrag 4b:** Die Spalte „Stand“ gilt im Meeting. Weitere Stände (`grenze` nach N4b.3 Nr. 3, `erlaubnis`, `laedt`, dazu `keineAntwort` und `gescheitert` statt `wartet`, wenn das Laden einer eindeutig anwesenden Person gescheitert ist, Owner 08.10.2026) und der Stand außerhalb des Meetings (`wiederbeitritt`, Owner 08.10.2026, mit Vorrang vor allen außer `verwaist`) stehen in 9 Punkt 9 (Nachtrag 4b).
+
+Die Soll-Liste leert sich bei „Verlassen“, „Schließen“, beim Meeting-Ende durch den Host (6.5) und beim Beenden von Connect. Sie bleibt bei einem Abriss und bei „Erneut beitreten“. Ruling 08.10.2026: Bei „Verlassen“ und beim Beenden leert sie sich vor Z12 und vor dem Warten auf die Bridge; während „Verlasse das Meeting …“ steht keine gemerkte Quelle da (im Abbau liest niemand die Liste).
 
 **Doppelname:** Beide Zeilen tragen `doppelname: true` und Q11. Laden von Hand bleibt möglich. Laden per Fernsteuerung wird abgelehnt (F3).
 
@@ -669,7 +671,7 @@ app.on('before-quit', (e) => {
 });
 ```
 
-`zoom.beenden(frist)`: Wiederbeitritt abbrechen, Kopie abbrechen, Zustand `verlaesst` (Z12), `bridge.stop()` (Bridge im Abbau, 6.9). Die Bridge schickt dabei selbst `Leave` (`native/session.cpp:613-624`). Nach `frist` geht es ohne Warten weiter; das Log hält „Zoom-Bridge nicht rechtzeitig beendet“ fest. Während des Wartens zeigt das Tray „◌ Zoom: verlässt das Meeting …“.
+`zoom.beenden(frist)`: Wiederbeitritt abbrechen, Kopie abbrechen, Soll-Liste leeren (Ruling 08.10.2026: vor Z12), Zustand `verlaesst` (Z12), `bridge.stop()` (Bridge im Abbau, 6.9). Die Bridge schickt dabei selbst `Leave` (`native/session.cpp:613-624`). Nach `frist` geht es ohne Warten weiter; das Log hält „Zoom-Bridge nicht rechtzeitig beendet“ fest. Während des Wartens zeigt das Tray „◌ Zoom: verlässt das Meeting …“.
 
 **Windows-Abmeldung oder Herunterfahren:** Das Ereignis `session-end` des Hauptfensters stößt `zoom.beenden(BEENDEN_FRIST_MS)` an. Ob Windows so lange wartet, ist ungemessen (17.1).
 
@@ -684,7 +686,7 @@ app.on('before-quit', (e) => {
 
 | Handlung | erlaubt in | Ablauf | danach |
 | --- | --- | --- | --- |
-| **Verlassen** (Karte „Meeting verlassen“, Tray „Zoom-Meeting verlassen“, `zoomVerlassen`) | Z3–Z11 | Wiederbeitritts-Zeitgeber löschen, einen laufenden Versuch als abgebrochen markieren. Zustand `verlaesst` (Z12). Laufende Bridge `stop()` (Abbau, 6.9). | Zustand `bereit` (bei Mängeln `einrichtung`). Soll-Liste, Nummer und Kenncode geleert, `erneutMoeglich: false`, `meldung: null`, Merker „war im Meeting“ gelöscht. **Kein** Alarm. Gilt in Z10 und Z11 genauso. |
+| **Verlassen** (Karte „Meeting verlassen“, Tray „Zoom-Meeting verlassen“, `zoomVerlassen`) | Z3–Z11 | Wiederbeitritts-Zeitgeber löschen, einen laufenden Versuch als abgebrochen markieren. Soll-Liste leeren (Ruling 08.10.2026: vor Z12, damit neben „Verlasse das Meeting …“ keine gemerkte Quelle steht). Zustand `verlaesst` (Z12). Laufende Bridge `stop()` (Abbau, 6.9). | Zustand `bereit` (bei Mängeln `einrichtung`). Soll-Liste (schon vor Z12), Nummer und Kenncode geleert, `erneutMoeglich: false`, `meldung: null`, Merker „war im Meeting“ gelöscht. **Kein** Alarm. Gilt in Z10 und Z11 genauso. |
 | **Abbrechen** (Karte, `zoomAbbrechen`) | nur Z11 (Wiederbeitritt wartet oder läuft) | Zeitgeber löschen, laufende Versuchs-Bridge `stop()`. | Zustand `fehler`, `meldung` R7, `erneutMoeglich: true`. Soll-Liste, Nummer und Kenncode bleiben für „Erneut beitreten“. |
 | **Schließen** (Karte, `zoomSchliessen`) | Z2, Z13 | – | Zustand `bereit` (bei Mängeln `einrichtung`), `meldung: null`, Soll-Liste, Nummer und Kenncode geleert, `erneutMoeglich: false`. |
 | **Meldung quittieren** (Karte „OK“, `zoomMeldungWeg`) | jeder Zustand außer Z13 | – | nur `meldung: null`. In Z13 gehört die Meldung zum Zustand; dort gibt es „Schließen“. |
@@ -1004,6 +1006,19 @@ Die Karte steht **außerhalb** des `connected`-Zweigs, direkt nach dem Raum-Absc
    - je Zeile: Name; Kennzeichen „Host“, „Co-Host“, „Kamera aus“, „keine Kamera“, „im Warteraum“, „Name doppelt“ (rot); NDI-Name (Quelle) bzw. grau „wird: {Vorschau}“; Bild- und Ton-Zustand der Quelle; Schalter „Ton“ (je Zeile, 6.3); Knopf „Als Quelle laden“ bzw. „Entladen“; Kollisionswarnung Q10 und Zeilenfehler (Q2, Q4, Q5, Q8).
    - Kein Tally, kein Talkback, keine Phasen: Die Gast-Bausteine `PttButton`, `GuestActions` und `PhaseBadge` werden **nicht** wiederverwendet.
 9. **Gemerkte Quellen** (Soll-Einträge aus 6.3): „{Name} — wartet auf die Person“ · „{Name} — Name doppelt, bitte von Hand laden“ (rot) · „{Name} — Person weg, Quelle schwarz“ (bei Doppelname rot mit Q11) · Knöpfe „Entladen“ (verwaist) bzw. „Vergessen“ (wartet, doppelname).
+   - Nachtrag 4b (Owner 08.10.2026): fünf weitere Stände, jeweils mit Knopf „Vergessen“; sie zählen als offen wie „wartet“ (`sollOffen`, `zoom_alarm`; R5 unverändert).
+     - `erlaubnis`: „{Name} — wartet auf die Aufnahme-Erlaubnis“. Die Person ist eindeutig da (nicht im Warteraum), aber im Meeting fehlt die Aufnahme-Erlaubnis (Z6, Z7). Seit dem Ruling vom 08.10.2026 auch bei Q1 an ihrer Zeile (Nachtrag unten).
+     - `laedt`: „{Name} — wird geladen …“. Das Abo ist gesendet und noch nicht bestätigt (höchstens bis zur Frist Q8), oder im Meeting mit Erlaubnis ist ein Abgleich geplant, der diesen Eintrag abonnieren wird.
+     - `wiederbeitritt`: „{Name} — wartet auf den Wiederbeitritt“. Connect selbst ist nicht im Meeting (jeder Zustand ≠ `im_meeting`: Z10, Z11, jedes `fehler` mit gemerkten Quellen, also nach R2 oder R7, „Verbindung verloren: …“, „Wiederbeitritt abgebrochen: …“ oder B3–B5, „Erneut beitreten“ in `startet`, `tritt_bei`, `warteraum`, und der Warteraum mitten im Meeting; in `verlaesst` (Ruling 08.10.2026: „Verlassen“ und Beenden leeren die Liste vor Z12), `einrichtung` und `bereit` ist sie immer leer). Teilnehmerliste und Abos gelten dann nicht; dieser Stand hat Vorrang vor allen anderen außer `verwaist` (Ruling 08.10.2026): Eine verwaiste Quelle lebt mit der Bridge schwarz weiter (Z10, Warteraum mitten im Meeting und das folgende `tritt_bei`), ihr Eintrag bleibt „{Name} — Person weg, Quelle schwarz“ mit „Entladen“. Ein gesendetes, noch unbestätigtes Abo gilt nur in einer lebenden Sitzung als verwaist; baut die Bridge ab (Z11), wartet sein Eintrag auf den Wiederbeitritt.
+     - `keineAntwort` (Owner 08.10.2026): „{Name} — keine Antwort der Zoom-Bridge, bitte von Hand laden“. Im Meeting mit Erlaubnis `ja` ist die Person eindeutig da (nicht im Warteraum), und an IHRER Zeile steht Q8: Ihr Abo blieb 10 s ohne Antwort.
+     - `gescheitert` (Owner 08.10.2026): „{Name} — Laden gescheitert, bitte von Hand laden“. Wie `keineAntwort`, aber an ihrer Zeile steht ein Ladefehler: Die Bridge hat ihr Abo mit Fehler abgelehnt, also Q4 oder Q5 an der Zeile einer Person ohne laufende Quelle; nicht Q13, das dem Bild-Versatz gilt, und seit dem Ruling vom 08.10.2026 nicht mehr Q1 und Q2 (Nachtrag unten; bis dahin hieß es hier „Q1, Q2, Q4 oder Q5“) (`istLadeFehler` in `klartext.ts`). Mit Kennung meldet die Bridge solche Fehler nur als Antwort auf `videoSubscribe` und beim Umhängen; Q5 kommt heute ohne Kennung (Hinweis), also nie an eine Zeile.
+     - Für beide: kein automatischer neuer Versuch (Q8 plant keinen Abgleich). Sie ersetzen nur den Rückfall `wartet`; `verwaist`, `wiederbeitritt`, `grenze`, `doppelname`, `erlaubnis` und `laedt` (ein geplanter Abgleich, der die Person gleich neu lädt) behalten Vorrang. Endet der Fehler (von Hand geladen, ein späterer Abgleich lädt sie, sie geht, der Zeilenfehler wird gelöscht), gilt wieder der übliche Stand.
+     - Nachtrag (Ruling 08.10.2026 der steuernden Sitzung, der Owner kann widersprechen): Q1 und Q2 an der Zeile zählen nicht als Ladefehler, denn „von Hand laden“ brächte bei beiden nichts.
+       - Q2 („Diese Person ist nicht mehr im Meeting.“): Die Person ist tatsächlich weg. Der Eintrag bleibt beim Rückfall `wartet` („wartet auf die Person“), auch solange Connects Teilnehmerliste sie noch zeigt (bis zum `left`-Ereignis).
+       - Q1 („Keine Aufnahme-Erlaubnis — der Host muss sie im Zoom-Client erteilen.“): Ist die Person eindeutig da, zeigt der Eintrag `erlaubnis` („wartet auf die Aufnahme-Erlaubnis“), auch wenn Connect die Erlaubnis noch als `ja` führt (bis zum `privilege`-Ereignis). Wie `keineAntwort` und `gescheitert` ersetzt das nur den Rückfall `wartet`; ein geplanter Abgleich (`laedt`) und alle übrigen Stände behalten Vorrang (`istErlaubnisFehler` in `klartext.ts`, `SollLage.zeilenStand` in `soll.ts`).
+       - Zählung (`sollOffen`, `zoom_alarm`), R5 und die Handlungen des Abgleichs ändern sich dadurch nicht.
+     - Farbe (Ruling 08.10.2026): `keineAntwort` und `gescheitert` stehen gelb wie `grenze`, denn alle drei verlangen „…, bitte von Hand laden“. Rot bleiben `doppelname` und `verwaist` mit Doppelname (Q11), alle übrigen Stände grau (`sollFarbe` in `zoom-text.ts`).
+     - „Vergessen“ bei einem gesendeten, noch unbestätigten Abo (`laedt`, `erlaubnis` oder `wiederbeitritt`, solange die Frist Q8 läuft) meldet das Abo ab wie „Entladen“ (N4b.3 Nr. 7; Prüfung 08.10.2026). Sonst liefe nach der Bestätigung eine Quelle, die der Bediener eben vergessen hat, ohne Soll-Eintrag.
 10. **Hinweise:** die letzten 5 (darunter Fernsteuer-Hinweise F1–F8, Q6, Q16, Q17, R4, R5).
 11. Fußzeile: „Zoom-Quellen haben kein Tally, kein Talkback und kein Mix-Minus — das sind Grenzen von Zoom.“ · Knopf „Logordner öffnen“.
 
@@ -1528,3 +1543,71 @@ Weder Client-ID noch Client-Secret stehen je in einer Logzeile, einer Fehlermeld
 - Der Datei-Weg und „Entfernen“ bleiben unverändert.
 
 **Datenfluss (zu Tabelle 5.7, die unverändert bleibt):** Bei der Handeingabe gehen Client-ID und Client-Secret einmal vom Fenster an den Main-Prozess. Zurück geht nie etwas außer den letzten 4 Zeichen der Client-ID, wie bisher.
+
+## Nachtrag 2026-10-06: Umfang 4b (Connect 0.3.0) – Ergänzungen
+
+Der Owner hat diesen Nachtrag am 06.10.2026 freigegeben („passt“). 4b behält den Umfang aus Abschnitt 18, Zeile „4b · Betrieb und Auslieferung“, und bekommt drei Ergänzungen. Die Teile A und B stammen aus den Unterlagen zum Zoom-Marketplace-Review (`docs/zoom-marketplace/04-luecken-vor-einreichung.md`, Punkte L10 und L14). Sie sind aber auch ohne das Review sinnvoll.
+
+### N4b.1 Entzug der Aufnahme-Erlaubnis stoppt laufende Quellen (L10)
+
+- **Ist (4a):**
+  - Die Bridge setzt beim Entzug (`privilege canRecordRaw=false`) nur ein Flag. Damit sperrt sie neue Abos.
+  - Laufende Abos bleiben bestehen (`native/callbacks.cpp`, `native/video.cpp`). Ob das Zoom-SDK die Lieferung selbst einstellt, ist nicht gemessen.
+  - Zoom verlangt: „The app must stop accessing content if permission is revoked.“
+- **Soll, Bridge:** Beim Entzug baut die Bridge **alle laufenden Abos aktiv ab**. Sie meldet die Bild- und Ton-Rohdaten ab und schließt die NDI-Sender. Jeder Abbau wird an Connect gemeldet. Ein „Grund: Entzug“ muss vom Entladen durch den Bediener unterscheidbar sein. Die Form legt der Plan fest.
+- **Soll, Connect:**
+  - Die Soll-Liste (wer geladen war und mit welcher Ton-Einstellung) **bleibt erhalten**, wie beim Abriss (6.4).
+  - Die Karte zeigt „Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt“. Den genauen Text legt der Plan in der Text-Tabelle fest, nach dem Muster des vorhandenen Entzug-Texts.
+- **Wiedererteilung:** Erteilt der Host die Erlaubnis erneut, lädt Connect die Soll-Einträge **automatisch wieder**. Es gelten dieselben Regeln wie beim Abgleich nach dem Wiederbeitritt: eindeutiger Name, Ton-Einstellung aus dem Soll und die Betriebsgröße von höchstens 5 (siehe N4b.3).
+- **Tests:**
+  - Die Attrappe bekommt Stellschrauben für Entzug und Wiedererteilung während laufender Abos.
+  - Kern-Fälle:
+    - Entzug baut ab und behält das Soll.
+    - Die Wiedererteilung lädt wieder.
+    - Ein Entzug während eines offenen Abos.
+    - Ein Entzug und dann das Verlassen des Meetings.
+- **Abnahme (Owner, eigenes Meeting):**
+  - Zwei Quellen laufen. Der Host entzieht die Erlaubnis: Im NDI-Monitor stoppen Bild und Ton **sofort**, und die Karte zeigt den Text.
+  - Der Host erteilt die Erlaubnis wieder: Beide Quellen kommen zurück, mit unveränderter Ton-Einstellung.
+
+### N4b.2 Logs: keine Teilnehmernamen, Löschfrist 14 Tage (L14)
+
+- **Keine Namen im Log:**
+  - Bridge und Connect schreiben **keine Anzeigenamen von Teilnehmern** mehr ins Log, sondern deren Kennung (Teilnehmer- bzw. Abo-Kennung).
+  - Betroffene Stellen laut 4a: die Zeilen zum Wiederbeitritt und Umhängen (`native/video.cpp`) sowie die geloggten Hinweise Q16 und Q17 (`kern.ts`, `klartext.ts`). Der Plan sucht alle Stellen.
+  - Karte, Abbild und NDI-Name zeigen die Namen weiterhin.
+- **Löschfrist:**
+  - Logdateien, die älter als **14 Tage** sind, werden gelöscht. Die Regel liegt im gemeinsamen Laufzeit-Paket (`packages/app-runtime`) und gilt damit für **alle Suite-Apps**, jeweils ab ihrem nächsten Release.
+  - Die Größenrotation (5 × 5 MB) bleibt.
+  - Wann gelöscht wird (beim Start, dazu periodisch) und wie mit gesperrten Dateien umgegangen wird, legt der Plan fest. Ein Fehler beim Löschen darf den Start einer App nie verhindern.
+- **Tests:**
+  - Die Löschfrist wird mit eingespeister Uhr und Temp-Ordner geprüft.
+  - Für die Kern-Fälle mit Wiederbeitritt und Hinweisen gilt: Kein Anzeigename steht in einer Logzeile.
+- **Abnahme (Owner):**
+  - Den Logordner nach Kenncode, Meeting-Nummer und Teilnehmernamen durchsuchen. Damit wird der offene Abnahmeschritt 25 aus 0.2.0 nachgeholt.
+  - Einmal messen: Legt das Zoom-SDK trotz abgeschalteter SDK-Logs eigene Dateien unter `%APPDATA%` an? Den Ordner vorher und nachher vergleichen.
+
+### N4b.3 Gesammelte 0.3.0-Randfälle
+
+Diese Randfälle hat der Owner am 06.10.2026 für 0.3.0 vorgemerkt („Randfälle in 0.3.0“). Die Quellen sind die Widerlegung der 0.2.0-Notes und die Gesamtprüfung von 4a. Beides steht im 4a-Ledger `.superpowers/sdd/2026-10-02-zoom-stage4a-connect/progress.md` (Worktree suite-sofort-fixes) mit Datei:Zeile.
+
+1. **Doppelname:** Sind beide Personen geladen, zeigt die Karte den tatsächlichen NDI-Namen. Die Bridge vergibt „… Anna (2)“, die Karte sagt heute „… Anna“.
+2. **Ton-Schalter nach „Erneut beitreten“ oder Rückkehr:** Er zeigt den Ton aus dem Soll, mit dem der Abgleich lädt. Heute zeigt er „an“.
+3. **Betriebsgröße:** Die Grenze von 5 gilt auch beim automatischen Abgleich, nicht nur in `laden()`. Gezählt werden auch Abos, die gesendet, aber noch nicht bestätigt sind.
+4. **Versatz:** Ist er nur für die Sitzung gültig, weil `connect-settings.json` nicht schreibbar ist, sagt die Karte das.
+5. **„Schließen“** leert die Meeting-Nummer im Feld der Karte.
+6. **Hinweise** werden bei einem neuen Beitritt mit eingegebenen Daten geleert.
+7. **Entladen bei offenem Abo:** Ein noch unbestätigtes Abo wird abgemeldet, statt still weiterzulaufen.
+8. **Aus der 4a-Gesamtprüfung:**
+   - S10-Sperre während des Bridge-Abbaus;
+   - Z12 beim Beenden ohne Meeting;
+   - Z2 mit n > 0 nach Meeting-Ende;
+   - Rohwerte von Bild und Ton in der Karte;
+   - Wächter-Namenslisten vereinigen statt ersetzen;
+   - ein Test für abriss → im_meeting;
+   - Fassung und Fristen in den Klartexten aus den Konstanten ableiten statt als Literal.
+
+### N4b.4 Nicht in 4b
+
+- **OAuth und OBF für Meetings fremder Konten.** Das wartet auf die Owner-Entscheidungen E1–E6 und das Zoom-Review. Die Bridge-Änderung `onBehalfToken` liegt auf dem Branch `spike/zoom-obf`.
+- **Release, Proxy-Deploy und Katalog** sind keine Plan-Aufgaben. Sie laufen wie bisher nach Owner-Freigabe.

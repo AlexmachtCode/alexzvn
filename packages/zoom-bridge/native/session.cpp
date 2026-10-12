@@ -526,6 +526,29 @@ void sessionClearRawRecording() {
   g_rawRecordingOn = false;
 }
 
+SDKError sessionStopRawRecording() {
+  // Das Merkzeichen faellt IMMER, und zwar ZUERST: auch wenn StopRawRecording()
+  // scheitert oder es keinen Regler mehr gibt, muss das naechste Abo nach der
+  // Wiedererteilung StartRawRecording() neu rufen. Ein stehengebliebenes
+  // Merkzeichen liesse es glauben, der Schalter liege noch (Stage 4b, L1).
+  const bool warAn = g_rawRecordingOn.exchange(false);
+  if (!warAn) {
+    // Die Zahl wird NICHT erfunden: ohne gelegten Schalter gibt es nichts zu
+    // stoppen, und ein "SDKError=0" saehe aus wie ein gemessener Erfolg.
+    emitLog(L"Entzug: StopRawRecording() nicht gerufen - der Rohdaten-Schalter lag nicht");
+    return SDKERR_SUCCESS;
+  }
+  IMeetingRecordingController* rec = recordingCtrl();
+  if (rec == nullptr) {
+    emitLog(L"Entzug: StopRawRecording() nicht moeglich - kein Aufnahme-Regler");
+    return SDKERR_SERVICE_FAILED;
+  }
+  const SDKError err = rec->StopRawRecording();
+  // IMMER mit Zahl, auch bei Erfolg: Messung M18 fragt genau diesen Wert ab.
+  emitLog(std::wstring(L"Entzug: StopRawRecording() meldet SDKError=") + std::to_wstring(static_cast<int>(err)));
+  return err;
+}
+
 SDKError sessionJoinVoip() {
   // EINMAL je Meeting, dieselbe Begruendung wie bei sessionStartRawRecording()
   // darueber: der zweite Aufruf waere kein Fehler, aber ein zweiter

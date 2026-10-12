@@ -97,6 +97,11 @@ export type ZoomMangel =
 /** 'entzogen': war 'ja', dann broadcast mit canRecordRaw:false (3.2-23). */
 export type ZoomErlaubnis = 'offen' | 'ja' | 'abgelehnt' | 'abgelaufen' | 'entzogen';
 
+/** Ergebnis eines zoom_*-Befehls als Kennung (Spec 8.6): 'ok' oder die Hinweis-ID in Kleinbuchstaben. */
+export type ZoomBefehlKennung = 'ok' | 'f1' | 'f2' | 'f3' | 'f4' | 'f5' | 'f6' | 'f7' | 'f8';
+/** `abgelehnt` ist true bei F1–F7. F8 ist eine Warnung, der Befehl wurde ausgeführt (Spec 11.2). */
+export interface ZoomBefehlErgebnis { kennung: ZoomBefehlKennung; abgelehnt: boolean }
+
 /** Ein laufendes Abo der Bridge. */
 export interface ZoomQuelle {
   /** Teilnehmer-ID zum Zeitpunkt des Abos. Gilt nur in dieser Sitzung. */
@@ -141,7 +146,28 @@ export interface ZoomSollEintrag {
   ton: boolean;
   /** Zuletzt gemeldeter NDI-Name, sonst die Vorschau. */
   ndiName: string;
-  stand: 'wartet' | 'doppelname' | 'verwaist';
+  /**
+   * 'grenze': würde abonniert, aber die Betriebsgröße ist erreicht (L7, N4b.3 Nr. 3); zählt als offen.
+   * 'erlaubnis': die Person ist eindeutig da, aber im Meeting fehlt die Aufnahme-Erlaubnis (Z6, Z7). Ruling 08.10.2026 (R2):
+   * auch, wenn an IHRER Zeile Q1 steht (die Bridge lehnte ihr Abo mangels Erlaubnis ab), obwohl Connect die Erlaubnis noch als
+   * „ja“ führt; wie 'keineAntwort' und 'gescheitert' ersetzt das nur den Rückfall 'wartet'.
+   * 'laedt': das Abo ist gesendet, die Bridge hat es noch nicht bestätigt (höchstens bis zur Frist Q8), oder im Meeting
+   * mit Erlaubnis ist ein Abgleich geplant, der diesen Eintrag abonnieren wird (noch kein Abo gesendet).
+   * Beide Zusätze aus der Gesamtprüfung 4b („Statuszeile lügt“); zählen als offen.
+   * 'wiederbeitritt': Connect selbst ist nicht im Meeting (jeder Zustand ≠ im_meeting: Z10, Z11, jedes fehler mit gemerkten
+   * Quellen, etwa R2, R7, „Verbindung verloren: …“ oder B3–B5, „Erneut beitreten“ und der Warteraum mitten im Meeting; in
+   * verlaesst, einrichtung und bereit ist die Soll-Liste leer, Ruling 08.10.2026). Teilnehmerliste und Abos gelten dann
+   * nicht; Vorrang vor allen anderen Ständen außer 'verwaist' (Owner 08.10.2026). 'verwaist' bleibt auch außerhalb des
+   * Meetings, solange die Bridge lebt (Z10, Warteraum mitten im Meeting und das folgende tritt_bei): die schwarze Quelle
+   * läuft weiter und muss sich per „Entladen“ abbauen lassen (Ruling 08.10.2026). Zählt als offen.
+   * 'keineAntwort' und 'gescheitert' (Owner 08.10.2026): im Meeting mit Erlaubnis, die Person ist eindeutig da, und an IHRER
+   * Teilnehmerzeile steht, dass ihr Laden gescheitert ist: 'keineAntwort' = das Abo blieb ohne Antwort der Bridge (Q8),
+   * 'gescheitert' = die Bridge hat das Abo mit Fehler abgelehnt (istLadeFehler in klartext.ts; nicht Q1 und nicht Q2, Ruling
+   * 08.10.2026: bei Q2 ist die Person weg, es bleibt 'wartet'). Sie ersetzen nur den
+   * Rückfall 'wartet'; alle anderen Stände (auch 'laedt' bei geplantem Abgleich) behalten Vorrang. Kein automatischer neuer
+   * Versuch. Zählen als offen.
+   */
+  stand: 'wartet' | 'erlaubnis' | 'laedt' | 'wiederbeitritt' | 'keineAntwort' | 'gescheitert' | 'doppelname' | 'verwaist' | 'grenze';
   /** Nur bei 'verwaist': das alte Abo, zum Entladen. */
   aboId: number | null;
   /**
@@ -170,6 +196,8 @@ export interface ZoomKurz {
   maengel: ZoomMangel[];
   /** Die Kopie ODER „Zoom-SDK laden“ läuft (Z1b; Spec SDK nachladen 4.4: dieselbe Einrichtungszeile). */
   kopieLaeuft: boolean;
+  /** Letzter zoom_*-Befehl der Fernsteuerung (Spec 11.2, 8.6); null vor dem ersten. Hängt nicht am Zustand (7.5). */
+  befehl: ZoomBefehlErgebnis | null;
 }
 
 export interface ZoomAbbild {
@@ -189,7 +217,8 @@ export interface ZoomAbbild {
     sdkSchluessel: { herkunft: ProxyKeySource };
   };
   anzeigename: string;
-  versatz: { gewuenschtMs: number; bestaetigtMs: number | null };
+  /** `nurSitzung`: Die Einstellungsdatei ließ sich nicht schreiben, der Wert gilt nur bis zum Beenden (N4b.3 Nr. 4, L14). */
+  versatz: { gewuenschtMs: number; bestaetigtMs: number | null; nurSitzung: boolean };
   /** Ohne eigene Zeile. Host und Co-Host zuerst, dann nach Name (de). */
   teilnehmer: ZoomParticipant[];
   soll: ZoomSollEintrag[];
@@ -202,6 +231,8 @@ export interface ZoomAbbild {
   erneutMoeglich: boolean;
   /** „Einrichtung prüfen“ läuft (Zustand bleibt 'bereit', 6.1). */
   pruefungLaeuft: boolean;
+  /** Eine gestoppte Bridge baut noch ab (Sperre S10, L13). */
+  abbauLaeuft: boolean;
 }
 
 export type ZoomErgebnis = { ok: true } | { ok: false; text: string };
@@ -271,6 +302,8 @@ export interface JmConnectApi {
   /** Der Kenncode geht nur hier in den Main und kommt nie zurück. */
   zoomBeitreten: (p: { nummer: string; kenncode: string; anzeigename: string }) => Promise<ZoomErgebnis>;
   zoomVerlassen: () => Promise<void>;
+  /** Wiederbeitritt abbrechen (nur Z11, Spec 6.8): Meldung R7, „Erneut beitreten“ behält Nummer, Kenncode und gemerkte Quellen. */
+  zoomAbbrechen: () => Promise<void>;
   zoomLaden: (p: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }) => Promise<ZoomErgebnis>;
   zoomEntladen: (p: { aboId: number }) => Promise<ZoomErgebnis>;
   zoomTon: (p: { id: number; an: boolean }) => Promise<ZoomErgebnis>;

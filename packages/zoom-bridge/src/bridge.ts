@@ -332,8 +332,15 @@ export class Bridge {
     const wire = parseWireEvent(line);
     if (wire === null) {
       // Eine kaputte Zeile ist Rauschen, kein Abbruch. Sie wird gemeldet, damit
-      // sie nicht unbemerkt bleibt, und dann uebersprungen.
-      (this.opts.onLog ?? ((l: string) => console.error(`[zoom-bridge] ${l}`)))(`unlesbare Zeile: ${line}`);
+      // sie nicht unbemerkt bleibt, und dann uebersprungen. Beginnt sie wie ein
+      // Ereignis ("{"), kann sie Teilnehmernamen tragen (roster, joined,
+      // renamed): dann nur Laenge und Ereignisart, nie der Inhalt (Stage 4b,
+      // N4b.2). Fremde Zeilen des SDK (der Normalfall) bleiben woertlich.
+      const kopf = line.trimStart();
+      const meldung = kopf.startsWith('{')
+        ? `unlesbare Zeile (${line.length} Zeichen, beginnt mit ${/^\{"ev":"[A-Za-z]+"/.exec(kopf)?.[0] ?? '{'})`
+        : `unlesbare Zeile: ${line}`;
+      (this.opts.onLog ?? ((l: string) => console.error(`[zoom-bridge] ${l}`)))(meldung);
       return;
     }
     this.dispatch(enrich(wire));

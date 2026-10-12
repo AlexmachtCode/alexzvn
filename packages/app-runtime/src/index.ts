@@ -13,6 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { buildCsp, type CspConfig } from './csp';
+import { berichtZeilen, planeLogAufraeumen, type AufraeumBericht } from './log-aufraeumen';
 import { MasterLinkClient, masterLinkPfad, verbundWert, type ClientZustand } from '@jm/master-link';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -188,6 +189,13 @@ function createLogger(opts: {
     warn: (m, ...r) => write('warn', m, r),
     error: (m, ...r) => write('error', m, r),
   };
+}
+
+/** Ergebnis des Log-Aufräumens ins Log (log-aufraeumen.ts): eine Info-Zeile, wenn etwas geschah, je Fehler eine Warnung. */
+function meldeAufraeumen(log: Logger, b: AufraeumBericht): void {
+  const z = berichtZeilen(b);
+  if (z.info) log.info(z.info);
+  for (const w of z.warn) log.warn(w);
 }
 
 function consoleFallback(): Logger {
@@ -549,7 +557,6 @@ export function initAppRuntime(opts: AppRuntimeOptions): AppRuntime {
   } catch {
     /* notfalls schreibt der Logger einfach nichts */
   }
-
   const log = createLogger({
     appId: opts.appId,
     logDir,
@@ -558,6 +565,11 @@ export function initAppRuntime(opts: AppRuntimeOptions): AppRuntime {
     toConsole: isDev,
   });
   defaultLogger = log;
+  // Löschfrist 14 Tage (Spec Zoom Stage 4, N4b.2): erst 30 s nach dem Start, dann alle 6 h, und nur im Prozess mit dem
+  // Single-Instance-Lock (Gesamtprüfung 4b). initAppRuntime läuft VOR requestSingleInstanceLock; eine zweite Instanz
+  // (Doppelklick, Deep-Link, .jmshow) kürzte sonst main.log und renderer.log der laufenden, während diese schreibt.
+  // Jeder Bericht geht ins Log; unref: Die Zeitgeber halten keine App am Leben.
+  planeLogAufraeumen({ ordner: logDir, melde: (b) => meldeAufraeumen(log, b), darf: () => app.hasSingleInstanceLock() });
 
   installCrashHandlers(log, logDir, opts.appId);
 

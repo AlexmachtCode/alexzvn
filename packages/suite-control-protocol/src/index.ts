@@ -13,6 +13,8 @@
 //
 //   Status (Tool → Client), bei jeder Änderung + auf Verbindung/STATE?:
 //     STATE ns=<rolle> <key>=<value> …       (beliebige key=value-Paare)
+//     In Text-Werten stehen Leerraum und '%' als %XX (kodiereStateWert),
+//     z. B. active_label=Anna%20Maria. Befehlszeilen werden nie kodiert.
 //
 // RÜCKWÄRTSKOMPATIBILITÄT zum ursprünglichen Switcher-Protokoll
 // (@jm/companion-protocol): Die alten Switcher-Verben werden weiterhin OHNE
@@ -89,12 +91,39 @@ export function formatSuiteCommand(c: SuiteCommand): string {
   return `${head}${tail}\n`;
 }
 
-function serializeValue(v: StateValue): string {
-  if (typeof v === 'boolean') return v ? '1' : '0';
-  return String(v);
+// ── STATE-Werte kodieren (Zoom Stage 4b, Spec 17.2 Nr. 3) ────────────────────
+//
+// Der Parser trennt eine STATE-Zeile an jedem Leerraum. Ein Name wie „Anna Maria
+// Beispiel“ käme sonst nur als „Anna“ an, ein Zeilenumbruch zerrisse die Zeile.
+// formatSuiteState kodiert darum in Text-Werten jeden Leerraum und '%' als %XX
+// (UTF-8-Bytes); parseSuiteState dekodiert. Umlaute, '=' und Emoji bleiben, wie
+// sie sind. Schlüssel werden nie kodiert. Ein alter Leser ohne Dekodierung zeigt
+// „Anna%20Maria“ statt eines abgeschnittenen „Anna“. Zeilen alter Sender liest der
+// neue Parser unverändert, solange sie keine gültige %XX-Folge enthalten.
+
+/** Jeder Leerraum (\s, Unicode) und '%' → %XX (UTF-8-Bytes); alles andere unverändert. */
+export function kodiereStateWert(v: string): string {
+  return v.replace(/[\s%]/gu, (zeichen) => encodeURIComponent(zeichen));
 }
 
-/** Generische Status-Zeile bauen: `STATE ns=<ns> k=v …\n`. */
+/** Folgen von %XX → decodeURIComponent; eine ungültige Folge bleibt wörtlich. */
+export function dekodiereStateWert(v: string): string {
+  if (!v.includes('%')) return v;
+  return v.replace(/(?:%[0-9A-Fa-f]{2})+/g, (folge) => {
+    try {
+      return decodeURIComponent(folge);
+    } catch {
+      return folge; // z. B. eine abgeschnittene UTF-8-Folge aus einer alten Zeile
+    }
+  });
+}
+
+function serializeValue(v: StateValue): string {
+  if (typeof v === 'boolean') return v ? '1' : '0';
+  return typeof v === 'string' ? kodiereStateWert(v) : String(v);
+}
+
+/** Generische Status-Zeile bauen: `STATE ns=<ns> k=v …\n`. Text-Werte kodiert (kodiereStateWert). */
 export function formatSuiteState(s: SuiteState): string {
   const parts = ['STATE'];
   if (s.ns) parts.push(`ns=${s.ns}`);
@@ -105,7 +134,7 @@ export function formatSuiteState(s: SuiteState): string {
 /**
  * Generische Status-Zeile parsen. `ns` wird aus dem `ns=`-Token gelesen (fehlt
  * es — Legacy-Switcher-Zeile —, bleibt ns ''). Alle übrigen key=value landen in
- * `kv` (Werte als Strings).
+ * `kv` (Werte als Strings, dekodiert mit dekodiereStateWert; Schlüssel bleiben roh).
  */
 export function parseSuiteState(line: string): SuiteState | null {
   const t = line.trim();
@@ -116,7 +145,7 @@ export function parseSuiteState(line: string): SuiteState | null {
     const eq = tok.indexOf('=');
     if (eq <= 0) continue;
     const key = tok.slice(0, eq);
-    const val = tok.slice(eq + 1);
+    const val = dekodiereStateWert(tok.slice(eq + 1));
     if (key.toLowerCase() === 'ns') ns = val;
     else kv[key] = val;
   }

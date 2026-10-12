@@ -10,8 +10,8 @@
 // und gehen nur in den join-Befehl. Jede stderr-Zeile der Bridge läuft durch `maskiere`.
 // Client-ID/Secret gehen nur in buildJwt, nie an den Kindprozess (envRemove).
 //
-// 4a (Spec 18): KEIN automatischer Wiederbeitritt. Jeder Auslöser aus 6.4, der einen
-// Wiederbeitritt starten würde, führt sofort zu `fehler` mit „Erneut beitreten“.
+// WIEDERBEITRITT (Spec 6.4): Ein vorübergehender Abriss im Meeting startet bis zu fünf Versuche nach
+// WIEDERBEITRITT_PLAN_S, jeder mit einer neuen Bridge; der Zustand bleibt die ganze Folge über `abriss`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { join } from 'node:path';
@@ -31,6 +31,8 @@ import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import type {
   ProxyKeySource,
   ZoomAbbild,
+  ZoomBefehlErgebnis,
+  ZoomBefehlKennung,
   ZoomErgebnis,
   ZoomErlaubnis,
   ZoomKurz,
@@ -45,6 +47,7 @@ import {
   TEXT_A4_SCHREIBFEHLER,
   TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
   TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
+  WIEDERBEITRITT_VERSUCHE,
   type ZoomStateKv,
 } from '../../shared/zoom-text';
 import {
@@ -55,13 +58,21 @@ import {
   endeMeldung,
   exitCodeAus,
   failMeldung,
+  failText,
   fehlerDetail,
+  fernLogText,
+  FT,
+  istEndgueltig,
+  istErlaubnisFehler,
+  istLadeFehler,
   mangelText,
   maskiere,
+  maskiereNamen,
   quellenFehler,
   spawnMeldung,
   tonZustand,
   type Meldungstext,
+  type VersuchsAusgang,
 } from './klartext';
 import {
   BRIDGE_EXE,
@@ -79,26 +90,18 @@ import {
 } from './laufzeit';
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
-import { sollAbbild, sollHandlungen, type SollLage, type SollListe } from './soll';
+import { deuteZoomBefehl, ladeZiel } from './fernsteuerung';
+import { istAusserhalbMeeting, sollAbbild, sollHandlungen, type SollLage, type SollListe, type SollZeilenStand } from './soll';
 import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
+import { WIEDERBEITRITT_PLAN_S } from './fristen';
 
-/** Spec 5.2. Für Tests einspeisbar (`fristen`); `abgleichMs` bleibt in den Fällen 14/14b bei 300. */
-export const ZOOM_FRISTEN = {
-  anmeldeMs: 30_000,
-  joinTimeoutMs: 30_000,
-  killTimeoutMs: 12_000,
-  abgleichMs: 300,
-  aboAntwortMs: 10_000,
-  abbildTaktMs: 100,
-  unsubscribeWarteMs: 2_000,
-} as const;
-export type ZoomFristen = { [K in keyof typeof ZOOM_FRISTEN]: number };
-export const BEENDEN_FRIST_MS = 15_000;
-export const JWT_GUELTIG_S = 43_200;
-export const BETRIEBSGROESSE = 5;
-export const AUFLOESUNG = '720p' as const;
-export const HINWEISE_MAX = 5;
-export const ANZEIGENAME_VORGABE = 'JM Connect';
+// Feste Werte (Spec 5.2) stehen ab 4b in fristen.ts (rein). kern.ts reicht sie unverändert weiter, damit zoom.ts,
+// index.ts, settings.ts und die Tests weiter von hier importieren.
+import { AUFLOESUNG, BETRIEBSGROESSE, HINWEISE_MAX, JWT_GUELTIG_S, ZOOM_FRISTEN, type ZoomFristen } from './fristen';
+export {
+  ANZEIGENAME_VORGABE, AUFLOESUNG, BEENDEN_FRIST_MS, BETRIEBSGROESSE, HINWEISE_MAX, JWT_GUELTIG_S, WIEDERBEITRITT_PLAN_S, ZOOM_FRISTEN,
+} from './fristen';
+export type { ZoomFristen } from './fristen';
 
 export type BridgeArt = Pick<Bridge, 'start' | 'send' | 'stop' | 'session'>;
 export type BridgeFabrik = (opts: BridgeOptions, startNr: number) => BridgeArt;
@@ -121,7 +124,10 @@ export interface ZoomKernAbhaengigkeiten {
     anzeigename(): string;
     setzeAnzeigename(n: string): void;
     versatzMs(): number;
-    setzeVersatzMs(ms: number): void;
+    /** true = in der Einstellungsdatei gespeichert; false = gilt nur für diese Sitzung (Datei nicht schreibbar, L14). */
+    setzeVersatzMs(ms: number): boolean;
+    /** Der geltende Versatz steht nur im Arbeitsspeicher (N4b.3 Nr. 4). */
+    versatzNurSitzung(): boolean;
     setzeLaufzeit(v: { dir: string; fassung: string; eingerichtetAm: string }): void;
   };
   gastLabels(): string[];
@@ -142,6 +148,8 @@ export interface ZoomKernAbhaengigkeiten {
   /** Vorgabe: process.env. */
   env?: Record<string, string | undefined>;
   fristen?: Partial<ZoomFristen>;
+  /** Wartezeit vor Versuch 1–5 in ms (Spec 6.4, 12.2). Vorgabe WIEDERBEITRITT_PLAN_S × 1000; Länge = WIEDERBEITRITT_VERSUCHE. */
+  wiederbeitrittPlanMs?: readonly number[];
 }
 export interface ZoomKern {
   abbild(): ZoomAbbild;
@@ -164,6 +172,11 @@ export interface ZoomKern {
   beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
   erneut(): Promise<ZoomErgebnis>;
   verlassen(): Promise<void>;
+  /**
+   * Spec 6.8 „Abbrechen“, nur Z11 (Folge wartet oder läuft): Zeitgeber löschen, Versuchs-Bridge stop(), Zustand
+   * fehler mit R7, erneutMoeglich true; Soll-Liste, Nummer und Kenncode bleiben. Sonst wirkungslos.
+   */
+  abbrechen(): void;
   laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis>;
   entladen(e: { aboId: number }): Promise<ZoomErgebnis>;
   ton(e: { id: number; an: boolean }): ZoomErgebnis;
@@ -171,6 +184,8 @@ export interface ZoomKern {
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
+  /** Spec 11.2: Fernsteuer-Verb (verb klein, args wie vom Parser). Setzt kurz().befehl; ruft nie den Renderer. */
+  steuerbefehl(cmd: { verb: string; args: string[] }): void;
   beenden(fristMs: number): Promise<void>;
 }
 
@@ -181,8 +196,11 @@ type VideoEreignis = { ev: 'video'; id: number; state: VideoState; source: strin
 type AudioEreignis = { ev: 'audio'; id: number; state: AudioState; reason: AudioReason };
 /** Eine Quelle samt der Generation der Bridge, die sie meldet (6.9). */
 interface QuelleIntern extends ZoomQuelle { gen: number }
-type StartErgebnis = { ok: true; bridge: BridgeArt; gen: number } | { ok: false; meldung: Meldungstext; mangel: ZoomMangel | null };
-type StartAusgang = { ok: true } | { ok: false; meldung: Meldungstext };
+/** `ausgang` ordnet einen Fehler der Startfolge für den Wiederbeitritt ein (6.4); null bei Mangel oder Abbruch. */
+type StartErgebnis =
+  | { ok: true; bridge: BridgeArt; gen: number }
+  | { ok: false; meldung: Meldungstext; mangel: ZoomMangel | null; ausgang: VersuchsAusgang | null };
+type StartAusgang = { ok: true } | { ok: false; meldung: Meldungstext; ausgang: VersuchsAusgang | null };
 interface StartBeobachter { gen: number; erledigt: boolean; ende(e: StartAusgang): void }
 
 const GEHEIM = ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS', 'JMPS_ZOOM_SDK_KEY', 'JMPS_PROXY_KEY'];
@@ -220,6 +238,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   const ld: SdkLadenDienste = { ...SDK_LADEN_DIENSTE, ...d.sdkLaden };
   const fabrik: BridgeFabrik = d.bridgeFabrik ?? ((o) => new Bridge(o));
   const env = d.env ?? process.env;
+  const plan: readonly number[] = d.wiederbeitrittPlanMs ?? WIEDERBEITRITT_PLAN_S.map((s) => s * 1000);
 
   // ── Zustand ──────────────────────────────────────────────────────────────
   let zustand: ZoomZustand = 'bereit';
@@ -247,11 +266,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let pruefungLaeuft = false;
   let meldung: ZoomAbbild['meldung'] = null;
   const hinweise: string[] = [];
+  /** Ergebnis des letzten zoom_*-Befehls (11.2, zoom_cmd); null vor dem ersten. */
+  let befehl: ZoomBefehlErgebnis | null = null;
   /** Nur im Arbeitsspeicher (Spec 5.7). */
   let nummer: { eingabe: string; normiert: string } | null = null;
   let kenncode: string | null = null;
-  /** Merker „war im Meeting“ (Ergänzung 0.10); 4b entscheidet daran über den Wiederbeitritt. */
-  let warImMeeting = false;
+  /**
+   * Wiederbeitritts-Folge (6.4), nur in `abriss`: gesetzt heißt Z11. `naechsterUm` nur in der Wartezeit vor einem
+   * Versuch, `letzte` = Meldung des letzten gescheiterten Versuchs (R2; bis dahin der Anlass des Abrisses, beide stehen zusätzlich im Log), `beginn` = Start des laufenden Versuchs.
+   * Den früheren Merker „war im Meeting“ (Ergänzung 0.10) tragen die Zustände: Auslöser gelten nur in im_meeting/abriss (L6).
+   */
+  let folge: { versuch: number; naechsterUm: number | null; zeitgeber: ReturnType<typeof setTimeout> | null; letzte: Meldungstext | null; beginn: number } | null = null;
+  /** R5 steht aus: gesetzt beim Erfolg eines Versuchs, verbraucht vom ersten Abgleich mit Erlaubnis 'ja' (L3). */
+  let r5Offen = false;
   const soll: SollListe = new Map();
   const quellen = new Map<number, QuelleIntern>();
   let beendenVersprechen: Promise<void> | null = null;
@@ -272,10 +299,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   // ── Quellen, Teilnehmerzeilen (Spec 6.3) ─────────────────────────────────
   /** Ton-Schalter je Teilnehmer-ID (nicht je Name), gilt beim Laden. */
   const tonVorwahl = new Map<number, boolean>();
-  /** Zeilenfehler ohne laufende Quelle (Q2, Q8 …), je Teilnehmer-ID. */
-  const zeilenFehler = new Map<number, string>();
+  /**
+   * Zeilenfehler ohne laufende Quelle (Q2, Q8 …), je Teilnehmer-ID. `laden`: was er für die gemerkte Quelle dieser Person heißt
+   * (Owner 08.10.2026): 'keineAntwort' bei Q8, 'gescheitert', wenn die Bridge ihr Abo abgelehnt hat (istLadeFehler);
+   * Ruling 08.10.2026: 'erlaubnis' bei Q1 (istErlaubnisFehler, R2); sonst null, auch bei Q2 (R1: die Person ist weg).
+   */
+  const zeilenFehler = new Map<number, { text: string; laden: SollZeilenStand | null }>();
   const tonAngefragt = new Map<number, boolean>();
   const aboFristen = new Map<number, ReturnType<typeof setTimeout>>();
+  /** L11: Anzeigenamen fremder Teilnehmer, die der Kern in dieser Programmsitzung gesehen hat; nur im Arbeitsspeicher. */
+  const gesehenNamen = new Set<string>();
 
   // ── Soll-Abgleich (Spec 6.3) ─────────────────────────────────────────────
   let abgleichTimer: ReturnType<typeof setTimeout> | null = null;
@@ -299,10 +332,30 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return m;
   }
 
+  /** L7: bestätigte Quellen der aktiven Generation ∪ offene Abos (aboFristen), ohne Doppelzählung. */
+  function belegteAbos(): Set<number> {
+    const belegt = new Set(aktiveQuellen().keys());
+    for (const id of aboFristen.keys()) belegt.add(id);
+    return belegt;
+  }
+
+  /** Freie Plätze bis zur Betriebsgröße (N4b.3 Nr. 3): so viele Soll-Einträge darf der Abgleich abonnieren. */
+  function freiePlaetze(): number {
+    return Math.max(0, BETRIEBSGROESSE - belegteAbos().size);
+  }
+
   function teilnehmerAbbild(): ZoomParticipant[] {
     const s = aktiveSitzung();
     if (!s) return [];
-    return baueTeilnehmer({ liste: [...s.participants.values()], quellen: aktiveQuellen(), tonVorwahl, zeilenFehler, gastLabels: d.gastLabels() });
+    return baueTeilnehmer({
+      liste: [...s.participants.values()],
+      quellen: aktiveQuellen(),
+      tonVorwahl,
+      zeilenFehler: new Map([...zeilenFehler].map(([id, z]) => [id, z.text])),
+      gastLabels: d.gastLabels(),
+      // N4b.3 Nr. 2: ohne eigene Vorwahl zeigt der Schalter den Ton, mit dem der Abgleich lädt.
+      sollTon: (name) => soll.get(normName(name))?.ton,
+    });
   }
 
   function sollLage(): SollLage {
@@ -311,14 +364,52 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const ids = new Set(alle.map((p) => p.id));
     const abos = new Map<number, { verwaist: boolean }>();
     for (const q of aktiveQuellen().values()) abos.set(q.aboId, { verwaist: istVerwaist(q.aboId, ids, { state: q.bild, reason: q.bildGrund }) });
+    // Review Focus 1: Ein gesendetes, noch unbestätigtes Abo gilt als verbunden; sonst abonnierte der Abgleich es ein zweites Mal.
+    // Verwaist ist es nur in einer lebenden Sitzung (Ruling 08.10.2026): Baut die Bridge ab (Z11), gibt es keine schwarze Quelle
+    // zum Entladen; der Eintrag wartet dann über sollOffen auf den Wiederbeitritt, nicht „Person weg, Quelle schwarz“.
+    for (const id of aboFristen.keys()) if (!abos.has(id)) abos.set(id, { verwaist: s !== null && !ids.has(id) });
     return {
       teilnehmer: alle.filter((p) => !p.self).map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom })),
       abos,
+      erlaubnisFehlt: erlaubnisFehlt(),
+      // Das Fenster bis zum Abgleich (300 ms): Wen er abonnieren wird, der wird gerade geladen (Gesamtprüfung 4b).
+      abgleichGeplant: abgleichTimer !== null && zustand === 'im_meeting' && erlaubnis === 'ja',
+      // Owner 08.10.2026: Ohne Meeting (Z10, Z11, fehler, „Erneut beitreten“) wartet jeder offene Eintrag auf den Wiederbeitritt,
+      // außer einem verwaisten: dessen schwarze Quelle lebt in Z10 weiter und bleibt entladbar (Ruling 08.10.2026).
+      ausserhalbMeeting: istAusserhalbMeeting(zustand),
+      // Owner 08.10.2026: Q8 oder ein Ladefehler an der Zeile einer eindeutig anwesenden Person ersetzt dort den Rückfall 'wartet';
+      // Q1 ebenso, mit 'erlaubnis' (Ruling 08.10.2026, R2).
+      zeilenStand: new Map([...zeilenFehler].flatMap(([id, z]) => (z.laden === null ? [] : [[id, z.laden] as const]))),
     };
   }
 
+  /** Im Meeting ohne Aufnahme-Erlaubnis (Z6, Z7): Der Abgleich handelt nicht, gemerkte Quellen warten auf die Erlaubnis. */
+  function erlaubnisFehlt(): boolean {
+    return zustand === 'im_meeting' && erlaubnis !== 'ja';
+  }
+
+  /**
+   * Offene Soll-Einträge fürs Abbild, für sollOffen und zoom_alarm (Spec 4, 7.5). Ein gesendetes, noch unbestätigtes Abo
+   * gilt im Abgleich als verbunden (sollLage), ist aber noch keine laufende Quelle: Der Eintrag bleibt offen ('laedt', ohne
+   * Erlaubnis 'erlaubnis', außerhalb des Meetings 'wiederbeitritt'), bis die Bridge subscribed meldet oder die Frist Q8
+   * abläuft. Reihenfolge wie die Soll-Liste.
+   */
   function sollOffen(): ZoomSollEintrag[] {
-    return sollAbbild(soll, sollLage());
+    const lage = sollLage();
+    const offen = new Map(sollAbbild(soll, lage, freiePlaetze()).map((e) => [normName(e.name), e]));
+    const laeuft = aktiveQuellen();
+    const aus: ZoomSollEintrag[] = [];
+    for (const [schluessel, s] of soll) {
+      const e = offen.get(schluessel);
+      if (e) aus.push(e);
+      else if (s.aboId !== null && aboFristen.has(s.aboId) && !laeuft.has(s.aboId)) {
+        // Gesamtprüfung 4b („Statuszeile lügt“): Die Person ist da, Connect wartet auf die Bridge, nicht auf sie. Außerhalb des
+        // Meetings (Z10 mit offenem Abo, Z11 während des Abbaus) aber auf den Wiederbeitritt (Owner 08.10.2026, wie in sollAbbild).
+        const stand = lage.ausserhalbMeeting === true ? 'wiederbeitritt' : erlaubnisFehlt() ? 'erlaubnis' : 'laedt';
+        aus.push({ name: s.name, ton: s.ton, ndiName: s.ndiName, stand, aboId: null, doppelname: false });
+      }
+    }
+    return aus;
   }
 
   function kurz(): ZoomKurz {
@@ -330,10 +421,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       quellen: n,
       ohneBild: k,
       sollOffen: sollOffen().length,
-      versuch: null,
+      versuch: zustand === 'abriss' ? (folge?.versuch ?? null) : null,
       maengel: [...maengel],
       // Spec SDK nachladen 4.4: Kopfzeile und Tray zeigen beim Laden dieselbe Einrichtungszeile wie bei der Kopie (Z1b).
       kopieLaeuft: kopie !== null || ladung !== null,
+      befehl: befehl ? { ...befehl } : null,
     };
   }
 
@@ -354,14 +446,17 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         sdkSchluessel: { herkunft: sdkSchluesselHerkunft },
       },
       anzeigename: d.einstellungen.anzeigename(),
-      versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null },
+      // nurSitzung liest ab Aufgabe 11 (4b) einstellungen.versatzNurSitzung().
+      versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null, nurSitzung: d.einstellungen.versatzNurSitzung() },
       teilnehmer: teilnehmerAbbild(),
       soll: sollOffen(),
-      abriss: zustand === 'abriss' ? { versuch: null, versuche: 5, naechsterUm: null } : null,
+      abriss: zustand === 'abriss' ? { versuch: folge?.versuch ?? null, versuche: WIEDERBEITRITT_VERSUCHE, naechsterUm: folge?.naechsterUm ?? null } : null,
       meldung: meldung ? { ...meldung } : null,
       hinweise: [...hinweise],
       erneutMoeglich: nummer !== null,
       pruefungLaeuft,
+      // L13: Eine gestoppte Bridge baut noch ab; die Karte sperrt die Einrichtung (S10).
+      abbauLaeuft: stopps.size > 0,
     };
   }
 
@@ -401,10 +496,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     d.log(`[zoom] Meldung (${art}): ${m.text}${m.detail ? ` [${m.detail}]` : ''}`);
   }
 
-  function hinweis(text: string): void {
+  /** Das Abbild bekommt `text`, das Log `logText` (N4b.2: dort nie ein Teilnehmername). */
+  function hinweis(text: string, logText = text): void {
     hinweise.push(text);
     while (hinweise.length > HINWEISE_MAX) hinweise.shift();
-    d.log(`[zoom] Hinweis: ${text}`);
+    d.log(`[zoom] Hinweis: ${logText}`);
   }
 
   // ── Einrichtung (Spec 5.3, 6.1) ──────────────────────────────────────────
@@ -436,12 +532,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     soll.clear();
     nummer = null;
     kenncode = null;
-    warImMeeting = false;
   }
 
   function einrichtungSperre(): ZoomErgebnis {
     // Spec SDK nachladen 4.4: zusätzlich nur ohne laufendes Laden (ladeLauf umfasst ladung !== null und die Kopie danach).
-    const frei = ladeLauf === null
+    // N4b.3 Nr. 8, L13: auch solange eine gestoppte Bridge noch abbaut (stopps), bleibt die Einrichtung gesperrt.
+    const frei = ladeLauf === null && stopps.size === 0
       && ((zustand === 'einrichtung' && kopie === null) || (zustand === 'bereit' && !pruefungLaeuft) || zustand === 'fehler');
     return frei ? { ok: true } : { ok: false, text: KT.S10 };
   }
@@ -726,20 +822,21 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   function versatz(e: { ms: number }): ZoomErgebnis {
     if (!Number.isInteger(e.ms) || e.ms < 0 || e.ms > 1000) return { ok: false, text: KT.Q13 };
-    d.einstellungen.setzeVersatzMs(e.ms);
+    const gespeichert = d.einstellungen.setzeVersatzMs(e.ms);
     sende({ cmd: 'videoDelay', ms: e.ms });
     abbildGeaendert();
-    return { ok: true };
+    // L14: nur für diese Sitzung gemerkt → ehrliche Antwort (Muster „Entfernen“); der Versatz gilt trotzdem.
+    return gespeichert ? { ok: true } : { ok: false, text: TEXT_A4_SCHREIBFEHLER };
   }
 
   /** Spec 6.8 „Schließen“: nur in Z2 und Z13. */
   function schliessen(): void {
     if (zustand !== 'bereit' && zustand !== 'fehler') return;
+    folgeBeenden();
     meldung = null;
     soll.clear();
     nummer = null;
     kenncode = null;
-    warImMeeting = false;
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
   }
 
@@ -760,7 +857,20 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function beiLog(zeile: string): void {
-    d.log(`[zoom-bridge] ${maskiere(zeile, geheimnisse())}`);
+    // N4b.2, L11: erst die Namen der Teilnehmer (‹Name›), dann Nummer, Kenncode und JWT (•••).
+    d.log(`[zoom-bridge] ${maskiere(maskiereNamen(zeile, [...gesehenNamen]), geheimnisse())}`);
+  }
+
+  /** L11: Namen aus roster, joined und renamed merken (jede Generation), die eigene Zeile nicht. */
+  function namenMerken(ev: BridgeEvent): void {
+    const e = ev as unknown as { list?: Array<{ name: string; self: boolean }>; p?: { name: string; self: boolean }; name?: unknown };
+    if (ev.ev === 'roster') {
+      for (const t of e.list ?? []) if (!t.self) gesehenNamen.add(t.name);
+    } else if (ev.ev === 'joined') {
+      if (e.p && !e.p.self) gesehenNamen.add(e.p.name);
+    } else if (ev.ev === 'renamed') {
+      if (typeof e.name === 'string') gesehenNamen.add(e.name);
+    }
   }
 
   /** Sendet an die aktive Bridge (nicht im Abbau). Nie den Inhalt loggen: join trägt Nummer und Kenncode. */
@@ -782,7 +892,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const laufend = stopps.get(gen);
     if (laufend) return laufend;
     imAbbau.add(gen);
-    if (startBeob !== null && startBeob.gen === gen) startBeob.ende({ ok: false, meldung: ABGEBROCHEN });
+    if (startBeob !== null && startBeob.gen === gen) startBeob.ende({ ok: false, meldung: ABGEBROCHEN, ausgang: null });
     // Ohne Prozess (Start gescheitert) gibt es nichts zu beenden: keine Beenden-Zeilen, die einen Prozess erfinden.
     const lief = !ohneProzess.has(gen);
     if (lief) d.log(`[zoom] Zoom-Bridge ${gen} wird beendet`);
@@ -813,41 +923,47 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (beob.erledigt) return;
     if (ev.ev === 'ready') {
       const v = String((ev as { sdkVersion?: unknown }).sdkVersion);
-      if (v !== SDK_FASSUNG_BRIDGE) beob.ende({ ok: false, meldung: { text: KT.B7(v), detail: null } });
+      if (v !== SDK_FASSUNG_BRIDGE) beob.ende({ ok: false, meldung: { text: KT.B7(v), detail: null }, ausgang: { art: 'sdkFassung' } });
       return;
     }
     if (ev.ev === 'auth') {
       const code = (ev as { code: number }).code;
-      beob.ende(code === 0 ? { ok: true } : { ok: false, meldung: authMeldung(code) });
+      beob.ende(code === 0 ? { ok: true } : { ok: false, meldung: authMeldung(code), ausgang: { art: 'auth', code } });
       return;
     }
     if (ev.ev !== 'error') return;
     const e = ev as unknown as FehlerEreignis;
     const name = e.name ?? String(e.code);
-    if (e.where === 'ndi') beob.ende({ ok: false, meldung: { text: KT.Q7, detail: fehlerDetail(e) } });
-    else if (e.where === 'auth') beob.ende({ ok: false, meldung: { text: KT.B18(name), detail: fehlerDetail(e) } });
-    else if (e.where === 'init') beob.ende({ ok: false, meldung: { text: e.code === 14 ? KT.B8_14 : KT.B8(name), detail: fehlerDetail(e) } });
-    else if (e.where === 'exit') {
-      beob.ende({ ok: false, meldung: dllMeldung(exitCodeAus(e.detail)) ?? { text: KT.B6(e.detail ?? fehlerDetail(e)), detail: fehlerDetail(e) } });
+    if (e.where === 'ndi') beob.ende({ ok: false, meldung: { text: KT.Q7, detail: fehlerDetail(e) }, ausgang: { art: 'ndi' } });
+    else if (e.where === 'auth') beob.ende({ ok: false, meldung: { text: KT.B18(name), detail: fehlerDetail(e) }, ausgang: { art: 'authSofort' } });
+    else if (e.where === 'init') {
+      beob.ende({ ok: false, meldung: { text: e.code === 14 ? KT.B8_14 : KT.B8(name), detail: fehlerDetail(e) }, ausgang: { art: 'init' } });
+    } else if (e.where === 'exit') {
+      const exitCode = exitCodeAus(e.detail);
+      beob.ende({
+        ok: false,
+        meldung: dllMeldung(exitCode) ?? { text: KT.B6(e.detail ?? fehlerDetail(e)), detail: fehlerDetail(e) },
+        ausgang: { art: 'exited', exitCode },
+      });
     }
   }
 
   /** Spec 6.2 Startfolge S-a bis S-f. Setzt keinen Zustand; jeder Fehler stoppt die Bridge. */
   async function starteBridge(): Promise<StartErgebnis> {
     const lauf = laufNr;
-    const abgebrochen: StartErgebnis = { ok: false, meldung: ABGEBROCHEN, mangel: null };
+    const abgebrochen: StartErgebnis = { ok: false, meldung: ABGEBROCHEN, mangel: null, ausgang: null };
     if (stopps.size > 0) await Promise.all([...stopps.values()]);
     if (lauf !== laufNr || beendenVersprechen !== null) return abgebrochen;
     // S-a, S-b
     const lzErg = lz.pruefe(d.pfade);
     bestimmeMaengel(lzErg);
     if (!lzErg.ok) {
-      return { ok: false, meldung: { text: mangelText(lzErg.mangel, mangelDatei()), detail: null }, mangel: lzErg.mangel };
+      return { ok: false, meldung: { text: mangelText(lzErg.mangel, mangelDatei()), detail: null }, mangel: lzErg.mangel, ausgang: null };
     }
     const daten = zugang.daten;
     if (!daten) {
       const m: ZoomMangel = zugang.unlesbar ? 'zugang_unlesbar' : 'zugang_fehlt';
-      return { ok: false, meldung: { text: mangelText(m, null), detail: null }, mangel: m };
+      return { ok: false, meldung: { text: mangelText(m, null), detail: null }, mangel: m, ausgang: null };
     }
     // S-c
     const gen = aktiveGen + 1;
@@ -855,6 +971,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     tonVorwahl.clear();
     zeilenFehler.clear();
     tonAngefragt.clear();
+    // Offene Abos der alten Bridge belegen keinen Platz mehr (L7); ihre Q8-Frist zählt ohnehin nur in ihrer Generation.
+    for (const t of aboFristen.values()) clearTimeout(t);
+    aboFristen.clear();
     const ordner = lzErg.ordner;
     const exePfad = join(ordner, BRIDGE_EXE);
     const bridge = fabrik(
@@ -907,7 +1026,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       ohneProzess.add(gen);
       const grund = e instanceof Error ? e.message : String(e);
       d.log(`[zoom] Start der Zoom-Bridge gescheitert: ${grund.includes(exePfad) ? grund : `${grund} (EXE: ${exePfad})`}`);
-      beob.ende({ ok: false, meldung: spawnMeldung((e as { code?: string }).code) });
+      beob.ende({ ok: false, meldung: spawnMeldung((e as { code?: string }).code), ausgang: { art: 'spawn' } });
     }
     if (!beob.erledigt) {
       // S-d
@@ -922,12 +1041,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         // Bridge schon tot: ihr exit-Ereignis kam vorher und hat die Startfolge entschieden.
       }
       // S-f
-      if (!beob.erledigt) anmeldeFrist = zeitgeber(f.anmeldeMs, () => beob.ende({ ok: false, meldung: { text: KT.B16, detail: null } }));
+      if (!beob.erledigt) {
+        anmeldeFrist = zeitgeber(f.anmeldeMs, () => beob.ende({ ok: false, meldung: { text: KT.B16, detail: null }, ausgang: { art: 'keineAuthAntwort' } }));
+      }
     }
     const a = await ausgang;
     if (!a.ok) {
       await stopps.get(gen);
-      return lauf !== laufNr ? abgebrochen : { ok: false, meldung: a.meldung, mangel: null };
+      return lauf !== laufNr ? abgebrochen : { ok: false, meldung: a.meldung, mangel: null, ausgang: a.ausgang };
     }
     if (lauf !== laufNr) return abgebrochen;
     return { ok: true, bridge, gen };
@@ -953,6 +1074,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function beiEreignis(gen: number, ev: BridgeEvent): void {
+    namenMerken(ev);
     const aktiv = gen === aktiveGen && !imAbbau.has(gen);
     if (ev.ev === 'error') {
       const e = ev as unknown as FehlerEreignis;
@@ -1032,7 +1154,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const lauf = laufNr;
     const name = d.einstellungen.anzeigename();
     meldung = null;
-    warImMeeting = false;
+    r5Offen = false;
     d.log(`[zoom] Beitritt gestartet (Anzeigename „${name}“)`);
     setzeZustand('startet');
     const r = await starteBridge();
@@ -1063,6 +1185,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     nummer = { eingabe: e.nummer, normiert };
     kenncode = e.kenncode;
     soll.clear();
+    // N4b.3 Nr. 6, L15: Hinweise gehören zum letzten Meeting; „Erneut beitreten“ behält sie.
+    hinweise.length = 0;
     return starteBeitritt();
   }
 
@@ -1073,7 +1197,6 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   function imMeetingAngekommen(): void {
     erlaubnis = 'offen';
-    warImMeeting = true;
     setzeZustand('im_meeting');
     abgleichPlanen();
   }
@@ -1086,7 +1209,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** Spec 6.5: Meeting-Ende durch den Host (nur aktive Bridge, nicht im Abbau). */
   function meetingEnde(code: number): void {
     const m = endeMeldung(code, d.einstellungen.anzeigename());
+    // L4: auch während eines Versuchs ist ended ein Meeting-Ende, die Folge endet.
+    folgeBeenden();
     void stoppeBridge();
+    // L12: Mit ended sind die Quellen der aktiven Generation weg (n = 0 in Z2); die Bridge baut sie ohnehin selbst ab.
+    for (const [id, q] of quellen) if (q.gen === aktiveGen) quellen.delete(id);
     soll.clear();
     melde('warnung', m);
     setzeZustand('bereit');
@@ -1107,17 +1234,37 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       else if (s === 'failed') scheitert(failMeldung(VORSATZ.beitritt, e.code, name));
       return;
     }
+    if (zustand === 'abriss' && folge !== null) {
+      // 6.4 Schritt 2.4: Ausgang des laufenden Versuchs (Z11); connecting und reconnecting ändern nichts.
+      if (s === 'inMeeting') versuchErfolgreich();
+      else if (s === 'waitingRoom' || s === 'waitingForHost') {
+        // Angekommen: keine weiteren Versuche, ab hier gilt 6.2 Schritt 5 (Einlass, reconnectTimeout → CE).
+        d.log(`[zoom] Wiederbeitritt: Versuch ${folge.versuch} erfolgreich nach ${Date.now() - folge.beginn} ms`);
+        folgeBeenden();
+        zumWarteraum(s);
+      } else if (s === 'failed') {
+        versuchGescheitert({ art: 'failed', code: e.code }, { text: failText(e.code, name), detail: failMeldung(VORSATZ.wiederbeitritt, e.code, name).detail });
+      }
+      return;
+    }
     if (zustand === 'im_meeting' || zustand === 'abriss') {
       if (s === 'reconnecting' || s === 'connecting') {
         if (zustand === 'im_meeting') setzeZustand('abriss');
       } else if (s === 'inMeeting') {
         if (zustand === 'abriss') {
-          setzeZustand('im_meeting');
+          // Erst planen, dann den Zustand setzen (Prüfung Code Q8, Befund 1): setzeZustand schickt sofort ein Abbild. Ohne
+          // geplanten Abgleich zeigte es nach Q8 oder einem Ladefehler in Z10 kurz „… bitte von Hand laden“, obwohl der Abgleich
+          // die Person gleich neu lädt („wird geladen …“ hat Vorrang).
           abgleichPlanen();
+          setzeZustand('im_meeting');
         }
       } else if (s === 'waitingRoom' || s === 'waitingForHost') zumWarteraum(s);
-      // 4a: kein Wiederbeitritt — jedes failed im Meeting ist endgültig (L1).
-      else if (s === 'failed') scheitert(failMeldung(VORSATZ.verbindung, e.code, name));
+      else if (s === 'failed') {
+        // 6.4: ein endgültiger Code endet mit „Verbindung verloren: “, jeder andere startet den Wiederbeitritt.
+        const m = failMeldung(VORSATZ.verbindung, e.code, name);
+        if (istEndgueltig({ art: 'failed', code: e.code })) scheitert(m);
+        else starteWiederbeitritt({ text: failText(e.code, name), detail: m.detail });
+      }
     }
   }
 
@@ -1146,22 +1293,33 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       return;
     }
     const amBeitreten = zustand === 'tritt_bei' || zustand === 'warteraum';
+    // Z11: Fehler der Versuchs-Bridge sind Ausgänge des Versuchs (6.4 Schritt 2.4), keine neuen Auslöser.
+    const imVersuch = zustand === 'abriss' && folge !== null;
     const imMeeting = zustand === 'im_meeting' || zustand === 'abriss';
     if (e.where === 'join' && e.code === 'joinTimeout') {
       if (amBeitreten) scheitert({ text: KT.CT, detail: fehlerDetail(e) });
+      else if (imVersuch) versuchGescheitert({ art: 'joinTimeout' }, { text: KT.CT, detail: fehlerDetail(e) });
     } else if (e.where === 'join' && typeof e.code === 'number') {
       if (amBeitreten) scheitert({ text: KT.CJ(name), detail: fehlerDetail(e) });
+      else if (imVersuch) versuchGescheitert({ art: 'joinFehler' }, { text: KT.CJ(name), detail: fehlerDetail(e) });
     } else if (e.where === 'meeting' && e.code === 'reconnectTimeout') {
       if (amBeitreten) scheitert({ text: KT.CE, detail: fehlerDetail(e) });
-      // 4a: statt Wiederbeitritt (L1).
-      else if (zustand === 'abriss') scheitert({ text: VORSATZ.verbindung + KT.UE_RECONNECT, detail: fehlerDetail(e) });
+      else if (imVersuch) versuchGescheitert({ art: 'reconnectTimeout' }, { text: KT.CT, detail: fehlerDetail(e) });
+      // 6.4: In Z10 hat Zoom selbst nicht neu verbunden: Wiederbeitritt.
+      else if (zustand === 'abriss') starteWiederbeitritt(null);
     } else if (e.where === 'exit' && e.code === 'exited') {
-      const dll = dllMeldung(exitCodeAus(e.detail));
+      const exitCode = exitCodeAus(e.detail);
+      const dll = dllMeldung(exitCode);
       const detail = e.detail ?? fehlerDetail(e);
       // Spec 6.2 Schritt 5 und 8.3: im Beitritt gilt CB, nicht B3–B5 — die nennt 8.2 nur für den Tod vor `auth`.
       if (amBeitreten) scheitert({ text: KT.CB(detail), detail: fehlerDetail(e) });
-      // 4a: statt Wiederbeitritt (L1).
-      else if (imMeeting) scheitert(dll ?? { text: VORSATZ.verbindung + KT.UE_ABSTURZ(detail), detail: fehlerDetail(e) });
+      else if (imVersuch) versuchGescheitert({ art: 'exited', exitCode }, { text: KT.CB(detail), detail: fehlerDetail(e) });
+      // 6.4: Die drei DLL-Rückgabewerte sind endgültig (B3–B5); jeder andere Tod im Meeting startet den Wiederbeitritt mit R4.
+      else if (imMeeting && dll) scheitert(dll);
+      else if (imMeeting) {
+        hinweis(KT.R4(detail));
+        starteWiederbeitritt(null);
+      }
     }
   }
 
@@ -1169,15 +1327,137 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   async function verlassen(): Promise<void> {
     if (!(zustand === 'startet' || zustand === 'tritt_bei' || zustand === 'warteraum' || zustand === 'im_meeting' || zustand === 'abriss')) return;
     laufNr += 1;
+    // 6.8: Wiederbeitritts-Zeitgeber löschen; ein laufender Versuch verwirft sein Ergebnis (laufNr).
+    folgeBeenden();
     d.log('[zoom] Meeting verlassen');
+    // Ruling 08.10.2026 (Spec 6.3: „Verlassen“ leert die Liste): VOR Z12 und vor dem Warten auf die Bridge (bis 5 s, hängt sie, bis
+    // killTimeoutMs), sonst stünde neben „Verlasse das Meeting …“ jede Quelle als „wartet auf den Wiederbeitritt“. Im Abbau liest
+    // niemand die Soll-Liste: laden und abgleichen verlangen im_meeting, Ereignisse der Bridge im Abbau gehen an abbauEreignis.
+    soll.clear();
     setzeZustand('verlaesst');
     await stoppeBridge();
-    soll.clear();
     nummer = null;
     kenncode = null;
     meldung = null;
-    warImMeeting = false;
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
+  }
+
+  // ── Wiederbeitritt (Spec 6.4) ────────────────────────────────────────────
+  /** Schritt 1: Die alte Bridge stoppen (ab jetzt im Abbau, 6.9), Zustand abriss, Versuch 1 planen. */
+  function starteWiederbeitritt(anlass: Meldungstext | null): void {
+    if (folge !== null) return;
+    void stoppeBridge();
+    // Der Anlass wäre sonst nirgends zu sehen (kein Leser außer R2 nach Versuch 5, und dort überschrieben).
+    if (anlass !== null) d.log(`[zoom] Wiederbeitritt: Anlass: ${anlass.text}${anlass.detail ? ` [${anlass.detail}]` : ''}`);
+    folge = { versuch: 1, naechsterUm: null, zeitgeber: null, letzte: anlass, beginn: 0 };
+    planeVersuch(1);
+  }
+
+  /** Schritt 2.1: Versuch i nach plan[i - 1] ms; das Abbild zeigt den Countdown über `naechsterUm`. */
+  function planeVersuch(i: number): void {
+    if (folge === null) return;
+    const ms = plan[i - 1] ?? 0;
+    folge.versuch = i;
+    folge.naechsterUm = Date.now() + ms;
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i} von ${WIEDERBEITRITT_VERSUCHE} in ${ms / 1000} s`);
+    folge.zeitgeber = zeitgeber(ms, () => {
+      if (folge === null) return;
+      folge.zeitgeber = null;
+      const lauf = laufNr;
+      versuchStarten(i).catch((err: unknown) => versuchAusnahme(i, lauf, err));
+    });
+    setzeZustand('abriss');
+  }
+
+  /**
+   * Eine Ausnahme in der Startfolge eines Versuchs (lz.pruefe, Bridge-Fabrik, buildJwt, Einstellungen) beendet die Folge
+   * wie ein endgültiger Fehler. Ohne das bliebe Z11 für immer auf „läuft …“, und niemand sähe den Grund.
+   */
+  function versuchAusnahme(i: number, lauf: number, err: unknown): void {
+    const grund = err instanceof Error ? err.message : String(err);
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i}: Ausnahme in der Startfolge: ${grund}`);
+    // Verlassen, Abbrechen oder Beenden in der Zwischenzeit: Die Folge ist schon beendet.
+    if (folge === null || folge.versuch !== i || lauf !== laufNr) return;
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i} gescheitert nach ${Date.now() - folge.beginn} ms (endgültig)`);
+    folgeBeenden();
+    scheitert({ text: VORSATZ.wiederbeitritt + grund, detail: null });
+  }
+
+  /** Schritte 2.2 und 2.3: Startfolge mit neuer Bridge, dann join. Der Zustand bleibt abriss mit versuch i. */
+  async function versuchStarten(i: number): Promise<void> {
+    if (folge === null) return;
+    const lauf = laufNr;
+    folge.naechsterUm = null;
+    folge.beginn = Date.now();
+    abbildGeaendert();
+    const r = await starteBridge();
+    // Verlassen, Abbrechen oder Beenden während der Startfolge: kein weiterer Schritt, keine Meldung.
+    if (folge === null || folge.versuch !== i || lauf !== laufNr || nummer === null) return;
+    if (!r.ok) {
+      if (r.mangel !== null) {
+        // Schritt 2.4 „Mangel aus der Startfolge“ (Einordnung: endgültig): Zustand einrichtung (5.3), die Folge endet.
+        d.log(`[zoom] Wiederbeitritt: Versuch ${i} gescheitert nach ${Date.now() - folge.beginn} ms (endgültig)`);
+        folgeBeenden();
+        mangelFolgen();
+        melde('fehler', r.meldung);
+        setzeZustand('einrichtung');
+        return;
+      }
+      if (r.ausgang !== null) versuchGescheitert(r.ausgang, r.meldung);
+      return;
+    }
+    if (imAbbau.has(r.gen)) return;
+    sende({ cmd: 'join', meetingId: nummer.normiert, passcode: kenncode ?? '', displayName: d.einstellungen.anzeigename() });
+  }
+
+  /** Schritt 2.4 „inMeeting“: Erfolg. Der Abgleich lädt die Soll-Liste, sobald die Erlaubnis da ist; danach R5 (L3). */
+  function versuchErfolgreich(): void {
+    if (folge === null) return;
+    d.log(`[zoom] Wiederbeitritt: Versuch ${folge.versuch} erfolgreich nach ${Date.now() - folge.beginn} ms`);
+    folgeBeenden();
+    r5Offen = true;
+    imMeetingAngekommen();
+  }
+
+  /** Schritte 2.4 und 3: einordnen. Endgültig → fehler; vorübergehend → nächster Versuch; nach dem letzten R2. */
+  function versuchGescheitert(a: VersuchsAusgang, m: Meldungstext): void {
+    if (folge === null) return;
+    const i = folge.versuch;
+    const endgueltig = istEndgueltig(a);
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i} gescheitert nach ${Date.now() - folge.beginn} ms (${endgueltig ? 'endgültig' : 'vorübergehend'})`);
+    d.log(`[zoom] Wiederbeitritt: Versuch ${i} Grund: ${m.text}${m.detail ? ` [${m.detail}]` : ''}`);
+    if (endgueltig) {
+      folgeBeenden();
+      // 6.4 Schritt 2.4: jeder endgültige Fehler im Versuch bekommt „Wiederbeitritt abgebrochen: “, auch der DLL-Tod (dann B3–B5).
+      const t = (a.art === 'exited' ? dllMeldung(a.exitCode) : null) ?? m;
+      scheitert({ text: VORSATZ.wiederbeitritt + t.text, detail: t.detail });
+      return;
+    }
+    folge.letzte = m;
+    if (i >= WIEDERBEITRITT_VERSUCHE) {
+      const letzte = folge.letzte;
+      folgeBeenden();
+      scheitert({ text: KT.R2(letzte.text), detail: letzte.detail });
+      return;
+    }
+    void stoppeBridge();
+    planeVersuch(i + 1);
+  }
+
+  /** Zeitgeber löschen, Folge vergessen (G17). */
+  function folgeBeenden(): void {
+    if (folge?.zeitgeber) clearTimeout(folge.zeitgeber);
+    folge = null;
+  }
+
+  /** Spec 6.8 „Abbrechen“ (nur Z11): Zeitgeber weg, Versuchs-Bridge stoppen, fehler mit R7; Soll, Nummer, Kenncode bleiben. */
+  function abbrechen(): void {
+    if (zustand !== 'abriss' || folge === null) return;
+    // Eine laufende Startfolge verwirft ihr Ergebnis (wie Verlassen).
+    laufNr += 1;
+    folgeBeenden();
+    d.log('[zoom] Wiederbeitritt abgebrochen');
+    scheitert({ text: KT.R7, detail: null });
   }
 
   // ── Quellen (Spec 6.3, 8.4) ──────────────────────────────────────────────
@@ -1199,7 +1479,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       zeitgeber(f.aboAntwortMs, () => {
         aboFristen.delete(id);
         if (gen !== aktiveGen || imAbbau.has(gen)) return;
-        zeilenFehler.set(id, KT.Q8);
+        // Owner 08.10.2026: Die gemerkte Quelle steht dann auf „keine Antwort der Zoom-Bridge, bitte von Hand laden“. Kein neuer
+        // Versuch von selbst (kein abgleichPlanen); erst ein späterer Abgleich (roster, joined …) oder „Als Quelle laden“ lädt neu.
+        zeilenFehler.set(id, { text: KT.Q8, laden: 'keineAntwort' });
         d.log(`[zoom] Abo ${id}: keine Antwort der Zoom-Bridge`);
         abbildGeaendert();
       }),
@@ -1209,8 +1491,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function videoEreignis(e: VideoEreignis): void {
     aboBeantwortet(e.id);
     if (e.state === 'unsubscribed') {
+      // N4b.1: Beim Entzug baut die Bridge jedes Abo ab. Die Soll-Liste bleibt; die Wiedererteilung lädt über den Abgleich neu.
+      if (e.reason === 'privilegeRevoked') d.log(`[zoom] Quelle ${e.id} gestoppt (Entzug)`);
       quellen.delete(e.id);
       abmeldungGesehen(e.id);
+      // Erlaubnis flattert (Review Focus 2): Kommt der Abbau erst nach der Wiedererteilung und ihrem Abgleich, sah dieser
+      // die Quelle noch verbunden. Ein neuer Abgleich lädt sie dann wieder; sonst bliebe sie bis zum nächsten roster aus.
+      if (e.reason === 'privilegeRevoked' && erlaubnis === 'ja') abgleichPlanen();
       return;
     }
     let alt = quellen.get(e.id);
@@ -1257,15 +1544,27 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const id = typeof e.id === 'number' ? e.id : null;
     if (id !== null) aboBeantwortet(id);
     const person = id !== null ? (aktiveSitzung()?.participants.get(id)?.name ?? null) : null;
-    const einordnung = quellenFehler(String(e.code), e.name ?? String(e.code), person, e.dropped);
+    const einordnung = quellenFehler(String(e.code), e.name ?? String(e.code), person, e.dropped, id ?? undefined);
     if (einordnung.art === 'keine') return;
-    if (einordnung.art === 'hinweis' || id === null) {
+    // N4b.2: Q16/Q17 zeigen den Namen unter „Hinweise“, das Log nennt nur die Kennung (logText).
+    if (einordnung.art === 'hinweis') {
+      hinweis(einordnung.text, einordnung.logText);
+      return;
+    }
+    if (id === null) {
       hinweis(einordnung.text);
       return;
     }
     const q = quellen.get(id);
     if (q && q.gen === aktiveGen) q.fehler = einordnung.text;
-    else zeilenFehler.set(id, einordnung.text);
+    // Owner 08.10.2026: Ohne laufende Quelle hat die Bridge das Laden dieser Person abgelehnt („Laden gescheitert, bitte von Hand
+    // laden“), außer bei Q1, Q2 und Q13 (istLadeFehler). Kein neuer Versuch von selbst. Ruling 08.10.2026: Q1 wartet auf die
+    // Aufnahme-Erlaubnis (R2), Q2 auf die Person (R1, null), denn „von Hand laden“ brächte bei beiden nichts.
+    else {
+      const code = String(e.code);
+      const laden = istLadeFehler(code) ? 'gescheitert' : istErlaubnisFehler(code) ? 'erlaubnis' : null;
+      zeilenFehler.set(id, { text: einordnung.text, laden });
+    }
   }
 
   async function laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis> {
@@ -1275,7 +1574,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const p = s?.participants.get(e.id);
     if (!s || !p || p.self) return { ok: false, text: KT.Q2 };
     if (p.inWaitingRoom) return { ok: false, text: KT.Q15 };
-    const n = aktiveQuellen().size;
+    // L7: offene Abos zählen mit, sonst kämen zwei schnelle Klicks (oder Companion) über die Betriebsgröße.
+    const n = belegteAbos().size;
     if (n >= BETRIEBSGROESSE && !e.trotzBetriebsgroesse) return { ok: false, text: KT.Q9(n + 1) };
     const schluessel = normName(p.name);
     const gen = aktiveGen;
@@ -1287,6 +1587,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       sende({ cmd: 'videoUnsubscribe', id: altQuelle.aboId });
       await abmeldungAbwarten(altQuelle.aboId);
       if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting') return { ok: false, text: '' };
+      // Nach dem await die Erlaubnis neu prüfen: Ein Entzug in der Wartezeit lädt nichts mehr (N4b.1).
+      if (erlaubnis !== 'ja') return { ok: false, text: KT.Q1 };
+      // … und Abos und Soll-Liste: Hat ein zweiter Aufruf (Taste doppelt, Companion) die Person in der Wartezeit schon
+      // abonniert, ist das erledigt; wurde der Eintrag entladen oder vergessen, lädt nichts mehr.
+      if (belegteAbos().has(e.id)) return { ok: true };
+      if (soll.get(schluessel) !== alt) return { ok: false, text: '' };
     }
     abonniere(e.id, e.ton);
     soll.set(schluessel, { name: p.name, ton: e.ton, ndiName: ndiVorschau(p.name), aboId: e.id });
@@ -1303,7 +1609,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       vergessen = true;
     }
     const q = quellen.get(e.aboId);
-    const gesendet = q !== undefined && q.gen === aktiveGen && sende({ cmd: 'videoUnsubscribe', id: e.aboId });
+    // N4b.3 Nr. 7: auch ein gesendetes, noch unbestätigtes Abo (offene Frist) abmelden. Ohne Abo nichts senden (sonst Q4).
+    const offen = aboFristen.has(e.aboId);
+    const gesendet = ((q !== undefined && q.gen === aktiveGen) || offen) && sende({ cmd: 'videoUnsubscribe', id: e.aboId });
+    if (offen) aboBeantwortet(e.aboId);
     if (gesendet || vergessen) d.log(`[zoom] Quelle ${e.aboId} entladen`);
     abbildGeaendert();
     return gesendet || vergessen ? { ok: true } : { ok: false, text: KT.Q2 };
@@ -1349,26 +1658,119 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   async function abgleichen(): Promise<void> {
     if (zustand !== 'im_meeting' || erlaubnis !== 'ja') return;
     const gen = aktiveGen;
-    for (const h of sollHandlungen(soll, sollLage())) {
-      if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting') return;
+    const lage = sollLage();
+    // N4b.3 Nr. 3: höchstens bis zur Betriebsgröße; Einträge ohne Platz stehen als 'grenze' und bleiben offen (L7).
+    const plaetze = freiePlaetze();
+    const handlungen = sollHandlungen(soll, lage, plaetze);
+    const offen = sollAbbild(soll, lage, plaetze);
+    const ueber = offen.filter((e) => e.stand === 'grenze').length;
+    if (ueber > 0) d.log(`[zoom] Abgleich: ${ueber === 1 ? '1 gemerkte Quelle' : `${ueber} gemerkte Quellen`} über der Betriebsgröße, nicht geladen`);
+    // L3: R5 nach dem ersten Abgleich mit Erlaubnis nach einem Wiederbeitritt; d = offene Einträge ohne Handlung, die auf
+    // eine eindeutige Person warten. 'grenze' wartet auf einen Platz, nicht auf eine Person, und zählt darum nicht.
+    const r5 = r5Offen;
+    r5Offen = false;
+    const ohneHandlung = offen.length - ueber - handlungen.length;
+    let k = 0;
+    for (const h of handlungen) {
+      if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting' || erlaubnis !== 'ja') return;
       const eintrag = soll.get(h.schluessel);
       if (!eintrag) continue;
       if (h.art === 'neuLaden') {
         d.log(`[zoom] Abgleich: verwaiste Quelle ${h.altAboId} wird für Teilnehmer ${h.id} neu geladen`);
         sende({ cmd: 'videoUnsubscribe', id: h.altAboId });
         await abmeldungAbwarten(h.altAboId);
-        if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting' || soll.get(h.schluessel) !== eintrag) continue;
+        // Nach dem await auch die Erlaubnis neu prüfen: Ein Entzug in der Wartezeit lädt nichts mehr (N4b.1).
+        if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting' || erlaubnis !== 'ja' || soll.get(h.schluessel) !== eintrag) continue;
       } else {
+        // L7: Nach einem await in dieser Runde (Neu-Laden) kann ein Laden von Hand oder per Companion den Platz belegt
+        // haben, den die Planung vorsah. Ohne freien Platz bleibt der Eintrag offen und steht im Abbild als 'grenze'.
+        if (freiePlaetze() <= 0) continue;
         d.log(`[zoom] Abgleich: Teilnehmer ${h.id} wird abonniert`);
       }
       eintrag.aboId = h.id;
       abonniere(h.id, h.ton);
+      k += 1;
     }
+    if (r5) hinweis(KT.R5(k, ohneHandlung, ueber));
     abbildGeaendert();
   }
 
   function sollVerwerfen(e: { name: string }): void {
-    if (soll.delete(normName(e.name))) d.log('[zoom] Gemerkte Quelle vergessen');
+    const schluessel = normName(e.name);
+    const eintrag = soll.get(schluessel);
+    if (eintrag !== undefined) {
+      soll.delete(schluessel);
+      d.log('[zoom] Gemerkte Quelle vergessen');
+      // Prüfung 08.10.2026: Ein gesendetes, noch unbestätigtes Abo ('laedt', 'erlaubnis', 'wiederbeitritt' über den Zusatzweg in
+      // sollOffen) wie beim Entladen abmelden (N4b.3 Nr. 7). Sonst liefe nach der Bestätigung eine Quelle, die der Bediener eben
+      // vergessen hat, ohne Soll-Eintrag (Plan 4b, Review Focus 4: Was vergessen ist, kommt nicht zurück).
+      const id = eintrag.aboId;
+      if (id !== null && aboFristen.has(id)) {
+        if (sende({ cmd: 'videoUnsubscribe', id })) d.log(`[zoom] Offenes Abo ${id} abgemeldet`);
+        aboBeantwortet(id);
+      }
+    }
+    abbildGeaendert();
+  }
+
+  // ── Fernsteuerung (Spec 11.2, 8.6) ───────────────────────────────────────
+  /** Name zu einer Quelle oder einem offenen Abo: aus der Sitzung, sonst (verwaist) aus dem Soll-Eintrag. */
+  function quellenName(aboId: number): string | null {
+    const p = aktiveSitzung()?.participants.get(aboId);
+    if (p) return p.name;
+    for (const s of soll.values()) if (s.aboId === aboId) return s.name;
+    return null;
+  }
+
+  /** zoom_load: F4 ohne Meeting oder Erlaubnis, F2/F3/F4 nach dem Ladeziel; schon belegt → nichts; ab der 6. Quelle F8. */
+  function fernLaden(name: string): { kennung: ZoomBefehlKennung; text: string | null } {
+    if (zustand !== 'im_meeting') return { kennung: 'f4', text: FT.F4('nicht im Meeting') };
+    if (erlaubnis !== 'ja') return { kennung: 'f4', text: FT.F4('keine Aufnahme-Erlaubnis') };
+    const fremde = [...(aktiveSitzung()?.participants.values() ?? [])]
+      .filter((p) => !p.self)
+      .map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom }));
+    const ziel = ladeZiel(name, fremde);
+    if (ziel.art === 'niemand') return { kennung: 'f2', text: FT.F2(name) };
+    if (ziel.art === 'mehrdeutig') return { kennung: 'f3', text: FT.F3(name, ziel.n) };
+    if (ziel.art === 'warteraum') return { kennung: 'f4', text: FT.F4('die Person ist im Warteraum') };
+    const belegt = belegteAbos();
+    // Schon geladen oder das Abo ist unterwegs (Taste doppelt gedrückt, Review Focus 1): nichts tun.
+    if (belegt.has(ziel.id)) return { kennung: 'ok', text: null };
+    const ton = teilnehmerAbbild().find((t) => t.id === ziel.id)?.tonVorwahl ?? true;
+    void laden({ id: ziel.id, ton, trotzBetriebsgroesse: true });
+    // Die Fernsteuerung lädt auch über die Betriebsgröße, mit der Warnung F8 (nicht abgelehnt).
+    return belegt.size >= BETRIEBSGROESSE ? { kennung: 'f8', text: FT.F8(belegt.size + 1) } : { kennung: 'ok', text: null };
+  }
+
+  /** zoom_unload: alle Quellen und offenen Abos mit diesem normierten Namen entladen, sonst den Soll-Eintrag vergessen; nichts → F5. */
+  function fernEntladen(name: string): { kennung: ZoomBefehlKennung; text: string | null } {
+    const ziel = normName(name);
+    const aboIds = [...belegteAbos()].filter((id) => {
+      const n = quellenName(id);
+      return n !== null && normName(n) === ziel;
+    });
+    const eintrag = soll.get(ziel);
+    const nurSoll = eintrag !== undefined && (eintrag.aboId === null || !aboIds.includes(eintrag.aboId));
+    if (aboIds.length === 0 && !nurSoll) return { kennung: 'f5', text: FT.F5(name) };
+    for (const id of aboIds) void entladen({ aboId: id });
+    if (nurSoll) sollVerwerfen({ name });
+    return { kennung: 'ok', text: null };
+  }
+
+  function steuerbefehl(cmd: { verb: string; args: string[] }): void {
+    const verb = cmd.verb.toLowerCase();
+    const b = deuteZoomBefehl(cmd.verb, cmd.args);
+    let erg: { kennung: ZoomBefehlKennung; text: string | null } = { kennung: 'ok', text: null };
+    if (b.art === 'abgelehnt') erg = { kennung: b.kennung, text: b.text };
+    else if (b.art === 'laden') erg = fernLaden(b.name);
+    else if (b.art === 'entladen') erg = fernEntladen(b.name);
+    // Wie 6.7; „nur für diese Sitzung gemerkt“ zählt über die Fernsteuerung als ausgeführt (L14).
+    else versatz({ ms: b.ms });
+    // 8.6: F1–F7 sind abgelehnt, F8 ist eine Warnung zu einem ausgeführten Befehl.
+    befehl = { kennung: erg.kennung, abgelehnt: erg.kennung !== 'ok' && erg.kennung !== 'f8' };
+    // N4b.2: der Hinweis nennt den Namen, das Log nur Kennung und Verb.
+    if (erg.text !== null) hinweis(erg.text, fernLogText(erg.kennung, verb));
+    else d.log(`[zoom] ${fernLogText(erg.kennung, verb)}`);
     abbildGeaendert();
   }
 
@@ -1393,6 +1795,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (beendenVersprechen !== null) return beendenVersprechen;
     beendenVersprechen = (async () => {
       laufNr += 1;
+      // 6.6: Wiederbeitritt abbrechen (G17): kein Versuch startet mehr eine Bridge.
+      folgeBeenden();
       ladeAbbruch?.abort();
       kopieAbbruch?.abort();
       d.log(`[zoom] Connect wird beendet (Frist ${fristMs} ms)`);
@@ -1402,14 +1806,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       if (ladeLauf !== null) {
         if (!(await mitFrist(ladeLauf, fristMs))) d.log('[zoom] Laden des Zoom-SDK nicht rechtzeitig abgebrochen');
       } else if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
+      // Ruling 08.10.2026: Die Soll-Liste geht wie beim Verlassen VOR Z12 und vor dem Warten auf die Bridge (sonst stünde neben
+      // „Verlasse das Meeting …“ jede Quelle als „wartet auf den Wiederbeitritt“). Im Abbau liest niemand die Liste.
+      soll.clear();
       // Kopie und Bridge laufen nie gleichzeitig (Sperre S10): insgesamt höchstens fristMs.
       if (aktiveBridge !== null) {
-        setzeZustand('verlaesst');
+        // N4b.3 Nr. 8: Z12 („verlässt das Meeting …“) nur mit Meeting, nicht bei „Einrichtung prüfen“.
+        const imMeetingZustand = zustand === 'startet' || zustand === 'tritt_bei' || zustand === 'warteraum' || zustand === 'im_meeting' || zustand === 'abriss';
+        if (imMeetingZustand) setzeZustand('verlaesst');
         if (!(await mitFrist(stoppeBridge(), fristMs))) d.log('[zoom] Zoom-Bridge nicht rechtzeitig beendet');
       }
-      soll.clear();
       nummer = null;
       kenncode = null;
+      gesehenNamen.clear();
       abbildGeaendert();
     })();
     return beendenVersprechen;
@@ -1441,6 +1850,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     beitreten,
     erneut,
     verlassen,
+    abbrechen,
     laden,
     entladen,
     ton,
@@ -1448,6 +1858,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),
+    steuerbefehl,
     beenden,
   };
 }

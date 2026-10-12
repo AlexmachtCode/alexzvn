@@ -79,6 +79,18 @@ jobs:
         run: npm run selftest -w @jm/zoom-bridge
       - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte)
         run: npm run selftest -w @jm/connect
+      # Zoom Stage 4b (Spec 12.6, 17.2 Nr. 2/3, N4b.2). Das Companion-Modul liegt außerhalb der
+      # Workspaces; sein Selbsttest braucht nur Node. „npm rebuild esbuild“ ist Vorsorge (Spec 12.6):
+      # Unter Windows lief esbuild ohne seine Postinstall, unter Linux nach `npm ci --ignore-scripts`
+      # ist das ungemessen.
+      - name: Steuerprotokoll (STATE-Kodierung, Capabilities)
+        run: npm run selftest -w @jm/suite-control-protocol
+      - name: Companion-Modul (Zeilenbau, Feedbacks, STATE)
+        run: node packages/companion-jm-suite/test/selftest.mjs
+      - name: Companion-Protokoll aktuell
+        run: npm rebuild esbuild && node scripts/sync-companion-protocol.mjs && git diff --exit-code -- packages/companion-jm-suite/generated/protocol.mjs
+      - name: App-Laufzeit (Log-Aufräumen, CSP)
+        run: npm run selftest -w @jm/app-runtime
 
   secret-scan:
     name: Secret-Scan (gitleaks)

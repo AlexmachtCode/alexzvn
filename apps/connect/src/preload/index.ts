@@ -87,6 +87,7 @@ const api: JmConnectApi = {
   zoomBeitreten: (p) =>
     ipcRenderer.invoke(IPC.zoomBeitreten, { nummer: p.nummer, kenncode: p.kenncode, anzeigename: p.anzeigename }) as Promise<ZoomErgebnis>,
   zoomVerlassen: () => ipcRenderer.invoke(IPC.zoomVerlassen) as Promise<void>,
+  zoomAbbrechen: () => ipcRenderer.invoke(IPC.zoomAbbrechen) as Promise<void>,
   zoomLaden: (p) =>
     ipcRenderer.invoke(IPC.zoomLaden, { id: p.id, ton: p.ton, trotzBetriebsgroesse: p.trotzBetriebsgroesse }) as Promise<ZoomErgebnis>,
   zoomEntladen: (p) => ipcRenderer.invoke(IPC.zoomEntladen, { aboId: p.aboId }) as Promise<ZoomErgebnis>,

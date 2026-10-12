@@ -11,6 +11,8 @@ import { erzeugeZoomKern, type ZoomKern } from './zoom/kern';
 import { pruefeZugangEingabe } from './zoom/zugang-eingabe';
 import { pruefeSdkSchluesselEingabe } from './zoom/sdk-schluessel-eingabe';
 import { activeLabels } from './ndi-guests';
+import { setZoomControlState } from './control-server';
+import { aenderungsMelder } from './control-state';
 import {
   proxyUrl,
   setzeZoomAnzeigename,
@@ -21,6 +23,7 @@ import {
   zoomSdkSchluesselLoeschen,
   zoomSdkSchluesselSpeichern,
   zoomVersatzMs,
+  zoomVersatzNurSitzung,
   zoomZugangLesen,
   zoomZugangLoeschen,
   zoomZugangSpeichern,
@@ -34,6 +37,19 @@ const NICHTS: ZoomErgebnis = { ok: false, text: '' };
 let kern: ZoomKern | null = null;
 /** Ein offener Ordner-/Datei-Dialog genügt: ein Doppelklick öffnet keinen zweiten. */
 let dialogOffen = false;
+/** Zoom-Teil des STATE an den Steuerserver, nur wenn sich einer der sieben Werte geändert hat (Spec 11.3). */
+const meldeZoomTeil = aenderungsMelder(setZoomControlState);
+
+/**
+ * Zoom-Teil des STATE melden: die zoom_*-Werte aus kern.stateKv(). Läuft einmal nach dem Anlegen des
+ * Kerns und danach bei jeder Änderung der Kurzform (onKurz), nicht bei jedem Abbild. Ohne Kern (macOS)
+ * meldet niemand einen Zoom-Teil, dort fehlen die zoom_*-Schlüssel im STATE (Spec 7.5).
+ */
+function meldeZoomState(): void {
+  if (!kern) return;
+  const kv = kern.stateKv();
+  meldeZoomTeil(kv ? { ...kv } : null);
+}
 
 function feld(p: unknown, name: string): unknown {
   return typeof p === 'object' && p !== null ? (p as Record<string, unknown>)[name] : undefined;
@@ -70,6 +86,7 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         setzeAnzeigename: setzeZoomAnzeigename,
         versatzMs: zoomVersatzMs,
         setzeVersatzMs: setzeZoomVersatzMs,
+        versatzNurSitzung: zoomVersatzNurSitzung,
         setzeLaufzeit: setzeZoomLaufzeit,
       },
       // „Zoom-SDK laden“ (Spec SDK nachladen 4.3): Umgebung JMPS_PROXY_URL, Einstellung oder Vorgabe; kein Proxy-Schlüssel.
@@ -81,12 +98,18 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         const w = d.getWindow();
         if (w && !w.isDestroyed()) w.webContents.send(IPC.zoom, a);
       },
-      onKurz: () => d.onKurz(),
+      // Kurzform geändert: AppStatus an Tray und Kopfzeile, und den Zoom-Teil des STATE (nur bei Änderung).
+      onKurz: () => {
+        d.onKurz();
+        meldeZoomState();
+      },
     });
   } catch (e) {
     getLog().error('[zoom] Zoom-Kern ließ sich nicht anlegen:', e instanceof Error ? e.message : e);
     return;
   }
+  // Erster STATE-Push: Der Kern meldet seinen Anfangszustand nicht über onKurz.
+  meldeZoomState();
   registriereKanaele(kern, d);
 }
 
@@ -146,6 +169,9 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
   ipcMain.handle(IPC.zoomVerlassen, async (): Promise<void> => {
     await k.verlassen();
   });
+
+  // Spec 6.8: nur in Z11 wirksam (der Kern prüft den Zustand); Nummer, Kenncode und gemerkte Quellen bleiben.
+  ipcMain.handle(IPC.zoomAbbrechen, (): void => k.abbrechen());
 
   ipcMain.handle(IPC.zoomLaden, (_e, p: unknown): ZoomErgebnis | Promise<ZoomErgebnis> => {
     const id = feld(p, 'id');
@@ -217,4 +243,22 @@ export function zoomVerlassen(): void {
 /** Gast-Sender haben sich geändert: Kollisionsprüfung Gast ↔ Zoom neu rechnen (Spec 6.3). */
 export function zoomGastLabelsGeaendert(): void {
   kern?.gastLabelsGeaendert();
+}
+
+/**
+ * Fernsteuer-Verb zoom_* vom Steuerserver (Spec 11.2): geht an den Kern, nie an den Renderer oder den DO.
+ * Ohne Kern (macOS) nur eine Logzeile und sonst nichts (L19). Die Logzeile nennt nur das Verb, nie die
+ * Argumente, denn dort stehen Anzeigenamen (N4b.2).
+ */
+export function zoomSteuerbefehl(cmd: { verb: string; args: string[] }): void {
+  if (!kern) {
+    const grund = process.platform === 'win32' ? 'der Zoom-Kern ließ sich nicht anlegen' : 'Zoom gibt es nur unter Windows';
+    getLog().info(`[zoom] Companion: ${cmd.verb} ignoriert (${grund})`);
+    return;
+  }
+  try {
+    kern.steuerbefehl({ verb: cmd.verb, args: [...cmd.args] });
+  } catch (e) {
+    getLog().error('[zoom] Fernsteuer-Befehl fehlgeschlagen:', e instanceof Error ? e.message : e);
+  }
 }

@@ -419,6 +419,28 @@ int main(int argc, char** argv) {
       videoMeetingEnded();
       emitLog(L"Meeting-Ende: Abbau zurueckgekehrt, Bruecke laeuft weiter");
     }
+    // ABBAU NACH DEM ENTZUG DER AUFNAHME-ERLAUBNIS (Stage 4b, N4b.1) - dasselbe
+    // Muster wie das Meeting-Ende darueber, aus demselben gemessenen Grund
+    // ausserhalb des Rueckrufs. NACH dem Meeting-Ende-Block: endete das Meeting
+    // in derselben Pumprunde, ist die Karte dort schon OHNE SDK-Abmeldung
+    // geleert, und videoPrivilegeRevoked() findet nichts mehr, das es beim SDK
+    // abmelden koennte. VOR videoTick(): kein Herzschlag mehr in Quellen, deren
+    // Erlaubnis entzogen ist.
+    //
+    // Reihenfolge wie beim Meeting-Ende: erst der Ton-Lauscher, dann die
+    // Bild-Abos (jedes meldet sich einzeln mit privilegeRevoked, Ton vor Bild,
+    // NDI-Sender zu), zuletzt der Rohdaten-Schalter. Dessen Merkzeichen faellt
+    // IMMER, damit das naechste Abo nach der Wiedererteilung StartRawRecording()
+    // neu ruft. Ob das SDK die Lieferung beim Entzug ohnehin selbst einstellt
+    // und ob Stop/Start danach fehlerfrei laufen, ist UNGEMESSEN (Messung M18).
+    if (callbacksTakePrivilegeRevokedTeardown()) {
+      emitLog(L"Entzug: Ton-Abo abmelden (ausserhalb des Rueckrufs)");
+      audioClearSubscribed();
+      emitLog(L"Entzug: Bild-Abos abbauen");
+      videoPrivilegeRevoked();
+      emitLog(L"Entzug: Rohdaten-Aufnahme beenden");
+      sessionStopRawRecording();
+    }
     // Schwarzbild-Herzschlag (Aufgabe 5): haelt jede Video-Quelle am Leben,
     // indem sie bei Bildausfall Schwarz statt eines eingefrorenen letzten
     // Bildes sendet. Hier und nicht in einem eigenen Thread - die Schleife

@@ -977,6 +977,13 @@ console.log('\nbridge - kaputte Zeilen reissen nichts ab:');
   await b.waitFor((s) => s.phase === 'inMeeting', 4000);
   assert(b.session.phase === 'inMeeting', 'trotz halber Zeile und Muell wird inMeeting erreicht');
   assert(logs.some((l) => l.includes('das hier ist kein json')), 'die unlesbare Zeile wird ueber onLog gemeldet, nicht nur uebersprungen');
+  // Stage 4b (N4b.2): Eine kaputte EREIGNIS-Zeile kann Teilnehmernamen tragen. Von ihr stehen nur
+  // Laenge und Ereignisart im Log; fremde Zeilen des SDK (oben) bleiben woertlich.
+  assert(
+    logs.some((l) => /^unlesbare Zeile \(\d+ Zeichen, beginnt mit \{"ev":"roster"\)$/.test(l)),
+    'eine kaputte roster-Zeile steht nur mit Laenge und Ereignisart im Log',
+  );
+  assert(!logs.some((l) => l.includes('Anna Maria')), 'kein Teilnehmername aus der kaputten Zeile im Log (N4b.2)');
   await b.stop();
 }
 
@@ -2224,11 +2231,13 @@ const BEITRITT = { cmd: 'join', meetingId: '7'.repeat(10), passcode: 'KENNCODE-P
 /**
  * Echte Bridge gegen die Attrappe (Drehbuch "steuerung"), so wie JM Connect sie
  * fuehrt: init und auth senden, auf die Antwort warten, dann `schritte`, am Ende
- * IMMER stop(). Liefert alle Ereignisse, auch die beim Abbau.
+ * IMMER stop(). Liefert alle Ereignisse, auch die beim Abbau. `zeilen` sammelt
+ * auf Wunsch die stderr-Zeilen der Attrappe (Stage 4b, FAKE_NAMENSZEILE).
  */
 async function fahreSteuerung(
   fakeEnv: Record<string, string>,
   schritte: (b: Bridge, ev: BridgeEvent[]) => Promise<void>,
+  zeilen: string[] = [],
 ): Promise<BridgeEvent[]> {
   const ev: BridgeEvent[] = [];
   const b = new Bridge({
@@ -2238,7 +2247,7 @@ async function fahreSteuerung(
     joinTimeoutMs: 5000,
     killTimeoutMs: 3000,
     onEvent: (e) => ev.push(e),
-    onLog: () => {},
+    onLog: (l) => zeilen.push(l),
   });
   await b.start();
   try {
@@ -2393,6 +2402,369 @@ console.log('\nAttrappe — Stellschrauben Stage 4:');
   const probe = ev.find(art('envprobe')) as { path?: string } | undefined;
   assert(typeof probe?.path === 'string' && probe.path.split(delimiter).includes(marke), 'envprobe meldet path: den PATH, den das Kind wirklich bekommt');
   await b.stop();
+}
+
+// --- Stage 4b: Entzug, Wiedererteilung, Rueckkehr, verzoegertes Abo, "(2)", Pufferfehler ---
+
+/** Wie viele Ereignisse `pred` erfuellen. */
+const anzahl = (ev: BridgeEvent[], pred: (e: BridgeEvent) => boolean): number => ev.filter(pred).length;
+
+/** Kurz warten (nur dort, wo ein AUSBLEIBEN geprueft wird). */
+const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+console.log('\nAttrappe — Stage 4b:');
+{
+  // Der neue Grund ist ein EIGENER Name (G18). Die beiden Zuweisungen prueft tsc:
+  // fehlt 'privilegeRevoked' in VideoReason oder AudioReason, ist der Typecheck rot.
+  const bild: PaketVideoReason = 'privilegeRevoked';
+  const ton: AudioReason = 'privilegeRevoked';
+  let s = initialSession();
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'subscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'waiting', reason: 'command' } as WireEvent));
+  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'off', reason: ton } as WireEvent));
+  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'unsubscribed', source: 'JM Connect – Zoom Anna', reason: bild, rebindable: true } as WireEvent));
+  assert(s.videoSubs.size === 0 && s.audioSubs.size === 0,
+    'Reducer: video unsubscribed mit privilegeRevoked entfernt das Abo aus Session.videoSubs (audio off ebenso aus audioSubs)');
+}
+{
+  // FAKE_ENTZUG_MS baut ab 4b alle Abos ab (N4b.1, L1/L2): erst privilege false,
+  // dann je Abo audio off (falls Ton) vor video unsubscribed, Grund privilegeRevoked.
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p', audio: false });
+    await bisEreignis(ev, art('video', { id: 16778241, state: 'unsubscribed' }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('error', { code: 'videoNoPrivilege' }));
+  });
+  const iEntzug = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
+  const iAnnaTon = stelle(ev, art('audio', { id: 16778240, state: 'off', reason: 'privilegeRevoked' }));
+  const iAnna = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  const iBen = stelle(ev, art('video', { id: 16778241, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  assert(stelle(ev, art('video', { id: 16778240, state: 'subscribed' })) >= 0 && stelle(ev, art('video', { id: 16778241, state: 'subscribed' })) >= 0,
+    'Entzug: vorher liefen zwei Abos (Anna mit Ton, Ben ohne)');
+  assert(iEntzug >= 0 && iAnnaTon > iEntzug && iAnna === iAnnaTon + 1 && iBen > iEntzug,
+    'Entzug baut jedes Abo ab: audio off vor video unsubscribed, Grund privilegeRevoked');
+  assert(!ev.some(art('audio', { id: 16778241, reason: 'privilegeRevoked' })), '... ein Abo ohne Ton meldet kein audio off');
+  assert(ev.filter(art('video', { state: 'unsubscribed' })).every((e) => (e as { reason?: string }).reason === 'privilegeRevoked'),
+    '... kein Abbau mit command oder meetingEnded (eine Ursache, ein Name)');
+  assert(stelle(ev, art('error', { where: 'video', code: 'videoNoPrivilege', id: 16778240 })) > iAnna,
+    'nach dem Entzug: videoSubscribe → videoNoPrivilege');
+  assert(anzahl(ev, art('video', { state: 'subscribed' })) === 2, '... und es entsteht kein neues Abo');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '200' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, () => anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 2);
+  });
+  const iAbbau = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  const iErteilung = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+  const neu = ev.filter(art('video', { id: 16778240, state: 'subscribed' }))[1] as { source?: string } | undefined;
+  assert(iAbbau >= 0 && iErteilung > iAbbau, "Wiedererteilung: privilege canRecordRaw:true source:'broadcast' nach dem Abbau (FAKE_ERTEILUNG_MS)");
+  assert(ev.indexOf(neu as BridgeEvent) > iErteilung && neu?.source === 'JM Connect – Zoom Anna',
+    '... videoSubscribe danach → subscribed, mit demselben NDI-Namen (ohne „(2)“)');
+}
+{
+  // FAKE_ERTEILUNG_MS=0: beide Rundrufe in derselben Pumprunde der Bridge (L2).
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '0' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'unsubscribed' }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, () => anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 2);
+  });
+  const iFalsch = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
+  const iWahr = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+  const iAbbau = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  assert(iFalsch >= 0 && iWahr === iFalsch + 1 && iAbbau > iWahr, 'FAKE_ERTEILUNG_MS=0: Reihenfolge privilege false, privilege true, dann unsubscribed');
+  const neu = ev.filter(art('video', { id: 16778240, state: 'subscribed' }))[1] as { source?: string } | undefined;
+  assert(ev.indexOf(neu as BridgeEvent) > iAbbau && neu?.source === 'JM Connect – Zoom Anna', '... danach geht videoSubscribe wieder durch, ohne „(2)“');
+}
+{
+  // FAKE_ABBAU_MS: Die Bridge baut langsamer ab, als JM Connect bis zum Abgleich wartet (300 ms; Gesamtprüfung 4b, M18).
+  let wahrUm = 0;
+  let abbauUm = 0;
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '0', FAKE_ABBAU_MS: '600' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+    wahrUm = Date.now();
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'unsubscribed' }));
+    abbauUm = Date.now();
+  });
+  const iWahr = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+  const iAbbau = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  if (!(abbauUm - wahrUm >= 400)) console.log(`     (Abstand Wiedererteilung → Abbau gemessen: ${abbauUm - wahrUm} ms)`);
+  assert(iWahr >= 0 && iAbbau > iWahr && abbauUm - wahrUm >= 400,
+    'FAKE_ABBAU_MS=600: der Abbau (privilegeRevoked) kommt erst mindestens 400 ms nach der Wiedererteilung');
+}
+{
+  let mitten = '';
+  const ev = await fahreSteuerung({ FAKE_VERBINDUNG_HAENGT_MS: '300', FAKE_VERBINDUNG_ZURUECK_MS: '200' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, () => anzahl(ev, art('roster')) === 2);
+    mitten = statusFolge(ev);
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('error', { code: 'videoAlreadySubscribed' }));
+  });
+  const iZurueck = ev.findIndex((e, i) => art('status', { status: 'inMeeting' })(e) && i > stelle(ev, art('status', { status: 'reconnecting' })));
+  assert(mitten === 'connecting,inMeeting,reconnecting,connecting,inMeeting', 'Rückkehr aus reconnecting: connecting, inMeeting (FAKE_VERBINDUNG_ZURUECK_MS)');
+  assert(iZurueck >= 0 && !ev.slice(0, iZurueck).some(art('video', { state: 'unsubscribed' })), '... Abos bestehen: kein unsubscribed bis zur Rückkehr');
+  const roster2 = ev.filter(art('roster'))[1] as { list?: Participant[] } | undefined;
+  assert(ev.indexOf(roster2 as BridgeEvent) > iZurueck && (roster2?.list ?? []).map((p) => p.id).join(',') === '100,16778240,16778241',
+    '... danach wie das Original roster mit denselben Kennungen');
+  assert(stelle(ev, art('privilege', { canRecordRaw: true, source: 'check' })) > iZurueck, "... und privilege canRecordRaw:true source:'check'");
+  assert(iZurueck >= 0 && stelle(ev, art('error', { code: 'videoAlreadySubscribed', id: 16778240 })) > iZurueck,
+    '... das Abo auf Anna lebt noch (videoAlreadySubscribed)');
+}
+{
+  let frueh = true;
+  let dauerMs = -1;
+  const ev = await fahreSteuerung({ FAKE_ABO_VERZOEGERUNG_MS: '300' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    const start = Date.now();
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await warte(100);
+    frueh = ev.some(art('video', { id: 16778240 }));
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'subscribed' }));
+    dauerMs = Date.now() - start;
+    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p' });
+    b.send({ cmd: 'videoUnsubscribe', id: 16778241 });
+    await bisEreignis(ev, art('video', { id: 16778241, state: 'unsubscribed' }));
+    await warte(500);
+  });
+  assert(!frueh && dauerMs >= 250, 'verzögertes Abo: subscribed erst nach der Frist (FAKE_ABO_VERZOEGERUNG_MS)');
+  assert(stelle(ev, art('audio', { id: 16778240, state: 'waiting' })) > stelle(ev, art('video', { id: 16778240, state: 'subscribed' })),
+    '... der Ton meldet sich erst danach');
+  assert(stelle(ev, art('video', { id: 16778241, state: 'unsubscribed', reason: 'command' })) >= 0
+      && !ev.some(art('video', { id: 16778241, state: 'subscribed' })) && !ev.some(art('audio', { id: 16778241 })),
+    'videoUnsubscribe davor → unsubscribed(command), kein subscribed danach');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_ABO_VERZOEGERUNG_MS: '600', FAKE_ENTZUG_MS: '200' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'unsubscribed' }));
+    await warte(800);
+  });
+  assert(stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' })) >= 0
+      && !ev.some(art('video', { id: 16778240, state: 'subscribed' })) && !ev.some(art('audio', { id: 16778240 })),
+    'offenes Abo beim Entzug: unsubscribed(privilegeRevoked) ohne audio off, kein subscribed danach');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_DOPPELNAME: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p' });
+    await bisEreignis(ev, art('video', { id: 16778241, state: 'subscribed' }));
+    b.send({ cmd: 'videoUnsubscribe', id: 16778240 });
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, () => anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 2);
+  });
+  const quellen = ev.filter(art('video', { state: 'subscribed' })).map((e) => (e as { source?: string }).source);
+  assert(quellen[0] === 'JM Connect – Zoom Anna' && quellen[1] === 'JM Connect – Zoom Anna (2)',
+    "Doppelname: zweite Quelle heißt '… Anna (2)' (wie uniqueSourceName)");
+  assert(quellen[2] === 'JM Connect – Zoom Anna', '... ist der Name wieder frei, bekommt das nächste Abo ihn ohne Zusatz');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_PUFFERFEHLER_MS: '100' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p', audio: false });
+    await bisEreignis(ev, art('error', { code: 'videoBufferMismatch', id: 16778241 }));
+    await warte(400);
+  });
+  assert(anzahl(ev, art('error', { where: 'video', code: 'videoBufferMismatch', id: 16778240 })) === 1
+      && anzahl(ev, art('error', { where: 'video', code: 'videoBufferMismatch', id: 16778241 })) === 1,
+    'Pufferfehler: je Abo ein videoBufferMismatch mit id');
+  assert(anzahl(ev, art('error', { where: 'audio', code: 'audioBufferMismatch', id: 16778240 })) === 1
+      && !ev.some(art('error', { code: 'audioBufferMismatch', id: 16778241 })),
+    '... audioBufferMismatch nur bei einem Abo mit Ton');
+  assert(ev.find(art('error', { code: 'videoBufferMismatch' }))?.name === 'VIDEO_BUFFER_MISMATCH'
+      && ev.find(art('error', { code: 'audioBufferMismatch' }))?.name === 'AUDIO_BUFFER_MISMATCH',
+    '... mit den Namen VIDEO_BUFFER_MISMATCH und AUDIO_BUFFER_MISMATCH');
+}
+{
+  // FAKE_ABO_FEHLER (JM Connect 0.3.0, Owner 08.10.2026, „Laden gescheitert, bitte von Hand laden“): Das erste Abo, das die
+  // Vorbedingungen besteht, lehnt die Attrappe mit diesem Code und der Kennung ab, wie videoSenderFailed in native/video.cpp
+  // (kein Abo, kein video- und kein audio-Ereignis). Das nächste Abo geht.
+  const ev = await fahreSteuerung({ FAKE_ABO_FEHLER: 'videoSenderFailed' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('error', { code: 'videoSenderFailed' }));
+    await warte(200);
+    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+    await bisEreignis(ev, art('video', { id: 16778240, state: 'subscribed' }));
+  });
+  const iFehler = stelle(ev, art('error', { where: 'video', code: 'videoSenderFailed', id: 16778240 }));
+  const iAbo = stelle(ev, art('video', { id: 16778240, state: 'subscribed' }));
+  assert(iFehler >= 0 && ev[iFehler]?.name === 'VIDEO_SENDER_FAILED',
+    'FAKE_ABO_FEHLER: das erste Abo → error where:video code:videoSenderFailed mit id und dem Namen VIDEO_SENDER_FAILED');
+  assert(iFehler >= 0 && !ev.slice(0, iAbo < 0 ? ev.length : iAbo).some((e) => (e.ev === 'video' || e.ev === 'audio') && (e as { id?: number }).id === 16778240),
+    '... dabei kein Abo: weder video- noch audio-Ereignis für diese Kennung');
+  assert(iAbo > iFehler && anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 1
+      && !ev.some(art('error', { code: 'videoAlreadySubscribed' })),
+    '... das zweite Abo geht (subscribed, kein videoAlreadySubscribed)');
+}
+{
+  const zeilen: string[] = [];
+  await fahreSteuerung({ FAKE_NAMENSZEILE: '1' }, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('roster'));
+    const ende = Date.now() + 2000;
+    while (Date.now() < ende && !zeilen.some((z) => z.startsWith('Namensprobe:'))) await warte(20);
+  }, zeilen);
+  assert(zeilen.includes('Namensprobe: Anna, Ben'), 'Namensprobe auf stderr nennt die fremden Teilnehmer (FAKE_NAMENSZEILE=1)');
+  const ohne: string[] = [];
+  await fahreSteuerung({}, async (b, ev) => {
+    b.send(BEITRITT);
+    await bisEreignis(ev, art('roster'));
+    await warte(200);
+  }, ohne);
+  assert(ohne.length > 0 && !ohne.some((z) => z.startsWith('Namensprobe')), '... ohne FAKE_NAMENSZEILE keine solche Zeile');
+}
+
+// --- Stage 4b: nativer Teil - Quelltext-Waechter ------------------------------------
+// Laufen OHNE Compiler und ohne SDK, auch unter Linux (CI). Sie sichern nur die
+// STRUKTUR (wer ruft was, in welcher Reihenfolge, was steht im Log); ob die Bridge
+// sich am echten SDK so verhaelt, belegt erst die Abnahme 0.3.0 (Messung M18).
+
+import { readFileSync, readdirSync } from 'node:fs';
+
+const nativOrdner = join(testDir, '..', 'native');
+
+/**
+ * C++-Quelltext ohne Kommentare: jedes Zeichen eines Kommentars wird ein Leerzeichen,
+ * Zeilenumbrueche bleiben (Zeilennummern stimmen weiter). Mit `ohneTexte` werden auch
+ * die INHALTE von "..."- und '...'-Literalen geleert (die Anfuehrungszeichen bleiben):
+ * ein Wort in einem Logtext ist kein Bezeichner.
+ */
+function cppOhneKommentare(src: string, ohneTexte = false): string {
+  let aus = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    const n = src[i + 1];
+    if (c === '/' && n === '/') {
+      while (i < src.length && src[i] !== '\n') { aus += ' '; i++; }
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      const ende = src.indexOf('*/', i + 2);
+      const bis = ende < 0 ? src.length : ende + 2;
+      aus += src.slice(i, bis).replace(/[^\n]/g, ' ');
+      i = bis;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      aus += c;
+      i++;
+      while (i < src.length && src[i] !== c) {
+        const schritt = src[i] === '\\' ? 2 : 1;
+        const stueck = src.slice(i, i + schritt);
+        aus += ohneTexte ? stueck.replace(/[^\n]/g, ' ') : stueck;
+        i += schritt;
+      }
+      aus += c;
+      i++;
+      continue;
+    }
+    aus += c;
+    i++;
+  }
+  return aus;
+}
+
+/** Der Rumpf `{ ... }` nach der ersten Fundstelle von `kopf` (Klammern gezaehlt), sonst ''. */
+function rumpf(src: string, kopf: string): string {
+  const stelleKopf = src.indexOf(kopf);
+  if (stelleKopf < 0) return '';
+  const auf = src.indexOf('{', stelleKopf + kopf.length);
+  if (auf < 0) return '';
+  let tiefe = 0;
+  for (let i = auf; i < src.length; i++) {
+    if (src[i] === '{') tiefe++;
+    else if (src[i] === '}' && --tiefe === 0) return src.slice(auf, i + 1);
+  }
+  return '';
+}
+
+const nativ = (datei: string, ohneTexte = false): string =>
+  cppOhneKommentare(readFileSync(join(nativOrdner, datei), 'utf8'), ohneTexte);
+
+console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
+{
+  // N4b.2: keine emitLog-Anweisung fuehrt einen Teilnehmernamen. Je Aufruf
+  // `emitLog(` bis zum naechsten `;`, Texte vorher geleert.
+  const namensBezeichner = /\b(name|displayName|userName|nameOut)\b|GetUserName/;
+  let gefunden = 0;
+  const treffer: string[] = [];
+  for (const datei of readdirSync(nativOrdner).filter((f) => f.endsWith('.cpp')).sort()) {
+    const src = nativ(datei, true);
+    const aufruf = /(?<!void\s)\bemitLog\s*\(/g;
+    let m: RegExpExecArray | null;
+    while ((m = aufruf.exec(src)) !== null) {
+      gefunden++;
+      const anweisung = src.slice(m.index, src.indexOf(';', m.index));
+      if (namensBezeichner.test(anweisung)) treffer.push(`${datei}:${src.slice(0, m.index).split('\n').length}`);
+    }
+  }
+  assert(gefunden > 40, 'nativ: der Waechter findet die emitLog-Anweisungen (mehr als 40)');
+  assert(treffer.length === 0, 'nativ: keine emitLog-Anweisung führt einen Teilnehmernamen');
+  if (treffer.length > 0) console.error(`      Treffer: ${treffer.join(', ')}`);
+}
+{
+  // L1 / Lehre vom 18.08.2026: im Rundruf NUR den Merker setzen - unSubscribe() aus
+  // einem SDK-Rueckruf beendete die Bridge mit 0xC0000005.
+  const koerper = rumpf(nativ('callbacks.cpp', true), 'void RecordingListener::onRecordPrivilegeChanged(bool bCanRec)');
+  assert(/if\s*\(\s*!\s*bCanRec\s*\)\s*\{[^}]*g_entzugAbbauOffen\s*=\s*true/.test(koerper),
+    'nativ: onRecordPrivilegeChanged setzt bei false den Merker g_entzugAbbauOffen');
+  assert(koerper !== '' && !/\b(videoAbbauAlle|videoPrivilegeRevoked|videoShutdownAll|videoMeetingEnded|videoUnsubscribe|audioClearSubscribed|audioShutdown|unSubscribe|destroyRenderer|StopRawRecording|sessionStopRawRecording)\b/.test(koerper),
+    'nativ: onRecordPrivilegeChanged ruft keinen Abbau und kein unSubscribe/StopRawRecording');
+}
+{
+  const main = nativ('main.cpp', true);
+  const schleife = main.slice(Math.max(0, main.indexOf('while (!g_quit) {')));
+  const iPumpe = schleife.indexOf('pumpOnce(');
+  const iEnde = schleife.indexOf('callbacksTakeMeetingEndTeardown(');
+  const iEntzug = schleife.indexOf('callbacksTakePrivilegeRevokedTeardown(');
+  const iTakt = schleife.indexOf('videoTick(');
+  assert(main.includes('while (!g_quit) {') && iPumpe >= 0 && iEnde > iPumpe && iEntzug > iEnde && iTakt > iEntzug,
+    'nativ: main.cpp arbeitet den Entzug nach pumpOnce() und vor videoTick() ab (nach dem Meeting-Ende-Abbau)');
+  const block = rumpf(schleife, 'if (callbacksTakePrivilegeRevokedTeardown())');
+  const iTon = block.indexOf('audioClearSubscribed(');
+  const iBild = block.indexOf('videoPrivilegeRevoked(');
+  const iRoh = block.indexOf('sessionStopRawRecording(');
+  assert(iTon >= 0 && iBild > iTon && iRoh > iBild,
+    'nativ: Reihenfolge im Entzug-Block: audioClearSubscribed, videoPrivilegeRevoked, sessionStopRawRecording');
+}
+{
+  const koerper = rumpf(nativ('video.cpp'), 'void videoPrivilegeRevoked()');
+  assert(/videoAbbauAlle\(\s*"privilegeRevoked"\s*,\s*true\s*\)/.test(koerper),
+    'nativ: videoPrivilegeRevoked baut mit videoAbbauAlle("privilegeRevoked", true) ab');
+  const stopp = rumpf(nativ('session.cpp', true), 'SDKError sessionStopRawRecording()');
+  const iZurueck = stopp.indexOf('g_rawRecordingOn.exchange(false)');
+  const iReturn = stopp.indexOf('return');
+  assert(iZurueck >= 0 && iReturn > iZurueck && stopp.includes('StopRawRecording()'),
+    'nativ: sessionStopRawRecording setzt das Merkzeichen vor jedem return zurück und ruft StopRawRecording()');
+  assert(/\bbool\s+callbacksTakePrivilegeRevokedTeardown\(\s*\)\s*;/.test(nativ('callbacks.h'))
+      && /\bvoid\s+videoPrivilegeRevoked\(\s*\)\s*;/.test(nativ('video.h'))
+      && /\bSDKError\s+sessionStopRawRecording\(\s*\)\s*;/.test(nativ('session.h')),
+    'nativ: callbacks.h, video.h und session.h erklären die drei neuen Funktionen');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

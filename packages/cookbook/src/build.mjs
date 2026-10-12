@@ -54,7 +54,9 @@ if (files.length === 0) {
 const recipes = [];
 for (const file of files) {
   const fileId = basename(file, '.md');
-  const recipe = parseRecipeMarkdown(readFileSync(file, 'utf8'));
+  // Windows mit core.autocrlf=true checkt die LF-Blobs als CRLF aus. Ohne das Ersetzen landen `\r` in den
+  // markdown-Feldern, und die CI (Ubuntu, LF) hält cookbook.json für veraltet. LF-Quellen bleiben unverändert.
+  const recipe = parseRecipeMarkdown(readFileSync(file, 'utf8').replace(/\r\n/g, '\n'));
 
   // Schema-Validierung (geteilt mit dem Authoring-Flow) + datei-spezifische Checks.
   errors.push(...validateRecipe(recipe).errors);
@@ -95,7 +97,8 @@ const json = JSON.stringify(cookbook, null, 2) + '\n';
 for (const w of warnings) console.warn('  ! ' + w);
 
 if (CHECK) {
-  const current = existsSync(OUT_FILE) ? readFileSync(OUT_FILE, 'utf8') : '';
+  // Ebenso cookbook.json selbst: unter Windows im Arbeitsbaum mit CRLF, im Repo und in der CI mit LF.
+  const current = existsSync(OUT_FILE) ? readFileSync(OUT_FILE, 'utf8').replace(/\r\n/g, '\n') : '';
   if (current !== json) {
     console.error('cookbook.json ist veraltet — bitte `npm run cookbook:build` ausführen und committen.');
     process.exit(1);

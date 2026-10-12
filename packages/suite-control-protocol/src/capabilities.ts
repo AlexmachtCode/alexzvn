@@ -59,7 +59,10 @@ export interface CapabilityFeedback {
   /** STATE-Schlüssel, der ausgewertet wird. */
   stateKey: string;
   /**
-   *  'truthy'     → an, wenn Schlüssel '1'/true ist (z. B. recording).
+   *  'truthy'     → an, wenn der Schlüssel '1', 'an', 'true' oder eine positive ganze
+   *                 Zahl ist (Anzahl > 0, z. B. onair=2 Gäste auf Sendung); '0', leer und
+   *                 alles andere → aus. Ausgewertet im Companion-Modul (lib.mjs isTruthy).
+   *                 Booleans kommen als 1/0 an (formatSuiteState).
    *  'equalsArg'  → an, wenn Schlüssel == Optionswert (z. B. program == Szene n).
    */
   match: 'truthy' | 'equalsArg';
@@ -598,6 +601,15 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
       // Der Remote-Sprecher blättert seine Folien im JM Presenter selbst weiter (Welle 6.3c).
       { id: 'slides', label: 'Folien-Steuerung für Gast', verb: 'slides', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }, modeArg] },
       { id: 'kick', label: 'Gast entfernen', verb: 'kick', args: [{ id: 'guest', label: 'Gast-ID', type: 'string', default: '' }] },
+      // ── Zoom (Stage 4, #197). Eigene Verben, im Main abgefangen, nie an den DO. Anzeigename statt
+      // Teilnehmer-ID, weil Zooms IDs nur innerhalb einer Sitzung gelten. Kein Beitritt per Fernsteuerung.
+      // Mehrwortige Namen gehen: Connect setzt die Argumente mit einem Leerzeichen wieder zusammen.
+      { id: 'zoom_load', label: 'Zoom: Person als Quelle laden', verb: 'zoom_load',
+        args: [{ id: 'name', label: 'Anzeigename in Zoom', type: 'string', default: '' }] },
+      { id: 'zoom_unload', label: 'Zoom: Quelle entladen', verb: 'zoom_unload',
+        args: [{ id: 'name', label: 'Anzeigename in Zoom', type: 'string', default: '' }] },
+      { id: 'zoom_delay', label: 'Zoom: Bild-Versatz setzen', verb: 'zoom_delay',
+        args: [{ id: 'ms', label: 'Versatz (ms)', type: 'number', default: 0, min: 0, max: 1000 }] },
     ],
     variables: [
       { id: 'room', label: 'Raum' },
@@ -609,11 +621,24 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
       { id: 'standby', label: 'Standby-Gast (ID)' },
       { id: 'standby_label', label: 'Standby-Gast (Name)' },
       { id: 'talkback', label: 'Talkback aktiv (1/0)' },
+      // Zoom (Spec 11.1, 7.5). Ohne Namen: Den Grund eines abgelehnten Befehls zeigt Connect unter „Hinweise“.
+      // Unter macOS fehlen die zoom_*-Schlüssel im STATE ganz.
+      { id: 'zoom_status', label: 'Zoom: Status (einrichtung/bereit/tritt_bei/warteraum/im_meeting/abriss/verlaesst/fehler)' },
+      { id: 'zoom_sources', label: 'Zoom: geladene Quellen (Anzahl)' },
+      { id: 'zoom_live', label: 'Zoom: mindestens eine Quelle geladen (1/0)' },
+      { id: 'zoom_privilege', label: 'Zoom: Aufnahme-Erlaubnis erteilt (1/0)' },
+      { id: 'zoom_alarm', label: 'Zoom: Eingriff nötig (1/0)' },
+      { id: 'zoom_cmd', label: 'Zoom: Ergebnis des letzten Zoom-Befehls (ok, f1 … f8)' },
+      { id: 'zoom_cmd_rejected', label: 'Zoom: letzter Zoom-Befehl abgelehnt (1/0)' },
     ],
     feedbacks: [
+      // onair und lobby sind Anzahlen: 'truthy' leuchtet bei jeder positiven ganzen Zahl (17.2 Nr. 2).
       { id: 'onair', label: 'Connect: es ist ein Gast auf Sendung', stateKey: 'onair', match: 'truthy', bgcolor: RED, color: WHITE },
       { id: 'lobby', label: 'Connect: Gäste im Warteraum', stateKey: 'lobby', match: 'truthy', bgcolor: YELLOW, color: BLACK },
       { id: 'talkback', label: 'Connect: Talkback aktiv', stateKey: 'talkback', match: 'truthy', bgcolor: YELLOW, color: BLACK },
+      { id: 'zoom_live', label: 'Connect: Zoom-Quellen geladen', stateKey: 'zoom_live', match: 'truthy', bgcolor: GREEN, color: WHITE },
+      { id: 'zoom_alarm', label: 'Connect: Zoom braucht einen Eingriff', stateKey: 'zoom_alarm', match: 'truthy', bgcolor: RED, color: WHITE },
+      { id: 'zoom_cmd_rejected', label: 'Connect: letzter Zoom-Befehl abgelehnt', stateKey: 'zoom_cmd_rejected', match: 'truthy', bgcolor: YELLOW, color: BLACK },
     ],
   },
 };

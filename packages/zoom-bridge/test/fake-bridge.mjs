@@ -70,6 +70,9 @@ const scripts = {
     process.stdout.write('{"ev":"re');
     process.stdout.write('ady","sdkVersion":"7.1.5"}\n');
     process.stdout.write('das hier ist kein json\n');
+    // Stage 4b (N4b.2): eine abgeschnittene Ereigniszeile MIT Teilnehmernamen. Die Bruecke darf
+    // von ihr nur Laenge und Ereignisart ins Log geben, nie den Inhalt.
+    process.stdout.write('{"ev":"roster","list":[{"id":7,"name":"Anna Maria Beispiel","self":false\n');
     say({ ev: 'auth', code: 0 });
     say({ ev: 'status', status: 'inMeeting', raw: 3, code: 0 });
   },
@@ -172,12 +175,48 @@ const scripts = {
   //                         Stille. Die Attrappe bleibt "im Meeting", quit meldet
   //                         darum disconnecting und ended
   //   FAKE_ENTZUG_MS        so lange nach der Erlaubnis entzieht der Host sie:
-  //                         privilege canRecordRaw:false, source:'broadcast'
+  //                         privilege canRecordRaw:false, source:'broadcast'. Ab
+  //                         Stage 4b baut die Attrappe danach ALLE Abos ab, wie die
+  //                         Bridge (native/main.cpp, Abbau nach pumpOnce()): einen
+  //                         Takt spaeter (setImmediate), je Abo audio off (falls Ton
+  //                         gemeldet) vor video unsubscribed, Grund privilegeRevoked
   //   FAKE_RUECKKEHR_MS     mit FAKE_WIEDERBEITRITT_MS: Abstand zwischen left und
   //                         joined (Vorgabe 0 = sofort, wie bisher)
   //   FAKE_RUECKKEHR_NAME   mit FAKE_WIEDERBEITRITT_MS: Name bei der Rueckkehr
   //                         (Vorgabe: unveraendert). Weicht er ab, haengt die
   //                         Attrappe NICHT um - das Abo bleibt schwarz unter 16778240
+  //
+  // Stage 4b (JM Connect 0.3.0):
+  //   FAKE_ERTEILUNG_MS     nur mit FAKE_ENTZUG_MS: so lange nach dem Entzug erteilt
+  //                         der Host die Erlaubnis wieder: privilege canRecordRaw:true,
+  //                         source:'broadcast'. 0 = synchron direkt nach privilege
+  //                         false, also VOR dem Abbau (beide Rundrufe in derselben
+  //                         Pumprunde der Bridge); abgebaut wird trotzdem
+  //   FAKE_ABBAU_MS         nur mit FAKE_ENTZUG_MS: so lange nach dem Entzug baut die
+  //                         Attrappe ab (Vorgabe: einen Takt spaeter, setImmediate).
+  //                         Bildet eine Bridge nach, deren Abbau laenger dauert als der
+  //                         Abgleich von JM Connect (300 ms) - am echten SDK ungemessen (M18)
+  //   FAKE_VERBINDUNG_ZURUECK_MS  nur mit FAKE_VERBINDUNG_HAENGT_MS: so lange nach
+  //                         reconnecting verbindet Zoom selbst: connecting, inMeeting,
+  //                         dann wie das Original roster und privilege source:'check'.
+  //                         Abos und Teilnehmer (samt Kennungen) bleiben
+  //   FAKE_ABO_VERZOEGERUNG_MS  videoSubscribe legt das Abo sofort an, meldet video
+  //                         subscribed und den Ton aber erst nach so vielen ms. Kommt
+  //                         vorher videoUnsubscribe oder ein Abbau, meldet sie nur
+  //                         video unsubscribed (command bzw. Abbaugrund), kein audio
+  //                         off, und subscribed kommt nie
+  //   FAKE_ABO_FEHLER       das erste videoSubscribe, das Erlaubnis, Teilnehmer und
+  //                         Doppel-Abo besteht, beantwortet die Attrappe mit error
+  //                         where:'video', diesem Code und der Kennung, OHNE Abo (wie
+  //                         videoSenderFailed in native/video.cpp); jedes weitere geht
+  //   FAKE_PUFFERFEHLER_MS  so lange nach video subscribed je Abo einmal error
+  //                         where:'video' code:'videoBufferMismatch' mit id, bei
+  //                         laufendem Ton dazu where:'audio' code:'audioBufferMismatch'
+  //   FAKE_NAMENSZEILE=1    100 ms nach dem roster eine stderr-Zeile "Namensprobe: Anna, Ben"
+  //                         mit allen fremden Teilnehmern (Pruefstand: JM Connect
+  //                         schreibt keine Teilnehmernamen ins Log)
+  //   NDI-Name wie uniqueSourceName() (native/video.cpp): traegt ein EIGENES Abo
+  //                         "JM Connect – Zoom <Name>" schon, folgen " (2)", " (3)" ...
   //
   // Der Vertrag folgt dem Original: Fehler tragen die Kennung, wo eine gelesen
   // wurde; videoDelay prueft ganze Zahl 0..1000 und bestaetigt den geltenden
@@ -203,14 +242,21 @@ const scripts = {
     let canRecordRaw = false;
     let imMeeting = false;
     let sdkOben = true;
-    // id -> { source, audio, rebindable, name, tonLaeuft }. audio = Ton bestellt
-    // (wie audioOn im Original), tonLaeuft = Ton noch nicht "off" gemeldet.
+    // id -> { source, audio, rebindable, name, tonLaeuft, offen, zeit }. audio = Ton
+    // bestellt (wie audioOn im Original), tonLaeuft = Ton gemeldet und noch nicht
+    // "off". offen = subscribed noch nicht gemeldet (FAKE_ABO_VERZOEGERUNG_MS),
+    // zeit = der Zeitgeber, der es melden wird.
     const abos = new Map();
+    // FAKE_ABO_FEHLER: gilt genau einmal, danach null.
+    let aboFehler = process.env.FAKE_ABO_FEHLER || null;
     const logDatei = process.env.FAKE_LOGDATEI;
 
     const abbauen = (grund) => {
       for (const [id, a] of abos) {
-        if (a.audio) say({ ev: 'audio', id, state: 'off', reason: grund });
+        // Ein OFFENES Abo hat weder subscribed noch seinen Ton gemeldet: es
+        // bekommt nur das unsubscribed, sein verzoegertes subscribed faellt weg.
+        if (a.offen) clearTimeout(a.zeit);
+        else if (a.audio) say({ ev: 'audio', id, state: 'off', reason: grund });
         say({ ev: 'video', id, state: 'unsubscribed', source: a.source, reason: grund, rebindable: a.rebindable });
       }
       abos.clear();
@@ -230,6 +276,15 @@ const scripts = {
         teilnehmer.set(16778240 + i, person(16778240 + i, name, ueber));
       }
       say({ ev: 'roster', list: [...teilnehmer.values()] });
+      if (process.env.FAKE_NAMENSZEILE === '1') {
+        // Pruefstand fuer "keine Teilnehmernamen im Log" (Spec N4b.2): eine
+        // stderr-Zeile MIT Namen, wie sie eine Diagnose der Bridge enthalten
+        // koennte. JM Connect muss sie maskiert ins Log schreiben. 100 ms Abstand:
+        // stdout und stderr sind zwei Leitungen; ohne ihn kann die Zeile beim Kern
+        // ankommen, bevor er den roster gelesen hat (Plan Aufgabe 12).
+        const fremde = [...teilnehmer.values()].filter((p) => !p.self).map((p) => p.name);
+        setTimeout(() => process.stderr.write(`Namensprobe: ${fremde.join(', ')}\n`), 100);
+      }
       say({ ev: 'privilege', canRecordRaw: false, source: 'check', requested: true });
       if (privileg === 'ja') {
         setTimeout(() => {
@@ -240,10 +295,27 @@ const scripts = {
           }
           if (process.env.FAKE_ENTZUG_MS) {
             // Der Host entzieht die Erlaubnis (native/callbacks.cpp
-            // onRecordPrivilegeChanged): ein unaufgeforderter Rundruf.
+            // onRecordPrivilegeChanged): ein unaufgeforderter Rundruf. Ab 4b baut
+            // die Bridge danach ALLE Abos ab - nicht im Rundruf, sondern im
+            // naechsten Schleifendurchlauf (native/main.cpp, nach pumpOnce()).
+            // Die Attrappe bildet das mit setImmediate nach (Plan L1/L2).
             setTimeout(() => {
+              if (!imMeeting) return;
               canRecordRaw = false;
               say({ ev: 'privilege', canRecordRaw: false, source: 'broadcast' });
+              const erteilung = process.env.FAKE_ERTEILUNG_MS;
+              const erteilen = () => {
+                if (!imMeeting) return;
+                canRecordRaw = true;
+                say({ ev: 'privilege', canRecordRaw: true, source: 'broadcast' });
+              };
+              // 0: beide Rundrufe kamen in derselben Pumprunde - privilege true
+              // steht VOR dem Abbau auf der Leitung, abgebaut wird trotzdem.
+              if (erteilung === '0') erteilen();
+              const abbauMs = process.env.FAKE_ABBAU_MS;
+              if (abbauMs === undefined) setImmediate(() => abbauen('privilegeRevoked'));
+              else setTimeout(() => abbauen('privilegeRevoked'), Number(abbauMs));
+              if (erteilung !== undefined && erteilung !== '0') setTimeout(erteilen, Number(erteilung));
             }, Number(process.env.FAKE_ENTZUG_MS));
           }
         }, 50);
@@ -320,6 +392,21 @@ const scripts = {
         // imMeeting bleibt true - quit verlaesst darum das Meeting (disconnecting, ended).
         setTimeout(() => {
           say({ ev: 'status', status: 'reconnecting', raw: 7, code: 0 });
+          if (process.env.FAKE_VERBINDUNG_ZURUECK_MS) {
+            // ... ausser Zoom kommt selbst zurueck (Stage 4b). Wie das Original bei
+            // JEDEM inMeeting (native/callbacks.cpp onMeetingStatusChanged): roster
+            // und die Sofortpruefung der Erlaubnis (native/session.cpp
+            // checkPrivilege()). Abos und Kennungen bleiben; ob Zoom die
+            // Kennungen dabei wechselt, ist ungemessen.
+            setTimeout(() => {
+              if (!imMeeting) return;
+              say({ ev: 'status', status: 'connecting', raw: 1, code: 0 });
+              say({ ev: 'status', status: 'inMeeting', raw: 3, code: 0 });
+              say({ ev: 'roster', list: [...teilnehmer.values()] });
+              if (canRecordRaw) say({ ev: 'privilege', canRecordRaw: true, source: 'check' });
+              else say({ ev: 'privilege', canRecordRaw: false, source: 'check', requested: true });
+            }, Number(process.env.FAKE_VERBINDUNG_ZURUECK_MS));
+          }
         }, Number(process.env.FAKE_VERBINDUNG_HAENGT_MS));
       }
     };
@@ -394,19 +481,51 @@ const scripts = {
         if (!canRecordRaw) return say({ ev: 'error', where: 'video', code: 'videoNoPrivilege', id: c.id });
         if (!teilnehmer.has(c.id)) return say({ ev: 'error', where: 'video', code: 'videoUnknownParticipant', id: c.id });
         if (abos.has(c.id)) return say({ ev: 'error', where: 'video', code: 'videoAlreadySubscribed', id: c.id });
-        const source = `JM Connect – Zoom ${teilnehmer.get(c.id).name}`;
+        if (aboFehler !== null) {
+          // Wie videoSenderFailed in native/video.cpp: Fehler mit Kennung, kein Abo, kein video- oder audio-Ereignis.
+          const code = aboFehler;
+          aboFehler = null;
+          return say({ ev: 'error', where: 'video', code, id: c.id });
+        }
+        // Wie uniqueSourceName() in native/video.cpp: traegt ein EIGENES Abo den
+        // Namen schon (exakter Vergleich), folgen " (2)", " (3)" ...
+        const basis = `JM Connect – Zoom ${teilnehmer.get(c.id).name}`;
+        let source = basis;
+        for (let n = 2; [...abos.values()].some((x) => x.source === source); n++) source = `${basis} (${n})`;
         const audio = c.audio !== false;
         // Wie emitVideo() in native/video.cpp: umhaengbar ueber die persistentId
         // nur, wenn sie nicht leer ist.
         const rebindable = teilnehmer.get(c.id).persistentId !== '';
-        abos.set(c.id, { source, audio, rebindable, name: teilnehmer.get(c.id).name, tonLaeuft: audio });
-        say({ ev: 'video', id: c.id, state: 'subscribed', source, reason: 'command', rebindable });
-        say({ ev: 'audio', id: c.id, state: audio ? 'waiting' : 'off', reason: 'command' });
+        const a = { source, audio, rebindable, name: teilnehmer.get(c.id).name, tonLaeuft: false, offen: true, zeit: null };
+        abos.set(c.id, a);
+        const melden = () => {
+          a.offen = false;
+          a.tonLaeuft = audio;
+          say({ ev: 'video', id: c.id, state: 'subscribed', source, reason: 'command', rebindable });
+          say({ ev: 'audio', id: c.id, state: audio ? 'waiting' : 'off', reason: 'command' });
+          if (process.env.FAKE_PUFFERFEHLER_MS) {
+            // Wie native/video.cpp (Delegate) und audio.cpp: ein falsch
+            // ausgelegter Puffer wird je Abo EINMAL gemeldet, mit Kennung.
+            setTimeout(() => {
+              if (abos.get(c.id) !== a) return;
+              say({ ev: 'error', where: 'video', code: 'videoBufferMismatch', id: c.id });
+              if (a.tonLaeuft) say({ ev: 'error', where: 'audio', code: 'audioBufferMismatch', id: c.id });
+            }, Number(process.env.FAKE_PUFFERFEHLER_MS));
+          }
+        };
+        const verzoegerung = Number(process.env.FAKE_ABO_VERZOEGERUNG_MS ?? '0');
+        if (verzoegerung > 0) {
+          a.zeit = setTimeout(() => {
+            if (abos.get(c.id) === a) melden();
+          }, verzoegerung);
+        } else melden();
       } else if (c.cmd === 'videoUnsubscribe') {
         if (!abos.has(c.id)) return say({ ev: 'error', where: 'video', code: 'videoNotSubscribed', id: c.id });
         const a = abos.get(c.id);
         abos.delete(c.id);
-        if (a.audio) say({ ev: 'audio', id: c.id, state: 'off', reason: 'command' });
+        // Offen (FAKE_ABO_VERZOEGERUNG_MS): subscribed und Ton waren nie gemeldet.
+        if (a.offen) clearTimeout(a.zeit);
+        else if (a.audio) say({ ev: 'audio', id: c.id, state: 'off', reason: 'command' });
         say({ ev: 'video', id: c.id, state: 'unsubscribed', source: a.source, reason: 'command', rebindable: a.rebindable });
       } else say({ ev: 'error', where: 'cmd', code: 1 });
     };
