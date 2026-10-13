@@ -8,10 +8,14 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "selftest": "node --experimental-strip-types test/selftest.ts"
+    "selftest": "node --experimental-strip-types test/selftest.ts && tsx test/verbund.test.ts"
   },
   "dependencies": {
-    "@jm/master-link": "*"
+    "@jm/master-link": "*",
+    "@jm/show": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
   },
   "peerDependencies": {
     "electron": ">=30"
