@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T19:34:47.628Z",
+  "updatedAt": "2026-10-13T19:37:22.944Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -283,7 +283,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.titler",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.10.1",
+      "latestVersion": "0.11.0",
       "platforms": {
         "mac": {
           "artifact": "JM Titler-${version}-mac-${arch}.dmg",
