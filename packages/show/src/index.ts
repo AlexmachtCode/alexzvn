@@ -374,3 +374,80 @@ export function parseShowDeepLink(url: string): string | null {
     return null;
   }
 }
+
+// ── Show-Daten über den Verbund (Master-Link Teil 2b, Release 2, Spec 14) ────────────────────────────────────────
+
+/**
+ * Freigabeliste (Spec 0 Nr. 4, 14.2): je appId die Einstellungen, die über den Verbund reisen. Alles andere bleibt am
+ * Master (Ordner, Audiogeräte, Bildschirme, Bibliotheken, Geheimnisse wie die Presenter-PIN) und steht in
+ * `lokalGeblieben`. Ein neuer Schlüssel reist erst nach einem Eintrag hier (Spec 22). Leere Liste = bekannt, nichts reist.
+ */
+export const VERBUND_EINSTELLUNGEN: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  'jm-timer': Object.freeze(['timetable', 'durationMs']),
+  'jm-qa': Object.freeze(['speakSeconds', 'moderation', 'autoTimer', 'autoTitler']),
+  'jm-battle': Object.freeze(['rounds', 'nameA', 'nameB', 'crewA', 'crewB']),
+  'jm-caption': Object.freeze(['model', 'language', 'ndiName']),
+  'jm-transcribe': Object.freeze(['model', 'language', 'task', 'formats']),
+  'jm-recorder': Object.freeze(['fileName', 'separateTracks']),
+  'jm-player': Object.freeze([]),
+  'jm-presenter': Object.freeze([]),
+  'jm-connect': Object.freeze(['room']),
+});
+
+/** Der Ausschnitt einer Show für den Verbund (Spec 14.1) und was am Master bleibt. */
+export interface VerbundAusschnitt {
+  /** Ohne `iveo.baseUrl`, `tools[].document`, `tools[].network`; Settings nur nach `VERBUND_EINSTELLUNGEN`. */
+  show: Show;
+  /** `⟨appId⟩.⟨Schlüssel⟩` jeder Einstellung, die am Master bleibt (Logzeile Spec 15.6), ohne Doppelte. */
+  lokalGeblieben: string[];
+  /** appIds der Tools mit Dokument (Spec 13.1), ohne Pfad und ohne Doppelte. */
+  mitDokument: string[];
+}
+
+/** Form einer appId in `mitDokument` (Spec 13.2); höchstens 64 Einträge. Sonst verwürfe jedes Tool den ganzen Stand. */
+const VERBUND_APPID = /^[a-z0-9-]{1,64}$/;
+const VERBUND_MAX_MIT_DOKUMENT = 64;
+
+/**
+ * Ausschnitt der offenen Show für den Verbund (Spec 14.1) — aus einer Freigabeliste, nicht aus einer Sperrliste: Ein
+ * falsch abgelegtes Feld reist so nie mit (Spec 22). Eingabe ist das Ergebnis von `migrateShow`; sie bleibt unverändert,
+ * und der Ausschnitt teilt kein Objekt mit ihr. Feldreihenfolge wie `migrateShow`, also läuft er unverändert hindurch.
+ */
+export function showFuerVerbund(show: Show): VerbundAusschnitt {
+  const m = migrateShow(show);
+  const lokal = new Set<string>();
+  const mitDokument: string[] = [];
+  const tools: ShowToolRef[] = m.tools.map((t) => {
+    const hatDokument = typeof t.document === 'string' && t.document.trim() !== '';
+    if (hatDokument && VERBUND_APPID.test(t.appId) && !mitDokument.includes(t.appId) && mitDokument.length < VERBUND_MAX_MIT_DOKUMENT) {
+      mitDokument.push(t.appId);
+    }
+    const ref: ShowToolRef = { appId: t.appId };
+    // hasOwnProperty: appId „constructor“ oder „__proto__“ darf keine Liste aus Object.prototype finden.
+    const erlaubt = Object.prototype.hasOwnProperty.call(VERBUND_EINSTELLUNGEN, t.appId) ? VERBUND_EINSTELLUNGEN[t.appId] : [];
+    if (t.settings) {
+      const settings: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(t.settings)) {
+        if (erlaubt.includes(k)) settings[k] = v;
+        else lokal.add(`${t.appId}.${k}`);
+      }
+      if (Object.keys(settings).length) ref.settings = settings;
+    }
+    return ref;
+  });
+  const ausschnitt: Show = {
+    schemaVersion: m.schemaVersion,
+    name: m.name,
+    updatedAt: m.updatedAt,
+    tools,
+    ...(m.ablauf ? { ablauf: m.ablauf } : {}),
+  };
+  if (m.iveo) {
+    // Auch die Bindung über eine Freigabeliste (Spec 0 Nr. 4, 14.1, 22): jedes Feld ausdrücklich, nie `baseUrl`. Ein
+    // neues Feld der Bindung reist erst, wenn es hier steht. Fehlende Felder (undefined) lässt die JSON-Kopie unten weg.
+    const { event, name, syncedAt, speakers, speakerVeraltetSeit, sideEvents, filter } = m.iveo;
+    ausschnitt.iveo = { event, name, syncedAt, speakers, speakerVeraltetSeit, sideEvents, filter };
+  }
+  // Tiefe Kopie über JSON: Settings-Werte sind beliebiges JSON; so teilt der Ausschnitt nichts mit der Eingabe.
+  return { show: JSON.parse(JSON.stringify(ausschnitt)) as Show, lokalGeblieben: [...lokal], mitDokument };
+}
