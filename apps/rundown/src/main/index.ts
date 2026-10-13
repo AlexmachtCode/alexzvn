@@ -849,17 +849,25 @@ function ladeAndereShow(pfad: string, g: Extract<ShowGelesen, { ok: true }>): vo
       break;
   }
 
+  const res = wendeShowAn({ doc: start, scharfId: startScharf, show: g.show });
+  wendeAusgangsstandAn(res, migrate(res.doc), start, g.show);
+}
+
+/**
+ * Gemeinsames Ende von `ladeAndereShow` und `ladeMasterShow` (5.2, 17.3): GO-Folgen abbrechen, das Ergebnis des
+ * Abgleichs (`neuDoc` = `migrate(res.doc)`, vorher gerechnet) übernehmen, sichern, melden.
+ */
+function wendeAusgangsstandAn(res: ReturnType<typeof wendeShowAn>, neuDoc: RundownDoc, start: RundownDoc, show: Show): void {
   cancelPendingFires();
   lastFired = null;
-  const res = wendeShowAn({ doc: start, scharfId: startScharf, show: g.show });
   merkeUmbenennungen(res.umbenannt);
-  doc = migrate(res.doc);
+  doc = neuDoc;
   scharfId = res.scharfId;
   rev++;
   abgleichRev = rev;
   // Hinweise nur bei einem schon abgeglichenen Vorstand; ein leeres oder nie
   // abgeglichenes Dokument „ändert“ sich nicht, es entsteht.
-  if (start.kontext !== undefined) zeigeAbgleichHinweise(res, g.show);
+  if (start.kontext !== undefined) zeigeAbgleichHinweise(res, show);
   sichere();
   broadcast();
 }
@@ -893,6 +901,14 @@ function reloadShow(): void {
   }
   merkeShowDaten(g);
   showRundownDatei = rundownDateiDerShow(showPfad, g.show);
+  gleicheShowAbgleichen(g);
+}
+
+/**
+ * Gemeinsam für `reloadShow` und `aktualisiereMasterShow` (5.1, 17.3): dieselbe Show gegen das Dokument abgleichen,
+ * Position nach R7 bzw. 4.4, `dirty` nur bei echter Änderung einer Datei, Hinweise, melden. Bricht keine GO-Folge ab.
+ */
+function gleicheShowAbgleichen(g: Extract<ShowGelesen, { ok: true }>): void {
   const res = wendeShowAn({ doc, scharfId, show: g.show });
   merkeUmbenennungen(res.umbenannt);
   const neu = migrate(res.doc);
@@ -962,21 +978,28 @@ function starteOhneDeepLink(): void {
     showPfad = z.showPfad;
     vergissMaster();
     showName = gedaechtnis.showName;
-    doc = gedaechtnis.doc;
-    const gemerkt = gedaechtnis.scharfId;
-    scharfId = gemerkt !== null && doc.rows.some((r) => r.id === gemerkt) ? gemerkt : ersteLebendeZeile(doc.rows);
     gedaechtnisDatei = gedaechtnis.datei ?? null;
     showRundownDatei = gedaechtnisDatei?.pfad ?? null;
     filePath = showRundownDatei;
-    // Ohne lesbare Show: Schlüssel aus den lebenden Ablaufzeilen (Stand des letzten
-    // Abgleichs), iveo aus dem Kontext; die eigene Timer-Liste ist unbekannt.
-    ablaufSchluessel = ablaufSchluesselAusZeilen(doc.rows);
-    eigeneTimerListe = false;
-    showHatIveo = kontextIstIveo(doc.kontext);
-    rev++;
-    abgleichRev = rev;
+    uebernimmGedaechtnisOhneShow(gedaechtnis);
   }
   broadcast();
+}
+
+/**
+ * Gedächtnis als Stand übernehmen, ohne dass die Show lesbar ist (Show nicht lesbar, Master-Zeiger beim Start):
+ * Schlüssel aus den lebenden Ablaufzeilen (Stand des letzten Abgleichs), iveo aus dem Kontext; die eigene
+ * Timer-Liste ist unbekannt.
+ */
+function uebernimmGedaechtnisOhneShow(gedaechtnis: GedaechtnisInhalt): void {
+  doc = gedaechtnis.doc;
+  const gemerkt = gedaechtnis.scharfId;
+  scharfId = gemerkt !== null && doc.rows.some((r) => r.id === gemerkt) ? gemerkt : ersteLebendeZeile(doc.rows);
+  ablaufSchluessel = ablaufSchluesselAusZeilen(doc.rows);
+  eigeneTimerListe = false;
+  showHatIveo = kontextIstIveo(doc.kontext);
+  rev++;
+  abgleichRev = rev;
 }
 
 // ── Verbund (Teil 2b R2, Spec 16, 17.3): Show vom Master ─────────────────────
@@ -992,15 +1015,7 @@ function starteMitMasterZeiger(z: Extract<Zeiger, { quelle: 'master' }>): void {
   if (gedaechtnis) {
     masterQuelle = { masterId: z.masterId, masterSchluessel: z.masterSchluessel };
     showName = gedaechtnis.showName || z.showName;
-    doc = gedaechtnis.doc;
-    const gemerkt = gedaechtnis.scharfId;
-    scharfId = gemerkt !== null && doc.rows.some((r) => r.id === gemerkt) ? gemerkt : ersteLebendeZeile(doc.rows);
-    // Ohne Stand: Schlüssel aus den lebenden Ablaufzeilen, iveo aus dem Kontext (wie oben, Show nicht lesbar).
-    ablaufSchluessel = ablaufSchluesselAusZeilen(doc.rows);
-    eigeneTimerListe = false;
-    showHatIveo = kontextIstIveo(doc.kontext);
-    rev++;
-    abgleichRev = rev;
+    uebernimmGedaechtnisOhneShow(gedaechtnis);
   }
   broadcast();
 }
@@ -1076,16 +1091,7 @@ function ladeMasterShow(stand: MasterStand & { show: Show }, masterSchluessel: s
 
   dirty = false;
   filePath = null;
-  cancelPendingFires();
-  lastFired = null;
-  merkeUmbenennungen(res.umbenannt);
-  doc = neuDoc;
-  scharfId = res.scharfId;
-  rev++;
-  abgleichRev = rev;
-  if (start.kontext !== undefined) zeigeAbgleichHinweise(res, g.show);
-  sichere();
-  broadcast();
+  wendeAusgangsstandAn(res, neuDoc, start, g.show);
 }
 
 /**
@@ -1103,19 +1109,7 @@ function aktualisiereMasterShow(stand: MasterStand & { show: Show }, masterSchlu
   merkeShowDaten(g);
   masterShow = stand.show;
   zeigeDokumentHinweis(stand, masterSchluessel);
-  const res = wendeShowAn({ doc, scharfId, show: g.show });
-  merkeUmbenennungen(res.umbenannt);
-  const neu = migrate(res.doc);
-  if (res.scharfId !== scharfId || JSON.stringify(neu) !== JSON.stringify(doc)) {
-    doc = neu;
-    scharfId = res.scharfId;
-    rev++;
-    abgleichRev = rev;
-    if (filePath) dirty = true;
-    sichere();
-  }
-  zeigeAbgleichHinweise(res, g.show);
-  broadcast();
+  gleicheShowAbgleichen(g);
 }
 
 /**

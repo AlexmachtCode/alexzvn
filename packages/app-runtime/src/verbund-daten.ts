@@ -509,7 +509,8 @@ export class VerbundFolger extends EventEmitter {
   private melde(): void {
     if (this.gestoppt) return;
     const d = this.daten();
-    const s = signatur(d);
+    // Die Rolle gehört dazu: aus und master zeigen beide „einzelplatz“, für ein Tool (Launcher-Wahl, 17.4) ist es ein Wechsel.
+    const s = `${this.client.kopplung()?.rolle ?? ''}|${signatur(d)}`;
     if (s === this.gemeldet) return;
     this.gemeldet = s;
     this.sicher('wechsel', () => this.emit('wechsel', d));

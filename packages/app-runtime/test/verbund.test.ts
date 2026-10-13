@@ -742,6 +742,22 @@ function check(name: string, cond: boolean, detail?: unknown): void {
     check('C12 werfender beiWechsel trifft die Zustandsmaschine nicht, eine Logzeile', folger.daten().art === 'warte' && logs.filter((l) => l.includes('Zuhörer von „beiWechsel“ warf (EKAPUTT)')).length === 1);
   }
 
+  // Rollenwechsel aus <-> master ändert die Anzeige nicht, ist aber ein Wechsel für das Tool (Rundown wählt den Launcher neu, 17.4)
+  {
+    const { client, folger, h } = aufbau({ kopplung: { rolle: 'aus', masterId: null, masterName: null, letzteAdresse: null, adressen: [] } });
+    folger.starte();
+    folger.folge(h);
+    const n0 = h.wechsel.length;
+    client.k = { rolle: 'master', masterId: null, masterName: null, letzteAdresse: null, adressen: ['10.0.0.5'] };
+    client.setze({ art: 'aus' });
+    check('C12 Rolle aus → master: beiWechsel trotz gleicher Anzeige (einzelplatz)', h.wechsel.length === n0 + 1 && folger.daten().art === 'einzelplatz', h.wechsel.length - n0);
+    client.setze({ art: 'aus' });
+    check('C12 … gleiche Rolle noch einmal: kein weiterer Wechsel', h.wechsel.length === n0 + 1);
+    client.k = { rolle: 'aus', masterId: null, masterName: null, letzteAdresse: null, adressen: [] };
+    client.setze({ art: 'aus' });
+    check('C12 Rolle master → aus: beiWechsel', h.wechsel.length === n0 + 2);
+  }
+
   // verbundIgnoriert (16.1, E19): höchstens einmal je Minute und Weg
   {
     const { u, client, logs, folger, h } = aufbau();
