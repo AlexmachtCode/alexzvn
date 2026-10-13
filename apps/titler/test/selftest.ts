@@ -45,7 +45,7 @@ import {
   type Hinweis,
   type KernZustand,
 } from '../src/shared/datalink-kern';
-import { dekodiereDatei, kodierungsLogZeile } from '../src/shared/text-kodierung';
+import { dekodiereDatei, kodierungsLogZeile, windows1252Dekodieren } from '../src/shared/text-kodierung';
 import { hasVars, resolveVars, usedVars } from '../src/shared/vars';
 import { iveoDataDir, speakersTsvText } from '../src/main/iveo-show';
 
@@ -1129,6 +1129,13 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(euro.text === '€' && euro.kodierung === 'utf-8', 'Umlaute: gültiges UTF-8 (E2 82 AC) bleibt „€“, nicht „â‚¬“');
   const roh80 = dekodiereDatei(Uint8Array.of(0x80));
   ok(roh80.text === '€' && roh80.kodierung === 'windows-1252', 'Umlaute: Byte 0x80 allein → „€“ als Windows-1252');
+  // Eigene Tabelle statt TextDecoder('windows-1252'): Electron 33 (Node 20) liefert dort für 0x80–0x9F Latin-1-Steuerzeichen.
+  const w1252Soll = '€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008dŽ\u008f\u0090‘’“”•–—˜™š›œ\u009džŸ';
+  const w1252Roh = Uint8Array.from({ length: 32 }, (_, i) => 0x80 + i);
+  ok(windows1252Dekodieren(w1252Roh) === w1252Soll, 'Umlaute: Windows-1252 Tabelle 0x80–0x9F (WHATWG)');
+  const w1252Satz = dekodiereDatei(Uint8Array.of(0x47, 0x6d, 0x62, 0x48, 0x20, 0x96, 0x20, 0x84, 0x58, 0x93, 0x20, 0x35, 0x30, 0x20, 0x80, 0xe4));
+  ok(w1252Satz.text === 'GmbH – „X“ 50 €ä' && w1252Satz.kodierung === 'windows-1252', 'Umlaute: Windows-1252 Gedankenstrich, Anführungszeichen, Euro');
+  ok(windows1252Dekodieren(Uint8Array.of(0xa0, 0xff, 0x41)) === ' ÿA', 'Umlaute: Windows-1252 0xA0–0xFF und ASCII unverändert');
   const nfd = dekodiereDatei(enc.encode('Jörg'));
   ok(nfd.text === 'Jörg' && nfd.text.length === 4, 'Umlaute: NFD-Eingabe wird NFC');
   const leer = dekodiereDatei(new Uint8Array(0));
