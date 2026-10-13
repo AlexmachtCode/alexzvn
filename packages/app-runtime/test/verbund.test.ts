@@ -853,6 +853,10 @@ function check(name: string, cond: boolean, detail?: unknown): void {
     logs.length = 0;
     const sp2 = erzeugeStandSpeicher(ordnerStatt, (stufe, t) => void logs.push(`${stufe}: ${t}`));
     check('C13 Ordner statt Datei → null, Warnung mit Fehlercode', sp2.lies() === null && /^warn: Verbund: Zwischenspeicher nicht lesbar \((EISDIR|EPERM|EACCES)\)/.test(logs[0] ?? ''), logs);
+    // Bleibt der Zwischenspeicher liegen, holt ein Neustart die Daten des früheren Masters zurück (E56): nie still (#316).
+    logs.length = 0;
+    sp2.loesche();
+    check('C13 loesche: nicht löschbar → eine Warnung mit Fehlercode (#316)', logs.length === 1 && /^warn: Verbund: Zwischenspeicher nicht gelöscht \((ERR_FS_EISDIR|EISDIR|EPERM|EACCES)\)\.$/.test(logs[0] ?? ''), logs);
 
     // Schreiben mit Wiederholung (E18): bis zu 5 Versuche im Abstand von 50 ms bei EPERM/EBUSY/EACCES
     const besetzt = (mal: number, code = 'EBUSY') => {
@@ -882,9 +886,11 @@ function check(name: string, cond: boolean, detail?: unknown): void {
     const bx = besetzt(1, 'ENOENT');
     const okx = await erzeugeStandSpeicher(join(tmp, 'bx', 'master-stand.json'), () => {}, bx.f).schreibe(stand as never);
     check('C13 anderer Fehler (ENOENT) → kein zweiter Versuch', okx === false && bx.r.versuche === 1);
+    logs.length = 0;
     sp.loesche();
     sp.loesche();
     check('C13 loesche zweimal wirft nicht, danach null', sp.lies() === null && !existsSync(datei));
+    check('C13 loesche gelungen bzw. nichts da → keine Warnung', logs.length === 0, logs);
 
     // Neustart auf B: Folger mit echtem Speicher (16.3)
     class Client extends EventEmitter {

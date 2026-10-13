@@ -137,12 +137,17 @@ export function erzeugeStandSpeicher(
     },
 
     loesche(): void {
-      for (const p of [datei, zwischen]) {
-        try {
-          rmSync(p, { force: true });
-        } catch {
-          /* nicht löschbar (etwa ein Ordner gleichen Namens) — das Lesen verwirft ihn ohnehin */
-        }
+      try {
+        rmSync(datei, { force: true });
+      } catch (e) {
+        // Bleibt eine lesbare Datei liegen, wendet der nächste Start sie wieder an (16.3) und die eigene Wahl
+        // des Bedieners (E56) ginge verloren: darum nie still, eine Warnung mit Fehlercode (#316).
+        warne(`Verbund: Zwischenspeicher nicht gelöscht (${codeAus(e)}).`);
+      }
+      try {
+        rmSync(zwischen, { force: true });
+      } catch {
+        /* Zwischendatei: das Lesen kennt sie nicht, das nächste Schreiben überschreibt sie */
       }
     },
   };
