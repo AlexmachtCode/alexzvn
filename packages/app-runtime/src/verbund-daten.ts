@@ -126,6 +126,9 @@ export class VerbundFolger extends EventEmitter {
   private fristAbgelaufen = false;
   private fehler: string | undefined;
   private verworfen: { grund: string; seit: number } | undefined;
+  /** Zu welchem Master `fehler` bzw. `verworfen` gehören: beides gilt nur für diesen einen Master. */
+  private fehlerMasterId: string | undefined;
+  private verworfenMasterId: string | undefined;
   private ziel: Ziel | null = null;
   private antwortZeitgeber: unknown = null;
   private wiederholZeitgeber: unknown = null;
@@ -262,6 +265,10 @@ export class VerbundFolger extends EventEmitter {
     // Zwischenspeicher gehört zum Start (16.3) und bleibt im Versuch.
     const k = this.client.kopplung();
     if (this.ziel && !this.ziel.ausSpeicher && (!this.istSlave(k) || this.ziel.stand.masterId !== k.masterId)) this.beendeVersuche();
+    // `fehler` und `verworfen` gehören zu dem Master, von dem der Stand kam: Ende des Verbunds oder anderer Master löscht sie.
+    const masterId = this.istSlave(k) ? k.masterId : undefined;
+    if (this.fehler !== undefined && this.fehlerMasterId !== masterId) this.fehler = undefined;
+    if (this.verworfen && this.verworfenMasterId !== masterId) this.verworfen = undefined;
     this.melde();
   }
 
@@ -293,6 +300,7 @@ export class VerbundFolger extends EventEmitter {
     if (!p.ok || feld !== null) {
       const f = feld ?? 'unbekannt';
       this.verworfen = { grund: f, seit: this.uhr.jetzt() };
+      this.verworfenMasterId = k.masterId;
       const schluessel = `${n.t}/${f}`;
       if (!this.gewarnt.has(schluessel)) {
         this.gewarnt.add(schluessel);
@@ -363,6 +371,7 @@ export class VerbundFolger extends EventEmitter {
   private verbindungVorbei(): void {
     this.stoppeAboZeitgeber();
     this.letzter = null;
+    this.verworfen = undefined; // ein verworfener Stand gehört zu EINER Verbindung
     this.antwortDa = false;
     this.aboInDieserVerbindung = false;
     this.fristAbgelaufen = false;
@@ -405,6 +414,7 @@ export class VerbundFolger extends EventEmitter {
       const grund = grundAus(e);
       const erster = this.fehler !== grund;
       this.fehler = grund;
+      this.fehlerMasterId = z.stand.masterId;
       if (z.rest > 0) {
         if (erster) this.log('warn', `Verbund: Show vom Master „${z.stand.masterName}“ nicht übernommen (${grund}), neuer Versuch in 1 s.`);
         this.versuchZeitgeber = this.uhr.setTimeout(() => {

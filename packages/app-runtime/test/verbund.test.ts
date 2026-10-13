@@ -460,6 +460,59 @@ function check(name: string, cond: boolean, detail?: unknown): void {
     check('C12 abo vom Master wird nicht als Stand gelesen', h.aufrufe.length === 1);
   }
 
+  // fehler und verworfen gehören zu EINEM Master und zur Verbindung (Fix-Runde 1): Ende des Verbunds, Masterwechsel, Datei defekt
+  {
+    const { u, client, folger, h } = aufbau();
+    folger.folge(h);
+    folger.starte();
+    client.verbinde();
+    client.emit('daten', { ...stand(0), epoche: '' });
+    client.k = { ...SLAVE, masterId: 'M2', masterName: 'Ton-PC' };
+    client.verbinde('Ton-PC');
+    const d = folger.daten() as { art: string; verworfen?: unknown };
+    check('C12 Masterwechsel → verworfen des alten Masters weg (warte)', d.art === 'warte' && d.verworfen === undefined && text(folger) === 'Verbunden mit Ton-PC · Show wird geladen…', text(folger));
+    u.vor(5000);
+    check('C12 Masterwechsel, Ton-PC schweigt → V3 statt V15', text(folger)!.startsWith('Ton-PC antwortet nicht'), text(folger));
+  }
+  {
+    const { u, client, folger, h } = aufbau();
+    folger.folge(h);
+    folger.starte();
+    client.verbinde();
+    client.emit('daten', stand(0));
+    h.wirft = () => nichtAngewendet('EBUSY');
+    client.emit('daten', stand(1, { t: 'aenderung' }));
+    u.vor(10_000);
+    check('C12 Versuche aufgegeben, fehler steht noch', (folger.daten() as { fehler?: string }).fehler === 'EBUSY');
+    client.k = { ...SLAVE, masterId: 'M2', masterName: 'Ton-PC' };
+    client.verbinde('Ton-PC');
+    check('C12 Masterwechsel → fehler des alten Masters weg', (folger.daten() as { fehler?: string }).fehler === undefined && !text(folger)!.startsWith('Show vom Master nicht übernommen'), text(folger));
+  }
+  {
+    const { client, folger, h } = aufbau();
+    folger.folge(h);
+    folger.starte();
+    client.verbinde();
+    client.emit('daten', stand(0));
+    h.wirft = () => nichtAngewendet('EBUSY');
+    client.emit('daten', stand(1, { t: 'aenderung' }));
+    check('C12 Versuche laufen, fehler V12', text(folger)!.startsWith('Show vom Master nicht übernommen: EBUSY'));
+    client.k = { ...SLAVE, rolle: 'aus', masterId: null, masterName: null };
+    client.setze({ art: 'aus' });
+    check('C12 Entkoppeln mit fehler → V13, nicht V12', (folger.daten() as { fehler?: string }).fehler === undefined && text(folger) === 'Daten vom früheren Master Regie-PC (nicht mehr gekoppelt) · letzter Stand: Gala hh:mm', text(folger));
+  }
+  {
+    const { client, folger, h } = aufbau();
+    folger.folge(h);
+    folger.starte();
+    client.verbinde();
+    client.emit('daten', stand(0));
+    client.emit('daten', { ...stand(1), epoche: '' });
+    check('C12 verworfen steht (V15)', text(folger)!.startsWith('Show-Daten von Regie-PC nicht lesbar'));
+    client.setze({ art: 'fehler', code: 'datei', text: 'Kopplungsdatei beschädigt. Neu koppeln.' });
+    check('C12 Datei beschädigt mit verworfen → V13 datei, nicht V15', text(folger) === 'Kopplungsdatei beschädigt. Neu koppeln. · letzter Stand: Gala hh:mm', text(folger));
+  }
+
   // Wann ein Tool folgt (16.1): Rolle master, Datei fehlt, Slave ohne Kopplung, Datei beschädigt
   {
     const { client, folger, h } = aufbau({ kopplung: { ...SLAVE, rolle: 'master', masterId: 'M1' } });
