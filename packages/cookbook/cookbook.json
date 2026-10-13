@@ -3948,7 +3948,7 @@
           "vor": [
             "Vorlage wählen (Bauchbinde/Banner/Ticker/Grafik) und Stil einstellen — der Reiter „Einstellungen\" bündelt DataLink, iveo-Status, Ausgabe (NDI/2. Bildschirm)",
             "NDI im Mischer als Quelle einbinden — oder das Ausgabe-Fenster auf den zweiten Monitor legen (Chroma-Green für Hardware-Keyer)",
-            "DataLink (optional): Watchfolder mit CSV/TSV wählen — jede Zeile wird ein abrufbarer Eintrag, Spalten füllen die `{{name}}`/`{{subtitle}}`/`{{location}}`-Variablen",
+            "DataLink (optional): Watchfolder mit CSV/TSV wählen — jede Zeile wird ein abrufbarer Eintrag, Spalten füllen die `{{name}}`/`{{subtitle}}`/`{{location}}`-Variablen. Gelesen werden UTF-8 (mit oder ohne BOM), UTF-16 mit BOM und sonst Windows-1252 (Excel „CSV (Trennzeichen-getrennt)“). Excel „Unicode-Text“ speichert als `.txt`, und `.txt` liest der DataLink als Datei mit `schlüssel=wert`-Zeilen, nicht als Tabelle: Die Datei vor dem Ablegen in `.tsv` umbenennen, sonst entsteht kein Eintrag; Variablennamen dürfen Umlaute enthalten, z. B. `{{größe}}`",
             "Grafik-Vorlage (optional): PSD oder `.jmtitler` importieren — Ebenennamen werden automatisch auf DataLink-Variablen gemappt (Titel/Name → `{{name}}`, Untertitel/Funktion → `{{subtitle}}`, Ort → `{{location}}`)",
             "iveo (optional): Wird der Titler über eine iveo-gebundene Show gestartet, materialisiert der Launcher die Speaker automatisch in den DataLink (`speakers.tsv`) — kein Token im Titler nötig"
           ],

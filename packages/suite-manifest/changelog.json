@@ -1080,6 +1080,16 @@
     "name": "JM Titler",
     "entries": [
       {
+        "version": "0.10.1",
+        "date": "2026-10-13",
+        "notes": [
+          "DataLink liest jetzt auch Dateien richtig, die Excel als „CSV (Trennzeichen-getrennt)“ oder der Windows-Editor als „ANSI“ speichert: Umlaute, ß, €, Gedankenstriche und typografische Anführungszeichen kommen so auf Sendung, wie sie in der Datei stehen. Bisher erschien dort zum Beispiel „J�rgen M�ller“.",
+          "Gelesen werden UTF-8 (mit oder ohne BOM), UTF-16 mit BOM und sonst Windows-1252. Liest der Titler eine Datei nicht als UTF-8, steht das einmal im Log, etwa „DataLink: Datei „liste.csv“ als Windows-1252 gelesen (keine UTF-8-Datei).“",
+          "Excels „Unicode-Text“ speichert als .txt; damit DataLink die Tabelle liest, die Datei in .tsv umbenennen.",
+          "Variablen dürfen Umlaute enthalten, zum Beispiel {{größe}}. Namen mit Umlauten findet der Abruf auch dann, wenn eine Datei sie in zerlegter Form speichert, wie es auf dem Mac vorkommt."
+        ]
+      },
+      {
         "version": "0.10.0",
         "date": "2026-10-05",
         "notes": [

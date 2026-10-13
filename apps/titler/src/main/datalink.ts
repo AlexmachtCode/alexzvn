@@ -44,6 +44,7 @@ import {
   type KernSicht,
   type KernZustand,
 } from '../shared/datalink-kern';
+import { dekodiereDatei, kodierungsLogZeile, type DateiKodierung } from '../shared/text-kodierung';
 
 /** Vom Watchfolder akzeptierte Endungen. */
 const DATA_EXT = new Set(['.txt', '.env', '.csv', '.tsv', '.ini', '.properties']);
@@ -69,6 +70,7 @@ let lastSig = '';
  * Mit Ordner (Schliff F3): Eine gleichnamige Datei in einem anderen Ordner ist eine andere Datei.
  */
 let zuletztNichtLesbar: string[] = [];
+let zuletztKodierung: string[] = [];
 /** Quelle Show/früher: eine leer gelesene Liste ändert nichts (A7, Spec 7.6). */
 let leerHalten = false;
 let kern: KernZustand = leererKern();
@@ -125,25 +127,29 @@ interface ScanErgebnis {
   sources: string[];
   error?: string;
   nichtLesbar: Array<{ datei: string; code: string }>;
+  /** Kodierung je gelesener Datei (für die einmalige Logzeile bei Nicht-UTF-8). */
+  kodierungen: Array<{ datei: string; kodierung: DateiKodierung }>;
 }
 
 /** Ordner scannen: alle Datendateien lesen und über den Kern zu einer Liste zusammenführen. */
 function scan(dir: string): ScanErgebnis {
-  if (!dir) return { entries: [], sources: [], nichtLesbar: [] };
-  if (!existsSync(dir)) return { entries: [], sources: [], error: 'Ordner nicht gefunden', nichtLesbar: [] };
+  if (!dir) return { entries: [], sources: [], nichtLesbar: [], kodierungen: [] };
+  if (!existsSync(dir)) return { entries: [], sources: [], error: 'Ordner nicht gefunden', nichtLesbar: [], kodierungen: [] };
   let files: string[];
   try {
     files = readdirSync(dir).filter((f) => DATA_EXT.has(extname(f).toLowerCase()));
   } catch (err) {
-    return { entries: [], sources: [], error: (err as Error).message, nichtLesbar: [] };
+    return { entries: [], sources: [], error: (err as Error).message, nichtLesbar: [], kodierungen: [] };
   }
   files.sort((a, b) => a.localeCompare(b));
   const teile: DataEntry[][] = [];
   const sources: string[] = [];
   const nichtLesbar: ScanErgebnis['nichtLesbar'] = [];
+  const kodierungen: ScanErgebnis['kodierungen'] = [];
   for (const f of files) {
     try {
-      const content = readFileSync(join(dir, f), 'utf8');
+      const { text: content, kodierung } = dekodiereDatei(readFileSync(join(dir, f)));
+      kodierungen.push({ datei: f, kodierung });
       const ext = extname(f).toLowerCase();
       let es: DataEntry[];
       if (ext === '.csv' || ext === '.tsv') {
@@ -162,7 +168,7 @@ function scan(dir: string): ScanErgebnis {
       nichtLesbar.push({ datei: f, code: typeof code === 'string' && code ? code : 'Lesefehler' });
     }
   }
-  return { entries: fuehreZusammen(teile), sources, nichtLesbar };
+  return { entries: fuehreZusammen(teile), sources, nichtLesbar, kodierungen };
 }
 
 /** Signatur über Datei-Namen+mtime+Größe für den Poll-Fallback. */
@@ -197,6 +203,13 @@ function rescan(andererOrdner = false): void {
   zuletztNichtLesbar = r.nichtLesbar.map((f) => `${watchedDir}\u0000${f.datei}\u0000${f.code}`);
   r.nichtLesbar.forEach((f, i) => {
     if (!vorher.has(zuletztNichtLesbar[i])) logZeile?.(`DataLink: Datei „${f.datei}“ nicht lesbar (${f.code}), übersprungen, wird erneut gelesen.`);
+  });
+  // Nicht-UTF-8-Dateien: je Ordner, Datei und Kodierung einmal ins Log, nicht bei jedem Nachlesen.
+  const kodVorher = new Set(zuletztKodierung);
+  zuletztKodierung = r.kodierungen.map((k) => `${watchedDir}\u0000${k.datei}\u0000${k.kodierung}`);
+  r.kodierungen.forEach((k, i) => {
+    const zeile = kodierungsLogZeile(k.datei, k.kodierung);
+    if (zeile && !kodVorher.has(zuletztKodierung[i])) logZeile?.(zeile);
   });
   lastSig = r.nichtLesbar.length ? '' : signature(watchedDir);
   anwenden(neueListe(kern, r.entries, { andererOrdner, leerHalten }));
@@ -320,6 +333,7 @@ export function stopDataWatch(keepListener = false): void {
   zuletztBeobachtet = null;
   lastSig = '';
   zuletztNichtLesbar = [];
+  zuletztKodierung = [];
   kern = leererKern();
   quellen = { sources: [] };
   current = baueState();

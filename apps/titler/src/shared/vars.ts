@@ -8,20 +8,24 @@
 
 import type { GraphicTemplate, TitlerConfig } from './types';
 
-/** Erlaubte Variablen-Schlüssel: Buchstaben, Ziffern, `_`, `.`, `-`. */
-export const VAR_RE = /\{\{\s*([A-Za-z0-9_.\-]+)\s*\}\}/g;
+/** Erlaubte Variablen-Schlüssel: Buchstaben (auch Umlaute, auch zerlegt mit Kombinationszeichen), Ziffern, `_`, `.`, `-`. */
+export const VAR_RE = /\{\{\s*([\p{L}\p{M}\p{N}_.\-]+)\s*\}\}/gu;
+
+function schluesselForm(k: string): string {
+  return k.normalize('NFC').toLowerCase();
+}
 
 /**
  * Ersetzt `{{schlüssel}}` durch den Wert aus `vars`. Unbekannte Schlüssel werden
  * zu leerem Text (damit nichts Rohes wie `{{x}}` On Air landet). Schlüsselsuche
- * ist case-insensitiv.
+ * ist case-insensitiv und unabhängig von der Unicode-Normalform (NFC/NFD).
  */
 export function resolveVars(text: string, vars: Record<string, string>): string {
   if (!text || text.indexOf('{{') < 0) return text;
   const lower: Record<string, string> = {};
-  for (const k of Object.keys(vars)) lower[k.toLowerCase()] = vars[k];
+  for (const k of Object.keys(vars)) lower[schluesselForm(k)] = vars[k];
   return text.replace(VAR_RE, (_m, key: string) => {
-    const v = lower[key.toLowerCase()];
+    const v = lower[schluesselForm(key)];
     return v === undefined ? '' : v;
   });
 }
@@ -40,7 +44,7 @@ export function usedVars(text: string): string[] {
 /** Enthält der Text mindestens einen Platzhalter? */
 export function hasVars(text: string): boolean {
   // Eigene (nicht-globale) Regex — VAR_RE trägt `g` und wäre mit .test() stateful.
-  return !!text && /\{\{\s*[A-Za-z0-9_.\-]+\s*\}\}/.test(text);
+  return !!text && /\{\{\s*[\p{L}\p{M}\p{N}_.\-]+\s*\}\}/u.test(text);
 }
 
 /**

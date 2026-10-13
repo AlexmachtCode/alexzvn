@@ -45,7 +45,8 @@ import {
   type Hinweis,
   type KernZustand,
 } from '../src/shared/datalink-kern';
-import { resolveVars } from '../src/shared/vars';
+import { dekodiereDatei, kodierungsLogZeile, windows1252Dekodieren } from '../src/shared/text-kodierung';
+import { hasVars, resolveVars, usedVars } from '../src/shared/vars';
 import { iveoDataDir, speakersTsvText } from '../src/main/iveo-show';
 
 let failed = 0;
@@ -1090,6 +1091,93 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(a.boardHinweis(undefined) === null, 'B14: ohne Hinweis → null');
   ok(a.b1Text({ label: 'Alan' }) === 'Auf Sendung, nicht in der Liste: Alan', 'B14: Karte B1 wörtlich');
   ok(a.b1Text(undefined) === null, 'B14: ohne gehaltenen Eintrag keine Karte');
+}
+
+// ── Umlaute: Dateikodierung, Variablen-Schlüssel, Unicode-Normalisierung (Titler 0.10.1) ──
+{
+  const TEXT = 'Name;Funktion;Größe\r\nJürgen Müller;Geschäftsführer;1,80 m\r\n';
+  const enc = new TextEncoder();
+  const bom8 = Uint8Array.of(0xef, 0xbb, 0xbf);
+  const cp1252Tabelle: Record<string, number> = { ä: 0xe4, ö: 0xf6, ü: 0xfc, Ä: 0xc4, Ö: 0xd6, Ü: 0xdc, ß: 0xdf, '€': 0x80 };
+  const cp1252 = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => cp1252Tabelle[c] ?? c.charCodeAt(0)));
+  const utf16 = (s: string, le: boolean): Uint8Array => {
+    const out = new Uint8Array(2 + s.length * 2);
+    out[0] = le ? 0xff : 0xfe;
+    out[1] = le ? 0xfe : 0xff;
+    for (let i = 0; i < s.length; i++) {
+      const u = s.charCodeAt(i);
+      out[2 + i * 2] = le ? u & 0xff : u >> 8;
+      out[3 + i * 2] = le ? u >> 8 : u & 0xff;
+    }
+    return out;
+  };
+  const cat = (a: Uint8Array, b: Uint8Array): Uint8Array => Uint8Array.from([...a, ...b]);
+
+  const u8 = dekodiereDatei(enc.encode(TEXT));
+  ok(u8.text === TEXT && u8.kodierung === 'utf-8', 'Umlaute: UTF-8 ohne BOM unverändert');
+  const u8b = dekodiereDatei(cat(bom8, enc.encode(TEXT)));
+  ok(u8b.text === TEXT && u8b.kodierung === 'utf-8-bom', 'Umlaute: UTF-8 mit BOM, BOM weg');
+  const l16 = dekodiereDatei(utf16(TEXT, true));
+  ok(l16.text === TEXT && l16.kodierung === 'utf-16le', 'Umlaute: UTF-16LE mit BOM');
+  const b16 = dekodiereDatei(utf16(TEXT, false));
+  ok(b16.text === TEXT && b16.kodierung === 'utf-16be', 'Umlaute: UTF-16BE mit BOM');
+  const w = dekodiereDatei(cp1252(TEXT));
+  ok(w.text === TEXT && w.kodierung === 'windows-1252', 'Umlaute: Windows-1252 (Excel „CSV“)');
+  const alle = dekodiereDatei(cp1252('äöüÄÖÜß€'));
+  ok(alle.text === 'äöüÄÖÜß€' && alle.kodierung === 'windows-1252', 'Umlaute: Windows-1252 ä ö ü Ä Ö Ü ß €');
+  const euro = dekodiereDatei(Uint8Array.of(0xe2, 0x82, 0xac));
+  ok(euro.text === '€' && euro.kodierung === 'utf-8', 'Umlaute: gültiges UTF-8 (E2 82 AC) bleibt „€“, nicht „â‚¬“');
+  const roh80 = dekodiereDatei(Uint8Array.of(0x80));
+  ok(roh80.text === '€' && roh80.kodierung === 'windows-1252', 'Umlaute: Byte 0x80 allein → „€“ als Windows-1252');
+  // Eigene Tabelle statt TextDecoder('windows-1252'): Electron 33 (Node 20) liefert dort für 0x80–0x9F Latin-1-Steuerzeichen.
+  const w1252Soll = '€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008dŽ\u008f\u0090‘’“”•–—˜™š›œ\u009džŸ';
+  const w1252Roh = Uint8Array.from({ length: 32 }, (_, i) => 0x80 + i);
+  ok(windows1252Dekodieren(w1252Roh) === w1252Soll, 'Umlaute: Windows-1252 Tabelle 0x80–0x9F (WHATWG)');
+  const w1252Satz = dekodiereDatei(Uint8Array.of(0x47, 0x6d, 0x62, 0x48, 0x20, 0x96, 0x20, 0x84, 0x58, 0x93, 0x20, 0x35, 0x30, 0x20, 0x80, 0xe4));
+  ok(w1252Satz.text === 'GmbH – „X“ 50 €ä' && w1252Satz.kodierung === 'windows-1252', 'Umlaute: Windows-1252 Gedankenstrich, Anführungszeichen, Euro');
+  ok(windows1252Dekodieren(Uint8Array.of(0xa0, 0xff, 0x41)) === ' ÿA', 'Umlaute: Windows-1252 0xA0–0xFF und ASCII unverändert');
+  const nfd = dekodiereDatei(enc.encode('Jörg'));
+  ok(nfd.text === 'Jörg' && nfd.text.length === 4, 'Umlaute: NFD-Eingabe wird NFC');
+  const leer = dekodiereDatei(new Uint8Array(0));
+  ok(leer.text === '' && leer.kodierung === 'utf-8', 'Umlaute: leerer Puffer → leer, utf-8');
+  const ascii = dekodiereDatei(enc.encode('a;b\r\n1;2\r\n'));
+  ok(ascii.text === 'a;b\r\n1;2\r\n' && ascii.kodierung === 'utf-8', 'Umlaute: reines ASCII → utf-8');
+
+  // Durchstich: Windows-1252-Datei → parseTable
+  const tab = parseTable(dekodiereDatei(cp1252(TEXT)).text, 'liste.csv');
+  ok(tab.length === 1 && tab[0].label === 'Jürgen Müller', 'Umlaute: Durchstich Label „Jürgen Müller“');
+  ok(tab[0].vars['Funktion'] === 'Geschäftsführer' && tab[0].vars['Größe'] === '1,80 m', 'Umlaute: Durchstich Variablen „Geschäftsführer“, Schlüssel „Größe“');
+
+  ok(kodierungsLogZeile('a.csv', 'utf-8') === null && kodierungsLogZeile('a.csv', 'utf-8-bom') === null, 'Umlaute: keine Logzeile für UTF-8');
+  ok(kodierungsLogZeile('liste.csv', 'windows-1252') === 'DataLink: Datei „liste.csv“ als Windows-1252 gelesen (keine UTF-8-Datei).', 'Umlaute: Logzeile Windows-1252 wörtlich');
+  ok(kodierungsLogZeile('liste.txt', 'utf-16le') === 'DataLink: Datei „liste.txt“ als UTF-16 gelesen.', 'Umlaute: Logzeile UTF-16LE wörtlich');
+  ok(kodierungsLogZeile('liste.txt', 'utf-16be') === 'DataLink: Datei „liste.txt“ als UTF-16 gelesen.', 'Umlaute: Logzeile UTF-16BE wörtlich');
+
+  // Variablen mit Umlauten
+  const NFD_GROESSE = 'Größe';
+  ok(resolveVars('{{größe}}', { Größe: '1,80 m' }) === '1,80 m', 'Umlaute: {{größe}} trifft Schlüssel „Größe“');
+  ok(resolveVars('{{' + NFD_GROESSE + '}}', { Größe: '1,80 m' }) === '1,80 m', 'Umlaute: NFD im Text, NFC in vars');
+  ok(resolveVars('{{größe}}', { [NFD_GROESSE]: '1,80 m' }) === '1,80 m', 'Umlaute: NFC im Text, NFD in vars');
+  ok(hasVars('{{größe}}') && !hasVars('{{ }}') && hasVars('{{name}}'), 'Umlaute: hasVars mit Umlaut');
+  ok(usedVars('{{größe}} {{name}}').join(',') === 'größe,name', 'Umlaute: usedVars liefert „größe“');
+  ok(resolveVars('{{Name}}-{{a.b-c_1}}', { name: 'X', 'a.b-c_1': 'Y' }) === 'X-Y', 'Umlaute: ASCII-Fälle unverändert');
+  ok(resolveVars('{{unbekannt}}', {}) === '', 'Umlaute: unbekannter Schlüssel bleibt leer');
+
+  // Abruf: NFD gegen NFC
+  const nfcEintrag: DataEntry = { key: 'ersatz:l.csv|Jörg', label: 'Jörg', datei: 'l.csv', vars: {} };
+  const nfdEintrag: DataEntry = { key: 'ersatz:l.csv|Jörg', label: 'Jörg', datei: 'l.csv', vars: {} };
+  const kNfc = kernMit([nfcEintrag], null);
+  const kNfd = kernMit([nfdEintrag], null);
+  ok(rufeAb(kNfc, 'Jörg').zustand.aktiv === nfcEintrag.key, 'Umlaute: NFD-Text trifft NFC-Label');
+  ok(rufeAb(kNfd, 'Jörg').zustand.aktiv === nfdEintrag.key, 'Umlaute: NFC-Text trifft NFD-Label');
+  const kennNfc: DataEntry = { key: 'Müller-1', label: 'Anna', datei: 'l.csv', vars: {} };
+  const kennNfd: DataEntry = { key: 'Müller-1', label: 'Anna', datei: 'l.csv', vars: {} };
+  ok(rufeAb(kernMit([kennNfc], null), '@Müller-1').zustand.aktiv === kennNfc.key, 'Umlaute: @Kennung NFD gegen NFC');
+  ok(rufeAb(kernMit([kennNfd], null), '@Müller-1').zustand.aktiv === kennNfd.key, 'Umlaute: @Kennung NFC gegen NFD');
+  ok(rufeAb(kernMit([kennNfc], null), 'Müller-1').zustand.aktiv === kennNfc.key, 'Umlaute: Schlüssel NFD gegen NFC');
+  ok(rufeAb(kernMit([kennNfd], null), 'müller-1').zustand.aktiv === kennNfd.key, 'Umlaute: Schlüssel NFC gegen NFD');
+  ok(rufeSchluesselAb(kernMit([kennNfc], null), 'Müller-1').zustand.aktiv === kennNfc.key, 'Umlaute: Schlüsselabruf NFD gegen NFC');
+  ok(rufeSchluesselAb(kernMit([kennNfd], null), 'Müller-1').zustand.aktiv === kennNfd.key, 'Umlaute: Schlüsselabruf NFC gegen NFD');
 }
 
 if (failed > 0) {
