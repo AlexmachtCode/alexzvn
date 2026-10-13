@@ -4,6 +4,7 @@ import { bilanz } from './helfer';
 import { laufe as code } from './code.test';
 import { laufe as beweis } from './beweis.test';
 import { laufe as rahmen } from './rahmen.test';
+import { laufe as showDaten } from './show-daten.test';
 import { laufe as adresswahl } from './adresswahl.test';
 import { laufe as fehler } from './fehler.test';
 import { laufe as datei } from './datei.test';
@@ -13,7 +14,7 @@ import { laufe as server } from './server.test';
 import { laufe as koppeln } from './koppeln.test';
 import { laufe as client } from './client.test';
 
-for (const laufe of [code, beweis, rahmen, adresswahl, fehler, datei, speicher, mdns, server, koppeln, client]) {
+for (const laufe of [code, beweis, rahmen, showDaten, adresswahl, fehler, datei, speicher, mdns, server, koppeln, client]) {
   await laufe();
 }
 bilanz();

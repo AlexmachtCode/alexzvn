@@ -35,6 +35,18 @@ export async function laufe(): Promise<void> {
   gleich(dekodiere('{"t":"abgelehnt","grund":"erfunden"}'), { art: 'kaputt' }, 'unbekannter Grund → kaputt');
   gleich(dekodiere('{"t":"anmelden","protokoll":1,"rechnerId":"r","rechnerName":"B","signatur":"s","teilnehmer":{"art":"x","appId":"a","name":"n","version":"v","pid":1}}'), { art: 'kaputt' }, 'Teilnehmer mit falscher Art → kaputt');
 
+  abschnitt('Rahmen: Show-Daten mit lockeren Prüfern (Teil 2b, Spec 13.2)');
+  const daten: Nachricht[] = [
+    { t: 'abo', art: 'show', fassung: 1 },
+    { t: 'stand', art: 'show', fassung: 1, epoche: 'e', folge: 0, schluessel: null, show: null, grund: 'keine-show', mitDokument: [] },
+    { t: 'aenderung', art: 'show', fassung: 1, epoche: 'e', folge: 1, schluessel: null, show: null, grund: 'keine-show', mitDokument: [] },
+  ];
+  for (const n of daten) gleich(dekodiere(kodiere(n).slice(0, -1)), { art: 'nachricht', n }, `${n.t}: kodiere → dekodiere hin und zurück`);
+  for (const zeile of ['{"t":"abo"}', '{"t":"stand","folge":"x"}', '{"t":"aenderung","show":[1,2]}', '{"t":"stand","epoche":null,"x":{}}']) {
+    gleich(dekodiere(zeile).art, 'nachricht', `${zeile} → nachricht, nie kaputt (lockerer Prüfer)`);
+  }
+  gleich(PROTOKOLL, 1, 'PROTOKOLL bleibt 1 (Fähigkeiten laufen über fassung)');
+
   abschnitt('Rahmen: Kennungen und Nonces (gehen in Beweise und Signaturen ein)');
   {
     // hallo.nonce, koppeln.nonce, koppeln.rechnerId, anmelden.rechnerId: nicht leer, höchstens 128 Zeichen, kein „|“,
@@ -308,6 +320,40 @@ export async function laufe(): Promise<void> {
     await bis(() => ende !== null, 3000);
     pruefe(ende !== null && (ende as Error).message === 'rahmen', 'ohne Anheben: ende("rahmen")');
     gleich(angekommen, ['puls'], '… die erste Zeile kam vorher an (früher ging sie mit dem ganzen Stück verloren)');
+    p.schliesse();
+  }
+
+  abschnitt('Verbindung: Show-Daten, sende mit Rückgabe, sendeZeile (Teil 2b, Spec 13.2, 13.6)');
+  {
+    const p = await tlsPaar(z);
+    const v = new Verbindung(p.server, GRENZEN.nachAnmeldung);
+    const empfangen: Nachricht[] = [];
+    let ende: Error | undefined | null = null;
+    v.on('nachricht', (n: Nachricht) => empfangen.push(n));
+    v.on('ende', (f?: Error) => { ende = f; });
+    p.client.write('{"t":"stand","folge":"x","show":[]}\n');
+    await bis(() => empfangen.length === 1 || ende !== null);
+    gleich(empfangen, [{ t: 'stand', folge: 'x', show: [] }], 'stand mit falschem Feld → Ereignis nachricht (den Inhalt prüft der Empfänger)');
+    pruefe(ende === null && v.offen, '… die Leitung bleibt');
+    let gelesen = '';
+    p.client.on('data', (d: Buffer) => { gelesen += d.toString('utf8'); });
+    const zeile = '{"t":"aenderung","art":"show","fassung":1,"epoche":"e","folge":1,"schluessel":null,"show":null,"grund":"keine-show","mitDokument":[]}\n';
+    gleich(v.sende({ t: 'puls' }), true, 'sende: offene Verbindung → true');
+    gleich(v.sendeZeile(zeile), true, 'sendeZeile: offene Verbindung → true');
+    await bis(() => gelesen.length >= 13 + zeile.length);
+    gleich(gelesen, `{"t":"puls"}\n${zeile}`, 'sendeZeile: die fertige Zeile kommt unverändert an');
+    const wirft = (x: string): boolean => {
+      try {
+        v.sendeZeile(x);
+        return false;
+      } catch {
+        return true;
+      }
+    };
+    pruefe(wirft('{"t":"puls"}'), 'sendeZeile ohne \\n am Ende → wirft');
+    pruefe(wirft('{"t":"puls"}\n{"t":"puls"}\n'), 'sendeZeile mit \\n mitten in der Zeile → wirft');
+    v.schliesse();
+    gleich([v.sende({ t: 'puls' }), v.sendeZeile(zeile)], [false, false], 'nach schliesse(): sende und sendeZeile → false');
     p.schliesse();
   }
 }

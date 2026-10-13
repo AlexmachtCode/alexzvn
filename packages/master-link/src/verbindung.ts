@@ -71,8 +71,25 @@ export class Verbindung extends EventEmitter {
     this.emit('ende', fehler);
   }
 
-  sende(n: Nachricht): void {
-    if (!this.beendet && !this.schliessend && !this.socket.destroyed) this.socket.write(kodiere(n));
+  /**
+   * Teil 2b (Spec 13.6): true, wenn die Zeile in den Schreibpuffer ging; false, wenn nichts hinausging (geschlossen,
+   * schließend oder zerstört). Ein Puffer über der Hochwassermarke ist kein false — Rückdruck misst der Server selbst
+   * über socket.writableLength (MasterLinkServer.sendeDaten).
+   */
+  sende(n: Nachricht): boolean {
+    return this.schreibe(kodiere(n));
+  }
+
+  /** Teil 2b (Spec 13.6): eine fertige Zeile (kodiereStand) — genau ein '\n', am Ende; sonst wirft sie (Programmfehler). */
+  sendeZeile(zeile: string): boolean {
+    if (zeile.indexOf('\n') !== zeile.length - 1) throw new Error('sendeZeile: genau eine Zeile mit \\n am Ende erwartet');
+    return this.schreibe(zeile);
+  }
+
+  private schreibe(zeile: string): boolean {
+    if (this.beendet || this.schliessend || this.socket.destroyed) return false;
+    this.socket.write(zeile);
+    return true;
   }
 
   setzeGrenze(grenze: number): void {

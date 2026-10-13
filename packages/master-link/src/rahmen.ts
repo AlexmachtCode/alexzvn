@@ -16,6 +16,16 @@ export interface TeilnehmerInfo {
   pid: number;
 }
 
+/**
+ * Show-Daten (Teil 2b, Spec 13.1): `abo` (Tool → Master), `stand` und `aenderung` (Master → Tool). Der Rahmen nimmt sie
+ * mit lockeren Prüfern an: ein falsches Feld kappt nie die Leitung (Spec 13.2). Den Inhalt prüft der Empfänger mit
+ * pruefeAbo/pruefeStand (show-daten.ts).
+ */
+export interface DatenZeile {
+  t: 'abo' | 'stand' | 'aenderung';
+  [feld: string]: unknown;
+}
+
 export type Nachricht =
   | { t: 'hallo'; protokoll: number; masterId: string; name: string; nonce: string }
   | { t: 'koppeln'; protokoll: number; rechnerId: string; rechnerName: string; nonce: string; schluessel: string; beweis: string }
@@ -24,7 +34,8 @@ export type Nachricht =
   | { t: 'teilnehmer'; teilnehmer: TeilnehmerInfo }
   | { t: 'angemeldet'; adressen: string[]; suite: string }
   | { t: 'abgelehnt'; grund: Grund; rest?: number; master?: number; suite?: string }
-  | { t: 'puls' };
+  | { t: 'puls' }
+  | DatenZeile;
 
 export type Dekodiert = { art: 'nachricht'; n: Nachricht } | { art: 'unbekannt'; t: string } | { art: 'kaputt' };
 
@@ -73,6 +84,10 @@ const PRUEFER = new Map<string, (o: Objekt) => boolean>([
   ['abgelehnt', (o) => istText(o.grund) && GRUENDE.has(o.grund)
     && optional(o.rest, istZahl) && optional(o.master, istZahl) && optional(o.suite, istText)],
   ['puls', () => true],
+  // Teil 2b (Spec 13.2): lockere Prüfer — jedes Objekt gilt, nie 'kaputt'. Den Inhalt prüft der Empfänger.
+  ['abo', () => true],
+  ['stand', () => true],
+  ['aenderung', () => true],
 ]);
 
 export function dekodiere(zeile: string): Dekodiert {
