@@ -203,6 +203,17 @@ nicht über Freigaben; Rechner werden einmal mit einem Code gekoppelt.
 | **3 · Fernstart** | Tools auf anderen Rechnern starten | ⚪ |
 | **4 · Show-Zentrale** | eigenes Fenster am Master (Muster Titler-Recall-Board) | ⚪ |
 
+- ⚪ **Kopien aus 2b R2 zusammenführen** (Folgeaufgabe nach Ruling K10 der Umsetzung, kein Issue angelegt): Dieselbe
+  Logik steht in R2 bewusst mehrfach. Einen Fehlercode aus einer Ausnahme lesen `wurfCode`
+  (`packages/master-link/src/server.ts` und `client.ts`), `grundAus` (`packages/app-runtime/src/verbund-daten.ts`) und
+  `codeAus` (`packages/app-runtime/src/verbund-speicher.ts`). Je Tool stehen `VerbundAnzeigeZeile`
+  (`apps/timer/src/shared/verbund.ts`, `apps/titler/src/shared/types.ts`, `apps/rundown/src/shared/types.ts`) und
+  `VERBUND_FARBE` (Timer `Topbar.tsx`, Titler `OperatorView.tsx`, Rundown `ToolLinks.tsx`). Die Adress-Normierung
+  `normAdresse` für `waehleLauncher` (`apps/rundown/src/shared/conductor.ts`) steht neben `normiereHost`
+  (`packages/master-link/src/adresswahl.ts`). Gründe in R2: keine Laufzeitimporte in `src/shared` der Tools (G7),
+  app-runtime bleibt aus dem Web-Typecheck der Tools (E28), `server.ts` importiert `client.ts` nicht. Bis dahin gilt:
+  Wer Fehlercodes, Anzeige-Farben oder die Adress-Regel ändert, zieht alle Kopien mit.
+
 ---
 
 ## 2 · Parallel-Spuren
