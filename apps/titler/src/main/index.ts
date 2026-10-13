@@ -30,6 +30,7 @@ import { leseGemerkteShow, leseShowSicher, loescheGemerkteShow, schreibeGemerkte
 import { hinweisLogZeile, hinweisText, waehleHinweis } from '@shared/datalink-kern';
 import {
   eigenerOrdner,
+  istMasterForm,
   logNachMerken,
   zeigtShow,
   quellSchritt,
@@ -38,6 +39,7 @@ import {
   tsvNichtGeschrieben,
   uebergang,
   zurueckKnopf,
+  type GemerkteShowPfad,
   type QuellEreignis,
   type QuellSchritt,
   type QuellWeg,
@@ -143,6 +145,12 @@ function userDataDir(): string {
   return app.getPath('userData');
 }
 
+/** Gemerkte eigene Show (Pfad-Form) oder null — die Master-Form hat keinen Pfad (Spec 17.2). */
+function gemerktePfadShow(userData: string): GemerkteShowPfad | null {
+  const g = leseGemerkteShow(userData);
+  return istMasterForm(g) ? null : g;
+}
+
 /** Logzeilen des DataLink-Kerns (Spec 7.9) ins App-Log. */
 function logDataLink(zeile: string): void {
   getLog().info(zeile);
@@ -227,7 +235,7 @@ function oeffneShow(pfad: string, weg: QuellWeg): QuellSchritt {
     ereignis = { t: 'gelesen', weg, pfad, show: gelesen.show, gleicheShow };
   } else {
     getLog().warn(`Show nicht lesbar (${gelesen.grund}): ${pfad}`);
-    ereignis = { t: 'nichtLesbar', weg, pfad, grund: gelesen.grund, gemerkt: leseGemerkteShow(userData), mitEigenemOrdner };
+    ereignis = { t: 'nichtLesbar', weg, pfad, grund: gelesen.grund, gemerkt: gemerktePfadShow(userData), mitEigenemOrdner };
   }
   currentShowPath = pfad;
   let s = quellSchritt(quelle, ereignis);
@@ -237,7 +245,7 @@ function oeffneShow(pfad: string, weg: QuellWeg): QuellSchritt {
     const fehler = schreibeSpeakersTsvSicher(iveoData, s.tsv);
     if (fehler) {
       getLog().error(`iveo: speakers.tsv konnte nicht geschrieben werden: ${fehler.meldung}`);
-      s = tsvNichtGeschrieben(quelle, s, { weg, pfad, grund: fehler.grund, gemerkt: leseGemerkteShow(userData), mitEigenemOrdner });
+      s = tsvNichtGeschrieben(quelle, s, { weg, pfad, grund: fehler.grund, gemerkt: gemerktePfadShow(userData), mitEigenemOrdner });
     } else {
       getLog().info(`iveo: ${s.tsv.length} Speaker aus Show in den DataLink übernommen.`);
     }
@@ -298,12 +306,14 @@ function starteDatenquelle(deepLink: string | null): void {
   }
   quelle = startZustand(gemerkt, ue.frueher);
   // Die gemerkte Show ist die verbundene Show: Ziel von RELOAD und Vergleich „dieselbe Show“.
-  currentShowPath = gemerkt?.showPfad ?? null;
+  // Die Master-Form (Spec 17.2) hat keinen Pfad: kein RELOAD-Ziel, nichts zu lesen.
+  const gemerktPfad = istMasterForm(gemerkt) ? null : gemerkt;
+  currentShowPath = gemerktPfad?.showPfad ?? null;
   datenquelleGestartet = true;
   const link = deepLink ?? wartenderDeepLink;
   wartenderDeepLink = null;
   if (link && parseShowDeepLink(link)) applyShowFromDeepLink(link);
-  else if (gemerkt) oeffneShow(gemerkt.showPfad, 'start');
+  else if (gemerktPfad) oeffneShow(gemerktPfad.showPfad, 'start');
   else refreshDataWatch();
 }
 

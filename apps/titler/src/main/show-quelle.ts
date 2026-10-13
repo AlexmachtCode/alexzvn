@@ -15,7 +15,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseShow, type Show } from '@jm/show';
-import type { GemerkteShow } from '../shared/datenquelle';
+import { istMasterForm, type GemerkteShow } from '../shared/datenquelle';
 
 /** Dateiname der gemerkten Show im userData-Ordner (G6). */
 export const GEMERKT_DATEI = 'show-zuletzt.json';
@@ -23,7 +23,14 @@ export const GEMERKT_DATEI = 'show-zuletzt.json';
 /** Nur ein Fehlercode wie ENOENT oder EBUSY, nie ein Fehlertext (der kann Inhalt tragen). */
 const FEHLERCODE = /^[A-Z][A-Z0-9_]*$/;
 
-/** Gemerkte Show lesen. `null`, wenn die Datei fehlt, kein gültiges JSON ist oder ein Feld nicht stimmt. */
+/** Schlüssel einer Show am Master (Spec 13.2): genau 16 Zeichen [0-9a-f]. */
+const MASTER_SCHLUESSEL = /^[0-9a-f]{16}$/;
+
+/**
+ * Gemerkte Show lesen. `null`, wenn die Datei fehlt, kein gültiges JSON ist oder ein Feld nicht stimmt.
+ * Zwei Formen (Spec 17.2): `{ quelle: 'master', masterId, schluessel, showName }` im Verbundmodus,
+ * sonst `{ showPfad, showName, mitSpeakern }`. Eine Datei mit `quelle: 'master'` gilt nie als Pfad-Form.
+ */
 export function leseGemerkteShow(userData: string): GemerkteShow | null {
   let roh: unknown;
   try {
@@ -33,6 +40,12 @@ export function leseGemerkteShow(userData: string): GemerkteShow | null {
   }
   if (!roh || typeof roh !== 'object' || Array.isArray(roh)) return null;
   const o = roh as Record<string, unknown>;
+  if (o.quelle === 'master') {
+    if (typeof o.masterId !== 'string' || !o.masterId.trim()) return null;
+    if (o.schluessel !== null && (typeof o.schluessel !== 'string' || !MASTER_SCHLUESSEL.test(o.schluessel))) return null;
+    if (typeof o.showName !== 'string') return null;
+    return { quelle: 'master', masterId: o.masterId, schluessel: o.schluessel, showName: o.showName };
+  }
   if (typeof o.showPfad !== 'string' || !o.showPfad.trim()) return null;
   if (typeof o.showName !== 'string') return null;
   if (typeof o.mitSpeakern !== 'boolean') return null;
@@ -45,7 +58,9 @@ export function schreibeGemerkteShow(userData: string, wert: GemerkteShow): bool
   const zwischen = `${ziel}.tmp`;
   try {
     mkdirSync(userData, { recursive: true });
-    const inhalt = { showPfad: wert.showPfad, showName: wert.showName, mitSpeakern: wert.mitSpeakern };
+    const inhalt = istMasterForm(wert)
+      ? { quelle: 'master', masterId: wert.masterId, schluessel: wert.schluessel, showName: wert.showName }
+      : { showPfad: wert.showPfad, showName: wert.showName, mitSpeakern: wert.mitSpeakern };
     writeFileSync(zwischen, JSON.stringify(inhalt, null, 2) + '\n', 'utf8');
     renameSync(zwischen, ziel);
     return true;
