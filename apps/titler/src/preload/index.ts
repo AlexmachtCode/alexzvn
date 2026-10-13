@@ -11,6 +11,7 @@ import type {
   TitlerState,
   TitlerStatus,
   TitlerTemplateAddRequest,
+  VerbundAnzeigeZeile,
 } from '@shared/types';
 
 // Den vom Main übertragenen Frame-MessagePort in den Renderer-Main-World
@@ -85,6 +86,12 @@ const api: JmtitlerApi = {
   pickImportFile: () => ipcRenderer.invoke('titler:pickImportFile') as Promise<OpenedImportFile | null>,
   readFile: (path: string) => ipcRenderer.invoke('titler:readFile', path) as Promise<OpenedImportFile | null>,
   pathForFile: (file: File) => webUtils.getPathForFile(file),
+  verbundAnzeige: () => (ipcRenderer.invoke('jmps:verbund-anzeige') as Promise<VerbundAnzeigeZeile | null>).catch(() => null),
+  onVerbundAnzeige: (cb) => {
+    const listener = (_e: unknown, a: VerbundAnzeigeZeile | null): void => cb(a);
+    ipcRenderer.on('jmps:verbund-anzeige', listener);
+    return () => ipcRenderer.off('jmps:verbund-anzeige', listener);
+  },
 };
 
 if (process.contextIsolated) {

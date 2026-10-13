@@ -2,8 +2,18 @@ import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron';
 import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { initAppRuntime, getLog } from '@jm/app-runtime';
-import { parseShow, parseShowDeepLink } from '@jm/show';
+import {
+  initAppRuntime,
+  getLog,
+  folgeMasterShow,
+  imVerbundmodus,
+  nichtAngewendet,
+  verbundDatenErsetzt,
+  verbundIgnoriert,
+  verbundKopplung,
+  type MasterStand,
+} from '@jm/app-runtime';
+import { parseShow, parseShowDeepLink, type Show } from '@jm/show';
 import type {
   DisplayInfo,
   OpenedImportFile,
@@ -32,6 +42,9 @@ import {
   eigenerOrdner,
   istMasterForm,
   logNachMerken,
+  ordnerPatchAbgelehnt,
+  ordnerWahlGesperrt,
+  verbundEndetFuer,
   zeigtShow,
   quellSchritt,
   quellZeile,
@@ -167,11 +180,13 @@ function uebernimmDataState(d: DataState): void {
   const h = waehleHinweis(d.hinweis, quelle.quellHinweis);
   status.hinweis = h ? { art: h.art, text: hinweisText(h) } : undefined;
   const eigener = eigenerOrdner(getConfig().dataFolder, iveoDataDir(userDataDir()), path.resolve);
+  const gesperrt = ordnerWahlGesperrt(quelle);
   status.datenQuelle = {
     art: quelle.art,
     zeile: quellZeile(quelle, eigener, d.entries.length),
     zurueckKnopf: zurueckKnopf(quelle, eigener),
     ohneOrdner: quelle.art === 'ordner' && !eigener,
+    ...(gesperrt ? { ordnerGesperrt: gesperrt } : {}),
   };
   broadcastStatus();
   updateTitlerData(d.companion);
@@ -239,6 +254,7 @@ function oeffneShow(pfad: string, weg: QuellWeg): QuellSchritt {
   }
   currentShowPath = pfad;
   let s = quellSchritt(quelle, ereignis);
+  let angewendet = ereignis.t === 'gelesen';
   if (s.tsv) {
     // Die TSV vor dem Übernehmen schreiben: Scheitert das, gilt der Schritt nicht (Befund 4) — sonst nennte die
     // Quellzeile die neue Show über der Liste der vorigen. Die Show zählt dann wie nicht lesbar (H4 bei Art show).
@@ -246,11 +262,45 @@ function oeffneShow(pfad: string, weg: QuellWeg): QuellSchritt {
     if (fehler) {
       getLog().error(`iveo: speakers.tsv konnte nicht geschrieben werden: ${fehler.meldung}`);
       s = tsvNichtGeschrieben(quelle, s, { weg, pfad, grund: fehler.grund, gemerkt: gemerktePfadShow(userData), mitEigenemOrdner });
+      angewendet = false;
     } else {
       getLog().info(`iveo: ${s.tsv.length} Speaker aus Show in den DataLink übernommen.`);
     }
   }
-  return wendeQuellSchrittAn(s);
+  const schritt = wendeQuellSchrittAn(s);
+  // Eine eigene Show ersetzt die Daten eines früheren Masters (Spec 16.1, E16): Zwischenspeicher weg.
+  if (angewendet) verbundDatenErsetzt();
+  return schritt;
+}
+
+/**
+ * Stand vom Master anwenden (Spec 17.2): wie eine gelesene Show, nur mit dem Show-Objekt statt
+ * des Pfads. Ob es dieselbe Show ist, entscheidet `quellSchritt` (E21). Ist die `speakers.tsv`
+ * nicht schreibbar, bleiben Quelle und Liste mit H4 stehen, und die Funktion wirft
+ * `nichtAngewendet(⟨Fehlercode⟩)`: app-runtime zeigt V12 „Show vom Master nicht übernommen: ⟨Fehlercode⟩“
+ * und versucht es bis zu fünfmal im Abstand von 1 s erneut (Spec 16.2). Ein einfaches Error
+ * zeigte dort nur „Error“ (N3).
+ */
+function wendeMasterStandAn(stand: MasterStand & { show: Show }): void {
+  const iveoData = iveoDataDir(userDataDir());
+  const s = quellSchritt(quelle, {
+    t: 'masterStand',
+    masterId: stand.masterId,
+    masterName: stand.masterName,
+    schluessel: stand.schluessel,
+    show: stand.show,
+  });
+  if (s.tsv) {
+    const fehler = schreibeSpeakersTsvSicher(iveoData, s.tsv);
+    if (fehler) {
+      getLog().error(`iveo: speakers.tsv konnte nicht geschrieben werden: ${fehler.meldung}`);
+      const mitEigenemOrdner = eigenerOrdner(getConfig().dataFolder, iveoData, path.resolve) !== '';
+      wendeQuellSchrittAn(tsvNichtGeschrieben(quelle, s, { weg: 'reload', pfad: '', grund: fehler.grund, gemerkt: null, mitEigenemOrdner }));
+      throw nichtAngewendet(fehler.grund);
+    }
+    getLog().info(`iveo: ${s.tsv.length} Speaker aus Show in den DataLink übernommen.`);
+  }
+  wendeQuellSchrittAn(s);
 }
 
 /**
@@ -265,6 +315,12 @@ function applyShowFromDeepLink(url: string): void {
     wartenderDeepLink = url; // starteDatenquelle holt ihn nach
     return;
   }
+  // Im Verbundmodus liefert ein Show-Deep-Link nur Dokumente (Spec 16.1, 17.2): nur die Vorlage (C3).
+  if (imVerbundmodus()) {
+    verbundIgnoriert('deeplink', showPath);
+    void openShowDocument(showPath);
+    return;
+  }
   const schritt = oeffneShow(showPath, 'deepLink');
   // C3: die referenzierte Bauchbinden-Vorlage nur beim Deep-Link öffnen (Spec 7.7).
   if (schritt.vorlage) void openShowDocument(showPath);
@@ -272,6 +328,11 @@ function applyShowFromDeepLink(url: string): void {
 
 /** Aktuelle Show neu einlesen (Launcher schickt `TITLER RELOAD` nach iveo-Update). */
 function reloadCurrentShow(): boolean {
+  // Im Verbundmodus kommen die Show-Daten vom Master (Spec 16.1).
+  if (imVerbundmodus()) {
+    verbundIgnoriert('reload');
+    return false;
+  }
   if (!currentShowPath) {
     // SICHTBAR statt still — derselbe Fall wie im Timer (Ist-Karte 30.09.2026):
     // der Launcher zählt den Titler als "benachrichtigt", ohne Show-Pfad gibt
@@ -289,11 +350,34 @@ function reloadCurrentShow(): boolean {
 function eigenerOrdnerGilt(t: 'ordnerGewaehlt' | 'zurueckZumOrdner'): void {
   currentShowPath = null; // gemerkte Show wird gelöscht → ein späteres RELOAD warnt wie früher
   wendeQuellSchrittAn(quellSchritt(quelle, { t }));
+  // Außerhalb des Verbunds wählt der Bediener damit auch die Daten eines früheren Masters ab:
+  // ein Neustart soll sie nicht aus dem Zwischenspeicher zurückholen (Ergänzung zu E16).
+  if (!imVerbundmodus()) verbundDatenErsetzt();
 }
 
 /**
- * Start der Datenquelle (Spec 7.7): Übergang für ein von einer Show gesetztes iveo-data,
- * gemerkte Show lesen, dann Deep-Link oder — ohne Deep-Link — die gemerkte Show anwenden.
+ * Bei Quelle master (Spec 17.2, O1) ist die Ordnerwahl gesperrt — auch im Main (E22). true = abgelehnt, mit Warnung.
+ * `gesperrt` ist der Text aus 17.2 oder null; ohne Angabe gilt `ordnerWahlGesperrt(quelle)` (Dialog, Knopf K1).
+ */
+function ordnerWahlAbgelehnt(gesperrt: string | null = ordnerWahlGesperrt(quelle)): boolean {
+  if (!gesperrt) return false;
+  getLog().warn(`DataLink: Ordnerwahl abgelehnt. ${gesperrt}`);
+  return true;
+}
+
+/**
+ * Ende des Verbundmodus (Spec 16.1): Quelle master → frueher (17.2). app-runtime meldet `frueher`, ohne angewendeten
+ * Stand aber `einzelplatz` bzw. `datei-defekt`; die reine Regel `verbundEndetFuer` kennt alle drei (N8).
+ */
+function beiVerbundWechsel(art: string): void {
+  if (verbundEndetFuer(quelle, art)) wendeQuellSchrittAn(quellSchritt(quelle, { t: 'verbundEnde' }));
+}
+
+/**
+ * Start der Datenquelle (Spec 7.7, 17.2): Übergang für ein von einer Show gesetztes iveo-data,
+ * gemerkte Show lesen, ohne Deep-Link die gemerkte Show anwenden. Danach dem Master folgen
+ * (E17: erst jetzt; ein Zwischenspeicher wird dabei angewendet) und erst dann den Deep-Link:
+ * im Verbundmodus liefert er nur die Vorlage (Spec 16.1, 16.3 „sofort Verbundmodus“).
  */
 function starteDatenquelle(deepLink: string | null): void {
   const userData = userDataDir();
@@ -304,7 +388,13 @@ function starteDatenquelle(deepLink: string | null): void {
     patchConfig({ dataFolder: '' });
     broadcastConfig();
   }
-  quelle = startZustand(gemerkt, ue.frueher);
+  const kopplung = verbundKopplung();
+  const gekoppelterMaster = kopplung?.rolle === 'slave' ? kopplung.masterId : null;
+  quelle = startZustand(gemerkt, ue.frueher, gekoppelterMaster);
+  // Die Master-Form kennt den Namen des Masters nicht; bis zum ersten Stand gilt der aus der Kopplung (Text O1).
+  if (quelle.master && !quelle.master.masterName && kopplung?.masterName && kopplung.masterId === quelle.master.masterId) {
+    quelle = { ...quelle, master: { ...quelle.master, masterName: kopplung.masterName } };
+  }
   // Die gemerkte Show ist die verbundene Show: Ziel von RELOAD und Vergleich „dieselbe Show“.
   // Die Master-Form (Spec 17.2) hat keinen Pfad: kein RELOAD-Ziel, nichts zu lesen.
   const gemerktPfad = istMasterForm(gemerkt) ? null : gemerkt;
@@ -312,9 +402,16 @@ function starteDatenquelle(deepLink: string | null): void {
   datenquelleGestartet = true;
   const link = deepLink ?? wartenderDeepLink;
   wartenderDeepLink = null;
-  if (link && parseShowDeepLink(link)) applyShowFromDeepLink(link);
-  else if (gemerktPfad) oeffneShow(gemerktPfad.showPfad, 'start');
-  else refreshDataWatch();
+  const showLink = link && parseShowDeepLink(link) ? link : null;
+  if (!showLink) {
+    if (gemerktPfad) oeffneShow(gemerktPfad.showPfad, 'start');
+    else refreshDataWatch();
+  }
+  folgeMasterShow({
+    anwenden: (stand) => wendeMasterStandAn(stand),
+    beiWechsel: (d) => beiVerbundWechsel(d.art),
+  });
+  if (showLink) applyShowFromDeepLink(showLink);
 }
 
 // ── Show-Integration (C3): referenzierte Bauchbinden-Vorlage öffnen ──────────
@@ -546,6 +643,12 @@ function registerIpc(): void {
   ipcMain.handle('titler:getState', () => buildState());
   ipcMain.handle('titler:setConfig', (_e, patch: PartialTitlerConfig) => {
     const before = getConfig().dataFolder;
+    // E22: Bei Quelle master bleibt der Ordner, wie er ist — auch ohne Dialog (Config-Patch). Der Rest gilt.
+    // Die Regel ist rein und in C15 getestet (ordnerPatchAbgelehnt).
+    if (ordnerWahlAbgelehnt(ordnerPatchAbgelehnt(patch.dataFolder, before, quelle))) {
+      patch = { ...patch };
+      delete patch.dataFolder;
+    }
     patchConfig(patch);
     // Spec 7.7: Wählt der Bediener einen DataLink-Ordner, gilt der eigene Ordner (gemerkte Show gelöscht).
     if (patch.dataFolder !== undefined && patch.dataFolder !== before) eigenerOrdnerGilt('ordnerGewaehlt');
@@ -555,6 +658,7 @@ function registerIpc(): void {
     return buildState();
   });
   ipcMain.handle('titler:pickDataFolder', async () => {
+    if (ordnerWahlAbgelehnt()) return ''; // E22: wie „abgebrochen“
     const r = await dialog.showOpenDialog({
       title: 'DataLink-Ordner wählen',
       properties: ['openDirectory'],
@@ -570,7 +674,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('titler:stepEntry', (_e, delta: number) => step(delta));
   // Knopf K1 „Zurück zum eigenen Ordner“ (Spec 7.7).
-  ipcMain.handle('titler:zurueckZumOrdner', () => eigenerOrdnerGilt('zurueckZumOrdner'));
+  ipcMain.handle('titler:zurueckZumOrdner', () => {
+    if (!ordnerWahlAbgelehnt()) eigenerOrdnerGilt('zurueckZumOrdner'); // E22
+  });
   ipcMain.handle('titler:openRecall', () => createRecallWindow());
   ipcMain.handle('titler:listDisplays', () => toDisplayInfo());
   // Grafik-Vorlagen-Library (#162): list/add/remove/read-bg + Änderungs-Broadcast.
