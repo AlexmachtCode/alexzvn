@@ -15,7 +15,7 @@ import {
   type MasterStand,
 } from '@jm/app-runtime';
 import { parseShowDeepLink, type Show, type ShowIveoProgramRef, type ShowIveoSpeaker } from '@jm/show';
-import { berichtIstLeer, wendeShowAn } from '@shared/abgleich';
+import { berichtIstLeer, ohneErfundeneScharfMeldung, wendeShowAn } from '@shared/abgleich';
 import { waehleAusgangsstand, type DateiStand, type GedaechtnisInhalt } from '@shared/ausgangsstand';
 import {
   buildActionLine,
@@ -439,7 +439,8 @@ function gleicheMitMasterAb(start: RundownDoc, nextPath: string | null, show: Sh
   rev++;
   abgleichRev = rev;
   // Nur bei einem schon abgeglichenen Vorstand: entfallene Zeilen und Kontextwechsel nie still (4.6, #375).
-  if (ausgang.kontext !== undefined) zeigeAbgleichHinweise(res, show);
+  // Ohne „scharfe Zeile entfallen“: die scharfe Zeile oben ist erfunden (ersteLebendeZeile), R-375b.
+  if (ausgang.kontext !== undefined) zeigeAbgleichHinweise(ohneErfundeneScharfMeldung(res), show);
   sichere();
   broadcast();
 }

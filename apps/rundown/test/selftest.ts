@@ -13,7 +13,7 @@ import {
   type KopplungFuerWahl,
 } from '../src/shared/conductor.ts';
 import type { RundownDoc } from '../src/shared/types.ts';
-import { kontextVon, wendeShowAn } from '../src/shared/abgleich.ts';
+import { kontextVon, ohneErfundeneScharfMeldung, wendeShowAn } from '../src/shared/abgleich.ts';
 import { parseShow, serializeShow } from '@jm/show';
 import { LEERER_BERICHT, berichtIstLeer, ersatzSchluessel, gleicheAb } from '../src/shared/abgleich.ts';
 import type { AbgleichBericht } from '../src/shared/abgleich.ts';
@@ -1979,6 +1979,46 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
     { weg: 'ignorieren', log: 'Verbund: Show-Link „[Gala.jmshow]“ – der Rundown folgt der Show vom Master und lädt daraus nichts.' },
     '17.3 … der Name läuft durch die Kürzung (im Main kuerzeName), auch bei Pfaden mit /',
   );
+}
+
+// ── Teil 2b R2 · „Öffnen…“/„Neu“ im Verbund: keine Meldung zu einer erfundenen scharfen Zeile (17.3, R-375b) ──
+{
+  // Nachgespielt: Ablauf Begrüßung, Keynote, Panel ist abgeglichen; am Master gibt es nur noch Keynote und Panel.
+  // gleicheMitMasterAb übergibt die erste lebende Zeile als scharfe. Die ist erfunden: scharf war sie nie.
+  const ausgang: RundownDoc = {
+    schemaVersion: 2,
+    name: 'Gala',
+    kontext: 'show',
+    rows: [
+      abZeile('A', [abAktion('a1')], { label: 'Begrüßung' }),
+      abZeile('B', [], { label: 'Keynote' }),
+      abZeile('C', [], { label: 'Panel' }),
+    ],
+  };
+  const show = { name: 'Gala', ablauf: [abPunkt('B', { label: 'Keynote' }), abPunkt('C', { label: 'Panel' })] };
+  const res = wendeShowAn({ doc: ausgang, scharfId: zeilenModul.ersteLebendeZeile(ausgang.rows), show });
+  eq(res.bericht?.scharfVerrueckt ?? null, { von: 'Begrüßung', nach: 'Keynote' }, 'R-375b Vorbedingung: der Abgleich meldet die erfundene scharfe Zeile als entfallen');
+  const ohne = ohneErfundeneScharfMeldung(res);
+  eq(ohne.bericht?.scharfVerrueckt, null, 'R-375b: ohneErfundeneScharfMeldung → keine Meldung „Deine scharfe Zeile … ist entfallen“');
+  eq(ohne.bericht, { ...res.bericht, scharfVerrueckt: null }, 'R-375b: die übrigen Teile des Berichts bleiben');
+  eq(ohne.bericht?.entfallen, 1, 'R-375b: … darunter die entfallene Zeile (Hinweis „1 entfallen“)');
+  eq(
+    [ohne.scharfId, ohne.kontextGewechselt, ohne.doc === res.doc, ohne.umbenannt === res.umbenannt],
+    ['B', false, true, true],
+    'R-375b: Wahl der scharfen Zeile, Dokument und Umbenennungen unverändert',
+  );
+  eq(res.bericht?.scharfVerrueckt ?? null, { von: 'Begrüßung', nach: 'Keynote' }, 'R-375b: die Eingabe bleibt unverändert (Kopie)');
+}
+{
+  // Anderer Kontext: kein Bericht, die Wechselmeldung bleibt.
+  const ausgang: RundownDoc = { schemaVersion: 2, name: 'COP31', kontext: 'se:pA', rows: [abZeile('a1p'), abZeile('a2p')] };
+  const res = wendeShowAn({
+    doc: ausgang,
+    scharfId: zeilenModul.ersteLebendeZeile(ausgang.rows),
+    show: { name: 'COP31', ablauf: [abPunkt('b1p')], iveo: { filter: { programId: 'pB' } } },
+  });
+  const ohne = ohneErfundeneScharfMeldung(res);
+  eq([ohne.kontextGewechselt, ohne.bericht, ohne.doc.kontext, ohne.scharfId], [true, null, 'se:pB', 'b1p'], 'R-375b: Kontextwechsel bleibt (Wechselmeldung, kein Bericht)');
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
