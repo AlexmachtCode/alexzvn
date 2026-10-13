@@ -33,17 +33,23 @@ export class Verbindung extends EventEmitter {
     return !this.beendet && !this.schliessend;
   }
 
+  /**
+   * Teil 2b (Spec 13.5): eine Zeile entnehmen, ausgeben, erst dann die nächste entnehmen. Die Grenze gilt so je Zeile —
+   * hebt der Zuhörer von 'angemeldet' sie an, gilt für die nächste Zeile desselben Stücks schon 1 MiB.
+   */
   private aufDaten(d: Buffer): void {
     if (this.beendet || this.schliessend) return;
-    let zeilen: string[];
-    try {
-      zeilen = this.leser.fuettere(d);
-    } catch {
-      this.brich();
-      return;
-    }
-    for (const zeile of zeilen) {
+    this.leser.fuettere(d);
+    for (;;) {
       if (this.beendet || this.schliessend) return;
+      let zeile: string | null;
+      try {
+        zeile = this.leser.naechste();
+      } catch {
+        this.brich();
+        return;
+      }
+      if (zeile === null) return;
       const r = dekodiere(zeile);
       if (r.art === 'kaputt') {
         this.brich();
