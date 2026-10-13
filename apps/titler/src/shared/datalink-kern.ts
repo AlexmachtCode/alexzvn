@@ -231,7 +231,12 @@ export function leererKern(): KernZustand {
 
 /** Label-Vergleich für Brücke und Abruf: getrimmt, Leerraum zusammengefasst, klein. */
 function normLabel(s: string): string {
-  return s.trim().replace(/\s+/g, ' ').toLowerCase();
+  return s.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** Schlüssel für Vergleiche: NFC und Kleinschreibung („Jörg“ in NFD trifft „Jörg“ in NFC). */
+function normSchluessel(s: string): string {
+  return s.normalize('NFC').toLowerCase();
 }
 
 /** Steht ein Eintrag mit diesem Label in der Liste (Vergleich wie `normLabel`)? */
@@ -505,7 +510,7 @@ export function rufeAb(z: KernZustand, ref: string): KernSchritt {
     if (!kennung) return { zustand: z, log: [] };
     const name = rest.join(' ');
     // Nur echte Kennungen (Spalte @kennung), nie Ersatz-Schlüssel (Vor-Release V3).
-    let stelle = liste.findIndex((e) => !istErsatzSchluessel(e.key) && e.key.toLowerCase() === kennung.toLowerCase());
+    let stelle = liste.findIndex((e) => !istErsatzSchluessel(e.key) && normSchluessel(e.key) === normSchluessel(kennung));
     if (stelle < 0 && name) stelle = liste.findIndex((e) => normLabel(e.label) === normLabel(name));
     return stelle >= 0 ? waehle(z, stelle) : ohneTreffer(z, name || kennung);
   }
@@ -513,9 +518,9 @@ export function rufeAb(z: KernZustand, ref: string): KernSchritt {
     const stelle = Number(t) - 1;
     return stelle >= 0 && stelle < liste.length ? waehle(z, stelle) : ohneTreffer(z, t);
   }
-  const lc = t.toLowerCase();
+  const lc = normSchluessel(t);
   const gesucht = normLabel(t);
-  let stelle = liste.findIndex((e) => e.key.toLowerCase() === lc);
+  let stelle = liste.findIndex((e) => normSchluessel(e.key) === lc);
   if (stelle < 0) stelle = liste.findIndex((e) => normLabel(e.label) === gesucht);
   if (stelle < 0) stelle = liste.findIndex((e) => normLabel(e.label).includes(gesucht));
   return stelle >= 0 ? waehle(z, stelle) : ohneTreffer(z, t);
@@ -524,7 +529,12 @@ export function rufeAb(z: KernZustand, ref: string): KernSchritt {
 /** Klick in Liste oder Board (IPC `titler:recallSchluessel`): nur der Schlüssel, exakt. Leer oder nur Leerraum → wirkungslos. */
 export function rufeSchluesselAb(z: KernZustand, key: string): KernSchritt {
   if (!key || !key.trim()) return { zustand: z, log: [] };
-  const stelle = stelleVon(z.eintraege, key);
+  let stelle = stelleVon(z.eintraege, key);
+  if (stelle < 0) {
+    // Nur die Unicode-Normalform wird ausgeglichen (NFD gegen NFC), Groß-/Kleinschreibung bleibt exakt.
+    const nfc = key.normalize('NFC');
+    stelle = z.eintraege.findIndex((e) => e.key.normalize('NFC') === nfc);
+  }
   return stelle >= 0 ? waehle(z, stelle) : ohneTreffer(z, key);
 }
 
