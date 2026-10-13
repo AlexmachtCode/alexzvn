@@ -91,24 +91,43 @@ function pruefeAbbruch(): void {
   if (abbruchGrund) throw new Error(`abgebrochen: ${abbruchGrund}`);
 }
 /** Wartet, bis f() einen wahren Wert liefert. Eine Ausnahme zählt als „noch nicht“ und wird gemerkt (E26).
- *  Nach einem Abbruch wirft bis() — außer im Aufräumen (imAufraeumen), das selbst auf Prozesse und Ports wartet. */
+ *  Nach einem Abbruch wirft bis(), auch wenn er während f() kam (#413) — außer im Aufräumen (imAufraeumen),
+ *  das selbst auf Prozesse und Ports wartet. */
 async function bis<T>(f: () => T | Promise<T>, maxMs: number, schrittMs = 200, imAufraeumen = false): Promise<T | null> {
   const ende = Date.now() + maxMs;
   for (;;) {
     if (!imAufraeumen) pruefeAbbruch();
+    let v: T | null = null;
     try {
-      const v = await f();
-      if (v) return v;
+      v = await f();
     } catch (e) {
       letzterFehler = (e as Error).message;
     }
+    if (!imAufraeumen) pruefeAbbruch();
+    if (v) return v;
     if (Date.now() >= ende) return null;
     await sleep(schrittMs);
   }
 }
-/** Text für eine Detailzeile; eine Ausnahme wird zum Text statt zum Abbruch. */
+/** Pause in main(): Ein Abbruch davor oder währenddessen hält main sofort an (#413). Das Aufräumen nimmt sleep(). */
+async function pause(ms: number): Promise<void> {
+  pruefeAbbruch();
+  await sleep(ms);
+  pruefeAbbruch();
+}
+/** Text für eine Detailzeile; eine Ausnahme wird zum Text statt zum Abbruch. Ein Abbruch dagegen hält main an
+ *  und wird nie zum Detailtext (#413). */
 async function sicher(f: () => Promise<string> | string): Promise<string> {
-  try { return await f(); } catch (e) { return `Fehler: ${(e as Error).message}`; }
+  pruefeAbbruch();
+  let text: string;
+  try {
+    text = await f();
+  } catch (e) {
+    if (abbruchGrund) throw e;
+    return `Fehler: ${(e as Error).message}`;
+  }
+  pruefeAbbruch();
+  return text;
 }
 function portFrei(port: number): Promise<boolean> {
   return new Promise((r) => {
@@ -119,8 +138,10 @@ function portFrei(port: number): Promise<boolean> {
 }
 const warteAufPort = (port: number, maxMs: number) => bis(async () => !(await portFrei(port)), maxMs, 300);
 const ergebnisse: { name: string; ok: boolean }[] = [];
-/** Jede Prüfzeile mit Detail (E26): auch eine grüne Zeile sagt, was gemessen wurde. */
+/** Jede Prüfzeile mit Detail (E26): auch eine grüne Zeile sagt, was gemessen wurde.
+ *  Nach einem Abbruch keine Prüfzeile mehr: main hält hier an (#413). */
 function pruefe(name: string, ok: boolean, detail: string): void {
+  pruefeAbbruch();
   ergebnisse.push({ name, ok });
   console.log(`${ok ? 'ok  ' : 'FEHL'} ${name} — ${detail || '(leer)'}`);
 }
@@ -148,8 +169,10 @@ const verbund = new SpeicherVerbund([
 const masterLog: string[] = [];
 const verteiler = new Verteiler({ log: (stufe, text) => masterLog.push(`${stufe}: ${text}`), rechnerName: (id) => verbund.finde(id)?.name ?? id });
 let server: MasterLinkServer | null = null;
-/** Start der Rolle Master: neuer Server, Verteiler mit neuer Epoche, verdrahtet wie MasterRolle (C9). */
+/** Start der Rolle Master: neuer Server, Verteiler mit neuer Epoche, verdrahtet wie MasterRolle (C9).
+ *  Nach einem Abbruch startet kein Test-Master mehr (#413). */
 async function starteMaster(): Promise<void> {
+  pruefeAbbruch();
   const s = new MasterLinkServer({
     identitaet, verbund, eigeneRechnerId: 'e2e-master', suiteVersion: '0.15.0', lauschAdressen: ['127.0.0.1'], port: MASTER_PORT,
     log: (stufe, text) => masterLog.push(`${stufe}: ${text}`),
@@ -285,7 +308,8 @@ function werte(app: Tool, ausdruck: string): Promise<unknown> {
   if (abbruchGrund) return Promise.reject(new Error(`abgebrochen: ${abbruchGrund}`));
   const s = sitzungen[app];
   if (!s) return Promise.reject(new Error(`${NAME[app]}: keine DevTools-Sitzung`));
-  return s.werte(ausdruck);
+  // Kam der Abbruch, während die Antwort unterwegs war, wirft auch die Antwort (#413).
+  return s.werte(ausdruck).then((v) => { pruefeAbbruch(); return v; });
 }
 
 // ── Messpunkte ─────────────────────────────────────────────────────────────────
@@ -299,9 +323,21 @@ const V4 = new RegExp(`^Show vom Master: ${esc(SHOW_NAME)} · Stand \\d{2}:\\d{2
 const ZUSATZ_L = new RegExp(` · letzter Stand: ${esc(SHOW_NAME)} \\d{2}:\\d{2}$`);
 const V13 = new RegExp(`^Daten vom früheren Master ${esc(MASTER_NAME)} \\(nicht mehr gekoppelt\\) · letzter Stand: ${esc(SHOW_NAME)} \\d{2}:\\d{2}$`);
 const istV4 = (a: Anzeige | null): boolean => !!a && V4.test(a.text) && a.farbe === 'gruen';
-/** V9 (gelb, „⟨M⟩ nicht verbunden“) oder V11 (rot, Text des Clients), jeweils mit Zusatz L. */
-const istV9oderV11 = (a: Anzeige | null): boolean => !!a && ZUSATZ_L.test(a.text)
-  && ((a.farbe === 'gelb' && a.text.startsWith(`${MASTER_NAME} nicht verbunden · letzter Stand: `)) || a.farbe === 'rot');
+/** Rote Zeilen mit Zusatz L, die NICHT V11 sind (#410, packages/app-runtime/src/verbund-anzeige.ts): V7, V8, V15 und
+ *  V13-Datei „Kopplungsdatei beschädigt. Neu koppeln.“ (gleicher Text wie der Client-Fehler „datei“, also auch dort nicht V11). */
+const ROT_NICHT_V11 = [
+  /^Show am Master zu groß für den Verbund$/, // V7
+  /^Show am Master nicht lesbar$/, // V8
+  /^Show-Daten von .+ nicht lesbar \(Tool-Update nötig\?\)$/, // V15
+  /^Kopplungsdatei beschädigt\. Neu koppeln\.$/, // V13-Datei
+];
+/** V9 (gelb, genau „⟨M⟩ nicht verbunden“) oder V11 (rot, Text des Clients), jeweils mit Zusatz L. */
+const istV9oderV11 = (a: Anzeige | null): boolean => {
+  if (!a || !ZUSATZ_L.test(a.text)) return false;
+  const kern = a.text.replace(ZUSATZ_L, '');
+  if (a.farbe === 'gelb') return kern === `${MASTER_NAME} nicht verbunden`;
+  return a.farbe === 'rot' && !ROT_NICHT_V11.some((r) => r.test(kern));
+};
 
 interface RundownBlick { doc?: { rows?: { id: string; label: string }[] }; hinweise?: { id: number | string; text: string }[] }
 let rdLauf = 0;
@@ -335,7 +371,9 @@ function schreibeTitlerConfig(): void {
   writeFileSync(join(DEV('titler'), 'titler-config.json'), JSON.stringify({ template: 'lowerthird', name: '{{name}}', subtitle: '{{funktion}}' }, null, 2), 'utf8');
 }
 
-interface Steuer { sende(z: string): void; kv(): Record<string, string>; bereit(): boolean; trenne(): void }
+/** vergiss(): gemerkten STATE verwerfen (Neustart der Tools, #411); kv() ist dann leer und bereit() erst wieder
+ *  nach einer NEUEN Antwort des Tools. */
+interface Steuer { sende(z: string): void; kv(): Record<string, string>; bereit(): boolean; vergiss(): void; trenne(): void }
 const steuer: Steuer[] = [];
 function steuerClient(port: number, sicherheit: ReturnType<typeof controlClientOptions>): Steuer {
   let kv: Record<string, string> | null = null;
@@ -344,7 +382,9 @@ function steuerClient(port: number, sicherheit: ReturnType<typeof controlClientO
     onState: (st) => { kv = Object.fromEntries(Object.entries(st.kv).map(([k, v]) => [k, String(v)])); },
   });
   c.connect('127.0.0.1', port);
-  const s: Steuer = { sende: (z) => c.send(z), kv: () => kv ?? {}, bereit: () => kv !== null, trenne: () => c.disconnect() };
+  const s: Steuer = {
+    sende: (z) => c.send(z), kv: () => kv ?? {}, bereit: () => kv !== null, vergiss: () => { kv = null; }, trenne: () => c.disconnect(),
+  };
   steuer.push(s);
   return s;
 }
@@ -373,6 +413,15 @@ function legeBeiseite(): void {
     }
     freigemacht.push(p);
   }
+  // Diagnose (nur Pfade, nie Inhalt): was beiseiteliegt und was es vorher nicht gab, damit „zurückgebracht“ nachprüfbar ist.
+  zeigePfade(`Beiseitegelegt nach <Pfad>${VORHER}`, gesichert);
+  zeigePfade('Vorher nicht vorhanden (was der Lauf dort anlegt, entfernt das Aufräumen)', SICHERN.filter((p) => !gesichert.includes(p)));
+}
+/** %APPDATA% statt des Benutzerpfads; nur Namen, nie Dateiinhalt. */
+const zeigePfad = (p: string): string => (APPDATA && p.startsWith(APPDATA) ? `%APPDATA%${p.slice(APPDATA.length)}` : p);
+function zeigePfade(titel: string, pfade: string[]): void {
+  console.log(`${titel} (${pfade.length}):${pfade.length ? '' : ' keine'}`);
+  for (const p of pfade) console.log(`  - ${zeigePfad(p)}`);
 }
 let aufraeumen: Promise<void> | null = null;
 /** Jeder Aufruf bekommt dasselbe Promise: ein zweiter Aufruf (Strg+C, finally) wartet auf das laufende Aufräumen. */
@@ -403,6 +452,10 @@ async function raeumeAufEinmal(): Promise<void> {
         probleme.push(`${p}${gesichert.includes(p) ? ` bleibt als ${p + VORHER} liegen` : ' nicht entfernt'}: ${(e as Error).message}`);
       }
     }
+    // Diagnose (nur Pfade): Liste gegen die Liste vor dem Start lesbar.
+    zeigePfade('Zurückgebracht', zurueck);
+    const nichtZurueck = gesichert.filter((p) => !zurueck.includes(p));
+    if (nichtZurueck.length) zeigePfade(`NICHT zurückgebracht (liegen als <Pfad>${VORHER})`, nichtZurueck);
   }
   const restore = beiseiteGelegt ? `${zurueck.length} von ${gesichert.length} beiseitegelegten Pfaden zurückgebracht` : 'nichts beiseitegelegt, Dev-Daten unberührt';
   if (probleme.length === 0) {
@@ -413,16 +466,24 @@ async function raeumeAufEinmal(): Promise<void> {
     console.log('  Von Hand prüfen: übrige *.e2e-vorher unter %APPDATA% zurückbenennen, master-link.json prüfen, Electron-Prozesse beenden.');
   }
 }
-/** Strg+C, unbehandelter Fehler, Startfehler: main() anhalten, aufräumen, dann beenden. */
-function abbrechen(grund: string, exitCode = 1): void {
-  if (abbruchGrund) return;
+/** Strg+C, unbehandelter Fehler, Startfehler: main() anhalten, aufräumen, dann beenden.
+ *  Jeder weitere Anlass während des Aufräumens bekommt eine Zeile (zweites Strg+C, weiterer Fehler samt Stack, #414). */
+function abbrechen(grund: string, exitCode = 1, stapel?: string): void {
+  if (abbruchGrund) {
+    console.log(`Aufräumen läuft (${grund}) … bitte warten, bis „aufgeräumt“ oder „AUFRÄUMEN UNVOLLSTÄNDIG“ erscheint. `
+      + 'Wer jetzt das Fenster schließt, lässt die beiseitegelegten Daten als *.e2e-vorher liegen.');
+    if (stapel) console.log(stapel);
+    return;
+  }
   abbruchGrund = grund;
   console.log(`ABBRUCH: ${grund}`);
+  if (stapel) console.log(stapel);
   void raeumeAuf().finally(() => process.exit(exitCode));
 }
+const stapelVon = (e: unknown): string | undefined => (e instanceof Error ? e.stack : undefined);
 process.on('SIGINT', () => abbrechen('Strg+C', 130));
-process.on('uncaughtException', (e) => abbrechen(`unbehandelter Fehler: ${e.message}`));
-process.on('unhandledRejection', (e) => abbrechen(`unbehandelte Ablehnung: ${e instanceof Error ? e.message : String(e)}`));
+process.on('uncaughtException', (e) => abbrechen(`unbehandelter Fehler: ${e.message}`, 1, stapelVon(e)));
+process.on('unhandledRejection', (e) => abbrechen(`unbehandelte Ablehnung: ${e instanceof Error ? e.message : String(e)}`, 1, stapelVon(e)));
 
 async function starteTools(): Promise<void> {
   rdLauf += 1;
@@ -472,6 +533,7 @@ async function main(): Promise<void> {
       process.exit(2);
     }
   }
+  pruefeAbbruch(); // Strg+C während der Portprüfung: keine Datei anfassen (#413)
   legeBeiseite();
   schreibeTitlerConfig();
   schreibeMasterLinkDatei(masterLinkPfad(APPDATA), dateiB('slave'));
@@ -514,29 +576,29 @@ async function main(): Promise<void> {
 
   console.log('\n— 3 · Bauchbinde auf Sendung (Bild A), Speakerliste ohne diese Person → entry bleibt und Bild gleich A');
   titlerSt.sende('TITLER CLEAR');
-  await sleep(1_500);
+  await pause(1_500);
   const bildLeer = await bildHash();
   titlerSt.sende('TITLER RECALL Alan');
   await bis(() => titlerSt.kv().entry === 'Alan', 5_000);
   titlerSt.sende('TITLER TAKE');
   await bis(() => titlerSt.kv().on_air === '1', 10_000);
-  await sleep(1_500);
+  await pause(1_500);
   const bildA = await bildHash();
   const kvA = { ...titlerSt.kv() };
   pruefe('3 · vorher: Alan auf Sendung', kvA.entry === 'Alan' && kvA.on_air === '1', titlerKurz(kvA));
   pruefe('3 · Gegenprobe: Bild A ist nicht das leere Bild', bildA !== bildLeer, `A ${kurz(bildA)} · leer ${kurz(bildLeer)}`);
   titlerSt.sende('TITLER RECALL Grace');
-  await sleep(1_500);
+  await pause(1_500);
   const bildGrace = await bildHash();
   pruefe('3 · Kontrolle: RECALL Grace → Bild ungleich A', bildGrace !== bildA, `${titlerKurz(titlerSt.kv())} · ${kurz(bildGrace)}`);
   titlerSt.sende('TITLER RECALL Alan');
-  await sleep(1_500);
+  await pause(1_500);
   const bildA2 = await bildHash();
   pruefe('3 · Kontrolle: RECALL Alan → Bild wieder gleich A', bildA2 === bildA, `${titlerKurz(titlerSt.kv())} · ${kurz(bildA2)}`);
   const mTitler3 = logMarke('titler');
   verteiler.meldeShow(SHOW_PFAD, testShow(ABLAUF_2, OHNE_ALAN));
   const drei = await bis(() => titlerSt.kv().entry_count === '3', 10_000);
-  await sleep(1_500);
+  await pause(1_500);
   const kv3 = { ...titlerSt.kv() };
   const bild3 = await bildHash();
   pruefe('3 · Liste ohne Alan angekommen (entry_count 3)', !!drei, titlerKurz(kv3));
@@ -545,7 +607,7 @@ async function main(): Promise<void> {
   const log3 = logAb('titler', mTitler3);
   pruefe('3 · Logzeile A2 im Titler-Log', log3.includes('DataLink: aktiver Eintrag „Alan“ nicht mehr in der Liste, auf Sendung gehalten.'), letzteZeilen(log3));
   titlerSt.sende('TITLER CLEAR');
-  await sleep(2_000);
+  await pause(2_000);
 
   console.log('\n— 4 · Server stoppen → Daten bleiben, V9 bzw. V11; neue Epoche, gleiche Show → V4, keine neuen Hinweise im Rundown');
   const epocheVorher = verteiler.stand().epoche;
@@ -564,12 +626,13 @@ async function main(): Promise<void> {
   pruefe('4 · Master mit neuer Epoche und gleicher Show', epocheNeu !== null && epocheNeu !== epocheVorher && verteiler.stand().showName === SHOW_NAME,
     `${epocheVorher ?? '-'} → ${epocheNeu ?? '-'} · ${verteiler.stand().showName ?? '-'}`);
   await wartV4('4');
-  await sleep(3_000); // der Sammel-Takt (500 ms) läuft seit dem Start der Tools; drei Sekunden Luft nach V4
+  await pause(3_000); // der Sammel-Takt (500 ms) läuft seit dem Start der Tools; drei Sekunden Luft nach V4
   const neueHinweise = [...gesehen.entries()].filter(([k]) => !hinweiseVorher.has(k)).map(([, t]) => t);
   pruefe('4 · Rundown: keine neuen Hinweise (gleiche Show, kein Kontextwechsel)', neueHinweise.length === 0, neueHinweise.join(' | ') || 'keine');
 
   console.log('\n— 5 · Tools neu starten, ohne Server → Daten aus dem Zwischenspeicher, V9 bzw. V11 mit Zusatz L');
   await stoppeMaster();
+  pruefeAbbruch(); // kein Beenden aus main parallel zum Aufräumen (#413)
   stoppeSammler();
   for (const app of TOOLS) {
     const probleme5 = await beendeTool(app);
@@ -579,7 +642,10 @@ async function main(): Promise<void> {
     const datei = join(DEV(app), 'verbund', 'master-stand.json');
     pruefe(`5 · ${NAME[app]}: Zwischenspeicher liegt da`, existsSync(datei), join('@jm', app, 'verbund', 'master-stand.json'));
   }
+  // Gemerkte Stände der beendeten Tools verwerfen: Die Prüfungen nach dem Neustart (und die Wartezeile vor 6)
+  // werden nur mit einer NEUEN Antwort grün, nie mit dem alten STATE (#411).
   timerStand = null;
+  for (const s of steuer) s.vergiss();
   await starteTools();
   for (const app of TOOLS) {
     const z = await bis(async () => { const a = await anzeige(app); return istV9oderV11(a) ? a : null; }, 60_000, 500);
@@ -593,13 +659,17 @@ async function main(): Promise<void> {
   console.log('\n— 6 · Gleichzeitiges RELOAD über den Steuerport → ignoriert, Logzeile');
   await starteMaster();
   await wartV4('6 · vorher');
-  await bis(() => titlerSt.bereit() && rundownSt.bereit() && timerSt.bereit(), 15_000);
+  // Seit dem Neustart in 5 erst bereit, wenn jedes Tool über seinen Steuerport einen neuen STATE geschickt hat (#411).
+  if (!(await bis(() => titlerSt.bereit() && rundownSt.bereit() && timerSt.bereit(), 15_000))) {
+    console.log(`Hinweis: nach 15 s nicht von allen Steuerports ein neuer STATE (Timer ${timerSt.bereit()}, Titler ${titlerSt.bereit()}, `
+      + `Rundown ${rundownSt.bereit()}); ein RELOAD dorthin kommt womöglich nicht an.`);
+  }
   const marken = { timer: logMarke('timer'), titler: logMarke('titler'), rundown: logMarke('rundown') };
   const vorher6 = { timer: timerIds(), titler: titlerSt.kv().entry_count, rundown: await sicher(async () => zeilenIds(await rdStand())) };
   timerSt.sende('TIMER RELOAD');
   titlerSt.sende('TITLER RELOAD');
   rundownSt.sende('RUNDOWN RELOAD');
-  await sleep(3_000);
+  await pause(3_000);
   const zeile6 = `Verbund: RELOAD ignoriert, die Show-Daten kommen vom Master „${MASTER_NAME}“.`;
   for (const app of TOOLS) {
     const t = logAb(app, marken[app]);
@@ -609,6 +679,7 @@ async function main(): Promise<void> {
   pruefe('6 · Daten unverändert (Timer, Titler, Rundown)', JSON.stringify(nachher6) === JSON.stringify(vorher6), `${JSON.stringify(vorher6)} → ${JSON.stringify(nachher6)}`);
 
   console.log('\n— 7 · master-link.json auf Rolle „aus“ → V13 „Daten vom früheren Master …“, Daten bleiben');
+  pruefeAbbruch(); // nach einem Abbruch keine Test-Datei mehr an den echten Pfad (#413)
   schreibeMasterLinkDatei(masterLinkPfad(APPDATA), dateiB('aus'));
   for (const app of TOOLS) {
     // Die Tools prüfen ihre master-link.json im 5-s-Takt: bis zu 10 s warten.
