@@ -72,6 +72,12 @@ export interface KernAbhaengigkeiten {
   meldeAktiv(): void;
   /** Basis-URL, wenn die Show keine trägt (resolveIveoBaseUrl). */
   baseUrlStandard(): string;
+  /**
+   * Teil 2b R2, Spec 15.1: Die offene Show ist geöffnet, geschrieben oder im Editor gespeichert worden — so, wie sie in
+   * der Datei steht; `null` = gerade gespeichert und nicht lesbar. Die Hülle reicht sie an den Verteiler. Optional: ohne
+   * sie liest der Kern nach dem Schreiben nichts zurück (E10).
+   */
+  meldeShow?(pfad: string, show: Show | null): void;
 }
 
 export interface IveoKern {
@@ -423,6 +429,29 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     d.log.info(`iveo: RELOAD → ${timer} Timer, ${titler} Titler, ${rundown} Rundown benachrichtigt.`);
   }
 
+  /** Teil 2b R2, Spec 15.1: an den Verteiler melden. Ein Wurf hält den Abgleich nie an; eine Warnung ohne Fremdtext (G6). */
+  function melde(pfad: string, show: Show | null): void {
+    if (!d.meldeShow) return;
+    try {
+      d.meldeShow(pfad, show);
+    } catch (e) {
+      d.log.warn(`Verbund: Show-Stand nicht weitergegeben (${(e as Error | null)?.name || 'Fehler'}).`);
+    }
+  }
+  /** Teil 2b R2 (E10): die zuletzt erfolgreich geschriebene Show, falls das Zurücklesen gleich danach scheitert. */
+  let geschriebeneShow: Show | null = null;
+  /**
+   * E10: nach einem erfolgreichen Schreiben die Datei zurücklesen, mit dem `updatedAt`, das die Hülle beim Schreiben
+   * setzt. Scheitert gerade dieses Lesen (etwa EBUSY durch einen Virenscanner), geht die eben geschriebene Show hinaus
+   * (ohne das `updatedAt` der Hülle), nie `null`: Die Datei ist geschrieben, „nicht-lesbar“ wäre falsch (15.1 kennt `null`
+   * nur in `offeneShowGespeichert`). Den Grund des Lesefehlers hat der Leser der Hülle schon im Log.
+   */
+  function meldeGeschrieben(pfad: string): void {
+    if (!d.meldeShow) return;
+    const show = d.leseShow(pfad) ?? geschriebeneShow;
+    if (show) melde(pfad, show);
+  }
+
   /** Stand aus einem Snapshot mit Speakerliste (wie 2a): Speaker und „Verantwortlich“ aus iveo, kein Merker. */
   function standMitSpeakerliste(snap: IveoSnapshot, listPrograms: IveoProgram[], optionen: ProgramMapOptions): ListenStand {
     return {
@@ -482,7 +511,10 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         ...(compact ? { filter: compact } : {}),
       },
     };
-    return d.schreibeShow(pfad, show);
+    const ok = d.schreibeShow(pfad, show);
+    // E10: Scheitert das Zurücklesen gleich danach, meldet meldeGeschrieben diese Show.
+    geschriebeneShow = ok ? show : null;
+    return ok;
   }
 
   /**
@@ -535,6 +567,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
 
   function showGeoeffnet(pfad: string, show: Show): void {
     setzeAuf(pfad, show);
+    // Spec 15.1: jede geöffnete Show, auch ohne iveo-Bindung oder Token.
+    melde(pfad, show);
     d.meldeAktiv();
   }
 
@@ -646,6 +680,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     a.speakerVeraltetSeit = merker;
     if (speakerWieder) meldeSpeakerWieder();
     statusNachAbfrage(a);
+    meldeGeschrieben(a.path);
     benachrichtigeAlle();
   }
 
@@ -740,6 +775,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     a.speakerVeraltetSeit = merker;
     if (speakerWieder) meldeSpeakerWieder();
     statusNachAbfrage(a);
+    meldeGeschrieben(a.path);
     benachrichtigeAlle();
   }
 
@@ -917,6 +953,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       d.log.info(`iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakersNeu.length} Speaker.`);
       // Teil 2b, Spec 6.2: „in Ordnung“ nur ohne Merker.
       statusNachAbfrage(a);
+      meldeGeschrieben(a.path);
       benachrichtigeAlle();
       d.meldeAktiv();
       return { ok: true, message: warning ? `Umgeschaltet — ${warning}` : `Umgeschaltet (${ablauf.length} Punkte).` };
@@ -945,9 +982,12 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   function offeneShowGespeichert(pfad: string, neuGebunden: boolean): void {
     if (offenePfad === null || pfadSchluessel(pfad) !== pfadSchluessel(offenePfad)) return;
     const vorher = active;
-    const show = d.leseShow(offenePfad);
+    const pfadOffen = offenePfad;
+    const show = d.leseShow(pfadOffen);
+    // Spec 15.1: gespeichert und lesbar → die Show; nicht lesbar → null (der Verteiler meldet „nicht-lesbar“).
+    melde(pfadOffen, show);
     if (show) {
-      const neu = setzeAuf(offenePfad, show);
+      const neu = setzeAuf(pfadOffen, show);
       // Gleiche Bindung: Abfragefenster und Side-Event-Kontext gelten weiter. Neu gebunden: beides frisch.
       if (neu && vorher && !neuGebunden && vorher.event === neu.event) {
         neu.lastSyncIso = vorher.lastSyncIso;

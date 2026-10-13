@@ -266,9 +266,20 @@ interface Umgebung {
   cache: unknown[];
   /** Die nächsten N Lesezugriffe auf Show-Dateien scheitern (null). */
   leseAus: number;
+  /** Teil 2b R2 (E10): Lesezugriffe auf Show-Dateien. Ohne meldeShow liest der Kern nach dem Schreiben nicht zurück. */
+  lesungen: number;
+  /** Teil 2b R2 (Spec 15.1): Meldungen an den Verteiler, nur mit `opt.melde`. */
+  gemeldet: Array<{ pfad: string; show: Show | null }>;
+  /** Der nächste Aufruf von meldeShow wirft. */
+  meldeWirft: boolean;
+  /** Nach dem nächsten erfolgreichen Schreiben scheitern so viele Lesezugriffe (Zurücklesen, etwa EBUSY). */
+  leseAusNachSchreiben: number;
 }
-/** Show-Datei anlegen, Kern bauen, Show öffnen (wie onShowOpened). */
-function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boolean } = {}): Umgebung {
+/**
+ * Show-Datei anlegen, Kern bauen, Show öffnen (wie onShowOpened). Teil 2b R2: `melde` hängt meldeShow an (Spec 15.1),
+ * `schreibZeit` setzt beim Schreiben updatedAt wie die Hülle (serializeShow(show, jetzt), iveo-sync.ts:385).
+ */
+function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boolean; melde?: boolean; schreibZeit?: string } = {}): Umgebung {
   let uhr = Date.parse('2026-10-01T10:00:00.000Z');
   const iveo = neuesIveo();
   const u: Umgebung = {
@@ -287,6 +298,10 @@ function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boole
     clients: [],
     cache: [],
     leseAus: 0,
+    lesungen: 0,
+    gemeldet: [],
+    meldeWirft: false,
+    leseAusNachSchreiben: 0,
   };
   u.kern = erzeugeKern({
     clientFabrik: (token, baseUrl) => {
@@ -295,6 +310,7 @@ function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boole
     },
     token: () => u.token,
     leseShow: (p) => {
+      u.lesungen++;
       if (u.leseAus > 0) { u.leseAus--; return null; }
       const text = u.dateien.get(p);
       if (text === undefined) return null;
@@ -307,7 +323,11 @@ function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boole
     schreibeShow: (p, show) => {
       u.schreibversuche++;
       if (u.schreibFehler) return false;
-      u.dateien.set(p, serializeShow(show));
+      u.dateien.set(p, serializeShow(show, opt.schreibZeit));
+      if (u.leseAusNachSchreiben > 0) {
+        u.leseAus = u.leseAusNachSchreiben;
+        u.leseAusNachSchreiben = 0;
+      }
       return true;
     },
     benachrichtige: (appId, zeile) => {
@@ -320,6 +340,17 @@ function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boole
     meldeStatus: (s) => u.status.push({ ...s }),
     meldeAktiv: () => { u.aktivMeldungen++; },
     baseUrlStandard: () => 'https://standard.test/api/v1',
+    ...(opt.melde
+      ? {
+          meldeShow: (pfad: string, show: Show | null) => {
+            if (u.meldeWirft) {
+              u.meldeWirft = false;
+              throw new Error('Verteiler kaputt');
+            }
+            u.gemeldet.push({ pfad, show });
+          },
+        }
+      : {}),
   });
   u.kern.showGeoeffnet(SHOW_PFAD, parseShow(u.dateien.get(SHOW_PFAD)!));
   return u;
@@ -1539,6 +1570,93 @@ const agendaSchreibZeilen = (u: Umgebung): string[] =>
   ck('Schliff R2: … die Logzeile nennt den Merker, nicht eine geänderte Agenda',
     JSON.stringify(agendaSchreibZeilen(u))
       === JSON.stringify(['iveo: Side Event abgefragt, der Merker „Speaker veraltet“ weicht von der Datei ab → Show neu geschrieben (3 Punkte).']));
+}
+
+// --- Teil 2b R2, Spec 15.1: meldeShow an allen Auslösern; nach dem Schreiben aus der Datei zurückgelesen (E10) ---------
+const SCHREIBZEIT = '2026-10-08T12:00:00.000Z';
+/** Listen-Show des Tages, P2 in iveo umbenannt: die nächste Abfrage schreibt. */
+function listeMitAenderung(opt: Parameters<typeof umgebung>[1] = {}): Umgebung {
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]), opt);
+  u.iveo.programme[1] = { ...u.iveo.programme[1], title: 'Side Event Wasser und Meer' };
+  u.iveo.geaendert = [u.iveo.programme[1]];
+  return u;
+}
+{
+  const ohneIveo = umgebung(() => ({ schemaVersion: 1, name: 'Ohne iveo', tools: [{ appId: 'jm-timer' }] }), { melde: true });
+  ck('R2 15.1: showGeoeffnet → meldeShow(pfad, show), auch ohne iveo-Bindung',
+    ohneIveo.gemeldet.length === 1 && ohneIveo.gemeldet[0].pfad === SHOW_PFAD && ohneIveo.gemeldet[0].show?.name === 'Ohne iveo');
+  const mitIveo = umgebung(agendaP1, { melde: true });
+  ck('R2 15.1: … mit iveo-Bindung ist die gemeldete Show die geöffnete',
+    mitIveo.gemeldet.length === 1 && JSON.stringify(mitIveo.gemeldet[0].show) === JSON.stringify(datei(mitIveo)));
+}
+{
+  const u = listeMitAenderung({ melde: true, schreibZeit: SCHREIBZEIT });
+  await u.kern.abfrage();
+  const letzte = u.gemeldet.at(-1);
+  ck('R2 15.1: Listen-Abfrage schreibt → meldeShow mit der zurückgelesenen Datei (updatedAt der Hülle)',
+    u.gemeldet.length === 2 && letzte?.pfad === SHOW_PFAD && letzte.show?.updatedAt === SCHREIBZEIT
+    && JSON.stringify(letzte.show) === JSON.stringify(datei(u)) && letzte.show?.ablauf?.[1]?.label === 'Side Event Wasser und Meer');
+  await u.kern.abfrage();
+  ck('R2 15.1: Abfrage ohne Änderung (Signatur gleich) → kein meldeShow', u.schreibversuche === 1 && u.gemeldet.length === 2);
+}
+{
+  const u = umgebung(agendaP1, { melde: true, schreibZeit: SCHREIBZEIT });
+  u.iveo.agenda.P1 = [...u.iveo.agenda.P1, punkt('P1', 'a4', 'Schlusswort', 4, 5)];
+  await u.kern.abfrage();
+  ck('R2 15.1: Agenda-Abfrage schreibt → meldeShow mit der Datei',
+    u.gemeldet.length === 2 && ids(u.gemeldet[1].show!) === 'a1,a2,a3,a4' && u.gemeldet[1].show?.updatedAt === SCHREIBZEIT);
+  const zeileAgenda = u.info.findIndex((z) => z.startsWith('iveo: Side Event abgefragt,'));
+  const zeileReload = u.info.findIndex((z) => z.startsWith('iveo: RELOAD →'));
+  ck('R2 15.1: … die Logzeile der Agenda-Abfrage steht weiter vor dem RELOAD (Vormerkung 12)', zeileAgenda >= 0 && zeileAgenda < zeileReload);
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('R2 15.1: Umschalten schreibt → meldeShow', r.ok && u.gemeldet.length === 3 && ids(u.gemeldet[2].show!) === 'b1,b2');
+  u.iveo.fehler.agenda = new Error('fetch failed');
+  const r2 = await u.kern.umschalten({ programId: 'P1' });
+  ck('R2 15.1: Umschalten scheitert → kein meldeShow', !r2.ok && u.gemeldet.length === 3);
+  delete u.iveo.fehler.agenda;
+  u.iveo.agenda.P2 = [...u.iveo.agenda.P2, punkt('P2', 'b3', 'Abschluss', 3)];
+  u.schreibFehler = true;
+  await u.kern.abfrage();
+  ck('R2 15.1: Schreiben scheitert → kein meldeShow', u.schreibversuche === 3 && u.gemeldet.length === 3);
+}
+{
+  const u = umgebung(agendaP1, { melde: true });
+  u.dateien.set(SHOW_PFAD, serializeShow({ ...datei(u), name: 'Umbenannt' }));
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('R2 15.1: offeneShowGespeichert, lesbar → meldeShow(pfad, show)',
+    u.gemeldet.length === 2 && u.gemeldet[1].pfad === SHOW_PFAD && u.gemeldet[1].show?.name === 'Umbenannt');
+  u.leseAus = 1;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('R2 15.1: … nicht lesbar → meldeShow(pfad, null)', u.gemeldet.length === 3 && u.gemeldet[2].pfad === SHOW_PFAD && u.gemeldet[2].show === null);
+  u.kern.offeneShowGespeichert('C:/Shows/Andere.jmshow', false);
+  ck('R2 15.1: … eine andere Datei gespeichert → kein meldeShow', u.gemeldet.length === 3);
+}
+{
+  const u = listeMitAenderung({ melde: true });
+  u.meldeWirft = true;
+  await u.kern.abfrage();
+  ck('R2 15.1: meldeShow wirft → trotzdem geschrieben, RELOAD hinaus, Status in Ordnung',
+    u.schreibversuche === 1 && u.reloads.length === 3 && u.status.every((s) => s.ok));
+  ck('R2 15.1: … genau eine Warnung, ohne Text aus dem Wurf',
+    JSON.stringify(u.warn.filter((w) => w.startsWith('Verbund:'))) === JSON.stringify(['Verbund: Show-Stand nicht weitergegeben (Error).']));
+}
+{
+  // Geschrieben, aber das Zurücklesen gleich danach scheitert (etwa EBUSY durch einen Virenscanner): Die Datei ist in
+  // Ordnung, „nicht-lesbar“ wäre falsch (15.1 kennt null nur in offeneShowGespeichert). Gemeldet wird die geschriebene Show.
+  const u = listeMitAenderung({ melde: true });
+  u.leseAusNachSchreiben = 1;
+  await u.kern.abfrage();
+  const letzte = u.gemeldet.at(-1);
+  ck('R2 15.1: Zurücklesen nach dem Schreiben scheitert → meldeShow mit der geschriebenen Show, nie null',
+    u.schreibversuche === 1 && u.gemeldet.length === 2 && letzte?.show !== null && letzte?.show?.ablauf?.[1]?.label === 'Side Event Wasser und Meer');
+}
+{
+  const ohne = listeMitAenderung();
+  const mit = listeMitAenderung({ melde: true });
+  await ohne.kern.abfrage();
+  await mit.kern.abfrage();
+  ck('E10: ohne meldeShow liest der Kern nach dem Schreiben nicht zurück, mit meldeShow genau einmal',
+    ohne.schreibversuche === 1 && mit.schreibversuche === 1 && ohne.lesungen === 1 && mit.lesungen === 2 && ohne.gemeldet.length === 0);
 }
 
 // --- Zusammenfassung ---
