@@ -1136,10 +1136,16 @@ export async function laufeShowDaten(): Promise<void> {
     gleich(art(c), 'verbunden', 'nicht relevante Dateiänderung → keine Trennung');
     c.kopplung()!.adressen.push('10.6.6.6');
     gleich(c.kopplung()!.adressen.length, 2, 'kopplung() liefert eine Kopie (der Aufrufer ändert den Client nicht)');
+    // Verbindungsrelevante Änderung bei Rolle slave (toter Port): beide Laufzeitwerte fallen auf den Dateiwert bzw. [] zurück.
+    const toterPort = a.port === 1 ? 2 : 1;
+    schreibeMasterLinkDatei(pfad, { ...dateiFuer(a), kopplung: { ...dateiFuer(a).kopplung!, port: toterPort } });
+    await bis(() => art(c) !== 'verbunden', 2000);
+    gleich(c.kopplung(), { rolle: 'slave', masterId: a.identitaet.masterId, masterName: 'Regie-PC', letzteAdresse: null, adressen: [] },
+      'verbindungsrelevante Änderung (toter Port, slave) → Laufzeitwerte zurückgesetzt (Dateiwert, keine Adressen)');
     schreibeMasterLinkDatei(pfad, { ...dateiFuer(a), rolle: 'aus' });
     await bis(() => art(c) === 'aus', 2000);
     gleich(c.kopplung(), { rolle: 'aus', masterId: null, masterName: null, letzteAdresse: null, adressen: [] },
-      'verbindungsrelevante Änderung (rolle aus) → Laufzeitwerte zurückgesetzt');
+      'rolle aus → ohne Master');
     await c.stoppe();
     srv.close();
   }
