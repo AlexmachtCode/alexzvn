@@ -424,7 +424,7 @@ function vergissMaster(): void {
 /**
  * „Öffnen…“ und „Neu“ im Verbundmodus (Spec 17.3): Die Show vom Master bleibt gemerkt. Das Dokument wird
  * Ausgangsstand und sofort mit dem angewendeten Stand abgeglichen; „Speichern“ schreibt in `nextPath` (4.8).
- * Bricht ausstehende GO-Folgen ab wie „Öffnen…“ in 2a (5.4).
+ * Bricht ausstehende GO-Folgen ab wie „Öffnen…“ in 2a (5.4). Hinweise zum Abgleich wie in `wendeAusgangsstandAn`.
  */
 function gleicheMitMasterAb(start: RundownDoc, nextPath: string | null, show: Show): void {
   cancelPendingFires();
@@ -438,6 +438,8 @@ function gleicheMitMasterAb(start: RundownDoc, nextPath: string | null, show: Sh
   dirty = false;
   rev++;
   abgleichRev = rev;
+  // Nur bei einem schon abgeglichenen Vorstand: entfallene Zeilen und Kontextwechsel nie still (4.6, #375).
+  if (ausgang.kontext !== undefined) zeigeAbgleichHinweise(res, show);
   sichere();
   broadcast();
 }
