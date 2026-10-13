@@ -1,6 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron';
 import path, { join } from 'node:path';
-import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import {
   initAppRuntime,
@@ -13,7 +12,7 @@ import {
   verbundKopplung,
   type MasterStand,
 } from '@jm/app-runtime';
-import { parseShow, parseShowDeepLink, type Show } from '@jm/show';
+import { parseShowDeepLink, type Show } from '@jm/show';
 import type {
   DisplayInfo,
   OpenedImportFile,
@@ -424,7 +423,13 @@ let pendingShowFile: OpenedImportFile | null = null;
 
 async function openShowDocument(showPath: string): Promise<void> {
   try {
-    const show = parseShow(readFileSync(showPath, 'utf8'));
+    // Nie die Meldung eines JSON-Parse-Fehlers loggen (enthaelt Dateiinhalt, G6): leseShowSicher nennt nur den Grund.
+    const gelesen = leseShowSicher(showPath);
+    if (!('show' in gelesen)) {
+      getLog().warn(`Show-Vorlage nicht geöffnet: ${gelesen.grund}`);
+      return;
+    }
+    const show = gelesen.show;
     const ref = show.tools.find((t) => t.appId === 'jm-titler');
     if (!ref?.document) return;
     // Dokumentpfad relativ zur Show-Datei auflösen, falls nicht absolut.
