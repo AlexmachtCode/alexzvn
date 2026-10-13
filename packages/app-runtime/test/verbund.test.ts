@@ -766,6 +766,125 @@ function check(name: string, cond: boolean, detail?: unknown): void {
   }
 }
 
+// ── C13 · Zwischenspeicher master-stand.json (Spec 16.3, E18, Review Focus 5) ─
+{
+  const { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { EventEmitter } = await import('node:events');
+  const { migrateShow } = await import('@jm/show');
+  const { erzeugeStandSpeicher, standDatei } = await import('../src/verbund-speicher');
+  const { VerbundFolger } = await import('../src/verbund-daten');
+  const tmp = mkdtempSync(join(tmpdir(), 'jm-verbund-'));
+  try {
+    const stand = {
+      masterId: 'M1', masterName: 'Regie-PC', epoche: '6f1c2a90-1b2c-4d5e-8f90-a1b2c3d4e5f6', folge: 12, schluessel: '0123456789abcdef',
+      show: migrateShow({ schemaVersion: 1, name: 'Gala', updatedAt: '2026-10-08T08:00:00.000Z', tools: [], ablauf: [{ id: 'p1', title: 'Begrüßung' }] }),
+      mitDokument: ['jm-rundown'], empfangenAm: 1_760_000_000_000,
+    };
+    const userData = join(tmp, 'userData');
+    const datei = standDatei(userData);
+    check('C13 standDatei = <userData>/verbund/master-stand.json', datei === join(userData, 'verbund', 'master-stand.json'));
+    const logs: string[] = [];
+    const sp = erzeugeStandSpeicher(datei, (stufe, t) => void logs.push(`${stufe}: ${t}`));
+    check('C13 ohne Datei → null, keine Warnung', sp.lies() === null && logs.length === 0);
+    check('C13 schreiben → true, Ordner verbund angelegt', (await sp.schreibe(stand as never)) === true && existsSync(join(userData, 'verbund')));
+    const roh = JSON.parse(readFileSync(datei, 'utf8'));
+    check('C13 Datei trägt { fassung: 1, stand }', roh.fassung === 1 && roh.stand.folge === 12 && Object.keys(roh).join(',') === 'fassung,stand');
+    check('C13 keine Zwischendatei liegen geblieben', JSON.stringify(readdirSync(join(userData, 'verbund'))) === '["master-stand.json"]');
+    check('C13 schreiben und lesen ergibt denselben Stand', JSON.stringify(sp.lies()) === JSON.stringify(stand), sp.lies());
+
+    // Review Focus 5: kaputt, leer, fremd, keine Show → null, EINE Warnung ohne Dateiinhalt
+    const faelle: [string, string, string][] = [
+      ['halb geschrieben', '{"fassung":1,"stand":{"masterId":"GEHEIM-1","masterName":"GEH', 'kein gültiges JSON'],
+      ['leer', '', 'kein gültiges JSON'],
+      ['fassung 2', JSON.stringify({ fassung: 2, stand: { ...stand, masterName: 'GEHEIM-2' } }), 'fassung'],
+      ['show ist keine Show (Liste)', JSON.stringify({ fassung: 1, stand: { ...stand, show: ['GEHEIM-3'] } }), 'show'],
+      ['show fehlt', JSON.stringify({ fassung: 1, stand: { ...stand, show: null } }), 'show'],
+      ['masterId fehlt', JSON.stringify({ fassung: 1, stand: { ...stand, masterId: '' } }), 'masterId'],
+      ['epoche mit Leerzeichen', JSON.stringify({ fassung: 1, stand: { ...stand, epoche: 'GEHEIM 4' } }), 'epoche'],
+      ['folge negativ', JSON.stringify({ fassung: 1, stand: { ...stand, folge: -1 } }), 'folge'],
+      ['kein Objekt', '[1,2,3]', 'kein Objekt'],
+    ];
+    for (const [name, inhalt, grund] of faelle) {
+      writeFileSync(datei, inhalt);
+      logs.length = 0;
+      const ergebnis = sp.lies();
+      check(`C13 ${name} → null, eine Warnung (${grund})`, ergebnis === null && logs.length === 1
+        && logs[0] === `warn: Verbund: Zwischenspeicher nicht lesbar (${grund}), wird beim nächsten Stand überschrieben.`, logs);
+      check(`C13 ${name}: Warnung ohne Dateiinhalt`, !logs.join('\n').includes('GEHEIM'));
+    }
+    check('C13 der nächste Stand überschreibt die kaputte Datei', (await sp.schreibe(stand as never)) === true && sp.lies()?.folge === 12);
+    const ordnerStatt = join(tmp, 'ordner', 'master-stand.json');
+    mkdirSync(ordnerStatt, { recursive: true });
+    logs.length = 0;
+    const sp2 = erzeugeStandSpeicher(ordnerStatt, (stufe, t) => void logs.push(`${stufe}: ${t}`));
+    check('C13 Ordner statt Datei → null, Warnung mit Fehlercode', sp2.lies() === null && /^warn: Verbund: Zwischenspeicher nicht lesbar \((EISDIR|EPERM|EACCES)\)/.test(logs[0] ?? ''), logs);
+
+    // Schreiben mit Wiederholung (E18): bis zu 5 Versuche im Abstand von 50 ms bei EPERM/EBUSY/EACCES
+    const besetzt = (mal: number, code = 'EBUSY') => {
+      const r = { versuche: 0 };
+      const f = (von: string, nach: string): void => {
+        r.versuche++;
+        if (r.versuche <= mal) throw Object.assign(new Error(`${von} ist gesperrt`), { code });
+        writeFileSync(nach, readFileSync(von));
+        rmSync(von);
+      };
+      return { r, f };
+    };
+    const b4 = besetzt(4);
+    logs.length = 0;
+    const d4 = join(tmp, 'b4', 'master-stand.json');
+    const start = Date.now();
+    const ok4 = await erzeugeStandSpeicher(d4, (stufe, t) => void logs.push(`${stufe}: ${t}`), b4.f).schreibe(stand as never);
+    const dauer = Date.now() - start;
+    check('C13 EBUSY viermal, dann ok → true nach fünf Versuchen', ok4 === true && b4.r.versuche === 5 && logs.length === 0, { ok4, versuche: b4.r.versuche, logs });
+    check('C13 Abstand zwischen den Versuchen 50 ms (vier Pausen ≥ 190 ms)', dauer >= 190, dauer);
+    const b5 = besetzt(5);
+    logs.length = 0;
+    const d5 = join(tmp, 'b5', 'master-stand.json');
+    const ok5 = await erzeugeStandSpeicher(d5, (stufe, t) => void logs.push(`${stufe}: ${t}`), b5.f).schreibe(stand as never);
+    check('C13 EBUSY fünfmal → false, eine Warnung mit Code', ok5 === false && b5.r.versuche === 5 && JSON.stringify(logs) === '["warn: Verbund: Zwischenspeicher nicht geschrieben (EBUSY)."]', logs);
+    check('C13 gescheitertes Schreiben räumt die Zwischendatei weg', readdirSync(join(tmp, 'b5')).length === 0);
+    const bx = besetzt(1, 'ENOENT');
+    const okx = await erzeugeStandSpeicher(join(tmp, 'bx', 'master-stand.json'), () => {}, bx.f).schreibe(stand as never);
+    check('C13 anderer Fehler (ENOENT) → kein zweiter Versuch', okx === false && bx.r.versuche === 1);
+    sp.loesche();
+    sp.loesche();
+    check('C13 loesche zweimal wirft nicht, danach null', sp.lies() === null && !existsSync(datei));
+
+    // Neustart auf B: Folger mit echtem Speicher (16.3)
+    class Client extends EventEmitter {
+      z: Record<string, unknown> = { art: 'aus' };
+      zustand() { return this.z; }
+      kopplung() { return { rolle: 'slave', masterId: 'M1', masterName: 'Regie-PC', letzteAdresse: null, adressen: [] }; }
+      sende() { return this.z.art === 'verbunden'; }
+    }
+    const angewendet: { name: string; neueShow: boolean }[] = [];
+    const handler = { anwenden: (s: { show: { name: string } }, neueShow: boolean) => void angewendet.push({ name: s.show.name, neueShow }) };
+    const c1 = new Client();
+    const f1 = new VerbundFolger({ client: c1 as never, speicher: erzeugeStandSpeicher(datei, () => {}), log: () => {} });
+    f1.folge(handler as never);
+    f1.starte();
+    c1.z = { art: 'verbunden', adresse: '10.0.0.5', seit: 0, masterName: 'Regie-PC', suite: '0.15.0' };
+    c1.emit('angemeldet', {});
+    c1.emit('daten', { t: 'stand', art: 'show', fassung: 1, epoche: 'e1', folge: 0, schluessel: '0123456789abcdef', show: stand.show, mitDokument: [] });
+    // Auf das asynchrone Schreiben warten (Zwischendatei, dann umbenennen): bis die Datei da ist, höchstens 5 s.
+    // Eine feste Pause wäre unter Last (CI) zu knapp.
+    for (const ende = Date.now() + 5000; !existsSync(datei) && Date.now() < ende; ) await new Promise((r) => setTimeout(r, 10));
+    f1.stoppe();
+    const c2 = new Client();
+    const f2 = new VerbundFolger({ client: c2 as never, speicher: erzeugeStandSpeicher(datei, () => {}), log: () => {} });
+    f2.starte();
+    f2.folge(handler as never);
+    check('C13 Neustart: Stand aus master-stand.json mit neueShow false angewendet', JSON.stringify(angewendet) === '[{"name":"Gala","neueShow":true},{"name":"Gala","neueShow":false}]', angewendet);
+    check('C13 Neustart, Master fehlt: Verbundmodus, Daten bleiben', f2.imVerbundmodus() === true && f2.daten().art === 'getrennt');
+    f2.stoppe();
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 // ── Abschluss ────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
