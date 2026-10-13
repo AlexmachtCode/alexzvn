@@ -85,10 +85,17 @@ delete env.ELECTRON_RUN_AS_NODE;
 // ── Kleinkram (E26) ────────────────────────────────────────────────────────────
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 let letzterFehler = '';
-/** Wartet, bis f() einen wahren Wert liefert. Eine Ausnahme zählt als „noch nicht“ und wird gemerkt (E26). */
-async function bis<T>(f: () => T | Promise<T>, maxMs: number, schrittMs = 200): Promise<T | null> {
+/** Gesetzt bei Strg+C, unbehandeltem Fehler oder Startfehler eines Tools: main() läuft nicht weiter, das Aufräumen übernimmt. */
+let abbruchGrund: string | null = null;
+function pruefeAbbruch(): void {
+  if (abbruchGrund) throw new Error(`abgebrochen: ${abbruchGrund}`);
+}
+/** Wartet, bis f() einen wahren Wert liefert. Eine Ausnahme zählt als „noch nicht“ und wird gemerkt (E26).
+ *  Nach einem Abbruch wirft bis() — außer im Aufräumen (imAufraeumen), das selbst auf Prozesse und Ports wartet. */
+async function bis<T>(f: () => T | Promise<T>, maxMs: number, schrittMs = 200, imAufraeumen = false): Promise<T | null> {
   const ende = Date.now() + maxMs;
   for (;;) {
+    if (!imAufraeumen) pruefeAbbruch();
     try {
       const v = await f();
       if (v) return v;
@@ -185,21 +192,27 @@ function testShow(ablauf: string[], speaker: string[]): Show {
 // ── Prozesse ───────────────────────────────────────────────────────────────────
 const kinder = new Map<Tool, ChildProcess>();
 function starteTool(app: Tool): void {
+  pruefeAbbruch();
   const p = spawn(ELECTRON, [`--remote-debugging-port=${CDP[app]}`, join(REPO, 'apps', app)], { env, stdio: 'ignore' });
+  // Ohne Zuhörer wäre ein Startfehler (EACCES, ENOENT, Ordner statt Programm) ein unbehandeltes 'error' und der Prozess stürbe ohne Aufräumen.
+  p.on('error', (e) => abbrechen(`${NAME[app]} startet nicht (${e.message})`));
   kinder.set(app, p);
 }
-async function beendeTool(app: Tool): Promise<void> {
+/** Beendet das Tool und prüft, ob Prozess und Ports wirklich weg sind. Rückgabe: die Probleme (leer = alles gut). */
+async function beendeTool(app: Tool): Promise<string[]> {
+  const probleme: string[] = [];
   sitzungen[app]?.schliesse();
   sitzungen[app] = null;
   const p = kinder.get(app);
   kinder.delete(app);
-  if (p && p.exitCode === null) {
-    const weg = new Promise((r) => p.once('exit', r));
+  if (p && p.exitCode === null && p.signalCode === null) {
+    const weg = new Promise<boolean>((r) => p.once('exit', () => r(true)));
     p.kill();
-    await Promise.race([weg, sleep(15_000)]);
+    if (!(await Promise.race([weg, sleep(15_000).then(() => false)]))) probleme.push(`${NAME[app]}: Prozess ${p.pid ?? '?'} lief nach 15 s noch`);
   }
-  await bis(() => portFrei(STEUER[app]), 15_000, 200);
-  await bis(() => portFrei(CDP[app]), 15_000, 200);
+  if (!(await bis(() => portFrei(STEUER[app]), 15_000, 200, true))) probleme.push(`${NAME[app]}: Steuerport ${STEUER[app]} nach 15 s noch belegt`);
+  if (!(await bis(() => portFrei(CDP[app]), 15_000, 200, true))) probleme.push(`${NAME[app]}: DevTools-Port ${CDP[app]} nach 15 s noch belegt`);
+  return probleme;
 }
 
 // ── DevTools (E26: wertet result.exceptionDetails UND error aus) ──────────────
@@ -269,6 +282,7 @@ async function verbindeDevTools(app: Tool): Promise<void> {
   sitzungen[app] = { werte, schliesse: () => { try { ws.close(); } catch { /* schon zu */ } } };
 }
 function werte(app: Tool, ausdruck: string): Promise<unknown> {
+  if (abbruchGrund) return Promise.reject(new Error(`abgebrochen: ${abbruchGrund}`));
   const s = sitzungen[app];
   if (!s) return Promise.reject(new Error(`${NAME[app]}: keine DevTools-Sitzung`));
   return s.werte(ausdruck);
@@ -297,6 +311,16 @@ async function rdStand(): Promise<RundownBlick> {
   const st = ((await werte('rundown', 'window.jmrundown.getState()')) ?? {}) as RundownBlick;
   for (const h of st.hinweise ?? []) gesehen.set(`${rdLauf}:${h.id}`, h.text);
   return st;
+}
+/** Sammel-Takt: ab dem Start der Tools alle 500 ms in den Rundown schauen, damit kein kurzer Hinweis (6 s) zwischen zwei Blicken verfällt. */
+let sammler: ReturnType<typeof setInterval> | null = null;
+function starteSammler(): void {
+  stoppeSammler();
+  sammler = setInterval(() => { if (sitzungen.rundown) void rdStand().catch(() => {}); }, 500);
+}
+function stoppeSammler(): void {
+  if (sammler) clearInterval(sammler);
+  sammler = null;
 }
 const zeilenIds = (st: RundownBlick): string => (st.doc?.rows ?? []).map((r) => r.id).join(',');
 
@@ -350,24 +374,55 @@ function legeBeiseite(): void {
     freigemacht.push(p);
   }
 }
-let aufgeraeumt = false;
-async function raeumeAuf(): Promise<void> {
-  if (aufgeraeumt) return;
-  aufgeraeumt = true;
+let aufraeumen: Promise<void> | null = null;
+/** Jeder Aufruf bekommt dasselbe Promise: ein zweiter Aufruf (Strg+C, finally) wartet auf das laufende Aufräumen. */
+function raeumeAuf(): Promise<void> {
+  aufraeumen ??= raeumeAufEinmal();
+  return aufraeumen;
+}
+async function raeumeAufEinmal(): Promise<void> {
+  const probleme: string[] = [];
+  stoppeSammler();
   try { timerSocket?.close(); } catch { /* schon zu */ }
-  for (const s of steuer) s.trenne();
-  for (const app of TOOLS) await beendeTool(app).catch(() => {});
+  for (const s of steuer) { try { s.trenne(); } catch { /* schon zu */ } }
+  for (const app of TOOLS) {
+    try { probleme.push(...(await beendeTool(app))); } catch (e) { probleme.push(`${NAME[app]}: Beenden wirft ${(e as Error).message}`); }
+  }
   await sleep(2_000); // Windows gibt Dateien erst nach dem Prozessende frei
-  await stoppeMaster().catch(() => {});
+  try { await stoppeMaster(); } catch (e) { probleme.push(`Test-Master stoppen wirft ${(e as Error).message}`); }
+  const zurueck: string[] = [];
   if (beiseiteGelegt) {
     for (const p of freigemacht) {
-      rmSync(p, { recursive: true, force: true }); // was der Lauf angelegt hat
-      if (gesichert.includes(p)) renameSync(p + VORHER, p);
+      try {
+        rmSync(p, { recursive: true, force: true }); // was der Lauf angelegt hat
+        if (gesichert.includes(p)) {
+          renameSync(p + VORHER, p);
+          zurueck.push(p);
+        }
+      } catch (e) {
+        probleme.push(`${p}${gesichert.includes(p) ? ` bleibt als ${p + VORHER} liegen` : ' nicht entfernt'}: ${(e as Error).message}`);
+      }
     }
   }
-  console.log('aufgeräumt: Prozesse beendet, Test-Master gestoppt, Dev-Daten wiederhergestellt.');
+  const restore = beiseiteGelegt ? `${zurueck.length} von ${gesichert.length} beiseitegelegten Pfaden zurückgebracht` : 'nichts beiseitegelegt, Dev-Daten unberührt';
+  if (probleme.length === 0) {
+    console.log(`aufgeräumt: Prozesse beendet, Ports frei, Test-Master gestoppt, ${restore}.`);
+  } else {
+    console.log(`AUFRÄUMEN UNVOLLSTÄNDIG (${restore}):`);
+    for (const z of probleme) console.log(`  - ${z}`);
+    console.log('  Von Hand prüfen: übrige *.e2e-vorher unter %APPDATA% zurückbenennen, master-link.json prüfen, Electron-Prozesse beenden.');
+  }
 }
-process.on('SIGINT', () => { void raeumeAuf().then(() => process.exit(130)); });
+/** Strg+C, unbehandelter Fehler, Startfehler: main() anhalten, aufräumen, dann beenden. */
+function abbrechen(grund: string, exitCode = 1): void {
+  if (abbruchGrund) return;
+  abbruchGrund = grund;
+  console.log(`ABBRUCH: ${grund}`);
+  void raeumeAuf().finally(() => process.exit(exitCode));
+}
+process.on('SIGINT', () => abbrechen('Strg+C', 130));
+process.on('uncaughtException', (e) => abbrechen(`unbehandelter Fehler: ${e.message}`));
+process.on('unhandledRejection', (e) => abbrechen(`unbehandelte Ablehnung: ${e instanceof Error ? e.message : String(e)}`));
 
 async function starteTools(): Promise<void> {
   rdLauf += 1;
@@ -376,6 +431,7 @@ async function starteTools(): Promise<void> {
     if (!(await warteAufPort(STEUER[app], 60_000))) throw new Error(`${NAME[app]}: Steuerport ${STEUER[app]} kommt nicht hoch`);
   }
   for (const app of TOOLS) await verbindeDevTools(app);
+  starteSammler();
 }
 async function wartV4(nr: string): Promise<void> {
   for (const app of TOOLS) {
@@ -396,8 +452,8 @@ async function main(): Promise<void> {
     console.log('ABBRUCH: ELECTRON_EXE ist nicht gesetzt — Pfad zu einer electron.exe (Electron 33) angeben.');
     process.exit(2);
   }
-  if (!existsSync(ELECTRON)) {
-    console.log(`ABBRUCH: ${ELECTRON} fehlt — ELECTRON_EXE auf eine vorhandene electron.exe (Electron 33) setzen.`);
+  if (!existsSync(ELECTRON) || !statSync(ELECTRON).isFile()) {
+    console.log(`ABBRUCH: ${ELECTRON} fehlt oder ist keine Datei — ELECTRON_EXE auf eine vorhandene electron.exe (Electron 33) setzen.`);
     process.exit(2);
   }
   if (!APPDATA) {
@@ -436,6 +492,9 @@ async function main(): Promise<void> {
   pruefe('1 · Titler: STATE entry_count 4 (Speaker der Test-Show)', !!(await bis(() => titlerSt.kv().entry_count === '4', 15_000)), titlerKurz(titlerSt.kv()));
   const st1 = await bis(async () => { const st = await rdStand(); return zeilenIds(st) === ABLAUF_1.join(',') && rundownSt.kv().total === '3' ? st : null; }, 15_000);
   pruefe('1 · Rundown: STATE total 3 und die drei Punkte mit ihren Kennungen', !!st1, `total=${rundownSt.kv().total} · ${await sicher(async () => zeilenIds(await rdStand()))}`);
+  // Positiv-Kontrolle des Sammlers: das erste Anwenden meldet „übernommen“. Ohne diesen Hinweis wäre die Prüfung 4 blind.
+  const uebernommen = await bis(() => [...gesehen.values()].find((t) => t.includes('übernommen')) ?? null, 10_000, 250);
+  pruefe('1 · Rundown: Sammler sieht den Hinweis „Show vom Master … übernommen“ (Positiv-Kontrolle für 4)', !!uebernommen, uebernommen ?? ([...gesehen.values()].join(' | ') || 'kein Hinweis gesammelt'));
   const abos1 = verteiler.stand().abos;
   pruefe('1 · Master: drei Tools beziehen die Show', abos1.length === 3, abos1.map((x) => x.appId).join(', ') || 'keine Abos');
 
@@ -505,13 +564,17 @@ async function main(): Promise<void> {
   pruefe('4 · Master mit neuer Epoche und gleicher Show', epocheNeu !== null && epocheNeu !== epocheVorher && verteiler.stand().showName === SHOW_NAME,
     `${epocheVorher ?? '-'} → ${epocheNeu ?? '-'} · ${verteiler.stand().showName ?? '-'}`);
   await wartV4('4');
-  await bis(async () => { await rdStand(); return false; }, 3_000, 250); // drei Sekunden lang Hinweise sammeln
+  await sleep(3_000); // der Sammel-Takt (500 ms) läuft seit dem Start der Tools; drei Sekunden Luft nach V4
   const neueHinweise = [...gesehen.entries()].filter(([k]) => !hinweiseVorher.has(k)).map(([, t]) => t);
   pruefe('4 · Rundown: keine neuen Hinweise (gleiche Show, kein Kontextwechsel)', neueHinweise.length === 0, neueHinweise.join(' | ') || 'keine');
 
   console.log('\n— 5 · Tools neu starten, ohne Server → Daten aus dem Zwischenspeicher, V9 bzw. V11 mit Zusatz L');
   await stoppeMaster();
-  for (const app of TOOLS) await beendeTool(app);
+  stoppeSammler();
+  for (const app of TOOLS) {
+    const probleme5 = await beendeTool(app);
+    pruefe(`5 · ${NAME[app]}: Prozess beendet, Ports frei`, probleme5.length === 0, probleme5.join(' · ') || 'beendet');
+  }
   for (const app of TOOLS) {
     const datei = join(DEV(app), 'verbund', 'master-stand.json');
     pruefe(`5 · ${NAME[app]}: Zwischenspeicher liegt da`, existsSync(datei), join('@jm', app, 'verbund', 'master-stand.json'));
@@ -566,7 +629,7 @@ try {
   console.log(`\n${ergebnisse.length - fehl.length}/${ergebnisse.length} Prüfungen ok.`);
   code = fehl.length === 0 ? 0 : 1;
 } catch (e) {
-  console.log(`ABBRUCH: ${(e as Error).message}`);
+  if (!abbruchGrund) console.log(`ABBRUCH: ${(e as Error).message}`);
 } finally {
   if (code !== 0 && masterLog.length) {
     console.log('Log des Test-Masters:');
