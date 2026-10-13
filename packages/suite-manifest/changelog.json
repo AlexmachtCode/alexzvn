@@ -32,6 +32,17 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.15.0",
+        "date": "2026-10-13",
+        "notes": [
+          "Als Master verteilt der Launcher die offene Show an Timer, Titler und Rundown auf den gekoppelten Rechnern: Ablauf, Speaker, Side Events und die freigegebenen Tool-Einstellungen. Dokumente, Netzwerk-Angaben der Tools und rechnergebundene Einstellungen wie Ordner, Bildschirm oder die Presenter-PIN bleiben am Master. Auf den anderen Rechnern braucht es dafür keinen Launcher.",
+          "Die Tools auf den gekoppelten Rechnern brauchen dafür das Update auf Timer 0.14.0, Titler 0.11.0 und Rundown 0.8.0. Ältere Tools dort bekommen keine Show-Daten und auch kein Neu-Laden mehr vom Master.",
+          "Als Master schickt der Launcher das Neu-Laden nach einer iveo-Änderung nur noch an Timer, Titler und Rundown auf seinem eigenen Rechner. Tools auf einem Rechner ohne Kopplung im selben Netz bekommen es nicht mehr; wer dort die Show-Daten braucht, koppelt den Rechner.",
+          "Das Verbund-Modal am Master zeigt, welche Show im Verbund verteilt wird und wie viele Tools sie beziehen. Bei Timer, Titler und Rundown der anderen Rechner steht „bezieht Show-Daten“, bei älteren nach 10 s „ohne Show-Daten (Update nötig)“.",
+          "Die Liste der Side Events in der Show folgt jetzt iveo: Der Launcher bildet sie neu, wenn er bei einer Abfrage oder beim Umschalten auf die Tagesübersicht die Programme neu lädt. Scheitert das, bleibt die bisherige Liste, und das Side-Events-Panel meldet eine Störung."
+        ]
+      },
+      {
         "version": "0.14.0",
         "date": "2026-10-05",
         "notes": [
@@ -646,6 +657,16 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.14.0",
+        "date": "2026-10-13",
+        "notes": [
+          "Auf einem gekoppelten Rechner folgt der Timer der Show, die am Master offen ist (Master mit Launcher 0.15.0), auch ohne Launcher auf diesem Rechner. Neben „Sync“ steht dann „Show vom Master: … · Stand …“ oder der Zustand der Verbindung.",
+          "Öffnet der Master eine andere Show, setzt der Timer seinen Ablauf neu wie beim Öffnen einer Show und setzt dabei den Countdown zurück. Änderungen an derselben Show übernimmt er, ohne den Countdown anzutasten; der aktive Punkt folgt seiner Kennung.",
+          "Ist der Master nicht erreichbar oder hat er keine Show offen, bleibt der letzte Stand, auch über einen Neustart des Timers. Solange der Timer dem Master folgt, ändern Neu-Laden und Show-Links seinen Ablauf nicht.",
+          "Nach dem Entkoppeln bleibt der Ablauf vom Master mit dem Hinweis „Daten vom früheren Master …“ stehen, bis der Timer eine eigene Show öffnet."
+        ]
+      },
+      {
         "version": "0.13.0",
         "date": "2026-10-01",
         "notes": [
@@ -1080,6 +1101,17 @@
     "name": "JM Titler",
     "entries": [
       {
+        "version": "0.11.0",
+        "date": "2026-10-13",
+        "notes": [
+          "Auf einem gekoppelten Rechner übernimmt der Titler die Speaker der Show, die am Master offen ist (Master mit Launcher 0.15.0), auch ohne Launcher auf diesem Rechner. Daten / Recall nennt dann die Show vom Master als Quelle, und vor „Suite · … verbunden“ steht der Zustand der Verbindung.",
+          "Trägt die Show am Master Speaker, ist die Wahl eines eigenen DataLink-Ordners gesperrt. Ohne Speaker in der Show ist sie frei; kommen danach Speaker, gilt wieder die Liste vom Master.",
+          "Fehlt die Person auf Sendung in einer neuen Liste vom Master, bleibt die Bauchbinde stehen, mit Hinweis, wie seit 0.10.0. Gehalten wird weiter über Datei und Namen, weil die iveo-Kennung noch nicht übernommen wird.",
+          "Ist der Master nicht erreichbar, bleibt die letzte Liste, auch über einen Neustart. Solange der Titler dem Master folgt, ändert ein Neu-Laden die Speaker nicht, und ein Show-Link übernimmt nur noch die Vorlage.",
+          "Nach dem Entkoppeln bleibt die Liste vom Master mit Hinweis stehen, bis eine eigene Show geöffnet wird."
+        ]
+      },
+      {
         "version": "0.10.1",
         "date": "2026-10-13",
         "notes": [
@@ -1389,6 +1421,17 @@
     "app": "rundown",
     "name": "JM Rundown",
     "entries": [
+      {
+        "version": "0.8.0",
+        "date": "2026-10-13",
+        "notes": [
+          "Auf einem gekoppelten Rechner übernimmt der Rundown Ablauf und Speaker der Show, die am Master offen ist (Master mit Launcher 0.15.0), auch ohne Launcher auf diesem Rechner. Seine Aktionen merkt er sich je Show des Masters, auch über einen Neustart. Im Statusstreifen steht „Show vom Master: … · Stand …“ oder der Zustand der Verbindung.",
+          "Die eigene Rundown-Datei einer Show lädt der Rundown auf dem anderen Rechner nicht von selbst; ein stehender Hinweis sagt das. Ihre Aktionen fehlen dort.",
+          "Solange er mit dem Master verbunden ist, schickt der Rundown „Launcher · Side Event“ an den Launcher des Masters, auch wenn auf seinem Rechner ein eigener Launcher läuft.",
+          "Im Verbund lädt der Rundown auf einem gekoppelten Rechner aus einem Show-Link nichts; eine eigene Rundown-Datei lässt sich mit „Öffnen…“ laden. Neu-Laden ändert dann nichts am Dokument. Nach dem Entkoppeln bleibt das Dokument mit dem Hinweis „Daten vom früheren Master …“, bis eine eigene Show geöffnet wird.",
+          "Bekannt: Titler und Timer wählt der Rundown weiter nach dem zuletzt gefundenen. Laufen sie auf beiden Rechnern, im Rundown die Endpunkte von Hand festlegen."
+        ]
+      },
       {
         "version": "0.7.0",
         "date": "2026-10-05",

@@ -2,7 +2,7 @@
 
 Ein Launcher ist **Master**, die anderen Rechner koppeln sich **einmal** mit ihm. Danach verbinden sich Launcher und Tools jedes gekoppelten Rechners bei jedem Start selbst, auch wenn sich die IP-Adressen ändern.
 
-Stand Teil 1: Der Master sieht je Rechner, welche Tools laufen. Show-Daten über das Netz, Fernstart und die Show-Zentrale folgen in den nächsten Teilen.
+Stand Teil 2b: Der Master sieht je Rechner, welche Tools laufen, und verteilt seine offene Show an Timer, Titler und Rundown der gekoppelten Rechner (siehe „Show-Daten im Verbund“). Fernstart und die Show-Zentrale folgen in den nächsten Teilen.
 
 ## Master einschalten
 
@@ -83,6 +83,67 @@ In der Liste „Tools dieses Rechners“ (am Master und an den anderen Rechnern)
 | Verbund nicht gespeichert (EPERM) — Änderungen gelten nur bis zum Neustart | am Master lässt sich die Verbundliste nicht speichern (Datenträger voll, Schreibschutz); Koppeln und Entfernen wirken, sind nach einem Neustart aber weg | Ursache beheben; die Meldung verschwindet, sobald wieder gespeichert wurde |
 | Dieser Code wurde schon gesendet. Am Master „Neuer Code“ holen. | dieser Code ging schon einmal hinaus und wird aus Sicherheitsgründen nie ein zweites Mal gesendet | am Master „Neuer Code“, den neuen Code eintippen |
 | Dieser Rechner hat dieselbe Kennung wie der Master (Ordner kopiert?). „Neue Kennung“ wählen, dann koppeln. | dieser Rechner ist eine Kopie des Masters | „Neue Kennung“, dann koppeln |
+
+## Show-Daten im Verbund
+
+Ab Launcher 0.15.0 verteilt der Master die Show, die an ihm offen ist. Timer ab 0.14.0, Titler ab 0.11.0 und Rundown ab 0.8.0 auf einem gekoppelten Rechner holen sie über ihre eigene Verbindung zum Master, auch ohne Launcher auf diesem Rechner, und arbeiten damit wie mit einer geöffneten Show-Datei. Ändert sich die Show am Master, kommt der neue Stand nach wenigen Sekunden an.
+
+**Was reist:** Name der Show, Ablauf mit Kennungen, Speaker, Side Events, der Filter der iveo-Bindung, der Merker „Speaker veraltet“ und diese Einstellungen der Tools:
+
+| Tool | reist | bleibt am Master |
+| --- | --- | --- |
+| Timer | Timer-Liste, Dauer | – |
+| Q&A | Redezeit, Moderation, automatische Kopplung an Timer und Titler | – |
+| Battle | Runden, Namen und Crews | – |
+| Caption | Modell, Sprache, NDI-Name | – |
+| Transcribe | Modell, Sprache, Aufgabe, Formate | Ausgabeordner |
+| Recorder | Dateiname, getrennte Spuren | Ordner, Kanäle, Abtastrate |
+| Player | – | Bibliothek, Bildschirm |
+| Presenter | – | PIN |
+| Connect | Raum | – |
+| alle anderen | – | alles |
+
+Anwenden tun die Daten bisher nur Timer, Titler und Rundown.
+
+**Was am Master bleibt:** Dokumente der Tools (etwa die eigene Rundown-Datei einer Show; der Rundown auf dem anderen Rechner sagt das mit einem Hinweis), Netzwerk-Angaben der Tools, die iveo-Adresse und jedes Token. Das Log des Masters nennt bei jedem neuen Stand, was lokal geblieben ist.
+
+**Am Master** zeigt das Modal unter „Gekoppelte Rechner“ eine Zeile „Show im Verbund: „⟨Show⟩“ · Stand ⟨hh:mm⟩ · ⟨n⟩ Tools beziehen sie“ (bei einem Tool „· 1 Tool bezieht sie“), ohne offene Show „Show im Verbund: keine Show offen“, in Rot „… nicht verteilt: zu groß für den Verbund (⟨n⟩ KiB)“ oder „… nicht verteilt: nicht lesbar“. Bei Timer, Titler und Rundown der anderen Rechner steht „bezieht Show-Daten“. Steht dort nach 10 s „ohne Show-Daten (Update nötig)“, läuft auf diesem Rechner ein älteres Tool.
+
+**In den Tools** (Timer: neben „Sync“, Titler: vor „Suite · ⟨n⟩ verbunden“, Rundown: im Statusstreifen):
+
+| Anzeige | Bedeutung | Was tun |
+| --- | --- | --- |
+| Show vom Master: ⟨Show⟩ · Stand ⟨hh:mm⟩ | Daten vom Master, aktuell (grün). Die Uhrzeit ist die Empfangszeit auf diesem Rechner. | — |
+| Verbunden mit ⟨Master⟩ · Show wird geladen… | die Anfrage nach Show-Daten läuft | kurz warten |
+| ⟨Master⟩ antwortet nicht auf die Anfrage nach Show-Daten (Launcher-Update am Master nötig?) | der Master antwortet 5 s lang nicht; das Tool fragt alle 30 s erneut und arbeitet bis dahin wie ohne Verbund | Launcher am Master auf 0.15.0 bringen |
+| ⟨Master⟩ hat keine Show offen | am Master ist keine Show offen | am Master eine Show öffnen |
+| Show am Master zu groß für den Verbund | die Show überschreitet 900 KiB | Show verkleinern; das Log des Masters nennt die Größe |
+| Show am Master nicht lesbar | die Show-Datei am Master ist gerade nicht lesbar | Show am Master prüfen |
+| ⟨Master⟩ nicht verbunden | die Verbindung ist weg, das Tool sucht den Master | kurz warten |
+| Suche ⟨Master⟩… | noch keine Verbindung, das Tool sucht | kurz warten |
+| roter Fehlertext, etwa „⟨Master⟩ nicht erreichbar: ausgeschaltet, Launcher oder Master-Modus aus …“ | der Master ist nicht erreichbar oder lehnt ab | wie unter „Was die Kopfanzeige sagt“ |
+| Show vom Master nicht übernommen: ⟨Fehler⟩ | das Tool konnte den Stand nicht anwenden (etwa EBUSY); es versucht es fünfmal im Abstand von 1 s, danach mit dem nächsten Stand | bleibt es: Logs des Tools ansehen |
+| Show-Daten von ⟨Master⟩ nicht lesbar (Tool-Update nötig?) | der Master schickt Daten, die dieses Tool nicht versteht | Tool aktualisieren |
+| Daten vom früheren Master ⟨Master⟩ (nicht mehr gekoppelt) | der Rechner ist entkoppelt oder seine Rolle hat sich geändert | eigene Show öffnen oder neu koppeln |
+| Kopplungsdatei beschädigt. Neu koppeln. | `master-link.json` ist beschädigt | neu koppeln |
+
+Steht „· letzter Stand: ⟨Show⟩ ⟨hh:mm⟩“ dahinter, arbeitet das Tool mit diesem Stand weiter, auch nach einem Neustart.
+
+**Solange ein Tool dem Master folgt,** kommen Ablauf, Speaker und Einstellungen nur vom Master. Ein Neu-Laden ändert dann nichts, und ein Show-Link ändert die Show-Daten nicht; der Titler übernimmt daraus nur die Vorlage. Im Verbund lädt der Rundown auf einem gekoppelten Rechner aus einem Show-Link nichts; eine eigene Rundown-Datei lässt sich mit „Öffnen…“ laden. Ein Neu-Laden vermerkt das Log höchstens einmal je Minute; einen Show-Link vermerken Timer und Titler höchstens einmal je Minute, der Rundown bei jedem Link. Trägt die Show am Master Speaker, ist im Titler die Wahl eines eigenen DataLink-Ordners gesperrt. Öffnet der Master eine andere Show, setzt der Timer seinen Ablauf neu wie beim Öffnen einer Show und setzt dabei den Countdown zurück.
+
+**Neu-Laden nur an diesen Rechner:** Als Master schickt der Launcher das Neu-Laden nach einer iveo-Änderung nur noch an Timer, Titler und Rundown auf seinem eigenen Rechner. Tools auf einem Rechner ohne Kopplung im selben Netz bekommen es nicht mehr; wer dort die Show-Daten braucht, koppelt den Rechner.
+
+**Entkoppeln:** Nach dem Trennen bleiben die Daten vom Master mit Hinweis stehen, auch über einen Neustart, bis im Tool eine eigene Show geöffnet wird. Danach wirken Show-Link und Neu-Laden wieder wie am Einzelplatz.
+
+**Grenzen:**
+- Tools auf dem Master-Rechner lesen weiter die Show-Datei und bekommen das Neu-Laden wie bisher.
+- Ältere Tools (Timer bis 0.13, Titler bis 0.10, Rundown bis 0.7) auf einem gekoppelten Rechner bekommen weder Show-Daten noch Neu-Laden vom Master.
+- Dokumente, Medien und Fotos reisen nicht.
+- Titler und Timer wählt der Rundown weiter nach „zuletzt gefunden“. Laufen sie auf beiden Rechnern, im Rundown die Endpunkte von Hand festlegen. Nur „Launcher · Side Event“ geht über die Kopplung an den Master.
+- Speaker gleichen Namens unterscheidet der Rundown-Picker weiter nicht; die iveo-Kennung wird noch nicht übernommen.
+- Wird ein Rechner umbenannt, zeigt das Modal am Master den neuen Namen erst nach dessen nächster Anmeldung.
+- Speichert jemand am Master im Show-Editor eine Show, die mit dem Merker „Speaker veraltet“ geöffnet war, nachdem die Speakerliste wiederkam, zeigen Panel und Titler bis zur nächsten Abfrage (höchstens 45 s) „… aus früherem Stand“.
+- Bei gezogenem Kabel bleibt die Anzeige bis zu 25 s grün (Stille-Frist).
 
 ## Rechner geklont oder Ordner kopiert
 

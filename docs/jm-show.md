@@ -265,8 +265,10 @@ an, bis die Liste wieder kommt, und das Panel nennt den Grund. Beim Binden im
 Show-Editor gilt ein solcher Fehler weiter als keine Speaker: Die Bindung bringt
 dann keine Speaker mit, und der Editor warnt.
 
-**Grenzen.** Das gilt am Einzelplatz: Tools auf einem anderen Rechner lesen
-weiter ihre eigene Show-Datei (folgt mit Release 2 von Master-Link Teil 2b).
+**Grenzen.** Das gilt am Einzelplatz. Auf einem gekoppelten Rechner folgen
+Timer, Titler und Rundown ab Timer 0.14.0, Titler 0.11.0 und Rundown 0.8.0 der
+Show, die am Master offen ist (Abschnitt „Show-Daten im Verbund“ in
+`docs/suite-verbund.md`); ältere Tools dort lesen weiter ihre eigene Show-Datei.
 Sprünge aus Companion (`RUNDOWN GOTO n`, `TIMER GOTO n`) sowie
 `TITLER RECALL <nr>`, Weiter und Zurück im Titler bleiben nummernbasiert. Wird
 eine Show-Datei umbenannt oder verschoben, beginnt der Rundown für sie neu. Ein
