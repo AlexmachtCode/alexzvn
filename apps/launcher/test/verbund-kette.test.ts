@@ -90,8 +90,10 @@ function show(name: string, ablauf: string[], speaker: string[] = ['Ada', 'Grace
 }
 
 // ── Master: echter Server, Verteiler wie in MasterRolle verdrahtet ──────────
-const a = await baueServer({ identitaet: neueIdentitaet(MASTER) }, SERVER_FRISTEN);
 const masterLog: string[] = [];
+/** Diagnose des Servers (Lauscher, abgelehnte Anmeldungen, werfende Zuhörer) landet im Master-Log — am Ende darf keine „warf“-Zeile stehen. */
+const serverLog = (stufe: string, text: string): void => { masterLog.push(`server ${stufe}: ${text}`); };
+const a = await baueServer({ identitaet: neueIdentitaet(MASTER), log: serverLog }, SERVER_FRISTEN);
 /** Logzeilen der Tools (VerbundFolger, Zwischenspeicher, Client) — nur bei einem Fehlschlag ausgegeben. */
 const toolLog: string[] = [];
 /** Jedes Ereignis 'daten' (Abo) aller Server dieses Laufs, in Ankunftsfolge. */
@@ -112,7 +114,7 @@ function haengeAn(s: MasterLinkServer, v: Verteiler): void {
 function neuerServer(): MasterLinkServer {
   return new MasterLinkServer({
     identitaet: a.identitaet, verbund: a.verbund, eigeneRechnerId: a.eigen.rechnerId, suiteVersion: '0.15.0',
-    lauschAdressen: ['127.0.0.1'], port: a.port, fristen: SERVER_FRISTEN,
+    lauschAdressen: ['127.0.0.1'], port: a.port, fristen: SERVER_FRISTEN, log: serverLog,
   });
 }
 
@@ -468,6 +470,7 @@ const pfadL = masterLinkPfad(temp('jmkette-app-'));
 schreibeMasterLinkDatei(pfadL, dateiSlave(a.port));
 const launcherB = new MasterLinkClient({
   dateiPfad: pfadL, teilnehmer: { art: 'launcher', appId: 'jm-launcher', name: 'JM Production Suite', version: '0.15.0', pid: 4712 }, fristen: CLIENT_FRISTEN, suche: null,
+  log: (stufe, t) => masterLog.push(`launcherB ${stufe}: ${t}`),
 });
 const launcherDaten: DatenZeile[] = [];
 launcherB.on('daten', (n: DatenZeile) => launcherDaten.push(n));
@@ -508,6 +511,7 @@ await T.stoppe();
 await server.stoppe();
 v2.stoppe();
 await strecke.schliesse();
+ck('Master-Log · kein Zuhörer des Verteilers warf', !masterLog.some((z) => z.includes('warf')), masterLog.filter((z) => z.includes('warf')).join(' | '));
 if (fail > 0) {
   console.log('\nVerteiler-Log (Master):');
   for (const z of masterLog) console.log(`  ${z}`);
