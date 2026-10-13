@@ -1128,8 +1128,18 @@ export async function laufeShowDaten(): Promise<void> {
     gleich(c.kopplung(), {
       rolle: 'slave', masterId: a.identitaet.masterId, masterName: 'Regie-PC', letzteAdresse: '127.0.0.1', adressen: ['10.0.0.7', '192.168.1.7'],
     }, 'nach angemeldet → adressen aus angemeldet, letzteAdresse = Adresse dieser Verbindung (E6)');
+    // E6: die Laufzeitadresse gilt vor dem Dateiwert (ohne Launcher auf B veraltet letzteAdresse in der Datei).
+    // masterName ändern, damit erkennbar ist, dass die Datei neu gelesen wurde; beide Felder sind nicht verbindungsrelevant.
+    schreibeMasterLinkDatei(pfad, { ...dateiFuer(a), kopplung: { ...dateiFuer(a).kopplung!, letzteAdresse: '10.9.9.9', masterName: 'Regie-PC (neu)' } });
+    await bis(() => c.kopplung()?.masterName === 'Regie-PC (neu)', 2000);
+    gleich(c.kopplung()?.letzteAdresse, '127.0.0.1', 'Dateiwert veraltet (nicht relevant) → Laufzeitadresse gewinnt (E6)');
+    gleich(art(c), 'verbunden', 'nicht relevante Dateiänderung → keine Trennung');
     c.kopplung()!.adressen.push('10.6.6.6');
     gleich(c.kopplung()!.adressen.length, 2, 'kopplung() liefert eine Kopie (der Aufrufer ändert den Client nicht)');
+    schreibeMasterLinkDatei(pfad, { ...dateiFuer(a), rolle: 'aus' });
+    await bis(() => art(c) === 'aus', 2000);
+    gleich(c.kopplung(), { rolle: 'aus', masterId: null, masterName: null, letzteAdresse: null, adressen: [] },
+      'verbindungsrelevante Änderung (rolle aus) → Laufzeitwerte zurückgesetzt');
     await c.stoppe();
     srv.close();
   }
