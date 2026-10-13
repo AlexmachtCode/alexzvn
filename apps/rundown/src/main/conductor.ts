@@ -9,8 +9,14 @@ import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { CAPABILITIES } from '@jm/suite-control-protocol/capabilities';
 import { controlClientOptions, readControlConfig, mdnsSignKey } from '@jm/control-config';
-import { mergeEndpoints } from '@shared/conductor';
+import { mergeEndpoints, waehleLauncher, type KopplungFuerWahl } from '@shared/conductor';
 import type { Endpoint, ToolLink } from '@shared/types';
+
+/** Woher die Launcher-Wahl Kopplung und „dieser Rechner“ bekommt (Spec 17.4; im Main aus @jm/app-runtime). */
+export interface LauncherWahl {
+  kopplung(): KopplungFuerWahl | null;
+  istHier(host: string): boolean;
+}
 
 /** Token/TLS-Optionen für die Steuer-Clients (P1, secure-Modus). */
 type ClientSecurity = ReturnType<typeof controlClientOptions>;
@@ -38,8 +44,15 @@ export class Conductor {
   private clientSecurity: ClientSecurity = {};
   /** mDNS-Prüf-Key (secure-Modus, A3 #59) → gefälschte Annoncen werden verworfen. */
   private verifyKey: string | undefined;
+  /** Alle Funde der Rolle `launcher` (Spec 17.4, Z2): gewählt wird über `waehleLauncher`, nicht „der letzte“. */
+  private launcherFunde: Endpoint[] = [];
+  /** start() lief: erst dann darf ein Verbund-Wechsel Clients aufbauen (Token/TLS sind dann gelesen). */
+  private gestartet = false;
 
-  constructor(private readonly onChange: () => void) {}
+  constructor(
+    private readonly onChange: () => void,
+    private readonly launcherWahl?: LauncherWahl,
+  ) {}
 
   /**
    * Discovery starten. `appDataDir` (z. B. app.getPath('appData')) → die geteilte
@@ -52,6 +65,7 @@ export class Conductor {
       this.clientSecurity = controlClientOptions(cfg);
       this.verifyKey = mdnsSignKey(cfg);
     }
+    this.gestartet = true;
     if (this.discovery) return;
     try {
       this.discovery = discover((svcs) => this.onDiscovered(svcs), { verifyKey: this.verifyKey });
@@ -82,16 +96,34 @@ export class Conductor {
     // Volle aktuelle Fundliste → discovered komplett neu aufbauen (handhabt auch
     // Verschwinden: ein abgemeldetes Tool fällt aus der Liste und wird abgeräumt).
     const next: Record<string, Endpoint> = {};
+    const launcher: Endpoint[] = [];
     for (const s of svcs) {
-      if (this.isControl(s)) next[s.role] = { host: s.host, port: s.port };
+      if (!this.isControl(s)) continue;
+      // Launcher: alle Funde sammeln (17.4); andere Rollen bleiben bei „zuletzt gefunden“ (FA4).
+      if (s.role === 'launcher') launcher.push({ host: s.host, port: s.port });
+      else next[s.role] = { host: s.host, port: s.port };
     }
+    this.launcherFunde = launcher;
     this.discovered = next;
     this.reconcile();
   }
 
+  /** Verbund gewechselt (Kopplung, Verbindung zum Master): den Launcher neu wählen (Spec 17.4). */
+  neuWaehlen(): void {
+    if (this.gestartet) this.reconcile();
+  }
+
+  /** Gewählter Launcher: über `waehleLauncher`, ohne Verbund-Anbindung wie bisher der letzte Fund. */
+  private launcherEndpunkt(): Endpoint | null {
+    if (!this.launcherWahl) return this.launcherFunde[this.launcherFunde.length - 1] ?? null;
+    const wahl = this.launcherWahl;
+    return waehleLauncher(this.launcherFunde, wahl.kopplung(), (host) => wahl.istHier(host));
+  }
+
   /** Verbindungen an die gewünschten Endpunkte (mDNS + Overrides) angleichen. */
   private reconcile(): void {
-    const want = mergeEndpoints(this.discovered, this.overrides);
+    const launcher = this.launcherEndpunkt();
+    const want = mergeEndpoints(launcher ? { ...this.discovered, launcher } : this.discovered, this.overrides);
 
     // Nicht (mehr) gewünschte oder umgezogene Links trennen.
     for (const [role, link] of this.links) {

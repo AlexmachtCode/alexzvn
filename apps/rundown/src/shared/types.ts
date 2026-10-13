@@ -162,6 +162,16 @@ export interface RundownHinweis {
   art: 'kurz' | 'stehend';
 }
 
+/**
+ * Verbund-Anzeige über die Preload-Brücke (Master-Link Teil 2b, Spec 16.4/16.5). Strukturgleich mit
+ * `VerbundAnzeige` aus `@jm/app-runtime`; eigener Typ, damit die Renderer-Typprüfung app-runtime
+ * (Electron-Typen) nicht einliest (E28).
+ */
+export interface VerbundAnzeigeZeile {
+  text: string;
+  farbe: 'gruen' | 'gelb' | 'rot' | 'gedaempft';
+}
+
 // ── Preload-API (window.jmrundown) ───────────────────────────────────────────
 export interface JmRundownApi {
   platform: string;
@@ -198,4 +208,8 @@ export interface JmRundownApi {
   open: () => Promise<RundownState>;
   save: () => Promise<RundownState>;
   saveAs: () => Promise<RundownState>;
+  /** Verbund-Anzeige (Spec 16.4/16.5): V-Zeile oder null (Einzelplatz). */
+  verbundAnzeige: () => Promise<VerbundAnzeigeZeile | null>;
+  /** Auf Wechsel der Verbund-Anzeige hören. Liefert Unsubscribe. */
+  onVerbundAnzeige: (cb: (a: VerbundAnzeigeZeile | null) => void) => () => void;
 }
