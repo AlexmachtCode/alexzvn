@@ -1,6 +1,17 @@
 // Selbsttest der reinen Conductor-Logik (kein Framework):
 //   node --experimental-strip-types test/selftest.ts
 import { buildActionLine, clampIndex, mergeEndpoints, navigate } from '../src/shared/conductor.ts';
+import {
+  dokumentHinweis,
+  entscheideMasterStand,
+  gleicherShowName,
+  HINWEIS_RUNDOWN_DATEI_AM_MASTER,
+  masterAusgang,
+  mitRundownDokument,
+  showLinkWeg,
+  waehleLauncher,
+  type KopplungFuerWahl,
+} from '../src/shared/conductor.ts';
 import type { RundownDoc } from '../src/shared/types.ts';
 import { kontextVon, wendeShowAn } from '../src/shared/abgleich.ts';
 import { parseShow, serializeShow } from '@jm/show';
@@ -1870,6 +1881,103 @@ eq(kontextVon({ iveo: { filter: { day: '2026-11-11' } } }), 'liste:2026-11-11|||
     buildActionLine('titler', 'recall', loeseSpeakerZiel(gebunden, SP, titlerKannKennung([{ role: 'titler', connected: true, state: null }]))),
     'TITLER RECALL Alan',
     'Review Focus 3: ein Titler ohne bekannte Fähigkeit bekommt die @-Form nie',
+  );
+}
+
+// ── Teil 2b R2 · Rundown im Verbund: Launcher-Wahl (17.4), neu oder gleich, Übergang, Hinweis (17.3) ──
+{
+  const A = { host: '10.0.0.5', port: 8736 }; // Launcher am Master
+  const B = { host: '10.0.0.7', port: 8736 }; // eigener Launcher auf B (dieser Rechner)
+  const C = { host: 'regie-c', port: 8736 }; // dritter Launcher, per Hostname gefunden
+  const hier = (h: string): boolean => h === '10.0.0.7';
+  const k = (o: Partial<KopplungFuerWahl>): KopplungFuerWahl => ({ rolle: 'slave', masterAdresse: null, adressen: [], letzteAdresse: null, ...o });
+
+  // Rolle Slave, verbunden: Fund mit masterAdresse oder einer Adresse aus „angemeldet“, sonst direkt :8736.
+  eq(waehleLauncher([B, A], k({ masterAdresse: '10.0.0.5' }), hier), A, '17.4 Slave verbunden: Fund mit masterAdresse, nicht der letzte Fund');
+  eq(
+    waehleLauncher([A, B], k({ masterAdresse: '192.168.1.5', adressen: ['10.0.0.5', '192.168.1.5'] }), hier),
+    A,
+    '17.4 Slave verbunden: Fund mit einer Adresse aus kopplung.adressen',
+  );
+  eq(waehleLauncher([B], k({ masterAdresse: '10.0.0.5' }), hier), { host: '10.0.0.5', port: 8736 }, '17.4 Slave verbunden, kein passender Fund → masterAdresse mit Port 8736');
+  eq(waehleLauncher([], k({ masterAdresse: '10.0.0.5' }), hier), { host: '10.0.0.5', port: 8736 }, '17.4 Slave verbunden, keine Funde → masterAdresse mit Port 8736');
+  eq(
+    waehleLauncher([B, { host: '::ffff:10.0.0.5', port: 9000 }], k({ masterAdresse: '10.0.0.5' }), hier),
+    { host: '::ffff:10.0.0.5', port: 9000 },
+    '17.4 Slave verbunden: ::ffff:-Form ist dieselbe Adresse, der Fund behält seinen Port',
+  );
+  // Rolle Slave, nicht verbunden: nur ein Fund passend zu letzteAdresse.
+  eq(waehleLauncher([B, A], k({ letzteAdresse: '10.0.0.5' }), hier), A, '17.4 Slave nicht verbunden: Fund passend zu letzteAdresse');
+  eq(waehleLauncher([B, C], k({ letzteAdresse: '10.0.0.5' }), hier), null, '17.4 Slave nicht verbunden, kein passender Fund → keiner');
+  eq(waehleLauncher([B, A], k({}), hier), null, '17.4 Slave nicht verbunden, ohne letzteAdresse → keiner');
+  // Rolle Master: der Fund auf diesem Rechner.
+  const master = k({ rolle: 'master' });
+  eq(waehleLauncher([B, A], master, hier), B, '17.4 Master: Fund auf diesem Rechner, nicht der letzte Fund');
+  eq(waehleLauncher([A, C], master, hier), null, '17.4 Master: kein Fund auf diesem Rechner → keiner');
+  // Einzelplatz: wie heute der letzte Fund.
+  eq(waehleLauncher([A, B], null, hier), B, '17.4 Einzelplatz (keine Kopplungsdatei): der letzte Fund');
+  eq(waehleLauncher([B, A], k({ rolle: 'aus' }), hier), A, '17.4 Einzelplatz (Rolle aus): der letzte Fund');
+  eq(waehleLauncher([], null, hier), null, '17.4 Einzelplatz ohne Funde → keiner');
+  const funde = [B, A];
+  waehleLauncher(funde, k({ masterAdresse: '10.0.0.5' }), hier);
+  eq(funde, [B, A], '17.4: die Fundliste bleibt unverändert');
+
+  // Neue oder gleiche Show entscheidet der Zeiger (17.3), nicht neueShow.
+  const mz = { quelle: 'master' as const, masterId: 'm1', masterSchluessel: '0123456789abcdef', showName: 'Gala', schluessel: 'aaaaaaaaaaaaaaaa' };
+  eq(entscheideMasterStand(mz, { masterId: 'm1', schluessel: '0123456789abcdef' }), 'gleich', '17.3: gleicher Master und gleicher Schlüssel → gleich');
+  eq(entscheideMasterStand(mz, { masterId: 'm2', schluessel: '0123456789abcdef' }), 'neu', '17.3: anderer Master → neu');
+  eq(entscheideMasterStand(mz, { masterId: 'm1', schluessel: 'fedcba9876543210' }), 'neu', '17.3: andere Show am Master → neu');
+  eq(entscheideMasterStand(mz, { masterId: 'm1', schluessel: null }), 'neu', '17.3: Schlüssel null → neu');
+  eq(entscheideMasterStand(null, { masterId: 'm1', schluessel: '0123456789abcdef' }), 'neu', '17.3: ohne Zeiger → neu');
+  eq(
+    entscheideMasterStand({ showPfad: 'C:\\Shows\\Gala.jmshow', schluessel: 'aaaaaaaaaaaaaaaa' }, { masterId: 'm1', schluessel: '0123456789abcdef' }),
+    'neu',
+    '17.3: Zeiger auf eine eigene Show (Pfad) → neu',
+  );
+
+  // Übergang: gleicher Name (E25) und stehender Hinweis bei mitDokument mit jm-rundown.
+  eq(gleicherShowName('  Gala 2026 ', 'gala 2026'), true, '17.3 Übergang: Name gleich nach trim, ohne Rücksicht auf Groß/Klein');
+  eq(gleicherShowName('Gala', 'Gala 2026'), false, '17.3 Übergang: anderer Name → nein');
+  eq(gleicherShowName('  ', ''), false, '17.3 Übergang: ein leerer Name gleicht nie');
+  eq(mitRundownDokument(['jm-titler', 'jm-rundown']), true, '17.3: mitDokument mit jm-rundown → stehender Hinweis');
+  eq(mitRundownDokument(['jm-titler']) || mitRundownDokument([]), false, '17.3: ohne jm-rundown → kein Hinweis');
+  eq(
+    HINWEIS_RUNDOWN_DATEI_AM_MASTER,
+    'Die Rundown-Datei dieser Show liegt am Master und wird hier nicht geladen. Ihre Aktionen fehlen auf diesem Rechner.',
+    '17.3: Hinweis wörtlich',
+  );
+
+  // Ladeweg einer neuen Show vom Master (17.3, N9): Gedächtnis → Übergang (gleicher Name) → leer; eine Show ohne
+  // Ablauf und ohne Gedächtnis lässt das Dokument stehen (wie 2a 5.2).
+  const weg = (mitGedaechtnis: boolean, ablaufLeer: boolean, docName: string) => masterAusgang({ mitGedaechtnis, ablaufLeer, docName, showName: 'Gala' });
+  eq(weg(true, false, 'Andere'), 'gedaechtnis', '17.3 Ladeweg: Gedächtnis mit Master-Schlüssel zuerst');
+  eq(weg(true, true, 'Andere'), 'gedaechtnis', '17.3 Ladeweg: Gedächtnis auch bei einer Show ohne Ablauf');
+  eq(weg(false, false, ' gala '), 'uebergang', '17.3 Ladeweg: ohne Gedächtnis, gleicher Name → Übergang');
+  eq(weg(false, false, 'Andere'), 'leer', '17.3 Ladeweg: ohne Gedächtnis, anderer Name → leer');
+  eq(weg(false, true, 'Gala'), 'bleibt', '17.3 Ladeweg: ohne Ablauf und ohne Gedächtnis → das Dokument bleibt (5.2)');
+
+  // Stehender Hinweis zur Rundown-Datei: einmal je Show (17.3, N9); weggeklickt bleibt er weg, bis eine andere Show kommt.
+  const mitDatei = { masterId: 'm1', mitDokument: ['jm-rundown'] };
+  const h1 = dokumentHinweis(null, mitDatei, '0123456789abcdef');
+  eq(h1, { fuer: 'm1|0123456789abcdef', zeigen: true }, '17.3 Hinweis: erster Stand der Show mit Rundown-Datei → zeigen und loggen');
+  eq(dokumentHinweis(h1.fuer, mitDatei, '0123456789abcdef'), { fuer: h1.fuer, zeigen: false }, '17.3 Hinweis: weiterer Stand derselben Show → nicht noch einmal');
+  eq(dokumentHinweis(h1.fuer, mitDatei, 'fedcba9876543210').zeigen, true, '17.3 Hinweis: andere Show am Master → wieder zeigen');
+  eq(dokumentHinweis(h1.fuer, { masterId: 'm2', mitDokument: ['jm-rundown'] }, '0123456789abcdef').zeigen, true, '17.3 Hinweis: anderer Master → wieder zeigen');
+  eq(dokumentHinweis(h1.fuer, { masterId: 'm1', mitDokument: ['jm-titler'] }, '0123456789abcdef'), { fuer: null, zeigen: false }, '17.3 Hinweis: Show ohne Rundown-Datei → entfernen, Merker leer');
+
+  // Show-Deep-Link (17.3 vor 16.1, E24, N15): im Verbundmodus lädt der Rundown daraus nichts, weder Daten noch Dokument,
+  // und schreibt eine eigene Logzeile; außerhalb gilt der Weg aus 2a.
+  const ohneKuerzen = (n: string): string => n;
+  eq(showLinkWeg(false, 'C:\\Shows\\Gala 2026.jmshow', ohneKuerzen), { weg: 'laden' }, '17.3 Show-Link außerhalb des Verbundmodus → laden wie 2a');
+  eq(
+    showLinkWeg(true, 'C:\\Shows\\Gala 2026.jmshow', ohneKuerzen),
+    { weg: 'ignorieren', log: 'Verbund: Show-Link „Gala 2026.jmshow“ – der Rundown folgt der Show vom Master und lädt daraus nichts.' },
+    '17.3 Show-Link im Verbundmodus → nichts laden, eigene Logzeile mit dem Dateinamen (E24)',
+  );
+  eq(
+    showLinkWeg(true, '/home/regie/Shows/Gala.jmshow', (n) => `[${n}]`),
+    { weg: 'ignorieren', log: 'Verbund: Show-Link „[Gala.jmshow]“ – der Rundown folgt der Show vom Master und lädt daraus nichts.' },
+    '17.3 … der Name läuft durch die Kürzung (im Main kuerzeName), auch bei Pfaden mit /',
   );
 }
 

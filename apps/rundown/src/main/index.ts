@@ -811,7 +811,8 @@ function applyShowFromDeepLink(url: string): boolean {
  */
 function starteOhneDeepLink(): void {
   const z = leseZeiger(regieOrdner());
-  if (!z) return;
+  // Zeiger mit quelle master (Spec 17.3) kommt mit C18; bis dahin wie Rundown 0.7: ignoriert.
+  if (!z || 'quelle' in z) return;
   const g = leseShowSicher(z.showPfad);
   if (g.ok) {
     ladeAndereShow(z.showPfad, g);
