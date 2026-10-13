@@ -133,7 +133,7 @@ Steht „· letzter Stand: ⟨Show⟩ ⟨hh:mm⟩“ dahinter, arbeitet das Tool
 
 **Neu-Laden nur an diesen Rechner:** Als Master schickt der Launcher das Neu-Laden nach einer iveo-Änderung nur noch an Timer, Titler und Rundown auf seinem eigenen Rechner. Tools auf einem Rechner ohne Kopplung im selben Netz bekommen es nicht mehr; wer dort die Show-Daten braucht, koppelt den Rechner.
 
-**Entkoppeln:** Nach dem Trennen bleiben die Daten vom Master mit Hinweis stehen, auch über einen Neustart, bis im Tool eine eigene Show geöffnet wird. Danach wirken Show-Link und Neu-Laden wieder wie am Einzelplatz.
+**Entkoppeln:** Nach dem Trennen bleiben die Daten vom Master mit Hinweis stehen, auch über einen Neustart, bis das Tool eigene Daten bekommt: eine eigene Show, im Timer eine Änderung am Ablauf von Hand, im Titler ein eigener DataLink-Ordner, im Rundown „Öffnen…“ oder „Neu“. Danach wirken Show-Link und Neu-Laden wieder wie am Einzelplatz.
 
 **Grenzen:**
 - Tools auf dem Master-Rechner lesen weiter die Show-Datei und bekommen das Neu-Laden wie bisher.

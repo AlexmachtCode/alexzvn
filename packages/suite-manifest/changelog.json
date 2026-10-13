@@ -663,7 +663,7 @@
           "Auf einem gekoppelten Rechner folgt der Timer der Show, die am Master offen ist (Master mit Launcher 0.15.0), auch ohne Launcher auf diesem Rechner. Neben „Sync“ steht dann „Show vom Master: … · Stand …“ oder der Zustand der Verbindung.",
           "Öffnet der Master eine andere Show, setzt der Timer seinen Ablauf neu wie beim Öffnen einer Show und setzt dabei den Countdown zurück. Änderungen an derselben Show übernimmt er, ohne den Countdown anzutasten; der aktive Punkt folgt seiner Kennung.",
           "Ist der Master nicht erreichbar oder hat er keine Show offen, bleibt der letzte Stand, auch über einen Neustart des Timers. Solange der Timer dem Master folgt, ändern Neu-Laden und Show-Links seinen Ablauf nicht.",
-          "Nach dem Entkoppeln bleibt der Ablauf vom Master mit dem Hinweis „Daten vom früheren Master …“ stehen, bis der Timer eine eigene Show öffnet."
+          "Nach dem Entkoppeln bleibt der Ablauf vom Master mit dem Hinweis „Daten vom früheren Master …“ stehen, bis der Timer eine eigene Show öffnet oder der Ablauf von Hand geändert wird."
         ]
       },
       {
@@ -1108,7 +1108,7 @@
           "Trägt die Show am Master Speaker, ist die Wahl eines eigenen DataLink-Ordners gesperrt. Ohne Speaker in der Show ist sie frei; kommen danach Speaker, gilt wieder die Liste vom Master.",
           "Fehlt die Person auf Sendung in einer neuen Liste vom Master, bleibt die Bauchbinde stehen, mit Hinweis, wie seit 0.10.0. Gehalten wird weiter über Datei und Namen, weil die iveo-Kennung noch nicht übernommen wird.",
           "Ist der Master nicht erreichbar, bleibt die letzte Liste, auch über einen Neustart. Solange der Titler dem Master folgt, ändert ein Neu-Laden die Speaker nicht, und ein Show-Link übernimmt nur noch die Vorlage.",
-          "Nach dem Entkoppeln bleibt die Liste vom Master mit Hinweis stehen, bis eine eigene Show geöffnet wird."
+          "Nach dem Entkoppeln bleibt die Liste vom Master mit Hinweis stehen, bis eine eigene Show geöffnet oder ein eigener DataLink-Ordner gewählt wird."
         ]
       },
       {
@@ -1428,7 +1428,7 @@
           "Auf einem gekoppelten Rechner übernimmt der Rundown Ablauf und Speaker der Show, die am Master offen ist (Master mit Launcher 0.15.0), auch ohne Launcher auf diesem Rechner. Seine Aktionen merkt er sich je Show des Masters, auch über einen Neustart. Im Statusstreifen steht „Show vom Master: … · Stand …“ oder der Zustand der Verbindung.",
           "Die eigene Rundown-Datei einer Show lädt der Rundown auf dem anderen Rechner nicht von selbst; ein stehender Hinweis sagt das. Ihre Aktionen fehlen dort.",
           "Solange er mit dem Master verbunden ist, schickt der Rundown „Launcher · Side Event“ an den Launcher des Masters, auch wenn auf seinem Rechner ein eigener Launcher läuft.",
-          "Im Verbund lädt der Rundown auf einem gekoppelten Rechner aus einem Show-Link nichts; eine eigene Rundown-Datei lässt sich mit „Öffnen…“ laden. Neu-Laden ändert dann nichts am Dokument. Nach dem Entkoppeln bleibt das Dokument mit dem Hinweis „Daten vom früheren Master …“, bis eine eigene Show geöffnet wird.",
+          "Im Verbund lädt der Rundown auf einem gekoppelten Rechner aus einem Show-Link nichts; eine eigene Rundown-Datei lässt sich mit „Öffnen…“ laden. Neu-Laden ändert dann nichts am Dokument. Nach dem Entkoppeln bleibt das Dokument mit dem Hinweis „Daten vom früheren Master …“, bis eine eigene Show geöffnet oder mit „Öffnen…“ bzw. „Neu“ ein eigenes Dokument begonnen wird.",
           "Bekannt: Titler und Timer wählt der Rundown weiter nach dem zuletzt gefundenen. Laufen sie auf beiden Rechnern, im Rundown die Endpunkte von Hand festlegen."
         ]
       },
