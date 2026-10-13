@@ -79,6 +79,11 @@ export interface KernAbhaengigkeiten {
    * sie liest der Kern nach dem Schreiben nichts zurück (E10).
    */
   meldeShow?(pfad: string, show: Show | null): void;
+  /**
+   * Teil 2b R2, Spec 15.3/15.6 (E12): null = Rolle nicht Master (Logzeile aus 2a); sonst k = Tools anderer Rechner mit
+   * Abo für die Logzeile „… auf diesem Rechner; k Tools anderer Rechner …“. Optional.
+   */
+  verbundReload?(): { andereRechner: number } | null;
 }
 
 export interface IveoKern {
@@ -489,12 +494,27 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     };
   }
 
-  /** Spec 7.1: an allen drei Stellen geht auch RUNDOWN RELOAD hinaus. */
+  /**
+   * Spec 7.1: an allen drei Stellen geht auch RUNDOWN RELOAD hinaus. Teil 2b R2, Spec 15.3/15.6: In der Rolle Master
+   * schickt die Hülle nur an diesen Rechner, und die Logzeile nennt die Tools anderer Rechner, die die Daten über den
+   * Verbund bekommen. Ein Wurf von verbundReload ändert am RELOAD nichts (Logzeile aus 2a).
+   */
   function benachrichtigeAlle(): void {
+    let verbund: { andereRechner: number } | null = null;
+    try {
+      verbund = d.verbundReload?.() ?? null;
+    } catch {
+      verbund = null;
+    }
     const timer = d.benachrichtige('jm-timer', 'TIMER RELOAD');
     const titler = d.benachrichtige('jm-titler', 'TITLER RELOAD');
     const rundown = d.benachrichtige('jm-rundown', 'RUNDOWN RELOAD');
-    d.log.info(`iveo: RELOAD → ${timer} Timer, ${titler} Titler, ${rundown} Rundown benachrichtigt.`);
+    if (verbund) {
+      d.log.info(`iveo: RELOAD → ${timer} Timer, ${titler} Titler, ${rundown} Rundown auf diesem Rechner; `
+        + `${verbund.andereRechner} Tools anderer Rechner bekommen die Daten über den Verbund.`);
+    } else {
+      d.log.info(`iveo: RELOAD → ${timer} Timer, ${titler} Titler, ${rundown} Rundown benachrichtigt.`);
+    }
   }
 
   /** Teil 2b R2, Spec 15.1: an den Verteiler melden. Ein Wurf hält den Abgleich nie an; eine Warnung ohne Fremdtext (G6). */

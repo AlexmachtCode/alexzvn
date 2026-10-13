@@ -12,7 +12,9 @@ import {
   fingerprintVonPem, leseMasterLinkDatei, masterLinkPfad, MasterLinkClient, pruefeIdentitaet, schreibeMasterLinkDatei, Verbindung,
   type BonjourFabrik, type Lesen, type MasterLinkDatei, type NetzwerkInterfaces, type SucheLike,
 } from '@jm/master-link';
+import { migrateShow } from '@jm/show';
 import { erzeugeVerbundKern, type VerbundKernDeps } from '../src/main/verbund/kern';
+import { Verteiler } from '../src/main/verbund/verteiler';
 import { fehlerCode } from '../src/main/verbund/fehlercode';
 import { MasterRolle, type MasterAbhaengigkeiten } from '../src/main/verbund/master';
 import { koppelText, SlaveRolle, teileAdresse, type SlaveAbhaengigkeiten } from '../src/main/verbund/slave';
@@ -438,17 +440,23 @@ await folgende.stoppe();
   await mE.stoppe();
 
   // neuAufsetzen: Löschen scheitert (hier echt: identitaet.json ist ein Ordner → rmSync wirft) → trotzdem starten, dann ablehnen.
+  // Teil 2b R2 (Vormerkung 9): „Verbund neu aufsetzen“ gibt es nur bei beschädigten Verbunddaten — erst dorthin.
   const pN = await freierPort();
   const N = rechner('master', 'Neu-PC');
   mkdirSync(N.speicherDir, { recursive: true });
   const idN = join(N.speicherDir, 'identitaet.json');
-  mkdirSync(idN);
+  writeFileSync(idN, 'Müll');
+  writeFileSync(`${idN}.bak`, 'Müll');
   const mN = neuerMaster(N, pN);
+  await mN.starte();
+  rmSync(idN);
+  mkdirSync(idN);
   let abgelehntN = false;
   try { await mN.neuAufsetzen(); } catch { abgelehntN = true; }
   ck('neuAufsetzen mit Löschfehler → lehnt ab, der Master steht ehrlich im Fehlerzustand (nicht „startet“/„läuft“)',
     abgelehntN && mN.stand().zustand === 'lausch-fehler' && mN.stand().fehlerCode === 'EISDIR');
   rmSync(idN, { recursive: true });
+  rmSync(`${idN}.bak`);
   await bis(() => mN.stand().zustand === 'laeuft', 5000);
   ck('… nach Wegfall der Ursache startet die Wiederholung den Master', mN.stand().zustand === 'laeuft');
   await mN.stoppe();
@@ -989,6 +997,13 @@ const dateiRolle = (pfad: string): string | null => dateiDaten(pfad)?.rolle ?? n
   ck('B5: … und master-link.json trägt ihn (kopplung.masterName)', await bis(() => SU.lies().kopplung?.masterName === 'Regie-PC Saal 2', 2000)
     && dateiDaten(SU.pfad)?.kopplung?.masterName === 'Regie-PC Saal 2');
   // „Verbund neu aufsetzen“ behält den bisherigen Master-Namen (statt auf hostname() zurückzufallen).
+  // Teil 2b R2 (Vormerkung 9): nur bei beschädigten Verbunddaten — dorthin wie im Betrieb (verbund.json samt .bak kaputt).
+  await mU.stoppe();
+  const vbU = join(U.speicherDir, 'verbund.json');
+  writeFileSync(vbU, 'Müll');
+  writeFileSync(`${vbU}.bak`, 'Müll');
+  mU = mkU();
+  await mU.starte();
   await mU.neuAufsetzen();
   ck('B5: „Verbund neu aufsetzen“ behält den Master-Namen', mU.stand().zustand === 'laeuft' && mU.stand().name === 'Regie-PC Saal 2');
   await sU.stoppe();
@@ -1136,6 +1151,86 @@ const ohneId = neuerMaster(A, port);
 await ohneId.starte();
 ck('identitaet.json + .bak kaputt → „daten-beschaedigt“, keine still neue Identität', ohneId.stand().zustand === 'daten-beschaedigt' && readFileSync(idp, 'utf8') === 'Müll');
 await ohneId.neuAufsetzen();
+
+// --- Teil 2b R2, Vormerkung 9: „Verbund neu aufsetzen“ nur bei beschädigten Verbunddaten -----------------------------
+{
+  const pL = await freierPort();
+  const L = rechner('master', 'Laeuft-PC');
+  const ll = logMitschrift();
+  const mL = neuerMaster(L, pL, { log: ll.log });
+  await mL.starte();
+  const idL = join(L.speicherDir, 'identitaet.json');
+  const vorher = readFileSync(idL, 'utf8');
+  const fpVorher = L.lies().kopplung!.fingerprint;
+  await mL.neuAufsetzen();
+  ck('Vormerkung 9: neuAufsetzen im Zustand „läuft“ → nichts gelöscht, der Master läuft mit derselben Identität weiter',
+    mL.stand().zustand === 'laeuft' && readFileSync(idL, 'utf8') === vorher && L.lies().kopplung?.fingerprint === fpVorher && !(await verweigert(pL)));
+  ck('Vormerkung 9: … eine Warnung', ll.zeilen.includes('warn: Master: „Verbund neu aufsetzen“ nur bei beschädigten Verbunddaten, nichts gelöscht.'));
+  await mL.stoppe();
+}
+
+// --- Teil 2b R2, Spec 13.3, 15.1, 15.2: MasterRolle reicht die Server-Ereignisse an den Verteiler -----------------------
+{
+  const pV = await freierPort();
+  const V = rechner('master', 'Verteil-PC');
+  let epochen = 0;
+  const verteiler = new Verteiler({ log, rechnerName: (id) => id, neueEpoche: () => `epoche-${++epochen}` });
+  verteiler.meldeShow('C:/Shows/Gala.jmshow', migrateShow({ schemaVersion: 1, name: 'Gala', tools: [] }));
+  const mV = neuerMaster(V, pV, { verteiler });
+  await mV.starte();
+  const daten: Array<Record<string, unknown>> = [];
+  const timerV = new MasterLinkClient({
+    dateiPfad: V.pfad, teilnehmer: { art: 'tool', appId: 'jm-timer', name: 'JM Timer', version: '0.14.0', pid: 4711 }, fristen: KURZ, suche: null,
+  });
+  let anmeldungen = 0;
+  timerV.on('daten', (n: Record<string, unknown>) => { daten.push(n); });
+  timerV.on('angemeldet', () => { anmeldungen++; });
+  timerV.starte();
+  await bis(() => anmeldungen === 1);
+  await warte(300);
+  ck('R2 15.2: vor dem Abo bekommt das Tool keine Show-Daten', timerV.zustand().art === 'verbunden' && daten.length === 0);
+  timerV.sende({ t: 'abo', art: 'show', fassung: 1 });
+  await bis(() => daten.length === 1);
+  ck('R2 15.2: MasterRolle mit echtem Server und Verteiler: abo → stand mit Epoche, Folge 0 und der Show',
+    daten[0]?.t === 'stand' && daten[0]?.epoche === 'epoche-1' && daten[0]?.folge === 0 && (daten[0]?.show as { name?: string } | null)?.name === 'Gala');
+  ck('R2 15.2: … der Verteiler führt das Abo nach der Sitzung', verteiler.stand().abos.length === 1 && verteiler.hatAbo(verteiler.stand().abos[0].sitzung));
+  verteiler.meldeShow('C:/Shows/Gala.jmshow', migrateShow({ schemaVersion: 1, name: 'Gala 2', tools: [] }));
+  await bis(() => daten.length === 2);
+  ck('R2 15.1: geänderte Show → aenderung mit Folge 1 kommt beim Tool an', daten[1]?.t === 'aenderung' && daten[1]?.folge === 1);
+  await mV.stoppe();
+  ck('R2 15.2: Rolle gestoppt → der Verteiler hat keine Abos und keine Epoche mehr', verteiler.stand().abos.length === 0 && verteiler.stand().epoche === null);
+  await mV.starte();
+  // Neuabo erst nach der NEUEN Anmeldung (13.3): eine Zeile an die alte, schon geschlossene Verbindung ginge verloren.
+  await bis(() => anmeldungen === 2, 5000);
+  timerV.sende({ t: 'abo', art: 'show', fassung: 1 });
+  await bis(() => daten.length === 3, 3000);
+  ck('R2 13.3: Rolle neu gestartet → neue Epoche; das Abo nach der neuen Anmeldung wird beantwortet',
+    daten[2]?.t === 'stand' && daten[2]?.epoche === 'epoche-2' && daten[2]?.folge === 0 && (daten[2]?.show as { name?: string } | null)?.name === 'Gala 2');
+  await timerV.stoppe();
+  ck('R2 15.2: Sitzung zu → getrennt → das Abo ist weg', await bis(() => verteiler.stand().abos.length === 0, 2000));
+  await mV.stoppe();
+}
+{
+  // Der Kern reicht den Verteiler an jede neue MasterRolle; rolle() ist die Rolle aus master-link.json (E12).
+  const pK = await freierPort();
+  const aufrufe: string[] = [];
+  const nachgebaut = {
+    starte: () => { aufrufe.push('starte'); },
+    stoppe: () => { aufrufe.push('stoppe'); },
+    aufAbo: () => {},
+    aufGetrennt: () => {},
+    aufEntstaut: () => {},
+    hatAbo: () => false,
+    stand: () => ({ grund: null, showName: null, dateiName: null, verteiltAm: null, groesseKiB: null, epoche: null, folge: null, abos: [] }),
+  };
+  const K = kernRechner('Verteil-Kern', 'master', pK, () => ({ verteiler: nachgebaut }));
+  await K.kern.starte();
+  ck('R2 15.2: Kern → MasterRolle: der Start der Rolle startet den Verteiler, rolle() = master',
+    JSON.stringify(aufrufe) === '["starte"]' && K.kern.rolle() === 'master');
+  await K.kern.setzeRolle('aus');
+  ck('R2 15.2: … Rolle aus stoppt ihn, rolle() = aus', JSON.stringify(aufrufe) === '["starte","stoppe"]' && K.kern.rolle() === 'aus');
+  await K.kern.beende();
+}
 
 await timerA.stoppe();
 await slaveB.stoppe();

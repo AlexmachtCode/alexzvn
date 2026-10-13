@@ -10,6 +10,7 @@ import { pruefeFesteAdresse, pruefeKarte, pruefeKoppelEingabe, pruefeName, pruef
 import { fehlerCode } from './fehlercode';
 import { MasterRolle, type MasterAbhaengigkeiten } from './master';
 import { SlaveRolle, type SlaveAbhaengigkeiten } from './slave';
+import type { Verteiler } from './verteiler';
 import { beobachte, kartenLage, leseBisLesbar } from './wache';
 
 // Kern des Verbunds OHNE Electron (per tsx getestet, Muster wie wache.ts): hält master-link.json im Speicher,
@@ -39,6 +40,11 @@ export interface VerbundKernDeps {
   meldeVerzoegerungMs?: number;
   master?: Partial<MasterAbhaengigkeiten>;
   slave?: Partial<SlaveAbhaengigkeiten>;
+  /**
+   * Teil 2b R2, Spec 15.2: Verteiler der Show-Daten. Jede neue MasterRolle bekommt ihn; `stand()` liest das
+   * Verbund-Modal (15.5). Ohne ihn verteilt der Master nichts (Tests, Teil-1-Verhalten).
+   */
+  verteiler?: Pick<Verteiler, 'starte' | 'stoppe' | 'aufAbo' | 'aufGetrennt' | 'aufEntstaut' | 'hatAbo' | 'stand'>;
 }
 
 function neueDatei(): MasterLinkDatei {
@@ -122,6 +128,7 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
       beiAenderung: aenderung,
       log: d.log,
       netzwerkKarten: d.netzwerkKarten,
+      ...(d.verteiler ? { verteiler: d.verteiler } : {}),
       ...d.master,
     });
   }
@@ -442,6 +449,8 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
     starte,
     beende,
     stand,
+    /** Teil 2b R2 (E12): die Rolle aus master-link.json — Grundlage für „RELOAD nur an diesen Rechner“ (15.3). */
+    rolle: (): VerbundRolle => datei.rolle,
     setzeRolle,
     setzeRechnerName,
     setzeMasterName,

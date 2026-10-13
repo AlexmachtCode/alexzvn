@@ -286,7 +286,10 @@ interface Umgebung {
  * Show-Datei anlegen, Kern bauen, Show öffnen (wie onShowOpened). Teil 2b R2: `melde` hängt meldeShow an (Spec 15.1),
  * `schreibZeit` setzt beim Schreiben updatedAt wie die Hülle (serializeShow(show, jetzt), iveo-sync.ts:385).
  */
-function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boolean; melde?: boolean; schreibZeit?: string } = {}): Umgebung {
+function umgebung(
+  baue: (iv: NachgebautesIveo) => Show,
+  opt: { ohneToken?: boolean; melde?: boolean; schreibZeit?: string; verbundReload?: () => { andereRechner: number } | null } = {},
+): Umgebung {
   let uhr = Date.parse('2026-10-01T10:00:00.000Z');
   const iveo = neuesIveo();
   const u: Umgebung = {
@@ -358,6 +361,7 @@ function umgebung(baue: (iv: NachgebautesIveo) => Show, opt: { ohneToken?: boole
           },
         }
       : {}),
+    ...(opt.verbundReload ? { verbundReload: opt.verbundReload } : {}),
   });
   u.kern.showGeoeffnet(SHOW_PFAD, parseShow(u.dateien.get(SHOW_PFAD)!));
   return u;
@@ -1807,6 +1811,26 @@ const seWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.startsWith
   const st = u.status.at(-1);
   ck('R2 15.4: beide Merker → beide Texte mit „; “, „seit“ = der frühere',
     st?.ok === false && st.text === `${TEXT_SPEAKER_VERALTET}; ${TEXT_SELISTE}` && st.seit === MERKER);
+}
+
+// --- Teil 2b R2, Spec 15.3/15.6 (E12): RELOAD-Logzeile in der Rolle Master -------------------------------------------
+{
+  const u = listeMitAenderung({ verbundReload: () => ({ andereRechner: 2 }) });
+  await u.kern.abfrage();
+  ck('R2 15.6: Rolle Master → RELOAD-Logzeile wörtlich mit den Tools anderer Rechner',
+    u.reloads.length === 3
+    && u.info.includes('iveo: RELOAD → 1 Timer, 1 Titler, 1 Rundown auf diesem Rechner; 2 Tools anderer Rechner bekommen die Daten über den Verbund.'));
+}
+{
+  const u = listeMitAenderung({ verbundReload: () => null });
+  await u.kern.abfrage();
+  ck('R2 15.6: Rolle nicht Master (null) → die Logzeile aus 2a', u.info.includes('iveo: RELOAD → 1 Timer, 1 Titler, 1 Rundown benachrichtigt.'));
+}
+{
+  const u = listeMitAenderung({ verbundReload: () => { throw new Error('kaputt'); } });
+  await u.kern.abfrage();
+  ck('R2 15.6: verbundReload wirft → RELOAD trotzdem hinaus, die Logzeile aus 2a',
+    u.reloads.length === 3 && u.info.includes('iveo: RELOAD → 1 Timer, 1 Titler, 1 Rundown benachrichtigt.'));
 }
 
 // --- Zusammenfassung ---

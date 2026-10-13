@@ -50,6 +50,7 @@ import {
   setIveoBaseToken,
 } from './settings';
 import { sendControlCommand } from './health';
+import { meldeShowAnVerbund, verbundReloadInfo } from './verbund';
 import {
   einPunktAblauf,
   erzeugeKern,
@@ -424,13 +425,17 @@ function kern(): IveoKern {
       token: (event) => getIveoToken(event),
       leseShow: leseShowDatei,
       schreibeShow: schreibeShowFuerKern,
-      benachrichtige: (appId, zeile) => sendControlCommand(appId, zeile),
+      // Teil 2b R2, Spec 15.3 (O3): In der Rolle Master geht RELOAD nur an Tools dieses Rechners.
+      benachrichtige: (appId, zeile) => sendControlCommand(appId, zeile, { nurDieserRechner: verbundReloadInfo() !== null }),
       schreibeCache: (meta) => writeCache(meta as IveoShowMetadata),
       log: { info: (m) => getLog().info(m), warn: (m) => getLog().warn(m) },
       jetztIso: nowIso,
       meldeStatus: (s) => setzeStatus(s),
       meldeAktiv: () => emitActiveChanged(),
       baseUrlStandard: () => resolveIveoBaseUrl(),
+      // Teil 2b R2, Spec 15.1: die offene Show an den Verteiler; 15.6: k für die RELOAD-Logzeile.
+      meldeShow: (pfad, show) => meldeShowAnVerbund(pfad, show),
+      verbundReload: () => verbundReloadInfo(),
     });
   }
   return kernInstanz;
