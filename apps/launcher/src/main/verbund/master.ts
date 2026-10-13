@@ -540,7 +540,11 @@ export class MasterRolle {
         adresse: e.letzteAdresse,
         tools: teilnehmer
           .filter((t) => t.rechnerId === e.rechnerId)
-          .map((t) => ({ appId: t.appId, name: t.name, version: t.version, art: t.art, verbundenSeit: t.seit })),
+          .map((t) => ({
+            appId: t.appId, name: t.name, version: t.version, art: t.art, verbundenSeit: t.seit,
+            // Spec 15.5: Abo beim Verteiler, nach Sitzung geführt (13.6).
+            bezieht: this.d.verteiler?.hatAbo(t.sitzung) ?? false,
+          })),
       }))
       .sort((a, b) => Number(b.dieserRechner) - Number(a.dieserRechner) || a.name.localeCompare(b.name));
     return {
@@ -552,6 +556,8 @@ export class MasterRolle {
       speicherFehler: this.speicherFehler,
       rechner,
       kopplung: server?.kopplungsStand() ?? LEER_FENSTER,
+      // Spec 15.5: Die Rolle kennt die Show nicht; der Kern (kern.ts, stand()) setzt die Zeile aus dem Verteiler.
+      showImVerbund: null,
     };
   }
 }

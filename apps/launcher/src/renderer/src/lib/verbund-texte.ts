@@ -1,4 +1,4 @@
-import type { KoppelAntwort, VerbundClientStand, VerbundFehlerCode } from '@shared/types';
+import type { KoppelAntwort, VerbundClientStand, VerbundFehlerCode, VerbundShowStand } from '@shared/types';
 
 // Anzeigetexte des Verbund-Modals (reine Funktionen, nur `import type` → strip-types-testbar).
 
@@ -137,4 +137,41 @@ export function toolZeilen(
 /** C4: dauerhafter Schreibfehler von verbund.json am Master (speicherFehler, Endprüfung B6). */
 export function speicherFehlerText(code: string): string {
   return `Verbund nicht gespeichert (${kuerze(code, MAX_CODE)}) — Änderungen gelten nur bis zum Neustart`;
+}
+
+// ── Teil 2b R2, Spec 15.5: Show-Daten im Verbund-Modal am Master (wörtlich) ──
+
+/**
+ * Zeile unter „Gekoppelte Rechner“ je nach `grund` des zuletzt verteilten Stands; `rot` bei zu-gross und nicht-lesbar.
+ * Bei genau einem Bezieher „1 Tool bezieht sie“ (Owner 08.10.2026), sonst wörtlich 15.5 „⟨n⟩ Tools beziehen sie“.
+ */
+export function verbundShowZeile(s: VerbundShowStand, uhrzeit: (ms: number) => string): { text: string; rot: boolean } {
+  switch (s.grund) {
+    case 'keine-show':
+      return { text: 'Show im Verbund: keine Show offen', rot: false };
+    case 'zu-gross':
+      return { text: `Show „${s.showName ?? ''}“ nicht verteilt: zu groß für den Verbund (${s.groesseKiB ?? 0} KiB)`, rot: true };
+    case 'nicht-lesbar':
+      return { text: `Show „${s.dateiName ?? ''}“ nicht verteilt: nicht lesbar`, rot: true };
+    default:
+      return {
+        text: `Show im Verbund: „${s.showName ?? ''}“ · Stand ${s.verteiltAm === null ? '–' : uhrzeit(s.verteiltAm)} · ${s.bezieher === 1 ? '1 Tool bezieht sie' : `${s.bezieher} Tools beziehen sie`}`,
+        rot: false,
+      };
+  }
+}
+
+/** Die drei Tools, die in 2b Show-Daten anwenden (Spec 15.5); andere zeigen nichts dazu. */
+const DATEN_TOOLS: ReadonlySet<string> = new Set(['jm-timer', 'jm-titler', 'jm-rundown']);
+/** Spec 15.5: so lange nach der Anmeldung gilt ein fehlendes Abo noch nicht als „Update nötig“. */
+export const OHNE_DATEN_NACH_MS = 10_000;
+
+/**
+ * Je Tool in der Liste der gekoppelten Rechner (Spec 15.5): mit Abo „bezieht Show-Daten“; ohne Abo 10 s nach der
+ * Anmeldung „ohne Show-Daten (Update nötig)“, davor nichts. Andere Tools: null.
+ */
+export function toolDatenText(appId: string, verbundenSeit: number, bezieht: boolean, jetzt: number): string | null {
+  if (!DATEN_TOOLS.has(appId)) return null;
+  if (bezieht) return 'bezieht Show-Daten';
+  return jetzt - verbundenSeit >= OHNE_DATEN_NACH_MS ? 'ohne Show-Daten (Update nötig)' : null;
 }

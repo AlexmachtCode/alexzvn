@@ -1231,6 +1231,34 @@ await ohneId.neuAufsetzen();
   ck('R2 15.2: … Rolle aus stoppt ihn, rolle() = aus', JSON.stringify(aufrufe) === '["starte","stoppe"]' && K.kern.rolle() === 'aus');
   await K.kern.beende();
 }
+{
+  // Spec 15.5: Der Stand des Kerns trägt die Zeile „Show im Verbund …“ und je Tool „bezieht Show-Daten“.
+  const pS = await freierPort();
+  const verteiler = new Verteiler({ log, rechnerName: (id) => id });
+  const K = kernRechner('Modal-PC', 'master', pS, () => ({ verteiler }));
+  await K.kern.starte();
+  const svb = () => K.kern.stand().master?.showImVerbund;
+  ck('R2 15.5: kern.stand() trägt showImVerbund — ohne Show keine-show, 0 Bezieher', svb()?.grund === 'keine-show' && svb()?.bezieher === 0);
+  verteiler.meldeShow('C:/Shows/Modal.jmshow', migrateShow({ schemaVersion: 1, name: 'Modal', tools: [] }));
+  const tool = new MasterLinkClient({
+    dateiPfad: K.pfad, teilnehmer: { art: 'tool', appId: 'jm-rundown', name: 'JM Rundown', version: '0.8.0', pid: 99 }, fristen: KURZ, suche: null,
+  });
+  let angemeldet = false;
+  tool.on('angemeldet', () => { angemeldet = true; });
+  tool.starte();
+  await bis(() => angemeldet);
+  const rundown = () => K.kern.stand().master?.rechner.find((r) => r.dieserRechner)?.tools.find((t) => t.appId === 'jm-rundown');
+  await bis(() => rundown() !== undefined);
+  ck('R2 15.5: Tool ohne Abo → bezieht false', rundown()?.bezieht === false);
+  tool.sende({ t: 'abo', art: 'show', fassung: 1 });
+  ck('R2 15.5: … nach dem Abo bezieht true; showImVerbund mit Show, Zeit und 1 Bezieher',
+    await bis(() => rundown()?.bezieht === true) && svb()?.grund === null && svb()?.showName === 'Modal'
+    && typeof svb()?.verteiltAm === 'number' && svb()?.bezieher === 1);
+  await tool.stoppe();
+  await K.kern.setzeRolle('aus');
+  ck('R2 15.5: Rolle aus → kein Master-Stand', K.kern.stand().master === null);
+  await K.kern.beende();
+}
 
 await timerA.stoppe();
 await slaveB.stoppe();

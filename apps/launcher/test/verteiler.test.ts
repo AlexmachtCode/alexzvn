@@ -7,6 +7,7 @@ import { GRENZEN, pruefeStand, type SendeErgebnis, type StandInhalt, type Teilne
 import { migrateShow, type Show } from '@jm/show';
 import { gedaechtnisSchluessel } from '../../rundown/src/main/gedaechtnis';
 import { Verteiler, verbundSchluessel, type VerteilerServer } from '../src/main/verbund/verteiler';
+import { toolDatenText, verbundShowZeile } from '../src/renderer/src/lib/verbund-texte';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -342,6 +343,33 @@ const an = (zeilen: Array<{ sitzung: number; zeile: string }>, sitzung: number) 
   u.v.aufAbo(tn(102, { appId: 'jm-b' }), ABO);
   ck('Fix 3: Abo-Grenze warnt erneut, nachdem durch weg + getrennt wieder Platz war',
     u.log.filter((l) => l === 'warn: Verbund: Regie-Laptop hat 32 Abos, weitere werden nicht beantwortet.').length === 2);
+}
+
+// --- Nr. 10: Zeilen des Verbund-Modals am Master (reine Funktionen, Spec 15.5) --------------------------------------
+{
+  const uhr = (ms: number): string => `U${ms}`;
+  const s = { showName: 'COP31 Tag 1', dateiName: 'COP31 Tag 1.jmshow', verteiltAm: 42, groesseKiB: 15, bezieher: 3 };
+  const zeile = (x: Parameters<typeof verbundShowZeile>[0]): string => JSON.stringify(verbundShowZeile(x, uhr));
+  ck('Nr. 10: mit Show → „Show im Verbund: „⟨Show⟩“ · Stand ⟨hh:mm⟩ · ⟨n⟩ Tools beziehen sie“',
+    zeile({ ...s, grund: null }) === JSON.stringify({ text: 'Show im Verbund: „COP31 Tag 1“ · Stand U42 · 3 Tools beziehen sie', rot: false }));
+  ck('Nr. 10: genau ein Bezieher → „· 1 Tool bezieht sie“ (Owner 08.10.2026)',
+    zeile({ ...s, grund: null, bezieher: 1 }) === JSON.stringify({ text: 'Show im Verbund: „COP31 Tag 1“ · Stand U42 · 1 Tool bezieht sie', rot: false }));
+  ck('Nr. 10: keine-show → „Show im Verbund: keine Show offen“',
+    zeile({ ...s, grund: 'keine-show', showName: null }) === JSON.stringify({ text: 'Show im Verbund: keine Show offen', rot: false }));
+  ck('Nr. 10: zu-gross → rot, mit Showname und KiB',
+    zeile({ ...s, grund: 'zu-gross', groesseKiB: 950 })
+      === JSON.stringify({ text: 'Show „COP31 Tag 1“ nicht verteilt: zu groß für den Verbund (950 KiB)', rot: true }));
+  ck('Nr. 10: nicht-lesbar → rot, mit Dateiname',
+    zeile({ ...s, grund: 'nicht-lesbar', showName: null })
+      === JSON.stringify({ text: 'Show „COP31 Tag 1.jmshow“ nicht verteilt: nicht lesbar', rot: true }));
+  const t0 = 1_000_000;
+  const drei = ['jm-timer', 'jm-titler', 'jm-rundown'];
+  ck('Nr. 10: Timer, Titler und Rundown mit Abo → „bezieht Show-Daten“', drei.every((a) => toolDatenText(a, t0, true, t0) === 'bezieht Show-Daten'));
+  ck('Nr. 10: … ohne Abo 9 s nach der Anmeldung → nichts', drei.every((a) => toolDatenText(a, t0, false, t0 + 9_000) === null));
+  ck('Nr. 10: … ohne Abo 10 s nach der Anmeldung → „ohne Show-Daten (Update nötig)“',
+    drei.every((a) => toolDatenText(a, t0, false, t0 + 10_000) === 'ohne Show-Daten (Update nötig)'));
+  ck('Nr. 10: andere Tools und der Slave-Launcher → nichts', toolDatenText('jm-qa', t0, false, t0 + 60_000) === null
+    && toolDatenText('jm-battle', t0, true, t0) === null && toolDatenText('jm-launcher', t0, false, t0 + 60_000) === null);
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

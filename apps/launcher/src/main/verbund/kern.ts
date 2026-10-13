@@ -5,7 +5,7 @@ import {
   kuerzeName, leseMasterLinkDatei, schreibeMasterLinkDatei, verbindungsrelevantGeaendert,
   type Lesen, type MasterLinkDatei, type NetzwerkInterfaces,
 } from '@jm/master-link';
-import type { KoppelAntwort, VerbundRolle, VerbundStand } from '@shared/types';
+import type { KoppelAntwort, VerbundRolle, VerbundShowStand, VerbundStand } from '@shared/types';
 import { pruefeFesteAdresse, pruefeKarte, pruefeKoppelEingabe, pruefeName, pruefeRechnerId, pruefeRolle } from './eingaben';
 import { fehlerCode } from './fehlercode';
 import { MasterRolle, type MasterAbhaengigkeiten } from './master';
@@ -242,6 +242,20 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
     return () => clearInterval(zeitgeber);
   }
 
+  /** Teil 2b R2, Spec 15.5: Zeile „Show im Verbund …“ — nur, solange der Verteiler läuft (Epoche gesetzt). */
+  function showImVerbund(): VerbundShowStand | null {
+    const v = d.verteiler?.stand();
+    if (!v || v.epoche === null) return null;
+    return {
+      grund: v.grund,
+      showName: v.showName,
+      dateiName: v.dateiName,
+      verteiltAm: v.verteiltAm,
+      groesseKiB: v.groesseKiB,
+      bezieher: v.abos.length,
+    };
+  }
+
   function stand(): VerbundStand {
     const { karten: liste, karteFehlt } = kartenLage(karten(), datei.netzwerk.karte);
     return {
@@ -251,7 +265,7 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
       gewaehlteKarte: datei.netzwerk.karte,
       karteFehlt,
       dateiFehler,
-      master: master?.stand() ?? null,
+      master: master ? { ...master.stand(), showImVerbund: showImVerbund() } : null,
       slave: slave?.stand() ?? null,
     };
   }

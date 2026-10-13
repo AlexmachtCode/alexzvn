@@ -480,6 +480,19 @@ export interface VerbundTool {
   version: string;
   art: 'tool' | 'launcher';
   verbundenSeit: number;
+  /** Teil 2b R2, Spec 15.5: Das Tool hat ein Abo beim Verteiler („bezieht Show-Daten“). */
+  bezieht: boolean;
+}
+
+/** Teil 2b R2, Spec 15.5: Zeile „Show im Verbund …“ — was der Verteiler zuletzt verteilt hat. */
+export interface VerbundShowStand {
+  grund: 'keine-show' | 'zu-gross' | 'nicht-lesbar' | null;
+  showName: string | null;
+  dateiName: string | null;
+  verteiltAm: number | null;
+  groesseKiB: number | null;
+  /** Zahl der Abos („⟨n⟩ Tools beziehen sie“). */
+  bezieher: number;
 }
 
 export interface VerbundRechner {
@@ -521,6 +534,8 @@ export interface VerbundMasterStand {
   speicherFehler: string | null;
   rechner: VerbundRechner[];
   kopplung: VerbundKopplungsfenster;
+  /** Teil 2b R2, Spec 15.5: null, solange der Verteiler nicht läuft. Die MasterRolle kennt die Show nicht; der Kern setzt es. */
+  showImVerbund: VerbundShowStand | null;
 }
 
 export interface VerbundClientStand {
