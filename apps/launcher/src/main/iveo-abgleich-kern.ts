@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { resolve } from 'node:path';
-import { migrateShow, normalizeAblauf, type Show, type ShowAblaufItem, type ShowIveoSpeaker } from '@jm/show';
+import { migrateShow, normalizeAblauf, type Show, type ShowAblaufItem, type ShowIveoProgramRef, type ShowIveoSpeaker } from '@jm/show';
 import {
   IveoApiError,
   agendaToAblauf,
@@ -36,11 +36,12 @@ import {
   type ProgramMapOptions,
 } from '@jm/iveo';
 import { IVEO_ABRUF_ZEITGRENZE_MS } from './iveo-huelle-hilfen';
+import { bildeSideEventListe } from './iveo-side-events';
 
 /** Die Teilmenge des iveo-Clients, die der Kern braucht. Im Test nachgebaut. */
 export type IveoClientLike = Pick<
   IveoClient,
-  'listProgramsUpdatedSince' | 'getEventSnapshot' | 'listAgendaItems' | 'getProgram' | 'listSpeakers'
+  'listProgramsUpdatedSince' | 'getEventSnapshot' | 'listAgendaItems' | 'getProgram' | 'listSpeakers' | 'listPrograms'
 >;
 
 /** Zustand des Abgleichs fürs iveo-Panel (Ereignis `iveo-sync-status`, Spec 7.6). */
@@ -113,6 +114,11 @@ const TEXT_ZEITGRENZE = `iveo antwortet nicht innerhalb von ${IVEO_ABRUF_ZEITGRE
 const TEXT_SPEAKER_VERALTET = 'Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand';
 /** Teil 2b, Spec 6.3: Antwort beim Umschalten auf die Tagesübersicht, hinter „Umgeschaltet — “. */
 const TEXT_UMSCHALTEN_SPEAKER_VERALTET = 'Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand.';
+/**
+ * Teil 2b R2, Spec 15.4 (wortgleich): Zusatzabruf der Side-Event-Liste in der Agenda-Abfrage gescheitert. Ohne Präfix und
+ * ohne Uhrzeit wie TEXT_SPEAKER_VERALTET; gelten beide Merker, stehen beide Texte durch „; “ getrennt in der Statuszeile.
+ */
+const TEXT_SELISTE_VERALTET = 'Side-Event-Liste von iveo nicht abrufbar, Liste aus früherem Stand';
 
 // ── Reine Helfer (aus iveo-sync.ts hierher gezogen; die Hülle importiert sie für Binden/Discover) ──────────
 
@@ -220,8 +226,15 @@ function stoerungsText(e: unknown): string {
  * M1 = ja), weicht eine Bestands-Show ohne Kennungen deshalb einmal ab, und die nächste schreibende Abfrage trägt sie
  * nach. Im geltenden Zweig B (M1 = nein) setzt er keine, dann gibt es nichts nachzutragen. Der Merker „Speaker
  * veraltet“ zählt ebenso: Setzen und Löschen schreiben die Show und schicken RELOAD — nur so erfährt der Titler davon.
+ * Teil 2b R2, Spec 15.4: Die Side Events zählen als `[id, title]`, so wie sie in der Datei stehen. Eine geänderte Liste
+ * schreibt und benachrichtigt; fehlt der Parameter, gilt die leere Liste.
  */
-export function ablaufSignatur(ablauf: ShowAblaufItem[], speakers: ShowIveoSpeaker[], speakerVeraltetSeit?: string): string {
+export function ablaufSignatur(
+  ablauf: ShowAblaufItem[],
+  speakers: ShowIveoSpeaker[],
+  speakerVeraltetSeit?: string,
+  sideEvents: ShowIveoProgramRef[] = [],
+): string {
   const punkte = normalizeAblauf(ablauf).map((p) => [
     p.id ?? null,
     p.label,
@@ -232,7 +245,13 @@ export function ablaufSignatur(ablauf: ShowAblaufItem[], speakers: ShowIveoSpeak
     p.category ?? null,
   ]);
   const sprecher = speakerWieInDerDatei(speakers).map((s) => [s.id ?? null, s.name.trim(), s.title?.trim() || null]);
-  return JSON.stringify([punkte, sprecher, speakerVeraltetSeit ?? null]);
+  const seiten = sideEventsWieInDerDatei(sideEvents).map((s) => [s.id, s.title]);
+  return JSON.stringify([punkte, sprecher, speakerVeraltetSeit ?? null, seiten]);
+}
+
+/** Side Events so, wie sie nach dem Schreiben in der Datei stehen (Normalisierer der Bindung: getrimmt, leerer Titel → id). */
+function sideEventsWieInDerDatei(sideEvents: ShowIveoProgramRef[]): ShowIveoProgramRef[] {
+  return migrateShow({ iveo: { event: '-', sideEvents } }).iveo?.sideEvents ?? [];
 }
 
 /**
@@ -241,7 +260,7 @@ export function ablaufSignatur(ablauf: ShowAblaufItem[], speakers: ShowIveoSpeak
  * veraltet“ weicht von der Datei ab“.
  */
 function abweichungVonDatei(alt: string, neu: string): string {
-  const teile = ['der Ablauf', 'die Speakerliste', 'der Merker „Speaker veraltet“'];
+  const teile = ['der Ablauf', 'die Speakerliste', 'der Merker „Speaker veraltet“', 'die Side-Event-Liste'];
   let anders: string[] = [];
   try {
     const a = JSON.parse(alt) as unknown[];
@@ -336,7 +355,17 @@ interface AktiveShow {
    * Er rückt wie lastSig erst nach erfolgreichem Schreiben vor.
    */
   speakerVeraltetSeit?: string;
+  /**
+   * Teil 2b R2, Spec 15.4: `updated_since` für den Zusatzabruf der Side-Event-Liste in der Agenda-Abfrage. Anfangs
+   * `syncedAt` der Show; rückt nach jedem gelungenen Zusatzabruf vor, dessen Stand in der Datei steht.
+   */
+  seListeIso: string;
+  /** Teil 2b R2, Spec 15.4: Merker „Side-Event-Liste veraltet“ (nur im Speicher), ISO-Zeit des ersten Fehlschlags. */
+  seListeVeraltetSeit?: string;
 }
+
+/** Ergebnis des Zusatzabrufs der Side-Event-Liste (Spec 15.4); `liste` null = seit `seListeIso` nichts geändert. */
+type SeListeAbruf = { ok: true; liste: ShowIveoProgramRef[] | null; ab: string } | { ok: false; fehler: unknown };
 
 export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   let active: AktiveShow | null = null;
@@ -352,6 +381,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   let status: IveoSyncStatus = { ok: true };
   /** Zuletzt geloggter Fehlertext der Speakerliste (Spec 6.3): gleichbleibende Wiederholungen nicht erneut loggen. */
   let letzterSpeakerFehler: string | null = null;
+  /** Teil 2b R2, Spec 15.4: zuletzt geloggter Fehlertext des Zusatzabrufs der Side-Event-Liste. */
+  let letzterSeListeFehler: string | null = null;
 
   /** 7.3: Ergebnis gilt nur, wenn Show UND Generation noch dieselben sind wie beim Start. */
   const istAktuell = (a: AktiveShow, gen: number): boolean => active === a && generation === gen;
@@ -377,11 +408,48 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   }
   /**
    * Teil 2b, Spec 6.2: Nach einer Abfrage oder einem Umschalten „in Ordnung“ nur ohne Merker. Mit Merker bleibt der
-   * Text aus 6.3 stehen, „seit“ = erster Fehlschlag.
+   * Text aus 6.3 stehen, „seit“ = erster Fehlschlag. Teil 2b R2, Spec 15.4: ebenso mit dem Merker „Side-Event-Liste
+   * veraltet“; gelten beide, stehen beide Texte durch „; “ getrennt da, „seit“ = der frühere Fehlschlag.
    */
   function statusNachAbfrage(a: AktiveShow): void {
-    if (a.speakerVeraltetSeit) statusGestoert(TEXT_SPEAKER_VERALTET, undefined, a.speakerVeraltetSeit);
-    else statusOk();
+    const texte: string[] = [];
+    const seit: string[] = [];
+    if (a.speakerVeraltetSeit) {
+      texte.push(TEXT_SPEAKER_VERALTET);
+      seit.push(a.speakerVeraltetSeit);
+    }
+    if (a.seListeVeraltetSeit) {
+      texte.push(TEXT_SELISTE_VERALTET);
+      seit.push(a.seListeVeraltetSeit);
+    }
+    if (!texte.length) {
+      statusOk();
+      return;
+    }
+    const frueher = seit.reduce((x, y) => (Date.parse(y) < Date.parse(x) ? y : x));
+    statusGestoert(texte.join('; '), undefined, frueher);
+  }
+  /** Teil 2b R2, Spec 15.4: Warnung beim ersten Fehlschlag des Zusatzabrufs und bei jedem neuen Fehlertext. */
+  function meldeSeListeFehler(e: unknown): void {
+    const text = (e as Error)?.message || String(e);
+    if (text === letzterSeListeFehler) return;
+    letzterSeListeFehler = text;
+    d.log.warn(`iveo: Side-Event-Liste nicht abrufbar (${text}), Liste aus der Datei bleibt.`);
+  }
+  /**
+   * Teil 2b R2, Spec 15.4: Zusatzabruf der Agenda-Abfrage. Fragt `listProgramsUpdatedSince(event, seListeIso)`; liefert
+   * das etwas, lädt er `listPrograms(event)` und bildet die Liste neu. `ab` (vor dem Abruf genommen) wird das nächste
+   * `seListeIso`. Wirft nie: ein Fehlschlag hält die Abfrage nicht an.
+   */
+  async function seListeZusatzabruf(client: IveoClientLike, a: AktiveShow): Promise<SeListeAbruf> {
+    const ab = d.jetztIso();
+    try {
+      const geaendert = await client.listProgramsUpdatedSince(a.event, a.seListeIso);
+      if (!geaendert.length) return { ok: true, liste: null, ab };
+      return { ok: true, liste: bildeSideEventListe(await client.listPrograms(a.event), a.filter), ab };
+    } catch (e) {
+      return { ok: false, fehler: e };
+    }
   }
   /** Teil 2b, Spec 6.3 (wie 2a-Spec 7.6): Warnung beim ersten Fehlschlag der Speakerliste und bei jedem neuen Text. */
   function meldeSpeakerFehler(e: unknown): void {
@@ -478,8 +546,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
 
   /**
    * Ablauf + Speaker + token-freie Bindung (inkl. Filter) in die Show schreiben (früher rewriteShowAblauf).
-   * SYNCHRON — der Aufrufer prüft direkt davor `istAktuell`. `basis` ist die eben gelesene Datei; ihre
-   * Side-Event-Liste bleibt erhalten (fürs Live-Umschalten).
+   * SYNCHRON — der Aufrufer prüft direkt davor `istAktuell`. `basis` ist die eben gelesene Datei. Die Side-Event-Liste
+   * kommt als Parameter (Teil 2b R2, Spec 15.4): neu gebildet oder die Liste der Datei (fürs Live-Umschalten).
    */
   function schreibeAblauf(
     pfad: string,
@@ -493,9 +561,11 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       filter: IveoProgramFilter;
       /** Merker „Speaker veraltet“ (Spec 6.2). Fehlt er, steht er nicht in der Datei. */
       speakerVeraltetSeit?: string;
+      /** Side-Event-Liste (Spec 15.4). Leer → das Feld fehlt in der Datei. */
+      sideEvents: ShowIveoProgramRef[];
     },
   ): boolean {
-    const sideEvents = basis.iveo?.sideEvents;
+    const sideEvents = w.sideEvents;
     const compact = compactFilter(w.filter);
     const show: Show = {
       ...basis,
@@ -545,14 +615,16 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       statusGestoert(TEXT_KEIN_TOKEN);
       return null;
     }
+    const seit = binding.syncedAt || d.jetztIso();
     active = {
       path: pfad,
       event: binding.event,
       baseUrl: binding.baseUrl || d.baseUrlStandard(),
-      lastSyncIso: binding.syncedAt || d.jetztIso(),
+      lastSyncIso: seit,
       filter: { ...(binding.filter ?? {}) },
-      lastSig: ablaufSignatur(show.ablauf ?? [], binding.speakers ?? [], binding.speakerVeraltetSeit),
+      lastSig: ablaufSignatur(show.ablauf ?? [], binding.speakers ?? [], binding.speakerVeraltetSeit, binding.sideEvents),
       speakerVeraltetSeit: binding.speakerVeraltetSeit,
+      seListeIso: seit,
     };
     const merker = binding.speakerVeraltetSeit;
     if (merker) {
@@ -625,6 +697,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     if (!istAktuell(a, gen)) return;
     speakerListeErgebnis(speakerFehler);
     const listPrograms = filterPrograms(snap.programs, a.filter);
+    // Teil 2b R2, Spec 15.4: Mit dem Snapshot wird die Side-Event-Liste neu gebildet, wie beim Binden.
+    const sideEvents = bildeSideEventListe(snap.programs, a.filter);
     const optionen: ProgramMapOptions = {
       stagesById: new Map(snap.stages.map((s) => [s.id, s])),
       // F3: nur bei eindeutiger Tageszugehörigkeit (s. scheduleSafeForList).
@@ -644,10 +718,12 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       ? standOhneSpeakerliste(basis, listPrograms, optionen, a)
       : standMitSpeakerliste(snap, listPrograms, optionen);
     d.schreibeCache(buildShowMetadata(snap, a.baseUrl));
-    const sig = ablaufSignatur(ablauf, speakers, merker);
+    const sig = ablaufSignatur(ablauf, speakers, merker, sideEvents);
     if (sig === a.lastSig) {
       // 7.2: nichts geändert → nicht schreiben, kein RELOAD; das Abfragefenster rückt trotzdem vor.
       a.lastSyncIso = snap.fetchedAt;
+      a.seListeIso = snap.fetchedAt;
+      a.seListeVeraltetSeit = undefined;
       if (geaendert.length) d.log.info(`iveo: ${geaendert.length} Programm(e) geändert, Ablauf unverändert.`);
       statusNachAbfrage(a);
       return;
@@ -665,6 +741,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       speakers,
       filter: a.filter,
       speakerVeraltetSeit: merker,
+      sideEvents,
     });
     if (!ok) {
       // 7.2: kein RELOAD, Merker bleiben → die nächste Abfrage mit demselben iveo-Stand schreibt erneut.
@@ -677,6 +754,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     const speakerWieder = a.speakerVeraltetSeit !== undefined && merker === undefined;
     a.lastSig = sig;
     a.lastSyncIso = snap.fetchedAt;
+    a.seListeIso = snap.fetchedAt;
+    a.seListeVeraltetSeit = undefined;
     a.speakerVeraltetSeit = merker;
     if (speakerWieder) meldeSpeakerWieder();
     statusNachAbfrage(a);
@@ -731,8 +810,19 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       if (!detail) detail = await client.getProgram(a.event, programId);
       ablauf = [einPunktAblauf(detail, names)];
     }
+    // Teil 2b R2, Spec 15.4: Zusatzabruf der Side-Event-Liste. Ein Fehlschlag hält die Abfrage nicht an.
+    const se = await seListeZusatzabruf(client, a);
     // Ab hier kein await mehr: Prüfen und Schreiben stehen direkt hintereinander (7.3).
     if (!istAktuell(a, gen)) return;
+    if (se.ok) {
+      // Der nächste gelungene Zusatzabruf löscht den Merker; ein späterer Fehlschlag kommt wieder ins Log.
+      letzterSeListeFehler = null;
+      a.seListeVeraltetSeit = undefined;
+    } else {
+      // Die Liste der Datei bleibt; Merker nur im Speicher, „seit“ = erster Fehlschlag.
+      meldeSeListeFehler(se.fehler);
+      a.seListeVeraltetSeit ??= d.jetztIso();
+    }
     const basis = d.leseShow(a.path);
     if (!basis) {
       statusGestoert(TEXT_SHOW_NICHT_LESBAR);
@@ -746,10 +836,13 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       speakers = speakersToShowSpeakers(verknuepft.size ? alle.filter((s) => verknuepft.has(s.id)) : alle);
       merker = undefined;
     }
-    const sig = ablaufSignatur(ablauf, speakers, merker);
+    // Spec 15.4: neu gebildete Liste, sonst die der Datei (nichts geändert oder Zusatzabruf gescheitert).
+    const sideEvents = se.ok && se.liste ? se.liste : basis.iveo?.sideEvents ?? [];
+    const sig = ablaufSignatur(ablauf, speakers, merker, sideEvents);
     if (sig === a.lastSig) {
       // Die Datei entspricht genau diesem Kontext → merken, sonst lädt jede Abfrage ihn neu.
       a.sideCtx = ctx;
+      if (se.ok) a.seListeIso = se.ab;
       statusNachAbfrage(a);
       return; // nichts geändert → kein RELOAD
     }
@@ -761,6 +854,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       speakers,
       filter: a.filter,
       speakerVeraltetSeit: merker,
+      sideEvents,
     });
     if (!ok) {
       statusGestoert(TEXT_NICHT_GESCHRIEBEN);
@@ -772,6 +866,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     const speakerWieder = a.speakerVeraltetSeit !== undefined && merker === undefined;
     a.lastSig = sig;
     a.sideCtx = ctx;
+    if (se.ok) a.seListeIso = se.ab;
     a.speakerVeraltetSeit = merker;
     if (speakerWieder) meldeSpeakerWieder();
     statusNachAbfrage(a);
@@ -881,6 +976,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       let merker = a.speakerVeraltetSeit;
       /** Schon gelesene Datei (nur wenn die Speakerliste gescheitert ist); genau sie wird dann auch geschrieben. */
       let basisFrueh: Show | null = null;
+      /** Teil 2b R2, Spec 15.4: neu gebildete Liste der Tagesübersicht; null = die Liste der Datei bleibt (Side Event). */
+      let sideEvents: ShowIveoProgramRef[] | null = null;
       if (programId) {
         const r = await loeseSideEventLeicht(client, a.event, programId);
         if (!r) return { ok: false, message: TEXT_AGENDA_NICHT_ABRUFBAR };
@@ -923,6 +1020,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         ({ ablauf, speakers, merker } = stand);
         name = snap.event.name;
         lastSyncIso = snap.fetchedAt;
+        sideEvents = bildeSideEventListe(snap.programs, filter);
         d.schreibeCache(buildShowMetadata(snap, a.baseUrl));
       }
       if (!ablauf.length) return { ok: false, message: 'Side Event nicht auflösbar (leerer Ablauf).' };
@@ -931,6 +1029,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       const basis = basisFrueh ?? d.leseShow(a.path);
       // Ohne Verknüpfung bleibt die Speakerliste der Datei — aus genau diesem Lesen, das auch geschrieben wird.
       const speakersNeu = speakers ?? basis?.iveo?.speakers ?? [];
+      const sideEventsNeu = sideEvents ?? basis?.iveo?.sideEvents ?? [];
       const geschrieben =
         basis !== null &&
         schreibeAblauf(a.path, basis, {
@@ -941,13 +1040,19 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
           speakers: speakersNeu,
           filter,
           speakerVeraltetSeit: merker,
+          sideEvents: sideEventsNeu,
         });
       if (!geschrieben) return { ok: false, message: TEXT_NICHT_GESCHRIEBEN };
       const speakerWieder = a.speakerVeraltetSeit !== undefined && merker === undefined;
       a.filter = filter;
       a.sideCtx = sideCtx;
-      a.lastSig = ablaufSignatur(ablauf, speakersNeu, merker);
+      a.lastSig = ablaufSignatur(ablauf, speakersNeu, merker, sideEventsNeu);
       a.lastSyncIso = lastSyncIso;
+      if (sideEvents) {
+        // Tagesübersicht: Die Liste ist frisch aus dem Snapshot.
+        a.seListeIso = lastSyncIso;
+        a.seListeVeraltetSeit = undefined;
+      }
       a.speakerVeraltetSeit = merker;
       if (speakerWieder) meldeSpeakerWieder();
       d.log.info(`iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakersNeu.length} Speaker.`);
@@ -991,6 +1096,9 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       // Gleiche Bindung: Abfragefenster und Side-Event-Kontext gelten weiter. Neu gebunden: beides frisch.
       if (neu && vorher && !neuGebunden && vorher.event === neu.event) {
         neu.lastSyncIso = vorher.lastSyncIso;
+        neu.seListeIso = vorher.seListeIso;
+        // Der Merker liegt nur im Speicher (15.4): „seit“ bleibt der erste Fehlschlag, nicht die Zeit nach dem Speichern.
+        neu.seListeVeraltetSeit = vorher.seListeVeraltetSeit;
         if (vorher.filter.programId === neu.filter.programId) neu.sideCtx = vorher.sideCtx;
       }
     } else {

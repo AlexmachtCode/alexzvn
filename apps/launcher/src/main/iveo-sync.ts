@@ -32,7 +32,6 @@ import {
   type IveoMaterial,
   filterPrograms,
   localTimeOfDayMs,
-  programDayKey,
   programTaxonomy,
   programsToAblauf,
   snapshotToShowSpeakers,
@@ -70,6 +69,7 @@ import {
   showSchreiberFuerKern,
 } from './iveo-huelle-hilfen';
 import { schreibeShowAtomar, warteSync } from './show-schreiben';
+import { bildeSideEventListe, toProgramList } from './iveo-side-events';
 import type {
   ActionResult,
   AppEvent,
@@ -105,17 +105,8 @@ function describeFilter(f: IveoProgramFilter): string {
   return parts.length ? parts.join(', ') : 'alle';
 }
 
-/** Leichte Programm-Referenzen (id/title/day) für die Side-Event-Auswahl im Editor. */
-function toProgramList(programs: IveoProgram[]): IveoProgramRef[] {
-  return [...programs]
-    .sort((a, b) => {
-      const da = programDayKey(a);
-      const db = programDayKey(b);
-      if (da !== db) return da.localeCompare(db);
-      return (a.starts_at_local || a.starts_at || '').localeCompare(b.starts_at_local || b.starts_at || '');
-    })
-    .map((p) => ({ id: p.id, title: p.title?.trim() || '(ohne Titel)', day: programDayKey(p) }));
-}
+// toProgramList und bildeSideEventListe liegen seit Teil 2b R2 (Spec 15.4) in iveo-side-events.ts: Binden und
+// Abgleich-Kern bilden die Side-Event-Liste mit derselben Funktion.
 
 // speakerNameMap, scheduleSafeForList (F3), toClientError und einPunktAblauf liegen
 // seit Teil 2a im Kern (iveo-abgleich-kern.ts) und werden von dort importiert.
@@ -287,10 +278,7 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
       day: input.day,
       excludeBlockers: input.excludeBlockers,
     };
-    const sideEvents = toProgramList(filterPrograms(snap.programs, dayFilter)).map((p) => ({
-      id: p.id,
-      title: p.title,
-    }));
+    const sideEvents = bildeSideEventListe(snap.programs, dayFilter);
     const filter: IveoProgramFilter = {
       typeSlug: input.typeSlug,
       formatSlug: input.formatSlug,

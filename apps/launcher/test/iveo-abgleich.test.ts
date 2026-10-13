@@ -121,7 +121,7 @@ const TOKEN = 'iveo_live_geheim';
 const SHOW_PFAD = 'C:/Shows/COP31 Tag 1.jmshow';
 const TAG = '2026-11-10';
 
-type Abruf = 'geaendert' | 'snapshot' | 'agenda' | 'programm' | 'speakers';
+type Abruf = 'geaendert' | 'snapshot' | 'agenda' | 'programm' | 'speakers' | 'programme';
 /** Nachgebautes iveo: Daten, Fehler je Abruf, Sperren („Abfrage läuft gerade“) und Mitschrift der Abrufe. */
 interface NachgebautesIveo {
   programme: IveoProgram[];
@@ -217,6 +217,11 @@ function nachgebauterClient(iv: NachgebautesIveo): IveoClientLike {
       await schritt('speakers', '');
       return iv.speakers;
     },
+    // Teil 2b R2, Spec 15.4: Zusatzabruf der Agenda-Abfrage für die Side-Event-Liste.
+    async listPrograms() {
+      await schritt('programme', '');
+      return iv.programme;
+    },
   };
 }
 
@@ -243,7 +248,9 @@ function showMit(ablauf: ShowAblaufItem[], filter: NonNullable<Show['iveo']>['fi
     iveo: {
       event: EVENT, baseUrl: BASIS, name: 'COP31', syncedAt: '2026-10-01T08:00:00.000Z',
       ...(speakers.length ? { speakers } : {}),
-      sideEvents: [{ id: 'P1', title: 'Side Event Klima' }, { id: 'P2', title: 'Side Event Wasser' }],
+      // Teil 2b R2 (Spec 15.4): die Liste, die das Binden für den Tag bildet (P1–P3; P4 liegt am 11.11.). Eine kürzere
+      // Liste wäre veraltet, und jede Abfrage mit Snapshot schriebe sie neu.
+      sideEvents: [{ id: 'P1', title: 'Side Event Klima' }, { id: 'P2', title: 'Side Event Wasser' }, { id: 'P3', title: 'Side Event Wald' }],
       filter,
     },
   };
@@ -462,7 +469,7 @@ const mitMerker = (s: Show, seit = MERKER): Show => ({ ...s, iveo: { ...s.iveo!,
     u.cache.length >= 1 && ![...u.dateien.values()].some((t) => t.includes(TOKEN)) && !JSON.stringify(u.cache).includes(TOKEN)
     && !JSON.stringify(u.status).includes(TOKEN) && ![...u.info, ...u.warn].some((z) => z.includes(TOKEN)));
   ck('Nr. 2: … Filter, Speaker und Side-Event-Liste bleiben in der Bindung',
-    datei(u).iveo?.filter?.day === TAG && datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva' && datei(u).iveo?.sideEvents?.length === 2);
+    datei(u).iveo?.filter?.day === TAG && datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva' && datei(u).iveo?.sideEvents?.length === 3);
 }
 
 // --- 9.6 Nr. 3: Agenda-Abruf scheitert → kein Schreiben, gestört; danach Erfolg → ok ------------------------------
@@ -848,8 +855,10 @@ const mitMerker = (s: Show, seit = MERKER): Show => ({ ...s, iveo: { ...s.iveo!,
     u.reloads.length === 3 && u.info.includes('iveo: RELOAD → 1 Timer, 1 Titler, 1 Rundown benachrichtigt.'));
   ck('Nr. 13: … active neu aufgesetzt (neuer Filter), Panel benachrichtigt', u.kern.aktiv()?.filter.programId === 'P2' && u.aktivMeldungen === 2);
   await u.kern.abfrage();
+  // Teil 2b R2 (Spec 15.4): Auch die Agenda-Abfrage fragt updated_since — als Zusatzabruf NACH der Agenda.
   ck('Nr. 13: bei neuer Bindung nutzt die nächste Abfrage den neuen Filter (Agenda von P2)',
-    u.iveo.abrufe.includes('agenda:P2') && !u.iveo.abrufe.some((x) => x.startsWith('geaendert:')));
+    u.iveo.abrufe.includes('agenda:P2')
+    && u.iveo.abrufe.indexOf('agenda:P2') < u.iveo.abrufe.findIndex((x) => x.startsWith('geaendert:')));
   ck('Nr. 13: … und schreibt nichts (lastSig aus der gespeicherten Datei)', u.schreibversuche === 0);
 }
 {
@@ -1657,6 +1666,110 @@ function listeMitAenderung(opt: Parameters<typeof umgebung>[1] = {}): Umgebung {
   await mit.kern.abfrage();
   ck('E10: ohne meldeShow liest der Kern nach dem Schreiben nicht zurück, mit meldeShow genau einmal',
     ohne.schreibversuche === 1 && mit.schreibversuche === 1 && ohne.lesungen === 1 && mit.lesungen === 2 && ohne.gemeldet.length === 0);
+}
+
+// --- Teil 2b R2, Spec 15.4 (Z3): Side-Event-Liste auffrischen --------------------------------------------------------
+const TEXT_SELISTE = 'Side-Event-Liste von iveo nicht abrufbar, Liste aus früherem Stand';
+/** Side-Event-Liste der Datei als Text „id:Titel,…“. */
+const seListe = (show: Show): string => (show.iveo?.sideEvents ?? []).map((s) => `${s.id}:${s.title}`).join(',');
+/** Dieselbe Show mit einer anderen (z. B. veralteten) Side-Event-Liste in der Datei. */
+const mitListe = (s: Show, sideEvents: Array<{ id: string; title: string }>): Show => ({ ...s, iveo: { ...s.iveo!, sideEvents } });
+const seWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.startsWith('iveo: Side-Event-Liste nicht abrufbar'));
+{
+  const a: ShowAblaufItem[] = [{ id: 'a1', label: 'Begrüßung' }];
+  ck('R2 15.4: Signatur — die Side Events zählen (Titel geändert)',
+    ablaufSignatur(a, [], undefined, [{ id: 'P1', title: 'A' }]) !== ablaufSignatur(a, [], undefined, [{ id: 'P1', title: 'B' }]));
+  ck('R2 15.4: Signatur — Side Events so normalisiert wie die Datei (getrimmt, leerer Titel → id), ohne = leere Liste',
+    ablaufSignatur(a, [], undefined, [{ id: ' P1 ', title: '' }]) === ablaufSignatur(a, [], undefined, [{ id: 'P1', title: 'P1' }])
+    && ablaufSignatur(a, []) === ablaufSignatur(a, [], undefined, []));
+}
+{
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]), { melde: true });
+  u.iveo.programme[2] = { ...u.iveo.programme[2], title: 'Side Event Wald und Moor' };
+  u.iveo.geaendert = [u.iveo.programme[2]];
+  await u.kern.abfrage();
+  ck('R2 15.4: Listen-Abfrage mit Snapshot bildet die Liste neu, geschrieben, RELOAD, gemeldet',
+    seListe(datei(u)) === 'P1:Side Event Klima,P2:Side Event Wasser,P3:Side Event Wald und Moor' && u.reloads.length === 3
+    && seListe(u.gemeldet.at(-1)!.show!) === seListe(datei(u)));
+}
+{
+  // Bestands-Show: Die Liste in der Datei ist veraltet (P3 fehlt). Die erste Abfrage mit Snapshot schreibt einmal.
+  const u = umgebung((iv) => mitListe(showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]), [{ id: 'P1', title: 'Side Event Klima' }]));
+  u.iveo.geaendert = [u.iveo.programme[3]]; // geändert hat sich nur P4 (anderer Tag): der Ablauf bleibt gleich
+  await u.kern.abfrage();
+  ck('R2 15.4: Bestands-Show — die erste Abfrage nach dem Update schreibt die Liste einmal, RELOAD',
+    u.schreibversuche === 1 && seListe(datei(u)) === 'P1:Side Event Klima,P2:Side Event Wasser,P3:Side Event Wald' && u.reloads.length === 3);
+  await u.kern.abfrage();
+  ck('R2 15.4: … danach nicht mehr', u.schreibversuche === 1 && u.reloads.length === 3);
+}
+{
+  const u = umgebung((iv) => mitListe(agendaP1(iv), [{ id: 'P1', title: 'Side Event Klima' }]));
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('R2 15.4: Umschalten auf ein Side Event lässt die Liste der Datei, wie sie ist', r.ok && seListe(datei(u)) === 'P1:Side Event Klima');
+  const r2 = await u.kern.umschalten({ day: TAG });
+  ck('R2 15.4: Umschalten auf die Tagesübersicht bildet die Liste neu',
+    r2.ok && seListe(datei(u)) === 'P1:Side Event Klima,P2:Side Event Wasser,P3:Side Event Wald');
+  const r3 = await u.kern.umschalten({ day: '2026-11-11' });
+  ck('R2 15.4: … ein anderer Tag → die Liste dieses Tages', r3.ok && seListe(datei(u)) === 'P4:Side Event Ozean');
+}
+{
+  const u = umgebung(agendaP1);
+  await u.kern.abfrage();
+  const erste = u.iveo.abrufe.filter((x) => x.startsWith('geaendert:'));
+  ck('R2 15.4: Agenda-Abfrage fragt zusätzlich updated_since ab syncedAt der Show; liefert es nichts → kein listPrograms',
+    JSON.stringify(erste) === JSON.stringify(['geaendert:2026-10-01T08:00:00.000Z']) && !u.iveo.abrufe.includes('programme:')
+    && u.schreibversuche === 0);
+  u.iveo.programme[1] = { ...u.iveo.programme[1], title: 'Side Event Wasser und Meer' };
+  u.iveo.geaendert = [u.iveo.programme[1]];
+  await u.kern.abfrage();
+  ck('R2 15.4: liefert es etwas → listPrograms, Liste neu, geschrieben, RELOAD',
+    u.iveo.abrufe.includes('programme:') && u.schreibversuche === 1 && u.reloads.length === 3
+    && seListe(datei(u)) === 'P1:Side Event Klima,P2:Side Event Wasser und Meer,P3:Side Event Wald');
+  ck('R2 15.4: … die Logzeile nennt die Side-Event-Liste',
+    u.info.includes('iveo: Side Event abgefragt, die Side-Event-Liste weicht von der Datei ab → Show neu geschrieben (3 Punkte).'));
+  await u.kern.abfrage();
+  const seit = u.iveo.abrufe.filter((x) => x.startsWith('geaendert:')).map((x) => x.slice('geaendert:'.length));
+  ck('R2 15.4: … seListeIso rückt nach jedem gelungenen Zusatzabruf vor', seit.length === 3 && seit[1] > seit[0] && seit[2] > seit[1]);
+}
+{
+  const u = umgebung(agendaP1);
+  u.iveo.agenda.P1 = [...u.iveo.agenda.P1, punkt('P1', 'a4', 'Schlusswort', 4, 5)];
+  u.iveo.fehler.geaendert = new Error('fetch failed');
+  await u.kern.abfrage();
+  const st = u.status.at(-1);
+  ck('R2 15.4: Zusatzabruf scheitert → Liste der Datei bleibt, die Abfrage läuft weiter (Agenda geschrieben)',
+    u.schreibversuche === 1 && ids(datei(u)) === 'a1,a2,a3,a4' && seListe(datei(u)) === 'P1:Side Event Klima,P2:Side Event Wasser,P3:Side Event Wald');
+  ck('R2 15.4: … Status gestört mit dem Text aus 15.4 und Uhrzeit', st?.ok === false && st.text === TEXT_SELISTE && typeof st.seit === 'string');
+  ck('R2 15.4: … eine Warnung mit dem Fehler',
+    JSON.stringify(seWarnungen(u)) === JSON.stringify(['iveo: Side-Event-Liste nicht abrufbar (fetch failed), Liste aus der Datei bleibt.']));
+  const meldungen = u.status.length;
+  await u.kern.abfrage();
+  ck('R2 15.4: gleicher Fehlertext → keine zweite Warnung, keine neue Statusmeldung', seWarnungen(u).length === 1 && u.status.length === meldungen);
+  delete u.iveo.fehler.geaendert;
+  await u.kern.abfrage();
+  ck('R2 15.4: nächster Zusatzabruf gelingt → in Ordnung', u.status.at(-1)?.ok === true);
+}
+{
+  // Speichern im Editor (gleiche Bindung) behält den Merker: „seit“ bleibt der erste Fehlschlag (15.4).
+  const u = umgebung(agendaP1);
+  u.iveo.fehler.geaendert = new Error('fetch failed');
+  await u.kern.abfrage();
+  const seitVorher = u.status.at(-1)?.seit;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  await u.kern.abfrage();
+  const st = u.status.at(-1);
+  ck('R2 15.4: Speichern im Editor behält den Merker, „seit“ bleibt der erste Fehlschlag',
+    typeof seitVorher === 'string' && st?.ok === false && st.text === TEXT_SELISTE && st.seit === seitVorher);
+}
+{
+  const u = umgebung((iv) => mitMerker(agendaP1(iv)));
+  await u.kern.umschalten({ programId: 'P1' }); // Kontext merken; P1 verknüpft keine Speaker, der Merker bleibt
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.fehler.geaendert = new Error('fetch failed');
+  await u.kern.abfrage();
+  const st = u.status.at(-1);
+  ck('R2 15.4: beide Merker → beide Texte mit „; “, „seit“ = der frühere',
+    st?.ok === false && st.text === `${TEXT_SPEAKER_VERALTET}; ${TEXT_SELISTE}` && st.seit === MERKER);
 }
 
 // --- Zusammenfassung ---
