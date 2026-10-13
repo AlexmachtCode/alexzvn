@@ -580,6 +580,23 @@ function check(name: string, cond: boolean, detail?: unknown): void {
     await ruhe();
     check('C12 nach ersetzt(): Zwischenspeicher neu geschrieben', speicher.inhalt !== null);
   }
+  {
+    // ersetzt() ohne angewendeten Stand (Versuche erschöpft, also nicht im Verbundmodus): Das Tool zeigt danach
+    // eigene Daten. Die Anzeige bleibt V12 und springt nie auf grün V4 mit der Show des Masters (#299, „V-Zeilen wahr“).
+    const { u, client, folger, h } = aufbau();
+    folger.folge(h);
+    folger.starte();
+    client.verbinde();
+    h.wirft = () => nichtAngewendet('EBUSY');
+    client.emit('daten', stand(0));
+    u.vor(10_000);
+    check('C12 Versuche erschöpft, nichts angewendet → V12, nicht im Verbundmodus', text(folger) === 'Show vom Master nicht übernommen: EBUSY' && h.aufrufe.length === 0 && folger.imVerbundmodus() === false, text(folger));
+    folger.ersetzt(); // eigene Daten außerhalb des Verbundmodus (E56, etwa die Ordnerwahl im Titler)
+    check('C12 ersetzt() ohne angewendeten Stand: V12 bleibt, kein grünes V4 (#299)', text(folger) === 'Show vom Master nicht übernommen: EBUSY' && (folger.daten() as { fehler?: string }).fehler === 'EBUSY', text(folger));
+    h.wirft = null;
+    client.emit('daten', stand(1, { t: 'aenderung' }));
+    check('C12 … nächster Stand angewendet → V4, fehler weg', h.aufrufe.length === 1 && text(folger) === 'Show vom Master: Gala · Stand hh:mm' && (folger.daten() as { fehler?: string }).fehler === undefined, text(folger));
+  }
 
   // Zwischenspeicher beim Start (16.3, E17), Review Focus 3 und 5
   {

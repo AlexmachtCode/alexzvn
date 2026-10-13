@@ -214,12 +214,15 @@ export class VerbundFolger extends EventEmitter {
     return this.istSlave(k) && this.angewendet !== null && this.angewendet.masterId === k.masterId;
   }
 
-  /** verbundDatenErsetzt (E16): Zwischenspeicher löschen, `angewendet` null; aus `frueher` wird `einzelplatz`. */
+  /**
+   * verbundDatenErsetzt (E16): Zwischenspeicher löschen, `angewendet` null; aus `frueher` wird `einzelplatz`.
+   * `fehler` bleibt: Der Stand des Masters ist weiter nicht übernommen. Ohne `fehler` zeigte `aktuell` mit dem
+   * empfangenen Stand grün V4, obwohl das Tool eigene Daten zeigt (#299). Das Ende des Verbunds löscht ihn (aufZustand).
+   */
   ersetzt(): void {
     this.angewendet = null;
     this.vorrat = null;
     this.vorratErledigt = true;
-    this.fehler = undefined;
     this.beendeVersuche();
     this.wartend = null;
     this.schreibGeneration++;
