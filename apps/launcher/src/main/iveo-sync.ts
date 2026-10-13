@@ -32,7 +32,6 @@ import {
   type IveoMaterial,
   filterPrograms,
   localTimeOfDayMs,
-  programDayKey,
   programTaxonomy,
   programsToAblauf,
   snapshotToShowSpeakers,
@@ -51,6 +50,7 @@ import {
   setIveoBaseToken,
 } from './settings';
 import { sendControlCommand } from './health';
+import { meldeShowAnVerbund, verbundReloadInfo } from './verbund';
 import {
   einPunktAblauf,
   erzeugeKern,
@@ -70,6 +70,7 @@ import {
   showSchreiberFuerKern,
 } from './iveo-huelle-hilfen';
 import { schreibeShowAtomar, warteSync } from './show-schreiben';
+import { bildeSideEventListe, toProgramList } from './iveo-side-events';
 import type {
   ActionResult,
   AppEvent,
@@ -105,17 +106,8 @@ function describeFilter(f: IveoProgramFilter): string {
   return parts.length ? parts.join(', ') : 'alle';
 }
 
-/** Leichte Programm-Referenzen (id/title/day) für die Side-Event-Auswahl im Editor. */
-function toProgramList(programs: IveoProgram[]): IveoProgramRef[] {
-  return [...programs]
-    .sort((a, b) => {
-      const da = programDayKey(a);
-      const db = programDayKey(b);
-      if (da !== db) return da.localeCompare(db);
-      return (a.starts_at_local || a.starts_at || '').localeCompare(b.starts_at_local || b.starts_at || '');
-    })
-    .map((p) => ({ id: p.id, title: p.title?.trim() || '(ohne Titel)', day: programDayKey(p) }));
-}
+// toProgramList und bildeSideEventListe liegen seit Teil 2b R2 (Spec 15.4) in iveo-side-events.ts: Binden und
+// Abgleich-Kern bilden die Side-Event-Liste mit derselben Funktion.
 
 // speakerNameMap, scheduleSafeForList (F3), toClientError und einPunktAblauf liegen
 // seit Teil 2a im Kern (iveo-abgleich-kern.ts) und werden von dort importiert.
@@ -287,10 +279,7 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
       day: input.day,
       excludeBlockers: input.excludeBlockers,
     };
-    const sideEvents = toProgramList(filterPrograms(snap.programs, dayFilter)).map((p) => ({
-      id: p.id,
-      title: p.title,
-    }));
+    const sideEvents = bildeSideEventListe(snap.programs, dayFilter);
     const filter: IveoProgramFilter = {
       typeSlug: input.typeSlug,
       formatSlug: input.formatSlug,
@@ -436,13 +425,17 @@ function kern(): IveoKern {
       token: (event) => getIveoToken(event),
       leseShow: leseShowDatei,
       schreibeShow: schreibeShowFuerKern,
-      benachrichtige: (appId, zeile) => sendControlCommand(appId, zeile),
+      // Teil 2b R2, Spec 15.3 (O3): In der Rolle Master geht RELOAD nur an Tools dieses Rechners.
+      benachrichtige: (appId, zeile) => sendControlCommand(appId, zeile, { nurDieserRechner: verbundReloadInfo() !== null }),
       schreibeCache: (meta) => writeCache(meta as IveoShowMetadata),
       log: { info: (m) => getLog().info(m), warn: (m) => getLog().warn(m) },
       jetztIso: nowIso,
       meldeStatus: (s) => setzeStatus(s),
       meldeAktiv: () => emitActiveChanged(),
       baseUrlStandard: () => resolveIveoBaseUrl(),
+      // Teil 2b R2, Spec 15.1: die offene Show an den Verteiler; 15.6: k für die RELOAD-Logzeile.
+      meldeShow: (pfad, show) => meldeShowAnVerbund(pfad, show),
+      verbundReload: () => verbundReloadInfo(),
     });
   }
   return kernInstanz;

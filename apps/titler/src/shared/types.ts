@@ -172,8 +172,21 @@ export interface TitlerStatus {
   gehalten?: { label: string };
   /** Stehender Hinweis H1–H7 mit wörtlichem Text (Spec 7.8); bei mehreren gilt der Vorrang. */
   hinweis?: { art: 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'H6' | 'H7'; text: string };
-  /** Datenquelle des DataLink (Spec 7.7): Art, Zeile Q1–Q3, Knopf K1, „Kein Datenordner aktiv“. */
-  datenQuelle: { art: DatenQuelleArt; zeile: string; zurueckKnopf: string | null; ohneOrdner: boolean };
+  /**
+   * Datenquelle des DataLink (Spec 7.7, 17.2): Art, Zeile Q1–Q4, Knopf K1, „Kein Datenordner aktiv“.
+   * `ordnerGesperrt`: Text, wenn die Ordnerwahl im Verbund gesperrt ist (Quelle master, Owner O1).
+   */
+  datenQuelle: { art: DatenQuelleArt; zeile: string; zurueckKnopf: string | null; ohneOrdner: boolean; ordnerGesperrt?: string };
+}
+
+/**
+ * Verbund-Anzeige über die Preload-Brücke (Master-Link Teil 2b, Spec 16.4/16.5). Strukturgleich mit
+ * `VerbundAnzeige` aus `@jm/app-runtime`; eigener Typ, damit die Renderer-Typprüfung app-runtime
+ * (Electron-Typen) nicht einliest (E28).
+ */
+export interface VerbundAnzeigeZeile {
+  text: string;
+  farbe: 'gruen' | 'gelb' | 'rot' | 'gedaempft';
 }
 
 export interface TitlerState {
@@ -311,4 +324,8 @@ export interface JmtitlerApi {
   readFile: (path: string) => Promise<OpenedImportFile | null>;
   /** Datei-Systempfad eines gedroppten File-Objekts ermitteln (webUtils). */
   pathForFile: (file: File) => string;
+  /** Verbund-Anzeige (Spec 16.4/16.5): V-Zeile oder null (Einzelplatz). */
+  verbundAnzeige: () => Promise<VerbundAnzeigeZeile | null>;
+  /** Auf Wechsel der Verbund-Anzeige hören. Liefert Unsubscribe. */
+  onVerbundAnzeige: (cb: (a: VerbundAnzeigeZeile | null) => void) => () => void;
 }

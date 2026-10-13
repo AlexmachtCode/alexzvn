@@ -3,6 +3,7 @@ export * from './fristen';
 export * from './code';
 export * from './beweis';
 export * from './rahmen';
+export * from './show-daten';
 export * from './verbindung';
 export * from './adresswahl';
 export * from './fehler';

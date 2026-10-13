@@ -5,11 +5,12 @@ import {
   kuerzeName, leseMasterLinkDatei, schreibeMasterLinkDatei, verbindungsrelevantGeaendert,
   type Lesen, type MasterLinkDatei, type NetzwerkInterfaces,
 } from '@jm/master-link';
-import type { KoppelAntwort, VerbundRolle, VerbundStand } from '@shared/types';
+import type { KoppelAntwort, VerbundRolle, VerbundShowStand, VerbundStand } from '@shared/types';
 import { pruefeFesteAdresse, pruefeKarte, pruefeKoppelEingabe, pruefeName, pruefeRechnerId, pruefeRolle } from './eingaben';
 import { fehlerCode } from './fehlercode';
 import { MasterRolle, type MasterAbhaengigkeiten } from './master';
 import { SlaveRolle, type SlaveAbhaengigkeiten } from './slave';
+import type { Verteiler } from './verteiler';
 import { beobachte, kartenLage, leseBisLesbar } from './wache';
 
 // Kern des Verbunds OHNE Electron (per tsx getestet, Muster wie wache.ts): hält master-link.json im Speicher,
@@ -39,6 +40,11 @@ export interface VerbundKernDeps {
   meldeVerzoegerungMs?: number;
   master?: Partial<MasterAbhaengigkeiten>;
   slave?: Partial<SlaveAbhaengigkeiten>;
+  /**
+   * Teil 2b R2, Spec 15.2: Verteiler der Show-Daten. Jede neue MasterRolle bekommt ihn; `stand()` liest das
+   * Verbund-Modal (15.5). Ohne ihn verteilt der Master nichts (Tests, Teil-1-Verhalten).
+   */
+  verteiler?: Pick<Verteiler, 'starte' | 'stoppe' | 'aufAbo' | 'aufGetrennt' | 'aufEntstaut' | 'hatAbo' | 'stand'>;
 }
 
 function neueDatei(): MasterLinkDatei {
@@ -122,6 +128,7 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
       beiAenderung: aenderung,
       log: d.log,
       netzwerkKarten: d.netzwerkKarten,
+      ...(d.verteiler ? { verteiler: d.verteiler } : {}),
       ...d.master,
     });
   }
@@ -235,6 +242,20 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
     return () => clearInterval(zeitgeber);
   }
 
+  /** Teil 2b R2, Spec 15.5: Zeile „Show im Verbund …“ — nur, solange der Verteiler läuft (Epoche gesetzt). */
+  function showImVerbund(): VerbundShowStand | null {
+    const v = d.verteiler?.stand();
+    if (!v || v.epoche === null) return null;
+    return {
+      grund: v.grund,
+      showName: v.showName,
+      dateiName: v.dateiName,
+      verteiltAm: v.verteiltAm,
+      groesseKiB: v.groesseKiB,
+      bezieher: v.abos.length,
+    };
+  }
+
   function stand(): VerbundStand {
     const { karten: liste, karteFehlt } = kartenLage(karten(), datei.netzwerk.karte);
     return {
@@ -244,7 +265,7 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
       gewaehlteKarte: datei.netzwerk.karte,
       karteFehlt,
       dateiFehler,
-      master: master?.stand() ?? null,
+      master: master ? { ...master.stand(), showImVerbund: showImVerbund() } : null,
       slave: slave?.stand() ?? null,
     };
   }
@@ -442,6 +463,8 @@ export function erzeugeVerbundKern(d: VerbundKernDeps) {
     starte,
     beende,
     stand,
+    /** Teil 2b R2 (E12): die Rolle aus master-link.json — Grundlage für „RELOAD nur an diesen Rechner“ (15.3). */
+    rolle: (): VerbundRolle => datei.rolle,
     setzeRolle,
     setzeRechnerName,
     setzeMasterName,

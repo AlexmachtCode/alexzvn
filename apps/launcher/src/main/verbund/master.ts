@@ -4,11 +4,12 @@ import {
   DateiVerbund, erzeugeSchluesselpaar, fingerprintVonPem, kuerzeName, kurzFingerprint, leseMitBak, listeKarten,
   loescheMitBak, MasterAnnonce, MasterLinkServer, pruefeIdentitaet, pruefeVerbund, schreibeMitBak, standardFabrik,
   wirksameKarten,
-  type BonjourFabrik, type Fristen, type Identitaet, type Karte, type Kopplung, type MasterLinkDatei,
-  type NetzwerkInterfaces, type Schluesselpaar, type VerbundDaten,
+  type AboInhalt, type BonjourFabrik, type Fristen, type Identitaet, type Karte, type Kopplung, type MasterLinkDatei,
+  type NetzwerkInterfaces, type Schluesselpaar, type TeilnehmerDaten, type VerbundDaten,
 } from '@jm/master-link';
 import type { MasterZustand, VerbundMasterStand, VerbundRechner } from '@shared/types';
 import { fehlerCode } from './fehlercode';
+import type { Verteiler } from './verteiler';
 import { erzeugeMasterIdentitaet } from './zertifikat';
 
 // Master-Rolle des Launchers (Spec 2, 3.5, 4.2, 4.3, 7.2, 7.3). Kein Electron hier — der
@@ -33,6 +34,11 @@ export interface MasterAbhaengigkeiten {
   lauschAdressen?: string[];
   /** Nur Tests: läuft vor jedem Schreiben von identitaet.json/verbund.json durch diese Rolle und darf werfen. Produktion: ungesetzt. */
   vorSchreiben?: (pfad: string) => void;
+  /**
+   * Teil 2b R2, Spec 15.2: Verteiler der Show-Daten. Bekommt daten/getrennt/entstaut des Servers und sendet über
+   * sendeDaten; der Server bleibt privat. Start der Rolle = neue Epoche (13.3).
+   */
+  verteiler?: Pick<Verteiler, 'starte' | 'stoppe' | 'aufAbo' | 'aufGetrennt' | 'aufEntstaut' | 'hatAbo'>;
 }
 
 const LEER_FENSTER = { offen: false, code: null, gueltigBis: null, rest: 0, ungueltig: false };
@@ -187,6 +193,13 @@ export class MasterRolle {
         log: this.d.log,
       });
       server.on('aenderung', () => this.d.beiAenderung());
+      const v = this.d.verteiler;
+      if (v) {
+        // Spec 15.2: Abos, Sitzungsende und Stau gehen an den Verteiler (nach Sitzung geführt, 13.6).
+        server.on('daten', (t: TeilnehmerDaten, abo: AboInhalt) => v.aufAbo(t, abo));
+        server.on('getrennt', (sitzung: number) => v.aufGetrennt(sitzung));
+        server.on('entstaut', (sitzung: number) => v.aufEntstaut(sitzung));
+      }
       await server.starte();
       if (this.gestoppt) {
         await server.stoppe();
@@ -201,6 +214,9 @@ export class MasterRolle {
       return;
     }
     this.letzterStartFehler = null;
+    // Spec 13.3/15.1: neue Epoche je Start der Rolle (Launcher-Start, Rollenwechsel, Identität erneuern, Wiederholung).
+    const laufend = this.server;
+    if (laufend) this.d.verteiler?.starte({ sendeDaten: (sitzung, zeile) => laufend.sendeDaten(sitzung, zeile) });
     this.setzeZustand('laeuft', null);
     try {
       this.starteAnnonce();
@@ -391,6 +407,8 @@ export class MasterRolle {
     const verbund = this.verbund;
     this.annonce = null;
     this.server = null;
+    // Spec 15.2: ab hier sendet der Verteiler nichts mehr; die getrennt-Ereignisse beim Schließen finden keine Abos.
+    if (server) this.d.verteiler?.stoppe();
     // Reihenfolge: zuerst den Server anstoßen — sein synchroner Teil zerstört die Sockets und schreibt „zuletzt gesehen“ —
     // und erst dann auf das mDNS-Goodbye (bis 1 s) warten. Beim Beenden des Launchers ist der Prozess sonst vorher weg.
     const serverZu = server?.stoppe();
@@ -480,6 +498,12 @@ export class MasterRolle {
 
   /** Nur bei „Verbunddaten beschädigt“ angeboten: alles verwerfen, neu beginnen. */
   async neuAufsetzen(): Promise<void> {
+    // Teil 2b R2 (Vormerkung 9 der Teil-1-Schlussprüfung): auch im Main nur in diesem Zustand — ein Fehlaufruf löschte
+    // sonst Identität und Verbund, und jeder gekoppelte Rechner müsste neu koppeln.
+    if (this.zustand !== 'daten-beschaedigt') {
+      this.d.log('warn', 'Master: „Verbund neu aufsetzen“ nur bei beschädigten Verbunddaten, nichts gelöscht.');
+      return;
+    }
     // Bisheriger Master-Name: aus der geladenen Identität, sonst aus der Selbstkopplung (bei beschädigten Daten ist
     // keine Identität geladen) — nie still auf einen anderen Namen zurückfallen (B5).
     const d = this.d.datei();
@@ -516,7 +540,11 @@ export class MasterRolle {
         adresse: e.letzteAdresse,
         tools: teilnehmer
           .filter((t) => t.rechnerId === e.rechnerId)
-          .map((t) => ({ appId: t.appId, name: t.name, version: t.version, art: t.art, verbundenSeit: t.seit })),
+          .map((t) => ({
+            appId: t.appId, name: t.name, version: t.version, art: t.art, verbundenSeit: t.seit,
+            // Spec 15.5: Abo beim Verteiler, nach Sitzung geführt (13.6).
+            bezieht: this.d.verteiler?.hatAbo(t.sitzung) ?? false,
+          })),
       }))
       .sort((a, b) => Number(b.dieserRechner) - Number(a.dieserRechner) || a.name.localeCompare(b.name));
     return {
@@ -528,6 +556,8 @@ export class MasterRolle {
       speicherFehler: this.speicherFehler,
       rechner,
       kopplung: server?.kopplungsStand() ?? LEER_FENSTER,
+      // Spec 15.5: Die Rolle kennt die Show nicht; der Kern (kern.ts, stand()) setzt die Zeile aus dem Verteiler.
+      showImVerbund: null,
     };
   }
 }

@@ -7,19 +7,40 @@ import { listeKarten, type NetzwerkInterfaces } from './adresswahl';
 import { fingerprintVonPem, gleicherBeweis, istEd25519Oeffentlich, masterBeweis, pruefeAnmeldung, slaveBeweis } from './beweis';
 import { erzeugeCode } from './code';
 import { fristen as mitFristen, GRENZEN, kuerzeName, MASTER_PORT, type Fristen } from './fristen';
-import { PROTOKOLL, type Grund, type Nachricht, type TeilnehmerInfo } from './rahmen';
+import { PROTOKOLL, type DatenZeile, type Grund, type Nachricht, type TeilnehmerInfo } from './rahmen';
+import { pruefeAbo } from './show-daten';
 import type { Identitaet, VerbundSpeicher } from './speicher';
 import { Verbindung } from './verbindung';
 
 // Master-Link-Server (Spec 3, 5, 6). Jeder Teilnehmer (Tool/Slave-Launcher) hat eine eigene
 // Verbindung; Schlüssel am Master ist rechnerId + appId, die neuere Verbindung gewinnt.
+// Teil 2b (Spec 13.6, 13.7): Show-Daten hängen an der Sitzungs-Kennung `sitzung`, nicht am Schlüssel. Ereignisse:
+//  - 'daten' (t: TeilnehmerDaten, abo: AboInhalt) — ein gültiges abo einer angemeldeten Sitzung
+//  - 'getrennt' (sitzung: number)  — genau einmal je angemeldeter Sitzung (Ersetzen, Ende oder stoppe())
+//  - 'entstaut' (sitzung: number)  — nach 'gestaut' beim nächsten drain
+//  - 'aenderung' (ohne Nutzlast)    — Teilnehmerliste/Kopplung geändert (Teil 1, hat mit der Nachricht nichts zu tun)
 
 export interface TeilnehmerStand extends TeilnehmerInfo {
   rechnerId: string;
   adresse: string;
   seit: number;
   letzteZeile: number;
+  /** Teil 2b: Sitzungs-Kennung (Zähler je Server, ab 1). */
+  sitzung: number;
 }
+
+/** Teil 2b (Spec 13.7): wer ein Abo schickt. `appId` meldet der Teilnehmer selbst (gekürzt, Spec 22). */
+export interface TeilnehmerDaten {
+  sitzung: number;
+  schluessel: string;
+  rechnerId: string;
+  art: 'tool' | 'launcher';
+  appId: string;
+  dieserRechner: boolean;
+}
+
+/** Teil 2b (Spec 13.6): Ergebnis von sendeDaten. */
+export type SendeErgebnis = 'gesendet' | 'gestaut' | 'weg';
 
 export interface KopplungsStand {
   offen: boolean;
@@ -60,6 +81,14 @@ interface Sitzung {
   seit: number;
   letzteZeile: number;
   stille: ReturnType<typeof setTimeout> | null;
+  /** Teil 2b: 0 bis zur Anmeldung, dann die Kennung. */
+  sitzung: number;
+  /** 'getrennt' ist für diese Sitzung schon gemeldet (genau einmal). */
+  getrenntGemeldet: boolean;
+  /** sendeDaten schreibt nicht, bis 'drain' kommt. */
+  gestaut: boolean;
+  /** Felder, zu denen schon eine Warnung „ungültiges Abo“ geschrieben wurde. */
+  aboWarnungen: Set<string>;
 }
 
 interface RohEintrag {
@@ -70,6 +99,13 @@ interface RohEintrag {
 }
 
 const istLoopback = (ip: string): boolean => ip.startsWith('127.') || ip === '::1';
+
+/** Code einer Ausnahme fürs Log: err.code, sonst der Fehlertyp — nie die Meldung (wie wurfCode in client.ts). */
+function wurfCode(e: unknown): string {
+  const o = (typeof e === 'object' && e !== null ? e : {}) as { code?: unknown; name?: unknown };
+  const roh = typeof o.code === 'string' && o.code ? o.code : typeof o.name === 'string' && o.name ? o.name : 'UNBEKANNT';
+  return roh.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 40) || 'UNBEKANNT';
+}
 
 /**
  * TeilnehmerInfo kommt vom Netz (nach der Anmeldung sind Zeilen bis 1 MiB erlaubt) und darf nie ungekürzt in
@@ -95,6 +131,12 @@ export class MasterLinkServer extends EventEmitter {
   private readonly fehlschlaege = new Map<string, number[]>();
   private pulsZeitgeber: ReturnType<typeof setInterval> | null = null;
   private fenster: { code: string; erzeugt: number; fehlversuche: number; verbraucht: boolean } | null = null;
+  /** Teil 2b: letzte vergebene Sitzungs-Kennung (nie zurückgesetzt, auch nicht über stoppe()/starte()). */
+  private sitzungsZaehler = 0;
+  /** Teil 2b: angemeldete Sitzungen nach Kennung, bis 'getrennt' gemeldet ist. */
+  private readonly nachKennung = new Map<number, Sitzung>();
+  /** Zuletzt geloggter Wurf eines Zuhörers — je Ereignis und Code eine Zeile. */
+  private wurfGeloggt: string | null = null;
 
   constructor(o: ServerOptionen) {
     super();
@@ -207,6 +249,10 @@ export class MasterLinkServer extends EventEmitter {
       seit: this.jetzt(),
       letzteZeile: this.jetzt(),
       stille: null,
+      sitzung: 0,
+      getrenntGemeldet: false,
+      gestaut: false,
+      aboWarnungen: new Set<string>(),
     };
     eintrag.sitzung = s;
     this.sitzungen.add(s);
@@ -234,7 +280,10 @@ export class MasterLinkServer extends EventEmitter {
           s.info = info;
           this.emit('aenderung');
         }
+      } else if (n.t === 'abo') {
+        this.aufAbo(s, n);
       }
+      // stand/aenderung von einem Client wertet der Master nicht aus (Spec 22, G4).
       return;
     }
     if (s.wartetAufTeilnehmer) {
@@ -398,8 +447,13 @@ export class MasterLinkServer extends EventEmitter {
       this.teilnehmerMap.delete(schluessel);
       alt.v.sende({ t: 'abgelehnt', grund: 'ersetzt' });
       alt.v.schliesse();
+      // Teil 2b (Spec 13.6/13.7): sofort, noch vor 'angemeldet' an die neue Sitzung. Das Ende der alten (bis zu 200 ms
+      // später) meldet nichts mehr — so trifft es nie das Abo der neuen.
+      this.meldeGetrennt(alt);
     }
     s.angemeldet = true;
+    s.sitzung = ++this.sitzungsZaehler;
+    this.nachKennung.set(s.sitzung, s);
     s.rechnerId = rechnerId;
     s.info = info;
     s.schluessel = schluessel;
@@ -424,6 +478,7 @@ export class MasterLinkServer extends EventEmitter {
   private sitzungEnde(s: Sitzung): void {
     if (s.stille) clearTimeout(s.stille);
     this.sitzungen.delete(s);
+    this.meldeGetrennt(s);
     if (s.schluessel && this.teilnehmerMap.get(s.schluessel) === s) {
       this.teilnehmerMap.delete(s.schluessel);
       this.merkeGesehen(s, true);
@@ -497,7 +552,7 @@ export class MasterLinkServer extends EventEmitter {
     const aus: TeilnehmerStand[] = [];
     for (const s of this.teilnehmerMap.values()) {
       if (!s.info || !s.rechnerId) continue;
-      aus.push({ ...s.info, rechnerId: s.rechnerId, adresse: s.v.adresse, seit: s.seit, letzteZeile: s.letzteZeile });
+      aus.push({ ...s.info, rechnerId: s.rechnerId, adresse: s.v.adresse, seit: s.seit, letzteZeile: s.letzteZeile, sitzung: s.sitzung });
     }
     return aus;
   }
@@ -535,11 +590,79 @@ export class MasterLinkServer extends EventEmitter {
     // Ein Schreibvorgang für alle: nur der letzte Aufruf schreibt sofort, die übrigen stehen dann schon im Speicher.
     const getrennt = [...this.teilnehmerMap.values()];
     getrennt.forEach((s, i) => this.merkeGesehen(s, i === getrennt.length - 1));
+    // Teil 2b (E4): 'getrennt' synchron je angemeldeter Sitzung; das spätere 'ende' der Sockets meldet nichts mehr.
+    for (const s of this.sitzungen) this.meldeGetrennt(s);
     this.teilnehmerMap.clear();
     const alle = [...this.lauscher.values()];
     this.lauscher.clear();
     await Promise.all(alle.map((srv) => new Promise<void>((r) => srv.close(() => r()))));
     this.emit('aenderung');
+  }
+
+  /**
+   * Teil 2b (Spec 13.6): eine fertige Zeile (kodiereStand) an eine angemeldete Sitzung. 'weg': unbekannt, ersetzt,
+   * beendet oder Server gestoppt. Liegen schon mehr als GRENZEN.stauBytes im Schreibpuffer (socket.writableLength),
+   * schreibt er nicht und liefert 'gestaut' — bis zum nächsten 'drain', dann kommt einmal 'entstaut(sitzung)' (E5).
+   */
+  sendeDaten(sitzung: number, zeile: string): SendeErgebnis {
+    const s = this.nachKennung.get(sitzung);
+    if (!this.laeuft || !s || s.getrenntGemeldet || !s.v.offen) return 'weg';
+    if (s.gestaut) return 'gestaut';
+    if (s.v.socket.writableLength > GRENZEN.stauBytes) {
+      s.gestaut = true;
+      s.v.socket.once('drain', () => this.aufDrain(s));
+      return 'gestaut';
+    }
+    return s.v.sendeZeile(zeile) ? 'gesendet' : 'weg';
+  }
+
+  private aufDrain(s: Sitzung): void {
+    if (!s.gestaut) return;
+    s.gestaut = false;
+    if (!this.laeuft || s.getrenntGemeldet || !s.v.offen) return;
+    this.sendeEreignis('entstaut', s.sitzung);
+  }
+
+  /** Teil 2b (Spec 13.7, E2): nur ein gültiges abo wird gemeldet; ein ungültiges warnt einmal je Sitzung und Feld (E13). */
+  private aufAbo(s: Sitzung, n: DatenZeile): void {
+    if (!s.rechnerId || !s.info || !s.schluessel || s.getrenntGemeldet) return;
+    const p = pruefeAbo(n);
+    const eintrag = this.o.verbund.finde(s.rechnerId);
+    if (!p.ok) {
+      if (s.aboWarnungen.has(p.grund)) return;
+      s.aboWarnungen.add(p.grund);
+      this.warne(`Master-Link: ungültiges Abo von ${kuerzeName(eintrag?.name ?? s.rechnerId)}/${s.info.appId} (${p.grund}), ignoriert.`);
+      return;
+    }
+    const t: TeilnehmerDaten = {
+      sitzung: s.sitzung,
+      schluessel: s.schluessel,
+      rechnerId: s.rechnerId,
+      art: s.info.art,
+      appId: s.info.appId,
+      dieserRechner: eintrag?.dieserRechner === true,
+    };
+    this.sendeEreignis('daten', t, p.wert);
+  }
+
+  /** Teil 2b (Spec 13.7): genau einmal je angemeldeter Sitzung — beim Ersetzen, beim Ende oder in stoppe(). */
+  private meldeGetrennt(s: Sitzung): void {
+    if (s.sitzung === 0 || s.getrenntGemeldet) return;
+    s.getrenntGemeldet = true;
+    this.nachKennung.delete(s.sitzung);
+    this.sendeEreignis('getrennt', s.sitzung);
+  }
+
+  /** Ein werfender Zuhörer (Verteiler) darf weder den Socket-Handler noch meldeAn/stoppe() treffen. */
+  private sendeEreignis(name: 'daten' | 'getrennt' | 'entstaut', ...werte: unknown[]): void {
+    try {
+      this.emit(name, ...werte);
+    } catch (e) {
+      const schluessel = `${name}/${wurfCode(e)}`;
+      if (schluessel === this.wurfGeloggt) return;
+      this.wurfGeloggt = schluessel;
+      this.log('warn', `Master-Link: Zuhörer von „${name}“ warf (${wurfCode(e)}).`);
+    }
   }
 
   private warne(text: string): void {

@@ -15,6 +15,7 @@ import http from 'node:http';
 import { buildCsp, type CspConfig } from './csp';
 import { berichtZeilen, planeLogAufraeumen, type AufraeumBericht } from './log-aufraeumen';
 import { MasterLinkClient, masterLinkPfad, verbundWert, type ClientZustand } from '@jm/master-link';
+import { verbundAnClient } from './verbund';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // @jm/app-runtime — einmaliger Main-Prozess-Layer, den jede App ganz früh ruft.
@@ -46,6 +47,19 @@ export interface Logger {
 // ws:/wss:/http:/https: durchlässt: der Fehler zeigt sich erst im Installer. Siehe ./csp.ts.
 export { buildCsp } from './csp';
 export type { CspConfig } from './csp';
+// Master-Link Teil 2b, Release 2 (Spec 16): Tools folgen der Show des Masters. Alles Neue liegt in verbund*.ts.
+export {
+  folgeMasterShow,
+  verbundDaten,
+  imVerbundmodus,
+  verbundDatenErsetzt,
+  verbundKopplung,
+  verbundIgnoriert,
+  istHostDieserRechner,
+} from './verbund';
+export { nichtAngewendet } from './verbund-daten';
+export { kuerzeName } from '@jm/master-link';
+export type { MasterStand, VerbundDaten, VerbundKopplung, VerbundAnzeige, FolgeHandler } from './verbund-typen';
 
 export interface AppRuntimeOptions {
   /** Stabile Tool-ID (z. B. "jm-timer") — für Logs, Presence, Heartbeat. */
@@ -385,6 +399,7 @@ function startMasterLink(info: {
       client.on('zustand', () => info.beiWechsel());
       masterLinkClient = client;
       client.starte();
+      verbundAnClient(client, { userData: app.getPath('userData'), log: info.log });
       app.on('before-quit', () => {
         void client.stoppe();
       });

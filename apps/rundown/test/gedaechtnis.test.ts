@@ -2,12 +2,15 @@
 //   node --experimental-strip-types --import ./test/register.mjs test/gedaechtnis.test.ts
 // Der Hook (test/register.mjs → test/resolve-ts.mjs) ergänzt die `.ts`-Endung der relativen
 // Importe in src/main/gedaechtnis.ts, wie es im Build electron-vite tut.
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  ausShow,
   dateiStand,
   gedaechtnisSchluessel,
+  gedaechtnisSchluesselFuer,
   leseGedaechtnis,
   legeGedaechtnisFehlerBei,
   leseShowSicher,
@@ -18,6 +21,7 @@ import {
   schreibeZeiger,
   sichereAltenAutosave,
   sichereDefektesGedaechtnis,
+  type Zeiger,
 } from '../src/main/gedaechtnis.ts';
 import type { GedaechtnisInhalt } from '../src/shared/ausgangsstand.ts';
 
@@ -242,6 +246,73 @@ try {
     eq(wirft, false, `Gedächtnis-Form „${bez}“ wirft nicht`);
     eq(ergebnis !== null && (ergebnis.inhalt !== null || ergebnis.fehler === 'unlesbar'), true, `Gedächtnis-Form „${bez}“ → lesbar oder unlesbar`);
   }
+
+  // ── Teil 2b R2 · Gedächtnis und Zeiger mit Master-Schlüssel (Spec 17.3, 19.5 Rundown, #235) ──
+  const M1 = 'master-1';
+  const MS = '0123456789abcdef'; // Schlüssel der Show am Master (13.1)
+  eq(gedaechtnisSchluesselFuer({ art: 'pfad', showPfad }), gedaechtnisSchluessel(showPfad), 'R2: gedaechtnisSchluesselFuer pfad = Formel aus 2a');
+  const sm = gedaechtnisSchluesselFuer({ art: 'master', masterId: M1, schluessel: MS });
+  eq(sm, createHash('sha256').update(`master|${M1}|${MS}`).digest('hex').slice(0, 16), 'R2: master = sha256("master|"+masterId+"|"+schluessel), 16 Hex');
+  eq(sm === gedaechtnisSchluesselFuer({ art: 'master', masterId: 'master-2', schluessel: MS }), false, 'R2: anderer Master → anderes Gedächtnis');
+  eq(sm === gedaechtnisSchluesselFuer({ art: 'master', masterId: M1, schluessel: 'fedcba9876543210' }), false, 'R2: andere Show am Master → anderes Gedächtnis');
+
+  const mOrdner = join(tmp, 'regie-master');
+  const mInhalt: GedaechtnisInhalt = { ...inhalt, showPfad: '', showName: 'Gala', quelle: 'master', masterId: M1, masterSchluessel: MS };
+  eq(schreibeGedaechtnis(mOrdner, mInhalt), true, 'R2: Gedächtnis mit quelle master geschrieben');
+  eq(readdirSync(mOrdner), [`${sm}.json`], 'R2 #235: Dateiname aus dem Master-Schlüssel, nie aus dem leeren Pfad');
+  eq(leseGedaechtnis(mOrdner, sm), { inhalt: mInhalt }, 'R2: Neustart auf B — Gedächtnis mit quelle master gelesen, Aktionen und scharfe Zeile bleiben');
+  const kaputteMaster: Array<[string, unknown]> = [
+    ['ohne masterId', { ...mInhalt, masterId: undefined }],
+    ['mit leerer masterId', { ...mInhalt, masterId: '' }],
+    ['mit falschem masterSchluessel', { ...mInhalt, masterSchluessel: 'ABC' }],
+    ['mit unbekannter quelle', { ...mInhalt, quelle: 'netz' }],
+  ];
+  for (const [bez, roh] of kaputteMaster) {
+    writeFileSync(join(mOrdner, `${sm}.json`), JSON.stringify(roh));
+    eq(leseGedaechtnis(mOrdner, sm), { inhalt: null, fehler: 'unlesbar' }, `R2: Gedächtnis quelle master ${bez} → unlesbar`);
+  }
+  eq(schreibeGedaechtnis(mOrdner, inhalt), true, 'R2: ohne quelle wie 2a geschrieben');
+  eq(leseGedaechtnis(mOrdner, gedaechtnisSchluessel(showPfad)), { inhalt }, 'R2: ohne quelle wie 2a gelesen');
+  writeFileSync(join(mOrdner, `${'b'.repeat(16)}.json`), JSON.stringify({ ...inhalt, showPfad: '' }));
+  eq(leseGedaechtnis(mOrdner, 'b'.repeat(16)), { inhalt: null, fehler: 'unlesbar' }, 'R2: ohne quelle und ohne showPfad → unlesbar (wie 2a)');
+  const dateienVorher = readdirSync(mOrdner).length;
+  eq(schreibeGedaechtnis(mOrdner, { ...inhalt, showPfad: '' }), false, 'R2 #235: leerer Pfad ohne quelle → false');
+  eq(schreibeGedaechtnis(mOrdner, { ...mInhalt, masterSchluessel: 'kein-hex' }), false, 'R2: quelle master mit ungültigem masterSchluessel → false');
+  eq(readdirSync(mOrdner).length, dateienVorher, 'R2 #235: … es entsteht keine Datei');
+
+  const mz: Zeiger = { quelle: 'master', masterId: M1, masterSchluessel: MS, showName: 'Gala', schluessel: sm };
+  eq(schreibeZeiger(mOrdner, mz), true, 'R2: Zeiger mit quelle master geschrieben');
+  eq(leseZeiger(mOrdner), mz, 'R2: Zeiger mit quelle master gelesen');
+  eq(JSON.parse(readFileSync(join(mOrdner, 'zuletzt.json'), 'utf8')).showPfad, '', 'R2: Zeiger master trägt showPfad leer (Rundown 0.7 verwirft ihn)');
+  const kaputteZeiger: Array<[string, unknown]> = [
+    ['mit leerer masterId', { ...mz, masterId: '', showPfad: '' }],
+    ['mit falschem masterSchluessel', { ...mz, masterSchluessel: 'x', showPfad: '' }],
+    ['mit falschem schluessel', { ...mz, schluessel: '../../boese', showPfad: '' }],
+    ['ohne showName', { quelle: 'master', masterId: M1, masterSchluessel: MS, schluessel: sm, showPfad: '' }],
+    ['ohne showPfad und ohne quelle', { schluessel: sm }],
+  ];
+  for (const [bez, roh] of kaputteZeiger) {
+    writeFileSync(join(mOrdner, 'zuletzt.json'), JSON.stringify(roh));
+    eq(leseZeiger(mOrdner), null, `R2: Zeiger ${bez} → null`);
+  }
+  schreibeZeiger(mOrdner, { showPfad, schluessel: s1 });
+  eq(leseZeiger(mOrdner), { showPfad, schluessel: s1 }, 'R2: Pfad-Zeiger unverändert');
+
+  // ausShow: der reine Teil von leseShowSicher — für eine Show vom Master ohne Datei.
+  const ausDatei = join(tmp, 'Shows', 'Ausshow.jmshow');
+  writeFileSync(
+    ausDatei,
+    JSON.stringify({
+      schemaVersion: 1,
+      name: 'Gala',
+      tools: [{ appId: 'jm-timer', settings: { timetable: [{ label: 'X', durationMs: 1000 }] } }],
+      ablauf: [{ id: 'u1', label: 'A' }, { label: 'B' }, { label: 'B' }],
+      iveo: { event: 'e1', speakers: [{ id: 's-1', name: 'Ada' }] },
+    }),
+  );
+  const gelesen = leseShowSicher(ausDatei);
+  eq(gelesen.ok ? ausShow(gelesen.show) : null, gelesen, 'R2: ausShow liefert dasselbe wie leseShowSicher für dieselbe Show');
+  eq(gelesen.ok ? [gelesen.ablaufSchluessel, gelesen.eigeneTimerListe] : null, [['u1', 'ersatz:B', 'ersatz:B#2'], true], 'R2: … Schlüssel und eigene Timer-Liste aus der Show');
 
   // ── dateiStand (4.8) ───────────────────────────────────────────────────────
   const rdPfad = join(tmp, 'eigen.jmrundown');

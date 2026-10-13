@@ -67,6 +67,12 @@ export const GRENZEN = {
   maxFehlversuche: 5,
   /** mDNS-TXT ≤ 255 Byte je Eintrag: 60 Zeichen à ≤ 4 Byte + "name=" passen. */
   maxNamenLaenge: 60,
+  /** Teil 2b (Spec 13.4): größte stand-/aenderung-Zeile des Masters — UTF-8-Bytes der fertigen Zeile samt '\n'. */
+  maxStandZeile: 921_600,
+  /** Teil 2b (Spec 13.4): Abos je gekoppeltem Rechner (rechnerId); weitere beantwortet der Verteiler nicht. */
+  maxAbosJeRechner: 32,
+  /** Teil 2b (Spec 13.6): Stau-Grenze je Sitzung — Bytes im Schreibpuffer (socket.writableLength). */
+  stauBytes: 1024 * 1024,
 } as const;
 
 export const MASTER_PORT = 8738;

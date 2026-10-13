@@ -176,7 +176,9 @@ export async function laufe(): Promise<void> {
       const d = { fp, ns: 'echt', nc: n.nonce, rechnerId: n.rechnerId, schluessel: n.schluessel };
       v.sende({ t: 'gekoppelt', masterId: 'falsch', name: 'X', beweis: masterBeweis(K, d, 'falsch'), adressen: [] });
     }, (v) => {
-      const leer = (): void => v.sende({ t: 'hallo', protokoll: 1, masterId: 'falsch', name: 'X', nonce: '' });
+      const leer = (): void => {
+        v.sende({ t: 'hallo', protokoll: 1, masterId: 'falsch', name: 'X', nonce: '' });
+      };
       leer();
       const schleife = setInterval(leer, 50);
       v.on('ende', () => clearInterval(schleife));

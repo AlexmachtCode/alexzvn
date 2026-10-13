@@ -10,13 +10,17 @@ import {
   zeigtShow,
   istIveoDataOrdner,
   logNachMerken,
+  ordnerPatchAbgelehnt,
+  ordnerWahlGesperrt,
   quellSchritt,
   quellZeile,
   startZustand,
   tsvNichtGeschrieben,
   uebergang,
+  verbundEndetFuer,
   zurueckKnopf,
   type GemerkteShow,
+  type GemerkteShowMaster,
   type QuellZustand,
 } from '../src/shared/datenquelle';
 import {
@@ -631,8 +635,8 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   const mit = showMit('Tag 1', [ADA, ALAN]);
   const ohne1 = showMit('Tag 1', []);
   const ohne2 = showMit('Tag 2', []);
-  const zShow: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null };
-  const zOrdner: QuellZustand = { art: 'ordner', showPfad: null, showName: null, quellHinweis: null };
+  const zShow: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null, master: null };
+  const zOrdner: QuellZustand = { art: 'ordner', showPfad: null, showName: null, quellHinweis: null, master: null };
   const zFrueher = startZustand(null, true);
   const alle = [['show', zShow], ['ordner', zOrdner], ['frueher', zFrueher]] as const;
 
@@ -672,7 +676,7 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
 
   // Review B13: gleicheShow gilt gegen die ANGEZEIGTE Show, nicht gegen die zuletzt versuchte.
   {
-    const zA: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null };
+    const zA: QuellZustand = { art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null, master: null };
     const nlB = quellSchritt(zA, { t: 'nichtLesbar', weg: 'deepLink', pfad: P2, grund: 'EBUSY', gemerkt: null, mitEigenemOrdner: false });
     ok(nlB.zustand.showPfad === P1 && nlB.zustand.art === 'show', 'B13-Fix: Deep-Link auf andere Show nicht lesbar → angezeigte Show bleibt A');
     const gleich = zeigtShow(nlB.zustand, P2, (p) => p);
@@ -687,7 +691,7 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   const gemerktMit: GemerkteShow = { showPfad: P1, showName: 'Tag 1', mitSpeakern: true };
   const gemerktOhne: GemerkteShow = { showPfad: P2, showName: 'Tag 2', mitSpeakern: false };
   const startShow = startZustand(gemerktMit, false);
-  ok(JSON.stringify(startShow) === JSON.stringify({ art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null }), 'startZustand: gemerkte Show mit Speakern → show');
+  ok(JSON.stringify(startShow) === JSON.stringify({ art: 'show', showPfad: P1, showName: 'Tag 1', quellHinweis: null, master: null }), 'startZustand: gemerkte Show mit Speakern → show');
   const startOrdner = startZustand(gemerktOhne, false);
   ok(startOrdner.art === 'ordner' && startOrdner.showPfad === P2, 'startZustand: gemerkte Show ohne Speaker → ordner');
   ok(startZustand(null, false).art === 'ordner' && startZustand(null, true).art === 'frueher', 'startZustand: ohne gemerkte Show ordner, nach dem Übergang frueher');
@@ -839,6 +843,178 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(JSON.stringify(logNachMerken(nl6, false)) === JSON.stringify(nl6.log), 'Befund 4: … ohne Schreiben der gemerkten Show bleiben die Logzeilen');
 }
 
+// ── R2 · datenquelle: Show vom Master (Spec 17.2, 27 O1, 16.5 Q4; 19.5 Titler) ──
+{
+  const M1 = 'master-1';
+  const S1 = '0123456789abcdef';
+  const S2 = 'fedcba9876543210';
+  function showMit(name: string, speakers: ShowIveoSpeaker[], speakerVeraltetSeit?: string): Show {
+    const iveo: NonNullable<Show['iveo']> = { event: 'cop31' };
+    if (speakers.length) iveo.speakers = speakers;
+    if (speakerVeraltetSeit) iveo.speakerVeraltetSeit = speakerVeraltetSeit;
+    return { ...createShow(name), iveo };
+  }
+  /** Ereignis „Stand vom Master angewendet“ (der Main reicht die Felder aus dem MasterStand durch). */
+  const stand = (show: Show, schluessel: string | null = S1, masterId = M1) =>
+    ({ t: 'masterStand', masterId, masterName: 'Regie A', schluessel, show }) as const;
+  const zOrdner: QuellZustand = { art: 'ordner', showPfad: null, showName: null, quellHinweis: null, master: null };
+  const zShow: QuellZustand = { art: 'show', showPfad: 'C:\\Shows\\Tag1.jmshow', showName: 'Tag 1', quellHinweis: null, master: null };
+  const zFrueher = startZustand(null, true);
+  const mit = showMit('Gala', [ADA, ALAN]);
+
+  // Stand mit Speakern → master (wie show, Ordner iveo-data), TSV mit @kennung, gemerkt in Master-Form.
+  for (const [art, z] of [['ordner', zOrdner], ['show', zShow], ['frueher', zFrueher]] as const) {
+    const s = quellSchritt(z, stand(mit));
+    ok(
+      s.zustand.art === 'master' && s.zustand.showPfad === null && s.zustand.showName === 'Gala' && s.beobachte === 'iveo-data',
+      `R2 17.2: Stand mit Speakern, von ${art} → master, liest iveo-data`,
+    );
+    ok(s.tsv?.length === 2 && s.tsv[1].id === 's-3', `R2 17.2: … von ${art} TSV mit den Speakern (Kennung reist mit)`);
+    ok(
+      JSON.stringify(s.merke) === JSON.stringify({ t: 'schreiben', wert: { quelle: 'master', masterId: M1, schluessel: S1, showName: 'Gala' } }),
+      `R2 17.2: … von ${art} gemerkt in Master-Form`,
+    );
+    ok(
+      JSON.stringify(s.zustand.master) === JSON.stringify({ masterId: M1, masterName: 'Regie A', schluessel: S1 }) && !s.vorlage && s.log.length === 0,
+      `R2 17.2: … von ${art} Master im Zustand, keine Vorlage, keine Logzeile`,
+    );
+  }
+  const zMaster = quellSchritt(zOrdner, stand(mit)).zustand;
+
+  // Gleiche Show (masterId + schluessel), neuer Stand mit Speakern → TSV neu, gemerkte Show bleibt.
+  const nochmal = quellSchritt(zMaster, stand(showMit('Gala', [ADA])));
+  ok(nochmal.zustand.art === 'master' && nochmal.tsv?.length === 1 && nochmal.merke.t === 'bleibt', 'R2 17.2: gleiche Show, neuer Stand mit Speakern → TSV neu, gemerkte Show bleibt');
+  const umbenannt = quellSchritt(zMaster, stand(showMit('Gala 2026', [ADA])));
+  ok(umbenannt.merke.t === 'schreiben' && umbenannt.zustand.showName === 'Gala 2026', 'R2 17.2: gleiche Show mit neuem Namen → gemerkte Show neu geschrieben');
+
+  // Gleiche Show, keine Speaker → Liste bleibt, H3 (H7 bei Merker).
+  const ohne = quellSchritt(zMaster, stand(showMit('Gala', [])));
+  ok(ohne.zustand.art === 'master' && ohne.tsv === null && ohne.merke.t === 'bleibt' && ohne.beobachte === 'iveo-data', 'R2 17.2: gleiche Show, keine Speaker → Liste bleibt');
+  ok(JSON.stringify(ohne.zustand.quellHinweis) === '{"art":"H3"}', 'R2 17.2: … Hinweis H3');
+  const merker = new Date(2026, 9, 8, 10, 15).toISOString();
+  ok(quellSchritt(zMaster, stand(showMit('Gala', [], merker))).zustand.quellHinweis?.art === 'H7', 'R2 17.2: gleiche Show ohne Speaker, mit Merker → H7 statt H3');
+  const mitMerker = quellSchritt(zOrdner, stand(showMit('Gala', [ADA], merker)));
+  ok(JSON.stringify(mitMerker.zustand.quellHinweis) === JSON.stringify({ art: 'H7', seit: merker }), 'R2 17.2: Stand mit Speakern und Merker speakerVeraltetSeit → H7 (der Merker reist mit)');
+  ok(quellSchritt(ohne.zustand, stand(mit)).zustand.quellHinweis === null, 'R2 17.2: der nächste Stand mit Speakern nimmt H3 weg');
+
+  // Neue Show, keine Speaker → ordner (anderer Schlüssel oder anderer Master).
+  const neueOhne = [
+    ['anderer Schlüssel', stand(showMit('Tag 2', []), S2)],
+    ['anderer Master', stand(showMit('Gala', []), S1, 'master-2')],
+  ] as const;
+  for (const [bez, e] of neueOhne) {
+    const s = quellSchritt(zMaster, e);
+    ok(s.zustand.art === 'ordner' && s.beobachte === 'eigener' && s.tsv === null && s.zustand.quellHinweis === null, `R2 17.2: neue Show ohne Speaker (${bez}) → ordner`);
+    ok(s.merke.t === 'loeschen', `R2 17.2: … (${bez}) gemerkte Show gelöscht, ein Neustart zeigt nicht die alte Liste`);
+  }
+  ok(quellSchritt(zMaster, stand(showMit('Gala', []), null)).zustand.art === 'ordner', 'R2 17.2: Schlüssel null gilt nie als gleiche Show');
+  const zNull = quellSchritt(zOrdner, stand(mit, null)).zustand;
+  ok(quellSchritt(zNull, stand(showMit('Gala', []), null)).zustand.art === 'ordner', 'R2 17.2: … auch nicht null gegen null');
+  const zOrdnerImVerbund = quellSchritt(zMaster, stand(showMit('Tag 2', []), S2)).zustand;
+  ok(zOrdnerImVerbund.master?.schluessel === S2, 'R2 17.2: Quelle ordner merkt sich die Show vom Master');
+  const ordnerGleich = quellSchritt(zOrdnerImVerbund, stand(showMit('Tag 2', []), S2));
+  ok(
+    ordnerGleich.zustand.art === 'ordner' && ordnerGleich.zustand.quellHinweis === null && ordnerGleich.beobachte === 'eigener' && ordnerGleich.merke.t === 'bleibt',
+    'R2 17.2: Quelle ordner, gleiche Show weiter ohne Speaker → ordner, kein Hinweis',
+  );
+  const wieder = quellSchritt(zOrdnerImVerbund, stand(showMit('Tag 2', [HEDY]), S2));
+  ok(wieder.zustand.art === 'master' && wieder.tsv?.[0].name === 'Hedy' && wieder.beobachte === 'iveo-data', 'R2 17.2: Quelle ordner, danach Stand mit Speakern → master');
+
+  // Ende des Verbundmodus → frueher (Q3), die TSV bleibt; andere Quellen bleiben, wie sie sind.
+  const ende = quellSchritt(zMaster, { t: 'verbundEnde' });
+  ok(ende.zustand.art === 'frueher' && ende.tsv === null && ende.beobachte === 'iveo-data' && ende.merke.t === 'bleibt', 'R2 17.2: verbundEnde → frueher, TSV bleibt, gemerkte Show bleibt');
+  ok(quellZeile(ende.zustand, '', 2) === 'Quelle: Speaker aus einer früheren Show', 'R2 17.2: … Q3');
+  for (const [art, z] of [['ordner', zOrdnerImVerbund], ['show', zShow], ['frueher', zFrueher]] as const) {
+    const s = quellSchritt(z, { t: 'verbundEnde' });
+    ok(
+      JSON.stringify(s.zustand) === JSON.stringify(z) && s.tsv === null && s.merke.t === 'bleibt' && s.beobachte === (art === 'ordner' ? 'eigener' : 'iveo-data'),
+      `R2 17.2: verbundEnde bei ${art} → unverändert`,
+    );
+  }
+  // Danach ersetzt ein Deep-Link einer eigenen Show die Daten wie in 7.7.
+  const eigenePfad = 'C:\\Shows\\Eigen.jmshow';
+  const eigen = quellSchritt(ende.zustand, { t: 'gelesen', weg: 'deepLink', pfad: eigenePfad, show: showMit('Eigen', [GRACE]), gleicheShow: false });
+  ok(
+    eigen.zustand.art === 'show' && eigen.zustand.master === null && eigen.tsv?.[0].name === 'Grace' && eigen.merke.t === 'schreiben' && eigen.vorlage,
+    'R2 17.2: nach dem Ende ersetzt ein Deep-Link einer eigenen Show die Daten (7.7)',
+  );
+  const eigenOhne = quellSchritt(ende.zustand, { t: 'gelesen', weg: 'deepLink', pfad: eigenePfad, show: showMit('Eigen', []), gleicheShow: false });
+  ok(eigenOhne.zustand.art === 'ordner' && eigenOhne.zustand.master === null, 'R2 17.2: … ohne Speaker → ordner (7.7)');
+
+  // Start mit show-zuletzt.json in Master-Form.
+  const gm: GemerkteShowMaster = { quelle: 'master', masterId: M1, schluessel: S1, showName: 'Gala' };
+  const startGleich = startZustand(gm, false, M1);
+  ok(
+    startGleich.art === 'master' && startGleich.showName === 'Gala' && startGleich.showPfad === null && startGleich.master?.masterId === M1 && startGleich.master.schluessel === S1,
+    'R2 17.2: Start, quelle master, gleicher Master gekoppelt → master, die TSV gilt',
+  );
+  ok(startZustand(gm, false, null).art === 'frueher', 'R2 17.2: Start, quelle master, ungekoppelt → frueher (Q3)');
+  ok(startZustand(gm, false, 'master-2').art === 'frueher', 'R2 17.2: Start, quelle master, an einen anderen Master gekoppelt → frueher');
+  const ausSpeicher = quellSchritt(startGleich, stand(mit));
+  ok(ausSpeicher.zustand.art === 'master' && ausSpeicher.merke.t === 'bleibt', 'R2 17.2: Start, danach Zwischenspeicher derselben Show → master, gemerkte Show bleibt');
+  ok(ausSpeicher.zustand.master?.masterName === 'Regie A', 'R2 17.2: … der Stand bringt den Namen des Masters');
+  const gp: GemerkteShow = { showPfad: 'C:\\Shows\\Tag1.jmshow', showName: 'Tag 1', mitSpeakern: true };
+  ok(startZustand(gp, false, M1).art === 'show' && startZustand(gp, false, M1).master === null, 'R2: Start mit Pfad-Form wie in 7.7, auch wenn gekoppelt');
+
+  // Ende des Verbunds für Quelle master (16.1): jede Lage ohne Master — frueher, einzelplatz, datei-defekt.
+  for (const lage of ['frueher', 'einzelplatz', 'datei-defekt']) {
+    ok(verbundEndetFuer(zMaster, lage), `R2 16.1: Lage ${lage} beendet den Verbund für Quelle master`);
+  }
+  ok(
+    !['warte', 'ohne-daten', 'aktuell', 'getrennt'].some((lage) => verbundEndetFuer(zMaster, lage)),
+    'R2 16.1: laufender Verbund (warte, ohne-daten, aktuell, getrennt) → master bleibt',
+  );
+  ok(!verbundEndetFuer(zOrdnerImVerbund, 'einzelplatz') && !verbundEndetFuer(zShow, 'frueher') && !verbundEndetFuer(zFrueher, 'einzelplatz'), 'R2 16.1: andere Quellen → kein verbundEnde');
+  // Start mit Master-Form, nichts angewendet (Zwischenspeicher fehlt oder kaputt), dann entkoppelt → einzelplatz.
+  const endeOhneStand = quellSchritt(startGleich, { t: 'verbundEnde' });
+  ok(
+    verbundEndetFuer(startGleich, 'einzelplatz') && endeOhneStand.zustand.art === 'frueher' && ordnerWahlGesperrt(endeOhneStand.zustand) === null,
+    'R2 16.1: Start mit Master-Form ohne angewendeten Stand, dann entkoppelt → frueher, Ordnerwahl wieder frei',
+  );
+
+  // Ordnerwahl gesperrt (O1, Text 17.2 wörtlich), Q4 wörtlich, kein K1.
+  ok(
+    ordnerWahlGesperrt(zMaster) === 'Im Verbund kommen die Speaker vom Master „Regie A“. Ein eigener Ordner gilt, solange die Show dort keine Speaker hat.',
+    'R2 O1: Ordnerwahl bei Quelle master gesperrt, Text 17.2 wörtlich',
+  );
+  ok(
+    ordnerWahlGesperrt(zOrdnerImVerbund) === null && ordnerWahlGesperrt(zShow) === null && ordnerWahlGesperrt(zFrueher) === null && ordnerWahlGesperrt(zOrdner) === null,
+    'R2 O1: bei ordner (auch im Verbund), show und frueher frei',
+  );
+  // Sperre im Main für einen Config-Patch (E22): abgelehnt wird nur ein geänderter dataFolder bei Quelle master.
+  const sperrText = ordnerWahlGesperrt(zMaster);
+  ok(sperrText !== null && ordnerPatchAbgelehnt('D:\\Eigen', '', zMaster) === sperrText, 'R2 E22: Config-Patch mit neuem dataFolder bei Quelle master → abgelehnt, Text 17.2');
+  ok(
+    ordnerPatchAbgelehnt(undefined, 'D:\\Alt', zMaster) === null && ordnerPatchAbgelehnt('D:\\Alt', 'D:\\Alt', zMaster) === null,
+    'R2 E22: … ohne dataFolder oder mit unverändertem → nicht abgelehnt, der Rest des Patches gilt',
+  );
+  ok(
+    ordnerPatchAbgelehnt('D:\\Eigen', '', zOrdnerImVerbund) === null && ordnerPatchAbgelehnt('', 'D:\\Alt', zShow) === null,
+    'R2 E22: bei ordner (auch im Verbund) und show nicht abgelehnt',
+  );
+  ok(quellZeile(zMaster, 'D:\\Bauchbinden', 2) === 'Quelle: Show vom Master „Gala“', 'R2 Q4 wörtlich');
+  ok(zurueckKnopf(zMaster, 'D:\\Bauchbinden') === null, 'R2: kein Knopf K1 bei Quelle master');
+
+  // TSV nicht schreibbar im Master-Weg: Quelle und Liste bleiben, H4 im Wortlaut aus R1 (FA19).
+  const zuSchreiben = quellSchritt(zMaster, stand(showMit('Gala', [GRACE])));
+  const tsvFehler = tsvNichtGeschrieben(zMaster, zuSchreiben, { weg: 'reload', pfad: '', grund: 'EBUSY', gemerkt: null, mitEigenemOrdner: false });
+  ok(
+    tsvFehler.zustand.art === 'master' && tsvFehler.tsv === null && tsvFehler.merke.t === 'bleibt' && tsvFehler.zustand.master?.schluessel === S1,
+    'R2 17.2: TSV nicht schreibbar → Quelle master und Liste bleiben',
+  );
+  ok(
+    tsvFehler.zustand.quellHinweis !== null &&
+      hinweisText(tsvFehler.zustand.quellHinweis) === 'Liste aus früherem Stand: Show nicht lesbar (speakers.tsv nicht schreibbar: EBUSY).',
+    'R2 17.2: … Hinweis H4 wie in R1',
+  );
+
+  // Ordnerwahl im reinen Teil (der Main sperrt sie vorher, E22): master → ordner, Master vergessen.
+  const gewaehlt = quellSchritt(zMaster, { t: 'ordnerGewaehlt' });
+  ok(gewaehlt.zustand.art === 'ordner' && gewaehlt.zustand.master === null && gewaehlt.merke.t === 'loeschen', 'R2: ordnerGewaehlt → ordner, Master vergessen');
+  // „Show gemerkt“ (7.9) gilt nur für die Pfad-Form.
+  ok(logNachMerken(quellSchritt(zOrdner, stand(mit)), false).length === 0, 'R2: logNachMerken bei Master-Form ohne Zeile');
+}
+
 // ── B12 · show-quelle.ts: gemerkte Show (Spec 7.7) und Show sicher lesen (7.6, G10, Review Focus 4) ──
 // Importe im Block (await import), damit sich keine Namen mit den Importen aus B8–B11 überschneiden.
 {
@@ -928,6 +1104,45 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     const fehler = iveoShow.schreibeSpeakersTsvSicher(gesperrtDir, [{ name: 'Hedy' }]);
     ok(fehler !== null && fehler.grund === 'EISDIR' && !fehler.grund.includes(tmp), 'Befund 4: speakers.tsv nicht schreibbar → Fehlercode (EISDIR), ohne Pfad');
     ok(fehler !== null && fehler.meldung.length > 0, 'Befund 4: … die Meldung fürs Log bleibt erhalten');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ── R2 · show-quelle.ts: gemerkte Show in Master-Form (Spec 17.2) ──
+{
+  const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const sq = await import('../src/main/show-quelle');
+  const tmp = mkdtempSync(join(tmpdir(), 'jmtitler-r2-'));
+  try {
+    const userData = join(tmp, 'userData');
+    const datei = join(userData, 'show-zuletzt.json');
+    const wert = { quelle: 'master' as const, masterId: 'master-1', schluessel: '0123456789abcdef', showName: 'Gala' };
+    ok(sq.schreibeGemerkteShow(userData, wert) === true, 'R2 show-quelle: Master-Form schreiben → true');
+    ok(JSON.stringify(sq.leseGemerkteShow(userData)) === JSON.stringify(wert), 'R2 show-quelle: Master-Form schreiben und lesen');
+    const roh = JSON.parse(readFileSync(datei, 'utf8')) as Record<string, unknown>;
+    ok(!('showPfad' in roh) && !('mitSpeakern' in roh), 'R2 show-quelle: Master-Form ohne showPfad und mitSpeakern (Titler 0.10 liest „keine gemerkte Show“)');
+    const ohneSchluessel = { ...wert, schluessel: null };
+    sq.schreibeGemerkteShow(userData, ohneSchluessel);
+    ok(JSON.stringify(sq.leseGemerkteShow(userData)) === JSON.stringify(ohneSchluessel), 'R2 show-quelle: schluessel null bleibt null');
+    const pfadForm = { showPfad: 'C:\\Shows\\Tag 1.jmshow', showName: 'Tag 1', mitSpeakern: true };
+    sq.schreibeGemerkteShow(userData, pfadForm);
+    ok(readFileSync(datei, 'utf8') === JSON.stringify(pfadForm, null, 2) + '\n', 'R2 show-quelle: Pfad-Form unverändert geschrieben');
+    ok(JSON.stringify(sq.leseGemerkteShow(userData)) === JSON.stringify(pfadForm), 'R2 show-quelle: Pfad-Form unverändert gelesen');
+    const kaputt: Array<[string, unknown]> = [
+      ['ohne masterId', { quelle: 'master', schluessel: wert.schluessel, showName: 'Gala' }],
+      ['mit leerer masterId', { ...wert, masterId: '' }],
+      ['Schlüssel in Großbuchstaben', { ...wert, schluessel: '0123456789ABCDEF' }],
+      ['Schlüssel zu kurz', { ...wert, schluessel: 'abc' }],
+      ['ohne showName', { quelle: 'master', masterId: 'master-1', schluessel: wert.schluessel }],
+      ['mit Pfad-Feldern, aber ohne masterId', { ...pfadForm, quelle: 'master' }],
+    ];
+    for (const [bez, o] of kaputt) {
+      writeFileSync(datei, JSON.stringify(o));
+      ok(sq.leseGemerkteShow(userData) === null, `R2 show-quelle: Master-Form ${bez} → null`);
+    }
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

@@ -16,6 +16,16 @@ export interface TeilnehmerInfo {
   pid: number;
 }
 
+/**
+ * Show-Daten (Teil 2b, Spec 13.1): `abo` (Tool → Master), `stand` und `aenderung` (Master → Tool). Der Rahmen nimmt sie
+ * mit lockeren Prüfern an: ein falsches Feld kappt nie die Leitung (Spec 13.2). Den Inhalt prüft der Empfänger mit
+ * pruefeAbo/pruefeStand (show-daten.ts).
+ */
+export interface DatenZeile {
+  t: 'abo' | 'stand' | 'aenderung';
+  [feld: string]: unknown;
+}
+
 export type Nachricht =
   | { t: 'hallo'; protokoll: number; masterId: string; name: string; nonce: string }
   | { t: 'koppeln'; protokoll: number; rechnerId: string; rechnerName: string; nonce: string; schluessel: string; beweis: string }
@@ -24,7 +34,8 @@ export type Nachricht =
   | { t: 'teilnehmer'; teilnehmer: TeilnehmerInfo }
   | { t: 'angemeldet'; adressen: string[]; suite: string }
   | { t: 'abgelehnt'; grund: Grund; rest?: number; master?: number; suite?: string }
-  | { t: 'puls' };
+  | { t: 'puls' }
+  | DatenZeile;
 
 export type Dekodiert = { art: 'nachricht'; n: Nachricht } | { art: 'unbekannt'; t: string } | { art: 'kaputt' };
 
@@ -73,6 +84,10 @@ const PRUEFER = new Map<string, (o: Objekt) => boolean>([
   ['abgelehnt', (o) => istText(o.grund) && GRUENDE.has(o.grund)
     && optional(o.rest, istZahl) && optional(o.master, istZahl) && optional(o.suite, istText)],
   ['puls', () => true],
+  // Teil 2b (Spec 13.2): lockere Prüfer — jedes Objekt gilt, nie 'kaputt'. Den Inhalt prüft der Empfänger.
+  ['abo', () => true],
+  ['stand', () => true],
+  ['aenderung', () => true],
 ]);
 
 export function dekodiere(zeile: string): Dekodiert {
@@ -96,32 +111,101 @@ export class ZeileZuLang extends Error {
   }
 }
 
-/** Zerlegt einen Bytestrom in Zeilen; eine Zeile (auch eine unvollständige) über `grenze` Bytes wirft. */
+/**
+ * Zerlegt einen Bytestrom in Zeilen (Teil 2b, Spec 13.5). `fuettere` hängt ein Stück an und merkt sich seine
+ * Zeilenenden — gesucht wird nur im neuen Stück. `naechste` gibt EINE Zeile heraus; die Grenze gilt beim Entnehmen.
+ * So wirkt ein setzeGrenze() im Zuhörer einer Zeile (etwa 'angemeldet') schon für die nächste Zeile desselben Stücks.
+ * Der Puffer ist eine Liste von Stücken: zusammengefügt (kopiert) wird nur eine fertige Zeile, die über mehrere
+ * Stücke reicht. `messung` zählt diese Bytes (nur im Test gesetzt, Spec 19.1).
+ */
 export class ZeilenLeser {
   private grenze: number;
-  private puffer: Buffer = Buffer.alloc(0);
+  private readonly messung: { kopiert: number } | undefined;
+  /** Noch nicht entnommene Stücke; im ersten beginnt der Rest bei `kopf`. */
+  private stuecke: Buffer[] = [];
+  private kopf = 0;
+  /** Stromposition des ersten nicht entnommenen Bytes bzw. hinter dem letzten gefütterten Byte. */
+  private gelesen = 0;
+  private gesamt = 0;
+  /** Stromposition jedes noch nicht entnommenen '\n', in Reihenfolge; `naechstesEnde` zeigt auf das nächste. */
+  private enden: number[] = [];
+  private naechstesEnde = 0;
 
-  constructor(grenze: number) {
+  constructor(grenze: number, messung?: { kopiert: number }) {
     this.grenze = grenze;
+    this.messung = messung;
   }
 
   setzeGrenze(grenze: number): void {
     this.grenze = grenze;
   }
 
-  fuettere(stueck: Buffer): string[] {
-    this.puffer = this.puffer.length > 0 ? Buffer.concat([this.puffer, stueck]) : stueck;
-    const zeilen: string[] = [];
-    let start = 0;
-    for (;;) {
-      const nl = this.puffer.indexOf(0x0a, start);
-      if (nl === -1) break;
-      if (nl - start > this.grenze) throw new ZeileZuLang();
-      zeilen.push(this.puffer.subarray(start, nl).toString('utf8'));
-      start = nl + 1;
+  /** Hängt das Stück an; sucht '\n' nur im neuen Stück. Wirft nie. */
+  fuettere(stueck: Buffer): void {
+    if (stueck.length === 0) return;
+    for (let i = stueck.indexOf(0x0a); i !== -1; i = stueck.indexOf(0x0a, i + 1)) this.enden.push(this.gesamt + i);
+    this.stuecke.push(stueck);
+    this.gesamt += stueck.length;
+  }
+
+  /**
+   * Nächste vollständige Zeile (UTF-8, ohne '\n') oder null. Wirft ZeileZuLang, wenn sie länger als die AKTUELLE
+   * Grenze ist, oder – ohne vollständige Zeile – wenn der Rest (eine angefangene Zeile) die Grenze übersteigt.
+   */
+  naechste(): string | null {
+    if (this.naechstesEnde >= this.enden.length) {
+      if (this.gesamt - this.gelesen > this.grenze) throw new ZeileZuLang();
+      return null;
     }
-    this.puffer = Buffer.from(this.puffer.subarray(start));
-    if (this.puffer.length > this.grenze) throw new ZeileZuLang();
-    return zeilen;
+    const laenge = this.enden[this.naechstesEnde] - this.gelesen;
+    if (laenge > this.grenze) throw new ZeileZuLang();
+    this.naechstesEnde++;
+    if (this.naechstesEnde === this.enden.length) {
+      this.enden = [];
+      this.naechstesEnde = 0;
+    }
+    const zeile = this.entnimm(laenge);
+    this.vor(1); // das '\n'
+    return zeile;
+  }
+
+  /** Die nächsten `n` Bytes als Text; über mehrere Stücke wird nur diese Zeile zusammengefügt. */
+  private entnimm(n: number): string {
+    const erstes = this.stuecke[0];
+    if (this.kopf + n <= erstes.length) {
+      const text = erstes.toString('utf8', this.kopf, this.kopf + n);
+      this.vor(n);
+      return text;
+    }
+    const teile: Buffer[] = [];
+    let rest = n;
+    let ab = this.kopf;
+    for (let i = 0; rest > 0; i++) {
+      const stueck = this.stuecke[i];
+      const nimm = Math.min(rest, stueck.length - ab);
+      teile.push(stueck.subarray(ab, ab + nimm));
+      rest -= nimm;
+      ab = 0;
+    }
+    if (this.messung) this.messung.kopiert += n;
+    const text = Buffer.concat(teile, n).toString('utf8');
+    this.vor(n);
+    return text;
+  }
+
+  /** Rückt den Anfang des Rests um `n` Bytes vor und gibt ganz entnommene Stücke frei. */
+  private vor(n: number): void {
+    this.gelesen += n;
+    let rest = n;
+    while (rest > 0) {
+      const uebrig = this.stuecke[0].length - this.kopf;
+      if (rest < uebrig) {
+        this.kopf += rest;
+        return;
+      }
+      rest -= uebrig;
+      this.stuecke.shift();
+      this.kopf = 0;
+    }
   }
 }

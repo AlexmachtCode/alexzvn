@@ -17,6 +17,7 @@ export interface DateiStand {
 /** Inhalt von `<userData>/regie/<schlüssel>.json` (4.7). */
 export interface GedaechtnisInhalt {
   schemaVersion: 2;
+  /** Pfad der Show; leer bei `quelle: 'master'` (Teil 2b, Spec 17.3). */
   showPfad: string;
   showName: string;
   /** Aktuelle Zeilen samt Archiv. */
@@ -25,7 +26,26 @@ export interface GedaechtnisInhalt {
   gespeichertAm: string;
   /** Stand der eigenen Rundown-Datei beim letzten Laden oder Speichern (4.8). */
   datei?: DateiStand;
+  /** Show vom Master (Spec 17.3): dann sind `masterId` (nicht leer) und `masterSchluessel` (16 Hex) Pflicht. */
+  quelle?: 'master';
+  masterId?: string;
+  masterSchluessel?: string;
 }
+
+/**
+ * Wozu ein Gedächtnis gehört (Spec 17.3): eine Show-Datei (Pfad-Schlüssel aus 2a) oder eine Show am
+ * Master (`schluessel` = Schlüssel der Show am Master, 13.1).
+ */
+export type GedaechtnisQuelle = { art: 'pfad'; showPfad: string } | { art: 'master'; masterId: string; schluessel: string };
+
+/**
+ * Zeiger `regie/zuletzt.json` auf die gemerkte Show (4.7, Spec 17.3). `schluessel` ist immer der
+ * Schlüssel des Gedächtnisses; die Master-Form trägt in der Datei `showPfad: ''`, damit ein
+ * Rundown 0.6/0.7 sie verwirft.
+ */
+export type Zeiger =
+  | { showPfad: string; schluessel: string }
+  | { quelle: 'master'; masterId: string; masterSchluessel: string; showName: string; schluessel: string };
 
 export type Ausgangsstand =
   | { quelle: 'gedaechtnis'; doc: RundownDoc; scharfId: string | null; ungespeichert: boolean }

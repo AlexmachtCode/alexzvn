@@ -11,8 +11,11 @@ import {
   type TimetableState,
   type CountdownState,
   type SyncedState,
+  type Command,
 } from '../src/shared/timer-state.ts';
 import { ablaufToTimetable, parseTimetable } from '../src/shared/show-ablauf.ts';
+import { timerAktionenAusShow, type TimerAktion } from '../src/shared/show-anwenden.ts';
+import { ersetztVerbundDaten } from '../src/shared/verbund.ts';
 import { createShow, hatEigeneTimerListe, normalizeAblauf, parseShow, serializeShow } from '../../../packages/show/src/index.ts';
 import { agendaToAblauf } from '../../../packages/iveo/src/mapper.ts';
 import { buildCsp } from '../../../packages/app-runtime/src/csp.ts';
@@ -240,6 +243,120 @@ const kennungen = (s: SyncedState): string => JSON.stringify(s.timetable.items.m
     'Kennungs-Durchlauf: nach RELOAD steht der Timer weiter auf „Panel“',
     nachReload.timetable.activeIndex === 2 && nachReload.timetable.items[2].label === 'Panel',
   );
+}
+
+// ── Teil 2b R2 · Show anwenden ohne Electron (Spec 17.1, 19.5 Timer) ───────
+// Dieselbe reine Funktion für die gelesene Show-Datei und für einen Stand vom Master.
+// Geprüft über reduce (wie der Main die Aktionen mit dispatch ausführt).
+{
+  const ablauf3 = [
+    { id: 'u1', label: 'Begrüßung', durationMs: 5 * MIN },
+    { id: 'u2', label: 'Panel', durationMs: 10 * MIN },
+    { id: 'u3', label: 'Q&A', durationMs: 5 * MIN },
+  ];
+  /** Show mit Ablauf und Timer-Eintrag; settings nur mit den übergebenen Feldern. */
+  const showMit = (settings: Record<string, unknown>, ablauf: unknown[] = ablauf3) => ({
+    ...createShow('Gala'),
+    tools: [{ appId: 'jm-timer', settings }],
+    ablauf: normalizeAblauf(ablauf),
+  });
+  const eigene = (s: { tools: { appId: string; settings?: Record<string, unknown> }[] }): boolean =>
+    hatEigeneTimerListe(s.tools.find((t) => t.appId === 'jm-timer')?.settings);
+  const typen = (a: TimerAktion[]): string => a.map((x) => x.type).join(',');
+  const fuehreAus = (s: SyncedState, aktionen: TimerAktion[]): SyncedState => aktionen.reduce((z, a) => reduce(z, a, 2_000_000), s);
+
+  // neueShow → 'initial': tt:setAll und settings.durationMs, wie beim Öffnen einer Show.
+  const gala = showMit({ durationMs: 20 * MIN });
+  const initial = timerAktionenAusShow(gala, 'initial', eigene(gala));
+  ck('R2 17.1 initial: tt:setAll, danach setDuration', typen(initial) === 'tt:setAll,setDuration');
+  ck(
+    'R2 17.1 initial: Punkte aus dem Ablauf mit Kennung',
+    initial[0]?.type === 'tt:setAll' && JSON.stringify(initial[0].items.map((i) => i.id)) === '["u1","u2","u3"]',
+  );
+  ck('R2 17.1 initial: setDuration mit settings.durationMs', initial[1]?.type === 'setDuration' && initial[1].ms === 20 * MIN);
+  const nachInitial = fuehreAus(zustand([item('alt', 5)], 0), initial);
+  ck(
+    'R2 17.1 initial über reduce: neuer Ablauf, Countdown 20 min steht, nichts aktiv',
+    kennungen(nachInitial) === '["u1","u2","u3"]' &&
+      nachInitial.countdown.durationMs === 20 * MIN &&
+      nachInitial.countdown.startedAtMs === null &&
+      nachInitial.timetable.activeIndex === null,
+  );
+
+  // gleiche Show, neuer Stand → 'reload': tt:replaceItems, der Countdown bleibt.
+  const reload = timerAktionenAusShow(gala, 'reload', eigene(gala));
+  ck('R2 17.1 reload: nur tt:replaceItems, kein setDuration', typen(reload) === 'tt:replaceItems');
+  const vorher = zustand([item('u1', 5), item('u2', 10), item('u3', 5)], 1);
+  const mitEinschub = showMit({ durationMs: 20 * MIN }, [ablauf3[0], { id: 'neu', label: 'Einschub', durationMs: 3 * MIN }, ablauf3[1], ablauf3[2]]);
+  const nachReload = fuehreAus(vorher, timerAktionenAusShow(mitEinschub, 'reload', eigene(mitEinschub)));
+  ck('R2 17.1 reload über reduce: laufender Countdown bleibt unangetastet', nachReload.countdown === vorher.countdown);
+  ck(
+    'R2 17.1 reload über reduce: aktiver Punkt folgt seiner Kennung',
+    nachReload.timetable.activeIndex === 2 && nachReload.timetable.items[2].id === 'u2',
+  );
+
+  // Eigene Timer-Liste hat Vorrang vor dem Ablauf (Teil 2a, Spec 6.1).
+  const eigen = showMit({ timetable: [{ label: 'Eigen A', durationMs: MIN }, { label: 'Eigen B', durationMs: 2 * MIN }] });
+  const ausListe = timerAktionenAusShow(eigen, 'initial', eigene(eigen));
+  ck(
+    'R2 17.1 eigene Timer-Liste hat Vorrang vor dem Ablauf',
+    ausListe.length === 1 && ausListe[0].type === 'tt:setAll' && JSON.stringify(ausListe[0].items.map((i) => i.label)) === '["Eigen A","Eigen B"]',
+  );
+  ck(
+    'R2 17.1 eigene Timer-Liste: Punkte ohne Kennung (wie parseTimetable)',
+    ausListe[0]?.type === 'tt:setAll' && ausListe[0].items.every((i) => !('id' in i)),
+  );
+
+  // Ohne Ablauf und ohne Liste: keine Aktion; nur die Countdown-Vorgabe beim Öffnen.
+  const leer = { ...createShow('Leer'), tools: [{ appId: 'jm-timer', settings: {} }] };
+  ck('R2 17.1 ohne Ablauf und ohne Liste, reload → keine Aktion', timerAktionenAusShow(leer, 'reload', false).length === 0);
+  ck('R2 17.1 ohne Ablauf und ohne Liste, initial ohne durationMs → keine Aktion', timerAktionenAusShow(leer, 'initial', false).length === 0);
+  ck('R2 17.1 Show ohne Timer-Eintrag und ohne Ablauf → keine Aktion', timerAktionenAusShow(createShow('Ohne'), 'initial', false).length === 0);
+  const nurDauer = { ...createShow('Dauer'), tools: [{ appId: 'jm-timer', settings: { durationMs: 7 * MIN } }] };
+  ck('R2 17.1 initial ohne Ablauf, mit durationMs → nur setDuration', typen(timerAktionenAusShow(nurDauer, 'initial', false)) === 'setDuration');
+
+  // durationMs nur als Zahl ≥ 0 (wie bisher in applyShowFromPath).
+  ck('R2 17.1 durationMs negativ → kein setDuration', typen(timerAktionenAusShow(showMit({ durationMs: -1 }), 'initial', false)) === 'tt:setAll');
+  ck('R2 17.1 durationMs als Text → kein setDuration', typen(timerAktionenAusShow(showMit({ durationMs: '600000' }), 'initial', false)) === 'tt:setAll');
+  ck('R2 17.1 durationMs NaN → kein setDuration', typen(timerAktionenAusShow(showMit({ durationMs: Number.NaN }), 'initial', false)) === 'tt:setAll');
+  const null0 = timerAktionenAusShow(showMit({ durationMs: 0 }), 'initial', false);
+  ck('R2 17.1 durationMs 0 → setDuration 0', null0[1]?.type === 'setDuration' && null0[1].ms === 0);
+
+  // Rein: die Show bleibt unverändert.
+  const vorJson = JSON.stringify(gala);
+  timerAktionenAusShow(gala, 'initial', false);
+  timerAktionenAusShow(gala, 'reload', false);
+  ck('R2 17.1 die Show bleibt unverändert', JSON.stringify(gala) === vorJson);
+}
+
+// ── Teil 2b R2 · Ablauf von Hand außerhalb des Verbundmodus (Spec 16.1, E16, E56) ─
+// Ändert der Bediener die Punkte des Ablaufs (Socket :7777), ruft der Main verbundDatenErsetzt(). Sonst wendete
+// der nächste Start den Zwischenspeicher des früheren Masters an ('reload' → tt:replaceItems), verdrängte die
+// Liste von Hand, und „Daten vom früheren Master …“ (V13) bliebe stehen.
+{
+  const punkteBefehle: Command[] = [
+    { type: 'tt:add', item: { label: 'Neu', durationMs: MIN } },
+    { type: 'tt:update', id: 'a', patch: { label: 'Umbenannt' } },
+    { type: 'tt:delete', id: 'a' },
+    { type: 'tt:move', id: 'a', direction: 'down' },
+    { type: 'tt:setAll', items: [{ label: 'Import', durationMs: MIN }] },
+    { type: 'tt:replaceItems', items: [{ label: 'Import', durationMs: MIN }] },
+  ];
+  for (const cmd of punkteBefehle) {
+    ck(`R2 E56 ${cmd.type} außerhalb des Verbundmodus → verbundDatenErsetzt`, ersetztVerbundDaten(cmd, false) === true);
+    ck(`R2 E56 ${cmd.type} im Verbundmodus → Zwischenspeicher bleibt`, ersetztVerbundDaten(cmd, true) === false);
+  }
+  // Countdown, Navigation, Farben und Meldung ändern die Punkte nicht; der Zwischenspeicher ersetzt sie auch nicht.
+  const andere: Command[] = [
+    { type: 'setDuration', ms: MIN }, { type: 'start' }, { type: 'pause' }, { type: 'reset' }, { type: 'addDelay', sec: 30 },
+    { type: 'clearDelay' }, { type: 'setColors', patch: {} }, { type: 'tt:loadItem', index: 0 }, { type: 'tt:next' },
+    { type: 'tt:prev' }, { type: 'tt:clearActive' }, { type: 'tt:setAutoAdvance', enabled: true },
+    { type: 'tt:setAutoAdvanceGrace', sec: 5 }, { type: 'msg:set', text: 'x' }, { type: 'msg:setBlink', blinking: true },
+    { type: 'msg:clear' },
+  ];
+  ck('R2 E56 alle 22 Befehle geprüft', new Set([...punkteBefehle, ...andere].map((c) => c.type)).size === 22);
+  ck('R2 E56 Bedienung ohne Änderung der Punkte → nichts ersetzt', andere.every((c) => ersetztVerbundDaten(c, false) === false));
+  ck('R2 E56 unbekannter Befehl vom Socket → nichts ersetzt', ersetztVerbundDaten({ type: 'constructor' } as unknown as Command, false) === false);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

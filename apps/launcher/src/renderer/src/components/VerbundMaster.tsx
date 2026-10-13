@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, cn } from '@jm/ui';
 import type { VerbundStand } from '@shared/types';
-import { relativ, speicherFehlerText, uhrzeit, zeigeCode } from '@/lib/verbund-texte';
+import { relativ, speicherFehlerText, toolDatenText, uhrzeit, verbundShowZeile, zeigeCode } from '@/lib/verbund-texte';
 import { useVerbund } from '@/store/verbund';
 import { Abschnitt, Bestaetigung, TextFeld, ToolsDiesesRechners } from './VerbundTeile';
 
@@ -12,7 +12,13 @@ export function VerbundMaster({ stand }: { stand: VerbundStand }) {
   const [entfernen, setEntfernen] = useState<{ id: string; name: string } | null>(null);
   const [erneuern, setErneuern] = useState(false);
   const [neu, setNeu] = useState(false);
-  const jetzt = Date.now();
+  // Teil 2b R2 (E20): alle 2 s neu zeichnen, solange das Modal offen ist — für die 10-s-Regel „ohne Show-Daten“.
+  const [jetzt, setJetzt] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setJetzt(Date.now()), 2000);
+    return () => clearInterval(t);
+  }, []);
+  const showZeile = m.showImVerbund ? verbundShowZeile(m.showImVerbund, uhrzeit) : null;
 
   return (
     <>
@@ -57,6 +63,11 @@ export function VerbundMaster({ stand }: { stand: VerbundStand }) {
       {m.zustand === 'laeuft' && <KoppelFenster stand={stand} />}
 
       <Abschnitt titel="Gekoppelte Rechner">
+        {showZeile && (
+          <p className={cn('mb-2 text-xs', showZeile.rot ? 'text-[var(--destructive)]' : 'text-[var(--muted-foreground)]')}>
+            {showZeile.text}
+          </p>
+        )}
         {m.rechner.length === 0 ? (
           <p className="text-xs text-[var(--muted-foreground)]">Noch keine.</p>
         ) : (
@@ -86,11 +97,21 @@ export function VerbundMaster({ stand }: { stand: VerbundStand }) {
                 </div>
                 {r.tools.length > 0 && (
                   <ul className="mt-1.5 flex flex-col gap-0.5 pl-4">
-                    {r.tools.map((t) => (
-                      <li key={t.appId} className="text-[11px] text-[var(--muted-foreground)]">
-                        {t.name} {t.version} · verbunden seit {uhrzeit(t.verbundenSeit)}
-                      </li>
-                    ))}
+                    {r.tools.map((t) => {
+                      // Spec 15.5; Tools auf dem Master-Rechner abonnieren nicht (16.1) — dort keine Zeile dazu.
+                      const daten = r.dieserRechner ? null : toolDatenText(t.appId, t.verbundenSeit, t.bezieht, jetzt);
+                      return (
+                        <li key={t.appId} className="text-[11px] text-[var(--muted-foreground)]">
+                          {t.name} {t.version} · verbunden seit {uhrzeit(t.verbundenSeit)}
+                          {daten && (
+                            <>
+                              {' · '}
+                              <span className={t.bezieht ? undefined : 'text-[var(--warning)]'}>{daten}</span>
+                            </>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </li>

@@ -133,3 +133,41 @@ export function kandidatenliste(q: KandidatenQuelle): string[] {
   ];
   return [...new Set(alle)];
 }
+
+/** Adresse bzw. Name vergleichbar machen: ohne Klammern, ohne IPv6-Zone, ohne „::ffff:“ vor IPv4, klein geschrieben. */
+function normiereHost(host: string): string {
+  let h = host.trim().toLowerCase();
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+  const zone = h.indexOf('%');
+  if (zone >= 0) h = h.slice(0, zone);
+  if (h.startsWith('::ffff:') && istIPv4Adresse(h.slice(7))) h = h.slice(7);
+  return h;
+}
+
+/** Hostname ohne Schlusspunkt und ohne „.local“ (mDNS). */
+const ohneLocal = (name: string): string => name.replace(/\.$/, '').replace(/\.local$/, '');
+
+/** Teil 2b (Spec 13.7, E7): alle Adressen aller Karten (auch interne und IPv6), ohne Zone, entdoppelt. */
+export function eigeneAdressen(ni: NetzwerkInterfaces): string[] {
+  const alle = new Set<string>();
+  for (const eintraege of Object.values(ni)) {
+    for (const i of eintraege ?? []) {
+      const a = normiereHost(i.address);
+      if (a) alle.add(a);
+    }
+  }
+  return [...alle];
+}
+
+/**
+ * Teil 2b (Spec 13.7, 15.3, 17.4; E7): liegt `host` auf diesem Rechner? Wahr für 127.0.0.0/8, ::1, localhost und jede
+ * Adresse einer eigenen Karte. Ein Hostname gilt nur, wenn er `eigenerName` gleicht (ohne „.local“, Groß/Klein egal);
+ * jeder andere Hostname gilt als fremd.
+ */
+export function istDieserRechner(host: string, eigeneAdressen: readonly string[], eigenerName?: string): boolean {
+  const h = normiereHost(host);
+  if (!h) return false;
+  if (h === 'localhost' || h === '::1' || (istIPv4Adresse(h) && h.startsWith('127.'))) return true;
+  if (istIPv4Adresse(h) || h.includes(':')) return eigeneAdressen.some((a) => normiereHost(a) === h);
+  return eigenerName !== undefined && eigenerName.trim() !== '' && ohneLocal(h) === ohneLocal(normiereHost(eigenerName));
+}

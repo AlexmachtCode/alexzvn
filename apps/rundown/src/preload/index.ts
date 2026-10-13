@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { JmRundownApi, RundownDoc, RundownNav, RundownState, ToolLink } from '@shared/types';
+import type { JmRundownApi, RundownDoc, RundownNav, RundownState, ToolLink, VerbundAnzeigeZeile } from '@shared/types';
 
 const api: JmRundownApi = {
   platform: process.platform,
@@ -31,6 +31,12 @@ const api: JmRundownApi = {
   open: () => ipcRenderer.invoke('rundown:open') as Promise<RundownState>,
   save: () => ipcRenderer.invoke('rundown:save') as Promise<RundownState>,
   saveAs: () => ipcRenderer.invoke('rundown:saveAs') as Promise<RundownState>,
+  verbundAnzeige: () => (ipcRenderer.invoke('jmps:verbund-anzeige') as Promise<VerbundAnzeigeZeile | null>).catch(() => null),
+  onVerbundAnzeige: (cb) => {
+    const listener = (_e: unknown, a: VerbundAnzeigeZeile | null): void => cb(a);
+    ipcRenderer.on('jmps:verbund-anzeige', listener);
+    return () => ipcRenderer.off('jmps:verbund-anzeige', listener);
+  },
 };
 
 if (process.contextIsolated) {

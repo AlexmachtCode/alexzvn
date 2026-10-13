@@ -27,7 +27,10 @@ import {
   type IveoProgram,
   type IveoSnapshot,
 } from '../src/index';
-import { createShow, hatEigeneTimerListe, loeseDoppelteKennungenAuf, normalizeAblauf, parseShow, serializeShow } from '@jm/show';
+import {
+  createShow, hatEigeneTimerListe, loeseDoppelteKennungenAuf, migrateShow, normalizeAblauf, parseShow, serializeShow,
+  showFuerVerbund, VERBUND_EINSTELLUNGEN, type Show,
+} from '@jm/show';
 import { kennungenAus, kennungsBericht, kennungsForm, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from '../tools/messung-2b-kern';
 
 let failed = 0;
@@ -758,6 +761,132 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
     '@jm/show: Merker steht in der Bindung direkt nach speakers',
   );
   ok(!('speakerVeraltetSeit' in (binde({ speakers: [{ name: 'Ada' }] }) ?? {})), '@jm/show: ohne Merker kein Feld');
+}
+
+// ── @jm/show: Ausschnitt für den Verbund (Teil 2b Release 2, Spec 14, 19.2) ──
+{
+  /** Jedes Tool aus Tabelle 14.2, dazu Dokumente, Netz-Bindungen, Basis-URL und fremde Schlüssel. */
+  const eingabe: Show = migrateShow({
+    schemaVersion: 1,
+    name: 'COP31 Tag 1',
+    updatedAt: '2026-10-08T09:00:00.000Z',
+    tools: [
+      {
+        appId: 'jm-timer',
+        network: { host: '10.0.0.5', port: 7777 },
+        settings: { timetable: [{ label: 'A', durationMs: 60000 }], durationMs: 300000, token: 'iveo_live_geheim' },
+      },
+      { appId: 'jm-qa', settings: { speakSeconds: 90, moderation: true, autoTimer: true, autoTitler: false } },
+      { appId: 'jm-battle', settings: { rounds: 3, nameA: 'Rot', nameB: 'Blau', crewA: ['a'], crewB: ['b'] } },
+      { appId: 'jm-caption', settings: { model: 'small', language: 'de', ndiName: 'CAP' } },
+      {
+        appId: 'jm-transcribe',
+        settings: { model: 'base', language: 'de', task: 'transcribe', formats: ['srt'], outputDir: 'D:/Mitschnitt' },
+      },
+      {
+        appId: 'jm-recorder',
+        settings: { dir: 'D:/Aufnahmen', fileName: 'tag1', separateTracks: true, channels: 8, sampleRate: 48000 },
+      },
+      { appId: 'jm-player', settings: { show: 'C:/Bibliothek/show1', outputDisplayId: 2 } },
+      { appId: 'jm-presenter', network: { host: '10.0.0.9', port: 8080 }, settings: { pin: '4711' } },
+      { appId: 'jm-connect', settings: { room: 'Saal 2' } },
+      { appId: 'jm-rundown', document: 'C:/Shows/Tag1.jmrundown' },
+      { appId: 'jm-daw', document: 'C:/Shows/Tag1.jmdaw', settings: { mixer: 'x' } },
+      { appId: 'jm-rundown', document: 'C:/Shows/Kopie.jmrundown' },
+      { appId: 'jm-titler', document: '   ' },
+      { appId: 'JM-Gross', document: 'C:/Shows/x.doc' },
+    ],
+    ablauf: [{ id: 'a1', label: 'Begrüßung', durationMs: 300000 }],
+    iveo: {
+      event: 'cop31',
+      baseUrl: 'https://iveo.example/api/v1',
+      name: 'COP31',
+      syncedAt: '2026-10-08T08:00:00.000Z',
+      speakers: [{ name: 'Ana Silva', title: 'Ministerin' }],
+      speakerVeraltetSeit: '2026-10-08T07:30:00.000Z',
+      sideEvents: [{ id: 'P1', title: 'Klima' }],
+      filter: { day: '2026-11-10', programId: 'P1' },
+    },
+  });
+  const vorher = JSON.stringify(eingabe);
+  const r = showFuerVerbund(eingabe);
+  const einstellungen = (appId: string) => r.show.tools.find((t) => t.appId === appId)?.settings;
+  const schluessel = (appId: string): string => JSON.stringify(Object.keys(einstellungen(appId) ?? {}));
+  const lokal = (...namen: string[]): boolean => namen.every((n) => r.lokalGeblieben.includes(n));
+
+  ok(
+    r.show.tools.every((t) => !('document' in t) && !('network' in t)) && !('baseUrl' in (r.show.iveo ?? {})),
+    'showFuerVerbund: document, network und iveo.baseUrl fehlen',
+  );
+  ok(schluessel('jm-timer') === '["timetable","durationMs"]' && lokal('jm-timer.token'), '14.2 jm-timer: timetable, durationMs reisen');
+  ok(schluessel('jm-qa') === '["speakSeconds","moderation","autoTimer","autoTitler"]', '14.2 jm-qa: alle vier reisen');
+  ok(schluessel('jm-battle') === '["rounds","nameA","nameB","crewA","crewB"]', '14.2 jm-battle: alle fünf reisen');
+  ok(schluessel('jm-caption') === '["model","language","ndiName"]', '14.2 jm-caption: alle drei reisen');
+  ok(
+    schluessel('jm-transcribe') === '["model","language","task","formats"]' && lokal('jm-transcribe.outputDir'),
+    '14.2 jm-transcribe: outputDir bleibt lokal',
+  );
+  ok(
+    schluessel('jm-recorder') === '["fileName","separateTracks"]' && lokal('jm-recorder.dir', 'jm-recorder.channels', 'jm-recorder.sampleRate'),
+    '14.2 jm-recorder: dir, channels, sampleRate bleiben lokal',
+  );
+  ok(einstellungen('jm-player') === undefined && lokal('jm-player.show', 'jm-player.outputDisplayId'), '14.2 jm-player: show, outputDisplayId bleiben lokal');
+  ok(einstellungen('jm-presenter') === undefined && lokal('jm-presenter.pin'), '14.2 jm-presenter: pin bleibt lokal');
+  ok(schluessel('jm-connect') === '["room"]', '14.2 jm-connect: room reist');
+  ok(
+    JSON.stringify(r.lokalGeblieben) ===
+      '["jm-timer.token","jm-transcribe.outputDir","jm-recorder.dir","jm-recorder.channels","jm-recorder.sampleRate",' +
+        '"jm-player.show","jm-player.outputDisplayId","jm-presenter.pin","jm-daw.mixer"]',
+    'showFuerVerbund: unbekannte Schlüssel (token, mixer) bleiben lokal, lokalGeblieben als ⟨appId⟩.⟨Schlüssel⟩',
+  );
+  ok(
+    !('settings' in r.show.tools.find((t) => t.appId === 'jm-daw')!) && !('settings' in r.show.tools.find((t) => t.appId === 'jm-player')!),
+    'showFuerVerbund: Tool ohne freigegebene Settings → settings fehlt',
+  );
+  ok(JSON.stringify(r.mitDokument) === '["jm-rundown","jm-daw"]', 'showFuerVerbund: mitDokument genau die Tools mit Dokument, ohne Doppelte');
+  ok(!r.mitDokument.includes('jm-titler') && !r.mitDokument.includes('JM-Gross'), 'showFuerVerbund: Dokument nur aus Leerzeichen und ungültige appId zählen nicht');
+  ok(
+    r.show.iveo?.speakerVeraltetSeit === '2026-10-08T07:30:00.000Z'
+      && JSON.stringify(Object.keys(r.show.iveo ?? {})) === '["event","name","syncedAt","speakers","speakerVeraltetSeit","sideEvents","filter"]',
+    'showFuerVerbund: speakerVeraltetSeit, Speaker, Side Events und Filter reisen',
+  );
+  ok(
+    JSON.stringify(Object.keys(r.show)) === '["schemaVersion","name","updatedAt","tools","ablauf","iveo"]' && r.show.ablauf?.[0]?.id === 'a1',
+    'showFuerVerbund: schemaVersion, name, updatedAt und Ablauf mit Kennungen reisen',
+  );
+  const leer = showFuerVerbund(createShow('Leer'));
+  ok(
+    !('iveo' in leer.show) && leer.show.tools.length === 0 && leer.lokalGeblieben.length === 0 && leer.mitDokument.length === 0,
+    'showFuerVerbund: ohne iveo kein iveo-Feld',
+  );
+  ok(JSON.stringify(eingabe) === vorher, 'showFuerVerbund: Eingabe bleibt unverändert');
+  const timerAus = einstellungen('jm-timer') as { timetable: unknown[] };
+  const timerEin = eingabe.tools[0].settings as { timetable: unknown[] };
+  timerAus.timetable.push({ label: 'B' });
+  ok(
+    timerAus.timetable !== timerEin.timetable && timerEin.timetable.length === 1 && r.show.ablauf![0] !== eingabe.ablauf![0]
+      && r.show.iveo!.speakers !== eingabe.iveo!.speakers,
+    'showFuerVerbund: Ergebnis teilt keine Objekte mit der Eingabe',
+  );
+  timerAus.timetable.pop();
+  ok(JSON.stringify(migrateShow(r.show)) === JSON.stringify(r.show), 'showFuerVerbund: Ergebnis läuft unverändert durch migrateShow');
+  ok(JSON.stringify(showFuerVerbund(r.show).show) === JSON.stringify(r.show), 'showFuerVerbund: zweimal angewendet gleich');
+  ok(
+    JSON.stringify(VERBUND_EINSTELLUNGEN) ===
+      '{"jm-timer":["timetable","durationMs"],"jm-qa":["speakSeconds","moderation","autoTimer","autoTitler"],' +
+        '"jm-battle":["rounds","nameA","nameB","crewA","crewB"],"jm-caption":["model","language","ndiName"],' +
+        '"jm-transcribe":["model","language","task","formats"],"jm-recorder":["fileName","separateTracks"],' +
+        '"jm-player":[],"jm-presenter":[],"jm-connect":["room"]}',
+    'VERBUND_EINSTELLUNGEN: Tabelle 14.2 wörtlich',
+  );
+  ok(Object.isFrozen(VERBUND_EINSTELLUNGEN) && Object.isFrozen(VERBUND_EINSTELLUNGEN['jm-timer']), 'VERBUND_EINSTELLUNGEN: eingefroren');
+  const fremd = showFuerVerbund(
+    migrateShow({ tools: [{ appId: 'constructor', settings: { a: 1 } }, { appId: '__proto__', settings: { b: 2 } }] }),
+  );
+  ok(
+    fremd.show.tools.every((t) => !('settings' in t)) && JSON.stringify(fremd.lokalGeblieben) === '["constructor.a","__proto__.b"]',
+    'showFuerVerbund: appId constructor/__proto__ findet keine Freigabe',
+  );
 }
 
 if (failed > 0) {

@@ -22,7 +22,9 @@ import { hatEigeneTimerListe, migrateShow, type Show } from '@jm/show';
 import { ersatzSchluessel } from '../shared/abgleich';
 import { newId } from '../shared/conductor';
 import { migrate } from '../shared/doc-format';
-import type { DateiStand, GedaechtnisInhalt } from '../shared/ausgangsstand';
+import type { DateiStand, GedaechtnisInhalt, GedaechtnisQuelle, Zeiger } from '../shared/ausgangsstand';
+
+export type { GedaechtnisQuelle, Zeiger } from '../shared/ausgangsstand';
 
 /** Unterordner in userData für Gedächtnis und Zeiger (4.7). */
 export const REGIE_ORDNER = 'regie';
@@ -84,6 +86,28 @@ export function gedaechtnisSchluessel(showPfad: string): string {
   return createHash('sha256').update(resolve(showPfad).toLowerCase()).digest('hex').slice(0, 16);
 }
 
+/** 16 Hex-Zeichen: Schlüssel einer Show am Master (13.1) und jedes Gedächtnisses (Dateiname). */
+const HEX16 = /^[0-9a-f]{16}$/;
+
+/**
+ * Eine Schlüsselfunktion für beide Fälle (Spec 17.3): `pfad` wie 2a (`gedaechtnisSchluessel`),
+ * `master` = die ersten 16 Hex-Zeichen von SHA-256 über "master|" + masterId + "|" + schluessel.
+ */
+export function gedaechtnisSchluesselFuer(q: GedaechtnisQuelle): string {
+  if (q.art === 'pfad') return gedaechtnisSchluessel(q.showPfad);
+  return createHash('sha256').update(`master|${q.masterId}|${q.schluessel}`).digest('hex').slice(0, 16);
+}
+
+/** Quelle eines Gedächtnis-Inhalts (#235): nie aus einem leeren Pfad; null, wenn sie fehlt oder ungültig ist. */
+function quelleVon(inhalt: GedaechtnisInhalt): GedaechtnisQuelle | null {
+  if (inhalt.quelle === 'master') {
+    const { masterId, masterSchluessel } = inhalt;
+    if (!masterId || !masterSchluessel || !HEX16.test(masterSchluessel)) return null;
+    return { art: 'master', masterId, schluessel: masterSchluessel };
+  }
+  return inhalt.showPfad ? { art: 'pfad', showPfad: inhalt.showPfad } : null;
+}
+
 function pruefeDateiStand(v: unknown): DateiStand | null {
   if (!v || typeof v !== 'object') return null;
   const o = v as Record<string, unknown>;
@@ -97,17 +121,27 @@ function pruefeDateiStand(v: unknown): DateiStand | null {
 function pruefeGedaechtnis(roh: unknown): GedaechtnisInhalt | null {
   if (!roh || typeof roh !== 'object' || Array.isArray(roh)) return null;
   const o = roh as Record<string, unknown>;
-  if (o.schemaVersion !== 2 || typeof o.showPfad !== 'string' || !o.showPfad) return null;
+  if (o.schemaVersion !== 2) return null;
+  // Show vom Master (Spec 17.3): masterId und masterSchluessel Pflicht, showPfad leer. Ohne quelle wie 2a.
+  let master: { quelle: 'master'; masterId: string; masterSchluessel: string } | null = null;
+  if (o.quelle === 'master') {
+    if (typeof o.masterId !== 'string' || !o.masterId) return null;
+    if (typeof o.masterSchluessel !== 'string' || !HEX16.test(o.masterSchluessel)) return null;
+    master = { quelle: 'master', masterId: o.masterId, masterSchluessel: o.masterSchluessel };
+  } else if (o.quelle !== undefined || typeof o.showPfad !== 'string' || !o.showPfad) {
+    return null;
+  }
   if (!o.doc || typeof o.doc !== 'object') return null;
   const datei = pruefeDateiStand(o.datei);
   return {
     schemaVersion: 2,
-    showPfad: o.showPfad,
+    showPfad: master ? '' : (o.showPfad as string),
     showName: typeof o.showName === 'string' ? o.showName : '',
     doc: migrate(o.doc, newId),
     scharfId: typeof o.scharfId === 'string' ? o.scharfId : null,
     gespeichertAm: typeof o.gespeichertAm === 'string' ? o.gespeichertAm : '',
     ...(datei ? { datei } : {}),
+    ...(master ?? {}),
   };
 }
 
@@ -137,10 +171,15 @@ export function leseGedaechtnis(
   return inhalt ? { inhalt } : { inhalt: null, fehler: 'unlesbar' };
 }
 
-/** Gedächtnis atomar schreiben; der Dateiname kommt aus `inhalt.showPfad`. */
+/**
+ * Gedächtnis atomar schreiben; der Dateiname kommt aus `gedaechtnisSchluesselFuer` je nach `quelle`
+ * (Spec 17.3). Ohne gültige Quelle (leerer Pfad, Master ohne Kennung) wird nichts geschrieben: Der Hash
+ * des Arbeitsordners wäre sonst der Dateiname jeder Master-Show (#235).
+ */
 export function schreibeGedaechtnis(ordner: string, inhalt: GedaechtnisInhalt): boolean {
-  const schluessel = gedaechtnisSchluessel(inhalt.showPfad);
-  return schreibeAtomar(join(ordner, `${schluessel}.json`), JSON.stringify(inhalt, null, 2) + '\n');
+  const q = quelleVon(inhalt);
+  if (!q) return false;
+  return schreibeAtomar(join(ordner, `${gedaechtnisSchluesselFuer(q)}.json`), JSON.stringify(inhalt, null, 2) + '\n');
 }
 
 /**
@@ -173,26 +212,33 @@ export function legeGedaechtnisFehlerBei(
   return sichereDefektesGedaechtnis(ordner, schluessel) ? 'beiseite' : 'gesperrt';
 }
 
-/** Zeiger auf die gemerkte Show (`<ordner>/zuletzt.json`, 4.7) oder null. */
-export function leseZeiger(ordner: string): { showPfad: string; schluessel: string } | null {
+/** Zeiger auf die gemerkte Show (`<ordner>/zuletzt.json`, 4.7; Master-Form Spec 17.3) oder null. */
+export function leseZeiger(ordner: string): Zeiger | null {
   try {
     const roh = JSON.parse(readFileSync(join(ordner, ZEIGER_DATEI), 'utf8')) as unknown;
     if (!roh || typeof roh !== 'object') return null;
     const o = roh as Record<string, unknown>;
-    if (typeof o.showPfad !== 'string' || !o.showPfad) return null;
     // Der Schlüssel landet in einem Dateinamen → nur genau 16 Hex-Zeichen.
-    if (typeof o.schluessel !== 'string' || !/^[0-9a-f]{16}$/.test(o.schluessel)) return null;
+    if (typeof o.schluessel !== 'string' || !HEX16.test(o.schluessel)) return null;
+    if (o.quelle === 'master') {
+      if (typeof o.masterId !== 'string' || !o.masterId) return null;
+      if (typeof o.masterSchluessel !== 'string' || !HEX16.test(o.masterSchluessel)) return null;
+      if (typeof o.showName !== 'string') return null;
+      return { quelle: 'master', masterId: o.masterId, masterSchluessel: o.masterSchluessel, showName: o.showName, schluessel: o.schluessel };
+    }
+    if (typeof o.showPfad !== 'string' || !o.showPfad) return null;
     return { showPfad: o.showPfad, schluessel: o.schluessel };
   } catch {
     return null;
   }
 }
 
-export function schreibeZeiger(ordner: string, z: { showPfad: string; schluessel: string }): boolean {
-  return schreibeAtomar(
-    join(ordner, ZEIGER_DATEI),
-    JSON.stringify({ showPfad: z.showPfad, schluessel: z.schluessel }, null, 2) + '\n',
-  );
+export function schreibeZeiger(ordner: string, z: Zeiger): boolean {
+  const inhalt =
+    'quelle' in z
+      ? { quelle: z.quelle, masterId: z.masterId, masterSchluessel: z.masterSchluessel, showName: z.showName, showPfad: '', schluessel: z.schluessel }
+      : { showPfad: z.showPfad, schluessel: z.schluessel };
+  return schreibeAtomar(join(ordner, ZEIGER_DATEI), JSON.stringify(inhalt, null, 2) + '\n');
 }
 
 export function loescheZeiger(ordner: string): void {
@@ -245,7 +291,14 @@ export function leseShowSicher(pfad: string): ShowGelesen {
     return { ok: false, grund: 'kein gültiges JSON' };
   }
   if (!roh || typeof roh !== 'object' || Array.isArray(roh)) return { ok: false, grund: 'keine Show-Datei' };
-  const show = migrateShow(roh);
+  return ausShow(migrateShow(roh));
+}
+
+/**
+ * Der reine Teil von `leseShowSicher` (Spec 17.3): Schlüssel des Ablaufs (R9, 6.2) und eigene Timer-Liste
+ * (6.1) aus einer schon gelesenen Show — etwa einer Show vom Master (nach `migrateShow` in app-runtime).
+ */
+export function ausShow(show: Show): Extract<ShowGelesen, { ok: true }> {
   const timerSettings = show.tools.find((t) => t.appId === 'jm-timer')?.settings;
   return {
     ok: true,

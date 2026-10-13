@@ -4,7 +4,7 @@ import { connect } from 'node:tls';
 import { normalizeFingerprint } from '@jm/auth-core';
 import { kandidatenliste, listeKarten, wirksameKarten, type NetzwerkInterfaces } from './adresswahl';
 import { signiereAnmeldung } from './beweis';
-import { DateiBeobachter, type Kopplung, type MasterLinkDatei } from './datei';
+import { DateiBeobachter, type Kopplung, type MasterLinkDatei, type Rolle } from './datei';
 import {
   fehlerText, ordneEin, PIN_FALSCH, RAHMEN, rueckzugMs, staerkster, wiederholung,
   type FehlerCode, type VersuchsErgebnis,
@@ -40,6 +40,19 @@ export interface Angemeldet {
 }
 
 export type Versuch = { ok: true; a: Angemeldet } | { ok: false; ergebnis: VersuchsErgebnis };
+
+/**
+ * Teil 2b (Spec 13.7): die Kopplung, wie der Client sie sieht — für app-runtime (16.2) und waehleLauncher (17.4).
+ * Rolle und Master aus master-link.json (Rolle „aus“: ohne Master). `letzteAdresse`: Adresse der letzten Verbindung
+ * dieses Prozesses, sonst kopplung.letzteAdresse aus der Datei (E6). `adressen`: aus dem letzten 'angemeldet'.
+ */
+export interface KopplungInfo {
+  rolle: Rolle;
+  masterId: string | null;
+  masterName: string | null;
+  letzteAdresse: string | null;
+  adressen: string[];
+}
 
 export interface AnmeldeParameter {
   adresse: string;
@@ -297,6 +310,28 @@ export class MasterLinkClient extends EventEmitter {
 
   zustand(): ClientZustand {
     return this.z;
+  }
+
+  /** Teil 2b (Spec 13.7): nur im Zustand verbunden mit offener Verbindung; false, wenn nichts hinausging. */
+  sende(n: Nachricht): boolean {
+    const v = this.verbindung;
+    if (this.z.art !== 'verbunden' || !v || !v.offen) return false;
+    return v.sende(n);
+  }
+
+  /** Teil 2b (Spec 13.7, E6): null ohne gelesene master-link.json (fehlt) oder bei beschädigter Datei (fehler:datei). */
+  kopplung(): KopplungInfo | null {
+    const d = this.datei;
+    if (!d || (this.z.art === 'fehler' && this.z.code === 'datei')) return null;
+    const k = d.rolle === 'aus' ? null : d.kopplung;
+    if (!k) return { rolle: d.rolle, masterId: null, masterName: null, letzteAdresse: null, adressen: [] };
+    return {
+      rolle: d.rolle,
+      masterId: k.masterId,
+      masterName: k.masterName,
+      letzteAdresse: this.letzteAdresse ?? k.letzteAdresse,
+      adressen: [...this.gelernteAdressen],
+    };
   }
 
   /** Neue Generation: alte Schleifen beenden sich daran, laufende Anmeldeversuche der alten brechen sofort ab (A5). */
@@ -575,6 +610,8 @@ export class MasterLinkClient extends EventEmitter {
       const aufNachricht = (n: Nachricht): void => {
         setzeStille();
         merke(n);
+        // Teil 2b (Spec 13.5, 13.7): stand/aenderung als 'daten' — auch die nachgeholten aus dem Stück von 'angemeldet'.
+        if (n.t === 'stand' || n.t === 'aenderung') this.sendeEreignis('daten', n);
       };
       a.v.on('nachricht', aufNachricht);
       a.v.on('unbekannt', setzeStille);

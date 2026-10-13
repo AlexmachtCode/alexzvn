@@ -16,8 +16,10 @@ import { discover, type DiscoveredService } from '@jm/discovery';
 import { SuiteControlClient } from '@jm/suite-control-protocol/client';
 import type { SuiteState } from '@jm/suite-control-protocol';
 import { controlClientOptions, readControlConfig, mdnsSignKey } from '@jm/control-config';
+import { hostname, networkInterfaces } from 'node:os';
+import { eigeneAdressen, istDieserRechner } from '@jm/master-link';
 import type { HealthEntry, ManualEndpoint } from '@shared/types';
-import { erzeugeReloadMerker } from './reload-nachholen';
+import { erzeugeReloadMerker, waehleReloadZiele } from './reload-nachholen';
 
 interface Conn {
   svc: DiscoveredService;
@@ -54,6 +56,14 @@ function endpointKey(s: { host: string; port: number }): string {
   return `${s.host}:${s.port}`;
 }
 
+/**
+ * Teil 2b R2, Spec 15.3 (E7): Liegt ein Endpunkt auf diesem Rechner? Loopback, eine Adresse einer eigenen Karte oder
+ * der eigene Hostname (mDNS liefert ohne IPv4 den Hostnamen, @jm/discovery). Jeder andere Hostname gilt als fremd.
+ */
+function istHostHier(host: string): boolean {
+  return istDieserRechner(host, eigeneAdressen(networkInterfaces()), hostname());
+}
+
 /** Änderungen gebündelt melden (STATE-Pushes kommen z. T. sekündlich). */
 function emit(): void {
   if (debounce) return;
@@ -73,7 +83,7 @@ function addConn(svc: DiscoveredService, manual: boolean): void {
       if (!c) return;
       if (c.nachholenOffen) {
         c.nachholenOffen = false;
-        const nachzuholen = reloadMerker.beiVerbindung(c.svc.appId);
+        const nachzuholen = reloadMerker.beiVerbindung(c.svc.appId, istHostHier(c.svc.host));
         if (nachzuholen) c.client.send(nachzuholen);
       }
       c.kv = Object.fromEntries(Object.entries(state.kv).map(([k, v]) => [k, String(v)]));
@@ -191,17 +201,17 @@ export function stopHealth(): void {
  * Endpunkte. Nutzt der iveo-Live-Sync, um nach einem Update den Ablauf in
  * laufenden Tools nicht-destruktiv neu laden zu lassen. Best-effort (send ist
  * no-op, wenn eine Verbindung inzwischen weg ist).
+ * Teil 2b R2, Spec 15.3 (O3): `nurDieserRechner` (Rolle Master) → nur Endpunkte dieses Rechners, auch beim Nachholen.
  */
-export function sendControlCommand(appId: string, line: string): number {
-  let sent = 0;
-  for (const conn of conns.values()) {
-    if (conn.connected && conn.svc.appId === appId) {
-      conn.client.send(line);
-      sent += 1;
-    }
-  }
-  reloadMerker.nachSenden(appId, line, sent);
-  return sent;
+export function sendControlCommand(appId: string, line: string, opt: { nurDieserRechner?: boolean } = {}): number {
+  const ziele = waehleReloadZiele(
+    [...conns.values()].map((c) => ({ appId: c.svc.appId, host: c.svc.host, verbunden: c.connected, c })),
+    appId,
+    opt.nurDieserRechner ? istHostHier : null,
+  );
+  for (const z of ziele) z.c.client.send(line);
+  reloadMerker.nachSenden(appId, line, ziele.length, opt.nurDieserRechner === true);
+  return ziele.length;
 }
 
 /** Momentaufnahme aller entdeckten Steuer-Endpunkte + ihres Live-Zustands. */

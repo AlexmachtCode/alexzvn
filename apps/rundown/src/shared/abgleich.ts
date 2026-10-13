@@ -482,3 +482,13 @@ export function wendeShowAn(e: { doc: RundownDoc; scharfId: string | null; show:
     umbenannt: erg.umbenannt,
   };
 }
+
+/**
+ * „Öffnen…“/„Neu“ im Verbundmodus (Teil 2b, Spec 17.3, Ruling R-375b): Der Main gleicht dort mit der ersten
+ * lebenden Zeile als scharfer ab. Die ist erfunden, scharf war sie nie; „Deine scharfe Zeile … ist entfallen“
+ * wäre also falsch. Liefert eine Kopie ohne `scharfVerrueckt`. Alles andere bleibt: die übrigen Teile des
+ * Berichts, der Kontextwechsel und die Wahl der scharfen Zeile. Die Eingabe bleibt unverändert.
+ */
+export function ohneErfundeneScharfMeldung<T extends { bericht: AbgleichBericht | null }>(res: T): T {
+  return { ...res, bericht: res.bericht ? { ...res.bericht, scharfVerrueckt: null } : null };
+}

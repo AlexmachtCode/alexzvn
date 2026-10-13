@@ -6,6 +6,7 @@ import {
   type GraphicTemplate,
   type TemplateKind,
   type TitlerConfig,
+  type VerbundAnzeigeZeile,
 } from '@shared/types';
 import { resolveConfigVars, usedVars } from '@shared/vars';
 import { useTitler } from '@/store/titler';
@@ -239,7 +240,9 @@ export function OperatorView(): React.JSX.Element {
   // iveo speist Speaker über die Datenquelle „Show“ ein (speakers.tsv in userData/iveo-data,
   // #11, Spec 7.7) — der Titler hält kein Token/Backend. `config.dataFolder` ist nur noch
   // der eigene Ordner des Bedieners und sagt darüber nichts mehr.
-  const iveoActive = datenQuelle?.art === 'show';
+  const iveoActive = datenQuelle?.art === 'show' || datenQuelle?.art === 'master';
+  // Ordnerwahl im Verbund gesperrt (Spec 17.2, Owner O1): Text statt Auswahl; der Main lehnt ebenfalls ab.
+  const ordnerGesperrt = datenQuelle?.ordnerGesperrt;
   // Weiter/Zurück: gesperrt nur an den Rändern; ohne aktiven Eintrag beide frei (Spec 7.4).
   const nav = navGesperrt(activeEntry, entries.length);
 
@@ -251,9 +254,10 @@ export function OperatorView(): React.JSX.Element {
         <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
           Live-CG → NDI
         </span>
+        <VerbundAbzeichen />
         <span
           className={cn(
-            'ml-auto inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-extrabold border',
+            'inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-extrabold border',
             suiteClients > 0
               ? 'border-[var(--primary)]/40 text-[var(--primary)]'
               : 'border-[var(--border)] text-[var(--muted-foreground)]',
@@ -619,17 +623,21 @@ export function OperatorView(): React.JSX.Element {
                       onChange={(e) => void setConfig({ dataFolder: e.target.value })}
                       placeholder="Kein Ordner gewählt"
                       spellCheck={false}
-                      className="h-9 flex-1 min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-xs"
+                      disabled={!!ordnerGesperrt}
+                      className="h-9 flex-1 min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-xs disabled:opacity-50"
                     />
-                    <Button variant="outline" size="sm" onClick={() => void pickFolder()}>
+                    <Button variant="outline" size="sm" onClick={() => void pickFolder()} disabled={!!ordnerGesperrt}>
                       Durchsuchen…
                     </Button>
-                    {c.dataFolder ? (
+                    {c.dataFolder && !ordnerGesperrt ? (
                       <Button variant="ghost" size="sm" uppercase={false} onClick={() => void setConfig({ dataFolder: '' })} title="Watchfolder entfernen">
                         ✕
                       </Button>
                     ) : null}
                   </div>
+                  {ordnerGesperrt ? (
+                    <p className="text-[11px] text-[var(--muted-foreground)]">{ordnerGesperrt}</p>
+                  ) : null}
                   {/* K1 (Spec 7.7/7.8): nur bei Quelle Show und einem eigenen Ordner, der nicht iveo-data ist */}
                   {datenQuelle?.zurueckKnopf ? (
                     <Button
@@ -867,5 +875,34 @@ function Slider({
         className="w-full accent-[var(--primary)]"
       />
     </label>
+  );
+}
+
+const VERBUND_FARBE: Record<VerbundAnzeigeZeile['farbe'], string> = {
+  gruen: 'border-[var(--success)]/50 text-[var(--success)]',
+  gelb: 'border-[var(--warning)]/60 text-[var(--warning)]',
+  rot: 'border-[var(--destructive)]/60 text-[var(--destructive)]',
+  gedaempft: 'border-[var(--border)] text-[var(--muted-foreground)]',
+};
+
+/**
+ * Verbund-Anzeige vor „Suite · ⟨n⟩ verbunden“ (Master-Link Teil 2b, Spec 16.4/16.5): die V-Zeile aus
+ * app-runtime, gekürzt mit „…“, voller Text als Tooltip. Trägt den Abstand nach links (`ml-auto`), auch
+ * am Einzelplatz (dann leer).
+ */
+function VerbundAbzeichen(): React.JSX.Element {
+  const [anzeige, setAnzeige] = useState<VerbundAnzeigeZeile | null>(null);
+  useEffect(() => {
+    void window.jmtitler.verbundAnzeige().then(setAnzeige);
+    return window.jmtitler.onVerbundAnzeige(setAnzeige);
+  }, []);
+  if (!anzeige) return <span className="ml-auto" aria-hidden />;
+  return (
+    <span
+      className={cn('ml-auto inline-flex max-w-[24rem] items-center rounded border px-2 py-0.5 text-[11px] font-semibold', VERBUND_FARBE[anzeige.farbe])}
+      title={anzeige.text}
+    >
+      <span className="truncate">{anzeige.text}</span>
+    </span>
   );
 }

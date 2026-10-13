@@ -1,11 +1,33 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { initAppRuntime, getLog } from '@jm/app-runtime';
+import {
+  initAppRuntime,
+  getLog,
+  folgeMasterShow,
+  imVerbundmodus,
+  istHostDieserRechner,
+  kuerzeName,
+  nichtAngewendet,
+  verbundDatenErsetzt,
+  verbundIgnoriert,
+  verbundKopplung,
+  type MasterStand,
+} from '@jm/app-runtime';
 import { parseShowDeepLink, type Show, type ShowIveoProgramRef, type ShowIveoSpeaker } from '@jm/show';
-import { berichtIstLeer, wendeShowAn } from '@shared/abgleich';
+import { berichtIstLeer, ohneErfundeneScharfMeldung, wendeShowAn } from '@shared/abgleich';
 import { waehleAusgangsstand, type DateiStand, type GedaechtnisInhalt } from '@shared/ausgangsstand';
-import { buildActionLine, navigate, newId } from '@shared/conductor';
+import {
+  buildActionLine,
+  dokumentHinweis,
+  entscheideMasterStand,
+  HINWEIS_RUNDOWN_DATEI_AM_MASTER,
+  masterAusgang,
+  navigate,
+  newId,
+  showLinkWeg,
+  type KopplungFuerWahl,
+} from '@shared/conductor';
 import {
   abweisungText,
   berichtText,
@@ -53,8 +75,10 @@ import { Conductor } from './conductor';
 import { getOverrides, setOverride } from './config';
 import { startControlServer, stopControlServer, pushControlState } from './control-server';
 import {
+  ausShow,
   dateiStand,
   gedaechtnisSchluessel,
+  gedaechtnisSchluesselFuer,
   legeGedaechtnisFehlerBei,
   leseGedaechtnis,
   leseShowSicher,
@@ -66,7 +90,9 @@ import {
   schreibeZeiger,
   sichereAltenAutosave,
   sichereDefektesGedaechtnis,
+  type GedaechtnisQuelle,
   type ShowGelesen,
+  type Zeiger,
 } from './gedaechtnis';
 import { defaultDoc, loadAutosave, migrate, readDoc, saveAutosave, writeDoc } from './store';
 
@@ -93,6 +119,16 @@ let iveoSideEvents: ShowIveoProgramRef[] = [];
 // ── Gemerkte Show, Gedächtnis und Abgleich (Teil 2a, Spec 4.6–4.8, 5.1–5.5) ──
 /** Absoluter Pfad der gemerkten Show (5.2) oder null. */
 let showPfad: string | null = null;
+/**
+ * Gemerkte Show vom Master im Verbund (Teil 2b, Spec 17.3): masterId und Schlüssel der Show am Master.
+ * Schließt `showPfad` aus (dann null). Jede Stelle, die „gemerkte Show“ meint, fragt `hatShow()`,
+ * jede Stelle, die das Gedächtnis meint, `gedaechtnisQuelle()` (#235).
+ */
+let masterQuelle: { masterId: string; masterSchluessel: string } | null = null;
+/** Zuletzt angewendete Show vom Master: Abgleich für „Öffnen…“ und „Neu“ im Verbundmodus (17.3). */
+let masterShow: Show | null = null;
+/** Show (masterId|Schlüssel), zu der die Logzeile „Rundown-Datei liegt am Master“ zuletzt geschrieben wurde. */
+let dokumentHinweisFuer: string | null = null;
 /** Name der gemerkten Show (steht im Gedächtnis). */
 let showName = '';
 /** Die gemerkte Show hat eine iveo-Bindung. */
@@ -125,7 +161,38 @@ let sperreGemeldet = false;
  */
 let umbenennungen: Record<string, string>[] = [];
 
-const conductor = new Conductor(() => broadcastLinks());
+const conductor = new Conductor(() => broadcastLinks(), {
+  kopplung: () => kopplungFuerWahl(),
+  istHier: (host) => istHostDieserRechner(host),
+});
+
+/** Kopplung für die Launcher-Wahl (Spec 17.4). Slave ohne Kopplung gilt als Einzelplatz (16.1). */
+function kopplungFuerWahl(): KopplungFuerWahl | null {
+  const k = verbundKopplung();
+  if (!k || (k.rolle === 'slave' && !k.masterId)) return null;
+  return { rolle: k.rolle, masterAdresse: k.masterAdresse, adressen: k.adressen, letzteAdresse: k.letzteAdresse };
+}
+
+/** Ist eine Show gemerkt — eine Show-Datei oder die Show vom Master (Spec 17.3)? */
+function hatShow(): boolean {
+  return showPfad !== null || masterQuelle !== null;
+}
+
+/** Wozu das Gedächtnis gehört (Spec 17.3); null ohne gemerkte Show. Nie ein leerer Pfad (#235). */
+function gedaechtnisQuelle(): GedaechtnisQuelle | null {
+  if (showPfad) return { art: 'pfad', showPfad };
+  if (masterQuelle) return { art: 'master', masterId: masterQuelle.masterId, schluessel: masterQuelle.masterSchluessel };
+  return null;
+}
+
+/** Zeiger der gemerkten Show, wie er im Speicher steht — Grundlage für „neue oder gleiche Show“ (17.3). */
+function aktuellerZeiger(): Zeiger | null {
+  const q = gedaechtnisQuelle();
+  if (!q) return null;
+  const schluessel = gedaechtnisSchluesselFuer(q);
+  if (q.art === 'pfad') return { showPfad: q.showPfad, schluessel };
+  return { quelle: 'master', masterId: q.masterId, masterSchluessel: q.schluessel, showName, schluessel };
+}
 
 function resourcePath(filename: string): string {
   if (app.isPackaged) return path.join(process.resourcesPath, filename);
@@ -134,7 +201,7 @@ function resourcePath(filename: string): string {
 
 /** Texte mit „iveo“ (4.5, 4.6): Bindung der gemerkten Show, ohne Show der Kontext des Dokuments. */
 function mitIveo(): boolean {
-  return showPfad !== null ? showHatIveo : kontextIstIveo(doc.kontext);
+  return hatShow() ? showHatIveo : kontextIstIveo(doc.kontext);
 }
 
 function buildState(): RundownState {
@@ -154,7 +221,7 @@ function buildState(): RundownState {
     abweisungen,
     ablaufSchluessel,
     eigeneTimerListe,
-    showGemerkt: showPfad !== null,
+    showGemerkt: hatShow(),
     showMitIveo: mitIveo(),
   };
 }
@@ -176,10 +243,14 @@ function entferneHinweis(id: number): void {
   if (hinweise.length !== vorher) broadcast();
 }
 
-/** Stand sichern (4.7): mit gemerkter Show ins Gedächtnis, sonst wie bisher in den Autosave. */
+/**
+ * Stand sichern (4.7): mit gemerkter Show ins Gedächtnis, sonst wie bisher in den Autosave. Das Gedächtnis
+ * einer Show vom Master liegt unter dem Master-Schlüssel, mit `quelle: 'master'` und leerem Pfad (17.3).
+ */
 function sichere(): void {
-  if (showPfad) {
-    if (gedaechtnisSperre !== null && gedaechtnisSperre === gedaechtnisSchluessel(showPfad)) {
+  const q = gedaechtnisQuelle();
+  if (q) {
+    if (gedaechtnisSperre !== null && gedaechtnisSperre === gedaechtnisSchluesselFuer(q)) {
       // Das Gedächtnis war nicht lesbar: nicht überschreiben, bis ein Lesen wieder gelingt.
       if (!sperreGemeldet) {
         sperreGemeldet = true;
@@ -189,12 +260,13 @@ function sichere(): void {
     }
     const ok = schreibeGedaechtnis(regieOrdner(), {
       schemaVersion: 2,
-      showPfad,
+      showPfad: q.art === 'pfad' ? q.showPfad : '',
       showName,
       doc,
       scharfId,
       gespeichertAm: new Date().toISOString(),
       ...(gedaechtnisDatei ? { datei: gedaechtnisDatei } : {}),
+      ...(q.art === 'master' ? { quelle: 'master' as const, masterId: q.masterId, masterSchluessel: q.schluessel } : {}),
     });
     if (!ok) getLog().warn('Gedächtnis der Show konnte nicht geschrieben werden.');
   } else {
@@ -244,6 +316,11 @@ function handleSuiteCommand(cmd: SuiteCommand): void {
     case 'reload':
       // Vom Launcher nach einer iveo-Änderung (7.1). Intern wie TIMER RELOAD, nicht
       // im Companion-Katalog. Mehrere binnen 300 ms → ein Abgleich (5.1).
+      // Im Verbundmodus ignoriert: die Show-Daten kommen vom Master (Spec 16.1).
+      if (imVerbundmodus()) {
+        verbundIgnoriert('reload');
+        break;
+      }
       buendleReload(() => reloadShow());
       break;
     default:
@@ -296,7 +373,7 @@ function ersetzeDoc(next: RundownDoc, nextPath: string | null): void {
  */
 function uebernimmBearbeitung(next: RundownDoc): void {
   let rows = next.rows;
-  if (showPfad) {
+  if (hatShow()) {
     const bisherEntfallen = new Set(doc.rows.filter((r) => r.entfallen).map((r) => r.id));
     rows = bereinigeQuellen(rows, ablaufSchluessel, bisherEntfallen, () => newId('r'));
   }
@@ -316,9 +393,13 @@ function uebernimmBearbeitung(next: RundownDoc): void {
   broadcast();
 }
 
-/** „Öffnen…“ und „Neu“ (5.2): gemerkte Show und Zeiger vergessen; ein folgendes RELOAD warnt. */
+/**
+ * „Öffnen…“ und „Neu“ außerhalb des Verbundmodus (5.2): gemerkte Show und Zeiger vergessen; ein folgendes
+ * RELOAD warnt. Das gilt auch für Daten eines früheren Masters: Zwischenspeicher weg (Ergänzung zu E16).
+ */
 function vergissShow(): void {
   showPfad = null;
+  vergissMaster();
   showName = '';
   showHatIveo = false;
   showRundownDatei = null;
@@ -326,6 +407,42 @@ function vergissShow(): void {
   ablaufSchluessel = [];
   eigeneTimerListe = false;
   loescheZeiger(regieOrdner());
+}
+
+/**
+ * Eine eigene Show oder ein eigenes Dokument gilt: die Show eines früheren Masters vergessen, ihren
+ * Hinweis entfernen und den Zwischenspeicher löschen (`verbundDatenErsetzt`, Spec 16.1, E16).
+ */
+function vergissMaster(): void {
+  masterQuelle = null;
+  masterShow = null;
+  dokumentHinweisFuer = null;
+  hinweise = ohneHinweisText(hinweise, HINWEIS_RUNDOWN_DATEI_AM_MASTER);
+  verbundDatenErsetzt();
+}
+
+/**
+ * „Öffnen…“ und „Neu“ im Verbundmodus (Spec 17.3): Die Show vom Master bleibt gemerkt. Das Dokument wird
+ * Ausgangsstand und sofort mit dem angewendeten Stand abgeglichen; „Speichern“ schreibt in `nextPath` (4.8).
+ * Bricht ausstehende GO-Folgen ab wie „Öffnen…“ in 2a (5.4). Hinweise zum Abgleich wie in `wendeAusgangsstandAn`.
+ */
+function gleicheMitMasterAb(start: RundownDoc, nextPath: string | null, show: Show): void {
+  cancelPendingFires();
+  lastFired = null;
+  const ausgang = migrate(start);
+  const res = wendeShowAn({ doc: ausgang, scharfId: ersteLebendeZeile(ausgang.rows), show });
+  merkeUmbenennungen(res.umbenannt);
+  doc = migrate(res.doc);
+  scharfId = res.scharfId;
+  filePath = nextPath;
+  dirty = false;
+  rev++;
+  abgleichRev = rev;
+  // Nur bei einem schon abgeglichenen Vorstand: entfallene Zeilen und Kontextwechsel nie still (4.6, #375).
+  // Ohne „scharfe Zeile entfallen“: die scharfe Zeile oben ist erfunden (ersteLebendeZeile), R-375b.
+  if (ausgang.kontext !== undefined) zeigeAbgleichHinweise(ohneErfundeneScharfMeldung(res), show);
+  sichere();
+  broadcast();
 }
 
 // ── Verzögerte GO-Feuerung (Issue #80) ───────────────────────────────────────
@@ -409,7 +526,7 @@ function doNav(cmd: RundownNav): void {
   if (cmd.t === 'go') fireRow(doc.rows[index], res.fire);
   scharfId = doc.rows[res.index]?.id ?? null;
   // Die scharfe Zeile gehört ins Gedächtnis (4.7); der Autosave kennt sie nicht.
-  if (showPfad) sichere();
+  if (hatShow()) sichere();
   broadcast();
 }
 
@@ -421,8 +538,13 @@ async function openDialog(): Promise<void> {
   if (r.canceled || !r.filePaths[0]) return;
   try {
     const d = readDoc(r.filePaths[0]);
-    vergissShow();
-    ersetzeDoc(d, r.filePaths[0]);
+    // Im Verbundmodus bleibt die Show vom Master: die Datei wird Ausgangsstand und sofort abgeglichen (17.3).
+    if (imVerbundmodus() && masterShow) {
+      gleicheMitMasterAb(d, r.filePaths[0], masterShow);
+    } else {
+      vergissShow();
+      ersetzeDoc(d, r.filePaths[0]);
+    }
   } catch (err) {
     // G6: Die JSON-Meldung zitiert Dateiinhalt → nur „kein gültiges JSON“ ins Log.
     const grund = err instanceof SyntaxError ? 'kein gültiges JSON' : (err as Error).message;
@@ -544,8 +666,13 @@ function registerIpc(): void {
     return buildState();
   });
   ipcMain.handle('rundown:new', () => {
-    vergissShow();
-    ersetzeDoc(defaultDoc(), null);
+    // Im Verbundmodus: leeres Dokument, sofort mit der Show vom Master abgeglichen (17.3).
+    if (imVerbundmodus() && masterShow) {
+      gleicheMitMasterAb({ schemaVersion: 2, name: masterShow.name, rows: [] }, null, masterShow);
+    } else {
+      vergissShow();
+      ersetzeDoc(defaultDoc(), null);
+    }
     return buildState();
   });
   ipcMain.handle('rundown:open', async () => {
@@ -656,6 +783,8 @@ function ladeAndereShow(pfad: string, g: Extract<ShowGelesen, { ok: true }>): vo
   merkeShowDaten(g);
   showPfad = pfad;
   showRundownDatei = rdPfad;
+  // Eine eigene Show ersetzt die Daten eines früheren Masters (Spec 16.1, E16).
+  vergissMaster();
   if (!schreibeZeiger(regieOrdner(), { showPfad: pfad, schluessel })) {
     getLog().warn('Zeiger auf die gemerkte Show konnte nicht geschrieben werden.');
   }
@@ -723,17 +852,25 @@ function ladeAndereShow(pfad: string, g: Extract<ShowGelesen, { ok: true }>): vo
       break;
   }
 
+  const res = wendeShowAn({ doc: start, scharfId: startScharf, show: g.show });
+  wendeAusgangsstandAn(res, migrate(res.doc), start, g.show);
+}
+
+/**
+ * Gemeinsames Ende von `ladeAndereShow` und `ladeMasterShow` (5.2, 17.3): GO-Folgen abbrechen, das Ergebnis des
+ * Abgleichs (`neuDoc` = `migrate(res.doc)`, vorher gerechnet) übernehmen, sichern, melden.
+ */
+function wendeAusgangsstandAn(res: ReturnType<typeof wendeShowAn>, neuDoc: RundownDoc, start: RundownDoc, show: Show): void {
   cancelPendingFires();
   lastFired = null;
-  const res = wendeShowAn({ doc: start, scharfId: startScharf, show: g.show });
   merkeUmbenennungen(res.umbenannt);
-  doc = migrate(res.doc);
+  doc = neuDoc;
   scharfId = res.scharfId;
   rev++;
   abgleichRev = rev;
   // Hinweise nur bei einem schon abgeglichenen Vorstand; ein leeres oder nie
   // abgeglichenes Dokument „ändert“ sich nicht, es entsteht.
-  if (start.kontext !== undefined) zeigeAbgleichHinweise(res, g.show);
+  if (start.kontext !== undefined) zeigeAbgleichHinweise(res, show);
   sichere();
   broadcast();
 }
@@ -767,6 +904,14 @@ function reloadShow(): void {
   }
   merkeShowDaten(g);
   showRundownDatei = rundownDateiDerShow(showPfad, g.show);
+  gleicheShowAbgleichen(g);
+}
+
+/**
+ * Gemeinsam für `reloadShow` und `aktualisiereMasterShow` (5.1, 17.3): dieselbe Show gegen das Dokument abgleichen,
+ * Position nach R7 bzw. 4.4, `dirty` nur bei echter Änderung einer Datei, Hinweise, melden. Bricht keine GO-Folge ab.
+ */
+function gleicheShowAbgleichen(g: Extract<ShowGelesen, { ok: true }>): void {
   const res = wendeShowAn({ doc, scharfId, show: g.show });
   merkeUmbenennungen(res.umbenannt);
   const neu = migrate(res.doc);
@@ -786,6 +931,14 @@ function reloadShow(): void {
 function applyShowFromDeepLink(url: string): boolean {
   const roh = parseShowDeepLink(url);
   if (!roh) return false;
+  // Im Verbundmodus lädt der Rundown aus dem Link nichts, weder Daten noch Dokument (17.3 vor 16.1, E24); die Regel
+  // und die eigene Logzeile sind rein und in C17 getestet (showLinkWeg). Die allgemeine 16.1-Zeile „… liefert hier
+  // nur Dokumente …“ träfe hier nicht zu: Der Rundown lädt nichts.
+  const weg = showLinkWeg(imVerbundmodus(), roh, kuerzeName);
+  if (weg.weg === 'ignorieren') {
+    getLog().info(weg.log);
+    return true;
+  }
   const pfad = path.resolve(roh);
   if (showPfad && gedaechtnisSchluessel(pfad) === gedaechtnisSchluessel(showPfad)) {
     // Dieselbe Show erneut: Abgleich wie RELOAD, Position bleibt (R7).
@@ -812,6 +965,10 @@ function applyShowFromDeepLink(url: string): boolean {
 function starteOhneDeepLink(): void {
   const z = leseZeiger(regieOrdner());
   if (!z) return;
+  if ('quelle' in z) {
+    starteMitMasterZeiger(z);
+    return;
+  }
   const g = leseShowSicher(z.showPfad);
   if (g.ok) {
     ladeAndereShow(z.showPfad, g);
@@ -822,22 +979,153 @@ function starteOhneDeepLink(): void {
   const gedaechtnis = leseGedaechtnisMitMeldung(gedaechtnisSchluessel(z.showPfad));
   if (gedaechtnis) {
     showPfad = z.showPfad;
+    vergissMaster();
     showName = gedaechtnis.showName;
-    doc = gedaechtnis.doc;
-    const gemerkt = gedaechtnis.scharfId;
-    scharfId = gemerkt !== null && doc.rows.some((r) => r.id === gemerkt) ? gemerkt : ersteLebendeZeile(doc.rows);
     gedaechtnisDatei = gedaechtnis.datei ?? null;
     showRundownDatei = gedaechtnisDatei?.pfad ?? null;
     filePath = showRundownDatei;
-    // Ohne lesbare Show: Schlüssel aus den lebenden Ablaufzeilen (Stand des letzten
-    // Abgleichs), iveo aus dem Kontext; die eigene Timer-Liste ist unbekannt.
-    ablaufSchluessel = ablaufSchluesselAusZeilen(doc.rows);
-    eigeneTimerListe = false;
-    showHatIveo = kontextIstIveo(doc.kontext);
-    rev++;
-    abgleichRev = rev;
+    uebernimmGedaechtnisOhneShow(gedaechtnis);
   }
   broadcast();
+}
+
+/**
+ * Gedächtnis als Stand übernehmen, ohne dass die Show lesbar ist (Show nicht lesbar, Master-Zeiger beim Start):
+ * Schlüssel aus den lebenden Ablaufzeilen (Stand des letzten Abgleichs), iveo aus dem Kontext; die eigene
+ * Timer-Liste ist unbekannt.
+ */
+function uebernimmGedaechtnisOhneShow(gedaechtnis: GedaechtnisInhalt): void {
+  doc = gedaechtnis.doc;
+  const gemerkt = gedaechtnis.scharfId;
+  scharfId = gemerkt !== null && doc.rows.some((r) => r.id === gemerkt) ? gemerkt : ersteLebendeZeile(doc.rows);
+  ablaufSchluessel = ablaufSchluesselAusZeilen(doc.rows);
+  eigeneTimerListe = false;
+  showHatIveo = kontextIstIveo(doc.kontext);
+  rev++;
+  abgleichRev = rev;
+}
+
+// ── Verbund (Teil 2b R2, Spec 16, 17.3): Show vom Master ─────────────────────
+
+/**
+ * Start ohne Deep-Link, Zeiger mit `quelle: 'master'` (Spec 17.3): Gedächtnis mit Master-Schlüssel laden.
+ * Den Stand dazu bringt danach der Zwischenspeicher (wie „neuer Stand, gleiche Show“) oder der nächste Stand;
+ * die Anzeige (16.4) sagt, worauf der Rundown wartet. Ohne lesbares Gedächtnis bleibt der Autosave, und der
+ * erste Stand lädt die Show wie eine andere (Übergang nach dem Namen).
+ */
+function starteMitMasterZeiger(z: Extract<Zeiger, { quelle: 'master' }>): void {
+  const gedaechtnis = leseGedaechtnisMitMeldung(gedaechtnisSchluesselFuer({ art: 'master', masterId: z.masterId, schluessel: z.masterSchluessel }));
+  if (gedaechtnis) {
+    masterQuelle = { masterId: z.masterId, masterSchluessel: z.masterSchluessel };
+    showName = gedaechtnis.showName || z.showName;
+    uebernimmGedaechtnisOhneShow(gedaechtnis);
+  }
+  broadcast();
+}
+
+/**
+ * Stehender Hinweis, wenn die Show am Master eine eigene Rundown-Datei trägt (Spec 17.3): einmal je Show
+ * gezeigt und geloggt (weggeklickt bleibt er weg, bis eine andere Show kommt); ohne Datei entfernt.
+ */
+function zeigeDokumentHinweis(stand: MasterStand, masterSchluessel: string): void {
+  // Die Regel „einmal je Show“ ist rein und in C17 getestet (dokumentHinweis, N9).
+  const h = dokumentHinweis(dokumentHinweisFuer, stand, masterSchluessel);
+  dokumentHinweisFuer = h.fuer;
+  if (h.fuer === null) {
+    hinweise = ohneHinweisText(hinweise, HINWEIS_RUNDOWN_DATEI_AM_MASTER);
+    return;
+  }
+  if (!h.zeigen) return;
+  getLog().info(HINWEIS_RUNDOWN_DATEI_AM_MASTER);
+  if (!hinweise.some((x) => x.text === HINWEIS_RUNDOWN_DATEI_AM_MASTER)) hinweis(HINWEIS_RUNDOWN_DATEI_AM_MASTER, 'stehend');
+}
+
+/**
+ * Stand mit neuer Show (Spec 17.3, wie `ladeAndereShow`): Ausgangsstand aus dem Gedächtnis mit Master-Schlüssel →
+ * Übergang (gleicher Name: der aktuelle Stand) → leer (`masterAusgang`, C17), dann `wendeShowAn`. Die eigene
+ * Rundown-Datei der Show wird auf B nicht geladen. Erst wird gerechnet, dann der Zustand gesetzt (N9): Wirft das
+ * Rechnen, bleibt alles beim Alten, und der nächste Versuch des Folgers (16.2) lädt die Show wieder als neue — nicht
+ * über `entscheideMasterStand` als „gleich“ auf das alte Dokument. Bricht laufende GO-Folgen ab wie bisher (5.4).
+ */
+function ladeMasterShow(stand: MasterStand & { show: Show }, masterSchluessel: string): void {
+  const g = ausShow(stand.show);
+  const schluessel = gedaechtnisSchluesselFuer({ art: 'master', masterId: stand.masterId, schluessel: masterSchluessel });
+  const gedaechtnis = leseGedaechtnisMitMeldung(schluessel);
+  const weg = masterAusgang({
+    mitGedaechtnis: gedaechtnis !== null,
+    ablaufLeer: g.ablaufSchluessel.length === 0,
+    docName: doc.name,
+    showName: g.show.name,
+  });
+
+  // Rechnen (kann werfen): Ausgangsstand und Abgleich.
+  let start: RundownDoc = { schemaVersion: 2, name: g.show.name, rows: [] };
+  let startScharf: string | null = null;
+  if (weg === 'gedaechtnis' && gedaechtnis) {
+    start = gedaechtnis.doc;
+    startScharf = gedaechtnis.scharfId;
+  } else if (weg === 'uebergang') {
+    start = doc;
+    startScharf = scharfId;
+  }
+  const res = weg === 'bleibt' ? null : wendeShowAn({ doc: start, scharfId: startScharf, show: g.show });
+  const neuDoc = res ? migrate(res.doc) : null;
+
+  // Ab hier den Zustand setzen: die Show vom Master ist gemerkt.
+  merkeShowDaten(g);
+  showPfad = null;
+  masterQuelle = { masterId: stand.masterId, masterSchluessel };
+  masterShow = stand.show;
+  showRundownDatei = null;
+  gedaechtnisDatei = null;
+  const zeiger: Zeiger = { quelle: 'master', masterId: stand.masterId, masterSchluessel, showName: g.show.name, schluessel };
+  if (!schreibeZeiger(regieOrdner(), zeiger)) getLog().warn('Zeiger auf die gemerkte Show konnte nicht geschrieben werden.');
+  hinweis(`Show vom Master „${g.show.name}“ übernommen.`, 'kurz');
+  zeigeDokumentHinweis(stand, masterSchluessel);
+
+  if (!res || !neuDoc) {
+    // Wie 5.2 (`bleibt`): Show ohne Ablauf → merken, das aktuelle Dokument bleibt unangetastet und wird NICHT als
+    // Gedächtnis dieser Show geschrieben. Bekommt sie einen Ablauf, lädt der nächste Stand sie neu.
+    rev++;
+    abgleichRev = rev;
+    broadcast();
+    return;
+  }
+
+  dirty = false;
+  filePath = null;
+  wendeAusgangsstandAn(res, neuDoc, start, g.show);
+}
+
+/**
+ * Neuer Stand derselben Show (Spec 17.3, wie `reloadShow`): `wendeShowAn`, Position nach R7 bzw. 4.4, bricht
+ * keine GO-Folge ab (5.4). Hatte die Show keinen Ablauf und hat jetzt einen → wie eine andere Show (5.2).
+ */
+function aktualisiereMasterShow(stand: MasterStand & { show: Show }, masterSchluessel: string): void {
+  const g = ausShow(stand.show);
+  // Sperre prüfen: ein Lesen, das jetzt gelingt, hebt sie auf (Ruling Fix-Runde 1).
+  if (gedaechtnisSperre !== null) leseGedaechtnisMitMeldung(gedaechtnisSperre);
+  if (ablaufNeuEntstanden(ablaufSchluessel.length === 0, g.ablaufSchluessel.length)) {
+    ladeMasterShow(stand, masterSchluessel);
+    return;
+  }
+  merkeShowDaten(g);
+  masterShow = stand.show;
+  zeigeDokumentHinweis(stand, masterSchluessel);
+  gleicheShowAbgleichen(g);
+}
+
+/**
+ * Stand vom Master anwenden (`folgeMasterShow`, Spec 16.2, 17.3). Neue oder gleiche Show entscheidet der
+ * Zeiger (gemerkte Show), nicht `neueShow` — so passt es auch beim Start mit dem Zwischenspeicher. Wirft
+ * = nicht angewendet (app-runtime zeigt V12 und versucht es erneut).
+ */
+function wendeMasterStandAn(stand: MasterStand & { show: Show }): void {
+  const masterSchluessel = stand.schluessel;
+  // Laut 13.1 ausgeschlossen; V12 zeigt dann „… nicht übernommen: SCHLUESSEL_FEHLT“ (N3).
+  if (masterSchluessel === null) throw nichtAngewendet('SCHLUESSEL_FEHLT');
+  if (entscheideMasterStand(aktuellerZeiger(), stand) === 'gleich') aktualisiereMasterShow(stand, masterSchluessel);
+  else ladeMasterShow(stand, masterSchluessel);
 }
 
 function rendererUrl(): string | undefined {
@@ -915,9 +1203,18 @@ if (!gotLock) {
     scharfId = ersteLebendeZeile(doc.rows);
     registerIpc();
     createMainWindow();
-    // Ein Show-Deep-Link hat Vorrang; sonst führt der Zeiger zur gemerkten Show (5.2).
-    const perShowLink = runtime.initialDeepLink ? applyShowFromDeepLink(runtime.initialDeepLink) : false;
-    if (!perShowLink) starteOhneDeepLink();
+    // Ein Show-Deep-Link hat Vorrang; sonst führt der Zeiger zur gemerkten Show (5.2). Dem Master folgen
+    // (Spec 16, 17.3) erst danach (E17): ein Zwischenspeicher wird dabei angewendet. Der Show-Deep-Link
+    // kommt erst nach der Anmeldung beim Verbund: Im Verbundmodus lädt der Rundown so nichts daraus (E24, 17.3, 16.3).
+    const link = runtime.initialDeepLink;
+    const showLink = link !== null && parseShowDeepLink(link) !== null ? link : null;
+    if (!showLink) starteOhneDeepLink();
+    folgeMasterShow({
+      anwenden: (stand) => wendeMasterStandAn(stand),
+      // Kopplung oder Verbindung zum Master gewechselt: Launcher neu wählen (17.4).
+      beiWechsel: () => conductor.neuWaehlen(),
+    });
+    if (showLink) applyShowFromDeepLink(showLink);
     // start() zuerst: liest die geteilte Steuer-Konfig (Token/TLS für secure-Modus),
     // bevor setOverrides die ersten Clients erzeugt — sonst verbänden sie plain.
     conductor.start(app.getPath('appData'));

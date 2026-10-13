@@ -3,7 +3,7 @@
 // Statuszeile im iveo-Panel (7.6). Der Rest der Hülle ist Electron-Verdrahtung und
 // wird im Durchgang mit gebauten Programmen geprüft (Spec 9.8, apps/rundown/test/e2e-teil2a.mjs).
 import { createServer, type AddressInfo } from 'node:http';
-import { IveoApiError, IveoClient, type IveoFetchResponse } from '@jm/iveo';
+import { IveoApiError, IveoClient, type IveoFetchResponse, type IveoProgram } from '@jm/iveo';
 import { serializeShow, type Show } from '@jm/show';
 import {
   abfrageTakt, gleicherShowPfad, IVEO_ABFRAGE_TAKT_MS, IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze, nurBeiWechsel,
@@ -11,6 +11,7 @@ import {
 } from '../src/main/iveo-huelle-hilfen';
 import { toClientError } from '../src/main/iveo-abgleich-kern';
 import { leseShowFuerEditor } from '../src/main/show-lesen';
+import { bildeSideEventListe, toProgramList } from '../src/main/iveo-side-events';
 import { iveoStatusZeile } from '../src/renderer/src/lib/iveo-status';
 
 let pass = 0, fail = 0;
@@ -202,6 +203,32 @@ console.log('— Show-Editor liest die Datei beim Speichern (Spec 7.5, Regel 1):
   let gelesen = false;
   const fremd = leseShowFuerEditor('C:/Shows/notizen.txt', () => { gelesen = true; return '{}'; }, warn);
   ck('keine .jmshow-Datei → null, nicht gelesen, eine Warnung', fremd === null && !gelesen && zeilen.length === 3);
+}
+
+console.log('— Side-Event-Liste (Teil 2b R2, Spec 15.4): Binden und Abgleich bilden sie mit derselben Funktion');
+{
+  const p = (id: string, title: string, extra: Partial<IveoProgram>): IveoProgram => ({ id, event_id: 'e1', title, ...extra });
+  const programme: IveoProgram[] = [
+    p('B', 'Zweiter Tag', { starts_at_local: '2026-11-11T09:00:00', type_slug: 'side-event' }),
+    p('A2', ' Später ', { starts_at_local: '2026-11-10T14:00:00', type_slug: 'side-event' }),
+    p('A1', '', { starts_at_local: '2026-11-10T09:00:00', type_slug: 'side-event' }),
+    p('X', 'Plenum', { starts_at_local: '2026-11-10T08:00:00', type_slug: 'plenary' }),
+    p('Z', 'Blocker Mittag', { starts_at_local: '2026-11-10T12:00:00', type_slug: 'side-event' }),
+  ];
+  const tag = { day: '2026-11-10', typeSlug: 'side-event', excludeBlockers: true };
+  ck('Bindung wie vorher: Tag, Typ, ohne Blocker, nach Startzeit, Titel getrimmt, leerer Titel → „(ohne Titel)“',
+    JSON.stringify(bildeSideEventListe(programme, tag)) === '[{"id":"A1","title":"(ohne Titel)"},{"id":"A2","title":"Später"}]');
+  ck('programId im Filter zählt nicht: die Liste ist die des Tages',
+    JSON.stringify(bildeSideEventListe(programme, { ...tag, programId: 'A2' })) === JSON.stringify(bildeSideEventListe(programme, tag)));
+  ck('ohne Filter: alle Programme, nach Tag und Startzeit', bildeSideEventListe(programme, {}).map((x) => x.id).join(',') === 'X,A1,Z,A2,B');
+  ck('toProgramList trägt den Tag (Auswahl im Show-Editor)',
+    JSON.stringify(toProgramList([programme[0]])) === '[{"id":"B","title":"Zweiter Tag","day":"2026-11-11"}]');
+  ck('Statuszeile: beide Merker → beide Texte mit „; “ und die Uhrzeit',
+    iveoStatusZeile({
+      ok: false,
+      text: 'Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand; Side-Event-Liste von iveo nicht abrufbar, Liste aus früherem Stand',
+      seit,
+    }) === 'iveo-Abgleich gestört: Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand; Side-Event-Liste von iveo nicht abrufbar, Liste aus früherem Stand (seit 14:05)');
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

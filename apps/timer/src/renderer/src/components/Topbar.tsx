@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/store/timer';
 import { Logo } from '@jm/ui';
 import { cn, dragRegion, noDragRegion, isElectronMac } from '@jm/ui';
+import type { VerbundAnzeigeZeile } from '@shared/verbund';
 
 const MODE_LABELS: Record<string, string> = {
   clock: 'Real-Time Clock',
@@ -55,6 +56,7 @@ export function Topbar() {
       </div>
 
       <div className="flex items-center gap-2" style={noDragRegion}>
+        <VerbundPille />
         <SyncPill connected={connected} />
         <button
           type="button"
@@ -84,6 +86,40 @@ export function Topbar() {
         </button>
       </div>
     </header>
+  );
+}
+
+const VERBUND_FARBE: Record<VerbundAnzeigeZeile['farbe'], string> = {
+  gruen: 'border-[var(--success)]/50 text-[var(--success)]',
+  gelb: 'border-[var(--warning)]/60 text-[var(--warning)]',
+  rot: 'border-[var(--destructive)]/60 text-[var(--destructive)]',
+  gedaempft: 'border-[var(--border)] text-[var(--muted-foreground)]',
+};
+
+/**
+ * Verbund-Anzeige neben „Sync“ (Master-Link Teil 2b, Spec 16.4/16.5): die V-Zeile aus app-runtime,
+ * gekürzt mit „…“, voller Text als Tooltip. Am Einzelplatz (null) nichts.
+ */
+function VerbundPille() {
+  const [anzeige, setAnzeige] = useState<VerbundAnzeigeZeile | null>(null);
+  useEffect(() => {
+    const jm = window.jm;
+    if (!jm?.verbundAnzeige) return;
+    void jm.verbundAnzeige().then(setAnzeige);
+    return jm.onVerbundAnzeige(setAnzeige);
+  }, []);
+  if (!anzeige) return null;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-[var(--radius-sm)] px-2 h-6 max-w-[22rem]',
+        'text-[11px] font-semibold border',
+        VERBUND_FARBE[anzeige.farbe],
+      )}
+      title={anzeige.text}
+    >
+      <span className="truncate">{anzeige.text}</span>
+    </span>
   );
 }
 

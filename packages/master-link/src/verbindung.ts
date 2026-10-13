@@ -33,17 +33,23 @@ export class Verbindung extends EventEmitter {
     return !this.beendet && !this.schliessend;
   }
 
+  /**
+   * Teil 2b (Spec 13.5): eine Zeile entnehmen, ausgeben, erst dann die nächste entnehmen. Die Grenze gilt so je Zeile —
+   * hebt der Zuhörer von 'angemeldet' sie an, gilt für die nächste Zeile desselben Stücks schon 1 MiB.
+   */
   private aufDaten(d: Buffer): void {
     if (this.beendet || this.schliessend) return;
-    let zeilen: string[];
-    try {
-      zeilen = this.leser.fuettere(d);
-    } catch {
-      this.brich();
-      return;
-    }
-    for (const zeile of zeilen) {
+    this.leser.fuettere(d);
+    for (;;) {
       if (this.beendet || this.schliessend) return;
+      let zeile: string | null;
+      try {
+        zeile = this.leser.naechste();
+      } catch {
+        this.brich();
+        return;
+      }
+      if (zeile === null) return;
       const r = dekodiere(zeile);
       if (r.art === 'kaputt') {
         this.brich();
@@ -65,8 +71,25 @@ export class Verbindung extends EventEmitter {
     this.emit('ende', fehler);
   }
 
-  sende(n: Nachricht): void {
-    if (!this.beendet && !this.schliessend && !this.socket.destroyed) this.socket.write(kodiere(n));
+  /**
+   * Teil 2b (Spec 13.6): true, wenn die Zeile in den Schreibpuffer ging; false, wenn nichts hinausging (geschlossen,
+   * schließend oder zerstört). Ein Puffer über der Hochwassermarke ist kein false — Rückdruck misst der Server selbst
+   * über socket.writableLength (MasterLinkServer.sendeDaten).
+   */
+  sende(n: Nachricht): boolean {
+    return this.schreibe(kodiere(n));
+  }
+
+  /** Teil 2b (Spec 13.6): eine fertige Zeile (kodiereStand) — genau ein '\n', am Ende; sonst wirft sie (Programmfehler). */
+  sendeZeile(zeile: string): boolean {
+    if (zeile.indexOf('\n') !== zeile.length - 1) throw new Error('sendeZeile: genau eine Zeile mit \\n am Ende erwartet');
+    return this.schreibe(zeile);
+  }
+
+  private schreibe(zeile: string): boolean {
+    if (this.beendet || this.schliessend || this.socket.destroyed) return false;
+    this.socket.write(zeile);
+    return true;
   }
 
   setzeGrenze(grenze: number): void {
