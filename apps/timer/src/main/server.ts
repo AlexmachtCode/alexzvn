@@ -4,10 +4,12 @@ import path from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { app } from 'electron';
 import { Server as IoServer } from 'socket.io';
+import { imVerbundmodus, verbundDatenErsetzt } from '@jm/app-runtime';
 import { dispatch, getState, subscribe } from './state';
 import { getAuth, isTokenValid } from './auth';
 import type { Command } from '@shared/timer-state';
 import { BIND_HOST, SERVER_PORT as PORT } from '@shared/net';
+import { ersetztVerbundDaten } from '@shared/verbund';
 
 export const SERVER_PORT = PORT;
 /** Lausch-Adresse — NICHT als Verbindungsziel verwenden, siehe @shared/net. */
@@ -149,6 +151,8 @@ export function startServer(): Promise<void> {
         try {
           const next = dispatch(cmd);
           io?.emit('state', next);
+          // Ablauf von Hand außerhalb des Verbundmodus: eigene Daten statt der des früheren Masters (Spec 16.1, E56).
+          if (ersetztVerbundDaten(cmd, imVerbundmodus())) verbundDatenErsetzt();
         } catch (err) {
           console.error('[jm-timer] bad command', cmd, err);
         }

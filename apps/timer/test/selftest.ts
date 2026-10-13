@@ -11,9 +11,11 @@ import {
   type TimetableState,
   type CountdownState,
   type SyncedState,
+  type Command,
 } from '../src/shared/timer-state.ts';
 import { ablaufToTimetable, parseTimetable } from '../src/shared/show-ablauf.ts';
 import { timerAktionenAusShow, type TimerAktion } from '../src/shared/show-anwenden.ts';
+import { ersetztVerbundDaten } from '../src/shared/verbund.ts';
 import { createShow, hatEigeneTimerListe, normalizeAblauf, parseShow, serializeShow } from '../../../packages/show/src/index.ts';
 import { agendaToAblauf } from '../../../packages/iveo/src/mapper.ts';
 import { buildCsp } from '../../../packages/app-runtime/src/csp.ts';
@@ -325,6 +327,36 @@ const kennungen = (s: SyncedState): string => JSON.stringify(s.timetable.items.m
   timerAktionenAusShow(gala, 'initial', false);
   timerAktionenAusShow(gala, 'reload', false);
   ck('R2 17.1 die Show bleibt unverändert', JSON.stringify(gala) === vorJson);
+}
+
+// ── Teil 2b R2 · Ablauf von Hand außerhalb des Verbundmodus (Spec 16.1, E16, E56) ─
+// Ändert der Bediener die Punkte des Ablaufs (Socket :7777), ruft der Main verbundDatenErsetzt(). Sonst wendete
+// der nächste Start den Zwischenspeicher des früheren Masters an ('reload' → tt:replaceItems), verdrängte die
+// Liste von Hand, und „Daten vom früheren Master …“ (V13) bliebe stehen.
+{
+  const punkteBefehle: Command[] = [
+    { type: 'tt:add', item: { label: 'Neu', durationMs: MIN } },
+    { type: 'tt:update', id: 'a', patch: { label: 'Umbenannt' } },
+    { type: 'tt:delete', id: 'a' },
+    { type: 'tt:move', id: 'a', direction: 'down' },
+    { type: 'tt:setAll', items: [{ label: 'Import', durationMs: MIN }] },
+    { type: 'tt:replaceItems', items: [{ label: 'Import', durationMs: MIN }] },
+  ];
+  for (const cmd of punkteBefehle) {
+    ck(`R2 E56 ${cmd.type} außerhalb des Verbundmodus → verbundDatenErsetzt`, ersetztVerbundDaten(cmd, false) === true);
+    ck(`R2 E56 ${cmd.type} im Verbundmodus → Zwischenspeicher bleibt`, ersetztVerbundDaten(cmd, true) === false);
+  }
+  // Countdown, Navigation, Farben und Meldung ändern die Punkte nicht; der Zwischenspeicher ersetzt sie auch nicht.
+  const andere: Command[] = [
+    { type: 'setDuration', ms: MIN }, { type: 'start' }, { type: 'pause' }, { type: 'reset' }, { type: 'addDelay', sec: 30 },
+    { type: 'clearDelay' }, { type: 'setColors', patch: {} }, { type: 'tt:loadItem', index: 0 }, { type: 'tt:next' },
+    { type: 'tt:prev' }, { type: 'tt:clearActive' }, { type: 'tt:setAutoAdvance', enabled: true },
+    { type: 'tt:setAutoAdvanceGrace', sec: 5 }, { type: 'msg:set', text: 'x' }, { type: 'msg:setBlink', blinking: true },
+    { type: 'msg:clear' },
+  ];
+  ck('R2 E56 alle 22 Befehle geprüft', new Set([...punkteBefehle, ...andere].map((c) => c.type)).size === 22);
+  ck('R2 E56 Bedienung ohne Änderung der Punkte → nichts ersetzt', andere.every((c) => ersetztVerbundDaten(c, false) === false));
+  ck('R2 E56 unbekannter Befehl vom Socket → nichts ersetzt', ersetztVerbundDaten({ type: 'constructor' } as unknown as Command, false) === false);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
