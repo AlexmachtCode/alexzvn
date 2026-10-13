@@ -1,3 +1,5 @@
+import type { VerbundAnzeigeZeile } from '@shared/verbund';
+
 declare global {
   interface Window {
     jm?: {
@@ -25,6 +27,9 @@ declare global {
         regenerate: () => Promise<{ enabled: boolean; token: string }>;
       };
       closeWindow: () => Promise<void>;
+      /** Verbund-Anzeige (Master-Link Teil 2b, Spec 16.4/16.5): V-Zeile oder null (Einzelplatz). */
+      verbundAnzeige: () => Promise<VerbundAnzeigeZeile | null>;
+      onVerbundAnzeige: (cb: (a: VerbundAnzeigeZeile | null) => void) => () => void;
     };
   }
 }

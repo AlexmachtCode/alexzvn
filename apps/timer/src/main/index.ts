@@ -10,12 +10,19 @@ import {
 } from 'electron';
 import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { initAppRuntime, getLog } from '@jm/app-runtime';
+import {
+  initAppRuntime,
+  getLog,
+  folgeMasterShow,
+  imVerbundmodus,
+  verbundDatenErsetzt,
+  verbundIgnoriert,
+} from '@jm/app-runtime';
 import { advertise, type Advertiser } from '@jm/discovery';
 import { readControlConfig, mdnsSignKey } from '@jm/control-config';
-import { hatEigeneTimerListe, parseShow, parseShowDeepLink } from '@jm/show';
+import { hatEigeneTimerListe, parseShow, parseShowDeepLink, type Show } from '@jm/show';
 import { aktiverPunktVerschwunden } from '@shared/timer-state';
-import { ablaufToTimetable, parseTimetable } from '@shared/show-ablauf';
+import { timerAktionenAusShow } from '@shared/show-anwenden';
 import { RENDERER_CSP } from '@shared/net';
 import { loadState, dispatch, getState } from './state';
 import {
@@ -296,6 +303,7 @@ function registerIpc(): void {
 
 // parseTimetable/ablaufToTimetable liegen seit Teil 2a in @shared/show-ablauf (ohne Electron,
 // testbar im Selbsttest); ablaufToTimetable gibt dort die Kennung der Ablaufpunkte mit.
+// Seit Teil 2b R2 baut @shared/show-anwenden daraus die Befehle (timerAktionenAusShow, Spec 17.1).
 
 /**
  * Show-Integration (B4): Wird der Timer über einen Show-Deep-Link gestartet,
@@ -309,44 +317,49 @@ function registerIpc(): void {
 function applyShowFromDeepLink(url: string): void {
   const showPath = parseShowDeepLink(url);
   if (!showPath) return;
+  // Im Verbundmodus kommen Ablauf und Settings nur vom Master (Spec 16.1); der Timer hat
+  // keine Dokumente, also bleibt vom Deep-Link nichts übrig (gedrosselte Logzeile).
+  if (imVerbundmodus()) {
+    verbundIgnoriert('deeplink', showPath);
+    return;
+  }
   applyShowFromPath(showPath, 'initial');
 }
 
 /**
- * Ablauf aus einer .jmshow anwenden. `mode`:
- *  - 'initial' (Erst-Öffnen): `tt:setAll` — ersetzt Ablauf + setzt Countdown zurück.
- *  - 'reload' (Live-Update, z. B. nach iveo-Poll): `tt:replaceItems` — tauscht nur
- *    die Items, lässt einen laufenden Countdown UNANGETASTET.
- * Merkt sich den Show-Pfad, damit `reloadCurrentShow()` später neu einlesen kann.
+ * Show anwenden (Spec 17.1): dieselbe reine Funktion für eine gelesene Datei und für einen
+ * Stand vom Master. `mode`:
+ *  - 'initial' (Erst-Öffnen, neue Show vom Master): `tt:setAll` — ersetzt Ablauf + setzt Countdown zurück.
+ *  - 'reload' (Live-Update, gleiche Show, Start mit Zwischenspeicher): `tt:replaceItems` — tauscht
+ *    nur die Items, lässt einen laufenden Countdown UNANGETASTET.
+ * Wirft, wenn `dispatch` wirft; der Aufrufer entscheidet, was das heißt (Datei: Logzeile,
+ * Verbund: app-runtime zeigt V12 und versucht es erneut).
+ */
+function wendeTimerShowAn(show: Show, mode: 'initial' | 'reload'): void {
+  const settings = show.tools.find((t) => t.appId === 'jm-timer')?.settings;
+  // Eigene Timer-Liste hat Vorrang vor dem Show-Ablauf. Die Prüfung kommt aus @jm/show,
+  // damit Timer und Rundown dieselbe Liste meinen (Teil 2a, Spec 6.1/6.2).
+  for (const aktion of timerAktionenAusShow(show, mode, hatEigeneTimerListe(settings))) {
+    const vorher = getState().timetable;
+    const nachher = dispatch(aktion).timetable;
+    // Der aktive Punkt folgt seiner Kennung; fehlt sie im neuen Ablauf, hält der Timer
+    // die Nummer — das soll im Log stehen, statt still zu passieren.
+    if (aktion.type === 'tt:replaceItems' && aktiverPunktVerschwunden(vorher, nachher, aktion.items)) {
+      getLog().info('Aktiver Punkt im neuen Ablauf nicht mehr vorhanden, Nummer gehalten');
+    }
+  }
+}
+
+/**
+ * Ablauf aus einer .jmshow anwenden (Modus wie `wendeTimerShowAn`). Merkt sich den Show-Pfad,
+ * damit `reloadCurrentShow()` später neu einlesen kann. Eine eigene Show ersetzt die Daten
+ * eines früheren Masters (Spec 16.1): `verbundDatenErsetzt()` löscht den Zwischenspeicher.
  */
 function applyShowFromPath(showPath: string, mode: 'initial' | 'reload'): void {
   try {
-    const show = parseShow(readFileSync(showPath, 'utf8'));
-    const settings = show.tools.find((t) => t.appId === 'jm-timer')?.settings;
-    // Eigene Timer-Liste hat Vorrang vor dem Show-Ablauf. Die Prüfung kommt aus @jm/show,
-    // damit Timer und Rundown dieselbe Liste meinen (Teil 2a, Spec 6.1/6.2).
-    const items = hatEigeneTimerListe(settings)
-      ? parseTimetable(settings?.timetable)
-      : ablaufToTimetable(show.ablauf);
-    if (items) {
-      const vorher = getState().timetable;
-      const nachher = dispatch({ type: mode === 'reload' ? 'tt:replaceItems' : 'tt:setAll', items }).timetable;
-      // Der aktive Punkt folgt seiner Kennung; fehlt sie im neuen Ablauf, hält der Timer
-      // die Nummer — das soll im Log stehen, statt still zu passieren.
-      if (mode === 'reload' && aktiverPunktVerschwunden(vorher, nachher, items)) {
-        getLog().info('Aktiver Punkt im neuen Ablauf nicht mehr vorhanden, Nummer gehalten');
-      }
-    }
-    // Countdown-Vorgabe nur beim Erst-Öffnen anwenden (nicht bei Live-Reload).
-    if (
-      mode === 'initial' &&
-      settings &&
-      typeof settings.durationMs === 'number' &&
-      settings.durationMs >= 0
-    ) {
-      dispatch({ type: 'setDuration', ms: settings.durationMs });
-    }
+    wendeTimerShowAn(parseShow(readFileSync(showPath, 'utf8')), mode);
     currentShowPath = showPath;
+    verbundDatenErsetzt();
   } catch (err) {
     getLog().error(`Show-Einstellungen konnten nicht geladen werden: ${(err as Error).message}`);
   }
@@ -355,8 +368,13 @@ function applyShowFromPath(showPath: string, mode: 'initial' | 'reload'): void {
 /**
  * Aktuelle Show neu einlesen (z. B. wenn der Launcher nach einem iveo-Update ein
  * `TIMER RELOAD` schickt). No-op, wenn keine Show geladen ist. Nicht-destruktiv.
+ * Im Verbundmodus ignoriert (Spec 16.1): die Show-Daten kommen vom Master.
  */
 export function reloadCurrentShow(): boolean {
+  if (imVerbundmodus()) {
+    verbundIgnoriert('reload');
+    return false;
+  }
   if (!currentShowPath) {
     // SICHTBAR statt still (Ist-Karte 30.09.2026): der Launcher zählt diesen
     // Timer als "benachrichtigt", aber ohne Show-Pfad gibt es nichts neu zu
@@ -403,6 +421,12 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     loadState();
+    // Verbund (Spec 16.1, 17.1): erst nach loadState registrieren (E17). Ein Zwischenspeicher wird
+    // dabei angewendet ('reload'), ein Stand mit anderer Show wie „Show öffnen“ ('initial'). Wirft
+    // dispatch, zeigt app-runtime V12 und versucht es erneut.
+    folgeMasterShow({
+      anwenden: (stand, neueShow) => wendeTimerShowAn(stand.show, neueShow ? 'initial' : 'reload'),
+    });
     loadAuth();
     await startServer();
     // Im LAN annoncieren, damit Aggregatoren (Stage Display) den Timer ohne

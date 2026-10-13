@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { PRELOAD_SERVER_URL } from '@shared/net';
+import type { VerbundAnzeigeZeile } from '@shared/verbund';
 
 const api = {
   platform: process.platform,
@@ -42,6 +43,15 @@ const api = {
       }>,
   },
   closeWindow: () => ipcRenderer.invoke('window:close') as Promise<void>,
+  /** Verbund-Anzeige (Master-Link Teil 2b, Spec 16.4/16.5): V-Zeile oder null (Einzelplatz). */
+  verbundAnzeige: () => (ipcRenderer.invoke('jmps:verbund-anzeige') as Promise<VerbundAnzeigeZeile | null>).catch(() => null),
+  onVerbundAnzeige: (cb: (a: VerbundAnzeigeZeile | null) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, a: VerbundAnzeigeZeile | null) => cb(a);
+    ipcRenderer.on('jmps:verbund-anzeige', listener);
+    return () => {
+      ipcRenderer.off('jmps:verbund-anzeige', listener);
+    };
+  },
 };
 
 if (process.contextIsolated) {
