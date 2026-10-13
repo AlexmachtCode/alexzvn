@@ -1762,6 +1762,43 @@ const seWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.startsWith
     typeof seitVorher === 'string' && st?.ok === false && st.text === TEXT_SELISTE && st.seit === seitVorher);
 }
 {
+  // Fix-Runde 1: Die Statuszeile stimmt SOFORT nach dem Speichern, nicht erst bei der nächsten Abfrage.
+  const u = umgebung(agendaP1);
+  u.iveo.fehler.geaendert = new Error('fetch failed');
+  await u.kern.abfrage();
+  const seitVorher = u.status.at(-1)?.seit;
+  const infos = u.info.length;
+  const meldungen = u.status.length;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  const st = u.status.at(-1);
+  ck('R2 15.4: direkt nach dem Speichern bleibt der Side-Event-Text stehen, „seit“ = erster Fehlschlag, kein „wieder in Ordnung“',
+    st?.ok === false && st.text === TEXT_SELISTE && st.seit === seitVorher && u.status.length === meldungen
+    && !u.info.slice(infos).includes('iveo-Abgleich wieder in Ordnung.'));
+}
+{
+  const u = umgebung((iv) => mitMerker(agendaP1(iv)));
+  await u.kern.umschalten({ programId: 'P1' });
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.fehler.geaendert = new Error('fetch failed');
+  await u.kern.abfrage();
+  const meldungen = u.status.length;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  const st = u.status.at(-1);
+  ck('R2 15.4: direkt nach dem Speichern stehen beide Texte, „seit“ = der frühere, keine neue Meldung',
+    st?.ok === false && st.text === `${TEXT_SPEAKER_VERALTET}; ${TEXT_SELISTE}` && st.seit === MERKER && u.status.length === meldungen);
+}
+{
+  // Wechselt die Bindung beim Speichern von Side Event auf Tagesübersicht, gilt der Merker nicht mehr.
+  const u = umgebung(agendaP1);
+  u.iveo.fehler.geaendert = new Error('fetch failed');
+  await u.kern.abfrage();
+  const s = datei(u);
+  u.dateien.set(SHOW_PFAD, serializeShow({ ...s, iveo: { ...s.iveo!, filter: { day: TAG } } }));
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('R2 15.4: Wechsel Side Event → Tagesübersicht beim Speichern: Merker entfällt, Status in Ordnung',
+    u.status.at(-1)?.ok === true && u.info.at(-1) !== undefined && u.info.includes('iveo-Abgleich wieder in Ordnung.'));
+}
+{
   const u = umgebung((iv) => mitMerker(agendaP1(iv)));
   await u.kern.umschalten({ programId: 'P1' }); // Kontext merken; P1 verknüpft keine Speaker, der Merker bleibt
   u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');

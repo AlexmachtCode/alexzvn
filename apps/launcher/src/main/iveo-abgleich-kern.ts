@@ -592,7 +592,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
    * lastSig kommt aus der Datei (7.2) — sonst schrieb die erste Abfrage nach jedem Öffnen ohne Änderung neu und
    * schickte ein Schein-RELOAD (im Log von #235 sichtbar).
    */
-  function setzeAuf(pfad: string, show: Show): AktiveShow | null {
+  function setzeAuf(pfad: string, show: Show, seMerker?: string): AktiveShow | null {
     generation++;
     offenePfad = pfad;
     active = null;
@@ -625,13 +625,16 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       lastSig: ablaufSignatur(show.ablauf ?? [], binding.speakers ?? [], binding.speakerVeraltetSeit, binding.sideEvents),
       speakerVeraltetSeit: binding.speakerVeraltetSeit,
       seListeIso: seit,
+      // Der Merker „Side-Event-Liste veraltet“ liegt nur im Speicher (15.4): beim Speichern der offenen Show reicht
+      // der Aufrufer ihn durch, damit die Statuszeile von Anfang an stimmt.
+      seListeVeraltetSeit: seMerker,
     };
     const merker = binding.speakerVeraltetSeit;
-    if (merker) {
-      // Teil 2b, Spec 6.2/6.3: Mit Merker in der Datei ist die Statuszeile von Anfang an „gestört“. Stand vorher schon
-      // derselbe Text mit demselben „seit“ (Speichern der offenen Show), bleibt er ohne Meldung und ohne Log.
-      if (!vorher.ok && vorher.text === TEXT_SPEAKER_VERALTET && vorher.seit === merker) status = vorher;
-      else statusNachAbfrage(active);
+    if (merker || seMerker) {
+      // Teil 2b, Spec 6.2/6.3: Mit Merker ist die Statuszeile von Anfang an „gestört“. Stand vorher schon derselbe
+      // Text mit demselben „seit“ (Speichern der offenen Show), bleibt er ohne Meldung und ohne Log.
+      if (!vorher.ok) status = vorher;
+      statusNachAbfrage(active);
     } else nachStoerungOk();
     d.log.info(`iveo: Live-Abgleich für Event „${binding.event}“ aktiv.`);
     return active;
@@ -1092,13 +1095,15 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     // Spec 15.1: gespeichert und lesbar → die Show; nicht lesbar → null (der Verteiler meldet „nicht-lesbar“).
     melde(pfadOffen, show);
     if (show) {
-      const neu = setzeAuf(pfadOffen, show);
+      // Der Merker „Side-Event-Liste veraltet“ gilt nur im Agenda-Modus: er geht nur mit, wenn Event und Side Event
+      // gleich bleiben (15.4). „seit“ bleibt der erste Fehlschlag, nicht die Zeit nach dem Speichern.
+      const gleicheBindung = !!vorher && !neuGebunden && vorher.event === show.iveo?.event;
+      const gleichesProgramm = gleicheBindung && vorher!.filter.programId === show.iveo?.filter?.programId;
+      const neu = setzeAuf(pfadOffen, show, gleichesProgramm ? vorher!.seListeVeraltetSeit : undefined);
       // Gleiche Bindung: Abfragefenster und Side-Event-Kontext gelten weiter. Neu gebunden: beides frisch.
       if (neu && vorher && !neuGebunden && vorher.event === neu.event) {
         neu.lastSyncIso = vorher.lastSyncIso;
         neu.seListeIso = vorher.seListeIso;
-        // Der Merker liegt nur im Speicher (15.4): „seit“ bleibt der erste Fehlschlag, nicht die Zeit nach dem Speichern.
-        neu.seListeVeraltetSeit = vorher.seListeVeraltetSeit;
         if (vorher.filter.programId === neu.filter.programId) neu.sideCtx = vorher.sideCtx;
       }
     } else {
