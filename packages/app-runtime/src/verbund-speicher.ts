@@ -81,6 +81,8 @@ export function erzeugeStandSpeicher(
     }
   };
   const pause = (): Promise<void> => new Promise((fertig) => setTimeout(fertig, PAUSE_MS));
+  /** Fehlercodes, zu denen „nicht gelöscht“ schon im Log steht; leer, sobald ein Löschen gelingt (R-316b). */
+  const loeschenGemeldet = new Set<string>();
 
   return {
     lies(): MasterStand | null {
@@ -139,10 +141,16 @@ export function erzeugeStandSpeicher(
     loesche(): void {
       try {
         rmSync(datei, { force: true });
+        loeschenGemeldet.clear();
       } catch (e) {
         // Bleibt eine lesbare Datei liegen, wendet der nächste Start sie wieder an (16.3) und die eigene Wahl
         // des Bedieners (E56) ginge verloren: darum nie still, eine Warnung mit Fehlercode (#316).
-        warne(`Verbund: Zwischenspeicher nicht gelöscht (${codeAus(e)}).`);
+        // Je Code höchstens einmal, bis ein Löschen gelingt (R-316b): jede eigene Wahl löscht erneut.
+        const code = codeAus(e);
+        if (!loeschenGemeldet.has(code)) {
+          loeschenGemeldet.add(code);
+          warne(`Verbund: Zwischenspeicher nicht gelöscht (${code}).`);
+        }
       }
       try {
         rmSync(zwischen, { force: true });

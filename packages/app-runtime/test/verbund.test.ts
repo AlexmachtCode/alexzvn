@@ -857,6 +857,15 @@ function check(name: string, cond: boolean, detail?: unknown): void {
     logs.length = 0;
     sp2.loesche();
     check('C13 loesche: nicht löschbar → eine Warnung mit Fehlercode (#316)', logs.length === 1 && /^warn: Verbund: Zwischenspeicher nicht gelöscht \((ERR_FS_EISDIR|EISDIR|EPERM|EACCES)\)\.$/.test(logs[0] ?? ''), logs);
+    // R-316b: je Datei und Fehlercode höchstens einmal, bis ein Löschen gelingt; danach meldet ein neuer Fehler wieder.
+    sp2.loesche();
+    check('C13 loesche: zweiter Fehlschlag mit demselben Code → keine weitere Warnung (R-316b)', logs.length === 1, logs);
+    rmSync(ordnerStatt, { recursive: true, force: true });
+    sp2.loesche();
+    check('C13 loesche: danach gelingt das Löschen → keine Warnung', logs.length === 1, logs);
+    mkdirSync(ordnerStatt, { recursive: true });
+    sp2.loesche();
+    check('C13 loesche: nach gelungenem Löschen ein neuer Fehlschlag → wieder eine Warnung (R-316b)', logs.length === 2 && logs[1] === logs[0], logs);
 
     // Schreiben mit Wiederholung (E18): bis zu 5 Versuche im Abstand von 50 ms bei EPERM/EBUSY/EACCES
     const besetzt = (mal: number, code = 'EBUSY') => {
