@@ -302,5 +302,47 @@ const an = (zeilen: Array<{ sitzung: number; zeile: string }>, sitzung: number) 
   ck('verbundSchluessel: aufloesen ist einsetzbar', verbundSchluessel('x', (p) => `/fest/${p}`) === createHash('sha256').update('/fest/x').digest('hex').slice(0, 16));
 }
 
+// --- Fix-Runde 1 (Aufgabe 8) --------------------------------------------------------------------------------------
+{
+  const u = umgebung();
+  u.v.starte(u.s.server);
+  u.v.aufAbo(tn(1), ABO);
+  u.v.meldeShow(PFAD, show('Gross A', { ablauf: [{ id: 'a1', label: 'ä'.repeat(470_000) }] }));
+  const vorher = u.v.stand();
+  const n0 = u.aenderungen();
+  const zeilen0 = u.s.zeilen.length;
+  u.v.meldeShow(PFAD, show('Gross B umbenannt', { ablauf: [{ id: 'a1', label: 'ä'.repeat(500_000) }] }));
+  const nachher = u.v.stand();
+  ck('Fix 1: zu-gross bleibt zu-gross → Name und Größe im Modal ziehen nach, Folge und Leitung bleiben',
+    nachher.grund === 'zu-gross' && nachher.showName === 'Gross B umbenannt' && (nachher.groesseKiB ?? 0) > (vorher.groesseKiB ?? 0)
+    && nachher.folge === vorher.folge && u.s.zeilen.length === zeilen0);
+  ck('Fix 1: … das Modal wird neu gemeldet', u.aenderungen() > n0);
+  ck('Fix 1: … das Log nennt die neue Größe', u.log.filter((l) => l.includes(`(${nachher.groesseKiB} KiB > 900 KiB)`)).length === 1);
+}
+{
+  const u = umgebung();
+  u.v.starte(u.s.server);
+  u.v.meldeShow(PFAD, show('Zeile1\nwarn: GEFAELSCHT', {
+    tools: [{ appId: 'jm-timer', settings: { 'x\nwarn: Verbund: GEFAELSCHT': 1 } }],
+  }));
+  const zeile = u.log.find((l) => l.startsWith('info: Verbund: Show')) ?? '';
+  ck('Fix 2: Verteilt-Zeile vorhanden und mit Schlüssel der Lokal-geblieben-Liste', zeile.includes('Lokal geblieben: jm-timer.x'));
+  ck('Fix 2: keine Steuerzeichen in irgendeiner Logzeile (Showname, Schlüssel)', u.log.every((l) => !/\p{Cc}/u.test(l)));
+}
+{
+  const u = umgebung();
+  u.v.starte(u.s.server);
+  u.v.meldeShow(PFAD, show());
+  for (let i = 10; i < 10 + GRENZEN.maxAbosJeRechner; i++) u.v.aufAbo(tn(i, { appId: `jm-tool-${i}` }), ABO);
+  u.v.aufAbo(tn(99), ABO);
+  u.s.modus.set(10, 'weg');
+  u.v.aufAbo(tn(10, { appId: 'jm-tool-10' }), ABO);
+  u.v.aufGetrennt(10);
+  u.v.aufAbo(tn(101, { appId: 'jm-a' }), ABO);
+  u.v.aufAbo(tn(102, { appId: 'jm-b' }), ABO);
+  ck('Fix 3: Abo-Grenze warnt erneut, nachdem durch weg + getrennt wieder Platz war',
+    u.log.filter((l) => l === 'warn: Verbund: Regie-Laptop hat 32 Abos, weitere werden nicht beantwortet.').length === 2);
+}
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

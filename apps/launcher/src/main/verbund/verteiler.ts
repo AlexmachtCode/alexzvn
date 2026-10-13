@@ -221,7 +221,19 @@ export class Verteiler {
     if (!this.server || this.epoche === null) return;
     const folge = this.aktuell ? this.aktuell.folge + 1 : 0;
     const n = this.bilde(folge);
-    if (this.aktuell && this.aktuell.vergleich === n.vergleich) return;
+    if (this.aktuell && this.aktuell.vergleich === n.vergleich) {
+      // Gleicher Vergleich, keine neue Folge (13.3) — aber die Anzeige (Modal, Log) zieht nach, z. B. zu-gross bleibt zu-gross.
+      const s = this.aktuell;
+      if (s.showName !== n.showName || s.dateiName !== n.dateiName || s.groesseKiB !== n.groesseKiB) {
+        s.showName = n.showName;
+        s.dateiName = n.dateiName;
+        s.groesseKiB = n.groesseKiB;
+        s.verteiltAm = (this.d.jetzt ?? Date.now)();
+        if (s.inhalt.grund === 'zu-gross') this.logNeuerStand(n.lokal);
+        this.d.beiAenderung?.();
+      }
+      return;
+    }
     this.aktuell = { ...n, folge, zeilen: new Map(), verteiltAm: (this.d.jetzt ?? Date.now)() };
     this.logNeuerStand(n.lokal);
     for (const a of this.abos.values()) {
@@ -278,7 +290,7 @@ export class Verteiler {
       this.d.log('warn', `Verbund: Show „${s.dateiName}“ nicht lesbar, nicht verteilt.`);
     } else if (s.inhalt.show) {
       this.d.log('info', `Verbund: Show „${s.showName}“ verteilt (Stand ${s.folge}, ${s.groesseKiB} KiB, ${this.abos.size} Abos). `
-        + `Lokal geblieben: ${lokal.length ? lokal.join(', ') : 'nichts'}.`);
+        + `Lokal geblieben: ${lokal.length ? lokal.map(kuerzeName).join(', ') : 'nichts'}.`);
     }
   }
 
@@ -310,6 +322,7 @@ export class Verteiler {
     } else {
       // Sitzung schon zu: Abo weg (ihr getrennt kommt ebenfalls und findet nichts mehr).
       this.abos.delete(a.sitzung);
+      if (this.abosVon(a.rechnerId) < GRENZEN.maxAbosJeRechner) this.grenzeGeloggt.delete(a.rechnerId);
       this.d.beiAenderung?.();
     }
   }
