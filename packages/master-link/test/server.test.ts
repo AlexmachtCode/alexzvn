@@ -2,14 +2,29 @@ import { existsSync, readFileSync } from 'node:fs';
 import { connect as netConnect, createServer as netServer, type Socket } from 'node:net';
 import type { NetworkInterfaceInfo } from 'node:os';
 import { join } from 'node:path';
+import type { TLSSocket } from 'node:tls';
 import { erzeugeSchluesselpaar, signiereAnmeldung } from '../src/beweis';
 import { GRENZEN } from '../src/fristen';
-import { PROTOKOLL } from '../src/rahmen';
-import { MasterLinkServer } from '../src/server';
+import { koppele } from '../src/koppeln';
+import { PROTOKOLL, type DatenZeile, type Nachricht } from '../src/rahmen';
+import { MasterLinkServer, type SendeErgebnis, type TeilnehmerDaten } from '../src/server';
+import { kodiereStand, zeilenBytes, type AboInhalt } from '../src/show-daten';
 import { DateiVerbund, SpeicherVerbund, type VerbundEintrag } from '../src/speicher';
 import { baueServer, meldeAn, neueIdentitaet } from './aufbau';
 import { abschnitt, bis, gleich, pruefe, tempOrdner, warte } from './helfer';
 import { verbindeRoh, type RohClient } from './rohclient';
+
+/** Eine fertige stand-/aenderung-Zeile; `fuell` Zeichen Nutzlast machen sie groß (Rückdruck). */
+function zeile(t: 'stand' | 'aenderung', folge: number, fuell = 0): string {
+  return kodiereStand(t, {
+    art: 'show', fassung: 1, epoche: 'e-1', folge, schluessel: null,
+    show: fuell > 0 ? { x: 'y'.repeat(fuell) } : null, ...(fuell > 0 ? {} : { grund: 'keine-show' as const }), mitDokument: [],
+  });
+}
+
+/** Sitzungen des Servers von innen (nur für Tests): Kennung und Socket. */
+type InnenSitzung = { sitzung: number; v: { socket: TLSSocket; emit(n: string, x?: unknown): boolean } };
+const innen = (s: MasterLinkServer): InnenSitzung[] => [...(s as unknown as { sitzungen: Set<InnenSitzung> }).sitzungen];
 
 export async function laufe(): Promise<void> {
   abschnitt('Server: Anmeldung (Spec 3.4, 5.1)');
@@ -424,6 +439,242 @@ export async function laufe(): Promise<void> {
     await new Promise<void>((r) => blocker.close(() => r()));
     await a.server.setzeLauschAdressen(['127.0.0.6', '127.0.0.1']);
     gleich((a.server as unknown as { lauschAdressen: string[] }).lauschAdressen, ['127.0.0.6', '127.0.0.1'], 'erneuter Aufruf bindet die Karten-IP nach');
+    await a.server.stoppe();
+  }
+
+  abschnitt('Server: Show-Daten — Sitzung, daten, getrennt (Teil 2b, Spec 13.6, 13.7)');
+  {
+    const warnungen: string[] = [];
+    const a = await baueServer();
+    a.server.on('warnung', (t: string) => warnungen.push(t));
+    const daten: Array<[TeilnehmerDaten, AboInhalt]> = [];
+    const getrennt: number[] = [];
+    a.server.on('daten', (t: TeilnehmerDaten, abo: AboInhalt) => daten.push([t, abo]));
+    a.server.on('getrennt', (s: number) => getrennt.push(s));
+    const c = await meldeAn(a);
+    await c.naechste('angemeldet');
+    const eigen = await meldeAn(a, a.eigen, 'jm-titler');
+    await eigen.naechste('angemeldet');
+    gleich(a.server.teilnehmer().map((t) => [t.appId, t.sitzung]), [['jm-timer', 1], ['jm-titler', 2]],
+      'zwei Sitzungen → verschiedene Kennungen (Zähler je Server), teilnehmer() trägt sitzung');
+    c.v.sende({ t: 'abo', art: 'show', fassung: 1 });
+    await bis(() => daten.length === 1);
+    gleich(daten[0], [
+      { sitzung: 1, schluessel: 'rechner-b\u0000jm-timer', rechnerId: 'rechner-b', art: 'tool', appId: 'jm-timer', dieserRechner: false },
+      { art: 'show', fassung: 1 },
+    ], 'abo einer angemeldeten Sitzung → daten mit sitzung, schluessel, rechnerId, art, appId, dieserRechner');
+    eigen.v.sende({ t: 'abo', art: 'show', fassung: 2 });
+    await bis(() => daten.length === 2);
+    gleich(daten[1]?.[0].dieserRechner, true, 'abo vom Master-Rechner selbst → dieserRechner true');
+    gleich(daten[1]?.[1], { art: 'show', fassung: 2 }, '… die erbetene Fassung reist mit (die Antwortfassung wählt der Verteiler)');
+    c.v.sende({ t: 'abo', art: 'film', fassung: 1 });
+    c.v.sende({ t: 'abo', art: 'film', fassung: 1 });
+    c.v.sende({ t: 'abo', art: 'show', fassung: 0 });
+    await bis(() => warnungen.filter((w) => w.includes('ungültiges Abo')).length === 2, 1000);
+    await warte(100);
+    gleich(warnungen.filter((w) => w.includes('ungültiges Abo')), [
+      'Master-Link: ungültiges Abo von Regie-Laptop 2/jm-timer (art), ignoriert.',
+      'Master-Link: ungültiges Abo von Regie-Laptop 2/jm-timer (fassung), ignoriert.',
+    ], 'ungültiges abo → eine Warnung je Sitzung und Feld (E13); dasselbe noch einmal → keine zweite');
+    gleich(daten.length, 2, '… kein daten für ein ungültiges abo');
+    pruefe(!c.beendet(), '… die Leitung bleibt');
+    c.v.sende({ t: 'stand', art: 'show', fassung: 1 });
+    c.v.sende({ t: 'aenderung', folge: 'x' });
+    await warte(200);
+    pruefe(daten.length === 2 && !c.beendet(), 'stand/aenderung von einem Client → ignoriert, die Leitung bleibt (G4)');
+    c.zu();
+    await bis(() => getrennt.length === 1);
+    await warte(300);
+    gleich(getrennt, [1], 'Sitzung zu → getrennt(sitzung) genau einmal');
+    gleich(a.server.sendeDaten(1, zeile('aenderung', 1)), 'weg', 'sendeDaten an eine beendete Sitzung → weg');
+    gleich(a.server.sendeDaten(99, zeile('aenderung', 1)), 'weg', 'sendeDaten an eine unbekannte Sitzung → weg');
+    eigen.zu();
+    await a.server.stoppe();
+  }
+  {
+    const a = await baueServer();
+    let daten = 0;
+    a.server.on('daten', () => daten++);
+    const r = await verbindeRoh(a.port);
+    r.v.sende({ t: 'abo', art: 'show', fassung: 1 });
+    await bis(() => r.beendet(), 1000);
+    pruefe(r.beendet() && daten === 0, 'abo als erste Nachricht vor anmelden → Verbindung zu, kein daten (E3)');
+    await a.server.stoppe();
+  }
+  {
+    const zeilen: string[] = [];
+    const a = await baueServer({ log: (_s, t) => zeilen.push(t) });
+    a.server.on('daten', () => {
+      throw Object.assign(new Error('Testwurf'), { code: 'TESTWURF' });
+    });
+    const c = await meldeAn(a);
+    await c.naechste('angemeldet');
+    c.v.sende({ t: 'abo', art: 'show', fassung: 1 });
+    c.v.sende({ t: 'abo', art: 'show', fassung: 1 });
+    await bis(() => zeilen.some((z) => z.includes('TESTWURF')), 1000);
+    await warte(100);
+    gleich(zeilen.filter((z) => z.includes('warf')), ['Master-Link: Zuhörer von „daten“ warf (TESTWURF).'],
+      'werfender daten-Zuhörer: eine Logzeile, auch beim zweiten Wurf');
+    pruefe(!c.beendet(), '… die Leitung bleibt (der Wurf trifft den Socket-Handler nicht)');
+    c.zu();
+    await a.server.stoppe();
+  }
+
+  abschnitt('Server: Ersetzung, die neue Sitzung schickt ihr abo, bevor die alte zu ist (Teil 2b, Spec 13.6, 19.1)');
+  {
+    const a = await baueServer();
+    // Nachgebauter Verteiler: Abos nach sitzung, Antwort stand, verteile() schickt eine aenderung an alle Abos.
+    const abos = new Set<number>();
+    const getrennt: number[] = [];
+    let teilnehmerBeiGetrennt = -1;
+    a.server.on('daten', (t: TeilnehmerDaten) => {
+      abos.add(t.sitzung);
+      a.server.sendeDaten(t.sitzung, zeile('stand', 0));
+    });
+    a.server.on('getrennt', (s: number) => {
+      getrennt.push(s);
+      abos.delete(s);
+      teilnehmerBeiGetrennt = a.server.teilnehmer().length;
+    });
+    const verteile = (folge: number): SendeErgebnis[] => [...abos].map((s) => a.server.sendeDaten(s, zeile('aenderung', folge)));
+    const alt = await meldeAn(a, a.slave, 'jm-timer', 7);
+    await alt.naechste('angemeldet');
+    alt.v.sende({ t: 'abo', art: 'show', fassung: 1 });
+    pruefe((await alt.naechste('stand')) !== null, 'alte Sitzung: abo → stand');
+    const altSitzung = a.server.teilnehmer()[0]!.sitzung;
+    alt.socket.pause(); // liest nicht mehr: ihr Ende kommt erst mit dem 200-ms-Zwangsabbruch von schliesse()
+    const neu = await meldeAn(a, a.slave, 'jm-timer', 7); // gleiche pid und Adresse → ersetzt
+    await neu.naechste('angemeldet');
+    gleich(getrennt, [altSitzung], 'Ersetzung: getrennt nur für die alte Sitzung, sofort in meldeAn');
+    gleich(teilnehmerBeiGetrennt, 0, '… noch bevor die neue Sitzung eingetragen und angemeldet ist');
+    const neuSitzung = a.server.teilnehmer()[0]!.sitzung;
+    pruefe(neuSitzung !== altSitzung, `… die neue Sitzung hat eine eigene Kennung (${altSitzung} → ${neuSitzung})`);
+    gleich(verteile(1), [], 'vor ihrem abo: kein Abo mehr, nichts verteilt');
+    await warte(100);
+    gleich(neu.nachrichten.filter((n) => n.t === 'stand' || n.t === 'aenderung'), [], '… die neue Sitzung bekam vor ihrem abo nichts');
+    neu.v.sende({ t: 'abo', art: 'show', fassung: 1 });
+    pruefe((await neu.naechste('stand')) !== null, 'neue Sitzung: ihr abo → stand');
+    gleich(innen(a.server).length, 2, '… während die alte Sitzung am Server noch offen ist (bis zu 200 ms)');
+    await warte(400); // länger als der 200-ms-Zwangsabbruch der alten Sitzung
+    gleich(innen(a.server).length, 1, 'die alte Sitzung ist inzwischen zu');
+    gleich(getrennt, [altSitzung], '… ihr spätes Ende meldet kein zweites getrennt');
+    gleich(verteile(2), ['gesendet'], 'das Abo der neuen Sitzung bleibt');
+    const n2 = await neu.naechste('aenderung');
+    gleich(n2 && (n2 as DatenZeile).folge, 2, 'die nächste aenderung kommt bei der neuen Sitzung an');
+    gleich(a.server.sendeDaten(altSitzung, zeile('aenderung', 3)), 'weg', 'sendeDaten an die ersetzte Sitzung → weg');
+    alt.zu();
+    neu.zu();
+    await a.server.stoppe();
+  }
+
+  abschnitt('Server: stoppe() meldet getrennt je angemeldeter Sitzung genau einmal (Teil 2b, E4)');
+  {
+    const a = await baueServer();
+    const getrennt: number[] = [];
+    let daten = 0;
+    a.server.on('getrennt', (s: number) => getrennt.push(s));
+    a.server.on('daten', () => daten++);
+    const c1 = await meldeAn(a);
+    await c1.naechste('angemeldet');
+    const c2 = await meldeAn(a, a.eigen, 'jm-titler');
+    await c2.naechste('angemeldet');
+    const roh = await verbindeRoh(a.port); // nicht angemeldet: keine Sitzungskennung, kein getrennt
+    const sitzungen = innen(a.server);
+    const gestoppt = a.server.stoppe();
+    gleich([...getrennt].sort(), [1, 2], 'stoppe(): getrennt je angemeldeter Sitzung, synchron im Aufruf');
+    await gestoppt;
+    await warte(300);
+    gleich(getrennt.length, 2, '… genau einmal (das spätere ende der Sockets meldet nichts mehr)');
+    for (const s of sitzungen) s.v.emit('nachricht', { t: 'abo', art: 'show', fassung: 1 });
+    await warte(20);
+    gleich(daten, 0, 'nach stoppe(): eine späte abo-Zeile ergibt kein daten');
+    roh.zu();
+  }
+
+  abschnitt('Server: Rückdruck — sendeDaten staut über 1 MiB, entstaut beim nächsten drain (Teil 2b, Spec 13.6)');
+  {
+    const a = await baueServer({}, { stilleMs: 60_000 }); // der pausierte Client schickt keinen Puls
+    const entstaut: number[] = [];
+    const getrennt: number[] = [];
+    a.server.on('entstaut', (s: number) => entstaut.push(s));
+    a.server.on('getrennt', (s: number) => getrennt.push(s));
+    const c = await meldeAn(a);
+    await c.naechste('angemeldet');
+    const sitzung = a.server.teilnehmer()[0]!.sitzung;
+    const serverSocket = innen(a.server).find((s) => s.sitzung === sitzung)!.v.socket;
+    const gross = zeile('aenderung', 1, 64 * 1024 - 200);
+    c.socket.pause();
+    let gesendet = 0;
+    let ergebnis: SendeErgebnis = 'gesendet';
+    // Begrenzt: 64-KiB-Zeilen, Abbruch nach 64 MiB. Zwischen zwei Zeilen läuft die Ereignisschleife (echte Socket-Puffer).
+    while (ergebnis === 'gesendet' && gesendet < 64 * 1024 * 1024) {
+      ergebnis = a.server.sendeDaten(sitzung, gross);
+      if (ergebnis === 'gesendet') gesendet += zeilenBytes(gross);
+      await new Promise<void>((r) => setImmediate(r));
+    }
+    const beimStau = serverSocket.writableLength;
+    gleich(ergebnis, 'gestaut', `Client liest nicht → gestaut (nach ${Math.round(gesendet / 1024)} KiB, writableLength beim Stau ${beimStau} Byte)`);
+    pruefe(beimStau > GRENZEN.stauBytes && beimStau <= GRENZEN.stauBytes + zeilenBytes(gross),
+      `… erst über 1 MiB im Schreibpuffer, höchstens eine Zeile darüber (gemessen: ${beimStau} Byte, Zeile ${zeilenBytes(gross)} Byte)`);
+    gleich([a.server.sendeDaten(sitzung, gross), serverSocket.writableLength], ['gestaut', beimStau], 'weiteres sendeDaten → gestaut, ohne zu schreiben');
+    c.socket.resume();
+    await bis(() => entstaut.length > 0, 10_000);
+    await warte(300);
+    gleich(entstaut, [sitzung], 'Client liest wieder → genau ein entstaut(sitzung)');
+    gleich(a.server.sendeDaten(sitzung, zeile('aenderung', 2)), 'gesendet', 'nach entstaut schreibt sendeDaten wieder');
+    // Stau, dann Sitzungsende: ein spätes drain meldet kein entstaut mehr.
+    c.socket.pause();
+    ergebnis = 'gesendet';
+    for (let n = 0; ergebnis === 'gesendet' && n < 1024; n++) {
+      ergebnis = a.server.sendeDaten(sitzung, gross);
+      await new Promise<void>((r) => setImmediate(r));
+    }
+    gleich(ergebnis, 'gestaut', 'zweiter Stau');
+    c.zu();
+    await bis(() => getrennt.length === 1, 2000);
+    serverSocket.emit('drain');
+    await warte(100);
+    gleich(entstaut, [sitzung], 'entstaut nach Sitzungsende kommt nicht (auch nicht bei einem späten drain)');
+    await a.server.stoppe();
+  }
+
+  abschnitt('Server: Teil-1-Client ohne abo bleibt angemeldet und bekommt keine 2b-Zeile (Teil 2b, Spec 13.5, 19.1)');
+  {
+    const a = await baueServer({}, { pulsMs: 100 });
+    a.server.on('daten', (t: TeilnehmerDaten) => a.server.sendeDaten(t.sitzung, zeile('stand', 0)));
+    const mitAbo = await meldeAn(a, a.slave, 'jm-timer');
+    const teil1 = await meldeAn(a, a.slave, 'jm-titler'); // schickt nie ein abo
+    await mitAbo.naechste('angemeldet');
+    await teil1.naechste('angemeldet');
+    mitAbo.v.sende({ t: 'abo', art: 'show', fassung: 1 });
+    pruefe((await mitAbo.naechste('stand')) !== null, 'die Sitzung mit abo bekommt stand');
+    await warte(500);
+    pruefe(teil1.nachrichten.some((n) => n.t === 'puls'), 'Teil-1-Client bekommt den Puls');
+    gleich(teil1.nachrichten.filter((n) => n.t !== 'puls'), [], '… sonst nichts (keine 2b-Zeile)');
+    pruefe(!teil1.beendet() && a.server.teilnehmer().some((t) => t.appId === 'jm-titler'), '… und bleibt angemeldet');
+    mitAbo.zu();
+    teil1.zu();
+    await a.server.stoppe();
+  }
+
+  abschnitt('Server: nach gekoppelt sendet der Master bis teilnehmer nichts (Spec 13.5 „Koppeln braucht keine Reparatur“)');
+  {
+    const a = await baueServer({}, { pulsMs: 100 });
+    const { code } = a.server.oeffneKopplung();
+    const r = await koppele({ adresse: '127.0.0.1', port: a.port, code: code!, rechner: { id: 'rechner-c', name: 'Neuer PC' } });
+    pruefe(r.ok, 'gekoppelt');
+    if (r.ok) {
+      const zeilen: string[] = [];
+      r.verbindung.on('nachricht', (n: Nachricht) => zeilen.push(n.t));
+      r.verbindung.on('unbekannt', (t: string) => zeilen.push(t));
+      await warte(1000);
+      gleich(zeilen, [], 'nach gekoppelt: 1 s lang keine Zeile vom Master, auch kein Puls (removeAllListeners in koppeln.ts verliert nichts)');
+      r.verbindung.sende({ t: 'teilnehmer', teilnehmer: { art: 'launcher', appId: 'jm-launcher', name: 'JM Production Suite', version: '0.15.0', pid: 3 } });
+      await bis(() => zeilen.includes('puls'), 1000);
+      gleich(zeilen[0], 'angemeldet', 'Gegenprobe: nach teilnehmer kommt zuerst angemeldet …');
+      pruefe(zeilen.includes('puls'), '… und danach der Puls (100 ms)');
+      r.verbindung.schliesse();
+    }
     await a.server.stoppe();
   }
 }
