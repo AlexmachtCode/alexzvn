@@ -12,8 +12,9 @@ import { PIN_FALSCH, type VersuchsErgebnis } from '../src/fehler';
 import { fristen, GRENZEN, type Fristen } from '../src/fristen';
 import { koppele } from '../src/koppeln';
 import type { MasterSichtung, SucheLike } from '../src/mdns';
-import { kodiere, type Nachricht } from '../src/rahmen';
-import { MasterLinkServer } from '../src/server';
+import { kodiere, type DatenZeile, type Nachricht } from '../src/rahmen';
+import { MasterLinkServer, type TeilnehmerDaten } from '../src/server';
+import { kodiereAbo, kodiereStand } from '../src/show-daten';
 import { Verbindung } from '../src/verbindung';
 import { baueServer, neueIdentitaet, type Aufbau } from './aufbau';
 import { abschnitt, bis, gleich, pruefe, tempOrdner, warte } from './helfer';
@@ -674,6 +675,7 @@ export async function laufe(): Promise<void> {
       '[A → ECONNRESET, B → EHOSTUNREACH]: sonstig mit dem Code von A, nicht dem des letzten Ergebnisses');
   }
   await laufeEndpruefung();
+  await laufeShowDaten();
 }
 
 /** Nachträge aus der Schlussprüfung (Fix-Welle): einzeln aufrufbar, damit ein Punkt rot → grün gezielt läuft. */
@@ -905,5 +907,230 @@ export async function laufeEndpruefung(): Promise<void> {
       `Statustext ohne Steuer-/Formatzeichen (${z.art === 'fehler' ? JSON.stringify(z.text).slice(0, 70) : z.art})`);
     pruefe(zeilen.length > 0 && zeilen.every((t) => !/[\p{Cc}\p{Cf}]/u.test(t)), 'Logzeilen einzeilig, ohne Steuer-/Formatzeichen');
     await c.stoppe();
+  }
+}
+
+/** Kleine stand-/aenderung-Zeile ohne Show (passt mit 'angemeldet' in ein TLS-Stück). */
+const kleineZeile = (t: 'stand' | 'aenderung', folge: number): string =>
+  kodiereStand(t, { art: 'show', fassung: 1, epoche: 'e-1', folge, schluessel: null, show: null, grund: 'keine-show', mitDokument: [] });
+
+/** Die Master-Attrappe beantwortet den Puls des Clients — sonst trennt dessen Stille-Frist (600 ms) mitten im Test. */
+const antwortePuls = (v: Verbindung): void => {
+  v.on('nachricht', (n: Nachricht) => {
+    if (n.t === 'puls') v.sende({ t: 'puls' });
+  });
+};
+
+/** Teil 2b (Spec 13.5, 13.7): Show-Daten am Client — Ereignis daten (auch nachgeholt), sende, kopplung(). */
+export async function laufeShowDaten(): Promise<void> {
+  abschnitt('Client: angemeldet und Show-Daten im selben Stück (Teil 2b, Spec 13.5)');
+  {
+    // 900-KiB-aenderung im selben Schreibvorgang wie angemeldet: die Grenze gilt je Zeile, nichts wird gekappt.
+    const a = await baueServer();
+    const gross = kodiereStand('aenderung', {
+      art: 'show', fassung: 1, epoche: 'e-1', folge: 5, schluessel: null, show: { x: 'y'.repeat(900 * 1024) }, mitDokument: [],
+    });
+    const { srv, zaehler } = await attrappe(a, (ts, v) => {
+      antwortePuls(v);
+      ts.write(kodiere({ t: 'angemeldet', adressen: [], suite: '0.15.0' }) + gross);
+    });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    const daten: DatenZeile[] = [];
+    c.on('daten', (n: DatenZeile) => daten.push(n));
+    c.starte();
+    await bis(() => daten.length === 1, 3000);
+    pruefe(daten.length === 1 && daten[0]!.folge === 5 && (daten[0]!.show as { x: string }).x.length === 900 * 1024,
+      'angemeldet und 900-KiB-aenderung im selben Schreibvorgang → daten kommt vollständig an');
+    pruefe(art(c) === 'verbunden' && zaehler.n === 1, `… Zustand verbunden, keine Trennung (${zaehler.n} Verbindung)`);
+    await c.stoppe();
+    srv.close();
+  }
+  {
+    // Kleine aenderung im selben Stück wie angemeldet: halteFest hält sie fest, betreibe gibt sie als daten aus.
+    const a = await baueServer();
+    const { srv } = await attrappe(a, (ts, v) => {
+      antwortePuls(v);
+      ts.write(kodiere({ t: 'angemeldet', adressen: [], suite: '0.15.0' }) + kleineZeile('aenderung', 3));
+    });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    const reihenfolge: string[] = [];
+    c.on('angemeldet', () => reihenfolge.push('angemeldet'));
+    c.on('daten', (n: DatenZeile) => reihenfolge.push(`daten:${n.t}:${String(n.folge)}`));
+    c.starte();
+    await bis(() => reihenfolge.length >= 2, 2000);
+    gleich(reihenfolge.slice(0, 2), ['angemeldet', 'daten:aenderung:3'],
+      'angemeldet und aenderung in einem Stück → daten kommt an (nachgeholt), nach dem Ereignis angemeldet');
+    await c.stoppe();
+    srv.close();
+  }
+  {
+    // Dasselbe auf dem Weg nach dem Koppeln (uebernehme → warteAufAngemeldet), ein Chunk aus zwei Zeilen.
+    const a = await baueServer();
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, d);
+    const c = neuerClient(pfad);
+    const daten: DatenZeile[] = [];
+    c.on('daten', (n: DatenZeile) => daten.push(n));
+    c.starte();
+    await bis(() => art(c) === 'fehler:verweigert', 1000);
+    const socket = new StummerSocket();
+    c.uebernehme(new Verbindung(socket as unknown as TLSSocket, GRENZEN.vorAnmeldung), d.kopplung!, 'Regie-PC');
+    socket.emit('data', Buffer.from(kodiere({ t: 'angemeldet', adressen: [], suite: '0.15.0' }) + kleineZeile('stand', 0)));
+    await bis(() => daten.length === 1, 1500);
+    gleich(daten.map((n) => n.t), ['stand'], 'übernommene Verbindung: angemeldet + stand in einem Chunk → daten');
+    await c.stoppe();
+  }
+
+  abschnitt('Client: Zeilengrenze genau an 4 KiB vor der Anmeldung (Teil 2b, Spec 13.5)');
+  {
+    const a = await baueServer();
+    let laenge = GRENZEN.vorAnmeldung + 1;
+    const huelle = '{"t":"gross","x":""}';
+    const { srv } = await attrappe(a, (ts, v) => {
+      antwortePuls(v);
+      ts.write(`{"t":"gross","x":"${'y'.repeat(laenge - huelle.length)}"}\n${kodiere({ t: 'angemeldet', adressen: [], suite: '0.15.0' })}`);
+    });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    const gesehen = new Set<string>();
+    c.on('zustand', () => gesehen.add(art(c)));
+    c.starte();
+    await bis(() => art(c) === 'fehler:kein-master', 2000);
+    pruefe(art(c) === 'fehler:kein-master' && !gesehen.has('verbunden'), 'Zeile mit 4 KiB + 1 Byte vor angemeldet → Trennung wie bisher (kein-master)');
+    await c.stoppe();
+    laenge = GRENZEN.vorAnmeldung;
+    const c2 = neuerClient(pfad);
+    c2.starte();
+    await bis(() => art(c2) === 'verbunden', 2000);
+    gleich(art(c2), 'verbunden', 'Zeile mit genau 4 KiB vor angemeldet → erlaubt, verbunden');
+    await c2.stoppe();
+    srv.close();
+  }
+
+  abschnitt('Client: Ereignis daten nur für stand und aenderung (Teil 2b, Spec 13.7)');
+  {
+    const a = await baueServer();
+    const { srv } = await attrappe(a, (ts, v) => {
+      antwortePuls(v);
+      v.sende({ t: 'angemeldet', adressen: [], suite: '0.15.0' });
+      setTimeout(() => ts.write(kleineZeile('stand', 0) + kodiereAbo() + '{"t":"zukunft"}\n' + kleineZeile('aenderung', 1)), 100);
+    });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    const typen: string[] = [];
+    c.on('daten', (n: DatenZeile) => typen.push(n.t));
+    c.starte();
+    await bis(() => typen.length >= 2, 2000);
+    await warte(100);
+    gleich(typen, ['stand', 'aenderung'], 'stand und aenderung nach der Anmeldung → daten; abo und unbekannte Typen → kein daten');
+    await c.stoppe();
+    srv.close();
+  }
+  {
+    const a = await baueServer();
+    const { srv } = await attrappe(a, (ts, v) => {
+      antwortePuls(v);
+      v.sende({ t: 'angemeldet', adressen: [], suite: '0.15.0' });
+      setTimeout(() => ts.write(kleineZeile('aenderung', 1) + kleineZeile('aenderung', 2)), 100);
+    });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const zeilen: string[] = [];
+    const c = neuerClient(pfad, { log: (_s, t) => zeilen.push(t) });
+    let wuerfe = 0;
+    c.on('daten', () => {
+      wuerfe++;
+      throw Object.assign(new Error('Testwurf'), { code: 'TESTWURF' });
+    });
+    c.starte();
+    await bis(() => wuerfe >= 2, 2000);
+    await warte(100);
+    gleich(zeilen.filter((z) => z.includes('warf')), ['Master-Link: Zuhörer von „daten“ warf (TESTWURF).'],
+      'werfender daten-Zuhörer: eine Logzeile für zwei Würfe');
+    gleich(art(c), 'verbunden', '… Schleife und Socket laufen weiter (verbunden)');
+    await c.stoppe();
+    srv.close();
+  }
+
+  abschnitt('Client: sende nur im Zustand verbunden (Teil 2b, Spec 13.7)');
+  {
+    const a = await baueServer({}, { pulsMs: 150, stilleMs: 600 });
+    const abos: TeilnehmerDaten[] = [];
+    a.server.on('daten', (t: TeilnehmerDaten) => abos.push(t));
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    gleich(c.sende({ t: 'abo', art: 'show', fassung: 1 }), false, 'sende vor starte() → false');
+    c.starte();
+    await bis(() => art(c) === 'verbunden');
+    gleich(c.sende({ t: 'abo', art: 'show', fassung: 1 }), true, 'sende im Zustand verbunden → true');
+    await bis(() => abos.length === 1);
+    gleich(abos.map((t) => t.appId), ['jm-timer'], '… die Gegenseite liest die Zeile (der Master meldet daten)');
+    await a.server.stoppe();
+    await bis(() => art(c) !== 'verbunden');
+    gleich(c.sende({ t: 'abo', art: 'show', fassung: 1 }), false, 'nach der Trennung → false');
+    await c.stoppe();
+  }
+
+  abschnitt('Client: kopplung() (Teil 2b, Spec 13.7, E6)');
+  {
+    const ohne = neuerClient(masterLinkPfad(tempOrdner()));
+    ohne.starte();
+    await bis(() => art(ohne) === 'aus');
+    gleich(ohne.kopplung(), null, 'ohne master-link.json → null');
+    await ohne.stoppe();
+    const a = await baueServer();
+    await a.server.stoppe();
+    const pfad = masterLinkPfad(tempOrdner());
+    const d = dateiFuer(a);
+    schreibeMasterLinkDatei(pfad, { ...d, rolle: 'aus' });
+    const aus = neuerClient(pfad);
+    aus.starte();
+    await bis(() => aus.kopplung() !== null, 1000);
+    gleich(aus.kopplung(), { rolle: 'aus', masterId: null, masterName: null, letzteAdresse: null, adressen: [] },
+      'Rolle aus → rolle aus, ohne Master');
+    await aus.stoppe();
+    const mitAdresse = { ...d, kopplung: { ...d.kopplung!, letzteAdresse: '10.9.9.9', masterName: 'Regie-PC (Saal 2)' } };
+    schreibeMasterLinkDatei(pfad, mitAdresse);
+    const nie = neuerClient(pfad, { anmelden: async (): Promise<Versuch> => ({ ok: false, ergebnis: { art: 'tcp-timeout' } }) });
+    nie.starte();
+    await bis(() => nie.kopplung() !== null, 1000);
+    gleich(nie.kopplung(), {
+      rolle: 'slave', masterId: a.identitaet.masterId, masterName: 'Regie-PC (Saal 2)', letzteAdresse: '10.9.9.9', adressen: [],
+    }, 'Slave, noch nie angemeldet → Master und letzteAdresse aus der Datei, keine Adressen');
+    writeFileSync(pfad, 'Müll');
+    await bis(() => art(nie) === 'fehler:datei', 1000);
+    gleich(nie.kopplung(), null, 'Datei beschädigt (fehler:datei) → null');
+    schreibeMasterLinkDatei(pfad, mitAdresse);
+    await bis(() => nie.kopplung() !== null, 1000);
+    gleich(nie.kopplung()?.masterId, a.identitaet.masterId, 'Datei repariert → wieder die Kopplung');
+    await nie.stoppe();
+  }
+  {
+    const a = await baueServer();
+    const { srv } = await attrappe(a, (_ts, v) => {
+      antwortePuls(v);
+      v.sende({ t: 'angemeldet', adressen: ['10.0.0.7', '192.168.1.7'], suite: '0.15.0' });
+    });
+    const pfad = masterLinkPfad(tempOrdner());
+    schreibeMasterLinkDatei(pfad, dateiFuer(a));
+    const c = neuerClient(pfad);
+    c.starte();
+    await bis(() => art(c) === 'verbunden');
+    gleich(c.kopplung(), {
+      rolle: 'slave', masterId: a.identitaet.masterId, masterName: 'Regie-PC', letzteAdresse: '127.0.0.1', adressen: ['10.0.0.7', '192.168.1.7'],
+    }, 'nach angemeldet → adressen aus angemeldet, letzteAdresse = Adresse dieser Verbindung (E6)');
+    c.kopplung()!.adressen.push('10.6.6.6');
+    gleich(c.kopplung()!.adressen.length, 2, 'kopplung() liefert eine Kopie (der Aufrufer ändert den Client nicht)');
+    await c.stoppe();
+    srv.close();
   }
 }

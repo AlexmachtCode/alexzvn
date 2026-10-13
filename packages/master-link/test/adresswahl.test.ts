@@ -1,7 +1,8 @@
 import type { NetworkInterfaceInfo } from 'node:os';
 import { abschnitt, gleich, pruefe } from './helfer';
 import {
-  imSubnetz, istVirtuell, kandidatenliste, listeKarten, ordneKandidaten, wirksameKarten, type NetzwerkInterfaces,
+  eigeneAdressen, imSubnetz, istDieserRechner, istVirtuell, kandidatenliste, listeKarten, ordneKandidaten, wirksameKarten,
+  type NetzwerkInterfaces,
 } from '../src/adresswahl';
 
 const v4 = (address: string, cidr: string, internal = false): NetworkInterfaceInfo => ({
@@ -76,4 +77,32 @@ export async function laufe(): Promise<void> {
   gleich(kandidatenliste({ ...quelle, rolle: 'master' }), ['127.0.0.1'], 'Master-Rechner: nur 127.0.0.1');
   gleich(kandidatenliste({ ...quelle, mdns: [], letzteAdresse: null, adressen: ['127.0.0.1'], festeAdresse: null }), ['127.0.0.1'],
     'Adresse aus der Datei darf Loopback sein (Tests, Selbstkopplung)');
+
+  abschnitt('Adresswahl: eigene Adressen und istDieserRechner (Teil 2b, Spec 13.7, E7)');
+  const eigene = eigeneAdressen(regie);
+  gleich(eigene, ['10.0.0.110', 'fe80::1', '172.20.64.1', '100.64.0.5', '169.254.10.20', '127.0.0.1', 'fe80::2'],
+    'eigeneAdressen: alle Karten, auch interne und IPv6, in Fund-Reihenfolge');
+  gleich(eigeneAdressen({ 'WLAN': [{ ...v6('fe80::ab'), address: 'FE80::AB%12' }], 'X': [v4('10.0.0.110', '10.0.0.110/24')] }),
+    ['fe80::ab', '10.0.0.110'], 'eigeneAdressen: ohne Zone, IPv6 klein geschrieben');
+  const fall = (host: string, soll: boolean, was: string, eigenerName?: string): void =>
+    gleich(istDieserRechner(host, eigene, eigenerName), soll, `istDieserRechner(${JSON.stringify(host)}): ${was} → ${soll}`);
+  fall('127.0.0.1', true, 'Loopback');
+  fall('127.5.5.5', true, 'ganz 127.0.0.0/8');
+  fall('::1', true, 'IPv6-Loopback');
+  fall('[::1]', true, 'IPv6-Loopback in Klammern');
+  fall('::ffff:127.0.0.1', true, 'IPv4-gemapptes Loopback');
+  fall('localhost', true, 'localhost');
+  fall('10.0.0.110', true, 'eigene IPv4');
+  fall('::ffff:10.0.0.110', true, 'eigene IPv4, IPv4-gemappt');
+  fall('fe80::1%12', true, 'eigene IPv6 mit Zone');
+  fall('FE80::1', true, 'eigene IPv6 groß geschrieben');
+  fall('10.0.0.111', false, 'fremde Adresse im eigenen Netz');
+  fall('192.168.1.5', false, 'fremde Adresse');
+  fall('Regie-PC', true, 'eigener Hostname', 'regie-pc');
+  fall('REGIE-PC.local', true, 'eigener Hostname groß und mit .local', 'Regie-PC');
+  fall('regie-pc.local.', true, 'eigener Hostname mit .local und Schlusspunkt', 'Regie-PC');
+  fall('Regie-Laptop-2.local', false, 'fremder Hostname', 'Regie-PC');
+  fall('Regie-PC', false, 'Hostname ohne bekannten eigenen Namen');
+  fall('127.0.0.1.example.com', false, 'Hostname, der mit 127. beginnt', 'Regie-PC');
+  fall('', false, 'leerer String', 'Regie-PC');
 }
