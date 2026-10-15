@@ -55,8 +55,8 @@ Node 22 (Selbsttests) und Node 20 (Typprüfung) und `npm ci --ignore-scripts`.
   Owner-Entscheiden O1 (Leertaste auf einem Panel-Schalter geht ans Tool, Escape schließt immer das Panel) und O2 (live und
   gesperrt zeigt LIVE und „Gesperrt: {Grund}“).
 - Plan und Spec gehören zusammen. Bei Widerspruch gilt die Spec, und die Abweichung wird gemeldet. Die Auslegungen E1–E25
-  stehen unter „Entscheidungen“, die echten Owner-Fragen unter „Owner-Fragen“ (OF1–OF14, je mit Vorgabe; die Umsetzung
-  blockiert nicht).
+  stehen unter „Entscheidungen“, die echten Owner-Fragen unter „Owner-Fragen“ (OF1–OF14, je mit Vorgabe; vom Owner am
+  15.10.2026 alle bestätigt).
 - Bedienlogik, Protokolle, Ports, IPC und Hauptprozess bleiben unverändert (U6). Die zwei benannten Ausnahmen N1
   (Master-Link-Brücke) und N2 (Fernsteuerungs-Meldung) und die benannten Änderungen der Bedienlogik L1–L6 stehen in G2.
 
@@ -93,6 +93,12 @@ Danach haben vier Prüfer den Plan geprüft (Spec-Abdeckung, Code-Treue, TDD und
 Befunde sind in drei Teilen nachgebessert, je mit neuer Messung der betroffenen Aufgaben und ihrer Gegenproben. Zum
 Abschluss ist der ganze Plan noch einmal in einer frischen Kopie von `5e5b234ec3` abgespielt und gemessen worden, dazu ein
 zweites Abspielen ohne Tests zum Byte-Vergleich (Abschnitt „Nachbesserung nach der Plan-Prüfung“, NB1–NB31).
+
+Eine unabhängige Nachprüfung hat danach fünf kleine Restlücken gefunden (R1–R5, je eine Prüfung, die einen absichtlichen
+Fehler noch durchließ, bzw. eine abgeleitete statt gemessene Wirkung). Sie sind in der letzten Nachbesserung geschlossen,
+je mit einer gemessenen Gegenprobe; dazu sind die Owner-Antworten vom 15.10.2026 eingetragen (alle Vorgaben OF1–OF14
+bestätigt). Der ganze Plan ist danach noch einmal Aufgabe für Aufgabe in einer frischen Kopie abgespielt und gemessen
+worden, mit einem zweiten Abspielen ohne Tests zum Byte-Vergleich (NB32–NB38).
 
 **Verweise auf das Gerüst:** Angaben wie „S-A1“, „S-B4“, „S-C“, „Register“ oder „Ortsregister“ meinen Abschnitte des
 Gerüsts, nicht der Spec. Das Gerüst ist nicht Teil dieses Plans; sein Inhalt steht vollständig in den Aufgaben unter
@@ -172,8 +178,7 @@ für den Pfad des Plan-Worktrees.
     direkt nach `client.starte();`) werden weder verschoben noch geändert.
 - **G5 Texte.**
   - Wörtlich aus Spec, Anhang A, den `…_TEXTE` von `@jm/ui` und `@jm/settings` und aus `TITLER_TEXTE` (Task 8).
-  - Neue Texte nur aus der Liste OF8 (T1–T11); die Liste geht vor dem Abnahme-Bau („Nach der Umsetzung“, Punkt 6) zum
-    Owner.
+  - Neue Texte nur aus der Liste OF8 (T1–T11); der Owner hat die Liste am 15.10.2026 wie im Plan freigegeben (OF8).
   - Nur „ “, nie ASCII `"` in Nutzertexten; echte Umlaute; Zahlen mit `zahlText`.
 - **G6 Statusregeln (Spec 7).**
   - Unbekannt ist `off` mit „unbekannt“, nie `ok`.
@@ -246,12 +251,12 @@ für den Pfad des Plan-Worktrees.
 
 ## Testläufe (wie sie heißen werden)
 
-„Vorher“ ist gemessen auf `5e5b234ec3`, „Nach Task 16“ zuletzt im Abschluss der Nachbesserung am 15.10.2026 (Tabelle
-„Gemessene Zählstände“).
+„Vorher“ ist gemessen auf `5e5b234ec3`, „Nach Task 16“ zuletzt in der Abschluss-Messung der letzten Nachbesserung am
+15.10.2026 (NB38, Tabelle „Gemessene Zählstände“).
 
 | Paket | Befehl | Vorher | Nach Task 16 |
 | --- | --- | --- | --- |
-| `@jm/titler` | `npm run selftest -w @jm/titler`; ab Task 7: `tsx test/selftest.ts && tsx --tsconfig tsconfig.test.json test/ui/selftest.ts` | 512 `ok`, „ALLE TESTS OK“ | 538 + 261 = 799 `ok`, zweimal „ALLE TESTS OK“ |
+| `@jm/titler` | `npm run selftest -w @jm/titler`; ab Task 7: `tsx test/selftest.ts && tsx --tsconfig tsconfig.test.json test/ui/selftest.ts` | 512 `ok`, „ALLE TESTS OK“ | 538 + 264 = 802 `ok`, zweimal „ALLE TESTS OK“ |
 | `@jm/ui` | `npm run selftest -w @jm/ui` | 627 `ok` | 680 `ok` |
 | `@jm/settings` | `npm run selftest -w @jm/settings` | 419 `ok` | 463 `ok` |
 | `@jm/app-runtime` | `npm run selftest -w @jm/app-runtime` | `50 passed, 0 failed` und `227 passed, 0 failed` | `50 passed, 0 failed` und `254 passed, 0 failed` |
@@ -271,19 +276,21 @@ für den Pfad des Plan-Worktrees.
    - Erwartet: nie `ok` ohne Messung; „unbekannt“, „an (ohne Rückmeldung)“, „Port belegt“ und „Bildschirm fehlt“ wie in
      Task 8 festgelegt; nie `live`.
    - Test: **Task 5** (Master-Eintrag, Kreuz über 12 Eingänge, `verbindeBruecke`, Hook-Übergang nach einem
-     Verbindungsabbruch), **Task 3** (Ereignisfolgen der Fernsteuerung), **Task 8** (Kreuz je Eintrag und über die ganze
-     Leiste; iveo bei Quelle `master` mit der Achse Master-Link), **Task 9** (Leiste im gerenderten Rahmen;
-     der Server-Render ohne Brücke ergibt „unbekannt“; ON AIR nur aus der Engine-Größe `live` und eine abgelehnte
-     Monitorliste als „unbekannt“, beides per Quelltext-Wächter, weil der Server-Render nur `live = false` kennt),
-     **Task 10** (Take-Tally aus `live`, Wächter `live={live}`).
+     Verbindungsabbruch; der Effekt `hookAbo` übernimmt jede Folgemeldung, auch `null`, der Hook steht wörtlich),
+     **Task 3** (Ereignisfolgen der Fernsteuerung), **Task 8** (Kreuz je Eintrag und über die ganze Leiste; iveo bei Quelle
+     `master` mit der Achse Master-Link), **Task 9** (Leiste im gerenderten Rahmen; der Server-Render ohne Brücke ergibt
+     „unbekannt“; ON AIR nur aus der Engine-Größe `live` und eine abgelehnte Monitorliste als „unbekannt“, beides per
+     Quelltext-Wächter, weil der Server-Render nur `live = false` kennt), **Task 10** (Take-Tally aus `live`, Wächter
+     `live={live}`), **Task 11** (Panel-Abschnitt „Ausgabe auf Bildschirm“ bei nicht geladener Monitorliste „unbekannt“).
 2. **Kein Funktionsverlust gegen die Funktionsliste.** Belastungsfälle: ein Handler hängt nur noch im zugeklappten Panel, ein
    Knopf fehlt, ein gemerkter Zustand verschwindet, eine `persistId` ändert sich, ein Text verweist auf einen Ort, den es
    nicht mehr gibt.
    - Erwartet: Jede der 103 Zeilen hat einen Ort mit Haken; Fernsteuer-Befehle, Show-Vorlagen-Import und `reportState`
      laufen bei geschlossenem Panel; kein Nutzertext nennt „Reiter“ oder „rechts starten“.
-   - Test: **Task 13** (jede Zeile mit Ort; der Ort zeigt auf eine vorhandene Datei), **Task 11** (Quelltext: Effekte nur in
-     `OperatorView`, `Einstellungen.tsx` ohne `useEffect`), **Task 10** (`persistId` `titler.graphics` und `titler.recall`,
-     keine Ortsangaben alter Art; Banner, Ticker samt Tempo, Vorlage ohne Textfelder und der Variablen-Hilfetext gerendert),
+   - Test: **Task 13** (jede Zeile mit Ort; der Ort zeigt auf eine vorhandene Datei; das Electron-Standardmenü in Nr. 93
+     und 97), **Task 11** (Quelltext: Effekte nur in `OperatorView`, `Einstellungen.tsx` ohne `useEffect`), **Task 10**
+     (`persistId` `titler.graphics` und `titler.recall`, keine Ortsangaben alter Art; Banner, Ticker samt Tempo, Vorlage
+     ohne Textfelder und der Variablen-Hilfetext gerendert; jedes Feld der Bedienung schreibt in seinen Schlüssel),
      **Task 9** (Quelltext-Wächter: ⚙ und Statuseintrag öffnen das Panel am Abschnitt, die fünf Aktionen gehen an Store und
      Preload; ein Klick lässt sich ohne Browser nicht auslösen).
 3. **R2-Anzeige und -Sperren bleiben wirksam.** Belastungsfälle: V-Zeile fehlt im Kopf, Ordnerwahl bei Quelle `master` frei,
@@ -418,7 +425,8 @@ Pfade ohne Präfix liegen unter `apps/titler/src/renderer/src/`.
   Master-Rechner verbindet der Client nur zu `127.0.0.1` (`adresswahl.ts:127`); „verbunden mit ⟨Master⟩“ ist dort wahr,
   denn der eigene Launcher ist der Master.
 - **E5 Brücken-Hook.**
-  - `verbindeBruecke(quelle, melde)` ist der Körper des Effekts: erst `ereignis` abonnieren, dann `abfrage`.
+  - `verbindeBruecke(quelle, melde)` ist der Kern des Effekts (der Hook ruft sie über `hookAbo`): erst `ereignis`
+    abonnieren, dann `abfrage`.
   - Eine Antwort nach einem Ereignis wird verworfen; Ablehnung und Wurf ergeben `null`; nach dem Abmelden passiert nichts
     mehr.
   - `useBrueckenWert(quelle)` liefert `undefined`, solange die Brücke offen ist, und `null` ohne Quelle.
@@ -573,24 +581,29 @@ Pfade ohne Präfix liegen unter `apps/titler/src/renderer/src/`.
 
 ## Owner-Fragen (je mit Vorgabe; die Umsetzung blockiert nicht)
 
-Ohne Antwort gilt die Vorgabe. „spätestens vor“ nennt die Aufgabe, deren Text sich bei Ablehnung ändert.
+Owner-Antwort 15.10.2026: alle Vorgaben OF1–OF14 bestätigt.
 
-| # | Frage | Vorgabe (Empfehlung) | Wirkung bei Ablehnung | spätestens vor |
-| --- | --- | --- | --- | --- |
-| OF1 | Recall-Board-Hinweise: Anhang A sagt, das Board „zeigt dieselben Hinweise“. Heute filtert es nach 2b-Spec 7.8 absichtlich auf H1, H5 und H6 plus B1 (Test B14, `apps/titler/test/selftest.ts:1299-1306`). Ist „wie der Operator (H1–H7)“ gemeint? | Der Filter bleibt; „dieselben“ heißt dieselbe Quelle `status.hinweis` mit gleichem Wortlaut. | Task 12 und die B14-Erwartungen ändern sich (H2, H3, H4, H7 im Board). | Task 12 |
-| OF2 | Label des Steuerserver-Eintrags: „Fernsteuerung“ statt „Companion“ (Spec 3.3 und Anhang A nennen „Companion“)? Die Zahl zählt jeden Steuerclient, auch die Dauerverbindung des Launcher-Health. | „Fernsteuerung“ | Label „Companion“ in `TITLER_TEXTE` (Task 8). | Task 8 |
-| OF3 | Chroma-Farbwähler und „Reset (#00B140)“ als additive Erweiterung von `ScreenOutputSection` behalten (Farbwähler und Knopf „Standardfarbe (#00B140)“)? Spec 6.1 legt die Felder fest, Spec 10 verbietet Funktionsverlust. | ja | Der Teil Bildschirm in Task 6 entfällt; Nr. 57/58 „ersetzt durch Textfeld #RRGGBB (Owner)“. | Task 6 |
-| OF4 | DataLink: Ordnerpfad eintippen (künftig Übernahme bei Enter bzw. Verlassen statt je Tastendruck) und „Ordner entfernen“ als additive Erweiterung von `DataLinkSection` behalten? Ohne den Knopf gäbe es keinen Weg mehr, den Ordner zu entfernen. | ja | Die Teile Pfadfeld und Knopf in Task 6 entfallen; Nr. 43/45 „entfällt (Owner)“, ohne Weg zum Entfernen des Ordners. | Task 6 |
-| OF5 | „Im Launcher einrichten“ (iveo, Fernsteuerung) im Pilot ausblenden? Fundament E15 wies den Weg dem Pilot zu, aber `jmps://` kennt nur `open?show=`. Ein Deep-Link bräuchte Launcher-Main und IPC (U6). | ausgeblendet; der Weg kommt mit dem Launcher in Welle 3 | eigener Plan-Teil mit Launcher-Main, `jmps://`-Weg und Rückruf (U6-Ausnahme) | Task 8 |
-| OF6 | Folgeplan „Titler-Rückmeldungen“ nach dem Pilot? Er bräuchte Main-Änderungen außerhalb UO3: NDI-Sender (Init-Fehler, Prozess-Ende, erste `stat`), „Ausgabefenster offen“, der Name der NDI-Quelle im Netz (Spec 6.2 „Vorschau des Namens im Netz“, E7), „Neustart nötig“ der Fernsteuerung (Spec 6.2, E6) und die Diagnosen, die nur im Log stehen (Datei unlesbar, Kodierung, NDI-Init, mDNS, RELOAD bzw. Deep-Link im Verbund ignoriert, Ordnerwahl abgelehnt). Bis dahin zeigt die Statusleiste bei NDI an dauerhaft ▲ „an (ohne Rückmeldung)“ (Spec 7.3). | Folgeplan | Main-Änderungen im Pilot (neue benannte U6-Ausnahmen, mehr Aufgaben) | Plan-Freigabe |
-| OF7 | DataLink-Sperrtext im Verbund: der R2-Satz „Gesperrt: Im Verbund kommen die Speaker vom Master „X“. Ein eigener Ordner gilt, solange die Show dort keine Speaker hat.“ oder Spec 6.2 „Vom Master vorgegeben“? | der R2-Satz; er ist vom Owner für R2 freigegeben und nennt Master und Regel | `locked = DATALINK_TEXTE.gesperrtVomMaster` in Task 8 | Task 8 |
-| OF8 | Texte ohne Spec-Vorgabe (Liste T1–T11 unten) vor dem Abnahme-Bau freigeben („Nach der Umsetzung“, Punkt 6). | wie in der Liste | Texte in Task 8 bzw. Task 6 ändern | Abnahme-Bau |
-| OF9 | Reihenfolge: Laufen die offenen Abnahmen 2a, 2b-R1 und 2b (R2) noch auf 0.11.0, bevor der Abnahme-Bau 0.12.0 des Pilots an A und B installiert wird („Nach der Umsetzung“, Punkt 6)? Ab 0.12.0 stimmen deren Ortsangaben nicht mehr (`packages/master-link/ABNAHME-2b.md:42` und `:44` „Einstellungen › DataLink“, `apps/titler/ABNAHME-2b-R1.md:13` „Daten / Recall“). | ja, vorher; sonst nennt die neue Abnahme die neuen Orte | ein Hinweisblock in Task 14 mit der Ortsübersetzung | Abnahme-Bau |
-| OF10 | macOS: Wird Titler 0.12.0 auch als `.dmg` gebaut und auf dem Mac abgenommen (Spec 15: Ampel und Ziehfläche, „wo das Tool dort ausgeliefert wird“)? Das lokale Release-Verzeichnis enthält nur `.exe`. | nur Windows wie 0.10.1 und 0.11.0; die Mac-Zeilen der Abnahme gelten als „entfällt ohne .dmg“ | Mac-Bau plus Abnahme der Ziehfläche und Ampel auf dem Mac | Abnahme-Bau |
-| OF11 | Electron-Standardmenü: Der Titler setzt kein Menü, also gelten die Kürzel des Electron-Standardmenüs (Funktionsliste Nr. 93, 97). Strg+R im Bedienfenster lädt den Renderer neu und beendet dabei ON AIR (abgeleitet, nicht gemessen), Strg+W schließt das Fenster. Soll eine Folgeaufgabe das Menü abschalten oder durch ein eigenes ohne „Neu laden“ ersetzen? | Im Pilot unverändert (Main bleibt, U6); als Punkt im Folgeplan aus OF6. Abnahme 5c prüft, dass Strg+R wie vor dem Pilot wirkt. | Menü-Änderung im Main schon im Pilot (neue benannte U6-Ausnahme, Funktionsliste Nr. 93 und 97 ändern sich); ohne Menü entfällt auch der Zoom per Strg und Plus, auf den E19 und Abnahme 3 bauen | Plan-Freigabe |
-| OF12 | iveo bei Quelle `show`: Heißt „verbunden“ dort nur „die Show trägt iveo-Speaker ohne Veraltet-Marke“ (E9)? Der Titler misst keine eigene Lieferung; `@jm/settings` sagt im Kopf von `iveo.ts`, „verbunden“ stehe nur bei gemessener Lieferung. | E9 bleibt: ohne Hinweis ● „verbunden“, denn ohne `speakerVeraltetSeit` sagt die Show, dass die letzte Lieferung des Launchers gelang. | `iveoAbschnitt` liefert bei `show` ohne Hinweis `delivery: undefined` (○ „iveo unbekannt“); die iveo-Tabelle in Task 8 und Abnahme 4b ändern sich | Task 8 |
-| OF13 | Abnahme vor dem Release (Spec 9.1: „released wird nach der Abnahme der Welle (Abschnitt 12) und nur mit Owner-Freigabe“): Der Owner nimmt mit einem lokalen Abnahme-Bau `JM Titler-0.12.0-win-x64.exe` aus dem Branch ab, an A und B von Hand über die installierte 0.11.0 gesetzt (vorgeschlagener Installationsordner), nicht über den Launcher-Katalog. Erst nach bestandener Abnahme und mit seiner Freigabe folgen Merge, Tag, GitHub-Release und Katalog. Einverstanden? | ja. Der Launcher startet den Titler weiter über die Kachel: Er erkennt ein Tool an der Programmdatei am Installationspfad und vergleicht für Updates mit der zuletzt von ihm installierten Version, bietet bis zum Release also kein Update an (`apps/launcher/src/main/install-state.ts`, `updates.ts`, am Code gelesen). | Release vor der Abnahme wie bei 0.10.1 und 0.11.0; das weicht von Spec 9.1 ab und braucht die ausdrückliche Freigabe des Owners. „Nach der Umsetzung“ Punkt 5 bis 8 und die Voraussetzung der Abnahme-Datei (Task 14) ändern sich. | Task 14 |
-| OF14 | NDI-Quellenname (L1, E7): Übernahme bei Enter bzw. Verlassen und ohne Leerzeichen am Anfang und Ende, wie der Abschnitt `NdiOutputSection` aus dem Fundament es vorgibt, statt je Tastendruck? Wirksam wird der Name wie heute erst beim nächsten Start der Ausgabe; Escape verwirft einen angefangenen Namen. | ja; der Abschnitt aus `@jm/settings` bleibt, wie er ist (Spec 6). | `NdiOutputSection` bräuchte in Task 6 eine additive Übernahme je Tastendruck (wie OF4 für den Ordnerpfad), oder der Titler behielte ein eigenes Feld neben dem Abschnitt (Task 8 und 11; Spec 6 sieht den Abschnitt vor); Funktionsliste Nr. 50 ändert sich. | Task 6 |
+Der Owner hat jede Zeile mit „passt“ beantwortet, auch OF8 (Texte T1–T11 wie in der Liste unten) und OF13 (Abnahme mit
+dem lokalen Abnahme-Bau vor Merge und Release). Damit gilt in jeder Zeile die Vorgabe, und keine Aufgabe ändert sich; die
+Spalten „Wirkung bei Ablehnung“ und „spätestens vor“ bleiben zur Nachvollziehbarkeit stehen. Die Freigabe des Releases
+selbst gibt der Owner erst nach der Abnahme („Nach der Umsetzung“, Punkt 8).
+
+| # | Frage | Vorgabe (Empfehlung) | Wirkung bei Ablehnung | spätestens vor | Owner |
+| --- | --- | --- | --- | --- | --- |
+| OF1 | Recall-Board-Hinweise: Anhang A sagt, das Board „zeigt dieselben Hinweise“. Heute filtert es nach 2b-Spec 7.8 absichtlich auf H1, H5 und H6 plus B1 (Test B14, `apps/titler/test/selftest.ts:1299-1306`). Ist „wie der Operator (H1–H7)“ gemeint? | Der Filter bleibt; „dieselben“ heißt dieselbe Quelle `status.hinweis` mit gleichem Wortlaut. | Task 12 und die B14-Erwartungen ändern sich (H2, H3, H4, H7 im Board). | Task 12 | bestätigt 15.10. |
+| OF2 | Label des Steuerserver-Eintrags: „Fernsteuerung“ statt „Companion“ (Spec 3.3 und Anhang A nennen „Companion“)? Die Zahl zählt jeden Steuerclient, auch die Dauerverbindung des Launcher-Health. | „Fernsteuerung“ | Label „Companion“ in `TITLER_TEXTE` (Task 8). | Task 8 | bestätigt 15.10. |
+| OF3 | Chroma-Farbwähler und „Reset (#00B140)“ als additive Erweiterung von `ScreenOutputSection` behalten (Farbwähler und Knopf „Standardfarbe (#00B140)“)? Spec 6.1 legt die Felder fest, Spec 10 verbietet Funktionsverlust. | ja | Der Teil Bildschirm in Task 6 entfällt; Nr. 57/58 „ersetzt durch Textfeld #RRGGBB (Owner)“. | Task 6 | bestätigt 15.10. |
+| OF4 | DataLink: Ordnerpfad eintippen (künftig Übernahme bei Enter bzw. Verlassen statt je Tastendruck) und „Ordner entfernen“ als additive Erweiterung von `DataLinkSection` behalten? Ohne den Knopf gäbe es keinen Weg mehr, den Ordner zu entfernen. | ja | Die Teile Pfadfeld und Knopf in Task 6 entfallen; Nr. 43/45 „entfällt (Owner)“, ohne Weg zum Entfernen des Ordners. | Task 6 | bestätigt 15.10. |
+| OF5 | „Im Launcher einrichten“ (iveo, Fernsteuerung) im Pilot ausblenden? Fundament E15 wies den Weg dem Pilot zu, aber `jmps://` kennt nur `open?show=`. Ein Deep-Link bräuchte Launcher-Main und IPC (U6). | ausgeblendet; der Weg kommt mit dem Launcher in Welle 3 | eigener Plan-Teil mit Launcher-Main, `jmps://`-Weg und Rückruf (U6-Ausnahme) | Task 8 | bestätigt 15.10. |
+| OF6 | Folgeplan „Titler-Rückmeldungen“ nach dem Pilot? Er bräuchte Main-Änderungen außerhalb UO3: NDI-Sender (Init-Fehler, Prozess-Ende, erste `stat`), „Ausgabefenster offen“, der Name der NDI-Quelle im Netz (Spec 6.2 „Vorschau des Namens im Netz“, E7), „Neustart nötig“ der Fernsteuerung (Spec 6.2, E6) und die Diagnosen, die nur im Log stehen (Datei unlesbar, Kodierung, NDI-Init, mDNS, RELOAD bzw. Deep-Link im Verbund ignoriert, Ordnerwahl abgelehnt). Bis dahin zeigt die Statusleiste bei NDI an dauerhaft ▲ „an (ohne Rückmeldung)“ (Spec 7.3). | Folgeplan | Main-Änderungen im Pilot (neue benannte U6-Ausnahmen, mehr Aufgaben) | Plan-Freigabe | bestätigt 15.10. |
+| OF7 | DataLink-Sperrtext im Verbund: der R2-Satz „Gesperrt: Im Verbund kommen die Speaker vom Master „X“. Ein eigener Ordner gilt, solange die Show dort keine Speaker hat.“ oder Spec 6.2 „Vom Master vorgegeben“? | der R2-Satz; er ist vom Owner für R2 freigegeben und nennt Master und Regel | `locked = DATALINK_TEXTE.gesperrtVomMaster` in Task 8 | Task 8 | bestätigt 15.10. |
+| OF8 | Texte ohne Spec-Vorgabe (Liste T1–T11 unten) vor dem Abnahme-Bau freigeben („Nach der Umsetzung“, Punkt 6). | wie in der Liste | Texte in Task 8 bzw. Task 6 ändern | Abnahme-Bau | bestätigt 15.10. |
+| OF9 | Reihenfolge: Laufen die offenen Abnahmen 2a, 2b-R1 und 2b (R2) noch auf 0.11.0, bevor der Abnahme-Bau 0.12.0 des Pilots an A und B installiert wird („Nach der Umsetzung“, Punkt 6)? Ab 0.12.0 stimmen deren Ortsangaben nicht mehr (`packages/master-link/ABNAHME-2b.md:42` und `:44` „Einstellungen › DataLink“, `apps/titler/ABNAHME-2b-R1.md:13` „Daten / Recall“). | ja, vorher; sonst nennt die neue Abnahme die neuen Orte | ein Hinweisblock in Task 14 mit der Ortsübersetzung | Abnahme-Bau | bestätigt 15.10. |
+| OF10 | macOS: Wird Titler 0.12.0 auch als `.dmg` gebaut und auf dem Mac abgenommen (Spec 15: Ampel und Ziehfläche, „wo das Tool dort ausgeliefert wird“)? Das lokale Release-Verzeichnis enthält nur `.exe`. | nur Windows wie 0.10.1 und 0.11.0; die Mac-Zeilen der Abnahme gelten als „entfällt ohne .dmg“ | Mac-Bau plus Abnahme der Ziehfläche und Ampel auf dem Mac | Abnahme-Bau | bestätigt 15.10. |
+| OF11 | Electron-Standardmenü: Der Titler setzt kein Menü, also gelten die Kürzel des Electron-Standardmenüs (Funktionsliste Nr. 93, 97). Strg+R im Bedienfenster lädt den Renderer neu und beendet dabei ON AIR (aus dem Code abgeleitet; gemessen wird es in Abnahme 5c, auf einer Testquelle ohne echte Sendung), Strg+W schließt das Fenster. Soll eine Folgeaufgabe das Menü abschalten oder durch ein eigenes ohne „Neu laden“ ersetzen? | Im Pilot unverändert (Main bleibt, U6); als Punkt im Folgeplan aus OF6. Abnahme 5c misst die Wirkung von Strg+R nach „Take“ auf einer Testquelle (ON AIR, NDI-Ausgabe, Ausgabefenster); das Ergebnis geht in den Folgeplan. | Menü-Änderung im Main schon im Pilot (neue benannte U6-Ausnahme, Funktionsliste Nr. 93 und 97 ändern sich); ohne Menü entfällt auch der Zoom per Strg und Plus, auf den E19 und Abnahme 3 bauen | Plan-Freigabe | bestätigt 15.10. |
+| OF12 | iveo bei Quelle `show`: Heißt „verbunden“ dort nur „die Show trägt iveo-Speaker ohne Veraltet-Marke“ (E9)? Der Titler misst keine eigene Lieferung; `@jm/settings` sagt im Kopf von `iveo.ts`, „verbunden“ stehe nur bei gemessener Lieferung. | E9 bleibt: ohne Hinweis ● „verbunden“, denn ohne `speakerVeraltetSeit` sagt die Show, dass die letzte Lieferung des Launchers gelang. | `iveoAbschnitt` liefert bei `show` ohne Hinweis `delivery: undefined` (○ „iveo unbekannt“); die iveo-Tabelle in Task 8 und Abnahme 4b ändern sich | Task 8 | bestätigt 15.10. |
+| OF13 | Abnahme vor dem Release (Spec 9.1: „released wird nach der Abnahme der Welle (Abschnitt 12) und nur mit Owner-Freigabe“): Der Owner nimmt mit einem lokalen Abnahme-Bau `JM Titler-0.12.0-win-x64.exe` aus dem Branch ab, an A und B von Hand über die installierte 0.11.0 gesetzt (vorgeschlagener Installationsordner), nicht über den Launcher-Katalog. Erst nach bestandener Abnahme und mit seiner Freigabe folgen Merge, Tag, GitHub-Release und Katalog. Einverstanden? | ja. Der Launcher startet den Titler weiter über die Kachel: Er erkennt ein Tool an der Programmdatei am Installationspfad und vergleicht für Updates mit der zuletzt von ihm installierten Version, bietet bis zum Release also kein Update an (`apps/launcher/src/main/install-state.ts`, `updates.ts`, am Code gelesen). | Release vor der Abnahme wie bei 0.10.1 und 0.11.0; das weicht von Spec 9.1 ab und braucht die ausdrückliche Freigabe des Owners. „Nach der Umsetzung“ Punkt 5 bis 8 und die Voraussetzung der Abnahme-Datei (Task 14) ändern sich. | Task 14 | bestätigt 15.10. |
+| OF14 | NDI-Quellenname (L1, E7): Übernahme bei Enter bzw. Verlassen und ohne Leerzeichen am Anfang und Ende, wie der Abschnitt `NdiOutputSection` aus dem Fundament es vorgibt, statt je Tastendruck? Wirksam wird der Name wie heute erst beim nächsten Start der Ausgabe; Escape verwirft einen angefangenen Namen. | ja; der Abschnitt aus `@jm/settings` bleibt, wie er ist (Spec 6). | `NdiOutputSection` bräuchte in Task 6 eine additive Übernahme je Tastendruck (wie OF4 für den Ordnerpfad), oder der Titler behielte ein eigenes Feld neben dem Abschnitt (Task 8 und 11; Spec 6 sieht den Abschnitt vor); Funktionsliste Nr. 50 ändert sich. | Task 6 | bestätigt 15.10. |
 
 **Texte ohne Spec-Vorgabe (OF8; im Plan wörtlich, mit Ort):**
 - T1 Master-Eintrag (`MASTER_LINK_TEXTE`, `@jm/ui`, Task 5): „Master“, „aus“, „nicht gestartet“, „sucht …“, „verbindet …“,
@@ -628,6 +641,9 @@ betroffenen Selbsttests und die Typprüfung, ab Task 7 auch Bau und Klassen-Prob
   Oberflächen-Lauf 14, 52, 76, 110, 134, 146, 261; Rot-Läufe 121 (Task 11), 141 (Task 12) und 687 (Task 13); `@jm/ui` 670
   nach Task 5, 679 nach Task 6 und 680 nach Task 9. Die Zahlen des Oberflächen-Laufs aus Block C
   stimmten mit den Werten, die Block C gegen den echten Text von Block B gemessen hatte, überein. Keine Messmarke ist übrig.
+  Nach der letzten Nachbesserung (NB38) gelten: beide Läufe zusammen 552, 590, 614, 649, 674, 686 (Task 7–12) und 802
+  (Task 13); Oberflächen-Lauf 14, 52, 76, 111, 136, 148, 264; Rot-Läufe 122 (Task 11), 143 (Task 12) und 689 (Task 13);
+  `@jm/ui` unverändert 670, 679 und 680 (in Task 5 sind drei Prüfungen ersetzt, keine dazugekommen).
 - **Z2 Zeilenenden-Prüfung in Block C konnte den Fehler nicht zeigen.** Block C prüfte mit
   `printf … "$(grep -c $'\r$' "$f")"`. In Git Bash 5.3.9 geht das Wagenrücklauf-Zeichen in der Befehlsersetzung verloren,
   das Muster wird `$` und zählt **jede** Zeile: Eine LF-Datei mit 24 Zeilen ergab „CRLF=24“ (gemessen). Die erwarteten
@@ -639,7 +655,9 @@ betroffenen Selbsttests und die Typprüfung, ab Task 7 auch Bau und Klassen-Prob
   `--stat`. Entscheidung: Pfadfilter, `git diff --stat` und das Zeilenenden-Skript lassen den Plan aus (`:(exclude)` bzw.
   Filter im Skript). Gemessen (nach der Nachbesserung, NB30): 63 Dateien (28 neu, 35 geändert),
   `63 files changed, 4313 insertions(+), 776 deletions(-)`,
-  neue Dateien alle LF, geänderte nicht gemischt, nur `cookbook.json` mit LF. Messweg: Die Messkopie hat kein Git; der
+  neue Dateien alle LF, geänderte nicht gemischt, nur `cookbook.json` mit LF. Nach der letzten Nachbesserung (NB38): weiter
+  63 Dateien (28 neu, 35 geändert), jetzt 4429+/776−; die 116 Zeilen mehr sind der Effektkörper `hookAbo` und die neuen
+  Tests zu R1 bis R4 (`bruecke.test.ts`, `live.test.tsx`, `panel.test.tsx`, `funktionsliste.test.ts`). Messweg: Die Messkopie hat kein Git; der
   Vergleich lief Datei für Datei mit `git diff --no-index --numstat` gegen `git archive 5e5b234ec3` (Bau-Ausgaben per
   `git check-ignore` aussortiert; `core.autocrlf` normalisiert die Zeilenenden dabei wie im Worktree). Die geänderten
   Skripte liefen zusätzlich lesend im Worktree auf dem sauberen Stand (`Dateien 0, außerhalb G1 0`, `Exit=0`; Gegenprobe
@@ -665,7 +683,10 @@ betroffenen Selbsttests und die Typprüfung, ab Task 7 auch Bau und Klassen-Prob
   weiter genau ein Fehler, `TS2339` an `test/selftest.ts:685`). Nicht neu gemessen, weil Code und Tests am Ort der Probe byte-gleich zum Messstand des Schreibers
   waren: Task 1–4 (Block A maß auf `5e5b234ec3` ohne Vorgänger), Task 5 und 6 (Block A ändert `packages/ui` und
   `packages/settings` nicht), Task 7 Proben 1, 2, 4 und 5 (unabhängig von Block A). In der Nachbesserung nach der
-  Plan-Prüfung sind alle Gegenproben von Task 1–16 neu gemessen worden, auch diese; 26 sind dazugekommen (NB30).
+  Plan-Prüfung sind alle Gegenproben von Task 1–16 neu gemessen worden, auch diese; 26 sind dazugekommen (NB30). In der
+  letzten Nachbesserung sind sieben dazugekommen (Task 5: 14 und 15; Task 10: k und l; Task 11: f; Task 13: 10 und 11),
+  Task 5 Probe 9, 12 und 13 zielen auf den neuen Aufbau des Hooks; danach sind alle Gegenproben von Task 1–16 noch einmal
+  gemessen und gegen den Plantext bzw. die Logs der Nachbesserung verglichen (NB38): Task 9–12 jetzt 36, Task 13 elf.
 - **Z9 Abgleich der erwarteten Ausgaben.** Jede `ok`-Zeile und jede `FAIL`-Zeile eines Rot-Laufs, die der Plan als erwartete
   Ausgabe nennt, kam im Lauf ihrer Aufgabe wörtlich vor (maschinell verglichen; ausgenommen zwei Zeilen mit dem Platzhalter
   `<worktree>`). Die `FAIL`-Zeilen der Gegenproben sind unter Z8 abgedeckt.
@@ -673,7 +694,9 @@ betroffenen Selbsttests und die Typprüfung, ab Task 7 auch Bau und Klassen-Prob
   danach `npm run cookbook:build` wie in Task 15 Step 6: Alle 61 berührten Dateien sind Byte für Byte gleich mit der
   Messkopie, und das Diff-Bild gegen `5e5b234ec3` (Dateilisten, Zeilenzahlen) ist dasselbe. Damit blieb auch keine
   Gegenprobe in der Messkopie stehen. Nach der Nachbesserung wiederholt (NB30): 250 Operationen, Fehler 0; alle 1861
-  nicht ignorierten Dateien der zweiten Kopie sind Byte für Byte gleich mit der Messkopie, darunter die 63 berührten.
+  nicht ignorierten Dateien der zweiten Kopie sind Byte für Byte gleich mit der Messkopie, darunter die 63 berührten. Nach
+  der letzten Nachbesserung noch einmal (NB38): 250 Operationen, Fehler 0, `cookbook:build` an derselben Stelle; alle 1861
+  nicht ignorierten Dateien gleich, darunter die 63 berührten (Diff-Bild 63 Dateien, 4429+/776−).
 
 ## Gemessene Zählstände
 
@@ -681,9 +704,11 @@ Gemessen beim Zusammensetzen am 14.10.2026 und nach der Nachbesserung am 14. und
 Kopie von `5e5b234ec3` (Windows 11, Node 24.16.0): der Plantext maschinell und wörtlich eingespielt, Aufgabe für Aufgabe in
 Planreihenfolge; je Aufgabe zuerst jeder rote Zwischenstand, dann der grüne Endstand mit Typprüfung und allen Gegenproben.
 Die Zählspalten und die CSS-Größen nach Task 9–12 sind im Abschluss der Nachbesserung (NB30) noch einmal nach jeder Aufgabe
-gemessen, Zeile 16 ganz. „Rot“ ist die erste Meldung des roten Laufs, die Zählspalten zeigen die `ok`-Zeilen im grünen Lauf
-(Gesamtstand des Pakets bzw. Laufs), „Proben“ die `FAIL`-Zahl je Gegenprobe in Planreihenfolge (Herkunft unter Z8 und
-NB30). „–“ heißt: Die Aufgabe berührt den Lauf nicht.
+gemessen, Zeile 16 ganz. Nach der letzten Nachbesserung (Restlücken R1–R5) ist der ganze Plan noch einmal so gemessen,
+Aufgabe für Aufgabe mit jedem roten und grünen Lauf, den Typprüfungen, Bau und Klassen-Probe und allen Gegenproben (NB38);
+die Tabelle zeigt diesen Stand. „Rot“ ist die erste Meldung des roten Laufs, die Zählspalten zeigen die `ok`-Zeilen im
+grünen Lauf (Gesamtstand des Pakets bzw. Laufs), „Proben“ die `FAIL`-Zahl je Gegenprobe in Planreihenfolge (Herkunft unter
+Z8, NB30 und NB38). „–“ heißt: Die Aufgabe berührt den Lauf nicht.
 
 | Task | Rot | Titler alt | Titler Oberfläche | `@jm/ui` | `@jm/settings` | app-runtime | Steuerprotokoll | Typprüfung, Bau | Proben (FAIL je Probe) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -692,18 +717,18 @@ NB30). „–“ heißt: Die Aufgabe berührt den Lauf nicht.
 | 2 | `ERR_MODULE_NOT_FOUND …master-link-meldung`; dann `250 passed, 4 failed` | – | – | – | – | 50/0 und **254/0** | – | alle 31 Workspaces `Exit=0` (95 s); Main 266287 B, Preload 3622 B | 1, 1, 1, 1, 4b-Wächter 1 (49/1), 1, 1; Positivprobe grün (254/0) |
 | 3 | Protokoll 78 `ok` + 2 `FAIL`; Titler `ERR_MODULE_NOT_FOUND …fernsteuerung` nach 512, dann 530 + 3 `FAIL` | **533** | – | – | – | – | **80** | Titler `Exit=0`; alle 31 Workspaces `Exit=0` (66 s); Bündel-Probe `open` / `secure secure open open` | 1, 3, 1, 1, 1, 1, 1; Protokoll 1 |
 | 4 | 534 + 4 `FAIL`; `typecheck:node` `TS2739`, `Exit=2` | **538** | – | – | – | – | – | `Exit=0`; Preload 4246 B (3 × `jmps:master-link`) | `TS2322` + `TS2345` (2 Fehler), 2, 1, 1 |
-| 5 | `ERR_MODULE_NOT_FOUND …ui\src\lib\master-link`; dann 668 + 2 `FAIL` | – | – | **670** | – | – | – | ui `Exit=0` | 3, 2, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 2 |
+| 5 | `ERR_MODULE_NOT_FOUND …ui\src\lib\master-link`; dann 668 + 2 `FAIL` | – | – | **670** | – | – | – | ui `Exit=0` | 3, 2, 1, 2, 1, 2, 1, 1, 2, 1, 1, 1, 2, 1, 1 |
 | 6 | settings `SyntaxError … 'farbeGewaehlt'`; ui 9 `FAIL` | – | – | **679** | **463** | – | – | ui, settings `Exit=0`; Galerie 20 `ok` (CSS 37,03 kB) | 3, 3, 1, 4, 1, 1, 1 |
 | 7 | `ERR_MODULE_NOT_FOUND … '@/lib'`; dann 10 `ok` + 4 `FAIL` | 538 | **14** | – | – | – | – | `Exit=0` (drei `tsc`); Bau 51,58 kB, Klassen-Probe 20 `ok`; CI 22 Schritte, 128 Zeilen | `ReferenceError`; 1 (Probe) und 1 (Lauf); `TS2339` an `:685`; 1; `TS2322` |
 | 8 | `ERR_MODULE_NOT_FOUND … '@/lib'` (alter Lauf grün) | 538 | **52** | – | – | – | – | `Exit=0` | 2, 1, 1, 1, 2, 2, 2, 1, 2, 1, 1, 1, 1, 1 |
 | 9 | `ERR_MODULE_NOT_FOUND … '@/lib'` (alter Lauf grün); `@jm/ui` 679 + 1 `FAIL` („StatusPill kuerzen …“) | 538 | **76** | **680** | – | – | – | Titler und ui `Exit=0`; Bau 50,81 kB, Probe 20 `ok` | 1, 3, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1 (a–m); ui 1 (n) |
-| 10 | `ERR_MODULE_NOT_FOUND … '@/views'` | 538 | **110** | – | – | – | – | `Exit=0`; Bau 51,18 kB, Probe 20 `ok` | 1, 2, 1, 1, 1, 1, 1, 1, 1, 1 |
-| 11 | 121 `ok` + 13 `FAIL` | 538 | **134** | – | – | – | – | `Exit=0`; Bau 50,67 kB, Probe 20 `ok` | 4, 2, 2, 2, 1 |
-| 12 | 141 `ok` + 5 `FAIL` | 538 | **146** | – | – | – | – | `Exit=0`; Bau 50,64 kB, Probe 20 `ok` | 2, 2, 1, 1 |
-| 13 | 112 `FAIL` (alle aus dem neuen Test), 687 `ok` | 538 | **261** | – | – | – | – | `Exit=0` | 2, 1, 1, 1, 1, 1, 1, 1, 1 |
+| 10 | `ERR_MODULE_NOT_FOUND … '@/views'` | 538 | **111** | – | – | – | – | `Exit=0`; Bau 51,18 kB, Probe 20 `ok` | 1, 2, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1 |
+| 11 | 122 `ok` + 14 `FAIL` | 538 | **136** | – | – | – | – | `Exit=0`; Bau 50,67 kB, Probe 20 `ok` | 4, 2, 2, 2, 1, 1 |
+| 12 | 143 `ok` + 5 `FAIL` | 538 | **148** | – | – | – | – | `Exit=0`; Bau 50,64 kB, Probe 20 `ok` | 2, 2, 1, 1 |
+| 13 | 113 `FAIL` (alle aus dem neuen Test), 689 `ok` | 538 | **264** | – | – | – | – | `Exit=0` | 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 |
 | 14 | `fehlt: docs/ux/ABNAHME-UX-Welle-0.md` | – | – | – | – | – | – | Prüfbefehl: 19 Zeilen, 1/4/1/6/4/3, 10 Zusatzprüfungen, CRLF 0, ASCII 0 | im Speicher: Spalten `false`, ASCII 1 |
 | 15 | vorher 2 / 1 / 1 · 0 / 0 · 0 | – | – | – | – | – | – | nachher 0 / 0 / 0 · 3 / 1 · 1; Kochbuch frisch (43); numstat 3/2, 1/1, 1/1, 3/1, 9/7, 11/9 | – |
-| 16 | – | 538 | 261 (zusammen 799) | 680 | 463 | 50/0 und 254/0 | 80 | alle 31 Workspaces `Exit=0` (95 s), `typecheck:test` läuft mit; Bau (CSS 50,64 kB), Klassen-Probe 20 `ok`; Galerie 20 `ok`; Diff 63 Dateien (28 neu, 35 geändert), 4313+/776−; byte-gleich 33 Pfade, 76 Dateien | Pfadfilter `Dateien 65, außerhalb G1 2`, `Exit=1`; Byte-Vergleich mit `views/OperatorView.tsx` abweichend |
+| 16 | – | 538 | 264 (zusammen 802) | 680 | 463 | 50/0 und 254/0 | 80 | alle 31 Workspaces `Exit=0` (75 s), `typecheck:test` läuft mit; Bau (CSS 50,64 kB), Klassen-Probe 20 `ok`; Galerie 20 `ok`; Diff 63 Dateien (28 neu, 35 geändert), 4429+/776−; byte-gleich 33 Pfade, 76 Dateien | Pfadfilter `Dateien 65, außerhalb G1 2`, `Exit=1`; Byte-Vergleich mit `views/OperatorView.tsx` abweichend |
 
 Die Spalte „Typprüfung, Bau“ nennt nach Task 7 bis 12 die Größe des gebauten Titler-CSS nur als Messwert, nicht als
 Erwartung; ebenso die Laufzeiten der Typprüfung aller Workspaces, die von Lauf zu Lauf schwanken. Tabelle und Text der
@@ -964,7 +989,7 @@ Nicht vorhanden (grep über `apps/titler/src`): kein `confirm(`, kein `prompt(`,
 | 94 | Tastatur nativ | Tab-Fokus; Leertaste/Enter lösen den fokussierten Knopf aus (Browser-Standard); Pfeiltasten in Auswahl und Schieber. Reiter ohne Pfeiltasten-Wechsel (`ui/Tabs.tsx` ohne Tastenhandler). Vorlagen-Kacheln (Nr. 23) nicht erreichbar, „✕“ (Nr. 24) erreichbar, aber unsichtbar | Browser | überall | – | |
 | 95 | Tastatur im Import-Dialog | **Escape schließt den Import-Dialog nicht** (kein Handler); kein Fokusfang | – | Dialog offen | `views/ImportDialog.tsx` (kein Handler) | |
 | 96 | Pflichtpunkt Panel | Leertaste/Escape mit Fokus im Panel. **Heute:** kein Panel (Einstellungen sind ein Reiter); ein Feld behält die Taste (Browser); auf Knopf/Schalter wirkt die Taste nativ; Escape hat keine Wirkung (kein Handler im Titler). **Mit `SettingsPanel` (abgeleitet aus `ui/SettingsPanel.tsx:31-62`, nicht gemessen):** Feld (Text, Zahl, Bereich, Auswahl) behält jede Taste; auf Knopf/Schalter geht die Leertaste weiter ans Tool, der Titler hat keinen Tastenhandler, also löst der Knopf/Schalter nativ aus; Escape schließt das Panel (nur wenn nicht `defaultPrevented`) und erreicht den Titler nicht | – | – | Reiter „Einstellungen“ (`views/OperatorView.tsx:607-773`) | |
-| 97 | Menü / globale Kürzel | Kein `Menu`/`setApplicationMenu`/`globalShortcut`/`before-input-event` in `apps/titler/src`, `packages/app-runtime/src`, `packages/ui/src` (grep); alle drei Fenster mit `autoHideMenuBar: true` (die Leiste erscheint erst nach Alt). Setzt eine App kein Menü, legt Electron das Standardmenü an (`node_modules/electron/electron.d.ts:8673`, Electron 33.4.11: „The default menu will be created automatically if the app does not set one“); seine Kürzel stehen unter Nr. 93. Wirkung im Titler **abgeleitet, nicht gemessen**: Strg+R im Bedienfenster lädt den Renderer neu, `live` beginnt wieder mit `false`, `reportState` meldet „nicht auf Sendung“, das Ausgabefenster blendet aus und das Halten im DataLink endet (`main/index.ts:719-724`) | – | – | `main/index.ts:484`, `:533`, `:577` | |
+| 97 | Menü / globale Kürzel | Kein `Menu`/`setApplicationMenu`/`globalShortcut`/`before-input-event` in `apps/titler/src`, `packages/app-runtime/src`, `packages/ui/src` (grep); alle drei Fenster mit `autoHideMenuBar: true` (die Leiste erscheint erst nach Alt). Setzt eine App kein Menü, legt Electron das Standardmenü an (`node_modules/electron/electron.d.ts:8673`, Electron 33.4.11: „The default menu will be created automatically if the app does not set one“); seine Kürzel stehen unter Nr. 93. Wirkung im Titler **aus dem Code abgeleitet, gemessen wird sie in Abnahme 5c** (auf einer Testquelle ohne echte Sendung): Strg+R im Bedienfenster lädt den Renderer neu, `live` beginnt wieder mit `false`, `reportState` meldet „nicht auf Sendung“, das Ausgabefenster blendet aus und das Halten im DataLink endet (`main/index.ts:719-724`) | – | – | `main/index.ts:484`, `:533`, `:577` | |
 
 ## 7 · Gemerkte Zustände (localStorage, sonstige Ablage)
 
@@ -1161,8 +1186,9 @@ git commit -m "docs(ux): Funktionsliste JM Titler vor dem Umbau (Spec 10)" -m "1
 - **Electron-Standardmenü in Nr. 93 und 97 (Nachbesserung, Prüfbefund funktionsliste:1):** Der Titler setzt kein Menü, also
   legt Electron 33 sein Standardmenü an (`electron.d.ts:8673`). Dessen Kürzel sind Tastaturkürzel des Titlers im Sinne von
   Spec 10 und stehen deshalb in der Pflichtzeile; sie sind aus den Menü-Rollen abgeleitet, weil das Electron-Programm hier
-  nicht installiert ist (`npm ci --ignore-scripts`) und G13 keinen Start erlaubt. Ob das Menü in einer Folgeaufgabe abgeschaltet
-  wird, fragt OF11.
+  nicht installiert ist (`npm ci --ignore-scripts`) und G13 keinen Start erlaubt. Gemessen wird die Wirkung von Strg+R in
+  Abnahme 5c (Nr. 97). Das Menü bleibt im Pilot; ob eine Folgeaufgabe es abschaltet, steht im Folgeplan (OF11, vom Owner
+  bestätigt).
 - **Kopf neu geschrieben, Abschnitte 1–10 wörtlich:** Der Kopf der Ist-Erhebung nannte die Messkopie und das Kopierwerkzeug;
   beides steht nicht in der Liste. Die Lesequellen sind geblieben, ebenso Pfadregel, R2-Kennzeichnung und Zustands-Kürzel
   (Pfadregel ergänzt um `renderer/…`, das Nr. 102 nutzt).
@@ -2631,6 +2657,7 @@ Fundament G4/G5 (Index nur am Ende, Bestandsschutz Zeilen 1–11). Global Constr
   export interface HookZustand<T> { fuer: BrueckenQuelle<T> | undefined; wert: T | null | undefined }
   export function hookSchritt<T>(alt: HookZustand<T>, quelle: BrueckenQuelle<T>, wert: T | null): HookZustand<T>;   // jede Meldung ersetzt den Wert
   export function hookWert<T>(z: HookZustand<T>, quelle: BrueckenQuelle<T> | undefined): T | null | undefined;    // ohne Quelle null, andere Quelle undefined
+  export function hookAbo<T>(quelle: BrueckenQuelle<T> | undefined, setZ: (schritt: (alt: HookZustand<T>) => HookZustand<T>) => void): (() => void) | undefined;   // Körper des Effekts: jede Meldung über hookSchritt an setZ
   ```
   Neue Zeilen am Ende von `packages/ui/src/index.ts` (Fundament G4: nur neue Zeilen, Zeilen 1–11 bleiben):
   ```ts
@@ -2667,7 +2694,7 @@ Fundament G4/G5 (Index nur am Ende, Bestandsschutz Zeilen 1–11). Global Constr
   (ein Test liest den Quelltext).
 - `brueckenSchritt`: Ein Ereignis gilt immer; eine Antwort gilt nur, solange noch kein Ereignis da ist, sonst bleibt der
   Stand **dasselbe Objekt** (verworfen). `null` aus einem Ereignis bleibt `null` (nicht „offen“).
-- `verbindeBruecke(quelle, melde)` ist der Körper des Effekts: erst `ereignis` anmelden, dann `abfrage`. Gemeldet wird jeder
+- `verbindeBruecke(quelle, melde)` ist der Kern des Effekts: erst `ereignis` anmelden, dann `abfrage`. Gemeldet wird jeder
   Wert, der nach `brueckenSchritt` gilt, eine späte Antwort nach einem Ereignis also nicht. Ablehnung oder Wurf der Abfrage
   melden `null`. Nach dem Abmelden meldet die Brücke nichts mehr, und die Abmeldung der Quelle läuft genau einmal, auch bei
   doppeltem Aufruf.
@@ -2676,8 +2703,11 @@ Fundament G4/G5 (Index nur am Ende, Bestandsschutz Zeilen 1–11). Global Constr
   Die Quelle muss stabil sein (modulweite Konstante oder `useMemo`), sonst meldet sich der Hook bei jedem Rendern neu an.
   Den Zustandsübergang rechnen die reinen Funktionen `hookSchritt` (jede Meldung ersetzt den Wert; nach „verbunden“ zeigt
   ein späteres „sucht“ oder „fehler“ also nie mehr den alten Zustand) und `hookWert` (andere Quelle → `undefined`, ohne
-  Quelle `null`). Der Hook ruft nur sie; ein Quelltext-Test sichert das, ein Verlaufstest prüft beide (Nachbesserung,
-  Prüfbefund robust:4).
+  Quelle `null`); den Körper des Effekts `hookAbo` (verbindet die Quelle über `verbindeBruecke` und gibt jede Meldung über
+  `hookSchritt` an `setZ`, auch `null` nach einem Wert). Der Hook ruft nur sie (Nachbesserung, Prüfbefund robust:4).
+  Ein Verhaltenstest lässt `hookAbo` mit einer Attrappen-Quelle laufen, deren Meldungen der Test von Hand schickt, und liest
+  nach jeder Meldung `hookWert`; ein Quelltext-Test prüft den ganzen Hook wörtlich, denn ohne DOM laufen seine Effekte nicht
+  (letzte Nachbesserung, Restlücke R1).
 - Die Quellregeln des Pakets (Fundament Task 3) gelten für die drei neuen Dateien von selbst (kein `window.jm`, kein
   `localStorage`, kein `process.`, kein Electron-/`node:`-Import).
 
@@ -2766,11 +2796,11 @@ Neue Datei `packages/ui/test/bruecke.test.ts`:
 ```ts
 // UX-Pilot C5 · Brücken-Stand und -Hook (Plan E5): Ein Ereignis gewinnt gegen eine späte Antwort, Ablehnung und Wurf
 // melden null, erst anmelden, dann abfragen, nach dem Abmelden nichts mehr; der Hook fasst beim Rendern nichts an (G7).
-// Ohne DOM: verbindeBruecke ist der Körper des Effekts, der Hook ruft ihn nur auf.
+// Ohne DOM: hookAbo ist der Körper des Effekts (über verbindeBruecke), der Hook ruft ihn nur auf.
 import { createElement } from 'react';
 import * as ui from '../src/index';
 import { brueckenSchritt, verbindeBruecke, type BrueckenQuelle, type BrueckenStand } from '../src/lib/bruecke';
-import { hookSchritt, hookWert, useBrueckenWert, type HookZustand } from '../src/lib/useBrueckenWert';
+import { hookAbo, hookSchritt, hookWert, useBrueckenWert, type HookZustand } from '../src/lib/useBrueckenWert';
 import { gleich, leseText, ok, render } from './harness';
 
 const OFFEN: BrueckenStand<string> = { art: 'offen' };
@@ -2790,7 +2820,7 @@ const OFFEN: BrueckenStand<string> = { art: 'offen' };
   gleich(brueckenSchritt(OFFEN, { art: 'ereignis', wert: null }), { art: 'da', wert: null, durch: 'ereignis' }, 'Brücke: null aus einem Ereignis bleibt null (nicht offen)');
 }
 
-// ── verbindeBruecke (Körper des Effekts) mit einer Attrappen-Quelle, die der Test von Hand steuert ──
+// ── verbindeBruecke (Kern des Effekts) mit einer Attrappen-Quelle, die der Test von Hand steuert ──
 // Die Attrappe hält ihren Zuhörer auch nach der Abmeldung fest (wie eine fehlerhafte Quelle): Still bleiben muss die Brücke.
 function attrappe(wirft = false) {
   const reihe: string[] = [];
@@ -2885,22 +2915,31 @@ const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
   const q = attrappe();
   gleich(render(createElement(Probe, { quelle: q.quelle })), '<span>offen</span>', 'Brücken-Hook: mit Quelle beim Server-Render undefined (offen)');
   gleich(q.reihe, [], 'Brücken-Hook: beim Rendern weder angemeldet noch abgefragt (nur im Effekt, G7)');
+  // Ohne DOM laufen die Effekte des Hooks nicht. Darum steht er hier wörtlich: Er ruft im Effekt nur hookAbo und liefert
+  // hookWert. Jeder eigene Übergang im Hook (eine Meldung auslassen, den ersten Wert halten) ändert diesen Text.
   const hook = leseText('src/lib/useBrueckenWert.ts');
-  ok(/useEffect\([\s\S]*verbindeBruecke\(quelle,/.test(hook), 'Brücken-Hook: der Effekt ruft verbindeBruecke');
-  ok(
-    hook.includes('setZ((alt) => hookSchritt(alt, quelle, wert))') && hook.includes('return hookWert(z, quelle);'),
-    'Brücken-Hook: übernimmt jede Meldung über hookSchritt und liefert hookWert (kein eigener Übergang im Hook)',
+  const koerper = /export function useBrueckenWert<T>[\s\S]*?\n\}/.exec(hook)?.[0] ?? '';
+  gleich(
+    koerper.split('\n').map((z) => z.trim()),
+    [
+      'export function useBrueckenWert<T>(quelle: BrueckenQuelle<T> | undefined): T | null | undefined {',
+      'const [z, setZ] = useState<HookZustand<T>>({ fuer: quelle, wert: undefined });',
+      'useEffect(() => hookAbo(quelle, setZ), [quelle]);',
+      'return hookWert(z, quelle);',
+      '}',
+    ],
+    'Brücken-Hook: der Hook wörtlich (Effekt nur hookAbo, Rückgabe hookWert; kein eigener Übergang im Hook)',
   );
 }
 
-// ── Zustand des Hooks über mehrere Meldungen (hookSchritt, hookWert; so verkettet sie der Hook im Effekt) ──
+// ── Effekt des Hooks über mehrere Meldungen: hookAbo mit der Attrappe; setZ wendet den Schritt an wie React ──
 {
   const q = attrappe();
   let z: HookZustand<string> = { fuer: q.quelle, wert: undefined };
   // String(…), damit undefined und null im Vergleich verschieden bleiben (JSON macht aus beiden null).
   const verlauf: string[] = [String(hookWert(z, q.quelle))];
-  verbindeBruecke(q.quelle, (wert) => {
-    z = hookSchritt(z, q.quelle, wert);
+  const ab = hookAbo(q.quelle, (schritt) => {
+    z = schritt(z);
     verlauf.push(String(hookWert(z, q.quelle)));
   });
   q.antworte('verbunden');
@@ -2909,9 +2948,21 @@ const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
   q.sende('fehler');
   q.sende(null);
   gleich(
-    verlauf,
-    ['undefined', 'verbunden', 'sucht', 'fehler', 'null'],
-    'Brücken-Hook: Antwort verbunden, dann sucht, fehler, null: jede Meldung ersetzt den Wert (nach einem Abbruch nie der alte Zustand)',
+    [q.reihe, verlauf],
+    [
+      ['ereignis', 'abfrage'],
+      ['undefined', 'verbunden', 'sucht', 'fehler', 'null'],
+    ],
+    'Brücken-Hook (Effekt hookAbo): angemeldet, dann abgefragt; Antwort verbunden, dann sucht, fehler, null: jede Meldung ersetzt den Wert, auch null nach einem Wert',
+  );
+  const vorAb = verlauf.length;
+  ab?.();
+  q.sende('spät');
+  const ohne: string[] = [];
+  gleich(
+    [verlauf.length - vorAb, q.reihe.filter((r) => r === 'ab').length, String(hookAbo(undefined, () => void ohne.push('x'))), ohne.length],
+    [0, 1, 'undefined', 0],
+    'Brücken-Hook (Effekt hookAbo): nach dem Abmelden bleibt der Wert, ohne Quelle meldet er nichts an',
   );
   gleich(
     [hookWert(z, attrappe().quelle), hookWert(z, undefined)].map(String),
@@ -3045,7 +3096,7 @@ export function brueckenSchritt<T>(alt: BrueckenStand<T>, e: { art: 'antwort' | 
 }
 
 /**
- * Körper des Effekts in useBrueckenWert: erst das Ereignis anmelden, dann abfragen (ein Ereignis zwischen Anfrage und
+ * Kern des Effekts in useBrueckenWert: erst das Ereignis anmelden, dann abfragen (ein Ereignis zwischen Anfrage und
  * Antwort geht so nicht verloren). Gemeldet wird jeder Wert, der nach brueckenSchritt gilt, eine späte Antwort nach einem
  * Ereignis also nicht. Eine Ablehnung oder ein Wurf der Abfrage meldet null. Rückgabe: abmelden; danach meldet die Brücke
  * nichts mehr, und die Abmeldung der Quelle läuft genau einmal.
@@ -3086,7 +3137,8 @@ export function verbindeBruecke<T>(quelle: BrueckenQuelle<T>, melde: (wert: T | 
 // „unbekannt“), null ohne Quelle oder bei Ablehnung, sonst der zuletzt gemeldete Wert. Eine späte Antwort nach einem
 // Ereignis meldet verbindeBruecke gar nicht erst. Anmelden und Abfragen nur im Effekt, nie beim Rendern (Render-Tests
 // laufen ohne window). Die Quelle muss stabil sein (modulweite Konstante oder useMemo), sonst meldet sich der Hook bei
-// jedem Rendern neu an. Den Zustandsübergang rechnen hookSchritt und hookWert: rein und ohne DOM getestet.
+// jedem Rendern neu an. Den Zustandsübergang rechnen hookSchritt und hookWert, den Körper des Effekts hookAbo: rein und
+// ohne DOM getestet; der Hook selbst ruft nur sie.
 import { useEffect, useState } from 'react';
 import { verbindeBruecke, type BrueckenQuelle } from './bruecke';
 
@@ -3107,12 +3159,21 @@ export function hookWert<T>(z: HookZustand<T>, quelle: BrueckenQuelle<T> | undef
   return z.fuer === quelle ? z.wert : undefined;
 }
 
+/**
+ * Körper des Effekts: verbindet die Quelle (erst anmelden, dann abfragen) und gibt jede Meldung über hookSchritt an setZ
+ * weiter, auch „sucht“ oder null nach einem Wert. Ohne Quelle meldet er nichts an. Rückgabe: abmelden.
+ */
+export function hookAbo<T>(
+  quelle: BrueckenQuelle<T> | undefined,
+  setZ: (schritt: (alt: HookZustand<T>) => HookZustand<T>) => void,
+): (() => void) | undefined {
+  if (!quelle) return undefined;
+  return verbindeBruecke(quelle, (wert) => setZ((alt) => hookSchritt(alt, quelle, wert)));
+}
+
 export function useBrueckenWert<T>(quelle: BrueckenQuelle<T> | undefined): T | null | undefined {
   const [z, setZ] = useState<HookZustand<T>>({ fuer: quelle, wert: undefined });
-  useEffect(() => {
-    if (!quelle) return undefined;
-    return verbindeBruecke(quelle, (wert) => setZ((alt) => hookSchritt(alt, quelle, wert)));
-  }, [quelle]);
+  useEffect(() => hookAbo(quelle, setZ), [quelle]);
   return hookWert(z, quelle);
 }
 ```
@@ -3199,9 +3260,9 @@ ok   Brücke verbinden: nach dem Abmelden nichts mehr gemeldet, Abmeldung der Qu
 ok   Brücken-Hook: ohne Quelle null
 ok   Brücken-Hook: mit Quelle beim Server-Render undefined (offen)
 ok   Brücken-Hook: beim Rendern weder angemeldet noch abgefragt (nur im Effekt, G7)
-ok   Brücken-Hook: der Effekt ruft verbindeBruecke
-ok   Brücken-Hook: übernimmt jede Meldung über hookSchritt und liefert hookWert (kein eigener Übergang im Hook)
-ok   Brücken-Hook: Antwort verbunden, dann sucht, fehler, null: jede Meldung ersetzt den Wert (nach einem Abbruch nie der alte Zustand)
+ok   Brücken-Hook: der Hook wörtlich (Effekt nur hookAbo, Rückgabe hookWert; kein eigener Übergang im Hook)
+ok   Brücken-Hook (Effekt hookAbo): angemeldet, dann abgefragt; Antwort verbunden, dann sucht, fehler, null: jede Meldung ersetzt den Wert, auch null nach einem Wert
+ok   Brücken-Hook (Effekt hookAbo): nach dem Abmelden bleibt der Wert, ohne Quelle meldet er nichts an
 ok   Brücken-Hook: neue Quelle → undefined (der Wert der alten Quelle gilt nicht), ohne Quelle null
 ok   Brücke: Exporte aus src/index.ts (brueckenSchritt, verbindeBruecke, useBrueckenWert)
 ```
@@ -3250,9 +3311,16 @@ Jede Probe allein mit dem Edit-Werkzeug einbauen, `npm run selftest -w @jm/ui; e
    `Exit=1`.
 6. `packages/ui/src/lib/bruecke.ts` in `verbindeBruecke`: die Zeile
    `  const ab = quelle.ereignis((wert) => schritt({ art: 'ereignis', wert }));`
-   hinter den `try/catch`-Block der Abfrage verschieben (erst abfragen, dann anmelden). Erwartet (gemessen):
-   `FAIL Brücke verbinden: erst das Ereignis anmelden, dann abfragen` mit
-   `ist: ["abfrage","ereignis"] soll: ["ereignis","abfrage"]`, `1 FEHLGESCHLAGEN`, `Exit=1`.
+   hinter den `try/catch`-Block der Abfrage verschieben (erst abfragen, dann anmelden). Erwartet (gemessen; die zweite
+   Meldung kommt aus dem Lauf von `hookAbo`, der dieselbe Reihenfolge sieht):
+   ```
+   FAIL Brücke verbinden: erst das Ereignis anmelden, dann abfragen
+        ist: ["abfrage","ereignis"] soll: ["ereignis","abfrage"]
+   FAIL Brücken-Hook (Effekt hookAbo): angemeldet, dann abgefragt; Antwort verbunden, dann sucht, fehler, null: jede Meldung ersetzt den Wert, auch null nach einem Wert
+        ist: [["abfrage","ereignis"],["undefined","verbunden","sucht","fehler","null"]] soll: [["ereignis","abfrage"],["undefined","verbunden","sucht","fehler","null"]]
+   2 FEHLGESCHLAGEN
+   Exit=1
+   ```
 7. Ebenda den Ablehnungs-Zweig `    () => schritt({ art: 'antwort', wert: null }),` durch `    () => undefined,` ersetzen (eine
    Ablehnung ließe den Eintrag für immer „offen“). Erwartet (gemessen):
    `FAIL Brücke verbinden: abgelehnte Abfrage meldet null (nicht offen)` mit `ist: [] soll: [null]`, `1 FEHLGESCHLAGEN`,
@@ -3261,17 +3329,24 @@ Jede Probe allein mit dem Edit-Werkzeug einbauen, `npm run selftest -w @jm/ui; e
    `aktiv = false;` entfernen (doppeltes Abmelden meldet die Quelle zweimal ab).
    Erwartet (gemessen): `FAIL Brücke verbinden: nach dem Abmelden nichts mehr gemeldet, Abmeldung der Quelle genau einmal`,
    `1 FEHLGESCHLAGEN`, `Exit=1`.
-9. `packages/ui/src/lib/useBrueckenWert.ts`:
-   `    return verbindeBruecke(quelle, (wert) => setZ((alt) => hookSchritt(alt, quelle, wert)));` →
-   `    return quelle.ereignis((wert) => setZ((alt) => hookSchritt(alt, quelle, wert)));` (Hook ohne `verbindeBruecke`, also
-   ohne Abfrage und ohne Verwerfen). Erwartet (gemessen): `FAIL Brücken-Hook: der Effekt ruft verbindeBruecke`,
-   `1 FEHLGESCHLAGEN`, `Exit=1`.
+9. `packages/ui/src/lib/useBrueckenWert.ts` in `hookAbo`:
+   `  return verbindeBruecke(quelle, (wert) => setZ((alt) => hookSchritt(alt, quelle, wert)));` →
+   `  return quelle.ereignis((wert) => setZ((alt) => hookSchritt(alt, quelle, wert)));` (Effekt ohne `verbindeBruecke`,
+   also ohne Abfrage und ohne Verwerfen). Erwartet (gemessen):
+   ```
+   FAIL Brücken-Hook (Effekt hookAbo): angemeldet, dann abgefragt; Antwort verbunden, dann sucht, fehler, null: jede Meldung ersetzt den Wert, auch null nach einem Wert
+        ist: [["ereignis"],["undefined","sucht","fehler","null"]] soll: [["ereignis","abfrage"],["undefined","verbunden","sucht","fehler","null"]]
+   FAIL Brücken-Hook (Effekt hookAbo): nach dem Abmelden bleibt der Wert, ohne Quelle meldet er nichts an
+        ist: [1,1,"undefined",0] soll: [0,1,"undefined",0]
+   2 FEHLGESCHLAGEN
+   Exit=1
+   ```
 10. Ebenda in `hookSchritt`: `  return { fuer: quelle, wert };` →
     `  return _alt.fuer === quelle && _alt.wert !== undefined ? _alt : { fuer: quelle, wert };` (der Hook hielte den ersten
     Wert fest und zeigte nach einem Verbindungsabbruch weiter „verbunden“). Erwartet (gemessen):
     ```
-    FAIL Brücken-Hook: Antwort verbunden, dann sucht, fehler, null: jede Meldung ersetzt den Wert (nach einem Abbruch nie der alte Zustand)
-         ist: ["undefined","verbunden","verbunden","verbunden","verbunden"] soll: ["undefined","verbunden","sucht","fehler","null"]
+    FAIL Brücken-Hook (Effekt hookAbo): angemeldet, dann abgefragt; Antwort verbunden, dann sucht, fehler, null: jede Meldung ersetzt den Wert, auch null nach einem Wert
+         ist: [["ereignis","abfrage"],["undefined","verbunden","verbunden","verbunden","verbunden"]] soll: [["ereignis","abfrage"],["undefined","verbunden","sucht","fehler","null"]]
     1 FEHLGESCHLAGEN
     Exit=1
     ```
@@ -3279,17 +3354,41 @@ Jede Probe allein mit dem Edit-Werkzeug einbauen, `npm run selftest -w @jm/ui; e
     stünde der Wert der alten Quelle). Erwartet (gemessen):
     `FAIL Brücken-Hook: neue Quelle → undefined (der Wert der alten Quelle gilt nicht), ohne Quelle null` mit
     `ist: ["null","null"] soll: ["undefined","null"]`, `1 FEHLGESCHLAGEN`, `Exit=1`.
-12. Ebenda im Effekt: `setZ((alt) => hookSchritt(alt, quelle, wert))` →
-    `setZ((alt) => (alt.wert !== undefined ? alt : hookSchritt(alt, quelle, wert)))` (der Hook umgeht den geprüften
-    Übergang und hält den ersten Wert). Erwartet (gemessen):
-    `FAIL Brücken-Hook: übernimmt jede Meldung über hookSchritt und liefert hookWert (kein eigener Übergang im Hook)`,
-    `1 FEHLGESCHLAGEN`, `Exit=1` (die reinen Funktionen bleiben richtig; nur der Quelltext-Test sieht den Umweg).
+12. Ebenda im Hook: `  useEffect(() => hookAbo(quelle, setZ), [quelle]);` →
+    `  useEffect(() => hookAbo(quelle, (schritt) => setZ((alt) => (alt.wert !== undefined ? alt : schritt(alt)))), [quelle]);`
+    (der Hook umgeht `hookAbo` und hält den ersten Wert). Erwartet (gemessen):
+    ```
+    FAIL Brücken-Hook: der Hook wörtlich (Effekt nur hookAbo, Rückgabe hookWert; kein eigener Übergang im Hook)
+         ist: ["export function useBrueckenWert<T>(quelle: BrueckenQuelle<T> | undefined): T | null | undefined {","const [z, setZ] = useState<HookZustand<T>>({ fuer: quelle, wert: undefined });","useEffect(() => hookAbo(quelle, (schritt) => setZ((alt) => (alt.wert !== undefined ? alt : schritt(alt)))), [quelle]);","return hookWert(z, quelle);","}"] soll: ["export function useBrueckenWert<T>(quelle: BrueckenQuelle<T> | undefined): T | null | undefined {","const [z, setZ] = useState<HookZustand<T>>({ fuer: quelle, wert: undefined });","useEffect(() => hookAbo(quelle, setZ), [quelle]);","return hookWert(z, quelle);","}"]
+    1 FEHLGESCHLAGEN
+    Exit=1
+    ```
 13. Ebenda am Ende des Hooks: `  return hookWert(z, quelle);` → `  return z.wert;`. Erwartet (gemessen):
     ```
     FAIL Brücken-Hook: ohne Quelle null
          ist: "<span>offen</span>" soll: "<span>null</span>"
-    FAIL Brücken-Hook: übernimmt jede Meldung über hookSchritt und liefert hookWert (kein eigener Übergang im Hook)
+    FAIL Brücken-Hook: der Hook wörtlich (Effekt nur hookAbo, Rückgabe hookWert; kein eigener Übergang im Hook)
+         ist: ["export function useBrueckenWert<T>(quelle: BrueckenQuelle<T> | undefined): T | null | undefined {","const [z, setZ] = useState<HookZustand<T>>({ fuer: quelle, wert: undefined });","useEffect(() => hookAbo(quelle, setZ), [quelle]);","return z.wert;","}"] soll: ["export function useBrueckenWert<T>(quelle: BrueckenQuelle<T> | undefined): T | null | undefined {","const [z, setZ] = useState<HookZustand<T>>({ fuer: quelle, wert: undefined });","useEffect(() => hookAbo(quelle, setZ), [quelle]);","return hookWert(z, quelle);","}"]
     2 FEHLGESCHLAGEN
+    Exit=1
+    ```
+14. Ebenda in `hookAbo` (Restlücke R1, die Mutation der Nachprüfung):
+    `  return verbindeBruecke(quelle, (wert) => setZ((alt) => hookSchritt(alt, quelle, wert)));` →
+    `  return verbindeBruecke(quelle, (wert) => { if (wert !== null) setZ((alt) => hookSchritt(alt, quelle, wert)); });`
+    (der Effekt verschluckt das Schließen der Brücke, der Eintrag zeigte weiter den alten Wert). Erwartet (gemessen):
+    ```
+    FAIL Brücken-Hook (Effekt hookAbo): angemeldet, dann abgefragt; Antwort verbunden, dann sucht, fehler, null: jede Meldung ersetzt den Wert, auch null nach einem Wert
+         ist: [["ereignis","abfrage"],["undefined","verbunden","sucht","fehler"]] soll: [["ereignis","abfrage"],["undefined","verbunden","sucht","fehler","null"]]
+    1 FEHLGESCHLAGEN
+    Exit=1
+    ```
+15. Ebenda im Hook: `  useEffect(() => hookAbo(quelle, setZ), [quelle]);` →
+    `  useEffect(() => hookAbo(quelle, (schritt) => setZ((alt) => (schritt(alt).wert === null ? alt : schritt(alt)))), [quelle]);`
+    (derselbe Fehler im Hook statt im Effektkörper). Erwartet (gemessen):
+    ```
+    FAIL Brücken-Hook: der Hook wörtlich (Effekt nur hookAbo, Rückgabe hookWert; kein eigener Übergang im Hook)
+         ist: ["export function useBrueckenWert<T>(quelle: BrueckenQuelle<T> | undefined): T | null | undefined {","const [z, setZ] = useState<HookZustand<T>>({ fuer: quelle, wert: undefined });","useEffect(() => hookAbo(quelle, (schritt) => setZ((alt) => (schritt(alt).wert === null ? alt : schritt(alt)))), [quelle]);","return hookWert(z, quelle);","}"] soll: ["export function useBrueckenWert<T>(quelle: BrueckenQuelle<T> | undefined): T | null | undefined {","const [z, setZ] = useState<HookZustand<T>>({ fuer: quelle, wert: undefined });","useEffect(() => hookAbo(quelle, setZ), [quelle]);","return hookWert(z, quelle);","}"]
+    1 FEHLGESCHLAGEN
     Exit=1
     ```
 
@@ -3309,9 +3408,9 @@ packages/ui/src/index.ts 32 32 einheitlich
 packages/ui/test/selftest.ts 28 28 einheitlich
 packages/ui/src/lib/master-link.ts 44 0 einheitlich
 packages/ui/src/lib/bruecke.ts 50 0 einheitlich
-packages/ui/src/lib/useBrueckenWert.ts 33 0 einheitlich
+packages/ui/src/lib/useBrueckenWert.ts 43 0 einheitlich
 packages/ui/test/master-link.test.ts 74 0 einheitlich
-packages/ui/test/bruecke.test.ts 162 0 einheitlich
+packages/ui/test/bruecke.test.ts 183 0 einheitlich
 ```
 Im Worktree `ux-update` liegen `texte.ts` und `test/selftest.ts` mit LF (`git ls-files --eol`: `w/lf`), `index.ts` mit CRLF;
 dort steht für die beiden ersten `0`.
@@ -3335,14 +3434,14 @@ M  packages/ui/test/selftest.ts
 ```
 Dann:
 ```
-git commit -m "feat(ui): Statuseintrag Master und Bruecken-Hook (UX-Pilot C5)" -m "masterLinkStatusItem bildet die Meldung der Master-Link-Bruecke (ClientZustand oder ohne-client, struktureller Typ) auf einen Statuseintrag ab: unbekannt/null off unbekannt, ohne-client warn nicht gestartet, aus off, sucht/verbindet warn ohne Adresse (kein Flackern), verbunden ok mit Namen, fehler error mit dem Client-Text; nie live, ok nur bei verbunden. verbindeBruecke meldet erst nach dem Abo, dann die Abfrage; eine spaete Antwort nach einem Ereignis wird verworfen (brueckenSchritt), Ablehnung und Wurf melden null, nach dem Abmelden nichts mehr. useBrueckenWert ruft sie im Effekt; den Zustandsuebergang des Hooks rechnen hookSchritt und hookWert (rein, Verlaufstest verbunden-sucht-fehler-null und Quellwechsel). Texte in MASTER_LINK_TEXTE, Index nur am Ende ergaenzt." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(ui): Statuseintrag Master und Bruecken-Hook (UX-Pilot C5)" -m "masterLinkStatusItem bildet die Meldung der Master-Link-Bruecke (ClientZustand oder ohne-client, struktureller Typ) auf einen Statuseintrag ab: unbekannt/null off unbekannt, ohne-client warn nicht gestartet, aus off, sucht/verbindet warn ohne Adresse (kein Flackern), verbunden ok mit Namen, fehler error mit dem Client-Text; nie live, ok nur bei verbunden. verbindeBruecke meldet erst nach dem Abo, dann die Abfrage; eine spaete Antwort nach einem Ereignis wird verworfen (brueckenSchritt), Ablehnung und Wurf melden null, nach dem Abmelden nichts mehr. useBrueckenWert ruft im Effekt nur hookAbo (verbindeBruecke, jede Meldung ueber hookSchritt) und liefert hookWert; hookSchritt, hookWert und hookAbo sind rein und mit einer Attrappen-Quelle getestet (verbunden-sucht-fehler-null, Abmelden, Quellwechsel), der Hook selbst woertlich. Texte in MASTER_LINK_TEXTE, Index nur am Ende ergaenzt." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
 - `verbindeBruecke` hält den Brücken-Stand selbst und meldet nur Werte, die nach `brueckenSchritt` gelten; der Hook speichert
   nur noch den gemeldeten Wert. So sind „erst anmelden, dann abfragen“, „späte Antwort verworfen“, „Ablehnung = null“ und
-  „nach dem Abmelden nichts mehr“ ohne DOM testbar (Muster der Fundament-Effekte, z. B. `starteUhr`); ein Quelltext-Test
-  sichert, dass der Effekt `verbindeBruecke` aufruft.
+  „nach dem Abmelden nichts mehr“ ohne DOM testbar (Muster der Fundament-Effekte, z. B. `starteUhr`). Der Effekt ruft sie
+  über `hookAbo`; dass der Effekt erst anmeldet und dann abfragt, zeigt der Lauf von `hookAbo` mit der Attrappe.
 - Die Abmeldung ist gegen doppelten Aufruf geschützt (React ruft Aufräumfunktionen im Strict Mode zweimal); die
   Test-Attrappe hält ihren Zuhörer nach der Abmeldung fest, damit der Test die Stille der Brücke prüft und nicht die der
   Attrappe.
@@ -3353,6 +3452,12 @@ git commit -m "feat(ui): Statuseintrag Master und Bruecken-Hook (UX-Pilot C5)" -
   `verbindeBruecke` ruft; ein Hook, der den ersten Wert festhält oder nach einem Quellwechsel den alten Wert liefert, blieb
   grün. Jetzt prüft ein Verlaufstest Antwort „verbunden“ → „sucht“ → „fehler“ → `null` und den Quellwechsel, ein
   Quelltext-Test die Verdrahtung im Hook; Gegenproben 10 bis 13 zeigen, dass beide den Fehler fangen.
+- **Letzte Nachbesserung (Restlücke R1, NB32):** Der Quelltext-Test prüfte nur Teilstrings; ein Hook, der nach einem Wert
+  die Meldung `null` (Brücke geschlossen) verschluckt, blieb grün. Der Körper des Effekts ist jetzt die reine Funktion
+  `hookAbo`; der Verhaltenstest lässt sie mit der Attrappe laufen und prüft nach jeder Meldung `hookWert`, auch `null` nach
+  einem Wert und die Stille nach dem Abmelden. Der Hook selbst steht im Test wörtlich (ohne DOM laufen seine Effekte nicht).
+  Gegenprobe 14 ist die Mutation der Nachprüfung im Effektkörper, 15 derselbe Fehler im Hook; 9, 12 und 13 zielen auf den
+  neuen Aufbau.
 - Zusätzliche Fälle über die Gliederung hinaus: Zusatzfelder von `verbunden` (Adresse, seit, suite), `fehler` mit `errCode`
   und ohne Text, Ablehnung und Wurf der Abfrage, ein späteres `null`-Ereignis, doppeltes Abmelden; dazu drei Gegenproben
   mehr (`ohne-client` als `off`, Ablehnung bleibt offen, Abmelden nicht einmalig).
@@ -6149,9 +6254,9 @@ git commit -m "feat(titler): Ableitungen fuer Statusleiste, Einstellungs-Abschni
   `typecheck:test`), dem Bau `npm run build -w @jm/titler` und der Klassen-Probe auf dem gebauten Titler-CSS (Review Focus 5).
   Task 9 ändert dazu `@jm/ui` (`StatusPill`, E18) und prüft deshalb auch `npm run typecheck -w @jm/ui` und den Selbsttest
   von `@jm/ui` (G10).
-- Zählstände über den Block (in der Nachbesserung nach der Plan-Prüfung gemessen, 15.10.2026): alter Lauf 538 `ok` in jeder
-  Aufgabe; Oberflächen-Lauf nach Task 8 52, nach Task 9 76, nach Task 10 110, nach Task 11 134, nach Task 12 146 `ok`
-  (beide Läufe zusammen 590, 614, 648, 672, 684); `@jm/ui` 679 vor und 680 nach Task 9; Klassen-Probe 20 `ok` nach jeder
+- Zählstände über den Block (in der letzten Nachbesserung gemessen, 15.10.2026): alter Lauf 538 `ok` in jeder
+  Aufgabe; Oberflächen-Lauf nach Task 8 52, nach Task 9 76, nach Task 10 111, nach Task 11 136, nach Task 12 148 `ok`
+  (beide Läufe zusammen 590, 614, 649, 674, 686); `@jm/ui` 679 vor und 680 nach Task 9; Klassen-Probe 20 `ok` nach jeder
   Aufgabe.
 - Gemessen wurde die Nachbesserung wie der übrige Plan: frische Kopie des echten `main` `5e5b234ec3`, Plantext maschinell
   eingespielt bis Task 12 (Fehler 0, jede Vorher-Stelle genau einmal), nach jeder Aufgabe jeder rote und grüne Lauf, die
@@ -7966,7 +8071,8 @@ Constraints G1, G4, G5, G7, G8, G9, G10, G11, G12. Review Focus 2.
   „Daten / Recall“ ohne Variablen (Hilfetext von heute, Nr. 36). Im Quelltext von `OperatorView` hängt das Take-Tally an
   `live={live}` (E11; ohne Browser ist `live` immer false).
 - Inhalt (E23): Name, Untertitel, Banner-Text, Ticker-Text und die Slot-Felder sind `Field` + `TextInput` aus `@jm/ui`;
-  jeder Tastendruck geht wie bisher an `setConfig`. „Ticker-Tempo“ bleibt der lokale `Slider`.
+  jeder Tastendruck geht wie bisher an `setConfig`, je Feld mit seinem Schlüssel (`name`, `subtitle`, `bannerText`,
+  `tickerText`, `slotText`). „Ticker-Tempo“ bleibt der lokale `Slider` (`tickerSpeed`).
 - E21: Bei `dataError` steht „DataLink: {Fehler}“ oben; Zähler, „⧉ Board“, Liste (und die Eintrag-Tasten im Live-Bereich)
   bleiben, solange es Einträge gibt; die Variablen-Box entfällt bei Fehler wie bisher.
 - Texte: Nr. 29 wird `TITLER_TEXTE.keinOrdner` (T5), Nr. 19 `keineGrafik` (T6a), Nr. 25 `keineVorlagen` (T6b). In
@@ -7986,11 +8092,14 @@ Constraints G1, G4, G5, G7, G8, G9, G10, G11, G12. Review Focus 2.
 // UX-Pilot C10 · Live-Bereich und Bedienung (Spec 3.4, 5.1, Anhang A „Titler“; E12, E13, E21, E23): Vorschau und
 // höchstens vier Haupttasten immer sichtbar, daneben Vorlage, Inhalt, Grafik-Vorlagen und Daten / Recall. Stil, Import und
 // Löschen ziehen ins Panel. Render ohne Browser; die gemerkten Collapsibles über einen nachgestellten localStorage.
-import { createRef } from 'react';
+import { createRef, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { Field, TextInput } from '@jm/ui';
 import { enthaelt, gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
+import type { GraphicTemplate, TitlerConfig } from '@shared/types';
 import { TITLER_TEXTE } from '@/lib/oberflaeche';
 import { Bedienung, type BedienungProps } from '@/views/Bedienung';
 import { Einstellungen } from '@/views/Einstellungen';
+import { Slider } from '@/views/felder';
 import { LiveBereich, liveTasten, type LiveBereichProps } from '@/views/LiveBereich';
 import { attr, basisConfig, basisStand, basisStatus, bereich, ohneKommentare, protokollAktionen, tags, text, VORLAGEN } from './testzustand';
 
@@ -8139,6 +8248,65 @@ function klappen(html: string): string[] {
     ],
     [['Banner-Text'], ['Eilmeldung'], ['Ticker-Text'], true, ['0.02', '0.3', '0.01', '0.12']],
     'Bedienung › Inhalt: Banner mit Feld „Banner-Text“, Ticker mit Feld „Ticker-Text“ und Schieber „Ticker-Tempo“ 0,02–0,3 in 0,01 (Nr. 14–16)',
+  );
+}
+
+// ── Bedienung: Verdrahtung der Felder (onChange → setConfig mit dem richtigen Schlüssel) ──
+// Ohne Browser lässt sich nicht tippen. Darum ruft ein Fänger Bedienung beim Server-Render auf (ihre useMemo laufen dort)
+// und hält den Baum fest, den sie zurückgibt; darin stehen die Felder mit ihren onChange, die der Test selbst aufruft.
+{
+  function felder(config: TitlerConfig, templates: GraphicTemplate[] = []): string[] {
+    const patches: string[] = [];
+    let baum: ReactNode = null;
+    function Faenger(): React.JSX.Element {
+      const el = Bedienung(bedienung({ config, templates, setConfig: (patch) => void patches.push(JSON.stringify(patch)) }));
+      baum = el;
+      return el;
+    }
+    render(<Faenger />);
+    const aus: string[] = [];
+    const geh = (n: ReactNode): void => {
+      if (Array.isArray(n)) {
+        n.forEach(geh);
+        return;
+      }
+      if (!isValidElement(n)) return;
+      const props = n.props as { label?: string; children?: ReactNode; onChange?: (v: number) => void };
+      const kind = props.children;
+      let ruf: (() => void) | undefined;
+      if (n.type === Field && isValidElement(kind) && kind.type === TextInput) {
+        const eingabe = kind as ReactElement<{ onChange(v: string): void }>;
+        ruf = () => eingabe.props.onChange('Neu');
+      } else if (n.type === Slider) {
+        ruf = () => props.onChange?.(0.25);
+      }
+      if (ruf) {
+        const vorher = patches.length;
+        ruf();
+        aus.push(`${props.label}: ${patches.slice(vorher).join(' ') || 'nichts'}`);
+      }
+      geh(kind);
+    };
+    geh(baum);
+    return aus;
+  }
+  gleich(
+    [
+      ...felder(basisConfig()),
+      ...felder(basisConfig({ template: 'banner' })),
+      ...felder(basisConfig({ template: 'ticker' })),
+      ...felder(basisConfig({ template: 'graphic', activeGraphicId: 'v1', slotText: { name: 'Anna' } }), VORLAGEN),
+    ],
+    [
+      'Name: {"name":"Neu"}',
+      'Untertitel: {"subtitle":"Neu"}',
+      'Banner-Text: {"bannerText":"Neu"}',
+      'Ticker-Text: {"tickerText":"Neu"}',
+      'Ticker-Tempo: {"tickerSpeed":0.25}',
+      'Name-Ebene: {"slotText":{"name":"Neu"}}',
+      'Rolle-Ebene: {"slotText":{"name":"Anna","rolle":"Neu"}}',
+    ],
+    'Bedienung › Inhalt: jedes Feld schreibt beim Tippen in seinen Schlüssel (Name, Untertitel, Banner-Text, Ticker-Text, Ticker-Tempo, Slots; E23)',
   );
 }
 
@@ -9264,8 +9432,8 @@ npm run selftest -w @jm/titler; echo "Exit=$?"
 grep -c "^ok " <eigener Scratchpad>/c10-ui.txt
 grep -E "^ok   (liveTasten|LiveBereich|Bedienung|Panel:|Panel ›|Quelltext (OperatorView: Haupt|Bedienung)|Texte: kein)" <eigener Scratchpad>/c10-ui.txt
 ```
-Erwartet (gemessen): `Exit=0` (beide Läufe), alter Lauf 538, Oberflächen-Lauf **110** `ok` (= 76 + 34),
-„ALLE TESTS OK“. Die 34 neuen Zeilen:
+Erwartet (gemessen): `Exit=0` (beide Läufe), alter Lauf 538, Oberflächen-Lauf **111** `ok` (= 76 + 35),
+„ALLE TESTS OK“. Die 35 neuen Zeilen:
 ```
 ok   liveTasten: Take und Clear immer, ◀/▶ Eintrag nur mit Einträgen, an den Rändern gesperrt mit Grund; Take nie gesperrt (E12)
 ok   liveTasten: Klick ruft onTake, onClear, onSchritt(-1), onSchritt(1)
@@ -9284,6 +9452,7 @@ ok   Bedienung › Inhalt: Slot-Wert aus slotText, sonst Vorgabetext
 ok   Bedienung › Inhalt: ohne gewählte Grafik-Vorlage der Hinweis T6
 ok   Bedienung › Inhalt: Grafik-Vorlage ohne Textfelder mit dem Hinweis von heute (Nr. 18)
 ok   Bedienung › Inhalt: Banner mit Feld „Banner-Text“, Ticker mit Feld „Ticker-Text“ und Schieber „Ticker-Tempo“ 0,02–0,3 in 0,01 (Nr. 14–16)
+ok   Bedienung › Inhalt: jedes Feld schreibt beim Tippen in seinen Schlüssel (Name, Untertitel, Banner-Text, Ticker-Text, Ticker-Tempo, Slots; E23)
 ok   Bedienung: Collapsibles merken sich unter jm.collapsible.titler.graphics und …titler.recall (persistId wie bisher)
 ok   Bedienung › Grafik-Vorlagen: Kacheln sind <button type="button"> mit aria-pressed (per Tastatur wählbar, E13)
 ok   Bedienung › Grafik-Vorlagen: nur wählen; Import und Löschen liegen im Panel
@@ -9448,7 +9617,9 @@ Erwartet (gemessen; `tsx` prüft keine Typen, der Vergleich mit einem unbekannte
 Exit=1
 FAIL Bedienung › Inhalt: Banner mit Feld „Banner-Text“, Ticker mit Feld „Ticker-Text“ und Schieber „Ticker-Tempo“ 0,02–0,3 in 0,01 (Nr. 14–16)
      ist: [[],[],["Ticker-Text"],true,["0.02","0.3","0.01","0.12"]] soll: [["Banner-Text"],["Eilmeldung"],["Ticker-Text"],true,["0.02","0.3","0.01","0.12"]]
-1 FEHLGESCHLAGEN
+FAIL Bedienung › Inhalt: jedes Feld schreibt beim Tippen in seinen Schlüssel (Name, Untertitel, Banner-Text, Ticker-Text, Ticker-Tempo, Slots; E23)
+     ist: ["Name: {\"name\":\"Neu\"}","Untertitel: {\"subtitle\":\"Neu\"}","Ticker-Text: {\"tickerText\":\"Neu\"}","Ticker-Tempo: {\"tickerSpeed\":0.25}","Name-Ebene: {\"slotText\":{\"name\":\"Neu\"}}","Rolle-Ebene: {\"slotText\":{\"name\":\"Anna\",\"rolle\":\"Neu\"}}"] soll: ["Name: {\"name\":\"Neu\"}","Untertitel: {\"subtitle\":\"Neu\"}","Banner-Text: {\"bannerText\":\"Neu\"}","Ticker-Text: {\"tickerText\":\"Neu\"}","Ticker-Tempo: {\"tickerSpeed\":0.25}","Name-Ebene: {\"slotText\":{\"name\":\"Neu\"}}","Rolle-Ebene: {\"slotText\":{\"name\":\"Anna\",\"rolle\":\"Neu\"}}"]
+2 FEHLGESCHLAGEN
 ```
 i) Text „Diese Vorlage hat keine Textfelder …“ weggelassen (Nr. 18):
 Datei `apps/titler/src/renderer/src/views/Bedienung.tsx`, Probe:
@@ -9482,6 +9653,38 @@ FAIL Bedienung › Daten / Recall: ohne Variablen der Hilfetext von heute (Nr. 3
      fehlt: Keine Variablen gefunden. Lege im Ordner z. B. eine gaeste.csv mit Kopfzeile
 1 FEHLGESCHLAGEN
 ```
+k) Feld „Banner-Text“ schreibt in den falschen Schlüssel (Restlücke R3):
+Datei `apps/titler/src/renderer/src/views/Bedienung.tsx`, Probe:
+```tsx
+              <TextInput value={c.bannerText} onChange={(v) => p.setConfig({ bannerText: v })} />
+```
+wird zu:
+```tsx
+              <TextInput value={c.bannerText} onChange={(v) => p.setConfig({ subtitle: v })} />
+```
+Erwartet (gemessen):
+```
+Exit=1
+FAIL Bedienung › Inhalt: jedes Feld schreibt beim Tippen in seinen Schlüssel (Name, Untertitel, Banner-Text, Ticker-Text, Ticker-Tempo, Slots; E23)
+     ist: ["Name: {\"name\":\"Neu\"}","Untertitel: {\"subtitle\":\"Neu\"}","Banner-Text: {\"subtitle\":\"Neu\"}","Ticker-Text: {\"tickerText\":\"Neu\"}","Ticker-Tempo: {\"tickerSpeed\":0.25}","Name-Ebene: {\"slotText\":{\"name\":\"Neu\"}}","Rolle-Ebene: {\"slotText\":{\"name\":\"Anna\",\"rolle\":\"Neu\"}}"] soll: ["Name: {\"name\":\"Neu\"}","Untertitel: {\"subtitle\":\"Neu\"}","Banner-Text: {\"bannerText\":\"Neu\"}","Ticker-Text: {\"tickerText\":\"Neu\"}","Ticker-Tempo: {\"tickerSpeed\":0.25}","Name-Ebene: {\"slotText\":{\"name\":\"Neu\"}}","Rolle-Ebene: {\"slotText\":{\"name\":\"Anna\",\"rolle\":\"Neu\"}}"]
+1 FEHLGESCHLAGEN
+```
+l) Schieber „Ticker-Tempo“ schreibt nichts (Restlücke R3):
+Datei `apps/titler/src/renderer/src/views/Bedienung.tsx`, Probe:
+```tsx
+                onChange={(v) => p.setConfig({ tickerSpeed: v })}
+```
+wird zu:
+```tsx
+                onChange={() => undefined}
+```
+Erwartet (gemessen):
+```
+Exit=1
+FAIL Bedienung › Inhalt: jedes Feld schreibt beim Tippen in seinen Schlüssel (Name, Untertitel, Banner-Text, Ticker-Text, Ticker-Tempo, Slots; E23)
+     ist: ["Name: {\"name\":\"Neu\"}","Untertitel: {\"subtitle\":\"Neu\"}","Banner-Text: {\"bannerText\":\"Neu\"}","Ticker-Text: {\"tickerText\":\"Neu\"}","Ticker-Tempo: nichts","Name-Ebene: {\"slotText\":{\"name\":\"Neu\"}}","Rolle-Ebene: {\"slotText\":{\"name\":\"Anna\",\"rolle\":\"Neu\"}}"] soll: ["Name: {\"name\":\"Neu\"}","Untertitel: {\"subtitle\":\"Neu\"}","Banner-Text: {\"bannerText\":\"Neu\"}","Ticker-Text: {\"tickerText\":\"Neu\"}","Ticker-Tempo: {\"tickerSpeed\":0.25}","Name-Ebene: {\"slotText\":{\"name\":\"Neu\"}}","Rolle-Ebene: {\"slotText\":{\"name\":\"Anna\",\"rolle\":\"Neu\"}}"]
+1 FEHLGESCHLAGEN
+```
 Nach jeder Probe zurückbauen; danach zeigt `git diff --stat` nur die Dateien dieser Aufgabe.
 
 - [ ] **Step 12: Zeilenenden prüfen**
@@ -9495,7 +9698,7 @@ apps/titler/src/renderer/src/views/Bedienung.tsx 265 0 einheitlich
 apps/titler/src/renderer/src/views/Einstellungen.tsx 291 0 einheitlich
 apps/titler/src/renderer/src/views/LiveBereich.tsx 50 0 einheitlich
 apps/titler/src/renderer/src/views/OperatorView.tsx 255 255 einheitlich
-apps/titler/test/ui/live.test.tsx 299 0 einheitlich
+apps/titler/test/ui/live.test.tsx 361 0 einheitlich
 apps/titler/test/ui/rahmen.test.tsx 240 0 einheitlich
 apps/titler/test/ui/selftest.ts 10 0 einheitlich
 ```
@@ -9518,7 +9721,7 @@ M  apps/titler/test/ui/selftest.ts
 ```
 Dann:
 ```
-git commit -m "feat(titler): Live-Bereich mit vier Haupttasten und Bedienung nach Anhang A" -m "UX-Pilot C10 (Spec 3.4, 5.1, Anhang A Titler; E12, E13, E21, E23): Die CG-Vorschau bleibt das erste canvas, darunter Take, Clear und mit Eintraegen Zurueck/Weiter als TallyButtons (Raender gesperrt mit Grund, keine Kuerzel) und die Hinweiszeile. Die Bedienung zeigt Vorlage und Inhalt (Field und TextInput aus @jm/ui) immer offen, Grafik-Vorlagen als Kacheln (button mit aria-pressed) und Daten / Recall mit den bisherigen persistId; bei Fehler bleibt eine noch geltende Liste stehen; der aktive Eintrag traegt aria-current, der Hinweis-Kasten ist orange (status-warn). Stil und Grafik-Vorlagen-Import mit sichtbarem Loeschen ziehen ins Panel. Tests auch fuer Banner, Ticker, Vorlage ohne Textfelder, Variablen-Hilfetext und das Take-Tally aus live. Gegenproben a-j." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(titler): Live-Bereich mit vier Haupttasten und Bedienung nach Anhang A" -m "UX-Pilot C10 (Spec 3.4, 5.1, Anhang A Titler; E12, E13, E21, E23): Die CG-Vorschau bleibt das erste canvas, darunter Take, Clear und mit Eintraegen Zurueck/Weiter als TallyButtons (Raender gesperrt mit Grund, keine Kuerzel) und die Hinweiszeile. Die Bedienung zeigt Vorlage und Inhalt (Field und TextInput aus @jm/ui) immer offen, Grafik-Vorlagen als Kacheln (button mit aria-pressed) und Daten / Recall mit den bisherigen persistId; bei Fehler bleibt eine noch geltende Liste stehen; der aktive Eintrag traegt aria-current, der Hinweis-Kasten ist orange (status-warn). Stil und Grafik-Vorlagen-Import mit sichtbarem Loeschen ziehen ins Panel. Tests auch fuer Banner, Ticker, Vorlage ohne Textfelder, Variablen-Hilfetext, die Verdrahtung jedes Felds (onChange auf den richtigen Schluessel) und das Take-Tally aus live. Gegenproben a-l." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
@@ -9533,7 +9736,11 @@ git commit -m "feat(titler): Live-Bereich mit vier Haupttasten und Bedienung nac
 - Nachbesserung nach der Plan-Prüfung (Befunde robust:2, robust:8, spec:2, funktionsliste:2): Wächter `live={live}`,
   `aria-current` am aktiven Eintrag, Hinweis-Kasten in `--status-warn` (E25) und Render-Tests für Banner, Ticker, Vorlage
   ohne Textfelder und den Variablen-Hilfetext; Gegenproben e) bis j).
-- Zählstand (in der Nachbesserung gemessen): Oberflächen-Lauf 110 `ok` (76 + 34), ebenso die Gegenproben a–j.
+- Letzte Nachbesserung (Restlücke R3, NB34): Gerendert war nur, dass die Felder da sind; ein Feld, das in den falschen
+  Schlüssel schreibt oder gar nicht, blieb grün. Der Test ruft jetzt das `onChange` jedes Felds der Bedienung auf (Name,
+  Untertitel, Banner-Text, Ticker-Text, Ticker-Tempo, die zwei Slots einer Grafik-Vorlage) und vergleicht den Patch an
+  `setConfig`; ohne Browser über den Baum, den `Bedienung` zurückgibt. Gegenproben k) und l).
+- Zählstand (in der letzten Nachbesserung gemessen): Oberflächen-Lauf 111 `ok` (76 + 35), ebenso die Gegenproben a–l.
 
 ---
 ### Task 11: C11 · Einstellungs-Panel aus `@jm/settings` und tool-eigene Abschnitte
@@ -9544,7 +9751,7 @@ git commit -m "feat(titler): Live-Bereich mit vier Haupttasten und Bedienung nac
 (feste Abschnittstexte statt der Hilfetexte der alten Reiter); OF3, OF4, OF5, OF7. Global Constraints G1, G5, G7, G8, G9,
 G10, G11, G12. Review Focus 2, 3 und 5.
 
-**Voraussetzung:** Plan-Worktree nach C10: `npm run selftest -w @jm/titler` grün (Oberflächen-Lauf 110 `ok`). Aus C6
+**Voraussetzung:** Plan-Worktree nach C10: `npm run selftest -w @jm/titler` grün (Oberflächen-Lauf 111 `ok`). Aus C6
 die additiven Props von `DataLinkSection` (`externeQuelle`, `eintraege`, `onClearFolder`, `capabilities.ordnerText`,
 `onFolderText`) und `ScreenOutputSection` (`backgroundDefault`, `capabilities.backgroundPicker`), aus C8 die fünf
 `…Abschnitt`-Funktionen.
@@ -9589,7 +9796,9 @@ die additiven Props von `DataLinkSection` (`externeQuelle`, `eintraege`, `onClea
   Companion-Satz mit „jm-suite“; kein „Im Launcher einrichten“.
 - iveo (E9, OF5): „Das Zugriffstoken bleibt im Launcher.“, kein Token-Feld, kein Launcher-Knopf. NDI (E7): Schalter
   „Ausgabe“, Quellenname (Übernahme bei Enter/Verlassen), Auflösung, Bildrate. Bildschirm (E8, OF3): Schalter, Auswahl,
-  Hintergrund mit Farbwähler, „Standardfarbe (#00B140)“; der Tipp kommt aus dem Abschnitt (E24).
+  Hintergrund mit Farbwähler, „Standardfarbe (#00B140)“; der Tipp kommt aus dem Abschnitt (E24). Solange die Monitorliste
+  nicht geladen ist (`displays` undefined), zeigt der Abschnitt „unbekannt“ statt einer leeren Auswahl (E8, gerendert
+  geprüft).
 - Die Hilfetexte der alten Reiter (Nr. 42, 49, 55, 60) entfallen zugunsten der festen Abschnittstexte (E24); damit steht in
   keiner `views/*.tsx` mehr „Reiter“ oder „rechts starten“. Das Dateiformat des DataLink und den Weg zu iveo erklärt danach
   nur noch das Handbuch (E24, Funktionsliste Nr. 42 und 49).
@@ -9781,6 +9990,17 @@ const MASTER: QuellZustand = { art: 'master', showPfad: null, showName: 'Gala', 
   );
 }
 
+// ── Ausgabe auf Bildschirm, solange die Monitorliste nicht geladen ist (displays undefined, E8): „unbekannt“, keine Liste ──
+{
+  const bs = abschnitt(panel(basisStand({ displays: undefined })), 'bildschirm');
+  const pille = tags(bs, 'span').find((t) => attr(t, 'data-state') !== undefined);
+  gleich(
+    [attr(pille, 'data-state'), text(bs).includes('unbekannt'), tags(bs, 'select').length, text(bs).includes('Kein Bildschirm gefunden')],
+    ['off', true, 0, false],
+    'Panel › Ausgabe auf Bildschirm bei nicht geladener Monitorliste: „unbekannt“ statt einer leeren Liste (E8, Spec 7.2)',
+  );
+}
+
 // ── Aktionen aus dem Panel (ohne DOM über die Props der Abschnitte geprüft in C8; hier: Rendern ruft nichts) ──
 {
   const log: string[] = [];
@@ -9853,8 +10073,8 @@ import './panel.test';
 grep -c "^ok " <eigener Scratchpad>/c11-rot.txt
 grep -E "^FAIL|^     |FEHLGESCHLAGEN" <eigener Scratchpad>/c11-rot.txt
 ```
-Erwartet (gemessen): `Exit=1`, **121** `ok` (= 110 + 11: Stil, Grafik-Vorlagen, id-Verweise und die
-Quelltext-Prüfungen gelten schon) und diese dreizehn `FAIL`:
+Erwartet (gemessen): `Exit=1`, **122** `ok` (= 111 + 11: Stil, Grafik-Vorlagen, id-Verweise und die
+Quelltext-Prüfungen gelten schon) und diese vierzehn `FAIL`:
 ```
 FAIL Panel: Abschnitte iveo, NDI-Ausgabe, Ausgabe auf Bildschirm, Fernsteuerung, DataLink, Stil, Grafik-Vorlagen (Anhang A)
      ist: ["DataLink","iveo","Ausgabe (NDI)","Ausgabe (2. Bildschirm)","Stil","Grafik-Vorlagen"] soll: ["iveo","NDI-Ausgabe","Ausgabe auf Bildschirm","Fernsteuerung","DataLink","Stil","Grafik-Vorlagen"]
@@ -9871,11 +10091,13 @@ FAIL Panel › iveo: „Das Zugriffstoken bleibt im Launcher.“, kein Token-Fel
 FAIL Panel › NDI-Ausgabe: Schalter „Ausgabe“, Quellenname, Auflösung, Bildrate (E7)
      ist: [[],[]] soll: [["Ausgabe","Quellenname","Auflösung","Bildrate"],["switch"]]
 FAIL Panel › Ausgabe auf Bildschirm: Schalter, Auswahl (automatisch + 2 Monitore), Hintergrund mit Farbwähler, „Standardfarbe (#00B140)“ (E8, OF3)
+FAIL Panel › Ausgabe auf Bildschirm bei nicht geladener Monitorliste: „unbekannt“ statt einer leeren Liste (E8, Spec 7.2)
+     ist: [null,false,0,false] soll: ["off",true,0,false]
 FAIL Texte: in views/*.tsx kein „Reiter“, kein „rechts starten“, kein titler.style, kein titler.operator.tab (Befund 16, E14)
      ist: ["Einstellungen.tsx"] soll: []
 FAIL Quelltext felder.tsx: nur noch Slider und ColorField (Field und Labeled entfallen, E23)
 FAIL Pflichtpunkt Panel: der NDI-Schalter ist ein <button role="switch">
-13 FEHLGESCHLAGEN
+14 FEHLGESCHLAGEN
 ```
 
 - [ ] **Step 3: Panel aus `@jm/settings` bauen** (`apps/titler/src/renderer/src/views/Einstellungen.tsx`)
@@ -10172,8 +10394,8 @@ npm run selftest -w @jm/titler; echo "Exit=$?"
 grep -c "^ok " <eigener Scratchpad>/c11-ui.txt
 grep -E "^ok   (Panel|Pflichtpunkt|Quelltext (Einstellungen|OperatorView: Fern|felder)|Texte: in views)" <eigener Scratchpad>/c11-ui.txt
 ```
-Erwartet (gemessen): `Exit=0` (beide Läufe), alter Lauf 538, Oberflächen-Lauf **134** `ok` (= 110 + 24),
-„ALLE TESTS OK“. Die Auswahl zeigt die 24 neuen Zeilen, dazu drei Panel-Zeilen aus C10 und am Ende die zwei Zeilen
+Erwartet (gemessen): `Exit=0` (beide Läufe), alter Lauf 538, Oberflächen-Lauf **136** `ok` (= 111 + 25),
+„ALLE TESTS OK“. Die Auswahl zeigt die 25 neuen Zeilen, dazu drei Panel-Zeilen aus C10 und am Ende die zwei Zeilen
 „Panel-Inhalt“ aus C9 (sie kommen wegen des `await` in `rahmen.test.tsx` nach den übrigen Modulen):
 ```
 ok   Panel: Abschnitte „Stil“ und „Grafik-Vorlagen“ mit Anker, Import-Knopf und Ablagefläche
@@ -10195,6 +10417,7 @@ ok   Panel › Ausgabe auf Bildschirm: Schalter, Auswahl (automatisch + 2 Monito
 ok   Panel › Stil: „Unten“, „Oben“, Größe und drei Farben (Nr. 38–41)
 ok   Panel › Grafik-Vorlagen: „Datei importieren…“, Ablagefläche, Beschreibung (Nr. 20); „Löschen“ sichtbar (kein opacity-0, E13)
 ok   Panel › Grafik-Vorlagen: je Vorlage „Löschen“ mit aria-label „Vorlage „{Name}“ löschen“ (T7)
+ok   Panel › Ausgabe auf Bildschirm bei nicht geladener Monitorliste: „unbekannt“ statt einer leeren Liste (E8, Spec 7.2)
 ok   Panel mit NDI an: Rendern ruft weder startNdi noch stopNdi noch setConfig
 ok   Quelltext Einstellungen: ohne useEffect und ohne window. (G7, G8)
 ok   Quelltext OperatorView: Fernsteuer-Befehle, Show-Vorlagen-Import, reportState und Monitorliste laufen auch bei zugeklapptem Panel (G8)
@@ -10320,6 +10543,22 @@ FAIL Panel › DataLink mit Fehler: „Fehler: …“ im Kopf und ⚠ mit dem Te
      ist: [["warn",false,null],["warn",false,null]] soll: [["error",true,"⚠ EACCES: permission denied"],["error",true,null]]
 1 FEHLGESCHLAGEN
 ```
+f) Nicht geladene Monitorliste im Panel als leere Liste (Restlücke R4, Mutation K4 der Prüfung):
+Datei `apps/titler/src/renderer/src/views/Einstellungen.tsx`, Probe:
+```tsx
+      <ScreenOutputSection {...bildschirmAbschnitt(stand, aktionen)} />
+```
+wird zu:
+```tsx
+      <ScreenOutputSection {...bildschirmAbschnitt({ ...stand, displays: stand.displays ?? [] }, aktionen)} />
+```
+Erwartet (gemessen):
+```
+Exit=1
+FAIL Panel › Ausgabe auf Bildschirm bei nicht geladener Monitorliste: „unbekannt“ statt einer leeren Liste (E8, Spec 7.2)
+     ist: ["off",false,1,true] soll: ["off",true,0,false]
+1 FEHLGESCHLAGEN
+```
 Nach jeder Probe zurückbauen; danach zeigt `git diff --stat` nur die Dateien dieser Aufgabe.
 
 - [ ] **Step 9: Zeilenenden prüfen**
@@ -10331,7 +10570,7 @@ Erwartet (gemessen):
 ```
 apps/titler/src/renderer/src/views/Einstellungen.tsx 131 0 einheitlich
 apps/titler/src/renderer/src/views/felder.tsx 62 0 einheitlich
-apps/titler/test/ui/panel.test.tsx 234 0 einheitlich
+apps/titler/test/ui/panel.test.tsx 245 0 einheitlich
 apps/titler/test/ui/selftest.ts 11 0 einheitlich
 ```
 
@@ -10350,7 +10589,7 @@ M  apps/titler/test/ui/selftest.ts
 ```
 Dann:
 ```
-git commit -m "feat(titler): Einstellungs-Panel aus @jm/settings mit Stil und Grafik-Vorlagen" -m "UX-Pilot C11 (Spec 3.6, 5.1, 6, 10; Anhang A Titler; E6-E10, E13, E24; OF3, OF4, OF5, OF7): Das Panel zeigt iveo, NDI-Ausgabe, Ausgabe auf Bildschirm, Fernsteuerung und DataLink aus @jm/settings mit den Props aus lib/oberflaeche.ts (dieselbe Ableitung wie die Statusleiste), danach Stil und Grafik-Vorlagen. Jeder Statuseintrag findet seinen Anker; DataLink ist im Verbund mit dem R2-Satz gesperrt. Field und Labeled entfallen aus views/felder.tsx. Pflichtpunkt Panel: NDI-Schalter als button role=switch, kein Tastenhandler im Titler, panelTaste geprueft. Ein DataLink-Fehler steht im Abschnitt, auf den der Statuseintrag springt. Gegenproben a-e." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(titler): Einstellungs-Panel aus @jm/settings mit Stil und Grafik-Vorlagen" -m "UX-Pilot C11 (Spec 3.6, 5.1, 6, 10; Anhang A Titler; E6-E10, E13, E24; OF3, OF4, OF5, OF7): Das Panel zeigt iveo, NDI-Ausgabe, Ausgabe auf Bildschirm, Fernsteuerung und DataLink aus @jm/settings mit den Props aus lib/oberflaeche.ts (dieselbe Ableitung wie die Statusleiste), danach Stil und Grafik-Vorlagen. Jeder Statuseintrag findet seinen Anker; DataLink ist im Verbund mit dem R2-Satz gesperrt. Field und Labeled entfallen aus views/felder.tsx. Pflichtpunkt Panel: NDI-Schalter als button role=switch, kein Tastenhandler im Titler, panelTaste geprueft. Ein DataLink-Fehler steht im Abschnitt, auf den der Statuseintrag springt; solange die Monitorliste nicht geladen ist, zeigt Ausgabe auf Bildschirm unbekannt statt einer leeren Liste. Gegenproben a-f." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
@@ -10364,8 +10603,11 @@ git commit -m "feat(titler): Einstellungs-Panel aus @jm/settings mit Stil und Gr
   `titler.operator.tab` (E14).
 - Nachbesserung nach der Plan-Prüfung (Befund robust:7): Der DataLink-Abschnitt wird mit einem Fehler und mit „Ordner
   nicht gefunden“ gerendert; Gegenprobe e). Die Hilfetexte Nr. 42 und 49 nennen den inhaltlichen Wegfall (E24).
-- Zählstände (in der Nachbesserung gemessen): Oberflächen-Lauf rot 121 `ok` (110 + 11), grün 134 `ok` (110 + 24); ebenso
-  die dreizehn `FAIL`-Zeilen und die Gegenproben a–e.
+- Letzte Nachbesserung (Restlücke R4, NB35): Der Panel-Abschnitt „Ausgabe auf Bildschirm“ wird auch mit nicht geladener
+  Monitorliste (`displays` undefined) gerendert und muss „unbekannt“ zeigen, nicht die Auswahl „Kein Bildschirm gefunden“;
+  Gegenprobe f) ist die Mutation K4 der Prüfung (`stand.displays ?? []` nur im Panel), die vorher grün blieb.
+- Zählstände (in der letzten Nachbesserung gemessen): Oberflächen-Lauf rot 122 `ok` (111 + 11), grün 136 `ok` (111 + 25);
+  ebenso die vierzehn `FAIL`-Zeilen und die Gegenproben a–f.
 
 ---
 ### Task 12: C12 · Recall-Board, Hell/Dunkel in den Zusatzfenstern, Feinschliff
@@ -10375,7 +10617,7 @@ das Recall-Board zeigt dieselben Hinweise, OF1), 5.3 (Ausgabefenster unveränder
 (keine ASCII-Anführungszeichen in Nutzertexten). Entscheidungen E15 (Board übernimmt das gemerkte Theme), E22
 (Board-Ladezustand), T11. Global Constraints G1, G3, G5, G9, G10, G11, G12.
 
-**Voraussetzung:** Plan-Worktree nach C11: `npm run selftest -w @jm/titler` grün (Oberflächen-Lauf 134 `ok`). C12
+**Voraussetzung:** Plan-Worktree nach C11: `npm run selftest -w @jm/titler` grün (Oberflächen-Lauf 136 `ok`). C12
 braucht fachlich nur C9 (`testzustand.ts`); der Test rendert zur ASCII-Prüfung aber auch Live-Bereich, Bedienung und Panel
 aus C10 und C11.
 
@@ -10537,7 +10779,7 @@ import './board.test';
 grep -c "^ok " <eigener Scratchpad>/c12-rot.txt
 grep -E "^FAIL|^     |FEHLGESCHLAGEN" <eigener Scratchpad>/c12-rot.txt
 ```
-Erwartet (gemessen): `Exit=1`, **141** `ok` (= 134 + 7) und diese fünf `FAIL`:
+Erwartet (gemessen): `Exit=1`, **143** `ok` (= 136 + 7) und diese fünf `FAIL`:
 ```
 FAIL Recall-Board beim Laden: „Lädt…“ statt „0 Einträge“ und „Keine Einträge …“ (E22)
 FAIL Recall-Board: ruft useTheme() (gemerktes Hell/Dunkel beim Öffnen), ohne eigenen Schalter (E15)
@@ -10625,7 +10867,7 @@ npm run selftest -w @jm/titler; echo "Exit=$?"
 grep -c "^ok " <eigener Scratchpad>/c12-ui.txt
 grep -E "^ok   (Recall-Board|Ausgabefenster|Farben:|Texte: (in views/\*\.tsx schließt|gerendertes))" <eigener Scratchpad>/c12-ui.txt
 ```
-Erwartet (gemessen): `Exit=0` (beide Läufe), alter Lauf 538, Oberflächen-Lauf **146** `ok` (= 134 + 12),
+Erwartet (gemessen): `Exit=0` (beide Läufe), alter Lauf 538, Oberflächen-Lauf **148** `ok` (= 136 + 12),
 „ALLE TESTS OK“. Die zwölf neuen Zeilen:
 ```
 ok   Recall-Board: bleibt ohne AppShell (keine Statusleiste, kein Panel), Kopf mit „RECALL-BOARD“ und Zahl (Anhang A)
@@ -10774,8 +11016,9 @@ git commit -m "feat(titler): Recall-Board mit Hell/Dunkel und Ladezustand, Anfue
 - Nachbesserung nach der Plan-Prüfung (Befunde spec:2, code:3): Warnfarbe Orange in Hinweisband und Karte B1 mit
   einem Test über alle `views/*.tsx` (E25, Gegenprobe d); die Hash-Prüfung bleibt, sagt aber im Kommentar und unter dem
   `FAIL`, dass eine spätere, gewollte Änderung die Hashes neu setzt (Gegenprobe a zeigt die Zeile).
-- Zählstände (in der Nachbesserung gemessen): Oberflächen-Lauf rot 141 `ok` (134 + 7), grün 146 `ok` (134 + 12); ebenso die
-  `FAIL`-Zeilen und die Gegenproben a–d.
+- Zählstände (in der letzten Nachbesserung gemessen): Oberflächen-Lauf rot 143 `ok` (136 + 7), grün 148 `ok` (136 + 12);
+  ebenso die `FAIL`-Zeilen und die Gegenproben a–d. Task 12 selbst ist unverändert; die zwei `ok` mehr kommen aus Task 10
+  und 11 (Restlücken R3 und R4).
 
 ---
 
@@ -10989,9 +11232,21 @@ ok(
   kuenftig(7).startsWith('✓ Live-Bereich › Haupttasten › Take (') && kuenftig(7).includes('`views/LiveBereich.tsx`'),
   'Funktionsliste Nr. 7 (Take): Live-Bereich › Haupttasten › Take in views/LiveBereich.tsx',
 );
+// Die Kürzel des Electron-Standardmenüs gehören zu Nr. 93 (vor und nach dem Umbau), die Wirkung von Strg+R zu Nr. 97,
+// gemessen in Abnahme 5c (OF11). Fällt das Menü aus einer Spalte, ist die Pflichtzeile nicht mehr vollständig.
 ok(
-  zeile(93)?.zellen[1] === 'Tastenkürzel' && kuenftig(93).startsWith('✓ ') && kuenftig(93).includes('keine'),
-  'Funktionsliste Nr. 93 (Pflichtzeile Tastenkürzel): abgehakt, keine Kürzel (Spec 10, UO5)',
+  zeile(93)?.zellen[1] === 'Tastenkürzel' &&
+    ['Electron-Standardmenü', 'Strg+R'].every((w) => (zeile(93)?.zellen[2] ?? '').includes(w)) &&
+    kuenftig(93).startsWith('✓ ') &&
+    kuenftig(93).includes('keine') &&
+    kuenftig(93).includes('Electron-Standardmenü'),
+  'Funktionsliste Nr. 93 (Pflichtzeile Tastenkürzel): abgehakt, keine eigenen Kürzel, das Electron-Standardmenü vor und nach dem Umbau genannt (Spec 10, UO5, OF11)',
+);
+ok(
+  ['Standardmenü', 'Strg+R', 'Abnahme 5c'].every((w) => (zeile(97)?.zellen[2] ?? '').includes(w)) &&
+    kuenftig(97).startsWith('✓ ') &&
+    ['Electron-Standardmenü', 'Strg+R', 'Abnahme 5c'].every((w) => kuenftig(97).includes(w)),
+  'Funktionsliste Nr. 97 (Menü): Electron-Standardmenü und die Wirkung von Strg+R genannt, gemessen in Abnahme 5c (OF11)',
 );
 ok(
   zeile(96)?.zellen[1] === 'Pflichtpunkt Panel' &&
@@ -11040,18 +11295,19 @@ import './funktionsliste.test';
 - [ ] **Step 3: Rot-Lauf**
 
 ```
-SP='<eigener Scratchpad>'; [ -d "$SP" ] && { npm run selftest -w @jm/titler > "$SP/c13-rot.log" 2>&1; echo "Exit=$?"; grep -c "^FAIL" "$SP/c13-rot.log"; grep -c "^FAIL Funktionsliste" "$SP/c13-rot.log"; grep -c "^ok   Funktionsliste" "$SP/c13-rot.log"; grep "FEHLGESCHLAGEN" "$SP/c13-rot.log"; grep "^FAIL" "$SP/c13-rot.log" | sed -n '1p;103,112p'; }
+SP='<eigener Scratchpad>'; [ -d "$SP" ] && { npm run selftest -w @jm/titler > "$SP/c13-rot.log" 2>&1; echo "Exit=$?"; grep -c "^FAIL" "$SP/c13-rot.log"; grep -c "^FAIL Funktionsliste" "$SP/c13-rot.log"; grep -c "^ok   Funktionsliste" "$SP/c13-rot.log"; grep "FEHLGESCHLAGEN" "$SP/c13-rot.log"; grep "^FAIL" "$SP/c13-rot.log" | sed -n '1p;103,113p'; }
 ```
 Erwartet (gemessen): `Exit=1`, dann:
 ```
-112
-112
+113
+113
 3
-112 FEHLGESCHLAGEN
+113 FEHLGESCHLAGEN
 FAIL Funktionsliste Nr. 1 abgehakt – „künftig wo“ ohne Haken
 FAIL Funktionsliste Nr. 103 abgehakt – „künftig wo“ ohne Haken
 FAIL Funktionsliste Nr. 7 (Take): Live-Bereich › Haupttasten › Take in views/LiveBereich.tsx
-FAIL Funktionsliste Nr. 93 (Pflichtzeile Tastenkürzel): abgehakt, keine Kürzel (Spec 10, UO5)
+FAIL Funktionsliste Nr. 93 (Pflichtzeile Tastenkürzel): abgehakt, keine eigenen Kürzel, das Electron-Standardmenü vor und nach dem Umbau genannt (Spec 10, UO5, OF11)
+FAIL Funktionsliste Nr. 97 (Menü): Electron-Standardmenü und die Wirkung von Strg+R genannt, gemessen in Abnahme 5c (OF11)
 FAIL Funktionsliste Nr. 96 (Pflichtpunkt Panel): Leertaste und Escape, je für Feld und Schalter (Spec 10, O1)
 FAIL Funktionsliste Nr. 99: gleiche persistId titler.graphics, steht in views/Bedienung.tsx
 FAIL Funktionsliste Nr. 100: gleiche persistId titler.recall, steht in views/Bedienung.tsx
@@ -11060,10 +11316,10 @@ FAIL Funktionsliste: onFileOpened bleibt in OperatorView, wirkt bei geschlossene
 FAIL Funktionsliste: remote.reportState bleibt in OperatorView, wirkt bei geschlossenem Panel (G8)
 FAIL Funktionsliste: listDisplays() bleibt in OperatorView, wirkt bei geschlossenem Panel (G8)
 ```
-Die 112 sind 103 Zeilen ohne Haken und neun Einzelprüfungen; alle `FAIL`-Zeilen kommen aus diesem Test (erste und zweite
+Die 113 sind 103 Zeilen ohne Haken und zehn Einzelprüfungen; alle `FAIL`-Zeilen kommen aus diesem Test (erste und zweite
 Zahl gleich). Die drei Zählprüfungen (103 Zeilen, Zeilen je Abschnitt, Nummern fortlaufend) sind schon grün, weil C1 die
 Liste so angelegt hat. Der erste Lauf (`test/selftest.ts`) endet mit `ALLE TESTS OK`, die Tests aus C7–C12 im zweiten Lauf
-bleiben grün (im Log zusammen 687 `ok`: 538 + 146 + 3). Jede andere Zahl oder `FAIL`-Zeile ist ein Befund (G16).
+bleiben grün (im Log zusammen 689 `ok`: 538 + 148 + 3). Jede andere Zahl oder `FAIL`-Zeile ist ein Befund (G16).
 
 - [ ] **Step 4: Kopfabsatz „Stand nach dem Umbau“** (`docs/ux/funktionslisten/titler.md`, Edit-Werkzeug)
 
@@ -12143,7 +12399,7 @@ Nr. 97 (Menü / globale Kürzel: Kein …). Vorher:
 ```
 Nachher:
 ```text
-`:577` | ✓ unverändert (`main/index.ts`): Hauptprozess unverändert (G2), das Electron-Standardmenü bleibt (OF11); seine Wirkung prüfen Abnahme 3 (Strg+Plus) und 5c (Strg+R) |
+`:577` | ✓ unverändert (`main/index.ts`): Hauptprozess unverändert (G2), das Electron-Standardmenü bleibt (OF11); die Wirkung von Strg+R misst Abnahme 5c (nach „Take“ auf einer Testquelle: ON AIR, NDI-Ausgabe, Ausgabefenster), Strg+Plus prüft Abnahme 3 |
 ```
 
 - [ ] **Step 11: Abschnitt 7 „Gemerkte Zustände“ abhaken, Nr. 98–103 (`docs/ux/funktionslisten/titler.md`, Edit-Werkzeug)**
@@ -12217,8 +12473,8 @@ Nachher:
 ```
 SP='<eigener Scratchpad>'; [ -d "$SP" ] && { npm run selftest -w @jm/titler > "$SP/c13-gruen.log" 2>&1; echo "Exit=$?"; grep -c "^ok" "$SP/c13-gruen.log"; grep -c "^FAIL" "$SP/c13-gruen.log"; grep -c "ALLE TESTS OK" "$SP/c13-gruen.log"; grep -c "^ok   Funktionsliste" "$SP/c13-gruen.log"; }
 ```
-Erwartet (gemessen): `Exit=0`, dann `799`, `0`, `2`, `115`. Die erste Zahl ist der Titler-Stand nach C12 (beide Läufe:
-538 + 146) plus 115 aus diesem Test: 3 Zählprüfungen, 103 Zeilen, 9 Einzelprüfungen. Der zweite Lauf allein hat jetzt 261
+Erwartet (gemessen): `Exit=0`, dann `802`, `0`, `2`, `116`. Die erste Zahl ist der Titler-Stand nach C12 (beide Läufe:
+538 + 148) plus 116 aus diesem Test: 3 Zählprüfungen, 103 Zeilen, 10 Einzelprüfungen. Der zweite Lauf allein hat jetzt 264
 `ok`.
 
 - [ ] **Step 13: Typprüfung**
@@ -12248,6 +12504,8 @@ probe "$L" '/^| 11 |/s#`views/Bedienung.tsx`#`Views/Bedienung.tsx`#'
 probe "$L" '/^| 103 |/s#`main/config.ts`#`main/konfig.ts`#'
 probe "$L" '/^| 1 |/s#Folgeaufgabe)#"Folgeaufgabe")#'
 probe "$B" 's#titler\.recall#titler.rekall#g'
+probe "$L" '/^| 93 |/s#Electron-Standardmenü#Electron-Menü#g'
+probe "$L" '/^| 97 |/s#Standardmenü#Menü#g'
 [ "$(cat "$L" "$B" | md5sum)" = "$vorher" ] && echo "Liste und Bedienung unverändert"; }
 ```
 Erwartet (gemessen):
@@ -12271,13 +12529,19 @@ FAIL Funktionsliste Nr. 1 abgehakt – ASCII-Anführungszeichen
 --- docs/ux/funktionslisten/titler.md
 FAIL Funktionsliste Nr. 100: gleiche persistId titler.recall, steht in views/Bedienung.tsx
 --- apps/titler/src/renderer/src/views/Bedienung.tsx
+FAIL Funktionsliste Nr. 93 (Pflichtzeile Tastenkürzel): abgehakt, keine eigenen Kürzel, das Electron-Standardmenü vor und nach dem Umbau genannt (Spec 10, UO5, OF11)
+--- docs/ux/funktionslisten/titler.md
+FAIL Funktionsliste Nr. 97 (Menü): Electron-Standardmenü und die Wirkung von Strg+R genannt, gemessen in Abnahme 5c (OF11)
+--- docs/ux/funktionslisten/titler.md
 Liste und Bedienung unverändert
 ```
 Die fünfte und sechste Probe belegen den Vergleich je Pfadteil in `gibtEs`: Unter Windows ist
 `existsSync('src/renderer/src/views/Felder.tsx')` ebenso `true` wie `existsSync('src/renderer/src/Views/Bedienung.tsx')`
 (gemessen). Ohne den Vergleich blieben beide Proben grün, und erst die CI unter Linux fände den Fehler. Die siebte belegt,
-dass `main/…` gegen `apps/titler/src/` aufgelöst wird, die letzte die Querprüfung gegen den Code. In der letzten Probe
-melden auch die Tests aus C10 die geänderte `persistId`; der Filter zeigt nur die Zeilen dieses Tests.
+dass `main/…` gegen `apps/titler/src/` aufgelöst wird, die neunte die Querprüfung gegen den Code. In der neunten Probe
+melden auch die Tests aus C10 die geänderte `persistId`; der Filter zeigt nur die Zeilen dieses Tests. Die zehnte und
+elfte nehmen das Electron-Standardmenü aus Nr. 93 bzw. Nr. 97 (aus der Spalte „Element“ und aus „künftig wo“): Der
+dauerhafte Test bewacht die Erwähnung, nicht nur die einmalige Prüfung aus C1 (letzte Nachbesserung, Restlücke R2).
 
 - [ ] **Step 15: Zeilenenden**
 
@@ -12301,7 +12565,7 @@ M  docs/ux/funktionslisten/titler.md
 ```
 Dann:
 ```
-git commit -m "test(titler): Funktionsliste nach dem Umbau abgehakt und geprueft" -m "Spalte kuenftig wo in allen 103 Zeilen der Abschnitte 1-7 von docs/ux/funktionslisten/titler.md: Ort nach dem Ortsregister des Plans und Datei, unveraendert, entfaellt oder ersetzt durch mit Entscheidung. test/ui/funktionsliste.test.ts prueft Haken, Ort, vorhandene Dateien je Pfadteil (Gross- und Kleinschreibung), Verweis bei entfaellt und ersetzt durch, die Pflichtzeilen Tastenkuerzel und Panel-Tasten (Spec 10, O1), persistId titler.graphics/titler.recall in views/Bedienung.tsx und die vier Ablaeufe in OperatorView (G8)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "test(titler): Funktionsliste nach dem Umbau abgehakt und geprueft" -m "Spalte kuenftig wo in allen 103 Zeilen der Abschnitte 1-7 von docs/ux/funktionslisten/titler.md: Ort nach dem Ortsregister des Plans und Datei, unveraendert, entfaellt oder ersetzt durch mit Entscheidung. test/ui/funktionsliste.test.ts prueft Haken, Ort, vorhandene Dateien je Pfadteil (Gross- und Kleinschreibung), Verweis bei entfaellt und ersetzt durch, die Pflichtzeilen Tastenkuerzel (mit dem Electron-Standardmenue in Nr. 93 und 97) und Panel-Tasten (Spec 10, O1), persistId titler.graphics/titler.recall in views/Bedienung.tsx und die vier Ablaeufe in OperatorView (G8)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 **Abweichungen vom Gerüst:**
@@ -12329,11 +12593,15 @@ git commit -m "test(titler): Funktionsliste nach dem Umbau abgehakt und geprueft
 - Zusätzlich zum Gerüst prüft der Test die Zeilenzahl je Abschnitt, die fortlaufende Nummerierung, „ersetzt durch“ mit
   E-/OF-Verweis, Ordnernamen je Pfadteil und zwei Querprüfungen gegen den Code (`persistId` in `views/Bedienung.tsx`, die
   vier Abläufe in `views/OperatorView.tsx`).
+- Letzte Nachbesserung (Restlücke R2, NB33): Nr. 93 verlangt das Electron-Standardmenü samt Strg+R in der Spalte
+  „Element“ und das Standardmenü in „künftig wo“; die neue Einzelprüfung zu Nr. 97 verlangt Standardmenü, Strg+R und
+  „Abnahme 5c“ in beiden Spalten. Vorher prüfte nur die einmalige Prüfung aus C1 das Menü; ein späteres Streichen blieb im
+  dauerhaften Test grün. Gegenproben 10 und 11.
 - Die Rot-Zahl steht ohne die Messmarke aus dem Gerüst (C13-ROT) im Plan: Gezählt werden nur die `FAIL`-Zeilen dieses
   Tests und seine `ok`-Zeilen. Beide hängen nur an C1 (103 Zeilen mit leerem „künftig wo“) und am Test, nicht an C2–C12.
   Die Gesamtzahl `ok` des Rot-Laufs hängt an C3–C12 und wird deshalb nicht verlangt.
 - Gegenproben ändern die Dateien per `sed` und stellen sie per `cp` aus einer Sicherung im Scratchpad zurück, nicht mit
-  dem Edit-Werkzeug (G9). Grund: neun Proben auf derselben Datei; die Prüfsumme am Ende belegt den Rückbau. Kein
+  dem Edit-Werkzeug (G9). Grund: elf Proben, zehn davon auf derselben Datei; die Prüfsumme am Ende belegt den Rückbau. Kein
   `git checkout`, kein `git stash`.
 - Die Orte folgen den Entscheidungen, die Block C umsetzt (E7–E15, E18, E21–E24, OF3, OF4, OF7, T4–T7, T11). Beim
   Zusammensetzen gegen den echten Stand nach Task 12 geprüft: Jeder Ort und jede genannte Datei passt, keine Nachher-Zeile
@@ -12354,6 +12622,12 @@ git commit -m "test(titler): Funktionsliste nach dem Umbau abgehakt und geprueft
   Fehler 0; Rot-Lauf und Grün-Lauf wie oben (Rot-Block maschinell verglichen), Typprüfung `Exit=0` in 6 s, die Probe mit
   `kaputt` `error TS2322` an `test/ui/funktionsliste.test.ts(182,14)` mit Exit 2, die neun Gegenproben wörtlich wie
   angegeben, `grep -c '✓'` 103, Zeilenenden dreimal `CRLF 0`.
+- In der letzten Nachbesserung (15.10.2026; Restlücke R2 im Test, R3 und R4 in Task 10 und 11, R5 in Nr. 97) neu gemessen;
+  die Zahlen davor sind damit überholt. 106 Operationen, Fehler 0; Rot-Lauf `Exit=1`, 113 `FAIL`, alle aus diesem Test,
+  689 `ok` (538 + 148 + 3); Grün-Lauf `Exit=0`, 802 `ok` (538 + 148 + 116), 0 `FAIL`, zweimal `ALLE TESTS OK`; der zweite
+  Lauf allein 264 `ok`; Typprüfung `Exit=0`; die Probe mit `kaputt` `error TS2322` an
+  `test/ui/funktionsliste.test.ts(194,14)` mit Exit 2; die elf Gegenproben wörtlich wie angegeben (Ausgabe maschinell
+  verglichen), danach „Liste und Bedienung unverändert“; `grep -c '✓'` 103; Zeilenenden dreimal `CRLF 0`.
 
 ---
 
@@ -12451,7 +12725,7 @@ Spec: `docs/superpowers/specs/2026-10-08-suite-ux-update-design.md`, Abschnitt 1
 | 4f | DataLink: ohne Show und ohne Ordner starten; dann unter ⚙ › DataLink einen leeren Ordner wählen, danach einen Ordner mit einer CSV; den Ordner im Explorer umbenennen. Danach mit der Probe-Show ohne eigenen Ordner. Zum Schluss an B im Verbund (Show am Master mit Speakern). | ○ „DataLink kein Ordner“; leerer Ordner ▲ „DataLink keine Einträge“; mit CSV ● „DataLink {n} Einträge“; umbenannt ⚠ „DataLink Ordner fehlt“. Mit der Show ● „DataLink {n} Einträge“, nicht „kein Ordner“. An B unter ⚙ › DataLink: „Gesperrt: Im Verbund kommen die Speaker vom Master „⟨M⟩“. …“; „Ordner wählen …“, das Feld „Ordnerpfad“ und „Ordner entfernen“ sind gesperrt. | |
 | 5a | Haupttasten mit der Maus: „Take“, „Clear“. Unter Daten / Recall einen Eintrag wählen, dann „◀ Eintrag“ und „Eintrag ▶“ bis an beide Enden der Liste. | „Take“ zeigt „LIVE“, solange die Bauchbinde auf Sendung ist, und ist nie gesperrt; „Clear“ ist nie gesperrt. Am ersten Eintrag ist „◀ Eintrag“ gesperrt mit „Gesperrt: Erster Eintrag“, am letzten „Eintrag ▶“ mit „Gesperrt: Letzter Eintrag“. Ohne Einträge gibt es nur „Take“ und „Clear“. | |
 | 5b | Dieselben Tasten per Touch (falls ein Touchscreen da ist) und per Tab mit Leertaste bzw. Enter. | wie mit der Maus; jede Taste löst genau einmal aus. | |
-| 5c | Tastenkürzel: in den Live-Bereich klicken (nicht auf eine Taste), dann Leertaste, Enter und die Pfeiltasten. Danach, ohne Sendung, Strg und R. | Eigene Kürzel: keine, wie vor dem Pilot. Nichts geht auf Sendung, und der Eintrag wechselt nicht. Strg und R lädt das Bedienfenster neu wie vor dem Pilot (Electron-Standardmenü, Funktionsliste Nr. 93); danach steht der Titler wieder bereit, ⚙ ist zu. Auf Sendung würde Strg und R die Bauchbinde ausblenden (abgeleitet, hier nicht prüfen); ob das Menü bleibt, fragt OF11. | |
+| 5c | Tastenkürzel: in den Live-Bereich klicken (nicht auf eine Taste), dann Leertaste, Enter und die Pfeiltasten. Danach Strg und R messen, ohne echte Sendung: NDI-Ausgabe und Ausgabe auf Bildschirm an wie in Schritt 1, die NDI-Quelle nur in einer Vorschau, die nicht auf Sendung geht (z. B. NDI Studio Monitor, nicht auf dem Programm eines Mischers). Einen Speaker abrufen, „Take“, dann mit dem Fokus im Bedienfenster Strg und R. | Eigene Kürzel: keine, wie vor dem Pilot. Nichts geht auf Sendung, und der Eintrag wechselt nicht. Strg und R lädt das Bedienfenster neu (Electron-Standardmenü, Funktionsliste Nr. 93 und 97); danach steht der Titler wieder bereit, ⚙ ist zu. Erwartet nach dem Code: Die Kopfzeile zeigt wieder „bereit“ statt „ON AIR“, die Bauchbinde verschwindet aus dem Ausgabefenster. Eintragen, was gemessen wurde: ON AIR in der Kopfzeile, das Bild in der NDI-Vorschau (Bauchbinde weg oder stehen geblieben, Quelle noch da oder weg), das Ausgabefenster (Bauchbinde weg, Fenster noch offen) und die Statuseinträge NDI und Bildschirm nach dem Neuladen. Weicht etwas von der Erwartung ab, ist das ein Befund für den Folgeplan (OF11). | |
 | 5d | Companion bzw. Telnet auf Port 8726: `TITLER TAKE`, `TITLER CLEAR`, `TITLER TOGGLE`, `TITLER NEXT`. | ON AIR in der Kopfzeile und „Take“ folgen jedem Befehl; `TITLER NEXT` wechselt den Eintrag wie „Eintrag ▶“. | |
 | 6a | ⚙ öffnen, alle Abschnitte durchsehen, ⚙ wieder schließen. Dasselbe mit dem Hauptfenster auf der kleinsten Breite (960 px, ohne Zoom). | Reihenfolge iveo, NDI-Ausgabe, Ausgabe auf Bildschirm, Fernsteuerung, DataLink, Stil, Grafik-Vorlagen. Das Panel schiebt den Inhalt zusammen; Vorschau und Haupttasten bleiben sichtbar. Bei 960 px bleiben für beide nur etwa 160 px Breite (E19): eintragen, ob Vorschau und Tasten dort noch bedienbar sind. | |
 | 6b | Den Statuseintrag „NDI“ anklicken; danach „Master“. | Das Panel öffnet am Abschnitt NDI-Ausgabe und hebt ihn etwa 1,5 s mit einem Rand hervor. „Master“ ist kein Knopf (es gibt keinen Abschnitt dafür). | |
@@ -12535,6 +12809,10 @@ git commit -m "docs(ux): Abnahme UX-Welle 0 (Titler-Pilot)" -m "docs/ux/ABNAHME-
   Ordner ohne Datendatei liefert eine leere Liste ohne Fehler, `main/datalink.ts`, Funktion `scan`).
 - Die Voraussetzung nennt den Abnahme-Bau statt „über den Launcher installiert“ (Nachbesserung, Prüfbefund spec:1): Spec
   9.1 verlangt das Release erst nach der Abnahme.
+- 5c misst die Wirkung von Strg+R (letzte Nachbesserung, Restlücke R5, NB36): Vorher stand dort „abgeleitet, hier nicht
+  prüfen“, und OF11 stützte sich auf eine nicht gemessene Wirkung. Gefahrlos ist die Messung, weil die NDI-Quelle nur in
+  einer Vorschau läuft; die Erwartung ist aus `main/index.ts` (`titler:report-state`, `did-finish-load` des
+  Ausgabefensters) abgeleitet, eingetragen wird, was der Owner sieht.
 - Gerüst „Hell-Modus: Import-Dialog und `.cg-checker` bleiben dunkel“: Am Code abgeleitet (nicht gemessen) bleibt nur der
   Hintergrund des Dialogs dunkel (`bg-black/60`, wie bei `Modal`), der Dialog selbst nutzt Tokens und wird hell; die
   Schachbrettflächen haben feste Farben und bleiben dunkel. Zusatz 9 erwartet das so.
@@ -12548,7 +12826,9 @@ Exit 1; eine neue Datei; Step 3 und Step 4 wie angegeben; die Datei hat 59 Zeile
 (Prüfbefunde spec:1 und spec:6; 15.10.2026) nachgemessen: Step 1, 3 und 4 wörtlich wie angegeben, weiter 59 Zeilen. Die
 Zustände aus 4b und 4f sind an `statusLeiste` (Task 8) im Stand nach Task 12 gemessen: Show mit Hinweis H5 ○ „iveo
 unbekannt“, Quelle master bei Master-Link `sucht` bzw. `fehler` ▲ „iveo Liste aus früherem Stand“, eigener Ordner ohne
-Einträge ▲ „DataLink keine Einträge“. Der Einzeiler
+Einträge ▲ „DataLink keine Einträge“. In der letzten Nachbesserung (Zeile 5c, Restlücke R5; 15.10.2026) nachgemessen:
+Step 1 `fehlt: docs/ux/ABNAHME-UX-Welle-0.md`, Step 3 wörtlich wie angegeben (19 Zeilen, 1/4/1/6/4/3, 10 Zusatzprüfungen,
+CRLF 0, ASCII 0), Step 4 `false` und `1`; die Datei hat weiter 59 Zeilen. Der Einzeiler
 aus dem Hinweis zu 4e ist nicht ausgeführt (G13: keine Netzdienste beim Planen); dass er wie der Titler auf allen Adressen
 lauscht, folgt aus `packages/suite-control-protocol/src/server.ts:205` (`srv.listen(port, this.resolved.bindHost, …)` mit
 `bindHost` undefiniert) und Node (`listen(port)` ohne Host). Am Code gelesen: `views/ImportDialog.tsx` nutzt 13-mal
@@ -12893,13 +13173,13 @@ npm run selftest -w @jm/suite-control-protocol > "$SP/c16-protokoll.log" 2>&1; e
 Erwartet:
 ```
 Titler Exit=0
-799
+802
 0
 2
 Titler alt Exit=0
 538
 Titler Oberfläche Exit=0
-261
+264
 ui Exit=0
 680
 settings Exit=0
@@ -13002,7 +13282,7 @@ Erwartet (gemessen):
 ```
 Dateien 63, außerhalb G1 0
 Exit=0
- 63 files changed, 4313 insertions(+), 776 deletions(-)
+ 63 files changed, 4429 insertions(+), 776 deletions(-)
 ```
 Die 63 Dateien sind 28 neue und 35 geänderte (Step 7); der Plan selbst ist in beiden Zahlen nicht enthalten.
 Gegenprobe (zwei Pfade, die G1 ausschließt, nur als Argument; nichts wird geändert):
@@ -13084,29 +13364,30 @@ geht an den Controller für „Nach der Umsetzung“. C16 committet nichts.
   „nicht gemischt“; LF bei geänderten Dateien nur für die zwei genannten.
 - Step 8 (Bericht) ist neu: C16 hat keinen Commit, also braucht der Endstand einen festen Ort.
 
-**Gemessen** (zuletzt im Abschluss der Nachbesserung am 15.10.2026, NB30: frische Kopie von `5e5b234ec3`, der ganze
-Plantext eingespielt, 250 Operationen, Fehler 0, dieselbe Kopie nach Task 1–15):
-- Step 1: Titler `Exit=0`, 799 `ok`, 0 `FAIL`, zweimal `ALLE TESTS OK`; alter Lauf 538, zweiter Lauf 261; ui 680,
+**Gemessen** (zuletzt in der Abschluss-Messung der letzten Nachbesserung am 15.10.2026, NB38: frische Kopie von
+`5e5b234ec3`, der ganze Plantext eingespielt, 250 Operationen, Fehler 0, dieselbe Kopie nach Task 1–15):
+- Step 1: Titler `Exit=0`, 802 `ok`, 0 `FAIL`, zweimal `ALLE TESTS OK`; alter Lauf 538, zweiter Lauf 264; ui 680,
   settings 463, app-runtime `50 passed, 0 failed` und `254 passed, 0 failed`, Steuerprotokoll 80, jeweils `Exit=0`
   (Ausgabe wörtlich wie der erwartete Block).
-- Step 2: `Exit=0` nach 95 s (allein gelaufen), `0`, `31`, `1`.
+- Step 2: `Exit=0` nach 75 s (allein gelaufen; im Abschluss NB30 95 s, die Laufzeit ist nur Messwert), `0`, `31`, `1`.
 - Step 3: `Bau Exit=0`, Klassen-Probe 20 `ok`, 0 `FAIL`; im gebauten CSS (50,64 kB) stehen die Klassen aus
   `packages/ui/src` (71) und `packages/settings/src` (39), auch die neuen des Farbwählers aus Task 6.
 - Step 4: `Galerie Exit=0`, 20 `ok`, 0 `FAIL`.
 - Step 5: wie erwartet (`cookbook.json` frisch nach C15, 22 Schritte, `0.11.0 / Lock 0.11.0`).
 - Step 6 und 7: Die Messkopie hat kein Git. Gemessen ist der Dateivergleich gegen `git archive 5e5b234ec3` (ohne
   git-ignorierte Bau-Ausgaben) mit `git diff --no-index --numstat` je Datei: 28 neue und 35 geänderte Dateien, alle auf
-  Pfaden aus G1, zusammen 4313 Zeilen neu und 776 entfernt; mit dem Pfadfilter aus Step 6 auf dieser Dateiliste `Dateien 63,
+  Pfaden aus G1, zusammen 4429 Zeilen neu und 776 entfernt; mit dem Pfadfilter aus Step 6 auf dieser Dateiliste `Dateien 63,
   außerhalb G1 0`, Gegenprobe `Dateien 65, außerhalb G1 2` mit `Exit=1`; neue Dateien alle `LF`, geänderte nicht gemischt, nur
   `cookbook.json` mit `LF`. Byte-gleich: 33 Pfade, 76 Dateien an der Basis, 0 abweichend. Lesend im Worktree `ux-update`
   auf `5e5b234ec3` (sauber, Schreiber von Block D): Pfadfilter `Dateien 0, außerhalb G1 0` mit `Exit=0`, Gegenprobe
   `außerhalb G1 2` mit `Exit=1`; derselbe Byte-Vergleich gegen `adda584693` (vor R2) meldet 31 Dateien und `Exit=1`.
 - Nachgemessen am 15.10.2026 nach den drei Nachbesserungen der Plan-Prüfung, in einer frischen Kopie mit dem ganzen
-  Plantext (250 Operationen, Fehler 0): alle Werte oben; Step 5 wörtlich; byte-gleich 33 Pfade, 76 Dateien, 0 abweichend,
+  Plantext (250 Operationen, Fehler 0): dieselben Werte wie im Abschluss NB30 (nächster Punkt); Step 5 wörtlich; byte-gleich 33 Pfade, 76 Dateien, 0 abweichend,
   die Gegenprobe mit `views/OperatorView.tsx` abweichend.
-- Im Abschluss der Nachbesserung (NB30) noch einmal: Step 1 bis 5 wie oben (Typprüfung 95 s, beim Teil 3 der
-  Nachbesserung 91 s; die Laufzeit ist nur Messwert); Step 6 und 7 per Dateivergleich gegen `git archive 5e5b234ec3` mit
-  denselben Zahlen (63, 28 neu, 35 geändert, 4313+/776−, neue alle LF, geänderte nicht gemischt, nur `cookbook.json` mit
+- Im Abschluss der Nachbesserung (NB30), also vor der letzten Nachbesserung: Step 1 bis 5 wie oben bis auf den
+  Oberflächen-Lauf (damals 261, zusammen 799; Typprüfung 95 s, beim Teil 3 der Nachbesserung 91 s; die Laufzeit ist nur
+  Messwert); Step 6 und 7 per Dateivergleich gegen `git archive 5e5b234ec3` mit denselben Zahlen bis auf die Zeilen
+  (63, 28 neu, 35 geändert, damals 4313+/776−, neue alle LF, geänderte nicht gemischt, nur `cookbook.json` mit
   LF, byte-gleich 33 Pfade, 76 Dateien, 0 abweichend); lesend im Worktree `ux-update` auf `5e5b234ec3` Pfadfilter
   `Dateien 0, außerhalb G1 0` mit `Exit=0`, Gegenprobe `Dateien 2, außerhalb G1 2` mit `Exit=1`, Byte-Vergleich
   `Pfade 33, Dateien an der Basis: 76` mit `Exit=0`. Ein zweites Abspielen ohne Tests ergab Byte für Byte denselben Baum.
@@ -13121,7 +13402,9 @@ Alle 29 Befunde sind übernommen, keiner ist abgelehnt; einige als Entscheidung 
 vorgeschlagen. Nachgebessert wurde in drei Teilen (Task 1–8, Task 9–12, Task 13–16 mit Kopf), je mit neuer Messung der
 betroffenen Aufgaben samt allen Gegenproben; zum Schluss ist der ganze Plan noch einmal gemessen (NB30), und die
 Widersprüche zwischen den Teilen sind aufgelöst (NB31). Die Punkte heißen NB, weil N1 und N2 schon die zwei Ausnahmen in G2
-sind. Je Punkt: Befund, Ergebnis, Grund, Ort im Plan.
+sind. Je Punkt: Befund, Ergebnis, Grund, Ort im Plan. Eine unabhängige Nachprüfung (15.10.2026) fand danach fünf kleine
+Restlücken R1–R5; die letzte Nachbesserung schließt sie (NB32 bis NB36), trägt die Owner-Antworten ein (NB37) und misst den
+ganzen Plan neu (NB38).
 
 - **NB1 · `spec:1` Release vor der Owner-Abnahme (wichtig) · übernommen.** Spec 9.1 gibt das Release erst nach der Abnahme
   der Welle und nur mit Owner-Freigabe frei; der Plan ließ vorher releasen und widersprach sich in Task 16. Ort: „Nach der
@@ -13260,30 +13543,96 @@ sind. Je Punkt: Befund, Ergebnis, Grund, Ort im Plan.
   den lokalen Bau, „Befund 8“ statt „Befunde 8 und 13“, und dieselbe Signatur `iveoAbschnitt(s: OberflaechenStand)` in
   Task 8 und 11 (der Master-Link kommt über `OberflaechenStand.masterLink`). Keine neue Owner-Frage aus dem Abschluss.
 
+**Letzte Nachbesserung (15.10.2026): Restlücken der Nachprüfung und Owner-Antworten.** Die Nachprüfung fand keinen neuen
+Widerspruch, aber fünf Stellen, an denen ein absichtlicher Fehler grün blieb bzw. eine Wirkung nur abgeleitet war (R1–R5).
+Jede ist geschlossen und mit einer Gegenprobe gemessen, die rot wird; keine ändert Produktcode außer dem Zuschnitt des
+Brücken-Hooks (NB32), keine berührt Protokolle, IPC oder Main.
+
+- **NB32 · R1 Hook-Wächter nur auf Teilstrings · geschlossen.** Die Mutation der Nachprüfung (der Effekt übernimmt eine
+  Meldung nur, wenn sie nicht `null` ist) blieb grün: Ein Hook, der das Schließen der Brücke verschluckt, hätte weiter den
+  alten Wert gezeigt. Jetzt ist der Körper des Effekts die reine Funktion `hookAbo` in `useBrueckenWert.ts` (nur für den
+  Test exportiert); ein Verhaltenstest lässt sie mit der Attrappen-Quelle laufen und prüft nach jeder Meldung `hookWert`
+  (Antwort verbunden, dann sucht, fehler, `null`; Stille nach dem Abmelden), und der Hook selbst steht im Test wörtlich,
+  denn ohne DOM laufen seine Effekte nicht. Gegenprobe 14 (die Mutation der Nachprüfung im Effektkörper) und 15 (derselbe
+  Fehler im Hook) sind rot, ebenso 9, 12 und 13 auf dem neuen Aufbau. Ort: Task 5 (Interfaces, Verhalten, Step 1, 6, 9, 10,
+  11, Commit, Abweichungen), E5, Review Focus 1. `@jm/ui` bleibt bei 670 `ok` (drei Prüfungen ersetzt, keine dazu).
+- **NB33 · R2 Standardmenü im dauerhaften Test · geschlossen.** `funktionsliste.test.ts` prüfte bei Nr. 93 nur „keine“.
+  Jetzt verlangt Nr. 93 das Electron-Standardmenü samt Strg+R (Spalte „Element“) und das Standardmenü in „künftig wo“; eine
+  neue Einzelprüfung verlangt bei Nr. 97 Standardmenü, Strg+R und „Abnahme 5c“ in beiden Spalten. Gegenproben 10 und 11
+  (Menü aus Nr. 93 bzw. Nr. 97 gestrichen) sind rot. Ort: Task 13 Step 1, 3, 12, 14, Commit, Abweichungen und „Gemessen“;
+  Review Focus 2.
+- **NB34 · R3 Verdrahtung der Felder der Bedienung · geschlossen.** Gerendert war nur, dass die Felder da sind. Der neue
+  Test ruft ohne Browser das `onChange` jedes Felds auf (über den Baum, den `Bedienung` beim Server-Render zurückgibt) und
+  vergleicht den Patch an `setConfig`: Name, Untertitel, Banner-Text, Ticker-Text, Ticker-Tempo und die zwei Slots einer
+  Grafik-Vorlage. Gegenproben k) (Banner-Text schreibt in `subtitle`) und l) (Ticker-Tempo schreibt nichts) sind rot;
+  Gegenprobe h) zeigt jetzt zwei `FAIL`. Ort: Task 10 (Verhalten, Step 1, 8, 11, 12, Commit, Abweichungen), Review Focus 2.
+- **NB35 · R4 Panel-Bildschirm bei nicht geladener Monitorliste · geschlossen.** Der Panel-Test rendert „Ausgabe auf
+  Bildschirm“ mit `displays` undefined und verlangt „unbekannt“ statt der Auswahl „Kein Bildschirm gefunden“. Gegenprobe f)
+  ist die Mutation K4 der Prüfung (`stand.displays ?? []` nur im Panel), die vorher grün blieb; sie ist rot. Ort: Task 11
+  (Verhalten, Step 1, 2, 5, 8, 9, Commit, Abweichungen), Review Focus 1.
+- **NB36 · R5 Strg+R in der Abnahme gemessen statt abgeleitet · geschlossen.** Abnahme 5c misst jetzt ohne echte Sendung,
+  was Strg+R nach „Take“ auf einer Testquelle (NDI-Ausgabe nur in einer Vorschau, Ausgabe auf Bildschirm an) mit ON AIR,
+  NDI-Bild, Ausgabefenster und den Statuseinträgen NDI und Bildschirm tut; die Erwartung aus dem Code steht dabei, eine
+  Abweichung ist ein Befund für den Folgeplan. OF11 und Funktionsliste Nr. 97 sagen „aus dem Code abgeleitet, gemessen in
+  Abnahme 5c“ statt „abgeleitet, nicht gemessen“. Ort: OF11, Task 1 (Nr. 97, Abweichungen), Task 13 (Nr. 97 „künftig wo“),
+  Task 14 (Zeile 5c, Abweichungen). Gemessen: Der Prüfbefehl aus Task 14 meldet weiter 19 Zeilen und 0 ASCII-Anführungszeichen,
+  die Datei hat weiter 59 Zeilen; die Prüfung aus Task 1 meldet weiter „Funktionsliste in Ordnung“.
+- **NB37 · Owner-Antworten (15.10.2026) · eingetragen.** Der Owner hat alle Vorgaben OF1–OF14 bestätigt („passt“), auch
+  OF8 (Texte T1–T11 wie im Plan) und OF13 (Abnahme mit dem lokalen Abnahme-Bau vor Merge und Release). Ort: Abschnitt
+  „Owner-Fragen“ (Satz unter der Überschrift, Spalte „Owner“ je Zeile), Absatz „Spec“ im Kopf, G5, Task 1 (Abweichungen,
+  OF11), Task 14 (Zeile 5c), „Vor der Umsetzung“. Keine Aufgabe ändert sich dadurch. Die Freigabe des Releases selbst bleibt
+  nach der Abnahme beim Owner („Nach der Umsetzung“, Punkt 8).
+- **NB38 · Abschluss-Messung der letzten Nachbesserung (15.10.2026).** Frische Kopie von `5e5b234ec3` (`node_modules` als
+  Junctions, `@jm/*` auf die Pakete der Kopie), der ganze Plantext Aufgabe für Aufgabe maschinell eingespielt: 250
+  Operationen, Fehler 0, jede Vorher-Stelle genau einmal. Je Aufgabe liefen an den Stellen des Plans jeder rote und grüne
+  Lauf (Befehl aus dem Plantext, erwarteter Block maschinell gegen das Log verglichen), die Typprüfungen (alle 31
+  Workspaces nach Task 2, 3 und 16 je `Exit=0`, 0 `error TS`), Bau und Klassen-Probe (Task 7, 9–12 je 20 `ok`; CSS 51,58,
+  50,81, 51,18, 50,67 und 50,64 kB wie bisher) und alle Gegenproben (jede Datei danach Byte für Byte zurück). Abweichungen vom
+  erwarteten Block gab es nur, wo die Messkopie kein Git hat (`git check-ignore` in Task 4 Step 8, `git diff --numstat` in
+  Task 15 Step 6 und 11; dort per `git diff --no-index` gegen eine Basis-Kopie nachgemessen: dieselben Zahlen 3/2, 1/1,
+  1/1, 3/1, 9/7, 11/9 und 0 neue ASCII-Anführungszeichen) und bei den absichtlich gekürzten ist/soll-Zeilen in Task 6
+  Step 4. Die Gegenproben, die sich nicht ändern sollten, gaben wörtlich dieselbe Ausgabe wie in den drei Teilen der
+  Nachbesserung (Task 1–4, 6–9 und 12: 69 von 69 Logs gleich, dazu die unveränderten Proben a–g, i und j in Task 10 und
+  a–e in Task 11; die Probe ohne Kontext in Task 6 wieder „Vorher 2-mal“ wie in NB10). Neu bzw. geändert und gemessen: Task 5 (15 Proben, 3, 2, 1, 2, 1, 2, 1, 1, 2, 1, 1, 1, 2, 1, 1 `FAIL`), Task 10
+  (12 Proben, h jetzt 2 `FAIL`), Task 11 (6 Proben), Task 13 (11 Proben); jeder Erwartungsblock maschinell gleich.
+  Zählstände je Aufgabe: Titler alt 512 → 533 → 538; Oberflächen-Lauf 14, 52, 76, 111, 136, 148, 264; `@jm/ui` 670, 679,
+  680; `@jm/settings` 463; app-runtime 50/0 und 254/0; Steuerprotokoll 80; Rot-Läufe Task 11 122 `ok` + 14 `FAIL`, Task 12
+  143 + 5, Task 13 113 `FAIL` und 689 `ok`. Endstand (Task 16): Titler 802 = 538 + 264, zweimal „ALLE TESTS OK“; ui 680,
+  settings 463, app-runtime 50/0 und 254/0, Steuerprotokoll 80; Typprüfung aller 31 Workspaces `Exit=0` (75 s), `0`,
+  `31`, `1`; Bau `Exit=0` (CSS 50,64 kB), Klassen-Probe 20 `ok` und 0 `FAIL` (71 und 39 Klassen); Galerie 20 `ok`; Kochbuch
+  frisch (43 Rezepte), CI 22 Schritte, `0.11.0 / Lock 0.11.0`. Diff gegen die Basis: 63 Dateien (28 neu, 35 geändert),
+  4429+/776−, Pfadfilter `Dateien 63, außerhalb G1 0`, Gegenprobe `Dateien 65, außerhalb G1 2` mit `Exit=1`; neue Dateien
+  alle LF, geänderte nicht gemischt, nur `cookbook.json` mit LF; byte-gleich 33 Pfade, 76 Dateien, 0 abweichend, die
+  Gegenprobe mit `views/OperatorView.tsx` abweichend. Zweites Abspielen ohne Tests in eine weitere frische Kopie (250
+  Operationen, Fehler 0, `cookbook:build` nach Task 15 Step 5): alle 1861 nicht ignorierten Dateien Byte für Byte gleich
+  mit der Messkopie, darunter die 63 berührten. Die geänderten Zählstände stehen im Kopf (Tabellen „Testläufe“ und
+  „Gemessene Zählstände“, Z1, Z3, Z8, Z10), in den Aufgaben 10 bis 13 und 16 und in der Selbstprüfung.
+
 ## Selbstprüfung des Plans
 
 **1. Spec-Abdeckung** (je geforderter Abschnitt; jede Zeile ist durch die Messung beim Zusammensetzen gedeckt und nach der
-Nachbesserung neu gemessen, zuletzt im Abschluss NB30; „neu“ markiert Tests und Entscheidungen aus der Nachbesserung)
+Nachbesserung neu gemessen, zuletzt in der Abschluss-Messung der letzten Nachbesserung NB38; „neu“ markiert Tests und
+Entscheidungen aus der Nachbesserung, „zuletzt“ die aus der letzten Nachbesserung zu den Restlücken R1–R5)
 
 | Spec | Anforderung | Aufgabe(n) |
 | --- | --- | --- |
-| 3.9 Master-Link | eine lesende Brücke in `@jm/app-runtime` (Ereignis an den Renderer und Abfrage), einmal gebaut, in jedem Tool nutzbar; kleine, benannte Ausnahme von U6 (UO3) | 2 (Kanal `jmps:master-link`, Meldung, Registrierung in `los`, Senden beim Anhängen, Wächter gegen Doppelung mit R2; neu: R2-Importe relativ geprüft, Registrierung samt Einzug als Probe), 4 (Preload und Typen des Titlers), 5 (Abbildung auf den Statuseintrag, Brücken-Hook; neu: Übergang `hookSchritt`/`hookWert`, Verlauf verbunden → sucht → fehler → `null`, Quellwechsel, Verdrahtung im Hook), 9 (Quellen ohne `window`, Eintrag im Rahmen) |
+| 3.9 Master-Link | eine lesende Brücke in `@jm/app-runtime` (Ereignis an den Renderer und Abfrage), einmal gebaut, in jedem Tool nutzbar; kleine, benannte Ausnahme von U6 (UO3) | 2 (Kanal `jmps:master-link`, Meldung, Registrierung in `los`, Senden beim Anhängen, Wächter gegen Doppelung mit R2; neu: R2-Importe relativ geprüft, Registrierung samt Einzug als Probe), 4 (Preload und Typen des Titlers), 5 (Abbildung auf den Statuseintrag, Brücken-Hook; neu: Übergang `hookSchritt`/`hookWert`, Verlauf verbunden → sucht → fehler → `null`, Quellwechsel, Verdrahtung im Hook; zuletzt: der Effektkörper `hookAbo` läuft mit einer Attrappen-Quelle und übernimmt jede Folgemeldung, auch `null`, der Hook steht wörtlich im Test, R1), 9 (Quellen ohne `window`, Eintrag im Rahmen) |
 | 3.9 Fernsteuerung | lesende Meldung `{läuft, port, clients, modus}` aus dem vorhandenen Steuerserver, Port 8726 fest | 3 (Getter `modus()`, `naechsteFernsteuerung`, Statusfeld, drei Anlässe im Main), 8 (Statuseintrag und Abschnitt), 11 (Panel); neu: E6 (Modus des laufenden Servers, „Neustart nötig“ erst mit OF6, Abnahme 4e) |
 | 4.1, 4.2 (berührt) | additive Erweiterung der Bausteine; Warnung orange, Statusfarben nie nur auf Wörtern | neu: 9 (`StatusPill` mit optionaler Prop `kuerzen`, ohne Prop unverändert, E18, Test in `@jm/ui`), 10 und 12 (E25: Hinweis-Kasten, Hinweisband und Karte B1 in `--status-warn`; Test: keine Datei unter `views/` nutzt `--warning`) |
 | 5.1 Kopfzeile | wie 3.2, `headerCenter` mit der Anzeige aus Master-Link 2b R2 | 9 (`VerbundZeile` als `StatusPill`, mit „…“ gekürzt über die neue Prop `kuerzen`, R2-Felder im Preload unverändert), 8 (`verbundZeileZustand`) |
-| 5.1 Live-Bereich | das „immer sichtbare“ Element oben bzw. links; höchstens vier `TallyButton`s; Nebenbereiche als `Collapsible` mit `persistId` | 10 (Vorschau als erstes `<canvas>`, vier Tasten, `titler.graphics`, `titler.recall`; neu: Wächter `live={live}`, `aria-current` am aktiven Eintrag, Banner, Ticker samt Tempo, Vorlage ohne Textfelder und Variablen-Hilfetext gerendert), 8 (`hauptTasten`); Breite bei offenem Panel: E19 gerechnet, Abnahme 6a auch bei 960 px |
+| 5.1 Live-Bereich | das „immer sichtbare“ Element oben bzw. links; höchstens vier `TallyButton`s; Nebenbereiche als `Collapsible` mit `persistId` | 10 (Vorschau als erstes `<canvas>`, vier Tasten, `titler.graphics`, `titler.recall`; neu: Wächter `live={live}`, `aria-current` am aktiven Eintrag, Banner, Ticker samt Tempo, Vorlage ohne Textfelder und Variablen-Hilfetext gerendert; zuletzt: jedes Feld der Bedienung schreibt beim Tippen in seinen Schlüssel, R3), 8 (`hauptTasten`); Breite bei offenem Panel: E19 gerechnet, Abnahme 6a auch bei 960 px |
 | 5.1 Einstellungen, Statusleiste | Panel über ⚙ oder Statuseintrag, schiebt den Inhalt zusammen; Statusleiste nach 3.3 | 9 (Rahmen, Panel-Zustand; neu: Quelltext-Wächter, dass ⚙ und Statuseintrag das Panel am Abschnitt öffnen und die fünf Aktionen an Store und Preload gehen), 11 (Abschnitte, Anker je Statuseintrag), 8 (Leiste in fester Reihenfolge, E20) |
 | 5.3 | Ausgabefenster unverändert | G3; 12 (Hash-Test auf `OutputView.tsx`, `lib/engine.ts`, `ImportDialog.tsx`), 16 (byte-gleich gegen die Basis) |
 | 6 | Abschnitte aus `@jm/settings` (NDI-Ausgabe, Bildschirm, Fernsteuerung, iveo, DataLink) mit `locked`, ausblenden statt ausgrauen; tool-eigen Stil und Grafik-Vorlagen | 6 (additive Props, OF3, OF4), 8 (Props je Abschnitt, OF2, OF5, OF7), 10 und 11 (Panel mit sieben Abschnitten, Sperrgrund im Verbund; neu: DataLink mit Fehler und mit „Ordner fehlt“ gerendert); NDI-Quellenname bei Enter bzw. Verlassen (L1, OF14); „Vorschau des Namens im Netz“ und „Neustart nötig“ aus 6.2 nicht im Pilot (E7, E6, OF6, Abnahme 4c und 4e) |
 | 7.1 | Kreuzprodukt je Eintrag | 5 (Master, 12 Eingänge), 8 (iveo 576 mit der Achse Master-Link, NDI 24 mit der Auflösung `1920x1081`, Bildschirm 24, Fernsteuerung 18, DataLink 48, Haupttasten 24 Fälle, ganze Leiste 360), 3 (Ereignisfolgen) |
-| 7.2 | unbekannt ist nicht ok | 5 (neu: der Hook zeigt nach einem Abbruch nie den alten Wert), 8 (Brücke offen, Monitorliste nicht geladen, keine Steuerserver-Meldung, Kern-Hinweis verdeckt; neu: iveo bei Quelle `master` mit offener oder fehlender Brücke bzw. unbekannter Art „unbekannt“, nie `ok`), 9 (Server-Render ohne Brücke ergibt „unbekannt“; eine abgelehnte Monitorliste bleibt „unbekannt“, Quelltext-Wächter) |
+| 7.2 | unbekannt ist nicht ok | 5 (neu: der Hook zeigt nach einem Abbruch nie den alten Wert; zuletzt auch nicht nach dem Schließen der Brücke, R1), 11 (zuletzt: Panel-Abschnitt „Ausgabe auf Bildschirm“ bei nicht geladener Monitorliste „unbekannt“, R4), 8 (Brücke offen, Monitorliste nicht geladen, keine Steuerserver-Meldung, Kern-Hinweis verdeckt; neu: iveo bei Quelle `master` mit offener oder fehlender Brücke bzw. unbekannter Art „unbekannt“, nie `ok`), 9 (Server-Render ohne Brücke ergibt „unbekannt“; eine abgelehnte Monitorliste bleibt „unbekannt“, Quelltext-Wächter) |
 | 7.3 | nur Gemessenes; „an (ohne Rückmeldung)“ | 8 (NDI ohne Senderrückmeldung, Bildschirm ohne Fensterrückmeldung, Empfänger nur bei an und über 0; neu: iveo bei `master` nur mit verbundenem Link `ok`, bei gemessener Trennung „Liste aus früherem Stand“), OF6, OF12 |
 | 7.4 | `live` nur für Sendezustände | 8 (über alle Kombinationen kein `live` in der Leiste), 9 (ON AIR aus `live`, E11: per Quelltext-Wächter `onAir={{ live }}`, weil der Server-Render nur `live = false` kennt; gerendert ist nur „bereit“), 10 (Take live: `liveTasten` mit `live` als Prop, die Verdrahtung `live={live}` per Quelltext-Wächter) |
 | 8 | Hell und Dunkel, gemerkt je Arbeitsplatz | 9 (`ThemeToggle` über `AppHeader`), 12 (Recall-Board übernimmt das Theme, Ausgabefenster nicht), 14 (Abnahme 2a–2d) |
 | 9.1 | released wird erst nach der Abnahme der Welle und nur mit Owner-Freigabe | neu: „Nach der Umsetzung“ Punkt 5–8 (Release-Commit auf dem Branch, lokaler Abnahme-Bau, Abnahme, erst danach Merge, Tag, Release und Katalog), 14 (Voraussetzung Abnahme-Bau), 16 Step 5 (Version bleibt 0.11.0), OF13 |
-| 10 | Funktionsliste vor dem Umbau aus dem Code; danach jeder Punkt abgehakt mit Ort; Pflichtpunkt Leertaste/Escape im Panel; Kürzel bleiben gleich | 1 (103 Zeilen, Nr. 93 „Keine eigenen.“ samt Electron-Standardmenü, Nr. 96 Pflichtpunkt; neu: Prüfung und Gegenprobe auf Nr. 93), 13 (jede Zeile mit Haken und Ort, Test im zweiten Lauf, Querprüfungen gegen den Code; neu: Nr. 94 und 96 widerspruchsfrei, Nr. 42 und 49 nennen den Wegfall samt Handbuch), 11 (NDI-Schalter `role="switch"`, kein Tastenhandler im Titler), G2 (Ausnahmen N1, N2 und die benannten Änderungen der Bedienlogik L1–L6), OF11 |
+| 10 | Funktionsliste vor dem Umbau aus dem Code; danach jeder Punkt abgehakt mit Ort; Pflichtpunkt Leertaste/Escape im Panel; Kürzel bleiben gleich | 1 (103 Zeilen, Nr. 93 „Keine eigenen.“ samt Electron-Standardmenü, Nr. 96 Pflichtpunkt; neu: Prüfung und Gegenprobe auf Nr. 93), 13 (jede Zeile mit Haken und Ort, Test im zweiten Lauf, Querprüfungen gegen den Code; neu: Nr. 94 und 96 widerspruchsfrei, Nr. 42 und 49 nennen den Wegfall samt Handbuch; zuletzt: das Electron-Standardmenü in Nr. 93 und 97 im dauerhaften Test, R2), 11 (NDI-Schalter `role="switch"`, kein Tastenhandler im Titler), G2 (Ausnahmen N1, N2 und die benannten Änderungen der Bedienlogik L1–L6), OF11 (vom Owner bestätigt) |
 | 11 | Render-Tests ohne Browser, Logiktests, Selbsttest der App; bestehende Selbsttests, Typprüfung und CSP-Test bleiben grün | 7 (zweiter `tsx`-Lauf, `tsconfig.test.json`, `typecheck:test`, CI-Schrittname), 8–13 (Render- und Logiktests; neu: Quelltext-Wächter für Verdrahtung, die ein Render ohne Browser nicht zeigt), 2 (4b- und CSP-Wächter bleiben grün), 16 (alle Läufe, alle Workspaces) |
-| 12 | Abnahme-Datei mit den Punkten 1–6 und den Titler-Punkten | 14 (`docs/ux/ABNAHME-UX-Welle-0.md`, 19 Zeilen, 10 Zusatzprüfungen; neu: 4b und 4f führen jeden Zustand des iveo- und DataLink-Eintrags herbei, an `statusLeiste` gemessen; 4c und 4e mit den Hinweisen aus E7 und E6; 5c Strg und R; 6a auch bei 960 px) |
+| 12 | Abnahme-Datei mit den Punkten 1–6 und den Titler-Punkten | 14 (`docs/ux/ABNAHME-UX-Welle-0.md`, 19 Zeilen, 10 Zusatzprüfungen; neu: 4b und 4f führen jeden Zustand des iveo- und DataLink-Eintrags herbei, an `statusLeiste` gemessen; 4c und 4e mit den Hinweisen aus E7 und E6; 5c Strg und R; 6a auch bei 960 px; zuletzt: 5c misst Strg und R nach „Take“ auf einer Testquelle, R5) |
 | Anhang A „Titler“ | immer sichtbar Vorschau und Take/Clear; Haupttasten Take, Clear, ◀/▶ Eintrag; On-Air aus `live`; Statuseinträge Master-Link, iveo, NDI, Bildschirm, Fernsteuerung, DataLink; Einstellungen wie gelistet, tool-eigen Stil und Grafik-Vorlagen; Zusatzfenster ohne AppShell; Recall-Board mit denselben Hinweisen | 8, 9, 10, 11, 12 (Board ohne AppShell, Hinweise aus derselben Quelle, OF1); E12 (Text „Take“ statt „● Take“, OF8); E20 (Label „Fernsteuerung“, OF2) |
 
 **2. Platzhalter-Scan:** Nach „TBD“, „TODO“, „später“, „ähnlich wie Task“, offenen Messmarken der Schreiber und den Platzhaltern
@@ -13302,7 +13651,8 @@ Gleichlauf `MasterLinkMeldung` (app-runtime) → `MasterLinkMeldungZeile` (Title
 die Zuweisung im Preload (Task 4, Gegenprobe `TS2322` und `TS2345`) und den Aufruf in `lib/oberflaeche.ts` (Task 8)
 belegt. Die Nachbesserung hat Typen nur additiv erweitert (`StatusPill` `kuerzen`, die für den Test exportierten
 `hookSchritt`/`hookWert`, `masterLink` als Eingang von `iveoAbschnitt` über `OberflaechenStand`); die Typprüfung aller
-31 Workspaces blieb im Abschluss ohne `error TS` (NB30). Abweichend
+31 Workspaces blieb im Abschluss ohne `error TS` (NB30). Die letzte Nachbesserung ergänzt nur die für den Test exportierte
+Funktion `hookAbo` (Signatur unter Task 5 „Interfaces“); die Typprüfung aller Workspaces bleibt ohne `error TS` (NB38). Abweichend
 vom Gerüst und begründet (Z4): `Einstellungen` hat in Task 9 die kurze Form `{ stand, aktionen }` und ab Task 10 die
 Register-Form; `views/felder.tsx` exportiert bis Task 10 auch `Field` und `Labeled`.
 
@@ -13312,7 +13662,12 @@ die rot wurde (Task 2, 3, 5, 7, 8, 9–13; gemessen von den Schreibern bzw. beim
 Task 10: 6, Task 11: 1, Task 12: 1), darunter Mutationen, die die Prüfer mit dem alten Plan grün durchbrachten (ON AIR
 tot, Take-Tally an NDI, ⚙ ohne Wirkung, Statusklick ohne Abschnitt, tote Ordnerwahl, NDI ohne Namen, K1 tot, Hook hält den
 ersten Wert, alter Wert nach Quellwechsel, Ladefehler der Monitorliste als leere Liste, ungerade Höhe, DataLink-Fehler
-nicht im Panel); alle Gegenproben von Task 1–16 sind dabei neu gemessen (NB30). Zusätzlich geprüft und gedeckt: Zeilenenden neuer Dateien mit
+nicht im Panel); alle Gegenproben von Task 1–16 sind dabei neu gemessen (NB30). Die letzte Nachbesserung hat sieben
+Gegenproben ergänzt (Task 5: 14 und 15, Task 10: k und l, Task 11: f, Task 13: 10 und 11) und in Task 5 die Proben 9, 12
+und 13 auf den neuen Aufbau des Hooks gezielt; sie fangen die Mutationen, die nach der Nachprüfung noch grün blieben
+(Effekt verschluckt `null`, Feld schreibt in den falschen Schlüssel oder nichts, Panel-Bildschirm mit leerer Liste statt
+„unbekannt“, Standardmenü aus Nr. 93 bzw. 97 gestrichen). Alle Gegenproben von Task 1–16 sind danach noch einmal gemessen
+(NB38). Zusätzlich geprüft und gedeckt: Zeilenenden neuer Dateien mit
 einer Prüfung, die den Fehler auch zeigen kann (Z2); die Funktionsliste gegen Groß- und Kleinschreibung von Pfaden unter
 Windows (Task 13, Proben 5 und 6). **Nur mit Electron bzw. im Fenster messbar** und deshalb nicht durch Tests gedeckt: dass
 die Abfrage der Brücke beim Start ankommt (Abnahme, Zusatzprüfung 5), das Aussehen in Hell und Dunkel, die Schmal-Ansicht
@@ -13322,12 +13677,12 @@ die Abfrage der Brücke beim Start ankommt (Abnahme, Zusatzprüfung 5), das Auss
 
 Dieser Abschnitt ist keine Aufgabe für ausführende Agenten.
 
-- Der Owner beantwortet OF1–OF14 (Tabelle „Owner-Fragen“); ohne Antwort gelten die Vorgaben. Spätestens: OF6 und OF11 bei
-  der Freigabe dieses Plans; OF3, OF4 und OF14 vor Task 6; OF2, OF5, OF7 und OF12 vor Task 8; OF1 vor Task 12; OF13 vor
-  Task 14; OF8, OF9 und OF10 vor dem Abnahme-Bau („Nach der Umsetzung“, Punkt 6). Lehnt er eine Vorgabe ab, ändert sich die Aufgabe aus der Spalte „spätestens vor“; der Controller lässt den
-  geänderten Teil neu messen, bevor er ausgeführt wird.
+- Der Owner hat OF1–OF14 am 15.10.2026 beantwortet: alle Vorgaben bestätigt (Tabelle „Owner-Fragen“, Spalte „Owner“),
+  auch OF8 (Texte T1–T11 wie im Plan) und OF13 (Abnahme mit dem lokalen Abnahme-Bau vor Merge und Release). Damit ändert
+  sich keine Aufgabe, und keine Frist aus der Spalte „spätestens vor“ ist mehr offen. Offen bleibt nur, was erst nach der
+  Abnahme kommt: die Freigabe des Releases durch den Owner („Nach der Umsetzung“, Punkt 8).
 - Zur Kenntnis nimmt der Owner die Auslegungen E1–E25, die benannten Änderungen der Bedienlogik L1–L6 (G2), die
-  Abweichungen der Montage Z1–Z10 und die Nachbesserung nach der Plan-Prüfung NB1–NB31.
+  Abweichungen der Montage Z1–Z10 und die Nachbesserung nach der Plan-Prüfung NB1–NB38.
 - Der Controller richtet den Umsetzungs-Worktree ab `5e5b234ec3` ein und lässt dort `npm ci --ignore-scripts` laufen, damit
   `node_modules/@jm/settings` existiert (Task 7 Step 0 prüft den Link und hält sonst an).
 - Liegt `main` bei der Umsetzung weiter als `5e5b234ec3`, wird der Plan neu aufgesetzt: Der Controller spielt den Plantext
@@ -13346,7 +13701,7 @@ entscheidet und tut der Controller mit dem Owner.
    misst nach (Vorher-Texte, Zählstände, Lock-Zeilen, Rot-Meldungen; Weg wie unter „Vor der Umsetzung“). Erst danach folgen
    Review und Pull Request.
 2. Review des ganzen Branches durch einen frischen Reviewer: Spec-Treue, Review Focus 1–5, G1–G4, E1–E25, Z1–Z10 und
-   NB1–NB31.
+   NB1–NB38.
    Befunde gehen als Nachbesserung in diesen Plan, mit neuer Messung der betroffenen Aufgaben.
 3. Pull Request gegen `main`. In der CI sind „Typecheck (alle Workspaces)“ und „Selbsttests“ grün; der Link
    `@jm/settings` entsteht dort durch `npm ci`, und die Lock-Zeile aus Task 7 ist damit bestätigt. Reine Doku-Commits lösen
