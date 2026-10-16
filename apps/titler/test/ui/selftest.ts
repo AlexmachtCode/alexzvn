@@ -4,4 +4,5 @@
 // Einfügemarke: neue Testmodule als eigene import-Zeile direkt vor der Zeile `abschluss();`.
 import { abschluss } from '@jm/ui/testhilfe';
 import './werkzeug.test';
+import './oberflaeche.test';
 abschluss();
