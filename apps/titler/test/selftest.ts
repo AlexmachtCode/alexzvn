@@ -1452,6 +1452,19 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     && main.includes('Titler-Steuerserver fehlgeschlagen:') && main.includes('lauscht auf :${CONTROL_PORT}'), 'Fernsteuerung: suiteClients und die Logzeilen bleiben');
 }
 
+// ── UX-Pilot C4 · Preload: Master-Link-Brücke (Spec 3.9, 3.8, 7.2; E3, R2-Regel E28) ──
+{
+  const { readFileSync } = await import('node:fs');
+  const { MASTER_LINK_KANAL } = await import('../../../packages/app-runtime/src/master-link-meldung');
+  const preload = readFileSync(new URL('../src/preload/index.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const kanaele = [...preload.matchAll(/'(jmps:master[^']*)'/g)].map((m) => m[1]);
+  ok(kanaele.length === 3 && kanaele.every((k) => k === MASTER_LINK_KANAL), `Preload: Kanal der Master-Link-Brücke dreimal wörtlich ${MASTER_LINK_KANAL} (invoke, on, off)`);
+  ok(preload.includes("  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),\n"), 'Preload: Abfrage fängt jede Ablehnung zu null ab (Renderer: unbekannt, nicht aus)');
+  ok(preload.includes("    ipcRenderer.on('jmps:master-link', listener);\n    return () => ipcRenderer.off('jmps:master-link', listener);\n"), 'Preload: Ereignis mit Abmeldung');
+  ok(/^import type \{ MasterLinkMeldung \} from '@jm\/app-runtime';$/m.test(preload) && !/^import \{[^}]*\} from '@jm\/app-runtime'/m.test(preload), 'Preload: aus app-runtime nur der Typ (kein Main-Code im Sandbox-Preload)');
+  ok(preload.includes("  verbundAnzeige: () => (ipcRenderer.invoke('jmps:verbund-anzeige') as Promise<VerbundAnzeigeZeile | null>).catch(() => null),\n  onVerbundAnzeige: (cb) => {\n    const listener = (_e: unknown, a: VerbundAnzeigeZeile | null): void => cb(a);\n    ipcRenderer.on('jmps:verbund-anzeige', listener);\n    return () => ipcRenderer.off('jmps:verbund-anzeige', listener);\n  },\n"), 'Preload: R2-Brücke verbundAnzeige/onVerbundAnzeige wortgleich (Durchgang 2b)');
+}
+
 if (failed > 0) {
   console.error(`\n${failed} FEHLGESCHLAGEN`);
   process.exit(1);

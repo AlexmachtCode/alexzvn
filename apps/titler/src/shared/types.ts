@@ -195,6 +195,19 @@ export interface VerbundAnzeigeZeile {
   farbe: 'gruen' | 'gelb' | 'rot' | 'gedaempft';
 }
 
+/**
+ * Master-Link-Meldung über die Preload-Brücke (Suite-UX-Update Welle 0, Spec 3.9): Zustand des Clients oder
+ * `ohne-client`. Strukturgleich mit `MasterLinkMeldung` aus `@jm/app-runtime`; eigener Typ wie
+ * `VerbundAnzeigeZeile` (E28). Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 export interface TitlerState {
   config: TitlerConfig;
   status: TitlerStatus;
@@ -334,4 +347,8 @@ export interface JmtitlerApi {
   verbundAnzeige: () => Promise<VerbundAnzeigeZeile | null>;
   /** Auf Wechsel der Verbund-Anzeige hören. Liefert Unsubscribe. */
   onVerbundAnzeige: (cb: (a: VerbundAnzeigeZeile | null) => void) => () => void;
+  /** Master-Link-Zustand (Spec 3.9): Meldung oder null (Brücke fehlt oder lehnt ab → „unbekannt“, nicht „aus“). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  /** Auf Wechsel des Master-Link-Zustands hören (Main → alle Fenster, einmal auch beim Anhängen). Liefert Unsubscribe. */
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
 }
