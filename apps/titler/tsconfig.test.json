@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.web.json",
+  "compilerOptions": { "composite": false, "types": ["node"] },
+  "include": [
+    "test/ui/**/*.ts",
+    "test/ui/**/*.tsx",
+    "src/renderer/src/**/*.ts",
+    "src/renderer/src/**/*.tsx",
+    "src/shared/**/*.ts",
+    "../../packages/ui/src",
+    "../../packages/settings/src"
+  ]
+}

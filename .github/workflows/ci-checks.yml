@@ -59,7 +59,8 @@ jobs:
       - name: Rundown (Abgleich, Sprung, scharfe Zeile)
         run: npm run selftest -w @jm/rundown
       # Master-Link Teil 2b (Spec 9.5): DataLink-Kern und Datenquelle des Titlers, mit tsx, ohne Electron.
-      - name: Titler (DataLink-Schlüssel, Datenquelle)
+      # Suite-UX-Update Welle 0 (Spec 11): derselbe Befehl startet danach die Oberflächentests (Render ohne Browser).
+      - name: Titler (DataLink-Schlüssel, Datenquelle, Oberfläche)
         run: npm run selftest -w @jm/titler
       # #228 und #231: reine Node-Tests, ohne Electron und ohne DOM.
       - name: Presenter (Suite-Status, On Air nur in der Präsentation)
