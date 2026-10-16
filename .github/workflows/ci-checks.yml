@@ -91,7 +91,8 @@ jobs:
         run: npm rebuild esbuild && node scripts/sync-companion-protocol.mjs && git diff --exit-code -- packages/companion-jm-suite/generated/protocol.mjs
       # Master-Link Teil 2b, Release 2 (Spec 19.6): derselbe Befehl prüft auch den Verbund der Tool-Seite
       # (Anzeige V1–V15, Abo-Zustand, Zwischenspeicher) mit tsx, ohne Electron. Genau ein Schritt dafür.
-      - name: App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)
+      # Suite-UX-Update Welle 0 (Spec 3.9): im selben Lauf die Master-Link-Meldung (Kanal jmps:master-link).
+      - name: App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand, Master-Link-Meldung)
         run: npm run selftest -w @jm/app-runtime
 
   secret-scan:

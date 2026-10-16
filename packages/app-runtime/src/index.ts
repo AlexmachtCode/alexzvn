@@ -16,6 +16,8 @@ import { buildCsp, type CspConfig } from './csp';
 import { berichtZeilen, planeLogAufraeumen, type AufraeumBericht } from './log-aufraeumen';
 import { MasterLinkClient, masterLinkPfad, verbundWert, type ClientZustand } from '@jm/master-link';
 import { verbundAnClient } from './verbund';
+import { masterLinkMeldung } from './master-link-meldung';
+import { registriereMasterLinkAbfrage, sendeMasterLinkWechsel } from './master-link-ipc';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // @jm/app-runtime — einmaliger Main-Prozess-Layer, den jede App ganz früh ruft.
@@ -60,6 +62,9 @@ export {
 export { nichtAngewendet } from './verbund-daten';
 export { kuerzeName } from '@jm/master-link';
 export type { MasterStand, VerbundDaten, VerbundKopplung, VerbundAnzeige, FolgeHandler } from './verbund-typen';
+
+// Suite-UX-Update Welle 0 (Spec 3.9): lesende Master-Link-Brücke, Kanal jmps:master-link. Neues liegt in master-link-*.ts.
+export { MASTER_LINK_KANAL, masterLinkMeldung, type MasterLinkMeldung } from './master-link-meldung';
 
 export interface AppRuntimeOptions {
   /** Stabile Tool-ID (z. B. "jm-timer") — für Logs, Presence, Heartbeat. */
@@ -386,6 +391,8 @@ function startMasterLink(info: {
   beiWechsel: () => void;
 }): void {
   const los = (): void => {
+    // Suite-UX-Update Welle 0 (Spec 3.9, E2): Abfrage jmps:master-link vor Lock und Client; ohne Client antwortet sie ohne-client.
+    registriereMasterLinkAbfrage(() => masterLinkMeldung(masterLinkClient));
     try {
       if (masterLinkClient) return;
       // Erst NACH der Sperre der App: whenReady läuft nach dem synchronen requestSingleInstanceLock
@@ -400,6 +407,7 @@ function startMasterLink(info: {
       masterLinkClient = client;
       client.starte();
       verbundAnClient(client, { userData: app.getPath('userData'), log: info.log });
+      sendeMasterLinkWechsel(client);
       app.on('before-quit', () => {
         void client.stoppe();
       });

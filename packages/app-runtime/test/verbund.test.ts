@@ -933,6 +933,139 @@ function check(name: string, cond: boolean, detail?: unknown): void {
   }
 }
 
+// ── UX-Pilot C2 · Master-Link-Meldung (Spec 3.9, UO3; E1, E2; Review Focus 4) ──
+{
+  const { readFileSync } = await import('node:fs');
+  const { EventEmitter } = await import('node:events');
+  const { MASTER_LINK_KANAL, masterLinkMeldung } = await import('../src/master-link-meldung');
+  const { VerbundFolger } = await import('../src/verbund-daten');
+  const { verbundAnzeige } = await import('../src/verbund-anzeige');
+  const json = (x: unknown): string => JSON.stringify(x);
+
+  // Die Zustände des Clients (packages/master-link/src/client.ts:21-26), fehler ohne und mit errCode.
+  const zustaende: Record<string, unknown>[] = [
+    { art: 'aus' },
+    { art: 'sucht' },
+    { art: 'verbindet', adresse: '10.0.0.5' },
+    { art: 'verbunden', adresse: '10.0.0.5', seit: 1_760_000_000_000, masterName: 'Regie-PC', suite: '0.15.0' },
+    { art: 'fehler', code: 'nicht-gefunden', text: 'Regie-PC nicht gefunden' },
+    { art: 'fehler', code: 'verweigert', text: 'Regie-PC lehnt die Verbindung ab', errCode: 'ECONNREFUSED' },
+  ];
+  const name = (z: Record<string, unknown>): string => `${String(z.art)}${z.code ? `:${String(z.code)}` : ''}`;
+
+  const ohne = masterLinkMeldung(null);
+  check('C2 ohne Client → ohne-client (nie aus)', json(ohne) === '{"art":"ohne-client"}', ohne);
+  const wurf = masterLinkMeldung({ zustand: () => { throw new Error('kaputt'); } });
+  check('C2 zustand() wirft → ohne-client, die Meldung wirft nie', json(wurf) === '{"art":"ohne-client"}', wurf);
+  for (const z of zustaende) {
+    const m = masterLinkMeldung({ zustand: () => z as never });
+    check(`C2 Client ${name(z)} → Meldung ist der Zustand unverändert (dasselbe Objekt)`, m === z, m);
+  }
+  const alle = [ohne, ...zustaende];
+  check('C2 alle sieben Meldungen sind reine Daten (JSON-Rundreise gleich)',
+    alle.length === 7 && alle.every((m) => json(JSON.parse(json(m))) === json(m)));
+  check('C2 Kanal jmps:master-link, nicht der Kanal der R2-V-Zeile', MASTER_LINK_KANAL === 'jmps:master-link' && MASTER_LINK_KANAL !== 'jmps:verbund-anzeige');
+
+  // Kreuz gegen die R2-V-Zeile (headerCenter), gerechnet am echten VerbundFolger und an verbundAnzeige:
+  // Rolle (keine Datei, aus, master, slave) × Zustand (6) × Verlauf (folgt nicht, folgt, folgt mit angewendetem Stand)
+  // = 72 Fälle. Meldung (Statusleiste) und V-Zeile lesen denselben Client und dürfen sich nie widersprechen.
+  class KreuzClient extends EventEmitter {
+    z: Record<string, unknown> = { art: 'aus' };
+    rolle: string | null = null;
+    zustand() { return this.z; }
+    kopplung() {
+      if (this.rolle === null) return null;
+      const aus = this.rolle === 'aus';
+      return { rolle: this.rolle, masterId: aus ? null : 'M1', masterName: aus ? null : 'Regie-PC', letzteAdresse: null, adressen: [] };
+    }
+    sende() { return this.z.art === 'verbunden'; }
+  }
+  const STAND = { t: 'stand', art: 'show', fassung: 1, epoche: 'e1', folge: 1, schluessel: 'aaaaaaaaaaaaaaaa', show: { schemaVersion: 1, name: 'Gala', tools: [] }, mitDokument: [] };
+  type Fall = { rolle: string | null; verlauf: string; z: Record<string, unknown>; m: { art: string }; v: { text: string; farbe: string } | null };
+  const faelle: Fall[] = [];
+  for (const verlauf of ['folgt nicht', 'folgt', 'folgt mit Stand']) {
+    for (const rolle of [null, 'aus', 'master', 'slave']) {
+      for (const z of zustaende) {
+        const c = new KreuzClient();
+        c.rolle = rolle;
+        const f = new VerbundFolger({
+          client: c as never,
+          speicher: { lies: () => null, schreibe: async () => true, loesche: () => {} },
+          log: () => {},
+          uhr: { jetzt: () => 0, setTimeout: () => 0, clearTimeout: () => {} },
+          darfSchreiben: false,
+        });
+        if (verlauf === 'folgt mit Stand') {
+          // erst verbunden und ein Stand angewendet, dann wechselt der Client in den Zustand des Falls
+          c.z = zustaende[3];
+          f.starte();
+          f.folge({ anwenden: () => {} } as never);
+          c.emit('angemeldet', {});
+          c.emit('daten', STAND);
+          c.z = z;
+          c.emit('zustand', z);
+        } else {
+          c.z = z;
+          f.starte();
+          if (verlauf === 'folgt') f.folge({ anwenden: () => {} } as never);
+        }
+        faelle.push({ rolle, verlauf, z, m: masterLinkMeldung(c as never) as { art: string }, v: verbundAnzeige(f.daten(), () => 'hh:mm') });
+        f.stoppe();
+      }
+    }
+  }
+  const kurz = (x: Fall): string => `${x.verlauf}/${String(x.rolle)}/${name(x.z)}: ${x.v ? `${x.v.farbe} ${x.v.text}` : 'null'}`;
+  check('C2 Kreuz: 72 Fälle (Rolle keine Datei/aus/master/slave × 6 Zustände × folgt nicht/folgt/folgt mit Stand)', faelle.length === 72, faelle.length);
+  check('C2 Kreuz: Meldung = Zustand des Clients in jedem Fall', faelle.every((x) => x.m === x.z));
+  const verbundenOhne = faelle.filter((x) => x.v !== null && x.v.text.startsWith('Verbunden mit') && x.m.art !== 'verbunden');
+  check('C2 Kreuz: keine V-Zeile „Verbunden mit …“ ohne Meldung verbunden', verbundenOhne.length === 0, verbundenOhne.map(kurz));
+  const gruen = faelle.filter((x) => x.v?.farbe === 'gruen');
+  check('C2 Kreuz: grüne V-Zeile nur bei Meldung verbunden, also nie bei fehler (1 Fall: Slave, folgt mit Stand)',
+    gruen.length === 1 && gruen.every((x) => x.m.art === 'verbunden'), gruen.map(kurz));
+  const rotOhne = faelle.filter((x) => x.v?.farbe === 'rot' && x.m.art !== 'fehler');
+  check('C2 Kreuz: rote V-Zeile nur bei Meldung fehler', rotOhne.length === 0, rotOhne.map(kurz));
+  const leer = faelle.filter((x) => x.v === null);
+  check('C2 Kreuz: ohne Slave-Kopplung keine V-Zeile (54 Fälle); dort trägt nur die Meldung den Zustand, 45-mal nicht aus (E1)',
+    leer.length === 54 && leer.every((x) => x.rolle !== 'slave') && leer.filter((x) => x.m.art !== 'aus').length === 45, leer.length);
+
+  // Quelltext-Wächter: index.ts und master-link-ipc.ts laden Electron und laufen hier nicht.
+  const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const anzahl = (t: string, s: string): number => t.split(s).length - 1;
+  const index = lies('../src/index.ts');
+  const ipc = lies('../src/master-link-ipc.ts');
+  const rein = lies('../src/master-link-meldung.ts');
+  check('C2 index.ts: genau eine Registrierung, genau ein Anhängen der Brücke, genau ein Client',
+    anzahl(index, 'registriereMasterLinkAbfrage(') === 1 && anzahl(index, 'sendeMasterLinkWechsel(') === 1 && anzahl(index, 'new MasterLinkClient(') === 1);
+  const sml = index.slice(index.indexOf('function startMasterLink('), index.indexOf('export function getMasterLinkStatus('));
+  const reg = sml.indexOf('registriereMasterLinkAbfrage(() => masterLinkMeldung(masterLinkClient));');
+  const sperre = sml.indexOf('if (!app.hasSingleInstanceLock()) return;');
+  check('C2 Registrierung ist die erste Anweisung in los, vor try und vor der Lock-Prüfung (E2)',
+    /\n {2}const los = \(\): void => \{\n( {4}\/\/[^\n]*\n)* {4}registriereMasterLinkAbfrage\(\(\) => masterLinkMeldung\(masterLinkClient\)\);\n {4}try \{\n/.test(sml)
+      && reg >= 0 && sperre > reg, { reg, sperre });
+  check('C2 R2 bleibt: verbundAnClient direkt nach client.starte(), die Brücke direkt danach am selben Client',
+    index.includes("      client.starte();\n      verbundAnClient(client, { userData: app.getPath('userData'), log: info.log });\n      sendeMasterLinkWechsel(client);\n"));
+  // Relativ statt per Zeilennummer: Ein späterer Import weiter oben darf den Selbsttest nicht rot machen (G4 gilt für die Umsetzung).
+  const r2Importe = "import { MasterLinkClient, masterLinkPfad, verbundWert, type ClientZustand } from '@jm/master-link';\nimport { verbundAnClient } from './verbund';\n";
+  const r2Pos = index.indexOf(r2Importe);
+  const neuPos = index.indexOf("from './master-link-");
+  check('C2 R2-Importe stehen unverändert direkt hintereinander, vor den Importen aus master-link-*.ts',
+    r2Pos >= 0 && anzahl(index, r2Importe) === 1 && (neuPos < 0 || neuPos > r2Pos), { r2Pos, neuPos });
+  check('C2 index.ts exportiert Kanal, Funktion und Typ der Meldung',
+    index.includes("export { MASTER_LINK_KANAL, masterLinkMeldung, type MasterLinkMeldung } from './master-link-meldung';"));
+  check('C2 getMasterLinkStatus bleibt unverändert (ohne Client aus, Presence, U6)',
+    index.includes("export function getMasterLinkStatus(): ClientZustand {\n  return masterLinkClient?.zustand() ?? { art: 'aus' };\n}"));
+  check('C2 index.ts räumt weiter nirgends sofort auf (4b-Wächter gilt auch für die neuen Zeilen)',
+    !index.includes('raeumeLogsAuf(') && !index.includes('LOG_AUFRAEUMEN_TAKT_MS'));
+  check('C2 master-link-ipc.ts: Abfrage auf MASTER_LINK_KANAL in try/catch',
+    /try \{\n\s*ipcMain\.handle\(MASTER_LINK_KANAL, \(\) => lies\(\)\);\n\s*\} catch/.test(ipc));
+  check('C2 master-link-ipc.ts: Senden je Fenster mit isDestroyed und try/catch',
+    /try \{\n\s*if \(!w\.isDestroyed\(\)\) w\.webContents\.send\(MASTER_LINK_KANAL, m\);\n\s*\} catch/.test(ipc));
+  check('C2 master-link-ipc.ts: Zuhörer am Client und sofort einmal der aktuelle Stand (Einzelplatz meldet nie ein Ereignis)',
+    ipc.includes("  client.on('zustand', () => sendeAnAlle(masterLinkMeldung(client)));\n  sendeAnAlle(masterLinkMeldung(client));\n"));
+  check('C2 master-link-meldung.ts ohne Electron, aus @jm/master-link nur der Typ',
+    !rein.includes("from 'electron'") && /^import type \{ ClientZustand \} from '@jm\/master-link';$/m.test(rein) && !/^import (?!type )/m.test(rein));
+}
+
 // ── Abschluss ────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
