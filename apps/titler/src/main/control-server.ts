@@ -22,6 +22,7 @@ import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type { TemplateKind, TitlerRemoteCommand, TitlerRemoteState } from '@shared/types';
+import type { FernsteuerungEreignis } from '@shared/fernsteuerung';
 
 /** Eigener TCP-Steuerport. */
 export const CONTROL_PORT = 8726;
@@ -110,6 +111,8 @@ export function startControlServer(
   // Im Main behandelte Befehle (DataLink-Recall/Next/Prev): liefert true, wenn
   // erledigt → dann NICHT zusätzlich an den Renderer pushen.
   onLocal?: (rc: TitlerRemoteCommand) => boolean,
+  // Suite-UX-Update Welle 0 (Spec 3.9, N2): ganze Statusmeldung mit wirksamem Modus, nur lesend.
+  onMeldung?: (e: FernsteuerungEreignis) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   getWindow = getWin;
@@ -127,8 +130,12 @@ export function startControlServer(
       const win = getWindow?.();
       if (win && !win.isDestroyed()) win.webContents.send('titler:remote-cmd', rc);
     },
-    // Verbundene Suite-Steuerclients (Companion/QA/Battle/Health-Dashboard) → UI.
-    onStatus: (st) => onClients?.(st.clients),
+    // Verbundene Suite-Steuerclients (Companion/QA/Battle/Health-Dashboard) → UI. Zuerst die ganze Meldung für
+    // den Statuseintrag „Fernsteuerung“ (läuft, Port, Clients, Modus; Spec 3.9), dann die Zahl wie bisher.
+    onStatus: (st) => {
+      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+      onClients?.(st.clients);
+    },
     onAdvertiseError: (err) =>
       getLog().warn(`Titler-Steuerserver: mDNS-Annoncierung fehlgeschlagen: ${err.message}`),
   });

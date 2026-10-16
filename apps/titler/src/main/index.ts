@@ -37,6 +37,7 @@ import {
 import { iveoDataDir, schreibeSpeakersTsvSicher } from './iveo-show';
 import { leseGemerkteShow, leseShowSicher, loescheGemerkteShow, schreibeGemerkteShow } from './show-quelle';
 import { hinweisLogZeile, hinweisText, waehleHinweis } from '@shared/datalink-kern';
+import { naechsteFernsteuerung, type FernsteuerungEreignis } from '@shared/fernsteuerung';
 import {
   eigenerOrdner,
   istMasterForm,
@@ -95,6 +96,12 @@ function broadcastStatus(): void {
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) w.webContents.send('titler:status', status);
   }
+}
+
+/** Meldung „Fernsteuerung“ fortschreiben und senden (Suite-UX-Update Welle 0, Spec 3.9, N2; nur lesend). */
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  status.fernsteuerung = naechsteFernsteuerung(status.fernsteuerung, e);
+  broadcastStatus();
 }
 
 /**
@@ -802,10 +809,14 @@ if (!gotLock) {
           }
           return false;
         },
+        // Suite-UX-Update Welle 0 (Spec 3.9, N2): jeder Statuswechsel des Servers für den Statuseintrag „Fernsteuerung“.
+        (e) => meldeFernsteuerung(e),
       );
+      meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
       if (!r.ok) getLog().warn(`Titler-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
       else getLog().info(`Titler-Steuerserver (Companion) lauscht auf :${CONTROL_PORT}`);
     } catch (err) {
+      meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });
       getLog().warn(`Titler-Steuerserver fehlgeschlagen: ${(err as Error).message}`);
     }
   });

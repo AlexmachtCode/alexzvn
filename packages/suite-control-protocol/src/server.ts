@@ -171,6 +171,14 @@ export class SuiteControlServer {
   }
 
   /**
+   * Wirksamer Modus, nur lesend (Suite-UX-Update Welle 0, Spec 3.9): für die Meldung „Fernsteuerung“ der Tools.
+   * Gilt ab start() (dort wird die geteilte Konfig gelesen); davor 'open'.
+   */
+  modus(): 'open' | 'secure' {
+    return this.effectiveMode();
+  }
+
+  /**
    * Effektiver Modus (P1, #59): explizites `mode` gewinnt; sonst wird bei einem
    * Bind auf eine **Nicht-Loopback**-Adresse automatisch `secure` erzwungen
    * (man kann nie versehentlich offen ins Netz). Fehlt dann `auth`, schlägt der

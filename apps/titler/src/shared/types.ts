@@ -7,6 +7,7 @@
 // Renderer; die hier persistierte Konfiguration ist nur Inhalt/Stil/Ausgabe.
 
 import type { DatenQuelleArt } from './datenquelle';
+import type { FernsteuerungMeldung } from './fernsteuerung';
 
 export type TemplateKind = 'lowerthird' | 'banner' | 'ticker' | 'graphic';
 
@@ -158,6 +159,11 @@ export interface TitlerStatus {
   connections: number;
   /** Anzahl verbundener Suite-Steuerclients (Companion/QA/Battle/Health-Dashboard). */
   suiteClients: number;
+  /**
+   * Meldung des Steuerservers (Suite-UX-Update Welle 0, Spec 3.9): läuft, Port, Clients, Modus, Fehler.
+   * Fehlt, solange der Server nichts gemeldet hat (Statuseintrag „Fernsteuerung“ dann „unbekannt“).
+   */
+  fernsteuerung?: FernsteuerungMeldung;
   /** DataLink (#86): Variablen des AKTIVEN Eintrags (für die {{}}-Auflösung). */
   variables: Record<string, string>;
   /** Dateinamen, die zu den Variablen beigetragen haben. */
