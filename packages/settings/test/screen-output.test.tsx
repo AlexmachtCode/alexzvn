@@ -10,6 +10,7 @@ import {
   type SectionStatus,
 } from '../src/index';
 import { bewegungsVerstoesse, kreuz, nachLetztem, pruefeFaelle, sperrZaehlung, statusText, vergleiche, vor } from './hilfe';
+import { farbeGewaehlt, standardfarbe } from '../src/abschnitte/screen-output';
 
 const s = (state: SectionStatus['state'], text: string): SectionStatus => ({ state, text });
 const U = s('off', 'unbekannt');
@@ -194,4 +195,89 @@ const alle: ScreenOutputSectionProps = {
   const item = abschnittStatusItem(view, { group: 'ausgabe', label: 'Bildschirm' });
   const html = render(<ScreenOutputSection {...p} />);
   ok(item.state === 'error' && html.includes(`data-state="${item.state}"`) && html.includes(`>${item.detail}</span>`), 'Bildschirm: abschnittStatusItem = Statuspille (Zustand und Text)');
+}
+
+// ── Erweiterung für den Titler (UX-Pilot C6, OF3): Farbwähler neben dem Textfeld und Knopf „Standardfarbe“ ──
+const mitFarbe: ScreenOutputSectionProps = { ...alle, backgroundDefault: '#00B140', capabilities: { ...alle.capabilities, backgroundPicker: true } };
+{
+  gleich([SCREEN_TEXTE.standardfarbe('#00B140'), SCREEN_TEXTE.farbeWaehlen], ['Standardfarbe (#00B140)', 'Farbe wählen'], 'Bildschirm erweitert: Texte wörtlich (T9)');
+  const html = render(<ScreenOutputSection {...mitFarbe} />);
+  enthaelt(html, 'type="color"', 'Bildschirm erweitert: Farbwähler (input type=color)');
+  enthaelt(html, 'aria-label="Farbe wählen"', 'Bildschirm erweitert: Farbwähler beschriftet (aria-label)');
+  enthaelt(html, '>Standardfarbe (#00B140)</button>', 'Bildschirm erweitert: Knopf „Standardfarbe (#00B140)“');
+  ok(
+    vor(html, '>Hintergrund<', 'type="color"') && vor(html, 'value="#00B140"', 'type="color"') && vor(html, 'type="color"', '>Standardfarbe'),
+    'Bildschirm erweitert: Textfeld, Farbwähler, Standardfarbe in dieser Reihenfolge',
+  );
+  pruefeIdVerweise(html, 'Bildschirm erweitert: id-Verweise gültig');
+  gleich(bewegungsVerstoesse(html), [], 'Bildschirm erweitert: Übergänge nur motion-safe oder mit motion-reduce:transition-none (G8)');
+}
+{
+  const faelle = kreuz({
+    background: [false, true],
+    backgroundPicker: [undefined, false, true],
+    wert: [undefined, '#00B140'],
+    standard: [undefined, '#00B140', 'grün'],
+  } as const);
+  pruefeFaelle(
+    'Bildschirm erweitert: Farbwähler genau mit background, backgroundPicker und gemeldetem Wert; Standardfarbe genau mit background, gemeldetem Wert und gültiger Standardfarbe',
+    faelle,
+    (f) => {
+      const p: ScreenOutputSectionProps = { ...alle, background: f.wert, backgroundDefault: f.standard, capabilities: { background: f.background, backgroundPicker: f.backgroundPicker } };
+      const v = screenOutputView(p).sichtbar;
+      const html = render(<ScreenOutputSection {...p} />);
+      const waehler = f.background && f.backgroundPicker === true && f.wert !== undefined;
+      const standard = f.background && f.wert !== undefined && f.standard === '#00B140';
+      return vergleiche(
+        `${v.farbwaehler}/${html.includes('type="color"')}/${v.standardfarbe}/${html.includes('>Standardfarbe')}`,
+        `${waehler}/${waehler}/${standard}/${standard}`,
+      );
+    },
+  );
+}
+{
+  const html = render(<ScreenOutputSection {...mitFarbe} locked="Vom Master vorgegeben" />);
+  const z = sperrZaehlung(html);
+  ok(z.alle === 6 && z.gesperrt === 6, `Bildschirm erweitert locked: auch Farbwähler und Standardfarbe disabled (${z.gesperrt} von ${z.alle})`);
+}
+{
+  const html = render(<ScreenOutputSection {...mitFarbe} background="grün" />);
+  enthaelt(html, 'Farbe als #RRGGBB eingeben.', 'Bildschirm erweitert: ungültige Farbe bleibt Fehlertext am Feld');
+  ok(/<input type="color"[^>]*value="#000000"/.test(html), 'Bildschirm erweitert: Farbwähler zeigt bei ungültiger Farbe #000000 statt eines ungültigen Werts');
+}
+{
+  const faelle = kreuz({
+    enabled: [false, true],
+    windowOpen: [undefined, false, true],
+    liste: ['unbekannt', 'leer', 'zwei'],
+    wahl: ['auto', 'vorhanden', 'fehlt'],
+    error: [undefined, 'Testfehler'],
+  } as const);
+  pruefeFaelle('Bildschirm erweitert: Status mit Farbwähler und Standardfarbe wie in der Tabelle oben', faelle, (f) => {
+    const p: ScreenOutputSectionProps = { ...mitFarbe, enabled: f.enabled, windowOpen: f.windowOpen, screens: LISTEN[f.liste], selectedId: WAHL[f.wahl], error: f.error };
+    const soll = f.error ? FEHLER : TABELLE[`${f.liste}|${f.wahl}`][SPALTE(f.enabled, f.windowOpen)];
+    return vergleiche(statusText(screenOutputView(p).status), statusText(soll));
+  });
+}
+{
+  // Aktionen ohne DOM (Muster peerSetzen): Knopf und Farbwähler rufen genau diese Funktionen.
+  const farben: string[] = [];
+  const mit: ScreenOutputSectionProps = { ...mitFarbe, onBackground: (hex) => farben.push(hex) };
+  ok(standardfarbe(mit) === true && farben.join() === '#00B140', 'Bildschirm Standardfarbe: meldet onBackground(backgroundDefault)');
+  ok(standardfarbe({ ...mit, locked: 'Vom Master vorgegeben' }) === false && farben.length === 1, 'Bildschirm Standardfarbe: gesperrt kein Aufruf');
+  ok(
+    standardfarbe({ ...mit, backgroundDefault: 'grün' }) === false && standardfarbe({ ...mit, backgroundDefault: undefined }) === false && farben.length === 1,
+    'Bildschirm Standardfarbe: ohne gültige Standardfarbe kein Aufruf',
+  );
+  ok(standardfarbe({ ...mitFarbe, onBackground: undefined }) === false, 'Bildschirm Standardfarbe ohne onBackground: kein Aufruf, kein Absturz');
+  ok(farbeGewaehlt(mit, '#12ab34') === true && farben.at(-1) === '#12ab34', 'Bildschirm Farbwähler: meldet die gewählte Farbe');
+  ok(
+    farbeGewaehlt(mit, 'rot') === false && farbeGewaehlt({ ...mit, locked: 'Vom Master vorgegeben' }, '#000000') === false && farben.length === 2,
+    'Bildschirm Farbwähler: ungültig oder gesperrt kein Aufruf',
+  );
+  const quelle = leseText('src/abschnitte/ScreenOutputSection.tsx');
+  ok(
+    quelle.includes('onChange={(e) => farbeGewaehlt(p, e.currentTarget.value)}') && quelle.includes('onClick={() => standardfarbe(p)}'),
+    'Bildschirm Verdrahtung: der Farbwähler ruft farbeGewaehlt, der Knopf ruft standardfarbe',
+  );
 }

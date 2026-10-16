@@ -4,7 +4,7 @@
 // Abschnitt meldet das stattdessen: Eine gewählte id, die in der gemeldeten Liste fehlt, ist
 // „Bildschirm fehlt“ – und die Auswahl springt nie still um. Ohne Liste gilt „unbekannt“.
 import { zahlText } from '@jm/ui';
-import { ABSCHNITT_TEXTE, fehlerStatus, hatFehler, st, STATUS_UNBEKANNT, type SectionBase, type SectionInput, type SectionStatus } from '../vertrag';
+import { ABSCHNITT_TEXTE, fehlerStatus, hatFehler, istGesperrt, st, STATUS_UNBEKANNT, type SectionBase, type SectionInput, type SectionStatus } from '../vertrag';
 
 export interface ScreenOption { id: number; label: string; primary: boolean }
 
@@ -14,7 +14,9 @@ export interface ScreenOutputSectionProps extends SectionInput {
   screens?: ScreenOption[];          // gemessen; undefined = Liste unbekannt
   selectedId: number | null;         // null = automatisch (Hauptmonitor); Titler/Switcher übersetzen 0 → null
   fullscreen?: boolean; background?: string;
-  capabilities: { toggle?: boolean; fullscreen?: boolean; background?: boolean };
+  backgroundDefault?: string;        // UX-Pilot C6 (OF3): Knopf „Standardfarbe ({hex})“ setzt diese Farbe
+  // backgroundPicker (UX-Pilot C6, OF3): Farbwähler neben dem Textfeld
+  capabilities: { toggle?: boolean; fullscreen?: boolean; background?: boolean; backgroundPicker?: boolean };
   onToggle?(next: boolean): void; onSelect?(id: number | null): void; onFullscreen?(next: boolean): void;
   onBackground?(hex: string): void;
 }
@@ -36,13 +38,19 @@ export const SCREEN_TEXTE = {
   ausFensterOffen: 'aus, Fenster noch offen',
   hinweis: 'Zweiten Bildschirm wählen, damit die Ausgabe nicht die Bedienoberfläche verdeckt.',
   farbeUngueltig: 'Farbe als #RRGGBB eingeben.',
+  // UX-Pilot C6 (T9)
+  standardfarbe: (hex: string) => `Standardfarbe (${hex})`,
+  farbeWaehlen: 'Farbe wählen',
 } as const;
 
 /** Wert der Auswahl für „automatisch“ (ids sind Zahlen, dieser Text kollidiert nie). */
 export const SCREEN_AUTO = 'auto';
 
+/** Gültige Hintergrundfarbe #RRGGBB (Textfeld, Farbwähler, Standardfarbe). */
+export const FARBE_MUSTER = /^#[0-9a-fA-F]{6}$/;
+
 export interface ScreenOutputView extends SectionBase {
-  sichtbar: { ausgabe: boolean; auswahl: boolean; vollbild: boolean; hintergrund: boolean };
+  sichtbar: { ausgabe: boolean; auswahl: boolean; vollbild: boolean; hintergrund: boolean; standardfarbe: boolean; farbwaehler: boolean };
   ziel?: number;                     // 1-basierte Position des Zielbildschirms in screens; fehlt = keiner
   optionen: Array<{ value: string; label: string }>;
   auswahlWert: string;               // SCREEN_AUTO oder String(selectedId)
@@ -86,6 +94,9 @@ export function screenOutputView(p: ScreenOutputSectionProps): ScreenOutputView 
       auswahl: p.screens !== undefined,
       vollbild: c.fullscreen === true,
       hintergrund: c.background === true,
+      // Nur neben einem gemeldeten Wert: ohne ihn steht „unbekannt“ und keine Eingabe (G6).
+      standardfarbe: c.background === true && typeof p.background === 'string' && FARBE_MUSTER.test(p.backgroundDefault ?? ''),
+      farbwaehler: c.background === true && c.backgroundPicker === true && typeof p.background === 'string',
     },
     ziel: ziel > 0 ? ziel : undefined,
     optionen,
@@ -93,4 +104,19 @@ export function screenOutputView(p: ScreenOutputSectionProps): ScreenOutputView 
     auswahlGesperrt: p.screens !== undefined && liste.length === 0,
     hinweis: ziel > 0 && liste[ziel - 1].primary ? SCREEN_TEXTE.hinweis : undefined,
   };
+}
+
+/** „Standardfarbe ({hex})“ (Muster peerSetzen): meldet backgroundDefault nur ohne Sperre und als gültige Farbe. */
+export function standardfarbe(p: ScreenOutputSectionProps): boolean {
+  const hex = p.backgroundDefault ?? '';
+  if (istGesperrt(p) || !FARBE_MUSTER.test(hex) || typeof p.onBackground !== 'function') return false;
+  p.onBackground(hex);
+  return true;
+}
+
+/** Farbwähler: meldet die gewählte Farbe nur ohne Sperre und als #RRGGBB. */
+export function farbeGewaehlt(p: ScreenOutputSectionProps, hex: string): boolean {
+  if (istGesperrt(p) || !FARBE_MUSTER.test(hex) || typeof p.onBackground !== 'function') return false;
+  p.onBackground(hex);
+  return true;
 }
