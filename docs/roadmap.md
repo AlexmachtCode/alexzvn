@@ -1,6 +1,6 @@
 # JM Production Suite — Roadmap
 
-> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-10-12**.
+> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-10-16**.
 > Zwei Leitprojekte: die **Zoom-Einbindung (Welle 6.7)**, Abschnitt 1, und seit dem 30.09. der
 > **Master-Launcher / Suite im Netz**, Abschnitt 1b. Alles andere läuft in den Parallel-Spuren (Abschnitt 2).
 >
@@ -197,7 +197,7 @@ nicht über Freigaben; Rechner werden einmal mit einem Code gekoppelt.
 | **1 · Master-Link-Fundament** | Rolle Master/Slave, Koppeln per Code, Finden per mDNS je Netzwerkkarte, Netzwerkwahl ([#234](https://github.com/AlexmachtCode/alexzvn/issues/234), geschlossen), verschlüsselte Leitung. Launcher 0.12.0, Timer 0.12.0, Titler 0.9.0 (01.10., PR #239). [Spec](superpowers/specs/2026-09-30-master-link-teil1-design.md) · [Abnahme](../packages/master-link/ABNAHME.md) | ✅ released, Zwei-PC-Abnahme bestanden (01.10.) |
 | **2a · Stabile Ablauf-Kennungen** | Jeder Ablauf-Punkt behält seine Kennung; Timer und Rundown gleichen nach einer iveo-Änderung ohne Positions- oder Aktionsverlust ab. Behebt [#235](https://github.com/AlexmachtCode/alexzvn/issues/235) am Einzelplatz. Launcher/Timer 0.13.0, Rundown 0.6.0 (02.10.); Restbefunde in Launcher 0.13.1 (02.10.). [Spec](superpowers/specs/2026-10-01-master-link-teil2a-design.md) | ✅ released · 🟡 Owner: [ABNAHME-2a.md](../apps/rundown/ABNAHME-2a.md) |
 | **2b R1 · Titler hält seinen Speaker** | Speaker-Kennung aus iveo bis in den Titler, ein Abruffehler leert die Speaker nicht mehr, Rundown-Speaker-Aktion über die Kennung. Launcher 0.13.2 (Vorbereitung) und 0.14.0, Titler 0.10.0, Rundown 0.7.0 (05.10.). Bekannte Grenze: Trägt nach einer Änderung ein **anderer** Speaker den Namen der Person auf Sendung, zeigt der Titler dessen Angaben. [Spec](superpowers/specs/2026-10-02-master-link-teil2b-design.md) Teil A | ✅ released · 🟡 Owner: Test in der Suite, [ABNAHME-2b-R1.md](../apps/titler/ABNAHME-2b-R1.md) |
-| **2b R2 · Show-Daten über den Verbund** | `abo` → `stand` → `aenderung` über die Leitung aus Teil 1; Timer, Titler und Rundown auf Rechner B folgen der offenen Show des Masters, auch ohne Launcher auf B. Spec Teil B (ab Abschnitt 12) ist freigegeben. [Plan](superpowers/plans/2026-10-08-master-link-teil2b-r2.md) mit 21 Aufgaben, durchgespielt und dreimal nachgeprüft; Owner-Antworten vom 08.10. eingearbeitet (Branch `feat/master-link-teil2b-r2`). Zoom 4b ist seit dem 12.10. gemergt; als Nächstes Neuaufsatz auf `main` und Nachmessen, dann die Umsetzung. | 🟢 Plan fertig, Nachmessen als Nächstes |
+| **2b R2 · Show-Daten über den Verbund** | `abo` → `stand` → `aenderung` über die Leitung aus Teil 1; Timer, Titler und Rundown auf Rechner B folgen der offenen Show des Masters, auch ohne Launcher auf B. Spec Teil B (ab Abschnitt 12) ist freigegeben. [Plan](superpowers/plans/2026-10-08-master-link-teil2b-r2.md) mit 21 Aufgaben. Launcher 0.15.0, Timer 0.14.0, Titler 0.11.0, Rundown 0.8.0 (13.10., PR #254). [Abnahme](../packages/master-link/ABNAHME-2b.md) | ✅ released · Owner-Zwei-Rechner-Test 16.10. ohne Fehler |
 | **2c · iveo live je Bühne** | gegen den Prod-Server: je Bühne Abfrage von `/stages/{s}/live`, Anwesenheit je Speaker | ⚪ |
 | **Binärdaten** | Dokumente bis 33 MB, Materialien, Fotos über den Verbund | ⚪ |
 | **3 · Fernstart** | Tools auf anderen Rechnern starten | ⚪ |
@@ -413,13 +413,34 @@ Release, Merge und Push nur mit Owner-Okay.
 | # | Release | Voraussetzung | Aufwand (Schätzung) |
 |---|---|---|---|
 | 1 | ✅ **Connect 0.3.0** + Companion-Modul 0.2.0 (Zoom 4b), **released 12.10.2026** (`connect-v0.3.0`, PR #251) | Owner-Abnahme nach `apps/connect/ABNAHME-0.3.0.md` (läuft, Test in der Suite seit 09.10.); M18/M19 ins Handbuch; Notes freigeben | ca. 1 h nach dem Abnahme-Ergebnis: Handbuch, Version, Changelog, Bau, Pre-Release, dann Merge |
-| 2 | **Master-Link 2b R2**: Launcher 0.15.0, Timer 0.14.0, Titler 0.11.0, Rundown 0.8.0 | Merge von 4b; Plan auf den neuen `main` neu aufsetzen und nachmessen | ca. 1–2 h Nachmessen, 6–8 h Umsetzung (Hintergrund, auch über Nacht); dann Zwei-Rechner-Abnahme, Freigabe der R2-Texte und -Notes |
+| 2 | ✅ **Master-Link 2b R2**: Launcher 0.15.0, Timer 0.14.0, Titler 0.11.0, Rundown 0.8.0, **released 13.10.2026** (PR #254), Owner-Test 16.10. ohne Fehler | Merge von 4b; Plan auf den neuen `main` neu aufsetzen und nachmessen | ca. 1–2 h Nachmessen, 6–8 h Umsetzung (Hintergrund, auch über Nacht); dann Zwei-Rechner-Abnahme, Freigabe der R2-Texte und -Notes |
 | 3 | **UX Welle 0 sichtbar**: Titler-Pilot als Titler-Release | R2 released und gemergt (beide ändern den Titler) | Plan ca. 3 h (kann schon während der R2-Umsetzung entstehen), Umsetzung ca. 5 h, dann Owner-Durchsicht |
 | 4 | **UX Welle 1**: Switcher, Timer, Rundown, Q&A, Battle, gesammelt | Titler-Pilot abgenommen | Plan je Welle, vorher je App die Funktionsliste; im Switcher O2 (auf Sendung und gesperrt) |
 | 5 | **UX Wellen 2 und 3**: übrige Tools, zuletzt der Launcher | jeweils die Welle davor | wie Welle 1 |
 
 Realistisch: Connect 0.3.0 am Tag der bestandenen Abnahme; R2 direkt danach, zur Abnahme am Folgetag; der Titler-Pilot
 nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreiben des Pilot-Plans.
+
+**Stand 2026-10-16:**
+
+- ✅ **Erledigt:** Titler 0.10.1 (Umlaute aus DataLink-Dateien, 13.10., PR #253) · Master-Link 2b R2 released (13.10., PR #254),
+  Owner-Zwei-Rechner-Test ohne Fehler (16.10.) · Plan Titler-Pilot fertig, geprüft und vom Owner bestätigt (OF1–OF14, 15.10.) ·
+  iveo-Speakerliste: der HTTP-500 auf Seite 2 (#255) ist durch den iveo-Patch vom 15.10. behoben (16.10. auf Prod gemessen).
+- 🟢 **Läuft:** Titler-Pilot (UX Welle 0 sichtbar, wird Titler 0.12.0) in der Umsetzung · Spec **iveo-Paket**: Organisationen in
+  den Bauchbinden (`{{organisation}}`, `{{organisationen}}`), Speaker-Daten alle 5 Minuten, Anhänge nachladen
+  ([#264](https://github.com/AlexmachtCode/alexzvn/issues/264)), Ablage in Side-Event-Ordnern
+  ([#265](https://github.com/AlexmachtCode/alexzvn/issues/265)), iveo-Standard-Adresse auf Production, Connect auch für den Mac
+  ([#256](https://github.com/AlexmachtCode/alexzvn/issues/256)); Ziel Launcher 0.16.0 und Titler 0.11.1.
+- 🔵 **Danach:** Zoom-**Slots** in Connect (Owner 16.10.: Modell wie VideoCom-Bridges, #257–#262 mit #227 und #247), in zwei Stufen:
+  0.4.0 mit den Modi Teilnehmer (Rückkehr nach Abbruch), Aktiver Sprecher und Bildschirmfreigabe, je Slot NDI-Name, Auflösung,
+  Ersatzbild, Ton, Status, kleine Vorschau und Messwerte; 0.5.0 mit Galerie, Dolmetscher-Ton, fps-Wahl, QoS und Logo als
+  Ersatzbild · UX Welle 1.
+- 🟡 **Beim Owner:** Messwerte M2, M5, M8, M17, M18 und M19 aus der Abnahme Connect 0.3.0 · Review-Entscheidungen E1–E7 für Zoom ·
+  Ergebnisse der Abnahmen 2a und 2b R1 (noch nicht eingetragen) · Prüfung von #236.
+- ⚪ **Später:** 2c, Fernstart, Show-Zentrale · App-Designer-Welle 3 · C3.
+
+<details>
+<summary>Stand 2026-10-12 (überholt, stehen gelassen)</summary>
 
 **Stand 2026-10-12:**
 
@@ -431,6 +452,8 @@ nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreibe
   und Live-Tests (Lane B) · Prüfung von #236.
 - 🔵 **Danach:** siehe Release-Reihenfolge · Zoom „zusätzliche Quellen“ (#227 + Freigaben #247) · #213 Battle-Judges · Lane D2b.
 - ⚪ **Später:** 2c, Fernstart, Show-Zentrale · App-Designer-Welle 3 · C3.
+
+</details>
 
 <details>
 <summary>Stand 2026-10-09 (überholt, stehen gelassen)</summary>

@@ -25,6 +25,10 @@ Rechner A = Master, Rechner B gekoppelt wie in Teil 1 (`packages/master-link/ABN
 | 12 | Auf B einen Timer 0.13.0 laufen lassen (falls zur Hand) | läuft wie bisher, ohne Daten und ohne Absturz | |
 | 13 | An A die Rolle „aus“, ein Rechner allein | Show-Start, RELOAD und Anzeigen wie vor 2b | |
 
+**Ergebnis (Owner, 16.10.2026):** Zwei-Rechner-Test mit Launcher 0.15.0, Timer 0.14.0, Titler 0.11.0 und Rundown 0.8.0
+durchgeführt, keine Fehler festgestellt. Einzelergebnisse je Schritt und je Zusatzprüfung hat der Owner nicht genannt; sie
+werden hier nachgetragen, wenn sie vorliegen.
+
 **Hinweis zu Schritt 5 (M1 = nein, Spec 23 „Ergebnisse“):** Die iveo-Kennung der Speaker wird weiter nicht in die Show übernommen. Der Titler auf B hält die Person über Datei und Namen (Ersatz-Schlüssel), wie seit Release 1. Schritt 5 bewertet nur: dieselbe Person bleibt auf Sendung, mit Hinweis. Eine Logzeile zu Kennungen wird nicht erwartet.
 
 **Hinweis zu Schritt 2 (Rechnernamen, Folgeaufgabe FA15):** Wird Rechner B umbenannt, zeigt das Verbund-Modal an A den neuen Namen erst nach der nächsten Anmeldung von B. Namen im Modal deshalb erst nach einem Neuverbinden vergleichen; ein alter Name davor ist kein Befund.
