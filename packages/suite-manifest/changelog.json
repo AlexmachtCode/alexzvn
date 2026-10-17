@@ -1101,6 +1101,16 @@
     "name": "JM Titler",
     "entries": [
       {
+        "version": "0.12.0",
+        "date": "2026-10-17",
+        "notes": [
+          "Neue Oberfläche: Oben die Kopfzeile mit dem Sendezustand („bereit“ bzw. „ON AIR“) und der Anzeige „Show vom Master“, darunter der Live-Bereich mit der Vorschau und den Haupttasten „Take“, „Clear“, „◀ Eintrag“ und „Eintrag ▶“. Die Einstellungen liegen jetzt im Panel hinter ⚙.",
+          "Neue Statusleiste mit sechs Einträgen: Master, iveo, NDI, Bildschirm, Fernsteuerung und DataLink. Sie zeigt nur, was der Titler wirklich weiß; NDI und Bildschirm heißen „an (ohne Rückmeldung)“, solange keine Bestätigung kommt. Ein Klick auf einen Eintrag (außer Master) öffnet das Panel am passenden Abschnitt.",
+          "Hell und Dunkel per Schalter in der Kopfzeile, gemerkt je Rechner. Das Recall-Board übernimmt die Einstellung beim Öffnen; das Ausgabefenster bleibt unverändert.",
+          "Bedienung, Fernsteuerung (Port 8726) und Companion-Befehle bleiben gleich, es gibt keine neuen Tastenkürzel. Gesperrte Tasten nennen ihren Grund."
+        ]
+      },
+      {
         "version": "0.11.0",
         "date": "2026-10-13",
         "notes": [
