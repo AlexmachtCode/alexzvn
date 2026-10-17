@@ -5,4 +5,5 @@
 import { abschluss } from '@jm/ui/testhilfe';
 import './werkzeug.test';
 import './oberflaeche.test';
+import './rahmen.test';
 abschluss();

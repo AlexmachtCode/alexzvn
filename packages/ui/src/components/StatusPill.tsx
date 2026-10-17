@@ -7,6 +7,11 @@ export interface StatusPillProps {
   text: string;
   title?: string;
   className?: string;
+  /**
+   * true: Der Text steht in einem eigenen span mit truncate und endet bei Platzmangel mit „…“; die Pille wird höchstens so
+   * breit wie ihr Platz (UX-Pilot C9, V-Zeile des Titlers nach 2b-Spec 16.5). Ohne die Prop bleibt das Markup wie bisher.
+   */
+  kuerzen?: boolean;
 }
 
 /**
@@ -14,7 +19,7 @@ export interface StatusPillProps {
  * Symbol und Rand; das Wort steht in Vordergrundfarbe. Das Zustandswort („Fehler: “ …) liest nur der Screenreader.
  * live ist rot gefüllt mit der Kennung „LIVE“ (E14), error nur umrandet.
  */
-export function StatusPill({ state, text, title, className }: StatusPillProps): React.JSX.Element {
+export function StatusPill({ state, text, title, className, kuerzen }: StatusPillProps): React.JSX.Element {
   const live = state === 'live';
   return (
     <span
@@ -23,6 +28,7 @@ export function StatusPill({ state, text, title, className }: StatusPillProps): 
       className={cn(
         'inline-flex items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-md)] border px-2 py-0.5',
         'text-[11px] font-semibold',
+        kuerzen && 'min-w-0 max-w-full',
         live ? LIVE_EINTRAG_KLASSE : 'text-[var(--foreground)]',
         STATUS_RAND_KLASSE[state],
         className,
@@ -37,7 +43,7 @@ export function StatusPill({ state, text, title, className }: StatusPillProps): 
         </span>
       ) : null}
       <span className="sr-only">{UI_TEXTE.zustand[state]}: </span>
-      {text}
+      {kuerzen ? <span className="min-w-0 truncate">{text}</span> : text}
     </span>
   );
 }

@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, cn, Collapsible, Logo, SettingsSection, Tabs, type TabItem } from '@jm/ui';
+import { AppShell, Button, cn, Collapsible, SettingsSection, useBrueckenWert } from '@jm/ui';
 import {
   DEFAULT_CONFIG,
   type DisplayInfo,
   type GraphicTemplate,
   type TemplateKind,
   type TitlerConfig,
-  type VerbundAnzeigeZeile,
 } from '@shared/types';
 import { resolveConfigVars, usedVars } from '@shared/vars';
 import { useTitler } from '@/store/titler';
@@ -14,27 +13,18 @@ import { useTitlerEngine } from '@/lib/engine';
 import { activeGraphic } from '@/lib/graphic';
 import { navGesperrt, zaehlerText } from '@/lib/datalink-anzeige';
 import { encodeCanvasPng, importFileToTemplate, makeThumbPng, type ParsedTemplate } from '@/lib/psd-import';
+import { MASTER_LINK_QUELLE, VERBUND_QUELLE } from '@/lib/bruecken';
+import { statusLeiste, type OberflaechenStand, type TitlerAktionen } from '@/lib/oberflaeche';
 import { ImportDialog } from './ImportDialog';
+import { Einstellungen } from './Einstellungen';
+import { ColorField, Field, Slider } from './felder';
+import { VerbundZeile } from './KopfMitte';
 
 const TEMPLATES: { key: TemplateKind; label: string }[] = [
   { key: 'lowerthird', label: 'Bauchbinde' },
   { key: 'banner', label: 'Banner' },
   { key: 'ticker', label: 'Ticker' },
   { key: 'graphic', label: 'Grafik' },
-];
-
-const RESOLUTIONS = [
-  { label: '1920×1080', w: 1920, h: 1080 },
-  { label: '1280×720', w: 1280, h: 720 },
-];
-const FPS = [25, 30, 50, 60];
-
-// Reiter des Steuerpults (#165): Live-Steuerung getrennt von Einstellungen, damit
-// das Namensfeld nicht in einer langen Sektionsliste untergeht.
-type TabKey = 'steuerung' | 'einstellungen';
-const TABS: TabItem<TabKey>[] = [
-  { key: 'steuerung', label: 'Steuerung' },
-  { key: 'einstellungen', label: 'Einstellungen' },
 ];
 
 export function OperatorView(): React.JSX.Element {
@@ -47,7 +37,6 @@ export function OperatorView(): React.JSX.Element {
   const config: TitlerConfig = state?.config ?? DEFAULT_CONFIG;
   const ndiActive = state?.status.ndiActive ?? false;
   const connections = state?.status.connections ?? 0;
-  const suiteClients = state?.status.suiteClients ?? 0;
   const variables = state?.status.variables ?? {};
   const dataSources = state?.status.dataSources ?? [];
   const dataError = state?.status.dataError;
@@ -209,84 +198,55 @@ export function OperatorView(): React.JSX.Element {
     if (p) void setConfig({ dataFolder: p });
   };
 
-  // Monitore für die Zweitbildschirm-Auswahl (#161) — bei Hot-Plug aktualisieren.
-  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
+  // Monitore für die Zweitbildschirm-Auswahl (#161) — bei Hot-Plug aktualisieren. undefined = Liste noch nicht
+  // geladen oder nicht ladbar: Statusleiste und Panel zeigen dann „unbekannt“, nie eine leere Liste (E8).
+  const [displays, setDisplays] = useState<DisplayInfo[] | undefined>(undefined);
   useEffect(() => {
-    const refresh = (): void => void window.jmtitler.listDisplays().then(setDisplays);
+    const refresh = (): void => void window.jmtitler.listDisplays().then(setDisplays, () => setDisplays(undefined));
     refresh();
     return window.jmtitler.onDisplaysChanged(refresh);
   }, []);
 
-  // Reiter des Steuerpults (#165) — letzte Wahl merken, damit der Operator dort
-  // weitermacht, wo er war (Live vs. Einrichten).
-  const [tab, setTab] = useState<TabKey>(() => {
-    if (typeof window === 'undefined') return 'steuerung';
-    const v = window.localStorage.getItem('titler.operator.tab');
-    return v === 'einstellungen' ? 'einstellungen' : 'steuerung';
-  });
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('titler.operator.tab', tab);
-    } catch {
-      /* localStorage optional */
-    }
-  }, [tab]);
+  // Einstellungs-Panel (Spec 3.1, 3.6): zu beim Start, nichts gemerkt (E14); offen über ⚙ oder einen Statuseintrag.
+  const [panelOffen, setPanelOffen] = useState(false);
+  const [panelAbschnitt, setPanelAbschnitt] = useState<string | undefined>(undefined);
+  // Lesende Brücken (Spec 3.9, E5): undefined, bis eine Antwort oder ein Ereignis da ist; ohne Preload null.
+  const masterLink = useBrueckenWert(MASTER_LINK_QUELLE);
+  const verbund = useBrueckenWert(VERBUND_QUELLE);
 
   if (!state) {
     return <div className="h-screen grid place-items-center text-[var(--muted-foreground)]">Lädt…</div>;
   }
   const c = config;
 
-  // iveo speist Speaker über die Datenquelle „Show“ ein (speakers.tsv in userData/iveo-data,
-  // #11, Spec 7.7) — der Titler hält kein Token/Backend. `config.dataFolder` ist nur noch
-  // der eigene Ordner des Bedieners und sagt darüber nichts mehr.
-  const iveoActive = datenQuelle?.art === 'show' || datenQuelle?.art === 'master';
-  // Ordnerwahl im Verbund gesperrt (Spec 17.2, Owner O1): Text statt Auswahl; der Main lehnt ebenfalls ab.
-  const ordnerGesperrt = datenQuelle?.ordnerGesperrt;
   // Weiter/Zurück: gesperrt nur an den Rändern; ohne aktiven Eintrag beide frei (Spec 7.4).
   const nav = navGesperrt(activeEntry, entries.length);
+  // Ein Stand für Statusleiste und Panel (lib/oberflaeche.ts, Spec 6.1): beide zeigen dieselbe Ableitung.
+  const stand: OberflaechenStand = { config, status: state.status, displays, masterLink };
+  // window.jmtitler nur in den Rückrufen, nie beim Rendern (G7).
+  const aktionen: TitlerAktionen = {
+    setConfig: (patch) => void setConfig(patch),
+    startNdi: (name) => void startNdi(name),
+    stopNdi: () => void stopNdi(),
+    pickFolder: () => void pickFolder(),
+    zurueckZumEigenenOrdner: () => void window.jmtitler.zurueckZumEigenenOrdner(),
+  };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--background)] text-[var(--foreground)]">
-      <header className="h-14 shrink-0 flex items-center gap-3 px-6 border-b border-[var(--border)]/60">
-        <Logo size={24} />
-        <span className="text-sm font-extrabold tracking-[0.06em]">JM TITLER</span>
-        <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-          Live-CG → NDI
-        </span>
-        <VerbundAbzeichen />
-        <span
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-extrabold border',
-            suiteClients > 0
-              ? 'border-[var(--primary)]/40 text-[var(--primary)]'
-              : 'border-[var(--border)] text-[var(--muted-foreground)]',
-          )}
-          title="Verbundene Suite-Steuerclients (Companion, Q&A, Battle, System-Zustand)"
-        >
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ background: suiteClients > 0 ? 'var(--primary)' : 'var(--muted-foreground)' }}
-          />
-          {suiteClients > 0 ? `Suite · ${suiteClients} verbunden` : 'Suite getrennt'}
-        </span>
-        <span
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-extrabold border',
-            ndiActive
-              ? 'border-[var(--primary)]/40 text-[var(--primary)]'
-              : 'border-[var(--border)] text-[var(--muted-foreground)]',
-          )}
-        >
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ background: ndiActive ? 'var(--primary)' : 'var(--muted-foreground)' }}
-          />
-          {ndiActive ? `NDI · ${connections} Empfänger` : 'NDI aus'}
-        </span>
-      </header>
-
-      <div className="flex-1 min-h-0 flex">
+    <AppShell
+      tool="Titler"
+      headerCenter={<VerbundZeile anzeige={verbund} />}
+      onAir={{ live }}
+      status={statusLeiste(stand)}
+      settings={<Einstellungen stand={stand} aktionen={aktionen} />}
+      settingsOpen={panelOffen}
+      settingsSection={panelAbschnitt}
+      onSettingsChange={(offen, abschnitt) => {
+        setPanelOffen(offen);
+        setPanelAbschnitt(abschnitt);
+      }}
+    >
+      <div className="flex h-full min-h-0">
         {/* Programm-Vorschau + Take/Clear */}
         <div className="flex-1 min-w-0 flex flex-col p-5 gap-4">
           <div className="cg-checker flex-1 min-h-0 rounded-[var(--radius-lg)] border border-[var(--border)] overflow-hidden grid place-items-center">
@@ -312,14 +272,9 @@ export function OperatorView(): React.JSX.Element {
           </p>
         </div>
 
-        {/* Steuerpult (#165): Live-Steuerung und Einstellungen in Reitern getrennt;
-            das Namensfeld bleibt im Reiter „Steuerung" oben immer sichtbar, der Rest
-            ist ausklappbar bzw. in „Einstellungen" gebündelt. */}
+        {/* Steuerpult (#165): die Bedienung; die Einstellungen stehen im Panel (⚙ oder Statuseintrag, E14). */}
         <div className="w-[400px] shrink-0 overflow-auto border-l border-[var(--border)]/60">
           <div className="p-5 space-y-4">
-            <Tabs items={TABS} value={tab} onChange={setTab} />
-
-            {tab === 'steuerung' ? (
               <div className="space-y-5">
                 {/* Vorlage */}
                 <SettingsSection title="Vorlage">
@@ -604,173 +559,6 @@ export function OperatorView(): React.JSX.Element {
                   </div>
                 </Collapsible>
               </div>
-            ) : (
-              <div className="space-y-5">
-                {/* DataLink (#86): Datenquelle konfigurieren (Abruf im Reiter „Steuerung"). */}
-                <SettingsSection
-                  title="DataLink"
-                  description={
-                    <>
-                      Platzhalter <code className="text-[var(--primary)]">{'{{name}}'}</code> in den Textfeldern
-                      werden aus den Dateien im Ordner gefüllt. CSV mit Kopfzeile = Liste (je Zeile ein Eintrag,
-                      im Reiter <b>Steuerung</b> abrufbar); <code>schlüssel=wert</code>-Datei = ein Eintrag.
-                    </>
-                  }
-                >
-                  <div className="flex gap-2">
-                    <input
-                      value={c.dataFolder}
-                      onChange={(e) => void setConfig({ dataFolder: e.target.value })}
-                      placeholder="Kein Ordner gewählt"
-                      spellCheck={false}
-                      disabled={!!ordnerGesperrt}
-                      className="h-9 flex-1 min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-xs disabled:opacity-50"
-                    />
-                    <Button variant="outline" size="sm" onClick={() => void pickFolder()} disabled={!!ordnerGesperrt}>
-                      Durchsuchen…
-                    </Button>
-                    {c.dataFolder && !ordnerGesperrt ? (
-                      <Button variant="ghost" size="sm" uppercase={false} onClick={() => void setConfig({ dataFolder: '' })} title="Watchfolder entfernen">
-                        ✕
-                      </Button>
-                    ) : null}
-                  </div>
-                  {ordnerGesperrt ? (
-                    <p className="text-[11px] text-[var(--muted-foreground)]">{ordnerGesperrt}</p>
-                  ) : null}
-                  {/* K1 (Spec 7.7/7.8): nur bei Quelle Show und einem eigenen Ordner, der nicht iveo-data ist */}
-                  {datenQuelle?.zurueckKnopf ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      uppercase={false}
-                      className="w-full"
-                      onClick={() => void window.jmtitler.zurueckZumEigenenOrdner()}
-                    >
-                      {datenQuelle.zurueckKnopf}
-                    </Button>
-                  ) : null}
-                  {dataError ? (
-                    <p className="text-[11px] text-[var(--destructive)]">DataLink: {dataError}</p>
-                  ) : null}
-                </SettingsSection>
-
-                {/* iveo (#11): Status der automatischen Speaker-Übernahme aus der JM Show. */}
-                <SettingsSection title="iveo">
-                  {iveoActive ? (
-                    <div className="rounded-[var(--radius)] border border-[var(--primary)]/40 bg-[var(--primary)]/10 px-3 py-2.5 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--primary)' }} />
-                        <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--primary)]">
-                          iveo aktiv
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-[var(--muted-foreground)]">
-                        {entries.length} Speaker aus der geöffneten JM Show im DataLink. Aktualisiert sich live nach
-                        iveo-Änderungen (verwaltet vom Launcher). Abruf im Reiter <b>Steuerung › Daten / Recall</b>.
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-[var(--muted-foreground)]">
-                      Kein iveo-Event aktiv. iveo-Speaker werden automatisch zu Bauchbinden-Variablen, sobald der
-                      Titler über eine <b>JM Show</b> mit iveo-Daten geöffnet wird — Verwaltung und Zugriffstoken
-                      bleiben im Launcher (der Titler speichert kein Token).
-                    </p>
-                  )}
-                </SettingsSection>
-
-                {/* Ausgabe (NDI) */}
-                <SettingsSection title="Ausgabe (NDI)">
-                  <Field label="Quellname" value={c.ndiName} onChange={(v) => void setConfig({ ndiName: v })} />
-                  <div className="flex gap-2">
-                    <Labeled label="Auflösung">
-                      <select
-                        value={`${c.width}x${c.height}`}
-                        onChange={(e) => {
-                          const r = RESOLUTIONS.find((x) => `${x.w}x${x.h}` === e.target.value);
-                          if (r) void setConfig({ width: r.w, height: r.h });
-                        }}
-                        className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold"
-                      >
-                        {RESOLUTIONS.map((r) => (
-                          <option key={r.label} value={`${r.w}x${r.h}`}>
-                            {r.label}
-                          </option>
-                        ))}
-                      </select>
-                    </Labeled>
-                    <Labeled label="fps">
-                      <select
-                        value={String(c.fps)}
-                        onChange={(e) => void setConfig({ fps: Number(e.target.value) })}
-                        className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold tabular"
-                      >
-                        {FPS.map((f) => (
-                          <option key={f} value={f}>
-                            {f}
-                          </option>
-                        ))}
-                      </select>
-                    </Labeled>
-                  </div>
-                  {ndiActive ? (
-                    <Button variant="destructive" className="w-full" onClick={() => void stopNdi()}>
-                      NDI stoppen
-                    </Button>
-                  ) : (
-                    <Button variant="primary" className="w-full" onClick={() => void startNdi(c.ndiName)}>
-                      NDI starten
-                    </Button>
-                  )}
-                  {c.width % 2 !== 0 || c.height % 2 !== 0 ? (
-                    <p className="text-[11px] text-[var(--destructive)]">Auflösung sollte gerade sein.</p>
-                  ) : null}
-                </SettingsSection>
-
-                {/* Ausgabe (2. Bildschirm, #161) */}
-                <SettingsSection
-                  title="Ausgabe (2. Bildschirm)"
-                  description="Zeigt die Bauchbinde als Vollbild auf einem zweiten Monitor mit Chroma-Green-Hintergrund — für externe Keyer (vMix/ATEM/TriCaster) ohne NDI."
-                >
-                  <Labeled label="Monitor">
-                    <select
-                      value={String(c.secondScreenDisplay)}
-                      onChange={(e) => void setConfig({ secondScreenDisplay: Number(e.target.value) })}
-                      className="h-9 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm font-semibold"
-                    >
-                      <option value="0">Primär (automatisch)</option>
-                      {displays.map((d) => (
-                        <option key={d.id} value={String(d.id)}>
-                          {d.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Labeled>
-                  <div className="flex gap-3 items-end">
-                    <ColorField label="Chroma" value={c.chromaColor} onChange={(v) => void setConfig({ chromaColor: v })} />
-                    <button
-                      onClick={() => void setConfig({ chromaColor: '#00B140' })}
-                      className="h-9 shrink-0 rounded-[var(--radius)] border border-[var(--border)] px-3 text-xs hover:bg-[var(--highlight)]"
-                      title="Standard-Green (#00B140) zurücksetzen"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                  {c.secondScreenEnabled ? (
-                    <Button variant="destructive" className="w-full" onClick={() => void setConfig({ secondScreenEnabled: false })}>
-                      2. Bildschirm ausschalten
-                    </Button>
-                  ) : (
-                    <Button variant="primary" className="w-full" onClick={() => void setConfig({ secondScreenEnabled: true })}>
-                      2. Bildschirm einschalten
-                    </Button>
-                  )}
-                  <p className="text-[11px] text-[var(--muted-foreground)]">
-                    Tipp: Zweitmonitor wählen, damit die Ausgabe nicht die Operator-Oberfläche verdeckt.
-                  </p>
-                </SettingsSection>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -785,124 +573,6 @@ export function OperatorView(): React.JSX.Element {
           }}
         />
       ) : null}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}): React.JSX.Element {
-  return (
-    <label className="block">
-      <div className="text-sm font-semibold mb-1">{label}</div>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-10 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm"
-      />
-    </label>
-  );
-}
-
-function Labeled({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <label className="block flex-1">
-      <div className="text-sm font-semibold mb-1">{label}</div>
-      {children}
-    </label>
-  );
-}
-
-function ColorField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}): React.JSX.Element {
-  return (
-    <label className="flex-1">
-      <div className="text-[11px] font-semibold mb-1 text-[var(--muted-foreground)]">{label}</div>
-      <div className="flex items-center gap-2 h-9 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2">
-        <input
-          type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-6 w-7 rounded cursor-pointer bg-transparent border-0 p-0"
-        />
-        <span className="text-[11px] tabular text-[var(--muted-foreground)] uppercase">{value}</span>
-      </div>
-    </label>
-  );
-}
-
-function Slider({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (v: number) => void;
-}): React.JSX.Element {
-  return (
-    <label className="block">
-      <div className="flex items-baseline justify-between text-sm mb-1">
-        <span className="font-semibold">{label}</span>
-        <span className="tabular text-[var(--muted-foreground)]">{value.toFixed(2)}</span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[var(--primary)]"
-      />
-    </label>
-  );
-}
-
-const VERBUND_FARBE: Record<VerbundAnzeigeZeile['farbe'], string> = {
-  gruen: 'border-[var(--success)]/50 text-[var(--success)]',
-  gelb: 'border-[var(--warning)]/60 text-[var(--warning)]',
-  rot: 'border-[var(--destructive)]/60 text-[var(--destructive)]',
-  gedaempft: 'border-[var(--border)] text-[var(--muted-foreground)]',
-};
-
-/**
- * Verbund-Anzeige vor „Suite · ⟨n⟩ verbunden“ (Master-Link Teil 2b, Spec 16.4/16.5): die V-Zeile aus
- * app-runtime, gekürzt mit „…“, voller Text als Tooltip. Trägt den Abstand nach links (`ml-auto`), auch
- * am Einzelplatz (dann leer).
- */
-function VerbundAbzeichen(): React.JSX.Element {
-  const [anzeige, setAnzeige] = useState<VerbundAnzeigeZeile | null>(null);
-  useEffect(() => {
-    void window.jmtitler.verbundAnzeige().then(setAnzeige);
-    return window.jmtitler.onVerbundAnzeige(setAnzeige);
-  }, []);
-  if (!anzeige) return <span className="ml-auto" aria-hidden />;
-  return (
-    <span
-      className={cn('ml-auto inline-flex max-w-[24rem] items-center rounded border px-2 py-0.5 text-[11px] font-semibold', VERBUND_FARBE[anzeige.farbe])}
-      title={anzeige.text}
-    >
-      <span className="truncate">{anzeige.text}</span>
-    </span>
+    </AppShell>
   );
 }

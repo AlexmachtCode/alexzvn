@@ -58,6 +58,23 @@ for (const s of ZUSTAENDE) {
   ok(attr(tags(mitTitel, 'span')[0], 'title') === 'ganzer Text', 'StatusPill: title wird durchgereicht');
 }
 
+{
+  // UX-Pilot C9 (2b-Spec 16.5, G4): kuerzen legt den Text in ein eigenes span mit truncate, damit er bei Platzmangel mit
+  // „…“ endet; die Pille wird höchstens so breit wie ihr Platz. Ohne kuerzen bleibt das Markup wie bisher.
+  const satz = 'Show vom Master: Jahresgala mit langem Namen · Stand 09:05';
+  const kurz = render(<StatusPill state="warn" text={satz} title={satz} kuerzen />);
+  const ohne = render(<StatusPill state="warn" text={satz} title={satz} />);
+  const [wurzel] = tags(kurz, 'span');
+  ok(
+    hatKlassen(wurzel, 'min-w-0 max-w-full') &&
+      attr(wurzel, 'title') === satz &&
+      kurz.includes(`<span class="min-w-0 truncate">${satz}</span>`) &&
+      !ohne.includes('truncate') &&
+      !ohne.includes('max-w-full'),
+    'StatusPill kuerzen: Text mit „…“ gekürzt (truncate), Pille höchstens so breit wie ihr Platz, voller Text im title; ohne kuerzen unverändert',
+  );
+}
+
 // ── StatusBar ──
 {
   const gemischt: StatusItem[] = [
