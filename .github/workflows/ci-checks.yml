@@ -59,7 +59,8 @@ jobs:
       - name: Rundown (Abgleich, Sprung, scharfe Zeile)
         run: npm run selftest -w @jm/rundown
       # Master-Link Teil 2b (Spec 9.5): DataLink-Kern und Datenquelle des Titlers, mit tsx, ohne Electron.
-      - name: Titler (DataLink-Schlüssel, Datenquelle)
+      # Suite-UX-Update Welle 0 (Spec 11): derselbe Befehl startet danach die Oberflächentests (Render ohne Browser).
+      - name: Titler (DataLink-Schlüssel, Datenquelle, Oberfläche)
         run: npm run selftest -w @jm/titler
       # #228 und #231: reine Node-Tests, ohne Electron und ohne DOM.
       - name: Presenter (Suite-Status, On Air nur in der Präsentation)
@@ -91,7 +92,8 @@ jobs:
         run: npm rebuild esbuild && node scripts/sync-companion-protocol.mjs && git diff --exit-code -- packages/companion-jm-suite/generated/protocol.mjs
       # Master-Link Teil 2b, Release 2 (Spec 19.6): derselbe Befehl prüft auch den Verbund der Tool-Seite
       # (Anzeige V1–V15, Abo-Zustand, Zwischenspeicher) mit tsx, ohne Electron. Genau ein Schritt dafür.
-      - name: App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand)
+      # Suite-UX-Update Welle 0 (Spec 3.9): im selben Lauf die Master-Link-Meldung (Kanal jmps:master-link).
+      - name: App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand, Master-Link-Meldung)
         run: npm run selftest -w @jm/app-runtime
 
   secret-scan:

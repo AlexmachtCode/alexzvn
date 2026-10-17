@@ -109,8 +109,11 @@ regel(treffer(/import\s+(?!type\b)[^;]*from\s+['"]@jm\/control-config['"]/), 'Qu
     'NdiOutputSectionProps.fps', 'ScreenOutputSectionProps.background', 'RemoteControlSectionProps.companionModule',
     'IveoSectionProps.eventName', 'IveoSectionProps.stage', 'IveoSectionProps.staleSince',
     'DataLinkSectionProps.folder', 'DataLinkSectionProps.lastChange',
+    'ScreenOutputSectionProps.backgroundDefault',
   ]);
   const AUSNAHMEN = new Set(['DataLinkSectionProps.sourceLine', 'DataLinkSectionProps.notice', 'DataLinkSectionProps.backLabel']);
+  // Rückrufe, deren Name auf …Text endet, ohne Text darin (UX-Pilot C6: das Pfadfeld meldet den getippten Pfad).
+  const RUECKRUFE = new Set(['DataLinkSectionProps.onFolderText']);
   const mitText: string[] = [];
   for (const [p, t] of TEXT) {
     for (const m of t.matchAll(/export interface (\w+SectionProps) extends SectionInput \{([\s\S]*?)\n\}/g)) {
@@ -118,7 +121,7 @@ regel(treffer(/import\s+(?!type\b)[^;]*from\s+['"]@jm\/control-config['"]/), 'Qu
         const name = `${m[1]}.${prop[1]}`;
         const nachName = /(titel|title|text|texte|label|labels)$/i.test(prop[1]);
         const freierText = /^string\b/.test((prop[2] ?? '').trim()) && !DATEN.has(name);
-        if ((nachName || freierText) && !AUSNAHMEN.has(name)) mitText.push(`${p}: ${name}`);
+        if ((nachName || freierText) && !AUSNAHMEN.has(name) && !RUECKRUFE.has(name)) mitText.push(`${p}: ${name}`);
       }
     }
   }

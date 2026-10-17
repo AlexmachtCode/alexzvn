@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { cn, Logo } from '@jm/ui';
+import { cn, Logo, useTheme } from '@jm/ui';
 import { useTitler } from '@/store/titler';
 import { b1Text, boardHinweis } from '@/lib/datalink-anzeige';
+import { TITLER_TEXTE } from '@/lib/oberflaeche';
 
 /**
  * Recall-Button-Board (#152): ein Raster aus Buttons, je einer pro DataLink-
@@ -10,8 +11,11 @@ import { b1Text, boardHinweis } from '@/lib/datalink-anzeige';
  * gedacht; live-aktualisiert (teilt sich den Zustand mit dem Operator-Fenster).
  * Master-Link Teil 2b (Spec 7.8): oben der Hinweis H1/H5/H6, über den Einträgen
  * die Karte B1 für einen gehaltenen Eintrag.
+ * UX-Pilot C12 (Spec 8, E15, E22): übernimmt Hell/Dunkel des Arbeitsplatzes beim Öffnen (ohne eigenen Schalter) und zeigt
+ * „Lädt…“, bis der Zustand da ist, statt „0 Einträge“. Bleibt ohne AppShell (Anhang A „Besonderheiten“).
  */
 export function RecallBoard(): React.JSX.Element {
+  useTheme();
   const state = useTitler((s) => s.state);
   const entries = state?.status.entries ?? [];
   const activeEntry = state?.status.activeEntry ?? -1;
@@ -25,6 +29,10 @@ export function RecallBoard(): React.JSX.Element {
       .map((e, i) => ({ key: e.key, label: e.label, i }))
       .filter((e) => !t || e.label.toLowerCase().includes(t));
   }, [entries, q]);
+
+  if (!state) {
+    return <div className="h-screen grid place-items-center text-[var(--muted-foreground)]">{TITLER_TEXTE.laedt}</div>;
+  }
 
   return (
     <div className="h-screen flex flex-col bg-[var(--background)] text-[var(--foreground)]">
@@ -46,7 +54,7 @@ export function RecallBoard(): React.JSX.Element {
       {hinweis ? (
         <div
           role="status"
-          className="shrink-0 border-b border-[var(--warning)]/50 bg-[var(--warning)]/15 px-5 py-2.5 text-sm font-semibold"
+          className="shrink-0 border-b border-[var(--status-warn)]/50 bg-[var(--status-warn)]/15 px-5 py-2.5 text-sm font-semibold"
         >
           {hinweis}
         </div>
@@ -54,7 +62,7 @@ export function RecallBoard(): React.JSX.Element {
 
       {karte ? (
         <div className="shrink-0 px-4 pt-4">
-          <div className="min-h-16 rounded-[var(--radius-lg)] border-2 border-dashed border-[var(--warning)] px-3 py-2 flex items-center justify-center text-center text-sm font-bold">
+          <div className="min-h-16 rounded-[var(--radius-lg)] border-2 border-dashed border-[var(--status-warn)] px-3 py-2 flex items-center justify-center text-center text-sm font-bold">
             {karte}
           </div>
         </div>
@@ -86,7 +94,7 @@ export function RecallBoard(): React.JSX.Element {
           </div>
           {filtered.length === 0 ? (
             <p className="mt-6 text-center text-sm text-[var(--muted-foreground)]">
-              Kein Eintrag passt zu „{q}".
+              Kein Eintrag passt zu „{q}“.
             </p>
           ) : null}
         </div>

@@ -32,7 +32,9 @@ Es gelten die Wellen aus Spec Abschnitt 9.1:
 
 Plan für das Fundament (Welle 0 ohne Pilot):
 [`docs/superpowers/plans/2026-10-08-suite-ux-fundament.md`](../superpowers/plans/2026-10-08-suite-ux-fundament.md).
-Der Titler-Pilot bekommt einen eigenen Plan, nach dem Merge von Master-Link 2b R2 und Zoom 4b (Spec 9.2).
+Plan für den Titler-Pilot (nach dem Merge von Master-Link 2b R2 und Zoom 4b, Spec 9.2):
+[`docs/superpowers/plans/2026-10-13-ux-titler-pilot.md`](../superpowers/plans/2026-10-13-ux-titler-pilot.md); Abnahme
+[`docs/ux/ABNAHME-UX-Welle-0.md`](ABNAHME-UX-Welle-0.md).
 
 ## Nicht-Ziele
 

@@ -353,7 +353,7 @@ Leitprinzip: **Live-Bedienung sichtbar, Einrichtung weggeräumt.**
 | Welle | Inhalt | Stand |
 |---|---|---|
 | 0 · Fundament (ohne Pilot) | `@jm/ui`: Rahmen, Statusleiste, `TallyButton`, Eingaben, Einstellungs-Panel, Hell/Dunkel, neue Tokens; neues `@jm/settings` mit sieben Abschnitten; Galerie; Selbsttests in der CI | ✅ **gemergt 09.10.2026** (PR #250). Plan [`docs/superpowers/plans/2026-10-08-suite-ux-fundament.md`](superpowers/plans/2026-10-08-suite-ux-fundament.md); Owner-Entscheide E24, E25, E27, O1–O4; Galerie vom Owner gesehen (`npm run galerie -w @jm/ui`). Kein eigener Release: Die Pakete gehen mit den Apps raus, sichtbar wird es mit dem Titler-Pilot. |
-| 0 · Titler-Pilot | Titler im gemeinsamen Rahmen, Status-Brücken in `@jm/app-runtime` (Spec 3.9) | eigener Plan, nach dem Merge von Master-Link 2b R2 und Zoom 4b (Spec 9.2) |
+| 0 · Titler-Pilot | Titler im gemeinsamen Rahmen, Status-Brücken in `@jm/app-runtime` (Spec 3.9) | Plan [`docs/superpowers/plans/2026-10-13-ux-titler-pilot.md`](superpowers/plans/2026-10-13-ux-titler-pilot.md) (nach dem Merge von Master-Link 2b R2 und Zoom 4b, Spec 9.2); Funktionsliste [`docs/ux/funktionslisten/titler.md`](ux/funktionslisten/titler.md) abgehakt; Owner-Abnahme nach [`docs/ux/ABNAHME-UX-Welle-0.md`](ux/ABNAHME-UX-Welle-0.md) offen |
 | 1 · Live-Kern | Switcher, Timer, Rundown, Q&A, Battle | nach der Owner-Abnahme des Pilots |
 | 2 · übrige Live-Tools | Connect, Caption, Interpreter, Presenter, Prompter, Stage-Display, Recorder, Player, Studio-Control | nach Welle 1; Connect erst nach dem Merge von Zoom 4b (gemergt 12.10.) |
 | 3 · Launcher + Werkzeuge | Launcher, Copy, Grafiktool, Media-Converter, Sync, DAW, Editor, Transcribe, App Designer, NDI-Screen-Capture | nach Welle 2 |

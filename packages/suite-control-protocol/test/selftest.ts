@@ -223,5 +223,16 @@ eq(
   eq(KNOWN_ROLES.includes('connect'), true, 'connect ist eine bekannte Rolle');
 }
 
+// Suite-UX-Update Welle 0 (Spec 3.9, N2): lesender Getter modus() für die Fernsteuerungs-Meldung der Tools.
+// server.ts lädt dieser Lauf nicht (Parameter-Property im Konstruktor; --experimental-strip-types lehnt sie ab).
+// Geprüft wird darum der Quelltext; das Verhalten prüft der Pilot-Plan (Task 3, Step 5) einmal über ein Bündel.
+{
+  const { readFileSync } = await import('node:fs');
+  const q = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  eq(/\n {2}modus\(\): 'open' \| 'secure' \{\n {4}return this\.effectiveMode\(\);\n {2}\}\n/.test(q), true, 'server: modus() ist öffentlich und liefert effectiveMode() unverändert');
+  eq(q.split('private effectiveMode(): ').length - 1, 1, 'server: effectiveMode bleibt privat');
+  eq(/\n {2}status\(\): SuiteControlStatus \{\n[^\n]*\n {2}\}\n\n( {2}\/\*\*\n( {3}\*[^\n]*\n)* {3}\*\/\n)? {2}modus\(\): /.test(q), true, 'server: modus() steht direkt nach status()');
+}
+
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
 process.exit(failed === 0 ? 0 : 1);

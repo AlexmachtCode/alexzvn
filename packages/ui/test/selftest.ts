@@ -23,4 +23,6 @@ import './panel.test';
 import './header.test';
 import './shell.test';
 import './galerie.test';
+import './master-link.test';
+import './bruecke.test';
 abschluss();

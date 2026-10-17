@@ -7,6 +7,7 @@
 // Renderer; die hier persistierte Konfiguration ist nur Inhalt/Stil/Ausgabe.
 
 import type { DatenQuelleArt } from './datenquelle';
+import type { FernsteuerungMeldung } from './fernsteuerung';
 
 export type TemplateKind = 'lowerthird' | 'banner' | 'ticker' | 'graphic';
 
@@ -158,6 +159,11 @@ export interface TitlerStatus {
   connections: number;
   /** Anzahl verbundener Suite-Steuerclients (Companion/QA/Battle/Health-Dashboard). */
   suiteClients: number;
+  /**
+   * Meldung des Steuerservers (Suite-UX-Update Welle 0, Spec 3.9): läuft, Port, Clients, Modus, Fehler.
+   * Fehlt, solange der Server nichts gemeldet hat (Statuseintrag „Fernsteuerung“ dann „unbekannt“).
+   */
+  fernsteuerung?: FernsteuerungMeldung;
   /** DataLink (#86): Variablen des AKTIVEN Eintrags (für die {{}}-Auflösung). */
   variables: Record<string, string>;
   /** Dateinamen, die zu den Variablen beigetragen haben. */
@@ -188,6 +194,19 @@ export interface VerbundAnzeigeZeile {
   text: string;
   farbe: 'gruen' | 'gelb' | 'rot' | 'gedaempft';
 }
+
+/**
+ * Master-Link-Meldung über die Preload-Brücke (Suite-UX-Update Welle 0, Spec 3.9): Zustand des Clients oder
+ * `ohne-client`. Strukturgleich mit `MasterLinkMeldung` aus `@jm/app-runtime`; eigener Typ wie
+ * `VerbundAnzeigeZeile` (E28). Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
 
 export interface TitlerState {
   config: TitlerConfig;
@@ -328,4 +347,8 @@ export interface JmtitlerApi {
   verbundAnzeige: () => Promise<VerbundAnzeigeZeile | null>;
   /** Auf Wechsel der Verbund-Anzeige hören. Liefert Unsubscribe. */
   onVerbundAnzeige: (cb: (a: VerbundAnzeigeZeile | null) => void) => () => void;
+  /** Master-Link-Zustand (Spec 3.9): Meldung oder null (Brücke fehlt oder lehnt ab → „unbekannt“, nicht „aus“). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  /** Auf Wechsel des Master-Link-Zustands hören (Main → alle Fenster, einmal auch beim Anhängen). Liefert Unsubscribe. */
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
 }

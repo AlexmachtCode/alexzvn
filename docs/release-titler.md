@@ -81,13 +81,14 @@ Update/Install funktioniert.
 
 ## Smoke-Test (im Büro)
 
-1. Titler starten → Kopfzeile zeigt **Suite getrennt**, solange kein Steuerclient verbunden ist.
+1. Titler starten → der Statuseintrag **Fernsteuerung** zeigt „bereit · 0 verbunden“, solange kein Steuerclient verbunden
+   ist (ein laufender Launcher zählt als Client mit), und „Port belegt“, wenn ein anderes Programm 8726 hält.
 2. `jm-titler/main.log` enthält jetzt `Titler-Steuerserver (Companion) lauscht auf :8726`
    (oder eine konkrete Fehlermeldung — genau das war der Diagnose-Kern für #49/#46).
 3. NDI starten → in NDI Studio Monitor / vMix / OBS die Quelle `JM Titler` öffnen; Take/Clear
    blendet die Bauchbinde ein/aus.
 4. Steuerung verbinden (Companion **oder** ein Tool mit Auto-Kopplung, z. B. Q&A/Battle):
-   Die Kopf-Badge wechselt auf **Suite · N verbunden**.
+   Der Statuseintrag **Fernsteuerung** wechselt auf „bereit · N verbunden“.
 5. `telnet <host> 8726` → `TITLER TAKE` / `TITLER CLEAR` / `TITLER TOGGLE` /
    `TITLER TEMPLATE banner`; `STATE?` liefert `STATE ns=titler on_air=… template=… ndi=… connections=…`.
 6. System-Zustand im Launcher: **JM Titler** taucht mit Live-Status auf (mDNS-Discovery + ctl=1).

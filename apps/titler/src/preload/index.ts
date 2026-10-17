@@ -13,6 +13,8 @@ import type {
   TitlerTemplateAddRequest,
   VerbundAnzeigeZeile,
 } from '@shared/types';
+// Nur der Typ (beim Bündeln entfernt): Ein Wert-Import aus @jm/app-runtime holte Main-Code in den Sandbox-Preload.
+import type { MasterLinkMeldung } from '@jm/app-runtime';
 
 // Den vom Main übertragenen Frame-MessagePort in den Renderer-Main-World
 // durchreichen — contextBridge kann MessagePorts nicht direkt übergeben, daher
@@ -91,6 +93,15 @@ const api: JmtitlerApi = {
     const listener = (_e: unknown, a: VerbundAnzeigeZeile | null): void => cb(a);
     ipcRenderer.on('jmps:verbund-anzeige', listener);
     return () => ipcRenderer.off('jmps:verbund-anzeige', listener);
+  },
+  // Suite-UX-Update Welle 0 (Spec 3.9): Master-Link-Zustand lesend. Fehlt der Handler oder lehnt invoke ab, kommt null;
+  // der Renderer zeigt dann „unbekannt“ (Spec 7.2), nicht „aus“. MasterLinkMeldung (app-runtime) → MasterLinkMeldungZeile
+  // (Titler): Weicht der Titler-Typ ab, meldet die Typprüfung den Fehler hier.
+  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),
+  onMasterLink: (cb) => {
+    const listener = (_e: unknown, m: MasterLinkMeldung): void => cb(m);
+    ipcRenderer.on('jmps:master-link', listener);
+    return () => ipcRenderer.off('jmps:master-link', listener);
   },
 };
 

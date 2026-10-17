@@ -1,11 +1,11 @@
 // --- @jm/settings: ScreenOutputSection (Spec 6.2) ---
-import { Field, Select, TextInput, Toggle, UNBEKANNT } from '@jm/ui';
+import { Button, Field, Select, TextInput, Toggle, UNBEKANNT } from '@jm/ui';
 import { useTextEntwurf } from '../entwurf';
 import { Anzeige, SectionFrame } from '../SectionFrame';
 import { istGesperrt } from '../vertrag';
-import { SCREEN_AUTO, SCREEN_TEXTE, screenOutputView, type ScreenOutputSectionProps } from './screen-output';
+import { farbeGewaehlt, FARBE_MUSTER, SCREEN_AUTO, SCREEN_TEXTE, screenOutputView, standardfarbe, type ScreenOutputSectionProps } from './screen-output';
 
-const FARBE = /^#[0-9a-fA-F]{6}$/;
+const FARBE = FARBE_MUSTER;
 
 export function ScreenOutputSection(p: ScreenOutputSectionProps): React.JSX.Element {
   const view = screenOutputView(p);
@@ -44,9 +44,29 @@ export function ScreenOutputSection(p: ScreenOutputSectionProps): React.JSX.Elem
       ) : null}
       {view.sichtbar.hintergrund ? (
         typeof p.background === 'string' ? (
-          <Field label={SCREEN_TEXTE.hintergrund} error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : farbe.fehler}>
-            <TextInput {...farbe.feld} disabled={sperre} />
-          </Field>
+          <>
+            <Field label={SCREEN_TEXTE.hintergrund} error={farbeFalsch ? SCREEN_TEXTE.farbeUngueltig : farbe.fehler}>
+              <div className="flex items-center gap-2">
+                <TextInput {...farbe.feld} disabled={sperre} />
+                {view.sichtbar.farbwaehler ? (
+                  <input
+                    type="color"
+                    aria-label={SCREEN_TEXTE.farbeWaehlen}
+                    title={SCREEN_TEXTE.farbeWaehlen}
+                    value={FARBE.test(p.background) ? p.background : '#000000'}
+                    onChange={(e) => farbeGewaehlt(p, e.currentTarget.value)}
+                    disabled={sperre}
+                    className="h-[var(--control-h)] w-10 shrink-0 cursor-pointer rounded-[var(--radius-md)] border border-[var(--field-border)] bg-[var(--input)] p-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                ) : null}
+              </div>
+            </Field>
+            {view.sichtbar.standardfarbe ? (
+              <Button type="button" variant="outline" size="sm" uppercase={false} className="motion-reduce:transition-none" onClick={() => standardfarbe(p)} disabled={gesperrt}>
+                {SCREEN_TEXTE.standardfarbe(p.backgroundDefault ?? '')}
+              </Button>
+            ) : null}
+          </>
         ) : (
           <Anzeige label={SCREEN_TEXTE.hintergrund}>{UNBEKANNT}</Anzeige>
         )

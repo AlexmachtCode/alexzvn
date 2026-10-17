@@ -40,6 +40,7 @@ const SETTINGS_SOLL: Record<string, Exclude<StatusState, 'live'>> = {
   'ndi-ohne-name': 'off', 'ndi-gesperrt': 'ok', 'ndi-fehlertext': 'error',
   'bildschirm-ok': 'ok', 'bildschirm-warn': 'warn', 'bildschirm-error': 'error', 'bildschirm-unbekannt': 'off',
   'bildschirm-aus': 'off', 'bildschirm-keiner': 'off', 'bildschirm-gesperrt': 'ok', 'bildschirm-fehlertext': 'error',
+  'bildschirm-farbwaehler': 'ok',
   'fernsteuerung-ok': 'ok', 'fernsteuerung-warn': 'warn', 'fernsteuerung-error': 'error',
   'fernsteuerung-unbekannt': 'off', 'fernsteuerung-aus': 'off', 'fernsteuerung-gesperrt': 'ok',
   'fernsteuerung-fehlertext': 'error', 'fernsteuerung-launcher-gesichert': 'ok',
@@ -51,6 +52,7 @@ const SETTINGS_SOLL: Record<string, Exclude<StatusState, 'live'>> = {
   'iveo-fehlertext': 'error',
   'datalink-ok': 'ok', 'datalink-warn': 'warn', 'datalink-error': 'error', 'datalink-unbekannt': 'off',
   'datalink-aus': 'off', 'datalink-gesperrt': 'ok', 'datalink-fehlertext': 'error',
+  'datalink-show': 'ok', 'datalink-pfadfeld': 'ok',
   'gegenstellen-ok': 'ok', 'gegenstellen-warn': 'warn', 'gegenstellen-unbekannt': 'off', 'gegenstellen-aus': 'off',
   'gegenstellen-schalter': 'ok', 'gegenstellen-gesperrt': 'ok', 'gegenstellen-fehlertext': 'error',
 };
@@ -198,6 +200,23 @@ function ersterZustand(html: string): string | undefined {
     ['1200:dark:ohne', '1200:dark:sitzung', '1200:light:sitzung', '800:dark:sitzung', '800:light:sitzung'],
     'Galerie: Rahmen in 1200 px und 800 px (schmal), je Dunkel und Hell, dazu der Rahmen ohne Sitzung',
   );
+}
+
+// ── Titler-Muster aus UX-Pilot C6 (Erweiterungen DataLink und Bildschirm), je Modus ──
+{
+  const MARKEN: Record<string, string[]> = {
+    'datalink-show': ['>12 Einträge</span>', '>kein Ordner</div>', 'Quelle: Show „Fachtagung“ · 12 Speaker'],
+    'datalink-pfadfeld': ['>Ordnerpfad</label>', '>Ordner entfernen</button>'],
+    'bildschirm-farbwaehler': ['type="color"', 'aria-label="Farbe wählen"', '>Standardfarbe (#00B140)</button>'],
+  };
+  for (const modus of ['dark', 'light'] as const) {
+    for (const [name, marken] of Object.entries(MARKEN)) {
+      const beispiel = settingsBeispiele(modus).find((b) => b.name === name);
+      const html = beispiel ? render(beispiel.element) : '';
+      const fehlt = marken.filter((m) => !html.includes(m));
+      ok(beispiel !== undefined && fehlt.length === 0, `Galerie ${modus}: Beispiel ${name} zeigt ${marken.join(' · ')}`);
+    }
+  }
 }
 
 // ── Rahmen-Seite (AppShell fensterfüllend, für die iframes) ──

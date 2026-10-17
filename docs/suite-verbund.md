@@ -109,7 +109,7 @@ Anwenden tun die Daten bisher nur Timer, Titler und Rundown.
 
 **Am Master** zeigt das Modal unter „Gekoppelte Rechner“ eine Zeile „Show im Verbund: „⟨Show⟩“ · Stand ⟨hh:mm⟩ · ⟨n⟩ Tools beziehen sie“ (bei einem Tool „· 1 Tool bezieht sie“), ohne offene Show „Show im Verbund: keine Show offen“, in Rot „… nicht verteilt: zu groß für den Verbund (⟨n⟩ KiB)“ oder „… nicht verteilt: nicht lesbar“. Bei Timer, Titler und Rundown der anderen Rechner steht „bezieht Show-Daten“. Steht dort nach 10 s „ohne Show-Daten (Update nötig)“, läuft auf diesem Rechner ein älteres Tool.
 
-**In den Tools** (Timer: neben „Sync“, Titler: vor „Suite · ⟨n⟩ verbunden“, Rundown: im Statusstreifen):
+**In den Tools** (Timer: neben „Sync“, Titler: in der Kopfzeile in der Mitte, Rundown: im Statusstreifen):
 
 | Anzeige | Bedeutung | Was tun |
 | --- | --- | --- |

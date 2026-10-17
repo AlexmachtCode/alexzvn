@@ -37,3 +37,17 @@ export const UI_TEXTE = {
   kuerzel: 'Kürzel',
   uhrzeit: 'Uhrzeit',
 } as const;
+
+/**
+ * Statuseintrag „Master“ (Spec 3.3: Label „Master“; Detailtexte T1, Owner-Freigabe OF8). „verbindet …“ ohne Adresse:
+ * Der Client wechselt beim Verbinden je Kandidat die Adresse, die Statusleiste soll nicht flackern (E4).
+ */
+export const MASTER_LINK_TEXTE = {
+  label: 'Master',
+  aus: 'aus',
+  ohneClient: 'nicht gestartet',
+  sucht: 'sucht …',
+  verbindet: 'verbindet …',
+  verbunden: 'verbunden',
+  verbundenMit: (name: string) => `verbunden mit ${name}`,
+} as const;

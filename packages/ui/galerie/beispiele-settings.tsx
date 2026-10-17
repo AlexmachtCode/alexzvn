@@ -231,6 +231,7 @@ export function settingsBeispiele(modus: Modus): Beispiel[] {
     b('bildschirm-keiner', S, 'aus, kein Bildschirm gefunden', <ScreenOutputSection {...bildschirm(id('bildschirm-keiner'), { enabled: false, windowOpen: false, screens: [], selectedId: null })} />),
     b('bildschirm-gesperrt', S, 'gesperrt', <ScreenOutputSection {...bildschirm(id('bildschirm-gesperrt'), { locked: MASTER })} />),
     b('bildschirm-fehlertext', S, 'mit Fehlertext', <ScreenOutputSection {...bildschirm(id('bildschirm-fehlertext'), { windowOpen: false, error: 'Ausgabefenster ließ sich nicht öffnen.' })} />),
+    b('bildschirm-farbwaehler', S, 'Titler-Muster: Farbwähler und „Standardfarbe“', <ScreenOutputSection {...bildschirm(id('bildschirm-farbwaehler'), { backgroundDefault: '#00B140', capabilities: { toggle: true, fullscreen: true, background: true, backgroundPicker: true } })} />),
 
     b('fernsteuerung-ok', R, 'ok: bereit, 2 verbunden', <RemoteControlSection {...fernsteuerung(id('fernsteuerung-ok'), {})} />),
     b('fernsteuerung-warn', R, 'Warnung: Neustart nötig', <RemoteControlSection {...fernsteuerung(id('fernsteuerung-warn'), { restartRequired: true })} />),
@@ -294,6 +295,8 @@ export function settingsBeispiele(modus: Modus): Beispiel[] {
       />,
     ),
     b('datalink-fehlertext', D, 'mit Fehlertext', <DataLinkSection {...datalink(id('datalink-fehlertext'), { error: 'Ordner nicht lesbar.' })} />),
+    b('datalink-show', D, 'Titler-Muster: Daten aus der Show, kein eigener Ordner (Einträge statt Dateien)', <DataLinkSection {...datalink(id('datalink-show'), { folder: '', fileCount: undefined, lastChange: undefined, externeQuelle: true, eintraege: 12, sourceLine: 'Quelle: Show „Fachtagung“ · 12 Speaker' })} />),
+    b('datalink-pfadfeld', D, 'Titler-Muster: Pfadfeld und „Ordner entfernen“', <DataLinkSection {...datalink(id('datalink-pfadfeld'), { capabilities: { ordnerText: true }, onFolderText: nichts, onClearFolder: nichts })} />),
 
     b('gegenstellen-ok', G, 'ok: alle verbunden (gefunden per mDNS)', <PeersSection {...gegenstellen(id('gegenstellen-ok'), {})} />),
     b('gegenstellen-warn', G, 'Warnung: manuell gesetzt, nicht verbunden', <PeersSection {...gegenstellen(id('gegenstellen-warn'), { peers: [GEGENSTELLEN[0], { ...GEGENSTELLEN[1], host: '10.0.0.12', connected: false, source: 'manual' }] })} />),

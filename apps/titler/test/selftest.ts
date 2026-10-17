@@ -1395,6 +1395,76 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
   ok(rufeSchluesselAb(kernMit([kennNfd], null), 'Müller-1').zustand.aktiv === kennNfd.key, 'Umlaute: Schlüsselabruf NFC gegen NFD');
 }
 
+// ── UX-Pilot C3 · Fernsteuerungs-Meldung (Spec 3.9, 7.2; N2, E6) ──
+{
+  const { readFileSync } = await import('node:fs');
+  const { STEUER_PORT, naechsteFernsteuerung, portBelegt } = await import('../src/shared/fernsteuerung');
+  type Meldung = ReturnType<typeof naechsteFernsteuerung>;
+  type Ereignis = Parameters<typeof naechsteFernsteuerung>[1];
+  const folge = (...es: Ereignis[]): Meldung | undefined => es.reduce<Meldung | undefined>((m, e) => naechsteFernsteuerung(m, e), undefined);
+  const gleich = (ist: unknown, soll: unknown): boolean => JSON.stringify(ist) === JSON.stringify(soll);
+  const BELEGT = 'listen EADDRINUSE: address already in use :::8726';
+
+  ok(STEUER_PORT === 8726, 'Fernsteuerung: STEUER_PORT ist 8726');
+  // Port belegt, Reihenfolge wie im Server: erst der Status (running false, Port 0), dann das Start-Ergebnis.
+  const belegt = folge({ art: 'status', running: false, port: 0, clients: 0 }, { art: 'start', ok: false, error: BELEGT });
+  ok(gleich(belegt, { laeuft: false, port: 8726, clients: 0, fehler: BELEGT }), 'Fernsteuerung: Port belegt → läuft nicht, Port 8726 statt 0, 0 Clients, Fehler wörtlich');
+  ok(portBelegt(belegt), 'Fernsteuerung: portBelegt bei EADDRINUSE');
+  // Läuft, Reihenfolge wie im Server: Status (running), Start-Ergebnis; danach melden sich zwei Clients.
+  const laeuft = folge(
+    { art: 'status', running: true, port: 8726, clients: 0, modus: 'secure' },
+    { art: 'start', ok: true },
+    { art: 'status', running: true, port: 8726, clients: 2, modus: 'secure' },
+  );
+  ok(gleich(laeuft, { laeuft: true, port: 8726, clients: 2, modus: 'secure' }), 'Fernsteuerung: läuft, 2 Clients, Modus secure, kein Fehler');
+  ok(gleich(folge({ art: 'start', ok: true }, { art: 'status', running: true, port: 8726, clients: 2, modus: 'secure' }), laeuft), 'Fernsteuerung: Start-Ergebnis vor dem Status ergibt dasselbe Ende');
+  ok(gleich(folge({ art: 'start', ok: true }), { laeuft: true, port: 8726, clients: 0 }), 'Fernsteuerung: nur Start-Ergebnis → läuft, Port 8726, 0 Clients, ohne Modus');
+  // Wurf in startControlServer: Fehlertext wörtlich, kein „Port belegt“; ein laufender Status räumt den Fehler weg.
+  const wurf = folge({ art: 'wurf', text: 'x' });
+  ok(gleich(wurf, { laeuft: false, port: 8726, clients: 0, fehler: 'x' }) && !portBelegt(wurf), 'Fernsteuerung: Wurf → Fehler wörtlich, portBelegt false');
+  ok(gleich(naechsteFernsteuerung(wurf, { art: 'status', running: true, port: 8726, clients: 0, modus: 'open' }), { laeuft: true, port: 8726, clients: 0, modus: 'open' }), 'Fernsteuerung: Status running nach Fehler → Fehler weg');
+  // Der Fehler bleibt, bis der Server läuft; ohne Text „unbekannt“.
+  ok(gleich(naechsteFernsteuerung(belegt, { art: 'status', running: false, port: 0, clients: 0 }), belegt), 'Fernsteuerung: Status ohne running nach Fehler → Fehler bleibt, Port 8726');
+  ok(gleich(folge({ art: 'start', ok: false }), { laeuft: false, port: 8726, clients: 0, fehler: 'unbekannt' })
+    && folge({ art: 'start', ok: false, error: '  ' })?.fehler === 'unbekannt'
+    && folge({ art: 'wurf', text: '' })?.fehler === 'unbekannt', 'Fernsteuerung: Startfehler oder Wurf ohne Text → unbekannt');
+  // Modus und Port bleiben; Clients nur bei laufendem Server.
+  ok(gleich(naechsteFernsteuerung(laeuft, { art: 'status', running: true, port: 8726, clients: 1 }), { laeuft: true, port: 8726, clients: 1, modus: 'secure' }), 'Fernsteuerung: Status ohne Modus behält den Modus');
+  ok(naechsteFernsteuerung(laeuft, { art: 'start', ok: false, error: BELEGT }).clients === 0, 'Fernsteuerung: nach einem Startfehler 0 Clients');
+  ok(gleich(naechsteFernsteuerung(laeuft, { art: 'status', running: false, port: 0, clients: 2 }), { laeuft: false, port: 8726, clients: 0, modus: 'secure' }), 'Fernsteuerung: Stopp (running false, Port 0) → 0 Clients, Port und Modus vom alten Stand');
+  ok(gleich(naechsteFernsteuerung({ laeuft: true, port: 9000, clients: 1 }, { art: 'status', running: false, port: 0, clients: 0 }), { laeuft: false, port: 9000, clients: 0 }), 'Fernsteuerung: Port 0 übernimmt den zuletzt gemeldeten Port');
+  ok(!portBelegt(undefined) && !portBelegt(laeuft), 'Fernsteuerung: portBelegt ohne Meldung und ohne Fehler false');
+
+  // Quelltext-Wächter: Main und Steuerserver melden nur lesend; Port, Befehle, suiteClients und Logzeilen bleiben.
+  const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const cs = lies('../src/main/control-server.ts');
+  const main = lies('../src/main/index.ts');
+  ok(cs.includes('export const CONTROL_PORT = 8726;') && STEUER_PORT === 8726, 'Fernsteuerung: CONTROL_PORT und STEUER_PORT gleich (8726 fest)');
+  const meldet = cs.indexOf("onMeldung?.({ art: 'status', ...st, modus: server?.modus() });");
+  ok(meldet >= 0 && cs.indexOf('onClients?.(st.clients);') > meldet, 'Fernsteuerung: Steuerserver meldet zuerst den ganzen Status mit Modus, dann die Zahl wie bisher');
+  ok(main.split('naechsteFernsteuerung(').length - 1 === 1 && main.split('meldeFernsteuerung(').length - 1 === 4, 'Fernsteuerung: Main schreibt die Meldung an einer Stelle fort, aus drei Anlässen');
+  ok(main.includes('(e) => meldeFernsteuerung(e),')
+    && main.includes("meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });")
+    && main.includes("meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });"), 'Fernsteuerung: Anlässe Status, Start-Ergebnis und Wurf');
+  const anfang = main.slice(main.indexOf('const status: TitlerStatus = {'), main.indexOf('function buildState('));
+  ok(anfang.length > 0 && !anfang.includes('fernsteuerung'), 'Fernsteuerung: Startwert ohne Meldung (bis der Server meldet: unbekannt)');
+  ok(main.includes('status.suiteClients = clients;') && main.includes('Titler-Steuerserver nicht gestartet:')
+    && main.includes('Titler-Steuerserver fehlgeschlagen:') && main.includes('lauscht auf :${CONTROL_PORT}'), 'Fernsteuerung: suiteClients und die Logzeilen bleiben');
+}
+
+// ── UX-Pilot C4 · Preload: Master-Link-Brücke (Spec 3.9, 3.8, 7.2; E3, R2-Regel E28) ──
+{
+  const { readFileSync } = await import('node:fs');
+  const { MASTER_LINK_KANAL } = await import('../../../packages/app-runtime/src/master-link-meldung');
+  const preload = readFileSync(new URL('../src/preload/index.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const kanaele = [...preload.matchAll(/'(jmps:master[^']*)'/g)].map((m) => m[1]);
+  ok(kanaele.length === 3 && kanaele.every((k) => k === MASTER_LINK_KANAL), `Preload: Kanal der Master-Link-Brücke dreimal wörtlich ${MASTER_LINK_KANAL} (invoke, on, off)`);
+  ok(preload.includes("  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),\n"), 'Preload: Abfrage fängt jede Ablehnung zu null ab (Renderer: unbekannt, nicht aus)');
+  ok(preload.includes("    ipcRenderer.on('jmps:master-link', listener);\n    return () => ipcRenderer.off('jmps:master-link', listener);\n"), 'Preload: Ereignis mit Abmeldung');
+  ok(/^import type \{ MasterLinkMeldung \} from '@jm\/app-runtime';$/m.test(preload) && !/^import \{[^}]*\} from '@jm\/app-runtime'/m.test(preload), 'Preload: aus app-runtime nur der Typ (kein Main-Code im Sandbox-Preload)');
+  ok(preload.includes("  verbundAnzeige: () => (ipcRenderer.invoke('jmps:verbund-anzeige') as Promise<VerbundAnzeigeZeile | null>).catch(() => null),\n  onVerbundAnzeige: (cb) => {\n    const listener = (_e: unknown, a: VerbundAnzeigeZeile | null): void => cb(a);\n    ipcRenderer.on('jmps:verbund-anzeige', listener);\n    return () => ipcRenderer.off('jmps:verbund-anzeige', listener);\n  },\n"), 'Preload: R2-Brücke verbundAnzeige/onVerbundAnzeige wortgleich (Durchgang 2b)');
+}
+
 if (failed > 0) {
   console.error(`\n${failed} FEHLGESCHLAGEN`);
   process.exit(1);
