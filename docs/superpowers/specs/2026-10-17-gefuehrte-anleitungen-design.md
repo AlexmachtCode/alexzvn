@@ -1,6 +1,6 @@
 # Geführte Anleitungen im Tool, erste Anleitung: Einrichtung im Launcher
 
-**Status:** Entwurf zur Owner-Durchsicht (Brainstorming 17.10.2026; Owner hat „Form, erste Anleitung, Stimme, Grundgerüst“ mit „passt“ bestätigt). Nach der Bau-Prüfung ergänzt: 3.1 (Zustände, Bedienleiste), Fortsetzen (4), Kapitel je nach Rolle (5), Verhalten während der Produktion (7), jeweils als Entscheidung des Entwurfs.
+**Status:** **Vom Owner freigegeben am 17.10.2026** („spec passt“, samt den Vorgaben zu OF1–OF3 und den Entscheidungen nach der Bau-Prüfung). Entstanden im Brainstorming 17.10.2026 ( Owner hat „Form, erste Anleitung, Stimme, Grundgerüst“ mit „passt“ bestätigt). Nach der Bau-Prüfung ergänzt: 3.1 (Zustände, Bedienleiste), Fortsetzen (4), Kapitel je nach Rolle (5), Verhalten während der Produktion (7), jeweils als Entscheidung des Entwurfs.
 **Datum:** 17.10.2026
 **Basis:** `main` @ `a9553defe7` (Launcher 0.15.0, UX-Fundament `@jm/ui` aus Welle 0, Titler 0.12.0 als Pilot).
 **Reihenfolge (Owner 17.10.2026):** iveo-Paket (Launcher 0.16.0) → **diese Anleitung** → Connect 0.4.0 (Zoom-Slots) → Anmeldung im Launcher → UX-Welle 1. Die Spec entsteht jetzt, umgesetzt wird nach dem iveo-Paket; vor dem Plan wird sie gegen den dann aktuellen Stand nachgemessen.
@@ -109,7 +109,7 @@ Der Owner fragte zuerst nach Erklärvideos. Gewünscht ist aber eine **geführte
 
 ## 9 · Owner-Fragen (jede mit Vorgabe)
 
-| # | Frage | Vorgabe |
+| # | Frage | Vorgabe (Owner 17.10.2026: bestätigt) |
 | --- | --- | --- |
 | OF1 | Soll die heutige Checkliste „Erste Schritte“ in der Kapitelübersicht aufgehen? | ja (Abschnitt 4) |
 | OF2 | Bekommen bestehende Rechner die Anleitung automatisch? | nein, nur einmal den Hinweis „Neu: geführte Einrichtung“ |
