@@ -1,6 +1,6 @@
 # Anmeldung im Launcher: Konten, Stufen und Freigaben statt Keys
 
-**Status:** Entwurf zur Owner-Durchsicht (Brainstorming 17.10.2026; Owner hat die Teile „Wer, Stufen, Verwaltung“, „Admin-Maske, Betrieb“, Bestätigungscode und Anzeige sowie die Antworten auf die Fragen der Bau-Prüfung mit „passt“ bestätigt). Geplant wird, wenn die Anmeldung an der Reihe ist; dann wird diese Spec gegen den aktuellen Stand nachgemessen (iveo-Paket und Connect 0.4.0 ändern Teile, die hier ersetzt werden).
+**Status:** **Vom Owner freigegeben am 17.10.2026** („passt“ auf die ganze Spec samt den Vorgaben zu OF1–OF4). Entstanden im Brainstorming 17.10.2026 (Owner hat die Teile „Wer, Stufen, Verwaltung“, „Admin-Maske, Betrieb“, Bestätigungscode und Anzeige sowie die Antworten auf die Fragen der Bau-Prüfung mit „passt“ bestätigt). Geplant wird, wenn die Anmeldung an der Reihe ist; dann wird diese Spec gegen den aktuellen Stand nachgemessen (iveo-Paket und Connect 0.4.0 ändern Teile, die hier ersetzt werden).
 **Datum:** 17.10.2026
 **Basis:** `main` @ `a9553defe7` (Launcher 0.15.0, Connect 0.3.0, Q&A wie released, Titler 0.12.0).
 **Reihenfolge (Owner 17.10.2026):** iveo-Paket → Connect-Slot-Spec (Connect 0.4.0) → **diese Anmeldung** → UX-Welle 1.
@@ -185,7 +185,7 @@ Wer kein Admin ist, sieht im Launcher nur „angemeldet als …“, seine Stufe,
 
 ## 13 · Owner-Fragen (jede mit Vorgabe)
 
-| # | Frage | Vorgabe |
+| # | Frage | Vorgabe (Owner 17.10.2026: bestätigt) |
 | --- | --- | --- |
 | OF1 | Dürfen Kollegen Zoom auf jedem Rechner nutzen, auf dem sie angemeldet sind, oder nur auf JM-Rechnern? | jeder Rechner, auf dem ein Kollege angemeldet ist |
 | OF2 | Wie lange nimmt der Worker den alten `PROXY_KEY` nach dem Release noch an? | 30 Tage; der Reiter „Geräte“ zeigt, welche Rechner noch einen alten Launcher melden |
