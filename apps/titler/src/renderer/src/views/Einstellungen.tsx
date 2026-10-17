@@ -1,10 +1,12 @@
-// Inhalt des Einstellungs-Panels (UX-Pilot C9; Spec 3.1, 3.6): vorerst der Inhalt des bisherigen Reiters
-// „Einstellungen“, unverändert bis auf die Herkunft der Werte (Stand) und der Handler (Aktionen). Ab C11 bauen die
-// Abschnitte aus @jm/settings das Panel neu. Kein window und kein Effekt hier (G7, G8): Das Panel ist nur offen
-// gemountet; was immer laufen muss, bleibt in OperatorView.
-import { Button, SettingsSection } from '@jm/ui';
-import type { OberflaechenStand, TitlerAktionen } from '@/lib/oberflaeche';
-import { ColorField, Field, Labeled } from './felder';
+// Inhalt des Einstellungs-Panels (UX-Pilot C9, C10; Spec 3.1, 3.6): vorerst der Inhalt des bisherigen Reiters
+// „Einstellungen“, unverändert bis auf die Herkunft der Werte (Stand) und der Handler (Aktionen); dahinter seit C10 die
+// tool-eigenen Abschnitte „Stil“ und „Grafik-Vorlagen“ (Anhang A, E13). Ab C11 bauen die Abschnitte aus @jm/settings das
+// Panel neu. Kein window und kein Effekt hier (G7, G8): Das Panel ist nur offen gemountet; was immer laufen muss, bleibt
+// in OperatorView.
+import { Button, cn, PanelAnker, SettingsSection } from '@jm/ui';
+import type { GraphicTemplate } from '@shared/types';
+import { ABSCHNITT, TITLER_TEXTE, type OberflaechenStand, type TitlerAktionen } from '@/lib/oberflaeche';
+import { ColorField, Field, Labeled, Slider } from './felder';
 
 const RESOLUTIONS = [
   { label: '1920×1080', w: 1920, h: 1080 },
@@ -12,7 +14,25 @@ const RESOLUTIONS = [
 ];
 const FPS = [25, 30, 50, 60];
 
-export function Einstellungen({ stand, aktionen }: { stand: OberflaechenStand; aktionen: TitlerAktionen }): React.JSX.Element {
+export interface EinstellungenProps {
+  stand: OberflaechenStand;
+  aktionen: TitlerAktionen;
+  templates: GraphicTemplate[];
+  activeGraphicId: string;
+  onPickImport(): void;
+  onDropImport(e: React.DragEvent): void;
+  onDeleteTemplate(t: GraphicTemplate): void;
+}
+
+export function Einstellungen({
+  stand,
+  aktionen,
+  templates,
+  activeGraphicId,
+  onPickImport,
+  onDropImport,
+  onDeleteTemplate,
+}: EinstellungenProps): React.JSX.Element {
   const c = stand.config;
   const { ndiActive, entries, dataError, datenQuelle } = stand.status;
   const displays = stand.displays ?? [];
@@ -189,6 +209,83 @@ export function Einstellungen({ stand, aktionen }: { stand: OberflaechenStand; a
           Tipp: Zweitmonitor wählen, damit die Ausgabe nicht die Operator-Oberfläche verdeckt.
         </p>
       </SettingsSection>
+
+      {/* Stil (tool-eigen, Anhang A): Lage, Größe, Farben; bisher in der Bedienung unter „Stil“ */}
+      <PanelAnker id={ABSCHNITT.stil}>
+        <SettingsSection title={TITLER_TEXTE.stil}>
+          <div className="flex gap-2">
+            {(['bottom', 'top'] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={c.position === p}
+                onClick={() => void setConfig({ position: p })}
+                className={cn(
+                  'flex-1 h-9 rounded-[var(--radius)] text-xs font-bold border',
+                  c.position === p
+                    ? 'bg-[var(--accent)] text-[var(--foreground)] border-transparent'
+                    : 'border-[var(--border)] hover:bg-[var(--highlight)]',
+                )}
+              >
+                {p === 'bottom' ? 'Unten' : 'Oben'}
+              </button>
+            ))}
+          </div>
+          <Slider label="Größe" value={c.scale} min={0.6} max={1.6} step={0.05} onChange={(v) => void setConfig({ scale: v })} />
+          <div className="flex gap-3">
+            <ColorField label="Balken" value={c.colors.bar} onChange={(v) => void setConfig({ colors: { bar: v } })} />
+            <ColorField label="Text" value={c.colors.text} onChange={(v) => void setConfig({ colors: { text: v } })} />
+            <ColorField label="Akzent" value={c.colors.accent} onChange={(v) => void setConfig({ colors: { accent: v } })} />
+          </div>
+        </SettingsSection>
+      </PanelAnker>
+
+      {/* Grafik-Vorlagen (#162, tool-eigen): Import aus jm Grafiktool / PSD; je Vorlage ein sichtbarer Knopf „Löschen“ (E13) */}
+      <PanelAnker id={ABSCHNITT.vorlagen}>
+        <SettingsSection
+          title={TITLER_TEXTE.vorlagen}
+          description={
+            <>
+              Bauchbinden aus dem jm Grafiktool oder als <code>.psd</code> importieren. Textebenen werden zu
+              füllbaren Feldern — Variablen bleiben nutzbar.
+            </>
+          }
+        >
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDropImport}
+            className="rounded-[var(--radius)] border border-dashed border-[var(--border)] px-3 py-3 text-center"
+          >
+            <Button variant="outline" size="sm" onClick={() => onPickImport()}>
+              Datei importieren…
+            </Button>
+            <p className="mt-1.5 text-[10px] text-[var(--muted-foreground)]">oder .psd / .jmtitler hierher ziehen</p>
+          </div>
+          {templates.length > 0 ? (
+            <ul className="rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
+              {templates.map((t) => (
+                <li key={t.id} className="flex items-center gap-2 px-3 py-1.5">
+                  <span className={cn('truncate text-xs', t.id === activeGraphicId && 'font-bold')} title={t.name}>
+                    {t.name}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    uppercase={false}
+                    className="ml-auto shrink-0"
+                    aria-label={TITLER_TEXTE.loeschenAria(t.name)}
+                    title={TITLER_TEXTE.loeschenAria(t.name)}
+                    onClick={() => onDeleteTemplate(t)}
+                  >
+                    {TITLER_TEXTE.loeschen}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </SettingsSection>
+      </PanelAnker>
     </div>
   );
 }

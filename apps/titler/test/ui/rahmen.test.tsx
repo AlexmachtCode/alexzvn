@@ -156,7 +156,17 @@ import {
       datenQuelle: { art: 'show', zeile: 'Quelle: Show „Probe“ · 3 Speaker', zurueckKnopf: 'Zurück zum eigenen Ordner (Daten)', ohneOrdner: false },
     }),
   });
-  const html = render(<Einstellungen stand={stand} aktionen={protokollAktionen(log)} />);
+  const html = render(
+    <Einstellungen
+      stand={stand}
+      aktionen={protokollAktionen(log)}
+      templates={[]}
+      activeGraphicId=""
+      onPickImport={() => void log.push('onPickImport')}
+      onDropImport={() => void log.push('onDropImport')}
+      onDeleteTemplate={() => void log.push('onDeleteTemplate')}
+    />,
+  );
   ok(
     ['DataLink', 'iveo', 'Zurück zum eigenen Ordner (Daten)'].every((t) => text(html).includes(t)) && log.length === 0,
     'Panel-Inhalt: DataLink, iveo und K1 rendern ohne window; Rendern löst keine Aktion aus',
