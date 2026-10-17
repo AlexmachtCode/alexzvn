@@ -9,4 +9,5 @@ import './rahmen.test';
 import './live.test';
 import './panel.test';
 import './board.test';
+import './funktionsliste.test';
 abschluss();
