@@ -4,6 +4,8 @@ Spec: `docs/superpowers/specs/2026-10-08-suite-ux-update-design.md`, Abschnitt 1
 `docs/superpowers/plans/2026-10-13-ux-titler-pilot.md`. Die Nummer jeder Zeile beginnt mit dem Punkt aus Spec 12:
 1 Probe-Show, 2 Hell und Dunkel, 3 kleines Fenster, 4 Statuseinträge, 5 Haupttasten und Kürzel, 6 Einstellungen.
 
+**Ergebnis (Owner, 17.10.2026):** Abnahme-Bau `JM Titler-0.12.0-win-x64.exe` (Branch-Stand `94dc3eb78b`) getestet: „titler passt so ! sieht super aus und viel übersichtlicher“. Keine Befunde gemeldet; die einzelnen Zeilen unten sind nicht einzeln eingetragen.
+
 **Voraussetzungen:**
 - Titler 0.12.0 ist als Abnahme-Bau installiert: Veröffentlicht wird erst nach dieser Abnahme (Spec 9.1). Die Datei `JM Titler-0.12.0-win-x64.exe` aus dem Branch wird an A (und mit B zur Hand an B) von Hand über die installierte 0.11.0 ausgeführt, im vorgeschlagenen Installationsordner. Der Launcher startet den Titler wie gewohnt über die Kachel und bietet bis zum Release kein Update an. Launcher und Rundown laufen wie im Betrieb.
 - Die offenen Abnahmen 2a (`apps/rundown/ABNAHME-2a.md`), 2b Release 1 (`apps/titler/ABNAHME-2b-R1.md`) und 2b Release 2 (`packages/master-link/ABNAHME-2b.md`) laufen vorher, noch mit Titler 0.11.0, also vor der Installation des Abnahme-Baus. Laufen sie erst mit 0.12.0, gilt der Hinweis zu den offenen Abnahmen unten.
