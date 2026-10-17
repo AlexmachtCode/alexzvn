@@ -244,8 +244,10 @@ Nicht vorhanden (grep über `apps/titler/src`): kein `confirm(`, kein `prompt(`,
     wiederholt den Inhalt von `@jm/ui/base.css` und hat rohe Farben nur im Schachbrett `.cg-checker`
     (`globals.css:53-62`); `ImportDialog` nutzt `bg-black/60` (`:69`).
 11. **Ungenutzte Preload-Methoden:** `recallEntry`, `ndi.status`, `platform`.
-12. **Kein Ablageschutz außerhalb der Ablagefläche:** Drop-Handler nur auf der Fläche (Nr. 21), kein `will-navigate`
-    im Titler-Main und in app-runtime (grep). Was ein Drop anderswo bewirkt, ist **nicht gemessen**.
+12. **Kein eigener Ablageschutz außerhalb der Ablagefläche:** Drop-Handler nur auf der Fläche (Nr. 21), kein `will-navigate`
+    im Titler-Main und in app-runtime (grep). Electron 33 navigiert bei einer Ablage standardmäßig nicht
+    (`navigateOnDragDrop` Standard `false`, `node_modules/electron/electron.d.ts:17440-17443`; der Titler setzt es nicht).
+    Was ein Drop anderswo am Titler bewirkt, ist **nicht gemessen** (Abnahme Zusatz 7).
 13. **Brücke aus Spec 3.9 (nur Ist):** `jmps:verbund-anzeige` liefert Abfrage + Ereignis an alle Fenster
     (`app-runtime/verbund-ipc.ts:12-33`). Registriert wird sie in jedem Tool mit Master-Link-Client (Standard an,
     `app-runtime/index.ts:627`, `:643-650`), nach `whenReady` und nur mit Single-Instance-Lock
