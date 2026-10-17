@@ -7,4 +7,5 @@ import './werkzeug.test';
 import './oberflaeche.test';
 import './rahmen.test';
 import './live.test';
+import './panel.test';
 abschluss();

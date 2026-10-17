@@ -1,36 +1,6 @@
-// Lokale Eingaben des Titlers, unverändert aus OperatorView.tsx verschoben (UX-Pilot C9): Einstellungen.tsx und die
-// Bedienung nutzen sie gemeinsam. Field und Labeled entfallen in C11 (Panel aus @jm/settings, Inhalt aus @jm/ui); Slider
-// und ColorField bleiben, weil @jm/ui dafür keinen Baustein hat (E23).
-
-export function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}): React.JSX.Element {
-  return (
-    <label className="block">
-      <div className="text-sm font-semibold mb-1">{label}</div>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-10 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm"
-      />
-    </label>
-  );
-}
-
-export function Labeled({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <label className="block flex-1">
-      <div className="text-sm font-semibold mb-1">{label}</div>
-      {children}
-    </label>
-  );
-}
+// Lokale Eingaben des Titlers (UX-Pilot C9, C11): Slider (Ticker-Tempo, Größe) und Farbfeld (Stil), unverändert aus
+// OperatorView.tsx verschoben; @jm/ui hat dafür keinen Baustein (E23). Field und Labeled sind mit C11 entfallen: Der Inhalt
+// nutzt Field und TextInput aus @jm/ui, das Panel die Abschnitte aus @jm/settings.
 
 export function ColorField({
   label,
