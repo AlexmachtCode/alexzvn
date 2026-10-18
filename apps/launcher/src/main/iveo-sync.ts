@@ -252,15 +252,22 @@ export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<Iveo
 
 export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {
   const baseUrl = input.baseUrl?.trim() || resolveIveoBaseUrl();
+  // iveo-Paket, Spec 7.4 (E16, EP1): die genutzte Adresse normalisiert zurückgeben; der Show-Editor schreibt sie in die
+  // Bindung. normalizeIveoBaseUrl wirft bei ungültiger Eingabe (T8) — auch der Token-Fallback unten normalisiert (über
+  // den Basis-Schlüssel) und würfe außerhalb eines try. Darum zuerst und in eigenem try: Die Antwort ist dann ok:false
+  // mit dem Text statt eines IPC-Fehlers, ob das Token-Feld gefüllt ist oder leer.
+  let genutzteAdresse: string;
+  try {
+    genutzteAdresse = normalizeIveoBaseUrl(baseUrl);
+  } catch (e) {
+    getLog().warn(`iveo bind fehlgeschlagen: ${(e as Error).message}`);
+    return { ok: false, ...toClientError(e) };
+  }
   // C4: Token-Fallback wie bei discover (basis-weit gemerkter Token).
-  const token = input.token?.trim() || getIveoBaseToken(baseUrl);
+  const token = input.token?.trim() || getIveoBaseToken(genutzteAdresse);
   const event = input.event?.trim();
   if (!token || !event) return { ok: false, error: 'Token und Event erforderlich.' };
   try {
-    // iveo-Paket, Spec 7.4 (E16, EP1): die genutzte Adresse normalisiert zurückgeben; der Show-Editor schreibt sie in die
-    // Bindung. normalizeIveoBaseUrl wirft bei ungültiger Eingabe (T8) — darum erst hier im try: Die Antwort ist dann
-    // ok:false mit dem Text statt eines IPC-Fehlers.
-    const genutzteAdresse = normalizeIveoBaseUrl(baseUrl);
     const client = iveoClient(token, baseUrl);
     // Initialer Bind resilient: ein serverseitiger 500 (z. B. auf /programs) soll
     // nicht ALLES blockieren — Event + verfügbare Daten binden, Rest als Warnung.

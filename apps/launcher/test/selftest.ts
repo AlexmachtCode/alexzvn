@@ -886,10 +886,13 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   const sync = quelleLf('../src/main/iveo-sync.ts');
   const typen = quelleLf('../src/shared/types.ts');
   const binden = funktionsKoerper(sync, 'export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {');
-  const iTry = binden.indexOf('\n  try {\n');
-  const iNorm = binden.indexOf('    const genutzteAdresse = normalizeIveoBaseUrl(baseUrl);');
-  ck('P26 EP1: bindIveoEvent normalisiert die genutzte Adresse erst im try (normalizeIveoBaseUrl wirft bei ungültiger Eingabe, T8)',
-    iTry > 0 && iNorm > iTry);
+  const iNorm = binden.indexOf('    genutzteAdresse = normalizeIveoBaseUrl(baseUrl);');
+  const iCatch = binden.indexOf('    return { ok: false, ...toClientError(e) };');
+  const iToken = binden.indexOf('getIveoBaseToken(');
+  ck('P26 EP1: bindIveoEvent normalisiert die Adresse VOR dem Token-Fallback, in eigenem try mit ok:false über toClientError (T8 auch bei leerem Token-Feld)',
+    iNorm > 0 && iCatch > iNorm && iToken > iCatch && binden.includes('getIveoBaseToken(genutzteAdresse)'));
+  ck('P26 EP1: die Prüfung „gemerkter Token vorhanden?“ fängt eine Ablehnung bei ungültiger Adresse (kein Absturz, Merker false)',
+    /hasIveoBaseToken\(iveoBaseUrl\.trim\(\) \|\| undefined\)[\s\S]*?\.catch\(\(\) => \{\n        if \(!cancelled\) setIveoBaseTokenSaved\(false\);/.test(editor));
   ck('P26 7.4: … und gibt sie als baseUrl zurück',
     binden.indexOf('      baseUrl: genutzteAdresse,') > binden.indexOf('    return {\n      ok: true,'));
   ck('P26 7.4: normalizeIveoBaseUrl kommt aus @jm/iveo', /import \{[^}]*\n  normalizeIveoBaseUrl,\n[^}]*\} from '@jm\/iveo';/.test(sync));

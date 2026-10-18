@@ -125,9 +125,15 @@ export function ShowEditorModal() {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    void window.jmps.hasIveoBaseToken(iveoBaseUrl.trim() || undefined).then((has) => {
-      if (!cancelled) setIveoBaseTokenSaved(has);
-    });
+    void window.jmps
+      .hasIveoBaseToken(iveoBaseUrl.trim() || undefined)
+      .then((has) => {
+        if (!cancelled) setIveoBaseTokenSaved(has);
+      })
+      // Ungültige Adresse im Feld (Main wirft beim Normalisieren): kein gemerkter Token, kein Absturz.
+      .catch(() => {
+        if (!cancelled) setIveoBaseTokenSaved(false);
+      });
     return () => {
       cancelled = true;
     };
