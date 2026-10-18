@@ -1,0 +1,101 @@
+JM Connect – Lizenzbedingungen
+
+Stand: 18.10.2026
+Gültig für JM Connect ab Version 0.4.0 (Windows und macOS)
+
+
+1. Anbieter und Geltung
+
+1.1 JM Connect wird bereitgestellt von
+
+Jakobs Medien GmbH
+Urbanstraße 116
+10967 Berlin
+hello@jakobsmedien.com
+
+(nachfolgend „Jakobs Medien“).
+
+1.2 Diese Lizenzbedingungen gelten für jede Nutzung von JM Connect, unabhängig davon, auf welchem Weg die Software bereitgestellt oder installiert wurde.
+
+1.3 Durch die Installation, Ausführung oder Nutzung von JM Connect erklärt sich der Nutzer mit diesen Lizenzbedingungen einverstanden.
+
+
+2. Nutzungsrecht
+
+2.1 Jakobs Medien räumt Mitarbeitenden, freien Mitarbeitenden, Auftragnehmern und sonstigen von Jakobs Medien autorisierten Personen ein einfaches, nicht ausschließliches, nicht übertragbares und widerrufliches Recht ein, JM Connect im Rahmen von Produktionen von Jakobs Medien oder in deren Auftrag zu nutzen.
+
+2.2 JM Connect wird unentgeltlich zur Verfügung gestellt.
+
+2.3 Eine Weitergabe, Vermietung, Unterlizenzierung, Veröffentlichung oder sonstige Überlassung an Dritte ist ohne vorherige schriftliche Zustimmung von Jakobs Medien unzulässig.
+
+2.4 Sämtliche Rechte an JM Connect verbleiben bei Jakobs Medien, soweit in diesen Lizenzbedingungen nicht ausdrücklich etwas anderes geregelt ist.
+
+
+3. Bestandteile von NDI®
+
+3.1 JM Connect enthält Software der Vizrt NDI AB und ihrer Lizenzgeber („NDI“), insbesondere die NDI-Laufzeitbibliothek („NDI-Bestandteile“). Alle Rechte an diesen Bestandteilen verbleiben bei NDI und deren Lizenzgebern.
+
+3.2 Soweit gesetzlich zulässig, ist es untersagt,
+
+a) die NDI-Bestandteile ganz oder teilweise zu verändern;
+
+b) die NDI-Bestandteile oder die von ihnen verwendeten Protokolle durch Reverse Engineering zu analysieren, zu dekompilieren, zu disassemblieren oder anderweitig zurückzuentwickeln; dies gilt unabhängig davon, ob die Protokolle lokal, virtuell oder über Netzwerke genutzt werden; untersagt ist auch jeder Versuch dazu;
+
+c) technische Schutzmaßnahmen oder Beschränkungen der NDI-Bestandteile zu umgehen;
+
+d) Urheberrechts-, Marken- oder sonstige Schutzvermerke in oder an den NDI-Bestandteilen zu entfernen, zu verändern oder unkenntlich zu machen.
+
+3.3 Die NDI-Bestandteile werden ohne Gewährleistung durch NDI oder deren Lizenzgeber bereitgestellt, soweit gesetzlich zulässig.
+
+3.4 Soweit gesetzlich zulässig, haften NDI und deren Lizenzgeber nicht für unmittelbare oder mittelbare Schäden, Folgeschäden, entgangenen Gewinn, Datenverlust oder sonstige Schäden, die aus der Nutzung von JM Connect oder der NDI-Bestandteile entstehen.
+
+3.5 Die geltenden Export- und Sanktionsvorschriften, insbesondere der Vereinigten Staaten von Amerika, sind einzuhalten. JM Connect oder darin enthaltene Bestandteile dürfen nicht entgegen anwendbarem Exportrecht ausgeführt, reexportiert oder bereitgestellt werden.
+
+3.6 Wer JM Connect nutzt, um eigene Produkte zu entwickeln, hat die jeweils geltenden Lizenzbedingungen des NDI-SDK eigenverantwortlich einzuhalten, einschließlich einer stets aktuellen und vollständigen NDI-Kompatibilität dieser Produkte, und die Regelungen dieses Abschnitts 3 in die Lizenzbedingungen seiner eigenen Produkte zu übernehmen. Dasselbe gilt für eigene Produkte, die unter Verwendung des NDI-SDK entwickelt oder vertrieben werden.
+
+3.7 Copyright-Hinweis:
+
+NDI – Copyright © Vizrt NDI AB.
+Alle Rechte vorbehalten.
+
+Der konkrete Copyright-Vermerk richtet sich nach der jeweils mit JM Connect ausgelieferten NDI-Version.
+
+3.8 Markenhinweis:
+
+NDI® ist eine eingetragene Marke der Vizrt NDI AB.
+
+JM Connect ist kein Produkt von NDI und wird von NDI weder hergestellt, unterstützt noch empfohlen. Die Verwendung der Marke NDI dient ausschließlich der Beschreibung der Kompatibilität mit der NDI-Technologie.
+
+Weitere Informationen:
+https://ndi.video
+
+3.9 Die Lizenztexte und Hinweise zu Bestandteilen Dritter innerhalb der NDI-Laufzeitumgebung werden zusammen mit JM Connect bereitgestellt und sind Bestandteil der jeweiligen Drittanbieter-Lizenzen.
+
+
+4. Gewährleistung und Haftung von Jakobs Medien
+
+4.1 JM Connect wird unentgeltlich bereitgestellt. Soweit gesetzlich zulässig, erfolgt die Bereitstellung unter Ausschluss jeglicher Gewährleistung.
+
+4.2 Jakobs Medien haftet unbeschränkt bei Vorsatz sowie für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit.
+
+4.3 Bei grober Fahrlässigkeit haftet Jakobs Medien nach den gesetzlichen Vorschriften.
+
+4.4 Im Übrigen ist die Haftung von Jakobs Medien ausgeschlossen, soweit gesetzlich zulässig.
+
+4.5 JM Connect ist für den Einsatz in Live-Produktionen bestimmt, jedoch wird kein unterbrechungsfreier oder fehlerfreier Betrieb zugesichert. Für geeignete Backup-, Ausweich- und Notfallkonzepte ist der jeweilige Nutzer verantwortlich.
+
+
+5. Weitere Bestandteile Dritter
+
+5.1 JM Connect enthält Softwarekomponenten Dritter, einschließlich Open-Source-Software.
+
+5.2 Für diese Komponenten gelten die jeweiligen Lizenzbedingungen der Rechteinhaber.
+
+5.3 Soweit Lizenztexte oder Hinweise für Drittkomponenten mitgeliefert werden, gehen diese für den jeweiligen Bestandteil den Regelungen dieser Lizenzbedingungen vor.
+
+
+6. Schlussbestimmungen
+
+6.1 Es gilt das Recht der Bundesrepublik Deutschland unter Ausschluss des UN-Kaufrechts.
+
+6.2 Sollte eine Bestimmung dieser Lizenzbedingungen unwirksam sein, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.
