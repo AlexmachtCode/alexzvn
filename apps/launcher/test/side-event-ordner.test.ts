@@ -1408,6 +1408,93 @@ console.log('— P14 Fix-Runde 1 (Generationswechsel, K4/K6 mit Warteschlange, l
     ck('P14 Fix-Runde 2, 11.2: Anhänge da, Ordner nicht angelegt → n = Zahl der Anhänge, k = 0, nie S11',
       bei?.n === 1 && bei.k === 0 && zeileBei !== 'S11' && s2 !== undefined && s2.n === 1 && zeile !== 'S11');
   }
+  {
+    // Fix-Runde 3, Befund 1: der Takt kommt wie in der Hülle nach Kern-Abfrage und Wächter, also mit wechselnder Latenz neben dem 45-s-Raster.
+    // Runde über 270 s: nach jedem Takt liegt die genannte Zeit nicht in der Vergangenheit, K6 sagt nie „überfällig“, und jede genannte Zeit
+    // (bis auf die Toleranz eines Takts-Drittels) bekommt ihren Versuch.
+    const liste = Array.from({ length: 8 }, (_, i) => ({ id: `se-${i + 1}`, title: `Titel ${i + 1}` }));
+    const T = AttC.baueLauf({ sideEvents: liste });
+    for (const p of liste.slice(1)) {
+      T.agenda.agenden.set(p.id, () => new Promise((ok) => { T.uhr.setTimeout(() => ok(p.id === 'se-2' ? [AttC.punkt(p.id, [AttC.datei(`m-${p.id}`, 'Folien')])] : []), 60_000); }));
+    }
+    T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+    const lat = [0, 3, 1, 4, 0, 5, 2, 6, 1, 3, 0, 4, 2];
+    const t0 = T.uhr.t;
+    const mkdirs = (): number => T.fs.zaehle('mkdir', (p) => p === AttC.BASIS);
+    const genannt = new Map<number, number>(); // genannte Zeit → Zahl der Versuche, als sie zuerst genannt wurde
+    const luegen: string[] = [];
+    const leer: string[] = [];
+    for (let k = 0; k < lat.length; k++) {
+      const ziel = t0 + k * 45_000 + lat[k] * 1000;
+      while (T.uhr.t < ziel) { // die Zeile sieht der Bediener jede Sekunde, nicht nur nach dem Takt
+        await T.uhr.spule(1000, 1000);
+        const z = T.lauf.stand();
+        const zb = Date.parse(z.basis?.fehler?.naechsterVersuch ?? '');
+        if (z.basis?.fehler && (T.uhr.t - zb > 10_000 || ZeilenC.kopfzeile(z, T.uhr.t).text?.includes('überfällig'))) luegen.push(`${(T.uhr.t - t0) / 1000}:${ZeilenC.kopfzeile(z, T.uhr.t).text}`);
+      }
+      T.lauf.takt();
+      await AttC.ruhe();
+      const s = T.lauf.stand();
+      const kz = ZeilenC.kopfzeile(s, T.uhr.t);
+      const bis = Date.parse(s.basis?.fehler?.naechsterVersuch ?? '');
+      const wann = `${(T.uhr.t - t0) / 1000}:${kz.text}`;
+      if (s.basis?.fehler && (!(bis > T.uhr.t - 1000) || kz.text?.includes('überfällig'))) luegen.push(wann);
+      for (const [x, n] of genannt) if (T.uhr.t >= x - 15_000 && mkdirs() <= n) leer.push(`${(x - t0) / 1000}:${wann}`);
+      if (s.basis?.fehler && !genannt.has(bis)) genannt.set(bis, mkdirs());
+    }
+    ck('P14 Fix-Runde 3, 11.1 K6: Takt mit wechselnder Latenz, lange Runde → nie eine vergangene Zeit, nie T59 bei laufender Runde', luegen.length === 0);
+    ck('P14 Fix-Runde 3, 11.1 K6: Takt mit wechselnder Latenz → jeder genannten Zeit folgt ein Versuch', leer.length === 0 && genannt.size > 1);
+  }
+  {
+    // Fix-Runde 3, Befund 3: kurze Runde, Takte 1 s nach dem Raster (erster 2 s): der Rundenstart bei „gegen“ macht den Versuch, auch wenn
+    // der Takt ein paar Sekunden vor der genannten Zeit liegt.
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }] });
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [AttC.datei('m-2', 'Folien')])]);
+    T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+    const t0 = T.uhr.t;
+    const mkdirs = (): number => T.fs.zaehle('mkdir', (p) => p === AttC.BASIS);
+    await T.uhr.spule(2000, 1000);
+    await T.takt([]);
+    const gegen = Date.parse(T.lauf.stand().basis?.fehler?.naechsterVersuch ?? '');
+    const davor = mkdirs();
+    let vorbei = -1;
+    for (let k = 1; k <= 8 && vorbei < 0; k++) {
+      await T.uhr.spule(t0 + k * 45_000 + 1000 - T.uhr.t, 1000);
+      await T.takt([]);
+      if (T.uhr.t >= gegen - 15_000 && mkdirs() > davor) vorbei = k;
+    }
+    ck('P14 Fix-Runde 3, 9.4/Nr. 29: Takt kurz vor der genannten Zeit → der Versuch kommt in diesem Takt, nicht erst einen Takt später',
+      vorbei > 0 && t0 + vorbei * 45_000 + 1000 < gegen + 1000);
+  }
+  {
+    // Fix-Runde 3, Befund 2: K6 verschwindet auf einem anderen Weg (Basisordner von außen angelegt, Sperre geschrieben) → die Ablage bleibt nicht
+    // für die Sitzung stehen: der Ordner von se-2 entsteht, K9 und die Zeile von se-2 stimmen.
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }] });
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [AttC.datei('m-2', 'Folien')])]);
+    T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+    await T.takt([]);
+    T.fs.regelnLoeschen();
+    T.fs.ordner(AttC.BASIS);
+    for (let k = 1; k <= 12; k++) { await T.uhr.spule(45_000, 45_000); await T.takt([]); }
+    const s2 = T.se('se-2');
+    ck('P14 Fix-Runde 3, 11.2: K6 verschwindet auf anderem Weg (Basisordner von außen) → der Ordner von se-2 entsteht', s2?.existiert === true && s2.ordnerName !== null);
+  }
+  {
+    // Fix-Runde 3, Befund 2: K6, Schalter aus und wieder an (9.14), danach Rechte behoben → der Basisordner entsteht, der Eintrag wird abgelegt.
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }] });
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [AttC.datei('m-2', 'Folien')])]);
+    T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+    await T.takt([]);
+    T.z.schalter = false;
+    await T.uhr.spule(45_000, 45_000); await T.takt([]);
+    T.z.schalter = true;
+    await T.uhr.spule(45_000, 45_000); await T.takt([]);
+    T.fs.regelnLoeschen();
+    for (let k = 0; k < 10; k++) { await T.uhr.spule(45_000, 45_000); await T.takt([]); }
+    const s2 = T.se('se-2');
+    ck('P14 Fix-Runde 3, 9.14: Schalter aus und an, danach Rechte behoben → der Basisordner entsteht und se-2 wird abgelegt',
+      T.fs.gibt(AttC.BASIS) !== undefined && s2?.existiert === true && s2.ordnerName !== null);
+  }
 }
 function s0(T: ReturnType<typeof AttC.baueLauf>): string | undefined { return T.lauf.stand().basis?.fehler?.code; }
 

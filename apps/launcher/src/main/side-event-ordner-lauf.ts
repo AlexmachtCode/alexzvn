@@ -500,8 +500,10 @@ function naechsteSchritte(L: Lauf, a: { path: string; event: string; filter: Ive
     L.kopf.runde = L.runde ? { i: 1, n: L.runde.n } : null;
   }
   // Basisordner nicht anlegbar: der Takt wiederholt den Versuch zur genannten Zeit (zu „gegen“, danach in jedem Takt), die Zeile nennt nie eine Zeit ohne Versuch (11.1)
+  // Der Takt kommt nach Kern-Abfrage und Wächter und schwankt um die Netz-Latenz: ein Drittel Takt Toleranz (wie der Rundenstart), sonst fiele der Versuch einen Takt später.
+  // Ist der Fehler aus der Kopfzeile verschwunden (andere Prüfung, Sperre, K3), gibt es nichts mehr abzuwarten: der Versuch gilt sofort, sonst bliebe die Ablage stehen.
   const bf = L.kopf.basis?.fehler;
-  if (L.basisFehlerBis !== null && jetzt >= L.basisFehlerBis && bf && !bf.sperre && !L.basisVersuch) {
+  if (L.basisFehlerBis !== null && !bf?.sperre && !L.basisVersuch && (!bf || jetzt + Math.floor(L.taktMs / 3) >= L.basisFehlerBis)) {
     const basis = basisPfad(a);
     const gen = L.gen;
     if (basis) {
