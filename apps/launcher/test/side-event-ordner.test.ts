@@ -1588,6 +1588,256 @@ console.log('— P14 Fix-Runde 1 (Generationswechsel, K4/K6 mit Warteschlange, l
 }
 function s0(T: ReturnType<typeof AttC.baueLauf>): string | undefined { return T.lauf.stand().basis?.fehler?.code; }
 
+// ── Block C · P15: Datenstrom in Datei, Download-Client ohne Zeitgrenze (Spec 9.6, E29, E46) ─────────────────────
+import { createServer as serverC, type AddressInfo as AdresseC } from 'node:http';
+import * as HuelleC from '../src/main/iveo-huelle-hilfen';
+
+console.log('— P15 Datenstrom in Datei, Download ohne Zeitgrenze (Spec 9.6)');
+{
+  const ORDNER = pathC.join(AttC.BASIS, 'Klima');
+  const MIB = 1024 ** 2;
+  const GIB = 1024 ** 3;
+  const mitAnhang = (...ms: MaterialC[]) => [AttC.punkt('se-1', ms)];
+  const grund = (T: ReturnType<typeof AttC.baueLauf>, id = 'se-1'): string | undefined =>
+    (T.se(id)?.probleme.find((p) => p.art === 'grund') as { grund?: string } | undefined)?.grund;
+  const reste = (fs: AttC.FsAttrappe): string[] => fs.namen(ORDNER).filter((n) => n.endsWith('.jm-laden'));
+
+  {
+    // ladeStromInDatei allein: Stücke, Grenze, sync vor close, Fortschritt
+    const fs = new AttC.FsAttrappe('NTFS');
+    fs.ordner(ORDNER);
+    const uhr = new AttC.TestUhr();
+    const T = AttC.baueLauf({ fs, uhr });
+    T.download.arten.set('r', { bytes: 3000, stuecke: 3 });
+    const strom = (await T.download.oeffneAsset('r')).body;
+    const fortschritte: number[] = [];
+    const r = await LaufC.ladeStromInDatei(fs, strom, pathC.join(ORDNER, '.x.1.jm-laden'), {
+      grenze: 3000, leerlaufMs: 60_000, signal: new AbortController().signal, jetzt: uhr.jetzt, setTimeout: uhr.setTimeout, clearTimeout: uhr.clearTimeout,
+      fortschritt: (b) => fortschritte.push(b),
+    });
+    const folge = fs.protokoll.filter((x) => x.p.endsWith('.jm-laden')).map((x) => x.op).join(',');
+    ck('P15 9.6: ladeStromInDatei schreibt Stück für Stück in eine neue Datei (wx), sync vor close, meldet den Fortschritt',
+      r.bytes === 3000 && fs.inhalt(pathC.join(ORDNER, '.x.1.jm-laden'))?.length === 3000 && folge === 'open,write,write,write,sync,close' && fortschritte.join(',') === '1000,2000,3000');
+    const z2 = pathC.join(ORDNER, '.x.2.jm-laden');
+    const e = await LaufC.ladeStromInDatei(fs, (await T.download.oeffneAsset('r')).body, z2, {
+      grenze: 2500, leerlaufMs: 60_000, signal: new AbortController().signal, jetzt: uhr.jetzt, setTimeout: uhr.setTimeout, clearTimeout: uhr.clearTimeout,
+    }).then(() => null, (x: unknown) => x);
+    ck('P15 9.6: mehr Bytes als die Grenze → Abbruch mit Grund zu-gross, bevor das Stück geschrieben ist; die Zwischendatei löscht der Aufrufer',
+      e instanceof LaufC.StromFehler && e.grund === 'zu-gross' && fs.inhalt(z2)?.length === 2000);
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(AttC.datei('m-1', 'Bericht', { size: 2 * GIB + 1 })));
+    ck('P15 12.4 Nr. 20: size_bytes über 2 GiB → nicht geladen, Grund T22 (a), Log T23',
+      T.download.aufrufe.length === 0 && grund(T) === 'zu groß (2048 MB, Grenze 2048 MB)'
+      && T.logs.includes('warn iveo-Ordner: „Bericht.pdf“ nicht geladen: zu groß (2048 MB, Grenze 2048 MB) (size_bytes 2147483649).'));
+  }
+  {
+    const T = AttC.baueLauf();
+    T.fs.ordner(ORDNER);
+    T.fs.kapazitaet = T.fs.belegt() + GIB + 999;
+    await T.takt(mitAnhang(AttC.datei('m-1', 'Bericht', { size: 1000 })));
+    ck('P15 12.4 Nr. 20: weniger als Größe + 1 GiB frei → nicht geladen, T22 (c) mit freiem Platz',
+      T.download.aufrufe.length === 0 && grund(T) === 'zu wenig Speicherplatz (frei 1024 MB)');
+  }
+  {
+    const T = AttC.baueLauf();
+    T.fs.ordner(ORDNER);
+    T.fs.statfsFehler = 'EIO';
+    await T.takt(mitAnhang(AttC.datei('m-1', 'Bericht')));
+    ck('P15 12.4 Nr. 20: statfs scheitert → nicht geladen, T22 (d)', T.download.aufrufe.length === 0 && grund(T) === 'Speicherplatz nicht prüfbar (EIO)');
+  }
+  {
+    const T = AttC.baueLauf();
+    T.fs.ordner(ORDNER);
+    T.fs.kapazitaet = T.fs.belegt() + GIB + 32 * MIB;
+    const m = AttC.datei('m-1', 'Video', { size: null, mime: 'video/mp4' });
+    T.download.arten.set(m.asset!.url, { bytes: 100 * MIB, stuecke: 100 });
+    await T.takt(mitAnhang(m));
+    ck('P15 12.4 Nr. 20: ohne size_bytes fällt der Platz beim Laden unter 1 GiB (Prüfung je 64 MiB) → Abbruch, Zwischendatei weg',
+      grund(T) === 'zu wenig Speicherplatz (frei 992 MB)' && reste(T.fs).length === 0 && !T.fs.gibt(pathC.join(ORDNER, 'Video.mp4')));
+  }
+  {
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht', { size: 5 * MIB });
+    T.download.arten.set(m.asset!.url, { bytes: 6 * MIB, stuecke: 6 });
+    await T.takt(mitAnhang(m));
+    ck('P15 12.4 Nr. 20: mehr Bytes als size_bytes → Abbruch „mehr Daten als angekündigt“, Zwischendatei gelöscht',
+      grund(T) === 'mehr Daten als angekündigt (5 MB)' && reste(T.fs).length === 0 && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')));
+    ck('P15 9.6, E29: die Grenze gilt schon während des Ladens – nie mehr als size_bytes in der Zwischendatei',
+      (T.fs.geschriebenJe.get(pathC.join(ORDNER, '.m-1.4711.jm-laden')) ?? 0) === 5 * MIB);
+  }
+  {
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht', { size: 1000 });
+    const ziel = pathC.join(ORDNER, 'Bericht.pdf');
+    let zielWaehrend = false;
+    T.download.arten.set(m.asset!.url, { bytes: 1000, stuecke: 10, stillstandNach: 500, beiStueck: () => { zielWaehrend ||= T.fs.gibt(ziel); } });
+    T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(m), abgerufen: new Date(T.uhr.t).toISOString() });
+    T.lauf.takt();
+    await AttC.ruhe();
+    const laedt = T.se('se-1')?.laedt;
+    const resteWaehrend = reste(T.fs).length;
+    await T.uhr.spule(59_000, 1_000);
+    const nochDa = reste(T.fs).length;
+    await T.uhr.spule(1_000, 1_000);
+    await T.lauf.ruhig();
+    ck('P15 12.4 Nr. 21: Stillstand → nach 59 s noch kein Abbruch, nach 60 s abgebrochen, Grund T22 (e), Zwischendatei weg',
+      resteWaehrend === 1 && nochDa === 1 && grund(T) === 'keine Daten seit 60 s, abgebrochen' && reste(T.fs).length === 0);
+    ck('P15 12.4 Nr. 21: während Bytes flossen, existierte der Zielname nie; der Stand zeigte den laufenden Download (S5)',
+      !zielWaehrend && !T.fs.angelegt.has(ziel) && laedt?.datei === 'Bericht.pdf' && laedt.bytes === 500 && laedt.groesse === 1000);
+  }
+  {
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht', { size: 1000 });
+    T.download.arten.set(m.asset!.url, { oeffnenHaengt: true });
+    T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(m), abgerufen: new Date(T.uhr.t).toISOString() });
+    T.lauf.takt();
+    await AttC.ruhe();
+    await T.uhr.spule(59_000, 1_000);
+    const nochOffen = T.g.jetzt === 1;
+    await T.uhr.spule(1_000, 1_000);
+    await AttC.ruhe();
+    ck('P15 9.6: Leerlauf-Grenze auch vor dem ersten Byte (oeffneAsset antwortet nicht) → nach 60 s abgebrochen, T22 (e), kein Rest',
+      nochOffen && T.g.jetzt === 0 && grund(T) === 'keine Daten seit 60 s, abgebrochen' && reste(T.fs).length === 0);
+  }
+  {
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht', { size: 1000 });
+    T.download.arten.set(m.asset!.url, { bytes: 600, stuecke: 2 });
+    await T.takt(mitAnhang(m));
+    ck('P15 12.4 Nr. 22: zu wenige Bytes → Fehler T22 (f), Zwischendatei gelöscht, keine Datei unter dem Zielnamen',
+      grund(T) === 'unvollständig (600 von 1000 Bytes)' && reste(T.fs).length === 0 && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')));
+    ck('P15 9.6, 11.2: nach dem Fehlschlag kein „lädt …“ mehr (laedt null) – die Zeile zeigt das Problem (S13), nicht S5',
+      T.se('se-1')?.laedt === null && ZeilenC.ordnerZeile(T.se('se-1'), T.uhr.t).fall === 'S13');
+  }
+  {
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht', { size: 4000 });
+    T.download.arten.set(m.asset!.url, { bytes: 4000, stuecke: 4 });
+    T.fs.fehlerBei('write', (p) => p.endsWith('.jm-laden'), 'ENOSPC', 1, 2);
+    const rest: number[] = [];
+    T.fs.vor('statfs', () => rest.push(T.fs.alleDateien().filter((f) => f.pfad.endsWith('.jm-laden')).reduce((n, f) => n + f.inhalt.length, 0)));
+    await T.takt(mitAnhang(m));
+    const g1 = grund(T);
+    const leer = reste(T.fs).length === 0;
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt(mitAnhang(m));
+    ck('P15 12.4 Nr. 38: ENOSPC mitten im Strom → Zwischendatei gelöscht, Grund „Schreibfehler (ENOSPC)“',
+      g1 === 'Schreibfehler (ENOSPC)' && leer);
+    ck('P15 12.4 Nr. 38: die nächste Platzprüfung misst ohne Rest (keine Zwischendatei mehr belegt), der zweite Versuch gelingt',
+      rest.join(',') === '0,0' && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 4000);
+  }
+  {
+    // Nr. 28 (Download-Teil): der Download des aktiven Side Events dauert drei Takte → genau ein Download
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht', { size: 1200 });
+    T.download.arten.set(m.asset!.url, { bytes: 1200, stuecke: 12, wartenMs: 10_000 });
+    for (let i = 0; i < 4; i++) {
+      T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(m), abgerufen: new Date(T.uhr.t).toISOString() });
+      T.lauf.takt();
+      await AttC.ruhe();
+      await T.uhr.spule(45_000, 1_000);
+    }
+    await T.lauf.ruhig();
+    ck('P15 12.4 Nr. 28: Download des aktiven Side Events über drei Takte → genau ein Download, die Datei liegt da',
+      T.download.aufrufe.length === 1 && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1200);
+  }
+  {
+    // Nr. 28: Vorrang nach dem laufenden Schritt, S6 nur für das aktive Side Event
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }, { id: 'se-3', title: 'Wald' }] });
+    const f1 = AttC.datei('m-21', 'Folien eins');
+    const f2 = AttC.datei('m-22', 'Folien zwei');
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [f1, f2])]);
+    T.agenda.agenden.set('se-3', [AttC.punkt('se-3', [AttC.datei('m-31', 'Wald')])]);
+    T.download.arten.set(f1.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 1_000 });
+    const a1 = AttC.datei('m-11', 'Klima');
+    T.lauf.takt();
+    await AttC.ruhe();
+    await T.uhr.spule(3_000, 1_000);
+    T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(a1), abgerufen: new Date(T.uhr.t).toISOString() });
+    T.lauf.takt();
+    await AttC.ruhe();
+    const s1 = T.se('se-1');
+    const s3 = T.se('se-3');
+    ck('P15 12.4 Nr. 28: aktives Side Event wartet hinter dem Download eines anderen → wartetHinter (S6) mit dessen Datei',
+      s1?.wartetHinter === 'Folien eins.pdf' && T.se('se-2')?.laedt?.datei === 'Folien eins.pdf');
+    ck('P15 12.4 Nr. 28: ein nicht aktives wartendes Side Event zeigt nicht S6 (wartetHinter leer)', s3 !== undefined && s3.wartetHinter === null);
+    await T.uhr.spule(10_000, 1_000);
+    await T.lauf.ruhig();
+    const reihe = T.download.aufrufe.map((r) => (r === f1.asset!.url ? 'se-2/1' : r === f2.asset!.url ? 'se-2/2' : r === a1.asset!.url ? 'se-1' : 'se-3'));
+    ck('P15 12.4 Nr. 28: der laufende Download wird nicht abgebrochen; das aktive läuft danach, vor dem nächsten Schritt des anderen',
+      reihe.join(',') === 'se-2/1,se-1,se-2/2,se-3' && T.g.max === 1);
+  }
+  {
+    // Nr. 23 (Download-Teil): Show-Wechsel mitten im Download
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht');
+    T.download.arten.set(m.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 1_000 });
+    T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(m), abgerufen: new Date(T.uhr.t).toISOString() });
+    T.lauf.takt();
+    await AttC.ruhe();
+    await T.uhr.spule(3_000, 1_000);
+    const lief = reste(T.fs).length === 1;
+    T.z.aktiv = { path: pathC.join(AttC.ROOT, 'Shows', 'Andere.jmshow'), event: 'cop31', filter: {} };
+    T.lauf.sitzung();
+    await T.lauf.ruhig();
+    ck('P15 12.4 Nr. 23: Show-Wechsel mitten im Download → abgebrochen, Zwischendatei gelöscht, Warteschlange leer',
+      lief && reste(T.fs).length === 0 && T.g.jetzt === 0 && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')));
+    ck('P15 12.4 Nr. 23: … kein Fehler, kein Log, kein Status (Grund „bedienung“)',
+      !T.logs.some((z) => z.startsWith('warn')) && T.lauf.stand().sideEvents.length === 0);
+  }
+  {
+    // Nr. 47: echter Download-Client gegen 127.0.0.1, Leerlauf-Grenze 1 s
+    let anfragen = 0;
+    const server = serverC((req, res) => {
+      anfragen++;
+      const art = (req.url ?? '').split('/').pop();
+      res.writeHead(200, { 'content-type': 'application/octet-stream' });
+      const sende = (n: number, ms: number, nach?: () => void): void => {
+        let i = 0;
+        const h = setInterval(() => {
+          if (res.destroyed) { clearInterval(h); return; }
+          res.write(Buffer.alloc(100, 0x61));
+          if (++i === n) { clearInterval(h); if (nach) nach(); else res.end(); }
+        }, ms);
+      };
+      if (art === 'strom') sende(15, 200);
+      else if (art === 'stockt') sende(2, 100, () => { setTimeout(() => { if (!res.destroyed) res.end(); }, 1_500); });
+      else sende(40, 100);
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const basis = `http://127.0.0.1:${(server.address() as AdresseC).port}/api/v1`;
+    const client = HuelleC.iveoDownloadClient(AttC.TOKEN, basis, fetch);
+    {
+      const T = AttC.baueLauf({ echteZeit: true, leerlaufMs: 1_000, downloadClient: client });
+      await T.takt(mitAnhang(AttC.datei('m-1', 'Bericht', { ref: 'strom', size: 1500 })));
+      ck('P15 12.4 Nr. 47: echter fetch, Strom über 3 s mit 0,2-s-Pausen, Leerlauf 1 s → Download gelingt',
+        T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1500 && grund(T) === undefined);
+    }
+    {
+      const T = AttC.baueLauf({ echteZeit: true, leerlaufMs: 1_000, downloadClient: client });
+      await T.takt(mitAnhang(AttC.datei('m-1', 'Bericht', { ref: 'stockt', size: 300 })));
+      ck('P15 12.4 Nr. 47: Server stockt nach 200 Bytes 1,5 s → Abbruch „keine Daten …“, Zwischendatei gelöscht',
+        grund(T) === 'keine Daten seit 60 s, abgebrochen' && reste(T.fs).length === 0 && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')));
+    }
+    {
+      anfragen = 0;
+      const T = AttC.baueLauf({ echteZeit: true, leerlaufMs: 1_000, downloadClient: client });
+      T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(AttC.datei('m-1', 'Bericht', { ref: 'lang', size: 4000 })), abgerufen: new Date().toISOString() });
+      T.lauf.takt();
+      await new Promise((r) => setTimeout(r, 500));
+      T.lauf.sitzung();
+      await T.lauf.ruhig();
+      await new Promise((r) => setTimeout(r, 200));
+      ck('P15 12.4 Nr. 47: Abbruch durch den Aufrufer nach 0,5 s → genau ein Abruf, kein Fehler, Zwischendatei gelöscht',
+        anfragen === 1 && !T.logs.some((z) => z.startsWith('warn')) && reste(T.fs).length === 0);
+    }
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

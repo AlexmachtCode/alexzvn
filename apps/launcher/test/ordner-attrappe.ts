@@ -3,7 +3,7 @@
 // und test/side-event-ordner-echt.test.ts (tsx). Annahmen über APFS und HFS+/SMB stehen am Profil.
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import type { IveoAgendaItem, IveoClient, IveoMaterial, IveoProgramFilter } from '@jm/iveo';
+import type { IveoAgendaItem, IveoAssetStrom, IveoClient, IveoMaterial, IveoProgramFilter } from '@jm/iveo';
 import { serializeShow, type Show, type ShowIveoProgramRef } from '@jm/show';
 import type { AnhangOrdnerStand, VerbundRolle } from '../src/shared/types';
 import type { AgendaErgebnis } from '../src/main/iveo-anhaenge';
@@ -386,6 +386,71 @@ export class AgendaAttrappe implements Pick<IveoClient, 'listAgendaItems'> {
   }
 }
 
+/** Wie ein Download sich verhält (12.4 Kopf „Download-Attrappe“). */
+export interface StromArt {
+  /** Länge der Daten (Standard 1000 Bytes, alle „a“). */
+  bytes?: number;
+  /** In so viele Stücke (Standard 1). */
+  stuecke?: number;
+  /** Die Testuhr rückt je Stück so weit vor (Standard 0). */
+  msJeStueck?: number;
+  /** Nach so vielen Bytes kommt nichts mehr (Stillstand, bis abgebrochen). */
+  stillstandNach?: number;
+  /** oeffneAsset wirft diesen Fehler. */
+  fehler?: unknown;
+  /** Nach jedem Stück (z. B. „fremde Datei taucht auf“). */
+  beiStueck?(gesendet: number): void;
+  /** oeffneAsset antwortet nicht (keine Kopfzeilen), bis das Signal abbricht. */
+  oeffnenHaengt?: boolean;
+  /** Jedes Stück kommt erst, wenn die Testuhr so weit vorgerückt ist (Download über mehrere Takte). */
+  wartenMs?: number;
+}
+
+export class DownloadAttrappe implements Pick<IveoClient, 'oeffneAsset'> {
+  arten = new Map<string, StromArt>();
+  aufrufe: string[] = [];
+  private g: Gleichzeitig;
+  private uhr: TestUhr;
+  constructor(g: Gleichzeitig, uhr: TestUhr) {
+    this.g = g;
+    this.uhr = uhr;
+  }
+  async oeffneAsset(ref: string, opts: { signal?: AbortSignal } = {}): Promise<IveoAssetStrom> {
+    this.aufrufe.push(ref);
+    const v = this.arten.get(ref) ?? {};
+    this.g.beginne();
+    let offen = true;
+    const fertig = (): void => {
+      if (offen) { offen = false; this.g.ende(); }
+    };
+    if (v.fehler !== undefined) { fertig(); throw v.fehler; }
+    if (v.oeffnenHaengt) {
+      await new Promise<never>((_ok, nein) => opts.signal?.addEventListener('abort', () => { fertig(); nein(Object.assign(new Error('aborted'), { name: 'AbortError' })); }));
+    }
+    const gesamt = v.bytes ?? 1000;
+    const groesse = Math.max(1, Math.ceil(gesamt / (v.stuecke ?? 1)));
+    let gesendet = 0;
+    const uhr = this.uhr;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(c) {
+        if (v.stillstandNach !== undefined && gesendet >= v.stillstandNach) return new Promise<void>(() => undefined);
+        if (gesendet >= gesamt) { fertig(); c.close(); return; }
+        if (v.wartenMs) await new Promise<void>((ok) => uhr.setTimeout(ok, v.wartenMs as number));
+        if (!offen) return;
+        const n = Math.min(groesse, gesamt - gesendet);
+        if (v.msJeStueck) uhr.t += v.msJeStueck;
+        c.enqueue(new Uint8Array(n).fill(0x61));
+        gesendet += n;
+        v.beiStueck?.(gesendet);
+      },
+      cancel() { fertig(); },
+    }, { highWaterMark: 0 });
+    const antwort = { body, contentType: 'application/octet-stream', contentLength: gesamt };
+    MITSCHRIFT.antworten.push({ contentType: antwort.contentType, contentLength: antwort.contentLength });
+    return antwort;
+  }
+}
+
 // ── Fixtures ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export const ROOT = path.resolve('/attrappe');
@@ -435,6 +500,8 @@ export interface LaufOpt {
   fs?: FsAttrappe; uhr?: TestUhr; g?: Gleichzeitig; rechner?: string; pid?: number;
   sideEvents?: ShowIveoProgramRef[]; filter?: IveoProgramFilter; tage?: Record<string, string>; titel?: Record<string, string>;
   leerlaufMs?: number; downloadClient?: Pick<IveoClient, 'oeffneAsset'>; ohneShowDatei?: boolean;
+  /** Echte Uhr und echte Zeitgeber (Download über echtes fetch, 12.4 Nr. 47). */
+  echteZeit?: boolean;
 }
 
 export function baueLauf(o: LaufOpt = {}) {
@@ -447,14 +514,18 @@ export function baueLauf(o: LaufOpt = {}) {
     rolle: 'aus' as VerbundRolle, token: true, schalter: true,
   };
   const agenda = new AgendaAttrappe(g);
+  const download = new DownloadAttrappe(g, uhr);
   const logs: string[] = [];
   const staende: AnhangOrdnerStand[] = [];
   const rechner = o.rechner ?? 'REGIE-1';
   const d: OrdnerLaufAbh = {
-    fs, jetzt: uhr.jetzt, setTimeout: uhr.setTimeout, clearTimeout: uhr.clearTimeout,
+    fs,
+    jetzt: o.echteZeit ? () => Date.now() : uhr.jetzt,
+    setTimeout: o.echteZeit ? (fn, ms) => setTimeout(fn, ms) : uhr.setTimeout,
+    clearTimeout: o.echteZeit ? (h) => clearTimeout(h as ReturnType<typeof setTimeout>) : uhr.clearTimeout,
     aktiv: () => z.aktiv, rolle: () => z.rolle, tokenDa: () => z.token, schalterAn: () => z.schalter,
     tagVon: (id) => o.tage?.[id] ?? null, titelVon: (id) => o.titel?.[id] ?? null,
-    agendaClient: () => agenda, downloadClient: () => o.downloadClient ?? null,
+    agendaClient: () => agenda, downloadClient: () => o.downloadClient ?? download,
     rechner, pid: o.pid ?? 4711, neueSitzungsKennung: () => `sitzung-${++SITZUNGEN}`,
     log: { info: (m) => logs.push(`info ${m}`), warn: (m) => logs.push(`warn ${m}`) },
     melde: (s) => staende.push(JSON.parse(JSON.stringify(s)) as AnhangOrdnerStand),
@@ -464,7 +535,7 @@ export function baueLauf(o: LaufOpt = {}) {
   MITSCHRIFT.logs.push(logs);
   MITSCHRIFT.staende.push(staende);
   return {
-    lauf, d, fs, uhr, g, z, agenda, logs, staende,
+    lauf, d, fs, uhr, g, z, agenda, download, logs, staende,
     /** Ein Takt wie die Hülle: Agenda des aktiven Side Events melden (8.2), dann takt(), dann warten, bis alles ruht. */
     async takt(aktivAgenda?: IveoAgendaItem[] | Error): Promise<void> {
       const id = z.aktiv?.filter.programId;

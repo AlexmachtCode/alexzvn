@@ -10,11 +10,12 @@
 import path from 'node:path';
 import { parseShow, type Show, type ShowIveoProgramRef } from '@jm/show';
 import type { IveoClient, IveoProgramFilter } from '@jm/iveo';
-import type { AnhangOrdnerStand, SideEventOrdnerStand, VerbundRolle } from '@shared/types';
-import { pruefeAnhaenge, type AgendaErgebnis } from './iveo-anhaenge';
+import type { AnhangOrdnerStand, OrdnerProblem, SideEventOrdnerStand, VerbundRolle } from '@shared/types';
+import { pruefeAnhaenge, type AgendaErgebnis, type GueltigerAnhang } from './iveo-anhaenge';
 import { auffrischenFaellig, IVEO_ABFRAGE_TAKT_MS, naechsterFaelligerTakt } from './iveo-huelle-hilfen';
 import {
-  ablageMenge, ablageTag, freierName, ohneAdressen, ordnerFehlerText, ordnerPfad, sperreBewerten, SPERR_DATEI, vergleichsform,
+  ablageMenge, ablageTag, freierName, megabyte, ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, ordnerPfad, planeSideEvent, sperreBewerten,
+  SPERR_DATEI, vergleichsform, type OrdnerDatei, type PlanSchritt,
 } from './side-event-ordner';
 import { fehlerCode } from './verbund/fehlercode';
 
@@ -80,10 +81,107 @@ export const LAUF_TEXTE = {
   /** T75 */
   sperreNichtGeloescht: (ordner: string, code: string): string =>
     `iveo-Ordner: Sperrdatei in „${ordner}“ nicht gelöscht (${code}); ein anderer Rechner übernimmt die Ablage erst nach 15 Minuten.`,
+  /** T23 */
+  nichtGeladen: (datei: string, grund: string, roh: string): string => `iveo-Ordner: „${datei}“ nicht geladen: ${grund} (${roh}).`,
   /** T25 */
   agendaNichtAbrufbar: (titel: string, grund: string, roh: string): string => `iveo-Ordner: Agenda von „${titel}“ nicht abrufbar: ${grund} (${roh}).`,
   // ── Ende der Texte ──
 } as const;
+
+const GIB = 1024 ** 3;
+const GRENZE = 2 * GIB;
+const PLATZ_SCHRITT = 64 * 1024 ** 2;
+
+/** Abbruch beim Lesen des Datenstroms mit Grund (9.6). */
+export class StromFehler extends Error {
+  readonly grund: 'leerlauf' | 'bedienung' | 'zu-gross' | 'platz';
+  constructor(grund: 'leerlauf' | 'bedienung' | 'zu-gross' | 'platz') {
+    super(grund);
+    this.name = 'StromFehler';
+    this.grund = grund;
+  }
+}
+
+/** Fehler mit fertigem Grund aus T22 (Status) und einer kurzen Rohmeldung für das Log (T23). */
+class GrundFehler extends Error {
+  readonly roh: string;
+  constructor(grund: string, roh: string) {
+    super(grund);
+    this.name = 'GrundFehler';
+    this.roh = roh;
+  }
+}
+
+
+/**
+ * Datenstrom stückweise in eine neue Datei (`wx`), mit eigener Leerlauf-Uhr (60 s ohne Daten, auch vor dem ersten Byte),
+ * Grenze, Platzprüfung je 64 MiB und `sync()` vor dem Schließen (9.6). Wirft `StromFehler` mit Grund oder den
+ * Dateisystemfehler; die Zwischendatei löscht der Aufrufer (jeder Fehler, 9.6).
+ */
+export async function ladeStromInDatei(
+  fs: OrdnerFs,
+  strom: ReadableStream<Uint8Array>,
+  ziel: string,
+  o: {
+    grenze: number; leerlaufMs: number; signal: AbortSignal; jetzt(): number;
+    setTimeout(fn: () => void, ms: number): unknown; clearTimeout(h: unknown): void;
+    platzReicht?(geschrieben: number): Promise<boolean>; fortschritt?(bytes: number): void;
+  },
+): Promise<{ bytes: number }> {
+  const reader = strom.getReader();
+  let fh: Awaited<ReturnType<OrdnerFs['open']>> | null = null;
+  const lies = (): Promise<ReadableStreamReadResult<Uint8Array>> =>
+    new Promise((ok, nein) => {
+      let fertig = false;
+      const ende = (): void => {
+        fertig = true;
+        o.clearTimeout(h);
+        o.signal.removeEventListener('abort', ab);
+      };
+      const ab = (): void => {
+        if (fertig) return;
+        ende();
+        nein(new StromFehler('bedienung'));
+      };
+      const h = o.setTimeout(() => {
+        if (fertig) return;
+        ende();
+        nein(new StromFehler('leerlauf'));
+      }, o.leerlaufMs);
+      if (o.signal.aborted) return ab();
+      o.signal.addEventListener('abort', ab);
+      reader.read().then(
+        (r) => { if (!fertig) { ende(); ok(r); } },
+        (e: unknown) => { if (!fertig) { ende(); nein(o.signal.aborted ? new StromFehler('bedienung') : e); } },
+      );
+    });
+  try {
+    fh = await fs.open(ziel, 'wx');
+    let bytes = 0;
+    let naechstePruefung = PLATZ_SCHRITT;
+    for (;;) {
+      const r = await lies();
+      if (r.done) break;
+      const stueck = r.value;
+      if (bytes + stueck.byteLength > o.grenze) throw new StromFehler('zu-gross');
+      await fh.write(stueck);
+      bytes += stueck.byteLength;
+      o.fortschritt?.(bytes);
+      if (o.platzReicht && bytes >= naechstePruefung) {
+        if (!(await o.platzReicht(bytes))) throw new StromFehler('platz');
+        naechstePruefung += PLATZ_SCHRITT;
+      }
+    }
+    await fh.sync();
+    return { bytes };
+  } catch (e) {
+    void reader.cancel().catch(() => undefined);
+    throw e;
+  } finally {
+    if (fh) await fh.close().catch(() => undefined);
+  }
+}
+
 
 // ── Zustand ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -92,6 +190,7 @@ interface Eintrag { programId: string; agenda: AgendaErgebnis | null; aktiv: boo
 /** Je Side Event im Speicher dieser Sitzung (neben dem Stand für den Renderer). */
 interface SeIntern {
   stand: SideEventOrdnerStand;
+  logGrund: Map<string, string>;
   letzterAgendaText: string | null;
 }
 
@@ -124,6 +223,7 @@ interface Lauf {
   abrufOffen: Promise<void> | null;
   nachlauf: Map<string, Eintrag>;
   arbeiterGen: number | null;
+  download: { programId: string; datei: string } | null;
   rundeStartMs: number | null;
   runde: { offen: Set<string>; n: number; erledigt: number } | null;
   menge: string[];
@@ -154,7 +254,7 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     d, fs: d.fs, taktMs: d.taktMs ?? IVEO_ABFRAGE_TAKT_MS, leerlaufMs: d.leerlaufMs ?? 60_000,
     gen: 0, abbruch: new AbortController(), sitzung: d.neueSitzungsKennung(), gehalten: null, darf: false,
     abgesetzt: false, beendet: false, beschaeftigt: 0, warter: [], taktLaeuft: false, statLaeuft: false, sperreLoeschen: null,
-    aktivAgenda: null, queue: [], laeuft: null, abrufOffen: null, nachlauf: new Map(), arbeiterGen: null,
+    aktivAgenda: null, queue: [], laeuft: null, abrufOffen: null, nachlauf: new Map(), arbeiterGen: null, download: null,
     rundeStartMs: null, runde: null, menge: [], liste: [], basisFehlerBis: null, basisVersuch: null, taktZuletzt: null,
     se: new Map(), kopf: leererKopf(), letzteMeldung: '',
   };
@@ -218,6 +318,7 @@ function neueGeneration(L: Lauf): void {
   L.runde = null;
   L.kopf.runde = null;
   L.darf = false;
+  for (const s of L.se.values()) s.stand.laedt = null;
 }
 
 function neueSitzung(L: Lauf): void {
@@ -565,7 +666,7 @@ async function arbeite(L: Lauf, gen: number): Promise<void> {
     try {
       unterbrochen = await bearbeite(L, e, a, gen);
     } finally {
-      if (L.laeuft === e) L.laeuft = null; // nicht den Eintrag eines neuen Arbeiters löschen
+      if (L.laeuft === e) { L.laeuft = null; L.download = null; } // nicht den Eintrag eines neuen Arbeiters löschen
     }
     if (gen !== L.gen) return;
     if (!unterbrochen && L.runde?.offen.delete(e.programId)) {
@@ -599,7 +700,7 @@ function seIntern(L: Lauf, programId: string): SeIntern {
         standAusFrueherSitzung: false, fehler: null, n: 0, k: 0, probleme: [],
         zusaetze: { indexNeuAufgebaut: false, weitererOrdner: null, bedienerGeaendert: 0, gesperrteEndungen: 0 },
       },
-      letzterAgendaText: null,
+      logGrund: new Map(), letzterAgendaText: null,
     };
     L.se.set(programId, s);
   }
@@ -607,9 +708,14 @@ function seIntern(L: Lauf, programId: string): SeIntern {
 }
 
 function standKopie(L: Lauf): AnhangOrdnerStand {
+  const wartend = new Set(L.queue.map((e) => e.programId));
   const sideEvents = [...L.se.values()]
     .filter((s) => s.stand.inMenge || s.stand.ordnerName !== null)
-    .map((s) => ({ ...s.stand, probleme: [...s.stand.probleme], zusaetze: { ...s.stand.zusaetze } }));
+    .map((s) => {
+      const st = { ...s.stand, probleme: [...s.stand.probleme], zusaetze: { ...s.stand.zusaetze } };
+      st.wartetHinter = st.aktiv && wartend.has(st.programId) && L.download && L.download.programId !== st.programId ? L.download.datei : null;
+      return st;
+    });
   return { ...L.kopf, sideEvents };
 }
 
@@ -633,6 +739,18 @@ function basisPfad(a: { path: string }): string | null {
   return b.ok ? b.pfad : null;
 }
 
+async function liste(L: Lauf, ordner: string): Promise<OrdnerDatei[]> {
+  const aus: OrdnerDatei[] = [];
+  for (const name of await L.fs.readdir(ordner)) {
+    try {
+      const st = await L.fs.stat(path.join(ordner, name));
+      if (st.isFile()) aus.push({ name, groesse: st.size, mtimeMs: st.mtimeMs });
+    } catch {
+      /* in der Zwischenzeit verschwunden */
+    }
+  }
+  return aus;
+}
 
 /** Ordner des Side Events: der schon bekannte, sonst (mit Anhängen) neu angelegt; Basisordner und Sperre entstehen mit ihm (9.1, 9.2). */
 async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number, mitAnhaengen: boolean): Promise<{ pfad: string; name: string } | null> {
@@ -739,8 +857,30 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
     }
     return false;
   }
-  Object.assign(st, { abruf: 'gelungen', stand: erg.abgerufen, standAusFrueherSitzung: false, fehler: null, n: gueltig.length, k: 0, probleme: [] });
-  s.letzterAgendaText = null;
+  const dateien = await liste(L, o.pfad);
+  if (gen !== L.gen) return false;
+  const plan = planeSideEvent({
+    seitenOrdner: o.pfad, index: null, dateien, entfernt: [], urlInhalte: new Map(),
+    anhaenge: gueltig, ungueltig, jetzt: new Date(L.d.jetzt()),
+    zurueckgehaltenBis: () => null,
+  });
+  const ctx: Ctx = { L, s, e, o, gen, probleme: [] };
+  for (const schritt of plan) {
+    if (gen !== L.gen) return false;
+    if (!bedingungenGelten(L, a.path)) { await endeAblage(L); return false; }
+    if (!e.aktiv && L.queue[0]?.aktiv) {
+      // Vorrang: das aktive Side Event läuft nach dem gerade laufenden Schritt; dieser Eintrag kommt danach wieder.
+      L.queue.splice(1, 0, { ...e, agenda: erg });
+      await abschluss(ctx, erg.abgerufen, gueltig, false);
+      return true;
+    }
+    fortschritt(L);
+    await fuehreAus(ctx, schritt);
+    fortschritt(L);
+    melde(L);
+  }
+  if (gen !== L.gen) return false;
+  await abschluss(ctx, erg.abgerufen, gueltig, true);
   return false;
 }
 
@@ -756,10 +896,160 @@ function agendaGescheitert(L: Lauf, s: SeIntern, fehler: unknown): void {
 }
 
 function rohmeldung(e: unknown): string {
+  if (e instanceof GrundFehler) return e.roh;
   const m = (e as { message?: unknown } | null)?.message;
   const code = (e as { code?: unknown } | null)?.code;
   const roh = typeof m === 'string' && m ? m : typeof code === 'string' ? code : String(e);
   return ohneAdressen(roh).replace(/[\r\n]+/g, ' ');
+}
+
+interface Ctx {
+  L: Lauf;
+  s: SeIntern;
+  e: Eintrag;
+  o: { pfad: string; name: string };
+  gen: number;
+  probleme: OrdnerProblem[];
+}
+
+/** Nach dem Plan: Stand mit der Zahl der Anhänge und den Problemen. */
+async function abschluss(ctx: Ctx, abgerufen: string, gueltig: GueltigerAnhang[], _ganz: boolean): Promise<void> {
+  Object.assign(ctx.s.stand, {
+    abruf: 'gelungen', stand: abgerufen, standAusFrueherSitzung: false, fehler: null, n: gueltig.length, k: 0, probleme: ctx.probleme,
+  });
+  ctx.s.letzterAgendaText = null;
+}
+
+async function fuehreAus(ctx: Ctx, s: PlanSchritt): Promise<void> {
+  switch (s.art) {
+    case 'fehler':
+    case 'zurueckgehalten':
+      return;
+    default:
+      return fuehreSchrittAus(ctx, s);
+  }
+}
+
+
+function grundText(e: unknown, wo: 'download' | 'datei'): string {
+  if (e instanceof GrundFehler) return e.message;
+  if (e instanceof StromFehler) return ordnerFehlerText(e, wo, e.grund === 'leerlauf' ? 'leerlauf' : undefined) ?? e.grund;
+  return ordnerFehlerText(e, wo) ?? '';
+}
+
+type Schritt<A extends PlanSchritt['art']> = Extract<PlanSchritt, { art: A }>;
+
+async function fuehreSchrittAus(ctx: Ctx, s: Exclude<PlanSchritt, { art: 'fehler' | 'zurueckgehalten' }>): Promise<void> {
+  if (s.art === 'laden') return lade(ctx, s);
+}
+
+async function freierPlatz(L: Lauf, pfad: string): Promise<number> {
+  try {
+    const s = await L.fs.statfs(pfad);
+    return Number(s.bavail) * Number(s.bsize);
+  } catch (e) {
+    throw new GrundFehler(ORDNER_GRUENDE.platzNichtPruefbar(fehlerCode(e)), `statfs ${fehlerCode(e)}`);
+  }
+}
+
+/** Laden über die Zwischendatei `.‹Kennung›.‹pid›.jm-laden`; jeder Fehler löscht sie, bevor der nächste Schritt läuft (9.6). */
+async function lade(ctx: Ctx, s: Schritt<'laden'>): Promise<void> {
+  const { L, o, gen } = ctx;
+  const m = s.anhang.m;
+  const z = ordnerPfad({ art: 'zwischen', seitenOrdner: o.pfad, kennung: m.id, pid: L.d.pid, endung: 'jm-laden' });
+  if (!z.ok) return scheitert(ctx, s, new GrundFehler(z.grund, 'Zwischendatei'));
+  let bytes: number;
+  try {
+    bytes = await ladeDatei(ctx, s, z.pfad);
+  } catch (x) {
+    ctx.s.stand.laedt = null;
+    L.download = null;
+    await L.fs.unlink(z.pfad).catch(() => undefined);
+    if (gen !== L.gen || (x instanceof StromFehler && x.grund === 'bedienung')) return; // Bedienung: kein Fehler (9.4)
+    return scheitert(ctx, s, x);
+  }
+  ctx.s.stand.laedt = null;
+  L.download = null;
+  if (gen !== L.gen) { await L.fs.unlink(z.pfad).catch(() => undefined); return; }
+  await platziere(ctx, s, z.pfad, bytes);
+}
+
+async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<number> {
+  const { L, o } = ctx;
+  const m = s.anhang.m;
+  const groesse = s.anhang.groesse;
+  const st = ctx.s.stand;
+  if (groesse !== null && groesse > GRENZE) throw new GrundFehler(ORDNER_GRUENDE.zuGross(groesse), `size_bytes ${groesse}`);
+  const grenze = groesse !== null ? Math.min(groesse, GRENZE) : GRENZE;
+  let frei = await freierPlatz(L, o.pfad);
+  if (frei < (groesse !== null ? grenze + GIB : GIB)) throw new GrundFehler(ORDNER_GRUENDE.wenigPlatz(frei), `frei ${frei} Bytes`);
+  const client = L.d.downloadClient();
+  if (!client || !m.asset) throw new StromFehler('bedienung');
+  const ac = new AbortController();
+  const weiter = (): void => ac.abort();
+  L.abbruch.signal.addEventListener('abort', weiter);
+  let leer = false;
+  let geschrieben = 0;
+  st.laedt = { datei: s.wunsch, bytes: 0, groesse };
+  L.download = { programId: ctx.e.programId, datei: s.wunsch };
+  fortschritt(L);
+  melde(L);
+  try {
+    const h = L.d.setTimeout(() => { leer = true; ac.abort(); }, L.leerlaufMs); // Leerlauf auch vor dem ersten Byte
+    let strom: Awaited<ReturnType<Pick<IveoClient, 'oeffneAsset'>['oeffneAsset']>>;
+    try {
+      strom = await client.oeffneAsset(m.asset.url, { signal: ac.signal });
+    } catch (x) {
+      if (leer) throw new StromFehler('leerlauf');
+      if (ac.signal.aborted) throw new StromFehler('bedienung');
+      throw x;
+    } finally {
+      L.d.clearTimeout(h);
+    }
+    const r = await ladeStromInDatei(L.fs, strom.body, ziel, {
+      grenze, leerlaufMs: L.leerlaufMs, signal: ac.signal, jetzt: L.d.jetzt, setTimeout: L.d.setTimeout, clearTimeout: L.d.clearTimeout,
+      platzReicht: groesse === null ? async () => { frei = await freierPlatz(L, o.pfad); return frei >= GIB; } : undefined,
+      fortschritt: (b) => {
+        geschrieben = b;
+        st.laedt = { datei: s.wunsch, bytes: b, groesse };
+      },
+    });
+    if (groesse !== null && r.bytes !== groesse) throw new GrundFehler(ORDNER_GRUENDE.unvollstaendig(r.bytes, groesse), `${r.bytes} Bytes`);
+    return r.bytes;
+  } catch (x) {
+    if (x instanceof StromFehler && x.grund === 'zu-gross') {
+      throw new GrundFehler(groesse !== null ? ORDNER_GRUENDE.mehrDaten(groesse) : ORDNER_GRUENDE.zuGross(geschrieben), `mehr als ${grenze} Bytes`);
+    }
+    if (x instanceof StromFehler && x.grund === 'platz') throw new GrundFehler(ORDNER_GRUENDE.wenigPlatz(frei), `frei ${frei} Bytes`);
+    throw x;
+  } finally {
+    L.abbruch.signal.removeEventListener('abort', weiter);
+  }
+}
+
+/** Fehlschlag: Zeile und einmal je neuem Grund ins Log (T23). */
+function scheitert(ctx: Ctx, s: Schritt<'laden'>, x: unknown): void {
+  const { L } = ctx;
+  const m = s.anhang.m;
+  const grund = grundText(x, 'download');
+  ctx.probleme.push({ art: 'grund', datei: s.wunsch, grund });
+  if (ctx.s.logGrund.get(m.id) !== grund) {
+    ctx.s.logGrund.set(m.id, grund);
+    L.d.log.warn(LAUF_TEXTE.nichtGeladen(s.wunsch, grund, rohmeldung(x)));
+  }
+}
+
+/** Platzieren ohne Überschreiben (9.6): Zielname unmittelbar vorher frisch prüfen, dann umbenennen. */
+async function platziere(ctx: Ctx, s: Schritt<'laden'>, zwischen: string, _bytes: number): Promise<void> {
+  const { L, o } = ctx;
+  try {
+    const ziel = freierName(s.wunsch, new Set((await L.fs.readdir(o.pfad)).map(vergleichsform)));
+    await L.fs.rename(zwischen, path.join(o.pfad, ziel));
+  } catch (x) {
+    await L.fs.unlink(zwischen).catch(() => undefined);
+    return scheitert(ctx, s, x);
+  }
+  ctx.s.logGrund.delete(s.anhang.m.id);
 }
 
 // ── Ende des Moduls ──

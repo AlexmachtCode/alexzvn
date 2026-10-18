@@ -1,7 +1,7 @@
 // Reine Helfer der iveo-Hülle (iveo-sync.ts), ohne Electron — testbar mit tsx
 // (test/iveo-huelle.test.ts). Master-Link Teil 2a, Spec 7.0, 7.5 und 7.6 (Log).
 import { resolve } from 'node:path';
-import type { IveoFetchLike, IveoFetchResponse } from '@jm/iveo';
+import { IveoClient, type IveoFetchLike, type IveoFetchResponse } from '@jm/iveo';
 import type { Show } from '@jm/show';
 import { leseShowMitGrund } from './show-lesen';
 
@@ -55,6 +55,15 @@ export type FetchMitSignal = (
  */
 export function mitZeitgrenze(f: FetchMitSignal, ms: number): IveoFetchLike {
   return (url, init) => f(url, { ...init, signal: AbortSignal.timeout(ms) });
+}
+
+/**
+ * Client für Downloads (Ordner-Ablage und Speichern im Panel; E46, Spec 9.6): OHNE `mitZeitgrenze`. Sonst ersetzte
+ * `AbortSignal.timeout(15 s)` das Signal des Laufs, jeder Download bräche nach 15 s ab (auch beim Lesen des Datenstroms),
+ * und der Abbruch durch Bedienung ginge verloren. Gegen hängende Downloads wirkt die Leerlauf-Grenze des Laufs.
+ */
+export function iveoDownloadClient(token: string, baseUrl: string, fetchImpl: IveoFetchLike): IveoClient {
+  return new IveoClient({ token, baseUrl, fetchImpl });
 }
 
 /**
