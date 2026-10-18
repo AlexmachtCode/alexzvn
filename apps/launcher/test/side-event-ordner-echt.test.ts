@@ -20,7 +20,7 @@ function ck(name: string, cond: boolean): void {
 const FEINDLICH = [
   'CON', 'con.txt', 'CON .pdf', 'nul  .txt', 'CONIN$', 'COM¹', 'LPT9.pdf', 'Präsentation.', 'Präsentation  ', '.versteckt', '..', '../x',
   'a/b', 'a\\b', 'a:b', 'a*?"<>|b', 'Steuer\u0001zeichen', 'Zeile\u0085Ende', 'Null​breite', 'Slides‮txt.exe',
-  'Präsentation in NFD', `${'x'.repeat(298)}😀`, '', 'entfernt', 'Grüße – Übersicht',
+  'Präsentation in NFD', `${'x'.repeat(298)}😀`, '', 'entfernt', 'Grüße – Übersicht',
 ];
 
 interface Lauf { fs: OrdnerFs; basis: string; show: string }
@@ -46,7 +46,16 @@ async function lauf(fs: OrdnerFs, wurzel: string, schritte: (takt: (agenda: Iveo
   await schritte(async (agenda) => {
     l.agendaAktiv('se-1', { ok: true, agenda, abgerufen: new Date(uhr.t).toISOString() });
     l.takt();
-    await l.ruhig();
+    // Echtes Dateisystem: Wiederholungen (EPERM/EBUSY) warten über den Zeitgeber der Testuhr – die Uhr muss laufen,
+    // solange der Lauf noch nicht ruht, sonst hängt ruhig() für immer. Reale Pause je Runde, Obergrenze 30 s.
+    let ruht = false;
+    void l.ruhig().then(() => { ruht = true; });
+    const ende = Date.now() + 30_000;
+    while (!ruht) {
+      if (Date.now() > ende) throw new Error('Lauf kommt nicht zur Ruhe (Zeitgrenze 30 s)');
+      await uhr.spule(50, 50);
+      await new Promise((r) => setTimeout(r, 5));
+    }
     await uhr.spule(45_000, 45_000);
   }, path.join(basis, 'Klima'));
 }
@@ -84,6 +93,24 @@ try {
     await fsp.mkdir(path.dirname(p), { recursive: true });
     await fsp.writeFile(p, inhalt, 'utf8');
   });
+  ck('echt: der Name „Präsentation in NFD“ ist wirklich zerlegt (U+0308, kein NFC)', FEINDLICH.some((n) => n.includes('̈') && n.startsWith('Pra') && n.length === 'Präsentation in NFD'.normalize('NFC').length + 1));
+  // Ein vorübergehendes EBUSY beim Umbenennen darf den Lauf nicht festsetzen (die Wiederholung wartet 50 ms über den Zeitgeber).
+  let ebusy = 1;
+  const wurzel2 = await fsp.mkdtemp(path.join(tmpdir(), 'jm-ordner-echt-')); // gleiche Länge wie die erste Wurzel, sonst kürzt die Längenregel anders
+  let mitEbusy: string[] = [];
+  try {
+    const flaky = { ...fsp, rename: async (a: string, b: string): Promise<void> => {
+      if (ebusy-- > 0) throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+      return fsp.rename(a, b);
+    } };
+    mitEbusy = await ablauf(flaky as unknown as OrdnerFs, wurzel2, async (p, inhalt) => {
+      await fsp.mkdir(path.dirname(p), { recursive: true });
+      await fsp.writeFile(p, inhalt, 'utf8');
+    });
+  } finally {
+    await fsp.rm(wurzel2, { recursive: true, force: true });
+  }
+  ck('echt: ein vorübergehendes EBUSY beim Umbenennen – der Lauf kommt zur Ruhe, Ergebnis wie ohne Fehler', ebusy < 0 && JSON.stringify(mitEbusy) === JSON.stringify(echt));
   const att = new FsAttrappe('NTFS');
   const attWurzel = wurzel; // gleicher Pfad, damit die Längenregel gleich kürzt
   const nachgebaut = await ablauf(att, attWurzel, async (p, inhalt) => { att.lege(p, inhalt); });
