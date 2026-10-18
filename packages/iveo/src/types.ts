@@ -88,7 +88,20 @@ export interface IveoSpeaker {
   languages?: string[];
   /** Frei-Form: {platform,url,…}. */
   social_links?: Array<Record<string, unknown>>;
+  /**
+   * Organisationen des Speakers (iveo-Paket, Spec 5.1). Bewusst tolerant: iveo hat Felder bisher unangekündigt geändert,
+   * deshalb prüft `organisationenVon` jeden Eintrag zur Laufzeit. In die Show gehen nur die Namen.
+   */
+  organisations?: IveoSpeakerOrganisation[];
   updated_at?: string;
+}
+
+/** Organisation am Speaker (Prod seit 15.10.2026, eingebettet MIT Namen). */
+export interface IveoSpeakerOrganisation {
+  id: string;
+  name: string;
+  role_at_organisation?: string | null;
+  is_primary?: boolean;
 }
 
 export interface IveoOrganisation {
@@ -126,6 +139,11 @@ export interface IveoMaterial {
   asset?: IveoMaterialAsset | null;
   /** Bei kind:"link" ein öffentlicher Link (kein Token nötig). */
   external_url?: string | null;
+  /**
+   * Gelöscht-Marke (iveo-Paket, Spec 8.5): auf Prod vorhanden, aber nie gesetzt; der Typ eines gesetzten Werts ist
+   * unbekannt. Gelöscht = jeder Wert außer null, fehlend, false und Leerstring (Annahme, `istGeloescht` im Launcher).
+   */
+  purged_at?: unknown;
 }
 
 export interface IveoAgendaItem {

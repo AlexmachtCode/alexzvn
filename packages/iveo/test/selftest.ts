@@ -18,6 +18,7 @@ import {
   agendaToAblauf,
   extractSpeakerIds,
   speakersToShowSpeakers,
+  organisationenVon,
   buildShowMetadata,
   speakerName,
   localTimeOfDayMs,
@@ -26,6 +27,7 @@ import {
   type IveoFetchResponse,
   type IveoProgram,
   type IveoSnapshot,
+  type IveoSpeaker,
 } from '../src/index';
 import {
   createShow, hatEigeneTimerListe, loeseDoppelteKennungenAuf, migrateShow, normalisiereOrganisationen, normalizeAblauf,
@@ -65,7 +67,15 @@ const snapshot: IveoSnapshot = {
     prog({ id: 'p3', title: 'Ohne Zeit' }),
   ],
   speakers: [
-    { id: 'sp1', event_id: 'e1', salutation: 'Dr.', first_name: 'Ana', last_name: 'Ferreira', title: 'Lead Negotiator', bio: 'GEHEIM-BIO sollte nicht in Metadaten', photo: { url: 'https://x/api/v1/assets/photo1' } },
+    {
+      id: 'sp1', event_id: 'e1', salutation: 'Dr.', first_name: 'Ana', last_name: 'Ferreira', title: 'Lead Negotiator',
+      bio: 'GEHEIM-BIO sollte nicht in Metadaten', photo: { url: 'https://x/api/v1/assets/photo1' },
+      // iveo-Paket P2 (12.1 Nr. 5): Hauptorganisation an zweiter Stelle, eine Rolle, Leerraum im Namen.
+      organisations: [
+        { id: 'org-2', name: ' Ministério do  Meio Ambiente ', role_at_organisation: 'Vorsitz', is_primary: false },
+        { id: 'org-1', name: 'UNFCCC', is_primary: true },
+      ],
+    },
   ],
   organisations: [{ id: 'o1', name: 'UNFCCC' }],
   stages: [{ id: 's1', event_id: 'e1', name: 'Blue Zone Plenary', color: '#1B66FF' }],
@@ -366,6 +376,71 @@ ok(
   ok(speakers.every((s) => !('id' in s)), 'speakersToShowSpeakers ohne Kennung (Spec 23: M1 = nein)');
   const rund = parseShow(serializeShow({ ...createShow('Speaker'), iveo: { event: 'cop30', speakers } }));
   ok(JSON.stringify(rund.iveo?.speakers) === JSON.stringify(speakers), 'speakersToShowSpeakers: Ausgabe ist ein Fixpunkt des Normalisierers');
+}
+
+// ── organisationenVon und Organisationen am Show-Speaker (iveo-Paket P2, Spec 5.1, 5.2, E3, E7; 12.1 Nr. 1, 5, 6) ──
+{
+  const mitOrganisationen = (organisations: unknown): IveoSpeaker =>
+    ({ id: 'sp-o', event_id: 'e1', first_name: 'Ada', last_name: 'Lovelace', organisations }) as IveoSpeaker;
+  // 12.1 Nr. 1: jede Zeile der Tabelle 5.2 — Ergebnis von organisationenVon und der Show-Speaker aus dem Mapper.
+  const TABELLE: ReadonlyArray<[string, unknown, string[]]> = [
+    ['fehlt', undefined, []],
+    ['null', null, []],
+    ['kein Array', { name: 'UNFCCC' }, []],
+    ['[]', [], []],
+    ['eine Hauptorganisation', [{ name: 'UNFCCC', is_primary: true }], ['UNFCCC']],
+    ['Haupt an zweiter Stelle', [{ name: 'A', is_primary: false }, { name: 'B', is_primary: true }], ['B', 'A']],
+    ['ohne is_primary', [{ name: 'A' }, { name: 'B' }], ['A', 'B']],
+    ['zwei mit is_primary', [{ name: 'A', is_primary: true }, { name: 'B', is_primary: true }], ['A', 'B']],
+    ['Haupt kommt noch einmal vor', [{ name: 'B', is_primary: true }, { name: 'A' }, { name: 'B' }], ['B', 'A']],
+    ['Leerraum, danach doppelt', [{ name: '  A  ' }, { name: 'A' }], ['A']],
+    ['Tab und Zeilenumbruch', [{ name: 'A\tB\nC' }], ['A B C']],
+    ['Groß- und Kleinschreibung zählt', [{ name: 'a' }, { name: 'A' }], ['a', 'A']],
+    ['nur ungültige Einträge', [{ name: '' }, { name: '  ' }, { name: null }, 'x', null], []],
+    ['Kennung und Rolle entfallen', [{ id: 'o1', name: 'A', role_at_organisation: 'Chair', is_primary: true }], ['A']],
+    // Über die Tabelle hinaus (5.2 Schritte 2 und 3): Ein ungültiger Eintrag ist nie die Hauptorganisation.
+    ['Haupt mit leerem Namen zählt nicht', [{ name: '  ', is_primary: true }, { name: 'B' }, { name: 'A', is_primary: true }], ['A', 'B']],
+  ];
+  for (const [name, organisations, soll] of TABELLE) {
+    const s = mitOrganisationen(organisations);
+    const sollShow = soll.length ? { name: 'Ada Lovelace', organisationen: soll } : { name: 'Ada Lovelace' };
+    ok(
+      JSON.stringify(organisationenVon(s)) === JSON.stringify(soll) &&
+        JSON.stringify(speakersToShowSpeakers([s])[0]) === JSON.stringify(sollShow),
+      `P2 12.1 Nr. 1 Tabelle 5.2: ${name} → ${soll.length ? JSON.stringify(soll) : 'Feld fehlt'}`,
+    );
+  }
+  // 12.1 Nr. 6: Fixpunkt — die Mapper-Ausgabe aller Tabellenzeilen läuft unverändert durch den Normalisierer.
+  const alle = speakersToShowSpeakers(TABELLE.map(([, organisations]) => mitOrganisationen(organisations)));
+  ok(
+    JSON.stringify(migrateShow({ ...createShow('Fixpunkt'), iveo: { event: 'cop31', speakers: alle } }).iveo?.speakers) === JSON.stringify(alle),
+    'P2 12.1 Nr. 6: Mapper-Ausgabe aller Tabellenzeilen = Ausgabe nach migrateShow (Fixpunkt)',
+  );
+
+  // 12.1 Nr. 5: Fixture mit Hauptorganisation an zweiter Stelle und einer Rolle → nur Namen, Haupt vorn.
+  const speakers = snapshotToShowSpeakers(snapshot);
+  const json = JSON.stringify(speakers);
+  ok(
+    JSON.stringify(speakers[0]) ===
+      '{"name":"Dr. Ana Ferreira","title":"Lead Negotiator","organisationen":["UNFCCC","Ministério do Meio Ambiente"]}',
+    'P2 12.1 Nr. 5: speakersToShowSpeakers setzt organisationen (Haupt vorn, Leerraum nach der gemeinsamen Regel)',
+  );
+  ok(
+    !json.includes('org-1') && !json.includes('org-2') && !json.includes('Vorsitz') && !json.includes('is_primary') && !json.includes('GEHEIM-BIO'),
+    'P2 12.1 Nr. 5: ohne Kennung, Rolle und Bio',
+  );
+  ok(
+    JSON.stringify(migrateShow({ ...createShow('Fixpunkt'), iveo: { event: 'cop31', speakers } }).iveo?.speakers) === json,
+    'P2 12.1 Nr. 6: Fixture-Speaker mit Organisationen = Ausgabe nach migrateShow (Fixpunkt)',
+  );
+
+  // E7: Die Cache-Metadaten bleiben ohne Organisationen.
+  const m = buildShowMetadata(snapshot, 'https://app.my-iveo.de/api/v1');
+  ok(
+    JSON.stringify(Object.keys(m.speakers[0])) === '["id","name","title"]' &&
+      !JSON.stringify(m).includes('Meio Ambiente') && !JSON.stringify(m).includes('UNFCCC'),
+    'P2 E7: buildShowMetadata bleibt ohne Organisationen',
+  );
 }
 
 // ── getEventSnapshot resilient (Best-Effort-Nebendaten + programsBestEffort) ──
@@ -735,6 +810,20 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   ok(
     JSON.stringify(rund.iveo?.speakers) === '[{"id":"sp-1","name":"Ada","title":"Moderation"},{"name":"Ohne Kennung"}]',
     '@jm/show: Speaker-Kennung übersteht serializeShow → parseShow',
+  );
+  // 12.8 zweiter Fall (iveo-Paket P2): die Mapper-Ausgabe mit Organisationen übersteht serializeShow → parseShow exakt.
+  const ausIveo = speakersToShowSpeakers([
+    {
+      id: 'sp-9', event_id: 'e1', first_name: 'Ada', last_name: 'Lovelace', title: 'Moderation',
+      organisations: [{ id: 'org-2', name: 'GIZ', is_primary: false }, { id: 'org-1', name: 'UNFCCC', role_at_organisation: 'Vorsitz', is_primary: true }],
+    },
+    { id: 'sp-10', event_id: 'e1', first_name: 'Ohne', last_name: 'Organisation', organisations: [] },
+  ]);
+  const rundOrg = parseShow(serializeShow({ ...createShow('Speaker'), iveo: { event: 'cop31', speakers: ausIveo } }));
+  ok(
+    JSON.stringify(rundOrg.iveo?.speakers) ===
+      '[{"name":"Ada Lovelace","title":"Moderation","organisationen":["UNFCCC","GIZ"]},{"name":"Ohne Organisation"}]',
+    'P2 12.8 zweiter Fall: Mapper-Ausgabe mit Organisationen übersteht serializeShow → parseShow (exaktes JSON)',
   );
 
   // 9.1 Nr. 6: Merker speakerVeraltetSeit — lesbare Zeit bleibt, Unlesbares entfällt, Rundreise und Platz nach speakers.
