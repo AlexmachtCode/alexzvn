@@ -2396,6 +2396,263 @@ console.log('— P16 Fix-Runde 1: Ordner mit Zusatz, Lesefehler, Index nicht les
   }
 }
 
+// ── Block C · P17: Schritte ausführen – Übernahme, Laden und Platzieren ohne Überschreiben, Links, Umbenennen, entfernt/ ─
+console.log('— P17 Schritte: Platzieren ohne Überschreiben, Links, Umbenennen, entfernt/ (Spec 9.6–9.10)');
+{
+  const ORDNER = pathC.join(AttC.BASIS, 'Klima');
+  const ENTFERNT = pathC.join(ORDNER, 'entfernt');
+  const INDEX = pathC.join(ORDNER, OrdnerC.INDEX_DATEI);
+  const BERICHT = AttC.datei('m-1', 'Bericht', { size: 1000 });
+  const WEB = AttC.link('m-2', 'Website', 'https://example.org/');
+  const mitAnhang = (...ms: MaterialC[]) => [AttC.punkt('se-1', ms)];
+  const leseIdx = (fs: AttC.FsAttrappe) => {
+    const r = OrdnerC.leseIndex(fs.inhalt(INDEX) ?? '');
+    return r.art === 'ok' ? r.index : null;
+  };
+  const eintrag = (fs: AttC.FsAttrappe, id: string) => leseIdx(fs)?.eintraege.find((x) => x.id === id);
+  const zeit = (ms: number): string => {
+    const d = new Date(ms);
+    const z = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}-${z(d.getMinutes())}`;
+  };
+  // Alle Dateien, die keine Zwischendatei und keine eigene Verwaltungsdatei sind (Ordner und entfernt/).
+  const echteDateien = (fs: AttC.FsAttrappe): string[] => fs.alleDateien().map((f) => f.pfad)
+    .filter((p) => p.startsWith(ORDNER) && !/\.(jm-laden|jm-neu|tmp)$/.test(p) && !p.endsWith(OrdnerC.INDEX_DATEI) && !pathC.basename(p).startsWith('.jm-anhaenge.kaputt-'));
+  const takte = async (T: ReturnType<typeof AttC.baueLauf>, n: number, agenda: unknown[]) => {
+    for (let i = 0; i < n; i++) { await T.uhr.spule(45_000, 45_000); await T.takt(agenda as never); }
+  };
+
+  {
+    const T = AttC.baueLauf();
+    const ziel = pathC.join(ORDNER, 'Bericht.pdf');
+    let zielWaehrend = false;
+    T.download.arten.set(BERICHT.asset!.url, { bytes: 1000, stuecke: 5, beiStueck: () => { zielWaehrend ||= T.fs.gibt(ziel); } });
+    let indexBeimPlatzieren: string | undefined;
+    T.fs.vor('rename', (p) => { if (p.endsWith('.m-1.4711.jm-laden')) indexBeimPlatzieren = JSON.stringify(OrdnerC.leseIndex(T.fs.inhalt(INDEX) ?? '').art === 'ok' ? (JSON.parse(T.fs.inhalt(INDEX) as string).eintraege[0]) : null); });
+    await T.takt(mitAnhang(BERICHT, WEB)); // dazu ein Link: auch die .url geht über Zwischendatei, sync und rename (Z-C7)
+    ck('P17 12.4 Nr. 6: neuer Datei-Anhang über .‹id›.‹pid›.jm-laden geladen; solange Bytes flossen, gab es den Zielnamen nicht',
+      !zielWaehrend && T.fs.angelegt.has(pathC.join(ORDNER, '.m-1.4711.jm-laden')) && T.fs.inhalt(ziel)?.length === 1000);
+    ck('P17 12.4 Nr. 6: Index-Eintrag „laedt“ mit Zielname und Bytezahl vor dem Umbenennen, danach „aktiv“',
+      indexBeimPlatzieren !== undefined && JSON.parse(indexBeimPlatzieren)?.zustand === 'laedt' && JSON.parse(indexBeimPlatzieren)?.datei === 'Bericht.pdf'
+      && JSON.parse(indexBeimPlatzieren)?.bytes === 1000 && eintrag(T.fs, 'm-1')?.zustand === 'aktiv');
+    ck('P17 9.13: Log T21 (a) „geladen (‹x› MB)“', T.logs.includes('info iveo-Ordner: „Bericht.pdf“ geladen (0 MB).'));
+    const protokoll = T.fs.protokoll;
+    const platziert = protokoll.filter((x) => x.op === 'rename');
+    ck('P17 12.4 Nr. 44: für jede abgelegte Datei steht sync vor rename (Zwischendatei, .url, Index, Sperre)',
+      platziert.some((r) => r.p.endsWith('.m-1.4711.jm-laden')) && platziert.some((r) => r.p.endsWith('.m-2.4711.jm-laden'))
+      && platziert.every((r) => { const i = protokoll.indexOf(r); return protokoll.slice(0, i).some((x) => x.op === 'sync' && x.p === r.p); }));
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    await takte(T, 1, mitAnhang(AttC.datei('m-1', 'Bericht final', { size: 1000, ref: BERICHT.asset!.url })));
+    ck('P17 12.4 Nr. 7: Label geändert → umbenannt, kein Download, Log T21 (b)',
+      T.download.aufrufe.length === 1 && T.fs.gibt(pathC.join(ORDNER, 'Bericht final.pdf')) && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf'))
+      && eintrag(T.fs, 'm-1')?.datei === 'Bericht final.pdf' && T.logs.includes('info iveo-Ordner: „Bericht.pdf“ in „Bericht final.pdf“ umbenannt.'));
+    T.fs.fehlerBei('open', (p) => p.startsWith(INDEX), 'EIO');
+    await takte(T, 3, mitAnhang(AttC.datei('m-1', 'Bericht neu', { size: 1000, ref: BERICHT.asset!.url })));
+    ck('P17 12.4 Nr. 32: Label umbenannt und Index-Schreiben scheitert → keine Kopie, kein Neuladen über drei Runden',
+      T.download.aufrufe.length === 1 && echteDateien(T.fs).map((p) => pathC.basename(p)).join('|') === 'Bericht neu.pdf');
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    await takte(T, 1, mitAnhang());
+    ck('P17 12.4 Nr. 9: Anhang fehlt in iveo → nach entfernt/, Log T21 (c), nichts gelöscht',
+      T.fs.inhalt(pathC.join(ENTFERNT, 'Bericht.pdf'))?.length === 1000 && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf'))
+      && eintrag(T.fs, 'm-1')?.zustand === 'entfernt' && eintrag(T.fs, 'm-1')?.datei === 'entfernt/Bericht.pdf'
+      && T.logs.includes('info iveo-Ordner: „Bericht.pdf“ nach „entfernt“ verschoben (in iveo entfernt).') && echteDateien(T.fs).length === 1);
+    await takte(T, 1, mitAnhang(BERICHT));
+    ck('P17 12.4 Nr. 9: kommt zurück → zurückgeholt ohne Download, Log T21 (e)',
+      T.download.aufrufe.length === 1 && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000 && !T.fs.gibt(pathC.join(ENTFERNT, 'Bericht.pdf'))
+      && eintrag(T.fs, 'm-1')?.zustand === 'aktiv' && T.logs.includes('info iveo-Ordner: „Bericht.pdf“ aus „entfernt“ zurückgeholt.'));
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT, WEB));
+    await takte(T, 1, mitAnhang(AttC.datei('m-1', 'Bericht', { size: 1000, ref: BERICHT.asset!.url, purged: '2026-10-16T09:00:00Z' }), WEB));
+    ck('P17 12.4 Nr. 10: purged_at gesetzt → nach entfernt/, die Menge aller Nicht-Zwischendateien bleibt (2)',
+      T.fs.gibt(pathC.join(ENTFERNT, 'Bericht.pdf')) && echteDateien(T.fs).length === 2);
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    await T.fs.unlink(pathC.join(ORDNER, 'Bericht.pdf'));
+    await takte(T, 1, mitAnhang(BERICHT));
+    ck('P17 12.4 Nr. 11: vom Bediener gelöschte Datei → neu geladen, unter ihrem Namen',
+      T.download.aufrufe.length === 2 && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000);
+  }
+  {
+    const T = AttC.baueLauf();
+    T.fs.lege(pathC.join(ORDNER, 'notizen.txt'), 'meine Notizen', 5_000);
+    T.fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), 'fremder Bericht', 5_000);
+    await T.takt(mitAnhang(BERICHT));
+    await takte(T, 10, mitAnhang(BERICHT));
+    ck('P17 12.4 Nr. 13: fremde Dateien nach zehn Runden unverändert (Inhalt und Name); der Anhang liegt als „Bericht (2).pdf“',
+      T.fs.inhalt(pathC.join(ORDNER, 'notizen.txt')) === 'meine Notizen' && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf')) === 'fremder Bericht'
+      && T.fs.inhalt(pathC.join(ORDNER, 'Bericht (2).pdf'))?.length === 1000 && T.download.aufrufe.length === 1);
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    T.fs.oeffne(pathC.join(ORDNER, 'Bericht.pdf'));
+    const NEU = AttC.datei('m-1', 'Jahresbericht', { size: 1000, ref: BERICHT.asset!.url });
+    await takte(T, 1, mitAnhang(NEU));
+    ck('P17 12.4 Nr. 15: Umbenennen bei geöffneter Datei → wartet, Problem „Umbenennen wartet, Datei ist geöffnet“, alter Name bleibt',
+      T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')) && JSON.stringify(T.se('se-1')?.probleme) === '[{"art":"umbenennen-wartet","datei":"Bericht.pdf"}]');
+    T.fs.schliesse(pathC.join(ORDNER, 'Bericht.pdf'));
+    await takte(T, 1, mitAnhang(NEU));
+    ck('P17 12.4 Nr. 15: Datei wieder frei → nächste Runde umbenannt, Problem weg',
+      T.fs.gibt(pathC.join(ORDNER, 'Jahresbericht.pdf')) && T.se('se-1')?.probleme.length === 0 && T.download.aufrufe.length === 1);
+  }
+  {
+    const T = AttC.baueLauf();
+    const boese = ['javascript:alert(1)', 'file:///C:/x', 'smb://server/x', 'search-ms:query=x', 'https://ok.example/pfad\r\nIconFile=\\\\evil\\share\\x.ico'];
+    await T.takt(mitAnhang(AttC.link('m-2', 'Website', '  https://example.org/  '), ...boese.map((u, i) => AttC.link(`m-b${i}`, `Böse ${i}`, u))));
+    const url = T.fs.inhalt(pathC.join(ORDNER, 'Website.url'));
+    ck('P17 12.4 Nr. 19: .url byteweise: zwei Zeilen mit CRLF, kein BOM, genau href (führende Leerzeichen weg)',
+      url === '[InternetShortcut]\r\nURL=https://example.org/\r\n' && !url.startsWith('\uFEFF'));
+    ck('P17 12.4 Nr. 19: javascript:, file:, smb:, search-ms: und die Eingabe mit CR LF + IconFile → keine Datei, Problem „Link ohne gültige Adresse“',
+      boese.every((_, i) => !T.fs.gibt(pathC.join(ORDNER, `Böse ${i}.url`)))
+      && boese.every((_, i) => T.se('se-1')?.probleme.some((p) => p.art === 'grund' && p.datei === `Böse ${i}.url` && p.grund === 'Link ohne gültige Adresse')));
+    const vor = T.uhr.t + 45_000;
+    await takte(T, 1, mitAnhang(AttC.link('m-2', 'Website', 'https://example.org/neu')));
+    ck('P17 12.4 Nr. 19: Adresse geändert → alte .url nach entfernt/‹Stamm› (ersetzt ‹Datum Zeit›).url, neue geschrieben',
+      T.fs.inhalt(pathC.join(ENTFERNT, `Website (ersetzt ${zeit(vor)}).url`)) === '[InternetShortcut]\r\nURL=https://example.org/\r\n'
+      && T.fs.inhalt(pathC.join(ORDNER, 'Website.url')) === '[InternetShortcut]\r\nURL=https://example.org/neu\r\n');
+  }
+  {
+    const T = AttC.baueLauf();
+    T.download.arten.set(BERICHT.asset!.url, { bytes: 1000, stuecke: 4, beiStueck: (n) => { if (n === 500) T.fs.lege(pathC.join(ORDNER, 'BERICHT.pdf'), 'fremd, während des Downloads abgelegt', 7_000); } });
+    await T.takt(mitAnhang(BERICHT));
+    ck('P17 12.4 Nr. 31: fremde Datei taucht während des Downloads unter dem Zielnamen auf → bleibt unverändert, die neue bekommt „ (2)“',
+      T.fs.inhalt(pathC.join(ORDNER, 'BERICHT.pdf')) === 'fremd, während des Downloads abgelegt' && T.fs.inhalt(pathC.join(ORDNER, 'Bericht (2).pdf'))?.length === 1000
+      && eintrag(T.fs, 'm-1')?.datei === 'Bericht (2).pdf');
+  }
+  {
+    // Nr. 33: Neustart mit gültigem Index ohne die Kennung; dieselben Fälle mit kaputtem Index
+    for (const indexArt of ['gültig', 'kaputt'] as const) {
+      const fs = new AttC.FsAttrappe('NTFS');
+      fs.lege(INDEX, indexArt === 'gültig' ? OrdnerC.indexText({ format: 1, programId: 'se-1', titel: 'Klima', ordnerName: 'Klima', stand: '', eintraege: [] }) : '{ kaputt');
+      fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), 'a'.repeat(1000));
+      fs.lege(pathC.join(ORDNER, 'Website.url'), '[InternetShortcut]\r\nURL=https://example.org/\r\n');
+      fs.lege(pathC.join(ORDNER, 'Andere.url'), '[InternetShortcut]\r\nURL=https://example.org/alt\r\n');
+      fs.lege(pathC.join(ORDNER, 'Ohne.pdf'), 'b'.repeat(1000));
+      const T = AttC.baueLauf({ fs });
+      const ANDERE = AttC.link('m-3', 'Andere', 'https://example.org/neu');
+      const OHNE = AttC.datei('m-4', 'Ohne', { size: null });
+      await T.takt(mitAnhang(BERICHT, WEB, ANDERE, OHNE));
+      ck(`P17 12.4 Nr. 33 (${indexArt}): Datei mit Name und Größe → übernommen (T21 f), kein Download`,
+        !T.download.aufrufe.includes(BERICHT.asset!.url) && eintrag(fs, 'm-1')?.datei === 'Bericht.pdf' && T.logs.includes('info iveo-Ordner: „Bericht.pdf“ übernommen (lag schon im Ordner).'));
+      ck(`P17 12.4 Nr. 33 (${indexArt}): .url mit erwartetem Namen und Inhalt → übernommen, keine „Website (2).url“`,
+        eintrag(fs, 'm-2')?.datei === 'Website.url' && !fs.gibt(pathC.join(ORDNER, 'Website (2).url')));
+      ck(`P17 12.4 Nr. 33 (${indexArt}): .url mit anderem Inhalt → neue „Andere (2).url“, die alte unverändert`,
+        fs.inhalt(pathC.join(ORDNER, 'Andere (2).url')) === '[InternetShortcut]\r\nURL=https://example.org/neu\r\n' && fs.inhalt(pathC.join(ORDNER, 'Andere.url')) === '[InternetShortcut]\r\nURL=https://example.org/alt\r\n');
+      ck(`P17 12.4 Nr. 33 (${indexArt}): Datei-Anhang ohne size_bytes → nicht übernommen, geladen als „Ohne (2).pdf“, die vorhandene bleibt`,
+        fs.inhalt(pathC.join(ORDNER, 'Ohne.pdf')) === 'b'.repeat(1000) && fs.inhalt(pathC.join(ORDNER, 'Ohne (2).pdf'))?.length === 1000 && eintrag(fs, 'm-4')?.datei === 'Ohne (2).pdf');
+    }
+    const fs = new AttC.FsAttrappe('NTFS');
+    fs.lege(INDEX, OrdnerC.indexText({ format: 1, programId: 'se-1', titel: 'Klima', ordnerName: 'Klima', stand: '', eintraege: [{ id: 'm-4', art: 'datei', zustand: 'laedt', datei: 'Ohne.pdf', label: 'Ohne', bytes: 777 }] }));
+    fs.lege(pathC.join(ORDNER, 'Ohne.pdf'), 'c'.repeat(777));
+    const T = AttC.baueLauf({ fs });
+    await T.takt(mitAnhang(AttC.datei('m-4', 'Ohne', { size: null })));
+    ck('P17 12.4 Nr. 33: Eintrag laedt mit bytes, Datei ohne size_bytes mit genau dieser Bytezahl → aktiv, kein Download',
+      T.download.aufrufe.length === 0 && eintrag(fs, 'm-4')?.zustand === 'aktiv' && eintrag(fs, 'm-4')?.datei === 'Ohne.pdf');
+  }
+  {
+    // Nr. 33: Absturz zwischen dem Umbenennen und „aktiv“; unter dem Wunschnamen liegt eine fremde Datei gleicher Bytezahl
+    // (vom Bediener vorher von Hand gespeichert). „laedt“ muss den echten Zielnamen tragen, sonst würde die fremde gepflegt.
+    const fs = new AttC.FsAttrappe('NTFS');
+    fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), 'b'.repeat(1000));
+    const OHNE = AttC.datei('m-1', 'Bericht', { size: null });
+    const A = AttC.baueLauf({ fs });
+    fs.fehlerBei('open', (p) => p.startsWith(INDEX), 'EIO', Infinity, 1); // „laedt“ wird geschrieben, „aktiv“ nicht mehr
+    await A.takt(mitAnhang(OHNE));
+    const nachAbsturz = eintrag(fs, 'm-1');
+    fs.regelnLoeschen();
+    const B = AttC.baueLauf({ fs, pid: 5000 }); // Neustart nach dem Absturz
+    await B.takt(mitAnhang(OHNE));
+    ck('P17 12.4 Nr. 33: Absturz nach dem Umbenennen, fremde Datei gleicher Bytezahl unter dem Wunschnamen → „laedt“ nennt den echten Zielnamen, die fremde bleibt fremd',
+      nachAbsturz?.zustand === 'laedt' && nachAbsturz.datei === 'Bericht (2).pdf'
+      && eintrag(fs, 'm-1')?.zustand === 'aktiv' && eintrag(fs, 'm-1')?.datei === 'Bericht (2).pdf'
+      && fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf')) === 'b'.repeat(1000) && B.download.aufrufe.length === 0);
+  }
+  {
+    // 9.6 (3), E48: Die fremde Datei taucht erst nach dem Schreiben von „laedt“ auf, kurz vor dem Umbenennen → der Name wird
+    // unmittelbar vorher neu geprüft, „laedt“ vor dem Umbenennen nachgeführt, die fremde bleibt.
+    const T = AttC.baueLauf();
+    let gelegt = false;
+    let laedtBeimUmbenennen: string | undefined;
+    T.fs.vor('rename', (p) => {
+      if (!gelegt && p.startsWith(`${INDEX}.`)) { gelegt = true; T.fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), 'fremd, kurz vor dem Umbenennen', 7_000); }
+      if (p.endsWith('.m-1.4711.jm-laden')) laedtBeimUmbenennen = eintrag(T.fs, 'm-1')?.datei;
+    });
+    await T.takt(mitAnhang(BERICHT));
+    ck('P17 9.6 (3), E48: fremde Datei taucht zwischen „laedt“ und dem Umbenennen auf → bleibt, die neue liegt als „Bericht (2).pdf“, „laedt“ vorher nachgeführt',
+      T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf')) === 'fremd, kurz vor dem Umbenennen' && T.fs.inhalt(pathC.join(ORDNER, 'Bericht (2).pdf'))?.length === 1000
+      && laedtBeimUmbenennen === 'Bericht (2).pdf' && eintrag(T.fs, 'm-1')?.datei === 'Bericht (2).pdf');
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(AttC.datei('m-1', 'Agenda'), AttC.datei('m-2', 'Agenda')));
+    await takte(T, 1, mitAnhang(AttC.datei('m-1', 'Agenda'), AttC.datei('m-2', 'Agenda'), AttC.datei('m-3', 'Agenda')));
+    await takte(T, 2, mitAnhang(AttC.datei('m-1', 'Agenda'), AttC.datei('m-2', 'Agenda'), AttC.datei('m-3', 'Agenda')));
+    ck('P17 12.4 Nr. 3: zwei gleichnamige Anhänge → „ (2)“, stabil, auch wenn ein dritter dazukommt („ (3)“)',
+      ['m-1:Agenda.pdf', 'm-2:Agenda (2).pdf', 'm-3:Agenda (3).pdf'].every((s) => { const [id, d] = s.split(':'); return eintrag(T.fs, id)?.datei === d; })
+      && T.download.aufrufe.length === 3);
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    T.fs.verknuepfung(ENTFERNT, pathC.join(AttC.ROOT, 'woanders'));
+    await takte(T, 1, mitAnhang());
+    ck('P17 12.4 Nr. 35: „entfernt“ als Verknüpfung → Problem T22 (l), nichts verschoben',
+      T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')) && T.se('se-1')?.probleme.some((p) => p.art === 'grund' && p.grund === '„entfernt“ ist kein Ordner') === true
+      && !T.fs.protokoll.some((x) => x.op === 'rename' && (x.p2 ?? '').includes('woanders')));
+  }
+  {
+    const fs = new AttC.FsAttrappe('HFS+');
+    const T = AttC.baueLauf({ fs });
+    const P = AttC.datei('m-1', 'Präsentation', { size: 1000 });
+    await T.takt(mitAnhang(P));
+    await takte(T, 10, mitAnhang(P));
+    ck('P17 12.4 Nr. 36: Profil HFS+/SMB liefert NFD-Namen → über zehn Runden kein Neuladen',
+      T.download.aufrufe.length === 1 && fs.namen(ORDNER).includes('Präsentation.pdf'.normalize('NFD')));
+    const N = AttC.baueLauf();
+    await N.takt(mitAnhang(BERICHT));
+    await N.fs.rename(pathC.join(ORDNER, 'Bericht.pdf'), pathC.join(ORDNER, 'BERICHT.PDF'));
+    await takte(N, 3, mitAnhang(BERICHT));
+    ck('P17 12.4 Nr. 36: Bediener ändert nur die Schreibweise → kein Neuladen, kein Überschreiben',
+      N.download.aufrufe.length === 1 && N.fs.namen(ORDNER).includes('BERICHT.PDF') && echteDateien(N.fs).length === 1);
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    const mtime = eintrag(T.fs, 'm-1')?.mtimeMs ?? -1;
+    T.fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), 'a'.repeat(400), mtime);
+    const vor = T.uhr.t + 45_000;
+    await takte(T, 1, mitAnhang(BERICHT));
+    ck('P17 12.4 Nr. 39: gleiche Änderungszeit, andere Größe → nach entfernt/… (unvollständig ‹Datum Zeit›), neu geladen',
+      T.fs.inhalt(pathC.join(ENTFERNT, `Bericht (unvollständig ${zeit(vor)}).pdf`))?.length === 400 && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000
+      && T.download.aufrufe.length === 2);
+  }
+  {
+    const T = AttC.baueLauf();
+    const doppelt = AttC.datei('m-1', 'Bericht', { size: 1000 });
+    await T.takt([AttC.punkt('se-1', [doppelt, { id: 'm-7', kind: 'video' as 'file', label: 'Film' }]), AttC.punkt('se-1', [doppelt], 'se-1-p2')]);
+    ck('P17 12.4 Nr. 43: ungültiger Anhang → Problem „ungültiger Anhang in iveo (kind)“; dieselbe Kennung an zwei Punkten → einmal geladen',
+      T.download.aufrufe.length === 1 && T.se('se-1')?.probleme.some((p) => p.art === 'grund' && p.datei === 'Film' && p.grund === 'ungültiger Anhang in iveo (kind)') === true
+      && T.se('se-1')?.n === 1);
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(AttC.datei('m-1', 'Agenda.exe', { size: 1000 })));
+    ck('P17 9.12 Regel 9, T70, T68: gesperrte Endung → abgelegt als „Agenda_exe.pdf“, Log T70, Zusatz zählt 1',
+      T.fs.gibt(pathC.join(ORDNER, 'Agenda_exe.pdf')) && T.logs.includes('info iveo-Ordner: Endung „exe“ von „Agenda.exe“ gesperrt, abgelegt als „Agenda_exe.pdf“.')
+      && T.se('se-1')?.zusaetze.gesperrteEndungen === 1);
+  }
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

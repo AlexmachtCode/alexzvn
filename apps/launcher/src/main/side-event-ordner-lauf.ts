@@ -16,7 +16,7 @@ import { auffrischenFaellig, IVEO_ABFRAGE_TAKT_MS, naechsterFaelligerTakt } from
 import {
   ablageMenge, ablageTag, freierName, imOrdner, indexText, inhaltSignatur, INDEX_DATEI, istLinkAnhang,
   leseIndex, megabyte, ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, ordnerPfad, planeSideEvent, sperreBewerten, SPERR_DATEI,
-  vergleichsform, type IndexEintrag, type OrdnerDatei, type OrdnerIndex, type PlanSchritt,
+  urlDateiInhalt, vergleichsform, type IndexEintrag, type OrdnerDatei, type OrdnerIndex, type PlanSchritt,
 } from './side-event-ordner';
 import { fehlerCode } from './verbund/fehlercode';
 
@@ -82,8 +82,12 @@ export const LAUF_TEXTE = {
   /** T75 */
   sperreNichtGeloescht: (ordner: string, code: string): string =>
     `iveo-Ordner: Sperrdatei in „${ordner}“ nicht gelöscht (${code}); ein anderer Rechner übernimmt die Ablage erst nach 15 Minuten.`,
-  /** T21 (b), (f) */
+  /** T21 (a)–(f) */
+  geladen: (datei: string, mbText: string): string => `iveo-Ordner: „${datei}“ geladen (${mbText} MB).`,
   umbenannt: (alt: string, neu: string): string => `iveo-Ordner: „${alt}“ in „${neu}“ umbenannt.`,
+  entferntInIveo: (datei: string): string => `iveo-Ordner: „${datei}“ nach „entfernt“ verschoben (in iveo entfernt).`,
+  entferntErsetzt: (datei: string): string => `iveo-Ordner: „${datei}“ nach „entfernt“ verschoben (durch neue Fassung ersetzt).`,
+  zurueckgeholt: (datei: string): string => `iveo-Ordner: „${datei}“ aus „entfernt“ zurückgeholt.`,
   uebernommen: (datei: string): string => `iveo-Ordner: „${datei}“ übernommen (lag schon im Ordner).`,
   /** T23 */
   nichtGeladen: (datei: string, grund: string, roh: string): string => `iveo-Ordner: „${datei}“ nicht geladen: ${grund} (${roh}).`,
@@ -92,6 +96,8 @@ export const LAUF_TEXTE = {
     `iveo-Ordner: Index von „${ordner}“ beschädigt, beiseitegelegt und neu aufgebaut (${n} Dateien übernommen).`,
   /** T25 */
   agendaNichtAbrufbar: (titel: string, grund: string, roh: string): string => `iveo-Ordner: Agenda von „${titel}“ nicht abrufbar: ${grund} (${roh}).`,
+  /** T70 */
+  endungGesperrt: (ext: string, label: string, datei: string): string => `iveo-Ordner: Endung „${ext}“ von „${label}“ gesperrt, abgelegt als „${datei}“.`,
   // ── Ende der Texte ──
 } as const;
 
@@ -1268,10 +1274,15 @@ async function abschluss(ctx: Ctx, abgerufen: string, gueltig: GueltigerAnhang[]
   for (const n of ctx.platziert) da.add(n);
   for (const n of ctx.weg) da.delete(n);
   let k = 0;
+  let gesperrt = 0;
   for (const a of gueltig) {
     const x = o.index.eintraege.find((y) => y.id === a.m.id);
     if (!x || x.zustand !== 'aktiv' || x.inhalt !== inhaltSignatur(a) || !da.has(vf(x.datei))) continue;
     k++;
+    if (!istLinkAnhang(a.m)) {
+      const r = ordnerPfad({ art: 'datei', seitenOrdner: null, label: a.m.label, kind: 'file', mime: a.m.asset?.mime_type ?? null });
+      if (r.ok && r.gesperrt) gesperrt++;
+    }
   }
   if (ganz) o.index.stand = abgerufen;
   const faellig = s.zuletztGeschriebenMs === null || auffrischenFaellig(s.zuletztGeschriebenMs, L.d.jetzt(), L.taktMs);
@@ -1282,6 +1293,7 @@ async function abschluss(ctx: Ctx, abgerufen: string, gueltig: GueltigerAnhang[]
     abruf: 'gelungen', stand: abgerufen, standAusFrueherSitzung: false, fehler: null, n: gueltig.length, k,
     probleme: [...ctx.probleme, ...indexProblem],
   });
+  st.zusaetze.gesperrteEndungen = gesperrt;
   s.letzterAgendaText = null;
 }
 
@@ -1293,9 +1305,25 @@ function eintragSetzen(ctx: Ctx, x: IndexEintrag): void {
   ctx.geaendert = true;
 }
 
+/** Namen, die ein neuer Name nicht nehmen darf (9.9), aus einer frisch gelesenen Liste des Ordners. */
+async function belegteNamen(ctx: Ctx, ausserId: string, ausserDatei: string | null = null): Promise<Set<string>> {
+  const vf = vergleichsform;
+  const belegt = new Set((await ctx.L.fs.readdir(ctx.o.pfad)).map(vf));
+  for (const x of ctx.o.index.eintraege) {
+    if (x.id === ausserId) continue;
+    if (x.zustand !== 'entfernt') belegt.add(vf(x.datei));
+    if (x.wartet) belegt.add(vf(x.wartet));
+  }
+  for (const n of [INDEX_DATEI, SPERR_DATEI, 'entfernt']) belegt.add(vf(n));
+  if (ausserDatei !== null) belegt.delete(vf(ausserDatei));
+  return belegt;
+}
+
 async function fuehreAus(ctx: Ctx, s: PlanSchritt): Promise<void> {
   switch (s.art) {
     case 'fehler':
+      ctx.probleme.push({ art: 'grund', datei: s.datei, grund: s.grund });
+      return;
     case 'zurueckgehalten':
       return;
     default:
@@ -1320,7 +1348,8 @@ function grundText(e: unknown, wo: 'download' | 'datei'): string {
 type Schritt<A extends PlanSchritt['art']> = Extract<PlanSchritt, { art: A }>;
 
 async function fuehreSchrittAus(ctx: Ctx, s: Exclude<PlanSchritt, { art: 'fehler' | 'zurueckgehalten' }>): Promise<void> {
-  const { L } = ctx;
+  const { L, o } = ctx;
+  const vf = vergleichsform;
   if (s.art === 'uebernehmen') {
     const m = s.anhang.m;
     eintragSetzen(ctx, { id: m.id, art: istLinkAnhang(m) ? 'link' : 'datei', zustand: 'aktiv', datei: s.datei, label: m.label, inhalt: s.inhalt, bytes: s.bytes, mtimeMs: s.mtimeMs });
@@ -1330,7 +1359,74 @@ async function fuehreSchrittAus(ctx: Ctx, s: Exclude<PlanSchritt, { art: 'fehler
     }
     return;
   }
-  if (s.art === 'laden') return lade(ctx, s);
+  if (s.art === 'umbenennen') {
+    const x = eintrag(ctx, s.anhang.m.id);
+    if (!x) return;
+    try {
+      const neu = freierName(s.wunsch, await belegteNamen(ctx, s.anhang.m.id, s.von));
+      await umbenennenImOrdner(L.fs, o.pfad, path.join(o.pfad, s.von), path.join(o.pfad, neu));
+      ctx.weg.add(vf(s.von));
+      ctx.platziert.add(vf(neu));
+      eintragSetzen(ctx, { ...x, datei: neu, label: s.anhang.m.label });
+      L.d.log.info(LAUF_TEXTE.umbenannt(s.von, neu));
+    } catch (e) {
+      ctx.probleme.push(istOffen(e) ? { art: 'umbenennen-wartet', datei: s.von } : { art: 'grund', datei: s.von, grund: grundText(e, 'datei') });
+    }
+    return;
+  }
+  if (s.art === 'nach-entfernt') {
+    const x = eintrag(ctx, s.id);
+    const r = await nachEntfernt(ctx, s.datei, s.zusatz);
+    if (!r.ok) { ctx.probleme.push({ art: 'grund', datei: s.datei, grund: r.grund }); return; }
+    if (s.zusatz === 'unvollstaendig') {
+      // die unvollständige Datei gehört keinem Anhang mehr; das folgende Laden legt den Eintrag neu an
+      ctx.o.index.eintraege = ctx.o.index.eintraege.filter((y) => y.id !== s.id);
+      ctx.geaendert = true;
+      return;
+    }
+    if (x) eintragSetzen(ctx, { ...x, zustand: 'entfernt', datei: `entfernt/${r.name}`, seit: iso(L.d.jetzt()), wartet: undefined, inhaltNeu: undefined });
+    L.d.log.info(LAUF_TEXTE.entferntInIveo(s.datei));
+    return;
+  }
+  if (s.art === 'zurueckholen') {
+    const x = eintrag(ctx, s.anhang.m.id);
+    if (!x) return;
+    try {
+      const neu = freierName(s.wunsch, await belegteNamen(ctx, s.anhang.m.id));
+      await umbenennenImOrdner(L.fs, o.pfad, path.join(o.pfad, 'entfernt', s.aus), path.join(o.pfad, neu));
+      const st = await L.fs.stat(path.join(o.pfad, neu));
+      ctx.platziert.add(vf(neu));
+      eintragSetzen(ctx, { ...x, zustand: 'aktiv', datei: neu, label: s.anhang.m.label, bytes: st.size, mtimeMs: st.mtimeMs, seit: undefined });
+      L.d.log.info(LAUF_TEXTE.zurueckgeholt(neu));
+    } catch (e) {
+      ctx.probleme.push({ art: 'grund', datei: s.aus, grund: grundText(e, 'datei') });
+    }
+    return;
+  }
+  if (s.art === 'tauschen') return;
+  return lade(ctx, s);
+}
+
+/** Datei nach `entfernt/` (9.10): echter Ordner, Name nach 9.12, Kollision dort mit Zusatz, Wächter auf Quelle und Ziel. */
+async function nachEntfernt(ctx: Ctx, datei: string, zusatz: null | 'ersetzt' | 'unvollstaendig'): Promise<{ ok: true; name: string } | { ok: false; grund: string; offen: boolean }> {
+  const { L, o } = ctx;
+  const ent = path.join(o.pfad, 'entfernt');
+  try {
+    const el = await L.fs.lstat(ent).catch((e: unknown) => {
+      if (fehlerCode(e) === 'ENOENT') return null;
+      throw e;
+    });
+    if (el && (!el.isDirectory() || el.isSymbolicLink())) return { ok: false, grund: ORDNER_GRUENDE.entferntKeinOrdner, offen: false };
+    if (!el) await L.fs.mkdir(ent, { recursive: true });
+    const r = ordnerPfad({ art: 'entfernt', seitenOrdner: o.pfad, datei, zusatz: zusatz ? { art: zusatz, zeit: new Date(L.d.jetzt()) } : null });
+    if (!r.ok) return { ok: false, grund: r.grund, offen: false };
+    const name = freierName(r.name, new Set((await L.fs.readdir(ent)).map(vergleichsform)));
+    await umbenennenImOrdner(L.fs, o.pfad, path.join(o.pfad, datei), path.join(ent, name));
+    ctx.weg.add(vergleichsform(datei));
+    return { ok: true, name };
+  } catch (e) {
+    return { ok: false, grund: grundText(e, 'datei'), offen: istOffen(e) };
+  }
 }
 
 async function freierPlatz(L: Lauf, pfad: string): Promise<number> {
@@ -1343,7 +1439,7 @@ async function freierPlatz(L: Lauf, pfad: string): Promise<number> {
 }
 
 /** Laden über die Zwischendatei `.‹Kennung›.‹pid›.jm-laden`; jeder Fehler löscht sie, bevor der nächste Schritt läuft (9.6). */
-async function lade(ctx: Ctx, s: Schritt<'laden'>): Promise<void> {
+async function lade(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'>): Promise<void> {
   const { L, o, gen } = ctx;
   const m = s.anhang.m;
   const z = ordnerPfad({ art: 'zwischen', seitenOrdner: o.pfad, kennung: m.id, pid: L.d.pid, endung: 'jm-laden' });
@@ -1351,7 +1447,19 @@ async function lade(ctx: Ctx, s: Schritt<'laden'>): Promise<void> {
   ctx.zwischenAngelegt = false; // je Schritt: der Kontext lebt über alle Anhänge, das Flag darf nicht vom vorigen stammen
   let bytes: number;
   try {
-    bytes = await ladeDatei(ctx, s, z.pfad);
+    if (s.art === 'url-schreiben') {
+      const inhalt = Buffer.from(urlDateiInhalt(s.inhalt), 'utf8');
+      const fh = await L.fs.open(z.pfad, 'wx');
+      try {
+        await fh.write(inhalt);
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+      bytes = inhalt.byteLength;
+    } else {
+      bytes = await ladeDatei(ctx, s, z.pfad);
+    }
   } catch (x) {
     ctx.s.stand.laedt = null;
     if (gen === L.gen) L.download = null; // der Download einer neuen Generation bleibt stehen
@@ -1422,10 +1530,10 @@ async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<n
 }
 
 /** Fehlschlag: Zeile und einmal je neuem Grund ins Log (T23). */
-function scheitert(ctx: Ctx, s: Schritt<'laden'>, x: unknown): void {
+function scheitert(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'>, x: unknown): void {
   const { L } = ctx;
   const m = s.anhang.m;
-  const grund = grundText(x, 'download');
+  const grund = grundText(x, s.art === 'laden' ? 'download' : 'datei');
   ctx.probleme.push({ art: 'grund', datei: s.wunsch, grund });
   if (ctx.s.logGrund.get(m.id) !== grund) {
     ctx.s.logGrund.set(m.id, grund);
@@ -1434,20 +1542,47 @@ function scheitert(ctx: Ctx, s: Schritt<'laden'>, x: unknown): void {
 }
 
 /**
- * Platzieren ohne Überschreiben (9.6): (1) Index-Eintrag „laedt“ mit Zielname und Bytezahl, (3) Zielname frisch
- * prüfen und umbenennen, (4) „aktiv“.
+ * Platzieren ohne Überschreiben (9.6): (1) Index-Eintrag „laedt“ mit Zielname und Bytezahl, (2) alte Fassung nach
+ * entfernt/, (3) Zielname frisch prüfen und umbenennen, (4) „aktiv“.
  */
-async function platziere(ctx: Ctx, s: Schritt<'laden'>, zwischen: string, bytes: number): Promise<void> {
+async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'>, zwischen: string, bytes: number): Promise<void> {
   const { L, o, gen } = ctx;
   const m = s.anhang.m;
-  eintragSetzen(ctx, { id: m.id, art: 'datei', zustand: 'laedt', datei: s.wunsch, label: m.label, inhalt: s.inhalt, bytes });
-  await schreibeIndex(L, ctx.s, o);
-  if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; }
+  const art = s.art === 'url-schreiben' ? 'link' : 'datei';
+  const vorher = eintrag(ctx, m.id);
+  // (1) „laedt“ trägt schon den freien Namen, unter dem die Datei gleich liegt (die alte Fassung zählt nicht, sie geht in (2)
+  // nach entfernt/): Stürzt der Launcher zwischen (3) und (4) ab, prüft die Wiederaufnahme genau diese Datei (9.5 Zeile 7),
+  // nie eine fremde gleicher Bytezahl unter dem Wunschnamen (E33).
   let ziel: string;
   try {
-    const namen = await L.fs.readdir(o.pfad);
+    ziel = freierName(s.wunsch, await belegteNamen(ctx, m.id, s.alt));
+  } catch (x) {
+    await L.fs.unlink(zwischen).catch(() => undefined);
+    return scheitert(ctx, s, x);
+  }
+  eintragSetzen(ctx, { id: m.id, art, zustand: 'laedt', datei: ziel, label: m.label, inhalt: s.inhalt, bytes });
+  await schreibeIndex(L, ctx.s, o);
+  if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; }
+  if (s.alt) {
+    const r = await nachEntfernt(ctx, s.alt, 'ersetzt');
+    if (!r.ok) {
+      await L.fs.unlink(zwischen).catch(() => undefined);
+      if (vorher) eintragSetzen(ctx, vorher);
+      ctx.probleme.push({ art: 'grund', datei: s.alt, grund: r.grund });
+      return;
+    }
+    L.d.log.info(LAUF_TEXTE.entferntErsetzt(s.alt));
+  }
+  try {
+    // (3) unmittelbar vorher neu prüfen (E48); weicht der Name ab, zuerst „laedt“ nachführen, dann umbenennen
+    const frisch = freierName(s.wunsch, await belegteNamen(ctx, m.id));
     if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; } // 9.4: kein Umbenennen für eine alte Generation
-    ziel = freierName(s.wunsch, new Set(namen.map(vergleichsform)));
+    if (frisch !== ziel) {
+      ziel = frisch;
+      eintragSetzen(ctx, { id: m.id, art, zustand: 'laedt', datei: ziel, label: m.label, inhalt: s.inhalt, bytes });
+      await schreibeIndex(L, ctx.s, o);
+      if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; }
+    }
     await umbenennenImOrdner(L.fs, o.pfad, zwischen, path.join(o.pfad, ziel));
   } catch (x) {
     await L.fs.unlink(zwischen).catch(() => undefined);
@@ -1455,9 +1590,11 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'>, zwischen: string, bytes:
   }
   const st = await L.fs.stat(path.join(o.pfad, ziel)).catch(() => null);
   ctx.platziert.add(vergleichsform(ziel));
-  eintragSetzen(ctx, { id: m.id, art: 'datei', zustand: 'aktiv', datei: ziel, label: m.label, inhalt: s.inhalt, bytes, mtimeMs: st?.mtimeMs });
+  eintragSetzen(ctx, { id: m.id, art, zustand: 'aktiv', datei: ziel, label: m.label, inhalt: s.inhalt, bytes, mtimeMs: st?.mtimeMs });
   await schreibeIndex(L, ctx.s, o);
   ctx.s.logGrund.delete(m.id);
+  L.d.log.info(LAUF_TEXTE.geladen(ziel, megabyte(bytes)));
+  if (s.art === 'laden' && s.gesperrt) L.d.log.info(LAUF_TEXTE.endungGesperrt(s.gesperrt, m.label, ziel));
 }
 
 // ── Ende des Moduls ──
