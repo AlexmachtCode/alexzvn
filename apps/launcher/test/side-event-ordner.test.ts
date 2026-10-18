@@ -4,9 +4,13 @@
 import { createHash } from 'node:crypto';
 import { join, parse } from 'node:path';
 import { IveoApiError, IveoAssetAdresseError, type IveoMaterial } from '@jm/iveo';
+import type { GueltigerAnhang } from '../src/main/iveo-anhaenge';
+import { auffrischenFaellig, naechsterFaelligerTakt, SPEAKER_AUFFRISCHEN_MS } from '../src/main/iveo-huelle-hilfen';
 import {
-  bereinigeName, freierName, GESPERRTE_ENDUNGEN, imOrdner, MIME_EXT, ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, ordnerPfad, PANEL_TEXTE,
-  panelAnhangSchritt, panelDateiOeffnen, pruefeLink, urlDateiInhalt, vergleichsform, zwischenKennung, type PfadErgebnis,
+  ablageMenge, ablageTag, bereinigeName, freierName, GESPERRTE_ENDUNGEN, imOrdner, INDEX_DATEI, indexText, inhaltSignatur, leseIndex,
+  leseSperre, MIME_EXT, ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, ordnerPfad, PANEL_TEXTE, panelAnhangSchritt, panelDateiOeffnen,
+  pruefeLink, rueckhaltungBis, SPERR_DATEI, SPERRE_ABLAUF_MS, sperreBewerten, urlDateiInhalt, vergleichsform, zwischenKennung,
+  type IndexLesen, type OrdnerIndex, type PfadErgebnis, type SperreBewertung, type SperreInhalt,
 } from '../src/main/side-event-ordner';
 
 let pass = 0, fail = 0;
@@ -313,6 +317,153 @@ console.log('— P9 · Fehlertexte des Ordner-Teils (9.13, T22, T77 a)');
   ck('P9 9.12: „Pfad zu lang“ aus ordnerPfad = T22 (j)', ORDNER_GRUENDE.pfadZuLang === 'Pfad zu lang');
   const alleTexte = [...Object.values(ORDNER_GRUENDE).map((t) => (typeof t === 'function' ? (t as (...a: unknown[]) => string)(1, 2) : t)), ...Object.values(PANEL_TEXTE)];
   ck('P9 11.6: keine ASCII-Anführungszeichen in Gründen und Notices', alleTexte.every((t) => !t.includes('"')));
+}
+
+console.log('— P10 · Indexdatei lesen, prüfen, schreiben (9.8; 12.4 Nr. 35 Index-Teil)');
+{
+  // Der Index aus Spec 9.8, mit echten Werten statt „…“ (m-4 wartet mit seiner Kennung).
+  const spec: OrdnerIndex = {
+    format: 1, programId: 'P-17', titel: 'Side Event Klima', ordnerName: 'Side Event Klima', stand: '2026-10-16T10:30:00.000Z',
+    eintraege: [
+      { id: 'm-1', art: 'datei', zustand: 'aktiv', datei: 'Präsentation.pptx', label: 'Präsentation',
+        inhalt: `application/vnd.openxmlformats-officedocument.presentationml.presentation|1048576|${'9f86d081'.repeat(8)}`, bytes: 1048576, mtimeMs: 1760610600000 },
+      { id: 'm-2', art: 'link', zustand: 'aktiv', datei: 'Website.url', label: 'Website', inhalt: 'https://example.org/' },
+      { id: 'm-3', art: 'datei', zustand: 'entfernt', datei: 'entfernt/Alt.pdf', label: 'Alt', seit: '2026-10-16T09:00:00.000Z' },
+      { id: 'm-4', art: 'datei', zustand: 'aktiv', datei: 'Agenda.pdf', wartet: '.m-4.4711.jm-neu', inhaltNeu: `application/pdf|20|${'a'.repeat(64)}` },
+      { id: 'm-5', art: 'datei', zustand: 'laedt', datei: 'Video.mp4', bytes: 52428800 },
+    ],
+  };
+  const text = indexText(spec);
+  const ok = leseIndex(text);
+  ck('P10 12.4 Nr. 35: gültiger Index aus 9.8 → ok', ok.art === 'ok' && ok.index.eintraege.length === 5);
+  ck('P10 9.8: indexText → leseIndex → indexText ist eine Rundreise (JSON, LF, Schluss-LF)',
+    ok.art === 'ok' && indexText(ok.index) === text && text.endsWith('}\n') && !text.includes('\r'));
+  const mit = (aenderung: (i: Record<string, unknown>, e: Array<Record<string, unknown>>) => void): IndexLesen => {
+    const i = JSON.parse(text) as Record<string, unknown>;
+    aenderung(i, i.eintraege as Array<Record<string, unknown>>);
+    return leseIndex(JSON.stringify(i));
+  };
+  const faelle: Array<[string, (i: Record<string, unknown>, e: Array<Record<string, unknown>>) => void]> = [
+    ['datei = ../x', (_i, e) => { e[0].datei = '../x'; }],
+    ['datei = C:\\x', (_i, e) => { e[0].datei = 'C:\\x'; }],
+    ['datei = \\\\h\\s\\x', (_i, e) => { e[0].datei = '\\\\h\\s\\x'; }],
+    ['datei = entfernt/../../x', (_i, e) => { e[2].datei = 'entfernt/../../x'; }],
+    ['datei = entfernt/x bei zustand aktiv', (_i, e) => { e[0].datei = 'entfernt/Alt.pdf'; }],
+    ['datei = .versteckt (nicht nach 1–8 unverändert)', (_i, e) => { e[0].datei = '.versteckt'; }],
+    ['datei leer', (_i, e) => { e[0].datei = ''; }],
+    ['wartet mit Traversal', (_i, e) => { e[3].wartet = '../../x.4711.jm-neu'; }],
+    ['wartet mit fremder Kennung', (_i, e) => { e[3].wartet = '.m-1.4711.jm-neu'; }],
+    ['wartet ohne Ziffern', (_i, e) => { e[3].wartet = '.m-4.x.jm-neu'; }],
+    ['art unbekannt', (_i, e) => { e[0].art = 'video'; }],
+    ['zustand unbekannt', (_i, e) => { e[0].zustand = 'weg'; }],
+    ['id keine Zeichenkette', (_i, e) => { e[0].id = 7; }],
+    ['bytes als Text', (_i, e) => { e[0].bytes = '1048576'; }],
+    ['doppelte Kennung', (_i, e) => { e[1].id = 'm-1'; }],
+    ['zwei Einträge mit derselben Datei (Vergleichsform)', (_i, e) => { e[1].datei = 'PRÄSENTATION.pptx'; }],
+    ['programId leer', (i) => { i.programId = ''; }],
+    ['eintraege kein Array', (i) => { i.eintraege = {}; }],
+    ['format als Text', (i) => { i.format = '1'; }],
+    ['format 0', (i) => { i.format = 0; }],
+    ['titel keine Zeichenkette', (i) => { i.titel = 5; }],
+  ];
+  for (const [titel, a] of faelle) ck(`P10 12.4 Nr. 35: ${titel} → kaputt`, mit(a).art === 'kaputt');
+  ck('P10 12.4 Nr. 35: kein JSON, JSON-Array, null → kaputt', leseIndex('{kaputt').art === 'kaputt' && leseIndex('[]').art === 'kaputt' && leseIndex('null').art === 'kaputt');
+  const neuer = mit((i) => { i.format = 2; i.eintraege = 'anders'; });
+  ck('P10 12.4 Nr. 35: format 2 → neuer (Rest wird nicht geprüft, Ordner nicht anfassen)', JSON.stringify(neuer) === '{"art":"neuer","format":2}');
+  const ohneStand = mit((i) => { delete i.stand; delete i.titel; delete i.ordnerName; });
+  ck('P10 9.8: titel, ordnerName, stand fehlen → leer (Stand „nicht da“)',
+    ohneStand.art === 'ok' && ohneStand.index.stand === '' && ohneStand.index.titel === '' && ohneStand.index.ordnerName === '');
+  const fremdFeld = mit((i, e) => { i.zusatz = 'x'; e[0].geheim = 'y'; });
+  ck('P10 9.8: unbekannte Felder werden nicht übernommen', fremdFeld.art === 'ok' && !('zusatz' in fremdFeld.index) && !('geheim' in fremdFeld.index.eintraege[0]));
+  ck('P10 9.8: Dateinamen INDEX_DATEI und SPERR_DATEI', INDEX_DATEI === '.jm-anhaenge.json' && SPERR_DATEI === '.jm-ablage-sperre.json');
+}
+
+console.log('— P10 · Inhaltssignatur (9.5, 9.8, M1)');
+{
+  const REF = `${'A'.repeat(100)}GEHEIM-ASSET${'B'.repeat(123)}.${'C'.repeat(43)}`;
+  const item = { id: 'i1', program_id: 'P-17', title: 'Eröffnung' };
+  const anhang = (m: Record<string, unknown>, groesse: number | null): GueltigerAnhang => ({ item, m: m as unknown as IveoMaterial, groesse });
+  const d = inhaltSignatur(anhang({ id: 'm1', kind: 'file', label: 'Deck', asset: { url: REF, mime_type: 'application/pdf', size_bytes: 1000 } }, 1000));
+  ck('P10 9.8: Datei → „‹MIME›|‹Größe›|‹SHA-256 der Referenz›“, ohne die Referenz',
+    d === `application/pdf|1000|${createHash('sha256').update(REF, 'utf8').digest('hex')}` && !d.includes('GEHEIM'));
+  ck('P10 9.5: Datei ohne Größe und MIME → leere Teile', inhaltSignatur(anhang({ id: 'm1', kind: 'file', label: 'Deck', asset: { url: REF } }, null))?.startsWith('||') === true);
+  ck('P10 9.7: Link → href aus pruefeLink', inhaltSignatur(anhang({ id: 'm2', kind: 'link', label: 'Web', external_url: ' HTTPS://Example.org ' }, null)) === 'https://example.org/');
+  ck('P10 9.5: Link ohne gültige Adresse und Datei ohne Asset → null',
+    inhaltSignatur(anhang({ id: 'm2', kind: 'link', label: 'Web', external_url: 'file:///x' }, null)) === null
+    && inhaltSignatur(anhang({ id: 'm1', kind: 'file', label: 'Deck', asset: null }, null)) === null);
+}
+
+console.log('— P10 · Ablage-Tag und Ablage-Menge (9.3; 12.4 Nr. 42)');
+{
+  const tage = ['2026-11-10', '2026-11-11', '2026-11-12'];
+  const anzahl = [22, 23, 22];
+  const liste: Array<{ id: string; title: string }> = [];
+  const tagVonKarte = new Map<string, string>();
+  tage.forEach((t, n) => { for (let i = 1; i <= anzahl[n]; i++) { const id = `p${n + 1}-${String(i).padStart(2, '0')}`; liste.push({ id, title: `Side Event ${id}` }); tagVonKarte.set(id, t); } });
+  const tagVon = (id: string): string | null => tagVonKarte.get(id) ?? null;
+  ck('P10 12.4 Nr. 42: Prüfliste hat 67 Programme über drei Tage', liste.length === 67);
+  const aktiv = 'p2-05';
+  const tag = ablageTag({ programId: aktiv }, tagVon);
+  ck('P10 9.3: Ablage-Tag aus dem aktiven Side Event (Filter {programId})', tag === '2026-11-11');
+  const menge = ablageMenge(liste, tag, tagVon, aktiv);
+  ck('P10 12.4 Nr. 42: Filter {programId}, aktiv an Tag 2 → nur Tag 2 und das aktive (23)', menge.length === 23 && menge.every((id) => id.startsWith('p2-')));
+  const mitUnbekannt = ablageMenge([...liste, { id: 'neu-1', title: 'Neu' }], tag, tagVon, aktiv);
+  ck('P10 12.4 Nr. 42: Eintrag ohne Tag im Cache zählt mit', mitUnbekannt.length === 24 && mitUnbekannt.includes('neu-1'));
+  const aussen = ablageMenge(liste.filter((p) => p.id !== 'p2-07'), tag, tagVon, 'p2-07');
+  ck('P10 12.4 Nr. 42: aktives Side Event außerhalb der Liste kommt dazu (am Ende)', aussen.length === 23 && aussen[aussen.length - 1] === 'p2-07');
+  ck('P10 12.4 Nr. 42: Listen-Modus ohne Tag → alle 67', ablageMenge(liste, ablageTag({}, tagVon), tagVon, null).length === 67);
+  ck('P10 9.3: filter.day vor dem Tag des aktiven', ablageTag({ day: '2026-11-12', programId: aktiv }, tagVon) === '2026-11-12');
+  ck('P10 9.3: aktives Side Event ohne Tag im Cache → kein Ablage-Tag (alle)', ablageTag({ programId: 'fehlt' }, tagVon) === null);
+  ck('P10 9.3: jede Kennung einmal', ablageMenge([...liste.slice(0, 3), liste[0]], null, tagVon, liste[1].id).length === 3);
+}
+
+console.log('— P10 · Sperrdatei (9.2 Regeln 1–6; 12.4 Nr. 40 Tabelle)');
+{
+  const JETZT = Date.UTC(2026, 9, 17, 10, 0, 0);
+  const vor = (ms: number): string => new Date(JETZT - ms).toISOString();
+  const sperreVon = (rechner: string, sitzung: string, alterMs: number): SperreInhalt => ({ format: 1, rechner, pid: 4711, sitzung, lebenszeichen: vor(alterMs) });
+  const ich = { rechner: 'REGIE-PC', sitzung: 's-neu' };
+  const faelle: Array<[string, unknown, boolean, SperreBewertung]> = [
+    ['Regel 1: keine Sperrdatei (null) → frei', null, false, 'frei'],
+    ['Regel 1: keine Sperrdatei (undefined) → frei', undefined, true, 'frei'],
+    ['Regel 2: gleiche sitzung → eigen', sperreVon('REGIE-PC', 's-neu', 60_000), true, 'eigen'],
+    ['Regel 2: gleiche sitzung, anderer Rechnername → eigen', sperreVon('ANDERS', 's-neu', 60_000), true, 'eigen'],
+    ['Regel 3: gleicher rechner, noch nicht gehalten, Lebenszeichen 1 min → eigen-frueher', sperreVon('REGIE-PC', 's-alt', 60_000), false, 'eigen-frueher'],
+    ['Regel 3: gleicher rechner, noch nicht gehalten, Lebenszeichen 20 min → eigen-frueher', sperreVon('REGIE-PC', 's-alt', 1_200_000), false, 'eigen-frueher'],
+    ['Regel 4: gleicher rechner, schon gehalten → namensgleich', sperreVon('REGIE-PC', 's-zweiter', 10_000), true, 'namensgleich'],
+    ['Regel 5: anderer rechner, Lebenszeichen 14:59 min → fremd', sperreVon('TECHNIK-PC', 's-x', 899_000), false, 'fremd'],
+    ['Regel 6: anderer rechner, genau 15 min → abgelaufen', sperreVon('TECHNIK-PC', 's-x', 900_000), false, 'abgelaufen'],
+    ['Regel 6: anderer rechner, 16 min → abgelaufen', sperreVon('TECHNIK-PC', 's-x', 960_000), true, 'abgelaufen'],
+    ['Regel 5: Lebenszeichen in der Zukunft (Uhrzeit des anderen) → fremd', sperreVon('TECHNIK-PC', 's-x', -120_000), false, 'fremd'],
+    ['exakt verglichen: „regie-pc“ ist ein anderer Rechner → fremd', sperreVon('regie-pc', 's-x', 60_000), false, 'fremd'],
+    ['kein gültiger Inhalt (Text) → abgelaufen', '{kaputt', false, 'abgelaufen'],
+    ['EP19: format 2 (neuerer Launcher), anderer Rechner, Lebenszeichen 1 min → fremd', { ...sperreVon('TECHNIK-PC', 's-x', 60_000), format: 2 }, false, 'fremd'],
+    ['EP19: format 2, anderer Rechner, Lebenszeichen 16 min → abgelaufen', { ...sperreVon('TECHNIK-PC', 's-x', 960_000), format: 2 }, false, 'abgelaufen'],
+    ['EP19: format 0 (keine ganze Zahl ≥ 1) → abgelaufen', { ...sperreVon('TECHNIK-PC', 's-x', 60_000), format: 0 }, false, 'abgelaufen'],
+    ['Feld fehlt (rechner) → abgelaufen', { format: 1, pid: 1, sitzung: 's-x', lebenszeichen: vor(60_000) }, false, 'abgelaufen'],
+    ['Lebenszeichen nicht lesbar → abgelaufen', { ...sperreVon('TECHNIK-PC', 's-x', 0), lebenszeichen: 'gestern' }, false, 'abgelaufen'],
+  ];
+  for (const [titel, gelesen, gehalten, soll] of faelle) ck(`P10 12.4 Nr. 40 Tabelle: ${titel}`, sperreBewerten(gelesen, ich, gehalten, JETZT) === soll);
+  ck('P10 9.2: Ablauf 15 min', SPERRE_ABLAUF_MS === 900_000);
+  ck('P10 9.2: leseSperre gibt nur die bekannten Felder zurück',
+    JSON.stringify(leseSperre({ ...sperreVon('TECHNIK-PC', 's-x', 0), extra: 1 })) === JSON.stringify(sperreVon('TECHNIK-PC', 's-x', 0)) && leseSperre(null) === null);
+}
+
+console.log('— P10 · Rückhaltung und Auffrischregel (9.6; 12.4 Nr. 37 Formel; 6.1, EP9)');
+{
+  const t = 1_000_000;
+  ck('P10 12.4 Nr. 37 Formel: 45, 90, 180, 360 s, dann höchstens 600 s',
+    JSON.stringify([1, 2, 3, 4, 5, 6, 10].map((f) => (rueckhaltungBis(f, t) - t) / 1000)) === '[45,90,180,360,600,600,600]');
+  ck('P10 9.6: f = 0 zählt wie der erste Fehlschlag', rueckhaltungBis(0, t) === t + 45_000);
+  ck('P10 6.1 Regel: SPEAKER_AUFFRISCHEN_MS = 300 s', SPEAKER_AUFFRISCHEN_MS === 300_000);
+  ck('P10 6.1 Regel: Takt 45 s → 254 s nicht fällig, 255 s fällig',
+    auffrischenFaellig(0, 254_000, 45_000) === false && auffrischenFaellig(0, 255_000, 45_000) === true);
+  ck('P10 6.1 Regel: naechsterFaelligerTakt = Start + 270 s bei 45 s (sechster Takt)', naechsterFaelligerTakt(1_000, 45_000) === 271_000);
+  ck('P10 6.1 Regel: andere Takte (60 s → 240 s, 2 s → 298 s, 400 s → ein Takt)',
+    naechsterFaelligerTakt(0, 60_000) === 240_000 && naechsterFaelligerTakt(0, 2_000) === 298_000 && naechsterFaelligerTakt(0, 400_000) === 400_000);
+  let erster = -1;
+  for (let k = 1; k <= 10 && erster < 0; k++) if (auffrischenFaellig(0, k * 45_000, 45_000)) erster = k;
+  ck('P10 EP9: naechsterFaelligerTakt ist der erste Takt mit auffrischenFaellig', erster * 45_000 === naechsterFaelligerTakt(0, 45_000));
 }
 
 // ── Ende der Fälle ──

@@ -12,6 +12,24 @@ export const IVEO_ABFRAGE_TAKT_MIN_MS = 500;
 /** Zeitgrenze je Abruf (Spec 7.0). */
 export const IVEO_ABRUF_ZEITGRENZE_MS = 15_000;
 
+/** Speakerliste auffrischen (iveo-Paket Spec 6.1, E9, EP9): fällig nach 300 s, abzüglich eines Takts. */
+export const SPEAKER_AUFFRISCHEN_MS = 300_000;
+
+/**
+ * Regel „fällig“ (Spec 6.1): jetzt − seit + Takt ≥ 300 s, bei 45 s also ab 255 s und damit in jedem sechsten Takt (270 s).
+ * Dieselbe Regel nutzen der Kern (Speakerliste) und die Runde der Ordner-Ablage (9.4).
+ */
+export function auffrischenFaellig(seitMs: number, jetztMs: number, taktMs: number): boolean {
+  return jetztMs - seitMs + taktMs >= SPEAKER_AUFFRISCHEN_MS;
+}
+
+/** Erster Takt nach `startMs` (start + k·Takt, k ≥ 1), in dem auffrischenFaellig gilt; bei 45 s Start + 270 s („gegen ‹hh:mm›“, 11.1). */
+export function naechsterFaelligerTakt(startMs: number, taktMs: number): number {
+  if (!(taktMs > 0)) return startMs + SPEAKER_AUFFRISCHEN_MS;
+  const k = Math.max(1, Math.ceil((SPEAKER_AUFFRISCHEN_MS - taktMs) / taktMs));
+  return startMs + k * taktMs;
+}
+
 /**
  * Abfragetakt aus JMPS_IVEO_POLL_MS (nur für Tests, Spec 9.8). Eine Zahl von 500
  * bis 45000 verkürzt den Takt; alles andere (fehlt, keine Zahl, zu kurz, länger

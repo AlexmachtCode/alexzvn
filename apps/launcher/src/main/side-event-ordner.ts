@@ -6,8 +6,9 @@
 // SICHERHEIT (E20, G4): Asset-Referenz, Weiterleitungsadresse und Token erscheinen in keinem Ergebnis dieses Moduls.
 import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
-import { IveoApiError, IveoAssetAdresseError, type IveoMaterial } from '@jm/iveo';
-import { istGeloescht } from './iveo-anhaenge';
+import { IveoApiError, IveoAssetAdresseError, type IveoMaterial, type IveoProgramFilter } from '@jm/iveo';
+import type { ShowIveoProgramRef } from '@jm/show';
+import { istGeloescht, referenzHash, type GueltigerAnhang } from './iveo-anhaenge';
 
 /** Endung je MIME-Typ (aus `iveo-sync.ts:602-616` übernommen; die alte Kopie und `extFor` entfernt Task 30, EP18). */
 export const MIME_EXT: Readonly<Record<string, string>> = {
@@ -394,6 +395,226 @@ export function ordnerFehlerText(e: unknown, wo: 'agenda' | 'download' | 'datei'
   const roh = typeof x?.message === 'string' ? x.message : typeof e === 'string' ? e : '';
   const text = ohneAdressen(roh).replace(/\s*[\r\n]+\s*/g, ' ').trim();
   return text === '' ? 'iveo: unbekannter Fehler.' : Array.from(text).slice(0, 200).join('');
+}
+
+// ── Index, Inhaltssignatur, Ablage-Menge, Sperre, Rückhaltung (Spec 9.8, 9.5, 9.3, 9.2, 9.6) ──
+
+/** Indexdatei je Side-Event-Ordner (9.8) und Sperrdatei im Basisordner (9.2). */
+export const INDEX_DATEI = '.jm-anhaenge.json';
+export const SPERR_DATEI = '.jm-ablage-sperre.json';
+
+/** Ein Eintrag der Indexdatei (9.8). `datei` = reiner Name bzw. bei `entfernt` `entfernt/‹Name›`. */
+export interface IndexEintrag {
+  id: string;
+  art: 'datei' | 'link';
+  zustand: 'aktiv' | 'entfernt' | 'laedt';
+  datei: string;
+  label?: string;
+  /** Inhaltssignatur (inhaltSignatur): Datei `‹MIME›|‹Größe›|‹SHA-256 der Referenz›`, Link `href`. */
+  inhalt?: string;
+  /** Bei `laedt` die geschriebene Bytezahl (9.6), sonst die Größe der abgelegten Datei. */
+  bytes?: number;
+  mtimeMs?: number;
+  seit?: string;
+  /** Wartende neue Fassung `.‹Kennung›.‹Ziffern›.jm-neu` (9.6). */
+  wartet?: string;
+  inhaltNeu?: string;
+}
+
+/** Indexdatei (9.8). `titel`, `ordnerName`, `stand` fehlen in der Datei → ''. */
+export interface OrdnerIndex {
+  format: 1;
+  programId: string;
+  titel: string;
+  ordnerName: string;
+  stand: string;
+  eintraege: IndexEintrag[];
+}
+
+export type IndexLesen = { art: 'ok'; index: OrdnerIndex } | { art: 'neuer'; format: number } | { art: 'kaputt' };
+
+const istObjekt = (x: unknown): x is Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x);
+
+/** Reiner Name (9.8): nicht leer, ohne `/` und `\`, nach den Regeln 1–8 aus 9.12 unverändert. */
+function istReinerName(n: unknown): n is string {
+  return typeof n === 'string' && n !== '' && !/[\\/]/.test(n) && bereinigeName(n, 'Anhang') === n;
+}
+
+/** `wartet` ist genau `.‹Kennung›.‹Ziffern›.jm-neu` mit der Kennung dieses Eintrags (9.8). */
+function istWarteName(w: string, id: string): boolean {
+  const vorn = `.${zwischenKennung(id)}.`;
+  return w.startsWith(vorn) && /^\d+\.jm-neu$/.test(w.slice(vorn.length));
+}
+
+function leseEintrag(e: unknown): IndexEintrag | null {
+  if (!istObjekt(e)) return null;
+  const { id, art, zustand, datei } = e;
+  if (typeof id !== 'string') return null;
+  if (art !== 'datei' && art !== 'link') return null;
+  if (zustand !== 'aktiv' && zustand !== 'entfernt' && zustand !== 'laedt') return null;
+  const rein = istReinerName(datei)
+    || (zustand === 'entfernt' && typeof datei === 'string' && datei.startsWith(`${ENTFERNT}/`) && istReinerName(datei.slice(ENTFERNT.length + 1)));
+  if (!rein || typeof datei !== 'string') return null;
+  const x: IndexEintrag = { id, art, zustand, datei };
+  const text = (k: 'label' | 'inhalt' | 'seit' | 'inhaltNeu'): boolean => {
+    const v = e[k];
+    if (v === undefined) return true;
+    if (typeof v !== 'string') return false;
+    x[k] = v;
+    return true;
+  };
+  const zahl = (k: 'bytes' | 'mtimeMs'): boolean => {
+    const v = e[k];
+    if (v === undefined) return true;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return false;
+    x[k] = v;
+    return true;
+  };
+  if (!text('label') || !text('inhalt') || !zahl('bytes') || !zahl('mtimeMs') || !text('seit')) return null;
+  if (e.wartet !== undefined) {
+    if (typeof e.wartet !== 'string' || !istWarteName(e.wartet, id)) return null;
+    x.wartet = e.wartet;
+  }
+  if (!text('inhaltNeu')) return null;
+  return x;
+}
+
+/**
+ * Indexdatei lesen und prüfen (9.8): gültig nur, wenn alles gilt — JSON-Objekt; `format` eine Zahl (größer als 1 →
+ * `neuer`, Ordner nicht anfassen); `programId` ein nicht leerer String; `eintraege` ein Array; je Eintrag `id` ein String,
+ * `art`, `zustand` aus der Liste, `datei` ein reiner Name oder bei `entfernt` genau `entfernt/` + reiner Name, `wartet`
+ * fehlt oder trägt die eigene Kennung. Zusätzlich (strenger als 9.8): optionale Felder mit falschem Typ, doppelte Kennungen
+ * und zwei Einträge mit derselben Datei (Vergleichsform) → `kaputt`. Ein Ergebnis `ok` trägt nur die bekannten Felder.
+ */
+export function leseIndex(text: string): IndexLesen {
+  const kaputt: IndexLesen = { art: 'kaputt' };
+  let roh: unknown;
+  try {
+    roh = JSON.parse(text);
+  } catch {
+    return kaputt;
+  }
+  if (!istObjekt(roh)) return kaputt;
+  const f = roh.format;
+  if (typeof f !== 'number' || !Number.isFinite(f)) return kaputt;
+  if (f > 1) return { art: 'neuer', format: f };
+  if (f !== 1) return kaputt;
+  const { programId, titel, ordnerName, stand, eintraege } = roh;
+  if (typeof programId !== 'string' || programId === '' || !Array.isArray(eintraege)) return kaputt;
+  for (const v of [titel, ordnerName, stand]) if (v !== undefined && typeof v !== 'string') return kaputt;
+  const ids = new Set<string>();
+  const dateien = new Set<string>();
+  const liste: IndexEintrag[] = [];
+  for (const e of eintraege as unknown[]) {
+    const x = leseEintrag(e);
+    if (x === null || ids.has(x.id) || dateien.has(vergleichsform(x.datei))) return kaputt;
+    ids.add(x.id);
+    dateien.add(vergleichsform(x.datei));
+    liste.push(x);
+  }
+  return {
+    art: 'ok',
+    index: {
+      format: 1,
+      programId,
+      titel: typeof titel === 'string' ? titel : '',
+      ordnerName: typeof ordnerName === 'string' ? ordnerName : '',
+      stand: typeof stand === 'string' ? stand : '',
+      eintraege: liste,
+    },
+  };
+}
+
+/** Index als Text (9.8): JSON mit zwei Leerzeichen, LF, Schluss-LF. */
+export function indexText(i: OrdnerIndex): string {
+  return `${JSON.stringify(i, null, 2)}\n`;
+}
+
+/**
+ * Inhaltssignatur eines Anhangs (9.5, 9.8): Datei `‹MIME›|‹Größe›|‹SHA-256 der Asset-Referenz›` (referenzHash, M1; fehlende
+ * Teile leer), Link das `href` aus pruefeLink; ohne Asset bzw. ohne gültige Adresse null. Nie die Referenz selbst (E20).
+ */
+export function inhaltSignatur(a: GueltigerAnhang): string | null {
+  if (istLinkAnhang(a.m)) {
+    const l = pruefeLink(a.m.external_url);
+    return l.ok ? l.href : null;
+  }
+  const h = referenzHash(a.m);
+  if (h === null) return null;
+  const mime = a.m.asset?.mime_type;
+  return `${typeof mime === 'string' ? mime : ''}|${a.groesse ?? ''}|${h}`;
+}
+
+/** Ablage-Tag (9.3): `filter.day`, sonst der Tag des aktiven Side Events (`filter.programId`), sonst keiner. */
+export function ablageTag(filter: IveoProgramFilter, tagVon: (id: string) => string | null): string | null {
+  if (typeof filter.day === 'string' && filter.day !== '') return filter.day;
+  if (typeof filter.programId === 'string' && filter.programId !== '') return tagVon(filter.programId);
+  return null;
+}
+
+/**
+ * Ablage-Menge (9.3, OF7): die Einträge der Liste aus der Datei, deren Tag der Ablage-Tag ist (ohne Ablage-Tag alle;
+ * ein Eintrag ohne bekannten Tag zählt mit), dazu das aktive Side Event, auch außerhalb der Liste. Reihenfolge der Liste,
+ * das aktive am Ende, jede Kennung einmal.
+ */
+export function ablageMenge(liste: ShowIveoProgramRef[], tag: string | null, tagVon: (id: string) => string | null, aktiv: string | null): string[] {
+  const menge: string[] = [];
+  for (const p of liste) {
+    if (typeof p?.id !== 'string' || p.id === '' || menge.includes(p.id)) continue;
+    const t = tag === null ? null : tagVon(p.id);
+    if (tag === null || t === null || t === tag) menge.push(p.id);
+  }
+  if (aktiv !== null && aktiv !== '' && !menge.includes(aktiv)) menge.push(aktiv);
+  return menge;
+}
+
+/** Inhalt der Sperrdatei (9.2). Dieser Launcher schreibt `format: 1`; gelesen wird jede ganze Zahl ≥ 1 (EP19). */
+export interface SperreInhalt {
+  format: number;
+  rechner: string;
+  pid: number;
+  sitzung: string;
+  lebenszeichen: string;
+}
+
+export type SperreBewertung = 'frei' | 'eigen' | 'eigen-frueher' | 'namensgleich' | 'fremd' | 'abgelaufen';
+
+/** Eine Sperre gilt 15 Minuten (drei Runden) nach ihrem letzten Lebenszeichen (9.2 Regeln 5, 6). */
+export const SPERRE_ABLAUF_MS = 900_000;
+
+/**
+ * Gelesenen Sperrdatei-Inhalt prüfen: `format` eine ganze Zahl ≥ 1 (ein neueres Format eines künftigen Launchers gilt nach
+ * denselben Regeln, EP19), alle Felder mit Typ, Lebenszeichen lesbar; sonst null.
+ */
+export function leseSperre(gelesen: unknown): SperreInhalt | null {
+  if (!istObjekt(gelesen)) return null;
+  const { format, rechner, pid, sitzung, lebenszeichen } = gelesen;
+  if (typeof format !== 'number' || !Number.isInteger(format) || format < 1) return null;
+  if (typeof rechner !== 'string' || typeof sitzung !== 'string' || typeof lebenszeichen !== 'string' || typeof pid !== 'number') return null;
+  if (!Number.isFinite(Date.parse(lebenszeichen))) return null;
+  return { format, rechner, pid, sitzung, lebenszeichen };
+}
+
+/**
+ * Sperrdatei bewerten (9.2), die erste zutreffende Regel gilt: (1) keine Datei (`null`) → frei; (2) gleiche `sitzung` →
+ * eigen; (3) gleicher `rechner` (exakt), noch nicht gehalten → eigen-frueher (sofort übernehmen); (4) gleicher `rechner`,
+ * schon gehalten → namensgleich; (5) anderer `rechner`, Lebenszeichen jünger als 15 min → fremd; (6) sonst abgelaufen.
+ * Ein neueres `format` mit lesbaren Feldern gilt nach denselben Regeln; ein Inhalt, der keine lesbare Sperre ist (kein JSON,
+ * `format` keine ganze Zahl ≥ 1, Feld fehlt), gilt als abgelaufen (EP19).
+ */
+export function sperreBewerten(gelesen: unknown, ich: { rechner: string; sitzung: string }, gehalten: boolean, jetztMs: number): SperreBewertung {
+  if (gelesen === null || gelesen === undefined) return 'frei';
+  const s = leseSperre(gelesen);
+  if (s === null) return 'abgelaufen';
+  if (s.sitzung === ich.sitzung) return 'eigen';
+  if (s.rechner === ich.rechner) return gehalten ? 'namensgleich' : 'eigen-frueher';
+  return jetztMs - Date.parse(s.lebenszeichen) < SPERRE_ABLAUF_MS ? 'fremd' : 'abgelaufen';
+}
+
+/** Rückhaltung (9.6, E29): nach dem f-ten Fehlschlag nicht vor Fehlschlag + min(45 s × 2^(f−1), 10 min). */
+export function rueckhaltungBis(fehlschlaege: number, fehlschlagMs: number): number {
+  const f = Math.max(1, Math.floor(fehlschlaege));
+  return fehlschlagMs + Math.min(45_000 * 2 ** (f - 1), 600_000);
 }
 
 // ── Ende des Moduls ──
