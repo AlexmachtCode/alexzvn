@@ -53,7 +53,7 @@ export interface SuiteSettingsInput {
   proxyUrl?: string;
   /** Remote-Katalog (suite.json) — leer = gebündelten Katalog nutzen. */
   manifestUrl?: string;
-  /** iveo-Basis-URL (kein Secret; leer = Staging-Default). #11 */
+  /** iveo-Basis-URL (kein Secret; leer = Standard (Production)). #11 */
   iveoBaseUrl?: string;
 }
 
@@ -84,6 +84,11 @@ export interface SuiteSettingsView {
   iveoBaseUrl?: string;
   /** iveo-Basis-URL stammt aus Umgebungsvariable (read-only in der UI). */
   iveoBaseUrlFromEnv: boolean;
+  /**
+   * Eingetragene iveo-Basis-URL, wie sie gespeichert ist; null = keine eingetragen (iveo-Paket, Spec 7.2, E15). Nicht
+   * die wirksame: die steht in `iveoBaseUrl` (Umgebungsvariable, sonst eingetragen, sonst Standard).
+   */
+  iveoBaseUrlEingetragen: string | null;
 }
 
 // ── iveo (#11) ────────────────────────────────────────────────────────────────

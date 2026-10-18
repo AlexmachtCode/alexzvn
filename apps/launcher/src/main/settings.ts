@@ -11,7 +11,7 @@ interface StoredSettings {
   githubTokenEnc?: string;
   proxyUrl?: string;
   manifestUrl?: string;
-  /** iveo-Basis-URL (kein Secret; Default = Staging). */
+  /** iveo-Basis-URL (kein Secret; Default = Production, iveo-Paket Spec 7.1). Fehlt sie, gilt der Standard. */
   iveoBaseUrl?: string;
   /**
    * iveo Bearer-Token PRO EVENT, verschlüsselt (safeStorage, base64). Schlüssel =
@@ -170,7 +170,7 @@ function envControlled(): boolean {
 // per-Event-Token liegt verschlüsselt hier — NIE in der portablen .jmshow und nie
 // im Renderer. Env-Override JMPS_IVEO_TOKEN gilt global (nur für Dev/CI).
 
-/** Effektive iveo-Basis-URL: Env > gespeichert > Staging-Default. Kein Secret. */
+/** Effektive iveo-Basis-URL: Env > gespeichert > Production-Default (iveo-Paket, Spec 7.1). Kein Secret. */
 export function resolveIveoBaseUrl(): string {
   return process.env['JMPS_IVEO_BASE_URL'] || read().iveoBaseUrl || IVEO_DEFAULT_BASE_URL;
 }
@@ -274,6 +274,9 @@ export function getSettingsView(): SuiteSettingsView {
     manifestFromEnv: Boolean(process.env['JMPS_MANIFEST_URL']),
     iveoBaseUrl: resolveIveoBaseUrl(),
     iveoBaseUrlFromEnv: Boolean(process.env['JMPS_IVEO_BASE_URL']),
+    // iveo-Paket, Spec 7.2 (E15): der GESPEICHERTE Wert, nicht der wirksame. Das Einstellungsfeld zeigt ihn beim Öffnen,
+    // damit „Speichern“ eine eingetragene Adresse nicht mehr mit dem leeren Feld löscht.
+    iveoBaseUrlEingetragen: read().iveoBaseUrl ?? null,
   };
 }
 

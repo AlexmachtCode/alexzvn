@@ -4,6 +4,19 @@ import type { ControlPlaneStatus } from '@shared/types';
 import { useTools } from '@/store/tools';
 import { useVerbund } from '@/store/verbund';
 
+// iveo-Paket, Spec 7.1/7.2, Texte T5, T6, T9 (11.6 wörtlich). Production ist der Standard. T9 nennt die Adresse aus
+// settings.iveoBaseUrl (Umgebungsvariable, sonst eingetragen, sonst Standard) und sagt bewusst nicht „wirksam“: Eine
+// offene Show mit eigener Adresse fragt ihre eigene ab (iveo-abgleich-kern.ts setzeAuf, E16).
+/** T5: Hinweis über dem iveo-Feld. */
+const TEXT_IVEO_HINWEIS =
+  'iveo-Eventplattform (#11): Basis-URL der API. Leer = Standard (Production). Das Token ist pro Event und wird beim Anlegen einer Show eingetragen — es liegt verschlüsselt hier und nie in der Show-Datei.';
+/** T6: Platzhalter des Felds. */
+const TEXT_IVEO_PLATZHALTER = 'https://app.my-iveo.de/api/v1';
+/** T9: Zeile unter dem Feld. */
+function textIveoStandard(url: string): string {
+  return `Standard für neue Bindungen und Shows ohne Adresse: ${url}`;
+}
+
 export function SettingsModal() {
   const open = useTools((s) => s.settingsOpen);
   const settings = useTools((s) => s.settings);
@@ -13,7 +26,13 @@ export function SettingsModal() {
   const [token, setToken] = useState('');
   const [proxy, setProxy] = useState(settings?.proxyUrl ?? '');
   const [manifestUrl, setManifestUrl] = useState(settings?.manifestUrl ?? '');
-  const [iveoBaseUrl, setIveoBaseUrl] = useState(settings?.iveoBaseUrl ?? '');
+  const [iveoBaseUrl, setIveoBaseUrl] = useState('');
+  // iveo-Paket, Spec 7.2 (E15): bei jedem Öffnen die EINGETRAGENE Adresse zeigen, sonst leer. Vorher startete das Feld
+  // mit dem Stand beim Einhängen (settings noch null, App.tsx:64) immer leer, und „Speichern“ löschte eine eingetragene
+  // Adresse (settings.ts setSettings). Der Effekt steht vor dem frühen return (Hook-Regel).
+  useEffect(() => {
+    if (open) setIveoBaseUrl(settings?.iveoBaseUrlEingetragen ?? '');
+  }, [open, settings]);
 
   if (!open) return null;
 
@@ -79,11 +98,7 @@ export function SettingsModal() {
         </div>
 
         <div className="mt-5 border-t border-[var(--border)] pt-5">
-          <p className="text-xs text-[var(--muted-foreground)] mb-3">
-            iveo-Eventplattform (#11): Basis-URL der API. Leer = Standard (Staging). Das
-            Token ist pro Event und wird beim Anlegen einer Show eingetragen — es liegt
-            verschlüsselt hier und nie in der Show-Datei.
-          </p>
+          <p className="text-xs text-[var(--muted-foreground)] mb-3">{TEXT_IVEO_HINWEIS}</p>
           {iveoBaseUrlFromEnv && (
             <p className="mb-3 text-xs rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-[var(--muted-foreground)]">
               iveo-Basis-URL wird per Umgebungsvariable gesetzt und kann hier nicht
@@ -93,11 +108,16 @@ export function SettingsModal() {
           <div className={cn(iveoBaseUrlFromEnv && 'opacity-50 pointer-events-none')}>
             <Field
               label="iveo Basis-URL (optional)"
-              placeholder="https://staging-dev.my-iveo.de/api/v1"
+              placeholder={TEXT_IVEO_PLATZHALTER}
               value={iveoBaseUrl}
               onChange={setIveoBaseUrl}
             />
           </div>
+          {settings?.iveoBaseUrl && (
+            <p className="mt-2 text-[11px] text-[var(--muted-foreground)] break-words">
+              {textIveoStandard(settings.iveoBaseUrl)}
+            </p>
+          )}
         </div>
 
         <ControlPlaneSection />

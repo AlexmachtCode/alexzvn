@@ -836,6 +836,50 @@ function ck(name: string, cond: boolean): void {
   ck('P11 11.6: keine ASCII-Anführungszeichen und kein „spätestens“ in den Texten', alle.every((t) => !t.includes('"') && !t.includes('spätestens')));
 }
 
+// --- iveo-Paket, Block E: Verdrahtung von Electron-Dateien, Store und Panel (Quelltext-Wächter, EP13) ---------------
+// Diese Dateien laden Electron bzw. React und laufen hier nicht; geprüft wird ihr Quelltext (Muster C1–C7, M1/M2 oben).
+// Der Worktree unter Windows hat CRLF, die CI LF: verglichen wird nach LF.
+function quelleLf(pfad: string): string {
+  return readFileSync(new URL(pfad, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+}
+/** Körper einer Funktion: ab `kopf` bis zur ersten Zeile, die in der Einrückung der Kopfzeile mit `}` beginnt. */
+function funktionsKoerper(quelle: string, kopf: string): string {
+  const i = quelle.indexOf(kopf);
+  if (i < 0) return '';
+  const einzug = /^ */.exec(quelle.slice(quelle.lastIndexOf('\n', i) + 1, i))?.[0] ?? '';
+  const ende = quelle.slice(i).search(new RegExp(`\n${einzug}\}`));
+  return ende < 0 ? '' : quelle.slice(i, i + ende + 1 + einzug.length + 1);
+}
+
+// --- iveo-Paket P25 (Spec 7.2, E15): Einstellungen zeigen die eingetragene Adresse --------------------------------
+{
+  const modal = quelleLf('../src/renderer/src/components/SettingsModal.tsx');
+  const einst = quelleLf('../src/main/settings.ts');
+  const typen = quelleLf('../src/shared/types.ts');
+  const T5 = 'iveo-Eventplattform (#11): Basis-URL der API. Leer = Standard (Production). Das Token ist pro Event und wird beim Anlegen einer Show eingetragen — es liegt verschlüsselt hier und nie in der Show-Datei.';
+  const T6 = 'https://app.my-iveo.de/api/v1';
+  const T9_ANFANG = 'Standard für neue Bindungen und Shows ohne Adresse: ';
+  const iEffekt = modal.indexOf("  useEffect(() => {\n    if (open) setIveoBaseUrl(settings?.iveoBaseUrlEingetragen ?? '');\n  }, [open, settings]);");
+  const iReturn = modal.indexOf('  if (!open) return null;');
+  ck('P25 7.2: SettingsModal füllt das Feld bei jedem Öffnen mit iveoBaseUrlEingetragen (useEffect auf open, vor dem frühen return)',
+    iEffekt > 0 && iReturn > 0 && iEffekt < iReturn);
+  ck('P25 7.2: … das Feld startet nicht mehr mit der wirksamen Adresse (kein useState(settings?.iveoBaseUrl …))',
+    modal.includes("const [iveoBaseUrl, setIveoBaseUrl] = useState('');") && !modal.includes('useState(settings?.iveoBaseUrl'));
+  ck('P25 T5: Hinweis wörtlich als Konstante, im Modal gezeigt',
+    modal.includes(`const TEXT_IVEO_HINWEIS =\n  '${T5}';`) && modal.includes('>{TEXT_IVEO_HINWEIS}</p>'));
+  ck('P25 T6: Platzhalter wörtlich als Konstante, am Feld',
+    modal.includes(`const TEXT_IVEO_PLATZHALTER = '${T6}';`) && modal.includes('placeholder={TEXT_IVEO_PLATZHALTER}'));
+  ck('P25 T9: Zeile unter dem Feld wörtlich, mit der Adresse aus settings.iveoBaseUrl',
+    modal.includes(`  return \`${T9_ANFANG}\${url}\`;`) && modal.includes('{textIveoStandard(settings.iveoBaseUrl)}'));
+  ck('P25 7.1: kein „Staging“ mehr im Einstellungsfenster', !/staging/i.test(modal));
+  ck('P25 T5, T6, T9: keine ASCII-Anführungszeichen in den Texten', ![T5, T6, T9_ANFANG].some((t) => t.includes('"')));
+  ck('P25 7.2: getSettingsView liefert den gespeicherten Wert (read().iveoBaseUrl), nicht den wirksamen',
+    funktionsKoerper(einst, 'export function getSettingsView(): SuiteSettingsView {').includes('    iveoBaseUrlEingetragen: read().iveoBaseUrl ?? null,'));
+  ck('P25 7.2: SuiteSettingsView trägt iveoBaseUrlEingetragen: string | null; Kommentar „leer = Standard (Production)“',
+    typen.includes('  iveoBaseUrlEingetragen: string | null;') && typen.includes('leer = Standard (Production)') && !typen.includes('Staging-Default'));
+  ck('P25 7.1: Kommentare in settings.ts nennen Production, nicht mehr Staging', !/staging/i.test(einst) && einst.includes('Default = Production'));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.
