@@ -14,8 +14,9 @@ import type { AnhangOrdnerStand, OrdnerProblem, SideEventOrdnerStand, VerbundRol
 import { pruefeAnhaenge, type AgendaErgebnis, type GueltigerAnhang } from './iveo-anhaenge';
 import { auffrischenFaellig, IVEO_ABFRAGE_TAKT_MS, naechsterFaelligerTakt } from './iveo-huelle-hilfen';
 import {
-  ablageMenge, ablageTag, freierName, megabyte, ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, ordnerPfad, planeSideEvent, sperreBewerten,
-  SPERR_DATEI, vergleichsform, type OrdnerDatei, type PlanSchritt,
+  ablageMenge, ablageTag, freierName, imOrdner, indexText, inhaltSignatur, INDEX_DATEI, istLinkAnhang,
+  leseIndex, megabyte, ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, ordnerPfad, planeSideEvent, sperreBewerten, SPERR_DATEI,
+  vergleichsform, type IndexEintrag, type OrdnerDatei, type OrdnerIndex, type PlanSchritt,
 } from './side-event-ordner';
 import { fehlerCode } from './verbund/fehlercode';
 
@@ -81,8 +82,14 @@ export const LAUF_TEXTE = {
   /** T75 */
   sperreNichtGeloescht: (ordner: string, code: string): string =>
     `iveo-Ordner: Sperrdatei in „${ordner}“ nicht gelöscht (${code}); ein anderer Rechner übernimmt die Ablage erst nach 15 Minuten.`,
+  /** T21 (b), (f) */
+  umbenannt: (alt: string, neu: string): string => `iveo-Ordner: „${alt}“ in „${neu}“ umbenannt.`,
+  uebernommen: (datei: string): string => `iveo-Ordner: „${datei}“ übernommen (lag schon im Ordner).`,
   /** T23 */
   nichtGeladen: (datei: string, grund: string, roh: string): string => `iveo-Ordner: „${datei}“ nicht geladen: ${grund} (${roh}).`,
+  /** T24 */
+  indexKaputt: (ordner: string, n: number): string =>
+    `iveo-Ordner: Index von „${ordner}“ beschädigt, beiseitegelegt und neu aufgebaut (${n} Dateien übernommen).`,
   /** T25 */
   agendaNichtAbrufbar: (titel: string, grund: string, roh: string): string => `iveo-Ordner: Agenda von „${titel}“ nicht abrufbar: ${grund} (${roh}).`,
   // ── Ende der Texte ──
@@ -112,6 +119,13 @@ class GrundFehler extends Error {
   }
 }
 
+/** Quelle oder Ziel liegt außerhalb des Side-Event-Ordners (9.12 Regel 11). */
+export class AusserhalbFehler extends Error {
+  constructor() {
+    super('Pfad außerhalb des Side-Event-Ordners');
+    this.name = 'AusserhalbFehler';
+  }
+}
 
 /**
  * Datenstrom stückweise in eine neue Datei (`wx`), mit eigener Leerlauf-Uhr (60 s ohne Daten, auch vor dem ersten Byte),
@@ -182,6 +196,14 @@ export async function ladeStromInDatei(
   }
 }
 
+/**
+ * Umbenennen oder Verschieben nur innerhalb des Side-Event-Ordners (9.12 Regel 11): Quelle und Ziel werden mit
+ * `path.relative` geprüft, bevor das Dateisystem etwas sieht. Wirft `AusserhalbFehler`, sonst wie `rename`.
+ */
+export async function umbenennenImOrdner(fs: OrdnerFs, seitenOrdner: string, von: string, nach: string): Promise<void> {
+  if (!imOrdner(seitenOrdner, von) || !imOrdner(seitenOrdner, nach)) throw new AusserhalbFehler();
+  await fs.rename(von, nach);
+}
 
 // ── Zustand ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -190,10 +212,16 @@ interface Eintrag { programId: string; agenda: AgendaErgebnis | null; aktiv: boo
 /** Je Side Event im Speicher dieser Sitzung (neben dem Stand für den Renderer). */
 interface SeIntern {
   stand: SideEventOrdnerStand;
+  index: OrdnerIndex | null;
+  indexOffen: boolean;
+  zuletztGeschriebenMs: number | null;
+  aufgeraeumt: boolean;
   logGrund: Map<string, string>;
   letzterAgendaText: string | null;
 }
 
+
+interface Fund { name: string; art: 'ok' | 'neuer' | 'kaputt' | 'fehlt'; programId: string | null; ordnerName: string | null; stand: string | null }
 
 interface Lauf {
   d: OrdnerLaufAbh;
@@ -228,6 +256,8 @@ interface Lauf {
   runde: { offen: Set<string>; n: number; erledigt: number } | null;
   menge: string[];
   liste: ShowIveoProgramRef[];
+  funde: Fund[] | null;
+  scanFaellig: boolean;
   basisFehlerBis: number | null;
   /** Laufender Versuch, den Basisordner anzulegen (nur der Takt wiederholt ihn; Einträge warten darauf). */
   basisVersuch: Promise<void> | null;
@@ -255,7 +285,7 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     gen: 0, abbruch: new AbortController(), sitzung: d.neueSitzungsKennung(), gehalten: null, darf: false,
     abgesetzt: false, beendet: false, beschaeftigt: 0, warter: [], taktLaeuft: false, statLaeuft: false, sperreLoeschen: null,
     aktivAgenda: null, queue: [], laeuft: null, abrufOffen: null, nachlauf: new Map(), arbeiterGen: null, download: null,
-    rundeStartMs: null, runde: null, menge: [], liste: [], basisFehlerBis: null, basisVersuch: null, taktZuletzt: null,
+    rundeStartMs: null, runde: null, menge: [], liste: [], funde: null, scanFaellig: false, basisFehlerBis: null, basisVersuch: null, taktZuletzt: null,
     se: new Map(), kopf: leererKopf(), letzteMeldung: '',
   };
   return {
@@ -330,6 +360,7 @@ function neueSitzung(L: Lauf): void {
   L.sitzung = L.d.neueSitzungsKennung();
   L.aktivAgenda = null;
   L.rundeStartMs = null;
+  L.funde = null;
   L.basisFehlerBis = null;
   L.basisVersuch = null; // ein hängender Versuch der alten Generation hält die neue nicht auf (sein Ergebnis wird verworfen)
   L.se = new Map();
@@ -603,6 +634,8 @@ function naechsteSchritte(L: Lauf, a: { path: string; event: string; filter: Ive
     L.rundeStartMs = jetzt;
     L.kopf.ersteRundeGestartet = true;
     L.kopf.naechsteRundeGegen = iso(naechsterFaelligerTakt(jetzt, L.taktMs));
+    L.scanFaellig = true;
+    for (const s of L.se.values()) s.stand.zusaetze.indexNeuAufgebaut = false;
     ids = L.menge.filter((id) => id !== aktivId);
     L.runde = ids.length ? { offen: new Set(ids), n: ids.length, erledigt: 0 } : null;
     L.kopf.runde = L.runde ? { i: 1, n: L.runde.n } : null;
@@ -626,6 +659,7 @@ function naechsteSchritte(L: Lauf, a: { path: string; event: string; filter: Ive
   L.aktivAgenda = null;
   if (aktivId && ag && ag.programId === aktivId) reihe(L, { programId: aktivId, agenda: ag.e, aktiv: true });
   for (const id of ids) reihe(L, { programId: id, agenda: null, aktiv: false });
+  if (L.scanFaellig) starteArbeiter(L); // Durchsicht des Basisordners auch ohne Eintrag (S2, S8)
 }
 
 /** Je Side Event höchstens ein Eintrag (E48); läuft er gerade, wird er nach dem Ende genau einmal neu eingereiht. */
@@ -654,6 +688,13 @@ async function arbeite(L: Lauf, gen: number): Promise<void> {
     if (gen !== L.gen) return;
     const a = L.d.aktiv();
     if (!a || !bedingungenGelten(L, a.path)) { await endeAblage(L); return melde(L); }
+    if (L.scanFaellig) {
+      L.scanFaellig = false;
+      fortschritt(L); // Beginn eines Schritts (9.6): auch in der ersten Runde trägt der Stand eine Zeit (K7, T76)
+      await scanneBasis(L, a, gen);
+      if (gen !== L.gen) return;
+      melde(L);
+    }
     const e = L.queue.shift();
     if (!e) {
       if (L.arbeiterGen === gen) L.arbeiterGen = null; // sofort frei: ein neuer Eintrag startet den Arbeiter neu
@@ -701,7 +742,7 @@ function seIntern(L: Lauf, programId: string): SeIntern {
         standAusFrueherSitzung: false, fehler: null, n: 0, k: 0, probleme: [],
         zusaetze: { indexNeuAufgebaut: false, weitererOrdner: null, bedienerGeaendert: 0, gesperrteEndungen: 0 },
       },
-      logGrund: new Map(), letzterAgendaText: null,
+      index: null, indexOffen: false, zuletztGeschriebenMs: null, aufgeraeumt: false, logGrund: new Map(), letzterAgendaText: null,
     };
     L.se.set(programId, s);
   }
@@ -733,11 +774,105 @@ function melde(L: Lauf): void {
   L.d.melde(s);
 }
 
-// ── Ordner finden und anlegen (9.1) ──────────────────────────────────────────────────────────────────────────────
+// ── Ordner finden und anlegen, Index lesen (9.1, 9.8) ────────────────────────────────────────────────────────────
 
 function basisPfad(a: { path: string }): string | null {
   const b = ordnerPfad({ art: 'basis', showPfad: a.path });
   return b.ok ? b.pfad : null;
+}
+
+/** Wiederfinden (9.1): Unterordner des Basisordners mit ihrem Index. Räumt eigene Sperr-Zwischendateien auf. */
+async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<void> {
+  const basis = basisPfad(a);
+  if (!basis) return;
+  if ((await basisArt(L, basis)) === null) { if (gen === L.gen) L.funde = []; return; } // 9.12 Regel 11: nichts darunter lesen
+  if (gen !== L.gen) return;
+  let namen: string[];
+  try {
+    namen = await L.fs.readdir(basis);
+  } catch {
+    if (gen === L.gen) { L.funde = []; if (L.kopf.basis) L.kopf.basis.existiert = false; }
+    return;
+  }
+  if (gen !== L.gen) return;
+  if (L.kopf.basis) L.kopf.basis.existiert = true;
+  const funde: Fund[] = [];
+  for (const name of namen) {
+    const p = path.join(basis, name);
+    if (L.gehalten && /^\.jm-ablage-sperre\.json\.\d+\.tmp$/.test(name)) { await L.fs.unlink(p).catch(() => undefined); continue; }
+    let st: { isDirectory(): boolean; isSymbolicLink(): boolean };
+    try {
+      st = await L.fs.lstat(p);
+    } catch {
+      continue;
+    }
+    if (gen !== L.gen) return;
+    if (!st.isDirectory() || st.isSymbolicLink()) continue;
+    let text: string;
+    try {
+      text = await L.fs.readFile(path.join(p, INDEX_DATEI), 'utf8');
+    } catch {
+      funde.push({ name, art: 'fehlt', programId: null, ordnerName: null, stand: null });
+      continue;
+    }
+    if (gen !== L.gen) return;
+    const r = leseIndex(text);
+    if (r.art === 'ok') funde.push({ name, art: 'ok', programId: r.index.programId, ordnerName: r.index.ordnerName, stand: r.index.stand || null });
+    else if (r.art === 'neuer') funde.push({ name, art: 'neuer', programId: losesProgramId(text), ordnerName: null, stand: null });
+    else funde.push({ name, art: 'kaputt', programId: null, ordnerName: null, stand: null });
+  }
+  L.funde = funde;
+  // Stand für Side Events mit gefundenem Ordner (S2, S8), solange sie in dieser Sitzung noch nicht bearbeitet sind.
+  for (const f of funde) {
+    if (!f.programId) continue;
+    const s = seIntern(L, f.programId);
+    if (s.stand.abruf !== 'keiner') continue;
+    const wahl = waehleOrdner(L, f.programId, s.stand.titel, basis);
+    if (!wahl || wahl.name !== f.name) continue;
+    s.stand.ordnerName = f.name;
+    s.stand.pfad = path.join(basis, f.name);
+    s.stand.existiert = true;
+    s.stand.indexFormat = f.art === 'ok' ? 'eins' : 'neuer';
+    s.stand.zusaetze.weitererOrdner = wahl.weiterer;
+    if (f.stand) { s.stand.stand = f.stand; s.stand.standAusFrueherSitzung = true; }
+  }
+}
+
+function losesProgramId(text: string): string | null {
+  try {
+    const j = JSON.parse(text) as { programId?: unknown };
+    return typeof j.programId === 'string' ? j.programId : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Regeln 1–3 aus 9.1 über die Funde der letzten Durchsicht. */
+function waehleOrdner(L: Lauf, programId: string, titel: string, basis: string): { name: string; art: Fund['art']; weiterer: string | null } | null {
+  const funde = L.funde ?? [];
+  const vf = vergleichsform;
+  const mit = funde.filter((f) => f.programId === programId && (f.art === 'ok' || f.art === 'neuer'));
+  if (mit.length) {
+    const sortiert = [...mit].sort((x, y) => (vf(x.name) < vf(y.name) ? -1 : vf(x.name) > vf(y.name) ? 1 : 0));
+    const gewaehlt = sortiert.find((f) => f.ordnerName !== null && vf(f.ordnerName) === vf(f.name)) ?? sortiert[0];
+    const weiterer = sortiert.find((f) => f !== gewaehlt)?.name ?? null;
+    return { name: gewaehlt.name, art: gewaehlt.art, weiterer };
+  }
+  const erwartet = ordnerPfad({ art: 'seitenOrdner', basisPfad: basis, titel });
+  if (!erwartet.ok) return null;
+  const f = funde.find((x) => vf(x.name) === vf(erwartet.name) && (x.art === 'kaputt' || x.art === 'fehlt'));
+  return f ? { name: f.name, art: f.art, weiterer: null } : null;
+}
+
+interface Ordner {
+  pfad: string;
+  name: string;
+  index: OrdnerIndex;
+  neuAufgebaut: boolean;
+  dateien: OrdnerDatei[];
+  entfernt: OrdnerDatei[] | null; // null = „entfernt“ ist kein echter Ordner
+  urlInhalte: Map<string, string>;
+  probleme: OrdnerProblem[];
 }
 
 async function liste(L: Lauf, ordner: string): Promise<OrdnerDatei[]> {
@@ -753,32 +888,157 @@ async function liste(L: Lauf, ordner: string): Promise<OrdnerDatei[]> {
   return aus;
 }
 
-/** Ordner des Side Events: der schon bekannte, sonst (mit Anhängen) neu angelegt; Basisordner und Sperre entstehen mit ihm (9.1, 9.2). */
-async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number, mitAnhaengen: boolean): Promise<{ pfad: string; name: string } | null> {
+/** Ordner des Side Events finden oder (mit Anhängen) anlegen, Index lesen oder neu aufbauen, Liste lesen. */
+async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number, mitAnhaengen: boolean): Promise<Ordner | null> {
   const basis = basisPfad(a);
   if (!basis) return null;
   const st = s.stand;
-  if (st.ordnerName && st.existiert) return { pfad: path.join(basis, st.ordnerName), name: st.ordnerName };
-  if (!mitAnhaengen) return null; // OF4: ein Ordner entsteht erst mit dem ersten Anhang
-  const wartete = L.basisVersuch !== null;
-  if (L.basisVersuch) await L.basisVersuch; // der Versuch des Takts läuft: dessen Ergebnis gilt für diesen Eintrag
+  if (L.funde === null) await scanneBasis(L, a, gen);
   if (gen !== L.gen) return null;
-  if (L.basisFehlerBis !== null) return null; // ein Fehler beim Anlegen wird nur vom Takt zu seiner Zeit wiederholt (naechsteSchritte)
-  if (!wartete && !(await legeBasisAn(L, basis, gen))) return null; // sonst hat der Takt den Ordner eben angelegt
-  if (!L.gehalten && !(await schreibeSperre(L, basis, false, gen, L.sitzung))) return null; // die Sperre entsteht mit dem Basisordner
-  const erwartet = ordnerPfad({ art: 'seitenOrdner', basisPfad: basis, titel: st.titel });
-  if (!erwartet.ok) { st.anlegbar = { grund: erwartet.grund }; return null; }
+  const wahl = waehleOrdner(L, st.programId, st.titel, basis);
   let name: string;
-  try {
-    name = freierName(erwartet.name, new Set((await L.fs.readdir(basis)).map(vergleichsform)));
-    await L.fs.mkdir(path.join(basis, name), { recursive: true });
-  } catch (e) {
-    st.anlegbar = { grund: ordnerFehlerText(e, 'datei') ?? fehlerCode(e) };
+  if (!wahl) {
+    st.ordnerName = null;
+    st.pfad = null;
+    st.existiert = false;
+    if (!mitAnhaengen) return null; // OF4: ein Ordner entsteht erst mit dem ersten Anhang
+    const wartete = L.basisVersuch !== null;
+    if (L.basisVersuch) await L.basisVersuch; // der Versuch des Takts läuft: dessen Ergebnis gilt für diesen Eintrag
+    if (gen !== L.gen) return null;
+    if (L.basisFehlerBis !== null) return null; // ein Fehler beim Anlegen wird nur vom Takt zu seiner Zeit wiederholt (naechsteSchritte)
+    if ((await basisArt(L, basis)) === null || gen !== L.gen) return null; // 9.12 Regel 11: mkdir ginge durch eine Verknüpfung still durch
+    // sonst hat der Takt den Ordner eben angelegt; die Durchsicht davor kann ihn überholt haben: ist der Basisordner bekannt da, kein zweites mkdir
+    if (!wartete && L.kopf.basis?.existiert !== true && !(await legeBasisAn(L, basis, gen))) return null;
+    if (!L.gehalten && !(await schreibeSperre(L, basis, false, gen, L.sitzung))) return null; // die Sperre entsteht mit dem Basisordner
+    const erwartet = ordnerPfad({ art: 'seitenOrdner', basisPfad: basis, titel: st.titel });
+    if (!erwartet.ok) { st.anlegbar = { grund: erwartet.grund }; return null; }
+    let belegt: Set<string>;
+    try {
+      belegt = new Set((await L.fs.readdir(basis)).map(vergleichsform));
+      name = freierName(erwartet.name, belegt);
+      await L.fs.mkdir(path.join(basis, name), { recursive: true });
+    } catch (e) {
+      st.anlegbar = { grund: ordnerFehlerText(e, 'datei') ?? fehlerCode(e) };
+      return null;
+    }
+    if (gen !== L.gen) return null;
+    L.funde = [...(L.funde ?? []), { name, art: 'ok', programId: st.programId, ordnerName: name, stand: null }];
+  } else {
+    name = wahl.name;
+    st.zusaetze.weitererOrdner = wahl.weiterer;
+    if (wahl.art === 'neuer') {
+      Object.assign(st, { ordnerName: name, pfad: path.join(basis, name), existiert: true, indexFormat: 'neuer' as const });
+      return null; // S3: nicht anfassen
+    }
+  }
+  st.anlegbar = null;
+  let pfad = path.join(basis, name);
+  const lst = await L.fs.lstat(pfad).catch(() => null);
+  if (gen !== L.gen) return null;
+  if (!lst || !lst.isDirectory() || lst.isSymbolicLink()) { // weg oder Verknüpfung: beim nächsten Mal neu suchen
+    L.funde = null;
+    Object.assign(st, { ordnerName: null, pfad: null, existiert: false });
     return null;
   }
+  const probleme: OrdnerProblem[] = [];
+  // Index: der im Speicher (diese Sitzung), sonst die Datei; kaputt → beiseite, neu aufbauen (9.8).
+  let index: OrdnerIndex | null = s.index;
+  let neuAufgebaut = false;
+  let gelesen: ReturnType<typeof leseIndex> | 'fehlt';
+  try {
+    gelesen = leseIndex(await L.fs.readFile(path.join(pfad, INDEX_DATEI), 'utf8'));
+  } catch (e) {
+    if (fehlerCode(e) !== 'ENOENT') { st.probleme = [{ art: 'grund', datei: INDEX_DATEI, grund: `Schreibfehler (${fehlerCode(e)})` }]; return null; }
+    gelesen = 'fehlt';
+  }
   if (gen !== L.gen) return null;
-  Object.assign(st, { ordnerName: name, pfad: path.join(basis, name), existiert: true, anlegbar: null });
-  return { pfad: path.join(basis, name), name };
+  if (gelesen !== 'fehlt' && gelesen.art === 'neuer') {
+    Object.assign(st, { ordnerName: name, pfad, existiert: true, indexFormat: 'neuer' as const });
+    return null;
+  }
+  if (gelesen !== 'fehlt' && gelesen.art === 'kaputt') {
+    const z = ordnerPfad({ art: 'kaputt', seitenOrdner: pfad, zeit: new Date(L.d.jetzt()) });
+    if (z.ok) await umbenennenImOrdner(L.fs, pfad, path.join(pfad, INDEX_DATEI), z.pfad).catch(() => undefined);
+    neuAufgebaut = true;
+    s.indexOffen = true;
+  } else if (gelesen !== 'fehlt' && gelesen.art === 'ok' && gelesen.index.programId !== st.programId) {
+    L.funde = null; // inzwischen ein Ordner eines anderen Side Events: neu suchen
+    return null;
+  } else if (!index && gelesen !== 'fehlt' && gelesen.art === 'ok') {
+    index = gelesen.index;
+  }
+  // Titel geändert (9.1): umbenennen, wenn der Ordner noch den Namen trägt, den der Launcher ihm gab.
+  const erwartet = ordnerPfad({ art: 'seitenOrdner', basisPfad: basis, titel: st.titel });
+  if (index && erwartet.ok && vergleichsform(index.ordnerName) === vergleichsform(name) && vergleichsform(erwartet.name) !== vergleichsform(name)) {
+    const belegt = new Set((L.funde ?? []).map((f) => vergleichsform(f.name)));
+    belegt.delete(vergleichsform(name));
+    const neu = freierName(erwartet.name, belegt);
+    try {
+      await L.fs.rename(pfad, path.join(basis, neu));
+      L.d.log.info(LAUF_TEXTE.umbenannt(name, neu));
+      L.funde = (L.funde ?? []).map((f) => (f.name === name ? { ...f, name: neu, ordnerName: neu } : f));
+      name = neu;
+      pfad = path.join(basis, neu);
+      index = { ...index, ordnerName: neu, titel: st.titel };
+      s.indexOffen = true;
+    } catch (x) {
+      probleme.push(istOffen(x) ? { art: 'ordner-umbenennen-wartet' } : { art: 'grund', datei: name, grund: grundText(x, 'datei') });
+    }
+    if (gen !== L.gen) return null;
+  }
+  const dateien = await liste(L, pfad);
+  if (gen !== L.gen) return null;
+  if (!index) {
+    const eigene = dateien.filter((f) => !/^\.(.+)\.(\d+)\.(jm-laden|jm-neu)$/.test(f.name) && !/\.\d+\.tmp$/.test(f.name));
+    if (gelesen === 'fehlt' && eigene.length) neuAufgebaut = true; // Index fehlt, Ordner hat Dateien: wie kaputt
+    index = { format: 1, programId: st.programId, titel: st.titel, ordnerName: name, stand: '', eintraege: [] };
+    s.indexOffen = true;
+  }
+  Object.assign(st, { ordnerName: name, pfad, existiert: true, indexFormat: 'eins' as const });
+  // Aufräumen (9.6): beim ersten Zugriff in dieser Sitzung, nur mit eigener Sperre, nur nach genauem Muster.
+  if (!s.aufgeraeumt && L.gehalten) {
+    s.aufgeraeumt = true;
+    const genannt = new Set(index.eintraege.map((x) => x.wartet).filter((x): x is string => !!x));
+    const urls = new Set(index.eintraege.filter((x) => x.art === 'link').map((x) => x.datei));
+    for (const f of [...dateien]) {
+      const zw = /^\.(.+)\.(\d+)\.(jm-laden|jm-neu)$/.exec(f.name);
+      const tmp = /^(.+)\.(\d+)\.tmp$/.exec(f.name);
+      const weg = (zw && !(zw[3] === 'jm-neu' && genannt.has(f.name))) || (tmp && (tmp[1] === INDEX_DATEI || urls.has(tmp[1])));
+      if (!weg) continue;
+      await L.fs.unlink(path.join(pfad, f.name)).catch(() => undefined);
+      dateien.splice(dateien.indexOf(f), 1);
+    }
+    if (gen !== L.gen) return null;
+  }
+  // entfernt/ muss ein echter Ordner sein (9.10).
+  let entfernt: OrdnerDatei[] | null = [];
+  const el = await L.fs.lstat(path.join(pfad, 'entfernt')).catch(() => null);
+  if (el && (!el.isDirectory() || el.isSymbolicLink())) entfernt = null;
+  else if (el) entfernt = await liste(L, path.join(pfad, 'entfernt'));
+  // .url-Dateien, die der Index nicht nennt (Übernahme, 9.5 Zeile 1).
+  const urlInhalte = new Map<string, string>();
+  const genannteDateien = new Set(index.eintraege.map((x) => vergleichsform(x.datei)));
+  for (const f of dateien) {
+    if (!/\.url$/i.test(f.name) || genannteDateien.has(vergleichsform(f.name)) || f.groesse > 2100) continue;
+    try {
+      urlInhalte.set(vergleichsform(f.name), await L.fs.readFile(path.join(pfad, f.name), 'utf8'));
+    } catch {
+      /* nicht lesbar: keine Übernahme */
+    }
+  }
+  if (gen !== L.gen) return null;
+  return { pfad, name, index, neuAufgebaut, dateien, entfernt, urlInhalte, probleme };
+}
+
+/** Index atomar schreiben (9.8); scheitert es, bleibt er im Speicher offen und die Zeile nennt das Problem. */
+async function schreibeIndex(L: Lauf, s: SeIntern, o: { pfad: string; index: OrdnerIndex }): Promise<boolean> {
+  s.index = o.index;
+  const code = await schreibeAtomar(L, path.join(o.pfad, INDEX_DATEI), indexText(o.index));
+  s.indexOffen = code !== null;
+  if (code === null) s.zuletztGeschriebenMs = L.d.jetzt();
+  s.stand.probleme = s.stand.probleme.filter((p) => p.art !== 'index-nicht-schreibbar');
+  if (code !== null) s.stand.probleme.push({ art: 'index-nicht-schreibbar', code });
+  return code === null;
 }
 
 /**
@@ -858,14 +1118,16 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
     }
     return false;
   }
-  const dateien = await liste(L, o.pfad);
-  if (gen !== L.gen) return false;
+  if (o.neuAufgebaut) st.zusaetze.indexNeuAufgebaut = true;
+  const index = o.index;
   const plan = planeSideEvent({
-    seitenOrdner: o.pfad, index: null, dateien, entfernt: [], urlInhalte: new Map(),
+    seitenOrdner: o.pfad, index, dateien: o.dateien, entfernt: o.entfernt ?? [], urlInhalte: o.urlInhalte,
     anhaenge: gueltig, ungueltig, jetzt: new Date(L.d.jetzt()),
     zurueckgehaltenBis: () => null,
   });
-  const ctx: Ctx = { L, s, e, o, gen, signal: L.abbruch.signal, zwischenAngelegt: false, probleme: [] };
+  const ctx: Ctx = {
+    L, s, e, o, gen, signal: L.abbruch.signal, zwischenAngelegt: false, probleme: [...o.probleme], geaendert: s.indexOffen, platziert: new Set(), weg: new Set(), uebernommen: 0,
+  };
   for (const schritt of plan) {
     if (gen !== L.gen) return false;
     if (!bedingungenGelten(L, a.path)) { await endeAblage(L); return false; }
@@ -882,6 +1144,7 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
   }
   if (gen !== L.gen) return false;
   await abschluss(ctx, erg.abgerufen, gueltig, true);
+  if (o.neuAufgebaut) L.d.log.warn(LAUF_TEXTE.indexKaputt(o.name, ctx.uebernommen));
   return false;
 }
 
@@ -908,21 +1171,51 @@ interface Ctx {
   L: Lauf;
   s: SeIntern;
   e: Eintrag;
-  o: { pfad: string; name: string };
+  o: Ordner;
   gen: number;
   /** Abbruchsignal der Generation, in der `bearbeite` den Kontext anlegte (nicht das der gerade gültigen). */
   signal: AbortSignal;
   /** Die Zwischendatei kann existieren (ab dem Aufruf von `ladeStromInDatei`); vorher gibt es nichts zu löschen. */
   zwischenAngelegt: boolean;
   probleme: OrdnerProblem[];
+  geaendert: boolean;
+  platziert: Set<string>;
+  weg: Set<string>;
+  uebernommen: number;
 }
 
-/** Nach dem Plan: Stand mit der Zahl der Anhänge und den Problemen. */
-async function abschluss(ctx: Ctx, abgerufen: string, gueltig: GueltigerAnhang[], _ganz: boolean): Promise<void> {
-  Object.assign(ctx.s.stand, {
-    abruf: 'gelungen', stand: abgerufen, standAusFrueherSitzung: false, fehler: null, n: gueltig.length, k: 0, probleme: ctx.probleme,
+/** Nach dem Plan: Zahlen, Probleme, Index nachschreiben (bei Änderung, offen oder einmal je Runde), Stand. */
+async function abschluss(ctx: Ctx, abgerufen: string, gueltig: GueltigerAnhang[], ganz: boolean): Promise<void> {
+  const { L, s, o } = ctx;
+  const st = s.stand;
+  const vf = vergleichsform;
+  const da = new Set(o.dateien.map((f) => vf(f.name)));
+  for (const n of ctx.platziert) da.add(n);
+  for (const n of ctx.weg) da.delete(n);
+  let k = 0;
+  for (const a of gueltig) {
+    const x = o.index.eintraege.find((y) => y.id === a.m.id);
+    if (!x || x.zustand !== 'aktiv' || x.inhalt !== inhaltSignatur(a) || !da.has(vf(x.datei))) continue;
+    k++;
+  }
+  if (ganz) o.index.stand = abgerufen;
+  const faellig = s.zuletztGeschriebenMs === null || auffrischenFaellig(s.zuletztGeschriebenMs, L.d.jetzt(), L.taktMs);
+  if (ctx.geaendert || s.indexOffen || (ganz && faellig)) await schreibeIndex(L, s, o);
+  if (ctx.gen !== L.gen) return;
+  const indexProblem = st.probleme.filter((p) => p.art === 'index-nicht-schreibbar');
+  Object.assign(st, {
+    abruf: 'gelungen', stand: abgerufen, standAusFrueherSitzung: false, fehler: null, n: gueltig.length, k,
+    probleme: [...ctx.probleme, ...indexProblem],
   });
-  ctx.s.letzterAgendaText = null;
+  s.letzterAgendaText = null;
+}
+
+function eintragSetzen(ctx: Ctx, x: IndexEintrag): void {
+  const liste = ctx.o.index.eintraege;
+  const i = liste.findIndex((y) => y.id === x.id);
+  if (i >= 0) liste[i] = x;
+  else liste.push(x);
+  ctx.geaendert = true;
 }
 
 async function fuehreAus(ctx: Ctx, s: PlanSchritt): Promise<void> {
@@ -935,6 +1228,13 @@ async function fuehreAus(ctx: Ctx, s: PlanSchritt): Promise<void> {
   }
 }
 
+function eintrag(ctx: Ctx, id: string): IndexEintrag | undefined {
+  return ctx.o.index.eintraege.find((x) => x.id === id);
+}
+
+function istOffen(e: unknown): boolean {
+  return ['EBUSY', 'EPERM', 'EACCES'].includes(fehlerCode(e));
+}
 
 function grundText(e: unknown, wo: 'download' | 'datei'): string {
   if (e instanceof GrundFehler) return e.message;
@@ -945,6 +1245,16 @@ function grundText(e: unknown, wo: 'download' | 'datei'): string {
 type Schritt<A extends PlanSchritt['art']> = Extract<PlanSchritt, { art: A }>;
 
 async function fuehreSchrittAus(ctx: Ctx, s: Exclude<PlanSchritt, { art: 'fehler' | 'zurueckgehalten' }>): Promise<void> {
+  const { L } = ctx;
+  if (s.art === 'uebernehmen') {
+    const m = s.anhang.m;
+    eintragSetzen(ctx, { id: m.id, art: istLinkAnhang(m) ? 'link' : 'datei', zustand: 'aktiv', datei: s.datei, label: m.label, inhalt: s.inhalt, bytes: s.bytes, mtimeMs: s.mtimeMs });
+    if (s.neu) {
+      ctx.uebernommen++;
+      L.d.log.info(LAUF_TEXTE.uebernommen(s.datei));
+    }
+    return;
+  }
   if (s.art === 'laden') return lade(ctx, s);
 }
 
@@ -1048,19 +1358,31 @@ function scheitert(ctx: Ctx, s: Schritt<'laden'>, x: unknown): void {
   }
 }
 
-/** Platzieren ohne Überschreiben (9.6): Zielname unmittelbar vorher frisch prüfen, dann umbenennen. */
-async function platziere(ctx: Ctx, s: Schritt<'laden'>, zwischen: string, _bytes: number): Promise<void> {
-  const { L, o } = ctx;
+/**
+ * Platzieren ohne Überschreiben (9.6): (1) Index-Eintrag „laedt“ mit Zielname und Bytezahl, (3) Zielname frisch
+ * prüfen und umbenennen, (4) „aktiv“.
+ */
+async function platziere(ctx: Ctx, s: Schritt<'laden'>, zwischen: string, bytes: number): Promise<void> {
+  const { L, o, gen } = ctx;
+  const m = s.anhang.m;
+  eintragSetzen(ctx, { id: m.id, art: 'datei', zustand: 'laedt', datei: s.wunsch, label: m.label, inhalt: s.inhalt, bytes });
+  await schreibeIndex(L, ctx.s, o);
+  if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; }
+  let ziel: string;
   try {
     const namen = await L.fs.readdir(o.pfad);
-    if (ctx.gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; } // 9.4: kein Umbenennen für eine alte Generation
-    const ziel = freierName(s.wunsch, new Set(namen.map(vergleichsform)));
-    await L.fs.rename(zwischen, path.join(o.pfad, ziel));
+    if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; } // 9.4: kein Umbenennen für eine alte Generation
+    ziel = freierName(s.wunsch, new Set(namen.map(vergleichsform)));
+    await umbenennenImOrdner(L.fs, o.pfad, zwischen, path.join(o.pfad, ziel));
   } catch (x) {
     await L.fs.unlink(zwischen).catch(() => undefined);
     return scheitert(ctx, s, x);
   }
-  ctx.s.logGrund.delete(s.anhang.m.id);
+  const st = await L.fs.stat(path.join(o.pfad, ziel)).catch(() => null);
+  ctx.platziert.add(vergleichsform(ziel));
+  eintragSetzen(ctx, { id: m.id, art: 'datei', zustand: 'aktiv', datei: ziel, label: m.label, inhalt: s.inhalt, bytes, mtimeMs: st?.mtimeMs });
+  await schreibeIndex(L, ctx.s, o);
+  ctx.s.logGrund.delete(m.id);
 }
 
 // ── Ende des Moduls ──

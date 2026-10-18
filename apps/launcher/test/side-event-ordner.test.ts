@@ -1972,6 +1972,279 @@ console.log('— P15 Datenstrom in Datei, Download ohne Zeitgrenze (Spec 9.6)');
   }
 }
 
+// ── Block C · P16: Ordner und Index – Wiederfinden, Anlegen, Index im Speicher, Aufräumen, Titel (Spec 9.1, 9.6, 9.8) ─
+console.log('— P16 Ordner und Index: Wiederfinden, Index im Speicher, Aufräumen (Spec 9.1, 9.6, 9.8)');
+{
+  const ORDNER = pathC.join(AttC.BASIS, 'Klima');
+  const INDEX = pathC.join(ORDNER, OrdnerC.INDEX_DATEI);
+  const SE2 = [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }];
+  const BERICHT = AttC.datei('m-1', 'Bericht', { size: 1000 });
+  const FOLIEN = AttC.datei('m-2', 'Folien', { size: 1000 });
+  const mitAnhang = (...ms: MaterialC[]) => [AttC.punkt('se-1', ms)];
+  const index = (o: Partial<OrdnerC.OrdnerIndex> = {}): string => OrdnerC.indexText({
+    format: 1, programId: 'se-1', titel: 'Klima', ordnerName: 'Klima', stand: '2026-10-16T07:00:00.000Z', eintraege: [], ...o,
+  });
+  const leseIdx = (fs: AttC.FsAttrappe, p = INDEX) => {
+    const t = fs.inhalt(p);
+    const r = t === null ? null : OrdnerC.leseIndex(t);
+    return r?.art === 'ok' ? r.index : null;
+  };
+  const aaa = (n: number): string => 'a'.repeat(n);
+
+  {
+    const T = AttC.baueLauf();
+    T.fs.lege(INDEX, '{ "format": 1, kaputt');
+    T.fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), aaa(1000));
+    T.fs.lege(pathC.join(ORDNER, 'Folien.pdf'), aaa(999));
+    await T.takt(mitAnhang(BERICHT, FOLIEN));
+    const namen = T.fs.namen(ORDNER);
+    const kaputt = namen.filter((n) => /^\.jm-anhaenge\.kaputt-\d{8}-\d{6}\.json$/.test(n));
+    ck('P16 12.4 Nr. 16: Index kaputt → beiseitegelegt als .jm-anhaenge.kaputt-‹JJJJMMTT-hhmmss›.json, Inhalt unverändert',
+      kaputt.length === 1 && T.fs.inhalt(pathC.join(ORDNER, kaputt[0])) === '{ "format": 1, kaputt');
+    ck('P16 12.4 Nr. 16: gleichnamige Datei gleicher Größe übernommen (kein Download), die andere geladen (fremde bleibt, neue mit „ (2)“)',
+      T.download.aufrufe.join(',') === FOLIEN.asset!.url && T.fs.inhalt(pathC.join(ORDNER, 'Folien.pdf')) === aaa(999)
+      && T.fs.inhalt(pathC.join(ORDNER, 'Folien (2).pdf')) === aaa(1000));
+    ck('P16 12.4 Nr. 16: neuer Index geschrieben, Zusatz T72 (indexNeuAufgebaut), Log T24 mit der Zahl der Übernahmen',
+      leseIdx(T.fs)?.eintraege.map((x) => `${x.id}:${x.datei}`).join(',') === 'm-1:Bericht.pdf,m-2:Folien (2).pdf'
+      && T.se('se-1')?.zusaetze.indexNeuAufgebaut === true
+      && T.logs.includes('warn iveo-Ordner: Index von „Klima“ beschädigt, beiseitegelegt und neu aufgebaut (1 Dateien übernommen).'));
+    ck('P16 11.2: der Stand zählt n = 2 Anhänge laut iveo und k = 2 in aktueller Fassung im Ordner (S12)', T.se('se-1')?.n === 2 && T.se('se-1')?.k === 2);
+    await T.uhr.spule(270_000, 45_000);
+    await T.takt(mitAnhang(BERICHT, FOLIEN));
+    ck('P16 12.4 Nr. 16: der Zusatz T72 gilt bis zur nächsten Runde', T.se('se-1')?.zusaetze.indexNeuAufgebaut === false);
+  }
+  {
+    const T = AttC.baueLauf();
+    T.fs.lege(INDEX, JSON.stringify({ format: 2, programId: 'se-1', eintraege: [] }));
+    T.fs.lege(pathC.join(ORDNER, 'Alt.pdf'), aaa(10));
+    const ohneSperre = (): string => JSON.stringify(T.fs.alleDateien().filter((f) => !f.pfad.endsWith(OrdnerC.SPERR_DATEI)));
+    const vorher = ohneSperre();
+    await T.takt(mitAnhang(BERICHT));
+    ck('P16 12.4 Nr. 17: Index format 2 → Ordner nicht angefasst (kein Schreiben, kein Download), indexFormat „neuer“ (S3)',
+      ohneSperre() === vorher
+      && T.download.aufrufe.length === 0 && T.se('se-1')?.indexFormat === 'neuer' && T.se('se-1')?.existiert === true);
+  }
+  {
+    const fs = new AttC.FsAttrappe('NTFS');
+    const A = AttC.baueLauf({ fs });
+    await A.takt(mitAnhang(BERICHT));
+    await fs.rename(ORDNER, pathC.join(AttC.BASIS, 'Klima (Regie)'));
+    const B = AttC.baueLauf({ fs, pid: 5000 });
+    await B.takt(mitAnhang(BERICHT));
+    ck('P16 12.4 Nr. 18: Ordner nach Umbenennen durch den Bediener über die programId wiedergefunden, nichts doppelt',
+      !fs.gibt(ORDNER) && A.download.aufrufe.length === 1 && B.download.aufrufe.length === 0 && B.se('se-1')?.ordnerName === 'Klima (Regie)');
+    fs.lege(AttC.SHOW_PFAD, AttC.showText([{ id: 'se-1', title: 'Klima und Wald' }], { programId: 'se-1' }));
+    await B.uhr.spule(45_000, 45_000);
+    await B.takt(mitAnhang(BERICHT));
+    ck('P16 12.4 Nr. 18: Titel in iveo geändert, Ordner vom Bediener umbenannt → sein Name bleibt', B.se('se-1')?.ordnerName === 'Klima (Regie)' && fs.gibt(pathC.join(AttC.BASIS, 'Klima (Regie)')));
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    T.fs.lege(AttC.SHOW_PFAD, AttC.showText([{ id: 'se-1', title: 'Klima und Wald' }], { programId: 'se-1' }));
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt(mitAnhang(BERICHT));
+    const neu = pathC.join(AttC.BASIS, 'Klima und Wald');
+    ck('P16 12.4 Nr. 18, 9.1: Titel in iveo geändert, Ordner trägt noch den alten Namen → umbenannt, Log T21 (b), Index nachgeführt',
+      !T.fs.gibt(ORDNER) && T.fs.gibt(pathC.join(neu, 'Bericht.pdf')) && T.se('se-1')?.ordnerName === 'Klima und Wald'
+      && T.logs.includes('info iveo-Ordner: „Klima“ in „Klima und Wald“ umbenannt.') && leseIdx(T.fs, pathC.join(neu, OrdnerC.INDEX_DATEI))?.ordnerName === 'Klima und Wald'
+      && T.download.aufrufe.length === 1);
+  }
+  {
+    // Nr. 24: Aufräumen nur mit eigener Sperre und nur nach Muster
+    const lege = (fs: AttC.FsAttrappe): void => {
+      fs.lege(INDEX, index({ eintraege: [
+        { id: 'm-2', art: 'datei', zustand: 'aktiv', datei: 'Agenda.pdf', label: 'Agenda', inhalt: 'x', bytes: 1, mtimeMs: 1_000, wartet: '.m-2.123.jm-neu', inhaltNeu: 'y' },
+        { id: 'm-4', art: 'link', zustand: 'aktiv', datei: 'Website.url', label: 'Website', inhalt: 'https://example.org/', bytes: 1, mtimeMs: 1_000 },
+      ] }));
+      for (const n of ['.m-1.123.jm-laden', '.jm-anhaenge.json.123.tmp', 'notiz.jm-laden', '.m-2.123.jm-neu', '.m-3.123.jm-neu', 'Website.url.123.tmp', 'Agenda.pdf', 'Website.url', 'fremd.tmp', 'Bericht.pdf.12.tmp']) fs.lege(pathC.join(ORDNER, n), 'x');
+      fs.lege(pathC.join(AttC.BASIS, '.jm-ablage-sperre.json.123.tmp'), 'x');
+    };
+    const fs = new AttC.FsAttrappe('NTFS');
+    lege(fs);
+    fs.lege(pathC.join(AttC.BASIS, OrdnerC.SPERR_DATEI), JSON.stringify({ format: 1, rechner: 'REGIE-2', pid: 1, sitzung: 'f', lebenszeichen: new Date(Date.UTC(2026, 9, 16, 7, 59)).toISOString() }));
+    const F = AttC.baueLauf({ fs });
+    await F.takt([AttC.punkt('se-1', [])]);
+    ck('P16 12.4 Nr. 24: ohne eigene Sperre (fremd) wird nichts aufgeräumt', fs.namen(ORDNER).length === 11 && fs.gibt(pathC.join(AttC.BASIS, '.jm-ablage-sperre.json.123.tmp')));
+    const T = AttC.baueLauf();
+    lege(T.fs);
+    await T.takt([AttC.punkt('se-1', [AttC.datei('m-2', 'Agenda', { size: 1 }), AttC.link('m-4', 'Website', 'https://example.org/')])]);
+    const namen = T.fs.namen(ORDNER).filter((n) => n !== OrdnerC.INDEX_DATEI);
+    ck('P16 12.4 Nr. 24: mit eigener Sperre: .‹id›.‹pid›.jm-laden, Zwischendateien des Index und einer .url des Index, ungenannte .jm-neu gelöscht',
+      !namen.includes('.m-1.123.jm-laden') && !namen.includes('.jm-anhaenge.json.123.tmp') && !namen.includes('Website.url.123.tmp') && !namen.includes('.m-3.123.jm-neu'));
+    ck('P16 12.4 Nr. 24: fremde notiz.jm-laden, fremd.tmp und Bericht.pdf.12.tmp (keine Datei des Index) bleiben, die genannte .jm-neu bleibt',
+      namen.includes('notiz.jm-laden') && namen.includes('fremd.tmp') && namen.includes('Bericht.pdf.12.tmp') && namen.includes('.m-2.123.jm-neu'));
+    ck('P16 9.6: auch die Sperr-Zwischendatei im Basisordner wird mit eigener Sperre aufgeräumt', !T.fs.gibt(pathC.join(AttC.BASIS, '.jm-ablage-sperre.json.123.tmp')));
+  }
+  {
+    // Nr. 40 (a): das Aufräumen des einen löscht keine Zwischendatei des anderen
+    const fs = new AttC.FsAttrappe('NTFS');
+    const uhr = new AttC.TestUhr();
+    const A = AttC.baueLauf({ fs, uhr });
+    A.download.arten.set(BERICHT.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 1_000 });
+    A.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(BERICHT), abgerufen: new Date(uhr.t).toISOString() });
+    A.lauf.takt();
+    await AttC.ruhe();
+    await uhr.spule(2_000, 1_000);
+    const B = AttC.baueLauf({ fs, uhr, rechner: 'REGIE-2', pid: 5000 });
+    await B.takt(mitAnhang(BERICHT));
+    const nochDa = fs.namen(ORDNER).includes('.m-1.4711.jm-laden');
+    await uhr.spule(10_000, 1_000);
+    await A.lauf.ruhig();
+    ck('P16 12.4 Nr. 40 (a): der zweite Rechner räumt nichts auf, die Zwischendatei des laufenden Downloads bleibt, der Download gelingt',
+      nochDa && fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000);
+  }
+  {
+    // Nr. 40 (b): Neustart räumt die Reste des beendeten Prozesses auf
+    const fs = new AttC.FsAttrappe('NTFS');
+    const uhr = new AttC.TestUhr();
+    const A = AttC.baueLauf({ fs, uhr });
+    await A.takt(mitAnhang(BERICHT));
+    fs.lege(pathC.join(ORDNER, '.m-9.4711.jm-laden'), 'Rest');
+    await uhr.spule(60_000, 60_000);
+    const B = AttC.baueLauf({ fs, uhr, pid: 5000 });
+    await B.takt(mitAnhang(BERICHT));
+    ck('P16 12.4 Nr. 40 (b): Neustart mit gleichem Rechnernamen übernimmt und räumt die Zwischendatei von Lauf 1 auf',
+      !fs.namen(ORDNER).includes('.m-9.4711.jm-laden') && B.lauf.stand().sperre === null);
+  }
+  {
+    // Nr. 32: Index-Schreiben scheitert drei Runden → genau ein Download, Problem; vierte gelingt → Problem weg.
+    // Ohne size_bytes, damit die Übernahme (9.5 Zeile 1) den fehlenden Index nicht auffängt: nur der Index im Speicher hilft.
+    const OHNE = AttC.datei('m-1', 'Bericht', { size: null });
+    const T = AttC.baueLauf();
+    T.fs.fehlerBei('open', (p) => p.startsWith(INDEX), 'EIO');
+    const probleme: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      await T.takt(mitAnhang(OHNE));
+      probleme.push(JSON.stringify(T.se('se-1')?.probleme));
+      await T.uhr.spule(45_000, 45_000);
+    }
+    ck('P16 12.4 Nr. 32: Index-Schreiben scheitert drei Runden → genau ein Download (Index im Speicher), Problem „Index nicht schreibbar (EIO)“',
+      T.download.aufrufe.length === 1 && !T.fs.gibt(INDEX) && probleme.every((p) => p === '[{"art":"index-nicht-schreibbar","code":"EIO"}]'));
+    T.fs.regelnLoeschen();
+    await T.takt(mitAnhang(OHNE));
+    ck('P16 12.4 Nr. 32: vierte Runde gelingt → Index geschrieben, Problem weg, weiter kein Download',
+      leseIdx(T.fs)?.eintraege.length === 1 && T.se('se-1')?.probleme.length === 0 && T.download.aufrufe.length === 1);
+  }
+  {
+    // Nr. 34: Wiederfinden nach Neustart über den erwarteten Namen
+    const T = AttC.baueLauf();
+    T.fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), aaa(1000));
+    await T.takt(mitAnhang(BERICHT));
+    ck('P16 12.4 Nr. 34: Ordner mit dem erwarteten Namen ohne Index → übernommen, kein „Klima (2)“, kein Download bei passender Größe',
+      T.fs.namen(AttC.BASIS).join('|') === `${OrdnerC.SPERR_DATEI}|Klima` && T.download.aufrufe.length === 0
+      && leseIdx(T.fs)?.eintraege[0]?.datei === 'Bericht.pdf' && T.se('se-1')?.zusaetze.indexNeuAufgebaut === true
+      && T.logs.includes('warn iveo-Ordner: Index von „Klima“ beschädigt, beiseitegelegt und neu aufgebaut (1 Dateien übernommen).'));
+    const K = AttC.baueLauf();
+    K.fs.lege(INDEX, 'kein JSON');
+    K.fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), aaa(1000));
+    await K.takt(mitAnhang(BERICHT));
+    ck('P16 12.4 Nr. 34: ebenso mit kaputtem Index', K.fs.namen(AttC.BASIS).join('|') === `${OrdnerC.SPERR_DATEI}|Klima` && K.download.aufrufe.length === 0);
+    const Z = AttC.baueLauf();
+    Z.fs.lege(pathC.join(AttC.BASIS, 'Archiv Klima', OrdnerC.INDEX_DATEI), index());
+    Z.fs.lege(pathC.join(AttC.BASIS, 'Klima', OrdnerC.INDEX_DATEI), index());
+    Z.fs.lege(pathC.join(AttC.BASIS, 'Klima', 'Bericht.pdf'), aaa(1000));
+    await Z.takt(mitAnhang(BERICHT));
+    ck('P16 12.4 Nr. 34: zwei Ordner mit derselben programId → nur der mit passendem ordnerName gepflegt, Zusatz T66 nennt den anderen',
+      Z.se('se-1')?.ordnerName === 'Klima' && Z.se('se-1')?.zusaetze.weitererOrdner === 'Archiv Klima'
+      && Z.fs.namen(pathC.join(AttC.BASIS, 'Archiv Klima')).join('|') === OrdnerC.INDEX_DATEI);
+    const W = AttC.baueLauf();
+    W.fs.lege(pathC.join(AttC.BASIS, 'Klima', OrdnerC.INDEX_DATEI), index({ programId: 'se-anders', ordnerName: 'Klima' }));
+    await W.takt(mitAnhang(BERICHT));
+    ck('P16 9.1 Regel 2: ein Ordner mit gültigem Index einer anderen programId wird nie übernommen → neuer Ordner „Klima (2)“',
+      W.se('se-1')?.ordnerName === 'Klima (2)' && W.fs.namen(pathC.join(AttC.BASIS, 'Klima')).join('|') === OrdnerC.INDEX_DATEI);
+  }
+  {
+    // Nr. 35 (Lauf-Teil): Quelle oder Ziel außerhalb → Abbruch ohne Zugriff; manipulierter Index → kaputt, null Zugriffe außerhalb
+    const fs = new AttC.FsAttrappe('NTFS');
+    const e1 = await LaufC.umbenennenImOrdner(fs, ORDNER, pathC.join(ORDNER, '..', 'x'), pathC.join(ORDNER, 'y')).then(() => null, (x: unknown) => x);
+    const e2 = await LaufC.umbenennenImOrdner(fs, ORDNER, pathC.join(ORDNER, 'y'), pathC.resolve('/x')).then(() => null, (x: unknown) => x);
+    ck('P16 12.4 Nr. 35: Quelle beim Umbenennen außerhalb des Side-Event-Ordners → Abbruch mit Fehler, kein Zugriff (ebenso das Ziel)',
+      e1 instanceof LaufC.AusserhalbFehler && e2 instanceof LaufC.AusserhalbFehler && fs.protokoll.length === 0);
+    for (const boese of ['../x', 'C:\\x', '\\\\h\\s\\x', 'entfernt/../../x']) {
+      const T = AttC.baueLauf();
+      T.fs.lege(INDEX, index({ eintraege: [{ id: 'm-1', art: 'datei', zustand: boese.startsWith('entfernt') ? 'entfernt' : 'aktiv', datei: boese, label: 'Bericht', inhalt: 'x', bytes: 1 }] }));
+      await T.takt([AttC.punkt('se-1', [])]);
+      const ausserhalb = T.fs.protokoll.filter((x) => ![x.p, x.p2].every((p) => p === undefined || p === AttC.SHOW_PFAD || p.startsWith(AttC.BASIS)));
+      const zielPfade = [pathC.resolve(ORDNER, boese)];
+      ck(`P16 12.4 Nr. 35: Index mit datei „${boese}“ → gilt als kaputt (beiseitegelegt), kein Zugriff außerhalb`,
+        T.fs.namen(ORDNER).some((n) => n.startsWith('.jm-anhaenge.kaputt-')) && ausserhalb.length === 0
+        && !T.fs.protokoll.some((x) => zielPfade.includes(x.p) || zielPfade.includes(x.p2 ?? '')));
+    }
+    const T = AttC.baueLauf();
+    T.fs.lege(INDEX, index({ eintraege: [{ id: 'm-1', art: 'datei', zustand: 'aktiv', datei: 'Bericht.pdf', label: 'Bericht', inhalt: 'x', bytes: 1, wartet: '../../x.4711.jm-neu' }] }));
+    await T.takt([AttC.punkt('se-1', [])]);
+    ck('P16 12.4 Nr. 35: Index mit wartet als Traversal → kaputt, kein Zugriff außerhalb',
+      T.fs.namen(ORDNER).some((n) => n.startsWith('.jm-anhaenge.kaputt-')) && T.fs.protokoll.every((x) => [x.p, x.p2].every((p) => p === undefined || p === AttC.SHOW_PFAD || p.startsWith(AttC.BASIS))));
+  }
+  {
+    // Nr. 46: Stand aus einer früheren Sitzung
+    let gibFrei: (a: unknown) => void = () => undefined;
+    const T = AttC.baueLauf({ sideEvents: SE2 });
+    T.fs.lege(pathC.join(AttC.BASIS, 'Wasser', OrdnerC.INDEX_DATEI), index({ programId: 'se-2', titel: 'Wasser', ordnerName: 'Wasser', stand: '2026-10-15T16:00:00.000Z' }));
+    T.agenda.agenden.set('se-2', () => new Promise((ok) => { gibFrei = ok; }));
+    T.lauf.takt();
+    await AttC.ruhe();
+    const vorher = T.se('se-2');
+    ck('P16 12.4 Nr. 46: Index mit stand vom Vortag → Stand aus früherer Sitzung (S8), noch kein Abruf',
+      vorher?.stand === '2026-10-15T16:00:00.000Z' && vorher.standAusFrueherSitzung === true && vorher.abruf === 'keiner' && vorher.ordnerName === 'Wasser');
+    gibFrei([]);
+    await T.lauf.ruhig();
+    const nachher = T.se('se-2');
+    ck('P16 12.4 Nr. 46: nach dem ersten Abruf gilt der heutige Stand (S12 bzw. S11)',
+      nachher?.abruf === 'gelungen' && nachher.standAusFrueherSitzung === false && nachher.stand === new Date(T.uhr.t).toISOString());
+  }
+  {
+    // 11.1 K7, 12.4 Nr. 49: Hängt in der ersten Runde schon die Durchsicht des Basisordners (Netzlaufwerk), trägt der Stand
+    // trotzdem eine Zeit des Fortschritts; nach 106 s steht T76 statt „Abgleich läuft“ ohne Ende.
+    const T = AttC.baueLauf({ sideEvents: SE2 });
+    T.fs.ordner(AttC.BASIS);
+    T.fs.haengtBei('readdir', (p) => p === AttC.BASIS);
+    const start = T.uhr.t;
+    T.lauf.takt();
+    await AttC.ruhe();
+    const hhmm = (ms: number): string => new Date(ms).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    const zeile = (ms: number): string | null => ZeilenC.kopfzeile(T.lauf.stand(), ms).text;
+    const NAME = pathC.basename(AttC.BASIS);
+    ck('P16 11.1 K7, 12.4 Nr. 49: erste Runde, die Durchsicht des Basisordners hängt → nach 105 s T37, nach 106 s T76 mit dem Rundenstart',
+      T.fs.haengend === 1 && T.lauf.stand().letzterFortschritt === new Date(start).toISOString()
+      && zeile(start + 105_000) === `Ablage: „${NAME}“ · Abgleich läuft (1 von 1)`
+      && zeile(start + 106_000) === `Ablage: „${NAME}“ · Abgleich läuft (1 von 1) · kein Fortschritt seit ${hhmm(start)}`);
+    ck('P16 11.1 K7: kein gemeldeter Stand mit laufender Runde ohne letzterFortschritt',
+      T.staende.some((s) => s.runde !== null) && T.staende.every((s) => s.runde === null || s.letzterFortschritt !== null));
+  }
+  {
+    // 9.12 Regel 11, 12.4 Nr. 35: Der Basisordner wird nach der Prüfung im Takt zur Verknüpfung – vor der Durchsicht (a) bzw.
+    // vor dem Anlegen (b). Danach kein Lesen, Auflisten, Löschen oder Anlegen darunter (mkdir ginge durch die Verknüpfung still durch).
+    const WOANDERS = pathC.join(AttC.ROOT, 'woanders');
+    // Umgestellt wird beim ersten Zugriff auf den Basisordner nach dem Auslöser (a) Sperre geschrieben, (b) Basisordner gelistet.
+    const fall = async (ausloeser: 'sperre' | 'liste') => {
+      const T = AttC.baueLauf();
+      T.fs.ordner(AttC.BASIS);
+      T.fs.ordner(WOANDERS);
+      let scharf = false;
+      let marke = -1;
+      const umstellen = (op: string) => (p: string): void => {
+        if (p !== AttC.BASIS || marke >= 0) return;
+        if (scharf) { T.fs.verknuepfung(AttC.BASIS, WOANDERS); marke = T.fs.protokoll.length - 1; return; }
+        if (ausloeser === 'liste' && op === 'readdir') scharf = true;
+      };
+      for (const op of ['lstat', 'readdir', 'mkdir']) T.fs.vor(op, umstellen(op));
+      T.fs.vor('rename', (p) => { if (ausloeser === 'sperre' && p.startsWith(`${pathC.join(AttC.BASIS, OrdnerC.SPERR_DATEI)}.`)) scharf = true; });
+      await T.takt([AttC.punkt('se-1', [AttC.datei('m-1', 'Folien')])]);
+      const danach = marke < 0 ? null : T.fs.protokoll.slice(marke)
+        .filter((x) => x.op !== 'lstat' && [x.p, x.p2].some((p) => p !== undefined && (p === AttC.BASIS || p.startsWith(`${AttC.BASIS}${pathC.sep}`))));
+      return { T, danach };
+    };
+    const a = await fall('sperre');
+    ck('P16 9.12 Regel 11, 12.4 Nr. 35 (a): Basisordner vor der Durchsicht zur Verknüpfung geworden → kein Zugriff darunter, K6 (Verknüpfung)',
+      a.danach !== null && a.danach.length === 0 && a.T.lauf.stand().basis?.fehler?.code === 'Verknüpfung' && a.T.fs.namen(WOANDERS).length === 0);
+    const b = await fall('liste');
+    ck('P16 9.12 Regel 11, 12.4 Nr. 35 (b): Basisordner vor dem Anlegen des Side-Event-Ordners zur Verknüpfung geworden → kein mkdir, kein Zugriff darunter',
+      b.danach !== null && b.danach.length === 0 && b.T.lauf.stand().basis?.fehler?.code === 'Verknüpfung' && b.T.fs.namen(WOANDERS).length === 0);
+  }
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
