@@ -161,6 +161,38 @@ export function basisUrlPlatzhalter(standard: string | undefined): string {
   return standard ? `Basis-URL (leer = ${standard})` : 'Basis-URL';
 }
 
+/** iveo-Paket, Spec 5.9: was die Meldung nach „Ablauf übernehmen“ braucht (einfache Werte, ohne Alias-Importe). */
+export interface BindMeldungEingabe {
+  eventName: string;
+  programme: number;
+  filter: { art: 'agenda'; titel: string } | { art: 'kriterien'; teile: string[] };
+  speaker: ReadonlyArray<{ organisationen?: string[] }>;
+  warnung?: string;
+}
+
+/**
+ * iveo-Paket, Spec 5.9 (E8), T1 wörtlich: „„‹Event›“ übernommen — ‹p› Programmpunkte (Filter: ‹Filter›), ‹s› Speaker
+ * (Titler), davon ‹o› mit Organisation.“ Der Teil „, davon …“ nur bei ‹s› > 0; ‹o› = Speaker mit nicht leerer Liste
+ * `organisationen` — so sieht der Bediener schon beim Binden, ob iveo Organisationen liefert. Filter im Agenda-Modus
+ * „Side Event „‹Titel›“ (Agenda)“, sonst die Kriterien oder „alle“. Eine Warnung hängt wie bisher „ ⚠ ‹Warnung›“ an.
+ * Nur typografische Anführungszeichen (vorher zwei ASCII-Schlusszeichen im Editor).
+ */
+export function bindMeldung(e: BindMeldungEingabe): string {
+  const filter =
+    e.filter.art === 'agenda'
+      ? `Side Event „${e.filter.titel}“ (Agenda)`
+      : e.filter.teile.length
+        ? e.filter.teile.join(', ')
+        : 'alle';
+  const s = e.speaker.length;
+  const o = e.speaker.filter((sp) => Array.isArray(sp.organisationen) && sp.organisationen.length > 0).length;
+  const davon = s > 0 ? `, davon ${o} mit Organisation` : '';
+  return (
+    `„${e.eventName}“ übernommen — ${e.programme} Programmpunkte (Filter: ${filter}), ${s} Speaker (Titler)${davon}.` +
+    (e.warnung ? ` ⚠ ${e.warnung}` : '')
+  );
+}
+
 /** Minuten-Text unverändert → geladene Dauer sekundengenau; sonst die Eingabe (Spec 7.5). */
 function dauerAusZeile(r: AblaufZeile): number | undefined {
   if (r.geladenMinutes !== undefined && r.minutes === r.geladenMinutes) return r.geladenDurationMs;

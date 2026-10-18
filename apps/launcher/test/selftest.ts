@@ -921,6 +921,17 @@ function funktionsKoerper(quelle: string, kopf: string): string {
     iSettings > 0 && iSettings < editor.indexOf('  if (!open) return null;'));
 }
 
+// --- iveo-Paket P27 (Spec 5.9, E8, T1): die Meldung nach „Ablauf übernehmen“ baut bindMeldung -----------------------
+{
+  const editor = quelleLf('../src/renderer/src/components/ShowEditorModal.tsx');
+  const binden = funktionsKoerper(editor, '  const bindIveo = async (');
+  ck('P27 5.9: bindIveo meldet über bindMeldung mit den Speakern des Bind-Ergebnisses und der Warnung am Ende',
+    binden.includes('      setIveoMsg(\n        bindMeldung({') && binden.includes('          speaker: speakers,')
+    && binden.includes('          ...(res.warning ? { warnung: res.warning } : {}),'));
+  ck('P27 T1: kein eigener Meldungstext mehr im Editor, kein ASCII-Schlusszeichen hinter „${…}',
+    binden.length > 0 && !binden.includes('übernommen —') && !/„\$\{[^}]*\}"/.test(editor));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.

@@ -6,6 +6,7 @@ import { useTools } from '@/store/tools';
 import {
   basisUrlPlatzhalter,
   baueGespeicherteShow,
+  bindMeldung,
   bindungAusEditor,
   bindungsAdresse,
   editorAdresseAusShow,
@@ -262,21 +263,23 @@ export function ShowEditorModal() {
         ...(res.sideEvents?.length ? { sideEvents: res.sideEvents } : {}),
         ...(Object.keys(filter).length ? { filter } : {}),
       });
-      let filterLabel: string;
-      if (programId) {
-        const title = iveoProgramList.find((p) => p.id === programId)?.title ?? 'Side Event';
-        filterLabel = `Side Event „${title}" (Agenda)`;
-      } else {
-        const labelParts: string[] = [];
-        if (day) labelParts.push(day);
-        if (typeSlug) labelParts.push(typeSlug);
-        if (formatSlug) labelParts.push(formatSlug);
-        if (excludeBlockers) labelParts.push('ohne Blocker');
-        filterLabel = labelParts.length ? labelParts.join(', ') : 'alle';
-      }
+      // iveo-Paket, Spec 5.9 (E8, T1): die Meldung baut der reine Helfer bindMeldung — mit der Zahl der Speaker mit
+      // Organisation und nur typografischen Anführungszeichen. Der Editor liefert nur die Teile des Filters.
+      const labelParts: string[] = [];
+      if (day) labelParts.push(day);
+      if (typeSlug) labelParts.push(typeSlug);
+      if (formatSlug) labelParts.push(formatSlug);
+      if (excludeBlockers) labelParts.push('ohne Blocker');
       setIveoMsg(
-        `„${bound.name}" übernommen — ${rows.length} Programmpunkte (Filter: ${filterLabel}), ${speakers.length} Speaker (Titler).` +
-          (res.warning ? ` ⚠ ${res.warning}` : ''),
+        bindMeldung({
+          eventName: bound.name,
+          programme: rows.length,
+          filter: programId
+            ? { art: 'agenda', titel: iveoProgramList.find((p) => p.id === programId)?.title ?? 'Side Event' }
+            : { art: 'kriterien', teile: labelParts },
+          speaker: speakers,
+          ...(res.warning ? { warnung: res.warning } : {}),
+        }),
       );
     } finally {
       setIveoBusy(false);

@@ -372,5 +372,28 @@ const an = (zeilen: Array<{ sitzung: number; zeile: string }>, sitzung: number) 
     && toolDatenText('jm-battle', t0, true, t0) === null && toolDatenText('jm-launcher', t0, false, t0 + 60_000) === null);
 }
 
+// --- iveo-Paket P27 (Spec 5.8, 12.1 Nr. 10): Größe im Verbund mit Organisationen ------------------------------------
+// COP31: 239 Speaker, 173 Organisationseinträge; hier großzügiger je Speaker zwei Organisationen mit 80 Zeichen.
+{
+  const u = umgebung();
+  u.v.starte(u.s.server);
+  u.v.aufAbo(tn(1), ABO);
+  const org = (i: number, j: number): string => `Organisation ${i}-${j} `.padEnd(80, 'x');
+  const speakers = Array.from({ length: 239 }, (_, i) => ({
+    id: `sp-${String(i).padStart(4, '0')}-1f0e-4d2a-9c3b-7a6e5d4c3b2a`,
+    name: `Dr. Speaker Nummer ${i}`,
+    title: 'Lead Negotiator',
+    organisationen: [org(i, 1), org(i, 2)],
+  }));
+  u.v.meldeShow(PFAD, show('COP31 Tag 1', { iveo: { event: 'cop31', baseUrl: 'https://app.my-iveo.de/api/v1', name: 'COP31', speakers } }));
+  const roh = u.s.zeilen.filter((z) => z.sitzung === 1).at(-1)!.zeile;
+  const z = lies(roh);
+  const gezeigt = (z.s?.show as Show | null)?.iveo?.speakers ?? [];
+  ck('P27 12.1 Nr. 10: COP31-ähnliche Show (239 Speaker, je zwei Organisationen à 80 Zeichen) → Stand-Zeile unter GRENZEN.maxStandZeile, verteilt',
+    Buffer.byteLength(roh, 'utf8') < GRENZEN.maxStandZeile && z.t === 'aenderung' && z.s?.show !== null && z.s?.grund === undefined);
+  ck('P27 12.1 Nr. 10: … die Organisationen reisen mit (der Normalisierer kennt das Feld, Spec 5.3)',
+    gezeigt.length === 239 && gezeigt.every((sp) => sp.organisationen?.length === 2 && sp.organisationen[0].length === 80));
+}
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
