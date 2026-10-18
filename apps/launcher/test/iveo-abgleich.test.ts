@@ -2445,6 +2445,77 @@ function p2Verknuepft(iv: NachgebautesIveo, speakers: ShowIveoSpeaker[] = [ANA])
   if (falsch.length) console.log(`      Masken: ${falsch.join(', ')}`);
 }
 
+// --- iveo-Paket P24: meldeAgenda — Agenda des aktiven Side Events direkt nach dem Abruf (Spec 8.2, E19, 12.2 Nr. 11, 12)
+{
+  // Nr. 11: gültige Agenda → Meldung mit der Agenda (samt Anhängen) und `abgerufen`. Der Abruf der Agenda dauert in der
+  // Testuhr 20 s (wie in Task 6, 8.1): `abgerufen` liegt vor ihm, nicht danach.
+  const u = umgebung((iv) => {
+    mitAnhaengen(iv);
+    return agendaP1(iv);
+  }, { meldeAgenda: true });
+  u.iveo.dauerMs = { agenda: 20_000 };
+  const vor = u.zeit();
+  await u.kern.abfrage();
+  const e = u.agendaMeldungen[0]?.e;
+  ck('P24 12.2 Nr. 11: gültige Agenda → genau eine Meldung für P1 mit der Agenda samt Anhängen (Datei, Link, gelöscht)',
+    u.agendaMeldungen.length === 1 && u.agendaMeldungen[0].programId === 'P1' && e?.ok === true
+    && JSON.stringify(e.agenda) === JSON.stringify(u.iveo.agenda.P1) && e.agenda[1].materials?.[0]?.purged_at !== undefined);
+  ck('P24 12.2 Nr. 11: … `abgerufen` ist eine ISO-Zeit dieser Abfrage (vor dem Abruf genommen)',
+    e?.ok === true && Date.parse(e.abgerufen) > vor && Date.parse(e.abgerufen) < vor + 20_000 && u.zeit() >= vor + 20_000
+    && new Date(Date.parse(e.abgerufen)).toISOString() === e.abgerufen);
+}
+{
+  // Nr. 11: Eine Abfrage, die ein Umschalten überholt hat, meldet nichts.
+  const u = umgebung(agendaP1, { meldeAgenda: true });
+  const s = sperre();
+  u.iveo.sperre = (abruf, arg) => (abruf === 'agenda' && arg === 'P1' ? s.halt : null);
+  const lauf = u.kern.abfrage();
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  s.frei();
+  await lauf;
+  ck('P24 12.2 Nr. 11: Abfrage, die ein Umschalten überholt hat → keine Meldung', r.ok && u.agendaMeldungen.length === 0);
+}
+{
+  // Nr. 11: Agenda-Fehler → Meldung {ok: false} mit dem Fehler und dem Zeitpunkt vor dem Abruf (EP20: der Anhang-Wächter
+  // ordnet den Fehlschlag damit der Anmeldung zu), danach Status „gestört“ wie heute. Der Abruf dauert in der Testuhr 20 s,
+  // bevor er scheitert: `abgerufen` liegt vor ihm, nicht danach.
+  const u = umgebung(agendaP1, { meldeAgenda: true });
+  const fehler = new Error('fetch failed');
+  u.iveo.fehler.agenda = fehler;
+  u.iveo.dauerMs = { agenda: 20_000 };
+  const vor = u.zeit();
+  await u.kern.abfrage();
+  const e = u.agendaMeldungen[0]?.e;
+  ck('P24 12.2 Nr. 11: Agenda-Fehler → Meldung {ok: false} mit dem Fehler und dem Zeitpunkt vor dem Abruf, Status „gestört“ wie heute, nichts geschrieben',
+    u.agendaMeldungen.length === 1 && e?.ok === false && e.fehler === fehler
+    && typeof e.abgerufen === 'string' && Date.parse(e.abgerufen) > vor && Date.parse(e.abgerufen) < vor + 20_000
+    && u.zeit() >= vor + 20_000 && new Date(Date.parse(e.abgerufen)).toISOString() === e.abgerufen
+    && u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'fetch failed' && u.schreibversuche === 0);
+}
+{
+  // Nr. 12: Show ohne Kontext mit Merker; die Speakerliste scheitert (:812 wirft, die Abfrage bricht danach ab).
+  const u = umgebung((iv) => {
+    mitAnhaengen(iv);
+    return mitMerker(agendaP1(iv));
+  }, { meldeAgenda: true });
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  await u.kern.abfrage();
+  const e = u.agendaMeldungen[0]?.e;
+  ck('P24 12.2 Nr. 12: derselbe Takt wirft danach (Speakerliste 500 ohne Kontext) → der Wächter hat die Agenda trotzdem',
+    u.agendaMeldungen.length === 1 && e?.ok === true && e.agenda.length === 3 && e.agenda[0].materials?.length === 2);
+  ck('P24 12.2 Nr. 12: … Status „gestört“ wie heute, nichts geschrieben',
+    u.status.at(-1)?.ok === false
+    && u.status.at(-1)?.text === 'iveo-Server-Fehler (HTTP 500) — vorübergehend oder serverseitiger Bug. Bitte an den iveo-Entwickler melden (Details im Launcher-Log).'
+    && u.schreibversuche === 0);
+}
+{
+  // 8.2: Im Listen-Modus gibt es kein aktives Side Event; ohne meldeAgenda läuft der Kern wie bisher (alle Bestandsfälle).
+  const u = umgebung(listenShow, { meldeAgenda: true });
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('P24 8.2: Listen-Modus → keine Meldung', abrufeSeit(u, 0, 'snapshot') === 1 && u.agendaMeldungen.length === 0);
+}
+
 // --- Zusammenfassung ---
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

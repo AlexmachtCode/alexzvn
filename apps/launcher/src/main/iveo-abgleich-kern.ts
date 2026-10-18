@@ -37,6 +37,7 @@ import {
 } from '@jm/iveo';
 import { IVEO_ABFRAGE_TAKT_MS, IVEO_ABRUF_ZEITGRENZE_MS, auffrischenFaellig } from './iveo-huelle-hilfen';
 import { bildeSideEventListe } from './iveo-side-events';
+import type { AgendaErgebnis } from './iveo-anhaenge';
 
 /** Die Teilmenge des iveo-Clients, die der Kern braucht. Im Test nachgebaut. */
 export type IveoClientLike = Pick<
@@ -89,6 +90,12 @@ export interface KernAbhaengigkeiten {
    * zieht ihn ab: Bei regelmäßigem Takt kommt das Auffrischen so spätestens 300 s nach dem letzten Abruf der Liste.
    */
   taktMs?: number;
+  /**
+   * iveo-Paket, Spec 8.2 (E19): Agenda des aktiven Side Events direkt nach ihrem Abruf in der Agenda-Abfrage, für den
+   * Anhang-Wächter der Hülle; `abgerufen` = Zeitpunkt vor dem Abruf. Nur, solange die Abfrage gilt; im Listen-Modus nie.
+   * Optional. Die Hülle reicht nur weiter und wirft nicht.
+   */
+  meldeAgenda?(programId: string, e: AgendaErgebnis): void;
 }
 
 export interface IveoKern {
@@ -240,6 +247,7 @@ export function toClientError(e: unknown): { code?: string; error: string } {
 /**
  * Abbruch durch die Zeitgrenze je Abruf (Spec 7.0, AbortSignal.timeout im fetchImpl der Hülle): TimeoutError, je nach
  * Stelle im Abruf auch AbortError. Einen anderen Abbruch gibt es nicht. Sonst stünde im Panel die englische Rohmeldung.
+ * Gilt für die Abrufe des Kerns und der Hülle; Abbrüche der Ordner-Ablage bildet `ordnerFehlerText` selbst ab.
  */
 function istZeitgrenze(e: unknown): boolean {
   const name = (e as { name?: unknown } | null | undefined)?.name;
@@ -957,7 +965,15 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     // iveo-Paket, Spec 6.1: Zeitpunkt vor den Abrufen. Gegen ihn prüft „fällig“, auf ihn rückt `speakerAbgerufen` vor.
     const ab = d.jetztIso();
     const auffrischen = faellig(a, ab);
-    const agenda = await client.listAgendaItems(a.event, programId);
+    // iveo-Paket, Spec 8.2 (E19): Die Agenda geht direkt nach ihrem Abruf an den Anhang-Wächter, solange die Abfrage gilt;
+    // so kommt sie auch an, wenn ein späterer Abruf dieser Abfrage wirft (Detail und Speakerliste ohne Kontext, Detail bei
+    // leerer Agenda). Scheitert der Abruf, erfährt der Wächter es (mit dem Zeitpunkt vor dem Abruf, EP20), und die Abfrage
+    // bricht ab wie bisher.
+    const agenda = await client.listAgendaItems(a.event, programId).catch((e: unknown): never => {
+      if (istAktuell(a, gen)) d.meldeAgenda?.(programId, { ok: false, fehler: e, abgerufen: ab });
+      throw e;
+    });
+    if (istAktuell(a, gen)) d.meldeAgenda?.(programId, { ok: true, agenda, abgerufen: ab });
     let detail: IveoProgram | null = null;
     let ctx = a.sideCtx;
     /** Volle Speakerliste, falls diese Abfrage sie geholt hat (für den Kontext, wegen des Merkers oder weil fällig). */
