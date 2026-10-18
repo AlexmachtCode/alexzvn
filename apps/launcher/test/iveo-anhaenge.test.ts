@@ -467,6 +467,22 @@ const ohneListe = (e: AnhangEreignis | undefined): boolean => !!e && e.materials
   ck('P6 Fix 2: gelungene Prüfung trägt kein begann', q.ereignisse[0]?.ok === true && !('begann' in q.ereignisse[0]));
 }
 
+{
+  // Fix-Runde 3 (Task 7): Der Main verwirft einen Fehlschlag, der vor seiner gespeicherten gelungenen Prüfung begann, selbst
+  // (der Renderer verwirft ihn ebenfalls); er merkt ihn nicht und bucht ihn nicht als gemeldet, sonst bliebe ein späterer
+  // gleicher Fehler still, und der Renderer zeigte L5 trotz Störung.
+  const p = pruefstand();
+  p.w.beobachte(['A']);
+  p.w.agendaVomKern('A', { ok: true, agenda: agendaA(), abgerufen: '2026-10-17T10:03:00.000Z' });
+  const n = p.ereignisse.length;
+  const zeitgrenze = (): IveoApiError => new IveoApiError(500, 'http_500', 'iveo: Zeitgrenze');
+  p.w.agendaVomKern('A', { ok: false, fehler: zeitgrenze(), abgerufen: '2026-10-17T10:01:00.000Z' });
+  ck('P6 Fix 3: Fehlschlag, der vor der gespeicherten gelungenen Prüfung begann, wird nicht gesendet', p.ereignisse.length === n);
+  p.w.agendaVomKern('A', { ok: false, fehler: zeitgrenze(), abgerufen: '2026-10-17T10:04:00.000Z' });
+  ck('P6 Fix 3: der verworfene Fehlschlag war nicht als gemeldet gebucht, der gleiche Fehler danach kommt (ein Ereignis ok:false)',
+    p.ereignisse.length === n + 1 && p.ereignisse[n]?.ok === false && p.ereignisse[n]?.begann === '2026-10-17T10:04:00.000Z');
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

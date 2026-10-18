@@ -240,6 +240,13 @@ export function erzeugeAnhangWaechter(d: AnhangWaechterAbh): AnhangWaechter {
       d.sende({ type: 'iveo-anhaenge', programId, abgerufen: e.abgerufen, ok: true, ...(mitListe ? { materials } : {}) });
       return;
     }
+    // Ein Fehlschlag, dessen Abruf vor der gespeicherten gelungenen Prüfung begann, ist überholt: der Renderer verwirft ihn
+    // (Task 7), also merkt der Main ihn nicht und bucht ihn nicht als gemeldet (sonst bliebe der nächste gleiche Fehler still).
+    if (alt !== undefined && alt.abgerufen !== null && e.abgerufen) {
+      const begann = Date.parse(e.abgerufen);
+      const geprueft = Date.parse(alt.abgerufen);
+      if (Number.isFinite(begann) && Number.isFinite(geprueft) && begann < geprueft) return;
+    }
     const text = toClientError(e.fehler).error;
     const einloesen = nachMarke(programId, e.abgerufen);
     if (alt !== undefined && alt.fehler === text && !einloesen) return;
