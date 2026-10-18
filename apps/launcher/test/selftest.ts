@@ -11,6 +11,8 @@ import {
 import type { VerbundClientStand, VerbundStand } from '../src/shared/types.ts';
 import { ANHANG_TEXTE, anhangAnzeige, anhangListeSchritt, leererAnhangZustand, type AnhangListenZustand } from '../src/renderer/src/lib/anhang-liste.ts';
 import type { IveoMaterialRef } from '../src/shared/types.ts';
+import { gestoerteSideEvents, kopfzeile, ORDNER_ZEILEN_TEXTE, ordnerZeile, weitereSideEvents } from '../src/renderer/src/lib/ordner-zeilen.ts';
+import type { AnhangOrdnerStand, OrdnerProblem, SideEventOrdnerStand } from '../src/shared/types.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -644,6 +646,177 @@ function ck(name: string, cond: boolean): void {
     ANHANG_TEXTE.tooltip === 'Anhänge (Präsentationen, Dateien, Links) anzeigen' && ANHANG_TEXTE.erneut === 'Erneut versuchen'
     && ANHANG_TEXTE.leereListe === 'Keine Anhänge an diesem Side Event'
     && !Object.values(ANHANG_TEXTE).some((t) => (typeof t === 'function' ? (t as (a: string, b: string) => string)('x', 'y') : t).includes('"')));
+}
+
+// --- Ordner-Ablage: Kopfzeile und Zeilen im Side-Events-Panel (iveo-Paket, Spec 11.1, 11.2; 12.4 Nr. 28, 30, 42, 46, 49) ---
+// Owner-Regel: eine dauerhaft sichtbare Zeile muss in JEDEM Zustand stimmen. Deshalb Kreuzprodukt aller Achsen, die
+// Erwartung je Kombination aus der Vorrangkette der Spec, die Texte woertlich (nicht aus ORDNER_ZEILEN_TEXTE gelesen).
+{
+  const lokal = (h: number, m: number, s = 0, tag = 17): number => new Date(2026, 9, tag, h, m, s).getTime();
+  const iso = (ms: number): string => new Date(ms).toISOString();
+  const NAME = 'COP31 Tag 1 – Side Events';
+  const PFAD = '/Shows/COP31 Tag 1 – Side Events';
+  const GEGEN = lokal(14, 4, 30);
+  const LEBENSZEICHEN = lokal(13, 58, 10);
+  const FORTSCHRITT = lokal(14, 3, 30);
+  const se = (x: Partial<SideEventOrdnerStand> = {}): SideEventOrdnerStand => ({
+    programId: 'P-1', titel: 'Klima', aktiv: false, inMenge: true, ordnerName: 'Klima', pfad: `${PFAD}/Klima`, existiert: true,
+    indexFormat: 'eins', anlegbar: null, laedt: null, wartetHinter: null, abruf: 'gelungen', stand: iso(lokal(14, 5)), standAusFrueherSitzung: false,
+    fehler: null, n: 3, k: 3, probleme: [], zusaetze: { indexNeuAufgebaut: false, weitererOrdner: null, bedienerGeaendert: 0, gesperrteEndungen: 0 }, ...x,
+  });
+  const gestoert = [
+    se({ programId: 'P-2', abruf: 'gescheitert', fehler: { text: 'iveo antwortet nicht innerhalb von 15 s', seit: iso(lokal(14, 6)) } }),
+    se({ programId: 'P-3', anlegbar: { grund: 'Pfad zu lang' } }),
+  ];
+  const kopfStand = (): AnhangOrdnerStand => ({ showOffen: true, rolle: 'aus', tokenDa: true, schalterAn: true, showDatei: 'da', sperre: null,
+    basis: null, runde: null, ersteRundeGestartet: true, naechsteRundeGegen: null, letzterFortschritt: null, sideEvents: [] });
+
+  // 12.4 Nr. 30 Kopf: Show × Rolle × Token × Schalter × Show-Datei × Sperre × Basis × Runde × erste Runde × Uhr × gestört
+  type Erwartung = { fall: string; text: string | null; schalter: boolean; ordnerOeffnen: boolean; tooltip: string | null };
+  const klassen = new Map<string, { n: number; gut: number }>();
+  let kombinationen = 0;
+  for (const showOffen of [true, false]) for (const rolle of ['aus', 'master', 'slave'] as const) for (const tokenDa of [true, false])
+  for (const schalterAn of [true, false]) for (const showDatei of ['da', 'fehlt', 'nicht-lesbar'] as const)
+  for (const sperre of [null, 'fremd', 'namensgleich'] as const) for (const basis of ['existiert', 'fehlt', 'nicht-anlegbar'] as const)
+  for (const runde of [false, true]) for (const ersteRunde of [true, false]) for (const uhr of ['frueh', 'spaet'] as const) for (const m of [0, 2]) {
+    kombinationen++;
+    const stand: AnhangOrdnerStand = {
+      showOffen, rolle, tokenDa, schalterAn, showDatei,
+      sperre: sperre === null ? null : { art: sperre, rechner: sperre === 'fremd' ? 'TECHNIK-PC' : 'REGIE-PC', lebenszeichen: iso(LEBENSZEICHEN) },
+      basis: { name: NAME, pfad: PFAD, existiert: basis === 'existiert', fehler: basis === 'nicht-anlegbar' ? { code: 'EACCES' } : null },
+      runde: runde ? { i: 2, n: 5 } : null, ersteRundeGestartet: ersteRunde, naechsteRundeGegen: ersteRunde ? iso(GEGEN) : null,
+      letzterFortschritt: iso(FORTSCHRITT), sideEvents: m > 0 ? [se(), ...gestoert] : [se()],
+    };
+    const jetzt = uhr === 'frueh' ? GEGEN + 10_000 : GEGEN + 60_000; // früh: 10 s nach „gegen“, Fortschritt 70 s her; spät: 60 s bzw. 120 s
+    const zusatz = m > 0 ? ' · 2 Side Events gestört' : '';
+    const gegen = ersteRunde ? '14:04' : '--:--';
+    const tt = PFAD;
+    const e: Erwartung =
+      !showOffen ? { fall: 'K0', text: null, schalter: false, ordnerOeffnen: false, tooltip: null }
+      : rolle === 'slave' ? { fall: 'K1', text: 'Dieser Rechner hat die Rolle „Mit Master verbinden“ und legt keine Anhänge ab.', schalter: false, ordnerOeffnen: false, tooltip: null }
+      : !tokenDa ? { fall: 'K2', text: 'Anhänge lädt nur der Launcher mit dem iveo-Token dieser Show.', schalter: false, ordnerOeffnen: false, tooltip: null }
+      : !schalterAn ? { fall: 'K3', text: 'Ablage in Side-Event-Ordnern ausgeschaltet.', schalter: true, ordnerOeffnen: basis === 'existiert', tooltip: tt }
+      : showDatei !== 'da' ? { fall: 'K4', text: 'Show-Datei am Öffnungspfad nicht gefunden oder nicht lesbar. Ablage pausiert, bis sie wieder da ist.', schalter: true, ordnerOeffnen: false, tooltip: tt }
+      : sperre === 'fremd' ? { fall: 'K5', text: 'Ablage liegt bei Rechner „TECHNIK-PC“ (letztes Lebenszeichen 13:58); dieser Rechner legt nichts ab und übernimmt gegen 14:13, wenn kein neues Lebenszeichen kommt.', schalter: true, ordnerOeffnen: true, tooltip: tt }
+      : sperre === 'namensgleich' ? { fall: 'K5', text: 'Ablage von einem zweiten Launcher mit demselben Rechnernamen „REGIE-PC“ übernommen (anderer Benutzer an diesem Rechner oder Rechner mit gleichem Namen); dieser Launcher legt nichts ab, bis die Show neu geöffnet wird.', schalter: true, ordnerOeffnen: true, tooltip: tt }
+      : basis === 'nicht-anlegbar' ? { fall: 'K6', text: `Ordner „${NAME}“ nicht anlegbar (EACCES). Nächster Versuch gegen ${gegen}.`, schalter: true, ordnerOeffnen: false, tooltip: tt }
+      : runde ? { fall: 'K7', text: (uhr === 'spaet' ? `Ablage: „${NAME}“ · Abgleich läuft (2 von 5) · kein Fortschritt seit 14:03` : `Ablage: „${NAME}“ · Abgleich läuft (2 von 5)`) + zusatz, schalter: true, ordnerOeffnen: basis === 'existiert', tooltip: tt }
+      : !ersteRunde ? { fall: 'K8', text: `Ablage: „${NAME}“ · erster Abgleich folgt`, schalter: true, ordnerOeffnen: basis === 'existiert', tooltip: tt }
+      : basis === 'existiert' ? { fall: 'K9', text: (uhr === 'spaet' ? `Ablage: „${NAME}“ · Abgleich überfällig seit 14:04` : `Ablage: „${NAME}“ · nächster Abgleich gegen 14:04`) + zusatz, schalter: true, ordnerOeffnen: true, tooltip: tt }
+      : { fall: 'K10', text: uhr === 'spaet' ? `Ablage: „${NAME}“ · Abgleich überfällig seit 14:04` : `Ablage: „${NAME}“ · noch nichts abgelegt · nächster Abgleich gegen 14:04`, schalter: true, ordnerOeffnen: false, tooltip: tt };
+    const r = kopfzeile(stand, jetzt);
+    const k = klassen.get(e.fall) ?? { n: 0, gut: 0 };
+    klassen.set(e.fall, { n: k.n + 1, gut: k.gut + (JSON.stringify(r) === JSON.stringify(e) ? 1 : 0) });
+  }
+  for (const fall of ['K0', 'K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7', 'K8', 'K9', 'K10']) {
+    const k = klassen.get(fall) ?? { n: 0, gut: 0 };
+    ck(`P11 12.4 Nr. 30 Kopf: ${fall} (${k.n} von ${kombinationen} Kombinationen) → genau diese Zeile, Text wörtlich, Schalter und „Ordner öffnen“ nach 11.1`, k.n > 0 && k.gut === k.n);
+  }
+  ck('P11 12.4 Nr. 30 Kopf: ohne Stand → K0', kopfzeile(null, 0).fall === 'K0' && kopfzeile(null, 0).text === null);
+
+  // 12.4 Nr. 49: K7 ohne Fortschritt mit der Uhr des Renderers
+  const k7 = (jetzt: number): string | null => kopfzeile({
+    showOffen: true, rolle: 'master', tokenDa: true, schalterAn: true, showDatei: 'da', sperre: null,
+    basis: { name: NAME, pfad: PFAD, existiert: true, fehler: null }, runde: { i: 1, n: 3 }, ersteRundeGestartet: true,
+    naechsteRundeGegen: iso(GEGEN), letzterFortschritt: iso(FORTSCHRITT), sideEvents: [],
+  }, jetzt).text;
+  ck('P11 12.4 Nr. 49: 105 s nach letzterFortschritt → T37', k7(FORTSCHRITT + 105_000) === `Ablage: „${NAME}“ · Abgleich läuft (1 von 3)`);
+  ck('P11 12.4 Nr. 49: 106 s → T76 mit der Zeit von letzterFortschritt', k7(FORTSCHRITT + 106_000) === `Ablage: „${NAME}“ · Abgleich läuft (1 von 3) · kein Fortschritt seit 14:03`);
+  ck('P11 11.1: K9 genau 45 s nach „gegen“ → noch T38, 46 s → T59', (() => {
+    const s: AnhangOrdnerStand = { showOffen: true, rolle: 'aus', tokenDa: true, schalterAn: true, showDatei: 'da', sperre: null,
+      basis: { name: NAME, pfad: PFAD, existiert: true, fehler: null }, runde: null, ersteRundeGestartet: true,
+      naechsteRundeGegen: iso(GEGEN), letzterFortschritt: null, sideEvents: [] };
+    return kopfzeile(s, GEGEN + 45_000).text === `Ablage: „${NAME}“ · nächster Abgleich gegen 14:04` && kopfzeile(s, GEGEN + 46_000).text === `Ablage: „${NAME}“ · Abgleich überfällig seit 14:04`;
+  })());
+
+  // 12.4 Nr. 30 Zeile: Menge × Ordner × Indexformat × anlegbar × Download × Abruf × Stand × n × k × Wartende/Problem
+  const zeilen = new Map<string, { n: number; gut: number }>();
+  let zKomb = 0;
+  for (const inMenge of [true, false]) for (const existiert of [true, false]) for (const indexFormat of ['eins', 'neuer', 'kaputt', 'fehlt'] as const)
+  for (const anlegbar of [false, true]) for (const download of ['laedt-mit', 'laedt-ohne', 'aktiv-wartet', 'nicht-aktiv-wartet', 'sonst'] as const)
+  for (const abruf of ['keiner', 'gelungen', 'gescheitert'] as const) for (const standDa of [true, false]) for (const n of [0, 3])
+  for (const kGleich of [true, false]) for (const problem of ['keins', 'grund', 'warten'] as const) {
+    if (n === 0 && !kGleich) continue;
+    zKomb++;
+    const k = kGleich ? n : n - 1;
+    const probleme: OrdnerProblem[] = problem === 'grund' ? [{ art: 'grund', datei: 'Agenda.pdf', grund: 'zu wenig Speicherplatz (frei 512 MB)' }]
+      : problem === 'warten' ? [{ art: 'neue-fassung-wartet', datei: 'Deck.pptx' }] : [];
+    const x = se({
+      inMenge, existiert, indexFormat, anlegbar: anlegbar ? { grund: 'Pfad zu lang' } : null, n, k, probleme, abruf,
+      laedt: download === 'laedt-mit' ? { datei: 'Video.mp4', bytes: 2.5 * 1_048_576, groesse: 10 * 1_048_576 } : download === 'laedt-ohne' ? { datei: 'Video.mp4', bytes: 2.5 * 1_048_576, groesse: null } : null,
+      aktiv: download === 'aktiv-wartet', wartetHinter: download === 'aktiv-wartet' || download === 'nicht-aktiv-wartet' ? 'Agenda.pdf' : null,
+      stand: standDa ? iso(lokal(14, 5)) : null, standAusFrueherSitzung: standDa && abruf === 'keiner',
+      fehler: abruf === 'gescheitert' ? { text: 'iveo antwortet nicht innerhalb von 15 s', seit: iso(lokal(14, 6)) } : null,
+    });
+    const st = standDa ? '14:05' : '--:--';
+    const soll: [string, string, boolean] =
+      !inMenge && !existiert ? ['S1', 'Nicht in der Ablage dieser Show, kein Ordner.', false]
+      : !inMenge ? ['S2', 'Nicht mehr in der Ablage dieser Show, Ordner bleibt unverändert.', true]
+      : indexFormat === 'neuer' ? ['S3', 'Ordner stammt von einem neueren Launcher und wird hier nicht verändert.', true]
+      : anlegbar ? ['S4', 'Anhänge: Ordner nicht anlegbar: Pfad zu lang', false]
+      : download === 'laedt-mit' ? ['S5', 'Anhänge: lädt „Video.mp4“ (2,5 von 10 MB) …', existiert]
+      : download === 'laedt-ohne' ? ['S5', 'Anhänge: lädt „Video.mp4“ (2,5 MB) …', existiert]
+      : download === 'aktiv-wartet' ? ['S6', 'Anhänge: wartet auf den laufenden Download „Agenda.pdf“ (anderes Side Event)', existiert]
+      : abruf === 'keiner' && indexFormat === 'eins' && standDa ? ['S8', `Anhänge: ${k} im Ordner · Stand ${st} (frühere Sitzung) · Abgleich folgt`, existiert]
+      : abruf === 'keiner' ? ['S7', 'Anhänge: noch nicht abgeglichen', existiert]
+      : abruf === 'gescheitert' && standDa ? ['S9', `Anhänge: ${k} von ${n} im Ordner · Stand ${st} · Abgleich gestört: iveo antwortet nicht innerhalb von 15 s (seit 14:06)`, existiert]
+      : abruf === 'gescheitert' ? ['S10', 'Anhänge: Abgleich gestört: iveo antwortet nicht innerhalb von 15 s (seit 14:06)', existiert]
+      : n === 0 ? ['S11', `Keine Anhänge · Stand ${st}`, existiert]
+      : kGleich && problem === 'keins' ? ['S12', `Anhänge: ${n} im Ordner · Stand ${st}`, existiert]
+      : ['S13', `Anhänge: ${k} von ${n} im Ordner · Stand ${st}${problem === 'grund' ? ' · Agenda.pdf: zu wenig Speicherplatz (frei 512 MB)' : problem === 'warten' ? ' · Deck.pptx: neue Fassung wartet, Datei ist geöffnet' : ''}`, existiert];
+    const r = ordnerZeile(x, lokal(15, 0));
+    const zaehltGestoert = ['S4', 'S9', 'S10'].includes(soll[0]) || (soll[0] === 'S13' && problem === 'grund');
+    const gut = r.fall === soll[0] && r.text === soll[1] && r.ordnerOeffnen === soll[2] && r.tooltip === `${PFAD}/Klima`
+      && gestoerteSideEvents({ ...kopfStand(), sideEvents: [x] }) === (zaehltGestoert ? 1 : 0);
+    const z = zeilen.get(soll[0]) ?? { n: 0, gut: 0 };
+    zeilen.set(soll[0], { n: z.n + 1, gut: z.gut + (gut ? 1 : 0) });
+  }
+  for (const fall of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13']) {
+    const z = zeilen.get(fall) ?? { n: 0, gut: 0 };
+    ck(`P11 12.4 Nr. 30 Zeile: ${fall} (${z.n} von ${zKomb} Kombinationen) → genau diese Zeile, Text wörtlich, „Ordner öffnen“ nach 11.2, gestört nach 9.13`, z.n > 0 && z.gut === z.n);
+  }
+  ck('P11 11.2: Side Event nicht im Stand → S1', ordnerZeile(undefined, 0).fall === 'S1' && ordnerZeile(undefined, 0).text === 'Nicht in der Ablage dieser Show, kein Ordner.');
+
+  // 12.4 Nr. 28: ein nicht aktives Side Event in der Warteschlange zeigt nie S6
+  const wartend = ordnerZeile(se({ aktiv: false, wartetHinter: 'Video.mp4', abruf: 'gescheitert', fehler: { text: 'Agenda in iveo nicht gefunden (404)', seit: iso(lokal(14, 6)) } }), lokal(15, 0));
+  ck('P11 12.4 Nr. 28: nicht aktives wartendes Side Event → nie S6, seine Zeile nach S7–S13 (hier T44)',
+    wartend.fall === 'S9' && wartend.text === 'Anhänge: 3 von 3 im Ordner · Stand 14:05 · Abgleich gestört: Agenda in iveo nicht gefunden (404) (seit 14:06)');
+
+  // Zusätze und Problem-Formen (11.2)
+  const voll = ordnerZeile(se({ zusaetze: { indexNeuAufgebaut: true, weitererOrdner: 'Klima (Kopie)', bedienerGeaendert: 2, gesperrteEndungen: 1 } }), lokal(15, 0));
+  ck('P11 11.2: Zusätze T72, T66, T67, T68 in dieser Reihenfolge an der Zeile',
+    voll.text === 'Anhänge: 3 im Ordner · Stand 14:05 · Index war beschädigt und ist neu aufgebaut · weiterer Ordner „Klima (Kopie)“ mit derselben Kennung wird nicht gepflegt · 2 vom Bediener geändert · 1 Dateien mit gesperrter Endung umbenannt');
+  const mehrere = ordnerZeile(se({ k: 1, probleme: [
+    { art: 'grund', datei: 'Zeta.pdf', grund: 'Pfad zu lang' },
+    { art: 'grund', datei: 'beta.pdf', grund: 'unvollständig (10 von 20 Bytes)', naechsterVersuch: iso(lokal(14, 10)) },
+    { art: 'umbenennen-wartet', datei: 'Alpha.pptx' },
+  ] }), lokal(15, 0));
+  ck('P11 11.2: erstes Problem nach Dateiname, „ (und ‹m› weitere)“', mehrere.text === 'Anhänge: 1 von 3 im Ordner · Stand 14:05 · Alpha.pptx: Umbenennen wartet, Datei ist geöffnet (und 2 weitere)');
+  const versuch = ordnerZeile(se({ k: 2, probleme: [{ art: 'grund', datei: 'beta.pdf', grund: 'unvollständig (10 von 20 Bytes)', naechsterVersuch: iso(lokal(14, 10)) }] }), lokal(15, 0));
+  ck('P11 11.2: Rückhaltung „‹Datei›: ‹Grund› · nächster Versuch gegen ‹hh:mm›“', versuch.text === 'Anhänge: 2 von 3 im Ordner · Stand 14:05 · beta.pdf: unvollständig (10 von 20 Bytes) · nächster Versuch gegen 14:10');
+  const ohneDatei = ordnerZeile(se({ probleme: [{ art: 'grund', datei: 'Agenda.pdf', grund: 'Pfad zu lang' }, { art: 'index-nicht-schreibbar', code: 'EPERM' }] }), lokal(15, 0));
+  ck('P11 11.2: Formen ohne Datei zuerst („Index nicht schreibbar (‹Code›)“)', ohneDatei.text === 'Anhänge: 3 von 3 im Ordner · Stand 14:05 · Index nicht schreibbar (EPERM) (und 1 weitere)');
+  ck('P11 11.2: „Ordner-Umbenennen wartet, Inhalt ist geöffnet“',
+    ordnerZeile(se({ probleme: [{ art: 'ordner-umbenennen-wartet' }] }), lokal(15, 0)).text === 'Anhänge: 3 von 3 im Ordner · Stand 14:05 · Ordner-Umbenennen wartet, Inhalt ist geöffnet');
+  ck('P11 9.13: Wartende zählen nicht als gestört, ein Grund schon',
+    gestoerteSideEvents({ ...kopfStand(), sideEvents: [se({ probleme: [{ art: 'umbenennen-wartet', datei: 'a.pdf' }] }), se({ probleme: [{ art: 'index-nicht-schreibbar', code: 'EBUSY' }] })] }) === 1);
+
+  // 12.4 Nr. 46: Stand vom Vortag → „TT.MM. hh:mm“, heute → „hh:mm“
+  const gestern = ordnerZeile(se({ abruf: 'keiner', stand: iso(lokal(14, 5, 0, 16)), standAusFrueherSitzung: true, k: 2 }), lokal(9, 0));
+  ck('P11 12.4 Nr. 46: Stand vom Vortag → S8 mit „16.10. 14:05“', gestern.fall === 'S8' && gestern.text === 'Anhänge: 2 im Ordner · Stand 16.10. 14:05 (frühere Sitzung) · Abgleich folgt');
+  ck('P11 12.4 Nr. 46: nach dem ersten Abruf S12 mit Uhrzeit', ordnerZeile(se({ stand: iso(lokal(9, 1)) }), lokal(9, 2)).text === 'Anhänge: 3 im Ordner · Stand 09:01');
+
+  // 12.4 Nr. 42 (Block): Side Events der Menge, die die Panel-Liste nicht zeigt
+  const blockStand: AnhangOrdnerStand = { ...kopfStand(), sideEvents: [se({ programId: 'A' }), se({ programId: 'B' }), se({ programId: 'C', inMenge: false })] };
+  ck('P11 12.4 Nr. 42 Block: Side Event der Menge, das die Panel-Liste nicht zeigt → im Block (nicht das außerhalb der Menge)',
+    weitereSideEvents(blockStand, ['A']).map((x) => x.programId).join(',') === 'B');
+  ck('P11 12.4 Nr. 42 Block: ohne Panel-Liste (kein Cache) → alle der Menge', weitereSideEvents(blockStand, []).map((x) => x.programId).join(',') === 'A,B');
+
+  const T = ORDNER_ZEILEN_TEXTE;
+  ck('P11 11.6: T26, T30, T52, T65 wörtlich', T.schalter === 'Anhänge in Side-Event-Ordnern ablegen' && T.ordnerOeffnen === 'Ordner öffnen'
+    && T.keineShow === 'Anhänge werden erst mit einer geöffneten Show-Datei in Ordnern neben ihr abgelegt.' && T.weitere === 'Weitere Side Events der Ablage');
+  const alle = Object.values(T).map((t) => (typeof t === 'function' ? (t as (...a: unknown[]) => string)('x', 1, 2, 'y', 'z') : t));
+  ck('P11 11.6: keine ASCII-Anführungszeichen und kein „spätestens“ in den Texten', alle.every((t) => !t.includes('"') && !t.includes('spätestens')));
 }
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------

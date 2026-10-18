@@ -254,6 +254,73 @@ export interface IveoBindResult {
   agenda?: boolean;
 }
 
+/**
+ * Stand der Ordner-Ablage (iveo-Paket, Spec 9.13, 9.15, 11.1, 11.2). Der Lauf (main/side-event-ordner-lauf.ts) füllt ihn,
+ * das Side-Events-Panel bewertet ihn mit der Uhr des Renderers (renderer/src/lib/ordner-zeilen.ts). Er trägt Namen und
+ * Zustände; Pfade nur für den Tooltip, „Ordner öffnen“ übergibt nur die programId (E35).
+ */
+export interface AnhangOrdnerStand {
+  /** Eine iveo-gebundene Show ist offen (9.2 Nr. 1). */
+  showOffen: boolean;
+  rolle: VerbundRolle;
+  /** Für die Show liegt auf diesem Rechner ein Token (9.2 Nr. 2). */
+  tokenDa: boolean;
+  /** Schalter „Anhänge in Side-Event-Ordnern ablegen“ (9.14, Standard an). */
+  schalterAn: boolean;
+  showDatei: 'da' | 'fehlt' | 'nicht-lesbar';
+  /** Nur bei Regel 5 (fremd) und Regel 4 (namensgleich); eigen, frei und abgelaufen → null. `rechner` aus der Sperrdatei. */
+  sperre: null | { art: 'fremd' | 'namensgleich'; rechner: string; lebenszeichen: string };
+  /** Basisordner `‹Stamm› – Side Events` (9.1); `fehler` = nicht anlegbar (K6). */
+  basis: null | { name: string; pfad: string; existiert: boolean; fehler: null | { code: string } };
+  /** Laufende Runde: Schritt i von n (K7). */
+  runde: null | { i: number; n: number };
+  ersteRundeGestartet: boolean;
+  /** „gegen ‹hh:mm›“ = Start der vorigen Runde + 270 s (naechsterFaelligerTakt); gesetzt, sobald eine Runde gestartet ist. */
+  naechsteRundeGegen: string | null;
+  /** Beginn oder Ende eines Schritts, neue Bytes eines Downloads (9.6), höchstens einmal je Sekunde nachgeführt. */
+  letzterFortschritt: string | null;
+  /** Ablage-Menge und Side Events mit gefundenem Ordner außerhalb der Menge (S2). */
+  sideEvents: SideEventOrdnerStand[];
+}
+
+/** Ein Side Event der Ablage (11.2). */
+export interface SideEventOrdnerStand {
+  programId: string;
+  titel: string;
+  aktiv: boolean;
+  inMenge: boolean;
+  ordnerName: string | null;
+  /** Nur für den Tooltip. */
+  pfad: string | null;
+  existiert: boolean;
+  indexFormat: 'eins' | 'neuer' | 'kaputt' | 'fehlt';
+  /** Ordner nicht anlegbar oder „Pfad zu lang“ (S4). */
+  anlegbar: null | { grund: string };
+  /** Laufender Download einer Datei dieses Side Events (S5); groesse null = ohne `size_bytes`. */
+  laedt: null | { datei: string; bytes: number; groesse: number | null };
+  /** Nur beim aktiven: Datei des laufenden Downloads eines anderen Side Events (S6). */
+  wartetHinter: string | null;
+  abruf: 'keiner' | 'gelungen' | 'gescheitert';
+  /** Zeit des letzten gelungenen Agenda-Abrufs, nach dem der Plan ausgeführt wurde; aus früherer Sitzung das Index-Feld `stand`. */
+  stand: string | null;
+  standAusFrueherSitzung: boolean;
+  /** Text = ordnerFehlerText des Agenda-Fehlers (T44, T45). */
+  fehler: null | { text: string; seit: string };
+  /** n = Anhänge laut iveo (gültig, ohne gelöschte); k = davon in aktueller Fassung im Ordner. */
+  n: number;
+  k: number;
+  probleme: OrdnerProblem[];
+  zusaetze: { indexNeuAufgebaut: boolean; weitererOrdner: string | null; bedienerGeaendert: number; gesperrteEndungen: number };
+}
+
+/** ‹Problem›-Formen der Zeile (11.2); `grund` ist ein Text aus T22. */
+export type OrdnerProblem =
+  | { art: 'grund'; datei: string; grund: string; naechsterVersuch?: string }
+  | { art: 'neue-fassung-wartet'; datei: string }
+  | { art: 'umbenennen-wartet'; datei: string }
+  | { art: 'ordner-umbenennen-wartet' }
+  | { art: 'index-nicht-schreibbar'; code: string };
+
 /** Verfügbares Launcher-Update (Self-Update). */
 export interface LauncherUpdate {
   current: string;
@@ -362,6 +429,8 @@ export type AppEvent =
   // iveo-Paket (Spec 8.4): Stand einer beobachteten Anhang-Liste (aufgeklappt oder aktives Side Event); materials nur bei
   // der ersten Beobachtung, einer Änderung, nach „gescheitert → gelungen“ und als Antwort auf jede Anmeldung.
   | { type: 'iveo-anhaenge'; programId: string; abgerufen: string; ok: boolean; materials?: IveoMaterialRef[]; error?: string; begann?: string }
+  // iveo-Paket (Spec 9.15): Stand der Ordner-Ablage bei jeder Änderung, Fortschritt höchstens einmal je Sekunde (9.6).
+  | { type: 'iveo-anhang-ordner'; stand: AnhangOrdnerStand }
   // Master-Link Teil 1: Rolle, Kopplung, Teilnehmer oder Client-Zustand haben sich geändert.
   | { type: 'verbund-changed' };
 
