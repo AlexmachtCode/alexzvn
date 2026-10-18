@@ -1493,7 +1493,97 @@ console.log('— P14 Fix-Runde 1 (Generationswechsel, K4/K6 mit Warteschlange, l
     for (let k = 0; k < 10; k++) { await T.uhr.spule(45_000, 45_000); await T.takt([]); }
     const s2 = T.se('se-2');
     ck('P14 Fix-Runde 3, 9.14: Schalter aus und an, danach Rechte behoben → der Basisordner entsteht und se-2 wird abgelegt',
-      T.fs.gibt(AttC.BASIS) !== undefined && s2?.existiert === true && s2.ordnerName !== null);
+      T.fs.gibt(AttC.BASIS) && s2?.existiert === true && s2.ordnerName !== null);
+  }
+  {
+    // Fix-Runde 4, Befund 1: K6 nennt nur Zeiten, zu denen der Takt wirklich versucht. (a) Der Takt, der die Runde startet, hat mehr Latenz
+    // als ein späterer: der spätere liegt ein paar Sekunden vor „gegen“, versucht wegen der Toleranz und scheitert; „gegen“ ist damit
+    // verbraucht. (b) Der erste Fehlschlag kommt von einem Eintrag nach „gegen“, zwischen zwei Takten. Die Zeile wird jede Sekunde gelesen:
+    // nie mehr als 10 s vergangen, nie T59 bei laufender Runde, und jede genannte Zeit bekommt ihren Versuch.
+    const faelle: Array<{ name: string; lat: number[]; mitAnhang: string }> = [
+      { name: 'Takt kurz vor „gegen“ (Rundenstart mit mehr Latenz)', lat: [5, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0], mitAnhang: 'se-2' },
+      { name: 'erster Fehlschlag eines Eintrags nach „gegen“', lat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], mitAnhang: 'se-6' },
+    ];
+    for (const f of faelle) {
+      const liste = Array.from({ length: 8 }, (_, i) => ({ id: `se-${i + 1}`, title: `Titel ${i + 1}` }));
+      const T = AttC.baueLauf({ sideEvents: liste });
+      for (const p of liste.slice(1)) {
+        T.agenda.agenden.set(p.id, () => new Promise((ok) => { T.uhr.setTimeout(() => ok(p.id === f.mitAnhang ? [AttC.punkt(p.id, [AttC.datei(`m-${p.id}`, 'Folien')])] : []), 60_000); }));
+      }
+      T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+      const t0 = T.uhr.t;
+      const mkdirs = (): number => T.fs.zaehle('mkdir', (p) => p === AttC.BASIS);
+      const genannt = new Map<number, number>(); // genannte Zeit → Zahl der Versuche, als sie zuerst genannt wurde
+      const luegen: string[] = [];
+      const leer: string[] = [];
+      for (let k = 0; k < f.lat.length; k++) {
+        const ziel = t0 + k * 45_000 + f.lat[k] * 1000;
+        while (T.uhr.t < ziel) {
+          await T.uhr.spule(1000, 1000);
+          const z = T.lauf.stand();
+          const zb = Date.parse(z.basis?.fehler?.naechsterVersuch ?? '');
+          const kz = ZeilenC.kopfzeile(z, T.uhr.t);
+          if (z.basis?.fehler && (T.uhr.t - zb > 10_000 || kz.text?.includes('überfällig'))) luegen.push(`${(T.uhr.t - t0) / 1000}:${kz.text}`);
+          if (z.basis?.fehler && !genannt.has(zb)) genannt.set(zb, mkdirs());
+        }
+        T.lauf.takt();
+        await AttC.ruhe();
+        const s = T.lauf.stand();
+        const bis = Date.parse(s.basis?.fehler?.naechsterVersuch ?? '');
+        for (const [x, n] of genannt) if (T.uhr.t >= x - 15_000 && mkdirs() <= n) leer.push(`${(x - t0) / 1000}:${(T.uhr.t - t0) / 1000}`);
+        if (s.basis?.fehler && !genannt.has(bis)) genannt.set(bis, mkdirs());
+      }
+      ck(`P14 Fix-Runde 4, 11.1 K6: ${f.name}, lange Runde → nie eine vergangene Zeit, nie T59, jeder genannten Zeit folgt ein Versuch`,
+        luegen.length === 0 && leer.length === 0 && genannt.size > 1);
+    }
+  }
+  {
+    // Fix-Runde 4, Befund 2: Basisordner nicht anlegbar, dann EIN Aussetzer der Ablage (NAS, SMB) bei fehlendem Basisordner: Sperrdatei nicht
+    // lesbar, lstat nicht möglich oder Zwischendatei der Sperre nicht anlegbar. Im Takt danach fehlt die Sperrdatei wieder (ENOENT), der Fehler
+    // des Aussetzers ist überholt. Die Ablage bleibt nicht stehen, die Zeile lügt nicht (nie T59, nie mehr als 10 s vergangen), vor der neu
+    // genannten Zeit kein weiterer Versuch, zu ihr der Versuch, und mit behobenen Rechten entstehen Basisordner und Ordner von se-2 – ob die
+    // Rechte vor oder nach dem ersten Takt nach dem Aussetzer behoben sind.
+    const aussetzer: Array<[string, string, (p: string) => boolean]> = [
+      ['Sperrdatei nicht lesbar (pruefeSperre, sperre lesen)', 'readFile', (p) => p === SPERRE_F],
+      ['lstat des Basisordners (basisArt)', 'lstat', (p) => p === AttC.BASIS],
+      ['Zwischendatei der Sperre (schreibeSperre, sperre schreiben)', 'open', (p) => p.startsWith(`${SPERRE_F}.`)],
+    ];
+    for (const [name, op, wann] of aussetzer) {
+      const fehler: string[] = [];
+      for (const behoben of ['vor', 'nach'] as const) {
+        const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }] });
+        T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [AttC.datei('m-2', 'Folien')])]);
+        T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+        const t0 = T.uhr.t;
+        const mkdirs = (): number => T.fs.zaehle('mkdir', (p) => p === AttC.BASIS);
+        const pruefe = (w: string): void => {
+          const s = T.lauf.stand();
+          const kz = ZeilenC.kopfzeile(s, T.uhr.t);
+          const bis = Date.parse(s.basis?.fehler?.naechsterVersuch ?? '');
+          if (s.basis?.fehler && (T.uhr.t - bis > 10_000 || kz.text?.includes('überfällig'))) fehler.push(`${behoben} ${w} +${(T.uhr.t - t0) / 1000}: ${kz.text}`);
+        };
+        await T.takt([]);
+        T.fs.fehlerBei(op, wann, 'EIO', 1);
+        await T.uhr.spule(45_000, 45_000); await T.takt([]); pruefe('Aussetzer');
+        if (behoben === 'vor') T.fs.regelnLoeschen();
+        await T.uhr.spule(45_000, 45_000); await T.takt([]); pruefe('Takt danach');
+        const v2 = Date.parse(T.lauf.stand().basis?.fehler?.naechsterVersuch ?? '');
+        const m2 = mkdirs();
+        if (behoben === 'nach') T.fs.regelnLoeschen();
+        for (let k = 3; k <= 14; k++) {
+          await T.uhr.spule(45_000, 45_000); await T.takt([]); pruefe(`Takt ${k}`);
+          if (Number.isFinite(v2) && T.uhr.t < v2 - 15_000 && mkdirs() !== m2) fehler.push(`${behoben} Versuch vor der genannten Zeit +${(T.uhr.t - t0) / 1000}`);
+          if (Number.isFinite(v2) && T.uhr.t >= v2 - 15_000 && T.uhr.t < v2 + 45_000 && mkdirs() <= m2) fehler.push(`${behoben} kein Versuch zur genannten Zeit +${(v2 - t0) / 1000}`);
+        }
+        const s2 = T.se('se-2');
+        const kz = ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t);
+        if (!(T.fs.gibt(AttC.BASIS) && s2?.existiert === true && s2.ordnerName !== null && kz.fall !== 'K6')) {
+          fehler.push(`${behoben} Ablage steht: mkdir ${mkdirs()}, se-2 ${JSON.stringify({ existiert: s2?.existiert, ordner: s2?.ordnerName })}, ${kz.fall} ${kz.text}`);
+        }
+      }
+      if (fehler.length) console.log(`    (${name}: ${fehler.slice(0, 3).join(' | ')})`);
+      ck(`P14 Fix-Runde 4, 11.1 K6/9.2: ein Aussetzer „${name}“ bei fehlendem Basisordner → die Ablage bleibt nicht stehen, die Zeile lügt nicht`, fehler.length === 0);
+    }
   }
 }
 function s0(T: ReturnType<typeof AttC.baueLauf>): string | undefined { return T.lauf.stand().basis?.fehler?.code; }

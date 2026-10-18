@@ -131,6 +131,8 @@ interface Lauf {
   basisFehlerBis: number | null;
   /** Laufender Versuch, den Basisordner anzulegen (nur der Takt wiederholt ihn; Einträge warten darauf). */
   basisVersuch: Promise<void> | null;
+  /** Zeit des letzten Takts, der versuchen konnte (naechsteSchritte); der nächste kommt einen Takt später (Zeit des nächsten Versuchs, 11.1). */
+  taktZuletzt: number | null;
   se: Map<string, SeIntern>;
   kopf: Omit<AnhangOrdnerStand, 'sideEvents'>;
   letzteMeldung: string;
@@ -153,7 +155,7 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     gen: 0, abbruch: new AbortController(), sitzung: d.neueSitzungsKennung(), gehalten: null, darf: false,
     abgesetzt: false, beendet: false, beschaeftigt: 0, warter: [], taktLaeuft: false, statLaeuft: false, sperreLoeschen: null,
     aktivAgenda: null, queue: [], laeuft: null, abrufOffen: null, nachlauf: new Map(), arbeiterGen: null,
-    rundeStartMs: null, runde: null, menge: [], liste: [], basisFehlerBis: null, basisVersuch: null,
+    rundeStartMs: null, runde: null, menge: [], liste: [], basisFehlerBis: null, basisVersuch: null, taktZuletzt: null,
     se: new Map(), kopf: leererKopf(), letzteMeldung: '',
   };
   return {
@@ -409,7 +411,10 @@ async function schreibeSperre(L: Lauf, basis: string, frei: boolean, gen: number
   }
   if (frei && fehler === 'ENOENT') { // Basisordner gibt es noch nicht: die Sperre entsteht mit ihm (9.2)
     const b = k.basis as NonNullable<typeof k.basis>;
-    k.basis = { ...b, existiert: false, fehler: L.basisFehlerBis !== null ? b.fehler : null }; // nur ein Fehler beim Anlegen bleibt bis zu seinem Versuch
+    // Nur der Fehler beim Anlegen bleibt bis zu seinem Versuch (legeBasisAn, erkennbar an seiner Zeit). Jeder andere (Sperrdatei, lstat) ist mit
+    // diesem Durchgang überholt: ohne ihn versucht der Takt es sofort (naechsteSchritte), sonst stünde die Ablage still oder nennte eine alte Zeit.
+    const anlegen = L.basisFehlerBis !== null && b.fehler !== null && !b.fehler.sperre && b.fehler.naechsterVersuch === iso(L.basisFehlerBis);
+    k.basis = { ...b, existiert: false, fehler: anlegen ? b.fehler : null };
     return true;
   }
   // K6 mit eigenem Text (OFP6): der Ordner ist da (lstat), nur die Sperrdatei nicht schreibbar; der nächste Takt versucht es neu
@@ -490,6 +495,7 @@ function naechsteSchritte(L: Lauf, a: { path: string; event: string; filter: Ive
   }
   // Runde über die übrigen Side Events der Ablage-Menge (Regel 6.1); eingereiht wird erst nach dem aktiven.
   const jetzt = L.d.jetzt();
+  L.taktZuletzt = jetzt;
   let ids: string[] = [];
   if (!L.runde && (L.rundeStartMs === null || auffrischenFaellig(L.rundeStartMs, jetzt, L.taktMs))) {
     L.rundeStartMs = jetzt;
@@ -657,8 +663,10 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
 }
 
 /**
- * Basisordner anlegen. Bei einem Fehler steht die Zeit des nächsten Versuchs fest: „gegen“ (Beginn der nächsten Runde), ist
- * die vorbei, der nächste Takt; zu dieser Zeit wiederholt der Takt den Versuch (11.1, 9.4).
+ * Basisordner anlegen. Bei einem Fehler steht die Zeit des nächsten Versuchs fest: die Zeit des Takts, der ihn wirklich macht
+ * (naechsteSchritte, ein Drittel Takt Toleranz), also „gegen“ (Beginn der nächsten Runde), sonst der nächste Takt nach dem letzten
+ * (nicht jetzt + Takt: ein Eintrag scheitert zwischen zwei Takten). Beides frühestens ein Drittel Takt nach jetzt: einen früheren
+ * Termin hat dieser Versuch schon verbraucht (der Takt in der Toleranz von „gegen“ WAR sein Versuch), er bekäme keinen mehr (11.1, 9.4).
  */
 async function legeBasisAn(L: Lauf, basis: string, gen: number): Promise<boolean> {
   try {
@@ -666,8 +674,10 @@ async function legeBasisAn(L: Lauf, basis: string, gen: number): Promise<boolean
   } catch (e) {
     if (gen !== L.gen) return false;
     const jetzt = L.d.jetzt();
+    const toleranz = Math.floor(L.taktMs / 3);
     const gegen = Date.parse(L.kopf.naechsteRundeGegen ?? iso(jetzt));
-    const bis = gegen > jetzt ? gegen : jetzt + L.taktMs;
+    const takt = L.taktZuletzt ?? jetzt;
+    const bis = gegen >= jetzt + toleranz ? gegen : takt + Math.max(1, Math.ceil((jetzt + toleranz - takt) / L.taktMs)) * L.taktMs;
     L.basisFehlerBis = bis;
     L.kopf.basis = { ...(L.kopf.basis as NonNullable<AnhangOrdnerStand['basis']>), existiert: false, fehler: { code: fehlerCode(e), naechsterVersuch: iso(bis) } };
     return false;
