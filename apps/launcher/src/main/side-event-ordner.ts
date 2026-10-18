@@ -741,7 +741,12 @@ export function planeSideEvent(e: PlanEingabe): PlanSchritt[] {
     if (x.zustand === 'laedt') {
       // Absturz zwischen Index und Umbenennen: liegt die Datei mit genau `bytes` da, gilt sie (auch ohne size_bytes).
       const f = dateiDa(x.datei);
-      if (f && x.bytes !== undefined && f.groesse === x.bytes) {
+      // Beim Ersetzen trägt `mtimeMs` die Änderungszeit der alten Fassung: dieselbe Zeit = es ist noch die alte Datei, auch bei
+      // gleicher Bytezahl; sie geht vor dem Laden nach entfernt/ (9.6 (2)).
+      const istAlt = f !== undefined && x.mtimeMs !== undefined && f.mtimeMs === x.mtimeMs;
+      if (f && istAlt) {
+        laden(bleibt, f.name);
+      } else if (f && x.bytes !== undefined && f.groesse === x.bytes) {
         plan.push({ art: 'uebernehmen', anhang: a, datei: f.name, inhalt: x.inhalt ?? inhalt, bytes: f.groesse, mtimeMs: f.mtimeMs, neu: false });
       } else {
         laden(bleibt, null);

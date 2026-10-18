@@ -2651,6 +2651,99 @@ console.log('— P17 Schritte: Platzieren ohne Überschreiben, Links, Umbenennen
       T.fs.gibt(pathC.join(ORDNER, 'Agenda_exe.pdf')) && T.logs.includes('info iveo-Ordner: Endung „exe“ von „Agenda.exe“ gesperrt, abgelegt als „Agenda_exe.pdf“.')
       && T.se('se-1')?.zusaetze.gesperrteEndungen === 1);
   }
+  // ── Fix-Runde 1 ──
+  {
+    // .url: scheitert sync, bleibt keine Zwischendatei liegen; die nächste Runde schreibt den Link
+    const T = AttC.baueLauf();
+    T.fs.fehlerBei('sync', (p) => p.endsWith('.m-2.4711.jm-laden'), 'EIO', 1);
+    await T.takt(mitAnhang(WEB));
+    const rest = T.fs.alleDateien().filter((f) => f.pfad.endsWith('.jm-laden')).length;
+    await takte(T, 2, mitAnhang(WEB));
+    ck('P17 Fix 9.6: .url-Schreibfehler (sync) → keine Zwischendatei bleibt liegen, die nächste Runde schreibt den Link',
+      rest === 0 && T.fs.inhalt(pathC.join(ORDNER, 'Website.url')) === '[InternetShortcut]\r\nURL=https://example.org/\r\n'
+      && T.se('se-1')?.probleme.length === 0);
+  }
+  {
+    // S12/S13: k zählt eine im selben Lauf neu platzierte Fassung sofort
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(WEB));
+    await takte(T, 1, mitAnhang(AttC.link('m-2', 'Website', 'https://example.org/neu')));
+    const kLink = T.se('se-1')?.k;
+    const U = AttC.baueLauf();
+    await U.takt(mitAnhang(BERICHT));
+    await takte(U, 1, mitAnhang(AttC.datei('m-1', 'bericht', { size: 1000, ref: BERICHT.asset!.url })));
+    ck('P17 Fix S12: neue Link-Adresse unter gleichem Namen und Umbenennen nur der Schreibweise → k zählt schon in dieser Runde',
+      kLink === 1 && U.fs.gibt(pathC.join(ORDNER, 'bericht.pdf')) && U.se('se-1')?.k === 1);
+  }
+  {
+    // 9.4: Wechsel, während das Platzieren auf readdir wartet → die alte Generation schreibt den Index nicht mehr
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht', { size: 1000 });
+    T.download.arten.set(m.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 1_000 });
+    let scharf = false;
+    const tor = T.fs.torBei('readdir', () => scharf);
+    T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(m), abgerufen: new Date(T.uhr.t).toISOString() });
+    T.lauf.takt();
+    await AttC.ruhe();
+    scharf = true;
+    await T.uhr.spule(12_000, 1_000);
+    const amTor = tor.erreicht();
+    T.z.schalter = false;
+    T.lauf.takt();
+    await AttC.ruhe();
+    const n = T.fs.protokoll.length;
+    tor.weiter();
+    await T.uhr.spule(5_000, 1_000);
+    await T.lauf.ruhig();
+    ck('P17 Fix 9.4: Wechsel, während das Platzieren auf readdir wartet → kein Zugriff auf den Index',
+      amTor && T.fs.protokoll.slice(n).filter((x) => x.p.includes(OrdnerC.INDEX_DATEI) || (x.p2 ?? '').includes(OrdnerC.INDEX_DATEI)).length === 0);
+  }
+  {
+    // 9.4: Wechsel, während das Umbenennen auf readdir wartet → nicht umbenannt
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    await T.uhr.spule(45_000, 45_000);
+    let zaehler = 0;
+    // die erste Ordnerliste der Runde ist die des Abgleichs; das Tor hält die zweite (die in belegteNamen)
+    const tor = T.fs.torBei('readdir', (p) => p === ORDNER && ++zaehler === 2);
+    const neu = mitAnhang(AttC.datei('m-1', 'Bericht final', { size: 1000, ref: BERICHT.asset!.url }));
+    T.lauf.agendaAktiv('se-1', { ok: true, agenda: neu, abgerufen: new Date(T.uhr.t).toISOString() });
+    T.lauf.takt();
+    await AttC.ruhe();
+    const amTor = tor.erreicht();
+    T.z.schalter = false;
+    T.lauf.takt();
+    await AttC.ruhe();
+    tor.weiter();
+    await T.uhr.spule(5_000, 1_000);
+    await T.lauf.ruhig();
+    ck('P17 Fix 9.4: Wechsel, während das Umbenennen auf readdir wartet → nicht umbenannt',
+      amTor && T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')) && !T.fs.gibt(pathC.join(ORDNER, 'Bericht final.pdf')));
+  }
+  {
+    // 9.5 Zeile 7: Abbruch beim Ersetzen einer .url gleicher Länge → die alte Fassung gilt nicht als neue
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(AttC.link('m-2', 'Website', 'https://example.org/a')));
+    await T.uhr.spule(45_000, 45_000);
+    const agendaB = mitAnhang(AttC.link('m-2', 'Website', 'https://example.org/b'));
+    let scharf = true;
+    const tor = T.fs.torBei('rename', (p) => scharf && p.includes(OrdnerC.INDEX_DATEI));
+    T.lauf.agendaAktiv('se-1', { ok: true, agenda: agendaB, abgerufen: new Date(T.uhr.t).toISOString() });
+    T.lauf.takt();
+    await AttC.ruhe();
+    const amTor = tor.erreicht();
+    T.z.schalter = false;
+    T.lauf.takt();
+    await AttC.ruhe();
+    scharf = false;
+    tor.weiter();
+    await T.uhr.spule(5_000, 1_000);
+    await T.lauf.ruhig();
+    T.z.schalter = true;
+    await takte(T, 4, agendaB);
+    ck('P17 Fix 9.5 Zeile 7: Abbruch beim Ersetzen → die Datei trägt am Ende die neue Adresse',
+      amTor && T.fs.inhalt(pathC.join(ORDNER, 'Website.url')) === '[InternetShortcut]\r\nURL=https://example.org/b\r\n');
+  }
 }
 
 // ── Ende der Fälle ──

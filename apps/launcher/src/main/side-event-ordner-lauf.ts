@@ -1331,6 +1331,20 @@ async function fuehreAus(ctx: Ctx, s: PlanSchritt): Promise<void> {
   }
 }
 
+/** Der Name liegt in dieser Runde nicht mehr im Ordner; eine frühere Meldung „platziert“ unter gleichem Namen gilt nicht mehr. */
+function markiereWeg(ctx: Ctx, name: string): void {
+  const n = vergleichsform(name);
+  ctx.platziert.delete(n);
+  ctx.weg.add(n);
+}
+
+/** Der Name liegt jetzt im Ordner; eine frühere Meldung „weg“ unter gleichem Namen (alte Fassung nach entfernt/) gilt nicht mehr. */
+function markierePlatziert(ctx: Ctx, name: string): void {
+  const n = vergleichsform(name);
+  ctx.weg.delete(n);
+  ctx.platziert.add(n);
+}
+
 function eintrag(ctx: Ctx, id: string): IndexEintrag | undefined {
   return ctx.o.index.eintraege.find((x) => x.id === id);
 }
@@ -1364,9 +1378,10 @@ async function fuehreSchrittAus(ctx: Ctx, s: Exclude<PlanSchritt, { art: 'fehler
     if (!x) return;
     try {
       const neu = freierName(s.wunsch, await belegteNamen(ctx, s.anhang.m.id, s.von));
+      if (ctx.gen !== L.gen) return; // 9.4: nach dem await die Generation prüfen, kein Umbenennen
       await umbenennenImOrdner(L.fs, o.pfad, path.join(o.pfad, s.von), path.join(o.pfad, neu));
-      ctx.weg.add(vf(s.von));
-      ctx.platziert.add(vf(neu));
+      markiereWeg(ctx, s.von);
+      markierePlatziert(ctx, neu);
       eintragSetzen(ctx, { ...x, datei: neu, label: s.anhang.m.label });
       L.d.log.info(LAUF_TEXTE.umbenannt(s.von, neu));
     } catch (e) {
@@ -1377,7 +1392,7 @@ async function fuehreSchrittAus(ctx: Ctx, s: Exclude<PlanSchritt, { art: 'fehler
   if (s.art === 'nach-entfernt') {
     const x = eintrag(ctx, s.id);
     const r = await nachEntfernt(ctx, s.datei, s.zusatz);
-    if (!r.ok) { ctx.probleme.push({ art: 'grund', datei: s.datei, grund: r.grund }); return; }
+    if (!r.ok) { if (ctx.gen === L.gen) ctx.probleme.push({ art: 'grund', datei: s.datei, grund: r.grund }); return; }
     if (s.zusatz === 'unvollstaendig') {
       // die unvollständige Datei gehört keinem Anhang mehr; das folgende Laden legt den Eintrag neu an
       ctx.o.index.eintraege = ctx.o.index.eintraege.filter((y) => y.id !== s.id);
@@ -1393,9 +1408,10 @@ async function fuehreSchrittAus(ctx: Ctx, s: Exclude<PlanSchritt, { art: 'fehler
     if (!x) return;
     try {
       const neu = freierName(s.wunsch, await belegteNamen(ctx, s.anhang.m.id));
+      if (ctx.gen !== L.gen) return; // 9.4: nach dem await die Generation prüfen, kein Umbenennen
       await umbenennenImOrdner(L.fs, o.pfad, path.join(o.pfad, 'entfernt', s.aus), path.join(o.pfad, neu));
       const st = await L.fs.stat(path.join(o.pfad, neu));
-      ctx.platziert.add(vf(neu));
+      markierePlatziert(ctx, neu);
       eintragSetzen(ctx, { ...x, zustand: 'aktiv', datei: neu, label: s.anhang.m.label, bytes: st.size, mtimeMs: st.mtimeMs, seit: undefined });
       L.d.log.info(LAUF_TEXTE.zurueckgeholt(neu));
     } catch (e) {
@@ -1421,8 +1437,9 @@ async function nachEntfernt(ctx: Ctx, datei: string, zusatz: null | 'ersetzt' | 
     const r = ordnerPfad({ art: 'entfernt', seitenOrdner: o.pfad, datei, zusatz: zusatz ? { art: zusatz, zeit: new Date(L.d.jetzt()) } : null });
     if (!r.ok) return { ok: false, grund: r.grund, offen: false };
     const name = freierName(r.name, new Set((await L.fs.readdir(ent)).map(vergleichsform)));
+    if (ctx.gen !== L.gen) return { ok: false, grund: '', offen: false }; // 9.4: kein Umbenennen für eine alte Generation
     await umbenennenImOrdner(L.fs, o.pfad, path.join(o.pfad, datei), path.join(ent, name));
-    ctx.weg.add(vergleichsform(datei));
+    markiereWeg(ctx, datei);
     return { ok: true, name };
   } catch (e) {
     return { ok: false, grund: grundText(e, 'datei'), offen: istOffen(e) };
@@ -1450,6 +1467,7 @@ async function lade(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'>): P
     if (s.art === 'url-schreiben') {
       const inhalt = Buffer.from(urlDateiInhalt(s.inhalt), 'utf8');
       const fh = await L.fs.open(z.pfad, 'wx');
+      ctx.zwischenAngelegt = true; // ab hier gibt es die Datei: jeder Fehler (write, sync, close) räumt sie im catch weg (9.6)
       try {
         await fh.write(inhalt);
         await fh.sync();
@@ -1553,6 +1571,9 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
   // (1) „laedt“ trägt schon den freien Namen, unter dem die Datei gleich liegt (die alte Fassung zählt nicht, sie geht in (2)
   // nach entfernt/): Stürzt der Launcher zwischen (3) und (4) ab, prüft die Wiederaufnahme genau diese Datei (9.5 Zeile 7),
   // nie eine fremde gleicher Bytezahl unter dem Wunschnamen (E33).
+  // Beim Ersetzen trägt „laedt“ die Änderungszeit der alten Fassung (mtimeMs): Liegt nach einem Abbruch unter dem Namen noch
+  // eine Datei mit dieser Zeit, ist es die alte Fassung, nicht die neue (9.5 Zeile 7), auch bei gleicher Bytezahl.
+  const altMtime = s.alt ? o.dateien.find((f) => vergleichsform(f.name) === vergleichsform(s.alt!))?.mtimeMs : undefined;
   let ziel: string;
   try {
     ziel = freierName(s.wunsch, await belegteNamen(ctx, m.id, s.alt));
@@ -1560,7 +1581,8 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
     await L.fs.unlink(zwischen).catch(() => undefined);
     return scheitert(ctx, s, x);
   }
-  eintragSetzen(ctx, { id: m.id, art, zustand: 'laedt', datei: ziel, label: m.label, inhalt: s.inhalt, bytes });
+  if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; } // 9.4: nach dem await, vor dem Index
+  eintragSetzen(ctx, { id: m.id, art, zustand: 'laedt', datei: ziel, label: m.label, inhalt: s.inhalt, bytes, mtimeMs: altMtime });
   await schreibeIndex(L, ctx.s, o);
   if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; }
   if (s.alt) {
@@ -1568,7 +1590,7 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
     if (!r.ok) {
       await L.fs.unlink(zwischen).catch(() => undefined);
       if (vorher) eintragSetzen(ctx, vorher);
-      ctx.probleme.push({ art: 'grund', datei: s.alt, grund: r.grund });
+      if (gen === L.gen) ctx.probleme.push({ art: 'grund', datei: s.alt, grund: r.grund });
       return;
     }
     L.d.log.info(LAUF_TEXTE.entferntErsetzt(s.alt));
@@ -1579,7 +1601,7 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
     if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; } // 9.4: kein Umbenennen für eine alte Generation
     if (frisch !== ziel) {
       ziel = frisch;
-      eintragSetzen(ctx, { id: m.id, art, zustand: 'laedt', datei: ziel, label: m.label, inhalt: s.inhalt, bytes });
+      eintragSetzen(ctx, { id: m.id, art, zustand: 'laedt', datei: ziel, label: m.label, inhalt: s.inhalt, bytes, mtimeMs: altMtime });
       await schreibeIndex(L, ctx.s, o);
       if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; }
     }
@@ -1589,7 +1611,7 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
     return scheitert(ctx, s, x);
   }
   const st = await L.fs.stat(path.join(o.pfad, ziel)).catch(() => null);
-  ctx.platziert.add(vergleichsform(ziel));
+  markierePlatziert(ctx, ziel);
   eintragSetzen(ctx, { id: m.id, art, zustand: 'aktiv', datei: ziel, label: m.label, inhalt: s.inhalt, bytes, mtimeMs: st?.mtimeMs });
   await schreibeIndex(L, ctx.s, o);
   ctx.s.logGrund.delete(m.id);
