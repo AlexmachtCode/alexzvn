@@ -771,9 +771,9 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   // 12.1 Nr. 2: die gemeinsame Regel für Mapper und Normalisierer (Schritte 1–6 aus 5.3).
   ok([undefined, null, 'UNFCCC', 42, { 0: 'A' }].every((w) => gleich(N(w), [])), 'P1 12.1 Nr. 2: kein Array → []');
   ok(gleich(N([1, null, { name: 'A' }, ['B'], true, 'C']), ['C']), 'P1 12.1 Nr. 2: Nicht-Strings fallen weg');
-  ok(gleich(N(['Café']), ['Café']), 'P1 12.1 Nr. 2: NFC');
+  ok(gleich(N(['Cafe\u0301']), ['Caf\u00e9']), 'P1 12.1 Nr. 2: NFC');
   ok(
-    gleich(N(['  A \t B\n  C  ', '   ', '']), ['A B C']),
+    gleich(N(['  A \t B\n\u00a0 C  ', '   ', '']), ['A B C']),
     'P1 12.1 Nr. 2: jede Folge von Leerraum wird ein Leerzeichen, trim, leer fällt weg',
   );
   ok(
