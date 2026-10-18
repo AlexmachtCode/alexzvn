@@ -124,6 +124,13 @@ const TEXT_UMSCHALTEN_SPEAKER_VERALTET = 'Speakerliste von iveo nicht abrufbar, 
  * ohne Uhrzeit wie TEXT_SPEAKER_VERALTET; gelten beide Merker, stehen beide Texte durch „; “ getrennt in der Statuszeile.
  */
 const TEXT_SELISTE_VERALTET = 'Side-Event-Liste von iveo nicht abrufbar, Liste aus früherem Stand';
+/**
+ * iveo-Paket, Spec 5.10 und 11.6 T51 (wortgleich): Merker „Organisationen fehlen“ (nur im Speicher). Ohne Präfix und
+ * ohne Uhrzeit wie TEXT_SPEAKER_VERALTET; mit anderen Merkern durch „; “ getrennt (statusAusMerkern).
+ */
+export const TEXT_ORG_FEHLEN = 'iveo liefert keine Organisationen (Feld fehlt), Organisationen aus früherem Stand';
+/** iveo-Paket, Spec 5.10 und 11.6 T71 (wortgleich): Warnung, wenn der Merker „Organisationen fehlen“ entsteht. */
+const TEXT_ORG_FEHLEN_LOG = 'iveo: kein Speaker trägt Organisationen (Feld fehlt), Organisationen aus der Datei bleiben.';
 
 // ── Reine Helfer (aus iveo-sync.ts hierher gezogen; die Hülle importiert sie für Binden/Discover) ──────────
 
@@ -233,6 +240,7 @@ function stoerungsText(e: unknown): string {
  * veraltet“ zählt ebenso: Setzen und Löschen schreiben die Show und schicken RELOAD — nur so erfährt der Titler davon.
  * Teil 2b R2, Spec 15.4: Die Side Events zählen als `[id, title]`, so wie sie in der Datei stehen. Eine geänderte Liste
  * schreibt und benachrichtigt; fehlt der Parameter, gilt die leere Liste.
+ * Die Organisationen eines Speakers zählen (iveo-Paket, Spec 5.5).
  */
 export function ablaufSignatur(
   ablauf: ShowAblaufItem[],
@@ -249,7 +257,7 @@ export function ablaufSignatur(
     p.owner ?? null,
     p.category ?? null,
   ]);
-  const sprecher = speakerWieInDerDatei(speakers).map((s) => [s.id ?? null, s.name.trim(), s.title?.trim() || null]);
+  const sprecher = speakerWieInDerDatei(speakers).map((s) => [s.id ?? null, s.name.trim(), s.title?.trim() || null, s.organisationen ?? []]);
   const seiten = sideEventsWieInDerDatei(sideEvents).map((s) => [s.id, s.title]);
   return JSON.stringify([punkte, sprecher, speakerVeraltetSeit ?? null, seiten]);
 }
@@ -286,6 +294,60 @@ function abweichungVonDatei(alt: string, neu: string): string {
  */
 function speakerWieInDerDatei(speakers: ShowIveoSpeaker[]): ShowIveoSpeaker[] {
   return migrateShow({ iveo: { event: '-', speakers } }).iveo?.speakers ?? [];
+}
+
+/**
+ * iveo-Paket, Spec 5.10: Trägt kein Speaker der iveo-Liste ein Array `organisations` (Feld fehlt überall, etwa nach einer
+ * Schemaänderung), gilt das nicht als „alle Organisationen gelöscht“. Eine leere Liste zählt nicht.
+ */
+function ohneOrganisationsFeld(roh: IveoSpeaker[]): boolean {
+  return roh.length > 0 && !roh.some((s) => Array.isArray(s.organisations));
+}
+
+/**
+ * iveo-Paket, Spec 5.10: `frisch` sind die aus `roh` (Speakerliste aus iveo) gebauten Speaker, `datei` die der Datei.
+ * Trägt kein Speaker in `roh` das Feld und hat die Datei Organisationen, bekommt jeder frische Speaker die Organisationen
+ * des Datei-Speakers mit derselben Kennung, sonst mit demselben Namen nach Trimmen (der Mapper setzt keine Kennung); ohne
+ * Treffer bleibt das Feld weg, und `feldFehlt` ist wahr (Merker `orgFehlenSeit`). Sonst gilt `frisch` unverändert. Beim
+ * Binden gibt es keine Datei; dort gilt die Liste, wie sie kommt (iveo-sync.ts nutzt diese Regel nicht).
+ */
+export function organisationenAusDatei(
+  frisch: ShowIveoSpeaker[],
+  roh: IveoSpeaker[],
+  datei: ShowIveoSpeaker[],
+): { speakers: ShowIveoSpeaker[]; feldFehlt: boolean } {
+  if (!ohneOrganisationsFeld(roh) || !datei.some((s) => s.organisationen?.length)) return { speakers: frisch, feldFehlt: false };
+  const gegenstueck = (s: ShowIveoSpeaker): ShowIveoSpeaker | undefined =>
+    (s.id !== undefined ? datei.find((x) => x.id === s.id) : undefined) ?? datei.find((x) => x.name.trim() === s.name.trim());
+  const speakers = frisch.map((s) => {
+    const orgs = gegenstueck(s)?.organisationen;
+    return orgs?.length ? { ...s, organisationen: [...orgs] } : s;
+  });
+  return { speakers, feldFehlt: true };
+}
+
+/** Merker, die die Statuszeile zeigt (Teil 2b, 2b R2, iveo-Paket Spec 6.5), aus der Datei und aus dem Speicher. */
+export interface StatusMerker {
+  speakerVeraltetSeit?: string;
+  seListeVeraltetSeit?: string;
+  orgFehlenSeit?: string;
+}
+
+/**
+ * Statuszeile aus den Merkern (Teil 2b, Spec 6.2; 2b R2, Spec 15.4; iveo-Paket, Spec 6.5): die EINE Regel für Abfrage,
+ * Umschalten, Öffnen und Speichern der offenen Show. Ohne Merker „in Ordnung“; sonst ihre Texte in der festen
+ * Reihenfolge der Liste unten durch „; “ getrennt, „seit“ = der früheste Merker. Rein; für das Kreuzprodukt im Test
+ * exportiert.
+ */
+export function statusAusMerkern(m: StatusMerker): IveoSyncStatus {
+  const da = ([
+    [m.speakerVeraltetSeit, TEXT_SPEAKER_VERALTET],
+    [m.seListeVeraltetSeit, TEXT_SELISTE_VERALTET],
+    [m.orgFehlenSeit, TEXT_ORG_FEHLEN],
+  ] as Array<[string | undefined, string]>).filter((t): t is [string, string] => !!t[0]);
+  if (!da.length) return { ok: true };
+  const seit = da.map(([s]) => s).reduce((x, y) => (Date.parse(y) < Date.parse(x) ? y : x));
+  return { ok: false, text: da.map(([, t]) => t).join('; '), seit };
 }
 
 /**
@@ -334,9 +396,10 @@ function sideKontext(detail: IveoProgram | null, alleSpeaker?: IveoSpeaker[]): S
 
 /**
  * Ergebnis eines Listen-Snapshots (Listen-Abfrage, Tagesübersicht), so wie es zu schreiben ist: Ablauf, Speaker und
- * Merker „Speaker veraltet“ (Teil 2b, Spec 6.2; `undefined` = kein Merker).
+ * Merker „Speaker veraltet“ (Teil 2b, Spec 6.2; `undefined` = kein Merker). `orgFehlen` (iveo-Paket, Spec 5.10): Ergebnis
+ * der Regel „Feld fehlt“, nur mit gelungener Speakerliste.
  */
-type ListenStand = { ablauf: ShowAblaufItem[]; speakers: ShowIveoSpeaker[]; merker: string | undefined };
+type ListenStand = { ablauf: ShowAblaufItem[]; speakers: ShowIveoSpeaker[]; merker: string | undefined; orgFehlen?: boolean };
 
 interface AktiveShow {
   path: string;
@@ -367,6 +430,11 @@ interface AktiveShow {
   seListeIso: string;
   /** Teil 2b R2, Spec 15.4: Merker „Side-Event-Liste veraltet“ (nur im Speicher), ISO-Zeit des ersten Fehlschlags. */
   seListeVeraltetSeit?: string;
+  /**
+   * iveo-Paket, Spec 5.10: Merker „Organisationen fehlen“ (nur im Speicher, nicht in der Signatur), ISO-Zeit, seit kein
+   * Speaker der iveo-Liste das Feld trägt und die Organisationen der Datei gelten.
+   */
+  orgFehlenSeit?: string;
 }
 
 /** Ergebnis des Zusatzabrufs der Side-Event-Liste (Spec 15.4); `liste` null = seit `seListeIso` nichts geändert. */
@@ -413,26 +481,13 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   }
   /**
    * Teil 2b, Spec 6.2: Nach einer Abfrage oder einem Umschalten „in Ordnung“ nur ohne Merker. Mit Merker bleibt der
-   * Text aus 6.3 stehen, „seit“ = erster Fehlschlag. Teil 2b R2, Spec 15.4: ebenso mit dem Merker „Side-Event-Liste
-   * veraltet“; gelten beide, stehen beide Texte durch „; “ getrennt da, „seit“ = der frühere Fehlschlag.
+   * Text aus 6.3 stehen, „seit“ = erster Fehlschlag. Teil 2b R2, Spec 15.4, und iveo-Paket, Spec 6.5: ebenso mit den
+   * Merkern im Speicher; gelten mehrere, stehen ihre Texte durch „; “ getrennt da, „seit“ = der früheste (statusAusMerkern).
    */
   function statusNachAbfrage(a: AktiveShow): void {
-    const texte: string[] = [];
-    const seit: string[] = [];
-    if (a.speakerVeraltetSeit) {
-      texte.push(TEXT_SPEAKER_VERALTET);
-      seit.push(a.speakerVeraltetSeit);
-    }
-    if (a.seListeVeraltetSeit) {
-      texte.push(TEXT_SELISTE_VERALTET);
-      seit.push(a.seListeVeraltetSeit);
-    }
-    if (!texte.length) {
-      statusOk();
-      return;
-    }
-    const frueher = seit.reduce((x, y) => (Date.parse(y) < Date.parse(x) ? y : x));
-    statusGestoert(texte.join('; '), undefined, frueher);
+    const s = statusAusMerkern(a);
+    if (s.ok) statusOk();
+    else statusGestoert(s.text ?? '', undefined, s.seit);
   }
   /** Teil 2b R2, Spec 15.4: Warnung beim ersten Fehlschlag des Zusatzabrufs und bei jedem neuen Fehlertext. */
   function meldeSeListeFehler(e: unknown): void {
@@ -467,6 +522,21 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   function meldeSpeakerWieder(): void {
     letzterSpeakerFehler = null;
     d.log.info('iveo: Speakerliste wieder abrufbar, Speaker aktualisiert.');
+  }
+  /**
+   * iveo-Paket, Spec 5.10: nach einer gelungenen Speakerliste, deren Stand in der Datei steht (geschrieben oder Signatur
+   * gleich). `feldFehlt` undefined = keine frische Liste, der Merker bleibt. Wahr: der Merker gilt, „seit“ bleibt der erste
+   * Zeitpunkt, T71 nur beim Entstehen. Falsch: der Merker entfällt.
+   */
+  function merkeOrgFehlen(a: AktiveShow, feldFehlt: boolean | undefined): void {
+    if (feldFehlt === undefined) return;
+    if (!feldFehlt) {
+      a.orgFehlenSeit = undefined;
+      return;
+    }
+    if (a.orgFehlenSeit) return;
+    a.orgFehlenSeit = d.jetztIso();
+    d.log.warn(TEXT_ORG_FEHLEN_LOG);
   }
   /**
    * Ergebnis eines Abrufs der Speakerliste (Snapshot, Agenda-Abfrage, Side-Event-Umschalten), nur für eine Abfrage bzw.
@@ -540,12 +610,22 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     if (show) melde(pfad, show);
   }
 
-  /** Stand aus einem Snapshot mit Speakerliste (wie 2a): Speaker und „Verantwortlich“ aus iveo, kein Merker. */
-  function standMitSpeakerliste(snap: IveoSnapshot, listPrograms: IveoProgram[], optionen: ProgramMapOptions): ListenStand {
+  /**
+   * Stand aus einem Snapshot mit Speakerliste (wie 2a): Speaker und „Verantwortlich“ aus iveo, kein Merker. iveo-Paket,
+   * Spec 5.10: `datei` sind die Speaker der Datei; trägt kein Speaker das Feld `organisations`, bleiben ihre Organisationen.
+   */
+  function standMitSpeakerliste(
+    snap: IveoSnapshot,
+    listPrograms: IveoProgram[],
+    optionen: ProgramMapOptions,
+    datei: ShowIveoSpeaker[],
+  ): ListenStand {
+    const o = organisationenAusDatei(snapshotToShowSpeakers(snap), snap.speakers, datei);
     return {
       ablauf: programsToAblauf(listPrograms, { ...optionen, speakerNamesById: speakerNameMap(snap.speakers) }),
-      speakers: snapshotToShowSpeakers(snap),
+      speakers: o.speakers,
       merker: undefined,
+      orgFehlen: o.feldFehlt,
     };
   }
 
@@ -709,7 +789,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   async function abfrageListe(client: IveoClientLike, a: AktiveShow, gen: number): Promise<void> {
     const geaendert = await client.listProgramsUpdatedSince(a.event, a.lastSyncIso);
     if (!geaendert.length && !a.speakerVeraltetSeit) {
-      if (istAktuell(a, gen)) statusOk();
+      // iveo-Paket, Spec 5.10/6.5: Merker im Speicher (etwa „Organisationen fehlen“) bleiben in der Statuszeile stehen.
+      if (istAktuell(a, gen)) statusNachAbfrage(a);
       return; // nichts Neues seit dem letzten Abgleich
     }
     // Programme ESSENZIELL (kein programsBestEffort): ein transienter 500 soll den Ablauf nicht mit [] überschreiben.
@@ -728,18 +809,19 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       withSchedule: scheduleSafeForList(a.filter, listPrograms),
     };
     // Spec 6.2: Scheitert die Speakerliste, wird die Datei VOR dem Vergleich gelesen — ihre Speaker und ihr
-    // „Verantwortlich“ gelten. Sonst wie in 2a erst, wenn sich etwas geändert hat.
+    // „Verantwortlich“ gelten. iveo-Paket, Spec 5.10: ebenso, wenn kein Speaker das Feld `organisations` trägt — dann
+    // bleiben die Organisationen der Datei. Sonst wie in 2a erst, wenn sich etwas geändert hat.
     let basis: Show | null = null;
-    if (speakerFehler.length) {
+    if (speakerFehler.length || ohneOrganisationsFeld(snap.speakers)) {
       basis = d.leseShow(a.path);
       if (!basis) {
         statusGestoert(TEXT_SHOW_NICHT_LESBAR);
         return;
       }
     }
-    const { ablauf, speakers, merker } = basis
+    const { ablauf, speakers, merker, orgFehlen } = speakerFehler.length && basis
       ? standOhneSpeakerliste(basis, listPrograms, optionen, a)
-      : standMitSpeakerliste(snap, listPrograms, optionen);
+      : standMitSpeakerliste(snap, listPrograms, optionen, basis?.iveo?.speakers ?? []);
     d.schreibeCache(buildShowMetadata(snap, a.baseUrl));
     const sig = ablaufSignatur(ablauf, speakers, merker, sideEvents);
     if (sig === a.lastSig) {
@@ -747,6 +829,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       a.lastSyncIso = snap.fetchedAt;
       a.seListeIso = snap.fetchedAt;
       a.seListeVeraltetSeit = undefined;
+      merkeOrgFehlen(a, orgFehlen);
       if (geaendert.length) d.log.info(`iveo: ${geaendert.length} Programm(e) geändert, Ablauf unverändert.`);
       statusNachAbfrage(a);
       return;
@@ -780,6 +863,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     a.seListeIso = snap.fetchedAt;
     a.seListeVeraltetSeit = undefined;
     a.speakerVeraltetSeit = merker;
+    merkeOrgFehlen(a, orgFehlen);
     if (speakerWieder) meldeSpeakerWieder();
     statusNachAbfrage(a);
     meldeGeschrieben(a.path);
@@ -853,10 +937,16 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     }
     let speakers = basis.iveo?.speakers ?? [];
     let merker = a.speakerVeraltetSeit;
+    /** iveo-Paket, Spec 5.10: Ergebnis der Regel „Feld fehlt“; undefined = keine frische Speakerliste. */
+    let orgFehlen: boolean | undefined;
     if (merker && alle) {
       // Spec 6.2: verknüpfte Speaker wie beim Umschalten (Detail und Agenda-Punkte), ohne Verknüpfung die ganze Liste.
+      // iveo-Paket, Spec 5.10: Trägt kein Speaker das Feld `organisations`, bleiben die Organisationen der Datei.
       const verknuepft = new Set<string>([...ctx.detailSpeakerIds, ...agenda.flatMap((it) => extractSpeakerIds(it))]);
-      speakers = speakersToShowSpeakers(verknuepft.size ? alle.filter((s) => verknuepft.has(s.id)) : alle);
+      const frisch = speakersToShowSpeakers(verknuepft.size ? alle.filter((s) => verknuepft.has(s.id)) : alle);
+      const o = organisationenAusDatei(frisch, alle, speakers);
+      speakers = o.speakers;
+      orgFehlen = o.feldFehlt;
       merker = undefined;
     }
     // Spec 15.4: neu gebildete Liste, sonst die der Datei (nichts geändert oder Zusatzabruf gescheitert).
@@ -866,6 +956,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       // Die Datei entspricht genau diesem Kontext → merken, sonst lädt jede Abfrage ihn neu.
       a.sideCtx = ctx;
       if (se.ok) a.seListeIso = se.ab;
+      merkeOrgFehlen(a, orgFehlen);
       statusNachAbfrage(a);
       return; // nichts geändert → kein RELOAD
     }
@@ -891,6 +982,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     a.sideCtx = ctx;
     if (se.ok) a.seListeIso = se.ab;
     a.speakerVeraltetSeit = merker;
+    merkeOrgFehlen(a, orgFehlen);
     if (speakerWieder) meldeSpeakerWieder();
     statusNachAbfrage(a);
     meldeGeschrieben(a.path);
@@ -913,6 +1005,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     sideCtx?: SideKontext;
     /** Teil 2b, Spec 6.2: Speakerliste geholt und gelungen, gescheitert oder ohne Verknüpfung gar nicht geholt. */
     speakerAbruf: 'ok' | 'gescheitert' | 'ohne-verknuepfung';
+    /** iveo-Paket, Spec 5.10: die volle Speakerliste, wenn sie gelang (für die Regel „Feld fehlt“). */
+    alle?: IveoSpeaker[];
   } | null> {
     const detail = await client.getProgram(event, programId).catch((e: unknown) => {
       d.log.warn(`iveo switch: Detail „${programId}" nicht abrufbar (${(e as Error).message}).`);
@@ -965,6 +1059,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       // Ohne Detail oder ohne Speakerliste keinen Kontext merken: die nächste Abfrage lädt ihn nach (7.6).
       sideCtx: detail && vollstaendig ? kontext : undefined,
       speakerAbruf,
+      alle,
     };
   }
 
@@ -997,10 +1092,17 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       let lastSyncIso = a.lastSyncIso;
       /** Merker „Speaker veraltet“, wie er nach dem Umschalten in der Datei steht (Teil 2b, Spec 6.2). */
       let merker = a.speakerVeraltetSeit;
-      /** Schon gelesene Datei (nur wenn die Speakerliste gescheitert ist); genau sie wird dann auch geschrieben. */
+      /**
+       * Schon gelesene Datei (Speakerliste gescheitert oder, iveo-Paket Spec 5.10, Feld `organisations` fehlt überall);
+       * genau sie wird dann auch geschrieben.
+       */
       let basisFrueh: Show | null = null;
       /** Teil 2b R2, Spec 15.4: neu gebildete Liste der Tagesübersicht; null = die Liste der Datei bleibt (Side Event). */
       let sideEvents: ShowIveoProgramRef[] | null = null;
+      /** iveo-Paket, Spec 5.10: volle Speakerliste beim Umschalten auf ein Side Event, wenn sie gelang. */
+      let roh: IveoSpeaker[] | undefined;
+      /** Spec 5.10: Ergebnis der Regel „Feld fehlt“; undefined = keine frische Speakerliste. */
+      let orgFehlen: boolean | undefined;
       if (programId) {
         const r = await loeseSideEventLeicht(client, a.event, programId);
         if (!r) return { ok: false, message: TEXT_AGENDA_NICHT_ABRUFBAR };
@@ -1008,6 +1110,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         // Einen Fehlschlag meldet loeseSideEventLeicht selbst.
         if (r.speakerAbruf === 'ok' && istAktuell(a, gen)) speakerListeErgebnis([]);
         ({ ablauf, speakers, warning, sideCtx } = r);
+        roh = r.alle;
         filter = { ...a.filter, programId };
         // Teil 2b, Spec 6.2: Gelingt die Speakerliste, entfällt der Merker; scheitert sie, wird er gesetzt (ein schon
         // gesetzter bleibt). Ohne Verknüpfung holt das Umschalten keine Liste, der Merker bleibt, wie er ist.
@@ -1038,9 +1141,15 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
           stand = standOhneSpeakerliste(basisFrueh, listPrograms, optionen, a);
           warning = TEXT_UMSCHALTEN_SPEAKER_VERALTET;
         } else {
-          stand = standMitSpeakerliste(snap, listPrograms, optionen);
+          // iveo-Paket, Spec 5.10: Trägt kein Speaker das Feld `organisations`, wird die Datei schon hier gelesen; genau
+          // sie wird dann auch geschrieben.
+          if (ohneOrganisationsFeld(snap.speakers)) {
+            basisFrueh = d.leseShow(a.path);
+            if (!basisFrueh) return { ok: false, message: TEXT_NICHT_GESCHRIEBEN };
+          }
+          stand = standMitSpeakerliste(snap, listPrograms, optionen, basisFrueh?.iveo?.speakers ?? []);
         }
-        ({ ablauf, speakers, merker } = stand);
+        ({ ablauf, speakers, merker, orgFehlen } = stand);
         name = snap.event.name;
         lastSyncIso = snap.fetchedAt;
         sideEvents = bildeSideEventListe(snap.programs, filter);
@@ -1051,7 +1160,13 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       if (!istAktuell(a, gen)) return { ok: false, message: TEXT_UMSCHALTEN_VERWORFEN };
       const basis = basisFrueh ?? d.leseShow(a.path);
       // Ohne Verknüpfung bleibt die Speakerliste der Datei — aus genau diesem Lesen, das auch geschrieben wird.
-      const speakersNeu = speakers ?? basis?.iveo?.speakers ?? [];
+      let speakersNeu = speakers ?? basis?.iveo?.speakers ?? [];
+      if (speakers && roh) {
+        // iveo-Paket, Spec 5.10: Side Event mit Verknüpfung; trägt kein Speaker das Feld, bleiben die Organisationen der Datei.
+        const o = organisationenAusDatei(speakers, roh, basis?.iveo?.speakers ?? []);
+        speakersNeu = o.speakers;
+        orgFehlen = o.feldFehlt;
+      }
       const sideEventsNeu = sideEvents ?? basis?.iveo?.sideEvents ?? [];
       const geschrieben =
         basis !== null &&
@@ -1077,6 +1192,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         a.seListeVeraltetSeit = undefined;
       }
       a.speakerVeraltetSeit = merker;
+      merkeOrgFehlen(a, orgFehlen);
       if (speakerWieder) meldeSpeakerWieder();
       d.log.info(`iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakersNeu.length} Speaker.`);
       // Teil 2b, Spec 6.2: „in Ordnung“ nur ohne Merker.

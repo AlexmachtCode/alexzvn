@@ -15,12 +15,15 @@ import {
   type IveoProgram,
   type IveoSnapshot,
   type IveoSpeaker,
+  type IveoSpeakerOrganisation,
   type IveoStage,
 } from '@jm/iveo';
 import {
-  ablaufSignatur, einPunktAblauf, erzeugeKern, speakerNamenAusDatei, toClientError, uebernimmOwnerAusDatei,
+  ablaufSignatur, einPunktAblauf, erzeugeKern, organisationenAusDatei, speakerNamenAusDatei, statusAusMerkern,
+  toClientError, uebernimmOwnerAusDatei, TEXT_ORG_FEHLEN,
   type IveoClientLike, type IveoKern, type IveoSyncStatus,
 } from '../src/main/iveo-abgleich-kern';
+import type { AgendaErgebnis } from '../src/main/iveo-anhaenge';
 import { schreibeShowAtomar, warteSync, type DateiSystem } from '../src/main/show-schreiben';
 
 let pass = 0, fail = 0;
@@ -135,6 +138,15 @@ interface NachgebautesIveo {
   teilFehler?: Partial<Record<'stages', unknown>>;
   sperre: (abruf: Abruf, arg: string) => Promise<void> | null;
   abrufe: string[];
+  /**
+   * iveo-Paket, Spec 12.2: Felder, die nur das Programm-Detail trägt (auf Prod etwa `speakers[] {speaker_id,
+   * role_on_program, sort_order}`, eine verschobene Startzeit). `getProgram` legt sie über das Programm der Liste.
+   */
+  detail: Record<string, Partial<IveoProgram>>;
+  /** iveo-Paket (M2): So viele Millisekunden vergehen in der Testuhr während eines Abrufs dieser Art. */
+  dauerMs: Partial<Record<Abruf, number>>;
+  /** Stellt die Testuhr weiter (setzt `umgebung`). */
+  vergeht: (ms: number) => void;
 }
 
 function programm(id: string, title: string, extra: Partial<IveoProgram> = {}): IveoProgram {
@@ -165,6 +177,9 @@ function neuesIveo(): NachgebautesIveo {
     fehler: {},
     sperre: () => null,
     abrufe: [],
+    detail: {},
+    dauerMs: {},
+    vergeht: () => {},
   };
 }
 
@@ -173,6 +188,8 @@ function nachgebauterClient(iv: NachgebautesIveo): IveoClientLike {
     iv.abrufe.push(`${abruf}:${arg}`);
     const halt = iv.sperre(abruf, arg);
     if (halt) await halt;
+    const dauer = iv.dauerMs[abruf];
+    if (dauer) iv.vergeht(dauer);
     if (iv.fehler[abruf]) throw iv.fehler[abruf];
   };
   return {
@@ -211,7 +228,7 @@ function nachgebauterClient(iv: NachgebautesIveo): IveoClientLike {
       await schritt('programm', programId);
       const p = iv.programme.find((x) => x.id === programId);
       if (!p) throw new IveoApiError(404, 'not_found', `Programm ${programId} fehlt`);
-      return p;
+      return { ...p, ...iv.detail[programId] };
     },
     async listSpeakers() {
       await schritt('speakers', '');
@@ -281,14 +298,25 @@ interface Umgebung {
   meldeWirft: boolean;
   /** Nach dem nächsten erfolgreichen Schreiben scheitern so viele Lesezugriffe (Zurücklesen, etwa EBUSY). */
   leseAusNachSchreiben: number;
+  /** iveo-Paket, Spec 8.2: Meldungen an den Anhang-Wächter (meldeAgenda), nur mit `opt.meldeAgenda`. */
+  agendaMeldungen: Array<{ programId: string; e: AgendaErgebnis }>;
+  /** iveo-Paket (M2): Testuhr um `ms` weiterstellen; sonst zählt sie nur 1 s je Uhrabfrage des Kerns. */
+  springe(ms: number): void;
+  /** Zuletzt ausgegebene Zeit der Testuhr (ms). */
+  zeit(): number;
 }
 /**
  * Show-Datei anlegen, Kern bauen, Show öffnen (wie onShowOpened). Teil 2b R2: `melde` hängt meldeShow an (Spec 15.1),
  * `schreibZeit` setzt beim Schreiben updatedAt wie die Hülle (serializeShow(show, jetzt), iveo-sync.ts:385).
+ * iveo-Paket: `taktMs` reicht den Abfragetakt an den Kern (Regel „fällig“, Spec 6.1), `meldeAgenda` hängt meldeAgenda an
+ * (Spec 8.2). Fälle, die „fällig“ brauchen, setzen Takt und Uhr ausdrücklich (M2: sonst bleibt die Testuhr unter 10 s).
  */
 function umgebung(
   baue: (iv: NachgebautesIveo) => Show,
-  opt: { ohneToken?: boolean; melde?: boolean; schreibZeit?: string; verbundReload?: () => { andereRechner: number } | null } = {},
+  opt: {
+    ohneToken?: boolean; melde?: boolean; schreibZeit?: string; verbundReload?: () => { andereRechner: number } | null;
+    taktMs?: number; meldeAgenda?: boolean;
+  } = {},
 ): Umgebung {
   let uhr = Date.parse('2026-10-01T10:00:00.000Z');
   const iveo = neuesIveo();
@@ -312,7 +340,11 @@ function umgebung(
     gemeldet: [],
     meldeWirft: false,
     leseAusNachSchreiben: 0,
+    agendaMeldungen: [],
+    springe: (ms) => { uhr += ms; },
+    zeit: () => uhr,
   };
+  iveo.vergeht = (ms) => { uhr += ms; };
   u.kern = erzeugeKern({
     clientFabrik: (token, baseUrl) => {
       u.clients.push(`${token}@${baseUrl}`);
@@ -362,6 +394,10 @@ function umgebung(
         }
       : {}),
     ...(opt.verbundReload ? { verbundReload: opt.verbundReload } : {}),
+    ...(opt.taktMs !== undefined ? { taktMs: opt.taktMs } : {}),
+    ...(opt.meldeAgenda
+      ? { meldeAgenda: (programId: string, e: AgendaErgebnis) => { u.agendaMeldungen.push({ programId, e }); } }
+      : {}),
   });
   u.kern.showGeoeffnet(SHOW_PFAD, parseShow(u.dateien.get(SHOW_PFAD)!));
   return u;
@@ -375,6 +411,71 @@ function sperre(): { halt: Promise<void>; frei: () => void } {
   return { halt, frei };
 }
 const agendaP1 = (iv: NachgebautesIveo): Show => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' });
+
+// --- iveo-Paket: Prüfstand für Organisationen, Auffrischen und Anhänge (Spec 12.2 „Vorweg“, M2) -------------------
+/** Organisationen wie auf Prod (seit 15.10.2026, eingebettet mit Namen): Hauptorganisation an zweiter Stelle, eine Rolle. */
+const ORGS_ANA: IveoSpeakerOrganisation[] = [
+  { id: 'o2', name: 'Ministry of Environment', role_at_organisation: 'Advisor', is_primary: false },
+  { id: 'o1', name: 'UNFCCC', is_primary: true },
+];
+/** So stehen sie nach Mapper und Normalisierer in der Show: Hauptorganisation zuerst, ohne Kennung und Rolle. */
+const ANA_ORGS = ['UNFCCC', 'Ministry of Environment'];
+/** Fixture-Variante: `sp1` trägt das Feld `organisations`. `ANA` und das Grund-Fixture bleiben ohne (2a/2b-Fälle). */
+function mitOrganisationen(iv: NachgebautesIveo, orgs: unknown = ORGS_ANA): void {
+  iv.speakers = iv.speakers.map((s) => (s.id === 'sp1' ? ({ ...s, organisations: orgs } as IveoSpeaker) : s));
+}
+/** Asset-Referenz in der auf Prod gemessenen Form (M1: 279 Zeichen, genau ein Punkt) mit Marker. */
+const REFERENZ = `${'x'.repeat(111)}GEHEIM-ASSET${'y'.repeat(112)}.${'z'.repeat(43)}`;
+/** Agenda-Punkte von `programId` mit Anhängen wie auf Prod: Datei, Link und ein gelöschter Anhang (`purged_at`, Spec 8.5). */
+function mitAnhaengen(iv: NachgebautesIveo, programId = 'P1'): void {
+  const [erster, zweiter, ...rest] = iv.agenda[programId];
+  iv.agenda[programId] = [
+    {
+      ...erster,
+      materials: [
+        { id: 'm1', kind: 'file', label: 'Slides', sort_order: 1, asset: { url: REFERENZ, mime_type: 'application/pdf', size_bytes: 120_000 } },
+        { id: 'm2', kind: 'link', label: 'Programmheft', sort_order: 2, external_url: 'https://example.org/programmheft' },
+      ],
+    },
+    {
+      ...zweiter,
+      materials: [
+        {
+          id: 'm3', kind: 'file', label: 'Alte Fassung', sort_order: 1,
+          asset: { url: REFERENZ, mime_type: 'application/pdf', size_bytes: 99_000 }, purged_at: '2026-10-16T08:00:00Z',
+        },
+      ],
+    },
+    ...rest,
+  ];
+}
+/** Das Detail von `programId` verknüpft die Speaker wie auf Prod: `speakers[] {speaker_id, role_on_program, sort_order}`. */
+function verknuepfeImDetail(iv: NachgebautesIveo, programId: string, ...speakerIds: string[]): void {
+  iv.detail[programId] = {
+    ...iv.detail[programId],
+    speakers: speakerIds.map((id, i) => ({ speaker_id: id, role_on_program: 'speaker', sort_order: i + 1 })) as IveoProgram['speakers'],
+  };
+}
+/** Die nächste Uhrabfrage des Kerns liefert `zielMs` (M2: ohne Sprung erreicht die Testuhr nie 255 s). */
+function stelleUhr(u: Umgebung, zielMs: number): void {
+  // Liegt das Ziel nicht vor der Uhr (etwa im Rot-Lauf, wenn ein Abruf fehlt), bleibt sie stehen; der Fall wird rot.
+  if (zielMs <= u.zeit()) {
+    ck('Prüfstand: die Testuhr wird nie zurückgestellt', false);
+    return;
+  }
+  u.springe(zielMs - u.zeit() - 1000);
+}
+/** Eine Abfrage, deren erste Uhrabfrage `zielMs` liefert: die Prüfung „fällig“, zugleich der Zeitpunkt vor den Abrufen. */
+async function abfrageUm(u: Umgebung, zielMs: number): Promise<void> {
+  stelleUhr(u, zielMs);
+  await u.kern.abfrage();
+}
+/** Abrufe einer Art (etwa 'snapshot', 'speakers', 'programm') ab Index `ab` der Mitschrift. */
+const abrufeSeit = (u: Umgebung, ab: number, art: string): number =>
+  u.iveo.abrufe.slice(ab).filter((x) => x.startsWith(`${art}:`)).length;
+/** Texte aus Spec 11.6, wörtlich (T51 Statuszeile, T71 Warnung). */
+const T51 = 'iveo liefert keine Organisationen (Feld fehlt), Organisationen aus früherem Stand';
+const T71 = 'iveo: kein Speaker trägt Organisationen (Feld fehlt), Organisationen aus der Datei bleiben.';
 
 // --- ablaufSignatur (Spec 7.2) ---------------------------------------------------------------------------------
 {
@@ -1831,6 +1932,90 @@ const seWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.startsWith
   await u.kern.abfrage();
   ck('R2 15.6: verbundReload wirft → RELOAD trotzdem hinaus, die Logzeile aus 2a',
     u.reloads.length === 3 && u.info.includes('iveo: RELOAD → 1 Timer, 1 Titler, 1 Rundown benachrichtigt.'));
+}
+
+// --- iveo-Paket P20: Organisationen in der Signatur, fehlendes Feld `organisations` (Spec 5.5, 5.10, 12.2 Nr. 1, 13) ---
+{
+  const a: ShowAblaufItem[] = [{ id: 'a1', label: 'Begrüßung' }];
+  ck('P20 12.2 Nr. 1: gleiche Speaker, andere Organisationen → andere Signatur',
+    ablaufSignatur(a, [{ name: 'Ana Silva', organisationen: ['UNFCCC'] }]) !== ablaufSignatur(a, [{ name: 'Ana Silva', organisationen: ['UNEP'] }]));
+  ck('P20 12.2 Nr. 1: … andere Reihenfolge der Organisationen → andere Signatur',
+    ablaufSignatur(a, [{ name: 'Ana Silva', organisationen: ['A', 'B'] }]) !== ablaufSignatur(a, [{ name: 'Ana Silva', organisationen: ['B', 'A'] }]));
+  ck('P20 12.2 Nr. 1: Feld fehlt und [] → gleiche Signatur',
+    ablaufSignatur(a, [{ name: 'Ana Silva' }]) === ablaufSignatur(a, [{ name: 'Ana Silva', organisationen: [] }]));
+  ck('P20 12.2 Nr. 1: Organisationen so normalisiert wie die Datei (Leerraum, Doppelte)',
+    ablaufSignatur(a, [{ name: 'Ana Silva', organisationen: ['  UNFCCC ', 'UNFCCC'] }]) === ablaufSignatur(a, [{ name: 'Ana Silva', organisationen: ['UNFCCC'] }]));
+}
+{
+  // organisationenAusDatei (Spec 5.10), rein: frische Speaker, Speakerliste aus iveo, Speaker der Datei.
+  const roh = (orgs?: unknown): IveoSpeaker[] => [
+    { id: 'sp1', event_id: 'ev-1', first_name: 'Ana', last_name: 'Silva', ...(orgs === undefined ? {} : { organisations: orgs }) } as IveoSpeaker,
+  ];
+  const dateiMit: ShowIveoSpeaker[] = [
+    { id: 'sp1', name: 'Dr. Ana Silva', organisationen: ['UNFCCC'] },
+    { name: ' Bo Berg ', organisationen: ['UNEP', 'WMO'] },
+  ];
+  const nachKennung = organisationenAusDatei([{ id: 'sp1', name: 'Ana Silva' }], roh(), dateiMit);
+  ck('P20 5.10: Feld fehlt überall, Datei mit Organisationen → feldFehlt, Organisationen über die Kennung (auch bei anderem Namen)',
+    nachKennung.feldFehlt && JSON.stringify(nachKennung.speakers) === '[{"id":"sp1","name":"Ana Silva","organisationen":["UNFCCC"]}]');
+  const nachName = organisationenAusDatei([{ name: 'Bo Berg', title: 'Moderation' }, { name: 'Neu Hier' }], roh(), dateiMit);
+  ck('P20 5.10: … ohne Kennung über den Namen nach Trimmen; ohne Treffer bleibt das Feld weg',
+    JSON.stringify(nachName.speakers) === '[{"name":"Bo Berg","title":"Moderation","organisationen":["UNEP","WMO"]},{"name":"Neu Hier"}]');
+  const frisch: ShowIveoSpeaker[] = [{ name: 'Ana Silva' }];
+  const mitFeld = organisationenAusDatei(frisch, roh([]), dateiMit);
+  ck('P20 5.10: ein Speaker trägt das Feld (auch leer) → kein feldFehlt, die frische Liste unverändert',
+    !mitFeld.feldFehlt && mitFeld.speakers === frisch);
+  const ohneDatei = organisationenAusDatei(frisch, roh(), [{ name: 'Ana Silva' }]);
+  ck('P20 5.10: Datei ohne Organisationen → kein feldFehlt, die frische Liste unverändert', !ohneDatei.feldFehlt && ohneDatei.speakers === frisch);
+  ck('P20 5.10: leere Speakerliste aus iveo → kein feldFehlt', !organisationenAusDatei([], [], dateiMit).feldFehlt);
+  ck('P20 T51: Text der Statuszeile wörtlich', TEXT_ORG_FEHLEN === T51);
+  ck('P20 6.5: Merker „Organisationen fehlen“ allein → Statuszeile T51, „seit“ = Merker',
+    JSON.stringify(statusAusMerkern({ orgFehlenSeit: MERKER })) === JSON.stringify({ ok: false, text: T51, seit: MERKER }));
+}
+{
+  // 12.2 Nr. 13, Listen-Modus: iveo liefert das Feld bei keinem Speaker, die Datei hat Organisationen.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [{ ...ANA, organisationen: ANA_ORGS }]));
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('P20 12.2 Nr. 13: Feld fehlt überall (Listen-Modus) → Organisationen der Datei bleiben, nichts geschrieben',
+    u.schreibversuche === 0 && JSON.stringify(datei(u).iveo?.speakers?.[0]?.organisationen) === JSON.stringify(ANA_ORGS));
+  const st = u.status.at(-1);
+  ck('P20 12.2 Nr. 13: … Statuszeile T51 mit „seit“', st?.ok === false && st.text === T51 && typeof st.seit === 'string');
+  ck('P20 12.2 Nr. 13: … T71 einmal im Log', u.warn.filter((w) => w === T71).length === 1);
+  const meldungen = u.status.length;
+  u.iveo.geaendert = [];
+  await u.kern.abfrage();
+  ck('P20 12.2 Nr. 13: Abfrage ohne Snapshot → Statuszeile bleibt T51 (keine neue Meldung, kein „in Ordnung“)',
+    u.status.length === meldungen && u.status.at(-1)?.text === T51);
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  ck('P20 12.2 Nr. 13: … Feld weiter überall fehlend → kein zweites T71, nichts geschrieben, keine neue Meldung',
+    u.warn.filter((w) => w === T71).length === 1 && u.schreibversuche === 0 && u.status.length === meldungen);
+  mitOrganisationen(u.iveo, []);
+  await u.kern.abfrage();
+  ck('P20 12.2 Nr. 13: Feld wieder da (leer) → Merker weg, Statuszeile in Ordnung, iveo-Stand (ohne Organisationen) geschrieben',
+    u.status.at(-1)?.ok === true && u.schreibversuche === 1 && datei(u).iveo?.speakers?.[0]?.organisationen === undefined);
+}
+{
+  // 12.2 Nr. 13, Agenda-Modus (:859): Merker in der Datei, die Speakerliste kommt ohne das Feld.
+  const u = umgebung((iv) => mitMerker(showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [{ ...ANA, organisationen: ANA_ORGS }])));
+  await u.kern.abfrage();
+  ck('P20 12.2 Nr. 13: Agenda-Modus → Merker „Speaker veraltet“ weg, geschrieben, Organisationen der Datei bleiben',
+    u.schreibversuche === 1 && datei(u).iveo?.speakerVeraltetSeit === undefined
+    && JSON.stringify(datei(u).iveo?.speakers?.[0]?.organisationen) === JSON.stringify(ANA_ORGS));
+  ck('P20 12.2 Nr. 13: … Statuszeile T51, T71 einmal', u.status.at(-1)?.text === T51 && u.warn.filter((w) => w === T71).length === 1);
+}
+{
+  // 12.2 Nr. 13, Umschalten (:939 Side Event mit Verknüpfung, :1041 Tagesübersicht).
+  const u = umgebung((iv) => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [{ ...ANA, organisationen: ANA_ORGS }]));
+  u.iveo.agenda.P2 = [{ ...punkt('P2', 'b1', 'Einführung', 1), speaker_ids: ['sp1'] } as IveoAgendaItem];
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('P20 12.2 Nr. 13: Umschalten auf ein verknüpftes Side Event → Organisationen der Datei bleiben, Statuszeile T51',
+    r.ok && JSON.stringify(datei(u).iveo?.speakers?.[0]?.organisationen) === JSON.stringify(ANA_ORGS) && u.status.at(-1)?.text === T51);
+  const r2 = await u.kern.umschalten({ day: TAG });
+  ck('P20 12.2 Nr. 13: Umschalten auf die Tagesübersicht → ebenso; T71 bleibt bei einmal',
+    r2.ok && JSON.stringify(datei(u).iveo?.speakers?.[0]?.organisationen) === JSON.stringify(ANA_ORGS)
+    && u.status.at(-1)?.text === T51 && u.warn.filter((w) => w === T71).length === 1);
 }
 
 // --- Zusammenfassung ---
