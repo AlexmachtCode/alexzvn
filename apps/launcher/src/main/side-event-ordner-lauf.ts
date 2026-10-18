@@ -318,6 +318,7 @@ function neueGeneration(L: Lauf): void {
   L.runde = null;
   L.kopf.runde = null;
   L.darf = false;
+  L.download = null; // der abgebrochene Download zeigt kein S6 mehr
   for (const s of L.se.values()) s.stand.laedt = null;
 }
 
@@ -864,7 +865,7 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
     anhaenge: gueltig, ungueltig, jetzt: new Date(L.d.jetzt()),
     zurueckgehaltenBis: () => null,
   });
-  const ctx: Ctx = { L, s, e, o, gen, probleme: [] };
+  const ctx: Ctx = { L, s, e, o, gen, signal: L.abbruch.signal, zwischenAngelegt: false, probleme: [] };
   for (const schritt of plan) {
     if (gen !== L.gen) return false;
     if (!bedingungenGelten(L, a.path)) { await endeAblage(L); return false; }
@@ -909,6 +910,10 @@ interface Ctx {
   e: Eintrag;
   o: { pfad: string; name: string };
   gen: number;
+  /** Abbruchsignal der Generation, in der `bearbeite` den Kontext anlegte (nicht das der gerade gültigen). */
+  signal: AbortSignal;
+  /** Die Zwischendatei kann existieren (ab dem Aufruf von `ladeStromInDatei`); vorher gibt es nichts zu löschen. */
+  zwischenAngelegt: boolean;
   probleme: OrdnerProblem[];
 }
 
@@ -963,13 +968,14 @@ async function lade(ctx: Ctx, s: Schritt<'laden'>): Promise<void> {
     bytes = await ladeDatei(ctx, s, z.pfad);
   } catch (x) {
     ctx.s.stand.laedt = null;
-    L.download = null;
-    await L.fs.unlink(z.pfad).catch(() => undefined);
+    if (gen === L.gen) L.download = null; // der Download einer neuen Generation bleibt stehen
+    if (ctx.zwischenAngelegt) await L.fs.unlink(z.pfad).catch(() => undefined); // 9.4: vorher gibt es keine Datei, also kein Zugriff
+
     if (gen !== L.gen || (x instanceof StromFehler && x.grund === 'bedienung')) return; // Bedienung: kein Fehler (9.4)
     return scheitert(ctx, s, x);
   }
   ctx.s.stand.laedt = null;
-  L.download = null;
+  if (gen === L.gen) L.download = null;
   if (gen !== L.gen) { await L.fs.unlink(z.pfad).catch(() => undefined); return; }
   await platziere(ctx, s, z.pfad, bytes);
 }
@@ -982,12 +988,13 @@ async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<n
   if (groesse !== null && groesse > GRENZE) throw new GrundFehler(ORDNER_GRUENDE.zuGross(groesse), `size_bytes ${groesse}`);
   const grenze = groesse !== null ? Math.min(groesse, GRENZE) : GRENZE;
   let frei = await freierPlatz(L, o.pfad);
+  if (ctx.gen !== L.gen) throw new StromFehler('bedienung'); // 9.4: nach dem await die Generation prüfen, kein Abruf, kein Dateizugriff
   if (frei < (groesse !== null ? grenze + GIB : GIB)) throw new GrundFehler(ORDNER_GRUENDE.wenigPlatz(frei), `frei ${frei} Bytes`);
   const client = L.d.downloadClient();
   if (!client || !m.asset) throw new StromFehler('bedienung');
   const ac = new AbortController();
   const weiter = (): void => ac.abort();
-  L.abbruch.signal.addEventListener('abort', weiter);
+  ctx.signal.addEventListener('abort', weiter);
   let leer = false;
   let geschrieben = 0;
   st.laedt = { datei: s.wunsch, bytes: 0, groesse };
@@ -1006,6 +1013,7 @@ async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<n
     } finally {
       L.d.clearTimeout(h);
     }
+    ctx.zwischenAngelegt = true;
     const r = await ladeStromInDatei(L.fs, strom.body, ziel, {
       grenze, leerlaufMs: L.leerlaufMs, signal: ac.signal, jetzt: L.d.jetzt, setTimeout: L.d.setTimeout, clearTimeout: L.d.clearTimeout,
       platzReicht: groesse === null ? async () => { frei = await freierPlatz(L, o.pfad); return frei >= GIB; } : undefined,
@@ -1023,7 +1031,7 @@ async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<n
     if (x instanceof StromFehler && x.grund === 'platz') throw new GrundFehler(ORDNER_GRUENDE.wenigPlatz(frei), `frei ${frei} Bytes`);
     throw x;
   } finally {
-    L.abbruch.signal.removeEventListener('abort', weiter);
+    ctx.signal.removeEventListener('abort', weiter);
   }
 }
 
@@ -1043,7 +1051,9 @@ function scheitert(ctx: Ctx, s: Schritt<'laden'>, x: unknown): void {
 async function platziere(ctx: Ctx, s: Schritt<'laden'>, zwischen: string, _bytes: number): Promise<void> {
   const { L, o } = ctx;
   try {
-    const ziel = freierName(s.wunsch, new Set((await L.fs.readdir(o.pfad)).map(vergleichsform)));
+    const namen = await L.fs.readdir(o.pfad);
+    if (ctx.gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; } // 9.4: kein Umbenennen für eine alte Generation
+    const ziel = freierName(s.wunsch, new Set(namen.map(vergleichsform)));
     await L.fs.rename(zwischen, path.join(o.pfad, ziel));
   } catch (x) {
     await L.fs.unlink(zwischen).catch(() => undefined);

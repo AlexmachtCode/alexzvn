@@ -1788,6 +1788,80 @@ console.log('— P15 Datenstrom in Datei, Download ohne Zeitgrenze (Spec 9.6)');
       !T.logs.some((z) => z.startsWith('warn')) && T.lauf.stand().sideEvents.length === 0);
   }
   {
+    // Spec 9.4: nach jedem await die Generation prüfen – die alte wartet auf statfs, die Generation wechselt, danach kein Abruf, kein Dateizugriff
+    const wechsel: [string, (T: ReturnType<typeof AttC.baueLauf>) => void][] = [
+      ['Schalter aus', (T) => { T.z.schalter = false; T.lauf.takt(); }],
+      ['Rolle slave', (T) => { T.z.rolle = 'slave'; T.lauf.takt(); }],
+      ['Show-Wechsel', (T) => { T.z.aktiv = { path: pathC.join(AttC.ROOT, 'Shows', 'Andere.jmshow'), event: 'cop31', filter: {} }; T.lauf.sitzung(); }],
+    ];
+    for (const [name, tu] of wechsel) {
+      const T = AttC.baueLauf();
+      const m = AttC.datei('m-1', 'Bericht', { size: 1000 });
+      T.download.arten.set(m.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 1_000 });
+      const tor = T.fs.torBei('statfs', () => true);
+      T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(m), abgerufen: new Date(T.uhr.t).toISOString() });
+      T.lauf.takt();
+      await AttC.ruhe();
+      const amTor = tor.erreicht();
+      const nProt = T.fs.protokoll.length;
+      tu(T);
+      await AttC.ruhe();
+      tor.weiter();
+      await T.uhr.spule(20_000, 1_000);
+      await T.lauf.ruhig();
+      const zwischen = T.fs.protokoll.slice(nProt).filter((x) => x.p.endsWith('.jm-laden'));
+      ck(`P15 9.4: ${name} während statfs → die alte Generation ruft nichts ab und fasst keine Zwischendatei an`,
+        amTor && T.download.aufrufe.length === 0 && zwischen.length === 0 && !T.logs.some((z) => z.startsWith('warn')));
+    }
+    {
+      // Wechsel, während das Platzieren auf readdir wartet: kein Umbenennen, die Zwischendatei verschwindet
+      const T = AttC.baueLauf();
+      const m = AttC.datei('m-1', 'Bericht', { size: 1000 });
+      T.download.arten.set(m.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 1_000 });
+      let scharf = false;
+      const tor = T.fs.torBei('readdir', () => scharf);
+      T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(m), abgerufen: new Date(T.uhr.t).toISOString() });
+      T.lauf.takt();
+      await AttC.ruhe();
+      scharf = true;
+      await T.uhr.spule(12_000, 1_000);
+      const amTor = tor.erreicht();
+      T.z.schalter = false;
+      T.lauf.takt();
+      await AttC.ruhe();
+      tor.weiter();
+      await T.uhr.spule(5_000, 1_000);
+      await T.lauf.ruhig();
+      ck('P15 9.4: Wechsel, während das Platzieren auf readdir wartet → nicht umbenannt, Zwischendatei gelöscht',
+        amTor && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')) && reste(T.fs).length === 0);
+    }
+    {
+      // Schalter aus und gleich wieder an: nie zwei Downloads zugleich, die Datei kommt an, kein falscher Grund
+      const T = AttC.baueLauf();
+      const m = AttC.datei('m-1', 'Bericht', { size: 1000 });
+      T.download.arten.set(m.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 1_000 });
+      const tor = T.fs.torBei('statfs', () => true);
+      const agenda = () => ({ ok: true as const, agenda: mitAnhang(m), abgerufen: new Date(T.uhr.t).toISOString() });
+      T.lauf.agendaAktiv('se-1', agenda());
+      T.lauf.takt();
+      await AttC.ruhe();
+      T.z.schalter = false;
+      T.lauf.takt();
+      await AttC.ruhe();
+      T.z.schalter = true;
+      T.lauf.agendaAktiv('se-1', agenda());
+      T.lauf.takt();
+      await AttC.ruhe();
+      tor.weiter();
+      await AttC.ruhe();
+      await T.uhr.spule(30_000, 1_000);
+      await T.lauf.ruhig();
+      ck('P15 9.4: Schalter aus und wieder an, alte Generation an statfs → nie zwei Downloads zugleich, Datei da, kein Fehler',
+        T.g.max <= 1 && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000 && reste(T.fs).length === 0
+        && !T.logs.some((z) => z.startsWith('warn')) && grund(T) === undefined);
+    }
+  }
+  {
     // Nr. 47: echter Download-Client gegen 127.0.0.1, Leerlauf-Grenze 1 s
     let anfragen = 0;
     const server = serverC((req, res) => {
