@@ -216,6 +216,8 @@ interface SeIntern {
   indexOffen: boolean;
   zuletztGeschriebenMs: number | null;
   aufgeraeumt: boolean;
+  /** Problem, das den Ordner dieses Side Events in `ordnerFuer` verhindert (Index nicht lesbar, Auflisten gescheitert, Beiseitelegen gescheitert). */
+  ordnerProblem: OrdnerProblem[] | null;
   logGrund: Map<string, string>;
   letzterAgendaText: string | null;
 }
@@ -257,6 +259,10 @@ interface Lauf {
   menge: string[];
   liste: ShowIveoProgramRef[];
   funde: Fund[] | null;
+  /** Fehlercode, wenn die letzte Durchsicht etwas nicht lesen konnte (nicht ENOENT): in dieser Runde wird kein Ordner angelegt (G8). */
+  scanFehler: string | null;
+  /** Die Sperr-Zwischendateien im Basisordner sind in dieser Sitzung schon aufgeräumt (9.6: beim ersten Zugriff). */
+  tmpAufgeraeumt: boolean;
   scanFaellig: boolean;
   basisFehlerBis: number | null;
   /** Laufender Versuch, den Basisordner anzulegen (nur der Takt wiederholt ihn; Einträge warten darauf). */
@@ -285,7 +291,7 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     gen: 0, abbruch: new AbortController(), sitzung: d.neueSitzungsKennung(), gehalten: null, darf: false,
     abgesetzt: false, beendet: false, beschaeftigt: 0, warter: [], taktLaeuft: false, statLaeuft: false, sperreLoeschen: null,
     aktivAgenda: null, queue: [], laeuft: null, abrufOffen: null, nachlauf: new Map(), arbeiterGen: null, download: null,
-    rundeStartMs: null, runde: null, menge: [], liste: [], funde: null, scanFaellig: false, basisFehlerBis: null, basisVersuch: null, taktZuletzt: null,
+    rundeStartMs: null, runde: null, menge: [], liste: [], funde: null, scanFehler: null, tmpAufgeraeumt: false, scanFaellig: false, basisFehlerBis: null, basisVersuch: null, taktZuletzt: null,
     se: new Map(), kopf: leererKopf(), letzteMeldung: '',
   };
   return {
@@ -361,6 +367,8 @@ function neueSitzung(L: Lauf): void {
   L.aktivAgenda = null;
   L.rundeStartMs = null;
   L.funde = null;
+  L.scanFehler = null;
+  L.tmpAufgeraeumt = false;
   L.basisFehlerBis = null;
   L.basisVersuch = null; // ein hängender Versuch der alten Generation hält die neue nicht auf (sein Ergebnis wird verworfen)
   L.se = new Map();
@@ -742,7 +750,7 @@ function seIntern(L: Lauf, programId: string): SeIntern {
         standAusFrueherSitzung: false, fehler: null, n: 0, k: 0, probleme: [],
         zusaetze: { indexNeuAufgebaut: false, weitererOrdner: null, bedienerGeaendert: 0, gesperrteEndungen: 0 },
       },
-      index: null, indexOffen: false, zuletztGeschriebenMs: null, aufgeraeumt: false, logGrund: new Map(), letzterAgendaText: null,
+      index: null, indexOffen: false, zuletztGeschriebenMs: null, aufgeraeumt: false, ordnerProblem: null, logGrund: new Map(), letzterAgendaText: null,
     };
     L.se.set(programId, s);
   }
@@ -787,23 +795,36 @@ async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<v
   if (!basis) return;
   if ((await basisArt(L, basis)) === null) { if (gen === L.gen) L.funde = []; return; } // 9.12 Regel 11: nichts darunter lesen
   if (gen !== L.gen) return;
+  L.scanFehler = null;
   let namen: string[];
   try {
     namen = await L.fs.readdir(basis);
-  } catch {
-    if (gen === L.gen) { L.funde = []; if (L.kopf.basis) L.kopf.basis.existiert = false; }
+  } catch (e) {
+    if (gen !== L.gen) return;
+    L.funde = [];
+    if (fehlerCode(e) === 'ENOENT') { if (L.kopf.basis) L.kopf.basis.existiert = false; } // nur „fehlt“ gilt als nicht da; jeder andere Fehler sperrt das Anlegen (W2)
+    else L.scanFehler = fehlerCode(e);
     return;
   }
   if (gen !== L.gen) return;
   if (L.kopf.basis) L.kopf.basis.existiert = true;
   const funde: Fund[] = [];
+  let fehler: string | null = null;
+  // 9.6: die Sperr-Zwischendateien räumt nur der erste Zugriff dieser Sitzung auf (und nur mit eigener Sperre).
+  const tmpWeg = L.gehalten !== null && !L.tmpAufgeraeumt;
   for (const name of namen) {
     const p = path.join(basis, name);
-    if (L.gehalten && /^\.jm-ablage-sperre\.json\.\d+\.tmp$/.test(name)) { await L.fs.unlink(p).catch(() => undefined); continue; }
+    if (tmpWeg && /^\.jm-ablage-sperre\.json\.\d+\.tmp$/.test(name)) {
+      await L.fs.unlink(p).catch(() => undefined);
+      if (gen !== L.gen) return;
+      continue;
+    }
     let st: { isDirectory(): boolean; isSymbolicLink(): boolean };
     try {
       st = await L.fs.lstat(p);
-    } catch {
+    } catch (e) {
+      if (gen !== L.gen) return;
+      if (fehlerCode(e) !== 'ENOENT') fehler = fehlerCode(e);
       continue;
     }
     if (gen !== L.gen) return;
@@ -811,7 +832,9 @@ async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<v
     let text: string;
     try {
       text = await L.fs.readFile(path.join(p, INDEX_DATEI), 'utf8');
-    } catch {
+    } catch (e) {
+      if (gen !== L.gen) return;
+      if (fehlerCode(e) !== 'ENOENT') fehler = fehlerCode(e); // unlesbar: gilt hier als „ohne Index“, sperrt aber das Anlegen eines weiteren Ordners
       funde.push({ name, art: 'fehlt', programId: null, ordnerName: null, stand: null });
       continue;
     }
@@ -821,7 +844,10 @@ async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<v
     else if (r.art === 'neuer') funde.push({ name, art: 'neuer', programId: losesProgramId(text), ordnerName: null, stand: null });
     else funde.push({ name, art: 'kaputt', programId: null, ordnerName: null, stand: null });
   }
+  if (gen !== L.gen) return;
+  if (tmpWeg) L.tmpAufgeraeumt = true;
   L.funde = funde;
+  L.scanFehler = fehler;
   // Stand für Side Events mit gefundenem Ordner (S2, S8), solange sie in dieser Sitzung noch nicht bearbeitet sind.
   for (const f of funde) {
     if (!f.programId) continue;
@@ -893,7 +919,8 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
   const basis = basisPfad(a);
   if (!basis) return null;
   const st = s.stand;
-  if (L.funde === null) await scanneBasis(L, a, gen);
+  s.ordnerProblem = null;
+  if (L.funde === null || L.scanFehler !== null) await scanneBasis(L, a, gen); // nach einem Lesefehler bei jedem Zugriff neu (W2)
   if (gen !== L.gen) return null;
   const wahl = waehleOrdner(L, st.programId, st.titel, basis);
   let name: string;
@@ -902,13 +929,18 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
     st.pfad = null;
     st.existiert = false;
     if (!mitAnhaengen) return null; // OF4: ein Ordner entsteht erst mit dem ersten Anhang
+    if (L.scanFehler !== null) { // die Durchsicht konnte etwas nicht lesen: nicht anlegen (sonst entsteht ein Duplikat), die Zeile nennt es (G8)
+      s.ordnerProblem = [{ art: 'grund', datei: path.basename(basis), grund: `Lesefehler (${L.scanFehler})` }];
+      return null;
+    }
     const wartete = L.basisVersuch !== null;
     if (L.basisVersuch) await L.basisVersuch; // der Versuch des Takts läuft: dessen Ergebnis gilt für diesen Eintrag
     if (gen !== L.gen) return null;
     if (L.basisFehlerBis !== null) return null; // ein Fehler beim Anlegen wird nur vom Takt zu seiner Zeit wiederholt (naechsteSchritte)
-    if ((await basisArt(L, basis)) === null || gen !== L.gen) return null; // 9.12 Regel 11: mkdir ginge durch eine Verknüpfung still durch
-    // sonst hat der Takt den Ordner eben angelegt; die Durchsicht davor kann ihn überholt haben: ist der Basisordner bekannt da, kein zweites mkdir
-    if (!wartete && L.kopf.basis?.existiert !== true && !(await legeBasisAn(L, basis, gen))) return null;
+    const art = await basisArt(L, basis); // 9.12 Regel 11: mkdir ginge durch eine Verknüpfung still durch
+    if (art === null || gen !== L.gen) return null;
+    // sonst hat der Takt den Ordner eben angelegt; die Durchsicht davor kann ihn überholt haben: ist der Basisordner da (frisch gelesen), kein zweites mkdir
+    if (!wartete && art !== 'da' && !(await legeBasisAn(L, basis, gen))) return null;
     if (!L.gehalten && !(await schreibeSperre(L, basis, false, gen, L.sitzung))) return null; // die Sperre entsteht mit dem Basisordner
     const erwartet = ordnerPfad({ art: 'seitenOrdner', basisPfad: basis, titel: st.titel });
     if (!erwartet.ok) { st.anlegbar = { grund: erwartet.grund }; return null; }
@@ -933,10 +965,17 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
   }
   st.anlegbar = null;
   let pfad = path.join(basis, name);
-  const lst = await L.fs.lstat(pfad).catch(() => null);
+  let lstFehler: unknown = null;
+  const lst = await L.fs.lstat(pfad).catch((e: unknown) => { lstFehler = e; return null; });
   if (gen !== L.gen) return null;
-  if (!lst || !lst.isDirectory() || lst.isSymbolicLink()) { // weg oder Verknüpfung: beim nächsten Mal neu suchen
+  if (!lst && lstFehler !== null && fehlerCode(lstFehler) !== 'ENOENT') { // nicht lesbar ist nicht „weg“: nichts neu anlegen, die Zeile nennt es (W2)
+    s.ordnerProblem = [{ art: 'grund', datei: name, grund: `Lesefehler (${fehlerCode(lstFehler)})` }];
+    return null;
+  }
+  if (!lst || !lst.isDirectory() || lst.isSymbolicLink()) { // weg oder Verknüpfung: beim nächsten Mal neu suchen, ein alter Index im Speicher gilt für einen neuen Ordner nicht
     L.funde = null;
+    s.index = null;
+    s.indexOffen = false;
     Object.assign(st, { ordnerName: null, pfad: null, existiert: false });
     return null;
   }
@@ -948,7 +987,11 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
   try {
     gelesen = leseIndex(await L.fs.readFile(path.join(pfad, INDEX_DATEI), 'utf8'));
   } catch (e) {
-    if (fehlerCode(e) !== 'ENOENT') { st.probleme = [{ art: 'grund', datei: INDEX_DATEI, grund: `Schreibfehler (${fehlerCode(e)})` }]; return null; }
+    if (fehlerCode(e) !== 'ENOENT') { // nicht lesbar: kein Plan; die Zeile zeigt Ordner und Problem (W3)
+      Object.assign(st, { ordnerName: name, pfad, existiert: true, indexFormat: 'eins' as const });
+      s.ordnerProblem = [{ art: 'grund', datei: INDEX_DATEI, grund: `Schreibfehler (${fehlerCode(e)})` }];
+      return null;
+    }
     gelesen = 'fehlt';
   }
   if (gen !== L.gen) return null;
@@ -957,34 +1000,57 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
     return null;
   }
   if (gelesen !== 'fehlt' && gelesen.art === 'kaputt') {
+    // Beiseitelegen (9.8): scheitert es, bleibt der kaputte Index unangetastet, die Zeile nennt es, die nächste Runde versucht es erneut (W4)
     const z = ordnerPfad({ art: 'kaputt', seitenOrdner: pfad, zeit: new Date(L.d.jetzt()) });
-    if (z.ok) await umbenennenImOrdner(L.fs, pfad, path.join(pfad, INDEX_DATEI), z.pfad).catch(() => undefined);
+    let beiseite: string | null = z.ok ? null : 'Name';
+    if (z.ok) {
+      try {
+        await umbenennenImOrdner(L.fs, pfad, path.join(pfad, INDEX_DATEI), z.pfad);
+      } catch (e) {
+        beiseite = fehlerCode(e);
+      }
+    }
+    if (gen !== L.gen) return null;
+    if (beiseite !== null) {
+      Object.assign(st, { ordnerName: name, pfad, existiert: true, indexFormat: 'eins' as const });
+      s.ordnerProblem = [{ art: 'grund', datei: INDEX_DATEI, grund: `Schreibfehler (${beiseite})` }];
+      return null;
+    }
     neuAufgebaut = true;
     s.indexOffen = true;
   } else if (gelesen !== 'fehlt' && gelesen.art === 'ok' && gelesen.index.programId !== st.programId) {
     L.funde = null; // inzwischen ein Ordner eines anderen Side Events: neu suchen
+    Object.assign(st, { ordnerName: null, pfad: null, existiert: false });
     return null;
-  } else if (!index && gelesen !== 'fehlt' && gelesen.art === 'ok') {
-    index = gelesen.index;
+  } else if (gelesen !== 'fehlt' && gelesen.art === 'ok' && (!index || (!s.indexOffen && gelesen.index.stand > index.stand))) {
+    index = gelesen.index; // die Datei ist neuer (ein anderer Rechner hat sie fortgeschrieben) oder es gibt keinen Stand im Speicher
   }
   // Titel geändert (9.1): umbenennen, wenn der Ordner noch den Namen trägt, den der Launcher ihm gab.
   const erwartet = ordnerPfad({ art: 'seitenOrdner', basisPfad: basis, titel: st.titel });
   if (index && erwartet.ok && vergleichsform(index.ordnerName) === vergleichsform(name) && vergleichsform(erwartet.name) !== vergleichsform(name)) {
-    const belegt = new Set((L.funde ?? []).map((f) => vergleichsform(f.name)));
-    belegt.delete(vergleichsform(name));
-    const neu = freierName(erwartet.name, belegt);
+    // nur, wenn der neue Name frei ist (9.1); die Dateiliste des Zielordners frisch gelesen, auch eine fremde Datei zählt (9.6, 9.9)
+    let belegt: Set<string> | null = null;
     try {
-      await L.fs.rename(pfad, path.join(basis, neu));
-      L.d.log.info(LAUF_TEXTE.umbenannt(name, neu));
-      L.funde = (L.funde ?? []).map((f) => (f.name === name ? { ...f, name: neu, ordnerName: neu } : f));
-      name = neu;
-      pfad = path.join(basis, neu);
-      index = { ...index, ordnerName: neu, titel: st.titel };
-      s.indexOffen = true;
+      belegt = new Set((await L.fs.readdir(basis)).map(vergleichsform));
     } catch (x) {
-      probleme.push(istOffen(x) ? { art: 'ordner-umbenennen-wartet' } : { art: 'grund', datei: name, grund: grundText(x, 'datei') });
+      probleme.push({ art: 'grund', datei: name, grund: `Lesefehler (${fehlerCode(x)})` });
     }
     if (gen !== L.gen) return null;
+    const neu = erwartet.name;
+    if (belegt && !belegt.has(vergleichsform(neu))) {
+      try {
+        await L.fs.rename(pfad, path.join(basis, neu));
+        L.d.log.info(LAUF_TEXTE.umbenannt(name, neu));
+        L.funde = (L.funde ?? []).map((f) => (f.name === name ? { ...f, name: neu, ordnerName: neu } : f));
+        name = neu;
+        pfad = path.join(basis, neu);
+        index = { ...index, ordnerName: neu, titel: st.titel };
+        s.indexOffen = true;
+      } catch (x) {
+        probleme.push(istOffen(x) ? { art: 'ordner-umbenennen-wartet' } : { art: 'grund', datei: name, grund: grundText(x, 'datei') });
+      }
+      if (gen !== L.gen) return null;
+    }
   }
   const dateien = await liste(L, pfad);
   if (gen !== L.gen) return null;
@@ -1109,7 +1175,10 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
   if (!o) {
     // Der Abruf ist gelungen, auch wenn es keinen Ordner gibt (kein Anhang, Basisordner nicht anlegbar, Sperre nicht schreibbar): die Zeile zeigt ihn (G8)
     Object.assign(st, { abruf: 'gelungen', stand: erg.abgerufen, standAusFrueherSitzung: false, fehler: null });
-    if (gueltig.length === 0 && !st.existiert && st.indexFormat !== 'neuer') {
+    if (s.ordnerProblem) {
+      // Der Ordner ist da oder darf nicht entstehen, aber etwas war nicht lesbar oder nicht schreibbar: die Zeile nennt es ehrlich (G8)
+      Object.assign(st, { n: gueltig.length, k: 0, probleme: s.ordnerProblem });
+    } else if (gueltig.length === 0 && !st.existiert && st.indexFormat !== 'neuer') {
       // kein Ordner, weil das Side Event keine Anhänge hat (OF4): gelungen mit n = 0
       Object.assign(st, { n: 0, k: 0, probleme: [] });
     } else if (gueltig.length > 0 && !st.existiert) {

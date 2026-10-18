@@ -2245,6 +2245,140 @@ console.log('— P16 Ordner und Index: Wiederfinden, Index im Speicher, Aufräum
   }
 }
 
+// ── Block C · P16 Fix-Runde 1: Befunde W1–W5 und Spec-Abweichungen der Prüfung ─
+console.log('— P16 Fix-Runde 1: Ordner mit Zusatz, Lesefehler, Index nicht lesbar, kaputter Index, alte Sitzung');
+{
+  const ORDNER = pathC.join(AttC.BASIS, 'Klima');
+  const INDEX = pathC.join(ORDNER, OrdnerC.INDEX_DATEI);
+  const BERICHT = AttC.datei('m-1', 'Bericht', { size: 1000 });
+  const FOLIEN = AttC.datei('m-2', 'Folien', { size: 1000 });
+  const mitAnhang = (...ms: MaterialC[]) => [AttC.punkt('se-1', ms)];
+  const index = (o: Partial<OrdnerC.OrdnerIndex> = {}): string => OrdnerC.indexText({
+    format: 1, programId: 'se-1', titel: 'Klima', ordnerName: 'Klima', stand: '2026-10-16T07:00:00.000Z', eintraege: [], ...o,
+  });
+  const aaa = (n: number): string => 'a'.repeat(n);
+  const indexSchreibungen = (T: ReturnType<typeof AttC.baueLauf>): number => T.fs.protokoll.filter((x) => x.op === 'rename' && (x.p2 ?? '').endsWith(OrdnerC.INDEX_DATEI)).length;
+
+  { // W1: Ordner mit Zusatz „ (2)“ wird nicht bei jedem Zugriff auf sich selbst umbenannt
+    const T = AttC.baueLauf();
+    T.fs.lege(pathC.join(AttC.BASIS, 'Klima', OrdnerC.INDEX_DATEI), index({ programId: 'se-anders' }));
+    await T.takt(mitAnhang(BERICHT));
+    const vor = indexSchreibungen(T);
+    for (let i = 0; i < 3; i++) { await T.uhr.spule(45_000, 45_000); await T.takt(mitAnhang(BERICHT)); }
+    ck('P16 Fix W1: Ordner „Klima (2)“ bleibt in allen Runden „Klima (2)“, keine Logzeile T21 (b), kein Index-Schreiben ohne Änderung',
+      T.se('se-1')?.ordnerName === 'Klima (2)' && !T.logs.some((l) => l.includes('umbenannt')) && indexSchreibungen(T) === vor && T.fs.gibt(pathC.join(AttC.BASIS, 'Klima (2)', 'Bericht.pdf')));
+  }
+  { // Umbenennen nur, wenn der neue Name frei ist: eine fremde Datei dieses Namens zählt (9.6, 9.9)
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    T.fs.lege(pathC.join(AttC.BASIS, 'Klima und Wald'), 'fremd');
+    T.fs.lege(AttC.SHOW_PFAD, AttC.showText([{ id: 'se-1', title: 'Klima und Wald' }], { programId: 'se-1' }));
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt(mitAnhang(BERICHT));
+    ck('P16 Fix 9.6: Titel geändert, aber eine fremde Datei „Klima und Wald“ liegt im Basisordner → nicht umbenannt, fremde Datei bleibt',
+      T.fs.gibt(ORDNER) && T.se('se-1')?.ordnerName === 'Klima' && T.fs.inhalt(pathC.join(AttC.BASIS, 'Klima und Wald')) === 'fremd' && !T.logs.some((l) => l.includes('umbenannt')));
+  }
+  { // W3 (a): Regel 2, Index nicht lesbar
+    const T = AttC.baueLauf();
+    T.fs.lege(INDEX, index());
+    T.fs.fehlerBei('readFile', (p) => p === INDEX, 'EIO');
+    await T.takt(mitAnhang(BERICHT, FOLIEN));
+    const s = T.se('se-1');
+    ck('P16 Fix W3 (a): Index nicht lesbar (Ordner über Regel 2) → Problem „Index: Schreibfehler (EIO)“ bleibt, Ordner da, 0 von 2, kein Download',
+      !!s && s.existiert === true && s.n === 2 && s.k === 0 && s.probleme.some((p) => p.art === 'grund' && p.datei === OrdnerC.INDEX_DATEI && p.grund.includes('EIO')) && T.download.aufrufe.length === 0);
+  }
+  { // W3 (b): Regel 1, Index nur im Zugriff nicht lesbar
+    const T = AttC.baueLauf();
+    T.fs.lege(pathC.join(AttC.BASIS, 'Klima (Regie)', OrdnerC.INDEX_DATEI), index({ ordnerName: 'Klima' }));
+    T.fs.fehlerBei('readFile', (p) => p.endsWith(OrdnerC.INDEX_DATEI), 'EIO', Infinity, 1);
+    await T.takt(mitAnhang(BERICHT, FOLIEN));
+    const s = T.se('se-1');
+    ck('P16 Fix W3 (b): Index nur im Zugriff nicht lesbar (Regel 1) → n = 2 (nicht 0 von 0), Problem in der Zeile, kein Ordner dazu',
+      !!s && s.existiert === true && s.n === 2 && s.probleme.some((p) => p.art === 'grund' && p.grund.includes('EIO')) && T.fs.namen(AttC.BASIS).filter((n) => n.startsWith('Klima')).length === 1);
+  }
+  { // W2: Auflisten scheitert einmal → kein doppelter Ordner, Problem in der Zeile; nächste Runde läuft normal
+    const T = AttC.baueLauf();
+    T.fs.lege(INDEX, index());
+    T.fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), aaa(1000));
+    let kaputtLesen = true;
+    T.fs.fehlerBei('readdir', (p) => kaputtLesen && p === AttC.BASIS, 'EIO');
+    await T.takt(mitAnhang(BERICHT));
+    const s1 = T.se('se-1');
+    const ersteRunde = T.fs.namen(AttC.BASIS).filter((n) => n.startsWith('Klima'));
+    ck('P16 Fix W2: readdir des Basisordners scheitert einmal → kein „Klima (2)“, kein Download, die Zeile nennt den Lesefehler',
+      ersteRunde.join('|') === 'Klima' && T.download.aufrufe.length === 0 && !!s1 && s1.probleme.some((p) => p.art === 'grund' && p.grund.includes('EIO')));
+    kaputtLesen = false;
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt(mitAnhang(BERICHT));
+    ck('P16 Fix W2: nächste Runde → Ordner „Klima“ gefunden, kein Duplikat, Problem weg',
+      T.fs.namen(AttC.BASIS).filter((n) => n.startsWith('Klima')).join('|') === 'Klima' && T.se('se-1')?.ordnerName === 'Klima' && T.se('se-1')?.probleme.length === 0);
+  }
+  { // W2: nicht lesbarer Index in einem vom Bediener umbenannten Ordner → kein zweiter Ordner
+    const T = AttC.baueLauf();
+    T.fs.lege(pathC.join(AttC.BASIS, 'Klima (Regie)', OrdnerC.INDEX_DATEI), index({ ordnerName: 'Klima' }));
+    T.fs.fehlerBei('readFile', (p) => p.endsWith(OrdnerC.INDEX_DATEI), 'EIO');
+    await T.takt(mitAnhang(BERICHT));
+    ck('P16 Fix W2: Index eines umbenannten Ordners einmal nicht lesbar → kein neuer Ordner „Klima“, kein Download',
+      T.fs.namen(AttC.BASIS).filter((n) => n.startsWith('Klima')).join('|') === 'Klima (Regie)' && T.download.aufrufe.length === 0);
+  }
+  { // W4: Beiseitelegen des kaputten Index scheitert → nicht überschreiben, kein T24, Problem in der Zeile; später gelingt es
+    const T = AttC.baueLauf();
+    const KAPUTT = '{ "format": 1, kaputt';
+    T.fs.lege(INDEX, KAPUTT);
+    T.fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), aaa(1000));
+    T.fs.fehlerBei('rename', (p) => p === INDEX, 'EBUSY', 1);
+    await T.takt(mitAnhang(BERICHT));
+    ck('P16 Fix W4: Beiseitelegen scheitert (EBUSY) → kaputter Index unverändert, keine .kaputt-Datei, kein Log „beiseitegelegt“, Problem in der Zeile',
+      T.fs.inhalt(INDEX) === KAPUTT && !T.fs.namen(ORDNER).some((n) => n.includes('.kaputt-')) && !T.logs.some((l) => l.includes('beiseitegelegt'))
+      && (T.se('se-1')?.probleme.length ?? 0) > 0);
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt(mitAnhang(BERICHT));
+    const kaputt = T.fs.namen(ORDNER).filter((n) => /^\.jm-anhaenge\.kaputt-/.test(n));
+    ck('P16 Fix W4 (Gegenprobe): nächste Runde → beiseitegelegt, Inhalt unverändert, neuer Index, Log T24, Problem weg',
+      kaputt.length === 1 && T.fs.inhalt(pathC.join(ORDNER, kaputt[0])) === KAPUTT && OrdnerC.leseIndex(T.fs.inhalt(INDEX) ?? '').art === 'ok'
+      && T.logs.some((l) => l.includes('beiseitegelegt')) && T.se('se-1')?.probleme.length === 0);
+  }
+  { // W5: Funde einer alten Sitzung landen nicht im Stand der neuen
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }] });
+    T.fs.lege(pathC.join(AttC.BASIS, 'Wasser', OrdnerC.INDEX_DATEI), index({ programId: 'se-2', titel: 'Wasser', ordnerName: 'Wasser' }));
+    T.fs.ordner(pathC.join(AttC.BASIS, 'Zzz'));
+    const tor = T.fs.torBei('readFile', (p) => p === pathC.join(AttC.BASIS, 'Zzz', OrdnerC.INDEX_DATEI));
+    T.agenda.agenden.set('se-1', () => new Promise(() => undefined));
+    void T.lauf.takt();
+    await AttC.ruhe();
+    const ANDERE = pathC.join(AttC.ROOT, 'Shows', 'Andere.jmshow');
+    T.fs.lege(ANDERE, AttC.showText([{ id: 'se-9', title: 'Neu' }], { programId: 'se-9' }));
+    T.z.aktiv = { path: ANDERE, event: 'cop31', filter: { programId: 'se-9' } };
+    T.lauf.sitzung();
+    tor.weiter();
+    await AttC.ruhe();
+    ck('P16 Fix W5: Durchsicht der alten Sitzung endet erst nach dem Wechsel → der Stand der neuen Sitzung enthält nichts davon',
+      T.lauf.stand().sideEvents.every((s) => s.programId !== 'se-2' && s.ordnerName !== 'Wasser'));
+  }
+  { // 9.8: der Index im Speicher gilt nur, wenn er neuer ist als die Datei
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    const fremd = OrdnerC.leseIndex(T.fs.inhalt(INDEX) ?? '');
+    if (fremd.art === 'ok') T.fs.lege(INDEX, OrdnerC.indexText({ ...fremd.index, titel: 'Fremder Rechner', stand: '2999-01-01T00:00:00.000Z' }));
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt(mitAnhang(BERICHT, FOLIEN));
+    const neu = OrdnerC.leseIndex(T.fs.inhalt(INDEX) ?? '');
+    ck('P16 Fix 9.8: ein anderer Rechner hat die Datei fortgeschrieben (neuerer Stand) → ihr Stand gilt, nicht der alte im Speicher',
+      neu.art === 'ok' && neu.index.titel === 'Fremder Rechner');
+  }
+  { // 9.6: die Sperr-Zwischendatei wird nur beim ersten Zugriff in der Sitzung aufgeräumt
+    const T = AttC.baueLauf();
+    T.fs.lege(pathC.join(AttC.BASIS, '.jm-ablage-sperre.json.123.tmp'), 'x');
+    await T.takt(mitAnhang(BERICHT));
+    const erst = !T.fs.gibt(pathC.join(AttC.BASIS, '.jm-ablage-sperre.json.123.tmp'));
+    T.fs.lege(pathC.join(AttC.BASIS, '.jm-ablage-sperre.json.456.tmp'), 'y');
+    await T.uhr.spule(400_000, 45_000);
+    await T.takt(mitAnhang(BERICHT));
+    ck('P16 Fix 9.6: die Zwischendatei vom Start wird aufgeräumt, eine später entstehende in derselben Sitzung nicht',
+      erst && T.fs.gibt(pathC.join(AttC.BASIS, '.jm-ablage-sperre.json.456.tmp')));
+  }
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
