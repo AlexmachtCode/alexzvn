@@ -672,7 +672,10 @@ function passtZurUebernahme(a: PlanAnhang, link: boolean, inhalt: string, f: Ord
 
 /** Name für ein Problem eines ungültigen Anhangs: sein Label, sonst der Titel des Agenda-Punkts. */
 function ungueltigName(u: PlanUngueltig): string {
-  const m = (u.item.materials ?? []).find((x) => (u.id === null ? typeof x.id !== 'string' || x.id === '' : x.id === u.id));
+  const liste: unknown = u.item.materials;
+  const m = (Array.isArray(liste) ? (liste as unknown[]) : [])
+    .filter((x): x is IveoMaterial => x !== null && typeof x === 'object')
+    .find((x) => (u.id === null ? typeof x.id !== 'string' || x.id === '' : x.id === u.id));
   return bereinigeName(String(m?.label ?? u.item.title ?? ''), 'Anhang');
 }
 
@@ -681,8 +684,18 @@ export function planeSideEvent(e: PlanEingabe): PlanSchritt[] {
   const plan: PlanSchritt[] = [];
   const eintraege = e.index?.eintraege ?? [];
   const nachId = new Map(eintraege.map((x) => [x.id, x] as const));
-  const dateien = new Map(e.dateien.map((f) => [vf(f.name), f] as const));
-  const entfernt = new Map(e.entfernt.map((f) => [vf(f.name), f] as const));
+  // Erst der genaue Name, die Vergleichsform nur als Rückfall und nur, wenn sie eindeutig ist: NFC- und NFD-Datei gleichen
+  // Namens sind zwei Dateien (9.9); eine fremde wird nie angefasst.
+  const suche = (liste: OrdnerDatei[], name: string): OrdnerDatei | undefined => {
+    const genau = liste.find((f) => f.name === name);
+    if (genau) return genau;
+    const treffer = liste.filter((f) => vf(f.name) === vf(name));
+    return treffer.length === 1 ? treffer[0] : undefined;
+  };
+  const dateiDa = (name: string): OrdnerDatei | undefined => suche(e.dateien, name);
+  const entferntDa = (name: string): OrdnerDatei | undefined => suche(e.entfernt, name);
+  const vergeben = new Set<string>(); // Dateien, die dieser Plan schon einem Anhang zugesprochen hat
+  const endung = (n: string): string => (n.lastIndexOf('.') > 0 ? n.slice(n.lastIndexOf('.')).toLowerCase() : '');
   const genannt = new Set(eintraege.filter((x) => x.zustand !== 'entfernt').map((x) => vf(x.datei)));
   const ids = new Set(e.anhaenge.map((a) => a.m.id));
   const ungueltigeIds = new Set(e.ungueltig.map((u) => u.id).filter((x): x is string => x !== null));
@@ -692,7 +705,7 @@ export function planeSideEvent(e: PlanEingabe): PlanSchritt[] {
   // ihre Namen frei, bevor neue Anhänge Namen bekommen. Ein ungültiger Anhang gilt nicht als entfernt (8.5).
   for (const x of eintraege) {
     if (x.zustand === 'entfernt' || ids.has(x.id) || ungueltigeIds.has(x.id)) continue;
-    const f = dateien.get(vf(x.datei));
+    const f = dateiDa(x.datei);
     if (f && (x.zustand === 'aktiv' || f.groesse === x.bytes)) plan.push({ art: 'nach-entfernt', id: x.id, datei: f.name, zusatz: null });
   }
 
@@ -701,7 +714,7 @@ export function planeSideEvent(e: PlanEingabe): PlanSchritt[] {
     const link = istLinkAnhang(m);
     const r = ordnerPfad({ art: 'datei', seitenOrdner: e.seitenOrdner, label: m.label, kind: link ? 'link' : 'file', mime: m.asset?.mime_type ?? null });
     const name = r.ok ? r.name : bereinigeName(m.label, 'Anhang');
-    if (!link && !m.asset) { plan.push({ art: 'fehler', id: m.id, datei: name, grund: ORDNER_GRUENDE.ohneDatei }); continue; }
+    if (!link && !hatAsset(m)) { plan.push({ art: 'fehler', id: m.id, datei: name, grund: ORDNER_GRUENDE.ohneDatei }); continue; }
     const inhalt = inhaltSignatur(a);
     if (inhalt === null) { plan.push({ art: 'fehler', id: m.id, datei: name, grund: ORDNER_GRUENDE.linkUngueltig }); continue; }
     if (!r.ok) { plan.push({ art: 'fehler', id: m.id, datei: name, grund: r.grund }); continue; }
@@ -714,19 +727,20 @@ export function planeSideEvent(e: PlanEingabe): PlanSchritt[] {
     const x = nachId.get(m.id);
     if (!x) {
       // Anhang neu: übernehmen, wenn eine Datei mit seinem Namen da ist, die kein anderer Eintrag nennt und passt.
-      const f = dateien.get(vf(r.name));
-      if (f && !genannt.has(vf(r.name)) && passtZurUebernahme(a, link, inhalt, f, e.urlInhalte)) {
+      const f = dateiDa(r.name);
+      if (f && !genannt.has(vf(r.name)) && !vergeben.has(vf(f.name)) && passtZurUebernahme(a, link, inhalt, f, e.urlInhalte)) {
+        vergeben.add(vf(f.name));
         plan.push({ art: 'uebernehmen', anhang: a, datei: f.name, inhalt, bytes: f.groesse, mtimeMs: f.mtimeMs, neu: true });
       } else {
         laden(r.name, null);
       }
       continue;
     }
-    // Ein Anhang behält seinen Dateinamen, solange sein Label gleich bleibt (9.9).
-    const bleibt = x.label === m.label ? x.datei : r.name;
+    // Ein Anhang behält seinen Dateinamen, solange sein Label gleich bleibt und die Endung noch stimmt (9.9, 9.12).
+    const bleibt = x.label === m.label && endung(x.datei) === endung(r.name) ? x.datei : r.name;
     if (x.zustand === 'laedt') {
       // Absturz zwischen Index und Umbenennen: liegt die Datei mit genau `bytes` da, gilt sie (auch ohne size_bytes).
-      const f = dateien.get(vf(x.datei));
+      const f = dateiDa(x.datei);
       if (f && x.bytes !== undefined && f.groesse === x.bytes) {
         plan.push({ art: 'uebernehmen', anhang: a, datei: f.name, inhalt: x.inhalt ?? inhalt, bytes: f.groesse, mtimeMs: f.mtimeMs, neu: false });
       } else {
@@ -735,13 +749,13 @@ export function planeSideEvent(e: PlanEingabe): PlanSchritt[] {
       continue;
     }
     if (x.zustand === 'entfernt') {
-      const f = entfernt.get(vf(x.datei.slice('entfernt/'.length)));
+      const f = entferntDa(x.datei.slice('entfernt/'.length));
       if (f && x.inhalt === inhalt) plan.push({ art: 'zurueckholen', anhang: a, aus: f.name, wunsch: r.name });
       else laden(r.name, null);
       continue;
     }
-    const f = dateien.get(vf(x.datei));
-    if (x.wartet && x.inhaltNeu === inhalt && dateien.has(vf(x.wartet))) {
+    const f = dateiDa(x.datei);
+    if (x.wartet && x.inhaltNeu === inhalt && dateiDa(x.wartet)) {
       plan.push({ art: 'tauschen', anhang: a, wartet: x.wartet, alt: f ? f.name : null, wunsch: bleibt, inhalt });
       continue;
     }

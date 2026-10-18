@@ -584,6 +584,29 @@ console.log('— P12 Plan je Side Event (Spec 9.5)');
     kurz(plane({ a: anh(datei('m-1', 'Bericht', { size: 2000 })), index: idx(aktivBericht({ wartet: '.m-1.4711.jm-neu', inhaltNeu: sig(datei('m-1', 'Bericht', { size: 2000 })) })), dateien: [f('Bericht.pdf', 1000), f('.m-1.4711.jm-neu', 2000)] })) === 'tauschen m-1 .m-1.4711.jm-neu alt=Bericht.pdf');
   ck('P12 9.5 Endung gesperrt: der Plan trägt die gesperrte Endung für T70 und den Zusatz T68',
     (() => { const s = plane({ a: anh(datei('m-1', 'Agenda.exe')) })[0]; return s.art === 'laden' && s.wunsch === 'Agenda_exe.pdf' && s.gesperrt === 'exe'; })());
+
+  // Fix-Runde 1: Befunde der Prüfung
+  ck('P12 Fix: null-Eintrag in materials wirft nicht, der gültige Anhang wird geplant, das Problem steht dabei (8.5, 9.5 Zeile 14)',
+    (() => { try { return kurz(plane({ a: anh(BERICHT, null as unknown as MaterialC) })) === 'laden m-1 Bericht.pdf alt=- | fehler - Punkt: ungültiger Anhang in iveo (id)'; } catch { return false; } })());
+  ck('P12 Fix: dieselbe Datei kann nur einem Anhang gehören – zwei Anhänge mit gleichem Label, nur Bericht.pdf passt → einer übernimmt, der andere lädt',
+    kurz(plane({ a: anh(BERICHT, datei('m-9', 'Bericht')), dateien: [f('Bericht.pdf', 1000), f('Bericht (2).pdf', 1000)] })) === 'uebernehmen m-1 Bericht.pdf | laden m-9 Bericht.pdf alt=-');
+  const PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  ck('P12 Fix: gleiches Label, neuer MIME-Typ → der Name bekommt die neue Endung (9.12), der alte steht als alt',
+    kurz(plane({ a: anh(datei('m-1', 'Präsentation', { mime: PPTX })), index: idx(aktivBericht({ datei: 'Präsentation.pdf', label: 'Präsentation' })), dateien: [f('Präsentation.pdf', 1000)] })) === 'laden m-1 Präsentation.pptx alt=Präsentation.pdf');
+  ck('P12 Fix: gleiches Label, Link wird Datei → .pdf statt .url',
+    kurz(plane({ a: anh(datei('m-2', 'Website')), index: idx({ id: 'm-2', art: 'link', zustand: 'aktiv', datei: 'Website.url', label: 'Website', inhalt: WEB_INHALT, bytes: 40, mtimeMs: 1000 }), dateien: [f('Website.url', 40)] })) === 'laden m-2 Website.pdf alt=Website.url');
+  ck('P12 Fix: gleiche Endung → der Name mit Kollisionszusatz bleibt (9.9)',
+    kurz(plane({ a: anh(datei('m-1', 'Bericht', { size: 2000 })), index: idx(aktivBericht({ datei: 'Bericht (2).pdf' })), dateien: [f('Bericht (2).pdf', 1000)] })) === 'laden m-1 Bericht (2).pdf alt=Bericht (2).pdf');
+  const NFC = 'Pr\u00e4sentation.pdf';
+  const NFD = 'Pra\u0308sentation.pdf';
+  const eigen = aktivBericht({ datei: NFC, label: 'Präsentation' });
+  ck('P12 Fix: NFC- und NFD-Datei nebeneinander – nach entfernt/ geht nur die eigene Datei, in jeder Reihenfolge der Liste (9.9)',
+    [[f(NFC, 1000), f(NFD, 5)], [f(NFD, 5), f(NFC, 1000)]].every((d) => { const p = plane({ index: idx(eigen), dateien: d }); return p.length === 1 && p[0].art === 'nach-entfernt' && p[0].datei === NFC; }));
+  ck('P12 Fix: NFC- und NFD-Datei nebeneinander – umbenannt wird nur die eigene Datei, in jeder Reihenfolge der Liste (9.9)',
+    [[f(NFC, 1000), f(NFD, 5)], [f(NFD, 5), f(NFC, 1000)]].every((d) => { const p = plane({ a: anh(datei('m-1', 'Folien')), index: idx(eigen), dateien: d }); return p.length === 1 && p[0].art === 'umbenennen' && p[0].von === NFC; }));
+  ck('P12 Fix: Datei-Anhang mit asset ohne oder mit leerer url → Fehler „in iveo ohne Datei“, wie im Panel',
+    kurz(plane({ a: anh({ id: 'm-1', kind: 'file', label: 'Bericht', asset: { url: '', mime_type: 'application/pdf', size_bytes: 1 } }) })) === 'fehler m-1 Bericht.pdf: in iveo ohne Datei'
+    && kurz(plane({ a: anh({ id: 'm-1', kind: 'file', label: 'Bericht', asset: { mime_type: 'application/pdf', size_bytes: 1 } as unknown as MaterialC['asset'] }) })) === 'fehler m-1 Bericht.pdf: in iveo ohne Datei');
 }
 
 // ── Ende der Fälle ──
