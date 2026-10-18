@@ -361,7 +361,7 @@ export type AppEvent =
   | ({ type: 'iveo-sync-status' } & IveoAbgleichStatus)
   // iveo-Paket (Spec 8.4): Stand einer beobachteten Anhang-Liste (aufgeklappt oder aktives Side Event); materials nur bei
   // der ersten Beobachtung, einer Änderung, nach „gescheitert → gelungen“ und als Antwort auf jede Anmeldung.
-  | { type: 'iveo-anhaenge'; programId: string; abgerufen: string; ok: boolean; materials?: IveoMaterialRef[]; error?: string }
+  | { type: 'iveo-anhaenge'; programId: string; abgerufen: string; ok: boolean; materials?: IveoMaterialRef[]; error?: string; begann?: string }
   // Master-Link Teil 1: Rolle, Kopplung, Teilnehmer oder Client-Zustand haben sich geändert.
   | { type: 'verbund-changed' };
 

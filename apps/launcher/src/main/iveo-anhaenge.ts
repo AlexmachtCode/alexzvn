@@ -148,6 +148,8 @@ export interface AnhangEreignis {
   ok: boolean;
   materials?: IveoMaterialRef[];
   error?: string;
+  /** Nur bei ok:false: Beginn des gescheiterten Versuchs (Fix-Runde 2, Task 7); der Renderer verwirft damit überholte Fehlschläge. */
+  begann?: string;
 }
 
 /** Abhängigkeiten des Wächters; die Hülle (iveo-sync.ts, Task 28) reicht sie ein. */
@@ -245,7 +247,7 @@ export function erzeugeAnhangWaechter(d: AnhangWaechterAbh): AnhangWaechter {
     const neu: ListenStand = alt !== undefined ? { ...alt, fehler: text } : { sig: null, materials: null, abgerufen: null, fehler: text };
     staende.set(programId, neu);
     // abgerufen = Zeit der letzten gelungenen Prüfung (8.4); '' = noch keine gelungen.
-    d.sende({ type: 'iveo-anhaenge', programId, abgerufen: neu.abgerufen ?? '', ok: false, error: text });
+    d.sende({ type: 'iveo-anhaenge', programId, abgerufen: neu.abgerufen ?? '', ok: false, error: text, ...(e.abgerufen ? { begann: e.abgerufen } : {}) });
   }
 
   return {

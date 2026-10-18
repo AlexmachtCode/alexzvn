@@ -448,6 +448,25 @@ const ohneListe = (e: AnhangEreignis | undefined): boolean => !!e && e.materials
     p.ereignisse.length === n + 1 && p.ereignisse[n]?.ok === false && p.ereignisse[n]?.error === fehler500);
 }
 
+{
+  // Fix-Runde 2 (Task 7): Der Renderer verwirft einen veralteten Fehlschlag nur, wenn das Ereignis den Beginn des Versuchs trägt.
+  const p = pruefstand();
+  const c = attrappe({ A: new IveoApiError(500, 'http_500', 'x') });
+  p.w.beobachte(['A']);
+  const beginn = new Date(p.z.uhr).toISOString();
+  await p.w.takt(c.client);
+  ck('P6 Fix 2: Fehlschlag des Wächter-Takts trägt den Beginn des Abrufs (begann), abgerufen bleibt die letzte gelungene Prüfung',
+    p.ereignisse[0]?.ok === false && p.ereignisse[0].begann === beginn && p.ereignisse[0].abgerufen === '');
+  const kern = '2026-10-17T10:05:00.000Z';
+  p.w.agendaVomKern('A', { ok: false, fehler: new IveoApiError(503, 'http_503', 'y'), abgerufen: kern });
+  const k = p.ereignisse[p.ereignisse.length - 1];
+  ck('P6 Fix 2: Fehlschlag aus dem Kern trägt dessen Beginn (begann)', k?.ok === false && k.begann === kern);
+  const q = pruefstand();
+  q.w.beobachte(['A']);
+  await q.w.takt(attrappe({ A: agendaA() }).client);
+  ck('P6 Fix 2: gelungene Prüfung trägt kein begann', q.ereignisse[0]?.ok === true && !('begann' in q.ereignisse[0]));
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
