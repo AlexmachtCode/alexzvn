@@ -211,6 +211,8 @@ export interface IveoMaterialsResult {
   ok: boolean;
   error?: string;
   materials?: IveoMaterialRef[];
+  /** ISO-Zeit des Abrufs (iveo-Paket 8.6); der Renderer verwirft damit ein älteres Ergebnis (8.1). */
+  abgerufen?: string;
 }
 
 /** Ein Material herunterladen (Datei) bzw. öffnen (Link). */
@@ -357,6 +359,9 @@ export type AppEvent =
   | { type: 'iveo-active-changed'; event: string; day?: string; activeProgramId?: string; canSwitch: boolean }
   // iveo-Abgleich (Spec 7.6): ok=false → das iveo-Panel zeigt „iveo-Abgleich gestört: <Text> (seit <Uhrzeit>)“.
   | ({ type: 'iveo-sync-status' } & IveoAbgleichStatus)
+  // iveo-Paket (Spec 8.4): Stand einer beobachteten Anhang-Liste (aufgeklappt oder aktives Side Event); materials nur bei
+  // der ersten Beobachtung, einer Änderung, nach „gescheitert → gelungen“ und als Antwort auf jede Anmeldung.
+  | { type: 'iveo-anhaenge'; programId: string; abgerufen: string; ok: boolean; materials?: IveoMaterialRef[]; error?: string }
   // Master-Link Teil 1: Rolle, Kopplung, Teilnehmer oder Client-Zustand haben sich geändert.
   | { type: 'verbund-changed' };
 
