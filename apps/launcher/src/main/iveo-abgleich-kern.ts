@@ -956,7 +956,17 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       // Scheitert die Speakerliste, bricht die Abfrage ab (wie getProgram): sonst entstünde ein Ablauf ohne „Verantwortlich“.
       // Mit Merker wird sie auch ohne Verknüpfung geholt (Spec 6.2), ebenso, wenn das Auffrischen fällig ist (iveo-Paket,
       // Spec 6.3: dort zählt „fällig“ wie der Merker); ein Fehlschlag bricht dann ebenso ab.
-      alle = sideSpeakerIds(detail, agenda).length || a.speakerVeraltetSeit || auffrischen ? await client.listSpeakers(a.event) : undefined;
+      // Fix-Runde 1 (P22): Ohne Verknüpfung braucht der Ablauf die Liste nicht (kein „Verantwortlich“): Dort sammelt
+      // ein Fehlschlag wie im Zweig mit Kontext (Merker unten), statt die Agenda des Side Events zu blockieren.
+      const verknuepft = sideSpeakerIds(detail, agenda).length > 0;
+      if (verknuepft || a.speakerVeraltetSeit || auffrischen) {
+        try {
+          alle = await client.listSpeakers(a.event);
+        } catch (e) {
+          if (verknuepft) throw e;
+          speakerFehler.push(e);
+        }
+      }
       ctx = sideKontext(detail, alle);
     } else {
       // iveo-Paket, Spec 6.3: Fällig holt die Speakerliste und das Programm-Detail, nacheinander. Der Merker „Speaker

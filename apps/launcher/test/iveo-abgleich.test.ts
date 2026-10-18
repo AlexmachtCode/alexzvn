@@ -2265,6 +2265,26 @@ function p2Verknuepft(iv: NachgebautesIveo, speakers: ShowIveoSpeaker[] = [ANA])
     abrufeSeit(u, n, 'speakers') === 0 && abrufeSeit(u, n, 'programm') === 0);
 }
 
+{
+  // Fix-Runde 1: Ohne Kontext und ohne Verknüpfung braucht der Ablauf die Speakerliste nicht (kein „Verantwortlich“).
+  // Scheitert sie beim fälligen Auffrischen, bricht die Abfrage nicht ab: Agenda wird geschrieben, der Merker gilt.
+  const u = umgebung((iv) => showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA]), { taktMs: 45_000 });
+  const offen = u.zeit();
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.agenda.P1 = [...(u.iveo.agenda.P1 ?? []), punkt('P1', 'neu', 'Neuer Punkt', 9, 30)];
+  await abfrageUm(u, offen + 255_000);
+  const m = datei(u).iveo?.speakerVeraltetSeit;
+  ck('P22 Fix 1: ohne Kontext, ohne Verknüpfung, fällig, Speakerliste scheitert → kein Abbruch: Agenda geschrieben, Merker in der Datei',
+    typeof m === 'string' && u.schreibversuche === 1 && (datei(u).ablauf ?? []).some((x) => x.label === 'Neuer Punkt')
+    && u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET);
+  // Der Neustart-Fall: Kontext fehlt wieder (erneutes Öffnen), Merker steht in der Datei, die Liste scheitert weiter.
+  u.iveo.agenda.P1 = [...(u.iveo.agenda.P1 ?? []), punkt('P1', 'neu2', 'Noch ein Punkt', 10, 30)];
+  u.kern.showGeoeffnet(SHOW_PFAD, datei(u));
+  await abfrageUm(u, u.zeit() + 1000);
+  ck('P22 Fix 1: … nach erneutem Öffnen (Kontext weg, Liste scheitert weiter) kommt die Agenda trotzdem in die Datei',
+    (datei(u).ablauf ?? []).some((x) => x.label === 'Noch ein Punkt') && datei(u).iveo?.speakerVeraltetSeit === m);
+}
+
 // --- Zusammenfassung ---
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
