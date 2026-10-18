@@ -1210,9 +1210,7 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
   const plan = planeSideEvent({
     seitenOrdner: o.pfad, index, dateien: o.dateien, entfernt: o.entfernt ?? [], urlInhalte: o.urlInhalte,
     anhaenge: gueltig, ungueltig, jetzt: new Date(L.d.jetzt()),
-    zurueckgehaltenBis: (id, inhalt) => L.fehlschlaege.get(`${e.programId}
-${id}
-${inhalt}`)?.bis ?? null,
+    zurueckgehaltenBis: (id, inhalt) => L.fehlschlaege.get(`${e.programId}\n${id}\n${inhalt}`)?.bis ?? null,
   });
   const ctx: Ctx = {
     L, s, e, o, gen, signal: L.abbruch.signal, zwischenAngelegt: false, probleme: [...o.probleme], geaendert: s.indexOffen, platziert: new Set(), weg: new Set(), uebernommen: 0,
@@ -1337,10 +1335,8 @@ async function fuehreAus(ctx: Ctx, s: PlanSchritt): Promise<void> {
       ctx.probleme.push({ art: 'grund', datei: s.datei, grund: s.grund });
       return;
     case 'zurueckgehalten': {
-      const f = ctx.L.fehlschlaege.get(`${ctx.e.programId}
-${s.id}
-${s.inhalt}`);
-      ctx.probleme.push({ art: 'grund', datei: s.datei, grund: f?.grund ?? '', naechsterVersuch: iso(s.bis) });
+      const f = ctx.L.fehlschlaege.get(`${ctx.e.programId}\n${s.id}\n${s.inhalt}`);
+      ctx.probleme.push({ art: 'grund', datei: s.datei, grund: f?.grund ?? '', naechsterVersuch: iso(versuchsZeit(ctx, s.bis)) });
       return;
     }
     default:
@@ -1566,18 +1562,34 @@ async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<n
   }
 }
 
+/**
+ * Zeit, zu der nach einer Rückhaltung bis `bis` wirklich ein Versuch kommt (11.1, G8): beim aktiven Side Event der erste Takt ab `bis`
+ * (Takt-Raster), sonst der Beginn der ersten Runde ab `bis` („gegen“ wie bei der Zeit des Basisordners): nicht `bis` selbst, denn
+ * dazwischen gibt es keinen Versuch, die Zeile nennte eine Zeit, die schon vorbei ist.
+ */
+function versuchsZeit(ctx: Ctx, bis: number): number {
+  const { L, e } = ctx;
+  if (e.aktiv || !(L.taktMs > 0)) {
+    const takt = L.taktZuletzt ?? L.d.jetzt();
+    return takt + Math.max(1, Math.ceil((bis - takt) / L.taktMs)) * L.taktMs;
+  }
+  let runde = Date.parse(L.kopf.naechsteRundeGegen ?? '');
+  if (!Number.isFinite(runde)) return bis;
+  const abstand = naechsterFaelligerTakt(0, L.taktMs);
+  while (runde < bis) runde += abstand;
+  return runde;
+}
+
 /** Fehlschlag merken (Rückhaltung, 9.6), Zeile und einmal je neuem Grund ins Log (T23). */
 function scheitert(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'>, x: unknown): void {
   const { L } = ctx;
   const m = s.anhang.m;
   const grund = grundText(x, s.art === 'laden' ? 'download' : 'datei');
-  const schluessel = `${ctx.e.programId}
-${m.id}
-${s.inhalt}`;
+  const schluessel = `${ctx.e.programId}\n${m.id}\n${s.inhalt}`;
   const f = (L.fehlschlaege.get(schluessel)?.f ?? 0) + 1;
   const bis = rueckhaltungBis(f, L.d.jetzt());
   L.fehlschlaege.set(schluessel, { f, bis, grund, datei: s.wunsch });
-  ctx.probleme.push({ art: 'grund', datei: s.wunsch, grund, naechsterVersuch: iso(bis) });
+  ctx.probleme.push({ art: 'grund', datei: s.wunsch, grund, naechsterVersuch: iso(versuchsZeit(ctx, bis)) });
   if (ctx.s.logGrund.get(m.id) !== grund) {
     ctx.s.logGrund.set(m.id, grund);
     L.d.log.warn(LAUF_TEXTE.nichtGeladen(s.wunsch, grund, rohmeldung(x)));
@@ -1612,6 +1624,7 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
   if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; }
   if (s.alt) {
     const r = await nachEntfernt(ctx, s.alt, 'ersetzt');
+    if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; } // 9.4: weder .jm-neu noch Index für eine alte Generation
     if (!r.ok && r.offen && vorher) {
       const neu = ordnerPfad({ art: 'zwischen', seitenOrdner: o.pfad, kennung: m.id, pid: L.d.pid, endung: 'jm-neu' });
       try {
@@ -1630,8 +1643,9 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
     if (!r.ok) {
       await L.fs.unlink(zwischen).catch(() => undefined);
       if (vorher) eintragSetzen(ctx, vorher);
-      if (gen === L.gen) ctx.probleme.push({ art: 'grund', datei: s.alt, grund: r.grund });
-      return;
+      // Schritt (2) scheitert aus einem anderen Grund als „geöffnet“ (z. B. „entfernt“ ist eine Datei, 9.10): wie jedes gescheiterte
+      // Laden mit Rückhaltung, Zeit des nächsten Versuchs und einmal je neuem Grund im Log (9.6, T23), nie ein Download je Takt.
+      return scheitert(ctx, s, new GrundFehler(r.grund, r.grund));
     }
     L.d.log.info(LAUF_TEXTE.entferntErsetzt(s.alt));
   }
@@ -1654,9 +1668,7 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
   markierePlatziert(ctx, ziel);
   eintragSetzen(ctx, { id: m.id, art, zustand: 'aktiv', datei: ziel, label: m.label, inhalt: s.inhalt, bytes, mtimeMs: st?.mtimeMs });
   await schreibeIndex(L, ctx.s, o);
-  L.fehlschlaege.delete(`${ctx.e.programId}
-${m.id}
-${s.inhalt}`);
+  L.fehlschlaege.delete(`${ctx.e.programId}\n${m.id}\n${s.inhalt}`);
   ctx.s.logGrund.delete(m.id);
   L.d.log.info(LAUF_TEXTE.geladen(ziel, megabyte(bytes)));
   if (s.art === 'laden' && s.gesperrt) L.d.log.info(LAUF_TEXTE.endungGesperrt(s.gesperrt, m.label, ziel));
@@ -1670,6 +1682,7 @@ async function tausche(ctx: Ctx, s: Schritt<'tauschen'>): Promise<void> {
   if (!x) return;
   if (s.alt) {
     const r = await nachEntfernt(ctx, s.alt, 'ersetzt');
+    if (ctx.gen !== L.gen) return; // 9.4: nach jedem await prüfen, 9.14: aus = nichts mehr schreiben
     if (!r.ok) {
       ctx.probleme.push(r.offen ? { art: 'neue-fassung-wartet', datei: s.alt } : { art: 'grund', datei: s.alt, grund: r.grund });
       return;
@@ -1678,9 +1691,10 @@ async function tausche(ctx: Ctx, s: Schritt<'tauschen'>): Promise<void> {
   }
   try {
     const ziel = freierName(s.wunsch, await belegteNamen(ctx, m.id));
+    if (ctx.gen !== L.gen) return; // 9.4: kein Umbenennen für eine alte Generation
     await umbenennenImOrdner(L.fs, o.pfad, path.join(o.pfad, s.wartet), path.join(o.pfad, ziel));
     const st = await L.fs.stat(path.join(o.pfad, ziel));
-    ctx.platziert.add(vergleichsform(ziel));
+    markierePlatziert(ctx, ziel);
     eintragSetzen(ctx, { id: m.id, art: x.art, zustand: 'aktiv', datei: ziel, label: m.label, inhalt: s.inhalt, bytes: st.size, mtimeMs: st.mtimeMs });
     L.d.log.info(LAUF_TEXTE.geladen(ziel, megabyte(st.size)));
   } catch (e) {

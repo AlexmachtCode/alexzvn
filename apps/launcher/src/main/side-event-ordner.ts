@@ -745,7 +745,10 @@ export function planeSideEvent(e: PlanEingabe): PlanSchritt[] {
       // gleicher Bytezahl; sie geht vor dem Laden nach entfernt/ (9.6 (2)).
       const istAlt = f !== undefined && x.mtimeMs !== undefined && f.mtimeMs === x.mtimeMs;
       if (f && istAlt) {
-        laden(bleibt, f.name);
+        // Wartet die neue Fassung schon als .jm-neu (Eintrag „laedt“ aus einem unterbrochenen Ersetzen, Schalter oder Rolle dazwischen):
+        // nur der Tauschversuch, kein neuer Download (9.6)
+        if (x.wartet && x.inhaltNeu === inhalt && dateiDa(x.wartet)) plan.push({ art: 'tauschen', anhang: a, wartet: x.wartet, alt: f.name, wunsch: bleibt, inhalt });
+        else laden(bleibt, f.name);
       } else if (f && x.bytes !== undefined && f.groesse === x.bytes) {
         plan.push({ art: 'uebernehmen', anhang: a, datei: f.name, inhalt: x.inhalt ?? inhalt, bytes: f.groesse, mtimeMs: f.mtimeMs, neu: false });
       } else {

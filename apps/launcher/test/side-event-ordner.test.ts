@@ -2920,6 +2920,132 @@ console.log('— P18 Neue Fassung, wartende Fassung, Rückhaltung, Fortschritt (
   }
 }
 
+// ── Fix-Runde 1 zu P18: Zählung nach dem Tausch, Generation, Zeit des nächsten Versuchs, „laedt“ mit wartender Fassung, Platzieren scheitert ──
+console.log('— P18 Fix-Runde 1');
+{
+  const ORDNER = pathC.join(AttC.BASIS, 'Klima');
+  const ENTFERNT = pathC.join(ORDNER, 'entfernt');
+  const INDEX = pathC.join(ORDNER, OrdnerC.INDEX_DATEI);
+  const BERICHT = AttC.datei('m-1', 'Bericht', { size: 1000 });
+  const mitAnhang = (...ms: MaterialC[]) => [AttC.punkt('se-1', ms)];
+  const takte = async (T: ReturnType<typeof AttC.baueLauf>, n: number, agenda: unknown[]) => {
+    for (let i = 0; i < n; i++) { await T.uhr.spule(45_000, 45_000); await T.takt(agenda as never); }
+  };
+  const wartend = async () => {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    T.fs.oeffne(pathC.join(ORDNER, 'Bericht.pdf'));
+    const NEU = AttC.datei('m-1', 'Bericht', { size: 1500, ref: AttC.referenz('m-1-v3') });
+    T.download.arten.set(NEU.asset!.url, { bytes: 1500 });
+    await takte(T, 1, mitAnhang(NEU));
+    return { T, NEU };
+  };
+  const WARTET = pathC.join(ORDNER, '.m-1.4711.jm-neu');
+  {
+    // Befund 2: nach dem Tausch zählt die getauschte Datei sofort (markierePlatziert, nicht nur platziert.add)
+    const { T, NEU } = await wartend();
+    T.fs.schliesse(pathC.join(ORDNER, 'Bericht.pdf'));
+    await takte(T, 1, mitAnhang(NEU));
+    ck('P18 Fix 1: nach dem Tausch zeigt dieselbe Runde k = 1 von n = 1 (die getauschte Datei liegt im Ordner)',
+      T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1500 && T.se('se-1')?.k === 1 && T.se('se-1')?.n === 1 && T.se('se-1')?.probleme.length === 0);
+  }
+  {
+    // Befund 3a: Schalter aus, während tausche auf die Ordnerliste wartet → die alte Generation benennt nichts mehr um
+    const { T, NEU } = await wartend();
+    T.fs.schliesse(pathC.join(ORDNER, 'Bericht.pdf'));
+    let nachEntfernt = false;
+    T.fs.vor('readdir', (p) => { if (p === ENTFERNT) nachEntfernt = true; });
+    const tor = T.fs.torBei('readdir', (p) => nachEntfernt && p === ORDNER);
+    await T.uhr.spule(45_000, 45_000);
+    const lauf = T.takt(mitAnhang(NEU));
+    await AttC.ruhe();
+    const erreicht = tor.erreicht();
+    T.z.schalter = false;
+    T.lauf.takt();
+    await AttC.ruhe();
+    tor.weiter();
+    await lauf;
+    ck('P18 Fix 1: Schalter aus während des Tauschens → die wartende Fassung wird nicht mehr umbenannt',
+      erreicht && T.fs.gibt(WARTET) && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')));
+  }
+  {
+    // Befund 3b: Schalter aus, während das Ersetzen an der geöffneten alten Fassung scheitert → keine .jm-neu mehr
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    T.fs.oeffne(pathC.join(ORDNER, 'Bericht.pdf'));
+    const NEU = AttC.datei('m-1', 'Bericht', { size: 1500, ref: AttC.referenz('m-1-v3') });
+    T.download.arten.set(NEU.asset!.url, { bytes: 1500 });
+    const tor = T.fs.torBei('rename', (p) => p === pathC.join(ORDNER, 'Bericht.pdf'));
+    await T.uhr.spule(45_000, 45_000);
+    const lauf = T.takt(mitAnhang(NEU));
+    await AttC.ruhe();
+    const erreicht = tor.erreicht();
+    T.z.schalter = false;
+    T.lauf.takt();
+    await AttC.ruhe();
+    tor.weiter();
+    await lauf;
+    ck('P18 Fix 1: Schalter aus während des Ersetzens → die neue Fassung wartet nicht als .jm-neu, die Zwischendatei ist weg',
+      erreicht && !T.fs.gibt(WARTET) && T.fs.namen(ORDNER).every((n) => !n.endsWith('.jm-laden') && !n.endsWith('.jm-neu')));
+  }
+  {
+    // Befund 4: Eintrag „laedt“ mit wartender Fassung (Unterbrechung nach Schritt (1)), alte Fassung geöffnet → nur Tauschversuche
+    const { T: T0, NEU } = await wartend();
+    const idx = JSON.parse(T0.fs.inhalt(INDEX) ?? '{}') as { eintraege: Array<{ zustand: string }> };
+    idx.eintraege[0].zustand = 'laedt';
+    T0.fs.lege(INDEX, JSON.stringify(idx), 2_000);
+    // neue Sitzung über demselben Dateisystem (der Index kommt von der Platte, wie nach einer Unterbrechung)
+    const T = AttC.baueLauf({ fs: T0.fs, uhr: T0.uhr });
+    T.download.arten.set(NEU.asset!.url, { bytes: 1500 });
+    const vor = T.download.aufrufe.length;
+    await takte(T, 4, mitAnhang(NEU));
+    ck('P18 Fix 1: „laedt“ mit wartender Fassung und geöffneter alter Datei → kein neuer Download, die Fassung wartet weiter',
+      T.download.aufrufe.length === vor && T.fs.gibt(WARTET) && JSON.stringify(T.se('se-1')?.probleme) === '[{"art":"neue-fassung-wartet","datei":"Bericht.pdf"}]');
+    T.fs.schliesse(pathC.join(ORDNER, 'Bericht.pdf'));
+    await takte(T, 1, mitAnhang(NEU));
+    ck('P18 Fix 1: „laedt“ mit wartender Fassung, alte Datei frei → getauscht ohne Download',
+      T.download.aufrufe.length === vor && !T.fs.gibt(WARTET) && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1500);
+  }
+  {
+    // Befund 5: „entfernt“ ist eine Datei → Schritt (2) scheitert, Rückhaltung, Zeit des nächsten Versuchs, ein Logeintrag
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    T.fs.lege(ENTFERNT, 'Datei im Weg');
+    const NEU = AttC.datei('m-1', 'Bericht', { size: 1500, ref: AttC.referenz('m-1-v3') });
+    T.download.arten.set(NEU.asset!.url, { bytes: 1500 });
+    const vor = T.download.aufrufe.length;
+    const start = T.uhr.t + 45_000;
+    await takte(T, 6, mitAnhang(NEU));
+    const p = T.se('se-1')?.probleme[0] as { art?: string; grund?: string; naechsterVersuch?: string } | undefined;
+    ck('P18 Fix 1: „entfernt“ ist eine Datei → Rückhaltung: in 6 Takten 3 Versuche (0, 45, 135 s), nicht 6',
+      T.download.aufrufe.length - vor === 3 && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000);
+    ck('P18 Fix 1: „entfernt“ ist eine Datei → die Zeile nennt Grund und Zeit des nächsten Versuchs, das Log den Fehler einmal',
+      p?.art === 'grund' && p.grund === '„entfernt“ ist kein Ordner' && typeof p.naechsterVersuch === 'string' && Date.parse(p.naechsterVersuch) > start
+      && T.logs.filter((l) => l.startsWith('warn') && l.includes('Bericht.pdf')).length === 1);
+  }
+  {
+    // Befund 6: nicht aktives Side Event → „nächster Versuch“ nennt den Beginn der Runde, die ihn wirklich macht
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }] });
+    const KURZ = AttC.datei('m-2', 'Folien', { size: 1000 });
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [KURZ])]);
+    T.download.arten.set(KURZ.asset!.url, { bytes: 600 });
+    const versuche: number[] = [];
+    const zugesagt: number[] = [];
+    for (let i = 0; i < 40; i++) {
+      const vorher = T.download.aufrufe.length;
+      await T.takt();
+      if (T.download.aufrufe.length > vorher) {
+        versuche.push(T.uhr.t);
+        const q = T.se('se-2')?.probleme[0] as { naechsterVersuch?: string } | undefined;
+        zugesagt.push(Date.parse(q?.naechsterVersuch ?? ''));
+      }
+      await T.uhr.spule(45_000, 45_000);
+    }
+    ck('P18 Fix 1: nicht aktives Side Event → die zugesagte Zeit ist die des nächsten wirklichen Versuchs',
+      versuche.length >= 4 && zugesagt.slice(0, -1).every((z, i) => z === versuche[i + 1]));
+  }
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
