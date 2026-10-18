@@ -8,12 +8,14 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 import path from 'node:path';
-import { parseShow, type Show } from '@jm/show';
+import { parseShow, type Show, type ShowIveoProgramRef } from '@jm/show';
 import type { IveoClient, IveoProgramFilter } from '@jm/iveo';
-import type { AnhangOrdnerStand, VerbundRolle } from '@shared/types';
-import type { AgendaErgebnis } from './iveo-anhaenge';
-import { IVEO_ABFRAGE_TAKT_MS } from './iveo-huelle-hilfen';
-import { ohneAdressen, ordnerPfad, sperreBewerten, SPERR_DATEI } from './side-event-ordner';
+import type { AnhangOrdnerStand, SideEventOrdnerStand, VerbundRolle } from '@shared/types';
+import { pruefeAnhaenge, type AgendaErgebnis } from './iveo-anhaenge';
+import { auffrischenFaellig, IVEO_ABFRAGE_TAKT_MS, naechsterFaelligerTakt } from './iveo-huelle-hilfen';
+import {
+  ablageMenge, ablageTag, freierName, ohneAdressen, ordnerFehlerText, ordnerPfad, sperreBewerten, SPERR_DATEI, vergleichsform,
+} from './side-event-ordner';
 import { fehlerCode } from './verbund/fehlercode';
 
 /** Dateisystem in der Form von `node:fs/promises` (test/side-event-ordner-echt.test.ts prüft es am echten Dateisystem). */
@@ -78,10 +80,21 @@ export const LAUF_TEXTE = {
   /** T75 */
   sperreNichtGeloescht: (ordner: string, code: string): string =>
     `iveo-Ordner: Sperrdatei in „${ordner}“ nicht gelöscht (${code}); ein anderer Rechner übernimmt die Ablage erst nach 15 Minuten.`,
+  /** T25 */
+  agendaNichtAbrufbar: (titel: string, grund: string, roh: string): string => `iveo-Ordner: Agenda von „${titel}“ nicht abrufbar: ${grund} (${roh}).`,
   // ── Ende der Texte ──
 } as const;
 
 // ── Zustand ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+interface Eintrag { programId: string; agenda: AgendaErgebnis | null; aktiv: boolean }
+
+/** Je Side Event im Speicher dieser Sitzung (neben dem Stand für den Renderer). */
+interface SeIntern {
+  stand: SideEventOrdnerStand;
+  letzterAgendaText: string | null;
+}
+
 
 interface Lauf {
   d: OrdnerLaufAbh;
@@ -105,6 +118,16 @@ interface Lauf {
   /** Angestoßenes Löschen der Sperre einer vorigen Sitzung (9.2); die nächste Prüfung der Sperre wartet darauf. */
   sperreLoeschen: Promise<void> | null;
   aktivAgenda: { programId: string; e: AgendaErgebnis } | null;
+  queue: Eintrag[];
+  laeuft: Eintrag | null;
+  nachlauf: Map<string, Eintrag>;
+  arbeiterGen: number | null;
+  rundeStartMs: number | null;
+  runde: { offen: Set<string>; n: number; erledigt: number } | null;
+  menge: string[];
+  liste: ShowIveoProgramRef[];
+  basisFehlerBis: number | null;
+  se: Map<string, SeIntern>;
   kopf: Omit<AnhangOrdnerStand, 'sideEvents'>;
   letzteMeldung: string;
 }
@@ -125,7 +148,9 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     d, fs: d.fs, taktMs: d.taktMs ?? IVEO_ABFRAGE_TAKT_MS, leerlaufMs: d.leerlaufMs ?? 60_000,
     gen: 0, abbruch: new AbortController(), sitzung: d.neueSitzungsKennung(), gehalten: null, darf: false,
     abgesetzt: false, beendet: false, beschaeftigt: 0, warter: [], taktLaeuft: false, statLaeuft: false, sperreLoeschen: null,
-    aktivAgenda: null, kopf: leererKopf(), letzteMeldung: '',
+    aktivAgenda: null, queue: [], laeuft: null, nachlauf: new Map(), arbeiterGen: null,
+    rundeStartMs: null, runde: null, menge: [], liste: [], basisFehlerBis: null,
+    se: new Map(), kopf: leererKopf(), letzteMeldung: '',
   };
   return {
     sitzung: () => neueSitzung(L),
@@ -170,16 +195,21 @@ function ruhig(L: Lauf): Promise<void> {
 
 function ordnerPfadFuer(L: Lauf, programId?: string): string | null {
   if (programId === undefined) return L.kopf.basis?.existiert ? L.kopf.basis.pfad : null;
-  return null;
+  const s = L.se.get(programId)?.stand;
+  return s?.existiert && s.pfad ? s.pfad : null;
 }
 
 // ── Generation, Sitzung, Ende der Ablage (9.2, 9.4) ──────────────────────────────────────────────────────────────
 
-/** Neue Lauf-Generation: was noch läuft, bricht ab (Grund bedienung, 9.4). */
+/** Neue Lauf-Generation: laufender Download abgebrochen (Grund bedienung), Warteschlange geleert (9.4). */
 function neueGeneration(L: Lauf): void {
   L.gen++;
   L.abbruch.abort();
   L.abbruch = new AbortController();
+  L.queue = [];
+  L.nachlauf.clear();
+  L.runde = null;
+  L.kopf.runde = null;
   L.darf = false;
 }
 
@@ -190,6 +220,9 @@ function neueSitzung(L: Lauf): void {
   L.abgesetzt = false;
   L.sitzung = L.d.neueSitzungsKennung();
   L.aktivAgenda = null;
+  L.rundeStartMs = null;
+  L.basisFehlerBis = null;
+  L.se = new Map();
   L.kopf = leererKopf();
   liesBedingungen(L);
   melde(L); // sofort: die Zeile der alten Sitzung darf nicht stehen bleiben, auch wenn der nächste Takt an einem Zugriff hängt
@@ -203,8 +236,9 @@ function neueSitzung(L: Lauf): void {
 
 /** Ende der Ablage: Generation +1 und die eigene Sperre einmal lesen, vergleichen, löschen (9.2). */
 async function endeAblage(L: Lauf): Promise<void> {
-  if (L.darf) neueGeneration(L);
+  if (L.darf || L.laeuft || L.queue.length) neueGeneration(L);
   L.darf = false;
+  L.rundeStartMs = null; // 9.14: beginnt die Ablage wieder (Schalter an, Rolle, Token), startet die Runde im nächsten Takt
   const alt = L.gehalten;
   L.gehalten = null;
   if (alt) await loescheEigeneSperre(L, alt);
@@ -264,6 +298,7 @@ async function taktAsync(L: Lauf): Promise<void> {
   if (!(await pruefeSperre(L, b.pfad, gen))) return melde(L);
   if (gen !== L.gen || !bedingungenGelten(L, a.path)) return;
   L.darf = true;
+  naechsteSchritte(L, a, show.show);
   melde(L);
 }
 
@@ -333,7 +368,7 @@ async function pruefeSperre(L: Lauf, basis: string, gen: number): Promise<boolea
   if (bew === 'fremd' || bew === 'namensgleich') {
     const g = gelesen as { rechner: string; lebenszeichen?: string };
     k.sperre = { art: bew, rechner: String(g.rechner), lebenszeichen: String(g.lebenszeichen ?? '') };
-    if (L.darf) neueGeneration(L);
+    if (L.darf || L.laeuft || L.queue.length) neueGeneration(L);
     L.gehalten = null;
     if (bew === 'namensgleich') L.abgesetzt = true;
     return false;
@@ -361,7 +396,7 @@ async function schreibeSperre(L: Lauf, basis: string, frei: boolean, gen: number
   }
   if (frei && fehler === 'ENOENT') { // Basisordner gibt es noch nicht: die Sperre entsteht mit ihm (9.2)
     const b = k.basis as NonNullable<typeof k.basis>;
-    k.basis = { ...b, existiert: false, fehler: null }; // ein Fehler an der Sperrdatei ist mit dem Ordner weg
+    k.basis = { ...b, existiert: false, fehler: L.basisFehlerBis !== null ? b.fehler : null }; // nur ein Fehler beim Anlegen bleibt bis zu seinem Versuch
     return true;
   }
   // K6 mit eigenem Text (OFP6): der Ordner ist da (lstat), nur die Sperrdatei nicht schreibbar; der nächste Takt versucht es neu
@@ -427,10 +462,127 @@ async function schreibeAtomar(L: Lauf, ziel: string, inhalt: string): Promise<st
   }
 }
 
+// ── Warteschlange, Runde, Generation (9.4) ───────────────────────────────────────────────────────────────────────
+
+/** Ablage-Menge (9.3), aktives Side Event jeden Takt, Runde über die übrigen (9.4). */
+function naechsteSchritte(L: Lauf, a: { path: string; event: string; filter: IveoProgramFilter }, show: Show): void {
+  L.liste = show.iveo?.sideEvents ?? [];
+  L.menge = ablageMenge(L.liste, ablageTag(a.filter, L.d.tagVon), L.d.tagVon, a.filter.programId ?? null);
+  const aktivId = a.filter.programId ?? null;
+  for (const id of L.menge) seIntern(L, id);
+  for (const s of L.se.values()) {
+    s.stand.aktiv = s.stand.programId === aktivId;
+    s.stand.inMenge = L.menge.includes(s.stand.programId);
+    s.stand.titel = titelVon(L, s.stand.programId);
+  }
+  // Runde über die übrigen Side Events der Ablage-Menge (Regel 6.1); eingereiht wird erst nach dem aktiven.
+  const jetzt = L.d.jetzt();
+  let ids: string[] = [];
+  if (!L.runde && (L.rundeStartMs === null || auffrischenFaellig(L.rundeStartMs, jetzt, L.taktMs))) {
+    L.rundeStartMs = jetzt;
+    L.kopf.ersteRundeGestartet = true;
+    L.kopf.naechsteRundeGegen = iso(naechsterFaelligerTakt(jetzt, L.taktMs));
+    L.basisFehlerBis = null;
+    ids = L.menge.filter((id) => id !== aktivId);
+    L.runde = ids.length ? { offen: new Set(ids), n: ids.length, erledigt: 0 } : null;
+    L.kopf.runde = L.runde ? { i: 1, n: L.runde.n } : null;
+  }
+  // Aktives Side Event: jeden Takt, aus der Agenda des Kerns, kein eigener Abruf (8.2, 9.4); es steht vorn.
+  const ag = L.aktivAgenda;
+  L.aktivAgenda = null;
+  if (aktivId && ag && ag.programId === aktivId) reihe(L, { programId: aktivId, agenda: ag.e, aktiv: true });
+  for (const id of ids) reihe(L, { programId: id, agenda: null, aktiv: false });
+}
+
+/** Je Side Event höchstens ein Eintrag (E48); läuft er gerade, wird er nach dem Ende genau einmal neu eingereiht. */
+function reihe(L: Lauf, e: Eintrag): void {
+  if (L.laeuft?.programId === e.programId) {
+    L.nachlauf.set(e.programId, e);
+    return;
+  }
+  const i = L.queue.findIndex((x) => x.programId === e.programId);
+  if (i >= 0) L.queue.splice(i, 1);
+  if (e.aktiv) L.queue.unshift(e);
+  else if (i >= 0) L.queue.splice(i, 0, e);
+  else L.queue.push(e);
+  starteArbeiter(L);
+}
+
+function starteArbeiter(L: Lauf): void {
+  if (L.arbeiterGen === L.gen) return;
+  const gen = L.gen;
+  L.arbeiterGen = gen;
+  void beschaeftigt(L, arbeite(L, gen)).finally(() => { if (L.arbeiterGen === gen) L.arbeiterGen = null; });
+}
+
+async function arbeite(L: Lauf, gen: number): Promise<void> {
+  for (;;) {
+    if (gen !== L.gen) return;
+    const a = L.d.aktiv();
+    if (!a || !bedingungenGelten(L, a.path)) { await endeAblage(L); return melde(L); }
+    const e = L.queue.shift();
+    if (!e) {
+      if (L.arbeiterGen === gen) L.arbeiterGen = null; // sofort frei: ein neuer Eintrag startet den Arbeiter neu
+      return;
+    }
+    L.laeuft = e;
+    if (L.runde?.offen.has(e.programId)) L.kopf.runde = { i: L.runde.erledigt + 1, n: L.runde.n };
+    fortschritt(L);
+    melde(L);
+    let unterbrochen = false;
+    try {
+      unterbrochen = await bearbeite(L, e, a, gen);
+    } finally {
+      L.laeuft = null;
+    }
+    if (gen !== L.gen) return;
+    if (!unterbrochen && L.runde?.offen.delete(e.programId)) {
+      L.runde.erledigt++;
+      if (L.runde.offen.size === 0) L.runde = null;
+      L.kopf.runde = L.runde ? { i: L.runde.erledigt + 1, n: L.runde.n } : null;
+    }
+    const n = L.nachlauf.get(e.programId);
+    if (n) {
+      L.nachlauf.delete(e.programId);
+      reihe(L, n);
+    }
+    fortschritt(L);
+    melde(L);
+  }
+}
+
 // ── Stand und Meldung (9.13, 9.15) ───────────────────────────────────────────────────────────────────────────────
 
+function titelVon(L: Lauf, programId: string): string {
+  return L.liste.find((p) => p.id === programId)?.title || L.d.titelVon(programId) || programId;
+}
+
+function seIntern(L: Lauf, programId: string): SeIntern {
+  let s = L.se.get(programId);
+  if (!s) {
+    s = {
+      stand: {
+        programId, titel: titelVon(L, programId), aktiv: false, inMenge: L.menge.includes(programId), ordnerName: null, pfad: null,
+        existiert: false, indexFormat: 'fehlt', anlegbar: null, laedt: null, wartetHinter: null, abruf: 'keiner', stand: null,
+        standAusFrueherSitzung: false, fehler: null, n: 0, k: 0, probleme: [],
+        zusaetze: { indexNeuAufgebaut: false, weitererOrdner: null, bedienerGeaendert: 0, gesperrteEndungen: 0 },
+      },
+      letzterAgendaText: null,
+    };
+    L.se.set(programId, s);
+  }
+  return s;
+}
+
 function standKopie(L: Lauf): AnhangOrdnerStand {
-  return { ...L.kopf, sideEvents: [] };
+  const sideEvents = [...L.se.values()]
+    .filter((s) => s.stand.inMenge || s.stand.ordnerName !== null)
+    .map((s) => ({ ...s.stand, probleme: [...s.stand.probleme], zusaetze: { ...s.stand.zusaetze } }));
+  return { ...L.kopf, sideEvents };
+}
+
+function fortschritt(L: Lauf): void {
+  L.kopf.letzterFortschritt = iso(L.d.jetzt());
 }
 
 /** Stand melden, bei jeder Änderung. */
@@ -440,6 +592,102 @@ function melde(L: Lauf): void {
   if (text === L.letzteMeldung) return;
   L.letzteMeldung = text;
   L.d.melde(s);
+}
+
+// ── Ordner finden und anlegen (9.1) ──────────────────────────────────────────────────────────────────────────────
+
+function basisPfad(a: { path: string }): string | null {
+  const b = ordnerPfad({ art: 'basis', showPfad: a.path });
+  return b.ok ? b.pfad : null;
+}
+
+
+/** Ordner des Side Events: der schon bekannte, sonst (mit Anhängen) neu angelegt; Basisordner und Sperre entstehen mit ihm (9.1, 9.2). */
+async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number, mitAnhaengen: boolean): Promise<{ pfad: string; name: string } | null> {
+  const basis = basisPfad(a);
+  if (!basis) return null;
+  const st = s.stand;
+  if (st.ordnerName && st.existiert) return { pfad: path.join(basis, st.ordnerName), name: st.ordnerName };
+  if (!mitAnhaengen) return null; // OF4: ein Ordner entsteht erst mit dem ersten Anhang
+  if (L.basisFehlerBis !== null && L.d.jetzt() < L.basisFehlerBis) return null;
+  try {
+    await L.fs.mkdir(basis, { recursive: true });
+  } catch (e) {
+    L.basisFehlerBis = Date.parse(L.kopf.naechsteRundeGegen ?? iso(L.d.jetzt()));
+    L.kopf.basis = { ...(L.kopf.basis as NonNullable<AnhangOrdnerStand['basis']>), existiert: false, fehler: { code: fehlerCode(e), naechsterVersuch: iso(L.basisFehlerBis) } };
+    return null;
+  }
+  if (gen !== L.gen) return null;
+  if (L.kopf.basis) L.kopf.basis = { ...L.kopf.basis, existiert: true, fehler: null };
+  if (!L.gehalten && !(await schreibeSperre(L, basis, false, gen, L.sitzung))) return null; // die Sperre entsteht mit dem Basisordner
+  const erwartet = ordnerPfad({ art: 'seitenOrdner', basisPfad: basis, titel: st.titel });
+  if (!erwartet.ok) { st.anlegbar = { grund: erwartet.grund }; return null; }
+  let name: string;
+  try {
+    name = freierName(erwartet.name, new Set((await L.fs.readdir(basis)).map(vergleichsform)));
+    await L.fs.mkdir(path.join(basis, name), { recursive: true });
+  } catch (e) {
+    st.anlegbar = { grund: ordnerFehlerText(e, 'datei') ?? fehlerCode(e) };
+    return null;
+  }
+  if (gen !== L.gen) return null;
+  Object.assign(st, { ordnerName: name, pfad: path.join(basis, name), existiert: true, anlegbar: null });
+  return { pfad: path.join(basis, name), name };
+}
+
+// ── Ein Side Event abgleichen (9.4–9.10) ─────────────────────────────────────────────────────────────────────────
+
+/** true = unterbrochen (das aktive Side Event hat Vorrang, dieser Eintrag ist neu eingereiht). */
+async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }, gen: number): Promise<boolean> {
+  const s = seIntern(L, e.programId);
+  const st = s.stand;
+  let erg = e.agenda;
+  if (!erg) {
+    const c = L.d.agendaClient();
+    if (!c) return false;
+    const abgerufen = iso(L.d.jetzt());
+    try {
+      erg = { ok: true, agenda: await c.listAgendaItems(a.event, e.programId), abgerufen };
+    } catch (fehler) {
+      erg = { ok: false, fehler };
+    }
+    if (gen !== L.gen) return false; // spätes Ergebnis einer alten Generation: verworfen (9.4)
+  }
+  if (!erg.ok) {
+    agendaGescheitert(L, s, erg.fehler);
+    return false;
+  }
+  const { gueltig, ungueltig } = pruefeAnhaenge(erg.agenda);
+  const o = await ordnerFuer(L, s, a, gen, gueltig.length > 0);
+  if (gen !== L.gen) return false;
+  if (!o) {
+    if (gueltig.length === 0 && !st.existiert && st.indexFormat !== 'neuer') {
+      // kein Ordner, weil das Side Event keine Anhänge hat (OF4): gelungen mit n = 0
+      Object.assign(st, { abruf: 'gelungen', stand: erg.abgerufen, standAusFrueherSitzung: false, fehler: null, n: 0, k: 0, probleme: [] });
+    }
+    return false;
+  }
+  Object.assign(st, { abruf: 'gelungen', stand: erg.abgerufen, standAusFrueherSitzung: false, fehler: null, n: gueltig.length, k: 0, probleme: [] });
+  s.letzterAgendaText = null;
+  return false;
+}
+
+function agendaGescheitert(L: Lauf, s: SeIntern, fehler: unknown): void {
+  const st = s.stand;
+  const text = ordnerFehlerText(fehler, 'agenda') ?? 'abgebrochen';
+  st.abruf = 'gescheitert';
+  st.fehler = { text, seit: st.fehler?.seit ?? iso(L.d.jetzt()) };
+  if (s.letzterAgendaText !== text) {
+    s.letzterAgendaText = text;
+    L.d.log.warn(LAUF_TEXTE.agendaNichtAbrufbar(st.titel, text, rohmeldung(fehler)));
+  }
+}
+
+function rohmeldung(e: unknown): string {
+  const m = (e as { message?: unknown } | null)?.message;
+  const code = (e as { code?: unknown } | null)?.code;
+  const roh = typeof m === 'string' && m ? m : typeof code === 'string' ? code : String(e);
+  return ohneAdressen(roh).replace(/[\r\n]+/g, ' ');
 }
 
 // ── Ende des Moduls ──

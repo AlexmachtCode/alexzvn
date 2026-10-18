@@ -1018,6 +1018,241 @@ console.log('— P13 Wer ablegt (Spec 9.2), Sperrdatei, Ende der Ablage');
   ck('P13 9.2: T75 wörtlich',LaufC.LAUF_TEXTE.sperreNichtGeloescht('X', 'EPERM') === 'iveo-Ordner: Sperrdatei in „X“ nicht gelöscht (EPERM); ein anderer Rechner übernimmt die Ablage erst nach 15 Minuten.');
 }
 
+// ── Block C · P14: Warteschlange, Runde, Lauf-Generation, Ablage-Menge im Lauf (Spec 9.3, 9.4) ──────────────────
+import { IveoApiError as IveoApiErrorC } from '@jm/iveo';
+
+console.log('— P14 Warteschlange, Runde, Generation, Ablage-Menge (Spec 9.3, 9.4)');
+{
+  const isoC = (ms: number): string => new Date(ms).toISOString();
+  const SPERRE = pathC.join(AttC.BASIS, OrdnerC.SPERR_DATEI);
+  const SE3 = [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }, { id: 'se-3', title: 'Wald' }];
+  // Agenda, deren materials-Zugriff mitzählt: jede Ausführung eines Eintrags liest sie genau einmal (pruefeAnhaenge).
+  const zaehlAgenda = (programId: string, ms: MaterialC[], z: { n: number }) =>
+    [{ id: `${programId}-p1`, program_id: programId, title: 'Punkt', get materials() { z.n++; return ms; } }];
+  const meldeAktiv = (T: ReturnType<typeof AttC.baueLauf>, agenda: unknown[]) =>
+    T.lauf.agendaAktiv('se-1', { ok: true, agenda: agenda as never, abgerufen: isoC(T.uhr.t) });
+
+  {
+    const T = AttC.baueLauf();
+    ck('P14 9.4: vor dem ersten Takt ist die erste Runde nicht gestartet (K8)', T.lauf.stand().ersteRundeGestartet === false);
+    await T.takt([AttC.punkt('se-1', [])]);
+    ck('P14 12.4 Nr. 25: Side Event ohne Anhänge → kein Ordner, auch kein Basisordner (OF4); Abgleich gelungen mit 0 Anhängen',
+      !T.fs.gibt(AttC.BASIS) && T.fs.zaehle('mkdir') === 0 && T.se('se-1')?.abruf === 'gelungen' && T.se('se-1')?.n === 0 && T.se('se-1')?.existiert === false);
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt([AttC.punkt('se-1', [AttC.datei('m-1', 'Bericht')])]);
+    ck('P14 12.4 Nr. 25: erster Anhang → Basis- und Side-Event-Ordner entstehen, mit dem Basisordner die Sperrdatei',
+      T.fs.gibt(pathC.join(AttC.BASIS, 'Klima')) && T.fs.gibt(SPERRE) && T.se('se-1')?.ordnerName === 'Klima' && T.se('se-1')?.existiert === true && T.se('se-1')?.n === 1);
+    ck('P14 9.13, E35: „Ordner öffnen“ nur aus der programId; ohne Kennung der Basisordner; unbekannt → null',
+      T.lauf.ordnerPfadFuer('se-1') === pathC.join(AttC.BASIS, 'Klima') && T.lauf.ordnerPfadFuer() === AttC.BASIS && T.lauf.ordnerPfadFuer('gibt-es-nicht') === null);
+  }
+  {
+    const T = AttC.baueLauf();
+    const staende: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      await T.takt([AttC.punkt('se-1', [])]);
+      staende.push(T.se('se-1')?.stand ?? '');
+      await T.uhr.spule(45_000, 45_000);
+    }
+    ck('P14 12.4 Nr. 28: aktives Side Event jeden Takt aus der Agenda des Kerns, ohne eigenen Abruf (Stand je Takt neu)',
+      T.agenda.aufrufe.length === 0 && new Set(staende).size === 3 && staende.every((x) => x !== '') && T.se('se-1')?.aktiv === true);
+  }
+  {
+    const T = AttC.baueLauf({ sideEvents: SE3 });
+    const start = T.uhr.t;
+    const rundenStarts: number[] = [];
+    for (let i = 0; i <= 12; i++) {
+      const vorher = T.agenda.aufrufe.length;
+      await T.takt([]);
+      if (T.agenda.aufrufe.length > vorher) rundenStarts.push((T.uhr.t - start) / 1000);
+      await T.uhr.spule(45_000, 45_000);
+    }
+    ck('P14 12.4 Nr. 28: Runde über die übrigen Side Events nach Regel 6.1 (Takt 45 s: Start, +270 s, +540 s)',
+      JSON.stringify(rundenStarts) === '[0,270,540]' && T.agenda.aufrufe.join(',') === 'se-2,se-3,se-2,se-3,se-2,se-3');
+    ck('P14 9.4: nächste Runde gegen Start der vorigen + 270 s (Kopfzeile „gegen ‹hh:mm›“)',
+      T.lauf.stand().ersteRundeGestartet === true && T.lauf.stand().naechsteRundeGegen === isoC(start + 540_000 + 270_000));
+    const runden = T.staende.map((s) => (s.runde ? `${s.runde.i}/${s.runde.n}` : '-'));
+    ck('P14 11.1: während der Runde „‹i› von ‹n›“ (1/2, 2/2), danach keine Runde', runden.includes('1/2') && runden.includes('2/2') && runden[runden.length - 1] === '-');
+    ck('P14 9.3: Stand je Side Event der Menge, das aktive markiert',
+      T.lauf.stand().sideEvents.map((s) => `${s.programId}:${s.aktiv ? 'aktiv' : '-'}:${s.inMenge ? 'Menge' : '-'}:${s.titel}`).join(' ') === 'se-1:aktiv:Menge:Klima se-2:-:Menge:Wasser se-3:-:Menge:Wald');
+  }
+  {
+    let gibFrei: () => void = () => undefined;
+    const T = AttC.baueLauf({ sideEvents: SE3 });
+    T.agenda.agenden.set('se-2', () => new Promise((ok) => { gibFrei = () => ok([]); }));
+    let se1BeiSe3: string | undefined;
+    T.agenda.agenden.set('se-3', async () => { se1BeiSe3 = T.se('se-1')?.abruf; return []; });
+    T.lauf.takt();
+    await AttC.ruhe();
+    const n = { n: 0 };
+    for (let i = 0; i < 3; i++) {
+      meldeAktiv(T, zaehlAgenda('se-1', [], n));
+      T.lauf.takt();
+      await AttC.ruhe();
+    }
+    ck('P14 12.4 Nr. 28: während ein Abruf hängt, beginnt im Ordner-Teil kein zweiter (Attrappe misst keine Überlappung)',
+      T.g.max === 1 && T.agenda.aufrufe.join(',') === 'se-2');
+    gibFrei();
+    await T.lauf.ruhig();
+    ck('P14 12.4 Nr. 28: das aktive Side Event läuft nach dem laufenden Schritt, vor den übrigen der Runde',
+      se1BeiSe3 === 'gelungen' && T.agenda.aufrufe.join(',') === 'se-2,se-3');
+    ck('P14 12.4 Nr. 28, E48: je Side Event höchstens ein Eintrag – dreimal gemeldet, während es wartet, einmal ausgeführt',
+      n.n === 1);
+  }
+  {
+    const T = AttC.baueLauf();
+    const tor = T.fs.torBei('mkdir', (p) => p === pathC.join(AttC.BASIS, 'Klima'));
+    const n = { n: 0 };
+    meldeAktiv(T, zaehlAgenda('se-1', [AttC.datei('m-1', 'Bericht')], n));
+    T.lauf.takt();
+    await AttC.ruhe();
+    for (let i = 0; i < 3; i++) {
+      await T.uhr.spule(45_000, 45_000);
+      meldeAktiv(T, zaehlAgenda('se-1', [AttC.datei('m-1', 'Bericht')], n));
+      T.lauf.takt();
+      await AttC.ruhe();
+    }
+    tor.weiter();
+    await T.lauf.ruhig();
+    ck('P14 9.4, E48: läuft der Eintrag gerade, wird er nach dem Ende genau einmal neu eingereiht (dreimal gemeldet → ein Nachlauf)',
+      tor.erreicht() && n.n === 2);
+  }
+  {
+    let gibFrei: (a: unknown) => void = () => undefined;
+    const T = AttC.baueLauf({ sideEvents: [SE3[0], SE3[1]] });
+    T.agenda.agenden.set('se-2', () => new Promise((ok) => { gibFrei = ok; }));
+    T.lauf.takt();
+    await AttC.ruhe();
+    T.z.aktiv = { path: pathC.join(AttC.ROOT, 'Shows', 'Andere.jmshow'), event: 'cop31', filter: { programId: 'x' } };
+    T.lauf.sitzung();
+    await AttC.ruhe();
+    const seit = T.fs.protokoll.length;
+    gibFrei([AttC.punkt('se-2', [AttC.datei('m-2', 'Spät')])]);
+    await T.lauf.ruhig();
+    ck('P14 12.4 Nr. 23: Show-Wechsel mitten im Abruf → das späte Ergebnis wird verworfen, ohne Plan und ohne Dateizugriff',
+      T.fs.protokoll.length === seit && !T.fs.gibt(pathC.join(AttC.BASIS, 'Wasser')) && T.lauf.stand().sideEvents.length === 0);
+  }
+  {
+    // 67 Programme über drei Tage (Prod-Größe, M5), Filter {programId}, aktives Side Event an Tag 2, 4 ohne Tag
+    const tage: Record<string, string> = {};
+    const liste = Array.from({ length: 67 }, (_, i) => ({ id: `p${i}`, title: `Programm ${i}` }));
+    for (let i = 0; i < 63; i++) tage[`p${i}`] = `2026-11-1${i % 3}`;
+    const T = AttC.baueLauf({ sideEvents: liste, filter: { programId: 'p1' }, tage });
+    for (const p of liste) T.agenda.agenden.set(p.id, [AttC.punkt(p.id, [AttC.datei(`m-${p.id}`, 'Folien')])]);
+    T.z.aktiv = { path: AttC.SHOW_PFAD, event: 'cop31', filter: { programId: 'p1' } };
+    T.lauf.agendaAktiv('p1', { ok: true, agenda: [AttC.punkt('p1', [AttC.datei('m-p1', 'Folien')])], abgerufen: isoC(T.uhr.t) });
+    await T.takt();
+    const menge = liste.filter((p) => tage[p.id] === undefined || tage[p.id] === '2026-11-11');
+    ck('P14 12.4 Nr. 42: 67 Programme über drei Tage, aktives an Tag 2 → abgerufen nur Tag 2 und die ohne Tag; das aktive ohne eigenen Abruf',
+      [...T.agenda.aufrufe].sort().join(',') === menge.filter((p) => p.id !== 'p1').map((p) => p.id).sort().join(',') && menge.length === 25);
+    ck('P14 12.4 Nr. 42: Ordner nur für Tag 2, die ohne Tag und das aktive',
+      T.fs.namen(AttC.BASIS).filter((n) => n !== OrdnerC.SPERR_DATEI).join('|') === menge.map((p) => p.title).sort().join('|'));
+    const T2 = AttC.baueLauf({ sideEvents: liste, filter: {}, tage });
+    T2.z.aktiv = { path: AttC.SHOW_PFAD, event: 'cop31', filter: {} };
+    await T2.takt();
+    ck('P14 12.4 Nr. 42: Listen-Modus ohne Tag → alle 67 in der Runde', T2.agenda.aufrufe.length === 67);
+  }
+  {
+    // Nr. 29 (hier statt in P13: der Basisordner entsteht erst mit dem ersten Anhang, und „gegen“ kommt aus der Runde)
+    const T = AttC.baueLauf();
+    T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+    const start = T.uhr.t;
+    const agenda = [AttC.punkt('se-1', [AttC.datei('m-1', 'Bericht')])];
+    await T.takt(agenda);
+    const k = T.lauf.stand();
+    ck('P14 12.4 Nr. 29: Basisordner nicht anlegbar → K6-Felder: Code, nicht da, nächster Versuch gegen Rundenstart + 270 s',
+      k.basis?.fehler?.code === 'EACCES' && k.basis.existiert === false && k.naechsteRundeGegen === isoC(start + 270_000)
+      && k.basis.fehler.naechsterVersuch === isoC(start + 270_000));
+    for (let i = 0; i < 5; i++) { await T.uhr.spule(45_000, 45_000); await T.takt(agenda); }
+    ck('P14 12.4 Nr. 29: vor der genannten Zeit kein neuer Versuch (die Zeile verspricht „gegen ‹hh:mm›“)',
+      T.fs.zaehle('mkdir', (p) => p === AttC.BASIS) === 1 && T.lauf.stand().basis?.fehler?.code === 'EACCES');
+    T.fs.regelnLoeschen();
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt(agenda);
+    ck('P14 12.4 Nr. 29: zur genannten Zeit neuer Versuch, gelingt → Fehler weg, Ordner da',
+      T.fs.zaehle('mkdir', (p) => p === AttC.BASIS) === 2 && T.lauf.stand().basis?.fehler === null && T.fs.gibt(pathC.join(AttC.BASIS, 'Klima')));
+  }
+  {
+    // 9.14: Schalter aus und wieder an → die Runde über die übrigen Side Events startet im nächsten Takt, nicht erst 270 s
+    // nach dem Start der vorigen (Abnahme Schritt 16, Handbuch)
+    const T = AttC.baueLauf({ sideEvents: SE3.slice(0, 2) });
+    await T.takt([]);
+    await T.uhr.spule(45_000, 45_000);
+    T.z.schalter = false;
+    await T.takt([]);
+    await T.uhr.spule(45_000, 45_000);
+    T.z.schalter = true;
+    const vorher = T.agenda.aufrufe.join(',');
+    await T.takt([]);
+    ck('P14 9.14: Schalter aus und wieder an → im nächsten Takt startet die Runde (Abruf des übrigen Side Events, „gegen“ neu)',
+      vorher === 'se-2' && T.agenda.aufrufe.join(',') === 'se-2,se-2' && T.lauf.stand().naechsteRundeGegen === isoC(T.uhr.t + 270_000));
+  }
+  {
+    // 11.1 K6, OFP6 (aus der Prüfung robust:3): Sperrdatei in einer späteren Runde nicht lesbar → K6 nennt den nächsten Takt,
+    // nicht das längst vergangene „gegen“ der vorigen Runde
+    const hhmm = (ms: number): string => new Date(ms).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    const T = AttC.baueLauf({ sideEvents: SE3.slice(0, 2) });
+    T.fs.ordner(AttC.BASIS);
+    await T.takt([]);
+    const gegen = T.lauf.stand().naechsteRundeGegen;
+    await T.uhr.spule(600_000, 60_000);
+    T.fs.fehlerBei('readFile', (p) => p === SPERRE, 'EACCES');
+    await T.takt([]);
+    const k = ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t);
+    ck('P14 11.1 K6: Sperrdatei in einer späteren Runde nicht lesbar → Zeit des nächsten Takts, nicht die längst vergangene der vorigen Runde',
+      k.fall === 'K6' && k.text === `Sperrdatei in „${pathC.basename(AttC.BASIS)}“ nicht lesbar (EACCES). Nächster Versuch gegen ${hhmm(T.uhr.t + 45_000)}.`
+      && k.ordnerOeffnen && gegen !== null && hhmm(Date.parse(gegen)) !== hhmm(T.uhr.t + 45_000));
+  }
+  {
+    const fs = new AttC.FsAttrappe('NTFS');
+    fs.ordner(AttC.BASIS);
+    const uhr = new AttC.TestUhr();
+    const A = AttC.baueLauf({ fs, uhr, sideEvents: SE3.slice(0, 2) });
+    const B = AttC.baueLauf({ fs, uhr, sideEvents: SE3.slice(0, 2), rechner: 'REGIE-2', pid: 5000 });
+    await A.takt([]);
+    await B.takt([]);
+    ck('P14 12.4 Nr. 40 (a): nur der Rechner mit der Sperre ruft iveo ab und gleicht ab',
+      A.agenda.aufrufe.join(',') === 'se-2' && B.agenda.aufrufe.length === 0 && B.lauf.stand().sideEvents.length === 0);
+  }
+  {
+    const T = AttC.baueLauf({ sideEvents: SE3.slice(0, 2) });
+    T.fs.ordner(AttC.BASIS);
+    T.agenda.agenden.set('se-2', () => new Promise(() => undefined));
+    T.lauf.takt();
+    await AttC.ruhe();
+    const vorher = JSON.parse(T.fs.inhalt(SPERRE) ?? '{}').lebenszeichen;
+    await T.uhr.spule(45_000, 45_000);
+    const r = T.lauf.takt() as unknown;
+    await AttC.ruhe();
+    const nachher = JSON.parse(T.fs.inhalt(SPERRE) ?? '{}').lebenszeichen;
+    ck('P14 9.4: takt() kehrt sofort zurück, auch wenn der Ordner-Teil an einem Abruf hängt; das Lebenszeichen rückt trotzdem vor',
+      r === undefined && typeof vorher === 'string' && nachher === isoC(T.uhr.t) && nachher !== vorher);
+  }
+  {
+    // Agenda-Abruf gescheitert: Stand für S9/S10 mit ordnerFehlerText und „seit“, Log T25 nur bei neuem Text
+    const T = AttC.baueLauf({ sideEvents: SE3.slice(0, 2) });
+    T.agenda.agenden.set('se-2', new IveoApiErrorC(404, 'not_found', 'Programm fehlt'));
+    const start = T.uhr.t;
+    await T.takt(new Error('Kern meldet 500'));
+    const s2 = T.se('se-2');
+    const s1 = T.se('se-1');
+    ck('P14 9.13: Agenda eines Side Events der Runde scheitert → abruf gescheitert, Text „Agenda in iveo nicht gefunden (404)“, seit = jetzt',
+      s2?.abruf === 'gescheitert' && s2.fehler?.text === 'Agenda in iveo nicht gefunden (404)' && s2.fehler.seit === isoC(start));
+    ck('P14 9.13, 8.2: scheitert die Agenda des aktiven Side Events beim Kern, zeigt seine Zeile den Fehler aus meldeAgenda',
+      s1?.abruf === 'gescheitert' && s1.fehler?.text === 'Kern meldet 500');
+    ck('P14 9.13: Log T25 einmal je Side Event, mit Grund und Rohmeldung',
+      T.logs.filter((z) => z.startsWith('warn iveo-Ordner: Agenda von')).join('|')
+      === 'warn iveo-Ordner: Agenda von „Klima“ nicht abrufbar: Kern meldet 500 (Kern meldet 500).|warn iveo-Ordner: Agenda von „Wasser“ nicht abrufbar: Agenda in iveo nicht gefunden (404) (Programm fehlt).');
+    await T.uhr.spule(270_000, 45_000);
+    await T.takt(new Error('Kern meldet 500'));
+    ck('P14 9.13: derselbe Fehler in der nächsten Runde → kein neues Log, „seit“ bleibt der erste Fehlschlag',
+      T.logs.filter((z) => z.startsWith('warn iveo-Ordner: Agenda von')).length === 2 && T.se('se-2')?.fehler?.seit === isoC(start));
+    T.agenda.agenden.set('se-2', []);
+    await T.uhr.spule(270_000, 45_000);
+    await T.takt([]);
+    ck('P14 9.13: Abruf gelingt wieder → Fehler weg, abruf gelungen', T.se('se-2')?.abruf === 'gelungen' && T.se('se-2')?.fehler === null && T.se('se-1')?.fehler === null);
+  }
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
