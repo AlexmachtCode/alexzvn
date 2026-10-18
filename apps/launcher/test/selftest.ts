@@ -9,6 +9,8 @@ import {
   ablehnungText, codeFeldLeeren, koppelnMoeglich, neueKennungAnbieten, speicherFehlerText, toolVerbundText, toolZeilen, zeigeCode,
 } from '../src/renderer/src/lib/verbund-texte.ts';
 import type { VerbundClientStand, VerbundStand } from '../src/shared/types.ts';
+import { ANHANG_TEXTE, anhangAnzeige, anhangListeSchritt, leererAnhangZustand, type AnhangListenZustand } from '../src/renderer/src/lib/anhang-liste.ts';
+import type { IveoMaterialRef } from '../src/shared/types.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -503,6 +505,122 @@ function ck(name: string, cond: boolean): void {
   const fehlend = alle.map((e) => kopfanzeige(e).text).filter((t) => !handbuch.includes(`| ${t} |`));
   ck(`E1: Handbuch „Was die Kopfanzeige sagt“ enthält alle ${alle.length} Zeilen der Tabelle 5.4 wörtlich (fehlend: ${fehlend.join(' · ') || '—'})`,
     fehlend.length === 0);
+}
+
+// --- Anhang-Liste des Side-Events-Panels (iveo-Paket, Spec 8.1, 11.3; 12.3 Nr. 8, 9) ----------
+// GEMESSEN am Code (#264): Das Panel lud eine Liste nur, wenn noch keine da war (SideEventsPanel.tsx:66), und der
+// Aufklapp-Zustand ueberlebte das Schliessen. Jetzt entscheidet anhangListeSchritt, die Anzeige anhangAnzeige.
+{
+  const ref = (id: string): IveoMaterialRef => ({ id, label: id, kind: 'file', hasAsset: true });
+  const ergebnis = (id: string, abgerufen: string, materials?: IveoMaterialRef[], error?: string) =>
+    ({ art: 'ergebnis' as const, id, abgerufen, ok: error === undefined, ...(materials ? { materials } : {}), ...(error !== undefined ? { error } : {}) });
+  const T0 = new Date(2026, 9, 17, 14, 5).toISOString();
+  const T1 = new Date(2026, 9, 17, 14, 6).toISOString();
+  const T2 = new Date(2026, 9, 17, 14, 7).toISOString();
+  let z = leererAnhangZustand(null);
+  z = anhangListeSchritt(z, { art: 'aufklappen', id: 'A' }).zustand;
+  z = anhangListeSchritt(z, ergebnis('A', T1, [ref('m1'), ref('m2')])).zustand;
+  const auf = anhangListeSchritt(z, { art: 'aufklappen', id: 'A' });
+  ck('P7 12.3 Nr. 9: Aufklappen mit schon vorhandener Liste → lädt (laden = id), meldet die Beobachtung [id]',
+    auf.laden === 'A' && JSON.stringify(auf.beobachte) === '["A"]' && auf.zustand.listen.A === undefined);
+  const zu = anhangListeSchritt(z, { art: 'zuklappen' });
+  ck('P7 12.3 Nr. 9: Zuklappen → meldet [], nichts zu laden', JSON.stringify(zu.beobachte) === '[]' && zu.laden === null && zu.zustand.materialsOffen === null);
+  const mitFehler = anhangListeSchritt(z, ergebnis('A', T2, undefined, 'Netz weg')).zustand;
+  const pz = anhangListeSchritt(mitFehler, { art: 'panelZu' });
+  ck('P7 12.3 Nr. 9: panelZu → Listen und Fehler leer, materialsOffen null, meldet []',
+    pz.zustand.materialsOffen === null && Object.keys(pz.zustand.listen).length === 0 && Object.keys(pz.zustand.fehler).length === 0
+    && JSON.stringify(pz.beobachte) === '[]');
+  ck('P7 12.3 Nr. 9: danach Aufklappen → lädt', anhangListeSchritt(pz.zustand, { art: 'aufklappen', id: 'A' }).laden === 'A');
+  const ew = anhangListeSchritt(mitFehler, { art: 'eventWechsel' });
+  ck('P7 8.1: eventWechsel → wie panelZu (leer, zugeklappt, meldet [])',
+    ew.zustand.materialsOffen === null && Object.keys(ew.zustand.listen).length === 0 && JSON.stringify(ew.beobachte) === '[]');
+  const alt = anhangListeSchritt(z, ergebnis('A', T0, [ref('m9')]));
+  ck('P7 12.3 Nr. 9: Ergebnis mit älterem abgerufen → verworfen', alt.zustand === z && z.listen.A?.length === 2);
+  const fremd = anhangListeSchritt(z, ergebnis('B', T2, [ref('m9')]));
+  ck('P7 12.3 Nr. 9: Ergebnis für eine nicht beobachtete Liste → verworfen', fremd.zustand === z);
+  const okWeg = anhangListeSchritt(mitFehler, ergebnis('A', T2));
+  ck('P7 12.3 Nr. 9: ok:true löscht den Fehler, die Zeit rückt vor, die Liste bleibt',
+    okWeg.zustand.fehler.A === undefined && okWeg.zustand.abgerufen.A === T2 && okWeg.zustand.listen.A?.length === 2);
+  const spaeterFehler = anhangListeSchritt(z, ergebnis('A', T0, undefined, 'Netz weg'));
+  ck('P7 8.4: Fehler mit der Zeit der letzten gelungenen Prüfung, älter als die Liste → trotzdem übernommen (L3, Diagnose sichtbar)',
+    spaeterFehler.zustand.fehler.A === 'Netz weg' && spaeterFehler.zustand.abgerufen.A === T1 && anhangAnzeige(spaeterFehler.zustand, 'A', true, 0).fall === 'L3');
+  const nurZeit = anhangListeSchritt(auf.zustand, ergebnis('A', T2));
+  ck('P7 8.1: ok ohne materials, Liste noch unbekannt → nichts übernommen (der eigene Abruf kann noch kommen)',
+    nurZeit.zustand === auf.zustand && anhangListeSchritt(nurZeit.zustand, ergebnis('A', T1, [ref('m1')])).zustand.listen.A?.length === 1);
+}
+{
+  // Wechsel des aktiven Side Events im selben Event (12.3 Nr. 9, zweiter Teil)
+  const ref = (id: string): IveoMaterialRef => ({ id, label: id, kind: 'file', hasAsset: true });
+  const T1 = new Date(2026, 9, 17, 14, 6).toISOString();
+  const T2 = new Date(2026, 9, 17, 14, 7).toISOString();
+  let z = leererAnhangZustand('A');
+  z = anhangListeSchritt(z, { art: 'ergebnis', id: 'A', abgerufen: T1, ok: true, materials: [ref('m1'), ref('m2'), ref('m3')] }).zustand;
+  ck('P7 12.3 Nr. 9: aktives A mit Stand, zugeklappt → „📎 3“ (L6)', anhangAnzeige(z, 'A', true, 0).fall === 'L6' && anhangAnzeige(z, 'A', true, 0).zahl === 3);
+  const w = anhangListeSchritt(z, { art: 'aktivWechsel', id: 'B' });
+  ck('P7 12.3 Nr. 9: aktivWechsel(B) → A ohne Zahl (L7), keine Meldung an den Main',
+    anhangAnzeige(w.zustand, 'A', true, 0).fall === 'L7' && anhangAnzeige(w.zustand, 'A', true, 0).zahl === null && w.beobachte === null && w.laden === null);
+  const b = anhangListeSchritt(w.zustand, { art: 'ergebnis', id: 'B', abgerufen: T2, ok: true, materials: [ref('m7')] });
+  ck('P7 12.3 Nr. 9: erstes Ergebnis für B → übernommen (L6)', anhangAnzeige(b.zustand, 'B', true, 0).fall === 'L6' && anhangAnzeige(b.zustand, 'B', true, 0).zahl === 1);
+  const a = anhangListeSchritt(b.zustand, { art: 'ergebnis', id: 'A', abgerufen: T2, ok: true, materials: [ref('m1')] });
+  ck('P7 12.3 Nr. 9: danach eintreffendes Ergebnis für A → verworfen', a.zustand === b.zustand);
+  let o = anhangListeSchritt(z, { art: 'aufklappen', id: 'A' }).zustand;
+  o = anhangListeSchritt(o, { art: 'ergebnis', id: 'A', abgerufen: T1, ok: true, materials: [ref('m1')] }).zustand;
+  const wo = anhangListeSchritt(o, { art: 'aktivWechsel', id: null });
+  ck('P7 8.1: aktivWechsel(null) bei aufgeklapptem A → A behält Liste (weiter beobachtet, L5)',
+    anhangAnzeige(wo.zustand, 'A', true, 0).fall === 'L5' && wo.zustand.aktiv === null);
+  const zuB = anhangListeSchritt(anhangListeSchritt(leererAnhangZustand(null), { art: 'aufklappen', id: 'B' }).zustand,
+    { art: 'ergebnis', id: 'B', abgerufen: T1, ok: true, materials: [ref('m1')] }).zustand;
+  const umA = anhangListeSchritt(zuB, { art: 'aufklappen', id: 'A' }).zustand;
+  ck('P7 8.1: Aufklappen von A vergisst die bisher aufgeklappte, nicht aktive Liste B', umA.listen.B === undefined && umA.materialsOffen === 'A');
+}
+{
+  // 12.3 Nr. 8: Kreuzprodukt der Achsen aus 11.3 → genau eine Zeile L0–L7, Text wörtlich je Klasse
+  const ref = (id: string): IveoMaterialRef => ({ id, label: id, kind: 'file', hasAsset: true });
+  const T = new Date(2026, 9, 17, 14, 5).toISOString();
+  type Erster = 'laeuft' | 'gescheitert' | 'gelungen';
+  const erwartet = (token: boolean, auf: boolean, aktiv: boolean, stand: boolean, erster: Erster, letzte: 'gelungen' | 'gescheitert', leer: boolean): string => {
+    if (!token) return 'L0';
+    if (auf && !stand && erster === 'laeuft') return 'L1';
+    if (auf && !stand && erster === 'gescheitert') return 'L2';
+    if (auf && stand && letzte === 'gescheitert') return 'L3';
+    if (auf && stand && leer) return 'L4';
+    if (auf && stand) return 'L5';
+    if (!auf && aktiv && stand) return 'L6';
+    return 'L7';
+  };
+  const texte: Record<string, (n: number) => string | null> = {
+    L0: () => null, L1: () => 'Lade Anhänge…', L2: () => 'Anhänge konnten nicht geladen werden: Netz weg',
+    L3: () => 'Stand 14:05 · Aktualisieren gescheitert: Netz weg', L4: () => 'Keine Anhänge an diesem Side Event · Stand 14:05',
+    L5: () => 'Stand 14:05', L6: () => null, L7: () => null,
+  };
+  const klassen = new Map<string, { n: number; gut: number }>();
+  for (const token of [true, false]) for (const auf of [true, false]) for (const aktiv of [true, false]) for (const stand of [true, false])
+    for (const erster of ['laeuft', 'gescheitert', 'gelungen'] as Erster[]) for (const letzte of ['gelungen', 'gescheitert'] as const) for (const leer of [true, false]) {
+      if (!stand && erster === 'gelungen') continue; // ein gelungener erster Abruf hinterlässt immer einen Stand
+      const liste = leer ? [] : [ref('m1'), ref('m2')];
+      const z: AnhangListenZustand = {
+        materialsOffen: auf ? 'X' : null, aktiv: aktiv ? 'X' : 'Y',
+        listen: stand ? { X: liste } : {}, abgerufen: stand ? { X: T } : {},
+        fehler: (stand ? letzte === 'gescheitert' : erster === 'gescheitert') ? { X: 'Netz weg' } : {},
+      };
+      const r = anhangAnzeige(z, 'X', token, Date.parse(T));
+      const soll = erwartet(token, auf, aktiv, stand, erster, letzte, leer);
+      const zahlSoll = ['L3', 'L4', 'L5', 'L6'].includes(soll) ? liste.length : null;
+      const gut = r.fall === soll && r.zeile === texte[soll](liste.length) && r.zahl === zahlSoll && r.erneut === (soll === 'L2');
+      const k = klassen.get(soll) ?? { n: 0, gut: 0 };
+      klassen.set(soll, { n: k.n + 1, gut: k.gut + (gut ? 1 : 0) });
+    }
+  for (const fall of ['L0', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7']) {
+    const k = klassen.get(fall) ?? { n: 0, gut: 0 };
+    ck(`P7 12.3 Nr. 8: Kreuz ${fall} (${k.n} Kombinationen) → genau diese Zeile, Text wörtlich, Zahl nur bei bekanntem Stand, „Erneut“ nur in L2`,
+      k.n > 0 && k.gut === k.n);
+  }
+  const ohneText = anhangAnzeige({ materialsOffen: 'X', aktiv: null, listen: {}, abgerufen: {}, fehler: { X: '' } }, 'X', true, 0);
+  ck('P7 11.6: T11 ohne Fehlertext', ohneText.fall === 'L2' && ohneText.zeile === 'Anhänge konnten nicht geladen werden.');
+  ck('P7 11.6: T19 und „Erneut versuchen“ wörtlich, keine ASCII-Anführungszeichen',
+    ANHANG_TEXTE.tooltip === 'Anhänge (Präsentationen, Dateien, Links) anzeigen' && ANHANG_TEXTE.erneut === 'Erneut versuchen'
+    && ANHANG_TEXTE.leereListe === 'Keine Anhänge an diesem Side Event'
+    && !Object.values(ANHANG_TEXTE).some((t) => (typeof t === 'function' ? (t as (a: string, b: string) => string)('x', 'y') : t).includes('"')));
 }
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
