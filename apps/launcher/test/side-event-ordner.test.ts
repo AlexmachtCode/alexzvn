@@ -3046,6 +3046,81 @@ console.log('— P18 Fix-Runde 1');
   }
 }
 
+// ── Block C · P19: Geheimnis-Suche über alle Fälle (Spec 12.4 Nr. 41, E20, G4) — letzter Abschnitt ────────────────
+console.log('— P19 Geheimnis-Suche über alle Fälle (Spec 12.4 Nr. 41)');
+{
+  // Ein eigener Fall mit allen Quellen: echter Client (iveoDownloadClient) mit Token, Weiterleitung auf eine signierte
+  // Adresse, zwei Download-Fehler, deren Meldung die Anfrage-URL trägt (Marker überall bzw. nur am Ende), Anhang-Wächter.
+  const BASIS_URL = 'https://app.my-iveo.de/api/v1';
+  const OK = AttC.datei('m-41a', 'Folien', { size: 1000 });
+  const FEHLER_UEBERALL = AttC.datei('m-41b', 'Kaputt', { size: 1000 });
+  const FEHLER_ENDE = AttC.datei('m-41c', 'Auch kaputt', { size: 1000, ref: AttC.referenz('m-41c', 'ende') });
+  const anfragen: string[] = [];
+  const fetchC: import('@jm/iveo').IveoFetchLike = async (url) => {
+    anfragen.push(url);
+    const kaputt = url.endsWith(FEHLER_UEBERALL.asset!.url) || url.endsWith(FEHLER_ENDE.asset!.url);
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        if (kaputt) c.error(new TypeError(`terminated: ${url}`));
+        else { c.enqueue(new Uint8Array(1000).fill(0x61)); c.close(); }
+      },
+    });
+    return {
+      ok: true, status: 200, url: AttC.SIGNIERT, body,
+      headers: { get: (n: string) => (n.toLowerCase() === 'content-length' ? '1000' : n.toLowerCase() === 'content-type' ? 'application/pdf' : null) },
+      json: async () => ({}), text: async () => '', arrayBuffer: async () => new ArrayBuffer(0),
+    };
+  };
+  const echt = HuelleC.iveoDownloadClient(AttC.TOKEN, BASIS_URL, fetchC);
+  const client = {
+    oeffneAsset: async (ref: string, o?: { signal?: AbortSignal }) => {
+      const r = await echt.oeffneAsset(ref, o);
+      const { body: _b, ...rest } = r as unknown as Record<string, unknown>;
+      AttC.MITSCHRIFT.antworten.push(rest); // jede Antwort des Clients ohne den Datenstrom
+      return r;
+    },
+  };
+  const T = AttC.baueLauf({ downloadClient: client });
+  const agenda = [AttC.punkt('se-1', [OK, FEHLER_UEBERALL, FEHLER_ENDE, AttC.link('m-41d', 'Seite', 'https://example.org/')])];
+  await T.takt(agenda);
+  const w = AnhaengeC.erzeugeAnhangWaechter({
+    aktivProgramId: () => 'se-1', event: () => 'cop31', jetztIso: () => new Date(T.uhr.t).toISOString(),
+    sende: (e) => AttC.MITSCHRIFT.ereignisse.push(e), titelVon: () => 'Klima', log: { info: (m) => T.logs.push(`info ${m}`) },
+  });
+  w.agendaVomKern('se-1', { ok: true, agenda, abgerufen: new Date(T.uhr.t).toISOString() });
+  w.beobachte(['se-1']);
+  ck('P19 12.4 Nr. 41: der Fall erreicht alle Quellen (Datei geladen, zwei Fehler mit Anfrage-URL im Status, Wächter-Ereignisse)',
+    T.fs.inhalt(pathC.join(AttC.BASIS, 'Klima', 'Folien.pdf'))?.length === 1000 && (T.se('se-1')?.probleme.length ?? 0) >= 2
+    && AttC.MITSCHRIFT.ereignisse.length >= 2 && anfragen.every((u) => u.startsWith(`${BASIS_URL}/assets/`)));
+
+  // Heuhaufen: jede geschriebene Datei (Inhalt und Name, auch gelöschte Zwischenstände), jede Logzeile, jeder gemeldete
+  // Stand (alle Statustexte), jedes Ereignis, jede Antwort des Clients. Reine Nutzdaten der Downloads („aaa…“) bleiben draußen.
+  const heu: string[] = [];
+  const nutzdaten = /^[abc]*$/;
+  for (const fs of AttC.MITSCHRIFT.attrappen) {
+    for (const f of fs.alleDateien()) { heu.push(f.pfad); if (!nutzdaten.test(f.inhalt)) heu.push(f.inhalt); }
+    for (const g of fs.geschrieben) if (!nutzdaten.test(g)) heu.push(g);
+    heu.push(...fs.angelegt);
+  }
+  heu.push(...AttC.MITSCHRIFT.logs.flat());
+  for (const s of AttC.MITSCHRIFT.staende) heu.push(JSON.stringify(s));
+  for (const e of AttC.MITSCHRIFT.ereignisse) heu.push(JSON.stringify(e));
+  for (const a of AttC.MITSCHRIFT.antworten) heu.push(JSON.stringify(a));
+  const text = heu.join('\n');
+  const fenster = new Set<string>();
+  for (const r of AttC.MITSCHRIFT.referenzen) for (let i = 0; i + 16 <= r.length; i++) fenster.add(r.slice(i, i + 16));
+  let treffer = 0;
+  let beispiel = '';
+  for (let i = 0; i + 16 <= text.length; i++) {
+    if (fenster.has(text.slice(i, i + 16))) { treffer++; beispiel ||= text.slice(Math.max(0, i - 40), i + 30); }
+  }
+  ck(`P19 12.4 Nr. 41: 0 × „GEHEIM“ in Dateien, Logs, Ständen, Ereignissen und Antworten (${heu.length} Texte)`, !text.includes('GEHEIM'));
+  ck(`P19 12.4 Nr. 41: 0 Treffer für jeden 16-Zeichen-Ausschnitt der ${AttC.MITSCHRIFT.referenzen.length} Referenzen (findet sie auch gekürzt)`, treffer === 0);
+  if (treffer > 0) console.log(`      erster Treffer: …${beispiel}…`);
+  ck('P19 12.4 Nr. 41: der SHA-256 der Referenz steht im Index (erlaubt), die Referenz nicht',
+    text.includes(AnhaengeC.referenzHash(OK) as string) && !text.includes(OK.asset!.url));
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
