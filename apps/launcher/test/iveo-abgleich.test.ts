@@ -1278,7 +1278,7 @@ const speakerWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.start
   ck('Nr. 4: … „Verantwortlich“ wieder aus iveo', ownerVon(datei(u), 'P1') === 'Ana Silva');
   const danach = u.iveo.abrufe.length;
   await u.kern.abfrage();
-  ck('Nr. 4: … ohne Merker und ohne Programmänderung kein Snapshot mehr (innerhalb von 255 s)',!u.iveo.abrufe.slice(danach).some((x) => x.startsWith('snapshot:')));
+  ck('Nr. 4: … ohne Merker und ohne Programmänderung kein Snapshot mehr (innerhalb von 255 s)', !u.iveo.abrufe.slice(danach).some((x) => x.startsWith('snapshot:')));
 }
 {
   // Nr. 6: Umschalten auf die Tagesübersicht, die Speakerliste scheitert.
