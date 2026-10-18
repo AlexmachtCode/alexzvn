@@ -761,7 +761,7 @@ function ck(name: string, cond: boolean): void {
       : abruf === 'keiner' ? ['S7', 'Anhänge: noch nicht abgeglichen', existiert]
       : abruf === 'gescheitert' && standDa ? ['S9', `Anhänge: ${k} von ${n} im Ordner · Stand ${st} · Abgleich gestört: iveo antwortet nicht innerhalb von 15 s (seit 14:06)`, existiert]
       : abruf === 'gescheitert' ? ['S10', 'Anhänge: Abgleich gestört: iveo antwortet nicht innerhalb von 15 s (seit 14:06)', existiert]
-      : n === 0 ? ['S11', `Keine Anhänge · Stand ${st}`, existiert]
+      : n === 0 && problem !== 'grund' ? ['S11', `Keine Anhänge · Stand ${st}`, existiert]
       : kGleich && problem === 'keins' ? ['S12', `Anhänge: ${n} im Ordner · Stand ${st}`, existiert]
       : ['S13', `Anhänge: ${k} von ${n} im Ordner · Stand ${st}${problem === 'grund' ? ' · Agenda.pdf: zu wenig Speicherplatz (frei 512 MB)' : problem === 'warten' ? ' · Deck.pptx: neue Fassung wartet, Datei ist geöffnet' : ''}`, existiert];
     const r = ordnerZeile(x, lokal(15, 0));
@@ -781,6 +781,16 @@ function ck(name: string, cond: boolean): void {
   const wartend = ordnerZeile(se({ aktiv: false, wartetHinter: 'Video.mp4', abruf: 'gescheitert', fehler: { text: 'Agenda in iveo nicht gefunden (404)', seit: iso(lokal(14, 6)) } }), lokal(15, 0));
   ck('P11 12.4 Nr. 28: nicht aktives wartendes Side Event → nie S6, seine Zeile nach S7–S13 (hier T44)',
     wartend.fall === 'S9' && wartend.text === 'Anhänge: 3 von 3 im Ordner · Stand 14:05 · Abgleich gestört: Agenda in iveo nicht gefunden (404) (seit 14:06)');
+
+  // Befund Fix-Runde 1: bei n = 0 verdeckt S11 kein Problem, das kein Warten ist (9.13: jeder Fehler steht in der Zeile)
+  const nullIndex = se({ n: 0, k: 0, probleme: [{ art: 'index-nicht-schreibbar', code: 'EIO' }] });
+  ck('P11 11.2 Fix 1: n = 0 mit Index-Problem → S13 mit T48 (nicht S11), zählt als gestört',
+    ordnerZeile(nullIndex, lokal(15, 0)).fall === 'S13'
+    && ordnerZeile(nullIndex, lokal(15, 0)).text === 'Anhänge: 0 von 0 im Ordner · Stand 14:05 · Index nicht schreibbar (EIO)'
+    && gestoerteSideEvents({ ...kopfStand(), sideEvents: [nullIndex] }) === 1);
+  const nullWartet = se({ n: 0, k: 0, probleme: [{ art: 'ordner-umbenennen-wartet' }] });
+  ck('P11 11.2 Fix 1 Gegenprobe: n = 0 mit nur wartendem Problem bleibt S11, nicht gestört',
+    ordnerZeile(nullWartet, lokal(15, 0)).fall === 'S11' && gestoerteSideEvents({ ...kopfStand(), sideEvents: [nullWartet] }) === 0);
 
   // Zusätze und Problem-Formen (11.2)
   const voll = ordnerZeile(se({ zusaetze: { indexNeuAufgebaut: true, weitererOrdner: 'Klima (Kopie)', bedienerGeaendert: 2, gesperrteEndungen: 1 } }), lokal(15, 0));

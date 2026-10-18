@@ -102,7 +102,7 @@ function zeilenFall(se: SideEventOrdnerStand): ZeilenFall {
   if (se.aktiv && se.wartetHinter !== null) return 'S6';
   if (se.abruf === 'keiner') return se.indexFormat === 'eins' && se.stand !== null ? 'S8' : 'S7';
   if (se.abruf === 'gescheitert') return se.stand !== null ? 'S9' : 'S10';
-  if (se.n === 0) return 'S11';
+  if (se.n === 0 && !se.probleme.some((p) => !WARTEND.has(p.art))) return 'S11';
   if (se.k === se.n && se.probleme.length === 0) return 'S12';
   return 'S13';
 }
@@ -200,7 +200,7 @@ function zusaetze(se: SideEventOrdnerStand): string {
  * Zeile je Side Event (11.2), nur in K7–K10; `se` undefined (nicht im Stand) = S1. Erste zutreffende Bedingung:
  * S1/S2 nicht in der Menge (ohne/mit Ordner) · S3 neueres Indexformat · S4 nicht anlegbar · S5 lädt · S6 aktives wartet
  * hinter dem Download eines anderen · S7/S8 noch kein Abruf (ohne/mit Index und Stand) · S9/S10 gescheitert (mit/ohne
- * früheren Stand) · S11 n = 0 · S12 vollständig · S13 sonst. Zusätze T72, T66, T67, T68 hängen an der Zeile.
+ * früheren Stand) · S11 n = 0 (nur ohne Problem, das kein Warten ist: 9.13) · S12 vollständig · S13 sonst. Zusätze T72, T66, T67, T68 hängen an der Zeile.
  * Ohne Problem (nur k < n) zeigt S13 T48 ohne den Teil „ · ‹Problem›“.
  */
 export function ordnerZeile(
