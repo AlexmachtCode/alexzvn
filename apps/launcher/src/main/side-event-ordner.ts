@@ -6,6 +6,8 @@
 // SICHERHEIT (E20, G4): Asset-Referenz, Weiterleitungsadresse und Token erscheinen in keinem Ergebnis dieses Moduls.
 import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
+import { IveoApiError, IveoAssetAdresseError, type IveoMaterial } from '@jm/iveo';
+import { istGeloescht } from './iveo-anhaenge';
 
 /** Endung je MIME-Typ (aus `iveo-sync.ts:602-616` übernommen; die alte Kopie und `extFor` entfernt Task 30, EP18). */
 export const MIME_EXT: Readonly<Record<string, string>> = {
@@ -261,6 +263,137 @@ export function freierName(wunsch: string, belegt: ReadonlySet<string>): string 
 export function imOrdner(seitenOrdner: string, pfad: string): boolean {
   const r = relative(seitenOrdner, pfad);
   return r !== '' && !r.startsWith('..') && !isAbsolute(r);
+}
+
+// ── Links, Panel-Entscheidungen, Fehlertexte (Spec 9.7, 8.6, 9.13) ──
+
+/**
+ * Linkprüfer (9.7, auch für das Öffnen im Panel, 8.6): ein String; U+0020 am Anfang und Ende fallen weg; danach kein
+ * Zeichen U+0000–U+001F oder U+007F (der WHATWG-Parser entfernte CR, LF und Tab still, gemessen); `new URL` gelingt mit
+ * `http:` oder `https:`; `href` höchstens 2048 Zeichen. Ergebnis ist `href`, nie der Rohtext.
+ */
+export function pruefeLink(roh: unknown): { ok: true; href: string } | { ok: false } {
+  if (typeof roh !== 'string') return { ok: false };
+  const s = roh.replace(/^ +| +$/g, '');
+  if (/[\u0000-\u001f\u007f]/.test(s)) return { ok: false };
+  let u: URL;
+  try {
+    u = new URL(s);
+  } catch {
+    return { ok: false };
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false };
+  return u.href.length <= 2048 ? { ok: true, href: u.href } : { ok: false };
+}
+
+/** Inhalt einer `.url`-Datei (9.7, EP11): genau zwei Zeilen mit CRLF, UTF-8 ohne BOM. */
+export function urlDateiInhalt(href: string): string {
+  return `[InternetShortcut]\r\nURL=${href}\r\n`;
+}
+
+const hatAsset = (m: IveoMaterial): boolean => typeof m.asset?.url === 'string' && m.asset.url !== '';
+
+/** Link-Anhang (9.7, wie `iveo-sync.ts:681`): Kind `link` oder ohne Asset mit `external_url`. */
+export function istLinkAnhang(m: IveoMaterial): boolean {
+  return m.kind === 'link' || (!hatAsset(m) && !!m.external_url);
+}
+
+/** Notices beim Öffnen und Speichern im Panel (Spec 11.6: T15, T53, T54; „Kein Link vorhanden.“ wie `iveo-sync.ts:682`). */
+export const PANEL_TEXTE = {
+  geloescht: 'Anhang wurde in iveo gelöscht.', // T15
+  keinLink: 'Kein Link vorhanden.',
+  linkUngueltig: 'Link ohne gültige Adresse, nicht geöffnet.', // T53
+  ohneDatei: 'Kein Datei-Anhang vorhanden.', // T54
+} as const;
+
+/** Megabyte für Gründe und Logzeilen: MiB, höchstens eine Nachkommastelle, ohne Tausenderpunkt („2048“, „2,5“). */
+export function megabyte(b: number): string {
+  return (b / 1_048_576).toLocaleString('de-DE', { maximumFractionDigits: 1, useGrouping: false });
+}
+
+/** Gründe in Zeile und Log (Spec 11.6 T22 (a)–(s); (r) ist die Meldung des Fehlers, (s) = T77 (a)). */
+export const ORDNER_GRUENDE = {
+  zuGross: (b: number): string => `zu groß (${megabyte(b)} MB, Grenze 2048 MB)`, // (a)
+  mehrDaten: (b: number): string => `mehr Daten als angekündigt (${megabyte(b)} MB)`, // (b)
+  wenigPlatz: (frei: number): string => `zu wenig Speicherplatz (frei ${megabyte(frei)} MB)`, // (c)
+  platzNichtPruefbar: (code: string): string => `Speicherplatz nicht prüfbar (${code})`, // (d)
+  leerlauf: 'keine Daten seit 60 s, abgebrochen', // (e)
+  unvollstaendig: (x: number, y: number): string => `unvollständig (${x} von ${y} Bytes)`, // (f)
+  ohneDatei: 'in iveo ohne Datei', // (g)
+  linkUngueltig: 'Link ohne gültige Adresse', // (h)
+  ungueltigerAnhang: (feld: string): string => `ungültiger Anhang in iveo (${feld})`, // (i)
+  pfadZuLang: 'Pfad zu lang', // (j)
+  schreibfehler: (code: string): string => `Schreibfehler (${code})`, // (k)
+  entferntKeinOrdner: '„entfernt“ ist kein Ordner', // (l)
+  agendaFehlt: 'Agenda in iveo nicht gefunden (404)', // (m)
+  dateiFehlt: 'Datei in iveo nicht gefunden (404)', // (n)
+  token: 'Token ungültig/abgelaufen oder API-Zugang deaktiviert (401).', // (o)
+  server: (status: number): string => `iveo-Server-Fehler (HTTP ${status})`, // (p)
+  zeitgrenze: 'iveo antwortet nicht innerhalb von 15 s', // (q)
+  adresse: 'Datei-Adresse auf anderem Server ohne https', // (s) = T77 (a)
+} as const;
+
+/** Was das Panel mit einem Anhang tut (8.6). Den Wert von `asset.url` gibt der Helfer nie heraus. */
+export type PanelSchritt = { art: 'link'; href: string } | { art: 'datei'; vorschlag: string; gesperrt: string | null } | { art: 'fehler'; text: string };
+
+/**
+ * Entscheidung beim Öffnen bzw. Speichern im Panel (8.6), in dieser Reihenfolge: gelöscht → T15; Link ohne `external_url`
+ * → „Kein Link vorhanden.“, sonst `pruefeLink` (ungültig → T53); Datei ohne Asset → T54; sonst `datei` mit dem Namen, den
+ * der Ordner bekäme (9.12 Regeln 1–10, ohne Pfadbudget), und der gesperrten Endung.
+ */
+export function panelAnhangSchritt(m: IveoMaterial): PanelSchritt {
+  if (istGeloescht(m)) return { art: 'fehler', text: PANEL_TEXTE.geloescht };
+  if (istLinkAnhang(m)) {
+    if (!m.external_url) return { art: 'fehler', text: PANEL_TEXTE.keinLink };
+    const l = pruefeLink(m.external_url);
+    return l.ok ? { art: 'link', href: l.href } : { art: 'fehler', text: PANEL_TEXTE.linkUngueltig };
+  }
+  if (!hatAsset(m)) return { art: 'fehler', text: PANEL_TEXTE.ohneDatei };
+  const mime = m.asset?.mime_type;
+  const r = ordnerPfad({ art: 'datei', seitenOrdner: null, label: m.label, kind: 'file', mime: typeof mime === 'string' ? mime : null });
+  return r.ok ? { art: 'datei', vorschlag: r.name, gesperrt: r.gesperrt } : { art: 'fehler', text: ORDNER_GRUENDE.pfadZuLang };
+}
+
+/**
+ * Darf der Launcher die im Panel gespeicherte Datei öffnen (8.6)? Nur ohne gesperrte Endung aus dem Label und nur, wenn
+ * die letzte Endung des im Dialog gewählten Namens nicht auf der Sperrliste steht. Punkte und Leerzeichen am Ende zählen
+ * nicht (Windows entfernt sie beim Anlegen, „Bericht.exe.“ wäre sonst „Bericht.exe“).
+ */
+export function panelDateiOeffnen(gewaehlterName: string, gesperrt: string | null): boolean {
+  if (gesperrt !== null) return false;
+  const name = (String(gewaehlterName).split(/[\\/]/).pop() ?? '').replace(/[. ]+$/, '');
+  return !GESPERRTE_ENDUNGEN.has(letzteEndung(name));
+}
+
+/** Abbruchgrund des Laufs (9.6): `leerlauf` ist ein Fehler, `bedienung` (Generationswechsel, 9.4) keiner. */
+export type AbbruchGrund = 'leerlauf' | 'bedienung';
+
+/** Jede Adresse ab `http://` oder `https://` bis zum nächsten Leerraum → „‹Adresse›“ (9.13, 12.4 Nr. 41). */
+export function ohneAdressen(text: string): string {
+  return text.replace(/https?:\/\/\S+/gi, '‹Adresse›');
+}
+
+/**
+ * Fehlertext des Ordner-Teils (9.13), für Zeile und Log; null = kein Fehler (Grund `bedienung`). `wo` unterscheidet
+ * die 404-Texte (bei `datei` gilt der Download-Text). Dateisystemfehler = Fehler mit Node-Code `E…`. Sonst die Meldung des
+ * Fehlers: Adressen ersetzt, dann ohne Zeilenumbrüche auf 200 Codepunkte gekürzt (in dieser Reihenfolge, sonst bliebe
+ * der Anfang einer gekürzten Adresse stehen).
+ */
+export function ordnerFehlerText(e: unknown, wo: 'agenda' | 'download' | 'datei', grund?: AbbruchGrund): string | null {
+  if (grund === 'bedienung') return null;
+  if (grund === 'leerlauf') return ORDNER_GRUENDE.leerlauf;
+  if (e instanceof IveoAssetAdresseError) return ORDNER_GRUENDE.adresse;
+  if (e instanceof IveoApiError) {
+    if (e.status === 404) return wo === 'agenda' ? ORDNER_GRUENDE.agendaFehlt : ORDNER_GRUENDE.dateiFehlt;
+    if (e.status === 401) return ORDNER_GRUENDE.token;
+    if (e.status >= 500) return ORDNER_GRUENDE.server(e.status);
+  }
+  const x = e as { name?: unknown; code?: unknown; message?: unknown } | null | undefined;
+  if (x?.name === 'TimeoutError' || x?.name === 'AbortError') return ORDNER_GRUENDE.zeitgrenze;
+  if (typeof x?.code === 'string' && /^E[A-Z0-9]+$/.test(x.code)) return ORDNER_GRUENDE.schreibfehler(x.code);
+  const roh = typeof x?.message === 'string' ? x.message : typeof e === 'string' ? e : '';
+  const text = ohneAdressen(roh).replace(/\s*[\r\n]+\s*/g, ' ').trim();
+  return text === '' ? 'iveo: unbekannter Fehler.' : Array.from(text).slice(0, 200).join('');
 }
 
 // ── Ende des Moduls ──
