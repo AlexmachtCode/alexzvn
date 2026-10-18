@@ -33,7 +33,7 @@ export type AnhangListenEreignis =
   | { art: 'panelZu' }
   | { art: 'eventWechsel' }
   | { art: 'aktivWechsel'; id: string | null }
-  | { art: 'ergebnis'; id: string; abgerufen: string; ok: boolean; materials?: IveoMaterialRef[]; error?: string };
+  | { art: 'ergebnis'; id: string; abgerufen: string; ok: boolean; materials?: IveoMaterialRef[]; error?: string; begann?: string };
 
 export function leererAnhangZustand(aktiv: string | null): AnhangListenZustand {
   return { materialsOffen: null, aktiv, listen: {}, abgerufen: {}, fehler: {} };
@@ -66,7 +66,8 @@ const zeitVon = (iso: string | undefined): number => (iso ? Date.parse(iso) : Nu
  * - panelZu, eventWechsel: alle Listen und Fehler leer, zugeklappt, meldet `[]`.
  * - aktivWechsel: neue Kennung (null = Tagesübersicht); die bisher aktive wird vergessen, wenn sie nicht aufgeklappt ist (L7).
  * - ergebnis: nur für beobachtete Listen. Ein Fehler ohne Liste (`ok: false`, ohne `materials`) gilt immer: Er trägt die
- *   Zeit der letzten gelungenen Prüfung, nicht seine eigene, und muss sichtbar werden (Diagnose). Sonst wird ein älteres
+ *   Zeit der letzten gelungenen Prüfung, nicht seine eigene, und muss sichtbar werden (Diagnose) – es sei denn, er bringt
+ *   seinen Beginn (`begann`) mit und der liegt vor dieser Zeit: dann ist er von einer jüngeren Prüfung überholt. Sonst wird ein älteres
  *   `abgerufen` als das gespeicherte verworfen (Abruf und Wächter kreuzen sich); ohne `materials` rückt nur die Zeit einer
  *   schon bekannten Liste vor. `ok: true` löscht den Fehler.
  */
@@ -95,6 +96,8 @@ export function anhangListeSchritt(
       const unveraendert = { zustand: z, laden: null, beobachte: null };
       if (!beobachtet(z, e.id)) return unveraendert;
       if (!e.ok && e.materials === undefined) {
+        // Ein Fehlschlag, der vor der gespeicherten gelungenen Prüfung begann, ist überholt (überholtes Laden, Wächter-Takt).
+        if (z.listen[e.id] !== undefined && e.begann !== undefined && zeitVon(e.begann) < zeitVon(z.abgerufen[e.id])) return unveraendert;
         return { zustand: { ...z, fehler: { ...z.fehler, [e.id]: e.error ?? '' } }, laden: null, beobachte: null };
       }
       const bekannt = z.listen[e.id] !== undefined;

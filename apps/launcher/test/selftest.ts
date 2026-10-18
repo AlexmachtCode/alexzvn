@@ -547,6 +547,18 @@ function ck(name: string, cond: boolean): void {
   const nurZeit = anhangListeSchritt(auf.zustand, ergebnis('A', T2));
   ck('P7 8.1: ok ohne materials, Liste noch unbekannt → nichts übernommen (der eigene Abruf kann noch kommen)',
     nurZeit.zustand === auf.zustand && anhangListeSchritt(nurZeit.zustand, ergebnis('A', T1, [ref('m1')])).zustand.listen.A?.length === 1);
+  // Fix-Runde 1: ein Fehlschlag, der VOR der gespeicherten gelungenen Prüfung begann, ist überholt (überholtes Laden, Wächter-Takt)
+  const fehl = (begann?: string) => ({ ...ergebnis('A', T1, undefined, 'Zeitueberschreitung'), ...(begann ? { begann } : {}) });
+  const veraltet = anhangListeSchritt(z, fehl(T0));
+  ck('P7 8.4 Fix: Fehlschlag, der vor der gespeicherten Prüfung begann → verworfen (kein T14 über einem jüngeren Erfolg)',
+    veraltet.zustand === z && anhangAnzeige(veraltet.zustand, 'A', true, 0).fall === 'L5');
+  const jung = anhangListeSchritt(z, fehl(T2));
+  ck('P7 8.4 Fix: Fehlschlag, der nach der gespeicherten Prüfung begann → übernommen (L3)',
+    jung.zustand.fehler.A === 'Zeitueberschreitung' && anhangAnzeige(jung.zustand, 'A', true, 0).fall === 'L3');
+  const ohneBeginn = anhangListeSchritt(z, fehl());
+  ck('P7 8.4 Fix: Fehlschlag ohne Beginn → wie bisher übernommen', ohneBeginn.zustand.fehler.A === 'Zeitueberschreitung');
+  const ohneListe = anhangListeSchritt(auf.zustand, fehl(T0));
+  ck('P7 8.4 Fix: Fehlschlag ohne bekannte Liste → übernommen (L2), Beginn ändert nichts', ohneListe.zustand.fehler.A === 'Zeitueberschreitung');
 }
 {
   // Wechsel des aktiven Side Events im selben Event (12.3 Nr. 9, zweiter Teil)
