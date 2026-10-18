@@ -28,8 +28,8 @@ import {
   type IveoSnapshot,
 } from '../src/index';
 import {
-  createShow, hatEigeneTimerListe, loeseDoppelteKennungenAuf, migrateShow, normalizeAblauf, parseShow, serializeShow,
-  showFuerVerbund, VERBUND_EINSTELLUNGEN, type Show,
+  createShow, hatEigeneTimerListe, loeseDoppelteKennungenAuf, migrateShow, normalisiereOrganisationen, normalizeAblauf,
+  parseShow, serializeShow, showFuerVerbund, VERBUND_EINSTELLUNGEN, type Show,
 } from '@jm/show';
 import { kennungenAus, kennungsBericht, kennungsForm, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from '../tools/messung-2b-kern';
 
@@ -763,6 +763,80 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   ok(!('speakerVeraltetSeit' in (binde({ speakers: [{ name: 'Ada' }] }) ?? {})), '@jm/show: ohne Merker kein Feld');
 }
 
+// ── @jm/show: Organisationen am Speaker (iveo-Paket P1, Spec 5.3, E1, E2, E4; 12.1 Nr. 2–4) ──
+{
+  const N = normalisiereOrganisationen;
+  const gleich = (ist: unknown, soll: unknown): boolean => JSON.stringify(ist) === JSON.stringify(soll);
+
+  // 12.1 Nr. 2: die gemeinsame Regel für Mapper und Normalisierer (Schritte 1–6 aus 5.3).
+  ok([undefined, null, 'UNFCCC', 42, { 0: 'A' }].every((w) => gleich(N(w), [])), 'P1 12.1 Nr. 2: kein Array → []');
+  ok(gleich(N([1, null, { name: 'A' }, ['B'], true, 'C']), ['C']), 'P1 12.1 Nr. 2: Nicht-Strings fallen weg');
+  ok(gleich(N(['Café']), ['Café']), 'P1 12.1 Nr. 2: NFC');
+  ok(
+    gleich(N(['  A \t B\n  C  ', '   ', '']), ['A B C']),
+    'P1 12.1 Nr. 2: jede Folge von Leerraum wird ein Leerzeichen, trim, leer fällt weg',
+  );
+  ok(
+    gleich(N(['a'.repeat(200)]), ['a'.repeat(200)]) && gleich(N(['a'.repeat(201)]), ['a'.repeat(200)]),
+    'P1 12.1 Nr. 2: 200 Codepunkte bleiben, 201 werden auf 200 gekürzt',
+  );
+  ok(
+    gleich(N(['a'.repeat(199) + '\u{1F600}b']), ['a'.repeat(199) + '\u{1F600}']),
+    'P1 12.1 Nr. 2: Emoji an der Grenze bleibt ganz (Codepunkte, nie ein halbes Surrogatpaar)',
+  );
+  ok(gleich(N(['a'.repeat(199) + ' b']), ['a'.repeat(199)]), 'P1 12.1 Nr. 2: nach dem Kürzen erneut trim');
+  const einundzwanzig = Array.from({ length: 21 }, (_, i) => `Org ${i + 1}`);
+  ok(gleich(N(einundzwanzig), einundzwanzig.slice(0, 20)), 'P1 12.1 Nr. 2: 20 bleiben, der 21. fällt weg');
+  ok(
+    gleich(N(['A', 'B', 'A', ' A ', 'a']), ['A', 'B', 'a']),
+    'P1 12.1 Nr. 2: Doppelte nur einmal (nach Leerraum; Groß- und Kleinschreibung zählt)',
+  );
+  ok(gleich(N(['D', 'D', ...einundzwanzig]), ['D', ...einundzwanzig.slice(0, 19)]), 'P1 12.1 Nr. 2: Doppelte zählen nicht zu den 20');
+  ok(gleich(N(['Zeta', 'Alpha', 'Mu']), ['Zeta', 'Alpha', 'Mu']), 'P1 12.1 Nr. 2: Reihenfolge bleibt (kein Sortieren)');
+  const roh = ['  B ', 'A'];
+  N(roh);
+  ok(gleich(roh, ['  B ', 'A']), 'P1 12.1 Nr. 2: Eingabe bleibt unverändert');
+
+  // 12.1 Nr. 3: Normalisierer der Show (OR2), Feldreihenfolge id, name, title, organisationen.
+  const binde = (iveo: Record<string, unknown>) =>
+    parseShow(JSON.stringify({ schemaVersion: 1, name: 'S', tools: [], iveo: { event: 'cop31', ...iveo } })).iveo;
+  const sp = binde({
+    speakers: [{ organisationen: ['UNFCCC', '  Ministerium  für Umwelt '], title: 'Ministerin', name: 'Ana', id: 'sp-1' }],
+  })?.speakers?.[0];
+  ok(
+    gleich(sp, { id: 'sp-1', name: 'Ana', title: 'Ministerin', organisationen: ['UNFCCC', 'Ministerium für Umwelt'] }),
+    'P1 12.1 Nr. 3: Normalisierer behält organisationen (nach der gemeinsamen Regel)',
+  );
+  ok(
+    gleich(Object.keys(sp ?? {}), ['id', 'name', 'title', 'organisationen']),
+    'P1 12.1 Nr. 3: Schlüsselreihenfolge des Speakers ["id","name","title","organisationen"]',
+  );
+  const ohne =
+    binde({ speakers: [{ name: 'A', organisationen: [] }, { name: 'B', organisationen: ['  ', 7] }, { name: 'C', organisationen: 'UNFCCC' }] })
+      ?.speakers ?? [];
+  ok(ohne.length === 3 && ohne.every((s) => !('organisationen' in s)), 'P1 12.1 Nr. 3: leere oder ungültige Liste → Feld fehlt');
+  const doppelt =
+    binde({ speakers: [{ id: 'X', name: 'a', organisationen: ['A'] }, { id: 'X', name: 'b', organisationen: ['B'] }] })?.speakers ?? [];
+  ok(
+    gleich(doppelt, [{ id: 'X', name: 'a', organisationen: ['A'] }, { id: 'X#2', name: 'b', organisationen: ['B'] }]),
+    'P1 12.1 Nr. 3: doppelte Kennung → #2, organisationen bleiben (loeseDoppelteKennungenAuf)',
+  );
+
+  // 12.1 Nr. 4: serializeShow → parseShow behält das Feld; ein Speaker ohne Organisation bleibt ohne.
+  const text = serializeShow({
+    ...createShow('Organisationen'),
+    iveo: {
+      event: 'cop31',
+      speakers: [{ id: 'sp-1', name: 'Ada', title: 'Moderation', organisationen: ['UNFCCC', 'GIZ'] }, { name: 'Ohne Organisation' }],
+    },
+  });
+  ok(
+    JSON.stringify(parseShow(text).iveo?.speakers) ===
+      '[{"id":"sp-1","name":"Ada","title":"Moderation","organisationen":["UNFCCC","GIZ"]},{"name":"Ohne Organisation"}]',
+    'P1 12.1 Nr. 4: serializeShow → parseShow behält organisationen',
+  );
+}
+
 // ── @jm/show: Ausschnitt für den Verbund (Teil 2b Release 2, Spec 14, 19.2) ──
 {
   /** Jedes Tool aus Tabelle 14.2, dazu Dokumente, Netz-Bindungen, Basis-URL und fremde Schlüssel. */
@@ -802,7 +876,7 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
       baseUrl: 'https://iveo.example/api/v1',
       name: 'COP31',
       syncedAt: '2026-10-08T08:00:00.000Z',
-      speakers: [{ name: 'Ana Silva', title: 'Ministerin' }],
+      speakers: [{ name: 'Ana Silva', title: 'Ministerin', organisationen: ['UNFCCC', 'Ministerium für Umwelt'] }],
       speakerVeraltetSeit: '2026-10-08T07:30:00.000Z',
       sideEvents: [{ id: 'P1', title: 'Klima' }],
       filter: { day: '2026-11-10', programId: 'P1' },
@@ -853,6 +927,12 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   ok(
     JSON.stringify(Object.keys(r.show)) === '["schemaVersion","name","updatedAt","tools","ablauf","iveo"]' && r.show.ablauf?.[0]?.id === 'a1',
     'showFuerVerbund: schemaVersion, name, updatedAt und Ablauf mit Kennungen reisen',
+  );
+  ok(
+    JSON.stringify(r.show.iveo?.speakers) ===
+      '[{"name":"Ana Silva","title":"Ministerin","organisationen":["UNFCCC","Ministerium für Umwelt"]}]' &&
+      r.show.iveo?.speakers?.[0]?.organisationen !== eingabe.iveo?.speakers?.[0]?.organisationen,
+    'P1 12.1 Nr. 9: showFuerVerbund reicht organisationen weiter (als eigene Kopie)',
   );
   const leer = showFuerVerbund(createShow('Leer'));
   ok(

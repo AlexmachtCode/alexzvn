@@ -72,6 +72,8 @@ export interface ShowIveoSpeaker {
   name: string;
   /** Funktion/Rolle (z. B. „Lead Negotiator"). */
   title?: string;
+  /** Namen der Organisationen aus iveo, Hauptorganisation zuerst; ohne Kennungen und Rollen (iveo-Paket, Spec 5.3) */
+  organisationen?: string[];
 }
 
 /**
@@ -94,7 +96,7 @@ export interface ShowIveoProgramRef {
 export interface ShowIveoBinding {
   /** iveo Event-Slug oder UUID. */
   event: string;
-  /** Basis-URL der iveo-API (kein Secret; Default = Staging). */
+  /** Basis-URL der iveo-API (kein Secret; Default = Production). */
   baseUrl?: string;
   /** Anzeigename des Events (Komfort/Anzeige). */
   name?: string;
@@ -216,6 +218,33 @@ export function loeseDoppelteKennungenAuf<T extends { id?: string }>(liste: T[])
   });
 }
 
+/** Höchstlänge eines Organisationsnamens in Codepunkten und Höchstzahl je Speaker (iveo-Paket, Spec 5.3, E4). */
+const ORGANISATION_MAX_ZEICHEN = 200;
+const ORGANISATIONEN_MAX = 20;
+
+/**
+ * Organisationsnamen eines Speakers normalisieren (iveo-Paket, Spec 5.3, E2, E4) — die EINE Regel für den iveo-Mapper
+ * (`organisationenVon` in @jm/iveo) und den Normalisierer der Show; die Ausgabe des Mappers ist so ein Fixpunkt.
+ * Kein Array → []. Je Element nur Strings: NFC, jede Folge von Leerraum wird ein Leerzeichen, trim; leer → weg. Länger
+ * als 200 Codepunkte → auf 200 Codepunkte gekürzt (nie mitten in einem Surrogatpaar), danach erneut trim. Doppelte
+ * (exakt gleicher String, Groß- und Kleinschreibung zählt) nur das erste Vorkommen, höchstens 20 Einträge. Die
+ * Reihenfolge bleibt; die Eingabe wird nicht verändert.
+ */
+export function normalisiereOrganisationen(wert: unknown): string[] {
+  if (!Array.isArray(wert)) return [];
+  const aus: string[] = [];
+  for (const roh of wert as unknown[]) {
+    if (typeof roh !== 'string') continue;
+    let name = roh.normalize('NFC').replace(/\s+/g, ' ').trim();
+    const zeichen = Array.from(name);
+    if (zeichen.length > ORGANISATION_MAX_ZEICHEN) name = zeichen.slice(0, ORGANISATION_MAX_ZEICHEN).join('').trim();
+    if (!name || aus.includes(name)) continue;
+    aus.push(name);
+    if (aus.length === ORGANISATIONEN_MAX) break;
+  }
+  return aus;
+}
+
 /**
  * Ablauf normalisieren (Teil 2a, Spec 3.1/3.5): je Punkt wie beim Lesen einer Show (ohne Titel
  * fällt er weg, `id` nur als String mit 1–200 Zeichen nach trim), danach doppelte Kennungen
@@ -259,10 +288,13 @@ function normalizeIveoBinding(value: unknown): ShowIveoBinding | null {
         const name = typeof sp.name === 'string' ? sp.name.trim() : '';
         if (!name) return null;
         // Kennung wie am Ablaufpunkt (Teil 2b, Spec 5.1): nur als String mit 1–200 Zeichen nach trim, sonst
-        // entfällt das Feld (der Speaker bleibt). `id` steht vorn: feste Feldreihenfolge id, name, title.
+        // entfällt das Feld (der Speaker bleibt). `id` steht vorn: feste Feldreihenfolge id, name, title, organisationen.
         const id = typeof sp.id === 'string' ? sp.id.trim() : '';
         const speaker: ShowIveoSpeaker = id && id.length <= ABLAUF_ID_MAX ? { id, name } : { name };
         if (typeof sp.title === 'string' && sp.title.trim()) speaker.title = sp.title.trim();
+        // Organisationen (iveo-Paket, Spec 5.3): dieselbe Regel wie der iveo-Mapper; leer → Feld fehlt (wie `title`).
+        const orgs = normalisiereOrganisationen(sp.organisationen);
+        if (orgs.length) speaker.organisationen = orgs;
         return speaker;
       })
       .filter((s): s is ShowIveoSpeaker => s !== null);
@@ -445,6 +477,7 @@ export function showFuerVerbund(show: Show): VerbundAusschnitt {
   if (m.iveo) {
     // Auch die Bindung über eine Freigabeliste (Spec 0 Nr. 4, 14.1, 22): jedes Feld ausdrücklich, nie `baseUrl`. Ein
     // neues Feld der Bindung reist erst, wenn es hier steht. Fehlende Felder (undefined) lässt die JSON-Kopie unten weg.
+    // `speakers` reist als Ganzes (iveo-Paket, Spec 5.3): Felder eines Speakers reisen mit, sobald der Normalisierer sie kennt.
     const { event, name, syncedAt, speakers, speakerVeraltetSeit, sideEvents, filter } = m.iveo;
     ausschnitt.iveo = { event, name, syncedAt, speakers, speakerVeraltetSeit, sideEvents, filter };
   }
