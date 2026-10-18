@@ -609,6 +609,308 @@ console.log('— P12 Plan je Side Event (Spec 9.5)');
     && kurz(plane({ a: anh({ id: 'm-1', kind: 'file', label: 'Bericht', asset: { mime_type: 'application/pdf', size_bytes: 1 } as unknown as MaterialC['asset'] }) })) === 'fehler m-1 Bericht.pdf: in iveo ohne Datei');
 }
 
+// ── Block C · P13: Lauf-Gerüst – Bedingungen (9.2), Sperrdatei, Ende der Ablage ──────────────────────────────────
+import * as LaufC from '../src/main/side-event-ordner-lauf';
+import * as AttC from './ordner-attrappe';
+import * as ZeilenC from '../src/renderer/src/lib/ordner-zeilen';
+
+console.log('— P13 Wer ablegt (Spec 9.2), Sperrdatei, Ende der Ablage');
+{
+  const SPERRE = pathC.join(AttC.BASIS, OrdnerC.SPERR_DATEI);
+  const sperreVon = (fs: AttC.FsAttrappe): { rechner?: string; sitzung?: string; pid?: number; lebenszeichen?: string } | null => {
+    const t = fs.inhalt(SPERRE);
+    return t === null ? null : JSON.parse(t);
+  };
+  // Zugriffe seit einer Marke zählen (die Attrappe protokolliert jeden Aufruf).
+  const ab = (fs: AttC.FsAttrappe) => {
+    const n = fs.protokoll.length;
+    return () => fs.protokoll.slice(n);
+  };
+  const ops = (liste: Array<{ op: string; p: string }>): string =>
+    liste.map((x) => `${x.op} ${x.p === AttC.SHOW_PFAD ? 'Show' : x.p.startsWith(SPERRE) ? 'Sperre' : pathC.relative(AttC.ROOT, x.p)}`).join(', ');
+
+  {
+    // Nr. 26: Show-Datei fehlt → nur die Prüfung; wieder da → nächster Takt legt ab
+    const T = AttC.baueLauf({ ohneShowDatei: true });
+    T.fs.ordner(AttC.BASIS);
+    const seit = ab(T.fs);
+    await T.takt();
+    await T.takt();
+    ck('P13 12.4 Nr. 26: Show-Datei fehlt → je Takt nur ihre Prüfung, kein weiterer Zugriff, kein Abruf',
+      ops(seit()) === 'readFile Show, readFile Show' && T.agenda.aufrufe.length === 0);
+    ck('P13 12.4 Nr. 26: … Stand für K4 (showDatei fehlt), keine Sperre geschrieben',
+      T.lauf.stand().showDatei === 'fehlt' && sperreVon(T.fs) === null);
+    T.fs.lege(AttC.SHOW_PFAD, '{ kein JSON');
+    await T.takt();
+    ck('P13 9.11: Show-Datei nicht lesbar (kein gültiges JSON) → showDatei nicht-lesbar, keine Sperre',
+      T.lauf.stand().showDatei === 'nicht-lesbar' && sperreVon(T.fs) === null);
+    T.fs.lege(AttC.SHOW_PFAD, AttC.showText([{ id: 'se-1', title: 'Klima' }], { programId: 'se-1' }));
+    await T.takt();
+    ck('P13 12.4 Nr. 26: Show-Datei wieder da → der nächste Takt legt ab (Sperre dieser Sitzung geschrieben)',
+      T.lauf.stand().showDatei === 'da' && sperreVon(T.fs)?.rechner === 'REGIE-1' && T.lauf.stand().basis?.existiert === true);
+  }
+
+  {
+    // Nr. 27: je eigener Fall kein iveo-Abruf; Zugriffe nur nach den Ausnahmen aus 9.2
+    const fall = async (name: string, setze: (T: ReturnType<typeof AttC.baueLauf>) => void, erwartet: string, mehr: (T: ReturnType<typeof AttC.baueLauf>) => boolean = () => true) => {
+      const T = AttC.baueLauf();
+      T.fs.ordner(AttC.BASIS);
+      setze(T);
+      const seit = ab(T.fs);
+      await T.takt();
+      await T.takt();
+      const gesehen = ops(seit());
+      ck(`P13 12.4 Nr. 27: ${name} → kein iveo-Abruf, Zugriffe: ${erwartet || 'keine'}`, gesehen === erwartet && T.agenda.aufrufe.length === 0 && mehr(T));
+    };
+    await fall('Rolle slave', (T) => { T.z.rolle = 'slave'; }, '');
+    await fall('Rolle slave ohne Kopplung (Stand nennt die Rolle für K1)', (T) => { T.z.rolle = 'slave'; }, '', (T) => T.lauf.stand().rolle === 'slave');
+    await fall('kein Token', (T) => { T.z.token = false; }, '', (T) => T.lauf.stand().tokenDa === false);
+    await fall('Schalter aus', (T) => { T.z.schalter = false; }, `stat ${pathC.relative(AttC.ROOT, AttC.BASIS)}, stat ${pathC.relative(AttC.ROOT, AttC.BASIS)}`,
+      (T) => T.lauf.stand().schalterAn === false && T.lauf.stand().basis?.existiert === true && T.lauf.ordnerPfadFuer() === AttC.BASIS);
+    const fremd = JSON.stringify({ format: 1, rechner: 'REGIE-2', pid: 99, sitzung: 'fremd-1', lebenszeichen: new Date(Date.UTC(2026, 9, 16, 7, 59)).toISOString() });
+    await fall('fremde gültige Sperre', (T) => { T.fs.lege(SPERRE, fremd); }, 'readFile Show, readFile Sperre, readFile Show, readFile Sperre',
+      (T) => T.lauf.stand().sperre?.art === 'fremd' && T.lauf.stand().sperre?.rechner === 'REGIE-2');
+  }
+  {
+    // Schalter aus und eine stat, die nicht zurückkehrt: höchstens eine je Takt, keine zweite, solange sie aussteht
+    const T = AttC.baueLauf();
+    T.z.schalter = false;
+    T.fs.haengtBei('stat', (p) => p === AttC.BASIS);
+    for (let i = 0; i < 3; i++) { T.lauf.takt(); await AttC.ruhe(); await T.uhr.spule(45_000, 45_000); }
+    ck('P13 12.4 Nr. 27: Schalter aus, stat hängt → über drei Takte genau eine stat, sonst kein Zugriff',
+      T.fs.zaehle('stat') === 1 && T.fs.protokoll.length === 1 && T.fs.haengend === 1);
+  }
+  {
+    // namensgleiche Sperre: nur Show-Datei und Sperrdatei, dann bis zur neuen Sitzung gar nichts mehr
+    const fs = new AttC.FsAttrappe('NTFS');
+    fs.ordner(AttC.BASIS);
+    const A = AttC.baueLauf({ fs });
+    const B = AttC.baueLauf({ fs });
+    await A.takt();
+    await B.takt(); // B übernimmt als „eigen aus einer früheren Sitzung“
+    const seit = ab(fs);
+    await A.takt(); // A merkt: dieselbe Kennung des Rechners, andere Sitzung, er hielt sie schon → namensgleich
+    await A.takt();
+    ck('P13 12.4 Nr. 27: namensgleiche Sperre → kein Abruf; Zugriffe nur Show-Datei und Sperrdatei, danach keiner mehr',
+      ops(seit()) === 'readFile Show, readFile Sperre' && A.agenda.aufrufe.length === 0);
+  }
+  {
+    // Token fällt mitten in der Sitzung weg: danach außer dem einmaligen Löschen der eigenen Sperre kein Zugriff
+    const T = AttC.baueLauf();
+    T.fs.ordner(AttC.BASIS);
+    await T.takt();
+    const vorher = sperreVon(T.fs)?.sitzung;
+    T.z.token = false;
+    const seit = ab(T.fs);
+    await T.takt();
+    await T.takt();
+    await T.takt();
+    ck('P13 12.4 Nr. 27: Token fällt mitten in der Sitzung weg (Kern weiter aktiv) → einmal Sperre lesen und löschen, sonst nichts',
+      typeof vorher === 'string' && ops(seit()) === 'readFile Sperre, unlink Sperre' && sperreVon(T.fs) === null);
+  }
+
+  {
+    // Nr. 40 (a): zwei Rechner auf derselben Ablage
+    const fs = new AttC.FsAttrappe('NTFS');
+    fs.ordner(AttC.BASIS);
+    const uhr = new AttC.TestUhr();
+    const A = AttC.baueLauf({ fs, uhr, rechner: 'REGIE-1' });
+    const B = AttC.baueLauf({ fs, uhr, rechner: 'REGIE-2', pid: 5000 });
+    await A.takt();
+    const seit = ab(fs);
+    await B.takt();
+    const sB = B.lauf.stand().sperre;
+    ck('P13 12.4 Nr. 40 (a): zwei Rechner → nur einer hält die Sperre, der andere liest nur Show-Datei und Sperrdatei',
+      sperreVon(fs)?.rechner === 'REGIE-1' && ops(seit()) === 'readFile Show, readFile Sperre');
+    ck('P13 12.4 Nr. 40 (a): … sein Stand nennt den fremden Rechner und dessen Lebenszeichen (K5, T57), nie den eigenen Namen',
+      sB?.art === 'fremd' && sB.rechner === 'REGIE-1' && sB.lebenszeichen === new Date(uhr.t).toISOString());
+    ck('P13 9.13, 11.1 K5: „Ordner öffnen“ auf dem Rechner ohne Sperre führt zum Basisordner (er hat die Sperrdatei daraus gelesen, OF10)',
+      ZeilenC.kopfzeile(B.lauf.stand(), uhr.t).ordnerOeffnen && B.lauf.ordnerPfadFuer() === AttC.BASIS);
+    await uhr.spule(14 * 60_000 + 59_000, 60_000);
+    await B.takt();
+    ck('P13 12.4 Nr. 40 (a): Lebenszeichen 14:59 min alt → weiter fremd', B.lauf.stand().sperre?.art === 'fremd' && sperreVon(fs)?.rechner === 'REGIE-1');
+    await uhr.spule(1_000);
+    await B.takt();
+    ck('P13 12.4 Nr. 40 (a): Lebenszeichen genau 15 min alt → übernommen, kein K5 mehr',
+      sperreVon(fs)?.rechner === 'REGIE-2' && B.lauf.stand().sperre === null);
+    await A.takt();
+    ck('P13 12.4 Nr. 40 (a): der erste Rechner sieht danach die Sperre des zweiten (fremd) und legt nicht mehr ab',
+      A.lauf.stand().sperre?.art === 'fremd' && A.lauf.stand().sperre?.rechner === 'REGIE-2' && sperreVon(fs)?.rechner === 'REGIE-2');
+  }
+  {
+    // Nr. 40 (b): Neustart mit gleichem Rechnernamen, neuer Sitzung und neuer pid, Lebenszeichen 1 min alt
+    const fs = new AttC.FsAttrappe('NTFS');
+    fs.ordner(AttC.BASIS);
+    const uhr = new AttC.TestUhr();
+    const A = AttC.baueLauf({ fs, uhr });
+    await A.takt();
+    const sitzungA = sperreVon(fs)?.sitzung;
+    await uhr.spule(60_000, 60_000);
+    const B = AttC.baueLauf({ fs, uhr, pid: 5000 }); // A ist „beendet“ (taktet nicht mehr)
+    await B.takt();
+    ck('P13 12.4 Nr. 40 (b): Neustart → übernimmt im ersten Takt (Regel 3), kein K5, kein eigener Name in einer Zeile',
+      B.lauf.stand().sperre === null && sperreVon(fs)?.sitzung !== sitzungA && sperreVon(fs)?.pid === 5000);
+    // ebenso nach einem Show-Wechsel hin und zurück im selben Lauf
+    B.z.aktiv = { path: pathC.join(AttC.ROOT, 'Shows', 'Andere.jmshow'), event: 'cop31', filter: { programId: 'se-1' } };
+    B.lauf.sitzung();
+    await B.lauf.ruhig();
+    B.z.aktiv = { path: AttC.SHOW_PFAD, event: 'cop31', filter: { programId: 'se-1' } };
+    B.lauf.sitzung();
+    await B.takt();
+    ck('P13 12.4 Nr. 40 (b): Show-Wechsel hin und zurück → übernimmt im ersten Takt, kein K5',
+      B.lauf.stand().sperre === null && typeof sperreVon(fs)?.sitzung === 'string' && sperreVon(fs)?.pid === 5000);
+  }
+  {
+    // Nr. 40 (c): Ende der Ablage je Auslöser → eigene Sperre gelöscht; ein wartender Rechner übernimmt im nächsten Takt
+    const ausloeser: Array<[string, (T: ReturnType<typeof AttC.baueLauf>) => Promise<void>]> = [
+      ['Rolle wird slave', async (T) => { T.z.rolle = 'slave'; await T.takt(); }],
+      ['Token fällt weg', async (T) => { T.z.token = false; await T.takt(); }],
+      ['Schalter aus', async (T) => { T.z.schalter = false; await T.takt(); }],
+      ['andere Show geöffnet', async (T) => { T.z.aktiv = { path: pathC.join(AttC.ROOT, 'Shows', 'Andere.jmshow'), event: 'cop31', filter: {} }; T.lauf.sitzung(); await T.lauf.ruhig(); }],
+      ['beenden()', async (T) => { T.lauf.beenden(); await T.lauf.ruhig(); }],
+    ];
+    for (const [name, tu] of ausloeser) {
+      const fs = new AttC.FsAttrappe('NTFS');
+      fs.ordner(AttC.BASIS);
+      const uhr = new AttC.TestUhr();
+      const A = AttC.baueLauf({ fs, uhr });
+      const B = AttC.baueLauf({ fs, uhr, rechner: 'REGIE-2', pid: 5000 });
+      await A.takt();
+      await B.takt();
+      await tu(A);
+      const geloescht = sperreVon(fs) === null;
+      await uhr.spule(45_000, 45_000);
+      await B.takt();
+      ck(`P13 12.4 Nr. 40 (c): ${name} → eigene Sperre gelöscht, der wartende Rechner übernimmt im nächsten Takt`,
+        geloescht && sperreVon(fs)?.rechner === 'REGIE-2' && B.lauf.stand().sperre === null);
+    }
+    {
+      const T = AttC.baueLauf();
+      T.fs.ordner(AttC.BASIS);
+      await T.takt();
+      T.fs.lege(SPERRE, JSON.stringify({ format: 1, rechner: 'REGIE-1', pid: 1, sitzung: 'eine-andere', lebenszeichen: new Date(T.uhr.t).toISOString() }));
+      T.z.rolle = 'slave';
+      await T.takt();
+      ck('P13 12.4 Nr. 40 (c): trägt die Sperre inzwischen eine andere Sitzung, bleibt sie', sperreVon(T.fs)?.sitzung === 'eine-andere');
+    }
+    {
+      const T = AttC.baueLauf();
+      T.fs.ordner(AttC.BASIS);
+      await T.takt();
+      await T.fs.rename(AttC.SHOW_PFAD, AttC.SHOW_PFAD + '.x');
+      await T.takt();
+      ck('P13 12.4 Nr. 40 (c): Show-Datei fehlt → Sperre bleibt (die Ablage läuft weiter, sobald sie wieder da ist)',
+        T.lauf.stand().showDatei === 'fehlt' && sperreVon(T.fs)?.rechner === 'REGIE-1');
+    }
+    {
+      const T = AttC.baueLauf();
+      T.fs.ordner(AttC.BASIS);
+      await T.takt();
+      T.fs.fehlerBei('unlink', (p) => p === SPERRE, 'EPERM');
+      T.z.schalter = false;
+      await T.takt();
+      ck('P13 12.4 Nr. 40 (c): Löschen scheitert → T75 im Log',
+        T.logs.includes('warn iveo-Ordner: Sperrdatei in „COP31 Tag 1 – Side Events“ nicht gelöscht (EPERM); ein anderer Rechner übernimmt die Ablage erst nach 15 Minuten.'));
+    }
+  }
+  {
+    // Nr. 40 (d): zwei Läufe mit gleichem Rechnernamen
+    const fs = new AttC.FsAttrappe('NTFS');
+    fs.ordner(AttC.BASIS);
+    const uhr = new AttC.TestUhr();
+    const A = AttC.baueLauf({ fs, uhr });
+    const B = AttC.baueLauf({ fs, uhr, pid: 5000 });
+    await A.takt();
+    await B.takt();
+    const sitzungB = sperreVon(fs)?.sitzung;
+    await uhr.spule(45_000, 45_000);
+    await A.takt();
+    await B.takt();
+    await uhr.spule(45_000, 45_000);
+    await A.takt();
+    await B.takt();
+    const sA = A.lauf.stand().sperre;
+    ck('P13 12.4 Nr. 40 (d): namensgleich → ab dem nächsten Takt des ersten legt nur noch einer ab (die Sperre bleibt beim zweiten)',
+      sperreVon(fs)?.sitzung === sitzungB && B.lauf.stand().sperre === null);
+    ck('P13 12.4 Nr. 40 (d): … der andere zeigt K5 namensgleich (T73) mit dem Rechnernamen und löscht die Sperre nicht',
+      sA?.art === 'namensgleich' && sA.rechner === 'REGIE-1' && fs.zaehle('unlink', (p) => p === SPERRE) === 0);
+  }
+  {
+    // Nr. 40 (b): Show neu geöffnet, das angestoßene Löschen der alten Sperre hängt am Laufwerk; der nächste Takt darf
+    // seine neue Sperre erst danach schreiben, sonst löscht das späte unlink sie wieder (zwei Rechner sähen „frei“).
+    const T = AttC.baueLauf();
+    T.fs.ordner(AttC.BASIS);
+    await T.takt();
+    const alt = sperreVon(T.fs)?.sitzung;
+    const tor = T.fs.torBei('unlink', (p) => p === SPERRE);
+    T.lauf.sitzung();
+    await AttC.ruhe();
+    T.lauf.takt();
+    await AttC.ruhe();
+    tor.weiter();
+    await T.lauf.ruhig();
+    const neu = sperreVon(T.fs)?.sitzung;
+    ck('P13 12.4 Nr. 40 (b): das Löschen der alten Sperre wartet am Laufwerk → der nächste Takt wartet darauf, die neue Sperre bleibt stehen',
+      tor.erreicht() && typeof alt === 'string' && typeof neu === 'string' && neu !== alt);
+  }
+  {
+    // OFP6, 11.1 K6: Sperrdatei im vorhandenen Basisordner nicht lesbar bzw. nicht schreibbar → eigener Text (T78), nächster
+    // Versuch = nächster Takt (vor der ersten Runde gibt es kein „gegen“; „--:--“ oder die Zeit einer vorigen Runde wären falsch).
+    const hhmm = (ms: number): string => new Date(ms).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    const NAME = pathC.basename(AttC.BASIS);
+    const agenda = [AttC.punkt('se-1', [AttC.datei('m-1', 'Folien')])];
+    const k6 = async (setze: (fs: AttC.FsAttrappe) => void) => {
+      const T = AttC.baueLauf();
+      T.fs.ordner(AttC.BASIS);
+      setze(T.fs);
+      const t = T.takt(agenda);
+      await T.uhr.spule(1_000, 50); // bis zu fünf Versuche im Abstand von 50 ms beim Umbenennen
+      await t;
+      return { T, k: ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t) };
+    };
+    {
+      const { T, k } = await k6((fs) => fs.fehlerBei('readFile', (p) => p === SPERRE, 'EACCES'));
+      // Ein Lesefehler außer ENOENT und ENOTDIR zeigt den Ordner: „Ordner öffnen“ bleibt (Festlegung 18.10.2026, OFP6).
+      const nd = await k6((fs) => fs.fehlerBei('readFile', (p) => p === SPERRE, 'ENOTDIR'));
+      ck('P13 11.1 K6, OFP6: Sperrdatei vor der ersten Runde nicht lesbar (EACCES) → T78 „… nicht lesbar“, nächster Versuch gegen den nächsten Takt, „Ordner öffnen“ (bei ENOTDIR nicht)',
+        k.fall === 'K6' && k.text === `Sperrdatei in „${NAME}“ nicht lesbar (EACCES). Nächster Versuch gegen ${hhmm(T.uhr.t + 45_000)}.` && T.agenda.aufrufe.length === 0
+        && k.ordnerOeffnen && T.lauf.ordnerPfadFuer() === AttC.BASIS
+        && nd.k.fall === 'K6' && nd.k.text === `Sperrdatei in „${NAME}“ nicht lesbar (ENOTDIR). Nächster Versuch gegen ${hhmm(nd.T.uhr.t + 45_000)}.`
+        && !nd.k.ordnerOeffnen && nd.T.lauf.ordnerPfadFuer() === null);
+      T.fs.regelnLoeschen();
+      await T.uhr.spule(45_000, 45_000);
+      await T.takt(agenda);
+      ck('P13 11.1 K6: der nächste Takt versucht es wirklich; lesbar → K6 weg, die Sperre dieser Sitzung steht',
+        T.lauf.stand().basis?.fehler === null && sperreVon(T.fs)?.rechner === 'REGIE-1' && ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t).fall !== 'K6');
+    }
+    {
+      const { T, k } = await k6((fs) => fs.fehlerBei('rename', (p) => p.startsWith(`${SPERRE}.`), 'EPERM'));
+      ck('P13 11.1 K6, OFP6: Sperrdatei nicht schreibbar (EPERM beim Umbenennen, fünf Versuche) → T78 „… nicht schreibbar“, „Ordner öffnen“ (der Ordner ist da)',
+        k.fall === 'K6' && k.text === `Sperrdatei in „${NAME}“ nicht schreibbar (EPERM). Nächster Versuch gegen ${hhmm(T.uhr.t + 45_000)}.` && k.ordnerOeffnen
+        && T.fs.zaehle('rename', (p) => p.startsWith(`${SPERRE}.`)) === 5 && !T.fs.namen(AttC.BASIS).some((n) => n.endsWith('.tmp')));
+    }
+    {
+      const { T, k } = await k6((fs) => fs.fehlerBei('open', (p) => p.startsWith(`${SPERRE}.`), 'EROFS'));
+      ck('P13 11.1 K6: Basisordner nur lesbar (EROFS beim Anlegen der Zwischendatei) vor der ersten Runde → Zeit des nächsten Takts, nicht „--:--“',
+        k.fall === 'K6' && k.text === `Sperrdatei in „${NAME}“ nicht schreibbar (EROFS). Nächster Versuch gegen ${hhmm(T.uhr.t + 45_000)}.`);
+    }
+  }
+  {
+    // 9.12 Regel 11, 12.4 Nr. 35: Der Basisordner ist eine Verknüpfung → K6, die Sperre wird nicht geschrieben, nichts darunter
+    const T = AttC.baueLauf();
+    const WOANDERS = pathC.join(AttC.ROOT, 'woanders');
+    T.fs.ordner(WOANDERS);
+    T.fs.verknuepfung(AttC.BASIS, WOANDERS);
+    await T.takt([AttC.punkt('se-1', [AttC.datei('m-1', 'Folien')])]);
+    const unter = T.fs.protokoll.filter((x) => [x.p, x.p2].some((p) => p !== undefined && p.startsWith(`${AttC.BASIS}${pathC.sep}`)));
+    const k = ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t);
+    ck('P13 9.12 Regel 11, 12.4 Nr. 35: Basisordner als Verknüpfung → K6 „nicht anlegbar (Verknüpfung)“, darunter nur das Lesen der Sperrdatei',
+      k.fall === 'K6' && (k.text ?? '').startsWith(`Ordner „${pathC.basename(AttC.BASIS)}“ nicht anlegbar (Verknüpfung).`)
+      && unter.every((x) => x.op === 'readFile') && T.fs.namen(WOANDERS).length === 0 && T.agenda.aufrufe.length === 0);
+  }
+  ck('P13 9.2: T75 wörtlich', LaufC.LAUF_TEXTE.sperreNichtGeloescht('X', 'EPERM') === 'iveo-Ordner: Sperrdatei in „X“ nicht gelöscht (EPERM); ein anderer Rechner übernimmt die Ablage erst nach 15 Minuten.');
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

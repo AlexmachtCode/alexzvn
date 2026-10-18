@@ -270,8 +270,11 @@ export interface AnhangOrdnerStand {
   showDatei: 'da' | 'fehlt' | 'nicht-lesbar';
   /** Nur bei Regel 5 (fremd) und Regel 4 (namensgleich); eigen, frei und abgelaufen → null. `rechner` aus der Sperrdatei. */
   sperre: null | { art: 'fremd' | 'namensgleich'; rechner: string; lebenszeichen: string };
-  /** Basisordner `‹Stamm› – Side Events` (9.1); `fehler` = nicht anlegbar (K6). */
-  basis: null | { name: string; pfad: string; existiert: boolean; fehler: null | { code: string } };
+  /**
+   * Basisordner `‹Stamm› – Side Events` (9.1); `fehler` = nicht anlegbar (K6), mit `sperre` die Sperrdatei darin nicht
+   * lesbar bzw. nicht schreibbar (K6, OFP6); `naechsterVersuch` = Zeit des nächsten Versuchs (11.1).
+   */
+  basis: null | { name: string; pfad: string; existiert: boolean; fehler: null | { code: string; naechsterVersuch: string; sperre?: 'lesen' | 'schreiben' } };
   /** Laufende Runde: Schritt i von n (K7). */
   runde: null | { i: number; n: number };
   ersteRundeGestartet: boolean;

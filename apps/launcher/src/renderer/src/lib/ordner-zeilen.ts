@@ -12,7 +12,7 @@ const KEIN_FORTSCHRITT_NACH_MS = 105_000;
 /** Ein anderer Rechner übernimmt eine fremde Sperre 15 min nach ihrem Lebenszeichen (9.2 Regel 6, SPERRE_ABLAUF_MS). */
 const UEBERNAHME_NACH_MS = 900_000;
 
-/** Texte der Ablage im Panel (Spec 11.6: T26, T30, T32–T48, T52, T57–T68, T72, T73, T76; Problem-Formen 11.2). */
+/** Texte der Ablage im Panel (Spec 11.6: T26, T30, T32–T48, T52, T57–T68, T72, T73, T76; T78 neu, OFP6; Problem-Formen 11.2). */
 export const ORDNER_ZEILEN_TEXTE = {
   schalter: 'Anhänge in Side-Event-Ordnern ablegen', // T26
   ordnerOeffnen: 'Ordner öffnen', // T30
@@ -21,6 +21,8 @@ export const ORDNER_ZEILEN_TEXTE = {
   ausgeschaltet: 'Ablage in Side-Event-Ordnern ausgeschaltet.', // T34
   showDateiFehlt: 'Show-Datei am Öffnungspfad nicht gefunden oder nicht lesbar. Ablage pausiert, bis sie wieder da ist.', // T35
   nichtAnlegbar: (name: string, code: string, gegen: string): string => `Ordner „${name}“ nicht anlegbar (${code}). Nächster Versuch gegen ${gegen}.`, // T36
+  sperreFehler: (name: string, wie: 'lesbar' | 'schreibbar', code: string, gegen: string): string =>
+    `Sperrdatei in „${name}“ nicht ${wie} (${code}). Nächster Versuch gegen ${gegen}.`, // T78 (neu, OFP6)
   laeuft: (name: string, i: number, n: number): string => `Ablage: „${name}“ · Abgleich läuft (${i} von ${n})`, // T37
   bereit: (name: string, gegen: string): string => `Ablage: „${name}“ · nächster Abgleich gegen ${gegen}`, // T38
   bereitLeer: (name: string, gegen: string): string => `Ablage: „${name}“ · noch nichts abgelegt · nächster Abgleich gegen ${gegen}`, // T39
@@ -118,7 +120,8 @@ export function gestoerteSideEvents(stand: AnhangOrdnerStand): number {
 /**
  * Kopfzeile (11.1), erste zutreffende Bedingung: K0 keine Show (keine Zeile; das Panel zeigt T52) · K1 Rolle slave ·
  * K2 kein Token · K3 Schalter aus · K4 Show-Datei fehlt oder nicht lesbar · K5 fremde (T57) bzw. namensgleiche (T73)
- * Sperre · K6 Basisordner nicht anlegbar · K7 Runde läuft (nach mehr als 105 s ohne Fortschritt T76) · K8 erste Runde
+ * Sperre · K6 Basisordner nicht anlegbar (T36) bzw. Sperrdatei nicht lesbar oder schreibbar (T78) · K7 Runde läuft
+ * (nach mehr als 105 s ohne Fortschritt T76) · K8 erste Runde
  * ausstehend · K9 bereit, Basisordner da · K10 bereit, Basisordner fehlt (K9/K10 mehr als 45 s nach „gegen“: T59).
  * T64 hängt an K7 und K9, wenn ein Side Event gestört ist.
  */
@@ -144,7 +147,11 @@ export function kopfzeile(
   }
   const gegen = zeitVon(stand.naechsteRundeGegen);
   if (stand.basis?.fehler) {
-    return { fall: 'K6', text: T.nichtAnlegbar(name, stand.basis.fehler.code, uhrzeit(gegen)), schalter: true, ordnerOeffnen: false, tooltip };
+    // K6: die Zeit nennt der Fehler selbst (nächster Versuch); an der Sperrdatei ist der Ordner meist da (OFP6, 9.13)
+    const f = stand.basis.fehler;
+    const versuch = uhrzeit(zeitVon(f.naechsterVersuch));
+    if (f.sperre) return { fall: 'K6', text: T.sperreFehler(name, f.sperre === 'lesen' ? 'lesbar' : 'schreibbar', f.code, versuch), schalter: true, ordnerOeffnen: existiert, tooltip };
+    return { fall: 'K6', text: T.nichtAnlegbar(name, f.code, versuch), schalter: true, ordnerOeffnen: false, tooltip };
   }
   const m = gestoerteSideEvents(stand);
   const zusatz = m > 0 ? T.gestoerteZusatz(m) : '';
