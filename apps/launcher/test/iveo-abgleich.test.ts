@@ -1968,6 +1968,14 @@ const seWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.startsWith
   const ohneDatei = organisationenAusDatei(frisch, roh(), [{ name: 'Ana Silva' }]);
   ck('P20 5.10: Datei ohne Organisationen → kein feldFehlt, die frische Liste unverändert', !ohneDatei.feldFehlt && ohneDatei.speakers === frisch);
   ck('P20 5.10: leere Speakerliste aus iveo → kein feldFehlt', !organisationenAusDatei([], [], dateiMit).feldFehlt);
+  // Fix-Runde 1: feldFehlt nur, wenn mindestens ein frischer Speaker Organisationen aus der Datei übernommen hat.
+  const keinTreffer = organisationenAusDatei([{ name: 'Bo Berg' }], roh(), [{ name: 'Ana Silva', organisationen: ['UNFCCC'] }]);
+  ck('P20 5.10: Datei hat Organisationen, aber kein frischer Speaker bekommt welche → kein feldFehlt',
+    !keinTreffer.feldFehlt && JSON.stringify(keinTreffer.speakers) === '[{"name":"Bo Berg"}]');
+  const keineFrischen = organisationenAusDatei([], roh(), dateiMit);
+  ck('P20 5.10: Datei hat Organisationen, frische Liste leer → kein feldFehlt', !keineFrischen.feldFehlt);
+  ck('P20 5.10: Gegenprobe, ein frischer Speaker bekommt Organisationen → feldFehlt',
+    organisationenAusDatei([{ name: 'Bo Berg' }, { id: 'sp1', name: 'Ana Silva' }], roh(), dateiMit).feldFehlt);
   ck('P20 T51: Text der Statuszeile wörtlich', TEXT_ORG_FEHLEN === T51);
   ck('P20 6.5: Merker „Organisationen fehlen“ allein → Statuszeile T51, „seit“ = Merker',
     JSON.stringify(statusAusMerkern({ orgFehlenSeit: MERKER })) === JSON.stringify({ ok: false, text: T51, seit: MERKER }));

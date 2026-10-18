@@ -308,7 +308,8 @@ function ohneOrganisationsFeld(roh: IveoSpeaker[]): boolean {
  * iveo-Paket, Spec 5.10: `frisch` sind die aus `roh` (Speakerliste aus iveo) gebauten Speaker, `datei` die der Datei.
  * Trägt kein Speaker in `roh` das Feld und hat die Datei Organisationen, bekommt jeder frische Speaker die Organisationen
  * des Datei-Speakers mit derselben Kennung, sonst mit demselben Namen nach Trimmen (der Mapper setzt keine Kennung); ohne
- * Treffer bleibt das Feld weg, und `feldFehlt` ist wahr (Merker `orgFehlenSeit`). Sonst gilt `frisch` unverändert. Beim
+ * Treffer bleibt das Feld weg; `feldFehlt` ist wahr, wenn mindestens ein frischer Speaker Organisationen übernommen hat
+ * (Merker `orgFehlenSeit`). Sonst gilt `frisch` unverändert. Beim
  * Binden gibt es keine Datei; dort gilt die Liste, wie sie kommt (iveo-sync.ts nutzt diese Regel nicht).
  */
 export function organisationenAusDatei(
@@ -323,7 +324,7 @@ export function organisationenAusDatei(
     const orgs = gegenstueck(s)?.organisationen;
     return orgs?.length ? { ...s, organisationen: [...orgs] } : s;
   });
-  return { speakers, feldFehlt: true };
+  return { speakers, feldFehlt: speakers.some((s) => s.organisationen?.length) };
 }
 
 /** Merker, die die Statuszeile zeigt (Teil 2b, 2b R2, iveo-Paket Spec 6.5), aus der Datei und aus dem Speicher. */
