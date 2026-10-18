@@ -1253,6 +1253,117 @@ console.log('— P14 Warteschlange, Runde, Generation, Ablage-Menge (Spec 9.3, 9
   }
 }
 
+// ── Block C · P14 Fix-Runde 1: Generation mit hängendem Eintrag, Pause in K4/K6, K6 nach langer Runde, Stand ohne Ordner ──
+console.log('— P14 Fix-Runde 1 (Generationswechsel, K4/K6 mit Warteschlange, lange Runde, Abruf ohne Ordner)');
+{
+  const isoF = (ms: number): string => new Date(ms).toISOString();
+  const SPERRE_F = pathC.join(AttC.BASIS, OrdnerC.SPERR_DATEI);
+  const SE_F = [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }, { id: 'se-3', title: 'Wald' }];
+  {
+    // Befund 1 und 5: Generationswechsel, während der Abruf von se-2 hängt
+    let gibFrei: (a: unknown) => void = () => undefined;
+    const T = AttC.baueLauf({ sideEvents: SE_F });
+    let ersterAbruf = true; // nur der erste Abruf hängt, die späteren antworten sofort
+    T.agenda.agenden.set('se-2', () => (ersterAbruf ? ((ersterAbruf = false), new Promise((ok) => { gibFrei = ok; })) : Promise.resolve([])));
+    T.lauf.takt();
+    await AttC.ruhe();
+    T.lauf.sitzung();
+    await AttC.ruhe();
+    T.lauf.takt();
+    await AttC.ruhe();
+    ck('P14 Fix 5, 9.4: nach dem Generationswechsel beginnt im Ordner-Teil kein zweiter Abruf, solange der alte hängt',
+      T.g.max === 1 && T.agenda.aufrufe.join(',') === 'se-2');
+    gibFrei([]);
+    await T.lauf.ruhig();
+    for (let i = 0; i < 12; i++) { await T.uhr.spule(45_000, 45_000); await T.takt([]); }
+    const s = T.lauf.stand();
+    ck('P14 Fix 1, 9.4: nach dem Generationswechsel mit hängendem Eintrag wird die Runde fertig (kein dauerhaftes K7)',
+      s.runde === null && T.se('se-2')?.abruf === 'gelungen' && T.se('se-3')?.abruf === 'gelungen' && ZeilenC.kopfzeile(s, T.uhr.t).fall !== 'K7');
+    ck('P14 Fix 1, 9.4: jede Runde danach läuft (se-2 und se-3 mehrfach abgerufen)',
+      T.agenda.aufrufe.filter((x) => x === 'se-2').length >= 3 && T.agenda.aufrufe.filter((x) => x === 'se-3').length >= 3);
+  }
+  {
+    // Befund 2 A: die Show-Datei verschwindet, während der Abruf von se-2 hängt → K4, danach keine Arbeit mehr
+    let gibFrei: (a: unknown) => void = () => undefined;
+    const T = AttC.baueLauf({ sideEvents: SE_F });
+    T.fs.ordner(AttC.BASIS);
+    T.agenda.agenden.set('se-2', () => new Promise((ok) => { gibFrei = ok; }));
+    T.lauf.takt();
+    await AttC.ruhe();
+    T.fs.fehlerBei('readFile', (p) => p === AttC.SHOW_PFAD, 'ENOENT');
+    await T.uhr.spule(45_000, 45_000);
+    T.lauf.takt();
+    await AttC.ruhe();
+    const k4 = ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t).fall;
+    const seit = T.fs.protokoll.length;
+    gibFrei([AttC.punkt('se-2', [AttC.datei('m-2', 'Spät')])]);
+    await T.lauf.ruhig();
+    T.fs.regelnLoeschen();
+    ck('P14 Fix 2, 9.2, 9.11, 12.4 Nr. 26: K4 → die Warteschlange ruft nicht weiter ab und fasst kein Dateisystem an',
+      k4 === 'K4' && T.agenda.aufrufe.join(',') === 'se-2' && T.fs.protokoll.slice(seit).every((x) => x.op === 'readFile') && !T.fs.gibt(pathC.join(AttC.BASIS, 'Wasser')));
+  }
+  {
+    // Befund 2 B: Sperrdatei in einer späteren Runde nicht lesbar → K6 bleibt stehen, die Warteschlange arbeitet nicht weiter
+    let gibFrei: (a: unknown) => void = () => undefined;
+    const T = AttC.baueLauf({ sideEvents: SE_F });
+    T.fs.ordner(AttC.BASIS);
+    T.agenda.agenden.set('se-2', () => new Promise((ok) => { gibFrei = ok; }));
+    T.lauf.takt();
+    await AttC.ruhe();
+    T.fs.fehlerBei('readFile', (p) => p === SPERRE_F, 'EACCES');
+    await T.uhr.spule(45_000, 45_000);
+    T.lauf.takt();
+    await AttC.ruhe();
+    const seit = T.fs.protokoll.length;
+    gibFrei([AttC.punkt('se-2', [AttC.datei('m-2', 'Spät')])]);
+    await T.lauf.ruhig();
+    const k = ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t);
+    T.fs.regelnLoeschen();
+    ck('P14 Fix 2, 9.13: Sperrdatei nicht lesbar → die Warteschlange arbeitet nicht weiter, die Diagnose (T78) bleibt',
+      k.fall === 'K6' && T.lauf.stand().basis?.fehler?.sperre === 'lesen' && T.agenda.aufrufe.join(',') === 'se-2'
+      && !T.fs.protokoll.slice(seit).some((x) => x.op === 'mkdir' || x.op === 'open'));
+  }
+  {
+    // Befund 3: Runde länger als 270 s, Basisordner nicht anlegbar → K6 nennt nie eine vergangene Zeit, kein Versuch je Eintrag
+    const liste = Array.from({ length: 8 }, (_, i) => ({ id: `se-${i + 1}`, title: `Titel ${i + 1}` }));
+    const T = AttC.baueLauf({ sideEvents: liste });
+    for (const p of liste.slice(1)) {
+      T.agenda.agenden.set(p.id, () => new Promise((ok) => { T.uhr.setTimeout(() => ok([AttC.punkt(p.id, [AttC.datei(`m-${p.id}`, 'Folien')])]), 60_000); }));
+    }
+    T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+    T.lauf.takt();
+    await AttC.ruhe();
+    const luegen: string[] = [];
+    for (let i = 0; i < 9; i++) {
+      await T.uhr.spule(45_000, 45_000);
+      T.lauf.takt();
+      await AttC.ruhe();
+      const s = T.lauf.stand();
+      const k = ZeilenC.kopfzeile(s, T.uhr.t);
+      const bis = Date.parse(s.basis?.fehler?.naechsterVersuch ?? '');
+      if (s.basis?.fehler && (!(bis > T.uhr.t) || k.text?.includes('überfällig'))) luegen.push(`${(T.uhr.t - Date.parse('2026-10-16T08:00:00Z')) / 1000}:${k.text}`);
+    }
+    ck('P14 Fix 3, 11.1 K6: Runde länger als 270 s → der genannte nächste Versuch liegt nie in der Vergangenheit, nie T59', luegen.length === 0);
+    ck('P14 Fix 3, 9.4: Runde länger als 270 s → ein Versuch zur genannten Zeit, danach bis zum Ende der Runde keiner je Eintrag (zwei mkdir)',
+      T.fs.zaehle('mkdir', (p) => p === AttC.BASIS) === 2 && s0(T) === 'EACCES');
+  }
+  {
+    // Befund 4: Abruf gelingt, Ordner nicht anlegbar → die Zeile zeigt den gelungenen Abruf
+    const T = AttC.baueLauf({ sideEvents: SE_F.slice(0, 2) });
+    T.agenda.agenden.set('se-2', new IveoApiErrorC(404, 'not_found', 'Programm fehlt'));
+    await T.takt([]);
+    const davor = T.se('se-2')?.abruf;
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [AttC.datei('m-2', 'Folien')])]);
+    T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+    await T.uhr.spule(270_000, 45_000);
+    await T.takt([]);
+    const s2 = T.se('se-2');
+    ck('P14 Fix 4, G8: Abruf gelungen, aber Basisordner nicht anlegbar → abruf gelungen, Fehler des früheren Abrufs weg, Stand gesetzt',
+      davor === 'gescheitert' && s2?.abruf === 'gelungen' && s2.fehler === null && s2.stand === isoF(T.uhr.t) && s2.existiert === false);
+  }
+}
+function s0(T: ReturnType<typeof AttC.baueLauf>): string | undefined { return T.lauf.stand().basis?.fehler?.code; }
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

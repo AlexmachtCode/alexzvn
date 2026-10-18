@@ -120,6 +120,8 @@ interface Lauf {
   aktivAgenda: { programId: string; e: AgendaErgebnis } | null;
   queue: Eintrag[];
   laeuft: Eintrag | null;
+  /** Offener Agenda-Abruf des Ordner-Teils (auch einer alten Generation): ein neuer wartet darauf (9.4: nie zwei zugleich). */
+  abrufOffen: Promise<void> | null;
   nachlauf: Map<string, Eintrag>;
   arbeiterGen: number | null;
   rundeStartMs: number | null;
@@ -148,7 +150,7 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     d, fs: d.fs, taktMs: d.taktMs ?? IVEO_ABFRAGE_TAKT_MS, leerlaufMs: d.leerlaufMs ?? 60_000,
     gen: 0, abbruch: new AbortController(), sitzung: d.neueSitzungsKennung(), gehalten: null, darf: false,
     abgesetzt: false, beendet: false, beschaeftigt: 0, warter: [], taktLaeuft: false, statLaeuft: false, sperreLoeschen: null,
-    aktivAgenda: null, queue: [], laeuft: null, nachlauf: new Map(), arbeiterGen: null,
+    aktivAgenda: null, queue: [], laeuft: null, abrufOffen: null, nachlauf: new Map(), arbeiterGen: null,
     rundeStartMs: null, runde: null, menge: [], liste: [], basisFehlerBis: null,
     se: new Map(), kopf: leererKopf(), letzteMeldung: '',
   };
@@ -207,6 +209,7 @@ function neueGeneration(L: Lauf): void {
   L.abbruch.abort();
   L.abbruch = new AbortController();
   L.queue = [];
+  L.laeuft = null; // der alte Arbeiter hält ihn nicht mehr für diese Generation (sonst landet ein Eintrag der neuen im Nachlauf, der nie abgearbeitet wird)
   L.nachlauf.clear();
   L.runde = null;
   L.kopf.runde = null;
@@ -232,6 +235,13 @@ function neueSitzung(L: Lauf): void {
     L.sperreLoeschen = p;
     void beschaeftigt(L, p).finally(() => { if (L.sperreLoeschen === p) L.sperreLoeschen = null; });
   }
+}
+
+/** K4 und K6: Sperre bleibt, die Ablage pausiert; Warteschlange und laufender Eintrag enden (9.2, 9.11), die Runde beginnt danach neu. */
+function pausiere(L: Lauf): void {
+  if (L.darf || L.laeuft || L.queue.length) neueGeneration(L);
+  L.darf = false;
+  L.rundeStartMs = null;
 }
 
 /** Ende der Ablage: Generation +1 und die eigene Sperre einmal lesen, vergleichen, löschen (9.2). */
@@ -294,8 +304,8 @@ async function taktAsync(L: Lauf): Promise<void> {
   const show = await leseShowDatei(L, a.path);
   if (gen !== L.gen) return;
   k.showDatei = show.art;
-  if (show.art !== 'da') return melde(L); // K4: Sperre bleibt, Ablage pausiert
-  if (!(await pruefeSperre(L, b.pfad, gen))) return melde(L);
+  if (show.art !== 'da') { pausiere(L); return melde(L); } // K4: Sperre bleibt, Ablage pausiert
+  if (!(await pruefeSperre(L, b.pfad, gen))) { if (gen === L.gen) pausiere(L); return melde(L); } // K5, K6: keine Arbeit weiter
   if (gen !== L.gen || !bedingungenGelten(L, a.path)) return;
   L.darf = true;
   naechsteSchritte(L, a, show.show);
@@ -487,6 +497,8 @@ function naechsteSchritte(L: Lauf, a: { path: string; event: string; filter: Ive
     L.runde = ids.length ? { offen: new Set(ids), n: ids.length, erledigt: 0 } : null;
     L.kopf.runde = L.runde ? { i: 1, n: L.runde.n } : null;
   }
+  const bf = L.kopf.basis?.fehler;
+  if (L.basisFehlerBis === Number.POSITIVE_INFINITY && bf && !bf.sperre) bf.naechsterVersuch = iso(jetzt + L.taktMs); // Runde über „gegen“ hinaus: die Zeile nennt nie eine vergangene Zeit
   // Aktives Side Event: jeden Takt, aus der Agenda des Kerns, kein eigener Abruf (8.2, 9.4); es steht vorn.
   const ag = L.aktivAgenda;
   L.aktivAgenda = null;
@@ -533,7 +545,7 @@ async function arbeite(L: Lauf, gen: number): Promise<void> {
     try {
       unterbrochen = await bearbeite(L, e, a, gen);
     } finally {
-      L.laeuft = null;
+      if (L.laeuft === e) L.laeuft = null; // nicht den Eintrag eines neuen Arbeiters löschen
     }
     if (gen !== L.gen) return;
     if (!unterbrochen && L.runde?.offen.delete(e.programId)) {
@@ -613,8 +625,10 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
   try {
     await L.fs.mkdir(basis, { recursive: true });
   } catch (e) {
-    L.basisFehlerBis = Date.parse(L.kopf.naechsteRundeGegen ?? iso(L.d.jetzt()));
-    L.kopf.basis = { ...(L.kopf.basis as NonNullable<AnhangOrdnerStand['basis']>), existiert: false, fehler: { code: fehlerCode(e), naechsterVersuch: iso(L.basisFehlerBis) } };
+    const gegen = Date.parse(L.kopf.naechsteRundeGegen ?? iso(L.d.jetzt()));
+    // Dauert die Runde über „gegen“ hinaus, gibt es bis zu ihrem Ende keinen Versuch mehr; der nächste Takt ist die ehrliche Zeit (naechsteSchritte frischt sie auf)
+    L.basisFehlerBis = gegen > L.d.jetzt() ? gegen : Number.POSITIVE_INFINITY;
+    L.kopf.basis = { ...(L.kopf.basis as NonNullable<AnhangOrdnerStand['basis']>), existiert: false, fehler: { code: fehlerCode(e), naechsterVersuch: iso(gegen > L.d.jetzt() ? gegen : L.d.jetzt() + L.taktMs) } };
     return null;
   }
   if (gen !== L.gen) return null;
@@ -645,9 +659,17 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
   if (!erg) {
     const c = L.d.agendaClient();
     if (!c) return false;
+    if (L.abrufOffen) { // der Abruf einer alten Generation läuft noch (bis zur 15-s-Grenze): nie zwei zugleich im Ordner-Teil (9.4)
+      await L.abrufOffen;
+      if (gen !== L.gen) return false;
+    }
     const abgerufen = iso(L.d.jetzt());
+    const roh = (async () => c.listAgendaItems(a.event, e.programId))();
+    const fertig = roh.then(() => undefined, () => undefined);
+    L.abrufOffen = fertig;
+    void fertig.then(() => { if (L.abrufOffen === fertig) L.abrufOffen = null; });
     try {
-      erg = { ok: true, agenda: await c.listAgendaItems(a.event, e.programId), abgerufen };
+      erg = { ok: true, agenda: await roh, abgerufen };
     } catch (fehler) {
       erg = { ok: false, fehler };
     }
@@ -661,9 +683,11 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
   const o = await ordnerFuer(L, s, a, gen, gueltig.length > 0);
   if (gen !== L.gen) return false;
   if (!o) {
+    // Der Abruf ist gelungen, auch wenn es keinen Ordner gibt (kein Anhang, Basisordner nicht anlegbar, Sperre nicht schreibbar): die Zeile zeigt ihn (G8)
+    Object.assign(st, { abruf: 'gelungen', stand: erg.abgerufen, standAusFrueherSitzung: false, fehler: null });
     if (gueltig.length === 0 && !st.existiert && st.indexFormat !== 'neuer') {
       // kein Ordner, weil das Side Event keine Anhänge hat (OF4): gelungen mit n = 0
-      Object.assign(st, { abruf: 'gelungen', stand: erg.abgerufen, standAusFrueherSitzung: false, fehler: null, n: 0, k: 0, probleme: [] });
+      Object.assign(st, { n: 0, k: 0, probleme: [] });
     }
     return false;
   }
