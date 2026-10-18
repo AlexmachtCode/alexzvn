@@ -3,9 +3,9 @@
 import { isDeepStrictEqual } from 'node:util';
 import { parseShow, serializeShow, type Show } from '@jm/show';
 import {
-  baueAblauf, baueGespeicherteShow, bindungAusEditor, formularAusShow, formularSchluessel, KNOPF_AKTUALISIEREN,
-  KNOPF_TROTZDEM_SPEICHERN, speichernAbgelehnt, TEXT_SPEICHERN_DATEI_NICHT_LESBAR, zeilenAusAblauf, zeilenAusSeed,
-  type FormularStand,
+  basisUrlPlatzhalter, baueAblauf, baueGespeicherteShow, bindungAusEditor, bindungsAdresse, editorAdresseAusShow,
+  formularAusShow, formularSchluessel, KNOPF_AKTUALISIEREN, KNOPF_TROTZDEM_SPEICHERN, speichernAbgelehnt,
+  TEXT_SPEICHERN_DATEI_NICHT_LESBAR, zeilenAusAblauf, zeilenAusSeed, type FormularStand,
 } from '../src/renderer/src/lib/show-speichern';
 
 let pass = 0, fail = 0;
@@ -308,6 +308,32 @@ console.log('— Neue Show (ohne editPath)');
   ck('ohne Bindung kein iveo', !('iveo' in e));
   ck('Schema-Version gesetzt', e.schemaVersion === 1);
 }
+
+console.log('— iveo-Paket P26: Adresse beim Binden und beim Bearbeiten (Spec 7.4, E16)');
+{
+  const PROD = 'https://app.my-iveo.de/api/v1';
+  const STAGING = 'https://staging-dev.my-iveo.de/api/v1';
+  ck('P26 12.6 Nr. 2: Ergebnis-Adresse vor Feld', bindungsAdresse(PROD, ` ${STAGING} `) === PROD);
+  ck('P26 12.6 Nr. 2: ohne Ergebnis-Adresse das getrimmte Feld', bindungsAdresse(undefined, `  ${STAGING}  `) === STAGING);
+  ck('P26 12.6 Nr. 2: beides leer → undefined (die Bindung trägt dann keine Adresse)',
+    bindungsAdresse(undefined, '   ') === undefined && bindungsAdresse('', '') === undefined);
+  const mitStaging = parseShow(JSON.stringify({ ...ROH, iveo: { ...ROH.iveo, baseUrl: STAGING } }));
+  ck('P26 12.6 Nr. 3: Show mit Staging-Adresse → das Feld zeigt genau diese', editorAdresseAusShow(mitStaging) === STAGING);
+  const ohneAdresse = parseShow(JSON.stringify({ ...ROH, iveo: { ...ROH.iveo, baseUrl: undefined } }));
+  const ohneIveo = parseShow(JSON.stringify({ ...ROH, iveo: undefined }));
+  ck('P26 12.6 Nr. 3: Show ohne Adresse und Show ohne iveo → leeres Feld',
+    editorAdresseAusShow(ohneAdresse) === '' && editorAdresseAusShow(ohneIveo) === '');
+  ck('P26 T7: Platzhalter nennt die Standardadresse dieses Rechners', basisUrlPlatzhalter(PROD) === `Basis-URL (leer = ${PROD})`);
+  ck('P26 T7: ohne geladene Einstellungen nur „Basis-URL“ (keine Adresse behauptet)',
+    basisUrlPlatzhalter(undefined) === 'Basis-URL' && basisUrlPlatzhalter('') === 'Basis-URL');
+  // Rundreise wie im Editor: neue Bindung mit leerem Feld, gespeichert, wieder geladen → das Feld zeigt dieselbe Adresse.
+  const neu = bindungAusEditor({ event: 'cop31', name: 'COP31', baseUrl: bindungsAdresse(PROD, ''), filter: { programId: 'p1' } });
+  const gespeichert = baueGespeicherteShow(null, { ...formularAusShow(geladen), name: 'Neu', iveoNeuGebunden: neu }, null, zaehler().neueId);
+  ck('P26 7.4 (E16): neu gebunden mit leerem Feld → die Show trägt die genutzte Adresse, beim Bearbeiten steht sie im Feld',
+    gespeichert.iveo?.baseUrl === PROD && editorAdresseAusShow(parseShow(serializeShow(gespeichert, 'x'))) === PROD);
+}
+
+// ── Ende der Fälle ──
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

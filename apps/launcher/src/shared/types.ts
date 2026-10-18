@@ -247,6 +247,11 @@ export interface IveoBindResult {
   speakers?: ShowIveoSpeaker[];
   /** Slug + Anzeigename für die token-freie Show-Bindung. */
   event?: { slug: string; name: string };
+  /**
+   * Beim Binden genutzte, normalisierte Basis-URL (iveo-Paket, Spec 7.4, E16). Der Show-Editor schreibt sie in die
+   * Bindung, damit eine Show nach einem Standardwechsel nicht still auf einen anderen Server zeigt.
+   */
+  baseUrl?: string;
   /** Vorhandene Programmtypen/-formate (aus ALLEN Programmen) für die Filter-Auswahl. */
   programTypes?: IveoProgramTaxonomy;
   /** Anzahl Programmpunkte nach aktuell angewandtem Filter (Info für die UI). */

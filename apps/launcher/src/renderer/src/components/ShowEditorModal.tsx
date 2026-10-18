@@ -4,8 +4,11 @@ import type { Show } from '@jm/show';
 import type { IveoEventStub, IveoProgramRef, IveoProgramTaxonomy } from '@shared/types';
 import { useTools } from '@/store/tools';
 import {
+  basisUrlPlatzhalter,
   baueGespeicherteShow,
   bindungAusEditor,
+  bindungsAdresse,
+  editorAdresseAusShow,
   formularAusShow,
   formularSchluessel,
   KNOPF_AKTUALISIEREN,
@@ -48,6 +51,8 @@ export function ShowEditorModal() {
   const saveShow = useTools((s) => s.saveShow);
   const editorSeed = useTools((s) => s.editorSeed);
   const clearEditorSeed = useTools((s) => s.clearEditorSeed);
+  // iveo-Paket, T7: der Platzhalter der Basis-URL nennt die Standardadresse dieses Rechners (settings.iveoBaseUrl).
+  const settings = useTools((s) => s.settings);
 
   const [name, setName] = useState('');
   const [entries, setEntries] = useState<Record<string, Entry>>({});
@@ -236,9 +241,10 @@ export function ShowEditorModal() {
             ...(day ? { day } : {}),
             ...(excludeBlockers ? { excludeBlockers: true } : {}),
           };
+      // iveo-Paket, Spec 7.4 (E16): die beim Binden genutzte Adresse, sonst das Feld — jede neue Bindung trägt ihre Adresse.
       setIveoBinding({
         ...bound,
-        baseUrl: iveoBaseUrl.trim() || undefined,
+        baseUrl: bindungsAdresse(res.baseUrl, iveoBaseUrl),
         ...(speakers.length ? { speakers } : {}),
         ...(res.sideEvents?.length ? { sideEvents: res.sideEvents } : {}),
         ...(Object.keys(filter).length ? { filter } : {}),
@@ -325,6 +331,9 @@ export function ShowEditorModal() {
     const { path, show } = r;
     resetForm();
     setEditPath(path);
+    // iveo-Paket, Spec 7.4 (E16): das Feld zeigt die gespeicherte Adresse der Show (resetForm hat es geleert). Sonst
+    // bänden „Events laden“ und jeder Filter- oder Tageswechsel gegen die Standardadresse dieses Rechners.
+    setIveoBaseUrl(editorAdresseAusShow(show));
     // Unverändert festhalten: Speichern überschreibt nur, was das Formular zeigt (Spec 7.5).
     setGeladen(show);
     const f = formularAusShow(show);
@@ -462,7 +471,7 @@ export function ShowEditorModal() {
             <div className="flex items-center gap-2">
               <input
                 value={iveoBaseUrl}
-                placeholder="Basis-URL (leer = Standard/Staging)"
+                placeholder={basisUrlPlatzhalter(settings?.iveoBaseUrl)}
                 onChange={(e) => setIveoBaseUrl(e.target.value)}
                 className={cn(inputCls, 'h-8 flex-1 px-2.5 text-xs')}
               />

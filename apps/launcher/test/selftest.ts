@@ -880,6 +880,34 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   ck('P25 7.1: Kommentare in settings.ts nennen Production, nicht mehr Staging', !/staging/i.test(einst) && einst.includes('Default = Production'));
 }
 
+// --- iveo-Paket P26 (Spec 7.4, E16, EP1): Binden merkt die Adresse, der Show-Editor zeigt sie beim Bearbeiten --------
+{
+  const editor = quelleLf('../src/renderer/src/components/ShowEditorModal.tsx');
+  const sync = quelleLf('../src/main/iveo-sync.ts');
+  const typen = quelleLf('../src/shared/types.ts');
+  const binden = funktionsKoerper(sync, 'export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {');
+  const iTry = binden.indexOf('\n  try {\n');
+  const iNorm = binden.indexOf('    const genutzteAdresse = normalizeIveoBaseUrl(baseUrl);');
+  ck('P26 EP1: bindIveoEvent normalisiert die genutzte Adresse erst im try (normalizeIveoBaseUrl wirft bei ungültiger Eingabe, T8)',
+    iTry > 0 && iNorm > iTry);
+  ck('P26 7.4: … und gibt sie als baseUrl zurück',
+    binden.indexOf('      baseUrl: genutzteAdresse,') > binden.indexOf('    return {\n      ok: true,'));
+  ck('P26 7.4: normalizeIveoBaseUrl kommt aus @jm/iveo', /import \{[^}]*\n  normalizeIveoBaseUrl,\n[^}]*\} from '@jm\/iveo';/.test(sync));
+  ck('P26 7.4: IveoBindResult trägt baseUrl?: string',
+    funktionsKoerper(typen, 'export interface IveoBindResult {').includes('\n  baseUrl?: string;'));
+  ck('P26 7.4: die neue Bindung trägt bindungsAdresse(res.baseUrl, iveoBaseUrl), nicht nur das Feld',
+    editor.includes('        ...bound,\n        baseUrl: bindungsAdresse(res.baseUrl, iveoBaseUrl),'));
+  const laden = funktionsKoerper(editor, '  const loadForEdit = async (): Promise<void> => {');
+  const iReset = laden.indexOf('    resetForm();');
+  ck('P26 7.4: loadForEdit füllt das Feld nach resetForm() mit editorAdresseAusShow(show)',
+    iReset > 0 && laden.indexOf('    setIveoBaseUrl(editorAdresseAusShow(show));') > iReset);
+  ck('P26 T7: Platzhalter aus basisUrlPlatzhalter(settings?.iveoBaseUrl), kein „Staging“ mehr im Editor',
+    editor.includes('placeholder={basisUrlPlatzhalter(settings?.iveoBaseUrl)}') && !/staging/i.test(editor));
+  const iSettings = editor.indexOf('  const settings = useTools((s) => s.settings);');
+  ck('P26 T7: der Editor liest die Einstellungen aus dem Store, vor dem frühen return',
+    iSettings > 0 && iSettings < editor.indexOf('  if (!open) return null;'));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.

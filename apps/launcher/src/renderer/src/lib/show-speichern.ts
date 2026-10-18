@@ -139,6 +139,28 @@ export function bindungAusEditor(b: EditorBindung): ShowIveoBinding {
   };
 }
 
+/**
+ * iveo-Paket, Spec 7.4 (E16): Adresse einer neuen Bindung — die beim Binden genutzte (Bind-Ergebnis, normalisiert), sonst
+ * das getrimmte Feld, sonst keine. So trägt jede neu gebundene Show ihre Adresse und zeigt nach einem Standardwechsel nicht
+ * still auf einen anderen Server.
+ */
+export function bindungsAdresse(resBaseUrl: string | undefined, feld: string): string | undefined {
+  return resBaseUrl || feld.trim() || undefined;
+}
+
+/**
+ * iveo-Paket, Spec 7.4: Feld „Basis-URL“ beim Bearbeiten = die gespeicherte Adresse der Show, sonst leer. Ohne das bänden
+ * „Events laden“ und jeder Filter- oder Tageswechsel mit leerem Feld gegen die Standardadresse dieses Rechners.
+ */
+export function editorAdresseAusShow(show: Show): string {
+  return show.iveo?.baseUrl ?? '';
+}
+
+/** iveo-Paket, T7: Platzhalter des Felds „Basis-URL“; ohne geladene Einstellungen nennt er keine Adresse. */
+export function basisUrlPlatzhalter(standard: string | undefined): string {
+  return standard ? `Basis-URL (leer = ${standard})` : 'Basis-URL';
+}
+
 /** Minuten-Text unverändert → geladene Dauer sekundengenau; sonst die Eingabe (Spec 7.5). */
 function dauerAusZeile(r: AblaufZeile): number | undefined {
   if (r.geladenMinutes !== undefined && r.minutes === r.geladenMinutes) return r.geladenDurationMs;
