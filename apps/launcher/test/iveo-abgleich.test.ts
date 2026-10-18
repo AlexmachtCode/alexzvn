@@ -1278,7 +1278,7 @@ const speakerWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.start
   ck('Nr. 4: … „Verantwortlich“ wieder aus iveo', ownerVon(datei(u), 'P1') === 'Ana Silva');
   const danach = u.iveo.abrufe.length;
   await u.kern.abfrage();
-  ck('Nr. 4: … ohne Merker und ohne Programmänderung kein Snapshot mehr', !u.iveo.abrufe.slice(danach).some((x) => x.startsWith('snapshot:')));
+  ck('Nr. 4: … ohne Merker und ohne Programmänderung kein Snapshot mehr (innerhalb von 255 s)',!u.iveo.abrufe.slice(danach).some((x) => x.startsWith('snapshot:')));
 }
 {
   // Nr. 6: Umschalten auf die Tagesübersicht, die Speakerliste scheitert.
@@ -1411,7 +1411,7 @@ const namenIn = (s: Show): string => JSON.stringify((s.iveo?.speakers ?? []).map
     u.status.at(-1)?.ok === true && u.info.includes('iveo: Speakerliste wieder abrufbar, Speaker aktualisiert.'));
   const danach = u.iveo.abrufe.length;
   await u.kern.abfrage();
-  ck('Nr. 5 (d): … ohne Merker holt die Agenda-Abfrage keine Speakerliste mehr, nichts geschrieben',
+  ck('Nr. 5 (d): … ohne Merker holt die Agenda-Abfrage keine Speakerliste mehr, nichts geschrieben (innerhalb von 255 s)',
     !u.iveo.abrufe.slice(danach).includes('speakers:') && u.schreibversuche === 2);
 }
 {
@@ -2024,6 +2024,103 @@ const seWarnungen = (u: Umgebung): string[] => u.warn.filter((w) => w.startsWith
   ck('P20 12.2 Nr. 13: Umschalten auf die Tagesübersicht → ebenso; T71 bleibt bei einmal',
     r2.ok && JSON.stringify(datei(u).iveo?.speakers?.[0]?.organisationen) === JSON.stringify(ANA_ORGS)
     && u.status.at(-1)?.text === T51 && u.warn.filter((w) => w === T71).length === 1);
+}
+
+// --- iveo-Paket P21: Auffrischen „fällig“ im Listen-Modus (Spec 6.1, 6.2, 6.6, 12.2 Nr. 2, 3, 8, 14) ---------------
+/** Listen-Show des Tages mit ANA, wie gebunden. */
+const listenShow = (iv: NachgebautesIveo): Show => showMit(listenAblauf(iv, TAG), { day: TAG }, [ANA]);
+/**
+ * Zeitpunkt vor dem Abruf des n-ten Snapshots (sein Argument `jetzt`, ms). Fehlt er (Rot-Lauf), die Testuhr: Der Fall
+ * wird dann rot, statt abzustürzen.
+ */
+function snapshotZeit(u: Umgebung, n: number): number {
+  const z = u.iveo.abrufe.filter((x) => x.startsWith('snapshot:'))[n];
+  return z ? Date.parse(z.slice('snapshot:'.length)) : u.zeit();
+}
+/** T2 (Spec 11.6), wörtlich. */
+const T2 = (n: number): string => `iveo: Speakerliste aufgefrischt, unverändert (${n} Speaker).`;
+{
+  // Nr. 2: Bestands-Show ohne Organisationen; iveo liefert sie (Prod seit 15.10.); keine Programmänderung.
+  const u = umgebung(listenShow, { taktMs: 45_000 });
+  mitOrganisationen(u.iveo);
+  const offen = u.zeit();
+  await abfrageUm(u, offen + 254_000);
+  ck('P21 12.2 Nr. 2: 254 s nach dem Öffnen → kein Snapshot, nichts geschrieben',
+    abrufeSeit(u, 0, 'snapshot') === 0 && u.schreibversuche === 0);
+  await abfrageUm(u, offen + 255_000);
+  ck('P21 12.2 Nr. 2: 255 s → Snapshot, genau einmal geschrieben, genau ein RELOAD-Satz',
+    abrufeSeit(u, 0, 'snapshot') === 1 && u.schreibversuche === 1 && u.reloads.length === 3);
+  ck('P21 12.2 Nr. 2: … die Organisationen stehen in der Datei, Hauptorganisation zuerst',
+    JSON.stringify(datei(u).iveo?.speakers?.[0]?.organisationen) === JSON.stringify(ANA_ORGS));
+  ck('P21 12.2 Nr. 2: … Logzeile „… die Speakerliste weicht von der Datei ab …“',
+    u.info.includes('iveo: kein Programm geändert, aber die Speakerliste weicht von der Datei ab → Show neu geschrieben (3 Punkte).'));
+  await abfrageUm(u, snapshotZeit(u, 0) + 255_000);
+  ck('P21 12.2 Nr. 2: nächstes Auffrischen ohne Änderung → Snapshot, nichts geschrieben, kein RELOAD, T2 im Log',
+    abrufeSeit(u, 0, 'snapshot') === 2 && u.schreibversuche === 1 && u.reloads.length === 3 && u.info.includes(T2(1)));
+  ck('P21 12.2 Nr. 2: … T2 ist die einzige Spur: keine Statusmeldung, keine Warnung', u.status.length === 0 && u.warn.length === 0);
+}
+{
+  // Nr. 3: Zeitgarantie bei regelmäßigem Takt (45 s) über 45 Startversätze des Takts gegen das Öffnen. Nach jeder
+  // angekommenen Änderung kommt sofort die nächste: der ungünstigste Zeitpunkt, direkt nach einem Abruf.
+  let groesster = 0;
+  let angekommen = 0;
+  let liegenGeblieben = 0;
+  for (let versatz = 0; versatz < 45; versatz++) {
+    const u = umgebung(listenShow, { taktMs: 45_000 });
+    const offen = u.zeit();
+    let seit: number | null = null;
+    let nummer = 0;
+    for (let takt = 1; takt <= 24; takt++) {
+      if (seit === null && takt > 1) {
+        nummer++;
+        u.iveo.speakers = [{ ...u.iveo.speakers[0], title: `Ministerin ${nummer}` }];
+        seit = u.zeit();
+      }
+      await abfrageUm(u, offen + versatz * 1000 + takt * 45_000);
+      if (seit !== null && datei(u).iveo?.speakers?.[0]?.title === `Ministerin ${nummer}`) {
+        groesster = Math.max(groesster, u.zeit() - seit);
+        angekommen++;
+        seit = null;
+      }
+    }
+    if (seit !== null && u.zeit() - seit > 300_000) liegenGeblieben++;
+  }
+  ck('P21 12.2 Nr. 3: Takt 45 s, 45 Startversätze → jede Änderung spätestens 300 s nach ihrem Eintreten in der Datei',
+    groesster > 0 && groesster <= 300_000 && liegenGeblieben === 0);
+  ck('P21 12.2 Nr. 3: … je Startversatz kommen mindestens drei Änderungen an', angekommen >= 45 * 3);
+}
+{
+  // Nr. 8: Das Schreiben scheitert nach dem Auffrischen → speakerAbgerufen bleibt, der nächste Takt holt erneut; erst das
+  // gelungene Schreiben rückt ihn vor (Spec 6.1).
+  const u = umgebung(listenShow, { taktMs: 45_000 });
+  mitOrganisationen(u.iveo);
+  u.schreibFehler = true;
+  await abfrageUm(u, u.zeit() + 255_000);
+  ck('P21 12.2 Nr. 8: fällig, Schreiben scheitert → Status „nicht geschrieben“, Datei ohne Organisationen',
+    abrufeSeit(u, 0, 'snapshot') === 1 && u.schreibversuche === 1 && u.status.at(-1)?.text === 'Show konnte nicht geschrieben werden'
+    && datei(u).iveo?.speakers?.[0]?.organisationen === undefined);
+  u.schreibFehler = false;
+  await abfrageUm(u, snapshotZeit(u, 0) + 45_000);
+  ck('P21 12.2 Nr. 8: … speakerAbgerufen rückt nicht vor: der nächste Takt holt die Liste erneut und schreibt',
+    abrufeSeit(u, 0, 'snapshot') === 2 && u.schreibversuche === 2 && u.status.at(-1)?.ok === true
+    && JSON.stringify(datei(u).iveo?.speakers?.[0]?.organisationen) === JSON.stringify(ANA_ORGS));
+  const n = u.iveo.abrufe.length;
+  await abfrageUm(u, snapshotZeit(u, 1) + 200_000);
+  ck('P21 12.2 Nr. 8: … das gelungene Schreiben rückt speakerAbgerufen vor: 200 s danach kein Snapshot',
+    abrufeSeit(u, n, 'snapshot') === 0);
+}
+{
+  // Nr. 14: Der Snapshot (mit der Speakerliste) dauert in der Testuhr 20 s; „fällig“ zählt ab dem Abrufbeginn.
+  const u = umgebung(listenShow, { taktMs: 45_000 });
+  u.iveo.dauerMs = { snapshot: 20_000 };
+  await abfrageUm(u, u.zeit() + 255_000);
+  const beginn = snapshotZeit(u, 0);
+  ck('P21 12.2 Nr. 14: Vorbedingung — aufgefrischt, die Testuhr steht nach dem Abruf mindestens 20 s nach Abrufbeginn',
+    abrufeSeit(u, 0, 'snapshot') === 1 && u.zeit() >= beginn + 20_000);
+  await abfrageUm(u, beginn + 254_000);
+  ck('P21 12.2 Nr. 14: 254 s nach Abrufbeginn → noch nicht fällig', abrufeSeit(u, 0, 'snapshot') === 1);
+  await abfrageUm(u, beginn + 255_000);
+  ck('P21 12.2 Nr. 14: 255 s nach Abrufbeginn (rund 235 s nach Abrufende) → fällig, Snapshot', abrufeSeit(u, 0, 'snapshot') === 2);
 }
 
 // --- Zusammenfassung ---

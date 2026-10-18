@@ -35,7 +35,7 @@ import {
   type IveoSpeaker,
   type ProgramMapOptions,
 } from '@jm/iveo';
-import { IVEO_ABRUF_ZEITGRENZE_MS } from './iveo-huelle-hilfen';
+import { IVEO_ABFRAGE_TAKT_MS, IVEO_ABRUF_ZEITGRENZE_MS, auffrischenFaellig } from './iveo-huelle-hilfen';
 import { bildeSideEventListe } from './iveo-side-events';
 
 /** Die Teilmenge des iveo-Clients, die der Kern braucht. Im Test nachgebaut. */
@@ -84,6 +84,11 @@ export interface KernAbhaengigkeiten {
    * Abo für die Logzeile „… auf diesem Rechner; k Tools anderer Rechner …“. Optional.
    */
   verbundReload?(): { andereRechner: number } | null;
+  /**
+   * iveo-Paket, Spec 6.1: Abfragetakt der Hülle (POLL_INTERVAL_MS), Standard IVEO_ABFRAGE_TAKT_MS. Die Regel „fällig“
+   * zieht ihn ab: Bei regelmäßigem Takt kommt das Auffrischen so spätestens 300 s nach dem letzten Abruf der Liste.
+   */
+  taktMs?: number;
 }
 
 export interface IveoKern {
@@ -131,6 +136,8 @@ const TEXT_SELISTE_VERALTET = 'Side-Event-Liste von iveo nicht abrufbar, Liste a
 export const TEXT_ORG_FEHLEN = 'iveo liefert keine Organisationen (Feld fehlt), Organisationen aus früherem Stand';
 /** iveo-Paket, Spec 5.10 und 11.6 T71 (wortgleich): Warnung, wenn der Merker „Organisationen fehlen“ entsteht. */
 const TEXT_ORG_FEHLEN_LOG = 'iveo: kein Speaker trägt Organisationen (Feld fehlt), Organisationen aus der Datei bleiben.';
+/** iveo-Paket, Spec 6.2 und 11.6 T2 (wortgleich): Info, wenn ein Auffrischen nichts geändert hat; ‹n› = Speaker in der Datei. */
+const textAufgefrischt = (n: number): string => `iveo: Speakerliste aufgefrischt, unverändert (${n} Speaker).`;
 
 // ── Reine Helfer (aus iveo-sync.ts hierher gezogen; die Hülle importiert sie für Binden/Discover) ──────────
 
@@ -436,6 +443,11 @@ interface AktiveShow {
    * Speaker der iveo-Liste das Feld trägt und die Organisationen der Datei gelten.
    */
   orgFehlenSeit?: string;
+  /**
+   * iveo-Paket, Spec 6.1: Zeitpunkt (ISO) vor dem letzten gelungenen Abruf der Speakerliste, dessen Ergebnis in der Datei
+   * steht (geschrieben oder Signatur gleich). Startwert ist das Öffnen. Gegen ihn prüft `faellig` (nur im Speicher).
+   */
+  speakerAbgerufen: string;
 }
 
 /** Ergebnis des Zusatzabrufs der Side-Event-Liste (Spec 15.4); `liste` null = seit `seListeIso` nichts geändert. */
@@ -460,6 +472,11 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
 
   /** 7.3: Ergebnis gilt nur, wenn Show UND Generation noch dieselben sind wie beim Start. */
   const istAktuell = (a: AktiveShow, gen: number): boolean => active === a && generation === gen;
+  /** iveo-Paket, Spec 6.1: Abfragetakt der Hülle für die Regel „fällig“. */
+  const taktMs = d.taktMs ?? IVEO_ABFRAGE_TAKT_MS;
+  /** iveo-Paket, Spec 6.1: Auffrischen der Speakerliste fällig (jetzt − speakerAbgerufen + Takt ≥ 300 s, im Takt ab 255 s). */
+  const faellig = (a: AktiveShow, jetzt: string): boolean =>
+    auffrischenFaellig(Date.parse(a.speakerAbgerufen), Date.parse(jetzt), taktMs);
 
   // Spec 7.6: nur Wechsel melden. Der erste Fehlschlag und jeder neue Fehlertext kommen als Warnung ins Log,
   // gleichbleibende Wiederholungen nicht (sonst wüchse das Log alle 45 s).
@@ -729,6 +746,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       // Der Merker „Side-Event-Liste veraltet“ liegt nur im Speicher (15.4): beim Speichern der offenen Show reicht
       // der Aufrufer ihn durch, damit die Statuszeile von Anfang an stimmt.
       seListeVeraltetSeit: seMerker,
+      // iveo-Paket, Spec 6.1: Startwert des Auffrischens ist das Öffnen.
+      speakerAbgerufen: d.jetztIso(),
     };
     const merker = binding.speakerVeraltetSeit;
     if (merker || seMerker) {
@@ -785,11 +804,15 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
    * Listen-Modus (früher pollOnce): nur bei einem `updated_since`-Treffer den Snapshot holen, dann Signatur (7.2).
    * Teil 2b, Spec 6.2: Solange der Merker „Speaker veraltet“ gilt, holt jede Abfrage den Snapshot, bis die
    * Speakerliste wieder kommt. Scheitert sie, gelten Speaker und „Verantwortlich“ der Datei, der Merker bleibt oder
-   * ist jetzt. Gelingt sie, entfällt der Merker.
+   * ist jetzt. Gelingt sie, entfällt der Merker. iveo-Paket, Spec 6.2 (E10): Ist das Auffrischen fällig, läuft der
+   * Snapshot-Weg wie bei einer Programmänderung; geschrieben wird nur bei abweichender Signatur.
    */
   async function abfrageListe(client: IveoClientLike, a: AktiveShow, gen: number): Promise<void> {
     const geaendert = await client.listProgramsUpdatedSince(a.event, a.lastSyncIso);
-    if (!geaendert.length && !a.speakerVeraltetSeit) {
+    // iveo-Paket, Spec 6.1: Zeitpunkt vor dem Snapshot. Gegen ihn prüft „fällig“, auf ihn rückt `speakerAbgerufen` vor
+    // (nicht auf die Zeit nach dem Abruf: ein langsamer Abruf schöbe sonst das nächste Auffrischen hinaus).
+    const ab = d.jetztIso();
+    if (!geaendert.length && !a.speakerVeraltetSeit && !faellig(a, ab)) {
       // iveo-Paket, Spec 5.10/6.5: Merker im Speicher (etwa „Organisationen fehlen“) bleiben in der Statuszeile stehen.
       if (istAktuell(a, gen)) statusNachAbfrage(a);
       return; // nichts Neues seit dem letzten Abgleich
@@ -797,7 +820,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     // Programme ESSENZIELL (kein programsBestEffort): ein transienter 500 soll den Ablauf nicht mit [] überschreiben.
     // Speaker best effort, aber ein Fehlschlag ist NICHT „0 Speaker“ (Spec 6.2): er wird hier gemerkt.
     const { speakerFehler, onSubError } = snapshotTeilfehler('poll');
-    const snap = await client.getEventSnapshot(a.event, d.jetztIso(), { onSubError });
+    const snap = await client.getEventSnapshot(a.event, ab, { onSubError });
     // Ab hier kein await mehr: Prüfen und Schreiben stehen direkt hintereinander (7.3).
     if (!istAktuell(a, gen)) return;
     speakerListeErgebnis(speakerFehler);
@@ -831,7 +854,11 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       a.seListeIso = snap.fetchedAt;
       a.seListeVeraltetSeit = undefined;
       merkeOrgFehlen(a, orgFehlen);
+      // iveo-Paket, Spec 6.1: Die Liste kam, und die Datei hat genau diesen Stand → das Auffrischen gilt ab `ab`.
+      if (!speakerFehler.length) a.speakerAbgerufen = ab;
+      // Spec 6.2 (T2): ohne Programmänderung die einzige Spur eines Auffrischens (Logzeile, kein Schreiben, kein RELOAD).
       if (geaendert.length) d.log.info(`iveo: ${geaendert.length} Programm(e) geändert, Ablauf unverändert.`);
+      else if (!speakerFehler.length) d.log.info(textAufgefrischt(speakerWieInDerDatei(speakers).length));
       statusNachAbfrage(a);
       return;
     }
@@ -865,6 +892,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     a.seListeVeraltetSeit = undefined;
     a.speakerVeraltetSeit = merker;
     merkeOrgFehlen(a, orgFehlen);
+    // iveo-Paket, Spec 6.1: erst nach erfolgreichem Schreiben; scheitert es, holt der nächste Takt die Liste erneut.
+    if (!speakerFehler.length) a.speakerAbgerufen = ab;
     if (speakerWieder) meldeSpeakerWieder();
     statusNachAbfrage(a);
     meldeGeschrieben(a.path);
