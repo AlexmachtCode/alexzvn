@@ -2746,6 +2746,180 @@ console.log('— P17 Schritte: Platzieren ohne Überschreiben, Links, Umbenennen
   }
 }
 
+// ── Block C · P18: Neue Fassung, wartende Fassung, Rückhaltung, Fortschritt, Bediener-Änderung (Spec 9.5, 9.6, 9.10) ─
+console.log('— P18 Neue Fassung, wartende Fassung, Rückhaltung, Fortschritt (Spec 9.6)');
+{
+  const ORDNER = pathC.join(AttC.BASIS, 'Klima');
+  const ENTFERNT = pathC.join(ORDNER, 'entfernt');
+  const INDEX = pathC.join(ORDNER, OrdnerC.INDEX_DATEI);
+  const BERICHT = AttC.datei('m-1', 'Bericht', { size: 1000 });
+  const mitAnhang = (...ms: MaterialC[]) => [AttC.punkt('se-1', ms)];
+  const eintrag = (fs: AttC.FsAttrappe, id: string) => {
+    const r = OrdnerC.leseIndex(fs.inhalt(INDEX) ?? '');
+    return r.art === 'ok' ? r.index.eintraege.find((x) => x.id === id) : undefined;
+  };
+  const zeit = (ms: number): string => {
+    const d = new Date(ms);
+    const z = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}-${z(d.getMinutes())}`;
+  };
+  const takte = async (T: ReturnType<typeof AttC.baueLauf>, n: number, agenda: unknown[]) => {
+    for (let i = 0; i < n; i++) { await T.uhr.spule(45_000, 45_000); await T.takt(agenda as never); }
+  };
+  const sha = (s: string): string => AnhaengeC.referenzHash({ id: 'x', kind: 'file', label: 'x', asset: { url: s } }) as string;
+
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    const GROESSER = AttC.datei('m-1', 'Bericht', { size: 2000, ref: BERICHT.asset!.url });
+    T.download.arten.set(BERICHT.asset!.url, { bytes: 2000 });
+    const t1 = T.uhr.t + 45_000;
+    await takte(T, 1, mitAnhang(GROESSER));
+    ck('P18 12.4 Nr. 8: Größe geändert → neue Fassung geladen, alte nach entfernt/‹Stamm› (ersetzt ‹Datum Zeit›).pdf, Log T21 (d)',
+      T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 2000 && T.fs.inhalt(pathC.join(ENTFERNT, `Bericht (ersetzt ${zeit(t1)}).pdf`))?.length === 1000
+      && T.logs.includes('info iveo-Ordner: „Bericht.pdf“ nach „entfernt“ verschoben (durch neue Fassung ersetzt).'));
+    const NEUE_REF = AttC.datei('m-1', 'Bericht', { size: 2000, ref: AttC.referenz('m-1-neu') });
+    T.download.arten.set(NEUE_REF.asset!.url, { bytes: 2000 });
+    await T.uhr.spule(60_000, 60_000);
+    await takte(T, 1, mitAnhang(NEUE_REF));
+    ck('P18 12.4 Nr. 8: Asset-Referenz geändert bei gleicher Größe und gleichem MIME → ebenso neue Fassung (Referenz-Hash, M1)',
+      T.download.aufrufe.length === 3 && T.fs.namen(ENTFERNT).length === 2);
+    await takte(T, 10, mitAnhang(NEUE_REF));
+    ck('P18 12.4 Nr. 8: gleiche Referenz über zehn Runden → kein weiterer Download', T.download.aufrufe.length === 3);
+    const inhalt = eintrag(T.fs, 'm-1')?.inhalt ?? '';
+    ck('P18 12.4 Nr. 8: das Index-Feld inhalt trägt den SHA-256 der Referenz, nicht die Referenz',
+      inhalt === `application/pdf|2000|${sha(NEUE_REF.asset!.url)}` && !inhalt.includes(NEUE_REF.asset!.url) && !inhalt.includes('GEHEIM'));
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    T.fs.lege(pathC.join(ORDNER, 'Bericht.pdf'), 'vom Bediener geändert', 9_000);
+    await takte(T, 3, mitAnhang(BERICHT));
+    ck('P18 12.4 Nr. 12: vom Bediener geändert, iveo gleich → unberührt, zählt im Ordner, Zusatz T67 (1 vom Bediener geändert)',
+      T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf')) === 'vom Bediener geändert' && T.download.aufrufe.length === 1
+      && T.se('se-1')?.zusaetze.bedienerGeaendert === 1 && T.se('se-1')?.k === 1);
+    const NEU = AttC.datei('m-1', 'Bericht', { size: 1000, ref: AttC.referenz('m-1-v2') });
+    await takte(T, 1, mitAnhang(NEU));
+    ck('P18 12.4 Nr. 12: iveo liefert eine neue Fassung → die Bediener-Datei wandert nach entfernt/, nichts geht verloren',
+      T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000
+      && T.fs.namen(ENTFERNT).some((n) => T.fs.inhalt(pathC.join(ENTFERNT, n)) === 'vom Bediener geändert') && T.se('se-1')?.zusaetze.bedienerGeaendert === 0);
+  }
+  {
+    const T = AttC.baueLauf();
+    await T.takt(mitAnhang(BERICHT));
+    T.fs.oeffne(pathC.join(ORDNER, 'Bericht.pdf'));
+    const NEU = AttC.datei('m-1', 'Bericht', { size: 1000, ref: AttC.referenz('m-1-v2') });
+    await takte(T, 1, mitAnhang(NEU));
+    ck('P18 12.4 Nr. 14: alte Fassung geöffnet → neue wartet als .m-1.4711.jm-neu, Problem „neue Fassung wartet, Datei ist geöffnet“',
+      T.fs.inhalt(pathC.join(ORDNER, '.m-1.4711.jm-neu'))?.length === 1000 && eintrag(T.fs, 'm-1')?.wartet === '.m-1.4711.jm-neu'
+      && JSON.stringify(T.se('se-1')?.probleme) === '[{"art":"neue-fassung-wartet","datei":"Bericht.pdf"}]');
+    await takte(T, 2, mitAnhang(NEU));
+    ck('P18 12.4 Nr. 14: solange sie geöffnet ist, jede Runde nur der Tauschversuch, kein neuer Download',
+      T.download.aufrufe.length === 2 && T.fs.gibt(pathC.join(ORDNER, '.m-1.4711.jm-neu')));
+    T.fs.schliesse(pathC.join(ORDNER, 'Bericht.pdf'));
+    await takte(T, 1, mitAnhang(NEU));
+    ck('P18 12.4 Nr. 14: frei → getauscht ohne Download: alte in entfernt/ (ersetzt …), neue unter dem Namen, Problem weg',
+      T.download.aufrufe.length === 2 && !T.fs.gibt(pathC.join(ORDNER, '.m-1.4711.jm-neu')) && T.fs.namen(ENTFERNT).length === 1
+      && eintrag(T.fs, 'm-1')?.wartet === undefined && eintrag(T.fs, 'm-1')?.inhalt?.endsWith(sha(NEU.asset!.url)) === true && T.se('se-1')?.probleme.length === 0);
+  }
+  {
+    const T = AttC.baueLauf();
+    const KURZ = AttC.datei('m-1', 'Bericht', { size: 1000 });
+    T.download.arten.set(KURZ.asset!.url, { bytes: 600 });
+    const start = T.uhr.t;
+    const versuche: number[] = [];
+    const staende: string[] = [];
+    let probe: unknown;
+    for (let i = 0; i < 48; i++) {
+      const vorher = T.download.aufrufe.length;
+      await T.takt(mitAnhang(KURZ));
+      if (T.download.aufrufe.length > vorher) versuche.push((T.uhr.t - start) / 1000);
+      staende.push(T.se('se-1')?.stand ?? '');
+      if (i === 2) probe = T.se('se-1')?.probleme[0];
+      await T.uhr.spule(45_000, 45_000);
+    }
+    const abstaende = versuche.slice(1).map((v, i) => v - versuche[i]);
+    ck('P18 12.4 Nr. 37: dauerhaft zu wenige Bytes → Versuche nach 45 s, 90 s, 180 s, 360 s, dann höchstens alle 10 min (auf den 45-s-Takt gerundet)',
+      JSON.stringify(versuche.slice(0, 5)) === '[0,45,135,315,675]' && abstaende.slice(4).every((a) => a >= 600 && a < 645));
+    ck('P18 12.4 Nr. 37: die Zeile nennt Grund und „nächster Versuch gegen ‹hh:mm›“',
+      JSON.stringify(probe) === JSON.stringify({ art: 'grund', datei: 'Bericht.pdf', grund: 'unvollständig (600 von 1000 Bytes)', naechsterVersuch: new Date(start + 135_000).toISOString() }));
+    ck('P18 12.4 Nr. 37: die Agenda des aktiven Side Events wird trotzdem jeden Takt abgeglichen', new Set(staende).size === 48);
+    T.download.arten.set(KURZ.asset!.url, { bytes: 1000 });
+    const NEU = AttC.datei('m-1', 'Bericht', { size: 1000, ref: AttC.referenz('m-1-v2') });
+    const vorher = T.download.aufrufe.length;
+    await T.takt(mitAnhang(NEU));
+    ck('P18 12.4 Nr. 37: neue Inhaltssignatur → sofort ein neuer Versuch', T.download.aufrufe.length === vorher + 1 && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000);
+  }
+  {
+    const T = AttC.baueLauf();
+    const GROSS = AttC.datei('m-1', 'Video', { size: 1_000_000, mime: 'video/mp4' });
+    T.download.arten.set(GROSS.asset!.url, { bytes: 1_000_000, stuecke: 1000, msJeStueck: 3 });
+    await T.takt(mitAnhang(GROSS));
+    const mitLaedt = T.staende.filter((s) => s.sideEvents.some((x) => x.laedt !== null)).length;
+    ck('P18 12.4 Nr. 45: 1000 Stücke über 3 s Testuhr → höchstens 4 Fortschritts-Ereignisse (höchstens einmal je Sekunde)',
+      mitLaedt >= 2 && mitLaedt <= 4 && T.fs.inhalt(pathC.join(ORDNER, 'Video.mp4'))?.length === 1_000_000);
+  }
+  {
+    // Nr. 49 (Lauf-Teil): hängendes Umbenennen der Index-Zwischendatei → letzterFortschritt bleibt
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }] });
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [AttC.datei('m-2', 'Folien')])]);
+    T.fs.haengtBei('rename', (p) => p.endsWith(`${OrdnerC.INDEX_DATEI}.4711.tmp`) && p.includes('Wasser'));
+    T.lauf.takt();
+    await AttC.ruhe();
+    const lf = T.lauf.stand().letzterFortschritt;
+    await T.uhr.spule(120_000, 15_000);
+    ck('P18 12.4 Nr. 49: das Umbenennen der Index-Zwischendatei kehrt nicht zurück → Runde läuft, letzterFortschritt bleibt stehen (K7, T76)',
+      T.fs.haengend === 1 && T.lauf.stand().runde !== null && T.lauf.stand().letzterFortschritt === lf && lf !== null);
+  }
+  {
+    // Nr. 49: Download mit neuen Bytes alle 0,5 s über 10 min → letzterFortschritt rückt nach (nie T76)
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }] });
+    const LANG = AttC.datei('m-2', 'Mitschnitt', { size: 1200, mime: 'video/mp4' });
+    let groessteLuecke = 0;
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [LANG, AttC.datei('m-3', 'Danach')])]);
+    T.download.arten.set(LANG.asset!.url, {
+      bytes: 1200, stuecke: 1200, wartenMs: 500,
+      beiStueck: () => { groessteLuecke = Math.max(groessteLuecke, T.uhr.t - Date.parse(T.lauf.stand().letzterFortschritt ?? '')); },
+    });
+    T.lauf.takt();
+    await AttC.ruhe();
+    await T.uhr.spule(600_000, 500);
+    await T.lauf.ruhig();
+    ck('P18 12.4 Nr. 49: Download mit neuen Bytes alle 0,5 s über 10 min → letzterFortschritt höchstens 1 s alt, nie über 105 s',
+      groessteLuecke <= 1_000 && T.fs.inhalt(pathC.join(AttC.BASIS, 'Wasser', 'Mitschnitt.mp4'))?.length === 1200);
+  }
+  {
+    // Nr. 49: nach einem Leerlauf-Abbruch beginnt der nächste Schritt, letzterFortschritt rückt vor
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }] });
+    const HAENGT = AttC.datei('m-2', 'Hängt');
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [HAENGT, AttC.datei('m-3', 'Danach')])]);
+    T.download.arten.set(HAENGT.asset!.url, { bytes: 1000, stillstandNach: 100 });
+    T.lauf.takt();
+    await AttC.ruhe();
+    const vorher = Date.parse(T.lauf.stand().letzterFortschritt ?? '');
+    await T.uhr.spule(60_000, 5_000);
+    await T.lauf.ruhig();
+    ck('P18 12.4 Nr. 49: nach dem Leerlauf-Abbruch beginnt der nächste Schritt, letzterFortschritt rückt vor (T37 statt T76)',
+      Date.parse(T.lauf.stand().letzterFortschritt ?? '') >= vorher + 60_000 && T.fs.gibt(pathC.join(AttC.BASIS, 'Wasser', 'Danach.pdf')));
+  }
+  {
+    // Nr. 49: zwei Schritte, der zweite hängt vor seinem ersten Byte (statfs) → letzterFortschritt = Beginn dieses Schritts,
+    // nicht das letzte gemeldete Stück des vorigen (sonst käme T76 zu früh, obwohl Schritte vorankommen)
+    const T = AttC.baueLauf({ sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Wasser' }] });
+    const EINS = AttC.datei('m-2', 'Eins');
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [EINS, AttC.datei('m-3', 'Zwei')])]);
+    T.download.arten.set(EINS.asset!.url, { bytes: 1000, stuecke: 10, msJeStueck: 300 });
+    let n = 0;
+    let beginn = Number.NaN;
+    T.fs.vor('statfs', () => { if (++n === 2) beginn = T.uhr.t; });
+    T.fs.haengtBei('statfs', () => n === 2);
+    T.lauf.takt();
+    await AttC.ruhe();
+    ck('P18 12.4 Nr. 49: mehrere Schritte, der letzte hängt vor dem ersten Byte → letzterFortschritt = Beginn dieses Schritts',
+      T.fs.haengend === 1 && Number.isFinite(beginn) && T.lauf.stand().letzterFortschritt === new Date(beginn).toISOString());
+  }
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

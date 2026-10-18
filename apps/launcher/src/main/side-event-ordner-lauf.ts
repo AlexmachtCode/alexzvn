@@ -15,7 +15,7 @@ import { pruefeAnhaenge, type AgendaErgebnis, type GueltigerAnhang } from './ive
 import { auffrischenFaellig, IVEO_ABFRAGE_TAKT_MS, naechsterFaelligerTakt } from './iveo-huelle-hilfen';
 import {
   ablageMenge, ablageTag, freierName, imOrdner, indexText, inhaltSignatur, INDEX_DATEI, istLinkAnhang,
-  leseIndex, megabyte, ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, ordnerPfad, planeSideEvent, sperreBewerten, SPERR_DATEI,
+  leseIndex, megabyte, ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, ordnerPfad, planeSideEvent, rueckhaltungBis, sperreBewerten, SPERR_DATEI,
   urlDateiInhalt, vergleichsform, type IndexEintrag, type OrdnerDatei, type OrdnerIndex, type PlanSchritt,
 } from './side-event-ordner';
 import { fehlerCode } from './verbund/fehlercode';
@@ -278,8 +278,10 @@ interface Lauf {
   /** Zeit des letzten Takts, der versuchen konnte (naechsteSchritte); der nächste kommt einen Takt später (Zeit des nächsten Versuchs, 11.1). */
   taktZuletzt: number | null;
   se: Map<string, SeIntern>;
+  fehlschlaege: Map<string, { f: number; bis: number; grund: string; datei: string }>;
   kopf: Omit<AnhangOrdnerStand, 'sideEvents'>;
   letzteMeldung: string;
+  letzteMeldungMs: number;
 }
 
 function iso(ms: number): string {
@@ -300,7 +302,7 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     abgesetzt: false, beendet: false, beschaeftigt: 0, warter: [], taktLaeuft: false, statLaeuft: false, sperreLoeschen: null,
     aktivAgenda: null, queue: [], laeuft: null, abrufOffen: null, nachlauf: new Map(), arbeiterGen: null, download: null,
     rundeStartMs: null, runde: null, menge: [], liste: [], funde: null, scanFehler: null, scanOrt: null, tmpAufgeraeumt: false, scanFaellig: false, basisFehlerBis: null, basisVersuch: null, taktZuletzt: null,
-    se: new Map(), kopf: leererKopf(), letzteMeldung: '',
+    se: new Map(), fehlschlaege: new Map(), kopf: leererKopf(), letzteMeldung: '', letzteMeldungMs: -Infinity,
   };
   return {
     sitzung: () => neueSitzung(L),
@@ -381,6 +383,7 @@ function neueSitzung(L: Lauf): void {
   L.basisFehlerBis = null;
   L.basisVersuch = null; // ein hängender Versuch der alten Generation hält die neue nicht auf (sein Ergebnis wird verworfen)
   L.se = new Map();
+  L.fehlschlaege = new Map();
   L.kopf = leererKopf();
   liesBedingungen(L);
   melde(L); // sofort: die Zeile der alten Sitzung darf nicht stehen bleiben, auch wenn der nächste Takt an einem Zugriff hängt
@@ -782,12 +785,15 @@ function fortschritt(L: Lauf): void {
   L.kopf.letzterFortschritt = iso(L.d.jetzt());
 }
 
-/** Stand melden, bei jeder Änderung. */
-function melde(L: Lauf): void {
+/** Stand melden: bei jeder Änderung, Fortschritt (nurFortschritt) höchstens einmal je Sekunde (9.6). */
+function melde(L: Lauf, nurFortschritt = false): void {
+  const jetzt = L.d.jetzt();
+  if (nurFortschritt && jetzt - L.letzteMeldungMs < 1000) return;
   const s = standKopie(L);
   const text = JSON.stringify(s);
   if (text === L.letzteMeldung) return;
   L.letzteMeldung = text;
+  L.letzteMeldungMs = jetzt;
   L.d.melde(s);
 }
 
@@ -1204,7 +1210,9 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
   const plan = planeSideEvent({
     seitenOrdner: o.pfad, index, dateien: o.dateien, entfernt: o.entfernt ?? [], urlInhalte: o.urlInhalte,
     anhaenge: gueltig, ungueltig, jetzt: new Date(L.d.jetzt()),
-    zurueckgehaltenBis: () => null,
+    zurueckgehaltenBis: (id, inhalt) => L.fehlschlaege.get(`${e.programId}
+${id}
+${inhalt}`)?.bis ?? null,
   });
   const ctx: Ctx = {
     L, s, e, o, gen, signal: L.abbruch.signal, zwischenAngelegt: false, probleme: [...o.probleme], geaendert: s.indexOffen, platziert: new Set(), weg: new Set(), uebernommen: 0,
@@ -1274,11 +1282,14 @@ async function abschluss(ctx: Ctx, abgerufen: string, gueltig: GueltigerAnhang[]
   for (const n of ctx.platziert) da.add(n);
   for (const n of ctx.weg) da.delete(n);
   let k = 0;
+  let bediener = 0;
   let gesperrt = 0;
   for (const a of gueltig) {
     const x = o.index.eintraege.find((y) => y.id === a.m.id);
     if (!x || x.zustand !== 'aktiv' || x.inhalt !== inhaltSignatur(a) || !da.has(vf(x.datei))) continue;
     k++;
+    const f = o.dateien.find((y) => vf(y.name) === vf(x.datei));
+    if (f && !ctx.platziert.has(vf(x.datei)) && x.mtimeMs !== undefined && f.mtimeMs !== x.mtimeMs) bediener++;
     if (!istLinkAnhang(a.m)) {
       const r = ordnerPfad({ art: 'datei', seitenOrdner: null, label: a.m.label, kind: 'file', mime: a.m.asset?.mime_type ?? null });
       if (r.ok && r.gesperrt) gesperrt++;
@@ -1293,6 +1304,7 @@ async function abschluss(ctx: Ctx, abgerufen: string, gueltig: GueltigerAnhang[]
     abruf: 'gelungen', stand: abgerufen, standAusFrueherSitzung: false, fehler: null, n: gueltig.length, k,
     probleme: [...ctx.probleme, ...indexProblem],
   });
+  st.zusaetze.bedienerGeaendert = bediener;
   st.zusaetze.gesperrteEndungen = gesperrt;
   s.letzterAgendaText = null;
 }
@@ -1324,8 +1336,13 @@ async function fuehreAus(ctx: Ctx, s: PlanSchritt): Promise<void> {
     case 'fehler':
       ctx.probleme.push({ art: 'grund', datei: s.datei, grund: s.grund });
       return;
-    case 'zurueckgehalten':
+    case 'zurueckgehalten': {
+      const f = ctx.L.fehlschlaege.get(`${ctx.e.programId}
+${s.id}
+${s.inhalt}`);
+      ctx.probleme.push({ art: 'grund', datei: s.datei, grund: f?.grund ?? '', naechsterVersuch: iso(s.bis) });
       return;
+    }
     default:
       return fuehreSchrittAus(ctx, s);
   }
@@ -1419,7 +1436,7 @@ async function fuehreSchrittAus(ctx: Ctx, s: Exclude<PlanSchritt, { art: 'fehler
     }
     return;
   }
-  if (s.art === 'tauschen') return;
+  if (s.art === 'tauschen') return tausche(ctx, s);
   return lade(ctx, s);
 }
 
@@ -1532,6 +1549,8 @@ async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<n
       fortschritt: (b) => {
         geschrieben = b;
         st.laedt = { datei: s.wunsch, bytes: b, groesse };
+        if (L.d.jetzt() - Date.parse(L.kopf.letzterFortschritt ?? '') >= 1000) fortschritt(L);
+        melde(L, true);
       },
     });
     if (groesse !== null && r.bytes !== groesse) throw new GrundFehler(ORDNER_GRUENDE.unvollstaendig(r.bytes, groesse), `${r.bytes} Bytes`);
@@ -1547,12 +1566,18 @@ async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<n
   }
 }
 
-/** Fehlschlag: Zeile und einmal je neuem Grund ins Log (T23). */
+/** Fehlschlag merken (Rückhaltung, 9.6), Zeile und einmal je neuem Grund ins Log (T23). */
 function scheitert(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'>, x: unknown): void {
   const { L } = ctx;
   const m = s.anhang.m;
   const grund = grundText(x, s.art === 'laden' ? 'download' : 'datei');
-  ctx.probleme.push({ art: 'grund', datei: s.wunsch, grund });
+  const schluessel = `${ctx.e.programId}
+${m.id}
+${s.inhalt}`;
+  const f = (L.fehlschlaege.get(schluessel)?.f ?? 0) + 1;
+  const bis = rueckhaltungBis(f, L.d.jetzt());
+  L.fehlschlaege.set(schluessel, { f, bis, grund, datei: s.wunsch });
+  ctx.probleme.push({ art: 'grund', datei: s.wunsch, grund, naechsterVersuch: iso(bis) });
   if (ctx.s.logGrund.get(m.id) !== grund) {
     ctx.s.logGrund.set(m.id, grund);
     L.d.log.warn(LAUF_TEXTE.nichtGeladen(s.wunsch, grund, rohmeldung(x)));
@@ -1561,7 +1586,7 @@ function scheitert(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'>, x: 
 
 /**
  * Platzieren ohne Überschreiben (9.6): (1) Index-Eintrag „laedt“ mit Zielname und Bytezahl, (2) alte Fassung nach
- * entfernt/, (3) Zielname frisch prüfen und umbenennen, (4) „aktiv“.
+ * entfernt/ (geöffnet → die neue wartet als `.jm-neu`), (3) Zielname frisch prüfen und umbenennen, (4) „aktiv“.
  */
 async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'>, zwischen: string, bytes: number): Promise<void> {
   const { L, o, gen } = ctx;
@@ -1587,6 +1612,21 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
   if (gen !== L.gen) { await L.fs.unlink(zwischen).catch(() => undefined); return; }
   if (s.alt) {
     const r = await nachEntfernt(ctx, s.alt, 'ersetzt');
+    if (!r.ok && r.offen && vorher) {
+      const neu = ordnerPfad({ art: 'zwischen', seitenOrdner: o.pfad, kennung: m.id, pid: L.d.pid, endung: 'jm-neu' });
+      try {
+        if (!neu.ok) throw new GrundFehler(neu.grund, 'Zwischendatei');
+        await umbenennenImOrdner(L.fs, o.pfad, zwischen, neu.pfad);
+      } catch (x) {
+        await L.fs.unlink(zwischen).catch(() => undefined);
+        eintragSetzen(ctx, vorher);
+        return scheitert(ctx, s, x);
+      }
+      eintragSetzen(ctx, { ...vorher, wartet: neu.name, inhaltNeu: s.inhalt });
+      await schreibeIndex(L, ctx.s, o);
+      ctx.probleme.push({ art: 'neue-fassung-wartet', datei: s.alt });
+      return;
+    }
     if (!r.ok) {
       await L.fs.unlink(zwischen).catch(() => undefined);
       if (vorher) eintragSetzen(ctx, vorher);
@@ -1614,9 +1654,38 @@ async function platziere(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'
   markierePlatziert(ctx, ziel);
   eintragSetzen(ctx, { id: m.id, art, zustand: 'aktiv', datei: ziel, label: m.label, inhalt: s.inhalt, bytes, mtimeMs: st?.mtimeMs });
   await schreibeIndex(L, ctx.s, o);
+  L.fehlschlaege.delete(`${ctx.e.programId}
+${m.id}
+${s.inhalt}`);
   ctx.s.logGrund.delete(m.id);
   L.d.log.info(LAUF_TEXTE.geladen(ziel, megabyte(bytes)));
   if (s.art === 'laden' && s.gesperrt) L.d.log.info(LAUF_TEXTE.endungGesperrt(s.gesperrt, m.label, ziel));
+}
+
+/** Wartende Fassung tauschen (9.6): alte nach entfernt/, dann `.jm-neu` unter den Namen, ohne neuen Download. */
+async function tausche(ctx: Ctx, s: Schritt<'tauschen'>): Promise<void> {
+  const { L, o } = ctx;
+  const m = s.anhang.m;
+  const x = eintrag(ctx, m.id);
+  if (!x) return;
+  if (s.alt) {
+    const r = await nachEntfernt(ctx, s.alt, 'ersetzt');
+    if (!r.ok) {
+      ctx.probleme.push(r.offen ? { art: 'neue-fassung-wartet', datei: s.alt } : { art: 'grund', datei: s.alt, grund: r.grund });
+      return;
+    }
+    L.d.log.info(LAUF_TEXTE.entferntErsetzt(s.alt));
+  }
+  try {
+    const ziel = freierName(s.wunsch, await belegteNamen(ctx, m.id));
+    await umbenennenImOrdner(L.fs, o.pfad, path.join(o.pfad, s.wartet), path.join(o.pfad, ziel));
+    const st = await L.fs.stat(path.join(o.pfad, ziel));
+    ctx.platziert.add(vergleichsform(ziel));
+    eintragSetzen(ctx, { id: m.id, art: x.art, zustand: 'aktiv', datei: ziel, label: m.label, inhalt: s.inhalt, bytes: st.size, mtimeMs: st.mtimeMs });
+    L.d.log.info(LAUF_TEXTE.geladen(ziel, megabyte(st.size)));
+  } catch (e) {
+    ctx.probleme.push({ art: 'grund', datei: s.wunsch, grund: grundText(e, 'datei') });
+  }
 }
 
 // ── Ende des Moduls ──
