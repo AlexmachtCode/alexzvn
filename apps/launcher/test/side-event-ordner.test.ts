@@ -908,7 +908,84 @@ console.log('— P13 Wer ablegt (Spec 9.2), Sperrdatei, Ende der Ablage');
       k.fall === 'K6' && (k.text ?? '').startsWith(`Ordner „${pathC.basename(AttC.BASIS)}“ nicht anlegbar (Verknüpfung).`)
       && unter.every((x) => x.op === 'readFile') && T.fs.namen(WOANDERS).length === 0 && T.agenda.aufrufe.length === 0);
   }
-  ck('P13 9.2: T75 wörtlich', LaufC.LAUF_TEXTE.sperreNichtGeloescht('X', 'EPERM') === 'iveo-Ordner: Sperrdatei in „X“ nicht gelöscht (EPERM); ein anderer Rechner übernimmt die Ablage erst nach 15 Minuten.');
+  {
+    // Fix-Runde 1, Befund 1: Rennen zwischen sitzung()/beenden() und einem Schreiben der Sperre, das noch läuft (rename wartet)
+    const mitTor = async (ausloeser: (T: ReturnType<typeof AttC.baueLauf>) => void) => {
+      const T = AttC.baueLauf();
+      T.fs.ordner(AttC.BASIS);
+      const tor = T.fs.torBei('rename', (p) => p.startsWith(`${SPERRE}.`));
+      T.lauf.takt();
+      await AttC.ruhe();
+      const dagewesen = tor.erreicht();
+      ausloeser(T);
+      tor.weiter();
+      await T.lauf.ruhig();
+      return { T, dagewesen };
+    };
+    const a = await mitTor((T) => T.lauf.sitzung());
+    ck('P13 12.4 Nr. 40 (b): sitzung() während das Umbenennen der Sperre wartet → die eben geschriebene Sperre der alten Sitzung wird gelöscht',
+      a.dagewesen && sperreVon(a.T.fs) === null && a.T.fs.zaehle('unlink', (p) => p === SPERRE) === 1);
+    await a.T.takt();
+    ck('P13 12.4 Nr. 40 (b): … der nächste Takt schreibt die Sperre der neuen Sitzung und behauptet nie, ein zweiter Launcher habe übernommen (kein K5)',
+      sperreVon(a.T.fs)?.rechner === 'REGIE-1' && a.T.lauf.stand().sperre === null);
+    const b = await mitTor((T) => T.lauf.beenden());
+    ck('P13 12.4 Nr. 40 (c): beenden() während das Umbenennen der Sperre wartet → die Sperre bleibt nicht liegen (Ende der Ablage, 9.2)',
+      b.dagewesen && sperreVon(b.T.fs) === null && b.T.fs.zaehle('unlink', (p) => p === SPERRE) === 1);
+  }
+  {
+    // Fix-Runde 1, Befund 2: Schalter aus, stat hängt → die stat läuft abgelöst; der Lauf kommt nach Schalter an wieder in Gang
+    const T = AttC.baueLauf();
+    T.z.schalter = false;
+    T.fs.haengtBei('stat', (p) => p === AttC.BASIS);
+    for (let i = 0; i < 3; i++) { T.lauf.takt(); await AttC.ruhe(); await T.uhr.spule(45_000, 45_000); }
+    T.z.schalter = true;
+    T.fs.ordner(AttC.BASIS);
+    T.lauf.takt();
+    await AttC.ruhe();
+    ck('P13 12.4 Nr. 27: Schalter aus, stat hängt, dann Schalter an → der nächste Takt läuft (Stand schalterAn, Sperre geschrieben), die Zeile lügt nicht',
+      T.lauf.stand().schalterAn === true && sperreVon(T.fs)?.rechner === 'REGIE-1');
+  }
+  {
+    // Fix-Runde 1, Befund 3: der Stand geht vor den Dateizugriffen hinaus; ein hängender Zugriff hält ihn nicht zurück
+    const T = AttC.baueLauf();
+    T.fs.ordner(AttC.BASIS);
+    await T.takt();
+    T.fs.haengtBei('unlink', (p) => p === SPERRE);
+    T.z.rolle = 'slave';
+    T.lauf.takt();
+    await AttC.ruhe();
+    ck('P13 11.1 K1: Rolle wird slave, das Löschen der Sperre hängt → der Stand nennt die Rolle trotzdem sofort (Kopfzeile K1)',
+      T.staende[T.staende.length - 1]?.rolle === 'slave' && T.fs.haengend === 1);
+    const S = AttC.baueLauf();
+    S.fs.ordner(AttC.BASIS);
+    S.fs.fehlerBei('readFile', (p) => p === SPERRE, 'EACCES');
+    await S.takt();
+    const vorher = S.staende.length;
+    ck('P13 11.1 K6: Vorbedingung – Sperrdatei nicht lesbar', S.staende[S.staende.length - 1]?.basis?.fehler?.sperre === 'lesen');
+    S.lauf.sitzung();
+    const letzter = S.staende[S.staende.length - 1];
+    ck('P13 9.2: sitzung() meldet den neuen Stand sofort (Show offen, keine Fehlerzeile der alten Sitzung)',
+      S.staende.length > vorher && letzter?.showOffen === true && letzter?.basis === null);
+  }
+  {
+    // Fix-Runde 1, Befund 3: K6 sagt auch dann die Wahrheit, wenn der Folgetakt hängt – nach Ablauf T59 mit der Zeit des Versuchs (11.1)
+    const V = new Date(2026, 9, 17, 8, 0, 0).getTime();
+    const NAME = 'COP31 Tag 1 – Side Events';
+    const k6 = (fehler: { code: string; sperre?: 'lesen' | 'schreiben' }, jetzt: number) => ZeilenC.kopfzeile({
+      showOffen: true, rolle: 'master', tokenDa: true, schalterAn: true, showDatei: 'da', sperre: null,
+      basis: { name: NAME, pfad: '/Shows/x', existiert: true, fehler: { ...fehler, naechsterVersuch: new Date(V).toISOString() } },
+      runde: null, ersteRundeGestartet: false, naechsteRundeGegen: null, letzterFortschritt: null, sideEvents: [],
+    }, jetzt);
+    ck('P13 11.1 K6: genau 45 s nach dem nächsten Versuch → noch T78',
+      k6({ code: 'EACCES', sperre: 'lesen' }, V + 45_000).text === `Sperrdatei in „${NAME}“ nicht lesbar (EACCES). Nächster Versuch gegen 08:00.`);
+    const spaet = k6({ code: 'EACCES', sperre: 'lesen' }, V + 46_000);
+    ck('P13 11.1 K6: 46 s nach dem nächsten Versuch → T59 mit der Zeit des Versuchs, K6, „Ordner öffnen“ bleibt',
+      spaet.fall === 'K6' && spaet.text === `Ablage: „${NAME}“ · Abgleich überfällig seit 08:00` && spaet.ordnerOeffnen);
+    const spaet2 = k6({ code: 'EACCES' }, V + 30 * 60_000);
+    ck('P13 11.1 K6: Ordner nicht anlegbar, 30 min später → T59, kein „Ordner öffnen“',
+      spaet2.fall === 'K6' && spaet2.text === `Ablage: „${NAME}“ · Abgleich überfällig seit 08:00` && !spaet2.ordnerOeffnen);
+  }
+  ck('P13 9.2: T75 wörtlich',LaufC.LAUF_TEXTE.sperreNichtGeloescht('X', 'EPERM') === 'iveo-Ordner: Sperrdatei in „X“ nicht gelöscht (EPERM); ein anderer Rechner übernimmt die Ablage erst nach 15 Minuten.');
 }
 
 // ── Ende der Fälle ──

@@ -191,6 +191,8 @@ function neueSitzung(L: Lauf): void {
   L.sitzung = L.d.neueSitzungsKennung();
   L.aktivAgenda = null;
   L.kopf = leererKopf();
+  liesBedingungen(L);
+  melde(L); // sofort: die Zeile der alten Sitzung darf nicht stehen bleiben, auch wenn der nächste Takt an einem Zugriff hängt
   if (alt) {
     // Anstoßen, nicht abwarten; die nächste Prüfung der Sperre wartet darauf, sonst löschte es die neue Sperre (12.4 Nr. 40 b).
     const p = loescheEigeneSperre(L, alt);
@@ -223,7 +225,8 @@ async function loescheEigeneSperre(L: Lauf, g: { basis: string; sitzung: string 
 
 // ── Takt: Bedingungen 9.2, Sperre, aktives Side Event, Runde ─────────────────────────────────────────────────────
 
-async function taktAsync(L: Lauf): Promise<void> {
+/** Show, Rolle, Token und Schalter in den Kopf lesen (keine Dateizugriffe). */
+function liesBedingungen(L: Lauf): { path: string; event: string; filter: IveoProgramFilter } | null {
   const d = L.d;
   const a = d.aktiv();
   const k = L.kopf;
@@ -231,6 +234,13 @@ async function taktAsync(L: Lauf): Promise<void> {
   k.rolle = d.rolle();
   k.tokenDa = d.tokenDa();
   k.schalterAn = d.schalterAn();
+  return a;
+}
+
+async function taktAsync(L: Lauf): Promise<void> {
+  const a = liesBedingungen(L);
+  const k = L.kopf;
+  melde(L); // vor jedem Dateizugriff: ein hängender Zugriff hält den Stand nicht zurück (K0–K2, K6 „überfällig“)
   if (!a) { await endeAblage(L); return melde(L); } // K0
   const b = ordnerPfad({ art: 'basis', showPfad: a.path });
   if (b.ok && k.basis?.pfad !== b.pfad) k.basis = { name: b.name, pfad: b.pfad, existiert: false, fehler: null };
@@ -239,17 +249,11 @@ async function taktAsync(L: Lauf): Promise<void> {
   if (!k.schalterAn) { // K3: nur die Existenzprüfung des Basisordners, höchstens eine je Takt
     await endeAblage(L);
     melde(L);
-    if (b.ok && !L.statLaeuft) {
+    if (b.ok && !L.statLaeuft) { // abgelöst, nicht abwarten: eine hängende stat hält sonst jeden weiteren Takt fern
       L.statLaeuft = true;
-      try {
-        k.basis = { name: b.name, pfad: b.pfad, existiert: (await L.fs.stat(b.pfad)).isDirectory(), fehler: null };
-      } catch {
-        k.basis = { name: b.name, pfad: b.pfad, existiert: false, fehler: null };
-      } finally {
-        L.statLaeuft = false;
-      }
+      void beschaeftigt(L, pruefeBasisOrdner(L, k, b, L.gen));
     }
-    return melde(L);
+    return;
   }
   if (!b.ok) { k.basis = { name: path.basename(a.path), pfad: a.path, existiert: false, fehler: { code: b.grund, naechsterVersuch: naechsterTakt(L) } }; return melde(L); }
   const gen = L.gen;
@@ -260,6 +264,21 @@ async function taktAsync(L: Lauf): Promise<void> {
   if (!(await pruefeSperre(L, b.pfad, gen))) return melde(L);
   if (gen !== L.gen || !bedingungenGelten(L, a.path)) return;
   L.darf = true;
+  melde(L);
+}
+
+/** K3: Existenz des Basisordners per `stat`, höchstens eine zugleich (`statLaeuft`); das Ergebnis gilt nur noch bei gleicher Generation und Schalter aus. */
+async function pruefeBasisOrdner(L: Lauf, k: Lauf['kopf'], b: { name: string; pfad: string }, gen: number): Promise<void> {
+  let existiert = false;
+  try {
+    existiert = (await L.fs.stat(b.pfad)).isDirectory();
+  } catch {
+    existiert = false;
+  } finally {
+    L.statLaeuft = false;
+  }
+  if (gen !== L.gen || L.kopf !== k || L.d.schalterAn()) return;
+  k.basis = { name: b.name, pfad: b.pfad, existiert, fehler: null };
   melde(L);
 }
 
@@ -328,10 +347,16 @@ async function schreibeSperre(L: Lauf, basis: string, frei: boolean): Promise<bo
   const k = L.kopf;
   const art = await basisArt(L, basis); // 9.12 Regel 11: nie durch eine Verknüpfung schreiben
   if (art === null) return false;
-  const inhalt = `${JSON.stringify({ format: 1, rechner: L.d.rechner, pid: L.d.pid, sitzung: L.sitzung, lebenszeichen: iso(L.d.jetzt()) }, null, 2)}\n`;
+  const gen = L.gen;
+  const sitzung = L.sitzung; // vor den awaits festhalten: sitzung() kann während des Schreibens eine neue vergeben
+  const inhalt = `${JSON.stringify({ format: 1, rechner: L.d.rechner, pid: L.d.pid, sitzung, lebenszeichen: iso(L.d.jetzt()) }, null, 2)}\n`;
   const fehler = await schreibeAtomar(L, path.join(basis, SPERR_DATEI), inhalt);
   if (fehler === null) {
-    L.gehalten = { basis, sitzung: L.sitzung };
+    if (gen !== L.gen || L.beendet) { // Show gewechselt oder Ende der Ablage, während geschrieben wurde: die eben geschriebene Sperre wieder lesen, vergleichen, löschen
+      await loescheEigeneSperre(L, { basis, sitzung });
+      return false;
+    }
+    L.gehalten = { basis, sitzung };
     k.basis = { ...(k.basis as NonNullable<typeof k.basis>), existiert: true, fehler: null };
     return true;
   }

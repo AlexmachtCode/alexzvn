@@ -120,7 +120,7 @@ export function gestoerteSideEvents(stand: AnhangOrdnerStand): number {
 /**
  * Kopfzeile (11.1), erste zutreffende Bedingung: K0 keine Show (keine Zeile; das Panel zeigt T52) · K1 Rolle slave ·
  * K2 kein Token · K3 Schalter aus · K4 Show-Datei fehlt oder nicht lesbar · K5 fremde (T57) bzw. namensgleiche (T73)
- * Sperre · K6 Basisordner nicht anlegbar (T36) bzw. Sperrdatei nicht lesbar oder schreibbar (T78) · K7 Runde läuft
+ * Sperre · K6 Basisordner nicht anlegbar (T36) bzw. Sperrdatei nicht lesbar oder schreibbar (T78), beide nach Ablauf wie K9/K10 T59 · K7 Runde läuft
  * (nach mehr als 105 s ohne Fortschritt T76) · K8 erste Runde
  * ausstehend · K9 bereit, Basisordner da · K10 bereit, Basisordner fehlt (K9/K10 mehr als 45 s nach „gegen“: T59).
  * T64 hängt an K7 und K9, wenn ein Side Event gestört ist.
@@ -149,7 +149,12 @@ export function kopfzeile(
   if (stand.basis?.fehler) {
     // K6: die Zeit nennt der Fehler selbst (nächster Versuch); an der Sperrdatei ist der Ordner meist da (OFP6, 9.13)
     const f = stand.basis.fehler;
-    const versuch = uhrzeit(zeitVon(f.naechsterVersuch));
+    const versuchMs = zeitVon(f.naechsterVersuch);
+    const versuch = uhrzeit(versuchMs);
+    // Nach Ablauf (mehr als 45 s nach dem Versuch, ohne dass ein neuer Stand kam: der Takt hängt) wie K9/K10 T59 mit dieser Zeit (11.1)
+    if (Number.isFinite(versuchMs) && jetztMs - versuchMs > UEBERFAELLIG_NACH_MS) {
+      return { fall: 'K6', text: T.ueberfaellig(name, versuch), schalter: true, ordnerOeffnen: f.sperre ? existiert : false, tooltip };
+    }
     if (f.sperre) return { fall: 'K6', text: T.sperreFehler(name, f.sperre === 'lesen' ? 'lesbar' : 'schreibbar', f.code, versuch), schalter: true, ordnerOeffnen: existiert, tooltip };
     return { fall: 'K6', text: T.nichtAnlegbar(name, f.code, versuch), schalter: true, ordnerOeffnen: false, tooltip };
   }
