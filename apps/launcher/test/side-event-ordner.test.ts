@@ -2377,6 +2377,23 @@ console.log('— P16 Fix-Runde 1: Ordner mit Zusatz, Lesefehler, Index nicht les
     ck('P16 Fix 9.6: die Zwischendatei vom Start wird aufgeräumt, eine später entstehende in derselben Sitzung nicht',
       erst && T.fs.gibt(pathC.join(AttC.BASIS, '.jm-ablage-sperre.json.456.tmp')));
   }
+  { // Fix-Runde 2: ein dauerhaft unlesbarer fremder Unterordner sperrt das Anlegen; die Zeile nennt ihn (G8)
+    const T = AttC.baueLauf();
+    T.fs.lege(pathC.join(AttC.BASIS, 'Fremd', OrdnerC.INDEX_DATEI), '{}');
+    T.fs.fehlerBei('readFile', (p) => p === pathC.join(AttC.BASIS, 'Fremd', OrdnerC.INDEX_DATEI), 'EACCES');
+    for (let i = 0; i < 3; i++) { if (i) await T.uhr.spule(45_000, 45_000); await T.takt(mitAnhang(BERICHT)); }
+    const pr = T.se('se-1')?.probleme ?? [];
+    ck('P16 Fix-2 W2: unlesbarer Unterordner „Fremd“ → kein Ordner „Klima“, kein Download, die Zeile nennt „Fremd“ mit EACCES',
+      T.fs.namen(AttC.BASIS).every((n) => !n.startsWith('Klima')) && T.download.aufrufe.length === 0
+      && pr.some((p) => p.art === 'grund' && p.datei === 'Fremd' && p.grund.includes('EACCES')));
+  }
+  { // Fix-Runde 2: scheitert schon das Auflisten des Basisordners, bleibt der Basisordner der genannte Ort
+    const T = AttC.baueLauf();
+    T.fs.fehlerBei('readdir', (p) => p === AttC.BASIS, 'EIO');
+    await T.takt(mitAnhang(BERICHT));
+    ck('P16 Fix-2 W2 (Gegenprobe): readdir des Basisordners scheitert → datei = Name des Basisordners',
+      (T.se('se-1')?.probleme ?? []).some((p) => p.art === 'grund' && p.datei === pathC.basename(AttC.BASIS) && p.grund.includes('EIO')));
+  }
 }
 
 // ── Ende der Fälle ──

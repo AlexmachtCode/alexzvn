@@ -261,6 +261,8 @@ interface Lauf {
   funde: Fund[] | null;
   /** Fehlercode, wenn die letzte Durchsicht etwas nicht lesen konnte (nicht ENOENT): in dieser Runde wird kein Ordner angelegt (G8). */
   scanFehler: string | null;
+  /** Name des ersten Eintrags, den die Durchsicht nicht lesen konnte (Basisordner oder Unterordner): die Zeile nennt ihn (G8). */
+  scanOrt: string | null;
   /** Die Sperr-Zwischendateien im Basisordner sind in dieser Sitzung schon aufgeräumt (9.6: beim ersten Zugriff). */
   tmpAufgeraeumt: boolean;
   scanFaellig: boolean;
@@ -291,7 +293,7 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     gen: 0, abbruch: new AbortController(), sitzung: d.neueSitzungsKennung(), gehalten: null, darf: false,
     abgesetzt: false, beendet: false, beschaeftigt: 0, warter: [], taktLaeuft: false, statLaeuft: false, sperreLoeschen: null,
     aktivAgenda: null, queue: [], laeuft: null, abrufOffen: null, nachlauf: new Map(), arbeiterGen: null, download: null,
-    rundeStartMs: null, runde: null, menge: [], liste: [], funde: null, scanFehler: null, tmpAufgeraeumt: false, scanFaellig: false, basisFehlerBis: null, basisVersuch: null, taktZuletzt: null,
+    rundeStartMs: null, runde: null, menge: [], liste: [], funde: null, scanFehler: null, scanOrt: null, tmpAufgeraeumt: false, scanFaellig: false, basisFehlerBis: null, basisVersuch: null, taktZuletzt: null,
     se: new Map(), kopf: leererKopf(), letzteMeldung: '',
   };
   return {
@@ -368,6 +370,7 @@ function neueSitzung(L: Lauf): void {
   L.rundeStartMs = null;
   L.funde = null;
   L.scanFehler = null;
+  L.scanOrt = null;
   L.tmpAufgeraeumt = false;
   L.basisFehlerBis = null;
   L.basisVersuch = null; // ein hängender Versuch der alten Generation hält die neue nicht auf (sein Ergebnis wird verworfen)
@@ -796,6 +799,7 @@ async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<v
   if ((await basisArt(L, basis)) === null) { if (gen === L.gen) L.funde = []; return; } // 9.12 Regel 11: nichts darunter lesen
   if (gen !== L.gen) return;
   L.scanFehler = null;
+  L.scanOrt = null;
   let namen: string[];
   try {
     namen = await L.fs.readdir(basis);
@@ -803,13 +807,14 @@ async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<v
     if (gen !== L.gen) return;
     L.funde = [];
     if (fehlerCode(e) === 'ENOENT') { if (L.kopf.basis) L.kopf.basis.existiert = false; } // nur „fehlt“ gilt als nicht da; jeder andere Fehler sperrt das Anlegen (W2)
-    else L.scanFehler = fehlerCode(e);
+    else { L.scanFehler = fehlerCode(e); L.scanOrt = path.basename(basis); }
     return;
   }
   if (gen !== L.gen) return;
   if (L.kopf.basis) L.kopf.basis.existiert = true;
   const funde: Fund[] = [];
   let fehler: string | null = null;
+  let fehlerOrt: string | null = null;
   // 9.6: die Sperr-Zwischendateien räumt nur der erste Zugriff dieser Sitzung auf (und nur mit eigener Sperre).
   const tmpWeg = L.gehalten !== null && !L.tmpAufgeraeumt;
   for (const name of namen) {
@@ -824,7 +829,7 @@ async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<v
       st = await L.fs.lstat(p);
     } catch (e) {
       if (gen !== L.gen) return;
-      if (fehlerCode(e) !== 'ENOENT') fehler = fehlerCode(e);
+      if (fehlerCode(e) !== 'ENOENT' && fehler === null) { fehler = fehlerCode(e); fehlerOrt = name; }
       continue;
     }
     if (gen !== L.gen) return;
@@ -834,7 +839,7 @@ async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<v
       text = await L.fs.readFile(path.join(p, INDEX_DATEI), 'utf8');
     } catch (e) {
       if (gen !== L.gen) return;
-      if (fehlerCode(e) !== 'ENOENT') fehler = fehlerCode(e); // unlesbar: gilt hier als „ohne Index“, sperrt aber das Anlegen eines weiteren Ordners
+      if (fehlerCode(e) !== 'ENOENT' && fehler === null) { fehler = fehlerCode(e); fehlerOrt = name; } // unlesbar: gilt hier als „ohne Index“, sperrt aber das Anlegen eines weiteren Ordners
       funde.push({ name, art: 'fehlt', programId: null, ordnerName: null, stand: null });
       continue;
     }
@@ -848,6 +853,7 @@ async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<v
   if (tmpWeg) L.tmpAufgeraeumt = true;
   L.funde = funde;
   L.scanFehler = fehler;
+  L.scanOrt = fehlerOrt;
   // Stand für Side Events mit gefundenem Ordner (S2, S8), solange sie in dieser Sitzung noch nicht bearbeitet sind.
   for (const f of funde) {
     if (!f.programId) continue;
@@ -930,7 +936,7 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
     st.existiert = false;
     if (!mitAnhaengen) return null; // OF4: ein Ordner entsteht erst mit dem ersten Anhang
     if (L.scanFehler !== null) { // die Durchsicht konnte etwas nicht lesen: nicht anlegen (sonst entsteht ein Duplikat), die Zeile nennt es (G8)
-      s.ordnerProblem = [{ art: 'grund', datei: path.basename(basis), grund: `Lesefehler (${L.scanFehler})` }];
+      s.ordnerProblem = [{ art: 'grund', datei: L.scanOrt ?? path.basename(basis), grund: `Lesefehler (${L.scanFehler})` }];
       return null;
     }
     const wartete = L.basisVersuch !== null;
