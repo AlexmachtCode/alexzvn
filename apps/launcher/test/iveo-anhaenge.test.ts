@@ -108,13 +108,13 @@ console.log('— P5 · Materialsignatur mit Referenz-Hash (Spec 8.3, M1; 12.3 Nr
 
 console.log('— P6 · Anhang-Wächter: Ereignisse, Beobachtung, Takt (Spec 8.2, 8.4, 8.6; 12.3 Nr. 3–7)');
 /** Prüfstand: Wächter mit nachgebauter Hülle; die Uhr rückt nur über weiter(). */
-function pruefstand(aktiv: string | null = null) {
+function pruefstand(aktiv: string | null = null, ereignisKennung: string | null = 'cop31') {
   const ereignisse: AnhangEreignis[] = [];
   const logs: string[] = [];
   const z = { aktiv, uhr: Date.UTC(2026, 9, 17, 10, 0, 0) };
   const d: AnhangWaechterAbh = {
     aktivProgramId: () => z.aktiv,
-    event: () => 'cop31',
+    event: () => ereignisKennung,
     jetztIso: () => new Date(z.uhr).toISOString(),
     sende: (e) => { ereignisse.push(e); },
     titelVon: (id) => (id === 'A' ? 'Side Event A' : null),
@@ -230,8 +230,15 @@ const ohneListe = (e: AnhangEreignis | undefined): boolean => !!e && e.materials
   p.w.agendaVomKern('B', { ok: false, fehler: new IveoApiError(500, 'http_500', 'x') });
   ck('P6 8.2: gescheiterte Agenda des Kerns → ok:false für das aktive', p.ereignisse[n]?.programId === 'B' && p.ereignisse[n].ok === false);
   p.z.aktiv = null;
+  p.w.beobachte(['A']);
+  const m = p.ereignisse.length;
   await p.w.takt(null);
-  ck('P6 8.2: ohne Client (kein Token) kein Abruf', c.abrufe.length === 2);
+  ck('P6 8.2: ohne Client (kein Token) kein Abruf, obwohl eine Liste beobachtet wird', c.abrufe.length === 2 && p.ereignisse.length === m);
+  const q = pruefstand(null, null);
+  const cq = attrappe({ A: agendaA() });
+  q.w.beobachte(['A']);
+  await q.w.takt(cq.client);
+  ck('P6 8.2: ohne Event (null) kein Abruf, obwohl eine Liste beobachtet wird', cq.abrufe.length === 0 && q.ereignisse.length === 0);
 }
 {
   const p = pruefstand();
@@ -245,6 +252,17 @@ const ohneListe = (e: AnhangEreignis | undefined): boolean => !!e && e.materials
   await p.w.takt(c.client);
   ck('P6 12.3 Nr. 6: nächste Beobachtung gilt als erste (mit materials, ohne T17)',
     p.ereignisse.length === 2 && p.ereignisse[1].materials?.[0].label === 'Anderes Deck' && p.logs.length === 0);
+  {
+    // Beobachtung bleibt über zuruecksetzen erhalten (der Renderer meldet nur bei Wechsel neu, 8.2): Takt ruft weiter ab.
+    const r = pruefstand();
+    const cr = attrappe({ A: agendaA() });
+    r.w.beobachte(['A']);
+    await r.w.takt(cr.client);
+    r.w.zuruecksetzen();
+    r.weiter(); await r.w.takt(cr.client);
+    ck('P6 8.2: nach zuruecksetzen ohne neue Anmeldung ruft der Takt A weiter ab und sendet materials',
+      cr.abrufe.join(',') === 'A,A' && r.ereignisse.length === 2 && r.ereignisse[1].programId === 'A' && r.ereignisse[1].materials?.length === 2);
+  }
   let loese: (a: IveoAgendaItem[]) => void = () => {};
   const haengt = { listAgendaItems: (): Promise<IveoAgendaItem[]> => new Promise((r) => { loese = r; }) };
   const lauf = p.w.takt(haengt);

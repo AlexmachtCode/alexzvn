@@ -176,7 +176,7 @@ export interface AnhangWaechter {
   eigenesLaden(programId: string, abgerufen: string): void;
   /** Holt im Takt die Agenda jeder beobachteten Liste, die nicht das aktive Side Event ist (15-s-Client der Hülle). */
   takt(client: Pick<IveoClient, 'listAgendaItems'> | null): Promise<void>;
-  /** Show geöffnet, gewechselt, geschlossen oder mit neuer Bindung gespeichert: alles vergessen (8.2). */
+  /** Show geöffnet, gewechselt, geschlossen oder mit neuer Bindung gespeichert: alle Stände und Marken vergessen, die Beobachtung des Renderers bleibt (8.2). */
   zuruecksetzen(): void;
 }
 
@@ -298,7 +298,7 @@ export function erzeugeAnhangWaechter(d: AnhangWaechterAbh): AnhangWaechter {
       generation++;
       staende.clear();
       neuMelden.clear();
-      beobachtet = [];
+      // `beobachtet` bleibt: der Renderer meldet nur bei Öffnen/Schließen, Auf-/Zuklappen und Event-Wechsel neu (8.2).
     },
   };
 }
