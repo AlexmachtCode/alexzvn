@@ -339,16 +339,15 @@ async function pruefeSperre(L: Lauf, basis: string, gen: number): Promise<boolea
     return false;
   }
   k.sperre = null;
-  return schreibeSperre(L, basis, bew === 'frei');
+  return schreibeSperre(L, basis, bew === 'frei', gen, L.sitzung); // Generation und Sitzung hier festhalten, vor lstat und Schreiben
 }
 
 /** Sperrdatei atomar schreiben (Zwischendatei, sync, umbenennen). Fehlt der Basisordner bei „frei“: später (9.2). */
-async function schreibeSperre(L: Lauf, basis: string, frei: boolean): Promise<boolean> {
+async function schreibeSperre(L: Lauf, basis: string, frei: boolean, gen: number, sitzung: string): Promise<boolean> {
   const k = L.kopf;
+  // gen und sitzung kommen von der Prüfung: sitzung() kann schon während lstat, Zwischendatei, sync oder Umbenennen eine neue vergeben
   const art = await basisArt(L, basis); // 9.12 Regel 11: nie durch eine Verknüpfung schreiben
   if (art === null) return false;
-  const gen = L.gen;
-  const sitzung = L.sitzung; // vor den awaits festhalten: sitzung() kann während des Schreibens eine neue vergeben
   const inhalt = `${JSON.stringify({ format: 1, rechner: L.d.rechner, pid: L.d.pid, sitzung, lebenszeichen: iso(L.d.jetzt()) }, null, 2)}\n`;
   const fehler = await schreibeAtomar(L, path.join(basis, SPERR_DATEI), inhalt);
   if (fehler === null) {

@@ -933,6 +933,36 @@ console.log('— P13 Wer ablegt (Spec 9.2), Sperrdatei, Ende der Ablage');
       b.dagewesen && sperreVon(b.T.fs) === null && b.T.fs.zaehle('unlink', (p) => p === SPERRE) === 1);
   }
   {
+    // Fix-Runde 2: dasselbe Rennen, aber während der lstat-Prüfung des Basisordners (Festhalten von gen und sitzung vor basisArt)
+    const SHOW_B = pathC.join(AttC.ROOT, 'Shows', 'Andere.jmshow');
+    const B_SPERRE = pathC.join(AttC.ROOT, 'Shows', 'Andere – Side Events', OrdnerC.SPERR_DATEI);
+    const mitLstat = async (ausloeser: (T: ReturnType<typeof AttC.baueLauf>) => void) => {
+      const T = AttC.baueLauf();
+      T.fs.ordner(AttC.BASIS);
+      T.fs.ordner(pathC.join(AttC.ROOT, 'Shows', 'Andere – Side Events'));
+      T.fs.lege(SHOW_B, AttC.showText([{ id: 'se-1', title: 'Klima' }], { programId: 'se-1' } as never));
+      const tor = T.fs.torBei('lstat', (p) => p === AttC.BASIS);
+      T.lauf.takt();
+      await AttC.ruhe();
+      const dagewesen = tor.erreicht();
+      ausloeser(T);
+      tor.weiter();
+      await T.lauf.ruhig();
+      return { T, dagewesen };
+    };
+    const a = await mitLstat((T) => {
+      T.z.aktiv = { path: SHOW_B, event: 'cop31', filter: { programId: 'se-1' } as never };
+      T.lauf.sitzung();
+    });
+    ck('P13 12.4 Nr. 40 (b): sitzung() mit Show-Wechsel, während die lstat-Prüfung des Basisordners wartet → in der Sperre von Show A bleibt keine Sperre der neuen Sitzung stehen',
+      a.dagewesen && sperreVon(a.T.fs) === null && a.T.fs.zaehle('unlink', (p) => p === SPERRE) === 1);
+    await a.T.takt();
+    a.T.lauf.beenden();
+    await a.T.lauf.ruhig();
+    ck('P13 12.4 Nr. 40 (b): … nach dem nächsten Takt und beenden() liegt weder in Show A noch in Show B eine Sperre',
+      sperreVon(a.T.fs) === null && a.T.fs.inhalt(B_SPERRE) === null);
+  }
+  {
     // Fix-Runde 1, Befund 2: Schalter aus, stat hängt → die stat läuft abgelöst; der Lauf kommt nach Schalter an wieder in Gang
     const T = AttC.baueLauf();
     T.z.schalter = false;
