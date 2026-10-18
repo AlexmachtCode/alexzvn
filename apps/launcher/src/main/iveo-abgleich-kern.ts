@@ -138,6 +138,14 @@ export const TEXT_ORG_FEHLEN = 'iveo liefert keine Organisationen (Feld fehlt), 
 const TEXT_ORG_FEHLEN_LOG = 'iveo: kein Speaker trägt Organisationen (Feld fehlt), Organisationen aus der Datei bleiben.';
 /** iveo-Paket, Spec 6.2 und 11.6 T2 (wortgleich): Info, wenn ein Auffrischen nichts geändert hat; ‹n› = Speaker in der Datei. */
 const textAufgefrischt = (n: number): string => `iveo: Speakerliste aufgefrischt, unverändert (${n} Speaker).`;
+/**
+ * iveo-Paket, Spec 6.3 und 11.6 T50 (wortgleich): Merker „Speaker-Verknüpfung veraltet“ (nur im Speicher), das Programm-
+ * Detail scheiterte beim Auffrischen. Ohne Präfix und ohne Uhrzeit wie TEXT_SPEAKER_VERALTET.
+ */
+export const TEXT_DETAIL_VERALTET = 'Programm-Detail von iveo nicht abrufbar, Speaker-Verknüpfung aus früherem Stand';
+/** iveo-Paket, Spec 6.3 und 11.6 T3 (wortgleich): Warnung beim ersten Fehlschlag des Details und bei jedem neuen Text. */
+const textDetailAlt = (fehler: string): string =>
+  `iveo: Programm-Detail beim Auffrischen nicht abrufbar (${fehler}), Verknüpfung, Startzeit und Kategorie aus früherem Stand.`;
 
 // ── Reine Helfer (aus iveo-sync.ts hierher gezogen; die Hülle importiert sie für Binden/Discover) ──────────
 
@@ -338,6 +346,7 @@ export function organisationenAusDatei(
 export interface StatusMerker {
   speakerVeraltetSeit?: string;
   seListeVeraltetSeit?: string;
+  detailVeraltetSeit?: string;
   orgFehlenSeit?: string;
 }
 
@@ -351,6 +360,7 @@ export function statusAusMerkern(m: StatusMerker): IveoSyncStatus {
   const da = ([
     [m.speakerVeraltetSeit, TEXT_SPEAKER_VERALTET],
     [m.seListeVeraltetSeit, TEXT_SELISTE_VERALTET],
+    [m.detailVeraltetSeit, TEXT_DETAIL_VERALTET],
     [m.orgFehlenSeit, TEXT_ORG_FEHLEN],
   ] as Array<[string | undefined, string]>).filter((t): t is [string, string] => !!t[0]);
   if (!da.length) return { ok: true };
@@ -439,6 +449,11 @@ interface AktiveShow {
   /** Teil 2b R2, Spec 15.4: Merker „Side-Event-Liste veraltet“ (nur im Speicher), ISO-Zeit des ersten Fehlschlags. */
   seListeVeraltetSeit?: string;
   /**
+   * iveo-Paket, Spec 6.3: Merker „Speaker-Verknüpfung veraltet“ (nur im Speicher, nicht in der Signatur), ISO-Zeit des
+   * ersten Fehlschlags des Programm-Details beim Auffrischen. Solange er gilt, holt jede Agenda-Abfrage das Detail.
+   */
+  detailVeraltetSeit?: string;
+  /**
    * iveo-Paket, Spec 5.10: Merker „Organisationen fehlen“ (nur im Speicher, nicht in der Signatur), ISO-Zeit, seit kein
    * Speaker der iveo-Liste das Feld trägt und die Organisationen der Datei gelten.
    */
@@ -469,6 +484,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   let letzterSpeakerFehler: string | null = null;
   /** Teil 2b R2, Spec 15.4: zuletzt geloggter Fehlertext des Zusatzabrufs der Side-Event-Liste. */
   let letzterSeListeFehler: string | null = null;
+  /** iveo-Paket, Spec 6.3: zuletzt geloggter Fehlertext des Programm-Details beim Auffrischen (T3). */
+  let letzterDetailFehler: string | null = null;
 
   /** 7.3: Ergebnis gilt nur, wenn Show UND Generation noch dieselben sind wie beim Start. */
   const istAktuell = (a: AktiveShow, gen: number): boolean => active === a && generation === gen;
@@ -513,6 +530,13 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     if (text === letzterSeListeFehler) return;
     letzterSeListeFehler = text;
     d.log.warn(`iveo: Side-Event-Liste nicht abrufbar (${text}), Liste aus der Datei bleibt.`);
+  }
+  /** iveo-Paket, Spec 6.3 (T3): Warnung beim ersten Fehlschlag des Programm-Details und bei jedem neuen Fehlertext. */
+  function meldeDetailFehler(e: unknown): void {
+    const text = (e as Error)?.message || String(e);
+    if (text === letzterDetailFehler) return;
+    letzterDetailFehler = text;
+    d.log.warn(textDetailAlt(text));
   }
   /**
    * Teil 2b R2, Spec 15.4: Zusatzabruf der Agenda-Abfrage. Fragt `listProgramsUpdatedSince(event, seListeIso)`; liefert
@@ -907,31 +931,60 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
    * Teil 2b, Spec 6.2: Mit Merker „Speaker veraltet“ holt die Abfrage zusätzlich die Speakerliste, auch bei gemerktem
    * Kontext. Gelingt sie, gelten die verknüpften Speaker (ohne Verknüpfung die ganze Liste), und der Merker entfällt.
    * Scheitert sie, bleiben Speaker und Merker der Datei; fehlt zugleich der Kontext, bricht die Abfrage ab wie in 2a.
+   * iveo-Paket, Spec 6.3 (E11, E12): Ist das Auffrischen fällig, holt sie Speakerliste und Programm-Detail; der Detail-
+   * Anteil des Kontexts kommt dann aus dem frischen Detail, die Namen aus der frischen Liste. Scheitert nur das Detail,
+   * gilt der Merker „Speaker-Verknüpfung veraltet“ (nur im Speicher), und jede weitere Abfrage holt das Detail.
    */
   async function abfrageAgenda(client: IveoClientLike, a: AktiveShow, gen: number): Promise<void> {
     const programId = a.filter.programId!;
+    // iveo-Paket, Spec 6.1: Zeitpunkt vor den Abrufen. Gegen ihn prüft „fällig“, auf ihn rückt `speakerAbgerufen` vor.
+    const ab = d.jetztIso();
+    const auffrischen = faellig(a, ab);
     const agenda = await client.listAgendaItems(a.event, programId);
     let detail: IveoProgram | null = null;
     let ctx = a.sideCtx;
-    /** Volle Speakerliste, falls diese Abfrage sie geholt hat (für den Kontext oder wegen des Merkers). */
+    /** Volle Speakerliste, falls diese Abfrage sie geholt hat (für den Kontext, wegen des Merkers oder weil fällig). */
     let alle: IveoSpeaker[] | undefined;
-    /** Fehlschlag der Speakerliste bei gemerktem Kontext (mit Merker); gemeldet erst, wenn die Abfrage noch gilt. */
+    /** Fehlschlag der Speakerliste bei gemerktem Kontext; gemeldet erst, wenn die Abfrage noch gilt. */
     const speakerFehler: unknown[] = [];
+    /** iveo-Paket, Spec 6.3: Fehlschlag des Programm-Details bei gemerktem Kontext; bricht die Abfrage nie ab. */
+    const detailFehler: unknown[] = [];
     if (!ctx) {
       // Nach dem Öffnen einer gespeicherten Show fehlt der Kontext (er entsteht beim Binden/Umschalten). Ohne ihn
       // fehlten Startzeit, Kategorie und Verantwortlich → nachladen; scheitert das, bricht die Abfrage ab (7.6).
       detail = await client.getProgram(a.event, programId);
       // Scheitert die Speakerliste, bricht die Abfrage ab (wie getProgram): sonst entstünde ein Ablauf ohne „Verantwortlich“.
-      // Mit Merker wird sie auch ohne Verknüpfung geholt (Spec 6.2); ein Fehlschlag bricht dann ebenso ab.
-      alle = sideSpeakerIds(detail, agenda).length || a.speakerVeraltetSeit ? await client.listSpeakers(a.event) : undefined;
+      // Mit Merker wird sie auch ohne Verknüpfung geholt (Spec 6.2), ebenso, wenn das Auffrischen fällig ist (iveo-Paket,
+      // Spec 6.3: dort zählt „fällig“ wie der Merker); ein Fehlschlag bricht dann ebenso ab.
+      alle = sideSpeakerIds(detail, agenda).length || a.speakerVeraltetSeit || auffrischen ? await client.listSpeakers(a.event) : undefined;
       ctx = sideKontext(detail, alle);
-    } else if (a.speakerVeraltetSeit) {
-      try {
-        alle = await client.listSpeakers(a.event);
-      } catch (e) {
-        // Speaker und Merker der Datei bleiben; der Status bleibt „gestört“ (statusNachAbfrage unten).
-        speakerFehler.push(e);
+    } else {
+      // iveo-Paket, Spec 6.3: Fällig holt die Speakerliste und das Programm-Detail, nacheinander. Der Merker „Speaker
+      // veraltet“ allein holt wie bisher nur die Liste, der Merker „Speaker-Verknüpfung veraltet“ allein nur das Detail.
+      // Kein Fehlschlag bricht die Abfrage ab.
+      if (auffrischen || a.speakerVeraltetSeit) {
+        try {
+          alle = await client.listSpeakers(a.event);
+        } catch (e) {
+          // Speaker der Datei bleiben, der Merker gilt (unten); die Statuszeile sagt es (statusNachAbfrage).
+          speakerFehler.push(e);
+        }
       }
+      if (auffrischen || a.detailVeraltetSeit) {
+        try {
+          detail = await client.getProgram(a.event, programId);
+        } catch (e) {
+          // Verknüpfung, Startzeit und Kategorie bleiben aus dem gemerkten Kontext; Merker und T3 unten.
+          detailFehler.push(e);
+        }
+      }
+      // Der Detail-Anteil des Kontexts aus einem Stand, dem frischen Detail; die Namen für „Verantwortlich“ aus der
+      // frischen Liste, bevor der Ablauf gebaut wird.
+      if (detail) {
+        const frisch = sideKontext(detail);
+        ctx = { ...ctx, firstStartMs: frisch.firstStartMs, category: frisch.category, detailSpeakerIds: frisch.detailSpeakerIds };
+      }
+      if (alle) ctx = { ...ctx, speakerNames: [...speakerNameMap(alle)] };
     }
     // Wie in den Snapshot-Zweigen (Befund 7b/7c, Schliff F4): Eine verworfene Abfrage meldet und merkt nichts. Kam die
     // Liste, gilt der gemerkte Fehlertext nicht mehr, auch wenn das Schreiben unten scheitert.
@@ -960,6 +1013,15 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       meldeSeListeFehler(se.fehler);
       a.seListeVeraltetSeit ??= d.jetztIso();
     }
+    // iveo-Paket, Spec 6.3: Merker „Speaker-Verknüpfung veraltet“ nur im Speicher, „seit“ = erster Fehlschlag; T3 beim
+    // ersten Fehlschlag und bei jedem neuen Text. Ein gelungenes Detail löscht ihn, ein späterer Fehlschlag kommt wieder ins Log.
+    if (detailFehler.length) {
+      meldeDetailFehler(detailFehler[0]);
+      a.detailVeraltetSeit ??= d.jetztIso();
+    } else if (detail) {
+      letzterDetailFehler = null;
+      a.detailVeraltetSeit = undefined;
+    }
     const basis = d.leseShow(a.path);
     if (!basis) {
       statusGestoert(TEXT_SHOW_NICHT_LESBAR);
@@ -969,8 +1031,9 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     let merker = a.speakerVeraltetSeit;
     /** iveo-Paket, Spec 5.10: Ergebnis der Regel „Feld fehlt“; undefined = keine frische Speakerliste. */
     let orgFehlen: boolean | undefined;
-    if (merker && alle) {
+    if (alle) {
       // Spec 6.2: verknüpfte Speaker wie beim Umschalten (Detail und Agenda-Punkte), ohne Verknüpfung die ganze Liste.
+      // iveo-Paket, Spec 6.3: dieselbe Regel für den Merker und das Auffrischen (vorher nur mit Merker).
       // iveo-Paket, Spec 5.10: Trägt kein Speaker das Feld `organisations`, bleiben die Organisationen der Datei.
       const verknuepft = new Set<string>([...ctx.detailSpeakerIds, ...agenda.flatMap((it) => extractSpeakerIds(it))]);
       const frisch = speakersToShowSpeakers(verknuepft.size ? alle.filter((s) => verknuepft.has(s.id)) : alle);
@@ -978,6 +1041,10 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       speakers = o.speakers;
       orgFehlen = o.feldFehlt;
       merker = undefined;
+    } else if (speakerFehler.length) {
+      // iveo-Paket, Spec 6.5: Scheitert die Liste beim Auffrischen, gilt der Merker schon beim ersten Fehlschlag: Die Show
+      // wird einmal geschrieben (der Merker ist Teil der Signatur), RELOAD geht hinaus, der Titler zeigt H7.
+      merker = a.speakerVeraltetSeit ?? d.jetztIso();
     }
     // Spec 15.4: neu gebildete Liste, sonst die der Datei (nichts geändert oder Zusatzabruf gescheitert).
     const sideEvents = se.ok && se.liste ? se.liste : basis.iveo?.sideEvents ?? [];
@@ -987,6 +1054,11 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       a.sideCtx = ctx;
       if (se.ok) a.seListeIso = se.ab;
       merkeOrgFehlen(a, orgFehlen);
+      if (alle) {
+        // iveo-Paket, Spec 6.1 und 6.3: Die Liste kam, die Datei hat genau diesen Stand → das Auffrischen gilt ab `ab`; T2.
+        a.speakerAbgerufen = ab;
+        d.log.info(textAufgefrischt(speakerWieInDerDatei(speakers).length));
+      }
       statusNachAbfrage(a);
       return; // nichts geändert → kein RELOAD
     }
@@ -1013,6 +1085,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     if (se.ok) a.seListeIso = se.ab;
     a.speakerVeraltetSeit = merker;
     merkeOrgFehlen(a, orgFehlen);
+    // iveo-Paket, Spec 6.1: erst nach erfolgreichem Schreiben.
+    if (alle) a.speakerAbgerufen = ab;
     if (speakerWieder) meldeSpeakerWieder();
     statusNachAbfrage(a);
     meldeGeschrieben(a.path);
