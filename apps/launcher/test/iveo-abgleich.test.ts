@@ -2277,12 +2277,18 @@ function p2Verknuepft(iv: NachgebautesIveo, speakers: ShowIveoSpeaker[] = [ANA])
   ck('P22 Fix 1: ohne Kontext, ohne Verknüpfung, fällig, Speakerliste scheitert → kein Abbruch: Agenda geschrieben, Merker in der Datei',
     typeof m === 'string' && u.schreibversuche === 1 && (datei(u).ablauf ?? []).some((x) => x.label === 'Neuer Punkt')
     && u.status.at(-1)?.text === TEXT_SPEAKER_VERALTET);
-  // Der Neustart-Fall: Kontext fehlt wieder (erneutes Öffnen), Merker steht in der Datei, die Liste scheitert weiter.
+}
+{
+  // Fix-Runde 2: Mit Merker bleibt der Weg der Teil-2b-Spec (:248) und des iveo-Pakets (6.3, 12.2 Nr. 12): Ohne Kontext
+  // bricht die Abfrage bei gescheiterter Speakerliste ab, auch ohne Verknüpfung (der Merker allein macht sie nötig).
+  const u = umgebung((iv) => mitMerker(showMit(agendaAblauf(iv, 'P1'), { day: TAG, programId: 'P1' }, [ANA])));
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
   u.iveo.agenda.P1 = [...(u.iveo.agenda.P1 ?? []), punkt('P1', 'neu2', 'Noch ein Punkt', 10, 30)];
-  u.kern.showGeoeffnet(SHOW_PFAD, datei(u));
-  await abfrageUm(u, u.zeit() + 1000);
-  ck('P22 Fix 1: … nach erneutem Öffnen (Kontext weg, Liste scheitert weiter) kommt die Agenda trotzdem in die Datei',
-    (datei(u).ablauf ?? []).some((x) => x.label === 'Noch ein Punkt') && datei(u).iveo?.speakerVeraltetSeit === m);
+  await u.kern.abfrage();
+  ck('P22 Fix 2: Merker, ohne Kontext, ohne Verknüpfung, Speakerliste 500 → Abbruch: Status HTTP 500, nichts geschrieben',
+    u.status.at(-1)?.ok === false
+    && u.status.at(-1)?.text === 'iveo-Server-Fehler (HTTP 500) — vorübergehend oder serverseitiger Bug. Bitte an den iveo-Entwickler melden (Details im Launcher-Log).'
+    && u.schreibversuche === 0 && !(datei(u).ablauf ?? []).some((x) => x.label === 'Noch ein Punkt'));
 }
 
 // --- Zusammenfassung ---
