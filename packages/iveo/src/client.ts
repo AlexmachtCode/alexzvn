@@ -60,6 +60,8 @@ export interface IveoFetchResponse {
   json(): Promise<unknown>;
   text(): Promise<string>;
   arrayBuffer(): Promise<ArrayBuffer>;
+  /** Datenstrom der Antwort (iveo-Paket, Spec 9.6): `oeffneAsset` reicht ihn weiter, statt alles in den Speicher zu laden. */
+  body?: ReadableStream<Uint8Array> | null;
 }
 export type IveoFetchLike = (
   url: string,
@@ -67,6 +69,8 @@ export type IveoFetchLike = (
     method?: string;
     headers?: Record<string, string>;
     redirect?: 'follow' | 'manual';
+    /** Signal des Aufrufers (iveo-Paket, Spec 9.6); ein Abbruch darüber wird nicht wiederholt (`fetchWithRetry`). */
+    signal?: AbortSignal;
   },
 ) => Promise<IveoFetchResponse>;
 
@@ -105,6 +109,67 @@ export class IveoApiError extends Error {
   get isUnauthorized(): boolean {
     return this.status === 401;
   }
+}
+
+/** T77 (a) (iveo-Paket, Spec 11.6): Grund, wenn eine Asset-Adresse anderer Herkunft nicht über https geht (E52). */
+const TEXT_ASSET_ADRESSE = 'Datei-Adresse auf anderem Server ohne https';
+
+/**
+ * Asset-Adresse anderer Herkunft als die Basis-URL ohne `https:` (iveo-Paket, E52, Spec 9.6): Sie wird nie abgerufen.
+ * Die Meldung ist T77 (a) und nennt die Adresse bewusst nicht (keine Asset-Referenz in einer Ausgabe, Spec 11.5).
+ */
+export class IveoAssetAdresseError extends Error {
+  constructor() {
+    super(TEXT_ASSET_ADRESSE);
+    this.name = 'IveoAssetAdresseError';
+  }
+}
+
+/** Anfrage für ein Asset (E52): die fertige Adresse und ob das Token mitgeht. */
+export interface IveoAssetAnfrage {
+  url: string;
+  mitToken: boolean;
+}
+
+/** Datenstrom eines Assets (Spec 9.6): bewusst ohne Adresse und ohne weitere Kopfzeilen. */
+export interface IveoAssetStrom {
+  body: ReadableStream<Uint8Array>;
+  contentType: string | null;
+  /** `Content-Length` als ganze Zahl ≥ 0, sonst null (unbekannt). */
+  contentLength: number | null;
+}
+
+/**
+ * Asset-Referenz → Anfrage (iveo-Paket, Spec 9.6, E52). iveo ist hier inkonsistent: manche Assets liefern die volle
+ * `…/api/v1/assets/<id>`-URL (`IveoAssetRef`), Material-Assets nur die nackte ID bzw. die signierte Referenz (auf Prod
+ * 279 Zeichen mit einem Punkt, M1). Endpoint ist in beiden Fällen `GET /assets/{id}` (§7): Aus einer nackten ID (auch
+ * „/assets/<id>“ oder „assets/<id>“) wird `<baseUrl>/assets/<id>`, eine volle http(s)-Adresse bleibt unverändert. Danach
+ * zählt die Herkunft (Schema, Host, Port) der fertigen Adresse: gleich der Basis-URL → mit Token; anders und `https:` →
+ * ohne Token; anders und nicht `https:` → kein Abruf (`IveoAssetAdresseError`). Die Basis-URL gilt, wie sie eingetragen
+ * ist (auch `http:`), normalisiert wie im Client; leer → Standard. Leere Referenz → Fehler wie bisher.
+ */
+export function assetAnfrage(ref: string, baseUrl: string): IveoAssetAnfrage {
+  const v = (ref ?? '').trim();
+  if (!v) throw new Error('iveo: leere Asset-Referenz');
+  const basis = normalizeIveoBaseUrl(baseUrl);
+  const url = /^https?:\/\//i.test(v) ? v : `${basis}/assets/${v.replace(/^\/+/, '').replace(/^assets\//, '')}`;
+  let ziel: URL;
+  try {
+    ziel = new URL(url);
+  } catch {
+    // Ohne die Adresse in der Meldung (Spec 11.5).
+    throw new Error('iveo: ungültige Asset-Adresse');
+  }
+  if (ziel.origin === new URL(basis).origin) return { url, mitToken: true };
+  if (ziel.protocol === 'https:') return { url, mitToken: false };
+  throw new IveoAssetAdresseError();
+}
+
+/** `Content-Length` → ganze Zahl ≥ 0, sonst null (fehlt, leer, keine Zahl). */
+function laengeAus(wert: string | null): number | null {
+  if (wert === null || wert.trim() === '') return null;
+  const n = Number(wert);
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -148,17 +213,26 @@ export class IveoClient {
     return { Authorization: `Bearer ${this.token}`, Accept: 'application/json' };
   }
 
-  /** fetch mit Backoff auf 429/5xx; respektiert Retry-After. */
-  private async fetchWithRetry(
-    url: string,
-    init?: { method?: string; headers?: Record<string, string>; redirect?: 'follow' | 'manual' },
-  ): Promise<IveoFetchResponse> {
+  /** Kopfzeilen eines Asset-Abrufs (E52): das Token nur an die Herkunft der Basis-URL, sonst keine Kopfzeile. */
+  private assetKoepfe(mitToken: boolean): Record<string, string> {
+    return mitToken ? this.authHeaders() : {};
+  }
+
+  /**
+   * fetch mit Backoff auf 429/5xx; respektiert Retry-After. Ein Wurf wird wiederholt, außer das Signal des Aufrufers
+   * (`init.signal`) ist abgebrochen: Dann wirft es sofort weiter, ohne Wartezeit (iveo-Paket, E46, Spec 9.6). Eine
+   * Zeitgrenze aus `mitZeitgrenze` ist ein eigenes Signal im fetchImpl, kein Signal des Aufrufers: Sie wird wie bisher
+   * wiederholt.
+   */
+  private async fetchWithRetry(url: string, init?: Parameters<IveoFetchLike>[1]): Promise<IveoFetchResponse> {
     let lastErr: unknown;
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       let res: IveoFetchResponse;
       try {
         res = await this.fetchImpl(url, init);
       } catch (e) {
+        // Abbruch durch den Aufrufer: nie wiederholen.
+        if (init?.signal?.aborted) throw e;
         // Netzfehler → wie transient behandeln.
         lastErr = e;
         if (attempt === this.maxRetries) break;
@@ -343,33 +417,40 @@ export class IveoClient {
   }
 
   /**
-   * Asset-Referenz → absolute Anfrage-URL. iveo ist hier inkonsistent: manche
-   * Assets liefern die volle `…/api/v1/assets/<id>`-URL (`IveoAssetRef`), Material-
-   * Assets nur die nackte ID bzw. den signierten Token. Endpoint ist in beiden
-   * Fällen `GET /assets/{id}` (§7) → aus einer nackten ID selbst `<baseUrl>/assets/<id>`
-   * bauen, damit `fetch` nicht an „Failed to parse URL" scheitert.
-   */
-  private resolveAssetUrl(ref: string): string {
-    const v = (ref ?? '').trim();
-    if (!v) throw new Error('iveo: leere Asset-Referenz');
-    if (/^https?:\/\//i.test(v)) return v; // bereits volle URL (Logos/Fotos)
-    // nackte ID / „/assets/<id>" / „assets/<id>" → auf ein Pfadsegment normalisieren
-    const id = v.replace(/^\/+/, '').replace(/^assets\//, '');
-    return `${this.baseUrl}/assets/${id}`;
-  }
-
-  /**
-   * Asset-Bytes über die indirekte URL/ID holen (§7): Bearer mitschicken, 302 dem
-   * signierten Kurzlebigen folgen (Default `redirect:'follow'`). Die signierte URL
-   * wird NICHT zurückgegeben/gespeichert — nur die Bytes. Akzeptiert eine volle
-   * `…/assets/<id>`-URL ODER die nackte Asset-ID (Material-Assets).
+   * Asset-Bytes über die indirekte URL/ID holen (§7): 302 dem signierten Kurzlebigen folgen (Default
+   * `redirect:'follow'`). Die signierte URL wird NICHT zurückgegeben/gespeichert — nur die Bytes. Akzeptiert eine volle
+   * `…/assets/<id>`-URL ODER die nackte Asset-ID (Material-Assets). Adresse und Token nach `assetAnfrage` (E52): das
+   * Token nur an die Herkunft der Basis-URL.
    */
   async fetchAsset(assetUrlOrId: string): Promise<{ bytes: ArrayBuffer; contentType: string | null }> {
-    const res = await this.fetchWithRetry(this.resolveAssetUrl(assetUrlOrId), {
-      headers: this.authHeaders(),
+    const anfrage = assetAnfrage(assetUrlOrId, this.baseUrl);
+    const res = await this.fetchWithRetry(anfrage.url, {
+      headers: this.assetKoepfe(anfrage.mitToken),
       redirect: 'follow',
     });
     if (!res.ok) throw new IveoApiError(res.status, `http_${res.status}`, 'iveo: Asset nicht abrufbar');
     return { bytes: await res.arrayBuffer(), contentType: res.headers.get('Content-Type') };
+  }
+
+  /**
+   * Asset als Datenstrom öffnen (iveo-Paket, Spec 9.6, E46): wie `fetchAsset` (Adresse und Token nach `assetAnfrage`,
+   * Umleitung folgen), aber ohne die Bytes in den Speicher zu laden. `signal` ist das Signal des Aufrufers; ein Abbruch
+   * darüber wird nicht wiederholt. Das Ergebnis enthält nur Datenstrom, Inhaltstyp und Länge — nie `res.url` oder andere
+   * Kopfzeilen, denn nach der Umleitung ist das die signierte Adresse.
+   */
+  async oeffneAsset(ref: string, opts: { signal?: AbortSignal } = {}): Promise<IveoAssetStrom> {
+    const anfrage = assetAnfrage(ref, this.baseUrl);
+    const res = await this.fetchWithRetry(anfrage.url, {
+      headers: this.assetKoepfe(anfrage.mitToken),
+      redirect: 'follow',
+      signal: opts.signal,
+    });
+    if (!res.ok) {
+      // Den unbenutzten Datenstrom freigeben, damit die Verbindung nicht offen bleibt.
+      void res.body?.cancel().catch(() => undefined);
+      throw new IveoApiError(res.status, `http_${res.status}`, 'iveo: Asset nicht abrufbar');
+    }
+    if (!res.body) throw new Error('iveo: Asset ohne Datenstrom');
+    return { body: res.body, contentType: res.headers.get('Content-Type'), contentLength: laengeAus(res.headers.get('Content-Length')) };
   }
 }

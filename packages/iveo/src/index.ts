@@ -10,8 +10,12 @@ export * from './mapper';
 export {
   IveoClient,
   IveoApiError,
+  IveoAssetAdresseError,
   IVEO_DEFAULT_BASE_URL,
+  assetAnfrage,
   normalizeIveoBaseUrl,
+  type IveoAssetAnfrage,
+  type IveoAssetStrom,
   type IveoClientOptions,
   type IveoFetchLike,
   type IveoFetchResponse,

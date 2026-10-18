@@ -5,6 +5,8 @@
 import {
   IveoClient,
   IveoApiError,
+  IveoAssetAdresseError,
+  assetAnfrage,
   IVEO_DEFAULT_BASE_URL,
   normalizeIveoBaseUrl,
   createIveoClient,
@@ -314,6 +316,273 @@ function mkRes(status: number, body: unknown, headers: Record<string, string> = 
   await client.fetchAsset('/assets/xyz');
   ok(seen[2] === 'https://staging-dev.my-iveo.de/api/v1/assets/xyz', 'fetchAsset: „/assets/<id>" wird nicht verdoppelt');
   ok(!seen.some((u) => u.includes('iveo_live_')), 'fetchAsset: kein Token in der URL (nur Header)');
+}
+
+// ── Asset-Anfrage: Token nur an die Herkunft der Basis-URL (iveo-Paket P4, E52, Spec 9.6; 12.1 Nr. 11) ──
+{
+  const BASIS = 'https://app.my-iveo.de/api/v1';
+  const T77 = 'Datei-Adresse auf anderem Server ohne https';
+  // Referenz in der auf Prod gemessenen Form (M1): base64url eines JSON-Arrays aus drei Texten (16, 114, 36 Zeichen),
+  // ein Punkt, 32 Byte Signatur als base64url — 279 Zeichen. Zur Laufzeit gebaut, damit kein signaturartiger Text im
+  // Quelltext steht.
+  const REF =
+    Buffer.from(JSON.stringify(['k'.repeat(16), 'w'.repeat(114), '3f2b8c1e-9a4d-4e2f-8b1a-0c6d5e4f3a21'])).toString('base64url') +
+    '.' +
+    Buffer.alloc(32, 7).toString('base64url');
+  ok(REF.length === 279 && REF.split('.').length === 2, 'P4 12.1 Nr. 11: Prüf-Referenz in der gemessenen Form (279 Zeichen, ein Punkt)');
+  type Soll = { url: string; mitToken: boolean } | 'abgelehnt';
+  const FAELLE: ReadonlyArray<[string, string, Soll]> = [
+    ['nackte Kennung', 'a1b2c3', { url: `${BASIS}/assets/a1b2c3`, mitToken: true }],
+    ['assets/‹id›', 'assets/a1b2c3', { url: `${BASIS}/assets/a1b2c3`, mitToken: true }],
+    ['Referenz in der gemessenen Form', REF, { url: `${BASIS}/assets/${REF}`, mitToken: true }],
+    ['volle Adresse gleicher Herkunft', `${BASIS}/assets/a1b2c3`, { url: `${BASIS}/assets/a1b2c3`, mitToken: true }],
+    ['fremder Host über https', 'https://fremd.example/x', { url: 'https://fremd.example/x', mitToken: false }],
+    ['anderer Port', 'https://app.my-iveo.de:8443/x', { url: 'https://app.my-iveo.de:8443/x', mitToken: false }],
+    ['fremder Host über http', 'http://fremd.example/x', 'abgelehnt'],
+    ['eigener Host über http (anderes Schema)', 'http://app.my-iveo.de/x', 'abgelehnt'],
+  ];
+  const wohin = (soll: Soll): string => (soll === 'abgelehnt' ? 'kein Abruf (T77)' : soll.mitToken ? 'mit Token' : 'ohne Token');
+  for (const [name, ref, soll] of FAELLE) {
+    let ist: unknown;
+    try {
+      ist = assetAnfrage(ref, BASIS);
+    } catch (e) {
+      ist = e;
+    }
+    ok(
+      soll === 'abgelehnt' ? ist instanceof IveoAssetAdresseError && ist.message === T77 : JSON.stringify(ist) === JSON.stringify(soll),
+      `P4 12.1 Nr. 11 assetAnfrage: ${name} → ${wohin(soll)}`,
+    );
+  }
+  const fehlerVon = (ref: string): unknown => {
+    try {
+      return assetAnfrage(ref, BASIS);
+    } catch (e) {
+      return e;
+    }
+  };
+  const leer = fehlerVon('  ');
+  const unlesbar = fehlerVon('https://');
+  ok(
+    leer instanceof Error && !(leer instanceof IveoAssetAdresseError) && leer.message === 'iveo: leere Asset-Referenz' &&
+      unlesbar instanceof Error && !(unlesbar instanceof IveoAssetAdresseError) && unlesbar.message === 'iveo: ungültige Asset-Adresse',
+    'P4 assetAnfrage: leere Referenz wie bisher, unlesbare Adresse → Fehler ohne Adresse (kein T77)',
+  );
+
+  // Dieselben Fälle über oeffneAsset und fetchAsset: Die Attrappe protokolliert Adresse und Authorization jedes Abrufs.
+  const leererStrom = (): ReadableStream<Uint8Array> => new ReadableStream<Uint8Array>({ start: (c) => c.close() });
+  const protokoll: Array<{ url: string; auth?: string }> = [];
+  const fetchImpl: IveoFetchLike = async (url, init) => {
+    protokoll.push({ url, auth: init?.headers?.['Authorization'] });
+    return { ...mkRes(200, '', { 'content-type': 'application/pdf' }), body: leererStrom() };
+  };
+  const client = new IveoClient({ token: 'iveo_live_GEHEIM', baseUrl: BASIS, fetchImpl });
+  const alle: Array<{ url: string; auth?: string }> = [];
+  for (const weg of ['oeffneAsset', 'fetchAsset'] as const) {
+    for (const [name, ref, soll] of FAELLE) {
+      protokoll.length = 0;
+      let fehler: unknown = null;
+      try {
+        if (weg === 'oeffneAsset') await client.oeffneAsset(ref);
+        else await client.fetchAsset(ref);
+      } catch (e) {
+        fehler = e;
+      }
+      alle.push(...protokoll);
+      const sollProtokoll = soll === 'abgelehnt' ? [] : [{ url: soll.url, auth: soll.mitToken ? 'Bearer iveo_live_GEHEIM' : undefined }];
+      ok(
+        JSON.stringify(protokoll) === JSON.stringify(sollProtokoll) &&
+          (soll === 'abgelehnt' ? fehler instanceof IveoAssetAdresseError : fehler === null),
+        `P4 12.1 Nr. 11 ${weg}: ${name} → ${wohin(soll)}`,
+      );
+    }
+  }
+  const mitToken = alle.filter((a) => (a.auth ?? '').includes('GEHEIM'));
+  ok(
+    alle.length === 12 && mitToken.length === 8 && mitToken.every((a) => new URL(a.url).host === 'app.my-iveo.de'),
+    'P4 12.1 Nr. 11: iveo_live_GEHEIM steht nur in Anfragen an app.my-iveo.de',
+  );
+
+  // Basis http://127.0.0.1:‹Port› (wie die Tests des Launchers): dieselbe Herkunft mit Token, anderer Port über http nie.
+  const LOKAL = 'http://127.0.0.1:47123/api/v1';
+  const lokalProtokoll: Array<{ url: string; auth?: string }> = [];
+  const lokal = new IveoClient({
+    token: 'iveo_live_GEHEIM',
+    baseUrl: LOKAL,
+    fetchImpl: async (url, init) => {
+      lokalProtokoll.push({ url, auth: init?.headers?.['Authorization'] });
+      return { ...mkRes(200, ''), body: leererStrom() };
+    },
+  });
+  await lokal.oeffneAsset('x1');
+  await lokal.fetchAsset(`${LOKAL}/assets/x2`);
+  let andererPort: unknown;
+  try {
+    await lokal.oeffneAsset('http://127.0.0.1:47124/x3');
+  } catch (e) {
+    andererPort = e;
+  }
+  ok(
+    JSON.stringify(lokalProtokoll) ===
+      JSON.stringify([
+        { url: `${LOKAL}/assets/x1`, auth: 'Bearer iveo_live_GEHEIM' },
+        { url: `${LOKAL}/assets/x2`, auth: 'Bearer iveo_live_GEHEIM' },
+      ]) && andererPort instanceof IveoAssetAdresseError,
+    'P4 12.1 Nr. 11: Basis http://127.0.0.1:‹Port› — gleiche Herkunft mit Token, anderer Port über http kein Abruf',
+  );
+}
+
+// ── oeffneAsset: Datenstrom, Signal des Aufrufers, kein Retry nach Abbruch (iveo-Paket P4, E46, Spec 9.6; 12.1 Nr. 8) ──
+{
+  const BASIS = 'https://app.my-iveo.de/api/v1';
+  const dreiBytes = (): ReadableStream<Uint8Array> =>
+    new ReadableStream<Uint8Array>({
+      start: (c) => {
+        c.enqueue(new Uint8Array([1, 2, 3]));
+        c.close();
+      },
+    });
+  const abbruch = (name: 'AbortError' | 'TimeoutError'): Error => Object.assign(new Error(name), { name });
+
+  // Signal, Umleitung, Adresse wie fetchAsset, Datenstrom; die Attrappe setzt res.url auf eine signierte Adresse.
+  {
+    const gesehen: Array<{ url: string; redirect?: string; signal?: AbortSignal }> = [];
+    const stroeme: Array<ReadableStream<Uint8Array>> = [];
+    const fetchImpl: IveoFetchLike = async (url, init) => {
+      gesehen.push({ url, redirect: init?.redirect, signal: init?.signal });
+      const body = dreiBytes();
+      stroeme.push(body);
+      return {
+        ...mkRes(200, '', { 'content-type': 'application/pdf', 'content-length': '3' }),
+        url: 'https://signed.example/x?X-Amz-Signature=GEHEIM-SIG',
+        body,
+      };
+    };
+    const client = new IveoClient({ token: 'iveo_live_SECRET', baseUrl: BASIS, fetchImpl });
+    const ctrl = new AbortController();
+    const r = await client.oeffneAsset('assets/a1', { signal: ctrl.signal });
+    await client.fetchAsset('assets/a1');
+    ok(
+      gesehen[0]?.signal === ctrl.signal && gesehen[0]?.redirect === 'follow',
+      'P4 12.1 Nr. 8: oeffneAsset übergibt das Signal des Aufrufers und folgt der Umleitung (redirect: follow)',
+    );
+    ok(
+      gesehen.length === 2 && gesehen[0].url === `${BASIS}/assets/a1` && gesehen[0].url === gesehen[1].url,
+      'P4 12.1 Nr. 8: Anfrage-URL wie bei fetchAsset',
+    );
+    const leser = r.body.getReader();
+    const gelesen: number[] = [];
+    for (;;) {
+      const { done, value } = await leser.read();
+      if (done) break;
+      gelesen.push(...value);
+    }
+    ok(
+      r.body === stroeme[0] && JSON.stringify(gelesen) === '[1,2,3]' && r.contentType === 'application/pdf' && r.contentLength === 3,
+      'P4 12.1 Nr. 8: oeffneAsset liefert den Datenstrom (body), Inhaltstyp und Länge',
+    );
+    ok(
+      JSON.stringify(Object.keys(r)) === '["body","contentType","contentLength"]' &&
+        Object.values(r).every((w) => !String(w).includes('GEHEIM')),
+      'P4 12.1 Nr. 8: keine Weiterleitungsadresse im Ergebnis (kein Wert enthält GEHEIM)',
+    );
+  }
+  // 404 → IveoApiError; Antwort ohne Datenstrom → Fehler; Länge, die keine Zahl ist, und fehlender Inhaltstyp → null.
+  {
+    let fehler404: unknown;
+    try {
+      await new IveoClient({ token: 'iveo_live_SECRET', baseUrl: BASIS, fetchImpl: async () => mkRes(404, '') }).oeffneAsset('a1');
+    } catch (e) {
+      fehler404 = e;
+    }
+    ok(fehler404 instanceof IveoApiError && fehler404.status === 404, 'P4 12.1 Nr. 8: oeffneAsset wirft IveoApiError bei 404');
+    let ohneStrom: unknown;
+    try {
+      await new IveoClient({ token: 'iveo_live_SECRET', baseUrl: BASIS, fetchImpl: async () => mkRes(200, '') }).oeffneAsset('a1');
+    } catch (e) {
+      ohneStrom = e;
+    }
+    const ohneLaenge = await new IveoClient({
+      token: 'iveo_live_SECRET',
+      baseUrl: BASIS,
+      fetchImpl: async () => ({ ...mkRes(200, '', { 'content-length': 'viel' }), body: dreiBytes() }),
+    }).oeffneAsset('a1');
+    ok(
+      ohneStrom instanceof Error && ohneStrom.message === 'iveo: Asset ohne Datenstrom' &&
+        ohneLaenge.contentLength === null && ohneLaenge.contentType === null,
+      'P4 oeffneAsset: Antwort ohne Datenstrom → Fehler; Länge keine Zahl und Inhaltstyp fehlt → null',
+    );
+  }
+  // Abbruch durch den Aufrufer: genau ein Aufruf, keine Wartezeit, der Abbruch kommt unverändert heraus.
+  {
+    const ctrl = new AbortController();
+    let aufrufe = 0;
+    const pausen: number[] = [];
+    const client = new IveoClient({
+      token: 'iveo_live_SECRET',
+      baseUrl: BASIS,
+      maxRetries: 3,
+      sleepImpl: async (ms) => void pausen.push(ms),
+      fetchImpl: async () => {
+        aufrufe++;
+        ctrl.abort();
+        throw abbruch('AbortError');
+      },
+    });
+    let fehler: unknown;
+    try {
+      await client.oeffneAsset('a1', { signal: ctrl.signal });
+    } catch (e) {
+      fehler = e;
+    }
+    ok(
+      aufrufe === 1 && pausen.length === 0 && fehler instanceof Error && fehler.name === 'AbortError',
+      'P4 12.1 Nr. 8: Signal des Aufrufers abgebrochen und fetchImpl wirft → genau ein Aufruf, keine Wartezeit',
+    );
+  }
+  // TimeoutError ohne Signal des Aufrufers (wie aus mitZeitgrenze) → wie bisher wiederholt: 1 + maxRetries Aufrufe.
+  {
+    let aufrufe = 0;
+    const pausen: number[] = [];
+    const client = new IveoClient({
+      token: 'iveo_live_SECRET',
+      baseUrl: BASIS,
+      maxRetries: 2,
+      sleepImpl: async (ms) => void pausen.push(ms),
+      fetchImpl: async () => {
+        aufrufe++;
+        throw abbruch('TimeoutError');
+      },
+    });
+    let fehler: unknown;
+    try {
+      await client.oeffneAsset('a1');
+    } catch (e) {
+      fehler = e;
+    }
+    ok(
+      aufrufe === 3 && pausen.length === 2 && fehler instanceof Error && fehler.name === 'TimeoutError',
+      'P4 12.1 Nr. 8: TimeoutError ohne Signal des Aufrufers → 1 + maxRetries Aufrufe (wie bisher)',
+    );
+  }
+  // Signal des Aufrufers gesetzt, aber nicht abgebrochen: ein Wurf wird weiter wiederholt.
+  {
+    const ctrl = new AbortController();
+    let aufrufe = 0;
+    const client = new IveoClient({
+      token: 'iveo_live_SECRET',
+      baseUrl: BASIS,
+      maxRetries: 2,
+      sleepImpl: async () => {},
+      fetchImpl: async () => {
+        aufrufe++;
+        if (aufrufe < 3) throw abbruch('TimeoutError');
+        return { ...mkRes(200, ''), body: dreiBytes() };
+      },
+    });
+    const r = await client.oeffneAsset('a1', { signal: ctrl.signal });
+    ok(aufrufe === 3 && r.body instanceof ReadableStream, 'P4 12.1 Nr. 8: Signal des Aufrufers nicht abgebrochen → ein Wurf wird wiederholt');
+  }
 }
 
 // ── Retry/Backoff auf 5xx (§9) ───────────────────────────────────────────────
