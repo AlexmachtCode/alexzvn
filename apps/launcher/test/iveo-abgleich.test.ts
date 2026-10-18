@@ -849,7 +849,7 @@ const mitMerker = (s: Show, seit = MERKER): Show => ({ ...s, iveo: { ...s.iveo!,
   ck('Umschalten auf ein Side Event: ok, RELOAD an alle drei, Panel benachrichtigt',
     r.ok && u.schreibversuche === 1 && u.reloads.length === 3 && u.aktivMeldungen === 2);
   ck('… Meldung nennt die fehlende Speaker-Verknüpfung',
-    r.message === 'Umgeschaltet — iveo verknüpft keine Speaker mit diesem Side Event — bestehende Speakerliste bleibt.');
+    r.message === 'Umgeschaltet — iveo verknüpft keine Speaker mit diesem Side Event. Die bisherige Speakerliste bleibt bis zur nächsten Auffrischung (in der Regel binnen 5 Minuten), danach gelten alle Speaker des Events.');
   ck('… Datei: Agenda von P2 mit Kennungen, Filter P2, Tag und Speaker bleiben',
     ids(datei(u)) === 'b1,b2' && datei(u).iveo?.filter?.programId === 'P2' && datei(u).iveo?.filter?.day === TAG
     && datei(u).iveo?.speakers?.[0]?.name === 'Ana Silva');
@@ -2289,6 +2289,160 @@ function p2Verknuepft(iv: NachgebautesIveo, speakers: ShowIveoSpeaker[] = [ANA])
     u.status.at(-1)?.ok === false
     && u.status.at(-1)?.text === 'iveo-Server-Fehler (HTTP 500) — vorübergehend oder serverseitiger Bug. Bitte an den iveo-Entwickler melden (Details im Launcher-Log).'
     && u.schreibversuche === 0 && !(datei(u).ablauf ?? []).some((x) => x.label === 'Noch ein Punkt'));
+}
+
+// --- iveo-Paket P23: Umschalten, Tagesübersicht, Speichern der offenen Show, Statuszeile mit vier Merkern (Spec 6.4, 6.5)
+{
+  // Nr. 9: Umschalten auf ein verknüpftes Side Event → speakerAbgerufen rückt vor (Zeitpunkt vor dem Abruf der Liste).
+  const u = umgebung((iv) => {
+    verknuepfeImDetail(iv, 'P2', 'sp1');
+    return agendaP1(iv);
+  }, { taktMs: 45_000 });
+  const offen = u.zeit();
+  stelleUhr(u, offen + 200_000);
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('P23 12.2 Nr. 9: Vorbedingung — Umschalten auf ein verknüpftes Side Event holt die Speakerliste',
+    r.ok && abrufeSeit(u, 0, 'speakers') === 1);
+  let n = u.iveo.abrufe.length;
+  await abfrageUm(u, offen + 300_000);
+  ck('P23 12.2 Nr. 9: Umschalten mit Verknüpfung → speakerAbgerufen rückt vor: 300 s nach dem Öffnen (100 s nach dem Umschalten) nicht fällig',
+    abrufeSeit(u, n, 'speakers') === 0);
+  n = u.iveo.abrufe.length;
+  await abfrageUm(u, offen + 200_000 + 260_000);
+  ck('P23 12.2 Nr. 9: … rund 255 s nach dem Umschalten fällig', abrufeSeit(u, n, 'speakers') === 1);
+}
+{
+  // Nr. 8 beim Umschalten (Spec 6.1 „erst nach erfolgreichem Schreiben“ gilt auch hier; Festlegung des Controllers vom
+  // 18.10.2026, Z19): Scheitert das Schreiben nach dem Umschalten auf ein verknüpftes Side Event, rückt speakerAbgerufen
+  // nicht vor; die nächste Abfrage ist fällig wie vorher.
+  const u = umgebung((iv) => {
+    verknuepfeImDetail(iv, 'P2', 'sp1');
+    return agendaP1(iv);
+  }, { taktMs: 45_000 });
+  const offen = u.zeit();
+  stelleUhr(u, offen + 200_000);
+  u.schreibFehler = true;
+  const r = await u.kern.umschalten({ programId: 'P2' });
+  ck('P23 12.2 Nr. 8: Umschalten mit Verknüpfung, Schreiben scheitert → „nicht geschrieben“, die Speakerliste kam',
+    !r.ok && abrufeSeit(u, 0, 'speakers') === 1);
+  u.schreibFehler = false;
+  const n = u.iveo.abrufe.length;
+  await abfrageUm(u, offen + 300_000);
+  ck('P23 12.2 Nr. 8: … speakerAbgerufen rückt nicht vor: die nächste Abfrage (300 s nach dem Öffnen, 100 s nach dem Umschalten) ist fällig',
+    abrufeSeit(u, n, 'speakers') === 1);
+}
+{
+  // Nr. 9: Tagesübersicht → speakerAbgerufen rückt vor (Snapshot ohne Speakerfehler).
+  const u = umgebung(agendaP1, { taktMs: 45_000 });
+  const offen = u.zeit();
+  stelleUhr(u, offen + 200_000);
+  const r = await u.kern.umschalten({ day: TAG });
+  const n = u.iveo.abrufe.length;
+  await abfrageUm(u, offen + 300_000);
+  ck('P23 12.2 Nr. 9: Tagesübersicht → speakerAbgerufen rückt vor: 300 s nach dem Öffnen kein Snapshot',
+    r.ok && abrufeSeit(u, n, 'snapshot') === 0);
+}
+{
+  // Nr. 10 (a): gleiche Bindung gespeichert → speakerAbgerufen bleibt; neu gebunden → das Auffrischen zählt ab dem Speichern.
+  const u = umgebung(listenShow, { taktMs: 45_000 });
+  await abfrageUm(u, u.zeit() + 255_000);
+  const ab1 = snapshotZeit(u, 0);
+  stelleUhr(u, ab1 + 200_000);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  await abfrageUm(u, ab1 + 255_000);
+  ck('P23 12.2 Nr. 10: gleiche Bindung gespeichert → speakerAbgerufen bleibt: 255 s nach dem letzten Abruf fällig (55 s nach dem Speichern)',
+    abrufeSeit(u, 0, 'snapshot') === 2);
+  const gespeichert = snapshotZeit(u, 1) + 10_000;
+  stelleUhr(u, gespeichert);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, true);
+  await abfrageUm(u, gespeichert + 254_000);
+  ck('P23 12.2 Nr. 10: neu gebunden → alles neu: 254 s nach dem Speichern noch nicht fällig', abrufeSeit(u, 0, 'snapshot') === 2);
+  await abfrageUm(u, gespeichert + 255_000);
+  ck('P23 12.2 Nr. 10: … 255 s nach dem Speichern fällig', abrufeSeit(u, 0, 'snapshot') === 3);
+}
+{
+  // Nr. 10 (b): Merker „Speaker-Verknüpfung veraltet“, gleiches Side Event gespeichert; Umschalten löscht ihn.
+  const u = umgebung(p2Verknuepft, { taktMs: 45_000 });
+  const t1 = u.zeit() + 1000;
+  await abfrageUm(u, t1);
+  u.iveo.fehler.programm = new Error('detail kaputt');
+  await abfrageUm(u, t1 + 255_000);
+  const vorher = u.status.at(-1);
+  const meldungen = u.status.length;
+  const infos = u.info.length;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('P23 12.2 Nr. 10: gleiches Side Event gespeichert → Statuszeile bleibt „gestört“ mit T50 (keine neue Meldung, kein „wieder in Ordnung“)',
+    vorher?.text === T50 && u.status.length === meldungen && u.status.at(-1)?.text === T50
+    && !u.info.slice(infos).includes('iveo-Abgleich wieder in Ordnung.'));
+  const n = u.iveo.abrufe.length;
+  await u.kern.abfrage();
+  ck('P23 12.2 Nr. 10: … der Merker gilt weiter: die nächste Abfrage holt das Detail, nicht die Liste (nicht fällig)',
+    abrufeSeit(u, n, 'programm') === 1 && abrufeSeit(u, n, 'speakers') === 0);
+}
+{
+  // 6.5: Umschalten auf ein anderes Side Event löscht den Merker „Speaker-Verknüpfung veraltet“.
+  const u = umgebung(p2Verknuepft, { taktMs: 45_000 });
+  const t1 = u.zeit() + 1000;
+  await abfrageUm(u, t1);
+  u.iveo.fehler.programm = new Error('detail kaputt');
+  await abfrageUm(u, t1 + 255_000);
+  const r = await u.kern.umschalten({ programId: 'P1' });
+  ck('P23 12.2 Nr. 10: Umschalten löscht den Merker „Speaker-Verknüpfung veraltet“ → Statuszeile in Ordnung',
+    u.status.at(-2)?.text === T50 && r.ok && u.status.at(-1)?.ok === true);
+  await u.kern.abfrage();
+  ck('P23 6.5: … ohne Detail gemerkt lädt die nächste Abfrage es ohne Kontext nach; scheitert es, bricht sie sichtbar ab',
+    u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'detail kaputt');
+}
+{
+  // Nr. 10 (c): Merker „Organisationen fehlen“, gleiche Bindung gespeichert; neu gebunden → weg.
+  const u = umgebung((iv) => showMit(listenAblauf(iv, TAG), { day: TAG }, [{ ...ANA, organisationen: ANA_ORGS }]));
+  u.iveo.geaendert = [u.iveo.programme[0]];
+  await u.kern.abfrage();
+  const meldungen = u.status.length;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('P23 12.2 Nr. 10: gleiche Bindung gespeichert → Statuszeile bleibt „gestört“ mit T51 (keine neue Meldung)',
+    u.status.at(-1)?.text === T51 && u.status.length === meldungen);
+  u.kern.offeneShowGespeichert(SHOW_PFAD, true);
+  ck('P23 12.2 Nr. 10: neu gebunden → alles neu: Statuszeile in Ordnung', u.status.at(-1)?.ok === true && u.status.length === meldungen + 1);
+}
+{
+  // Nr. 10 (d): Alle vier Merker gelten; das Speichern der offenen Show lässt die Statuszeile genau so stehen.
+  const u = umgebung((iv) => p2Verknuepft(iv, [{ ...ANA, organisationen: ANA_ORGS }]), { taktMs: 45_000 });
+  const t1 = u.zeit() + 1000;
+  await abfrageUm(u, t1);
+  const orgSeit = u.status.at(-1)?.seit;
+  u.iveo.fehler.speakers = new IveoApiError(500, 'server_error', 'kaputt');
+  u.iveo.fehler.programm = new Error('detail kaputt');
+  u.iveo.fehler.geaendert = new Error('fetch failed');
+  await abfrageUm(u, t1 + 255_000);
+  const vier = `${TEXT_SPEAKER_VERALTET}; ${TEXT_SELISTE}; ${T50}; ${T51}`;
+  const st = u.status.at(-1);
+  ck('P23 6.5: alle vier Merker → vier Texte in fester Reihenfolge, „seit“ = der früheste (Organisationen fehlen)',
+    st?.ok === false && st.text === vier && typeof orgSeit === 'string' && st.seit === orgSeit);
+  const meldungen = u.status.length;
+  u.kern.offeneShowGespeichert(SHOW_PFAD, false);
+  ck('P23 12.2 Nr. 10: alle vier Merker, gleiches Side Event gespeichert → Statuszeile unverändert, keine neue Meldung',
+    u.status.length === meldungen && u.status.at(-1)?.text === vier && u.status.at(-1)?.seit === orgSeit);
+}
+{
+  // 6.5 Kreuz: alle 16 Kombinationen der vier Merker (statusAusMerkern, die eine Regel der Statuszeile).
+  const reihe = ['speakerVeraltetSeit', 'seListeVeraltetSeit', 'detailVeraltetSeit', 'orgFehlenSeit'] as const;
+  const texte = [TEXT_SPEAKER_VERALTET, TEXT_SELISTE, T50, T51];
+  // Zeiten in anderer Reihenfolge als die Texte: „seit“ = der früheste, nicht der erste.
+  const zeiten = ['2026-10-01T07:30:00.000Z', '2026-10-01T07:40:00.000Z', '2026-10-01T07:20:00.000Z', '2026-10-01T07:50:00.000Z'];
+  const falsch: number[] = [];
+  for (let maske = 0; maske < 16; maske++) {
+    const m: Record<string, string> = {};
+    const da = reihe.map((_k, i) => i).filter((i) => maske & (1 << i));
+    for (const i of da) m[reihe[i]] = zeiten[i];
+    const soll = da.length
+      ? { ok: false, text: da.map((i) => texte[i]).join('; '), seit: da.map((i) => zeiten[i]).sort()[0] }
+      : { ok: true };
+    if (JSON.stringify(statusAusMerkern(m)) !== JSON.stringify(soll)) falsch.push(maske);
+  }
+  ck('P23 6.5 Kreuz: alle 16 Kombinationen der vier Merker → Texte mit „; “ in fester Reihenfolge, „seit“ = der früheste, ohne Merker ok',
+    falsch.length === 0);
+  if (falsch.length) console.log(`      Masken: ${falsch.join(', ')}`);
 }
 
 // --- Zusammenfassung ---

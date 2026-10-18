@@ -125,6 +125,12 @@ const TEXT_SPEAKER_VERALTET = 'Speakerliste von iveo nicht abrufbar, Speaker aus
 /** Teil 2b, Spec 6.3: Antwort beim Umschalten auf die Tagesübersicht, hinter „Umgeschaltet — “. */
 const TEXT_UMSCHALTEN_SPEAKER_VERALTET = 'Speakerliste von iveo nicht abrufbar, Speaker aus früherem Stand.';
 /**
+ * iveo-Paket, Spec 6.4 und 11.6 T4 (wortgleich): Antwort beim Umschalten auf ein Side Event ohne Verknüpfung und ohne
+ * Merker, hinter „Umgeschaltet — “. Ohne feste Frist: Scheitert die Agenda des Side Events, kommt auch keine Auffrischung.
+ */
+const TEXT_UMSCHALTEN_OHNE_VERKNUEPFUNG =
+  'iveo verknüpft keine Speaker mit diesem Side Event. Die bisherige Speakerliste bleibt bis zur nächsten Auffrischung (in der Regel binnen 5 Minuten), danach gelten alle Speaker des Events.';
+/**
  * Teil 2b R2, Spec 15.4 (wortgleich): Zusatzabruf der Side-Event-Liste in der Agenda-Abfrage gescheitert. Ohne Präfix und
  * ohne Uhrzeit wie TEXT_SPEAKER_VERALTET; gelten beide Merker, stehen beide Texte durch „; “ getrennt in der Statuszeile.
  */
@@ -465,6 +471,13 @@ interface AktiveShow {
   speakerAbgerufen: string;
 }
 
+/**
+ * iveo-Paket, Spec 6.5: was `setzeAuf` beim Speichern der offenen Show aus der vorigen `AktiveShow` übernimmt (sonst gelten
+ * die Startwerte): `speakerAbgerufen` und `orgFehlenSeit` bei gleicher Bindung, `seListeVeraltetSeit` und
+ * `detailVeraltetSeit` nur beim selben Side Event.
+ */
+type SpeicherStand = Partial<Pick<AktiveShow, 'speakerAbgerufen' | 'seListeVeraltetSeit' | 'detailVeraltetSeit' | 'orgFehlenSeit'>>;
+
 /** Ergebnis des Zusatzabrufs der Side-Event-Liste (Spec 15.4); `liste` null = seit `seListeIso` nichts geändert. */
 type SeListeAbruf = { ok: true; liste: ShowIveoProgramRef[] | null; ab: string } | { ok: false; fehler: unknown };
 
@@ -732,9 +745,10 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   /**
    * `active` aus einer gelesenen Show neu aufsetzen. Generation + 1: eine laufende Abfrage verwirft ihr Ergebnis.
    * lastSig kommt aus der Datei (7.2) — sonst schrieb die erste Abfrage nach jedem Öffnen ohne Änderung neu und
-   * schickte ein Schein-RELOAD (im Log von #235 sichtbar).
+   * schickte ein Schein-RELOAD (im Log von #235 sichtbar). iveo-Paket, Spec 6.5: `mit` trägt beim Speichern der offenen
+   * Show die Merker im Speicher und den Zeitpunkt des letzten Abrufs der Speakerliste (offeneShowGespeichert); sonst leer.
    */
-  function setzeAuf(pfad: string, show: Show, seMerker?: string): AktiveShow | null {
+  function setzeAuf(pfad: string, show: Show, mit: SpeicherStand = {}): AktiveShow | null {
     generation++;
     offenePfad = pfad;
     active = null;
@@ -768,13 +782,16 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       speakerVeraltetSeit: binding.speakerVeraltetSeit,
       seListeIso: seit,
       // Der Merker „Side-Event-Liste veraltet“ liegt nur im Speicher (15.4): beim Speichern der offenen Show reicht
-      // der Aufrufer ihn durch, damit die Statuszeile von Anfang an stimmt.
-      seListeVeraltetSeit: seMerker,
-      // iveo-Paket, Spec 6.1: Startwert des Auffrischens ist das Öffnen.
-      speakerAbgerufen: d.jetztIso(),
+      // der Aufrufer ihn durch, damit die Statuszeile von Anfang an stimmt. iveo-Paket, Spec 6.5: ebenso die Merker
+      // „Speaker-Verknüpfung veraltet“ und „Organisationen fehlen“ und der Zeitpunkt des letzten Abrufs der Speakerliste;
+      // ohne ihn ist der Startwert des Auffrischens das Öffnen (6.1).
+      seListeVeraltetSeit: mit.seListeVeraltetSeit,
+      detailVeraltetSeit: mit.detailVeraltetSeit,
+      orgFehlenSeit: mit.orgFehlenSeit,
+      speakerAbgerufen: mit.speakerAbgerufen ?? d.jetztIso(),
     };
-    const merker = binding.speakerVeraltetSeit;
-    if (merker || seMerker) {
+    // iveo-Paket, Spec 6.5: Die Bedingung prüft alle Merker aus Datei und Speicher, mit derselben Regel wie die Statuszeile.
+    if (!statusAusMerkern(active).ok) {
       // Teil 2b, Spec 6.2/6.3: Mit Merker ist die Statuszeile von Anfang an „gestört“. Stand vorher schon derselbe
       // Text mit demselben „seit“ (Speichern der offenen Show), bleibt er ohne Meldung und ohne Log.
       if (!vorher.ok) status = vorher;
@@ -1122,6 +1139,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     speakerAbruf: 'ok' | 'gescheitert' | 'ohne-verknuepfung';
     /** iveo-Paket, Spec 5.10: die volle Speakerliste, wenn sie gelang (für die Regel „Feld fehlt“). */
     alle?: IveoSpeaker[];
+    /** iveo-Paket, Spec 6.1: Zeitpunkt vor dem Abruf der Speakerliste (nur mit `speakerAbruf` 'ok' maßgeblich). */
+    ab?: string;
   } | null> {
     const detail = await client.getProgram(event, programId).catch((e: unknown) => {
       d.log.warn(`iveo switch: Detail „${programId}" nicht abrufbar (${(e as Error).message}).`);
@@ -1142,8 +1161,10 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     let vollstaendig = true;
     let alle: IveoSpeaker[] | undefined;
     let speakerAbruf: 'ok' | 'gescheitert' | 'ohne-verknuepfung' = 'ohne-verknuepfung';
+    let ab: string | undefined;
     if (ids.length) {
       try {
+        ab = d.jetztIso();
         alle = await client.listSpeakers(event);
         speakers = speakersToShowSpeakers(alle.filter((s) => ids.includes(s.id)));
         speakerAbruf = 'ok';
@@ -1157,7 +1178,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     } else {
       if (detail) d.log.info(`iveo switch: Programm-Detail-Felder = ${Object.keys(detail).join(', ')}`);
       if (agenda[0]) d.log.info(`iveo switch: Agenda-Item-Felder = ${Object.keys(agenda[0]).join(', ')}`);
-      warning = 'iveo verknüpft keine Speaker mit diesem Side Event — bestehende Speakerliste bleibt.';
+      warning = TEXT_UMSCHALTEN_OHNE_VERKNUEPFUNG;
     }
     const kontext = sideKontext(detail, alle);
     const namen = kontext.speakerNames ? new Map(kontext.speakerNames) : undefined;
@@ -1175,6 +1196,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       sideCtx: detail && vollstaendig ? kontext : undefined,
       speakerAbruf,
       alle,
+      ab,
     };
   }
 
@@ -1218,6 +1240,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       let roh: IveoSpeaker[] | undefined;
       /** Spec 5.10: Ergebnis der Regel „Feld fehlt“; undefined = keine frische Speakerliste. */
       let orgFehlen: boolean | undefined;
+      /** iveo-Paket, Spec 6.1: Zeitpunkt vor dem Abruf der Speakerliste, wenn sie gelang (Side Event, Tagesübersicht). */
+      let ab: string | undefined;
       if (programId) {
         const r = await loeseSideEventLeicht(client, a.event, programId);
         if (!r) return { ok: false, message: TEXT_AGENDA_NICHT_ABRUFBAR };
@@ -1226,6 +1250,7 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
         if (r.speakerAbruf === 'ok' && istAktuell(a, gen)) speakerListeErgebnis([]);
         ({ ablauf, speakers, warning, sideCtx } = r);
         roh = r.alle;
+        if (r.speakerAbruf === 'ok') ab = r.ab;
         filter = { ...a.filter, programId };
         // Teil 2b, Spec 6.2: Gelingt die Speakerliste, entfällt der Merker; scheitert sie, wird er gesetzt (ein schon
         // gesetzter bleibt). Ohne Verknüpfung holt das Umschalten keine Liste, der Merker bleibt, wie er ist.
@@ -1263,6 +1288,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
             if (!basisFrueh) return { ok: false, message: TEXT_NICHT_GESCHRIEBEN };
           }
           stand = standMitSpeakerliste(snap, listPrograms, optionen, basisFrueh?.iveo?.speakers ?? []);
+          // iveo-Paket, Spec 6.4: Der Snapshot trug die Speakerliste; sein Zeitpunkt wurde vor dem Abruf genommen.
+          ab = snap.fetchedAt;
         }
         ({ ablauf, speakers, merker, orgFehlen } = stand);
         name = snap.event.name;
@@ -1308,6 +1335,12 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       }
       a.speakerVeraltetSeit = merker;
       merkeOrgFehlen(a, orgFehlen);
+      // iveo-Paket, Spec 6.1/6.4: Kam die Speakerliste, gilt das Auffrischen ab dem Zeitpunkt vor ihrem Abruf. Spec 6.5:
+      // Das Umschalten setzt den Kontext neu; der Merker „Speaker-Verknüpfung veraltet“ gilt nicht mehr (fehlt das Detail
+      // jetzt, lädt die nächste Abfrage es ohne Kontext nach, und ein Fehlschlag bricht sie sichtbar ab).
+      if (ab) a.speakerAbgerufen = ab;
+      a.detailVeraltetSeit = undefined;
+      letzterDetailFehler = null;
       if (speakerWieder) meldeSpeakerWieder();
       d.log.info(`iveo: Side-Event-Umschaltung → ${ablauf.length} Punkte, ${speakersNeu.length} Speaker.`);
       // Teil 2b, Spec 6.2: „in Ordnung“ nur ohne Merker.
@@ -1347,10 +1380,19 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     melde(pfadOffen, show);
     if (show) {
       // Der Merker „Side-Event-Liste veraltet“ gilt nur im Agenda-Modus: er geht nur mit, wenn Event und Side Event
-      // gleich bleiben (15.4). „seit“ bleibt der erste Fehlschlag, nicht die Zeit nach dem Speichern.
+      // gleich bleiben (15.4). „seit“ bleibt der erste Fehlschlag, nicht die Zeit nach dem Speichern. iveo-Paket, Spec 6.5:
+      // ebenso „Speaker-Verknüpfung veraltet“; der Zeitpunkt des letzten Abrufs der Speakerliste und „Organisationen
+      // fehlen“ gelten bei gleicher Bindung weiter. Neu gebunden: alles neu.
       const gleicheBindung = !!vorher && !neuGebunden && vorher.event === show.iveo?.event;
       const gleichesProgramm = gleicheBindung && vorher!.filter.programId === show.iveo?.filter?.programId;
-      const neu = setzeAuf(pfadOffen, show, gleichesProgramm ? vorher!.seListeVeraltetSeit : undefined);
+      const mit: SpeicherStand = gleicheBindung
+        ? {
+            speakerAbgerufen: vorher!.speakerAbgerufen,
+            orgFehlenSeit: vorher!.orgFehlenSeit,
+            ...(gleichesProgramm ? { seListeVeraltetSeit: vorher!.seListeVeraltetSeit, detailVeraltetSeit: vorher!.detailVeraltetSeit } : {}),
+          }
+        : {};
+      const neu = setzeAuf(pfadOffen, show, mit);
       // Gleiche Bindung: Abfragefenster und Side-Event-Kontext gelten weiter. Neu gebunden: beides frisch.
       if (neu && vorher && !neuGebunden && vorher.event === neu.event) {
         neu.lastSyncIso = vorher.lastSyncIso;
