@@ -1344,8 +1344,38 @@ console.log('— P14 Fix-Runde 1 (Generationswechsel, K4/K6 mit Warteschlange, l
       if (s.basis?.fehler && (!(bis > T.uhr.t) || k.text?.includes('überfällig'))) luegen.push(`${(T.uhr.t - Date.parse('2026-10-16T08:00:00Z')) / 1000}:${k.text}`);
     }
     ck('P14 Fix 3, 11.1 K6: Runde länger als 270 s → der genannte nächste Versuch liegt nie in der Vergangenheit, nie T59', luegen.length === 0);
-    ck('P14 Fix 3, 9.4: Runde länger als 270 s → ein Versuch zur genannten Zeit, danach bis zum Ende der Runde keiner je Eintrag (zwei mkdir)',
-      T.fs.zaehle('mkdir', (p) => p === AttC.BASIS) === 2 && s0(T) === 'EACCES');
+    ck('P14 Fix 3, 9.4: Runde länger als 270 s → der Fehler bleibt der des Basisordners (EACCES)', s0(T) === 'EACCES');
+  }
+  {
+    // Fix-Runde 2, Befund 1 und 3: Runde länger als 270 s, nur se-2 mit Anhang, Takt mit 1-s-Uhr. K6 nennt nie eine vergangene Zeit,
+    // nie T59 bei laufender Runde, und zu jeder genannten Zeit folgt wirklich ein Versuch (kein Termin, an dem nichts geschieht).
+    const liste = Array.from({ length: 8 }, (_, i) => ({ id: `se-${i + 1}`, title: `Titel ${i + 1}` }));
+    const T = AttC.baueLauf({ sideEvents: liste });
+    for (const p of liste.slice(1)) {
+      T.agenda.agenden.set(p.id, () => new Promise((ok) => { T.uhr.setTimeout(() => ok(p.id === 'se-2' ? [AttC.punkt(p.id, [AttC.datei(`m-${p.id}`, 'Folien')])] : []), 60_000); }));
+    }
+    T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+    const t0 = T.uhr.t;
+    const mkdirs = (): number => T.fs.zaehle('mkdir', (p) => p === AttC.BASIS);
+    const genannt = new Map<number, number>(); // genannte Zeit → Zahl der Versuche, als sie zuerst genannt wurde
+    const luegen: string[] = [];
+    const leer: string[] = [];
+    T.lauf.takt();
+    await AttC.ruhe();
+    for (let i = 0; i < 12; i++) {
+      await T.uhr.spule(45_000, 1000);
+      T.lauf.takt();
+      await AttC.ruhe();
+      const s = T.lauf.stand();
+      const k = ZeilenC.kopfzeile(s, T.uhr.t);
+      const bis = Date.parse(s.basis?.fehler?.naechsterVersuch ?? '');
+      const wann = `${(T.uhr.t - t0) / 1000}:${k.text}`;
+      if (s.basis?.fehler && (!(bis > T.uhr.t - 1000) || k.text?.includes('überfällig'))) luegen.push(wann);
+      for (const [x, n] of genannt) if (T.uhr.t >= x + 1000 && mkdirs() <= n) leer.push(`${x - t0}:${wann}`);
+      if (s.basis?.fehler && !genannt.has(bis)) genannt.set(bis, mkdirs());
+    }
+    ck('P14 Fix-Runde 2, 11.1 K6: lange Runde, nur ein Eintrag mit Anhang → nie eine vergangene Zeit, nie T59 bei laufender Runde', luegen.length === 0);
+    ck('P14 Fix-Runde 2, 11.1 K6: lange Runde → zu jeder genannten Zeit folgt ein Versuch (kein Termin ohne Versuch)', leer.length === 0 && genannt.size > 1);
   }
   {
     // Befund 4: Abruf gelingt, Ordner nicht anlegbar → die Zeile zeigt den gelungenen Abruf
@@ -1360,6 +1390,23 @@ console.log('— P14 Fix-Runde 1 (Generationswechsel, K4/K6 mit Warteschlange, l
     const s2 = T.se('se-2');
     ck('P14 Fix 4, G8: Abruf gelungen, aber Basisordner nicht anlegbar → abruf gelungen, Fehler des früheren Abrufs weg, Stand gesetzt',
       davor === 'gescheitert' && s2?.abruf === 'gelungen' && s2.fehler === null && s2.stand === isoF(T.uhr.t) && s2.existiert === false);
+  }
+  {
+    // Fix-Runde 2, Befund 2: ein Side Event mit Anhängen ist nie „Keine Anhänge“ (S11), auch wenn der Ordner nicht entstand und K6 später verschwindet
+    const T = AttC.baueLauf({ sideEvents: SE_F.slice(0, 2) });
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [AttC.datei('m-2', 'Folien')])]);
+    T.fs.fehlerBei('mkdir', (p) => p === AttC.BASIS, 'EACCES');
+    await T.takt([]);
+    const bei = T.se('se-2');
+    const zeileBei = bei ? ZeilenC.ordnerZeile(bei, T.uhr.t).fall : null;
+    T.fs.regelnLoeschen();
+    T.fs.ordner(AttC.BASIS);
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt([]);
+    const s2 = T.se('se-2');
+    const zeile = s2 ? ZeilenC.ordnerZeile(s2, T.uhr.t).fall : null;
+    ck('P14 Fix-Runde 2, 11.2: Anhänge da, Ordner nicht angelegt → n = Zahl der Anhänge, k = 0, nie S11',
+      bei?.n === 1 && bei.k === 0 && zeileBei !== 'S11' && s2 !== undefined && s2.n === 1 && zeile !== 'S11');
   }
 }
 function s0(T: ReturnType<typeof AttC.baueLauf>): string | undefined { return T.lauf.stand().basis?.fehler?.code; }

@@ -129,6 +129,8 @@ interface Lauf {
   menge: string[];
   liste: ShowIveoProgramRef[];
   basisFehlerBis: number | null;
+  /** Laufender Versuch, den Basisordner anzulegen (nur der Takt wiederholt ihn; Einträge warten darauf). */
+  basisVersuch: Promise<void> | null;
   se: Map<string, SeIntern>;
   kopf: Omit<AnhangOrdnerStand, 'sideEvents'>;
   letzteMeldung: string;
@@ -151,7 +153,7 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     gen: 0, abbruch: new AbortController(), sitzung: d.neueSitzungsKennung(), gehalten: null, darf: false,
     abgesetzt: false, beendet: false, beschaeftigt: 0, warter: [], taktLaeuft: false, statLaeuft: false, sperreLoeschen: null,
     aktivAgenda: null, queue: [], laeuft: null, abrufOffen: null, nachlauf: new Map(), arbeiterGen: null,
-    rundeStartMs: null, runde: null, menge: [], liste: [], basisFehlerBis: null,
+    rundeStartMs: null, runde: null, menge: [], liste: [], basisFehlerBis: null, basisVersuch: null,
     se: new Map(), kopf: leererKopf(), letzteMeldung: '',
   };
   return {
@@ -225,6 +227,7 @@ function neueSitzung(L: Lauf): void {
   L.aktivAgenda = null;
   L.rundeStartMs = null;
   L.basisFehlerBis = null;
+  L.basisVersuch = null; // ein hängender Versuch der alten Generation hält die neue nicht auf (sein Ergebnis wird verworfen)
   L.se = new Map();
   L.kopf = leererKopf();
   liesBedingungen(L);
@@ -492,13 +495,22 @@ function naechsteSchritte(L: Lauf, a: { path: string; event: string; filter: Ive
     L.rundeStartMs = jetzt;
     L.kopf.ersteRundeGestartet = true;
     L.kopf.naechsteRundeGegen = iso(naechsterFaelligerTakt(jetzt, L.taktMs));
-    L.basisFehlerBis = null;
     ids = L.menge.filter((id) => id !== aktivId);
     L.runde = ids.length ? { offen: new Set(ids), n: ids.length, erledigt: 0 } : null;
     L.kopf.runde = L.runde ? { i: 1, n: L.runde.n } : null;
   }
+  // Basisordner nicht anlegbar: der Takt wiederholt den Versuch zur genannten Zeit (zu „gegen“, danach in jedem Takt), die Zeile nennt nie eine Zeit ohne Versuch (11.1)
   const bf = L.kopf.basis?.fehler;
-  if (L.basisFehlerBis === Number.POSITIVE_INFINITY && bf && !bf.sperre) bf.naechsterVersuch = iso(jetzt + L.taktMs); // Runde über „gegen“ hinaus: die Zeile nennt nie eine vergangene Zeit
+  if (L.basisFehlerBis !== null && jetzt >= L.basisFehlerBis && bf && !bf.sperre && !L.basisVersuch) {
+    const basis = basisPfad(a);
+    const gen = L.gen;
+    if (basis) {
+      const v = versucheBasis(L, basis, gen);
+      const w = v.finally(() => { if (L.basisVersuch === w) L.basisVersuch = null; });
+      L.basisVersuch = w;
+      void beschaeftigt(L, w);
+    }
+  }
   // Aktives Side Event: jeden Takt, aus der Agenda des Kerns, kein eigener Abruf (8.2, 9.4); es steht vorn.
   const ag = L.aktivAgenda;
   L.aktivAgenda = null;
@@ -621,18 +633,11 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
   const st = s.stand;
   if (st.ordnerName && st.existiert) return { pfad: path.join(basis, st.ordnerName), name: st.ordnerName };
   if (!mitAnhaengen) return null; // OF4: ein Ordner entsteht erst mit dem ersten Anhang
-  if (L.basisFehlerBis !== null && L.d.jetzt() < L.basisFehlerBis) return null;
-  try {
-    await L.fs.mkdir(basis, { recursive: true });
-  } catch (e) {
-    const gegen = Date.parse(L.kopf.naechsteRundeGegen ?? iso(L.d.jetzt()));
-    // Dauert die Runde über „gegen“ hinaus, gibt es bis zu ihrem Ende keinen Versuch mehr; der nächste Takt ist die ehrliche Zeit (naechsteSchritte frischt sie auf)
-    L.basisFehlerBis = gegen > L.d.jetzt() ? gegen : Number.POSITIVE_INFINITY;
-    L.kopf.basis = { ...(L.kopf.basis as NonNullable<AnhangOrdnerStand['basis']>), existiert: false, fehler: { code: fehlerCode(e), naechsterVersuch: iso(gegen > L.d.jetzt() ? gegen : L.d.jetzt() + L.taktMs) } };
-    return null;
-  }
+  const wartete = L.basisVersuch !== null;
+  if (L.basisVersuch) await L.basisVersuch; // der Versuch des Takts läuft: dessen Ergebnis gilt für diesen Eintrag
   if (gen !== L.gen) return null;
-  if (L.kopf.basis) L.kopf.basis = { ...L.kopf.basis, existiert: true, fehler: null };
+  if (L.basisFehlerBis !== null) return null; // ein Fehler beim Anlegen wird nur vom Takt zu seiner Zeit wiederholt (naechsteSchritte)
+  if (!wartete && !(await legeBasisAn(L, basis, gen))) return null; // sonst hat der Takt den Ordner eben angelegt
   if (!L.gehalten && !(await schreibeSperre(L, basis, false, gen, L.sitzung))) return null; // die Sperre entsteht mit dem Basisordner
   const erwartet = ordnerPfad({ art: 'seitenOrdner', basisPfad: basis, titel: st.titel });
   if (!erwartet.ok) { st.anlegbar = { grund: erwartet.grund }; return null; }
@@ -647,6 +652,34 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
   if (gen !== L.gen) return null;
   Object.assign(st, { ordnerName: name, pfad: path.join(basis, name), existiert: true, anlegbar: null });
   return { pfad: path.join(basis, name), name };
+}
+
+/**
+ * Basisordner anlegen. Bei einem Fehler steht die Zeit des nächsten Versuchs fest: „gegen“ (Beginn der nächsten Runde), ist
+ * die vorbei, der nächste Takt; zu dieser Zeit wiederholt der Takt den Versuch (11.1, 9.4).
+ */
+async function legeBasisAn(L: Lauf, basis: string, gen: number): Promise<boolean> {
+  try {
+    await L.fs.mkdir(basis, { recursive: true });
+  } catch (e) {
+    if (gen !== L.gen) return false;
+    const jetzt = L.d.jetzt();
+    const gegen = Date.parse(L.kopf.naechsteRundeGegen ?? iso(jetzt));
+    const bis = gegen > jetzt ? gegen : jetzt + L.taktMs;
+    L.basisFehlerBis = bis;
+    L.kopf.basis = { ...(L.kopf.basis as NonNullable<AnhangOrdnerStand['basis']>), existiert: false, fehler: { code: fehlerCode(e), naechsterVersuch: iso(bis) } };
+    return false;
+  }
+  if (gen !== L.gen) return false;
+  L.basisFehlerBis = null;
+  if (L.kopf.basis) L.kopf.basis = { ...L.kopf.basis, existiert: true, fehler: null };
+  return true;
+}
+
+/** Wiederholter Versuch des Takts; die Sperre schreibt die nächste Prüfung (pruefeSperre) oder der erste Eintrag mit Anhängen. */
+async function versucheBasis(L: Lauf, basis: string, gen: number): Promise<void> {
+  await legeBasisAn(L, basis, gen);
+  if (gen === L.gen) melde(L);
 }
 
 // ── Ein Side Event abgleichen (9.4–9.10) ─────────────────────────────────────────────────────────────────────────
@@ -688,6 +721,9 @@ async function bearbeite(L: Lauf, e: Eintrag, a: { path: string; event: string }
     if (gueltig.length === 0 && !st.existiert && st.indexFormat !== 'neuer') {
       // kein Ordner, weil das Side Event keine Anhänge hat (OF4): gelungen mit n = 0
       Object.assign(st, { n: 0, k: 0, probleme: [] });
+    } else if (gueltig.length > 0 && !st.existiert) {
+      // Anhänge da, aber der Ordner entstand nicht: ehrlich 0 von n im Ordner (S13), nie „Keine Anhänge“ (S11)
+      Object.assign(st, { n: gueltig.length, k: 0, probleme: [] });
     }
     return false;
   }
