@@ -10,6 +10,8 @@ import { IveoApiError, IveoAssetAdresseError, type IveoMaterial, type IveoProgra
 import type { ShowIveoProgramRef } from '@jm/show';
 import { istGeloescht, referenzHash, type GueltigerAnhang } from './iveo-anhaenge';
 
+import type { GueltigerAnhang as PlanAnhang, UngueltigerAnhang as PlanUngueltig } from './iveo-anhaenge';
+
 /** Endung je MIME-Typ (aus `iveo-sync.ts:602-616` übernommen; die alte Kopie und `extFor` entfernt Task 30, EP18). */
 export const MIME_EXT: Readonly<Record<string, string>> = {
   'application/pdf': '.pdf',
@@ -615,6 +617,148 @@ export function sperreBewerten(gelesen: unknown, ich: { rechner: string; sitzung
 export function rueckhaltungBis(fehlschlaege: number, fehlschlagMs: number): number {
   const f = Math.max(1, Math.floor(fehlschlaege));
   return fehlschlagMs + Math.min(45_000 * 2 ** (f - 1), 600_000);
+}
+
+// ── Plan je Side Event (Spec 9.5) ────────────────────────────────────────────────────────────────────────────────
+// Ein reiner Plan aus Index-Stand, frisch gelesener Dateiliste und geprüften Anhängen. Nur ein erfolgreicher
+// Agenda-Abruf erzeugt einen Plan; eine erfolgreich leere Agenda verschiebt alle Dateien nach entfernt/ (Risiko 5).
+// Alle Namensvergleiche in Vergleichsform (9.9). Den Zielnamen prüft der Lauf unmittelbar vor dem Platzieren neu
+// (9.6, E48); `wunsch` ist nur der Name, den der Anhang nach 9.12 bekäme bzw. schon trägt.
+
+/** Eine Datei im Ordner, wie das Dateisystem sie liefert (Name unverändert, auch NFD; 9.9). */
+export interface OrdnerDatei { name: string; groesse: number; mtimeMs: number }
+
+/** Eingaben des Plans (9.5). `seitenOrdner` braucht die Namensregel für das Pfadbudget (9.12 Regel 10). */
+export interface PlanEingabe {
+  seitenOrdner: string;
+  index: OrdnerIndex | null;
+  /** Dateien direkt im Side-Event-Ordner (ohne Unterordner). */
+  dateien: OrdnerDatei[];
+  /** Dateien in `entfernt/`. */
+  entfernt: OrdnerDatei[];
+  /** Vergleichsform des Namens → Inhalt, für `.url`-Dateien im Ordner, die der Index nicht nennt. */
+  urlInhalte: ReadonlyMap<string, string>;
+  anhaenge: PlanAnhang[];
+  ungueltig: PlanUngueltig[];
+  jetzt: Date;
+  /** „nicht vor“ (ms) für diesen Anhang mit dieser Inhaltssignatur, sonst null (Rückhaltung, 9.6). */
+  zurueckgehaltenBis(id: string, inhalt: string): number | null;
+}
+
+/** Ein Schritt des Plans; `inhalt` ist die Inhaltssignatur (Datei: MIME, Größe, Referenz-Hash; Link: `href`). */
+export type PlanSchritt =
+  | { art: 'uebernehmen'; anhang: PlanAnhang; datei: string; inhalt: string; bytes: number; mtimeMs: number; neu: boolean }
+  | { art: 'laden'; anhang: PlanAnhang; wunsch: string; inhalt: string; gesperrt: string | null; alt: string | null }
+  | { art: 'url-schreiben'; anhang: PlanAnhang; wunsch: string; inhalt: string; alt: string | null }
+  | { art: 'umbenennen'; anhang: PlanAnhang; von: string; wunsch: string }
+  | { art: 'nach-entfernt'; id: string; datei: string; zusatz: null | 'ersetzt' | 'unvollstaendig' }
+  | { art: 'zurueckholen'; anhang: PlanAnhang; aus: string; wunsch: string }
+  | { art: 'tauschen'; anhang: PlanAnhang; wartet: string; alt: string | null; wunsch: string; inhalt: string }
+  | { art: 'fehler'; id: string | null; datei: string; grund: string }
+  | { art: 'zurueckgehalten'; id: string; datei: string; inhalt: string; bis: number };
+
+/**
+ * Passt eine Datei, die der Index nicht kennt, zu einem neuen Anhang (9.5 Zeile 1, E47)? Datei: gültiges
+ * `size_bytes` und genau diese Größe (ohne `size_bytes` nie: Grenze der Übernahme). Link: erst die Größe, dann
+ * byteweise genau der Inhalt, den 9.7 für sein `href` schriebe.
+ */
+function passtZurUebernahme(a: PlanAnhang, link: boolean, inhalt: string, f: OrdnerDatei, urlInhalte: ReadonlyMap<string, string>): boolean {
+  if (link) {
+    const soll = urlDateiInhalt(inhalt);
+    return f.groesse === Buffer.byteLength(soll, 'utf8') && urlInhalte.get(vergleichsform(f.name)) === soll;
+  }
+  return a.groesse !== null && f.groesse === a.groesse;
+}
+
+/** Name für ein Problem eines ungültigen Anhangs: sein Label, sonst der Titel des Agenda-Punkts. */
+function ungueltigName(u: PlanUngueltig): string {
+  const m = (u.item.materials ?? []).find((x) => (u.id === null ? typeof x.id !== 'string' || x.id === '' : x.id === u.id));
+  return bereinigeName(String(m?.label ?? u.item.title ?? ''), 'Anhang');
+}
+
+export function planeSideEvent(e: PlanEingabe): PlanSchritt[] {
+  const vf = vergleichsform;
+  const plan: PlanSchritt[] = [];
+  const eintraege = e.index?.eintraege ?? [];
+  const nachId = new Map(eintraege.map((x) => [x.id, x] as const));
+  const dateien = new Map(e.dateien.map((f) => [vf(f.name), f] as const));
+  const entfernt = new Map(e.entfernt.map((f) => [vf(f.name), f] as const));
+  const genannt = new Set(eintraege.filter((x) => x.zustand !== 'entfernt').map((x) => vf(x.datei)));
+  const ids = new Set(e.anhaenge.map((a) => a.m.id));
+  const ungueltigeIds = new Set(e.ungueltig.map((u) => u.id).filter((x): x is string => x !== null));
+  const jetztMs = e.jetzt.getTime();
+
+  // Zuerst: Index-Einträge, deren Anhang in iveo fehlt oder gelöscht ist → nach entfernt/ (9.5, 9.10); so werden
+  // ihre Namen frei, bevor neue Anhänge Namen bekommen. Ein ungültiger Anhang gilt nicht als entfernt (8.5).
+  for (const x of eintraege) {
+    if (x.zustand === 'entfernt' || ids.has(x.id) || ungueltigeIds.has(x.id)) continue;
+    const f = dateien.get(vf(x.datei));
+    if (f && (x.zustand === 'aktiv' || f.groesse === x.bytes)) plan.push({ art: 'nach-entfernt', id: x.id, datei: f.name, zusatz: null });
+  }
+
+  for (const a of e.anhaenge) {
+    const m = a.m;
+    const link = istLinkAnhang(m);
+    const r = ordnerPfad({ art: 'datei', seitenOrdner: e.seitenOrdner, label: m.label, kind: link ? 'link' : 'file', mime: m.asset?.mime_type ?? null });
+    const name = r.ok ? r.name : bereinigeName(m.label, 'Anhang');
+    if (!link && !m.asset) { plan.push({ art: 'fehler', id: m.id, datei: name, grund: ORDNER_GRUENDE.ohneDatei }); continue; }
+    const inhalt = inhaltSignatur(a);
+    if (inhalt === null) { plan.push({ art: 'fehler', id: m.id, datei: name, grund: ORDNER_GRUENDE.linkUngueltig }); continue; }
+    if (!r.ok) { plan.push({ art: 'fehler', id: m.id, datei: name, grund: r.grund }); continue; }
+    const laden = (wunsch: string, alt: string | null): void => {
+      const bis = e.zurueckgehaltenBis(m.id, inhalt);
+      if (bis !== null && bis > jetztMs) plan.push({ art: 'zurueckgehalten', id: m.id, datei: alt ?? wunsch, inhalt, bis });
+      else if (link) plan.push({ art: 'url-schreiben', anhang: a, wunsch, inhalt, alt });
+      else plan.push({ art: 'laden', anhang: a, wunsch, inhalt, gesperrt: r.gesperrt, alt });
+    };
+    const x = nachId.get(m.id);
+    if (!x) {
+      // Anhang neu: übernehmen, wenn eine Datei mit seinem Namen da ist, die kein anderer Eintrag nennt und passt.
+      const f = dateien.get(vf(r.name));
+      if (f && !genannt.has(vf(r.name)) && passtZurUebernahme(a, link, inhalt, f, e.urlInhalte)) {
+        plan.push({ art: 'uebernehmen', anhang: a, datei: f.name, inhalt, bytes: f.groesse, mtimeMs: f.mtimeMs, neu: true });
+      } else {
+        laden(r.name, null);
+      }
+      continue;
+    }
+    // Ein Anhang behält seinen Dateinamen, solange sein Label gleich bleibt (9.9).
+    const bleibt = x.label === m.label ? x.datei : r.name;
+    if (x.zustand === 'laedt') {
+      // Absturz zwischen Index und Umbenennen: liegt die Datei mit genau `bytes` da, gilt sie (auch ohne size_bytes).
+      const f = dateien.get(vf(x.datei));
+      if (f && x.bytes !== undefined && f.groesse === x.bytes) {
+        plan.push({ art: 'uebernehmen', anhang: a, datei: f.name, inhalt: x.inhalt ?? inhalt, bytes: f.groesse, mtimeMs: f.mtimeMs, neu: false });
+      } else {
+        laden(bleibt, null);
+      }
+      continue;
+    }
+    if (x.zustand === 'entfernt') {
+      const f = entfernt.get(vf(x.datei.slice('entfernt/'.length)));
+      if (f && x.inhalt === inhalt) plan.push({ art: 'zurueckholen', anhang: a, aus: f.name, wunsch: r.name });
+      else laden(r.name, null);
+      continue;
+    }
+    const f = dateien.get(vf(x.datei));
+    if (x.wartet && x.inhaltNeu === inhalt && dateien.has(vf(x.wartet))) {
+      plan.push({ art: 'tauschen', anhang: a, wartet: x.wartet, alt: f ? f.name : null, wunsch: bleibt, inhalt });
+      continue;
+    }
+    if (!f) { laden(bleibt, null); continue; } // vom Bediener gelöscht → neu laden
+    if (x.bytes !== undefined && f.groesse !== x.bytes && f.mtimeMs === x.mtimeMs) {
+      // Größe weicht ab, Änderungszeit gleich: Schreiben unterbrochen → beiseite, neu laden
+      plan.push({ art: 'nach-entfernt', id: m.id, datei: f.name, zusatz: 'unvollstaendig' });
+      laden(bleibt, null);
+      continue;
+    }
+    if (x.inhalt !== inhalt) { laden(bleibt, f.name); continue; } // neue Fassung: alte vorher nach entfernt/
+    if (x.label !== m.label && r.name !== x.datei) { plan.push({ art: 'umbenennen', anhang: a, von: f.name, wunsch: r.name }); continue; }
+    // gleich, auch wenn der Bediener die Datei geändert hat (E33): nichts
+  }
+
+  for (const u of e.ungueltig) plan.push({ art: 'fehler', id: u.id, datei: ungueltigName(u), grund: ORDNER_GRUENDE.ungueltigerAnhang(u.feld) });
+  return plan;
 }
 
 // ── Ende des Moduls ──

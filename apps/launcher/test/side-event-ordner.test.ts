@@ -466,6 +466,126 @@ console.log('— P10 · Rückhaltung und Auffrischregel (9.6; 12.4 Nr. 37 Formel
   ck('P10 EP9: naechsterFaelligerTakt ist der erste Takt mit auffrischenFaellig', erster * 45_000 === naechsterFaelligerTakt(0, 45_000));
 }
 
+// ── Block C · P12: Plan je Side Event (Spec 9.5) ──────────────────────────────────────────────────────────────────
+// Block C nutzt nur eigene Namen (Endung „C“) und Namensräume, damit nichts mit den Importen aus P8–P10 kollidiert.
+import pathC from 'node:path';
+import type { IveoMaterial as MaterialC } from '@jm/iveo';
+import * as AnhaengeC from '../src/main/iveo-anhaenge';
+import * as OrdnerC from '../src/main/side-event-ordner';
+
+console.log('— P12 Plan je Side Event (Spec 9.5)');
+{
+  const ORDNER = pathC.join(pathC.resolve('/plan'), 'COP31 Tag 1 – Side Events', 'Klima');
+  const JETZT = new Date(2026, 9, 16, 10, 30, 0);
+  const datei = (id: string, label: string, o: { mime?: string | null; size?: unknown; ref?: string } = {}): MaterialC => ({
+    id, kind: 'file', label,
+    asset: { url: o.ref ?? `ref-${id}`, mime_type: o.mime === undefined ? 'application/pdf' : o.mime, size_bytes: (o.size === undefined ? 1000 : o.size) as number },
+  });
+  const link = (id: string, label: string, url: unknown): MaterialC => ({ id, kind: 'link', label, external_url: url as string });
+  const anh = (...ms: MaterialC[]) => AnhaengeC.pruefeAnhaenge([{ id: 'p1', program_id: 'se-1', title: 'Punkt', materials: ms }]);
+  const sig = (m: MaterialC): string => OrdnerC.inhaltSignatur(anh(m).gueltig[0]) as string;
+  const idx = (...eintraege: OrdnerC.IndexEintrag[]): OrdnerC.OrdnerIndex => ({
+    format: 1, programId: 'se-1', titel: 'Klima', ordnerName: 'Klima', stand: '2026-10-16T08:00:00.000Z', eintraege,
+  });
+  const f = (name: string, groesse: number, mtimeMs = 1000): OrdnerC.OrdnerDatei => ({ name, groesse, mtimeMs });
+  const plane = (o: { a?: ReturnType<typeof anh>; index?: OrdnerC.OrdnerIndex | null; dateien?: OrdnerC.OrdnerDatei[]; entfernt?: OrdnerC.OrdnerDatei[]; url?: Record<string, string>; bis?: number | null }) =>
+    OrdnerC.planeSideEvent({
+      seitenOrdner: ORDNER, index: o.index ?? null, dateien: o.dateien ?? [], entfernt: o.entfernt ?? [],
+      urlInhalte: new Map(Object.entries(o.url ?? {})), anhaenge: o.a?.gueltig ?? [], ungueltig: o.a?.ungueltig ?? [],
+      jetzt: JETZT, zurueckgehaltenBis: () => o.bis ?? null,
+    });
+  // Kurzform je Schritt, damit ein Fall die ganze Liste in einer Zeile vergleicht.
+  const kurz = (p: OrdnerC.PlanSchritt[]): string => p.map((s) => {
+    switch (s.art) {
+      case 'uebernehmen': return `uebernehmen ${s.anhang.m.id} ${s.datei}${s.neu ? '' : ' (laedt)'}`;
+      case 'laden': return `laden ${s.anhang.m.id} ${s.wunsch} alt=${s.alt ?? '-'}`;
+      case 'url-schreiben': return `url ${s.anhang.m.id} ${s.wunsch} alt=${s.alt ?? '-'}`;
+      case 'umbenennen': return `umbenennen ${s.anhang.m.id} ${s.von} → ${s.wunsch}`;
+      case 'nach-entfernt': return `entfernt ${s.id} ${s.datei} ${s.zusatz ?? '-'}`;
+      case 'zurueckholen': return `zurueck ${s.anhang.m.id} ${s.aus} → ${s.wunsch}`;
+      case 'tauschen': return `tauschen ${s.anhang.m.id} ${s.wartet} alt=${s.alt ?? '-'}`;
+      case 'fehler': return `fehler ${s.id ?? '-'} ${s.datei}: ${s.grund}`;
+      case 'zurueckgehalten': return `zurueckgehalten ${s.id} ${s.datei}`;
+    }
+  }).join(' | ');
+
+  const BERICHT = datei('m-1', 'Bericht');
+  const WEB = link('m-2', 'Website', 'https://example.org/');
+  const WEB_INHALT = OrdnerC.urlDateiInhalt('https://example.org/');
+  const aktivBericht = (o: Partial<OrdnerC.IndexEintrag> = {}): OrdnerC.IndexEintrag => ({
+    id: 'm-1', art: 'datei', zustand: 'aktiv', datei: 'Bericht.pdf', label: 'Bericht', inhalt: sig(BERICHT), bytes: 1000, mtimeMs: 1000, ...o,
+  });
+
+  ck('P12 9.5 Zeile 1: Anhang neu, Datei mit seinem Namen und genau seiner Größe → übernehmen, kein Download (E47)',
+    kurz(plane({ a: anh(BERICHT), dateien: [f('Bericht.pdf', 1000)] })) === 'uebernehmen m-1 Bericht.pdf');
+  ck('P12 9.5 Zeile 1: Link neu, .url mit dem erwarteten Namen und byteweise dem Inhalt aus 9.7 → übernehmen',
+    kurz(plane({ a: anh(WEB), dateien: [f('Website.url', Buffer.byteLength(WEB_INHALT))], url: { 'website.url': WEB_INHALT } })) === 'uebernehmen m-2 Website.url');
+  ck('P12 9.5 Zeile 1: Vergleichsform – Datei in anderer Schreibweise und als NFD wird übernommen, Name wie im Dateisystem',
+    kurz(plane({ a: anh(datei('m-1', 'Präsentation')), dateien: [f('PRÄSENTATION.PDF', 1000)] })) === 'uebernehmen m-1 PRÄSENTATION.PDF');
+  ck('P12 9.5 Zeile 2: Anhang neu, Datei gleichen Namens mit anderer Größe → laden (Name nach 9.9 beim Platzieren)',
+    kurz(plane({ a: anh(BERICHT), dateien: [f('Bericht.pdf', 999)] })) === 'laden m-1 Bericht.pdf alt=-');
+  ck('P12 9.5 Grenze der Übernahme: Datei-Anhang ohne gültiges size_bytes, Datei mit dem Namen da → laden, nie übernehmen',
+    kurz(plane({ a: anh(datei('m-1', 'Bericht', { size: '1000' })), dateien: [f('Bericht.pdf', 1000)] })) === 'laden m-1 Bericht.pdf alt=-'
+    && kurz(plane({ a: anh(datei('m-1', 'Bericht', { size: null })), dateien: [f('Bericht.pdf', 1000)] })) === 'laden m-1 Bericht.pdf alt=-');
+  ck('P12 9.5 Zeile 2: Link neu, .url mit anderem Inhalt gleicher Länge → nicht übernommen, neue .url',
+    kurz(plane({ a: anh(WEB), dateien: [f('Website.url', Buffer.byteLength(WEB_INHALT))], url: { 'website.url': WEB_INHALT.replace('example', 'exbmple') } })) === 'url m-2 Website.url alt=-');
+  ck('P12 9.5 Zeile 2: Link neu, .url mit einer Zeile mehr → nicht übernommen',
+    kurz(plane({ a: anh(WEB), dateien: [f('Website.url', Buffer.byteLength(`${WEB_INHALT}IconFile=x\r\n`))], url: { 'website.url': `${WEB_INHALT}IconFile=x\r\n` } })) === 'url m-2 Website.url alt=-');
+  ck('P12 9.5 Zeile 2: Datei mit dem Namen, die ein anderer Index-Eintrag nennt → nicht übernommen',
+    kurz(plane({ a: anh(BERICHT, datei('m-9', 'Bericht')), index: idx(aktivBericht()), dateien: [f('Bericht.pdf', 1000)] })) === 'laden m-9 Bericht.pdf alt=-');
+  ck('P12 9.5 Zeile 3: Anhang da, Datei da, Inhaltssignatur und Label gleich → nichts',
+    kurz(plane({ a: anh(BERICHT), index: idx(aktivBericht()), dateien: [f('Bericht.pdf', 1000)] })) === '');
+  ck('P12 9.5 Zeile 3: Vergleichsform – das Dateisystem liefert den Namen in NFD und anders geschrieben → nichts',
+    kurz(plane({ a: anh(datei('m-1', 'Präsentation')), index: idx(aktivBericht({ datei: 'Präsentation.pdf', label: 'Präsentation', inhalt: sig(datei('m-1', 'Präsentation')) })), dateien: [f('präsentation.pdf'.normalize('NFD'), 1000)] })) === '');
+  ck('P12 9.5 Zeile 4: Label geändert → umbenennen, kein Download',
+    kurz(plane({ a: anh(datei('m-1', 'Bericht final')), index: idx(aktivBericht({ inhalt: sig(datei('m-1', 'Bericht final')) })), dateien: [f('Bericht.pdf', 1000)] })) === 'umbenennen m-1 Bericht.pdf → Bericht final.pdf');
+  ck('P12 9.5 Zeile 5: Größe geändert → neue Fassung laden, die alte vorher nach entfernt/',
+    kurz(plane({ a: anh(datei('m-1', 'Bericht', { size: 2000 })), index: idx(aktivBericht()), dateien: [f('Bericht.pdf', 1000)] })) === 'laden m-1 Bericht.pdf alt=Bericht.pdf');
+  ck('P12 9.5 Zeile 5: Asset-Referenz geändert bei gleicher Größe und gleichem MIME → neue Fassung (Referenz-Hash, M1)',
+    kurz(plane({ a: anh(datei('m-1', 'Bericht', { ref: 'ref-neu' })), index: idx(aktivBericht()), dateien: [f('Bericht.pdf', 1000)] })) === 'laden m-1 Bericht.pdf alt=Bericht.pdf');
+  ck('P12 9.5 Zeile 5: Link mit neuer Adresse → neue .url, die alte nach entfernt/',
+    kurz(plane({ a: anh(link('m-2', 'Website', 'https://example.org/neu')), index: idx({ id: 'm-2', art: 'link', zustand: 'aktiv', datei: 'Website.url', label: 'Website', inhalt: 'https://example.org/', bytes: 50, mtimeMs: 1000 }), dateien: [f('Website.url', 50)] })) === 'url m-2 Website.url alt=Website.url');
+  ck('P12 9.5 Zeile 6: Index nennt die Datei, sie fehlt (Bediener hat gelöscht) → neu laden unter ihrem Namen',
+    kurz(plane({ a: anh(BERICHT), index: idx(aktivBericht({ datei: 'Bericht (2).pdf' })), dateien: [] })) === 'laden m-1 Bericht (2).pdf alt=-');
+  ck('P12 9.5 Zeile 7: Eintrag laedt, Datei mit genau bytes da (auch ohne size_bytes) → aktiv, kein Download',
+    kurz(plane({ a: anh(datei('m-1', 'Bericht', { size: null })), index: idx({ id: 'm-1', art: 'datei', zustand: 'laedt', datei: 'Bericht.pdf', label: 'Bericht', bytes: 777 }), dateien: [f('Bericht.pdf', 777)] })) === 'uebernehmen m-1 Bericht.pdf (laedt)');
+  ck('P12 9.5 Zeile 7: Eintrag laedt, Datei fehlt oder andere Bytezahl → neu laden',
+    kurz(plane({ a: anh(BERICHT), index: idx({ id: 'm-1', art: 'datei', zustand: 'laedt', datei: 'Bericht.pdf', label: 'Bericht', bytes: 1000 }), dateien: [f('Bericht.pdf', 10)] })) === 'laden m-1 Bericht.pdf alt=-'
+    && kurz(plane({ a: anh(BERICHT), index: idx({ id: 'm-1', art: 'datei', zustand: 'laedt', datei: 'Bericht.pdf', label: 'Bericht', bytes: 1000 }) })) === 'laden m-1 Bericht.pdf alt=-');
+  ck('P12 9.5 Zeile 8: Größe weicht vom Index ab, Änderungszeit gleich → nach entfernt/ (unvollständig), neu laden',
+    kurz(plane({ a: anh(BERICHT), index: idx(aktivBericht()), dateien: [f('Bericht.pdf', 400, 1000)] })) === 'entfernt m-1 Bericht.pdf unvollstaendig | laden m-1 Bericht.pdf alt=-');
+  ck('P12 9.5 Zeile 9: Datei vom Bediener geändert (Änderungszeit weicht ab), Anhang in iveo gleich → nichts (E33)',
+    kurz(plane({ a: anh(BERICHT), index: idx(aktivBericht()), dateien: [f('Bericht.pdf', 5555, 2000)] })) === '');
+  ck('P12 9.5 Zeile 10: Eintrag aktiv, Anhang fehlt in iveo → nach entfernt/',
+    kurz(plane({ a: anh(WEB), index: idx(aktivBericht()), dateien: [f('Bericht.pdf', 1000)] })).startsWith('entfernt m-1 Bericht.pdf -'));
+  ck('P12 9.5 Zeile 10: Anhang gelöscht (purged_at) → nach entfernt/',
+    kurz(plane({ a: anh({ ...BERICHT, purged_at: '2026-10-16T09:00:00Z' }), index: idx(aktivBericht()), dateien: [f('Bericht.pdf', 1000)] })) === 'entfernt m-1 Bericht.pdf -');
+  ck('P12 9.5 leere Agenda: alle aktiven Einträge nach entfernt/ (Risiko 5)',
+    kurz(plane({ a: anh(), index: idx(aktivBericht(), { id: 'm-2', art: 'link', zustand: 'aktiv', datei: 'Website.url', label: 'Website', inhalt: 'https://example.org/' }), dateien: [f('Bericht.pdf', 1000), f('Website.url', 50)] })) === 'entfernt m-1 Bericht.pdf - | entfernt m-2 Website.url -');
+  ck('P12 9.5 Zeile 11: Eintrag entfernt, Anhang wieder da, Datei liegt in entfernt/ und Signatur passt → zurückholen ohne Download',
+    kurz(plane({ a: anh(BERICHT), index: idx(aktivBericht({ zustand: 'entfernt', datei: 'entfernt/Bericht.pdf' })), entfernt: [f('Bericht.pdf', 1000)] })) === 'zurueck m-1 Bericht.pdf → Bericht.pdf');
+  ck('P12 9.5 Zeile 11: Eintrag entfernt, Anhang wieder da, aber andere Signatur oder Datei weg → neu laden',
+    kurz(plane({ a: anh(datei('m-1', 'Bericht', { size: 3 })), index: idx(aktivBericht({ zustand: 'entfernt', datei: 'entfernt/Bericht.pdf' })), entfernt: [f('Bericht.pdf', 1000)] })) === 'laden m-1 Bericht.pdf alt=-'
+    && kurz(plane({ a: anh(BERICHT), index: idx(aktivBericht({ zustand: 'entfernt', datei: 'entfernt/Bericht.pdf' })) })) === 'laden m-1 Bericht.pdf alt=-');
+  ck('P12 9.5 Zeile 12: Datei-Anhang ohne Asset → Fehler „in iveo ohne Datei“',
+    kurz(plane({ a: anh({ id: 'm-1', kind: 'file', label: 'Bericht', asset: null }) })) === 'fehler m-1 Bericht: in iveo ohne Datei');
+  ck('P12 9.5 Zeile 13: Link ohne gültige Adresse (javascript:, fehlend, CR LF im Rohtext) → Fehler, keine .url',
+    kurz(plane({ a: anh(link('m-2', 'Website', 'javascript:alert(1)')) })) === 'fehler m-2 Website.url: Link ohne gültige Adresse'
+    && kurz(plane({ a: anh(link('m-2', 'Website', undefined)) })) === 'fehler m-2 Website.url: Link ohne gültige Adresse'
+    && kurz(plane({ a: anh(link('m-2', 'Website', 'https://ok.example/pfad\r\nIconFile=\\\\evil\\share\\x.ico')) })) === 'fehler m-2 Website.url: Link ohne gültige Adresse');
+  ck('P12 9.5 Zeile 14: ungültiger Anhang (unbekanntes kind) → Fehler „ungültiger Anhang in iveo (kind)“',
+    kurz(plane({ a: anh({ id: 'm-7', kind: 'video' as 'file', label: 'Film' }) })) === 'fehler m-7 Film: ungültiger Anhang in iveo (kind)');
+  ck('P12 9.5 Zeile 14: ungültiger Anhang mit Index-Eintrag wandert nicht nach entfernt/',
+    kurz(plane({ a: anh({ ...BERICHT, kind: 'video' as 'file' }), index: idx(aktivBericht()), dateien: [f('Bericht.pdf', 1000)] })) === 'fehler m-1 Bericht: ungültiger Anhang in iveo (kind)');
+  ck('P12 9.5 Zeile 15: Download zurückgehalten → nichts bis zur genannten Zeit, danach laden',
+    kurz(plane({ a: anh(BERICHT), bis: JETZT.getTime() + 1 })) === 'zurueckgehalten m-1 Bericht.pdf'
+    && kurz(plane({ a: anh(BERICHT), bis: JETZT.getTime() })) === 'laden m-1 Bericht.pdf alt=-');
+  ck('P12 9.6 wartende Fassung: wartet und inhaltNeu passt → tauschen ohne Download',
+    kurz(plane({ a: anh(datei('m-1', 'Bericht', { size: 2000 })), index: idx(aktivBericht({ wartet: '.m-1.4711.jm-neu', inhaltNeu: sig(datei('m-1', 'Bericht', { size: 2000 })) })), dateien: [f('Bericht.pdf', 1000), f('.m-1.4711.jm-neu', 2000)] })) === 'tauschen m-1 .m-1.4711.jm-neu alt=Bericht.pdf');
+  ck('P12 9.5 Endung gesperrt: der Plan trägt die gesperrte Endung für T70 und den Zusatz T68',
+    (() => { const s = plane({ a: anh(datei('m-1', 'Agenda.exe')) })[0]; return s.art === 'laden' && s.wunsch === 'Agenda_exe.pdf' && s.gesperrt === 'exe'; })());
+}
+
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
