@@ -5,6 +5,7 @@
 import {
   IveoClient,
   IveoApiError,
+  IVEO_DEFAULT_BASE_URL,
   normalizeIveoBaseUrl,
   createIveoClient,
   durationMsOf,
@@ -329,8 +330,13 @@ function mkRes(status: number, body: unknown, headers: Record<string, string> = 
 }
 
 // ── normalizeIveoBaseUrl (Robustheit gegen „Failed to parse URL") ─────────────
-ok(normalizeIveoBaseUrl('') === 'https://staging-dev.my-iveo.de/api/v1', 'baseUrl: leer → Default');
-ok(normalizeIveoBaseUrl('  ') === 'https://staging-dev.my-iveo.de/api/v1', 'baseUrl: nur Whitespace → Default');
+// iveo-Paket P3 (Spec 7.1, 12.8): Der Standard ist Production; die Schema-Ergänzung darunter bleibt mit Staging-Host als Eingabe.
+ok(normalizeIveoBaseUrl('') === 'https://app.my-iveo.de/api/v1', 'baseUrl: leer → Default');
+ok(normalizeIveoBaseUrl('  ') === 'https://app.my-iveo.de/api/v1', 'baseUrl: nur Whitespace → Default');
+ok(
+  IVEO_DEFAULT_BASE_URL === 'https://app.my-iveo.de/api/v1' && normalizeIveoBaseUrl('') === IVEO_DEFAULT_BASE_URL,
+  'P3 12.1 Nr. 7: IVEO_DEFAULT_BASE_URL und normalizeIveoBaseUrl(leer) = Production',
+);
 ok(
   normalizeIveoBaseUrl('staging-dev.my-iveo.de/api/v1') === 'https://staging-dev.my-iveo.de/api/v1',
   'baseUrl: fehlendes Schema → https:// ergänzt',
@@ -347,6 +353,19 @@ ok(
     threw = true;
   }
   ok(threw, 'baseUrl: Schema ohne Host → wirft klar (statt „Failed to parse URL")');
+}
+{
+  // T8 (iveo-Paket, Spec 11.6) wörtlich: typografische Anführungszeichen um die Eingabe, Beispiel Production.
+  let meldung = '';
+  try {
+    normalizeIveoBaseUrl('http://');
+  } catch (e) {
+    meldung = e instanceof Error ? e.message : String(e);
+  }
+  ok(
+    meldung === 'Ungültige iveo-Basis-URL: „http://“. Beispiel: https://app.my-iveo.de/api/v1',
+    'P3 T8: Fehlertext bei ungültiger Adresse wörtlich (typografische Anführungszeichen, Beispiel Production)',
+  );
 }
 
 // ── bad_envelope-Diagnose (falsche Basis-URL → HTML) ─────────────────────────

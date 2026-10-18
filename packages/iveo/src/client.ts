@@ -22,8 +22,12 @@ import type {
   IveoSnapshot,
 } from './types';
 
-/** Staging ist heute die Basis; Prod folgt (gleiche Pfade/Shapes) → config-getrieben. */
-export const IVEO_DEFAULT_BASE_URL = 'https://staging-dev.my-iveo.de/api/v1';
+/** Production ist der Standard (Owner 16.10.2026, I5); Staging ist veraltet. */
+export const IVEO_DEFAULT_BASE_URL = 'https://app.my-iveo.de/api/v1';
+
+/** T8 (iveo-Paket, Spec 11.6): Fehler bei ungültiger Basis-URL, die Eingabe in typografischen Anführungszeichen. */
+const textUngueltigeBasisUrl = (eingabe: string | undefined): string =>
+  `Ungültige iveo-Basis-URL: „${eingabe}“. Beispiel: https://app.my-iveo.de/api/v1`;
 
 /**
  * Basis-URL robust normalisieren: trimmen, fehlendes Schema als https:// ergänzen,
@@ -42,7 +46,7 @@ export function normalizeIveoBaseUrl(raw: string | undefined): string {
     host = '';
   }
   if (!host) {
-    throw new Error(`Ungültige iveo-Basis-URL: „${raw}". Beispiel: https://staging-dev.my-iveo.de/api/v1`);
+    throw new Error(textUngueltigeBasisUrl(raw));
   }
   return cleaned;
 }
@@ -69,7 +73,7 @@ export type IveoFetchLike = (
 export interface IveoClientOptions {
   /** Bearer-Token (`iveo_live_…`). Pro Event, kurzlebig. Bleibt im Speicher. */
   token: string;
-  /** Basis-URL inkl. `/api/v1`. Default: Staging. */
+  /** Basis-URL inkl. `/api/v1`. Default: Production (`IVEO_DEFAULT_BASE_URL`). */
   baseUrl?: string;
   /** Für Tests/Sonderfälle injizierbar; Default = globaler fetch. */
   fetchImpl?: IveoFetchLike;
