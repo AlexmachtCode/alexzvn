@@ -1860,6 +1860,66 @@ console.log('— P15 Datenstrom in Datei, Download ohne Zeitgrenze (Spec 9.6)');
         T.g.max <= 1 && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000 && reste(T.fs).length === 0
         && !T.logs.some((z) => z.startsWith('warn')) && grund(T) === undefined);
     }
+    for (const [name, tu] of [
+      ['Schalter aus', (T: ReturnType<typeof AttC.baueLauf>) => { T.z.schalter = false; T.lauf.takt(); }],
+      ['Rolle slave', (T: ReturnType<typeof AttC.baueLauf>) => { T.z.rolle = 'slave'; T.lauf.takt(); }],
+    ] as const) {
+      // zwei Anhänge, die alte Generation wartet auf statfs des ZWEITEN: kein Dateizugriff mehr, keine fremde Zwischendatei
+      const T = AttC.baueLauf();
+      const m1 = AttC.datei('m-1', 'Eins', { size: 1000 });
+      const m2 = AttC.datei('m-2', 'Zwei', { size: 1000 });
+      T.download.arten.set(m1.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 100 });
+      T.download.arten.set(m2.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 100 });
+      let ersteFertig = false;
+      T.fs.vor('rename', (_p, p2) => { if (p2?.endsWith('.pdf')) ersteFertig = true; });
+      const tor = T.fs.torBei('statfs', () => ersteFertig);
+      T.lauf.agendaAktiv('se-1', { ok: true, agenda: mitAnhang(m1, m2), abgerufen: new Date(T.uhr.t).toISOString() });
+      T.lauf.takt();
+      await AttC.ruhe();
+      for (let i = 0; i < 40 && !tor.erreicht(); i++) await T.uhr.spule(500, 100);
+      const amTor = tor.erreicht();
+      const nProt = T.fs.protokoll.length;
+      tu(T);
+      await AttC.ruhe();
+      tor.weiter();
+      await T.uhr.spule(20_000, 1_000);
+      await T.lauf.ruhig();
+      const zwischen = T.fs.protokoll.slice(nProt).filter((x) => x.p.endsWith('.jm-laden'));
+      ck(`P15 9.4, zwei Anhänge: ${name} während statfs des zweiten → kein Zugriff auf eine Zwischendatei, kein Log`,
+        amTor && zwischen.length === 0 && !T.logs.some((z) => z.startsWith('warn')));
+    }
+    {
+      // zwei Anhänge, Schalter aus und gleich an: die neue Generation lädt den zweiten, die alte löscht ihre Zwischendatei nicht
+      const T = AttC.baueLauf();
+      const m1 = AttC.datei('m-1', 'Eins', { size: 1000 });
+      const m2 = AttC.datei('m-2', 'Zwei', { size: 1000 });
+      T.download.arten.set(m1.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 100 });
+      T.download.arten.set(m2.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 100 });
+      let ersteFertig = false;
+      T.fs.vor('rename', (_p, p2) => { if (p2?.endsWith('.pdf')) ersteFertig = true; });
+      const tor = T.fs.torBei('statfs', () => ersteFertig);
+      const agenda = () => ({ ok: true as const, agenda: mitAnhang(m1, m2), abgerufen: new Date(T.uhr.t).toISOString() });
+      T.lauf.agendaAktiv('se-1', agenda());
+      T.lauf.takt();
+      await AttC.ruhe();
+      for (let i = 0; i < 40 && !tor.erreicht(); i++) await T.uhr.spule(500, 100);
+      const amTor = tor.erreicht();
+      T.z.schalter = false;
+      T.lauf.takt();
+      await AttC.ruhe();
+      T.z.schalter = true;
+      T.lauf.agendaAktiv('se-1', agenda());
+      T.lauf.takt();
+      await AttC.ruhe();
+      await T.uhr.spule(1_000, 100); // die neue Generation lädt den zweiten Anhang bereits
+      tor.weiter();
+      await AttC.ruhe();
+      await T.uhr.spule(30_000, 1_000);
+      await T.lauf.ruhig();
+      ck('P15 9.4, zwei Anhänge: Schalter aus und gleich an, alte Generation an statfs des zweiten → beide Dateien da, kein falscher Grund',
+        amTor && T.g.max <= 1 && T.fs.inhalt(pathC.join(ORDNER, 'Eins.pdf'))?.length === 1000 && T.fs.inhalt(pathC.join(ORDNER, 'Zwei.pdf'))?.length === 1000
+        && reste(T.fs).length === 0 && !T.logs.some((z) => z.startsWith('warn')) && grund(T) === undefined);
+    }
   }
   {
     // Nr. 47: echter Download-Client gegen 127.0.0.1, Leerlauf-Grenze 1 s

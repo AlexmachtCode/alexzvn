@@ -963,6 +963,7 @@ async function lade(ctx: Ctx, s: Schritt<'laden'>): Promise<void> {
   const m = s.anhang.m;
   const z = ordnerPfad({ art: 'zwischen', seitenOrdner: o.pfad, kennung: m.id, pid: L.d.pid, endung: 'jm-laden' });
   if (!z.ok) return scheitert(ctx, s, new GrundFehler(z.grund, 'Zwischendatei'));
+  ctx.zwischenAngelegt = false; // je Schritt: der Kontext lebt über alle Anhänge, das Flag darf nicht vom vorigen stammen
   let bytes: number;
   try {
     bytes = await ladeDatei(ctx, s, z.pfad);
