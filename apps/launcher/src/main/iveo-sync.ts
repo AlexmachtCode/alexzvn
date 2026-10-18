@@ -238,7 +238,16 @@ export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<Iveo
   // C4: kein Token im Feld → den für diese Basis gemerkten nutzen (ein Token gilt
   // basis-weit — die Discovery listet ALLE lesbaren Events), damit ein neues Event
   // derselben Org kein erneutes Einfügen erzwingt. Discover persistiert selbst nichts.
-  const token = input.token?.trim() || getIveoBaseToken(baseUrl);
+  // Der Token-Fallback normalisiert über den Basis-Schlüssel und würfe bei ungültiger Adresse (T8) außerhalb des try:
+  // zuerst und in eigenem try, damit die Antwort ok:false mit dem Text ist statt eines IPC-Fehlers.
+  let genutzteAdresse: string;
+  try {
+    genutzteAdresse = normalizeIveoBaseUrl(baseUrl);
+  } catch (e) {
+    getLog().warn(`iveo discover fehlgeschlagen: ${(e as Error).message}`);
+    return { ok: false, ...toClientError(e) };
+  }
+  const token = input.token?.trim() || getIveoBaseToken(genutzteAdresse);
   if (!token) return { ok: false, error: 'Token fehlt.' };
   try {
     const client = iveoClient(token, baseUrl);

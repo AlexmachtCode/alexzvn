@@ -96,6 +96,7 @@ export function ShowEditorModal() {
   // C4: Ist für die im Feld stehende Basis-URL schon ein Token gemerkt? Dann darf
   // das Token-Feld leer bleiben — der Main-Prozess nutzt den gespeicherten (nie im Renderer).
   const [iveoBaseTokenSaved, setIveoBaseTokenSaved] = useState(false);
+  const [iveoAdresseUngueltig, setIveoAdresseUngueltig] = useState(false);
 
   // Szenario-Start (B2): einen vom Szenario-Picker gesetzten Seed einmalig ins
   // Formular übernehmen (Tools vorwählen, Ablauf/Redezeit/Runden vorbefüllen) und
@@ -128,11 +129,17 @@ export function ShowEditorModal() {
     void window.jmps
       .hasIveoBaseToken(iveoBaseUrl.trim() || undefined)
       .then((has) => {
-        if (!cancelled) setIveoBaseTokenSaved(has);
+        if (cancelled) return;
+        setIveoBaseTokenSaved(has);
+        setIveoAdresseUngueltig(false);
       })
-      // Ungültige Adresse im Feld (Main wirft beim Normalisieren): kein gemerkter Token, kein Absturz.
+      // Ungültige Adresse im Feld (Main wirft beim Normalisieren): kein gemerkter Token, kein Absturz. Die Wächter in
+      // discoverIveo/bindIveo lassen dann an Main durch, damit der Nutzer den T8-Text zur Adresse sieht statt
+      // „Token erforderlich“ (G8).
       .catch(() => {
-        if (!cancelled) setIveoBaseTokenSaved(false);
+        if (cancelled) return;
+        setIveoBaseTokenSaved(false);
+        setIveoAdresseUngueltig(true);
       });
     return () => {
       cancelled = true;
@@ -168,7 +175,7 @@ export function ShowEditorModal() {
 
   /** Token prüfen + lesbare Events auflisten (Token wird noch nicht gespeichert). */
   const discoverIveo = async (): Promise<void> => {
-    if (!iveoToken.trim() && !iveoBaseTokenSaved) {
+    if (!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) {
       setIveoMsg('Bitte iveo-Token einfügen.');
       return;
     }
@@ -202,7 +209,7 @@ export function ShowEditorModal() {
     override: Partial<{ typeSlug: string; formatSlug: string; day: string; excludeBlockers: boolean; programId: string }> = {},
   ): Promise<void> => {
     const event = iveoSelected.trim();
-    if ((!iveoToken.trim() && !iveoBaseTokenSaved) || !event) {
+    if ((!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) || !event) {
       setIveoMsg('Token und Event erforderlich.');
       return;
     }

@@ -891,8 +891,18 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   const iToken = binden.indexOf('getIveoBaseToken(');
   ck('P26 EP1: bindIveoEvent normalisiert die Adresse VOR dem Token-Fallback, in eigenem try mit ok:false über toClientError (T8 auch bei leerem Token-Feld)',
     iNorm > 0 && iCatch > iNorm && iToken > iCatch && binden.includes('getIveoBaseToken(genutzteAdresse)'));
-  ck('P26 EP1: die Prüfung „gemerkter Token vorhanden?“ fängt eine Ablehnung bei ungültiger Adresse (kein Absturz, Merker false)',
-    /hasIveoBaseToken\(iveoBaseUrl\.trim\(\) \|\| undefined\)[\s\S]*?\.catch\(\(\) => \{\n        if \(!cancelled\) setIveoBaseTokenSaved\(false\);/.test(editor));
+  ck('P26 EP1: die Prüfung „gemerkter Token vorhanden?“ fängt eine Ablehnung bei ungültiger Adresse (kein Absturz, Merker false, Adressfehler gemerkt)',
+    /hasIveoBaseToken\(iveoBaseUrl\.trim\(\) \|\| undefined\)[\s\S]*?\.catch\(\(\) => \{\n        if \(cancelled\) return;\n        setIveoBaseTokenSaved\(false\);\n        setIveoAdresseUngueltig\(true\);/.test(editor));
+  ck('P26 EP1: beide Wächter (Events laden, Binden) lassen bei ungültiger Adresse an Main durch — Main antwortet mit dem T8-Text, nicht „Token erforderlich“',
+    editor.includes('if (!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) {') &&
+      editor.includes('if ((!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) || !event) {') &&
+      editor.includes('setIveoAdresseUngueltig(false);'));
+  ck('P26 EP1: discoverIveoEvents normalisiert die Adresse VOR dem Token-Fallback in eigenem try (T8 auch bei leerem Token-Feld)',
+    (() => {
+      const k = funktionsKoerper(sync, 'export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<IveoDiscoverResult> {');
+      const n = k.indexOf('normalizeIveoBaseUrl(baseUrl)');
+      return n > 0 && k.indexOf('getIveoBaseToken(') > n && k.includes('getIveoBaseToken(genutzteAdresse)') && k.indexOf('toClientError(e)') > n && k.indexOf('toClientError(e)') < k.indexOf('getIveoBaseToken(');
+    })());
   ck('P26 7.4: … und gibt sie als baseUrl zurück',
     binden.indexOf('      baseUrl: genutzteAdresse,') > binden.indexOf('    return {\n      ok: true,'));
   ck('P26 7.4: normalizeIveoBaseUrl kommt aus @jm/iveo', /import \{[^}]*\n  normalizeIveoBaseUrl,\n[^}]*\} from '@jm\/iveo';/.test(sync));
