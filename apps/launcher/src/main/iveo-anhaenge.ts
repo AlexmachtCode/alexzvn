@@ -173,7 +173,9 @@ export interface AnhangWaechter {
   /**
    * Der Renderer hat die Liste selbst geladen und dabei seinen Fehler gelöscht (`listSideEventMaterials` gelungen, Abruf
    * begann `abgerufen`; Task 28): Der nächste Fehlschlag eines danach begonnenen Abrufs wird wieder gesendet, auch mit
-   * gleichem Text (EP20). Nur für eine beobachtete Liste; kein Ereignis, kein Abruf.
+   * gleichem Text (EP20). Nur für eine beobachtete Liste; kein Ereignis, kein Abruf. Als gelungene Prüfung der Liste zählt das
+   * Laden auch ohne Beobachtung (Fix-Runde 4, Task 7): ein Fehlschlag, der davor begann, ist überholt, ein gesendeter trägt
+   * diese Zeit als `abgerufen` (8.4).
    */
   eigenesLaden(programId: string, abgerufen: string): void;
   /** Holt im Takt die Agenda jeder beobachteten Liste, die nicht das aktive Side Event ist (15-s-Client der Hülle). */
@@ -221,6 +223,17 @@ export function erzeugeAnhangWaechter(d: AnhangWaechterAbh): AnhangWaechter {
     const t = abgerufen === undefined ? Number.NaN : Date.parse(abgerufen);
     return !Number.isFinite(t) || !Number.isFinite(marke) || t > marke;
   };
+  /**
+   * Beginn der jüngsten gelungenen Prüfung je Liste, die der Main kennt: seine eigenen und das gelungene eigene Laden des
+   * Renderers (Fix-Runde 4, Task 7). Ein Fehlschlag, der davor begann, ist überholt; ein gesendeter trägt sie als `abgerufen`
+   * (8.4). So ist `abgerufen` nie älter als der Stand des Renderers, und er verwirft nur, was auch der Main verwirft.
+   */
+  const gelungen = new Map<string, string>();
+  const merkeGelungen = (programId: string, abgerufen: string): void => {
+    const t = Date.parse(abgerufen);
+    const bisher = gelungen.get(programId);
+    if (Number.isFinite(t) && (bisher === undefined || t > Date.parse(bisher))) gelungen.set(programId, abgerufen);
+  };
 
   const alleBeobachteten = (): string[] => {
     const a = d.aktivProgramId();
@@ -237,15 +250,17 @@ export function erzeugeAnhangWaechter(d: AnhangWaechterAbh): AnhangWaechter {
       const mitListe = erste || geaendert || (alt !== undefined && alt.fehler !== null);
       if (geaendert) d.log.info(TEXT_ANHAENGE_GEAENDERT(d.titelVon(programId) ?? programId, materials.length));
       staende.set(programId, { sig, materials, abgerufen: e.abgerufen, fehler: null });
+      merkeGelungen(programId, e.abgerufen);
       d.sende({ type: 'iveo-anhaenge', programId, abgerufen: e.abgerufen, ok: true, ...(mitListe ? { materials } : {}) });
       return;
     }
-    // Ein Fehlschlag, dessen Abruf vor der gespeicherten gelungenen Prüfung begann, ist überholt: der Renderer verwirft ihn
-    // (Task 7), also merkt der Main ihn nicht und bucht ihn nicht als gemeldet (sonst bliebe der nächste gleiche Fehler still).
-    if (alt !== undefined && alt.abgerufen !== null && e.abgerufen) {
+    // Ein Fehlschlag, dessen Abruf vor der jüngsten gelungenen Prüfung begann (auch dem eigenen Laden des Renderers), ist
+    // überholt: der Renderer verwirft ihn (Task 7), also merkt der Main ihn nicht und bucht ihn nicht als gemeldet (sonst bliebe
+    // der nächste gleiche Fehler still).
+    const geprueft = gelungen.get(programId);
+    if (geprueft !== undefined && e.abgerufen) {
       const begann = Date.parse(e.abgerufen);
-      const geprueft = Date.parse(alt.abgerufen);
-      if (Number.isFinite(begann) && Number.isFinite(geprueft) && begann < geprueft) return;
+      if (Number.isFinite(begann) && begann < Date.parse(geprueft)) return;
     }
     const text = toClientError(e.fehler).error;
     const einloesen = nachMarke(programId, e.abgerufen);
@@ -253,8 +268,8 @@ export function erzeugeAnhangWaechter(d: AnhangWaechterAbh): AnhangWaechter {
     if (einloesen) neuMelden.delete(programId);
     const neu: ListenStand = alt !== undefined ? { ...alt, fehler: text } : { sig: null, materials: null, abgerufen: null, fehler: text };
     staende.set(programId, neu);
-    // abgerufen = Zeit der letzten gelungenen Prüfung (8.4); '' = noch keine gelungen.
-    d.sende({ type: 'iveo-anhaenge', programId, abgerufen: neu.abgerufen ?? '', ok: false, error: text, ...(e.abgerufen ? { begann: e.abgerufen } : {}) });
+    // abgerufen = Zeit der letzten gelungenen Prüfung (8.4), auch des eigenen Ladens; '' = noch keine gelungen.
+    d.sende({ type: 'iveo-anhaenge', programId, abgerufen: gelungen.get(programId) ?? '', ok: false, error: text, ...(e.abgerufen ? { begann: e.abgerufen } : {}) });
   }
 
   return {
@@ -280,6 +295,7 @@ export function erzeugeAnhangWaechter(d: AnhangWaechterAbh): AnhangWaechter {
       verarbeite(programId, e);
     },
     eigenesLaden(programId, abgerufen) {
+      merkeGelungen(programId, abgerufen);
       if (!alleBeobachteten().includes(programId)) return;
       neuMelden.set(programId, Date.parse(abgerufen));
     },
@@ -307,6 +323,7 @@ export function erzeugeAnhangWaechter(d: AnhangWaechterAbh): AnhangWaechter {
       generation++;
       staende.clear();
       neuMelden.clear();
+      gelungen.clear();
       // `beobachtet` bleibt: der Renderer meldet nur bei Öffnen/Schließen, Auf-/Zuklappen und Event-Wechsel neu (8.2).
     },
   };

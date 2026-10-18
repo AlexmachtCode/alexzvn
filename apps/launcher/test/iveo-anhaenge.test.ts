@@ -9,6 +9,7 @@ import {
   TEXT_ANHAENGE_GEAENDERT, type AnhangEreignis, type AnhangWaechterAbh,
 } from '../src/main/iveo-anhaenge';
 import { toClientError } from '../src/main/iveo-abgleich-kern';
+import { anhangAnzeige, anhangListeSchritt, leererAnhangZustand, type AnhangListenEreignis } from '../src/renderer/src/lib/anhang-liste';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -481,6 +482,128 @@ const ohneListe = (e: AnhangEreignis | undefined): boolean => !!e && e.materials
   p.w.agendaVomKern('A', { ok: false, fehler: zeitgrenze(), abgerufen: '2026-10-17T10:04:00.000Z' });
   ck('P6 Fix 3: der verworfene Fehlschlag war nicht als gemeldet gebucht, der gleiche Fehler danach kommt (ein Ereignis ok:false)',
     p.ereignisse.length === n + 1 && p.ereignisse[n]?.ok === false && p.ereignisse[n]?.begann === '2026-10-17T10:04:00.000Z');
+}
+
+{
+  // Fix-Runde 4 (Task 7): Das gelungene eigene Laden des Renderers (eigenesLaden, Zeitpunkt vor seinem Abruf) ist eine gelungene
+  // Prüfung dieser Liste. Ein Fehlschlag, der davor begann, ist überholt: der Main sendet ihn nicht. Ein gesendeter Fehlschlag
+  // trägt sie als abgerufen (8.4); abgerufen ist so nie älter als der Stand des Renderers (Task 31 reicht begann nicht durch).
+  const p = pruefstand();
+  const c = attrappe({ A: agendaA() });
+  const iso = (): string => new Date(p.z.uhr).toISOString();
+  p.w.beobachte(['A']);
+  await p.w.takt(c.client); // gelungen um 10:00:00
+  p.weiter();
+  let lehne: (f: unknown) => void = () => {};
+  const haengt = { listAgendaItems: (): Promise<IveoAgendaItem[]> => new Promise((_ok, nein) => { lehne = nein; }) };
+  const lauf = p.w.takt(haengt); // ein Takt-Abruf beginnt um 10:00:45 …
+  p.weiter(1_000);
+  p.w.beobachte(['A']); // … „Erneut versuchen“: Anmeldung, das eigene Laden beginnt um 10:00:46 …
+  const eigenesLadenBeginn = iso();
+  p.weiter(1_000);
+  p.w.eigenesLaden('A', eigenesLadenBeginn); // … und gelingt
+  const n = p.ereignisse.length;
+  p.weiter(1_000);
+  lehne(new IveoApiError(500, 'http_500', 'iveo: Serverfehler')); // der ältere Takt-Abruf scheitert erst danach
+  await lauf;
+  ck('P6 Fix 4: Fehlschlag eines Takts, der vor einem gelungenen eigenen Laden begann → kein Ereignis (überholt)', p.ereignisse.length === n);
+  c.agenden.A = new IveoApiError(500, 'http_500', 'iveo: Serverfehler');
+  p.weiter(); await p.w.takt(c.client);
+  ck('P6 Fix 4: … der nächste Fehlschlag (nach dem eigenen Laden begonnen) → ein Ereignis ok:false, abgerufen = Beginn des eigenen Ladens',
+    p.ereignisse.length === n + 1 && p.ereignisse[n]?.ok === false && p.ereignisse[n]?.abgerufen === eigenesLadenBeginn);
+}
+{
+  // Fix-Runde 4: Das eigene Laden zählt als gelungene Prüfung auch für eine Liste, die der Main in diesem Moment nicht
+  // beobachtet (Anmeldung oder Umschalten noch unterwegs); die Ausnahme EP20 setzt es weiter nur für eine beobachtete Liste.
+  const p = pruefstand();
+  const fehler = (abgerufen: string) => ({ ok: false as const, fehler: new IveoApiError(500, 'http_500', 'iveo: Serverfehler'), abgerufen });
+  p.w.eigenesLaden('A', '2026-10-17T10:01:00.000Z'); // A ist noch nicht beobachtet
+  p.w.beobachte(['A']);
+  const n = p.ereignisse.length;
+  p.w.agendaVomKern('A', fehler('2026-10-17T10:00:30.000Z'));
+  ck('P6 Fix 4: eigenes Laden einer gerade nicht beobachteten Liste → ein Fehlschlag, der davor begann, sendet nichts', p.ereignisse.length === n);
+  p.w.agendaVomKern('A', fehler('2026-10-17T10:02:00.000Z'));
+  ck('P6 Fix 4: … ein danach begonnener sendet ok:false mit abgerufen = Beginn des eigenen Ladens',
+    p.ereignisse.length === n + 1 && p.ereignisse[n]?.ok === false && p.ereignisse[n]?.abgerufen === '2026-10-17T10:01:00.000Z');
+}
+
+console.log('— Fix-Runde 4 · Wächter und Anhang-Liste zusammen bis zur Anzeige (Zuordnung und loadMaterials in der Form von Task 31)');
+/**
+ * Renderer-Nachbau mit dem echten Helfer: Ereignisse des Main wie die Zuordnung in Task 31 (task-31-brief.md:165, ohne
+ * begann), das eigene Laden wie loadMaterials (Task 31) mit dem abgerufen der Hülle (Zeitpunkt vor dem Abruf, Task 28).
+ */
+function renderer(p: ReturnType<typeof pruefstand>) {
+  let z = leererAnhangZustand(null);
+  let gelesen = 0;
+  const schritt = (e: AnhangListenEreignis): void => { z = anhangListeSchritt(z, e).zustand; };
+  return {
+    schritt,
+    zustellen(): void {
+      for (; gelesen < p.ereignisse.length; gelesen++) {
+        const e = p.ereignisse[gelesen];
+        schritt({ art: 'ergebnis', id: e.programId, abgerufen: e.abgerufen, ok: e.ok, materials: e.materials, error: e.error });
+      }
+    },
+    eigenes(id: string, abgerufen: string, materials: ReturnType<typeof materialienAusAgenda> | null, error?: string): void {
+      schritt({ art: 'ergebnis', id, abgerufen, ok: materials !== null, ...(materials !== null ? { materials } : { error }) });
+    },
+    fall: (id: string): string => anhangAnzeige(z, id, true, 0).fall,
+  };
+}
+{
+  // Befund (1): Ein Takt-Fehlschlag, der vor dem gelungenen eigenen Laden begann, darf T14 nicht über den jüngeren Erfolg legen.
+  const p = pruefstand();
+  const r = renderer(p);
+  const c = attrappe({ A: agendaA() });
+  const iso = (): string => new Date(p.z.uhr).toISOString();
+  r.schritt({ art: 'aufklappen', id: 'A' }); p.w.beobachte(['A']);
+  await p.w.takt(c.client); r.zustellen(); // der Wächter prüft um 10:00:00 und gelingt
+  p.weiter();
+  let lehne: (f: unknown) => void = () => {};
+  const haengt = { listAgendaItems: (): Promise<IveoAgendaItem[]> => new Promise((_ok, nein) => { lehne = nein; }) };
+  const lauf = p.w.takt(haengt); // ein Takt-Abruf beginnt um 10:00:45 …
+  p.weiter(1_000);
+  r.schritt({ art: 'zuklappen' }); p.w.beobachte([]);
+  r.schritt({ art: 'aufklappen', id: 'A' }); p.w.beobachte(['A']); r.zustellen(); // … zu und wieder auf: das eigene Laden beginnt
+  const beginn = iso();
+  p.weiter(1_000);
+  p.w.eigenesLaden('A', beginn); r.eigenes('A', beginn, materialienAusAgenda(agendaA())); // … und gelingt
+  p.weiter(1_000);
+  lehne(new IveoApiError(500, 'http_500', 'iveo: Serverfehler')); // der ältere Takt-Abruf scheitert erst danach
+  await lauf; r.zustellen();
+  ck('Fix 4 bis zur Anzeige: Takt-Fehlschlag, der vor dem gelungenen eigenen Laden begann → L5 (kein T14 über dem jüngeren Erfolg)', r.fall('A') === 'L5');
+  c.agenden.A = new IveoApiError(500, 'http_500', 'iveo: Serverfehler');
+  p.weiter(); await p.w.takt(c.client); r.zustellen();
+  ck('Fix 4 bis zur Anzeige: … der nächste Fehlschlag (nach dem eigenen Laden begonnen) → L3; Main und Anzeige laufen nicht auseinander', r.fall('A') === 'L3');
+  p.weiter(); await p.w.takt(c.client); r.zustellen();
+  ck('Fix 4 bis zur Anzeige: … derselbe Fehler danach (im Main still) → L3 bleibt', r.fall('A') === 'L3');
+}
+{
+  // Befund (2): Ein überholtes eigenes Laden (ohne begann, abgerufen = sein Beginn) scheitert nach einem jüngeren gelungenen.
+  const p = pruefstand();
+  const r = renderer(p);
+  const iso = (): string => new Date(p.z.uhr).toISOString();
+  r.schritt({ art: 'aufklappen', id: 'A' }); p.w.beobachte(['A']);
+  const beginn1 = iso(); // das erste eigene Laden beginnt (langsam)
+  p.weiter(1_000);
+  r.schritt({ art: 'zuklappen' }); p.w.beobachte([]);
+  r.schritt({ art: 'aufklappen', id: 'A' }); p.w.beobachte(['A']); r.zustellen();
+  const beginn2 = iso(); // das zweite eigene Laden beginnt
+  p.weiter(1_000);
+  p.w.eigenesLaden('A', beginn2); r.eigenes('A', beginn2, materialienAusAgenda(agendaA())); // das zweite gelingt zuerst
+  p.weiter(1_000);
+  r.eigenes('A', beginn1, null, 'Zeitgrenze'); // das erste scheitert erst jetzt
+  ck('Fix 4 bis zur Anzeige: überholtes eigenes Laden scheitert nach einem jüngeren gelungenen → L5 (kein T14)', r.fall('A') === 'L5');
+  const q = pruefstand();
+  const s = renderer(q);
+  const cq = attrappe({ A: agendaA() });
+  s.schritt({ art: 'aufklappen', id: 'A' }); q.w.beobachte(['A']);
+  const beginn = new Date(q.z.uhr).toISOString(); // das eigene Laden beginnt (langsam)
+  q.weiter(1_000);
+  await q.w.takt(cq.client); s.zustellen(); // der Wächter prüft danach und gelingt (erste Beobachtung, mit Liste)
+  q.weiter(1_000);
+  s.eigenes('A', beginn, null, 'Zeitgrenze');
+  ck('Fix 4 bis zur Anzeige: eigenes Laden scheitert, nachdem eine später begonnene Prüfung des Wächters gelang → L5', s.fall('A') === 'L5');
 }
 
 // ── Ende der Fälle ──

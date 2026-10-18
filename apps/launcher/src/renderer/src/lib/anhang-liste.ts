@@ -65,11 +65,12 @@ const zeitVon = (iso: string | undefined): number => (iso ? Date.parse(iso) : Nu
  * - zuklappen: meldet `[]`; die Liste wird vergessen, wenn sie nicht das aktive Side Event ist.
  * - panelZu, eventWechsel: alle Listen und Fehler leer, zugeklappt, meldet `[]`.
  * - aktivWechsel: neue Kennung (null = Tagesübersicht); die bisher aktive wird vergessen, wenn sie nicht aufgeklappt ist (L7).
- * - ergebnis: nur für beobachtete Listen. Ein Fehler ohne Liste (`ok: false`, ohne `materials`) gilt immer: Er trägt die
- *   Zeit der letzten gelungenen Prüfung, nicht seine eigene, und muss sichtbar werden (Diagnose) – es sei denn, er bringt
- *   seinen Beginn (`begann`) mit und der liegt vor dieser Zeit: dann ist er von einer jüngeren Prüfung überholt. Sonst wird ein älteres
- *   `abgerufen` als das gespeicherte verworfen (Abruf und Wächter kreuzen sich); ohne `materials` rückt nur die Zeit einer
- *   schon bekannten Liste vor. `ok: true` löscht den Fehler.
+ * - ergebnis: nur für beobachtete Listen. Ein Fehler ohne Liste (`ok: false`, ohne `materials`) setzt nur den Fehler (Liste
+ *   und Stand bleiben, Diagnose sichtbar) – es sei denn, die Liste ist bekannt und er begann vor der gespeicherten gelungenen
+ *   Prüfung: dann ist er überholt (Fix-Runde 4). Sein Beginn ist `begann`, sonst `abgerufen`: beim eigenen Laden der Zeitpunkt
+ *   vor dem Abruf (Task 28), beim Wächter die letzte gelungene Prüfung, die der Main kennt, samt eigenem Laden (nie älter als
+ *   der Stand hier). Sonst wird ein älteres `abgerufen` als das gespeicherte verworfen (Abruf und Wächter kreuzen sich); ohne
+ *   `materials` rückt nur die Zeit einer schon bekannten Liste vor. `ok: true` löscht den Fehler.
  */
 export function anhangListeSchritt(
   z: AnhangListenZustand,
@@ -97,7 +98,7 @@ export function anhangListeSchritt(
       if (!beobachtet(z, e.id)) return unveraendert;
       if (!e.ok && e.materials === undefined) {
         // Ein Fehlschlag, der vor der gespeicherten gelungenen Prüfung begann, ist überholt (überholtes Laden, Wächter-Takt).
-        if (z.listen[e.id] !== undefined && e.begann !== undefined && zeitVon(e.begann) < zeitVon(z.abgerufen[e.id])) return unveraendert;
+        if (z.listen[e.id] !== undefined && zeitVon(e.begann ?? e.abgerufen) < zeitVon(z.abgerufen[e.id])) return unveraendert;
         return { zustand: { ...z, fehler: { ...z.fehler, [e.id]: e.error ?? '' } }, laden: null, beobachte: null };
       }
       const bekannt = z.listen[e.id] !== undefined;

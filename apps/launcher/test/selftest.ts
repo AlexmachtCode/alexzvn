@@ -541,9 +541,11 @@ function ck(name: string, cond: boolean): void {
   const okWeg = anhangListeSchritt(mitFehler, ergebnis('A', T2));
   ck('P7 12.3 Nr. 9: ok:true löscht den Fehler, die Zeit rückt vor, die Liste bleibt',
     okWeg.zustand.fehler.A === undefined && okWeg.zustand.abgerufen.A === T2 && okWeg.zustand.listen.A?.length === 2);
+  // Fix-Runde 4: ohne begann zählt abgerufen als Beginn. Eigenes Laden (loadMaterials, Task 31): der Zeitpunkt vor seinem Abruf
+  // (Task 28); Wächter: die letzte gelungene Prüfung, die der Main kennt, samt eigenem Laden, also nie älter als der Stand hier.
   const spaeterFehler = anhangListeSchritt(z, ergebnis('A', T0, undefined, 'Netz weg'));
-  ck('P7 8.4: Fehler mit der Zeit der letzten gelungenen Prüfung, älter als die Liste → trotzdem übernommen (L3, Diagnose sichtbar)',
-    spaeterFehler.zustand.fehler.A === 'Netz weg' && spaeterFehler.zustand.abgerufen.A === T1 && anhangAnzeige(spaeterFehler.zustand, 'A', true, 0).fall === 'L3');
+  ck('P7 8.1 Fix 4: Fehlschlag ohne begann, abgerufen älter als die gespeicherte Prüfung (überholtes eigenes Laden) → verworfen (L5, kein T14 über einem jüngeren Erfolg)',
+    spaeterFehler.zustand === z && anhangAnzeige(spaeterFehler.zustand, 'A', true, 0).fall === 'L5');
   const nurZeit = anhangListeSchritt(auf.zustand, ergebnis('A', T2));
   ck('P7 8.1: ok ohne materials, Liste noch unbekannt → nichts übernommen (der eigene Abruf kann noch kommen)',
     nurZeit.zustand === auf.zustand && anhangListeSchritt(nurZeit.zustand, ergebnis('A', T1, [ref('m1')])).zustand.listen.A?.length === 1);
@@ -559,6 +561,15 @@ function ck(name: string, cond: boolean): void {
   ck('P7 8.4 Fix: Fehlschlag ohne Beginn → wie bisher übernommen', ohneBeginn.zustand.fehler.A === 'Zeitueberschreitung');
   const ohneListe = anhangListeSchritt(auf.zustand, fehl(T0));
   ck('P7 8.4 Fix: Fehlschlag ohne bekannte Liste → übernommen (L2), Beginn ändert nichts', ohneListe.zustand.fehler.A === 'Zeitueberschreitung');
+  const juengerOhneBeginn = anhangListeSchritt(z, ergebnis('A', T2, undefined, 'Netz weg'));
+  ck('P7 8.1 Fix 4: Fehlschlag ohne begann, abgerufen jünger als die gespeicherte Prüfung → übernommen (L3), der Stand bleibt',
+    juengerOhneBeginn.zustand.fehler.A === 'Netz weg' && juengerOhneBeginn.zustand.abgerufen.A === T1 && anhangAnzeige(juengerOhneBeginn.zustand, 'A', true, 0).fall === 'L3');
+  const ohneZeit = anhangListeSchritt(z, ergebnis('A', '', undefined, 'Netz weg'));
+  ck('P7 8.4 Fix 4: Fehlschlag mit leerem abgerufen (der Main kennt keine gelungene Prüfung, etwa nach zuruecksetzen) → übernommen (L3)',
+    ohneZeit.zustand.fehler.A === 'Netz weg' && anhangAnzeige(ohneZeit.zustand, 'A', true, 0).fall === 'L3');
+  const beginnZaehlt = anhangListeSchritt(z, { ...ergebnis('A', T0, undefined, 'Netz weg'), begann: T2 });
+  ck('P7 8.4 Fix 4: begann geht vor abgerufen (begann nach der gespeicherten Prüfung, abgerufen davor) → übernommen (L3)',
+    beginnZaehlt.zustand.fehler.A === 'Netz weg' && anhangAnzeige(beginnZaehlt.zustand, 'A', true, 0).fall === 'L3');
 }
 {
   // Wechsel des aktiven Side Events im selben Event (12.3 Nr. 9, zweiter Teil)
