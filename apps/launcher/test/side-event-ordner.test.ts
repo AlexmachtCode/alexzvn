@@ -3217,6 +3217,39 @@ console.log('— Gesamtprüfung Fix-Welle: Fehler je Eintrag, Basisordner ab dem
         && T.logs.includes(`warn iveo-Ordner: „Bericht.pdf“ nicht geladen: ${grund} (${grund}).`));
     }
   }
+  {
+    // Befund 4 (9.14): „Aus“, während ein Takt hängt (hier das Lesen der Show-Datei auf dem Netzlaufwerk). takt() ist dann
+    // wirkungslos; bedingungenNeu (setzeAnhangOrdner) bricht den laufenden Download trotzdem sofort ab (Grund bedienung, ohne
+    // Fehler, ohne Dateizugriff im Aufruf). Die eigene Sperre löscht der nächste freie Takt (K3).
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht', { size: 1000 });
+    T.download.arten.set(m.asset!.url, { bytes: 1000, stuecke: 10, wartenMs: 10_000 });
+    T.lauf.agendaAktiv('se-1', { ok: true, agenda: [AttC.punkt('se-1', [m])], abgerufen: new Date(T.uhr.t).toISOString() });
+    T.lauf.takt();
+    await AttC.ruhe();
+    await T.uhr.spule(12_000, 1_000);
+    const laedt = T.g.jetzt === 1 && T.fs.namen(ORDNER).some((n) => n.endsWith('.jm-laden'));
+    await T.uhr.spule(45_000 - 12_000, 1_000);
+    const tor = T.fs.torBei('readFile', (p) => p === AttC.SHOW_PFAD);
+    T.lauf.takt(); // hängt am Lesen der Show-Datei
+    await AttC.ruhe();
+    const amTor = tor.erreicht();
+    T.z.schalter = false;
+    T.lauf.takt(); // wirkungslos: der Takt läuft noch
+    const n = T.fs.protokoll.length;
+    const aus = T.lauf.bedingungenNeu();
+    const zugriffeImAufruf = T.fs.protokoll.length - n;
+    await T.uhr.spule(120_000, 1_000); // ohne Abbruch wäre der Download nach 100 s fertig und platziert
+    const gestoppt = T.g.jetzt === 0 && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf')) && !T.fs.namen(ORDNER).some((x) => x.endsWith('.jm-laden'))
+      && T.download.aufrufe.length === 1;
+    ck('P29 Gesamt-Fix 9.14: Schalter aus bei hängendem Takt → der laufende Download bricht sofort ab, Zwischendatei weg, kein Fehler',
+      laedt && amTor && aus.schalterAn === false && zugriffeImAufruf === 0 && gestoppt && !T.logs.some((l) => l.startsWith('warn')));
+    tor.weiter();
+    await T.lauf.ruhig();
+    await T.takt();
+    ck('P29 Gesamt-Fix 9.14: … der nächste freie Takt zeigt K3 und löscht die eigene Sperre',
+      ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t).fall === 'K3' && !T.fs.gibt(pathC.join(AttC.BASIS, OrdnerC.SPERR_DATEI)));
+  }
 }
 
 // ── Block C · P19: Geheimnis-Suche über alle Fälle (Spec 12.4 Nr. 41, E20, G4) — letzter Abschnitt ────────────────

@@ -321,7 +321,14 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     },
     agendaAktiv: (programId, e) => { L.aktivAgenda = { programId, e }; },
     stand: () => standKopie(L),
-    bedingungenNeu: () => { liesBedingungen(L); melde(L); return standKopie(L); },
+    bedingungenNeu: () => {
+      liesBedingungen(L);
+      // 9.14 „Aus“: der laufende Download bricht sofort ab, auch wenn gerade ein Takt hängt und takt() wirkungslos ist; das
+      // Löschen der eigenen Sperre (Dateizugriff) bleibt beim nächsten freien Takt (K3, endeAblage). Gesamtprüfung Befund 4.
+      if (!L.kopf.schalterAn) stoppeAblage(L);
+      melde(L);
+      return standKopie(L);
+    },
     ordnerPfadFuer: (programId) => ordnerPfadFuer(L, programId),
     beenden: () => {
       L.beendet = true;
@@ -416,13 +423,21 @@ function pausiere(L: Lauf): void {
   L.rundeStartMs = null;
 }
 
-/** Ende der Ablage: Generation +1 und die eigene Sperre einmal lesen, vergleichen, löschen (9.2). */
-async function endeAblage(L: Lauf): Promise<void> {
+/**
+ * Synchroner Teil vom Ende der Ablage, ohne Dateizugriff: Generation +1 (laufender Download abgebrochen, Grund bedienung),
+ * die Runde beginnt nach dem Wiedereinschalten im nächsten Takt neu (9.14).
+ */
+function stoppeAblage(L: Lauf): void {
   if (L.darf || L.laeuft || L.queue.length) neueGeneration(L);
   L.darf = false;
   L.rundeStartMs = null; // 9.14: beginnt die Ablage wieder (Schalter an, Rolle, Token), startet die Runde im nächsten Takt
   L.kopf.ersteRundeGestartet = false; // und bis dahin steht die erste Runde aus (K8), nicht ein „überfällig“ gegen die Zeit vor dem Ende
   L.kopf.naechsteRundeGegen = null;
+}
+
+/** Ende der Ablage: Generation +1 und die eigene Sperre einmal lesen, vergleichen, löschen (9.2). */
+async function endeAblage(L: Lauf): Promise<void> {
+  stoppeAblage(L);
   const alt = L.gehalten;
   L.gehalten = null;
   if (alt) await loescheEigeneSperre(L, alt);
