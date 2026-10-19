@@ -3250,6 +3250,22 @@ console.log('— Gesamtprüfung Fix-Welle: Fehler je Eintrag, Basisordner ab dem
     ck('P29 Gesamt-Fix 9.14: … der nächste freie Takt zeigt K3 und löscht die eigene Sperre',
       ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t).fall === 'K3' && !T.fs.gibt(pathC.join(AttC.BASIS, OrdnerC.SPERR_DATEI)));
   }
+  {
+    // Befund 6 (9.10, Review Focus 4): Liegt in entfernt/ schon eine Datei gleichen Namens (fremd oder früher verschoben), bekommt
+    // die verschobene Datei „ (2)“; die vorhandene bleibt byte-gleich. rename ersetzt in der Attrappe still wie unter NTFS.
+    const T = AttC.baueLauf();
+    const m = AttC.datei('m-1', 'Bericht', { size: 1000 });
+    await T.takt([AttC.punkt('se-1', [m])]);
+    T.fs.lege(pathC.join(ORDNER, 'entfernt', 'Bericht.pdf'), 'schon in entfernt', 5_000);
+    await T.uhr.spule(45_000, 45_000);
+    await T.takt([AttC.punkt('se-1', [])]);
+    const idx = OrdnerC.leseIndex(T.fs.inhalt(pathC.join(ORDNER, OrdnerC.INDEX_DATEI)) ?? '');
+    const x = idx.art === 'ok' ? idx.index.eintraege.find((y) => y.id === 'm-1') : undefined;
+    ck('P17 Gesamt-Fix 9.10: Kollision in entfernt/ → verschoben als „Bericht (2).pdf“, die vorhandene Datei bleibt byte-gleich, der Index nennt den neuen Namen',
+      T.fs.inhalt(pathC.join(ORDNER, 'entfernt', 'Bericht.pdf')) === 'schon in entfernt'
+      && T.fs.inhalt(pathC.join(ORDNER, 'entfernt', 'Bericht (2).pdf'))?.length === 1000 && !T.fs.gibt(pathC.join(ORDNER, 'Bericht.pdf'))
+      && x?.zustand === 'entfernt' && x.datei === 'entfernt/Bericht (2).pdf');
+  }
 }
 
 // ── Block C · P19: Geheimnis-Suche über alle Fälle (Spec 12.4 Nr. 41, E20, G4) — letzter Abschnitt ────────────────
