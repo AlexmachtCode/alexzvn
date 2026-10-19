@@ -594,6 +594,63 @@ async function run() {
         && !/function compareVersions\b/.test(quelle) && !quelle.includes('-Asset im Release'));
     stub = async () => new Response('{}', { status: 200 });
   }
+
+  // 24) iveo-Paket P37 (Spec 10.7, E43): Trockenlauf alt gegen neu, ohne Netz. alteWahl ist die eingefrorene Wahl des
+  // Workers bis zum iveo-Paket; vergleicheWahl stellt beide je Tool auf Windows, Mac arm64 und Mac x64 gegenüber.
+  {
+    const { alteWahl, vergleicheWahl, formatiereZeilen } = await import('../tools/trockenlauf.mjs');
+    // Die Pakete tragen wie bei GitHub Adressen; keine davon darf in der Ausgabe stehen.
+    const a = (id, name) => ({
+      id, name, size: 5,
+      url: `https://api.github.com/repos/owner/repo/releases/assets/${id}`,
+      browser_download_url: `https://github.com/owner/repo/releases/download/NICHT-AUSGEBEN-${id}/${name}`,
+    });
+    const releases = [
+      { tag_name: 'connect-v0.3.1', draft: false, assets: [a(1, 'JM.Connect-0.3.1-win-x64.exe')] },
+      { tag_name: 'connect-v0.3.0', draft: false, assets: [a(2, 'JM.Connect-0.3.0-win-x64.exe'), a(3, 'JM.Connect-0.3.0-mac-arm64.dmg'), a(4, 'JM.Connect-0.3.0-mac-x64.dmg')] },
+      { tag_name: 'titler-v0.11.0', draft: false, assets: [a(5, 'JM.Titler-0.11.0-win-x64.exe'), a(6, 'JM.Titler-0.11.0-mac-arm64.dmg')] },
+    ];
+    const alt1 = alteWahl(releases, 'connect-v', 'mac', 'arm64');
+    check('P37 10.7: alteWahl nimmt nur das höchste Release (0.3.1 ohne DMG → alter 404-Text)',
+      alt1.art === 'fehler' && alt1.text === 'kein mac-Asset im Release');
+    const alt2 = alteWahl(releases, 'titler-v', 'mac', 'x64');
+    check('P37 10.7: alteWahl nimmt auf x64 notfalls irgendein DMG (das arm64-DMG)',
+      alt2.art === 'gewaehlt' && alt2.asset.name === 'JM.Titler-0.11.0-mac-arm64.dmg');
+    const alt3 = alteWahl(releases, 'copy-v', 'win', 'x64');
+    check('P37 10.7: alteWahl ohne Release → „kein Release für copy“', alt3.art === 'fehler' && alt3.text === 'kein Release für copy');
+
+    const zeilen = vergleicheWahl(releases, [{ id: 'jm-connect' }, { id: 'jm-titler' }, { id: 'jm-copy' }]);
+    const c301 = '0.3.1 · JM.Connect-0.3.1-win-x64.exe';
+    const t110 = '0.11.0 · JM.Titler-0.11.0-win-x64.exe';
+    const tArm = '0.11.0 · JM.Titler-0.11.0-mac-arm64.dmg';
+    const kein = '404 kein Release für copy';
+    const erwartet = [
+      ['jm-connect', 'Windows', c301, c301, true],
+      ['jm-connect', 'Mac arm64', '404 kein mac-Asset im Release', '0.3.0 · JM.Connect-0.3.0-mac-arm64.dmg', false],
+      ['jm-connect', 'Mac x64', '404 kein mac-Asset im Release', '0.3.0 · JM.Connect-0.3.0-mac-x64.dmg', false],
+      ['jm-titler', 'Windows', t110, t110, true],
+      ['jm-titler', 'Mac arm64', tArm, tArm, true],
+      ['jm-titler', 'Mac x64', tArm, '404 kein Release von titler mit einem Paket für macOS (x64)', false],
+      ['jm-copy', 'Windows', kein, kein, true],
+      ['jm-copy', 'Mac arm64', kein, kein, true],
+      ['jm-copy', 'Mac x64', kein, kein, true],
+    ];
+    const ist = zeilen.map((z) => [z.tool, z.plattform, z.alt, z.neu, z.gleich]);
+    if (JSON.stringify(ist) !== JSON.stringify(erwartet)) console.log(`      ${JSON.stringify(ist)}`);
+    check('P37 10.7: vergleicheWahl, je Tool Windows, Mac arm64, Mac x64 mit alt, neu und gleich (9 Zeilen wörtlich)',
+      JSON.stringify(ist) === JSON.stringify(erwartet));
+    check('P37 10.7: genau die drei Zeilen mit Unterschied sind markiert',
+      zeilen.filter((z) => !z.gleich).map((z) => `${z.tool} ${z.plattform}`).join(' | ') === 'jm-connect Mac arm64 | jm-connect Mac x64 | jm-titler Mac x64');
+    const text = formatiereZeilen(zeilen).join('\n');
+    check('P37 10.7: Ausgabe markiert Unterschiede mit ≠ und zählt sie',
+      text.split('\n').filter((l) => l.startsWith('≠ ')).length === 3 && text.endsWith('9 Zeilen, 3 mit Unterschied (≠).'));
+    check('P37 10.7: Ausgabe nennt nur Version, Paketname oder Fehlertext, keine Adresse aus den Release-Daten',
+      !text.includes('https://') && !text.includes('NICHT-AUSGEBEN'));
+    const quelle = readFileSync(new URL('../tools/trockenlauf.mjs', import.meta.url), 'utf8');
+    check('P37 10.7: Trockenlauf nur lesend (keine Datei schreiben, gh nur als api ohne Methode, kein Import des Workers)',
+      !/writeFile|appendFile|createWriteStream/.test(quelle) && !/--method|'-X'/.test(quelle)
+        && quelle.includes("execFileSync('gh', ['api', ") && !quelle.includes("'../worker.js'"));
+  }
 }
 
 run()
