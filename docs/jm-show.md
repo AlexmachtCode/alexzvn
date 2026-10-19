@@ -321,7 +321,11 @@ Event ohne Anhang bekommt keinen Ordner. Links liegen als `.url`-Datei darin und
 Basisordner, in der Zeile eines Side Events dessen Ordner.
 
 **Welche Side Events.** Abgelegt werden die Side Events der Show-Bindung am Tag
-der Bindung bzw. des aktiven Side Events, dazu immer das aktive. Das aktive
+der Bindung bzw. des aktiven Side Events, dazu immer das aktive. Ohne Tag
+(Abgleich über alle Tage, ohne aktives Side Event) gehören alle Side Events der
+Bindung zur Ablage, bei einem großen Event wie COP31 bis zu 67 über alle Tage;
+das braucht entsprechend Zeit und Plattenplatz. Ein Side Event, dessen Tag der
+Launcher nicht kennt, zählt immer mit. Das aktive
 gleicht der Launcher in jedem Abfrage-Takt ab, die übrigen etwa alle 5 Minuten,
 eins nach dem anderen. Side Events der Ablage, die das Panel am gewählten Tag
 nicht zeigt, stehen unter der Liste im Block „Weitere Side Events der Ablage“.
@@ -330,7 +334,10 @@ Zeile; sein Ordner bleibt unverändert.
 
 **Nichts wird gelöscht oder überschrieben.** Was iveo entfernt, wandert in den
 Unterordner `entfernt`; eine durch eine neue Fassung ersetzte Datei liegt dort als
-„‹Name› (ersetzt ‹Datum› ‹Uhrzeit›)“. Benennt iveo einen Anhang um, benennt der
+„‹Name› (ersetzt JJJJ-MM-TT hh-mm)‹.Endung›“, etwa „Agenda (ersetzt 2026-10-17
+10-30).pdf“, eine unvollständig geschriebene als „‹Name› (unvollständig
+JJJJ-MM-TT hh-mm)‹.Endung›“. Liegt dort schon eine Datei gleichen Namens, kommt
+„ (2)“ dazu. Benennt iveo einen Anhang um, benennt der
 Launcher die Datei um; ist sie gerade geöffnet (etwa in PowerPoint), wartet er bis
 zur nächsten Runde. Eigene Dateien im Ordner fasst der Launcher nie an. Dateien
 mit ausführbarer Endung bekommen eine geänderte Endung (aus `Agenda.exe` wird

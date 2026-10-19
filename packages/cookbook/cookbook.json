@@ -4010,7 +4010,7 @@
         "tips": [
           "Companion-Button „Nächster Redner\": `TITLER NEXT` gefolgt von `TITLER TAKE` — ein Tastendruck holt den nächsten DataLink-Eintrag und blendet ihn ein.",
           "Grafik im JM Grafiktool bauen und als `.jmtitler` „an den Titler senden\" — Hintergrund + variablen-fähige Text-Slots kommen fertig gemappt an.",
-          "Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab. Organisationen kommen mit (`{{organisation}}`, `{{organisationen}}`); eine Änderung in iveo erreicht die Bauchbinde bei laufendem Launcher binnen etwa 5 Minuten.",
+          "Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab. Organisationen kommen mit (`{{organisation}}`, `{{organisationen}}`); eine Änderung in iveo erreicht die Bauchbinde in der Regel binnen etwa 5 Minuten, solange der Launcher mit dem iveo-Token dieser Show läuft und regelmäßig abfragt.",
           "Zweiter Bildschirm statt NDI, wenn der Mischer nur SDI/HDMI-Keying kann: Chroma-Green-Ausgabe auf den Keyer, NDI bleibt zusätzlich verfügbar."
         ]
       }
