@@ -13,6 +13,9 @@ import { ANHANG_TEXTE, anhangAnzeige, anhangListeSchritt, leererAnhangZustand, t
 import type { IveoMaterialRef } from '../src/shared/types.ts';
 import { gestoerteSideEvents, kopfzeile, listenZeile, ORDNER_ZEILEN_TEXTE, ordnerZeile, weitereSideEvents } from '../src/renderer/src/lib/ordner-zeilen.ts';
 import type { AnhangOrdnerStand, OrdnerProblem, SideEventOrdnerStand } from '../src/shared/types.ts';
+import {
+  compareVersions, keinPaketText, proxyAntwortAuswerten, proxyFehlerText, waehleRelease, type ProxyAntwortLike, type ReleaseEintrag,
+} from '../src/main/release-wahl.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -1177,6 +1180,91 @@ function funktionsKoerper(quelle: string, kopf: string): string {
       quelleLf('../src/renderer/src/components/SideEventsPanel.tsx').includes('listenZeile(anhangOrdner, programId, ordnerUhr)'));
   }
 }
+
+// --- iveo-Paket P34 · Release-Wahl: neuestes Release mit passendem Paket (Spec 10.4, 10.5, 12.7 Nr. 1–3) -----------
+// Die Tabelle services/release-proxy/test/paketwahl-faelle.json liest auch der Proxy-Test (worker.test.mjs, Fall 23):
+// eine Regel, zwei Umsetzungen, eine Tabelle (EP4). Fälle mit nurLauncher prüfen den genauen Katalognamen, den nur die
+// GitHub-Quelle des Launchers kennt.
+await (async () => {
+  type Erwartet = { art: 'gewaehlt'; version: string; asset: string } | { art: 'kein-release' } | { art: 'kein-paket' };
+  interface Fall {
+    name: string; app: string; praefix: string; plattform: 'mac' | 'win'; arch: 'arm64' | 'x64';
+    genauerName?: string; nurLauncher?: boolean; releases: ReleaseEintrag[]; erwartet: Erwartet;
+  }
+  const tabelle = JSON.parse(
+    readFileSync(new URL('../../../services/release-proxy/test/paketwahl-faelle.json', import.meta.url), 'utf8'),
+  ) as { faelle: Fall[] };
+  const nurLauncher = tabelle.faelle.filter((f) => f.nurLauncher === true).length;
+  ck(`P34 12.7 Nr. 1: Tabelle gelesen (${tabelle.faelle.length} Fälle, ${nurLauncher} davon nur für die GitHub-Quelle)`,
+    tabelle.faelle.length === 26 && nurLauncher === 4);
+  const kurz = (e: Erwartet): string => (e.art === 'gewaehlt' ? `${e.version} · ${e.asset}` : e.art);
+  let mitRelease = true;
+  for (const f of tabelle.faelle) {
+    const vorlage = f.genauerName;
+    const genau = vorlage === undefined ? undefined : (version: string): string => vorlage.split('${version}').join(version);
+    const w = waehleRelease(f.releases, f.praefix, f.plattform, f.arch, genau);
+    const ist = kurz(w.art === 'gewaehlt' ? { art: 'gewaehlt', version: w.version, asset: w.asset.name } : w);
+    if (ist !== kurz(f.erwartet)) console.log(`      erwartet ${kurz(f.erwartet)}, ist ${ist}`);
+    if (w.art === 'gewaehlt' && w.release.tag_name !== `${f.praefix}${w.version}`) mitRelease = false;
+    ck(`P34 12.7 Nr. 1: ${f.name}`, ist === kurz(f.erwartet));
+  }
+  ck('P34 10.5: die Wahl liefert das gewählte Release mit (Tag = Präfix + Version)', mitRelease);
+
+  ck('P34 12.7 Nr. 3 EP2: compareVersions numerisch (0.10.0 > 0.2.0, 0.2.0 < 0.10.0, gleich = 0)',
+    compareVersions('0.10.0', '0.2.0') > 0 && compareVersions('0.2.0', '0.10.0') < 0 && compareVersions('1.2.3', '1.2.3') === 0);
+  ck('P34 12.7 Nr. 3 EP2: fehlender Teil zählt 0 (1.2 = 1.2.0, 1.2.1 > 1.2)',
+    compareVersions('1.2', '1.2.0') === 0 && compareVersions('1.2.1', '1.2') > 0);
+  ck('P34 12.7 Nr. 3 EP2: nicht numerischer Teil zählt 0, Vorabkennung wie parseInt (1.x.0 = 1.0.0, 1.0.0-beta = 1.0.0, 0.3.1-rc1 > 0.3.0)',
+    compareVersions('1.x.0', '1.0.0') === 0 && compareVersions('1.0.0-beta', '1.0.0') === 0 && compareVersions('0.3.1-rc1', '0.3.0') > 0);
+
+  ck('P34 12.7 Nr. 2: proxyFehlerText mit JSON-error → „Proxy 404: …“ (F2, F3)',
+    proxyFehlerText(404, 'Not Found', '{"error":"kein Release für connect"}') === 'Proxy 404: kein Release für connect'
+    && proxyFehlerText(404, 'Not Found', '{"error":"kein Release von connect mit einem Paket für macOS (x64)"}')
+      === 'Proxy 404: kein Release von connect mit einem Paket für macOS (x64)');
+  ck('P34 12.7 Nr. 2: 401 und 5xx mit JSON-error (F4, F5)',
+    proxyFehlerText(401, 'Unauthorized', '{"error":"unauthorized"}') === 'Proxy 401: unauthorized'
+    && proxyFehlerText(502, 'Bad Gateway', '{"error":"GitHub API 500 Internal Server Error"}') === 'Proxy 502: GitHub API 500 Internal Server Error');
+  ck('P34 12.7 Nr. 2: JSON ohne nutzbares error (Feld fehlt, kein String, leer, Array, null) → „Proxy ‹Status› ‹Statustext›“',
+    ['{"message":"x"}', '{"error":{"code":1}}', '{"error":" \\n "}', '["error"]', 'null']
+      .every((b) => proxyFehlerText(500, 'Internal Server Error', b) === 'Proxy 500 Internal Server Error'));
+  ck('P34 12.7 Nr. 2: kein JSON oder leerer Text → „Proxy ‹Status› ‹Statustext›“ wie bisher (F6)',
+    proxyFehlerText(502, 'Bad Gateway', '<html>Bad Gateway</html>') === 'Proxy 502 Bad Gateway'
+    && proxyFehlerText(404, 'Not Found', '') === 'Proxy 404 Not Found');
+  ck('P34 12.7 Nr. 2: langer Text auf 200 Zeichen gekürzt (Codepunkte, kein Emoji zerschnitten)',
+    proxyFehlerText(500, 'x', JSON.stringify({ error: 'x'.repeat(300) })) === `Proxy 500: ${'x'.repeat(200)}`
+    && proxyFehlerText(500, 'x', JSON.stringify({ error: '😀'.repeat(250) })) === `Proxy 500: ${'😀'.repeat(200)}`);
+  ck('P34 12.7 Nr. 2: Zeilenumbrüche werden Leerzeichen',
+    proxyFehlerText(502, 'Bad Gateway', JSON.stringify({ error: 'Zeile 1\nZeile 2\r\nZeile 3\rZeile 4' })) === 'Proxy 502: Zeile 1 Zeile 2 Zeile 3 Zeile 4');
+
+  const antwort = (status: number, statusText: string, body: string | (() => string)): ProxyAntwortLike => ({
+    ok: status >= 200 && status < 300, status, statusText,
+    text: async () => (typeof body === 'function' ? body() : body),
+    json: async () => JSON.parse(typeof body === 'function' ? body() : body) as unknown,
+  });
+  const meldung = async (r: ProxyAntwortLike): Promise<string> => {
+    try { await proxyAntwortAuswerten(r, 'mac'); return 'kein Wurf'; } catch (e) { return (e as Error).message; }
+  };
+  ck('P34 12.7 Nr. 2: proxyAntwortAuswerten, 404 mit JSON-error → Fehler mit dem Text des Proxys (F3)',
+    (await meldung(antwort(404, 'Not Found', '{"error":"kein Release von connect mit einem Paket für macOS (x64)"}')))
+      === 'Proxy 404: kein Release von connect mit einem Paket für macOS (x64)');
+  ck('P34 12.7 Nr. 2: 404 ohne JSON → „Proxy 404 Not Found“', (await meldung(antwort(404, 'Not Found', 'Not Found'))) === 'Proxy 404 Not Found');
+  ck('P34 12.7 Nr. 2: text() wirft → leerer Text → „Proxy 404 Not Found“',
+    (await meldung(antwort(404, 'Not Found', () => { throw new Error('Strom abgerissen'); }))) === 'Proxy 404 Not Found');
+  const paket = { url: 'https://signed.test/103', size: 80, fileName: 'JM.Connect-0.3.0-mac-arm64.dmg' };
+  const gut = await proxyAntwortAuswerten(antwort(200, 'OK', JSON.stringify({ version: '0.3.0', assets: { mac: paket } })), 'mac');
+  ck('P34 12.7 Nr. 2: 200 mit gültigem Ergebnis → Version und Paket', JSON.stringify(gut) === JSON.stringify({ version: '0.3.0', asset: paket }));
+  const ohne = await proxyAntwortAuswerten(antwort(200, 'OK', JSON.stringify({ version: '0.3.0', assets: { win: paket } })), 'mac');
+  ck('P34 11.5 F8: 200 ohne Paket für diese Plattform → asset null (der Installer zeigt T29)', ohne.version === '0.3.0' && ohne.asset === null);
+  ck('P34 12.7 Nr. 2: 200 ohne JSON oder ohne Version → „Proxy 200 OK“ (F6)',
+    (await meldung(antwort(200, 'OK', '<html>'))) === 'Proxy 200 OK' && (await meldung(antwort(200, 'OK', '{"assets":{}}'))) === 'Proxy 200 OK');
+
+  ck('P34 12.7 Nr. 3: keinPaketText T29 (a) und (b) wörtlich',
+    keinPaketText('mac', 'x64', 'tool') === 'Kein Release mit einem Paket für diesen Rechner gefunden (macOS, Launcher-Architektur x64).'
+    && keinPaketText('win', 'x64', 'tool') === 'Kein Release mit einem Paket für diesen Rechner gefunden (Windows).');
+  ck('P34 12.7 Nr. 3: keinPaketText T69 (a) und (b) wörtlich',
+    keinPaketText('mac', 'arm64', 'launcher') === 'Kein Launcher-Installer für diesen Rechner gefunden (macOS, Launcher-Architektur arm64).'
+    && keinPaketText('win', 'arm64', 'launcher') === 'Kein Launcher-Installer für diesen Rechner gefunden (Windows).');
+})();
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,

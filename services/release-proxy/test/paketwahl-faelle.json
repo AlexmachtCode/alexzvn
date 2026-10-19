@@ -1,0 +1,229 @@
+{
+  "beschreibung": "Gemeinsame Testtabelle der Paketwahl (iveo-Paket, Spec 10.5, 12.7). Gelesen vom Launcher-Selbsttest (apps/launcher/test/selftest.ts, waehleRelease aus apps/launcher/src/main/release-wahl.ts) und vom Proxy-Test (services/release-proxy/test/worker.test.mjs, Fall 23, ueber /tools/:id/latest). genauerName ist der Artefaktname aus dem Katalog mit ${version}; ihn kennt nur die GitHub-Quelle des Launchers, darum ueberspringt der Proxy-Test die Faelle mit nurLauncher.",
+  "faelle": [
+    {
+      "name": "Mac arm64: 0.3.1 ohne DMG, 0.3.0 mit DMG → 0.3.0",
+      "app": "connect", "praefix": "connect-v", "plattform": "mac", "arch": "arm64",
+      "releases": [
+        { "tag_name": "connect-v0.3.1", "draft": false, "assets": [ { "id": 101, "name": "JM.Connect-0.3.1-win-x64.exe", "size": 90 } ] },
+        { "tag_name": "connect-v0.3.0", "draft": false, "assets": [ { "id": 102, "name": "JM.Connect-0.3.0-win-x64.exe", "size": 90 }, { "id": 103, "name": "JM.Connect-0.3.0-mac-arm64.dmg", "size": 80 }, { "id": 104, "name": "JM.Connect-0.3.0-mac-x64.dmg", "size": 81 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.3.0", "asset": "JM.Connect-0.3.0-mac-arm64.dmg" }
+    },
+    {
+      "name": "Mac x64: 0.3.1 ohne DMG, 0.3.0 mit DMG → 0.3.0 mit dem x64-DMG",
+      "app": "connect", "praefix": "connect-v", "plattform": "mac", "arch": "x64",
+      "releases": [
+        { "tag_name": "connect-v0.3.1", "draft": false, "assets": [ { "id": 101, "name": "JM.Connect-0.3.1-win-x64.exe", "size": 90 } ] },
+        { "tag_name": "connect-v0.3.0", "draft": false, "assets": [ { "id": 102, "name": "JM.Connect-0.3.0-win-x64.exe", "size": 90 }, { "id": 103, "name": "JM.Connect-0.3.0-mac-arm64.dmg", "size": 80 }, { "id": 104, "name": "JM.Connect-0.3.0-mac-x64.dmg", "size": 81 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.3.0", "asset": "JM.Connect-0.3.0-mac-x64.dmg" }
+    },
+    {
+      "name": "Windows: 0.3.1 ohne DMG, 0.3.0 mit DMG → 0.3.1 (Windows unverändert)",
+      "app": "connect", "praefix": "connect-v", "plattform": "win", "arch": "x64",
+      "releases": [
+        { "tag_name": "connect-v0.3.1", "draft": false, "assets": [ { "id": 101, "name": "JM.Connect-0.3.1-win-x64.exe", "size": 90 } ] },
+        { "tag_name": "connect-v0.3.0", "draft": false, "assets": [ { "id": 102, "name": "JM.Connect-0.3.0-win-x64.exe", "size": 90 }, { "id": 103, "name": "JM.Connect-0.3.0-mac-arm64.dmg", "size": 80 }, { "id": 104, "name": "JM.Connect-0.3.0-mac-x64.dmg", "size": 81 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.3.1", "asset": "JM.Connect-0.3.1-win-x64.exe" }
+    },
+    {
+      "name": "Mac x64: nur arm64-DMG → kein Paket (x64 nie arm64)",
+      "app": "titler", "praefix": "titler-v", "plattform": "mac", "arch": "x64",
+      "releases": [
+        { "tag_name": "titler-v0.11.0", "draft": false, "assets": [ { "id": 201, "name": "JM.Titler-0.11.0-win-x64.exe", "size": 90 }, { "id": 202, "name": "JM.Titler-0.11.0-mac-arm64.dmg", "size": 80 } ] },
+        { "tag_name": "titler-v0.10.1", "draft": false, "assets": [ { "id": 203, "name": "JM.Titler-0.10.1-win-x64.exe", "size": 90 } ] }
+      ],
+      "erwartet": { "art": "kein-paket" }
+    },
+    {
+      "name": "Mac arm64: nur arm64-DMG → gewählt",
+      "app": "titler", "praefix": "titler-v", "plattform": "mac", "arch": "arm64",
+      "releases": [
+        { "tag_name": "titler-v0.11.0", "draft": false, "assets": [ { "id": 201, "name": "JM.Titler-0.11.0-win-x64.exe", "size": 90 }, { "id": 202, "name": "JM.Titler-0.11.0-mac-arm64.dmg", "size": 80 } ] },
+        { "tag_name": "titler-v0.10.1", "draft": false, "assets": [ { "id": 203, "name": "JM.Titler-0.10.1-win-x64.exe", "size": 90 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.11.0", "asset": "JM.Titler-0.11.0-mac-arm64.dmg" }
+    },
+    {
+      "name": "Mac x64: neuestes Release nur mit arm64-DMG, älteres mit x64-DMG → das ältere",
+      "app": "caption", "praefix": "caption-v", "plattform": "mac", "arch": "x64",
+      "releases": [
+        { "tag_name": "caption-v0.5.0", "draft": false, "assets": [ { "id": 211, "name": "JM.Caption-0.5.0-mac-arm64.dmg", "size": 80 } ] },
+        { "tag_name": "caption-v0.4.0", "draft": false, "assets": [ { "id": 212, "name": "JM.Caption-0.4.0-mac-x64.dmg", "size": 81 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.4.0", "asset": "JM.Caption-0.4.0-mac-x64.dmg" }
+    },
+    {
+      "name": "Mac arm64: nur x64-DMG → gewählt (läuft über Rosetta)",
+      "app": "copy", "praefix": "copy-v", "plattform": "mac", "arch": "arm64",
+      "releases": [
+        { "tag_name": "copy-v0.2.0", "draft": false, "assets": [ { "id": 301, "name": "JM.Copy-0.2.0-win-x64.exe", "size": 90 }, { "id": 302, "name": "JM.Copy-0.2.0-mac-x64.dmg", "size": 81 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.2.0", "asset": "JM.Copy-0.2.0-mac-x64.dmg" }
+    },
+    {
+      "name": "Mac x64: nur x64-DMG → gewählt",
+      "app": "copy", "praefix": "copy-v", "plattform": "mac", "arch": "x64",
+      "releases": [
+        { "tag_name": "copy-v0.2.0", "draft": false, "assets": [ { "id": 301, "name": "JM.Copy-0.2.0-win-x64.exe", "size": 90 }, { "id": 302, "name": "JM.Copy-0.2.0-mac-x64.dmg", "size": 81 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.2.0", "asset": "JM.Copy-0.2.0-mac-x64.dmg" }
+    },
+    {
+      "name": "Mac arm64: universelles DMG → gewählt",
+      "app": "sync", "praefix": "sync-v", "plattform": "mac", "arch": "arm64",
+      "releases": [
+        { "tag_name": "sync-v1.0.0", "draft": false, "assets": [ { "id": 401, "name": "JM.Sync-1.0.0-mac-universal.dmg", "size": 150 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "1.0.0", "asset": "JM.Sync-1.0.0-mac-universal.dmg" }
+    },
+    {
+      "name": "Mac x64: universelles DMG → gewählt",
+      "app": "sync", "praefix": "sync-v", "plattform": "mac", "arch": "x64",
+      "releases": [
+        { "tag_name": "sync-v1.0.0", "draft": false, "assets": [ { "id": 401, "name": "JM.Sync-1.0.0-mac-universal.dmg", "size": 150 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "1.0.0", "asset": "JM.Sync-1.0.0-mac-universal.dmg" }
+    },
+    {
+      "name": "Draft wird ignoriert (Draft 0.4.0 mit DMG, 0.3.0 mit DMG → 0.3.0)",
+      "app": "connect", "praefix": "connect-v", "plattform": "mac", "arch": "arm64",
+      "releases": [
+        { "tag_name": "connect-v0.4.0", "draft": true, "assets": [ { "id": 501, "name": "JM.Connect-0.4.0-mac-arm64.dmg", "size": 80 } ] },
+        { "tag_name": "connect-v0.3.0", "draft": false, "assets": [ { "id": 502, "name": "JM.Connect-0.3.0-mac-arm64.dmg", "size": 80 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.3.0", "asset": "JM.Connect-0.3.0-mac-arm64.dmg" }
+    },
+    {
+      "name": "fremdes Präfix wird ignoriert (launcher-v0.16.0 und connect-relay-v9.0.0 bei Connect)",
+      "app": "connect", "praefix": "connect-v", "plattform": "mac", "arch": "arm64",
+      "releases": [
+        { "tag_name": "launcher-v0.16.0", "draft": false, "assets": [ { "id": 601, "name": "JM.Production.Suite-0.16.0-mac-arm64.dmg", "size": 120 } ] },
+        { "tag_name": "connect-relay-v9.0.0", "draft": false, "assets": [ { "id": 603, "name": "JM.Connect.Relay-9.0.0-mac-arm64.dmg", "size": 10 } ] },
+        { "tag_name": "connect-v0.3.0", "draft": false, "assets": [ { "id": 602, "name": "JM.Connect-0.3.0-mac-arm64.dmg", "size": 80 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.3.0", "asset": "JM.Connect-0.3.0-mac-arm64.dmg" }
+    },
+    {
+      "name": "nur fremde Präfixe → kein Release",
+      "app": "connect", "praefix": "connect-v", "plattform": "win", "arch": "x64",
+      "releases": [
+        { "tag_name": "launcher-v0.16.0", "draft": false, "assets": [ { "id": 611, "name": "JM.Production.Suite-0.16.0-win-x64.exe", "size": 120 } ] },
+        { "tag_name": "connect-relay-v9.0.0", "draft": false, "assets": [ { "id": 612, "name": "JM.Connect.Relay-9.0.0-win-x64.exe", "size": 10 } ] }
+      ],
+      "erwartet": { "art": "kein-release" }
+    },
+    {
+      "name": "keine Releases → kein Release",
+      "app": "connect", "praefix": "connect-v", "plattform": "mac", "arch": "arm64",
+      "releases": [],
+      "erwartet": { "art": "kein-release" }
+    },
+    {
+      "name": "Mac: Releases da, keins mit DMG → kein Paket",
+      "app": "connect", "praefix": "connect-v", "plattform": "mac", "arch": "arm64",
+      "releases": [
+        { "tag_name": "connect-v0.3.1", "draft": false, "assets": [ { "id": 621, "name": "JM.Connect-0.3.1-win-x64.exe", "size": 90 } ] },
+        { "tag_name": "connect-v0.3.0", "draft": false, "assets": [ { "id": 622, "name": "JM.Connect-0.3.0-win-x64.exe", "size": 90 } ] }
+      ],
+      "erwartet": { "art": "kein-paket" }
+    },
+    {
+      "name": "Windows: Releases da, keins mit EXE → kein Paket",
+      "app": "caption", "praefix": "caption-v", "plattform": "win", "arch": "x64",
+      "releases": [
+        { "tag_name": "caption-v0.4.0", "draft": false, "assets": [ { "id": 631, "name": "JM.Caption-0.4.0-mac-arm64.dmg", "size": 80 } ] }
+      ],
+      "erwartet": { "art": "kein-paket" }
+    },
+    {
+      "name": "ein Release, arm64: genaue Architektur vor universell vor x64",
+      "app": "recorder", "praefix": "recorder-v", "plattform": "mac", "arch": "arm64",
+      "releases": [
+        { "tag_name": "recorder-v1.0.0", "draft": false, "assets": [ { "id": 701, "name": "JM.Recorder-1.0.0-mac-x64.dmg", "size": 81 }, { "id": 702, "name": "JM.Recorder-1.0.0-mac-universal.dmg", "size": 150 }, { "id": 703, "name": "JM.Recorder-1.0.0-mac-arm64.dmg", "size": 80 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "1.0.0", "asset": "JM.Recorder-1.0.0-mac-arm64.dmg" }
+    },
+    {
+      "name": "ein Release, arm64: universell vor x64",
+      "app": "recorder", "praefix": "recorder-v", "plattform": "mac", "arch": "arm64",
+      "releases": [
+        { "tag_name": "recorder-v1.0.0", "draft": false, "assets": [ { "id": 711, "name": "JM.Recorder-1.0.0-mac-x64.dmg", "size": 81 }, { "id": 712, "name": "JM.Recorder-1.0.0-mac-universal.dmg", "size": 150 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "1.0.0", "asset": "JM.Recorder-1.0.0-mac-universal.dmg" }
+    },
+    {
+      "name": "ein Release, x64: genaue Architektur vor universell",
+      "app": "recorder", "praefix": "recorder-v", "plattform": "mac", "arch": "x64",
+      "releases": [
+        { "tag_name": "recorder-v1.0.0", "draft": false, "assets": [ { "id": 721, "name": "JM.Recorder-1.0.0-mac-universal.dmg", "size": 150 }, { "id": 722, "name": "JM.Recorder-1.0.0-mac-x64.dmg", "size": 81 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "1.0.0", "asset": "JM.Recorder-1.0.0-mac-x64.dmg" }
+    },
+    {
+      "name": "höchste Version numerisch (0.10.0 vor 0.9.0)",
+      "app": "connect", "praefix": "connect-v", "plattform": "win", "arch": "x64",
+      "releases": [
+        { "tag_name": "connect-v0.9.0", "draft": false, "assets": [ { "id": 801, "name": "JM.Connect-0.9.0-win-x64.exe", "size": 90 } ] },
+        { "tag_name": "connect-v0.10.0", "draft": false, "assets": [ { "id": 802, "name": "JM.Connect-0.10.0-win-x64.exe", "size": 90 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.10.0", "asset": "JM.Connect-0.10.0-win-x64.exe" }
+    },
+    {
+      "name": "Launcher selbst, Mac x64: 0.16.0 ohne DMG, 0.15.0 mit → 0.15.0 (kein Update auf 0.16.0)",
+      "app": "launcher", "praefix": "launcher-v", "plattform": "mac", "arch": "x64",
+      "releases": [
+        { "tag_name": "launcher-v0.16.0", "draft": false, "assets": [ { "id": 901, "name": "JM.Production.Suite-0.16.0-win-x64.exe", "size": 120 } ] },
+        { "tag_name": "launcher-v0.15.0", "draft": false, "assets": [ { "id": 902, "name": "JM.Production.Suite-0.15.0-win-x64.exe", "size": 120 }, { "id": 903, "name": "JM.Production.Suite-0.15.0-mac-arm64.dmg", "size": 110 }, { "id": 904, "name": "JM.Production.Suite-0.15.0-mac-x64.dmg", "size": 111 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.15.0", "asset": "JM.Production.Suite-0.15.0-mac-x64.dmg" }
+    },
+    {
+      "name": "Launcher selbst, Windows: 0.16.0",
+      "app": "launcher", "praefix": "launcher-v", "plattform": "win", "arch": "x64",
+      "releases": [
+        { "tag_name": "launcher-v0.16.0", "draft": false, "assets": [ { "id": 901, "name": "JM.Production.Suite-0.16.0-win-x64.exe", "size": 120 } ] },
+        { "tag_name": "launcher-v0.15.0", "draft": false, "assets": [ { "id": 902, "name": "JM.Production.Suite-0.15.0-win-x64.exe", "size": 120 }, { "id": 903, "name": "JM.Production.Suite-0.15.0-mac-arm64.dmg", "size": 110 }, { "id": 904, "name": "JM.Production.Suite-0.15.0-mac-x64.dmg", "size": 111 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.16.0", "asset": "JM.Production.Suite-0.16.0-win-x64.exe" }
+    },
+    {
+      "name": "genauer Katalogname vor Muster (am Release mit Punkten statt Leerzeichen)",
+      "app": "connect", "praefix": "connect-v", "plattform": "mac", "arch": "arm64", "nurLauncher": true,
+      "genauerName": "JM Connect-${version}-mac-arm64.dmg",
+      "releases": [
+        { "tag_name": "connect-v0.3.0", "draft": false, "assets": [ { "id": 1001, "name": "JM.Connect-Mitschnitt-0.3.0-mac-arm64.dmg", "size": 70 }, { "id": 1002, "name": "JM.Connect-0.3.0-mac-arm64.dmg", "size": 80 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.3.0", "asset": "JM.Connect-0.3.0-mac-arm64.dmg" }
+    },
+    {
+      "name": "genauer Katalogname vor Muster (Name mit Leerzeichen)",
+      "app": "connect", "praefix": "connect-v", "plattform": "win", "arch": "x64", "nurLauncher": true,
+      "genauerName": "JM Connect-${version}-win-x64.exe",
+      "releases": [
+        { "tag_name": "connect-v0.3.0", "draft": false, "assets": [ { "id": 1011, "name": "JM.Connect-Mitschnitt-0.3.0-win-x64.exe", "size": 70 }, { "id": 1012, "name": "JM Connect-0.3.0-win-x64.exe", "size": 90 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.3.0", "asset": "JM Connect-0.3.0-win-x64.exe" }
+    },
+    {
+      "name": "genauer Katalogname mit fremder Architektur zählt nicht (x64 nie arm64)",
+      "app": "titler", "praefix": "titler-v", "plattform": "mac", "arch": "x64", "nurLauncher": true,
+      "genauerName": "JM Titler-${version}-mac-arm64.dmg",
+      "releases": [
+        { "tag_name": "titler-v0.11.0", "draft": false, "assets": [ { "id": 1021, "name": "JM.Titler-0.11.0-win-x64.exe", "size": 90 }, { "id": 1022, "name": "JM.Titler-0.11.0-mac-arm64.dmg", "size": 80 } ] }
+      ],
+      "erwartet": { "art": "kein-paket" }
+    },
+    {
+      "name": "genauer Katalogname fehlt im Release → Muster",
+      "app": "connect", "praefix": "connect-v", "plattform": "mac", "arch": "arm64", "nurLauncher": true,
+      "genauerName": "JM Connect-${version}-mac-arm64.dmg",
+      "releases": [
+        { "tag_name": "connect-v0.3.0", "draft": false, "assets": [ { "id": 1031, "name": "JM_Connect_0.3.0_arm64.dmg", "size": 80 } ] }
+      ],
+      "erwartet": { "art": "gewaehlt", "version": "0.3.0", "asset": "JM_Connect_0.3.0_arm64.dmg" }
+    }
+  ]
+}
