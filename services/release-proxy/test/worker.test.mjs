@@ -12,6 +12,7 @@
 // Limit (429). Stubbt globalThis.fetch und eine Map-basierte KV-Bindung. Die
 // Connect-Tests (Welle 6) prüfen die Worker-Routing-Ebene; die DO-internen Pfade
 // brauchen die Workers-Runtime (miniflare) und sind hier bewusst nicht abgedeckt.
+import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
 
 let passed = 0;
@@ -535,6 +536,62 @@ async function run() {
     check('… zoom-sdk (Release per Tag) wörtlich', r.status === 200 && norm(kopfVon('/releases/tags/')) === norm(GH));
     check('… zoom-sdk 200: content-type JSON und no-store',
       r.headers.get('content-type') === 'application/json; charset=utf-8' && r.headers.get('cache-control') === 'no-store');
+    stub = async () => new Response('{}', { status: 200 });
+  }
+
+  // 23) iveo-Paket P36 (Spec 10.5, 12.7 Nr. 4): neuestes Release mit passendem Paket über dieselbe Tabelle wie der
+  // Launcher (test/paketwahl-faelle.json). Fälle mit nurLauncher (genauer Katalogname) kennt nur die GitHub-Quelle.
+  {
+    const tabelle = JSON.parse(readFileSync(new URL('./paketwahl-faelle.json', import.meta.url), 'utf8'));
+    const faelle = tabelle.faelle.filter((f) => !f.nurLauncher);
+    let releases = [];
+    stub = async (u) => {
+      const url = String(u);
+      if (url.includes('/releases/assets/')) {
+        const id = url.split('/').pop();
+        return new Response(null, { status: 302, headers: { Location: `https://signed.test/${id}` } });
+      }
+      if (url.includes('/releases?')) return new Response(JSON.stringify(releases), { status: 200 });
+      return new Response('{}', { status: 200 });
+    };
+    const latest = (app, plattform, arch) =>
+      worker.fetch(req(`/tools/${app === 'launcher' ? 'launcher' : `jm-${app}`}/latest?platform=${plattform}${arch ? `&arch=${arch}` : ''}`), baseEnv);
+    check(`P36 12.7 Nr. 4: Tabelle gelesen (${faelle.length} Fälle für den Proxy)`, faelle.length === 22);
+    for (const f of faelle) {
+      releases = f.releases;
+      const r = await latest(f.app, f.plattform, f.arch);
+      const out = await r.json();
+      let ok;
+      if (f.erwartet.art === 'gewaehlt') {
+        const id = f.releases.flatMap((x) => x.assets).find((a) => a.name === f.erwartet.asset)?.id;
+        const paket = out.assets?.[f.plattform];
+        ok = r.status === 200 && out.version === f.erwartet.version && paket?.fileName === f.erwartet.asset
+          && paket?.url === `https://signed.test/${id}`;
+      } else if (f.erwartet.art === 'kein-release') {
+        ok = r.status === 404 && out.error === `kein Release für ${f.app}`;
+      } else {
+        const t28 = f.plattform === 'mac'
+          ? `kein Release von ${f.app} mit einem Paket für macOS (${f.arch})`
+          : `kein Release von ${f.app} mit einem Paket für Windows`;
+        ok = r.status === 404 && out.error === t28;
+      }
+      if (!ok) console.log(`      ${f.name}: Status ${r.status}, ${JSON.stringify(out)}`);
+      check(`P36 12.7 Nr. 4: ${f.name}`, ok);
+    }
+    // Ohne arch gilt x64 (EP16), eine unbekannte arch ebenso: nur ein arm64-DMG → 404 mit T28 (x64).
+    releases = [{ tag_name: 'titler-v0.11.0', draft: false, assets: [{ id: 202, name: 'JM.Titler-0.11.0-mac-arm64.dmg', size: 80 }] }];
+    let r = await latest('titler', 'mac', null);
+    let out = await r.json();
+    check('P36 EP16: ohne arch gilt x64 (nur arm64-DMG → 404 „… für macOS (x64)“)',
+      r.status === 404 && out.error === 'kein Release von titler mit einem Paket für macOS (x64)');
+    r = await latest('titler', 'mac', 'ia32');
+    out = await r.json();
+    check('P36 EP16: eine unbekannte arch zählt als x64 und steht nicht im Text',
+      r.status === 404 && out.error === 'kein Release von titler mit einem Paket für macOS (x64)');
+    const quelle = readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    check('P36 EP3: worker.js wählt nur über paketwahl.js (kein eigenes compareVersions, kein Rückfall auf irgendein DMG)',
+      quelle.includes("import { keinPaketFehler, waehleRelease } from './paketwahl.js';")
+        && !/function compareVersions\b/.test(quelle) && !quelle.includes('-Asset im Release'));
     stub = async () => new Response('{}', { status: 200 });
   }
 }

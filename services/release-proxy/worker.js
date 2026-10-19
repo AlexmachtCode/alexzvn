@@ -31,6 +31,8 @@ import { buildAuthoringPrompt } from '../../packages/cookbook/src/authoring-prom
 import { handleQa } from './qa-relay.js';
 // Remote-Zuschaltung / Signalling (Welle 6) — Routing + ConnectRoom Durable Object.
 import { handleConnect, ConnectRoom } from './connect-relay.js';
+// Paketwahl für /tools/:id/latest (iveo-Paket, Spec 10.5): eigenes Modul, das auch Test und Trockenlauf laden.
+import { keinPaketFehler, waehleRelease } from './paketwahl.js';
 
 // Durable-Object-Klassen müssen aus dem Worker-Haupt-Modul re-exportiert werden.
 export { ConnectRoom };
@@ -289,7 +291,8 @@ export default {
 
     const id = decodeURIComponent(match[1]);
     const platform = url.searchParams.get('platform');
-    const arch = url.searchParams.get('arch') || 'x64';
+    // Ohne arch gilt x64 (EP16); alles außer arm64 zählt als x64, wie archToken() im Launcher (Spec 10.5).
+    const arch = url.searchParams.get('arch') === 'arm64' ? 'arm64' : 'x64';
     if (platform !== 'mac' && platform !== 'win') {
       return json({ error: 'query "platform" erforderlich (mac|win)' }, 400);
     }
@@ -300,27 +303,18 @@ export default {
 
     try {
       const releases = await alleReleases(env);
-      const picked = releases
-        .filter((r) => !r.draft && typeof r.tag_name === 'string' && r.tag_name.startsWith(prefix))
-        .map((r) => ({ release: r, version: r.tag_name.slice(prefix.length) }))
-        .sort((a, b) => compareVersions(b.version, a.version))[0];
-      if (!picked) return json({ error: `kein Release für ${app}` }, 404);
-
-      const ext = platform === 'mac' ? '.dmg' : '.exe';
-      const assets = picked.release.assets || [];
-      // Auf macOS zusätzlich nach Architektur filtern (arm64/x64-DMG), sonst nur
-      // nach Endung. GitHub ersetzt Leerzeichen in Asset-Namen durch Punkte.
-      const asset =
-        assets.find(
-          (a) => a.name.endsWith(ext) && (platform === 'mac' ? a.name.includes(arch) : true),
-        ) || assets.find((a) => a.name.endsWith(ext));
-      if (!asset) return json({ error: `kein ${platform}-Asset im Release` }, 404);
+      // Neuestes Release mit einem Paket für diese Plattform (paketwahl.js, iveo-Paket Spec 10.5): ein x64-Mac bekommt
+      // nie ein arm64-DMG; hat das neueste Release kein Paket, das neueste ältere mit Paket.
+      const wahl = waehleRelease(releases, prefix, platform, arch);
+      if (wahl.art === 'kein-release') return json({ error: `kein Release für ${app}` }, 404);
+      if (wahl.art === 'kein-paket') return json({ error: keinPaketFehler(app, platform, arch) }, 404);
+      const asset = wahl.asset;
 
       const signedUrl = await resolveSignedUrl(env.REPO, asset.id, env);
       if (!signedUrl) return json({ error: 'Download-URL nicht auflösbar' }, 502);
 
       return json({
-        version: picked.version,
+        version: wahl.version,
         assets: {
           [platform]: { url: signedUrl, size: asset.size, fileName: asset.name },
         },
@@ -481,17 +475,6 @@ async function zoomSdkSchluesselPasst(geliefert, secret) {
   let diff = 0;
   for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
   return diff === 0;
-}
-
-/** Dotted-Versionsvergleich; >0 wenn a neuer als b. */
-function compareVersions(a, b) {
-  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] || 0) - (pb[i] || 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 /** `extra`: zusätzliche Kopfzeilen, etwa `cache-control: no-store` für den signierten Link. */
