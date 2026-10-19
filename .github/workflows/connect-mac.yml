@@ -1,0 +1,157 @@
+name: Connect macOS
+
+# JM Connect für macOS (arm64 und x64, unsigniert), ohne Zoom und ohne NDI (iveo-Paket, Spec 10.1–10.3; E36–E39, OF1
+# Variante A). suite-release.yml schließt connect-v weiter aus: Das Windows-Paket mit NDI und Zoom-Bridge baut der Owner
+# lokal. Dieser Workflow hängt nur die zwei DMGs an das Release des Tags.
+#   - Tag-Push connect-v*.*.*: baut aus dem Tag; gibt es noch kein Release, legt er ein Pre-Release an.
+#   - Hand-Start mit der Eingabe tag (Nachlauf, z. B. connect-v0.3.0): baut aus dem Tag und lädt an das bestehende
+#     Release; ohne Release bricht er ab (E38).
+# Kein Katalog-Bump (E37): latestVersion in suite.json zieht der Owner lokal nach, wenn beide Pakete am Release hängen.
+# Zwei Jobs (OFP7): Der Bau führt fremden Code aus (Install-Skripte aus npm ci, electron-vite, electron-builder) und hat
+# darum nur Leserecht, ohne gespeichertes Token im Checkout. Das Schreibrecht hat nur der Job, der die geprüften DMGs
+# hochlädt; er führt keinen Code aus dem Repo oder aus npm aus.
+on:
+  push:
+    tags:
+      - "connect-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Bestehendes Tag, z. B. connect-v0.3.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    name: JM Connect macOS bauen (arm64 + x64)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      # Tag aus der Eingabe (Hand-Start) oder aus dem Push, als Step-Output wie in suite-release.yml (EP6). Eingaben
+      # gehen nur über env in das Skript.
+      - name: Tag bestimmen und prüfen
+        id: tag
+        shell: bash
+        env:
+          EINGABE: ${{ inputs.tag }}
+          EREIGNIS: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EREIGNIS" = "workflow_dispatch" ]; then tag="$EINGABE"; else tag="$REF_NAME"; fi
+          if ! printf '%s' "$tag" | grep -Eq '^connect-v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag „$tag“ hat nicht die Form connect-v‹Version› (z. B. connect-v0.3.0)."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#connect-v}" >> "$GITHUB_OUTPUT"
+
+      # Quellen aus dem Tag. Gibt es das Tag nicht, scheitert dieser Schritt (Spec 10.1: muss existieren). Kein Token in
+      # .git/config (persist-credentials: false): Die folgenden Schritte brauchen keins.
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          persist-credentials: false
+
+      # Das Prüfskript aus dem Commit dieses Workflows (EP6): Im Tag connect-v0.3.0 gibt es es noch nicht.
+      - name: Prüfskript aus dem Workflow-Commit holen
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: werkzeug
+          sparse-checkout: apps/connect/tools/pruefe-mac-paket.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      # Der Artefaktname kommt aus apps/connect/package.json (electron-builder.yml:3): Version und Tag müssen gleich sein.
+      - name: Version im Tag prüfen
+        shell: bash
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          ist=$(node -p "require('./apps/connect/package.json').version")
+          if [ "$ist" != "$VERSION" ]; then
+            echo "::error::apps/connect/package.json nennt $ist, das Tag $VERSION."
+            exit 1
+          fi
+
+      # @jm/ndi und @jm/zoom-bridge überspringen ihren nativen Bau ohne SDK bzw. außerhalb von Windows (Spec 10.1 Nr. 4).
+      - name: Install (workspaces)
+        run: npm ci
+
+      - name: Build renderer/main (electron-vite)
+        run: npm run build -w @jm/connect
+
+      # bundle-ndi.mjs und bundle-zoom-bridge.mjs beenden sich außerhalb von Windows ohne Arbeit (Spec 4.6 Nr. 6).
+      - name: Prepackage (ohne NDI und ohne Zoom-Bridge)
+        run: npm run prepackage -w @jm/connect
+
+      - name: Package (electron-builder, unsigniert)
+        working-directory: apps/connect
+        run: npx electron-builder --mac --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      # Spec 10.2: zwei DMGs (arm64, x64), in beiden .app kein Ordner zoom-bridge und kein jm_ndi.node. Scheitert die
+      # Prüfung, entsteht kein Artefakt, und der Job hochladen startet nicht.
+      - name: Prüfen (macOS ohne Zoom und ohne NDI)
+        run: node werkzeug/apps/connect/tools/pruefe-mac-paket.mjs apps/connect/release
+
+      # Nur die zwei geprüften DMGs gehen an den Job hochladen (wie suite-build.yml), einen Tag aufbewahrt.
+      - name: DMGs als Artefakt ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: connect-mac-dmgs
+          path: apps/connect/release/*.dmg
+          if-no-files-found: error
+          retention-days: 1
+
+  hochladen:
+    name: DMGs an das Release hängen
+    needs: mac
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # Kein Checkout, kein npm, kein node: Dieser Job führt nur gh aus und hat als einziger das Schreibrecht (OFP7).
+      - name: DMGs aus dem Bau holen
+        uses: actions/download-artifact@v4
+        with:
+          name: connect-mac-dmgs
+          path: dmgs
+
+      - name: DMGs an das Release hängen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.mac.outputs.tag }}
+          EREIGNIS: ${{ github.event_name }}
+        run: |
+          shopt -s nullglob
+          files=(dmgs/*.dmg)
+          if [ ${#files[@]} -ne 2 ]; then
+            echo "::error::Zwei DMGs erwartet, gefunden ${#files[@]}."
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG gefunden."
+          elif [ "$EREIGNIS" = "push" ]; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "connect $TAG" \
+              --notes "Mac-Paket aus der CI; das Windows-Paket und die Notes folgen."
+          else
+            echo "::error::Zum Tag $TAG gibt es kein Release; beim Hand-Start legt dieser Workflow keins an (E38)."
+            exit 1
+          fi
+          echo "Lade hoch: ${files[*]}"
+          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber

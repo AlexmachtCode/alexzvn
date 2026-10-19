@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T00:00:00.000Z",
+  "updatedAt": "2026-10-17T00:00:00.000Z",
   "recipes": [
     {
       "id": "award-gala",
@@ -1480,7 +1480,7 @@
         "jm-rundown"
       ],
       "prerequisites": [
-        "Windows 10/11, 64 Bit (Zoom nur unter Windows)",
+        "Windows 10/11, 64 Bit (mit Zoom und NDI) oder macOS (ohne Zoom und ohne NDI)",
         "JM Connect ab 0.3.0, installiert über den Launcher",
         "Zoom-SDK 7.1.5.43953 (per „Zoom-SDK laden“ oder als SDK-Ordner aus der JM-Ablage)",
         "Zugangsdaten der Meeting-SDK-App (Datei oder Client-ID und Client-Secret)",
@@ -1492,7 +1492,7 @@
         "Media Operator (Zuschaltungen)",
         "Host im Zoom-Client (lässt zu, erteilt die Aufnahme-Erlaubnis)"
       ],
-      "lastReviewed": "2026-10-06",
+      "lastReviewed": "2026-10-17",
       "owner": "tech@jakobsmedien.com",
       "summary": "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-Quellen im Switcher. Zoom wird einmal je PC eingerichtet, das Meeting muss im eigenen Zoom-Konto liegen, Personen werden einzeln geladen. Nach einem Abriss tritt Connect selbst wieder bei. Fernsteuerbar per Companion über Port 8737.",
       "blocks": {
@@ -1500,7 +1500,7 @@
           {
             "title": "Voraussetzungen",
             "items": [
-              "Windows 10/11, 64 Bit. Zoom gibt es nur unter Windows; unter macOS zeigt Connect nur die Browser-Gäste.",
+              "Windows 10/11, 64 Bit, für Zoom und NDI. Unter macOS (installiert über den Launcher, Paket ohne Zoom und ohne NDI) laufen Raum, Einladungen und Green Room; die Gäste erscheinen dort nicht als NDI-Quelle und sehen und hören das Programm nicht, einander und die Regie per Talkback hören sie weiter.",
               "JM Connect ab Version 0.3.0, installiert über den Launcher.",
               "Zoom-SDK 7.1.5.43953: auf JM-eigenen Rechnern per Knopf „Zoom-SDK laden“ (braucht den SDK-Schlüssel), sonst als SDK-Ordner aus der JM-Ablage. Connect kopiert es einmal je PC nach %LOCALAPPDATA%\\JM Connect\\zoom-laufzeit (rund 315 MB).",
               "Zugangsdaten der Meeting-SDK-App: die Zugangsdaten-Datei (clientId, clientSecret) oder Client-ID und Client-Secret von Hand. Connect speichert sie verschlüsselt unter diesem Windows-Konto und schickt sie nie in die Cloud.",
@@ -1527,8 +1527,8 @@
             "items": [
               "Raum öffnen (braucht den Cloud-Zugang), für jeden Gast einen Link erzeugen und verschicken.",
               "Gäste landen im Warteraum: prüfen und freigeben.",
-              "Freigegebene Gäste auf Sendung schalten. Jeder Gast ist eine eigene NDI-Quelle „JM Connect – <Name>“, ein geteilter Bildschirm eine weitere.",
-              "Talkback (Regie ins Ohr) für alle oder per Halten-Taste für einen Gast; Programm-Rückkanal mit Mix-Minus je Gast."
+              "Freigegebene Gäste auf Sendung schalten. Unter Windows ist jeder Gast eine eigene NDI-Quelle „JM Connect – <Name>“, ein geteilter Bildschirm eine weitere; unter macOS gibt es keine NDI-Quellen.",
+              "Talkback (Regie ins Ohr) für alle oder per Halten-Taste für einen Gast; Programm-Rückkanal mit Mix-Minus je Gast nur unter Windows (er kommt über NDI)."
             ]
           },
           {
@@ -1541,7 +1541,7 @@
               "Kopfhörer tragen: Lautsprecher im selben Raum wie ein abonniertes Mikrofon erzeugen Echo.",
               "Kein Mischton, kein Bildschirmton, kein Dolmetscherton, kein Ton zurück nach Zoom.",
               "Keine Bildvorschau in Connect: das Bild im Switcher oder NDI-Monitor ansehen.",
-              "Zoom nur unter Windows.",
+              "Zoom und NDI nur unter Windows. Das Mac-Paket hat beides nicht: keine NDI-Quellen, kein Programm-Rückkanal, keine Zoom-Karte.",
               "Die SDK-Fassung ist fest (7.1.5.43953). Lehnt Zoom sie ab, hilft nur ein neuer Connect-Release.",
               "JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release."
             ]
@@ -3910,7 +3910,7 @@
       "crewRoles": [
         "Grafik / Media Operator"
       ],
-      "lastReviewed": "2026-10-13",
+      "lastReviewed": "2026-10-17",
       "owner": "tech@jakobsmedien.com",
       "summary": "Live-Bauchbinden, Banner und Ticker als transparente NDI-Quelle — mit DataLink-Variablen aus Dateien, iveo-Speakerdaten, PSD-/Grafiktool-Import, zweitem Bildschirm und TCP-Fernsteuerung.",
       "blocks": {
@@ -3950,7 +3950,7 @@
             "NDI im Mischer als Quelle einbinden — oder das Ausgabe-Fenster auf den zweiten Monitor legen (Chroma-Green für Hardware-Keyer)",
             "DataLink (optional): Watchfolder mit CSV/TSV wählen — jede Zeile wird ein abrufbarer Eintrag, Spalten füllen die `{{name}}`/`{{subtitle}}`/`{{location}}`-Variablen. Gelesen werden UTF-8 (mit oder ohne BOM), UTF-16 mit BOM und sonst Windows-1252 (Excel „CSV (Trennzeichen-getrennt)“). Excel „Unicode-Text“ speichert als `.txt`, und `.txt` liest der DataLink als Datei mit `schlüssel=wert`-Zeilen, nicht als Tabelle: Die Datei vor dem Ablegen in `.tsv` umbenennen, sonst entsteht kein Eintrag; Variablennamen dürfen Umlaute enthalten, z. B. `{{größe}}`",
             "Grafik-Vorlage (optional): PSD oder `.jmtitler` importieren — Ebenennamen werden automatisch auf DataLink-Variablen gemappt (Titel/Name → `{{name}}`, Untertitel/Funktion → `{{subtitle}}`, Ort → `{{location}}`)",
-            "iveo (optional): Wird der Titler über eine iveo-gebundene Show gestartet, materialisiert der Launcher die Speaker automatisch in den DataLink (`speakers.tsv`) — kein Token im Titler nötig",
+            "iveo (optional): Wird der Titler über eine iveo-gebundene Show gestartet, materialisiert der Launcher die Speaker automatisch in den DataLink (`speakers.tsv` mit den Spalten `name`, `funktion`, `title`, `organisation`, `organisationen`, `@kennung`) — kein Token im Titler nötig. Ab Titler 0.12.1 mit Launcher 0.16.0 gibt es `{{organisation}}` (Hauptorganisation) und `{{organisationen}}` (alle, mit „ · “ verbunden); ohne Organisation bleiben beide leer, eine Vorlage „{{name}} · {{organisation}}“ zeigt dann „Name · “, darum den Trenner besser in eine eigene Ebene legen. Im Verbund braucht auch der gekoppelte Rechner Titler 0.12.1",
             "Kopfzeile: in der Mitte im Verbund (gekoppelter Rechner) „Show vom Master: ⟨Show⟩ · Stand ⟨hh:mm⟩“; solange die Speaker vom Master kommen, ist die Ordnerwahl unter Einstellungen › DataLink gesperrt, der Grund steht dort. Rechts **ON AIR** bzw. „bereit“, der Schalter Hell/Dunkel (je Arbeitsplatz gemerkt; das Recall-Board übernimmt ihn beim Öffnen, das Ausgabefenster bleibt unverändert) und ⚙",
             "Statusleiste unten: Master, iveo, NDI, Bildschirm, Fernsteuerung, DataLink. „unbekannt“ heißt: Der Titler weiß es (noch) nicht; „an (ohne Rückmeldung)“ heißt: eingeschaltet, eine Bestätigung gibt es nicht"
           ],
@@ -3983,8 +3983,8 @@
             "remedy": "Statusleiste **Fernsteuerung**: „Port belegt“ → ein anderes Programm hält 8726; es beenden und den Titler neu starten. „bereit · 0 verbunden“ → der Titler lauscht, kein Client ist verbunden: Port 8726 in der Firewall offen? `jm-titler-ctl` im mDNS sichtbar?"
           },
           {
-            "risk": "iveo-Speaker fehlen",
-            "remedy": "Show iveo-gebunden gestartet? Der Token liegt im Launcher (single-holder) — der Titler liest nur `speakers.tsv`"
+            "risk": "iveo-Speaker fehlen oder `{{organisation}}` bleibt leer",
+            "remedy": "Show iveo-gebunden gestartet? Der Token liegt im Launcher (single-holder) — der Titler liest nur `speakers.tsv`. Leere Organisation: Titler ab 0.12.1 und Launcher ab 0.16.0, im Verbund auch auf dem gekoppelten Rechner? Hat der Speaker in iveo eine Organisation?"
           }
         ],
         "checklists": [
@@ -4010,7 +4010,7 @@
         "tips": [
           "Companion-Button „Nächster Redner\": `TITLER NEXT` gefolgt von `TITLER TAKE` — ein Tastendruck holt den nächsten DataLink-Eintrag und blendet ihn ein.",
           "Grafik im JM Grafiktool bauen und als `.jmtitler` „an den Titler senden\" — Hintergrund + variablen-fähige Text-Slots kommen fertig gemappt an.",
-          "Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab.",
+          "Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab. Organisationen kommen mit (`{{organisation}}`, `{{organisationen}}`); eine Änderung in iveo erreicht die Bauchbinde in der Regel binnen etwa 5 Minuten, solange der Launcher mit dem iveo-Token dieser Show läuft und regelmäßig abfragt.",
           "Zweiter Bildschirm statt NDI, wenn der Mischer nur SDI/HDMI-Keying kann: Chroma-Green-Ausgabe auf den Keyer, NDI bleibt zusätzlich verfügbar."
         ]
       }

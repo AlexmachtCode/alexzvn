@@ -75,7 +75,7 @@ Header: X-Zoom-Sdk-Key: <ZOOM_SDK_KEY>       (KEIN Proxy-Key)
 → 401 unauthorized · 404 not_found · 429 mit Retry-After · 502 upstream
 ```
 - `:id` = Tool-ID aus suite.json (`jm-copy`, `jm-sync`, … oder `launcher`).
-- Auf macOS bestimmt `arch` das richtige DMG (arm64/x64); auf Windows ist es x64.
+- Gewählt wird das neueste Release mit einem Paket für die Plattform (`paketwahl.js`, iveo-Paket Spec 10.5): auf Windows eine `.exe`, auf macOS ein DMG mit genau dieser `arch`, sonst ein universelles, auf `arm64` zuletzt ein x64-DMG (Rosetta), nie ein arm64-DMG für x64 (ohne `arch` gilt x64); fehlt es in allen Releases, antwortet der Proxy 404 mit `kein Release von <app> mit einem Paket für macOS (<arch>)` bzw. `kein Release von <app> mit einem Paket für Windows`.
 - `/suite.json` liefert den **Katalog** direkt aus git (Branch = `MANIFEST_REF` in
   `wrangler.toml`). Damit erscheinen **neue Tools ohne Launcher-Release** — einfach
   `suite.json` committen. Der Launcher zieht diese URL automatisch als Default.

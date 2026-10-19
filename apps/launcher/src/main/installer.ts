@@ -8,12 +8,16 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ToolManifest } from '@jm/suite-manifest';
 import type { ActionResult, InstallProgress } from '@shared/types';
-import { getReleaseSource } from './release-source';
+import { archToken, getReleaseSource, platformKey } from './release-source';
+import { keinPaketText } from './release-wahl';
 import { installPathFor, recordInstalled } from './install-state';
 import { launcherManifest } from './updates';
 import { getTools } from './manifest';
 
 type Emit = (progress: InstallProgress) => void;
+
+/** Plattform für die Texte T29/T69 (Spec 11.5 F8, F11); ohne bekannte Plattform liefert die Quelle ohnehin kein Paket. */
+const plattformHier = (): 'mac' | 'win' => (platformKey() === 'mac' ? 'mac' : 'win');
 
 const execFileAsync = promisify(execFile);
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -239,7 +243,8 @@ export async function installTool(tool: ToolManifest, emit: Emit): Promise<Actio
     return { ok: false, message };
   }
   if (!asset) {
-    const message = 'Kein passendes Artefakt für diese Plattform gefunden.';
+    // Kein Release mit einem Paket für diesen Rechner (Spec 10.4, 11.5 F8; T29).
+    const message = keinPaketText(plattformHier(), archToken(), 'tool');
     emit({ id: tool.id, phase: 'error', message });
     return { ok: false, message };
   }
@@ -360,7 +365,8 @@ export async function updateLauncher(emit: Emit): Promise<ActionResult> {
     return { ok: false, message };
   }
   if (!asset) {
-    const message = 'Kein Launcher-Installer für diese Plattform gefunden.';
+    // Kein Launcher-Paket für diesen Rechner (Spec 10.4, 11.5 F11; T69).
+    const message = keinPaketText(plattformHier(), archToken(), 'launcher');
     emit({ id: 'launcher', phase: 'error', message });
     return { ok: false, message };
   }

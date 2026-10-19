@@ -132,3 +132,11 @@ export function meldeShowAnVerbund(pfad: string, show: Show | null): void {
 export function verbundReloadInfo(): { andereRechner: number } | null {
   return kern.rolle() === 'master' ? { andereRechner: verteiler.abosAndererRechner() } : null;
 }
+
+/**
+ * iveo-Paket, Spec 9.2 Nr. 3: Rolle dieses Rechners, nur lesend (kern.rolle()). Die Ablage liest sie in jedem Takt und vor
+ * jedem Schritt; „Mit Master verbinden“ (`slave`) legt nie ab. Ein Ereignis für den Rollenwechsel gibt es nicht.
+ */
+export function verbundRolle(): VerbundRolle {
+  return kern.rolle();
+}

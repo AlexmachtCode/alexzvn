@@ -3,9 +3,9 @@
 import { isDeepStrictEqual } from 'node:util';
 import { parseShow, serializeShow, type Show } from '@jm/show';
 import {
-  baueAblauf, baueGespeicherteShow, bindungAusEditor, formularAusShow, formularSchluessel, KNOPF_AKTUALISIEREN,
-  KNOPF_TROTZDEM_SPEICHERN, speichernAbgelehnt, TEXT_SPEICHERN_DATEI_NICHT_LESBAR, zeilenAusAblauf, zeilenAusSeed,
-  type FormularStand,
+  basisUrlPlatzhalter, baueAblauf, baueGespeicherteShow, bindMeldung, bindungAusEditor, bindungsAdresse, editorAdresseAusShow,
+  formularAusShow, formularSchluessel, KNOPF_AKTUALISIEREN, KNOPF_TROTZDEM_SPEICHERN, speichernAbgelehnt,
+  TEXT_SPEICHERN_DATEI_NICHT_LESBAR, zeilenAusAblauf, zeilenAusSeed, type FormularStand,
 } from '../src/renderer/src/lib/show-speichern';
 
 let pass = 0, fail = 0;
@@ -45,7 +45,7 @@ const ROH = {
     baseUrl: 'https://my-iveo.de/api/v1',
     name: 'COP31',
     syncedAt: '2026-09-29T07:59:00.000Z',
-    speakers: [{ id: 'sp-ada', name: 'Ada Lovelace', title: 'Moderation' }],
+    speakers: [{ id: 'sp-ada', name: 'Ada Lovelace', title: 'Moderation', organisationen: ['UNFCCC', 'Ministry of Environment'] }],
     speakerVeraltetSeit: '2026-09-29T07:58:00.000Z',
     sideEvents: [{ id: 'p1', title: 'Side Event A' }],
     filter: { programId: 'p1' },
@@ -308,6 +308,66 @@ console.log('— Neue Show (ohne editPath)');
   ck('ohne Bindung kein iveo', !('iveo' in e));
   ck('Schema-Version gesetzt', e.schemaVersion === 1);
 }
+
+console.log('— iveo-Paket P26: Adresse beim Binden und beim Bearbeiten (Spec 7.4, E16)');
+{
+  const PROD = 'https://app.my-iveo.de/api/v1';
+  const STAGING = 'https://staging-dev.my-iveo.de/api/v1';
+  ck('P26 12.6 Nr. 2: Ergebnis-Adresse vor Feld', bindungsAdresse(PROD, ` ${STAGING} `) === PROD);
+  ck('P26 12.6 Nr. 2: ohne Ergebnis-Adresse das getrimmte Feld', bindungsAdresse(undefined, `  ${STAGING}  `) === STAGING);
+  ck('P26 12.6 Nr. 2: beides leer → undefined (die Bindung trägt dann keine Adresse)',
+    bindungsAdresse(undefined, '   ') === undefined && bindungsAdresse('', '') === undefined);
+  const mitStaging = parseShow(JSON.stringify({ ...ROH, iveo: { ...ROH.iveo, baseUrl: STAGING } }));
+  ck('P26 12.6 Nr. 3: Show mit Staging-Adresse → das Feld zeigt genau diese', editorAdresseAusShow(mitStaging) === STAGING);
+  const ohneAdresse = parseShow(JSON.stringify({ ...ROH, iveo: { ...ROH.iveo, baseUrl: undefined } }));
+  const ohneIveo = parseShow(JSON.stringify({ ...ROH, iveo: undefined }));
+  ck('P26 12.6 Nr. 3: Show ohne Adresse und Show ohne iveo → leeres Feld',
+    editorAdresseAusShow(ohneAdresse) === '' && editorAdresseAusShow(ohneIveo) === '');
+  ck('P26 T7: Platzhalter nennt die Standardadresse dieses Rechners', basisUrlPlatzhalter(PROD) === `Basis-URL (leer = ${PROD})`);
+  ck('P26 T7: ohne geladene Einstellungen nur „Basis-URL“ (keine Adresse behauptet)',
+    basisUrlPlatzhalter(undefined) === 'Basis-URL' && basisUrlPlatzhalter('') === 'Basis-URL');
+  // Rundreise wie im Editor: neue Bindung mit leerem Feld, gespeichert, wieder geladen → das Feld zeigt dieselbe Adresse.
+  const neu = bindungAusEditor({ event: 'cop31', name: 'COP31', baseUrl: bindungsAdresse(PROD, ''), filter: { programId: 'p1' } });
+  const gespeichert = baueGespeicherteShow(null, { ...formularAusShow(geladen), name: 'Neu', iveoNeuGebunden: neu }, null, zaehler().neueId);
+  ck('P26 7.4 (E16): neu gebunden mit leerem Feld → die Show trägt die genutzte Adresse, beim Bearbeiten steht sie im Feld',
+    gespeichert.iveo?.baseUrl === PROD && editorAdresseAusShow(parseShow(serializeShow(gespeichert, 'x'))) === PROD);
+}
+
+console.log('— iveo-Paket P27: Meldung mit Organisationen, Organisationen überstehen den Editor (Spec 5.9, E8)');
+{
+  const ORGS = ['UNFCCC', 'Ministry of Environment'];
+  const viele = [{ organisationen: ['UNFCCC'] }, { organisationen: ORGS }, {}, { organisationen: [] }];
+  ck('P27 12.6 Nr. 4: T1 wörtlich mit „, davon ‹o› mit Organisation“ (eine leere Liste zählt nicht)',
+    bindMeldung({ eventName: 'COP31', programme: 12, filter: { art: 'kriterien', teile: ['2026-11-11', 'side-event', 'ohne Blocker'] }, speaker: viele })
+      === '„COP31“ übernommen — 12 Programmpunkte (Filter: 2026-11-11, side-event, ohne Blocker), 4 Speaker (Titler), davon 2 mit Organisation.');
+  ck('P27 12.6 Nr. 4: ohne Speaker ohne den Teil „davon …“, ohne Kriterien „alle“',
+    bindMeldung({ eventName: 'COP31', programme: 0, filter: { art: 'kriterien', teile: [] }, speaker: [] })
+      === '„COP31“ übernommen — 0 Programmpunkte (Filter: alle), 0 Speaker (Titler).');
+  ck('P27 12.6 Nr. 4: Speaker ohne Organisation → „davon 0 mit Organisation“',
+    bindMeldung({ eventName: 'COP31', programme: 3, filter: { art: 'kriterien', teile: [] }, speaker: [{}, {}] })
+      === '„COP31“ übernommen — 3 Programmpunkte (Filter: alle), 2 Speaker (Titler), davon 0 mit Organisation.');
+  const WARNUNG = 'iveo verknüpft für dieses Side Event keine Speaker — es werden alle Event-Speaker gezeigt.';
+  const agenda = bindMeldung({ eventName: 'COP31', programme: 5, filter: { art: 'agenda', titel: 'Klima-Dialog' }, speaker: viele, warnung: WARNUNG });
+  ck('P27 12.6 Nr. 4: Agenda-Label typografisch „Side Event „‹Titel›“ (Agenda)“, Warnung „ ⚠ ‹Warnung›“ am Ende',
+    agenda === `„COP31“ übernommen — 5 Programmpunkte (Filter: Side Event „Klima-Dialog“ (Agenda)), 4 Speaker (Titler), davon 2 mit Organisation. ⚠ ${WARNUNG}`);
+  ck('P27 T1: keine ASCII-Anführungszeichen in der Meldung (vorher zwei, ShowEditorModal.tsx:249 und :259)', !agenda.includes('"'));
+  // Nr. 1: Organisationen überstehen Laden, Bearbeiten und Speichern ohne Änderung (alle Wege des Editors, G6).
+  const orgs = (s: Show): string => JSON.stringify(s.iveo?.speakers?.map((sp) => sp.organisationen ?? null));
+  const ERWARTET = JSON.stringify([ORGS]);
+  ck('P27 12.6 Nr. 1: die geladene Show trägt die Organisationen (Fixture :48 über parseShow)', orgs(geladen) === ERWARTET);
+  ck('P27 12.6 Nr. 1: Speichern ohne Änderung behält sie, mit und ohne lesbare Datei',
+    orgs(baueGespeicherteShow(geladen, formularAusShow(geladen), geladen, zaehler().neueId)) === ERWARTET
+    && orgs(baueGespeicherteShow(geladen, formularAusShow(geladen), null, zaehler().neueId)) === ERWARTET);
+  const g = geladen.iveo!;
+  const ausEditor = bindungAusEditor({ event: g.event, name: g.name ?? g.event, baseUrl: g.baseUrl, speakers: g.speakers, sideEvents: g.sideEvents, filter: g.filter });
+  ck('P27 12.6 Nr. 1: bindungAusEditor mit der Bindung, wie loadForEdit sie in den Editor legt, behält sie',
+    JSON.stringify(ausEditor.speakers?.map((sp) => sp.organisationen)) === ERWARTET);
+  const neuGebunden = baueGespeicherteShow(geladen, { ...formularAusShow(geladen), iveoNeuGebunden: ausEditor }, geladen, zaehler().neueId);
+  ck('P27 12.6 Nr. 1: … auch nach dem Schreiben und Lesen der Datei (serializeShow → parseShow)',
+    orgs(parseShow(serializeShow(neuGebunden, '2026-10-17T10:00:00.000Z'))) === ERWARTET);
+}
+
+// ── Ende der Fälle ──
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

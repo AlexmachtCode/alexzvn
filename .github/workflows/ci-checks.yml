@@ -96,6 +96,11 @@ jobs:
       - name: App-Laufzeit (Log-Aufräumen, CSP, Verbund-Anzeige, Abo-Zustand, Master-Link-Meldung)
         run: npm run selftest -w @jm/app-runtime
 
+      # iveo-Paket (Spec 12.9): Paketwahl und Routing des Release-Proxys, ohne Netz (globaler fetch-Stub) und ohne
+      # node_modules. Nicht über tsx: worker.js ist ESM ohne package.json (Kopf von worker.test.mjs).
+      - name: Release-Proxy (Paketwahl, Routing)
+        run: node --experimental-strip-types services/release-proxy/test/worker.test.mjs
+
   secret-scan:
     name: Secret-Scan (gitleaks)
     runs-on: ubuntu-latest

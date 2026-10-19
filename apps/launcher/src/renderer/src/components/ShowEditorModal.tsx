@@ -4,8 +4,12 @@ import type { Show } from '@jm/show';
 import type { IveoEventStub, IveoProgramRef, IveoProgramTaxonomy } from '@shared/types';
 import { useTools } from '@/store/tools';
 import {
+  basisUrlPlatzhalter,
   baueGespeicherteShow,
+  bindMeldung,
   bindungAusEditor,
+  bindungsAdresse,
+  editorAdresseAusShow,
   formularAusShow,
   formularSchluessel,
   KNOPF_AKTUALISIEREN,
@@ -48,6 +52,8 @@ export function ShowEditorModal() {
   const saveShow = useTools((s) => s.saveShow);
   const editorSeed = useTools((s) => s.editorSeed);
   const clearEditorSeed = useTools((s) => s.clearEditorSeed);
+  // iveo-Paket, T7: der Platzhalter der Basis-URL nennt die Standardadresse dieses Rechners (settings.iveoBaseUrl).
+  const settings = useTools((s) => s.settings);
 
   const [name, setName] = useState('');
   const [entries, setEntries] = useState<Record<string, Entry>>({});
@@ -91,6 +97,7 @@ export function ShowEditorModal() {
   // C4: Ist für die im Feld stehende Basis-URL schon ein Token gemerkt? Dann darf
   // das Token-Feld leer bleiben — der Main-Prozess nutzt den gespeicherten (nie im Renderer).
   const [iveoBaseTokenSaved, setIveoBaseTokenSaved] = useState(false);
+  const [iveoAdresseUngueltig, setIveoAdresseUngueltig] = useState(false);
 
   // Szenario-Start (B2): einen vom Szenario-Picker gesetzten Seed einmalig ins
   // Formular übernehmen (Tools vorwählen, Ablauf/Redezeit/Runden vorbefüllen) und
@@ -120,9 +127,21 @@ export function ShowEditorModal() {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    void window.jmps.hasIveoBaseToken(iveoBaseUrl.trim() || undefined).then((has) => {
-      if (!cancelled) setIveoBaseTokenSaved(has);
-    });
+    void window.jmps
+      .hasIveoBaseToken(iveoBaseUrl.trim() || undefined)
+      .then((has) => {
+        if (cancelled) return;
+        setIveoBaseTokenSaved(has);
+        setIveoAdresseUngueltig(false);
+      })
+      // Ungültige Adresse im Feld (Main wirft beim Normalisieren): kein gemerkter Token, kein Absturz. Die Wächter in
+      // discoverIveo/bindIveo lassen dann an Main durch, damit der Nutzer den T8-Text zur Adresse sieht statt
+      // „Token erforderlich“ (G8).
+      .catch(() => {
+        if (cancelled) return;
+        setIveoBaseTokenSaved(false);
+        setIveoAdresseUngueltig(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -157,7 +176,7 @@ export function ShowEditorModal() {
 
   /** Token prüfen + lesbare Events auflisten (Token wird noch nicht gespeichert). */
   const discoverIveo = async (): Promise<void> => {
-    if (!iveoToken.trim() && !iveoBaseTokenSaved) {
+    if (!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) {
       setIveoMsg('Bitte iveo-Token einfügen.');
       return;
     }
@@ -191,7 +210,7 @@ export function ShowEditorModal() {
     override: Partial<{ typeSlug: string; formatSlug: string; day: string; excludeBlockers: boolean; programId: string }> = {},
   ): Promise<void> => {
     const event = iveoSelected.trim();
-    if ((!iveoToken.trim() && !iveoBaseTokenSaved) || !event) {
+    if ((!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) || !event) {
       setIveoMsg('Token und Event erforderlich.');
       return;
     }
@@ -236,28 +255,31 @@ export function ShowEditorModal() {
             ...(day ? { day } : {}),
             ...(excludeBlockers ? { excludeBlockers: true } : {}),
           };
+      // iveo-Paket, Spec 7.4 (E16): die beim Binden genutzte Adresse, sonst das Feld — jede neue Bindung trägt ihre Adresse.
       setIveoBinding({
         ...bound,
-        baseUrl: iveoBaseUrl.trim() || undefined,
+        baseUrl: bindungsAdresse(res.baseUrl, iveoBaseUrl),
         ...(speakers.length ? { speakers } : {}),
         ...(res.sideEvents?.length ? { sideEvents: res.sideEvents } : {}),
         ...(Object.keys(filter).length ? { filter } : {}),
       });
-      let filterLabel: string;
-      if (programId) {
-        const title = iveoProgramList.find((p) => p.id === programId)?.title ?? 'Side Event';
-        filterLabel = `Side Event „${title}" (Agenda)`;
-      } else {
-        const labelParts: string[] = [];
-        if (day) labelParts.push(day);
-        if (typeSlug) labelParts.push(typeSlug);
-        if (formatSlug) labelParts.push(formatSlug);
-        if (excludeBlockers) labelParts.push('ohne Blocker');
-        filterLabel = labelParts.length ? labelParts.join(', ') : 'alle';
-      }
+      // iveo-Paket, Spec 5.9 (E8, T1): die Meldung baut der reine Helfer bindMeldung — mit der Zahl der Speaker mit
+      // Organisation und nur typografischen Anführungszeichen. Der Editor liefert nur die Teile des Filters.
+      const labelParts: string[] = [];
+      if (day) labelParts.push(day);
+      if (typeSlug) labelParts.push(typeSlug);
+      if (formatSlug) labelParts.push(formatSlug);
+      if (excludeBlockers) labelParts.push('ohne Blocker');
       setIveoMsg(
-        `„${bound.name}" übernommen — ${rows.length} Programmpunkte (Filter: ${filterLabel}), ${speakers.length} Speaker (Titler).` +
-          (res.warning ? ` ⚠ ${res.warning}` : ''),
+        bindMeldung({
+          eventName: bound.name,
+          programme: rows.length,
+          filter: programId
+            ? { art: 'agenda', titel: iveoProgramList.find((p) => p.id === programId)?.title ?? 'Side Event' }
+            : { art: 'kriterien', teile: labelParts },
+          speaker: speakers,
+          ...(res.warning ? { warnung: res.warning } : {}),
+        }),
       );
     } finally {
       setIveoBusy(false);
@@ -325,6 +347,9 @@ export function ShowEditorModal() {
     const { path, show } = r;
     resetForm();
     setEditPath(path);
+    // iveo-Paket, Spec 7.4 (E16): das Feld zeigt die gespeicherte Adresse der Show (resetForm hat es geleert). Sonst
+    // bänden „Events laden“ und jeder Filter- oder Tageswechsel gegen die Standardadresse dieses Rechners.
+    setIveoBaseUrl(editorAdresseAusShow(show));
     // Unverändert festhalten: Speichern überschreibt nur, was das Formular zeigt (Spec 7.5).
     setGeladen(show);
     const f = formularAusShow(show);
@@ -462,7 +487,7 @@ export function ShowEditorModal() {
             <div className="flex items-center gap-2">
               <input
                 value={iveoBaseUrl}
-                placeholder="Basis-URL (leer = Standard/Staging)"
+                placeholder={basisUrlPlatzhalter(settings?.iveoBaseUrl)}
                 onChange={(e) => setIveoBaseUrl(e.target.value)}
                 className={cn(inputCls, 'h-8 flex-1 px-2.5 text-xs')}
               />

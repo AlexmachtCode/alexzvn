@@ -20,18 +20,24 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { app, dialog, shell } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import * as fsp from 'node:fs/promises';
+import { hostname } from 'node:os';
+import { basename, join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
 import { serializeShow, type Show } from '@jm/show';
 import {
+  IveoAssetAdresseError,
   IveoClient,
   agendaToAblauf,
+  assetAnfrage,
   buildShowMetadata,
   extractSpeakerIds,
   type IveoMaterial,
   filterPrograms,
   localTimeOfDayMs,
+  normalizeIveoBaseUrl,
   programTaxonomy,
   programsToAblauf,
   snapshotToShowSpeakers,
@@ -41,16 +47,18 @@ import {
   type IveoShowMetadata,
   type IveoSnapshot,
 } from '@jm/iveo';
-import type { ShowIveoSpeaker } from '@jm/show';
+import type { ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 import {
+  getIveoAnhangOrdner,
   getIveoToken,
   getIveoBaseToken,
   resolveIveoBaseUrl,
+  setIveoAnhangOrdner,
   setIveoToken,
   setIveoBaseToken,
 } from './settings';
 import { sendControlCommand } from './health';
-import { meldeShowAnVerbund, verbundReloadInfo } from './verbund';
+import { meldeShowAnVerbund, verbundReloadInfo, verbundRolle } from './verbund';
 import {
   einPunktAblauf,
   erzeugeKern,
@@ -62,8 +70,10 @@ import {
 } from './iveo-abgleich-kern';
 import {
   abfrageTakt,
+  ablageShow,
   gleicherShowPfad,
   IVEO_ABRUF_ZEITGRENZE_MS,
+  iveoDownloadClient,
   mitZeitgrenze,
   nurBeiWechsel,
   showLeserFuerKern,
@@ -71,15 +81,25 @@ import {
 } from './iveo-huelle-hilfen';
 import { schreibeShowAtomar, warteSync } from './show-schreiben';
 import { bildeSideEventListe, toProgramList } from './iveo-side-events';
+import {
+  assetGroesse,
+  erzeugeAnhangWaechter,
+  materialienAusAgenda,
+  pruefeBeobachtung,
+  type AgendaErgebnis,
+  type AnhangWaechter,
+} from './iveo-anhaenge';
+import { erzeugeOrdnerLauf, GrundFehler, grundText, ladeAsset, pruefeAssetGroesse, type OrdnerLauf } from './side-event-ordner-lauf';
+import { ohneAdressen, panelAnhangSchritt, panelDateiOeffnen } from './side-event-ordner';
 import type {
   ActionResult,
+  AnhangOrdnerStand,
   AppEvent,
   IveoBindInput,
   IveoBindResult,
   IveoDiscoverInput,
   IveoDiscoverResult,
   IveoDownloadInput,
-  IveoMaterialRef,
   IveoMaterialsInput,
   IveoMaterialsResult,
   IveoProgramRef,
@@ -198,6 +218,8 @@ function writeCache(meta: IveoShowMetadata): void {
   try {
     mkdirSync(cacheDir(), { recursive: true });
     writeFileSync(cacheFile(meta.slug), JSON.stringify(meta, null, 2), { mode: 0o600 });
+    // iveo-Paket, Spec 9.3: Tag und Titel für die Ablage kommen aus dem Speicher, nie synchron von der Platte im Takt.
+    if (openShowIveo && meta.slug === openShowIveo.slug) offenerCache = meta;
   } catch (e) {
     getLog().warn(`iveo: Metadaten-Cache schreiben fehlgeschlagen: ${(e as Error).message}`);
   }
@@ -237,7 +259,16 @@ export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<Iveo
   // C4: kein Token im Feld → den für diese Basis gemerkten nutzen (ein Token gilt
   // basis-weit — die Discovery listet ALLE lesbaren Events), damit ein neues Event
   // derselben Org kein erneutes Einfügen erzwingt. Discover persistiert selbst nichts.
-  const token = input.token?.trim() || getIveoBaseToken(baseUrl);
+  // Der Token-Fallback normalisiert über den Basis-Schlüssel und würfe bei ungültiger Adresse (T8) außerhalb des try:
+  // zuerst und in eigenem try, damit die Antwort ok:false mit dem Text ist statt eines IPC-Fehlers.
+  let genutzteAdresse: string;
+  try {
+    genutzteAdresse = normalizeIveoBaseUrl(baseUrl);
+  } catch (e) {
+    getLog().warn(`iveo discover fehlgeschlagen: ${(e as Error).message}`);
+    return { ok: false, ...toClientError(e) };
+  }
+  const token = input.token?.trim() || getIveoBaseToken(genutzteAdresse);
   if (!token) return { ok: false, error: 'Token fehlt.' };
   try {
     const client = iveoClient(token, baseUrl);
@@ -251,8 +282,19 @@ export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<Iveo
 
 export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {
   const baseUrl = input.baseUrl?.trim() || resolveIveoBaseUrl();
+  // iveo-Paket, Spec 7.4 (E16, EP1): die genutzte Adresse normalisiert zurückgeben; der Show-Editor schreibt sie in die
+  // Bindung. normalizeIveoBaseUrl wirft bei ungültiger Eingabe (T8) — auch der Token-Fallback unten normalisiert (über
+  // den Basis-Schlüssel) und würfe außerhalb eines try. Darum zuerst und in eigenem try: Die Antwort ist dann ok:false
+  // mit dem Text statt eines IPC-Fehlers, ob das Token-Feld gefüllt ist oder leer.
+  let genutzteAdresse: string;
+  try {
+    genutzteAdresse = normalizeIveoBaseUrl(baseUrl);
+  } catch (e) {
+    getLog().warn(`iveo bind fehlgeschlagen: ${(e as Error).message}`);
+    return { ok: false, ...toClientError(e) };
+  }
   // C4: Token-Fallback wie bei discover (basis-weit gemerkter Token).
-  const token = input.token?.trim() || getIveoBaseToken(baseUrl);
+  const token = input.token?.trim() || getIveoBaseToken(genutzteAdresse);
   const event = input.event?.trim();
   if (!token || !event) return { ok: false, error: 'Token und Event erforderlich.' };
   try {
@@ -336,6 +378,7 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
       ablauf,
       speakers,
       event: { slug: snap.event.slug, name: snap.event.name },
+      baseUrl: genutzteAdresse,
       programTypes: taxonomy,
       programList,
       sideEvents,
@@ -434,8 +477,16 @@ function kern(): IveoKern {
       meldeAktiv: () => emitActiveChanged(),
       baseUrlStandard: () => resolveIveoBaseUrl(),
       // Teil 2b R2, Spec 15.1: die offene Show an den Verteiler; 15.6: k für die RELOAD-Logzeile.
-      meldeShow: (pfad, show) => meldeShowAnVerbund(pfad, show),
+      meldeShow: (pfad, show) => {
+        meldeShowAnVerbund(pfad, show);
+        // iveo-Paket: die Side-Event-Liste der Bindung, wie sie jetzt in der Datei steht (Titel für T17).
+        if (show) bindungsListe = show.iveo?.sideEvents ?? [];
+      },
       verbundReload: () => verbundReloadInfo(),
+      // iveo-Paket, Spec 6.1: derselbe Takt wie die Hülle (Regel „fällig“ nach 255 s bei 45 s).
+      taktMs: POLL_INTERVAL_MS,
+      // iveo-Paket, Spec 8.2 (E19): die Agenda des aktiven Side Events direkt nach ihrem Abruf, ohne eigenen Abruf.
+      meldeAgenda: (programId, e) => agendaAktiv(programId, e),
     });
   }
   return kernInstanz;
@@ -452,6 +503,9 @@ function merkeOffeneShow(showPath: string, show: Show): void {
         baseUrl: binding.baseUrl || resolveIveoBaseUrl(),
       }
     : null;
+  bindungsListe = binding?.sideEvents ?? [];
+  // iveo-Paket, Spec 9.3: Cache der offenen Show einmal beim Öffnen lesen (wie das Panel); danach nur noch im Speicher.
+  offenerCache = openShowIveo ? readCache(openShowIveo.slug) : null;
 }
 
 function emitActiveChanged(): void {
@@ -479,6 +533,194 @@ export function iveoStateKv(): Record<string, string> {
   };
 }
 
+// ── Anhang-Wächter (iveo-Paket, Spec 8.2, 8.4) ───────────────────────────────
+// Beobachtet die aufgeklappte Anhang-Liste des Panels und das aktive Side Event. Die Agenda des aktiven Side Events
+// meldet der Kern direkt nach ihrem Abruf (meldeAgenda); eine aufgeklappte andere Liste holt der Wächter im Takt.
+
+/** Side-Event-Liste der Bindung, wie sie zuletzt in der Datei stand (Titel für T17). */
+let bindungsListe: ShowIveoProgramRef[] = [];
+/** Titel eines Side Events aus der Bindung; sonst null (der Wächter nimmt dann die programId, T17). */
+function titelAusBindung(programId: string): string | null {
+  return bindungsListe.find((p) => p.id === programId)?.title || null;
+}
+
+let waechterInstanz: AnhangWaechter | null = null;
+function anhangWaechter(): AnhangWaechter {
+  if (!waechterInstanz) {
+    waechterInstanz = erzeugeAnhangWaechter({
+      aktivProgramId: () => kern().aktiv()?.filter.programId ?? null,
+      event: () => kern().aktiv()?.event ?? null,
+      jetztIso: nowIso,
+      sende: (e) => emitIveo?.(e),
+      titelVon: (programId) => titelAusBindung(programId),
+      log: { info: (m) => getLog().info(m) },
+    });
+  }
+  return waechterInstanz;
+}
+
+/** Agenda des aktiven Side Events aus dem Kern (meldeAgenda, E19): an den Wächter und an die Ablage. */
+function agendaAktiv(programId: string, e: AgendaErgebnis): void {
+  anhangWaechter().agendaVomKern(programId, e);
+  // iveo-Paket, Spec 9.4: dieselbe Agenda an die Ablage (aktives Side Event in jedem Takt, ohne eigenen Abruf).
+  ordner().agendaAktiv(programId, e);
+}
+
+/** Client für den Wächter (15-s-Zeitgrenze wie Kern und Panel); ohne offene Show mit Token keiner. */
+function waechterClient(): IveoClient | null {
+  const a = kern().aktiv();
+  const token = a ? getIveoToken(a.event) : undefined;
+  if (!a || !token) return null;
+  try {
+    return iveoClient(token, offeneBaseUrl());
+  } catch {
+    return null; // ungültige Adresse: die Statuszeile des Kerns zeigt sie schon
+  }
+}
+
+/**
+ * IPC iveo:watchMaterials (Spec 8.4, 8.6): die beobachtete Liste des Renderers. Mehr als 8 Kennungen oder eine mit mehr
+ * als 200 Zeichen → verworfen. Jede Anmeldung, auch [], lässt den Wächter den Stand jeder beobachteten Liste neu senden.
+ */
+export function watchIveoMaterials(input: unknown): void {
+  const ids = pruefeBeobachtung(input);
+  if (ids === null) return;
+  anhangWaechter().beobachte(ids);
+}
+
+// ── Ablage der Anhänge in Side-Event-Ordnern (iveo-Paket, Spec 9) ────────────
+// Den Ablauf hält side-event-ordner-lauf.ts ohne Electron; die Hülle reicht nur ein: node:fs/promises (nie synchron, G7),
+// Uhr und Zeitgeber, Rolle (9.2 Nr. 3), Token (Nr. 2), Schalter (Nr. 4, 9.14), Tag und Titel aus dem Cache (9.3), zwei
+// Clients (Agenda mit 15-s-Zeitgrenze, Download ohne, E46), Rechnername und Prozesskennung für die Sperrdatei (E45).
+
+/** Cache-Metadaten der offenen Show im Speicher: gelesen beim Öffnen, nachgeführt bei jedem Schreiben des Caches. */
+let offenerCache: IveoShowMetadata | null = null;
+/** Tag (JJJJ-MM-TT) eines Side Events aus dem Cache, sonst null (Spec 9.3, wie das Panel). */
+function tagAusCache(programId: string): string | null {
+  const p = offenerCache?.programs.find((x) => x.id === programId);
+  return p ? metaProgramDay(p) || null : null;
+}
+/** Titel eines Side Events aus dem Cache, sonst null (die Liste der Bindung liest der Lauf selbst aus der Datei, 9.1). */
+function titelAusCache(programId: string): string | null {
+  return offenerCache?.programs.find((x) => x.id === programId)?.title?.trim() || null;
+}
+/**
+ * Gebundene offene Show ohne Blick aufs Token (9.2 Nr. 1, 11.1 K0): Pfad und Event aus dem Merker der Hülle. Ohne Token
+ * hat der Kern keine aktive Show; der Lauf zeigt dann K1 bzw. K2 statt K0 (ablageShow).
+ */
+function offeneIveoShow(): { path: string; event: string } | null {
+  return openShowIveo ? { path: openShowIveo.path, event: openShowIveo.slug } : null;
+}
+/** Token der offenen Show auf diesem Rechner (9.2 Nr. 2), bei jedem Aufruf neu gelesen. */
+function tokenDerOffenenShow(): string | undefined {
+  const a = kern().aktiv();
+  return a ? getIveoToken(a.event) : undefined;
+}
+/** Schalter (9.14): einmal gelesen, danach im Speicher; geändert wird er nur über setzeAnhangOrdner. */
+let schalterStand: boolean | null = null;
+function schalterAn(): boolean {
+  if (schalterStand === null) schalterStand = getIveoAnhangOrdner();
+  return schalterStand;
+}
+
+let ordnerInstanz: OrdnerLauf | null = null;
+function ordner(): OrdnerLauf {
+  if (!ordnerInstanz) {
+    ordnerInstanz = erzeugeOrdnerLauf({
+      fs: fsp,
+      jetzt: () => Date.now(),
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+      // 9.2 Nr. 1, 11.1: die gebundene offene Show auch ohne Token (K1, K2 statt K0); abgelegt wird nur mit tokenDa.
+      aktiv: () => ablageShow(kern().aktiv(), offeneIveoShow()),
+      rolle: () => verbundRolle(),
+      tokenDa: () => tokenDerOffenenShow() !== undefined,
+      schalterAn: () => schalterAn(),
+      tagVon: (programId) => tagAusCache(programId),
+      titelVon: (programId) => titelAusCache(programId),
+      agendaClient: () => {
+        const token = tokenDerOffenenShow();
+        return token ? iveoClient(token, offeneBaseUrl()) : null;
+      },
+      downloadClient: () => {
+        const token = tokenDerOffenenShow();
+        return token ? iveoDownloadClient(token, offeneBaseUrl(), (url, init) => fetch(url, init)) : null;
+      },
+      rechner: hostname(),
+      pid: process.pid,
+      neueSitzungsKennung: () => randomUUID(),
+      log: { info: (m) => getLog().info(m), warn: (m) => getLog().warn(m) },
+      melde: (stand) => emitIveo?.({ type: 'iveo-anhang-ordner', stand }),
+    });
+  }
+  return ordnerInstanz;
+}
+
+/** IPC iveo:anhangOrdner (Spec 9.15): Stand der Ablage für Kopfzeile und Zeilen des Panels. */
+export function anhangOrdnerStand(): AnhangOrdnerStand {
+  return ordner().stand();
+}
+
+/**
+ * IPC iveo:setzeAnhangOrdner (Spec 9.14, OF8): Schalter dieses Rechners. „Aus“ stößt den Lauf sofort an, damit ein
+ * laufender Download abbricht und die eigene Sperrdatei gelöscht wird; „an“: die nächste Runde im nächsten Takt.
+ */
+export function setzeAnhangOrdner(input: unknown): AnhangOrdnerStand {
+  const an = (input as { an?: unknown } | null)?.an;
+  if (typeof an === 'boolean') {
+    setIveoAnhangOrdner(an);
+    schalterStand = an;
+    if (!an) ordner().takt();
+    // Frischer Stand ohne Arbeitsbeginn, auch bei „an“ und bei laufendem Takt: Schalter und Kopfzeile lügen nicht.
+    return ordner().bedingungenNeu();
+  }
+  return ordner().stand();
+}
+
+/** T31: Notice, wenn ein Ordner nicht zu öffnen ist. */
+function textOrdnerNichtZuOeffnen(grund: string): string {
+  return `Ordner nicht zu öffnen: ${grund}`;
+}
+
+/**
+ * IPC iveo:oeffneAnhangOrdner (Spec 9.13, E35): „Ordner öffnen“ nur über die programId, ohne Kennung der Basisordner.
+ * Der Renderer übergibt nie einen Pfad; den kennt nur der Lauf.
+ */
+export async function oeffneAnhangOrdner(input: unknown): Promise<ActionResult> {
+  const roh = (input as { programId?: unknown } | null)?.programId;
+  const programId = typeof roh === 'string' && roh.trim() ? roh.trim() : undefined;
+  const pfad = ordner().ordnerPfadFuer(programId);
+  if (!pfad) return { ok: false, message: textOrdnerNichtZuOeffnen('Ordner nicht gefunden') };
+  const fehler = await shell.openPath(pfad);
+  return fehler ? { ok: false, message: textOrdnerNichtZuOeffnen(fehler) } : { ok: true };
+}
+
+/** before-quit (Spec 9.2 „Ende der Ablage“): das Löschen der eigenen Sperrdatei nur anstoßen, nie abwarten. */
+export function ablageBeenden(): void {
+  ordnerInstanz?.beenden();
+}
+
+/** Sperre gegen Überholen (Spec 8.2): ein Takt beginnt erst, wenn der vorige fertig ist. */
+let taktLaeuft = false;
+
+/**
+ * Ein Takt der Hülle (Spec 8.2, E28): erst die Abfrage des Kerns, dann der Anhang-Wächter, nacheinander. Dauert ein Takt
+ * länger als 45 s, fällt der nächste aus, statt parallel eine zweite Abfrage zu starten. Beide werfen nie (Vertrag; Fehler
+ * landen im Status bzw. als Ereignis ok:false).
+ */
+async function takt(): Promise<void> {
+  if (taktLaeuft) return;
+  taktLaeuft = true;
+  try {
+    await kern().abfrage();
+    await anhangWaechter().takt(waechterClient());
+    // iveo-Paket, Spec 9.4: die Ablage nur anstoßen; sie arbeitet ihre Warteschlange im Hintergrund ab (E28).
+    ordner().takt();
+  } finally {
+    taktLaeuft = false;
+  }
+}
+
 /**
  * Takt starten, sobald eine Show offen ist — auch ohne iveo: Bindet der Show-Editor
  * die offene Show neu, fragt der Kern ab dem nächsten Takt ab. Ohne aktive iveo-Show
@@ -487,7 +729,7 @@ export function iveoStateKv(): Record<string, string> {
 function starteTakt(): void {
   if (pollTimer) return;
   pollTimer = setInterval(() => {
-    void kern().abfrage(); // wirft nie (Vertrag des Kerns); Fehler landen im Status
+    void takt();
   }, POLL_INTERVAL_MS);
 }
 
@@ -503,7 +745,11 @@ export function onShowOpened(showPath: string, show: Show): void {
   schreibWarnung.ok();
   offeneShowPfad = showPath;
   merkeOffeneShow(showPath, show); // vor dem Kern: dessen meldeAktiv() braucht den Merker
+  // iveo-Paket, Spec 8.2: eine geöffnete Show beginnt neu — die nächste Beobachtung gilt als erste (8.4 Nr. 1).
+  anhangWaechter().zuruecksetzen();
   kern().showGeoeffnet(showPath, show);
+  // iveo-Paket, Spec 9.2, 9.4: neue Sitzung der Ablage (Generation + 1, die eigene Sperre der vorigen Show löschen).
+  ordner().sitzung();
   starteTakt();
   const a = kern().aktiv();
   if (a) getLog().info(`iveo: Live-Polling für Event „${a.event}" aktiv (alle ${POLL_INTERVAL_MS / 1000}s).`);
@@ -515,6 +761,8 @@ export function stopIveoPolling(): void {
     pollTimer = null;
   }
   kern().showGeschlossen();
+  anhangWaechter().zuruecksetzen();
+  ordner().sitzung();
 }
 
 /**
@@ -532,6 +780,10 @@ export function speichereShowDatei(pfad: string, show: Show, neuGebunden: boolea
     // Merker (Name, Tag, Basis-URL) aus der geschriebenen Show, bevor der Kern meldeAktiv() ruft.
     merkeOffeneShow(offeneShowPfad, show);
     kern().offeneShowGespeichert(offeneShowPfad, neuGebunden);
+    // iveo-Paket, Spec 8.2: neu gebunden = neue Liste der Side Events, die nächste Beobachtung gilt als erste.
+    if (neuGebunden) anhangWaechter().zuruecksetzen();
+    // iveo-Paket, Spec 9.4: neu gebunden = neue Sitzung der Ablage (Generation + 1).
+    if (neuGebunden) ordner().sitzung();
     starteTakt();
   }
   return true;
@@ -594,38 +846,18 @@ export async function switchSideEvent(input: IveoSwitchInput): Promise<ActionRes
   return kern().umschalten({ programId: input.programId, day: input.day });
 }
 
-// ── Materialien eines Side Events (#11 Phase 4) ──────────────────────────────
-// Präsentationen/Dateien hängen in iveo an den Agenda-Punkten eines Programms
-// (materials[]). Datei-Assets werden über die 302-Indirektion mit Token geladen
-// (der Launcher hält es); die signierte URL wird NIE gespeichert.
-
-const MIME_EXT: Record<string, string> = {
-  'application/pdf': '.pdf',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-  'application/vnd.ms-powerpoint': '.ppt',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-  'application/msword': '.doc',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-  'application/zip': '.zip',
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/gif': '.gif',
-  'image/svg+xml': '.svg',
-  'text/plain': '.txt',
-  'video/mp4': '.mp4',
-};
-/** Passende Dateiendung: liegt sie schon im Label, keine ergänzen; sonst aus dem MIME. */
-function extFor(label: string, mime?: string | null): string {
-  if (/\.[a-z0-9]{2,5}$/i.test(label || '')) return '';
-  return (mime && MIME_EXT[mime.toLowerCase()]) || '';
-}
+// ── Anhänge eines Side Events (#11 Phase 4; iveo-Paket, Spec 8) ──────────────
+// Präsentationen, Dateien und Links hängen in iveo an den Agenda-Punkten eines Programms (materials[]). Datei-Assets
+// werden über die 302-Indirektion mit Token geladen (der Launcher hält es); die signierte Adresse wird NIE gespeichert.
+// Namen, Endungen und die Sperrliste stehen seit dem iveo-Paket in side-event-ordner.ts (MIME_EXT, 9.12): Panel und
+// Ordner benennen gleich.
 
 /** Basis-URL der offenen iveo-Show (wie der Kern sie nutzt). */
 function offeneBaseUrl(): string {
   return openShowIveo?.baseUrl ?? resolveIveoBaseUrl();
 }
 
-/** Alle Materialien eines Side Events (aus dessen Agenda-Punkten) auflisten. */
+/** Alle Anhänge eines Side Events (aus dessen Agenda-Punkten) auflisten (iveo-Paket, Spec 8.2, 8.6). */
 export async function listSideEventMaterials(input: IveoMaterialsInput): Promise<IveoMaterialsResult> {
   const a = kern().aktiv();
   if (!a) return { ok: false, error: 'Keine iveo-Show mit Token geöffnet.' };
@@ -633,41 +865,64 @@ export async function listSideEventMaterials(input: IveoMaterialsInput): Promise
   if (!token) return { ok: false, error: 'Kein iveo-Token für die offene Show.' };
   const programId = input.programId?.trim();
   if (!programId) return { ok: false, error: 'programId fehlt.' };
+  // Spec 8.6: Zeit des Abrufs, vor dem Abruf genommen. Der Renderer verwirft damit ein älteres Ergebnis, wenn sich der
+  // Abruf und ein Ereignis des Wächters kreuzen (8.1); auch ein Fehlschlag trägt sie.
+  const abgerufen = nowIso();
   try {
     const client = iveoClient(token, offeneBaseUrl());
     const agenda = await client.listAgendaItems(a.event, programId);
-    const materials: IveoMaterialRef[] = [];
-    for (const item of agenda) {
-      for (const m of item.materials ?? []) {
-        materials.push({
-          id: m.id,
-          label: m.label || '(ohne Titel)',
-          kind: m.kind,
-          agendaTitle: item.title,
-          mimeType: m.asset?.mime_type ?? null,
-          sizeBytes: m.asset?.size_bytes ?? null,
-          externalUrl: m.external_url ?? null,
-          hasAsset: !!m.asset?.url,
-        });
-      }
-    }
-    getLog().info(`iveo: Side Event „${programId}" — ${materials.length} Material(ien).`);
-    return { ok: true, materials };
+    // Spec 8.2, 8.5: dieselbe Abbildung wie der Wächter, ohne gelöschte und ungültige Anhänge.
+    const materials = materialienAusAgenda(agenda);
+    getLog().info(`iveo: Side Event „${programId}“: ${materials.length} Anhänge.`);
+    // EP20: Der Renderer übernimmt diese Liste und löscht dabei seinen Fehler; der Wächter sendet darum den nächsten
+    // Fehlschlag eines danach begonnenen Abrufs wieder, auch mit gleichem Text (sonst stünde L5 trotz Störung da).
+    anhangWaechter().eigenesLaden(programId, abgerufen);
+    return { ok: true, materials, abgerufen };
   } catch (e) {
     getLog().warn(`iveo materials: ${(e as Error).message}`);
-    return { ok: false, ...toClientError(e) };
+    return { ok: false, ...toClientError(e), abgerufen };
   }
 }
 
-/** Ein Material herunterladen (Datei speichern + öffnen) bzw. öffnen (Link). */
+// iveo-Paket, Spec 8.5, 8.6: Texte des manuellen Downloads (11.6 wörtlich).
+/** T16: Der Anhang fehlt beim Herunterladen ganz. */
+const TEXT_ANHANG_NICHT_DA = 'Anhang nicht mehr in iveo vorhanden.';
+/** T18: Titel des Speichern-Dialogs. */
+const TEXT_ANHANG_SPEICHERN = 'Anhang speichern';
+/** T77 (b): Asset-Adresse auf anderem Server ohne https (E52) — kein Dialog, kein Abruf. */
+const TEXT_ADRESSE_ABGELEHNT = 'Anhang nicht geladen: Datei-Adresse auf anderem Server ohne https.';
+/** T20: gespeichert und geöffnet. */
+function textGespeichertGeoeffnet(label: string): string {
+  return `Gespeichert und geöffnet: ${label}`;
+}
+/** T74: gespeichert, wegen gesperrter Endung nicht geöffnet (‹ext› aus dem Label, sonst die des gewählten Namens). */
+function textNichtGeoeffnet(ext: string, dateiname: string): string {
+  return `Gespeichert, nicht automatisch geöffnet (Endung „${ext}“ gesperrt): ${dateiname}`;
+}
+/** T56: Logzeile nach dem Speichern. */
+function logGespeichert(label: string, bytes: number, pfad: string): string {
+  return `iveo: Anhang „${label}“ gespeichert (${bytes} Bytes) → ${pfad}`;
+}
+/** Leerlauf-Grenze (Spec 9.6): 60 s ohne Daten, auch vor dem ersten Byte → Abbruch; eine Gesamtgrenze gibt es nicht. */
+const ANHANG_LEERLAUF_MS = 60_000;
+
+/**
+ * Einen Anhang speichern (Datei) bzw. öffnen (Link), iveo-Paket Spec 8.6. Alle Entscheidungen trifft der reine Helfer
+ * panelAnhangSchritt (side-event-ordner.ts, getestet in 12.4 Nr. 19 und 48); hier wird nur ausgeführt: Agenda holen,
+ * Herkunft der Asset-Adresse prüfen (E52, VOR dem Dialog), Dialog, Datenstrom in eine Zwischendatei neben dem Ziel,
+ * Umbenennen, Öffnen nur, wenn panelDateiOeffnen es erlaubt.
+ */
 export async function downloadSideEventMaterial(input: IveoDownloadInput): Promise<ActionResult> {
   const a = kern().aktiv();
   if (!a) return { ok: false, message: 'Keine iveo-Show mit Token geöffnet.' };
   const token = getIveoToken(a.event);
   if (!token) return { ok: false, message: 'Kein iveo-Token für die offene Show.' };
+  // Token und Basis-URL gehören zusammen: beide jetzt, einmal. Der Dialog ist nicht modal; öffnet der Bediener währenddessen
+  // eine andere Show, darf das Token dieses Events nie an die Herkunft der anderen gehen (wie im Ordner, der beide im selben Moment bildet).
+  const basis = offeneBaseUrl();
   try {
     // Die Agenda ist ein JSON-Abruf und bekommt die Zeitgrenze von 15 s (Spec 7.0).
-    const agenda = await iveoClient(token, offeneBaseUrl()).listAgendaItems(a.event, input.programId);
+    const agenda = await iveoClient(token, basis).listAgendaItems(a.event, input.programId);
     let target: IveoMaterial | undefined;
     for (const item of agenda) {
       const m = (item.materials ?? []).find((x) => x.id === input.materialId);
@@ -676,29 +931,61 @@ export async function downloadSideEventMaterial(input: IveoDownloadInput): Promi
         break;
       }
     }
-    if (!target) return { ok: false, message: 'Material nicht gefunden.' };
-    // Link → einfach im Browser öffnen (kein Token nötig).
-    if (target.kind === 'link' || (!target.asset?.url && target.external_url)) {
-      if (!target.external_url) return { ok: false, message: 'Kein Link vorhanden.' };
-      await shell.openExternal(target.external_url);
+    if (!target) return { ok: false, message: TEXT_ANHANG_NICHT_DA };
+    const schritt = panelAnhangSchritt(target);
+    // Gelöscht (T15), Link ohne Adresse, ungültiger Link (T53), Datei ohne Asset (T54): der Text des Helfers.
+    if (schritt.art === 'fehler') return { ok: false, message: schritt.text };
+    if (schritt.art === 'link') {
+      // Nur der geprüfte href (http/https, ohne Steuerzeichen, 9.7), nie der Rohtext aus iveo.
+      await shell.openExternal(schritt.href);
       return { ok: true, message: `Link geöffnet: ${target.label}` };
     }
-    if (!target.asset?.url) return { ok: false, message: 'Kein Datei-Asset vorhanden.' };
-    // Datei-Asset: mit Token holen (302-Follow im Client), dann speichern.
-    // Nur dieser Abruf läuft OHNE Zeitgrenze: eine große Datei darf länger als 15 s
-    // laden (Spec 7.0, O6).
-    const client = new IveoClient({ token, baseUrl: offeneBaseUrl() });
-    const { bytes, contentType } = await client.fetchAsset(target.asset.url);
-    const ext = extFor(target.label, target.asset.mime_type ?? contentType);
-    const safe = (target.label || 'material').replace(/[\\/:*?"<>|]/g, '_');
-    const r = await dialog.showSaveDialog({ title: 'Material speichern', defaultPath: `${safe}${ext}` });
+    // E52: die Herkunft der Asset-Adresse VOR dem Dialog prüfen — abgelehnt heißt: weder Dialog noch Abruf.
+    const ref = target.asset?.url ?? '';
+    try {
+      assetAnfrage(ref, basis);
+    } catch (e) {
+      if (e instanceof IveoAssetAdresseError) return { ok: false, message: TEXT_ADRESSE_ABGELEHNT };
+      throw e;
+    }
+    // Spec 9.6 (E29): Größe wie im Ordner (ein Baustein, side-event-ordner-lauf.ts). Ein gültiges size_bytes über 2 GiB wird nicht geladen, schon vor dem Dialog (T22 a).
+    const groesse = assetGroesse(target.asset?.size_bytes);
+    try {
+      pruefeAssetGroesse(groesse);
+    } catch (e) {
+      if (e instanceof GrundFehler) return { ok: false, message: e.message };
+      throw e;
+    }
+    // Der Dialog kommt VOR dem Abruf: sonst liefe während des Dialogs die Leerlauf-Grenze (Spec 8.6).
+    const r = await dialog.showSaveDialog({ title: TEXT_ANHANG_SPEICHERN, defaultPath: schritt.vorschlag });
     if (r.canceled || !r.filePath) return { ok: false };
-    writeFileSync(r.filePath, Buffer.from(bytes));
-    void shell.openPath(r.filePath); // zum Testen gleich öffnen
-    getLog().info(`iveo: Material „${target.label}" gespeichert (${bytes.byteLength} Bytes) → ${r.filePath}`);
-    return { ok: true, message: `Gespeichert & geöffnet: ${target.label}` };
+    const ziel = r.filePath;
+    const zwischen = `${ziel}.${process.pid}.jm-laden`;
+    try {
+      // Derselbe Ladeschritt wie in der Ablage: Leerlauf-Grenze auch vor dem ersten Byte, Bytezahl gegen size_bytes, Grund wie T22.
+      const bytes = await ladeAsset({
+        fs: fsp, client: iveoDownloadClient(token, basis, (url, init) => fetch(url, init)), ref, ziel: zwischen, groesse, leerlaufMs: ANHANG_LEERLAUF_MS,
+        jetzt: () => Date.now(), setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+      });
+      // Der Dialog hat ein Überschreiben des gewählten Ziels schon bestätigt.
+      await fsp.rename(zwischen, ziel);
+      getLog().info(logGespeichert(target.label, bytes, ziel));
+    } catch (e) {
+      // Jeder Fehler löscht die Zwischendatei (Spec 9.6); ladeAsset tut das nicht selbst.
+      await fsp.unlink(zwischen).catch(() => undefined);
+      getLog().warn(`iveo download: ${ohneAdressen(String((e as Error | null)?.message ?? e))}`);
+      return { ok: false, message: grundText(e, 'download') };
+    }
+    const name = basename(ziel);
+    if (panelDateiOeffnen(name, schritt.gesperrt)) {
+      void shell.openPath(ziel);
+      return { ok: true, message: textGespeichertGeoeffnet(target.label) };
+    }
+    // Gesperrte Endung im Label oder im gewählten Namen: gespeichert, aber nie automatisch geöffnet (E49, T74).
+    const ext = schritt.gesperrt ?? name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+    return { ok: true, message: textNichtGeoeffnet(ext, name) };
   } catch (e) {
-    getLog().warn(`iveo download: ${(e as Error).message}`);
-    return { ok: false, message: toClientError(e).error };
+    getLog().warn(`iveo download: ${ohneAdressen((e as Error).message)}`);
+    return { ok: false, message: ohneAdressen(toClientError(e).error) };
   }
 }

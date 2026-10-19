@@ -7,8 +7,11 @@
 //
 // Datensparsamkeit: `buildShowMetadata` ist die Allowlist dessen, was in Cache/
 // Show/Renderer landet — bewusst OHNE Bio/Fotos/Social-Links und ohne Secrets.
+// Show-Speaker (`speakersToShowSpeakers`) tragen Anzeigename, Funktion und die NAMEN
+// ihrer Organisationen (`organisationenVon`, iveo-Paket Spec 5.2) — ohne Kennungen und Rollen.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { normalisiereOrganisationen } from '@jm/show';
 import type { ShowAblaufItem, ShowIveoSpeaker } from '@jm/show';
 import type {
   IveoAgendaItem,
@@ -321,8 +324,33 @@ export function speakerName(s: IveoSpeaker): string {
 }
 
 /**
+ * Namen der Organisationen eines Speakers (iveo-Paket, Spec 5.2, E3). Tolerant, weil iveo Felder unangekündigt ändert:
+ * Gültig ist ein Eintrag, der ein Objekt ist und dessen `name` ein String ist, der nach der Normalform aus @jm/show
+ * nicht leer ist. Hauptorganisation = der erste gültige Eintrag mit `is_primary === true`, sonst der erste gültige; sie
+ * steht vorn, danach die übrigen gültigen in iveo-Reihenfolge. Am Ende läuft die Liste durch `normalisiereOrganisationen`
+ * (Leerraum, Länge, Doppelte, Anzahl): Die Ausgabe ist so ein Fixpunkt des Show-Normalisierers. Kennung, Rolle und alle
+ * übrigen Felder entfallen. Kein Array → [].
+ */
+export function organisationenVon(s: IveoSpeaker): string[] {
+  const roh: unknown = s.organisations;
+  if (!Array.isArray(roh)) return [];
+  const gueltig: Array<{ name: string; haupt: boolean }> = [];
+  for (const e of roh as unknown[]) {
+    if (!e || typeof e !== 'object') continue;
+    const o = e as Record<string, unknown>;
+    if (typeof o.name !== 'string' || normalisiereOrganisationen([o.name]).length === 0) continue;
+    gueltig.push({ name: o.name, haupt: o.is_primary === true });
+  }
+  if (gueltig.length === 0) return [];
+  const haupt = Math.max(0, gueltig.findIndex((g) => g.haupt));
+  const reihe = [gueltig[haupt], ...gueltig.filter((_, i) => i !== haupt)];
+  return normalisiereOrganisationen(reihe.map((g) => g.name));
+}
+
+/**
  * Rohe Speaker → sanitisierte Show-Speaker (#11, Phase 3): nur Anzeigename +
- * Funktion (Titel). KEINE PII (Bio/Foto/Social) und kein Token — darf in die
+ * Funktion (Titel) und die NAMEN der Organisationen (iveo-Paket, Spec 5.2: `organisationenVon`, leere Liste → Feld
+ * fehlt). KEINE PII (Bio/Foto/Social), keine Kennungen und Rollen der Organisationen und kein Token — darf in die
  * portable .jmshow und speist die Titler-DataLink/Recall-Einträge. Speaker ohne
  * Namen werden ausgelassen.
  * Bewusst OHNE Kennung (Teil 2b, Spec 23: M1 = nein — die iveo-Speaker-IDs sind nicht eindeutig oder nicht
@@ -333,6 +361,8 @@ export function speakersToShowSpeakers(speakers: IveoSpeaker[]): ShowIveoSpeaker
     .map((s): ShowIveoSpeaker => {
       const speaker: ShowIveoSpeaker = { name: speakerName(s) };
       if (s.title && s.title.trim()) speaker.title = s.title.trim();
+      const orgs = organisationenVon(s);
+      if (orgs.length) speaker.organisationen = orgs;
       return speaker;
     })
     .filter((s) => s.name.length > 0);

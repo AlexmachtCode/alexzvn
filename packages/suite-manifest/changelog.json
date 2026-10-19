@@ -32,6 +32,20 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.16.0",
+        "date": "2026-10-19",
+        "notes": [
+          "Organisationen der Speaker aus iveo kommen in die Show; der Titler bietet sie als Variablen an. Nach dem Binden zeigt der Show-Editor, wie viele Speaker eine Organisation haben.",
+          "Der Live-Abgleich holt die Speakerliste zusätzlich etwa alle 5 Minuten. Die Show wird nur bei einer echten Änderung neu geschrieben oder wenn die Speakerliste nicht abrufbar ist.",
+          "Ist ein Side Event in iveo mit keinem Speaker verknüpft, bekommt die Show bei der nächsten Auffrischung alle Speaker des Events, wie schon beim Binden.",
+          "Haben die Speaker einer offenen iveo-Show in iveo Organisationen, schreibt der Launcher mit dem iveo-Token die Show nach dem Update einmal neu, in der Regel binnen 5 Minuten; Timer, Titler und Rundown laden dabei einmal neu.",
+          "Standard für iveo ist jetzt Production (app.my-iveo.de). Eine eingetragene Adresse gilt weiter und bleibt beim Speichern der Einstellungen erhalten; neue Bindungen merken sich ihre Adresse, und der Show-Editor zeigt sie beim Bearbeiten an. Eine an Staging gebundene Show, in der keine Adresse gespeichert ist, fragt jetzt die Standardadresse ab; die Statuszeile meldet dann „Token ungültig oder widerrufen“ oder „Event nicht gefunden oder außerhalb des Token-Scopes (404).“. Abhilfe: die Show im Show-Editor bearbeiten, die Adresse eintragen und neu binden.",
+          "Anhänge eines Side Events werden bei jedem Aufklappen frisch geholt und aktualisieren sich, solange die Liste offen ist; „Stand“ nennt die letzte gelungene Prüfung. In iveo gelöschte Anhänge verschwinden. Beim Speichern aus der Liste gelten dieselben Namensregeln wie im Ordner; eine Datei mit ausführbarer Endung wird gespeichert, aber nicht automatisch geöffnet.",
+          "Neu: Der Launcher mit dem iveo-Token legt die Anhänge der Side Events in Ordnern neben der Show-Datei ab („‹Show› – Side Events“) und hält sie aktuell. Was iveo entfernt oder ersetzt, wandert nach „entfernt“, nichts wird gelöscht. Dateien mit ausführbarer Endung bekommen eine geänderte Endung. Abschaltbar im Side-Events-Panel.",
+          "Fehlt für diesen Rechner ein Installationspaket, nennt der Launcher den Grund. Er nimmt das neueste Release, das ein Paket für diesen Rechner hat; ein Mac mit Intel-Prozessor bekommt nie ein Paket nur für Apple Silicon."
+        ]
+      },
+      {
         "version": "0.15.0",
         "date": "2026-10-13",
         "notes": [
@@ -1100,6 +1114,14 @@
     "app": "titler",
     "name": "JM Titler",
     "entries": [
+      {
+        "version": "0.12.1",
+        "date": "2026-10-19",
+        "notes": [
+          "Neue Variablen {{organisation}} (Hauptorganisation) und {{organisationen}} (alle, mit „ · “ verbunden) für Bauchbinden aus iveo. Bestehende Vorlagen bleiben unverändert.",
+          "Die Werte kommen mit Launcher 0.16.0; mit einem älteren Launcher bleiben die beiden Variablen leer. Im Verbund braucht auch der gekoppelte Rechner Titler 0.12.1."
+        ]
+      },
       {
         "version": "0.12.0",
         "date": "2026-10-17",

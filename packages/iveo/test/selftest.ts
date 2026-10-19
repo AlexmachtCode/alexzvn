@@ -5,6 +5,9 @@
 import {
   IveoClient,
   IveoApiError,
+  IveoAssetAdresseError,
+  assetAnfrage,
+  IVEO_DEFAULT_BASE_URL,
   normalizeIveoBaseUrl,
   createIveoClient,
   durationMsOf,
@@ -18,6 +21,7 @@ import {
   agendaToAblauf,
   extractSpeakerIds,
   speakersToShowSpeakers,
+  organisationenVon,
   buildShowMetadata,
   speakerName,
   localTimeOfDayMs,
@@ -26,10 +30,11 @@ import {
   type IveoFetchResponse,
   type IveoProgram,
   type IveoSnapshot,
+  type IveoSpeaker,
 } from '../src/index';
 import {
-  createShow, hatEigeneTimerListe, loeseDoppelteKennungenAuf, migrateShow, normalizeAblauf, parseShow, serializeShow,
-  showFuerVerbund, VERBUND_EINSTELLUNGEN, type Show,
+  createShow, hatEigeneTimerListe, loeseDoppelteKennungenAuf, migrateShow, normalisiereOrganisationen, normalizeAblauf,
+  parseShow, serializeShow, showFuerVerbund, VERBUND_EINSTELLUNGEN, type Show,
 } from '@jm/show';
 import { kennungenAus, kennungsBericht, kennungsForm, leseKennungsListe, vergleicheMengen, vergleicheMitCache } from '../tools/messung-2b-kern';
 
@@ -65,7 +70,15 @@ const snapshot: IveoSnapshot = {
     prog({ id: 'p3', title: 'Ohne Zeit' }),
   ],
   speakers: [
-    { id: 'sp1', event_id: 'e1', salutation: 'Dr.', first_name: 'Ana', last_name: 'Ferreira', title: 'Lead Negotiator', bio: 'GEHEIM-BIO sollte nicht in Metadaten', photo: { url: 'https://x/api/v1/assets/photo1' } },
+    {
+      id: 'sp1', event_id: 'e1', salutation: 'Dr.', first_name: 'Ana', last_name: 'Ferreira', title: 'Lead Negotiator',
+      bio: 'GEHEIM-BIO sollte nicht in Metadaten', photo: { url: 'https://x/api/v1/assets/photo1' },
+      // iveo-Paket P2 (12.1 Nr. 5): Hauptorganisation an zweiter Stelle, eine Rolle, Leerraum im Namen.
+      organisations: [
+        { id: 'org-2', name: ' Ministério do  Meio Ambiente ', role_at_organisation: 'Vorsitz', is_primary: false },
+        { id: 'org-1', name: 'UNFCCC', is_primary: true },
+      ],
+    },
   ],
   organisations: [{ id: 'o1', name: 'UNFCCC' }],
   stages: [{ id: 's1', event_id: 'e1', name: 'Blue Zone Plenary', color: '#1B66FF' }],
@@ -305,6 +318,293 @@ function mkRes(status: number, body: unknown, headers: Record<string, string> = 
   ok(!seen.some((u) => u.includes('iveo_live_')), 'fetchAsset: kein Token in der URL (nur Header)');
 }
 
+// ── Asset-Anfrage: Token nur an die Herkunft der Basis-URL (iveo-Paket P4, E52, Spec 9.6; 12.1 Nr. 11) ──
+{
+  const BASIS = 'https://app.my-iveo.de/api/v1';
+  const T77 = 'Datei-Adresse auf anderem Server ohne https';
+  // Referenz in der auf Prod gemessenen Form (M1): base64url eines JSON-Arrays aus drei Texten (16, 114, 36 Zeichen),
+  // ein Punkt, 32 Byte Signatur als base64url — 279 Zeichen. Zur Laufzeit gebaut, damit kein signaturartiger Text im
+  // Quelltext steht.
+  const REF =
+    Buffer.from(JSON.stringify(['k'.repeat(16), 'w'.repeat(114), '3f2b8c1e-9a4d-4e2f-8b1a-0c6d5e4f3a21'])).toString('base64url') +
+    '.' +
+    Buffer.alloc(32, 7).toString('base64url');
+  ok(REF.length === 279 && REF.split('.').length === 2, 'P4 12.1 Nr. 11: Prüf-Referenz in der gemessenen Form (279 Zeichen, ein Punkt)');
+  type Soll = { url: string; mitToken: boolean } | 'abgelehnt';
+  const FAELLE: ReadonlyArray<[string, string, Soll]> = [
+    ['nackte Kennung', 'a1b2c3', { url: `${BASIS}/assets/a1b2c3`, mitToken: true }],
+    ['assets/‹id›', 'assets/a1b2c3', { url: `${BASIS}/assets/a1b2c3`, mitToken: true }],
+    ['Referenz in der gemessenen Form', REF, { url: `${BASIS}/assets/${REF}`, mitToken: true }],
+    ['volle Adresse gleicher Herkunft', `${BASIS}/assets/a1b2c3`, { url: `${BASIS}/assets/a1b2c3`, mitToken: true }],
+    ['fremder Host über https', 'https://fremd.example/x', { url: 'https://fremd.example/x', mitToken: false }],
+    ['anderer Port', 'https://app.my-iveo.de:8443/x', { url: 'https://app.my-iveo.de:8443/x', mitToken: false }],
+    ['fremder Host über http', 'http://fremd.example/x', 'abgelehnt'],
+    ['eigener Host über http (anderes Schema)', 'http://app.my-iveo.de/x', 'abgelehnt'],
+  ];
+  const wohin = (soll: Soll): string => (soll === 'abgelehnt' ? 'kein Abruf (T77)' : soll.mitToken ? 'mit Token' : 'ohne Token');
+  for (const [name, ref, soll] of FAELLE) {
+    let ist: unknown;
+    try {
+      ist = assetAnfrage(ref, BASIS);
+    } catch (e) {
+      ist = e;
+    }
+    ok(
+      soll === 'abgelehnt' ? ist instanceof IveoAssetAdresseError && ist.message === T77 : JSON.stringify(ist) === JSON.stringify(soll),
+      `P4 12.1 Nr. 11 assetAnfrage: ${name} → ${wohin(soll)}`,
+    );
+  }
+  const fehlerVon = (ref: string): unknown => {
+    try {
+      return assetAnfrage(ref, BASIS);
+    } catch (e) {
+      return e;
+    }
+  };
+  const leer = fehlerVon('  ');
+  const unlesbar = fehlerVon('https://');
+  ok(
+    leer instanceof Error && !(leer instanceof IveoAssetAdresseError) && leer.message === 'iveo: leere Asset-Referenz' &&
+      unlesbar instanceof Error && !(unlesbar instanceof IveoAssetAdresseError) && unlesbar.message === 'iveo: ungültige Asset-Adresse',
+    'P4 assetAnfrage: leere Referenz wie bisher, unlesbare Adresse → Fehler ohne Adresse (kein T77)',
+  );
+
+  // Dieselben Fälle über oeffneAsset und fetchAsset: Die Attrappe protokolliert Adresse und Authorization jedes Abrufs.
+  const leererStrom = (): ReadableStream<Uint8Array> => new ReadableStream<Uint8Array>({ start: (c) => c.close() });
+  const protokoll: Array<{ url: string; auth?: string }> = [];
+  const fetchImpl: IveoFetchLike = async (url, init) => {
+    protokoll.push({ url, auth: init?.headers?.['Authorization'] });
+    return { ...mkRes(200, '', { 'content-type': 'application/pdf' }), body: leererStrom() };
+  };
+  const client = new IveoClient({ token: 'iveo_live_GEHEIM', baseUrl: BASIS, fetchImpl });
+  const alle: Array<{ url: string; auth?: string }> = [];
+  for (const weg of ['oeffneAsset', 'fetchAsset'] as const) {
+    for (const [name, ref, soll] of FAELLE) {
+      protokoll.length = 0;
+      let fehler: unknown = null;
+      try {
+        if (weg === 'oeffneAsset') await client.oeffneAsset(ref);
+        else await client.fetchAsset(ref);
+      } catch (e) {
+        fehler = e;
+      }
+      alle.push(...protokoll);
+      const sollProtokoll = soll === 'abgelehnt' ? [] : [{ url: soll.url, auth: soll.mitToken ? 'Bearer iveo_live_GEHEIM' : undefined }];
+      ok(
+        JSON.stringify(protokoll) === JSON.stringify(sollProtokoll) &&
+          (soll === 'abgelehnt' ? fehler instanceof IveoAssetAdresseError : fehler === null),
+        `P4 12.1 Nr. 11 ${weg}: ${name} → ${wohin(soll)}`,
+      );
+    }
+  }
+  const mitToken = alle.filter((a) => (a.auth ?? '').includes('GEHEIM'));
+  ok(
+    alle.length === 12 && mitToken.length === 8 && mitToken.every((a) => new URL(a.url).host === 'app.my-iveo.de'),
+    'P4 12.1 Nr. 11: iveo_live_GEHEIM steht nur in Anfragen an app.my-iveo.de',
+  );
+
+  // Basis http://127.0.0.1:‹Port› (wie die Tests des Launchers): dieselbe Herkunft mit Token, anderer Port über http nie.
+  const LOKAL = 'http://127.0.0.1:47123/api/v1';
+  const lokalProtokoll: Array<{ url: string; auth?: string }> = [];
+  const lokal = new IveoClient({
+    token: 'iveo_live_GEHEIM',
+    baseUrl: LOKAL,
+    fetchImpl: async (url, init) => {
+      lokalProtokoll.push({ url, auth: init?.headers?.['Authorization'] });
+      return { ...mkRes(200, ''), body: leererStrom() };
+    },
+  });
+  await lokal.oeffneAsset('x1');
+  await lokal.fetchAsset(`${LOKAL}/assets/x2`);
+  let andererPort: unknown;
+  try {
+    await lokal.oeffneAsset('http://127.0.0.1:47124/x3');
+  } catch (e) {
+    andererPort = e;
+  }
+  ok(
+    JSON.stringify(lokalProtokoll) ===
+      JSON.stringify([
+        { url: `${LOKAL}/assets/x1`, auth: 'Bearer iveo_live_GEHEIM' },
+        { url: `${LOKAL}/assets/x2`, auth: 'Bearer iveo_live_GEHEIM' },
+      ]) && andererPort instanceof IveoAssetAdresseError,
+    'P4 12.1 Nr. 11: Basis http://127.0.0.1:‹Port› — gleiche Herkunft mit Token, anderer Port über http kein Abruf',
+  );
+}
+
+// ── oeffneAsset: Datenstrom, Signal des Aufrufers, kein Retry nach Abbruch (iveo-Paket P4, E46, Spec 9.6; 12.1 Nr. 8) ──
+{
+  const BASIS = 'https://app.my-iveo.de/api/v1';
+  const dreiBytes = (): ReadableStream<Uint8Array> =>
+    new ReadableStream<Uint8Array>({
+      start: (c) => {
+        c.enqueue(new Uint8Array([1, 2, 3]));
+        c.close();
+      },
+    });
+  const abbruch = (name: 'AbortError' | 'TimeoutError'): Error => Object.assign(new Error(name), { name });
+
+  // Signal, Umleitung, Adresse wie fetchAsset, Datenstrom; die Attrappe setzt res.url auf eine signierte Adresse.
+  {
+    const gesehen: Array<{ url: string; redirect?: string; signal?: AbortSignal }> = [];
+    const stroeme: Array<ReadableStream<Uint8Array>> = [];
+    const fetchImpl: IveoFetchLike = async (url, init) => {
+      gesehen.push({ url, redirect: init?.redirect, signal: init?.signal });
+      const body = dreiBytes();
+      stroeme.push(body);
+      return {
+        ...mkRes(200, '', { 'content-type': 'application/pdf', 'content-length': '3' }),
+        url: 'https://signed.example/x?X-Amz-Signature=GEHEIM-SIG',
+        body,
+      };
+    };
+    const client = new IveoClient({ token: 'iveo_live_SECRET', baseUrl: BASIS, fetchImpl });
+    const ctrl = new AbortController();
+    const r = await client.oeffneAsset('assets/a1', { signal: ctrl.signal });
+    await client.fetchAsset('assets/a1');
+    ok(
+      gesehen[0]?.signal === ctrl.signal && gesehen[0]?.redirect === 'follow',
+      'P4 12.1 Nr. 8: oeffneAsset übergibt das Signal des Aufrufers und folgt der Umleitung (redirect: follow)',
+    );
+    ok(
+      gesehen.length === 2 && gesehen[0].url === `${BASIS}/assets/a1` && gesehen[0].url === gesehen[1].url,
+      'P4 12.1 Nr. 8: Anfrage-URL wie bei fetchAsset',
+    );
+    const leser = r.body.getReader();
+    const gelesen: number[] = [];
+    for (;;) {
+      const { done, value } = await leser.read();
+      if (done) break;
+      gelesen.push(...value);
+    }
+    ok(
+      r.body === stroeme[0] && JSON.stringify(gelesen) === '[1,2,3]' && r.contentType === 'application/pdf' && r.contentLength === 3,
+      'P4 12.1 Nr. 8: oeffneAsset liefert den Datenstrom (body), Inhaltstyp und Länge',
+    );
+    ok(
+      JSON.stringify(Object.keys(r)) === '["body","contentType","contentLength"]' &&
+        Object.values(r).every((w) => !String(w).includes('GEHEIM')),
+      'P4 12.1 Nr. 8: keine Weiterleitungsadresse im Ergebnis (kein Wert enthält GEHEIM)',
+    );
+  }
+  // 404 → IveoApiError; Antwort ohne Datenstrom → Fehler; Länge, die keine Zahl ist, und fehlender Inhaltstyp → null.
+  {
+    let fehler404: unknown;
+    try {
+      await new IveoClient({ token: 'iveo_live_SECRET', baseUrl: BASIS, fetchImpl: async () => mkRes(404, '') }).oeffneAsset('a1');
+    } catch (e) {
+      fehler404 = e;
+    }
+    ok(fehler404 instanceof IveoApiError && fehler404.status === 404, 'P4 12.1 Nr. 8: oeffneAsset wirft IveoApiError bei 404');
+    let ohneStrom: unknown;
+    try {
+      await new IveoClient({ token: 'iveo_live_SECRET', baseUrl: BASIS, fetchImpl: async () => mkRes(200, '') }).oeffneAsset('a1');
+    } catch (e) {
+      ohneStrom = e;
+    }
+    const ohneLaenge = await new IveoClient({
+      token: 'iveo_live_SECRET',
+      baseUrl: BASIS,
+      fetchImpl: async () => ({ ...mkRes(200, '', { 'content-length': 'viel' }), body: dreiBytes() }),
+    }).oeffneAsset('a1');
+    ok(
+      ohneStrom instanceof Error && ohneStrom.message === 'iveo: Asset ohne Datenstrom' &&
+        ohneLaenge.contentLength === null && ohneLaenge.contentType === null,
+      'P4 oeffneAsset: Antwort ohne Datenstrom → Fehler; Länge keine Zahl und Inhaltstyp fehlt → null',
+    );
+  }
+  // Gesamtprüfung Befund 3 (Spec T22 (r)): die Meldung eines gescheiterten Asset-Abrufs nennt den HTTP-Status, sonst sehen ein
+  // abgelaufener Link (403) und eine Drosselung (429) in Zeile, Log und Panel gleich aus; Status und Code bleiben am Fehler.
+  {
+    for (const status of [400, 403, 410, 429]) {
+      const client = new IveoClient({ token: 'iveo_live_SECRET', baseUrl: BASIS, maxRetries: 0, fetchImpl: async () => mkRes(status, '') });
+      const fehler: unknown[] = [];
+      for (const weg of [() => client.oeffneAsset('a1'), () => client.fetchAsset('a1')]) {
+        try {
+          await weg();
+        } catch (e) {
+          fehler.push(e);
+        }
+      }
+      ok(
+        fehler.length === 2 &&
+          fehler.every((e) => e instanceof IveoApiError && e.status === status && e.code === `http_${status}` && e.message === `iveo: Asset nicht abrufbar (HTTP ${status})`),
+        `Gesamt-Fix T22 (r): oeffneAsset und fetchAsset mit HTTP ${status} → „iveo: Asset nicht abrufbar (HTTP ${status})“, Status und Code am Fehler`,
+      );
+    }
+  }
+  // Abbruch durch den Aufrufer: genau ein Aufruf, keine Wartezeit, der Abbruch kommt unverändert heraus.
+  {
+    const ctrl = new AbortController();
+    let aufrufe = 0;
+    const pausen: number[] = [];
+    const client = new IveoClient({
+      token: 'iveo_live_SECRET',
+      baseUrl: BASIS,
+      maxRetries: 3,
+      sleepImpl: async (ms) => void pausen.push(ms),
+      fetchImpl: async () => {
+        aufrufe++;
+        ctrl.abort();
+        throw abbruch('AbortError');
+      },
+    });
+    let fehler: unknown;
+    try {
+      await client.oeffneAsset('a1', { signal: ctrl.signal });
+    } catch (e) {
+      fehler = e;
+    }
+    ok(
+      aufrufe === 1 && pausen.length === 0 && fehler instanceof Error && fehler.name === 'AbortError',
+      'P4 12.1 Nr. 8: Signal des Aufrufers abgebrochen und fetchImpl wirft → genau ein Aufruf, keine Wartezeit',
+    );
+  }
+  // TimeoutError ohne Signal des Aufrufers (wie aus mitZeitgrenze) → wie bisher wiederholt: 1 + maxRetries Aufrufe.
+  {
+    let aufrufe = 0;
+    const pausen: number[] = [];
+    const client = new IveoClient({
+      token: 'iveo_live_SECRET',
+      baseUrl: BASIS,
+      maxRetries: 2,
+      sleepImpl: async (ms) => void pausen.push(ms),
+      fetchImpl: async () => {
+        aufrufe++;
+        throw abbruch('TimeoutError');
+      },
+    });
+    let fehler: unknown;
+    try {
+      await client.oeffneAsset('a1');
+    } catch (e) {
+      fehler = e;
+    }
+    ok(
+      aufrufe === 3 && pausen.length === 2 && fehler instanceof Error && fehler.name === 'TimeoutError',
+      'P4 12.1 Nr. 8: TimeoutError ohne Signal des Aufrufers → 1 + maxRetries Aufrufe (wie bisher)',
+    );
+  }
+  // Signal des Aufrufers gesetzt, aber nicht abgebrochen: ein Wurf wird weiter wiederholt.
+  {
+    const ctrl = new AbortController();
+    let aufrufe = 0;
+    const client = new IveoClient({
+      token: 'iveo_live_SECRET',
+      baseUrl: BASIS,
+      maxRetries: 2,
+      sleepImpl: async () => {},
+      fetchImpl: async () => {
+        aufrufe++;
+        if (aufrufe < 3) throw abbruch('TimeoutError');
+        return { ...mkRes(200, ''), body: dreiBytes() };
+      },
+    });
+    const r = await client.oeffneAsset('a1', { signal: ctrl.signal });
+    ok(aufrufe === 3 && r.body instanceof ReadableStream, 'P4 12.1 Nr. 8: Signal des Aufrufers nicht abgebrochen → ein Wurf wird wiederholt');
+  }
+}
+
 // ── Retry/Backoff auf 5xx (§9) ───────────────────────────────────────────────
 {
   let calls = 0;
@@ -319,8 +619,13 @@ function mkRes(status: number, body: unknown, headers: Record<string, string> = 
 }
 
 // ── normalizeIveoBaseUrl (Robustheit gegen „Failed to parse URL") ─────────────
-ok(normalizeIveoBaseUrl('') === 'https://staging-dev.my-iveo.de/api/v1', 'baseUrl: leer → Default');
-ok(normalizeIveoBaseUrl('  ') === 'https://staging-dev.my-iveo.de/api/v1', 'baseUrl: nur Whitespace → Default');
+// iveo-Paket P3 (Spec 7.1, 12.8): Der Standard ist Production; die Schema-Ergänzung darunter bleibt mit Staging-Host als Eingabe.
+ok(normalizeIveoBaseUrl('') === 'https://app.my-iveo.de/api/v1', 'baseUrl: leer → Default');
+ok(normalizeIveoBaseUrl('  ') === 'https://app.my-iveo.de/api/v1', 'baseUrl: nur Whitespace → Default');
+ok(
+  IVEO_DEFAULT_BASE_URL === 'https://app.my-iveo.de/api/v1' && normalizeIveoBaseUrl('') === IVEO_DEFAULT_BASE_URL,
+  'P3 12.1 Nr. 7: IVEO_DEFAULT_BASE_URL und normalizeIveoBaseUrl(leer) = Production',
+);
 ok(
   normalizeIveoBaseUrl('staging-dev.my-iveo.de/api/v1') === 'https://staging-dev.my-iveo.de/api/v1',
   'baseUrl: fehlendes Schema → https:// ergänzt',
@@ -337,6 +642,19 @@ ok(
     threw = true;
   }
   ok(threw, 'baseUrl: Schema ohne Host → wirft klar (statt „Failed to parse URL")');
+}
+{
+  // T8 (iveo-Paket, Spec 11.6) wörtlich: typografische Anführungszeichen um die Eingabe, Beispiel Production.
+  let meldung = '';
+  try {
+    normalizeIveoBaseUrl('http://');
+  } catch (e) {
+    meldung = e instanceof Error ? e.message : String(e);
+  }
+  ok(
+    meldung === 'Ungültige iveo-Basis-URL: „http://“. Beispiel: https://app.my-iveo.de/api/v1',
+    'P3 T8: Fehlertext bei ungültiger Adresse wörtlich (typografische Anführungszeichen, Beispiel Production)',
+  );
 }
 
 // ── bad_envelope-Diagnose (falsche Basis-URL → HTML) ─────────────────────────
@@ -366,6 +684,71 @@ ok(
   ok(speakers.every((s) => !('id' in s)), 'speakersToShowSpeakers ohne Kennung (Spec 23: M1 = nein)');
   const rund = parseShow(serializeShow({ ...createShow('Speaker'), iveo: { event: 'cop30', speakers } }));
   ok(JSON.stringify(rund.iveo?.speakers) === JSON.stringify(speakers), 'speakersToShowSpeakers: Ausgabe ist ein Fixpunkt des Normalisierers');
+}
+
+// ── organisationenVon und Organisationen am Show-Speaker (iveo-Paket P2, Spec 5.1, 5.2, E3, E7; 12.1 Nr. 1, 5, 6) ──
+{
+  const mitOrganisationen = (organisations: unknown): IveoSpeaker =>
+    ({ id: 'sp-o', event_id: 'e1', first_name: 'Ada', last_name: 'Lovelace', organisations }) as IveoSpeaker;
+  // 12.1 Nr. 1: jede Zeile der Tabelle 5.2 — Ergebnis von organisationenVon und der Show-Speaker aus dem Mapper.
+  const TABELLE: ReadonlyArray<[string, unknown, string[]]> = [
+    ['fehlt', undefined, []],
+    ['null', null, []],
+    ['kein Array', { name: 'UNFCCC' }, []],
+    ['[]', [], []],
+    ['eine Hauptorganisation', [{ name: 'UNFCCC', is_primary: true }], ['UNFCCC']],
+    ['Haupt an zweiter Stelle', [{ name: 'A', is_primary: false }, { name: 'B', is_primary: true }], ['B', 'A']],
+    ['ohne is_primary', [{ name: 'A' }, { name: 'B' }], ['A', 'B']],
+    ['zwei mit is_primary', [{ name: 'A', is_primary: true }, { name: 'B', is_primary: true }], ['A', 'B']],
+    ['Haupt kommt noch einmal vor', [{ name: 'B', is_primary: true }, { name: 'A' }, { name: 'B' }], ['B', 'A']],
+    ['Leerraum, danach doppelt', [{ name: '  A  ' }, { name: 'A' }], ['A']],
+    ['Tab und Zeilenumbruch', [{ name: 'A\tB\nC' }], ['A B C']],
+    ['Groß- und Kleinschreibung zählt', [{ name: 'a' }, { name: 'A' }], ['a', 'A']],
+    ['nur ungültige Einträge', [{ name: '' }, { name: '  ' }, { name: null }, 'x', null], []],
+    ['Kennung und Rolle entfallen', [{ id: 'o1', name: 'A', role_at_organisation: 'Chair', is_primary: true }], ['A']],
+    // Über die Tabelle hinaus (5.2 Schritte 2 und 3): Ein ungültiger Eintrag ist nie die Hauptorganisation.
+    ['Haupt mit leerem Namen zählt nicht', [{ name: '  ', is_primary: true }, { name: 'B' }, { name: 'A', is_primary: true }], ['A', 'B']],
+  ];
+  for (const [name, organisations, soll] of TABELLE) {
+    const s = mitOrganisationen(organisations);
+    const sollShow = soll.length ? { name: 'Ada Lovelace', organisationen: soll } : { name: 'Ada Lovelace' };
+    ok(
+      JSON.stringify(organisationenVon(s)) === JSON.stringify(soll) &&
+        JSON.stringify(speakersToShowSpeakers([s])[0]) === JSON.stringify(sollShow),
+      `P2 12.1 Nr. 1 Tabelle 5.2: ${name} → ${soll.length ? JSON.stringify(soll) : 'Feld fehlt'}`,
+    );
+  }
+  // 12.1 Nr. 6: Fixpunkt — die Mapper-Ausgabe aller Tabellenzeilen läuft unverändert durch den Normalisierer.
+  const alle = speakersToShowSpeakers(TABELLE.map(([, organisations]) => mitOrganisationen(organisations)));
+  ok(
+    JSON.stringify(migrateShow({ ...createShow('Fixpunkt'), iveo: { event: 'cop31', speakers: alle } }).iveo?.speakers) === JSON.stringify(alle),
+    'P2 12.1 Nr. 6: Mapper-Ausgabe aller Tabellenzeilen = Ausgabe nach migrateShow (Fixpunkt)',
+  );
+
+  // 12.1 Nr. 5: Fixture mit Hauptorganisation an zweiter Stelle und einer Rolle → nur Namen, Haupt vorn.
+  const speakers = snapshotToShowSpeakers(snapshot);
+  const json = JSON.stringify(speakers);
+  ok(
+    JSON.stringify(speakers[0]) ===
+      '{"name":"Dr. Ana Ferreira","title":"Lead Negotiator","organisationen":["UNFCCC","Ministério do Meio Ambiente"]}',
+    'P2 12.1 Nr. 5: speakersToShowSpeakers setzt organisationen (Haupt vorn, Leerraum nach der gemeinsamen Regel)',
+  );
+  ok(
+    !json.includes('org-1') && !json.includes('org-2') && !json.includes('Vorsitz') && !json.includes('is_primary') && !json.includes('GEHEIM-BIO'),
+    'P2 12.1 Nr. 5: ohne Kennung, Rolle und Bio',
+  );
+  ok(
+    JSON.stringify(migrateShow({ ...createShow('Fixpunkt'), iveo: { event: 'cop31', speakers } }).iveo?.speakers) === json,
+    'P2 12.1 Nr. 6: Fixture-Speaker mit Organisationen = Ausgabe nach migrateShow (Fixpunkt)',
+  );
+
+  // E7: Die Cache-Metadaten bleiben ohne Organisationen.
+  const m = buildShowMetadata(snapshot, 'https://app.my-iveo.de/api/v1');
+  ok(
+    JSON.stringify(Object.keys(m.speakers[0])) === '["id","name","title"]' &&
+      !JSON.stringify(m).includes('Meio Ambiente') && !JSON.stringify(m).includes('UNFCCC'),
+    'P2 E7: buildShowMetadata bleibt ohne Organisationen',
+  );
 }
 
 // ── getEventSnapshot resilient (Best-Effort-Nebendaten + programsBestEffort) ──
@@ -736,6 +1119,20 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
     JSON.stringify(rund.iveo?.speakers) === '[{"id":"sp-1","name":"Ada","title":"Moderation"},{"name":"Ohne Kennung"}]',
     '@jm/show: Speaker-Kennung übersteht serializeShow → parseShow',
   );
+  // 12.8 zweiter Fall (iveo-Paket P2): die Mapper-Ausgabe mit Organisationen übersteht serializeShow → parseShow exakt.
+  const ausIveo = speakersToShowSpeakers([
+    {
+      id: 'sp-9', event_id: 'e1', first_name: 'Ada', last_name: 'Lovelace', title: 'Moderation',
+      organisations: [{ id: 'org-2', name: 'GIZ', is_primary: false }, { id: 'org-1', name: 'UNFCCC', role_at_organisation: 'Vorsitz', is_primary: true }],
+    },
+    { id: 'sp-10', event_id: 'e1', first_name: 'Ohne', last_name: 'Organisation', organisations: [] },
+  ]);
+  const rundOrg = parseShow(serializeShow({ ...createShow('Speaker'), iveo: { event: 'cop31', speakers: ausIveo } }));
+  ok(
+    JSON.stringify(rundOrg.iveo?.speakers) ===
+      '[{"name":"Ada Lovelace","title":"Moderation","organisationen":["UNFCCC","GIZ"]},{"name":"Ohne Organisation"}]',
+    'P2 12.8 zweiter Fall: Mapper-Ausgabe mit Organisationen übersteht serializeShow → parseShow (exaktes JSON)',
+  );
 
   // 9.1 Nr. 6: Merker speakerVeraltetSeit — lesbare Zeit bleibt, Unlesbares entfällt, Rundreise und Platz nach speakers.
   const MERKER = '2026-10-02T08:00:00.000Z';
@@ -761,6 +1158,80 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
     '@jm/show: Merker steht in der Bindung direkt nach speakers',
   );
   ok(!('speakerVeraltetSeit' in (binde({ speakers: [{ name: 'Ada' }] }) ?? {})), '@jm/show: ohne Merker kein Feld');
+}
+
+// ── @jm/show: Organisationen am Speaker (iveo-Paket P1, Spec 5.3, E1, E2, E4; 12.1 Nr. 2–4) ──
+{
+  const N = normalisiereOrganisationen;
+  const gleich = (ist: unknown, soll: unknown): boolean => JSON.stringify(ist) === JSON.stringify(soll);
+
+  // 12.1 Nr. 2: die gemeinsame Regel für Mapper und Normalisierer (Schritte 1–6 aus 5.3).
+  ok([undefined, null, 'UNFCCC', 42, { 0: 'A' }].every((w) => gleich(N(w), [])), 'P1 12.1 Nr. 2: kein Array → []');
+  ok(gleich(N([1, null, { name: 'A' }, ['B'], true, 'C']), ['C']), 'P1 12.1 Nr. 2: Nicht-Strings fallen weg');
+  ok(gleich(N(['Cafe\u0301']), ['Caf\u00e9']), 'P1 12.1 Nr. 2: NFC');
+  ok(
+    gleich(N(['  A \t B\n\u00a0 C  ', '   ', '']), ['A B C']),
+    'P1 12.1 Nr. 2: jede Folge von Leerraum wird ein Leerzeichen, trim, leer fällt weg',
+  );
+  ok(
+    gleich(N(['a'.repeat(200)]), ['a'.repeat(200)]) && gleich(N(['a'.repeat(201)]), ['a'.repeat(200)]),
+    'P1 12.1 Nr. 2: 200 Codepunkte bleiben, 201 werden auf 200 gekürzt',
+  );
+  ok(
+    gleich(N(['a'.repeat(199) + '\u{1F600}b']), ['a'.repeat(199) + '\u{1F600}']),
+    'P1 12.1 Nr. 2: Emoji an der Grenze bleibt ganz (Codepunkte, nie ein halbes Surrogatpaar)',
+  );
+  ok(gleich(N(['a'.repeat(199) + ' b']), ['a'.repeat(199)]), 'P1 12.1 Nr. 2: nach dem Kürzen erneut trim');
+  const einundzwanzig = Array.from({ length: 21 }, (_, i) => `Org ${i + 1}`);
+  ok(gleich(N(einundzwanzig), einundzwanzig.slice(0, 20)), 'P1 12.1 Nr. 2: 20 bleiben, der 21. fällt weg');
+  ok(
+    gleich(N(['A', 'B', 'A', ' A ', 'a']), ['A', 'B', 'a']),
+    'P1 12.1 Nr. 2: Doppelte nur einmal (nach Leerraum; Groß- und Kleinschreibung zählt)',
+  );
+  ok(gleich(N(['D', 'D', ...einundzwanzig]), ['D', ...einundzwanzig.slice(0, 19)]), 'P1 12.1 Nr. 2: Doppelte zählen nicht zu den 20');
+  ok(gleich(N(['Zeta', 'Alpha', 'Mu']), ['Zeta', 'Alpha', 'Mu']), 'P1 12.1 Nr. 2: Reihenfolge bleibt (kein Sortieren)');
+  const roh = ['  B ', 'A'];
+  N(roh);
+  ok(gleich(roh, ['  B ', 'A']), 'P1 12.1 Nr. 2: Eingabe bleibt unverändert');
+
+  // 12.1 Nr. 3: Normalisierer der Show (OR2), Feldreihenfolge id, name, title, organisationen.
+  const binde = (iveo: Record<string, unknown>) =>
+    parseShow(JSON.stringify({ schemaVersion: 1, name: 'S', tools: [], iveo: { event: 'cop31', ...iveo } })).iveo;
+  const sp = binde({
+    speakers: [{ organisationen: ['UNFCCC', '  Ministerium  für Umwelt '], title: 'Ministerin', name: 'Ana', id: 'sp-1' }],
+  })?.speakers?.[0];
+  ok(
+    gleich(sp, { id: 'sp-1', name: 'Ana', title: 'Ministerin', organisationen: ['UNFCCC', 'Ministerium für Umwelt'] }),
+    'P1 12.1 Nr. 3: Normalisierer behält organisationen (nach der gemeinsamen Regel)',
+  );
+  ok(
+    gleich(Object.keys(sp ?? {}), ['id', 'name', 'title', 'organisationen']),
+    'P1 12.1 Nr. 3: Schlüsselreihenfolge des Speakers ["id","name","title","organisationen"]',
+  );
+  const ohne =
+    binde({ speakers: [{ name: 'A', organisationen: [] }, { name: 'B', organisationen: ['  ', 7] }, { name: 'C', organisationen: 'UNFCCC' }] })
+      ?.speakers ?? [];
+  ok(ohne.length === 3 && ohne.every((s) => !('organisationen' in s)), 'P1 12.1 Nr. 3: leere oder ungültige Liste → Feld fehlt');
+  const doppelt =
+    binde({ speakers: [{ id: 'X', name: 'a', organisationen: ['A'] }, { id: 'X', name: 'b', organisationen: ['B'] }] })?.speakers ?? [];
+  ok(
+    gleich(doppelt, [{ id: 'X', name: 'a', organisationen: ['A'] }, { id: 'X#2', name: 'b', organisationen: ['B'] }]),
+    'P1 12.1 Nr. 3: doppelte Kennung → #2, organisationen bleiben (loeseDoppelteKennungenAuf)',
+  );
+
+  // 12.1 Nr. 4: serializeShow → parseShow behält das Feld; ein Speaker ohne Organisation bleibt ohne.
+  const text = serializeShow({
+    ...createShow('Organisationen'),
+    iveo: {
+      event: 'cop31',
+      speakers: [{ id: 'sp-1', name: 'Ada', title: 'Moderation', organisationen: ['UNFCCC', 'GIZ'] }, { name: 'Ohne Organisation' }],
+    },
+  });
+  ok(
+    JSON.stringify(parseShow(text).iveo?.speakers) ===
+      '[{"id":"sp-1","name":"Ada","title":"Moderation","organisationen":["UNFCCC","GIZ"]},{"name":"Ohne Organisation"}]',
+    'P1 12.1 Nr. 4: serializeShow → parseShow behält organisationen',
+  );
 }
 
 // ── @jm/show: Ausschnitt für den Verbund (Teil 2b Release 2, Spec 14, 19.2) ──
@@ -802,7 +1273,7 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
       baseUrl: 'https://iveo.example/api/v1',
       name: 'COP31',
       syncedAt: '2026-10-08T08:00:00.000Z',
-      speakers: [{ name: 'Ana Silva', title: 'Ministerin' }],
+      speakers: [{ name: 'Ana Silva', title: 'Ministerin', organisationen: ['UNFCCC', 'Ministerium für Umwelt'] }],
       speakerVeraltetSeit: '2026-10-08T07:30:00.000Z',
       sideEvents: [{ id: 'P1', title: 'Klima' }],
       filter: { day: '2026-11-10', programId: 'P1' },
@@ -853,6 +1324,12 @@ function snapshotFetch(fail: string[]): IveoFetchLike {
   ok(
     JSON.stringify(Object.keys(r.show)) === '["schemaVersion","name","updatedAt","tools","ablauf","iveo"]' && r.show.ablauf?.[0]?.id === 'a1',
     'showFuerVerbund: schemaVersion, name, updatedAt und Ablauf mit Kennungen reisen',
+  );
+  ok(
+    JSON.stringify(r.show.iveo?.speakers) ===
+      '[{"name":"Ana Silva","title":"Ministerin","organisationen":["UNFCCC","Ministerium für Umwelt"]}]' &&
+      r.show.iveo?.speakers?.[0]?.organisationen !== eingabe.iveo?.speakers?.[0]?.organisationen,
+    'P1 12.1 Nr. 9: showFuerVerbund reicht organisationen weiter (als eigene Kopie)',
   );
   const leer = showFuerVerbund(createShow('Leer'));
   ok(

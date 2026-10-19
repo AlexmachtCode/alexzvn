@@ -6,9 +6,10 @@
 // token-freie Speaker-Liste (`show.iveo.speakers`). Dieses Modul schreibt sie als
 // `speakers.tsv` in einen VERWALTETEN DataLink-Ordner; das bestehende DataLink-/
 // Recall-System (#86/#93) macht daraus Bauchbinden-Variablen. Spalten (=Variablen):
-// {{name}}, {{funktion}} und {{title}} (Alias von funktion, Abwärtskompatibilität).
-// Dazu hinten `@kennung` (Teil 2b): die iveo-Speaker-ID als Schlüssel des Eintrags,
-// keine Variable.
+// {{name}}, {{funktion}} und {{title}} (Alias von funktion, Abwärtskompatibilität),
+// {{organisation}} (Hauptorganisation) und {{organisationen}} (alle, mit „ · “ verbunden;
+// iveo-Paket, Spec 5.6). Dazu hinten `@kennung` (Teil 2b): die iveo-Speaker-ID als
+// Schlüssel des Eintrags, keine Variable.
 //
 // Ohne Electron (Teil 2b): Der Aufrufer reicht den userData-Ordner herein, damit der
 // Selbsttest das Modul mit tsx laden kann.
@@ -29,19 +30,26 @@ function cell(v: string): string {
   return (v || '').replace(/[\t\r\n]+/g, ' ').trim();
 }
 
+/** Trenner der Spalte `organisationen`: U+0020 U+00B7 U+0020 (iveo-Paket, Spec 5.6). */
+const ORGANISATIONEN_TRENNER = ' · ';
+
 /**
- * Inhalt der `speakers.tsv`: Kopf `name\tfunktion\ttitle\t@kennung`, je Speaker eine Zeile,
- * `\n` am Ende. `name` ist das Recall-Label, `funktion` iveos `speaker.title`, `title` ein
- * Alias von funktion (ältere Templates), `@kennung` die iveo-Speaker-ID (leer ohne Kennung).
+ * Inhalt der `speakers.tsv`: Kopf `name\tfunktion\ttitle\torganisation\torganisationen\t@kennung`,
+ * je Speaker eine Zeile, `\n` am Ende. `name` ist das Recall-Label, `funktion` iveos
+ * `speaker.title`, `title` ein Alias von funktion (ältere Templates), `organisation` die
+ * Hauptorganisation (die erste der Liste), `organisationen` alle mit „ · “ verbunden (iveo-Paket,
+ * Spec 5.6; ohne Organisation leer), `@kennung` die iveo-Speaker-ID (leer ohne Kennung) — sie
+ * bleibt bewusst die letzte Spalte.
  *
  * Hinweis: die „Funktion" ist iveos `speaker.title` — ist sie im Event leer, bleibt
  * {{funktion}} leer (Datenlage in iveo, nicht Titler).
  */
 export function speakersTsvText(speakers: ShowIveoSpeaker[]): string {
-  const header = `name\tfunktion\ttitle\t${KENNUNG_SPALTE}`;
+  const header = `name\tfunktion\ttitle\torganisation\torganisationen\t${KENNUNG_SPALTE}`;
   const rows = speakers.map((s) => {
     const funktion = cell(s.title ?? '');
-    return `${cell(s.name)}\t${funktion}\t${funktion}\t${cell(s.id ?? '')}`;
+    const orgs = s.organisationen ?? [];
+    return `${cell(s.name)}\t${funktion}\t${funktion}\t${cell(orgs[0] ?? '')}\t${cell(orgs.join(ORGANISATIONEN_TRENNER))}\t${cell(s.id ?? '')}`;
   });
   return [header, ...rows].join('\n') + '\n';
 }

@@ -51,6 +51,10 @@ import {
   switchSideEvent,
   listSideEventMaterials,
   downloadSideEventMaterial,
+  watchIveoMaterials,
+  anhangOrdnerStand,
+  setzeAnhangOrdner,
+  oeffneAnhangOrdner,
 } from './iveo-sync';
 
 function withTool(
@@ -172,6 +176,12 @@ export function registerIpc(): void {
   ipcMain.handle('iveo:switchSideEvent', (_e, input: IveoSwitchInput) => switchSideEvent(input));
   ipcMain.handle('iveo:listMaterials', (_e, input: IveoMaterialsInput) => listSideEventMaterials(input));
   ipcMain.handle('iveo:downloadMaterial', (_e, input: IveoDownloadInput) => downloadSideEventMaterial(input));
+  // iveo-Paket, Spec 8.4, 8.6: beobachtete Anhang-Listen; die Eingabe prüft die Hülle (pruefeBeobachtung).
+  ipcMain.handle('iveo:watchMaterials', (_e, input: unknown) => watchIveoMaterials(input));
+  // iveo-Paket, Spec 9.13–9.15: Ablage in Side-Event-Ordnern — Stand, Schalter, „Ordner öffnen“ nur über die programId (E35).
+  ipcMain.handle('iveo:anhangOrdner', () => anhangOrdnerStand());
+  ipcMain.handle('iveo:setzeAnhangOrdner', (_e, input: unknown) => setzeAnhangOrdner(input));
+  ipcMain.handle('iveo:oeffneAnhangOrdner', (_e, input: unknown) => oeffneAnhangOrdner(input));
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 }

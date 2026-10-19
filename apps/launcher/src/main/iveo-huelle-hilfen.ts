@@ -1,7 +1,7 @@
 // Reine Helfer der iveo-Hülle (iveo-sync.ts), ohne Electron — testbar mit tsx
 // (test/iveo-huelle.test.ts). Master-Link Teil 2a, Spec 7.0, 7.5 und 7.6 (Log).
 import { resolve } from 'node:path';
-import type { IveoFetchLike, IveoFetchResponse } from '@jm/iveo';
+import { IveoClient, type IveoFetchLike, type IveoFetchResponse, type IveoProgramFilter } from '@jm/iveo';
 import type { Show } from '@jm/show';
 import { leseShowMitGrund } from './show-lesen';
 
@@ -11,6 +11,24 @@ export const IVEO_ABFRAGE_TAKT_MS = 45_000;
 export const IVEO_ABFRAGE_TAKT_MIN_MS = 500;
 /** Zeitgrenze je Abruf (Spec 7.0). */
 export const IVEO_ABRUF_ZEITGRENZE_MS = 15_000;
+
+/** Speakerliste auffrischen (iveo-Paket Spec 6.1, E9, EP9): fällig nach 300 s, abzüglich eines Takts. */
+export const SPEAKER_AUFFRISCHEN_MS = 300_000;
+
+/**
+ * Regel „fällig“ (Spec 6.1): jetzt − seit + Takt ≥ 300 s, bei 45 s also ab 255 s und damit in jedem sechsten Takt (270 s).
+ * Dieselbe Regel nutzen der Kern (Speakerliste) und die Runde der Ordner-Ablage (9.4).
+ */
+export function auffrischenFaellig(seitMs: number, jetztMs: number, taktMs: number): boolean {
+  return jetztMs - seitMs + taktMs >= SPEAKER_AUFFRISCHEN_MS;
+}
+
+/** Erster Takt nach `startMs` (start + k·Takt, k ≥ 1), in dem auffrischenFaellig gilt; bei 45 s Start + 270 s („gegen ‹hh:mm›“, 11.1). */
+export function naechsterFaelligerTakt(startMs: number, taktMs: number): number {
+  if (!(taktMs > 0)) return startMs + SPEAKER_AUFFRISCHEN_MS;
+  const k = Math.max(1, Math.ceil((SPEAKER_AUFFRISCHEN_MS - taktMs) / taktMs));
+  return startMs + k * taktMs;
+}
 
 /**
  * Abfragetakt aus JMPS_IVEO_POLL_MS (nur für Tests, Spec 9.8). Eine Zahl von 500
@@ -37,6 +55,29 @@ export type FetchMitSignal = (
  */
 export function mitZeitgrenze(f: FetchMitSignal, ms: number): IveoFetchLike {
   return (url, init) => f(url, { ...init, signal: AbortSignal.timeout(ms) });
+}
+
+/**
+ * Client für Downloads (Ordner-Ablage und Speichern im Panel; E46, Spec 9.6): OHNE `mitZeitgrenze`. Sonst ersetzte
+ * `AbortSignal.timeout(15 s)` das Signal des Laufs, jeder Download bräche nach 15 s ab (auch beim Lesen des Datenstroms),
+ * und der Abbruch durch Bedienung ginge verloren. Gegen hängende Downloads wirkt die Leerlauf-Grenze des Laufs.
+ */
+export function iveoDownloadClient(token: string, baseUrl: string, fetchImpl: IveoFetchLike): IveoClient {
+  return new IveoClient({ token, baseUrl, fetchImpl });
+}
+
+/**
+ * iveo-Paket, Spec 9.2 Nr. 1–3, 11.1 K0–K2: was der Ordner-Lauf als offene Show sieht. Die aktive Show des Kerns, sonst
+ * die gebundene offene Show der Hülle mit leerem Filter. Ohne Token setzt der Kern keine aktive Show (setzeAuf); ohne
+ * diesen Rückfall zeigte die Kopfzeile dann K0 („keine iveo-Show offen“) statt K1 (Rolle slave) bzw. K2 (kein Token).
+ * Abgelegt wird trotzdem nur mit Token: `tokenDa` der Hülle liest weiter `kern().aktiv()`, der leere Filter erreicht nie
+ * einen Zugriff.
+ */
+export function ablageShow(
+  aktiv: { path: string; event: string; filter: IveoProgramFilter } | null,
+  offen: { path: string; event: string } | null,
+): { path: string; event: string; filter: IveoProgramFilter } | null {
+  return aktiv ?? (offen ? { path: offen.path, event: offen.event, filter: {} } : null);
 }
 
 /**
