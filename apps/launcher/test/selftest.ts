@@ -892,7 +892,15 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   ck('P25 T9: Zeile unter dem Feld wörtlich, mit der Adresse aus settings.iveoBaseUrl',
     modal.includes(`  return \`${T9_ANFANG}\${url}\`;`) && modal.includes('{textIveoStandard(settings.iveoBaseUrl)}'));
   ck('P25 7.1: kein „Staging“ mehr im Einstellungsfenster', !/staging/i.test(modal));
-  ck('P25 T5, T6, T9: keine ASCII-Anführungszeichen in den Texten', ![T5, T6, T9_ANFANG].some((t) => t.includes('"')));
+  // Restpunkt P4 a (Gesamtprüfung Befund 11): geprüft werden die echten Texte in SettingsModal.tsx, nicht die Kopien dieses
+  // Tests; jeder der drei muss dort gefunden werden.
+  const echteTexte = [
+    /\nconst TEXT_IVEO_HINWEIS =\n {2}'([^'\n]+)';\n/.exec(modal)?.[1],
+    /\nconst TEXT_IVEO_PLATZHALTER = '([^'\n]+)';\n/.exec(modal)?.[1],
+    /\nfunction textIveoStandard\(url: string\): string \{\n {2}return `([^`\n]+)`;\n/.exec(modal)?.[1],
+  ];
+  ck('P25 T5, T6, T9: keine ASCII-Anführungszeichen in den Texten (die drei Texte in SettingsModal.tsx)',
+    echteTexte.every((t) => typeof t === 'string' && !t.includes('"')));
   ck('P25 7.2: getSettingsView liefert den gespeicherten Wert (read().iveoBaseUrl), nicht den wirksamen',
     funktionsKoerper(einst, 'export function getSettingsView(): SuiteSettingsView {').includes('    iveoBaseUrlEingetragen: read().iveoBaseUrl ?? null,'));
   ck('P25 7.2: SuiteSettingsView trägt iveoBaseUrlEingetragen: string | null; Kommentar „leer = Standard (Production)“',
