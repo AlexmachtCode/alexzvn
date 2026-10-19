@@ -1043,25 +1043,22 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   const dl = funktionsKoerper(sync, 'export async function downloadSideEventMaterial(input: IveoDownloadInput): Promise<ActionResult> {');
   ck('P30 8.6: Datenstrom statt fetchAsset/arrayBuffer — oeffneAsset über den Download-Client, ‹Ziel›.‹pid›.jm-laden, dann umbenennen',
     dl.length > 0 && !dl.includes('fetchAsset(') && !dl.includes('arrayBuffer') && !dl.includes('writeFileSync')
-    && dl.includes('iveoDownloadClient(token, offeneBaseUrl(), (url, init) => fetch(url, init)).oeffneAsset(ref, { signal: ab.signal })')
-    && dl.includes('    const zwischen = `${ziel}.${process.pid}.jm-laden`;') && dl.includes('ladeStromInDatei(fsp, strom.body, zwischen, {')
+    && dl.includes('client: iveoDownloadClient(token, basis, (url, init) => fetch(url, init)), ref, ziel: zwischen, groesse,')
+    && dl.includes('    const zwischen = `${ziel}.${process.pid}.jm-laden`;') && dl.includes('await ladeAsset({') && !dl.includes('ladeStromInDatei(')
     && dl.includes('      await fsp.rename(zwischen, ziel);') && dl.includes('      await fsp.unlink(zwischen).catch(() => undefined);'));
-  const iPruef = dl.indexOf('      assetAnfrage(ref, offeneBaseUrl());');
+  const iPruef = dl.indexOf('      assetAnfrage(ref, basis);');
   const iDialog = dl.indexOf('await dialog.showSaveDialog({ title: TEXT_ANHANG_SPEICHERN, defaultPath: schritt.vorschlag });');
-  const iAbruf = dl.indexOf('.oeffneAsset(ref,');
+  const iAbruf = dl.indexOf('await ladeAsset({');
   ck('P30 8.6 (E52): Herkunft der Asset-Adresse vor dem Dialog geprüft (T77 b ohne Dialog), Dialog T18 vor dem Abruf',
     iPruef > 0 && iDialog > iPruef && iAbruf > iDialog
     && dl.includes('      if (e instanceof IveoAssetAdresseError) return { ok: false, message: TEXT_ADRESSE_ABGELEHNT };'));
   ck('P30 9.6, 8.6: Leerlauf-Grenze auch vor dem ersten Byte: ein Zeitgeber um oeffneAsset bricht nach 60 s ab und wird danach gelöscht; Leerlauf → T22 (e)',
-    dl.includes('      const h = setTimeout(() => { leer = true; ab.abort(); }, ANHANG_LEERLAUF_MS);')
-    && dl.includes('.oeffneAsset(ref, { signal: ab.signal }).finally(() => clearTimeout(h));')
-    && dl.includes("      if (leer || grund === 'leerlauf') return { ok: false, message: ORDNER_GRUENDE.leerlauf };"));
-  const iGross = dl.indexOf('    if (groesse !== null && groesse > ZWEI_GIB) return { ok: false, message: ORDNER_GRUENDE.zuGross(groesse) };');
-  const iBytes = dl.indexOf('      if (groesse !== null && bytes !== groesse) throw new Error(ORDNER_GRUENDE.unvollstaendig(bytes, groesse));');
+    dl.includes('groesse, leerlaufMs: ANHANG_LEERLAUF_MS,') && dl.includes("      return { ok: false, message: grundText(e, 'download') };")
+    && !dl.includes('setTimeout(() => { leer') && !dl.includes('ORDNER_GRUENDE'));
+  const iGross = dl.indexOf('      pruefeAssetGroesse(groesse);');
   ck('P30 9.6 (E29): Größe wie im Ordner: über 2 GiB vor dem Dialog (T22 a), Bytezahl ≠ size_bytes vor dem Umbenennen (T22 f), mehr Daten als die Grenze (T22 b bzw. a)',
-    iGross > 0 && iGross < iDialog && iBytes > iAbruf && iBytes < dl.indexOf('      await fsp.rename(zwischen, ziel);')
-    && dl.includes("      if (grund === 'zu-gross') return { ok: false, message: groesse !== null ? ORDNER_GRUENDE.mehrDaten(groesse) : ORDNER_GRUENDE.zuGross(geschrieben) };")
-    && dl.includes('        fortschritt: (b) => { geschrieben = b; },'));
+    iGross > 0 && iGross < iDialog && iAbruf > iDialog && iAbruf < dl.indexOf('      await fsp.rename(zwischen, ziel);')
+    && !sync.includes('ZWEI_GIB') && !dl.includes('ORDNER_GRUENDE') && !dl.includes('geschrieben'));
   ck('P30 8.6 (E49): shell.openPath genau einmal und nur im Zweig panelDateiOeffnen(…), sonst T74',
     (dl.match(/shell\.openPath\(/g) ?? []).length === 1
     && dl.includes('    if (panelDateiOeffnen(name, schritt.gesperrt)) {\n      void shell.openPath(ziel);')
@@ -1082,8 +1079,21 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   ck('P30 E23, EP18: kein „Material“ mehr in Texten der Hülle; MIME_EXT und extFor sind nach side-event-ordner.ts umgezogen',
     !/(['`])[^'`\n]*Material[^'`\n]*\1/.test(sync) && !sync.includes('const MIME_EXT') && !sync.includes('function extFor('));
   ck('P30 G4: Fehlertexte und Logzeilen des Downloads ohne Adressen (ordnerFehlerText, ohneAdressen)',
-    dl.includes("      return { ok: false, message: ordnerFehlerText(e, 'download') ?? undefined };")
+    dl.includes("      return { ok: false, message: grundText(e, 'download') };")
     && dl.includes('    return { ok: false, message: ohneAdressen(toClientError(e).error) };'));
+  // Fix-Runde 1: Token und Basis-URL kommen aus EINEM Moment (der Dialog ist nicht modal, eine andere Show kann sich währenddessen öffnen).
+  ck('P30 Fix 1: die Basis-URL wird einmal zu Beginn festgehalten und für Agenda, Herkunftsprüfung und Abruf verwendet (nie erneut offeneBaseUrl())',
+    (dl.match(/offeneBaseUrl\(/g) ?? []).length === 1 && dl.includes('  const basis = offeneBaseUrl();')
+    && dl.indexOf('  const basis = offeneBaseUrl();') < dl.indexOf('await dialog.showSaveDialog(')
+    && dl.includes('iveoClient(token, basis).listAgendaItems(') && dl.includes('assetAnfrage(ref, basis)') && dl.includes('iveoDownloadClient(token, basis,'));
+  // Fix-Runde 1: Ordner und Panel laden mit EINEM Baustein (ladeAsset), die 2-GiB-Grenze und die size_bytes-Regel gibt es je einmal.
+  const lauf = quelleLf('../src/main/side-event-ordner-lauf.ts');
+  const ladeDatei = funktionsKoerper(lauf, "async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<number> {");
+  ck('P30 Fix 1: die Ablage (ladeDatei) und das Panel rufen beide ladeAsset; der Ladeschritt und die size_bytes-Regel stehen nur dort bzw. in assetGroesse',
+    ladeDatei.includes('return await ladeAsset({') && !ladeDatei.includes('ladeStromInDatei(') && !ladeDatei.includes('oeffneAsset(')
+    && (lauf.match(/ladeStromInDatei\(/g) ?? []).length === 2 && (lauf.match(/\.oeffneAsset\(/g) ?? []).length === 1
+    && (lauf.match(/leer = true/g) ?? []).length === 1 && (lauf.match(/ORDNER_GRUENDE\.unvollstaendig\(/g) ?? []).length === 1
+    && !sync.includes('size_bytes === ') && quelleLf('../src/main/iveo-anhaenge.ts').split('Number.isFinite(s) && s >= 0 ? s : null').length === 2);
 }
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------

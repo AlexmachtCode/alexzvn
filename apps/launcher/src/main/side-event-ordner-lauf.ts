@@ -124,7 +124,7 @@ export class StromFehler extends Error {
 }
 
 /** Fehler mit fertigem Grund aus T22 (Status) und einer kurzen Rohmeldung für das Log (T23). */
-class GrundFehler extends Error {
+export class GrundFehler extends Error {
   readonly roh: string;
   constructor(grund: string, roh: string) {
     super(grund);
@@ -1377,7 +1377,8 @@ function istOffen(e: unknown): boolean {
   return ['EBUSY', 'EPERM', 'EACCES'].includes(fehlerCode(e));
 }
 
-function grundText(e: unknown, wo: 'download' | 'datei'): string {
+/** Grund für Zeile und Meldung (T22/T23); auch für den manuellen Download im Panel. */
+export function grundText(e: unknown, wo: 'download' | 'datei'): string {
   if (e instanceof GrundFehler) return e.message;
   if (e instanceof StromFehler) return ordnerFehlerText(e, wo, e.grund === 'leerlauf' ? 'leerlauf' : undefined) ?? e.grund;
   return ordnerFehlerText(e, wo) ?? '';
@@ -1516,60 +1517,93 @@ async function lade(ctx: Ctx, s: Schritt<'laden'> | Schritt<'url-schreiben'>): P
   await platziere(ctx, s, z.pfad, bytes);
 }
 
-async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<number> {
-  const { L, o } = ctx;
-  const m = s.anhang.m;
-  const groesse = s.anhang.groesse;
-  const st = ctx.s.stand;
+/** Grenze je Datei (Spec 9.6, E29): size_bytes, ohne gültiges size_bytes 2 GiB; ein size_bytes darüber wird nicht geladen. */
+export function pruefeAssetGroesse(groesse: number | null): void {
   if (groesse !== null && groesse > GRENZE) throw new GrundFehler(ORDNER_GRUENDE.zuGross(groesse), `size_bytes ${groesse}`);
-  const grenze = groesse !== null ? Math.min(groesse, GRENZE) : GRENZE;
-  let frei = await freierPlatz(L, o.pfad);
-  if (ctx.gen !== L.gen) throw new StromFehler('bedienung'); // 9.4: nach dem await die Generation prüfen, kein Abruf, kein Dateizugriff
-  if (frei < (groesse !== null ? grenze + GIB : GIB)) throw new GrundFehler(ORDNER_GRUENDE.wenigPlatz(frei), `frei ${frei} Bytes`);
-  const client = L.d.downloadClient();
-  if (!client || !m.asset) throw new StromFehler('bedienung');
+}
+
+/**
+ * Ein Asset in eine neue Datei laden (Spec 9.6, 8.6): EIN Baustein für die Ablage und den manuellen Download im Panel.
+ * Der Leerlauf-Zeitgeber läuft auch vor dem ersten Byte (um oeffneAsset), danach misst ladeStromInDatei je Stück selbst.
+ * Wirft `StromFehler` (leerlauf, bedienung bei Abbruch durch `signal`, platz), `GrundFehler` (zu groß, mehr Daten als
+ * size_bytes, unvollständig) oder den Fehler von oeffneAsset bzw. des Dateisystems. Die Zwischendatei löscht der Aufrufer.
+ */
+export async function ladeAsset(p: {
+  fs: OrdnerFs; client: Pick<IveoClient, 'oeffneAsset'>; ref: string; ziel: string; groesse: number | null; leerlaufMs: number;
+  signal?: AbortSignal; jetzt(): number; setTimeout(fn: () => void, ms: number): unknown; clearTimeout(h: unknown): void;
+  platzReicht?(geschrieben: number): Promise<boolean>; fortschritt?(bytes: number): void;
+  /** Nach dem Öffnen des Assets, vor dem ersten Schreiben: ab hier kann es die Zwischendatei geben. */
+  nachOeffnen?(): void;
+}): Promise<number> {
+  pruefeAssetGroesse(p.groesse);
+  const grenze = p.groesse !== null ? Math.min(p.groesse, GRENZE) : GRENZE;
   const ac = new AbortController();
   const weiter = (): void => ac.abort();
-  ctx.signal.addEventListener('abort', weiter);
+  if (p.signal?.aborted) ac.abort();
+  p.signal?.addEventListener('abort', weiter);
   let leer = false;
   let geschrieben = 0;
-  st.laedt = { datei: s.wunsch, bytes: 0, groesse };
-  L.download = { programId: ctx.e.programId, datei: s.wunsch };
-  fortschritt(L);
-  melde(L);
   try {
-    const h = L.d.setTimeout(() => { leer = true; ac.abort(); }, L.leerlaufMs); // Leerlauf auch vor dem ersten Byte
+    const h = p.setTimeout(() => { leer = true; ac.abort(); }, p.leerlaufMs); // Leerlauf auch vor dem ersten Byte
     let strom: Awaited<ReturnType<Pick<IveoClient, 'oeffneAsset'>['oeffneAsset']>>;
     try {
-      strom = await client.oeffneAsset(m.asset.url, { signal: ac.signal });
+      strom = await p.client.oeffneAsset(p.ref, { signal: ac.signal });
     } catch (x) {
       if (leer) throw new StromFehler('leerlauf');
       if (ac.signal.aborted) throw new StromFehler('bedienung');
       throw x;
     } finally {
-      L.d.clearTimeout(h);
+      p.clearTimeout(h);
     }
-    ctx.zwischenAngelegt = true;
-    const r = await ladeStromInDatei(L.fs, strom.body, ziel, {
-      grenze, leerlaufMs: L.leerlaufMs, signal: ac.signal, jetzt: L.d.jetzt, setTimeout: L.d.setTimeout, clearTimeout: L.d.clearTimeout,
+    p.nachOeffnen?.();
+    const r = await ladeStromInDatei(p.fs, strom.body, p.ziel, {
+      grenze, leerlaufMs: p.leerlaufMs, signal: ac.signal, jetzt: p.jetzt, setTimeout: p.setTimeout, clearTimeout: p.clearTimeout,
+      platzReicht: p.platzReicht,
+      fortschritt: (b) => { geschrieben = b; p.fortschritt?.(b); },
+    });
+    if (p.groesse !== null && r.bytes !== p.groesse) throw new GrundFehler(ORDNER_GRUENDE.unvollstaendig(r.bytes, p.groesse), `${r.bytes} Bytes`);
+    return r.bytes;
+  } catch (x) {
+    if (x instanceof StromFehler && x.grund === 'zu-gross') {
+      throw new GrundFehler(p.groesse !== null ? ORDNER_GRUENDE.mehrDaten(p.groesse) : ORDNER_GRUENDE.zuGross(geschrieben), `mehr als ${grenze} Bytes`);
+    }
+    throw x;
+  } finally {
+    p.signal?.removeEventListener('abort', weiter);
+  }
+}
+
+async function ladeDatei(ctx: Ctx, s: Schritt<'laden'>, ziel: string): Promise<number> {
+  const { L, o } = ctx;
+  const m = s.anhang.m;
+  const groesse = s.anhang.groesse;
+  const st = ctx.s.stand;
+  pruefeAssetGroesse(groesse);
+  let frei = await freierPlatz(L, o.pfad);
+  if (ctx.gen !== L.gen) throw new StromFehler('bedienung'); // 9.4: nach dem await die Generation prüfen, kein Abruf, kein Dateizugriff
+  const grenze = groesse !== null ? Math.min(groesse, GRENZE) : GRENZE;
+  if (frei < (groesse !== null ? grenze + GIB : GIB)) throw new GrundFehler(ORDNER_GRUENDE.wenigPlatz(frei), `frei ${frei} Bytes`);
+  const client = L.d.downloadClient();
+  if (!client || !m.asset) throw new StromFehler('bedienung');
+  st.laedt = { datei: s.wunsch, bytes: 0, groesse };
+  L.download = { programId: ctx.e.programId, datei: s.wunsch };
+  fortschritt(L);
+  melde(L);
+  try {
+    return await ladeAsset({
+      fs: L.fs, client, ref: m.asset.url, ziel, groesse, leerlaufMs: L.leerlaufMs, signal: ctx.signal,
+      jetzt: L.d.jetzt, setTimeout: L.d.setTimeout, clearTimeout: L.d.clearTimeout,
+      nachOeffnen: () => { ctx.zwischenAngelegt = true; },
       platzReicht: groesse === null ? async () => { frei = await freierPlatz(L, o.pfad); return frei >= GIB; } : undefined,
       fortschritt: (b) => {
-        geschrieben = b;
         st.laedt = { datei: s.wunsch, bytes: b, groesse };
         if (L.d.jetzt() - Date.parse(L.kopf.letzterFortschritt ?? '') >= 1000) fortschritt(L);
         melde(L, true);
       },
     });
-    if (groesse !== null && r.bytes !== groesse) throw new GrundFehler(ORDNER_GRUENDE.unvollstaendig(r.bytes, groesse), `${r.bytes} Bytes`);
-    return r.bytes;
   } catch (x) {
-    if (x instanceof StromFehler && x.grund === 'zu-gross') {
-      throw new GrundFehler(groesse !== null ? ORDNER_GRUENDE.mehrDaten(groesse) : ORDNER_GRUENDE.zuGross(geschrieben), `mehr als ${grenze} Bytes`);
-    }
     if (x instanceof StromFehler && x.grund === 'platz') throw new GrundFehler(ORDNER_GRUENDE.wenigPlatz(frei), `frei ${frei} Bytes`);
     throw x;
-  } finally {
-    ctx.signal.removeEventListener('abort', weiter);
   }
 }
 

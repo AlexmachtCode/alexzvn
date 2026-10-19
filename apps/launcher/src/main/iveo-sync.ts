@@ -82,14 +82,15 @@ import {
 import { schreibeShowAtomar, warteSync } from './show-schreiben';
 import { bildeSideEventListe, toProgramList } from './iveo-side-events';
 import {
+  assetGroesse,
   erzeugeAnhangWaechter,
   materialienAusAgenda,
   pruefeBeobachtung,
   type AgendaErgebnis,
   type AnhangWaechter,
 } from './iveo-anhaenge';
-import { erzeugeOrdnerLauf, ladeStromInDatei, type OrdnerLauf } from './side-event-ordner-lauf';
-import { ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, panelAnhangSchritt, panelDateiOeffnen } from './side-event-ordner';
+import { erzeugeOrdnerLauf, GrundFehler, grundText, ladeAsset, pruefeAssetGroesse, type OrdnerLauf } from './side-event-ordner-lauf';
+import { ohneAdressen, panelAnhangSchritt, panelDateiOeffnen } from './side-event-ordner';
 import type {
   ActionResult,
   AnhangOrdnerStand,
@@ -902,8 +903,6 @@ function textNichtGeoeffnet(ext: string, dateiname: string): string {
 function logGespeichert(label: string, bytes: number, pfad: string): string {
   return `iveo: Anhang „${label}“ gespeichert (${bytes} Bytes) → ${pfad}`;
 }
-/** Grenze je Datei (Spec 9.6, E29): size_bytes, ohne gültiges size_bytes 2 GiB; ein size_bytes über 2 GiB wird nicht geladen. */
-const ZWEI_GIB = 2 * 1024 ** 3;
 /** Leerlauf-Grenze (Spec 9.6): 60 s ohne Daten, auch vor dem ersten Byte → Abbruch; eine Gesamtgrenze gibt es nicht. */
 const ANHANG_LEERLAUF_MS = 60_000;
 
@@ -918,9 +917,12 @@ export async function downloadSideEventMaterial(input: IveoDownloadInput): Promi
   if (!a) return { ok: false, message: 'Keine iveo-Show mit Token geöffnet.' };
   const token = getIveoToken(a.event);
   if (!token) return { ok: false, message: 'Kein iveo-Token für die offene Show.' };
+  // Token und Basis-URL gehören zusammen: beide jetzt, einmal. Der Dialog ist nicht modal; öffnet der Bediener währenddessen
+  // eine andere Show, darf das Token dieses Events nie an die Herkunft der anderen gehen (wie im Ordner, der beide im selben Moment bildet).
+  const basis = offeneBaseUrl();
   try {
     // Die Agenda ist ein JSON-Abruf und bekommt die Zeitgrenze von 15 s (Spec 7.0).
-    const agenda = await iveoClient(token, offeneBaseUrl()).listAgendaItems(a.event, input.programId);
+    const agenda = await iveoClient(token, basis).listAgendaItems(a.event, input.programId);
     let target: IveoMaterial | undefined;
     for (const item of agenda) {
       const m = (item.materials ?? []).find((x) => x.id === input.materialId);
@@ -941,54 +943,38 @@ export async function downloadSideEventMaterial(input: IveoDownloadInput): Promi
     // E52: die Herkunft der Asset-Adresse VOR dem Dialog prüfen — abgelehnt heißt: weder Dialog noch Abruf.
     const ref = target.asset?.url ?? '';
     try {
-      assetAnfrage(ref, offeneBaseUrl());
+      assetAnfrage(ref, basis);
     } catch (e) {
       if (e instanceof IveoAssetAdresseError) return { ok: false, message: TEXT_ADRESSE_ABGELEHNT };
       throw e;
     }
-    // Spec 9.6 (E29): Größe wie im Ordner. Ein gültiges size_bytes über 2 GiB wird nicht geladen, schon vor dem Dialog (T22 a).
-    const s = target.asset?.size_bytes;
-    const groesse = typeof s === 'number' && Number.isFinite(s) && s >= 0 ? s : null;
-    if (groesse !== null && groesse > ZWEI_GIB) return { ok: false, message: ORDNER_GRUENDE.zuGross(groesse) };
+    // Spec 9.6 (E29): Größe wie im Ordner (ein Baustein, side-event-ordner-lauf.ts). Ein gültiges size_bytes über 2 GiB wird nicht geladen, schon vor dem Dialog (T22 a).
+    const groesse = assetGroesse(target.asset?.size_bytes);
+    try {
+      pruefeAssetGroesse(groesse);
+    } catch (e) {
+      if (e instanceof GrundFehler) return { ok: false, message: e.message };
+      throw e;
+    }
     // Der Dialog kommt VOR dem Abruf: sonst liefe während des Dialogs die Leerlauf-Grenze (Spec 8.6).
     const r = await dialog.showSaveDialog({ title: TEXT_ANHANG_SPEICHERN, defaultPath: schritt.vorschlag });
     if (r.canceled || !r.filePath) return { ok: false };
     const ziel = r.filePath;
     const zwischen = `${ziel}.${process.pid}.jm-laden`;
-    const grenze = groesse ?? ZWEI_GIB;
-    const ab = new AbortController();
-    let leer = false;
-    let geschrieben = 0;
     try {
-      // Leerlauf-Grenze auch vor dem ersten Byte (Spec 9.6, 8.6): kommt binnen 60 s keine Antwort, bricht der Abruf ab, und
-      // der Client wiederholt nach dem Abbruch nicht (Task 4). Danach misst ladeStromInDatei je Stück selbst.
-      const h = setTimeout(() => { leer = true; ab.abort(); }, ANHANG_LEERLAUF_MS);
-      // Ohne Zeitgrenze (große Präsentationen), als Datenstrom: nie die ganze Datei im Speicher des Main-Prozesses.
-      const strom = await iveoDownloadClient(token, offeneBaseUrl(), (url, init) => fetch(url, init)).oeffneAsset(ref, { signal: ab.signal }).finally(() => clearTimeout(h));
-      const { bytes } = await ladeStromInDatei(fsp, strom.body, zwischen, {
-        grenze,
-        leerlaufMs: ANHANG_LEERLAUF_MS,
-        signal: ab.signal,
-        jetzt: () => Date.now(),
-        setTimeout: (fn, ms) => setTimeout(fn, ms),
-        clearTimeout: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
-        fortschritt: (b) => { geschrieben = b; },
+      // Derselbe Ladeschritt wie in der Ablage: Leerlauf-Grenze auch vor dem ersten Byte, Bytezahl gegen size_bytes, Grund wie T22.
+      const bytes = await ladeAsset({
+        fs: fsp, client: iveoDownloadClient(token, basis, (url, init) => fetch(url, init)), ref, ziel: zwischen, groesse, leerlaufMs: ANHANG_LEERLAUF_MS,
+        jetzt: () => Date.now(), setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
       });
-      // Spec 9.6 „Prüfung“: mit size_bytes muss die Bytezahl stimmen, sonst „unvollständig“ (T22 f), nie unter dem Ziel.
-      if (groesse !== null && bytes !== groesse) throw new Error(ORDNER_GRUENDE.unvollstaendig(bytes, groesse));
       // Der Dialog hat ein Überschreiben des gewählten Ziels schon bestätigt.
       await fsp.rename(zwischen, ziel);
       getLog().info(logGespeichert(target.label, bytes, ziel));
     } catch (e) {
-      // Jeder Fehler löscht die Zwischendatei (Spec 9.6); ladeStromInDatei tut das nicht selbst.
+      // Jeder Fehler löscht die Zwischendatei (Spec 9.6); ladeAsset tut das nicht selbst.
       await fsp.unlink(zwischen).catch(() => undefined);
       getLog().warn(`iveo download: ${ohneAdressen(String((e as Error | null)?.message ?? e))}`);
-      // Gründe wie im Ordner (T22): Leerlauf, auch vor dem ersten Byte (e); mehr Daten als die Grenze: mit size_bytes (b),
-      // ohne (a); sonst ordnerFehlerText (404 → (n), „unvollständig“ (f) aus der Meldung, Adressen ersetzt).
-      const grund = (e as { grund?: unknown } | null)?.grund;
-      if (leer || grund === 'leerlauf') return { ok: false, message: ORDNER_GRUENDE.leerlauf };
-      if (grund === 'zu-gross') return { ok: false, message: groesse !== null ? ORDNER_GRUENDE.mehrDaten(groesse) : ORDNER_GRUENDE.zuGross(geschrieben) };
-      return { ok: false, message: ordnerFehlerText(e, 'download') ?? undefined };
+      return { ok: false, message: grundText(e, 'download') };
     }
     const name = basename(ziel);
     if (panelDateiOeffnen(name, schritt.gesperrt)) {

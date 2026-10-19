@@ -67,11 +67,15 @@ export function pruefeAnhaenge(agenda: IveoAgendaItem[]): { gueltig: GueltigerAn
         ungueltig.push({ item, id, feld: 'kind' });
         continue;
       }
-      const s: unknown = m.asset?.size_bytes;
-      gueltig.push({ item, m, groesse: typeof s === 'number' && Number.isFinite(s) && s >= 0 ? s : null });
+      gueltig.push({ item, m, groesse: assetGroesse(m.asset?.size_bytes) });
     }
   }
   return { gueltig, ungueltig };
+}
+
+/** size_bytes eines Assets (Spec 9.6): eine endliche Zahl ≥ 0, sonst null (Größe unbekannt). Eine Regel für Ablage und Panel. */
+export function assetGroesse(s: unknown): number | null {
+  return typeof s === 'number' && Number.isFinite(s) && s >= 0 ? s : null;
 }
 
 /** SHA-256 (hex) der Asset-Referenz `asset.url`, wenn sie ein nicht leerer String ist, sonst null (8.3, M1). */
