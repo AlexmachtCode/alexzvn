@@ -47,8 +47,8 @@ Rechner B gekoppelt wie in Teil 1 (`packages/master-link/ABNAHME.md`).
 bereit (nicht im Repo). Es ruft die Agenda des Test-Side-Events vor und nach dem Ersetzen der Datei ab und gibt je Feld nur
 „geändert ja/nein“ aus, nie einen Wert. Ändert sich etwas außer der Größe, kommt es in die Inhaltssignatur (Folgepunkt
 FP11); bis dahin gilt Risiko 3 der Spec. Ob Risiko 3 eintritt, sagt die letzte Zeile: Eine ersetzte Datei gleicher Größe
-erkennt der Launcher nur, wenn sich der Wert von `asset.url` ändert (sein SHA-256 steht in der Signatur, M1); die Form
-allein sagt das nicht.
+erkennt der Launcher nur, wenn sich der Wert von `asset.url` oder der MIME-Typ ändert (der SHA-256 des Werts und der
+MIME-Typ stehen in der Signatur, M1); die Form allein sagt das nicht.
 
 | Feld | geändert ja/nein |
 | --- | --- |
