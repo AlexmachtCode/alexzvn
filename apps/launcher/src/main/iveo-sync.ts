@@ -20,7 +20,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { app, dialog, shell } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
 import { serializeShow, type Show } from '@jm/show';
@@ -44,14 +47,16 @@ import {
 } from '@jm/iveo';
 import type { ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 import {
+  getIveoAnhangOrdner,
   getIveoToken,
   getIveoBaseToken,
   resolveIveoBaseUrl,
+  setIveoAnhangOrdner,
   setIveoToken,
   setIveoBaseToken,
 } from './settings';
 import { sendControlCommand } from './health';
-import { meldeShowAnVerbund, verbundReloadInfo } from './verbund';
+import { meldeShowAnVerbund, verbundReloadInfo, verbundRolle } from './verbund';
 import {
   einPunktAblauf,
   erzeugeKern,
@@ -63,8 +68,10 @@ import {
 } from './iveo-abgleich-kern';
 import {
   abfrageTakt,
+  ablageShow,
   gleicherShowPfad,
   IVEO_ABRUF_ZEITGRENZE_MS,
+  iveoDownloadClient,
   mitZeitgrenze,
   nurBeiWechsel,
   showLeserFuerKern,
@@ -79,8 +86,10 @@ import {
   type AgendaErgebnis,
   type AnhangWaechter,
 } from './iveo-anhaenge';
+import { erzeugeOrdnerLauf, type OrdnerLauf } from './side-event-ordner-lauf';
 import type {
   ActionResult,
+  AnhangOrdnerStand,
   AppEvent,
   IveoBindInput,
   IveoBindResult,
@@ -205,6 +214,8 @@ function writeCache(meta: IveoShowMetadata): void {
   try {
     mkdirSync(cacheDir(), { recursive: true });
     writeFileSync(cacheFile(meta.slug), JSON.stringify(meta, null, 2), { mode: 0o600 });
+    // iveo-Paket, Spec 9.3: Tag und Titel für die Ablage kommen aus dem Speicher, nie synchron von der Platte im Takt.
+    if (openShowIveo && meta.slug === openShowIveo.slug) offenerCache = meta;
   } catch (e) {
     getLog().warn(`iveo: Metadaten-Cache schreiben fehlgeschlagen: ${(e as Error).message}`);
   }
@@ -489,6 +500,8 @@ function merkeOffeneShow(showPath: string, show: Show): void {
       }
     : null;
   bindungsListe = binding?.sideEvents ?? [];
+  // iveo-Paket, Spec 9.3: Cache der offenen Show einmal beim Öffnen lesen (wie das Panel); danach nur noch im Speicher.
+  offenerCache = openShowIveo ? readCache(openShowIveo.slug) : null;
 }
 
 function emitActiveChanged(): void {
@@ -542,9 +555,11 @@ function anhangWaechter(): AnhangWaechter {
   return waechterInstanz;
 }
 
-/** Agenda des aktiven Side Events aus dem Kern (meldeAgenda, E19): an den Wächter. */
+/** Agenda des aktiven Side Events aus dem Kern (meldeAgenda, E19): an den Wächter und an die Ablage. */
 function agendaAktiv(programId: string, e: AgendaErgebnis): void {
   anhangWaechter().agendaVomKern(programId, e);
+  // iveo-Paket, Spec 9.4: dieselbe Agenda an die Ablage (aktives Side Event in jedem Takt, ohne eigenen Abruf).
+  ordner().agendaAktiv(programId, e);
 }
 
 /** Client für den Wächter (15-s-Zeitgrenze wie Kern und Panel); ohne offene Show mit Token keiner. */
@@ -569,6 +584,116 @@ export function watchIveoMaterials(input: unknown): void {
   anhangWaechter().beobachte(ids);
 }
 
+// ── Ablage der Anhänge in Side-Event-Ordnern (iveo-Paket, Spec 9) ────────────
+// Den Ablauf hält side-event-ordner-lauf.ts ohne Electron; die Hülle reicht nur ein: node:fs/promises (nie synchron, G7),
+// Uhr und Zeitgeber, Rolle (9.2 Nr. 3), Token (Nr. 2), Schalter (Nr. 4, 9.14), Tag und Titel aus dem Cache (9.3), zwei
+// Clients (Agenda mit 15-s-Zeitgrenze, Download ohne, E46), Rechnername und Prozesskennung für die Sperrdatei (E45).
+
+/** Cache-Metadaten der offenen Show im Speicher: gelesen beim Öffnen, nachgeführt bei jedem Schreiben des Caches. */
+let offenerCache: IveoShowMetadata | null = null;
+/** Tag (JJJJ-MM-TT) eines Side Events aus dem Cache, sonst null (Spec 9.3, wie das Panel). */
+function tagAusCache(programId: string): string | null {
+  const p = offenerCache?.programs.find((x) => x.id === programId);
+  return p ? metaProgramDay(p) || null : null;
+}
+/** Titel eines Side Events aus dem Cache, sonst null (die Liste der Bindung liest der Lauf selbst aus der Datei, 9.1). */
+function titelAusCache(programId: string): string | null {
+  return offenerCache?.programs.find((x) => x.id === programId)?.title?.trim() || null;
+}
+/**
+ * Gebundene offene Show ohne Blick aufs Token (9.2 Nr. 1, 11.1 K0): Pfad und Event aus dem Merker der Hülle. Ohne Token
+ * hat der Kern keine aktive Show; der Lauf zeigt dann K1 bzw. K2 statt K0 (ablageShow).
+ */
+function offeneIveoShow(): { path: string; event: string } | null {
+  return openShowIveo ? { path: openShowIveo.path, event: openShowIveo.slug } : null;
+}
+/** Token der offenen Show auf diesem Rechner (9.2 Nr. 2), bei jedem Aufruf neu gelesen. */
+function tokenDerOffenenShow(): string | undefined {
+  const a = kern().aktiv();
+  return a ? getIveoToken(a.event) : undefined;
+}
+/** Schalter (9.14): einmal gelesen, danach im Speicher; geändert wird er nur über setzeAnhangOrdner. */
+let schalterStand: boolean | null = null;
+function schalterAn(): boolean {
+  if (schalterStand === null) schalterStand = getIveoAnhangOrdner();
+  return schalterStand;
+}
+
+let ordnerInstanz: OrdnerLauf | null = null;
+function ordner(): OrdnerLauf {
+  if (!ordnerInstanz) {
+    ordnerInstanz = erzeugeOrdnerLauf({
+      fs: fsp,
+      jetzt: () => Date.now(),
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+      // 9.2 Nr. 1, 11.1: die gebundene offene Show auch ohne Token (K1, K2 statt K0); abgelegt wird nur mit tokenDa.
+      aktiv: () => ablageShow(kern().aktiv(), offeneIveoShow()),
+      rolle: () => verbundRolle(),
+      tokenDa: () => tokenDerOffenenShow() !== undefined,
+      schalterAn: () => schalterAn(),
+      tagVon: (programId) => tagAusCache(programId),
+      titelVon: (programId) => titelAusCache(programId),
+      agendaClient: () => {
+        const token = tokenDerOffenenShow();
+        return token ? iveoClient(token, offeneBaseUrl()) : null;
+      },
+      downloadClient: () => {
+        const token = tokenDerOffenenShow();
+        return token ? iveoDownloadClient(token, offeneBaseUrl(), (url, init) => fetch(url, init)) : null;
+      },
+      rechner: hostname(),
+      pid: process.pid,
+      neueSitzungsKennung: () => randomUUID(),
+      log: { info: (m) => getLog().info(m), warn: (m) => getLog().warn(m) },
+      melde: (stand) => emitIveo?.({ type: 'iveo-anhang-ordner', stand }),
+    });
+  }
+  return ordnerInstanz;
+}
+
+/** IPC iveo:anhangOrdner (Spec 9.15): Stand der Ablage für Kopfzeile und Zeilen des Panels. */
+export function anhangOrdnerStand(): AnhangOrdnerStand {
+  return ordner().stand();
+}
+
+/**
+ * IPC iveo:setzeAnhangOrdner (Spec 9.14, OF8): Schalter dieses Rechners. „Aus“ stößt den Lauf sofort an, damit ein
+ * laufender Download abbricht und die eigene Sperrdatei gelöscht wird; „an“: die nächste Runde im nächsten Takt.
+ */
+export function setzeAnhangOrdner(input: unknown): AnhangOrdnerStand {
+  const an = (input as { an?: unknown } | null)?.an;
+  if (typeof an === 'boolean') {
+    setIveoAnhangOrdner(an);
+    schalterStand = an;
+    if (!an) ordner().takt();
+  }
+  return ordner().stand();
+}
+
+/** T31: Notice, wenn ein Ordner nicht zu öffnen ist. */
+function textOrdnerNichtZuOeffnen(grund: string): string {
+  return `Ordner nicht zu öffnen: ${grund}`;
+}
+
+/**
+ * IPC iveo:oeffneAnhangOrdner (Spec 9.13, E35): „Ordner öffnen“ nur über die programId, ohne Kennung der Basisordner.
+ * Der Renderer übergibt nie einen Pfad; den kennt nur der Lauf.
+ */
+export async function oeffneAnhangOrdner(input: unknown): Promise<ActionResult> {
+  const roh = (input as { programId?: unknown } | null)?.programId;
+  const programId = typeof roh === 'string' && roh.trim() ? roh.trim() : undefined;
+  const pfad = ordner().ordnerPfadFuer(programId);
+  if (!pfad) return { ok: false, message: textOrdnerNichtZuOeffnen('Ordner nicht gefunden') };
+  const fehler = await shell.openPath(pfad);
+  return fehler ? { ok: false, message: textOrdnerNichtZuOeffnen(fehler) } : { ok: true };
+}
+
+/** before-quit (Spec 9.2 „Ende der Ablage“): das Löschen der eigenen Sperrdatei nur anstoßen, nie abwarten. */
+export function ablageBeenden(): void {
+  ordnerInstanz?.beenden();
+}
+
 /** Sperre gegen Überholen (Spec 8.2): ein Takt beginnt erst, wenn der vorige fertig ist. */
 let taktLaeuft = false;
 
@@ -583,6 +708,8 @@ async function takt(): Promise<void> {
   try {
     await kern().abfrage();
     await anhangWaechter().takt(waechterClient());
+    // iveo-Paket, Spec 9.4: die Ablage nur anstoßen; sie arbeitet ihre Warteschlange im Hintergrund ab (E28).
+    ordner().takt();
   } finally {
     taktLaeuft = false;
   }
@@ -615,6 +742,8 @@ export function onShowOpened(showPath: string, show: Show): void {
   // iveo-Paket, Spec 8.2: eine geöffnete Show beginnt neu — die nächste Beobachtung gilt als erste (8.4 Nr. 1).
   anhangWaechter().zuruecksetzen();
   kern().showGeoeffnet(showPath, show);
+  // iveo-Paket, Spec 9.2, 9.4: neue Sitzung der Ablage (Generation + 1, die eigene Sperre der vorigen Show löschen).
+  ordner().sitzung();
   starteTakt();
   const a = kern().aktiv();
   if (a) getLog().info(`iveo: Live-Polling für Event „${a.event}" aktiv (alle ${POLL_INTERVAL_MS / 1000}s).`);
@@ -627,6 +756,7 @@ export function stopIveoPolling(): void {
   }
   kern().showGeschlossen();
   anhangWaechter().zuruecksetzen();
+  ordner().sitzung();
 }
 
 /**
@@ -646,6 +776,8 @@ export function speichereShowDatei(pfad: string, show: Show, neuGebunden: boolea
     kern().offeneShowGespeichert(offeneShowPfad, neuGebunden);
     // iveo-Paket, Spec 8.2: neu gebunden = neue Liste der Side Events, die nächste Beobachtung gilt als erste.
     if (neuGebunden) anhangWaechter().zuruecksetzen();
+    // iveo-Paket, Spec 9.4: neu gebunden = neue Sitzung der Ablage (Generation + 1).
+    if (neuGebunden) ordner().sitzung();
     starteTakt();
   }
   return true;

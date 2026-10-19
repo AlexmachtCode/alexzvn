@@ -1,6 +1,7 @@
 import { exposeApi, invoke, listen } from '@jm/electron-kit/preload';
 import type {
   ActionResult,
+  AnhangOrdnerStand,
   AppChangelog,
   AppEvent,
   ControlPlaneStatus,
@@ -82,6 +83,9 @@ const api: JmpsApi = {
     invoke<IveoMaterialsResult>('iveo:listMaterials', input),
   downloadIveoMaterial: (input: IveoDownloadInput) => invoke<ActionResult>('iveo:downloadMaterial', input),
   watchIveoMaterials: (input: { programIds: string[] }) => invoke<void>('iveo:watchMaterials', input),
+  anhangOrdnerStand: () => invoke<AnhangOrdnerStand>('iveo:anhangOrdner'),
+  setzeAnhangOrdner: (input: { an: boolean }) => invoke<AnhangOrdnerStand>('iveo:setzeAnhangOrdner', input),
+  oeffneAnhangOrdner: (input: { programId?: string }) => invoke<ActionResult>('iveo:oeffneAnhangOrdner', input),
   getVerbund: () => invoke<VerbundStand>('verbund:get'),
   setzeVerbundRolle: (rolle: VerbundRolle) => invoke<VerbundStand>('verbund:rolle', rolle),
   setzeRechnerName: (name: string) => invoke<VerbundStand>('verbund:rechnerName', name),

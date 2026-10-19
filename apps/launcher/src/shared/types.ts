@@ -522,6 +522,12 @@ export interface JmpsApi {
   downloadIveoMaterial: (input: IveoDownloadInput) => Promise<ActionResult>;
   /** iveo-Paket (Spec 8.4, 8.6): beobachtete Anhang-Listen melden; jede Anmeldung, auch [], lässt den Main neu senden. */
   watchIveoMaterials: (input: { programIds: string[] }) => Promise<void>;
+  /** iveo-Paket (Spec 9.13–9.15): Stand der Ablage in Side-Event-Ordnern. */
+  anhangOrdnerStand: () => Promise<AnhangOrdnerStand>;
+  /** iveo-Paket (Spec 9.14, OF8): Schalter „Anhänge in Side-Event-Ordnern ablegen“ dieses Rechners. */
+  setzeAnhangOrdner: (input: { an: boolean }) => Promise<AnhangOrdnerStand>;
+  /** iveo-Paket (Spec 9.13, E35): Ordner eines Side Events (ohne Kennung: Basisordner) öffnen; nur die programId, nie ein Pfad. */
+  oeffneAnhangOrdner: (input: { programId?: string }) => Promise<ActionResult>;
   /** Verbund (Master-Link Teil 1). */
   getVerbund: () => Promise<VerbundStand>;
   setzeVerbundRolle: (rolle: VerbundRolle) => Promise<VerbundStand>;

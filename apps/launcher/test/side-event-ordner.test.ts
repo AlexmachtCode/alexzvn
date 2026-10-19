@@ -3046,6 +3046,34 @@ console.log('— P18 Fix-Runde 1');
   }
 }
 
+// ── Block E · P29: was der Lauf als offene Show sieht (Spec 9.2 Nr. 1–3, 11.1 K0–K2; Nachbesserung robust:1) ────────
+import { ablageShow as ablageShowE } from '../src/main/iveo-huelle-hilfen';
+
+console.log('— P29 Hülle: gebundene Show offen, Kern ohne aktive Show (kein Token) → K1 bzw. K2, nie K0');
+{
+  const offen = { path: AttC.SHOW_PFAD, event: 'cop31' };
+  const kernAktiv = { path: AttC.SHOW_PFAD, event: 'cop31', filter: { programId: 'se-1' } };
+  ck('P29 9.2 Nr. 2: mit aktiver Show des Kerns gilt genau sie (Pfad, Event und Filter unverändert)', ablageShowE(kernAktiv, offen) === kernAktiv);
+  ck('P29 11.1 K0: ohne aktive Show des Kerns und ohne gebundene offene Show → keine Show', ablageShowE(null, null) === null);
+  const fall = async (rolle: 'slave' | 'aus') => {
+    const T = AttC.baueLauf();
+    T.fs.ordner(AttC.BASIS);
+    T.z.aktiv = ablageShowE(null, offen); // der Kern setzt ohne Token keine aktive Show (setzeAuf)
+    T.z.token = false; // tokenDa der Hülle liest kern().aktiv(): ohne aktive Show kein Token
+    T.z.rolle = rolle;
+    const n = T.fs.protokoll.length;
+    await T.takt();
+    await T.takt();
+    return { k: ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t), zugriffe: T.fs.protokoll.length - n, abrufe: T.agenda.aufrufe.length };
+  };
+  const slave = await fall('slave');
+  ck('P29 11.1 K1: Rolle slave, Show offen, Kern ohne aktive Show → K1 mit T32 (nicht K0), kein Zugriff, kein Abruf',
+    slave.k.fall === 'K1' && slave.k.text === ZeilenC.ORDNER_ZEILEN_TEXTE.rolleSlave && slave.zugriffe === 0 && slave.abrufe === 0);
+  const ohne = await fall('aus');
+  ck('P29 11.1 K2: Einzelplatz, Show offen ohne Token → K2 mit T33 (nicht K0), kein Zugriff, kein Abruf',
+    ohne.k.fall === 'K2' && ohne.k.text === ZeilenC.ORDNER_ZEILEN_TEXTE.keinToken && ohne.zugriffe === 0 && ohne.abrufe === 0);
+}
+
 // ── Block C · P19: Geheimnis-Suche über alle Fälle (Spec 12.4 Nr. 41, E20, G4) — letzter Abschnitt ────────────────
 console.log('— P19 Geheimnis-Suche über alle Fälle (Spec 12.4 Nr. 41)');
 {

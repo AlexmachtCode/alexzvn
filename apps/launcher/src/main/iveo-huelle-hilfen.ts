@@ -1,7 +1,7 @@
 // Reine Helfer der iveo-Hülle (iveo-sync.ts), ohne Electron — testbar mit tsx
 // (test/iveo-huelle.test.ts). Master-Link Teil 2a, Spec 7.0, 7.5 und 7.6 (Log).
 import { resolve } from 'node:path';
-import { IveoClient, type IveoFetchLike, type IveoFetchResponse } from '@jm/iveo';
+import { IveoClient, type IveoFetchLike, type IveoFetchResponse, type IveoProgramFilter } from '@jm/iveo';
 import type { Show } from '@jm/show';
 import { leseShowMitGrund } from './show-lesen';
 
@@ -64,6 +64,20 @@ export function mitZeitgrenze(f: FetchMitSignal, ms: number): IveoFetchLike {
  */
 export function iveoDownloadClient(token: string, baseUrl: string, fetchImpl: IveoFetchLike): IveoClient {
   return new IveoClient({ token, baseUrl, fetchImpl });
+}
+
+/**
+ * iveo-Paket, Spec 9.2 Nr. 1–3, 11.1 K0–K2: was der Ordner-Lauf als offene Show sieht. Die aktive Show des Kerns, sonst
+ * die gebundene offene Show der Hülle mit leerem Filter. Ohne Token setzt der Kern keine aktive Show (setzeAuf); ohne
+ * diesen Rückfall zeigte die Kopfzeile dann K0 („keine iveo-Show offen“) statt K1 (Rolle slave) bzw. K2 (kein Token).
+ * Abgelegt wird trotzdem nur mit Token: `tokenDa` der Hülle liest weiter `kern().aktiv()`, der leere Filter erreicht nie
+ * einen Zugriff.
+ */
+export function ablageShow(
+  aktiv: { path: string; event: string; filter: IveoProgramFilter } | null,
+  offen: { path: string; event: string } | null,
+): { path: string; event: string; filter: IveoProgramFilter } | null {
+  return aktiv ?? (offen ? { path: offen.path, event: offen.event, filter: {} } : null);
 }
 
 /**

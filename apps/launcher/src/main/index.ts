@@ -12,7 +12,7 @@ import { startPresenceHub } from './presence';
 import { startHealth, setManualEndpoints } from './health';
 import { getManualEndpoints, migrateTokenAtRest } from './settings';
 import { openShow } from './show';
-import { setIveoEmitter, iveoStateKv } from './iveo-sync';
+import { ablageBeenden, setIveoEmitter, iveoStateKv } from './iveo-sync';
 import { startLauncherControlServer, stopLauncherControlServer, pushLauncherControlState } from './control-server';
 import { starteVerbund } from './verbund';
 
@@ -91,7 +91,12 @@ if (setupSingleInstance(() => createWindow())) {
       if (!r.ok) runtime.log.warn(`Launcher-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
       else runtime.log.info(`Launcher-Steuerserver (iveo Side Events) lauscht auf :${r.port}`);
     });
-    app.on('before-quit', () => stopLauncherControlServer());
+    // iveo-Paket, Spec 9.2 „Ende der Ablage“: die eigene Sperrdatei löschen, nur anstoßen. Das Launcher-Update beendet die
+    // App 2 s nach dem Start des Installers (installer.ts); ein hängendes Netzlaufwerk darf das nicht aufhalten.
+    app.on('before-quit', () => {
+      stopLauncherControlServer();
+      ablageBeenden();
+    });
     registerIpc();
     createWindow();
 

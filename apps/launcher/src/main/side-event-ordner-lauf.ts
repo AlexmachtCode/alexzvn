@@ -38,7 +38,10 @@ export interface OrdnerLaufAbh {
   jetzt(): number;
   setTimeout(fn: () => void, ms: number): unknown;
   clearTimeout(h: unknown): void;
-  /** = kern().aktiv(): Pfad, Event und Filter der offenen Show, sonst null. */
+  /**
+   * Offene iveo-Show: Pfad, Event und Filter, sonst null. Die Hülle reicht `ablageShow(kern().aktiv(), …)` ein: ohne Token
+   * die gebundene offene Show mit leerem Filter (11.1 K1, K2 statt K0); abgelegt wird nur mit `tokenDa()`.
+   */
   aktiv(): { path: string; event: string; filter: IveoProgramFilter } | null;
   rolle(): VerbundRolle;
   tokenDa(): boolean;

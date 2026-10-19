@@ -972,6 +972,70 @@ function funktionsKoerper(quelle: string, kopf: string): string {
     liste.includes('getLog().info(`iveo: Side Event „${programId}“: ${materials.length} Anhänge.`);') && !sync.includes('Material(ien)'));
 }
 
+// --- iveo-Paket P29 (Spec 9.2–9.4, 9.13–9.15, E26, E35, E45, E46): Ablage verdrahtet, Schalter, Rolle, Beenden, Ordner-IPC ---
+{
+  const sync = quelleLf('../src/main/iveo-sync.ts');
+  const ipc = quelleLf('../src/main/ipc.ts');
+  const preload = quelleLf('../src/preload/index.ts');
+  const typen = quelleLf('../src/shared/types.ts');
+  const einst = quelleLf('../src/main/settings.ts');
+  const verbund = quelleLf('../src/main/verbund/index.ts');
+  const haupt = quelleLf('../src/main/index.ts');
+  const kanaele: Array<[string, string]> = [
+    ["  ipcMain.handle('iveo:anhangOrdner', () => anhangOrdnerStand());", "  anhangOrdnerStand: () => invoke<AnhangOrdnerStand>('iveo:anhangOrdner'),"],
+    ["  ipcMain.handle('iveo:setzeAnhangOrdner', (_e, input: unknown) => setzeAnhangOrdner(input));", "  setzeAnhangOrdner: (input: { an: boolean }) => invoke<AnhangOrdnerStand>('iveo:setzeAnhangOrdner', input),"],
+    ["  ipcMain.handle('iveo:oeffneAnhangOrdner', (_e, input: unknown) => oeffneAnhangOrdner(input));", "  oeffneAnhangOrdner: (input: { programId?: string }) => invoke<ActionResult>('iveo:oeffneAnhangOrdner', input),"],
+  ];
+  ck('P29 9.15: drei Ordner-Kanäle im Main und im Preload mit denselben Namen; JmpsApi kennt sie',
+    kanaele.every(([m, p]) => ipc.includes(m) && preload.includes(p))
+    && typen.includes('  anhangOrdnerStand: () => Promise<AnhangOrdnerStand>;')
+    && typen.includes('  setzeAnhangOrdner: (input: { an: boolean }) => Promise<AnhangOrdnerStand>;')
+    && typen.includes('  oeffneAnhangOrdner: (input: { programId?: string }) => Promise<ActionResult>;'));
+  const oeffnen = funktionsKoerper(sync, 'export async function oeffneAnhangOrdner(input: unknown): Promise<ActionResult> {');
+  ck('P29 9.13 (E35): „Ordner öffnen“ nimmt nur die programId und öffnet den Pfad des Laufs mit shell.openPath, Fehler als T31',
+    oeffnen.includes('  const pfad = ordner().ordnerPfadFuer(programId);') && oeffnen.includes('  const fehler = await shell.openPath(pfad);')
+    && !/input[^\n]*\.(pfad|path)\b/.test(oeffnen) && sync.includes('  return `Ordner nicht zu öffnen: ${grund}`;'));
+  const quit = /app\.on\('before-quit', \(\) => \{\n([\s\S]*?)\n {4}\}\);/.exec(haupt)?.[1] ?? '';
+  ck('P29 9.2: before-quit stößt das Ende der Ablage an (ablageBeenden() ohne await), der Steuerserver stoppt weiter',
+    quit.includes('      ablageBeenden();') && quit.includes('      stopLauncherControlServer();') && !quit.includes('await'));
+  ck('P29 9.2: ablageBeenden stößt nur an und baut keinen neuen Lauf',
+    funktionsKoerper(sync, 'export function ablageBeenden(): void {').includes('  ordnerInstanz?.beenden();'));
+  ck('P29 9.2 Nr. 3: verbundRolle() liest nur kern.rolle()',
+    funktionsKoerper(verbund, 'export function verbundRolle(): VerbundRolle {') === 'export function verbundRolle(): VerbundRolle {\n  return kern.rolle();\n}');
+  const lauf = funktionsKoerper(sync, 'function ordner(): OrdnerLauf {');
+  ck('P29 9.6 (E46): Agenda-Client mit Zeitgrenze (iveoClient), Download-Client ohne (iveoDownloadClient mit fetch)',
+    /agendaClient: \(\) => \{\n[^}]*return token \? iveoClient\(token, offeneBaseUrl\(\)\) : null;/.test(lauf)
+    && /downloadClient: \(\) => \{\n[^}]*return token \? iveoDownloadClient\(token, offeneBaseUrl\(\), \(url, init\) => fetch\(url, init\)\) : null;/.test(lauf));
+  ck('P29 9.2, 9.3, E45: Rolle, Token, Schalter, Tag, Titel, Rechnername, Prozesskennung, Sitzungskennung, Ereignis',
+    ['      rolle: () => verbundRolle(),', '      tokenDa: () => tokenDerOffenenShow() !== undefined,', '      schalterAn: () => schalterAn(),',
+      '      tagVon: (programId) => tagAusCache(programId),', '      titelVon: (programId) => titelAusCache(programId),',
+      '      rechner: hostname(),', '      pid: process.pid,', '      neueSitzungsKennung: () => randomUUID(),',
+      "      melde: (stand) => emitIveo?.({ type: 'iveo-anhang-ordner', stand }),"].every((z) => lauf.includes(z)));
+  ck('P29 9.2 Nr. 1, 11.1 K0–K2: der Lauf sieht die gebundene offene Show auch ohne Token (ablageShow); Token nur aus kern().aktiv()',
+    lauf.includes('      aktiv: () => ablageShow(kern().aktiv(), offeneIveoShow()),')
+    && funktionsKoerper(sync, 'function offeneIveoShow(): { path: string; event: string } | null {').includes('  return openShowIveo ? { path: openShowIveo.path, event: openShowIveo.slug } : null;')
+    && funktionsKoerper(sync, 'function tokenDerOffenenShow(): string | undefined {').includes('  const a = kern().aktiv();'));
+  const neu = ['function tagAusCache(', 'function titelAusCache(', 'function offeneIveoShow(', 'function tokenDerOffenenShow(', 'function schalterAn(',
+    'function ordner(', 'export function anhangOrdnerStand(', 'export function setzeAnhangOrdner(',
+    'export async function oeffneAnhangOrdner(', 'export function ablageBeenden('];
+  ck('P29 G7: der Ordner-Teil der Hülle greift nie synchron aufs Dateisystem; der Lauf bekommt node:fs/promises',
+    neu.every((kopf) => { const f = funktionsKoerper(sync, kopf); return f.length > 0 && !/Sync\(|readCache\(/.test(f); })
+    && sync.includes("import * as fsp from 'node:fs/promises';") && lauf.includes('      fs: fsp,'));
+  ck('P29 9.14: Schalter iveoAnhangOrdner, fehlt er, gilt „an“; „aus“ stößt den Lauf sofort an',
+    einst.includes('  iveoAnhangOrdner?: boolean;')
+    && funktionsKoerper(einst, 'export function getIveoAnhangOrdner(): boolean {').includes('  return read().iveoAnhangOrdner !== false;')
+    && funktionsKoerper(sync, 'export function setzeAnhangOrdner(input: unknown): AnhangOrdnerStand {').includes('    if (!an) ordner().takt();'));
+  ck('P29 9.4: neue Sitzung der Ablage beim Öffnen, Schließen und Speichern mit neuer Bindung; der Takt stößt die Ablage an',
+    funktionsKoerper(sync, 'export function onShowOpened(showPath: string, show: Show): void {').includes('  ordner().sitzung();')
+    && funktionsKoerper(sync, 'export function stopIveoPolling(): void {').includes('  ordner().sitzung();')
+    && funktionsKoerper(sync, 'export function speichereShowDatei(pfad: string, show: Show, neuGebunden: boolean): boolean {').includes('    if (neuGebunden) ordner().sitzung();')
+    && funktionsKoerper(sync, 'async function takt(): Promise<void> {').includes('    await anhangWaechter().takt(waechterClient());\n    // iveo-Paket, Spec 9.4: die Ablage nur anstoßen; sie arbeitet ihre Warteschlange im Hintergrund ab (E28).\n    ordner().takt();'));
+  ck('P29 9.4 (E28): die Hülle wartet nie auf die Ablage: kein ruhig() (nur für Tests) und kein await ordner() in iveo-sync.ts',
+    !sync.includes('.ruhig(') && !sync.includes('await ordner()'));
+  ck('P29 9.4: die Agenda des aktiven Side Events geht aus meldeAgenda auch an die Ablage',
+    funktionsKoerper(sync, 'function agendaAktiv(programId: string, e: AgendaErgebnis): void {').includes('  ordner().agendaAktiv(programId, e);'));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.

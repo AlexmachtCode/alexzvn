@@ -25,6 +25,8 @@ interface StoredSettings {
   recentShows?: RecentShow[];
   /** Manuell eingetragene Steuer-Adressen (A4-Fallback bei blockiertem mDNS). */
   manualEndpoints?: ManualEndpoint[];
+  /** iveo-Paket, Spec 9.14 (OF8): Anhänge in Side-Event-Ordnern ablegen; fehlt der Eintrag, gilt „an“. */
+  iveoAnhangOrdner?: boolean;
 }
 
 /** Wie viele zuletzt geöffnete Shows gemerkt werden (#157). */
@@ -178,6 +180,19 @@ export function resolveIveoBaseUrl(): string {
 export function setIveoBaseUrl(url: string | undefined): void {
   const s = read();
   s.iveoBaseUrl = url?.trim() || undefined;
+  write(s);
+}
+
+/** iveo-Paket, Spec 9.14 (OF8): Schalter „Anhänge in Side-Event-Ordnern ablegen“ dieses Rechners, Standard an. */
+export function getIveoAnhangOrdner(): boolean {
+  return read().iveoAnhangOrdner !== false;
+}
+
+/** Schalter setzen; „an“ ist der Standard und wird nicht gespeichert (der Eintrag fällt weg). */
+export function setIveoAnhangOrdner(an: boolean): void {
+  const s = read();
+  if (an) delete s.iveoAnhangOrdner;
+  else s.iveoAnhangOrdner = false;
   write(s);
 }
 
