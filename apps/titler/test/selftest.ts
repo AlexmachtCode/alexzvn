@@ -1131,7 +1131,7 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     const zeilen = readFileSync(join(dir, 'speakers.tsv'), 'utf8').split('\n');
     ok(zeilen[0] === 'name\tfunktion\ttitle\torganisation\torganisationen\t@kennung', 'B12: speakers.tsv beginnt mit name\\tfunktion\\ttitle\\torganisation\\torganisationen\\t@kennung');
     ok(zeilen[1] === 'Ada Lovelace\tModeration\tModeration\t\t\ts-1', 'B12: Kennung steht hinten');
-    ok(zeilen[2] === 'Grace\t\t\t\t\t' &&zeilen[3] === '' && zeilen.length === 4, 'B12: Speaker ohne Kennung → leere Spalte, Zeilenende am Schluss');
+    ok(zeilen[2] === 'Grace\t\t\t\t\t' && zeilen[3] === '' && zeilen.length === 4, 'B12: Speaker ohne Kennung → leere Spalte, Zeilenende am Schluss');
 
     // Gesamtprüfung Befund 4: Schreiben ohne Wurf, der Aufrufer bekommt den Fehlercode (ohne Pfad, ohne Inhalt).
     ok(iveoShow.schreibeSpeakersTsvSicher(dir, [{ name: 'Hedy' }]) === null, 'Befund 4: speakers.tsv schreibbar → null');
