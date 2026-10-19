@@ -1096,6 +1096,37 @@ function funktionsKoerper(quelle: string, kopf: string): string {
     && !sync.includes('size_bytes === ') && quelleLf('../src/main/iveo-anhaenge.ts').split('Number.isFinite(s) && s >= 0 ? s : null').length === 2);
 }
 
+// --- iveo-Paket P31 (Spec 8.1, 8.4, 11.3, E18): Anhang-Liste in Store und Panel nur über die reinen Helfer ------------
+{
+  const store = quelleLf('../src/renderer/src/store/tools.ts');
+  const panel = quelleLf('../src/renderer/src/components/SideEventsPanel.tsx');
+  ck('P31 8.1: kein lokaler Aufklapp-Zustand mehr im Panel (openMat); der Zustand liegt im Store',
+    !panel.includes('openMat') && store.includes('  anhaenge: AnhangListenZustand;') && store.includes('    anhaenge: leererAnhangZustand(null),'));
+  ck('P31 8.1: der Store ruft anhangListeSchritt bei allen sechs Ereignissen',
+    store.includes('    const r = anhangListeSchritt(useTools.getState().anhaenge, e);')
+    && ["anhangSchritt({ art: 'aufklappen', id: programId })", "anhangSchritt({ art: 'zuklappen' })", "anhangSchritt({ art: 'panelZu' })",
+      "anhangSchritt({ art: 'eventWechsel' })", "anhangSchritt({ art: 'aktivWechsel', id: aktiv })",
+      "anhangSchritt({ art: 'ergebnis', id: e.programId, abgerufen: e.abgerufen, ok: e.ok, materials: e.materials, error: e.error })"]
+      .every((z) => store.includes(z)));
+  ck('P31 8.1: Aufklappen lädt immer — keine Bedingung „nur ohne Liste“ (Store), das Panel ruft nur toggleMaterials',
+    funktionsKoerper(store, '    toggleMaterials: (programId) => {').includes("      if (useTools.getState().anhaenge.materialsOffen === programId) anhangSchritt({ art: 'zuklappen' });\n      else anhangSchritt({ art: 'aufklappen', id: programId });\n")
+    && panel.includes('onClick={() => toggleMaterials(p.id)}') && !panel.includes('loadMaterials'));
+  ck('P31 8.1, 8.4: Öffnen meldet [] an den Main (Stand neu senden), Schließen leert und klappt zu',
+    funktionsKoerper(store, '    openSideEvents: () => {').includes('void window.jmps.watchIveoMaterials({ programIds: [] })')
+    && funktionsKoerper(store, '    closeSideEvents: () => {').includes("anhangSchritt({ art: 'panelZu' })"));
+  ck('P31 8.1: Schließen und Event-Wechsel melden dem Main immer [], auch wenn der Helfer nichts meldet',
+    store.includes("    const beobachte = r.beobachte ?? (e.art === 'panelZu' || e.art === 'eventWechsel' ? [] : null);"));
+  ck('P31 8.1: loadMaterials setzt keine Liste selbst — das Ergebnis geht mit abgerufen an den Helfer',
+    funktionsKoerper(store, '    loadMaterials: async (programId) => {').includes("          art: 'ergebnis',\n          id: programId,\n          abgerufen: res.abgerufen ?? new Date().toISOString(),")
+    && !store.includes('materials: { ...s.materials'));
+  ck('P31 11.3: das Panel zeigt Zahl, Zeile und „Erneut versuchen“ nur nach anhangAnzeige; Tooltip T19 aus ANHANG_TEXTE',
+    panel.includes('const anz = anhangAnzeige(anhaenge, p.id, canSwitch, Date.now());') && panel.includes("📎{anz.zahl !== null ? ` ${anz.zahl}` : ''}")
+    && panel.includes('title={ANHANG_TEXTE.tooltip}') && panel.includes('{anz.erneut && (') && panel.includes('{anz.zeile}'));
+  ck('P31 E23: keine eigenen Texte der Anhang-Liste mehr in Panel und Store (T10–T14, T19 nur aus ANHANG_TEXTE), kein „Material“',
+    !['Lade ', 'konnten nicht geladen', 'Keine Anhänge', 'Keine Materialien', 'Aktualisieren gescheitert', 'anzeigen"', 'Materialien']
+      .some((t) => panel.includes(t) || store.includes(t)));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.

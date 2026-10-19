@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
+import { ANHANG_TEXTE, anhangAnzeige } from '@/lib/anhang-liste';
 import { iveoStatusZeile } from '@/lib/iveo-status';
 import { useTools } from '@/store/tools';
 
@@ -30,13 +31,14 @@ export function SideEventsPanel(): React.JSX.Element | null {
   const close = useTools((s) => s.closeSideEvents);
   const loadDay = useTools((s) => s.loadSideEvents);
   const switchTo = useTools((s) => s.switchSideEvent);
-  const materials = useTools((s) => s.materials);
-  const materialsError = useTools((s) => s.materialsError);
-  const loadMaterials = useTools((s) => s.loadMaterials);
+  // iveo-Paket, Spec 8.1 (E18): der Aufklapp-Zustand liegt im Store (das Panel bleibt eingehängt, App.tsx:74); Listen,
+  // Stand und Fehler entscheidet der Helfer anhangListeSchritt, die Zeilen L0–L7 bildet anhangAnzeige.
+  const anhaenge = useTools((s) => s.anhaenge);
+  const toggleMaterials = useTools((s) => s.toggleMaterials);
+  const retryMaterials = useTools((s) => s.retryMaterials);
   const downloadMaterial = useTools((s) => s.downloadMaterial);
   const iveoSync = useTools((s) => s.iveoSync);
   const [busy, setBusy] = useState<string | null>(null);
-  const [openMat, setOpenMat] = useState<string | null>(null);
 
   if (!open) return null;
 
@@ -57,14 +59,7 @@ export function SideEventsPanel(): React.JSX.Element | null {
     }
   };
 
-  const toggleMaterials = (programId: string): void => {
-    if (openMat === programId) {
-      setOpenMat(null);
-      return;
-    }
-    setOpenMat(programId);
-    if (!materials[programId]) void loadMaterials(programId);
-  };
+  // Auf- und Zuklappen der Anhang-Listen: toggleMaterials im Store (iveo-Paket, Spec 8.1).
 
   return (
     <div
@@ -152,9 +147,10 @@ export function SideEventsPanel(): React.JSX.Element | null {
               <ul className="mt-3 flex flex-col gap-1.5 max-h-[58vh] overflow-auto pr-1">
                 {programs.map((p) => {
                   const isActive = p.id === activeId;
-                  const mats = materials[p.id];
-                  const matErr = materialsError[p.id];
-                  const matOpen = openMat === p.id;
+                  // L0–L7 (Spec 11.3): Zahl am 📎, Zeile unter der Liste, „Erneut versuchen“ nur in L2.
+                  const anz = anhangAnzeige(anhaenge, p.id, canSwitch, Date.now());
+                  const mats = anhaenge.listen[p.id];
+                  const matOpen = anhaenge.materialsOffen === p.id;
                   return (
                     <li
                       key={p.id}
@@ -174,11 +170,11 @@ export function SideEventsPanel(): React.JSX.Element | null {
                         <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={p.title}>
                           {p.title}
                         </span>
-                        {canSwitch && (
+                        {anz.fall !== 'L0' && (
                           <button
                             type="button"
                             onClick={() => toggleMaterials(p.id)}
-                            title="Materialien (Präsentationen/Dateien) anzeigen"
+                            title={ANHANG_TEXTE.tooltip}
                             className={cn(
                               'shrink-0 rounded-[var(--radius)] border px-2 py-0.5 text-[11px]',
                               matOpen
@@ -186,7 +182,7 @@ export function SideEventsPanel(): React.JSX.Element | null {
                                 : 'border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--highlight)]',
                             )}
                           >
-                            📎{mats?.length ? ` ${mats.length}` : ''}
+                            📎{anz.zahl !== null ? ` ${anz.zahl}` : ''}
                           </button>
                         )}
                         {isActive ? (
@@ -207,28 +203,11 @@ export function SideEventsPanel(): React.JSX.Element | null {
                       </div>
 
                       {matOpen && (
-                        <div className="border-t border-[var(--border)]/60 px-3 py-2">
-                          {matErr ? (
-                            <div className="flex flex-col gap-2">
-                              <p className="text-[11px] text-[var(--destructive)] break-words">
-                                Materialien konnten nicht geladen werden: {matErr}
-                              </p>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="self-start"
-                                onClick={() => void loadMaterials(p.id)}
-                              >
-                                Erneut versuchen
-                              </Button>
-                            </div>
-                          ) : mats === undefined ? (
-                            <p className="text-[11px] text-[var(--muted-foreground)]">Lade Materialien…</p>
-                          ) : mats.length === 0 ? (
-                            <p className="text-[11px] text-[var(--muted-foreground)]">
-                              Keine Materialien an diesem Side Event.
-                            </p>
-                          ) : (
+                        <div className="flex flex-col gap-1 border-t border-[var(--border)]/60 px-3 py-2">
+                          {anz.fall === 'L3' && mats?.length === 0 && (
+                            <p className="text-[11px] text-[var(--muted-foreground)]">{ANHANG_TEXTE.leereListe}</p>
+                          )}
+                          {(anz.fall === 'L3' || anz.fall === 'L5') && mats && mats.length > 0 && (
                             <ul className="flex flex-col gap-1">
                               {mats.map((m) => (
                                 <li key={m.id} className="flex items-center gap-2">
@@ -251,6 +230,23 @@ export function SideEventsPanel(): React.JSX.Element | null {
                                 </li>
                               ))}
                             </ul>
+                          )}
+                          {anz.zeile && (
+                            <p
+                              className={cn(
+                                'text-[11px] break-words',
+                                anz.fall === 'L2' || anz.fall === 'L3'
+                                  ? 'text-[var(--destructive)]'
+                                  : 'text-[var(--muted-foreground)]',
+                              )}
+                            >
+                              {anz.zeile}
+                            </p>
+                          )}
+                          {anz.erneut && (
+                            <Button size="sm" variant="outline" className="self-start" onClick={() => retryMaterials(p.id)}>
+                              Erneut versuchen
+                            </Button>
                           )}
                         </div>
                       )}

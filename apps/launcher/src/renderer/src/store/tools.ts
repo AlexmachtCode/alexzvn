@@ -8,7 +8,6 @@ import type {
   HealthEntry,
   InstallProgress,
   IveoAbgleichStatus,
-  IveoMaterialRef,
   IveoSideEventsResult,
   LauncherUpdate,
   PresenceRecord,
@@ -21,6 +20,12 @@ import type {
 } from '@shared/types';
 import type { Show } from '@jm/show';
 import type { ScenarioSeed } from '@/lib/scenarios';
+import {
+  anhangListeSchritt,
+  leererAnhangZustand,
+  type AnhangListenEreignis,
+  type AnhangListenZustand,
+} from '@/lib/anhang-liste';
 
 function byId(states: ToolState[]): Record<string, ToolState> {
   return Object.fromEntries(states.map((s) => [s.id, s]));
@@ -74,14 +79,20 @@ interface ToolsStore {
   /** iveo-Abgleich (Spec 7.6): letzter Zustand; ok=false zeigt das Panel als Störung. */
   iveoSync: IveoAbgleichStatus | null;
   sideEventsOpen: boolean;
-  /** Materialien je Side Event (programId → Liste), lazy geladen. */
-  materials: Record<string, IveoMaterialRef[]>;
-  /** Ladefehler je Side Event (programId → Meldung), z. B. iveo-500 auf agenda-items. */
-  materialsError: Record<string, string>;
+  /**
+   * Anhang-Listen der Side Events (iveo-Paket, Spec 8.1, E18): aufgeklappte Liste, aktives Side Event, Listen, Stand und
+   * Fehler. Kein Dauer-Cache — jede Änderung geht durch den reinen Helfer anhangListeSchritt (lib/anhang-liste.ts).
+   */
+  anhaenge: AnhangListenZustand;
   openSideEvents: () => void;
   closeSideEvents: () => void;
   loadSideEvents: (day?: string) => Promise<void>;
   switchSideEvent: (programId?: string, day?: string) => Promise<void>;
+  /** Anhang-Liste eines Side Events auf- bzw. zuklappen (📎). */
+  toggleMaterials: (programId: string) => void;
+  /** „Erneut versuchen“ (L2): die Liste noch einmal laden. */
+  retryMaterials: (programId: string) => void;
+  /** Nur der Abruf; Liste, Stand und Fehler übernimmt der Helfer. */
   loadMaterials: (programId: string) => Promise<void>;
   downloadMaterial: (programId: string, materialId: string) => Promise<void>;
   /** Aktiver Reiter der Shell (#157). */
@@ -184,6 +195,19 @@ export const useTools = create<ToolsStore>((set) => {
     }
   }
 
+  /**
+   * iveo-Paket, Spec 8.1 (E18): jede Änderung der Anhang-Listen geht durch den reinen Helfer; der Store führt nur aus —
+   * laden (immer, auch bei vorhandener Liste) und dem Main die Beobachtung melden (8.4 Nr. 3).
+   */
+  function anhangSchritt(e: AnhangListenEreignis): void {
+    const r = anhangListeSchritt(useTools.getState().anhaenge, e);
+    set({ anhaenge: r.zustand });
+    // Schließen und Event-Wechsel melden dem Main immer [] (8.1), auch wenn der Helfer dazu nichts sagt.
+    const beobachte = r.beobachte ?? (e.art === 'panelZu' || e.art === 'eventWechsel' ? [] : null);
+    if (beobachte) void window.jmps.watchIveoMaterials({ programIds: beobachte }).catch(() => {});
+    if (r.laden) void useTools.getState().loadMaterials(r.laden);
+  }
+
   return {
     tools: [],
     states: {},
@@ -208,8 +232,7 @@ export const useTools = create<ToolsStore>((set) => {
     sideEvents: null,
     iveoSync: null,
     sideEventsOpen: false,
-    materials: {},
-    materialsError: {},
+    anhaenge: leererAnhangZustand(null),
     view: readLastView(),
     recentShows: [],
     showLaunch: null,
@@ -263,15 +286,24 @@ export const useTools = create<ToolsStore>((set) => {
             await useTools.getState().loadRecentShows();
           } else if (e.type === 'iveo-active-changed') {
             // iveo-Show geöffnet / aktives Side Event geändert (#11).
+            const vorher = useTools.getState().iveoActive;
             set({
               iveoActive: e.event
                 ? { event: e.event, day: e.day, activeProgramId: e.activeProgramId, canSwitch: e.canSwitch }
                 : null,
             });
+            // iveo-Paket, Spec 8.1: anderes Event → alle Listen leeren und zuklappen; danach, auch bei gleichem Event, die
+            // geänderte Kennung des aktiven Side Events melden (sonst verwürfe der Helfer dessen erste Meldung).
+            if ((vorher?.event ?? '') !== e.event) anhangSchritt({ art: 'eventWechsel' });
+            const aktiv = e.activeProgramId ?? null;
+            if (useTools.getState().anhaenge.aktiv !== aktiv) anhangSchritt({ art: 'aktivWechsel', id: aktiv });
             if (useTools.getState().sideEventsOpen) await useTools.getState().loadSideEvents();
           } else if (e.type === 'iveo-sync-status') {
             // iveo-Abgleich gestört bzw. wieder in Ordnung (Spec 7.6) → Statuszeile im Panel.
             set({ iveoSync: { ok: e.ok, text: e.text, seit: e.seit } });
+          } else if (e.type === 'iveo-anhaenge') {
+            // iveo-Paket, Spec 8.4: Ergebnis des Anhang-Wächters; der Helfer übernimmt es nur für eine beobachtete Liste.
+            anhangSchritt({ art: 'ergebnis', id: e.programId, abgerufen: e.abgerufen, ok: e.ok, materials: e.materials, error: e.error });
           }
         });
         // Nach Rückkehr zum Launcher (z. B. wenn der NSIS-Installer durch ist
@@ -405,8 +437,15 @@ export const useTools = create<ToolsStore>((set) => {
     openSideEvents: () => {
       set({ sideEventsOpen: true });
       void useTools.getState().loadSideEvents();
+      // iveo-Paket, Spec 8.1, 8.4 Nr. 3: jede Anmeldung, auch [], lässt den Main den Stand der beobachteten Listen neu
+      // senden — die Zahl am 📎 des aktiven Side Events steht nach dem Wiederöffnen sofort wieder da (L6).
+      void window.jmps.watchIveoMaterials({ programIds: [] }).catch(() => {});
     },
-    closeSideEvents: () => set({ sideEventsOpen: false }),
+    closeSideEvents: () => {
+      set({ sideEventsOpen: false });
+      // iveo-Paket, Spec 8.1 (E18): Schließen leert alle Listen und klappt sie zu (kein Dauer-Cache, Ursache von #264).
+      anhangSchritt({ art: 'panelZu' });
+    },
     loadSideEvents: async (day) => {
       try {
         const res = await window.jmps.listIveoSideEvents(day ? { day } : undefined);
@@ -424,36 +463,27 @@ export const useTools = create<ToolsStore>((set) => {
       const cur = useTools.getState().sideEvents?.day;
       await useTools.getState().loadSideEvents(day ?? cur);
     },
+    toggleMaterials: (programId) => {
+      // iveo-Paket, Spec 8.1: Aufklappen lädt immer (kein „nur ohne Liste“, Ursache von #264); Zuklappen meldet ab.
+      if (useTools.getState().anhaenge.materialsOffen === programId) anhangSchritt({ art: 'zuklappen' });
+      else anhangSchritt({ art: 'aufklappen', id: programId });
+    },
+    retryMaterials: (programId) => anhangSchritt({ art: 'aufklappen', id: programId }),
     loadMaterials: async (programId) => {
-      // Alten Fehler zurücksetzen → Panel zeigt beim (Neu-)Laden „Lade…".
-      set((s) => {
-        if (!s.materialsError[programId]) return {};
-        const next = { ...s.materialsError };
-        delete next[programId];
-        return { materialsError: next };
-      });
+      // iveo-Paket, Spec 8.1, 8.6: nur der Abruf. Liste, Stand und Fehler übernimmt der Helfer; ein Ergebnis mit älterem
+      // abgerufen als dem gespeicherten verwirft er (Abruf und Wächter können sich kreuzen). Den Fehlertext T11 bildet
+      // anhangAnzeige, ohne Text die Variante ohne Doppelpunkt.
       try {
         const res = await window.jmps.listIveoMaterials({ programId });
-        if (res.ok) {
-          set((s) => ({ materials: { ...s.materials, [programId]: res.materials ?? [] } }));
-        } else {
-          // KEIN leeres materials cachen: der echte Fehler (inkl. req-id) wird
-          // inline gezeigt statt „Keine Materialien", und ein erneuter Versuch
-          // bleibt möglich (z. B. transienter iveo-500 auf agenda-items).
-          set((s) => ({
-            materialsError: {
-              ...s.materialsError,
-              [programId]: res.error ?? 'Materialien konnten nicht geladen werden.',
-            },
-          }));
-        }
+        anhangSchritt({
+          art: 'ergebnis',
+          id: programId,
+          abgerufen: res.abgerufen ?? new Date().toISOString(),
+          ok: res.ok,
+          ...(res.ok ? { materials: res.materials ?? [] } : { error: res.error }),
+        });
       } catch (e) {
-        set((s) => ({
-          materialsError: {
-            ...s.materialsError,
-            [programId]: (e as Error).message || 'Materialien konnten nicht geladen werden.',
-          },
-        }));
+        anhangSchritt({ art: 'ergebnis', id: programId, abgerufen: new Date().toISOString(), ok: false, error: (e as Error).message });
       }
     },
     downloadMaterial: async (programId, materialId) => {
