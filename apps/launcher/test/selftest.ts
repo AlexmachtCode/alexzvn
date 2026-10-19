@@ -1266,6 +1266,34 @@ await (async () => {
     && keinPaketText('win', 'arm64', 'launcher') === 'Kein Launcher-Installer für diesen Rechner gefunden (Windows).');
 })();
 
+// --- iveo-Paket P35 · Quelle, Updates und Installer nutzen die Release-Wahl (Spec 10.4, 10.5 Nr. 7, 11.5; EP13) ----
+// release-source.ts lädt über ./settings Electron, updates.ts und installer.ts laden es direkt: Sie laufen hier nicht.
+// Geprüft wird am Quelltext, dass sie nur die reinen Helfer aus release-wahl.ts rufen und die alten Texte weg sind.
+{
+  const main = (datei: string): string => readFileSync(new URL(`../src/main/${datei}`, import.meta.url), 'utf8');
+  const quelle = main('release-source.ts');
+  const updates = main('updates.ts');
+  const installer = main('installer.ts');
+  ck('P35 10.4: release-source.ts verwirft den Fehlertext des Proxys nicht mehr (ruft proxyAntwortAuswerten)',
+    !quelle.includes('throw new Error(`Proxy ${res.status} ${res.statusText}`)') && quelle.includes('return proxyAntwortAuswerten(res, platform);'));
+  ck('P35 10.4 EP2: release-source.ts ohne eigenes compareVersions und ohne pickHighestRelease',
+    !/function compareVersions\b/.test(quelle) && !quelle.includes('pickHighestRelease'));
+  ck('P35 10.5: die GitHub-Quelle wählt über waehleRelease mit dem genauen Katalognamen',
+    quelle.includes('return waehleRelease(releases, `${tool.app}-v`, plattform, archToken(), (version) => resolveArtifactName(tool, version));'));
+  ck('P35 10.5 Nr. 7: latestVersion folgt der Wahl (GitHub nur gewählt, Proxy nur mit Paket)',
+    quelle.includes("return wahl?.art === 'gewaehlt' ? wahl.version : null;") && quelle.includes('return r?.asset ? r.version : null;'));
+  ck('P35 EP2: updates.ts importiert compareVersions aus ./release-wahl, release-source.ts exportiert es nicht weiter',
+    updates.includes("import { compareVersions } from './release-wahl';") && !/compareVersions/.test(quelle));
+  ck('P35 11.5 F8, F11: installer.ts ohne die alten Texte, mit keinPaketText für Tool und Launcher (T29, T69)',
+    !installer.includes('Kein passendes Artefakt für diese Plattform gefunden.') && !installer.includes('Kein Launcher-Installer für diese Plattform gefunden.')
+    && installer.includes("keinPaketText(plattformHier(), archToken(), 'tool')") && installer.includes("keinPaketText(plattformHier(), archToken(), 'launcher')"));
+  ck('P35 11.5 F1, T27, F10: Bestandstexte wörtlich',
+    installer.includes("'Keine Release-Quelle konfiguriert — Token oder Proxy in den Einstellungen hinterlegen.'")
+    && installer.includes('`Release-Abfrage fehlgeschlagen: ${(e as Error).message}`')
+    && installer.includes('`Update-Abfrage fehlgeschlagen: ${(e as Error).message}`')
+    && installer.includes("'Keine Release-Quelle konfiguriert — Token in den Einstellungen hinterlegen.'"));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.

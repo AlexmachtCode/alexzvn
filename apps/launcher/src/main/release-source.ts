@@ -1,6 +1,7 @@
 import type { Platform, ToolManifest } from '@jm/suite-manifest';
 import { resolveProxy, resolveProxyKey, resolveToken } from './settings';
 import { holeAlleSeiten, RELEASES_PRO_SEITE } from './release-liste';
+import { proxyAntwortAuswerten, waehleRelease, type PaketWahl, type ReleaseEintrag } from './release-wahl';
 
 /** Aufgelöstes, herunterladbares Release-Artefakt für die aktuelle Plattform. */
 export interface ResolvedAsset {
@@ -22,13 +23,15 @@ export interface ReleaseSource {
   latestVersion(tool: ToolManifest): Promise<string | null>;
 }
 
-function platformKey(): Platform | null {
+/** Plattform dieses Rechners für Katalog und Proxy; exportiert für die Texte T29/T69 in installer.ts. */
+export function platformKey(): Platform | null {
   if (process.platform === 'darwin') return 'mac';
   if (process.platform === 'win32') return 'win';
   return null;
 }
 
-function archToken(): string {
+/** Architektur des Launcher-Prozesses; ein x64-Launcher unter Rosetta zählt als x64 (Spec 10.5, FP12). */
+export function archToken(): 'arm64' | 'x64' {
   return process.arch === 'arm64' ? 'arm64' : 'x64';
 }
 
@@ -45,22 +48,9 @@ function resolveArtifactName(tool: ToolManifest, version: string): string | null
 
 const USER_AGENT = 'JM-Production-Suite';
 
-/** Vergleicht zwei Dotted-Versions numerisch; >0 wenn `a` neuer als `b`. */
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-interface GithubRelease {
-  tag_name: string;
-  draft: boolean;
-  assets: Array<{ id: number; name: string; size: number }>;
-}
+// Versionsvergleich und die Regel „neuestes Release mit passendem Paket“ stehen in release-wahl.ts (iveo-Paket,
+// Spec 10.4, 10.5): rein, im Launcher-Selbsttest geprüft, mit derselben Testtabelle wie der Release-Proxy.
+type GithubRelease = ReleaseEintrag;
 
 /** Listet ALLE Releases einer Repo (read-only contents) via fine-grained PAT,
  *  Seite für Seite (siehe release-liste.ts: Seite 1 allein reichte nicht mehr). */
@@ -84,58 +74,34 @@ async function listGithubReleases(repo: string, token: string): Promise<GithubRe
   });
 }
 
-/** Höchstversioniertes, nicht-draft Release mit Tag-Präfix `<prefix>` (z. B.
- *  "copy-v"). Liefert das Release samt geparster Version oder null. */
-function pickHighestRelease(
-  releases: GithubRelease[],
-  prefix: string,
-): { release: GithubRelease; version: string } | null {
-  return (
-    releases
-      .filter((r) => !r.draft && r.tag_name.startsWith(prefix))
-      .map((r) => ({ release: r, version: r.tag_name.slice(prefix.length) }))
-      .sort((x, y) => compareVersions(y.version, x.version))[0] ?? null
-  );
-}
-
 /**
  * GitHub-Releases im gemeinsamen Monorepo via fine-grained PAT (read-only
  * contents). Tools teilen sich `repo` und werden über das Tag-Präfix
- * `<app>-v<version>` unterschieden — es wird das höchstversionierte passende
- * Release gewählt (`/releases/latest` taugt im Monorepo nicht, da es nur das
- * eine neueste Release der ganzen Repo liefert).
+ * `<app>-v<version>` unterschieden. Gewählt wird das neueste Release mit einem
+ * Paket für diesen Rechner, zuerst mit dem genauen Namen aus dem Katalog
+ * (waehleRelease, Spec 10.5); `/releases/latest` taugt im Monorepo nicht, da es
+ * nur das eine neueste Release der ganzen Repo liefert.
  */
 class GithubReleaseSource implements ReleaseSource {
   constructor(private readonly token: string) {}
 
-  async latestVersion(tool: ToolManifest): Promise<string | null> {
+  /** Die eine Wahl für Update-Prüfung und Download (Spec 10.5 Nr. 7); null ohne bekannte Plattform. */
+  private async wahl(tool: ToolManifest): Promise<PaketWahl | null> {
+    const plattform = platformKey();
+    if (!plattform) return null;
     const releases = await listGithubReleases(tool.repo, this.token);
-    return pickHighestRelease(releases, `${tool.app}-v`)?.version ?? null;
+    return waehleRelease(releases, `${tool.app}-v`, plattform, archToken(), (version) => resolveArtifactName(tool, version));
+  }
+
+  async latestVersion(tool: ToolManifest): Promise<string | null> {
+    const wahl = await this.wahl(tool);
+    return wahl?.art === 'gewaehlt' ? wahl.version : null;
   }
 
   async latest(tool: ToolManifest): Promise<ResolvedAsset | null> {
-    const releases = await listGithubReleases(tool.repo, this.token);
-    const candidate = pickHighestRelease(releases, `${tool.app}-v`);
-    if (!candidate) return null;
-
-    const { release, version } = candidate;
-    const key = platformKey();
-    const ext = key === 'mac' ? '.dmg' : '.exe';
-    const arch = archToken();
-    const wanted = resolveArtifactName(tool, version);
-    // GitHub ersetzt Leerzeichen in Asset-Namen durch Punkte ("JM Copy" → "JM.Copy").
-    const wantedDot = wanted?.replace(/ /g, '.');
-    const asset =
-      (wanted && release.assets.find((a) => a.name === wanted || a.name === wantedDot)) ||
-      // Fallback: passende Endung + Version, auf macOS zusätzlich die Architektur
-      // (sonst würde bei arm64+x64 versehentlich das falsche DMG gewählt).
-      release.assets.find(
-        (a) =>
-          a.name.endsWith(ext) &&
-          a.name.includes(version) &&
-          (key === 'mac' ? a.name.includes(arch) : true),
-      );
-    if (!asset) return null;
+    const wahl = await this.wahl(tool);
+    if (wahl?.art !== 'gewaehlt') return null;
+    const { version, asset } = wahl;
 
     return {
       version,
@@ -169,7 +135,7 @@ class ProxyReleaseSource implements ReleaseSource {
 
   private async query(
     tool: ToolManifest,
-  ): Promise<{ version: string; asset?: { url: string; size: number; fileName: string } } | null> {
+  ): Promise<{ version: string; asset: { url: string; size: number; fileName: string } | null } | null> {
     const platform = platformKey();
     if (!platform) return null;
     const url =
@@ -178,16 +144,15 @@ class ProxyReleaseSource implements ReleaseSource {
     const res = await fetch(url, {
       headers: { Accept: 'application/json', 'X-Proxy-Key': this.key },
     });
-    if (!res.ok) throw new Error(`Proxy ${res.status} ${res.statusText}`);
-    const json = (await res.json()) as {
-      version: string;
-      assets: Partial<Record<Platform, { url: string; size: number; fileName: string }>>;
-    };
-    return { version: json.version, asset: json.assets[platform] };
+    // Der Fehlertext des Proxys bleibt erhalten, z. B. „Proxy 404: kein Release von connect mit einem Paket für macOS
+    // (x64)“ (Spec 10.4, 11.5 F2–F6); der Proxy-Key steht in keiner Meldung.
+    return proxyAntwortAuswerten(res, platform);
   }
 
   async latestVersion(tool: ToolManifest): Promise<string | null> {
-    return (await this.query(tool))?.version ?? null;
+    // Ein Release ohne Paket für diesen Rechner gilt nicht als Update (Spec 10.5 Nr. 7).
+    const r = await this.query(tool);
+    return r?.asset ? r.version : null;
   }
 
   async latest(tool: ToolManifest): Promise<ResolvedAsset | null> {

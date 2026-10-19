@@ -2,7 +2,8 @@ import { app } from 'electron';
 import type { ToolManifest, ToolState } from '@jm/suite-manifest';
 import type { LauncherUpdate } from '@shared/types';
 import { getAllStates } from './install-state';
-import { compareVersions, getReleaseSource, type ReleaseSource } from './release-source';
+import { getReleaseSource, type ReleaseSource } from './release-source';
+import { compareVersions } from './release-wahl';
 
 // Kurzlebiger Cache der online ermittelten Versionen, damit häufiges Neuprüfen
 // (z. B. Fenster-Fokus) nicht bei jedem Mal die Releases-API anfragt. Fehler
