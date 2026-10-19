@@ -72,6 +72,11 @@ export interface OrdnerLauf {
   /** Agenda des aktiven Side Events, wie der Kern sie gemeldet hat (8.2); gilt im nächsten `takt()`. */
   agendaAktiv(programId: string, e: AgendaErgebnis): void;
   stand(): AnhangOrdnerStand;
+  /**
+   * Show, Rolle, Token und Schalter neu lesen und den Stand melden, ohne Arbeit zu beginnen und auch während ein Takt
+   * läuft (9.14: der Schalter darf nicht bis zum nächsten Takt einen alten Stand zeigen). Liefert den frischen Stand.
+   */
+  bedingungenNeu(): AnhangOrdnerStand;
   /** „Ordner öffnen“: nur aus der programId (E35); ohne Kennung der Basisordner; null = Ordner gibt es nicht. */
   ordnerPfadFuer(programId?: string): string | null;
   /** Ende der Ablage beim Beenden: Löschen der eigenen Sperre anstoßen, nicht abwarten (9.2). */
@@ -316,6 +321,7 @@ export function erzeugeOrdnerLauf(d: OrdnerLaufAbh): OrdnerLauf {
     },
     agendaAktiv: (programId, e) => { L.aktivAgenda = { programId, e }; },
     stand: () => standKopie(L),
+    bedingungenNeu: () => { liesBedingungen(L); melde(L); return standKopie(L); },
     ordnerPfadFuer: (programId) => ordnerPfadFuer(L, programId),
     beenden: () => {
       L.beendet = true;

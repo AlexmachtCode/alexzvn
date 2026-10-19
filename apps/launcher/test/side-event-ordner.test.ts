@@ -3069,6 +3069,29 @@ console.log('— P29 Hülle: gebundene Show offen, Kern ohne aktive Show (kein T
   const slave = await fall('slave');
   ck('P29 11.1 K1: Rolle slave, Show offen, Kern ohne aktive Show → K1 mit T32 (nicht K0), kein Zugriff, kein Abruf',
     slave.k.fall === 'K1' && slave.k.text === ZeilenC.ORDNER_ZEILEN_TEXTE.rolleSlave && slave.zugriffe === 0 && slave.abrufe === 0);
+  {
+    // Fix-Runde 1: setzeAnhangOrdner liefert einen frischen Stand (Schalter neu gelesen, gemeldet), ohne Arbeit zu beginnen
+    const T = AttC.baueLauf();
+    T.z.schalter = false;
+    await T.takt();
+    T.z.schalter = true; // „an“: kein Takt, der Stand muss den neuen Schalter trotzdem melden
+    const n = T.fs.protokoll.length;
+    const frisch = T.lauf.bedingungenNeu();
+    ck('P29 9.14 Fix 1: Schalter an → der zurückgegebene und gemeldete Stand trägt schalterAn:true, ohne Dateizugriff',
+      frisch.schalterAn === true && T.lauf.stand().schalterAn === true && T.staende[T.staende.length - 1]?.schalterAn === true
+      && T.fs.protokoll.length === n);
+    // läuft gerade ein Takt (stat hängt), wirkt „aus“ im Stand sofort, auch wenn takt() nichts anstößt
+    const H = AttC.baueLauf();
+    for (const op of ['stat', 'mkdir', 'readdir', 'readFile', 'writeFile', 'lstat', 'open']) H.fs.haengtBei(op, () => true);
+    H.lauf.takt();
+    await AttC.ruhe();
+    const vorher = H.lauf.stand().schalterAn === true;
+    H.z.schalter = false;
+    H.lauf.takt(); // wirkungslos: der Takt läuft noch
+    const aus = H.lauf.bedingungenNeu();
+    ck('P29 9.14 Fix 1: Schalter aus bei laufendem Takt → der Stand sagt sofort schalterAn:false und wird gemeldet',
+      vorher && aus.schalterAn === false && H.staende[H.staende.length - 1]?.schalterAn === false);
+  }
   const ohne = await fall('aus');
   ck('P29 11.1 K2: Einzelplatz, Show offen ohne Token → K2 mit T33 (nicht K0), kein Zugriff, kein Abruf',
     ohne.k.fall === 'K2' && ohne.k.text === ZeilenC.ORDNER_ZEILEN_TEXTE.keinToken && ohne.zugriffe === 0 && ohne.abrufe === 0);

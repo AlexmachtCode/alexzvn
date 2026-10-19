@@ -1024,7 +1024,8 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   ck('P29 9.14: Schalter iveoAnhangOrdner, fehlt er, gilt „an“; „aus“ stößt den Lauf sofort an',
     einst.includes('  iveoAnhangOrdner?: boolean;')
     && funktionsKoerper(einst, 'export function getIveoAnhangOrdner(): boolean {').includes('  return read().iveoAnhangOrdner !== false;')
-    && funktionsKoerper(sync, 'export function setzeAnhangOrdner(input: unknown): AnhangOrdnerStand {').includes('    if (!an) ordner().takt();'));
+    && funktionsKoerper(sync, 'export function setzeAnhangOrdner(input: unknown): AnhangOrdnerStand {').includes('    if (!an) ordner().takt();')
+    && funktionsKoerper(sync, 'export function setzeAnhangOrdner(input: unknown): AnhangOrdnerStand {').includes('    return ordner().bedingungenNeu();'));
   ck('P29 9.4: neue Sitzung der Ablage beim Öffnen, Schließen und Speichern mit neuer Bindung; der Takt stößt die Ablage an',
     funktionsKoerper(sync, 'export function onShowOpened(showPath: string, show: Show): void {').includes('  ordner().sitzung();')
     && funktionsKoerper(sync, 'export function stopIveoPolling(): void {').includes('  ordner().sitzung();')

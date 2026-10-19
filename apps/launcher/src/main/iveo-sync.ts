@@ -667,6 +667,8 @@ export function setzeAnhangOrdner(input: unknown): AnhangOrdnerStand {
     setIveoAnhangOrdner(an);
     schalterStand = an;
     if (!an) ordner().takt();
+    // Frischer Stand ohne Arbeitsbeginn, auch bei „an“ und bei laufendem Takt: Schalter und Kopfzeile lügen nicht.
+    return ordner().bedingungenNeu();
   }
   return ordner().stand();
 }
