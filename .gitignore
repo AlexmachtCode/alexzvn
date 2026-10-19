@@ -11,3 +11,7 @@ release
 # Logs / OS
 *.log
 .DS_Store
+
+# Lokaler PortAudio-Klon für den nativen Audio-Bau (PORTAUDIO_DIR: DAW, Recorder); gehört nicht ins Repo.
+# Bis 19.10.2026 stand er versehentlich als Gitlink ohne .gitmodules im Baum (seit 231ffc0d7c).
+/portaudio/
