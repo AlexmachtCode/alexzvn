@@ -288,6 +288,8 @@ export interface AnhangOrdnerStand {
   /** Laufende Runde: Schritt i von n (K7). */
   runde: null | { i: number; n: number };
   ersteRundeGestartet: boolean;
+  /** Die erste Durchsicht des Basisordners ist fertig (Side Events außerhalb der Menge sind dann im Stand); bis dahin kennt die Liste sie nicht. */
+  durchsichtFertig: boolean;
   /** „gegen ‹hh:mm›“ = Start der vorigen Runde + 270 s (naechsterFaelligerTakt); gesetzt, sobald eine Runde gestartet ist. */
   naechsteRundeGegen: string | null;
   /** Beginn oder Ende eines Schritts, neue Bytes eines Downloads (9.6), höchstens einmal je Sekunde nachgeführt. */

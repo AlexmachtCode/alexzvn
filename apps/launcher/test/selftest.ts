@@ -1164,11 +1164,15 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   // ohne Eintrag im Stand bekommt dort keine Zeile (nicht S1 „kein Ordner“), nach der ersten Runde S1 wie bisher.
   {
     const k8: AnhangOrdnerStand = { showOffen: true, rolle: 'aus', tokenDa: true, schalterAn: true, showDatei: 'da', sperre: null, basis: null,
-      runde: null, ersteRundeGestartet: false, naechsteRundeGegen: null, letzterFortschritt: null, sideEvents: [] } as unknown as AnhangOrdnerStand;
-    const k9: AnhangOrdnerStand = { ...k8, ersteRundeGestartet: true };
+      runde: null, ersteRundeGestartet: false, durchsichtFertig: false, naechsteRundeGegen: null, letzterFortschritt: null, sideEvents: [] } as unknown as AnhangOrdnerStand;
+    const k9: AnhangOrdnerStand = { ...k8, ersteRundeGestartet: true, durchsichtFertig: true };
     ck('P32 G8: K8 ohne Eintrag im Stand → keine Zeile (Menge unbekannt), nach der ersten Runde S1',
       kopfzeile(k8, 0).fall === 'K8' && listenZeile(k8, 'p-1', 0) === null
       && listenZeile(k9, 'p-1', 0)?.fall === 'S1');
+    // Fix-Runde 2: auch nach dem Start der ersten Runde ist die Menge außerhalb erst nach der ersten Durchsicht bekannt
+    const k9a: AnhangOrdnerStand = { ...k9, durchsichtFertig: false };
+    ck('P32 G8 (R2): ohne Eintrag vor dem Ende der ersten Durchsicht keine Zeile, danach S1',
+      kopfzeile(k9a, 0).fall === 'K10' &&listenZeile(k9a, 'p-1', 0) === null && listenZeile(k9, 'p-1', 0)?.fall === 'S1');
     ck('P32 G8: das Panel fragt listenZeile statt ordnerZeile(ordnerVon(...)) für die Liste',
       quelleLf('../src/renderer/src/components/SideEventsPanel.tsx').includes('listenZeile(anhangOrdner, programId, ordnerUhr)'));
   }

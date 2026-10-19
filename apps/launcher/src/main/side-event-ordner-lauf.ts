@@ -287,7 +287,7 @@ interface Lauf {
   taktZuletzt: number | null;
   se: Map<string, SeIntern>;
   fehlschlaege: Map<string, { f: number; bis: number; grund: string; datei: string }>;
-  kopf: Omit<AnhangOrdnerStand, 'sideEvents'>;
+  kopf: Omit<AnhangOrdnerStand, 'sideEvents' | 'durchsichtFertig'>;
   letzteMeldung: string;
   letzteMeldungMs: number;
 }
@@ -296,7 +296,7 @@ function iso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function leererKopf(): Omit<AnhangOrdnerStand, 'sideEvents'> {
+function leererKopf(): Omit<AnhangOrdnerStand, 'sideEvents' | 'durchsichtFertig'> {
   return {
     showOffen: false, rolle: 'aus', tokenDa: false, schalterAn: true, showDatei: 'da', sperre: null, basis: null,
     runde: null, ersteRundeGestartet: false, naechsteRundeGegen: null, letzterFortschritt: null,
@@ -789,7 +789,7 @@ function standKopie(L: Lauf): AnhangOrdnerStand {
       st.wartetHinter = st.aktiv && wartend.has(st.programId) && L.download && L.download.programId !== st.programId ? L.download.datei : null;
       return st;
     });
-  return { ...L.kopf, sideEvents };
+  return { ...L.kopf, durchsichtFertig: L.funde !== null, sideEvents };
 }
 
 function fortschritt(L: Lauf): void {

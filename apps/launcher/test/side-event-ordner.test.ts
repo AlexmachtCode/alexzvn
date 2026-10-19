@@ -1035,7 +1035,9 @@ console.log('— P14 Warteschlange, Runde, Generation, Ablage-Menge (Spec 9.3, 9
   {
     const T = AttC.baueLauf();
     ck('P14 9.4: vor dem ersten Takt ist die erste Runde nicht gestartet (K8)', T.lauf.stand().ersteRundeGestartet === false);
+    ck('P32 R2: vor der ersten Durchsicht des Basisordners ist durchsichtFertig false', T.lauf.stand().durchsichtFertig === false);
     await T.takt([AttC.punkt('se-1', [])]);
+    ck('P32 R2: nach der ersten Durchsicht ist durchsichtFertig true', T.lauf.stand().durchsichtFertig === true);
     ck('P14 12.4 Nr. 25: Side Event ohne Anhänge → kein Ordner, auch kein Basisordner (OF4); Abgleich gelungen mit 0 Anhängen',
       !T.fs.gibt(AttC.BASIS) && T.fs.zaehle('mkdir') === 0 && T.se('se-1')?.abruf === 'gelungen' && T.se('se-1')?.n === 0 && T.se('se-1')?.existiert === false);
     await T.uhr.spule(45_000, 45_000);
