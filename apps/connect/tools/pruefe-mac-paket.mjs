@@ -8,7 +8,7 @@
 // stderr. Exit 2: Aufruf ohne Ordner. Nur node:-Module: Der Workflow holt das Skript aus seinem eigenen Commit
 // (werkzeug/), auch wenn der gebaute Tag es noch nicht kennt (EP6, connect-v0.3.0). Zoom-SDK-Dateien prüft schon der
 // After-Pack-Wächter (tools/after-pack.cjs), der den Bau sonst abbricht.
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,4 +69,18 @@ function hauptprogramm(argv) {
   return 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = hauptprogramm(process.argv);
+/**
+ * Läuft diese Datei als Hauptprogramm? Node löst das Hauptmodul über realpath auf, setzt argv[1] aber nur mit resolve: Unter
+ * einem symbolischen Link oder einer Junction wären beide verschieden, und die Prüfung endete still mit Exit 0 (gegen den
+ * sicheren Fehlschlag aus EP7). Darum beide Seiten über realpath vergleichen.
+ */
+function istHauptprogramm(arg) {
+  if (!arg) return false;
+  try {
+    return realpathSync(resolve(arg)) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (istHauptprogramm(process.argv[1])) process.exitCode = hauptprogramm(process.argv);

@@ -3,7 +3,7 @@
 // zoom-bridge → rot, mit jm_ndi.node → rot, nur ein DMG → rot; dazu die Kommandozeile mit Exit 0, 1 und 2.
 //   node apps/connect/test/pruefe-mac-paket.test.mjs
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -100,6 +100,30 @@ try {
     const k = lauf();
     assert(k.status === 2 && k.stderr.includes('Aufruf: node apps/connect/tools/pruefe-mac-paket.mjs <release-Ordner>'),
       'P38 10.2: Kommandozeile ohne Ordner → Exit 2 mit Aufruf');
+  }
+  {
+    // Gesamtprüfung Befund 7 (EP7 „sicherer Fehlschlag“): Node löst das Hauptmodul über realpath auf, argv[1] nur mit resolve.
+    // Über einen Ordner-Link (Junction unter Windows, Symlink sonst) aufgerufen, muss das Skript trotzdem prüfen, statt still
+    // mit Exit 0 zu enden. Die Kopie liegt im Temp-Ordner; der Link wird zuerst einzeln entfernt (nie rekursiv durch ihn).
+    const echt = mkdtempSync(join(tmpdir(), 'jm-mac-paket-skript-'));
+    ordner.push(echt);
+    copyFileSync(skript, join(echt, 'pruefe-mac-paket.mjs'));
+    const linkOrdner = mkdtempSync(join(tmpdir(), 'jm-mac-paket-link-'));
+    const link = join(linkOrdner, 'werkzeug');
+    symlinkSync(echt, link, 'junction');
+    try {
+      const ohne = spawnSync(process.execPath, [join(link, 'pruefe-mac-paket.mjs')], { encoding: 'utf8' });
+      const d = sauber();
+      const mitZoom = sauber();
+      mkdirSync(join(mitZoom, 'mac', 'JM Connect.app', 'Contents', 'Resources', 'zoom-bridge'), { recursive: true });
+      const gut = spawnSync(process.execPath, [join(link, 'pruefe-mac-paket.mjs'), d], { encoding: 'utf8' });
+      const schlecht = spawnSync(process.execPath, [join(link, 'pruefe-mac-paket.mjs'), mitZoom], { encoding: 'utf8' });
+      assert(ohne.status === 2 && gut.status === 0 && gut.stdout.startsWith('pruefe-mac-paket: in Ordnung') && schlecht.status === 1,
+        'Gesamt-Fix EP7: Aufruf über einen Ordner-Link → die Kommandozeile prüft (Exit 2 ohne Ordner, 0 sauber, 1 mit zoom-bridge), nie still Exit 0');
+    } finally {
+      unlinkSync(link);
+      rmSync(linkOrdner, { recursive: true, force: true });
+    }
   }
 } finally {
   for (const d of ordner) rmSync(d, { recursive: true, force: true });
