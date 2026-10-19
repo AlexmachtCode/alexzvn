@@ -123,7 +123,9 @@ export function gestoerteSideEvents(stand: AnhangOrdnerStand): number {
  * Sperre · K6 Basisordner nicht anlegbar (T36) bzw. Sperrdatei nicht lesbar oder schreibbar (T78), beide nach Ablauf wie K9/K10 T59 · K7 Runde läuft
  * (nach mehr als 105 s ohne Fortschritt T76) · K8 erste Runde
  * ausstehend · K9 bereit, Basisordner da · K10 bereit, Basisordner fehlt (K9/K10 mehr als 45 s nach „gegen“: T59).
- * T64 hängt an K7 und K9, wenn ein Side Event gestört ist.
+ * T64 hängt an K7 und K9, wenn ein Side Event gestört ist. Ohne bekannten Basisordner (basis null) gibt es keinen ‹Name›:
+ * K7, K8 und K10 dann ohne Zeile statt „Ablage: „“ …“, „Ordner öffnen“ nur mit Basisordner (G8; der Lauf setzt ihn ab dem
+ * Öffnen der Show ohne Dateizugriff, Gesamtprüfung Befund 2).
  */
 export function kopfzeile(
   stand: AnhangOrdnerStand | null,
@@ -133,7 +135,9 @@ export function kopfzeile(
   if (stand === null || !stand.showOffen) return { fall: 'K0', text: null, schalter: false, ordnerOeffnen: false, tooltip: null };
   if (stand.rolle === 'slave') return { fall: 'K1', text: T.rolleSlave, schalter: false, ordnerOeffnen: false, tooltip: null };
   if (!stand.tokenDa) return { fall: 'K2', text: T.keinToken, schalter: false, ordnerOeffnen: false, tooltip: null };
+  const bekannt = stand.basis !== null && stand.basis !== undefined;
   const name = stand.basis?.name ?? '';
+  const mitName = (text: string): string | null => (bekannt ? text : null);
   const existiert = stand.basis?.existiert === true;
   const tooltip = stand.basis?.pfad ?? null;
   if (!stand.schalterAn) return { fall: 'K3', text: T.ausgeschaltet, schalter: true, ordnerOeffnen: existiert, tooltip };
@@ -143,7 +147,7 @@ export function kopfzeile(
     const text = s.art === 'fremd'
       ? T.fremdeSperre(s.rechner, uhrzeit(zeitVon(s.lebenszeichen)), uhrzeit(zeitVon(s.lebenszeichen) + UEBERNAHME_NACH_MS))
       : T.namensgleich(s.rechner);
-    return { fall: 'K5', text, schalter: true, ordnerOeffnen: true, tooltip };
+    return { fall: 'K5', text, schalter: true, ordnerOeffnen: bekannt, tooltip };
   }
   const gegen = zeitVon(stand.naechsteRundeGegen);
   if (stand.basis?.fehler) {
@@ -164,15 +168,15 @@ export function kopfzeile(
     const lf = zeitVon(stand.letzterFortschritt);
     const steht = Number.isFinite(lf) && jetztMs - lf > KEIN_FORTSCHRITT_NACH_MS;
     const text = steht ? T.keinFortschritt(name, stand.runde.i, stand.runde.n, uhrzeit(lf)) : T.laeuft(name, stand.runde.i, stand.runde.n);
-    return { fall: 'K7', text: text + zusatz, schalter: true, ordnerOeffnen: existiert, tooltip };
+    return { fall: 'K7', text: mitName(text + zusatz), schalter: true, ordnerOeffnen: existiert, tooltip };
   }
-  if (!stand.ersteRundeGestartet) return { fall: 'K8', text: T.ersteRunde(name), schalter: true, ordnerOeffnen: existiert, tooltip };
+  if (!stand.ersteRundeGestartet) return { fall: 'K8', text: mitName(T.ersteRunde(name)), schalter: true, ordnerOeffnen: existiert, tooltip };
   const ueberfaellig = Number.isFinite(gegen) && jetztMs - gegen > UEBERFAELLIG_NACH_MS;
   if (existiert) {
     const text = ueberfaellig ? T.ueberfaellig(name, uhrzeit(gegen)) : T.bereit(name, uhrzeit(gegen));
     return { fall: 'K9', text: text + zusatz, schalter: true, ordnerOeffnen: true, tooltip };
   }
-  return { fall: 'K10', text: ueberfaellig ? T.ueberfaellig(name, uhrzeit(gegen)) : T.bereitLeer(name, uhrzeit(gegen)), schalter: true, ordnerOeffnen: false, tooltip };
+  return { fall: 'K10', text: mitName(ueberfaellig ? T.ueberfaellig(name, uhrzeit(gegen)) : T.bereitLeer(name, uhrzeit(gegen))), schalter: true, ordnerOeffnen: false, tooltip };
 }
 
 function problemText(p: OrdnerProblem): string {

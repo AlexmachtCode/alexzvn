@@ -994,8 +994,10 @@ console.log('— P13 Wer ablegt (Spec 9.2), Sperrdatei, Ende der Ablage');
     ck('P13 11.1 K6: Vorbedingung – Sperrdatei nicht lesbar', S.staende[S.staende.length - 1]?.basis?.fehler?.sperre === 'lesen');
     S.lauf.sitzung();
     const letzter = S.staende[S.staende.length - 1];
+    // Gesamtprüfung Befund 2: der Basisordner steht sofort wieder im Stand (ohne Dateizugriff), nur ohne den Fehler der alten Sitzung
     ck('P13 9.2: sitzung() meldet den neuen Stand sofort (Show offen, keine Fehlerzeile der alten Sitzung)',
-      S.staende.length > vorher && letzter?.showOffen === true && letzter?.basis === null);
+      S.staende.length > vorher && letzter?.showOffen === true && letzter?.basis?.fehler === null
+      && letzter.basis.name === 'COP31 Tag 1 – Side Events' && letzter.basis.existiert === false);
   }
   {
     // Fix-Runde 1, Befund 3: K6 sagt auch dann die Wahrheit, wenn der Folgetakt hängt – nach Ablauf T59 mit der Zeit des Versuchs (11.1)
@@ -3161,6 +3163,42 @@ console.log('— Gesamtprüfung Fix-Welle: Fehler je Eintrag, Basisordner ab dem
     await runden(T, 6);
     ck('P14 Gesamt-Fix: nächste Runde → das Side Event wird neu abgerufen und abgelegt, die Störung ist weg',
       zeile(T, 'se-1').fall === 'S12' && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000 && T.agenda.aufrufe.includes('se-1'));
+  }
+  {
+    // Befund 2: Der Basisordner steht ab dem Öffnen im Stand (ordnerPfad ohne Dateizugriff), auch wenn der erste Takt am Lesen
+    // der Show-Datei hängt: K8 nennt seinen Namen und zeigt den Pfad als Tooltip, nie „Ablage: „“ …“ (11.1 T58, G8).
+    const T = AttC.baueLauf();
+    T.fs.haengtBei('readFile', (p) => p === AttC.SHOW_PFAD);
+    const n = T.fs.protokoll.length;
+    T.lauf.sitzung();
+    const nachSitzung = ZeilenC.kopfzeile(T.staende[T.staende.length - 1] ?? null, T.uhr.t);
+    const zugriffe = T.fs.protokoll.length - n;
+    T.lauf.takt();
+    await AttC.ruhe();
+    const haengt = ZeilenC.kopfzeile(T.staende[T.staende.length - 1] ?? null, T.uhr.t);
+    const soll = 'Ablage: „COP31 Tag 1 – Side Events“ · erster Abgleich folgt';
+    ck('P13 Gesamt-Fix: direkt nach sitzung() → K8 mit dem Namen des Basisordners und dem Pfad als Tooltip, ohne Dateizugriff',
+      nachSitzung.fall === 'K8' && nachSitzung.text === soll && nachSitzung.tooltip === AttC.BASIS && zugriffe === 0);
+    ck('P13 Gesamt-Fix: erster Takt hängt am Lesen der Show-Datei → weiter K8 mit dem Namen, nie „Ablage: „“ …“',
+      haengt.fall === 'K8' && haengt.text === soll && haengt.tooltip === AttC.BASIS && T.fs.haengend === 1);
+  }
+  {
+    // Befund 2 (gleiche Fehlerklasse): Der Fehler einer lstat-Prüfung (basisArt) gehört zum Kopf des Takts, der sie begann. Öffnet
+    // der Bediener währenddessen eine andere Show, zeigt die neue nicht K6 mit dem Fehler der alten.
+    const T = AttC.baueLauf();
+    T.fs.fehlerBei('lstat', (p) => p === AttC.BASIS, 'EACCES');
+    const tor = T.fs.torBei('lstat', (p) => p === AttC.BASIS);
+    T.lauf.takt();
+    await AttC.ruhe();
+    const amTor = tor.erreicht();
+    T.z.aktiv = { path: pathC.join(AttC.ROOT, 'Shows', 'Andere.jmshow'), event: 'cop31', filter: {} };
+    T.lauf.sitzung();
+    tor.weiter();
+    await AttC.ruhe();
+    const k = ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t);
+    ck('P13 Gesamt-Fix: lstat des alten Basisordners scheitert nach einem Show-Wechsel → die neue Show zeigt K8 mit ihrem Namen, nicht K6 mit dem alten Fehler',
+      amTor && k.fall === 'K8' && k.text === 'Ablage: „Andere – Side Events“ · erster Abgleich folgt' && T.lauf.stand().basis?.fehler === null
+      && T.staende.every((s) => s.basis?.name !== 'Andere – Side Events' || s.basis.fehler === null));
   }
 }
 

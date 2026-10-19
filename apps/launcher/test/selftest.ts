@@ -679,9 +679,13 @@ function ck(name: string, cond: boolean): void {
   type Erwartung = { fall: string; text: string | null; schalter: boolean; ordnerOeffnen: boolean; tooltip: string | null };
   const klassen = new Map<string, { n: number; gut: number }>();
   let kombinationen = 0;
+  let leererName = 0;
+  let oeffnenOhneBasis = 0;
+  // Gesamtprüfung Befund 2: Achse „Basisordner unbekannt“ (basis null). Ohne Namen gibt es T37–T39, T58, T59, T76 nicht: keine
+  // Zeile statt „Ablage: „“ …“, „Ordner öffnen“ nur mit bekanntem Basisordner. Der Lauf setzt ihn ab dem Öffnen ohne Dateizugriff.
   for (const showOffen of [true, false]) for (const rolle of ['aus', 'master', 'slave'] as const) for (const tokenDa of [true, false])
   for (const schalterAn of [true, false]) for (const showDatei of ['da', 'fehlt', 'nicht-lesbar'] as const)
-  for (const sperre of [null, 'fremd', 'namensgleich'] as const) for (const basis of ['existiert', 'fehlt', 'nicht-anlegbar', 'sperre-lesen', 'sperre-schreiben'] as const)
+  for (const sperre of [null, 'fremd', 'namensgleich'] as const) for (const basis of ['existiert', 'fehlt', 'nicht-anlegbar', 'sperre-lesen', 'sperre-schreiben', 'unbekannt'] as const)
   for (const runde of [false, true]) for (const ersteRunde of [true, false]) for (const uhr of ['frueh', 'spaet'] as const) for (const m of [0, 2]) {
     kombinationen++;
     // Sperrdatei nicht lesbar (Lesefehler außer ENOENT und ENOTDIR) oder nicht schreibbar (lstat): der Ordner ist da (OFP6)
@@ -692,29 +696,32 @@ function ck(name: string, cond: boolean): void {
     const stand: AnhangOrdnerStand = {
       showOffen, rolle, tokenDa, schalterAn, showDatei,
       sperre: sperre === null ? null : { art: sperre, rechner: sperre === 'fremd' ? 'TECHNIK-PC' : 'REGIE-PC', lebenszeichen: iso(LEBENSZEICHEN) },
-      basis: { name: NAME, pfad: PFAD, existiert, fehler },
+      basis: basis === 'unbekannt' ? null : { name: NAME, pfad: PFAD, existiert, fehler },
       runde: runde ? { i: 2, n: 5 } : null, ersteRundeGestartet: ersteRunde, naechsteRundeGegen: ersteRunde ? iso(GEGEN) : null,
       letzterFortschritt: iso(FORTSCHRITT), sideEvents: m > 0 ? [se(), ...gestoert] : [se()],
     };
     const jetzt = uhr === 'frueh' ? GEGEN + 10_000 : GEGEN + 60_000; // früh: 10 s nach „gegen“, Fortschritt 70 s her; spät: 60 s bzw. 120 s
     const zusatz = m > 0 ? ' · 2 Side Events gestört' : '';
-    const tt = PFAD;
+    const ohne = basis === 'unbekannt';
+    const tt = ohne ? null : PFAD;
     const e: Erwartung =
       !showOffen ? { fall: 'K0', text: null, schalter: false, ordnerOeffnen: false, tooltip: null }
       : rolle === 'slave' ? { fall: 'K1', text: 'Dieser Rechner hat die Rolle „Mit Master verbinden“ und legt keine Anhänge ab.', schalter: false, ordnerOeffnen: false, tooltip: null }
       : !tokenDa ? { fall: 'K2', text: 'Anhänge lädt nur der Launcher mit dem iveo-Token dieser Show.', schalter: false, ordnerOeffnen: false, tooltip: null }
       : !schalterAn ? { fall: 'K3', text: 'Ablage in Side-Event-Ordnern ausgeschaltet.', schalter: true, ordnerOeffnen: existiert, tooltip: tt }
       : showDatei !== 'da' ? { fall: 'K4', text: 'Show-Datei am Öffnungspfad nicht gefunden oder nicht lesbar. Ablage pausiert, bis sie wieder da ist.', schalter: true, ordnerOeffnen: false, tooltip: tt }
-      : sperre === 'fremd' ? { fall: 'K5', text: 'Ablage liegt bei Rechner „TECHNIK-PC“ (letztes Lebenszeichen 13:58); dieser Rechner legt nichts ab und übernimmt gegen 14:13, wenn kein neues Lebenszeichen kommt.', schalter: true, ordnerOeffnen: true, tooltip: tt }
-      : sperre === 'namensgleich' ? { fall: 'K5', text: 'Ablage von einem zweiten Launcher mit demselben Rechnernamen „REGIE-PC“ übernommen (anderer Benutzer an diesem Rechner oder Rechner mit gleichem Namen); dieser Launcher legt nichts ab, bis die Show neu geöffnet wird.', schalter: true, ordnerOeffnen: true, tooltip: tt }
+      : sperre === 'fremd' ? { fall: 'K5', text: 'Ablage liegt bei Rechner „TECHNIK-PC“ (letztes Lebenszeichen 13:58); dieser Rechner legt nichts ab und übernimmt gegen 14:13, wenn kein neues Lebenszeichen kommt.', schalter: true, ordnerOeffnen: !ohne, tooltip: tt }
+      : sperre === 'namensgleich' ? { fall: 'K5', text: 'Ablage von einem zweiten Launcher mit demselben Rechnernamen „REGIE-PC“ übernommen (anderer Benutzer an diesem Rechner oder Rechner mit gleichem Namen); dieser Launcher legt nichts ab, bis die Show neu geöffnet wird.', schalter: true, ordnerOeffnen: !ohne, tooltip: tt }
       : basis === 'nicht-anlegbar' ? { fall: 'K6', text: `Ordner „${NAME}“ nicht anlegbar (EACCES). Nächster Versuch gegen 14:05.`, schalter: true, ordnerOeffnen: false, tooltip: tt }
       : basis === 'sperre-lesen' ? { fall: 'K6', text: `Sperrdatei in „${NAME}“ nicht lesbar (EACCES). Nächster Versuch gegen 14:05.`, schalter: true, ordnerOeffnen: true, tooltip: tt }
       : basis === 'sperre-schreiben' ? { fall: 'K6', text: `Sperrdatei in „${NAME}“ nicht schreibbar (EBUSY). Nächster Versuch gegen 14:05.`, schalter: true, ordnerOeffnen: true, tooltip: tt }
-      : runde ? { fall: 'K7', text: (uhr === 'spaet' ? `Ablage: „${NAME}“ · Abgleich läuft (2 von 5) · kein Fortschritt seit 14:03` : `Ablage: „${NAME}“ · Abgleich läuft (2 von 5)`) + zusatz, schalter: true, ordnerOeffnen: existiert, tooltip: tt }
-      : !ersteRunde ? { fall: 'K8', text: `Ablage: „${NAME}“ · erster Abgleich folgt`, schalter: true, ordnerOeffnen: existiert, tooltip: tt }
+      : runde ? { fall: 'K7', text: ohne ? null : (uhr === 'spaet' ? `Ablage: „${NAME}“ · Abgleich läuft (2 von 5) · kein Fortschritt seit 14:03` : `Ablage: „${NAME}“ · Abgleich läuft (2 von 5)`) + zusatz, schalter: true, ordnerOeffnen: existiert, tooltip: tt }
+      : !ersteRunde ? { fall: 'K8', text: ohne ? null : `Ablage: „${NAME}“ · erster Abgleich folgt`, schalter: true, ordnerOeffnen: existiert, tooltip: tt }
       : basis === 'existiert' ? { fall: 'K9', text: (uhr === 'spaet' ? `Ablage: „${NAME}“ · Abgleich überfällig seit 14:04` : `Ablage: „${NAME}“ · nächster Abgleich gegen 14:04`) + zusatz, schalter: true, ordnerOeffnen: true, tooltip: tt }
-      : { fall: 'K10', text: uhr === 'spaet' ? `Ablage: „${NAME}“ · Abgleich überfällig seit 14:04` : `Ablage: „${NAME}“ · noch nichts abgelegt · nächster Abgleich gegen 14:04`, schalter: true, ordnerOeffnen: false, tooltip: tt };
+      : { fall: 'K10', text: ohne ? null : uhr === 'spaet' ? `Ablage: „${NAME}“ · Abgleich überfällig seit 14:04` : `Ablage: „${NAME}“ · noch nichts abgelegt · nächster Abgleich gegen 14:04`, schalter: true, ordnerOeffnen: false, tooltip: tt };
     const r = kopfzeile(stand, jetzt);
+    if (r.text?.includes('„“')) leererName++;
+    if (ohne && r.ordnerOeffnen) oeffnenOhneBasis++;
     const k = klassen.get(e.fall) ?? { n: 0, gut: 0 };
     klassen.set(e.fall, { n: k.n + 1, gut: k.gut + (JSON.stringify(r) === JSON.stringify(e) ? 1 : 0) });
   }
@@ -723,6 +730,8 @@ function ck(name: string, cond: boolean): void {
     ck(`P11 12.4 Nr. 30 Kopf: ${fall} (${k.n} von ${kombinationen} Kombinationen) → genau diese Zeile, Text wörtlich, Schalter und „Ordner öffnen“ nach 11.1`, k.n > 0 && k.gut === k.n);
   }
   ck('P11 12.4 Nr. 30 Kopf: ohne Stand → K0', kopfzeile(null, 0).fall === 'K0' && kopfzeile(null, 0).text === null);
+  ck(`P11 Gesamt-Fix 11.1: in keiner der ${kombinationen} Kombinationen „Ablage: „“ …“; ohne bekannten Basisordner kein „Ordner öffnen“`,
+    leererName === 0 && oeffnenOhneBasis === 0);
 
   // 12.4 Nr. 49: K7 ohne Fortschritt mit der Uhr des Renderers
   const k7 = (jetzt: number): string | null => kopfzeile({

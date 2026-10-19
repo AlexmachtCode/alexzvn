@@ -443,7 +443,11 @@ async function loescheEigeneSperre(L: Lauf, g: { basis: string; sitzung: string 
 
 // ── Takt: Bedingungen 9.2, Sperre, aktives Side Event, Runde ─────────────────────────────────────────────────────
 
-/** Show, Rolle, Token und Schalter in den Kopf lesen (keine Dateizugriffe). */
+/**
+ * Show, Rolle, Token und Schalter in den Kopf lesen, dazu Name und Pfad des Basisordners aus dem Pfad der Show (ordnerPfad,
+ * keine Dateizugriffe): Die Kopfzeile nennt ihn ab dem Öffnen, auch bevor der erste Takt läuft oder während er an einem
+ * Zugriff hängt (11.1 T58, nie „Ablage: „“ …“; Gesamtprüfung Befund 2).
+ */
 function liesBedingungen(L: Lauf): { path: string; event: string; filter: IveoProgramFilter } | null {
   const d = L.d;
   const a = d.aktiv();
@@ -452,6 +456,10 @@ function liesBedingungen(L: Lauf): { path: string; event: string; filter: IveoPr
   k.rolle = d.rolle();
   k.tokenDa = d.tokenDa();
   k.schalterAn = d.schalterAn();
+  if (a) {
+    const b = ordnerPfad({ art: 'basis', showPfad: a.path });
+    if (b.ok && k.basis?.pfad !== b.pfad) k.basis = { name: b.name, pfad: b.pfad, existiert: false, fehler: null };
+  }
   return a;
 }
 
@@ -460,8 +468,7 @@ async function taktAsync(L: Lauf): Promise<void> {
   const k = L.kopf;
   melde(L); // vor jedem Dateizugriff: ein hängender Zugriff hält den Stand nicht zurück (K0–K2, K6 „überfällig“)
   if (!a) { await endeAblage(L); return melde(L); } // K0
-  const b = ordnerPfad({ art: 'basis', showPfad: a.path });
-  if (b.ok && k.basis?.pfad !== b.pfad) k.basis = { name: b.name, pfad: b.pfad, existiert: false, fehler: null };
+  const b = ordnerPfad({ art: 'basis', showPfad: a.path }); // Name und Pfad stehen schon im Kopf (liesBedingungen)
   if (k.rolle === 'slave' || !k.tokenDa) { await endeAblage(L); return melde(L); } // K1, K2: kein Zugriff
   if (L.abgesetzt) return melde(L); // K5 namensgleich bis zur nächsten Sitzung
   if (!k.schalterAn) { // K3: nur die Existenzprüfung des Basisordners, höchstens eine je Takt
@@ -565,7 +572,7 @@ async function pruefeSperre(L: Lauf, basis: string, gen: number): Promise<boolea
 async function schreibeSperre(L: Lauf, basis: string, frei: boolean, gen: number, sitzung: string): Promise<boolean> {
   const k = L.kopf;
   // gen und sitzung kommen von der Prüfung: sitzung() kann schon während lstat, Zwischendatei, sync oder Umbenennen eine neue vergeben
-  const art = await basisArt(L, basis); // 9.12 Regel 11: nie durch eine Verknüpfung schreiben
+  const art = await basisArt(L, k, basis); // 9.12 Regel 11: nie durch eine Verknüpfung schreiben
   if (art === null) return false;
   const inhalt = `${JSON.stringify({ format: 1, rechner: L.d.rechner, pid: L.d.pid, sitzung, lebenszeichen: iso(L.d.jetzt()) }, null, 2)}\n`;
   const fehler = await schreibeAtomar(L, path.join(basis, SPERR_DATEI), inhalt);
@@ -593,11 +600,13 @@ async function schreibeSperre(L: Lauf, basis: string, frei: boolean, gen: number
 
 /**
  * Basisordner per `lstat` (9.12 Regel 11): 'da' = echter Ordner, 'fehlt' = noch nicht angelegt (kein Fehler), null =
- * Verknüpfung, kein Ordner oder nicht prüfbar; dann steht K6 im Stand und es gibt keinen Zugriff darunter.
+ * Verknüpfung, kein Ordner oder nicht prüfbar; dann steht K6 im Stand und es gibt keinen Zugriff darunter. Den Fehler bekommt
+ * nur der Kopf `k`, mit dem die Prüfung begann: Ist inzwischen eine andere Show offen (neue Sitzung, neuer Kopf), gilt er für
+ * deren Basisordner nicht (Gesamtprüfung Befund 2).
  */
-async function basisArt(L: Lauf, basis: string): Promise<'da' | 'fehlt' | null> {
+async function basisArt(L: Lauf, k: Lauf['kopf'], basis: string): Promise<'da' | 'fehlt' | null> {
   const setze = (code: string): null => {
-    L.kopf.basis = { ...(L.kopf.basis as NonNullable<typeof L.kopf.basis>), existiert: false, fehler: { code, naechsterVersuch: naechsterTakt(L) } };
+    if (L.kopf === k) k.basis = { ...(k.basis as NonNullable<typeof k.basis>), existiert: false, fehler: { code, naechsterVersuch: naechsterTakt(L) } };
     return null;
   };
   let st: { isDirectory(): boolean; isSymbolicLink(): boolean };
@@ -828,7 +837,7 @@ function basisPfad(a: { path: string }): string | null {
 async function scanneBasis(L: Lauf, a: { path: string }, gen: number): Promise<void> {
   const basis = basisPfad(a);
   if (!basis) return;
-  if ((await basisArt(L, basis)) === null) { if (gen === L.gen) L.funde = []; return; } // 9.12 Regel 11: nichts darunter lesen
+  if ((await basisArt(L, L.kopf, basis)) === null) { if (gen === L.gen) L.funde = []; return; } // 9.12 Regel 11: nichts darunter lesen
   if (gen !== L.gen) return;
   L.scanFehler = null;
   L.scanOrt = null;
@@ -975,7 +984,7 @@ async function ordnerFuer(L: Lauf, s: SeIntern, a: { path: string }, gen: number
     if (L.basisVersuch) await L.basisVersuch; // der Versuch des Takts läuft: dessen Ergebnis gilt für diesen Eintrag
     if (gen !== L.gen) return null;
     if (L.basisFehlerBis !== null) return null; // ein Fehler beim Anlegen wird nur vom Takt zu seiner Zeit wiederholt (naechsteSchritte)
-    const art = await basisArt(L, basis); // 9.12 Regel 11: mkdir ginge durch eine Verknüpfung still durch
+    const art = await basisArt(L, L.kopf, basis); // 9.12 Regel 11: mkdir ginge durch eine Verknüpfung still durch
     if (art === null || gen !== L.gen) return null;
     // sonst hat der Takt den Ordner eben angelegt; die Durchsicht davor kann ihn überholt haben: ist der Basisordner da (frisch gelesen), kein zweites mkdir
     if (!wartete && art !== 'da' && !(await legeBasisAn(L, basis, gen))) return null;
