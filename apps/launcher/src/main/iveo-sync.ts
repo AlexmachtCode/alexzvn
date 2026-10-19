@@ -551,7 +551,12 @@ function agendaAktiv(programId: string, e: AgendaErgebnis): void {
 function waechterClient(): IveoClient | null {
   const a = kern().aktiv();
   const token = a ? getIveoToken(a.event) : undefined;
-  return a && token ? iveoClient(token, offeneBaseUrl()) : null;
+  if (!a || !token) return null;
+  try {
+    return iveoClient(token, offeneBaseUrl());
+  } catch {
+    return null; // ungültige Adresse: die Statuszeile des Kerns zeigt sie schon
+  }
 }
 
 /**

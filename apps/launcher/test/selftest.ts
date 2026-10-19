@@ -946,6 +946,9 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   ck('P28 8.2: erst die Abfrage des Kerns, dann der Anhang-Wächter, nacheinander (await)', iKern > 0 && iWaechter > iKern);
   ck('P28 8.2: der Intervall ruft nur den Takt, nicht mehr kern().abfrage() direkt',
     funktionsKoerper(sync, 'function starteTakt(): void {').includes('  pollTimer = setInterval(() => {\n    void takt();\n  }, POLL_INTERVAL_MS);'));
+  const wc = funktionsKoerper(sync, 'function waechterClient(): IveoClient | null {');
+  ck('P28 8.2: waechterClient fängt eine ungültige Basis-URL (Konstruktor wirft) und gibt null zurück, der Takt lehnt nie ab',
+    wc.includes('  if (!a || !token) return null;\n  try {\n    return iveoClient(token, offeneBaseUrl());\n  } catch {\n    return null; // ungültige Adresse: die Statuszeile des Kerns zeigt sie schon\n  }'));
   const k = funktionsKoerper(sync, 'function kern(): IveoKern {');
   ck('P28 6.1, 8.2: erzeugeKern bekommt taktMs = POLL_INTERVAL_MS und meldeAgenda → Anhang-Wächter',
     k.includes('      taktMs: POLL_INTERVAL_MS,') && k.includes('      meldeAgenda: (programId, e) => agendaAktiv(programId, e),')
