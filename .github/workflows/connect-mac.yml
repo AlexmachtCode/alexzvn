@@ -52,22 +52,27 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#connect-v}" >> "$GITHUB_OUTPUT"
 
-      # Quellen aus dem Tag. Gibt es das Tag nicht, scheitert dieser Schritt (Spec 10.1: muss existieren). Kein Token in
-      # .git/config (persist-credentials: false): Die folgenden Schritte brauchen keins.
-      - uses: actions/checkout@v5
-        with:
-          ref: refs/tags/${{ steps.tag.outputs.tag }}
-          persist-credentials: false
-
-      # Das Prüfskript aus dem Commit dieses Workflows (EP6): Im Tag connect-v0.3.0 gibt es es noch nicht.
-      - name: Prüfskript aus dem Workflow-Commit holen
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.sha }}
-          path: werkzeug
-          sparse-checkout: apps/connect/tools/pruefe-mac-paket.mjs
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
+      # Quellen aus dem Tag und das Prüfskript aus dem Commit dieses Workflows (EP6; im Tag connect-v0.3.0 gibt es es
+      # noch nicht), beides OHNE Anmeldedaten: Das Repo ist öffentlich, der Bau-Job braucht kein Token. Kein
+      # actions/checkout: Mit persist-credentials: false ruft es beim Entfernen der Anmeldedaten „git submodule foreach“
+      # auf und scheitert am Eintrag „portaudio“ (Commit ohne .gitmodules; Erstlauf 19.10.2026). Gibt es das Tag nicht,
+      # scheitert dieser Schritt (Spec 10.1: muss existieren).
+      - name: Quellen aus dem Tag und Prüfskript holen (ohne Anmeldedaten)
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          REPO: ${{ github.repository }}
+          WERKZEUG_SHA: ${{ github.sha }}
+        run: |
+          git init -q .
+          git remote add origin "https://github.com/$REPO"
+          git -c protocol.version=2 fetch -q --no-tags --depth=1 origin "+refs/tags/$TAG:refs/tags/$TAG"
+          git checkout -q --force "refs/tags/$TAG"
+          git log -1 --format='Tag-Commit %H' "refs/tags/$TAG"
+          git -c protocol.version=2 fetch -q --no-tags --depth=1 origin "$WERKZEUG_SHA"
+          mkdir -p werkzeug/apps/connect/tools
+          git show "$WERKZEUG_SHA:apps/connect/tools/pruefe-mac-paket.mjs" > werkzeug/apps/connect/tools/pruefe-mac-paket.mjs
+          echo "Prüfskript aus $WERKZEUG_SHA"
 
       - uses: actions/setup-node@v5
         with:
