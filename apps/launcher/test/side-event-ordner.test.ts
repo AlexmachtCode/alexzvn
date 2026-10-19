@@ -3091,6 +3091,18 @@ console.log('— P29 Hülle: gebundene Show offen, Kern ohne aktive Show (kein T
     const aus = H.lauf.bedingungenNeu();
     ck('P29 9.14 Fix 1: Schalter aus bei laufendem Takt → der Stand sagt sofort schalterAn:false und wird gemeldet',
       vorher && aus.schalterAn === false && H.staende[H.staende.length - 1]?.schalterAn === false);
+    // Fix-Runde 2: nach langer Aus-Zeit meldet der frische Stand K8 (erste Runde ausstehend), nicht „überfällig seit“ (T59)
+    const A = AttC.baueLauf();
+    await A.takt();
+    const lief = A.lauf.stand().ersteRundeGestartet === true && A.lauf.stand().naechsteRundeGegen !== null;
+    A.z.schalter = false;
+    await A.takt();
+    A.uhr.t += 600_000;
+    A.z.schalter = true;
+    const neu = A.lauf.bedingungenNeu();
+    const zeile = ZeilenC.kopfzeile(neu, A.uhr.t);
+    ck('P29 9.14 Fix 2: Schalter nach langer Aus-Zeit wieder an → Kopfzeile K8, nicht „Abgleich überfällig“ (T59)',
+      lief && neu.ersteRundeGestartet === false && neu.naechsteRundeGegen === null && zeile.fall === 'K8');
   }
   const ohne = await fall('aus');
   ck('P29 11.1 K2: Einzelplatz, Show offen ohne Token → K2 mit T33 (nicht K0), kein Zugriff, kein Abruf',

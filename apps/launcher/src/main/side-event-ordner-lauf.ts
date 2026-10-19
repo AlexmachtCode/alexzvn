@@ -416,6 +416,8 @@ async function endeAblage(L: Lauf): Promise<void> {
   if (L.darf || L.laeuft || L.queue.length) neueGeneration(L);
   L.darf = false;
   L.rundeStartMs = null; // 9.14: beginnt die Ablage wieder (Schalter an, Rolle, Token), startet die Runde im nächsten Takt
+  L.kopf.ersteRundeGestartet = false; // und bis dahin steht die erste Runde aus (K8), nicht ein „überfällig“ gegen die Zeit vor dem Ende
+  L.kopf.naechsteRundeGegen = null;
   const alt = L.gehalten;
   L.gehalten = null;
   if (alt) await loescheEigeneSperre(L, alt);
