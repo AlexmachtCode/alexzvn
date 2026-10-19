@@ -351,9 +351,13 @@ async function beschaeftigt<T>(L: Lauf, p: Promise<T>): Promise<T | undefined> {
   }
 }
 
-/** Logzeile Z-C5 (Ruling K3): unerwarteter Fehler mit seiner Rohmeldung, Adressen ersetzt (9.13). */
-function logUnerwartet(L: Lauf, e: unknown): void {
-  L.d.log.warn(`iveo-Ordner: unerwarteter Fehler (${ohneAdressen(String((e as Error)?.message ?? e))}).`);
+/**
+ * Logzeile Z-C5 (Ruling K3): unerwarteter Fehler mit seiner Rohmeldung, Adressen ersetzt (9.13). Mit `titel` (Fehler beim
+ * Bearbeiten eines Side Events) nennt sie dessen Titel: „… unerwarteter Fehler bei „‹Titel›“ (‹Roh›).“ (Restpunkt P3).
+ */
+function logUnerwartet(L: Lauf, e: unknown, titel?: string): void {
+  const bei = titel === undefined ? '' : ` bei „${titel}“`;
+  L.d.log.warn(`iveo-Ordner: unerwarteter Fehler${bei} (${ohneAdressen(String((e as Error)?.message ?? e))}).`);
 }
 
 function ruhig(L: Lauf): Promise<void> {
@@ -1296,14 +1300,14 @@ function agendaGescheitert(L: Lauf, s: SeIntern, fehler: unknown): void {
  * (abschluss). Ein Fehler einer alten Generation gehört nicht in den Stand der neuen, er steht nur im Log.
  */
 function eintragGescheitert(L: Lauf, e: Eintrag, fehler: unknown, gen: number): void {
-  if (gen !== L.gen) { logUnerwartet(L, fehler); return; }
+  if (gen !== L.gen) { logUnerwartet(L, fehler, titelVon(L, e.programId)); return; } // nur lesen, kein Eintrag im Stand der neuen
   const s = seIntern(L, e.programId);
   const st = s.stand;
   const text = ordnerFehlerText(fehler, 'agenda') ?? 'abgebrochen';
   Object.assign(st, { abruf: 'gescheitert', laedt: null, fehler: { text, seit: st.fehler?.seit ?? iso(L.d.jetzt()) } });
   if (s.letzterAgendaText !== text) { // derselbe Merker wie bei T25: eine Störung der Zeile, einmal je neuem Text ins Log (9.6)
     s.letzterAgendaText = text;
-    logUnerwartet(L, fehler);
+    logUnerwartet(L, fehler, st.titel);
   }
 }
 

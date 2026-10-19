@@ -3156,13 +3156,41 @@ console.log('— Gesamtprüfung Fix-Welle: Fehler je Eintrag, Basisordner ab dem
       s1.fall === 'S10' && s1.text.startsWith('Anhänge: Abgleich gestört: Ungültige iveo-Basis-URL: „kaputt host“. Beispiel: ‹Adresse› (seit ')
       && zeile(T, 'se-2').fall === 'S12' && T.agenda.aufrufe.join(',') === 'se-2' && T.lauf.stand().runde === null
       && ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t).fall === 'K9');
-    ck('P14 Gesamt-Fix: … die Rohmeldung steht einmal im Log (Z-C5), ohne Adresse',
-      T.logs.filter((l) => l.startsWith('warn iveo-Ordner: unerwarteter Fehler (Ungültige iveo-Basis-URL: „kaputt host“')).length === 1
+    // Restpunkt P3: die Logzeile nennt den Titel des Side Events („unerwarteter Fehler bei „‹Titel›“ (‹Roh›).“)
+    ck('P14 Gesamt-Fix: … die Rohmeldung steht einmal im Log (Z-C5), ohne Adresse, mit dem Titel des Side Events (Restpunkt P3)',
+      T.logs.filter((l) => l.startsWith('warn iveo-Ordner: unerwarteter Fehler bei „Klima“ (Ungültige iveo-Basis-URL: „kaputt host“')).length === 1
       && !T.logs.some((l) => l.includes('https://')));
     await T.uhr.spule(45_000, 45_000);
     await runden(T, 6);
     ck('P14 Gesamt-Fix: nächste Runde → das Side Event wird neu abgerufen und abgelegt, die Störung ist weg',
       zeile(T, 'se-1').fall === 'S12' && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000 && T.agenda.aufrufe.includes('se-1'));
+  }
+  {
+    // Restpunkt P3: Ein unerwarteter Fehler einer alten Generation (hier: Schalter aus, während der Eintrag läuft) steht nur im
+    // Log, auch dort mit dem Titel des Side Events, und nicht in der Zeile.
+    const T = AttC.baueLauf(zwei);
+    T.agenda.agenden.set('se-1', [AttC.punkt('se-1', [AttC.datei('m-1', 'Bericht', { size: 1000 })])]);
+    const echt = T.d.agendaClient;
+    let fabrik = 0;
+    T.d.agendaClient = () => {
+      if (++fabrik > 1) return echt();
+      T.z.schalter = false;
+      T.lauf.bedingungenNeu();
+      throw new Error('Probe alte Generation');
+    };
+    await T.takt();
+    ck('Restpunkt P3: Fehler der alten Generation → einmal im Log mit Titel, die Zeile zeigt ihn nicht',
+      T.logs.filter((l) => l === 'warn iveo-Ordner: unerwarteter Fehler bei „Klima“ (Probe alte Generation).').length === 1
+      && T.se('se-1')?.fehler == null);
+  }
+  {
+    // Restpunkt P3: Die anderen Aufrufer von logUnerwartet behalten ihre Form (hier der Fang um den Takt, beschaeftigt).
+    const T = AttC.baueLauf(zwei);
+    T.d.aktiv = () => { throw new Error('Probe Takt'); };
+    await T.takt();
+    ck('Restpunkt P3: unerwarteter Fehler im Takt → Logzeile ohne Titel wie bisher',
+      T.logs.filter((l) => l === 'warn iveo-Ordner: unerwarteter Fehler (Probe Takt).').length === 1
+      && !T.logs.some((l) => l.includes('unerwarteter Fehler bei')));
   }
   {
     // Befund 2: Der Basisordner steht ab dem Öffnen im Stand (ordnerPfad ohne Dateizugriff), auch wenn der erste Takt am Lesen
