@@ -336,12 +336,17 @@ async function beschaeftigt<T>(L: Lauf, p: Promise<T>): Promise<T | undefined> {
   try {
     return await p;
   } catch (e) {
-    L.d.log.warn(`iveo-Ordner: unerwarteter Fehler (${ohneAdressen(String((e as Error)?.message ?? e))}).`);
+    logUnerwartet(L, e);
     return undefined;
   } finally {
     L.beschaeftigt--;
     if (L.beschaeftigt === 0) for (const w of L.warter.splice(0)) w();
   }
+}
+
+/** Logzeile Z-C5 (Ruling K3): unerwarteter Fehler mit seiner Rohmeldung, Adressen ersetzt (9.13). */
+function logUnerwartet(L: Lauf, e: unknown): void {
+  L.d.log.warn(`iveo-Ordner: unerwarteter Fehler (${ohneAdressen(String((e as Error)?.message ?? e))}).`);
 }
 
 function ruhig(L: Lauf): Promise<void> {
@@ -738,6 +743,10 @@ async function arbeite(L: Lauf, gen: number): Promise<void> {
     let unterbrochen = false;
     try {
       unterbrochen = await bearbeite(L, e, a, gen);
+    } catch (x) {
+      // Ein unerwarteter Fehler in einem Eintrag hält die Ablage nicht an (9.13: jeder Fehler steht in der Zeile seines Side
+      // Events): Grund in die Zeile, Rohmeldung ins Log, der Eintrag gilt als bearbeitet, der Arbeiter macht weiter.
+      eintragGescheitert(L, e, x, gen);
     } finally {
       if (L.laeuft === e) { L.laeuft = null; L.download = null; } // nicht den Eintrag eines neuen Arbeiters löschen
     }
@@ -1257,6 +1266,23 @@ function agendaGescheitert(L: Lauf, s: SeIntern, fehler: unknown): void {
   }
 }
 
+/**
+ * Unerwarteter Fehler beim Bearbeiten eines Eintrags (9.13): die Zeile zeigt „Abgleich gestört: ‹Grund›“ (S9/S10, Grund nach
+ * ordnerFehlerText), das Log die Rohmeldung (Z-C5) einmal je neuem Grund; die nächste gelungene Runde räumt beides ab
+ * (abschluss). Ein Fehler einer alten Generation gehört nicht in den Stand der neuen, er steht nur im Log.
+ */
+function eintragGescheitert(L: Lauf, e: Eintrag, fehler: unknown, gen: number): void {
+  if (gen !== L.gen) { logUnerwartet(L, fehler); return; }
+  const s = seIntern(L, e.programId);
+  const st = s.stand;
+  const text = ordnerFehlerText(fehler, 'agenda') ?? 'abgebrochen';
+  Object.assign(st, { abruf: 'gescheitert', laedt: null, fehler: { text, seit: st.fehler?.seit ?? iso(L.d.jetzt()) } });
+  if (s.letzterAgendaText !== text) { // derselbe Merker wie bei T25: eine Störung der Zeile, einmal je neuem Text ins Log (9.6)
+    s.letzterAgendaText = text;
+    logUnerwartet(L, fehler);
+  }
+}
+
 function rohmeldung(e: unknown): string {
   if (e instanceof GrundFehler) return e.roh;
   const m = (e as { message?: unknown } | null)?.message;
@@ -1300,7 +1326,8 @@ async function abschluss(ctx: Ctx, abgerufen: string, gueltig: GueltigerAnhang[]
     const f = o.dateien.find((y) => vf(y.name) === vf(x.datei));
     if (f && !ctx.platziert.has(vf(x.datei)) && x.mtimeMs !== undefined && f.mtimeMs !== x.mtimeMs) bediener++;
     if (!istLinkAnhang(a.m)) {
-      const r = ordnerPfad({ art: 'datei', seitenOrdner: null, label: a.m.label, kind: 'file', mime: a.m.asset?.mime_type ?? null });
+      const mime = a.m.asset?.mime_type; // keine Zeichenkette = kein MIME-Typ (wie planeSideEvent, Panel, inhaltSignatur)
+      const r = ordnerPfad({ art: 'datei', seitenOrdner: null, label: a.m.label, kind: 'file', mime: typeof mime === 'string' ? mime : null });
       if (r.ok && r.gesperrt) gesperrt++;
     }
   }

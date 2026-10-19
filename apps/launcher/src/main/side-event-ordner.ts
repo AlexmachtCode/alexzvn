@@ -712,7 +712,8 @@ export function planeSideEvent(e: PlanEingabe): PlanSchritt[] {
   for (const a of e.anhaenge) {
     const m = a.m;
     const link = istLinkAnhang(m);
-    const r = ordnerPfad({ art: 'datei', seitenOrdner: e.seitenOrdner, label: m.label, kind: link ? 'link' : 'file', mime: m.asset?.mime_type ?? null });
+    const mime = m.asset?.mime_type; // keine Zeichenkette (etwa eine Zahl) = kein MIME-Typ, wie im Panel und in inhaltSignatur
+    const r = ordnerPfad({ art: 'datei', seitenOrdner: e.seitenOrdner, label: m.label, kind: link ? 'link' : 'file', mime: typeof mime === 'string' ? mime : null });
     const name = r.ok ? r.name : bereinigeName(m.label, 'Anhang');
     if (!link && !hatAsset(m)) { plan.push({ art: 'fehler', id: m.id, datei: name, grund: ORDNER_GRUENDE.ohneDatei }); continue; }
     const inhalt = inhaltSignatur(a);

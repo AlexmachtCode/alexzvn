@@ -3111,6 +3111,59 @@ console.log('— P29 Hülle: gebundene Show offen, Kern ohne aktive Show (kein T
     ohne.k.fall === 'K2' && ohne.k.text === ZeilenC.ORDNER_ZEILEN_TEXTE.keinToken && ohne.zugriffe === 0 && ohne.abrufe === 0);
 }
 
+// ── Gesamtprüfung, Fix-Welle: Fehler je Eintrag, Basisordner ab dem Öffnen, „Aus“ bei laufendem Takt, HTTP-Status bei
+// Asset-Fehlern, Kollision in entfernt/ (Spec 9.4, 9.10, 9.13, 9.14, 11.1, T22 (r)) ─────────────────────────────────
+import { IveoClient as IveoClientG, type IveoFetchLike as IveoFetchLikeG } from '@jm/iveo';
+
+console.log('— Gesamtprüfung Fix-Welle: Fehler je Eintrag, Basisordner ab dem Öffnen, Aus bei laufendem Takt, HTTP-Status, entfernt/');
+{
+  const ORDNER = pathC.join(AttC.BASIS, 'Klima');
+  const zwei = { sideEvents: [{ id: 'se-1', title: 'Klima' }, { id: 'se-2', title: 'Energie' }], filter: {} };
+  const zeile = (T: ReturnType<typeof AttC.baueLauf>, id: string) => ZeilenC.ordnerZeile(T.se(id), T.uhr.t);
+  const runden = async (T: ReturnType<typeof AttC.baueLauf>, n: number) => {
+    for (let i = 0; i < n; i++) { await T.takt(); await T.uhr.spule(45_000, 45_000); }
+  };
+
+  {
+    // Befund 1 (Auslöser): mime_type keine Zeichenkette, Label ohne Endung. Der Plan und der Abschluss werfen nicht (typeof wie
+    // im Panel und in inhaltSignatur); die Datei heißt wie das Label, auch das zweite Side Event der Runde wird abgelegt.
+    const T = AttC.baueLauf(zwei);
+    const roh = AttC.datei('m-1', 'Bericht', { size: 10 });
+    const kaputt = { ...roh, asset: { ...roh.asset!, mime_type: 5 } } as unknown as MaterialC;
+    T.download.arten.set(roh.asset!.url, { bytes: 10 });
+    T.agenda.agenden.set('se-1', [AttC.punkt('se-1', [kaputt])]);
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [AttC.datei('m-2', 'Agenda', { size: 1000 })])]);
+    await runden(T, 2);
+    ck('P12 Gesamt-Fix: mime_type als Zahl, Label ohne Endung → abgelegt als „Bericht“, beide Zeilen vollständig (S12), kein unerwarteter Fehler',
+      T.fs.inhalt(pathC.join(ORDNER, 'Bericht'))?.length === 10 && zeile(T, 'se-1').fall === 'S12' && zeile(T, 'se-2').fall === 'S12'
+      && !T.logs.some((l) => l.includes('unerwarteter Fehler')));
+  }
+  {
+    // Befund 1 (Fang je Eintrag): Wirft das Bearbeiten eines Eintrags unerwartet (hier die Client-Fabrik bei ungültiger
+    // Basis-URL, wie iveoClient(token, offeneBaseUrl()) in iveo-sync.ts), steht der Grund in der Zeile dieses Side Events
+    // (9.13), die Runde läuft weiter und endet; die nächste Runde versucht es neu.
+    const T = AttC.baueLauf(zwei);
+    T.agenda.agenden.set('se-1', [AttC.punkt('se-1', [AttC.datei('m-1', 'Bericht', { size: 1000 })])]);
+    T.agenda.agenden.set('se-2', [AttC.punkt('se-2', [AttC.datei('m-2', 'Agenda', { size: 1000 })])]);
+    const echt = T.d.agendaClient;
+    let fabrik = 0;
+    T.d.agendaClient = () => (++fabrik === 1 ? new IveoClientG({ token: AttC.TOKEN, baseUrl: 'kaputt host' }) : echt());
+    await T.takt();
+    const s1 = zeile(T, 'se-1');
+    ck('P14 Gesamt-Fix: Fabrik wirft beim ersten Side Event → dessen Zeile „Abgleich gestört“ mit dem Grund (Adresse ersetzt), das zweite wird abgelegt, die Runde endet',
+      s1.fall === 'S10' && s1.text.startsWith('Anhänge: Abgleich gestört: Ungültige iveo-Basis-URL: „kaputt host“. Beispiel: ‹Adresse› (seit ')
+      && zeile(T, 'se-2').fall === 'S12' && T.agenda.aufrufe.join(',') === 'se-2' && T.lauf.stand().runde === null
+      && ZeilenC.kopfzeile(T.lauf.stand(), T.uhr.t).fall === 'K9');
+    ck('P14 Gesamt-Fix: … die Rohmeldung steht einmal im Log (Z-C5), ohne Adresse',
+      T.logs.filter((l) => l.startsWith('warn iveo-Ordner: unerwarteter Fehler (Ungültige iveo-Basis-URL: „kaputt host“')).length === 1
+      && !T.logs.some((l) => l.includes('https://')));
+    await T.uhr.spule(45_000, 45_000);
+    await runden(T, 6);
+    ck('P14 Gesamt-Fix: nächste Runde → das Side Event wird neu abgerufen und abgelegt, die Störung ist weg',
+      zeile(T, 'se-1').fall === 'S12' && T.fs.inhalt(pathC.join(ORDNER, 'Bericht.pdf'))?.length === 1000 && T.agenda.aufrufe.includes('se-1'));
+  }
+}
+
 // ── Block C · P19: Geheimnis-Suche über alle Fälle (Spec 12.4 Nr. 41, E20, G4) — letzter Abschnitt ────────────────
 console.log('— P19 Geheimnis-Suche über alle Fälle (Spec 12.4 Nr. 41)');
 {
