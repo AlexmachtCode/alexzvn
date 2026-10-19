@@ -4,6 +4,7 @@ import { useCookbook } from '@/store/cookbook';
 import { useVerbund } from './verbund';
 import type {
   ActionResult,
+  AnhangOrdnerStand,
   FeedbackInput,
   HealthEntry,
   InstallProgress,
@@ -84,6 +85,14 @@ interface ToolsStore {
    * Fehler. Kein Dauer-Cache — jede Änderung geht durch den reinen Helfer anhangListeSchritt (lib/anhang-liste.ts).
    */
   anhaenge: AnhangListenZustand;
+  /** Ablage in Side-Event-Ordnern (iveo-Paket, Spec 9.13–9.15): letzter Stand aus dem Main; null = noch keiner. */
+  anhangOrdner: AnhangOrdnerStand | null;
+  /** Uhr des Renderers für Kopfzeile und Zeilen (9.15): alle 15 s neu, nur solange das Panel offen ist. */
+  ordnerUhr: number;
+  /** Schalter „Anhänge in Side-Event-Ordnern ablegen“ (9.14). */
+  setzeAnhangOrdner: (an: boolean) => Promise<void>;
+  /** „Ordner öffnen“ (9.13, E35): nur die programId, ohne Kennung der Basisordner; nie ein Pfad. */
+  oeffneAnhangOrdner: (programId?: string) => Promise<void>;
   openSideEvents: () => void;
   closeSideEvents: () => void;
   loadSideEvents: (day?: string) => Promise<void>;
@@ -172,6 +181,10 @@ function readOnboarded(): boolean {
 
 let progressSubscribed = false;
 
+/** iveo-Paket, Spec 9.15: Takt der Renderer-Uhr für Kopfzeile und Zeilen der Ablage, solange das Panel offen ist. */
+const ORDNER_UHR_MS = 15_000;
+let ordnerUhrTimer: ReturnType<typeof setInterval> | null = null;
+
 export const useTools = create<ToolsStore>((set) => {
   async function run(
     id: string,
@@ -233,6 +246,8 @@ export const useTools = create<ToolsStore>((set) => {
     iveoSync: null,
     sideEventsOpen: false,
     anhaenge: leererAnhangZustand(null),
+    anhangOrdner: null,
+    ordnerUhr: Date.now(),
     view: readLastView(),
     recentShows: [],
     showLaunch: null,
@@ -304,6 +319,9 @@ export const useTools = create<ToolsStore>((set) => {
           } else if (e.type === 'iveo-anhaenge') {
             // iveo-Paket, Spec 8.4: Ergebnis des Anhang-Wächters; der Helfer übernimmt es nur für eine beobachtete Liste.
             anhangSchritt({ art: 'ergebnis', id: e.programId, abgerufen: e.abgerufen, ok: e.ok, materials: e.materials, error: e.error });
+          } else if (e.type === 'iveo-anhang-ordner') {
+            // iveo-Paket, Spec 9.15: neuer Stand der Ablage (bei jeder Änderung, Fortschritt höchstens einmal je Sekunde).
+            set({ anhangOrdner: e.stand });
           }
         });
         // Nach Rückkehr zum Launcher (z. B. wenn der NSIS-Installer durch ist
@@ -440,9 +458,18 @@ export const useTools = create<ToolsStore>((set) => {
       // iveo-Paket, Spec 8.1, 8.4 Nr. 3: jede Anmeldung, auch [], lässt den Main den Stand der beobachteten Listen neu
       // senden — die Zahl am 📎 des aktiven Side Events steht nach dem Wiederöffnen sofort wieder da (L6).
       void window.jmps.watchIveoMaterials({ programIds: [] }).catch(() => {});
+      // iveo-Paket, Spec 9.15: Stand der Ablage beim Öffnen holen. Die Kopfzeile bewertet der Renderer mit seiner eigenen Uhr
+      // („überfällig“, „kein Fortschritt“), neu alle 15 s, solange das Panel offen ist — auch wenn der Takt im Main steht.
+      void window.jmps.anhangOrdnerStand().then((stand) => set({ anhangOrdner: stand })).catch(() => {});
+      set({ ordnerUhr: Date.now() });
+      if (ordnerUhrTimer === null) ordnerUhrTimer = setInterval(() => set({ ordnerUhr: Date.now() }), ORDNER_UHR_MS);
     },
     closeSideEvents: () => {
       set({ sideEventsOpen: false });
+      if (ordnerUhrTimer !== null) {
+        clearInterval(ordnerUhrTimer);
+        ordnerUhrTimer = null;
+      }
       // iveo-Paket, Spec 8.1 (E18): Schließen leert alle Listen und klappt sie zu (kein Dauer-Cache, Ursache von #264).
       anhangSchritt({ art: 'panelZu' });
     },
@@ -488,6 +515,18 @@ export const useTools = create<ToolsStore>((set) => {
     },
     downloadMaterial: async (programId, materialId) => {
       const res = await window.jmps.downloadIveoMaterial({ programId, materialId });
+      if (res.message) set({ notice: res.message });
+    },
+    setzeAnhangOrdner: async (an) => {
+      try {
+        set({ anhangOrdner: await window.jmps.setzeAnhangOrdner({ an }) });
+      } catch {
+        // Main nicht erreichbar → bestehenden Stand behalten; das nächste Ereignis bringt den wahren Stand.
+      }
+    },
+    oeffneAnhangOrdner: async (programId) => {
+      // E35: nur die programId (ohne: Basisordner); den Pfad kennt nur der Main. Ein Fehler kommt als Notice (T31).
+      const res = await window.jmps.oeffneAnhangOrdner(programId ? { programId } : {});
       if (res.message) set({ notice: res.message });
     },
 

@@ -1127,6 +1127,41 @@ function funktionsKoerper(quelle: string, kopf: string): string {
       .some((t) => panel.includes(t) || store.includes(t)));
 }
 
+// --- iveo-Paket P32 (Spec 9.11, 9.13–9.15, 11.1, 11.2): Ordner-Kopfzeile, Zeilen, Block, Schalter, Renderer-Uhr -------
+{
+  const store = quelleLf('../src/renderer/src/store/tools.ts');
+  const panel = quelleLf('../src/renderer/src/components/SideEventsPanel.tsx');
+  const iTernaer = panel.indexOf('        {data && !data.ok ? (');
+  const iKopf = panel.indexOf('          <OrdnerKopf\n');
+  const iEnde = panel.indexOf('        {/* Ende der Side-Event-Liste (data.ok) */}');
+  const iBlock = panel.indexOf('        {weitere.length > 0 && (');
+  ck('P32 9.13: Kopfzeile unter der Störungszeile und Block „Weitere Side Events der Ablage“ stehen außerhalb des Zweigs data.ok',
+    iTernaer > 0 && iKopf > panel.indexOf('{stoerung}') && iKopf < iTernaer && iEnde > iTernaer && iBlock > iEnde);
+  ck('P32 9.15: Kopfzeile, Zeilen und Block nach den reinen Helfern, bewertet mit der Uhr des Renderers',
+    panel.includes('  const kopf = kopfzeile(anhangOrdner, ordnerUhr);') && panel.includes('zeile={ordnerZeile(ordnerVon(p.id), ordnerUhr)}')
+    && panel.includes('zeile={ordnerZeile(se, ordnerUhr)}') && panel.includes('weitereSideEvents(anhangOrdner, data?.ok ? programs.map((p) => p.id) : [])'));
+  ck('P32 9.15: die Uhr läuft alle 15 s nur bei offenem Panel und wird beim Schließen gelöscht',
+    store.includes('const ORDNER_UHR_MS = 15_000;')
+    && funktionsKoerper(store, '    openSideEvents: () => {').includes('if (ordnerUhrTimer === null) ordnerUhrTimer = setInterval(() => set({ ordnerUhr: Date.now() }), ORDNER_UHR_MS);')
+    && funktionsKoerper(store, '    closeSideEvents: () => {').includes('        clearInterval(ordnerUhrTimer);\n        ordnerUhrTimer = null;')
+    && (store.match(/setInterval\(\(\) => set\(\{ ordnerUhr/g) ?? []).length === 1);
+  const aufrufe = [...panel.matchAll(/oeffneAnhangOrdner\(([^)]*)\)/g)].map((m) => m[1]);
+  ck('P32 9.13 (E35): „Ordner öffnen“ übergibt nur die programId (Zeile, Block) bzw. nichts (Kopfzeile), nie einen Pfad',
+    aufrufe.length === 3 && aufrufe.every((a) => ['', 'p.id', 'se.programId'].includes(a))
+    && funktionsKoerper(store, '    oeffneAnhangOrdner: async (programId) => {').includes('window.jmps.oeffneAnhangOrdner(programId ? { programId } : {})'));
+  ck('P32 9.14 (T26): Schalter nur, wenn kopfzeile ihn erlaubt; gesetzt über den Store',
+    panel.includes('          {kopf.schalter && (') && panel.includes('{ORDNER_ZEILEN_TEXTE.schalter}')
+    && panel.includes('onSchalter={(an) => void setzeAnhangOrdner(an)}') && store.includes('window.jmps.setzeAnhangOrdner({ an })'));
+  ck('P32 9.11 (T52): unter „Keine iveo-gebundene Show geöffnet.“ steht in K0 der Satz zur Ablage',
+    panel.includes("            {kopf.fall === 'K0' && (") && panel.includes('{ORDNER_ZEILEN_TEXTE.keineShow}'));
+  ck('P32 9.15: Stand beim Öffnen des Panels und aus dem Ereignis iveo-anhang-ordner',
+    funktionsKoerper(store, '    openSideEvents: () => {').includes('window.jmps.anhangOrdnerStand().then((stand) => set({ anhangOrdner: stand }))')
+    && store.includes("          } else if (e.type === 'iveo-anhang-ordner') {") && store.includes('            set({ anhangOrdner: e.stand });'));
+  ck('P32 11.1, 11.2: Zeilen nur in K7–K10; Texte T26, T30, T52, T65 nur aus ORDNER_ZEILEN_TEXTE',
+    panel.includes("  const zeilenSichtbar = kopf.fall === 'K7' || kopf.fall === 'K8' || kopf.fall === 'K9' || kopf.fall === 'K10';")
+    && !['Ordner öffnen<', '>Ordner öffnen', 'Anhänge in Side-Event-Ordnern', 'Weitere Side Events der Ablage<', 'Anhänge werden erst'].some((t) => panel.includes(t)));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.

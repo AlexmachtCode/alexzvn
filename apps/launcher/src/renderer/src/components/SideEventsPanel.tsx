@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
+import type { AnhangOrdnerStand, SideEventOrdnerStand } from '@shared/types';
 import { ANHANG_TEXTE, anhangAnzeige } from '@/lib/anhang-liste';
 import { iveoStatusZeile } from '@/lib/iveo-status';
+import { ORDNER_ZEILEN_TEXTE, kopfzeile, ordnerZeile, weitereSideEvents } from '@/lib/ordner-zeilen';
 import { useTools } from '@/store/tools';
 
 /** YYYY-MM-DD → „Di, 12.11.2024" (lokal geparst, ohne TZ-Verschiebung). */
@@ -10,6 +12,65 @@ function formatDay(iso: string): string {
   if (!y || !m || !d) return iso;
   const wd = new Date(y, m - 1, d).toLocaleDateString('de-DE', { weekday: 'short' });
   return `${wd}, ${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y}`;
+}
+
+/**
+ * iveo-Paket, Spec 9.13, 11.1: Kopfzeile der Ablage — Text der Klasse K1–K10, Schalter T26 nur, wenn kopfzeile ihn erlaubt
+ * (9.2 Nr. 1–3), „Ordner öffnen“ (T30) für den Basisordner mit dem Pfad als Tooltip. Keine eigene Logik: alles aus kopfzeile.
+ */
+function OrdnerKopf({
+  kopf,
+  stand,
+  onSchalter,
+  onOeffnen,
+}: {
+  kopf: ReturnType<typeof kopfzeile>;
+  stand: AnhangOrdnerStand;
+  onSchalter: (an: boolean) => void;
+  onOeffnen: () => void;
+}): React.JSX.Element {
+  return (
+    <div className="mt-4 flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2">
+      <p role="status" className="text-[11px] text-[var(--muted-foreground)] break-words">
+        {kopf.text}
+      </p>
+      {(kopf.schalter || kopf.ordnerOeffnen) && (
+        <div className="flex flex-wrap items-center gap-3">
+          {kopf.schalter && (
+            <label className="flex items-center gap-2 text-[11px]">
+              <input type="checkbox" checked={stand.schalterAn} onChange={(e) => onSchalter(e.target.checked)} />
+              {ORDNER_ZEILEN_TEXTE.schalter}
+            </label>
+          )}
+          {kopf.ordnerOeffnen && (
+            <Button size="sm" variant="outline" className="shrink-0" title={kopf.tooltip ?? undefined} onClick={onOeffnen}>
+              {ORDNER_ZEILEN_TEXTE.ordnerOeffnen}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** iveo-Paket, Spec 11.2: Ordner-Zeile eines Side Events (S1–S13) mit „Ordner öffnen“ nach ordnerZeile, Pfad nur als Tooltip. */
+function OrdnerZeileAnzeige({
+  zeile,
+  onOeffnen,
+}: {
+  zeile: ReturnType<typeof ordnerZeile>;
+  onOeffnen: () => void;
+}): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2 px-3 pb-2">
+      <p className="min-w-0 flex-1 text-[11px] text-[var(--muted-foreground)] break-words">{zeile.text}</p>
+      {zeile.ordnerOeffnen && (
+        <Button size="sm" variant="outline" className="shrink-0" title={zeile.tooltip ?? undefined} onClick={onOeffnen}>
+          {ORDNER_ZEILEN_TEXTE.ordnerOeffnen}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /** Bytes → kompakte Größe (KB/MB). */
@@ -38,6 +99,11 @@ export function SideEventsPanel(): React.JSX.Element | null {
   const retryMaterials = useTools((s) => s.retryMaterials);
   const downloadMaterial = useTools((s) => s.downloadMaterial);
   const iveoSync = useTools((s) => s.iveoSync);
+  // iveo-Paket, Spec 9.13–9.15: Stand der Ablage und Uhr des Renderers (alle 15 s neu, solange das Panel offen ist).
+  const anhangOrdner = useTools((s) => s.anhangOrdner);
+  const ordnerUhr = useTools((s) => s.ordnerUhr);
+  const setzeAnhangOrdner = useTools((s) => s.setzeAnhangOrdner);
+  const oeffneAnhangOrdner = useTools((s) => s.oeffneAnhangOrdner);
   const [busy, setBusy] = useState<string | null>(null);
 
   if (!open) return null;
@@ -48,6 +114,14 @@ export function SideEventsPanel(): React.JSX.Element | null {
   const programs = data?.programs ?? [];
   // Spec 7.6: „iveo-Abgleich gestört: <Text> (seit <Uhrzeit>)“, solange eine Abfrage scheitert.
   const stoerung = iveoStatusZeile(iveoSync);
+  // iveo-Paket, Spec 9.13, 11.1, 11.2: Kopfzeile (K0–K10) und Zeilen (S1–S13) nur aus den reinen Helfern, mit der Uhr des
+  // Renderers; Zeilen nur in K7–K10, Block T65 mit den Side Events der Ablage, die die Liste nicht zeigt.
+  const kopf = kopfzeile(anhangOrdner, ordnerUhr);
+  const zeilenSichtbar = kopf.fall === 'K7' || kopf.fall === 'K8' || kopf.fall === 'K9' || kopf.fall === 'K10';
+  const ordnerVon = (programId: string): SideEventOrdnerStand | undefined =>
+    anhangOrdner?.sideEvents.find((s) => s.programId === programId);
+  const weitere =
+    anhangOrdner && zeilenSichtbar ? weitereSideEvents(anhangOrdner, data?.ok ? programs.map((p) => p.id) : []) : [];
 
   const doSwitch = async (programId?: string): Promise<void> => {
     if (!canSwitch) return;
@@ -98,10 +172,26 @@ export function SideEventsPanel(): React.JSX.Element | null {
           </p>
         )}
 
+        {/* iveo-Paket, Spec 9.13, 11.1: Kopfzeile der Ablage unter der Störungszeile, unabhängig von data.ok (K1–K10). */}
+        {kopf.text !== null && anhangOrdner && (
+          <OrdnerKopf
+            kopf={kopf}
+            stand={anhangOrdner}
+            onSchalter={(an) => void setzeAnhangOrdner(an)}
+            onOeffnen={() => void oeffneAnhangOrdner()}
+          />
+        )}
+
         {data && !data.ok ? (
-          <p className="mt-5 text-sm rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-3 text-[var(--muted-foreground)]">
-            {data.error ?? 'Keine iveo-gebundene Show geöffnet.'}
-          </p>
+          <>
+            <p className="mt-5 text-sm rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-3 text-[var(--muted-foreground)]">
+              {data.error ?? 'Keine iveo-gebundene Show geöffnet.'}
+            </p>
+            {/* K0 (Spec 9.11): ohne geöffnete iveo-Show sagt das Panel auch etwas über die Ablage (T52). */}
+            {kopf.fall === 'K0' && (
+              <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">{ORDNER_ZEILEN_TEXTE.keineShow}</p>
+            )}
+          </>
         ) : (
           <>
             {!canSwitch && (
@@ -202,6 +292,13 @@ export function SideEventsPanel(): React.JSX.Element | null {
                         )}
                       </div>
 
+                      {zeilenSichtbar && (
+                        <OrdnerZeileAnzeige
+                          zeile={ordnerZeile(ordnerVon(p.id), ordnerUhr)}
+                          onOeffnen={() => void oeffneAnhangOrdner(p.id)}
+                        />
+                      )}
+
                       {matOpen && (
                         <div className="flex flex-col gap-1 border-t border-[var(--border)]/60 px-3 py-2">
                           {anz.fall === 'L3' && mats?.length === 0 && (
@@ -256,6 +353,29 @@ export function SideEventsPanel(): React.JSX.Element | null {
               </ul>
             )}
           </>
+        )}
+        {/* Ende der Side-Event-Liste (data.ok) */}
+
+        {/* iveo-Paket, Spec 9.13 (T65): Side Events der Ablage, die die Liste oben nicht zeigt — auch ohne iveo-Cache. */}
+        {weitere.length > 0 && (
+          <div className="mt-4 border-t border-[var(--border)] pt-3">
+            <h3 className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
+              {ORDNER_ZEILEN_TEXTE.weitere}
+            </h3>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {weitere.map((se) => (
+                <li key={se.programId} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)]">
+                  <div className="truncate px-3 pt-2 text-sm font-semibold" title={se.titel}>
+                    {se.titel}
+                  </div>
+                  <OrdnerZeileAnzeige
+                    zeile={ordnerZeile(se, ordnerUhr)}
+                    onOeffnen={() => void oeffneAnhangOrdner(se.programId)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         <div className="mt-5 flex justify-end border-t border-[var(--border)] pt-4">
