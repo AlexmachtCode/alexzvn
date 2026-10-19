@@ -179,6 +179,14 @@ export function kopfzeile(
   return { fall: 'K10', text: mitName(ueberfaellig ? T.ueberfaellig(name, uhrzeit(gegen)) : T.bereitLeer(name, uhrzeit(gegen))), schalter: true, ordnerOeffnen: false, tooltip };
 }
 
+/**
+ * Das Panel zeigt den Kopf, sobald Text, Schalter T26 oder „Ordner öffnen“ etwas zu zeigen hat (G8). Ohne bekannten
+ * Basisordner (K7, K8, K10 mit basis null) hat der Kopf keinen Text, der Schalter bleibt aber sichtbar (Restpunkt P1).
+ */
+export function kopfSichtbar(kopf: { text: string | null; schalter: boolean; ordnerOeffnen: boolean }): boolean {
+  return kopf.text !== null || kopf.schalter || kopf.ordnerOeffnen;
+}
+
 function problemText(p: OrdnerProblem): string {
   const T = ORDNER_ZEILEN_TEXTE;
   switch (p.art) {

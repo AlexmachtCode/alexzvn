@@ -11,7 +11,7 @@ import {
 import type { VerbundClientStand, VerbundStand } from '../src/shared/types.ts';
 import { ANHANG_TEXTE, anhangAnzeige, anhangListeSchritt, leererAnhangZustand, type AnhangListenZustand } from '../src/renderer/src/lib/anhang-liste.ts';
 import type { IveoMaterialRef } from '../src/shared/types.ts';
-import { gestoerteSideEvents, kopfzeile, listenZeile, ORDNER_ZEILEN_TEXTE, ordnerZeile, weitereSideEvents } from '../src/renderer/src/lib/ordner-zeilen.ts';
+import { gestoerteSideEvents, kopfSichtbar, kopfzeile, listenZeile, ORDNER_ZEILEN_TEXTE, ordnerZeile, weitereSideEvents } from '../src/renderer/src/lib/ordner-zeilen.ts';
 import type { AnhangOrdnerStand, OrdnerProblem, SideEventOrdnerStand } from '../src/shared/types.ts';
 import {
   compareVersions, keinPaketText, proxyAntwortAuswerten, proxyFehlerText, waehleRelease, type ProxyAntwortLike, type ReleaseEintrag,
@@ -681,6 +681,10 @@ function ck(name: string, cond: boolean): void {
   let kombinationen = 0;
   let leererName = 0;
   let oeffnenOhneBasis = 0;
+  // Restpunkt P1 (G8): Das Panel zeigt den Kopf, sobald Text, Schalter oder „Ordner öffnen“ etwas zu zeigen hat. Ohne
+  // bekannten Basisordner (K7, K8, K10) gibt es keinen Text, der Schalter T26 bleibt aber versprochen und muss sichtbar sein.
+  let schalterOhneText = 0;
+  let kopfVerdeckt = 0;
   // Gesamtprüfung Befund 2: Achse „Basisordner unbekannt“ (basis null). Ohne Namen gibt es T37–T39, T58, T59, T76 nicht: keine
   // Zeile statt „Ablage: „“ …“, „Ordner öffnen“ nur mit bekanntem Basisordner. Der Lauf setzt ihn ab dem Öffnen ohne Dateizugriff.
   for (const showOffen of [true, false]) for (const rolle of ['aus', 'master', 'slave'] as const) for (const tokenDa of [true, false])
@@ -722,6 +726,8 @@ function ck(name: string, cond: boolean): void {
     const r = kopfzeile(stand, jetzt);
     if (r.text?.includes('„“')) leererName++;
     if (ohne && r.ordnerOeffnen) oeffnenOhneBasis++;
+    if (r.text === null && r.schalter) schalterOhneText++;
+    if (kopfSichtbar(r) !== (r.text !== null || r.schalter || r.ordnerOeffnen)) kopfVerdeckt++;
     const k = klassen.get(e.fall) ?? { n: 0, gut: 0 };
     klassen.set(e.fall, { n: k.n + 1, gut: k.gut + (JSON.stringify(r) === JSON.stringify(e) ? 1 : 0) });
   }
@@ -732,6 +738,8 @@ function ck(name: string, cond: boolean): void {
   ck('P11 12.4 Nr. 30 Kopf: ohne Stand → K0', kopfzeile(null, 0).fall === 'K0' && kopfzeile(null, 0).text === null);
   ck(`P11 Gesamt-Fix 11.1: in keiner der ${kombinationen} Kombinationen „Ablage: „“ …“; ohne bekannten Basisordner kein „Ordner öffnen“`,
     leererName === 0 && oeffnenOhneBasis === 0);
+  ck(`Restpunkt P1 (G8): Kopf sichtbar genau dann, wenn Text, Schalter oder „Ordner öffnen“ etwas zeigen (${kopfVerdeckt} Abweichungen; ${schalterOhneText} Kombinationen mit Schalter ohne Text)`,
+    kopfVerdeckt === 0 && schalterOhneText > 0);
 
   // 12.4 Nr. 49: K7 ohne Fortschritt mit der Uhr des Renderers
   const k7 = (jetzt: number): string | null => kopfzeile({
@@ -1164,6 +1172,12 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   ck('P32 9.14 (T26): Schalter nur, wenn kopfzeile ihn erlaubt; gesetzt über den Store',
     panel.includes('          {kopf.schalter && (') && panel.includes('{ORDNER_ZEILEN_TEXTE.schalter}')
     && panel.includes('onSchalter={(an) => void setzeAnhangOrdner(an)}') && store.includes('window.jmps.setzeAnhangOrdner({ an })'));
+  // Restpunkt P1 (G8): das Panel fragt kopfSichtbar statt nur kopf.text; ohne Text kein leerer Statusabsatz, Schalter bleibt
+  ck('Restpunkt P1 (G8): das Panel rendert den Kopf nach kopfSichtbar(kopf), nicht nur bei kopf.text !== null',
+    panel.includes('        {kopfSichtbar(kopf) && anhangOrdner && (\n          <OrdnerKopf\n') && !panel.includes('kopf.text !== null && anhangOrdner'));
+  const ordnerKopf = panel.slice(panel.indexOf('function OrdnerKopf({'), panel.indexOf('function OrdnerZeileAnzeige({'));
+  ck('Restpunkt P1 (G8): OrdnerKopf zeigt den Statusabsatz nur mit Text, Schalter und „Ordner öffnen“ unabhängig davon',
+    ordnerKopf.includes('      {kopf.text !== null && (\n        <p role="status"') && ordnerKopf.includes('      {(kopf.schalter || kopf.ordnerOeffnen) && ('));
   ck('P32 9.11 (T52): unter „Keine iveo-gebundene Show geöffnet.“ steht in K0 der Satz zur Ablage',
     panel.includes("            {kopf.fall === 'K0' && (") && panel.includes('{ORDNER_ZEILEN_TEXTE.keineShow}'));
   ck('P32 9.15: Stand beim Öffnen des Panels und aus dem Ereignis iveo-anhang-ordner',

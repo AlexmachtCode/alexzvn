@@ -3,7 +3,7 @@ import { Button, Card, cn } from '@jm/ui';
 import type { AnhangOrdnerStand } from '@shared/types';
 import { ANHANG_TEXTE, anhangAnzeige } from '@/lib/anhang-liste';
 import { iveoStatusZeile } from '@/lib/iveo-status';
-import { ORDNER_ZEILEN_TEXTE, kopfzeile, listenZeile, ordnerZeile, weitereSideEvents } from '@/lib/ordner-zeilen';
+import { ORDNER_ZEILEN_TEXTE, kopfSichtbar, kopfzeile, listenZeile, ordnerZeile, weitereSideEvents } from '@/lib/ordner-zeilen';
 import { useTools } from '@/store/tools';
 
 /** YYYY-MM-DD → „Di, 12.11.2024" (lokal geparst, ohne TZ-Verschiebung). */
@@ -31,9 +31,11 @@ function OrdnerKopf({
 }): React.JSX.Element {
   return (
     <div className="mt-4 flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2">
-      <p role="status" className="text-[11px] text-[var(--muted-foreground)] break-words">
-        {kopf.text}
-      </p>
+      {kopf.text !== null && (
+        <p role="status" className="text-[11px] text-[var(--muted-foreground)] break-words">
+          {kopf.text}
+        </p>
+      )}
       {(kopf.schalter || kopf.ordnerOeffnen) && (
         <div className="flex flex-wrap items-center gap-3">
           {kopf.schalter && (
@@ -174,7 +176,7 @@ export function SideEventsPanel(): React.JSX.Element | null {
         )}
 
         {/* iveo-Paket, Spec 9.13, 11.1: Kopfzeile der Ablage unter der Störungszeile, unabhängig von data.ok (K1–K10). */}
-        {kopf.text !== null && anhangOrdner && (
+        {kopfSichtbar(kopf) && anhangOrdner && (
           <OrdnerKopf
             kopf={kopf}
             stand={anhangOrdner}
