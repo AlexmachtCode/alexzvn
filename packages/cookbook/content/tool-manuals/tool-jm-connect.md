@@ -8,7 +8,7 @@ teamSize: "1-2"
 tags: [connect, zoom, remote, gaeste, ndi, companion, wiederbeitritt, manual]
 relatedTools: [jm-connect, jm-switcher, jm-rundown]
 prerequisites:
-  - Windows 10/11, 64 Bit (Zoom nur unter Windows)
+  - Windows 10/11, 64 Bit (mit Zoom und NDI) oder macOS (ohne Zoom und ohne NDI)
   - JM Connect ab 0.3.0, installiert über den Launcher
   - Zoom-SDK 7.1.5.43953 (per „Zoom-SDK laden“ oder als SDK-Ordner aus der JM-Ablage)
   - Zugangsdaten der Meeting-SDK-App (Datei oder Client-ID und Client-Secret)
@@ -18,7 +18,7 @@ equipmentOwner: jm
 crewRoles:
   - Media Operator (Zuschaltungen)
   - Host im Zoom-Client (lässt zu, erteilt die Aufnahme-Erlaubnis)
-lastReviewed: 2026-10-06
+lastReviewed: 2026-10-17
 owner: tech@jakobsmedien.com
 summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-Quellen im Switcher. Zoom wird einmal je PC eingerichtet, das Meeting muss im eigenen Zoom-Konto liegen, Personen werden einzeln geladen. Nach einem Abriss tritt Connect selbst wieder bei. Fernsteuerbar per Companion über Port 8737."
 ---
@@ -26,7 +26,7 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 ## Zutaten
 
 ### Voraussetzungen
-- Windows 10/11, 64 Bit. Zoom gibt es nur unter Windows; unter macOS zeigt Connect nur die Browser-Gäste.
+- Windows 10/11, 64 Bit, für Zoom und NDI. Unter macOS (installiert über den Launcher, Paket ohne Zoom und ohne NDI) laufen Raum, Einladungen und Green Room; die Gäste erscheinen dort nicht als NDI-Quelle und sehen und hören das Programm nicht, einander und die Regie per Talkback hören sie weiter.
 - JM Connect ab Version 0.3.0, installiert über den Launcher.
 - Zoom-SDK 7.1.5.43953: auf JM-eigenen Rechnern per Knopf „Zoom-SDK laden“ (braucht den SDK-Schlüssel), sonst als SDK-Ordner aus der JM-Ablage. Connect kopiert es einmal je PC nach %LOCALAPPDATA%\JM Connect\zoom-laufzeit (rund 315 MB).
 - Zugangsdaten der Meeting-SDK-App: die Zugangsdaten-Datei (clientId, clientSecret) oder Client-ID und Client-Secret von Hand. Connect speichert sie verschlüsselt unter diesem Windows-Konto und schickt sie nie in die Cloud.
@@ -47,8 +47,8 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 ### Browser-Gäste (kurz)
 - Raum öffnen (braucht den Cloud-Zugang), für jeden Gast einen Link erzeugen und verschicken.
 - Gäste landen im Warteraum: prüfen und freigeben.
-- Freigegebene Gäste auf Sendung schalten. Jeder Gast ist eine eigene NDI-Quelle „JM Connect – <Name>“, ein geteilter Bildschirm eine weitere.
-- Talkback (Regie ins Ohr) für alle oder per Halten-Taste für einen Gast; Programm-Rückkanal mit Mix-Minus je Gast.
+- Freigegebene Gäste auf Sendung schalten. Unter Windows ist jeder Gast eine eigene NDI-Quelle „JM Connect – <Name>“, ein geteilter Bildschirm eine weitere; unter macOS gibt es keine NDI-Quellen.
+- Talkback (Regie ins Ohr) für alle oder per Halten-Taste für einen Gast; Programm-Rückkanal mit Mix-Minus je Gast nur unter Windows (er kommt über NDI).
 
 ### Harte Grenzen
 - Kein Tally, kein Talkback/IFB und kein Mix-Minus je Zoom-Person: Zoom-Ton ist ein gemeinsamer Kanal. Das ist eine Grenze von Zoom.
@@ -58,7 +58,7 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 - Kopfhörer tragen: Lautsprecher im selben Raum wie ein abonniertes Mikrofon erzeugen Echo.
 - Kein Mischton, kein Bildschirmton, kein Dolmetscherton, kein Ton zurück nach Zoom.
 - Keine Bildvorschau in Connect: das Bild im Switcher oder NDI-Monitor ansehen.
-- Zoom nur unter Windows.
+- Zoom und NDI nur unter Windows. Das Mac-Paket hat beides nicht: keine NDI-Quellen, kein Programm-Rückkanal, keine Zoom-Karte.
 - Die SDK-Fassung ist fest (7.1.5.43953). Lehnt Zoom sie ab, hilft nur ein neuer Connect-Release.
 - JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release.
 

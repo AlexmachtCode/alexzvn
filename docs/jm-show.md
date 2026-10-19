@@ -57,6 +57,10 @@ Die gültigen Tool-IDs (`appId`) sind dieselben wie die App-IDs der Suite:
 4. **Speichern** → es entsteht eine `.jmshow`-Datei (am besten im
    Produktionsordner neben den Folien/Skripten ablegen).
 
+**iveo-Bindung:** Bleibt das Feld „Basis-URL“ leer, gilt die Standardadresse dieses Rechners aus den Einstellungen (ohne
+Eintrag dort iveo Production, `https://app.my-iveo.de/api/v1`); die Show merkt sich beim Binden genau diese Adresse, und beim
+Bearbeiten zeigt das Feld die gespeicherte Adresse der Show.
+
 > **Tipp:** Lege Folien und Skripte **relativ** zur `.jmshow` ab (z. B. einen
 > Unterordner `folien/` und `skripte/`). Relative Pfade in der Show werden immer
 > relativ zum Ablageort der `.jmshow`-Datei aufgelöst — so bleibt der ganze
@@ -231,10 +235,16 @@ auf ein anderes Side Event um, bleibt dieselbe Person auf Sendung. Stehen
 Korrekturen aus iveo, etwa an der Funktion, in der Show, zeigt der Titler sie
 sofort. Der Launcher holt Speaker beim Binden, beim Umschalten auf die
 Tagesübersicht oder auf ein Side Event mit verknüpften Speakern, ohne gewähltes
-Side Event bei einer Abfrage, in der iveo ein Programm als geändert meldet, und
-bei jeder Abfrage, solange die Show eine fehlende Speakerliste vermerkt. Eine
-Korrektur allein an einem Speaker erreicht die Show also nicht mit jeder
-Abfrage. Die iveo-Kennung
+Side Event bei einer Abfrage, in der iveo ein Programm als geändert meldet, bei
+jeder Abfrage, solange die Show eine fehlende Speakerliste vermerkt, und seit
+Launcher 0.16.0 zusätzlich etwa alle 5 Minuten, in beiden Abgleich-Arten (mit
+und ohne gewähltes Side Event). Ist das gewählte Side Event in iveo mit keinem
+Speaker verknüpft, bekommt die Show dabei alle Speaker des Events, wie beim
+Binden. Geschrieben wird die Show nur bei einer echten Änderung; ein Auffrischen
+ohne Änderung steht nur im Launcher-Log („iveo: Speakerliste aufgefrischt,
+unverändert (‹n› Speaker).“). Eine Korrektur an einem Speaker, etwa an Funktion
+oder Organisation, erreicht die Show bei regelmäßiger Abfrage also binnen etwa
+5 Minuten. Die iveo-Kennung
 der Speaker wird laut Owner-Entscheidung vom 05.10.2026 noch nicht in Show,
 Titler und Rundown übernommen. Der Schlüssel hängt deshalb am Namen: Ändert sich
 der Name in iveo, oder kommt bei gleichnamigen Speakern einer dazu, fällt einer
@@ -265,6 +275,19 @@ an, bis die Liste wieder kommt, und das Panel nennt den Grund. Beim Binden im
 Show-Editor gilt ein solcher Fehler weiter als keine Speaker: Die Bindung bringt
 dann keine Speaker mit, und der Editor warnt.
 
+**Organisationen.** Seit Launcher 0.16.0 trägt jeder Speaker der Show auch die
+Namen seiner Organisationen aus iveo, die Hauptorganisation zuerst. Der Titler
+bietet sie ab 0.12.1 als `{{organisation}}` (Hauptorganisation) und
+`{{organisationen}}` (alle, mit „ · “ verbunden) an; im Verbund braucht auch der
+gekoppelte Rechner Titler 0.12.1. Haben die Speaker einer offenen iveo-Show in
+iveo Organisationen, schreibt der Launcher mit dem iveo-Token die Show nach dem
+Update einmal neu, in der Regel binnen 5 Minuten; Timer, Titler und Rundown
+laden dabei einmal neu. Eine Show ohne Organisationen bleibt bei einem iveo ohne
+Organisationen unverändert. Gilt ein Teil der Show aus einer früheren Abfrage,
+sagt es die Statuszeile im Side-Events-Panel: „Programm-Detail von iveo nicht
+abrufbar, Speaker-Verknüpfung aus früherem Stand“ bzw. „iveo liefert keine
+Organisationen (Feld fehlt), Organisationen aus früherem Stand“.
+
 **Grenzen.** Das gilt am Einzelplatz. Auf einem gekoppelten Rechner folgen
 Timer, Titler und Rundown ab Timer 0.14.0, Titler 0.11.0 und Rundown 0.8.0 der
 Show, die am Master offen ist (Abschnitt „Show-Daten im Verbund“ in
@@ -274,3 +297,66 @@ Sprünge aus Companion (`RUNDOWN GOTO n`, `TIMER GOTO n`) sowie
 eine Show-Datei umbenannt oder verschoben, beginnt der Rundown für sie neu. Ein
 älterer Rundown (bis 0.5), der eine neue `.jmrundown` speichert, verliert deren
 Archiv und Markierungen.
+
+---
+
+## 9. Anhänge und Side-Event-Ordner (iveo)
+
+Seit Launcher 0.16.0.
+
+**Anhänge im Panel.** Im Side-Events-Panel klappt 📎 die Anhänge eines Side
+Events auf (Präsentationen, Dateien, Links). Jedes Aufklappen holt die Liste
+frisch aus iveo; solange sie offen ist, aktualisiert sie sich etwa alle 45
+Sekunden, und „Stand ‹hh:mm›“ nennt die letzte gelungene Prüfung. In iveo
+gelöschte Anhänge verschwinden. Am aktiven Side Event steht die Zahl der Anhänge
+auch zugeklappt. „Herunterladen“ fragt nach dem Speicherort und schlägt denselben
+Dateinamen vor wie die Ablage im Ordner; eine Datei mit ausführbarer Endung (etwa
+`.exe`, `.bat`, `.js`, `.dmg`) wird gespeichert, aber nicht automatisch geöffnet.
+
+**Ordner neben der Show.** Der Launcher legt die Anhänge zusätzlich laufend in
+Ordnern neben der Show-Datei ab: `‹Show› – Side Events` (‹Show› = Dateiname der
+Show ohne `.jmshow`), darin je Side Event ein Ordner mit seinem Titel. Ein Side
+Event ohne Anhang bekommt keinen Ordner. Links liegen als `.url`-Datei darin und
+öffnen den Browser. „Ordner öffnen“ in der Kopfzeile des Panels öffnet den
+Basisordner, in der Zeile eines Side Events dessen Ordner.
+
+**Welche Side Events.** Abgelegt werden die Side Events der Show-Bindung am Tag
+der Bindung bzw. des aktiven Side Events, dazu immer das aktive. Das aktive
+gleicht der Launcher in jedem Abfrage-Takt ab, die übrigen etwa alle 5 Minuten,
+eins nach dem anderen. Side Events der Ablage, die das Panel am gewählten Tag
+nicht zeigt, stehen unter der Liste im Block „Weitere Side Events der Ablage“.
+Ein Side Event, das nicht oder nicht mehr zur Ablage gehört, sagt das in seiner
+Zeile; sein Ordner bleibt unverändert.
+
+**Nichts wird gelöscht oder überschrieben.** Was iveo entfernt, wandert in den
+Unterordner `entfernt`; eine durch eine neue Fassung ersetzte Datei liegt dort als
+„‹Name› (ersetzt ‹Datum› ‹Uhrzeit›)“. Benennt iveo einen Anhang um, benennt der
+Launcher die Datei um; ist sie gerade geöffnet (etwa in PowerPoint), wartet er bis
+zur nächsten Runde. Eigene Dateien im Ordner fasst der Launcher nie an. Dateien
+mit ausführbarer Endung bekommen eine geänderte Endung (aus `Agenda.exe` wird
+etwa `Agenda_exe.pdf`). Die Datei `.jm-anhaenge.json` in jedem Ordner ist der
+Index der Ablage: nicht löschen. Wer die Show-Datei umbenennt, benennt den Ordner
+`‹Show› – Side Events` mit um, sonst entsteht ein neuer. Ist die Show-Datei am
+Öffnungspfad nicht da (etwa weil ein Netzlaufwerk fehlt), pausiert die Ablage und
+läuft danach von selbst weiter. Eine Datei über 2 GiB oder bei weniger als 1 GiB
+freiem Platz wird nicht geladen; die Zeile des Side Events nennt den Grund, ebenso
+jeden anderen Fehler.
+
+**Wer ablegt.** Nur der Launcher mit dem iveo-Token dieser Show und ohne die
+Rolle „Mit Master verbinden“, also der Einzelplatz oder der Master. Öffnen zwei
+Rechner mit Token dieselbe Show (Netzlaufwerk, synchronisierter Ordner), legt nur
+einer ab: Die Sperrdatei `.jm-ablage-sperre.json` im Basisordner nennt ihn, und
+der andere zeigt „Ablage liegt bei Rechner „‹Name›“ …“; er übernimmt erst, wenn
+15 Minuten lang kein Lebenszeichen kam. Nach einem Neustart oder Absturz läuft die
+Ablage am selben Rechner sofort weiter; beim normalen Beenden löscht der Launcher
+seine Sperrdatei. ‹Name› ist der Rechnername des Betriebssystems, nicht der Name
+im Verbund. Zwei Rechner mit gleichem Namen (etwa aus demselben Abbild) erkennt
+der Launcher und meldet „Ablage von einem zweiten Launcher mit demselben
+Rechnernamen „‹Name›“ übernommen …“; der zweite legt dann nichts ab, bis die Show
+neu geöffnet wird.
+
+**Schalter.** „Anhänge in Side-Event-Ordnern ablegen“ in der Kopfzeile des Panels
+schaltet die Ablage je Rechner aus (Standard: an), etwa bei langsamem Netz am
+Veranstaltungsort. Aus heißt: kein Download mehr, die Ordner bleiben, wie sie
+sind, die Sperrdatei ist weg. Wieder an: Der nächste Abgleich folgt im nächsten
+Takt.
