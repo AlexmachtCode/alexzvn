@@ -12,7 +12,7 @@ Rechner B gekoppelt wie in Teil 1 (`packages/master-link/ABNAHME.md`).
   verwirft das Feld der Organisationen).
 - Für Schritt 15 hängen am Release `connect-v0.3.0` die zwei Mac-Pakete aus dem Nachlauf des Workflows `connect-mac.yml`
   (`JM.Connect-0.3.0-mac-arm64.dmg`, `JM.Connect-0.3.0-mac-x64.dmg`). Für Schritt 19 ist der Release-Proxy nach dem
-  Trockenlauf neu bereitgestellt (sonst gilt dort nur der Weg über die GitHub-Quelle).
+  Trockenlauf neu bereitgestellt (vorher antwortet der alte Proxy; welche Quelle gilt, steht im Hinweis zu 19).
 - In iveo (COP31) gibt es ein **unveröffentlichtes Test-Side-Event** mit Anhängen (mindestens eine Datei und ein Link) und
   einen **unveröffentlichten Test-Speaker** mit mehreren Organisationen (Annahme; sonst legt der Owner sie an). Geschrieben
   wird in iveo nur dort. Fehlen sie, gelten die Schritte 6, 7, 9, 10, 12 und 13 als „entfällt“; den Nachweis tragen dann
@@ -46,7 +46,9 @@ Rechner B gekoppelt wie in Teil 1 (`packages/master-link/ABNAHME.md`).
 **M4 (Schritt 12, Spec 12.11):** Der Controller stellt wie bei M1 und M5 ein nur lesendes Prüfskript mit dem Owner-Token
 bereit (nicht im Repo). Es ruft die Agenda des Test-Side-Events vor und nach dem Ersetzen der Datei ab und gibt je Feld nur
 „geändert ja/nein“ aus, nie einen Wert. Ändert sich etwas außer der Größe, kommt es in die Inhaltssignatur (Folgepunkt
-FP11); bis dahin gilt Risiko 3 der Spec.
+FP11); bis dahin gilt Risiko 3 der Spec. Ob Risiko 3 eintritt, sagt die letzte Zeile: Eine ersetzte Datei gleicher Größe
+erkennt der Launcher nur, wenn sich der Wert von `asset.url` ändert (sein SHA-256 steht in der Signatur, M1); die Form
+allein sagt das nicht.
 
 | Feld | geändert ja/nein |
 | --- | --- |
@@ -54,10 +56,14 @@ FP11); bis dahin gilt Risiko 3 der Spec.
 | Form von `asset.url` | |
 | `size_bytes` | |
 | `updated_at` des Agenda-Punkts | |
+| Wert von `asset.url` (nur verglichen, nie ausgegeben) | |
 
-**Hinweis zu 4 und 6 (Zeiten):** „spätestens 5 min“ gilt bei regelmäßigem Takt (alle 45 s); eine lange iveo-Abfrage
-verschiebt den nächsten Takt. Die Zeile „… Show neu geschrieben …“ in Schritt 4 kommt nur, wenn die Speaker in iveo
-Organisationen haben und die Show sie noch nicht trägt.
+**Hinweis zu 4, 6, 9 und 10 (Zeiten):** „spätestens 5 min“ bzw. „spätestens 45 s“ gilt bei regelmäßigem Takt (alle 45 s)
+und zählt ab Beginn des Abrufs. Die Anhang-Liste hängt am selben Takt wie die Speaker (erst die Abfrage, dann die
+Anhänge); eine lange iveo-Abfrage verschiebt den nächsten Takt, und dauert ein Takt länger als 45 s, fällt der nächste
+aus. Eine Änderung kann dann erst nach 90 s oder später erscheinen; im Ergebnis die beobachtete Zeit notieren. Die
+Logzeile in Schritt 4 kommt erst nach Abruf und Schreiben, also einige Sekunden nach dem Zeitpunkt. Die Zeile „… Show neu
+geschrieben …“ in Schritt 4 kommt nur, wenn die Speaker in iveo Organisationen haben und die Show sie noch nicht trägt.
 
 **Hinweis zu 11 und 20 (Rechnername):** Die Sperrdatei nennt den Windows-Rechnernamen (`os.hostname()`), nicht den Namen,
 unter dem A im Verbund geführt wird; beide können verschieden sein. Die Kopfzeilen auf anderen Rechnern nennen den Namen aus
@@ -71,6 +77,13 @@ ist unsigniert wie alle Mac-Pakete aus der CI; blockt macOS den ersten Start, gi
 
 **Hinweis zu 19 (welches Tool):** Die Zeilen des Trockenlaufs (Zusatzprüfung 4) mit „neu: 404 kein Release von ‹app› mit
 einem Paket für macOS (‹arch›)“ nennen die Kandidaten; der Mac der Abnahme hat seine eigene Architektur (arm64 oder x64).
+
+**Hinweis zu 19 (welche Quelle):** Welche Quelle der Mac nutzt, zeigen die Einstellungen neben „Quelle für Download &
+Auto-Update der Tools“ („Proxy“ oder „GitHub“). Ein Launcher aus dem Release fragt über den Proxy (Adresse und
+Proxy-Key sind beim Bau eingebaut, der Proxy hat Vorrang vor einem GitHub-Token); dann gilt die Proxy-Meldung, und der
+Teil „über die GitHub-Quelle“ ist „entfällt“. Die GitHub-Meldung erscheint nur bei einem Launcher ohne Proxy-Key mit
+GitHub-Token. Ist der Proxy noch nicht neu bereitgestellt, kommt die Meldung des alten Proxys; Schritt 19 dann erst nach
+dem Deploy.
 
 ## Zusatzprüfungen (nicht in Spec 13)
 
