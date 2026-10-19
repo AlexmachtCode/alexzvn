@@ -24,12 +24,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import { hostname } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
 import { serializeShow, type Show } from '@jm/show';
 import {
+  IveoAssetAdresseError,
   IveoClient,
   agendaToAblauf,
+  assetAnfrage,
   buildShowMetadata,
   extractSpeakerIds,
   type IveoMaterial,
@@ -86,7 +88,8 @@ import {
   type AgendaErgebnis,
   type AnhangWaechter,
 } from './iveo-anhaenge';
-import { erzeugeOrdnerLauf, type OrdnerLauf } from './side-event-ordner-lauf';
+import { erzeugeOrdnerLauf, ladeStromInDatei, type OrdnerLauf } from './side-event-ordner-lauf';
+import { ohneAdressen, ORDNER_GRUENDE, ordnerFehlerText, panelAnhangSchritt, panelDateiOeffnen } from './side-event-ordner';
 import type {
   ActionResult,
   AnhangOrdnerStand,
@@ -842,31 +845,11 @@ export async function switchSideEvent(input: IveoSwitchInput): Promise<ActionRes
   return kern().umschalten({ programId: input.programId, day: input.day });
 }
 
-// ── Materialien eines Side Events (#11 Phase 4) ──────────────────────────────
-// Präsentationen/Dateien hängen in iveo an den Agenda-Punkten eines Programms
-// (materials[]). Datei-Assets werden über die 302-Indirektion mit Token geladen
-// (der Launcher hält es); die signierte URL wird NIE gespeichert.
-
-const MIME_EXT: Record<string, string> = {
-  'application/pdf': '.pdf',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-  'application/vnd.ms-powerpoint': '.ppt',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-  'application/msword': '.doc',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-  'application/zip': '.zip',
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/gif': '.gif',
-  'image/svg+xml': '.svg',
-  'text/plain': '.txt',
-  'video/mp4': '.mp4',
-};
-/** Passende Dateiendung: liegt sie schon im Label, keine ergänzen; sonst aus dem MIME. */
-function extFor(label: string, mime?: string | null): string {
-  if (/\.[a-z0-9]{2,5}$/i.test(label || '')) return '';
-  return (mime && MIME_EXT[mime.toLowerCase()]) || '';
-}
+// ── Anhänge eines Side Events (#11 Phase 4; iveo-Paket, Spec 8) ──────────────
+// Präsentationen, Dateien und Links hängen in iveo an den Agenda-Punkten eines Programms (materials[]). Datei-Assets
+// werden über die 302-Indirektion mit Token geladen (der Launcher hält es); die signierte Adresse wird NIE gespeichert.
+// Namen, Endungen und die Sperrliste stehen seit dem iveo-Paket in side-event-ordner.ts (MIME_EXT, 9.12): Panel und
+// Ordner benennen gleich.
 
 /** Basis-URL der offenen iveo-Show (wie der Kern sie nutzt). */
 function offeneBaseUrl(): string {
@@ -900,7 +883,36 @@ export async function listSideEventMaterials(input: IveoMaterialsInput): Promise
   }
 }
 
-/** Ein Material herunterladen (Datei speichern + öffnen) bzw. öffnen (Link). */
+// iveo-Paket, Spec 8.5, 8.6: Texte des manuellen Downloads (11.6 wörtlich).
+/** T16: Der Anhang fehlt beim Herunterladen ganz. */
+const TEXT_ANHANG_NICHT_DA = 'Anhang nicht mehr in iveo vorhanden.';
+/** T18: Titel des Speichern-Dialogs. */
+const TEXT_ANHANG_SPEICHERN = 'Anhang speichern';
+/** T77 (b): Asset-Adresse auf anderem Server ohne https (E52) — kein Dialog, kein Abruf. */
+const TEXT_ADRESSE_ABGELEHNT = 'Anhang nicht geladen: Datei-Adresse auf anderem Server ohne https.';
+/** T20: gespeichert und geöffnet. */
+function textGespeichertGeoeffnet(label: string): string {
+  return `Gespeichert und geöffnet: ${label}`;
+}
+/** T74: gespeichert, wegen gesperrter Endung nicht geöffnet (‹ext› aus dem Label, sonst die des gewählten Namens). */
+function textNichtGeoeffnet(ext: string, dateiname: string): string {
+  return `Gespeichert, nicht automatisch geöffnet (Endung „${ext}“ gesperrt): ${dateiname}`;
+}
+/** T56: Logzeile nach dem Speichern. */
+function logGespeichert(label: string, bytes: number, pfad: string): string {
+  return `iveo: Anhang „${label}“ gespeichert (${bytes} Bytes) → ${pfad}`;
+}
+/** Grenze je Datei (Spec 9.6, E29): size_bytes, ohne gültiges size_bytes 2 GiB; ein size_bytes über 2 GiB wird nicht geladen. */
+const ZWEI_GIB = 2 * 1024 ** 3;
+/** Leerlauf-Grenze (Spec 9.6): 60 s ohne Daten, auch vor dem ersten Byte → Abbruch; eine Gesamtgrenze gibt es nicht. */
+const ANHANG_LEERLAUF_MS = 60_000;
+
+/**
+ * Einen Anhang speichern (Datei) bzw. öffnen (Link), iveo-Paket Spec 8.6. Alle Entscheidungen trifft der reine Helfer
+ * panelAnhangSchritt (side-event-ordner.ts, getestet in 12.4 Nr. 19 und 48); hier wird nur ausgeführt: Agenda holen,
+ * Herkunft der Asset-Adresse prüfen (E52, VOR dem Dialog), Dialog, Datenstrom in eine Zwischendatei neben dem Ziel,
+ * Umbenennen, Öffnen nur, wenn panelDateiOeffnen es erlaubt.
+ */
 export async function downloadSideEventMaterial(input: IveoDownloadInput): Promise<ActionResult> {
   const a = kern().aktiv();
   if (!a) return { ok: false, message: 'Keine iveo-Show mit Token geöffnet.' };
@@ -917,29 +929,77 @@ export async function downloadSideEventMaterial(input: IveoDownloadInput): Promi
         break;
       }
     }
-    if (!target) return { ok: false, message: 'Material nicht gefunden.' };
-    // Link → einfach im Browser öffnen (kein Token nötig).
-    if (target.kind === 'link' || (!target.asset?.url && target.external_url)) {
-      if (!target.external_url) return { ok: false, message: 'Kein Link vorhanden.' };
-      await shell.openExternal(target.external_url);
+    if (!target) return { ok: false, message: TEXT_ANHANG_NICHT_DA };
+    const schritt = panelAnhangSchritt(target);
+    // Gelöscht (T15), Link ohne Adresse, ungültiger Link (T53), Datei ohne Asset (T54): der Text des Helfers.
+    if (schritt.art === 'fehler') return { ok: false, message: schritt.text };
+    if (schritt.art === 'link') {
+      // Nur der geprüfte href (http/https, ohne Steuerzeichen, 9.7), nie der Rohtext aus iveo.
+      await shell.openExternal(schritt.href);
       return { ok: true, message: `Link geöffnet: ${target.label}` };
     }
-    if (!target.asset?.url) return { ok: false, message: 'Kein Datei-Asset vorhanden.' };
-    // Datei-Asset: mit Token holen (302-Follow im Client), dann speichern.
-    // Nur dieser Abruf läuft OHNE Zeitgrenze: eine große Datei darf länger als 15 s
-    // laden (Spec 7.0, O6).
-    const client = new IveoClient({ token, baseUrl: offeneBaseUrl() });
-    const { bytes, contentType } = await client.fetchAsset(target.asset.url);
-    const ext = extFor(target.label, target.asset.mime_type ?? contentType);
-    const safe = (target.label || 'material').replace(/[\\/:*?"<>|]/g, '_');
-    const r = await dialog.showSaveDialog({ title: 'Material speichern', defaultPath: `${safe}${ext}` });
+    // E52: die Herkunft der Asset-Adresse VOR dem Dialog prüfen — abgelehnt heißt: weder Dialog noch Abruf.
+    const ref = target.asset?.url ?? '';
+    try {
+      assetAnfrage(ref, offeneBaseUrl());
+    } catch (e) {
+      if (e instanceof IveoAssetAdresseError) return { ok: false, message: TEXT_ADRESSE_ABGELEHNT };
+      throw e;
+    }
+    // Spec 9.6 (E29): Größe wie im Ordner. Ein gültiges size_bytes über 2 GiB wird nicht geladen, schon vor dem Dialog (T22 a).
+    const s = target.asset?.size_bytes;
+    const groesse = typeof s === 'number' && Number.isFinite(s) && s >= 0 ? s : null;
+    if (groesse !== null && groesse > ZWEI_GIB) return { ok: false, message: ORDNER_GRUENDE.zuGross(groesse) };
+    // Der Dialog kommt VOR dem Abruf: sonst liefe während des Dialogs die Leerlauf-Grenze (Spec 8.6).
+    const r = await dialog.showSaveDialog({ title: TEXT_ANHANG_SPEICHERN, defaultPath: schritt.vorschlag });
     if (r.canceled || !r.filePath) return { ok: false };
-    writeFileSync(r.filePath, Buffer.from(bytes));
-    void shell.openPath(r.filePath); // zum Testen gleich öffnen
-    getLog().info(`iveo: Material „${target.label}" gespeichert (${bytes.byteLength} Bytes) → ${r.filePath}`);
-    return { ok: true, message: `Gespeichert & geöffnet: ${target.label}` };
+    const ziel = r.filePath;
+    const zwischen = `${ziel}.${process.pid}.jm-laden`;
+    const grenze = groesse ?? ZWEI_GIB;
+    const ab = new AbortController();
+    let leer = false;
+    let geschrieben = 0;
+    try {
+      // Leerlauf-Grenze auch vor dem ersten Byte (Spec 9.6, 8.6): kommt binnen 60 s keine Antwort, bricht der Abruf ab, und
+      // der Client wiederholt nach dem Abbruch nicht (Task 4). Danach misst ladeStromInDatei je Stück selbst.
+      const h = setTimeout(() => { leer = true; ab.abort(); }, ANHANG_LEERLAUF_MS);
+      // Ohne Zeitgrenze (große Präsentationen), als Datenstrom: nie die ganze Datei im Speicher des Main-Prozesses.
+      const strom = await iveoDownloadClient(token, offeneBaseUrl(), (url, init) => fetch(url, init)).oeffneAsset(ref, { signal: ab.signal }).finally(() => clearTimeout(h));
+      const { bytes } = await ladeStromInDatei(fsp, strom.body, zwischen, {
+        grenze,
+        leerlaufMs: ANHANG_LEERLAUF_MS,
+        signal: ab.signal,
+        jetzt: () => Date.now(),
+        setTimeout: (fn, ms) => setTimeout(fn, ms),
+        clearTimeout: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+        fortschritt: (b) => { geschrieben = b; },
+      });
+      // Spec 9.6 „Prüfung“: mit size_bytes muss die Bytezahl stimmen, sonst „unvollständig“ (T22 f), nie unter dem Ziel.
+      if (groesse !== null && bytes !== groesse) throw new Error(ORDNER_GRUENDE.unvollstaendig(bytes, groesse));
+      // Der Dialog hat ein Überschreiben des gewählten Ziels schon bestätigt.
+      await fsp.rename(zwischen, ziel);
+      getLog().info(logGespeichert(target.label, bytes, ziel));
+    } catch (e) {
+      // Jeder Fehler löscht die Zwischendatei (Spec 9.6); ladeStromInDatei tut das nicht selbst.
+      await fsp.unlink(zwischen).catch(() => undefined);
+      getLog().warn(`iveo download: ${ohneAdressen(String((e as Error | null)?.message ?? e))}`);
+      // Gründe wie im Ordner (T22): Leerlauf, auch vor dem ersten Byte (e); mehr Daten als die Grenze: mit size_bytes (b),
+      // ohne (a); sonst ordnerFehlerText (404 → (n), „unvollständig“ (f) aus der Meldung, Adressen ersetzt).
+      const grund = (e as { grund?: unknown } | null)?.grund;
+      if (leer || grund === 'leerlauf') return { ok: false, message: ORDNER_GRUENDE.leerlauf };
+      if (grund === 'zu-gross') return { ok: false, message: groesse !== null ? ORDNER_GRUENDE.mehrDaten(groesse) : ORDNER_GRUENDE.zuGross(geschrieben) };
+      return { ok: false, message: ordnerFehlerText(e, 'download') ?? undefined };
+    }
+    const name = basename(ziel);
+    if (panelDateiOeffnen(name, schritt.gesperrt)) {
+      void shell.openPath(ziel);
+      return { ok: true, message: textGespeichertGeoeffnet(target.label) };
+    }
+    // Gesperrte Endung im Label oder im gewählten Namen: gespeichert, aber nie automatisch geöffnet (E49, T74).
+    const ext = schritt.gesperrt ?? name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+    return { ok: true, message: textNichtGeoeffnet(ext, name) };
   } catch (e) {
-    getLog().warn(`iveo download: ${(e as Error).message}`);
-    return { ok: false, message: toClientError(e).error };
+    getLog().warn(`iveo download: ${ohneAdressen((e as Error).message)}`);
+    return { ok: false, message: ohneAdressen(toClientError(e).error) };
   }
 }

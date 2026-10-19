@@ -1037,6 +1037,55 @@ function funktionsKoerper(quelle: string, kopf: string): string {
     funktionsKoerper(sync, 'function agendaAktiv(programId: string, e: AgendaErgebnis): void {').includes('  ordner().agendaAktiv(programId, e);'));
 }
 
+// --- iveo-Paket P30 (Spec 8.6, 9.6, E29, E49, E52): manueller Download und Öffnen im Panel ---------------------------
+{
+  const sync = quelleLf('../src/main/iveo-sync.ts');
+  const dl = funktionsKoerper(sync, 'export async function downloadSideEventMaterial(input: IveoDownloadInput): Promise<ActionResult> {');
+  ck('P30 8.6: Datenstrom statt fetchAsset/arrayBuffer — oeffneAsset über den Download-Client, ‹Ziel›.‹pid›.jm-laden, dann umbenennen',
+    dl.length > 0 && !dl.includes('fetchAsset(') && !dl.includes('arrayBuffer') && !dl.includes('writeFileSync')
+    && dl.includes('iveoDownloadClient(token, offeneBaseUrl(), (url, init) => fetch(url, init)).oeffneAsset(ref, { signal: ab.signal })')
+    && dl.includes('    const zwischen = `${ziel}.${process.pid}.jm-laden`;') && dl.includes('ladeStromInDatei(fsp, strom.body, zwischen, {')
+    && dl.includes('      await fsp.rename(zwischen, ziel);') && dl.includes('      await fsp.unlink(zwischen).catch(() => undefined);'));
+  const iPruef = dl.indexOf('      assetAnfrage(ref, offeneBaseUrl());');
+  const iDialog = dl.indexOf('await dialog.showSaveDialog({ title: TEXT_ANHANG_SPEICHERN, defaultPath: schritt.vorschlag });');
+  const iAbruf = dl.indexOf('.oeffneAsset(ref,');
+  ck('P30 8.6 (E52): Herkunft der Asset-Adresse vor dem Dialog geprüft (T77 b ohne Dialog), Dialog T18 vor dem Abruf',
+    iPruef > 0 && iDialog > iPruef && iAbruf > iDialog
+    && dl.includes('      if (e instanceof IveoAssetAdresseError) return { ok: false, message: TEXT_ADRESSE_ABGELEHNT };'));
+  ck('P30 9.6, 8.6: Leerlauf-Grenze auch vor dem ersten Byte: ein Zeitgeber um oeffneAsset bricht nach 60 s ab und wird danach gelöscht; Leerlauf → T22 (e)',
+    dl.includes('      const h = setTimeout(() => { leer = true; ab.abort(); }, ANHANG_LEERLAUF_MS);')
+    && dl.includes('.oeffneAsset(ref, { signal: ab.signal }).finally(() => clearTimeout(h));')
+    && dl.includes("      if (leer || grund === 'leerlauf') return { ok: false, message: ORDNER_GRUENDE.leerlauf };"));
+  const iGross = dl.indexOf('    if (groesse !== null && groesse > ZWEI_GIB) return { ok: false, message: ORDNER_GRUENDE.zuGross(groesse) };');
+  const iBytes = dl.indexOf('      if (groesse !== null && bytes !== groesse) throw new Error(ORDNER_GRUENDE.unvollstaendig(bytes, groesse));');
+  ck('P30 9.6 (E29): Größe wie im Ordner: über 2 GiB vor dem Dialog (T22 a), Bytezahl ≠ size_bytes vor dem Umbenennen (T22 f), mehr Daten als die Grenze (T22 b bzw. a)',
+    iGross > 0 && iGross < iDialog && iBytes > iAbruf && iBytes < dl.indexOf('      await fsp.rename(zwischen, ziel);')
+    && dl.includes("      if (grund === 'zu-gross') return { ok: false, message: groesse !== null ? ORDNER_GRUENDE.mehrDaten(groesse) : ORDNER_GRUENDE.zuGross(geschrieben) };")
+    && dl.includes('        fortschritt: (b) => { geschrieben = b; },'));
+  ck('P30 8.6 (E49): shell.openPath genau einmal und nur im Zweig panelDateiOeffnen(…), sonst T74',
+    (dl.match(/shell\.openPath\(/g) ?? []).length === 1
+    && dl.includes('    if (panelDateiOeffnen(name, schritt.gesperrt)) {\n      void shell.openPath(ziel);')
+    && dl.includes('    return { ok: true, message: textNichtGeoeffnet(ext, name) };'));
+  ck('P30 8.6: Entscheidungen über panelAnhangSchritt; ein Link öffnet nur den geprüften href',
+    dl.includes('    const schritt = panelAnhangSchritt(target);') && dl.includes("    if (schritt.art === 'fehler') return { ok: false, message: schritt.text };")
+    && dl.includes('      await shell.openExternal(schritt.href);') && !dl.includes('external_url'));
+  const texte = [
+    "const TEXT_ANHANG_NICHT_DA = 'Anhang nicht mehr in iveo vorhanden.';",
+    "const TEXT_ANHANG_SPEICHERN = 'Anhang speichern';",
+    "const TEXT_ADRESSE_ABGELEHNT = 'Anhang nicht geladen: Datei-Adresse auf anderem Server ohne https.';",
+    '  return `Gespeichert und geöffnet: ${label}`;',
+    '  return `Gespeichert, nicht automatisch geöffnet (Endung „${ext}“ gesperrt): ${dateiname}`;',
+    '  return `iveo: Anhang „${label}“ gespeichert (${bytes} Bytes) → ${pfad}`;',
+  ];
+  ck('P30 T16, T18, T20, T56, T74, T77 (b) wörtlich als Konstanten bzw. Textfunktionen (T15, T53, T54 liefert der Helfer)',
+    texte.every((z) => sync.includes(z)) && dl.includes('return { ok: false, message: TEXT_ANHANG_NICHT_DA };'));
+  ck('P30 E23, EP18: kein „Material“ mehr in Texten der Hülle; MIME_EXT und extFor sind nach side-event-ordner.ts umgezogen',
+    !/(['`])[^'`\n]*Material[^'`\n]*\1/.test(sync) && !sync.includes('const MIME_EXT') && !sync.includes('function extFor('));
+  ck('P30 G4: Fehlertexte und Logzeilen des Downloads ohne Adressen (ordnerFehlerText, ohneAdressen)',
+    dl.includes("      return { ok: false, message: ordnerFehlerText(e, 'download') ?? undefined };")
+    && dl.includes('    return { ok: false, message: ohneAdressen(toClientError(e).error) };'));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.
