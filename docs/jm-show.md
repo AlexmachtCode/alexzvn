@@ -338,8 +338,8 @@ etwa `Agenda_exe.pdf`). Die Datei `.jm-anhaenge.json` in jedem Ordner ist der
 Index der Ablage: nicht löschen. Wer die Show-Datei umbenennt, benennt den Ordner
 `‹Show› – Side Events` mit um, sonst entsteht ein neuer. Ist die Show-Datei am
 Öffnungspfad nicht da (etwa weil ein Netzlaufwerk fehlt), pausiert die Ablage und
-läuft danach von selbst weiter. Eine Datei über 2 GiB oder bei weniger als 1 GiB
-freiem Platz wird nicht geladen; die Zeile des Side Events nennt den Grund, ebenso
+läuft danach von selbst weiter. Eine Datei über 2 GiB wird nicht geladen, ebenso
+keine, nach deren Laden weniger als 1 GiB Platz frei bliebe; die Zeile des Side Events nennt den Grund, ebenso
 jeden anderen Fehler.
 
 **Wer ablegt.** Nur der Launcher mit dem iveo-Token dieser Show und ohne die
@@ -352,8 +352,8 @@ Ablage am selben Rechner sofort weiter; beim normalen Beenden löscht der Launch
 seine Sperrdatei. ‹Name› ist der Rechnername des Betriebssystems, nicht der Name
 im Verbund. Zwei Rechner mit gleichem Namen (etwa aus demselben Abbild) erkennt
 der Launcher und meldet „Ablage von einem zweiten Launcher mit demselben
-Rechnernamen „‹Name›“ übernommen …“; der zweite legt dann nichts ab, bis die Show
-neu geöffnet wird.
+Rechnernamen „‹Name›“ übernommen …“; dieser Launcher (der die Meldung zeigt) legt dann
+nichts ab, bis die Show neu geöffnet wird.
 
 **Schalter.** „Anhänge in Side-Event-Ordnern ablegen“ in der Kopfzeile des Panels
 schaltet die Ablage je Rechner aus (Standard: an), etwa bei langsamem Netz am
