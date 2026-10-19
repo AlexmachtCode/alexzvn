@@ -253,6 +253,21 @@ export function ordnerZeile(
   return { fall, text: text + zusaetze(se), ordnerOeffnen: oeffnen, tooltip: se.pfad };
 }
 
+/**
+ * Zeile eines Side Events der Panel-Liste (G8). Solange die erste Runde aussteht (K8: nach neuer Sitzung oder Neubinden), ist
+ * die Ablage-Menge unbekannt und der Stand leer: ein Side Event ohne Eintrag bekommt dann keine Zeile (null), weil S1
+ * „kein Ordner“ dort falsch sein kann. Danach gilt ordnerZeile (kein Eintrag = S1).
+ */
+export function listenZeile(
+  stand: AnhangOrdnerStand,
+  programId: string,
+  jetztMs: number,
+): ReturnType<typeof ordnerZeile> | null {
+  const se = stand.sideEvents.find((s) => s.programId === programId);
+  if (se === undefined && !stand.ersteRundeGestartet) return null;
+  return ordnerZeile(se, jetztMs);
+}
+
 /** Block „Weitere Side Events der Ablage“ (T65, 9.13): Side Events der Menge, die die Panel-Liste nicht zeigt. */
 export function weitereSideEvents(stand: AnhangOrdnerStand, panelIds: readonly string[]): SideEventOrdnerStand[] {
   return stand.sideEvents.filter((se) => se.inMenge && !panelIds.includes(se.programId));

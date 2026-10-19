@@ -11,7 +11,7 @@ import {
 import type { VerbundClientStand, VerbundStand } from '../src/shared/types.ts';
 import { ANHANG_TEXTE, anhangAnzeige, anhangListeSchritt, leererAnhangZustand, type AnhangListenZustand } from '../src/renderer/src/lib/anhang-liste.ts';
 import type { IveoMaterialRef } from '../src/shared/types.ts';
-import { gestoerteSideEvents, kopfzeile, ORDNER_ZEILEN_TEXTE, ordnerZeile, weitereSideEvents } from '../src/renderer/src/lib/ordner-zeilen.ts';
+import { gestoerteSideEvents, kopfzeile, listenZeile, ORDNER_ZEILEN_TEXTE, ordnerZeile, weitereSideEvents } from '../src/renderer/src/lib/ordner-zeilen.ts';
 import type { AnhangOrdnerStand, OrdnerProblem, SideEventOrdnerStand } from '../src/shared/types.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
@@ -1138,7 +1138,7 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   ck('P32 9.13: Kopfzeile unter der Störungszeile und Block „Weitere Side Events der Ablage“ stehen außerhalb des Zweigs data.ok',
     iTernaer > 0 && iKopf > panel.indexOf('{stoerung}') && iKopf < iTernaer && iEnde > iTernaer && iBlock > iEnde);
   ck('P32 9.15: Kopfzeile, Zeilen und Block nach den reinen Helfern, bewertet mit der Uhr des Renderers',
-    panel.includes('  const kopf = kopfzeile(anhangOrdner, ordnerUhr);') && panel.includes('zeile={ordnerZeile(ordnerVon(p.id), ordnerUhr)}')
+    panel.includes('  const kopf = kopfzeile(anhangOrdner, ordnerUhr);') && panel.includes('listenZeile(anhangOrdner, programId, ordnerUhr)')
     && panel.includes('zeile={ordnerZeile(se, ordnerUhr)}') && panel.includes('weitereSideEvents(anhangOrdner, data?.ok ? programs.map((p) => p.id) : [])'));
   ck('P32 9.15: die Uhr läuft alle 15 s nur bei offenem Panel und wird beim Schließen gelöscht',
     store.includes('const ORDNER_UHR_MS = 15_000;')
@@ -1160,6 +1160,18 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   ck('P32 11.1, 11.2: Zeilen nur in K7–K10; Texte T26, T30, T52, T65 nur aus ORDNER_ZEILEN_TEXTE',
     panel.includes("  const zeilenSichtbar = kopf.fall === 'K7' || kopf.fall === 'K8' || kopf.fall === 'K9' || kopf.fall === 'K10';")
     && !['Ordner öffnen<', '>Ordner öffnen', 'Anhänge in Side-Event-Ordnern', 'Weitere Side Events der Ablage<', 'Anhänge werden erst'].some((t) => panel.includes(t)));
+  // Fix-Runde 1 (G8): in K8 (erste Runde ausstehend, nach neueSitzung oder Neubinden) ist die Menge unbekannt; ein Side Event
+  // ohne Eintrag im Stand bekommt dort keine Zeile (nicht S1 „kein Ordner“), nach der ersten Runde S1 wie bisher.
+  {
+    const k8: AnhangOrdnerStand = { showOffen: true, rolle: 'aus', tokenDa: true, schalterAn: true, showDatei: 'da', sperre: null, basis: null,
+      runde: null, ersteRundeGestartet: false, naechsteRundeGegen: null, letzterFortschritt: null, sideEvents: [] } as unknown as AnhangOrdnerStand;
+    const k9: AnhangOrdnerStand = { ...k8, ersteRundeGestartet: true };
+    ck('P32 G8: K8 ohne Eintrag im Stand → keine Zeile (Menge unbekannt), nach der ersten Runde S1',
+      kopfzeile(k8, 0).fall === 'K8' && listenZeile(k8, 'p-1', 0) === null
+      && listenZeile(k9, 'p-1', 0)?.fall === 'S1');
+    ck('P32 G8: das Panel fragt listenZeile statt ordnerZeile(ordnerVon(...)) für die Liste',
+      quelleLf('../src/renderer/src/components/SideEventsPanel.tsx').includes('listenZeile(anhangOrdner, programId, ordnerUhr)'));
+  }
 }
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------

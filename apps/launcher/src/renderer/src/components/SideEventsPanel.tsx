@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
-import type { AnhangOrdnerStand, SideEventOrdnerStand } from '@shared/types';
+import type { AnhangOrdnerStand } from '@shared/types';
 import { ANHANG_TEXTE, anhangAnzeige } from '@/lib/anhang-liste';
 import { iveoStatusZeile } from '@/lib/iveo-status';
-import { ORDNER_ZEILEN_TEXTE, kopfzeile, ordnerZeile, weitereSideEvents } from '@/lib/ordner-zeilen';
+import { ORDNER_ZEILEN_TEXTE, kopfzeile, listenZeile, ordnerZeile, weitereSideEvents } from '@/lib/ordner-zeilen';
 import { useTools } from '@/store/tools';
 
 /** YYYY-MM-DD → „Di, 12.11.2024" (lokal geparst, ohne TZ-Verschiebung). */
@@ -118,8 +118,9 @@ export function SideEventsPanel(): React.JSX.Element | null {
   // Renderers; Zeilen nur in K7–K10, Block T65 mit den Side Events der Ablage, die die Liste nicht zeigt.
   const kopf = kopfzeile(anhangOrdner, ordnerUhr);
   const zeilenSichtbar = kopf.fall === 'K7' || kopf.fall === 'K8' || kopf.fall === 'K9' || kopf.fall === 'K10';
-  const ordnerVon = (programId: string): SideEventOrdnerStand | undefined =>
-    anhangOrdner?.sideEvents.find((s) => s.programId === programId);
+  // G8: in K8 ist die Menge unbekannt, ein Side Event ohne Eintrag im Stand bekommt dort keine Zeile (listenZeile gibt null).
+  const zeileVon = (programId: string): ReturnType<typeof ordnerZeile> | null =>
+    anhangOrdner && zeilenSichtbar ? listenZeile(anhangOrdner, programId, ordnerUhr) : null;
   const weitere =
     anhangOrdner && zeilenSichtbar ? weitereSideEvents(anhangOrdner, data?.ok ? programs.map((p) => p.id) : []) : [];
 
@@ -292,9 +293,9 @@ export function SideEventsPanel(): React.JSX.Element | null {
                         )}
                       </div>
 
-                      {zeilenSichtbar && (
+                      {zeileVon(p.id) && (
                         <OrdnerZeileAnzeige
-                          zeile={ordnerZeile(ordnerVon(p.id), ordnerUhr)}
+                          zeile={zeileVon(p.id)!}
                           onOeffnen={() => void oeffneAnhangOrdner(p.id)}
                         />
                       )}
