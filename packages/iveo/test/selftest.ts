@@ -513,6 +513,26 @@ function mkRes(status: number, body: unknown, headers: Record<string, string> = 
       'P4 oeffneAsset: Antwort ohne Datenstrom → Fehler; Länge keine Zahl und Inhaltstyp fehlt → null',
     );
   }
+  // Gesamtprüfung Befund 3 (Spec T22 (r)): die Meldung eines gescheiterten Asset-Abrufs nennt den HTTP-Status, sonst sehen ein
+  // abgelaufener Link (403) und eine Drosselung (429) in Zeile, Log und Panel gleich aus; Status und Code bleiben am Fehler.
+  {
+    for (const status of [400, 403, 410, 429]) {
+      const client = new IveoClient({ token: 'iveo_live_SECRET', baseUrl: BASIS, maxRetries: 0, fetchImpl: async () => mkRes(status, '') });
+      const fehler: unknown[] = [];
+      for (const weg of [() => client.oeffneAsset('a1'), () => client.fetchAsset('a1')]) {
+        try {
+          await weg();
+        } catch (e) {
+          fehler.push(e);
+        }
+      }
+      ok(
+        fehler.length === 2 &&
+          fehler.every((e) => e instanceof IveoApiError && e.status === status && e.code === `http_${status}` && e.message === `iveo: Asset nicht abrufbar (HTTP ${status})`),
+        `Gesamt-Fix T22 (r): oeffneAsset und fetchAsset mit HTTP ${status} → „iveo: Asset nicht abrufbar (HTTP ${status})“, Status und Code am Fehler`,
+      );
+    }
+  }
   // Abbruch durch den Aufrufer: genau ein Aufruf, keine Wartezeit, der Abbruch kommt unverändert heraus.
   {
     const ctrl = new AbortController();

@@ -30,6 +30,13 @@ const textUngueltigeBasisUrl = (eingabe: string | undefined): string =>
   `Ungültige iveo-Basis-URL: „${eingabe}“. Beispiel: https://app.my-iveo.de/api/v1`;
 
 /**
+ * Meldung eines gescheiterten Asset-Abrufs mit dem HTTP-Status (iveo-Paket, Spec 11.6 T22 (r), Gesamtprüfung Befund 3):
+ * Zeile, Logzeile T23 und Panel zeigen die Meldung; ohne Status sähen ein abgelaufener Link (403) und eine Drosselung (429)
+ * gleich aus. Form wie T22 (p) „(HTTP ‹Status›)“.
+ */
+const textAssetNichtAbrufbar = (status: number): string => `iveo: Asset nicht abrufbar (HTTP ${status})`;
+
+/**
  * Basis-URL robust normalisieren: trimmen, fehlendes Schema als https:// ergänzen,
  * trailing Slashes weg, und als absolute URL validieren. Leer → Default. Wirft mit
  * klarer Meldung statt eines kryptischen „Failed to parse URL" tief in fetch.
@@ -428,7 +435,7 @@ export class IveoClient {
       headers: this.assetKoepfe(anfrage.mitToken),
       redirect: 'follow',
     });
-    if (!res.ok) throw new IveoApiError(res.status, `http_${res.status}`, 'iveo: Asset nicht abrufbar');
+    if (!res.ok) throw new IveoApiError(res.status, `http_${res.status}`, textAssetNichtAbrufbar(res.status));
     return { bytes: await res.arrayBuffer(), contentType: res.headers.get('Content-Type') };
   }
 
@@ -448,7 +455,7 @@ export class IveoClient {
     if (!res.ok) {
       // Den unbenutzten Datenstrom freigeben, damit die Verbindung nicht offen bleibt.
       void res.body?.cancel().catch(() => undefined);
-      throw new IveoApiError(res.status, `http_${res.status}`, 'iveo: Asset nicht abrufbar');
+      throw new IveoApiError(res.status, `http_${res.status}`, textAssetNichtAbrufbar(res.status));
     }
     if (!res.body) throw new Error('iveo: Asset ohne Datenstrom');
     return { body: res.body, contentType: res.headers.get('Content-Type'), contentLength: laengeAus(res.headers.get('Content-Length')) };

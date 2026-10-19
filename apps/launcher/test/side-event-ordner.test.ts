@@ -3200,6 +3200,23 @@ console.log('— Gesamtprüfung Fix-Welle: Fehler je Eintrag, Basisordner ab dem
       amTor && k.fall === 'K8' && k.text === 'Ablage: „Andere – Side Events“ · erster Abgleich folgt' && T.lauf.stand().basis?.fehler === null
       && T.staende.every((s) => s.basis?.name !== 'Andere – Side Events' || s.basis.fehler === null));
   }
+  {
+    // Befund 3 (T22 (r)): Ein Asset-Abruf mit 403 (abgelaufener Link) bzw. 429 (Drosselung) nennt den HTTP-Status in der Zeile
+    // und in der Logzeile T23; über den echten Client, wie die Hülle ihn reicht (iveoDownloadClient, ohne Wiederholung).
+    for (const status of [403, 429]) {
+      const fetchImpl: IveoFetchLikeG = async () => ({
+        ok: false, status, headers: { get: () => null }, json: async () => ({}), text: async () => '', arrayBuffer: async () => new ArrayBuffer(0), body: null,
+      });
+      const client = new IveoClientG({ token: AttC.TOKEN, baseUrl: 'https://app.my-iveo.de/api/v1', fetchImpl, maxRetries: 0 });
+      const T = AttC.baueLauf({ downloadClient: client });
+      await T.takt([AttC.punkt('se-1', [AttC.datei('m-1', 'Bericht', { size: 1000 })])]);
+      const grund = `iveo: Asset nicht abrufbar (HTTP ${status})`;
+      const p = T.se('se-1')?.probleme[0];
+      ck(`P15 Gesamt-Fix: Asset-Abruf mit HTTP ${status} → Zeile und Logzeile T23 nennen den Status`,
+        p?.art === 'grund' && p.grund === grund && zeile(T, 'se-1').text.includes(`Bericht.pdf: ${grund}`)
+        && T.logs.includes(`warn iveo-Ordner: „Bericht.pdf“ nicht geladen: ${grund} (${grund}).`));
+    }
+  }
 }
 
 // ── Block C · P19: Geheimnis-Suche über alle Fälle (Spec 12.4 Nr. 41, E20, G4) — letzter Abschnitt ────────────────
