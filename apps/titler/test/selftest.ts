@@ -70,11 +70,11 @@ function ok(cond: boolean, msg: string): void {
     { id: 's-3', name: 'Alan', title: 'Informatik' },
   ]);
   ok(
-    tsv === 'name\tfunktion\ttitle\t@kennung\nAda Lovelace\tMathematik\tMathematik\ts-1\nAlan\tInformatik\tInformatik\ts-3\n',
-    'speakersTsvText: Kopf name/funktion/title/@kennung, je Speaker eine Zeile, \\n am Ende',
+    tsv === 'name\tfunktion\ttitle\torganisation\torganisationen\t@kennung\nAda Lovelace\tMathematik\tMathematik\t\t\ts-1\nAlan\tInformatik\tInformatik\t\t\ts-3\n',
+    'speakersTsvText: Kopf name/funktion/title/organisation/organisationen/@kennung, je Speaker eine Zeile, \\n am Ende',
   );
   ok(
-    speakersTsvText([{ id: ' s-7 ', name: 'Ana\tSilva', title: 'Leitung\nPresse' }]).split('\n')[1] === 'Ana Silva\tLeitung Presse\tLeitung Presse\ts-7',
+    speakersTsvText([{ id: ' s-7 ', name: 'Ana\tSilva', title: 'Leitung\nPresse' }]).split('\n')[1] === 'Ana Silva\tLeitung Presse\tLeitung Presse\t\t\ts-7',
     'speakersTsvText: Tab und Zeilenumbruch in Zellen werden zu Leerzeichen, Kennung getrimmt',
   );
   ok(iveoDataDir('userdata') === join('userdata', 'iveo-data'), 'iveoDataDir: <userData>/iveo-data, ohne Electron');
@@ -83,8 +83,45 @@ function ok(cond: boolean, msg: string): void {
   const liste = parseTable(tsv, 'speakers.tsv');
   ok(liste.length === 2 && liste[0].key === 's-1' && liste[1].key === 's-3', 'Nr. 1: @kennung landet in key');
   ok(
-    JSON.stringify(liste[0].vars) === '{"name":"Ada Lovelace","funktion":"Mathematik","title":"Mathematik"}',
+    JSON.stringify(liste[0].vars) === '{"name":"Ada Lovelace","funktion":"Mathematik","title":"Mathematik","organisation":"","organisationen":""}',
     'Nr. 1: @kennung steht nicht in vars',
+  );
+
+  // iveo-Paket P33 (Spec 5.6, 5.7, 11.4; 12.5 Nr. 1–3): die Organisationen als zwei Spalten vor @kennung.
+  const orgTsv = speakersTsvText([
+    { id: 's-1', name: 'Dr. Ana Ferreira', title: 'Lead Negotiator', organisationen: ['UNFCCC', 'Ministry of Environment'] },
+    { id: 's-2', name: 'Ohne Org', title: 'Gast' },
+    { id: 's-3', name: 'Tab', organisationen: ['A\tB', 'C\nD'] },
+  ]).split('\n');
+  ok(orgTsv[0] === 'name\tfunktion\ttitle\torganisation\torganisationen\t@kennung', 'P33 12.5 Nr. 1: Kopf genau name, funktion, title, organisation, organisationen, @kennung');
+  ok(
+    orgTsv[1] === 'Dr. Ana Ferreira\tLead Negotiator\tLead Negotiator\tUNFCCC\tUNFCCC · Ministry of Environment\ts-1',
+    'P33 12.5 Nr. 1: zwei Organisationen → Hauptorganisation und alle mit „ · “ (U+0020 U+00B7 U+0020)',
+  );
+  ok(orgTsv[2] === 'Ohne Org\tGast\tGast\t\t\ts-2', 'P33 12.5 Nr. 1: ohne Organisationen leere Zellen');
+  ok(orgTsv[3] === 'Tab\t\t\tA B\tA B · C D\ts-3', 'P33 12.5 Nr. 1: Tab und Zeilenumbruch in Organisationsnamen → Leerzeichen');
+  const orgListe = parseTable(orgTsv.join('\n'), 'speakers.tsv');
+  ok(
+    JSON.stringify(Object.keys(orgListe[0].vars)) === '["name","funktion","title","organisation","organisationen"]' && orgListe[0].key === 's-1'
+      && orgTsv[0].split('\t').at(-1) === '@kennung',
+    'P33 12.5 Nr. 2: parseTable → vars genau name, funktion, title, organisation, organisationen; @kennung bleibt Schlüssel und letzte Spalte (E6)',
+  );
+  ok(
+    resolveVars('{{name}} · {{organisation}}', orgListe[0].vars) === 'Dr. Ana Ferreira · UNFCCC'
+      && resolveVars('{{organisationen}}', orgListe[0].vars) === 'UNFCCC · Ministry of Environment',
+    'P33 12.5 Nr. 3: {{organisation}} = Hauptorganisation, {{organisationen}} = alle (11.4)',
+  );
+  ok(
+    resolveVars('{{name}} · {{organisation}}', orgListe[1].vars) === 'Ohne Org · ' && resolveVars('{{organisationen}}', orgListe[1].vars) === '',
+    'P33 12.5 Nr. 3: ohne Organisation leer (5.7, Vorlagengestaltung „Name · “)',
+  );
+  ok(
+    resolveVars('{{name}} — {{funktion}}', orgListe[0].vars) === 'Dr. Ana Ferreira — Lead Negotiator',
+    'P33 12.5 Nr. 3: eine Vorlage ohne die neuen Variablen sieht aus wie vorher',
+  );
+  ok(
+    resolveVars('{{organisation}}', parseTable('name\tfunktion\nGrace\tNavy\n', 'gaeste.tsv')[0].vars) === '',
+    'P33 11.4: eigene TSV ohne die Spalten → {{organisation}} leer',
   );
   ok(liste[0].label === 'Ada Lovelace' && liste[0].datei === 'speakers.tsv', 'Label aus name, datei = Dateiname');
   ok(resolveVars('{{@kennung}}', liste[0].vars) === '{{@kennung}}', 'Nr. 1: {{@kennung}} löst nie auf (kein Platzhalter)');
@@ -1092,13 +1129,37 @@ const GLEICH = { andererOrdner: false, leerHalten: false };
     ok(dir === join(tmp, 'iveo-data'), 'B12: iveoDataDir = <userData>/iveo-data');
     ok(iveoShow.writeSpeakersTsv(dir, [{ id: 's-1', name: 'Ada Lovelace', title: 'Moderation' }, { name: 'Grace' }]) === dir, 'B12: writeSpeakersTsv legt den Ordner an und liefert ihn');
     const zeilen = readFileSync(join(dir, 'speakers.tsv'), 'utf8').split('\n');
-    ok(zeilen[0] === 'name\tfunktion\ttitle\t@kennung', 'B12: speakers.tsv beginnt mit name\\tfunktion\\ttitle\\t@kennung');
-    ok(zeilen[1] === 'Ada Lovelace\tModeration\tModeration\ts-1', 'B12: Kennung steht hinten');
-    ok(zeilen[2] === 'Grace\t\t\t' && zeilen[3] === '' && zeilen.length === 4, 'B12: Speaker ohne Kennung → leere Spalte, Zeilenende am Schluss');
+    ok(zeilen[0] === 'name\tfunktion\ttitle\torganisation\torganisationen\t@kennung', 'B12: speakers.tsv beginnt mit name\\tfunktion\\ttitle\\torganisation\\torganisationen\\t@kennung');
+    ok(zeilen[1] === 'Ada Lovelace\tModeration\tModeration\t\t\ts-1', 'B12: Kennung steht hinten');
+    ok(zeilen[2] === 'Grace\t\t\t\t\t' &&zeilen[3] === '' && zeilen.length === 4, 'B12: Speaker ohne Kennung → leere Spalte, Zeilenende am Schluss');
 
     // Gesamtprüfung Befund 4: Schreiben ohne Wurf, der Aufrufer bekommt den Fehlercode (ohne Pfad, ohne Inhalt).
     ok(iveoShow.schreibeSpeakersTsvSicher(dir, [{ name: 'Hedy' }]) === null, 'Befund 4: speakers.tsv schreibbar → null');
-    ok(readFileSync(join(dir, 'speakers.tsv'), 'utf8').split('\n')[1] === 'Hedy\t\t\t', 'Befund 4: … neuer Inhalt steht in der Datei');
+    ok(readFileSync(join(dir, 'speakers.tsv'), 'utf8').split('\n')[1] === 'Hedy\t\t\t\t\t', 'Befund 4: … neuer Inhalt steht in der Datei');
+
+    // iveo-Paket P33 (Spec 12.5 Nr. 4): Show mit Organisationen als JSON-Text → parseShow des Titlers (leseShowSicher) →
+    // quellSchritt mit „gelesen“ → TSV mit beiden Spalten; derselbe Stand über masterStand (Verbund) → dieselbe TSV.
+    const showMitOrgs = sq.leseShowSicher('C:/Shows/Tag1.jmshow', () => JSON.stringify({
+      schemaVersion: 1,
+      name: 'Tag 1',
+      tools: [],
+      iveo: { event: 'cop31', speakers: [{ id: 's-1', name: 'Dr. Ana Ferreira', title: 'Lead Negotiator', organisationen: ['UNFCCC', 'Ministry of Environment'] }] },
+    }));
+    const ausDatei = 'show' in showMitOrgs
+      ? quellSchritt(startZustand(null, false), { t: 'gelesen', weg: 'deepLink', pfad: 'C:/Shows/Tag1.jmshow', show: showMitOrgs.show, gleicheShow: false })
+      : null;
+    const tsvAusDatei = ausDatei?.tsv ? iveoShow.speakersTsvText(ausDatei.tsv) : '';
+    ok(
+      tsvAusDatei.split('\n')[1] === 'Dr. Ana Ferreira\tLead Negotiator\tLead Negotiator\tUNFCCC\tUNFCCC · Ministry of Environment\ts-1',
+      'P33 12.5 Nr. 4: Show mit Organisationen (JSON-Text) → parseShow → quellSchritt → TSV mit beiden Spalten',
+    );
+    const ausVerbund = 'show' in showMitOrgs
+      ? quellSchritt(startZustand(null, false), { t: 'masterStand', masterId: 'm-1', masterName: 'Regie A', schluessel: 'k-1', show: showMitOrgs.show })
+      : null;
+    ok(
+      tsvAusDatei !== '' && !!ausVerbund?.tsv && iveoShow.speakersTsvText(ausVerbund.tsv) === tsvAusDatei,
+      'P33 12.5 Nr. 4: derselbe Stand über masterStand → dieselbe TSV',
+    );
     const gesperrtDir = join(tmp, 'iveo-gesperrt');
     mkdirSync(join(gesperrtDir, 'speakers.tsv'), { recursive: true });
     const fehler = iveoShow.schreibeSpeakersTsvSicher(gesperrtDir, [{ name: 'Hedy' }]);
