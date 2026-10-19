@@ -520,6 +520,8 @@ export interface JmpsApi {
   listIveoMaterials: (input: IveoMaterialsInput) => Promise<IveoMaterialsResult>;
   /** iveo (#11): ein Material herunterladen (Datei speichern+öffnen) bzw. Link öffnen. */
   downloadIveoMaterial: (input: IveoDownloadInput) => Promise<ActionResult>;
+  /** iveo-Paket (Spec 8.4, 8.6): beobachtete Anhang-Listen melden; jede Anmeldung, auch [], lässt den Main neu senden. */
+  watchIveoMaterials: (input: { programIds: string[] }) => Promise<void>;
   /** Verbund (Master-Link Teil 1). */
   getVerbund: () => Promise<VerbundStand>;
   setzeVerbundRolle: (rolle: VerbundRolle) => Promise<VerbundStand>;

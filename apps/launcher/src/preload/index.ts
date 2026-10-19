@@ -81,6 +81,7 @@ const api: JmpsApi = {
   listIveoMaterials: (input: IveoMaterialsInput) =>
     invoke<IveoMaterialsResult>('iveo:listMaterials', input),
   downloadIveoMaterial: (input: IveoDownloadInput) => invoke<ActionResult>('iveo:downloadMaterial', input),
+  watchIveoMaterials: (input: { programIds: string[] }) => invoke<void>('iveo:watchMaterials', input),
   getVerbund: () => invoke<VerbundStand>('verbund:get'),
   setzeVerbundRolle: (rolle: VerbundRolle) => invoke<VerbundStand>('verbund:rolle', rolle),
   setzeRechnerName: (name: string) => invoke<VerbundStand>('verbund:rechnerName', name),

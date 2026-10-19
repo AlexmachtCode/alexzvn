@@ -51,6 +51,7 @@ import {
   switchSideEvent,
   listSideEventMaterials,
   downloadSideEventMaterial,
+  watchIveoMaterials,
 } from './iveo-sync';
 
 function withTool(
@@ -172,6 +173,8 @@ export function registerIpc(): void {
   ipcMain.handle('iveo:switchSideEvent', (_e, input: IveoSwitchInput) => switchSideEvent(input));
   ipcMain.handle('iveo:listMaterials', (_e, input: IveoMaterialsInput) => listSideEventMaterials(input));
   ipcMain.handle('iveo:downloadMaterial', (_e, input: IveoDownloadInput) => downloadSideEventMaterial(input));
+  // iveo-Paket, Spec 8.4, 8.6: beobachtete Anhang-Listen; die Eingabe prüft die Hülle (pruefeBeobachtung).
+  ipcMain.handle('iveo:watchMaterials', (_e, input: unknown) => watchIveoMaterials(input));
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 }

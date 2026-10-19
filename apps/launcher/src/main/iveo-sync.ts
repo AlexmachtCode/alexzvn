@@ -42,7 +42,7 @@ import {
   type IveoShowMetadata,
   type IveoSnapshot,
 } from '@jm/iveo';
-import type { ShowIveoSpeaker } from '@jm/show';
+import type { ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 import {
   getIveoToken,
   getIveoBaseToken,
@@ -72,6 +72,13 @@ import {
 } from './iveo-huelle-hilfen';
 import { schreibeShowAtomar, warteSync } from './show-schreiben';
 import { bildeSideEventListe, toProgramList } from './iveo-side-events';
+import {
+  erzeugeAnhangWaechter,
+  materialienAusAgenda,
+  pruefeBeobachtung,
+  type AgendaErgebnis,
+  type AnhangWaechter,
+} from './iveo-anhaenge';
 import type {
   ActionResult,
   AppEvent,
@@ -80,7 +87,6 @@ import type {
   IveoDiscoverInput,
   IveoDiscoverResult,
   IveoDownloadInput,
-  IveoMaterialRef,
   IveoMaterialsInput,
   IveoMaterialsResult,
   IveoProgramRef,
@@ -456,8 +462,16 @@ function kern(): IveoKern {
       meldeAktiv: () => emitActiveChanged(),
       baseUrlStandard: () => resolveIveoBaseUrl(),
       // Teil 2b R2, Spec 15.1: die offene Show an den Verteiler; 15.6: k für die RELOAD-Logzeile.
-      meldeShow: (pfad, show) => meldeShowAnVerbund(pfad, show),
+      meldeShow: (pfad, show) => {
+        meldeShowAnVerbund(pfad, show);
+        // iveo-Paket: die Side-Event-Liste der Bindung, wie sie jetzt in der Datei steht (Titel für T17).
+        if (show) bindungsListe = show.iveo?.sideEvents ?? [];
+      },
       verbundReload: () => verbundReloadInfo(),
+      // iveo-Paket, Spec 6.1: derselbe Takt wie die Hülle (Regel „fällig“ nach 255 s bei 45 s).
+      taktMs: POLL_INTERVAL_MS,
+      // iveo-Paket, Spec 8.2 (E19): die Agenda des aktiven Side Events direkt nach ihrem Abruf, ohne eigenen Abruf.
+      meldeAgenda: (programId, e) => agendaAktiv(programId, e),
     });
   }
   return kernInstanz;
@@ -474,6 +488,7 @@ function merkeOffeneShow(showPath: string, show: Show): void {
         baseUrl: binding.baseUrl || resolveIveoBaseUrl(),
       }
     : null;
+  bindungsListe = binding?.sideEvents ?? [];
 }
 
 function emitActiveChanged(): void {
@@ -501,6 +516,73 @@ export function iveoStateKv(): Record<string, string> {
   };
 }
 
+// ── Anhang-Wächter (iveo-Paket, Spec 8.2, 8.4) ───────────────────────────────
+// Beobachtet die aufgeklappte Anhang-Liste des Panels und das aktive Side Event. Die Agenda des aktiven Side Events
+// meldet der Kern direkt nach ihrem Abruf (meldeAgenda); eine aufgeklappte andere Liste holt der Wächter im Takt.
+
+/** Side-Event-Liste der Bindung, wie sie zuletzt in der Datei stand (Titel für T17). */
+let bindungsListe: ShowIveoProgramRef[] = [];
+/** Titel eines Side Events aus der Bindung; sonst null (der Wächter nimmt dann die programId, T17). */
+function titelAusBindung(programId: string): string | null {
+  return bindungsListe.find((p) => p.id === programId)?.title || null;
+}
+
+let waechterInstanz: AnhangWaechter | null = null;
+function anhangWaechter(): AnhangWaechter {
+  if (!waechterInstanz) {
+    waechterInstanz = erzeugeAnhangWaechter({
+      aktivProgramId: () => kern().aktiv()?.filter.programId ?? null,
+      event: () => kern().aktiv()?.event ?? null,
+      jetztIso: nowIso,
+      sende: (e) => emitIveo?.(e),
+      titelVon: (programId) => titelAusBindung(programId),
+      log: { info: (m) => getLog().info(m) },
+    });
+  }
+  return waechterInstanz;
+}
+
+/** Agenda des aktiven Side Events aus dem Kern (meldeAgenda, E19): an den Wächter. */
+function agendaAktiv(programId: string, e: AgendaErgebnis): void {
+  anhangWaechter().agendaVomKern(programId, e);
+}
+
+/** Client für den Wächter (15-s-Zeitgrenze wie Kern und Panel); ohne offene Show mit Token keiner. */
+function waechterClient(): IveoClient | null {
+  const a = kern().aktiv();
+  const token = a ? getIveoToken(a.event) : undefined;
+  return a && token ? iveoClient(token, offeneBaseUrl()) : null;
+}
+
+/**
+ * IPC iveo:watchMaterials (Spec 8.4, 8.6): die beobachtete Liste des Renderers. Mehr als 8 Kennungen oder eine mit mehr
+ * als 200 Zeichen → verworfen. Jede Anmeldung, auch [], lässt den Wächter den Stand jeder beobachteten Liste neu senden.
+ */
+export function watchIveoMaterials(input: unknown): void {
+  const ids = pruefeBeobachtung(input);
+  if (ids === null) return;
+  anhangWaechter().beobachte(ids);
+}
+
+/** Sperre gegen Überholen (Spec 8.2): ein Takt beginnt erst, wenn der vorige fertig ist. */
+let taktLaeuft = false;
+
+/**
+ * Ein Takt der Hülle (Spec 8.2, E28): erst die Abfrage des Kerns, dann der Anhang-Wächter, nacheinander. Dauert ein Takt
+ * länger als 45 s, fällt der nächste aus, statt parallel eine zweite Abfrage zu starten. Beide werfen nie (Vertrag; Fehler
+ * landen im Status bzw. als Ereignis ok:false).
+ */
+async function takt(): Promise<void> {
+  if (taktLaeuft) return;
+  taktLaeuft = true;
+  try {
+    await kern().abfrage();
+    await anhangWaechter().takt(waechterClient());
+  } finally {
+    taktLaeuft = false;
+  }
+}
+
 /**
  * Takt starten, sobald eine Show offen ist — auch ohne iveo: Bindet der Show-Editor
  * die offene Show neu, fragt der Kern ab dem nächsten Takt ab. Ohne aktive iveo-Show
@@ -509,7 +591,7 @@ export function iveoStateKv(): Record<string, string> {
 function starteTakt(): void {
   if (pollTimer) return;
   pollTimer = setInterval(() => {
-    void kern().abfrage(); // wirft nie (Vertrag des Kerns); Fehler landen im Status
+    void takt();
   }, POLL_INTERVAL_MS);
 }
 
@@ -525,6 +607,8 @@ export function onShowOpened(showPath: string, show: Show): void {
   schreibWarnung.ok();
   offeneShowPfad = showPath;
   merkeOffeneShow(showPath, show); // vor dem Kern: dessen meldeAktiv() braucht den Merker
+  // iveo-Paket, Spec 8.2: eine geöffnete Show beginnt neu — die nächste Beobachtung gilt als erste (8.4 Nr. 1).
+  anhangWaechter().zuruecksetzen();
   kern().showGeoeffnet(showPath, show);
   starteTakt();
   const a = kern().aktiv();
@@ -537,6 +621,7 @@ export function stopIveoPolling(): void {
     pollTimer = null;
   }
   kern().showGeschlossen();
+  anhangWaechter().zuruecksetzen();
 }
 
 /**
@@ -554,6 +639,8 @@ export function speichereShowDatei(pfad: string, show: Show, neuGebunden: boolea
     // Merker (Name, Tag, Basis-URL) aus der geschriebenen Show, bevor der Kern meldeAktiv() ruft.
     merkeOffeneShow(offeneShowPfad, show);
     kern().offeneShowGespeichert(offeneShowPfad, neuGebunden);
+    // iveo-Paket, Spec 8.2: neu gebunden = neue Liste der Side Events, die nächste Beobachtung gilt als erste.
+    if (neuGebunden) anhangWaechter().zuruecksetzen();
     starteTakt();
   }
   return true;
@@ -647,7 +734,7 @@ function offeneBaseUrl(): string {
   return openShowIveo?.baseUrl ?? resolveIveoBaseUrl();
 }
 
-/** Alle Materialien eines Side Events (aus dessen Agenda-Punkten) auflisten. */
+/** Alle Anhänge eines Side Events (aus dessen Agenda-Punkten) auflisten (iveo-Paket, Spec 8.2, 8.6). */
 export async function listSideEventMaterials(input: IveoMaterialsInput): Promise<IveoMaterialsResult> {
   const a = kern().aktiv();
   if (!a) return { ok: false, error: 'Keine iveo-Show mit Token geöffnet.' };
@@ -655,29 +742,22 @@ export async function listSideEventMaterials(input: IveoMaterialsInput): Promise
   if (!token) return { ok: false, error: 'Kein iveo-Token für die offene Show.' };
   const programId = input.programId?.trim();
   if (!programId) return { ok: false, error: 'programId fehlt.' };
+  // Spec 8.6: Zeit des Abrufs, vor dem Abruf genommen. Der Renderer verwirft damit ein älteres Ergebnis, wenn sich der
+  // Abruf und ein Ereignis des Wächters kreuzen (8.1); auch ein Fehlschlag trägt sie.
+  const abgerufen = nowIso();
   try {
     const client = iveoClient(token, offeneBaseUrl());
     const agenda = await client.listAgendaItems(a.event, programId);
-    const materials: IveoMaterialRef[] = [];
-    for (const item of agenda) {
-      for (const m of item.materials ?? []) {
-        materials.push({
-          id: m.id,
-          label: m.label || '(ohne Titel)',
-          kind: m.kind,
-          agendaTitle: item.title,
-          mimeType: m.asset?.mime_type ?? null,
-          sizeBytes: m.asset?.size_bytes ?? null,
-          externalUrl: m.external_url ?? null,
-          hasAsset: !!m.asset?.url,
-        });
-      }
-    }
-    getLog().info(`iveo: Side Event „${programId}" — ${materials.length} Material(ien).`);
-    return { ok: true, materials };
+    // Spec 8.2, 8.5: dieselbe Abbildung wie der Wächter, ohne gelöschte und ungültige Anhänge.
+    const materials = materialienAusAgenda(agenda);
+    getLog().info(`iveo: Side Event „${programId}“: ${materials.length} Anhänge.`);
+    // EP20: Der Renderer übernimmt diese Liste und löscht dabei seinen Fehler; der Wächter sendet darum den nächsten
+    // Fehlschlag eines danach begonnenen Abrufs wieder, auch mit gleichem Text (sonst stünde L5 trotz Störung da).
+    anhangWaechter().eigenesLaden(programId, abgerufen);
+    return { ok: true, materials, abgerufen };
   } catch (e) {
     getLog().warn(`iveo materials: ${(e as Error).message}`);
-    return { ok: false, ...toClientError(e) };
+    return { ok: false, ...toClientError(e), abgerufen };
   }
 }
 

@@ -932,6 +932,43 @@ function funktionsKoerper(quelle: string, kopf: string): string {
     binden.length > 0 && !binden.includes('übernommen —') && !/„\$\{[^}]*\}"/.test(editor));
 }
 
+// --- iveo-Paket P28 (Spec 8.2, 8.4, 8.6, 6.1): Takt mit Sperre, Anhang-Wächter, meldeAgenda, iveo:watchMaterials ------
+{
+  const sync = quelleLf('../src/main/iveo-sync.ts');
+  const ipc = quelleLf('../src/main/ipc.ts');
+  const preload = quelleLf('../src/preload/index.ts');
+  const typen = quelleLf('../src/shared/types.ts');
+  const t = funktionsKoerper(sync, 'async function takt(): Promise<void> {');
+  ck('P28 8.2: der Takt ist async mit Sperre gegen Überholen (zweiter Aufruf kehrt sofort zurück, gelöst im finally)',
+    t.includes('  if (taktLaeuft) return;\n  taktLaeuft = true;\n  try {') && /\} finally \{\n {4}taktLaeuft = false;\n {2}\}/.test(t));
+  const iKern = t.indexOf('    await kern().abfrage();');
+  const iWaechter = t.indexOf('    await anhangWaechter().takt(waechterClient());');
+  ck('P28 8.2: erst die Abfrage des Kerns, dann der Anhang-Wächter, nacheinander (await)', iKern > 0 && iWaechter > iKern);
+  ck('P28 8.2: der Intervall ruft nur den Takt, nicht mehr kern().abfrage() direkt',
+    funktionsKoerper(sync, 'function starteTakt(): void {').includes('  pollTimer = setInterval(() => {\n    void takt();\n  }, POLL_INTERVAL_MS);'));
+  const k = funktionsKoerper(sync, 'function kern(): IveoKern {');
+  ck('P28 6.1, 8.2: erzeugeKern bekommt taktMs = POLL_INTERVAL_MS und meldeAgenda → Anhang-Wächter',
+    k.includes('      taktMs: POLL_INTERVAL_MS,') && k.includes('      meldeAgenda: (programId, e) => agendaAktiv(programId, e),')
+    && funktionsKoerper(sync, 'function agendaAktiv(programId: string, e: AgendaErgebnis): void {').includes('  anhangWaechter().agendaVomKern(programId, e);'));
+  ck('P28 8.4, 8.6: iveo:watchMaterials prüft die Eingabe mit pruefeBeobachtung und meldet sie dem Wächter',
+    ipc.includes("  ipcMain.handle('iveo:watchMaterials', (_e, input: unknown) => watchIveoMaterials(input));")
+    && funktionsKoerper(sync, 'export function watchIveoMaterials(input: unknown): void {').includes('  const ids = pruefeBeobachtung(input);\n  if (ids === null) return;\n  anhangWaechter().beobachte(ids);'));
+  ck('P28 8.6: Preload watchIveoMaterials ruft genau den Kanal iveo:watchMaterials; JmpsApi kennt ihn',
+    preload.includes("  watchIveoMaterials: (input: { programIds: string[] }) => invoke<void>('iveo:watchMaterials', input),")
+    && typen.includes('  watchIveoMaterials: (input: { programIds: string[] }) => Promise<void>;'));
+  ck('P28 8.2: zuruecksetzen beim Öffnen einer Show, beim Schließen und beim Speichern mit neuer Bindung',
+    funktionsKoerper(sync, 'export function onShowOpened(showPath: string, show: Show): void {').includes('  anhangWaechter().zuruecksetzen();')
+    && funktionsKoerper(sync, 'export function stopIveoPolling(): void {').includes('  anhangWaechter().zuruecksetzen();')
+    && funktionsKoerper(sync, 'export function speichereShowDatei(pfad: string, show: Show, neuGebunden: boolean): boolean {').includes('    if (neuGebunden) anhangWaechter().zuruecksetzen();'));
+  const liste = funktionsKoerper(sync, 'export async function listSideEventMaterials(input: IveoMaterialsInput): Promise<IveoMaterialsResult> {');
+  ck('P28 8.2, 8.6, EP20: listSideEventMaterials bildet über materialienAusAgenda ab, gibt abgerufen mit (auch bei Fehler) und meldet ein gelungenes Laden dem Wächter',
+    liste.includes('    const materials = materialienAusAgenda(agenda);')
+    && liste.includes('    anhangWaechter().eigenesLaden(programId, abgerufen);\n    return { ok: true, materials, abgerufen };')
+    && liste.includes('    return { ok: false, ...toClientError(e), abgerufen };') && !liste.includes('materials.push('));
+  ck('P28 T55: Logzeile wörtlich „iveo: Side Event „‹programId›“: ‹n› Anhänge.“, keine „Material(ien)“-Zeile mehr',
+    liste.includes('getLog().info(`iveo: Side Event „${programId}“: ${materials.length} Anhänge.`);') && !sync.includes('Material(ien)'));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.
