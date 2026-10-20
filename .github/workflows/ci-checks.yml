@@ -101,6 +101,12 @@ jobs:
       - name: Release-Proxy (Paketwahl, Routing)
         run: node --experimental-strip-types services/release-proxy/test/worker.test.mjs
 
+      # Mac-Nachbau (Entwurf mac-fassungen, Stufe 1): Prüfer, ffmpeg-Beilagen und Workflow-Regeln. Nur node:-Module,
+      # ohne macOS (otool und Programmstart laufen nur im Workflow selbst). Der Beilagen-Test lädt
+      # services/release-proxy/paketwahl.js; Node meldet dazu MODULE_TYPELESS_PACKAGE_JSON auf stderr, harmlos.
+      - name: Mac-Nachbau (Prüfer, ffmpeg-Beilagen, Workflow-Regeln)
+        run: node scripts/ci/test/pruefe-mac-nachbau.test.mjs && node scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs && node scripts/ci/test/mac-nachbau-workflow.test.mjs
+
   secret-scan:
     name: Secret-Scan (gitleaks)
     runs-on: ubuntu-latest

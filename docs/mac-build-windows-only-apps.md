@@ -214,6 +214,9 @@ Verifizieren: Live-Untertitel als transparente NDI-Quelle im LAN.
 
 ## 5. CI (optional, nach lokalem Erfolg)
 
+> Nachbau eines bestehenden Tags in der CI, je Mac-Art auf eigenem Runner (heute nur der Editor):
+> [mac-nachbau.md](mac-nachbau.md).
+
 Heute laufen die **anderen** Tools schon auf `macos-latest` in der Matrix; die drei sind nur
 per `if`-Filter ausgeschlossen ([suite-release.yml:25](../.github/workflows/suite-release.yml#L25)).
 Um sie auf Mac auch in CI zu bauen:
