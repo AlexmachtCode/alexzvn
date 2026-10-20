@@ -1336,7 +1336,8 @@ await (async () => {
 // Der Ablaufkern kommt aus @jm/ui/anleitung (Block A; ohne Laufzeit-Importe und darum hier unter strip-types ladbar, MP1).
 // Die Texte stehen hier ein zweites Mal als Tabelle: Jede Änderung an einem Text der Owner-Freigabe fällt auf (G2).
 {
-  // Namen der Bedingungen (Gliederung 10.3). P8 ersetzt diese Kopie durch die Listen aus lib/anleitung-zustand.ts.
+  // Namen der Bedingungen (Gliederung 10.3) und das Ereignis, das der Kern nach dem erledigten Neustart selbst merkt (neustart:‹Schritt-ID›).
+  // P8 ersetzt diese Kopie durch die Listen aus lib/anleitung-zustand.ts und hängt das Neustart-Ereignis an die Ereignisliste an.
   const NAMEN_EINRICHTUNG = {
     zustaende: ['quelleVerbunden', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen', 'systemOffen',
       'verbundOffen', 'szenarienOffen', 'editorOffen', 'rolleAus', 'rolleMaster', 'rolleSlave', 'slaveGekoppelt', 'slaveVerbunden',
