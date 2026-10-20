@@ -304,7 +304,10 @@ function sollNach(c: Basis, e: AnleitungsEreignis): string {
         const alt = m.haupt;
         m.status = 'laeuft';
         m.einzeln = null;
-        if (vorher === 'pausiert' && alt !== null) setzeHaupt(alt.o);
+        // Fortsetzen (Regel 1): „Schon erledigt“, dessen Kapitel nicht mehr erledigt ist, betritt den ersten geltenden Schritt (Regel 11).
+        if (vorher === 'pausiert' && alt !== null && !KAP.every(fertigOderNicht)) {
+          setzeHaupt(schrittVon(alt.o) === '' && alt.o.includes(':') && kapZ(kapVon(alt.o)) !== 'erledigt' ? eintritt(KAP.indexOf(kapVon(alt.o))) : alt.o);
+        }
         else {
           const offen = KAP.find((k) => !fertigOderNicht(k));
           setzeHaupt(offen !== undefined ? `${offen}:${geltend(offen)[0]}` : kapZ('a') === 'erledigt' ? 'a:' : 'a:a.tun');
@@ -526,6 +529,35 @@ const S = 'jmps:anleitung:probe';
     } else if (f.status === 'laeuft') soll = { ...soll, status: 'pausiert' };
     return vergleiche(kurz(r.fortschritt), kurz(soll));
   });
+}
+
+// ── Fortsetzen führt den Ort nach dem Zustand jetzt nach (Regel 1, 11; Fix-Runde 1 zu P3) ──
+{
+  const A = TEST_ANLEITUNG;
+  const ort = (k: string, schritt: string | null) => ({ ort: 'kapitel' as const, kapitel: k, schritt, nurZeigen: false, warErfuellt: false });
+  // „Schon erledigt“ von k1, Später, Quelle fällt weg (zustand bewegt den pausierten Lauf nicht), Fortsetzen → erster Schritt statt Lüge.
+  let f = fortschritt({ status: 'laeuft', position: ort('k1', null) });
+  f = anleitungSchritt(A, f, { art: 'spaeter' }, { quelle: true }, JETZT);
+  f = anleitungSchritt(A, f, { art: 'zustand' }, {}, JETZT);
+  const still = ortText(f.position);
+  f = anleitungSchritt(A, f, { art: 'starten' }, {}, JETZT);
+  gleich([f.status, still, ortText(f.position)], ['laeuft', 'k1:', 'k1:k1.oeffnen'], 'P2 1/11: Fortsetzen auf „Schon erledigt“ ohne erledigtes Kapitel betritt den ersten geltenden Schritt');
+  // Gegenprobe: bleibt das Kapitel erledigt, bleibt „Schon erledigt“.
+  let g = fortschritt({ status: 'laeuft', position: ort('k1', null) });
+  g = anleitungSchritt(A, g, { art: 'spaeter' }, { quelle: true }, JETZT);
+  g = anleitungSchritt(A, g, { art: 'starten' }, { quelle: true }, JETZT);
+  gleich([g.status, ortText(g.position)], ['laeuft', 'k1:'], 'P2 1: Fortsetzen auf „Schon erledigt“ bei weiter erledigtem Kapitel bleibt dort');
+  // Der gemerkte Schritt gilt nicht mehr (Rolle Master → Slave): Fortsetzen geht zum nächsten geltenden Schritt.
+  let h = fortschritt({ status: 'laeuft', position: ort('k2', 'k2.master') });
+  h = anleitungSchritt(A, h, { art: 'spaeter' }, { rolleMaster: true }, JETZT);
+  h = anleitungSchritt(A, h, { art: 'zustand' }, { rolleSlave: true }, JETZT);
+  h = anleitungSchritt(A, h, { art: 'starten' }, { rolleSlave: true }, JETZT);
+  gleich([h.status, ortText(h.position)], ['laeuft', 'k2:k2.slave'], 'P2 1/11: Fortsetzen auf einem Schritt, der nicht mehr gilt, betritt den nächsten geltenden');
+  // Gegenprobe: gilt der Schritt weiter, bleibt er.
+  let i = fortschritt({ status: 'laeuft', position: ort('k2', 'k2.master') });
+  i = anleitungSchritt(A, i, { art: 'spaeter' }, { rolleMaster: true }, JETZT);
+  i = anleitungSchritt(A, i, { art: 'starten' }, { rolleMaster: true }, JETZT);
+  gleich([i.status, ortText(i.position)], ['laeuft', 'k2:k2.master'], 'P2 1: Fortsetzen auf einem weiter geltenden Schritt bleibt dort');
 }
 
 // ── Folgen aus der Einrichtung (Spec 3, 3.1, 4) ──

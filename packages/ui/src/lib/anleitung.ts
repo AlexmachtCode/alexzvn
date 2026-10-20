@@ -486,7 +486,14 @@ function wiederBetreten(l: Lage, p: AnleitungsPosition): AnleitungsPosition {
   if (p.ort !== 'kapitel') return p;
   const k = findeKapitel(l.a, p.kapitel);
   if (k === undefined) return p;
-  return kapitelOrt(l, k, p.schritt === null ? null : (k.schritte.find((s) => s.id === p.schritt) ?? null), false);
+  const s = p.schritt === null ? null : (k.schritte.find((x) => x.id === p.schritt) ?? null);
+  // Während der Pause bewegt `zustand` den Lauf nicht (AbwA3): Ort jetzt nach dem Zustand nachführen wie in nachZustand (Regel 11).
+  if (s === null) {
+    if (kapitelZustand(l.a, k.id, l.z, l.f) === 'erledigt') return kapitelOrt(l, k, null, false);
+    return eintritt(l, kapitelIndex(l.a, k.id)) ?? { ort: 'abschluss' };
+  }
+  const ort = kapitelOrt(l, k, s, false);
+  return gilt(l, s) ? ort : folgeHaupt(l, ort);
 }
 
 function allesErledigt(l: Lage): boolean {
@@ -552,7 +559,8 @@ export function anleitungSchritt(a: Anleitung, f0: AnleitungsFortschritt, e: Anl
       }
       const laufend: AnleitungsFortschritt = { ...f, status: 'laeuft', einzeln: null };
       const l = { a, z, f: laufend };
-      const ort = f.status === 'pausiert' && f.position !== null ? wiederBetreten(l, f.position) : ersterOffenerOrt(l);
+      // Fortsetzen nur, wo die Ansicht „fortsetzen“ anbietet (pausiert, nicht alles erledigt); sonst „starten“ = vorn beginnen (A3).
+      const ort = f.status === 'pausiert' && f.position !== null && !allesErledigt(l) ? wiederBetreten(l, f.position) : ersterOffenerOrt(l);
       return mitOrt(laufend, ort, a, jetzt);
     }
     case 'weiter':

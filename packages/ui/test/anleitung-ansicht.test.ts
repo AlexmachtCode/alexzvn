@@ -86,7 +86,9 @@ const K4 = kreuz({
   kz: ['offen', 'uebersprungen', 'nichtGebraucht', 'erledigt'],
 })
   .filter((c) => c.ort === 'schritt' || (c.art === 'erklaeren' && c.stelle === 'erster' && !c.nurZeigen && !c.war && !c.eingriff))
-  .filter((c) => c.lauf === 'haupt' || c.ort === 'schritt');
+  .filter((c) => c.lauf === 'haupt' || c.ort === 'schritt')
+  // „Schon erledigt“ gibt es nur bei erledigtem Kapitel; der Kern führt den Ort sonst nach (Regel 11, Fortsetzen).
+  .filter((c) => c.ort !== 'schonErledigt' || c.kz === 'erledigt');
 type K4Fall = (typeof K4)[number];
 
 const BLASEN = new WeakMap<K4Fall, BlasenAnsicht | null>();
@@ -185,7 +187,7 @@ function blaseVon(c: K4Fall): BlasenAnsicht | null {
     alles: ['nein', 'erledigt', 'gemischt'],
     einzeln: [false, true],
   });
-  const ansicht = (c: (typeof K4B)[number]): AnleitungsAnsicht => {
+  const bau = (c: (typeof K4B)[number]): { a: Anleitung; f: AnleitungsFortschritt; z: Record<string, boolean> } => {
     const a = probeFuer('erklaeren', false, 'erster');
     const position: AnleitungsPosition | null =
       c.ort === '-'
@@ -202,6 +204,10 @@ function blaseVon(c: K4Fall): BlasenAnsicht | null {
     };
     const z: Record<string, boolean> =
       c.alles === 'erledigt' ? { k1Fertig: true, kFertig: true, k3Fertig: true } : c.alles === 'gemischt' ? { k1Fertig: true, kFertig: true } : {};
+    return { a, f, z };
+  };
+  const ansicht = (c: (typeof K4B)[number]): AnleitungsAnsicht => {
+    const { a, f, z } = bau(c);
     return anleitungAnsicht(a, f, z, OHNE);
   };
   const fertig = (c: (typeof K4B)[number]): boolean => c.alles !== 'nein';
@@ -214,6 +220,16 @@ function blaseVon(c: K4Fall): BlasenAnsicht | null {
   pruefeFaelle('P3 K4b: hauptknopf fortsetzen genau dann, sonst starten', K4B, (c) =>
     vergleiche(ansicht(c).hauptknopf, pausiert(c) ? 'fortsetzen' : 'starten'),
   );
+  // Der Knopf sagt, was starten tut: fortsetzen = am gemerkten Ort weiter, starten = vorn beginnen (erstes offenes Kapitel, sonst Kapitel 1).
+  pruefeFaelle('P3 K4b: hauptknopf × Wirkung von starten (fortsetzen setzt fort, starten beginnt vorn)', K4B, (c) => {
+    const { a, f, z } = bau(c);
+    const knopf = anleitungAnsicht(a, f, z, OHNE).hauptknopf;
+    const p = anleitungSchritt(a, f, { art: 'starten' }, z, JETZT).position;
+    const ist = p === null ? '-' : p.ort !== 'kapitel' ? p.ort : `${p.kapitel}:${p.schritt ?? ''}`;
+    const vorn = fertig(c) ? 'k1:' : 'k1:k1.a';
+    const gemerkt = c.ort === '-' ? vorn : c.ort.startsWith('k') ? `${c.ort}:${c.ort === 'k2' ? 'k2.ziel' : `${c.ort}.a`}` : c.ort;
+    return vergleiche(`${knopf} ${ist}`, pausiert(c) ? `fortsetzen ${gemerkt}` : `starten ${vorn}`);
+  });
   pruefeFaelle('P3 K4b: abgeschlossen genau bei jedem Kapitel erledigt oder nicht gebraucht, nie nur wegen des Status (Spec 2, 4)', K4B, (c) =>
     vergleiche(String(ansicht(c).abgeschlossen), String(fertig(c))),
   );
