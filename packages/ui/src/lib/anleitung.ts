@@ -697,4 +697,147 @@ export function schreibeFortschritt(s: AnleitungSpeicher | null, schluessel: str
   }
 }
 
+// ── Ansicht (P3): was Sprechblase, Kapitelübersicht und Knopf zeigen (Gliederung 11 A1–A6, G7) ──
+
+export interface AnleitungsUmgebung {
+  /** Läuft auf diesem Rechner eine Produktion (EP17)? Dann Stimme aus und Eingriffe nur zeigen (Spec 7). */
+  produktion: boolean;
+  /** vorhanden: Fassung mit Ansagen; an: je Rechner gemerkt; trotzdem: „Stimme trotzdem an“ für diese Sitzung. */
+  stimme: { vorhanden: boolean; an: boolean; trotzdem: boolean };
+}
+export interface KapitelZeile {
+  id: string;
+  nummer: number;
+  titel: string;
+  kurz: string;
+  zustand: KapitelZustand;
+  zeigMir: boolean;
+  brauchtNicht: boolean;
+  dochGebraucht: boolean;
+}
+export interface BlasenAnsicht {
+  art: 'einleitung' | 'rueckfrage' | 'abschluss' | 'schonErledigt' | SchrittArt;
+  kapitel: { id: string; titel: string } | null;
+  /** n = Nummer des Kapitels, m = Zahl der Kapitel (EP3); null außerhalb der Kapitel. */
+  zaehler: { n: number; m: number } | null;
+  text: string;
+  ziel: string | null;
+  zielFehlt: string | null;
+  wiederfinden: string | null;
+  nurZeigen: boolean;
+  produktionsWarnung: boolean;
+  wartetAufNeustart: boolean;
+  knoepfe: {
+    zurueck: boolean;
+    weiter: boolean;
+    ueberspringen: boolean;
+    spaeter: boolean;
+    brauchtNicht: boolean;
+    anleitungUeberspringen: boolean;
+    jaUeberspringen: boolean;
+  };
+  optionen: readonly AnleitungsOption[];
+  /** hinweis 'eingriff': Schritt mit eingriff in der Produktion, nie gesprochen (Spec 7: nur zeigen, nicht auffordern). */
+  ansage: { id: string; spielen: boolean; hinweis: 'produktion' | 'eingriff' | 'keineStimme' | 'aus' | null };
+}
+export interface AnleitungsAnsicht {
+  /** null = keine Sprechblase. */
+  blase: BlasenAnsicht | null;
+  kapitel: KapitelZeile[];
+  /** Nur bei 'pausiert' und nicht alles erledigt („‹Titel› fortsetzen · Schritt ‹n› von ‹m›“). */
+  fortsetzen: { n: number; m: number } | null;
+  hauptknopf: 'starten' | 'fortsetzen';
+  /** Titel der Anleitung (Anleitung.titel); die Texte U11, U12 und U34 bilden sich daraus (Spec 2: jedes Tool). */
+  titel: string;
+  /** Jedes Kapitel erledigt oder nicht gebraucht („‹Titel› abgeschlossen“). */
+  abgeschlossen: boolean;
+  /** Beendet („Ja, überspringen“, „Anleitung beenden“), aber nicht alles erledigt: nie „abgeschlossen“ behaupten (G7). */
+  beendet: boolean;
+}
+
+function blasenAnsicht(
+  a: Anleitung,
+  f: AnleitungsFortschritt,
+  z: Zustand,
+  u: AnleitungsUmgebung,
+  p: AnleitungsPosition,
+  einzeln: boolean,
+): BlasenAnsicht | null {
+  const ki = p.ort === 'kapitel' ? kapitelIndex(a, p.kapitel) : -1;
+  const k = ki >= 0 ? a.kapitel[ki] : undefined;
+  const s = schrittVon(a, p);
+  if (p.ort === 'kapitel' && (k === undefined || (p.schritt !== null && s === undefined))) return null;
+  const zeigtEingriff = (x: AnleitungsSchritt): boolean => u.produktion && x.eingriff === true;
+  const eingriffJetzt = s !== undefined && zeigtEingriff(s);
+  const zk = k === undefined ? 'offen' : kapitelZustand(a, k.id, z, f);
+  return {
+    art: p.ort !== 'kapitel' ? p.ort : s === undefined ? 'schonErledigt' : s.art,
+    kapitel: k === undefined ? null : { id: k.id, titel: k.titel },
+    zaehler: k === undefined ? null : { n: ki + 1, m: a.kapitel.length },
+    text: s !== undefined ? s.text : (k?.erledigt ?? ''),
+    ziel: s?.ziel ?? null,
+    zielFehlt: s?.zielFehlt ?? null,
+    wiederfinden: s?.ueberspringenHinweis === true ? a.wiederfinden : null,
+    nurZeigen: p.ort === 'kapitel' && (p.nurZeigen || (s !== undefined && zeigtEingriff(s))),
+    produktionsWarnung: s !== undefined && zeigtEingriff(s),
+    wartetAufNeustart: s !== undefined && s.art === 'neustart' && f.neustart !== null && f.neustart.schritt === s.id,
+    knoepfe: {
+      zurueck: vorOrt({ a, z, f }, p, einzeln) !== null,
+      weiter: weiterDa(a, p, zeigtEingriff),
+      ueberspringen: p.ort === 'kapitel',
+      spaeter: p.ort !== 'rueckfrage',
+      brauchtNicht: k !== undefined && k.brauchtNicht && zk !== 'erledigt' && zk !== 'nichtGebraucht',
+      anleitungUeberspringen: p.ort === 'einleitung',
+      jaUeberspringen: p.ort === 'rueckfrage',
+    },
+    optionen: s !== undefined && s.art === 'entscheiden' ? (s.optionen ?? []) : [],
+    ansage: {
+      id: s !== undefined ? s.id : `${k?.id}.erledigt`,
+      spielen: u.stimme.vorhanden && u.stimme.an && (!u.produktion || u.stimme.trotzdem) && !eingriffJetzt,
+      hinweis: !u.stimme.vorhanden ? 'keineStimme' : !u.stimme.an ? 'aus' : eingriffJetzt ? 'eingriff' : u.produktion && !u.stimme.trotzdem ? 'produktion' : null,
+    },
+  };
+}
+
+/** Kapitelnummer zum Fortsetzen: Einleitung, Rückfrage und kein Ort → 1, Abschluss → letztes Kapitel. */
+function fortsetzenNummer(a: Anleitung, p: AnleitungsPosition | null): number {
+  if (p === null || p.ort === 'einleitung' || p.ort === 'rueckfrage') return 1;
+  if (p.ort === 'abschluss') return a.kapitel.length;
+  return Math.max(kapitelIndex(a, p.kapitel), 0) + 1;
+}
+
+/**
+ * Was zu zeigen ist (rein, A1–A6): Sprechblase nur bei „Zeig mir“ oder laufendem Hauptlauf, Kapitelzeilen mit Haken
+ * genau bei erfüllter Bedingung, Fortsetzen nur pausiert und nicht alles erledigt, „abgeschlossen“ nur, wenn alles erledigt
+ * ist (sonst nach dem Beenden „beendet“). Jede Anzeige stimmt in jedem Zustand (G7); das Kreuzprodukt im Test hält das fest.
+ */
+export function anleitungAnsicht(a: Anleitung, f0: AnleitungsFortschritt, z: Zustand, u: AnleitungsUmgebung): AnleitungsAnsicht {
+  const f: AnleitungsFortschritt = { ...f0, position: gueltigerOrt({ a, z, f: f0 }, f0.position), einzeln: gueltigesEinzeln(a, f0.einzeln) };
+  const kapitel = a.kapitel.map((k, i): KapitelZeile => {
+    const zustand = kapitelZustand(a, k.id, z, f);
+    return {
+      id: k.id,
+      nummer: i + 1,
+      titel: k.titel,
+      kurz: k.kurz,
+      zustand,
+      zeigMir: true,
+      brauchtNicht: k.brauchtNicht && zustand !== 'erledigt' && zustand !== 'nichtGebraucht',
+      dochGebraucht: zustand === 'nichtGebraucht',
+    };
+  });
+  const alles = kapitel.every((r) => r.zustand === 'erledigt' || r.zustand === 'nichtGebraucht');
+  const blase = aktiveBlase(f);
+  const pausiert = f.status === 'pausiert' && !alles;
+  return {
+    blase: blase === null ? null : blasenAnsicht(a, f, z, u, blase.p, blase.art === 'einzeln'),
+    kapitel,
+    fortsetzen: pausiert ? { n: fortsetzenNummer(a, f.position), m: a.kapitel.length } : null,
+    hauptknopf: pausiert ? 'fortsetzen' : 'starten',
+    titel: a.titel,
+    abgeschlossen: alles,
+    beendet: f.status === 'abgeschlossen' && !alles,
+  };
+}
+
 // ── Ende des Moduls ──

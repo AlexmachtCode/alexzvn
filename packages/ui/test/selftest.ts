@@ -27,4 +27,5 @@ import './master-link.test';
 import './bruecke.test';
 import './anleitung-format.test';
 import './anleitung-ablauf.test';
+import './anleitung-ansicht.test';
 abschluss();

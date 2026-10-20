@@ -34,3 +34,5 @@ export { ANLEITUNG_FORMAT, ID_MUSTER, ZIEL_MUSTER, bedingungErfuellt, geltendeSc
 export type { Bedingung, SchrittArt, AnleitungsOption, AnleitungsSchritt, AnleitungsKapitel, Anleitung, Zustand, NamensListen, KapitelZustand, AnleitungsStatus, AnleitungsPosition, KapitelPosition, AnleitungsFortschritt } from './lib/anleitung';
 export { anleitungSchritt, beimStart, leseFortschritt, schreibeFortschritt } from './lib/anleitung';
 export type { AnleitungsEreignis, AnleitungSpeicher, SpeicherZustand, GelesenerFortschritt, StartErgebnis } from './lib/anleitung';
+export { anleitungAnsicht } from './lib/anleitung';
+export type { AnleitungsUmgebung, KapitelZeile, BlasenAnsicht, AnleitungsAnsicht } from './lib/anleitung';
