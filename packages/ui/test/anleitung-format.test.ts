@@ -147,6 +147,12 @@ export function fortschritt(teil: Partial<AnleitungsFortschritt> = {}): Anleitun
     };
     return vergleiche(String(bedingungErfuellt(FORMEN[c.form], z, f)), String(soll[c.form]));
   });
+  // Typebene (Spec 7, stiller Bruch): eine Bedingung hat genau EINE Form, zwei Formen in einem Objekt sind ein Typfehler.
+  // @ts-expect-error zwei Formen in einem Objekt
+  const zweiFormen: Bedingung = { zustand: 'quelle', ereignis: 'tippfehler' };
+  // @ts-expect-error Form neben verschachtelter Form
+  const gemischt: Bedingung = { nicht: { zustand: 'x' }, alle: [] };
+  ok(Object.keys(zweiFormen).length === 2 && Object.keys(gemischt).length === 2, 'P1 7: Bedingung mit zwei Formen ist ein Typfehler (@ts-expect-error)');
   const leer = fortschritt();
   gleich(
     [

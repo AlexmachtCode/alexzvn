@@ -14,12 +14,12 @@ export const ZIEL_MUSTER: RegExp = /^[a-z0-9]+(\.[a-z0-9-]+)+$/;
 
 /** „erledigt, wenn“ bzw. „gilt nur, wenn“ (EP2): ein fehlender Name ist nie erfüllt. */
 export type Bedingung =
-  | { zustand: string }
-  | { ereignis: string }
-  | { entscheidung: string }
-  | { alle: readonly Bedingung[] }
-  | { eineVon: readonly Bedingung[] }
-  | { nicht: Bedingung };
+  | { zustand: string; ereignis?: never; entscheidung?: never; alle?: never; eineVon?: never; nicht?: never }
+  | { ereignis: string; zustand?: never; entscheidung?: never; alle?: never; eineVon?: never; nicht?: never }
+  | { entscheidung: string; zustand?: never; ereignis?: never; alle?: never; eineVon?: never; nicht?: never }
+  | { alle: readonly Bedingung[]; zustand?: never; ereignis?: never; entscheidung?: never; eineVon?: never; nicht?: never }
+  | { eineVon: readonly Bedingung[]; zustand?: never; ereignis?: never; entscheidung?: never; alle?: never; nicht?: never }
+  | { nicht: Bedingung; zustand?: never; ereignis?: never; entscheidung?: never; alle?: never; eineVon?: never };
 export type SchrittArt = 'erklaeren' | 'handeln' | 'entscheiden' | 'neustart';
 /** Knopf eines Entscheidungs-Schritts; ohne `entscheidung` wirkt er wie „Weiter“. */
 export interface AnleitungsOption {
@@ -105,12 +105,12 @@ const hat = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.c
 
 /** Wertet eine Bedingung aus: Zustand live, Ereignis und Entscheidung aus dem Fortschritt; fehlender Name = false. */
 export function bedingungErfuellt(b: Bedingung, z: Zustand, f: AnleitungsFortschritt): boolean {
-  if ('zustand' in b) return hat(z, b.zustand) && z[b.zustand] === true;
-  if ('ereignis' in b) return hat(f.ereignisse, b.ereignis);
-  if ('entscheidung' in b) return hat(f.entscheidungen, b.entscheidung);
-  if ('alle' in b) return b.alle.every((t) => bedingungErfuellt(t, z, f));
-  if ('eineVon' in b) return b.eineVon.some((t) => bedingungErfuellt(t, z, f));
-  if ('nicht' in b) return !bedingungErfuellt(b.nicht, z, f);
+  if (b.zustand !== undefined) return hat(z, b.zustand) && z[b.zustand] === true;
+  if (b.ereignis !== undefined) return hat(f.ereignisse, b.ereignis);
+  if (b.entscheidung !== undefined) return hat(f.entscheidungen, b.entscheidung);
+  if (b.alle !== undefined) return b.alle.every((t) => bedingungErfuellt(t, z, f));
+  if (b.eineVon !== undefined) return b.eineVon.some((t) => bedingungErfuellt(t, z, f));
+  if (b.nicht !== undefined) return !bedingungErfuellt(b.nicht, z, f);
   return false;
 }
 
@@ -150,17 +150,17 @@ export function pruefeAnleitung(a: Anleitung, n: NamensListen): string[] {
   };
   const namen = (b: Bedingung | undefined, ort: string): void => {
     if (b === undefined) return;
-    if ('zustand' in b) {
+    if (b.zustand !== undefined) {
       if (!n.zustaende.includes(b.zustand)) befunde.push(`unbekannter Zustand: ${b.zustand} (${ort})`);
-    } else if ('ereignis' in b) {
+    } else if (b.ereignis !== undefined) {
       if (!n.ereignisse.includes(b.ereignis)) befunde.push(`unbekanntes Ereignis: ${b.ereignis} (${ort})`);
-    } else if ('entscheidung' in b) {
+    } else if (b.entscheidung !== undefined) {
       if (!n.entscheidungen.includes(b.entscheidung)) befunde.push(`unbekannte Entscheidung: ${b.entscheidung} (${ort})`);
-    } else if ('alle' in b) {
+    } else if (b.alle !== undefined) {
       for (const t of b.alle) namen(t, ort);
-    } else if ('eineVon' in b) {
+    } else if (b.eineVon !== undefined) {
       for (const t of b.eineVon) namen(t, ort);
-    } else if ('nicht' in b) {
+    } else if (b.nicht !== undefined) {
       namen(b.nicht, ort);
     }
   };
