@@ -1,1 +1,14 @@
-{}
+{
+  "editor": {
+    "0.5.0": {
+      "arm64": {
+        "ffmpeg": "a90e3db6a3fd35f6074b013f948b1aa45b31c6375489d39e572bea3f18336584",
+        "ffprobe": "5b592e56f87ff754d94dadf99f38b4d0fb7d463eb780b50e0ca061d668d0e3f7"
+      },
+      "x64": {
+        "ffmpeg": "ebdddc936f61e14049a2d4b549a412b8a40deeff6540e58a9f2a2da9e6b18894",
+        "ffprobe": "90fddf93d25a520bbda09e02f1f53a91f04acd1ef9b79e6dc602dc4dc6951f67"
+      }
+    }
+  }
+}

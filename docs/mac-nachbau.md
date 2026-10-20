@@ -29,6 +29,11 @@ verlangte dort einen GPL-Volltext und brach darum jeden Lauf ab. Der Owner hat e
   Probelauf nach. Bis dahin steht dort „FFmpeg 6.1.1“. Die README für Intel (JSON von evermeet.cx im Release b6.1.1)
   zeigt aber auf FFmpeg 8.0. Welche Fassung im Paket steckt, belegt erst der Probelauf: Die Laufzeitprobe des Prüfers
   druckt die erste Zeile von `ffmpeg -version`.
+  **Erledigt mit dem Probelauf 39406442289 (20.10.2026):** Intel FFmpeg 6.1.1 (evermeet.cx, `6.1.1-tessus`), Apple
+  Silicon FFmpeg 6.0 (osxexperts.net), ffprobe Intel 4.0.2. Der Hinweis nennt jetzt diese Fassungen und je den
+  Quelltext auf ffmpeg.org/releases; der Lesestand trägt die gemessenen SHA-256. Warnung aus demselben Lauf: Das ffmpeg
+  im Apple-Silicon-Paket verlangt macOS 12 (minos 12.0), das App-Programm macOS 11; auf einem Apple-Silicon-Mac mit
+  macOS 11 startet der Editor, der Medien-Import aber nicht.
 
 ## Ablauf: drei Schritte, jeder nur mit Owner-OK
 
