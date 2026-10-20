@@ -1,7 +1,9 @@
 // Statischer Test für .github/workflows/mac-nachbau.yml (Mac-Nachbau, Entwurf mac-fassungen Stufe 1): nur Hand-Start,
 // Rechte je Job, kein actions/checkout im Bau, Hochlade-Job ohne Code aus dem Repo, Eingaben nur über env, erlaubte Apps
 // wie im Prüfer, feste Runner, x64 vor arm64, Beilagen-Namen wie im Sammler; dazu (R18–R21) der Prüfer im echten Lauf
-// ohne --probe, kein Secret im Bau, die Konfiguration aus dem Tag nur geprüft und die Tag-Prüfung über den ganzen Text.
+// ohne --probe, kein Secret im Bau, die Konfiguration aus dem Tag nur geprüft und die Tag-Prüfung über den ganzen Text;
+// (R22–R26) ein Fehler von Prüfer oder Sammler beendet den Job, ein Secret nur für gh im Hochlade-Schritt, die
+// Freigabeliste in beiden Jobs, und jede Prüfung im Skript bricht ab. R13 ist eine Positivliste der Befehle im Hochlade-Job.
 // Ohne js-yaml: Der Worktree hat kein node_modules, js-yaml liegt nur transitiv im Lockfile (electron-builder, astro),
 // und der Test soll überall ohne npm ci laufen. Die Regeln lesen diese eine, von uns geschriebene Datei zeilenweise (Kommentarzeilen zählen nicht, CRLF egal).
 // Jede Regel hat eine Gegenprobe: dieselbe Datei mit einem absichtlichen Fehler muss genau diesen Fehler melden.
@@ -32,17 +34,67 @@ function unter(zeilen, i, ab = tiefe(zeilen[i])) {
   return aus;
 }
 const werte = (zeilen) => zeilen.map((z) => z.trim()).filter((z) => z !== '');
-/** Inhalt aller run:-Schlüssel (Block mit | oder einzeilig). */
+/** Inhalt aller run:-Schlüssel. Beginnt der Wert mit | oder >, ist er ein Block (|, |-, |+, >-, |2 …; ein einfacher
+ *  YAML-Wert darf so nicht beginnen). Sonst zählen die tiefer eingerückten Folgezeilen mit: Auch ein einfacher oder
+ *  angeführter Wert darf über mehrere Zeilen gehen. */
 function runs(zeilen) {
   const aus = [];
   zeilen.forEach((z, i) => {
     const m = /^(\s*)(- )?run:\s*(.*)$/.exec(z);
     if (!m) return;
-    if (m[3] !== '|' && m[3] !== '>') aus.push(m[3]);
-    else aus.push(unter(zeilen, i, m[1].length + (m[2] ? 2 : 0)).join('\n'));
+    const folge = unter(zeilen, i, m[1].length + (m[2] ? 2 : 0));
+    aus.push((/^[|>]/.test(m[3]) ? folge : [m[3], ...folge]).join('\n'));
   });
   return aus;
 }
+/** Zeilen ohne Einrückung und ohne Leerzeilen, für Vergleiche über mehrere Zeilen. */
+const trimmt = (t) => t.split('\n').map((z) => z.trim()).filter((z) => z !== '').join('\n');
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Steht `block` (eine oder mehrere ganze Zeilen) im getrimmten Text? */
+const steht = (t, block) => new RegExp(`^${esc(block)}$`, 'm').test(trimmt(t));
+/** Wie oft auf `kopf` (eine oder mehrere Zeilen) eine ::error::-Meldung, exit 1 und fi folgen: eine Prüfung, die abbricht. */
+function abbrueche(t, kopf) {
+  return (trimmt(t).match(new RegExp(`^${esc(kopf)}\\necho "::error::[^\\n]*"\\nexit 1\\nfi$`, 'gm')) ?? []).length;
+}
+/** Befehle eines bash-Skripts, grob gelesen: Anführungstexte werden zu Q, Feld-Zuweisungen zu name=. Dann beginnt an
+ *  jeder Befehlsstelle (Zeilenanfang, nach ; && || | &, nach if/then/else/elif/do/while/until, ! { ( und einem
+ *  case-Muster) ein Stück, dessen Anfang der Befehl ist. $( ), Backticks und <( >( verbietet R13 vorher ganz. */
+function befehle(skript) {
+  let t = '';
+  for (let i = 0; i < skript.length; i++) {
+    const c = skript[i];
+    if (c === "'") {
+      const e = skript.indexOf("'", i + 1);
+      i = e < 0 ? skript.length : e;
+      t += 'Q';
+    } else if (c === '"') {
+      let k = i + 1;
+      while (k < skript.length && skript[k] !== '"') k += skript[k] === '\\' ? 2 : 1;
+      i = k;
+      t += 'Q';
+    } else if (c === '\\') {
+      t += skript[i + 1] === '\n' ? ' ' : 'Q';
+      i++;
+    } else t += c;
+  }
+  t = t.replace(/\b([A-Za-z_]\w*)=\([^)]*\)/g, '$1=').replace(/[<>]&/g, '>');
+  const aus = [];
+  for (let s of t.split(/\n|;|&&|\|\||[|&]/)) {
+    let alt;
+    do {
+      alt = s;
+      s = s.trim().replace(/^(?:(?:if|then|else|elif|do|while|until)(?=\s|$)|[!{(]|[^\s()]*\))/, '');
+    } while (s !== alt);
+    if (s) aus.push(s);
+  }
+  return aus;
+}
+/** Was im Hochlade-Skript als Befehl stehen darf; alles andere (bash, sh, source, eval, curl, node, PATH=…) ist fremd. */
+const HOCH_BEFEHLE = [/^set -euo pipefail$/, /^shopt -s nullglob$/, /^echo /, /^exit 1$/, /^\[ .* \]$/, /^\[\[ .* \]\]$/,
+  /^cmp -s \S+ \S+$/, /^for [a-z_]+ in( \S+)+$/, /^case \S+ in$/, /^(fi|done|esac|\})$/, /^[a-z_][a-z0-9_]*=\S*$/,
+  /^gh release (view|upload) /];
+/** Verweis auf ein Secret oder das Token, auch in Klammer-Schreibweise. */
+const GEHEIM = /\bsecrets\b|\bgithub\s*(?:\.|\[\s*['"])\s*token\b/i;
 
 /** Alle Regelverstöße einer Workflow-Datei. */
 function pruefeWorkflow(text) {
@@ -106,9 +158,12 @@ function pruefeWorkflow(text) {
   if (!hoch.includes('    needs: bau') || !hoch.includes('    if: ${{ inputs.probe == false }}')) fehler.push('R11 hochladen: needs bau und nur bei probe=false');
   if (rechte('hochladen') !== 'contents: write') fehler.push('R12 hochladen: Rechte contents: write');
   const uses = hoch.filter((z) => /^\s*(- )?uses:/.test(z)).map((z) => z.trim().replace(/^- /, ''));
+  // Positivliste: Dieser Job hat das Schreibrecht, und das Artefakt kommt aus einem Job, in dem fremder Code aus npm ci lief.
+  const fremd = befehle(hochRuns).filter((b) => !HOCH_BEFEHLE.some((r) => r.test(b)));
   if (uses.some((u) => u !== 'uses: actions/download-artifact@v4') || uses.length !== 2
-    || /\b(npm|npx|node|git)\b|werkzeug|\.\/|\.mjs/.test(hochRuns)) {
-    fehler.push('R13 hochladen: kein Code aus dem Repo (nur download-artifact und gh, kein git/npm/node)');
+    || /\b(npm|npx|node|git)\b|werkzeug|\.\/|\.mjs/.test(hochRuns) || /\$\(|`|[<>]\(/.test(hochRuns) || fremd.length) {
+    fehler.push('R13 hochladen: kein Code aus dem Repo oder dem Artefakt (nur download-artifact; Befehle nur set, shopt, echo, '
+      + `exit 1, [ ], [[ ]], cmp, for, case, Zuweisungen und gh release view/upload)${fremd.length ? `, fremd: ${fremd.join(' | ')}` : ''}`);
   }
   const uploads = hochRuns.split('\n').filter((z) => z.includes('gh release upload')).map((z) => z.trim());
   const upload = (was) => `gh release upload "$TAG" ${was} --repo "$GITHUB_REPOSITORY" --clobber`;
@@ -119,7 +174,10 @@ function pruefeWorkflow(text) {
   if (!namen.every((n) => hochRuns.includes(n)) || !hochRuns.includes(`pakete/x64/${beilagenNamen('x64').quellen}`)) {
     fehler.push('R15 hochladen: Beilagen-Namen wie beilagenNamen() im Sammler');
   }
-  if (!hochRuns.includes('gh release view') || /gh release (create|edit|delete)/.test(zeilen.join('\n'))) fehler.push('R16 Release muss existieren, nie anlegen');
+  const releaseDa = 'if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then\necho "Release $TAG gefunden."\nelse';
+  if (abbrueche(hochRuns, releaseDa) !== 1 || /\bgh\s+(api|release\s+(create|edit|delete))\b/.test(zeilen.join('\n'))) {
+    fehler.push('R16 Release muss existieren, sonst Abbruch; nie anlegen (kein gh release create/edit/delete, kein gh api)');
+  }
 
   const eingabeZeilen = zeilen.filter((z) => z.includes('inputs.'));
   const erlaubt = (z) => /^\s+[A-Z][A-Z0-9_]*: \$\{\{ inputs\.(tag|probe) \}\}$/.test(z) || z === '    if: ${{ inputs.probe == false }}';
@@ -131,27 +189,76 @@ function pruefeWorkflow(text) {
     || !bauRuns.includes('--lesestand werkzeug/scripts/ci/mac-nachbau-lesestand.json "$@"')) {
     fehler.push('R18 bau: Prüfer mit --probe nur bei probe=true, Lesestand aus werkzeug/');
   }
-  if (/\bsecrets\.|github\.token/.test(bauText)) fehler.push('R19 bau: kein Secret und kein Token (dort läuft fremder Code aus npm ci)');
-  const konfig = ['grep -q \'^electronVersion:\' "$cfg" ||', 'grep -q \'^npmRebuild: false\' "$cfg" ||', 'git diff --exit-code -- "$cfg"'];
-  if (!konfig.every((k) => bauRuns.includes(k))) fehler.push('R20 bau: Konfiguration aus dem Tag wird geprüft (electronVersion, npmRebuild: false, unverändert), nicht ergänzt');
+  if (bau.some((z) => GEHEIM.test(z))) fehler.push('R19 bau: kein Secret und kein Token (dort läuft fremder Code aus npm ci)');
+  const bauT = trimmt(bauRuns);
+  const konfig = [/^cfg="apps\/\$APP\/electron-builder\.yml"$/m, /^grep -q '\^electronVersion:' "\$cfg" \|\| \{ echo "::error::[^"\n]*"; exit 1; \}$/m,
+    /^grep -q '\^npmRebuild: false' "\$cfg" \|\| \{ echo "::error::[^"\n]*"; exit 1; \}$/m, /^git diff --exit-code -- "\$cfg"$/m];
+  if (!konfig.every((k) => k.test(bauT))) {
+    fehler.push('R20 bau: Konfiguration aus dem Tag wird geprüft (electronVersion, npmRebuild: false, unverändert), sonst Abbruch; nicht ergänzt');
+  }
   // grep prüft zeilenweise: Ein Tag mit Zeilenumbruch bestand die Prüfung, und eine zweite Zeile app=… landete in
   // $GITHUB_OUTPUT (am Skript gemessen 20.10.2026; ob die API so ein Tag annimmt, ist ungeprüft). [[ =~ ]] prüft den
-  // ganzen Text, in beiden Jobs.
+  // ganzen Text, in jedem der beiden Jobs genau einmal, und bricht ab. Wer sie durch grep ersetzt, verliert den Block.
   const alleRuns = runs(zeilen).join('\n');
-  const zaehle = (s) => alleRuns.split(s).length - 1;
-  if (zaehle("muster='^[a-z][a-z-]*-v[0-9]+\\.[0-9]+\\.[0-9]+$'") !== 2 || zaehle('if [[ ! "$TAG" =~ $muster ]]; then') !== 2
-    || /\$TAG"?\s*\|\s*grep/.test(alleRuns)) {
-    fehler.push('R21 Tag-Prüfung über den ganzen Text ([[ =~ ]]) in bau und hochladen, nie zeilenweise per grep');
+  const tagPruefung = "muster='^[a-z][a-z-]*-v[0-9]+\\.[0-9]+\\.[0-9]+$'\nif [[ ! \"$TAG\" =~ $muster ]]; then";
+  if (abbrueche(bauRuns, tagPruefung) !== 1 || abbrueche(hochRuns, tagPruefung) !== 1) {
+    fehler.push('R21 Tag-Prüfung über den ganzen Text ([[ =~ ]], nicht zeilenweise per grep) in bau und hochladen, je einmal und mit Abbruch');
+  }
+  // Ein Fehler von Prüfer oder Sammler muss den Bau-Job beenden: Sonst entsteht das Artefakt, und hochladen hängt ein
+  // ungeprüftes Paket an (Prüfung Task 3, Runde 1, W1). shell: bash heißt bei GitHub bash -eo pipefail; ein || ist nur
+  // als zweite Bedingung oder mit Abbruch erlaubt; kein Schritt im Bau wird übersprungen.
+  const zeilenMit = (s) => bauT.split('\n').filter((z) => z.includes(s));
+  const aufruf = (skript, letzte, ende) => {
+    const a = zeilenMit(`werkzeug/scripts/ci/${skript}`);
+    const e = zeilenMit(letzte);
+    return a.length === 1 && a[0].startsWith(`node werkzeug/scripts/ci/${skript} `) && e.length === 1 && e[0].endsWith(ende);
+  };
+  const shells = werte(zeilen.filter((z) => /^\s*(- )?shell:/.test(z))).map((z) => z.replace(/^- /, ''));
+  if (zeilen.some((z) => z.includes('continue-on-error')) || /(^|[\s;])set\s+\+/m.test(alleRuns)
+    || /\|\|(?!\s*(?:\[ |\{ echo "::error::[^"\n]*"; exit 1; \}))/.test(alleRuns) || shells.some((s) => s !== 'shell: bash')
+    || bau.some((z) => /^\s*(- )?if:/.test(z)) || !aufruf('pruefe-mac-nachbau.mjs', '--lesestand werkzeug/', '"$@"')
+    || !aufruf('sammle-ffmpeg-beilagen.mjs', '--ziel ', '--ziel paket')) {
+    fehler.push('R22 bau: Fehler von Prüfer und Sammler beenden den Job (kein continue-on-error, kein set +, kein || ohne Abbruch, '
+      + 'nur shell: bash, kein if: im Bau, Aufrufe beginnen mit node und enden auf "$@" bzw. --ziel paket)');
+  }
+  // Das einzige Secret ist das Token für gh im Hochlade-Schritt. Ein Secret im obersten env erreichte auch npm ci im Bau.
+  const tokenZeile = '          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}';
+  if (zeilen.filter((z) => GEHEIM.test(z)).join('\n') !== tokenZeile || !hoch.includes(tokenZeile)
+    || werte(oben('env')).some((z) => !z.startsWith('ERLAUBTE_APPS:'))) {
+    fehler.push('R23 Secret nur als GH_TOKEN im Hochlade-Schritt, oberstes env nur ERLAUBTE_APPS');
+  }
+  const freigabe = (t) => (trimmt(t).match(new RegExp('^app="\\$\\{TAG%-v\\*\\}"\\n(?:version="\\$\\{TAG##\\*-v\\}"\\n)?'
+    + 'case " \\$ERLAUBTE_APPS " in\\n\\*" \\$app "\\*\\) ;;\\n\\*\\) echo "::error::App „\\$app“ ist für den Nachbau nicht freigegeben'
+    + '[^"\\n]*"; exit 1 ;;\\nesac$', 'gm')) ?? []).length;
+  if (freigabe(bauRuns) !== 1 || freigabe(hochRuns) !== 1) fehler.push('R24 Freigabeliste ERLAUBTE_APPS in bau und hochladen geprüft, sonst Abbruch');
+  const mengen = 'shopt -s nullglob\nfor art in x64 arm64; do\ndmgs=(pakete/$art/*.dmg)\nalle=(pakete/$art/*)\n'
+    + 'if [ ${#dmgs[@]} -ne 1 ] || [ ${#alle[@]} -ne 4 ]; then';
+  const dmgName = /^case "\$\{dmgs\[0\]\}" in\n\*"-\$version-mac-\$art\.dmg"\) ;;\n\*\) echo "::error::[^\n]*"; exit 1 ;;\nesac$/m;
+  const beilage = 'for f in "${beilagen[@]}"; do\nif [ ! -s "$f" ]; then echo "::error::Beilage fehlt oder ist leer: $f"; exit 1; fi\ndone';
+  if (abbrueche(hochRuns, mengen) !== 1 || !dmgName.test(trimmt(hochRuns)) || !steht(hochRuns, beilage)
+    || abbrueche(hochRuns, 'if ! cmp -s pakete/x64/ffmpeg-QUELLEN.txt pakete/arm64/ffmpeg-QUELLEN.txt; then') !== 1) {
+    fehler.push('R25 hochladen: je Art ein DMG und vier Dateien, DMG-Name mit Version und Art, Beilagen nicht leer, '
+      + 'gleicher Quellen-Hinweis, sonst Abbruch');
+  }
+  if (!steht(bauRuns, "ist=$(node -p 'process.arch')") || abbrueche(bauRuns, 'if [ "$ist" != "$ART" ]; then') !== 1
+    || abbrueche(bauRuns, 'ist=$(node -p "require(\'./apps/\' + process.env.APP + \'/package.json\').version")\nif [ "$ist" != "$VERSION" ]; then') !== 1) {
+    fehler.push('R26 bau: Runner-Art (Node = Job-Art) und Version im Tag geprüft, sonst Abbruch');
   }
   return fehler;
 }
 
-/** Die Datei mit genau einer absichtlichen Änderung; null, wenn die Stelle nicht (genau einmal) vorkommt. */
-function mutiere(alt, neu) {
-  return original.split(alt).length === 2 ? original.replace(alt, neu) : null;
+/** Die Datei mit absichtlichen Änderungen [alt, neu]; null, wenn eine Stelle nicht genau einmal vorkommt. */
+function mutiere(paare) {
+  let text = original;
+  for (const [alt, neu] of paare) {
+    if (text.split(alt).length !== 2) return null;
+    text = text.replace(alt, () => neu);
+  }
+  return text;
 }
+/** alt/neu: eine Änderung; oder alt als Liste von Paaren [alt, neu] und neu leer, wenn ein Fehler zwei Stellen braucht. */
 function gegenprobe(regel, alt, neu, name) {
-  const text = mutiere(alt, neu);
+  const text = mutiere(Array.isArray(alt) ? alt : [[alt, neu]]);
   const f = text === null ? null : pruefeWorkflow(text);
   assert(f !== null && f.some((x) => x.startsWith(regel)), `${regel} Gegenprobe: ${name}${text === null ? ' (Stelle nicht gefunden)' : ''}`);
 }
@@ -187,6 +294,57 @@ gegenprobe('R19', '        run: npm run build -w "@jm/$APP"', '          JMPS_PR
 gegenprobe('R20', '          grep -q \'^electronVersion:\' "$cfg" || { echo "::error::$cfg trägt kein electronVersion; dieser Workflow hängt nichts an."; exit 1; }\n', '', 'Prüfung auf electronVersion im Tag entfernt');
 gegenprobe('R21', 'if [[ ! "$TAG" =~ $muster ]]; then\n            echo "::error::Tag „$TAG“ hat nicht die Form ‹App›-v‹Version›."',
   'if ! printf \'%s\' "$TAG" | grep -Eq "$muster"; then\n            echo "::error::Tag „$TAG“ hat nicht die Form ‹App›-v‹Version›."', 'Tag im Hochlade-Job zeilenweise per grep geprüft');
+// Prüfung Task 3, Runde 1: Lücken W1 (Prüfer-Ergebnis, Secret oben) und K1 (Hochlade-Befehle, Blockköpfe, Abbrüche).
+gegenprobe('R13', '          shopt -s nullglob\n', '          shopt -s nullglob\n          bash pakete/x64/ffmpeg-QUELLEN.txt\n', 'Inhalt aus dem Artefakt mit bash ausführen');
+gegenprobe('R13', '          shopt -s nullglob\n', '          shopt -s nullglob\n          echo "$(sh pakete/x64/ffmpeg-QUELLEN.txt)"\n', 'Befehl in $( ) zwischen Anführungszeichen');
+gegenprobe('R13', '          shopt -s nullglob\n', '          shopt -s nullglob\n          PATH="pakete/x64:$PATH"\n', 'PATH auf das Artefakt umbiegen (gh käme von dort)');
+gegenprobe('R13', '            pakete/x64/ffmpeg-QUELLEN.txt\n          )', '            werkzeug/scripts/ci/ffmpeg-quellen-hinweis.txt\n          )', 'Hinweis aus dem Repo statt aus dem Bau-Artefakt');
+gegenprobe('R16', '            echo "::error::Zum Tag $TAG gibt es kein Release; dieser Workflow legt keins an."\n            exit 1\n',
+  '            gh api -X POST "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$TAG"\n', 'Release per gh api anlegen statt abbrechen');
+gegenprobe('R16', 'dieser Workflow legt keins an."\n            exit 1\n', 'dieser Workflow legt keins an."\n', 'fehlendes Release meldet nur');
+gegenprobe('R16', '          gh release upload "$TAG" "${dmg_x64[0]}"', '          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" -f draft=false\n          gh release upload "$TAG" "${dmg_x64[0]}"',
+  'Release per gh api ändern');
+gegenprobe('R17', '        run: npm run build -w "@jm/$APP"', '        run: |-\n          npm run build -w "@jm/${{ steps.tag.outputs.app }}"', 'Step-Ausgabe in einem Block run: |-');
+gegenprobe('R17', '        run: npm run build -w "@jm/$APP"', '        run: npm run build\n          -w "@jm/${{ steps.tag.outputs.app }}"', 'Step-Ausgabe in der Folgezeile eines einfachen Werts');
+gegenprobe('R20', 'trägt kein npmRebuild: false; dieser Workflow hängt nichts an."; exit 1; }', 'trägt kein npmRebuild: false; dieser Workflow hängt nichts an."; }',
+  'Prüfung auf npmRebuild meldet nur und bricht nicht ab');
+gegenprobe('R21', '          muster=\'^[a-z][a-z-]*-v[0-9]+\\.[0-9]+\\.[0-9]+$\'\n          if [[ ! "$TAG" =~ $muster ]]; then\n            echo "::error::Tag „$TAG“ hat nicht die Form ‹App›-v‹Version›."\n            exit 1\n          fi\n',
+  '', 'Tag-Prüfung im Hochlade-Job ganz entfernt');
+gegenprobe('R21', '(z. B. editor-v0.5.0)."\n            exit 1\n', '(z. B. editor-v0.5.0)."\n', 'Tag-Prüfung im Bau meldet nur und bricht nicht ab');
+gegenprobe('R22', '      - name: Prüfen (ein DMG dieser Art, ffmpeg-Art, Lesestand, Laufzeitprobe, minos)\n',
+  '      - name: Prüfen (ein DMG dieser Art, ffmpeg-Art, Lesestand, Laufzeitprobe, minos)\n        continue-on-error: true\n', 'Prüfer-Schritt mit continue-on-error');
+gegenprobe('R22', '    timeout-minutes: 60\n', '    timeout-minutes: 60\n    continue-on-error: true\n', 'Bau-Job mit continue-on-error');
+gegenprobe('R22', '--lesestand werkzeug/scripts/ci/mac-nachbau-lesestand.json "$@"', '--lesestand werkzeug/scripts/ci/mac-nachbau-lesestand.json "$@" || true', 'Prüfer-Aufruf mit || true');
+gegenprobe('R22', '--ziel paket\n', '--ziel paket || true\n', 'Sammler-Aufruf mit || true');
+gegenprobe('R22', 'npx electron-builder --mac dmg "--$ART" --publish never', 'npx electron-builder --mac dmg "--$ART" --publish never || true', 'electron-builder mit || true');
+gegenprobe('R22', [['          node werkzeug/scripts/ci/sammle-ffmpeg-beilagen.mjs', '          if node werkzeug/scripts/ci/sammle-ffmpeg-beilagen.mjs'],
+  ['--ziel paket\n', '--ziel paket; then :; fi\n']], '', 'Sammler in if (bash -e greift dort nicht)');
+gegenprobe('R22', '          if [ "$PROBE" = "true" ]; then', '          set +e\n          if [ "$PROBE" = "true" ]; then', 'set +e vor dem Prüfer');
+gegenprobe('R22', '      - name: ffmpeg-Lizenz und Build-Angaben einsammeln\n        shell: bash\n', '      - name: ffmpeg-Lizenz und Build-Angaben einsammeln\n        shell: bash {0}\n',
+  'Sammler-Schritt mit bash ohne -e');
+gegenprobe('R22', '      - name: Prüfen (ein DMG dieser Art, ffmpeg-Art, Lesestand, Laufzeitprobe, minos)\n',
+  '      - name: Prüfen (ein DMG dieser Art, ffmpeg-Art, Lesestand, Laufzeitprobe, minos)\n        if: ${{ matrix.art == \'x64\' }}\n', 'Prüfer-Schritt im arm64-Job übersprungen');
+gegenprobe('R22', '          node werkzeug/scripts/ci/pruefe-mac-nachbau.mjs', '          ! node werkzeug/scripts/ci/pruefe-mac-nachbau.mjs', 'Ergebnis des Prüfers mit ! umgekehrt');
+// Anker ist die Leerzeile vor jobs:, nicht ERLAUBTE_APPS: Die Liste wächst mit Stufe 2.
+gegenprobe('R23', '\n\njobs:\n', '\n  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n\njobs:\n', 'Secret im obersten env (erreicht auch npm ci im Bau)');
+gegenprobe('R23', '\n\njobs:\n', '\n  NODE_OPTIONS: --require ./werkzeug/x.js\n\njobs:\n', 'zweite Variable im obersten env');
+gegenprobe('R23', '    timeout-minutes: 15\n', '    timeout-minutes: 15\n    env:\n      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n', 'Token für den ganzen Hochlade-Job (auch download-artifact)');
+gegenprobe('R23', [['          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n', ''],
+  ['          CSC_IDENTITY_AUTO_DISCOVERY: "false"\n', '          CSC_IDENTITY_AUTO_DISCOVERY: "false"\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n']], '', 'Token im Bau statt im Hochlade-Job');
+gegenprobe('R24', '          case " $ERLAUBTE_APPS " in\n            *" $app "*) ;;\n            *) echo "::error::App „$app“ ist für den Nachbau nicht freigegeben (erlaubt: $ERLAUBTE_APPS)."; exit 1 ;;\n          esac\n',
+  '', 'Freigabeliste im Bau entfernt');
+gegenprobe('R24', '          case " $ERLAUBTE_APPS " in\n            *" $app "*) ;;\n            *) echo "::error::App „$app“ ist für den Nachbau nicht freigegeben."; exit 1 ;;\n          esac\n',
+  '', 'Freigabeliste im Hochlade-Job entfernt');
+gegenprobe('R25', '            if [ ${#dmgs[@]} -ne 1 ] || [ ${#alle[@]} -ne 4 ]; then\n              echo "::error::Für $art genau ein DMG und vier Dateien erwartet, gefunden ${#dmgs[@]} DMG und ${#alle[@]} Dateien."\n              exit 1\n            fi\n',
+  '', 'Mengenprüfung (ein DMG, vier Dateien) entfernt');
+gegenprobe('R25', 'passt nicht zu Version $version und Art $art."; exit 1 ;;', 'passt nicht zu Version $version und Art $art." ;;', 'falscher DMG-Name meldet nur');
+gegenprobe('R25', 'then echo "::error::Beilage fehlt oder ist leer: $f"; exit 1; fi', 'then echo "::warning::Beilage fehlt oder ist leer: $f"; fi', 'leere Beilage nur als Warnung');
+gegenprobe('R25', '          if ! cmp -s pakete/x64/ffmpeg-QUELLEN.txt pakete/arm64/ffmpeg-QUELLEN.txt; then\n            echo "::error::Der Quellen-Hinweis der beiden Bau-Jobs ist verschieden."\n            exit 1\n          fi\n',
+  '', 'Vergleich der Quellen-Hinweise entfernt');
+gegenprobe('R26', '            echo "::error::Der Job für $ART läuft mit Node für $ist."\n            exit 1\n', '            echo "::warning::Der Job für $ART läuft mit Node für $ist."\n', 'Runner-Art nur als Warnung');
+gegenprobe('R26', '            echo "::error::apps/$APP/package.json nennt $ist, das Tag $VERSION."\n            exit 1\n', '            echo "::error::apps/$APP/package.json nennt $ist, das Tag $VERSION."\n',
+  'falsche Version im Tag meldet nur');
+gegenprobe('R26', '          ist=$(node -p \'process.arch\')', '          ist="$ART"', 'Runner-Art nicht gemessen, sondern gesetzt');
 
 console.log(failures === 0 ? '\nAlle mac-nachbau-Workflow-Tests bestanden.' : `\n${failures} mac-nachbau-Workflow-Test(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
