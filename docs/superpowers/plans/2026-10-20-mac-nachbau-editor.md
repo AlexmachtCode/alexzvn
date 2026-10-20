@@ -92,9 +92,11 @@ Der neue Release-Proxy (Paketwahl nach Mac-Art) ist seit 19.10.2026 deployt.
 3. **LICENSE oder README von ffmpeg-static fehlen, oder LICENSE ist kein GPL-Volltext.** install.js warnt bei 404 nur.
    Erwartet: Abbruch statt eines Uploads ohne Beilagen, im Protokoll Größe, SHA-256 und Anfang von LICENSE und README.
    Abgedeckt durch B4, B8 und B12 (Task 2); dass dieser Abbruch den Bau-Job beendet und kein Artefakt entsteht, hält
-   R22 fest (Task 3: kein `continue-on-error`, kein `|| true`). **Wahrscheinlich tritt der Fall ein:** Die Mac-LICENSE im Release b6.1.1 hat
-   4 346 bzw. 4 376 B, ein GPL-Volltext 17 984 B (v2) bzw. 35 147 B (v3). Dann endet schon der Probelauf im Sammler, und
-   F2 (ii) ist in der freigegebenen Form nicht erfüllbar; das ist eine offene Owner-Frage (Task 2, Prüfung Runde 1, W1).
+   R22 fest (Task 3: kein `continue-on-error`, kein `|| true`). **Der Fall tritt nach der Größe sicher ein:** Die Mac-LICENSE im Release b6.1.1 hat
+   4 346 bzw. 4 376 B, der Sammler verlangt mindestens 15 000 B (ein GPL-Volltext hat 17 984 B (v2) bzw. 35 147 B (v3)).
+   Also endet schon der Probelauf im Sammler, jeder echte Lauf ebenso, und F2 (ii) ist in der freigegebenen Form nicht
+   erfüllbar. Die offene Owner-Frage (Task 2, Prüfung Runde 1, W1) geht mit dem PR an den Owner, nicht erst nach dem
+   Probelauf (Gesamtprüfung, Befund 1 und 5); `docs/mac-nachbau.md` nennt sie vor dem Ablauf.
 4. **Ein Tag mit Schadtext oder eine fremde App erreicht ein Skript.** Erwartet: Abbruch vor jedem git-, npm- oder
    gh-Aufruf. Abgedeckt durch R17 (Eingaben nur über env, kein `${{ }}` in run, auch in `run: |-` und Folgezeilen),
    R27 (R17 sieht keine Zeile, die mit `#` beginnt; in einem run- oder Block-Wert ist sie aber Text, in dem GitHub
@@ -1314,8 +1316,9 @@ dabei echt rot: Der alte Fehlertext gab `##[` und ein einzelnes `\r` aus LICENSE
 // ffmpeg.README, install.js:175-176, :184, :187), lädt es ohne Prüfsumme und warnt bei 404 nur (:29-32). Darum hier:
 // Beides muss da sein, das ffmpeg im Paket muss Byte für Byte das aus ffmpeg-static sein, und Fassung und Binär-Release
 // müssen die sein, für die ffmpeg-quellen-hinweis.txt geschrieben ist. LICENSE muss ein GPL-Volltext sein; die Mac-Dateien
-// im Release b6.1.1 sind laut gh release view nur 4 346 bzw. 4 376 B groß, also wohl keiner (Prüfung Task 2, W1). Darum
-// druckt der Sammler immer Größe, SHA-256 und Anfang von LICENSE und README, auch beim Abbruch.
+// im Release b6.1.1 sind laut gh release view nur 4 346 bzw. 4 376 B groß, nach der Größe also keiner: Mit ihnen bricht
+// der Sammler sicher ab (Prüfung Task 2, W1; die Owner-Frage dazu steht in docs/mac-nachbau.md). Darum druckt er immer
+// Größe, SHA-256 und Anfang von LICENSE und README, auch beim Abbruch.
 //
 //   node scripts/ci/sammle-ffmpeg-beilagen.mjs --app editor --art arm64 --release apps/editor/release \
 //     --ffmpeg-static node_modules/ffmpeg-static --hinweis scripts/ci/ffmpeg-quellen-hinweis.txt --ziel paket
@@ -1562,8 +1565,9 @@ Danach Step 4 noch einmal: 25 ok, Exit 0. Task 1 bleibt grün: `node scripts/ci/
    `beilagenNamen` (K5). `angabenKopf` heißt jetzt `steckbrief` und umfasst LICENSE und README.
 
 **Offene Owner-Frage (Prüfung Runde 1, W1), vor dem Probelauf:** F2 (ii) verlangt den GPL-Text, den install.js neben das
-Programm legt. Für den Mac ist das nach der Größe kein GPL-Volltext (siehe Review Focus 3), also wird der Sammler im
-Probelauf sehr wahrscheinlich abbrechen, fail closed und mit Steckbrief im Protokoll. Ein naheliegender Weg, über den nur
+Programm legt. Für den Mac ist das nach der Größe kein GPL-Volltext (siehe Review Focus 3), also bricht der Sammler im
+Probelauf sicher ab (4 346 bzw. 4 376 B gegen mindestens 15 000 B), fail closed und mit Steckbrief im Protokoll. Die Frage
+geht mit dem PR an den Owner (Gesamtprüfung). Ein naheliegender Weg, über den nur
 der Owner entscheidet: den GPLv3-Text aus `node_modules/ffmpeg-static/LICENSE` (35 149 B, im npm-Tarball, über die
 Integrität im Lockfile gesichert) zusätzlich beilegen und die Mac-`ffmpeg.LICENSE` unter einem Namen mitgeben, der keinen
 GPL-Text verspricht; Hinweis und Asset-Namen änderten sich dann. Dieser Branch setzt das nicht um.
@@ -1653,6 +1657,7 @@ Der Block unten ist bytegleich mit der Datei nach der Prüfung Runde 2. Gegenüb
 // ohne --probe, kein Secret im Bau, die Konfiguration aus dem Tag nur geprüft und die Tag-Prüfung über den ganzen Text;
 // (R22–R26) ein Fehler von Prüfer oder Sammler beendet den Job, ein Secret nur für gh im Hochlade-Schritt, die
 // Freigabeliste in beiden Jobs, und jede Prüfung im Skript bricht ab. R13 ist eine Positivliste der Befehle im Hochlade-Job.
+// Seit der Gesamtprüfung (R28–R30): Werkzeug nur aus github.sha, Hochladen nur aus einem Lauf von main, Uploads nacheinander.
 // Ohne js-yaml: Der Worktree hat kein node_modules, js-yaml liegt nur transitiv im Lockfile (electron-builder, astro),
 // und der Test soll überall ohne npm ci laufen. Die Regeln lesen diese eine, von uns geschriebene Datei zeilenweise
 // (CRLF egal). R1–R26 überspringen Zeilen, die mit # beginnen; YAML-Kommentare sind das nur außerhalb von Block-Werten.
@@ -1905,6 +1910,32 @@ function pruefeWorkflow(text) {
   if (roh.some((z) => raute(z) && z.includes('${{')) || runs(roh).some((r) => r.split('\n').some(raute))) {
     fehler.push('R27 Zeilen, die mit # beginnen: nie ${{ }} (in run- und Block-Werten setzt GitHub es ein), in run-Blöcken gar keine');
   }
+  // Prüfer, Sammler, Lesestand und Hinweis kommen aus dem Commit dieses Workflows (github.sha), nie aus dem Tag: Für
+  // editor-v0.5.0 fehlten sie dort und der Bau scheiterte sicher, ab Stufe 2 trügen neue Tags aber eigene, ältere
+  // Fassungen (Gesamtprüfung, Befund 3). Nur die eine git-show-Zeile schreibt nach werkzeug/.
+  const holeWerkzeug = 'git -c protocol.version=2 fetch -q --no-tags --depth=1 origin "$WERKZEUG_SHA"\nmkdir -p werkzeug/scripts/ci\n'
+    + 'for f in pruefe-mac-nachbau.mjs sammle-ffmpeg-beilagen.mjs mac-nachbau-lesestand.json ffmpeg-quellen-hinweis.txt; do\n'
+    + 'git show "$WERKZEUG_SHA:scripts/ci/$f" > "werkzeug/scripts/ci/$f"\ndone';
+  const schreibtWerkzeug = bauT.split('\n').filter((z) => z.includes('werkzeug') && (z.includes('>') || /(^|\s)(cp|mv|ln|tee|install|rsync|curl|wget)\s/.test(z)));
+  if (werte(bau.filter((z) => /^\s+WERKZEUG_SHA:/.test(z))).join('\n') !== 'WERKZEUG_SHA: ${{ github.sha }}' || !steht(bauRuns, holeWerkzeug)
+    || schreibtWerkzeug.join('\n') !== 'git show "$WERKZEUG_SHA:scripts/ci/$f" > "werkzeug/scripts/ci/$f"'
+    || !bauRuns.includes('--hinweis werkzeug/scripts/ci/ffmpeg-quellen-hinweis.txt --ziel paket')) {
+    fehler.push('R28 bau: Prüfer, Sammler, Lesestand und Quellen-Hinweis nur aus github.sha nach werkzeug/, nie aus dem Tag; der Sammler liest den Hinweis von dort');
+  }
+  // Hochladen nur aus einem Lauf von main: Sonst nähme ein echter Lauf von einem Arbeitszweig Prüfer, Lesestand und
+  // Hinweis aus diesem Zweig, ohne PR und Owner-OK (Gesamtprüfung, Befund 8). Schutz gegen Versehen, nicht gegen
+  // Schreibrecht. Die Prüfung steht vor dem ersten gh-Aufruf, und kein env setzt eine GITHUB_-Variable.
+  const nurMain = 'if [ "$GITHUB_REF" != "refs/heads/main" ]; then';
+  if (abbrueche(hochRuns, nurMain) !== 1 || !(hochRuns.indexOf(nurMain) < hochRuns.indexOf('gh release'))
+    || zeilen.some((z) => /^\s+GITHUB_[A-Z0-9_]*\s*:/.test(z))) {
+    fehler.push('R29 hochladen: nur aus einem Lauf von main (GITHUB_REF vor dem ersten gh geprüft, sonst Abbruch; keine GITHUB_-Variable im env)');
+  }
+  // Zwei echte Läufe zugleich löschten sich per --clobber gegenseitig die Uploads (Gesamtprüfung, Befund 9). Feste Gruppe
+  // ohne ${{ }}; ein laufender Upload wird nie abgebrochen, auch nicht über eine zweite concurrency-Angabe.
+  const reihe = '    concurrency:\n      group: mac-nachbau-hochladen\n      cancel-in-progress: false';
+  if (!hoch.join('\n').includes(reihe) || zeilen.filter((z) => z.includes('cancel-in-progress')).join('\n') !== '      cancel-in-progress: false') {
+    fehler.push('R30 hochladen: concurrency mac-nachbau-hochladen, laufende Uploads nie abbrechen (kein cancel-in-progress: true)');
+  }
   return fehler;
 }
 
@@ -2017,6 +2048,24 @@ gegenprobe('R27', '          PROBE: ${{ inputs.probe }}\n', '          PROBE: ${
   'Secret in einer #-Zeile eines Block-Werts im env (kein run-Block)');
 gegenprobe('R27', '          if gh release view "$TAG"', '          echo "Pakete:\n          # "; bash pakete/x64/ffmpeg-QUELLEN.txt; echo "\n          "\n          if gh release view "$TAG"',
   '#-Zeile in einem mehrzeiligen Anführungstext versteckt einen Befehl aus dem Artefakt (ohne ${{ }})');
+// Gesamtprüfung, Befund 3: Werkzeug aus dem Tag statt aus github.sha blieb grün.
+gegenprobe('R28', 'git show "$WERKZEUG_SHA:scripts/ci/$f"', 'git show "refs/tags/$TAG:scripts/ci/$f"', 'Prüfer, Sammler, Lesestand und Hinweis aus dem Tag statt aus github.sha');
+gegenprobe('R28', '          WERKZEUG_SHA: ${{ github.sha }}', '          WERKZEUG_SHA: ${{ github.ref }}', 'Werkzeug vom Stand des Zweigs beim Holen statt vom gestarteten Commit');
+gegenprobe('R28', '          echo "Prüfer, Sammler, Lesestand und Quellen-Hinweis aus $WERKZEUG_SHA"\n',
+  '          git show "refs/tags/$TAG:scripts/ci/mac-nachbau-lesestand.json" > werkzeug/scripts/ci/mac-nachbau-lesestand.json\n'
+  + '          echo "Prüfer, Sammler, Lesestand und Quellen-Hinweis aus $WERKZEUG_SHA"\n', 'Lesestand danach aus dem Tag überschrieben');
+gegenprobe('R28', '--hinweis werkzeug/scripts/ci/ffmpeg-quellen-hinweis.txt', '--hinweis scripts/ci/ffmpeg-quellen-hinweis.txt', 'Quellen-Hinweis aus dem Quellbaum des Tags');
+// Gesamtprüfung, Befund 8 (echter Lauf von einem Arbeitszweig) und 9 (zwei echte Läufe zugleich).
+const nurMainBlock = '          if [ "$GITHUB_REF" != "refs/heads/main" ]; then\n'
+  + '            echo "::error::Hochladen nur aus einem Lauf von main, gestartet wurde von $GITHUB_REF: Prüfer, Lesestand und Quellen-Hinweis kämen sonst aus einem Zweig ohne PR."\n'
+  + '            exit 1\n          fi\n';
+gegenprobe('R29', nurMainBlock, '', 'Prüfung auf main entfernt');
+gegenprobe('R29', 'aus einem Zweig ohne PR."\n            exit 1\n', 'aus einem Zweig ohne PR."\n', 'Lauf von einem anderen Zweig meldet nur');
+gegenprobe('R29', [[nurMainBlock, ''], ['          echo "Hochgeladen:', `${nurMainBlock}          echo "Hochgeladen:`]], '', 'Prüfung auf main erst nach den Uploads');
+gegenprobe('R29', '          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n', '          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n          GITHUB_REF: refs/heads/main\n', 'GITHUB_REF im env auf main gesetzt');
+gegenprobe('R30', '    concurrency:\n      group: mac-nachbau-hochladen\n      cancel-in-progress: false\n', '', 'concurrency im Hochlade-Job entfernt');
+gegenprobe('R30', '      cancel-in-progress: false', '      cancel-in-progress: true', 'ein neuer Lauf bricht den laufenden Upload ab');
+gegenprobe('R30', '\n\njobs:\n', '\n\nconcurrency:\n  group: mac-nachbau\n  cancel-in-progress: true\n\njobs:\n', 'oberste concurrency bricht laufende Läufe ab');
 
 console.log(failures === 0 ? '\nAlle mac-nachbau-Workflow-Tests bestanden.' : `\n${failures} mac-nachbau-Workflow-Test(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
@@ -2241,6 +2290,11 @@ jobs:
     if: ${{ inputs.probe == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Zwei echte Läufe zugleich löschten sich per --clobber gegenseitig die Uploads: Hochladen nur nacheinander, und ein
+    # laufender Upload wird nie abgebrochen.
+    concurrency:
+      group: mac-nachbau-hochladen
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -2257,8 +2311,12 @@ jobs:
           name: mac-nachbau-arm64
           path: pakete/arm64
 
+      # Nur aus einem Lauf von main: Prüfer, Lesestand und Hinweis kommen aus dem gestarteten Commit (github.sha), von einem
+      # Arbeitszweig also ohne PR und Owner-OK. Schutz gegen Versehen.
       # Je Art genau vier Dateien: ein DMG mit der Tag-Version und Art im Namen, LICENSE, README und Quellen-Hinweis.
-      # Erst x64, dann arm64, je ein eigener Aufruf: Ein arm64-Mac startet x64 unter Rosetta, ein Intel-Mac arm64 nie.
+      # Erst x64, dann arm64, je ein eigener Aufruf, danach die Beilagen: So verlangt es der Auftrag. Sein Grund im Entwurf
+      # war der alte Proxy. Mit der Paketwahl seit 19.10.2026 bekommt ein arm64-Mac in der Lücke das x64-DMG (Rosetta), ein
+      # Intel-Mac nie ein arm64-DMG; die Reihenfolge ändert nur der Owner (docs/mac-nachbau.md).
       # Die Beilagen enden auf .txt und passen nie auf die Paketwahl (.dmg/.exe). --clobber nur für diese Dateien.
       - name: Pakete und Beilagen an das Release hängen
         shell: bash
@@ -2278,6 +2336,10 @@ jobs:
             *" $app "*) ;;
             *) echo "::error::App „$app“ ist für den Nachbau nicht freigegeben."; exit 1 ;;
           esac
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Hochladen nur aus einem Lauf von main, gestartet wurde von $GITHUB_REF: Prüfer, Lesestand und Quellen-Hinweis kämen sonst aus einem Zweig ohne PR."
+            exit 1
+          fi
           shopt -s nullglob
           for art in x64 arm64; do
             dmgs=(pakete/$art/*.dmg)
@@ -2571,27 +2633,71 @@ wieder den Workflow aus dem Tag-Commit. Ein Hand-Start dagegen nimmt den Workflo
 Prüfschritte stehen im Umsetzungsplan `docs/superpowers/plans/2026-10-20-mac-nachbau-editor.md`; der Entwurf selbst
 liegt nicht im Repo.
 
-## Ablauf: drei Läufe, jeder nur mit Owner-OK
+## Vor dem echten Lauf offen: der Lizenztext (Owner-Entscheid)
+
+Auf diesem Stand kann der echte Lauf nie hochladen. install.js von ffmpeg-static legt als `ffmpeg.LICENSE` die Datei
+`darwin-<Art>.LICENSE` aus dem Release b6.1.1 ab. Sie ist 4 346 B (x64) bzw. 4 376 B (arm64) groß. Der Sammler verlangt
+einen GPL-Volltext mit mindestens 15 000 B (GPLv2 hat 17 984 B, GPLv3 35 147 B). Darum endet jeder Bau-Job im Sammler
+rot, der Probelauf ebenso wie der echte Lauf. Das ist gewollt: Ohne GPL-Text wird nichts hochgeladen.
+
+F2 (ii) ist in der freigegebenen Form also nicht erfüllbar. Vor dem echten Lauf braucht es:
+
+1. den Entscheid des Owners, welcher Lizenztext beiliegt. Vorschlag im Plan: den GPLv3-Text aus
+   `node_modules/ffmpeg-static/LICENSE` beilegen (35 149 B, im npm-Paket, über die Integrität im Lockfile gesichert)
+   und die Mac-`ffmpeg.LICENSE` unter einem Namen mitgeben, der keinen GPL-Text verspricht;
+2. die passende Änderung an Sammler, Asset-Namen, Workflow, Workflow-Test (R15, R25) und Quellen-Hinweis;
+3. einen neuen Probelauf, der grün endet.
+
+Was Mac-LICENSE und Mac-README wirklich enthalten, zeigt erst der erste Probelauf (Steckbrief, Schritt 1).
+
+## Ablauf: drei Schritte, jeder nur mit Owner-OK
+
+Zwei Läufe und dazwischen ein Commit. Gestartet wird immer auf `main`: Prüfer, Sammler, Lesestand und Quellen-Hinweis
+kommen aus dem gestarteten Commit. Ein echter Lauf von einem anderen Zweig bricht darum vor dem Hochladen ab.
 
 1. **Probelauf.** GitHub, Actions, Mac-Nachbau, Run workflow: Zweig `main`, tag `editor-v0.5.0`, probe angehakt
-   (Vorgabe). Oder: `gh workflow run mac-nachbau.yml -f tag=editor-v0.5.0 -f probe=true`.
-   Der Lauf baut und prüft beide Mac-Arten und lädt nichts hoch. Solange der Lesestand leer ist, endet er grün mit je
-   einer Warnung, die die gemessenen SHA-256 von ffmpeg und ffprobe nennt, samt fertigem JSON-Stück. Bricht danach der
-   Sammler ab (siehe Fehlerbilder), ist der Lauf rot; die Warnung mit den SHA-256 steht trotzdem im Protokoll, weil der
-   Prüfer vorher läuft.
-2. **Lesestand nachtragen.** Die beiden JSON-Stücke (arm64 und x64) zusammen in `scripts/ci/mac-nachbau-lesestand.json`
-   eintragen, als eigener Commit auf `main` (per PR, wie üblich), mit Owner-OK. Form:
+   (Vorgabe). Oder: `gh workflow run mac-nachbau.yml --ref main -f tag=editor-v0.5.0 -f probe=true`.
+   Der Lauf baut und prüft beide Mac-Arten und lädt nichts hoch. Auf diesem Stand endet er im Sammler rot (siehe oben).
+   Weil der Prüfer vor dem Sammler läuft, liefert er trotzdem alles für Schritt 2 und den Owner-Entscheid:
+   - ob es beide Runner gibt und ob `npm ci` mit der Lockfile des Tags durchläuft;
+   - je Art eine Warnung „Lesestand für editor 0.5.0 … ist leer“ mit den SHA-256 von ffmpeg und ffprobe und einem
+     fertigen JSON-Stück;
+   - Laufzeitprobe und minos von App-Programm und ffmpeg. Eine Warnung über macOS 11 hält keinen Lauf an; jede geht vor
+     Schritt 3 an den Owner;
+   - den Steckbrief des Sammlers: Größe, SHA-256 und die ersten Zeilen von LICENSE und README. Er zeigt den Wortlaut für
+     den Owner-Entscheid. Er zeigt auch, ob die README die Angaben trägt, die der Quellen-Hinweis nennt (FFmpeg 6.1.1,
+     evermeet.cx für x64, osxexperts.net für arm64). Weicht sie ab, wird der Hinweis mit Owner-OK berichtigt.
+2. **Lesestand nachtragen.** Zuerst die Gegenprobe für ffprobe: Im arm64-Job muss der gemessene Wert
+   `5b592e56f87ff754d94dadf99f38b4d0fb7d463eb780b50e0ca061d668d0e3f7` sein, im x64-Job
+   `90fddf93d25a520bbda09e02f1f53a91f04acd1ef9b79e6dc602dc4dc6951f67` (lokal an ffprobe-static 3.1.0 gemessen, gleiche
+   Lock-Integrität wie im Tag). Weicht ein Wert ab, wird nicht nachgetragen, sondern erst die Ursache geklärt. Für ffmpeg
+   gibt es keine solche Gegenprobe: ffmpeg-static lädt es ohne Prüfsumme, der erste gemessene Wert beruht also auf
+   Vertrauen. Ab dem Commit hält der Lesestand ihn fest.
+   Dann die beiden JSON-Stücke (arm64 und x64) zusammen in `scripts/ci/mac-nachbau-lesestand.json` eintragen, als eigener
+   Commit auf `main` (per PR, wie üblich), mit Owner-OK. Form:
    `{ "editor": { "0.5.0": { "arm64": { "ffmpeg": "…", "ffprobe": "…" }, "x64": { "ffmpeg": "…", "ffprobe": "…" } } } }`.
    Den Schlüssel `editor` gibt es dabei nur einmal: Wer die Stücke einfach hintereinander setzt, hat zweimal `editor`,
    und JSON.parse behielte still nur das letzte. Der Selbsttest in ci-checks prüft die Datei darum im PR (gültiges
    JSON, kein doppelter Schlüssel, nur freigegebene Apps, Versionen x.y.z, Arten arm64 und x64, je ffmpeg und ffprobe
    als SHA-256 in Kleinbuchstaben), und der Prüfer bricht bei so einer Datei jeden Lauf ab, auch den Probelauf.
    Ab jetzt bricht jeder Lauf ab, wenn ffmpeg oder ffprobe abweichen (ffmpeg-static lädt ohne Prüfsumme).
-3. **Echter Lauf.** Vorher, spätestens zugleich, steht der Hinweis für Nutzer (siehe unten) in
-   `packages/suite-manifest/changelog.json` auf `main`: Wortlaut mit Owner-Freigabe, eigener Commit ohne Versions-Bump.
-   Der echte Lauf wirkt nämlich sofort, der Proxy liefert 0.5.0 dann an Macs aus. Gestartet wird wie 1, aber probe
-   abgehakt (`-f probe=false`). Erst wenn beide Bau-Jobs grün sind, hängt der Job hochladen die Dateien an das
-   bestehende Release.
+3. **Echter Lauf.** Vorher liegen der Owner-Entscheid zum Lizenztext und ein grüner Probelauf vor (siehe oben). Vorher,
+   spätestens zugleich, steht der Hinweis für Nutzer (siehe unten) in `packages/suite-manifest/changelog.json` auf
+   `main`: Wortlaut mit Owner-Freigabe, eigener Commit ohne Versions-Bump. Der echte Lauf wirkt nämlich sofort, der
+   Proxy liefert 0.5.0 dann an Macs aus. Gestartet wird wie 1, auf `main`, aber probe abgehakt (`-f probe=false`). Erst
+   wenn beide Bau-Jobs grün sind, hängt der Job hochladen die Dateien an das bestehende Release. Starten zwei echte Läufe
+   zugleich, wartet der zweite Hochlade-Job, bis der erste fertig ist.
+
+Danach:
+
+- **Nachkontrolle:** Der Proxy liefert für Mac arm64 und x64 die Version 0.5.0 mit dem passenden DMG (Trockenlauf
+  `services/release-proxy/tools/trockenlauf.mjs`, mit Owner-OK). Auf einem Mac mit einem Editor, den der Launcher
+  installiert hat, steht „Update auf 0.5.0“ an.
+- **Nachabnahme nach F3:** Sobald ein Mac zur Hand ist: Start, Import, Export. Erst dabei läuft auf Apple Silicon das
+  ffprobe aus dem arm64-Paket (siehe unten), und erst dabei zählt das DMG selbst; der Prüfer liest den App-Ordner, aus
+  dem electron-builder das DMG baut.
+- **Wiederholen:** Ein neuer echter Lauf baut neu und überschreibt alle Dateien am Release (`--clobber`). ffmpeg und
+  ffprobe hält der Lesestand fest, das übrige DMG nicht. Darum nur mit Owner-OK.
 
 ## Was jeder Bau-Job prüft
 
@@ -2602,22 +2708,35 @@ liegt nicht im Repo.
 - Prüfer `scripts/ci/pruefe-mac-nachbau.mjs`: Lesestand-Datei gültig (wie in Schritt 2); genau ein DMG (das der
   Job-Art) und genau eine App; App-Programm und ffmpeg in der Job-Art; ffprobe im arm64-Paket als gedruckte Ausnahme
   x86_64 (ffprobe-static 3.1.0 hat kein arm64-Programm, auf Apple Silicon braucht der Import Rosetta 2); SHA-256 gegen
-  den Lesestand; `ffmpeg -version` muss starten, im Intel-Job auch `ffprobe -version`; minos von App-Programm und
-  ffmpeg wird gedruckt, über macOS 11 gibt es eine Warnung.
+  den Lesestand; `ffmpeg -version` muss starten. Im Intel-Job startet auch `ffprobe -version`, und zwar das ffprobe des
+  Intel-Pakets (`bin/darwin/x64` von ffprobe-static, FFmpeg 4.0.2). Das ffprobe im arm64-Paket (`bin/darwin/arm64`,
+  FFmpeg 4.4-tessus, ein x86_64-Programm) startet in der CI nie; gesichert ist es nur über den SHA-256, laufen sieht man
+  es erst bei der Nachabnahme. minos von App-Programm und ffmpeg wird gedruckt, über macOS 11 gibt es eine Warnung.
 - Sammler `scripts/ci/sammle-ffmpeg-beilagen.mjs`: GPL-Text und Build-Angaben, die ffmpeg-static neben das Programm
-  legt, müssen da sein und zum ffmpeg im Paket gehören; der GPL-Text muss ein Volltext sein; ffmpeg-static muss 5.3.0
-  mit Binär-Release b6.1.1 sein, denn dafür ist der Quellen-Hinweis geschrieben. Größe, SHA-256 und Anfang von LICENSE
-  und README stehen immer im Protokoll.
+  legt, müssen da sein und zum ffmpeg im Paket gehören; der GPL-Text muss ein Volltext sein (auf diesem Stand der
+  Abbruch, siehe oben); ffmpeg-static muss 5.3.0 mit Binär-Release b6.1.1 sein, denn dafür ist der Quellen-Hinweis
+  geschrieben. Größe, SHA-256 und Anfang von LICENSE und README stehen immer im Protokoll.
 
 ## Was am Release landet
 
 Der Reihe nach, je ein eigener Upload: zuerst `JM.Editor-0.5.0-mac-x64.dmg`, dann `JM.Editor-0.5.0-mac-arm64.dmg`
-(GitHub macht aus dem Leerzeichen einen Punkt). Ein arm64-Mac kann das x64-Paket unter Rosetta starten, ein Intel-Mac
-das arm64-Paket nie. Danach, in einem dritten Aufruf, `ffmpeg-mac-x64.LICENSE.txt`, `ffmpeg-mac-x64.README.txt`,
-`ffmpeg-mac-arm64.LICENSE.txt`, `ffmpeg-mac-arm64.README.txt` und `ffmpeg-QUELLEN.txt` (Wortlaut:
-`scripts/ci/ffmpeg-quellen-hinweis.txt`). Die Beilagen enden auf `.txt` und passen nie auf die Paketwahl von Proxy und
-Launcher, die nur `.dmg` bzw. `.exe` nimmt. Das DMG selbst bleibt wie im Tag; GPL-Text und Quellen liegen nicht im
-Paket (vom Owner bewusst akzeptierte Restlücke, F2).
+(GitHub macht aus dem Leerzeichen einen Punkt). Danach, in einem dritten Aufruf, `ffmpeg-mac-x64.LICENSE.txt`,
+`ffmpeg-mac-x64.README.txt`, `ffmpeg-mac-arm64.LICENSE.txt`, `ffmpeg-mac-arm64.README.txt` und `ffmpeg-QUELLEN.txt`
+(Wortlaut: `scripts/ci/ffmpeg-quellen-hinweis.txt`). Die Beilagen enden auf `.txt` und passen nie auf die Paketwahl von
+Proxy und Launcher, die nur `.dmg` bzw. `.exe` nimmt. Das DMG selbst bleibt wie im Tag; GPL-Text und Quellen liegen
+nicht im Paket (vom Owner bewusst akzeptierte Restlücke, F2).
+
+Die Reihenfolge verlangt der Auftrag. Ihr Grund im Entwurf war der alte Proxy, der einer Mac-Art das zuerst
+hochgeladene DMG der anderen gab. Mit der Paketwahl seit 19.10.2026 (Proxy und Launcher) bekommt ein Intel-Mac nie ein
+arm64-DMG, ein arm64-Mac aber das x64-DMG, solange am Release kein arm64-DMG hängt (Rosetta). Zwischen den Uploads gilt:
+
+- Ein arm64-Mac, der genau dann installiert, bekommt das x64-Paket von 0.5.0 und behält es: Die Version ist dieselbe,
+  ein Update kommt nicht mehr. Scheitert der arm64-Upload, bleibt das bis zum nächsten Lauf so. Ginge arm64 zuerst
+  hoch, bliebe ein Intel-Mac in der Lücke einfach auf 0.4.0. Den Tausch entscheidet der Owner.
+- Scheitert der dritte Upload, hängen beide DMGs schon am Release und werden ausgeliefert, aber ohne GPL-Text und
+  Quellen-Hinweis. Dann den Job hochladen neu starten (Re-run failed jobs). Das geht nur, solange die Artefakte der
+  Bau-Jobs leben, also einen Tag lang (`retention-days: 1`); danach hilft nur ein neuer echter Lauf. Ob die Beilagen
+  zuerst hochgehen, entscheidet der Owner; die Paketwahl berühren sie nicht.
 
 Hinweise für Nutzer (Quarantäne beim Laden von Hand, Rosetta für ffprobe) kommen als Eintrag in
 `packages/suite-manifest/changelog.json`, vor dem echten Lauf (Ablauf, Schritt 3). Der Launcher zeigt diese Notes,
@@ -2627,22 +2746,35 @@ nicht die von GitHub; der Proxy liest `changelog.json` bei jedem Aufruf aus `mai
 
 | Meldung | Bedeutung |
 |---|---|
+| Tag „…“ hat nicht die Form ‹App›-v‹Version› | Eingabe tag falsch geschrieben (richtig etwa `editor-v0.5.0`); nichts gebaut |
 | App „…“ ist für den Nachbau nicht freigegeben | Tag einer App außerhalb von `ERLAUBTE_APPS` |
+| `fatal: couldn't find remote ref refs/tags/…` (Schritt „Quellen aus dem Tag und Prüfer holen“) | Das Tag gibt es auf GitHub nicht (Tippfehler oder nicht gepusht); nichts gebaut |
 | Der Job für x64 läuft mit Node für arm64 | Runner-Label zeigt auf die falsche Art |
 | apps/…/package.json nennt …, das Tag … | Die Version im Tag passt nicht zum Tag-Namen: falsches Tag, nichts gebaut |
 | … trägt kein electronVersion … (oder kein npmRebuild: false) | Die Konfiguration im Tag trägt die Schlüssel nicht selbst, und der Workflow hängt bewusst nichts an: Owner fragen |
 | Lesestand „…“ ungültig: … | Die Datei ist kaputt (kein JSON, doppelter Schlüssel, fremde App, Version oder Art); der Selbsttest in ci-checks zeigt dasselbe. Datei berichtigen, mit Owner-OK |
 | genau ein DMG „…“ erwartet | electron-builder hat mehr oder andere Pakete gebaut |
+| genau eine App „…“ erwartet | electron-builder hat keine, mehrere oder eine anders benannte App gebaut |
+| App-Programm fehlt, ffmpeg fehlt oder ffprobe fehlt: … | Das Programm liegt nicht an seinem Platz (`Contents/MacOS` bzw. `Contents/Resources/bin/mac`); bei ffmpeg und ffprobe hat prepackage nicht gebündelt |
+| … ist kein Mach-O-Programm | An der Stelle liegt kein Mac-Programm |
+| App-Programm hat …, erwartet … | Electron in der falschen Art im Paket |
 | ffmpeg hat arm64, erwartet x64 | falsches ffmpeg im Paket, der Fehler aus dem Juni |
+| ffprobe hat …, erwartet … | ffprobe-static hat ein anderes Programm geliefert; erlaubt ist die Job-Art, im arm64-Job dazu nur x86_64 |
 | Lesestand … ist leer; ohne Lesestand wird nicht hochgeladen | echter Lauf vor dem Lesestand-Commit |
 | Lesestand … ist unvollständig oder ungültig | Der Eintrag für diese App, Version und Art ist halb oder kein SHA-256 in Kleinbuchstaben: Lesestand-Commit prüfen |
 | SHA-256 von ffmpeg weicht vom Lesestand ab | ffmpeg-static hat ein anderes Programm geladen: nicht hochladen, Ursache klären |
 | Laufzeitprobe: ffmpeg -version endete mit … (im Intel-Job auch ffprobe) | Das Programm startet auf dem Runner nicht. Nach F3 ersetzt diese Probe die Abnahme auf einem echten Mac: nicht hochladen, Owner fragen |
 | Laufzeitprobe und minos fehlen (nur unter macOS) | echter Lauf, aber der Prüfer lief nicht unter macOS: ohne Laufzeitprobe wird nicht hochgeladen |
+| ffmpeg-static …, der Quellen-Hinweis ist für 5.3.0 geschrieben (oder Binär-Release …, … für b6.1.1) | Die Lockfile des Tags bringt eine andere Fassung als die, für die der Hinweis geschrieben ist: Hinweis und Sammler mit Owner-OK nachziehen |
+| FFMPEG_BIN ist gesetzt (oder FFMPEG_BINARY_RELEASE, FFMPEG_BINARIES_URL) | Eine Umlenkung von ffmpeg-static steht in der Umgebung von Runner oder Workflow; der Hinweis gälte dann nicht: Umlenkung entfernen |
 | fehlt: …/ffmpeg.LICENSE | install.js hat LICENSE oder README nicht geladen (bei 404 nur eine Warnung) |
-| ffmpeg.LICENSE ist kein GPL-Volltext: … | ffmpeg-static hat keinen GPL-Volltext neben das Programm gelegt; Steckbrief im Protokoll lesen, nicht hochladen, Owner fragen |
+| ffmpeg.LICENSE ist kein GPL-Volltext: … | Auf diesem Stand sicher (siehe oben): Steckbrief im Protokoll lesen, nicht hochladen; weiter erst nach Owner-Entscheid, Code-Änderung und neuem Probelauf |
 | ffmpeg im Paket ist nicht das aus ffmpeg-static | LICENSE und README gehörten zu einem anderen Programm: nicht hochladen, Ursache klären |
+| Quellen-Hinweis fehlt oder ist leer | `scripts/ci/ffmpeg-quellen-hinweis.txt` fehlt im gestarteten Commit oder ist leer |
+| Hochladen nur aus einem Lauf von main | echter Lauf von einem anderen Zweig oder einem Tag gestartet: auf `main` neu starten; nichts hochgeladen |
 | Für … genau ein DMG und vier Dateien erwartet | Hochlade-Job: Ein Bau-Artefakt hat zu viele oder zu wenige Dateien; nichts hochgeladen |
+| DMG „…“ passt nicht zu Version … und Art … | Hochlade-Job: Ein Bau-Artefakt trägt ein DMG mit anderer Version oder Art; nichts hochgeladen |
+| Beilage fehlt oder ist leer: … | Hochlade-Job: Einem Bau-Artefakt fehlt eine Beilage, oder sie ist leer; nichts hochgeladen |
 | Der Quellen-Hinweis der beiden Bau-Jobs ist verschieden | Hochlade-Job: Die Artefakte passen nicht zusammen, obwohl beide Bau-Jobs den Hinweis aus demselben Commit holen; nichts hochgeladen, Ursache klären |
 | Zum Tag … gibt es kein Release | der Workflow legt keins an |
 
@@ -2708,7 +2840,8 @@ Expected: In der letzten Ausgabe beginnt jede Zeile mit `i/lf`.
 | SHA-256-Lesestand je App, Version und Art, anfangs leer; Abweichung bricht ab; leer: im Probe-Lauf Warnung mit Werten, sonst Abbruch | 1 (N13–N15, N18; die Datei selbst N19, N20) |
 | Laufzeitprobe ffmpeg -version, im Intel-Job auch ffprobe; minos drucken, Warnung über macOS 11; nur unter darwin, ohne darwin bricht der echte Lauf ab | 1 (N16, Attrappe; N4, N18) |
 | reine Teile im Selbsttest unter Linux und Windows | 1–3 (alle Tests ohne macOS, CLI-Fälle unter macOS übersprungen) |
-| jeder neue Test mit genannter, gemessener Gegenprobe | 1 (G1–G22), 2 (SG1–SG19, EG1–EG6), 3 (Step 5: WG1–WG8 und je Regelteil; R1–R27 mit 63 eingebauten Gegenproben), 4 (Step 4) |
+| jeder neue Test mit genannter, gemessener Gegenprobe | 1 (G1–G22), 2 (SG1–SG19, EG1–EG6), 3 (Step 5: WG1–WG8 und je Regelteil; R1–R30 mit 74 eingebauten Gegenproben, R28–R30 aus der Gesamtprüfung), 4 (Step 4) |
+| (Gesamtprüfung) Werkzeug nur aus github.sha, Hochladen nur aus einem Lauf von main, Uploads zweier Läufe nacheinander | 3 (R28–R30; Abschnitt „Nachbesserung Gesamtprüfung“) |
 | optionaler statischer Workflow-Test | 3 |
 | CI-Schritt in ci-checks im Job Selbsttests | 4 (je Test ein Schritt; dazu der Job unter Node 20) |
 | Doku, begründet | 4 („Warum eine neue Doku-Datei“) |
@@ -2717,7 +2850,9 @@ Expected: In der letzten Ausgabe beginnt jede Zeile mit `i/lf`.
 **2. Schritte:** Jeder Code-Schritt trägt die volle Datei, so wie sie am 20.10.2026 in
 `…\scratchpad\mac-fassungen\plan-probe\` gemessen wurde (Rot, Grün und alle Gegenproben dort gelaufen). Jeder Prüfschritt
 nennt Befehl und Ausgabe. Nach jeder Prüfrunde sind die Blöcke bytegleich mit dem Branch nachgezogen, zuletzt mit der
-Prüfung von Task 4, Runde 1 (Prüfer, Prüfer-Test, ci-checks, Doku; Gegenproben dort in `…\mac-fassungen\runde4b\`).
+Nachbesserung der Gesamtprüfung (Workflow, Workflow-Test, Sammler, Doku; Gegenproben dort in
+`…\mac-fassungen\gesamt-nachbesserung\`), davor mit der Prüfung von Task 4, Runde 1 (Prüfer, Prüfer-Test, ci-checks,
+Doku; Gegenproben in `…\mac-fassungen\runde4b\`).
 
 **3. Namen:** Task 2 importiert `APPS`, `ARTEN` und `appPfade` aus Task 1, Task 3 importiert `APPS` und `beilagenNamen`.
 Der Workflow ruft `--app/--version/--art/--release/--lesestand/--probe` (Prüfer) und
@@ -2741,7 +2876,8 @@ Das hier ist beschreibend. Der Umsetzer führt nichts davon aus.
    Lauf dieser Tests unter Node 20 überhaupt. Den Workflow `Mac-Nachbau` gibt es erst nach dem Merge auf main zum Starten.
 3. **Merge** auf main durch den Owner.
 4. **Probelauf** mit Owner-OK: Actions, Mac-Nachbau, Run workflow auf `main`, tag `editor-v0.5.0`, probe angehakt. Erwartet:
-   - Beide Bau-Jobs sind grün, `hochladen` ist übersprungen.
+   - Beide Bau-Jobs laufen bis zum Sammler und enden dort rot (Review Focus 3, nach der Größe sicher); `hochladen` ist
+     übersprungen. Erst nach Owner-Entscheid zu W1 und der Code-Änderung muss ein neuer Probelauf grün enden.
    - „Runner-Art prüfen“ zeigt `arm64` bzw. `x64`. Startet der Intel-Job nicht, weil es das Label nicht gibt, wird der
      Lauf abgebrochen und mit dem Owner entschieden.
    - Der Prüfer druckt die Ausnahme ffprobe (nur arm64), die Laufzeitprobe (`ffmpeg version 6.1.1 …`, im Intel-Job auch
@@ -2753,9 +2889,11 @@ Das hier ist beschreibend. Der Umsetzer führt nichts davon aus.
    - Der Sammler druckt Größe, SHA-256 und Anfang von LICENSE und README. Der Controller vergleicht die Build-Angaben
      mit dem Quellen-Hinweis (evermeet.cx für x64, osxexperts.net für arm64). Widerspricht er, kommt erst eine Korrektur
      des Hinweises mit Owner-OK.
-   - Wahrscheinlich bricht der Sammler in beiden Jobs mit „ffmpeg.LICENSE ist kein GPL-Volltext: …“ ab (Review Focus 3).
-     Dann tragen die Lesestand-Warnungen des Prüfers trotzdem die SHA-256, weil der Prüfer vorher läuft; der Steckbrief
-     geht mit der offenen Owner-Frage aus Task 2 (W1) an den Owner, vor jedem weiteren Schritt.
+   - Der Sammler bricht in beiden Jobs mit „ffmpeg.LICENSE ist kein GPL-Volltext: …“ ab (Review Focus 3, nach der
+     Größe sicher). Die Lesestand-Warnungen des Prüfers tragen trotzdem die SHA-256, weil der Prüfer vorher läuft; der
+     Steckbrief liefert den echten Wortlaut zur Owner-Frage aus Task 2 (W1), die seit der Gesamtprüfung schon mit dem PR
+     beim Owner liegt. Vor Schritt 7 stehen Owner-Entscheid, Code-Änderung (Sammler, Asset-Namen, R15/R25, Hinweis) und
+     ein neuer Probelauf, der grün endet.
    - Scheitert ein Job (npm ci, fehlende LICENSE): nicht weiter, Befund an den Owner.
 5. **Lesestand-Commit** mit Owner-OK: Beide JSON-Stücke aus den Warnungen kommen zusammen nach
    `scripts/ci/mac-nachbau-lesestand.json`, als eigener Commit auf main (per PR wie üblich), mit nur einem Schlüssel
@@ -2766,7 +2904,8 @@ Das hier ist beschreibend. Der Umsetzer führt nichts davon aus.
    so steht es seit Task 4, Runde 1 auch in `docs/mac-nachbau.md`, Schritt 3):
    Quarantäne beim Laden von Hand (Rechtsklick, Öffnen bzw. `xattr -dr com.apple.quarantine`) und Rosetta 2 für den
    Medien-Import auf Apple Silicon (ffprobe). Der Launcher zeigt diese Notes (`apps/launcher/src/main/changelog.ts:8-11`).
-7. **Echter Lauf** mit Owner-OK: wie Schritt 4, probe abgehakt. Erwartet: beide Bau-Jobs grün, `hochladen` grün. Am
+7. **Echter Lauf** mit Owner-OK: wie Schritt 4, auf `main` (von einem anderen Zweig bricht `hochladen` ab, R29), probe
+   abgehakt. Erwartet: beide Bau-Jobs grün, `hochladen` grün. Am
    Release `editor-v0.5.0` hängen dann:
    - die Windows-exe (unverändert)
    - `JM.Editor-0.5.0-mac-x64.dmg` und `JM.Editor-0.5.0-mac-arm64.dmg`, x64 zuerst hochgeladen
@@ -2779,3 +2918,28 @@ Das hier ist beschreibend. Der Umsetzer führt nichts davon aus.
    Import, Export.
 9. **Erinnerung:** Ein erneuter echter Lauf überschreibt die Dateien mit `--clobber`. ffmpeg und ffprobe hält der
    Lesestand fest, das DMG selbst nicht. Also nur mit Owner-OK neu laufen lassen.
+
+## Nachbesserung Gesamtprüfung (20.10.2026)
+
+Elf Befunde (zwei wichtig, neun klein); Bericht mit Ausgaben in
+`…\mac-fassungen\stufe1-gesamt-nachbesserung.md`.
+
+| Befund | Ergebnis |
+|---|---|
+| 1, 5 (wichtig): Sammler bricht sicher ab, echter Lauf nie grün | Sammler bleibt streng (Owner-Entscheid nötig, Task 2, W1). „Wahrscheinlich“ ist in Plan, Doku und Sammler-Kopf durch die Größenbegründung ersetzt; die Doku nennt die Frage vor dem Ablauf, Schritt 1 sagt, was der rote Probelauf trotzdem liefert. Die Frage geht mit dem PR an den Owner |
+| 2: x64 zuerst gibt arm64-Macs in der Lücke das x64-DMG | Reihenfolge bleibt (Auftrag), Kommentar im Workflow und Doku nennen die Wirkung mit dem Proxy seit 19.10.; Owner-Frage |
+| 3: Werkzeug aus github.sha nicht festgehalten | R28 neu (vier eingebaute Gegenproben, sechs gemessene) |
+| 4, 10: Beilagen nach den DMGs | Reihenfolge bleibt (Auftrag); Doku nennt den Fall und den Re-run innerhalb eines Tages; Owner-Frage |
+| 6: ffprobe im arm64-DMG startet nie | Doku nennt die Lücke (nur SHA-256, Nachabnahme); kein zusätzlicher Start im Intel-Job, weil er nur zeigte, dass das x86_64-Programm auf Intel läuft, nicht unter Rosetta |
+| 7: Doku unvollständig | Ablauf (drei Schritte), Gegenprobe ffprobe, ffmpeg-Vertrauen, minos, Nachkontrolle, Nachabnahme, Wiederholen und dreizehn Fehlerbilder ergänzt |
+| 8: Zweig nicht festgehalten | Hochlade-Skript bricht ab, wenn GITHUB_REF nicht refs/heads/main ist, vor dem ersten gh; R29 neu. Tag-Commit nicht in den Lesestand (anderes Dateiformat, über ffmpeg und ffprobe hinaus kein Gewinn für den Hochlade-Schutz) |
+| 9: keine concurrency | Hochlade-Job mit fester Gruppe `mac-nachbau-hochladen`, `cancel-in-progress: false`; R30 neu |
+| 11: Quellen-Hinweis ohne genaue Quelle 6.1.1 | zurückgestellt bis zum Steckbrief des Probelaufs und zum Owner-Entscheid W1 (auch der Satz zur Restlücke) |
+
+Gemessene Gegenproben am echten Workflow (Kopie des Baums, je eine Mutation; `messe-gegenproben.mjs`): R28 bei Werkzeug aus
+dem Tag, `github.ref` statt `github.sha`, Lesestand aus dem Tag nachgeschrieben, `cp` aus dem Quellbaum, Hinweis aus dem
+Quellbaum und einer fehlenden Datei in der Liste; R29 bei entfernter Prüfung, nur Warnung, Prüfung nach den Uploads,
+`GITHUB_REF` im env und Vergleich mit einem anderen Zweig; R30 bei entfernter Gruppe, `cancel-in-progress: true` im Job
+und oben. Jede Mutation verletzt genau die gemeinte Regel. Das Hochlade-Skript mit gh-Attrappe (js-yaml nur zum Messen):
+von `refs/heads/main` drei Uploads in der Reihenfolge x64, arm64, Beilagen; von `refs/heads/ci/mac-nachbau` und
+`refs/tags/editor-v0.5.0` Exit 1 ohne einen gh-Aufruf.

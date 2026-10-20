@@ -203,6 +203,11 @@ jobs:
     if: ${{ inputs.probe == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Zwei echte Läufe zugleich löschten sich per --clobber gegenseitig die Uploads: Hochladen nur nacheinander, und ein
+    # laufender Upload wird nie abgebrochen.
+    concurrency:
+      group: mac-nachbau-hochladen
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -219,8 +224,12 @@ jobs:
           name: mac-nachbau-arm64
           path: pakete/arm64
 
+      # Nur aus einem Lauf von main: Prüfer, Lesestand und Hinweis kommen aus dem gestarteten Commit (github.sha), von einem
+      # Arbeitszweig also ohne PR und Owner-OK. Schutz gegen Versehen.
       # Je Art genau vier Dateien: ein DMG mit der Tag-Version und Art im Namen, LICENSE, README und Quellen-Hinweis.
-      # Erst x64, dann arm64, je ein eigener Aufruf: Ein arm64-Mac startet x64 unter Rosetta, ein Intel-Mac arm64 nie.
+      # Erst x64, dann arm64, je ein eigener Aufruf, danach die Beilagen: So verlangt es der Auftrag. Sein Grund im Entwurf
+      # war der alte Proxy. Mit der Paketwahl seit 19.10.2026 bekommt ein arm64-Mac in der Lücke das x64-DMG (Rosetta), ein
+      # Intel-Mac nie ein arm64-DMG; die Reihenfolge ändert nur der Owner (docs/mac-nachbau.md).
       # Die Beilagen enden auf .txt und passen nie auf die Paketwahl (.dmg/.exe). --clobber nur für diese Dateien.
       - name: Pakete und Beilagen an das Release hängen
         shell: bash
@@ -240,6 +249,10 @@ jobs:
             *" $app "*) ;;
             *) echo "::error::App „$app“ ist für den Nachbau nicht freigegeben."; exit 1 ;;
           esac
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Hochladen nur aus einem Lauf von main, gestartet wurde von $GITHUB_REF: Prüfer, Lesestand und Quellen-Hinweis kämen sonst aus einem Zweig ohne PR."
+            exit 1
+          fi
           shopt -s nullglob
           for art in x64 arm64; do
             dmgs=(pakete/$art/*.dmg)

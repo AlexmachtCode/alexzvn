@@ -3,8 +3,9 @@
 // ffmpeg.README, install.js:175-176, :184, :187), lädt es ohne Prüfsumme und warnt bei 404 nur (:29-32). Darum hier:
 // Beides muss da sein, das ffmpeg im Paket muss Byte für Byte das aus ffmpeg-static sein, und Fassung und Binär-Release
 // müssen die sein, für die ffmpeg-quellen-hinweis.txt geschrieben ist. LICENSE muss ein GPL-Volltext sein; die Mac-Dateien
-// im Release b6.1.1 sind laut gh release view nur 4 346 bzw. 4 376 B groß, also wohl keiner (Prüfung Task 2, W1). Darum
-// druckt der Sammler immer Größe, SHA-256 und Anfang von LICENSE und README, auch beim Abbruch.
+// im Release b6.1.1 sind laut gh release view nur 4 346 bzw. 4 376 B groß, nach der Größe also keiner: Mit ihnen bricht
+// der Sammler sicher ab (Prüfung Task 2, W1; die Owner-Frage dazu steht in docs/mac-nachbau.md). Darum druckt er immer
+// Größe, SHA-256 und Anfang von LICENSE und README, auch beim Abbruch.
 //
 //   node scripts/ci/sammle-ffmpeg-beilagen.mjs --app editor --art arm64 --release apps/editor/release \
 //     --ffmpeg-static node_modules/ffmpeg-static --hinweis scripts/ci/ffmpeg-quellen-hinweis.txt --ziel paket

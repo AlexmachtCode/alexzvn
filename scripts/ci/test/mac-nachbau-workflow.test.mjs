@@ -4,6 +4,7 @@
 // ohne --probe, kein Secret im Bau, die Konfiguration aus dem Tag nur geprüft und die Tag-Prüfung über den ganzen Text;
 // (R22–R26) ein Fehler von Prüfer oder Sammler beendet den Job, ein Secret nur für gh im Hochlade-Schritt, die
 // Freigabeliste in beiden Jobs, und jede Prüfung im Skript bricht ab. R13 ist eine Positivliste der Befehle im Hochlade-Job.
+// Seit der Gesamtprüfung (R28–R30): Werkzeug nur aus github.sha, Hochladen nur aus einem Lauf von main, Uploads nacheinander.
 // Ohne js-yaml: Der Worktree hat kein node_modules, js-yaml liegt nur transitiv im Lockfile (electron-builder, astro),
 // und der Test soll überall ohne npm ci laufen. Die Regeln lesen diese eine, von uns geschriebene Datei zeilenweise
 // (CRLF egal). R1–R26 überspringen Zeilen, die mit # beginnen; YAML-Kommentare sind das nur außerhalb von Block-Werten.
@@ -256,6 +257,32 @@ function pruefeWorkflow(text) {
   if (roh.some((z) => raute(z) && z.includes('${{')) || runs(roh).some((r) => r.split('\n').some(raute))) {
     fehler.push('R27 Zeilen, die mit # beginnen: nie ${{ }} (in run- und Block-Werten setzt GitHub es ein), in run-Blöcken gar keine');
   }
+  // Prüfer, Sammler, Lesestand und Hinweis kommen aus dem Commit dieses Workflows (github.sha), nie aus dem Tag: Für
+  // editor-v0.5.0 fehlten sie dort und der Bau scheiterte sicher, ab Stufe 2 trügen neue Tags aber eigene, ältere
+  // Fassungen (Gesamtprüfung, Befund 3). Nur die eine git-show-Zeile schreibt nach werkzeug/.
+  const holeWerkzeug = 'git -c protocol.version=2 fetch -q --no-tags --depth=1 origin "$WERKZEUG_SHA"\nmkdir -p werkzeug/scripts/ci\n'
+    + 'for f in pruefe-mac-nachbau.mjs sammle-ffmpeg-beilagen.mjs mac-nachbau-lesestand.json ffmpeg-quellen-hinweis.txt; do\n'
+    + 'git show "$WERKZEUG_SHA:scripts/ci/$f" > "werkzeug/scripts/ci/$f"\ndone';
+  const schreibtWerkzeug = bauT.split('\n').filter((z) => z.includes('werkzeug') && (z.includes('>') || /(^|\s)(cp|mv|ln|tee|install|rsync|curl|wget)\s/.test(z)));
+  if (werte(bau.filter((z) => /^\s+WERKZEUG_SHA:/.test(z))).join('\n') !== 'WERKZEUG_SHA: ${{ github.sha }}' || !steht(bauRuns, holeWerkzeug)
+    || schreibtWerkzeug.join('\n') !== 'git show "$WERKZEUG_SHA:scripts/ci/$f" > "werkzeug/scripts/ci/$f"'
+    || !bauRuns.includes('--hinweis werkzeug/scripts/ci/ffmpeg-quellen-hinweis.txt --ziel paket')) {
+    fehler.push('R28 bau: Prüfer, Sammler, Lesestand und Quellen-Hinweis nur aus github.sha nach werkzeug/, nie aus dem Tag; der Sammler liest den Hinweis von dort');
+  }
+  // Hochladen nur aus einem Lauf von main: Sonst nähme ein echter Lauf von einem Arbeitszweig Prüfer, Lesestand und
+  // Hinweis aus diesem Zweig, ohne PR und Owner-OK (Gesamtprüfung, Befund 8). Schutz gegen Versehen, nicht gegen
+  // Schreibrecht. Die Prüfung steht vor dem ersten gh-Aufruf, und kein env setzt eine GITHUB_-Variable.
+  const nurMain = 'if [ "$GITHUB_REF" != "refs/heads/main" ]; then';
+  if (abbrueche(hochRuns, nurMain) !== 1 || !(hochRuns.indexOf(nurMain) < hochRuns.indexOf('gh release'))
+    || zeilen.some((z) => /^\s+GITHUB_[A-Z0-9_]*\s*:/.test(z))) {
+    fehler.push('R29 hochladen: nur aus einem Lauf von main (GITHUB_REF vor dem ersten gh geprüft, sonst Abbruch; keine GITHUB_-Variable im env)');
+  }
+  // Zwei echte Läufe zugleich löschten sich per --clobber gegenseitig die Uploads (Gesamtprüfung, Befund 9). Feste Gruppe
+  // ohne ${{ }}; ein laufender Upload wird nie abgebrochen, auch nicht über eine zweite concurrency-Angabe.
+  const reihe = '    concurrency:\n      group: mac-nachbau-hochladen\n      cancel-in-progress: false';
+  if (!hoch.join('\n').includes(reihe) || zeilen.filter((z) => z.includes('cancel-in-progress')).join('\n') !== '      cancel-in-progress: false') {
+    fehler.push('R30 hochladen: concurrency mac-nachbau-hochladen, laufende Uploads nie abbrechen (kein cancel-in-progress: true)');
+  }
   return fehler;
 }
 
@@ -368,6 +395,24 @@ gegenprobe('R27', '          PROBE: ${{ inputs.probe }}\n', '          PROBE: ${
   'Secret in einer #-Zeile eines Block-Werts im env (kein run-Block)');
 gegenprobe('R27', '          if gh release view "$TAG"', '          echo "Pakete:\n          # "; bash pakete/x64/ffmpeg-QUELLEN.txt; echo "\n          "\n          if gh release view "$TAG"',
   '#-Zeile in einem mehrzeiligen Anführungstext versteckt einen Befehl aus dem Artefakt (ohne ${{ }})');
+// Gesamtprüfung, Befund 3: Werkzeug aus dem Tag statt aus github.sha blieb grün.
+gegenprobe('R28', 'git show "$WERKZEUG_SHA:scripts/ci/$f"', 'git show "refs/tags/$TAG:scripts/ci/$f"', 'Prüfer, Sammler, Lesestand und Hinweis aus dem Tag statt aus github.sha');
+gegenprobe('R28', '          WERKZEUG_SHA: ${{ github.sha }}', '          WERKZEUG_SHA: ${{ github.ref }}', 'Werkzeug vom Stand des Zweigs beim Holen statt vom gestarteten Commit');
+gegenprobe('R28', '          echo "Prüfer, Sammler, Lesestand und Quellen-Hinweis aus $WERKZEUG_SHA"\n',
+  '          git show "refs/tags/$TAG:scripts/ci/mac-nachbau-lesestand.json" > werkzeug/scripts/ci/mac-nachbau-lesestand.json\n'
+  + '          echo "Prüfer, Sammler, Lesestand und Quellen-Hinweis aus $WERKZEUG_SHA"\n', 'Lesestand danach aus dem Tag überschrieben');
+gegenprobe('R28', '--hinweis werkzeug/scripts/ci/ffmpeg-quellen-hinweis.txt', '--hinweis scripts/ci/ffmpeg-quellen-hinweis.txt', 'Quellen-Hinweis aus dem Quellbaum des Tags');
+// Gesamtprüfung, Befund 8 (echter Lauf von einem Arbeitszweig) und 9 (zwei echte Läufe zugleich).
+const nurMainBlock = '          if [ "$GITHUB_REF" != "refs/heads/main" ]; then\n'
+  + '            echo "::error::Hochladen nur aus einem Lauf von main, gestartet wurde von $GITHUB_REF: Prüfer, Lesestand und Quellen-Hinweis kämen sonst aus einem Zweig ohne PR."\n'
+  + '            exit 1\n          fi\n';
+gegenprobe('R29', nurMainBlock, '', 'Prüfung auf main entfernt');
+gegenprobe('R29', 'aus einem Zweig ohne PR."\n            exit 1\n', 'aus einem Zweig ohne PR."\n', 'Lauf von einem anderen Zweig meldet nur');
+gegenprobe('R29', [[nurMainBlock, ''], ['          echo "Hochgeladen:', `${nurMainBlock}          echo "Hochgeladen:`]], '', 'Prüfung auf main erst nach den Uploads');
+gegenprobe('R29', '          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n', '          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n          GITHUB_REF: refs/heads/main\n', 'GITHUB_REF im env auf main gesetzt');
+gegenprobe('R30', '    concurrency:\n      group: mac-nachbau-hochladen\n      cancel-in-progress: false\n', '', 'concurrency im Hochlade-Job entfernt');
+gegenprobe('R30', '      cancel-in-progress: false', '      cancel-in-progress: true', 'ein neuer Lauf bricht den laufenden Upload ab');
+gegenprobe('R30', '\n\njobs:\n', '\n\nconcurrency:\n  group: mac-nachbau\n  cancel-in-progress: true\n\njobs:\n', 'oberste concurrency bricht laufende Läufe ab');
 
 console.log(failures === 0 ? '\nAlle mac-nachbau-Workflow-Tests bestanden.' : `\n${failures} mac-nachbau-Workflow-Test(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
