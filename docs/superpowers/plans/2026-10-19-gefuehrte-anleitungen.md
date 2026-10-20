@@ -1174,7 +1174,7 @@ ist eine Testzeile. Pfade in Fehlerzeilen gekürzt (`…`).
 | 13 | `SyntaxError` … `'startEntscheidung'` | **418** | 0 | 3, 3, 1, 1, 1 | 10 / 8 |
 | 14 | `SyntaxError` … `'anleitungsUmgebung'`; nach Adapter und L15 `423 ok, 6 fehlgeschlagen.` | **429**; M1 13 Overlays, höchstes 65 | 0; Bau `Exit=0`, 1 014,66 kB / CSS 64,22 kB, **35** `.ogg` im Bau, Bau-Prüfung `Exit=0`; Klassen-Probe 19 `ok`, 102 Klassen | 2, 1, 1, 1, 1, 1, 1, 1, 1, 1 | 11 / 10 |
 | 15 | `SyntaxError` … `'ersteSchritteKnopf'`; dann `436 ok, 12 fehlgeschlagen.` | **448** | 0; Bau `Exit=0`, 1 022,86 kB / CSS 63,99 kB; Klassen-Probe 19, 102 | 1, 2, 1, 1, 1, 1, 1 | 19 / 15 |
-| 16 | `448 ok, 6 fehlgeschlagen.`; `cookbook:check` `Exit=1` „veraltet“ | **454**; Kochbuch 44 Rezepte, numstat `126 1`, `updatedAt` 2026-10-19 | 0 | 1, 1, 1, 1, 1 | 6 / 6 |
+| 16 | `448 ok, 6 fehlgeschlagen.`; `cookbook:check` `Exit=1` „veraltet“ | **454**; Kochbuch 44 Rezepte, numstat `126 1`, `updatedAt` 2026-10-21 | 0 | 1, 1, 1, 1, 1 | 6 / 6 |
 | 17 | `455 ok, 2 fehlgeschlagen.`; Prüfbefehl `fehlt: …ABNAHME-gefuehrte-anleitungen.md` | **457**; Prüfbefehl 23 Schritte, 20 von 20 Texten, 4 Zusatzprüfungen | 0 | 1, 1, 1, 1, Prüfbefehl (`false`, 1, 2) | 3 / 3 |
 | 18 | – | `@jm/ui` 816; `@jm/settings` 463; Launcher 457 und 38; Verbund 203 / 61 / 64; iveo 365 / 52 / 101 / 12 / 87 / 498 / 10 / 10; App-Laufzeit 50 + 254; Titler 813; Galerie 20; Kochbuch frisch (44); Pakete nur die drei Skripte und der Export; G1 52 Pfade, 87 geändert (35 Ansagen), 0 außerhalb; Zeilenenden 27 neu LF, 25 geändert ohne Mischung; Byte-Vergleich 49 gleich, 0 abweichend, 2 ausgenommen (zweite Kopie, 117 Operationen) | alle 31 Workspaces `Exit=0`, 0 `error TS` (120 s, Abschluss; im Nachfix 1 nur `@jm/launcher`, 0); Bau `Exit=0`, 1 031,66 kB / CSS 63,99 kB, 35 `.ogg`, 0 `data:audio`, Bau-Prüfung mit `--verlange-stimme` `Exit=0`; Klassen-Probe 19, 102 | Pakete `Exit=1`, Pfadfilter `außerhalb G1 2` `Exit=1`, Zeilenenden `Exit=1`, Byte-Vergleich `abweichend 1` `Exit=1` | – |
 | Summe | – | – | – | 141 Gegenproben der Aufgaben (Block A 37, B 28, C 19, D 47, E 10), dazu die 4 Proben der Prüfskripte in Task 18 | 312 / 157 |
@@ -13901,7 +13901,7 @@ git commit -m "feat(launcher): Kapiteluebersicht statt Checkliste, Knopf Erste S
   | Lauf | vor Task 16 | P16 | P17 | P18 |
   | --- | --- | --- | --- | --- |
   | Launcher-Selbsttest, erste Summenzeile | 448 | **454** | **457** | 457 |
-  | Kochbuch | frisch, 43 Rezepte, `updatedAt` 2026-10-17 | frisch, 44 Rezepte, `updatedAt` 2026-10-19 | – | – |
+  | Kochbuch | frisch, 43 Rezepte, `updatedAt` 2026-10-17 | frisch, 44 Rezepte, `updatedAt` 2026-10-21 | – | – |
   | Typprüfung `@jm/launcher` | Exit 0 | Exit 0 | Exit 0 | Teil von „alle“ |
   | `apps/launcher/test/selftest.ts` (Zeilen, CRLF) | 2789 | 2847 | 2899 | 2899 |
   | Gegenproben, alle rot gemessen | – | 5 | 5 | 4 (Prüfskripte) |
@@ -13943,7 +13943,7 @@ Summenzeile des Launcher-Selbsttests ist `448 ok, 0 fehlgeschlagen.`
   Anleitungs-Datei, den Adapter und die `*.tsx` unter `apps/launcher/src/renderer/src`.
 - Rezept: Kategorie `Tool-Manuals`, id gleich Dateiname `launcher-gefuehrte-einrichtung` (bewusst nicht `tool-…`: `manualFor`
   verbindet Tools des Katalogs über `tool-‹appId›`, der Launcher steht nicht in `suite.json`), `relatedTools: []` (eine
-  Launcher-ID gäbe nur eine Warnung, Ist-M 4), `lastReviewed: 2026-10-19`. Der Controller setzt beim Neuaufsetzen den Tag der
+  Launcher-ID gäbe nur eine Warnung, Ist-M 4), `lastReviewed: 2026-10-21` (Tag der Umsetzung, vom Controller eingesetzt; geplant war 2026-10-19). Der Controller setzt beim Neuaufsetzen den Tag der
   Umsetzung ein („Vor der Umsetzung“ Nr. 7); dieser Tag wird `updatedAt` von `cookbook.json`.
 - Inhalt Rezept: wo man die Anleitung findet, die sechs Kapitel, Bedienleiste, Stimme abschalten, Produktion, „Brauche ich
   nicht“ und „Doch gebraucht“, Pannenhilfe mit den Diagnose-Texten wörtlich.
@@ -14320,7 +14320,7 @@ prerequisites:
 equipmentOwner: jm
 crewRoles:
   - Technik (Einrichtung eines Rechners)
-lastReviewed: 2026-10-19
+lastReviewed: 2026-10-21
 owner: tech@jakobsmedien.com
 summary: "Der Launcher führt beim ersten Start wie ein Spiele-Tutorial in sechs Kapiteln durch die Einrichtung eines Rechners: Anmelden, Tools installieren, Rolle im Verbund, erste Show, Fernsteuerung für Companion, Tools aus der Show starten. Er hebt das Bedienelement hervor, erklärt es, spricht den Text und erkennt selbst, wann ein Schritt erledigt ist. Er bedient nichts selbst und bringt nie etwas auf Sendung. Jederzeit wieder über den Knopf „Erste Schritte“ oben."
 ---
@@ -14415,7 +14415,7 @@ Erwartet (gemessen):
 cookbook.json geschrieben: 44 Rezepte.
 cookbook.json ist frisch (44 Rezepte).
 126	1	packages/cookbook/cookbook.json
-2026-10-19T00:00:00.000Z | Tool-Manuals | 0 | 2 | 11 | 6 | 2 | false
+2026-10-21T00:00:00.000Z | Tool-Manuals | 0 | 2 | 11 | 6 | 2 | false
 ```
 `126 1` sind die 125 Zeilen des neuen Rezepts und die Zeile `updatedAt` (gemessen mit `git diff --no-index` gegen den Stand
 vor dem Bau). Die letzte Zeile: `updatedAt` gleich `lastReviewed` des Rezepts (das jüngste aller Rezepte), Kategorie,
