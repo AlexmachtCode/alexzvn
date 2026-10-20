@@ -7,7 +7,7 @@ import { AnleitungsUebersicht, type AnleitungsUebersichtProps } from '../src/com
 import { anleitungAnsicht, type AnleitungsAnsicht, type KapitelZeile, type KapitelZustand } from '../src/lib/anleitung';
 import { KAPITEL_SYMBOL, KAPITEL_SYMBOL_KLASSE } from '../src/lib/status';
 import { ANLEITUNG_TEXTE } from '../src/lib/texte';
-import { ansageFehlerFuer, starteAnsage, type Abspieler, type AnsageFehler } from '../src/lib/useAnsage';
+import { ansageFehlerFuer, ansageStand, starteAnsage, type Abspieler, type AnsageFehler } from '../src/lib/useAnsage';
 import { TEST_ANLEITUNG, fortschritt } from './anleitung-format.test';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from './harness';
 import { kreuz, pruefeFaelle, vergleiche } from './lib/kreuz';
@@ -105,19 +105,26 @@ const knoepfe = (html: string): string[] => tags(html, 'button').map((t) => attr
     [false, true, true],
     'P5 G7: Diagnosezeile genau bei speicherHinweis',
   );
-  const stimme = (s: Partial<AnleitungsUebersichtProps['stimme']>): string =>
-    text(uebersicht({ stimme: { vorhanden: true, an: true, umschalten: nichts, namensnennung: null, ...s } }));
-  gleich(
-    [
-      stimme({}).includes('Stimme aus'),
-      stimme({ an: false }).includes('Stimme an'),
-      stimme({ vorhanden: false }).includes('In dieser Fassung gibt es keine Stimme.') && !stimme({ vorhanden: false }).includes('Stimme aus'),
-      stimme({ namensnennung: 'Stimme: MLS, CC BY 4.0' }).includes('Stimme: MLS, CC BY 4.0'),
-      stimme({}).includes('CC BY'),
-    ],
-    [true, true, true, true, false],
-    'P5 6: Stimmen-Schalter (U20/U19), ohne Stimme U36, Namensnennung nur wenn gesetzt (EP21)',
-  );
+  // Kreuz vorhanden (2) × an (2) × Namensnennung (2): genau die Knöpfe und Hinweise des Zustands, nie einen mehr
+  // (Owner: Stimme an/aus in jedem erreichbaren Zustand; Launcher 0.17.0 läuft nur mit vorhanden=false; Ruling Task 5).
+  {
+    const NAME = 'Stimme: MLS, CC BY 4.0';
+    const K = kreuz({ vorhanden: [false, true], an: [false, true], name: [null, NAME] as Array<string | null> });
+    pruefeFaelle('P5 6, G7: Stimmen-Zeile vorhanden (2) × an (2) × Namensnennung (2): genau die Knöpfe und Hinweise des Zustands', K, (c) => {
+      const html = uebersicht({ stimme: { vorhanden: c.vorhanden, an: c.an, umschalten: nichts, namensnennung: c.name } });
+      const ist = [
+        tags(html, 'button').map((t) => attr(t, 'data-knopf')).filter((n) => n === 'stimme').join(','),
+        tags(html, 'p').map((t) => attr(t, 'data-hinweis')).filter((n) => n === 'keine-stimme' || n === 'namensnennung').join(','),
+        ['Stimme aus', 'Stimme an', ANLEITUNG_TEXTE.keineStimme, NAME].filter((t) => text(html).includes(t)).join('|'),
+      ].join(' ; ');
+      const soll = [
+        c.vorhanden ? 'stimme' : '',
+        [c.vorhanden ? '' : 'keine-stimme', c.vorhanden && c.name !== null ? 'namensnennung' : ''].filter(Boolean).join(','),
+        [c.vorhanden ? (c.an ? 'Stimme aus' : 'Stimme an') : '', c.vorhanden ? '' : ANLEITUNG_TEXTE.keineStimme, c.vorhanden && c.name !== null ? NAME : ''].filter(Boolean).join('|'),
+      ].join(' ; ');
+      return vergleiche(ist, soll);
+    });
+  }
   const zwei: AnleitungsAnsicht = { ...ANSICHT, kapitel: [ZEILE, { ...ZEILE, id: 'k2', nummer: 2, titel: 'Tools installieren' }] };
   const html = uebersicht({
     ansicht: zwei,
@@ -183,8 +190,10 @@ const knoepfe = (html: string): string[] => tags(html, 'button').map((t) => attr
     };
   };
   const fehler: AnsageFehler[] = [];
-  const melde = (f: AnsageFehler): void => {
-    fehler.push(f);
+  const roh: Array<AnsageFehler | null> = [];
+  const melde = (f: AnsageFehler | null): void => {
+    roh.push(f);
+    if (f !== null) fehler.push(f);
   };
   starteAnsage('a.ogg', 'k1.zugang', false, abspieler('ok'), melde);
   starteAnsage('a.ogg', null, true, abspieler('ok'), melde);
@@ -213,6 +222,26 @@ const knoepfe = (html: string): string[] => tags(html, 'button').map((t) => attr
     [null, 'fehlt', null, null],
     'P5 G7: angezeigter Fehler nur für die aktuelle Ansage und nur, solange gespielt wird',
   );
+  // G7: ein neuer Lauf setzt die Fehleranzeige zurück – Fehler, dann erneuter Lauf derselben ID mit Erfolg → kein Fehler mehr
+  {
+    let stand: ReturnType<typeof ansageStand> = null;
+    const setze = (f: AnsageFehler | null): void => {
+      stand = ansageStand('x', f);
+    };
+    starteAnsage(null, 'x', true, abspieler('ok'), setze);
+    const nachFehler = ansageFehlerFuer(stand, 'x', true);
+    starteAnsage('e.ogg', 'x', true, abspieler('ok'), setze);
+    await new Promise((fertig) => setTimeout(fertig, 0));
+    gleich(
+      [nachFehler, ansageFehlerFuer(stand, 'x', true), ansageStand('x', null), ansageStand('x', 'fehlt')],
+      ['fehlt', null, null, { id: 'x', fehler: 'fehlt' }],
+      'P5 G7: Fehleranzeige wird bei jedem neuen Lauf zurückgesetzt (Fehler → erneuter Lauf mit Erfolg → kein Fehler)',
+    );
+    const vorher = roh.length;
+    starteAnsage('f.ogg', 'y', true, abspieler('ok'), melde);
+    starteAnsage('f.ogg', 'y', false, abspieler('ok'), melde);
+    gleich(roh.slice(vorher), [null, null], 'P5 G7: jeder Lauf meldet zuerst „kein Fehler“ (null), auch wenn nicht gespielt wird');
+  }
   const quelle = leseText('src/lib/useAnsage.ts');
   const effekt = quelle.slice(quelle.indexOf('useEffect(() => {'));
   ok(

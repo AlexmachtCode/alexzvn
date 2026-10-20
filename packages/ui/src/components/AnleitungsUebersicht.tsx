@@ -146,7 +146,7 @@ export function AnleitungsUebersicht(p: AnleitungsUebersichtProps): React.JSX.El
         ) : (
           <p data-hinweis="keine-stimme">{ANLEITUNG_TEXTE.keineStimme}</p>
         )}
-        {p.stimme.namensnennung !== null ? <p data-hinweis="namensnennung">{p.stimme.namensnennung}</p> : null}
+        {p.stimme.vorhanden && p.stimme.namensnennung !== null ? <p data-hinweis="namensnennung">{p.stimme.namensnennung}</p> : null}
       </div>
       {p.tipp !== undefined ? <p className="text-xs text-[var(--muted-foreground)]">{p.tipp}</p> : null}
       <div className="flex justify-end">

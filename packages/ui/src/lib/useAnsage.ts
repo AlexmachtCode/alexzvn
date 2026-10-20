@@ -13,15 +13,17 @@ export interface Abspieler {
 
 /**
  * Körper des Effekts: ohne `spielen` oder ohne Ansage-ID nichts; ohne Datei → 'fehlt'; sonst abspielen, ein Wurf oder ein
- * abgelehntes play() → 'abspielen'. Rückgabe: stoppen; danach meldet die Ansage nichts mehr. Nur aus dieser Datei exportiert.
+ * abgelehntes play() → 'abspielen'. Jeder Lauf meldet zuerst null (eine frühere Fehleranzeige gilt nicht für den neuen Lauf, G7).
+ * Rückgabe: stoppen; danach meldet die Ansage nichts mehr. Nur aus dieser Datei exportiert.
  */
 export function starteAnsage(
   url: string | null,
   id: string | null,
   spielen: boolean,
   erzeuge: (url: string) => Abspieler,
-  melde: (fehler: AnsageFehler) => void,
+  melde: (fehler: AnsageFehler | null) => void,
 ): () => void {
+  melde(null);
   if (!spielen || id === null) return () => undefined;
   if (url === null) {
     melde('fehlt');
@@ -44,6 +46,11 @@ export function starteAnsage(
   };
 }
 
+/** Stand nach einer Meldung: null löscht die Anzeige, ein Fehler gilt für die Ansage `id`. Nur aus dieser Datei exportiert. */
+export function ansageStand(id: string, fehler: AnsageFehler | null): { id: string; fehler: AnsageFehler } | null {
+  return fehler === null ? null : { id, fehler };
+}
+
 /** Angezeigter Fehler: nur für die aktuelle Ansage und nur, solange gespielt werden soll. Nur aus dieser Datei exportiert. */
 export function ansageFehlerFuer(stand: { id: string; fehler: AnsageFehler } | null, id: string | null, spielen: boolean): AnsageFehler | null {
   return spielen && stand !== null && stand.id === id ? stand.fehler : null;
@@ -54,7 +61,7 @@ export function useAnsage(url: string | null, id: string | null, spielen: boolea
   const [stand, setStand] = useState<{ id: string; fehler: AnsageFehler } | null>(null);
   useEffect(() => {
     if (id === null || typeof Audio === 'undefined') return undefined;
-    return starteAnsage(url, id, spielen, (u) => new Audio(u), (fehler) => setStand({ id, fehler }));
+    return starteAnsage(url, id, spielen, (u) => new Audio(u), (fehler) => setStand(ansageStand(id, fehler)));
   }, [url, id, spielen]);
   return ansageFehlerFuer(stand, id, spielen);
 }
