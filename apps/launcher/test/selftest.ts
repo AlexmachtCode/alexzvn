@@ -1341,7 +1341,7 @@ await (async () => {
     zustaende: ['quelleVerbunden', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen', 'systemOffen',
       'verbundOffen', 'szenarienOffen', 'editorOffen', 'rolleAus', 'rolleMaster', 'rolleSlave', 'slaveGekoppelt', 'slaveVerbunden',
       'steuerebeneSicher', 'steuerebeneOffen', 'showGestartet'],
-    ereignisse: ['showGespeichert', 'slaveWarVerbunden', 'steuerebeneAktiviert'],
+    ereignisse: ['showGespeichert', 'slaveWarVerbunden', 'steuerebeneAktiviert', 'neustart:k5.neustart'],
     entscheidungen: ['allein', 'companionVerbunden', 'showVomMaster'],
   };
   const befunde = pruefeAnleitung(EINRICHTUNG, NAMEN_EINRICHTUNG);
@@ -1472,7 +1472,7 @@ await (async () => {
     { id: 'k5.sicher', art: 'erklaeren', ziel: 'system.sicher', zielFehlt: 'Öffne zuerst den System-Zustand.', eingriff: true,
       gilt: alle(EINZEL, nicht(SICHER)) },
     { id: 'k5.companion', art: 'erklaeren', ziel: 'system.steuerebene', zielFehlt: 'Öffne den System-Zustand.', gilt: alle(EINZEL, SICHER) },
-    { id: 'k5.neustart', art: 'neustart', eingriff: true, gilt: alle(EINZEL, SICHER, ev('steuerebeneAktiviert')) },
+    { id: 'k5.neustart', art: 'neustart', eingriff: true, gilt: alle(EINZEL, SICHER, ev('steuerebeneAktiviert'), nicht(ev('neustart:k5.neustart'))) },
     { id: 'k5.verbund', art: 'erklaeren', gilt: VERBUND },
     { id: 'k5.bestaetigen', art: 'entscheiden', hinweis: true, optionen: [['Companion ist verbunden', 'companionVerbunden']] },
     { id: 'k6.master', art: 'erklaeren', gilt: z('rolleMaster') },
@@ -1586,6 +1586,8 @@ await (async () => {
     ['Einzelplatz offen', { rolleAus: true, steuerebeneOffen: true }, [], 'system,sicher,bestaetigen'],
     ['Einzelplatz eben aktiviert', { rolleAus: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'], 'system,companion,neustart,bestaetigen'],
     ['Einzelplatz schon vorher sicher', { rolleAus: true, steuerebeneSicher: true }, [], 'system,companion,bestaetigen'],
+    ['Einzelplatz nach dem erledigten Neustart', { rolleAus: true, steuerebeneSicher: true }, ['steuerebeneAktiviert', 'neustart:k5.neustart'],
+      'system,companion,bestaetigen'],
     ['Rolle unbekannt eben aktiviert', { steuerebeneSicher: true }, ['steuerebeneAktiviert'], 'system,companion,neustart,bestaetigen'],
     ['Master sicher, eben aktiviert', { rolleMaster: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'], 'verbund,bestaetigen'],
     ['Slave offen', { rolleSlave: true, steuerebeneOffen: true }, [], 'verbund,bestaetigen'],
@@ -1620,6 +1622,8 @@ await (async () => {
     ['Bestätigung: Kapitel 5 erledigt, weiter mit Kapitel 6', ortVon(f6), 'k6.oeffnen'],
     ['Einzelplatz offen: „Weiter“ führt zur Bestätigung', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k5', 'k5.sicher'), { art: 'weiter' },
       { rolleAus: true, systemOffen: true, steuerebeneOffen: true }, ZEIT)), 'k5.bestaetigen'],
+    ['nach dem Neustart: kein zweiter Neustart, „Weiter“ führt zur Bestätigung', ortVon(anleitungSchritt(EINRICHTUNG,
+      { ...lauf('k5', 'k5.companion'), ereignisse: f5.fortschritt.ereignisse }, { art: 'weiter' }, EINZEL_SICHER, ZEIT)), 'k5.bestaetigen'],
     ['schon vorher sicher: kein Neustart', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k5', 'k5.companion'), { art: 'weiter' },
       EINZEL_SICHER, ZEIT)), 'k5.bestaetigen'],
   ];

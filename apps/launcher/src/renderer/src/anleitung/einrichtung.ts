@@ -355,10 +355,11 @@ export const EINRICHTUNG: Anleitung = {
         },
         {
           // Nur nach einem Wechsel offen → sicher (Ereignis steuerebeneAktiviert); eine schon vorher sichere Steuerebene wirkt.
+          // Nach dem erledigten Neustart (Ereignis neustart:k5.neustart, vom Kern gemerkt) gilt der Schritt nicht mehr.
           id: 'k5.neustart',
           art: 'neustart',
           eingriff: true,
-          giltWenn: { alle: [EINZELPLATZ, STEUEREBENE_SICHER, { ereignis: 'steuerebeneAktiviert' }] },
+          giltWenn: { alle: [EINZELPLATZ, STEUEREBENE_SICHER, { ereignis: 'steuerebeneAktiviert' }, { nicht: { ereignis: 'neustart:k5.neustart' } }] },
           text: 'Die sichere Steuerebene wirkt erst nach einem Neustart. Beende laufende Tools und den Launcher und starte den Launcher neu. Danach geht es hier weiter.',
         },
         {
