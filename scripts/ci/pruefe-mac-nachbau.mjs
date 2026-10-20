@@ -77,6 +77,82 @@ export function erwarteterDmgName(app, version, art) {
   return `${APPS[app].produkt}-${version}-mac-${art}.dmg`;
 }
 
+const VERSION = /^\d+\.\d+\.\d+$/;
+const ist = (w) => w !== null && typeof w === 'object' && !Array.isArray(w);
+
+/** Doppelte Schlüssel je Objekt im Rohtext (nur für gültiges JSON); JSON.parse behielte still nur den letzten. */
+function doppelteSchluessel(text) {
+  const maengel = [];
+  const stapel = [];
+  for (let i = 0; i < text.length; i++) {
+    const zeichen = text[i];
+    const oben = stapel.at(-1);
+    if (zeichen === '"') {
+      let k = i + 1;
+      while (text[k] !== '"') k += text[k] === '\\' ? 2 : 1;
+      if (oben?.objekt && oben.erwarteSchluessel) {
+        const schluessel = JSON.parse(text.slice(i, k + 1));
+        const ort = oben.pfad.length ? `unter „${oben.pfad.join(' / ')}“` : 'in der obersten Ebene';
+        if (oben.gesehen.has(schluessel)) maengel.push(`doppelter Schlüssel „${schluessel}“ ${ort}; JSON.parse behielte still nur den letzten.`);
+        oben.gesehen.add(schluessel);
+        oben.letzter = schluessel;
+        oben.erwarteSchluessel = false;
+      }
+      i = k;
+    } else if (zeichen === '{' || zeichen === '[') {
+      const pfad = oben ? [...oben.pfad, oben.objekt ? oben.letzter : '[]'] : [];
+      stapel.push({ objekt: zeichen === '{', gesehen: new Set(), pfad, letzter: null, erwarteSchluessel: zeichen === '{' });
+    } else if (zeichen === '}' || zeichen === ']') {
+      stapel.pop();
+    } else if (zeichen === ',' && oben?.objekt) {
+      oben.erwarteSchluessel = true;
+    }
+  }
+  return maengel;
+}
+
+/**
+ * Mängel der Lesestand-Datei (Rohtext); [] = in Ordnung, auch für den leeren Lesestand {}. Gültiges JSON ohne doppelte
+ * Schlüssel, nur Apps aus APPS, Versionen x.y.z, Arten aus ARTEN, je Eintrag genau ffmpeg und ffprobe als SHA-256 in
+ * Kleinbuchstaben. Der Selbsttest prüft damit die Datei im Repo (ci-checks), die Kommandozeile vor jedem Lauf.
+ */
+export function lesestandMaengel(text) {
+  let daten;
+  try {
+    daten = JSON.parse(text);
+  } catch (e) {
+    return [`kein gültiges JSON (${e.message}).`];
+  }
+  const maengel = doppelteSchluessel(text);
+  if (!ist(daten)) return [...maengel, 'oberste Ebene ist kein Objekt.'];
+  for (const [app, versionen] of Object.entries(daten)) {
+    if (!Object.hasOwn(APPS, app)) {
+      maengel.push(`App „${app}“ ist nicht freigegeben (bekannt: ${Object.keys(APPS).join(', ')}).`);
+    } else if (!ist(versionen)) {
+      maengel.push(`„${app}“ ist kein Objekt.`);
+    } else {
+      for (const [version, arten] of Object.entries(versionen)) {
+        const ort = `${app} / ${version}`;
+        if (!VERSION.test(version)) {
+          maengel.push(`Version „${version}“ unter „${app}“ hat nicht die Form x.y.z.`);
+        } else if (!ist(arten)) {
+          maengel.push(`„${ort}“ ist kein Objekt.`);
+        } else {
+          for (const [art, e] of Object.entries(arten)) {
+            if (!Object.hasOwn(ARTEN, art)) {
+              maengel.push(`Art „${art}“ unter „${ort}“ unbekannt (arm64 oder x64).`);
+            } else if (!ist(e) || Object.keys(e).sort().join() !== 'ffmpeg,ffprobe'
+              || ![e.ffmpeg, e.ffprobe].every((w) => typeof w === 'string' && HEX64.test(w))) {
+              maengel.push(`„${ort} / ${art}“ braucht genau ffmpeg und ffprobe, je als SHA-256 in Kleinbuchstaben.`);
+            }
+          }
+        }
+      }
+    }
+  }
+  return maengel;
+}
+
 /** Pfade in der gepackten App (extraResources resources → Contents/Resources, bundle-ffmpeg nach bin/mac). */
 export function appPfade(release, app, art) {
   const produkt = APPS[app].produkt;
@@ -245,17 +321,24 @@ function hauptprogramm(argv) {
     console.error(`pruefe-mac-nachbau: Art „${art}“ unbekannt (arm64 oder x64).`);
     return 2;
   }
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+  if (!VERSION.test(version)) {
     console.error(`pruefe-mac-nachbau: Version „${version}“ hat nicht die Form x.y.z.`);
     return 2;
   }
-  let lesestand;
+  let text;
   try {
-    lesestand = JSON.parse(readFileSync(resolve(werte.lesestand), 'utf8'));
+    text = readFileSync(resolve(werte.lesestand), 'utf8');
   } catch (e) {
     console.error(`pruefe-mac-nachbau: Lesestand „${werte.lesestand}“ unlesbar: ${e.message}`);
     return 1;
   }
+  // Auch mit --probe: Ein doppelter Schlüssel ließe sonst still einen Eintrag fallen.
+  const maengel = lesestandMaengel(text);
+  if (maengel.length) {
+    for (const m of maengel) console.error(`pruefe-mac-nachbau: Lesestand „${werte.lesestand}“ ungültig: ${m}`);
+    return 1;
+  }
+  const lesestand = JSON.parse(text);
   const r = pruefeMacNachbau({ release: resolve(release), app, version, art, lesestand, probe },
     process.platform === 'darwin' ? MACOS : null);
   for (const h of r.hinweise) console.log(`pruefe-mac-nachbau: ${h}`);

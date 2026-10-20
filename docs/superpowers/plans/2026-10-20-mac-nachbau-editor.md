@@ -12,10 +12,12 @@ eine Matrix (`macos-26` für arm64, `macos-26-intel` für x64) mit nur Leserecht
 ohne Anmeldedaten und Prüfer, Sammler, Lesestand und Hinweis aus `github.sha` nach `werkzeug/`. Der Hochlade-Job hat
 Schreibrecht und läuft ohne Checkout, npm und node, nur mit `gh`. Prüfer und Sammler sind reine `node:`-Skripte unter
 `scripts/ci/`. Ihre Selbsttests laufen unter Linux und Windows, die macOS-Teile als Attrappe. Ein statischer Test hält die
-Regeln des Workflows fest, und ein Schritt in `ci-checks.yml` führt alle drei Tests aus.
+Regeln des Workflows fest. In `ci-checks.yml` führt der Job Selbsttests die drei Tests in je einem Schritt aus (Node 22),
+der Job `mac-nachbau-node20` dieselben unter Node 20 wie im Mac-Job. Der Prüfer-Test prüft auch die Lesestand-Datei im
+Repo (gültiges JSON, kein doppelter Schlüssel, Form).
 
 **Tech Stack:** GitHub Actions (workflow_dispatch, Matrix, actions/setup-node@v5, actions/upload-artifact@v4,
-actions/download-artifact@v4, gh), Node 20 im Mac-Job, Node 22 in ci-checks, lokal Node 24, nur `node:`-Module;
+actions/download-artifact@v4, gh), Node 20 im Mac-Job, Node 22 und 20 in ci-checks, lokal Node 24, nur `node:`-Module;
 electron-builder 24.13.3, ffmpeg-static 5.3.0 und ffprobe-static 3.1.0 kommen aus dem Tag.
 
 **Spec:** `C:\Users\alexk\AppData\Local\Temp\claude\c--Users-alexk-alexzvn\cfc08999-1618-4a9d-bec9-ffdb8fe15280\scratchpad\mac-fassungen\entwurf.md`
@@ -46,6 +48,8 @@ Der neue Release-Proxy (Paketwahl nach Mac-Art) ist seit 19.10.2026 deployt.
   Worktree ohne `npm ci` laufen. Zum reinen Messen darf js-yaml über den absoluten Pfad
   `C:\Users\alexk\alexzvn\.claude\worktrees\iveo-paket\node_modules\js-yaml` geladen werden, aus einem Skript im Scratchpad.
 - Prüfer und Sammler laufen im Mac-Job unter Node 20. Darum nur APIs bis Node 20 (`util.parseArgs`, `Object.hasOwn`, `?.`).
+  Seit der Prüfung von Task 4, Runde 1 (Befund 5) hält das der Job `mac-nachbau-node20` in ci-checks fest; lokal gibt es
+  kein Node 20, sein erster Lauf ist der in der PR.
 - Commits nur mit expliziten Pfaden, nie `git add -A` oder `git add .`. Danach `git status --short` lesen. Die
   Commit-Nachricht endet mit der Zeile `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`, der Betreff ist ohne
   Umlaute wie im Repo üblich.
@@ -74,7 +78,7 @@ Der neue Release-Proxy (Paketwahl nach Mac-Art) ist seit 19.10.2026 deployt.
 | Was install.js neben ffmpeg legt | `node_modules/ffmpeg-static/ffmpeg`, `ffmpeg.README`, `ffmpeg.LICENSE`, geladen aus `<plat>-<arch>.README` bzw. `.LICENSE` des Release b6.1.1; bei 404 gibt es nur eine Warnung | `ffmpeg-static/install.js:163-188`, `:29-32`; `index.js:32-35`; im Tag liegt ffmpeg-static im obersten node_modules (`editor-v0.5.0:package-lock.json:9382`) |
 | ffprobe | In beiden Ordnern x86_64 (`cf fa ed fe 07 00 00 01`). SHA-256 `bin/darwin/arm64/ffprobe` = `5b592e56f87ff754d94dadf99f38b4d0fb7d463eb780b50e0ca061d668d0e3f7`, `bin/darwin/x64/ffprobe` = `90fddf93d25a520bbda09e02f1f53a91f04acd1ef9b79e6dc602dc4dc6951f67`; die Lock-Integrität ist in Tag und HEAD gleich | lokal gemessen (`od`, `sha256sum`, Lockfile) |
 | Paketwahl | auf dem Mac nur `.dmg`, unter Windows nur `.exe`. Ein genauer Katalogname zählt nur unter Paketen, die schon passen. | `services/release-proxy/paketwahl.js:26-33`, `apps/launcher/src/main/release-wahl.ts:50-57`, `:82-84` |
-| Import von paketwahl.js aus `.mjs` | Läuft unter Node 22 und 24. Node meldet dazu `MODULE_TYPELESS_PACKAGE_JSON` auf stderr; das ist harmlos und bei `worker.test.mjs` genauso. | gemessen |
+| Import von paketwahl.js aus `.mjs` | Läuft unter Node 22 und 24. Node meldet dazu `MODULE_TYPELESS_PACKAGE_JSON` auf stderr; das ist harmlos und bei `worker.test.mjs` genauso. Unter Node 20 ungemessen; der Job `mac-nachbau-node20` setzt darum `--experimental-detect-module` (unter Node 24 mit und ohne Schalter grün). | gemessen (Node 20: offen) |
 | gh-Upload mehrerer Dateien | Ob ein Aufruf sie der Reihe nach hochlädt, ist nicht belegt. Darum je ein Aufruf: x64, dann arm64, dann die Beilagen (Entwurf: „ein Upload, x64 zuerst“; Reihenfolge so sicher) | — |
 
 ## Review Focus
@@ -107,15 +111,15 @@ Der neue Release-Proxy (Paketwahl nach Mac-Art) ist seit 19.10.2026 deployt.
 
 | Datei | Aufgabe | Task |
 |---|---|---|
-| `scripts/ci/pruefe-mac-nachbau.mjs` (neu) | Prüfer: Mach-O-Kopf, minos, Namen und Pfade, Ablauf am release-Ordner, Lesestand, macOS-Teile (injiziert), Kommandozeile | 1 |
-| `scripts/ci/mac-nachbau-lesestand.json` (neu) | Lesestand, anfangs `{}`; die Werte kommen nach dem Probelauf mit Owner-OK | 1 |
+| `scripts/ci/pruefe-mac-nachbau.mjs` (neu) | Prüfer: Mach-O-Kopf, minos, Namen und Pfade, Ablauf am release-Ordner, Lesestand, Lesestand-Datei (Form, doppelte Schlüssel), macOS-Teile (injiziert), Kommandozeile | 1 |
+| `scripts/ci/mac-nachbau-lesestand.json` (neu) | Lesestand, anfangs `{}`; die Werte kommen nach dem Probelauf mit Owner-OK; der Selbsttest prüft die Datei (N20) | 1 |
 | `scripts/ci/test/pruefe-mac-nachbau.test.mjs` (neu) | Selbsttest des Prüfers | 1 |
 | `scripts/ci/sammle-ffmpeg-beilagen.mjs` (neu) | Sammler: prüft ffmpeg-static und kopiert LICENSE, README und Hinweis unter festen Asset-Namen | 2 |
 | `scripts/ci/ffmpeg-quellen-hinweis.txt` (neu) | Wortlaut des Quellen-Hinweises; der Owner liest ihn im PR | 2 |
 | `scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs` (neu) | Selbsttest des Sammlers, Namensprobe gegen `paketwahl.js`, Wortlaut-Probe | 2 |
 | `.github/workflows/mac-nachbau.yml` (neu) | der Workflow | 3 |
 | `scripts/ci/test/mac-nachbau-workflow.test.mjs` (neu) | statischer Test des Workflows mit Gegenproben je Regel | 3 |
-| `.github/workflows/ci-checks.yml` (ändern, Job `selftests`, nach Z. 101-102) | ein Schritt für die drei Tests | 4 |
+| `.github/workflows/ci-checks.yml` (ändern, Job `selftests`, nach Z. 101-102) | je ein Schritt für die drei Tests, dazu der Job `mac-nachbau-node20` | 4 |
 | `docs/mac-nachbau.md` (neu) | Bedienung: Probe, Lesestand, echter Lauf | 4 |
 | `docs/mac-build-windows-only-apps.md` (ändern, Abschnitt 5, Z. 215) | ein Verweis auf `mac-nachbau.md` | 4 |
 
@@ -154,10 +158,15 @@ verlangt auch der Auftrag.
     `macos` ist `{ starte(pfad, args) → { status, error?, stdout, stderr }, otool(pfad, otoolArt) → string }` oder `null`.
     Bei `null` entfallen Laufzeitprobe und minos: mit `probe` nur ein Hinweis, sonst ein Fehler (fail closed; nach F3
     ist die Laufzeitprobe die Bedingung fürs Hochladen).
+  - `lesestandMaengel(text: string): string[]`: Mängel der Lesestand-Datei als Rohtext, `[]` heißt in Ordnung (auch `{}`).
+    Gültiges JSON, kein doppelter Schlüssel im selben Objekt (JSON.parse behielte still nur den letzten; am Rohtext
+    erkannt), nur Apps aus `APPS`, Versionen x.y.z, Arten aus `ARTEN`, je Eintrag genau `ffmpeg` und `ffprobe` als
+    SHA-256 in Kleinbuchstaben. Kam mit der Prüfung von Task 4, Runde 1 (Befund 1): Vorher las kein Test die Datei im
+    Repo, ein kaputter Lesestand-Commit wäre erst im nächsten Mac-Lauf aufgefallen.
   - Kommandozeile: `node scripts/ci/pruefe-mac-nachbau.mjs --app <app> --version <x.y.z> --art arm64|x64 --release <Ordner> --lesestand <json> [--probe]`.
     Exit 0 heißt in Ordnung, 1 heißt Abweichung (stderr), 2 heißt falscher Aufruf. Warnungen gehen als
     `::warning::pruefe-mac-nachbau: …` auf stdout, damit sie in der Lauf-Übersicht stehen. Die echten macOS-Werkzeuge
-    laufen nur unter `darwin`.
+    laufen nur unter `darwin`. Eine Lesestand-Datei mit Mängeln (`lesestandMaengel`) endet mit Exit 1, auch mit `--probe`.
 
 - [ ] **Step 1: Den Test schreiben** (`scripts/ci/test/pruefe-mac-nachbau.test.mjs`, LF)
 
@@ -168,12 +177,12 @@ verlangt auch der Auftrag.
 //   node scripts/ci/test/pruefe-mac-nachbau.test.mjs
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  appPfade, erwarteterDmgName, leseMinos, machoArten, pruefeMacNachbau, ueberMacos11,
+  appPfade, erwarteterDmgName, lesestandMaengel, leseMinos, machoArten, pruefeMacNachbau, ueberMacos11,
 } from '../pruefe-mac-nachbau.mjs';
 
 const hier = dirname(fileURLToPath(import.meta.url));
@@ -375,6 +384,67 @@ try {
       'N15 Gegenprobe: halber Lesestand-Eintrag → rot, auch im Probe-Lauf');
   }
 
+  console.log('pruefe-mac-nachbau — Lesestand-Datei (Form, doppelte Schlüssel):');
+  {
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((z) => z.repeat(64));
+    const eintrag = (ffmpeg, ffprobe) => `{ "ffmpeg": "${ffmpeg}", "ffprobe": "${ffprobe}" }`;
+    // Ein Absturz wird zur FAIL-Zeile mit Namen, statt den ganzen Test abzubrechen.
+    const m = (text) => {
+      try {
+        return JSON.stringify(lesestandMaengel(text));
+      } catch (e) {
+        return `Absturz: ${e.message}`;
+      }
+    };
+    const fall = (text, erwartet, name) => assert(m(text) === JSON.stringify([erwartet]), name);
+    const voll = `{ "editor": { "0.5.0": { "arm64": ${eintrag(a, b)}, "x64": ${eintrag(c, d)} } } }\n`;
+    assert(m('{}\n') === '[]' && m(voll) === '[]', 'N19: leerer Lesestand und voller in der Form der Doku → in Ordnung');
+    assert(m(`{ "editor": { "0.5.0": { "arm64": ${eintrag(a, b)} }, "0.5.1": { "arm64": ${eintrag(c, d)} } } }`) === '[]',
+      'N19: derselbe Schlüssel in verschiedenen Objekten (arm64 unter 0.5.0 und unter 0.5.1) ist kein Doppel');
+    // L1 und L2: die beiden JSON-Stücke aus den Warnungen des Probelaufs, von Hand falsch zusammengeführt (Doku, Schritt 2).
+    const L1 = `{\n  "editor": { "0.5.0": { "arm64": ${eintrag(a, b)} } },\n  "editor": { "0.5.0": { "x64": ${eintrag(c, d)} } }\n}\n`;
+    assert(JSON.parse(L1).editor['0.5.0'].arm64 === undefined, 'N19: Beleg: JSON.parse behält bei doppeltem Schlüssel still nur den letzten (arm64 fehlt)');
+    fall(L1, 'doppelter Schlüssel „editor“ in der obersten Ebene; JSON.parse behielte still nur den letzten.',
+      'N19 Gegenprobe L1: „editor“ zweimal (arm64 ginge still verloren) → Mangel');
+    const L2 = `{ "editor": { "0.5.0": { "arm64": ${eintrag(a, b)} } } }\n{ "editor": { "0.5.0": { "x64": ${eintrag(c, d)} } } }\n`;
+    const l2 = lesestandMaengel(L2);
+    assert(l2.length === 1 && l2[0].startsWith('kein gültiges JSON ('), 'N19 Gegenprobe L2: zwei Stücke hintereinander → kein gültiges JSON');
+    fall(`{ "editor": { "0.5.0": { "arm64": ${eintrag(a, b)}, "arm64": ${eintrag(c, d)} } } }`,
+      'doppelter Schlüssel „arm64“ unter „editor / 0.5.0“; JSON.parse behielte still nur den letzten.',
+      'N19 Gegenprobe: „arm64“ zweimal unter derselben Version → Mangel mit Ort');
+    // Ein Schlüssel mit \", { und [ darf den Zähler nicht verwirren; o ist dasselbe o wie in editor.
+    assert(m('{ "x\\"{[": {}, "editor": {}, "edit\\u006fr": {} }') === JSON.stringify([
+      'doppelter Schlüssel „editor“ in der obersten Ebene; JSON.parse behielte still nur den letzten.',
+      'App „x"{[“ ist nicht freigegeben (bekannt: editor).',
+    ]), 'N19 Gegenprobe: Doppel in anderer Schreibweise (\\u006f) nach einem Schlüssel mit \\", { und [ → erkannt');
+    fall(`{ "titler": { "0.12.1": { "x64": ${eintrag(a, b)} } } }`, 'App „titler“ ist nicht freigegeben (bekannt: editor).',
+      'N19 Gegenprobe: App außerhalb von APPS → Mangel');
+    fall(`{ "editor": { "0.5": { "x64": ${eintrag(a, b)} } } }`, 'Version „0.5“ unter „editor“ hat nicht die Form x.y.z.',
+      'N19 Gegenprobe: Version 0.5 → Mangel');
+    fall(`{ "editor": { "0.5.0": { "universal": ${eintrag(a, b)} } } }`, 'Art „universal“ unter „editor / 0.5.0“ unbekannt (arm64 oder x64).',
+      'N19 Gegenprobe: Art universal → Mangel');
+    const kaputt = {
+      'mit Großbuchstaben': `{ "ffmpeg": "${a.toUpperCase()}", "ffprobe": "${b}" }`,
+      'mit 63 Zeichen': `{ "ffmpeg": "${a.slice(1)}", "ffprobe": "${b}" }`,
+      'ohne ffprobe': `{ "ffmpeg": "${a}" }`,
+      'mit Schlüssel zu viel': `{ "ffmpeg": "${a}", "ffprobe": "${b}", "ffplay": "${c}" }`,
+      'mit Wert als Liste': `{ "ffmpeg": ["${a}"], "ffprobe": "${b}" }`,
+      'als Text statt Objekt': `"${a}"`,
+    };
+    for (const [was, e] of Object.entries(kaputt)) {
+      fall(`{ "editor": { "0.5.0": { "x64": ${e} } } }`, '„editor / 0.5.0 / x64“ braucht genau ffmpeg und ffprobe, je als SHA-256 in Kleinbuchstaben.',
+        `N19 Gegenprobe: Eintrag ${was} → Mangel`);
+    }
+    fall('[]', 'oberste Ebene ist kein Objekt.', 'N19 Gegenprobe: Liste statt Objekt → Mangel');
+    fall('{ "editor": { "0.5.0": [] } }', '„editor / 0.5.0“ ist kein Objekt.', 'N19 Gegenprobe: Version mit Liste statt Objekt → Mangel');
+  }
+  {
+    // Die Datei, die der Workflow aus seinem Commit holt. Bricht ein Lesestand-Commit sie, wird ci-checks rot, nicht
+    // erst der nächste Mac-Lauf (Prüfung Task 4, Runde 1).
+    const m = lesestandMaengel(readFileSync(join(hier, '..', 'mac-nachbau-lesestand.json'), 'utf8'));
+    assert(m.length === 0, `N20: der committete Lesestand scripts/ci/mac-nachbau-lesestand.json ist gültig${m.length ? `; Mängel: ${m.join(' ')}` : ''}`);
+  }
+
   console.log('pruefe-mac-nachbau — macOS-Teile (Attrappe):');
   {
     const m = attrappe();
@@ -452,6 +522,21 @@ try {
       'N18: leerer Lesestand → mit --probe Exit 0 und ::warning::, ohne --probe Exit 1');
       const kaputt = lauf(...args('x64', b, join(b.d, 'gibt-es-nicht.json')));
       assert(kaputt.status === 1 && kaputt.stderr.includes('pruefe-mac-nachbau: Lesestand „'), 'N18 Gegenprobe: Lesestand unlesbar → Exit 1');
+    }
+    {
+      // „editor“ zweimal, der letzte Eintrag passt zum Bau: JSON.parse allein ließe den Probe-Lauf grün enden.
+      const b = bau('x64');
+      const e = JSON.stringify(b.lesestand.editor['0.5.0'].x64);
+      const doppelt = join(b.d, '..', `${b.d.split(/[\\/]/).pop()}-doppelt.json`);
+      const zwei = join(b.d, '..', `${b.d.split(/[\\/]/).pop()}-zwei.json`);
+      ordner.push(doppelt, zwei);
+      writeFileSync(doppelt, `{\n  "editor": { "0.5.0": { "arm64": ${e} } },\n  "editor": { "0.5.0": { "x64": ${e} } }\n}\n`);
+      writeFileSync(zwei, `{ "editor": { "0.5.0": { "arm64": ${e} } } }\n{ "editor": { "0.5.0": { "x64": ${e} } } }\n`);
+      const k = lauf(...args('x64', b, doppelt), '--probe');
+      assert(k.status === 1 && k.stderr.includes('ungültig: doppelter Schlüssel „editor“ in der obersten Ebene; JSON.parse behielte still nur den letzten.'),
+        'N18 Gegenprobe: Lesestand mit „editor“ zweimal → Exit 1, auch mit --probe');
+      const z = lauf(...args('x64', b, zwei), '--probe');
+      assert(z.status === 1 && z.stderr.includes('ungültig: kein gültiges JSON ('), 'N18 Gegenprobe: zwei JSON-Stücke hintereinander → Exit 1, auch mit --probe');
     }
     {
       const b = bau('x64');
@@ -580,6 +665,82 @@ export function ueberMacos11(minos) {
 /** Name des DMG wie artifactName "${productName}-${version}-${os}-${arch}.${ext}" und der Katalog (suite.json). */
 export function erwarteterDmgName(app, version, art) {
   return `${APPS[app].produkt}-${version}-mac-${art}.dmg`;
+}
+
+const VERSION = /^\d+\.\d+\.\d+$/;
+const ist = (w) => w !== null && typeof w === 'object' && !Array.isArray(w);
+
+/** Doppelte Schlüssel je Objekt im Rohtext (nur für gültiges JSON); JSON.parse behielte still nur den letzten. */
+function doppelteSchluessel(text) {
+  const maengel = [];
+  const stapel = [];
+  for (let i = 0; i < text.length; i++) {
+    const zeichen = text[i];
+    const oben = stapel.at(-1);
+    if (zeichen === '"') {
+      let k = i + 1;
+      while (text[k] !== '"') k += text[k] === '\\' ? 2 : 1;
+      if (oben?.objekt && oben.erwarteSchluessel) {
+        const schluessel = JSON.parse(text.slice(i, k + 1));
+        const ort = oben.pfad.length ? `unter „${oben.pfad.join(' / ')}“` : 'in der obersten Ebene';
+        if (oben.gesehen.has(schluessel)) maengel.push(`doppelter Schlüssel „${schluessel}“ ${ort}; JSON.parse behielte still nur den letzten.`);
+        oben.gesehen.add(schluessel);
+        oben.letzter = schluessel;
+        oben.erwarteSchluessel = false;
+      }
+      i = k;
+    } else if (zeichen === '{' || zeichen === '[') {
+      const pfad = oben ? [...oben.pfad, oben.objekt ? oben.letzter : '[]'] : [];
+      stapel.push({ objekt: zeichen === '{', gesehen: new Set(), pfad, letzter: null, erwarteSchluessel: zeichen === '{' });
+    } else if (zeichen === '}' || zeichen === ']') {
+      stapel.pop();
+    } else if (zeichen === ',' && oben?.objekt) {
+      oben.erwarteSchluessel = true;
+    }
+  }
+  return maengel;
+}
+
+/**
+ * Mängel der Lesestand-Datei (Rohtext); [] = in Ordnung, auch für den leeren Lesestand {}. Gültiges JSON ohne doppelte
+ * Schlüssel, nur Apps aus APPS, Versionen x.y.z, Arten aus ARTEN, je Eintrag genau ffmpeg und ffprobe als SHA-256 in
+ * Kleinbuchstaben. Der Selbsttest prüft damit die Datei im Repo (ci-checks), die Kommandozeile vor jedem Lauf.
+ */
+export function lesestandMaengel(text) {
+  let daten;
+  try {
+    daten = JSON.parse(text);
+  } catch (e) {
+    return [`kein gültiges JSON (${e.message}).`];
+  }
+  const maengel = doppelteSchluessel(text);
+  if (!ist(daten)) return [...maengel, 'oberste Ebene ist kein Objekt.'];
+  for (const [app, versionen] of Object.entries(daten)) {
+    if (!Object.hasOwn(APPS, app)) {
+      maengel.push(`App „${app}“ ist nicht freigegeben (bekannt: ${Object.keys(APPS).join(', ')}).`);
+    } else if (!ist(versionen)) {
+      maengel.push(`„${app}“ ist kein Objekt.`);
+    } else {
+      for (const [version, arten] of Object.entries(versionen)) {
+        const ort = `${app} / ${version}`;
+        if (!VERSION.test(version)) {
+          maengel.push(`Version „${version}“ unter „${app}“ hat nicht die Form x.y.z.`);
+        } else if (!ist(arten)) {
+          maengel.push(`„${ort}“ ist kein Objekt.`);
+        } else {
+          for (const [art, e] of Object.entries(arten)) {
+            if (!Object.hasOwn(ARTEN, art)) {
+              maengel.push(`Art „${art}“ unter „${ort}“ unbekannt (arm64 oder x64).`);
+            } else if (!ist(e) || Object.keys(e).sort().join() !== 'ffmpeg,ffprobe'
+              || ![e.ffmpeg, e.ffprobe].every((w) => typeof w === 'string' && HEX64.test(w))) {
+              maengel.push(`„${ort} / ${art}“ braucht genau ffmpeg und ffprobe, je als SHA-256 in Kleinbuchstaben.`);
+            }
+          }
+        }
+      }
+    }
+  }
+  return maengel;
 }
 
 /** Pfade in der gepackten App (extraResources resources → Contents/Resources, bundle-ffmpeg nach bin/mac). */
@@ -750,17 +911,24 @@ function hauptprogramm(argv) {
     console.error(`pruefe-mac-nachbau: Art „${art}“ unbekannt (arm64 oder x64).`);
     return 2;
   }
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+  if (!VERSION.test(version)) {
     console.error(`pruefe-mac-nachbau: Version „${version}“ hat nicht die Form x.y.z.`);
     return 2;
   }
-  let lesestand;
+  let text;
   try {
-    lesestand = JSON.parse(readFileSync(resolve(werte.lesestand), 'utf8'));
+    text = readFileSync(resolve(werte.lesestand), 'utf8');
   } catch (e) {
     console.error(`pruefe-mac-nachbau: Lesestand „${werte.lesestand}“ unlesbar: ${e.message}`);
     return 1;
   }
+  // Auch mit --probe: Ein doppelter Schlüssel ließe sonst still einen Eintrag fallen.
+  const maengel = lesestandMaengel(text);
+  if (maengel.length) {
+    for (const m of maengel) console.error(`pruefe-mac-nachbau: Lesestand „${werte.lesestand}“ ungültig: ${m}`);
+    return 1;
+  }
+  const lesestand = JSON.parse(text);
   const r = pruefeMacNachbau({ release: resolve(release), app, version, art, lesestand, probe },
     process.platform === 'darwin' ? MACOS : null);
   for (const h of r.hinweise) console.log(`pruefe-mac-nachbau: ${h}`);
@@ -789,8 +957,8 @@ if (istHauptprogramm(process.argv[1])) process.exitCode = hauptprogramm(process.
 - [ ] **Step 4: Grün-Lauf**
 
 Run: `node scripts/ci/test/pruefe-mac-nachbau.test.mjs`
-Expected: 54 Zeilen `  ok  …` (N1–N18), kein `FAIL`, letzte Zeile `Alle pruefe-mac-nachbau-Tests bestanden.`, Exit 0. Unter
-macOS stünde statt der sieben N18-Zeilen `  --  N18 (Kommandozeile) übersprungen …`.
+Expected: 75 Zeilen `  ok  …` (N1–N20), kein `FAIL`, letzte Zeile `Alle pruefe-mac-nachbau-Tests bestanden.`, Exit 0. Unter
+macOS stünde statt der neun N18-Zeilen `  --  N18 (Kommandozeile) übersprungen …`.
 Dann: `node -e "console.log(require('fs').readdirSync(require('os').tmpdir()).filter(n=>n.startsWith('jm-mac-nachbau')))"`
 → `[]`. Der Test räumt seine Temp-Ordner weg.
 
@@ -811,13 +979,27 @@ Dann: `node -e "console.log(require('fs').readdirSync(require('os').tmpdir()).fi
 | G10 | `const groesse = be === FAT_MAGIC ? 20 : 32;` → `const groesse = 20;` | 1: `N1: Fat mit 64-Bit-Einträgen …` |
 | G11 | `if (art === 'arm64' && ffprobe.join() === 'x64') {` → `if (art === 'arm64') {` (Ausnahme für jede Art) | 1: `N11 Gegenprobe: ffprobe fremder Art im arm64-Job` |
 | G12 | `else fehler.push('Laufzeitprobe und minos fehlen` → `else hinweise.push('Laufzeitprobe und minos fehlen` (ohne macOS auch im echten Lauf nur Hinweis) | 2: `N4 Gegenprobe: echter Lauf ohne macOS`, `N18 Gegenprobe: sauber, aber ohne --probe und ohne macOS` |
+| G13 | `if (oben.gesehen.has(schluessel)) maengel.push(` → `if (false) maengel.push(` (keine Doppel-Erkennung) | 4: `N19 Gegenprobe L1`, `N19 Gegenprobe: „arm64“ zweimal …`, `N19 Gegenprobe: Doppel in anderer Schreibweise …`, `N18 Gegenprobe: Lesestand mit „editor“ zweimal …` |
+| G14 | `const maengel = lesestandMaengel(text);` → `const maengel = [];` (Kommandozeile prüft die Datei nicht) | 2: `N18 Gegenprobe: Lesestand mit „editor“ zweimal …`, `N18 Gegenprobe: zwei JSON-Stücke hintereinander …` |
+| G15 | `if (!Object.hasOwn(ARTEN, art)) {` → `if (false) {` (nur die Stelle in `lesestandMaengel`) | 1: `N19 Gegenprobe: Art universal` |
+| G16 | `.every((w) => typeof w === 'string' && HEX64.test(w))` → `.every((w) => HEX64.test(w))` | 1: `N19 Gegenprobe: Eintrag mit Wert als Liste` |
+| G17 | `Object.keys(e).sort().join() !== 'ffmpeg,ffprobe'` → `false` | 1: `N19 Gegenprobe: Eintrag mit Schlüssel zu viel` |
+| G18 | `k += text[k] === '\\' ? 2 : 1;` → `k += 1;` (Escape im Schlüssel übersehen) | 1: `N19 Gegenprobe: Doppel in anderer Schreibweise …` (ohne den try/catch im Helfer `m` bräche der ganze Test ab) |
+| G19 | `if (!VERSION.test(version)) {` in `lesestandMaengel` → `if (false) {` | 1: `N19 Gegenprobe: Version 0.5` |
+| G20 | `if (!Object.hasOwn(APPS, app)) {` in `lesestandMaengel` → `if (false) {` | 2: `N19 Gegenprobe: Doppel in anderer Schreibweise …`, `N19 Gegenprobe: App außerhalb von APPS` |
+| G21 | `scripts/ci/mac-nachbau-lesestand.json` → L1 (zwei Stücke mit je `"editor"` in einem Objekt) | 1: `N20: der committete Lesestand … ist gültig; Mängel: doppelter Schlüssel „editor“ in der obersten Ebene; …` |
+| G22 | `scripts/ci/mac-nachbau-lesestand.json` → L2 (zwei Stücke hintereinander) | 1: `N20: … Mängel: kein gültiges JSON (Unexpected non-whitespace character after JSON at position 200 (line 2 column 1)).` |
 
 G6 und G7 kamen bei der Umsetzung dazu; mit dem ursprünglichen 8-Byte-Java-Kopf blieb G7 grün, darum hat der Test in
 N1 einen 4096-Byte-Kopf wie `kopfVon`. G8–G12 kamen mit der Prüfung Runde 1 (dort M2, M16, M3, M4 und Befund 5). Nicht
 messbar unter Linux und Windows: eine kaputte Weiche `process.platform === 'darwin'` (dort ist `macos` immer `null`).
 Seit G12 endet der echte Lauf dann aber auch auf dem Mac-Runner rot, statt still ohne Laufzeitprobe grün.
+G13–G22 kamen mit der Prüfung von Task 4, Runde 1 (Befund 1: kein Test las den committeten Lesestand; L1 und L2 sind
+die Gegenproben des Prüfers). Gemessen am 20.10.2026 mit Node 24, jede in einer frischen Kopie von Prüfer, Test und
+Lesestand im Scratchpad (`…\scratchpad\mac-fassungen\runde4b\gegenproben.mjs`); G1–G12 dort am neuen Stand noch einmal,
+mit denselben FAIL-Zeilen wie oben.
 
-Nach jeder Gegenprobe zurücknehmen. Am Ende Step 4 noch einmal: 54 ok, Exit 0.
+Nach jeder Gegenprobe zurücknehmen. Am Ende Step 4 noch einmal: 75 ok, Exit 0.
 
 - [ ] **Step 6: Zeilenenden**
 
@@ -2274,13 +2456,19 @@ git status --short
 ### Task 4: CI-Schritt in ci-checks und Doku
 
 **Files:**
-- Modify: `.github/workflows/ci-checks.yml` (Job `selftests`, nach dem Schritt „Release-Proxy (Paketwahl, Routing)“, Z. 101-102)
+- Modify: `.github/workflows/ci-checks.yml` (Job `selftests`, nach dem Schritt „Release-Proxy (Paketwahl, Routing)“, Z. 101-102; dahinter der neue Job `mac-nachbau-node20`)
 - Create: `docs/mac-nachbau.md`
 - Modify: `docs/mac-build-windows-only-apps.md` (Überschrift von Abschnitt 5, Z. 215)
 
 **Interfaces:**
 - Consumes: die drei Testdateien aus Task 1 bis 3 (Aufruf je `node <Datei>`, Exit 0 = grün).
-- Produces: CI-Schritt „Mac-Nachbau (Prüfer, ffmpeg-Beilagen, Workflow-Regeln)“; Bedienungsdoku.
+- Produces: im Job Selbsttests die Schritte „Mac-Nachbau (Prüfer, Lesestand-Datei)“, „Mac-Nachbau (ffmpeg-Beilagen)“ und
+  „Mac-Nachbau (Workflow-Regeln)“; der Job „Mac-Nachbau unter Node 20 (wie im Mac-Job)“; Bedienungsdoku.
+
+**Stand nach der Prüfung von Task 4, Runde 1:** Zuerst war es ein Schritt mit einer `&&`-Kette (Befund 7: ein roter Test
+verdeckte die folgenden). Jetzt je ein Schritt mit `if: ${{ !cancelled() }}`, denn ohne das überspringt Actions jeden
+Schritt nach einem roten, auch bei getrennten Schritten. Der Job `mac-nachbau-node20` kam mit Befund 5 (Selbsttest unter
+Node 22, Mac-Job unter Node 20), der Verweis auf den Plan mit Befund 6. Die Blöcke unten zeigen den Stand danach.
 
 - [ ] **Step 1: Rot (der Schritt fehlt)**
 
@@ -2299,30 +2487,76 @@ new_string:
       - name: Release-Proxy (Paketwahl, Routing)
         run: node --experimental-strip-types services/release-proxy/test/worker.test.mjs
 
-      # Mac-Nachbau (Entwurf mac-fassungen, Stufe 1): Prüfer, ffmpeg-Beilagen und Workflow-Regeln. Nur node:-Module,
+      # Mac-Nachbau (Entwurf mac-fassungen, Stufe 1; Plan docs/superpowers/plans/2026-10-20-mac-nachbau-editor.md):
+      # Prüfer samt der Lesestand-Datei im Repo, ffmpeg-Beilagen und Workflow-Regeln, je ein Schritt. Nur node:-Module,
       # ohne macOS (otool und Programmstart laufen nur im Workflow selbst). Der Beilagen-Test lädt
       # services/release-proxy/paketwahl.js; Node meldet dazu MODULE_TYPELESS_PACKAGE_JSON auf stderr, harmlos.
-      - name: Mac-Nachbau (Prüfer, ffmpeg-Beilagen, Workflow-Regeln)
-        run: node scripts/ci/test/pruefe-mac-nachbau.test.mjs && node scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs && node scripts/ci/test/mac-nachbau-workflow.test.mjs
+      # Unter Node 20 wie im Mac-Job: Job mac-nachbau-node20. !cancelled(): Die drei laufen auch nach einem roten Schritt
+      # davor (sie brauchen kein npm ci), so verdeckt kein Test einen anderen; der Job bleibt dann trotzdem rot.
+      - name: Mac-Nachbau (Prüfer, Lesestand-Datei)
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/test/pruefe-mac-nachbau.test.mjs
+      - name: Mac-Nachbau (ffmpeg-Beilagen)
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs
+      - name: Mac-Nachbau (Workflow-Regeln)
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/test/mac-nachbau-workflow.test.mjs
+
+  # Prüfer und Sammler laufen im Mac-Job (mac-nachbau.yml) unter Node 20, die Selbsttests oben unter Node 22. Eine API
+  # ab Node 21 fiele sonst erst im Mac-Lauf auf. Kein npm ci: Die Tests brauchen nur node:-Module und paketwahl.js.
+  # --experimental-detect-module: paketwahl.js ist ESM ohne package.json mit type. Node 24 erkennt das von selbst
+  # (gemessen, mit und ohne Schalter grün); Node 20 ist lokal ungemessen (kein Node 20 im Arbeitsplatz), der Schalter
+  # macht es dort ausdrücklich. Der erste Lauf unter Node 20 ist der in der PR.
+  mac-nachbau-node20:
+    name: Mac-Nachbau unter Node 20 (wie im Mac-Job)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Prüfer, Lesestand-Datei
+        run: node scripts/ci/test/pruefe-mac-nachbau.test.mjs
+      - name: ffmpeg-Beilagen
+        if: ${{ !cancelled() }}
+        run: node --experimental-detect-module scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs
+      - name: Workflow-Regeln
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/test/mac-nachbau-workflow.test.mjs
 ```
 
 - [ ] **Step 3: Grün**
 
-Run: `grep -c 'scripts/ci/test/' .github/workflows/ci-checks.yml` → `1` (eine Zeile mit drei Aufrufen).
-Run: `node scripts/ci/test/pruefe-mac-nachbau.test.mjs > /dev/null && node scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs > /dev/null && node scripts/ci/test/mac-nachbau-workflow.test.mjs > /dev/null; echo "Exit $?"`
-→ `Exit 0`.
+Run: `grep -c 'scripts/ci/test/' .github/workflows/ci-checks.yml` → `6` (drei Schritte je Job).
+Run (jeder Befehl aus beiden Jobs, so wie er dort steht): `node scripts/ci/test/pruefe-mac-nachbau.test.mjs`,
+`node scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs`, `node scripts/ci/test/mac-nachbau-workflow.test.mjs`,
+`node --experimental-detect-module scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs`
+→ je `Exit 0` (75, 25, 65 und 25 Zeilen `  ok  …`; gemessen mit Node 24, Node 20 erst in der PR).
 Messung (nur Messen, js-yaml aus iveo-paket):
-`node -e "const y=require('C:/Users/alexk/alexzvn/.claude/worktrees/iveo-paket/node_modules/js-yaml');const w=y.load(require('fs').readFileSync('.github/workflows/ci-checks.yml','utf8'));const s=w.jobs.selftests.steps.at(-1);console.log(s.name,'|',s.run.split('&&').length)"`
-→ `Mac-Nachbau (Prüfer, ffmpeg-Beilagen, Workflow-Regeln) | 3`.
-`git diff --stat -- .github/workflows/ci-checks.yml` → `1 file changed, 6 insertions(+)`, also kein Umbruch der ganzen Datei.
+`node -e "const y=require('C:/Users/alexk/alexzvn/.claude/worktrees/iveo-paket/node_modules/js-yaml');const w=y.load(require('fs').readFileSync('.github/workflows/ci-checks.yml','utf8'));for(const j of ['selftests','mac-nachbau-node20'])for(const s of w.jobs[j].steps.filter(s=>String(s.run).includes('scripts/ci/test/')))console.log(j,'|',s.name,'|',s.if??'-','|',s.run.split('&&').length)"`
+→ sechs Zeilen: `selftests | Mac-Nachbau (Prüfer, Lesestand-Datei) | ${{ !cancelled() }} | 1`, ebenso
+`Mac-Nachbau (ffmpeg-Beilagen)` und `Mac-Nachbau (Workflow-Regeln)`; `mac-nachbau-node20 | Prüfer, Lesestand-Datei | - | 1`,
+`mac-nachbau-node20 | ffmpeg-Beilagen | ${{ !cancelled() }} | 1`, `mac-nachbau-node20 | Workflow-Regeln | ${{ !cancelled() }} | 1`.
+`git diff --stat eb68b05fec -- .github/workflows/ci-checks.yml` → `1 file changed, 39 insertions(+)`, also kein Umbruch
+der ganzen Datei.
 
-- [ ] **Step 4: Gegenprobe (die Kette wird rot)**
+- [ ] **Step 4: Gegenprobe (genau der Workflow-Schritt wird rot)**
 
-Im Workflow `  ERLAUBTE_APPS: editor` → `  ERLAUBTE_APPS: editor titler`, dann die Kette aus Step 3.
-Expected (gemessen): `FAIL  W0: der Workflow hält alle Regeln ein (verletzt: R4 ERLAUBTE_APPS (editor titler) weicht von APPS im Prüfer ab (editor))`,
-`FAIL  W0: dieselbe Datei mit CRLF …`, `Exit 1`. Danach zurücknehmen; die Kette ist wieder `Exit 0`.
+Im Workflow `  ERLAUBTE_APPS: editor` → `  ERLAUBTE_APPS: editor titler`, dann die drei Befehle aus Step 3 (gemessen in einer
+Kopie im Scratchpad). Expected: Prüfer-Test `Exit 0`, Beilagen-Test `Exit 0`, Workflow-Test `Exit 1` mit
+`FAIL  W0: der Workflow hält alle Regeln ein (verletzt: R4 ERLAUBTE_APPS (editor titler) weicht von APPS im Prüfer ab (editor))`
+und `FAIL  W0: dieselbe Datei mit CRLF (Windows-Checkout) ebenso`. Danach zurücknehmen; alle drei sind wieder `Exit 0`.
+Ob Actions die Schritte nach einem roten wirklich startet (`!cancelled()`), zeigt erst ein Lauf in der PR.
 
 - [ ] **Step 5: Die Doku anlegen** (`docs/mac-nachbau.md`, LF)
+
+Der Block ist bytegleich mit der Datei im Branch. Gegenüber dem ersten Entwurf dieses Steps kamen bei der Umsetzung vier
+Stellen dazu (Sammler-Abbruch im Probelauf, „per PR, wie üblich“, „in einem dritten Aufruf“, der Zusatz zu Stufe 2) und
+mit der Prüfung von Task 4, Runde 1: der Verweis auf diesen Plan (Befund 6), die Lesestand-Prüfung in Schritt 2
+(Befund 1), der changelog.json-Hinweis vor dem echten Lauf (Befund 4) und weitere Fehlerbilder, darunter die
+Laufzeitprobe (Befund 3).
 
 ````markdown
 # Mac-Nachbau aus einem bestehenden Tag
@@ -2333,20 +2567,31 @@ schon gibt, und hängt sie an dessen Release. Er legt kein Release an, setzt kei
 
 Heute ist nur der **Editor** freigegeben (Stufe 1 des Entwurfs mac-fassungen, Owner-Freigabe 20.10.2026). Der Tag-Lauf
 von `editor-v0.5.0` war an doppelten Schlüsseln in der Konfiguration gescheitert; ein Re-Run oder ein neues Tag nähme
-wieder den Workflow aus dem Tag-Commit. Ein Hand-Start dagegen nimmt den Workflow von `main`.
+wieder den Workflow aus dem Tag-Commit. Ein Hand-Start dagegen nimmt den Workflow von `main`. Entscheidungen, Belege und
+Prüfschritte stehen im Umsetzungsplan `docs/superpowers/plans/2026-10-20-mac-nachbau-editor.md`; der Entwurf selbst
+liegt nicht im Repo.
 
 ## Ablauf: drei Läufe, jeder nur mit Owner-OK
 
 1. **Probelauf.** GitHub, Actions, Mac-Nachbau, Run workflow: Zweig `main`, tag `editor-v0.5.0`, probe angehakt
    (Vorgabe). Oder: `gh workflow run mac-nachbau.yml -f tag=editor-v0.5.0 -f probe=true`.
    Der Lauf baut und prüft beide Mac-Arten und lädt nichts hoch. Solange der Lesestand leer ist, endet er grün mit je
-   einer Warnung, die die gemessenen SHA-256 von ffmpeg und ffprobe nennt, samt fertigem JSON-Stück.
+   einer Warnung, die die gemessenen SHA-256 von ffmpeg und ffprobe nennt, samt fertigem JSON-Stück. Bricht danach der
+   Sammler ab (siehe Fehlerbilder), ist der Lauf rot; die Warnung mit den SHA-256 steht trotzdem im Protokoll, weil der
+   Prüfer vorher läuft.
 2. **Lesestand nachtragen.** Die beiden JSON-Stücke (arm64 und x64) zusammen in `scripts/ci/mac-nachbau-lesestand.json`
-   eintragen, als eigener Commit auf `main`, mit Owner-OK. Form:
+   eintragen, als eigener Commit auf `main` (per PR, wie üblich), mit Owner-OK. Form:
    `{ "editor": { "0.5.0": { "arm64": { "ffmpeg": "…", "ffprobe": "…" }, "x64": { "ffmpeg": "…", "ffprobe": "…" } } } }`.
+   Den Schlüssel `editor` gibt es dabei nur einmal: Wer die Stücke einfach hintereinander setzt, hat zweimal `editor`,
+   und JSON.parse behielte still nur das letzte. Der Selbsttest in ci-checks prüft die Datei darum im PR (gültiges
+   JSON, kein doppelter Schlüssel, nur freigegebene Apps, Versionen x.y.z, Arten arm64 und x64, je ffmpeg und ffprobe
+   als SHA-256 in Kleinbuchstaben), und der Prüfer bricht bei so einer Datei jeden Lauf ab, auch den Probelauf.
    Ab jetzt bricht jeder Lauf ab, wenn ffmpeg oder ffprobe abweichen (ffmpeg-static lädt ohne Prüfsumme).
-3. **Echter Lauf.** Wie 1, aber probe abgehakt (`-f probe=false`). Erst wenn beide Bau-Jobs grün sind, hängt der Job
-   hochladen die Dateien an das bestehende Release.
+3. **Echter Lauf.** Vorher, spätestens zugleich, steht der Hinweis für Nutzer (siehe unten) in
+   `packages/suite-manifest/changelog.json` auf `main`: Wortlaut mit Owner-Freigabe, eigener Commit ohne Versions-Bump.
+   Der echte Lauf wirkt nämlich sofort, der Proxy liefert 0.5.0 dann an Macs aus. Gestartet wird wie 1, aber probe
+   abgehakt (`-f probe=false`). Erst wenn beide Bau-Jobs grün sind, hängt der Job hochladen die Dateien an das
+   bestehende Release.
 
 ## Was jeder Bau-Job prüft
 
@@ -2354,11 +2599,11 @@ wieder den Workflow aus dem Tag-Commit. Ein Hand-Start dagegen nimmt den Workflo
   für die Art des Bau-Rechners; ein Intel-Paket vom arm64-Runner hätte ein arm64-ffmpeg.
 - Version in `apps/<app>/package.json` gleich der Tag-Version; die Konfiguration aus dem Tag trägt `electronVersion` und
   `npmRebuild: false` selbst und bleibt unverändert.
-- Prüfer `scripts/ci/pruefe-mac-nachbau.mjs`: genau ein DMG (das der Job-Art) und genau eine App; App-Programm und
-  ffmpeg in der Job-Art; ffprobe im arm64-Paket als gedruckte Ausnahme x86_64 (ffprobe-static 3.1.0 hat kein
-  arm64-Programm, auf Apple Silicon braucht der Import Rosetta 2); SHA-256 gegen den Lesestand; `ffmpeg -version`
-  muss starten, im Intel-Job auch `ffprobe -version`; minos von App-Programm und ffmpeg wird gedruckt, über macOS 11
-  gibt es eine Warnung.
+- Prüfer `scripts/ci/pruefe-mac-nachbau.mjs`: Lesestand-Datei gültig (wie in Schritt 2); genau ein DMG (das der
+  Job-Art) und genau eine App; App-Programm und ffmpeg in der Job-Art; ffprobe im arm64-Paket als gedruckte Ausnahme
+  x86_64 (ffprobe-static 3.1.0 hat kein arm64-Programm, auf Apple Silicon braucht der Import Rosetta 2); SHA-256 gegen
+  den Lesestand; `ffmpeg -version` muss starten, im Intel-Job auch `ffprobe -version`; minos von App-Programm und
+  ffmpeg wird gedruckt, über macOS 11 gibt es eine Warnung.
 - Sammler `scripts/ci/sammle-ffmpeg-beilagen.mjs`: GPL-Text und Build-Angaben, die ffmpeg-static neben das Programm
   legt, müssen da sein und zum ffmpeg im Paket gehören; der GPL-Text muss ein Volltext sein; ffmpeg-static muss 5.3.0
   mit Binär-Release b6.1.1 sein, denn dafür ist der Quellen-Hinweis geschrieben. Größe, SHA-256 und Anfang von LICENSE
@@ -2368,13 +2613,15 @@ wieder den Workflow aus dem Tag-Commit. Ein Hand-Start dagegen nimmt den Workflo
 
 Der Reihe nach, je ein eigener Upload: zuerst `JM.Editor-0.5.0-mac-x64.dmg`, dann `JM.Editor-0.5.0-mac-arm64.dmg`
 (GitHub macht aus dem Leerzeichen einen Punkt). Ein arm64-Mac kann das x64-Paket unter Rosetta starten, ein Intel-Mac
-das arm64-Paket nie. Danach `ffmpeg-mac-x64.LICENSE.txt`, `ffmpeg-mac-x64.README.txt`, `ffmpeg-mac-arm64.LICENSE.txt`,
-`ffmpeg-mac-arm64.README.txt` und `ffmpeg-QUELLEN.txt` (Wortlaut: `scripts/ci/ffmpeg-quellen-hinweis.txt`). Die Beilagen
-enden auf `.txt` und passen nie auf die Paketwahl von Proxy und Launcher, die nur `.dmg` bzw. `.exe` nimmt. Das DMG
-selbst bleibt wie im Tag; GPL-Text und Quellen liegen nicht im Paket (vom Owner bewusst akzeptierte Restlücke, F2).
+das arm64-Paket nie. Danach, in einem dritten Aufruf, `ffmpeg-mac-x64.LICENSE.txt`, `ffmpeg-mac-x64.README.txt`,
+`ffmpeg-mac-arm64.LICENSE.txt`, `ffmpeg-mac-arm64.README.txt` und `ffmpeg-QUELLEN.txt` (Wortlaut:
+`scripts/ci/ffmpeg-quellen-hinweis.txt`). Die Beilagen enden auf `.txt` und passen nie auf die Paketwahl von Proxy und
+Launcher, die nur `.dmg` bzw. `.exe` nimmt. Das DMG selbst bleibt wie im Tag; GPL-Text und Quellen liegen nicht im
+Paket (vom Owner bewusst akzeptierte Restlücke, F2).
 
 Hinweise für Nutzer (Quarantäne beim Laden von Hand, Rosetta für ffprobe) kommen als Eintrag in
-`packages/suite-manifest/changelog.json`; der Launcher zeigt diese Notes, nicht die von GitHub.
+`packages/suite-manifest/changelog.json`, vor dem echten Lauf (Ablauf, Schritt 3). Der Launcher zeigt diese Notes,
+nicht die von GitHub; der Proxy liest `changelog.json` bei jedem Aufruf aus `main`.
 
 ## Fehlerbilder
 
@@ -2382,19 +2629,29 @@ Hinweise für Nutzer (Quarantäne beim Laden von Hand, Rosetta für ffprobe) kom
 |---|---|
 | App „…“ ist für den Nachbau nicht freigegeben | Tag einer App außerhalb von `ERLAUBTE_APPS` |
 | Der Job für x64 läuft mit Node für arm64 | Runner-Label zeigt auf die falsche Art |
+| apps/…/package.json nennt …, das Tag … | Die Version im Tag passt nicht zum Tag-Namen: falsches Tag, nichts gebaut |
+| … trägt kein electronVersion … (oder kein npmRebuild: false) | Die Konfiguration im Tag trägt die Schlüssel nicht selbst, und der Workflow hängt bewusst nichts an: Owner fragen |
+| Lesestand „…“ ungültig: … | Die Datei ist kaputt (kein JSON, doppelter Schlüssel, fremde App, Version oder Art); der Selbsttest in ci-checks zeigt dasselbe. Datei berichtigen, mit Owner-OK |
 | genau ein DMG „…“ erwartet | electron-builder hat mehr oder andere Pakete gebaut |
 | ffmpeg hat arm64, erwartet x64 | falsches ffmpeg im Paket, der Fehler aus dem Juni |
 | Lesestand … ist leer; ohne Lesestand wird nicht hochgeladen | echter Lauf vor dem Lesestand-Commit |
+| Lesestand … ist unvollständig oder ungültig | Der Eintrag für diese App, Version und Art ist halb oder kein SHA-256 in Kleinbuchstaben: Lesestand-Commit prüfen |
 | SHA-256 von ffmpeg weicht vom Lesestand ab | ffmpeg-static hat ein anderes Programm geladen: nicht hochladen, Ursache klären |
+| Laufzeitprobe: ffmpeg -version endete mit … (im Intel-Job auch ffprobe) | Das Programm startet auf dem Runner nicht. Nach F3 ersetzt diese Probe die Abnahme auf einem echten Mac: nicht hochladen, Owner fragen |
 | Laufzeitprobe und minos fehlen (nur unter macOS) | echter Lauf, aber der Prüfer lief nicht unter macOS: ohne Laufzeitprobe wird nicht hochgeladen |
 | fehlt: …/ffmpeg.LICENSE | install.js hat LICENSE oder README nicht geladen (bei 404 nur eine Warnung) |
 | ffmpeg.LICENSE ist kein GPL-Volltext: … | ffmpeg-static hat keinen GPL-Volltext neben das Programm gelegt; Steckbrief im Protokoll lesen, nicht hochladen, Owner fragen |
+| ffmpeg im Paket ist nicht das aus ffmpeg-static | LICENSE und README gehörten zu einem anderen Programm: nicht hochladen, Ursache klären |
+| Für … genau ein DMG und vier Dateien erwartet | Hochlade-Job: Ein Bau-Artefakt hat zu viele oder zu wenige Dateien; nichts hochgeladen |
+| Der Quellen-Hinweis der beiden Bau-Jobs ist verschieden | Hochlade-Job: Die Artefakte passen nicht zusammen, obwohl beide Bau-Jobs den Hinweis aus demselben Commit holen; nichts hochgeladen, Ursache klären |
 | Zum Tag … gibt es kein Release | der Workflow legt keins an |
 
 ## Eine App aufnehmen (später, Stufe 2)
 
-`ERLAUBTE_APPS` im Workflow und `APPS` im Prüfer gemeinsam erweitern (der Selbsttest hält beide gleich), Lesestand je
-Version und Art nachtragen, und für Apps mit NDI oder whisper fehlen die Schritte aus Stufe 2 noch ganz.
+`ERLAUBTE_APPS` im Workflow und `APPS` im Prüfer gemeinsam erweitern (der Selbsttest hält beide gleich; `APPS` gilt
+auch für die Lesestand-Datei), Lesestand je Version und Art nachtragen, und für Apps mit NDI oder whisper fehlen die
+Schritte aus Stufe 2 noch ganz. Wie beim Editor setzt der Prüfer heute ffmpeg und ffprobe im Paket voraus, der Sammler
+ffmpeg aus ffmpeg-static 5.3.0; eine App ohne sie braucht dort einen eigenen Zweig.
 ````
 
 - [ ] **Step 6: Verweis im alten Runbook** (Edit-Werkzeug, eine Zeile als old_string)
@@ -2448,18 +2705,19 @@ Expected: In der letzten Ausgabe beginnt jede Zeile mit `i/lf`.
 | Quellen-Hinweis als Datei im Repo, auf Deutsch | 2 (B10) |
 | --clobber nur für diese Dateien | 3 (R14 vergleicht die drei Upload-Zeilen genau; der Vier-Dateien-Check je Art, R25) |
 | Prüfer: genau ein DMG der Job-Art, genau eine .app, ffmpeg in der Art (auch Fat), ffprobe-Ausnahme gedruckt | 1 (N1, N4–N12) |
-| SHA-256-Lesestand je App, Version und Art, anfangs leer; Abweichung bricht ab; leer: im Probe-Lauf Warnung mit Werten, sonst Abbruch | 1 (N13–N15, N18) |
+| SHA-256-Lesestand je App, Version und Art, anfangs leer; Abweichung bricht ab; leer: im Probe-Lauf Warnung mit Werten, sonst Abbruch | 1 (N13–N15, N18; die Datei selbst N19, N20) |
 | Laufzeitprobe ffmpeg -version, im Intel-Job auch ffprobe; minos drucken, Warnung über macOS 11; nur unter darwin, ohne darwin bricht der echte Lauf ab | 1 (N16, Attrappe; N4, N18) |
 | reine Teile im Selbsttest unter Linux und Windows | 1–3 (alle Tests ohne macOS, CLI-Fälle unter macOS übersprungen) |
-| jeder neue Test mit genannter, gemessener Gegenprobe | 1 (G1–G5), 2 (SG1–SG19, EG1–EG6), 3 (Step 5: WG1–WG8 und je Regelteil; R1–R27 mit 63 eingebauten Gegenproben), 4 (Step 4) |
+| jeder neue Test mit genannter, gemessener Gegenprobe | 1 (G1–G22), 2 (SG1–SG19, EG1–EG6), 3 (Step 5: WG1–WG8 und je Regelteil; R1–R27 mit 63 eingebauten Gegenproben), 4 (Step 4) |
 | optionaler statischer Workflow-Test | 3 |
-| CI-Schritt in ci-checks im Job Selbsttests | 4 |
+| CI-Schritt in ci-checks im Job Selbsttests | 4 (je Test ein Schritt; dazu der Job unter Node 20) |
 | Doku, begründet | 4 („Warum eine neue Doku-Datei“) |
 | nicht: changelog.json, Lesestand-Werte, Stufe 2, suite-release/suite-build/connect-mac | Global Constraints; kein Task fasst sie an |
 
 **2. Schritte:** Jeder Code-Schritt trägt die volle Datei, so wie sie am 20.10.2026 in
 `…\scratchpad\mac-fassungen\plan-probe\` gemessen wurde (Rot, Grün und alle Gegenproben dort gelaufen). Jeder Prüfschritt
-nennt Befehl und Ausgabe.
+nennt Befehl und Ausgabe. Nach jeder Prüfrunde sind die Blöcke bytegleich mit dem Branch nachgezogen, zuletzt mit der
+Prüfung von Task 4, Runde 1 (Prüfer, Prüfer-Test, ci-checks, Doku; Gegenproben dort in `…\mac-fassungen\runde4b\`).
 
 **3. Namen:** Task 2 importiert `APPS`, `ARTEN` und `appPfade` aus Task 1, Task 3 importiert `APPS` und `beilagenNamen`.
 Der Workflow ruft `--app/--version/--art/--release/--lesestand/--probe` (Prüfer) und
@@ -2478,8 +2736,9 @@ Das hier ist beschreibend. Der Umsetzer führt nichts davon aus.
 
 1. **Gesamtprüfung des Branches** (Controller): Review gegen diesen Plan und den Entwurf. Dabei liest der Owner den
    Wortlaut von `scripts/ci/ffmpeg-quellen-hinweis.txt` und `docs/mac-nachbau.md`.
-2. **PR** (Controller, mit Owner-OK zum Push): `ci/mac-nachbau` → `main`. ci-checks muss grün sein, auch der neue
-   Schritt im Job Selbsttests. Den Workflow `Mac-Nachbau` gibt es erst nach dem Merge auf main zum Starten.
+2. **PR** (Controller, mit Owner-OK zum Push): `ci/mac-nachbau` → `main`. ci-checks muss grün sein, auch die drei
+   Mac-Nachbau-Schritte im Job Selbsttests und der Job „Mac-Nachbau unter Node 20 (wie im Mac-Job)“; das ist der erste
+   Lauf dieser Tests unter Node 20 überhaupt. Den Workflow `Mac-Nachbau` gibt es erst nach dem Merge auf main zum Starten.
 3. **Merge** auf main durch den Owner.
 4. **Probelauf** mit Owner-OK: Actions, Mac-Nachbau, Run workflow auf `main`, tag `editor-v0.5.0`, probe angehakt. Erwartet:
    - Beide Bau-Jobs sind grün, `hochladen` ist übersprungen.
@@ -2499,9 +2758,12 @@ Das hier ist beschreibend. Der Umsetzer führt nichts davon aus.
      geht mit der offenen Owner-Frage aus Task 2 (W1) an den Owner, vor jedem weiteren Schritt.
    - Scheitert ein Job (npm ci, fehlende LICENSE): nicht weiter, Befund an den Owner.
 5. **Lesestand-Commit** mit Owner-OK: Beide JSON-Stücke aus den Warnungen kommen zusammen nach
-   `scripts/ci/mac-nachbau-lesestand.json`, als eigener Commit auf main (per PR wie üblich).
-   Selbsttest bleibt grün. Danach optional ein zweiter Probelauf: Er muss ohne Lesestand-Warnung grün enden.
-6. **changelog.json-Hinweis** (eigener Commit ohne Bump, Wortlaut mit Owner-Freigabe, vor oder mit dem echten Lauf):
+   `scripts/ci/mac-nachbau-lesestand.json`, als eigener Commit auf main (per PR wie üblich), mit nur einem Schlüssel
+   `editor`. Der Selbsttest muss im PR grün sein: N20 prüft die Datei (gültiges JSON, kein doppelter Schlüssel, Form)
+   und zeigt so den Fehler, an dem eine Zusammenführung von Hand am ehesten scheitert. Danach optional ein zweiter
+   Probelauf: Er muss ohne Lesestand-Warnung grün enden.
+6. **changelog.json-Hinweis** (eigener Commit ohne Bump, Wortlaut mit Owner-Freigabe, vor oder mit dem echten Lauf;
+   so steht es seit Task 4, Runde 1 auch in `docs/mac-nachbau.md`, Schritt 3):
    Quarantäne beim Laden von Hand (Rechtsklick, Öffnen bzw. `xattr -dr com.apple.quarantine`) und Rosetta 2 für den
    Medien-Import auf Apple Silicon (ffprobe). Der Launcher zeigt diese Notes (`apps/launcher/src/main/changelog.ts:8-11`).
 7. **Echter Lauf** mit Owner-OK: wie Schritt 4, probe abgehakt. Erwartet: beide Bau-Jobs grün, `hochladen` grün. Am

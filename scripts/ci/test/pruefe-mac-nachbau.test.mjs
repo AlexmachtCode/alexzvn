@@ -4,12 +4,12 @@
 //   node scripts/ci/test/pruefe-mac-nachbau.test.mjs
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  appPfade, erwarteterDmgName, leseMinos, machoArten, pruefeMacNachbau, ueberMacos11,
+  appPfade, erwarteterDmgName, lesestandMaengel, leseMinos, machoArten, pruefeMacNachbau, ueberMacos11,
 } from '../pruefe-mac-nachbau.mjs';
 
 const hier = dirname(fileURLToPath(import.meta.url));
@@ -211,6 +211,67 @@ try {
       'N15 Gegenprobe: halber Lesestand-Eintrag → rot, auch im Probe-Lauf');
   }
 
+  console.log('pruefe-mac-nachbau — Lesestand-Datei (Form, doppelte Schlüssel):');
+  {
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((z) => z.repeat(64));
+    const eintrag = (ffmpeg, ffprobe) => `{ "ffmpeg": "${ffmpeg}", "ffprobe": "${ffprobe}" }`;
+    // Ein Absturz wird zur FAIL-Zeile mit Namen, statt den ganzen Test abzubrechen.
+    const m = (text) => {
+      try {
+        return JSON.stringify(lesestandMaengel(text));
+      } catch (e) {
+        return `Absturz: ${e.message}`;
+      }
+    };
+    const fall = (text, erwartet, name) => assert(m(text) === JSON.stringify([erwartet]), name);
+    const voll = `{ "editor": { "0.5.0": { "arm64": ${eintrag(a, b)}, "x64": ${eintrag(c, d)} } } }\n`;
+    assert(m('{}\n') === '[]' && m(voll) === '[]', 'N19: leerer Lesestand und voller in der Form der Doku → in Ordnung');
+    assert(m(`{ "editor": { "0.5.0": { "arm64": ${eintrag(a, b)} }, "0.5.1": { "arm64": ${eintrag(c, d)} } } }`) === '[]',
+      'N19: derselbe Schlüssel in verschiedenen Objekten (arm64 unter 0.5.0 und unter 0.5.1) ist kein Doppel');
+    // L1 und L2: die beiden JSON-Stücke aus den Warnungen des Probelaufs, von Hand falsch zusammengeführt (Doku, Schritt 2).
+    const L1 = `{\n  "editor": { "0.5.0": { "arm64": ${eintrag(a, b)} } },\n  "editor": { "0.5.0": { "x64": ${eintrag(c, d)} } }\n}\n`;
+    assert(JSON.parse(L1).editor['0.5.0'].arm64 === undefined, 'N19: Beleg: JSON.parse behält bei doppeltem Schlüssel still nur den letzten (arm64 fehlt)');
+    fall(L1, 'doppelter Schlüssel „editor“ in der obersten Ebene; JSON.parse behielte still nur den letzten.',
+      'N19 Gegenprobe L1: „editor“ zweimal (arm64 ginge still verloren) → Mangel');
+    const L2 = `{ "editor": { "0.5.0": { "arm64": ${eintrag(a, b)} } } }\n{ "editor": { "0.5.0": { "x64": ${eintrag(c, d)} } } }\n`;
+    const l2 = lesestandMaengel(L2);
+    assert(l2.length === 1 && l2[0].startsWith('kein gültiges JSON ('), 'N19 Gegenprobe L2: zwei Stücke hintereinander → kein gültiges JSON');
+    fall(`{ "editor": { "0.5.0": { "arm64": ${eintrag(a, b)}, "arm64": ${eintrag(c, d)} } } }`,
+      'doppelter Schlüssel „arm64“ unter „editor / 0.5.0“; JSON.parse behielte still nur den letzten.',
+      'N19 Gegenprobe: „arm64“ zweimal unter derselben Version → Mangel mit Ort');
+    // Ein Schlüssel mit \", { und [ darf den Zähler nicht verwirren; o ist dasselbe o wie in editor.
+    assert(m('{ "x\\"{[": {}, "editor": {}, "edit\\u006fr": {} }') === JSON.stringify([
+      'doppelter Schlüssel „editor“ in der obersten Ebene; JSON.parse behielte still nur den letzten.',
+      'App „x"{[“ ist nicht freigegeben (bekannt: editor).',
+    ]), 'N19 Gegenprobe: Doppel in anderer Schreibweise (\\u006f) nach einem Schlüssel mit \\", { und [ → erkannt');
+    fall(`{ "titler": { "0.12.1": { "x64": ${eintrag(a, b)} } } }`, 'App „titler“ ist nicht freigegeben (bekannt: editor).',
+      'N19 Gegenprobe: App außerhalb von APPS → Mangel');
+    fall(`{ "editor": { "0.5": { "x64": ${eintrag(a, b)} } } }`, 'Version „0.5“ unter „editor“ hat nicht die Form x.y.z.',
+      'N19 Gegenprobe: Version 0.5 → Mangel');
+    fall(`{ "editor": { "0.5.0": { "universal": ${eintrag(a, b)} } } }`, 'Art „universal“ unter „editor / 0.5.0“ unbekannt (arm64 oder x64).',
+      'N19 Gegenprobe: Art universal → Mangel');
+    const kaputt = {
+      'mit Großbuchstaben': `{ "ffmpeg": "${a.toUpperCase()}", "ffprobe": "${b}" }`,
+      'mit 63 Zeichen': `{ "ffmpeg": "${a.slice(1)}", "ffprobe": "${b}" }`,
+      'ohne ffprobe': `{ "ffmpeg": "${a}" }`,
+      'mit Schlüssel zu viel': `{ "ffmpeg": "${a}", "ffprobe": "${b}", "ffplay": "${c}" }`,
+      'mit Wert als Liste': `{ "ffmpeg": ["${a}"], "ffprobe": "${b}" }`,
+      'als Text statt Objekt': `"${a}"`,
+    };
+    for (const [was, e] of Object.entries(kaputt)) {
+      fall(`{ "editor": { "0.5.0": { "x64": ${e} } } }`, '„editor / 0.5.0 / x64“ braucht genau ffmpeg und ffprobe, je als SHA-256 in Kleinbuchstaben.',
+        `N19 Gegenprobe: Eintrag ${was} → Mangel`);
+    }
+    fall('[]', 'oberste Ebene ist kein Objekt.', 'N19 Gegenprobe: Liste statt Objekt → Mangel');
+    fall('{ "editor": { "0.5.0": [] } }', '„editor / 0.5.0“ ist kein Objekt.', 'N19 Gegenprobe: Version mit Liste statt Objekt → Mangel');
+  }
+  {
+    // Die Datei, die der Workflow aus seinem Commit holt. Bricht ein Lesestand-Commit sie, wird ci-checks rot, nicht
+    // erst der nächste Mac-Lauf (Prüfung Task 4, Runde 1).
+    const m = lesestandMaengel(readFileSync(join(hier, '..', 'mac-nachbau-lesestand.json'), 'utf8'));
+    assert(m.length === 0, `N20: der committete Lesestand scripts/ci/mac-nachbau-lesestand.json ist gültig${m.length ? `; Mängel: ${m.join(' ')}` : ''}`);
+  }
+
   console.log('pruefe-mac-nachbau — macOS-Teile (Attrappe):');
   {
     const m = attrappe();
@@ -288,6 +349,21 @@ try {
       'N18: leerer Lesestand → mit --probe Exit 0 und ::warning::, ohne --probe Exit 1');
       const kaputt = lauf(...args('x64', b, join(b.d, 'gibt-es-nicht.json')));
       assert(kaputt.status === 1 && kaputt.stderr.includes('pruefe-mac-nachbau: Lesestand „'), 'N18 Gegenprobe: Lesestand unlesbar → Exit 1');
+    }
+    {
+      // „editor“ zweimal, der letzte Eintrag passt zum Bau: JSON.parse allein ließe den Probe-Lauf grün enden.
+      const b = bau('x64');
+      const e = JSON.stringify(b.lesestand.editor['0.5.0'].x64);
+      const doppelt = join(b.d, '..', `${b.d.split(/[\\/]/).pop()}-doppelt.json`);
+      const zwei = join(b.d, '..', `${b.d.split(/[\\/]/).pop()}-zwei.json`);
+      ordner.push(doppelt, zwei);
+      writeFileSync(doppelt, `{\n  "editor": { "0.5.0": { "arm64": ${e} } },\n  "editor": { "0.5.0": { "x64": ${e} } }\n}\n`);
+      writeFileSync(zwei, `{ "editor": { "0.5.0": { "arm64": ${e} } } }\n{ "editor": { "0.5.0": { "x64": ${e} } } }\n`);
+      const k = lauf(...args('x64', b, doppelt), '--probe');
+      assert(k.status === 1 && k.stderr.includes('ungültig: doppelter Schlüssel „editor“ in der obersten Ebene; JSON.parse behielte still nur den letzten.'),
+        'N18 Gegenprobe: Lesestand mit „editor“ zweimal → Exit 1, auch mit --probe');
+      const z = lauf(...args('x64', b, zwei), '--probe');
+      assert(z.status === 1 && z.stderr.includes('ungültig: kein gültiges JSON ('), 'N18 Gegenprobe: zwei JSON-Stücke hintereinander → Exit 1, auch mit --probe');
     }
     {
       const b = bau('x64');
