@@ -28,4 +28,5 @@ import './bruecke.test';
 import './anleitung-format.test';
 import './anleitung-ablauf.test';
 import './anleitung-ansicht.test';
+import './anleitung-schicht.test';
 abschluss();

@@ -36,3 +36,6 @@ export { anleitungSchritt, beimStart, leseFortschritt, schreibeFortschritt } fro
 export type { AnleitungsEreignis, AnleitungSpeicher, SpeicherZustand, GelesenerFortschritt, StartErgebnis } from './lib/anleitung';
 export { anleitungAnsicht } from './lib/anleitung';
 export type { AnleitungsUmgebung, KapitelZeile, BlasenAnsicht, AnleitungsAnsicht } from './lib/anleitung';
+export { ANLEITUNG_TEXTE } from './lib/texte';
+export { AnleitungsSchicht, type AnleitungsStimme, type AnleitungsSchichtProps } from './components/AnleitungsSchicht';
+export { useAnleitungsZiel } from './lib/useAnleitungsZiel';
