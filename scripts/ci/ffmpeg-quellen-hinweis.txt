@@ -22,8 +22,9 @@ ffprobe
 -------
 Herkunft: npm-Paket ffprobe-static 3.1.0
 (https://github.com/joshwnj/ffprobe-static). Auch ffprobe ist ein GPL-Build von
-FFmpeg. In beiden Paketen ist es ein Intel-Programm (x86_64); auf Apple Silicon
-läuft es über Rosetta 2.
+FFmpeg: im Intel-Paket FFmpeg 4.0.2, im Apple-Silicon-Paket FFmpeg 4.4 (Kennung
+4.4-tessus). In beiden Paketen ist es ein Intel-Programm (x86_64); auf Apple
+Silicon läuft es über Rosetta 2.
 
 Quelltext
 ---------

@@ -85,8 +85,11 @@ Der neue Release-Proxy (Paketwahl nach Mac-Art) ist seit 19.10.2026 deployt.
 2. **`npm ci` mit der Lockfile vom Juni scheitert auf macOS 26** (Install-Skripte von electron, sharp,
    onnxruntime-node, electron-rebuild). Erwartet: roter Bau-Job, der Hochlade-Job startet nicht. Abgedeckt durch `needs`
    auf die ganze Matrix (R11); ob npm ci durchläuft, misst nur der Probelauf.
-3. **LICENSE oder README von ffmpeg-static fehlen, oder LICENSE ist kein GPL-Text.** install.js warnt bei 404 nur.
-   Erwartet: Abbruch statt eines Uploads ohne Beilagen. Abgedeckt durch B4 und B8 (Task 2).
+3. **LICENSE oder README von ffmpeg-static fehlen, oder LICENSE ist kein GPL-Volltext.** install.js warnt bei 404 nur.
+   Erwartet: Abbruch statt eines Uploads ohne Beilagen, im Protokoll Größe, SHA-256 und Anfang von LICENSE und README.
+   Abgedeckt durch B4, B8 und B12 (Task 2). **Wahrscheinlich tritt der Fall ein:** Die Mac-LICENSE im Release b6.1.1 hat
+   4 346 bzw. 4 376 B, ein GPL-Volltext 17 984 B (v2) bzw. 35 147 B (v3). Dann endet schon der Probelauf im Sammler, und
+   F2 (ii) ist in der freigegebenen Form nicht erfüllbar; das ist eine offene Owner-Frage (Task 2, Prüfung Runde 1, W1).
 4. **Ein Tag mit Schadtext oder eine fremde App erreicht ein Skript.** Erwartet: Abbruch vor jedem git-, npm- oder
    gh-Aufruf. Abgedeckt durch R17 (Eingaben nur über env, kein `${{ }}` in run) und durch die Messung mit der
    gh-Attrappe in Task 3, Step 6. Diese Messung ist nicht im Repo, weil sie js-yaml braucht.
@@ -847,8 +850,9 @@ Expected: `git status --short` zeigt keine dieser drei Dateien mehr.
   - `export const BELEGT = { ffmpegStatic: '5.3.0', binaerRelease: 'b6.1.1' }`
   - `export const UMLENKUNGEN = ['FFMPEG_BIN', 'FFMPEG_BINARY_RELEASE', 'FFMPEG_BINARIES_URL']`
   - `beilagenNamen(art) → { lizenz: 'ffmpeg-mac-<art>.LICENSE.txt', angaben: 'ffmpeg-mac-<art>.README.txt', quellen: 'ffmpeg-QUELLEN.txt' }`
-  - `sammleFfmpegBeilagen({ ffmpegStatic, appFfmpeg, hinweis, ziel, art, env }) → { ok, fehler: string[], dateien: string[], angabenKopf: string[] }`.
-    Kopiert wird nur, wenn alles stimmt.
+  - `sammleFfmpegBeilagen({ ffmpegStatic, appFfmpeg, hinweis, ziel, art, env }) → { ok, fehler: string[], dateien: string[], steckbrief: string[] }`.
+    Kopiert wird nur, wenn alles stimmt. `steckbrief` (Größe, SHA-256 und bis zu 10 Zeilen von LICENSE und README,
+    entschärft fürs Protokoll) ist immer gefüllt; die Kommandozeile druckt ihn im Gutfall auf stdout, beim Abbruch auf stderr.
   - Kommandozeile: `node scripts/ci/sammle-ffmpeg-beilagen.mjs --app <app> --art arm64|x64 --release <Ordner> --ffmpeg-static <Ordner> --hinweis <Datei> --ziel <Ordner>`, Exit 0, 1 oder 2.
 
 - [ ] **Step 1: Den Test schreiben** (`scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs`, LF)
@@ -859,7 +863,10 @@ Expected: `git status --short` zeigt keine dieser drei Dateien mehr.
 // Regel in apps/launcher/src/main/release-wahl.ts, beide prüfen test/paketwahl-faelle.json) und der Wortlaut des Hinweises.
 //   node scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -883,8 +890,29 @@ function datei(pfad, inhalt = '') {
   mkdirSync(dirname(pfad), { recursive: true });
   writeFileSync(pfad, inhalt);
 }
+const sha = (inhalt) => createHash('sha256').update(inhalt).digest('hex');
+/** Byte für Byte gleich; fehlt eine Seite, ist das ungleich und kein Absturz. */
+const gleich = (a, b) => existsSync(a) && existsSync(b) && readFileSync(a).equals(readFileSync(b));
 
-const GPL = '                    GNU GENERAL PUBLIC LICENSE\r\n                       Version 3, 29 June 2007\r\n';
+/** Wie ein GPL-Volltext: Kopf, Schluss und `bytes` Bytes (gemessen: GPLv2 17 984 B, GPLv3 35 147 B). */
+function gplText({ kopf = '                    GNU GENERAL PUBLIC LICENSE', bytes = 18000, schluss = true } = {}) {
+  const anfang = `${kopf}\r\n                       Version 3, 29 June 2007\r\n\r\n                       TERMS AND CONDITIONS\r\n\r\n`;
+  const ende = schluss ? '\r\n                     END OF TERMS AND CONDITIONS\r\n' : '\r\n';
+  const zeile = '  Absatz der Lizenz.\r\n';
+  const rest = bytes - anfang.length - ende.length;
+  return anfang + zeile.repeat(Math.floor(rest / zeile.length)) + ' '.repeat(rest % zeile.length) + ende;
+}
+const GPL = gplText();
+const README = 'FFmpeg 64-bit static build\n\nVersion: 6.1.1\n';
+const HINWEIS = 'Hinweis\n';
+/** So ungefähr sieht FFmpegs LICENSE.md aus (sinngemäß); 4 316 B wie R1 der Prüfung, Release b6.1.1 hat 4 346 bzw. 4 376 B. */
+const LIZENZ_MD = (() => {
+  const kopf = '# License\n\nMost files in FFmpeg are under the GNU Lesser General Public License version 2.1\nor later (LGPL v2.1+).\n';
+  const zeile = 'Einige optionale Teile stehen unter der GPL.\n';
+  const rest = 4316 - kopf.length;
+  return kopf + zeile.repeat(Math.floor(rest / zeile.length)) + '-'.repeat(rest % zeile.length);
+})();
+
 const ordner = [];
 /** ffmpeg-static nach npm ci auf einem Mac (install.js legt ffmpeg, ffmpeg.LICENSE, ffmpeg.README), dazu die App. */
 function lage(art = 'arm64', { version = '5.3.0', release = 'b6.1.1', lizenz = GPL } = {}) {
@@ -894,10 +922,10 @@ function lage(art = 'arm64', { version = '5.3.0', release = 'b6.1.1', lizenz = G
   datei(join(fs, 'package.json'), JSON.stringify({ name: 'ffmpeg-static', version, 'ffmpeg-static': { 'binary-release-tag': release } }));
   datei(join(fs, 'ffmpeg'), `ffmpeg-${art}`);
   datei(join(fs, 'ffmpeg.LICENSE'), lizenz);
-  datei(join(fs, 'ffmpeg.README'), 'FFmpeg 64-bit static build\n\nVersion: 6.1.1\n');
+  datei(join(fs, 'ffmpeg.README'), README);
   const release1 = join(d, 'apps', 'editor', 'release');
   datei(appPfade(release1, 'editor', art).ffmpeg, `ffmpeg-${art}`);
-  datei(join(d, 'hinweis.txt'), 'Hinweis\n');
+  datei(join(d, 'hinweis.txt'), HINWEIS);
   return {
     d, ffmpegStatic: fs, release: release1,
     optionen: { ffmpegStatic: fs, appFfmpeg: appPfade(release1, 'editor', art).ffmpeg, hinweis: join(d, 'hinweis.txt'), ziel: join(d, 'paket'), art, env: {} },
@@ -928,10 +956,20 @@ try {
   {
     const l = lage('arm64');
     const r = sammleFfmpegBeilagen(l.optionen);
-    const ziel = readdirSync(l.optionen.ziel).sort();
-    assert(r.ok && JSON.stringify(ziel) === JSON.stringify(['ffmpeg-QUELLEN.txt', 'ffmpeg-mac-arm64.LICENSE.txt', 'ffmpeg-mac-arm64.README.txt'])
-      && readFileSync(join(l.optionen.ziel, 'ffmpeg-mac-arm64.LICENSE.txt'), 'utf8') === GPL, 'B3: sauber → genau drei Dateien, Inhalt unverändert');
-    assert(r.angabenKopf.join('|') === 'FFmpeg 64-bit static build|Version: 6.1.1', 'B3: Anfang der Build-Angaben fürs Protokoll');
+    const z = l.optionen.ziel;
+    // Ohne Zielordner eine FAIL-Zeile statt eines Absturzes, der alle folgenden Prüfungen verschluckte.
+    const ziel = existsSync(z) ? readdirSync(z).sort() : [];
+    // Die drei Quellen unterscheiden sich; nur so fällt eine vertauschte Kopie auf.
+    assert(new Set([GPL, README, HINWEIS]).size === 3 && r.ok
+      && JSON.stringify(ziel) === JSON.stringify(['ffmpeg-QUELLEN.txt', 'ffmpeg-mac-arm64.LICENSE.txt', 'ffmpeg-mac-arm64.README.txt'])
+      && gleich(join(z, 'ffmpeg-mac-arm64.LICENSE.txt'), join(l.ffmpegStatic, 'ffmpeg.LICENSE'))
+      && gleich(join(z, 'ffmpeg-mac-arm64.README.txt'), join(l.ffmpegStatic, 'ffmpeg.README'))
+      && gleich(join(z, 'ffmpeg-QUELLEN.txt'), l.optionen.hinweis), 'B3: sauber → genau drei Dateien, jede Byte für Byte aus ihrer Quelle');
+    const s = r.steckbrief ?? [];
+    const iReadme = s.indexOf(`ffmpeg.README: ${README.length} B, SHA-256 ${sha(README)}`);
+    assert(s[0] === `ffmpeg.LICENSE: ${GPL.length} B, SHA-256 ${sha(GPL)}` && s[1] === '  | GNU GENERAL PUBLIC LICENSE'
+      && iReadme >= 2 && iReadme <= 11 && s[iReadme + 1] === '  | FFmpeg 64-bit static build' && s[iReadme + 2] === '  | Version: 6.1.1',
+    'B3: Steckbrief fürs Protokoll (Größe, SHA-256 und Anfang von LICENSE und README, je höchstens 10 Zeilen)');
   }
   {
     const l = lage();
@@ -955,42 +993,110 @@ try {
       && !b.ok && b.fehler.includes('Binär-Release b6.0, der Quellen-Hinweis ist für b6.1.1 geschrieben.'),
     'B6 Gegenprobe: andere ffmpeg-static-Fassung oder anderes Binär-Release → rot (der Hinweis nennt 5.3.0 und b6.1.1)');
   }
-  {
-    const l = lage();
-    const r = sammleFfmpegBeilagen({ ...l.optionen, env: { FFMPEG_BINARIES_URL: 'https://example.org' } });
-    assert(!r.ok && r.fehler.includes('FFMPEG_BINARIES_URL ist gesetzt; der Quellen-Hinweis gilt nur für das Standard-Release von ffmpeg-static.'),
-      'B7 Gegenprobe: Umlenkung per Umgebungsvariable → rot');
+  // Fest geschrieben, nicht aus UMLENKUNGEN abgeleitet: index.js:16-17 und install.js:163-172 von ffmpeg-static 5.3.0.
+  for (const v of ['FFMPEG_BIN', 'FFMPEG_BINARY_RELEASE', 'FFMPEG_BINARIES_URL']) {
+    const r = sammleFfmpegBeilagen({ ...lage().optionen, env: { [v]: 'x' } });
+    assert(!r.ok && r.fehler.includes(`${v} ist gesetzt; der Quellen-Hinweis gilt nur für das Standard-Release von ffmpeg-static.`),
+      `B7 Gegenprobe: Umlenkung per ${v} → rot`);
   }
   {
-    const r = sammleFfmpegBeilagen(lage('arm64', { lizenz: 'MIT License\n' }).optionen);
-    assert(!r.ok && r.fehler.includes('ffmpeg.LICENSE ist kein GPL-Text (erste Zeile: MIT License).'), 'B8 Gegenprobe: LICENSE ist kein GPL-Text → rot');
+    // Je Fall fehlt genau ein Merkmal des Volltexts, damit jede Teilprüfung allein rot werden kann.
+    const ein = (lizenz) => sammleFfmpegBeilagen(lage('arm64', { lizenz }).optionen).fehler;
+    const kopf = ein(gplText({ kopf: '                  GNU LESSER GENERAL PUBLIC LICENSE' }));
+    assert(JSON.stringify(kopf) === JSON.stringify(['ffmpeg.LICENSE ist kein GPL-Volltext: erste Zeile „GNU LESSER GENERAL PUBLIC LICENSE“ ohne GNU GENERAL PUBLIC LICENSE.']),
+      'B8 Gegenprobe: LGPL-Volltext (Länge und Schluss passen) → rot wegen der ersten Zeile');
+    const kurz = ein(gplText({ kopf: 'GNU GENERAL PUBLIC LICENSE (Auszug)', bytes: 4337 }));
+    assert(JSON.stringify(kurz) === JSON.stringify(['ffmpeg.LICENSE ist kein GPL-Volltext: 4337 B statt mindestens 15000 B.']),
+      'B8 Gegenprobe (R2): 4 337 B mit GPL-Kopf und Schluss → rot wegen der Länge');
+    const ohneSchluss = ein(gplText({ schluss: false }));
+    assert(JSON.stringify(ohneSchluss) === JSON.stringify(['ffmpeg.LICENSE ist kein GPL-Volltext: ohne Schluss END OF TERMS AND CONDITIONS.']),
+      'B8 Gegenprobe: GPL-Kopf und Länge, aber ohne Schluss → rot');
+    const md = ein(LIZENZ_MD);
+    assert(JSON.stringify(md) === JSON.stringify(['ffmpeg.LICENSE ist kein GPL-Volltext: erste Zeile „# License“ ohne GNU GENERAL PUBLIC LICENSE; '
+      + '4316 B statt mindestens 15000 B; ohne Schluss END OF TERMS AND CONDITIONS.']), 'B8 Gegenprobe (R1): Text wie FFmpegs LICENSE.md → rot, alle drei Mängel genannt');
+  }
+  for (const [inhalt, name] of [['', 'leer'], ['\n\n \r\n\t\n', 'nur Leerzeilen']]) {
     const l = lage();
-    writeFileSync(l.optionen.hinweis, '');
+    writeFileSync(l.optionen.hinweis, inhalt);
     const s = sammleFfmpegBeilagen(l.optionen);
-    assert(!s.ok && s.fehler.some((f) => f.startsWith('Quellen-Hinweis fehlt oder ist leer:')), 'B8 Gegenprobe: Quellen-Hinweis leer → rot');
+    assert(!s.ok && s.fehler.some((f) => f.startsWith('Quellen-Hinweis fehlt oder ist leer:')), `B8 Gegenprobe: Quellen-Hinweis ${name} → rot`);
   }
 
   console.log('sammle-ffmpeg-beilagen — Kommandozeile und Hinweis im Repo:');
   {
     const env = { ...process.env };
     for (const v of ['FFMPEG_BIN', 'FFMPEG_BINARY_RELEASE', 'FFMPEG_BINARIES_URL']) delete env[v];
-    const lauf = (...args) => spawnSync(process.execPath, [skript, ...args], { encoding: 'utf8', env });
+    const lauf = (args, mitEnv = env) => spawnSync(process.execPath, [skript, ...args], { encoding: 'utf8', env: mitEnv });
+    const argsFuer = (l, art) => ['--app', 'editor', '--art', art, '--release', l.release, '--ffmpeg-static', l.ffmpegStatic,
+      '--hinweis', l.optionen.hinweis, '--ziel', l.optionen.ziel];
     const l = lage('x64');
-    const args = ['--app', 'editor', '--art', 'x64', '--release', l.release, '--ffmpeg-static', l.ffmpegStatic, '--hinweis', l.optionen.hinweis, '--ziel', l.optionen.ziel];
-    const gut = lauf(...args);
-    assert(gut.status === 0 && gut.stdout.includes('sammle-ffmpeg-beilagen: in Ordnung (ffmpeg-mac-x64.LICENSE.txt, ffmpeg-mac-x64.README.txt, ffmpeg-QUELLEN.txt).'),
-      'B9: Kommandozeile sauber → Exit 0');
+    const args = argsFuer(l, 'x64');
+    const gut = lauf(args);
+    assert(gut.status === 0 && gut.stdout.includes('sammle-ffmpeg-beilagen: in Ordnung (ffmpeg-mac-x64.LICENSE.txt, ffmpeg-mac-x64.README.txt, ffmpeg-QUELLEN.txt).')
+      && gut.stdout.includes(`sammle-ffmpeg-beilagen: ffmpeg.README: ${README.length} B, SHA-256 ${sha(README)}\n`),
+    'B9: Kommandozeile sauber → Exit 0, Steckbrief im Protokoll');
     rmSync(join(l.ffmpegStatic, 'ffmpeg.LICENSE'));
-    const schlecht = lauf(...args);
-    const ohne = lauf();
-    const app = lauf(...args.map((a) => (a === 'editor' ? 'titler' : a)));
+    const schlecht = lauf(args);
+    const ohne = lauf([]);
+    const app = lauf(args.map((a) => (a === 'editor' ? 'titler' : a)));
     assert(schlecht.status === 1 && schlecht.stderr.includes('sammle-ffmpeg-beilagen: fehlt: ') && ohne.status === 2 && app.status === 2,
       'B9 Gegenprobe: Kommandozeile mit fehlender LICENSE → Exit 1; ohne Argumente oder fremde App → Exit 2');
+
+    // Die Kommandozeile muss die echte Umgebung durchreichen; der Workflow ruft genau sie auf.
+    const u = lage('x64');
+    const umgelenkt = lauf(argsFuer(u, 'x64'), { ...env, FFMPEG_BINARY_RELEASE: 'b9.9' });
+    assert(umgelenkt.status === 1 && umgelenkt.stderr.includes('sammle-ffmpeg-beilagen: FFMPEG_BINARY_RELEASE ist gesetzt;')
+      && !existsSync(u.optionen.ziel), 'B7 Gegenprobe (Kommandozeile): FFMPEG_BINARY_RELEASE in der Umgebung → Exit 1, nichts kopiert');
+
+    // Bricht der Sammler ab, muss das Protokoll schon die Grundlage für den Entscheid tragen (Prüfung Task 2, W1).
+    const m = lage('arm64', { lizenz: LIZENZ_MD });
+    const abbruch = lauf(argsFuer(m, 'arm64'));
+    assert(abbruch.status === 1
+      && abbruch.stderr.includes('sammle-ffmpeg-beilagen: ffmpeg.LICENSE ist kein GPL-Volltext: erste Zeile „# License“')
+      && abbruch.stderr.includes(`sammle-ffmpeg-beilagen: ffmpeg.LICENSE: 4316 B, SHA-256 ${sha(LIZENZ_MD)}\n`)
+      && abbruch.stderr.includes('sammle-ffmpeg-beilagen:   | # License\n')
+      && abbruch.stderr.includes('sammle-ffmpeg-beilagen:   | or later (LGPL v2.1+).\n')
+      && abbruch.stderr.includes(`sammle-ffmpeg-beilagen: ffmpeg.README: ${README.length} B, SHA-256 ${sha(README)}\n`)
+      && abbruch.stderr.includes('sammle-ffmpeg-beilagen:   | Version: 6.1.1\n'),
+    'B12: Abbruch → stderr nennt Größe, SHA-256 und Anfang von LICENSE und README');
+
+    // Text aus dem Netz darf im Protokoll keinen Workflow-Befehl bilden: Der Runner trennt Zeilen auch an \r, und ##[…]
+    // wirkt an jeder Stelle der Zeile.
+    const f = lage('arm64', { lizenz: '# Lizenz\r::error::falsch ##[add-mask]geheim\n' });
+    const falle = lauf(argsFuer(f, 'arm64'));
+    const zeilen = falle.stderr.split(/\r\n|\r|\n/);
+    assert(falle.status === 1 && falle.stderr.includes('Lizenz') && falle.stderr.includes('geheim')
+      && zeilen.every((z) => !z.trimStart().startsWith('::')) && !falle.stderr.includes('##['),
+    'B12 Gegenprobe: Steuerzeichen und ##[ aus LICENSE werden im Protokoll entschärft');
+
+    // Wie pruefe-mac-nachbau (N18, EP7): Über einen Ordner-Link aufgerufen muss der Sammler arbeiten, statt still mit Exit 0
+    // und ohne Beilagen zu enden. Der Prüfer kommt mit, weil der Sammler ihn über den relativen Pfad lädt.
+    const echt = mkdtempSync(join(tmpdir(), 'jm-ffmpeg-beilagen-skript-'));
+    ordner.push(echt);
+    copyFileSync(skript, join(echt, 'sammle-ffmpeg-beilagen.mjs'));
+    copyFileSync(join(hier, '..', 'pruefe-mac-nachbau.mjs'), join(echt, 'pruefe-mac-nachbau.mjs'));
+    const linkOrdner = mkdtempSync(join(tmpdir(), 'jm-ffmpeg-beilagen-link-'));
+    const link = join(linkOrdner, 'werkzeug');
+    symlinkSync(echt, link, 'junction');
+    try {
+      const ueberLink = (...a) => spawnSync(process.execPath, [join(link, 'sammle-ffmpeg-beilagen.mjs'), ...a], { encoding: 'utf8', env });
+      const k = lage('arm64');
+      const leer = ueberLink();
+      const sauber = ueberLink(...argsFuer(k, 'arm64'));
+      assert(leer.status === 2 && sauber.status === 0 && existsSync(join(k.optionen.ziel, 'ffmpeg-mac-arm64.LICENSE.txt')),
+        'B11: Aufruf über einen Ordner-Link → arbeitet (Exit 2 ohne Argumente, sauber Exit 0 mit Beilagen), nie still Exit 0');
+    } finally {
+      unlinkSync(link);
+      rmSync(linkOrdner, { recursive: true, force: true });
+    }
   }
   {
     const text = readFileSync(hinweisImRepo, 'utf8');
-    assert(['ffmpeg-static 5.3.0', 'b6.1.1', 'GPL', 'evermeet.cx', 'osxexperts.net', 'ffprobe-static 3.1.0', 'ffmpeg-mac-x64.LICENSE.txt', 'ffmpeg-mac-arm64.README.txt']
-      .every((s) => text.includes(s)), 'B10: Hinweis im Repo nennt Fassung, Binär-Release, Lizenz, Herkunft und die Beilagen');
+    // Die Beilagen-Namen kommen aus beilagenNamen; quellen ist der Hinweis selbst und steht darum nicht im Text.
+    const namen = ['x64', 'arm64'].flatMap((a) => [beilagenNamen(a).lizenz, beilagenNamen(a).angaben]);
+    assert(['ffmpeg-static 5.3.0', 'b6.1.1', 'GPL', 'evermeet.cx', 'osxexperts.net', 'ffprobe-static 3.1.0', 'FFmpeg 4.0.2', '4.4-tessus', ...namen]
+      .every((s) => text.includes(s)) && namen.length === 4,
+    'B10: Hinweis im Repo nennt Fassungen (ffmpeg und ffprobe), Binär-Release, Lizenz, Herkunft und alle vier Beilagen aus beilagenNamen');
     assert(!/["']/.test(text), 'B10: Hinweis ohne ASCII-Anführungszeichen');
   }
 } finally {
@@ -1006,6 +1112,10 @@ process.exit(failures === 0 ? 0 : 1);
 Run: `node scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs`
 Expected: Exit 1 mit `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\scripts\ci\sammle-ffmpeg-beilagen.mjs' imported from …\scripts\ci\test\sammle-ffmpeg-beilagen.test.mjs`.
 
+Nachbesserung Runde 1 (gemessen): der Test unten gegen den Sammler aus Commit `8c4327c77a` → Exit 1, 15 ok, 10 FAIL
+(B3 Steckbrief, B8 viermal GPL-Volltext und einmal Hinweis nur Leerzeilen, B9, B12 zweimal, B10). Die Gegenprobe B12 war
+dabei echt rot: Der alte Fehlertext gab `##[` und ein einzelnes `\r` aus LICENSE ungefiltert ins Protokoll.
+
 - [ ] **Step 3: Den Sammler und den Quellen-Hinweis anlegen**
 
 `scripts/ci/sammle-ffmpeg-beilagen.mjs` (LF):
@@ -1015,7 +1125,9 @@ Expected: Exit 1 mit `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\scri
 // Owner-Freigabe 20.10.2026). install.js von ffmpeg-static legt beides neben das Programm (ffmpeg.LICENSE und
 // ffmpeg.README, install.js:175-176, :184, :187), lädt es ohne Prüfsumme und warnt bei 404 nur (:29-32). Darum hier:
 // Beides muss da sein, das ffmpeg im Paket muss Byte für Byte das aus ffmpeg-static sein, und Fassung und Binär-Release
-// müssen die sein, für die ffmpeg-quellen-hinweis.txt geschrieben ist.
+// müssen die sein, für die ffmpeg-quellen-hinweis.txt geschrieben ist. LICENSE muss ein GPL-Volltext sein; die Mac-Dateien
+// im Release b6.1.1 sind laut gh release view nur 4 346 bzw. 4 376 B groß, also wohl keiner (Prüfung Task 2, W1). Darum
+// druckt der Sammler immer Größe, SHA-256 und Anfang von LICENSE und README, auch beim Abbruch.
 //
 //   node scripts/ci/sammle-ffmpeg-beilagen.mjs --app editor --art arm64 --release apps/editor/release \
 //     --ffmpeg-static node_modules/ffmpeg-static --hinweis scripts/ci/ffmpeg-quellen-hinweis.txt --ziel paket
@@ -1039,13 +1151,29 @@ export function beilagenNamen(art) {
   return { lizenz: `ffmpeg-mac-${art}.LICENSE.txt`, angaben: `ffmpeg-mac-${art}.README.txt`, quellen: 'ffmpeg-QUELLEN.txt' };
 }
 
+/** Merkmale eines GPL-Volltexts (gemessen: GPLv2 17 984 B, GPLv3 35 147 B; LGPL beginnt mit GNU LESSER …). */
+const GPL_VOLLTEXT = { kopf: 'GNU GENERAL PUBLIC LICENSE', mindestBytes: 15000, schluss: 'END OF TERMS AND CONDITIONS' };
+/** So viele Zeilen von LICENSE und README kommen ins Protokoll. */
+const STECKBRIEF_ZEILEN = 10;
+
 const istDatei = (p) => existsSync(p) && statSync(p).isFile();
 const sha256 = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 const zeilen = (p) => readFileSync(p, 'utf8').split(/\r?\n/).map((z) => z.trim()).filter((z) => z !== '');
+/**
+ * Text aus dem Netz fürs CI-Protokoll: Der Runner trennt Zeilen auch an einem einzelnen \r (danach könnte ::befehl::
+ * stehen), und ##[befehl] wirkt an jeder Stelle der Zeile. Darum Steuerzeichen als ? und ##[ als #?[, höchstens 160 Zeichen.
+ */
+const fuersProtokoll = (z) => z.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?').replaceAll('##[', '#?[').slice(0, 160);
+
+/** Größe, SHA-256 und Anfang einer Datei, damit schon das Protokoll eines Abbruchs zeigt, was ffmpeg-static geliefert hat. */
+function steckbrief(p, name) {
+  if (!istDatei(p)) return [`${name}: fehlt`];
+  return [`${name}: ${statSync(p).size} B, SHA-256 ${sha256(p)}`, ...zeilen(p).slice(0, STECKBRIEF_ZEILEN).map((z) => `  | ${fuersProtokoll(z)}`)];
+}
 
 /**
  * Prüft ffmpeg-static und kopiert LICENSE, README und Hinweis nach `ziel` (nur wenn alles stimmt).
- * @returns {{ ok: boolean, fehler: string[], dateien: string[], angabenKopf: string[] }}
+ * @returns {{ ok: boolean, fehler: string[], dateien: string[], steckbrief: string[] }}
  */
 export function sammleFfmpegBeilagen({ ffmpegStatic, appFfmpeg, hinweis, ziel, art, env }) {
   const fehler = [];
@@ -1073,17 +1201,23 @@ export function sammleFfmpegBeilagen({ ffmpegStatic, appFfmpeg, hinweis, ziel, a
   }
   if (istDatei(lizenz)) {
     const erste = zeilen(lizenz)[0];
-    if (!erste?.includes('GNU GENERAL PUBLIC LICENSE')) fehler.push(`ffmpeg.LICENSE ist kein GPL-Text (erste Zeile: ${erste ?? 'leer'}).`);
+    const groesse = statSync(lizenz).size;
+    const maengel = [];
+    if (!erste?.includes(GPL_VOLLTEXT.kopf)) maengel.push(erste ? `erste Zeile „${fuersProtokoll(erste)}“ ohne ${GPL_VOLLTEXT.kopf}` : 'keine Textzeile');
+    if (groesse < GPL_VOLLTEXT.mindestBytes) maengel.push(`${groesse} B statt mindestens ${GPL_VOLLTEXT.mindestBytes} B`);
+    if (!readFileSync(lizenz, 'utf8').includes(GPL_VOLLTEXT.schluss)) maengel.push(`ohne Schluss ${GPL_VOLLTEXT.schluss}`);
+    if (maengel.length) fehler.push(`ffmpeg.LICENSE ist kein GPL-Volltext: ${maengel.join('; ')}.`);
   }
-  if (!istDatei(hinweis) || statSync(hinweis).size === 0) fehler.push(`Quellen-Hinweis fehlt oder ist leer: ${hinweis}`);
-  if (fehler.length) return { ok: false, fehler, dateien: [], angabenKopf: [] };
+  if (!istDatei(hinweis) || zeilen(hinweis).length === 0) fehler.push(`Quellen-Hinweis fehlt oder ist leer: ${hinweis}`);
+  const brief = [...steckbrief(lizenz, 'ffmpeg.LICENSE'), ...steckbrief(angaben, 'ffmpeg.README')];
+  if (fehler.length) return { ok: false, fehler, dateien: [], steckbrief: brief };
 
   const namen = beilagenNamen(art);
   mkdirSync(ziel, { recursive: true });
   copyFileSync(lizenz, join(ziel, namen.lizenz));
   copyFileSync(angaben, join(ziel, namen.angaben));
   copyFileSync(hinweis, join(ziel, namen.quellen));
-  return { ok: true, fehler, dateien: [namen.lizenz, namen.angaben, namen.quellen], angabenKopf: zeilen(angaben).slice(0, 5) };
+  return { ok: true, fehler, dateien: [namen.lizenz, namen.angaben, namen.quellen], steckbrief: brief };
 }
 
 const AUFRUF = 'Aufruf: node scripts/ci/sammle-ffmpeg-beilagen.mjs --app <app> --art arm64|x64 --release <Ordner> --ffmpeg-static <Ordner> --hinweis <Datei> --ziel <Ordner>';
@@ -1114,9 +1248,10 @@ function hauptprogramm(argv) {
   });
   if (!r.ok) {
     for (const f of r.fehler) console.error(`sammle-ffmpeg-beilagen: ${f}`);
+    for (const z of r.steckbrief) console.error(`sammle-ffmpeg-beilagen: ${z}`);
     return 1;
   }
-  for (const z of r.angabenKopf) console.log(`sammle-ffmpeg-beilagen: Build-Angaben: ${z}`);
+  for (const z of r.steckbrief) console.log(`sammle-ffmpeg-beilagen: ${z}`);
   console.log(`sammle-ffmpeg-beilagen: in Ordnung (${r.dateien.join(', ')}).`);
   return 0;
 }
@@ -1136,7 +1271,9 @@ if (istHauptprogramm(process.argv[1])) process.exitCode = hauptprogramm(process.
 
 `scripts/ci/ffmpeg-quellen-hinweis.txt` (LF). Das ist der Wortlaut, den der Owner vor dem echten Lauf liest. Er nennt
 nur, was belegt ist: ffmpeg-static `package.json` und README Z. 20 und 51-54, `ist-lizenz.md` K6 und Z. 145-147, die
-gemessenen ffprobe-Köpfe.
+gemessenen ffprobe-Köpfe und die FFmpeg-Fassungen von ffprobe (in den Programmen gelesen: `bin/darwin/x64/ffprobe`
+„FFmpeg version 4.0.2“, `bin/darwin/arm64/ffprobe` „FFmpeg version 4.4-tessus“; `require('ffprobe-static').path` wählt
+nach `os.arch()`, also landet 4.0.2 im Intel-Paket und 4.4 im Apple-Silicon-Paket).
 
 ````text
 ffmpeg und ffprobe in den Mac-Paketen dieses Releases
@@ -1153,7 +1290,7 @@ Herkunft: npm-Paket ffmpeg-static 5.3.0
 (https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1), FFmpeg 6.1.1.
 Laut ffmpeg-static stammt der Build für Intel-Macs (x64) von evermeet.cx und der
 für Apple Silicon (arm64) von osxexperts.net.
-Lizenz: Es ist ein GPL-Build von FFmpeg (GNU General Public License, Version 3).
+Lizenz: Es ist ein GPL-Build von FFmpeg (GNU General Public License).
 Lizenztext und Build-Angaben, wie ffmpeg-static sie zum Programm liefert, hängen
 an diesem Release:
   ffmpeg-mac-x64.LICENSE.txt    ffmpeg-mac-x64.README.txt
@@ -1163,8 +1300,9 @@ ffprobe
 -------
 Herkunft: npm-Paket ffprobe-static 3.1.0
 (https://github.com/joshwnj/ffprobe-static). Auch ffprobe ist ein GPL-Build von
-FFmpeg. In beiden Paketen ist es ein Intel-Programm (x86_64); auf Apple Silicon
-läuft es über Rosetta 2.
+FFmpeg: im Intel-Paket FFmpeg 4.0.2, im Apple-Silicon-Paket FFmpeg 4.4 (Kennung
+4.4-tessus). In beiden Paketen ist es ein Intel-Programm (x86_64); auf Apple
+Silicon läuft es über Rosetta 2.
 
 Quelltext
 ---------
@@ -1175,18 +1313,72 @@ Build-Seiten laut ffmpeg-static: https://evermeet.cx/pub/ffmpeg/ und https://osx
 - [ ] **Step 4: Grün-Lauf**
 
 Run: `node scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs`
-Expected: 15 Zeilen `  ok  …` (B1–B10), letzte Zeile `Alle sammle-ffmpeg-beilagen-Tests bestanden.`, Exit 0. Auf
+Expected: 25 Zeilen `  ok  …` (B1–B12), letzte Zeile `Alle sammle-ffmpeg-beilagen-Tests bestanden.`, Exit 0. Auf
 stderr steht dazu eine Warnung `[MODULE_TYPELESS_PACKAGE_JSON] … paketwahl.js …`; die ist harmlos (siehe „Am Code belegt“).
+Dann: `node -e "console.log(require('fs').readdirSync(require('os').tmpdir()).filter(n=>n.startsWith('jm-ffmpeg-beilagen')))"`
+→ `[]`.
+
+Gegen echte Lizenztexte gemessen (Funktion direkt, Temp-Ordner): GPLv3 aus `node_modules/ffmpeg-static/LICENSE`
+(35 149 B) und `ffmpeg.exe.LICENSE` (35 147 B) sowie GPLv2 `xz/COPYING.GPLv2` aus Git für Windows (17 984 B) →
+`ok=true`; LGPLv2.1 `gcc-libs/COPYING.LIB` (26 527 B) → rot nur wegen der ersten Zeile.
 
 - [ ] **Step 5: Gegenproben** (je eine Änderung im Sammler, laufen lassen, zurücknehmen)
 
-| Nr. | Absichtlicher Fehler in `sammle-ffmpeg-beilagen.mjs` | Erwartet rot |
+Gemessen am 20.10.2026 mit Node 24 an einer Kopie außerhalb des Worktrees (je Mutation ändern, Test, zurückschreiben;
+die Kopie war vorher per `cmp` gleich zu den Dateien unten).
+
+| Nr. | Absichtlicher Fehler in `sammle-ffmpeg-beilagen.mjs` | Erwartet rot (FAIL-Zeilen) |
 |---|---|---|
 | SG1 | `if (istDatei(quelle) && istDatei(appFfmpeg) && sha256(quelle) !== sha256(appFfmpeg)) {` → `if (false) {` | 1: `B5 Gegenprobe` |
-| SG2 | in `beilagenNamen` `LICENSE.txt` → `LICENSE.dmg` (eine Beilage passte dann aufs Paketmuster) | 4: `B1`, `B2 Gegenprobe`, `B3: sauber`, `B9: Kommandozeile sauber` |
-| SG3 | `if (!erste?.includes('GNU GENERAL PUBLIC LICENSE')) fehler.push(` → `if (false) fehler.push(` | 1: `B8 Gegenprobe: LICENSE ist kein GPL-Text` |
+| SG2 | in `beilagenNamen` `LICENSE.txt` → `LICENSE.dmg` (eine Beilage passte dann aufs Paketmuster) | 6: `B1`, `B2 Gegenprobe`, `B3: sauber`, `B9: Kommandozeile sauber`, `B11`, `B10: Hinweis im Repo nennt …` |
+| SG3 | `if (!erste?.includes(GPL_VOLLTEXT.kopf)) maengel.push(` → `if (false) maengel.push(` | 3: `B8 Gegenprobe: LGPL-Volltext`, `B8 Gegenprobe (R1)`, `B12: Abbruch` |
+| SG4 | `    if (env[v]) fehler.push(` → `    if (false) fehler.push(` | 4: `B7` je Variable (3×), `B7 Gegenprobe (Kommandozeile)` |
+| SG5 | `if (pkg.version !== BELEGT.ffmpegStatic) fehler.push(` → `if (false) fehler.push(` | 1: `B6 Gegenprobe` |
+| SG6 | `if (rel !== BELEGT.binaerRelease) fehler.push(` → `if (false) fehler.push(` | 1: `B6 Gegenprobe` |
+| SG7 | `for (const p of [quelle, lizenz, angaben]) if` → `for (const p of [quelle, lizenz]) if` (README nicht verlangt) | 1: `B4 Gegenprobe` |
+| SG8 | `if (!istDatei(hinweis) \|\| zeilen(hinweis).length === 0) fehler.push(` → `if (!istDatei(hinweis)) fehler.push(` | 2: `B8 Gegenprobe: Quellen-Hinweis leer`, `… nur Leerzeilen` |
+| SG9 | `return realpathSync(resolve(arg)) === realpathSync(fileURLToPath(import.meta.url));` → `return resolve(arg) === fileURLToPath(import.meta.url);` | 1: `B11` |
+| SG10 | `if (groesse < GPL_VOLLTEXT.mindestBytes) maengel.push(` → `if (false) maengel.push(` | 2: `B8 Gegenprobe (R2)`, `B8 Gegenprobe (R1)` |
+| SG11 | `if (!readFileSync(lizenz, 'utf8').includes(GPL_VOLLTEXT.schluss)) maengel.push(` → `if (false) maengel.push(` | 2: `B8 Gegenprobe: … ohne Schluss`, `B8 Gegenprobe (R1)` |
+| SG12 | `zeilen(hinweis).length === 0` → `statSync(hinweis).size === 0` (Stand vor der Nachbesserung) | 1: `B8 Gegenprobe: Quellen-Hinweis nur Leerzeilen` |
+| SG13 | Zeile `for (const z of r.steckbrief) console.error(…)` gestrichen (Abbruch ohne Steckbrief) | 1: `B12: Abbruch` |
+| SG14 | Zeile `for (const z of r.steckbrief) console.log(…)` gestrichen (Gutfall ohne Steckbrief) | 1: `B9: Kommandozeile sauber` |
+| SG15 | `fuersProtokoll` gibt den Text roh zurück (`(z) => z`) | 1: `B12 Gegenprobe` |
+| SG16 | `.replaceAll('##[', '#?[')` gestrichen | 1: `B12 Gegenprobe` |
+| SG17 | `.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?')` gestrichen | 1: `B12 Gegenprobe` |
+| SG18 | `const STECKBRIEF_ZEILEN = 10;` → `20` | 1: `B3: Steckbrief` |
+| SG19 | im Fehlertext `„${fuersProtokoll(erste)}“` → `„${erste}“` | 1: `B12 Gegenprobe` |
+| EG1 | `copyFileSync(angaben, join(ziel, namen.angaben));` → `copyFileSync(lizenz, …)` | 1: `B3: sauber` |
+| EG2 | `copyFileSync(hinweis, join(ziel, namen.quellen));` → `copyFileSync(angaben, …)` | 1: `B3: sauber` |
+| EG3 | `UMLENKUNGEN` nur noch `['FFMPEG_BINARIES_URL']` | 3: `B7 … FFMPEG_BIN`, `B7 … FFMPEG_BINARY_RELEASE`, `B7 Gegenprobe (Kommandozeile)` |
+| EG4 | Kommandozeile mit `env: {}` statt `env: process.env` | 1: `B7 Gegenprobe (Kommandozeile)` |
+| EG5 | erst kopieren (Fehler beim Kopieren geschluckt), dann prüfen | 2: `B4 Gegenprobe`, `B7 Gegenprobe (Kommandozeile)` |
+| EG6 | Kommandozeile setzt die Art für die Namen fest auf `'arm64'` | 1: `B9: Kommandozeile sauber` |
 
-Danach Step 4 noch einmal: 15 ok, Exit 0. Task 1 bleibt grün: `node scripts/ci/test/pruefe-mac-nachbau.test.mjs` → Exit 0.
+Herkunft: SG1–SG3 aus dem Plan (SG3 seit der Nachbesserung auf die Kopfzeile des Volltexts bezogen). SG4–SG9 kamen bei
+der Umsetzung dazu; SG9 blieb mit dem Plan-Test grün, darum B11. EG1–EG7 setzte die Prüfung Runde 1; EG1–EG4 blieben
+grün (K1, K2) und sind jetzt rot, EG7 ist SG9. SG10–SG19 kamen mit der Nachbesserung (W1, K3).
+
+Danach Step 4 noch einmal: 25 ok, Exit 0. Task 1 bleibt grün: `node scripts/ci/test/pruefe-mac-nachbau.test.mjs` → Exit 0.
+
+**Abweichungen vom ursprünglichen Plan-Code, mit Grund** (die Blöcke oben sind bytegleich mit den Dateien):
+1. B3 liest den Zielordner nur, wenn er existiert. Sonst stürzte der Test bei einem Sammler ab, der nichts kopiert, und
+   alle späteren Prüfungen liefen nicht (gemessen im Rot-Lauf der Umsetzung).
+2. B11 (Aufruf über einen Ordner-Link) ist neu, weil SG9 sonst grün blieb, dieselbe Klasse wie N18 in Task 1.
+3. Im Hinweis steht „(GNU General Public License)“ ohne „, Version 3“: `--enable-version3` ist nur für den evermeet-Build
+   (x64) belegt, für osxexperts (arm64) nur `--enable-gpl` (`ist-lizenz.md` Z. 158).
+4. Nachbesserung Runde 1: GPL-Volltext statt nur der ersten Zeile (Kopf, mindestens 15 000 B, Schluss
+   `END OF TERMS AND CONDITIONS`), Steckbrief im Protokoll mit entschärftem Fremdtext (W1); B3 vergleicht alle drei
+   Beilagen Byte für Byte (K1); B7 je Variable fest geschrieben und einmal über die Kommandozeile (K2); ein Hinweis nur
+   aus Leerzeilen gilt als leer (K3); der Hinweis nennt die FFmpeg-Fassungen von ffprobe, B10 nimmt die Namen aus
+   `beilagenNamen` (K5). `angabenKopf` heißt jetzt `steckbrief` und umfasst LICENSE und README.
+
+**Offene Owner-Frage (Prüfung Runde 1, W1), vor dem Probelauf:** F2 (ii) verlangt den GPL-Text, den install.js neben das
+Programm legt. Für den Mac ist das nach der Größe kein GPL-Volltext (siehe Review Focus 3), also wird der Sammler im
+Probelauf sehr wahrscheinlich abbrechen, fail closed und mit Steckbrief im Protokoll. Ein naheliegender Weg, über den nur
+der Owner entscheidet: den GPLv3-Text aus `node_modules/ffmpeg-static/LICENSE` (35 149 B, im npm-Tarball, über die
+Integrität im Lockfile gesichert) zusätzlich beilegen und die Mac-`ffmpeg.LICENSE` unter einem Namen mitgeben, der keinen
+GPL-Text verspricht; Hinweis und Asset-Namen änderten sich dann. Dieser Branch setzt das nicht um.
 
 - [ ] **Step 6: Zeilenenden** wie in Task 1, Step 6, für die drei neuen Dateien: dreimal `0`.
 
@@ -1853,8 +2045,9 @@ wieder den Workflow aus dem Tag-Commit. Ein Hand-Start dagegen nimmt den Workflo
   muss starten, im Intel-Job auch `ffprobe -version`; minos von App-Programm und ffmpeg wird gedruckt, über macOS 11
   gibt es eine Warnung.
 - Sammler `scripts/ci/sammle-ffmpeg-beilagen.mjs`: GPL-Text und Build-Angaben, die ffmpeg-static neben das Programm
-  legt, müssen da sein und zum ffmpeg im Paket gehören; ffmpeg-static muss 5.3.0 mit Binär-Release b6.1.1 sein, denn
-  dafür ist der Quellen-Hinweis geschrieben.
+  legt, müssen da sein und zum ffmpeg im Paket gehören; der GPL-Text muss ein Volltext sein; ffmpeg-static muss 5.3.0
+  mit Binär-Release b6.1.1 sein, denn dafür ist der Quellen-Hinweis geschrieben. Größe, SHA-256 und Anfang von LICENSE
+  und README stehen immer im Protokoll.
 
 ## Was am Release landet
 
@@ -1880,6 +2073,7 @@ Hinweise für Nutzer (Quarantäne beim Laden von Hand, Rosetta für ffprobe) kom
 | SHA-256 von ffmpeg weicht vom Lesestand ab | ffmpeg-static hat ein anderes Programm geladen: nicht hochladen, Ursache klären |
 | Laufzeitprobe und minos fehlen (nur unter macOS) | echter Lauf, aber der Prüfer lief nicht unter macOS: ohne Laufzeitprobe wird nicht hochgeladen |
 | fehlt: …/ffmpeg.LICENSE | install.js hat LICENSE oder README nicht geladen (bei 404 nur eine Warnung) |
+| ffmpeg.LICENSE ist kein GPL-Volltext: … | ffmpeg-static hat keinen GPL-Volltext neben das Programm gelegt; Steckbrief im Protokoll lesen, nicht hochladen, Owner fragen |
 | Zum Tag … gibt es kein Release | der Workflow legt keins an |
 
 ## Eine App aufnehmen (später, Stufe 2)
@@ -1942,7 +2136,7 @@ Expected: In der letzten Ausgabe beginnt jede Zeile mit `i/lf`.
 | SHA-256-Lesestand je App, Version und Art, anfangs leer; Abweichung bricht ab; leer: im Probe-Lauf Warnung mit Werten, sonst Abbruch | 1 (N13–N15, N18) |
 | Laufzeitprobe ffmpeg -version, im Intel-Job auch ffprobe; minos drucken, Warnung über macOS 11; nur unter darwin, ohne darwin bricht der echte Lauf ab | 1 (N16, Attrappe; N4, N18) |
 | reine Teile im Selbsttest unter Linux und Windows | 1–3 (alle Tests ohne macOS, CLI-Fälle unter macOS übersprungen) |
-| jeder neue Test mit genannter, gemessener Gegenprobe | 1 (G1–G5), 2 (SG1–SG3), 3 (WG1–WG3 und R1–R17 eingebaut), 4 (Step 4) |
+| jeder neue Test mit genannter, gemessener Gegenprobe | 1 (G1–G5), 2 (SG1–SG19, EG1–EG6), 3 (WG1–WG3 und R1–R17 eingebaut), 4 (Step 4) |
 | optionaler statischer Workflow-Test | 3 |
 | CI-Schritt in ci-checks im Job Selbsttests | 4 |
 | Doku, begründet | 4 („Warum eine neue Doku-Datei“) |
@@ -1982,9 +2176,12 @@ Das hier ist beschreibend. Der Umsetzer führt nichts davon aus.
    - **Gegenprobe der Messung:** ffprobe muss im arm64-Job `5b592e56f87ff754d94dadf99f38b4d0fb7d463eb780b50e0ca061d668d0e3f7`
      sein und im x64-Job `90fddf93d25a520bbda09e02f1f53a91f04acd1ef9b79e6dc602dc4dc6951f67` (lokal gemessen, gleiche
      Lock-Integrität). Weicht ein Wert ab, wird nicht nachgetragen; erst die Ursache klären.
-   - Der Sammler druckt den Anfang der Build-Angaben. Der Controller vergleicht ihn mit dem Quellen-Hinweis
-     (evermeet.cx für x64, osxexperts.net für arm64). Widerspricht er, kommt erst eine Korrektur des Hinweises mit
-     Owner-OK.
+   - Der Sammler druckt Größe, SHA-256 und Anfang von LICENSE und README. Der Controller vergleicht die Build-Angaben
+     mit dem Quellen-Hinweis (evermeet.cx für x64, osxexperts.net für arm64). Widerspricht er, kommt erst eine Korrektur
+     des Hinweises mit Owner-OK.
+   - Wahrscheinlich bricht der Sammler in beiden Jobs mit „ffmpeg.LICENSE ist kein GPL-Volltext: …“ ab (Review Focus 3).
+     Dann tragen die Lesestand-Warnungen des Prüfers trotzdem die SHA-256, weil der Prüfer vorher läuft; der Steckbrief
+     geht mit der offenen Owner-Frage aus Task 2 (W1) an den Owner, vor jedem weiteren Schritt.
    - Scheitert ein Job (npm ci, fehlende LICENSE): nicht weiter, Befund an den Owner.
 5. **Lesestand-Commit** mit Owner-OK: Beide JSON-Stücke aus den Warnungen kommen zusammen nach
    `scripts/ci/mac-nachbau-lesestand.json`, als eigener Commit auf main (per PR wie üblich).
