@@ -39,3 +39,5 @@ export type { AnleitungsUmgebung, KapitelZeile, BlasenAnsicht, AnleitungsAnsicht
 export { ANLEITUNG_TEXTE } from './lib/texte';
 export { AnleitungsSchicht, type AnleitungsStimme, type AnleitungsSchichtProps } from './components/AnleitungsSchicht';
 export { useAnleitungsZiel } from './lib/useAnleitungsZiel';
+export { AnleitungsUebersicht, type AnleitungsUebersichtProps } from './components/AnleitungsUebersicht';
+export { useAnsage, type AnsageFehler } from './lib/useAnsage';
