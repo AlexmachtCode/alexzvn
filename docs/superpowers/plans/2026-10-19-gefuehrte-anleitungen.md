@@ -15626,6 +15626,14 @@ Dieser Abschnitt ist keine Aufgabe für ausführende Agenten.
    die Komponenten aus G1, `packages/ui/src/index.ts` und `texte.ts`, `packages/cookbook/cookbook.json` (Zahl der Rezepte,
    `updatedAt`) und `apps/launcher/package.json` (Version 0.16.0 nach dem iveo-Release, Skripte; Task 18 Step 5 erwartet dann
    `Launcher 0.16.0 → 0.16.0`).
+   **Erledigt am 20.10.2026 (Controller):** Branch auf `main` c638934e10 neu aufgesetzt, Plan-Commit darauf. Eine frische Kopie
+   nimmt den ganzen Plan an: 117 von 117 Operationen, 0 Fehler; `docs/anleitungen.md` am Ende 259 Zeilen. Gegenüber dem
+   Messstand ab878e4b54 bringt `main` die iveo-Restpunkte P1 und P4 (8faec7ee06, 1e4a57bbbb) mit: Der Launcher-Selbsttest hat
+   **3 Fälle mehr** (Basis gemessen 322 statt 319, Endstand gemessen 460 statt 457; die zweite Zeile 38 unverändert), und
+   `apps/launcher/test/selftest.ts` hat **22 Zeilen mehr** (Basis 1424 statt 1402). Jeder Zählstand des Launcher-Selbsttests
+   in diesem Plan liegt darum um 3 höher, jede Zeilenangabe von `selftest.ts` um 22; Rot-Läufe ebenso (ok-Zahl + 3, die
+   Zahl der fehlgeschlagenen gleich). Unverändert gemessen: `@jm/ui` 680 → 816, Verbund 203 / 61 / 64, Typprüfung des
+   Launchers 0 `error TS`.
 3. **Owner-Fragen.** Der Owner beantwortet OFP2 (Kapitel 4 am Slave) vor Task 6, OFP4 („Show offen“ als Produktion) vor Task 8
    und OFP1 (Stimme, Sprecher und Parameter nach
    einer Hörprobe; Vorgabe `de_DE-mls-medium`) spätestens vor Task 11 Step 15; OFP3 (Platz im Kopf) und OFP5 (Stimme in den
