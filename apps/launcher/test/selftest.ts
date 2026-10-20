@@ -23,6 +23,10 @@ import {
 import {
   ANLEITUNG_SCHLUESSEL, EINRICHTUNG, LAUNCHER_ANLEITUNG_TEXTE, STIMME_SCHLUESSEL, ZIEL_KENNUNGEN,
 } from '../src/renderer/src/anleitung/einrichtung.ts';
+import {
+  anleitungsZustand, ENTSCHEIDUNGS_NAMEN, EREIGNIS_NAMEN, kapitelDetails, neueToolEreignisse, produktionLaeuft, ZUSTANDS_NAMEN,
+  type AnleitungsEingang,
+} from '../src/renderer/src/lib/anleitung-zustand.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -1336,15 +1340,9 @@ await (async () => {
 // Der Ablaufkern kommt aus @jm/ui/anleitung (Block A; ohne Laufzeit-Importe und darum hier unter strip-types ladbar, MP1).
 // Die Texte stehen hier ein zweites Mal als Tabelle: Jede Änderung an einem Text der Owner-Freigabe fällt auf (G2).
 {
-  // Namen der Bedingungen (Gliederung 10.3) und das Ereignis, das der Kern nach dem erledigten Neustart selbst merkt (neustart:‹Schritt-ID›).
-  // P8 ersetzt diese Kopie durch die Listen aus lib/anleitung-zustand.ts und hängt das Neustart-Ereignis an die Ereignisliste an.
-  const NAMEN_EINRICHTUNG = {
-    zustaende: ['quelleVerbunden', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen', 'systemOffen',
-      'verbundOffen', 'szenarienOffen', 'editorOffen', 'rolleAus', 'rolleMaster', 'rolleSlave', 'slaveGekoppelt', 'slaveVerbunden',
-      'steuerebeneSicher', 'steuerebeneOffen', 'showGestartet'],
-    ereignisse: ['showGespeichert', 'slaveWarVerbunden', 'steuerebeneAktiviert', 'neustart:k5.neustart'],
-    entscheidungen: ['allein', 'companionVerbunden', 'showVomMaster'],
-  };
+  // Namen der Bedingungen aus dem Zustands-Adapter (P8): Jede Bedingung der Anleitung nennt einen Namen, den der Adapter liefert.
+  // Dazu das Ereignis, das der Kern nach dem erledigten Neustart selbst merkt (neustart:‹Schritt-ID›, Ruling R-Task6-Neustart).
+  const NAMEN_EINRICHTUNG = { zustaende: ZUSTANDS_NAMEN, ereignisse: [...EREIGNIS_NAMEN, 'neustart:k5.neustart'], entscheidungen: ENTSCHEIDUNGS_NAMEN };
   const befunde = pruefeAnleitung(EINRICHTUNG, NAMEN_EINRICHTUNG);
   ck(`P6 7: pruefeAnleitung findet nichts an der Anleitung „Einrichtung“${befunde.length ? ` — ${befunde.join('; ')}` : ''}`,
     befunde.length === 0);
@@ -1752,6 +1750,166 @@ await (async () => {
   const falscherOrt = ZIEL_KENNUNGEN.filter((k) => !funde.some(([x, d]) => x === k && d === ORT[k])).map((k) => `${k} (soll ${ORT[k]})`);
   ck(`P7 7: jede Kennung sitzt in der Komponente des Kennungs-Registers${falscherOrt.length ? ` — ${falscherOrt.join(', ')}` : ''}`,
     Object.keys(ORT).length === 20 && falscherOrt.length === 0);
+}
+
+// --- Geführte Anleitungen P8 (Spec 5, 7, 8; EP5, EP6, EP17, G7): Zustands-Adapter Store → Bedingungen ----------------
+// Kreuzprodukte mit eigener Erwartung je Fall (aus den Fall-Namen, nicht aus dem Adapter): Ein Haken entsteht nur aus einem
+// echten Zustand; Quelle null/'none', Verbund-Stand null, Dateifehler (Rolle unbekannt) und Steuerebene null zählen nie.
+{
+  const eingang = (teil: Partial<AnleitungsEingang>): AnleitungsEingang => ({
+    settings: null, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+    verbundOffen: false, verbund: null, steuerebene: null, recentShows: 0, laufendeTools: 0, showLaunch: false, iveoActive: false,
+    ...teil,
+  });
+  const stand = (rolle: string, dateiFehler: string | null, gekoppelt: boolean, art: string): VerbundStand => ({
+    rolle, rechnerName: 'Regie 1', karten: [], gewaehlteKarte: null, karteFehlt: false, dateiFehler, master: null,
+    slave: { gekoppelt, koppeltGerade: false, masterName: 'Master', festeAdresse: null, client: { art }, gefundeneMaster: [] },
+  }) as VerbundStand;
+  const NAMEN = ['quelleVerbunden', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen', 'systemOffen',
+    'verbundOffen', 'szenarienOffen', 'editorOffen', 'rolleAus', 'rolleMaster', 'rolleSlave', 'slaveGekoppelt', 'slaveVerbunden',
+    'steuerebeneSicher', 'steuerebeneOffen', 'showGestartet'];
+  ck('P8 10.3: Namenslisten nach Gliederung 10.3 (17 Zustände, 3 Ereignisse, 3 Entscheidungen)',
+    ZUSTANDS_NAMEN.join(',') === NAMEN.join(',') && EREIGNIS_NAMEN.join(',') === 'showGespeichert,slaveWarVerbunden,steuerebeneAktiviert'
+    && ENTSCHEIDUNGS_NAMEN.join(',') === 'allein,companionVerbunden,showVomMaster');
+  const vergleiche = (fall: string, ist: Record<string, boolean>, soll: Record<string, boolean>, abw: string[]): void => {
+    for (const n of NAMEN) if (ist[n] !== soll[n]) abw.push(`${fall}: ${n} ist ${String(ist[n])}`);
+  };
+
+  // Kreuz 1: Quelle × Verbund-Stand × gekoppelt × Client × Steuerebene
+  const QUELLEN = [null, 'none', 'proxy', 'github'] as const;
+  const STAENDE = ['null', 'aus', 'master', 'slave', 'aus+dateiFehler', 'master+dateiFehler', 'slave+dateiFehler'] as const;
+  const CLIENTS = ['verbunden', 'sucht', 'fehler'] as const;
+  const STEUER = [null, 'open', 'secure'] as const;
+  let n1 = 0;
+  const abw1: string[] = [];
+  for (const q of QUELLEN) for (const st of STAENDE) for (const gek of [false, true]) for (const art of CLIENTS) for (const se of STEUER) {
+    n1++;
+    const [rolle, fehler] = st.split('+');
+    const e = eingang({
+      settings: q === null ? null : { source: q },
+      verbund: st === 'null' ? null : stand(rolle, fehler ? 'EACCES' : null, gek, art),
+      steuerebene: se,
+    });
+    const soll: Record<string, boolean> = {
+      quelleVerbunden: q === 'proxy' || q === 'github', toolInstalliert: false, reiterWerkzeugkasten: true, reiterShow: false,
+      einstellungenOffen: false, systemOffen: false, verbundOffen: false, szenarienOffen: false, editorOffen: false,
+      rolleAus: st === 'aus', rolleMaster: st === 'master', rolleSlave: st === 'slave', slaveGekoppelt: st === 'slave' && gek,
+      slaveVerbunden: st === 'slave' && gek && art === 'verbunden', steuerebeneSicher: se === 'secure', steuerebeneOffen: se === 'open',
+      showGestartet: false,
+    };
+    vergleiche(`${q}/${st}/${gek ? 'gekoppelt' : 'frei'}/${art}/${se}`, anleitungsZustand(e), soll, abw1);
+  }
+  ck(`P8 G7: Kreuz Quelle × Verbund-Stand × gekoppelt × Client × Steuerebene, eine Voreinstellung zählt nie (${n1} Fälle)${abw1.length
+    ? ` — ${abw1.slice(0, 5).join('; ')}` : ''}`, n1 === 504 && abw1.length === 0);
+
+  // Kreuz 2: Werkzeuge × Reiter × Shows × fünf Dialoge
+  const STATES: Array<[string, Record<string, { status: string }>, boolean]> = [
+    ['keine', {}, false],
+    ['nicht installiert', { 'jm-timer': { status: 'not-installed' } }, false],
+    ['installiert', { 'jm-timer': { status: 'installed' } }, true],
+    ['Update', { 'jm-timer': { status: 'update-available' } }, true],
+    ['gemischt', { 'jm-timer': { status: 'not-installed' }, 'jm-titler': { status: 'update-available' } }, true],
+  ];
+  let n2 = 0;
+  const abw2: string[] = [];
+  for (const [sn, states, inst] of STATES) for (const view of ['catalog', 'jmshow'] as const) for (const recent of [0, 1, 3])
+    for (let maske = 0; maske < 32; maske++) {
+      n2++;
+      const b = (i: number): boolean => (maske & (1 << i)) !== 0;
+      const e = eingang({ states, view, recentShows: recent, settingsOpen: b(0), systemOpen: b(1), scenariosOpen: b(2), showEditorOpen: b(3), verbundOffen: b(4) });
+      const soll: Record<string, boolean> = {
+        quelleVerbunden: false, toolInstalliert: inst, reiterWerkzeugkasten: view === 'catalog', reiterShow: view === 'jmshow',
+        einstellungenOffen: b(0), systemOffen: b(1), szenarienOffen: b(2), editorOffen: b(3), verbundOffen: b(4),
+        rolleAus: false, rolleMaster: false, rolleSlave: false, slaveGekoppelt: false, slaveVerbunden: false, steuerebeneSicher: false,
+        steuerebeneOffen: false, showGestartet: recent > 0,
+      };
+      vergleiche(`${sn}/${view}/${recent}/${maske}`, anleitungsZustand(e), soll, abw2);
+    }
+  ck(`P8 5: Kreuz Werkzeuge × Reiter × Shows × Dialoge, installiert wie die Checkliste (${n2} Fälle)${abw2.length
+    ? ` — ${abw2.slice(0, 5).join('; ')}` : ''}`, n2 === 960 && abw2.length === 0);
+
+  // Frischer Rechner über Adapter und Kern: kein Kapitel erledigt (Review Focus 1).
+  const leer = leererFortschritt('einrichtung');
+  const FRISCH: Array<[string, AnleitungsEingang]> = [
+    ['nichts geladen', eingang({})],
+    ['Voreinstellungen geladen', eingang({ settings: { source: 'none' }, verbund: stand('aus', null, false, 'aus'), steuerebene: 'open',
+      states: { 'jm-timer': { status: 'not-installed' } } })],
+  ];
+  const frischAbw = FRISCH.flatMap(([name, e]) => EINRICHTUNG.kapitel
+    .filter((k) => kapitelZustand(EINRICHTUNG, k.id, anleitungsZustand(e), leer) !== 'offen').map((k) => `${name}: ${k.id}`));
+  ck(`P8 G7: frischer Rechner (nichts geladen bzw. nur Voreinstellungen) → alle sechs Kapitel offen${frischAbw.length
+    ? ` — ${frischAbw.join(', ')}` : ''}`, frischAbw.length === 0);
+
+  // Produktion (Spec 7, EP17, OFP4): Tool läuft, Show startet, iveo-Show offen (auch ohne laufendes Tool: der Main setzt
+  // iveoActive erst mit einer Show ohne iveo zurück) oder am Master folgen Tools anderer Rechner der verteilten Show.
+  const masterStand = (showName: string | null, bezieher: number): VerbundStand => ({
+    rolle: 'master', rechnerName: 'Regie 1', karten: [], gewaehlteKarte: null, karteFehlt: false, dateiFehler: null, slave: null,
+    master: {
+      zustand: 'laeuft', fehlerCode: null, name: 'Master', fpKurz: 'AB12', ausBak: false, speicherFehler: null, rechner: [],
+      kopplung: { offen: false, code: null, gueltigBis: null, rest: 0, ungueltig: false },
+      showImVerbund: { grund: showName === null ? 'keine-show' : null, showName, dateiName: null, verteiltAm: null, groesseKiB: null, bezieher },
+    },
+  }) as VerbundStand;
+  const VERBUENDE: Array<[string, VerbundStand | null, boolean]> = [
+    ['kein Stand', null, false],
+    ['Master ohne Show', masterStand(null, 0), false],
+    ['Master, Show ohne Bezieher', masterStand('Konferenz', 0), false],
+    ['Master, Show mit Bezieher', masterStand('Konferenz', 2), true],
+    ['Slave', stand('slave', null, true, 'verbunden'), false],
+  ];
+  let n3 = 0;
+  const abw3: string[] = [];
+  for (const laufend of [0, 1, 3]) for (const launch of [false, true]) for (const iveo of [false, true]) for (const [vn, v, folgt] of VERBUENDE) {
+    n3++;
+    const ist = produktionLaeuft(eingang({ laufendeTools: laufend, showLaunch: launch, iveoActive: iveo, verbund: v }));
+    if (ist !== (laufend > 0 || launch || iveo || folgt)) abw3.push(`${laufend}/${launch}/${iveo}/${vn}`);
+  }
+  ck(`P8 7: Produktion = Tool läuft, Show startet, iveo-Show offen (auch ohne laufendes Tool) oder am Master folgen Tools der verteilten Show (${n3} Fälle)${abw3.length
+    ? ` — ${abw3.join(', ')}` : ''}`, n3 === 60 && abw3.length === 0);
+
+  // Detailzeilen L9, L10 (nur mit Daten)
+  const D = LAUNCHER_ANLEITUNG_TEXTE.detail;
+  const DETAILS: Array<[string, AnleitungsEingang, string]> = [
+    ['nichts geladen', eingang({}), '{}'],
+    ['Quelle none', eingang({ settings: { source: 'none' } }), '{}'],
+    ['Proxy', eingang({ settings: { source: 'proxy' } }), '{"k1":"Aktiv: Firmen-Proxy."}'],
+    ['GitHub', eingang({ settings: { source: 'github' } }), '{"k1":"Aktiv: GitHub."}'],
+    ['nur nicht installiert', eingang({ states: { 'jm-timer': { status: 'not-installed' } } }), '{}'],
+    ['ein Tool', eingang({ states: { 'jm-timer': { status: 'installed' } } }), '{"k2":"1 Tool installiert, weitere jederzeit im Werkzeugkasten."}'],
+    ['zwei Tools mit Update', eingang({ settings: { source: 'proxy' }, states: { 'jm-timer': { status: 'installed' },
+      'jm-titler': { status: 'update-available' }, 'jm-rundown': { status: 'not-installed' } } }),
+    '{"k1":"Aktiv: Firmen-Proxy.","k2":"2 Tools installiert, weitere jederzeit im Werkzeugkasten."}'],
+  ];
+  const detAbw = DETAILS.filter(([, e, soll]) => JSON.stringify(kapitelDetails(e, D)) !== soll)
+    .map(([name, e]) => `${name}: ${JSON.stringify(kapitelDetails(e, D))}`);
+  ck(`P8 9.3: Detailzeilen L9, L10 nur mit Daten, Einzahl und Mehrzahl (${DETAILS.length} Fälle)${detAbw.length ? ` — ${detAbw.join('; ')}` : ''}`,
+    detAbw.length === 0);
+
+  // Ereignisse genau beim Übergang (EP5): „Slave war verbunden“ und „Steuerebene aktiviert“ (offen → sicher in dieser Sitzung;
+  // eine schon beim ersten Lesen sichere oder vorher nicht geladene Steuerebene zählt nicht, Kapitel 5 verlangt dann keinen Neustart)
+  const W = '2026-10-19T10:00:00.000Z';
+  const UEBERGANG: Array<[string, Record<string, boolean> | null, Record<string, boolean>, Record<string, string>, string]> = [
+    ['erster Blick, verbunden', null, { slaveVerbunden: true }, {}, 'slaveWarVerbunden'],
+    ['Übergang nicht → verbunden', { slaveVerbunden: false }, { slaveVerbunden: true }, {}, 'slaveWarVerbunden'],
+    ['bleibt verbunden', { slaveVerbunden: true }, { slaveVerbunden: true }, {}, ''],
+    ['schon gemerkt', null, { slaveVerbunden: true }, { slaveWarVerbunden: W }, ''],
+    ['nicht verbunden', { slaveVerbunden: false }, { slaveVerbunden: false }, {}, ''],
+    ['Verbindung weg', { slaveVerbunden: true }, { slaveVerbunden: false }, {}, ''],
+    ['Steuerebene offen → sicher', { steuerebeneOffen: true }, { steuerebeneSicher: true }, {}, 'steuerebeneAktiviert'],
+    ['Steuerebene beim ersten Blick sicher', null, { steuerebeneSicher: true }, {}, ''],
+    ['Steuerebene nicht geladen → sicher', { steuerebeneOffen: false, steuerebeneSicher: false }, { steuerebeneSicher: true }, {}, ''],
+    ['Steuerebene bleibt sicher (Erneuern)', { steuerebeneSicher: true }, { steuerebeneSicher: true }, {}, ''],
+    ['Steuerebene offen → sicher, schon gemerkt', { steuerebeneOffen: true }, { steuerebeneSicher: true }, { steuerebeneAktiviert: W }, ''],
+    ['beides zugleich', { steuerebeneOffen: true }, { slaveVerbunden: true, steuerebeneSicher: true }, {}, 'slaveWarVerbunden,steuerebeneAktiviert'],
+  ];
+  const uebAbw = UEBERGANG.filter(([, v, j, g, soll]) => neueToolEreignisse(v, j, g).join(',') !== soll).map(([name]) => name);
+  ck(`P8 5: Ereignisse genau beim Übergang und nur, wenn noch nicht gemerkt (slaveWarVerbunden, steuerebeneAktiviert; ${UEBERGANG.length} Fälle)${uebAbw.length
+    ? ` — ${uebAbw.join('; ')}` : ''}`, uebAbw.length === 0);
+
+  const quelleAdapter = quelleLf('../src/renderer/src/lib/anleitung-zustand.ts');
+  const importe = quelleAdapter.split('\n').filter((zeile) => /^import\b/.test(zeile));
+  ck(`P8 G3/G5: lib/anleitung-zustand.ts lädt nur Typen und liest nichts selbst (${importe.length} Import-Zeile, kein window, kein localStorage)`,
+    importe.length >= 1 && importe.every((zeile) => zeile.startsWith('import type ')) && !/\bwindow\b|localStorage/.test(quelleAdapter));
 }
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
