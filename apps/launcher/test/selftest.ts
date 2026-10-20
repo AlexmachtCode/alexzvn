@@ -16,6 +16,13 @@ import type { AnhangOrdnerStand, OrdnerProblem, SideEventOrdnerStand } from '../
 import {
   compareVersions, keinPaketText, proxyAntwortAuswerten, proxyFehlerText, waehleRelease, type ProxyAntwortLike, type ReleaseEintrag,
 } from '../src/main/release-wahl.ts';
+import {
+  anleitungSchritt, beimStart, geltendeSchritte, kapitelZustand, leererFortschritt, pruefeAnleitung, sprechTexte, ZIEL_MUSTER,
+  type AnleitungsFortschritt, type AnleitungsSchritt, type Bedingung,
+} from '@jm/ui/anleitung';
+import {
+  ANLEITUNG_SCHLUESSEL, EINRICHTUNG, LAUNCHER_ANLEITUNG_TEXTE, STIMME_SCHLUESSEL, ZIEL_KENNUNGEN,
+} from '../src/renderer/src/anleitung/einrichtung.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -1323,6 +1330,368 @@ await (async () => {
     && installer.includes('`Release-Abfrage fehlgeschlagen: ${(e as Error).message}`')
     && installer.includes('`Update-Abfrage fehlgeschlagen: ${(e as Error).message}`')
     && installer.includes("'Keine Release-Quelle konfiguriert — Token in den Einstellungen hinterlegen.'"));
+}
+
+// --- Geführte Anleitungen P6 (Spec 4, 5, 7; Plan 9.1, 9.3, EP5, EP6, EP22): die Anleitungs-Datei „Einrichtung“ ---------
+// Der Ablaufkern kommt aus @jm/ui/anleitung (Block A; ohne Laufzeit-Importe und darum hier unter strip-types ladbar, MP1).
+// Die Texte stehen hier ein zweites Mal als Tabelle: Jede Änderung an einem Text der Owner-Freigabe fällt auf (G2).
+{
+  // Namen der Bedingungen (Gliederung 10.3). P8 ersetzt diese Kopie durch die Listen aus lib/anleitung-zustand.ts.
+  const NAMEN_EINRICHTUNG = {
+    zustaende: ['quelleVerbunden', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen', 'systemOffen',
+      'verbundOffen', 'szenarienOffen', 'editorOffen', 'rolleAus', 'rolleMaster', 'rolleSlave', 'slaveGekoppelt', 'slaveVerbunden',
+      'steuerebeneSicher', 'steuerebeneOffen', 'showGestartet'],
+    ereignisse: ['showGespeichert', 'slaveWarVerbunden', 'steuerebeneAktiviert'],
+    entscheidungen: ['allein', 'companionVerbunden', 'showVomMaster'],
+  };
+  const befunde = pruefeAnleitung(EINRICHTUNG, NAMEN_EINRICHTUNG);
+  ck(`P6 7: pruefeAnleitung findet nichts an der Anleitung „Einrichtung“${befunde.length ? ` — ${befunde.join('; ')}` : ''}`,
+    befunde.length === 0);
+  ck('P6 5: sechs Kapitel k1–k6 in dieser Reihenfolge, jedes mit „Brauche ich nicht“ (EP22)',
+    EINRICHTUNG.id === 'einrichtung' && EINRICHTUNG.kapitel.map((k) => k.id).join(',') === 'k1,k2,k3,k4,k5,k6'
+    && EINRICHTUNG.kapitel.every((k) => k.brauchtNicht === true));
+
+  // A1–A48 wörtlich: [Nr., wo, Text]; wo = feste Blase, Kapitel:Feld oder Schritt-ID.
+  const A: Array<[string, string, string]> = [
+    ['A1', 'einleitung', 'Willkommen bei der JM Production Suite. Ich führe dich in sechs Schritten durch die Einrichtung. Du kannst jederzeit pausieren und später weitermachen.'],
+    ['A2', 'rueckfrage', 'Willst du die Anleitung wirklich überspringen? Du findest sie jederzeit oben unter „Erste Schritte“.'],
+    ['A3', 'abschluss', 'Das war die Einrichtung. Alle Schritte findest du jederzeit unter „Erste Schritte“, offene kannst du dort fortsetzen.'],
+    ['A4', 'k1:titel', 'Anmelden'],
+    ['A5', 'k1:kurz', 'Proxy-Schlüssel oder GitHub-Zugang hinterlegen, damit Tools installiert und aktualisiert werden können.'],
+    ['A6', 'k1:erledigt', 'Dieser Rechner ist schon mit der Release-Quelle verbunden. Du kannst gleich weitermachen.'],
+    ['A7', 'k1.einstellungen', 'Damit der Launcher Tools laden kann, braucht er eine Verbindung zur Release-Quelle. Öffne dazu die Einstellungen.'],
+    ['A8', 'k1.zugang', 'Trage hier den Proxy-Schlüssel oder deinen GitHub-Zugang ein und klicke auf „Speichern“. Ohne Internet geht das nicht; dann überspringe diesen Schritt.'],
+    ['A9', 'k2:titel', 'Tools installieren'],
+    ['A10', 'k2:kurz', 'Im Werkzeugkasten die Tools für deine Produktion auswählen und installieren.'],
+    ['A11', 'k2:erledigt', 'Auf diesem Rechner ist schon mindestens ein Tool installiert.'],
+    ['A12', 'k2.reiter', 'Alle Tools der Suite findest du im Werkzeugkasten. Öffne den Reiter „Werkzeugkasten“.'],
+    ['A13', 'k2.katalog', 'Das ist der Katalog. Mit den Kategorien und der Suche findest du schnell das passende Tool.'],
+    ['A14', 'k2.installieren', 'Wähle ein Tool für deine Produktion und klicke auf „Installieren“. Ohne Internet geht das nicht; dann überspringe diesen Schritt.'],
+    ['A15', 'k3:titel', 'Rolle im Verbund wählen und koppeln'],
+    ['A16', 'k3:kurz', 'Festlegen, ob dieser Rechner allein arbeitet, Master ist oder sich mit einem Master verbindet.'],
+    ['A17', 'k3:erledigt', 'Die Rolle dieses Rechners im Verbund ist schon eingerichtet.'],
+    ['A18', 'k3.verbund', 'Arbeiten mehrere Rechner zusammen, ist einer der Master und verteilt die Show. Die anderen verbinden sich mit ihm.'],
+    ['A19', 'k3.allein', 'Arbeitest du allein an diesem Rechner? Dann brauchst du keinen Verbund.'],
+    ['A20', 'k3.oeffnen', 'Öffne den Verbund mit einem Klick auf die Verbund-Anzeige oben.'],
+    ['A21', 'k3.rolle', 'Wähle „Master“ für den Rechner, der die Show verteilt, oder „Mit Master verbinden“ für alle anderen.'],
+    ['A22', 'k3.master', 'Mit „Rechner koppeln“ zeigt der Master einen Code. Gib ihn am anderen Rechner unter „Mit Master verbinden“ ein. Ohne zweiten Rechner machst du das später.'],
+    ['A23', 'k3.slave', 'Wähle deinen Master in der Liste oder trage seine Adresse ein. Gib dann den Code ein, den der Master unter „Rechner koppeln“ zeigt, und klicke auf „Koppeln“. Ohne Master im Netz geht das nicht; dann überspringe diesen Schritt.'],
+    ['A24', 'k4:titel', 'Erste Show anlegen und an ein iveo-Event binden'],
+    ['A25', 'k4:kurz', 'Wähle, was du produzierst (Konferenz, Battle, Bühne, Podcast), und speichere die passende Show.'],
+    ['A26', 'k4:erledigt', 'Die erste Show hast du an diesem Rechner schon gespeichert oder vom Master bekommen.'],
+    ['A27', 'k4.reiter', 'Shows legst du im Reiter „JM Show“ an. Öffne ihn.'],
+    ['A28', 'k4.slave', 'An diesem Rechner kommt die Show vom Master; iveo und Tokens bleiben dort. Die Anleitung kann das hier nicht selbst sehen: Zeigen deine Tools die Show des Masters?'],
+    ['A29', 'k4.vorlage', 'Am schnellsten geht es mit einer Vorlage. Klicke bei „Aus Vorlage starten“ auf „Vorlage wählen“.'],
+    ['A30', 'k4.szenario', 'Wähle, was du produzierst, und klicke auf „Los“. Der Show-Editor übernimmt die passenden Tools.'],
+    ['A31', 'k4.name', 'Gib der Show einen Namen, an dem du sie wiedererkennst.'],
+    ['A32', 'k4.iveo', 'Arbeitest du mit einem iveo-Event, bindest du es hier mit Token und Event an. Ohne iveo klickst du einfach auf „Weiter“.'],
+    ['A33', 'k4.speichern', 'Speichere die Show. Das startet noch keine Tools; das kommt im letzten Schritt.'],
+    ['A34', 'k5:titel', 'Fernsteuerung für Companion einrichten'],
+    ['A35', 'k5:kurz', 'Sehen, ob sich die Tools im Netz finden, und Companion anbinden; am Einzelplatz mit der sicheren Steuerebene.'],
+    ['A36', 'k5:erledigt', 'Du hast schon bestätigt, dass Companion mit diesem Rechner verbunden ist.'],
+    ['A37', 'k5.system', 'Mit Companion steuerst du die Tools zum Beispiel per Stream Deck. Öffne dazu den System-Zustand. Ohne Companion überspringe diesen Schritt.'],
+    ['A38', 'k5.sicher', 'Am Einzelplatz empfehle ich die sichere Steuerebene. Klicke auf „Sichere Steuerebene aktivieren“; bleibst du beim offenen Modus, klicke auf „Weiter“.'],
+    ['A39', 'k5.neustart', 'Die sichere Steuerebene wirkt erst nach einem Neustart. Beende laufende Tools und den Launcher und starte den Launcher neu. Danach geht es hier weiter.'],
+    ['A40', 'k5.companion', 'Trag Token und Fingerprint in Companion ein oder scanne den QR-Code. Token und QR-Code zeigt die Karte nur direkt nach dem Aktivieren oder Erneuern. Fehlt das Token hier und hat Companion es noch nicht, erzeugt „Erneuern“ ein neues; das braucht wieder einen Neustart.'],
+    ['A41', 'k5.verbund', 'Im Verbund trägt die sichere Steuerebene über mehrere Rechner noch nicht: Ein Rechner im sicheren Modus findet die offenen nicht. Companion verbindest du im Verbund darum im offenen Modus.'],
+    ['A42', 'k5.bestaetigen', 'Verbinde Companion mit diesem Rechner. Klappt die Verbindung, bestätige es hier. Ohne Companion überspringe diesen Schritt.'],
+    ['A43', 'k6:titel', 'Tools aus der Show starten'],
+    ['A44', 'k6:kurz', 'Die Show öffnen: Der Launcher startet die Tools, die darin stehen.'],
+    ['A45', 'k6:erledigt', 'Du hast schon Tools aus einer Show gestartet.'],
+    ['A46', 'k6.master', 'Achtung: Am Master verteilt das Öffnen einer Show sie an den ganzen Verbund. Am Timer der anderen Rechner beginnt der Countdown dann neu.'],
+    ['A47', 'k6.oeffnen', 'Öffne jetzt deine Show mit „Show öffnen“. Der Launcher startet die Tools, die darin stehen; den Klick machst du selbst.'],
+    ['A48', 'wiederfinden', 'Übersprungenes findest du jederzeit oben unter „Erste Schritte“.'],
+  ];
+  const schritte: AnleitungsSchritt[] = [EINRICHTUNG.einleitung, EINRICHTUNG.rueckfrage, EINRICHTUNG.abschluss,
+    ...EINRICHTUNG.kapitel.flatMap((k) => k.schritte)];
+  const textVon = (wo: string): string | undefined => {
+    if (wo === 'wiederfinden') return EINRICHTUNG.wiederfinden;
+    const [kid, feld] = wo.split(':');
+    const k = EINRICHTUNG.kapitel.find((x) => x.id === kid);
+    if (k && (feld === 'titel' || feld === 'kurz' || feld === 'erledigt')) return k[feld];
+    return schritte.find((s) => s.id === wo)?.text;
+  };
+  const aAbw = A.filter(([, wo, soll]) => textVon(wo) !== soll).map(([nr]) => nr);
+  ck(`P6 9.1: A1–A48 wörtlich (${A.length} Texte)${aAbw.length ? ` — abweichend: ${aAbw.join(', ')}` : ''}`,
+    A.length === 48 && aAbw.length === 0);
+
+  // Aufbau je Schritt nach 9.1 (Art, Ziel, „Ziel fehlt“, Eingriff, Hinweis Überspringen, gilt nur, wenn, erledigt, wenn, Optionen).
+  const z = (n: string): Bedingung => ({ zustand: n });
+  const ev = (n: string): Bedingung => ({ ereignis: n });
+  const en = (n: string): Bedingung => ({ entscheidung: n });
+  const alle = (...b: Bedingung[]): Bedingung => ({ alle: b });
+  const eine = (...b: Bedingung[]): Bedingung => ({ eineVon: b });
+  const nicht = (b: Bedingung): Bedingung => ({ nicht: b });
+  const VERBUND = eine(z('rolleMaster'), z('rolleSlave'));
+  const EINZEL = nicht(VERBUND);
+  const NICHT_SLAVE = nicht(z('rolleSlave'));
+  const SICHER = z('steuerebeneSicher');
+  const EDITOR = 'Der Show-Editor ist nicht offen. Klicke bei „Aus Vorlage starten“ auf „Vorlage wählen“.';
+  const KOPF = 'Ich sehe den Knopf oben rechts gerade nicht. Zieh das Fenster breiter.';
+  const REITER = 'Ich sehe die Reiter oben links gerade nicht. Zieh das Fenster größer.';
+  type Soll = {
+    id: string; art: string; ziel?: string; zielFehlt?: string; eingriff?: true; hinweis?: true;
+    gilt?: Bedingung; erledigt?: Bedingung; optionen?: Array<[string, string | null]>;
+  };
+  const SOLL: Soll[] = [
+    { id: 'einleitung', art: 'erklaeren' },
+    { id: 'rueckfrage', art: 'erklaeren', ziel: 'kopf.erste-schritte', zielFehlt: KOPF },
+    { id: 'abschluss', art: 'erklaeren', ziel: 'kopf.erste-schritte', zielFehlt: KOPF },
+    { id: 'k1.einstellungen', art: 'handeln', ziel: 'kopf.einstellungen', zielFehlt: KOPF, erledigt: z('einstellungenOffen') },
+    { id: 'k1.zugang', art: 'handeln', ziel: 'einstellungen.zugang', zielFehlt: 'Öffne zuerst oben die Einstellungen.', hinweis: true,
+      erledigt: z('quelleVerbunden') },
+    { id: 'k2.reiter', art: 'handeln', ziel: 'reiter.werkzeugkasten', zielFehlt: REITER, erledigt: z('reiterWerkzeugkasten') },
+    { id: 'k2.katalog', art: 'erklaeren', ziel: 'werkzeugkasten.kategorien', zielFehlt: 'Öffne zuerst den Reiter „Werkzeugkasten“.' },
+    { id: 'k2.installieren', art: 'handeln', ziel: 'werkzeugkasten.installieren',
+      zielFehlt: 'Ich sehe gerade kein Tool zum Installieren. Stelle den Filter über dem Katalog auf „Alle“.', hinweis: true,
+      erledigt: z('toolInstalliert') },
+    { id: 'k3.verbund', art: 'erklaeren', ziel: 'kopf.verbund',
+      zielFehlt: 'Die Verbund-Anzeige ist gerade nicht zu sehen. Du findest den Verbund auch in den Einstellungen.' },
+    { id: 'k3.allein', art: 'entscheiden', optionen: [['Ich arbeite allein an diesem Rechner', 'allein'], ['Verbund einrichten', null]] },
+    { id: 'k3.oeffnen', art: 'handeln', ziel: 'kopf.verbund', zielFehlt: 'Öffne die Einstellungen und klicke dort auf „Verbund öffnen“.',
+      erledigt: z('verbundOffen') },
+    { id: 'k3.rolle', art: 'handeln', ziel: 'verbund.rollen',
+      zielFehlt: 'Öffne zuerst den Verbund. Ist er offen, lädt er noch oder sagt dort, warum die Rollen fehlen.', eingriff: true,
+      erledigt: VERBUND },
+    { id: 'k3.master', art: 'erklaeren', ziel: 'verbund.koppeln-master',
+      zielFehlt: 'Öffne zuerst den Verbund. Ist er offen, läuft der Master noch nicht: Warte kurz oder lies dort unter „Master“, was ihn aufhält.',
+      hinweis: true, gilt: z('rolleMaster') },
+    { id: 'k3.slave', art: 'handeln', ziel: 'verbund.code',
+      zielFehlt: 'Öffne zuerst den Verbund. Ist er offen, ist dieser Rechner schon gekoppelt; ob er den Master erreicht, steht dort unter „Master“.',
+      eingriff: true, hinweis: true, gilt: z('rolleSlave'), erledigt: alle(z('slaveGekoppelt'), ev('slaveWarVerbunden')) },
+    { id: 'k4.reiter', art: 'handeln', ziel: 'reiter.show', zielFehlt: REITER, gilt: NICHT_SLAVE, erledigt: z('reiterShow') },
+    { id: 'k4.slave', art: 'entscheiden', gilt: z('rolleSlave'), optionen: [['Die Show ist da', 'showVomMaster']] },
+    { id: 'k4.vorlage', art: 'handeln', ziel: 'show.vorlage', zielFehlt: 'Öffne zuerst den Reiter „JM Show“.', gilt: NICHT_SLAVE,
+      erledigt: z('szenarienOffen') },
+    { id: 'k4.szenario', art: 'handeln', ziel: 'szenario.auswahl', zielFehlt: 'Klicke zuerst bei „Aus Vorlage starten“ auf „Vorlage wählen“.',
+      gilt: NICHT_SLAVE, erledigt: z('editorOffen') },
+    { id: 'k4.name', art: 'erklaeren', ziel: 'editor.name', zielFehlt: EDITOR, gilt: NICHT_SLAVE },
+    { id: 'k4.iveo', art: 'erklaeren', ziel: 'editor.iveo', zielFehlt: EDITOR, gilt: NICHT_SLAVE },
+    { id: 'k4.speichern', art: 'handeln', ziel: 'editor.speichern', zielFehlt: EDITOR, gilt: NICHT_SLAVE, erledigt: ev('showGespeichert') },
+    { id: 'k5.system', art: 'handeln', ziel: 'kopf.system', zielFehlt: KOPF, hinweis: true, gilt: EINZEL, erledigt: z('systemOffen') },
+    { id: 'k5.sicher', art: 'erklaeren', ziel: 'system.sicher', zielFehlt: 'Öffne zuerst den System-Zustand.', eingriff: true,
+      gilt: alle(EINZEL, nicht(SICHER)) },
+    { id: 'k5.companion', art: 'erklaeren', ziel: 'system.steuerebene', zielFehlt: 'Öffne den System-Zustand.', gilt: alle(EINZEL, SICHER) },
+    { id: 'k5.neustart', art: 'neustart', eingriff: true, gilt: alle(EINZEL, SICHER, ev('steuerebeneAktiviert')) },
+    { id: 'k5.verbund', art: 'erklaeren', gilt: VERBUND },
+    { id: 'k5.bestaetigen', art: 'entscheiden', hinweis: true, optionen: [['Companion ist verbunden', 'companionVerbunden']] },
+    { id: 'k6.master', art: 'erklaeren', gilt: z('rolleMaster') },
+    { id: 'k6.oeffnen', art: 'handeln', ziel: 'kopf.show-oeffnen', zielFehlt: KOPF, eingriff: true, erledigt: z('showGestartet') },
+  ];
+  const formIst = (s: AnleitungsSchritt): string => JSON.stringify({
+    id: s.id, art: s.art, ziel: s.ziel ?? null, zielFehlt: s.zielFehlt ?? null, eingriff: s.eingriff === true,
+    hinweis: s.ueberspringenHinweis === true, gilt: s.giltWenn ?? null, erledigt: s.erledigtWenn ?? null,
+    optionen: (s.optionen ?? []).map((o) => [o.knopf, o.entscheidung ?? null]),
+  });
+  const formSoll = (s: Soll): string => JSON.stringify({
+    id: s.id, art: s.art, ziel: s.ziel ?? null, zielFehlt: s.zielFehlt ?? null, eingriff: s.eingriff === true,
+    hinweis: s.hinweis === true, gilt: s.gilt ?? null, erledigt: s.erledigt ?? null, optionen: s.optionen ?? [],
+  });
+  const aufbauAbw = SOLL.filter((s, i) => schritte[i] === undefined || formSoll(s) !== formIst(schritte[i])).map((s) => s.id);
+  ck(`P6 9.1: Aufbau je Schritt nach 9.1 (${SOLL.length} Schritte)${aufbauAbw.length || schritte.length !== SOLL.length
+    ? ` — abweichend: ${aufbauAbw.join(', ')} (ist ${schritte.length} Schritte)` : ''}`,
+    schritte.length === SOLL.length && aufbauAbw.length === 0);
+  const KAPITEL_SOLL: Record<string, Bedingung> = {
+    k1: z('quelleVerbunden'),
+    k2: z('toolInstalliert'),
+    k3: eine(z('rolleMaster'), alle(z('slaveGekoppelt'), ev('slaveWarVerbunden')), alle(z('rolleAus'), en('allein'))),
+    k4: eine(alle(NICHT_SLAVE, ev('showGespeichert')), alle(z('rolleSlave'), en('showVomMaster'))),
+    k5: en('companionVerbunden'),
+    k6: z('showGestartet'),
+  };
+  const kapAbw = EINRICHTUNG.kapitel.filter((k) => JSON.stringify(k.erledigtWenn) !== JSON.stringify(KAPITEL_SOLL[k.id])).map((k) => k.id);
+  ck(`P6 9.1: „erledigt, wenn“ je Kapitel nach 9.1${kapAbw.length ? ` — abweichend: ${kapAbw.join(', ')}` : ''}`, kapAbw.length === 0);
+
+  // Kapitel je nach Rolle (Spec 5; EP6: Rolle unbekannt = Einzelplatz-Texte).
+  const leer = leererFortschritt('einrichtung');
+  const ROLLEN: Array<[string, Record<string, boolean>]> = [
+    ['aus', { rolleAus: true }], ['master', { rolleMaster: true }], ['slave', { rolleSlave: true }], ['unbekannt', {}],
+  ];
+  const EINZELPLATZ_SCHRITTE = 'k1:einstellungen,zugang|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle'
+    + '|k4:reiter,vorlage,szenario,name,iveo,speichern|k5:system,sicher,bestaetigen|k6:oeffnen';
+  const GELTEND: Record<string, string> = {
+    aus: EINZELPLATZ_SCHRITTE,
+    master: 'k1:einstellungen,zugang|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle,master'
+      + '|k4:reiter,vorlage,szenario,name,iveo,speichern|k5:verbund,bestaetigen|k6:master,oeffnen',
+    slave: 'k1:einstellungen,zugang|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle,slave'
+      + '|k4:slave|k5:verbund,bestaetigen|k6:oeffnen',
+    unbekannt: EINZELPLATZ_SCHRITTE,
+  };
+  const geltend = (zst: Record<string, boolean>): string => EINRICHTUNG.kapitel
+    .map((k) => `${k.id}:${geltendeSchritte(EINRICHTUNG, k.id, zst, leer).map((s) => s.id.slice(k.id.length + 1)).join(',')}`).join('|');
+  const rollenAbw = ROLLEN.filter(([r, zst]) => geltend(zst) !== GELTEND[r]).map(([r, zst]) => `${r}: ${geltend(zst)}`);
+  ck(`P6 5: geltende Schritte je Rolle nach 9.1 (aus, Master, Slave, unbekannt wie Einzelplatz)${rollenAbw.length
+    ? ` — ${rollenAbw.join(' / ')}` : ''}`, rollenAbw.length === 0);
+  let faelle = 0;
+  const ohneSchritt: string[] = [];
+  for (const [r, rz] of ROLLEN) for (const gekoppelt of [false, true]) for (const sicher of [false, true]) {
+    faelle++;
+    const zst = { ...rz, slaveGekoppelt: gekoppelt, slaveVerbunden: gekoppelt, steuerebeneSicher: sicher };
+    for (const k of EINRICHTUNG.kapitel) {
+      if (geltendeSchritte(EINRICHTUNG, k.id, zst, leer).length === 0) ohneSchritt.push(`${r}/${gekoppelt ? 'gekoppelt' : 'frei'}/${sicher ? 'sicher' : 'offen'}: ${k.id}`);
+    }
+  }
+  ck(`P6 5: Rollen-Kreuz Rolle × gekoppelt × Steuerebene: jedes Kapitel hat mindestens einen Schritt (${faelle} Fälle)${ohneSchritt.length
+    ? ` — ohne Schritt: ${ohneSchritt.slice(0, 5).join(', ')}` : ''}`, faelle === 16 && ohneSchritt.length === 0);
+
+  // Haken je Kapitel (EP5, G7): echte Zustände, gemerkte Ereignisse, ausdrückliche Entscheidungen; eine Voreinstellung zählt nie.
+  const ZEIT = '2026-10-19T10:00:00.000Z';
+  const mit = (ereignisse: string[], entscheidungen: string[]) => ({
+    ...leer,
+    ereignisse: Object.fromEntries(ereignisse.map((n) => [n, ZEIT])),
+    entscheidungen: Object.fromEntries(entscheidungen.map((n) => [n, ZEIT])),
+  });
+  const ERLEDIGT: Array<[string, string, Record<string, boolean>, string[], string[], boolean]> = [
+    ['k1 frisch', 'k1', {}, [], [], false],
+    ['k1 Quelle verbunden', 'k1', { quelleVerbunden: true }, [], [], true],
+    ['k2 frisch', 'k2', {}, [], [], false],
+    ['k2 ein Tool installiert', 'k2', { toolInstalliert: true }, [], [], true],
+    ['k3 Rolle aus ohne Entscheidung (Voreinstellung)', 'k3', { rolleAus: true }, [], [], false],
+    ['k3 Rolle aus und allein', 'k3', { rolleAus: true }, [], ['allein'], true],
+    ['k3 allein bei unbekannter Rolle', 'k3', {}, [], ['allein'], false],
+    ['k3 allein am Slave', 'k3', { rolleSlave: true }, [], ['allein'], false],
+    ['k3 Master', 'k3', { rolleMaster: true }, [], [], true],
+    ['k3 Slave gekoppelt, nie verbunden', 'k3', { rolleSlave: true, slaveGekoppelt: true }, [], [], false],
+    ['k3 Slave gekoppelt, war verbunden', 'k3', { rolleSlave: true, slaveGekoppelt: true }, ['slaveWarVerbunden'], [], true],
+    ['k3 Slave entkoppelt, war verbunden', 'k3', { rolleSlave: true }, ['slaveWarVerbunden'], [], false],
+    ['k4 Einzelplatz frisch', 'k4', { rolleAus: true }, [], [], false],
+    ['k4 Einzelplatz Show gespeichert', 'k4', { rolleAus: true }, ['showGespeichert'], [], true],
+    ['k4 Rolle unbekannt Show gespeichert', 'k4', {}, ['showGespeichert'], [], true],
+    ['k4 Slave Show gespeichert', 'k4', { rolleSlave: true }, ['showGespeichert'], [], false],
+    ['k4 Slave Show vom Master bestätigt', 'k4', { rolleSlave: true }, [], ['showVomMaster'], true],
+    ['k4 Bestätigung ohne Slave', 'k4', { rolleAus: true }, [], ['showVomMaster'], false],
+    ['k5 Einzelplatz offen', 'k5', { rolleAus: true, steuerebeneOffen: true }, [], [], false],
+    ['k5 Einzelplatz sicher, eben aktiviert, nicht bestätigt', 'k5', { rolleAus: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'], [], false],
+    ['k5 Einzelplatz sicher nach dem Neustart, nicht bestätigt', 'k5', { rolleAus: true, steuerebeneSicher: true },
+      ['steuerebeneAktiviert', 'neustart:k5.neustart'], [], false],
+    ['k5 Master sicher', 'k5', { rolleMaster: true, steuerebeneSicher: true }, [], [], false],
+    ['k5 Rolle unbekannt sicher', 'k5', { steuerebeneSicher: true }, [], [], false],
+    ['k5 Einzelplatz offen, Companion bestätigt', 'k5', { rolleAus: true, steuerebeneOffen: true }, [], ['companionVerbunden'], true],
+    ['k5 Einzelplatz sicher, Companion bestätigt', 'k5', { rolleAus: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'],
+      ['companionVerbunden'], true],
+    ['k5 Verbund Companion bestätigt', 'k5', { rolleMaster: true }, [], ['companionVerbunden'], true],
+    ['k6 frisch', 'k6', {}, [], [], false],
+    ['k6 Show gestartet', 'k6', { showGestartet: true }, [], [], true],
+  ];
+  const erlAbw = ERLEDIGT.filter(([, k, zst, evs, ens, soll]) => (kapitelZustand(EINRICHTUNG, k, zst, mit(evs, ens)) === 'erledigt') !== soll)
+    .map(([name]) => name);
+  ck(`P6 5: Haken je Kapitel nach EP5, eine Voreinstellung zählt nie (${ERLEDIGT.length} Fälle)${erlAbw.length
+    ? ` — falsch: ${erlAbw.join('; ')}` : ''}`, erlAbw.length === 0);
+
+  // Kapitel 5 je Rolle und Steuerebene (Spec 5, EP5): am Einzelplatz empfohlen, nach dem Aktivieren Token und QR vor dem
+  // Neustart, der Neustart nur nach einem Wechsel offen → sicher (Ereignis steuerebeneAktiviert), an jeder Rolle zuletzt die
+  // Bestätigung „Companion ist verbunden“.
+  const K5: Array<[string, Record<string, boolean>, string[], string]> = [
+    ['Einzelplatz, Steuerebene nicht geladen', { rolleAus: true }, [], 'system,sicher,bestaetigen'],
+    ['Einzelplatz offen', { rolleAus: true, steuerebeneOffen: true }, [], 'system,sicher,bestaetigen'],
+    ['Einzelplatz eben aktiviert', { rolleAus: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'], 'system,companion,neustart,bestaetigen'],
+    ['Einzelplatz schon vorher sicher', { rolleAus: true, steuerebeneSicher: true }, [], 'system,companion,bestaetigen'],
+    ['Rolle unbekannt eben aktiviert', { steuerebeneSicher: true }, ['steuerebeneAktiviert'], 'system,companion,neustart,bestaetigen'],
+    ['Master sicher, eben aktiviert', { rolleMaster: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'], 'verbund,bestaetigen'],
+    ['Slave offen', { rolleSlave: true, steuerebeneOffen: true }, [], 'verbund,bestaetigen'],
+  ];
+  const k5Folge = (zst: Record<string, boolean>, evs: string[]): string =>
+    geltendeSchritte(EINRICHTUNG, 'k5', zst, mit(evs, [])).map((s) => s.id.slice(3)).join(',');
+  const k5Abw = K5.filter(([, zst, evs, soll]) => k5Folge(zst, evs) !== soll).map(([name, zst, evs]) => `${name}: ${k5Folge(zst, evs)}`);
+  ck(`P6 5: Kapitel 5 je Rolle und Steuerebene: Token vor dem Neustart, Neustart nur nach dem Aktivieren, Bestätigung an jeder Rolle (${K5.length} Fälle)${k5Abw.length
+    ? ` — ${k5Abw.join('; ')}` : ''}`, k5Abw.length === 0);
+
+  // Hauptlauf an den Übergängen mit dem echten Kern (Spec 5, Gliederung 11 Regeln 4, 8, 11, EP7): Nach der Rollenwahl folgt am
+  // Master die Kopplung („Kopplung erklärt“), am Slave das Koppeln. In Kapitel 5 kommen Token und QR vor dem Neustart (die
+  // Karte zeigt das Token nur einmal), nach dem Neustart von selbst die Bestätigung; ohne sichere Steuerebene führt „Weiter“ hin.
+  const lauf = (kapitel: string, schritt: string): AnleitungsFortschritt => ({
+    ...leer, status: 'laeuft', position: { ort: 'kapitel', kapitel, schritt, nurZeigen: false, warErfuellt: false },
+  });
+  const ortVon = (f: AnleitungsFortschritt): string => (f.position === null ? 'kein Ort'
+    : f.position.ort === 'kapitel' ? (f.position.schritt ?? `${f.position.kapitel}:erledigt`) : f.position.ort);
+  const EINZEL_SICHER = { rolleAus: true, systemOffen: true, steuerebeneSicher: true };
+  const f3 = anleitungSchritt(EINRICHTUNG, lauf('k5', 'k5.sicher'), { art: 'toolEreignis', name: 'steuerebeneAktiviert' }, EINZEL_SICHER, ZEIT);
+  const f4 = anleitungSchritt(EINRICHTUNG, f3, { art: 'weiter' }, EINZEL_SICHER, ZEIT);
+  const f5 = beimStart(EINRICHTUNG, { fortschritt: f4, zustand: 'ok' }, { bestehenderRechner: false }, ZEIT);
+  const f6 = anleitungSchritt(EINRICHTUNG, f5.fortschritt, { art: 'option', index: 0 }, EINZEL_SICHER, ZEIT);
+  const HAUPTLAUF: Array<[string, string, string]> = [
+    ['Master: nach der Rollenwahl die Kopplung', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k3', 'k3.rolle'), { art: 'zustand' },
+      { verbundOffen: true, rolleMaster: true }, ZEIT)), 'k3.master'],
+    ['Slave: nach der Rollenwahl das Koppeln', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k3', 'k3.rolle'), { art: 'zustand' },
+      { verbundOffen: true, rolleSlave: true }, ZEIT)), 'k3.slave'],
+    ['Einzelplatz: nach dem Aktivieren Token und QR', ortVon(f3), 'k5.companion'],
+    ['Einzelplatz: danach der verlangte Neustart', `${ortVon(f4)} ${f4.neustart?.schritt ?? '-'}`, 'k5.neustart k5.neustart'],
+    ['nach dem Neustart: von selbst die Bestätigung', `${ortVon(f5.fortschritt)} ${f5.oeffnen}`, 'k5.bestaetigen anleitung'],
+    ['Bestätigung: Kapitel 5 erledigt, weiter mit Kapitel 6', ortVon(f6), 'k6.oeffnen'],
+    ['Einzelplatz offen: „Weiter“ führt zur Bestätigung', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k5', 'k5.sicher'), { art: 'weiter' },
+      { rolleAus: true, systemOffen: true, steuerebeneOffen: true }, ZEIT)), 'k5.bestaetigen'],
+    ['schon vorher sicher: kein Neustart', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k5', 'k5.companion'), { art: 'weiter' },
+      EINZEL_SICHER, ZEIT)), 'k5.bestaetigen'],
+  ];
+  const laufAbw = HAUPTLAUF.filter(([, ist, soll]) => ist !== soll).map(([name, ist]) => `${name}: ${ist}`);
+  ck(`P6 5: Hauptlauf an den Übergängen mit dem echten Kern (${HAUPTLAUF.length} Fälle)${laufAbw.length ? ` — ${laufAbw.join('; ')}` : ''}`,
+    laufAbw.length === 0);
+
+  // Gesprochene Texte (Spec 6): 35 mit den IDs aus 9.1; noch kein eigener Sprechtext (erst nach der Hörprobe).
+  const SPRECH_IDS = ['einleitung', 'rueckfrage', 'abschluss', 'k1.erledigt', 'k1.einstellungen', 'k1.zugang', 'k2.erledigt', 'k2.reiter',
+    'k2.katalog', 'k2.installieren', 'k3.erledigt', 'k3.verbund', 'k3.allein', 'k3.oeffnen', 'k3.rolle', 'k3.master', 'k3.slave',
+    'k4.erledigt', 'k4.reiter', 'k4.slave', 'k4.vorlage', 'k4.szenario', 'k4.name', 'k4.iveo', 'k4.speichern', 'k5.erledigt',
+    'k5.system', 'k5.sicher', 'k5.neustart', 'k5.companion', 'k5.verbund', 'k5.bestaetigen', 'k6.erledigt', 'k6.master', 'k6.oeffnen'];
+  const sprech = sprechTexte(EINRICHTUNG);
+  const sprechIds = sprech.map((s) => s.id);
+  const sprechFehlt = SPRECH_IDS.filter((id) => !sprechIds.includes(id));
+  const sprechFremd = sprechIds.filter((id) => !SPRECH_IDS.includes(id));
+  ck(`P6 6: 35 gesprochene Texte mit den IDs aus 9.1, jede genau einmal (${sprech.length})${sprechFehlt.length || sprechFremd.length
+    ? ` — fehlt: ${sprechFehlt.join(', ')}; fremd: ${sprechFremd.join(', ')}` : ''}`,
+    sprech.length === 35 && new Set(sprechIds).size === 35 && sprechFehlt.length === 0 && sprechFremd.length === 0);
+  ck('P6 6: gesprochen wird der Text der Sprechblase, kein Schritt hat einen eigenen Sprechtext',
+    schritte.every((s) => s.sprechtext === undefined)
+    && sprech.every((s) => s.text === textVon(s.id.endsWith('.erledigt') ? `${s.id.slice(0, -'.erledigt'.length)}:erledigt` : s.id)));
+
+  // Ziel-Kennungen (EP10): ZIEL_KENNUNGEN sind genau die Ziele der Anleitung.
+  const ziele = [...new Set(schritte.flatMap((s) => (s.ziel ? [s.ziel] : [])))];
+  ck(`P6 7: ZIEL_KENNUNGEN = die 20 Ziele der Anleitung, jede einmal, nach ZIEL_MUSTER (${ZIEL_KENNUNGEN.length})`,
+    ZIEL_KENNUNGEN.length === 20 && new Set(ZIEL_KENNUNGEN).size === 20 && ZIEL_KENNUNGEN.every((k) => ZIEL_MUSTER.test(k))
+    && [...ziele].sort().join(',') === [...ZIEL_KENNUNGEN].sort().join(','));
+
+  // Launcher-Texte L1–L14 wörtlich (9.3).
+  const L = LAUNCHER_ANLEITUNG_TEXTE;
+  const LT: Array<[string, string, string]> = [
+    ['L1', L.optionAllein, 'Ich arbeite allein an diesem Rechner'],
+    ['L2', L.optionVerbund, 'Verbund einrichten'],
+    ['L3', L.optionShowDa, 'Die Show ist da'],
+    ['L4', L.optionCompanion, 'Companion ist verbunden'],
+    ['L5 offen', L.aktion.k1(false), 'Einrichten'],
+    ['L5 fertig', L.aktion.k1(true), 'Ändern'],
+    ['L6 offen', L.aktion.k2(false), 'Auswählen'],
+    ['L6 fertig', L.aktion.k2(true), 'Werkzeugkasten'],
+    ['L7', L.aktion.k3, 'Verbund öffnen'],
+    ['L8 k4', L.aktion.k4, 'Vorlage wählen'],
+    ['L8 k5', L.aktion.k5, 'Prüfen'],
+    ['L9 Proxy', L.detail.k1('proxy'), 'Aktiv: Firmen-Proxy.'],
+    ['L9 GitHub', L.detail.k1('github'), 'Aktiv: GitHub.'],
+    ['L10 eins', L.detail.k2(1), '1 Tool installiert, weitere jederzeit im Werkzeugkasten.'],
+    ['L10 mehrere', L.detail.k2(3), '3 Tools installiert, weitere jederzeit im Werkzeugkasten.'],
+    ['L11 Knopf', L.knopf, 'Erste Schritte'],
+    ['L11 Titel', L.knopfTitel, 'Erste Schritte · geführte Einrichtung'],
+    ['L12', L.neu, 'Neu: geführte Einrichtung'],
+    ['L13 Titel', L.titel, 'Willkommen bei der JM Production Suite'],
+    ['L13 Unterzeile', L.unterzeile, 'In sechs Schritten startklar. Jeden Schritt kannst du dir einzeln zeigen lassen.'],
+    ['L14 Tipp', L.tipp, 'Tipp: Das JM Kochbuch (oben) hat Anleitungen & Best Practices.'],
+    ['L14 Schließen', L.schliessen, 'Schließen'],
+  ];
+  const lAbw = LT.filter(([, ist, soll]) => ist !== soll).map(([nr]) => nr);
+  ck(`P6 9.3: L1–L14 wörtlich (${LT.length} Texte)${lAbw.length ? ` — abweichend: ${lAbw.join(', ')}` : ''}`, lAbw.length === 0);
+  const alleTexte: string[] = LT.map(([, t]) => t);
+  const sammle = (x: unknown): void => {
+    if (typeof x === 'string') alleTexte.push(x);
+    else if (Array.isArray(x)) x.forEach(sammle);
+    else if (x !== null && typeof x === 'object') Object.values(x).forEach(sammle);
+  };
+  sammle(EINRICHTUNG);
+  const mitAscii = alleTexte.filter((t) => t.includes('"'));
+  ck(`P6 G2: kein ASCII-Anführungszeichen in Anleitung und Launcher-Texten (${alleTexte.length} Zeichenketten)${mitAscii.length
+    ? ` — ${mitAscii.join(' | ')}` : ''}`, mitAscii.length === 0);
+  ck('P6 EP4: Schlüssel jmps:anleitung:einrichtung und jmps:anleitungStimme',
+    ANLEITUNG_SCHLUESSEL === 'jmps:anleitung:einrichtung' && STIMME_SCHLUESSEL === 'jmps:anleitungStimme');
+  const importe = quelleLf('../src/renderer/src/anleitung/einrichtung.ts').split('\n').filter((zeile) => /^import\b/.test(zeile));
+  ck(`P6 G5: anleitung/einrichtung.ts lädt nur Typen (${importe.length} Import-Zeile, nur import type)`,
+    importe.length >= 1 && importe.every((zeile) => zeile.startsWith('import type ')));
 }
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
