@@ -5,7 +5,9 @@
 // (R22–R26) ein Fehler von Prüfer oder Sammler beendet den Job, ein Secret nur für gh im Hochlade-Schritt, die
 // Freigabeliste in beiden Jobs, und jede Prüfung im Skript bricht ab. R13 ist eine Positivliste der Befehle im Hochlade-Job.
 // Ohne js-yaml: Der Worktree hat kein node_modules, js-yaml liegt nur transitiv im Lockfile (electron-builder, astro),
-// und der Test soll überall ohne npm ci laufen. Die Regeln lesen diese eine, von uns geschriebene Datei zeilenweise (Kommentarzeilen zählen nicht, CRLF egal).
+// und der Test soll überall ohne npm ci laufen. Die Regeln lesen diese eine, von uns geschriebene Datei zeilenweise
+// (CRLF egal). R1–R26 überspringen Zeilen, die mit # beginnen; YAML-Kommentare sind das nur außerhalb von Block-Werten.
+// R27 liest darum den ganzen Text: In keiner solchen Zeile steht ${{, und in einem run-Block steht gar keine.
 // Jede Regel hat eine Gegenprobe: dieselbe Datei mit einem absichtlichen Fehler muss genau diesen Fehler melden.
 //   node scripts/ci/test/mac-nachbau-workflow.test.mjs
 import { readFileSync } from 'node:fs';
@@ -244,6 +246,16 @@ function pruefeWorkflow(text) {
     || abbrueche(bauRuns, 'ist=$(node -p "require(\'./apps/\' + process.env.APP + \'/package.json\').version")\nif [ "$ist" != "$VERSION" ]; then') !== 1) {
     fehler.push('R26 bau: Runner-Art (Node = Job-Art) und Version im Tag geprüft, sonst Abbruch');
   }
+  // R1–R26 lesen `zeilen` ohne die Zeilen, die mit # beginnen. In einem run- oder anderen Block-Wert ist so eine Zeile
+  // aber Text (mit js-yaml gemessen), und GitHub setzt ${{ }} darin ein, bevor bash ihn liest. In einem mehrzeiligen
+  // Anführungstext ist sie nicht einmal ein bash-Kommentar: Nach dem schließenden " folgt ein Befehl, den R13 nie sähe
+  // (Prüfung Task 3, Runde 2, W1). R27 liest darum den ungefilterten Text: ${{ in keiner solchen Zeile, auch nicht im
+  // YAML-Kommentar, der es nicht braucht; in einem run-Block gar keine solche Zeile (Kommentare stehen über dem Schritt).
+  const roh = text.replace(/\r\n/g, '\n').split('\n');
+  const raute = (z) => /^\s*#/.test(z);
+  if (roh.some((z) => raute(z) && z.includes('${{')) || runs(roh).some((r) => r.split('\n').some(raute))) {
+    fehler.push('R27 Zeilen, die mit # beginnen: nie ${{ }} (in run- und Block-Werten setzt GitHub es ein), in run-Blöcken gar keine');
+  }
   return fehler;
 }
 
@@ -345,6 +357,17 @@ gegenprobe('R26', '            echo "::error::Der Job für $ART läuft mit Node 
 gegenprobe('R26', '            echo "::error::apps/$APP/package.json nennt $ist, das Tag $VERSION."\n            exit 1\n', '            echo "::error::apps/$APP/package.json nennt $ist, das Tag $VERSION."\n',
   'falsche Version im Tag meldet nur');
 gegenprobe('R26', '          ist=$(node -p \'process.arch\')', '          ist="$ART"', 'Runner-Art nicht gemessen, sondern gesetzt');
+// Prüfung Task 3, Runde 2, W1: Zeilen, die mit # beginnen, in run- und Block-Werten (Q26, Q27 und Q29 der Prüfung).
+gegenprobe('R27', '          version="${TAG##*-v}"\n', '          version="${TAG##*-v}"\n          # Tag aus der Eingabe: ${{ inputs.tag }} (geht nur über env ins Skript)\n',
+  'Eingabe in einer bash-Kommentarzeile im Hochlade-Skript (GitHub setzt sie vor bash ein)');
+gegenprobe('R27', '          echo "tag=$TAG" >> "$GITHUB_OUTPUT"\n', '          # gestartet mit ${{ inputs.tag }}\n          echo "tag=$TAG" >> "$GITHUB_OUTPUT"\n',
+  'Eingabe in einer bash-Kommentarzeile im Tag-Schritt');
+gegenprobe('R27', '          if [ "$PROBE" = "true" ]; then', '          # Schlüssel: ${{ secrets.JMPS_PROXY_KEY }}\n          if [ "$PROBE" = "true" ]; then',
+  'Secret in einer bash-Kommentarzeile im Prüfer-Skript des Bau-Jobs');
+gegenprobe('R27', '          PROBE: ${{ inputs.probe }}\n', '          PROBE: ${{ inputs.probe }}\n          NOTIZ: |\n            # ${{ secrets.JMPS_PROXY_KEY }}\n',
+  'Secret in einer #-Zeile eines Block-Werts im env (kein run-Block)');
+gegenprobe('R27', '          if gh release view "$TAG"', '          echo "Pakete:\n          # "; bash pakete/x64/ffmpeg-QUELLEN.txt; echo "\n          "\n          if gh release view "$TAG"',
+  '#-Zeile in einem mehrzeiligen Anführungstext versteckt einen Befehl aus dem Artefakt (ohne ${{ }})');
 
 console.log(failures === 0 ? '\nAlle mac-nachbau-Workflow-Tests bestanden.' : `\n${failures} mac-nachbau-Workflow-Test(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

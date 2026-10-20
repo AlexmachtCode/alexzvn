@@ -93,7 +93,9 @@ Der neue Release-Proxy (Paketwahl nach Mac-Art) ist seit 19.10.2026 deployt.
    F2 (ii) ist in der freigegebenen Form nicht erfüllbar; das ist eine offene Owner-Frage (Task 2, Prüfung Runde 1, W1).
 4. **Ein Tag mit Schadtext oder eine fremde App erreicht ein Skript.** Erwartet: Abbruch vor jedem git-, npm- oder
    gh-Aufruf. Abgedeckt durch R17 (Eingaben nur über env, kein `${{ }}` in run, auch in `run: |-` und Folgezeilen),
-   R21 (Tag-Prüfung mit `[[ =~ ]]` über den ganzen Text, in jedem Job genau einmal und mit Abbruch; grep ließ ein Tag
+   R27 (R17 sieht keine Zeile, die mit `#` beginnt; in einem run- oder Block-Wert ist sie aber Text, in dem GitHub
+   `${{ }}` vor bash einsetzt. Darum steht `${{` in keiner solchen Zeile und in einem run-Block gar keine; Prüfung
+   Task 3, Runde 2, W1), R21 (Tag-Prüfung mit `[[ =~ ]]` über den ganzen Text, in jedem Job genau einmal und mit Abbruch; grep ließ ein Tag
    mit Zeilenumbruch durch), R24 (Freigabeliste in beiden Jobs), R13 (Positivliste der Befehle im Hochlade-Job) und
    durch die Messung mit der gh-Attrappe in Task 3, Step 6, auch mit Zeilenumbruch im Tag. Diese Messung ist nicht im
    Repo, weil sie js-yaml braucht; die Prüfungen, die sie zeigt, hält R25 statisch fest.
@@ -1420,11 +1422,11 @@ git status --short
 
 - [ ] **Step 1: Den Test schreiben** (`scripts/ci/test/mac-nachbau-workflow.test.mjs`, LF)
 
-Die Regeln R1–R26 stehen im Test selbst (`pruefeWorkflow`). Jede hat eingebaute Gegenproben: Die echte Datei wird
+Die Regeln R1–R27 stehen im Test selbst (`pruefeWorkflow`). Jede hat eingebaute Gegenproben: Die echte Datei wird
 an einer Stelle verändert (an zweien, wenn ein Fehler beide braucht), und genau diese Regel muss anschlagen. Findet eine
 Gegenprobe ihre Stelle nicht, ist sie rot („Stelle nicht gefunden“), sie bleibt also nie still grün.
 
-Der Block unten ist bytegleich mit der Datei nach der Prüfung Runde 1. Gegenüber dem ersten Plan-Stand (R1–R17, 20 ok):
+Der Block unten ist bytegleich mit der Datei nach der Prüfung Runde 2. Gegenüber dem ersten Plan-Stand (R1–R17, 20 ok):
 - **Umsetzung (A2–A4):** R17 bekam eine dritte Gegenprobe (Step-Ausgabe direkt im run-Skript). R18: Der Prüfer läuft
   im echten Lauf ohne `--probe` (Lücke E1). R19: kein Secret im Bau (E2). R20: Die Konfiguration aus dem Tag wird nur
   geprüft (E7). R21: Die Tag-Prüfung nutzt `[[ =~ ]]` (A1, siehe Step 3). Der Anker der R13-Gegenprobe heißt seitdem
@@ -1447,6 +1449,20 @@ Der Block unten ist bytegleich mit der Datei nach der Prüfung Runde 1. Gegenüb
   Dazu bricht auch die Prüfung der Konfiguration ab (R20).
 - Die R23-Gegenproben setzen ihre Zeile vor die Leerzeile vor `jobs:`, nicht hinter `ERLAUBTE_APPS: editor`: Diese
   Liste wächst mit Stufe 2, und die Gegenprobe in Task 4, Step 4 ändert sie.
+- **Prüfung Runde 2, W1:** R1–R26 lesen die Zeilen ohne die, die mit `#` beginnen. Außerhalb von Block-Werten sind das
+  YAML-Kommentare, und die braucht der Filter: Ohne ihn melden R7 und R23 die Kommentare des echten Workflows (WG8).
+  In einem run- oder Block-Wert ist so eine Zeile aber Text (js-yaml gemessen), und GitHub setzt `${{ }}` darin ein,
+  bevor bash ihn liest (laut GitHub-Doku zur Skript-Einschleusung; am Runner nicht gemessen). Grün blieben darum
+  `${{ inputs.tag }}` als bash-Kommentar im Hochlade- und im Tag-Skript (Q26, Q27), ein Secret als bash-Kommentar im
+  Prüfer-Skript (Q29) und ein Secret in einer `#`-Zeile eines env-Blockwerts (Qa). Dazu Qb: In einem mehrzeiligen
+  Anführungstext ist eine `#`-Zeile kein bash-Kommentar. `echo "…`, Umbruch, `# "; bash pakete/x64/ffmpeg-QUELLEN.txt;
+  echo "`, Umbruch, `"` führt die Datei aus dem Artefakt aus (mit bash gemessen), und R13 sah die Zeile nie. R27 liest
+  den ungefilterten Text: In keiner Zeile, die mit `#` beginnt, steht `${{` (Teil a, auch nicht in einem
+  YAML-Kommentar, der es nicht braucht), und in einem run-Block steht gar keine solche Zeile (Teil b; Kommentare
+  stehen über dem Schritt, wie heute überall). Gemessen in
+  `…\scratchpad\mac-fassungen\task3-n2\` (`q-proben.mjs`, Ausgaben `q-proben-vorher.txt` und `q-proben-nachher.txt`):
+  vorher Q26, Q27, Q29, Qa und Qb grün, Q28 (dieselbe Zeile wie Q26 ohne `#`) rot über R17; nachher alle sechs rot,
+  die fünf `#`-Fälle nur über R27.
 
 ````js
 // Statischer Test für .github/workflows/mac-nachbau.yml (Mac-Nachbau, Entwurf mac-fassungen Stufe 1): nur Hand-Start,
@@ -1456,7 +1472,9 @@ Der Block unten ist bytegleich mit der Datei nach der Prüfung Runde 1. Gegenüb
 // (R22–R26) ein Fehler von Prüfer oder Sammler beendet den Job, ein Secret nur für gh im Hochlade-Schritt, die
 // Freigabeliste in beiden Jobs, und jede Prüfung im Skript bricht ab. R13 ist eine Positivliste der Befehle im Hochlade-Job.
 // Ohne js-yaml: Der Worktree hat kein node_modules, js-yaml liegt nur transitiv im Lockfile (electron-builder, astro),
-// und der Test soll überall ohne npm ci laufen. Die Regeln lesen diese eine, von uns geschriebene Datei zeilenweise (Kommentarzeilen zählen nicht, CRLF egal).
+// und der Test soll überall ohne npm ci laufen. Die Regeln lesen diese eine, von uns geschriebene Datei zeilenweise
+// (CRLF egal). R1–R26 überspringen Zeilen, die mit # beginnen; YAML-Kommentare sind das nur außerhalb von Block-Werten.
+// R27 liest darum den ganzen Text: In keiner solchen Zeile steht ${{, und in einem run-Block steht gar keine.
 // Jede Regel hat eine Gegenprobe: dieselbe Datei mit einem absichtlichen Fehler muss genau diesen Fehler melden.
 //   node scripts/ci/test/mac-nachbau-workflow.test.mjs
 import { readFileSync } from 'node:fs';
@@ -1695,6 +1713,16 @@ function pruefeWorkflow(text) {
     || abbrueche(bauRuns, 'ist=$(node -p "require(\'./apps/\' + process.env.APP + \'/package.json\').version")\nif [ "$ist" != "$VERSION" ]; then') !== 1) {
     fehler.push('R26 bau: Runner-Art (Node = Job-Art) und Version im Tag geprüft, sonst Abbruch');
   }
+  // R1–R26 lesen `zeilen` ohne die Zeilen, die mit # beginnen. In einem run- oder anderen Block-Wert ist so eine Zeile
+  // aber Text (mit js-yaml gemessen), und GitHub setzt ${{ }} darin ein, bevor bash ihn liest. In einem mehrzeiligen
+  // Anführungstext ist sie nicht einmal ein bash-Kommentar: Nach dem schließenden " folgt ein Befehl, den R13 nie sähe
+  // (Prüfung Task 3, Runde 2, W1). R27 liest darum den ungefilterten Text: ${{ in keiner solchen Zeile, auch nicht im
+  // YAML-Kommentar, der es nicht braucht; in einem run-Block gar keine solche Zeile (Kommentare stehen über dem Schritt).
+  const roh = text.replace(/\r\n/g, '\n').split('\n');
+  const raute = (z) => /^\s*#/.test(z);
+  if (roh.some((z) => raute(z) && z.includes('${{')) || runs(roh).some((r) => r.split('\n').some(raute))) {
+    fehler.push('R27 Zeilen, die mit # beginnen: nie ${{ }} (in run- und Block-Werten setzt GitHub es ein), in run-Blöcken gar keine');
+  }
   return fehler;
 }
 
@@ -1796,6 +1824,17 @@ gegenprobe('R26', '            echo "::error::Der Job für $ART läuft mit Node 
 gegenprobe('R26', '            echo "::error::apps/$APP/package.json nennt $ist, das Tag $VERSION."\n            exit 1\n', '            echo "::error::apps/$APP/package.json nennt $ist, das Tag $VERSION."\n',
   'falsche Version im Tag meldet nur');
 gegenprobe('R26', '          ist=$(node -p \'process.arch\')', '          ist="$ART"', 'Runner-Art nicht gemessen, sondern gesetzt');
+// Prüfung Task 3, Runde 2, W1: Zeilen, die mit # beginnen, in run- und Block-Werten (Q26, Q27 und Q29 der Prüfung).
+gegenprobe('R27', '          version="${TAG##*-v}"\n', '          version="${TAG##*-v}"\n          # Tag aus der Eingabe: ${{ inputs.tag }} (geht nur über env ins Skript)\n',
+  'Eingabe in einer bash-Kommentarzeile im Hochlade-Skript (GitHub setzt sie vor bash ein)');
+gegenprobe('R27', '          echo "tag=$TAG" >> "$GITHUB_OUTPUT"\n', '          # gestartet mit ${{ inputs.tag }}\n          echo "tag=$TAG" >> "$GITHUB_OUTPUT"\n',
+  'Eingabe in einer bash-Kommentarzeile im Tag-Schritt');
+gegenprobe('R27', '          if [ "$PROBE" = "true" ]; then', '          # Schlüssel: ${{ secrets.JMPS_PROXY_KEY }}\n          if [ "$PROBE" = "true" ]; then',
+  'Secret in einer bash-Kommentarzeile im Prüfer-Skript des Bau-Jobs');
+gegenprobe('R27', '          PROBE: ${{ inputs.probe }}\n', '          PROBE: ${{ inputs.probe }}\n          NOTIZ: |\n            # ${{ secrets.JMPS_PROXY_KEY }}\n',
+  'Secret in einer #-Zeile eines Block-Werts im env (kein run-Block)');
+gegenprobe('R27', '          if gh release view "$TAG"', '          echo "Pakete:\n          # "; bash pakete/x64/ffmpeg-QUELLEN.txt; echo "\n          "\n          if gh release view "$TAG"',
+  '#-Zeile in einem mehrzeiligen Anführungstext versteckt einen Befehl aus dem Artefakt (ohne ${{ }})');
 
 console.log(failures === 0 ? '\nAlle mac-nachbau-Workflow-Tests bestanden.' : `\n${failures} mac-nachbau-Workflow-Test(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
@@ -2101,14 +2140,17 @@ jobs:
 - [ ] **Step 4: Grün-Lauf**
 
 Run: `node scripts/ci/test/mac-nachbau-workflow.test.mjs`
-Expected: 60 Zeilen `  ok  …`: W0 2×; R1–R12, R14, R15, R18 und R19 je 1×; R13 5×, R16 4×, R17 5×, R20 2×, R21 3×,
-R22 10×, R23 4×, R24 2×, R25 4×, R26 3×. Letzte Zeile `Alle mac-nachbau-Workflow-Tests bestanden.`, Exit 0.
+Expected: 65 Zeilen `  ok  …`: W0 2×; R1–R12, R14, R15, R18 und R19 je 1×; R13 5×, R16 4×, R17 5×, R20 2×, R21 3×,
+R22 10×, R23 4×, R24 2×, R25 4×, R26 3×, R27 5×. Letzte Zeile `Alle mac-nachbau-Workflow-Tests bestanden.`, Exit 0.
+Rot-Lauf zu R27 (die fünf Gegenproben vor der Regel eingefügt): 60 ok, 5 FAIL (alle `R27 Gegenprobe`, keine „Stelle
+nicht gefunden“), Exit 1.
 
 - [ ] **Step 5: Gegenproben** (Regeln im Test aushebeln bzw. die echte Datei verderben; laufen lassen, zurücknehmen)
 
 Gemessen am 20.10.2026 an einer Kopie im Scratchpad (`…\scratchpad\mac-fassungen\task3-n1\`: `wg.mjs`,
 `wg-proben-bau.mjs`, Ausgabe `wg-ausgabe.txt`); im Worktree setzt man sie mit dem Edit-Werkzeug und nimmt sie genauso
-zurück.
+zurück. Nach der Prüfung Runde 2 neu gemessen: WG5 für R1–R27 sowie WG6–WG8 und K1–K3 in
+`…\scratchpad\mac-fassungen\task3-n2\` (`wg2.mjs`, Ausgabe `wg2-ausgabe.txt`).
 
 | Nr. | Absichtlicher Fehler | Erwartet rot |
 |---|---|---|
@@ -2117,7 +2159,11 @@ zurück.
 | WG2b | im Test R17 ohne den Teil `runs(zeilen).some(…)` | 3: die drei Gegenproben mit `steps.tag.outputs.app` im run-Skript |
 | WG3 | im Workflow, Job `bau`: `contents: read` → `contents: write` | 4: `W0` (2×, „verletzt: R6 bau: Rechte nur contents: read“), `R6 Gegenprobe … (Stelle nicht gefunden)`, `R12 Gegenprobe … (Stelle nicht gefunden)` |
 | WG4 | im Test `runs()` wie im ersten Plan-Stand (nur `\|` und `>` als Blockkopf) | 2: `R17 Gegenprobe: Step-Ausgabe in einem Block run: \|-` und `… in der Folgezeile eines einfachen Werts` |
-| WG5 | im Test jede Regel R1–R26 einzeln aus (`fehler.push('Rn` bzw. `` fehler.push(`Rn `` → `[].push(…`) | je genau ihre eigenen Gegenproben, keine andere: R13 5, R16 4, R17 5, R20 2, R21 3, R22 10, R23 4, R24 2, R25 4, R26 3, alle übrigen 1 |
+| WG5 | im Test jede Regel R1–R27 einzeln aus (`fehler.push('Rn` bzw. `` fehler.push(`Rn `` → `[].push(…`) | je genau ihre eigenen Gegenproben, keine andere: R13 5, R16 4, R17 5, R20 2, R21 3, R22 10, R23 4, R24 2, R25 4, R26 3, R27 5, alle übrigen 1 |
+| WG8 | im Test den Filter `.filter((z) => !/^\s*#/.test(z))` entfernt und R27 aus | 7: `W0` 2× („verletzt: R7 …; R23 …“: die YAML-Kommentare des echten Workflows) und alle fünf `R27 Gegenprobe`. Den Filter allein wegzulassen, reicht also nicht. |
+| K1 | im Workflow ein YAML-Kommentar mit `${{ inputs.tag }}` über einem Schritt | 2: `W0` 2× („verletzt: R27 …“). Gewollt: Teil a unterscheidet YAML-Kommentar und Block-Text nicht. |
+| K2 | im Workflow ein bash-Kommentar ohne `${{` im run-Block (`# Quellen holen` vor `git init`) | 2: `W0` 2× („verletzt: R27 …“). Gewollt: Kommentare stehen über dem Schritt. |
+| K3 | im Workflow ein YAML-Kommentar ohne `${{` über einem Schritt | 0: bleibt grün |
 
 Jeder Teil einer Regel mit mehreren Bedingungen hat eine Gegenprobe, die nur er fängt (Teil im Test auf `false` bzw.
 entfernt, gemessen):
@@ -2138,13 +2184,19 @@ entfernt, gemessen):
 | R24 Bau / Hochladen | `Freigabeliste im Bau entfernt` / `Freigabeliste im Hochlade-Job entfernt` |
 | R25 Mengen / DMG-Name / Beilagen / cmp | je die gleichnamige Gegenprobe |
 | R26 `ist=$(node -p 'process.arch')` / Runner-Art / Version | `Runner-Art nicht gemessen, sondern gesetzt` / `Runner-Art nur als Warnung` / `falsche Version im Tag meldet nur` |
+| R27 Teil a (`${{` in einer Zeile, die mit `#` beginnt; WG6) | `Secret in einer #-Zeile eines Block-Werts im env (kein run-Block)` |
+| R27 Teil b (Zeile, die mit `#` beginnt, im run-Block; WG7) | `#-Zeile in einem mehrzeiligen Anführungstext versteckt einen Befehl aus dem Artefakt (ohne ${{ }})` |
+
+Die drei R27-Gegenproben aus der Prüfung (Q26, Q27, Q29: `${{ }}` als bash-Kommentar im run-Block) fangen beide Teile;
+sie werden erst rot, wenn R27 ganz aus ist (WG5).
 
 Die Gegenproben P1–P20 der Prüfung Runde 1 (`…\pruef-t3\gegenproben.mjs`, an der Kopie wiederholt als
 `…\task3-n1\p-serie.mjs`): P1–P14, P16, P18–P20 rot. P15 (Artefakt mit dem ganzen release-Ordner) und P17
 (Konfigurationsprüfung hinter electron-builder) bleiben grün wie in der Prüfung bewertet: P15 fängt zur Laufzeit die
-Vier-Dateien-Prüfung (R25), P17 hat keine Folge.
+Vier-Dateien-Prüfung (R25), P17 hat keine Folge. Nach Runde 2 mit R27 wiederholt (`…\task3-n2\p-serie.mjs`, Ausgabe
+`p-serie-ausgabe.txt`): dasselbe Ergebnis.
 
-Danach Step 4 noch einmal: 60 ok, Exit 0.
+Danach Step 4 noch einmal: 65 ok, Exit 0.
 
 - [ ] **Step 6: Messung der Skripte mit einer gh-Attrappe** (nicht im Repo, weil js-yaml nur zum Messen erlaubt ist)
 
@@ -2383,7 +2435,7 @@ Expected: In der letzten Ausgabe beginnt jede Zeile mit `i/lf`.
 | SOLL | Task |
 |---|---|
 | nur workflow_dispatch mit tag (Pflicht) und probe (boolean, Vorgabe true) | 3 (R1, R2) |
-| zunächst nur Tags `editor-v<Version>`, Liste erlaubter Apps im Workflow, Eingaben nur über env, oberste Rechte contents: read | 3 (Tag-Schritt, R3, R4, R17, R21, R24) |
+| zunächst nur Tags `editor-v<Version>`, Liste erlaubter Apps im Workflow, Eingaben nur über env, oberste Rechte contents: read | 3 (Tag-Schritt, R3, R4, R17, R21, R24, R27) |
 | Matrix arm64 auf macos-26, x64 auf macos-26-intel, nicht -latest | 3 (R8) |
 | Tag prüfen; Quellen und Prüfer ohne Anmeldedaten; setup-node 20; Versionsprüfung; npm ci; build; prepackage --if-present | 3 (Bau-Schritte 1–8, R26) |
 | electronVersion/npmRebuild nicht anhängen, Konfiguration prüfen und abbrechen, falls sie fehlen | 3 (Schritt „Konfiguration aus dem Tag prüfen“, R10, R20) |
@@ -2399,7 +2451,7 @@ Expected: In der letzten Ausgabe beginnt jede Zeile mit `i/lf`.
 | SHA-256-Lesestand je App, Version und Art, anfangs leer; Abweichung bricht ab; leer: im Probe-Lauf Warnung mit Werten, sonst Abbruch | 1 (N13–N15, N18) |
 | Laufzeitprobe ffmpeg -version, im Intel-Job auch ffprobe; minos drucken, Warnung über macOS 11; nur unter darwin, ohne darwin bricht der echte Lauf ab | 1 (N16, Attrappe; N4, N18) |
 | reine Teile im Selbsttest unter Linux und Windows | 1–3 (alle Tests ohne macOS, CLI-Fälle unter macOS übersprungen) |
-| jeder neue Test mit genannter, gemessener Gegenprobe | 1 (G1–G5), 2 (SG1–SG19, EG1–EG6), 3 (Step 5: WG1–WG5 und je Regelteil; R1–R26 mit 58 eingebauten Gegenproben), 4 (Step 4) |
+| jeder neue Test mit genannter, gemessener Gegenprobe | 1 (G1–G5), 2 (SG1–SG19, EG1–EG6), 3 (Step 5: WG1–WG8 und je Regelteil; R1–R27 mit 63 eingebauten Gegenproben), 4 (Step 4) |
 | optionaler statischer Workflow-Test | 3 |
 | CI-Schritt in ci-checks im Job Selbsttests | 4 |
 | Doku, begründet | 4 („Warum eine neue Doku-Datei“) |
