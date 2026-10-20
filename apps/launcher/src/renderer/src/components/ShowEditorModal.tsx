@@ -447,7 +447,7 @@ export function ShowEditorModal() {
           </Button>
         </div>
 
-        <label className="mt-5 flex flex-col gap-1.5">
+        <label className="mt-5 flex flex-col gap-1.5" data-anleitung="editor.name">
           <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
             Name der Show
           </span>
@@ -461,7 +461,7 @@ export function ShowEditorModal() {
 
         {/* iveo-Event (#11): Ablauf + Metadaten aus der Eventplattform übernehmen.
             Das per-Event-Token bleibt verschlüsselt im Launcher — nie in der Show. */}
-        <div className="mt-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3">
+        <div className="mt-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3" data-anleitung="editor.iveo">
           <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
             iveo-Event (optional)
           </span>
@@ -825,7 +825,7 @@ export function ShowEditorModal() {
             <Button variant="ghost" onClick={cancel} disabled={busy}>
               Abbrechen
             </Button>
-            <Button variant="primary" disabled={!canSave} onClick={() => void onSave()}>
+            <Button variant="primary" disabled={!canSave} onClick={() => void onSave()} data-anleitung="editor.speichern">
               {busy ? 'Speichere…' : editPath ? KNOPF_AKTUALISIEREN : 'Speichern'}
             </Button>
           </div>

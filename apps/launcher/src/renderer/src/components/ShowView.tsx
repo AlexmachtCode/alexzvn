@@ -56,6 +56,8 @@ interface ShowAction {
   variant: ButtonVariant;
   /** Kleine grüne Zahl auf der Icon-Kachel (z. B. laufende Tools). */
   badge?: number;
+  /** Ziel-Kennung der geführten Anleitung (Kennungs-Register in docs/anleitungen.md), immer als Literal (EP10). */
+  anleitung?: string;
 }
 
 /**
@@ -93,6 +95,7 @@ export function ShowView(): React.JSX.Element {
       actionLabel: 'Vorlage wählen',
       onClick: openScenarios,
       variant: 'accent',
+      anleitung: 'show.vorlage',
     },
     {
       key: 'create',
@@ -184,7 +187,7 @@ export function ShowView(): React.JSX.Element {
 
 function ActionCard({ action }: { action: ShowAction }): React.JSX.Element {
   return (
-    <Card variant="major" className="h-full p-6 jm-fade-in">
+    <Card variant="major" className="h-full p-6 jm-fade-in" data-anleitung={action.anleitung}>
       <div className="flex flex-col gap-4">
         <div className="relative grid size-12 place-items-center rounded-[var(--radius-lg)] border border-[var(--primary)]/40 bg-[var(--highlight)] text-[var(--primary)]">
           {action.icon}

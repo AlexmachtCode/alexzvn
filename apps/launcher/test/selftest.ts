@@ -1699,6 +1699,61 @@ await (async () => {
     importe.length >= 1 && importe.every((zeile) => zeile.startsWith('import type ')));
 }
 
+// --- Geführte Anleitungen P7 (Spec 7, 10; EP10): Ziel-Kennungen im Renderer, beidseitig gegen stillen Bruch -------------
+// Jede Kennung der Anleitung steht genau einmal im Renderer (data-anleitung="…" oder Tabellenfeld anleitung: '…'), jede
+// Kennung im Renderer gehört zur Anleitung, und sie sitzt in der Komponente des Kennungs-Registers (docs/anleitungen.md).
+// Fällt eine Kennung beim Umbau weg (UX-Welle 3), wird dieser Block rot statt die Anleitung still ins Leere zu zeigen.
+{
+  const dateien = (readdirSync(new URL('../src/renderer/src/', import.meta.url), { recursive: true }) as string[])
+    .map((d) => d.replace(/\\/g, '/')).filter((d) => d.endsWith('.tsx')).sort();
+  const funde: Array<[string, string]> = [];
+  const roh: string[] = [];
+  for (const d of dateien) {
+    const q = quelleLf(`../src/renderer/src/${d}`);
+    for (const m of q.matchAll(/data-anleitung="([^"]*)"/g)) funde.push([m[1], d]);
+    for (const m of q.matchAll(/\banleitung: '([a-z0-9-]+\.[^']*)'/g)) funde.push([m[1], d]);
+    for (const m of q.matchAll(/data-anleitung=(?!"[^"]*"|\{\w+\.anleitung\})(\S{0,40})/g)) roh.push(`${d}: data-anleitung=${m[1]}`);
+  }
+  const anzahl = (k: string): number => funde.filter(([x]) => x === k).length;
+  const fehlt = ZIEL_KENNUNGEN.filter((k) => anzahl(k) !== 1).map((k) => `${k} (${anzahl(k)}×)`);
+  ck(`P7 7: jede der ${ZIEL_KENNUNGEN.length} Ziel-Kennungen steht genau einmal im Renderer${fehlt.length
+    ? ` — fehlt oder mehrfach: ${fehlt.join(', ')}` : ''}`, ZIEL_KENNUNGEN.length === 20 && fehlt.length === 0);
+  const fremd = funde.filter(([k]) => !ZIEL_KENNUNGEN.includes(k)).map(([k, d]) => `${k} in ${d}`);
+  ck(`P7 7: jede Kennung im Renderer gehört zur Anleitung (${funde.length} gefunden)${fremd.length ? ` — fremd: ${fremd.join(', ')}` : ''}`,
+    fremd.length === 0);
+  ck(`P7 EP10: data-anleitung nur als Literal oder als Tabellenfeld x.anleitung, nie zusammengesetzt${roh.length ? ` — ${roh.join(', ')}` : ''}`,
+    roh.length === 0);
+  ck('P7 EP10: die Tabellenfelder werden gerendert (TabBar tab.anleitung, ShowView action.anleitung)',
+    quelleLf('../src/renderer/src/components/TabBar.tsx').includes('data-anleitung={tab.anleitung}')
+    && quelleLf('../src/renderer/src/components/ShowView.tsx').includes('data-anleitung={action.anleitung}'));
+  // Kennungs-Register (Gliederung 13 P7, docs/anleitungen.md): Kennung → Komponente.
+  const ORT: Record<string, string> = {
+    'kopf.erste-schritte': 'components/Header.tsx',
+    'kopf.einstellungen': 'components/Header.tsx',
+    'kopf.system': 'components/Header.tsx',
+    'kopf.show-oeffnen': 'components/Header.tsx',
+    'kopf.verbund': 'components/VerbundBadge.tsx',
+    'einstellungen.zugang': 'components/SettingsModal.tsx',
+    'reiter.werkzeugkasten': 'components/TabBar.tsx',
+    'reiter.show': 'components/TabBar.tsx',
+    'werkzeugkasten.kategorien': 'components/ToolboxView.tsx',
+    'werkzeugkasten.installieren': 'components/ToolCard.tsx',
+    'verbund.rollen': 'components/VerbundModal.tsx',
+    'verbund.koppeln-master': 'components/VerbundMaster.tsx',
+    'verbund.code': 'components/VerbundSlave.tsx',
+    'show.vorlage': 'components/ShowView.tsx',
+    'szenario.auswahl': 'components/ScenarioPicker.tsx',
+    'editor.name': 'components/ShowEditorModal.tsx',
+    'editor.iveo': 'components/ShowEditorModal.tsx',
+    'editor.speichern': 'components/ShowEditorModal.tsx',
+    'system.steuerebene': 'components/SystemStatusModal.tsx',
+    'system.sicher': 'components/SystemStatusModal.tsx',
+  };
+  const falscherOrt = ZIEL_KENNUNGEN.filter((k) => !funde.some(([x, d]) => x === k && d === ORT[k])).map((k) => `${k} (soll ${ORT[k]})`);
+  ck(`P7 7: jede Kennung sitzt in der Komponente des Kennungs-Registers${falscherOrt.length ? ` — ${falscherOrt.join(', ')}` : ''}`,
+    Object.keys(ORT).length === 20 && falscherOrt.length === 0);
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.

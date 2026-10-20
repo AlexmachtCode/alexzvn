@@ -170,7 +170,7 @@ function Actions({
 }) {
   if (status === 'not-installed') {
     return (
-      <Button size="sm" variant="outline" disabled={busy} onClick={onInstall}>
+      <Button size="sm" variant="outline" disabled={busy} onClick={onInstall} data-anleitung="werkzeugkasten.installieren">
         Installieren
       </Button>
     );

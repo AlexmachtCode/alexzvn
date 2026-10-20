@@ -8,7 +8,13 @@ import { Abschnitt, Bestaetigung, beschriftung, eingabeKlasse, TextFeld, ToolsDi
 export function VerbundSlave({ stand }: { stand: VerbundStand }) {
   return (
     <>
-      {stand.slave!.gekoppelt ? <Gekoppelt stand={stand} /> : <Koppeln stand={stand} />}
+      {stand.slave!.gekoppelt ? (
+        <Gekoppelt stand={stand} />
+      ) : (
+        <div data-anleitung="verbund.code">
+          <Koppeln stand={stand} />
+        </div>
+      )}
       <ToolsDiesesRechners />
     </>
   );

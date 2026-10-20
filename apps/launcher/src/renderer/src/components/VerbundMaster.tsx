@@ -60,7 +60,11 @@ export function VerbundMaster({ stand }: { stand: VerbundStand }) {
         )}
       </Abschnitt>
 
-      {m.zustand === 'laeuft' && <KoppelFenster stand={stand} />}
+      {m.zustand === 'laeuft' && (
+        <div data-anleitung="verbund.koppeln-master">
+          <KoppelFenster stand={stand} />
+        </div>
+      )}
 
       <Abschnitt titel="Gekoppelte Rechner">
         {showZeile && (

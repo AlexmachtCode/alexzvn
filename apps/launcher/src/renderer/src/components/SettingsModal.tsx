@@ -60,7 +60,7 @@ export function SettingsModal() {
           </p>
         )}
 
-        <div className={cn('mt-5 flex flex-col gap-4', fromEnv && 'opacity-50 pointer-events-none')}>
+        <div className={cn('mt-5 flex flex-col gap-4', fromEnv && 'opacity-50 pointer-events-none')} data-anleitung="einstellungen.zugang">
           <Field
             label="GitHub-Token (fine-grained PAT, read-only contents)"
             placeholder={settings?.hasToken ? '•••••••••• (gesetzt)' : 'ghp_… / github_pat_…'}

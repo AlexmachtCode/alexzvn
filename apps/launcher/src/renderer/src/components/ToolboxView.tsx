@@ -94,7 +94,7 @@ export function ToolboxView(): React.JSX.Element {
             </div>
           )}
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex flex-col items-end gap-2" data-anleitung="werkzeugkasten.kategorien">
           <input
             type="search"
             value={query}

@@ -88,6 +88,7 @@ export function Header() {
         <button
           type="button"
           onClick={() => void openShow()}
+          data-anleitung="kopf.show-oeffnen"
           aria-label="Show öffnen"
           title="Show öffnen · Tools koordiniert starten"
           className={cn(
@@ -128,6 +129,7 @@ export function Header() {
         <button
           type="button"
           onClick={openSystem}
+          data-anleitung="kopf.system"
           aria-label="System-Zustand"
           title="System-Zustand · laufende Tools"
           className={cn(
@@ -153,6 +155,7 @@ export function Header() {
         <button
           type="button"
           onClick={openOnboarding}
+          data-anleitung="kopf.erste-schritte"
           aria-label="Erste Schritte"
           title="Erste Schritte · geführter Einstieg"
           className={cn(
@@ -217,6 +220,7 @@ export function Header() {
         <button
           type="button"
           onClick={openSettings}
+          data-anleitung="kopf.einstellungen"
           aria-label="Einstellungen"
           title="Einstellungen"
           className={cn(

@@ -49,7 +49,7 @@ export function ScenarioPicker() {
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2" data-anleitung="szenario.auswahl">
           {SCENARIOS.map((sc) => (
             <ScenarioTile
               key={sc.id}

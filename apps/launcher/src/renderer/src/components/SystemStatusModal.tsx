@@ -329,7 +329,7 @@ function NetworkPlaneCard({
   };
 
   return (
-    <section className="mt-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3">
+    <section className="mt-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3" data-anleitung="system.steuerebene">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span aria-hidden className={cn('size-2.5 shrink-0 rounded-full', dotCls[tone])} />
@@ -359,7 +359,7 @@ function NetworkPlaneCard({
           </span>
         </span>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="primary" onClick={provision} disabled={busy}>
+          <Button variant="primary" onClick={provision} disabled={busy} data-anleitung="system.sicher">
             {secure ? 'Erneuern' : 'Sichere Steuerebene aktivieren'}
           </Button>
           {secure && (
