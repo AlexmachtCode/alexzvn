@@ -91,7 +91,7 @@ try {
   assert(JSON.stringify(machoArten(KOPF.x64)) === '["x64"]', 'N1: dünnes x86_64 (cf fa ed fe 07 00 00 01) → x64');
   assert(JSON.stringify(machoArten(KOPF.arm64)) === '["arm64"]', 'N1: dünnes arm64 (cf fa ed fe 0c 00 00 01) → arm64');
   assert(JSON.stringify(machoArten(fat(20, CPU.x64, CPU.arm64))) === '["x64","arm64"]', 'N1: Fat/Universal (cafebabe) → beide Arten');
-  assert(JSON.stringify(machoArten(fat(32, CPU.arm64))) === '["arm64"]', 'N1: Fat mit 64-Bit-Einträgen (cafebabf) → arm64');
+  assert(JSON.stringify(machoArten(fat(32, CPU.x64, CPU.arm64))) === '["x64","arm64"]', 'N1: Fat mit 64-Bit-Einträgen (cafebabf, 32 Bytes je Eintrag) → beide Arten');
   assert(JSON.stringify(machoArten(Buffer.from('cffaedfe0c000000', 'hex'))) === '["unbekannt:0x0000000c"]', 'N1: unbekannter CPU-Typ wird benannt, nicht geraten');
   // 4096 Bytes wie kopfVon im Prüfer: Nur so trägt der Schutz n > 30, sonst fiele die Klasse schon an der Länge durch.
   assert(machoArten(Buffer.concat([Buffer.from('cafebabe00000034', 'hex'), Buffer.alloc(4088)])) === null, 'N1: Java-Klasse (cafebabe, Fassung 52, 4096 Bytes) → kein Mach-O');
@@ -107,15 +107,19 @@ try {
   'N3: Pfade in der App (release/mac-arm64 bzw. release/mac, bin/mac aus extraResources)');
 
   console.log('pruefe-mac-nachbau — Ablauf am nachgebauten release-Ordner:');
+  // Ohne macOS (Linux, Windows) ist nur der Probe-Lauf in Ordnung; der echte Lauf braucht Laufzeitprobe und minos (F3).
   {
-    const r = pruefeMacNachbau(optionen('arm64', bau('arm64')), null);
-    assert(r.ok && r.fehler.length === 0 && r.warnungen.length === 0, 'N4: sauberer arm64-Bau mit passendem Lesestand → in Ordnung');
+    const r = pruefeMacNachbau(optionen('arm64', bau('arm64'), { probe: true }), null);
+    assert(r.ok && r.fehler.length === 0 && r.warnungen.length === 0, 'N4: sauberer arm64-Bau mit passendem Lesestand → in Ordnung (Probe)');
     assert(r.hinweise.some((h) => h.startsWith('Ausnahme: ffprobe ist ein Intel-Programm (x86_64)')), 'N4: ffprobe x86_64 im arm64-Paket → gedruckte Ausnahme, kein Abbruch');
-    assert(r.hinweise.includes('macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.'), 'N4: ohne macOS → Hinweis, dass Laufzeitprobe und minos fehlen');
+    assert(r.hinweise.includes('macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.'), 'N4: ohne macOS im Probe-Lauf → Hinweis, dass Laufzeitprobe und minos fehlen');
+    const s = pruefeMacNachbau(optionen('arm64', bau('arm64')), null);
+    assert(!s.ok && JSON.stringify(s.fehler) === JSON.stringify(['Laufzeitprobe und minos fehlen (nur unter macOS); ohne sie wird nicht hochgeladen.']),
+      'N4 Gegenprobe: echter Lauf ohne macOS → rot, nie still in Ordnung');
   }
   {
-    const r = pruefeMacNachbau(optionen('x64', bau('x64')), null);
-    assert(r.ok && !r.hinweise.some((h) => h.startsWith('Ausnahme:')), 'N5: sauberer x64-Bau → in Ordnung, ohne Ausnahme');
+    const r = pruefeMacNachbau(optionen('x64', bau('x64'), { probe: true }), null);
+    assert(r.ok && !r.hinweise.some((h) => h.startsWith('Ausnahme:')), 'N5: sauberer x64-Bau → in Ordnung, ohne Ausnahme (Probe)');
   }
   {
     const b = bau('arm64');
@@ -123,6 +127,13 @@ try {
     const r = pruefeMacNachbau(optionen('arm64', b), null);
     assert(!r.ok && r.fehler.includes('genau ein DMG „JM Editor-0.5.0-mac-arm64.dmg“ erwartet, gefunden 2: JM Editor-0.5.0-mac-arm64.dmg, JM Editor-0.5.0-mac-x64.dmg.'),
       'N6 Gegenprobe: zwei DMGs (ohne Zielnamen baute --arm64 beide) → rot');
+  }
+  {
+    const b = bau('arm64');
+    rmSync(join(b.d, 'JM Editor-0.5.0-mac-arm64.dmg'));
+    const r = pruefeMacNachbau(optionen('arm64', b), null);
+    assert(!r.ok && r.fehler.includes('genau ein DMG „JM Editor-0.5.0-mac-arm64.dmg“ erwartet, gefunden 0.'),
+      'N6 Gegenprobe: kein DMG (nur die App gebaut) → rot');
   }
   {
     const b = bau('x64');
@@ -145,7 +156,7 @@ try {
     assert(!s.ok && s.fehler.includes('ffmpeg hat arm64, erwartet x64 (die Mac-Art der App).'), 'N9 Gegenprobe: arm64-ffmpeg im Intel-Paket (Juni-Fehler) → rot');
   }
   {
-    const r = pruefeMacNachbau(optionen('arm64', bau('arm64', { ffmpegKopf: fat(20, CPU.x64, CPU.arm64) })), null);
+    const r = pruefeMacNachbau(optionen('arm64', bau('arm64', { ffmpegKopf: fat(20, CPU.x64, CPU.arm64) }), { probe: true }), null);
     assert(r.ok, 'N10: universelles ffmpeg (x64+arm64) enthält die Art → in Ordnung');
   }
   {
@@ -153,6 +164,10 @@ try {
     assert(!r.ok && r.fehler.includes('ffprobe hat arm64, erwartet x64.'), 'N11 Gegenprobe: arm64-ffprobe im Intel-Paket → rot (dort gibt es keine Ausnahme)');
     const s = pruefeMacNachbau(optionen('arm64', bau('arm64', { ffprobeKopf: Buffer.from('#!/bin/sh\nexit 0\n') })), null);
     assert(!s.ok && s.fehler.some((f) => f.startsWith('ffprobe ist kein Mach-O-Programm:')), 'N11 Gegenprobe: ffprobe kein Mach-O → rot');
+    // CPU-Typ 0x12 (PowerPC): weder arm64 noch die Ausnahme x86_64.
+    const t = pruefeMacNachbau(optionen('arm64', bau('arm64', { ffprobeKopf: Buffer.from('cffaedfe12000000000000000200000000000000', 'hex') })), null);
+    assert(!t.ok && t.fehler.includes('ffprobe hat unbekannt:0x00000012, erwartet arm64 oder die festgelegte Ausnahme x64.'),
+      'N11 Gegenprobe: ffprobe fremder Art im arm64-Job → rot (die Ausnahme gilt nur für genau x86_64)');
   }
   {
     const b = bau('arm64');
@@ -166,13 +181,15 @@ try {
   }
 
   console.log('pruefe-mac-nachbau — Lesestand (SHA-256 von ffmpeg und ffprobe):');
-  {
+  // ffprobe im arm64-Job: Das x86_64-Programm wird dort nicht gestartet; der SHA-256 ist seine einzige Sicherung.
+  for (const name of ['ffmpeg', 'ffprobe']) {
     const b = bau('arm64');
-    b.lesestand.editor['0.5.0'].arm64.ffmpeg = '0'.repeat(64);
+    b.lesestand.editor['0.5.0'].arm64[name] = '0'.repeat(64);
     for (const probe of [false, true]) {
       const r = pruefeMacNachbau(optionen('arm64', b, { probe }), null);
-      assert(!r.ok && r.fehler.includes(`SHA-256 von ffmpeg weicht vom Lesestand ab: gemessen ${sha(b.inhalt.ffmpeg)}, Lesestand ${'0'.repeat(64)}.`),
-        `N13 Gegenprobe: ffmpeg weicht vom Lesestand ab → rot (probe=${probe})`);
+      assert(!r.ok && r.fehler.includes(`SHA-256 von ${name} weicht vom Lesestand ab: gemessen ${sha(b.inhalt[name])}, Lesestand ${'0'.repeat(64)}.`)
+        && r.fehler.filter((f) => f.startsWith('SHA-256 von')).length === 1,
+      `N13 Gegenprobe: ${name} weicht vom Lesestand ab → rot (probe=${probe})`);
     }
   }
   {
@@ -244,9 +261,12 @@ try {
     const args = (art, b, lesestand) => ['--app', 'editor', '--version', '0.5.0', '--art', art, '--release', b.d, '--lesestand', lesestand];
     {
       const b = bau('arm64');
-      const k = lauf(...args('arm64', b, stand(b)));
-      assert(k.status === 0 && k.stdout.includes('pruefe-mac-nachbau: in Ordnung (editor 0.5.0 arm64).')
-        && k.stdout.includes('pruefe-mac-nachbau: macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.'), 'N18: sauber → Exit 0, Hinweise auf stdout');
+      const k = lauf(...args('arm64', b, stand(b)), '--probe');
+      assert(k.status === 0 && k.stdout.includes('pruefe-mac-nachbau: in Ordnung (editor 0.5.0 arm64, Probe).')
+        && k.stdout.includes('pruefe-mac-nachbau: macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.'), 'N18: sauber mit --probe → Exit 0, Hinweise auf stdout');
+      const echt = lauf(...args('arm64', b, stand(b)));
+      assert(echt.status === 1 && echt.stderr.includes('pruefe-mac-nachbau: Laufzeitprobe und minos fehlen (nur unter macOS); ohne sie wird nicht hochgeladen.'),
+        'N18 Gegenprobe: sauber, aber ohne --probe und ohne macOS → Exit 1');
     }
     {
       const b = bau('arm64');
@@ -263,7 +283,8 @@ try {
       const probe = lauf(...args('x64', b, leer), '--probe');
       const echt = lauf(...args('x64', b, leer));
       assert(probe.status === 0 && probe.stdout.includes('::warning::pruefe-mac-nachbau: Lesestand für editor 0.5.0 x64 ist leer.')
-        && probe.stdout.includes('pruefe-mac-nachbau: in Ordnung (editor 0.5.0 x64, Probe).') && echt.status === 1,
+        && probe.stdout.includes('pruefe-mac-nachbau: in Ordnung (editor 0.5.0 x64, Probe).') && echt.status === 1
+        && echt.stderr.includes('pruefe-mac-nachbau: Lesestand für editor 0.5.0 x64 ist leer; ohne Lesestand wird nicht hochgeladen.'),
       'N18: leerer Lesestand → mit --probe Exit 0 und ::warning::, ohne --probe Exit 1');
       const kaputt = lauf(...args('x64', b, join(b.d, 'gibt-es-nicht.json')));
       assert(kaputt.status === 1 && kaputt.stderr.includes('pruefe-mac-nachbau: Lesestand „'), 'N18 Gegenprobe: Lesestand unlesbar → Exit 1');
@@ -291,7 +312,8 @@ try {
         const ohne = spawnSync(process.execPath, [join(link, 'pruefe-mac-nachbau.mjs')], { encoding: 'utf8' });
         const b = bau('arm64');
         datei(join(b.d, 'JM Editor-0.5.0-mac-x64.dmg'), 'dmg');
-        const schlecht = spawnSync(process.execPath, [join(link, 'pruefe-mac-nachbau.mjs'), ...args('arm64', b, stand(b))], { encoding: 'utf8' });
+        // --probe, damit Exit 1 nur von den zwei DMGs kommt (ohne macOS endete der echte Lauf ohnehin mit 1).
+        const schlecht = spawnSync(process.execPath, [join(link, 'pruefe-mac-nachbau.mjs'), ...args('arm64', b, stand(b)), '--probe'], { encoding: 'utf8' });
         assert(ohne.status === 2 && schlecht.status === 1, 'N18: Aufruf über einen Ordner-Link → prüft (Exit 2 ohne Argumente, 1 bei zwei DMGs), nie still Exit 0');
       } finally {
         unlinkSync(link);

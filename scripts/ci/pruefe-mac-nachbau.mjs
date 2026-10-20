@@ -9,6 +9,7 @@
 // (ffprobe-static 3.1.0 hat kein arm64-Programm); SHA-256 von ffmpeg und ffprobe gegen den Lesestand (Abweichung =
 // Abbruch; leer = mit --probe Warnung samt Messwerten, sonst Abbruch). Unter macOS dazu: ffmpeg -version (im Intel-Job
 // auch ffprobe -version) muss mit 0 enden; minos von App-Programm und ffmpeg wird gedruckt, über macOS 11 = Warnung.
+// Ohne macOS entfallen Laufzeitprobe und minos: mit --probe nur ein Hinweis, sonst Abbruch.
 // Exit 0: in Ordnung (Hinweise auf stdout, Warnungen als ::warning::). Exit 1: jede Abweichung als Zeile auf stderr.
 // Exit 2: Aufruf falsch. Nur node:-Module: Der Workflow holt diese Datei aus seinem eigenen Commit (werkzeug/).
 import { spawnSync } from 'node:child_process';
@@ -99,7 +100,8 @@ const liste = (namen) => `${namen.length}${namen.length ? `: ${namen.join(', ')}
 
 /**
  * Prüft den release-Ordner eines Bau-Jobs. `macos` ist { starte(pfad, args) → { status, error?, stdout, stderr },
- * otool(pfad, otoolArt) → string } oder null (nicht unter macOS: Laufzeitprobe und minos entfallen, mit Hinweis).
+ * otool(pfad, otoolArt) → string } oder null (nicht unter macOS: Laufzeitprobe und minos entfallen; mit probe ein
+ * Hinweis, sonst ein Fehler).
  */
 export function pruefeMacNachbau({ release, app, version, art, lesestand, probe }, macos) {
   const fehler = [];
@@ -170,7 +172,9 @@ export function pruefeMacNachbau({ release, app, version, art, lesestand, probe 
   }
 
   if (!macos) {
-    hinweise.push('macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.');
+    // Fail closed: Nach F3 ist die Laufzeitprobe die Bedingung fürs Hochladen ohne Abnahme auf einem echten Mac.
+    if (probe) hinweise.push('macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.');
+    else fehler.push('Laufzeitprobe und minos fehlen (nur unter macOS); ohne sie wird nicht hochgeladen.');
     return ergebnis();
   }
   const starte = (name, pfad) => {

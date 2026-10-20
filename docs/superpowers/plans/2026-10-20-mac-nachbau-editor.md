@@ -143,6 +143,8 @@ verlangt auch der Auftrag.
   - `erwarteterDmgName(app, version, art): string` und `appPfade(release, app, art): { programm, ffmpeg, ffprobe }`.
   - `pruefeMacNachbau({ release, app, version, art, lesestand, probe }, macos): { ok, fehler: string[], warnungen: string[], hinweise: string[], gemessen: { ffmpeg?, ffprobe? } }`.
     `macos` ist `{ starte(pfad, args) → { status, error?, stdout, stderr }, otool(pfad, otoolArt) → string }` oder `null`.
+    Bei `null` entfallen Laufzeitprobe und minos: mit `probe` nur ein Hinweis, sonst ein Fehler (fail closed; nach F3
+    ist die Laufzeitprobe die Bedingung fürs Hochladen).
   - Kommandozeile: `node scripts/ci/pruefe-mac-nachbau.mjs --app <app> --version <x.y.z> --art arm64|x64 --release <Ordner> --lesestand <json> [--probe]`.
     Exit 0 heißt in Ordnung, 1 heißt Abweichung (stderr), 2 heißt falscher Aufruf. Warnungen gehen als
     `::warning::pruefe-mac-nachbau: …` auf stdout, damit sie in der Lauf-Übersicht stehen. Die echten macOS-Werkzeuge
@@ -244,9 +246,10 @@ try {
   assert(JSON.stringify(machoArten(KOPF.x64)) === '["x64"]', 'N1: dünnes x86_64 (cf fa ed fe 07 00 00 01) → x64');
   assert(JSON.stringify(machoArten(KOPF.arm64)) === '["arm64"]', 'N1: dünnes arm64 (cf fa ed fe 0c 00 00 01) → arm64');
   assert(JSON.stringify(machoArten(fat(20, CPU.x64, CPU.arm64))) === '["x64","arm64"]', 'N1: Fat/Universal (cafebabe) → beide Arten');
-  assert(JSON.stringify(machoArten(fat(32, CPU.arm64))) === '["arm64"]', 'N1: Fat mit 64-Bit-Einträgen (cafebabf) → arm64');
+  assert(JSON.stringify(machoArten(fat(32, CPU.x64, CPU.arm64))) === '["x64","arm64"]', 'N1: Fat mit 64-Bit-Einträgen (cafebabf, 32 Bytes je Eintrag) → beide Arten');
   assert(JSON.stringify(machoArten(Buffer.from('cffaedfe0c000000', 'hex'))) === '["unbekannt:0x0000000c"]', 'N1: unbekannter CPU-Typ wird benannt, nicht geraten');
-  assert(machoArten(Buffer.from('cafebabe00000034', 'hex')) === null, 'N1: Java-Klasse (cafebabe, Fassung 52) → kein Mach-O');
+  // 4096 Bytes wie kopfVon im Prüfer: Nur so trägt der Schutz n > 30, sonst fiele die Klasse schon an der Länge durch.
+  assert(machoArten(Buffer.concat([Buffer.from('cafebabe00000034', 'hex'), Buffer.alloc(4088)])) === null, 'N1: Java-Klasse (cafebabe, Fassung 52, 4096 Bytes) → kein Mach-O');
   assert(machoArten(Buffer.from('#!/bin/sh\n')) === null && machoArten(Buffer.from('cffa', 'hex')) === null, 'N1: Skript und zu kurzer Kopf → kein Mach-O');
   assert(leseMinos(BUILD) === '11.0', 'N2: LC_BUILD_VERSION → minos 11.0 (nicht die Werkzeug-Fassung 1015.7)');
   assert(leseMinos(ALT) === '10.9', 'N2: LC_VERSION_MIN_MACOSX → version 10.9');
@@ -259,15 +262,19 @@ try {
   'N3: Pfade in der App (release/mac-arm64 bzw. release/mac, bin/mac aus extraResources)');
 
   console.log('pruefe-mac-nachbau — Ablauf am nachgebauten release-Ordner:');
+  // Ohne macOS (Linux, Windows) ist nur der Probe-Lauf in Ordnung; der echte Lauf braucht Laufzeitprobe und minos (F3).
   {
-    const r = pruefeMacNachbau(optionen('arm64', bau('arm64')), null);
-    assert(r.ok && r.fehler.length === 0 && r.warnungen.length === 0, 'N4: sauberer arm64-Bau mit passendem Lesestand → in Ordnung');
+    const r = pruefeMacNachbau(optionen('arm64', bau('arm64'), { probe: true }), null);
+    assert(r.ok && r.fehler.length === 0 && r.warnungen.length === 0, 'N4: sauberer arm64-Bau mit passendem Lesestand → in Ordnung (Probe)');
     assert(r.hinweise.some((h) => h.startsWith('Ausnahme: ffprobe ist ein Intel-Programm (x86_64)')), 'N4: ffprobe x86_64 im arm64-Paket → gedruckte Ausnahme, kein Abbruch');
-    assert(r.hinweise.includes('macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.'), 'N4: ohne macOS → Hinweis, dass Laufzeitprobe und minos fehlen');
+    assert(r.hinweise.includes('macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.'), 'N4: ohne macOS im Probe-Lauf → Hinweis, dass Laufzeitprobe und minos fehlen');
+    const s = pruefeMacNachbau(optionen('arm64', bau('arm64')), null);
+    assert(!s.ok && JSON.stringify(s.fehler) === JSON.stringify(['Laufzeitprobe und minos fehlen (nur unter macOS); ohne sie wird nicht hochgeladen.']),
+      'N4 Gegenprobe: echter Lauf ohne macOS → rot, nie still in Ordnung');
   }
   {
-    const r = pruefeMacNachbau(optionen('x64', bau('x64')), null);
-    assert(r.ok && !r.hinweise.some((h) => h.startsWith('Ausnahme:')), 'N5: sauberer x64-Bau → in Ordnung, ohne Ausnahme');
+    const r = pruefeMacNachbau(optionen('x64', bau('x64'), { probe: true }), null);
+    assert(r.ok && !r.hinweise.some((h) => h.startsWith('Ausnahme:')), 'N5: sauberer x64-Bau → in Ordnung, ohne Ausnahme (Probe)');
   }
   {
     const b = bau('arm64');
@@ -275,6 +282,13 @@ try {
     const r = pruefeMacNachbau(optionen('arm64', b), null);
     assert(!r.ok && r.fehler.includes('genau ein DMG „JM Editor-0.5.0-mac-arm64.dmg“ erwartet, gefunden 2: JM Editor-0.5.0-mac-arm64.dmg, JM Editor-0.5.0-mac-x64.dmg.'),
       'N6 Gegenprobe: zwei DMGs (ohne Zielnamen baute --arm64 beide) → rot');
+  }
+  {
+    const b = bau('arm64');
+    rmSync(join(b.d, 'JM Editor-0.5.0-mac-arm64.dmg'));
+    const r = pruefeMacNachbau(optionen('arm64', b), null);
+    assert(!r.ok && r.fehler.includes('genau ein DMG „JM Editor-0.5.0-mac-arm64.dmg“ erwartet, gefunden 0.'),
+      'N6 Gegenprobe: kein DMG (nur die App gebaut) → rot');
   }
   {
     const b = bau('x64');
@@ -297,7 +311,7 @@ try {
     assert(!s.ok && s.fehler.includes('ffmpeg hat arm64, erwartet x64 (die Mac-Art der App).'), 'N9 Gegenprobe: arm64-ffmpeg im Intel-Paket (Juni-Fehler) → rot');
   }
   {
-    const r = pruefeMacNachbau(optionen('arm64', bau('arm64', { ffmpegKopf: fat(20, CPU.x64, CPU.arm64) })), null);
+    const r = pruefeMacNachbau(optionen('arm64', bau('arm64', { ffmpegKopf: fat(20, CPU.x64, CPU.arm64) }), { probe: true }), null);
     assert(r.ok, 'N10: universelles ffmpeg (x64+arm64) enthält die Art → in Ordnung');
   }
   {
@@ -305,6 +319,10 @@ try {
     assert(!r.ok && r.fehler.includes('ffprobe hat arm64, erwartet x64.'), 'N11 Gegenprobe: arm64-ffprobe im Intel-Paket → rot (dort gibt es keine Ausnahme)');
     const s = pruefeMacNachbau(optionen('arm64', bau('arm64', { ffprobeKopf: Buffer.from('#!/bin/sh\nexit 0\n') })), null);
     assert(!s.ok && s.fehler.some((f) => f.startsWith('ffprobe ist kein Mach-O-Programm:')), 'N11 Gegenprobe: ffprobe kein Mach-O → rot');
+    // CPU-Typ 0x12 (PowerPC): weder arm64 noch die Ausnahme x86_64.
+    const t = pruefeMacNachbau(optionen('arm64', bau('arm64', { ffprobeKopf: Buffer.from('cffaedfe12000000000000000200000000000000', 'hex') })), null);
+    assert(!t.ok && t.fehler.includes('ffprobe hat unbekannt:0x00000012, erwartet arm64 oder die festgelegte Ausnahme x64.'),
+      'N11 Gegenprobe: ffprobe fremder Art im arm64-Job → rot (die Ausnahme gilt nur für genau x86_64)');
   }
   {
     const b = bau('arm64');
@@ -318,13 +336,15 @@ try {
   }
 
   console.log('pruefe-mac-nachbau — Lesestand (SHA-256 von ffmpeg und ffprobe):');
-  {
+  // ffprobe im arm64-Job: Das x86_64-Programm wird dort nicht gestartet; der SHA-256 ist seine einzige Sicherung.
+  for (const name of ['ffmpeg', 'ffprobe']) {
     const b = bau('arm64');
-    b.lesestand.editor['0.5.0'].arm64.ffmpeg = '0'.repeat(64);
+    b.lesestand.editor['0.5.0'].arm64[name] = '0'.repeat(64);
     for (const probe of [false, true]) {
       const r = pruefeMacNachbau(optionen('arm64', b, { probe }), null);
-      assert(!r.ok && r.fehler.includes(`SHA-256 von ffmpeg weicht vom Lesestand ab: gemessen ${sha(b.inhalt.ffmpeg)}, Lesestand ${'0'.repeat(64)}.`),
-        `N13 Gegenprobe: ffmpeg weicht vom Lesestand ab → rot (probe=${probe})`);
+      assert(!r.ok && r.fehler.includes(`SHA-256 von ${name} weicht vom Lesestand ab: gemessen ${sha(b.inhalt[name])}, Lesestand ${'0'.repeat(64)}.`)
+        && r.fehler.filter((f) => f.startsWith('SHA-256 von')).length === 1,
+      `N13 Gegenprobe: ${name} weicht vom Lesestand ab → rot (probe=${probe})`);
     }
   }
   {
@@ -396,9 +416,12 @@ try {
     const args = (art, b, lesestand) => ['--app', 'editor', '--version', '0.5.0', '--art', art, '--release', b.d, '--lesestand', lesestand];
     {
       const b = bau('arm64');
-      const k = lauf(...args('arm64', b, stand(b)));
-      assert(k.status === 0 && k.stdout.includes('pruefe-mac-nachbau: in Ordnung (editor 0.5.0 arm64).')
-        && k.stdout.includes('pruefe-mac-nachbau: macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.'), 'N18: sauber → Exit 0, Hinweise auf stdout');
+      const k = lauf(...args('arm64', b, stand(b)), '--probe');
+      assert(k.status === 0 && k.stdout.includes('pruefe-mac-nachbau: in Ordnung (editor 0.5.0 arm64, Probe).')
+        && k.stdout.includes('pruefe-mac-nachbau: macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.'), 'N18: sauber mit --probe → Exit 0, Hinweise auf stdout');
+      const echt = lauf(...args('arm64', b, stand(b)));
+      assert(echt.status === 1 && echt.stderr.includes('pruefe-mac-nachbau: Laufzeitprobe und minos fehlen (nur unter macOS); ohne sie wird nicht hochgeladen.'),
+        'N18 Gegenprobe: sauber, aber ohne --probe und ohne macOS → Exit 1');
     }
     {
       const b = bau('arm64');
@@ -415,7 +438,8 @@ try {
       const probe = lauf(...args('x64', b, leer), '--probe');
       const echt = lauf(...args('x64', b, leer));
       assert(probe.status === 0 && probe.stdout.includes('::warning::pruefe-mac-nachbau: Lesestand für editor 0.5.0 x64 ist leer.')
-        && probe.stdout.includes('pruefe-mac-nachbau: in Ordnung (editor 0.5.0 x64, Probe).') && echt.status === 1,
+        && probe.stdout.includes('pruefe-mac-nachbau: in Ordnung (editor 0.5.0 x64, Probe).') && echt.status === 1
+        && echt.stderr.includes('pruefe-mac-nachbau: Lesestand für editor 0.5.0 x64 ist leer; ohne Lesestand wird nicht hochgeladen.'),
       'N18: leerer Lesestand → mit --probe Exit 0 und ::warning::, ohne --probe Exit 1');
       const kaputt = lauf(...args('x64', b, join(b.d, 'gibt-es-nicht.json')));
       assert(kaputt.status === 1 && kaputt.stderr.includes('pruefe-mac-nachbau: Lesestand „'), 'N18 Gegenprobe: Lesestand unlesbar → Exit 1');
@@ -443,7 +467,8 @@ try {
         const ohne = spawnSync(process.execPath, [join(link, 'pruefe-mac-nachbau.mjs')], { encoding: 'utf8' });
         const b = bau('arm64');
         datei(join(b.d, 'JM Editor-0.5.0-mac-x64.dmg'), 'dmg');
-        const schlecht = spawnSync(process.execPath, [join(link, 'pruefe-mac-nachbau.mjs'), ...args('arm64', b, stand(b))], { encoding: 'utf8' });
+        // --probe, damit Exit 1 nur von den zwei DMGs kommt (ohne macOS endete der echte Lauf ohnehin mit 1).
+        const schlecht = spawnSync(process.execPath, [join(link, 'pruefe-mac-nachbau.mjs'), ...args('arm64', b, stand(b)), '--probe'], { encoding: 'utf8' });
         assert(ohne.status === 2 && schlecht.status === 1, 'N18: Aufruf über einen Ordner-Link → prüft (Exit 2 ohne Argumente, 1 bei zwei DMGs), nie still Exit 0');
       } finally {
         unlinkSync(link);
@@ -480,6 +505,7 @@ Expected: Exit 1 mit `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\scri
 // (ffprobe-static 3.1.0 hat kein arm64-Programm); SHA-256 von ffmpeg und ffprobe gegen den Lesestand (Abweichung =
 // Abbruch; leer = mit --probe Warnung samt Messwerten, sonst Abbruch). Unter macOS dazu: ffmpeg -version (im Intel-Job
 // auch ffprobe -version) muss mit 0 enden; minos von App-Programm und ffmpeg wird gedruckt, über macOS 11 = Warnung.
+// Ohne macOS entfallen Laufzeitprobe und minos: mit --probe nur ein Hinweis, sonst Abbruch.
 // Exit 0: in Ordnung (Hinweise auf stdout, Warnungen als ::warning::). Exit 1: jede Abweichung als Zeile auf stderr.
 // Exit 2: Aufruf falsch. Nur node:-Module: Der Workflow holt diese Datei aus seinem eigenen Commit (werkzeug/).
 import { spawnSync } from 'node:child_process';
@@ -570,7 +596,8 @@ const liste = (namen) => `${namen.length}${namen.length ? `: ${namen.join(', ')}
 
 /**
  * Prüft den release-Ordner eines Bau-Jobs. `macos` ist { starte(pfad, args) → { status, error?, stdout, stderr },
- * otool(pfad, otoolArt) → string } oder null (nicht unter macOS: Laufzeitprobe und minos entfallen, mit Hinweis).
+ * otool(pfad, otoolArt) → string } oder null (nicht unter macOS: Laufzeitprobe und minos entfallen; mit probe ein
+ * Hinweis, sonst ein Fehler).
  */
 export function pruefeMacNachbau({ release, app, version, art, lesestand, probe }, macos) {
   const fehler = [];
@@ -641,7 +668,9 @@ export function pruefeMacNachbau({ release, app, version, art, lesestand, probe 
   }
 
   if (!macos) {
-    hinweise.push('macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.');
+    // Fail closed: Nach F3 ist die Laufzeitprobe die Bedingung fürs Hochladen ohne Abnahme auf einem echten Mac.
+    if (probe) hinweise.push('macOS-Teile (Laufzeitprobe, minos) übersprungen: nur unter macOS.');
+    else fehler.push('Laufzeitprobe und minos fehlen (nur unter macOS); ohne sie wird nicht hochgeladen.');
     return ergebnis();
   }
   const starte = (name, pfad) => {
@@ -751,8 +780,8 @@ if (istHauptprogramm(process.argv[1])) process.exitCode = hauptprogramm(process.
 - [ ] **Step 4: Grün-Lauf**
 
 Run: `node scripts/ci/test/pruefe-mac-nachbau.test.mjs`
-Expected: 48 Zeilen `  ok  …` (N1–N18), kein `FAIL`, letzte Zeile `Alle pruefe-mac-nachbau-Tests bestanden.`, Exit 0. Unter
-macOS stünde statt der sechs N18-Zeilen `  --  N18 (Kommandozeile) übersprungen …`.
+Expected: 54 Zeilen `  ok  …` (N1–N18), kein `FAIL`, letzte Zeile `Alle pruefe-mac-nachbau-Tests bestanden.`, Exit 0. Unter
+macOS stünde statt der sieben N18-Zeilen `  --  N18 (Kommandozeile) übersprungen …`.
 Dann: `node -e "console.log(require('fs').readdirSync(require('os').tmpdir()).filter(n=>n.startsWith('jm-mac-nachbau')))"`
 → `[]`. Der Test räumt seine Temp-Ordner weg.
 
@@ -762,12 +791,24 @@ Dann: `node -e "console.log(require('fs').readdirSync(require('os').tmpdir()).fi
 | Nr. | Absichtlicher Fehler in `pruefe-mac-nachbau.mjs` | Erwartet rot (FAIL-Zeilen) |
 |---|---|---|
 | G1 | `if (ffmpeg && !ffmpeg.includes(art)) fehler.push(` → `if (false) fehler.push(` | 2: beide `N9 Gegenprobe` |
-| G2 | `if (art === 'arm64' && ffprobe.join() === 'x64') {` → `if (false) {` | 7: `N4` (2×), `N10`, `N16` (3×: arm64-Job, minos über 11, otool leer), `N18: sauber` |
+| G2 | `if (art === 'arm64' && ffprobe.join() === 'x64') {` → `if (false) {` | 8: `N4` (3×: sauber, Ausnahme, Gegenprobe echter Lauf), `N10`, `N16` (3×: arm64-Job, minos über 11, otool leer), `N18: sauber mit --probe` |
 | G3 | `if (probe) warnungen.push(` → `if (true) warnungen.push(` | 2: `N14 Gegenprobe: leerer Lesestand im echten Lauf`, `N18: leerer Lesestand …` |
 | G4 | `if (ffprobe?.includes('x64')) starte('ffprobe', pfade.ffprobe);` → `;` | 2: `N16: Intel-Job startet auch ffprobe …`, `N16 Gegenprobe: Programm startet nicht` |
-| G5 | `if (dmgs.length !== 1 \|\| dmgs[0] !== dmg)` → `if (dmgs.length < 1)` | 4: `N6`, `N7`, `N18 Gegenprobe: zwei DMGs`, `N18: Aufruf über einen Ordner-Link` |
+| G5 | `if (dmgs.length !== 1 \|\| dmgs[0] !== dmg)` → `if (dmgs.length < 1)` | 4: `N6 Gegenprobe: zwei DMGs`, `N7`, `N18 Gegenprobe: zwei DMGs`, `N18: Aufruf über einen Ordner-Link` |
+| G6 | `return realpathSync(resolve(arg)) === realpathSync(fileURLToPath(import.meta.url));` → `return resolve(arg) === fileURLToPath(import.meta.url);` | 1: `N18: Aufruf über einen Ordner-Link` |
+| G7 | `if (n < 1 \|\| n > 30 \|\| kopf.length` → `if (n < 1 \|\| kopf.length` (Java-Schutz weg) | 1: `N1: Java-Klasse (… 4096 Bytes)` |
+| G8 | `for (const name of ['ffmpeg', 'ffprobe']) {` → `for (const name of ['ffmpeg']) {` (ffprobe nicht gegen den Lesestand) | 2: `N13 Gegenprobe: ffprobe weicht vom Lesestand ab` (probe=false, probe=true) |
+| G9 | `if (dmgs.length !== 1 \|\| dmgs[0] !== dmg)` → `if (dmgs.length > 1 \|\| (dmgs.length === 1 && dmgs[0] !== dmg))` (kein DMG hingenommen) | 1: `N6 Gegenprobe: kein DMG` |
+| G10 | `const groesse = be === FAT_MAGIC ? 20 : 32;` → `const groesse = 20;` | 1: `N1: Fat mit 64-Bit-Einträgen …` |
+| G11 | `if (art === 'arm64' && ffprobe.join() === 'x64') {` → `if (art === 'arm64') {` (Ausnahme für jede Art) | 1: `N11 Gegenprobe: ffprobe fremder Art im arm64-Job` |
+| G12 | `else fehler.push('Laufzeitprobe und minos fehlen` → `else hinweise.push('Laufzeitprobe und minos fehlen` (ohne macOS auch im echten Lauf nur Hinweis) | 2: `N4 Gegenprobe: echter Lauf ohne macOS`, `N18 Gegenprobe: sauber, aber ohne --probe und ohne macOS` |
 
-Nach jeder Gegenprobe zurücknehmen. Am Ende Step 4 noch einmal: 48 ok, Exit 0.
+G6 und G7 kamen bei der Umsetzung dazu; mit dem ursprünglichen 8-Byte-Java-Kopf blieb G7 grün, darum hat der Test in
+N1 einen 4096-Byte-Kopf wie `kopfVon`. G8–G12 kamen mit der Prüfung Runde 1 (dort M2, M16, M3, M4 und Befund 5). Nicht
+messbar unter Linux und Windows: eine kaputte Weiche `process.platform === 'darwin'` (dort ist `macos` immer `null`).
+Seit G12 endet der echte Lauf dann aber auch auf dem Mac-Runner rot, statt still ohne Laufzeitprobe grün.
+
+Nach jeder Gegenprobe zurücknehmen. Am Ende Step 4 noch einmal: 54 ok, Exit 0.
 
 - [ ] **Step 6: Zeilenenden**
 
@@ -1837,6 +1878,7 @@ Hinweise für Nutzer (Quarantäne beim Laden von Hand, Rosetta für ffprobe) kom
 | ffmpeg hat arm64, erwartet x64 | falsches ffmpeg im Paket, der Fehler aus dem Juni |
 | Lesestand … ist leer; ohne Lesestand wird nicht hochgeladen | echter Lauf vor dem Lesestand-Commit |
 | SHA-256 von ffmpeg weicht vom Lesestand ab | ffmpeg-static hat ein anderes Programm geladen: nicht hochladen, Ursache klären |
+| Laufzeitprobe und minos fehlen (nur unter macOS) | echter Lauf, aber der Prüfer lief nicht unter macOS: ohne Laufzeitprobe wird nicht hochgeladen |
 | fehlt: …/ffmpeg.LICENSE | install.js hat LICENSE oder README nicht geladen (bei 404 nur eine Warnung) |
 | Zum Tag … gibt es kein Release | der Workflow legt keins an |
 
@@ -1898,7 +1940,7 @@ Expected: In der letzten Ausgabe beginnt jede Zeile mit `i/lf`.
 | --clobber nur für diese Dateien | 3 (R14 vergleicht die drei Upload-Zeilen genau; der Vier-Dateien-Check je Art) |
 | Prüfer: genau ein DMG der Job-Art, genau eine .app, ffmpeg in der Art (auch Fat), ffprobe-Ausnahme gedruckt | 1 (N1, N4–N12) |
 | SHA-256-Lesestand je App, Version und Art, anfangs leer; Abweichung bricht ab; leer: im Probe-Lauf Warnung mit Werten, sonst Abbruch | 1 (N13–N15, N18) |
-| Laufzeitprobe ffmpeg -version, im Intel-Job auch ffprobe; minos drucken, Warnung über macOS 11; nur unter darwin | 1 (N16, Attrappe) |
+| Laufzeitprobe ffmpeg -version, im Intel-Job auch ffprobe; minos drucken, Warnung über macOS 11; nur unter darwin, ohne darwin bricht der echte Lauf ab | 1 (N16, Attrappe; N4, N18) |
 | reine Teile im Selbsttest unter Linux und Windows | 1–3 (alle Tests ohne macOS, CLI-Fälle unter macOS übersprungen) |
 | jeder neue Test mit genannter, gemessener Gegenprobe | 1 (G1–G5), 2 (SG1–SG3), 3 (WG1–WG3 und R1–R17 eingebaut), 4 (Step 4) |
 | optionaler statischer Workflow-Test | 3 |
