@@ -11,6 +11,7 @@
     "./tokens/typography.css": "./src/tokens/typography.css",
     "./tokens/signal-colors.css": "./src/tokens/signal-colors.css",
     "./tokens/sizes.css": "./src/tokens/sizes.css",
+    "./anleitung": "./src/lib/anleitung.ts",
     "./testhilfe": "./test/harness.ts"
   },
   "scripts": {

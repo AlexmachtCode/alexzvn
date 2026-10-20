@@ -30,3 +30,5 @@ export { type MasterLinkMeldung, masterLinkStatusItem } from './lib/master-link'
 export { MASTER_LINK_TEXTE } from './lib/texte';
 export { type BrueckenQuelle, type BrueckenStand, brueckenSchritt, verbindeBruecke } from './lib/bruecke';
 export { useBrueckenWert } from './lib/useBrueckenWert';
+export { ANLEITUNG_FORMAT, ID_MUSTER, ZIEL_MUSTER, bedingungErfuellt, geltendeSchritte, kapitelZustand, pruefeAnleitung, sprechTexte, leererFortschritt, normalisiereFortschritt } from './lib/anleitung';
+export type { Bedingung, SchrittArt, AnleitungsOption, AnleitungsSchritt, AnleitungsKapitel, Anleitung, Zustand, NamensListen, KapitelZustand, AnleitungsStatus, AnleitungsPosition, KapitelPosition, AnleitungsFortschritt } from './lib/anleitung';

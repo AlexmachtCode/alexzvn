@@ -25,4 +25,5 @@ import './shell.test';
 import './galerie.test';
 import './master-link.test';
 import './bruecke.test';
+import './anleitung-format.test';
 abschluss();
