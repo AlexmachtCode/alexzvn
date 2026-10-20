@@ -32,3 +32,5 @@ export { type BrueckenQuelle, type BrueckenStand, brueckenSchritt, verbindeBruec
 export { useBrueckenWert } from './lib/useBrueckenWert';
 export { ANLEITUNG_FORMAT, ID_MUSTER, ZIEL_MUSTER, bedingungErfuellt, geltendeSchritte, kapitelZustand, pruefeAnleitung, sprechTexte, leererFortschritt, normalisiereFortschritt } from './lib/anleitung';
 export type { Bedingung, SchrittArt, AnleitungsOption, AnleitungsSchritt, AnleitungsKapitel, Anleitung, Zustand, NamensListen, KapitelZustand, AnleitungsStatus, AnleitungsPosition, KapitelPosition, AnleitungsFortschritt } from './lib/anleitung';
+export { anleitungSchritt, beimStart, leseFortschritt, schreibeFortschritt } from './lib/anleitung';
+export type { AnleitungsEreignis, AnleitungSpeicher, SpeicherZustand, GelesenerFortschritt, StartErgebnis } from './lib/anleitung';

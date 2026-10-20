@@ -293,4 +293,402 @@ export function normalisiereFortschritt(roh: unknown, anleitung: string): Anleit
   };
 }
 
+// ── Ablauf (P2): Ereignisse, Start nach dem Laden, Speicher (Gliederung 11, Regeln 1–13) ──
+
+export type AnleitungsEreignis =
+  | { art: 'starten'; kapitel?: string }
+  | { art: 'weiter' }
+  | { art: 'zurueck' }
+  | { art: 'ueberspringen' }
+  | { art: 'spaeter' }
+  | { art: 'option'; index: number }
+  | { art: 'anleitungUeberspringen' }
+  | { art: 'beenden' }
+  | { art: 'brauchtNicht'; kapitel: string }
+  | { art: 'dochGebraucht'; kapitel: string }
+  | { art: 'zustand' }
+  | { art: 'toolEreignis'; name: string };
+/** Wie window.localStorage (nur getItem/setItem); jeder Zugriff darf werfen. */
+export interface AnleitungSpeicher {
+  getItem(k: string): string | null;
+  setItem(k: string, v: string): void;
+}
+export type SpeicherZustand = 'ok' | 'leer' | 'nichtLesbar' | 'kaputt' | 'neuer';
+export interface GelesenerFortschritt {
+  fortschritt: AnleitungsFortschritt | null;
+  zustand: SpeicherZustand;
+}
+export interface StartErgebnis {
+  fortschritt: AnleitungsFortschritt;
+  /** Was beim Start von selbst erscheint: die Anleitung, der Hinweis „Neu: geführte Einrichtung“ oder nichts. */
+  oeffnen: 'anleitung' | 'hinweis' | null;
+  /** Fortschritt speichern? Nie bei 'nichtLesbar' und 'neuer' (G8). */
+  schreiben: boolean;
+}
+
+interface Lage {
+  a: Anleitung;
+  z: Zustand;
+  f: AnleitungsFortschritt;
+}
+
+/** Was gerade als Sprechblase zu sehen ist: „Zeig mir“ vor dem Hauptlauf, der Hauptlauf nur, solange er läuft (A1). */
+type AktiveBlase = { art: 'einzeln'; p: KapitelPosition } | { art: 'haupt'; p: AnleitungsPosition } | null;
+
+function aktiveBlase(f: AnleitungsFortschritt): AktiveBlase {
+  if (f.einzeln !== null) return { art: 'einzeln', p: f.einzeln };
+  if (f.status === 'laeuft' && f.position !== null) return { art: 'haupt', p: f.position };
+  return null;
+}
+
+function kapitelIndex(a: Anleitung, kapitel: string): number {
+  return a.kapitel.findIndex((k) => k.id === kapitel);
+}
+
+/** Der Schritt eines Orts; „Schon erledigt“ und unbekannte IDs → undefined. */
+function schrittVon(a: Anleitung, p: AnleitungsPosition): AnleitungsSchritt | undefined {
+  if (p.ort !== 'kapitel') return a[p.ort];
+  if (p.schritt === null) return undefined;
+  return findeKapitel(a, p.kapitel)?.schritte.find((s) => s.id === p.schritt);
+}
+
+function gilt(l: Lage, s: AnleitungsSchritt): boolean {
+  return s.giltWenn === undefined || bedingungErfuellt(s.giltWenn, l.z, l.f);
+}
+
+/** Ort eines Kapitel-Schritts beim Betreten: warErfuellt = Bedingung jetzt erfüllt (Regel 3). */
+function kapitelOrt(l: Lage, k: AnleitungsKapitel, s: AnleitungsSchritt | null, nurZeigen: boolean): KapitelPosition {
+  const war = s !== null && s.art === 'handeln' && s.erledigtWenn !== undefined && bedingungErfuellt(s.erledigtWenn, l.z, l.f);
+  return { ort: 'kapitel', kapitel: k.id, schritt: s === null ? null : s.id, nurZeigen, warErfuellt: war };
+}
+
+/** Kapitel ab Index `ab` im Hauptlauf betreten (Regel 3): erledigt → „Schon erledigt“, nicht gebraucht → still weiter. */
+function eintritt(l: Lage, ab: number): KapitelPosition | null {
+  for (let i = ab; i < l.a.kapitel.length; i++) {
+    const k = l.a.kapitel[i];
+    const zk = kapitelZustand(l.a, k.id, l.z, l.f);
+    if (zk === 'nichtGebraucht') continue;
+    if (zk === 'erledigt') return kapitelOrt(l, k, null, false);
+    const erster = geltendeSchritte(l.a, k.id, l.z, l.f)[0];
+    if (erster !== undefined) return kapitelOrt(l, k, erster, false);
+  }
+  return null;
+}
+
+/** Nächster geltender Schritt nach `schritt` in K (auch wenn `schritt` selbst nicht mehr gilt); „Schon erledigt“ → keiner. */
+function naechsterImKapitel(l: Lage, k: AnleitungsKapitel, schritt: string | null): AnleitungsSchritt | undefined {
+  if (schritt === null) return undefined;
+  const i = k.schritte.findIndex((s) => s.id === schritt);
+  return k.schritte.slice(i + 1).find((s) => gilt(l, s));
+}
+
+/** Nächster Ort im Hauptlauf nach einem Kapitel-Ort (Modus führen, Regel 4). */
+function folgeHaupt(l: Lage, p: KapitelPosition): AnleitungsPosition {
+  const ki = kapitelIndex(l.a, p.kapitel);
+  const k = l.a.kapitel[ki];
+  const s = k === undefined ? undefined : naechsterImKapitel(l, k, p.schritt);
+  if (k !== undefined && s !== undefined) return kapitelOrt(l, k, s, false);
+  return eintritt(l, ki + 1) ?? { ort: 'abschluss' };
+}
+
+/** Nächster Ort bei „Zeig mir“: nur im Kapitel, Modus bleibt; hinter dem letzten Schritt endet „Zeig mir“. */
+function folgeEinzeln(l: Lage, p: KapitelPosition): KapitelPosition | null {
+  const k = findeKapitel(l.a, p.kapitel);
+  const s = k === undefined ? undefined : naechsterImKapitel(l, k, p.schritt);
+  return k !== undefined && s !== undefined ? kapitelOrt(l, k, s, p.nurZeigen) : null;
+}
+
+/** Letzter geltender Schritt des nächsten gebrauchten Kapitels vor Index `vor`, sonst die Einleitung. */
+function letzterVor(l: Lage, vor: number): AnleitungsPosition {
+  for (let j = vor - 1; j >= 0; j--) {
+    const k = l.a.kapitel[j];
+    if (kapitelZustand(l.a, k.id, l.z, l.f) === 'nichtGebraucht') continue;
+    const geltend = geltendeSchritte(l.a, k.id, l.z, l.f);
+    if (geltend.length > 0) return kapitelOrt(l, k, geltend[geltend.length - 1], true);
+  }
+  return { ort: 'einleitung' };
+}
+
+/** Vorige Blase (Regel 5): im Modus „nur zeigen“, nie vor der Einleitung; bei „Zeig mir“ nie vor den ersten Schritt. */
+function vorOrt(l: Lage, p: AnleitungsPosition, einzeln: boolean): AnleitungsPosition | null {
+  if (p.ort === 'einleitung') return null;
+  if (p.ort === 'rueckfrage') return { ort: 'einleitung' };
+  if (p.ort === 'abschluss') return letzterVor(l, l.a.kapitel.length);
+  const ki = kapitelIndex(l.a, p.kapitel);
+  const k = l.a.kapitel[ki];
+  const geltend = k === undefined ? [] : geltendeSchritte(l.a, k.id, l.z, l.f);
+  const i = p.schritt === null ? -1 : geltend.findIndex((s) => s.id === p.schritt);
+  if (k !== undefined && i > 0) return kapitelOrt(l, k, geltend[i - 1], true);
+  return einzeln ? null : letzterVor(l, ki);
+}
+
+/**
+ * Bietet die Blase „Weiter“ an (A2)? `zeigtEingriff` sagt, ob ein Schritt mit eingriff gerade nur gezeigt wird (Ansicht:
+ * in der Produktion; Kern: immer möglich, denn der Kern kennt die Produktion nicht).
+ */
+function weiterDa(a: Anleitung, p: AnleitungsPosition, zeigtEingriff: (s: AnleitungsSchritt) => boolean): boolean {
+  if (p.ort === 'einleitung' || p.ort === 'abschluss') return true;
+  if (p.ort === 'rueckfrage') return false;
+  if (p.schritt === null) return true;
+  const s = schrittVon(a, p);
+  if (s === undefined) return false;
+  const zeigen = p.nurZeigen || zeigtEingriff(s);
+  if (s.art === 'erklaeren') return true;
+  if (s.art === 'entscheiden') return false;
+  if (s.art === 'neustart') return zeigen;
+  return zeigen || p.warErfuellt;
+}
+
+/** Hauptlauf auf einen Ort setzen; `neustart` merkt nur ein laufender Hauptlauf, der einen Neustart-Schritt führt (EP7). */
+function mitOrt(f: AnleitungsFortschritt, p: AnleitungsPosition | null, a: Anleitung, jetzt: string): AnleitungsFortschritt {
+  const s = p === null ? undefined : schrittVon(a, p);
+  const fuehrt = p !== null && p.ort === 'kapitel' && !p.nurZeigen;
+  const neustart =
+    f.status === 'laeuft' && fuehrt && s !== undefined && s.art === 'neustart'
+      ? f.neustart !== null && f.neustart.schritt === s.id
+        ? f.neustart
+        : { schritt: s.id, seit: jetzt }
+      : null;
+  return { ...f, position: p, neustart };
+}
+
+/** Gespeicherter Ort, der nicht mehr zur Anleitung passt (Regel 13): nächster gültiger Ort statt eines Wurfs. */
+function gueltigerOrt(l: Lage, p: AnleitungsPosition | null): AnleitungsPosition | null {
+  if (p === null || p.ort !== 'kapitel') return p;
+  const ki = kapitelIndex(l.a, p.kapitel);
+  if (ki < 0) return eintritt(l, 0) ?? { ort: 'abschluss' };
+  if (p.schritt === null || l.a.kapitel[ki].schritte.some((s) => s.id === p.schritt)) return p;
+  return eintritt(l, ki) ?? { ort: 'abschluss' };
+}
+
+function gueltigesEinzeln(a: Anleitung, p: KapitelPosition | null): KapitelPosition | null {
+  if (p === null || p.schritt === null) return null;
+  const k = findeKapitel(a, p.kapitel);
+  return k !== undefined && k.schritte.some((s) => s.id === p.schritt) ? p : null;
+}
+
+/** Erstes Kapitel, das weder erledigt noch nicht gebraucht ist; gibt es keins, das erste Kapitel (Regel 1). */
+function ersterOffenerOrt(l: Lage): AnleitungsPosition {
+  for (const k of l.a.kapitel) {
+    const zk = kapitelZustand(l.a, k.id, l.z, l.f);
+    if (zk === 'erledigt' || zk === 'nichtGebraucht') continue;
+    const erster = geltendeSchritte(l.a, k.id, l.z, l.f)[0];
+    if (erster !== undefined) return kapitelOrt(l, k, erster, false);
+  }
+  const k = l.a.kapitel[0];
+  if (k === undefined) return { ort: 'abschluss' };
+  if (kapitelZustand(l.a, k.id, l.z, l.f) === 'erledigt') return kapitelOrt(l, k, null, false);
+  return kapitelOrt(l, k, geltendeSchritte(l.a, k.id, l.z, l.f)[0] ?? null, false);
+}
+
+/** Gemerkter Ort beim Fortsetzen: im Modus führen, warErfuellt neu nach dem Zustand jetzt. */
+function wiederBetreten(l: Lage, p: AnleitungsPosition): AnleitungsPosition {
+  if (p.ort !== 'kapitel') return p;
+  const k = findeKapitel(l.a, p.kapitel);
+  if (k === undefined) return p;
+  return kapitelOrt(l, k, p.schritt === null ? null : (k.schritte.find((s) => s.id === p.schritt) ?? null), false);
+}
+
+function allesErledigt(l: Lage): boolean {
+  return l.a.kapitel.every((k) => {
+    const zk = kapitelZustand(l.a, k.id, l.z, l.f);
+    return zk === 'erledigt' || zk === 'nichtGebraucht';
+  });
+}
+
+/** Einen Schritt weiter in der Reihenfolge (Regel 4 ohne die Angebots-Prüfung; auch Option ohne Entscheidung). */
+function vorwaerts(f: AnleitungsFortschritt, blase: NonNullable<AktiveBlase>, a: Anleitung, z: Zustand, jetzt: string): AnleitungsFortschritt {
+  const l = { a, z, f };
+  if (blase.art === 'einzeln') return { ...f, einzeln: folgeEinzeln(l, blase.p) };
+  const p = blase.p;
+  if (p.ort === 'einleitung') return mitOrt(f, eintritt(l, 0) ?? { ort: 'abschluss' }, a, jetzt);
+  if (p.ort === 'abschluss') return { ...f, status: allesErledigt(l) ? 'abgeschlossen' : 'durchlaufen', position: null, neustart: null };
+  if (p.ort === 'rueckfrage') return f;
+  return mitOrt(f, folgeHaupt(l, p), a, jetzt);
+}
+
+/** Hinter das Kapitel der Blase springen (Überspringen, „Brauche ich nicht“, Entscheidung erledigt das Kapitel). */
+function hinterKapitel(f: AnleitungsFortschritt, blase: 'einzeln' | 'haupt', kapitel: string, a: Anleitung, z: Zustand, jetzt: string): AnleitungsFortschritt {
+  if (blase === 'einzeln') return { ...f, einzeln: null };
+  return mitOrt(f, eintritt({ a, z, f }, kapitelIndex(a, kapitel) + 1) ?? { ort: 'abschluss' }, a, jetzt);
+}
+
+/** Regel 11: gilt der Schritt nicht mehr → weiter; erkannte Handlung im Modus führen → weiter; sonst warErfuellt nachführen. */
+function nachZustand(f: AnleitungsFortschritt, a: Anleitung, z: Zustand, jetzt: string): AnleitungsFortschritt {
+  const blase = aktiveBlase(f);
+  if (blase === null || blase.p.ort !== 'kapitel' || blase.p.schritt === null) return f;
+  const p = blase.p;
+  const s = schrittVon(a, p);
+  if (s === undefined) return f;
+  const l = { a, z, f };
+  const erfuellt = s.art === 'handeln' && s.erledigtWenn !== undefined && bedingungErfuellt(s.erledigtWenn, z, f);
+  const weg = !gilt(l, s) || (s.art === 'handeln' && !p.nurZeigen && !p.warErfuellt && erfuellt);
+  if (weg) return blase.art === 'einzeln' ? { ...f, einzeln: folgeEinzeln(l, p) } : mitOrt(f, folgeHaupt(l, p), a, jetzt);
+  if (p.warErfuellt === erfuellt) return f;
+  const neu = { ...p, warErfuellt: erfuellt };
+  return blase.art === 'einzeln' ? { ...f, einzeln: neu } : { ...f, position: neu };
+}
+
+/**
+ * Ein Ereignis auf den Fortschritt anwenden (rein, Gliederung 11 Regeln 1–13). Bedien-Ereignisse der Sprechblase wirken
+ * nur, wenn die Blase den Knopf anbietet (A2); „Zeig mir“ (`einzeln`) geht dem Hauptlauf vor. Wirft nie.
+ */
+export function anleitungSchritt(a: Anleitung, f0: AnleitungsFortschritt, e: AnleitungsEreignis, z: Zustand, jetzt: string): AnleitungsFortschritt {
+  const f: AnleitungsFortschritt = { ...f0, position: gueltigerOrt({ a, z, f: f0 }, f0.position), einzeln: gueltigesEinzeln(a, f0.einzeln) };
+  const blase = aktiveBlase(f);
+  switch (e.art) {
+    case 'starten': {
+      if (e.kapitel !== undefined) {
+        const k = findeKapitel(a, e.kapitel);
+        const erster = k === undefined ? undefined : geltendeSchritte(a, k.id, z, f)[0];
+        if (k === undefined || erster === undefined) return f;
+        return { ...f, einzeln: kapitelOrt({ a, z, f }, k, erster, kapitelZustand(a, k.id, z, f) === 'erledigt') };
+      }
+      const laufend: AnleitungsFortschritt = { ...f, status: 'laeuft', einzeln: null };
+      const l = { a, z, f: laufend };
+      const ort = f.status === 'pausiert' && f.position !== null ? wiederBetreten(l, f.position) : ersterOffenerOrt(l);
+      return mitOrt(laufend, ort, a, jetzt);
+    }
+    case 'weiter':
+      return blase !== null && weiterDa(a, blase.p, (s) => s.eingriff === true) ? vorwaerts(f, blase, a, z, jetzt) : f;
+    case 'zurueck': {
+      if (blase === null) return f;
+      const ort = vorOrt({ a, z, f }, blase.p, blase.art === 'einzeln');
+      if (ort === null) return f;
+      return blase.art === 'einzeln' ? { ...f, einzeln: ort as KapitelPosition } : mitOrt(f, ort, a, jetzt);
+    }
+    case 'ueberspringen': {
+      if (blase === null || blase.p.ort !== 'kapitel') return f;
+      const k = blase.p.kapitel;
+      const markiert =
+        kapitelZustand(a, k, z, f) === 'erledigt' || f.uebersprungen.includes(k) ? f : { ...f, uebersprungen: [...f.uebersprungen, k] };
+      return hinterKapitel(markiert, blase.art, k, a, z, jetzt);
+    }
+    case 'spaeter': {
+      if (blase === null) return f;
+      if (blase.art === 'einzeln') return { ...f, einzeln: null };
+      if (blase.p.ort === 'rueckfrage') return f;
+      const amNeustart = blase.p.ort === 'kapitel' && f.neustart !== null && blase.p.schritt === f.neustart.schritt;
+      return { ...f, status: 'pausiert', neustart: amNeustart ? f.neustart : null };
+    }
+    case 'option': {
+      if (blase === null || blase.p.ort !== 'kapitel') return f;
+      const s = schrittVon(a, blase.p);
+      const o = s !== undefined && s.art === 'entscheiden' ? s.optionen?.[e.index] : undefined;
+      if (o === undefined) return f;
+      if (o.entscheidung === undefined) return vorwaerts(f, blase, a, z, jetzt);
+      const entschieden = { ...f, entscheidungen: { ...f.entscheidungen, [o.entscheidung]: jetzt } };
+      const k = blase.p.kapitel;
+      if (kapitelZustand(a, k, z, entschieden) === 'erledigt') return hinterKapitel(entschieden, blase.art, k, a, z, jetzt);
+      return vorwaerts(entschieden, blase, a, z, jetzt);
+    }
+    case 'anleitungUeberspringen':
+      return blase !== null && blase.art === 'haupt' && blase.p.ort === 'einleitung' ? mitOrt(f, { ort: 'rueckfrage' }, a, jetzt) : f;
+    case 'beenden':
+      return { ...f, status: 'abgeschlossen', position: null, einzeln: null, neustart: null };
+    case 'brauchtNicht': {
+      const k = findeKapitel(a, e.kapitel);
+      const zk = kapitelZustand(a, e.kapitel, z, f);
+      if (k === undefined || !k.brauchtNicht || zk === 'erledigt' || zk === 'nichtGebraucht') return f;
+      let neu: AnleitungsFortschritt = {
+        ...f,
+        nichtGebraucht: [...f.nichtGebraucht, k.id],
+        uebersprungen: f.uebersprungen.filter((x) => x !== k.id),
+      };
+      if (neu.einzeln !== null && neu.einzeln.kapitel === k.id) neu = { ...neu, einzeln: null };
+      if (neu.position !== null && neu.position.ort === 'kapitel' && neu.position.kapitel === k.id) neu = hinterKapitel(neu, 'haupt', k.id, a, z, jetzt);
+      return neu;
+    }
+    case 'dochGebraucht':
+      return f.nichtGebraucht.includes(e.kapitel) ? { ...f, nichtGebraucht: f.nichtGebraucht.filter((x) => x !== e.kapitel) } : f;
+    case 'zustand':
+      return nachZustand(f, a, z, jetzt);
+    case 'toolEreignis': {
+      const gemerkt = hat(f.ereignisse, e.name) ? f : { ...f, ereignisse: { ...f.ereignisse, [e.name]: jetzt } };
+      return nachZustand(gemerkt, a, z, jetzt);
+    }
+  }
+  return f;
+}
+
+/**
+ * Entscheidung beim Start des Tools (Spec 4, EP7, EP8; Gliederung 11 „Start“). Beim Start ist noch kein Zustand geladen:
+ * gerechnet wird mit leerem Zustand, das erste Ereignis 'zustand' danach führt Ort und warErfuellt nach (Regel 11).
+ * „Zeig mir“ endet mit jedem Start; ein laufender Hauptlauf ist danach pausiert, außer ein Neustart-Schritt hat den
+ * Neustart verlangt: dann geht es beim folgenden Schritt von selbst weiter.
+ */
+export function beimStart(a: Anleitung, g: GelesenerFortschritt, u: { bestehenderRechner: boolean }, jetzt: string): StartErgebnis {
+  const leer = leererFortschritt(a.id);
+  if (g.zustand === 'nichtLesbar' || g.zustand === 'neuer') return { fortschritt: leer, oeffnen: null, schreiben: false };
+  if (g.zustand === 'leer') {
+    if (u.bestehenderRechner) return { fortschritt: { ...leer, hinweisGesehen: true }, oeffnen: 'hinweis', schreiben: true };
+    return { fortschritt: { ...leer, status: 'laeuft', position: { ort: 'einleitung' } }, oeffnen: 'anleitung', schreiben: true };
+  }
+  if (g.zustand === 'kaputt' || g.fortschritt === null) return { fortschritt: leer, oeffnen: null, schreiben: true };
+  const roh = g.fortschritt;
+  const z: Zustand = {};
+  let f: AnleitungsFortschritt = { ...roh, einzeln: null };
+  f = { ...f, position: gueltigerOrt({ a, z, f }, f.position) };
+  if (f.neustart !== null) {
+    const schritt = f.neustart.schritt;
+    const k = a.kapitel.find((kap) => kap.schritte.some((s) => s.id === schritt));
+    if (k !== undefined) {
+      const name = `neustart:${schritt}`;
+      const weiter: AnleitungsFortschritt = {
+        ...f,
+        status: 'laeuft',
+        ereignisse: hat(f.ereignisse, name) ? f.ereignisse : { ...f.ereignisse, [name]: jetzt },
+        neustart: null,
+      };
+      const ort = folgeHaupt({ a, z, f: weiter }, { ort: 'kapitel', kapitel: k.id, schritt, nurZeigen: false, warErfuellt: false });
+      return { fortschritt: mitOrt(weiter, ort, a, jetzt), oeffnen: 'anleitung', schreiben: true };
+    }
+    f = { ...f, neustart: null };
+  }
+  if (f.status === 'laeuft') f = { ...f, status: 'pausiert' };
+  let oeffnen: StartErgebnis['oeffnen'] = null;
+  if (f.status === 'nieGestartet' && u.bestehenderRechner && !f.hinweisGesehen) {
+    f = { ...f, hinweisGesehen: true };
+    oeffnen = 'hinweis';
+  }
+  return { fortschritt: f, oeffnen, schreiben: JSON.stringify(f) !== JSON.stringify(roh) };
+}
+
+/**
+ * Fortschritt aus dem Speicher (G8): ohne Speicher oder bei Wurf 'nichtLesbar', fehlt → 'leer', kein JSON-Objekt oder
+ * `format` keine ganze Zahl ≥ 1 → 'kaputt', `format` > 1 → 'neuer' (nie überschreiben), sonst normalisiert 'ok'.
+ */
+export function leseFortschritt(s: AnleitungSpeicher | null, schluessel: string, anleitung: string): GelesenerFortschritt {
+  if (s === null) return { fortschritt: null, zustand: 'nichtLesbar' };
+  let text: string | null;
+  try {
+    text = s.getItem(schluessel);
+  } catch {
+    return { fortschritt: null, zustand: 'nichtLesbar' };
+  }
+  if (text === null) return { fortschritt: null, zustand: 'leer' };
+  let roh: unknown;
+  try {
+    roh = JSON.parse(text);
+  } catch {
+    return { fortschritt: null, zustand: 'kaputt' };
+  }
+  if (!istObjekt(roh) || typeof roh.format !== 'number' || !Number.isInteger(roh.format) || roh.format < 1) {
+    return { fortschritt: null, zustand: 'kaputt' };
+  }
+  if (roh.format > ANLEITUNG_FORMAT) return { fortschritt: null, zustand: 'neuer' };
+  return { fortschritt: normalisiereFortschritt(roh, anleitung), zustand: 'ok' };
+}
+
+/** Fortschritt merken; false, wenn es keinen Speicher gibt oder er wirft. Wirft nie (G8). */
+export function schreibeFortschritt(s: AnleitungSpeicher | null, schluessel: string, f: AnleitungsFortschritt): boolean {
+  if (s === null) return false;
+  try {
+    s.setItem(schluessel, JSON.stringify(f));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── Ende des Moduls ──
