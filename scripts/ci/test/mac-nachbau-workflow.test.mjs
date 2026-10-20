@@ -1,6 +1,7 @@
 // Statischer Test für .github/workflows/mac-nachbau.yml (Mac-Nachbau, Entwurf mac-fassungen Stufe 1): nur Hand-Start,
 // Rechte je Job, kein actions/checkout im Bau, Hochlade-Job ohne Code aus dem Repo, Eingaben nur über env, erlaubte Apps
-// wie im Prüfer, feste Runner, x64 vor arm64, Beilagen-Namen wie im Sammler; dazu (R18–R21) der Prüfer im echten Lauf
+// wie im Prüfer, feste Runner, erst die Beilagen, dann arm64, dann x64 (Owner-Entscheide B und C vom 20.10.2026),
+// Beilagen-Namen wie im Sammler; dazu (R18–R21) der Prüfer im echten Lauf
 // ohne --probe, kein Secret im Bau, die Konfiguration aus dem Tag nur geprüft und die Tag-Prüfung über den ganzen Text;
 // (R22–R26) ein Fehler von Prüfer oder Sammler beendet den Job, ein Secret nur für gh im Hochlade-Schritt, die
 // Freigabeliste in beiden Jobs, und jede Prüfung im Skript bricht ab. R13 ist eine Positivliste der Befehle im Hochlade-Job.
@@ -170,11 +171,17 @@ function pruefeWorkflow(text) {
   }
   const uploads = hochRuns.split('\n').filter((z) => z.includes('gh release upload')).map((z) => z.trim());
   const upload = (was) => `gh release upload "$TAG" ${was} --repo "$GITHUB_REPOSITORY" --clobber`;
-  if (uploads.join('\n') !== [upload('"${dmg_x64[0]}"'), upload('"${dmg_arm64[0]}"'), upload('"${beilagen[@]}"')].join('\n')) {
-    fehler.push('R14 hochladen: erst x64-DMG, dann arm64-DMG, dann Beilagen, je ein gh release upload');
+  // Owner-Entscheide B und C (20.10.2026): Die Beilagen gehen zuerst hoch, damit nie ein DMG ohne Lizenztext am Release
+  // hängt; dann arm64 vor x64, weil ein arm64-Mac in der Lücke sonst das x64-DMG bekäme und behielte (Paketwahl seit 19.10.).
+  if (uploads.join('\n') !== [upload('"${beilagen[@]}"'), upload('"${dmg_arm64[0]}"'), upload('"${dmg_x64[0]}"')].join('\n')) {
+    fehler.push('R14 hochladen: erst alle Beilagen in einem Aufruf, dann arm64-DMG, dann x64-DMG, je ein gh release upload');
   }
-  const namen = ['x64', 'arm64'].flatMap((a) => [beilagenNamen(a).lizenz, beilagenNamen(a).angaben].map((n) => `pakete/${a}/${n}`));
-  if (!namen.every((n) => hochRuns.includes(n)) || !hochRuns.includes(`pakete/x64/${beilagenNamen('x64').quellen}`)) {
+  // Die Liste der Beilagen genau wie beilagenNamen() im Sammler: GPLv3-Text und Quellen-Hinweis einmal (beide Bau-Jobs
+  // liefern sie gleich, R25), Lizenz-Übersicht und README je Art.
+  const b = (a) => beilagenNamen(a);
+  const beilagenListe = ['beilagen=(', `pakete/x64/${b('x64').gpl}`, `pakete/x64/${b('x64').quellen}`,
+    ...['arm64', 'x64'].flatMap((a) => [`pakete/${a}/${b(a).uebersicht}`, `pakete/${a}/${b(a).angaben}`]), ')'].join('\n');
+  if (b('x64').gpl !== b('arm64').gpl || b('x64').quellen !== b('arm64').quellen || !steht(hochRuns, beilagenListe)) {
     fehler.push('R15 hochladen: Beilagen-Namen wie beilagenNamen() im Sammler');
   }
   const releaseDa = 'if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then\necho "Release $TAG gefunden."\nelse';
@@ -234,14 +241,17 @@ function pruefeWorkflow(text) {
     + 'case " \\$ERLAUBTE_APPS " in\\n\\*" \\$app "\\*\\) ;;\\n\\*\\) echo "::error::App „\\$app“ ist für den Nachbau nicht freigegeben'
     + '[^"\\n]*"; exit 1 ;;\\nesac$', 'gm')) ?? []).length;
   if (freigabe(bauRuns) !== 1 || freigabe(hochRuns) !== 1) fehler.push('R24 Freigabeliste ERLAUBTE_APPS in bau und hochladen geprüft, sonst Abbruch');
-  const mengen = 'shopt -s nullglob\nfor art in x64 arm64; do\ndmgs=(pakete/$art/*.dmg)\nalle=(pakete/$art/*)\n'
-    + 'if [ ${#dmgs[@]} -ne 1 ] || [ ${#alle[@]} -ne 4 ]; then';
+  // Je Art fünf Dateien: DMG, GPLv3-Text, Lizenz-Übersicht, README und Quellen-Hinweis. GPLv3-Text und Hinweis liefern
+  // beide Bau-Jobs; sie müssen gleich sein und gehen einmal hoch.
+  const mengen = 'shopt -s nullglob\nfor art in arm64 x64; do\ndmgs=(pakete/$art/*.dmg)\nalle=(pakete/$art/*)\n'
+    + 'if [ ${#dmgs[@]} -ne 1 ] || [ ${#alle[@]} -ne 5 ]; then';
+  const gleichInBeiden = (n) => `if ! cmp -s pakete/x64/${n} pakete/arm64/${n}; then`;
   const dmgName = /^case "\$\{dmgs\[0\]\}" in\n\*"-\$version-mac-\$art\.dmg"\) ;;\n\*\) echo "::error::[^\n]*"; exit 1 ;;\nesac$/m;
   const beilage = 'for f in "${beilagen[@]}"; do\nif [ ! -s "$f" ]; then echo "::error::Beilage fehlt oder ist leer: $f"; exit 1; fi\ndone';
   if (abbrueche(hochRuns, mengen) !== 1 || !dmgName.test(trimmt(hochRuns)) || !steht(hochRuns, beilage)
-    || abbrueche(hochRuns, 'if ! cmp -s pakete/x64/ffmpeg-QUELLEN.txt pakete/arm64/ffmpeg-QUELLEN.txt; then') !== 1) {
-    fehler.push('R25 hochladen: je Art ein DMG und vier Dateien, DMG-Name mit Version und Art, Beilagen nicht leer, '
-      + 'gleicher Quellen-Hinweis, sonst Abbruch');
+    || abbrueche(hochRuns, gleichInBeiden(beilagenNamen('x64').quellen)) !== 1 || abbrueche(hochRuns, gleichInBeiden(beilagenNamen('x64').gpl)) !== 1) {
+    fehler.push('R25 hochladen: je Art ein DMG und fünf Dateien, DMG-Name mit Version und Art, Beilagen nicht leer, '
+      + 'gleicher Quellen-Hinweis und gleicher GPLv3-Text aus beiden Bau-Jobs, sonst Abbruch');
   }
   if (!steht(bauRuns, "ist=$(node -p 'process.arch')") || abbrueche(bauRuns, 'if [ "$ist" != "$ART" ]; then') !== 1
     || abbrueche(bauRuns, 'ist=$(node -p "require(\'./apps/\' + process.env.APP + \'/package.json\').version")\nif [ "$ist" != "$VERSION" ]; then') !== 1) {
@@ -322,8 +332,17 @@ gegenprobe('R10', '          grep -q \'^npmRebuild: false\'', '          printf 
 gegenprobe('R11', '    if: ${{ inputs.probe == false }}\n', '', 'hochladen auch im Probe-Lauf');
 gegenprobe('R12', '    permissions:\n      contents: write', '    permissions:\n      contents: read', 'hochladen ohne Schreibrecht');
 gegenprobe('R13', '          set -euo pipefail\n          muster=', '          set -euo pipefail\n          node werkzeug/scripts/ci/pruefe-mac-nachbau.mjs\n          muster=', 'node im Hochlade-Job');
-gegenprobe('R14', 'gh release upload "$TAG" "${dmg_x64[0]}"', 'gh release upload "$TAG" "${dmg_arm64[0]}" "${dmg_x64[0]}"', 'beide DMGs in einem Aufruf, arm64 zuerst');
+const hochBeilagen = '          gh release upload "$TAG" "${beilagen[@]}" --repo "$GITHUB_REPOSITORY" --clobber\n';
+const hochArm = '          gh release upload "$TAG" "${dmg_arm64[0]}" --repo "$GITHUB_REPOSITORY" --clobber\n';
+const hochX64 = '          gh release upload "$TAG" "${dmg_x64[0]}" --repo "$GITHUB_REPOSITORY" --clobber\n';
+gegenprobe('R14', [[hochArm, '@@arm@@\n'], [hochX64, hochArm], ['@@arm@@\n', hochX64]], '', 'x64-DMG vor dem arm64-DMG');
+gegenprobe('R14', [[hochBeilagen, ''], [hochX64, hochX64 + hochBeilagen]], '', 'Beilagen nach den DMGs');
+gegenprobe('R14', [[hochBeilagen, ''], [hochArm, hochArm + hochBeilagen]], '', 'Beilagen zwischen arm64- und x64-DMG');
+gegenprobe('R14', [['"${dmg_arm64[0]}" --repo', '"${dmg_arm64[0]}" "${dmg_x64[0]}" --repo'], [hochX64, '']], '', 'beide DMGs in einem Aufruf');
 gegenprobe('R15', 'pakete/arm64/ffmpeg-mac-arm64.README.txt', 'pakete/arm64/ffmpeg-arm64.README.txt', 'Beilage anders benannt als im Sammler');
+gegenprobe('R15', 'pakete/x64/ffmpeg-mac-x64.FFmpeg-Lizenzuebersicht.txt', 'pakete/x64/ffmpeg-mac-x64.LICENSE.txt', 'Lizenz-Übersicht unter dem alten Namen, der einen GPL-Text verspricht');
+gegenprobe('R15', '            pakete/x64/ffmpeg-GPLv3.LICENSE.txt\n', '            pakete/x64/ffmpeg-GPL.LICENSE.txt\n', 'GPLv3-Text anders benannt als im Sammler');
+gegenprobe('R15', '            pakete/arm64/ffmpeg-mac-arm64.FFmpeg-Lizenzuebersicht.txt\n', '', 'Lizenz-Übersicht arm64 fehlt in der Liste');
 gegenprobe('R16', '>/dev/null 2>&1; then', '>/dev/null 2>&1 || gh release create "$TAG" --repo "$GITHUB_REPOSITORY"; then', 'Release anlegen, wenn es fehlt');
 gegenprobe('R17', '          TAG: ${{ steps.tag.outputs.tag }}\n          REPO:', '          TAG: ${{ steps.tag.outputs.tag }}\n          X: ${{ inputs.tag }}-\n          REPO:', 'Eingabe als Teil eines env-Werts');
 gegenprobe('R17', '          node werkzeug/scripts/ci/pruefe-mac-nachbau.mjs', '          echo "${{ inputs.tag }}"\n          node werkzeug/scripts/ci/pruefe-mac-nachbau.mjs', 'Eingabe direkt im run-Skript');
@@ -337,7 +356,7 @@ gegenprobe('R21', 'if [[ ! "$TAG" =~ $muster ]]; then\n            echo "::error
 gegenprobe('R13', '          shopt -s nullglob\n', '          shopt -s nullglob\n          bash pakete/x64/ffmpeg-QUELLEN.txt\n', 'Inhalt aus dem Artefakt mit bash ausführen');
 gegenprobe('R13', '          shopt -s nullglob\n', '          shopt -s nullglob\n          echo "$(sh pakete/x64/ffmpeg-QUELLEN.txt)"\n', 'Befehl in $( ) zwischen Anführungszeichen');
 gegenprobe('R13', '          shopt -s nullglob\n', '          shopt -s nullglob\n          PATH="pakete/x64:$PATH"\n', 'PATH auf das Artefakt umbiegen (gh käme von dort)');
-gegenprobe('R13', '            pakete/x64/ffmpeg-QUELLEN.txt\n          )', '            werkzeug/scripts/ci/ffmpeg-quellen-hinweis.txt\n          )', 'Hinweis aus dem Repo statt aus dem Bau-Artefakt');
+gegenprobe('R13', '            pakete/x64/ffmpeg-QUELLEN.txt\n', '            werkzeug/scripts/ci/ffmpeg-quellen-hinweis.txt\n', 'Hinweis aus dem Repo statt aus dem Bau-Artefakt');
 gegenprobe('R16', '            echo "::error::Zum Tag $TAG gibt es kein Release; dieser Workflow legt keins an."\n            exit 1\n',
   '            gh api -X POST "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$TAG"\n', 'Release per gh api anlegen statt abbrechen');
 gegenprobe('R16', 'dieser Workflow legt keins an."\n            exit 1\n', 'dieser Workflow legt keins an."\n', 'fehlendes Release meldet nur');
@@ -374,12 +393,16 @@ gegenprobe('R24', '          case " $ERLAUBTE_APPS " in\n            *" $app "*)
   '', 'Freigabeliste im Bau entfernt');
 gegenprobe('R24', '          case " $ERLAUBTE_APPS " in\n            *" $app "*) ;;\n            *) echo "::error::App „$app“ ist für den Nachbau nicht freigegeben."; exit 1 ;;\n          esac\n',
   '', 'Freigabeliste im Hochlade-Job entfernt');
-gegenprobe('R25', '            if [ ${#dmgs[@]} -ne 1 ] || [ ${#alle[@]} -ne 4 ]; then\n              echo "::error::Für $art genau ein DMG und vier Dateien erwartet, gefunden ${#dmgs[@]} DMG und ${#alle[@]} Dateien."\n              exit 1\n            fi\n',
-  '', 'Mengenprüfung (ein DMG, vier Dateien) entfernt');
+gegenprobe('R25', '            if [ ${#dmgs[@]} -ne 1 ] || [ ${#alle[@]} -ne 5 ]; then\n              echo "::error::Für $art genau ein DMG und fünf Dateien erwartet, gefunden ${#dmgs[@]} DMG und ${#alle[@]} Dateien."\n              exit 1\n            fi\n',
+  '', 'Mengenprüfung (ein DMG, fünf Dateien) entfernt');
+gegenprobe('R25', '[ ${#alle[@]} -ne 5 ]', '[ ${#alle[@]} -ne 4 ]', 'vier statt fünf Dateien je Art (GPLv3-Text fehlte im Artefakt)');
 gegenprobe('R25', 'passt nicht zu Version $version und Art $art."; exit 1 ;;', 'passt nicht zu Version $version und Art $art." ;;', 'falscher DMG-Name meldet nur');
 gegenprobe('R25', 'then echo "::error::Beilage fehlt oder ist leer: $f"; exit 1; fi', 'then echo "::warning::Beilage fehlt oder ist leer: $f"; fi', 'leere Beilage nur als Warnung');
 gegenprobe('R25', '          if ! cmp -s pakete/x64/ffmpeg-QUELLEN.txt pakete/arm64/ffmpeg-QUELLEN.txt; then\n            echo "::error::Der Quellen-Hinweis der beiden Bau-Jobs ist verschieden."\n            exit 1\n          fi\n',
   '', 'Vergleich der Quellen-Hinweise entfernt');
+gegenprobe('R25', '          if ! cmp -s pakete/x64/ffmpeg-GPLv3.LICENSE.txt pakete/arm64/ffmpeg-GPLv3.LICENSE.txt; then\n            echo "::error::Der GPLv3-Text der beiden Bau-Jobs ist verschieden."\n            exit 1\n          fi\n',
+  '', 'Vergleich der GPLv3-Texte entfernt');
+gegenprobe('R25', 'Der GPLv3-Text der beiden Bau-Jobs ist verschieden."\n            exit 1\n', 'Der GPLv3-Text der beiden Bau-Jobs ist verschieden."\n', 'verschiedene GPLv3-Texte melden nur');
 gegenprobe('R26', '            echo "::error::Der Job für $ART läuft mit Node für $ist."\n            exit 1\n', '            echo "::warning::Der Job für $ART läuft mit Node für $ist."\n', 'Runner-Art nur als Warnung');
 gegenprobe('R26', '            echo "::error::apps/$APP/package.json nennt $ist, das Tag $VERSION."\n            exit 1\n', '            echo "::error::apps/$APP/package.json nennt $ist, das Tag $VERSION."\n',
   'falsche Version im Tag meldet nur');

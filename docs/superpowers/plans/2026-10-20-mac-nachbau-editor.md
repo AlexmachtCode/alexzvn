@@ -2943,3 +2943,28 @@ Quellbaum und einer fehlenden Datei in der Liste; R29 bei entfernter Prüfung, n
 und oben. Jede Mutation verletzt genau die gemeinte Regel. Das Hochlade-Skript mit gh-Attrappe (js-yaml nur zum Messen):
 von `refs/heads/main` drei Uploads in der Reihenfolge x64, arm64, Beilagen; von `refs/heads/ci/mac-nachbau` und
 `refs/tags/editor-v0.5.0` Exit 1 ohne einen gh-Aufruf.
+
+## Nachtrag 20.10.2026: Owner-Entscheide A–C
+
+Der Owner hat die offene Frage aus Task 2 (W1) und die Reihenfolge-Fragen aus der Gesamtprüfung (Befunde 2, 4, 10)
+entschieden. Umgesetzt im selben Commit wie dieser Nachtrag; die Codeblöcke oben sind dafür **nicht** nachgezogen, maßgeblich
+sind die Dateien im Repo. Wo Review Focus 3, die Owner-Frage in Task 2 und „Nach der Umsetzung“ (Schritte 4 und 7)
+anderes sagen, gilt dieser Nachtrag: Der Probelauf soll jetzt im Sammler grün enden.
+
+- **A:** Der Sammler legt als GPL-Text den GPLv3-Volltext aus `node_modules/ffmpeg-static/LICENSE` bei (Kopf, „Version 3“
+  in der zweiten Zeile, mindestens 15 000 B, Schluss; sonst Abbruch). Die Mac-`ffmpeg.LICENSE` (FFmpegs Lizenz-Übersicht)
+  muss da sein, Text tragen und „FFmpeg“ sowie „General Public License“ nennen; die README muss da sein und Text tragen.
+  `beilagenNamen(art)` liefert `{ gpl: 'ffmpeg-GPLv3.LICENSE.txt', uebersicht: 'ffmpeg-mac-<art>.FFmpeg-Lizenzuebersicht.txt',
+  angaben: 'ffmpeg-mac-<art>.README.txt', quellen: 'ffmpeg-QUELLEN.txt' }`. Der Steckbrief nennt zusätzlich Größe und SHA-256
+  von `ffmpeg-static/LICENSE`. Tests: B1–B3 neu gefasst, B4 (ffmpeg-static/LICENSE fehlt), B8 (GPLv3-Merkmale, auch
+  Version 2), B13 (Übersicht), B14 (README leer), B10 (genau die fünf Namen im Hinweis, ehrlicher Satz).
+- **Dateizahl:** Jeder Bau-Job legt fünf Dateien ins Artefakt (DMG, GPLv3-Text, Übersicht, README, Quellen-Hinweis),
+  beide Arten gleich gebaut. Der Hochlade-Job verlangt je Art genau fünf, vergleicht Quellen-Hinweis **und** GPLv3-Text
+  per `cmp` zwischen den Artefakten und lädt beide nur einmal hoch (aus `pakete/x64/`). R15 prüft die ganze Liste
+  `beilagen` gegen `beilagenNamen()`, R25 die Fünf und beide `cmp`.
+- **B und C:** Reihenfolge der Uploads: alle Beilagen in einem Aufruf, dann das arm64-DMG, dann das x64-DMG (R14, mit
+  Gegenproben für x64 vor arm64, Beilagen nach oder zwischen den DMGs und beide DMGs in einem Aufruf). Job-Name
+  „An das Release hängen (Beilagen, dann arm64, dann x64)“.
+- **D** (Quellenangabe mit genauer FFmpeg-Fassung und Quellcode-Link) folgt erst nach dem Probelauf. Im Hinweis sind nur
+  die Dateinamen und der Satz zu den Beilagen geändert; „FFmpeg 6.1.1“ bleibt vorerst, obwohl die Intel-README (JSON von
+  evermeet.cx) FFmpeg 8.0 nennt (`docs/mac-nachbau.md`, Owner-Entscheide).

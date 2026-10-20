@@ -177,7 +177,9 @@ jobs:
           node werkzeug/scripts/ci/pruefe-mac-nachbau.mjs --app "$APP" --version "$VERSION" --art "$ART" \
             --release "apps/$APP/release" --lesestand werkzeug/scripts/ci/mac-nachbau-lesestand.json "$@"
 
-      # F2 (ii): GPL-Text und Build-Angaben, die ffmpeg-static neben das Programm gelegt hat, dazu der Quellen-Hinweis.
+      # F2 (ii), Owner-Entscheid A (20.10.2026): der GPLv3-Volltext aus dem npm-Paket ffmpeg-static, dazu FFmpegs
+      # Lizenz-Übersicht und die Build-Angaben, die install.js neben das Programm gelegt hat, und der Quellen-Hinweis.
+      # Mit dem DMG fünf Dateien je Art; GPLv3-Text und Hinweis sind in beiden Arten gleich (Hochlade-Job: cmp).
       - name: ffmpeg-Lizenz und Build-Angaben einsammeln
         shell: bash
         env:
@@ -198,7 +200,7 @@ jobs:
           retention-days: 1
 
   hochladen:
-    name: An das Release hängen (x64 zuerst)
+    name: An das Release hängen (Beilagen, dann arm64, dann x64)
     needs: bau
     if: ${{ inputs.probe == false }}
     runs-on: ubuntu-latest
@@ -212,24 +214,26 @@ jobs:
       contents: write
     steps:
       # Kein Checkout, kein npm, kein node: Dieser Job führt nur gh aus und hat als einziger das Schreibrecht.
-      - name: x64-Paket aus dem Bau holen
-        uses: actions/download-artifact@v4
-        with:
-          name: mac-nachbau-x64
-          path: pakete/x64
-
       - name: arm64-Paket aus dem Bau holen
         uses: actions/download-artifact@v4
         with:
           name: mac-nachbau-arm64
           path: pakete/arm64
 
+      - name: x64-Paket aus dem Bau holen
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-nachbau-x64
+          path: pakete/x64
+
       # Nur aus einem Lauf von main: Prüfer, Lesestand und Hinweis kommen aus dem gestarteten Commit (github.sha), von einem
       # Arbeitszweig also ohne PR und Owner-OK. Schutz gegen Versehen.
-      # Je Art genau vier Dateien: ein DMG mit der Tag-Version und Art im Namen, LICENSE, README und Quellen-Hinweis.
-      # Erst x64, dann arm64, je ein eigener Aufruf, danach die Beilagen: So verlangt es der Auftrag. Sein Grund im Entwurf
-      # war der alte Proxy. Mit der Paketwahl seit 19.10.2026 bekommt ein arm64-Mac in der Lücke das x64-DMG (Rosetta), ein
-      # Intel-Mac nie ein arm64-DMG; die Reihenfolge ändert nur der Owner (docs/mac-nachbau.md).
+      # Je Art genau fünf Dateien: ein DMG mit der Tag-Version und Art im Namen, GPLv3-Text, Lizenz-Übersicht, README und
+      # Quellen-Hinweis. GPLv3-Text und Quellen-Hinweis müssen in beiden Artefakten gleich sein und gehen einmal hoch.
+      # Reihenfolge nach Owner-Entscheid C und B (20.10.2026): zuerst alle Beilagen in einem Aufruf, damit nie ein DMG ohne
+      # Lizenztext am Release hängt; dann das arm64-DMG, dann das x64-DMG, je ein eigener Aufruf. Mit der Paketwahl seit
+      # 19.10.2026 bekäme ein arm64-Mac in der Lücke sonst das x64-DMG und behielte es; so bleibt ein Intel-Mac in der Lücke
+      # nur kurz auf der alten Version (ein Intel-Mac bekommt nie ein arm64-DMG).
       # Die Beilagen enden auf .txt und passen nie auf die Paketwahl (.dmg/.exe). --clobber nur für diese Dateien.
       - name: Pakete und Beilagen an das Release hängen
         shell: bash
@@ -254,11 +258,11 @@ jobs:
             exit 1
           fi
           shopt -s nullglob
-          for art in x64 arm64; do
+          for art in arm64 x64; do
             dmgs=(pakete/$art/*.dmg)
             alle=(pakete/$art/*)
-            if [ ${#dmgs[@]} -ne 1 ] || [ ${#alle[@]} -ne 4 ]; then
-              echo "::error::Für $art genau ein DMG und vier Dateien erwartet, gefunden ${#dmgs[@]} DMG und ${#alle[@]} Dateien."
+            if [ ${#dmgs[@]} -ne 1 ] || [ ${#alle[@]} -ne 5 ]; then
+              echo "::error::Für $art genau ein DMG und fünf Dateien erwartet, gefunden ${#dmgs[@]} DMG und ${#alle[@]} Dateien."
               exit 1
             fi
             case "${dmgs[0]}" in
@@ -266,14 +270,15 @@ jobs:
               *) echo "::error::DMG „${dmgs[0]}“ passt nicht zu Version $version und Art $art."; exit 1 ;;
             esac
           done
-          dmg_x64=(pakete/x64/*.dmg)
           dmg_arm64=(pakete/arm64/*.dmg)
+          dmg_x64=(pakete/x64/*.dmg)
           beilagen=(
-            pakete/x64/ffmpeg-mac-x64.LICENSE.txt
-            pakete/x64/ffmpeg-mac-x64.README.txt
-            pakete/arm64/ffmpeg-mac-arm64.LICENSE.txt
-            pakete/arm64/ffmpeg-mac-arm64.README.txt
+            pakete/x64/ffmpeg-GPLv3.LICENSE.txt
             pakete/x64/ffmpeg-QUELLEN.txt
+            pakete/arm64/ffmpeg-mac-arm64.FFmpeg-Lizenzuebersicht.txt
+            pakete/arm64/ffmpeg-mac-arm64.README.txt
+            pakete/x64/ffmpeg-mac-x64.FFmpeg-Lizenzuebersicht.txt
+            pakete/x64/ffmpeg-mac-x64.README.txt
           )
           for f in "${beilagen[@]}"; do
             if [ ! -s "$f" ]; then echo "::error::Beilage fehlt oder ist leer: $f"; exit 1; fi
@@ -282,13 +287,17 @@ jobs:
             echo "::error::Der Quellen-Hinweis der beiden Bau-Jobs ist verschieden."
             exit 1
           fi
+          if ! cmp -s pakete/x64/ffmpeg-GPLv3.LICENSE.txt pakete/arm64/ffmpeg-GPLv3.LICENSE.txt; then
+            echo "::error::Der GPLv3-Text der beiden Bau-Jobs ist verschieden."
+            exit 1
+          fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG gefunden."
           else
             echo "::error::Zum Tag $TAG gibt es kein Release; dieser Workflow legt keins an."
             exit 1
           fi
-          gh release upload "$TAG" "${dmg_x64[0]}" --repo "$GITHUB_REPOSITORY" --clobber
-          gh release upload "$TAG" "${dmg_arm64[0]}" --repo "$GITHUB_REPOSITORY" --clobber
           gh release upload "$TAG" "${beilagen[@]}" --repo "$GITHUB_REPOSITORY" --clobber
-          echo "Hochgeladen: ${dmg_x64[0]}, ${dmg_arm64[0]}, ${beilagen[*]}"
+          gh release upload "$TAG" "${dmg_arm64[0]}" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" "${dmg_x64[0]}" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Hochgeladen: ${beilagen[*]}, ${dmg_arm64[0]}, ${dmg_x64[0]}"
