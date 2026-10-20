@@ -270,11 +270,64 @@ const dialog = (html: string): string => tags(html, 'div').find((t) => attr(t, '
     STIMMEN.every(([hinweis, soll]) => text(blase({ ansage: { id: 'x', spielen: hinweis === null, hinweis } })).includes(soll)),
     'P4 6: Stimmen-Zeile je Hinweis (U20, U19, U36)',
   );
+  // Kreuz Hinweis (5) × Fehler der Ansage (3): die Stimmen-Zeile zeigt GENAU die Texte und Knöpfe des Zustands, nie einen mehr
+  // (Owner: Stimme an/aus in jedem Zustand erreichbar, wo sie es sein darf; G7; Launcher 0.17.0 läuft nur im Zustand keineStimme).
+  {
+    type Hinweis = BlasenAnsicht['ansage']['hinweis'];
+    const SOLL: Record<'null' | 'aus' | 'keineStimme' | 'produktion' | 'eingriff', { knoepfe: string[]; texte: string[] }> = {
+      null: { knoepfe: ['stimme'], texte: ['Stimme aus'] },
+      aus: { knoepfe: ['stimme'], texte: ['Stimme an'] },
+      keineStimme: { knoepfe: [], texte: [ANLEITUNG_TEXTE.keineStimme] },
+      produktion: { knoepfe: ['stimme-trotzdem'], texte: [ANLEITUNG_TEXTE.stimmeProduktion, ANLEITUNG_TEXTE.stimmeTrotzdem] },
+      eingriff: { knoepfe: [], texte: [ANLEITUNG_TEXTE.stimmeProduktion] },
+    };
+    const ALLE_TEXTE = [
+      'Stimme aus', 'Stimme an', ANLEITUNG_TEXTE.keineStimme, ANLEITUNG_TEXTE.stimmeProduktion, ANLEITUNG_TEXTE.stimmeTrotzdem, ANLEITUNG_TEXTE.ansageFehlt, ANLEITUNG_TEXTE.ansageFehler,
+    ];
+    const FEHLERTEXT = { fehlt: ANLEITUNG_TEXTE.ansageFehlt, abspielen: ANLEITUNG_TEXTE.ansageFehler };
+    const K = kreuz({ hinweis: ['null', 'aus', 'keineStimme', 'produktion', 'eingriff'] as const, fehler: [null, 'fehlt', 'abspielen'] as const });
+    pruefeFaelle('P4 6, G7: Stimmen-Zeile für Hinweis (5) × Fehler der Ansage (3): genau die Knöpfe und Texte des Zustands', K, (c) => {
+      const hinweis: Hinweis = c.hinweis === 'null' ? null : c.hinweis;
+      const html = blase({ ansage: { id: 'x', spielen: hinweis === null, hinweis } }, { stimme: { fehler: c.fehler } });
+      const knoepfe = tags(html, 'button')
+        .map((t) => attr(t, 'data-knopf'))
+        .filter((n): n is string => n === 'stimme' || n === 'stimme-trotzdem');
+      const soll = SOLL[c.hinweis];
+      const sollTexte = c.fehler === null ? soll.texte : [...soll.texte, FEHLERTEXT[c.fehler]];
+      const gezeigt = text(html);
+      const ist = ALLE_TEXTE.filter((t) => gezeigt.includes(t));
+      return vergleiche(
+        JSON.stringify([knoepfe, ist.slice().sort()]),
+        JSON.stringify([soll.knoepfe, sollTexte.slice().sort()]),
+      );
+    });
+  }
   gleich(
     [text(blase({}, { stimme: { fehler: 'fehlt' } })).includes(ANLEITUNG_TEXTE.ansageFehlt), text(blase({}, { stimme: { fehler: 'abspielen' } })).includes(ANLEITUNG_TEXTE.ansageFehler), blase({}).includes('data-hinweis="ansage"')],
     [true, true, false],
     'P4 G7: Ansage fehlt (U23) oder scheitert (U24) wird angezeigt, sonst nichts',
   );
+  // Der Screenreader hört die Produktionswarnung VOR der Aufforderung: aria-describedby nennt Warnung, Text, Ziel-fehlt und
+  // „Wartet auf den Neustart“ in dieser Reihenfolge (Spec 7: warnen vorher). Die Live-Region sagt ihren Anfangsinhalt nicht an.
+  {
+    const K = kreuz({ warnung: [false, true], zielFehlt: [false, true], neustart: [false, true] });
+    pruefeFaelle('P4 7, EP18: aria-describedby = Warnung, Text, Ziel fehlt, Neustart (nur was da ist, in dieser Reihenfolge)', K, (c) => {
+      const html = blase({ produktionsWarnung: c.warnung, nurZeigen: c.warnung, wartetAufNeustart: c.neustart }, { zielRechteck: c.zielFehlt ? null : ZIEL });
+      const d = dialog(html);
+      const ids = (attr(d, 'aria-describedby') ?? '').split(' ').filter(Boolean);
+      const namen = ids.map((i) => ['warnung', 'text', 'ziel-fehlt', 'neustart'].find((n) => i.endsWith('-' + n)) ?? i);
+      const soll = [c.warnung ? 'warnung' : null, 'text', c.zielFehlt ? 'ziel-fehlt' : null, c.neustart ? 'neustart' : null].filter((n) => n !== null);
+      const imText = ids.every((i) => html.includes(`id="${i}"`));
+      return vergleiche(JSON.stringify(namen) + imText, JSON.stringify(soll) + true);
+    });
+    const html = blase({ produktionsWarnung: true, nurZeigen: true, wartetAufNeustart: true }, { zielRechteck: null });
+    const pos = (s: string): number => html.indexOf(s);
+    const ids = (attr(dialog(html), 'aria-describedby') ?? '').split(' ');
+    ok(
+      ids.length === 4 && ids.every((i, n) => n === 0 || pos(`id="${ids[n - 1]}"`) < pos(`id="${i}"`)),
+      'P4 7: die ids in aria-describedby stehen im Dokument in derselben Reihenfolge (Warnung vor Text)',
+    );
+  }
   const erledigt = blase({ art: 'schonErledigt', wiederfinden: 'Übersprungenes findest du oben.', wartetAufNeustart: true });
   ok(
     text(erledigt).includes('Schon erledigt') && text(erledigt).includes('Übersprungenes findest du oben.') && text(erledigt).includes(ANLEITUNG_TEXTE.neustartWartet),

@@ -105,6 +105,17 @@ export function AnleitungsBlase(p: AnleitungsSchichtProps & { zielRechteck: Rech
   const platz = blasenPlatz(ziel, p.fenster, BLASEN_GROESSE);
   const kopfId = `${id}-kopf`;
   const textId = `${id}-text`;
+  const warnId = `${id}-warnung`;
+  const zielFehltId = `${id}-ziel-fehlt`;
+  const neustartId = `${id}-neustart`;
+  // Beschreibung in Lesereihenfolge: Warnung vor der Aufforderung (Spec 7), dann Text, Ziel fehlt, Warten auf den Neustart.
+  // Die Live-Region sagt ihren Anfangsinhalt beim Einhängen nicht an; ohne Kapitel ist der Text schon die Beschriftung.
+  const beschreibung = [
+    blase.produktionsWarnung ? warnId : null,
+    blase.kapitel !== null ? textId : null,
+    zielFehlt ? zielFehltId : null,
+    blase.wartetAufNeustart ? neustartId : null,
+  ].filter((i): i is string => i !== null);
 
   return (
     <div className={cn('pointer-events-none', p.className)} data-anleitung-schicht="">
@@ -122,7 +133,7 @@ export function AnleitungsBlase(p: AnleitungsSchichtProps & { zielRechteck: Rech
         role="dialog"
         aria-modal="false"
         aria-labelledby={blase.kapitel !== null ? kopfId : textId}
-        aria-describedby={blase.kapitel !== null ? textId : undefined}
+        aria-describedby={beschreibung.length > 0 ? beschreibung.join(' ') : undefined}
         tabIndex={-1}
         data-seite={platz.seite}
         onKeyDown={(e) => blasenTaste(e, blase.knoepfe.spaeter, ereignis)}
@@ -142,7 +153,7 @@ export function AnleitungsBlase(p: AnleitungsSchichtProps & { zielRechteck: Rech
         ) : null}
         <div role="status" aria-live="polite" className="flex flex-col gap-2">
           {blase.produktionsWarnung ? (
-            <p data-hinweis="produktion" className="flex gap-2">
+            <p id={warnId} data-hinweis="produktion" className="flex gap-2">
               <span aria-hidden="true" className={STATUS_SYMBOL_KLASSE.warn}>
                 {STATUS_SYMBOL.warn}
               </span>
@@ -155,8 +166,8 @@ export function AnleitungsBlase(p: AnleitungsSchichtProps & { zielRechteck: Rech
           <p id={textId} className="leading-snug">
             {blase.text}
           </p>
-          {zielFehlt ? <p data-hinweis="ziel-fehlt">{blase.zielFehlt ?? ANLEITUNG_TEXTE.zielFehlt}</p> : null}
-          {blase.wartetAufNeustart ? <p className="text-[var(--muted-foreground)]">{ANLEITUNG_TEXTE.neustartWartet}</p> : null}
+          {zielFehlt ? <p id={zielFehltId} data-hinweis="ziel-fehlt">{blase.zielFehlt ?? ANLEITUNG_TEXTE.zielFehlt}</p> : null}
+          {blase.wartetAufNeustart ? <p id={neustartId} className="text-[var(--muted-foreground)]">{ANLEITUNG_TEXTE.neustartWartet}</p> : null}
           {blase.wiederfinden !== null ? <p className="text-xs text-[var(--muted-foreground)]">{blase.wiederfinden}</p> : null}
         </div>
         {blase.optionen.length > 0 ? (
