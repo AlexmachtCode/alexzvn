@@ -513,10 +513,16 @@ function hinterKapitel(f: AnleitungsFortschritt, blase: 'einzeln' | 'haupt', kap
   return mitOrt(f, eintritt({ a, z, f }, kapitelIndex(a, kapitel) + 1) ?? { ort: 'abschluss' }, a, jetzt);
 }
 
-/** Regel 11: gilt der Schritt nicht mehr → weiter; erkannte Handlung im Modus führen → weiter; sonst warErfuellt nachführen. */
+/** Regel 11: gilt der Schritt nicht mehr → weiter; erkannte Handlung im Modus führen → weiter; sonst warErfuellt nachführen; „Schon erledigt“ ohne erledigtes Kapitel → ersten Schritt betreten. */
 function nachZustand(f: AnleitungsFortschritt, a: Anleitung, z: Zustand, jetzt: string): AnleitungsFortschritt {
   const blase = aktiveBlase(f);
-  if (blase === null || blase.p.ort !== 'kapitel' || blase.p.schritt === null) return f;
+  if (blase === null || blase.p.ort !== 'kapitel') return f;
+  if (blase.p.schritt === null) {
+    // „Schon erledigt“ im Hauptlauf: fällt die Bedingung des Kapitels weg, stimmt der Kapiteltext nicht mehr → ersten geltenden Schritt betreten.
+    const kap = blase.p.kapitel;
+    if (blase.art !== 'haupt' || kapitelZustand(a, kap, z, f) === 'erledigt') return f;
+    return mitOrt(f, eintritt({ a, z, f }, kapitelIndex(a, kap)) ?? { ort: 'abschluss' }, a, jetzt);
+  }
   const p = blase.p;
   const s = schrittVon(a, p);
   if (s === undefined) return f;

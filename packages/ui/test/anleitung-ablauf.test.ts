@@ -275,7 +275,12 @@ function sollNach(c: Basis, e: AnleitungsEreignis): string {
     else setzeHaupt(eintritt(KAP.indexOf(k) + 1));
   };
   const nachZustand = (): void => {
-    if (blase === null || !blase.o.includes(':') || schrittVon(blase.o) === '') return;
+    if (blase === null || !blase.o.includes(':')) return;
+    if (schrittVon(blase.o) === '') {
+      // „Schon erledigt“ (Hauptlauf): fällt die Bedingung des Kapitels weg, wird der erste geltende Schritt betreten (Regel 11).
+      if (aktiv === 'haupt' && kapZ(kapVon(blase.o)) !== 'erledigt') setzeHaupt(eintritt(KAP.indexOf(kapVon(blase.o))));
+      return;
+    }
     const art = ART[schrittVon(blase.o)];
     const erfuellt = art === 'handeln' && c.bed;
     if (art === 'handeln' && !blase.zeigen && !blase.war && erfuellt) {
