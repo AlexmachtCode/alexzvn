@@ -1,0 +1,303 @@
+name: Mac-Nachbau
+
+# Mac-Pakete (arm64 und x64, unsigniert) aus einem BESTEHENDEN Tag nachbauen und an dessen Release hängen (Entwurf
+# mac-fassungen, Stufe 1; Owner-Freigabe 20.10.2026, F1–F4). Heute nur der Editor: Der Tag-Lauf von editor-v0.5.0
+# scheiterte am doppelten electronVersion/npmRebuild; ein Re-Run oder ein neues Tag nähme wieder den Workflow aus dem
+# Tag-Commit. Ein Hand-Start nimmt diesen Workflow vom gestarteten Zweig (main).
+#   - nur Hand-Start; probe (Vorgabe true) baut und prüft nur. Hochgeladen wird nur mit probe=false.
+#   - ein Bau-Job je Mac-Art auf einem Runner dieser Art: ffmpeg-static lädt ffmpeg nur für die Art des Bau-Rechners.
+#   - Bau nur mit Leserecht (fremder Code aus npm ci); Hochladen mit Schreibrecht, ohne Code aus dem Repo, nur gh.
+#   - kein neues Release, kein Katalog-Bump (suite.json nennt die Version schon), keine Änderung an der Tag-Konfiguration.
+# Bedienung: docs/mac-nachbau.md.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Bestehendes Tag, z. B. editor-v0.5.0"
+        required: true
+        type: string
+      probe:
+        description: "Nur bauen und prüfen, nichts hochladen"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  # Apps, deren Tags dieser Workflow nachbauen darf. Stufe 2 erweitert die Liste, zusammen mit APPS im Prüfer
+  # (scripts/ci/pruefe-mac-nachbau.mjs); der Selbsttest hält beide gleich.
+  ERLAUBTE_APPS: editor
+
+jobs:
+  bau:
+    name: Bauen und prüfen (${{ matrix.art }})
+    strategy:
+      # Beide Arten laufen zu Ende, auch wenn eine scheitert: Der Probelauf soll beide Lesestände zeigen.
+      fail-fast: false
+      matrix:
+        include:
+          - art: arm64
+            runner: macos-26
+          - art: x64
+            runner: macos-26-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      # Eingaben gehen nur über env in Skripte. [[ =~ ]] prüft das ganze Tag: grep prüfte zeilenweise, und ein Tag mit
+      # Zeilenumbruch schrieb eine zweite Zeile app=… nach $GITHUB_OUTPUT (am Skript gemessen 20.10.2026; ob die API so
+      # ein Tag annimmt, ist ungeprüft). Dieselbe Prüfung steht im Hochlade-Job.
+      - name: Tag prüfen
+        id: tag
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          muster='^[a-z][a-z-]*-v[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ ! "$TAG" =~ $muster ]]; then
+            echo "::error::Tag „$TAG“ hat nicht die Form ‹App›-v‹Version› (z. B. editor-v0.5.0)."
+            exit 1
+          fi
+          app="${TAG%-v*}"
+          case " $ERLAUBTE_APPS " in
+            *" $app "*) ;;
+            *) echo "::error::App „$app“ ist für den Nachbau nicht freigegeben (erlaubt: $ERLAUBTE_APPS)."; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG##*-v}" >> "$GITHUB_OUTPUT"
+
+      # Quellen aus dem Tag, Prüfer und Sammler aus dem Commit dieses Workflows, beides OHNE Anmeldedaten. Kein
+      # actions/checkout: Alle alten Tags tragen den Gitlink portaudio ohne .gitmodules, daran scheitert es mit
+      # persist-credentials: false (connect-mac.yml, Erstlauf 19.10.2026). Gibt es das Tag nicht, scheitert dieser Schritt.
+      - name: Quellen aus dem Tag und Prüfer holen (ohne Anmeldedaten)
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          REPO: ${{ github.repository }}
+          WERKZEUG_SHA: ${{ github.sha }}
+        run: |
+          git init -q .
+          git remote add origin "https://github.com/$REPO"
+          git -c protocol.version=2 fetch -q --no-tags --depth=1 origin "+refs/tags/$TAG:refs/tags/$TAG"
+          git checkout -q --force "refs/tags/$TAG"
+          git log -1 --format='Tag-Commit %H' "refs/tags/$TAG"
+          git -c protocol.version=2 fetch -q --no-tags --depth=1 origin "$WERKZEUG_SHA"
+          mkdir -p werkzeug/scripts/ci
+          for f in pruefe-mac-nachbau.mjs sammle-ffmpeg-beilagen.mjs mac-nachbau-lesestand.json ffmpeg-quellen-hinweis.txt; do
+            git show "$WERKZEUG_SHA:scripts/ci/$f" > "werkzeug/scripts/ci/$f"
+          done
+          echo "Prüfer, Sammler, Lesestand und Quellen-Hinweis aus $WERKZEUG_SHA"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      # ffmpeg-static lädt ffmpeg nach os.arch() (install.js:167). Läuft Node in einer anderen Art als der Job, stimmt
+      # das ffmpeg im Paket nicht; der Prüfer fände es, hier fällt es Minuten früher auf.
+      - name: Runner-Art prüfen
+        shell: bash
+        env:
+          ART: ${{ matrix.art }}
+        run: |
+          ist=$(node -p 'process.arch')
+          echo "Runner $(uname -m), macOS $(sw_vers -productVersion), Node $(node --version) ($ist)"
+          if [ "$ist" != "$ART" ]; then
+            echo "::error::Der Job für $ART läuft mit Node für $ist."
+            exit 1
+          fi
+
+      # Der Artefaktname kommt aus apps/<app>/package.json (artifactName in electron-builder.yml): Version und Tag gleich.
+      - name: Version im Tag prüfen
+        shell: bash
+        env:
+          APP: ${{ steps.tag.outputs.app }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          ist=$(node -p "require('./apps/' + process.env.APP + '/package.json').version")
+          if [ "$ist" != "$VERSION" ]; then
+            echo "::error::apps/$APP/package.json nennt $ist, das Tag $VERSION."
+            exit 1
+          fi
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      - name: Build renderer/main (electron-vite)
+        shell: bash
+        env:
+          APP: ${{ steps.tag.outputs.app }}
+        run: npm run build -w "@jm/$APP"
+
+      # Beim Editor: tools/bundle-ffmpeg.mjs kopiert ffmpeg (ffmpeg-static) und ffprobe (ffprobe-static) nach
+      # resources/bin/mac; extraResources legt sie nach Contents/Resources/bin/mac.
+      - name: Prepackage (ffmpeg und ffprobe bündeln)
+        shell: bash
+        env:
+          APP: ${{ steps.tag.outputs.app }}
+        run: npm run prepackage -w "@jm/$APP" --if-present
+
+      # Die Konfiguration aus dem Tag bleibt byte-gleich: Sie muss electronVersion und npmRebuild selbst tragen. Dieser
+      # Workflow hängt nichts an (das doppelte Anhängen war der Fehler von editor-v0.5.0).
+      - name: Konfiguration aus dem Tag prüfen (nichts anhängen)
+        shell: bash
+        env:
+          APP: ${{ steps.tag.outputs.app }}
+        run: |
+          cfg="apps/$APP/electron-builder.yml"
+          grep -q '^electronVersion:' "$cfg" || { echo "::error::$cfg trägt kein electronVersion; dieser Workflow hängt nichts an."; exit 1; }
+          grep -q '^npmRebuild: false' "$cfg" || { echo "::error::$cfg trägt kein npmRebuild: false; dieser Workflow hängt nichts an."; exit 1; }
+          git diff --exit-code -- "$cfg"
+
+      # dmg und die Art auf der Kommandozeile: Ohne Zielnamen baute --arm64 beide DMGs, weil die Konfiguration
+      # arm64 und x64 nennt.
+      - name: Paket bauen (electron-builder, unsigniert, nur diese Art)
+        shell: bash
+        env:
+          APP: ${{ steps.tag.outputs.app }}
+          ART: ${{ matrix.art }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          cd "apps/$APP"
+          npx electron-builder --mac dmg "--$ART" --publish never
+
+      # Scheitert die Prüfung, entsteht kein Artefakt, und hochladen startet nicht.
+      - name: Prüfen (ein DMG dieser Art, ffmpeg-Art, Lesestand, Laufzeitprobe, minos)
+        shell: bash
+        env:
+          APP: ${{ steps.tag.outputs.app }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          ART: ${{ matrix.art }}
+          PROBE: ${{ inputs.probe }}
+        run: |
+          if [ "$PROBE" = "true" ]; then set -- --probe; else set --; fi
+          node werkzeug/scripts/ci/pruefe-mac-nachbau.mjs --app "$APP" --version "$VERSION" --art "$ART" \
+            --release "apps/$APP/release" --lesestand werkzeug/scripts/ci/mac-nachbau-lesestand.json "$@"
+
+      # F2 (ii), Owner-Entscheid A (20.10.2026): der GPLv3-Volltext aus dem npm-Paket ffmpeg-static, dazu FFmpegs
+      # Lizenz-Übersicht und die Build-Angaben, die install.js neben das Programm gelegt hat, und der Quellen-Hinweis.
+      # Mit dem DMG fünf Dateien je Art; GPLv3-Text und Hinweis sind in beiden Arten gleich (Hochlade-Job: cmp).
+      - name: ffmpeg-Lizenz und Build-Angaben einsammeln
+        shell: bash
+        env:
+          APP: ${{ steps.tag.outputs.app }}
+          ART: ${{ matrix.art }}
+        run: |
+          node werkzeug/scripts/ci/sammle-ffmpeg-beilagen.mjs --app "$APP" --art "$ART" --release "apps/$APP/release" \
+            --ffmpeg-static node_modules/ffmpeg-static --hinweis werkzeug/scripts/ci/ffmpeg-quellen-hinweis.txt --ziel paket
+          cp "apps/$APP/release/"*.dmg paket/
+          ls -l paket
+
+      - name: Paket und Beilagen als Artefakt ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-nachbau-${{ matrix.art }}
+          path: paket/
+          if-no-files-found: error
+          retention-days: 1
+
+  hochladen:
+    name: An das Release hängen (Beilagen, dann arm64, dann x64)
+    needs: bau
+    if: ${{ inputs.probe == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Zwei echte Läufe zugleich löschten sich per --clobber gegenseitig die Uploads: Hochladen nur nacheinander, und ein
+    # laufender Upload wird nie abgebrochen.
+    concurrency:
+      group: mac-nachbau-hochladen
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      # Kein Checkout, kein npm, kein node: Dieser Job führt nur gh aus und hat als einziger das Schreibrecht.
+      - name: arm64-Paket aus dem Bau holen
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-nachbau-arm64
+          path: pakete/arm64
+
+      - name: x64-Paket aus dem Bau holen
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-nachbau-x64
+          path: pakete/x64
+
+      # Nur aus einem Lauf von main: Prüfer, Lesestand und Hinweis kommen aus dem gestarteten Commit (github.sha), von einem
+      # Arbeitszweig also ohne PR und Owner-OK. Schutz gegen Versehen.
+      # Je Art genau fünf Dateien: ein DMG mit der Tag-Version und Art im Namen, GPLv3-Text, Lizenz-Übersicht, README und
+      # Quellen-Hinweis. GPLv3-Text und Quellen-Hinweis müssen in beiden Artefakten gleich sein und gehen einmal hoch.
+      # Reihenfolge nach Owner-Entscheid C und B (20.10.2026): zuerst alle Beilagen in einem Aufruf, damit nie ein DMG ohne
+      # Lizenztext am Release hängt; dann das arm64-DMG, dann das x64-DMG, je ein eigener Aufruf. Mit der Paketwahl seit
+      # 19.10.2026 bekäme ein arm64-Mac in der Lücke sonst das x64-DMG und behielte es; so bleibt ein Intel-Mac in der Lücke
+      # nur kurz auf der alten Version (ein Intel-Mac bekommt nie ein arm64-DMG).
+      # Die Beilagen enden auf .txt und passen nie auf die Paketwahl (.dmg/.exe). --clobber nur für diese Dateien.
+      - name: Pakete und Beilagen an das Release hängen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          muster='^[a-z][a-z-]*-v[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ ! "$TAG" =~ $muster ]]; then
+            echo "::error::Tag „$TAG“ hat nicht die Form ‹App›-v‹Version›."
+            exit 1
+          fi
+          app="${TAG%-v*}"
+          version="${TAG##*-v}"
+          case " $ERLAUBTE_APPS " in
+            *" $app "*) ;;
+            *) echo "::error::App „$app“ ist für den Nachbau nicht freigegeben."; exit 1 ;;
+          esac
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Hochladen nur aus einem Lauf von main, gestartet wurde von $GITHUB_REF: Prüfer, Lesestand und Quellen-Hinweis kämen sonst aus einem Zweig ohne PR."
+            exit 1
+          fi
+          shopt -s nullglob
+          for art in arm64 x64; do
+            dmgs=(pakete/$art/*.dmg)
+            alle=(pakete/$art/*)
+            if [ ${#dmgs[@]} -ne 1 ] || [ ${#alle[@]} -ne 5 ]; then
+              echo "::error::Für $art genau ein DMG und fünf Dateien erwartet, gefunden ${#dmgs[@]} DMG und ${#alle[@]} Dateien."
+              exit 1
+            fi
+            case "${dmgs[0]}" in
+              *"-$version-mac-$art.dmg") ;;
+              *) echo "::error::DMG „${dmgs[0]}“ passt nicht zu Version $version und Art $art."; exit 1 ;;
+            esac
+          done
+          dmg_arm64=(pakete/arm64/*.dmg)
+          dmg_x64=(pakete/x64/*.dmg)
+          beilagen=(
+            pakete/x64/ffmpeg-GPLv3.LICENSE.txt
+            pakete/x64/ffmpeg-QUELLEN.txt
+            pakete/arm64/ffmpeg-mac-arm64.FFmpeg-Lizenzuebersicht.txt
+            pakete/arm64/ffmpeg-mac-arm64.README.txt
+            pakete/x64/ffmpeg-mac-x64.FFmpeg-Lizenzuebersicht.txt
+            pakete/x64/ffmpeg-mac-x64.README.txt
+          )
+          for f in "${beilagen[@]}"; do
+            if [ ! -s "$f" ]; then echo "::error::Beilage fehlt oder ist leer: $f"; exit 1; fi
+          done
+          if ! cmp -s pakete/x64/ffmpeg-QUELLEN.txt pakete/arm64/ffmpeg-QUELLEN.txt; then
+            echo "::error::Der Quellen-Hinweis der beiden Bau-Jobs ist verschieden."
+            exit 1
+          fi
+          if ! cmp -s pakete/x64/ffmpeg-GPLv3.LICENSE.txt pakete/arm64/ffmpeg-GPLv3.LICENSE.txt; then
+            echo "::error::Der GPLv3-Text der beiden Bau-Jobs ist verschieden."
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG gefunden."
+          else
+            echo "::error::Zum Tag $TAG gibt es kein Release; dieser Workflow legt keins an."
+            exit 1
+          fi
+          gh release upload "$TAG" "${beilagen[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" "${dmg_arm64[0]}" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" "${dmg_x64[0]}" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Hochgeladen: ${beilagen[*]}, ${dmg_arm64[0]}, ${dmg_x64[0]}"

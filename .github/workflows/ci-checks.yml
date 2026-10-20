@@ -101,6 +101,45 @@ jobs:
       - name: Release-Proxy (Paketwahl, Routing)
         run: node --experimental-strip-types services/release-proxy/test/worker.test.mjs
 
+      # Mac-Nachbau (Entwurf mac-fassungen, Stufe 1; Plan docs/superpowers/plans/2026-10-20-mac-nachbau-editor.md):
+      # Prüfer samt der Lesestand-Datei im Repo, ffmpeg-Beilagen und Workflow-Regeln, je ein Schritt. Nur node:-Module,
+      # ohne macOS (otool und Programmstart laufen nur im Workflow selbst). Der Beilagen-Test lädt
+      # services/release-proxy/paketwahl.js; Node meldet dazu MODULE_TYPELESS_PACKAGE_JSON auf stderr, harmlos.
+      # Unter Node 20 wie im Mac-Job: Job mac-nachbau-node20. !cancelled(): Die drei laufen auch nach einem roten Schritt
+      # davor (sie brauchen kein npm ci), so verdeckt kein Test einen anderen; der Job bleibt dann trotzdem rot.
+      - name: Mac-Nachbau (Prüfer, Lesestand-Datei)
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/test/pruefe-mac-nachbau.test.mjs
+      - name: Mac-Nachbau (ffmpeg-Beilagen)
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs
+      - name: Mac-Nachbau (Workflow-Regeln)
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/test/mac-nachbau-workflow.test.mjs
+
+  # Prüfer und Sammler laufen im Mac-Job (mac-nachbau.yml) unter Node 20, die Selbsttests oben unter Node 22. Eine API
+  # ab Node 21 fiele sonst erst im Mac-Lauf auf. Kein npm ci: Die Tests brauchen nur node:-Module und paketwahl.js.
+  # --experimental-detect-module: paketwahl.js ist ESM ohne package.json mit type. Node 24 erkennt das von selbst
+  # (gemessen, mit und ohne Schalter grün); Node 20 ist lokal ungemessen (kein Node 20 im Arbeitsplatz), der Schalter
+  # macht es dort ausdrücklich. Der erste Lauf unter Node 20 ist der in der PR.
+  mac-nachbau-node20:
+    name: Mac-Nachbau unter Node 20 (wie im Mac-Job)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Prüfer, Lesestand-Datei
+        run: node scripts/ci/test/pruefe-mac-nachbau.test.mjs
+      - name: ffmpeg-Beilagen
+        if: ${{ !cancelled() }}
+        run: node --experimental-detect-module scripts/ci/test/sammle-ffmpeg-beilagen.test.mjs
+      - name: Workflow-Regeln
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/test/mac-nachbau-workflow.test.mjs
+
   secret-scan:
     name: Secret-Scan (gitleaks)
     runs-on: ubuntu-latest
