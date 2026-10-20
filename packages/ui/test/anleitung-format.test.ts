@@ -152,7 +152,7 @@ export function fortschritt(teil: Partial<AnleitungsFortschritt> = {}): Anleitun
   const zweiFormen: Bedingung = { zustand: 'quelle', ereignis: 'tippfehler' };
   // @ts-expect-error Form neben verschachtelter Form
   const gemischt: Bedingung = { nicht: { zustand: 'x' }, alle: [] };
-  ok(Object.keys(zweiFormen).length === 2 && Object.keys(gemischt).length === 2, 'P1 7: Bedingung mit zwei Formen ist ein Typfehler (@ts-expect-error)');
+  void [zweiFormen, gemischt]; // keine ok-Zeile: der Typtest laeuft in der Typpruefung, der Zaehlstand bleibt 702
   const leer = fortschritt();
   gleich(
     [
