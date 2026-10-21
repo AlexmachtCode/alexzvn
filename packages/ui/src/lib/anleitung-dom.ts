@@ -51,6 +51,29 @@ export function gleichesRechteck(a: Rechteck | null, b: Rechteck | null): boolea
   return a.x === b.x && a.y === b.y && a.breite === b.breite && a.hoehe === b.hoehe;
 }
 
+/** Eine Messung des Hooks: das Rechteck (null = nicht zu sehen) zusammen mit der Kennung, für die gemessen wurde. */
+export interface ZielMessung {
+  kennung: string;
+  rechteck: Rechteck | null;
+}
+/** Ziel einer Sprechblase: gemessen (Rechteck), gemessen und nicht zu sehen (null) oder noch nicht gemessen. */
+export type ZielStand = Rechteck | null | 'ungemessen';
+
+/**
+ * Was useAnleitungsZiel zurückgibt (Körper des Hooks, mit Attrappen getestet; G7): Eine Messung gilt nur für ihre Kennung.
+ * Gibt es für die Kennung noch keine (erster Render, Schrittwechsel), ist das Ziel 'ungemessen': weder Hervorhebung noch
+ * „Ziel fehlt“, denn die Diagnose stünde sonst vor der ersten Messung da, genau wenn der Fokus in die Blase geht. Ohne Kennung null.
+ */
+export function zielStand(m: ZielMessung | null, kennung: string | null): ZielStand {
+  if (kennung === null) return null;
+  return m !== null && m.kennung === kennung ? m.rechteck : 'ungemessen';
+}
+
+/** Neue Messung übernehmen; gleiche Kennung und gleiches Rechteck → der alte Zustand (kein neues Rendern). */
+export function neueMessung(alt: ZielMessung | null, neu: ZielMessung): ZielMessung {
+  return alt !== null && alt.kennung === neu.kennung && gleichesRechteck(alt.rechteck, neu.rechteck) ? alt : neu;
+}
+
 const klemme = (wert: number, min: number, max: number): number => Math.max(min, Math.min(wert, max));
 
 /**

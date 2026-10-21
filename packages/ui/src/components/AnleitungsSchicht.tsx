@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import type { AnleitungsAnsicht, AnleitungsEreignis, BlasenAnsicht } from '../lib/anleitung';
-import { BLASEN_GROESSE, blasenFokus, blasenPlatz, blasenTaste, type Groesse, type Rechteck } from '../lib/anleitung-dom';
+import { BLASEN_GROESSE, blasenFokus, blasenPlatz, blasenTaste, type Groesse, type ZielStand } from '../lib/anleitung-dom';
 import { cn } from '../lib/cn';
 import { STATUS_SYMBOL, STATUS_SYMBOL_KLASSE } from '../lib/status';
 import { ANLEITUNG_TEXTE, UI_TEXTE } from '../lib/texte';
@@ -82,8 +82,8 @@ export function AnleitungsSchicht(p: AnleitungsSchichtProps): React.JSX.Element 
   return <AnleitungsBlase {...p} zielRechteck={zielRechteck} fenster={fenster} />;
 }
 
-/** Die Darstellung bei gemessenem Ziel und Fenster (für Tests ohne DOM). Nur aus dieser Datei exportiert. */
-export function AnleitungsBlase(p: AnleitungsSchichtProps & { zielRechteck: Rechteck | null; fenster: Groesse }): React.JSX.Element | null {
+/** Die Darstellung bei gemessenem (oder noch nicht gemessenem) Ziel und Fenster (für Tests ohne DOM). Nur aus dieser Datei exportiert. */
+export function AnleitungsBlase(p: AnleitungsSchichtProps & { zielRechteck: ZielStand; fenster: Groesse }): React.JSX.Element | null {
   const blase = p.ansicht.blase;
   const id = useId();
   const blaseRef = useRef<HTMLDivElement>(null);
@@ -100,7 +100,9 @@ export function AnleitungsBlase(p: AnleitungsSchichtProps & { zielRechteck: Rech
     grund.current = 'bedienung';
     p.aufEreignis(e);
   };
-  const ziel = blase.ziel === null ? null : p.zielRechteck;
+  // Noch nicht gemessen ('ungemessen': erster Render, Schrittwechsel): weder Hervorhebung noch „Ziel fehlt“ (G7). Im Browser
+  // misst der Hook vor dem Malen; dieser Render ist nie zu sehen, aber in ihm geht der Fokus in die Blase.
+  const ziel = blase.ziel === null || p.zielRechteck === 'ungemessen' ? null : p.zielRechteck;
   const zielFehlt = blase.ziel !== null && p.zielRechteck === null;
   const platz = blasenPlatz(ziel, p.fenster, BLASEN_GROESSE);
   const kopfId = `${id}-kopf`;

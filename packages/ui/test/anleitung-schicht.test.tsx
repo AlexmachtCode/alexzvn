@@ -15,8 +15,11 @@ import {
   findeZiel,
   fokusInBlase,
   gleichesRechteck,
+  neueMessung,
+  zielStand,
   type Rechteck,
   type ZielElement,
+  type ZielStand,
   type ZielWurzel,
 } from '../src/lib/anleitung-dom';
 import { ANLEITUNG_TEXTE } from '../src/lib/texte';
@@ -57,6 +60,24 @@ const nichts = (): void => undefined;
     [gleichesRechteck(null, null), gleichesRechteck(null, { x: 0, y: 0, breite: 1, hoehe: 1 }), gleichesRechteck({ x: 1, y: 2, breite: 3, hoehe: 4 }, { x: 1, y: 2, breite: 3, hoehe: 4 })],
     [true, false, true],
     'P4: gleichesRechteck',
+  );
+  // Körper des Hooks (G7): Eine Messung gilt nur für ihre Kennung. Ohne passende Messung (erster Render, Schrittwechsel) ist
+  // das Ziel „ungemessen“ — weder Hervorhebung noch „Ziel fehlt“ —, ohne Kennung null.
+  const R: Rechteck = { x: 1, y: 2, breite: 3, hoehe: 4 };
+  const MESSUNG = kreuz({ messung: ['keine', 'gleicheKennung', 'andereKennung'] as const, rechteck: [null, R], kennung: [null, 'kopf.einstellungen'] as const });
+  pruefeFaelle('P4 7, G7: zielStand – Messung gilt nur für ihre Kennung, sonst „ungemessen“; ohne Kennung null', MESSUNG, (c) => {
+    const m = c.messung === 'keine' ? null : { kennung: c.messung === 'gleicheKennung' ? 'kopf.einstellungen' : 'reiter.werkzeugkasten', rechteck: c.rechteck };
+    const soll: ZielStand = c.kennung === null ? null : c.messung === 'gleicheKennung' ? c.rechteck : 'ungemessen';
+    return vergleiche(JSON.stringify(zielStand(m, c.kennung)), JSON.stringify(soll));
+  });
+  const alt = { kennung: 'kopf.einstellungen', rechteck: R };
+  const andere = neueMessung(alt, { kennung: 'reiter.werkzeugkasten', rechteck: { ...R } });
+  ok(
+    neueMessung(alt, { kennung: 'kopf.einstellungen', rechteck: { ...R } }) === alt &&
+      neueMessung(alt, { kennung: 'kopf.einstellungen', rechteck: null }).rechteck === null &&
+      andere !== alt && andere.kennung === 'reiter.werkzeugkasten' &&
+      neueMessung(null, alt) === alt,
+    'P4 EP11: neueMessung behält den Zustand nur bei gleicher Kennung und gleichem Rechteck, sonst gilt die neue Messung mit ihrer Kennung',
   );
 }
 
@@ -185,7 +206,7 @@ const ansicht = (b: Partial<BlasenAnsicht> | null): AnleitungsAnsicht => ({
   abgeschlossen: false,
   beendet: false,
 });
-function blase(b: Partial<BlasenAnsicht>, extra: { zielRechteck?: Rechteck | null; stimme?: Partial<AnleitungsStimme> } = {}): string {
+function blase(b: Partial<BlasenAnsicht>, extra: { zielRechteck?: ZielStand; stimme?: Partial<AnleitungsStimme> } = {}): string {
   return render(
     <AnleitungsBlase
       ansicht={ansicht(b)}
@@ -310,15 +331,19 @@ const dialog = (html: string): string => tags(html, 'div').find((t) => attr(t, '
   // Der Screenreader hört die Produktionswarnung VOR der Aufforderung: aria-describedby nennt Warnung, Text, Ziel-fehlt und
   // „Wartet auf den Neustart“ in dieser Reihenfolge (Spec 7: warnen vorher). Die Live-Region sagt ihren Anfangsinhalt nicht an.
   {
-    const K = kreuz({ warnung: [false, true], zielFehlt: [false, true], neustart: [false, true] });
-    pruefeFaelle('P4 7, EP18: aria-describedby = Warnung, Text, Ziel fehlt, Neustart (nur was da ist, in dieser Reihenfolge)', K, (c) => {
-      const html = blase({ produktionsWarnung: c.warnung, nurZeigen: c.warnung, wartetAufNeustart: c.neustart }, { zielRechteck: c.zielFehlt ? null : ZIEL });
+    // Ziel: gemessen und da, gemessen und fehlt, noch nicht gemessen (erster Render, Schrittwechsel): nur „fehlt“ ist eine
+    // Diagnose; hervorgehoben wird nur ein gemessenes Ziel, ganzflächig abgedunkelt nie (der Schritt hat ein Ziel, G7).
+    const K = kreuz({ warnung: [false, true], ziel: ['da', 'fehlt', 'ungemessen'] as const, neustart: [false, true] });
+    pruefeFaelle('P4 7, EP18, G7: aria-describedby = Warnung, Text, Ziel fehlt, Neustart (nur was da ist, in dieser Reihenfolge) und Abdunkeln je Messung', K, (c) => {
+      const zielRechteck = c.ziel === 'da' ? ZIEL : c.ziel === 'fehlt' ? null : 'ungemessen';
+      const html = blase({ produktionsWarnung: c.warnung, nurZeigen: c.warnung, wartetAufNeustart: c.neustart }, { zielRechteck });
       const d = dialog(html);
       const ids = (attr(d, 'aria-describedby') ?? '').split(' ').filter(Boolean);
       const namen = ids.map((i) => ['warnung', 'text', 'ziel-fehlt', 'neustart'].find((n) => i.endsWith('-' + n)) ?? i);
-      const soll = [c.warnung ? 'warnung' : null, 'text', c.zielFehlt ? 'ziel-fehlt' : null, c.neustart ? 'neustart' : null].filter((n) => n !== null);
+      const soll = [c.warnung ? 'warnung' : null, 'text', c.ziel === 'fehlt' ? 'ziel-fehlt' : null, c.neustart ? 'neustart' : null].filter((n) => n !== null);
       const imText = ids.every((i) => html.includes(`id="${i}"`));
-      return vergleiche(JSON.stringify(namen) + imText, JSON.stringify(soll) + true);
+      const abdunkeln = tags(html, 'div').map((t) => attr(t, 'data-abdunkeln')).filter((a) => a !== undefined).join(',');
+      return vergleiche(JSON.stringify(namen) + imText + ' ' + abdunkeln, JSON.stringify(soll) + true + ' ' + (c.ziel === 'da' ? 'ziel' : ''));
     });
     const html = blase({ produktionsWarnung: true, nurZeigen: true, wartetAufNeustart: true }, { zielRechteck: null });
     const pos = (s: string): number => html.indexOf(s);
@@ -336,8 +361,17 @@ const dialog = (html: string): string => tags(html, 'div').find((t) => attr(t, '
   const einleitung = blase({ art: 'einleitung', kapitel: null, zaehler: null, ziel: null });
   pruefeIdVerweise(einleitung, 'P4 3: ohne Kapitel beschriftet der Text die Sprechblase');
   ok(render(<AnleitungsSchicht ansicht={ansicht(null)} aufEreignis={nichts} className="fixed inset-0" stimme={STIMME} />) === '', 'P4 A1: ohne Sprechblase rendert die Schicht nichts');
-  const ssr = render(<AnleitungsSchicht ansicht={ansicht({})} aufEreignis={nichts} className="fixed inset-0" stimme={STIMME} />);
-  ok(text(ssr).includes(ANLEITUNG_TEXTE.zielFehlt) && !ssr.includes('data-abdunkeln'), 'P4 7: vor der ersten Messung (ohne DOM) zeigt die Schicht ehrlich „nicht zu sehen“');
+  // Vor der ersten Messung (ohne DOM; im Browser der Render, in dem der Fokus in die Sprechblase geht) behauptet die Schicht
+  // nichts: weder „Ziel fehlt“ (U17 bzw. der Text des Schritts) noch Hervorhebung oder Abdunkeln (G7). Erst die Messung entscheidet.
+  for (const zielFehlt of [null, 'Öffne zuerst den Reiter „Werkzeugkasten“.']) {
+    const ssr = render(<AnleitungsSchicht ansicht={ansicht({ zielFehlt })} aufEreignis={nichts} className="fixed inset-0" stimme={STIMME} />);
+    const beschreibung = attr(dialog(ssr), 'aria-describedby') ?? '';
+    ok(
+      !text(ssr).includes(zielFehlt ?? ANLEITUNG_TEXTE.zielFehlt) && !ssr.includes('data-hinweis="ziel-fehlt"') && !ssr.includes('data-abdunkeln') &&
+        !beschreibung.includes('ziel-fehlt') && beschreibung.endsWith('-text'),
+      `P4 7, G7: vor der ersten Messung (ohne DOM) weder „Ziel fehlt“ noch Hervorhebung oder Abdunkeln, aria-describedby ohne Ziel fehlt (${zielFehlt === null ? 'U17' : 'Text des Schritts'})`,
+    );
+  }
 }
 
 // ── Texte U1–U37 wörtlich (Texttabelle 9.2; U11, U12, U34 mit dem Titel der Einrichtung) ──
@@ -412,8 +446,11 @@ const dialog = (html: string): string => tags(html, 'div').find((t) => attr(t, '
 {
   const hook = leseText('src/lib/useAnleitungsZiel.ts');
   ok(
-    hook.includes('useEffect(') && hook.includes('window.clearInterval(takt)') && hook.includes("window.removeEventListener('resize', messen)") && hook.includes('findeZiel(document, kennung'),
-    'P4 EP11: useAnleitungsZiel misst im Effekt über findeZiel und räumt Takt und Abo auf',
+    hook.includes("typeof document !== 'undefined' ? useLayoutEffect : useEffect") && hook.includes('useMessEffekt(() => {') &&
+      hook.includes('window.clearInterval(takt)') && hook.includes("window.removeEventListener('resize', messen)") && hook.includes('findeZiel(document, kennung') &&
+      hook.includes('setMessung((alt) => neueMessung(alt, { kennung, rechteck: neu }));') && hook.includes('}, [kennung, taktMs]);') &&
+      hook.includes('return zielStand(messung, kennung);'),
+    'P4 EP11, G7: useAnleitungsZiel misst vor dem Malen (im Browser useLayoutEffect) über findeZiel, merkt das Rechteck mit seiner Kennung, räumt Takt und Abo auf',
   );
   ok(
     typeof ui.AnleitungsSchicht === 'function' && typeof ui.useAnleitungsZiel === 'function' && ui.ANLEITUNG_TEXTE.weiter === 'Weiter',

@@ -1,19 +1,23 @@
 // Hook der geführten Anleitungen (P4, EP11): misst das Ziel einer Sprechblase alle `taktMs` und bei jeder Größenänderung
-// des Fensters über findeZiel. Ohne Kennung oder ohne window: null. window und document nur im Effekt (Render-Tests laufen
-// ohne DOM, der erste Wert ist null); das Aufräumen beendet Takt und Abo.
-import { useEffect, useState } from 'react';
-import { findeZiel, gleichesRechteck, type Rechteck } from './anleitung-dom';
+// des Fensters über findeZiel. Ohne Kennung: null. window und document nur im Effekt; das Aufräumen beendet Takt und Abo.
+// Das Rechteck gilt nur zusammen mit seiner Kennung (zielStand, G7): Bis zur ersten Messung einer Kennung (erster Render,
+// Schrittwechsel, Render-Tests ohne DOM) ist das Ziel 'ungemessen' — weder Hervorhebung noch „Ziel fehlt“. Im Browser misst
+// ein Layout-Effekt vor dem Malen (Muster SettingsPanel), ohne DOM ein normaler Effekt (React warnt sonst beim Rendern).
+import { useEffect, useLayoutEffect, useState } from 'react';
+import { findeZiel, neueMessung, zielStand, type ZielMessung, type ZielStand } from './anleitung-dom';
 
-export function useAnleitungsZiel(kennung: string | null, taktMs = 250): Rechteck | null {
-  const [rechteck, setRechteck] = useState<Rechteck | null>(null);
-  useEffect(() => {
+const useMessEffekt = typeof document !== 'undefined' ? useLayoutEffect : useEffect;
+
+export function useAnleitungsZiel(kennung: string | null, taktMs = 250): ZielStand {
+  const [messung, setMessung] = useState<ZielMessung | null>(null);
+  useMessEffekt(() => {
     if (kennung === null || typeof window === 'undefined') {
-      setRechteck(null);
+      setMessung(null);
       return undefined;
     }
     const messen = (): void => {
       const neu = findeZiel(document, kennung, { breite: window.innerWidth, hoehe: window.innerHeight });
-      setRechteck((alt) => (gleichesRechteck(alt, neu) ? alt : neu));
+      setMessung((alt) => neueMessung(alt, { kennung, rechteck: neu }));
     };
     messen();
     const takt = window.setInterval(messen, taktMs);
@@ -23,5 +27,5 @@ export function useAnleitungsZiel(kennung: string | null, taktMs = 250): Rechtec
       window.removeEventListener('resize', messen);
     };
   }, [kennung, taktMs]);
-  return rechteck;
+  return zielStand(messung, kennung);
 }
