@@ -32,6 +32,18 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.17.0",
+        "date": "2026-10-21",
+        "notes": [
+          "Neu: geführte Einrichtung. Beim ersten Start führt der Launcher wie ein Spiele-Tutorial in sechs Schritten durch die Einrichtung des Rechners: Anmelden, Tools installieren, Rolle im Verbund, erste Show mit iveo, Fernsteuerung mit Companion und Tools aus der Show starten. Er hebt das passende Bedienelement hervor, erklärt es in einer Sprechblase und erkennt selbst, wann ein Schritt erledigt ist. Er bedient nichts selbst und bringt nichts auf Sendung.",
+          "„Erste Schritte“ öffnet jetzt eine Kapitelübersicht statt der Checkliste: je Kapitel ein Haken, „Zeig mir“ für ein einzelnes Kapitel und „Brauche ich nicht“. „Einrichtung fortsetzen“ macht am gemerkten Schritt weiter; mit „Später weiter“ oder Escape pausiert die Anleitung jederzeit.",
+          "Auf schon eingerichteten Rechnern startet die Anleitung nicht von selbst; der Knopf „Erste Schritte“ zeigt nach dem Update einmal „Neu: geführte Einrichtung“. Was der Launcher schon sieht, etwa die Release-Quelle, installierte Tools oder eine eingerichtete Rolle im Verbund, ist sofort abgehakt.",
+          "Während einer Produktion (ein Tool läuft, eine Show startet, eine iveo-Show ist aktiv oder am Master folgen andere Rechner der Show) zeigt die Anleitung Schritte, die eingreifen würden, nur und warnt davor: Rolle wechseln, koppeln, Steuerebene umstellen, Neustart, Show öffnen.",
+          "Startet die Anleitung beim ersten Start von selbst, erscheint „Was ist neu?“ erst, wenn sie pausiert oder endet.",
+          "Diese Fassung hat noch keine Stimme; alle Texte stehen in der Sprechblase. Eine Stimme folgt mit einem späteren Update."
+        ]
+      },
+      {
         "version": "0.16.0",
         "date": "2026-10-19",
         "notes": [
