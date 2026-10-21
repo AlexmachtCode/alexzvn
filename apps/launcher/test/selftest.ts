@@ -1912,6 +1912,120 @@ await (async () => {
     importe.length >= 1 && importe.every((zeile) => zeile.startsWith('import type ')) && !/\bwindow\b|localStorage/.test(quelleAdapter));
 }
 
+// --- Geführte Anleitungen P9 · Stimme: Manifest, Prüfsummen, „zu jedem Text eine Ansage“ (Spec 6; EP12–EP14, EP21) ----
+// Läuft ohne Piper und ohne ffmpeg, auch in der CI: verglichen werden die Text-Prüfsummen im Manifest mit den gesprochenen
+// Texten der Anleitung und die Datei-Prüfsummen mit den .ogg im Ordner. Ändert sich ein gesprochener Text, bleibt die
+// Repo-Prüfung rot, bis seine Ansage neu erzeugt ist (G2). Alle Module kommen per import() in diesem Block: so stößt
+// keine Importzeile mit denen anderer Aufgaben zusammen (P6 importiert sprechTexte und EINRICHTUNG schon oben).
+await (async () => {
+  const { leeresManifest, leseOrdner, manifestText, pruefeStimme, STIMMEN, textSha256 } = await import('../scripts/stimme-manifest.mjs');
+  const { sprechTexte } = await import('@jm/ui/anleitung');
+  const { EINRICHTUNG } = await import('../src/renderer/src/anleitung/einrichtung.ts');
+  const { existsSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const json = (x: unknown): string => JSON.stringify(x);
+
+  ck('P9 6 EP13: textSha256 ist SHA-256 über UTF-8 (abc → ba7816bf…)',
+    textSha256('abc') === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  ck('P9 6 EP13: textSha256 über NFC — „Grüße“ als NFD ergibt dieselbe Prüfsumme wie als NFC',
+    'Grüße' !== 'Grüße' && textSha256('Grüße') === textSha256('Grüße'));
+  ck('P9 6 EP13: CRLF statt LF ist ein anderer Text', textSha256('a\r\nb') !== textSha256('a\nb'));
+  const leer1 = leeresManifest();
+  leer1.eintraege.push({ id: 'x' } as never);
+  ck('P9 EP14: leeresManifest = format 1, stimme/werkzeug/parameter null, eintraege leer; jedes Mal ein neues Objekt',
+    json(leeresManifest()) === '{"format":1,"stimme":null,"werkzeug":null,"parameter":null,"eintraege":[]}');
+  ck('P9 G12: manifestText = JSON mit zwei Leerzeichen, LF und Schluss-LF',
+    manifestText(leeresManifest()) === '{\n  "format": 1,\n  "stimme": null,\n  "werkzeug": null,\n  "parameter": null,\n  "eintraege": []\n}\n');
+  ck('P9 OFP1: STIMMEN pinnt genau de_DE-mls-medium (69cd1d2a…53f65bf, CC BY 4.0) und de_DE-thorsten-medium (7e64762d…bb7819, CC0)',
+    json(Object.keys(STIMMEN)) === '["de_DE-mls-medium","de_DE-thorsten-medium"]'
+    && STIMMEN['de_DE-mls-medium'].onnxSha256 === '69cd1d2aa5a35839a518966fcc4924b5f93e5f8c948ed0752b1a616ad53f65bf'
+    && STIMMEN['de_DE-mls-medium'].lizenz === 'CC BY 4.0'
+    && STIMMEN['de_DE-thorsten-medium'].onnxSha256 === '7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819'
+    && STIMMEN['de_DE-thorsten-medium'].lizenz === 'CC0'
+    && Object.values(STIMMEN).every((s) => s.namensnennung.length > 0 && !s.namensnennung.includes('"')));
+
+  // pruefeStimme: eine Tabelle, je Fall eine Zeile (Fixtures nur im Speicher, keine erfundenen Audiodateien).
+  type Text = { id: string; text: string };
+  type Datei = { name: string; sha256: string };
+  const TEXTE: Text[] = [
+    { id: 'einleitung', text: 'Willkommen. Ich führe dich durch die Einrichtung.' },
+    { id: 'k1.zugang', text: 'Trage hier den Zugang ein und klicke auf „Speichern“.' },
+    { id: 'k2.erledigt', text: 'Auf diesem Rechner ist schon ein Tool installiert.' },
+  ];
+  const DATEIEN: Datei[] = TEXTE.map((t, i) => ({ name: `${t.id}.ogg`, sha256: String(i + 1).repeat(64) }));
+  const pin = STIMMEN['de_DE-mls-medium'];
+  const voll = () => ({
+    format: 1 as number,
+    stimme: { name: 'de_DE-mls-medium', onnxSha256: pin.onnxSha256, lizenz: pin.lizenz, namensnennung: pin.namensnennung, sprecher: 3 as number | null },
+    werkzeug: { piper: '1.8.0', ffmpeg: '8.1.2' } as { piper: string; ffmpeg: string } | null,
+    parameter: { lengthScale: 1.05, sentenceSilence: 0.3, opusKbps: 24 } as { lengthScale: number; sentenceSilence: number; opusKbps: number } | null,
+    eintraege: TEXTE.map((t, i) => ({ id: t.id, textSha256: textSha256(t.text), datei: `${t.id}.ogg`, dateiSha256: DATEIEN[i].sha256, bytes: 1000 })),
+  });
+  const mit = <T>(x: T, f: (y: T) => void): T => { f(x); return x; };
+  const faelle: Array<{ name: string; texte: Text[]; manifest: unknown; dateien: Datei[]; erwartet: string[] }> = [
+    { name: 'stimmig ohne Stimme (leeres Manifest, keine Datei)', texte: TEXTE, manifest: leeresManifest(), dateien: [], erwartet: [] },
+    { name: 'stimmig mit Stimme', texte: TEXTE, manifest: voll(), dateien: DATEIEN, erwartet: [] },
+    { name: 'Text um ein Zeichen geändert', texte: TEXTE.map((t) => (t.id === 'einleitung' ? { ...t, text: 'Willkommen! Ich führe dich durch die Einrichtung.' } : t)), manifest: voll(), dateien: DATEIEN, erwartet: ['Text geändert: einleitung'] },
+    { name: 'Text in NFD statt NFC ist derselbe Text', texte: TEXTE.map((t) => ({ ...t, text: t.text.normalize('NFD') })), manifest: voll(), dateien: DATEIEN, erwartet: [] },
+    { name: 'Datei gelöscht', texte: TEXTE, manifest: voll(), dateien: DATEIEN.filter((d) => d.name !== 'k1.zugang.ogg'), erwartet: ['Datei fehlt: k1.zugang.ogg'] },
+    { name: 'Datei mit anderer Prüfsumme', texte: TEXTE, manifest: voll(), dateien: DATEIEN.map((d) => (d.name === 'k1.zugang.ogg' ? { ...d, sha256: 'f'.repeat(64) } : d)), erwartet: ['Prüfsumme falsch: k1.zugang.ogg'] },
+    { name: 'fremde Datei dazugelegt', texte: TEXTE, manifest: voll(), dateien: [...DATEIEN, { name: 'fremd.ogg', sha256: '9'.repeat(64) }], erwartet: ['Datei ohne Text: fremd.ogg'] },
+    { name: 'Text gestrichen (Eintrag und Datei bleiben übrig)', texte: TEXTE.slice(0, 2), manifest: voll(), dateien: DATEIEN, erwartet: ['Eintrag ohne Text: k2.erledigt', 'Datei ohne Text: k2.erledigt.ogg'] },
+    { name: 'neuer Text ohne Ansage', texte: [...TEXTE, { id: 'k3.neu', text: 'Neu.' }], manifest: voll(), dateien: DATEIEN, erwartet: ['Ansage fehlt: k3.neu'] },
+    { name: 'Stimme mit fremder Prüfsumme', texte: TEXTE, manifest: mit(voll(), (m) => { m.stimme.onnxSha256 = '0'.repeat(64); }), dateien: DATEIEN, erwartet: ['Stimme nicht gepinnt: de_DE-mls-medium'] },
+    { name: 'Stimme ohne Pin (de_DE-karlsson-low)', texte: TEXTE, manifest: mit(voll(), (m) => { m.stimme.name = 'de_DE-karlsson-low'; }), dateien: DATEIEN, erwartet: ['Stimme nicht gepinnt: de_DE-karlsson-low'] },
+    { name: 'Namensnennung weicht vom Pin ab', texte: TEXTE, manifest: mit(voll(), (m) => { m.stimme.namensnennung = 'Stimme: unbekannt'; }), dateien: DATEIEN, erwartet: ['Lizenz oder Namensnennung weicht vom Pin ab: de_DE-mls-medium'] },
+    { name: 'Sprecher -1', texte: TEXTE, manifest: mit(voll(), (m) => { m.stimme.sprecher = -1; }), dateien: DATEIEN, erwartet: ['Sprecher ungültig: -1'] },
+    { name: 'ohne Stimme mit Dateien', texte: TEXTE, manifest: leeresManifest(), dateien: DATEIEN, erwartet: ['Ohne Stimme darf es keine Datei geben: einleitung.ogg', 'Ohne Stimme darf es keine Datei geben: k1.zugang.ogg', 'Ohne Stimme darf es keine Datei geben: k2.erledigt.ogg'] },
+    { name: 'ohne Stimme mit Einträgen', texte: TEXTE, manifest: { ...leeresManifest(), eintraege: voll().eintraege }, dateien: [], erwartet: ['Ohne Stimme darf es keinen Eintrag geben: einleitung', 'Ohne Stimme darf es keinen Eintrag geben: k1.zugang', 'Ohne Stimme darf es keinen Eintrag geben: k2.erledigt'] },
+    { name: 'ohne Stimme, aber mit Parametern', texte: TEXTE, manifest: { ...leeresManifest(), parameter: voll().parameter }, dateien: [], erwartet: ['Ohne Stimme müssen werkzeug und parameter null sein'] },
+    { name: 'Eintrag doppelt', texte: TEXTE, manifest: mit(voll(), (m) => { m.eintraege.push({ ...m.eintraege[0] }); }), dateien: DATEIEN, erwartet: ['Eintrag doppelt: einleitung'] },
+    { name: 'Dateiname passt nicht zur ID', texte: TEXTE, manifest: mit(voll(), (m) => { m.eintraege[0].datei = 'Einleitung.ogg'; }), dateien: DATEIEN, erwartet: ['Dateiname falsch: einleitung (Einleitung.ogg)', 'Datei ohne Text: einleitung.ogg'] },
+    { name: 'mit Stimme ohne Parameter', texte: TEXTE, manifest: mit(voll(), (m) => { m.parameter = null; }), dateien: DATEIEN, erwartet: ['Parameter fehlen im Manifest (lengthScale, sentenceSilence, opusKbps)'] },
+    { name: 'mit Stimme ohne Werkzeug', texte: TEXTE, manifest: mit(voll(), (m) => { m.werkzeug = null; }), dateien: DATEIEN, erwartet: ['Werkzeug fehlt im Manifest (piper, ffmpeg)'] },
+    { name: 'Manifest-Format 2', texte: TEXTE, manifest: mit(voll(), (m) => { m.format = 2; }), dateien: DATEIEN, erwartet: ['Manifest-Format unbekannt: 2'] },
+    { name: 'kein Manifest (null)', texte: TEXTE, manifest: null, dateien: [], erwartet: ['Manifest unlesbar: erwartet ein Objekt mit der Liste eintraege'] },
+  ];
+  for (const f of faelle) {
+    const ist = pruefeStimme(f.texte, f.manifest, f.dateien);
+    ck(`P9 6: pruefeStimme, ${f.name} → ${f.erwartet.length ? f.erwartet.join(' | ') : 'keine Befunde'}`, json(ist) === json(f.erwartet));
+    if (json(ist) !== json(f.erwartet)) console.log(`      ist ${json(ist)}`);
+  }
+
+  // Repo: das echte Manifest gegen die echten Texte und die echten Dateien im Ordner.
+  const ordner = fileURLToPath(new URL('../src/renderer/src/anleitung/stimme/', import.meta.url));
+  const texte = sprechTexte(EINRICHTUNG);
+  const manifestPfad = `${ordner}manifest.json`;
+  const roh = existsSync(manifestPfad) ? readFileSync(manifestPfad, 'utf8').replace(/\r\n/g, '\n') : '';
+  let manifest: unknown = null;
+  try { manifest = JSON.parse(roh); } catch { manifest = null; }
+  const inhalt = leseOrdner(ordner);
+  const befunde = pruefeStimme(texte, manifest, inhalt.ogg);
+  const stimmeName = (manifest as { stimme?: { name?: string } | null } | null)?.stimme?.name ?? 'keine';
+  ck(`P9 6: Repo — manifest.json passt zu den ${texte.length} gesprochenen Texten und den ${inhalt.ogg.length} .ogg im Ordner (Stimme: ${stimmeName})`,
+    befunde.length === 0 && roh.length > 0);
+  for (const b of befunde) console.log(`      ${b}`);
+  ck('P9 G12: manifest.json ist genau manifestText seines Inhalts (zwei Leerzeichen, Schluss-LF; verglichen nach LF)',
+    manifest !== null && roh === manifestText(manifest));
+  ck('P9 G14: im Stimmen-Ordner liegen nur manifest.json, HERKUNFT.md und .ogg (keine WAV, keine Stimme, kein Text)',
+    json(inhalt.andere) === '["HERKUNFT.md","manifest.json"]');
+  if (json(inhalt.andere) !== '["HERKUNFT.md","manifest.json"]') console.log(`      andere Dateien: ${json(inhalt.andere)}`);
+  const herkunftPfad = `${ordner}HERKUNFT.md`;
+  const herkunftRoh = existsSync(herkunftPfad) ? readFileSync(herkunftPfad, 'utf8').replace(/\r\n/g, '\n') : '';
+  const herkunft = herkunftRoh.replace(/\s+/g, ' ');
+  const gewaehlt = (herkunftRoh.split('\n## Gewählte Stimme\n')[1] ?? '').split('\n## ')[0];
+  const entscheid = gewaehlt.split('\n').find((z) => z.startsWith('Owner-Entscheidung OFP1 vom ')) ?? '';
+  ck(`P9 6 OFP1: HERKUNFT.md „Gewählte Stimme“ passt zum Manifest (Stimme: ${stimmeName})`,
+    gewaehlt.length > 0 && (stimmeName === 'keine'
+      ? gewaehlt.includes('Noch offen (Owner-Frage OFP1)') || entscheid.includes('ohne Ton')
+      : entscheid.includes(`\`${stimmeName}\``) && !gewaehlt.includes('Noch offen (Owner-Frage OFP1)')));
+  ck('P9 6 EP21: HERKUNFT.md nennt beide Kandidaten mit Pin und Lizenz, das lessac-Erbe, die Werkzeuge nur beim Bau, OFP1 und beide Namensnennungen wörtlich',
+    Object.values(STIMMEN).every((s) => herkunft.includes(s.onnxSha256) && herkunft.includes(s.namensnennung))
+    && herkunft.includes('„License: CC-BY 4.0“') && herkunft.includes('„License: CC0“')
+    && herkunft.includes('Finetuned from U.S. English lessac voice') && herkunft.includes('nur beim Bau')
+    && herkunft.includes('OFP1') && !herkunft.includes('"'));
+})();
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.
