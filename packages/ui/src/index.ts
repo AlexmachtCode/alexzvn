@@ -30,3 +30,14 @@ export { type MasterLinkMeldung, masterLinkStatusItem } from './lib/master-link'
 export { MASTER_LINK_TEXTE } from './lib/texte';
 export { type BrueckenQuelle, type BrueckenStand, brueckenSchritt, verbindeBruecke } from './lib/bruecke';
 export { useBrueckenWert } from './lib/useBrueckenWert';
+export { ANLEITUNG_FORMAT, ID_MUSTER, ZIEL_MUSTER, bedingungErfuellt, geltendeSchritte, kapitelZustand, pruefeAnleitung, sprechTexte, leererFortschritt, normalisiereFortschritt } from './lib/anleitung';
+export type { Bedingung, SchrittArt, AnleitungsOption, AnleitungsSchritt, AnleitungsKapitel, Anleitung, Zustand, NamensListen, KapitelZustand, AnleitungsStatus, AnleitungsPosition, KapitelPosition, AnleitungsFortschritt } from './lib/anleitung';
+export { anleitungSchritt, beimStart, leseFortschritt, schreibeFortschritt } from './lib/anleitung';
+export type { AnleitungsEreignis, AnleitungSpeicher, SpeicherZustand, GelesenerFortschritt, StartErgebnis } from './lib/anleitung';
+export { anleitungAnsicht } from './lib/anleitung';
+export type { AnleitungsUmgebung, KapitelZeile, BlasenAnsicht, AnleitungsAnsicht } from './lib/anleitung';
+export { ANLEITUNG_TEXTE } from './lib/texte';
+export { AnleitungsSchicht, type AnleitungsStimme, type AnleitungsSchichtProps } from './components/AnleitungsSchicht';
+export { useAnleitungsZiel } from './lib/useAnleitungsZiel';
+export { AnleitungsUebersicht, type AnleitungsUebersichtProps } from './components/AnleitungsUebersicht';
+export { useAnsage, type AnsageFehler } from './lib/useAnsage';

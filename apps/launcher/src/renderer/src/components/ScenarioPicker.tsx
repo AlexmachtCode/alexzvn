@@ -1,4 +1,4 @@
-import { Button, Card, cn } from '@jm/ui';
+import { Button, Card, cn, noDragRegion } from '@jm/ui';
 import { useTools } from '@/store/tools';
 import { SCENARIOS, toolLabel, type Scenario } from '@/lib/scenarios';
 
@@ -26,9 +26,12 @@ export function ScenarioPicker() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm px-6">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6" style={noDragRegion}>
       <Card className="w-full max-w-2xl p-6 jm-fade-in">
-        <div className="flex items-start justify-between gap-4">
+        {/* Höchstens fensterhoch, nur die Vorlagen scrollen (Owner-Abnahme 21.10.2026; Muster #233 SystemStatusModal):
+            eigener flex-col-Container, weil Card ihre Kinder in ein eigenes div packt; Kopf und Fuß schrumpfen nicht. */}
+        <div className="flex max-h-[calc(100vh-6rem)] flex-col">
+        <div className="flex shrink-0 items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-extrabold tracking-tight">Was willst du produzieren?</h2>
             <p className="mt-1 text-xs text-[var(--muted-foreground)]">
@@ -49,7 +52,8 @@ export function ScenarioPicker() {
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="-mr-2 mt-5 min-h-0 flex-1 overflow-y-auto pr-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-anleitung="szenario.auswahl">
           {SCENARIOS.map((sc) => (
             <ScenarioTile
               key={sc.id}
@@ -60,14 +64,16 @@ export function ScenarioPicker() {
             />
           ))}
         </div>
+        </div>
 
-        <div className="mt-6 flex items-center justify-between gap-3">
+        <div className="mt-6 flex shrink-0 items-center justify-between gap-3">
           <p className="text-[11px] text-[var(--muted-foreground)]">
             Lieber frei starten? „Show anlegen" öffnet den leeren Editor.
           </p>
           <Button variant="ghost" onClick={close}>
             Abbrechen
           </Button>
+        </div>
         </div>
       </Card>
     </div>

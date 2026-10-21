@@ -15,6 +15,7 @@ import { ShowEditorModal } from '@/components/ShowEditorModal';
 import { ScenarioPicker } from '@/components/ScenarioPicker';
 import { SideEventsPanel } from '@/components/SideEventsPanel';
 import { ShowLaunchOverlay } from '@/components/ShowLaunchOverlay';
+import { Anleitung } from '@/components/Anleitung';
 import { VerbundModal } from './components/VerbundModal';
 import { useTools } from '@/store/tools';
 
@@ -73,6 +74,7 @@ export function App() {
       <ScenarioPicker />
       <SideEventsPanel />
       <ShowLaunchOverlay />
+      <Anleitung />
     </div>
   );
 }

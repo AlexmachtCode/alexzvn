@@ -71,6 +71,10 @@ export default defineConfig({
       strictPort: true,
     },
     build: {
+      // Ansagen der geführten Anleitungen nie als data:-URL einbetten: Vite legt Dateien unter 4 KB sonst als data: ins JS,
+      // die CSP erlaubt für Medien aber nur 'self' blob: (packages/app-runtime/src/csp.ts). Kurze Ansagen wären dann nur im
+      // Installer stumm. Gemessen mit Vite 5.4.21 (Plan Geführte Anleitungen EP15); npm run stimme:bau-pruefen prüft den Bau.
+      assetsInlineLimit: (datei: string) => (/\.(ogg|opus|webm|mp3|wav)$/i.test(datei) ? false : undefined),
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/renderer/index.html') },
       },

@@ -1,155 +1,96 @@
-import { Button, Card, cn } from '@jm/ui';
+import { ANLEITUNG_TEXTE, AnleitungsUebersicht, Card, noDragRegion, type AnleitungsEreignis } from '@jm/ui';
+import { LAUNCHER_ANLEITUNG_TEXTE as L } from '@/anleitung/einrichtung';
+import { NAMENSNENNUNG, STIMME_VORHANDEN } from '@/anleitung/stimme';
+import { kapitelDetails } from '@/lib/anleitung-zustand';
+import { useAnleitung, type AnleitungStore } from '@/store/anleitung';
 import { useTools } from '@/store/tools';
+import { useVerbund } from '@/store/verbund';
+import { useAnleitungsAnsicht } from './Anleitung';
 
-// Erste-Schritte-Assistent (Onboarding B1).
+// Kapitelübersicht „Erste Schritte“ der geführten Anleitung (Spec 4, OF1, EP20; früher die Checkliste B1).
 //
-// Zeigt neuen Operatorn beim allerersten Start einen kurzen, geführten Weg statt
-// sie im leeren Werkzeugkasten alleinzulassen. Bewusst KEIN Tutorial zum Durch-
-// klicken, sondern eine „Erste Schritte"-Checkliste, die vorhandene Aktionen/
-// Zustände bündelt: Release-Quelle, Werkzeuge, Netzwerk/Steuerebene (A1-Karte im
-// System-Zustand) und die erste .jmshow. Schritte 1/2 zeigen live einen Haken,
-// sobald erledigt. Jederzeit über den „Erste Schritte"-Kopfzeilen-Knopf erneut
-// aufrufbar; das Gating (jmps:onboardedV1) verhindert erneutes Auto-Aufpoppen.
+// Die Checkliste geht in der Kapitelübersicht auf: je Kapitel Zeichen und Zustand (Haken nur bei erledigt), Kurztext,
+// Detailzeile und die direkte Aktion der Checkliste (Einstellungen, Werkzeugkasten, Verbund, Vorlage, System), dazu
+// „Zeig mir“ und „Brauche ich nicht“. Die Aktionen sind Klicks des Bedieners; die Anleitung selbst bedient nichts (G3).
 //
-// z-40 (unter den Detail-Modals mit z-50): öffnet ein Schritt ein Modal
-// (Einstellungen/System/Show), legt sich dieses darüber und der Assistent bleibt
-// als Rücksprung-Ebene erhalten. Nur „Werkzeugkasten" wechselt die Hauptansicht
-// und schließt den Assistenten daher (ohne zu persistieren → beim Kopfzeilen-Knopf
-// wieder da).
+// z-40 (unter den Detail-Dialogen mit z-50): Öffnet eine Aktion einen Dialog, legt er sich darüber, und die Übersicht
+// bleibt als Rücksprung-Ebene. „Werkzeugkasten“ wechselt die Hauptansicht und schließt die Übersicht; Starten und
+// „Zeig mir“ schließen sie auch, damit die Hervorhebung frei liegt.
+
+/** Diagnosezeile des Speichers (G7, G8): jeder Zustand außer „ok“ und „leer“ wird angezeigt. */
+const SPEICHER_HINWEIS: Readonly<Record<AnleitungStore['speicher'], string | null>> = {
+  ok: null,
+  leer: null,
+  nichtLesbar: ANLEITUNG_TEXTE.speicherNichtLesbar,
+  nichtSchreibbar: ANLEITUNG_TEXTE.speicherNichtSchreibbar,
+  kaputt: ANLEITUNG_TEXTE.speicherKaputt,
+  neuer: ANLEITUNG_TEXTE.speicherNeuer,
+};
 
 export function OnboardingModal() {
   const open = useTools((s) => s.onboardingOpen);
   const close = useTools((s) => s.closeOnboarding);
+  // Detailzeilen L9, L10 hängen an Quelle und Tool-Zuständen: beide abonnieren, damit sie live mitgehen.
   const settings = useTools((s) => s.settings);
   const states = useTools((s) => s.states);
   const openSettings = useTools((s) => s.openSettings);
   const openSystem = useTools((s) => s.openSystem);
   const openScenarios = useTools((s) => s.openScenarios);
   const setView = useTools((s) => s.setView);
+  const oeffneVerbund = useVerbund((s) => s.oeffne);
+  const ansicht = useAnleitungsAnsicht();
+  const ereignis = useAnleitung((s) => s.ereignis);
+  const speicher = useAnleitung((s) => s.speicher);
+  const stimmeAn = useAnleitung((s) => s.stimmeAn);
+  const stimmeUmschalten = useAnleitung((s) => s.stimmeUmschalten);
 
   if (!open) return null;
 
-  const sourceDone = Boolean(settings && settings.source !== 'none');
-  const installedCount = Object.values(states).filter((s) => s.status !== 'not-installed').length;
-  const toolsDone = installedCount > 0;
+  const fertig = Object.fromEntries(ansicht.kapitel.map((k) => [k.id, k.zustand === 'erledigt']));
+  const aufEreignis = (e: AnleitungsEreignis): void => {
+    ereignis(e);
+    if (e.art === 'starten') close();
+  };
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 backdrop-blur-sm px-6">
-      <Card className="w-full max-w-xl p-6 jm-fade-in">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-extrabold tracking-tight">
-              Willkommen bei der JM Production Suite
-            </h2>
-            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-              In vier Schritten startklar — jederzeit über „Erste Schritte" oben wieder aufrufbar.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => close(true)}
-            aria-label="Schließen"
-            className="grid size-8 shrink-0 place-items-center rounded-[var(--radius)] border border-[var(--border)]
-                       text-[var(--muted-foreground)] transition-colors hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <ol className="mt-5 flex flex-col gap-2.5">
-          <Step
-            index={1}
-            done={sourceDone}
-            title="Release-Quelle verbinden"
-            desc={
-              sourceDone
-                ? `Aktiv: ${settings?.source === 'proxy' ? 'Firmen-Proxy' : 'GitHub'}.`
-                : 'Proxy-Schlüssel oder GitHub-Zugang hinterlegen, damit Tools installiert und aktualisiert werden können.'
-            }
-            actionLabel={sourceDone ? 'Ändern' : 'Einrichten'}
-            onAction={openSettings}
-          />
-          <Step
-            index={2}
-            done={toolsDone}
-            title="Werkzeuge installieren"
-            desc={
-              toolsDone
-                ? `${installedCount} Tool(s) installiert — weitere jederzeit im Werkzeugkasten.`
-                : 'Im Werkzeugkasten die Tools für deine Produktion auswählen und installieren.'
-            }
-            actionLabel={toolsDone ? 'Werkzeugkasten' : 'Auswählen'}
-            onAction={() => {
-              close(false);
-              setView('catalog');
-            }}
-          />
-          <Step
-            index={3}
-            title="Netzwerk & Steuerebene prüfen"
-            desc="Sehen, ob sich die Tools im Netz finden — und bei geteilten Netzen mit einem Klick die sichere Steuerebene (Token/TLS, QR-Pairing) aktivieren."
-            actionLabel="Prüfen"
-            onAction={openSystem}
-          />
-          <Step
-            index={4}
-            title="Erste Show aus Vorlage"
-            desc="Wähle, was du produzierst (Konferenz, Battle, Bühne, Podcast) — die passende .jmshow mit Tools + Ablauf wird vorbereitet. Ein Klick startet später die ganze Produktion koordiniert."
-            actionLabel="Vorlage wählen"
-            onAction={openScenarios}
-          />
-        </ol>
-
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <p className="text-[11px] text-[var(--muted-foreground)]">
-            Tipp: Das JM Kochbuch (oben) hat Anleitungen &amp; Best Practices.
-          </p>
-          <Button variant="primary" onClick={() => close(true)}>
-            Fertig
-          </Button>
+    <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 backdrop-blur-sm p-6" style={noDragRegion}>
+      <Card className="relative w-full max-w-xl p-6 jm-fade-in">
+        <button
+          type="button"
+          onClick={close}
+          aria-label={L.schliessen}
+          className="absolute right-4 top-4 z-10 grid size-8 place-items-center rounded-[var(--radius)] border border-[var(--border)]
+                     text-[var(--muted-foreground)] transition-colors hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+        {/* Höchstens fensterhoch, nur die Übersicht scrollt (Owner-Abnahme 21.10.2026; Muster #233 SystemStatusModal):
+            eigener Container, weil Card ihre Kinder in ein eigenes div packt. Fenster minus Außenabstand (p-6) minus
+            Innenabstand der Card (p-6). Das Schließen-Kreuz liegt außerhalb und bleibt beim Scrollen sichtbar; -ml-1 pl-1 pb-1
+            halten Platz für die Fokusringe am Rand, die der Scrollbereich sonst abschneidet. */}
+        <div className="-mr-2 -ml-1 max-h-[calc(100vh-6rem)] overflow-y-auto pb-1 pl-1 pr-2">
+        <AnleitungsUebersicht
+          ansicht={ansicht}
+          aufEreignis={aufEreignis}
+          titel={L.titel}
+          unterzeile={L.unterzeile}
+          tipp={L.tipp}
+          details={kapitelDetails({ ...useAnleitung.getState().eingang(), settings, states }, L.detail)}
+          aktionen={{
+            k1: { knopf: L.aktion.k1(fertig.k1), ausfuehren: openSettings },
+            k2: { knopf: L.aktion.k2(fertig.k2), ausfuehren: () => { close(); setView('catalog'); } },
+            k3: { knopf: L.aktion.k3, ausfuehren: oeffneVerbund },
+            k4: { knopf: L.aktion.k4, ausfuehren: openScenarios },
+            k5: { knopf: L.aktion.k5, ausfuehren: openSystem },
+          }}
+          speicherHinweis={SPEICHER_HINWEIS[speicher]}
+          stimme={{ vorhanden: STIMME_VORHANDEN, an: stimmeAn, umschalten: stimmeUmschalten, namensnennung: NAMENSNENNUNG }}
+          schliessen={close}
+        />
         </div>
       </Card>
     </div>
-  );
-}
-
-function Step({
-  index,
-  done,
-  title,
-  desc,
-  actionLabel,
-  onAction,
-}: {
-  index: number;
-  done?: boolean;
-  title: string;
-  desc: string;
-  actionLabel: string;
-  onAction: () => void;
-}) {
-  return (
-    <li className="flex items-start gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-3 py-3">
-      <span
-        aria-hidden
-        className={cn(
-          'mt-0.5 grid size-6 shrink-0 place-items-center rounded-[var(--radius-full)] text-[11px] font-extrabold',
-          done
-            ? 'border border-[var(--success)]/40 bg-[var(--success)]/15 text-[var(--success)]'
-            : 'border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]',
-        )}
-      >
-        {done ? '✓' : index}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="font-semibold">{title}</div>
-        <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{desc}</p>
-      </div>
-      <Button size="sm" variant={done ? 'ghost' : 'primary'} onClick={onAction} className="shrink-0">
-        {actionLabel}
-      </Button>
-    </li>
   );
 }

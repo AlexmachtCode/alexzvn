@@ -121,7 +121,7 @@ function RolleWahl({ stand }: { stand: VerbundStand }) {
   };
   return (
     <Abschnitt titel="Rolle dieses Rechners">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" data-anleitung="verbund.rollen">
         {ROLLEN.map((x) => (
           <Button
             key={x.rolle}

@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { useChangelog } from '@/store/changelog';
 import { useCookbook } from '@/store/cookbook';
 import { useVerbund } from './verbund';
+import { useAnleitung } from './anleitung';
+import { startEntscheidung } from '@/lib/anleitung-zustand';
 import type {
   ActionResult,
   AnhangOrdnerStand,
@@ -143,10 +145,11 @@ interface ToolsStore {
   patchNotes: { app: string; highlight?: string } | null;
   openPatchNotes: (view?: { app: string; highlight?: string }) => void;
   closePatchNotes: () => void;
-  /** Erste-Schritte-Assistent (Onboarding B1): beim allerersten Start automatisch. */
+  /** Kapitelübersicht „Erste Schritte“ (geführte Anleitung, EP20; früher Checkliste B1). Öffnet nie von selbst. */
   onboardingOpen: boolean;
+  /** Öffnet die Übersicht; eine laufende Anleitung pausiert, der Hinweis dieser Sitzung endet. Bedient nichts. */
   openOnboarding: () => void;
-  closeOnboarding: (persist?: boolean) => void;
+  closeOnboarding: () => void;
   /** Szenario-Start „Was willst du produzieren?" (Onboarding B2). */
   scenariosOpen: boolean;
   openScenarios: () => void;
@@ -170,7 +173,7 @@ function readSeenVersion(): string | null {
   }
 }
 
-/** Wurde der Erste-Schritte-Assistent schon gesehen/weggeklickt? (Onboarding B1) */
+/** Bestehender Rechner (OF2, EP8): jmps:onboardedV1 setzte die Checkliste bis 0.16; der Launcher liest ihn nur noch. */
 function readOnboarded(): boolean {
   try {
     return localStorage.getItem(ONBOARDED_KEY) === '1';
@@ -219,6 +222,22 @@ export const useTools = create<ToolsStore>((set) => {
     const beobachte = r.beobachte ?? (e.art === 'panelZu' || e.art === 'eventWechsel' ? [] : null);
     if (beobachte) void window.jmps.watchIveoMaterials({ programIds: beobachte }).catch(() => {});
     if (r.laden) void useTools.getState().loadMaterials(r.laden);
+  }
+
+  /**
+   * Geführte Anleitung (Spec 4, EP9): „Was ist neu?“ wartet, bis die von selbst gestartete Anleitung pausiert, endet oder
+   * beendet wird. Das Abo steht hier, im Store des Dialogs — der Store der Anleitung öffnet keine Dialoge (G3).
+   */
+  function zeigePatchNotesNachAnleitung(version: string): void {
+    // Einmal je Fenster: React StrictMode ruft load() im Dev zweimal (D15), ein zweites Abo bliebe hängen.
+    if (useAnleitung.getState().patchNotesNachAnleitung) return;
+    useAnleitung.setState({ patchNotesNachAnleitung: true });
+    const ab = useAnleitung.subscribe((a) => {
+      if (a.fortschritt.status === 'laeuft' || !a.patchNotesNachAnleitung) return;
+      ab();
+      useAnleitung.setState({ patchNotesNachAnleitung: false });
+      set({ patchNotes: { app: 'launcher', highlight: version } });
+    });
   }
 
   return {
@@ -350,21 +369,33 @@ export const useTools = create<ToolsStore>((set) => {
         useCookbook.getState().load(),
       ]);
       set({ tools, states: byId(states), settings, version, loading: false });
-      // Beim allerersten Start den Erste-Schritte-Assistenten zeigen (B1); sonst
-      // — nach einem Launcher-Update — genau einmal „Was ist neu?", sofern für die
-      // Version Notes vorliegen. Nie beides gleichzeitig aufpoppen.
-      if (!readOnboarded()) {
-        set({ onboardingOpen: true });
-      } else if (version && readSeenVersion() !== version && useChangelog.getState().entryFor('launcher', version)) {
-        set({ patchNotes: { app: 'launcher', highlight: version } });
-      }
-      // Zustände sofort rendern, die (langsameren, online) Prüfungen danach.
+      // Zustände sofort rendern, die (langsameren, online) Prüfungen danach — vor der geführten Anleitung, damit ein Fehler
+      // dort weder den Hinweis auf ein Launcher-Update noch die Update-Badges aufhält (D20).
       void useTools.getState().checkUpdates();
       void useTools.getState().loadLauncherUpdate();
       void useTools.getState().loadPresence();
       void useTools.getState().loadHealth();
       void useVerbund.getState().lade();
       void useTools.getState().loadRecentShows();
+      // Geführte Anleitung (Spec 4, EP7–EP9): Zuerst entscheidet die Anleitung, ob sie von selbst startet (erster Start,
+      // Fortsetzen nach einem verlangten Neustart) oder am Knopf den Hinweis zeigt (bestehender Rechner mit jmps:onboardedV1).
+      // Danach „Was ist neu?“ — nie zugleich mit der Anleitung: Läuft sie, kommt es, sobald sie pausiert oder endet.
+      const start = useAnleitung.getState().starte({ bestehenderRechner: readOnboarded() });
+      const notes = startEntscheidung({
+        start,
+        version,
+        gesehen: readSeenVersion(),
+        hatNotes: Boolean(version && useChangelog.getState().entryFor('launcher', version)),
+      });
+      if (notes.gesehenSchreiben) {
+        try {
+          localStorage.setItem(SEEN_VERSION_KEY, notes.gesehenSchreiben);
+        } catch {
+          // localStorage nicht verfügbar → „Was ist neu?“ kann beim nächsten Start einmal erscheinen (wie bisher)
+        }
+      }
+      if (notes.patchNotesJetzt && version) set({ patchNotes: { app: 'launcher', highlight: version } });
+      if (notes.patchNotesNachAnleitung && version) zeigePatchNotesNachAnleitung(version);
     },
 
     loadPresence: async () => {
@@ -427,6 +458,9 @@ export const useTools = create<ToolsStore>((set) => {
     saveShow: async (show, targetPath, neuGebunden) => {
       const res = await window.jmps.saveShow(show, targetPath, neuGebunden);
       if (res.message) set({ notice: res.message });
+      // Geführte Anleitung, Kapitel 4 (EP5): „Show gespeichert“ gibt es nur als Ereignis, gemeldet erst, wenn der Main ok
+      // sagt (Abbruch im Speicherdialog liefert ok: false). Der Fortschritt merkt es; gespeichert hat der Bediener.
+      if (res.ok) useAnleitung.getState().toolEreignis('showGespeichert');
       return res.ok;
     },
 
@@ -438,19 +472,15 @@ export const useTools = create<ToolsStore>((set) => {
     closeSystem: () => set({ systemOpen: false }),
 
     openOnboarding: () => {
+      // Geführte Anleitung (Spec 4, EP8, EP20): Der Treiber beendet „Zeig mir“, pausiert einen laufenden Hauptlauf (an der
+      // Rückfrage über die Einleitung, am Abschluss wie „Weiter“) und beendet den Hinweis dieser Sitzung (D17).
+      useAnleitung.getState().zurUebersicht();
       set({ onboardingOpen: true });
       void useTools.getState().loadPresence();
     },
-    closeOnboarding: (persist = true) => {
-      if (persist) {
-        try {
-          localStorage.setItem(ONBOARDED_KEY, '1');
-        } catch {
-          // localStorage nicht verfügbar → nur In-Memory schließen
-        }
-      }
-      set({ onboardingOpen: false });
-    },
+    // Geführte Anleitung (EP8): jmps:onboardedV1 wird nur noch gelesen; Schließen merkt nichts mehr — den Fortschritt hält
+    // der Store der Anleitung.
+    closeOnboarding: () => set({ onboardingOpen: false }),
 
     openSideEvents: () => {
       set({ sideEventsOpen: true });

@@ -1,9 +1,10 @@
 import { cn } from '@jm/ui';
 import { useTools, type LauncherView } from '@/store/tools';
 
-const TABS: { key: LauncherView; label: string }[] = [
-  { key: 'catalog', label: 'Werkzeugkasten' },
-  { key: 'jmshow', label: 'JM Show' },
+// anleitung: Ziel-Kennung der geführten Anleitung (Kennungs-Register in docs/anleitungen.md), immer als Literal (EP10).
+const TABS: { key: LauncherView; label: string; anleitung: string }[] = [
+  { key: 'catalog', label: 'Werkzeugkasten', anleitung: 'reiter.werkzeugkasten' },
+  { key: 'jmshow', label: 'JM Show', anleitung: 'reiter.show' },
 ];
 
 /**
@@ -27,6 +28,7 @@ export function TabBar(): React.JSX.Element {
         return (
           <button
             key={tab.key}
+            data-anleitung={tab.anleitung}
             type="button"
             role="tab"
             aria-selected={active}

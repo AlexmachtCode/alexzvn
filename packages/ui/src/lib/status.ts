@@ -1,6 +1,7 @@
 // Statusleiste: Typen (Spec 3.3 wörtlich), feste Reihenfolge, Symbole und Klassen je Zustand, „unbekannt“, Uhrzeit.
 // Reine Logik ohne DOM. Jeder Zustand hat Symbol UND Text (Spec 3.3, 4.2). Die Statusfarben färben nur Symbole,
 // Ränder und Flächen, nie Wörter: STATUS_SYMBOL_KLASSE ist die einzige Stelle mit Statusfarbe als Schrift (G7).
+import type { KapitelZustand } from './anleitung';
 import { UNBEKANNT } from './texte';
 
 export type StatusState = 'ok' | 'warn' | 'error' | 'off' | 'live';
@@ -90,3 +91,22 @@ export function formatUhrzeitKurz(iso: string | undefined): string | undefined {
   if (Number.isNaN(d.getTime())) return undefined;
   return `${zweistellig(d.getHours())}:${zweistellig(d.getMinutes())}`;
 }
+
+/**
+ * Zeichen eines Kapitels der geführten Anleitungen (Spec 3.1): Haken nur bei erledigt, „–“ bei nicht gebraucht, übersprungen
+ * und offen ohne Haken. Immer zusammen mit dem Zustandswort für den Screenreader (G7).
+ */
+export const KAPITEL_SYMBOL: Readonly<Record<KapitelZustand, string>> = {
+  erledigt: '✓',
+  nichtGebraucht: '–',
+  uebersprungen: '○',
+  offen: '○',
+};
+
+/** Farbe des Kapitelzeichens; wie STATUS_SYMBOL_KLASSE nur hier als Schrift-Klasse (Quellregel). */
+export const KAPITEL_SYMBOL_KLASSE: Readonly<Record<KapitelZustand, string>> = {
+  erledigt: 'text-[var(--tally-ready)]',
+  nichtGebraucht: 'text-[var(--status-off)]',
+  uebersprungen: 'text-[var(--status-warn)]',
+  offen: 'text-[var(--status-off)]',
+};

@@ -18,6 +18,7 @@ export function VerbundBadge() {
     <button
       type="button"
       onClick={oeffne}
+      data-anleitung="kopf.verbund"
       aria-label="Verbund"
       title={`Verbund · ${kopfText(z)}`}
       className={cn(

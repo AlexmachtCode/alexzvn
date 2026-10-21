@@ -16,6 +16,28 @@ import type { AnhangOrdnerStand, OrdnerProblem, SideEventOrdnerStand } from '../
 import {
   compareVersions, keinPaketText, proxyAntwortAuswerten, proxyFehlerText, waehleRelease, type ProxyAntwortLike, type ReleaseEintrag,
 } from '../src/main/release-wahl.ts';
+import {
+  anleitungSchritt, beimStart, geltendeSchritte, kapitelZustand, leererFortschritt, pruefeAnleitung, sprechTexte, ZIEL_MUSTER,
+  type AnleitungsFortschritt, type AnleitungsSchritt, type Bedingung,
+} from '@jm/ui/anleitung';
+import {
+  ANLEITUNG_SCHLUESSEL, EINRICHTUNG, LAUNCHER_ANLEITUNG_TEXTE, STIMME_SCHLUESSEL, ZIEL_KENNUNGEN,
+} from '../src/renderer/src/anleitung/einrichtung.ts';
+import {
+  anleitungsZustand, ENTSCHEIDUNGS_NAMEN, EREIGNIS_NAMEN, kapitelDetails, neueToolEreignisse, produktionLaeuft, ZUSTANDS_NAMEN,
+  type AnleitungsEingang,
+} from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { leseFortschritt, schreibeFortschritt } from '@jm/ui/anleitung';
+import {
+  anleitungsEingang, erzeugeAnleitungsTreiber, PRESENCE_FRIST_MS, type LauncherLage, type TreiberStand,
+} from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { startEntscheidung, type StartEingang } from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { anleitungAnsicht } from '@jm/ui/anleitung';
+import { anleitungsUmgebung, launcherBlase } from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { ersteSchritteKnopf } from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { ANLEITUNG_TEXTE as U_TEXTE } from '../../../packages/ui/src/lib/texte.ts';
+import { LAUNCHER_ANLEITUNG_TEXTE as L_TEXTE } from '../src/renderer/src/anleitung/einrichtung.ts';
+import { SCENARIOS as SZENARIEN } from '../src/renderer/src/lib/scenarios.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -1325,6 +1347,1519 @@ await (async () => {
     && installer.includes("'Keine Release-Quelle konfiguriert — Token in den Einstellungen hinterlegen.'"));
 }
 
+// --- Geführte Anleitungen P6 (Spec 4, 5, 7; Plan 9.1, 9.3, EP5, EP6, EP22): die Anleitungs-Datei „Einrichtung“ ---------
+// Der Ablaufkern kommt aus @jm/ui/anleitung (Block A; ohne Laufzeit-Importe und darum hier unter strip-types ladbar, MP1).
+// Die Texte stehen hier ein zweites Mal als Tabelle: Jede Änderung an einem Text der Owner-Freigabe fällt auf (G2).
+{
+  // Namen der Bedingungen aus dem Zustands-Adapter (P8): Jede Bedingung der Anleitung nennt einen Namen, den der Adapter liefert.
+  // Dazu das Ereignis, das der Kern nach dem erledigten Neustart selbst merkt (neustart:‹Schritt-ID›, Ruling R-Task6-Neustart).
+  const NAMEN_EINRICHTUNG = { zustaende: ZUSTANDS_NAMEN, ereignisse: [...EREIGNIS_NAMEN, 'neustart:k5.neustart'], entscheidungen: ENTSCHEIDUNGS_NAMEN };
+  const befunde = pruefeAnleitung(EINRICHTUNG, NAMEN_EINRICHTUNG);
+  ck(`P6 7: pruefeAnleitung findet nichts an der Anleitung „Einrichtung“${befunde.length ? ` — ${befunde.join('; ')}` : ''}`,
+    befunde.length === 0);
+  ck('P6 5: sechs Kapitel k1–k6 in dieser Reihenfolge, jedes mit „Brauche ich nicht“ (EP22)',
+    EINRICHTUNG.id === 'einrichtung' && EINRICHTUNG.kapitel.map((k) => k.id).join(',') === 'k1,k2,k3,k4,k5,k6'
+    && EINRICHTUNG.kapitel.every((k) => k.brauchtNicht === true));
+
+  // A1–A48 wörtlich: [Nr., wo, Text]; wo = feste Blase, Kapitel:Feld oder Schritt-ID.
+  const A: Array<[string, string, string]> = [
+    ['A1', 'einleitung', 'Willkommen bei der JM Production Suite. Ich führe dich in sechs Schritten durch die Einrichtung. Du kannst jederzeit pausieren und später weitermachen.'],
+    ['A2', 'rueckfrage', 'Willst du die Anleitung wirklich überspringen? Du findest sie jederzeit oben unter „Erste Schritte“.'],
+    ['A3', 'abschluss', 'Das war die Einrichtung. Alle Schritte findest du jederzeit unter „Erste Schritte“, offene kannst du dort fortsetzen.'],
+    ['A4', 'k1:titel', 'Anmelden'],
+    ['A5', 'k1:kurz', 'Proxy-Schlüssel oder GitHub-Zugang hinterlegen, damit Tools installiert und aktualisiert werden können.'],
+    ['A6', 'k1:erledigt', 'Dieser Rechner ist schon mit der Release-Quelle verbunden. Du kannst gleich weitermachen.'],
+    ['A7', 'k1.einstellungen', 'Damit der Launcher Tools laden kann, braucht er eine Verbindung zur Release-Quelle. Öffne dazu die Einstellungen.'],
+    ['A8', 'k1.zugang', 'Trage hier den Proxy-Schlüssel oder deinen GitHub-Zugang ein und klicke auf „Speichern“. Ohne Internet geht das nicht; dann überspringe diesen Schritt.'],
+    ['A9', 'k2:titel', 'Tools installieren'],
+    ['A10', 'k2:kurz', 'Im Werkzeugkasten die Tools für deine Produktion auswählen und installieren.'],
+    ['A11', 'k2:erledigt', 'Auf diesem Rechner ist schon mindestens ein Tool installiert.'],
+    ['A12', 'k2.reiter', 'Alle Tools der Suite findest du im Werkzeugkasten. Öffne den Reiter „Werkzeugkasten“.'],
+    ['A13', 'k2.katalog', 'Das ist der Katalog. Mit den Kategorien und der Suche findest du schnell das passende Tool.'],
+    ['A14', 'k2.installieren', 'Wähle ein Tool für deine Produktion und klicke auf „Installieren“. Ohne Internet geht das nicht; dann überspringe diesen Schritt.'],
+    ['A15', 'k3:titel', 'Rolle im Verbund wählen und koppeln'],
+    ['A16', 'k3:kurz', 'Festlegen, ob dieser Rechner allein arbeitet, Master ist oder sich mit einem Master verbindet.'],
+    ['A17', 'k3:erledigt', 'Die Rolle dieses Rechners im Verbund ist schon eingerichtet.'],
+    ['A18', 'k3.verbund', 'Arbeiten mehrere Rechner zusammen, ist einer der Master und verteilt die Show. Die anderen verbinden sich mit ihm.'],
+    ['A19', 'k3.allein', 'Arbeitest du allein an diesem Rechner? Dann brauchst du keinen Verbund.'],
+    ['A20', 'k3.oeffnen', 'Öffne den Verbund mit einem Klick auf die Verbund-Anzeige oben.'],
+    ['A21', 'k3.rolle', 'Wähle „Master“ für den Rechner, der die Show verteilt, oder „Mit Master verbinden“ für alle anderen.'],
+    ['A22', 'k3.master', 'Mit „Rechner koppeln“ zeigt der Master einen Code. Gib ihn am anderen Rechner unter „Mit Master verbinden“ ein. Ohne zweiten Rechner machst du das später.'],
+    ['A23', 'k3.slave', 'Wähle deinen Master in der Liste oder trage seine Adresse ein. Gib dann den Code ein, den der Master unter „Rechner koppeln“ zeigt, und klicke auf „Koppeln“. Ohne Master im Netz geht das nicht; dann überspringe diesen Schritt.'],
+    ['A24', 'k4:titel', 'Erste Show anlegen und an ein iveo-Event binden'],
+    ['A25', 'k4:kurz', 'Wähle, was du produzierst (Konferenz, Battle, Bühne, Podcast), und speichere die passende Show.'],
+    ['A26', 'k4:erledigt', 'Die erste Show hast du an diesem Rechner schon gespeichert oder vom Master bekommen.'],
+    ['A27', 'k4.reiter', 'Shows legst du im Reiter „JM Show“ an. Öffne ihn.'],
+    ['A28', 'k4.slave', 'An diesem Rechner kommt die Show vom Master; iveo und Tokens bleiben dort. Die Anleitung kann das hier nicht selbst sehen: Zeigen deine Tools die Show des Masters?'],
+    ['A29', 'k4.vorlage', 'Am schnellsten geht es mit einer Vorlage. Klicke bei „Aus Vorlage starten“ auf „Vorlage wählen“.'],
+    ['A30', 'k4.szenario', 'Wähle, was du produzierst, und klicke auf „Los“. Der Show-Editor übernimmt die passenden Tools.'],
+    ['A31', 'k4.name', 'Gib der Show einen Namen, an dem du sie wiedererkennst.'],
+    ['A32', 'k4.iveo', 'Arbeitest du mit einem iveo-Event, bindest du es hier mit Token und Event an. Ohne iveo klickst du einfach auf „Weiter“.'],
+    ['A33', 'k4.speichern', 'Speichere die Show. Das startet noch keine Tools; das kommt im letzten Schritt.'],
+    ['A34', 'k5:titel', 'Fernsteuerung für Companion einrichten'],
+    ['A35', 'k5:kurz', 'Sehen, ob sich die Tools im Netz finden, und Companion anbinden; am Einzelplatz mit der sicheren Steuerebene.'],
+    ['A36', 'k5:erledigt', 'Du hast schon bestätigt, dass Companion mit diesem Rechner verbunden ist.'],
+    ['A37', 'k5.system', 'Mit Companion steuerst du die Tools zum Beispiel per Stream Deck. Öffne dazu den System-Zustand. Ohne Companion überspringe diesen Schritt.'],
+    ['A38', 'k5.sicher', 'Am Einzelplatz empfehle ich die sichere Steuerebene. Klicke auf „Sichere Steuerebene aktivieren“; bleibst du beim offenen Modus, klicke auf „Weiter“.'],
+    ['A39', 'k5.neustart', 'Die sichere Steuerebene wirkt erst nach einem Neustart. Beende laufende Tools und den Launcher und starte den Launcher neu. Danach geht es hier weiter.'],
+    ['A40', 'k5.companion', 'Trag Token und Fingerprint in Companion ein oder scanne den QR-Code. Token und QR-Code zeigt die Karte nur direkt nach dem Aktivieren oder Erneuern. Fehlt das Token hier und hat Companion es noch nicht, erzeugt „Erneuern“ ein neues; das braucht wieder einen Neustart.'],
+    ['A41', 'k5.verbund', 'Im Verbund trägt die sichere Steuerebene über mehrere Rechner noch nicht: Ein Rechner im sicheren Modus findet die offenen nicht. Companion verbindest du im Verbund darum im offenen Modus.'],
+    ['A42', 'k5.bestaetigen', 'Verbinde Companion mit diesem Rechner. Klappt die Verbindung, bestätige es hier. Ohne Companion überspringe diesen Schritt.'],
+    ['A43', 'k6:titel', 'Tools aus der Show starten'],
+    ['A44', 'k6:kurz', 'Die Show öffnen: Der Launcher startet die Tools, die darin stehen.'],
+    ['A45', 'k6:erledigt', 'Du hast schon Tools aus einer Show gestartet.'],
+    ['A46', 'k6.master', 'Achtung: Am Master verteilt das Öffnen einer Show sie an den ganzen Verbund. Am Timer der anderen Rechner beginnt der Countdown dann neu.'],
+    ['A47', 'k6.oeffnen', 'Öffne jetzt deine Show mit „Show öffnen“. Der Launcher startet die Tools, die darin stehen; den Klick machst du selbst.'],
+    ['A48', 'wiederfinden', 'Übersprungenes findest du jederzeit oben unter „Erste Schritte“.'],
+  ];
+  const schritte: AnleitungsSchritt[] = [EINRICHTUNG.einleitung, EINRICHTUNG.rueckfrage, EINRICHTUNG.abschluss,
+    ...EINRICHTUNG.kapitel.flatMap((k) => k.schritte)];
+  const textVon = (wo: string): string | undefined => {
+    if (wo === 'wiederfinden') return EINRICHTUNG.wiederfinden;
+    const [kid, feld] = wo.split(':');
+    const k = EINRICHTUNG.kapitel.find((x) => x.id === kid);
+    if (k && (feld === 'titel' || feld === 'kurz' || feld === 'erledigt')) return k[feld];
+    return schritte.find((s) => s.id === wo)?.text;
+  };
+  const aAbw = A.filter(([, wo, soll]) => textVon(wo) !== soll).map(([nr]) => nr);
+  ck(`P6 9.1: A1–A48 wörtlich (${A.length} Texte)${aAbw.length ? ` — abweichend: ${aAbw.join(', ')}` : ''}`,
+    A.length === 48 && aAbw.length === 0);
+
+  // Aufbau je Schritt nach 9.1 (Art, Ziel, „Ziel fehlt“, Eingriff, Hinweis Überspringen, gilt nur, wenn, erledigt, wenn, Optionen).
+  const z = (n: string): Bedingung => ({ zustand: n });
+  const ev = (n: string): Bedingung => ({ ereignis: n });
+  const en = (n: string): Bedingung => ({ entscheidung: n });
+  const alle = (...b: Bedingung[]): Bedingung => ({ alle: b });
+  const eine = (...b: Bedingung[]): Bedingung => ({ eineVon: b });
+  const nicht = (b: Bedingung): Bedingung => ({ nicht: b });
+  const VERBUND = eine(z('rolleMaster'), z('rolleSlave'));
+  const EINZEL = nicht(VERBUND);
+  const NICHT_SLAVE = nicht(z('rolleSlave'));
+  const SICHER = z('steuerebeneSicher');
+  const EDITOR = 'Der Show-Editor ist nicht offen. Klicke bei „Aus Vorlage starten“ auf „Vorlage wählen“.';
+  const KOPF = 'Ich sehe den Knopf oben rechts gerade nicht. Zieh das Fenster breiter.';
+  const REITER = 'Ich sehe die Reiter oben links gerade nicht. Zieh das Fenster größer.';
+  type Soll = {
+    id: string; art: string; ziel?: string; zielFehlt?: string; eingriff?: true; hinweis?: true;
+    gilt?: Bedingung; erledigt?: Bedingung; optionen?: Array<[string, string | null]>;
+  };
+  const SOLL: Soll[] = [
+    { id: 'einleitung', art: 'erklaeren' },
+    { id: 'rueckfrage', art: 'erklaeren', ziel: 'kopf.erste-schritte', zielFehlt: KOPF },
+    { id: 'abschluss', art: 'erklaeren', ziel: 'kopf.erste-schritte', zielFehlt: KOPF },
+    { id: 'k1.einstellungen', art: 'handeln', ziel: 'kopf.einstellungen', zielFehlt: KOPF, erledigt: z('einstellungenOffen') },
+    { id: 'k1.zugang', art: 'handeln', ziel: 'einstellungen.zugang', zielFehlt: 'Öffne zuerst oben die Einstellungen.', hinweis: true,
+      erledigt: z('quelleVerbunden') },
+    { id: 'k2.reiter', art: 'handeln', ziel: 'reiter.werkzeugkasten', zielFehlt: REITER, erledigt: z('reiterWerkzeugkasten') },
+    { id: 'k2.katalog', art: 'erklaeren', ziel: 'werkzeugkasten.kategorien', zielFehlt: 'Öffne zuerst den Reiter „Werkzeugkasten“.' },
+    { id: 'k2.installieren', art: 'handeln', ziel: 'werkzeugkasten.installieren',
+      zielFehlt: 'Ich sehe gerade kein Tool zum Installieren. Stelle den Filter über dem Katalog auf „Alle“.', hinweis: true,
+      erledigt: z('toolInstalliert') },
+    { id: 'k3.verbund', art: 'erklaeren', ziel: 'kopf.verbund',
+      zielFehlt: 'Die Verbund-Anzeige ist gerade nicht zu sehen. Du findest den Verbund auch in den Einstellungen.' },
+    { id: 'k3.allein', art: 'entscheiden', optionen: [['Ich arbeite allein an diesem Rechner', 'allein'], ['Verbund einrichten', null]] },
+    { id: 'k3.oeffnen', art: 'handeln', ziel: 'kopf.verbund', zielFehlt: 'Öffne die Einstellungen und klicke dort auf „Verbund öffnen“.',
+      erledigt: z('verbundOffen') },
+    { id: 'k3.rolle', art: 'handeln', ziel: 'verbund.rollen',
+      zielFehlt: 'Öffne zuerst den Verbund. Ist er offen, lädt er noch oder sagt dort, warum die Rollen fehlen.', eingriff: true,
+      erledigt: VERBUND },
+    { id: 'k3.master', art: 'erklaeren', ziel: 'verbund.koppeln-master',
+      zielFehlt: 'Öffne zuerst den Verbund. Ist er offen, läuft der Master noch nicht: Warte kurz oder lies dort unter „Master“, was ihn aufhält.',
+      hinweis: true, gilt: z('rolleMaster') },
+    { id: 'k3.slave', art: 'handeln', ziel: 'verbund.code',
+      zielFehlt: 'Öffne zuerst den Verbund. Ist er offen, ist dieser Rechner schon gekoppelt; ob er den Master erreicht, steht dort unter „Master“.',
+      eingriff: true, hinweis: true, gilt: z('rolleSlave'), erledigt: alle(z('slaveGekoppelt'), ev('slaveWarVerbunden')) },
+    { id: 'k4.reiter', art: 'handeln', ziel: 'reiter.show', zielFehlt: REITER, gilt: NICHT_SLAVE, erledigt: z('reiterShow') },
+    { id: 'k4.slave', art: 'entscheiden', gilt: z('rolleSlave'), optionen: [['Die Show ist da', 'showVomMaster']] },
+    { id: 'k4.vorlage', art: 'handeln', ziel: 'show.vorlage', zielFehlt: 'Öffne zuerst den Reiter „JM Show“.', gilt: NICHT_SLAVE,
+      erledigt: z('szenarienOffen') },
+    { id: 'k4.szenario', art: 'handeln', ziel: 'szenario.auswahl', zielFehlt: 'Klicke zuerst bei „Aus Vorlage starten“ auf „Vorlage wählen“.',
+      gilt: NICHT_SLAVE, erledigt: z('editorOffen') },
+    { id: 'k4.name', art: 'erklaeren', ziel: 'editor.name', zielFehlt: EDITOR, gilt: NICHT_SLAVE },
+    { id: 'k4.iveo', art: 'erklaeren', ziel: 'editor.iveo', zielFehlt: EDITOR, gilt: NICHT_SLAVE },
+    { id: 'k4.speichern', art: 'handeln', ziel: 'editor.speichern', zielFehlt: EDITOR, gilt: NICHT_SLAVE, erledigt: ev('showGespeichert') },
+    { id: 'k5.system', art: 'handeln', ziel: 'kopf.system', zielFehlt: KOPF, hinweis: true, gilt: EINZEL, erledigt: z('systemOffen') },
+    { id: 'k5.sicher', art: 'erklaeren', ziel: 'system.sicher', zielFehlt: 'Öffne zuerst den System-Zustand.', eingriff: true,
+      gilt: alle(EINZEL, nicht(SICHER)) },
+    { id: 'k5.companion', art: 'erklaeren', ziel: 'system.steuerebene', zielFehlt: 'Öffne den System-Zustand.', gilt: alle(EINZEL, SICHER) },
+    { id: 'k5.neustart', art: 'neustart', eingriff: true, gilt: alle(EINZEL, SICHER, ev('steuerebeneAktiviert'), nicht(ev('neustart:k5.neustart'))) },
+    { id: 'k5.verbund', art: 'erklaeren', gilt: VERBUND },
+    { id: 'k5.bestaetigen', art: 'entscheiden', hinweis: true, optionen: [['Companion ist verbunden', 'companionVerbunden']] },
+    { id: 'k6.master', art: 'erklaeren', gilt: z('rolleMaster') },
+    { id: 'k6.oeffnen', art: 'handeln', ziel: 'kopf.show-oeffnen', zielFehlt: KOPF, eingriff: true, erledigt: z('showGestartet') },
+  ];
+  const formIst = (s: AnleitungsSchritt): string => JSON.stringify({
+    id: s.id, art: s.art, ziel: s.ziel ?? null, zielFehlt: s.zielFehlt ?? null, eingriff: s.eingriff === true,
+    hinweis: s.ueberspringenHinweis === true, gilt: s.giltWenn ?? null, erledigt: s.erledigtWenn ?? null,
+    optionen: (s.optionen ?? []).map((o) => [o.knopf, o.entscheidung ?? null]),
+  });
+  const formSoll = (s: Soll): string => JSON.stringify({
+    id: s.id, art: s.art, ziel: s.ziel ?? null, zielFehlt: s.zielFehlt ?? null, eingriff: s.eingriff === true,
+    hinweis: s.hinweis === true, gilt: s.gilt ?? null, erledigt: s.erledigt ?? null, optionen: s.optionen ?? [],
+  });
+  const aufbauAbw = SOLL.filter((s, i) => schritte[i] === undefined || formSoll(s) !== formIst(schritte[i])).map((s) => s.id);
+  ck(`P6 9.1: Aufbau je Schritt nach 9.1 (${SOLL.length} Schritte)${aufbauAbw.length || schritte.length !== SOLL.length
+    ? ` — abweichend: ${aufbauAbw.join(', ')} (ist ${schritte.length} Schritte)` : ''}`,
+    schritte.length === SOLL.length && aufbauAbw.length === 0);
+  const KAPITEL_SOLL: Record<string, Bedingung> = {
+    k1: z('quelleVerbunden'),
+    k2: z('toolInstalliert'),
+    k3: eine(z('rolleMaster'), alle(z('slaveGekoppelt'), ev('slaveWarVerbunden')), alle(z('rolleAus'), en('allein'))),
+    k4: eine(alle(NICHT_SLAVE, ev('showGespeichert')), alle(z('rolleSlave'), en('showVomMaster'))),
+    k5: en('companionVerbunden'),
+    k6: z('showGestartet'),
+  };
+  const kapAbw = EINRICHTUNG.kapitel.filter((k) => JSON.stringify(k.erledigtWenn) !== JSON.stringify(KAPITEL_SOLL[k.id])).map((k) => k.id);
+  ck(`P6 9.1: „erledigt, wenn“ je Kapitel nach 9.1${kapAbw.length ? ` — abweichend: ${kapAbw.join(', ')}` : ''}`, kapAbw.length === 0);
+
+  // Kapitel je nach Rolle (Spec 5; EP6: Rolle unbekannt = Einzelplatz-Texte).
+  const leer = leererFortschritt('einrichtung');
+  const ROLLEN: Array<[string, Record<string, boolean>]> = [
+    ['aus', { rolleAus: true }], ['master', { rolleMaster: true }], ['slave', { rolleSlave: true }], ['unbekannt', {}],
+  ];
+  const EINZELPLATZ_SCHRITTE = 'k1:einstellungen,zugang|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle'
+    + '|k4:reiter,vorlage,szenario,name,iveo,speichern|k5:system,sicher,bestaetigen|k6:oeffnen';
+  const GELTEND: Record<string, string> = {
+    aus: EINZELPLATZ_SCHRITTE,
+    master: 'k1:einstellungen,zugang|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle,master'
+      + '|k4:reiter,vorlage,szenario,name,iveo,speichern|k5:verbund,bestaetigen|k6:master,oeffnen',
+    slave: 'k1:einstellungen,zugang|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle,slave'
+      + '|k4:slave|k5:verbund,bestaetigen|k6:oeffnen',
+    unbekannt: EINZELPLATZ_SCHRITTE,
+  };
+  const geltend = (zst: Record<string, boolean>): string => EINRICHTUNG.kapitel
+    .map((k) => `${k.id}:${geltendeSchritte(EINRICHTUNG, k.id, zst, leer).map((s) => s.id.slice(k.id.length + 1)).join(',')}`).join('|');
+  const rollenAbw = ROLLEN.filter(([r, zst]) => geltend(zst) !== GELTEND[r]).map(([r, zst]) => `${r}: ${geltend(zst)}`);
+  ck(`P6 5: geltende Schritte je Rolle nach 9.1 (aus, Master, Slave, unbekannt wie Einzelplatz)${rollenAbw.length
+    ? ` — ${rollenAbw.join(' / ')}` : ''}`, rollenAbw.length === 0);
+  let faelle = 0;
+  const ohneSchritt: string[] = [];
+  for (const [r, rz] of ROLLEN) for (const gekoppelt of [false, true]) for (const sicher of [false, true]) {
+    faelle++;
+    const zst = { ...rz, slaveGekoppelt: gekoppelt, slaveVerbunden: gekoppelt, steuerebeneSicher: sicher };
+    for (const k of EINRICHTUNG.kapitel) {
+      if (geltendeSchritte(EINRICHTUNG, k.id, zst, leer).length === 0) ohneSchritt.push(`${r}/${gekoppelt ? 'gekoppelt' : 'frei'}/${sicher ? 'sicher' : 'offen'}: ${k.id}`);
+    }
+  }
+  ck(`P6 5: Rollen-Kreuz Rolle × gekoppelt × Steuerebene: jedes Kapitel hat mindestens einen Schritt (${faelle} Fälle)${ohneSchritt.length
+    ? ` — ohne Schritt: ${ohneSchritt.slice(0, 5).join(', ')}` : ''}`, faelle === 16 && ohneSchritt.length === 0);
+
+  // Haken je Kapitel (EP5, G7): echte Zustände, gemerkte Ereignisse, ausdrückliche Entscheidungen; eine Voreinstellung zählt nie.
+  const ZEIT = '2026-10-19T10:00:00.000Z';
+  const mit = (ereignisse: string[], entscheidungen: string[]) => ({
+    ...leer,
+    ereignisse: Object.fromEntries(ereignisse.map((n) => [n, ZEIT])),
+    entscheidungen: Object.fromEntries(entscheidungen.map((n) => [n, ZEIT])),
+  });
+  const ERLEDIGT: Array<[string, string, Record<string, boolean>, string[], string[], boolean]> = [
+    ['k1 frisch', 'k1', {}, [], [], false],
+    ['k1 Quelle verbunden', 'k1', { quelleVerbunden: true }, [], [], true],
+    ['k2 frisch', 'k2', {}, [], [], false],
+    ['k2 ein Tool installiert', 'k2', { toolInstalliert: true }, [], [], true],
+    ['k3 Rolle aus ohne Entscheidung (Voreinstellung)', 'k3', { rolleAus: true }, [], [], false],
+    ['k3 Rolle aus und allein', 'k3', { rolleAus: true }, [], ['allein'], true],
+    ['k3 allein bei unbekannter Rolle', 'k3', {}, [], ['allein'], false],
+    ['k3 allein am Slave', 'k3', { rolleSlave: true }, [], ['allein'], false],
+    ['k3 Master', 'k3', { rolleMaster: true }, [], [], true],
+    ['k3 Slave gekoppelt, nie verbunden', 'k3', { rolleSlave: true, slaveGekoppelt: true }, [], [], false],
+    ['k3 Slave gekoppelt, war verbunden', 'k3', { rolleSlave: true, slaveGekoppelt: true }, ['slaveWarVerbunden'], [], true],
+    ['k3 Slave entkoppelt, war verbunden', 'k3', { rolleSlave: true }, ['slaveWarVerbunden'], [], false],
+    ['k4 Einzelplatz frisch', 'k4', { rolleAus: true }, [], [], false],
+    ['k4 Einzelplatz Show gespeichert', 'k4', { rolleAus: true }, ['showGespeichert'], [], true],
+    ['k4 Rolle unbekannt Show gespeichert', 'k4', {}, ['showGespeichert'], [], true],
+    ['k4 Slave Show gespeichert', 'k4', { rolleSlave: true }, ['showGespeichert'], [], false],
+    ['k4 Slave Show vom Master bestätigt', 'k4', { rolleSlave: true }, [], ['showVomMaster'], true],
+    ['k4 Bestätigung ohne Slave', 'k4', { rolleAus: true }, [], ['showVomMaster'], false],
+    ['k5 Einzelplatz offen', 'k5', { rolleAus: true, steuerebeneOffen: true }, [], [], false],
+    ['k5 Einzelplatz sicher, eben aktiviert, nicht bestätigt', 'k5', { rolleAus: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'], [], false],
+    ['k5 Einzelplatz sicher nach dem Neustart, nicht bestätigt', 'k5', { rolleAus: true, steuerebeneSicher: true },
+      ['steuerebeneAktiviert', 'neustart:k5.neustart'], [], false],
+    ['k5 Master sicher', 'k5', { rolleMaster: true, steuerebeneSicher: true }, [], [], false],
+    ['k5 Rolle unbekannt sicher', 'k5', { steuerebeneSicher: true }, [], [], false],
+    ['k5 Einzelplatz offen, Companion bestätigt', 'k5', { rolleAus: true, steuerebeneOffen: true }, [], ['companionVerbunden'], true],
+    ['k5 Einzelplatz sicher, Companion bestätigt', 'k5', { rolleAus: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'],
+      ['companionVerbunden'], true],
+    ['k5 Verbund Companion bestätigt', 'k5', { rolleMaster: true }, [], ['companionVerbunden'], true],
+    ['k6 frisch', 'k6', {}, [], [], false],
+    ['k6 Show gestartet', 'k6', { showGestartet: true }, [], [], true],
+  ];
+  const erlAbw = ERLEDIGT.filter(([, k, zst, evs, ens, soll]) => (kapitelZustand(EINRICHTUNG, k, zst, mit(evs, ens)) === 'erledigt') !== soll)
+    .map(([name]) => name);
+  ck(`P6 5: Haken je Kapitel nach EP5, eine Voreinstellung zählt nie (${ERLEDIGT.length} Fälle)${erlAbw.length
+    ? ` — falsch: ${erlAbw.join('; ')}` : ''}`, erlAbw.length === 0);
+
+  // Kapitel 5 je Rolle und Steuerebene (Spec 5, EP5): am Einzelplatz empfohlen, nach dem Aktivieren Token und QR vor dem
+  // Neustart, der Neustart nur nach einem Wechsel offen → sicher (Ereignis steuerebeneAktiviert), an jeder Rolle zuletzt die
+  // Bestätigung „Companion ist verbunden“.
+  const K5: Array<[string, Record<string, boolean>, string[], string]> = [
+    ['Einzelplatz, Steuerebene nicht geladen', { rolleAus: true }, [], 'system,sicher,bestaetigen'],
+    ['Einzelplatz offen', { rolleAus: true, steuerebeneOffen: true }, [], 'system,sicher,bestaetigen'],
+    ['Einzelplatz eben aktiviert', { rolleAus: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'], 'system,companion,neustart,bestaetigen'],
+    ['Einzelplatz schon vorher sicher', { rolleAus: true, steuerebeneSicher: true }, [], 'system,companion,bestaetigen'],
+    ['Einzelplatz nach dem erledigten Neustart', { rolleAus: true, steuerebeneSicher: true }, ['steuerebeneAktiviert', 'neustart:k5.neustart'],
+      'system,companion,bestaetigen'],
+    ['Rolle unbekannt eben aktiviert', { steuerebeneSicher: true }, ['steuerebeneAktiviert'], 'system,companion,neustart,bestaetigen'],
+    ['Master sicher, eben aktiviert', { rolleMaster: true, steuerebeneSicher: true }, ['steuerebeneAktiviert'], 'verbund,bestaetigen'],
+    ['Slave offen', { rolleSlave: true, steuerebeneOffen: true }, [], 'verbund,bestaetigen'],
+  ];
+  const k5Folge = (zst: Record<string, boolean>, evs: string[]): string =>
+    geltendeSchritte(EINRICHTUNG, 'k5', zst, mit(evs, [])).map((s) => s.id.slice(3)).join(',');
+  const k5Abw = K5.filter(([, zst, evs, soll]) => k5Folge(zst, evs) !== soll).map(([name, zst, evs]) => `${name}: ${k5Folge(zst, evs)}`);
+  ck(`P6 5: Kapitel 5 je Rolle und Steuerebene: Token vor dem Neustart, Neustart nur nach dem Aktivieren, Bestätigung an jeder Rolle (${K5.length} Fälle)${k5Abw.length
+    ? ` — ${k5Abw.join('; ')}` : ''}`, k5Abw.length === 0);
+
+  // Hauptlauf an den Übergängen mit dem echten Kern (Spec 5, Gliederung 11 Regeln 4, 8, 11, EP7): Nach der Rollenwahl folgt am
+  // Master die Kopplung („Kopplung erklärt“), am Slave das Koppeln. In Kapitel 5 kommen Token und QR vor dem Neustart (die
+  // Karte zeigt das Token nur einmal), nach dem Neustart von selbst die Bestätigung; ohne sichere Steuerebene führt „Weiter“ hin.
+  const lauf = (kapitel: string, schritt: string): AnleitungsFortschritt => ({
+    ...leer, status: 'laeuft', position: { ort: 'kapitel', kapitel, schritt, nurZeigen: false, warErfuellt: false },
+  });
+  const ortVon = (f: AnleitungsFortschritt): string => (f.position === null ? 'kein Ort'
+    : f.position.ort === 'kapitel' ? (f.position.schritt ?? `${f.position.kapitel}:erledigt`) : f.position.ort);
+  const EINZEL_SICHER = { rolleAus: true, systemOffen: true, steuerebeneSicher: true };
+  const f3 = anleitungSchritt(EINRICHTUNG, lauf('k5', 'k5.sicher'), { art: 'toolEreignis', name: 'steuerebeneAktiviert' }, EINZEL_SICHER, ZEIT);
+  const f4 = anleitungSchritt(EINRICHTUNG, f3, { art: 'weiter' }, EINZEL_SICHER, ZEIT);
+  const f5 = beimStart(EINRICHTUNG, { fortschritt: f4, zustand: 'ok' }, { bestehenderRechner: false }, ZEIT);
+  const f6 = anleitungSchritt(EINRICHTUNG, f5.fortschritt, { art: 'option', index: 0 }, EINZEL_SICHER, ZEIT);
+  const HAUPTLAUF: Array<[string, string, string]> = [
+    ['Master: nach der Rollenwahl die Kopplung', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k3', 'k3.rolle'), { art: 'zustand' },
+      { verbundOffen: true, rolleMaster: true }, ZEIT)), 'k3.master'],
+    ['Slave: nach der Rollenwahl das Koppeln', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k3', 'k3.rolle'), { art: 'zustand' },
+      { verbundOffen: true, rolleSlave: true }, ZEIT)), 'k3.slave'],
+    ['Einzelplatz: nach dem Aktivieren Token und QR', ortVon(f3), 'k5.companion'],
+    ['Einzelplatz: danach der verlangte Neustart', `${ortVon(f4)} ${f4.neustart?.schritt ?? '-'}`, 'k5.neustart k5.neustart'],
+    ['nach dem Neustart: von selbst die Bestätigung', `${ortVon(f5.fortschritt)} ${f5.oeffnen}`, 'k5.bestaetigen anleitung'],
+    ['Bestätigung: Kapitel 5 erledigt, weiter mit Kapitel 6', ortVon(f6), 'k6.oeffnen'],
+    ['Einzelplatz offen: „Weiter“ führt zur Bestätigung', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k5', 'k5.sicher'), { art: 'weiter' },
+      { rolleAus: true, systemOffen: true, steuerebeneOffen: true }, ZEIT)), 'k5.bestaetigen'],
+    ['nach dem Neustart: kein zweiter Neustart, „Weiter“ führt zur Bestätigung', ortVon(anleitungSchritt(EINRICHTUNG,
+      { ...lauf('k5', 'k5.companion'), ereignisse: f5.fortschritt.ereignisse }, { art: 'weiter' }, EINZEL_SICHER, ZEIT)), 'k5.bestaetigen'],
+    ['schon vorher sicher: kein Neustart', ortVon(anleitungSchritt(EINRICHTUNG, lauf('k5', 'k5.companion'), { art: 'weiter' },
+      EINZEL_SICHER, ZEIT)), 'k5.bestaetigen'],
+  ];
+  const laufAbw = HAUPTLAUF.filter(([, ist, soll]) => ist !== soll).map(([name, ist]) => `${name}: ${ist}`);
+  ck(`P6 5: Hauptlauf an den Übergängen mit dem echten Kern (${HAUPTLAUF.length} Fälle)${laufAbw.length ? ` — ${laufAbw.join('; ')}` : ''}`,
+    laufAbw.length === 0);
+
+  // Gesprochene Texte (Spec 6): 35 mit den IDs aus 9.1; noch kein eigener Sprechtext (erst nach der Hörprobe).
+  const SPRECH_IDS = ['einleitung', 'rueckfrage', 'abschluss', 'k1.erledigt', 'k1.einstellungen', 'k1.zugang', 'k2.erledigt', 'k2.reiter',
+    'k2.katalog', 'k2.installieren', 'k3.erledigt', 'k3.verbund', 'k3.allein', 'k3.oeffnen', 'k3.rolle', 'k3.master', 'k3.slave',
+    'k4.erledigt', 'k4.reiter', 'k4.slave', 'k4.vorlage', 'k4.szenario', 'k4.name', 'k4.iveo', 'k4.speichern', 'k5.erledigt',
+    'k5.system', 'k5.sicher', 'k5.neustart', 'k5.companion', 'k5.verbund', 'k5.bestaetigen', 'k6.erledigt', 'k6.master', 'k6.oeffnen'];
+  const sprech = sprechTexte(EINRICHTUNG);
+  const sprechIds = sprech.map((s) => s.id);
+  const sprechFehlt = SPRECH_IDS.filter((id) => !sprechIds.includes(id));
+  const sprechFremd = sprechIds.filter((id) => !SPRECH_IDS.includes(id));
+  ck(`P6 6: 35 gesprochene Texte mit den IDs aus 9.1, jede genau einmal (${sprech.length})${sprechFehlt.length || sprechFremd.length
+    ? ` — fehlt: ${sprechFehlt.join(', ')}; fremd: ${sprechFremd.join(', ')}` : ''}`,
+    sprech.length === 35 && new Set(sprechIds).size === 35 && sprechFehlt.length === 0 && sprechFremd.length === 0);
+  ck('P6 6: gesprochen wird der Text der Sprechblase, kein Schritt hat einen eigenen Sprechtext',
+    schritte.every((s) => s.sprechtext === undefined)
+    && sprech.every((s) => s.text === textVon(s.id.endsWith('.erledigt') ? `${s.id.slice(0, -'.erledigt'.length)}:erledigt` : s.id)));
+
+  // Ziel-Kennungen (EP10): ZIEL_KENNUNGEN sind genau die Ziele der Anleitung.
+  const ziele = [...new Set(schritte.flatMap((s) => (s.ziel ? [s.ziel] : [])))];
+  ck(`P6 7: ZIEL_KENNUNGEN = die 20 Ziele der Anleitung, jede einmal, nach ZIEL_MUSTER (${ZIEL_KENNUNGEN.length})`,
+    ZIEL_KENNUNGEN.length === 20 && new Set(ZIEL_KENNUNGEN).size === 20 && ZIEL_KENNUNGEN.every((k) => ZIEL_MUSTER.test(k))
+    && [...ziele].sort().join(',') === [...ZIEL_KENNUNGEN].sort().join(','));
+
+  // Launcher-Texte L1–L14 wörtlich (9.3).
+  const L = LAUNCHER_ANLEITUNG_TEXTE;
+  const LT: Array<[string, string, string]> = [
+    ['L1', L.optionAllein, 'Ich arbeite allein an diesem Rechner'],
+    ['L2', L.optionVerbund, 'Verbund einrichten'],
+    ['L3', L.optionShowDa, 'Die Show ist da'],
+    ['L4', L.optionCompanion, 'Companion ist verbunden'],
+    ['L5 offen', L.aktion.k1(false), 'Einrichten'],
+    ['L5 fertig', L.aktion.k1(true), 'Ändern'],
+    ['L6 offen', L.aktion.k2(false), 'Auswählen'],
+    ['L6 fertig', L.aktion.k2(true), 'Werkzeugkasten'],
+    ['L7', L.aktion.k3, 'Verbund öffnen'],
+    ['L8 k4', L.aktion.k4, 'Vorlage wählen'],
+    ['L8 k5', L.aktion.k5, 'Prüfen'],
+    ['L9 Proxy', L.detail.k1('proxy'), 'Aktiv: Firmen-Proxy.'],
+    ['L9 GitHub', L.detail.k1('github'), 'Aktiv: GitHub.'],
+    ['L10 eins', L.detail.k2(1), '1 Tool installiert, weitere jederzeit im Werkzeugkasten.'],
+    ['L10 mehrere', L.detail.k2(3), '3 Tools installiert, weitere jederzeit im Werkzeugkasten.'],
+    ['L11 Knopf', L.knopf, 'Erste Schritte'],
+    ['L11 Titel', L.knopfTitel, 'Erste Schritte · geführte Einrichtung'],
+    ['L12', L.neu, 'Neu: geführte Einrichtung'],
+    ['L13 Titel', L.titel, 'Willkommen bei der JM Production Suite'],
+    ['L13 Unterzeile', L.unterzeile, 'In sechs Schritten startklar. Jeden Schritt kannst du dir einzeln zeigen lassen.'],
+    ['L14 Tipp', L.tipp, 'Tipp: Das JM Kochbuch (oben) hat Anleitungen & Best Practices.'],
+    ['L14 Schließen', L.schliessen, 'Schließen'],
+  ];
+  const lAbw = LT.filter(([, ist, soll]) => ist !== soll).map(([nr]) => nr);
+  ck(`P6 9.3: L1–L14 wörtlich (${LT.length} Texte)${lAbw.length ? ` — abweichend: ${lAbw.join(', ')}` : ''}`, lAbw.length === 0);
+  const alleTexte: string[] = LT.map(([, t]) => t);
+  const sammle = (x: unknown): void => {
+    if (typeof x === 'string') alleTexte.push(x);
+    else if (Array.isArray(x)) x.forEach(sammle);
+    else if (x !== null && typeof x === 'object') Object.values(x).forEach(sammle);
+  };
+  sammle(EINRICHTUNG);
+  const mitAscii = alleTexte.filter((t) => t.includes('"'));
+  ck(`P6 G2: kein ASCII-Anführungszeichen in Anleitung und Launcher-Texten (${alleTexte.length} Zeichenketten)${mitAscii.length
+    ? ` — ${mitAscii.join(' | ')}` : ''}`, mitAscii.length === 0);
+  ck('P6 EP4: Schlüssel jmps:anleitung:einrichtung und jmps:anleitungStimme',
+    ANLEITUNG_SCHLUESSEL === 'jmps:anleitung:einrichtung' && STIMME_SCHLUESSEL === 'jmps:anleitungStimme');
+  const importe = quelleLf('../src/renderer/src/anleitung/einrichtung.ts').split('\n').filter((zeile) => /^import\b/.test(zeile));
+  ck(`P6 G5: anleitung/einrichtung.ts lädt nur Typen (${importe.length} Import-Zeile, nur import type)`,
+    importe.length >= 1 && importe.every((zeile) => zeile.startsWith('import type ')));
+}
+
+// --- Geführte Anleitungen P7 (Spec 7, 10; EP10): Ziel-Kennungen im Renderer, beidseitig gegen stillen Bruch -------------
+// Jede Kennung der Anleitung steht genau einmal im Renderer (data-anleitung="…" oder Tabellenfeld anleitung: '…'), jede
+// Kennung im Renderer gehört zur Anleitung, und sie sitzt in der Komponente des Kennungs-Registers (docs/anleitungen.md).
+// Fällt eine Kennung beim Umbau weg (UX-Welle 3), wird dieser Block rot statt die Anleitung still ins Leere zu zeigen.
+{
+  const dateien = (readdirSync(new URL('../src/renderer/src/', import.meta.url), { recursive: true }) as string[])
+    .map((d) => d.replace(/\\/g, '/')).filter((d) => d.endsWith('.tsx')).sort();
+  const funde: Array<[string, string]> = [];
+  const roh: string[] = [];
+  for (const d of dateien) {
+    const q = quelleLf(`../src/renderer/src/${d}`);
+    for (const m of q.matchAll(/data-anleitung="([^"]*)"/g)) funde.push([m[1], d]);
+    for (const m of q.matchAll(/\banleitung: '([a-z0-9-]+\.[^']*)'/g)) funde.push([m[1], d]);
+    for (const m of q.matchAll(/data-anleitung=(?!"[^"]*"|\{\w+\.anleitung\})(\S{0,40})/g)) roh.push(`${d}: data-anleitung=${m[1]}`);
+  }
+  const anzahl = (k: string): number => funde.filter(([x]) => x === k).length;
+  const fehlt = ZIEL_KENNUNGEN.filter((k) => anzahl(k) !== 1).map((k) => `${k} (${anzahl(k)}×)`);
+  ck(`P7 7: jede der ${ZIEL_KENNUNGEN.length} Ziel-Kennungen steht genau einmal im Renderer${fehlt.length
+    ? ` — fehlt oder mehrfach: ${fehlt.join(', ')}` : ''}`, ZIEL_KENNUNGEN.length === 20 && fehlt.length === 0);
+  const fremd = funde.filter(([k]) => !ZIEL_KENNUNGEN.includes(k)).map(([k, d]) => `${k} in ${d}`);
+  ck(`P7 7: jede Kennung im Renderer gehört zur Anleitung (${funde.length} gefunden)${fremd.length ? ` — fremd: ${fremd.join(', ')}` : ''}`,
+    fremd.length === 0);
+  ck(`P7 EP10: data-anleitung nur als Literal oder als Tabellenfeld x.anleitung, nie zusammengesetzt${roh.length ? ` — ${roh.join(', ')}` : ''}`,
+    roh.length === 0);
+  ck('P7 EP10: die Tabellenfelder werden gerendert (TabBar tab.anleitung, ShowView action.anleitung)',
+    quelleLf('../src/renderer/src/components/TabBar.tsx').includes('data-anleitung={tab.anleitung}')
+    && quelleLf('../src/renderer/src/components/ShowView.tsx').includes('data-anleitung={action.anleitung}'));
+  // Kennungs-Register (Gliederung 13 P7, docs/anleitungen.md): Kennung → Komponente.
+  const ORT: Record<string, string> = {
+    'kopf.erste-schritte': 'components/Header.tsx',
+    'kopf.einstellungen': 'components/Header.tsx',
+    'kopf.system': 'components/Header.tsx',
+    'kopf.show-oeffnen': 'components/Header.tsx',
+    'kopf.verbund': 'components/VerbundBadge.tsx',
+    'einstellungen.zugang': 'components/SettingsModal.tsx',
+    'reiter.werkzeugkasten': 'components/TabBar.tsx',
+    'reiter.show': 'components/TabBar.tsx',
+    'werkzeugkasten.kategorien': 'components/ToolboxView.tsx',
+    'werkzeugkasten.installieren': 'components/ToolCard.tsx',
+    'verbund.rollen': 'components/VerbundModal.tsx',
+    'verbund.koppeln-master': 'components/VerbundMaster.tsx',
+    'verbund.code': 'components/VerbundSlave.tsx',
+    'show.vorlage': 'components/ShowView.tsx',
+    'szenario.auswahl': 'components/ScenarioPicker.tsx',
+    'editor.name': 'components/ShowEditorModal.tsx',
+    'editor.iveo': 'components/ShowEditorModal.tsx',
+    'editor.speichern': 'components/ShowEditorModal.tsx',
+    'system.steuerebene': 'components/SystemStatusModal.tsx',
+    'system.sicher': 'components/SystemStatusModal.tsx',
+  };
+  const falscherOrt = ZIEL_KENNUNGEN.filter((k) => !funde.some(([x, d]) => x === k && d === ORT[k])).map((k) => `${k} (soll ${ORT[k]})`);
+  ck(`P7 7: jede Kennung sitzt in der Komponente des Kennungs-Registers${falscherOrt.length ? ` — ${falscherOrt.join(', ')}` : ''}`,
+    Object.keys(ORT).length === 20 && falscherOrt.length === 0);
+}
+
+// --- Geführte Anleitungen P8 (Spec 5, 7, 8; EP5, EP6, EP17, G7): Zustands-Adapter Store → Bedingungen ----------------
+// Kreuzprodukte mit eigener Erwartung je Fall (aus den Fall-Namen, nicht aus dem Adapter): Ein Haken entsteht nur aus einem
+// echten Zustand; Quelle null/'none', Verbund-Stand null, Dateifehler (Rolle unbekannt) und Steuerebene null zählen nie.
+{
+  const eingang = (teil: Partial<AnleitungsEingang>): AnleitungsEingang => ({
+    settings: null, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+    verbundOffen: false, verbund: null, steuerebene: null, recentShows: 0, laufendeTools: 0, showLaunch: false, iveoActive: false,
+    ...teil,
+  });
+  const stand = (rolle: string, dateiFehler: string | null, gekoppelt: boolean, art: string): VerbundStand => ({
+    rolle, rechnerName: 'Regie 1', karten: [], gewaehlteKarte: null, karteFehlt: false, dateiFehler, master: null,
+    slave: { gekoppelt, koppeltGerade: false, masterName: 'Master', festeAdresse: null, client: { art }, gefundeneMaster: [] },
+  }) as VerbundStand;
+  const NAMEN = ['quelleVerbunden', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen', 'systemOffen',
+    'verbundOffen', 'szenarienOffen', 'editorOffen', 'rolleAus', 'rolleMaster', 'rolleSlave', 'slaveGekoppelt', 'slaveVerbunden',
+    'steuerebeneSicher', 'steuerebeneOffen', 'showGestartet'];
+  ck('P8 10.3: Namenslisten nach Gliederung 10.3 (17 Zustände, 3 Ereignisse, 3 Entscheidungen)',
+    ZUSTANDS_NAMEN.join(',') === NAMEN.join(',') && EREIGNIS_NAMEN.join(',') === 'showGespeichert,slaveWarVerbunden,steuerebeneAktiviert'
+    && ENTSCHEIDUNGS_NAMEN.join(',') === 'allein,companionVerbunden,showVomMaster');
+  const vergleiche = (fall: string, ist: Record<string, boolean>, soll: Record<string, boolean>, abw: string[]): void => {
+    for (const n of NAMEN) if (ist[n] !== soll[n]) abw.push(`${fall}: ${n} ist ${String(ist[n])}`);
+  };
+
+  // Kreuz 1: Quelle × Verbund-Stand × gekoppelt × Client × Steuerebene
+  const QUELLEN = [null, 'none', 'proxy', 'github'] as const;
+  const STAENDE = ['null', 'aus', 'master', 'slave', 'aus+dateiFehler', 'master+dateiFehler', 'slave+dateiFehler'] as const;
+  const CLIENTS = ['verbunden', 'sucht', 'fehler'] as const;
+  const STEUER = [null, 'open', 'secure'] as const;
+  let n1 = 0;
+  const abw1: string[] = [];
+  for (const q of QUELLEN) for (const st of STAENDE) for (const gek of [false, true]) for (const art of CLIENTS) for (const se of STEUER) {
+    n1++;
+    const [rolle, fehler] = st.split('+');
+    const e = eingang({
+      settings: q === null ? null : { source: q },
+      verbund: st === 'null' ? null : stand(rolle, fehler ? 'EACCES' : null, gek, art),
+      steuerebene: se,
+    });
+    const soll: Record<string, boolean> = {
+      quelleVerbunden: q === 'proxy' || q === 'github', toolInstalliert: false, reiterWerkzeugkasten: true, reiterShow: false,
+      einstellungenOffen: false, systemOffen: false, verbundOffen: false, szenarienOffen: false, editorOffen: false,
+      rolleAus: st === 'aus', rolleMaster: st === 'master', rolleSlave: st === 'slave', slaveGekoppelt: st === 'slave' && gek,
+      slaveVerbunden: st === 'slave' && gek && art === 'verbunden', steuerebeneSicher: se === 'secure', steuerebeneOffen: se === 'open',
+      showGestartet: false,
+    };
+    vergleiche(`${q}/${st}/${gek ? 'gekoppelt' : 'frei'}/${art}/${se}`, anleitungsZustand(e), soll, abw1);
+  }
+  ck(`P8 G7: Kreuz Quelle × Verbund-Stand × gekoppelt × Client × Steuerebene, eine Voreinstellung zählt nie (${n1} Fälle)${abw1.length
+    ? ` — ${abw1.slice(0, 5).join('; ')}` : ''}`, n1 === 504 && abw1.length === 0);
+
+  // Kreuz 2: Werkzeuge × Reiter × Shows × fünf Dialoge
+  const STATES: Array<[string, Record<string, { status: string }>, boolean]> = [
+    ['keine', {}, false],
+    ['nicht installiert', { 'jm-timer': { status: 'not-installed' } }, false],
+    ['installiert', { 'jm-timer': { status: 'installed' } }, true],
+    ['Update', { 'jm-timer': { status: 'update-available' } }, true],
+    ['gemischt', { 'jm-timer': { status: 'not-installed' }, 'jm-titler': { status: 'update-available' } }, true],
+  ];
+  let n2 = 0;
+  const abw2: string[] = [];
+  for (const [sn, states, inst] of STATES) for (const view of ['catalog', 'jmshow'] as const) for (const recent of [0, 1, 3])
+    for (let maske = 0; maske < 32; maske++) {
+      n2++;
+      const b = (i: number): boolean => (maske & (1 << i)) !== 0;
+      const e = eingang({ states, view, recentShows: recent, settingsOpen: b(0), systemOpen: b(1), scenariosOpen: b(2), showEditorOpen: b(3), verbundOffen: b(4) });
+      const soll: Record<string, boolean> = {
+        quelleVerbunden: false, toolInstalliert: inst, reiterWerkzeugkasten: view === 'catalog', reiterShow: view === 'jmshow',
+        einstellungenOffen: b(0), systemOffen: b(1), szenarienOffen: b(2), editorOffen: b(3), verbundOffen: b(4),
+        rolleAus: false, rolleMaster: false, rolleSlave: false, slaveGekoppelt: false, slaveVerbunden: false, steuerebeneSicher: false,
+        steuerebeneOffen: false, showGestartet: recent > 0,
+      };
+      vergleiche(`${sn}/${view}/${recent}/${maske}`, anleitungsZustand(e), soll, abw2);
+    }
+  ck(`P8 5: Kreuz Werkzeuge × Reiter × Shows × Dialoge, installiert wie die Checkliste (${n2} Fälle)${abw2.length
+    ? ` — ${abw2.slice(0, 5).join('; ')}` : ''}`, n2 === 960 && abw2.length === 0);
+
+  // Frischer Rechner über Adapter und Kern: kein Kapitel erledigt (Review Focus 1).
+  const leer = leererFortschritt('einrichtung');
+  const FRISCH: Array<[string, AnleitungsEingang]> = [
+    ['nichts geladen', eingang({})],
+    ['Voreinstellungen geladen', eingang({ settings: { source: 'none' }, verbund: stand('aus', null, false, 'aus'), steuerebene: 'open',
+      states: { 'jm-timer': { status: 'not-installed' } } })],
+  ];
+  const frischAbw = FRISCH.flatMap(([name, e]) => EINRICHTUNG.kapitel
+    .filter((k) => kapitelZustand(EINRICHTUNG, k.id, anleitungsZustand(e), leer) !== 'offen').map((k) => `${name}: ${k.id}`));
+  ck(`P8 G7: frischer Rechner (nichts geladen bzw. nur Voreinstellungen) → alle sechs Kapitel offen${frischAbw.length
+    ? ` — ${frischAbw.join(', ')}` : ''}`, frischAbw.length === 0);
+
+  // Produktion (Spec 7, EP17, OFP4): Tool läuft, Show startet, iveo-Show offen (auch ohne laufendes Tool: der Main setzt
+  // iveoActive erst mit einer Show ohne iveo zurück) oder am Master folgen Tools anderer Rechner der verteilten Show.
+  const masterStand = (showName: string | null, bezieher: number): VerbundStand => ({
+    rolle: 'master', rechnerName: 'Regie 1', karten: [], gewaehlteKarte: null, karteFehlt: false, dateiFehler: null, slave: null,
+    master: {
+      zustand: 'laeuft', fehlerCode: null, name: 'Master', fpKurz: 'AB12', ausBak: false, speicherFehler: null, rechner: [],
+      kopplung: { offen: false, code: null, gueltigBis: null, rest: 0, ungueltig: false },
+      showImVerbund: { grund: showName === null ? 'keine-show' : null, showName, dateiName: null, verteiltAm: null, groesseKiB: null, bezieher },
+    },
+  }) as VerbundStand;
+  const VERBUENDE: Array<[string, VerbundStand | null, boolean]> = [
+    ['kein Stand', null, false],
+    ['Master ohne Show', masterStand(null, 0), false],
+    ['Master, Show ohne Bezieher', masterStand('Konferenz', 0), false],
+    ['Master, Show mit Bezieher', masterStand('Konferenz', 2), true],
+    ['Slave', stand('slave', null, true, 'verbunden'), false],
+  ];
+  let n3 = 0;
+  const abw3: string[] = [];
+  for (const laufend of [0, 1, 3]) for (const launch of [false, true]) for (const iveo of [false, true]) for (const [vn, v, folgt] of VERBUENDE) {
+    n3++;
+    const ist = produktionLaeuft(eingang({ laufendeTools: laufend, showLaunch: launch, iveoActive: iveo, verbund: v }));
+    if (ist !== (laufend > 0 || launch || iveo || folgt)) abw3.push(`${laufend}/${launch}/${iveo}/${vn}`);
+  }
+  ck(`P8 7: Produktion = Tool läuft, Show startet, iveo-Show offen (auch ohne laufendes Tool) oder am Master folgen Tools der verteilten Show (${n3} Fälle)${abw3.length
+    ? ` — ${abw3.join(', ')}` : ''}`, n3 === 60 && abw3.length === 0);
+
+  // Detailzeilen L9, L10 (nur mit Daten)
+  const D = LAUNCHER_ANLEITUNG_TEXTE.detail;
+  const DETAILS: Array<[string, AnleitungsEingang, string]> = [
+    ['nichts geladen', eingang({}), '{}'],
+    ['Quelle none', eingang({ settings: { source: 'none' } }), '{}'],
+    ['Proxy', eingang({ settings: { source: 'proxy' } }), '{"k1":"Aktiv: Firmen-Proxy."}'],
+    ['GitHub', eingang({ settings: { source: 'github' } }), '{"k1":"Aktiv: GitHub."}'],
+    ['nur nicht installiert', eingang({ states: { 'jm-timer': { status: 'not-installed' } } }), '{}'],
+    ['ein Tool', eingang({ states: { 'jm-timer': { status: 'installed' } } }), '{"k2":"1 Tool installiert, weitere jederzeit im Werkzeugkasten."}'],
+    ['zwei Tools mit Update', eingang({ settings: { source: 'proxy' }, states: { 'jm-timer': { status: 'installed' },
+      'jm-titler': { status: 'update-available' }, 'jm-rundown': { status: 'not-installed' } } }),
+    '{"k1":"Aktiv: Firmen-Proxy.","k2":"2 Tools installiert, weitere jederzeit im Werkzeugkasten."}'],
+  ];
+  const detAbw = DETAILS.filter(([, e, soll]) => JSON.stringify(kapitelDetails(e, D)) !== soll)
+    .map(([name, e]) => `${name}: ${JSON.stringify(kapitelDetails(e, D))}`);
+  ck(`P8 9.3: Detailzeilen L9, L10 nur mit Daten, Einzahl und Mehrzahl (${DETAILS.length} Fälle)${detAbw.length ? ` — ${detAbw.join('; ')}` : ''}`,
+    detAbw.length === 0);
+
+  // Ereignisse genau beim Übergang (EP5): „Slave war verbunden“ und „Steuerebene aktiviert“ (offen → sicher in dieser Sitzung;
+  // eine schon beim ersten Lesen sichere oder vorher nicht geladene Steuerebene zählt nicht, Kapitel 5 verlangt dann keinen Neustart)
+  const W = '2026-10-19T10:00:00.000Z';
+  const UEBERGANG: Array<[string, Record<string, boolean> | null, Record<string, boolean>, Record<string, string>, string]> = [
+    ['erster Blick, verbunden', null, { slaveVerbunden: true }, {}, 'slaveWarVerbunden'],
+    ['Übergang nicht → verbunden', { slaveVerbunden: false }, { slaveVerbunden: true }, {}, 'slaveWarVerbunden'],
+    ['bleibt verbunden', { slaveVerbunden: true }, { slaveVerbunden: true }, {}, ''],
+    ['schon gemerkt', null, { slaveVerbunden: true }, { slaveWarVerbunden: W }, ''],
+    ['nicht verbunden', { slaveVerbunden: false }, { slaveVerbunden: false }, {}, ''],
+    ['Verbindung weg', { slaveVerbunden: true }, { slaveVerbunden: false }, {}, ''],
+    ['Steuerebene offen → sicher', { steuerebeneOffen: true }, { steuerebeneSicher: true }, {}, 'steuerebeneAktiviert'],
+    ['Steuerebene beim ersten Blick sicher', null, { steuerebeneSicher: true }, {}, ''],
+    ['Steuerebene nicht geladen → sicher', { steuerebeneOffen: false, steuerebeneSicher: false }, { steuerebeneSicher: true }, {}, ''],
+    ['Steuerebene bleibt sicher (Erneuern)', { steuerebeneSicher: true }, { steuerebeneSicher: true }, {}, ''],
+    ['Steuerebene offen → sicher, schon gemerkt', { steuerebeneOffen: true }, { steuerebeneSicher: true }, { steuerebeneAktiviert: W }, ''],
+    ['beides zugleich', { steuerebeneOffen: true }, { slaveVerbunden: true, steuerebeneSicher: true }, {}, 'slaveWarVerbunden,steuerebeneAktiviert'],
+  ];
+  const uebAbw = UEBERGANG.filter(([, v, j, g, soll]) => neueToolEreignisse(v, j, g).join(',') !== soll).map(([name]) => name);
+  ck(`P8 5: Ereignisse genau beim Übergang und nur, wenn noch nicht gemerkt (slaveWarVerbunden, steuerebeneAktiviert; ${UEBERGANG.length} Fälle)${uebAbw.length
+    ? ` — ${uebAbw.join('; ')}` : ''}`, uebAbw.length === 0);
+
+  const quelleAdapter = quelleLf('../src/renderer/src/lib/anleitung-zustand.ts');
+  const importe = quelleAdapter.split('\n').filter((zeile) => /^import\b/.test(zeile));
+  ck(`P8 G3/G5: lib/anleitung-zustand.ts lädt nur Typen und liest nichts selbst (${importe.length} Import-Zeile, kein window, kein localStorage)`,
+    importe.length >= 1 && importe.every((zeile) => zeile.startsWith('import type ')) && !/\bwindow\b|localStorage/.test(quelleAdapter));
+}
+
+// --- Geführte Anleitungen P9 · Stimme: Manifest, Prüfsummen, „zu jedem Text eine Ansage“ (Spec 6; EP12–EP14, EP21) ----
+// Läuft ohne Piper und ohne ffmpeg, auch in der CI: verglichen werden die Text-Prüfsummen im Manifest mit den gesprochenen
+// Texten der Anleitung und die Datei-Prüfsummen mit den .ogg im Ordner. Ändert sich ein gesprochener Text, bleibt die
+// Repo-Prüfung rot, bis seine Ansage neu erzeugt ist (G2). Alle Module kommen per import() in diesem Block: so stößt
+// keine Importzeile mit denen anderer Aufgaben zusammen (P6 importiert sprechTexte und EINRICHTUNG schon oben).
+await (async () => {
+  const { leeresManifest, leseOrdner, manifestText, pruefeStimme, STIMMEN, textSha256 } = await import('../scripts/stimme-manifest.mjs');
+  const { sprechTexte } = await import('@jm/ui/anleitung');
+  const { EINRICHTUNG } = await import('../src/renderer/src/anleitung/einrichtung.ts');
+  const { existsSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const json = (x: unknown): string => JSON.stringify(x);
+
+  ck('P9 6 EP13: textSha256 ist SHA-256 über UTF-8 (abc → ba7816bf…)',
+    textSha256('abc') === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  ck('P9 6 EP13: textSha256 über NFC — „Grüße“ als NFD ergibt dieselbe Prüfsumme wie als NFC',
+    'Grüße' !== 'Grüße' && textSha256('Grüße') === textSha256('Grüße'));
+  ck('P9 6 EP13: CRLF statt LF ist ein anderer Text', textSha256('a\r\nb') !== textSha256('a\nb'));
+  const leer1 = leeresManifest();
+  leer1.eintraege.push({ id: 'x' } as never);
+  ck('P9 EP14: leeresManifest = format 1, stimme/werkzeug/parameter null, eintraege leer; jedes Mal ein neues Objekt',
+    json(leeresManifest()) === '{"format":1,"stimme":null,"werkzeug":null,"parameter":null,"eintraege":[]}');
+  ck('P9 G12: manifestText = JSON mit zwei Leerzeichen, LF und Schluss-LF',
+    manifestText(leeresManifest()) === '{\n  "format": 1,\n  "stimme": null,\n  "werkzeug": null,\n  "parameter": null,\n  "eintraege": []\n}\n');
+  ck('P9 OFP1: STIMMEN pinnt genau de_DE-mls-medium (69cd1d2a…53f65bf, CC BY 4.0) und de_DE-thorsten-medium (7e64762d…bb7819, CC0)',
+    json(Object.keys(STIMMEN)) === '["de_DE-mls-medium","de_DE-thorsten-medium"]'
+    && STIMMEN['de_DE-mls-medium'].onnxSha256 === '69cd1d2aa5a35839a518966fcc4924b5f93e5f8c948ed0752b1a616ad53f65bf'
+    && STIMMEN['de_DE-mls-medium'].lizenz === 'CC BY 4.0'
+    && STIMMEN['de_DE-thorsten-medium'].onnxSha256 === '7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819'
+    && STIMMEN['de_DE-thorsten-medium'].lizenz === 'CC0'
+    && Object.values(STIMMEN).every((s) => s.namensnennung.length > 0 && !s.namensnennung.includes('"')));
+
+  // pruefeStimme: eine Tabelle, je Fall eine Zeile (Fixtures nur im Speicher, keine erfundenen Audiodateien).
+  type Text = { id: string; text: string };
+  type Datei = { name: string; sha256: string };
+  const TEXTE: Text[] = [
+    { id: 'einleitung', text: 'Willkommen. Ich führe dich durch die Einrichtung.' },
+    { id: 'k1.zugang', text: 'Trage hier den Zugang ein und klicke auf „Speichern“.' },
+    { id: 'k2.erledigt', text: 'Auf diesem Rechner ist schon ein Tool installiert.' },
+  ];
+  const DATEIEN: Datei[] = TEXTE.map((t, i) => ({ name: `${t.id}.ogg`, sha256: String(i + 1).repeat(64) }));
+  const pin = STIMMEN['de_DE-mls-medium'];
+  const voll = () => ({
+    format: 1 as number,
+    stimme: { name: 'de_DE-mls-medium', onnxSha256: pin.onnxSha256, lizenz: pin.lizenz, namensnennung: pin.namensnennung, sprecher: 3 as number | null },
+    werkzeug: { piper: '1.8.0', ffmpeg: '8.1.2' } as { piper: string; ffmpeg: string } | null,
+    parameter: { lengthScale: 1.05, sentenceSilence: 0.3, opusKbps: 24 } as { lengthScale: number; sentenceSilence: number; opusKbps: number } | null,
+    eintraege: TEXTE.map((t, i) => ({ id: t.id, textSha256: textSha256(t.text), datei: `${t.id}.ogg`, dateiSha256: DATEIEN[i].sha256, bytes: 1000 })),
+  });
+  const mit = <T>(x: T, f: (y: T) => void): T => { f(x); return x; };
+  const faelle: Array<{ name: string; texte: Text[]; manifest: unknown; dateien: Datei[]; erwartet: string[] }> = [
+    { name: 'stimmig ohne Stimme (leeres Manifest, keine Datei)', texte: TEXTE, manifest: leeresManifest(), dateien: [], erwartet: [] },
+    { name: 'stimmig mit Stimme', texte: TEXTE, manifest: voll(), dateien: DATEIEN, erwartet: [] },
+    { name: 'Text um ein Zeichen geändert', texte: TEXTE.map((t) => (t.id === 'einleitung' ? { ...t, text: 'Willkommen! Ich führe dich durch die Einrichtung.' } : t)), manifest: voll(), dateien: DATEIEN, erwartet: ['Text geändert: einleitung'] },
+    { name: 'Text in NFD statt NFC ist derselbe Text', texte: TEXTE.map((t) => ({ ...t, text: t.text.normalize('NFD') })), manifest: voll(), dateien: DATEIEN, erwartet: [] },
+    { name: 'Datei gelöscht', texte: TEXTE, manifest: voll(), dateien: DATEIEN.filter((d) => d.name !== 'k1.zugang.ogg'), erwartet: ['Datei fehlt: k1.zugang.ogg'] },
+    { name: 'Datei mit anderer Prüfsumme', texte: TEXTE, manifest: voll(), dateien: DATEIEN.map((d) => (d.name === 'k1.zugang.ogg' ? { ...d, sha256: 'f'.repeat(64) } : d)), erwartet: ['Prüfsumme falsch: k1.zugang.ogg'] },
+    { name: 'fremde Datei dazugelegt', texte: TEXTE, manifest: voll(), dateien: [...DATEIEN, { name: 'fremd.ogg', sha256: '9'.repeat(64) }], erwartet: ['Datei ohne Text: fremd.ogg'] },
+    { name: 'Text gestrichen (Eintrag und Datei bleiben übrig)', texte: TEXTE.slice(0, 2), manifest: voll(), dateien: DATEIEN, erwartet: ['Eintrag ohne Text: k2.erledigt', 'Datei ohne Text: k2.erledigt.ogg'] },
+    { name: 'neuer Text ohne Ansage', texte: [...TEXTE, { id: 'k3.neu', text: 'Neu.' }], manifest: voll(), dateien: DATEIEN, erwartet: ['Ansage fehlt: k3.neu'] },
+    { name: 'Stimme mit fremder Prüfsumme', texte: TEXTE, manifest: mit(voll(), (m) => { m.stimme.onnxSha256 = '0'.repeat(64); }), dateien: DATEIEN, erwartet: ['Stimme nicht gepinnt: de_DE-mls-medium'] },
+    { name: 'Stimme ohne Pin (de_DE-karlsson-low)', texte: TEXTE, manifest: mit(voll(), (m) => { m.stimme.name = 'de_DE-karlsson-low'; }), dateien: DATEIEN, erwartet: ['Stimme nicht gepinnt: de_DE-karlsson-low'] },
+    { name: 'Namensnennung weicht vom Pin ab', texte: TEXTE, manifest: mit(voll(), (m) => { m.stimme.namensnennung = 'Stimme: unbekannt'; }), dateien: DATEIEN, erwartet: ['Lizenz oder Namensnennung weicht vom Pin ab: de_DE-mls-medium'] },
+    { name: 'Sprecher -1', texte: TEXTE, manifest: mit(voll(), (m) => { m.stimme.sprecher = -1; }), dateien: DATEIEN, erwartet: ['Sprecher ungültig: -1'] },
+    { name: 'ohne Stimme mit Dateien', texte: TEXTE, manifest: leeresManifest(), dateien: DATEIEN, erwartet: ['Ohne Stimme darf es keine Datei geben: einleitung.ogg', 'Ohne Stimme darf es keine Datei geben: k1.zugang.ogg', 'Ohne Stimme darf es keine Datei geben: k2.erledigt.ogg'] },
+    { name: 'ohne Stimme mit Einträgen', texte: TEXTE, manifest: { ...leeresManifest(), eintraege: voll().eintraege }, dateien: [], erwartet: ['Ohne Stimme darf es keinen Eintrag geben: einleitung', 'Ohne Stimme darf es keinen Eintrag geben: k1.zugang', 'Ohne Stimme darf es keinen Eintrag geben: k2.erledigt'] },
+    { name: 'ohne Stimme, aber mit Parametern', texte: TEXTE, manifest: { ...leeresManifest(), parameter: voll().parameter }, dateien: [], erwartet: ['Ohne Stimme müssen werkzeug und parameter null sein'] },
+    { name: 'Eintrag doppelt', texte: TEXTE, manifest: mit(voll(), (m) => { m.eintraege.push({ ...m.eintraege[0] }); }), dateien: DATEIEN, erwartet: ['Eintrag doppelt: einleitung'] },
+    { name: 'Dateiname passt nicht zur ID', texte: TEXTE, manifest: mit(voll(), (m) => { m.eintraege[0].datei = 'Einleitung.ogg'; }), dateien: DATEIEN, erwartet: ['Dateiname falsch: einleitung (Einleitung.ogg)', 'Datei ohne Text: einleitung.ogg'] },
+    { name: 'mit Stimme ohne Parameter', texte: TEXTE, manifest: mit(voll(), (m) => { m.parameter = null; }), dateien: DATEIEN, erwartet: ['Parameter fehlen im Manifest (lengthScale, sentenceSilence, opusKbps)'] },
+    { name: 'mit Stimme ohne Werkzeug', texte: TEXTE, manifest: mit(voll(), (m) => { m.werkzeug = null; }), dateien: DATEIEN, erwartet: ['Werkzeug fehlt im Manifest (piper, ffmpeg)'] },
+    { name: 'Manifest-Format 2', texte: TEXTE, manifest: mit(voll(), (m) => { m.format = 2; }), dateien: DATEIEN, erwartet: ['Manifest-Format unbekannt: 2'] },
+    { name: 'kein Manifest (null)', texte: TEXTE, manifest: null, dateien: [], erwartet: ['Manifest unlesbar: erwartet ein Objekt mit der Liste eintraege'] },
+  ];
+  for (const f of faelle) {
+    const ist = pruefeStimme(f.texte, f.manifest, f.dateien);
+    ck(`P9 6: pruefeStimme, ${f.name} → ${f.erwartet.length ? f.erwartet.join(' | ') : 'keine Befunde'}`, json(ist) === json(f.erwartet));
+    if (json(ist) !== json(f.erwartet)) console.log(`      ist ${json(ist)}`);
+  }
+
+  // Repo: das echte Manifest gegen die echten Texte und die echten Dateien im Ordner.
+  const ordner = fileURLToPath(new URL('../src/renderer/src/anleitung/stimme/', import.meta.url));
+  const texte = sprechTexte(EINRICHTUNG);
+  const manifestPfad = `${ordner}manifest.json`;
+  const roh = existsSync(manifestPfad) ? readFileSync(manifestPfad, 'utf8').replace(/\r\n/g, '\n') : '';
+  let manifest: unknown = null;
+  try { manifest = JSON.parse(roh); } catch { manifest = null; }
+  const inhalt = leseOrdner(ordner);
+  const befunde = pruefeStimme(texte, manifest, inhalt.ogg);
+  const stimmeName = (manifest as { stimme?: { name?: string } | null } | null)?.stimme?.name ?? 'keine';
+  ck(`P9 6: Repo — manifest.json passt zu den ${texte.length} gesprochenen Texten und den ${inhalt.ogg.length} .ogg im Ordner (Stimme: ${stimmeName})`,
+    befunde.length === 0 && roh.length > 0);
+  for (const b of befunde) console.log(`      ${b}`);
+  ck('P9 G12: manifest.json ist genau manifestText seines Inhalts (zwei Leerzeichen, Schluss-LF; verglichen nach LF)',
+    manifest !== null && roh === manifestText(manifest));
+  ck('P9 G14: im Stimmen-Ordner liegen nur manifest.json, HERKUNFT.md und .ogg (keine WAV, keine Stimme, kein Text)',
+    json(inhalt.andere) === '["HERKUNFT.md","manifest.json"]');
+  if (json(inhalt.andere) !== '["HERKUNFT.md","manifest.json"]') console.log(`      andere Dateien: ${json(inhalt.andere)}`);
+  const herkunftPfad = `${ordner}HERKUNFT.md`;
+  const herkunftRoh = existsSync(herkunftPfad) ? readFileSync(herkunftPfad, 'utf8').replace(/\r\n/g, '\n') : '';
+  const herkunft = herkunftRoh.replace(/\s+/g, ' ');
+  const gewaehlt = (herkunftRoh.split('\n## Gewählte Stimme\n')[1] ?? '').split('\n## ')[0];
+  const entscheid = gewaehlt.split('\n').find((z) => z.startsWith('Owner-Entscheidung OFP1 vom ')) ?? '';
+  ck(`P9 6 OFP1: HERKUNFT.md „Gewählte Stimme“ passt zum Manifest (Stimme: ${stimmeName})`,
+    gewaehlt.length > 0 && (stimmeName === 'keine'
+      ? gewaehlt.includes('Noch offen (Owner-Frage OFP1)') || entscheid.includes('ohne Ton')
+      : entscheid.includes(`\`${stimmeName}\``) && !gewaehlt.includes('Noch offen (Owner-Frage OFP1)')));
+  ck('P9 6 EP21: HERKUNFT.md nennt beide Kandidaten mit Pin und Lizenz, das lessac-Erbe, die Werkzeuge nur beim Bau, OFP1 und beide Namensnennungen wörtlich',
+    Object.values(STIMMEN).every((s) => herkunft.includes(s.onnxSha256) && herkunft.includes(s.namensnennung))
+    && herkunft.includes('„License: CC-BY 4.0“') && herkunft.includes('„License: CC0“')
+    && herkunft.includes('Finetuned from U.S. English lessac voice') && herkunft.includes('nur beim Bau')
+    && herkunft.includes('OFP1') && !herkunft.includes('"'));
+})();
+
+// --- Geführte Anleitungen P11 · Ansagen im Renderer, Vite ohne data:audio (Spec 6; EP15; G4) --------------------------
+// Lehre „eine CSP-Lücke legt nur den Installer lahm“: Vite legt Dateien unter 4 KB als data: ins JS, die CSP des Launchers
+// erlaubt media-src aber nur 'self' blob:. Im Dev-Server spielt alles, im Installer bliebe eine kurze Ansage stumm. Die
+// Regel steht in electron.vite.config.ts; npm run stimme:bau-pruefen prüft den echten Bau (P11 Step 10, P18).
+await (async () => {
+  const { buildCsp } = await import('../../../packages/app-runtime/src/csp.ts');
+  const vite = quelleLf('../electron.vite.config.ts');
+  const stimme = quelleLf('../src/renderer/src/anleitung/stimme.ts');
+  const html = quelleLf('../src/renderer/index.html');
+  const haupt = quelleLf('../src/main/index.ts');
+  const paket = JSON.parse(quelleLf('../package.json')) as { scripts: Record<string, string> };
+  const regel = "      assetsInlineLimit: (datei: string) => (/\\.(ogg|opus|webm|mp3|wav)$/i.test(datei) ? false : undefined),";
+  const iRenderer = vite.indexOf('\n  renderer: {');
+  const iRegel = vite.indexOf(`\n${regel}\n`);
+  const iEingabe = vite.indexOf("        input: { index: resolve(__dirname, 'src/renderer/index.html') },");
+  ck('P11 6 EP15: renderer.build hat assetsInlineLimit mit der Audio-Regel (ogg, opus, webm, mp3, wav → nie data:), genau einmal',
+    iRenderer > 0 && iRegel > iRenderer && iRegel < iEingabe && vite.split('assetsInlineLimit').length === 2);
+  ck('P11 6 EP15: stimme.ts lädt die Ansagen über import.meta.glob mit query ?url (als Datei, Muster tool-icons.ts) und das Manifest per JSON-Import',
+    stimme.includes("import.meta.glob<string>('./stimme/*.ogg', { eager: true, query: '?url', import: 'default' })")
+    && stimme.includes("import manifestRoh from './stimme/manifest.json';")
+    && /export function ansageUrl\(id: string\): string \| null/.test(stimme)
+    && stimme.includes('export const STIMME_VORHANDEN: boolean = manifest.stimme !== null;')
+    && stimme.includes('export const NAMENSNENNUNG: string | null = manifest.stimme?.namensnennung ?? null;'));
+  ck('P11 6 G4: die CSP bleibt — der Launcher setzt sie als Header (csp: true), index.html hat keine Meta-CSP ohne media-src \'self\'',
+    haupt.includes('initAppRuntime({ csp: true,')
+    && (!/http-equiv=["']Content-Security-Policy/i.test(html) || /media-src[^;"]*'self'/.test(html)));
+  ck('P11 6 G4: media-src im Paket ist genau \'self\' blob: (kein data:) — darum dürfen Ansagen nie eingebettet werden',
+    buildCsp({}, false).split('; ').includes("media-src 'self' blob:"));
+  ck('P11 6 EP15: Skript stimme:bau-pruefen = node scripts/pruefe-bau-stimme.mjs',
+    paket.scripts['stimme:bau-pruefen'] === 'node scripts/pruefe-bau-stimme.mjs');
+})();
+
+// --- Geführte Anleitung, Block D (P12–P15): Hilfen für Treiber-Tests und Quelltext-Wächter --------------------------------
+// Die Logik des Stores läuft hier echt: als reiner Treiber (lib/anleitung-zustand.ts) mit dem echten Ablaufkern und
+// Attrappen. Store, Overlay und Komponenten laden zustand, React und window.jmps und laufen hier nicht; geprüft wird ihr
+// Quelltext (Muster P31 und M1).
+/** Quelltext nach LF; fehlt die Datei (Rot-Lauf vor dem Anlegen), leer statt Absturz. */
+function quelleLfOderLeer(pfad: string): string {
+  try {
+    return quelleLf(pfad);
+  } catch {
+    return '';
+  }
+}
+/** Ohne Kommentare: ein Wächter prüft Code, nicht Erklärungen (ein Kommentar darf „openShow“ nennen). */
+function ohneKommentare(q: string): string {
+  return q.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\\])\/\/.*$/gm, '$1');
+}
+/**
+ * G3 (Spec 2 Anti-Ziel, 7): Namen, mit denen Anleitungs-Code etwas bedienen, starten oder einen Dialog öffnen würde — die
+ * Liste der Gliederung, dazu `open` (startet ein Tool) und die Dialog-Öffner des Launchers.
+ */
+const G3_NAMEN = ['openShow', 'openShowPath', 'install', 'update', 'updateAll', 'uninstall', 'updateLauncher', 'saveShow',
+  'saveSettings', 'provisionControl', 'disableControl', 'checkUpdates', 'oeffne', 'schliesse', 'koppele', 'fuehreAus',
+  'anstossen', 'neueKennung', 'starteMasterSuche', 'open', 'openSettings', 'openSystem', 'openScenarios', 'openShowEditor',
+  'openShowEditorWith', 'openOnboarding', 'openPatchNotes', 'openSideEvents', 'openFeedback', 'openCookbook', 'setView'];
+/** Befunde zu G3: Aufruf eines Namens, Lesen als Store-Feld, window.jmps außer getControlStatus, setState auf fremde Stores. */
+function g3Befunde(quelle: string): string[] {
+  const q = ohneKommentare(quelle);
+  const befunde: string[] = [];
+  for (const n of G3_NAMEN) {
+    if (new RegExp(`(?<![\\w$])${n}\\s*\\(`).test(q)) befunde.push(`${n}(…)`);
+    if (new RegExp(`(?:\\bs|getState\\(\\))\\.${n}\\b`).test(q)) befunde.push(`.${n}`);
+  }
+  for (const m of q.matchAll(/window\.jmps\.(\w+)/g)) if (m[1] !== 'getControlStatus') befunde.push(`window.jmps.${m[1]}`);
+  if (/use(?:Tools|Verbund)\.setState\(/.test(q)) befunde.push('setState auf Launcher oder Verbund');
+  return [...new Set(befunde)];
+}
+/** true, wenn Stelle i in einem try-Block liegt (letztes „try {“ davor ohne „} catch“ dazwischen). */
+function imTry(q: string, i: number): boolean {
+  const vor = q.slice(0, i);
+  const t = vor.lastIndexOf('try {');
+  return t >= 0 && !vor.slice(t).includes('} catch');
+}
+/** Speicher-Attrappe (G8): zählt Lese- und Schreibzugriffe; `liestNicht`/`schreibtNicht` lassen den Zugriff werfen. */
+function speicherAttrappe(start: Record<string, string> = {}, o: { liestNicht?: boolean; schreibtNicht?: boolean } = {}) {
+  const a = {
+    daten: new Map(Object.entries(start)),
+    gelesen: 0,
+    geschrieben: 0,
+    liestNicht: o.liestNicht === true,
+    schreibtNicht: o.schreibtNicht === true,
+    speicher: {
+      getItem(k: string): string | null {
+        a.gelesen++;
+        if (a.liestNicht) throw new Error('Speicher gesperrt');
+        return a.daten.get(k) ?? null;
+      },
+      setItem(k: string, v: string): void {
+        if (a.schreibtNicht) throw new Error('Speicher voll');
+        a.geschrieben++;
+        a.daten.set(k, v);
+      },
+    },
+  };
+  return a;
+}
+/** Eingang des Adapters ohne geladene Daten (nur Voreinstellungen, G7). */
+const EINGANG_LEER: AnleitungsEingang = {
+  settings: null, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+  verbundOffen: false, verbund: null, steuerebene: null, recentShows: 0, laufendeTools: 0, showLaunch: false, iveoActive: false,
+};
+/** Master, dessen verteilte Show Tools anderer Rechner beziehen (EP17), und ein gekoppelter, verbundener Slave (EP5). */
+const MASTER_FOLGT = { rolle: 'master', dateiFehler: null, slave: null, master: { showImVerbund: { showName: 'Konferenz', bezieher: 2 } } } as unknown as VerbundStand;
+const SLAVE_VERBUNDEN = { rolle: 'slave', dateiFehler: null, master: null, slave: { gekoppelt: true, client: { art: 'verbunden' } } } as unknown as VerbundStand;
+/**
+ * Treiber des Stores mit dem echten Ablaufkern (@jm/ui/anleitung), der echten Anleitung und Attrappen: Speicher, Eingang, Uhr
+ * (Millisekunden), Wecker (gesammelt, im Test von Hand ausgelöst) und der Stand wie im Store.
+ */
+function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Partial<AnleitungsEingang> = {}) {
+  const lage = {
+    eingang: { ...EINGANG_LEER, ...eingang } as AnleitungsEingang,
+    uhr: 0,
+    wecker: [] as Array<{ ms: number; f: () => void }>,
+    stand: {
+      fortschritt: leererFortschritt(EINRICHTUNG.id), speicher: 'leer', hinweis: false, jetzt: {}, produktion: false,
+      produktionUnklar: false, stimmeTrotzdem: false,
+    } as TreiberStand,
+  };
+  const t = erzeugeAnleitungsTreiber({
+    kern: { leseFortschritt, beimStart, anleitungSchritt, schreibeFortschritt },
+    anleitung: EINRICHTUNG,
+    schluessel: ANLEITUNG_SCHLUESSEL,
+    speicher: () => sp?.speicher ?? null,
+    eingang: () => lage.eingang,
+    uhr: () => lage.uhr,
+    wecker: (ms, f) => {
+      lage.wecker.push({ ms, f });
+    },
+    lies: () => lage.stand,
+    setze: (teil) => {
+      lage.stand = { ...lage.stand, ...teil };
+    },
+  });
+  return { t, lage };
+}
+
+// --- Geführte Anleitung P12 (Spec 3–8; EP4, EP5, EP7, EP8, EP17, EP19, EP23, EP24; G3, G7, G8, G9, G15): Treiber und Store -
+{
+  const K = ANLEITUNG_SCHLUESSEL;
+  const leer = leererFortschritt(EINRICHTUNG.id);
+  const json = (x: unknown): string => JSON.stringify(x);
+  const ort = (p: { ort: string; schritt?: string | null } | null): string => (p === null ? 'kein Ort' : p.ort === 'kapitel' ? String(p.schritt) : p.ort);
+
+  // Start je Speicher und Rechner (Spec 4, G8, EP8, EP23): Rückgabe, Diagnose, Hinweis am Knopf, Status, Schreibzugriffe.
+  const START: Array<[string, () => ReturnType<typeof speicherAttrappe> | null, boolean, string]> = [
+    ['leer, neuer Rechner', () => speicherAttrappe(), false, 'anleitung leer false laeuft 1'],
+    ['leer, bestehender Rechner', () => speicherAttrappe(), true, 'hinweis leer true nieGestartet 1'],
+    ['Lesen wirft', () => speicherAttrappe({}, { liestNicht: true }), false, 'null nichtLesbar true nieGestartet 0'],
+    ['Lesen wirft, bestehender Rechner', () => speicherAttrappe({}, { liestNicht: true }), true, 'null nichtLesbar true nieGestartet 0'],
+    ['kein Speicher', () => null, false, 'null nichtLesbar true nieGestartet -'],
+    ['kaputtes JSON', () => speicherAttrappe({ [K]: '{kaputt' }), false, 'null kaputt false nieGestartet 1'],
+    ['neuere Fassung', () => speicherAttrappe({ [K]: '{"format":2}' }), false, 'null neuer false nieGestartet 0'],
+    ['pausiert gemerkt', () => speicherAttrappe({ [K]: json({ ...leer, status: 'pausiert', position: { ort: 'einleitung' } }) }), false, 'null ok false pausiert 0'],
+    ['lief beim Beenden', () => speicherAttrappe({ [K]: json({ ...leer, status: 'laeuft', position: { ort: 'einleitung' } }) }), false, 'null ok false pausiert 1'],
+    ['Schreiben wirft', () => speicherAttrappe({}, { schreibtNicht: true }), false, 'anleitung nichtSchreibbar false laeuft 0'],
+  ];
+  const startAbw: string[] = [];
+  for (const [name, neu, bestehend, soll] of START) {
+    const sp = neu();
+    const { t, lage } = treiberMit(sp);
+    const r = t.starte({ bestehenderRechner: bestehend });
+    const ist = `${r} ${lage.stand.speicher} ${lage.stand.hinweis} ${lage.stand.fortschritt.status} ${sp === null ? '-' : sp.geschrieben}`;
+    if (ist !== soll) startAbw.push(`${name}: ${ist}`);
+  }
+  ck(`P12 4, G8, EP8, EP23: starte je Speicher und Rechner — Rückgabe, Diagnose, Hinweis am Knopf, Status, Schreiben (${START.length} Fälle)${startAbw.length ? ` — ${startAbw.join('; ')}` : ''}`,
+    startAbw.length === 0);
+
+  // Rundreise (Spec 3, G8): der Fortschritt nach Start und Ereignissen übersteht einen Neustart (neuer Treiber, derselbe Speicher).
+  const rs = speicherAttrappe();
+  const vorNeustart = treiberMit(rs);
+  vorNeustart.t.starte({ bestehenderRechner: false });
+  vorNeustart.t.ereignis({ art: 'weiter' });
+  vorNeustart.t.ereignis({ art: 'ueberspringen' });
+  vorNeustart.t.ereignis({ art: 'brauchtNicht', kapitel: 'k5' });
+  vorNeustart.t.ereignis({ art: 'spaeter' });
+  const nachNeustart = treiberMit(rs);
+  nachNeustart.t.starte({ bestehenderRechner: false });
+  const f1 = vorNeustart.lage.stand.fortschritt;
+  const f2 = nachNeustart.lage.stand.fortschritt;
+  ck(`P12 3, G8: Rundreise — Fortschritt nach Start, „Überspringen“, „Brauche ich nicht“ und „Später weiter“ übersteht den Neustart${json(f1) === json(f2) ? ''
+    : ` — danach ${f2.status} an ${ort(f2.position)}, übersprungen [${f2.uebersprungen.join(',')}], nicht gebraucht [${f2.nichtGebraucht.join(',')}]`}`,
+    f1.status === 'pausiert' && f1.uebersprungen.includes('k1') && f1.nichtGebraucht.includes('k5') && json(f1) === json(f2));
+
+  // Merken (G7, G8): Schreibfehler als Diagnose, ein späterer Erfolg wieder „ok“; neuere Fassung und unlesbarer Speicher
+  // werden nie beschrieben, der Ablauf läuft dann nur in dieser Sitzung.
+  const merkAbw: string[] = [];
+  const voll = speicherAttrappe({}, { schreibtNicht: true });
+  const tv = treiberMit(voll);
+  tv.t.starte({ bestehenderRechner: false });
+  const nachFehler = tv.lage.stand.speicher;
+  voll.schreibtNicht = false;
+  tv.t.ereignis({ art: 'weiter' });
+  if (nachFehler !== 'nichtSchreibbar' || tv.lage.stand.speicher !== 'ok' || voll.geschrieben !== 1) {
+    merkAbw.push(`Schreibfehler: ${nachFehler} → ${tv.lage.stand.speicher}, ${voll.geschrieben} geschrieben`);
+  }
+  for (const [name, sp] of [['neuere Fassung', speicherAttrappe({ [K]: '{"format":2}' })], ['Lesen wirft', speicherAttrappe({}, { liestNicht: true })]] as const) {
+    const vorher = json([...sp.daten]);
+    const { t, lage } = treiberMit(sp);
+    t.starte({ bestehenderRechner: false });
+    t.ereignis({ art: 'starten' });
+    if (sp.geschrieben !== 0 || json([...sp.daten]) !== vorher || lage.stand.fortschritt.status !== 'laeuft') {
+      merkAbw.push(`${name}: ${sp.geschrieben} geschrieben, ${lage.stand.fortschritt.status}`);
+    }
+  }
+  ck(`P12 G7, G8: Merken — Schreibfehler als Diagnose und danach wieder „ok“; neuere Fassung und unlesbarer Speicher bleiben unberührt, der Ablauf läuft trotzdem${merkAbw.length ? ` — ${merkAbw.join('; ')}` : ''}`,
+    merkAbw.length === 0);
+
+  // Abgleich (Spec 5, EP5): ein geänderter Zustand führt den Kern von selbst weiter (Regel 11), ein neues Tool-Ereignis wird gemerkt.
+  const sa = speicherAttrappe();
+  const ta = treiberMit(sa);
+  ta.t.starte({ bestehenderRechner: false });
+  ta.t.ereignis({ art: 'weiter' });
+  const ort1 = ort(ta.lage.stand.fortschritt.position);
+  ta.lage.eingang = { ...ta.lage.eingang, settingsOpen: true };
+  ta.t.pruefe();
+  const ort2 = ort(ta.lage.stand.fortschritt.position);
+  ta.lage.eingang = { ...ta.lage.eingang, verbund: SLAVE_VERBUNDEN };
+  ta.t.pruefe();
+  const gemerkt = (JSON.parse(sa.daten.get(K) ?? '{}') as { ereignisse?: Record<string, string> }).ereignisse ?? {};
+  ck(`P12 5, EP5: Abgleich — geänderter Zustand führt von selbst weiter (${ort1} → ${ort2}), ein neues Tool-Ereignis wird gemerkt`,
+    ort1 === 'k1.einstellungen' && ort2 === 'k1.zugang' && ta.lage.stand.jetzt.einstellungenOffen === true
+    && typeof ta.lage.stand.fortschritt.ereignisse.slaveWarVerbunden === 'string' && typeof gemerkt.slaveWarVerbunden === 'string');
+
+  // Vor starte bewirkt nichts etwas (D6): ein Klick vor dem Ende von load() schriebe sonst über den ungelesenen Fortschritt.
+  const fs0 = speicherAttrappe();
+  const tf = treiberMit(fs0);
+  tf.t.ereignis({ art: 'starten' });
+  tf.t.pruefe();
+  ck(`P12 D6: vor starte (also vor load) bewirken Ereignis und Abgleich nichts (${fs0.gelesen} gelesen, ${fs0.geschrieben} geschrieben)`,
+    json(tf.lage.stand.fortschritt) === json(leer) && fs0.gelesen === 0 && fs0.geschrieben === 0);
+
+  // Einmal je Fenster (D15): React StrictMode ruft load() im Dev zweimal; der zweite starte darf nicht pausieren.
+  const zs = speicherAttrappe();
+  const tz = treiberMit(zs);
+  const r1 = tz.t.starte({ bestehenderRechner: false });
+  const r2 = tz.t.starte({ bestehenderRechner: false });
+  ck(`P12 4, D15: starte wirkt je Fenster einmal — der zweite Aufruf gibt das erste Ergebnis zurück, liest und schreibt nichts (${zs.gelesen} gelesen, ${zs.geschrieben} geschrieben, ${tz.lage.stand.fortschritt.status})`,
+    r1 === 'anleitung' && r2 === 'anleitung' && zs.gelesen === 1 && zs.geschrieben === 1 && tz.lage.stand.fortschritt.status === 'laeuft'
+    && tz.lage.wecker.length === 1);
+
+  // Produktion und „unklar“ (Spec 7; EP17, EP24): wie der Adapter, dazu kurz nach dem Start „unklar“, solange auf diesem
+  // Rechner Tools installiert sind und keins als laufend bekannt ist (die Presence ist nach einem Neustart bis zu 10 s leer).
+  let nP = 0;
+  const abwP: string[] = [];
+  for (const installiert of [false, true]) for (const uhr of [0, PRESENCE_FRIST_MS - 1, PRESENCE_FRIST_MS]) for (const laufend of [0, 1])
+    for (const launch of [false, true]) for (const iveo of [false, true]) for (const folgt of [false, true]) {
+      nP++;
+      const { t, lage } = treiberMit(speicherAttrappe(), { states: installiert ? { 'jm-timer': { status: 'installed' } } : {} });
+      t.starte({ bestehenderRechner: false });
+      lage.uhr = uhr;
+      lage.eingang = { ...lage.eingang, laufendeTools: laufend, showLaunch: launch, iveoActive: iveo, verbund: folgt ? MASTER_FOLGT : null };
+      t.pruefe();
+      const produktion = laufend > 0 || launch || iveo || folgt;
+      const unklar = !produktion && installiert && uhr < 12_000;
+      if (lage.stand.produktion !== produktion || lage.stand.produktionUnklar !== unklar) {
+        abwP.push(`${installiert ? 'installiert' : 'nichts installiert'}/${uhr} ms/${laufend}/${launch}/${iveo}/${folgt}: ${lage.stand.produktion} ${lage.stand.produktionUnklar}`);
+      }
+    }
+  ck(`P12 7, EP17, EP24: Produktion und „unklar“ im Store — installiert × Zeit seit dem Start × Tool läuft × Show-Start × iveo × Master folgt (${nP} Fälle)${abwP.length ? ` — ${abwP.slice(0, 3).join('; ')}` : ''}`,
+    nP === 96 && abwP.length === 0);
+  const tw = treiberMit(speicherAttrappe(), { states: { 'jm-timer': { status: 'installed' } } });
+  tw.t.starte({ bestehenderRechner: false });
+  const unklarAmStart = tw.lage.stand.produktionUnklar;
+  tw.lage.uhr = 12_000;
+  for (const w of tw.lage.wecker) w.f();
+  ck(`P12 EP24: „unklar“ endet nach 12 s von selbst, auch ohne jede andere Änderung (Wecker: ${tw.lage.wecker.map((w) => `${w.ms} ms`).join(', ') || 'keiner'})`,
+    PRESENCE_FRIST_MS === 12_000 && unklarAmStart && tw.lage.wecker.length === 1 && tw.lage.wecker[0].ms === 12_000 && !tw.lage.stand.produktionUnklar);
+
+  // „Stimme trotzdem an“ (Spec 7, G15): nur in einer Produktion, und nur bis zu ihrem Ende; die nächste beginnt wieder still.
+  const tt = treiberMit(speicherAttrappe(), { laufendeTools: 1 });
+  tt.t.starte({ bestehenderRechner: false });
+  tt.t.stimmeTrotzdemAn();
+  const waehrend = tt.lage.stand.stimmeTrotzdem;
+  tt.lage.eingang = { ...tt.lage.eingang, laufendeTools: 0 };
+  tt.t.pruefe();
+  const nachEnde = tt.lage.stand.stimmeTrotzdem;
+  tt.lage.eingang = { ...tt.lage.eingang, laufendeTools: 1 };
+  tt.t.pruefe();
+  const naechste = tt.lage.stand.stimmeTrotzdem;
+  const ohne = treiberMit(speicherAttrappe());
+  ohne.t.starte({ bestehenderRechner: false });
+  ohne.t.stimmeTrotzdemAn();
+  ck(`P12 6, 7, G15: „Stimme trotzdem an“ gilt bis zum Ende dieser Produktion, die nächste beginnt still; ohne Produktion wirkt es nicht (${waehrend}, ${nachEnde}, ${naechste}, ${ohne.lage.stand.stimmeTrotzdem})`,
+    waehrend && !nachEnde && !naechste && !ohne.lage.stand.stimmeTrotzdem);
+
+  // Eingang aus den Zuständen des Launchers (G9; Spec 5, 7; EP17): anleitungsEingang ist der einzige Konstruktor des Eingangs,
+  // der Store ruft nur sie auf. Ein Fehler dort ließe die Stimme während der Show sprechen oder Kapitel 3, 5 und 6 nie
+  // abhaken; die Erwartung rechnet der Test selbst, ohne den Adapter (Nachprüfung 1, Nachbesserung N52).
+  const LAGE_LEER: LauncherLage = {
+    settings: null, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+    recentShows: [], presence: [], showLaunch: null, iveoActive: null,
+  };
+  const PRESENCE: Array<[string, Array<{ running: boolean }>, number]> = [
+    ['leer', [], 0], ['beendet', [{ running: false }], 0], ['einer läuft', [{ running: false }, { running: true }], 1],
+    ['zwei laufen', [{ running: true }, { running: false }, { running: true }], 2],
+  ];
+  const STAENDE: Array<[string, VerbundStand | null, boolean]> = [
+    ['kein Stand', null, false], ['Master, dem Tools folgen', MASTER_FOLGT, true], ['Slave verbunden', SLAVE_VERBUNDEN, false],
+  ];
+  const showLaunchAus = (an: boolean): LauncherLage['showLaunch'] => (an ? { name: 'Konferenz' } : null);
+  const iveoAus = (an: boolean): LauncherLage['iveoActive'] => (an ? { event: 'e1', canSwitch: false } : null);
+  let nE = 0;
+  const abwE: string[] = [];
+  for (const [pName, presence, laufend] of PRESENCE) for (const launch of [false, true]) for (const iveo of [false, true])
+    for (const [vName, stand, folgt] of STAENDE) {
+      nE++;
+      const e = anleitungsEingang({ ...LAGE_LEER, presence, showLaunch: showLaunchAus(launch), iveoActive: iveoAus(iveo) }, { offen: false, stand }, null);
+      if (produktionLaeuft(e) !== (laufend > 0 || launch || iveo || folgt)) abwE.push(`${pName}/${launch}/${iveo}/${vName}: ${produktionLaeuft(e)}`);
+    }
+  ck(`P12 7, EP17, G15: Produktion aus dem Zustand des Launchers — Presence (leer, beendet, läuft) × Show-Start × iveo × Verbund (${nE} Fälle)${abwE.length ? ` — ${abwE.slice(0, 3).join('; ')}` : ''}`,
+    nE === 48 && abwE.length === 0);
+  const SETTINGS: Array<[string, LauncherLage['settings'], AnleitungsEingang['settings']]> = [
+    ['keine', null, null],
+    ['Quelle none', { source: 'none', hasToken: false, fromEnv: false } as LauncherLage['settings'], { source: 'none' }],
+    ['GitHub', { source: 'github', hasToken: true, fromEnv: true, manifestUrl: 'https://x' } as LauncherLage['settings'], { source: 'github' }],
+  ];
+  const FENSTER: Array<[string, Partial<LauncherLage>, boolean]> = [
+    ['alles zu', {}, false], ['Einstellungen', { settingsOpen: true }, false], ['System', { systemOpen: true }, false],
+    ['Szenarien', { scenariosOpen: true }, false], ['Editor', { showEditorOpen: true }, false], ['Verbund', {}, true],
+    ['Reiter JM Show', { view: 'jmshow' }, false],
+  ];
+  let nF = 0;
+  const abwF: string[] = [];
+  for (const [pName, presence, laufend] of PRESENCE) for (const launch of [false, true]) for (const iveo of [false, true])
+    for (const [vName, stand] of STAENDE) for (const recent of [0, 1, 2]) for (const [sName, settings, sSoll] of SETTINGS)
+      for (const steuerebene of [null, 'open', 'secure'] as const) for (const states of [{}, { 'jm-timer': { status: 'installed' } }])
+        for (const [fName, fenster, verbundOffen] of FENSTER) {
+          nF++;
+          const lage: LauncherLage = {
+            ...LAGE_LEER, ...fenster, settings, states, presence, recentShows: Array.from({ length: recent }, (_, i) => ({ name: `Show ${i}` })),
+            showLaunch: showLaunchAus(launch), iveoActive: iveoAus(iveo),
+          };
+          const soll: Record<string, unknown> = {
+            settings: sSoll, states, view: fenster.view ?? 'catalog', settingsOpen: fenster.settingsOpen === true,
+            systemOpen: fenster.systemOpen === true, scenariosOpen: fenster.scenariosOpen === true, showEditorOpen: fenster.showEditorOpen === true,
+            verbundOffen, verbund: stand, steuerebene, recentShows: recent, laufendeTools: laufend, showLaunch: launch, iveoActive: iveo,
+          };
+          const ist = anleitungsEingang(lage, { offen: verbundOffen, stand }, steuerebene) as unknown as Record<string, unknown>;
+          const falsch = [...new Set([...Object.keys(ist), ...Object.keys(soll)])].filter((k) => json(ist[k]) !== json(soll[k]));
+          if (falsch.length) abwF.push(`${pName}/${launch}/${iveo}/${vName}/${recent}/${sName}/${steuerebene}/${fName}: ${falsch.join(',')}`);
+        }
+  ck(`P12 5, G7, G9: Eingang aus dem Zustand des Launchers — jedes Feld wie im Launcher, eine Voreinstellung bleibt eine (${nF} Fälle)${abwF.length ? ` — ${abwF.length} abweichend, ${abwF.slice(0, 2).join('; ')}` : ''}`,
+    nF === 18144 && abwF.length === 0);
+
+  // Verdrahtung des Stores (Quelltext-Wächter; der Store lädt zustand und window.jmps und läuft hier nicht).
+  const store = quelleLfOderLeer('../src/renderer/src/store/anleitung.ts');
+  const code = ohneKommentare(store);
+  const tools = quelleLf('../src/renderer/src/store/tools.ts');
+  const starte = funktionsKoerper(store, 'starte: (u) => {');
+  const abonniere = funktionsKoerper(store, 'function abonniere(): void {');
+  const laden = funktionsKoerper(store, 'ladeSteuerebene: async () => {');
+  const b = g3Befunde(store);
+  ck(`P12 G3: der Store der Anleitung bedient nichts und öffnet keinen Dialog, er liest nur (IPC getControlStatus)${b.length ? ` — ${b.join(', ')}` : ''}`,
+    store.length > 0 && b.length === 0 && store.includes('const status = await window.jmps.getControlStatus();'));
+  ck('P12 3–8: der Store führt nur aus — der Treiber bekommt Ablaufkern, Speicher, Uhr, Wecker und den Store-Zustand; Start und Ereignisse gehen an ihn',
+    ['  const treiber = erzeugeAnleitungsTreiber({', '    kern: { leseFortschritt, beimStart, anleitungSchritt, schreibeFortschritt },',
+      '    anleitung: EINRICHTUNG,', '    schluessel: ANLEITUNG_SCHLUESSEL,', '    speicher: launcherSpeicher,', '    eingang: () => get().eingang(),',
+      '    uhr: () => Date.now(),', '    wecker: (ms, f) => void setTimeout(f, ms),', '    lies: () => get(),', '    setze: (teil) => set(teil),',
+      '    ereignis: (e) => treiber.ereignis(e),', "    toolEreignis: (name) => treiber.ereignis({ art: 'toolEreignis', name }),",
+      '    zustand: () => treiber.zustand(),', '    stimmeTrotzdemAn: () => treiber.stimmeTrotzdemAn(),'].every((z) => store.includes(z))
+    && starte.includes('const start = treiber.starte(u);') && starte.includes('return start;'));
+  ck('P12 G9, EP17: der Store baut den Eingang nur über anleitungsEingang aus Launcher, Verbund und der gelesenen Steuerebene',
+    store.includes('    eingang: () => anleitungsEingang(useTools.getState(), useVerbund.getState(), get().steuerebene),')
+    && !/laufendeTools|iveoActive|showLaunch|presence/.test(code));
+  const zugriffe = [...code.matchAll(/localStorage|\.getItem\(|\.setItem\(/g)].map((m) => m.index ?? -1);
+  ck(`P12 G8: jeder Zugriff auf localStorage steht in try/catch (${zugriffe.length} Stellen)`,
+    zugriffe.length >= 3 && zugriffe.every((i) => imTry(code, i)));
+  ck('P12 EP4, 6: Schlüssel aus der Anleitungs-Datei; Stimme je Rechner (aus/an), nicht lesbar → an',
+    store.includes("import { ANLEITUNG_SCHLUESSEL, EINRICHTUNG, STIMME_SCHLUESSEL } from '@/anleitung/einrichtung';")
+    && !code.includes("'jmps:") && store.includes("return launcherSpeicher()?.getItem(STIMME_SCHLUESSEL) !== 'aus';"));
+  ck('P12 5, EP5: Abos auf Launcher und Verbund lösen den Abgleich des Treibers aus',
+    abonniere.includes('useTools.subscribe((s, vorher) => {') && abonniere.includes('      treiber.pruefe();')
+    && abonniere.includes('useVerbund.subscribe(() => treiber.pruefe());'));
+  ck('P12 EP19: Steuerebene nur gelesen — beim Start, bei Fensterfokus, nach dem Schließen von System-Zustand und Einstellungen',
+    starte.includes('void get().ladeSteuerebene();') && abonniere.includes("window.addEventListener('focus', () => void get().ladeSteuerebene());")
+    && abonniere.includes('if ((vorher.systemOpen && !s.systemOpen) || (vorher.settingsOpen && !s.settingsOpen)) void get().ladeSteuerebene();')
+    && laden.includes('treiber.pruefe();') && (code.match(/window\.jmps\./g) ?? []).length === 1);
+  ck('P12 Zyklus tools ↔ anleitung: Launcher und Verbund nur in Funktionen, Abos erst in starte (aus load)',
+    (code.match(/useTools\./g) ?? []).length === 2 && abonniere.includes('useTools.subscribe(')
+    && store.includes('eingang: () => anleitungsEingang(useTools.getState(), useVerbund.getState(),') && starte.includes('abonniere();'));
+  const save = funktionsKoerper(tools, 'saveShow: async (show, targetPath, neuGebunden) => {');
+  ck('P12 5, EP5: saveShow meldet „Show gespeichert“ nur nach res.ok (kein dauerhafter Zustand, Ist-L 3)',
+    save.includes("      if (res.ok) useAnleitung.getState().toolEreignis('showGespeichert');\n      return res.ok;")
+    && save.indexOf('const res = await window.jmps.saveShow(') < save.indexOf("toolEreignis('showGespeichert')")
+    && (tools.match(/toolEreignis\('showGespeichert'\)/g) ?? []).length === 1);
+  const aufrufer: string[] = [];
+  for (const datei of readdirSync(new URL('../src/renderer/src/', import.meta.url), { recursive: true }) as string[]) {
+    const pfad = datei.replace(/\\/g, '/');
+    if (!/\.tsx?$/.test(pfad)) continue;
+    const n = (quelleLf(`../src/renderer/src/${pfad}`).match(/\bsaveShow\(/g) ?? []).length;
+    if (n) aufrufer.push(`${pfad}:${n}`);
+  }
+  ck(`P12 G9: Aufrufer von saveShow unverändert (${aufrufer.sort().join(', ')})`,
+    aufrufer.join(',') === 'components/ShowEditorModal.tsx:1,store/tools.ts:1'
+    && quelleLf('../src/renderer/src/components/ShowEditorModal.tsx').includes('const ok = await saveShow(show, editPath ?? undefined, f.iveoNeuGebunden !== null);'));
+}
+
+// --- Geführte Anleitung P13 (Spec 4, OF2; EP7–EP9): Startregeln und „Was ist neu?“ danach ------------------------------
+{
+  const faelle: StartEingang[] = [];
+  for (const start of ['anleitung', 'hinweis', null] as const)
+    for (const version of ['0.17.0', null] as const)
+      for (const gesehen of ['0.17.0', '0.16.0', null] as const)
+        for (const hatNotes of [true, false]) faelle.push({ start, version, gesehen, hatNotes });
+  // Erwartung (EP9): fällig = Version da, anders als gesehen, Notes da. Der erste automatische Start (noch keine Fassung
+  // gesehen) merkt die Fassung und zeigt nichts; sonst wartet „Was ist neu?“ hinter einer laufenden Anleitung oder kommt sofort.
+  const soll = (e: StartEingang) => {
+    const faellig = e.version !== null && e.gesehen !== e.version && e.hatNotes;
+    if (e.start === 'anleitung' && e.gesehen === null && e.version !== null) {
+      return { patchNotesJetzt: false, patchNotesNachAnleitung: false, gesehenSchreiben: e.version };
+    }
+    if (e.start === 'anleitung') return { patchNotesJetzt: false, patchNotesNachAnleitung: faellig, gesehenSchreiben: null };
+    return { patchNotesJetzt: faellig, patchNotesNachAnleitung: false, gesehenSchreiben: null };
+  };
+  const abw = faelle.filter((e) => JSON.stringify(startEntscheidung(e)) !== JSON.stringify(soll(e)));
+  ck(`P13 4, EP9: startEntscheidung = Erwartung (${faelle.length} Fälle)${abw.length ? ` — ${abw.slice(0, 3).map((e) => JSON.stringify(e)).join('; ')}` : ''}`,
+    abw.length === 0);
+  ck('P13 4: „Was ist neu?“ nie zugleich mit der von selbst startenden Anleitung und nie doppelt (sofort und danach)',
+    faelle.every((e) => { const r = startEntscheidung(e); return !(r.patchNotesJetzt && (e.start === 'anleitung' || r.patchNotesNachAnleitung)); }));
+  ck('P13 EP9: „gesehen“ wird nur beim ersten automatischen Start geschrieben (nie beim Hinweis, nie ohne Version)',
+    faelle.every((e) => (startEntscheidung(e).gesehenSchreiben !== null) === (e.start === 'anleitung' && e.gesehen === null && e.version !== null)));
+  const erster = startEntscheidung({ start: 'anleitung', version: '0.17.0', gesehen: null, hatNotes: true });
+  const zweiter = startEntscheidung({ start: null, version: '0.17.0', gesehen: erster.gesehenSchreiben, hatNotes: true });
+  ck('P13 EP9 (Ist-L 11 Nr. 1): erster Start mit Anleitung ohne „Was ist neu?“ — und der zweite Start ohne Update auch nicht',
+    erster.gesehenSchreiben === '0.17.0' && !erster.patchNotesJetzt && !erster.patchNotesNachAnleitung && !zweiter.patchNotesJetzt);
+  const nachNeustart = startEntscheidung({ start: 'anleitung', version: '0.17.0', gesehen: '0.16.0', hatNotes: true });
+  const hinweisUpdate = startEntscheidung({ start: 'hinweis', version: '0.17.0', gesehen: '0.16.0', hatNotes: true });
+  ck('P13 EP7, OF2: Fortsetzen nach dem Neustart mit neuer Fassung → „Was ist neu?“ danach; bestehender Rechner mit Hinweis → sofort',
+    nachNeustart.patchNotesNachAnleitung && !nachNeustart.patchNotesJetzt && nachNeustart.gesehenSchreiben === null
+    && hinweisUpdate.patchNotesJetzt && hinweisUpdate.gesehenSchreiben === null);
+}
+{
+  const tools = quelleLf('../src/renderer/src/store/tools.ts');
+  const anleitung = quelleLfOderLeer('../src/renderer/src/store/anleitung.ts');
+  const load = funktionsKoerper(tools, 'load: async () => {');
+  const iStart = load.indexOf('const start = useAnleitung.getState().starte({ bestehenderRechner: readOnboarded() });');
+  const iEnt = load.indexOf('const notes = startEntscheidung({');
+  const iNotes = load.indexOf("if (notes.patchNotesJetzt && version) set({ patchNotes: { app: 'launcher', highlight: version } });");
+  ck('P13 4, EP7–EP9: load() fragt zuerst die Anleitung, dann startEntscheidung, dann „Was ist neu?“',
+    iStart >= 0 && iStart < iEnt && iEnt < iNotes);
+  ck('P13 EP8: die Checkliste öffnet sich nicht mehr von selbst; jmps:onboardedV1 wird nur noch gelesen',
+    load.length > 0 && !load.includes('onboardingOpen: true') && !tools.includes('setItem(ONBOARDED_KEY')
+    && tools.includes("    return localStorage.getItem(ONBOARDED_KEY) === '1';"));
+  const nach = funktionsKoerper(tools, 'function zeigePatchNotesNachAnleitung(version: string): void {');
+  ck('P13 EP9: „gesehen“ beim ersten automatischen Start (in try/catch); zurückgestellte Notes, sobald die Anleitung nicht mehr läuft',
+    load.includes('localStorage.setItem(SEEN_VERSION_KEY, notes.gesehenSchreiben);') && imTry(load, load.indexOf('localStorage.setItem(SEEN_VERSION_KEY'))
+    && load.includes('if (notes.patchNotesNachAnleitung && version) zeigePatchNotesNachAnleitung(version);')
+    && nach.includes("if (a.fortschritt.status === 'laeuft' || !a.patchNotesNachAnleitung) return;")
+    && nach.includes("set({ patchNotes: { app: 'launcher', highlight: version } });")
+    && anleitung.includes('    patchNotesNachAnleitung: false,'));
+  // D15: React StrictMode ruft load() im Dev zweimal (main.tsx); das zweite Mal darf „Was ist neu?“ nicht noch einmal abonnieren.
+  const nurEinmal = 'if (useAnleitung.getState().patchNotesNachAnleitung) return;';
+  ck('P13 4, D15: „Was ist neu?“ nach der Anleitung wird je Fenster nur einmal abonniert, auch wenn load() zweimal läuft',
+    nach.includes(nurEinmal) && nach.indexOf(nurEinmal) < nach.indexOf('useAnleitung.setState({ patchNotesNachAnleitung: true });'));
+  // D20: die Update-Prüfungen stehen vor dem neuen Code der Anleitung — ein Fehler dort hält sie nicht auf.
+  const nachSet = load.slice(Math.max(0, load.indexOf('set({ tools, states: byId(states), settings, version, loading: false });')));
+  const iStartNachSet = nachSet.indexOf('const start = useAnleitung.getState().starte(');
+  const vorDerAnleitung = ['void useTools.getState().checkUpdates();', 'void useTools.getState().loadLauncherUpdate();', 'void useTools.getState().loadPresence();']
+    .filter((z) => { const i = nachSet.indexOf(z); return i > 0 && i < iStartNachSet; });
+  ck(`P13 4, D20: Update-Hinweis, Badges und Presence werden vor der Anleitung angestoßen (${vorDerAnleitung.length} von 3)`,
+    iStartNachSet > 0 && vorDerAnleitung.length === 3);
+}
+
+// --- Geführte Anleitung P14 (Spec 3, 6, 7; EP11, EP15, EP17–EP19, EP23, EP24; G3, G7, G15): Overlay mit Stimme und Produktionsmodus
+{
+  const json = (x: unknown): string => JSON.stringify(x);
+
+  // Produktion bis zur Ansage (Spec 7, G15; EP17, EP24): Treiber → Umgebung → echte Ansicht → Blase im Launcher. Erwartung aus
+  // den Achsen: still = Produktion oder „unklar“; trotzdem wirkt nur in einer echten Produktion; ein Eingriff spricht nie und
+  // zeigt nur; bei „unklar“ behauptet die Blase keine Produktion (keine Warnung U18, statt U21 der Hinweis L15).
+  const K6_OEFFNEN = json({ ...leererFortschritt(EINRICHTUNG.id), status: 'pausiert',
+    position: { ort: 'kapitel', kapitel: 'k6', schritt: 'k6.oeffnen', nurZeigen: false, warErfuellt: false } });
+  let nX = 0;
+  const abwX: string[] = [];
+  for (const eingriff of [false, true]) for (const laufend of [0, 1]) for (const launch of [false, true]) for (const iveo of [false, true])
+    for (const folgt of [false, true]) for (const unklarAchse of [false, true]) for (const an of [false, true]) for (const trotzdem of [false, true]) {
+      nX++;
+      const { t, lage } = treiberMit(speicherAttrappe(eingriff ? { [ANLEITUNG_SCHLUESSEL]: K6_OEFFNEN } : {}), {
+        states: unklarAchse ? { 'jm-timer': { status: 'installed' } } : {},
+        laufendeTools: laufend, showLaunch: launch, iveoActive: iveo, verbund: folgt ? MASTER_FOLGT : null,
+      });
+      t.starte({ bestehenderRechner: false });
+      if (eingriff) t.ereignis({ art: 'starten' });
+      if (trotzdem) t.stimmeTrotzdemAn();
+      const s = lage.stand;
+      const ansicht = anleitungAnsicht(EINRICHTUNG, s.fortschritt, s.jetzt, anleitungsUmgebung({ ...s, stimmeAn: an }, true));
+      const b = launcherBlase(ansicht, s, { stimmeWartet: 'L15', nichtGemerkt: 'U26' }).blase;
+      const prod = laufend > 0 || launch || iveo || folgt;
+      const unklar = !prod && unklarAchse;
+      const still = prod || unklar;
+      const wirkt = trotzdem && prod;
+      const soll = {
+        id: eingriff ? 'k6.oeffnen' : 'einleitung',
+        spielen: an && (!still || wirkt) && !(still && eingriff),
+        nurZeigen: still && eingriff,
+        warnung: prod && eingriff,
+        hinweis: !an ? 'aus' : unklar ? null : prod && eingriff ? 'eingriff' : prod && !wirkt ? 'produktion' : null,
+        text: unklar && an ? 'L15' : null,
+      };
+      const ist = { id: b?.ansage.id, spielen: b?.ansage.spielen, nurZeigen: b?.nurZeigen, warnung: b?.produktionsWarnung, hinweis: b?.ansage.hinweis, text: b?.wiederfinden };
+      if (json(ist) !== json(soll)) {
+        abwX.push(`${eingriff ? 'Eingriff' : 'Einleitung'}/${laufend}/${launch}/${iveo}/${folgt}/${unklarAchse ? 'unklar' : '-'}/${an ? 'an' : 'aus'}/${trotzdem ? 'trotzdem' : '-'}: ${json(ist)}`);
+      }
+    }
+  ck(`P14 7, G15, EP17, EP24: Produktion bis zur Ansage — Schritt × Tool läuft × Show-Start × iveo × Master folgt × „unklar“ × Stimme an × trotzdem (${nX} Fälle)${abwX.length ? ` — ${abwX.slice(0, 3).join('; ')}` : ''}`,
+    nX === 256 && abwX.length === 0);
+
+  // Speicher in der Sprechblase (G7, G8, EP23): merkt der Rechner nichts, sagt es die Blase — auch am Neustart-Schritt.
+  const basis = anleitungAnsicht(EINRICHTUNG, { ...leererFortschritt(EINRICHTUNG.id), status: 'laeuft', position: { ort: 'einleitung' } }, {},
+    anleitungsUmgebung({ produktion: false, produktionUnklar: false, stimmeAn: true, stimmeTrotzdem: false }, true));
+  const mitHinweis = { ...basis, blase: basis.blase === null ? null : { ...basis.blase, wiederfinden: 'W.' } };
+  const ohneBlase = { ...basis, blase: null };
+  let nS = 0;
+  const abwS: string[] = [];
+  for (const speicher of ['ok', 'leer', 'kaputt', 'nichtLesbar', 'nichtSchreibbar', 'neuer'] as const) {
+    const merkt = speicher === 'ok' || speicher === 'leer' || speicher === 'kaputt';
+    for (const [name, a, soll] of [['ohne Hinweis', basis, merkt ? null : 'U26'], ['mit Hinweis', mitHinweis, merkt ? 'W.' : 'W. U26'], ['ohne Blase', ohneBlase, undefined]] as const) {
+      nS++;
+      const ist = launcherBlase(a, { produktionUnklar: false, speicher }, { stimmeWartet: 'L15', nichtGemerkt: 'U26' }).blase?.wiederfinden;
+      if (ist !== soll) abwS.push(`${speicher}/${name}: ${ist}`);
+    }
+  }
+  ck(`P14 G7, G8, EP23: merkt der Rechner den Fortschritt nicht (nicht lesbar, nicht schreibbar, neuere Fassung), steht U26 in der Sprechblase (${nS} Fälle)${abwS.length ? ` — ${abwS.join('; ')}` : ''}`,
+    nS === 18 && abwS.length === 0);
+
+  const L15 = 'Die Stimme wartet noch kurz: Ob gerade eine Produktion läuft, sehe ich erst ein paar Sekunden nach dem Start des Launchers.';
+  ck('P14 9.3, EP24: L15 wörtlich in LAUNCHER_ANLEITUNG_TEXTE (ohne ASCII-Anführungszeichen)',
+    LAUNCHER_ANLEITUNG_TEXTE.stimmeWartet === L15 && !L15.includes('"'));
+
+  // Verdrahtung der Hülle (Quelltext-Wächter; components/Anleitung.tsx lädt React und die Ansagen und läuft hier nicht).
+  const huelle = quelleLfOderLeer('../src/renderer/src/components/Anleitung.tsx');
+  const app = quelleLf('../src/renderer/src/App.tsx');
+  const store = quelleLfOderLeer('../src/renderer/src/store/anleitung.ts');
+  const zWert = (k: string): number => Number(k.replace(/^z-\[?/, '').replace(/\]$/, ''));
+  const andere: number[] = [];
+  for (const datei of readdirSync(new URL('../src/renderer/src/components/', import.meta.url))) {
+    if (!datei.endsWith('.tsx') || datei === 'Anleitung.tsx') continue;
+    for (const m of quelleLf(`../src/renderer/src/components/${datei}`).matchAll(/fixed inset-0\b[^"]*?\b(z-\[\d+\]|z-\d+)/g)) andere.push(zWert(m[1]));
+  }
+  const eigen = /className="pointer-events-none fixed inset-0 (z-\[\d+\])"/.exec(huelle)?.[1];
+  const meldung = /\{notice && \(\s*<div className="[^"]*\b(z-\[\d+\])/.exec(app)?.[1];
+  ck(`P14 EP11: die Anleitung liegt über allen Dialogen und dem Lade-Overlay (bis z-${Math.max(...andere)}), unter der Meldung, ohne Klickfläche`,
+    eigen !== undefined && meldung !== undefined && zWert(eigen) > Math.max(...andere) && zWert(eigen) < zWert(meldung));
+  ck('P14 EP11: <Anleitung /> hängt in App.tsx direkt nach <ShowLaunchOverlay />, die Sprechblase mit noDragRegion',
+    /<ShowLaunchOverlay \/>\n\s*<Anleitung \/>/.test(app) && app.includes("import { Anleitung } from '@/components/Anleitung';")
+    && huelle.includes('blasenStil={noDragRegion}'));
+  const ui = (ordner: string): string[] =>
+    readdirSync(new URL(`../../../packages/ui/src/${ordner}/`, import.meta.url)).map((f) => `../../../packages/ui/src/${ordner}/${f}`);
+  const dateien = [
+    '../src/renderer/src/components/Anleitung.tsx', '../src/renderer/src/store/anleitung.ts', '../src/renderer/src/lib/anleitung-zustand.ts',
+    ...readdirSync(new URL('../src/renderer/src/anleitung/', import.meta.url)).filter((f) => f.endsWith('.ts')).map((f) => `../src/renderer/src/anleitung/${f}`),
+    ...ui('lib').filter((p) => /\/(anleitung[^/]*\.ts|useAnsage\.ts|useAnleitungsZiel\.ts)$/.test(p)),
+    ...ui('components').filter((p) => /\/Anleitung[^/]*\.tsx$/.test(p)),
+  ];
+  const befunde = dateien.flatMap((p) => g3Befunde(quelleLfOderLeer(p)).map((x) => `${p.split('/').pop()}: ${x}`));
+  ck(`P14 G3: kein Anleitungs-Code bedient etwas, startet etwas oder öffnet einen Dialog (${dateien.length} Dateien)${befunde.length ? ` — ${befunde.join(', ')}` : ''}`,
+    dateien.length === 11 && dateien.every((p) => quelleLfOderLeer(p).length > 0) && befunde.length === 0);
+  ck('P14 G15, EP17, EP23, EP24: die Hülle reicht Produktion, „unklar“, Stimme und Speicher aus dem Store an Umgebung und Blase',
+    ['const produktion = useAnleitung((s) => s.produktion);', 'const produktionUnklar = useAnleitung((s) => s.produktionUnklar);',
+      'const stimmeAn = useAnleitung((s) => s.stimmeAn);', 'const stimmeTrotzdem = useAnleitung((s) => s.stimmeTrotzdem);',
+      'const speicher = useAnleitung((s) => s.speicher);',
+      'const umgebung = anleitungsUmgebung({ produktion, produktionUnklar, stimmeAn, stimmeTrotzdem }, STIMME_VORHANDEN);',
+      'return anleitungAnsicht(EINRICHTUNG, fortschritt, jetzt, umgebung);',
+      'const gezeigt = launcherBlase(ansicht, { produktionUnklar, speicher }, { stimmeWartet: LAUNCHER_ANLEITUNG_TEXTE.stimmeWartet, nichtGemerkt: ANLEITUNG_TEXTE.speicherNichtSchreibbar });',
+      'ansicht={gezeigt}'].every((z) => huelle.includes(z)));
+  ck('P14 6, G15: „Stimme trotzdem an“ geht an den Treiber (nur bis zum Ende der Produktion) und wird nie gemerkt; gemerkt wird nur an/aus je Rechner',
+    store.includes('    stimmeTrotzdemAn: () => treiber.stimmeTrotzdemAn(),') && (store.match(/setItem\(/g) ?? []).length === 1
+    && store.includes("launcherSpeicher()?.setItem(STIMME_SCHLUESSEL, an ? 'an' : 'aus');"));
+  ck('P14 6, EP15: die Ansage spielt über useAnsage mit der Datei aus dem Manifest, nur wenn die gezeigte Blase es erlaubt',
+    huelle.includes('const fehler = useAnsage(id ? ansageUrl(id) : null, id, spielen);')
+    && huelle.includes('const spielen = gezeigt.blase?.ansage.spielen ?? false;')
+    && huelle.includes('stimme={{ vorhanden: STIMME_VORHANDEN, an: stimmeAn, fehler, umschalten: stimmeUmschalten, trotzdemAn: stimmeTrotzdemAn }}'));
+  const ansage = funktionsKoerper(quelleLf('../../../packages/ui/src/lib/useAnsage.ts'), 'export function useAnsage(');
+  ck('P14 6, G15: useAnsage stoppt die laufende Ansage, sobald spielen falsch wird (Effekt hängt an url, id und spielen)',
+    ansage.includes('return starteAnsage(url, id, spielen, (u) => new Audio(u), (fehler) => setStand(ansageStand(id, fehler)));')
+    && ansage.includes('  }, [url, id, spielen]);'));
+  ck('P14 EP19: Steuerebene alle 5 s nachlesen, solange Sprechblase oder Kapitelübersicht offen sind',
+    huelle.includes('const sichtbar = ansicht.blase !== null || onboardingOpen;')
+    && huelle.includes('const t = setInterval(() => void ladeSteuerebene(), 5000);') && huelle.includes('return () => clearInterval(t);'));
+}
+
+// --- Geführte Anleitung P15 (Spec 4, OF1–OF3; EP8, EP20–EP22): Kapitelübersicht, Knopf „Erste Schritte“, kein Funktionsverlust ---
+{
+  const T = { knopf: L_TEXTE.knopf, knopfTitel: L_TEXTE.knopfTitel, neu: L_TEXTE.neu, fortsetzen: (n: number, m: number) => U_TEXTE.fortsetzen(EINRICHTUNG.titel, n, m) };
+  const faelle: Array<{ fortsetzen: { n: number; m: number } | null; hinweis: boolean }> = [];
+  for (const fortsetzen of [null, { n: 1, m: 6 }, { n: 3, m: 6 }, { n: 6, m: 6 }]) for (const hinweis of [false, true]) faelle.push({ fortsetzen, hinweis });
+  // Erwartung wörtlich aus der Texttabelle (U12, L11, L12): ein falscher Text in @jm/ui oder der Anleitungs-Datei fällt hier auf.
+  const soll = (a: { fortsetzen: { n: number; m: number } | null; hinweis: boolean }) => {
+    const text = a.fortsetzen ? `Einrichtung fortsetzen · Schritt ${a.fortsetzen.n} von ${a.fortsetzen.m}` : a.hinweis ? 'Neu: geführte Einrichtung' : null;
+    return { text, aria: text === null ? 'Erste Schritte' : `Erste Schritte: ${text}`, title: 'Erste Schritte · geführte Einrichtung' };
+  };
+  const abw = faelle.filter((a) => JSON.stringify(ersteSchritteKnopf(a, T)) !== JSON.stringify(soll(a)));
+  ck(`P15 4, OF2: Knopf „Erste Schritte“ — Text, aria-label und title in jedem Zustand (${faelle.length} Fälle)${abw.length
+    ? ` — ${abw.slice(0, 3).map((a) => `${JSON.stringify(a)} → ${JSON.stringify(ersteSchritteKnopf(a, T))}`).join('; ')}` : ''}`, abw.length === 0);
+
+  // „Erste Schritte“ an jedem Ort der Anleitung (Spec 4, EP8, EP20; D17): Treiber aus Task 12, echte Ansicht und Knopf. Danach
+  // liegt keine Sprechblase über der Übersicht, und der Knopf stimmt — an der Rückfrage zurück zur Einleitung und pausiert, am
+  // Abschluss wie „Weiter“ (nichts mehr fortzusetzen), „Zeig mir“ endet, der Hinweis endet.
+  const UMGEBUNG = { produktion: false, stimme: { vorhanden: true, an: true, trotzdem: false } };
+  const zuSechs = (art: string): Array<Record<string, unknown>> => ['k1', 'k2', 'k3', 'k4', 'k5', 'k6'].map((kapitel) => ({ art, kapitel }));
+  const ORTE: Array<[string, boolean, Array<Record<string, unknown>>, string | null]> = [
+    ['Einleitung (von selbst gestartet)', false, [], 'Einrichtung fortsetzen · Schritt 1 von 6'],
+    ['Rückfrage', false, [{ art: 'anleitungUeberspringen' }], 'Einrichtung fortsetzen · Schritt 1 von 6'],
+    ['Kapitel 3', false, [{ art: 'weiter' }, { art: 'ueberspringen' }, { art: 'ueberspringen' }], 'Einrichtung fortsetzen · Schritt 3 von 6'],
+    ['Abschluss mit offenen Kapiteln', false, [{ art: 'weiter' }, ...zuSechs('x').map(() => ({ art: 'ueberspringen' }))], null],
+    ['Abschluss, alle Kapitel nicht gebraucht', false, [...zuSechs('brauchtNicht'), { art: 'weiter' }], null],
+    ['„Zeig mir“ bei pausierter Anleitung', false,
+      [{ art: 'weiter' }, { art: 'ueberspringen' }, { art: 'ueberspringen' }, { art: 'spaeter' }, { art: 'starten', kapitel: 'k5' }], 'Einrichtung fortsetzen · Schritt 3 von 6'],
+    ['bestehender Rechner mit Hinweis', true, [], null],
+  ];
+  const ortAbw: string[] = [];
+  for (const [name, bestehend, folge, soll] of ORTE) {
+    const { t, lage } = treiberMit(speicherAttrappe());
+    t.starte({ bestehenderRechner: bestehend });
+    for (const e of folge) t.ereignis(e as AnleitungsEreignis);
+    const vorher = lage.stand.fortschritt.einzeln !== null ? 'Zeig mir' : lage.stand.fortschritt.position?.ort ?? lage.stand.fortschritt.status;
+    t.zurUebersicht();
+    const a = anleitungAnsicht(EINRICHTUNG, lage.stand.fortschritt, lage.stand.jetzt, UMGEBUNG);
+    const knopf = ersteSchritteKnopf({ fortsetzen: a.fortsetzen, hinweis: lage.stand.hinweis }, T);
+    if (a.blase !== null || knopf.text !== soll) {
+      ortAbw.push(`${name} (${vorher}): ${a.blase === null ? 'keine Blase' : `Blase ${a.blase.art}`}, Knopf ${knopf.text ?? 'nur Symbol'}`);
+    }
+  }
+  ck(`P15 4, EP20: „Erste Schritte“ an jedem Ort — danach keine Sprechblase über der Übersicht und der Knopf stimmt (${ORTE.length} Fälle)${ortAbw.length ? ` — ${ortAbw.join('; ')}` : ''}`,
+    ortAbw.length === 0);
+
+  // Fortsetzen nach einem Rollenwechsel in der Pause und ohne gemerkten Ort (G7, Owner-Regel: der Fortsetzen-Knopf lügt in
+  // keinem erreichbaren Zustand). Gilt der gemerkte Schritt nicht mehr, geht „Einrichtung fortsetzen“ im Folgekapitel weiter;
+  // ohne Ort beim ersten offenen Kapitel. Der Knopf nennt genau das Kapitel, dessen Zähler die Sprechblase nach dem Klick zeigt.
+  const verbund = (rolle: 'aus' | 'master' | 'slave'): VerbundStand => ({
+    rolle, dateiFehler: null, master: rolle === 'master' ? { showImVerbund: null } : null,
+    slave: rolle === 'slave' ? { gekoppelt: false, client: { art: 'getrennt' } } : null,
+  }) as unknown as VerbundStand;
+  const gemerkt = (position: unknown): Record<string, string> =>
+    ({ [ANLEITUNG_SCHLUESSEL]: JSON.stringify({ ...leererFortschritt(EINRICHTUNG.id), status: 'pausiert', position }) });
+  const inK3 = (schritt: string) => ({ ort: 'kapitel', kapitel: 'k3', schritt, nurZeigen: false, warErfuellt: false });
+  const WECHSEL: Array<[string, Record<string, string>, Partial<AnleitungsEingang>, Partial<AnleitungsEingang>]> = [
+    ['Pause an k3.slave, dann Rolle Master', gemerkt(inK3('k3.slave')), { verbund: verbund('slave') }, { verbund: verbund('master') }],
+    ['Pause an k3.slave, dann Rolle Aus', gemerkt(inK3('k3.slave')), { verbund: verbund('slave') }, { verbund: verbund('aus') }],
+    ['Pause an k3.master, dann Rolle Aus', gemerkt(inK3('k3.master')), { verbund: verbund('master') }, { verbund: verbund('aus') }],
+    ['pausiert ohne gemerkten Ort, Quelle verbunden', gemerkt(null), {}, { settings: { source: 'proxy' } }],
+  ];
+  const wechselAbw: string[] = [];
+  for (const [name, speicher, vorher, nachher] of WECHSEL) {
+    const { t, lage } = treiberMit(speicherAttrappe(speicher), vorher);
+    t.starte({ bestehenderRechner: false });
+    lage.eingang = { ...lage.eingang, ...nachher };
+    t.pruefe();
+    t.zurUebersicht();
+    const a = anleitungAnsicht(EINRICHTUNG, lage.stand.fortschritt, lage.stand.jetzt, UMGEBUNG);
+    const knopf = ersteSchritteKnopf({ fortsetzen: a.fortsetzen, hinweis: lage.stand.hinweis }, T);
+    t.ereignis({ art: 'starten' });
+    const z = anleitungAnsicht(EINRICHTUNG, lage.stand.fortschritt, lage.stand.jetzt, UMGEBUNG).blase?.zaehler ?? null;
+    const soll = z === null ? null : `Einrichtung fortsetzen · Schritt ${z.n} von ${z.m}`;
+    if (soll === null || knopf.text !== soll) wechselAbw.push(`${name}: Knopf ${knopf.text ?? 'nur Symbol'}, danach Zähler ${z === null ? 'keiner' : `${z.n}/${z.m}`}`);
+  }
+  ck(`P15 4, G7: Fortsetzen nach einem Rollenwechsel in der Pause und ohne gemerkten Ort — der Knopf nennt das Kapitel, in dem es weitergeht (${WECHSEL.length} Fälle)${wechselAbw.length ? ` — ${wechselAbw.join('; ')}` : ''}`,
+    wechselAbw.length === 0);
+
+  const modal = quelleLf('../src/renderer/src/components/OnboardingModal.tsx');
+  const kopf = quelleLf('../src/renderer/src/components/Header.tsx');
+  const picker = quelleLf('../src/renderer/src/components/ScenarioPicker.tsx');
+  const reiter = quelleLf('../src/renderer/src/components/ShowView.tsx');
+  const tools = quelleLf('../src/renderer/src/store/tools.ts');
+  const store = quelleLfOderLeer('../src/renderer/src/store/anleitung.ts');
+  const { createHash } = await import('node:crypto');
+  const szenarienHash = createHash('sha256').update(quelleLf('../src/renderer/src/lib/scenarios.ts')).digest('hex');
+  // Kein Funktionsverlust (Lehre; Ist-L 4.1 Checkliste, 4.2 Szenario-Auswahl): je Zeile ein Wächter.
+  const tabelle: Array<[string, boolean]> = [
+    ['Checkliste 1 Release-Quelle: „Einrichten/Ändern“ öffnet die Einstellungen, Detail „Aktiv: …“ (L5, L9)',
+      modal.includes('k1: { knopf: L.aktion.k1(fertig.k1), ausfuehren: openSettings },') && modal.includes('kapitelDetails({ ...useAnleitung.getState().eingang(), settings, states }, L.detail)')],
+    ['Checkliste 2 Werkzeuge: „Auswählen/Werkzeugkasten“ schließt und wechselt in den Werkzeugkasten, Zahl der Tools (L6, L10)',
+      modal.includes("k2: { knopf: L.aktion.k2(fertig.k2), ausfuehren: () => { close(); setView('catalog'); } },")],
+    ['Checkliste 3 Netzwerk & Steuerebene: „Prüfen“ öffnet den System-Zustand (L8)', modal.includes('k5: { knopf: L.aktion.k5, ausfuehren: openSystem },')],
+    ['Checkliste 4 Erste Show aus Vorlage: „Vorlage wählen“ öffnet die Szenario-Auswahl (L8)', modal.includes('k4: { knopf: L.aktion.k4, ausfuehren: openScenarios },')],
+    ['Checkliste Kopf und Fuß: Titel, Unterzeile, Tipp Kochbuch, „Fertig“ und Schließen-Kreuz (L13, L14, U35)',
+      ['titel={L.titel}', 'unterzeile={L.unterzeile}', 'tipp={L.tipp}', 'schliessen={close}', 'aria-label={L.schliessen}', 'onClick={close}'].every((t) => modal.includes(t))],
+    ['Checkliste Ebene z-40 unter den Detail-Dialogen: die Übersicht bleibt Rücksprung-Ebene', modal.includes('<div className="fixed inset-0 z-40 ')],
+    ['Checkliste Haken live: aus dem Kapitelzustand der Anleitung (G7), nicht mehr aus eigener Rechnung',
+      modal.includes('const ansicht = useAnleitungsAnsicht();') && modal.includes('ansicht={ansicht}') && !modal.includes('sourceDone')],
+    ['Knopf „Erste Schritte“ im Kopf öffnet weiter die Übersicht', kopf.includes('onClick={openOnboarding}')],
+    ['Szenario-Auswahl: vier Vorlagen, „Los“ öffnet den Show-Editor mit der Vorlage',
+      picker.includes('const startWith = useTools((s) => s.openShowEditorWith);') && /Los\s*<\/Button>/.test(picker)
+      && SZENARIEN.map((s) => s.id).join(',') === 'konferenz,battle,buehne,podcast'],
+    ['Einstieg „Aus Vorlage starten“ im Reiter JM Show', reiter.includes("title: 'Aus Vorlage starten',") && reiter.includes('onClick: openScenarios,')],
+    [`lib/scenarios.ts unverändert (SHA-256 nach LF wie vor dem Plan, ist ${szenarienHash.slice(0, 12)}…)`,
+      szenarienHash === '71270905b755101b0bd00e82bb5533f3db128bf5f3862f580ceea880fb267b09'],
+  ];
+  for (const [zeile, gut] of tabelle) ck(`P15 kein Funktionsverlust: ${zeile}`, gut);
+
+  ck('P15 Ist-M 15: kein ASCII-Schlusszeichen und kein Text der alten Checkliste mehr in OnboardingModal.tsx',
+    !/„[^“\n]*"/.test(modal) && !modal.includes('In vier Schritten startklar') && !modal.includes('function Step('));
+  const oeffnen = funktionsKoerper(tools, 'openOnboarding: () => {');
+  ck('P15 EP8, EP20: „Erste Schritte“ übergibt zuerst an den Treiber (pausieren, „Zeig mir“ beenden, Hinweis aus), dann öffnet die Übersicht',
+    oeffnen.includes('useAnleitung.getState().zurUebersicht();') && store.includes('    zurUebersicht: () => treiber.zurUebersicht(),')
+    && oeffnen.indexOf('zurUebersicht();') < oeffnen.indexOf('set({ onboardingOpen: true });'));
+  ck('P15 EP20: Schließen merkt nichts; Starten und „Zeig mir“ schließen die Übersicht, damit die Hervorhebung frei liegt',
+    tools.includes('  closeOnboarding: () => void;') && tools.includes('    closeOnboarding: () => set({ onboardingOpen: false }),')
+    && modal.includes("if (e.art === 'starten') close();"));
+  ck('P15 G7: jede Diagnose des Speichers steht in der Übersicht (U25–U28), ok und leer ohne Zeile',
+    ['ok: null,', 'leer: null,', 'nichtLesbar: ANLEITUNG_TEXTE.speicherNichtLesbar,', 'nichtSchreibbar: ANLEITUNG_TEXTE.speicherNichtSchreibbar,',
+      'kaputt: ANLEITUNG_TEXTE.speicherKaputt,', 'neuer: ANLEITUNG_TEXTE.speicherNeuer,'].every((t) => modal.includes(t))
+    && modal.includes('speicherHinweis={SPEICHER_HINWEIS[speicher]}'));
+  ck('P15 6, EP21: Stimmen-Schalter mit Namensnennung in der Übersicht',
+    modal.includes('stimme={{ vorhanden: STIMME_VORHANDEN, an: stimmeAn, umschalten: stimmeUmschalten, namensnennung: NAMENSNENNUNG }}'));
+  ck('P15 4, OFP3: der Kopf zeigt Text, aria-label und title aus ersteSchritteKnopf (voller Text, kein Umbruch)',
+    kopf.includes('aria-label={ersteSchritte.aria}') && kopf.includes('title={ersteSchritte.title}')
+    && kopf.includes('{ersteSchritte.text && <span>{ersteSchritte.text}</span>}')
+    && kopf.includes("'flex items-center gap-1.5 px-2.5 whitespace-nowrap text-xs font-semibold'")
+    && kopf.includes('const { fortsetzen } = useAnleitungsAnsicht();') && kopf.includes('const hinweis = useAnleitung((s) => s.hinweis);'));
+}
+
+// --- Geführte Anleitungen P16 (Spec 7, 10; EP10): docs/anleitungen.md bleibt wahr --------------------------------------
+// UX-Welle 3 liest im Kennungs-Register nach, was sie erhalten muss; das Register darf nicht still veralten. Jede Kennung
+// der Anleitung hat genau eine Zeile, jede Zeile gehört zur Anleitung, ihr Ort nennt eine Datei des Renderers, in der die
+// Kennung steht (Muster wie der Scan aus P7), und ihre Schritte sind genau die, die auf die Kennung zeigen. Die
+// Namenstabelle nennt genau die Bedingungsnamen des Adapters. Jede Abweichung steht mit Namen in einer eigenen Zeile.
+{
+  const { EINRICHTUNG, ZIEL_KENNUNGEN } = await import('../src/renderer/src/anleitung/einrichtung.ts');
+  const { ZUSTANDS_NAMEN, EREIGNIS_NAMEN, ENTSCHEIDUNGS_NAMEN } = await import('../src/renderer/src/lib/anleitung-zustand.ts');
+  let doku = '';
+  try { doku = quelleLf('../../../docs/anleitungen.md'); } catch { console.log('      docs/anleitungen.md fehlt'); }
+  const zeigen = (was: string, liste: string[]): void => { if (liste.length) console.log(`      ${was}: ${liste.join(', ')}`); };
+  const tabelle = (kopf: string): string[][] => {
+    const z = doku.split('\n');
+    const zeilen: string[][] = [];
+    for (let k = z.indexOf(kopf) + 2; k > 1 && k < z.length && z[k].startsWith('|'); k++) {
+      zeilen.push(z[k].split('|').slice(1, -1).map((s) => s.trim()));
+    }
+    return zeilen;
+  };
+  const code = (zelle: string): string[] => [...zelle.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  const register = tabelle('| Kennung | Ort | Bedienelement | sichtbar, wenn | Schritte |');
+  const imRegister = register.map((r) => code(r[0])[0] ?? r[0]);
+  const fehlend = ZIEL_KENNUNGEN.filter((k: string) => !imRegister.includes(k));
+  const doppelt = imRegister.filter((k, i) => imRegister.indexOf(k) !== i);
+  zeigen('nicht im Register', fehlend);
+  zeigen('doppelt im Register', doppelt);
+  ck('P16 7: das Kennungs-Register in docs/anleitungen.md hat genau eine Zeile je Ziel-Kennung der Anleitung',
+    register.length > 0 && fehlend.length === 0 && doppelt.length === 0);
+  const fremd = imRegister.filter((k) => !ZIEL_KENNUNGEN.includes(k));
+  zeigen('im Register, aber keine Ziel-Kennung', fremd);
+  ck('P16 7: jede Zeile des Registers ist eine Ziel-Kennung der Anleitung (keine veraltete Zeile)', register.length > 0 && fremd.length === 0);
+  const wurzel = new URL('../src/renderer/src/', import.meta.url);
+  const jeDatei = new Map<string, Set<string>>();
+  for (const p of (readdirSync(wurzel, { recursive: true }) as string[]).map((x) => x.replace(/\\/g, '/')).filter((x) => x.endsWith('.tsx'))) {
+    const t = readFileSync(new URL(p, wurzel), 'utf8');
+    jeDatei.set(p.split('/').pop() as string, new Set([...t.matchAll(/data-anleitung="([^"]+)"|anleitung: '([^']+)'/g)].map((m) => m[1] ?? m[2])));
+  }
+  const kennung = (r: string[]): string => code(r[0])[0] ?? r[0];
+  const ortFalsch = register.filter((r) => !code(r[1]).some((d) => jeDatei.get(d)?.has(kennung(r)) ?? false))
+    .map((r) => `${kennung(r)} (steht in: ${[...jeDatei].filter(([, s]) => s.has(kennung(r))).map(([d]) => d).join(', ') || 'keiner Datei'})`);
+  zeigen('Ort nennt keine Datei mit der Kennung', ortFalsch);
+  ck('P16 10: der Ort jeder Registerzeile nennt eine Datei des Renderers, in der die Kennung steht', register.length > 0 && ortFalsch.length === 0);
+  const alleSchritte = [EINRICHTUNG.einleitung, EINRICHTUNG.rueckfrage, EINRICHTUNG.abschluss,
+    ...EINRICHTUNG.kapitel.flatMap((k: { schritte: readonly unknown[] }) => k.schritte)] as Array<{ id: string; ziel?: string }>;
+  const sollSchritte = (r: string[]): string => alleSchritte.filter((s) => s.ziel === kennung(r)).map((s) => s.id).sort().join(' ');
+  const schritteFalsch = register.filter((r) => code(r[4]).sort().join(' ') !== sollSchritte(r))
+    .map((r) => `${kennung(r)} (soll: ${sollSchritte(r) || 'kein Schritt'})`);
+  zeigen('Spalte Schritte weicht ab', schritteFalsch);
+  ck('P16 7: die Spalte Schritte nennt genau die Schritte der Anleitung, die auf die Kennung zeigen', register.length > 0 && schritteFalsch.length === 0);
+  const namen = tabelle('| Name | Art | erfüllt, wenn | gelesen aus |').map((r) => code(r[0])[0] ?? r[0]);
+  const sollNamen: string[] = [...ZUSTANDS_NAMEN, ...EREIGNIS_NAMEN, ...ENTSCHEIDUNGS_NAMEN];
+  const namenFalsch = [...sollNamen.filter((n) => !namen.includes(n)), ...namen.filter((n) => !sollNamen.includes(n))];
+  zeigen('Bedingungsname fehlt oder ist fremd', namenFalsch);
+  ck('P16 7: die Namenstabelle nennt genau die Bedingungsnamen des Adapters', namen.length > 0 && namenFalsch.length === 0);
+  const ohneCode = doku.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+  ck('P16 G2: docs/anleitungen.md ohne ASCII-Anführungszeichen außerhalb von Code', doku !== '' && !ohneCode.includes('"'));
+}
+
+// --- Geführte Anleitungen P17 (Spec 3–7): die Abnahme-Datei deckt jedes Kapitel und jede Bedienung ab --------------------
+// Die Datei füllt der Owner aus; geprüft wird nur, was sie abdecken muss, nie ihre Ergebnis-Spalten. Jedes Kapitel der
+// Anleitung hat einen Schritt (Titel wörtlich in „ “), und jeder Bedien- und Anzeigetext steht wörtlich in „ “ in einem
+// Schritt und wörtlich in seiner Quelle (ANLEITUNG_TEXTE in @jm/ui, LAUNCHER_ANLEITUNG_TEXTE im Launcher). Ein neues
+// Kapitel oder ein umbenannter Knopf macht diesen Block rot, bis die Abnahme nachgezogen ist.
+{
+  const { EINRICHTUNG } = await import('../src/renderer/src/anleitung/einrichtung.ts');
+  let abnahme = '';
+  try { abnahme = quelleLf('../ABNAHME-gefuehrte-anleitungen.md'); } catch { console.log('      apps/launcher/ABNAHME-gefuehrte-anleitungen.md fehlt'); }
+  const schritte = abnahme.split('\n').filter((l) => /^\| \d+ \|/.test(l)).join('\n');
+  const ohneKapitel = (EINRICHTUNG.kapitel as ReadonlyArray<{ id: string; titel: string }>)
+    .filter((k) => !schritte.includes(`„${k.titel}“`)).map((k) => `${k.id} „${k.titel}“`);
+  if (ohneKapitel.length) console.log(`      Kapitel ohne Schritt in der Abnahme: ${ohneKapitel.join(', ')}`);
+  ck('P17 5: jedes Kapitel der Anleitung hat einen Schritt in der Abnahme-Tabelle (Titel wörtlich in „ “)', schritte !== '' && ohneKapitel.length === 0);
+  const quellen = { ui: quelleLf('../../../packages/ui/src/lib/texte.ts'), launcher: quelleLf('../src/renderer/src/anleitung/einrichtung.ts') };
+  // [Nummer der Texttabelle, Text, Quelle]; U12 ist der Anfang eines Texts mit Zahlen. U17 fehlt mit Absicht: Bei fehlendem
+  // Ziel zeigt die Sprechblase den eigenen Text des Schritts statt U17 (AbwA12), und in der Einrichtung hat jeder Schritt
+  // mit Ziel einen; U17 erscheint dort nie, die Abnahme darf ihn nicht erwarten.
+  const TEXTE: Array<[string, string, 'ui' | 'launcher']> = [
+    ['U1', 'Zurück', 'ui'], ['U2', 'Weiter', 'ui'], ['U3', 'Überspringen', 'ui'], ['U4', 'Später weiter', 'ui'],
+    ['U5', 'Brauche ich nicht', 'ui'], ['U6', 'Doch gebraucht', 'ui'], ['U7', 'Zeig mir', 'ui'], ['U8', 'Anleitung überspringen', 'ui'],
+    ['U9', 'Ja, überspringen', 'ui'], ['U10', 'Zurück zur Anleitung', 'ui'], ['U11', 'Einrichtung starten', 'ui'],
+    ['U12', 'Einrichtung fortsetzen · Schritt ', 'ui'], ['U14', 'Anleitung beenden', 'ui'], ['U15', 'Schon erledigt', 'ui'],
+    ['U16', 'Nur zeigen', 'ui'],
+    ['U18', 'Gerade läuft eine Produktion. Ich zeige dir nur, wo es ist; mach es, wenn die Produktion vorbei ist.', 'ui'],
+    ['U19', 'Stimme an', 'ui'], ['U20', 'Stimme aus', 'ui'], ['U21', 'Die Stimme ist aus, weil gerade eine Produktion läuft.', 'ui'],
+    ['U22', 'Stimme trotzdem an', 'ui'], ['U33', 'Wartet auf den Neustart.', 'ui'], ['U34', 'Einrichtung abgeschlossen', 'ui'],
+    ['U35', 'Fertig', 'ui'],
+    ['L1', 'Ich arbeite allein an diesem Rechner', 'launcher'], ['L2', 'Verbund einrichten', 'launcher'], ['L3', 'Die Show ist da', 'launcher'],
+    ['L4', 'Companion ist verbunden', 'launcher'], ['L5', 'Einrichten', 'launcher'], ['L5', 'Ändern', 'launcher'],
+    ['L6', 'Auswählen', 'launcher'], ['L6', 'Werkzeugkasten', 'launcher'], ['L7', 'Verbund öffnen', 'launcher'],
+    ['L8', 'Vorlage wählen', 'launcher'], ['L8', 'Prüfen', 'launcher'], ['L11', 'Erste Schritte', 'launcher'],
+    ['L12', 'Neu: geführte Einrichtung', 'launcher'], ['L14', 'Schließen', 'launcher'],
+    ['L15', 'Die Stimme wartet noch kurz: Ob gerade eine Produktion läuft, sehe ich erst ein paar Sekunden nach dem Start des Launchers.', 'launcher'],
+  ];
+  const anfang = (n: string): boolean => n === 'U12';
+  // U11, U12 und U34 bildet @jm/ui aus dem Titel der Anleitung (AbwA16): „in der Quelle“ heißt dort, die Funktion bildet genau ihn.
+  const ausTitel: Record<string, string> = {
+    U11: U_TEXTE.starten(EINRICHTUNG.titel), U12: U_TEXTE.fortsetzen(EINRICHTUNG.titel, 4, 6), U34: U_TEXTE.abgeschlossen(EINRICHTUNG.titel),
+  };
+  const inQuelle = ([n, t, q]: [string, string, 'ui' | 'launcher']): boolean =>
+    n in ausTitel ? ausTitel[n].startsWith(t) && (anfang(n) || ausTitel[n] === t)
+      : ["'", '"', '`'].some((z) => quellen[q].includes(`${z}${t}${z}`));
+  const nichtInQuelle = TEXTE.filter((e) => !inQuelle(e)).map(([n, t]) => `${n} „${t}“`);
+  if (nichtInQuelle.length) console.log(`      nicht wörtlich in der Quelle: ${nichtInQuelle.join(', ')}`);
+  ck('P17 3, 3.1, 4: die geprüften Bedien- und Anzeigetexte stehen wörtlich in ANLEITUNG_TEXTE bzw. LAUNCHER_ANLEITUNG_TEXTE',
+    nichtInQuelle.length === 0);
+  const nichtInAbnahme = TEXTE.filter(([n, t]) => !schritte.includes(anfang(n) ? `„${t}` : `„${t}“`)).map(([n, t]) => `${n} „${t}“`);
+  if (nichtInAbnahme.length) console.log(`      in keinem Schritt der Abnahme: ${nichtInAbnahme.join(', ')}`);
+  ck('P17 3, 3.1, 4: jeder dieser Texte steht in „ “ in einem Schritt der Abnahme', schritte !== '' && nichtInAbnahme.length === 0);
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.
@@ -1418,6 +2953,46 @@ await (async () => {
     !!scrollKlasse && /\bmin-h-0\b/.test(scrollKlasse[1]) && !/\bshrink-0\b/.test(scrollKlasse[1]));
   ck('Layout: … Inline-Meldung und Fußzeile folgen im selben Container und schrumpfen nicht (shrink-0)',
     iScroll < iAlert && iAlert < iFuss);
+}
+
+// Owner-Abnahme 21.10.2026 (Screenshot): Die Kapitelübersicht „Erste Schritte“ war höher als das Fenster und ließ sich
+// nicht scrollen; das Overlay scrollt nicht. Wie #233 (SystemStatusModal) und der Show-Editor: ein eigener Container in der
+// Card ist höchstens fensterhoch, nur er scrollt. Gleiches für die Szenario-Auswahl, auf die Kapitel 4 zeigt (k4.szenario).
+{
+  // Klassen als Wörter vergleichen (ein Präfix wie lg: wirkt nicht immer), Verschachtelung über die Tiefe der div-Tags.
+  const klassen = (k: string): string[] => k.split(/\s+/).filter(Boolean);
+  const tiefeZwischen = (text: string, von: number, bis: number): number => {
+    let tiefe = 0;
+    for (const m of text.slice(von, bis).matchAll(/<div\b[^>]*?(\/?)>|<\/div>/g)) {
+      if (m[0] === '</div>') tiefe--; else if (m[1] !== '/') tiefe++;
+    }
+    return tiefe;
+  };
+  const uebersicht = quelleLf('../src/renderer/src/components/OnboardingModal.tsx');
+  const karteU = /<Card className="[^"]*">([\s\S]*?)<\/Card>/.exec(uebersicht)?.[1] ?? '';
+  const scrollU = /<div className="([^"]*)">\s*<AnleitungsUebersicht\b/.exec(karteU);
+  const kU = klassen(scrollU?.[1] ?? '');
+  ck('Layout: die Kapitelübersicht ist höchstens fensterhoch und scrollt (eigener Container in der Card, wie #233)',
+    kU.includes('max-h-[calc(100vh-6rem)]') && kU.includes('overflow-y-auto') && tiefeZwischen(karteU, 0, scrollU?.index ?? 0) === 0);
+  const iKreuz = karteU.indexOf('aria-label={L.schliessen}');
+  ck('Layout: … das Schließen-Kreuz liegt außerhalb des Scrollbereichs und bleibt beim Scrollen sichtbar',
+    iKreuz >= 0 && !!scrollU && iKreuz < scrollU.index);
+  const auswahl = quelleLf('../src/renderer/src/components/ScenarioPicker.tsx');
+  const karteS = /<Card className="[^"]*">([\s\S]*?)<\/Card>/.exec(auswahl)?.[1] ?? '';
+  const iHuelleS = karteS.indexOf('<div className="flex max-h-[calc(100vh-6rem)] flex-col">');
+  const scrollS = /<div className="([^"]*\boverflow-y-auto\b[^"]*)">/.exec(karteS);
+  const kS = klassen(scrollS?.[1] ?? '');
+  const iRaster = karteS.indexOf('data-anleitung="szenario.auswahl"');
+  const iFussS = karteS.search(/<div className="[^"]*\bshrink-0\b[^"]*">\s*<p className="text-\[11px\]/);
+  ck('Layout: die Szenario-Auswahl ist höchstens fensterhoch, nur die Vorlagen scrollen (min-h-0), Kopf und Fuß schrumpfen nicht',
+    iHuelleS >= 0 && !!scrollS && iHuelleS < scrollS.index && kS.includes('min-h-0') && kS.includes('flex-1') && kS.includes('overflow-y-auto')
+    && !kS.includes('shrink-0') && tiefeZwischen(karteS, iHuelleS, scrollS.index) === 1 && tiefeZwischen(karteS, iHuelleS, iFussS) === 1
+    && scrollS.index < iRaster && iRaster < iFussS);
+  // Prüfung des Fixes: Ohne Sperre schluckt die Zieh-Fläche des Kopfs Klicks auch unter dem Overlay (#233); seit die Karten
+  // fensterhoch sind, reichen sie in den Kopf hinein.
+  ck('Layout: … beide Overlays heben die Zieh-Fläche des Kopfs auf (noDragRegion wie System-Zustand und Verbund)',
+    /<div className="fixed inset-0 z-40 [^"]*"\s+style=\{noDragRegion\}/.test(uebersicht)
+    && /<div className="fixed inset-0 z-50 [^"]*"\s+style=\{noDragRegion\}/.test(auswahl));
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
