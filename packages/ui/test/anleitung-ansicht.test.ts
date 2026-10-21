@@ -241,6 +241,41 @@ function blaseVon(c: K4Fall): BlasenAnsicht | null {
   );
 }
 
+// ── K4c: Der Fortsetzen-Knopf nennt das Kapitel, in dem „starten“ wirklich weitergeht (G7, Owner-Regel: der Knopf lügt in
+// keinem erreichbaren Zustand) ──
+// Auch wenn der gemerkte Schritt nach einem Rollenwechsel in der Pause nicht mehr gilt (der Kern führt den Ort dann nach,
+// Regel 11) und wenn kein Ort gemerkt ist (Beginn beim ersten offenen Kapitel). Soll: der Zähler der Sprechblase nach dem
+// Klick; ohne Zähler (Einleitung, Rückfrage) 1, am Abschluss m. Kein Fortsetzen nur, wenn alles erledigt ist.
+{
+  const A = TEST_ANLEITUNG;
+  const kapitelOrte = A.kapitel.flatMap((k) =>
+    [null, ...k.schritte.map((s) => s.id)].map((schritt): AnleitungsPosition => ({ ort: 'kapitel', kapitel: k.id, schritt, nurZeigen: false, warErfuellt: false })),
+  );
+  const ORTE: Array<AnleitungsPosition | null> = [null, { ort: 'einleitung' }, { ort: 'rueckfrage' }, { ort: 'abschluss' }, ...kapitelOrte];
+  const K4C = kreuz({ ort: ORTE.map((_, i) => i), rolle: ['-', 'rolleAus', 'rolleMaster', 'rolleSlave'], quelle: [false, true], sicher: [false, true] });
+  const zustand = (c: (typeof K4C)[number]): Record<string, boolean> => ({ quelle: c.quelle, sicher: c.sicher, ...(c.rolle === '-' ? {} : { [c.rolle]: true }) });
+  pruefeFaelle('P3 K4c, G7: fortsetzen.n = Kapitel, in dem starten weitergeht (gemerkter Ort × Rolle nach der Pause × Quelle × sicher)', K4C, (c) => {
+    const z = zustand(c);
+    const f = fortschritt({ status: 'pausiert', position: ORTE[c.ort] });
+    const vorher = anleitungAnsicht(A, f, z, OHNE);
+    if (vorher.fortsetzen === null) return vorher.abgeschlossen ? null : 'kein Fortsetzen, obwohl nicht alles erledigt ist';
+    const nach = anleitungSchritt(A, f, { art: 'starten' }, z, JETZT);
+    const zaehler = anleitungAnsicht(A, nach, z, OHNE).blase?.zaehler ?? null;
+    const soll = zaehler !== null ? zaehler.n : nach.position?.ort === 'abschluss' ? A.kapitel.length : 1;
+    return vergleiche(`${vorher.fortsetzen.n}/${vorher.fortsetzen.m}`, `${soll}/${A.kapitel.length}`);
+  });
+  // Der gemessene Fall (Einrichtung: Pause an k3.slave, dann Rolle Master) als Probe: Pause an k2.slave, Rolle wird Master.
+  const pause = fortschritt({ status: 'pausiert', position: { ort: 'kapitel', kapitel: 'k2', schritt: 'k2.slave', nurZeigen: false, warErfuellt: false } });
+  const knopf = anleitungAnsicht(A, pause, { rolleMaster: true }, OHNE).fortsetzen;
+  const weiter = anleitungSchritt(A, pause, { art: 'starten' }, { rolleMaster: true }, JETZT);
+  const ort = weiter.position?.ort === 'kapitel' ? `${weiter.position.kapitel}:${weiter.position.schritt ?? ''}` : weiter.position?.ort;
+  gleich(
+    [knopf, ort, anleitungAnsicht(A, weiter, { rolleMaster: true }, OHNE).blase?.zaehler],
+    [{ n: 3, m: 3 }, 'k3:k3.sicher', { n: 3, m: 3 }],
+    'P3 K4c, G7: Pause an k2.slave, dann Rolle Master — der Knopf sagt „3 von 3“, Fortsetzen landet in k3 mit „3 von 3“',
+  );
+}
+
 // ── K5: Haken genau bei erfüllter Bedingung, „–“ nicht gebraucht, übersprungen bleibt offen (Spec 3.1, G7) ──
 {
   const K5 = kreuz({ erfuellt: [false, true], nichtGebraucht: [false, true], uebersprungen: [false, true], brauchtNicht: [false, true] });

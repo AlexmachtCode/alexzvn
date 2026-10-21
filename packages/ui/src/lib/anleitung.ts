@@ -496,6 +496,15 @@ function wiederBetreten(l: Lage, p: AnleitungsPosition): AnleitungsPosition {
   return gilt(l, s) ? ort : folgeHaupt(l, ort);
 }
 
+/**
+ * Wo „starten“ einen pausierten Lauf fortsetzt (Regel 1): am gemerkten Ort, nach dem Zustand jetzt nachgeführt (gilt der
+ * gemerkte Schritt nicht mehr, geht es im Kapitel bzw. im Folgekapitel weiter); ohne gemerkten Ort beim ersten offenen
+ * Kapitel. Kern und Ansicht (Kapitelnummer am Knopf „fortsetzen“) rechnen beide hiermit: Der Knopf nennt, was der Klick tut (G7).
+ */
+function fortsetzenOrt(l: Lage): AnleitungsPosition {
+  return l.f.position !== null ? wiederBetreten(l, l.f.position) : ersterOffenerOrt(l);
+}
+
 function allesErledigt(l: Lage): boolean {
   return l.a.kapitel.every((k) => {
     const zk = kapitelZustand(l.a, k.id, l.z, l.f);
@@ -560,7 +569,7 @@ export function anleitungSchritt(a: Anleitung, f0: AnleitungsFortschritt, e: Anl
       const laufend: AnleitungsFortschritt = { ...f, status: 'laeuft', einzeln: null };
       const l = { a, z, f: laufend };
       // Fortsetzen nur, wo die Ansicht „fortsetzen“ anbietet (pausiert, nicht alles erledigt); sonst „starten“ = vorn beginnen (A3).
-      const ort = f.status === 'pausiert' && f.position !== null && !allesErledigt(l) ? wiederBetreten(l, f.position) : ersterOffenerOrt(l);
+      const ort = f.status === 'pausiert' && !allesErledigt(l) ? fortsetzenOrt(l) : ersterOffenerOrt(l);
       return mitOrt(laufend, ort, a, jetzt);
     }
     case 'weiter':
@@ -752,7 +761,7 @@ export interface AnleitungsAnsicht {
   /** null = keine Sprechblase. */
   blase: BlasenAnsicht | null;
   kapitel: KapitelZeile[];
-  /** Nur bei 'pausiert' und nicht alles erledigt („‹Titel› fortsetzen · Schritt ‹n› von ‹m›“). */
+  /** Nur bei 'pausiert' und nicht alles erledigt („‹Titel› fortsetzen · Schritt ‹n› von ‹m›“); n = Kapitel, in dem „starten“ weitergeht. */
   fortsetzen: { n: number; m: number } | null;
   hauptknopf: 'starten' | 'fortsetzen';
   /** Titel der Anleitung (Anleitung.titel); die Texte U11, U12 und U34 bilden sich daraus (Spec 2: jedes Tool). */
@@ -807,9 +816,9 @@ function blasenAnsicht(
   };
 }
 
-/** Kapitelnummer zum Fortsetzen: Einleitung, Rückfrage und kein Ort → 1, Abschluss → letztes Kapitel. */
-function fortsetzenNummer(a: Anleitung, p: AnleitungsPosition | null): number {
-  if (p === null || p.ort === 'einleitung' || p.ort === 'rueckfrage') return 1;
+/** Kapitelnummer des Orts, an dem „starten“ fortsetzt (fortsetzenOrt): Einleitung und Rückfrage → 1, Abschluss → letztes Kapitel. */
+function fortsetzenNummer(a: Anleitung, p: AnleitungsPosition): number {
+  if (p.ort === 'einleitung' || p.ort === 'rueckfrage') return 1;
   if (p.ort === 'abschluss') return a.kapitel.length;
   return Math.max(kapitelIndex(a, p.kapitel), 0) + 1;
 }
@@ -840,7 +849,7 @@ export function anleitungAnsicht(a: Anleitung, f0: AnleitungsFortschritt, z: Zus
   return {
     blase: blase === null ? null : blasenAnsicht(a, f, z, u, blase.p, blase.art === 'einzeln'),
     kapitel,
-    fortsetzen: pausiert ? { n: fortsetzenNummer(a, f.position), m: a.kapitel.length } : null,
+    fortsetzen: pausiert ? { n: fortsetzenNummer(a, fortsetzenOrt({ a, z, f })), m: a.kapitel.length } : null,
     hauptknopf: pausiert ? 'fortsetzen' : 'starten',
     titel: a.titel,
     abgeschlossen: alles,

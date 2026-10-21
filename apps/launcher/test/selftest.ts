@@ -2664,6 +2664,39 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
   ck(`P15 4, EP20: „Erste Schritte“ an jedem Ort — danach keine Sprechblase über der Übersicht und der Knopf stimmt (${ORTE.length} Fälle)${ortAbw.length ? ` — ${ortAbw.join('; ')}` : ''}`,
     ortAbw.length === 0);
 
+  // Fortsetzen nach einem Rollenwechsel in der Pause und ohne gemerkten Ort (G7, Owner-Regel: der Fortsetzen-Knopf lügt in
+  // keinem erreichbaren Zustand). Gilt der gemerkte Schritt nicht mehr, geht „Einrichtung fortsetzen“ im Folgekapitel weiter;
+  // ohne Ort beim ersten offenen Kapitel. Der Knopf nennt genau das Kapitel, dessen Zähler die Sprechblase nach dem Klick zeigt.
+  const verbund = (rolle: 'aus' | 'master' | 'slave'): VerbundStand => ({
+    rolle, dateiFehler: null, master: rolle === 'master' ? { showImVerbund: null } : null,
+    slave: rolle === 'slave' ? { gekoppelt: false, client: { art: 'getrennt' } } : null,
+  }) as unknown as VerbundStand;
+  const gemerkt = (position: unknown): Record<string, string> =>
+    ({ [ANLEITUNG_SCHLUESSEL]: JSON.stringify({ ...leererFortschritt(EINRICHTUNG.id), status: 'pausiert', position }) });
+  const inK3 = (schritt: string) => ({ ort: 'kapitel', kapitel: 'k3', schritt, nurZeigen: false, warErfuellt: false });
+  const WECHSEL: Array<[string, Record<string, string>, Partial<AnleitungsEingang>, Partial<AnleitungsEingang>]> = [
+    ['Pause an k3.slave, dann Rolle Master', gemerkt(inK3('k3.slave')), { verbund: verbund('slave') }, { verbund: verbund('master') }],
+    ['Pause an k3.slave, dann Rolle Aus', gemerkt(inK3('k3.slave')), { verbund: verbund('slave') }, { verbund: verbund('aus') }],
+    ['Pause an k3.master, dann Rolle Aus', gemerkt(inK3('k3.master')), { verbund: verbund('master') }, { verbund: verbund('aus') }],
+    ['pausiert ohne gemerkten Ort, Quelle verbunden', gemerkt(null), {}, { settings: { source: 'proxy' } }],
+  ];
+  const wechselAbw: string[] = [];
+  for (const [name, speicher, vorher, nachher] of WECHSEL) {
+    const { t, lage } = treiberMit(speicherAttrappe(speicher), vorher);
+    t.starte({ bestehenderRechner: false });
+    lage.eingang = { ...lage.eingang, ...nachher };
+    t.pruefe();
+    t.zurUebersicht();
+    const a = anleitungAnsicht(EINRICHTUNG, lage.stand.fortschritt, lage.stand.jetzt, UMGEBUNG);
+    const knopf = ersteSchritteKnopf({ fortsetzen: a.fortsetzen, hinweis: lage.stand.hinweis }, T);
+    t.ereignis({ art: 'starten' });
+    const z = anleitungAnsicht(EINRICHTUNG, lage.stand.fortschritt, lage.stand.jetzt, UMGEBUNG).blase?.zaehler ?? null;
+    const soll = z === null ? null : `Einrichtung fortsetzen · Schritt ${z.n} von ${z.m}`;
+    if (soll === null || knopf.text !== soll) wechselAbw.push(`${name}: Knopf ${knopf.text ?? 'nur Symbol'}, danach Zähler ${z === null ? 'keiner' : `${z.n}/${z.m}`}`);
+  }
+  ck(`P15 4, G7: Fortsetzen nach einem Rollenwechsel in der Pause und ohne gemerkten Ort — der Knopf nennt das Kapitel, in dem es weitergeht (${WECHSEL.length} Fälle)${wechselAbw.length ? ` — ${wechselAbw.join('; ')}` : ''}`,
+    wechselAbw.length === 0);
+
   const modal = quelleLf('../src/renderer/src/components/OnboardingModal.tsx');
   const kopf = quelleLf('../src/renderer/src/components/Header.tsx');
   const picker = quelleLf('../src/renderer/src/components/ScenarioPicker.tsx');
