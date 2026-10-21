@@ -76,16 +76,24 @@ export function neueMessung(alt: ZielMessung | null, neu: ZielMessung): ZielMess
 
 const klemme = (wert: number, min: number, max: number): number => Math.max(min, Math.min(wert, max));
 
+/** Wie viel eine Strecke [von, von + laenge] von der Strecke [zielVon, zielVon + zielLaenge] abdeckt (px). */
+const deckt = (von: number, laenge: number, zielVon: number, zielLaenge: number): number =>
+  Math.max(0, Math.min(von + laenge, zielVon + zielLaenge) - Math.max(von, zielVon));
+
 /**
- * Platz der Sprechblase (EP11): unter dem Ziel, sonst darüber, rechts, links; ohne Ziel in der Mitte. Nie über dem Ziel,
- * nie außerhalb des Fensters (Abstand BLASEN_RAND); passt sie nirgends neben das Ziel, steht sie in der Mitte.
+ * Platz der Sprechblase (EP11): unter dem Ziel, sonst darüber, rechts, links; ohne Ziel in der Mitte. Nie außerhalb des
+ * Fensters (Abstand BLASEN_RAND). Passt sie an keine Seite ganz neben das Ziel (großes Ziel: Raster, Karte, Abschnitt), steht
+ * sie in der Fensterecke, in der sie am wenigsten vom Ziel abdeckt: je Achse der Rand mit der kleineren Überdeckung. Weil die
+ * Fläche das Produkt beider Achsen ist und jede Achse am Rand am kleinsten wird, ist das die kleinste Überdeckung aller Lagen im
+ * Fenster. Nie mittig über dem Ziel (die Blase nimmt Klicks an, dort fing sie etwa „Los“ der ersten Vorlage); über dem Ziel
+ * steht sie nur so weit, wie der freie Platz nicht reicht.
  */
 export function blasenPlatz(
   ziel: Rechteck | null,
   fenster: Groesse,
   blase: Groesse,
   abstand = 12,
-): { x: number; y: number; seite: 'unten' | 'oben' | 'rechts' | 'links' | 'mitte' } {
+): { x: number; y: number; seite: 'unten' | 'oben' | 'rechts' | 'links' | 'ecke' | 'mitte' } {
   const maxX = Math.max(BLASEN_RAND, fenster.breite - blase.breite - BLASEN_RAND);
   const maxY = Math.max(BLASEN_RAND, fenster.hoehe - blase.hoehe - BLASEN_RAND);
   const mitte = { x: klemme((fenster.breite - blase.breite) / 2, BLASEN_RAND, maxX), y: klemme((fenster.hoehe - blase.hoehe) / 2, BLASEN_RAND, maxY), seite: 'mitte' as const };
@@ -100,7 +108,9 @@ export function blasenPlatz(
   if (rechts + blase.breite <= fenster.breite - BLASEN_RAND) return { x: rechts, y, seite: 'rechts' };
   const links = ziel.x - abstand - blase.breite;
   if (links >= BLASEN_RAND) return { x: links, y, seite: 'links' };
-  return mitte;
+  const eckeX = deckt(maxX, blase.breite, ziel.x, ziel.breite) <= deckt(BLASEN_RAND, blase.breite, ziel.x, ziel.breite) ? maxX : BLASEN_RAND;
+  const eckeY = deckt(maxY, blase.hoehe, ziel.y, ziel.hoehe) <= deckt(BLASEN_RAND, blase.hoehe, ziel.y, ziel.hoehe) ? maxY : BLASEN_RAND;
+  return { x: eckeX, y: eckeY, seite: 'ecke' };
 }
 
 /** Escape = „Später weiter“, wenn die Taste noch niemandem gehört (Spec 3, EP18). Nur bei Fokus in der Sprechblase gerufen. */

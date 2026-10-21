@@ -7,6 +7,7 @@ import { AnleitungsBlase, AnleitungsSchicht, bedienKnoepfe, type AnleitungsStimm
 import type { AnleitungsAnsicht, AnleitungsEreignis, BlasenAnsicht } from '../src/lib/anleitung';
 import {
   BLASEN_GROESSE,
+  BLASEN_RAND,
   ZIEL_ATTRIBUT,
   anleitungTaste,
   blasenFokus,
@@ -106,6 +107,46 @@ const nichts = (): void => undefined;
     return drin && !ueber && p.seite !== 'mitte' ? null : `ist: ${JSON.stringify(p)} drin=${drin} ueber=${ueber}`;
   });
   gleich(blasenPlatz(null, { breite: 980, hoehe: 640 }, BLASEN_GROESSE), { x: 310, y: 170, seite: 'mitte' }, 'P4 EP11: ohne Ziel in der Mitte');
+  // Große Ziele, neben die die Blase an keiner Seite ganz passt (Szenario-Auswahl: Raster 624 × ~310 px in der Karte max-w-2xl,
+  // nach den Klassen gerechnet; dazu Bänder, Spalten, Flächen bis fast zum ganzen Fenster). Die Blase nimmt Klicks an: Sie darf
+  // nie mittig über dem Ziel stehen (dort lag sie über „Los“ der ersten Vorlage), sondern deckt so wenig vom Ziel ab wie
+  // möglich. Soll: im Fenster und nicht mehr Überdeckung als die kleinste aller Lagen im Fenster (Raster in 4-px-Schritten
+  // samt Rändern).
+  const B = BLASEN_GROESSE;
+  const deckt = (x: number, y: number, z: Rechteck): number =>
+    Math.max(0, Math.min(x + B.breite, z.x + z.breite) - Math.max(x, z.x)) * Math.max(0, Math.min(y + B.hoehe, z.y + z.hoehe) - Math.max(y, z.y));
+  const GROSS = kreuz({
+    fenster: [
+      { breite: 980, hoehe: 640 },
+      { breite: 1280, hoehe: 800 },
+    ],
+    ziel: ['szenarien', 'band', 'spalte', 'links-oben', 'rechts-unten', 'fast-ganz'] as const,
+  });
+  pruefeFaelle('P4 7, EP11: blasenPlatz bei großem Ziel — im Fenster, nie mittig darüber, kleinste Überdeckung aller Lagen', GROSS, (c) => {
+    const { breite: W, hoehe: H } = c.fenster;
+    const z: Rechteck = {
+      szenarien: { x: (W - 624) / 2, y: (H - 500) / 2 + 104, breite: 624, hoehe: 310 },
+      band: { x: 8, y: (H - 200) / 2, breite: W - 16, hoehe: 200 },
+      spalte: { x: (W - 300) / 2, y: 8, breite: 300, hoehe: H - 16 },
+      'links-oben': { x: 8, y: 8, breite: Math.round(W * 0.7), hoehe: Math.round(H * 0.7) },
+      'rechts-unten': { x: W - 8 - Math.round(W * 0.7), y: H - 8 - Math.round(H * 0.7), breite: Math.round(W * 0.7), hoehe: Math.round(H * 0.7) },
+      'fast-ganz': { x: 8, y: 8, breite: W - 16, hoehe: H - 16 },
+    }[c.ziel];
+    const p = blasenPlatz(z, c.fenster, B);
+    const maxX = W - B.breite - BLASEN_RAND;
+    const maxY = H - B.hoehe - BLASEN_RAND;
+    let kleinste = Infinity;
+    for (let x = BLASEN_RAND; ; x = Math.min(x + 4, maxX)) {
+      for (let y = BLASEN_RAND; ; y = Math.min(y + 4, maxY)) {
+        kleinste = Math.min(kleinste, deckt(x, y, z));
+        if (y === maxY) break;
+      }
+      if (x === maxX) break;
+    }
+    const drin = p.x >= BLASEN_RAND && p.y >= BLASEN_RAND && p.x <= maxX && p.y <= maxY;
+    const ist = deckt(p.x, p.y, z);
+    return drin && p.seite !== 'mitte' && ist <= kleinste ? null : `ist: ${JSON.stringify(p)} überdeckt ${ist} px², kleinste ${kleinste} px², drin=${drin}`;
+  });
 }
 
 // ── Tasten und Fokus (Spec 3, EP18) ──
