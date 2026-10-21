@@ -2775,6 +2775,58 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
   ck('P16 G2: docs/anleitungen.md ohne ASCII-Anführungszeichen außerhalb von Code', doku !== '' && !ohneCode.includes('"'));
 }
 
+// --- Geführte Anleitungen P17 (Spec 3–7): die Abnahme-Datei deckt jedes Kapitel und jede Bedienung ab --------------------
+// Die Datei füllt der Owner aus; geprüft wird nur, was sie abdecken muss, nie ihre Ergebnis-Spalten. Jedes Kapitel der
+// Anleitung hat einen Schritt (Titel wörtlich in „ “), und jeder Bedien- und Anzeigetext steht wörtlich in „ “ in einem
+// Schritt und wörtlich in seiner Quelle (ANLEITUNG_TEXTE in @jm/ui, LAUNCHER_ANLEITUNG_TEXTE im Launcher). Ein neues
+// Kapitel oder ein umbenannter Knopf macht diesen Block rot, bis die Abnahme nachgezogen ist.
+{
+  const { EINRICHTUNG } = await import('../src/renderer/src/anleitung/einrichtung.ts');
+  let abnahme = '';
+  try { abnahme = quelleLf('../ABNAHME-gefuehrte-anleitungen.md'); } catch { console.log('      apps/launcher/ABNAHME-gefuehrte-anleitungen.md fehlt'); }
+  const schritte = abnahme.split('\n').filter((l) => /^\| \d+ \|/.test(l)).join('\n');
+  const ohneKapitel = (EINRICHTUNG.kapitel as ReadonlyArray<{ id: string; titel: string }>)
+    .filter((k) => !schritte.includes(`„${k.titel}“`)).map((k) => `${k.id} „${k.titel}“`);
+  if (ohneKapitel.length) console.log(`      Kapitel ohne Schritt in der Abnahme: ${ohneKapitel.join(', ')}`);
+  ck('P17 5: jedes Kapitel der Anleitung hat einen Schritt in der Abnahme-Tabelle (Titel wörtlich in „ “)', schritte !== '' && ohneKapitel.length === 0);
+  const quellen = { ui: quelleLf('../../../packages/ui/src/lib/texte.ts'), launcher: quelleLf('../src/renderer/src/anleitung/einrichtung.ts') };
+  // [Nummer der Texttabelle, Text, Quelle]; U12 ist der Anfang eines Texts mit Zahlen. U17 fehlt mit Absicht: Bei fehlendem
+  // Ziel zeigt die Sprechblase den eigenen Text des Schritts statt U17 (AbwA12), und in der Einrichtung hat jeder Schritt
+  // mit Ziel einen; U17 erscheint dort nie, die Abnahme darf ihn nicht erwarten.
+  const TEXTE: Array<[string, string, 'ui' | 'launcher']> = [
+    ['U1', 'Zurück', 'ui'], ['U2', 'Weiter', 'ui'], ['U3', 'Überspringen', 'ui'], ['U4', 'Später weiter', 'ui'],
+    ['U5', 'Brauche ich nicht', 'ui'], ['U6', 'Doch gebraucht', 'ui'], ['U7', 'Zeig mir', 'ui'], ['U8', 'Anleitung überspringen', 'ui'],
+    ['U9', 'Ja, überspringen', 'ui'], ['U10', 'Zurück zur Anleitung', 'ui'], ['U11', 'Einrichtung starten', 'ui'],
+    ['U12', 'Einrichtung fortsetzen · Schritt ', 'ui'], ['U14', 'Anleitung beenden', 'ui'], ['U15', 'Schon erledigt', 'ui'],
+    ['U16', 'Nur zeigen', 'ui'],
+    ['U18', 'Gerade läuft eine Produktion. Ich zeige dir nur, wo es ist; mach es, wenn die Produktion vorbei ist.', 'ui'],
+    ['U19', 'Stimme an', 'ui'], ['U20', 'Stimme aus', 'ui'], ['U21', 'Die Stimme ist aus, weil gerade eine Produktion läuft.', 'ui'],
+    ['U22', 'Stimme trotzdem an', 'ui'], ['U33', 'Wartet auf den Neustart.', 'ui'], ['U34', 'Einrichtung abgeschlossen', 'ui'],
+    ['U35', 'Fertig', 'ui'],
+    ['L1', 'Ich arbeite allein an diesem Rechner', 'launcher'], ['L2', 'Verbund einrichten', 'launcher'], ['L3', 'Die Show ist da', 'launcher'],
+    ['L4', 'Companion ist verbunden', 'launcher'], ['L5', 'Einrichten', 'launcher'], ['L5', 'Ändern', 'launcher'],
+    ['L6', 'Auswählen', 'launcher'], ['L6', 'Werkzeugkasten', 'launcher'], ['L7', 'Verbund öffnen', 'launcher'],
+    ['L8', 'Vorlage wählen', 'launcher'], ['L8', 'Prüfen', 'launcher'], ['L11', 'Erste Schritte', 'launcher'],
+    ['L12', 'Neu: geführte Einrichtung', 'launcher'], ['L14', 'Schließen', 'launcher'],
+    ['L15', 'Die Stimme wartet noch kurz: Ob gerade eine Produktion läuft, sehe ich erst ein paar Sekunden nach dem Start des Launchers.', 'launcher'],
+  ];
+  const anfang = (n: string): boolean => n === 'U12';
+  // U11, U12 und U34 bildet @jm/ui aus dem Titel der Anleitung (AbwA16): „in der Quelle“ heißt dort, die Funktion bildet genau ihn.
+  const ausTitel: Record<string, string> = {
+    U11: U_TEXTE.starten(EINRICHTUNG.titel), U12: U_TEXTE.fortsetzen(EINRICHTUNG.titel, 4, 6), U34: U_TEXTE.abgeschlossen(EINRICHTUNG.titel),
+  };
+  const inQuelle = ([n, t, q]: [string, string, 'ui' | 'launcher']): boolean =>
+    n in ausTitel ? ausTitel[n].startsWith(t) && (anfang(n) || ausTitel[n] === t)
+      : ["'", '"', '`'].some((z) => quellen[q].includes(`${z}${t}${z}`));
+  const nichtInQuelle = TEXTE.filter((e) => !inQuelle(e)).map(([n, t]) => `${n} „${t}“`);
+  if (nichtInQuelle.length) console.log(`      nicht wörtlich in der Quelle: ${nichtInQuelle.join(', ')}`);
+  ck('P17 3, 3.1, 4: die geprüften Bedien- und Anzeigetexte stehen wörtlich in ANLEITUNG_TEXTE bzw. LAUNCHER_ANLEITUNG_TEXTE',
+    nichtInQuelle.length === 0);
+  const nichtInAbnahme = TEXTE.filter(([n, t]) => !schritte.includes(anfang(n) ? `„${t}` : `„${t}“`)).map(([n, t]) => `${n} „${t}“`);
+  if (nichtInAbnahme.length) console.log(`      in keinem Schritt der Abnahme: ${nichtInAbnahme.join(', ')}`);
+  ck('P17 3, 3.1, 4: jeder dieser Texte steht in „ “ in einem Schritt der Abnahme', schritte !== '' && nichtInAbnahme.length === 0);
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.
