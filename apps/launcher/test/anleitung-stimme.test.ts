@@ -4,7 +4,7 @@
 // Piper und ffmpeg ersetzt test/stimme-attrappe.mjs. Prozesse startet der Test nur mit node: die Attrappe und einmal die
 // Kommandozeile des Erzeugers (G4). Alles liegt im Temp-Ordner; im Repo wird nichts geschrieben.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -274,7 +274,7 @@ if (istHauptmodul(fileURLToPath(import.meta.url), process.argv[1])) console.log(
   const direkt = lauf(join(echt, 'haupt.mjs')), ueber = lauf(join(link, 'haupt.mjs'));
   ck('P11 Fix1 EP15: der Start-Wächter erkennt das Hauptmodul auch über Junction/Symlink (sonst endet die Bau-Prüfung stumm mit Exit 0)',
     direkt === '0|HAUPT|' && ueber === '0|HAUPT|', `direkt=${direkt} ueber=${ueber}`);
-  rmdirSync(link);
+  unlinkSync(link);
   rmSync(wurzel2, { recursive: true, force: true });
 }
 // ── Ende der Fälle ──
