@@ -5,6 +5,10 @@ erklärt es in einer Sprechblase, spricht den Text mit einer beim Bau erzeugten 
 erledigt ist, und merkt sich den Fortschritt über einen Neustart. Die erste Anleitung ist die **Einrichtung im Launcher**
 (sechs Kapitel, ab Launcher 0.17.0). Das Grundgerüst liegt in `@jm/ui` und steht jedem Tool offen.
 
+**Launcher 0.17.0 erscheint ohne Stimme** (Owner-Entscheidung OFP1 vom 20.10.2026, „ohne Ton“, vermerkt in
+`HERKUNFT.md`): `manifest.json` hat `stimme: null`, es gibt keine Ansagen, und Sprechblase und Kapitelübersicht sagen „In
+dieser Fassung gibt es keine Stimme.“ Alles andere läuft gleich; die Stimme kommt mit einem späteren Update (Abschnitt 7).
+
 Spec: `docs/superpowers/specs/2026-10-17-gefuehrte-anleitungen-design.md`. Plan: `docs/superpowers/plans/2026-10-19-gefuehrte-anleitungen.md`.
 Für Bediener: Kochbuch-Rezept „JM Launcher — geführte Einrichtung (Erste Schritte)“
 (`packages/cookbook/content/tool-manuals/launcher-gefuehrte-einrichtung.md`).
@@ -14,8 +18,8 @@ Für Bediener: Kochbuch-Rezept „JM Launcher — geführte Einrichtung (Erste S
 | Datei | Aufgabe |
 | --- | --- |
 | `packages/ui/src/lib/anleitung.ts` (Export `@jm/ui/anleitung`) | Format, Bedingungen, `pruefeAnleitung`, `sprechTexte`, Ablauf `anleitungSchritt`, Ansicht `anleitungAnsicht`, Start `beimStart`, Speicher `leseFortschritt`/`schreibeFortschritt`. Reiner Kern ohne DOM und ohne Laufzeit-Importe: lädt auch unter `node --experimental-strip-types` (Launcher-Selbsttest, Skripte). |
-| `packages/ui/src/lib/anleitung-dom.ts` | `findeZiel`, `blasenPlatz`, `anleitungTaste`, `fokusInBlase`, `blasenTaste`, `blasenFokus` (reine Helfer, mit Attrappen getestet; die zwei letzten sind die Körper von Tasten-Handler und Fokus-Effekt der Sprechblase) |
-| `packages/ui/src/lib/useAnleitungsZiel.ts`, `packages/ui/src/lib/useAnsage.ts` | Ziel alle 250 ms und bei `resize` messen; Ansage abspielen, stoppen, Fehler melden |
+| `packages/ui/src/lib/anleitung-dom.ts` | `findeZiel`, `zielStand`, `neueMessung`, `blasenPlatz`, `blasenLage`, `anleitungTaste`, `fokusInBlase`, `blasenTaste`, `blasenFokus` (reine Helfer, mit Attrappen getestet; `zielStand` und `neueMessung` sind der Körper von `useAnleitungsZiel`, die zwei letzten die Körper von Tasten-Handler und Fokus-Effekt der Sprechblase) |
+| `packages/ui/src/lib/useAnleitungsZiel.ts`, `packages/ui/src/lib/useAnsage.ts` | Ziel vor dem Malen, alle 250 ms und bei `resize` messen (bis zur ersten Messung einer Kennung „ungemessen“); Ansage abspielen, stoppen, Fehler melden |
 | `packages/ui/src/components/AnleitungsSchicht.tsx` | Abdunkeln, Hervorhebung, Sprechblase (`AnleitungsBlase`), Bedienleiste, Zähler; nicht modal |
 | `packages/ui/src/components/AnleitungsUebersicht.tsx` | Kapitelübersicht mit Zeichen, „Zeig mir“, „Brauche ich nicht“, Stimmen-Schalter |
 | `apps/launcher/src/renderer/src/anleitung/einrichtung.ts` | die Anleitung „Einrichtung“, Launcher-Texte, Speicher-Schlüssel, `ZIEL_KENNUNGEN` |
@@ -23,7 +27,7 @@ Für Bediener: Kochbuch-Rezept „JM Launcher — geführte Einrichtung (Erste S
 | `apps/launcher/src/renderer/src/store/anleitung.ts` | Store: reicht dem Treiber Ablaufkern, Speicher, Uhr, Wecker und den Eingang aus `anleitungsEingang`, Abos auf `useTools` und `useVerbund`, Steuerebene lesen, Stimme je Rechner |
 | `apps/launcher/src/renderer/src/components/Anleitung.tsx` | Overlay im Launcher (Ebene `z-[65]`), Stimme, Produktionsmodus |
 | `apps/launcher/src/renderer/src/components/OnboardingModal.tsx` | Kapitelübersicht an der Stelle der alten Checkliste (Ebene `z-40`) |
-| `apps/launcher/src/renderer/src/anleitung/stimme.ts`, `apps/launcher/src/renderer/src/anleitung/stimme/` | Ansagen (`*.ogg`), `manifest.json`, `HERKUNFT.md` |
+| `apps/launcher/src/renderer/src/anleitung/stimme.ts`, `apps/launcher/src/renderer/src/anleitung/stimme/` | Ansagen (`*.ogg`; in Launcher 0.17.0 keine), `manifest.json`, `HERKUNFT.md` |
 | `apps/launcher/scripts/stimme-manifest.mjs`, `anleitung-stimme.mjs`, `pruefe-bau-stimme.mjs` | Prüfsummen und Prüfung, Erzeuger, Bau-Prüfung |
 
 ## 2 · Format einer Anleitung
@@ -99,7 +103,10 @@ für jedes Kapitel muss es in jeder Rolle mindestens einen geltenden Schritt geb
 - **Darstellung:** Die Schicht liegt im Launcher auf `z-[65]`: über den Dialogen (`z-40`, `z-50`) und dem Show-Lade-Overlay
   (`z-[60]`), unter der Meldung (`z-[70]`). Sie fängt keine Klicks außer in der Sprechblase; die Sprechblase trägt
   `noDragRegion`. Schritte ohne Ziel (Begrüßung, Entscheidungen) dunkeln ganz ab; fehlt ein Ziel zur Laufzeit, wird
-  nicht abgedunkelt und nichts hervorgehoben.
+  nicht abgedunkelt und nichts hervorgehoben. Bis das Ziel eines Schritts gemessen ist, zeigt die Sprechblase weder eine
+  Hervorhebung noch „Ziel fehlt“ (gemessen wird vor dem Malen). Sie hängt an der Kante zum Ziel, auch wenn sie kürzer ist
+  als geplant; passt sie neben ein großes Ziel an keine Seite, steht sie in der Fensterecke, in der sie am wenigsten davon
+  abdeckt, nie mittig darüber.
 - **Tastatur und Screenreader:** Tab und Enter bleiben nativ. Escape heißt „Später weiter“, aber nur mit dem Fokus in der
   Sprechblase. Die Sprechblase ist ein nicht modaler Dialog (`role="dialog"`, `aria-modal="false"`) mit Namen aus Kapitel
   und Zähler; neue Texte kommen über `aria-live="polite"`, ohne den Fokus zu verschieben.
@@ -122,6 +129,10 @@ für jedes Kapitel muss es in jeder Rolle mindestens einen geltenden Schritt geb
   ist keins als laufend bekannt, gilt die Lage 12 s lang als unklar: Stimme aus, Eingriffe nur zeigen, aber ohne Warnung; die
   Sprechblase sagt „Die Stimme wartet noch kurz: Ob gerade eine Produktion läuft, sehe ich erst ein paar Sekunden nach dem
   Start des Launchers.“ Danach spricht die Stimme, sofern keine Produktion läuft (Owner-Frage OFP5).
+- **Ohne Stimme (Launcher 0.17.0):** Die Stimmen-Sätze der zwei Punkte davor („Die Stimme ist aus, weil …“, „Stimme trotzdem
+  an“, „Die Stimme wartet noch kurz …“) erscheinen nie; an ihrer Stelle steht „In dieser Fassung gibt es keine Stimme.“
+  „Nur zeigen“ und die Warnung vor dem Text gelten auch ohne Stimme. In den 12 s nach dem Start zeigt ein Schritt mit
+  `eingriff` dann „Nur zeigen“ ohne Begründung (Folgepunkt für das Stimm-Update, Ruling K12 der Umsetzung).
 - **Ehrlich:** Kein Haken ohne erfüllte Bedingung, kein Zeiger ins Leere. Fehlt ein Ziel zur Laufzeit, steht unter dem Text
   der Sprechblase, was zu tun ist: der `zielFehlt`-Text des Schritts, und nur, wo ein Schritt keinen hat, „Das Bedienelement
   ist gerade nicht zu sehen.“ In der Einrichtung hat jeder Schritt mit Ziel einen eigenen `zielFehlt`-Text.
@@ -210,8 +221,9 @@ Ereignis `neustart:‹Schritt-ID›`, wenn der verlangte Neustart stattgefunden 
   (SHA-256 über den Text in NFC). Ändert jemand einen Text ohne neue Ansage, wird er rot. Nach dem Bau prüft
   `npm run stimme:bau-pruefen -w @jm/launcher`, dass Vite keine Ansage als `data:` eingebettet hat (die Sicherheitsregel des
   Fensters erlaubt Medien nur als Datei, `media-src 'self' blob:`) und dass die Zahl der Ansagen zum Manifest passt.
-- **Ohne Stimme:** Ein Manifest mit `stimme: null` und ohne Einträge ist gültig; die Übersicht sagt dann „In dieser Fassung
-  gibt es keine Stimme.“ Der Text steht immer da.
+- **Ohne Stimme:** Ein Manifest mit `stimme: null` und ohne Einträge ist gültig; Übersicht und Sprechblase sagen dann „In
+  dieser Fassung gibt es keine Stimme.“ Der Text steht immer da. So erscheint Launcher 0.17.0 (OFP1 „ohne Ton“); die Stimme
+  kommt mit einem späteren Update über den Befehl oben.
 
 ## 8 · Was UX-Welle 3 erhalten muss
 
