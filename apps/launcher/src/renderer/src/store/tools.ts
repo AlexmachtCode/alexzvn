@@ -145,10 +145,11 @@ interface ToolsStore {
   patchNotes: { app: string; highlight?: string } | null;
   openPatchNotes: (view?: { app: string; highlight?: string }) => void;
   closePatchNotes: () => void;
-  /** Erste Schritte (Onboarding B1): öffnet nie mehr von selbst; beim ersten Start startet die geführte Anleitung (P13). */
+  /** Kapitelübersicht „Erste Schritte“ (geführte Anleitung, EP20; früher Checkliste B1). Öffnet nie von selbst. */
   onboardingOpen: boolean;
+  /** Öffnet die Übersicht; eine laufende Anleitung pausiert, der Hinweis dieser Sitzung endet. Bedient nichts. */
   openOnboarding: () => void;
-  closeOnboarding: (persist?: boolean) => void;
+  closeOnboarding: () => void;
   /** Szenario-Start „Was willst du produzieren?" (Onboarding B2). */
   scenariosOpen: boolean;
   openScenarios: () => void;
@@ -471,6 +472,9 @@ export const useTools = create<ToolsStore>((set) => {
     closeSystem: () => set({ systemOpen: false }),
 
     openOnboarding: () => {
+      // Geführte Anleitung (Spec 4, EP8, EP20): Der Treiber beendet „Zeig mir“, pausiert einen laufenden Hauptlauf (an der
+      // Rückfrage über die Einleitung, am Abschluss wie „Weiter“) und beendet den Hinweis dieser Sitzung (D17).
+      useAnleitung.getState().zurUebersicht();
       set({ onboardingOpen: true });
       void useTools.getState().loadPresence();
     },

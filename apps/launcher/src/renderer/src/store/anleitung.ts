@@ -52,6 +52,8 @@ export interface AnleitungStore {
   ladeSteuerebene: () => Promise<void>;
   stimmeUmschalten: () => void;
   stimmeTrotzdemAn: () => void;
+  /** Knopf „Erste Schritte“ (EP20): pausieren, „Zeig mir“ beenden, Hinweis aus; die Übersicht öffnet store/tools.ts. */
+  zurUebersicht: () => void;
 }
 
 /** localStorage des Launchers; gesperrt (der Zugriff wirft) → null, dann gilt der Fortschritt als nicht lesbar (G8). */
@@ -145,5 +147,6 @@ export const useAnleitung = create<AnleitungStore>((set, get) => {
       }
     },
     stimmeTrotzdemAn: () => treiber.stimmeTrotzdemAn(),
+    zurUebersicht: () => treiber.zurUebersicht(),
   };
 });

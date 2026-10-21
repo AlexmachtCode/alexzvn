@@ -237,6 +237,8 @@ export interface AnleitungsTreiber {
   zustand(): Zustand;
   /** „Stimme trotzdem an“ (U22): wirkt nur während einer Produktion und gilt bis zu ihrem Ende (G15). */
   stimmeTrotzdemAn(): void;
+  /** Knopf „Erste Schritte“ (Task 15, EP20): pausieren, „Zeig mir“ beenden, Hinweis aus — bevor die Übersicht öffnet. */
+  zurUebersicht(): void;
 }
 
 /**
@@ -315,6 +317,20 @@ export function erzeugeAnleitungsTreiber(o: TreiberUmgebung): AnleitungsTreiber 
     stimmeTrotzdemAn: () => {
       if (o.lies().produktion) o.setze({ stimmeTrotzdem: true });
     },
+    zurUebersicht: () => {
+      // „Zeig mir“ endet; ein laufender Hauptlauf pausiert — an der Rückfrage erst zurück zur Einleitung (dort bietet die Blase
+      // „Später weiter“ nicht an, AbwA1), am Abschluss wie „Weiter“ (pausiert zeigte der Knopf „fortsetzen · Schritt 6 von 6“,
+      // wo nichts fortzusetzen ist). Der Hinweis dieser Sitzung endet (EP8). Danach liegt keine Blase über der Übersicht (D17).
+      if (o.lies().fortschritt.einzeln !== null) ereignis({ art: 'spaeter' });
+      const f = o.lies().fortschritt;
+      if (f.status === 'laeuft' && f.position?.ort === 'abschluss') {
+        ereignis({ art: 'weiter' });
+      } else if (f.status === 'laeuft') {
+        if (f.position?.ort === 'rueckfrage') ereignis({ art: 'zurueck' });
+        ereignis({ art: 'spaeter' });
+      }
+      o.setze({ hinweis: false });
+    },
   };
 }
 
@@ -384,6 +400,29 @@ export function launcherBlase(
       wiederfinden: text === '' ? null : text,
     },
   };
+}
+
+// ── Knopf „Erste Schritte“ (Plan P15; Spec 4, OF2, OFP3) ──
+
+/** Texte des Knopfs: L11 (knopf, knopfTitel), L12 (neu), U12 (fortsetzen); der Aufrufer reicht sie durch (G5). */
+export interface ErsteSchritteTexte {
+  knopf: string;
+  knopfTitel: string;
+  neu: string;
+  fortsetzen(n: number, m: number): string;
+}
+
+/**
+ * Sichtbarer Text, Name und Titel des Knopfs „Erste Schritte“: „Einrichtung fortsetzen · Schritt ‹n› von ‹m›“, solange die
+ * Anleitung pausiert ist; sonst einmal „Neu: geführte Einrichtung“ auf bestehenden Rechnern; sonst nur das Symbol.
+ * Der Name enthält den sichtbaren Text (WCAG 2.5.3), der Titel bleibt.
+ */
+export function ersteSchritteKnopf(
+  a: { fortsetzen: { n: number; m: number } | null; hinweis: boolean },
+  t: ErsteSchritteTexte,
+): { text: string | null; aria: string; title: string } {
+  const text = a.fortsetzen ? t.fortsetzen(a.fortsetzen.n, a.fortsetzen.m) : a.hinweis ? t.neu : null;
+  return { text, aria: text === null ? t.knopf : `${t.knopf}: ${text}`, title: t.knopfTitel };
 }
 
 // ── Ende des Moduls ──

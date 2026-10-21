@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Logo, cn, dragRegion, noDragRegion, isElectronMac } from '@jm/ui';
+import { ANLEITUNG_TEXTE, Logo, cn, dragRegion, noDragRegion, isElectronMac } from '@jm/ui';
+import { EINRICHTUNG, LAUNCHER_ANLEITUNG_TEXTE } from '@/anleitung/einrichtung';
+import { ersteSchritteKnopf } from '@/lib/anleitung-zustand';
+import { useAnleitung } from '@/store/anleitung';
 import { useTools } from '@/store/tools';
 import { useCookbook } from '@/store/cookbook';
 import { VerbundBadge } from './VerbundBadge';
+import { useAnleitungsAnsicht } from './Anleitung';
 
 export function Header() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -18,6 +22,18 @@ export function Header() {
   const openCookbook = useCookbook((s) => s.openCookbook);
   const runningCount = useTools((s) => s.presence.filter((p) => p.running).length);
   const version = useTools((s) => s.version);
+  // Knopf „Erste Schritte“ (Spec 4, OF2, OFP3): pausierte Einrichtung bzw. einmal der Hinweis als sichtbarer Text.
+  const { fortsetzen } = useAnleitungsAnsicht();
+  const hinweis = useAnleitung((s) => s.hinweis);
+  const ersteSchritte = ersteSchritteKnopf(
+    { fortsetzen, hinweis },
+    {
+      knopf: LAUNCHER_ANLEITUNG_TEXTE.knopf,
+      knopfTitel: LAUNCHER_ANLEITUNG_TEXTE.knopfTitel,
+      neu: LAUNCHER_ANLEITUNG_TEXTE.neu,
+      fortsetzen: (n, m) => ANLEITUNG_TEXTE.fortsetzen(EINRICHTUNG.titel, n, m),
+    },
+  );
 
   useEffect(() => {
     const root = document.documentElement;
@@ -156,12 +172,15 @@ export function Header() {
           type="button"
           onClick={openOnboarding}
           data-anleitung="kopf.erste-schritte"
-          aria-label="Erste Schritte"
-          title="Erste Schritte · geführter Einstieg"
+          aria-label={ersteSchritte.aria}
+          title={ersteSchritte.title}
           className={cn(
-            'grid place-items-center size-8 rounded-[var(--radius)]',
+            'h-8 rounded-[var(--radius)]',
             'border border-[var(--border)] text-[var(--foreground)]',
             'hover:bg-[var(--highlight)] transition-colors',
+            ersteSchritte.text
+              ? 'flex items-center gap-1.5 px-2.5 whitespace-nowrap text-xs font-semibold'
+              : 'grid place-items-center size-8',
           )}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -169,6 +188,7 @@ export function Header() {
             <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
             <path d="M12 17h.01" />
           </svg>
+          {ersteSchritte.text && <span>{ersteSchritte.text}</span>}
         </button>
         <button
           type="button"

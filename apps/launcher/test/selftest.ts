@@ -34,6 +34,10 @@ import {
 import { startEntscheidung, type StartEingang } from '../src/renderer/src/lib/anleitung-zustand.ts';
 import { anleitungAnsicht } from '@jm/ui/anleitung';
 import { anleitungsUmgebung, launcherBlase } from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { ersteSchritteKnopf } from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { ANLEITUNG_TEXTE as U_TEXTE } from '../../../packages/ui/src/lib/texte.ts';
+import { LAUNCHER_ANLEITUNG_TEXTE as L_TEXTE } from '../src/renderer/src/anleitung/einrichtung.ts';
+import { SCENARIOS as SZENARIEN } from '../src/renderer/src/lib/scenarios.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -2613,6 +2617,104 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
   ck('P14 EP19: Steuerebene alle 5 s nachlesen, solange Sprechblase oder Kapitelübersicht offen sind',
     huelle.includes('const sichtbar = ansicht.blase !== null || onboardingOpen;')
     && huelle.includes('const t = setInterval(() => void ladeSteuerebene(), 5000);') && huelle.includes('return () => clearInterval(t);'));
+}
+
+// --- Geführte Anleitung P15 (Spec 4, OF1–OF3; EP8, EP20–EP22): Kapitelübersicht, Knopf „Erste Schritte“, kein Funktionsverlust ---
+{
+  const T = { knopf: L_TEXTE.knopf, knopfTitel: L_TEXTE.knopfTitel, neu: L_TEXTE.neu, fortsetzen: (n: number, m: number) => U_TEXTE.fortsetzen(EINRICHTUNG.titel, n, m) };
+  const faelle: Array<{ fortsetzen: { n: number; m: number } | null; hinweis: boolean }> = [];
+  for (const fortsetzen of [null, { n: 1, m: 6 }, { n: 3, m: 6 }, { n: 6, m: 6 }]) for (const hinweis of [false, true]) faelle.push({ fortsetzen, hinweis });
+  // Erwartung wörtlich aus der Texttabelle (U12, L11, L12): ein falscher Text in @jm/ui oder der Anleitungs-Datei fällt hier auf.
+  const soll = (a: { fortsetzen: { n: number; m: number } | null; hinweis: boolean }) => {
+    const text = a.fortsetzen ? `Einrichtung fortsetzen · Schritt ${a.fortsetzen.n} von ${a.fortsetzen.m}` : a.hinweis ? 'Neu: geführte Einrichtung' : null;
+    return { text, aria: text === null ? 'Erste Schritte' : `Erste Schritte: ${text}`, title: 'Erste Schritte · geführte Einrichtung' };
+  };
+  const abw = faelle.filter((a) => JSON.stringify(ersteSchritteKnopf(a, T)) !== JSON.stringify(soll(a)));
+  ck(`P15 4, OF2: Knopf „Erste Schritte“ — Text, aria-label und title in jedem Zustand (${faelle.length} Fälle)${abw.length
+    ? ` — ${abw.slice(0, 3).map((a) => `${JSON.stringify(a)} → ${JSON.stringify(ersteSchritteKnopf(a, T))}`).join('; ')}` : ''}`, abw.length === 0);
+
+  // „Erste Schritte“ an jedem Ort der Anleitung (Spec 4, EP8, EP20; D17): Treiber aus Task 12, echte Ansicht und Knopf. Danach
+  // liegt keine Sprechblase über der Übersicht, und der Knopf stimmt — an der Rückfrage zurück zur Einleitung und pausiert, am
+  // Abschluss wie „Weiter“ (nichts mehr fortzusetzen), „Zeig mir“ endet, der Hinweis endet.
+  const UMGEBUNG = { produktion: false, stimme: { vorhanden: true, an: true, trotzdem: false } };
+  const zuSechs = (art: string): Array<Record<string, unknown>> => ['k1', 'k2', 'k3', 'k4', 'k5', 'k6'].map((kapitel) => ({ art, kapitel }));
+  const ORTE: Array<[string, boolean, Array<Record<string, unknown>>, string | null]> = [
+    ['Einleitung (von selbst gestartet)', false, [], 'Einrichtung fortsetzen · Schritt 1 von 6'],
+    ['Rückfrage', false, [{ art: 'anleitungUeberspringen' }], 'Einrichtung fortsetzen · Schritt 1 von 6'],
+    ['Kapitel 3', false, [{ art: 'weiter' }, { art: 'ueberspringen' }, { art: 'ueberspringen' }], 'Einrichtung fortsetzen · Schritt 3 von 6'],
+    ['Abschluss mit offenen Kapiteln', false, [{ art: 'weiter' }, ...zuSechs('x').map(() => ({ art: 'ueberspringen' }))], null],
+    ['Abschluss, alle Kapitel nicht gebraucht', false, [...zuSechs('brauchtNicht'), { art: 'weiter' }], null],
+    ['„Zeig mir“ bei pausierter Anleitung', false,
+      [{ art: 'weiter' }, { art: 'ueberspringen' }, { art: 'ueberspringen' }, { art: 'spaeter' }, { art: 'starten', kapitel: 'k5' }], 'Einrichtung fortsetzen · Schritt 3 von 6'],
+    ['bestehender Rechner mit Hinweis', true, [], null],
+  ];
+  const ortAbw: string[] = [];
+  for (const [name, bestehend, folge, soll] of ORTE) {
+    const { t, lage } = treiberMit(speicherAttrappe());
+    t.starte({ bestehenderRechner: bestehend });
+    for (const e of folge) t.ereignis(e as AnleitungsEreignis);
+    const vorher = lage.stand.fortschritt.einzeln !== null ? 'Zeig mir' : lage.stand.fortschritt.position?.ort ?? lage.stand.fortschritt.status;
+    t.zurUebersicht();
+    const a = anleitungAnsicht(EINRICHTUNG, lage.stand.fortschritt, lage.stand.jetzt, UMGEBUNG);
+    const knopf = ersteSchritteKnopf({ fortsetzen: a.fortsetzen, hinweis: lage.stand.hinweis }, T);
+    if (a.blase !== null || knopf.text !== soll) {
+      ortAbw.push(`${name} (${vorher}): ${a.blase === null ? 'keine Blase' : `Blase ${a.blase.art}`}, Knopf ${knopf.text ?? 'nur Symbol'}`);
+    }
+  }
+  ck(`P15 4, EP20: „Erste Schritte“ an jedem Ort — danach keine Sprechblase über der Übersicht und der Knopf stimmt (${ORTE.length} Fälle)${ortAbw.length ? ` — ${ortAbw.join('; ')}` : ''}`,
+    ortAbw.length === 0);
+
+  const modal = quelleLf('../src/renderer/src/components/OnboardingModal.tsx');
+  const kopf = quelleLf('../src/renderer/src/components/Header.tsx');
+  const picker = quelleLf('../src/renderer/src/components/ScenarioPicker.tsx');
+  const reiter = quelleLf('../src/renderer/src/components/ShowView.tsx');
+  const tools = quelleLf('../src/renderer/src/store/tools.ts');
+  const store = quelleLfOderLeer('../src/renderer/src/store/anleitung.ts');
+  const { createHash } = await import('node:crypto');
+  const szenarienHash = createHash('sha256').update(quelleLf('../src/renderer/src/lib/scenarios.ts')).digest('hex');
+  // Kein Funktionsverlust (Lehre; Ist-L 4.1 Checkliste, 4.2 Szenario-Auswahl): je Zeile ein Wächter.
+  const tabelle: Array<[string, boolean]> = [
+    ['Checkliste 1 Release-Quelle: „Einrichten/Ändern“ öffnet die Einstellungen, Detail „Aktiv: …“ (L5, L9)',
+      modal.includes('k1: { knopf: L.aktion.k1(fertig.k1), ausfuehren: openSettings },') && modal.includes('kapitelDetails({ ...useAnleitung.getState().eingang(), settings, states }, L.detail)')],
+    ['Checkliste 2 Werkzeuge: „Auswählen/Werkzeugkasten“ schließt und wechselt in den Werkzeugkasten, Zahl der Tools (L6, L10)',
+      modal.includes("k2: { knopf: L.aktion.k2(fertig.k2), ausfuehren: () => { close(); setView('catalog'); } },")],
+    ['Checkliste 3 Netzwerk & Steuerebene: „Prüfen“ öffnet den System-Zustand (L8)', modal.includes('k5: { knopf: L.aktion.k5, ausfuehren: openSystem },')],
+    ['Checkliste 4 Erste Show aus Vorlage: „Vorlage wählen“ öffnet die Szenario-Auswahl (L8)', modal.includes('k4: { knopf: L.aktion.k4, ausfuehren: openScenarios },')],
+    ['Checkliste Kopf und Fuß: Titel, Unterzeile, Tipp Kochbuch, „Fertig“ und Schließen-Kreuz (L13, L14, U35)',
+      ['titel={L.titel}', 'unterzeile={L.unterzeile}', 'tipp={L.tipp}', 'schliessen={close}', 'aria-label={L.schliessen}', 'onClick={close}'].every((t) => modal.includes(t))],
+    ['Checkliste Ebene z-40 unter den Detail-Dialogen: die Übersicht bleibt Rücksprung-Ebene', modal.includes('<div className="fixed inset-0 z-40 ')],
+    ['Checkliste Haken live: aus dem Kapitelzustand der Anleitung (G7), nicht mehr aus eigener Rechnung',
+      modal.includes('const ansicht = useAnleitungsAnsicht();') && modal.includes('ansicht={ansicht}') && !modal.includes('sourceDone')],
+    ['Knopf „Erste Schritte“ im Kopf öffnet weiter die Übersicht', kopf.includes('onClick={openOnboarding}')],
+    ['Szenario-Auswahl: vier Vorlagen, „Los“ öffnet den Show-Editor mit der Vorlage',
+      picker.includes('const startWith = useTools((s) => s.openShowEditorWith);') && /Los\s*<\/Button>/.test(picker)
+      && SZENARIEN.map((s) => s.id).join(',') === 'konferenz,battle,buehne,podcast'],
+    ['Einstieg „Aus Vorlage starten“ im Reiter JM Show', reiter.includes("title: 'Aus Vorlage starten',") && reiter.includes('onClick: openScenarios,')],
+    [`lib/scenarios.ts unverändert (SHA-256 nach LF wie vor dem Plan, ist ${szenarienHash.slice(0, 12)}…)`,
+      szenarienHash === '71270905b755101b0bd00e82bb5533f3db128bf5f3862f580ceea880fb267b09'],
+  ];
+  for (const [zeile, gut] of tabelle) ck(`P15 kein Funktionsverlust: ${zeile}`, gut);
+
+  ck('P15 Ist-M 15: kein ASCII-Schlusszeichen und kein Text der alten Checkliste mehr in OnboardingModal.tsx',
+    !/„[^“\n]*"/.test(modal) && !modal.includes('In vier Schritten startklar') && !modal.includes('function Step('));
+  const oeffnen = funktionsKoerper(tools, 'openOnboarding: () => {');
+  ck('P15 EP8, EP20: „Erste Schritte“ übergibt zuerst an den Treiber (pausieren, „Zeig mir“ beenden, Hinweis aus), dann öffnet die Übersicht',
+    oeffnen.includes('useAnleitung.getState().zurUebersicht();') && store.includes('    zurUebersicht: () => treiber.zurUebersicht(),')
+    && oeffnen.indexOf('zurUebersicht();') < oeffnen.indexOf('set({ onboardingOpen: true });'));
+  ck('P15 EP20: Schließen merkt nichts; Starten und „Zeig mir“ schließen die Übersicht, damit die Hervorhebung frei liegt',
+    tools.includes('  closeOnboarding: () => void;') && tools.includes('    closeOnboarding: () => set({ onboardingOpen: false }),')
+    && modal.includes("if (e.art === 'starten') close();"));
+  ck('P15 G7: jede Diagnose des Speichers steht in der Übersicht (U25–U28), ok und leer ohne Zeile',
+    ['ok: null,', 'leer: null,', 'nichtLesbar: ANLEITUNG_TEXTE.speicherNichtLesbar,', 'nichtSchreibbar: ANLEITUNG_TEXTE.speicherNichtSchreibbar,',
+      'kaputt: ANLEITUNG_TEXTE.speicherKaputt,', 'neuer: ANLEITUNG_TEXTE.speicherNeuer,'].every((t) => modal.includes(t))
+    && modal.includes('speicherHinweis={SPEICHER_HINWEIS[speicher]}'));
+  ck('P15 6, EP21: Stimmen-Schalter mit Namensnennung in der Übersicht',
+    modal.includes('stimme={{ vorhanden: STIMME_VORHANDEN, an: stimmeAn, umschalten: stimmeUmschalten, namensnennung: NAMENSNENNUNG }}'));
+  ck('P15 4, OFP3: der Kopf zeigt Text, aria-label und title aus ersteSchritteKnopf (voller Text, kein Umbruch)',
+    kopf.includes('aria-label={ersteSchritte.aria}') && kopf.includes('title={ersteSchritte.title}')
+    && kopf.includes('{ersteSchritte.text && <span>{ersteSchritte.text}</span>}')
+    && kopf.includes("'flex items-center gap-1.5 px-2.5 whitespace-nowrap text-xs font-semibold'")
+    && kopf.includes('const { fortsetzen } = useAnleitungsAnsicht();') && kopf.includes('const hinweis = useAnleitung((s) => s.hinweis);'));
 }
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
