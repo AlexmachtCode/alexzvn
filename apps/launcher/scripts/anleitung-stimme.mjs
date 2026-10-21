@@ -15,11 +15,11 @@
 import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ID_MUSTER, sprechTexte } from '@jm/ui/anleitung';
 import { EINRICHTUNG } from '../src/renderer/src/anleitung/einrichtung.ts';
-import { ansageDatei, dateiSha256, leeresManifest, leseOrdner, manifestText, pruefeStimme, STIMMEN, textSha256 } from './stimme-manifest.mjs';
+import { ansageDatei, dateiSha256, istHauptmodul, leeresManifest, leseOrdner, manifestText, pruefeStimme, STIMMEN, textSha256 } from './stimme-manifest.mjs';
 
 export const PIPER_FASSUNG = '1.8.0';
 export const STANDARD_PARAMETER = Object.freeze({ lengthScale: 1.05, sentenceSilence: 0.3, opusKbps: 24 });
@@ -221,5 +221,5 @@ export async function kommandozeile(argv, env, log = console.log, fehler = conso
   }
 }
 
-const direkt = process.argv[1] !== undefined && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase();
+const direkt = istHauptmodul(fileURLToPath(import.meta.url), process.argv[1]);
 if (direkt) process.exitCode = await kommandozeile(process.argv.slice(2), process.env);

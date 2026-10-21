@@ -6,7 +6,7 @@
 // dieselben Funktionen. Piper ist zufallsbehaftet: verglichen wird nie Audio gegen Audio, sondern der Text über seine
 // Prüfsumme (EP13).
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -28,6 +28,22 @@ export const STIMMEN = Object.freeze({
     quelle: 'https://huggingface.co/rhasspy/piper-voices/tree/main/de/de_DE/thorsten/medium',
   }),
 });
+
+/**
+ * Start-Wächter der Skripte: ist dieses Modul das Hauptmodul (modulPfad = fileURLToPath(import.meta.url))? Node löst für das Hauptmodul den Realpfad auf, process.argv[1]
+ * aber nicht; über eine Junction oder einen Symlink (Checkout unter /tmp auf macOS, Arbeitsverzeichnis als Junction) liefe
+ * ein Vergleich ohne realpathSync nie an, und ein Prüftor endete stumm mit Exit 0 (Fix-Runde 1 zu P11).
+ */
+export function istHauptmodul(modulPfad, argv1) {
+  if (argv1 === undefined) return false;
+  let aufruf;
+  try {
+    aufruf = realpathSync(argv1);
+  } catch {
+    return false;
+  }
+  return aufruf.toLowerCase() === modulPfad.toLowerCase();
+}
 
 /** SHA-256 (hex) über UTF-8 des NFC-normalisierten Textes (EP13). Nie über Datei-Bytes: Windows hat CRLF, die CI LF. */
 export function textSha256(text) {

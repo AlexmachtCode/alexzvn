@@ -7,9 +7,9 @@
 // --verlange-stimme: ein Manifest ohne Stimme ist ein Befund (Gesamtprüfung, außer der Owner hat bei OFP1 „ohne Ton“
 // gewählt). Jeder Befund steht auf stderr, Exit 1.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dateiSha256 } from './stimme-manifest.mjs';
+import { dateiSha256, istHauptmodul } from './stimme-manifest.mjs';
 
 /** Befunde zum gebauten Renderer (leer = in Ordnung). */
 export function pruefeBau(assetsOrdner, manifest, optionen = {}) {
@@ -31,7 +31,7 @@ export function pruefeBau(assetsOrdner, manifest, optionen = {}) {
   return befunde;
 }
 
-const direkt = process.argv[1] !== undefined && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase();
+const direkt = istHauptmodul(fileURLToPath(import.meta.url), process.argv[1]);
 if (direkt) {
   const assets = fileURLToPath(new URL('../out/renderer/assets/', import.meta.url));
   const manifestPfad = fileURLToPath(new URL('../src/renderer/src/anleitung/stimme/manifest.json', import.meta.url));

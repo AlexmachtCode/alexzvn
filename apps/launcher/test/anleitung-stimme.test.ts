@@ -4,10 +4,10 @@
 // Piper und ffmpeg ersetzt test/stimme-attrappe.mjs. Prozesse startet der Test nur mit node: die Attrappe und einmal die
 // Kommandozeile des Erzeugers (G4). Alles liegt im Temp-Ordner; im Repo wird nichts geschrieben.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { erzeugeAnsagen, kommandozeile, STANDARD_PARAMETER, UMGEBUNG } from '../scripts/anleitung-stimme.mjs';
 import { dateiSha256, leseOrdner, manifestText, pruefeStimme } from '../scripts/stimme-manifest.mjs';
 
@@ -257,6 +257,25 @@ rmSync(wurzel, { recursive: true, force: true });
     && json(pruefeBau(bau, ohneStimme, { verlangeStimme: true })) === '["Manifest ohne Stimme (OFP1 „ohne Ton“? Sonst zuerst npm run stimme:erzeugen)"]');
   ck('P11 6 EP15: kein Bau-Ordner → Befund „Bau fehlt“', String(pruefeBau(join(bau, 'fehlt'), ohneStimme)[0]).startsWith('Bau fehlt: '));
   rmSync(bau, { recursive: true, force: true });
+}
+// --- P11 Fix-Runde 1 · Start-Wächter: ein Aufruf über Junction/Symlink darf nie stumm enden --------------------------------
+{
+  const wurzel2 = mkdtempSync(join(tmpdir(), 'jm-stimme-haupt-'));
+  const echt = join(wurzel2, 'echt');
+  const link = join(wurzel2, 'link');
+  mkdirSync(echt);
+  const helfer = pathToFileURL(fileURLToPath(new URL('../scripts/stimme-manifest.mjs', import.meta.url))).href;
+  writeFileSync(join(echt, 'haupt.mjs'), `import { fileURLToPath } from 'node:url';
+import { istHauptmodul } from ${JSON.stringify(helfer)};
+if (istHauptmodul(fileURLToPath(import.meta.url), process.argv[1])) console.log('HAUPT');
+`);
+  symlinkSync(echt, link, 'junction');
+  const lauf = (pfad: string): string => { const r = spawnSync(process.execPath, [pfad], { encoding: 'utf8' }); return `${r.status}|${r.stdout.trim()}|${r.stderr.trim()}`; };
+  const direkt = lauf(join(echt, 'haupt.mjs')), ueber = lauf(join(link, 'haupt.mjs'));
+  ck('P11 Fix1 EP15: der Start-Wächter erkennt das Hauptmodul auch über Junction/Symlink (sonst endet die Bau-Prüfung stumm mit Exit 0)',
+    direkt === '0|HAUPT|' && ueber === '0|HAUPT|', `direkt=${direkt} ueber=${ueber}`);
+  rmdirSync(link);
+  rmSync(wurzel2, { recursive: true, force: true });
 }
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
