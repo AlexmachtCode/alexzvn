@@ -225,6 +225,39 @@ ck('P10 G5 G14: Skripte importieren nur node:-Module, @jm/ui/anleitung, die Anle
   imp.length === 11 && imp.every(erlaubt) && !/\bimport\s+piper\b|\bfrom piper\b/.test(quelltext) && isoliert.piper && isoliert.fassung, `${json(imp)} ${json(isoliert)}`);
 
 rmSync(wurzel, { recursive: true, force: true });
+// --- P11 · Bau-Prüfung der Ansagen (EP15): Fixture-Ordner im Temp statt eines echten Baus -------------------------------
+{
+  const { pruefeBau } = await import('../scripts/pruefe-bau-stimme.mjs');
+  const bau = mkdtempSync(join(tmpdir(), 'jm-stimme-bau-'));
+  writeFileSync(join(bau, 'einleitung-Ab12Cd34.ogg'), 'OggS Ansage A');
+  writeFileSync(join(bau, 'k1.zugang-Ef56Gh78.ogg'), 'OggS Ansage B');
+  writeFileSync(join(bau, 'index-Xy12Zw34.js'), 'const a="./einleitung-Ab12Cd34.ogg",b="./k1.zugang-Ef56Gh78.ogg";');
+  const eintrag = (id: string, datei: string) => ({ id, textSha256: '0'.repeat(64), datei: `${id}.ogg`, dateiSha256: dateiSha256(join(bau, datei)), bytes: 13 });
+  const mitStimme = {
+    format: 1, stimme: { name: 'de_DE-mls-medium', onnxSha256: '0'.repeat(64), lizenz: 'CC BY 4.0', namensnennung: 'x', sprecher: 0 },
+    werkzeug: { piper: '1.8.0', ffmpeg: '8.1.2' }, parameter: { lengthScale: 1.05, sentenceSilence: 0.3, opusKbps: 24 },
+    eintraege: [eintrag('einleitung', 'einleitung-Ab12Cd34.ogg'), eintrag('k1.zugang', 'k1.zugang-Ef56Gh78.ogg')],
+  };
+  const ohneStimme = { format: 1, stimme: null, werkzeug: null, parameter: null, eintraege: [] };
+  ck('P11 6 EP15: Bau stimmig (2 Ansagen als Datei, umbenannt von Vite, kein data:audio) → keine Befunde', json(pruefeBau(bau, mitStimme)) === '[]', json(pruefeBau(bau, mitStimme)));
+  writeFileSync(join(bau, 'index-Zz98Yy76.js'), 'const k="data:audio/ogg;base64,T2dnUw==";');
+  ck('P11 6 EP15: data:audio im JS → Befund mit dem Dateinamen', json(pruefeBau(bau, mitStimme)) === '["data:audio im Bau: index-Zz98Yy76.js"]', json(pruefeBau(bau, mitStimme)));
+  unlinkSync(join(bau, 'index-Zz98Yy76.js'));
+  const b = readFileSync(join(bau, 'k1.zugang-Ef56Gh78.ogg'));
+  unlinkSync(join(bau, 'k1.zugang-Ef56Gh78.ogg'));
+  ck('P11 6 EP15: eine Ansage des Manifests fehlt im Bau → Befund', json(pruefeBau(bau, mitStimme)) === '["Ansage fehlt im Bau: k1.zugang.ogg"]', json(pruefeBau(bau, mitStimme)));
+  writeFileSync(join(bau, 'k1.zugang-Ef56Gh78.ogg'), b);
+  writeFileSync(join(bau, 'probe-Qq11Rr22.ogg'), 'OggS fremd');
+  ck('P11 6 EP15: eine .ogg ohne Eintrag im Bau → Befund', json(pruefeBau(bau, mitStimme)) === '["Ogg ohne Eintrag im Bau: probe-Qq11Rr22.ogg"]', json(pruefeBau(bau, mitStimme)));
+  unlinkSync(join(bau, 'probe-Qq11Rr22.ogg'));
+  unlinkSync(join(bau, 'einleitung-Ab12Cd34.ogg'));
+  unlinkSync(join(bau, 'k1.zugang-Ef56Gh78.ogg'));
+  ck('P11 6 EP14 P18: ohne Stimme und ohne .ogg stimmig; mit --verlange-stimme ist „ohne Stimme“ ein Befund',
+    json(pruefeBau(bau, ohneStimme)) === '[]'
+    && json(pruefeBau(bau, ohneStimme, { verlangeStimme: true })) === '["Manifest ohne Stimme (OFP1 „ohne Ton“? Sonst zuerst npm run stimme:erzeugen)"]');
+  ck('P11 6 EP15: kein Bau-Ordner → Befund „Bau fehlt“', String(pruefeBau(join(bau, 'fehlt'), ohneStimme)[0]).startsWith('Bau fehlt: '));
+  rmSync(bau, { recursive: true, force: true });
+}
 // ── Ende der Fälle ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

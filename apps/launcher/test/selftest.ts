@@ -2026,6 +2026,38 @@ await (async () => {
     && herkunft.includes('OFP1') && !herkunft.includes('"'));
 })();
 
+// --- Geführte Anleitungen P11 · Ansagen im Renderer, Vite ohne data:audio (Spec 6; EP15; G4) --------------------------
+// Lehre „eine CSP-Lücke legt nur den Installer lahm“: Vite legt Dateien unter 4 KB als data: ins JS, die CSP des Launchers
+// erlaubt media-src aber nur 'self' blob:. Im Dev-Server spielt alles, im Installer bliebe eine kurze Ansage stumm. Die
+// Regel steht in electron.vite.config.ts; npm run stimme:bau-pruefen prüft den echten Bau (P11 Step 10, P18).
+await (async () => {
+  const { buildCsp } = await import('../../../packages/app-runtime/src/csp.ts');
+  const vite = quelleLf('../electron.vite.config.ts');
+  const stimme = quelleLf('../src/renderer/src/anleitung/stimme.ts');
+  const html = quelleLf('../src/renderer/index.html');
+  const haupt = quelleLf('../src/main/index.ts');
+  const paket = JSON.parse(quelleLf('../package.json')) as { scripts: Record<string, string> };
+  const regel = "      assetsInlineLimit: (datei: string) => (/\\.(ogg|opus|webm|mp3|wav)$/i.test(datei) ? false : undefined),";
+  const iRenderer = vite.indexOf('\n  renderer: {');
+  const iRegel = vite.indexOf(`\n${regel}\n`);
+  const iEingabe = vite.indexOf("        input: { index: resolve(__dirname, 'src/renderer/index.html') },");
+  ck('P11 6 EP15: renderer.build hat assetsInlineLimit mit der Audio-Regel (ogg, opus, webm, mp3, wav → nie data:), genau einmal',
+    iRenderer > 0 && iRegel > iRenderer && iRegel < iEingabe && vite.split('assetsInlineLimit').length === 2);
+  ck('P11 6 EP15: stimme.ts lädt die Ansagen über import.meta.glob mit query ?url (als Datei, Muster tool-icons.ts) und das Manifest per JSON-Import',
+    stimme.includes("import.meta.glob<string>('./stimme/*.ogg', { eager: true, query: '?url', import: 'default' })")
+    && stimme.includes("import manifestRoh from './stimme/manifest.json';")
+    && /export function ansageUrl\(id: string\): string \| null/.test(stimme)
+    && stimme.includes('export const STIMME_VORHANDEN: boolean = manifest.stimme !== null;')
+    && stimme.includes('export const NAMENSNENNUNG: string | null = manifest.stimme?.namensnennung ?? null;'));
+  ck('P11 6 G4: die CSP bleibt — der Launcher setzt sie als Header (csp: true), index.html hat keine Meta-CSP ohne media-src \'self\'',
+    haupt.includes('initAppRuntime({ csp: true,')
+    && (!/http-equiv=["']Content-Security-Policy/i.test(html) || /media-src[^;"]*'self'/.test(html)));
+  ck('P11 6 G4: media-src im Paket ist genau \'self\' blob: (kein data:) — darum dürfen Ansagen nie eingebettet werden',
+    buildCsp({}, false).split('; ').includes("media-src 'self' blob:"));
+  ck('P11 6 EP15: Skript stimme:bau-pruefen = node scripts/pruefe-bau-stimme.mjs',
+    paket.scripts['stimme:bau-pruefen'] === 'node scripts/pruefe-bau-stimme.mjs');
+})();
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.
