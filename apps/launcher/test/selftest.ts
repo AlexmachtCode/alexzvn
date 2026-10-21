@@ -27,6 +27,10 @@ import {
   anleitungsZustand, ENTSCHEIDUNGS_NAMEN, EREIGNIS_NAMEN, kapitelDetails, neueToolEreignisse, produktionLaeuft, ZUSTANDS_NAMEN,
   type AnleitungsEingang,
 } from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { leseFortschritt, schreibeFortschritt } from '@jm/ui/anleitung';
+import {
+  anleitungsEingang, erzeugeAnleitungsTreiber, PRESENCE_FRIST_MS, type LauncherLage, type TreiberStand,
+} from '../src/renderer/src/lib/anleitung-zustand.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -2057,6 +2061,372 @@ await (async () => {
   ck('P11 6 EP15: Skript stimme:bau-pruefen = node scripts/pruefe-bau-stimme.mjs',
     paket.scripts['stimme:bau-pruefen'] === 'node scripts/pruefe-bau-stimme.mjs');
 })();
+
+// --- Geführte Anleitung, Block D (P12–P15): Hilfen für Treiber-Tests und Quelltext-Wächter --------------------------------
+// Die Logik des Stores läuft hier echt: als reiner Treiber (lib/anleitung-zustand.ts) mit dem echten Ablaufkern und
+// Attrappen. Store, Overlay und Komponenten laden zustand, React und window.jmps und laufen hier nicht; geprüft wird ihr
+// Quelltext (Muster P31 und M1).
+/** Quelltext nach LF; fehlt die Datei (Rot-Lauf vor dem Anlegen), leer statt Absturz. */
+function quelleLfOderLeer(pfad: string): string {
+  try {
+    return quelleLf(pfad);
+  } catch {
+    return '';
+  }
+}
+/** Ohne Kommentare: ein Wächter prüft Code, nicht Erklärungen (ein Kommentar darf „openShow“ nennen). */
+function ohneKommentare(q: string): string {
+  return q.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\\])\/\/.*$/gm, '$1');
+}
+/**
+ * G3 (Spec 2 Anti-Ziel, 7): Namen, mit denen Anleitungs-Code etwas bedienen, starten oder einen Dialog öffnen würde — die
+ * Liste der Gliederung, dazu `open` (startet ein Tool) und die Dialog-Öffner des Launchers.
+ */
+const G3_NAMEN = ['openShow', 'openShowPath', 'install', 'update', 'updateAll', 'uninstall', 'updateLauncher', 'saveShow',
+  'saveSettings', 'provisionControl', 'disableControl', 'checkUpdates', 'oeffne', 'schliesse', 'koppele', 'fuehreAus',
+  'anstossen', 'neueKennung', 'starteMasterSuche', 'open', 'openSettings', 'openSystem', 'openScenarios', 'openShowEditor',
+  'openShowEditorWith', 'openOnboarding', 'openPatchNotes', 'openSideEvents', 'openFeedback', 'openCookbook', 'setView'];
+/** Befunde zu G3: Aufruf eines Namens, Lesen als Store-Feld, window.jmps außer getControlStatus, setState auf fremde Stores. */
+function g3Befunde(quelle: string): string[] {
+  const q = ohneKommentare(quelle);
+  const befunde: string[] = [];
+  for (const n of G3_NAMEN) {
+    if (new RegExp(`(?<![\\w$])${n}\\s*\\(`).test(q)) befunde.push(`${n}(…)`);
+    if (new RegExp(`(?:\\bs|getState\\(\\))\\.${n}\\b`).test(q)) befunde.push(`.${n}`);
+  }
+  for (const m of q.matchAll(/window\.jmps\.(\w+)/g)) if (m[1] !== 'getControlStatus') befunde.push(`window.jmps.${m[1]}`);
+  if (/use(?:Tools|Verbund)\.setState\(/.test(q)) befunde.push('setState auf Launcher oder Verbund');
+  return [...new Set(befunde)];
+}
+/** true, wenn Stelle i in einem try-Block liegt (letztes „try {“ davor ohne „} catch“ dazwischen). */
+function imTry(q: string, i: number): boolean {
+  const vor = q.slice(0, i);
+  const t = vor.lastIndexOf('try {');
+  return t >= 0 && !vor.slice(t).includes('} catch');
+}
+/** Speicher-Attrappe (G8): zählt Lese- und Schreibzugriffe; `liestNicht`/`schreibtNicht` lassen den Zugriff werfen. */
+function speicherAttrappe(start: Record<string, string> = {}, o: { liestNicht?: boolean; schreibtNicht?: boolean } = {}) {
+  const a = {
+    daten: new Map(Object.entries(start)),
+    gelesen: 0,
+    geschrieben: 0,
+    liestNicht: o.liestNicht === true,
+    schreibtNicht: o.schreibtNicht === true,
+    speicher: {
+      getItem(k: string): string | null {
+        a.gelesen++;
+        if (a.liestNicht) throw new Error('Speicher gesperrt');
+        return a.daten.get(k) ?? null;
+      },
+      setItem(k: string, v: string): void {
+        if (a.schreibtNicht) throw new Error('Speicher voll');
+        a.geschrieben++;
+        a.daten.set(k, v);
+      },
+    },
+  };
+  return a;
+}
+/** Eingang des Adapters ohne geladene Daten (nur Voreinstellungen, G7). */
+const EINGANG_LEER: AnleitungsEingang = {
+  settings: null, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+  verbundOffen: false, verbund: null, steuerebene: null, recentShows: 0, laufendeTools: 0, showLaunch: false, iveoActive: false,
+};
+/** Master, dessen verteilte Show Tools anderer Rechner beziehen (EP17), und ein gekoppelter, verbundener Slave (EP5). */
+const MASTER_FOLGT = { rolle: 'master', dateiFehler: null, slave: null, master: { showImVerbund: { showName: 'Konferenz', bezieher: 2 } } } as unknown as VerbundStand;
+const SLAVE_VERBUNDEN = { rolle: 'slave', dateiFehler: null, master: null, slave: { gekoppelt: true, client: { art: 'verbunden' } } } as unknown as VerbundStand;
+/**
+ * Treiber des Stores mit dem echten Ablaufkern (@jm/ui/anleitung), der echten Anleitung und Attrappen: Speicher, Eingang, Uhr
+ * (Millisekunden), Wecker (gesammelt, im Test von Hand ausgelöst) und der Stand wie im Store.
+ */
+function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Partial<AnleitungsEingang> = {}) {
+  const lage = {
+    eingang: { ...EINGANG_LEER, ...eingang } as AnleitungsEingang,
+    uhr: 0,
+    wecker: [] as Array<{ ms: number; f: () => void }>,
+    stand: {
+      fortschritt: leererFortschritt(EINRICHTUNG.id), speicher: 'leer', hinweis: false, jetzt: {}, produktion: false,
+      produktionUnklar: false, stimmeTrotzdem: false,
+    } as TreiberStand,
+  };
+  const t = erzeugeAnleitungsTreiber({
+    kern: { leseFortschritt, beimStart, anleitungSchritt, schreibeFortschritt },
+    anleitung: EINRICHTUNG,
+    schluessel: ANLEITUNG_SCHLUESSEL,
+    speicher: () => sp?.speicher ?? null,
+    eingang: () => lage.eingang,
+    uhr: () => lage.uhr,
+    wecker: (ms, f) => {
+      lage.wecker.push({ ms, f });
+    },
+    lies: () => lage.stand,
+    setze: (teil) => {
+      lage.stand = { ...lage.stand, ...teil };
+    },
+  });
+  return { t, lage };
+}
+
+// --- Geführte Anleitung P12 (Spec 3–8; EP4, EP5, EP7, EP8, EP17, EP19, EP23, EP24; G3, G7, G8, G9, G15): Treiber und Store -
+{
+  const K = ANLEITUNG_SCHLUESSEL;
+  const leer = leererFortschritt(EINRICHTUNG.id);
+  const json = (x: unknown): string => JSON.stringify(x);
+  const ort = (p: { ort: string; schritt?: string | null } | null): string => (p === null ? 'kein Ort' : p.ort === 'kapitel' ? String(p.schritt) : p.ort);
+
+  // Start je Speicher und Rechner (Spec 4, G8, EP8, EP23): Rückgabe, Diagnose, Hinweis am Knopf, Status, Schreibzugriffe.
+  const START: Array<[string, () => ReturnType<typeof speicherAttrappe> | null, boolean, string]> = [
+    ['leer, neuer Rechner', () => speicherAttrappe(), false, 'anleitung leer false laeuft 1'],
+    ['leer, bestehender Rechner', () => speicherAttrappe(), true, 'hinweis leer true nieGestartet 1'],
+    ['Lesen wirft', () => speicherAttrappe({}, { liestNicht: true }), false, 'null nichtLesbar true nieGestartet 0'],
+    ['Lesen wirft, bestehender Rechner', () => speicherAttrappe({}, { liestNicht: true }), true, 'null nichtLesbar true nieGestartet 0'],
+    ['kein Speicher', () => null, false, 'null nichtLesbar true nieGestartet -'],
+    ['kaputtes JSON', () => speicherAttrappe({ [K]: '{kaputt' }), false, 'null kaputt false nieGestartet 1'],
+    ['neuere Fassung', () => speicherAttrappe({ [K]: '{"format":2}' }), false, 'null neuer false nieGestartet 0'],
+    ['pausiert gemerkt', () => speicherAttrappe({ [K]: json({ ...leer, status: 'pausiert', position: { ort: 'einleitung' } }) }), false, 'null ok false pausiert 0'],
+    ['lief beim Beenden', () => speicherAttrappe({ [K]: json({ ...leer, status: 'laeuft', position: { ort: 'einleitung' } }) }), false, 'null ok false pausiert 1'],
+    ['Schreiben wirft', () => speicherAttrappe({}, { schreibtNicht: true }), false, 'anleitung nichtSchreibbar false laeuft 0'],
+  ];
+  const startAbw: string[] = [];
+  for (const [name, neu, bestehend, soll] of START) {
+    const sp = neu();
+    const { t, lage } = treiberMit(sp);
+    const r = t.starte({ bestehenderRechner: bestehend });
+    const ist = `${r} ${lage.stand.speicher} ${lage.stand.hinweis} ${lage.stand.fortschritt.status} ${sp === null ? '-' : sp.geschrieben}`;
+    if (ist !== soll) startAbw.push(`${name}: ${ist}`);
+  }
+  ck(`P12 4, G8, EP8, EP23: starte je Speicher und Rechner — Rückgabe, Diagnose, Hinweis am Knopf, Status, Schreiben (${START.length} Fälle)${startAbw.length ? ` — ${startAbw.join('; ')}` : ''}`,
+    startAbw.length === 0);
+
+  // Rundreise (Spec 3, G8): der Fortschritt nach Start und Ereignissen übersteht einen Neustart (neuer Treiber, derselbe Speicher).
+  const rs = speicherAttrappe();
+  const vorNeustart = treiberMit(rs);
+  vorNeustart.t.starte({ bestehenderRechner: false });
+  vorNeustart.t.ereignis({ art: 'weiter' });
+  vorNeustart.t.ereignis({ art: 'ueberspringen' });
+  vorNeustart.t.ereignis({ art: 'brauchtNicht', kapitel: 'k5' });
+  vorNeustart.t.ereignis({ art: 'spaeter' });
+  const nachNeustart = treiberMit(rs);
+  nachNeustart.t.starte({ bestehenderRechner: false });
+  const f1 = vorNeustart.lage.stand.fortschritt;
+  const f2 = nachNeustart.lage.stand.fortschritt;
+  ck(`P12 3, G8: Rundreise — Fortschritt nach Start, „Überspringen“, „Brauche ich nicht“ und „Später weiter“ übersteht den Neustart${json(f1) === json(f2) ? ''
+    : ` — danach ${f2.status} an ${ort(f2.position)}, übersprungen [${f2.uebersprungen.join(',')}], nicht gebraucht [${f2.nichtGebraucht.join(',')}]`}`,
+    f1.status === 'pausiert' && f1.uebersprungen.includes('k1') && f1.nichtGebraucht.includes('k5') && json(f1) === json(f2));
+
+  // Merken (G7, G8): Schreibfehler als Diagnose, ein späterer Erfolg wieder „ok“; neuere Fassung und unlesbarer Speicher
+  // werden nie beschrieben, der Ablauf läuft dann nur in dieser Sitzung.
+  const merkAbw: string[] = [];
+  const voll = speicherAttrappe({}, { schreibtNicht: true });
+  const tv = treiberMit(voll);
+  tv.t.starte({ bestehenderRechner: false });
+  const nachFehler = tv.lage.stand.speicher;
+  voll.schreibtNicht = false;
+  tv.t.ereignis({ art: 'weiter' });
+  if (nachFehler !== 'nichtSchreibbar' || tv.lage.stand.speicher !== 'ok' || voll.geschrieben !== 1) {
+    merkAbw.push(`Schreibfehler: ${nachFehler} → ${tv.lage.stand.speicher}, ${voll.geschrieben} geschrieben`);
+  }
+  for (const [name, sp] of [['neuere Fassung', speicherAttrappe({ [K]: '{"format":2}' })], ['Lesen wirft', speicherAttrappe({}, { liestNicht: true })]] as const) {
+    const vorher = json([...sp.daten]);
+    const { t, lage } = treiberMit(sp);
+    t.starte({ bestehenderRechner: false });
+    t.ereignis({ art: 'starten' });
+    if (sp.geschrieben !== 0 || json([...sp.daten]) !== vorher || lage.stand.fortschritt.status !== 'laeuft') {
+      merkAbw.push(`${name}: ${sp.geschrieben} geschrieben, ${lage.stand.fortschritt.status}`);
+    }
+  }
+  ck(`P12 G7, G8: Merken — Schreibfehler als Diagnose und danach wieder „ok“; neuere Fassung und unlesbarer Speicher bleiben unberührt, der Ablauf läuft trotzdem${merkAbw.length ? ` — ${merkAbw.join('; ')}` : ''}`,
+    merkAbw.length === 0);
+
+  // Abgleich (Spec 5, EP5): ein geänderter Zustand führt den Kern von selbst weiter (Regel 11), ein neues Tool-Ereignis wird gemerkt.
+  const sa = speicherAttrappe();
+  const ta = treiberMit(sa);
+  ta.t.starte({ bestehenderRechner: false });
+  ta.t.ereignis({ art: 'weiter' });
+  const ort1 = ort(ta.lage.stand.fortschritt.position);
+  ta.lage.eingang = { ...ta.lage.eingang, settingsOpen: true };
+  ta.t.pruefe();
+  const ort2 = ort(ta.lage.stand.fortschritt.position);
+  ta.lage.eingang = { ...ta.lage.eingang, verbund: SLAVE_VERBUNDEN };
+  ta.t.pruefe();
+  const gemerkt = (JSON.parse(sa.daten.get(K) ?? '{}') as { ereignisse?: Record<string, string> }).ereignisse ?? {};
+  ck(`P12 5, EP5: Abgleich — geänderter Zustand führt von selbst weiter (${ort1} → ${ort2}), ein neues Tool-Ereignis wird gemerkt`,
+    ort1 === 'k1.einstellungen' && ort2 === 'k1.zugang' && ta.lage.stand.jetzt.einstellungenOffen === true
+    && typeof ta.lage.stand.fortschritt.ereignisse.slaveWarVerbunden === 'string' && typeof gemerkt.slaveWarVerbunden === 'string');
+
+  // Vor starte bewirkt nichts etwas (D6): ein Klick vor dem Ende von load() schriebe sonst über den ungelesenen Fortschritt.
+  const fs0 = speicherAttrappe();
+  const tf = treiberMit(fs0);
+  tf.t.ereignis({ art: 'starten' });
+  tf.t.pruefe();
+  ck(`P12 D6: vor starte (also vor load) bewirken Ereignis und Abgleich nichts (${fs0.gelesen} gelesen, ${fs0.geschrieben} geschrieben)`,
+    json(tf.lage.stand.fortschritt) === json(leer) && fs0.gelesen === 0 && fs0.geschrieben === 0);
+
+  // Einmal je Fenster (D15): React StrictMode ruft load() im Dev zweimal; der zweite starte darf nicht pausieren.
+  const zs = speicherAttrappe();
+  const tz = treiberMit(zs);
+  const r1 = tz.t.starte({ bestehenderRechner: false });
+  const r2 = tz.t.starte({ bestehenderRechner: false });
+  ck(`P12 4, D15: starte wirkt je Fenster einmal — der zweite Aufruf gibt das erste Ergebnis zurück, liest und schreibt nichts (${zs.gelesen} gelesen, ${zs.geschrieben} geschrieben, ${tz.lage.stand.fortschritt.status})`,
+    r1 === 'anleitung' && r2 === 'anleitung' && zs.gelesen === 1 && zs.geschrieben === 1 && tz.lage.stand.fortschritt.status === 'laeuft'
+    && tz.lage.wecker.length === 1);
+
+  // Produktion und „unklar“ (Spec 7; EP17, EP24): wie der Adapter, dazu kurz nach dem Start „unklar“, solange auf diesem
+  // Rechner Tools installiert sind und keins als laufend bekannt ist (die Presence ist nach einem Neustart bis zu 10 s leer).
+  let nP = 0;
+  const abwP: string[] = [];
+  for (const installiert of [false, true]) for (const uhr of [0, PRESENCE_FRIST_MS - 1, PRESENCE_FRIST_MS]) for (const laufend of [0, 1])
+    for (const launch of [false, true]) for (const iveo of [false, true]) for (const folgt of [false, true]) {
+      nP++;
+      const { t, lage } = treiberMit(speicherAttrappe(), { states: installiert ? { 'jm-timer': { status: 'installed' } } : {} });
+      t.starte({ bestehenderRechner: false });
+      lage.uhr = uhr;
+      lage.eingang = { ...lage.eingang, laufendeTools: laufend, showLaunch: launch, iveoActive: iveo, verbund: folgt ? MASTER_FOLGT : null };
+      t.pruefe();
+      const produktion = laufend > 0 || launch || iveo || folgt;
+      const unklar = !produktion && installiert && uhr < 12_000;
+      if (lage.stand.produktion !== produktion || lage.stand.produktionUnklar !== unklar) {
+        abwP.push(`${installiert ? 'installiert' : 'nichts installiert'}/${uhr} ms/${laufend}/${launch}/${iveo}/${folgt}: ${lage.stand.produktion} ${lage.stand.produktionUnklar}`);
+      }
+    }
+  ck(`P12 7, EP17, EP24: Produktion und „unklar“ im Store — installiert × Zeit seit dem Start × Tool läuft × Show-Start × iveo × Master folgt (${nP} Fälle)${abwP.length ? ` — ${abwP.slice(0, 3).join('; ')}` : ''}`,
+    nP === 96 && abwP.length === 0);
+  const tw = treiberMit(speicherAttrappe(), { states: { 'jm-timer': { status: 'installed' } } });
+  tw.t.starte({ bestehenderRechner: false });
+  const unklarAmStart = tw.lage.stand.produktionUnklar;
+  tw.lage.uhr = 12_000;
+  for (const w of tw.lage.wecker) w.f();
+  ck(`P12 EP24: „unklar“ endet nach 12 s von selbst, auch ohne jede andere Änderung (Wecker: ${tw.lage.wecker.map((w) => `${w.ms} ms`).join(', ') || 'keiner'})`,
+    PRESENCE_FRIST_MS === 12_000 && unklarAmStart && tw.lage.wecker.length === 1 && tw.lage.wecker[0].ms === 12_000 && !tw.lage.stand.produktionUnklar);
+
+  // „Stimme trotzdem an“ (Spec 7, G15): nur in einer Produktion, und nur bis zu ihrem Ende; die nächste beginnt wieder still.
+  const tt = treiberMit(speicherAttrappe(), { laufendeTools: 1 });
+  tt.t.starte({ bestehenderRechner: false });
+  tt.t.stimmeTrotzdemAn();
+  const waehrend = tt.lage.stand.stimmeTrotzdem;
+  tt.lage.eingang = { ...tt.lage.eingang, laufendeTools: 0 };
+  tt.t.pruefe();
+  const nachEnde = tt.lage.stand.stimmeTrotzdem;
+  tt.lage.eingang = { ...tt.lage.eingang, laufendeTools: 1 };
+  tt.t.pruefe();
+  const naechste = tt.lage.stand.stimmeTrotzdem;
+  const ohne = treiberMit(speicherAttrappe());
+  ohne.t.starte({ bestehenderRechner: false });
+  ohne.t.stimmeTrotzdemAn();
+  ck(`P12 6, 7, G15: „Stimme trotzdem an“ gilt bis zum Ende dieser Produktion, die nächste beginnt still; ohne Produktion wirkt es nicht (${waehrend}, ${nachEnde}, ${naechste}, ${ohne.lage.stand.stimmeTrotzdem})`,
+    waehrend && !nachEnde && !naechste && !ohne.lage.stand.stimmeTrotzdem);
+
+  // Eingang aus den Zuständen des Launchers (G9; Spec 5, 7; EP17): anleitungsEingang ist der einzige Konstruktor des Eingangs,
+  // der Store ruft nur sie auf. Ein Fehler dort ließe die Stimme während der Show sprechen oder Kapitel 3, 5 und 6 nie
+  // abhaken; die Erwartung rechnet der Test selbst, ohne den Adapter (Nachprüfung 1, Nachbesserung N52).
+  const LAGE_LEER: LauncherLage = {
+    settings: null, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+    recentShows: [], presence: [], showLaunch: null, iveoActive: null,
+  };
+  const PRESENCE: Array<[string, Array<{ running: boolean }>, number]> = [
+    ['leer', [], 0], ['beendet', [{ running: false }], 0], ['einer läuft', [{ running: false }, { running: true }], 1],
+    ['zwei laufen', [{ running: true }, { running: false }, { running: true }], 2],
+  ];
+  const STAENDE: Array<[string, VerbundStand | null, boolean]> = [
+    ['kein Stand', null, false], ['Master, dem Tools folgen', MASTER_FOLGT, true], ['Slave verbunden', SLAVE_VERBUNDEN, false],
+  ];
+  const showLaunchAus = (an: boolean): LauncherLage['showLaunch'] => (an ? { name: 'Konferenz' } : null);
+  const iveoAus = (an: boolean): LauncherLage['iveoActive'] => (an ? { event: 'e1', canSwitch: false } : null);
+  let nE = 0;
+  const abwE: string[] = [];
+  for (const [pName, presence, laufend] of PRESENCE) for (const launch of [false, true]) for (const iveo of [false, true])
+    for (const [vName, stand, folgt] of STAENDE) {
+      nE++;
+      const e = anleitungsEingang({ ...LAGE_LEER, presence, showLaunch: showLaunchAus(launch), iveoActive: iveoAus(iveo) }, { offen: false, stand }, null);
+      if (produktionLaeuft(e) !== (laufend > 0 || launch || iveo || folgt)) abwE.push(`${pName}/${launch}/${iveo}/${vName}: ${produktionLaeuft(e)}`);
+    }
+  ck(`P12 7, EP17, G15: Produktion aus dem Zustand des Launchers — Presence (leer, beendet, läuft) × Show-Start × iveo × Verbund (${nE} Fälle)${abwE.length ? ` — ${abwE.slice(0, 3).join('; ')}` : ''}`,
+    nE === 48 && abwE.length === 0);
+  const SETTINGS: Array<[string, LauncherLage['settings'], AnleitungsEingang['settings']]> = [
+    ['keine', null, null],
+    ['Quelle none', { source: 'none', hasToken: false, fromEnv: false } as LauncherLage['settings'], { source: 'none' }],
+    ['GitHub', { source: 'github', hasToken: true, fromEnv: true, manifestUrl: 'https://x' } as LauncherLage['settings'], { source: 'github' }],
+  ];
+  const FENSTER: Array<[string, Partial<LauncherLage>, boolean]> = [
+    ['alles zu', {}, false], ['Einstellungen', { settingsOpen: true }, false], ['System', { systemOpen: true }, false],
+    ['Szenarien', { scenariosOpen: true }, false], ['Editor', { showEditorOpen: true }, false], ['Verbund', {}, true],
+    ['Reiter JM Show', { view: 'jmshow' }, false],
+  ];
+  let nF = 0;
+  const abwF: string[] = [];
+  for (const [pName, presence, laufend] of PRESENCE) for (const launch of [false, true]) for (const iveo of [false, true])
+    for (const [vName, stand] of STAENDE) for (const recent of [0, 1, 2]) for (const [sName, settings, sSoll] of SETTINGS)
+      for (const steuerebene of [null, 'open', 'secure'] as const) for (const states of [{}, { 'jm-timer': { status: 'installed' } }])
+        for (const [fName, fenster, verbundOffen] of FENSTER) {
+          nF++;
+          const lage: LauncherLage = {
+            ...LAGE_LEER, ...fenster, settings, states, presence, recentShows: Array.from({ length: recent }, (_, i) => ({ name: `Show ${i}` })),
+            showLaunch: showLaunchAus(launch), iveoActive: iveoAus(iveo),
+          };
+          const soll: Record<string, unknown> = {
+            settings: sSoll, states, view: fenster.view ?? 'catalog', settingsOpen: fenster.settingsOpen === true,
+            systemOpen: fenster.systemOpen === true, scenariosOpen: fenster.scenariosOpen === true, showEditorOpen: fenster.showEditorOpen === true,
+            verbundOffen, verbund: stand, steuerebene, recentShows: recent, laufendeTools: laufend, showLaunch: launch, iveoActive: iveo,
+          };
+          const ist = anleitungsEingang(lage, { offen: verbundOffen, stand }, steuerebene) as unknown as Record<string, unknown>;
+          const falsch = [...new Set([...Object.keys(ist), ...Object.keys(soll)])].filter((k) => json(ist[k]) !== json(soll[k]));
+          if (falsch.length) abwF.push(`${pName}/${launch}/${iveo}/${vName}/${recent}/${sName}/${steuerebene}/${fName}: ${falsch.join(',')}`);
+        }
+  ck(`P12 5, G7, G9: Eingang aus dem Zustand des Launchers — jedes Feld wie im Launcher, eine Voreinstellung bleibt eine (${nF} Fälle)${abwF.length ? ` — ${abwF.length} abweichend, ${abwF.slice(0, 2).join('; ')}` : ''}`,
+    nF === 18144 && abwF.length === 0);
+
+  // Verdrahtung des Stores (Quelltext-Wächter; der Store lädt zustand und window.jmps und läuft hier nicht).
+  const store = quelleLfOderLeer('../src/renderer/src/store/anleitung.ts');
+  const code = ohneKommentare(store);
+  const tools = quelleLf('../src/renderer/src/store/tools.ts');
+  const starte = funktionsKoerper(store, 'starte: (u) => {');
+  const abonniere = funktionsKoerper(store, 'function abonniere(): void {');
+  const laden = funktionsKoerper(store, 'ladeSteuerebene: async () => {');
+  const b = g3Befunde(store);
+  ck(`P12 G3: der Store der Anleitung bedient nichts und öffnet keinen Dialog, er liest nur (IPC getControlStatus)${b.length ? ` — ${b.join(', ')}` : ''}`,
+    store.length > 0 && b.length === 0 && store.includes('const status = await window.jmps.getControlStatus();'));
+  ck('P12 3–8: der Store führt nur aus — der Treiber bekommt Ablaufkern, Speicher, Uhr, Wecker und den Store-Zustand; Start und Ereignisse gehen an ihn',
+    ['  const treiber = erzeugeAnleitungsTreiber({', '    kern: { leseFortschritt, beimStart, anleitungSchritt, schreibeFortschritt },',
+      '    anleitung: EINRICHTUNG,', '    schluessel: ANLEITUNG_SCHLUESSEL,', '    speicher: launcherSpeicher,', '    eingang: () => get().eingang(),',
+      '    uhr: () => Date.now(),', '    wecker: (ms, f) => void setTimeout(f, ms),', '    lies: () => get(),', '    setze: (teil) => set(teil),',
+      '    ereignis: (e) => treiber.ereignis(e),', "    toolEreignis: (name) => treiber.ereignis({ art: 'toolEreignis', name }),",
+      '    zustand: () => treiber.zustand(),', '    stimmeTrotzdemAn: () => treiber.stimmeTrotzdemAn(),'].every((z) => store.includes(z))
+    && starte.includes('const start = treiber.starte(u);') && starte.includes('return start;'));
+  ck('P12 G9, EP17: der Store baut den Eingang nur über anleitungsEingang aus Launcher, Verbund und der gelesenen Steuerebene',
+    store.includes('    eingang: () => anleitungsEingang(useTools.getState(), useVerbund.getState(), get().steuerebene),')
+    && !/laufendeTools|iveoActive|showLaunch|presence/.test(code));
+  const zugriffe = [...code.matchAll(/localStorage|\.getItem\(|\.setItem\(/g)].map((m) => m.index ?? -1);
+  ck(`P12 G8: jeder Zugriff auf localStorage steht in try/catch (${zugriffe.length} Stellen)`,
+    zugriffe.length >= 3 && zugriffe.every((i) => imTry(code, i)));
+  ck('P12 EP4, 6: Schlüssel aus der Anleitungs-Datei; Stimme je Rechner (aus/an), nicht lesbar → an',
+    store.includes("import { ANLEITUNG_SCHLUESSEL, EINRICHTUNG, STIMME_SCHLUESSEL } from '@/anleitung/einrichtung';")
+    && !code.includes("'jmps:") && store.includes("return launcherSpeicher()?.getItem(STIMME_SCHLUESSEL) !== 'aus';"));
+  ck('P12 5, EP5: Abos auf Launcher und Verbund lösen den Abgleich des Treibers aus',
+    abonniere.includes('useTools.subscribe((s, vorher) => {') && abonniere.includes('      treiber.pruefe();')
+    && abonniere.includes('useVerbund.subscribe(() => treiber.pruefe());'));
+  ck('P12 EP19: Steuerebene nur gelesen — beim Start, bei Fensterfokus, nach dem Schließen von System-Zustand und Einstellungen',
+    starte.includes('void get().ladeSteuerebene();') && abonniere.includes("window.addEventListener('focus', () => void get().ladeSteuerebene());")
+    && abonniere.includes('if ((vorher.systemOpen && !s.systemOpen) || (vorher.settingsOpen && !s.settingsOpen)) void get().ladeSteuerebene();')
+    && laden.includes('treiber.pruefe();') && (code.match(/window\.jmps\./g) ?? []).length === 1);
+  ck('P12 Zyklus tools ↔ anleitung: Launcher und Verbund nur in Funktionen, Abos erst in starte (aus load)',
+    (code.match(/useTools\./g) ?? []).length === 2 && abonniere.includes('useTools.subscribe(')
+    && store.includes('eingang: () => anleitungsEingang(useTools.getState(), useVerbund.getState(),') && starte.includes('abonniere();'));
+  const save = funktionsKoerper(tools, 'saveShow: async (show, targetPath, neuGebunden) => {');
+  ck('P12 5, EP5: saveShow meldet „Show gespeichert“ nur nach res.ok (kein dauerhafter Zustand, Ist-L 3)',
+    save.includes("      if (res.ok) useAnleitung.getState().toolEreignis('showGespeichert');\n      return res.ok;")
+    && save.indexOf('const res = await window.jmps.saveShow(') < save.indexOf("toolEreignis('showGespeichert')")
+    && (tools.match(/toolEreignis\('showGespeichert'\)/g) ?? []).length === 1);
+  const aufrufer: string[] = [];
+  for (const datei of readdirSync(new URL('../src/renderer/src/', import.meta.url), { recursive: true }) as string[]) {
+    const pfad = datei.replace(/\\/g, '/');
+    if (!/\.tsx?$/.test(pfad)) continue;
+    const n = (quelleLf(`../src/renderer/src/${pfad}`).match(/\bsaveShow\(/g) ?? []).length;
+    if (n) aufrufer.push(`${pfad}:${n}`);
+  }
+  ck(`P12 G9: Aufrufer von saveShow unverändert (${aufrufer.sort().join(', ')})`,
+    aufrufer.join(',') === 'components/ShowEditorModal.tsx:1,store/tools.ts:1'
+    && quelleLf('../src/renderer/src/components/ShowEditorModal.tsx').includes('const ok = await saveShow(show, editPath ?? undefined, f.iveoNeuGebunden !== null);'));
+}
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,

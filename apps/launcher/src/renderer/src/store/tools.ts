@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { useChangelog } from '@/store/changelog';
 import { useCookbook } from '@/store/cookbook';
 import { useVerbund } from './verbund';
+import { useAnleitung } from './anleitung';
 import type {
   ActionResult,
   AnhangOrdnerStand,
@@ -427,6 +428,9 @@ export const useTools = create<ToolsStore>((set) => {
     saveShow: async (show, targetPath, neuGebunden) => {
       const res = await window.jmps.saveShow(show, targetPath, neuGebunden);
       if (res.message) set({ notice: res.message });
+      // Geführte Anleitung, Kapitel 4 (EP5): „Show gespeichert“ gibt es nur als Ereignis, gemeldet erst, wenn der Main ok
+      // sagt (Abbruch im Speicherdialog liefert ok: false). Der Fortschritt merkt es; gespeichert hat der Bediener.
+      if (res.ok) useAnleitung.getState().toolEreignis('showGespeichert');
       return res.ok;
     },
 
