@@ -17,7 +17,7 @@ crewRoles:
   - Technik (Einrichtung eines Rechners)
 lastReviewed: 2026-10-21
 owner: tech@jakobsmedien.com
-summary: "Der Launcher führt beim ersten Start wie ein Spiele-Tutorial in sechs Kapiteln durch die Einrichtung eines Rechners: Anmelden, Tools installieren, Rolle im Verbund, erste Show, Fernsteuerung für Companion, Tools aus der Show starten. Er hebt das Bedienelement hervor, erklärt es, spricht den Text und erkennt selbst, wann ein Schritt erledigt ist. Er bedient nichts selbst und bringt nie etwas auf Sendung. Jederzeit wieder über den Knopf „Erste Schritte“ oben."
+summary: "Der Launcher führt beim ersten Start wie ein Spiele-Tutorial in sechs Kapiteln durch die Einrichtung eines Rechners: Anmelden, Tools installieren, Rolle im Verbund, erste Show, Fernsteuerung für Companion, Tools aus der Show starten. Er hebt das Bedienelement hervor, erklärt es in einer Sprechblase und erkennt selbst, wann ein Schritt erledigt ist; eine Stimme hat diese Fassung noch nicht. Er bedient nichts selbst und bringt nie etwas auf Sendung. Jederzeit wieder über den Knopf „Erste Schritte“ oben."
 ---
 
 ## Zutaten
@@ -47,8 +47,8 @@ summary: "Der Launcher führt beim ersten Start wie ein Spiele-Tutorial in sechs
 ### Während (Bedienung der Anleitung)
 - Bedienleiste: „Zurück“, „Weiter“, „Überspringen“ (dieses Kapitel), „Später weiter“ (pausieren) und je Kapitel „Brauche ich nicht“. Mit der Tastatur: Tab und Enter; Escape heißt „Später weiter“, wenn der Fokus in der Sprechblase steht.
 - **„Brauche ich nicht“** markiert ein Kapitel als nicht gebraucht (Zeichen – statt Haken, zum Beispiel ohne Companion). In der Kapitelübersicht nimmst du das mit „Doch gebraucht“ zurück.
-- **Stimme abschalten:** In der Kapitelübersicht mit dem Schalter „Stimme an“ / „Stimme aus“. Der Launcher merkt sich das je Rechner; die Lautstärke folgt dem System. Der Text steht immer da.
-- **Während der Produktion** (ein Tool läuft auf diesem Rechner, eine Show startet gerade, eine iveo-Show ist aktiv oder am Master folgen Tools anderer Rechner der Show) ist die Stimme von selbst aus; die Sprechblase sagt es. „Stimme trotzdem an“ gilt nur bis zum Ende dieser Produktion. Schritte, die in die Produktion eingreifen würden (Rolle wechseln, koppeln, Steuerebene umstellen, Neustart, Show öffnen), zeigt die Anleitung dann nur und warnt. Direkt nach dem Start des Launchers wartet die Stimme ein paar Sekunden, bis klar ist, ob Tools laufen; auch das sagt die Sprechblase.
+- **Stimme:** Launcher 0.17.0 hat noch keine Stimme; Kapitelübersicht und Sprechblase sagen „In dieser Fassung gibt es keine Stimme.“ Alle Texte stehen in der Sprechblase.
+- **Während der Produktion** (ein Tool läuft auf diesem Rechner, eine Show startet gerade, eine iveo-Show ist aktiv oder am Master folgen Tools anderer Rechner der Show) zeigt die Anleitung Schritte, die in die Produktion eingreifen würden (Rolle wechseln, koppeln, Steuerebene umstellen, Neustart, Show öffnen), nur („Nur zeigen“) und warnt vor dem Text. Direkt nach dem Start des Launchers zeigt sie solche Schritte ein paar Sekunden lang ebenfalls nur, bis klar ist, ob Tools laufen.
 - Für Techniker: In der Kapitelübersicht startet „Zeig mir“ ein einzelnes Kapitel, ein erledigtes im Modus „Nur zeigen“ mit „Weiter“.
 
 ### Nachbereitung
@@ -65,9 +65,12 @@ summary: "Der Launcher führt beim ersten Start wie ein Spiele-Tutorial in sechs
 | Risiko | Gegenmaßnahme |
 | --- | --- |
 | Nichts ist hervorgehoben, unter dem Text der Sprechblase steht, was fehlt (zum Beispiel „Öffne zuerst oben die Einstellungen.“ oder „Ich sehe den Knopf oben rechts gerade nicht. Zieh das Fenster breiter.“) | Genau das tun: den genannten Dialog oder Reiter öffnen bzw. das Fenster größer ziehen; dann ist das Bedienelement hervorgehoben |
-| Keine Stimme | In der Übersicht „Stimme an“; während einer Produktion ist sie absichtlich aus („Stimme trotzdem an“), direkt nach dem Start wartet sie ein paar Sekunden (die Sprechblase sagt beides); sonst die Lautstärke des Systems prüfen |
-| „Die Ansage konnte nicht abgespielt werden.“ | Der Text gilt weiter; Fall mit Version und Schritt über „Feedback senden“ melden |
+| „In dieser Fassung gibt es keine Stimme.“ | Kein Fehler: Launcher 0.17.0 hat noch keine Stimme; alle Texte stehen in der Sprechblase |
+| „Zu diesem Text gibt es keine Ansage.“ oder „Die Ansage konnte nicht abgespielt werden.“ (erst in einer Fassung mit Stimme) | Der Text gilt weiter; Fall mit Version und Schritt über „Feedback senden“ melden |
 | „Der Fortschritt kann auf diesem Rechner nicht gelesen werden. Die Anleitung startet deshalb nicht von selbst.“ | Die Anleitung läuft trotzdem über „Erste Schritte“, merkt sich den Stand aber nur bis zum Beenden; Profil und Rechte des Benutzerkontos prüfen |
+| „Der Fortschritt kann auf diesem Rechner nicht gemerkt werden.“ (unter jeder Sprechblase) | Die Anleitung läuft, merkt sich den Stand aber nur bis zum Beenden; Profil und Rechte des Benutzerkontos prüfen |
+| „Der gemerkte Fortschritt war unlesbar; die Anleitung beginnt neu.“ | Über „Erste Schritte“ neu durchgehen: Was der Launcher selbst sieht (Quelle, Tools, Rolle, gestartete Show), hat sofort wieder einen Haken; Bestätigungen wie „Companion ist verbunden“ oder „Die Show ist da“ neu geben |
+| „Der Fortschritt stammt von einer neueren Fassung und bleibt unverändert.“ | Ein neuerer Launcher hat ihn geschrieben (zum Beispiel vor einem Zurückstufen); die Anleitung läuft über „Erste Schritte“, merkt sich hier aber nichts. Mit dem neueren Launcher weitermachen |
 | Kapitel 3 oder 5 ohne zweiten Rechner bzw. ohne Companion | „Überspringen“ (bleibt offen) oder „Brauche ich nicht“ |
 | Kapitel 4 am Rechner mit „Mit Master verbinden“ | Die Show kommt vom Master; „Die Show ist da“ erst klicken, wenn die Tools sie zeigen |
 
@@ -76,7 +79,6 @@ summary: "Der Launcher führt beim ersten Start wie ein Spiele-Tutorial in sechs
 ### Neuer Rechner
 - [ ] Launcher installiert und gestartet, Anleitung erschienen
 - [ ] Kapitel 1 bis 6 erledigt, übersprungen oder als nicht gebraucht markiert
-- [ ] Stimme an oder bewusst aus
 
 ### Rechner im Verbund
 - [ ] Master gewählt bzw. mit dem Master gekoppelt und verbunden
