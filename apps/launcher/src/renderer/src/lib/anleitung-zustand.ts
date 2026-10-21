@@ -7,8 +7,10 @@
 import type {
   Anleitung,
   AnleitungSpeicher,
+  AnleitungsAnsicht,
   AnleitungsEreignis,
   AnleitungsFortschritt,
+  AnleitungsUmgebung,
   GelesenerFortschritt,
   SpeicherZustand,
   StartErgebnis,
@@ -342,6 +344,46 @@ export function startEntscheidung(e: StartEingang): {
   }
   if (e.start === 'anleitung') return { patchNotesJetzt: false, patchNotesNachAnleitung: faellig, gesehenSchreiben: null };
   return { patchNotesJetzt: faellig, patchNotesNachAnleitung: false, gesehenSchreiben: null };
+}
+
+// ── Ansicht im Launcher (Plan P14; Spec 6, 7; EP17, EP23, EP24; G7, G15) ──
+
+/** Umgebung der Ansicht (Spec 6, 7): Produktion oder „unklar“ (EP24) schalten die Stimme aus und lassen Eingriffe nur zeigen. */
+export function anleitungsUmgebung(
+  s: { produktion: boolean; produktionUnklar: boolean; stimmeAn: boolean; stimmeTrotzdem: boolean },
+  vorhanden: boolean,
+): AnleitungsUmgebung {
+  return { produktion: s.produktion || s.produktionUnklar, stimme: { vorhanden, an: s.stimmeAn, trotzdem: s.stimmeTrotzdem } };
+}
+
+/** Speicherzustände, in denen der Fortschritt nicht gemerkt wird (G8): nicht lesbar, nicht schreibbar, neuere Fassung. */
+const NICHT_GEMERKT: ReadonlyArray<TreiberStand['speicher']> = ['nichtLesbar', 'nichtSchreibbar', 'neuer'];
+
+/**
+ * Was die Sprechblase im Launcher zeigt (G7, EP23, EP24). Ist die Produktion nur unklar, gilt für Stimme und Eingriffe
+ * Produktion, aber die Blase behauptet keine: ohne die Warnung U18, und statt U21 steht `stimmeWartet` (L15). Merkt der
+ * Rechner den Fortschritt nicht, steht `nichtGemerkt` (U26) darunter, an jedem Schritt (auch am Neustart-Schritt, dessen
+ * „Danach geht es hier weiter“ dann nicht gilt). Beide stehen im angezeigten, nicht gesprochenen Feld `wiederfinden`.
+ */
+export function launcherBlase(
+  a: AnleitungsAnsicht,
+  s: { produktionUnklar: boolean; speicher: TreiberStand['speicher'] },
+  texte: { stimmeWartet: string; nichtGemerkt: string },
+): AnleitungsAnsicht {
+  if (a.blase === null) return a;
+  const b = a.blase;
+  const verdeckt = s.produktionUnklar && (b.ansage.hinweis === 'produktion' || b.ansage.hinweis === 'eingriff');
+  const hinweise = [b.wiederfinden, verdeckt ? texte.stimmeWartet : null, NICHT_GEMERKT.includes(s.speicher) ? texte.nichtGemerkt : null];
+  const text = hinweise.filter((h) => h !== null).join(' ');
+  return {
+    ...a,
+    blase: {
+      ...b,
+      produktionsWarnung: b.produktionsWarnung && !s.produktionUnklar,
+      ansage: verdeckt ? { ...b.ansage, hinweis: null } : b.ansage,
+      wiederfinden: text === '' ? null : text,
+    },
+  };
 }
 
 // ── Ende des Moduls ──

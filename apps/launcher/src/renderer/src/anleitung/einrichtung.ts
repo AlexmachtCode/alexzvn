@@ -47,6 +47,8 @@ export const LAUNCHER_ANLEITUNG_TEXTE = {
   /** L14: Fuß der Kapitelübersicht. */
   tipp: 'Tipp: Das JM Kochbuch (oben) hat Anleitungen & Best Practices.',
   schliessen: 'Schließen',
+  /** L15: in der Sprechblase statt U21, solange kurz nach dem Start unklar ist, ob eine Produktion läuft (EP24, P14). */
+  stimmeWartet: 'Die Stimme wartet noch kurz: Ob gerade eine Produktion läuft, sehe ich erst ein paar Sekunden nach dem Start des Launchers.',
 } as const;
 
 /** Die 20 Ziel-Kennungen der Anleitung in der Reihenfolge der Texttabelle (für Test und Doku, EP10). */

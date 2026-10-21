@@ -32,6 +32,8 @@ import {
   anleitungsEingang, erzeugeAnleitungsTreiber, PRESENCE_FRIST_MS, type LauncherLage, type TreiberStand,
 } from '../src/renderer/src/lib/anleitung-zustand.ts';
 import { startEntscheidung, type StartEingang } from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { anleitungAnsicht } from '@jm/ui/anleitung';
+import { anleitungsUmgebung, launcherBlase } from '../src/renderer/src/lib/anleitung-zustand.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -2493,6 +2495,124 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
     .filter((z) => { const i = nachSet.indexOf(z); return i > 0 && i < iStartNachSet; });
   ck(`P13 4, D20: Update-Hinweis, Badges und Presence werden vor der Anleitung angestoßen (${vorDerAnleitung.length} von 3)`,
     iStartNachSet > 0 && vorDerAnleitung.length === 3);
+}
+
+// --- Geführte Anleitung P14 (Spec 3, 6, 7; EP11, EP15, EP17–EP19, EP23, EP24; G3, G7, G15): Overlay mit Stimme und Produktionsmodus
+{
+  const json = (x: unknown): string => JSON.stringify(x);
+
+  // Produktion bis zur Ansage (Spec 7, G15; EP17, EP24): Treiber → Umgebung → echte Ansicht → Blase im Launcher. Erwartung aus
+  // den Achsen: still = Produktion oder „unklar“; trotzdem wirkt nur in einer echten Produktion; ein Eingriff spricht nie und
+  // zeigt nur; bei „unklar“ behauptet die Blase keine Produktion (keine Warnung U18, statt U21 der Hinweis L15).
+  const K6_OEFFNEN = json({ ...leererFortschritt(EINRICHTUNG.id), status: 'pausiert',
+    position: { ort: 'kapitel', kapitel: 'k6', schritt: 'k6.oeffnen', nurZeigen: false, warErfuellt: false } });
+  let nX = 0;
+  const abwX: string[] = [];
+  for (const eingriff of [false, true]) for (const laufend of [0, 1]) for (const launch of [false, true]) for (const iveo of [false, true])
+    for (const folgt of [false, true]) for (const unklarAchse of [false, true]) for (const an of [false, true]) for (const trotzdem of [false, true]) {
+      nX++;
+      const { t, lage } = treiberMit(speicherAttrappe(eingriff ? { [ANLEITUNG_SCHLUESSEL]: K6_OEFFNEN } : {}), {
+        states: unklarAchse ? { 'jm-timer': { status: 'installed' } } : {},
+        laufendeTools: laufend, showLaunch: launch, iveoActive: iveo, verbund: folgt ? MASTER_FOLGT : null,
+      });
+      t.starte({ bestehenderRechner: false });
+      if (eingriff) t.ereignis({ art: 'starten' });
+      if (trotzdem) t.stimmeTrotzdemAn();
+      const s = lage.stand;
+      const ansicht = anleitungAnsicht(EINRICHTUNG, s.fortschritt, s.jetzt, anleitungsUmgebung({ ...s, stimmeAn: an }, true));
+      const b = launcherBlase(ansicht, s, { stimmeWartet: 'L15', nichtGemerkt: 'U26' }).blase;
+      const prod = laufend > 0 || launch || iveo || folgt;
+      const unklar = !prod && unklarAchse;
+      const still = prod || unklar;
+      const wirkt = trotzdem && prod;
+      const soll = {
+        id: eingriff ? 'k6.oeffnen' : 'einleitung',
+        spielen: an && (!still || wirkt) && !(still && eingriff),
+        nurZeigen: still && eingriff,
+        warnung: prod && eingriff,
+        hinweis: !an ? 'aus' : unklar ? null : prod && eingriff ? 'eingriff' : prod && !wirkt ? 'produktion' : null,
+        text: unklar && an ? 'L15' : null,
+      };
+      const ist = { id: b?.ansage.id, spielen: b?.ansage.spielen, nurZeigen: b?.nurZeigen, warnung: b?.produktionsWarnung, hinweis: b?.ansage.hinweis, text: b?.wiederfinden };
+      if (json(ist) !== json(soll)) {
+        abwX.push(`${eingriff ? 'Eingriff' : 'Einleitung'}/${laufend}/${launch}/${iveo}/${folgt}/${unklarAchse ? 'unklar' : '-'}/${an ? 'an' : 'aus'}/${trotzdem ? 'trotzdem' : '-'}: ${json(ist)}`);
+      }
+    }
+  ck(`P14 7, G15, EP17, EP24: Produktion bis zur Ansage — Schritt × Tool läuft × Show-Start × iveo × Master folgt × „unklar“ × Stimme an × trotzdem (${nX} Fälle)${abwX.length ? ` — ${abwX.slice(0, 3).join('; ')}` : ''}`,
+    nX === 256 && abwX.length === 0);
+
+  // Speicher in der Sprechblase (G7, G8, EP23): merkt der Rechner nichts, sagt es die Blase — auch am Neustart-Schritt.
+  const basis = anleitungAnsicht(EINRICHTUNG, { ...leererFortschritt(EINRICHTUNG.id), status: 'laeuft', position: { ort: 'einleitung' } }, {},
+    anleitungsUmgebung({ produktion: false, produktionUnklar: false, stimmeAn: true, stimmeTrotzdem: false }, true));
+  const mitHinweis = { ...basis, blase: basis.blase === null ? null : { ...basis.blase, wiederfinden: 'W.' } };
+  const ohneBlase = { ...basis, blase: null };
+  let nS = 0;
+  const abwS: string[] = [];
+  for (const speicher of ['ok', 'leer', 'kaputt', 'nichtLesbar', 'nichtSchreibbar', 'neuer'] as const) {
+    const merkt = speicher === 'ok' || speicher === 'leer' || speicher === 'kaputt';
+    for (const [name, a, soll] of [['ohne Hinweis', basis, merkt ? null : 'U26'], ['mit Hinweis', mitHinweis, merkt ? 'W.' : 'W. U26'], ['ohne Blase', ohneBlase, undefined]] as const) {
+      nS++;
+      const ist = launcherBlase(a, { produktionUnklar: false, speicher }, { stimmeWartet: 'L15', nichtGemerkt: 'U26' }).blase?.wiederfinden;
+      if (ist !== soll) abwS.push(`${speicher}/${name}: ${ist}`);
+    }
+  }
+  ck(`P14 G7, G8, EP23: merkt der Rechner den Fortschritt nicht (nicht lesbar, nicht schreibbar, neuere Fassung), steht U26 in der Sprechblase (${nS} Fälle)${abwS.length ? ` — ${abwS.join('; ')}` : ''}`,
+    nS === 18 && abwS.length === 0);
+
+  const L15 = 'Die Stimme wartet noch kurz: Ob gerade eine Produktion läuft, sehe ich erst ein paar Sekunden nach dem Start des Launchers.';
+  ck('P14 9.3, EP24: L15 wörtlich in LAUNCHER_ANLEITUNG_TEXTE (ohne ASCII-Anführungszeichen)',
+    LAUNCHER_ANLEITUNG_TEXTE.stimmeWartet === L15 && !L15.includes('"'));
+
+  // Verdrahtung der Hülle (Quelltext-Wächter; components/Anleitung.tsx lädt React und die Ansagen und läuft hier nicht).
+  const huelle = quelleLfOderLeer('../src/renderer/src/components/Anleitung.tsx');
+  const app = quelleLf('../src/renderer/src/App.tsx');
+  const store = quelleLfOderLeer('../src/renderer/src/store/anleitung.ts');
+  const zWert = (k: string): number => Number(k.replace(/^z-\[?/, '').replace(/\]$/, ''));
+  const andere: number[] = [];
+  for (const datei of readdirSync(new URL('../src/renderer/src/components/', import.meta.url))) {
+    if (!datei.endsWith('.tsx') || datei === 'Anleitung.tsx') continue;
+    for (const m of quelleLf(`../src/renderer/src/components/${datei}`).matchAll(/fixed inset-0\b[^"]*?\b(z-\[\d+\]|z-\d+)/g)) andere.push(zWert(m[1]));
+  }
+  const eigen = /className="pointer-events-none fixed inset-0 (z-\[\d+\])"/.exec(huelle)?.[1];
+  const meldung = /\{notice && \(\s*<div className="[^"]*\b(z-\[\d+\])/.exec(app)?.[1];
+  ck(`P14 EP11: die Anleitung liegt über allen Dialogen und dem Lade-Overlay (bis z-${Math.max(...andere)}), unter der Meldung, ohne Klickfläche`,
+    eigen !== undefined && meldung !== undefined && zWert(eigen) > Math.max(...andere) && zWert(eigen) < zWert(meldung));
+  ck('P14 EP11: <Anleitung /> hängt in App.tsx direkt nach <ShowLaunchOverlay />, die Sprechblase mit noDragRegion',
+    /<ShowLaunchOverlay \/>\n\s*<Anleitung \/>/.test(app) && app.includes("import { Anleitung } from '@/components/Anleitung';")
+    && huelle.includes('blasenStil={noDragRegion}'));
+  const ui = (ordner: string): string[] =>
+    readdirSync(new URL(`../../../packages/ui/src/${ordner}/`, import.meta.url)).map((f) => `../../../packages/ui/src/${ordner}/${f}`);
+  const dateien = [
+    '../src/renderer/src/components/Anleitung.tsx', '../src/renderer/src/store/anleitung.ts', '../src/renderer/src/lib/anleitung-zustand.ts',
+    ...readdirSync(new URL('../src/renderer/src/anleitung/', import.meta.url)).filter((f) => f.endsWith('.ts')).map((f) => `../src/renderer/src/anleitung/${f}`),
+    ...ui('lib').filter((p) => /\/(anleitung[^/]*\.ts|useAnsage\.ts|useAnleitungsZiel\.ts)$/.test(p)),
+    ...ui('components').filter((p) => /\/Anleitung[^/]*\.tsx$/.test(p)),
+  ];
+  const befunde = dateien.flatMap((p) => g3Befunde(quelleLfOderLeer(p)).map((x) => `${p.split('/').pop()}: ${x}`));
+  ck(`P14 G3: kein Anleitungs-Code bedient etwas, startet etwas oder öffnet einen Dialog (${dateien.length} Dateien)${befunde.length ? ` — ${befunde.join(', ')}` : ''}`,
+    dateien.length === 11 && dateien.every((p) => quelleLfOderLeer(p).length > 0) && befunde.length === 0);
+  ck('P14 G15, EP17, EP23, EP24: die Hülle reicht Produktion, „unklar“, Stimme und Speicher aus dem Store an Umgebung und Blase',
+    ['const produktion = useAnleitung((s) => s.produktion);', 'const produktionUnklar = useAnleitung((s) => s.produktionUnklar);',
+      'const stimmeAn = useAnleitung((s) => s.stimmeAn);', 'const stimmeTrotzdem = useAnleitung((s) => s.stimmeTrotzdem);',
+      'const speicher = useAnleitung((s) => s.speicher);',
+      'const umgebung = anleitungsUmgebung({ produktion, produktionUnklar, stimmeAn, stimmeTrotzdem }, STIMME_VORHANDEN);',
+      'return anleitungAnsicht(EINRICHTUNG, fortschritt, jetzt, umgebung);',
+      'const gezeigt = launcherBlase(ansicht, { produktionUnklar, speicher }, { stimmeWartet: LAUNCHER_ANLEITUNG_TEXTE.stimmeWartet, nichtGemerkt: ANLEITUNG_TEXTE.speicherNichtSchreibbar });',
+      'ansicht={gezeigt}'].every((z) => huelle.includes(z)));
+  ck('P14 6, G15: „Stimme trotzdem an“ geht an den Treiber (nur bis zum Ende der Produktion) und wird nie gemerkt; gemerkt wird nur an/aus je Rechner',
+    store.includes('    stimmeTrotzdemAn: () => treiber.stimmeTrotzdemAn(),') && (store.match(/setItem\(/g) ?? []).length === 1
+    && store.includes("launcherSpeicher()?.setItem(STIMME_SCHLUESSEL, an ? 'an' : 'aus');"));
+  ck('P14 6, EP15: die Ansage spielt über useAnsage mit der Datei aus dem Manifest, nur wenn die gezeigte Blase es erlaubt',
+    huelle.includes('const fehler = useAnsage(id ? ansageUrl(id) : null, id, spielen);')
+    && huelle.includes('const spielen = gezeigt.blase?.ansage.spielen ?? false;')
+    && huelle.includes('stimme={{ vorhanden: STIMME_VORHANDEN, an: stimmeAn, fehler, umschalten: stimmeUmschalten, trotzdemAn: stimmeTrotzdemAn }}'));
+  const ansage = funktionsKoerper(quelleLf('../../../packages/ui/src/lib/useAnsage.ts'), 'export function useAnsage(');
+  ck('P14 6, G15: useAnsage stoppt die laufende Ansage, sobald spielen falsch wird (Effekt hängt an url, id und spielen)',
+    ansage.includes('return starteAnsage(url, id, spielen, (u) => new Audio(u), (fehler) => setStand(ansageStand(id, fehler)));')
+    && ansage.includes('  }, [url, id, spielen]);'));
+  ck('P14 EP19: Steuerebene alle 5 s nachlesen, solange Sprechblase oder Kapitelübersicht offen sind',
+    huelle.includes('const sichtbar = ansicht.blase !== null || onboardingOpen;')
+    && huelle.includes('const t = setInterval(() => void ladeSteuerebene(), 5000);') && huelle.includes('return () => clearInterval(t);'));
 }
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
