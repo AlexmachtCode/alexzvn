@@ -11,9 +11,8 @@ vermerkt).
 
 ## Gewählte Stimme
 
-Noch offen (Owner-Frage OFP1). Bis zur Entscheidung enthält `manifest.json` keine Stimme (Feld `stimme` ist `null`),
-und der Launcher zeigt in der Kapitelübersicht „In dieser Fassung gibt es keine Stimme.“. Die Texte stehen immer in der
-Sprechblase.
+Owner-Entscheidung OFP1 vom 20.10.2026: ohne Ton. Der Launcher erscheint ohne Stimme, `manifest.json` bleibt ohne Stimme,
+und die Kapitelübersicht zeigt „In dieser Fassung gibt es keine Stimme.“. Die Stimme folgt später.
 
 Vorgabe des Plans: `de_DE-mls-medium`, Sprecher nach Hörprobe, `--length-scale 1.05`, `--sentence-silence 0.3`.
 `de_DE-thorsten-medium` nur, wenn der Owner das unten beschriebene Restrisiko ausdrücklich annimmt. Klingt keine Stimme gut
