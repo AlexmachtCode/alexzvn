@@ -2955,5 +2955,28 @@ await (async () => {
     iScroll < iAlert && iAlert < iFuss);
 }
 
+// Owner-Abnahme 21.10.2026 (Screenshot): Die Kapitelübersicht „Erste Schritte“ war höher als das Fenster und ließ sich
+// nicht scrollen; das Overlay scrollt nicht. Wie #233 (SystemStatusModal) und der Show-Editor: ein eigener Container in der
+// Card ist höchstens fensterhoch, nur er scrollt. Gleiches für die Szenario-Auswahl, auf die Kapitel 4 zeigt (k4.szenario).
+{
+  const uebersicht = quelleLf('../src/renderer/src/components/OnboardingModal.tsx');
+  const karteU = /<Card className="[^"]*">([\s\S]*?)<\/Card>/.exec(uebersicht)?.[1] ?? '';
+  const scrollU = /<div className="([^"]*\bmax-h-\[calc\(100vh-6rem\)\][^"]*)">\s*<AnleitungsUebersicht\b/.exec(karteU);
+  ck('Layout: die Kapitelübersicht ist höchstens fensterhoch und scrollt (eigener Container in der Card, wie #233)',
+    !!scrollU && /\boverflow-y-auto\b/.test(scrollU[1]));
+  const iKreuz = karteU.indexOf('aria-label={L.schliessen}');
+  ck('Layout: … das Schließen-Kreuz liegt außerhalb des Scrollbereichs und bleibt beim Scrollen sichtbar',
+    iKreuz >= 0 && !!scrollU && iKreuz < scrollU.index);
+  const auswahl = quelleLf('../src/renderer/src/components/ScenarioPicker.tsx');
+  const karteS = /<Card className="[^"]*">([\s\S]*?)<\/Card>/.exec(auswahl)?.[1] ?? '';
+  const iHuelleS = karteS.indexOf('<div className="flex max-h-[calc(100vh-6rem)] flex-col">');
+  const scrollS = /<div className="([^"]*\boverflow-y-auto\b[^"]*)">/.exec(karteS);
+  const iRaster = karteS.indexOf('data-anleitung="szenario.auswahl"');
+  const iFussS = karteS.search(/<div className="[^"]*\bshrink-0\b[^"]*">\s*<p className="text-\[11px\]/);
+  ck('Layout: die Szenario-Auswahl ist höchstens fensterhoch, nur die Vorlagen scrollen (min-h-0), Kopf und Fuß schrumpfen nicht',
+    iHuelleS >= 0 && !!scrollS && iHuelleS < scrollS.index && /\bmin-h-0\b/.test(scrollS[1]) && !/\bshrink-0\b/.test(scrollS[1])
+    && scrollS.index < iRaster && iRaster < iFussS);
+}
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

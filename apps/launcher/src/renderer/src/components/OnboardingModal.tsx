@@ -53,19 +53,23 @@ export function OnboardingModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 backdrop-blur-sm px-6">
+    <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 backdrop-blur-sm p-6">
       <Card className="relative w-full max-w-xl p-6 jm-fade-in">
         <button
           type="button"
           onClick={close}
           aria-label={L.schliessen}
-          className="absolute right-4 top-4 grid size-8 place-items-center rounded-[var(--radius)] border border-[var(--border)]
-                     text-[var(--muted-foreground)] transition-colors hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
+          className="absolute right-4 top-4 z-10 grid size-8 place-items-center rounded-[var(--radius)] border border-[var(--border)]
+                     bg-[var(--card)] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
         </button>
+        {/* Höchstens fensterhoch, nur die Übersicht scrollt (Owner-Abnahme 21.10.2026; Muster #233 SystemStatusModal):
+            eigener Container, weil Card ihre Kinder in ein eigenes div packt. Fenster minus Außenabstand (p-6) minus
+            Innenabstand der Card (p-6). Das Schließen-Kreuz liegt außerhalb und bleibt beim Scrollen sichtbar. */}
+        <div className="-mr-2 max-h-[calc(100vh-6rem)] overflow-y-auto pr-2">
         <AnleitungsUebersicht
           ansicht={ansicht}
           aufEreignis={aufEreignis}
@@ -84,6 +88,7 @@ export function OnboardingModal() {
           stimme={{ vorhanden: STIMME_VORHANDEN, an: stimmeAn, umschalten: stimmeUmschalten, namensnennung: NAMENSNENNUNG }}
           schliessen={close}
         />
+        </div>
       </Card>
     </div>
   );
