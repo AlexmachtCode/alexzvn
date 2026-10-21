@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import type { AnleitungsAnsicht, AnleitungsEreignis, BlasenAnsicht } from '../lib/anleitung';
-import { BLASEN_GROESSE, blasenFokus, blasenPlatz, blasenTaste, type Groesse, type ZielStand } from '../lib/anleitung-dom';
+import { BLASEN_GROESSE, blasenFokus, blasenLage, blasenPlatz, blasenTaste, type Groesse, type ZielStand } from '../lib/anleitung-dom';
 import { cn } from '../lib/cn';
 import { STATUS_SYMBOL, STATUS_SYMBOL_KLASSE } from '../lib/status';
 import { ANLEITUNG_TEXTE, UI_TEXTE } from '../lib/texte';
@@ -139,7 +139,7 @@ export function AnleitungsBlase(p: AnleitungsSchichtProps & { zielRechteck: Ziel
         tabIndex={-1}
         data-seite={platz.seite}
         onKeyDown={(e) => blasenTaste(e, blase.knoepfe.spaeter, ereignis)}
-        style={{ left: platz.x, top: platz.y, ...p.blasenStil }}
+        style={{ ...blasenLage(platz, p.fenster, BLASEN_GROESSE), ...p.blasenStil }}
         className="pointer-events-auto absolute flex max-h-[300px] w-[var(--panel-w)] max-w-[calc(100vw-16px)] flex-col gap-3 overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--tally-selected)] bg-[var(--surface-raised)] p-4 text-sm text-[var(--foreground)] shadow-xl outline-none motion-safe:transition-opacity motion-safe:duration-150"
       >
         {blase.kapitel !== null ? (

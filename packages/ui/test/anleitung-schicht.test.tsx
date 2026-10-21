@@ -11,6 +11,7 @@ import {
   ZIEL_ATTRIBUT,
   anleitungTaste,
   blasenFokus,
+  blasenLage,
   blasenPlatz,
   blasenTaste,
   findeZiel,
@@ -147,6 +148,41 @@ const nichts = (): void => undefined;
     const ist = deckt(p.x, p.y, z);
     return drin && p.seite !== 'mitte' && ist <= kleinste ? null : `ist: ${JSON.stringify(p)} überdeckt ${ist} px², kleinste ${kleinste} px², drin=${drin}`;
   });
+  // Verankerung (blasenLage): Geplant wird mit 300 px Höhe, die echte Blase ist oft kürzer (Ist-Höhe h). Sie sitzt trotzdem am
+  // Ziel — oben mit der Unterkante, unten mit der Oberkante je 12 px am Ziel, rechts, links und mitte mit ihrer Mitte auf der
+  // geplanten Mitte, in der Ecke am Fensterrand — und bleibt im geplanten Platz (im Fenster, nie über mehr vom Ziel als geplant).
+  const ZIELE = (W: number, H: number): Array<Rechteck | null> => [
+    ...(['links', 'mitte', 'rechts'] as const).flatMap((zx) =>
+      (['oben', 'mitte', 'unten'] as const).map((zy) => ({
+        x: zx === 'links' ? 8 : zx === 'mitte' ? (W - 120) / 2 : W - 128,
+        y: zy === 'oben' ? 6 : zy === 'mitte' ? (H - 32) / 2 : H - 40,
+        breite: 120,
+        hoehe: 32,
+      })),
+    ),
+    { x: (W - 624) / 2, y: (H - 500) / 2 + 104, breite: 624, hoehe: 310 },
+    { x: 8, y: 8, breite: Math.round(W * 0.7), hoehe: Math.round(H * 0.7) },
+    { x: W - 8 - Math.round(W * 0.7), y: H - 8 - Math.round(H * 0.7), breite: Math.round(W * 0.7), hoehe: Math.round(H * 0.7) },
+    null,
+  ];
+  const LAGE = kreuz({ fenster: [{ breite: 980, hoehe: 640 }, { breite: 1280, hoehe: 800 }], ziel: Array.from({ length: 13 }, (_, i) => i), h: [120, 200, 300] });
+  const seiten = new Set<string>();
+  pruefeFaelle('P4 EP11: blasenLage – bei jeder Ist-Höhe am Ziel und im geplanten Platz (Seite × Ziel × Fenster × Höhe)', LAGE, (c) => {
+    const { breite: W, hoehe: H } = c.fenster;
+    const z = ZIELE(W, H)[c.ziel];
+    const p = blasenPlatz(z, c.fenster, B);
+    const l = blasenLage(p, c.fenster, B);
+    seiten.add(p.seite);
+    const oben = l.top !== undefined ? l.top - (l.transform === 'translateY(-50%)' ? c.h / 2 : 0) : H - (l.bottom ?? NaN) - c.h;
+    const imPlan = l.left === p.x && oben >= p.y && oben + c.h <= p.y + B.hoehe;
+    const amZiel =
+      p.seite === 'oben' ? z !== null && oben + c.h === z.y - 12
+        : p.seite === 'unten' ? z !== null && oben === z.y + z.hoehe + 12
+          : p.seite === 'ecke' ? (p.y === BLASEN_RAND ? oben === BLASEN_RAND : oben + c.h === H - BLASEN_RAND)
+            : oben + c.h / 2 === p.y + B.hoehe / 2;
+    return imPlan && amZiel ? null : `seite ${p.seite}, lage ${JSON.stringify(l)}, oben ${oben}, imPlan=${imPlan} amZiel=${amZiel}`;
+  });
+  gleich([...seiten].sort(), ['ecke', 'links', 'mitte', 'oben', 'rechts', 'unten'], 'P4 EP11: die Verankerung ist für jede Seite geprüft (unten, oben, rechts, links, Ecke, Mitte)');
 }
 
 // ── Tasten und Fokus (Spec 3, EP18) ──
@@ -282,6 +318,13 @@ const dialog = (html: string): string => tags(html, 'div').find((t) => attr(t, '
       tags(html, 'div').filter((t) => klassen(t).includes('pointer-events-auto')).length === 1 &&
       klassen(d).includes('pointer-events-auto'),
     'P4 EP11: className der App am äußeren Container, nur die Sprechblase nimmt Klicks an',
+  );
+  // Die Sprechblase sitzt am Ziel, auch wenn sie kürzer ist als die geplanten 300 px: Seite oben hängt an ihrer Unterkante
+  // (bottom = 640 − (560 − 12) = 92), sonst klaffte über einem Ziel unten im Fenster eine Lücke von 300 px minus Ist-Höhe.
+  const amBoden = dialog(blase({}, { zielRechteck: { x: 600, y: 560, breite: 120, hoehe: 32 } }));
+  ok(
+    attr(amBoden, 'data-seite') === 'oben' && (attr(amBoden, 'style') ?? '').includes('bottom:92px') && !(attr(amBoden, 'style') ?? '').includes('top:'),
+    'P4 EP11: Seite oben ist über bottom verankert (Unterkante 12 px über dem Ziel, gleich wie hoch die Blase ist)',
   );
   const hervor = tags(html, 'div').find((t) => attr(t, 'data-abdunkeln') === 'ziel') ?? '';
   ok(
