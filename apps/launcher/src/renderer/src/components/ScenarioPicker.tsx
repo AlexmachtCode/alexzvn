@@ -1,4 +1,4 @@
-import { Button, Card, cn } from '@jm/ui';
+import { Button, Card, cn, noDragRegion } from '@jm/ui';
 import { useTools } from '@/store/tools';
 import { SCENARIOS, toolLabel, type Scenario } from '@/lib/scenarios';
 
@@ -26,7 +26,7 @@ export function ScenarioPicker() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6" style={noDragRegion}>
       <Card className="w-full max-w-2xl p-6 jm-fade-in">
         {/* Höchstens fensterhoch, nur die Vorlagen scrollen (Owner-Abnahme 21.10.2026; Muster #233 SystemStatusModal):
             eigener flex-col-Container, weil Card ihre Kinder in ein eigenes div packt; Kopf und Fuß schrumpfen nicht. */}

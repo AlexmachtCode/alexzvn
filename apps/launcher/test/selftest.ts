@@ -2959,11 +2959,21 @@ await (async () => {
 // nicht scrollen; das Overlay scrollt nicht. Wie #233 (SystemStatusModal) und der Show-Editor: ein eigener Container in der
 // Card ist höchstens fensterhoch, nur er scrollt. Gleiches für die Szenario-Auswahl, auf die Kapitel 4 zeigt (k4.szenario).
 {
+  // Klassen als Wörter vergleichen (ein Präfix wie lg: wirkt nicht immer), Verschachtelung über die Tiefe der div-Tags.
+  const klassen = (k: string): string[] => k.split(/\s+/).filter(Boolean);
+  const tiefeZwischen = (text: string, von: number, bis: number): number => {
+    let tiefe = 0;
+    for (const m of text.slice(von, bis).matchAll(/<div\b[^>]*?(\/?)>|<\/div>/g)) {
+      if (m[0] === '</div>') tiefe--; else if (m[1] !== '/') tiefe++;
+    }
+    return tiefe;
+  };
   const uebersicht = quelleLf('../src/renderer/src/components/OnboardingModal.tsx');
   const karteU = /<Card className="[^"]*">([\s\S]*?)<\/Card>/.exec(uebersicht)?.[1] ?? '';
-  const scrollU = /<div className="([^"]*\bmax-h-\[calc\(100vh-6rem\)\][^"]*)">\s*<AnleitungsUebersicht\b/.exec(karteU);
+  const scrollU = /<div className="([^"]*)">\s*<AnleitungsUebersicht\b/.exec(karteU);
+  const kU = klassen(scrollU?.[1] ?? '');
   ck('Layout: die Kapitelübersicht ist höchstens fensterhoch und scrollt (eigener Container in der Card, wie #233)',
-    !!scrollU && /\boverflow-y-auto\b/.test(scrollU[1]));
+    kU.includes('max-h-[calc(100vh-6rem)]') && kU.includes('overflow-y-auto') && tiefeZwischen(karteU, 0, scrollU?.index ?? 0) === 0);
   const iKreuz = karteU.indexOf('aria-label={L.schliessen}');
   ck('Layout: … das Schließen-Kreuz liegt außerhalb des Scrollbereichs und bleibt beim Scrollen sichtbar',
     iKreuz >= 0 && !!scrollU && iKreuz < scrollU.index);
@@ -2971,11 +2981,18 @@ await (async () => {
   const karteS = /<Card className="[^"]*">([\s\S]*?)<\/Card>/.exec(auswahl)?.[1] ?? '';
   const iHuelleS = karteS.indexOf('<div className="flex max-h-[calc(100vh-6rem)] flex-col">');
   const scrollS = /<div className="([^"]*\boverflow-y-auto\b[^"]*)">/.exec(karteS);
+  const kS = klassen(scrollS?.[1] ?? '');
   const iRaster = karteS.indexOf('data-anleitung="szenario.auswahl"');
   const iFussS = karteS.search(/<div className="[^"]*\bshrink-0\b[^"]*">\s*<p className="text-\[11px\]/);
   ck('Layout: die Szenario-Auswahl ist höchstens fensterhoch, nur die Vorlagen scrollen (min-h-0), Kopf und Fuß schrumpfen nicht',
-    iHuelleS >= 0 && !!scrollS && iHuelleS < scrollS.index && /\bmin-h-0\b/.test(scrollS[1]) && !/\bshrink-0\b/.test(scrollS[1])
+    iHuelleS >= 0 && !!scrollS && iHuelleS < scrollS.index && kS.includes('min-h-0') && kS.includes('flex-1') && kS.includes('overflow-y-auto')
+    && !kS.includes('shrink-0') && tiefeZwischen(karteS, iHuelleS, scrollS.index) === 1 && tiefeZwischen(karteS, iHuelleS, iFussS) === 1
     && scrollS.index < iRaster && iRaster < iFussS);
+  // Prüfung des Fixes: Ohne Sperre schluckt die Zieh-Fläche des Kopfs Klicks auch unter dem Overlay (#233); seit die Karten
+  // fensterhoch sind, reichen sie in den Kopf hinein.
+  ck('Layout: … beide Overlays heben die Zieh-Fläche des Kopfs auf (noDragRegion wie System-Zustand und Verbund)',
+    /<div className="fixed inset-0 z-40 [^"]*"\s+style=\{noDragRegion\}/.test(uebersicht)
+    && /<div className="fixed inset-0 z-50 [^"]*"\s+style=\{noDragRegion\}/.test(auswahl));
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

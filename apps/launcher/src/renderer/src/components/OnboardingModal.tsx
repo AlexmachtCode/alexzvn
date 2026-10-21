@@ -1,4 +1,4 @@
-import { ANLEITUNG_TEXTE, AnleitungsUebersicht, Card, type AnleitungsEreignis } from '@jm/ui';
+import { ANLEITUNG_TEXTE, AnleitungsUebersicht, Card, noDragRegion, type AnleitungsEreignis } from '@jm/ui';
 import { LAUNCHER_ANLEITUNG_TEXTE as L } from '@/anleitung/einrichtung';
 import { NAMENSNENNUNG, STIMME_VORHANDEN } from '@/anleitung/stimme';
 import { kapitelDetails } from '@/lib/anleitung-zustand';
@@ -53,14 +53,14 @@ export function OnboardingModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 backdrop-blur-sm p-6">
+    <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 backdrop-blur-sm p-6" style={noDragRegion}>
       <Card className="relative w-full max-w-xl p-6 jm-fade-in">
         <button
           type="button"
           onClick={close}
           aria-label={L.schliessen}
           className="absolute right-4 top-4 z-10 grid size-8 place-items-center rounded-[var(--radius)] border border-[var(--border)]
-                     bg-[var(--card)] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
+                     text-[var(--muted-foreground)] transition-colors hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
             <path d="M18 6 6 18M6 6l12 12" />
@@ -68,8 +68,9 @@ export function OnboardingModal() {
         </button>
         {/* Höchstens fensterhoch, nur die Übersicht scrollt (Owner-Abnahme 21.10.2026; Muster #233 SystemStatusModal):
             eigener Container, weil Card ihre Kinder in ein eigenes div packt. Fenster minus Außenabstand (p-6) minus
-            Innenabstand der Card (p-6). Das Schließen-Kreuz liegt außerhalb und bleibt beim Scrollen sichtbar. */}
-        <div className="-mr-2 max-h-[calc(100vh-6rem)] overflow-y-auto pr-2">
+            Innenabstand der Card (p-6). Das Schließen-Kreuz liegt außerhalb und bleibt beim Scrollen sichtbar; -ml-1 pl-1 pb-1
+            halten Platz für die Fokusringe am Rand, die der Scrollbereich sonst abschneidet. */}
+        <div className="-mr-2 -ml-1 max-h-[calc(100vh-6rem)] overflow-y-auto pb-1 pl-1 pr-2">
         <AnleitungsUebersicht
           ansicht={ansicht}
           aufEreignis={aufEreignis}
