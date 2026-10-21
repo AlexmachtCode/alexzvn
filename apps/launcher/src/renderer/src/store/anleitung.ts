@@ -42,6 +42,8 @@ export interface AnleitungStore {
   stimmeTrotzdem: boolean;
   /** Hinweis „Neu: geführte Einrichtung“ am Knopf (OF2, EP8): nur diese Sitzung; auch bei unlesbarem Speicher (EP23). */
   hinweis: boolean;
+  /** „Was ist neu?“ wartet, bis die Anleitung pausiert, endet oder beendet wird (EP9; das Abo steht in store/tools.ts). */
+  patchNotesNachAnleitung: boolean;
   starte: (u: { bestehenderRechner: boolean }) => 'anleitung' | 'hinweis' | null;
   ereignis: (e: AnleitungsEreignis) => void;
   toolEreignis: (name: string) => void;
@@ -109,6 +111,7 @@ export const useAnleitung = create<AnleitungStore>((set, get) => {
     stimmeAn: leseStimmeAn(),
     stimmeTrotzdem: false,
     hinweis: false,
+    patchNotesNachAnleitung: false,
 
     starte: (u) => {
       // Der Treiber wirkt je Fenster einmal (React StrictMode ruft load() im Dev zweimal, D15); Abos und Steuerebene danach.

@@ -31,6 +31,7 @@ import { leseFortschritt, schreibeFortschritt } from '@jm/ui/anleitung';
 import {
   anleitungsEingang, erzeugeAnleitungsTreiber, PRESENCE_FRIST_MS, type LauncherLage, type TreiberStand,
 } from '../src/renderer/src/lib/anleitung-zustand.ts';
+import { startEntscheidung, type StartEingang } from '../src/renderer/src/lib/anleitung-zustand.ts';
 import { holeAlleSeiten, RELEASES_MAX_SEITEN } from '../src/main/release-liste.ts';
 
 let pass = 0, fail = 0;
@@ -2426,6 +2427,72 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
   ck(`P12 G9: Aufrufer von saveShow unverändert (${aufrufer.sort().join(', ')})`,
     aufrufer.join(',') === 'components/ShowEditorModal.tsx:1,store/tools.ts:1'
     && quelleLf('../src/renderer/src/components/ShowEditorModal.tsx').includes('const ok = await saveShow(show, editPath ?? undefined, f.iveoNeuGebunden !== null);'));
+}
+
+// --- Geführte Anleitung P13 (Spec 4, OF2; EP7–EP9): Startregeln und „Was ist neu?“ danach ------------------------------
+{
+  const faelle: StartEingang[] = [];
+  for (const start of ['anleitung', 'hinweis', null] as const)
+    for (const version of ['0.17.0', null] as const)
+      for (const gesehen of ['0.17.0', '0.16.0', null] as const)
+        for (const hatNotes of [true, false]) faelle.push({ start, version, gesehen, hatNotes });
+  // Erwartung (EP9): fällig = Version da, anders als gesehen, Notes da. Der erste automatische Start (noch keine Fassung
+  // gesehen) merkt die Fassung und zeigt nichts; sonst wartet „Was ist neu?“ hinter einer laufenden Anleitung oder kommt sofort.
+  const soll = (e: StartEingang) => {
+    const faellig = e.version !== null && e.gesehen !== e.version && e.hatNotes;
+    if (e.start === 'anleitung' && e.gesehen === null && e.version !== null) {
+      return { patchNotesJetzt: false, patchNotesNachAnleitung: false, gesehenSchreiben: e.version };
+    }
+    if (e.start === 'anleitung') return { patchNotesJetzt: false, patchNotesNachAnleitung: faellig, gesehenSchreiben: null };
+    return { patchNotesJetzt: faellig, patchNotesNachAnleitung: false, gesehenSchreiben: null };
+  };
+  const abw = faelle.filter((e) => JSON.stringify(startEntscheidung(e)) !== JSON.stringify(soll(e)));
+  ck(`P13 4, EP9: startEntscheidung = Erwartung (${faelle.length} Fälle)${abw.length ? ` — ${abw.slice(0, 3).map((e) => JSON.stringify(e)).join('; ')}` : ''}`,
+    abw.length === 0);
+  ck('P13 4: „Was ist neu?“ nie zugleich mit der von selbst startenden Anleitung und nie doppelt (sofort und danach)',
+    faelle.every((e) => { const r = startEntscheidung(e); return !(r.patchNotesJetzt && (e.start === 'anleitung' || r.patchNotesNachAnleitung)); }));
+  ck('P13 EP9: „gesehen“ wird nur beim ersten automatischen Start geschrieben (nie beim Hinweis, nie ohne Version)',
+    faelle.every((e) => (startEntscheidung(e).gesehenSchreiben !== null) === (e.start === 'anleitung' && e.gesehen === null && e.version !== null)));
+  const erster = startEntscheidung({ start: 'anleitung', version: '0.17.0', gesehen: null, hatNotes: true });
+  const zweiter = startEntscheidung({ start: null, version: '0.17.0', gesehen: erster.gesehenSchreiben, hatNotes: true });
+  ck('P13 EP9 (Ist-L 11 Nr. 1): erster Start mit Anleitung ohne „Was ist neu?“ — und der zweite Start ohne Update auch nicht',
+    erster.gesehenSchreiben === '0.17.0' && !erster.patchNotesJetzt && !erster.patchNotesNachAnleitung && !zweiter.patchNotesJetzt);
+  const nachNeustart = startEntscheidung({ start: 'anleitung', version: '0.17.0', gesehen: '0.16.0', hatNotes: true });
+  const hinweisUpdate = startEntscheidung({ start: 'hinweis', version: '0.17.0', gesehen: '0.16.0', hatNotes: true });
+  ck('P13 EP7, OF2: Fortsetzen nach dem Neustart mit neuer Fassung → „Was ist neu?“ danach; bestehender Rechner mit Hinweis → sofort',
+    nachNeustart.patchNotesNachAnleitung && !nachNeustart.patchNotesJetzt && nachNeustart.gesehenSchreiben === null
+    && hinweisUpdate.patchNotesJetzt && hinweisUpdate.gesehenSchreiben === null);
+}
+{
+  const tools = quelleLf('../src/renderer/src/store/tools.ts');
+  const anleitung = quelleLfOderLeer('../src/renderer/src/store/anleitung.ts');
+  const load = funktionsKoerper(tools, 'load: async () => {');
+  const iStart = load.indexOf('const start = useAnleitung.getState().starte({ bestehenderRechner: readOnboarded() });');
+  const iEnt = load.indexOf('const notes = startEntscheidung({');
+  const iNotes = load.indexOf("if (notes.patchNotesJetzt && version) set({ patchNotes: { app: 'launcher', highlight: version } });");
+  ck('P13 4, EP7–EP9: load() fragt zuerst die Anleitung, dann startEntscheidung, dann „Was ist neu?“',
+    iStart >= 0 && iStart < iEnt && iEnt < iNotes);
+  ck('P13 EP8: die Checkliste öffnet sich nicht mehr von selbst; jmps:onboardedV1 wird nur noch gelesen',
+    load.length > 0 && !load.includes('onboardingOpen: true') && !tools.includes('setItem(ONBOARDED_KEY')
+    && tools.includes("    return localStorage.getItem(ONBOARDED_KEY) === '1';"));
+  const nach = funktionsKoerper(tools, 'function zeigePatchNotesNachAnleitung(version: string): void {');
+  ck('P13 EP9: „gesehen“ beim ersten automatischen Start (in try/catch); zurückgestellte Notes, sobald die Anleitung nicht mehr läuft',
+    load.includes('localStorage.setItem(SEEN_VERSION_KEY, notes.gesehenSchreiben);') && imTry(load, load.indexOf('localStorage.setItem(SEEN_VERSION_KEY'))
+    && load.includes('if (notes.patchNotesNachAnleitung && version) zeigePatchNotesNachAnleitung(version);')
+    && nach.includes("if (a.fortschritt.status === 'laeuft' || !a.patchNotesNachAnleitung) return;")
+    && nach.includes("set({ patchNotes: { app: 'launcher', highlight: version } });")
+    && anleitung.includes('    patchNotesNachAnleitung: false,'));
+  // D15: React StrictMode ruft load() im Dev zweimal (main.tsx); das zweite Mal darf „Was ist neu?“ nicht noch einmal abonnieren.
+  const nurEinmal = 'if (useAnleitung.getState().patchNotesNachAnleitung) return;';
+  ck('P13 4, D15: „Was ist neu?“ nach der Anleitung wird je Fenster nur einmal abonniert, auch wenn load() zweimal läuft',
+    nach.includes(nurEinmal) && nach.indexOf(nurEinmal) < nach.indexOf('useAnleitung.setState({ patchNotesNachAnleitung: true });'));
+  // D20: die Update-Prüfungen stehen vor dem neuen Code der Anleitung — ein Fehler dort hält sie nicht auf.
+  const nachSet = load.slice(Math.max(0, load.indexOf('set({ tools, states: byId(states), settings, version, loading: false });')));
+  const iStartNachSet = nachSet.indexOf('const start = useAnleitung.getState().starte(');
+  const vorDerAnleitung = ['void useTools.getState().checkUpdates();', 'void useTools.getState().loadLauncherUpdate();', 'void useTools.getState().loadPresence();']
+    .filter((z) => { const i = nachSet.indexOf(z); return i > 0 && i < iStartNachSet; });
+  ck(`P13 4, D20: Update-Hinweis, Badges und Presence werden vor der Anleitung angestoßen (${vorDerAnleitung.length} von 3)`,
+    iStartNachSet > 0 && vorDerAnleitung.length === 3);
 }
 
 // --- Release-Liste: alle Seiten lesen ----------------------------------------

@@ -316,4 +316,32 @@ export function erzeugeAnleitungsTreiber(o: TreiberUmgebung): AnleitungsTreiber 
   };
 }
 
+// ── Startregeln (Plan P13; Spec 4, EP7–EP9) ──
+
+/** Eingang der Startentscheidung: was die Anleitung beim Start tut, installierte und zuletzt gesehene Fassung, Notes da? */
+export interface StartEingang {
+  start: 'anleitung' | 'hinweis' | null;
+  version: string | null;
+  gesehen: string | null;
+  hatNotes: boolean;
+}
+
+/**
+ * „Was ist neu?“ beim Start (Spec 4, EP9): nie zugleich mit der Anleitung. Startet sie von selbst, wartet „Was ist neu?“,
+ * bis sie pausiert oder endet. Beim ersten automatischen Start (noch keine Fassung gesehen) gilt die installierte Fassung
+ * als gesehen — sonst käme „Was ist neu?“ beim zweiten Start ohne Update (Ist-L 11 Nr. 1).
+ */
+export function startEntscheidung(e: StartEingang): {
+  patchNotesJetzt: boolean;
+  patchNotesNachAnleitung: boolean;
+  gesehenSchreiben: string | null;
+} {
+  const faellig = e.version !== null && e.gesehen !== e.version && e.hatNotes;
+  if (e.start === 'anleitung' && e.gesehen === null && e.version !== null) {
+    return { patchNotesJetzt: false, patchNotesNachAnleitung: false, gesehenSchreiben: e.version };
+  }
+  if (e.start === 'anleitung') return { patchNotesJetzt: false, patchNotesNachAnleitung: faellig, gesehenSchreiben: null };
+  return { patchNotesJetzt: faellig, patchNotesNachAnleitung: false, gesehenSchreiben: null };
+}
+
 // ── Ende des Moduls ──
