@@ -8,6 +8,7 @@
 // JM_ATTRAPPE_PROTOKOLL=<datei>: je Aufruf eine Zeile JSON { werkzeug, args, text? }.
 // JM_ATTRAPPE_FEHLER=piper|ffmpeg: genau dieses Werkzeug endet mit Code 3 und einer Meldung auf stderr.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 const [werkzeug, ...args] = process.argv.slice(2);
 const wert = (name) => {
@@ -20,7 +21,11 @@ const raus = (code, meldung) => {
 };
 const text = werkzeug === 'piper' && wert('-i') && existsSync(wert('-i')) ? readFileSync(wert('-i'), 'utf8') : undefined;
 if (process.env.JM_ATTRAPPE_PROTOKOLL) appendFileSync(process.env.JM_ATTRAPPE_PROTOKOLL, `${JSON.stringify({ werkzeug, args, text })}\n`);
-if (process.env.JM_ATTRAPPE_FEHLER === werkzeug) raus(3, `Attrappe: absichtlicher Fehler in ${werkzeug}`);
+// JM_ATTRAPPE_FEHLER_BEI=<id>: der Fehler trifft nur die Ansage mit dieser Text-ID (Dateiname ohne Endung: <id>.txt bei piper, <id>.ogg bei ffmpeg).
+const idDesAufrufs = basename(werkzeug === 'piper' ? (wert('-i') ?? '') : (args.at(-1) ?? '')).replace(/\.[^.]+$/, '');
+if (process.env.JM_ATTRAPPE_FEHLER === werkzeug && (!process.env.JM_ATTRAPPE_FEHLER_BEI || process.env.JM_ATTRAPPE_FEHLER_BEI === idDesAufrufs)) {
+  raus(3, `Attrappe: absichtlicher Fehler in ${werkzeug}${process.env.JM_ATTRAPPE_FEHLER_BEI ? ` (${idDesAufrufs})` : ''}`);
+}
 
 if (werkzeug === 'piper') {
   const modell = wert('-m');

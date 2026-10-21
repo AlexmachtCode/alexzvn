@@ -128,7 +128,7 @@ ck('P10 6: gestrichener Text → seine Ansage wird entfernt (k2.erledigt.ogg), d
 
 // --- jeder Fehler sichtbar, der Ordner bleibt unverändert (G14) ----------------------------------------------------------
 // Jeder Fall vergleicht mit dem Stand direkt davor: scheitert einer, reißt er die folgenden nicht mit.
-const stand = (): string => json([manifestRoh(), readdirSync(ziel).sort()]);
+const stand = (): string => json([manifestRoh(), readdirSync(ziel).sort().map((n) => [n, dateiSha256(join(ziel, n))])]);
 async function fehlerFall(f: () => Promise<unknown>): Promise<{ m: string; gleich: boolean; aufrufe: number }> {
   const v = stand();
   neuesProtokoll();
@@ -158,6 +158,23 @@ process.env.JM_ATTRAPPE_FEHLER = 'ffmpeg';
 fall = await fehlerFall(() => erzeugeAnsagen({ ...basis, texte: TEXTE2 }));
 ck('P10 G14: ffmpeg scheitert → Meldung mit Code und stderr, Ordner unverändert',
   fall.m === 'ffmpeg endete mit Code 3: Attrappe: absichtlicher Fehler in ffmpeg' && fall.gleich, fall.m);
+// Alles oder nichts: scheitert erst die dritte Ansage, nachdem zwei fertig sind, bleibt der Ordner (Manifest, Liste, Bytes) unverändert.
+const DRITTE = 'k2.erledigt';
+// Alle drei Texte ändern sich → alle drei müssen neu erzeugt werden (die Attrappe macht die Bytes vom Text abhängig, nicht von Parametern).
+const NEUE_TEXTE = TEXTE2.map((t) => ({ ...t, text: `${t.text} Noch ein Satz.` }));
+const anzahl = (w: string): number => aufrufe().filter((a) => a.werkzeug === w).length;
+process.env.JM_ATTRAPPE_FEHLER = 'piper';
+process.env.JM_ATTRAPPE_FEHLER_BEI = DRITTE;
+fall = await fehlerFall(() => erzeugeAnsagen({ ...B, texte: NEUE_TEXTE }));
+ck('P10 G14: Piper scheitert erst an der dritten Ansage (zwei fertig) → Ordner unverändert, nichts halb übernommen',
+  fall.m === `Piper endete mit Code 3: Attrappe: absichtlicher Fehler in piper (${DRITTE})` && anzahl('piper') === 3 && anzahl('ffmpeg') === 2 && fall.gleich,
+  `${fall.m} / piper ${anzahl('piper')}, ffmpeg ${anzahl('ffmpeg')}`);
+process.env.JM_ATTRAPPE_FEHLER = 'ffmpeg';
+fall = await fehlerFall(() => erzeugeAnsagen({ ...B, texte: NEUE_TEXTE }));
+ck('P10 G14: ffmpeg scheitert erst an der dritten Ansage (zwei fertig) → Ordner unverändert, nichts halb übernommen',
+  fall.m === `ffmpeg endete mit Code 3: Attrappe: absichtlicher Fehler in ffmpeg (${DRITTE})` && anzahl('piper') === 3 && anzahl('ffmpeg') === 3 && fall.gleich,
+  `${fall.m} / piper ${anzahl('piper')}, ffmpeg ${anzahl('ffmpeg')}`);
+delete process.env.JM_ATTRAPPE_FEHLER_BEI;
 delete process.env.JM_ATTRAPPE_FEHLER;
 const kaputt = join(wurzel, 'kaputt');
 mkdirSync(kaputt);
