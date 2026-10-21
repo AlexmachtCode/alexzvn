@@ -2717,6 +2717,64 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
     && kopf.includes('const { fortsetzen } = useAnleitungsAnsicht();') && kopf.includes('const hinweis = useAnleitung((s) => s.hinweis);'));
 }
 
+// --- Geführte Anleitungen P16 (Spec 7, 10; EP10): docs/anleitungen.md bleibt wahr --------------------------------------
+// UX-Welle 3 liest im Kennungs-Register nach, was sie erhalten muss; das Register darf nicht still veralten. Jede Kennung
+// der Anleitung hat genau eine Zeile, jede Zeile gehört zur Anleitung, ihr Ort nennt eine Datei des Renderers, in der die
+// Kennung steht (Muster wie der Scan aus P7), und ihre Schritte sind genau die, die auf die Kennung zeigen. Die
+// Namenstabelle nennt genau die Bedingungsnamen des Adapters. Jede Abweichung steht mit Namen in einer eigenen Zeile.
+{
+  const { EINRICHTUNG, ZIEL_KENNUNGEN } = await import('../src/renderer/src/anleitung/einrichtung.ts');
+  const { ZUSTANDS_NAMEN, EREIGNIS_NAMEN, ENTSCHEIDUNGS_NAMEN } = await import('../src/renderer/src/lib/anleitung-zustand.ts');
+  let doku = '';
+  try { doku = quelleLf('../../../docs/anleitungen.md'); } catch { console.log('      docs/anleitungen.md fehlt'); }
+  const zeigen = (was: string, liste: string[]): void => { if (liste.length) console.log(`      ${was}: ${liste.join(', ')}`); };
+  const tabelle = (kopf: string): string[][] => {
+    const z = doku.split('\n');
+    const zeilen: string[][] = [];
+    for (let k = z.indexOf(kopf) + 2; k > 1 && k < z.length && z[k].startsWith('|'); k++) {
+      zeilen.push(z[k].split('|').slice(1, -1).map((s) => s.trim()));
+    }
+    return zeilen;
+  };
+  const code = (zelle: string): string[] => [...zelle.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  const register = tabelle('| Kennung | Ort | Bedienelement | sichtbar, wenn | Schritte |');
+  const imRegister = register.map((r) => code(r[0])[0] ?? r[0]);
+  const fehlend = ZIEL_KENNUNGEN.filter((k: string) => !imRegister.includes(k));
+  const doppelt = imRegister.filter((k, i) => imRegister.indexOf(k) !== i);
+  zeigen('nicht im Register', fehlend);
+  zeigen('doppelt im Register', doppelt);
+  ck('P16 7: das Kennungs-Register in docs/anleitungen.md hat genau eine Zeile je Ziel-Kennung der Anleitung',
+    register.length > 0 && fehlend.length === 0 && doppelt.length === 0);
+  const fremd = imRegister.filter((k) => !ZIEL_KENNUNGEN.includes(k));
+  zeigen('im Register, aber keine Ziel-Kennung', fremd);
+  ck('P16 7: jede Zeile des Registers ist eine Ziel-Kennung der Anleitung (keine veraltete Zeile)', register.length > 0 && fremd.length === 0);
+  const wurzel = new URL('../src/renderer/src/', import.meta.url);
+  const jeDatei = new Map<string, Set<string>>();
+  for (const p of (readdirSync(wurzel, { recursive: true }) as string[]).map((x) => x.replace(/\\/g, '/')).filter((x) => x.endsWith('.tsx'))) {
+    const t = readFileSync(new URL(p, wurzel), 'utf8');
+    jeDatei.set(p.split('/').pop() as string, new Set([...t.matchAll(/data-anleitung="([^"]+)"|anleitung: '([^']+)'/g)].map((m) => m[1] ?? m[2])));
+  }
+  const kennung = (r: string[]): string => code(r[0])[0] ?? r[0];
+  const ortFalsch = register.filter((r) => !code(r[1]).some((d) => jeDatei.get(d)?.has(kennung(r)) ?? false))
+    .map((r) => `${kennung(r)} (steht in: ${[...jeDatei].filter(([, s]) => s.has(kennung(r))).map(([d]) => d).join(', ') || 'keiner Datei'})`);
+  zeigen('Ort nennt keine Datei mit der Kennung', ortFalsch);
+  ck('P16 10: der Ort jeder Registerzeile nennt eine Datei des Renderers, in der die Kennung steht', register.length > 0 && ortFalsch.length === 0);
+  const alleSchritte = [EINRICHTUNG.einleitung, EINRICHTUNG.rueckfrage, EINRICHTUNG.abschluss,
+    ...EINRICHTUNG.kapitel.flatMap((k: { schritte: readonly unknown[] }) => k.schritte)] as Array<{ id: string; ziel?: string }>;
+  const sollSchritte = (r: string[]): string => alleSchritte.filter((s) => s.ziel === kennung(r)).map((s) => s.id).sort().join(' ');
+  const schritteFalsch = register.filter((r) => code(r[4]).sort().join(' ') !== sollSchritte(r))
+    .map((r) => `${kennung(r)} (soll: ${sollSchritte(r) || 'kein Schritt'})`);
+  zeigen('Spalte Schritte weicht ab', schritteFalsch);
+  ck('P16 7: die Spalte Schritte nennt genau die Schritte der Anleitung, die auf die Kennung zeigen', register.length > 0 && schritteFalsch.length === 0);
+  const namen = tabelle('| Name | Art | erfüllt, wenn | gelesen aus |').map((r) => code(r[0])[0] ?? r[0]);
+  const sollNamen: string[] = [...ZUSTANDS_NAMEN, ...EREIGNIS_NAMEN, ...ENTSCHEIDUNGS_NAMEN];
+  const namenFalsch = [...sollNamen.filter((n) => !namen.includes(n)), ...namen.filter((n) => !sollNamen.includes(n))];
+  zeigen('Bedingungsname fehlt oder ist fremd', namenFalsch);
+  ck('P16 7: die Namenstabelle nennt genau die Bedingungsnamen des Adapters', namen.length > 0 && namenFalsch.length === 0);
+  const ohneCode = doku.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+  ck('P16 G2: docs/anleitungen.md ohne ASCII-Anführungszeichen außerhalb von Code', doku !== '' && !ohneCode.includes('"'));
+}
+
 // --- Release-Liste: alle Seiten lesen ----------------------------------------
 // GEMESSEN am 01.10.2026: 187 Releases, gelesen wurde nur Seite 1. copy,
 // grafiktool und media-converter waren darum nicht installierbar.
