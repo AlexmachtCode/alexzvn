@@ -32,6 +32,13 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.17.1",
+        "date": "2026-10-21",
+        "notes": [
+          "Das Side-Events-Panel und „Neues Rezept“ im Kochbuch passen jetzt auch in ein kleines Fenster: Ihr Inhalt scrollt, „Schließen“, „Abbrechen“ und „Rezept erzeugen“ bleiben immer sichtbar."
+        ]
+      },
+      {
         "version": "0.17.0",
         "date": "2026-10-21",
         "notes": [

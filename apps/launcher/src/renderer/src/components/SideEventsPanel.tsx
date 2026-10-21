@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Card, cn } from '@jm/ui';
+import { Button, Card, cn, noDragRegion } from '@jm/ui';
 import type { AnhangOrdnerStand } from '@shared/types';
 import { ANHANG_TEXTE, anhangAnzeige } from '@/lib/anhang-liste';
 import { iveoStatusZeile } from '@/lib/iveo-status';
@@ -138,13 +138,20 @@ export function SideEventsPanel(): React.JSX.Element | null {
 
   // Auf- und Zuklappen der Anhang-Listen: toggleMaterials im Store (iveo-Paket, Spec 8.1).
 
+  // Folgepunkt aus der Durchsicht 21.10.2026 (Muster #233, SystemStatusModal): vorher ohne Höhengrenze, nur die Liste war
+  // auf 58vh begrenzt; Kopf, Ablage, Hinweise und die weiteren Side Events wuchsen mit, und Schließen rutschte bei kleinem
+  // Fenster unter den Rand. Das Overlay hebt die Zieh-Fläche des Kopfs auf (sie schluckt in Electron Klicks auch darunter).
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm px-6"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6"
+      style={noDragRegion}
       onClick={close}
     >
       <Card className="w-full max-w-lg p-6 jm-fade-in" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4">
+        {/* Höchstens fensterhoch: eigener flex-col-Container, weil Card ihre Kinder in ein eigenes div packt. Fenster minus
+            Außenabstand (p-6) minus Innenabstand der Card (p-6). Kopf und Fuß schrumpfen nicht, nur die Mitte scrollt. */}
+        <div className="flex max-h-[calc(100vh-6rem)] flex-col">
+        <div className="flex shrink-0 items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="text-lg font-extrabold tracking-tight truncate">
               Side Events {data?.event ? `· ${data.event}` : ''}
@@ -166,6 +173,9 @@ export function SideEventsPanel(): React.JSX.Element | null {
           </span>
         </div>
 
+        {/* EIN Scroll-Bereich statt der eigenen Liste mit 58vh (wie System-Zustand); -ml-1 pl-1 pb-1 und -mr-2 pr-2
+            halten Platz für die Fokusringe am Rand, die der Scrollbereich sonst abschneidet. */}
+        <div className="-mr-2 -ml-1 min-h-0 flex-1 overflow-y-auto pb-1 pl-1 pr-2">
         {stoerung && (
           <p
             role="status"
@@ -237,7 +247,7 @@ export function SideEventsPanel(): React.JSX.Element | null {
                 Keine Side Events für diesen Tag im Cache.
               </p>
             ) : (
-              <ul className="mt-3 flex flex-col gap-1.5 max-h-[58vh] overflow-auto pr-1">
+              <ul className="mt-3 flex flex-col gap-1.5">
                 {programs.map((p) => {
                   const isActive = p.id === activeId;
                   // L0–L7 (Spec 11.3): Zahl am 📎, Zeile unter der Liste, „Erneut versuchen“ nur in L2.
@@ -380,11 +390,13 @@ export function SideEventsPanel(): React.JSX.Element | null {
             </ul>
           </div>
         )}
+        </div>
 
-        <div className="mt-5 flex justify-end border-t border-[var(--border)] pt-4">
+        <div className="mt-5 flex shrink-0 justify-end border-t border-[var(--border)] pt-4">
           <Button variant="ghost" onClick={close}>
             Schließen
           </Button>
+        </div>
         </div>
       </Card>
     </div>

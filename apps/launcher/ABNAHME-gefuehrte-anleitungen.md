@@ -62,6 +62,7 @@ und den Klang. Ergebnis, Datum und Name hinter jedem Punkt eintragen.
 1. **Update nach dem Release 0.17.0:** Ein Rechner wie C (Launcher 0.16.0, Checkliste schon geschlossen) holt das Update
    über den Launcher. Erwartet: „Was ist neu?“ mit den Notes von 0.17.0, gleichzeitig „Neu: geführte Einrichtung“ am Knopf,
    keine Anleitung von selbst. Ergebnis / Datum / Name:
+   bestanden (Owner: „launcher update läuft wie erwartet“, Release launcher-v0.17.0) / 21.10.2026 / Owner
 2. **Bau-Prüfung der Ansagen:** Der Controller trägt das Ergebnis von `npm run stimme:bau-pruefen -w @jm/launcher` für den
    Abnahme-Bau ein (keine Ansage als `data:` eingebettet, Zahl der Ansagen gleich dem Manifest). Ergebnis / Datum / Name:
    bestanden, Fassung ohne Ton: „0 Ansagen im Manifest, alle als Datei im Bau, kein data:audio“, Exit 0 (Abnahme-Bau aus

@@ -2995,5 +2995,99 @@ await (async () => {
     && /<div className="fixed inset-0 z-50 [^"]*"\s+style=\{noDragRegion\}/.test(auswahl));
 }
 
+// Folgepunkt aus der Durchsicht 21.10.2026 (nach der Owner-Abnahme 0.17.0): zwei weitere Dialoge wurden höher als das
+// kleinste Fenster (980x640 außen, rund 601 px innen). Das Side-Events-Panel hatte keine Höhengrenze, nur die Liste war auf
+// 58vh begrenzt; Kopf, Störungszeile, Ablage, Hinweis, Tageszeile und der Block der weiteren Side Events wuchsen mit, und
+// Schließen rutschte unter den Fensterrand. Neues Rezept lag mit rund 593 px knapp darunter, bei weniger Innenhöhe rutschten
+// Abbrechen und Rezept erzeugen hinaus. Beide jetzt wie #233 (SystemStatusModal): Overlay p-6 mit noDragRegion, eigener
+// flex-col-Container in der Card höchstens fensterhoch, Kopf und Fuß schrumpfen nicht, genau EIN Scrollbereich dazwischen.
+{
+  // Klassen als Wörter vergleichen (ein Präfix wie lg: wirkt nicht immer), Verschachtelung über die Tiefe der div-Tags —
+  // eigene Hilfen, gleich arbeitend wie im Block davor.
+  const klassen = (k: string): string[] => k.split(/\s+/).filter(Boolean);
+  const tiefeZwischen = (text: string, von: number, bis: number): number => {
+    let tiefe = 0;
+    for (const m of text.slice(von, bis).matchAll(/<div\b[^>]*?(\/?)>|<\/div>/g)) {
+      if (m[0] === '</div>') tiefe--; else if (m[1] !== '/') tiefe++;
+    }
+    return tiefe;
+  };
+  /** Anfang des direkten Kinds der Hülle (ein div), in dem `ziel` liegt; -1, wenn `ziel` in keinem solchen Kind liegt. */
+  const kindDerHuelle = (text: string, iHuelle: number, ziel: number): number => {
+    if (iHuelle < 0 || ziel <= iHuelle) return -1;
+    let tiefe = 0;
+    let kind = -1;
+    for (const m of text.slice(iHuelle, ziel).matchAll(/<div\b[^>]*?(\/?)>|<\/div>/g)) {
+      if (m[0] === '</div>') {
+        tiefe--;
+        if (tiefe <= 0) return -1;
+        if (tiefe === 1) kind = -1;
+      } else if (m[1] !== '/') {
+        tiefe++;
+        if (tiefe === 2) kind = iHuelle + (m.index ?? 0);
+      }
+    }
+    return tiefe >= 2 ? kind : -1;
+  };
+  // Kommentare zählen nicht mit (dort genannte Klassen sind keine Klassen).
+  const ohneKommentare = (t: string): string =>
+    t.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  const scrollWort = /^(?:[^:]+:)*overflow-(?:y-)?auto$/;
+  const hoehenWort = /^(?:[^:]+:)*max-h-/;
+  const klasseAn = (text: string, i: number): string => /^<div\s+className="([^"]*)"/.exec(text.slice(i))?.[1] ?? '';
+
+  const pruefeDialog = (name: string, datei: string, kopfMarke: RegExp, inhalt: RegExp[], fuss: RegExp[]): void => {
+    const quelle = ohneKommentare(quelleLf(`../src/renderer/src/components/${datei}`));
+    const overlay = /<div\s+className="(fixed inset-0\b[^"]*)"\s+style=\{noDragRegion\}/.exec(quelle);
+    ck(`Layout ${name}: das Overlay hat rundum Abstand (p-6) und hebt die Zieh-Fläche des Kopfs auf (noDragRegion wie #233)`,
+      !!overlay && klassen(overlay[1]).includes('p-6'));
+
+    // Bereich: vom Overlay bis zum Ende der Card (auch Overlay und Card selbst dürfen nicht scrollen).
+    const iOverlay = quelle.search(/<div\s+className="fixed inset-0\b/);
+    const iCardEnde = iOverlay < 0 ? -1 : quelle.indexOf('</Card>', iOverlay);
+    const bereich = iOverlay < 0 || iCardEnde < 0 ? '' : quelle.slice(iOverlay, iCardEnde);
+    const iCard = bereich.indexOf('<Card');
+    const huellen = [...bereich.matchAll(/<div\s+className="([^"]*)"/g)].filter((m) => {
+      const k = klassen(m[1]);
+      return k.includes('flex') && k.includes('flex-col') && k.includes('max-h-[calc(100vh-6rem)]');
+    });
+    const iHuelle = huellen.length === 1 ? huellen[0].index ?? -1 : -1;
+    ck(`Layout ${name}: die Card hat einen eigenen Container flex max-h-[calc(100vh-6rem)] flex-col als direktes Kind (Card packt ihre Kinder in ein eigenes div)`,
+      iCard >= 0 && iHuelle > iCard && tiefeZwischen(bereich, iCard, iHuelle) === 0);
+
+    const woerter = bereich.split(/[\s"'`{}]+/);
+    const scrollElemente = [...bereich.matchAll(/<(\w+)\s+className="([^"]*)"/g)].filter((m) => klassen(m[2]).some((w) => scrollWort.test(w)));
+    ck(`Layout ${name}: genau EIN Scrollbereich (ein einziges overflow-y-auto bzw. overflow-auto), und nur der Container begrenzt die Höhe`,
+      woerter.filter((w) => scrollWort.test(w)).length === 1 && scrollElemente.length === 1
+      && woerter.filter((w) => hoehenWort.test(w)).length === 1);
+    const iScroll = scrollElemente.length === 1 ? scrollElemente[0].index ?? -1 : -1;
+    const kScroll = klassen(scrollElemente.length === 1 ? scrollElemente[0][2] : '');
+    ck(`Layout ${name}: … er ist direktes Kind des Containers und schrumpft als einziger (min-h-0 flex-1, nicht shrink-0)`,
+      iHuelle >= 0 && iScroll > iHuelle && tiefeZwischen(bereich, iHuelle, iScroll) === 1
+      && kScroll.includes('min-h-0') && kScroll.includes('flex-1') && !kScroll.includes('shrink-0')
+      && (kScroll.includes('overflow-y-auto') || kScroll.includes('overflow-auto')));
+    ck(`Layout ${name}: … und hält am Rand Platz für die Fokusringe (-mr-2 pr-2, -ml-1 pl-1, pb-1)`,
+      ['-mr-2', 'pr-2', '-ml-1', 'pl-1', 'pb-1'].every((w) => kScroll.includes(w)));
+
+    const iKopf = kindDerHuelle(bereich, iHuelle, bereich.search(kopfMarke));
+    ck(`Layout ${name}: der Kopf ist direktes Kind des Containers vor dem Scrollbereich und schrumpft nicht (shrink-0)`,
+      iKopf >= 0 && iScroll > iKopf && klassen(klasseAn(bereich, iKopf)).includes('shrink-0'));
+    const lagen = inhalt.map((m) => bereich.search(m));
+    ck(`Layout ${name}: der Inhalt liegt vollständig im Scrollbereich, in unveränderter Reihenfolge (Marken: ${inhalt.length})`,
+      iScroll >= 0 && lagen.every((i, n) => i >= 0 && kindDerHuelle(bereich, iHuelle, i) === iScroll && (n === 0 || i > lagen[n - 1])));
+    const fuesse = fuss.map((m) => kindDerHuelle(bereich, iHuelle, bereich.search(m)));
+    ck(`Layout ${name}: die Knöpfe stehen im Fuß, direktes Kind des Containers nach dem Scrollbereich, der nicht schrumpft (Knöpfe: ${fuss.length})`,
+      iScroll >= 0 && fuesse.every((f) => f > iScroll && klassen(klasseAn(bereich, f)).includes('shrink-0')));
+  };
+
+  pruefeDialog('Side Events', 'SideEventsPanel.tsx', /<h2\b/,
+    [/\{stoerung && \(/, /<OrdnerKopf\b/, /data\.error \?\?/, /Live-Umschalten nur auf dem Rechner/, /<select\b/,
+      /programs\.map\(/, /ORDNER_ZEILEN_TEXTE\.weitere\b/],
+    [/<Button variant="ghost" onClick=\{close\}>\s*Schließen\s*<\/Button>/]);
+  pruefeDialog('Neues Rezept', 'RecipeDraftModal.tsx', /<h2\b/,
+    [/Entwurf eingereicht/, /<input\b/, /<select\b/, /<textarea\b/, /Hinweis: Sensible/],
+    [/>\s*PR öffnen\s*</, /Weiteres Rezept/, />\s*Schließen\s*</, />\s*Abbrechen\s*</, /'Rezept erzeugen'/]);
+}
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
