@@ -101,6 +101,14 @@ jobs:
       - name: Release-Proxy (Paketwahl, Routing)
         run: node --experimental-strip-types services/release-proxy/test/worker.test.mjs
 
+      # Zoom-Slots (Spec 11.1, 11.9): reine Entscheidungslogik der Bridge in C++, ohne SDK-Header, mit dem g++ des
+      # Runners (Annahme AN16, der erste Lauf belegt sie). Ohne Compiler endet der Schritt mit Rückgabe 2, nie still grün.
+      # Mit !cancelled(): Er braucht kein npm ci und läuft auch nach einem roten Schritt davor. Die Schritte danach
+      # tragen ebenfalls !cancelled(); scheitert er selbst (etwa an einer Warnung, die nur g++ meldet), laufen sie trotzdem.
+      - name: Zoom-Bridge, Entscheidungslogik (C++ ohne SDK)
+        if: ${{ !cancelled() }}
+        run: npm run logik-test -w @jm/zoom-bridge
+
       # Mac-Nachbau (Entwurf mac-fassungen, Stufe 1; Plan docs/superpowers/plans/2026-10-20-mac-nachbau-editor.md):
       # Prüfer samt der Lesestand-Datei im Repo, ffmpeg-Beilagen und Workflow-Regeln, je ein Schritt. Nur node:-Module,
       # ohne macOS (otool und Programmstart laufen nur im Workflow selbst). Der Beilagen-Test lädt

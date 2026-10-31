@@ -70,3 +70,8 @@ target_compile_options(zoom-bridge PRIVATE /utf-8)
 # eingespeister Uhr - linkt weder Zoom noch NDI und braucht kein Meeting.
 add_executable(delay-line-test native/delay_line_test.cpp)
 target_compile_options(delay-line-test PRIVATE /utf-8)
+
+# Entscheidungslogik der Zoom-Slots (Spec 11.1). Reine Logik mit eingespeister Uhr wie oben - linkt weder
+# Zoom noch NDI. In der CI laeuft dieselbe Datei ohne CMake ueber npm run logik-test.
+add_executable(slot-logic-test native/slot_logic_test.cpp)
+target_compile_options(slot-logic-test PRIVATE /utf-8)

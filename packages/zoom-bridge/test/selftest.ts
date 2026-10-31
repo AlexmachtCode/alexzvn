@@ -3175,5 +3175,109 @@ console.log('\nA3 state — der Reducer kennt video und audio nicht mehr (6.18, 
   assert(reduce(s0, enrich({ ev: 'wasAuchImmer', slot: 1 } as WireEvent)) === s0, 'A3 3.4: ein unbekanntes Ereignis ändert nichts, auch nicht an slots');
 }
 
+// --- Zoom-Slots, Plan A Block a2: Entscheidungslogik in C++ ohne SDK (Task A4) -------------------------
+// Laufen ohne Compiler und ohne SDK (auch unter Linux). Was die Logik TUT, pruefen die C++-Faelle in
+// native/*_test.cpp ueber `npm run logik-test`; hier steht nur, was ohne Compiler pruefbar ist: Namen gegen
+// die Kataloge, Einbindungen, Rueckgabe 2 ohne Compiler und dass jede Testdatei in jedem Lauf steht.
+import * as protokollA4 from '../src/protocol.ts';
+import { spawnSync } from 'node:child_process';
+
+/** Rohtext einer Datei des Pakets, '' wenn sie fehlt (dann FAIL statt Absturz). */
+function paketDateiOderLeer(...teile: string[]): string {
+  try {
+    return readFileSync(join(testDir, '..', ...teile), 'utf8');
+  } catch {
+    return '';
+  }
+}
+/** Zeichenketten einer Namens-Tabelle `NAME[n] = { "a", "b" }`; null, wenn sie fehlt. */
+function namensTabelle(src: string, name: string): { n: number; namen: string[] } | null {
+  const m = new RegExp(`\\b${name}\\[(\\d+)\\]\\s*=\\s*\\{([^}]*)\\}`).exec(src);
+  if (!m) return null;
+  return { n: Number(m[1]), namen: [...m[2].matchAll(/"([^"]*)"/g)].map((x) => x[1]) };
+}
+/** Werte von `enum class NAME : uint8_t { A, B }`, je mit kleinem Anfangsbuchstaben; null, wenn sie fehlt. */
+function aufzaehlung(src: string, name: string): string[] | null {
+  const m = new RegExp(`enum\\s+class\\s+${name}\\s*:\\s*uint8_t\\s*\\{([^}]*)\\}`).exec(src);
+  if (!m) return null;
+  return m[1].split(',').map((s) => s.trim()).filter((s) => s !== '').map((s) => s[0].toLowerCase() + s.slice(1));
+}
+
+console.log('\nZoom-Slots — slot_logic.h gegen protocol.ts (Plan A, Task A4; A-EP10):');
+{
+  const logik = cppOhneKommentare(paketDateiOderLeer('native', 'slot_logic.h'));
+  const paare: [string, string, string, readonly string[]][] = [
+    ['SlotMode', 'MODUS_NAMEN', 'SLOT_MODES', protokollA4.SLOT_MODES],
+    ['Fallback', 'FALLBACK_NAMEN', 'SLOT_FALLBACKS', protokollA4.SLOT_FALLBACKS],
+    ['SlotAudio', 'AUDIO_NAMEN', 'SLOT_AUDIO_SETTINGS', protokollA4.SLOT_AUDIO_SETTINGS],
+    ['Sent', 'SENT_NAMEN', 'SLOT_SENT', protokollA4.SLOT_SENT],
+    ['SlotState', 'ZUSTAND_NAMEN', 'SLOT_STATES', protokollA4.SLOT_STATES],
+    ['Grund', 'GRUND_NAMEN', 'SLOT_REASONS', protokollA4.SLOT_REASONS],
+    ['TonGrund', 'TONGRUND_NAMEN', 'SLOT_AUDIO_REASONS', protokollA4.SLOT_AUDIO_REASONS],
+    ['TonQuelle', 'TONQUELLE_NAMEN', 'SLOT_AUDIO_SOURCES', protokollA4.SLOT_AUDIO_SOURCES],
+    ['TonZustand', 'TONZUSTAND_NAMEN', 'AUDIO_STATES', protokollA4.AUDIO_STATES],
+    ['Signal', 'SIGNAL_NAMEN', 'SPEAKER_SIGNALS', protokollA4.SPEAKER_SIGNALS],
+  ];
+  for (const [aufz, tabelle, katalogName, katalog] of paare) {
+    const t = namensTabelle(logik, tabelle);
+    assert(
+      t !== null && t.n === katalog.length && JSON.stringify(t.namen) === JSON.stringify(katalog),
+      `A4 ${tabelle} in slot_logic.h gleicht ${katalogName} (Zahl, Reihenfolge, Schreibweise)`,
+    );
+    assert(
+      JSON.stringify(aufzaehlung(logik, aufz)) === JSON.stringify(katalog),
+      `A4 enum class ${aufz} folgt ${katalogName} in derselben Reihenfolge`,
+    );
+  }
+}
+{
+  // G-A2: die reine Logik bindet nur die C++-Standardbibliothek ein (kein windows.h, kein Zoom-, kein NDI-Header)
+  // und liest keine Uhr: jede Zeit kommt als Argument von aussen, sonst waere sie im Logik-Test nicht pruefbar.
+  // Darum sind auch <chrono> und <ctime> samt ihren Uhren verboten (Nachbesserung a2, NB-a2-3).
+  const UHR = /<chrono>|<ctime>|\b(steady_clock|system_clock|high_resolution_clock|GetTickCount64|GetTickCount|QueryPerformanceCounter|timeGetTime)\b|\b(time|clock)\s*\(/g;
+  for (const kopf of ['slot_logic.h']) {
+    const text = cppOhneKommentare(paketDateiOderLeer('native', kopf));
+    const einbindungen = [...text.matchAll(/#\s*include\s*([<"][^>"]*[>"])/g)].map((m) => m[1]);
+    assert(
+      einbindungen.length > 0 && einbindungen.every((e) => /^<[a-z_]+>$/.test(e)),
+      `A4 ${kopf} bindet nur Standard-Header ein (G-A2)`,
+    );
+    if (einbindungen.some((e) => !/^<[a-z_]+>$/.test(e))) console.error(`      Einbindungen: ${einbindungen.join(', ')}`);
+    const uhren = [...text.matchAll(UHR)].map((m) => m[0]);
+    assert(uhren.length === 0, `A4 ${kopf} liest keine Uhr, die Zeit kommt von aussen (G-A2)`);
+    if (uhren.length > 0) console.error(`      Uhr: ${uhren.join(', ')}`);
+  }
+}
+{
+  // Spec 11.1, A-EP16: ohne Compiler nie still gruen.
+  const skript = join(testDir, '..', 'scripts', 'logik-test.mjs');
+  const lauf = (wert: string) =>
+    spawnSync(process.execPath, [skript], { encoding: 'utf8', env: { ...process.env, LOGIK_TEST_COMPILER: wert } });
+  const ohne = lauf('keiner');
+  assert(
+    ohne.status === 2 && `${ohne.stdout}${ohne.stderr}`.includes('logik-test: kein C++-Compiler gefunden (g++, clang++, cl über vswhere).'),
+    'A4 logik-test ohne Compiler: Rückgabe 2 und die Zeile „kein C++-Compiler gefunden“',
+  );
+  const falsch = lauf('gcc');
+  assert(
+    falsch.status === 2 && `${falsch.stdout}${falsch.stderr}`.includes('LOGIK_TEST_COMPILER muss g++, clang++, cl oder keiner sein (ist: gcc).'),
+    'A4 logik-test mit unbekanntem LOGIK_TEST_COMPILER: Rückgabe 2 mit Hinweis',
+  );
+}
+{
+  // Jede Testdatei unter native/ laeuft in allen drei Wegen: logik-test (CI), CMake-Ziel und npm run slot-test.
+  const skriptText = paketDateiOderLeer('scripts', 'logik-test.mjs');
+  const cmake = paketDateiOderLeer('CMakeLists.txt');
+  const slotTest = (JSON.parse(paketDateiOderLeer('package.json')) as { scripts: Record<string, string> }).scripts['slot-test'] ?? '';
+  const tests = readdirSync(nativOrdner).filter((f) => f.endsWith('_test.cpp')).sort();
+  assert(tests.length >= 2, 'A4 native/ enthält mindestens slot_logic_test.cpp und delay_line_test.cpp');
+  for (const datei of tests) {
+    const ziel = `${datei.replace(/_test\.cpp$/, '').replace(/_/g, '-')}-test`;
+    assert(skriptText.includes(`'native/${datei}'`), `A4 ${datei} steht in scripts/logik-test.mjs (TESTDATEIEN)`);
+    assert(new RegExp(`add_executable\\(${ziel} native/${datei}\\)`).test(cmake), `A4 ${datei} hat das CMake-Ziel ${ziel}`);
+    assert(slotTest.includes(`--target`) && slotTest.includes(` ${ziel}`) && slotTest.includes(`build\\Release\\${ziel}.exe`),
+      `A4 ${datei} läuft in npm run slot-test (Ziel und Programm)`);
+  }
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
