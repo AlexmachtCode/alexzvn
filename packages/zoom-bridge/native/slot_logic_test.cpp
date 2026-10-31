@@ -651,6 +651,415 @@ void a6_namensregel() {
   CHECK(pruefeNdiName("\xF0\x9F\x98", false) == NamensFehler::KeinUtf8);       // abgeschnitten
 }
 
+// Umhaengen und Ton (Task A7).
+using S = UmhaengSchritt;
+
+UmhaengLage umh(SlotMode vorher, SlotMode nachher, unsigned altesZiel, unsigned neuesZiel, Grund aufruf,
+                SlotAudio audio, bool shareAudio) {
+  UmhaengLage l;
+  l.abonniert = altesZiel != 0;
+  l.modusVorher = vorher;
+  l.modusNachher = nachher;
+  l.altesZiel = altesZiel;
+  l.neuesZiel = neuesZiel;
+  l.aufruf = aufruf;
+  l.letzterTyp = rendererTyp(vorher);
+  l.audio = audio;
+  l.shareAudio = shareAudio;
+  l.freigabeNochGezeigt = nachher == SlotMode::Share && neuesZiel != 0;
+  return l;
+}
+
+bool hat(const UmhaengPlan& p, S s) {
+  for (S x : p.schritte) {
+    if (x == s) return true;
+  }
+  return false;
+}
+
+/** Index des ersten Vorkommens, -1 ohne. */
+int stelle(const UmhaengPlan& p, S s) {
+  for (size_t i = 0; i < p.schritte.size(); ++i) {
+    if (p.schritte[i] == s) return static_cast<int>(i);
+  }
+  return -1;
+}
+
+bool tonIst(const UmhaengPlan& p, TonZustand z, TonGrund g, TonQuelle c) {
+  return p.tonMelden && p.tonZustand == z && p.tonGrund == g && p.configured == c && !p.tonFolge.empty() &&
+         p.tonFolge.back().zustand == z && p.tonFolge.back().grund == g && p.tonFolge.back().configured == c;
+}
+
+/** Plan eines geglueckten Umhaengens: bei Ziel 0 umhaengPlan allein, sonst bis Subscribe und dann Erfolg. */
+UmhaengPlan umhaengenOk(const UmhaengLage& l) {
+  const UmhaengPlan bis = umhaengPlan(l);
+  if (l.neuesZiel == 0) return bis;
+  return umhaengNachSubscribe(l, FEHLER_KEINER, 0);
+}
+
+bool keinTon(const UmhaengPlan& p) {
+  return !hat(p, S::TonStandNeu) && !hat(p, S::TonMelden) && !hat(p, S::MischerNeu) && !hat(p, S::MischerEingangBNeu) &&
+         p.tonFolge.empty();
+}
+
+void pb19_moduswechsel_und_ziel0() {
+  std::printf("PB19 Moduswechsel: neues Ziel nach Modus; Ziel 0 nennt den Grund nach Modus, nie modeChanged\n");
+  CHECK(zielNachModus(SlotMode::Participant, A, B, F1) == A);
+  CHECK(zielNachModus(SlotMode::Speaker, A, B, F1) == B);
+  CHECK(zielNachModus(SlotMode::Share, A, B, F1) == F1);
+  CHECK(zielNachModus(SlotMode::Participant, 0, B, F1) == 0);
+  CHECK(zielNachModus(SlotMode::Speaker, A, 0, F1) == 0);
+  CHECK(zielNachModus(SlotMode::Share, A, B, 0) == 0);
+  const SlotMode modi[3] = {SlotMode::Participant, SlotMode::Speaker, SlotMode::Share};
+  const Grund erwartet[3] = {Grund::noTarget, Grund::speakerNone, Grund::shareNone};
+  const Grund aufrufe[4] = {Grund::modeChanged, Grund::targetChanged, Grund::resolutionChanged, Grund::command};
+  for (int m = 0; m < 3; ++m) {
+    for (Grund aufruf : aufrufe) {
+      const UmhaengPlan p = umhaengPlan(umh(SlotMode::Participant, modi[m], A, 0, aufruf, SlotAudio::Off, false));
+      CHECK(p.zustand == SlotState::Fallback && p.grund == erwartet[m] && hat(p, S::SlotMelden));
+    }
+  }
+  UmhaengPlan p = umhaengPlan(umh(SlotMode::Participant, SlotMode::Participant, A, 0, Grund::participantLeft,
+                                  SlotAudio::Off, false));
+  CHECK(p.grund == Grund::participantLeft);
+  p = umhaengPlan(umh(SlotMode::Speaker, SlotMode::Speaker, A, 0, Grund::speakerNone, SlotAudio::Off, false));
+  CHECK(p.grund == Grund::speakerNone);
+  p = umhaengenOk(umh(SlotMode::Participant, SlotMode::Speaker, A, B, Grund::modeChanged, SlotAudio::Off, false));
+  CHECK(p.zustand == SlotState::Starting && p.grund == Grund::modeChanged);
+}
+
+void a7_kamera_aus_beim_umhaengen() {
+  std::printf("A7 Schritt 7: IsVideoOn false -> Teilnehmer cameraOff, Sprecher speakerNoVideo\n");
+  CHECK(grundBeiKameraAus(SlotMode::Participant) == Grund::cameraOff);
+  CHECK(grundBeiKameraAus(SlotMode::Speaker) == Grund::speakerNoVideo);
+  const UmhaengPlan video = umhaengenOk(umh(SlotMode::Speaker, SlotMode::Speaker, A, B, Grund::speakerChanged, SlotAudio::Off, false));
+  CHECK(hat(video, S::IsVideoOnFragen) && stelle(video, S::IsVideoOnFragen) < stelle(video, S::SlotMelden));
+  const UmhaengPlan share = umhaengenOk(umh(SlotMode::Share, SlotMode::Share, F1, F2, Grund::shareChanged, SlotAudio::Off, false));
+  CHECK(!hat(share, S::IsVideoOnFragen));
+}
+
+void pb21_umhaeng_plan() {
+  std::printf("PB21 Umhaeng-Plan je Rueckgabe: 0, 18, 29, 30, anderer Fehler mit/ohne Typwechsel, rendererTot, Sperre\n");
+  UmhaengLage l = umh(SlotMode::Participant, SlotMode::Participant, A, B, Grund::targetChanged, SlotAudio::Off, false);
+  // Sperre: nur vormerken.
+  UmhaengLage gesperrt = l;
+  gesperrt.sperre = true;
+  CHECK(umhaengPlan(gesperrt).schritte == std::vector<S>{S::Vormerken});
+  // Normal: Unsubscribe, Aufloesung setzen und lesen, Subscribe.
+  CHECK((umhaengPlan(l).schritte == std::vector<S>{S::Unsubscribe, S::SetResolution, S::GetResolution, S::Subscribe}));
+  UmhaengLage frei = l;
+  frei.abonniert = false;
+  CHECK(!hat(umhaengPlan(frei), S::Unsubscribe));
+  // rendererTot: kein unSubscribe/destroyRenderer, neuer Delegate.
+  UmhaengLage tot = l;
+  tot.rendererTot = true;
+  CHECK((umhaengPlan(tot).schritte ==
+         std::vector<S>{S::ZeigerVerwerfen, S::CreateRendererNeuerDelegate, S::SetResolution, S::GetResolution, S::Subscribe}));
+  // 0: Abschluss mit IsVideoOn (VIDEO), starting/<grund>.
+  UmhaengPlan p = umhaengNachSubscribe(l, FEHLER_KEINER, 0);
+  CHECK((p.schritte == std::vector<S>{S::ZielStandNeu, S::VorschauPlatzLeeren, S::IsVideoOnFragen, S::SlotMelden}));
+  CHECK(p.zustand == SlotState::Starting && p.grund == Grund::targetChanged);
+  // 18: dreimal nach 500 ms, danach wie anderer Fehler.
+  for (int v = 0; v < 3; ++v) CHECK(umhaengNachSubscribe(l, FEHLER_ZU_OFT, v).schritte == std::vector<S>{S::WiederholenIn500ms});
+  p = umhaengNachSubscribe(l, FEHLER_ZU_OFT, 3);
+  CHECK(p.zustand == SlotState::Fallback && p.grund == Grund::subscribeFailed && hat(p, S::FehlerSubscribeMelden));
+  // 29 nur SHARE: kein neuer Renderer (auch bei Typwechsel), Wiederholung, solange die Freigabe gezeigt wird.
+  UmhaengLage freigabe = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Off, false);
+  p = umhaengNachSubscribe(freigabe, FEHLER_KEINE_FREIGABEDATEN, 0);
+  CHECK(!hat(p, S::DestroyRenderer) && !hat(p, S::CreateRendererGleicherDelegate) && hat(p, S::WiederholenIn500ms));
+  CHECK(hat(p, S::SlotMelden) && p.zustand == SlotState::Starting && p.grund == Grund::modeChanged);
+  CHECK(umhaengNachSubscribe(freigabe, FEHLER_KEINE_FREIGABEDATEN, 4).schritte == std::vector<S>{S::WiederholenIn500ms});
+  freigabe.freigabeNochGezeigt = false;
+  CHECK(umhaengNachSubscribe(freigabe, FEHLER_KEINE_FREIGABEDATEN, 4).schritte.empty());
+  p = umhaengNachSubscribe(l, FEHLER_KEINE_FREIGABEDATEN, 0);   // 29 bei VIDEO: anderer Fehler
+  CHECK(p.grund == Grund::subscribeFailed && hat(p, S::FehlerSubscribeMelden));
+  // 30: wie anderer Fehler.
+  p = umhaengNachSubscribe(l, FEHLER_EIGENE_FREIGABE, 0);
+  CHECK(p.zustand == SlotState::Fallback && p.grund == Grund::subscribeFailed && !hat(p, S::DestroyRenderer));
+  // Anderer Fehler mit Typwechsel: einmal neuer Renderer mit demselben Delegate (rendererNew); ohne: subscribeFailed.
+  UmhaengLage wechsel = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Off, false);
+  p = umhaengNachSubscribe(wechsel, 7, 0);
+  CHECK((p.schritte == std::vector<S>{S::DestroyRenderer, S::CreateRendererGleicherDelegate, S::SetResolution,
+                                      S::GetResolution, S::Subscribe}));
+  wechsel.letzterTyp = RendererTyp::Share;   // nach dem neuen Renderer
+  p = umhaengNachSubscribe(wechsel, 7, 0);
+  CHECK(p.grund == Grund::subscribeFailed && !hat(p, S::CreateRendererGleicherDelegate));
+  p = umhaengNachSubscribe(l, 7, 0);
+  CHECK(p.grund == Grund::subscribeFailed && !hat(p, S::DestroyRenderer) && !hat(p, S::CreateRendererGleicherDelegate));
+  // createRenderer gescheitert (rendererTot): subscribeFailed, Slot laeuft mit Ersatzbild.
+  UmhaengLage keinRenderer = tot;
+  keinRenderer.rendererGescheitert = true;
+  p = umhaengNachSubscribe(keinRenderer, 3, 0);
+  CHECK(p.zustand == SlotState::Fallback && p.grund == Grund::subscribeFailed && hat(p, S::FehlerSubscribeMelden));
+  // Moduswechsel von oder zur Freigabe: Versatz leeren und Schalter setzen, vor dem Subscribe.
+  p = umhaengPlan(umh(SlotMode::Speaker, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Off, false));
+  CHECK(hat(p, S::VersatzLeeren) && hat(p, S::OhneVersatzSetzen) && stelle(p, S::OhneVersatzSetzen) < stelle(p, S::Subscribe));
+  p = umhaengPlan(umh(SlotMode::Participant, SlotMode::Speaker, A, B, Grund::modeChanged, SlotAudio::Off, false));
+  CHECK(!hat(p, S::VersatzLeeren) && !hat(p, S::OhneVersatzSetzen));
+}
+
+void pb22_ziel_stand() {
+  std::printf("PB22 Ziel-Stand: Umhaengen ersetzt jedes Feld (ZielStand{}), retargetMs = jetzt\n");
+  ZielStand z;
+  z.lastFrameMs = 1; z.lastW = 2; z.lastH = 3; z.gemessen = true; z.mismatchGemeldet = true;
+  z.bildSeitUmhaengen = true; z.rawOffGesehen = true; z.kopieGueltig = true; z.retargetMs = 4;
+  CHECK(z.lastFrameMs != 0 && z.lastW != 0 && z.lastH != 0 && z.gemessen && z.mismatchGemeldet && z.bildSeitUmhaengen &&
+        z.rawOffGesehen && z.kopieGueltig && z.retargetMs != 0);
+  zielStandNeu(z, at(7000));
+  ZielStand soll;
+  soll.retargetMs = 7000;
+  CHECK(z == soll);
+}
+
+void pb22_ton_stand() {
+  std::printf("PB22 Ton-Stand: TonStandNeu ersetzt jedes Feld, auch silenceBisMs; danach keine Stille vor dem ersten Paket\n");
+  TonStand t;
+  t.audioRate = 32000; t.audioChannels = 1; t.lastAudioMs = 1000; t.silenceBisMs = 1200; t.audioMismatchGemeldet = true;
+  t.audioMessBeginnMs = 5; t.audioMessPakete = 6; t.audioMessAbtastwerte = 7; t.audioMessFenster = 8;
+  t.audioWartenSummeUs = 9; t.audioWartenMaxUs = 10; t.audioWartenMinUs = 11;
+  CHECK(t != TonStand{});
+  tonStandNeu(t);
+  CHECK(t == TonStand{});
+  CHECK(t.lastAudioMs == 0 && t.silenceBisMs == 0 && t.audioRate == 0);
+  CHECK(stilleBloecke(TonQuelle::Mix, 0, t, at(5000)).abtastwerte == 0);
+}
+
+void pb22_person_ton() {
+  std::printf("PB22 Person-Ton im Modus Teilnehmer: Weggang off/participantLeft, Rueckkehr waiting/targetChanged\n");
+  UmhaengPlan p = umhaengenOk(umh(SlotMode::Participant, SlotMode::Participant, A, 0, Grund::participantLeft,
+                                  SlotAudio::Person, false));
+  CHECK(hat(p, S::TonStandNeu) && tonIst(p, TonZustand::Off, TonGrund::participantLeft, TonQuelle::Person));
+  CHECK(stelle(p, S::SlotMelden) < stelle(p, S::TonMelden));
+  p = umhaengenOk(umh(SlotMode::Participant, SlotMode::Participant, 0, A, Grund::targetChanged, SlotAudio::Person, false));
+  CHECK(hat(p, S::TonStandNeu) && tonIst(p, TonZustand::Waiting, TonGrund::targetChanged, TonQuelle::Person));
+  // Neue Aufloesung auf dasselbe Ziel: der Ton bleibt.
+  p = umhaengenOk(umh(SlotMode::Participant, SlotMode::Participant, A, A, Grund::resolutionChanged, SlotAudio::Person, false));
+  CHECK(keinTon(p));
+}
+
+void pb22_mischton_bleibt() {
+  std::printf("PB22 reiner Mischton (mix -> mix): Ton-Stand bleibt, kein slotAudio, auch beim Moduswechsel\n");
+  CHECK(keinTon(umhaengenOk(umh(SlotMode::Speaker, SlotMode::Speaker, A, B, Grund::speakerChanged, SlotAudio::Mix, true))));
+  CHECK(keinTon(umhaengenOk(umh(SlotMode::Participant, SlotMode::Speaker, A, B, Grund::modeChanged, SlotAudio::Mix, true))));
+  CHECK(keinTon(umhaengenOk(umh(SlotMode::Speaker, SlotMode::Participant, B, A, Grund::modeChanged, SlotAudio::Mix, true))));
+  CHECK(keinTon(umhaengenOk(umh(SlotMode::Speaker, SlotMode::Share, B, F1, Grund::modeChanged, SlotAudio::Mix, false))));
+  CHECK(keinTon(umhaengenOk(umh(SlotMode::Share, SlotMode::Participant, F1, A, Grund::modeChanged, SlotAudio::Mix, false))));
+  CHECK(keinTon(umhaengenOk(umh(SlotMode::Speaker, SlotMode::Speaker, A, 0, Grund::speakerNone, SlotAudio::Mix, true))));
+}
+
+void pb22_mischer_beim_moduswechsel() {
+  std::printf("PB22 Mischton + Computerton: auf Freigabe TonStandNeu, MischerNeu, waiting/modeChanged mixShare; zurueck mix\n");
+  const SlotMode ausgang[2] = {SlotMode::Speaker, SlotMode::Participant};
+  for (SlotMode m : ausgang) {
+    UmhaengPlan p = umhaengenOk(umh(m, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Mix, true));
+    CHECK(hat(p, S::TonStandNeu) && hat(p, S::MischerNeu));
+    CHECK(tonIst(p, TonZustand::Waiting, TonGrund::modeChanged, TonQuelle::MixShare));
+    p = umhaengenOk(umh(SlotMode::Share, m, F1, A, Grund::modeChanged, SlotAudio::Mix, true));
+    CHECK(hat(p, S::TonStandNeu) && !hat(p, S::MischerNeu));
+    CHECK(tonIst(p, TonZustand::Waiting, TonGrund::modeChanged, TonQuelle::Mix));
+  }
+  // Freigabewechsel im Mischer-Slot: nur Eingang B beginnt neu, ohne Meldung.
+  const UmhaengPlan p = umhaengenOk(umh(SlotMode::Share, SlotMode::Share, F1, F2, Grund::shareChanged, SlotAudio::Mix, true));
+  CHECK(hat(p, S::MischerEingangBNeu) && !hat(p, S::TonStandNeu) && !hat(p, S::TonMelden));
+}
+
+void pb22_nur_computerton() {
+  std::printf("PB22 nur Computerton: share mit Freigabe waiting, ohne off/noShare; Ende off/noShare; zurueck off/modeChanged\n");
+  UmhaengPlan p = umhaengenOk(umh(SlotMode::Speaker, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Off, true));
+  CHECK(hat(p, S::TonStandNeu) && tonIst(p, TonZustand::Waiting, TonGrund::modeChanged, TonQuelle::Share));
+  p = umhaengenOk(umh(SlotMode::Speaker, SlotMode::Share, A, 0, Grund::modeChanged, SlotAudio::Off, true));
+  CHECK(tonIst(p, TonZustand::Off, TonGrund::noShare, TonQuelle::Share));
+  p = umhaengenOk(umh(SlotMode::Share, SlotMode::Share, F1, 0, Grund::shareNone, SlotAudio::Off, true));
+  CHECK(tonIst(p, TonZustand::Off, TonGrund::noShare, TonQuelle::Share));
+  p = umhaengenOk(umh(SlotMode::Share, SlotMode::Share, 0, F2, Grund::shareChanged, SlotAudio::Off, true));
+  CHECK(hat(p, S::TonStandNeu) && tonIst(p, TonZustand::Waiting, TonGrund::targetChanged, TonQuelle::Share));
+  p = umhaengenOk(umh(SlotMode::Share, SlotMode::Speaker, F2, A, Grund::modeChanged, SlotAudio::Off, true));
+  CHECK(hat(p, S::TonStandNeu) && tonIst(p, TonZustand::Off, TonGrund::modeChanged, TonQuelle::None));
+}
+
+void pb22_person_mit_computerton() {
+  std::printf("PB22 Person-Ton mit Computerton: auf Freigabe off/personNotInMode (share); Freigabewechsel ohne Meldung\n");
+  UmhaengPlan p = umhaengenOk(umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Person, true));
+  CHECK(hat(p, S::TonStandNeu) && tonIst(p, TonZustand::Off, TonGrund::personNotInMode, TonQuelle::Share));
+  p = umhaengenOk(umh(SlotMode::Share, SlotMode::Share, F1, F2, Grund::shareChanged, SlotAudio::Person, true));
+  CHECK(hat(p, S::TonStandNeu) && !hat(p, S::TonMelden));
+  p = umhaengenOk(umh(SlotMode::Share, SlotMode::Share, F2, 0, Grund::shareNone, SlotAudio::Person, true));
+  CHECK(hat(p, S::TonStandNeu) && !hat(p, S::TonMelden));
+}
+
+void pb22_person_im_sprecher() {
+  std::printf("PB22 Person-Ton im Modus Sprecher (none): Sprecherwechsel ohne TonStandNeu und ohne Meldung\n");
+  CHECK(keinTon(umhaengenOk(umh(SlotMode::Speaker, SlotMode::Speaker, A, B, Grund::speakerChanged, SlotAudio::Person, false))));
+  CHECK(keinTon(umhaengenOk(umh(SlotMode::Speaker, SlotMode::Speaker, A, B, Grund::speakerChanged, SlotAudio::Person, true))));
+  CHECK(keinTon(umhaengenOk(umh(SlotMode::Share, SlotMode::Share, F1, F2, Grund::shareChanged, SlotAudio::Person, false))));
+  const UmhaengPlan p = umhaengenOk(umh(SlotMode::Participant, SlotMode::Speaker, A, B, Grund::modeChanged, SlotAudio::Person, false));
+  CHECK(hat(p, S::TonStandNeu) && tonIst(p, TonZustand::Off, TonGrund::personNotInMode, TonQuelle::None));
+}
+
+void pb22_audio_unavailable_bleibt() {
+  std::printf("PB22 off/audioUnavailable bleibt ueber Umhaengen und Moduswechsel\n");
+  UmhaengLage l = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Mix, true);
+  l.tonAudioUnavailable = true;
+  CHECK(keinTon(umhaengenOk(l)));
+  l = umh(SlotMode::Participant, SlotMode::Participant, A, B, Grund::targetChanged, SlotAudio::Person, false);
+  l.tonAudioUnavailable = true;
+  CHECK(keinTon(umhaengenOk(l)));
+}
+
+TonAenderung aenderung(bool audioGesetzt, SlotAudio audio, bool shareGesetzt, bool share) {
+  TonAenderung a;
+  a.audioGesetzt = audioGesetzt;
+  a.audio = audio;
+  a.shareAudioGesetzt = shareGesetzt;
+  a.shareAudio = share;
+  return a;
+}
+
+void pb22_umschalten_ton_stand() {
+  std::printf("PB22 Umschalten: jede Aenderung TonStandNeu, in den Mischer auch MischerNeu; gleiche Werte nicht\n");
+  UmhaengLage l = umh(SlotMode::Share, SlotMode::Share, F1, F1, Grund::command, SlotAudio::Mix, false);
+  UmhaengPlan p = tonUmschaltPlan(l, aenderung(false, SlotAudio::Off, true, true), AboErgebnis::Geglueckt);
+  CHECK(hat(p, S::TonStandNeu) && hat(p, S::MischerNeu));
+  CHECK(tonIst(p, TonZustand::Waiting, TonGrund::command, TonQuelle::MixShare));
+  l = umh(SlotMode::Participant, SlotMode::Participant, A, A, Grund::command, SlotAudio::Mix, false);
+  p = tonUmschaltPlan(l, aenderung(true, SlotAudio::Person, true, false), AboErgebnis::Geglueckt);
+  CHECK(hat(p, S::TonStandNeu) && !hat(p, S::MischerNeu));
+  CHECK(tonIst(p, TonZustand::Waiting, TonGrund::command, TonQuelle::Person));
+  p = tonUmschaltPlan(l, aenderung(true, SlotAudio::Mix, true, false), AboErgebnis::Geglueckt);   // gleiche Werte
+  CHECK(!hat(p, S::TonStandNeu) && tonIst(p, TonZustand::Waiting, TonGrund::command, TonQuelle::Mix));
+}
+
+void pb22_umschalten_abo() {
+  std::printf("PB22 Umschalten: waiting/command nur nach gegluecktem Abo, sonst off/audioUnavailable; aus -> off/command\n");
+  UmhaengLage l = umh(SlotMode::Participant, SlotMode::Participant, A, A, Grund::command, SlotAudio::Off, false);
+  const TonAenderung ein = aenderung(true, SlotAudio::Mix, true, false);
+  CHECK(tonAboNoetig(l, ein));
+  UmhaengPlan p = tonUmschaltPlan(l, ein, AboErgebnis::Geglueckt);
+  CHECK(p.tonFolge.size() == 1 && tonIst(p, TonZustand::Waiting, TonGrund::command, TonQuelle::Mix));
+  p = tonUmschaltPlan(l, ein, AboErgebnis::Gescheitert);
+  CHECK(p.tonFolge.size() == 1 && tonIst(p, TonZustand::Off, TonGrund::audioUnavailable, TonQuelle::Mix));
+  l.audio = SlotAudio::Mix;
+  const TonAenderung aus = aenderung(true, SlotAudio::Off, true, false);
+  CHECK(!tonAboNoetig(l, aus));
+  p = tonUmschaltPlan(l, aus, AboErgebnis::NichtGerufen);
+  CHECK(hat(p, S::TonStandNeu) && tonIst(p, TonZustand::Off, TonGrund::command, TonQuelle::None));
+  // Nur ein Feld (Pruefstand): das gespeicherte andere zaehlt (N9-1).
+  l = umh(SlotMode::Share, SlotMode::Share, F1, F1, Grund::command, SlotAudio::Off, true);
+  CHECK(tonAboNoetig(l, aenderung(true, SlotAudio::Off, false, false)));
+}
+
+void pb22_umschalten_person() {
+  std::printf("PB22 Umschalten mit Person-Ton ausserhalb Teilnehmer: nach waiting/command off/personNotInMode, nie off/command\n");
+  UmhaengLage l = umh(SlotMode::Share, SlotMode::Share, F1, F1, Grund::command, SlotAudio::Person, false);
+  UmhaengPlan p = tonUmschaltPlan(l, aenderung(false, SlotAudio::Off, true, true), AboErgebnis::Geglueckt);
+  CHECK(p.tonFolge.size() == 2);
+  CHECK(p.tonFolge.size() == 2 && p.tonFolge[0].zustand == TonZustand::Waiting && p.tonFolge[0].grund == TonGrund::command &&
+        p.tonFolge[0].configured == TonQuelle::Share);
+  CHECK(tonIst(p, TonZustand::Off, TonGrund::personNotInMode, TonQuelle::Share));
+  l.shareAudio = true;
+  p = tonUmschaltPlan(l, aenderung(false, SlotAudio::Off, true, false), AboErgebnis::Geglueckt);
+  CHECK(tonIst(p, TonZustand::Off, TonGrund::personNotInMode, TonQuelle::None));
+  for (const TonMeldung& m : p.tonFolge) CHECK(!(m.zustand == TonZustand::Off && m.grund == TonGrund::command));
+  l = umh(SlotMode::Speaker, SlotMode::Speaker, A, A, Grund::command, SlotAudio::Off, false);
+  p = tonUmschaltPlan(l, aenderung(true, SlotAudio::Person, true, false), AboErgebnis::Geglueckt);
+  CHECK(p.tonFolge.size() == 2 && tonIst(p, TonZustand::Off, TonGrund::personNotInMode, TonQuelle::None));
+}
+
+void pb22_umschalten_no_share() {
+  std::printf("PB22 Umschalten: direkter Computerton ohne gezeigte Freigabe -> nach waiting/command off/noShare\n");
+  UmhaengLage l = umh(SlotMode::Share, SlotMode::Share, 0, 0, Grund::command, SlotAudio::Off, false);
+  UmhaengPlan p = tonUmschaltPlan(l, aenderung(true, SlotAudio::Off, true, true), AboErgebnis::Geglueckt);
+  CHECK(p.tonFolge.size() == 2 && tonIst(p, TonZustand::Off, TonGrund::noShare, TonQuelle::Share));
+  l.neuesZiel = F1;
+  p = tonUmschaltPlan(l, aenderung(true, SlotAudio::Off, true, true), AboErgebnis::Geglueckt);
+  CHECK(p.tonFolge.size() == 1 && tonIst(p, TonZustand::Waiting, TonGrund::command, TonQuelle::Share));
+}
+
+bool zieleSind(const std::vector<TonZiel>& ist, const std::vector<TonZiel>& soll) { return ist == soll; }
+
+void pb25_ton_zuordnung() {
+  std::printf("PB25 tonZiele je Zeile der Tabelle 6.13 und tonWeg je Modus und Zeile der Ton-Abbildung 7.1\n");
+  std::vector<TonSlotSicht> s(9);
+  auto setze = [&s](int i, bool laeuft, SlotMode m, unsigned ziel, SlotAudio a, bool share, unsigned shareUser) {
+    s[static_cast<size_t>(i)].nr = i + 1;
+    s[static_cast<size_t>(i)].laeuft = laeuft;
+    s[static_cast<size_t>(i)].modus = m;
+    s[static_cast<size_t>(i)].ziel = ziel;
+    s[static_cast<size_t>(i)].audio = a;
+    s[static_cast<size_t>(i)].shareAudio = share;
+    s[static_cast<size_t>(i)].shareUser = shareUser;
+  };
+  setze(0, true, SlotMode::Participant, A, SlotAudio::Person, false, 0);
+  setze(1, true, SlotMode::Participant, A, SlotAudio::Mix, false, 0);
+  setze(2, true, SlotMode::Speaker, B, SlotAudio::Person, false, 0);
+  setze(3, true, SlotMode::Share, F1, SlotAudio::Mix, true, B);
+  setze(4, true, SlotMode::Share, F1, SlotAudio::Off, true, B);
+  setze(5, true, SlotMode::Share, F2, SlotAudio::Person, true, C);
+  setze(6, true, SlotMode::Share, F1, SlotAudio::Mix, false, B);
+  setze(7, false, SlotMode::Participant, A, SlotAudio::Person, false, 0);
+  setze(8, true, SlotMode::Participant, 0, SlotAudio::Person, false, 0);
+  CHECK(zieleSind(tonZiele(PaketArt::Person, A, s), {{1, Weg::Direkt}}));
+  CHECK(tonZiele(PaketArt::Person, 0, s).empty());
+  CHECK(tonZiele(PaketArt::Person, B, s).empty());
+  CHECK(zieleSind(tonZiele(PaketArt::Mix, 0, s), {{2, Weg::Direkt}, {4, Weg::MischerA}, {7, Weg::Direkt}}));
+  CHECK(zieleSind(tonZiele(PaketArt::Share, B, s), {{4, Weg::MischerB}, {5, Weg::Direkt}}));
+  CHECK(zieleSind(tonZiele(PaketArt::Share, C, s), {{6, Weg::Direkt}}));
+  CHECK(tonZiele(PaketArt::Share, 0, s).empty());
+  // tonWeg: Spalte „gesendet“ der Ton-Abbildung, je Modus (Teilnehmer, Sprecher, Freigabe).
+  struct Zeile { SlotAudio audio; bool share; TonQuelle t, s, f; };
+  const Zeile zeilen[6] = {
+    {SlotAudio::Off, false, TonQuelle::None, TonQuelle::None, TonQuelle::None},
+    {SlotAudio::Off, true, TonQuelle::None, TonQuelle::None, TonQuelle::Share},
+    {SlotAudio::Mix, false, TonQuelle::Mix, TonQuelle::Mix, TonQuelle::Mix},
+    {SlotAudio::Mix, true, TonQuelle::Mix, TonQuelle::Mix, TonQuelle::MixShare},
+    {SlotAudio::Person, false, TonQuelle::Person, TonQuelle::None, TonQuelle::None},
+    {SlotAudio::Person, true, TonQuelle::Person, TonQuelle::None, TonQuelle::Share},
+  };
+  for (const Zeile& z : zeilen) {
+    CHECK(tonWeg(SlotMode::Participant, z.audio, z.share) == z.t);
+    CHECK(tonWeg(SlotMode::Speaker, z.audio, z.share) == z.s);
+    CHECK(tonWeg(SlotMode::Share, z.audio, z.share) == z.f);
+  }
+}
+
+TonStand tonMitFormat(int64_t letztesPaket, int64_t stilleBis) {
+  TonStand t;
+  t.audioRate = 32000;
+  t.audioChannels = 1;
+  t.lastAudioMs = letztesPaket;
+  t.silenceBisMs = stilleBis;
+  return t;
+}
+
+void pb30_stille_bloecke() {
+  std::printf("PB30 Stille-Herzschlag: Format, Tonweg, Ziel 0, 40 ms, Beginn max(), hoechstens 200 ms, Rest verfaellt\n");
+  TonStand ohneFormat;
+  ohneFormat.lastAudioMs = 1000;
+  CHECK(stilleBloecke(TonQuelle::Mix, A, ohneFormat, at(2000)).abtastwerte == 0);
+  const TonStand t = tonMitFormat(1000, 0);
+  CHECK(stilleBloecke(TonQuelle::None, A, t, at(2000)).abtastwerte == 0);
+  CHECK(stilleBloecke(TonQuelle::MixShare, A, t, at(2000)).abtastwerte == 0);
+  CHECK(stilleBloecke(TonQuelle::Person, 0, t, at(2000)).abtastwerte == 0);
+  CHECK(stilleBloecke(TonQuelle::Share, 0, t, at(2000)).abtastwerte == 0);
+  CHECK(stilleBloecke(TonQuelle::Person, A, t, at(1039)).abtastwerte == 0);
+  CHECK(stilleBloecke(TonQuelle::Person, A, t, at(1040)).abtastwerte == 1280);
+  CHECK(stilleBloecke(TonQuelle::Share, F1, t, at(1040)).abtastwerte == 1280);
+  CHECK(stilleBloecke(TonQuelle::Mix, 0, t, at(1040)).abtastwerte == 1280);   // Mischton haengt an keinem Ziel
+  CHECK(stilleBloecke(TonQuelle::Mix, A, t, at(1039)).abtastwerte == 0);
+  // Beginn bei max(silenceBisMs, lastAudioMs).
+  StilleErgebnis r = stilleBloecke(TonQuelle::Mix, A, tonMitFormat(1000, 1100), at(1200));
+  CHECK(r.abtastwerte == 3200 && r.neuerSilenceBisMs == 1200);
+  // Nach 1 s ohne Paket: 200 ms, silenceBisMs = jetzt - 200 + gesendet; 10 ms spaeter nur rund 10 ms.
+  r = stilleBloecke(TonQuelle::Mix, A, tonMitFormat(1000, 0), at(2000));
+  CHECK(r.abtastwerte == 6400 && r.neuerSilenceBisMs == 2000);
+  r = stilleBloecke(TonQuelle::Mix, A, tonMitFormat(1000, r.neuerSilenceBisMs), at(2010));
+  CHECK(r.abtastwerte == 320 && r.neuerSilenceBisMs == 2010);
+  // Nach TonStand{} erst wieder nach dem ersten Paket (Format unbekannt).
+  TonStand neu = tonMitFormat(1000, 1900);
+  tonStandNeu(neu);
+  CHECK(stilleBloecke(TonQuelle::Mix, A, neu, at(3000)).abtastwerte == 0);
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -680,6 +1089,24 @@ int main() {
   pb24_grund_nach_200ms();
   pb29_halten();
   a6_namensregel();
+  pb19_moduswechsel_und_ziel0();
+  a7_kamera_aus_beim_umhaengen();
+  pb21_umhaeng_plan();
+  pb22_ziel_stand();
+  pb22_ton_stand();
+  pb22_person_ton();
+  pb22_mischton_bleibt();
+  pb22_mischer_beim_moduswechsel();
+  pb22_nur_computerton();
+  pb22_person_mit_computerton();
+  pb22_person_im_sprecher();
+  pb22_audio_unavailable_bleibt();
+  pb22_umschalten_ton_stand();
+  pb22_umschalten_abo();
+  pb22_umschalten_person();
+  pb22_umschalten_no_share();
+  pb25_ton_zuordnung();
+  pb30_stille_bloecke();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

@@ -686,4 +686,427 @@ inline NamensFehler pruefeNdiName(const std::string& utf8, bool rohUnicodeFolge)
   return NamensFehler::Keiner;
 }
 
+// ---- Ton und Umhaengen: TonStand, tonWeg, tonZiele, umhaengPlan, tonUmschaltPlan, stilleBloecke (A7) --------
+
+/**
+ * Ton des Slots (6.1, wörtlich): Format, Messfenster und Buchfuehrung des Stille-Herzschlags fuer den Strom, den
+ * der Sender traegt. Je Slot, nicht je Ziel; als Ganzes ersetzt (tonStandNeu) nur, wenn der gesendete Ton die Quelle
+ * wechselt (6.10 Schritt 8, 6.13), nie beim Umhaengen eines Slots mit reinem Mischton (RR8).
+ */
+struct TonStand {
+  int audioRate = 0, audioChannels = 0; int64_t lastAudioMs = 0, silenceBisMs = 0; bool audioMismatchGemeldet = false;
+  int64_t audioMessBeginnMs = 0; int audioMessPakete = 0; int64_t audioMessAbtastwerte = 0;
+  int audioMessFenster = 0; int64_t audioWartenSummeUs = 0, audioWartenMaxUs = 0, audioWartenMinUs = 0;
+};
+
+inline bool operator==(const TonStand& a, const TonStand& b) {
+  return a.audioRate == b.audioRate && a.audioChannels == b.audioChannels && a.lastAudioMs == b.lastAudioMs &&
+         a.silenceBisMs == b.silenceBisMs && a.audioMismatchGemeldet == b.audioMismatchGemeldet &&
+         a.audioMessBeginnMs == b.audioMessBeginnMs && a.audioMessPakete == b.audioMessPakete &&
+         a.audioMessAbtastwerte == b.audioMessAbtastwerte && a.audioMessFenster == b.audioMessFenster &&
+         a.audioWartenSummeUs == b.audioWartenSummeUs && a.audioWartenMaxUs == b.audioWartenMaxUs &&
+         a.audioWartenMinUs == b.audioWartenMinUs;
+}
+inline bool operator!=(const TonStand& a, const TonStand& b) { return !(a == b); }
+
+/** Plan-Schritt TonStandNeu: der ganze Ton-Stand beginnt neu, silenceBisMs eingeschlossen (N2). */
+inline void tonStandNeu(TonStand& t) { t = TonStand{}; }
+
+/**
+ * Tonweg (6.10 Schritt 8, Restnachfix N1): was der Slot im Modus nach der Ton-Abbildung (7.1, Spalte „gesendet“)
+ * sendet; zugleich `configured` von slotAudio. person nur im Modus Teilnehmer, share/mixShare nur im Modus Freigabe.
+ */
+inline TonQuelle tonWeg(SlotMode modus, SlotAudio audio, bool shareAudio) {
+  const bool computerton = modus == SlotMode::Share && shareAudio;
+  switch (audio) {
+    case SlotAudio::Mix: return computerton ? TonQuelle::MixShare : TonQuelle::Mix;
+    case SlotAudio::Person:
+      if (modus == SlotMode::Participant) return TonQuelle::Person;
+      return computerton ? TonQuelle::Share : TonQuelle::None;
+    case SlotAudio::Off: break;
+  }
+  return computerton ? TonQuelle::Share : TonQuelle::None;
+}
+
+enum class PaketArt : uint8_t { Person, Mix, Share };   // AudioPacket::kind (6.13)
+enum class Weg : uint8_t { Direkt, MischerA, MischerB };
+
+/** Was tonZiele je Slot sieht (Eingang 6.13: laeuft, Modus, Ziel, audio, shareAudio, shareUser). */
+struct TonSlotSicht {
+  int nr = 0;
+  bool laeuft = false;
+  SlotMode modus = SlotMode::Participant;
+  unsigned ziel = 0;
+  SlotAudio audio = SlotAudio::Off;
+  bool shareAudio = false;
+  unsigned shareUser = 0;
+};
+struct TonZiel {
+  int nr = 0;
+  Weg weg = Weg::Direkt;
+};
+inline bool operator==(const TonZiel& a, const TonZiel& b) { return a.nr == b.nr && a.weg == b.weg; }
+
+/**
+ * Zuordnung eines Pakets (6.13, B76): person k -> jeder laufende Teilnehmer-Slot mit Ziel k (k != 0) und audio person;
+ * mix -> jeder laufende Slot mit audio mix, im Freigabe-Slot mit shareAudio in den Mischer (A); share k -> jeder
+ * laufende Freigabe-Slot mit shareAudio und shareUser k, mit audio mix in den Mischer (B), sonst direkt.
+ */
+inline std::vector<TonZiel> tonZiele(PaketArt art, unsigned kennung, const std::vector<TonSlotSicht>& slots) {
+  std::vector<TonZiel> aus;
+  for (const TonSlotSicht& s : slots) {
+    if (!s.laeuft) continue;
+    switch (art) {
+      case PaketArt::Person:
+        if (kennung != 0 && s.modus == SlotMode::Participant && s.ziel == kennung && s.audio == SlotAudio::Person) {
+          aus.push_back({s.nr, Weg::Direkt});
+        }
+        break;
+      case PaketArt::Mix:
+        if (s.audio == SlotAudio::Mix) {
+          aus.push_back({s.nr, s.modus == SlotMode::Share && s.shareAudio ? Weg::MischerA : Weg::Direkt});
+        }
+        break;
+      case PaketArt::Share:
+        if (kennung != 0 && s.modus == SlotMode::Share && s.shareAudio && s.shareUser == kennung) {
+          aus.push_back({s.nr, s.audio == SlotAudio::Mix ? Weg::MischerB : Weg::Direkt});
+        }
+        break;
+    }
+  }
+  return aus;
+}
+
+enum class RendererTyp : uint8_t { Video, Share };
+inline RendererTyp rendererTyp(SlotMode modus) { return modus == SlotMode::Share ? RendererTyp::Share : RendererTyp::Video; }
+
+/** Schritte des Umhaengens (6.10) in Ausfuehrungsreihenfolge; Namen der Ton-Schritte wörtlich aus 6.10/6.13. */
+enum class UmhaengSchritt : uint8_t {
+  Vormerken, Unsubscribe, ZeigerVerwerfen, CreateRendererNeuerDelegate, DestroyRenderer,
+  CreateRendererGleicherDelegate, SetResolution, GetResolution, Subscribe, WiederholenIn500ms, ZielStandNeu,
+  VorschauPlatzLeeren, IsVideoOnFragen, SlotMelden, FehlerSubscribeMelden, TonStandNeu, MischerEingangBNeu,
+  MischerNeu, TonMelden, VersatzLeeren, OhneVersatzSetzen
+};
+
+/** Lage beim Umhaengen eines Slots (je Aufruf von slotRetarget). */
+struct UmhaengLage {
+  bool sperre = false;                      // Renderer-Sperre (6.5): nur vormerken
+  bool abonniert = false;                   // subscribed vor dem Umhaengen
+  bool rendererTot = false;                 // onRendererBeDestroyed kam (6.10 Schritt 2)
+  SlotMode modusVorher = SlotMode::Participant, modusNachher = SlotMode::Participant;
+  unsigned neuesZiel = 0;
+  Grund aufruf = Grund::command;            // Grund des Aufrufs (targetChanged, modeChanged, speakerChanged, ...)
+  RendererTyp letzterTyp = RendererTyp::Video;   // Typ des letzten Abos dieses Renderers
+  SlotAudio audio = SlotAudio::Off;
+  bool shareAudio = false;
+  bool tonAudioUnavailable = false;         // Slot steht auf off/audioUnavailable (6.13)
+  bool freigabeNochGezeigt = false;         // fuer 29: diese Freigabe wird noch gezeigt
+  // Hilfsfelder (Gliederung erlaubt sie):
+  unsigned altesZiel = 0;                   // Ziel vor dem Umhaengen; ohne Zielwechsel bleibt der Ton (Aufloesung)
+  bool rendererGescheitert = false;         // createRenderer scheiterte (6.10 Schritt 2 bzw. neuer Renderer)
+};
+
+/** Eine slotAudio-Meldung (Zustand, Grund, configured). */
+struct TonMeldung {
+  TonZustand zustand = TonZustand::Off;
+  TonGrund grund = TonGrund::command;
+  TonQuelle configured = TonQuelle::None;
+};
+
+/**
+ * Plan eines Umhaengens bzw. Ton-Umschaltens. zustand/grund gelten fuer den Schritt SlotMelden. tonFolge traegt
+ * jede Meldung des Schritts TonMelden in Reihenfolge (tonUmschaltPlan meldet bis zu zwei, S2); tonMelden,
+ * tonZustand, tonGrund und configured spiegeln die letzte (Vertrag der Gliederung).
+ */
+struct UmhaengPlan {
+  std::vector<UmhaengSchritt> schritte;
+  SlotState zustand = SlotState::Starting;
+  Grund grund = Grund::command;
+  bool tonMelden = false;
+  TonZustand tonZustand = TonZustand::Off;
+  TonGrund tonGrund = TonGrund::command;
+  TonQuelle configured = TonQuelle::None;
+  std::vector<TonMeldung> tonFolge;
+};
+
+// SDK-Rueckgaben, die den naechsten Schritt bestimmen (zoom_sdk_def.h:80-81, :102-105; Tabelle 6.10).
+inline constexpr int FEHLER_KEINER = 0;                // SDKERR_SUCCESS
+inline constexpr int FEHLER_ZU_OFT = 18;               // SDKERR_TOO_FREQUENT_CALL
+inline constexpr int FEHLER_KEINE_FREIGABEDATEN = 29;  // SDKERR_NO_SHARE_DATA (nur SHARE)
+inline constexpr int FEHLER_EIGENE_FREIGABE = 30;      // SDKERR_SHARE_CANNOT_SUBSCRIBE_MYSELF (kommt nicht vor)
+inline constexpr int ZU_OFT_WIEDERHOLUNGEN = 3;        // 18: hoechstens dreimal nach 500 ms
+
+/**
+ * Ziel-0-Grund (6.10 Schritt 3, Nachfix W7): der Grund des Aufrufs, wenn er schon „kein Ziel“ sagt, sonst nach
+ * Modus. modeChanged, targetChanged und resolutionChanged stehen so nie mit Ziel 0.
+ */
+inline Grund ziel0Grund(Grund aufruf, SlotMode modus) {
+  switch (aufruf) {
+    case Grund::participantLeft:
+    case Grund::noTarget:
+    case Grund::speakerNone:
+    case Grund::shareNone:
+      return aufruf;
+    default:
+      break;
+  }
+  switch (modus) {
+    case SlotMode::Speaker: return Grund::speakerNone;
+    case SlotMode::Share: return Grund::shareNone;
+    case SlotMode::Participant: break;
+  }
+  return Grund::noTarget;
+}
+
+/**
+ * Neues Ziel beim Moduswechsel (6.10 „Moduswechsel“): Teilnehmer die Kennung aus demselben Befehl (sonst 0),
+ * Sprecher das vorbelegte Ziel der SprecherWahl (sonst 0), Freigabe die gezeigte Freigabe (sonst 0).
+ */
+inline unsigned zielNachModus(SlotMode modus, unsigned idAusBefehl, unsigned sprecherVorbelegt, unsigned gezeigteFreigabe) {
+  switch (modus) {
+    case SlotMode::Speaker: return sprecherVorbelegt;
+    case SlotMode::Share: return gezeigteFreigabe;
+    case SlotMode::Participant: break;
+  }
+  return idAusBefehl;
+}
+
+/**
+ * Grund, wenn IsVideoOn() nach dem Umhaengen auf VIDEO false liefert (6.10 Schritt 7): Teilnehmer cameraOff (T19),
+ * Sprecher speakerNoVideo (6.8 Regel 7: ein Kandidat ohne Kamera wurde Ziel).
+ */
+inline Grund grundBeiKameraAus(SlotMode modus) {
+  return modus == SlotMode::Speaker ? Grund::speakerNoVideo : Grund::cameraOff;
+}
+
+inline void meldeTon(UmhaengPlan& p, TonZustand z, TonGrund g, TonQuelle configured) {
+  p.schritte.push_back(UmhaengSchritt::TonMelden);
+  p.tonFolge.push_back({z, g, configured});
+  p.tonMelden = true;
+  p.tonZustand = z;
+  p.tonGrund = g;
+  p.configured = configured;
+}
+
+/** 6.10 Schritt 8, Ton-Teil (B25, RR8, N1, RN5, S2, noShare). */
+inline void tonBeimUmhaengen(const UmhaengLage& l, UmhaengPlan& p) {
+  if (l.tonAudioUnavailable) return;        // bleibt off/audioUnavailable, bis Ton wieder eingeschaltet wird
+  const TonQuelle vorher = tonWeg(l.modusVorher, l.audio, l.shareAudio);
+  const TonQuelle nachher = tonWeg(l.modusNachher, l.audio, l.shareAudio);
+  if (l.modusVorher != l.modusNachher) {    // Moduswechsel: allein der Tonweg zaehlt
+    if (vorher == nachher) return;           // mix -> mix, none -> none: Ton-Stand und Mischer bleiben, kein Ereignis
+    p.schritte.push_back(UmhaengSchritt::TonStandNeu);
+    if (nachher == TonQuelle::MixShare) p.schritte.push_back(UmhaengSchritt::MischerNeu);
+    if (l.audio == SlotAudio::Person && l.modusNachher != SlotMode::Participant) {
+      meldeTon(p, TonZustand::Off, TonGrund::personNotInMode, nachher);
+    } else if (nachher == TonQuelle::Person && l.neuesZiel == 0) {
+      meldeTon(p, TonZustand::Off, TonGrund::participantLeft, nachher);
+    } else if (nachher == TonQuelle::Share && l.neuesZiel == 0) {
+      meldeTon(p, TonZustand::Off, TonGrund::noShare, nachher);
+    } else if (nachher == TonQuelle::None) {
+      meldeTon(p, TonZustand::Off, TonGrund::modeChanged, nachher);
+    } else {
+      meldeTon(p, TonZustand::Waiting, TonGrund::modeChanged, nachher);
+    }
+    return;
+  }
+  if (l.neuesZiel == l.altesZiel) return;   // dasselbe Ziel (neue Aufloesung): der Ton bleibt
+  switch (nachher) {
+    case TonQuelle::Person:                  // haengt am Ziel
+      p.schritte.push_back(UmhaengSchritt::TonStandNeu);
+      if (l.neuesZiel == 0) meldeTon(p, TonZustand::Off, TonGrund::participantLeft, nachher);
+      else meldeTon(p, TonZustand::Waiting, TonGrund::targetChanged, nachher);
+      break;
+    case TonQuelle::Share:                   // Computerton haengt an der gezeigten Freigabe
+      p.schritte.push_back(UmhaengSchritt::TonStandNeu);
+      if (l.audio == SlotAudio::Person) break;   // mit Person-Ton: bleibt off/personNotInMode, nichts melden (RN5)
+      if (l.neuesZiel == 0) meldeTon(p, TonZustand::Off, TonGrund::noShare, nachher);
+      else meldeTon(p, TonZustand::Waiting, TonGrund::targetChanged, nachher);
+      break;
+    case TonQuelle::MixShare:                // Mischer-Slot: nur dessen Eingang B
+      p.schritte.push_back(UmhaengSchritt::MischerEingangBNeu);
+      break;
+    case TonQuelle::Mix:                     // Mischton haengt an keinem Ziel (RR8)
+    case TonQuelle::None:                    // Person-Ton ausserhalb von Teilnehmer ohne Computerton (S2)
+      break;
+  }
+}
+
+/** Schritte 6-8 (Abschluss): Ziel-Stand neu, Vorschau-Platz leeren, IsVideoOn (VIDEO), slot melden, Ton. */
+inline void umhaengAbschluss(const UmhaengLage& l, UmhaengPlan& p) {
+  p.schritte.push_back(UmhaengSchritt::ZielStandNeu);
+  p.schritte.push_back(UmhaengSchritt::VorschauPlatzLeeren);
+  if (l.neuesZiel == 0) {
+    p.zustand = SlotState::Fallback;
+    p.grund = ziel0Grund(l.aufruf, l.modusNachher);
+  } else {
+    if (rendererTyp(l.modusNachher) == RendererTyp::Video) p.schritte.push_back(UmhaengSchritt::IsVideoOnFragen);
+    p.zustand = SlotState::Starting;
+    p.grund = l.aufruf;
+  }
+  p.schritte.push_back(UmhaengSchritt::SlotMelden);
+  tonBeimUmhaengen(l, p);
+}
+
+/**
+ * Plan bis einschliesslich Subscribe (6.10 Schritte 0-5). Der Ausfuehrer (slotRetarget, A11/A12) setzt den Riegel
+ * (umhaengen = true) vor dem ersten Schritt, subscribed = true nur nach Erfolg, umhaengen = false bei ZielStandNeu.
+ * Endet der Plan mit Subscribe, entscheidet umhaengNachSubscribe ueber den Rest; scheitert ein CreateRenderer-
+ * Schritt, bricht er ab und ruft umhaengNachSubscribe mit rendererGescheitert = true.
+ */
+inline UmhaengPlan umhaengPlan(const UmhaengLage& l) {
+  UmhaengPlan p;
+  if (l.sperre) {                           // Schritt 0: nichts aufrufen, nach INMEETING umhaengen
+    p.schritte.push_back(UmhaengSchritt::Vormerken);
+    return p;
+  }
+  if (l.abonniert && !l.rendererTot) p.schritte.push_back(UmhaengSchritt::Unsubscribe);   // Schritt 1
+  if (l.rendererTot) {                      // Schritt 2: nie destroyRenderer an einem toten Renderer
+    p.schritte.push_back(UmhaengSchritt::ZeigerVerwerfen);
+    p.schritte.push_back(UmhaengSchritt::CreateRendererNeuerDelegate);
+  }
+  if (l.modusVorher != l.modusNachher && (l.modusVorher == SlotMode::Share || l.modusNachher == SlotMode::Share)) {
+    p.schritte.push_back(UmhaengSchritt::VersatzLeeren);       // 6.14: clear() vor dem Wechsel von/zur Freigabe
+    p.schritte.push_back(UmhaengSchritt::OhneVersatzSetzen);   // Freigabe-Slots ohne Versatz
+  }
+  if (l.neuesZiel == 0) {                   // Schritt 3: ohne Abo weiter mit Schritt 6
+    umhaengAbschluss(l, p);
+    return p;
+  }
+  p.schritte.push_back(UmhaengSchritt::SetResolution);   // Schritt 4 (resSet), danach resGot
+  p.schritte.push_back(UmhaengSchritt::GetResolution);
+  p.schritte.push_back(UmhaengSchritt::Subscribe);       // Schritt 5
+  return p;
+}
+
+/**
+ * Tabelle 6.10 Schritt 5-8 (B30, B32): Rueckgabe von subscribe(). versuch = Zahl der schon gelaufenen
+ * Wiederholungen. Nach einem neuen Renderer (Typwechsel) ruft der Ausfuehrer erneut, mit letzterTyp = neuer Typ.
+ */
+inline UmhaengPlan umhaengNachSubscribe(const UmhaengLage& l, int sdkFehler, int versuch) {
+  UmhaengPlan p;
+  const RendererTyp typ = rendererTyp(l.modusNachher);
+  if (!l.rendererGescheitert) {
+    if (sdkFehler == FEHLER_KEINER) {
+      umhaengAbschluss(l, p);
+      return p;
+    }
+    if (sdkFehler == FEHLER_ZU_OFT && versuch < ZU_OFT_WIEDERHOLUNGEN) {
+      p.schritte.push_back(UmhaengSchritt::WiederholenIn500ms);   // Zaehler tooFrequent
+      return p;
+    }
+    if (sdkFehler == FEHLER_KEINE_FREIGABEDATEN && typ == RendererTyp::Share) {
+      if (!l.freigabeNochGezeigt) return p;   // diese Freigabe wird nicht mehr gezeigt: das naechste Umhaengen kommt
+      if (versuch == 0) umhaengAbschluss(l, p);   // einmal: starting/<grund> (T20), Ziel-Stand neu
+      p.schritte.push_back(UmhaengSchritt::WiederholenIn500ms);   // kein neuer Renderer; Zaehler noShareData
+      return p;
+    }
+    if (typ != l.letzterTyp) {              // anderer Fehler mit Typwechsel: einmal neuer Renderer (AN11)
+      p.schritte.push_back(UmhaengSchritt::DestroyRenderer);
+      p.schritte.push_back(UmhaengSchritt::CreateRendererGleicherDelegate);
+      p.schritte.push_back(UmhaengSchritt::SetResolution);
+      p.schritte.push_back(UmhaengSchritt::GetResolution);
+      p.schritte.push_back(UmhaengSchritt::Subscribe);
+      return p;
+    }
+  }
+  // anderer Fehler (auch 30, 18 nach drei Wiederholungen, nach neuem Renderer) oder createRenderer gescheitert
+  p.schritte.push_back(UmhaengSchritt::ZielStandNeu);
+  p.schritte.push_back(UmhaengSchritt::VorschauPlatzLeeren);
+  p.zustand = SlotState::Fallback;
+  p.grund = Grund::subscribeFailed;
+  p.schritte.push_back(UmhaengSchritt::SlotMelden);
+  p.schritte.push_back(UmhaengSchritt::FehlerSubscribeMelden);   // slotSubscribeFailed mit sdk und type
+  tonBeimUmhaengen(l, p);
+  return p;
+}
+
+/** Ergebnis von audioEnsureSubscribed() vor dem Umschalten (6.13, W6). */
+enum class AboErgebnis : uint8_t { Geglueckt, Gescheitert, NichtGerufen };
+
+/** Ton-Felder eines slotSet (oder slotOn: vorher off/false). Fehlt ein Feld, gilt das gespeicherte (N9-1). */
+struct TonAenderung {
+  bool audioGesetzt = false;
+  SlotAudio audio = SlotAudio::Off;
+  bool shareAudioGesetzt = false;
+  bool shareAudio = false;
+};
+
+/**
+ * Ob vor tonUmschaltPlan audioEnsureSubscribed() zu rufen ist (6.13, W6, N9-1): bei jedem slotOn/slotSet, das nach
+ * dem Einsetzen der gespeicherten Felder audio != off oder shareAudio = true ergibt.
+ */
+inline bool tonAboNoetig(const UmhaengLage& l, const TonAenderung& a) {
+  const SlotAudio audio = a.audioGesetzt ? a.audio : l.audio;
+  const bool share = a.shareAudioGesetzt ? a.shareAudio : l.shareAudio;
+  return audio != SlotAudio::Off || share;
+}
+
+/**
+ * Ton am laufenden Slot umschalten (6.13 „Umschalten“, FS4, S2, W6; PB22). l.audio/l.shareAudio = bisher,
+ * l.modusNachher = Modus des Slots, l.neuesZiel = sein Ziel. Jede Aenderung ersetzt den Ton-Stand, beim Wechsel in den
+ * Mischer auch den Mischer. waiting/command nur nach geglücktem Abo, nach gescheitertem off/audioUnavailable;
+ * danach off/personNotInMode (Person-Ton ausserhalb Teilnehmer), off/noShare (direkter Computerton ohne Freigabe)
+ * bzw. off/command (Tonweg none).
+ */
+inline UmhaengPlan tonUmschaltPlan(const UmhaengLage& l, const TonAenderung& a, AboErgebnis abo) {
+  UmhaengPlan p;
+  const SlotAudio audio = a.audioGesetzt ? a.audio : l.audio;
+  const bool share = a.shareAudioGesetzt ? a.shareAudio : l.shareAudio;
+  const SlotMode modus = l.modusNachher;
+  const TonQuelle weg = tonWeg(modus, audio, share);
+  if (audio != l.audio || share != l.shareAudio) {
+    p.schritte.push_back(UmhaengSchritt::TonStandNeu);
+    if (weg == TonQuelle::MixShare) p.schritte.push_back(UmhaengSchritt::MischerNeu);
+  }
+  if (abo == AboErgebnis::Gescheitert) {
+    meldeTon(p, TonZustand::Off, TonGrund::audioUnavailable, weg);
+    return p;
+  }
+  if (abo == AboErgebnis::Geglueckt) meldeTon(p, TonZustand::Waiting, TonGrund::command, weg);
+  if (audio == SlotAudio::Person && modus != SlotMode::Participant) {
+    meldeTon(p, TonZustand::Off, TonGrund::personNotInMode, weg);
+  } else if (weg == TonQuelle::Share && l.neuesZiel == 0) {
+    meldeTon(p, TonZustand::Off, TonGrund::noShare, weg);
+  } else if (weg == TonQuelle::None) {
+    meldeTon(p, TonZustand::Off, TonGrund::command, weg);
+  }
+  return p;
+}
+
+/** Ergebnis des Stille-Herzschlags: Abtastwerte je Kanal und der neue silenceBisMs. */
+struct StilleErgebnis {
+  int abtastwerte = 0;
+  int64_t neuerSilenceBisMs = 0;
+};
+inline constexpr int64_t STILLE_SCHWELLE_MS = 40;
+inline constexpr int64_t STILLE_HOECHSTENS_MS = 200;
+
+/**
+ * Stille-Herzschlag (6.13, heutige Rechnung video.cpp:1035-1086; PB30): nie fuer none und mixShare (der Mischer
+ * liefert seine Stille selbst), person und share nur mit Ziel != 0, mix auch mit Ziel 0 (RN7); erst mit bekanntem
+ * Format; ab 40 ms ohne Paket, Beginn bei max(silenceBisMs, lastAudioMs), hoechstens 200 ms je Aufruf, der Rest
+ * verfaellt (RN6). Neuer silenceBisMs = gekappter Beginn + tatsaechlich gesendete Zeit.
+ */
+inline StilleErgebnis stilleBloecke(TonQuelle tonweg, unsigned ziel, const TonStand& ton, int64_t jetzt) {
+  StilleErgebnis r;
+  r.neuerSilenceBisMs = ton.silenceBisMs;
+  if (tonweg == TonQuelle::None || tonweg == TonQuelle::MixShare) return r;
+  if ((tonweg == TonQuelle::Person || tonweg == TonQuelle::Share) && ziel == 0) return r;
+  if (ton.audioRate <= 0 || ton.audioChannels <= 0) return r;
+  const int64_t seitTon = jetzt > ton.lastAudioMs ? jetzt - ton.lastAudioMs : 0;
+  if (seitTon < STILLE_SCHWELLE_MS) return r;
+  int64_t bis = ton.silenceBisMs > ton.lastAudioMs ? ton.silenceBisMs : ton.lastAudioMs;
+  int64_t spanne = jetzt > bis ? jetzt - bis : 0;
+  if (spanne > STILLE_HOECHSTENS_MS) {
+    spanne = STILLE_HOECHSTENS_MS;
+    bis = jetzt - STILLE_HOECHSTENS_MS;
+  }
+  const int64_t bloecke = spanne * ton.audioRate / 1000;
+  if (bloecke <= 0) return r;
+  r.abtastwerte = static_cast<int>(bloecke);
+  r.neuerSilenceBisMs = bis + bloecke * 1000 / ton.audioRate;
+  return r;
+}
+
 }  // namespace slotlogic
