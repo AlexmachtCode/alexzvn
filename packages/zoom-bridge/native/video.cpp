@@ -1,6 +1,7 @@
 #include "video.h"
 #include <atomic>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -126,6 +127,9 @@ struct Slot {
   SlotMode vorgemerktMode = SlotMode::Participant;
   unsigned vorgemerktZiel = 0;
   Grund vorgemerktGrund = Grund::command;
+  // Sprecher-Slot: die Wahl dieses Slots (6.8), neu bei Einschalten, Moduswechsel auf
+  // Sprecher und Wechsel des Signals, je aus der Erinnerung vorbelegt.
+  std::unique_ptr<SprecherWahl> wahl;
 
   Abo& abo() { return *abos.front(); }
 
@@ -135,6 +139,15 @@ struct Slot {
 };
 
 std::map<int, std::unique_ptr<Slot>> g_slots;   // hoechstens 16 Eintraege
+
+// Sprecher und Freigaben (6.8, 6.9): EINE Erinnerung und EINE Liste je Bridge, nur
+// Hauptthread. Gefuettert aus den Merkern (main.cpp, merkerNehmen).
+SprecherErinnerung g_erinnerung;
+SprecherEinstellung g_sprecher;                 // speakerConfig; Vorgabe speakerVideo, 1000 ms (E19)
+FreigabeListe g_freigaben;
+struct FreigabeRueckruf { int64_t ms; bool inhalt; int status; unsigned user, share; int typ; };
+std::deque<FreigabeRueckruf> g_freigabeRecent;  // die letzten 10 Freigabe-Rueckrufe, roh (6.3)
+unsigned g_gezeigtShare = 0, g_gezeigtUser = 0; // zuletzt gezeigte Freigabe (slotLogicTick)
 
 // --- Ausgabe -------------------------------------------------------------------------
 
@@ -446,8 +459,13 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         break;
       }
       case UmhaengSchritt::VersatzLeeren:
+        // Moduswechsel von oder zur Freigabe (6.14): wartende Bilder verwerfen.
+        s.sender.leereVersatz();
+        break;
       case UmhaengSchritt::OhneVersatzSetzen:
-        break;   // Freigabe ohne Versatz kommt mit A12
+        // Freigabe-Slots senden ohne den Bild-Versatz der Personen (6.14, E11).
+        s.sender.setOhneVersatz(lauf.lage.modusNachher == SlotMode::Share);
+        break;
     }
   }
 }
@@ -495,6 +513,118 @@ void slotRetargetIntern(Slot& s, SlotMode nachher, unsigned ziel, Grund aufruf, 
 
 void slotRetarget(Slot& s, SlotMode nachher, unsigned ziel, Grund aufruf) {
   slotRetargetIntern(s, nachher, ziel, aufruf, true);
+}
+
+// --- Sprecher und Freigaben (Spec 6.8, 6.9) ------------------------------------------
+
+KameraAn kameraAbfrage() {
+  return [](unsigned id) { return kameraAn(id); };
+}
+
+std::unique_ptr<SprecherWahl> neueWahl(const Slot& s) {
+  SprecherEinstellung e = g_sprecher;
+  e.showNoVideo = s.showNoVideo.load();
+  return std::make_unique<SprecherWahl>(e, sessionMyUserId());
+}
+
+// shares-Ereignis (6.3): Liste, gezeigte Freigabe, die letzten 10 Rueckrufe roh; seeded
+// nur unmittelbar nach einem Befuellen. Ohne Namen.
+void emitShares(const char* seeded) {
+  const FreigabeEintrag* g = g_freigaben.gezeigt();
+  std::string out = "{\"ev\":\"shares\",\"list\":[";
+  bool erst = true;
+  for (const FreigabeEintrag& e : g_freigaben.eintraege()) {
+    if (!erst) out += ",";
+    erst = false;
+    out += "{\"user\":" + std::to_string(e.user) + ",\"share\":" + std::to_string(e.share) + ",\"status\":\"" +
+           (e.paused ? "paused" : "running") + "\",\"type\":\"" + nameVon(SHARE_TYP_NAMEN, e.type) + "\",\"audioOnly\":" +
+           (e.audioOnly ? "true" : "false") + ",\"pauses\":" + std::to_string(e.pauses) + "}";
+  }
+  out += "],\"shown\":" + std::to_string(g != nullptr ? g->share : 0);
+  if (seeded != nullptr) out += std::string(",\"seeded\":\"") + seeded + "\"";
+  out += ",\"recent\":[";
+  erst = true;
+  for (const FreigabeRueckruf& r : g_freigabeRecent) {
+    if (!erst) out += ",";
+    erst = false;
+    out += "{\"ms\":" + std::to_string(r.ms) + ",\"cb\":\"" + (r.inhalt ? "shareContent" : "sharingStatus") + "\",\"status\":\"" +
+           nameVon(SHARING_STATUS_NAMEN, r.status) + "\",\"user\":" + std::to_string(r.user) + ",\"share\":" + std::to_string(r.share) +
+           ",\"type\":\"" + nameVon(SHARE_TYP_NAMEN, r.typ) + "\"}";
+  }
+  out += "]}";
+  emitRaw(out);
+}
+
+// Index = Wert der Aufzaehlung im Header (A-EP4); haelt die Tabellen in slot_logic.h ehrlich.
+static_assert(Sharing_Other_Share_Begin == 4 && Sharing_Pause == 9 && Sharing_Resume == 10, "SharingStatus wie SHARING_STATUS_NAMES");
+static_assert(SHARE_TYPE_DS == 2 && SHARE_TYPE_COMPUTER_AUDIO == 10, "ShareType wie SHARE_TYPE_NAMES");
+
+// Befuellen (6.9): GetViewableSharingUserList, je Person GetSharingSourceInfoList. Im
+// Custom-UI-Modus kann die zweite Liste leer bleiben (ANNAHME AN14, MS3). nurErgaenzen:
+// beim ersten Freigabe-Slot; sonst (INMEETING) nach dem Leeren.
+void freigabenBefuellen(bool nurErgaenzen) {
+  IMeetingShareController* ctrl = shareCtrl();
+  IList<unsigned int>* nutzer = ctrl != nullptr ? ctrl->GetViewableSharingUserList() : nullptr;
+  Befuellt b;
+  if (nutzer == nullptr) {
+    b = g_freigaben.befuellen(nullptr, nurErgaenzen);
+  } else {
+    std::vector<FreigabeEintrag> liste;
+    for (int i = 0; i < nutzer->GetCount(); ++i) {
+      const unsigned user = nutzer->GetItem(i);
+      IList<ZoomSDKSharingSourceInfo>* quellen = ctrl->GetSharingSourceInfoList(user);
+      for (int k = 0; quellen != nullptr && k < quellen->GetCount(); ++k) {
+        const ZoomSDKSharingSourceInfo info = quellen->GetItem(k);
+        FreigabeEintrag e;
+        e.share = info.shareSourceID;
+        e.user = info.userid != 0 ? info.userid : user;
+        e.paused = info.status == Sharing_Pause;
+        e.type = static_cast<uint8_t>(info.contentType);
+        e.audioOnly = info.contentType == SHARE_TYPE_COMPUTER_AUDIO || info.status == Sharing_Other_Share_Pure_Audio_Begin;
+        liste.push_back(e);
+      }
+    }
+    b = g_freigaben.befuellen(&liste, nurErgaenzen);
+  }
+  emitShares(b == Befuellt::Ok ? "ok" : b == Befuellt::Leer ? "empty" : "unavailable");
+}
+
+bool andererFreigabeSlot(const Slot& ohne) {
+  for (const auto& [nr, s] : g_slots) {
+    if (s.get() != &ohne && s->mode.load() == SlotMode::Share) return true;
+  }
+  return false;
+}
+
+// Ziel nach Modus (6.7-6.10): Teilnehmer die Kennung, Sprecher der Kandidat aus der
+// Erinnerung (neue SprecherWahl, vorbelegt), Freigabe die gezeigte Freigabe (shareUser =
+// teilende Person). Der erste Freigabe-Slot befuellt die Liste, nur ergaenzend (B38).
+unsigned zielNachModus(Slot& s, SlotMode m, unsigned idTeilnehmer, int64_t jetzt) {
+  if (m == SlotMode::Participant) return idTeilnehmer;
+  if (m == SlotMode::Speaker) {
+    s.wahl = neueWahl(s);
+    s.wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetzt);
+    return s.wahl->ziel();
+  }
+  if (!andererFreigabeSlot(s)) freigabenBefuellen(true);
+  const FreigabeEintrag* g = g_freigaben.gezeigt();
+  s.shareUser = g != nullptr ? g->user : 0;
+  return g != nullptr ? g->share : 0;
+}
+
+// Alle Freigabe-Slots folgen der gezeigten Freigabe (6.9): ein Wechsel haengt um.
+void freigabeFolgen() {
+  const FreigabeEintrag* g = g_freigaben.gezeigt();
+  const unsigned share = g != nullptr ? g->share : 0;
+  const unsigned user = g != nullptr ? g->user : 0;
+  if (share == g_gezeigtShare && user == g_gezeigtUser) return;
+  g_gezeigtShare = share;
+  g_gezeigtUser = user;
+  for (auto& [nr, s] : g_slots) {
+    if (s->mode.load() != SlotMode::Share) continue;
+    s->shareUser = user;
+    slotRetarget(*s, SlotMode::Share, share, share != 0 ? Grund::shareChanged : Grund::shareNone);
+  }
 }
 
 // Wiederholung nach 18 bzw. 29 (6.10): dasselbe Ziel, dieselbe Lage, nur subscribe neu. Dass subscribe auf eine Freigabe sonst sofort Daten liefert, ist ANNAHME AN26 (unbelegt, MS27).
@@ -691,8 +821,11 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
   lage.modus = s.mode.load();
   lage.fallback = s.fallback.load();
   lage.ziel = abo.target.load();
-  lage.freigabeBesteht = lage.modus == SlotMode::Share && lage.ziel != 0;
-  lage.freigabePausiert = false;
+  // Freigabe-Slot: besteht die gezeigte Freigabe noch, und ist sie pausiert (6.9)?
+  const FreigabeEintrag* gezeigt = g_freigaben.gezeigt();
+  const bool dieseFreigabe = lage.modus == SlotMode::Share && lage.ziel != 0 && gezeigt != nullptr && gezeigt->share == lage.ziel;
+  lage.freigabeBesteht = dieseFreigabe;
+  lage.freigabePausiert = dieseFreigabe && gezeigt->paused;
   lage.kameraAusLautZoom = s.kameraAus;
   lage.letztesErsatzMs = s.letztesErsatzMs;
   lage.jetzt = jetzt;
@@ -829,10 +962,10 @@ void slotOn(const SlotBefehl& b) {
     return;
   }
   g_slots[b.nr] = std::move(slot);
-  // Erstes Ziel nach Modus (6.7-6.9): Teilnehmer die Kennung aus dem Befehl; Sprecher
-  // und Freigabe kommen mit A12 (bis dahin Ziel 0).
-  unsigned ziel = b.mode == SlotMode::Participant ? b.id : 0;
-  if (ziel != 0 && !sessionFindParticipant(ziel, nullptr, nullptr)) {
+  // Erstes Ziel nach Modus (6.7-6.9): Teilnehmer die Kennung aus dem Befehl, Sprecher
+  // aus der Sprecher-Erinnerung, Freigabe die gezeigte Freigabe.
+  unsigned ziel = zielNachModus(s, b.mode, b.id, jetztMs());
+  if (b.mode == SlotMode::Participant && ziel != 0 && !sessionFindParticipant(ziel, nullptr, nullptr)) {
     emitLog(L"Slot " + std::to_wstring(b.nr) + L": Kennung " + std::to_wstring(ziel) + L" gehoert keinem Teilnehmer - kein Ziel");
     ziel = 0;
   }
@@ -856,7 +989,14 @@ void slotSet(const SlotAenderung& a) {
   Abo& abo = s.abo();
   // Reihenfolge (6.2): fallback, showNoVideo, Ton, dann hoechstens EIN Umhaengen.
   if (a.fallbackGesetzt) s.fallback = a.fallback;
-  if (a.showNoVideoGesetzt) s.showNoVideo = a.showNoVideo;
+  if (a.showNoVideoGesetzt) {
+    s.showNoVideo = a.showNoVideo;
+    // Neue SprecherWahl mit der neuen Einstellung, aus der Erinnerung vorbelegt (6.8).
+    if (s.mode.load() == SlotMode::Speaker) {
+      s.wahl = neueWahl(s);
+      s.wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetztMs());
+    }
+  }
   if (a.audioGesetzt || a.shareAudioGesetzt) {
     const SlotAudio audio = a.audioGesetzt ? a.audio : s.audio.load();
     const bool share = a.shareAudioGesetzt ? a.shareAudio : s.shareAudio.load();
@@ -879,8 +1019,9 @@ void slotSet(const SlotAenderung& a) {
   }
   const SlotMode vorher = s.mode.load();
   if (a.modeGesetzt && a.mode != vorher) {
-    unsigned ziel = 0;
-    if (a.mode == SlotMode::Participant && a.idGesetzt) ziel = a.id;
+    // Neues Ziel nach dem neuen Modus (6.10 Moduswechsel): Teilnehmer id aus demselben
+    // Befehl, Sprecher Kandidat aus der Erinnerung, Freigabe die gezeigte, sonst 0.
+    const unsigned ziel = zielNachModus(s, a.mode, a.idGesetzt ? a.id : 0, jetztMs());
     if (a.resGesetzt) s.res = a.res;
     slotRetarget(s, a.mode, ziel, Grund::modeChanged);
     return;
@@ -915,10 +1056,124 @@ void slotOff(int nr, Grund grund) {
 
 void slotsParticipantLeft(unsigned id) {
   if (id == 0) return;
+  const int64_t jetzt = jetztMs();
+  // Die Erinnerung verliert die Kennung, die Freigaben der Person gehen (6.8, 6.9, AN9).
+  g_erinnerung.entferne(id);
+  if (g_freigaben.weggang(id)) emitShares(nullptr);
   for (auto& [nr, s] : g_slots) {
-    if (s->mode.load() == SlotMode::Participant && s->abo().target.load() == id) {
+    const SlotMode m = s->mode.load();
+    if (m == SlotMode::Participant && s->abo().target.load() == id) {
       slotRetarget(*s, SlotMode::Participant, 0, Grund::participantLeft);
+    } else if (m == SlotMode::Speaker && s->wahl) {
+      // Der gezeigte Sprecher geht: Ziel 0 (speakerNone), der naechste Kandidat sofort (6.8 Nr. 6).
+      const SprecherSchritt st = s->wahl->weggang(id, jetzt);
+      if (!st.wechsel) continue;
+      slotRetarget(*s, SlotMode::Speaker, 0, Grund::speakerNone);
+      const SprecherSchritt naechster = s->wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetzt);
+      if (naechster.wechsel) slotRetarget(*s, SlotMode::Speaker, naechster.ziel, naechster.grund);
     }
+  }
+}
+
+void slotsKamera(unsigned id, int videoStatus) {
+  // videoStatus-Ereignis (0.18): Video_ON = 0, Video_OFF = 1, Video_Mute_ByHost = 2.
+  emitRaw("{\"ev\":\"videoStatus\",\"id\":" + std::to_string(id) + ",\"videoOn\":" + (videoStatus == Video_ON ? "true" : "false") +
+          ",\"mutedByHost\":" + (videoStatus == Video_Mute_ByHost ? "true" : "false") + "}");
+  for (auto& [nr, s] : g_slots) {
+    if (s->mode.load() != SlotMode::Share && s->abo().target.load() == id) s->kameraAus = videoStatus != Video_ON;
+  }
+}
+
+void slotsFreigabe(const MerkerFreigabe& f) {
+  g_freigabeRecent.push_back(FreigabeRueckruf{jetztMs(), f.typNachtrag, f.status, f.user, f.share, f.contentType});
+  while (g_freigabeRecent.size() > 10) g_freigabeRecent.pop_front();
+  if (f.typNachtrag) {
+    g_freigaben.typNachtrag(f.user, f.share, f.contentType);
+  } else if (!g_freigaben.status(f.status, f.user, f.share, f.contentType) &&
+             (f.status <= Sharing_Self_Send_Pure_Audio_End || f.status == Sharing_View_Other_Sharing)) {
+    emitLog(L"Freigabe-Rueckruf ohne Wirkung (eigene Freigabe oder Ansicht), Status " + std::to_wstring(f.status));
+  }
+  // Jeder Freigabe-Rueckruf meldet shares (6.3); den Wechsel der gezeigten Freigabe
+  // fuehrt slotLogicTick aus.
+  emitShares(nullptr);
+}
+
+void slotsSprecher(const MerkerSprecher& m) {
+  const int64_t jetzt = jetztMs();
+  const long long f = qpcFrequenz();
+  std::string ids;
+  for (unsigned id : m.ids) ids += (ids.empty() ? "" : ",") + std::to_string(id);
+  // Jedes der drei Signale geht an Connect, unabhaengig vom gewaehlten (6.8 Nr. 1). ANNAHME AN17 (unbelegt, MS22): die drei Sprecher-Signale kommen auch ohne JoinVoip (ohne Ton-Slot tritt die Bridge nicht bei).
+  emitRaw(std::string("{\"ev\":\"speakerSignal\",\"signal\":\"") + nameVon(SIGNAL_NAMEN, m.signal) + "\",\"ids\":[" + ids +
+          "],\"ms\":" + std::to_string(f > 0 ? m.qpc * 1000 / f : jetzt) + "}");
+  const Signal sig = static_cast<Signal>(m.signal);
+  g_erinnerung.melde(sig, m.ids, jetzt);
+  for (auto& [nr, s] : g_slots) {
+    if (s->mode.load() != SlotMode::Speaker) continue;
+    if (!s->wahl) s->wahl = neueWahl(*s);
+    const SprecherSchritt st = s->wahl->signal(sig, m.ids, kameraAbfrage(), jetzt);
+    if (st.wechsel) slotRetarget(*s, SlotMode::Speaker, st.ziel, st.grund);
+  }
+}
+
+void slotsInMeeting() {
+  // Kennungen wechseln nach einer Wiederverbindung (6.5): Erinnerung leeren, Freigaben
+  // leeren und neu befuellen, dann jeden Slot neu zuordnen (6.15 "Zoom verbindet selbst
+  // neu"): Teilnehmer Ziel 0 bis Connect neue Kennungen schickt, Sprecher Ziel 0 bis zum
+  // naechsten Signal, Freigabe die gezeigte.
+  g_erinnerung.leeren();
+  g_freigaben.leeren();
+  g_gezeigtShare = g_gezeigtUser = 0;
+  freigabenBefuellen(false);
+  const FreigabeEintrag* g = g_freigaben.gezeigt();
+  g_gezeigtShare = g != nullptr ? g->share : 0;
+  g_gezeigtUser = g != nullptr ? g->user : 0;
+  for (auto& [nr, s] : g_slots) {
+    const SlotMode m = s->mode.load();
+    if (m == SlotMode::Participant) {
+      slotRetarget(*s, m, 0, Grund::noTarget);
+    } else if (m == SlotMode::Speaker) {
+      s->wahl = neueWahl(*s);
+      slotRetarget(*s, m, 0, Grund::speakerNone);
+    } else {
+      s->shareUser = g_gezeigtUser;
+      slotRetarget(*s, m, g_gezeigtShare, g_gezeigtShare != 0 ? Grund::shareChanged : Grund::shareNone);
+    }
+  }
+}
+
+void slotsSprecherEinstellung(Signal signal, int64_t holdMs) {
+  g_sprecher.signal = signal;
+  g_sprecher.haltezeitMs = holdMs;
+  const int64_t jetzt = jetztMs();
+  // Gilt fuer alle Sprecher-Slots sofort (6.2); jede neue Wahl aus der Erinnerung vorbelegt.
+  for (auto& [nr, s] : g_slots) {
+    if (s->mode.load() != SlotMode::Speaker) continue;
+    s->wahl = neueWahl(*s);
+    s->wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetzt);
+    if (s->wahl->ziel() != s->abo().target.load()) slotRetarget(*s, SlotMode::Speaker, s->wahl->ziel(), Grund::speakerChanged);
+  }
+  // Bestaetigung aus dem GESPEICHERTEN Zustand (Nachbesserung a3, NB-a3-3): command-probe vergleicht
+  // sie mit dem Gesendeten - eine verlorene Haltezeit oder ein vertauschtes Signal faellt so ohne
+  // Meeting auf.
+  emitRaw(std::string("{\"ev\":\"speakerConfig\",\"signal\":\"") + nameVon(SIGNAL_NAMEN, g_sprecher.signal) + "\",\"holdMs\":" +
+          std::to_string(g_sprecher.haltezeitMs) + "}");
+}
+
+void slotLogicTick(int64_t jetzt) {
+  // Schritt 5 der Hauptschleife (6.6): Haltezeiten, Wechsel der gezeigten Freigabe,
+  // Wiederholungen nach 18/29, vorgemerkte Umhaengungen. Waehrend der Renderer-Sperre
+  // merkt slotRetarget nur vor.
+  for (auto& [nr, s] : g_slots) {
+    if (s->mode.load() != SlotMode::Speaker || !s->wahl) continue;
+    const SprecherSchritt st = s->wahl->tick(kameraAbfrage(), jetzt);
+    if (st.wechsel) slotRetarget(*s, SlotMode::Speaker, st.ziel, st.grund);
+  }
+  freigabeFolgen();
+  wiederholungen(jetzt);
+  if (callbacksRendererSperre()) return;
+  for (auto& [nr, s] : g_slots) {
+    if (s->vorgemerkt) slotRetarget(*s, s->vorgemerktMode, s->vorgemerktZiel, s->vorgemerktGrund);
   }
 }
 
@@ -954,7 +1209,6 @@ void slotsTick() {
       paketSenden(*it->second, p, jetzt);
     }
   }
-  wiederholungen(jetzt);
   for (auto& [nr, s] : g_slots) {
     // Bild-Versatz: wartende Bilder ausgeben (Nachlauf), ohne Bedingung.
     s->sender.pump();

@@ -3599,5 +3599,53 @@ console.log('\nA11 Attrappe — E3: der NDI-Name eines Slots bleibt über jeden 
     'A11 E3 (Attrappe): jedes slot-Ereignis trägt den NDI-Namen aus slotOn, über Sprecher-, Modus-, Freigabe-, Ziel- und Auflösungswechsel');
   if (!alleWechsel || abweichend.length > 0) console.error(`      Gründe: ${[...gruende].join(', ')}; abweichend: ${abweichend.map((e) => `${e.slot}/${e.reason}`).join(', ') || '(keins)'}`);
 }
+console.log('\nNativer Teil — A12 Sprecher, Freigabe, Moduswechsel, ohne Versatz (Spec 6.6 Nr. 5, 6.8, 6.9, 6.14):');
+{
+  const main = nativ('main.cpp', true);
+  const schleife = main.slice(Math.max(0, main.indexOf('while (!g_quit) {')));
+  const iMerker = schleife.indexOf('merkerNehmen(');
+  const iLogik = schleife.indexOf('slotLogicTick(');
+  const iTakt = schleife.indexOf('slotsTick(');
+  assert(iMerker >= 0 && iLogik > iMerker && iTakt > iLogik,
+    'A12 6.6: slotLogicTick steht zwischen dem Merker-Schritt und slotsTick');
+  // Die Zeit wird eingespeist (G-A2): jeder Aufruf bekommt die Bridge-Uhr, keine feste Zahl (Nachbesserung a2, NB-a2-3).
+  const zeiten = [...main.matchAll(/slotLogicTick\(([^;]*)\);/g)].map((m) => m[1].replace(/\s+/g, ''));
+  assert(zeiten.length > 0 && zeiten.every((z) => z === 'static_cast<int64_t>(GetTickCount64())' || z === 'jetztMs()'),
+    'A12 6.6 Nr. 5: slotLogicTick bekommt die Bridge-Uhr (GetTickCount64 bzw. jetztMs), keine feste Zeit');
+  if (zeiten.some((z) => z !== 'static_cast<int64_t>(GetTickCount64())' && z !== 'jetztMs()')) console.error(`      Aufrufe: ${zeiten.join(', ')}`);
+  const nehmen = rumpf(main, 'void merkerNehmen()');
+  assert(/callbacksTakeKamera\(&k\)\)\s*slotsKamera\(/.test(nehmen) && /callbacksTakeFreigabe\(&f\)\)\s*slotsFreigabe\(/.test(nehmen)
+      && /callbacksTakeSprecher\(&s\)\)\s*slotsSprecher\(/.test(nehmen) && nehmen.indexOf('slotsInMeeting(') > nehmen.indexOf('callbacksTakeInMeeting('),
+    'A12 6.6 Nr. 4: Kamera, Freigaben und Sprecher-Signale gehen aus der Hauptschleife an die Slot-Logik, INMEETING an slotsInMeeting');
+  const sprecher = rumpf(nativ('main.cpp'), 'if (cmd == "speakerConfig")');
+  assert(sprecher.includes('"speakerBadSignal"') && sprecher.includes('"speakerBadHold"') && sprecher.includes('kSpeakerHoldMaxMs')
+      && !/sessionCanRecordRaw|g_sdkInitialized/.test(sprecher),
+    'A12 6.2: speakerConfig prüft Signal und Haltezeit (bis kSpeakerHoldMaxMs) und braucht kein init');
+}
+{
+  const video = nativ('video.cpp', true);
+  const plan = rumpf(video, 'void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ');
+  const fall = (schritt: string) => {
+    const i = plan.indexOf(`case UmhaengSchritt::${schritt}:`);
+    return i < 0 ? '' : plan.slice(i, plan.indexOf('break;', i));
+  };
+  assert(/s\.sender\.setOhneVersatz\(\s*lauf\.lage\.modusNachher\s*==\s*SlotMode::Share\s*\)/.test(fall('OhneVersatzSetzen')),
+    'A12 6.14: Freigabe-Slots setzen am Sender „ohne Versatz“ (Schritt OhneVersatzSetzen)');
+  assert(/s\.sender\.leereVersatz\(\)/.test(fall('VersatzLeeren')),
+    'A12 6.14: ein Moduswechsel von oder zur Freigabe leert die Versatz-Warteschlange (Schritt VersatzLeeren)');
+  const ziel = rumpf(video, 'unsigned zielNachModus(');
+  assert(/vorbelegen\(\s*g_erinnerung/.test(ziel) && /g_freigaben\.gezeigt\(\)/.test(ziel) && /freigabenBefuellen\(\s*true\s*\)/.test(ziel),
+    'A12 6.8/6.9: das Ziel nach Modus kommt aus der vorbelegten SprecherWahl bzw. der gezeigten Freigabe; der erste Freigabe-Slot befüllt nur ergänzend');
+  const folgen = rumpf(video, 'void freigabeFolgen()');
+  assert(/Grund::shareChanged/.test(folgen) && /Grund::shareNone/.test(folgen) && /slotRetarget\(/.test(folgen) && /lage\.freigabePausiert\s*=\s*dieseFreigabe\s*&&\s*gezeigt->paused\s*;/.test(rumpf(video, 'void ersatzbildTick(')),
+    'A12 6.9: alle Freigabe-Slots folgen der gezeigten Freigabe (shareChanged bzw. shareNone), der Herzschlag sieht ihre Pause');
+  const neu = rumpf(video, 'void slotsInMeeting()');
+  assert(['g_erinnerung.leeren()', 'g_freigaben.leeren()', 'freigabenBefuellen(false)', 'Grund::noTarget', 'Grund::speakerNone']
+    .every((s) => neu.includes(s)),
+    'A12 6.15: INMEETING leert Erinnerung und Freigaben, befüllt neu; Teilnehmer noTarget, Sprecher speakerNone');
+  const weg = rumpf(video, 'void slotsParticipantLeft(');
+  assert(/g_erinnerung\.entferne\(id\)/.test(weg) && /g_freigaben\.weggang\(id\)/.test(weg) && /->weggang\(id,/.test(weg),
+    'A12 6.8 Nr. 6 / 6.9: ein Weggang entfernt die Kennung aus Erinnerung, Freigaben und Sprecher-Wahl');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

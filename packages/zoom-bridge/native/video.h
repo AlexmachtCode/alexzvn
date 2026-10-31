@@ -109,3 +109,31 @@ void slotsMeetingEnded();
 
 /** Alle Slots ab, weil die Aufnahme-Erlaubnis entzogen ist (Stage 4b, N4b.1). Nie aus einem Rueckruf. */
 void slotsPrivilegeRevoked();
+
+// --- Sprecher und Freigaben (Spec 6.8, 6.9; Merker aus callbacks.h) ------------------
+struct MerkerFreigabe;
+struct MerkerSprecher;
+
+/** Obergrenze der Haltezeit (speakerConfig holdMs, SPEAKER_HOLD_MAX_MS in src/protocol.ts). */
+constexpr long long kSpeakerHoldMaxMs = 5000;
+
+/** Kamera-Merker: meldet videoStatus (0.18) und merkt "Kamera aus laut Zoom" am Ziel (6.7). */
+void slotsKamera(unsigned id, int videoStatus);
+
+/** Freigabe-Merker: Liste fuettern (6.9), Rueckruf in recent, shares melden. */
+void slotsFreigabe(const MerkerFreigabe& f);
+
+/** Sprecher-Merker: speakerSignal melden, Erinnerung und jede SprecherWahl fuettern (6.8). */
+void slotsSprecher(const MerkerSprecher& m);
+
+/** INMEETING-Merker: Erinnerung leeren, Freigaben leeren und befuellen, jeden Slot neu zuordnen (6.15). */
+void slotsInMeeting();
+
+/** speakerConfig (6.2): gilt sofort fuer alle Sprecher-Slots; meldet die Bestaetigung. */
+void slotsSprecherEinstellung(slotlogic::Signal signal, int64_t holdMs);
+
+/**
+ * Schritt 5 der Hauptschleife (6.6): Haltezeiten, Wechsel der gezeigten Freigabe,
+ * Wiederholungen nach 18/29, vorgemerkte Umhaengungen.
+ */
+void slotLogicTick(int64_t jetzt);

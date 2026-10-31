@@ -114,6 +114,8 @@ void merkerNehmen() {
     sessionEigeneKennungNeu();
     callbacksRendererSperreLoesen();
     emitLog(L"INMEETING: eigene Kennung neu, Renderer-Sperre geloest");
+    // Erinnerung, Freigaben und jeden Slot neu (6.15 "Zoom verbindet selbst neu").
+    slotsInMeeting();
   }
   MerkerTeilnehmer t;
   while (callbacksTakeTeilnehmer(&t)) {
@@ -121,14 +123,12 @@ void merkerNehmen() {
     // Beitritt haengt nichts um - die Rueckkehr schickt Connect per slotSet (E6).
     if (!t.beitritt) slotsParticipantLeft(t.id);
   }
-  // Kamera, Freigaben und Sprecher wertet ab A12 die Slot-Logik aus; bis dahin
-  // werden die Merker nur genommen, damit keine Warteschlange vollaeuft.
   MerkerKamera k;
-  while (callbacksTakeKamera(&k)) {}
+  while (callbacksTakeKamera(&k)) slotsKamera(k.id, k.status);
   MerkerFreigabe f;
-  while (callbacksTakeFreigabe(&f)) {}
+  while (callbacksTakeFreigabe(&f)) slotsFreigabe(f);
   MerkerSprecher s;
-  while (callbacksTakeSprecher(&s)) {}
+  while (callbacksTakeSprecher(&s)) slotsSprecher(s);
 }
 
 // --- Feldleser der Slot-Befehle (Gliederung 3.2, A-EP11) ----------------------------
@@ -339,6 +339,19 @@ void handle(const std::string& line) {
     slotOff(nr, slotlogic::Grund::command);   // slotNotOn dort
     return;
   }
+  if (cmd == "speakerConfig") {
+    // Braucht kein "init" (wie videoDelay): eine Einstellung, die schon vor dem ersten
+    // Sprecher-Slot stehen soll (6.2). Ohne slot in den Fehlern.
+    slotlogic::Signal signal = slotlogic::Signal::SpeakerVideo;
+    if (leseName(line, "signal", slotlogic::SIGNAL_NAMEN, &signal) != Lesung::Gut) { emitSlotFehler("speakerBadSignal", 0); return; }
+    unsigned long long holdMs = 0;
+    if (numberFromJson3(line, "holdMs", &holdMs) != JsonFeld::Gelesen || holdMs > static_cast<unsigned long long>(kSpeakerHoldMaxMs)) {
+      emitSlotFehler("speakerBadHold", 0);
+      return;
+    }
+    slotsSprecherEinstellung(signal, static_cast<int64_t>(holdMs));
+    return;
+  }
   if (cmd == "videoDelay") {
     // Bild-Versatz fuer ALLE Zoom-Quellen (Abnahmepunkt 5). Braucht weder
     // "init" noch ein Meeting: es ist eine Einstellung, und sie soll schon
@@ -522,6 +535,9 @@ int main(int argc, char** argv) {
     // MERKER NEHMEN (Spec 6.6 Nr. 4), nach Meeting-Ende und Entzug, vor dem
     // Herzschlag. Die Rueckrufe haben nur Werte eingereiht (callbacks.cpp).
     merkerNehmen();
+    // Schritt 5 (Spec 6.6): Haltezeiten, Freigabe-Wechsel, Wiederholungen,
+    // vorgemerkte Umhaengungen - nach den Merkern, vor dem Herzschlag.
+    slotLogicTick(static_cast<int64_t>(GetTickCount64()));
     // Schwarzbild-Herzschlag (Aufgabe 5): haelt jede Video-Quelle am Leben,
     // indem sie bei Bildausfall Schwarz statt eines eingefrorenen letzten
     // Bildes sendet. Hier und nicht in einem eigenen Thread - die Schleife

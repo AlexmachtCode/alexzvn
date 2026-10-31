@@ -39,8 +39,8 @@ require('@jm/ndi');
 const zoomBin = process.env.ZOOM_SDK_DIR ? `${process.env.ZOOM_SDK_DIR}\\x64\\bin;` : '';
 
 const OHNE_MEETING_UNERREICHBAR = new Set(['slotNameTaken', 'slotAlreadyOn', 'slotReconnecting']);
-// Befehle der Tabelle, die erst A12 (speakerConfig) und A13 (previewMode) einfuehren.
-const NOCH_NICHT = new Set(['speakerConfig', 'previewMode']);
+// Befehle der Tabelle, die erst A13 (previewMode) einfuehrt.
+const NOCH_NICHT = new Set(['previewMode']);
 
 /**
  * Startet die Bridge frisch, schickt eine Zeile, sammelt Ereignisse und stderr und
