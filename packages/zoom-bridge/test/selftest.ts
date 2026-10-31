@@ -2767,5 +2767,157 @@ console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
     'nativ: callbacks.h, video.h und session.h erklären die drei neuen Funktionen');
 }
 
+// ── A1 · Slot-Vertrag: Kataloge, Befehle, Ereignisse, Fehlerschlüssel, Reducer, Exporte (Spec 6.2–6.4, 11.2 PT1–PT4) ──
+import {
+  AUDIO_ABO_FEHLER, SHARE_TYPE_NAMES, SHARING_STATUS_NAMES, SLOT_AUDIO_REASONS, SLOT_AUDIO_SETTINGS, SLOT_AUDIO_SOURCES,
+  SLOT_ERROR_KEYS, SLOT_FALLBACKS, SLOT_MODES, SLOT_NR_MAX, SLOT_REASONS, SLOT_RESOLUTIONS, SLOT_SENT, SLOT_STATES,
+  SPEAKER_HOLD_MAX_MS, SPEAKER_SIGNALS, type Command,
+} from '../src/protocol.ts';
+import type { SlotAudioSub, SlotSub } from '../src/state.ts';
+import type {
+  RecvStat as PaketRecvStat, ShareCallback as PaketShareCallback, ShareEntry as PaketShareEntry,
+  ShareTypeName as PaketShareTypeName, SharingStatusName as PaketSharingStatusName, SlotAudioReason as PaketSlotAudioReason,
+  SlotAudioSetting as PaketSlotAudioSetting, SlotAudioSource as PaketSlotAudioSource, SlotAudioSub as PaketSlotAudioSub,
+  SlotFallback as PaketSlotFallback, SlotFehler as PaketSlotFehler, SlotMode as PaketSlotMode, SlotReason as PaketSlotReason,
+  SlotResolution as PaketSlotResolution, SlotSent as PaketSlotSent, SlotState as PaketSlotState, SlotSub as PaketSlotSub,
+  SpeakerSignal as PaketSpeakerSignal,
+} from '../src/index.ts';
+
+/** Gleich nach Inhalt, unabhängig von der Reihenfolge der Schlüssel; undefined ist nie gleich. */
+const gleichFelder = (a: object | undefined, b: object): boolean =>
+  a !== undefined && JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
+
+console.log('\nA1 protocol — Slot-Kataloge (Spec 6.2–6.4, Gliederung 3.1):');
+{
+  const liste = (a: readonly string[]): string => a.join(',');
+  assert(SLOT_NR_MAX === 16, 'A1 E2: SLOT_NR_MAX ist 16');
+  assert(liste(SLOT_MODES) === 'participant,speaker,share', 'A1 6.2: SLOT_MODES participant, speaker, share');
+  assert(liste(SLOT_RESOLUTIONS) === '360p,720p,1080p' && SLOT_RESOLUTIONS.every((r) => (VIDEO_RESOLUTIONS as readonly string[]).includes(r)),
+    'A1 6.11: SLOT_RESOLUTIONS 360p, 720p, 1080p, eine Teilmenge von VIDEO_RESOLUTIONS');
+  assert(liste(SLOT_AUDIO_SETTINGS) === 'off,mix,person', 'A1 6.2: SLOT_AUDIO_SETTINGS off, mix, person');
+  assert(liste(SLOT_FALLBACKS) === 'transparent,freeze,black,white', 'A1 6.2: SLOT_FALLBACKS transparent, freeze, black, white');
+  assert(liste(SLOT_STATES) === 'starting,live,fallback,held,off', 'A1 6.3: SLOT_STATES starting, live, fallback, held, off');
+  assert(SLOT_SENT.length === 6 && liste(SLOT_SENT) === 'none,transparent,freeze,black,white,held', 'A1 6.12: SLOT_SENT hat 6 Werte');
+  assert(SLOT_REASONS.length === 20 && new Set(SLOT_REASONS).size === 20, 'A1 6.3: SLOT_REASONS hat genau 20 verschiedene Werte');
+  assert(SLOT_REASONS.includes('noFrames') && SLOT_REASONS.includes('cameraOff'),
+    'A1 6.3: noFrames steht neben cameraOff (zwei Ursachen, zwei Namen)');
+  assert(SLOT_AUDIO_REASONS.length === 12 && new Set(SLOT_AUDIO_REASONS).size === 12, 'A1 6.3: SLOT_AUDIO_REASONS hat genau 12 verschiedene Werte');
+  assert(SLOT_AUDIO_SOURCES.length === 5 && liste(SLOT_AUDIO_SOURCES) === 'mix,person,share,mixShare,none', 'A1 6.3: SLOT_AUDIO_SOURCES hat 5 Werte');
+  assert(liste(SPEAKER_SIGNALS) === 'speakerVideo,activeVideo,activeAudio' && SPEAKER_HOLD_MAX_MS === 5000,
+    'A1 6.2: drei Sprecher-Signale, Haltezeit höchstens 5000 ms');
+  assert(SHARE_TYPE_NAMES.length === 11 && SHARE_TYPE_NAMES[0] === 'unknown' && SHARE_TYPE_NAMES[2] === 'ds' && SHARE_TYPE_NAMES[10] === 'computerAudio',
+    'A1 A-EP4: SHARE_TYPE_NAMES hat 11 Werte, Index = enum ShareType (0 unknown, 2 ds, 10 computerAudio)');
+  assert(SHARING_STATUS_NAMES.length === 11 && SHARING_STATUS_NAMES[4] === 'otherShareBegin' && SHARING_STATUS_NAMES[9] === 'pause'
+      && SHARING_STATUS_NAMES[10] === 'resume',
+    'A1 A-EP4: SHARING_STATUS_NAMES hat 11 Werte, Index = enum SharingStatus (4 otherShareBegin, 9 pause, 10 resume)');
+  assert(SLOT_ERROR_KEYS.length === 21 && new Set(SLOT_ERROR_KEYS).size === 21 && SLOT_ERROR_KEYS.includes('slotBadTarget'),
+    'A1 6.4: SLOT_ERROR_KEYS hat 21 verschiedene Schlüssel, darunter slotBadTarget (A-EP2)');
+  assert(liste(AUDIO_ABO_FEHLER) === 'audioVoipJoinFailed,audioHelperMissing,audioSubscribeFailed', 'A1 6.4: genau drei Ton-Abo-Fehler');
+}
+
+console.log('\nA1 protocol — Slot-Fehlerschlüssel in OWN_ERROR_NAMES (PT3):');
+{
+  const gross = (k: string): string => k.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase();
+  assert(SLOT_ERROR_KEYS.every((k) => OWN_ERROR_NAMES[k] === gross(k)),
+    'A1 PT3: jeder Slot-Schlüssel hat seinen Namen in Großbuchstaben (slotBadNumber → SLOT_BAD_NUMBER)');
+  assert(new Set(SLOT_ERROR_KEYS.map((k) => OWN_ERROR_NAMES[k])).size === 21, 'A1 PT3: die 21 Namen sind paarweise verschieden');
+  assert(SLOT_ERROR_KEYS.every((k) => (enrich({ ev: 'error', where: 'slot', code: k, slot: 1 } as WireEvent) as { name?: string }).name === gross(k)),
+    'A1 PT3: enrich() löst jeden Slot-Schlüssel auf');
+  assert(AUDIO_ABO_FEHLER.every((k) => OWN_ERROR_NAMES[k] !== undefined), 'A1 6.4: die drei Ton-Abo-Fehler stehen schon im Katalog');
+  assert(Object.keys(OWN_ERROR_NAMES).length === 48, 'A1 PT3: OWN_ERROR_NAMES hat 27 + 21 = 48 Schlüssel');
+}
+
+console.log('\nA1 protocol — Slot-Befehle (6.2):');
+{
+  const befehle: Command[] = [
+    { cmd: 'slotOn', slot: 1, ndi: 'JM Connect – Zoom Anna', mode: 'participant', id: 16778240, resolution: '720p', audio: 'person',
+      shareAudio: false, fallback: 'transparent', showNoVideo: true },
+    { cmd: 'slotOn', slot: 2, ndi: 'JM Connect – Zoom Sprecher', mode: 'speaker', resolution: '1080p', audio: 'mix', shareAudio: true,
+      fallback: 'freeze', showNoVideo: false },
+    { cmd: 'slotSet', slot: 1, id: 16778250 },
+    { cmd: 'slotSet', slot: 2, mode: 'share', audio: 'off', shareAudio: true },
+    { cmd: 'slotOff', slot: 1 },
+    { cmd: 'speakerConfig', signal: 'activeAudio', holdMs: 2500 },
+    { cmd: 'previewMode', on: true },
+  ];
+  befehle.forEach((b, n) => assert(serializeCommand(b) === `${JSON.stringify(b)}\n`, `A1 6.2: Befehl ${n + 1} (${b.cmd}) geht als genau eine Zeile raus`));
+  assert(!serializeCommand(befehle[1]).includes('"id"'), 'A1 6.2: slotOn ohne id (kein Ziel) schreibt kein id-Feld');
+}
+
+console.log('\nA1 state — Slots im Reducer (PT1):');
+{
+  assert(initialSession().slots.size === 0 && initialSession().slotAudio.size === 0, 'A1 PT1: eine neue Sitzung hat keine Slots');
+  const slotFelder = { state: 'live', mode: 'share', target: 16778241, share: 101, reason: 'frames', sent: 'none',
+    ndi: 'JM Connect – Zoom Freigabe', rotation: 90, limitedRange: false } as const;
+  let s = reduce(initialSession(), enrich({ ev: 'slot', slot: 3, ...slotFelder } as WireEvent));
+  assert(gleichFelder(s.slots.get(3), slotFelder), 'A1 PT1: slot übernimmt jedes Feld aus 6.3 unter seiner Slot-Nummer');
+
+  s = reduce(s, enrich({ ev: 'slot', slot: 4, state: 'starting', mode: 'participant', target: 7, share: 0, reason: 'command',
+    sent: 'transparent', ndi: 'JM Connect – Zoom X' } as WireEvent));
+  const ohneBild = s.slots.get(4);
+  assert(ohneBild !== undefined && !('rotation' in ohneBild) && !('limitedRange' in ohneBild),
+    'A1 PT1: ein slot ohne Bild legt weder rotation noch limitedRange an (keine erfundenen Werte)');
+
+  const tonFelder = { state: 'live', source: 'mixShare', configured: 'mixShare', reason: 'packets', sampleRate: 32000, channels: 1 } as const;
+  s = reduce(s, enrich({ ev: 'slotAudio', slot: 3, ...tonFelder } as WireEvent));
+  assert(gleichFelder(s.slotAudio.get(3), tonFelder), 'A1 PT1: slotAudio übernimmt jedes Feld aus 6.3');
+
+  s = reduce(s, enrich({ ev: 'slotAudio', slot: 4, state: 'off', source: 'none', configured: 'none', reason: 'personNotInMode' } as WireEvent));
+  assert(s.slotAudio.get(4)?.state === 'off' && s.slotAudio.get(4)?.reason === 'personNotInMode',
+    'A1 PT1: slotAudio off/personNotInMode bleibt als Eintrag stehen (Dauerzustand, A-EP6)');
+  const ton4 = s.slotAudio.get(4);
+  assert(ton4 !== undefined && !('sampleRate' in ton4) && !('channels' in ton4), 'A1 PT1: ohne Paket keine Abtastrate und keine Kanalzahl');
+
+  s = reduce(s, enrich({ ev: 'slot', slot: 3, state: 'off', mode: 'share', target: 16778241, share: 101, reason: 'command', sent: 'none',
+    ndi: 'JM Connect – Zoom Freigabe' } as WireEvent));
+  assert(!s.slots.has(3) && !s.slotAudio.has(3), 'A1 PT1: slot off löscht den Slot und seinen Ton');
+  assert(s.slots.has(4) && s.slotAudio.has(4), 'A1 PT1: ... und nur diesen');
+}
+
+console.log('\nA1 state — videoStatus führt videoOn des Teilnehmers nach (PT1, 0.18):');
+{
+  const vorher = run([{ ev: 'roster', list: [person({ id: 7, videoOn: true })] }]);
+  const nachher = reduce(vorher, enrich({ ev: 'videoStatus', id: 7, videoOn: false, mutedByHost: true } as WireEvent));
+  assert(nachher.participants.get(7)?.videoOn === false, 'A1 PT1: videoStatus setzt videoOn des Teilnehmers');
+  assert(vorher.participants.get(7)?.videoOn === true, 'A1 PT1: ... ohne den alten Zustand zu verändern');
+  const fremd = reduce(vorher, enrich({ ev: 'videoStatus', id: 99, videoOn: false, mutedByHost: false } as WireEvent));
+  assert(fremd === vorher, 'A1 PT1: videoStatus für einen Unbekannten ändert nichts');
+}
+
+console.log('\nA1 state — ein Slot-Fehler kippt die Sitzung nicht (PT2):');
+{
+  const s = run([{ ev: 'status', status: 'inMeeting', raw: 3, code: 0 }, { ev: 'error', where: 'slot', code: 'slotNotOn', slot: 2 }]);
+  assert(s.phase === 'inMeeting', 'A1 PT2: error where:slot lässt die Phase stehen');
+  assert(s.lastError?.name === 'SLOT_NOT_ON' && s.lastError.slot === 2, 'A1 PT2: ... und steht mit Namen und Slot in lastError');
+  assert(run([{ ev: 'error', where: 'slot', code: 'slotBadNumber' }]).lastError?.slot === undefined,
+    'A1 PT2: ohne slot im Ereignis erfindet der Reducer keinen');
+  const auth = run([{ ev: 'status', status: 'inMeeting', raw: 3, code: 0 }, { ev: 'error', where: 'auth', code: 'authTimeout' }]);
+  assert(auth.phase === 'error', 'A1 PT2: where:auth kippt die Sitzung weiterhin');
+}
+
+console.log('\nA1 index — Exporte des Slot-Vertrags (PT4):');
+{
+  assert(paket.SLOT_NR_MAX === SLOT_NR_MAX && paket.SLOT_MODES === SLOT_MODES && paket.SLOT_RESOLUTIONS === SLOT_RESOLUTIONS
+      && paket.SLOT_AUDIO_SETTINGS === SLOT_AUDIO_SETTINGS && paket.SLOT_FALLBACKS === SLOT_FALLBACKS && paket.SLOT_STATES === SLOT_STATES
+      && paket.SLOT_SENT === SLOT_SENT && paket.SLOT_REASONS === SLOT_REASONS && paket.SLOT_AUDIO_REASONS === SLOT_AUDIO_REASONS
+      && paket.SLOT_AUDIO_SOURCES === SLOT_AUDIO_SOURCES && paket.SPEAKER_SIGNALS === SPEAKER_SIGNALS
+      && paket.SPEAKER_HOLD_MAX_MS === SPEAKER_HOLD_MAX_MS && paket.SHARE_TYPE_NAMES === SHARE_TYPE_NAMES
+      && paket.SHARING_STATUS_NAMES === SHARING_STATUS_NAMES && paket.SLOT_ERROR_KEYS === SLOT_ERROR_KEYS
+      && paket.AUDIO_ABO_FEHLER === AUDIO_ABO_FEHLER,
+    'A1 PT4: src/index.ts exportiert alle 16 Slot-Konstanten');
+  const typen: [PaketSlotMode, PaketSlotResolution, PaketSlotAudioSetting, PaketSlotFallback, PaketSlotState, PaketSlotSent,
+    PaketSlotReason, PaketSlotAudioReason, PaketSlotAudioSource, PaketSpeakerSignal, PaketShareTypeName, PaketSharingStatusName,
+    PaketSlotFehler] = ['share', '1080p', 'person', 'white', 'held', 'held', 'noFrames', 'personNotInMode', 'mixShare', 'activeAudio',
+    'computerAudio', 'resume', 'slotBadTarget'];
+  const sub: PaketSlotSub = { state: 'live', mode: 'participant', target: 7, share: 0, reason: 'frames', sent: 'none', ndi: 'X' };
+  const ton: PaketSlotAudioSub = { state: 'waiting', source: 'none', configured: 'person', reason: 'command' };
+  const lokal: [SlotSub, SlotAudioSub] = [sub, ton];
+  const eintrag: PaketShareEntry = { user: 7, share: 101, status: 'paused', type: 'ds', audioOnly: false, pauses: 1 };
+  const rueckruf: PaketShareCallback = { ms: 1, cb: 'shareContent', status: 'otherShareBegin', user: 7, share: 101, type: 'ds' };
+  const empfang: PaketRecvStat = { w: 1280, h: 720, fps: 30 };
+  assert(typen.length === 13 && lokal.length === 2 && eintrag.pauses === 1 && rueckruf.cb === 'shareContent' && empfang.fps === 30,
+    'A1 PT4: src/index.ts exportiert die Slot-Typen samt SlotSub und SlotAudioSub (prüft tsc)');
+}
+
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

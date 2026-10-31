@@ -2,7 +2,7 @@
 // benutzt, steht hier - und nur das.
 export { Bridge, binPath, type BridgeOptions } from './bridge.ts';
 export { buildJwt, readCredentials, type JwtOptions } from './jwt.ts';
-export { initialSession, isSettled, reduce, type Session } from './state.ts';
+export { initialSession, isSettled, reduce, type Session, type SlotAudioSub, type SlotSub } from './state.ts';
 export { SDK_FASSUNG, SDK_FASSUNG_BRIDGE, peInfo, findeSdkBin, type PeInfo } from './sdk.ts';
 export {
   normalizeMeetingId,
@@ -13,6 +13,39 @@ export {
   failCodeName,
   failReason,
   endReason,
+  // Slots (Connect 0.4.0, Spec 6.2-6.4; Gliederung 3.1)
+  SLOT_NR_MAX,
+  SLOT_MODES,
+  SLOT_RESOLUTIONS,
+  SLOT_AUDIO_SETTINGS,
+  SLOT_FALLBACKS,
+  SLOT_STATES,
+  SLOT_SENT,
+  SLOT_REASONS,
+  SLOT_AUDIO_REASONS,
+  SLOT_AUDIO_SOURCES,
+  SPEAKER_SIGNALS,
+  SPEAKER_HOLD_MAX_MS,
+  SHARE_TYPE_NAMES,
+  SHARING_STATUS_NAMES,
+  SLOT_ERROR_KEYS,
+  AUDIO_ABO_FEHLER,
+  type RecvStat,
+  type ShareCallback,
+  type ShareEntry,
+  type ShareTypeName,
+  type SharingStatusName,
+  type SlotAudioReason,
+  type SlotAudioSetting,
+  type SlotAudioSource,
+  type SlotFallback,
+  type SlotFehler,
+  type SlotMode,
+  type SlotReason,
+  type SlotResolution,
+  type SlotSent,
+  type SlotState,
+  type SpeakerSignal,
   type AudioReason,
   type AudioState,
   type BridgeEvent,

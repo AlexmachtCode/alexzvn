@@ -1,6 +1,9 @@
 // Die Zustandsmaschine: aus Ereignissen wird ein Bild der Sitzung.
 // Rein — kein Prozess, keine Uhr, keine Seiteneffekte. Deshalb ohne SDK pruefbar.
-import type { AudioReason, AudioState, BridgeEvent, MeetingStatusName, Participant, VideoReason, VideoState } from './protocol.ts';
+import type {
+  AudioReason, AudioState, BridgeEvent, MeetingStatusName, Participant, SlotAudioReason, SlotAudioSource, SlotMode,
+  SlotReason, SlotSent, SlotState, VideoReason, VideoState,
+} from './protocol.ts';
 
 export interface VideoSub {
   state: VideoState;
@@ -14,6 +17,35 @@ export interface VideoSub {
 export interface AudioSub {
   state: AudioState;
   reason: AudioReason;
+  sampleRate?: number;
+  channels?: number;
+}
+
+/**
+ * Ein laufender Slot, wie ihn das letzte slot-Ereignis beschreibt (Spec 6.3; Gliederung 3.4). rotation und
+ * limitedRange fehlen, bis ein Bild des aktuellen Ziels kam (keine erfundenen Werte).
+ */
+export interface SlotSub {
+  state: SlotState;
+  mode: SlotMode;
+  target: number;
+  share: number;
+  reason: SlotReason;
+  sent: SlotSent;
+  ndi: string;
+  rotation?: number;
+  limitedRange?: boolean;
+}
+
+/**
+ * Der Ton eines Slots (slotAudio, 6.3). Bleibt auch bei 'off' stehen: off/personNotInMode ist ein Dauerzustand mit
+ * Grund (A-EP6); erst `slot off` loescht ihn. sampleRate/channels fehlen, bis ein Paket sie lieferte.
+ */
+export interface SlotAudioSub {
+  state: AudioState;
+  source: SlotAudioSource;
+  configured: SlotAudioSource;
+  reason: SlotAudioReason;
   sampleRate?: number;
   channels?: number;
 }
@@ -63,9 +95,13 @@ export interface Session {
    * das eine Aussage über die MASCHINE (`audioQueueOverflow`) — dann wird
    * hier auch keine erfunden.
    */
-  lastError: { where: string; code: number | string; name: string; id?: number } | null;
+  lastError: { where: string; code: number | string; name: string; id?: number; slot?: number } | null;
   videoSubs: Map<number, VideoSub>;
   audioSubs: Map<number, AudioSub>;
+  /** Laufende Slots nach Slot-Nummer (1..16). `slot off` loescht den Eintrag samt seinem Ton. */
+  slots: Map<number, SlotSub>;
+  /** Ton je Slot-Nummer; nur `slot off` loescht ihn (A-EP6). */
+  slotAudio: Map<number, SlotAudioSub>;
   /**
    * Der Bild-Versatz, den die Bridge ZULETZT BESTAETIGT hat (Ereignis
    * videoDelay), in Millisekunden. `null` = noch nie bestaetigt. Die Bridge
@@ -87,6 +123,8 @@ export function initialSession(): Session {
     lastError: null,
     videoSubs: new Map(),
     audioSubs: new Map(),
+    slots: new Map(),
+    slotAudio: new Map(),
     videoDelayMs: null,
   };
 }
@@ -181,7 +219,7 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
     }
 
     case 'error': {
-      const e = ev as { where: string; code: number | string; name?: string; id?: number };
+      const e = ev as { where: string; code: number | string; name?: string; id?: number; slot?: number };
       // EIN VIDEO- ODER TON-FEHLER IST KEINE KAPUTTE SITZUNG (Abschluss-Sichtung, I5;
       // Ton nachgezogen in der Schlussprüfung zu Stage 3, Critical 1).
       // Stage 2 bringt Fehlerschluessel, die im NORMALBETRIEB auftreten:
@@ -220,7 +258,10 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
       // verschwinden, nur die SITZUNG ist nicht kaputt. Wer Bild-/Ton-Fehler
       // sehen will, liest lastError (oder haengt sich an onEvent, wie
       // test/video-limit.mjs es tut).
-      const phase = e.where === 'video' || e.where === 'audio' ? s.phase : 'error';
+      // where:'slot' (Connect 0.4.0, Spec 6.4) gehoert aus demselben Grund in dieselbe Klasse: ein Slot-Fehler
+      // (slotNotOn im Wettlauf, slotSubscribeFailed, ein Tippfehler im Befehl) betrifft einen Slot, nie den
+      // Aufbau der Sitzung. Gegenprobe: where:'auth' kippt weiter.
+      const phase = e.where === 'video' || e.where === 'audio' || e.where === 'slot' ? s.phase : 'error';
       const lastError: NonNullable<Session['lastError']> = {
         where: e.where,
         code: e.code,
@@ -232,6 +273,8 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
       // ausgerechnet die Angabe nicht, fuer die sie in audioBufferMismatch
       // eingefuehrt wurde.
       if (typeof e.id === 'number') lastError.id = e.id;
+      // Dieselbe Regel fuer die Slot-Nummer: nur, wenn das Ereignis eine trug (slotBadNumber traegt keine).
+      if (typeof e.slot === 'number') lastError.slot = e.slot;
       return { ...s, phase, lastError };
     }
 
@@ -306,6 +349,56 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
         sampleRate: e.sampleRate, channels: e.channels,
       });
       return { ...s, audioSubs };
+    }
+
+    case 'slot': {
+      const e = ev as {
+        slot: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason;
+        sent: SlotSent; ndi: string; rotation?: number; limitedRange?: boolean;
+      };
+      const slots = new Map(s.slots);
+      if (e.state === 'off') {
+        // Das Ende eines Slots ist auch das Ende seines Tons (Gliederung 3.4): die Bridge meldet slotAudio off
+        // vor slot off, aber erst slot off sagt, dass es den Slot nicht mehr gibt.
+        slots.delete(e.slot);
+        const slotAudio = new Map(s.slotAudio);
+        slotAudio.delete(e.slot);
+        return { ...s, slots, slotAudio };
+      }
+      const sub: SlotSub = {
+        state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent, ndi: e.ndi,
+      };
+      // Nur uebernehmen, was gemessen wurde (keine erfundenen Werte, 6.3).
+      if (e.rotation !== undefined) sub.rotation = e.rotation;
+      if (e.limitedRange !== undefined) sub.limitedRange = e.limitedRange;
+      slots.set(e.slot, sub);
+      return { ...s, slots };
+    }
+
+    case 'slotAudio': {
+      const e = ev as {
+        slot: number; state: AudioState; source: SlotAudioSource; configured: SlotAudioSource; reason: SlotAudioReason;
+        sampleRate?: number; channels?: number;
+      };
+      const slotAudio = new Map(s.slotAudio);
+      // KEIN Loeschen bei 'off' (A-EP6): off/personNotInMode oder off/noShare ist ein Zustand mit Grund, den die
+      // Kachel anzeigt. Erst slot off raeumt den Ton ab.
+      const ton: SlotAudioSub = { state: e.state, source: e.source, configured: e.configured, reason: e.reason };
+      if (e.sampleRate !== undefined) ton.sampleRate = e.sampleRate;
+      if (e.channels !== undefined) ton.channels = e.channels;
+      slotAudio.set(e.slot, ton);
+      return { ...s, slotAudio };
+    }
+
+    case 'videoStatus': {
+      // Zoom meldet die Kamera eines Teilnehmers (Spec 0.18, onUserVideoStatusChange). Fuer einen Unbekannten
+      // legen wir niemanden an (wie renamed).
+      const e = ev as { id: number; videoOn: boolean };
+      const known = s.participants.get(e.id);
+      if (!known) return s;
+      const participants = new Map(s.participants);
+      participants.set(e.id, { ...known, videoOn: e.videoOn });
+      return { ...s, participants };
     }
 
     case 'videoDelay': {
