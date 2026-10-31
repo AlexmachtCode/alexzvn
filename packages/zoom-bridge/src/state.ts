@@ -5,6 +5,7 @@ import type {
   SlotReason, SlotSent, SlotState, VideoReason, VideoState,
 } from './protocol.ts';
 
+/** @deprecated Nur noch als Typ bis Plan B, Task B23; die Sitzung fuehrt seit Plan A, Task A3 slots (SlotSub). */
 export interface VideoSub {
   state: VideoState;
   source: string;
@@ -14,6 +15,7 @@ export interface VideoSub {
   limitedRange?: boolean;
 }
 
+/** @deprecated Nur noch als Typ bis Plan B, Task B23; die Sitzung fuehrt seit Plan A, Task A3 slotAudio (SlotAudioSub). */
 export interface AudioSub {
   state: AudioState;
   reason: AudioReason;
@@ -96,8 +98,6 @@ export interface Session {
    * hier auch keine erfunden.
    */
   lastError: { where: string; code: number | string; name: string; id?: number; slot?: number } | null;
-  videoSubs: Map<number, VideoSub>;
-  audioSubs: Map<number, AudioSub>;
   /** Laufende Slots nach Slot-Nummer (1..16). `slot off` loescht den Eintrag samt seinem Ton. */
   slots: Map<number, SlotSub>;
   /** Ton je Slot-Nummer; nur `slot off` loescht ihn (A-EP6). */
@@ -121,8 +121,6 @@ export function initialSession(): Session {
     privilegeTimedOut: false,
     privilegeDenied: false,
     lastError: null,
-    videoSubs: new Map(),
-    audioSubs: new Map(),
     slots: new Map(),
     slotAudio: new Map(),
     videoDelayMs: null,
@@ -157,15 +155,14 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
       else if (e.status === 'ended' || e.status === 'failed') phase = 'left';
       // Wer das Meeting verlaesst, laesst niemanden zurueck.
       const participants = e.status === 'ended' || e.status === 'failed' ? new Map<number, Participant>() : s.participants;
-      // videoSubs wird hier ABSICHTLICH NICHT mit abgeraeumt (Abschluss-
-      // Sichtung, I4): jedes Abo wird beim Abbau EINZELN gemeldet
-      // ({"ev":"video","state":"unsubscribed","reason":"command"}, siehe
-      // videoShutdownAll() in native/video.cpp), und diese Ereignisse
-      // laufen durch den 'video'-Zweig weiter unten. Hier stillschweigend
-      // zu loeschen hiesse, dieselbe Buchung an zwei Stellen zu fuehren -
-      // und die zweite waere eine ANNAHME ueber den nativen Teil statt
-      // seiner Meldung. Kaeme sie je auseinander (ein Abo, das den Abbau
-      // ueberlebt), verdeckte das Abraeumen hier genau das.
+      // slots wird hier ABSICHTLICH NICHT mit abgeraeumt (Abschluss-Sichtung, I4;
+      // mit den Slots uebernommen): jeder Slot wird beim Abbau EINZELN gemeldet
+      // ({"ev":"slot","state":"off","reason":"meetingEnded"}, Abbau-Ketten
+      // Spec 6.15), und diese Ereignisse laufen durch den 'slot'-Zweig weiter
+      // unten. Hier stillschweigend zu loeschen hiesse, dieselbe Buchung an zwei
+      // Stellen zu fuehren - und die zweite waere eine ANNAHME ueber den nativen
+      // Teil statt seiner Meldung. Kaeme sie je auseinander (ein Slot, der den
+      // Abbau ueberlebt), verdeckte das Abraeumen hier genau das.
       return { ...s, phase, meeting: e.status, participants };
     }
 
@@ -278,78 +275,8 @@ export function reduce(s: Session, ev: BridgeEvent): Session {
       return { ...s, phase, lastError };
     }
 
-    case 'video': {
-      const e = ev as {
-        id: number; state: VideoState; source: string; reason: VideoReason;
-        rebindable: boolean; rotation?: number; limitedRange?: boolean;
-      };
-      const videoSubs = new Map(s.videoSubs);
-      // Der Ton haengt am Bild-Abo, also haengt auch seine Karteileiche daran:
-      // dieselbe alte Kennung, die unten aus videoSubs verschwindet, muss auch
-      // aus audioSubs verschwinden. Ein eigener Korrelator am AudioSub waere
-      // eine zweite Buchfuehrung derselben Tatsache - und die zweite ginge
-      // irgendwann auseinander (genau der Fehler, der videoSubs oben schon
-      // einmal getroffen hat, siehe Kommentar zu 'reboundByName'). Erst bei
-      // Bedarf kopiert: ein videoSubscribed/live/black-Ereignis - der weit
-      // haeufigere Fall als ein Umhaengen - soll keine neue Map von
-      // audioSubs anlegen.
-      let audioSubs = s.audioSubs;
-      if (e.state === 'unsubscribed') {
-        videoSubs.delete(e.id);
-      } else {
-        // Beim Umhaengen (reason 'rebound') traegt das Ereignis die NEUE
-        // Kennung; die alte muss verschwinden, sonst bliebe eine Karteileiche
-        // stehen, auf die nie wieder ein Ereignis kommt. Der Quellenname ist
-        // der Faden, an dem die alte Kennung haengt - der Sender ist
-        // derselbe geblieben.
-        // BEIDE Umhaenge-Ursachen, nicht nur die erste. 'reboundByName' kam
-        // spaeter dazu (Zooms persistentId ueberlebt einen Wiederbeitritt
-        // nicht, gemessen am 14.08.2026) - und weil diese Abfrage nicht
-        // mitgezogen wurde, blieb nach JEDEM Umhaengen ueber den Namen die
-        // tote alte Kennung in videoSubs stehen. Auf sie kommt nie wieder ein
-        // Ereignis: eine Karteileiche, die ein Aufrufer als zweite, ewig
-        // schwarze Quelle anzeigen wuerde. Genau der Fall, den der Kommentar
-        // unten ("der Sender ist derselbe geblieben") ausschliessen soll.
-        if (e.reason === 'rebound' || e.reason === 'reboundByName') {
-          for (const [id, sub] of videoSubs) {
-            if (sub.source === e.source && id !== e.id) {
-              videoSubs.delete(id);
-              // Dieselbe tote Kennung, jetzt auf der Ton-Karte: ein spaeteres
-              // audio-Ereignis (Task 7) traegt schon die NEUE Kennung, also
-              // kommt auf diese alte nie wieder eines. Ohne diese Zeile bliebe
-              // sie als zweites, fuer immer stummes Abo stehen.
-              if (audioSubs.has(id)) {
-                audioSubs = new Map(audioSubs);
-                audioSubs.delete(id);
-              }
-            }
-          }
-        }
-        videoSubs.set(e.id, {
-          state: e.state, source: e.source, reason: e.reason,
-          rebindable: e.rebindable, rotation: e.rotation, limitedRange: e.limitedRange,
-        });
-      }
-      return { ...s, videoSubs, audioSubs };
-    }
-
-    case 'audio': {
-      const e = ev as {
-        id: number; state: AudioState; reason: AudioReason;
-        sampleRate?: number; channels?: number;
-      };
-      const audioSubs = new Map(s.audioSubs);
-      // 'off' ist das Ende - wie 'unsubscribed' beim Bild. Kein Umhaengen-
-      // Sonderfall: der Ton haengt am Bild-Abo, und dessen Umhaengen meldet
-      // sich ueber das video-Ereignis. Ein umgehaengtes Abo bekommt hier ein
-      // frisches 'waiting' unter der NEUEN Kennung (Task 7).
-      if (e.state === 'off') audioSubs.delete(e.id);
-      else audioSubs.set(e.id, {
-        state: e.state, reason: e.reason,
-        sampleRate: e.sampleRate, channels: e.channels,
-      });
-      return { ...s, audioSubs };
-    }
+    // Die Zweige 'video' und 'audio' (Abo je Teilnehmer-Kennung) entfallen mit den Slots (Spec 6.18, Plan A,
+    // Task A3): Solche Ereignisse sind jetzt unbekannt und aendern nichts (default unten).
 
     case 'slot': {
       const e = ev as {

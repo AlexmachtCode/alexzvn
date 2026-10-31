@@ -1331,66 +1331,9 @@ console.log('\nprotocol — Video: jede Ursache hat ihren eigenen Namen:');
   );
 }
 
-console.log('\nstate — Video: Abo-Buchführung:');
-{
-  let s = initialSession();
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'subscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
-  assert(s.videoSubs.get(7)?.state === 'subscribed', 'ein Abo wird gebucht');
-  assert(s.videoSubs.get(7)?.source === 'JM Connect – Zoom Anna', 'der vergebene Name wird festgehalten');
-  // Nachbesserungsrunde 1: die Gegenprobe zu "die gemessene Drehung wird
-  // festgehalten" weiter unten. Ohne Bild (state:"subscribed") FEHLEN
-  // rotation/limitedRange im Ereignis - reduce() darf hier NICHTS erfinden
-  // (z. B. per `?? 0`/`?? true`), sonst waere eine erfundene 0 von einer
-  // spaeter GEMESSENEN 0 nicht mehr zu unterscheiden.
-  assert(s.videoSubs.get(7)?.rotation === undefined, 'ohne Bild wird KEINE Drehung erfunden');
-  assert(s.videoSubs.get(7)?.limitedRange === undefined, 'ohne Bild wird KEIN Wertebereich erfunden');
-
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'live', source: 'JM Connect – Zoom Anna', reason: 'frames', rebindable: true, rotation: 0, limitedRange: true } as WireEvent));
-  assert(s.videoSubs.get(7)?.state === 'live', 'der Zustand folgt dem Ereignis');
-  assert(s.videoSubs.get(7)?.rotation === 0, 'die gemessene Drehung wird festgehalten');
-
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'black', source: 'JM Connect – Zoom Anna', reason: 'cameraOff', rebindable: true } as WireEvent));
-  assert(s.videoSubs.get(7)?.reason === 'cameraOff', 'die URSACHE wird getrennt vom Zustand gefuehrt');
-
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'unsubscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
-  assert(!s.videoSubs.has(7), 'ein abgebautes Abo verschwindet aus der Buchfuehrung');
-}
-
-console.log('\nstate — Video: derselbe Zustand, zwei verschiedene Ursachen:');
-{
-  // Der eigentliche Prueffall: "black" allein sagt NICHT, ob jemand die
-  // Kamera zugedeckt hat oder aus dem Meeting geflogen ist.
-  let s = initialSession();
-  s = reduce(s, enrich({ ev: 'video', id: 1, state: 'black', source: 'A', reason: 'cameraOff', rebindable: true } as WireEvent));
-  s = reduce(s, enrich({ ev: 'video', id: 2, state: 'black', source: 'B', reason: 'participantLeft', rebindable: false } as WireEvent));
-  assert(s.videoSubs.get(1)?.state === s.videoSubs.get(2)?.state, 'beide stehen auf demselben Zustand');
-  assert(s.videoSubs.get(1)?.reason !== s.videoSubs.get(2)?.reason, 'aber die Ursachen bleiben unterscheidbar');
-}
-
-console.log('\nstate — Video: Umhängen behält denselben Sender:');
-{
-  let s = initialSession();
-  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'live', source: 'JM Connect – Zoom Bo', reason: 'frames', rebindable: true } as WireEvent));
-  s = reduce(s, enrich({ ev: 'video', id: 10, state: 'black', source: 'JM Connect – Zoom Bo', reason: 'participantLeft', rebindable: true } as WireEvent));
-  // 'subscribed', nicht 'live': beim Umhaengen sind noch keine Bilder da —
-  // genau das meldet der native Teil (Task 6).
-  s = reduce(s, enrich({ ev: 'video', id: 11, state: 'subscribed', source: 'JM Connect – Zoom Bo', reason: 'rebound', rebindable: true } as WireEvent));
-  assert(!s.videoSubs.has(10), 'die alte Kennung ist weg');
-  assert(s.videoSubs.get(11)?.source === 'JM Connect – Zoom Bo', 'der Quellenname bleibt derselbe — der Switcher merkt nichts');
-}
-
-// DERSELBE Lauf noch einmal über den ZWEITEN Umhänge-Weg. Ohne diese
-// Zusicherung deckte der Selbsttest nur 'rebound' ab — und genau daran ist
-// 'reboundByName' vorbeigelaufen, als es dazukam: die alte Kennung blieb als
-// Karteileiche stehen, auf die nie wieder ein Ereignis kommt.
-{
-  let s = initialSession();
-  s = reduce(s, enrich({ ev: 'video', id: 20, state: 'live', source: 'JM Connect – Zoom Cy', reason: 'frames', rebindable: true } as WireEvent));
-  s = reduce(s, enrich({ ev: 'video', id: 20, state: 'black', source: 'JM Connect – Zoom Cy', reason: 'participantLeft', rebindable: true } as WireEvent));
-  s = reduce(s, enrich({ ev: 'video', id: 21, state: 'subscribed', source: 'JM Connect – Zoom Cy', reason: 'reboundByName', rebindable: true } as WireEvent));
-  assert(!s.videoSubs.has(20), 'auch beim Umhängen über den Namen ist die alte Kennung weg');
-  assert(s.videoSubs.size === 1, 'nach dem Umhängen über den Namen bleibt genau EIN Abo stehen');
-}
+// Die Reducer-Fälle zu video (Abo-Buchführung, derselbe Zustand mit zwei Ursachen, Umhängen über persistentId
+// und Namen) zogen nach A1 PT1 um (Plan A, Task A3; 11.10): Slots schlüsseln nach Slot-Nummer, die Bridge hängt
+// nie selbst um (6.18), „zwei Ursachen, ein Zustand“ prüft A1 mit noFrames neben cameraOff.
 
 // Das Abo über das Drehbuch "video" (videoSubscribe → video/audio) zog nach A2 PT5 um (Plan A, Task A2, 11.10):
 // die Attrappe beantwortet videoSubscribe nur noch im Altweg.
@@ -1430,107 +1373,32 @@ console.log('\nstate — Video: Umhängen behält denselben Sender:');
   assert(wieInBridge.PATH === `C:\\ndi${delimiter}aufrufer`, 'ein vom Aufrufer gesetztes PATH behaelt die NDI-Laufzeit');
 }
 
-// --- Ton: Protokoll und Zustand ----------------------------------------
+// --- Ton: Protokoll und Zustand (seit Plan A, Task A3 mit slotAudio; 11.10 → PT1) ---------------------
 console.log('\nprotocol — Ton:');
 {
-  const ev = parseWireEvent('{"ev":"audio","id":7,"state":"live","reason":"packets","sampleRate":32000,"channels":1}');
-  assert(ev?.ev === 'audio', 'ein audio-Ereignis wird gelesen');
+  const ev = parseWireEvent('{"ev":"slotAudio","slot":1,"state":"live","source":"person","configured":"person","reason":"packets","sampleRate":32000,"channels":1}');
+  assert(ev?.ev === 'slotAudio', 'ein slotAudio-Ereignis wird gelesen');
   assert((ev as { sampleRate?: number }).sampleRate === 32000, 'die Abtastrate kommt durch');
-
-  const ohne = parseWireEvent('{"ev":"audio","id":7,"state":"waiting","reason":"command"}');
+  const ohne = parseWireEvent('{"ev":"slotAudio","slot":1,"state":"waiting","source":"none","configured":"person","reason":"command"}');
   assert((ohne as { sampleRate?: number })?.sampleRate === undefined,
     'ohne gemessenes Paket fehlt die Abtastrate — sie wird NICHT erfunden');
-
-  assert(serializeCommand({ cmd: 'videoSubscribe', id: 7, audio: false }).includes('"audio":false'),
-    'der Ton-Schalter steht im Befehl');
-
+  assert(serializeCommand(slotAn(1, 'JM Connect – Zoom Anna', { audio: 'off' })).includes('"audio":"off"'),
+    'der Ton-Schalter steht im Befehl (slotOn mit audio off)');
   const fehler = enrich({ ev: 'error', where: 'audio', code: 'audioQueueOverflow' } as WireEvent);
   assert((fehler as { name?: string }).name === 'AUDIO_QUEUE_OVERFLOW', 'der Ueberlauf hat einen eigenen Namen');
 }
 
 console.log('\nstate — Ton:');
 {
-  let s = initialSession();
-  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'waiting', reason: 'command' } as WireEvent));
-  assert(s.audioSubs.get(7)?.state === 'waiting', 'ein Ton-Abo beginnt als waiting');
-  // Load-bearend fuer "Keine erfundenen Werte": parseWireEvent() (oben) kann
-  // strukturell gar nichts erfinden, es ist nur JSON.parse + Cast. Die
-  // Schicht, die eine 0/32000 unterschieben KOENNTE, ist reduce() selbst -
-  // hier wird genau SIE geprueft, unmittelbar nach dem ersten Aufruf mit
-  // einem Ereignis ohne Format.
-  assert(s.audioSubs.get(7)?.sampleRate === undefined,
-    'ohne gemessenes Paket steht auch im Zustand keine Abtastrate — reduce() erfindet nichts');
-
-  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'live', reason: 'packets', sampleRate: 32000, channels: 1 } as WireEvent));
-  assert(s.audioSubs.get(7)?.sampleRate === 32000, 'das gemessene Format wird uebernommen');
-
-  // 'off' ist das Ende eines Ton-Abos - wie 'unsubscribed' beim Bild.
-  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'off', reason: 'meetingEnded' } as WireEvent));
-  assert(!s.audioSubs.has(7), 'ein beendetes Ton-Abo verschwindet aus der Karte');
-
-  // Umhaengen (Task 7 lässt das video-Ereignis mit der NEUEN Kennung
-  // ankommen) muss die tote ALTE Kennung nicht nur aus videoSubs, sondern
-  // auch aus audioSubs raeumen - derselbe Fund wie beim Bild
-  // (reboundByName-Kommentar in state.ts), nur auf der Ton-Karte. Aufbau:
-  // ein Bild- UND ein Ton-Abo unter der ALTEN Kennung 42, derselbe
-  // Quellenname wie im rebound-Ereignis mit der NEUEN Kennung 99.
-  let r = initialSession();
-  r = reduce(r, enrich({
-    ev: 'video', id: 42, state: 'live', source: 'Gast', reason: 'frames', rebindable: true,
-  } as WireEvent));
-  r = reduce(r, enrich({ ev: 'audio', id: 42, state: 'live', reason: 'packets', sampleRate: 32000, channels: 1 } as WireEvent));
-  r = reduce(r, enrich({
-    ev: 'video', id: 99, state: 'live', source: 'Gast', reason: 'reboundByName', rebindable: true,
-  } as WireEvent));
-  assert(!r.videoSubs.has(42), 'nach dem Umhaengen ist die alte Kennung aus videoSubs weg');
-  assert(r.videoSubs.has(99), 'die neue Kennung steht in videoSubs');
-  assert(!r.audioSubs.has(42),
-    'nach dem Umhaengen ist die alte Kennung auch aus audioSubs weg — keine stumme Karteileiche');
-
-  // 'audioUnavailable' vs. 'command' (Review Task 5, Finding 2) — und die
-  // Nachbesserung dazu (Review-Runde 2, Finding A): die vorherige Fassung
-  // dieses Blocks verglich ausschliesslich Zeichenketten, die der Test
-  // SELBST hingeschrieben hatte (statisch immer wahr), liess parseWireEvent()
-  // ueber einen Cast pruefen, der `reason` gar nicht validiert (er haette
-  // ebenso fuer "bananas" bestanden), und pruefte am Ende
-  // `!audioSubs.has(8)` auf eine Session, in die 8 nie eingefuegt wurde -
-  // wahr, selbst wenn reduce() die Identitaet waere. Keine der vier
-  // Zusicherungen haette versagt, waere Finding 2 zurueckgerollt worden. Der
-  // Compiler hatte das schon gesagt (TS2367, "comparison appears
-  // unintentional, types have no overlap") - die vorherige Fassung
-  // beseitigte die MELDUNG (per `: string`-Annotation), nicht den BEFUND.
-  //
-  // DIESE Zusicherung hat Zaehne, weil sie nicht zur Laufzeit prueft, sondern
-  // beim Typcheck: verschwindet 'audioUnavailable' aus AudioReason, schlaegt
-  // `npm run typecheck` fehl. Ein Vergleich zweier Zeichenketten, die der
-  // Test selbst hingeschrieben hat, koennte das nie zeigen — er ist wahr,
-  // bevor irgendetwas gebaut ist.
-  const ausgefallen: AudioReason = 'audioUnavailable';
-  const abgeschaltet: AudioReason = 'command';
-
-  // Laufzeit-Ergaenzung mit echtem Bezug zu reduce(): NICHT ueber 'off' (das
-  // LOESCHT das Abo aus der Karte, siehe reduce() in state.ts - der Grund
-  // waere danach nicht mehr pruefbar, egal welcher es war), sondern ueber
-  // 'waiting', wo reduce() reason tatsaechlich in die Karte schreibt. Zwei
-  // verschiedene Kennungen, zwei verschiedene Gruende - ein reduce(), das
-  // reason verwirft, auf einen bekannten Wert rundet oder beide auf denselben
-  // Wert abbildet, faellt hier durch.
+  // 'audioUnavailable' und 'command' sind zwei Ursachen und zwei Namen (Review Task 5), jetzt am slotAudio. Die
+  // Zuweisungen prüft tsc: fehlt einer der Werte in SlotAudioReason, ist der Typcheck rot.
+  const ausgefallen: PaketSlotAudioReason = 'audioUnavailable';
+  const abgeschaltet: PaketSlotAudioReason = 'command';
   let t = initialSession();
-  t = reduce(t, enrich({ ev: 'audio', id: 9, state: 'waiting', reason: ausgefallen } as WireEvent));
-  t = reduce(t, enrich({ ev: 'audio', id: 10, state: 'waiting', reason: abgeschaltet } as WireEvent));
-  assert(t.audioSubs.get(9)?.reason === 'audioUnavailable' && t.audioSubs.get(10)?.reason === 'command',
+  t = reduce(t, enrich({ ev: 'slotAudio', slot: 9, state: 'off', source: 'none', configured: 'person', reason: ausgefallen } as WireEvent));
+  t = reduce(t, enrich({ ev: 'slotAudio', slot: 10, state: 'off', source: 'none', configured: 'person', reason: abgeschaltet } as WireEvent));
+  assert(t.slotAudio.get(9)?.reason === 'audioUnavailable' && t.slotAudio.get(10)?.reason === 'command',
     'reduce() speichert beide Gruende unveraendert und unterscheidbar, statt einen auf den anderen abzubilden');
-
-  // WAS DAMIT AUSDRUECKLICH NICHT BELEGT IST: ob der NATIVE Teil
-  // (video.cpp) im Fehlschlag-Zweig von audioEnsureSubscribed() tatsaechlich
-  // "audioUnavailable" sendet statt "command" oder gar nichts. selftest.ts
-  // ist reines TypeScript und kann nicht beobachten, was zoom-bridge.exe auf
-  // stdout schreibt. Kein bestehender Pruefstand deckt diese Luecke:
-  // command-probe erreicht diesen Zweig nicht (kein echtes Meeting, kein
-  // erzwingbarer SDK-Fehlschlag), bool-probe/ndi-probe pruefen etwas
-  // anderes. Das gehoert auf die Owner-Abnahmeliste (echtes Meeting, ein
-  // Zustand, in dem audioEnsureSubscribed() tatsaechlich scheitert) - eine
-  // gruene Zeile hier behauptet das NICHT.
 }
 
 console.log('\nvideoDelay — ein Bild-Versatz fuer alle Quellen (Abnahmepunkt 5):');
@@ -1600,7 +1468,11 @@ console.log('\nsteuerung — Live-Befehle deuten (deuteEingabe):');
   assert(gleich(d('?'), { art: 'hilfe' }), '"?"');
   assert(gleich(d(''), { art: 'leer' }), 'leere Zeile wird ignoriert');
   assert(gleich(d('   '), { art: 'leer' }), 'Zeile nur aus Leerraum wird ignoriert');
-  for (const kaputt of ['abc', '+', '+abc', '+16778240 laut', '-', '-4.5', '-abc', 'ende jetzt', '+99999999999999999999']) {
+  // PT8 (6.18): "=<Slot> <Kennung>" hängt einen Slot um.
+  assert(gleich(d('=1 16778250'), { art: 'umhaengen', slot: 1, id: 16778250 }), '"=1 16778250" hängt Slot 1 um');
+  assert(gleich(d(' = 2   16778241 '), { art: 'umhaengen', slot: 2, id: 16778241 }), '"= 2   16778241" (Leerraum stört nicht)');
+  for (const kaputt of ['abc', '+', '+abc', '+16778240 laut', '-', '-4.5', '-abc', 'ende jetzt', '+99999999999999999999',
+    '=', '=1', '=a 5', '=1 5 x', '=1 99999999999999999999']) {
     const r = d(kaputt);
     assert(r.art === 'unbekannt' && typeof r.grund === 'string' && (r.grund as string).length > 0,
       `"${kaputt}" ist unbekannt und bekommt einen Grund`);
@@ -1662,8 +1534,7 @@ function steuere(fakeEnv: Record<string, string>, zoomEnv: Record<string, string
     zoomDllDir: null,
     sekunden: null,
     env: { ZOOM_SDK_CLIENT_ID: 'test-id', ZOOM_SDK_CLIENT_SECRET: 'test-secret', ...zoomEnv },
-    // Die Konsole sendet bis Plan A, Task A3 noch videoSubscribe; bis dahin laeuft sie gegen den Altweg der Attrappe.
-    kindEnv: { FAKE_SCRIPT: 'steuerung', FAKE_ALTWEG: '1', ...fakeEnv },
+    kindEnv: { FAKE_SCRIPT: 'steuerung', ...fakeEnv },
     eingabe,
     log: (z: unknown) => zeilen.push(...String(z).split('\n')),
     fehler: (z: unknown) => zeilen.push(...String(z).split('\n')),
@@ -1729,15 +1600,16 @@ console.log('\nsteuerung — Live-Abos im Lauf, liste, abbestellen, Versatz, end
   assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'die Erlaubnis kommt an');
 
   t.tippe('+16778240');
-  assert(await bisZeile(t.zeilen, 'video 16778240: subscribed (command)'), '"+<id>" abonniert im Lauf');
-  const abo = t.befehle().find((b) => b.cmd === 'videoSubscribe' && b.id === 16778240);
-  assert(abo?.resolution === '720p', 'das Abo geht mit 720p raus');
-  assert(abo !== undefined && !('audio' in abo), 'ohne "stumm" wird das Feld audio WEGGELASSEN (Vorgabefall des Protokolls)');
+  assert(await bisZeile(t.zeilen, 'slot 1: starting (command)'), '"+<id>" startet einen Slot im Lauf');
+  const abo = t.befehle().find((b) => b.cmd === 'slotOn' && b.id === 16778240);
+  assert(abo?.slot === 1 && abo.mode === 'participant' && abo.resolution === '720p' && abo.audio === 'person' && abo.shareAudio === false
+      && abo.fallback === 'black' && abo.showNoVideo === true && abo.ndi === 'JM Connect – Zoom Anna',
+    'slotOn mit der kleinsten freien Nummer, 720p, Ton der Person, Ersatzbild schwarz, NDI-Name nach der Namensregel (A-EP8, A-EP9)');
 
   t.tippe('+16778241 stumm');
-  assert(await bisZeile(t.zeilen, 'audio 16778241: off (command)'), '"+<id> stumm" liefert Bild ohne Ton');
-  const stumm = t.befehle().find((b) => b.cmd === 'videoSubscribe' && b.id === 16778241);
-  assert(stumm?.audio === false, '"stumm" sendet audio:false');
+  assert(await bisZeile(t.zeilen, 'ton 2: off (command)'), '"+<id> stumm" liefert Bild ohne Ton');
+  const stumm = t.befehle().find((b) => b.cmd === 'slotOn' && b.id === 16778241);
+  assert(stumm?.audio === 'off' && stumm.slot === 2, '"stumm" sendet audio:"off" (Slot 2)');
 
   t.tippe('+999');
   assert(await bisZeile(t.zeilen, 'nicht in der Teilnehmerliste'), 'eine unbekannte Kennung wird gemeldet');
@@ -1745,12 +1617,12 @@ console.log('\nsteuerung — Live-Abos im Lauf, liste, abbestellen, Versatz, end
   assert(!t.befehle().some((b) => b.id === 999), 'eine unbekannte Kennung geht NICHT an die Bridge');
 
   t.tippe('liste');
-  assert(await bisZeile(t.zeilen, 'Abonniert (2):'), '"liste" nennt die laufenden Abos');
+  assert(await bisZeile(t.zeilen, 'Slots (2):'), '"liste" nennt die laufenden Slots');
   assert(t.zeilen.filter((z) => z.includes('(das sind wir)')).length >= 2, '"liste" druckt die Teilnehmer erneut, samt "(das sind wir)"');
 
   t.tippe('-16778240');
-  assert(await bisZeile(t.zeilen, 'video 16778240: unsubscribed (command)'), '"-<id>" bestellt ab');
-  assert(t.befehle().some((b) => b.cmd === 'videoUnsubscribe' && b.id === 16778240), 'als videoUnsubscribe');
+  assert(await bisZeile(t.zeilen, 'slot 1: off (command)'), '"-<id>" stoppt den Slot mit diesem Ziel');
+  assert(t.befehle().some((b) => b.cmd === 'slotOff' && b.slot === 1), 'als slotOff {slot:1}');
 
   t.tippe('4.5');
   assert(await bisZeile(t.zeilen, 'FEHLER bei video: VIDEO_BAD_DELAY'), '"4.5" erreicht die Bridge und wird dort abgewiesen');
@@ -1778,7 +1650,7 @@ console.log('\nsteuerung — Abonnieren ohne Rohdaten-Erlaubnis, dann Strg+C:');
   t.tippe('+16778240');
   assert(await bisZeile(t.zeilen, 'Zoom-Client'), 'ohne Erlaubnis wird erklaert, wo sie zu erteilen ist');
   await new Promise((r) => setTimeout(r, 100));
-  assert(!t.befehle().some((b) => b.cmd === 'videoSubscribe'), 'ohne Erlaubnis geht KEIN videoSubscribe raus');
+  assert(!t.befehle().some((b) => b.cmd === 'slotOn'), 'ohne Erlaubnis geht KEIN slotOn raus');
   t.strgC();
   const code = await t.lauf;
   assert(code === 3, 'Strg+C ohne Erlaubnis -> Rueckgabe 3');
@@ -1788,10 +1660,10 @@ console.log('\nsteuerung — Abonnieren ohne Rohdaten-Erlaubnis, dann Strg+C:');
 console.log('\nsteuerung — Meeting-Ende im Endlos-Modus:');
 {
   const t = steuere({ FAKE_MEETING_ENDE_MS: '600' }, { ZOOM_MEETING_ID: '1', ZOOM_VIDEO_SUBSCRIBE: '16778240' });
-  assert(await bisZeile(t.zeilen, 'video 16778240: subscribed (command)'), 'das Start-Abo laeuft');
+  assert(await bisZeile(t.zeilen, 'slot 1: starting (command)'), 'der Start-Slot laeuft');
   const code = await Promise.race([t.lauf, new Promise<number>((r) => setTimeout(() => r(-99), 5000))]);
   assert(code === 0, 'Meeting-Ende beendet den Endlos-Lauf von selbst, mit Rueckgabe 0 (Erlaubnis war erteilt)');
-  assert(t.zeilen.some((z) => z.includes('video 16778240: unsubscribed (meetingEnded)')), 'der Abbau wird noch gedruckt');
+  assert(t.zeilen.some((z) => z.includes('slot 1: off (meetingEnded)')), 'der Abbau wird noch gedruckt');
   assert(t.zeilen.some((z) => z.includes('Meeting ist zu Ende')), 'das Meeting-Ende wird in Klartext gemeldet');
 }
 
@@ -1819,12 +1691,12 @@ console.log('\nsteuerung — mehr als 5 Abos: warnen, nicht verhindern:');
   assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'im Meeting mit Erlaubnis');
   for (let i = 0; i < 5; i++) {
     t.tippe(`+${16778240 + i}`);
-    assert(await bisZeile(t.zeilen, `video ${16778240 + i}: subscribed`), `Abo ${i + 1} laeuft`);
+    assert(await bisZeile(t.zeilen, `slot ${i + 1}: starting`), `Slot ${i + 1} laeuft`);
   }
-  assert(!t.zeilen.some((z) => z.includes('gemessen sind 5')), 'bis 5 Abos keine Warnung');
+  assert(!t.zeilen.some((z) => z.includes('gemessen sind 5')), 'bis 5 Slots keine Warnung');
   t.tippe('+16778245');
-  assert(await bisZeile(t.zeilen, 'gemessen sind 5'), 'beim 6. Abo kommt die Warnung');
-  assert(await bisZeile(t.zeilen, 'video 16778245: subscribed'), '... und das Abo wird trotzdem gesendet');
+  assert(await bisZeile(t.zeilen, 'gemessen sind 5'), 'beim 6. Slot kommt die Warnung');
+  assert(await bisZeile(t.zeilen, 'slot 6: starting'), '... und der Slot wird trotzdem gestartet');
   t.tippe('ende');
   await t.lauf;
 }
@@ -1985,9 +1857,9 @@ console.log('\nsteuerung — Eingaben nach "ende" werden nicht mehr gedeutet:');
   const code = await mitFrist(t.lauf, 5000);
   assert(code === 0, 'Rueckgabe wie beim ersten "ende"');
   assert(t.zeilen.filter((z) => z.includes('verlasse das Meeting')).length === 1, '"Ende" erscheint nur einmal');
-  assert(!t.zeilen.some((z) => z.includes('Video wird abonniert')), 'kein Abo wird mehr angekuendigt');
+  assert(!t.zeilen.some((z) => z.includes('wird gestartet')), 'kein Slot wird mehr angekuendigt');
   assert(t.zeilen.some((z) => z.includes('Eingabe ignoriert')), 'spaete Eingaben werden als ignoriert gemeldet');
-  assert(!t.befehle().some((b) => b.cmd === 'videoSubscribe' || b.cmd === 'videoDelay'), 'an die Bridge geht nichts mehr');
+  assert(!t.befehle().some((b) => b.cmd === 'slotOn' || b.cmd === 'videoDelay'), 'an die Bridge geht nichts mehr');
 }
 
 console.log('\nsteuerung — ein laufendes Abo wird nicht ein zweites Mal gesendet:');
@@ -1995,13 +1867,13 @@ console.log('\nsteuerung — ein laufendes Abo wird nicht ein zweites Mal gesend
   const t = steuere({}, { ZOOM_MEETING_ID: '1' });
   assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'im Meeting mit Erlaubnis');
   t.tippe('+16778241');
-  assert(await bisZeile(t.zeilen, 'video 16778241: subscribed (command)'), 'das Abo laeuft');
+  assert(await bisZeile(t.zeilen, 'slot 1: starting (command)'), 'der Slot laeuft');
   t.tippe('+16778241 stumm');
-  assert(await bisZeile(t.zeilen, 'laeuft schon'), '"+<id> stumm" auf ein laufendes Abo: "laeuft schon"');
+  assert(await bisZeile(t.zeilen, 'laeuft schon'), '"+<id> stumm" auf eine gezeigte Kennung: "laeuft schon"');
   assert(t.zeilen.some((z) => z.includes('-16778241')), '... mit dem Weg zum Umschalten (erst -<id>)');
   await new Promise((r) => setTimeout(r, 150));
-  assert(t.befehle().filter((b) => b.cmd === 'videoSubscribe' && b.id === 16778241).length === 1, 'es geht KEIN zweites videoSubscribe raus');
-  assert(!t.zeilen.some((z) => z.includes('VIDEO_ALREADY_SUBSCRIBED')), 'kein VIDEO_ALREADY_SUBSCRIBED');
+  assert(t.befehle().filter((b) => b.cmd === 'slotOn' && b.id === 16778241).length === 1, 'es geht KEIN zweites slotOn raus');
+  assert(!t.zeilen.some((z) => z.includes('SLOT_ALREADY_ON')), 'kein SLOT_ALREADY_ON');
   t.tippe('ende');
   await t.lauf;
 }
@@ -2017,26 +1889,25 @@ console.log('\nsteuerung — sechs eingefuegte Abos auf einmal: die Warnung komm
   await t.lauf;
 }
 
-console.log('\nsteuerung — Wiederbeitritt mit Umhaengen ueber den Namen:');
+console.log('\nsteuerung — Wiederbeitritt: Rückkehr-Hinweis, kein Umhängen von selbst (6.18, PT8):');
 {
-  const t = steuere({ FAKE_WIEDERBEITRITT_MS: '400' }, { ZOOM_MEETING_ID: '1' });
+  const t = steuere({ FAKE_WIEDERBEITRITT_MS: '1000' }, { ZOOM_MEETING_ID: '1' });
   assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'im Meeting mit Erlaubnis');
   const anna = t.zeilen.find((z) => z.includes('16778240  Anna')) ?? '';
-  // Seit dem Umhaengen ueber den Namen (14.08.2026) ist ein Abo OHNE
-  // persistentId sehr wohl umhaengbar - nur eben ueber den Namen.
-  assert(anna !== '' && !anna.includes('nicht umhaengbar') && anna.includes('Namen'),
-    'Teilnehmer ohne persistentId: der Hinweis nennt den Weg ueber den Namen, nicht "nicht umhaengbar"');
+  assert(anna !== '' && !anna.includes('umhaengbar'), 'die Teilnehmerzeile verspricht kein Umhaengen mehr (die Bridge haengt nie selbst um)');
   t.tippe('+16778240');
-  assert(await bisZeile(t.zeilen, 'video 16778240: subscribed (command)'), 'Anna ist abonniert');
-  const zeile = t.zeilen.find((z) => z.includes('video 16778240: subscribed (command)')) ?? '';
-  assert(!zeile.includes('NICHT umhaengbar'), 'die video-Zeile sagt nicht mehr "NICHT umhaengbar"');
-  assert(await bisZeile(t.zeilen, 'video 16778250: subscribed (reboundByName)'), 'Anna kommt wieder, das Abo haengt sich um');
-  assert(await bisZeile(t.zeilen, 'umgehaengt'), 'das Umhaengen wird als "nichts zu tun" gemeldet');
-  await new Promise((r) => setTimeout(r, 600));
-  assert(!t.zeilen.some((z) => z.includes('abonnieren mit +16778250')), 'KEIN Hinweis "abonnieren mit +<neu>" fuer ein schon umgehaengtes Abo');
+  assert(await bisZeile(t.zeilen, 'slot 1: starting (command)'), 'Anna laeuft in Slot 1');
+  assert(await bisZeile(t.zeilen, 'slot 1: fallback (participantLeft)'), 'Anna geht: Slot 1 ohne Ziel, der Sender bleibt');
+  assert(await bisZeile(t.zeilen, 'Rückkehr? =1 16778250'), 'PT8: Anna kommt wieder, die Konsole nennt „Rückkehr? =1 16778250“');
+  await new Promise((r) => setTimeout(r, 300));
+  assert(!t.befehle().some((b) => b.cmd === 'slotSet'), 'PT8: kein slotSet von selbst');
+  assert(!t.zeilen.some((z) => z.includes('abonnieren mit +16778250')), 'statt „abonnieren mit +<neu>“ steht nur der Rückkehr-Hinweis da');
+  t.tippe('=1 16778250');
+  assert(await bisZeile(t.zeilen, 'slot 1: starting (targetChanged)'), 'PT8: "=1 16778250" haengt Slot 1 um');
+  assert(t.befehle().some((b) => b.cmd === 'slotSet' && b.slot === 1 && b.id === 16778250), '... als slotSet {slot:1, id:16778250}');
   t.tippe('+16778250');
-  assert(await bisZeile(t.zeilen, 'laeuft schon'), 'wer es trotzdem tippt, bekommt "laeuft schon"');
-  assert(!t.befehle().some((b) => b.cmd === 'videoSubscribe' && b.id === 16778250), '... und es geht nichts an die Bridge');
+  assert(await bisZeile(t.zeilen, 'laeuft schon'), 'wer +<neu> trotzdem tippt, bekommt "laeuft schon"');
+  assert(!t.befehle().some((b) => b.cmd === 'slotOn' && b.id === 16778250), '... und es geht nichts an die Bridge');
   t.tippe('ende');
   await t.lauf;
 }
@@ -3235,6 +3106,73 @@ console.log('\nA2 Attrappe — Drehbuch „Slots“ von Anfang bis Ende (11.3, A
   assert(iFalsch >= 0 && iWahr > iFalsch && stelle(ev, art('slot', { state: 'off' })) > iWahr,
     'A2 Drehbuch: Entzug, Wiedererteilung, dann der späte Abbau aller drei Slots');
   assert(ev.some(art('slotStats', { slot: 1, w: 640, h: 360, resWanted: '360p' })), 'A2 Drehbuch: ohne FAKE_AUFLOESUNG_GELIEFERT meldet slotStats die Nenngröße (360p: 640×360)');
+}
+
+// ── A3 · Konsole auf Slots, alte Reducer-Zweige weg (Spec 6.18, 11.2 PT8) ──
+import { konsolenNdiName } from '../cli/steuerung.mjs';
+
+console.log('\nA3 Konsole — Namensregel der Konsolen-Slots (A-EP9, Beispiele wie PK35):');
+{
+  const n = konsolenNdiName as (anzeigename: string, belegt?: string[]) => string;
+  assert(n('A:B') === 'JM Connect – Zoom A B', 'A3 PT8: „A:B“ → „JM Connect – Zoom A B“');
+  assert(n('A: B') === 'JM Connect – Zoom A  B', 'A3 PT8: „A: B“ → zwei Leerzeichen, wie 0.3.0 nach NDI');
+  assert(n('A  B') === 'JM Connect – Zoom A  B' && n(' A') === 'JM Connect – Zoom  A' && n('A ') === 'JM Connect – Zoom A ',
+    'A3 PT8: doppelter, führender und abschließender Leerraum bleibt Zeichen für Zeichen erhalten');
+  assert(n('A\x07B\tC') === 'JM Connect – Zoom ABC', 'A3 PT8: Steuerzeichen fallen weg');
+  const lang = n('x'.repeat(70));
+  assert([...lang].length === 60 && lang === `JM Connect – Zoom ${'x'.repeat(42)}`, 'A3 PT8: 70 Zeichen → 60 Code-Punkte');
+  assert(n('Anna', ['JM Connect – Zoom anna']) === 'JM Connect – Zoom Anna (2)', 'A3 PT8: Kollision ohne Groß-/Kleinschreibung → „ (2)“');
+  assert(n('Anna', ['JM Connect – Zoom Anna', 'JM Connect – Zoom Anna (2)']) === 'JM Connect – Zoom Anna (3)', 'A3 PT8: ... und „ (3)“');
+  const mitZusatz = n('y'.repeat(70), [n('y'.repeat(70))]);
+  assert([...mitZusatz].length === 60 && mitZusatz.endsWith('y (2)'), 'A3 PT8: vor dem Kürzen bleibt Platz für „ (2)“');
+}
+
+console.log('\nA3 Konsole — Slots statt Abos: +, -, =, liste (6.18, PT8):');
+{
+  const t = steuere({}, { ZOOM_MEETING_ID: '1' });
+  assert(await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA'), 'im Meeting mit Erlaubnis');
+  t.tippe('+16778240');
+  assert(await bisZeile(t.zeilen, 'slot 1: live (frames)'), 'A3 PT8: +16778240 → Slot 1 läuft');
+  t.tippe('+16778241');
+  assert(await bisZeile(t.zeilen, 'slot 2: live (frames)'), 'A3 PT8: +16778241 → Slot 2 (die kleinste freie Nummer)');
+  t.tippe('-16778241');
+  assert(await bisZeile(t.zeilen, 'slot 2: off (command)'), 'A3 PT8: -16778241 stoppt den Slot mit diesem Ziel');
+  assert(t.befehle().filter((b) => b.cmd === 'slotOff').map((b) => b.slot).join() === '2', 'A3 PT8: ... als slotOff {slot:2}, nicht der kleinste Slot');
+  t.tippe('+16778241');
+  assert(await bisZeile(t.zeilen, 'Slot 2 wird gestartet'), 'A3 PT8: die freie Nummer 2 wird wieder vergeben');
+  t.tippe('=1 16778241');
+  assert(await bisZeile(t.zeilen, 'slot 1: starting (targetChanged)'), 'A3 PT8: =1 16778241 hängt Slot 1 um');
+  t.tippe('=5 16778240');
+  assert(await bisZeile(t.zeilen, 'Slot 5 laeuft nicht'), 'A3 PT8: =<Slot> auf einen Slot, der nicht läuft, wird gemeldet');
+  assert(t.befehle().filter((b) => b.cmd === 'slotSet').map((b) => `${b.slot}:${b.id}`).join() === '1:16778241',
+    'A3 PT8: ... und geht nicht an die Bridge (nur ein slotSet {slot:1, id:16778241})');
+  t.tippe('liste');
+  assert(await bisZeile(t.zeilen, 'Slots (2):') && (await bisZeile(t.zeilen, '    1  Ziel 16778241')), 'A3 PT8: liste zeigt Nummer, Ziel und Zustand je Slot');
+  t.tippe('ende');
+  assert((await t.lauf) === 0, 'A3 PT8: ende → Rückgabe 0');
+}
+
+console.log('\nA3 Konsole — der Rückkehr-Hinweis vergleicht normierte Namen (6.18, normName):');
+{
+  // Anna kommt als „anna “ zurück (klein, mit Leerzeichen): normiert derselbe Name, wörtlich ein anderer.
+  const t = steuere({ FAKE_WIEDERBEITRITT_MS: '1000', FAKE_RUECKKEHR_NAME: 'anna ' }, { ZOOM_MEETING_ID: '1' });
+  const imMeetingDa = await bisZeile(t.zeilen, 'Rohdaten-Erlaubnis: JA');
+  t.tippe('+16778240');
+  const hinweis = imMeetingDa && (await bisZeile(t.zeilen, 'Rückkehr? =1 16778250'));
+  assert(hinweis && !t.zeilen.some((z) => z.includes('abonnieren mit +16778250')),
+    'A3 PT8: „anna “ statt „Anna“: die Konsole nennt „Rückkehr? =1 16778250“ (normName: NFC, Leerraum, ohne Groß-/Kleinschreibung)');
+  t.tippe('ende');
+  await t.lauf;
+}
+
+console.log('\nA3 state — der Reducer kennt video und audio nicht mehr (6.18, Gliederung 3.4):');
+{
+  const s0 = run([{ ev: 'status', status: 'inMeeting', raw: 3, code: 0 }]);
+  const s1 = reduce(s0, enrich({ ev: 'video', id: 7, state: 'live', source: 'X', reason: 'frames', rebindable: true } as WireEvent));
+  const s2 = reduce(s1, enrich({ ev: 'audio', id: 7, state: 'live', reason: 'packets' } as WireEvent));
+  assert(s1 === s0 && s2 === s0, 'A3 6.18: video- und audio-Ereignisse ändern nichts mehr (unbekannt)');
+  assert(!('videoSubs' in s0) && !('audioSubs' in s0), 'A3 6.18: Session hat weder videoSubs noch audioSubs');
+  assert(reduce(s0, enrich({ ev: 'wasAuchImmer', slot: 1 } as WireEvent)) === s0, 'A3 3.4: ein unbekanntes Ereignis ändert nichts, auch nicht an slots');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

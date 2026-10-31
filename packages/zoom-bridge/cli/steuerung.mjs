@@ -28,17 +28,18 @@
 // beizutreten. Rueckgabe 0 bei Anmeldung ok, 1 bei Ablehnung/Zeitueberschreitung.
 //
 // OPTIONAL: ZOOM_VIDEO_SUBSCRIBE = "<kommagetrennte Teilnehmerkennungen>"
-// abonniert nach dem Beitritt das Video der genannten Kennungen (720p,
-// siehe README.md Abschnitt 7). Ohne diese Variable geht beim Start kein
-// Video-Befehl raus - abonniert wird dann im Lauf mit "+<id>".
+// startet nach dem Beitritt je Kennung einen Slot (Modus Teilnehmer, 720p,
+// Ersatzbild schwarz, Ton der Person; README.md Abschnitt 7). Seit Connect
+// 0.4.0 laufen Bild und Ton ueber Slots (Spec 6.18): jeder Slot ist eine
+// feste NDI-Quelle mit einer Nummer, die Bridge haengt nie selbst um. Ohne
+// diese Variable geht beim Start kein Slot-Befehl raus - gestartet wird dann
+// im Lauf mit "+<id>".
 //
-// OPTIONAL: ZOOM_AUDIO_OFF = "<Teilmenge davon>" schickt fuer die
-// genannten Kennungen ein videoSubscribe MIT `audio:false` - Bild ohne Ton.
-// Gebraucht fuer Abnahmepunkt 3 (Spec Abschnitt 9): dass der Ton-Schalter
-// wirkt, laesst sich sonst gegen ein echtes Meeting ueberhaupt nicht pruefen,
-// weil das Feld ohne Angabe auf `true` steht (protocol.ts) und dieser
-// Pruefstand es bisher nie gesetzt hat. Die Kennungen muessen auch in
-// ZOOM_VIDEO_SUBSCRIBE stehen - eine Kennung nur hier abonniert nichts, und
+// OPTIONAL: ZOOM_AUDIO_OFF = "<Teilmenge davon>" startet die genannten Slots
+// OHNE Ton (`audio:"off"`) - Bild ohne Ton. Gebraucht fuer Abnahmepunkt 3
+// (Spec Abschnitt 9): dass der Ton-Schalter wirkt, laesst sich sonst gegen ein
+// echtes Meeting ueberhaupt nicht pruefen. Die Kennungen muessen auch in
+// ZOOM_VIDEO_SUBSCRIBE stehen - eine Kennung nur hier startet nichts, und
 // darum wird sie unten ausdruecklich als folgenlos gemeldet statt still
 // verschluckt. (Im Lauf: "+<id> stumm".)
 //
@@ -60,7 +61,7 @@
 // KEIN TOP-LEVEL-AWAIT in dieser Datei: die Start-EXE buendelt sie per
 // esbuild zu EINER CommonJS-Datei (scripts/build-release.mjs), und CommonJS
 // kennt kein Top-Level-await.
-import { Bridge, buildJwt, normalizeMeetingId, readCredentials } from '../src/index.ts';
+import { Bridge, buildJwt, normalizeMeetingId, readCredentials, SLOT_NR_MAX } from '../src/index.ts';
 import { LineSplitter } from '../src/protocol.ts';
 
 /**
@@ -73,20 +74,55 @@ export const BETRIEBSGROESSE = 5;
 
 /** Die kurze Uebersicht - einmal nach dem Teilnehmer-Block gedruckt. */
 export const HILFE_KURZ =
-  '  Befehle: <Zahl> = Bild-Versatz in ms · +<id> = abonnieren · +<id> stumm = ohne Ton · -<id> = abbestellen · liste · ende · hilfe';
+  '  Befehle: <Zahl> = Bild-Versatz in ms · +<id> = Slot starten · +<id> stumm = ohne Ton · -<id> = Slot stoppen · =<Slot> <id> = umhaengen · liste · ende · hilfe';
 
 /** Die ausfuehrliche Uebersicht - auf "hilfe" oder "?". */
 export function hilfeText() {
   return [
     'Befehle (Zeile tippen, dann Enter):',
     '  <Zahl>         Bild-Versatz in ms fuer ALLE Zoom-Quellen, 0 bis 1000. Ton hinterher -> groesser, Bild hinterher -> kleiner.',
-    '  +<id>          Bild und Ton dieser Teilnehmerkennung als NDI-Quelle abonnieren (720p).',
+    '  +<id>          einen Slot fuer diese Teilnehmerkennung starten: eigene NDI-Quelle mit Bild und Ton (720p).',
     '  +<id> stumm    dasselbe, aber nur Bild, ohne Ton.',
-    '  -<id>          dieses Abo beenden. ("-" heisst abbestellen - einen negativen Versatz gibt es nicht.)',
-    '  liste          Teilnehmer (die Zahl links ist die Kennung) und laufende Abos anzeigen.',
+    '  -<id>          den Slot stoppen, der diese Kennung zeigt. ("-" heisst stoppen - einen negativen Versatz gibt es nicht.)',
+    '  =<Slot> <id>   den Slot auf eine andere Kennung umhaengen (dieselbe NDI-Quelle), etwa nach einem Wiederbeitritt.',
+    '  liste          Teilnehmer (die Zahl links ist die Kennung) und laufende Slots anzeigen.',
     '  ende           Meeting verlassen und beenden (Strg+C geht auch - das Fenster aber NICHT mit dem X schliessen).',
     '  hilfe oder ?   diese Uebersicht.',
   ].join('\n');
+}
+
+/** So beginnt der NDI-Name jedes Konsolen-Slots; dasselbe Praefix wie in JM Connect (NDI_PRAEFIX, teilnehmer.ts). */
+export const NDI_PRAEFIX = 'JM Connect – Zoom ';
+/** Hoechstens so viele Code-Punkte hat ein NDI-Name (E26). */
+const NDI_NAME_MAX = 60;
+
+/** Normierter Name (wie normName in JM Connect, Spec 4): NFC, trim, Leerraum zu einem Leerzeichen, klein. */
+export function normName(name) {
+  return String(name).normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('de');
+}
+
+/** Gleicher NDI-Name wie gleicherNdiName in JM Connect: nach NFC, ohne Gross-/Kleinschreibung. */
+function gleicherNdiName(a, b) {
+  return a.normalize('NFC').toLocaleLowerCase('de') === b.normalize('NFC').toLocaleLowerCase('de');
+}
+
+/**
+ * NDI-Name eines Konsolen-Slots nach der Uebergangs-Namensregel (Spec 7.2, A-EP9): Praefix plus Anzeigename, jedes
+ * ":" wird ein Leerzeichen, Steuerzeichen fallen weg, sonst bleibt der Name unveraendert (auch doppelter,
+ * fuehrender oder abschliessender Leerraum, wie in 0.3.0). Hoechstens 60 Code-Punkte. Kollidiert er mit einem
+ * belegten Namen (gleicherNdiName), folgen " (2)", " (3)" ...; vor dem Kuerzen bleibt Platz dafuer. Zweite
+ * Fassung der Regel aus JM Connect (die Bridge importiert nicht aus apps/), dieselben Beispiele wie PK35.
+ * @param {string} anzeigename
+ * @param {string[]} [belegt]
+ * @returns {string}
+ */
+export function konsolenNdiName(anzeigename, belegt = []) {
+  const grund = Array.from(NDI_PRAEFIX + String(anzeigename).replace(/:/g, ' ').replace(/\p{Cc}/gu, ''));
+  for (let n = 1; ; n++) {
+    const zusatz = n === 1 ? '' : ` (${n})`;
+    const name = grund.slice(0, NDI_NAME_MAX - zusatz.length).join('') + zusatz;
+    if (!belegt.some((b) => gleicherNdiName(b, name))) return name;
+  }
 }
 
 const unbekannt = (grund) => ({ art: 'unbekannt', grund });
@@ -102,6 +138,7 @@ const unbekannt = (grund) => ({ art: 'unbekannt', grund });
  *   "-<id>"         -> { art:'abbestellen', id }    (BEWUSST: "-5" war bis zum
  *                                                    Einsatzpaket ein - ungueltiger -
  *                                                    negativer Versatz)
+ *   "=<Slot> <id>"  -> { art:'umhaengen', slot, id }  (Spec 6.18: Rueckkehr von Hand)
  *   "liste" | "ende" | "hilfe"/"?" | "" (leer)
  *   alles andere    -> { art:'unbekannt', grund }
  *
@@ -131,6 +168,14 @@ export function deuteEingabe(zeile) {
       return unbekannt('"-" erwartet eine Teilnehmerkennung zum Abbestellen - einen negativen Bild-Versatz gibt es nicht');
     }
     return { art: 'abbestellen', id: Number(m[1]) };
+  }
+
+  if (t.startsWith('=')) {
+    const m = /^=\s*(\d+)\s+(\d+)$/.exec(t);
+    if (!m || !Number.isSafeInteger(Number(m[2]))) {
+      return unbekannt('"=" erwartet eine Slot-Nummer und eine Teilnehmerkennung, etwa "=1 16778250"');
+    }
+    return { art: 'umhaengen', slot: Number(m[1]), id: Number(m[2]) };
   }
 
   const ms = Number(t);
@@ -178,15 +223,8 @@ function exitCodeAus(detail) {
   return m ? Number(m[1]) : null;
 }
 
-/**
- * Wie lange der Hinweis "abonnieren mit +<id>" nach einem Beitritt wartet.
- * native/callbacks.cpp onUserJoin meldet ERST "joined" und haengt DANACH ein
- * bestehendes Abo um (reason rebound/reboundByName) - wer den Hinweis sofort
- * drucken wuerde, empfaehle ein Abo, das eine Zeile spaeter schon laeuft
- * (gemessen: "+<neu>" ergab dann VIDEO_ALREADY_SUBSCRIBED). Beide Zeilen
- * entstehen im selben SDK-Rueckruf; 300 ms sind reichlich.
- */
-const HINWEIS_VERZOEGERUNG_MS = 300;
+// Den Hinweis "abonnieren mit +<id>" gibt es sofort: Seit Connect 0.4.0 haengt die Bridge nie selbst um
+// (Spec 6.18), das Warten auf ein Umhaengen (bis 0.3.0: 300 ms) entfaellt.
 
 /**
  * Startet die Bridge und fuehrt den ganzen Lauf. Liefert den Rueckgabewert
@@ -283,10 +321,13 @@ export async function starteSteuerung(o = {}) {
   // stand dort vorher die 3, und das Start-Skript riet dann dem Gastgeber,
   // die Aufnahme zu erlauben, obwohl er uns nie eingelassen hatte.
   let warImMeeting = false;
-  // Gesendete, noch NICHT beantwortete Abos. Die Betriebsgroesse zaehlt sie
-  // mit: videoSubs waechst erst mit der Antwort der Bridge, und sechs auf
-  // einmal eingefuegte "+<id>" sahen sonst alle "0 laufende Abos" (gemessen).
-  const ausstehend = new Set();
+  // Gesendete, noch NICHT beantwortete Slots: Nummer -> { id, ndi }. Die Betriebsgroesse
+  // und die Wahl der freien Nummer zaehlen sie mit: session.slots waechst erst mit der
+  // Antwort der Bridge, und sechs auf einmal eingefuegte "+<id>" sahen sonst alle
+  // dieselbe Zahl (gemessen).
+  const ausstehend = new Map();
+  // Fuer wen die Konsole einen Slot gestartet hat: Nummer -> Anzeigename (Hinweis „Rückkehr?“).
+  const konsolenName = new Map();
   // Der Bridge-Tod (where:'exit') samt detail ("exitCode=..."), sobald er da
   // ist. Weckt auch den Schlaf der festen Laufdauer: eine tote Bridge muss
   // man nicht 60 s lang beobachten.
@@ -299,18 +340,10 @@ export async function starteSteuerung(o = {}) {
 
   function druckeTeilnehmer(list) {
     log(`  Teilnehmer (${list.length}):`);
-    // "ohne persistentId" IMMER anzeigen - aber mit der Regel, die WIRKLICH
-    // gilt. Bis zum 14.08.2026 hiess das "nicht umhaengbar"; seitdem haengt
-    // videoParticipantJoined (native/video.cpp) ein Abo auch ueber den
-    // ANZEIGENAMEN um, wenn er auf beiden Seiten eindeutig ist - und gemessen
-    // haelt Zoom die persistentId fuer Gaeste ohnehin nicht durch. Ohne
-    // persistentId bleibt also genau EIN Weg: der Name. Heissen zwei gleich
-    // (Handys: "Samsung SM-S931B"), bleibt die Quelle nach einem
-    // Wiederbeitritt schwarz - lieber ein Handgriff als die falsche Person.
-    for (const p of list) {
-      const pid = p.persistentId ? '' : '  [ohne persistentId → Wiederbeitritt nur ueber den Namen umhaengbar, wenn er eindeutig ist]';
-      log(`    ${p.id}  ${p.name}${p.self ? '  (das sind wir)' : ''}  Rolle ${p.role}${pid}`);
-    }
+    // Kein Hinweis zur persistentId mehr: Seit Connect 0.4.0 haengt die Bridge
+    // nie selbst um (Spec 6.18). Kommt jemand zurueck, nennt die Konsole
+    // „Rückkehr? =<Slot> <Kennung>“, und der Operator haengt von Hand um.
+    for (const p of list) log(`    ${p.id}  ${p.name}${p.self ? '  (das sind wir)' : ''}  Rolle ${p.role}`);
   }
 
   /** Was der Operator liest, wenn die Bridge stirbt, BEVOR Zoom die Anmeldung beantwortet hat. */
@@ -386,15 +419,14 @@ export async function starteSteuerung(o = {}) {
         const neu = !bekannt.has(ev.p.id) && !ev.p.self;
         bekannt.add(ev.p.id);
         if (neu) {
-          // ERST NACH dem Umhaenge-Versuch pruefen (HINWEIS_VERZOEGERUNG_MS):
-          // laeuft fuer diese Kennung inzwischen ein Abo, ist nichts zu tun.
-          const id = ev.p.id;
-          const t = setTimeout(() => {
-            const jetzt = bridge.session;
-            if (stopping || jetzt.videoSubs.has(id) || ausstehend.has(id) || !jetzt.participants.has(id)) return;
-            log(`    abonnieren mit +${id}`);
-          }, HINWEIS_VERZOEGERUNG_MS);
-          t.unref?.();
+          // Keine Rueckkehr von selbst (Spec 6.18): Gleicht der Name dem eines Konsolen-Slots ohne Ziel,
+          // nennt die Konsole den Befehl dafuer - sie schickt ihn nicht.
+          const rueckkehr = [...bridge.session.slots]
+            .filter(([nr, s]) => s.mode === 'participant' && s.target === 0 && konsolenName.has(nr)
+              && normName(konsolenName.get(nr)) === normName(ev.p.name))
+            .map(([nr]) => nr);
+          for (const nr of rueckkehr) log(`  Rückkehr? =${nr} ${ev.p.id}`);
+          if (rueckkehr.length === 0 && slotMitZiel(ev.p.id) === null) log(`    abonnieren mit +${ev.p.id}`);
         }
       }
       else if (ev.ev === 'left') log(`  - ${ev.id}`);
@@ -419,12 +451,12 @@ export async function starteSteuerung(o = {}) {
         else if (ev.denied) log(`  Rohdaten-Erlaubnis: ABGELEHNT  (${woher})`);
         else log(`  Rohdaten-Erlaubnis: fehlt — angefragt, bitte im Zoom-Client bestaetigen  (${woher})`);
       } else if (ev.ev === 'error') {
-        // Die Kennung NUR anhaengen, wenn sie dasteht. Zwei Stellen in main.cpp
-        // melden videoUnknownParticipant, ohne je eine Kennung gelesen zu haben
-        // - dort waere jede angezeigte Zahl erfunden.
-        const wen = ev.id !== undefined ? ` fuer ${ev.id}` : '';
+        // Die Kennung bzw. Slot-Nummer NUR anhaengen, wenn sie dasteht. Zwei Stellen in
+        // main.cpp melden Fehler, ohne je eine Kennung gelesen zu haben - dort waere jede
+        // angezeigte Zahl erfunden.
+        const wen = ev.id !== undefined ? ` fuer ${ev.id}` : ev.slot !== undefined ? ` fuer Slot ${ev.slot}` : '';
         log(`  FEHLER bei ${ev.where}${wen}: ${ev.name} (${ev.code})`);
-        if (ev.where === 'video' && ev.id !== undefined) ausstehend.delete(ev.id);
+        if (ev.where === 'slot' && ev.slot !== undefined) ausstehend.delete(ev.slot);
         if (ev.where === 'init') initFehler = true;
         if (ev.where === 'exit') {
           bridgeEndeDetail = ev.detail ?? null;
@@ -437,29 +469,17 @@ export async function starteSteuerung(o = {}) {
         // selbst kurz bleibt.
         if (ev.detail) log(`      ${ev.detail}`);
       }
-      else if (ev.ev === 'video') {
-        // "rotation"/"limitedRange" stehen NUR dabei, wenn ein Bild sie
-        // geliefert hat (siehe protocol.ts) - deshalb hier bedingt angehaengt,
-        // nie mit einem erfundenen Wert aufgefuellt.
-        ausstehend.delete(ev.id);
-        let zeile = `  video ${ev.id}: ${ev.state} (${ev.reason})  Quelle "${ev.source}"`;
-        // rebindable IMMER mitdrucken. GEMESSEN am 14.08.2026: bei einem
-        // Wiederbeitritt kam das Bild nicht zurueck, und ob das Abo ueberhaupt
-        // umhaengbar WAR, stand zwar auf der Leitung, aber in keiner Zeile.
-        // Ohne diese Angabe sieht "Zoom kann es nicht" genauso aus wie "wir
-        // koennen es nicht".
-        // rebindable heisst nur "persistentId nicht leer" (emitVideo in
-        // native/video.cpp). Der Weg ueber den eindeutigen NAMEN gilt fuer
-        // JEDES Abo - "NICHT umhaengbar" war seit dem 14.08.2026 falsch.
-        zeile += ev.rebindable ? '  umhaengbar (persistentId oder Name)' : '  umhaengbar nur ueber den Namen';
+      else if (ev.ev === 'slot') {
+        ausstehend.delete(ev.slot);
+        if (ev.state === 'off') konsolenName.delete(ev.slot);
+        // "rotation"/"limitedRange" stehen NUR dabei, wenn ein Bild des Ziels sie
+        // geliefert hat (protocol.ts) - deshalb bedingt angehaengt, nie erfunden.
+        let zeile = `  slot ${ev.slot}: ${ev.state} (${ev.reason})  Ziel ${ev.target || 'keins'}  gesendet ${ev.sent}  Quelle "${ev.ndi}"`;
         if (ev.rotation !== undefined) zeile += `  rotation=${ev.rotation}`;
         if (ev.limitedRange !== undefined) zeile += `  limitedRange=${ev.limitedRange}`;
         log(zeile);
-        if (ev.reason === 'rebound' || ev.reason === 'reboundByName') {
-          log('    Abo automatisch umgehaengt (dieselbe NDI-Quelle) - nichts zu tun.');
-        }
-      } else if (ev.ev === 'audio') {
-        let zeile = `  audio ${ev.id}: ${ev.state} (${ev.reason})`;
+      } else if (ev.ev === 'slotAudio') {
+        let zeile = `  ton ${ev.slot}: ${ev.state} (${ev.reason})  Quelle ${ev.source}, eingestellt ${ev.configured}`;
         // Format NUR anzeigen, wenn es gemessen wurde - sonst waere die Zeile
         // eine Behauptung ueber etwas, das noch nie ankam.
         if (ev.sampleRate !== undefined) zeile += `  ${ev.sampleRate} Hz, ${ev.channels} Kanal/Kanaele`;
@@ -514,30 +534,35 @@ export async function starteSteuerung(o = {}) {
     sicherSenden({ cmd: 'videoDelay', ms }, woher);
   }
 
+  /** Slot-Nummer, die diese Kennung zeigt (laufend oder gesendet), sonst null. */
+  function slotMitZiel(id) {
+    for (const [nr, s] of bridge.session.slots) if (s.target === id) return nr;
+    for (const [nr, a] of ausstehend) if (a.id === id) return nr;
+    return null;
+  }
+
+  /** Die kleinste freie Slot-Nummer (weder laufend noch gesendet), sonst null. */
+  function freieNummer() {
+    for (let nr = 1; nr <= SLOT_NR_MAX; nr++) if (!bridge.session.slots.has(nr) && !ausstehend.has(nr)) return nr;
+    return null;
+  }
+
   /**
-   * "+<id>" im Lauf. Drei Dinge werden VOR dem Senden geprueft - jedes, weil
-   * die Antwort der Bridge an dieser Stelle die falsche Suche ausloesen wuerde:
-   *  - keine Rohdaten-Erlaubnis: die Bridge antwortete VIDEO_NO_PRIVILEGE, und
-   *    das liest sich wie ein Fehler der Bruecke. Es ist eine Zeitfrage bzw.
-   *    eine Frage an den Gastgeber (gemessen am 13.08.2026: das JA kommt
-   *    regelmaessig erst Sekunden nach dem Beitritt) - darum erklaeren, wo sie
-   *    zu erteilen ist, statt zu senden.
-   *  - unbekannte Kennung: meist ein Tippfehler oder eine Kennung aus einem
-   *    FRUEHEREN Meeting (sie gelten nur fuer dieses). Nicht senden.
-   *  - mehr als BETRIEBSGROESSE Abos: warnen, aber senden - darueber ist
-   *    nichts belegt, auch kein Scheitern. GEZAEHLT werden laufende UND
-   *    gesendete, noch unbeantwortete Abos (ausstehend) - sonst sahen sechs
-   *    auf einmal eingefuegte "+<id>" alle dieselbe Zahl (gemessen).
-   *  - ein Abo, das schon laeuft (oder unterwegs ist): nicht senden. Die
-   *    Bridge weist es VOR jeder anderen Pruefung als VIDEO_ALREADY_SUBSCRIBED
-   *    ab (native/video.cpp) und aendert dabei auch den Ton NICHT - ein
-   *    "+<id> stumm" auf ein laufendes Abo kuendigte "OHNE Ton" an, und der
-   *    Ton blieb an (gemessen). Umschalten geht nur ueber -<id>, dann +<id>.
+   * "+<id>" im Lauf (Spec 6.18): slotOn mit der kleinsten freien Nummer, Modus Teilnehmer, NDI-Name nach
+   * konsolenNdiName, 720p, Ersatzbild schwarz, Ton der Person bzw. mit "stumm" keiner (A-EP8). Vorher geprueft,
+   * jeweils weil die Antwort der Bridge an dieser Stelle die falsche Suche ausloesen wuerde:
+   *  - keine Rohdaten-Erlaubnis: die Bridge antwortete slotNoPrivilege, und das liest sich wie ein Fehler der
+   *    Bruecke. Es ist eine Zeitfrage bzw. eine Frage an den Gastgeber - darum erklaeren, wo sie zu erteilen ist.
+   *  - unbekannte Kennung: meist ein Tippfehler oder eine Kennung aus einem FRUEHEREN Meeting. Nicht senden.
+   *  - diese Kennung zeigt schon ein Slot (oder einer ist unterwegs): nicht senden. Umschalten geht ueber
+   *    -<id>, dann +<id>.
+   *  - mehr als BETRIEBSGROESSE Slots: warnen, aber senden - darueber ist nichts belegt, auch kein Scheitern.
+   *    GEZAEHLT werden laufende UND gesendete, noch unbeantwortete Slots.
    */
   function abonniere(id, stumm) {
     const s = bridge.session;
     if (s.meeting !== 'inMeeting') {
-      log(`  Kein Abo gesendet: wir sind (noch oder nicht mehr) nicht im Meeting.`);
+      log(`  Kein Slot gestartet: wir sind (noch oder nicht mehr) nicht im Meeting.`);
       return;
     }
     if (!s.canRecordRaw) {
@@ -546,46 +571,84 @@ export async function starteSteuerung(o = {}) {
         : s.privilegeTimedOut
           ? 'die Anfrage nach der Rohdaten-Erlaubnis lief ab'
           : 'die Rohdaten-Erlaubnis fehlt noch';
-      log(`  Kein Abo gesendet: ${grund}. Der Gastgeber muss sie im Zoom-Client erteilen (Aufnahme erlauben) - danach erneut +${id}.`);
+      log(`  Kein Slot gestartet: ${grund}. Der Gastgeber muss sie im Zoom-Client erteilen (Aufnahme erlauben) - danach erneut +${id}.`);
       return;
     }
-    if (!s.participants.has(id)) {
-      log(`  Kein Abo gesendet: ${id} steht nicht in der Teilnehmerliste. "liste" zeigt die Kennungen - sie gelten nur fuer DIESES Meeting.`);
+    const p = s.participants.get(id);
+    if (!p) {
+      log(`  Kein Slot gestartet: ${id} steht nicht in der Teilnehmerliste. "liste" zeigt die Kennungen - sie gelten nur fuer DIESES Meeting.`);
       return;
     }
-    if (s.videoSubs.has(id) || ausstehend.has(id)) {
-      log(
-        `  Kein Abo gesendet: ${id} ist schon abonniert (laeuft schon). ` +
-          `Ton umschalten: erst -${id}, dann +${id}${stumm ? ' stumm' : ''}.`,
-      );
+    const schon = slotMitZiel(id);
+    if (schon !== null) {
+      log(`  Kein Slot gestartet: ${id} wird schon gezeigt (Slot ${schon}, laeuft schon). Ton umschalten: erst -${id}, dann +${id}${stumm ? ' stumm' : ''}.`);
       return;
     }
-    const laufend = new Set([...s.videoSubs.keys(), ...ausstehend]).size;
+    const nr = freieNummer();
+    if (nr === null) {
+      log(`  Kein Slot gestartet: alle ${SLOT_NR_MAX} Slots sind belegt.`);
+      return;
+    }
+    const laufend = s.slots.size + ausstehend.size;
     if (laufend >= BETRIEBSGROESSE) {
       log(
-        `  ACHTUNG: das wird das ${laufend + 1}. gleichzeitige Abo - gemessen sind ${BETRIEBSGROESSE} (Betriebsgroesse), ` +
+        `  ACHTUNG: das wird der ${laufend + 1}. gleichzeitige Slot - gemessen sind ${BETRIEBSGROESSE} (Betriebsgroesse), ` +
           'darueber ist nichts belegt. Wird trotzdem gesendet.',
       );
     }
-    log(`  Video wird abonniert: ${id} (720p)${stumm ? '  OHNE Ton (audio:false)' : ''}`);
-    ausstehend.add(id);
-    // Das Feld nur setzen, wenn es auf false soll - siehe die Abos beim Start.
-    const gesendet = stumm
-      ? sicherSenden({ cmd: 'videoSubscribe', id, resolution: '720p', audio: false }, 'Eingabe')
-      : sicherSenden({ cmd: 'videoSubscribe', id, resolution: '720p' }, 'Eingabe');
-    if (!gesendet) ausstehend.delete(id);
+    const belegt = [...[...s.slots.values()].map((x) => x.ndi), ...[...ausstehend.values()].map((a) => a.ndi)];
+    const ndi = konsolenNdiName(p.name, belegt);
+    log(`  Slot ${nr} wird gestartet: ${id} (720p)${stumm ? '  OHNE Ton (audio:off)' : ''}`);
+    ausstehend.set(nr, { id, ndi });
+    konsolenName.set(nr, p.name);
+    const gesendet = sicherSenden({
+      cmd: 'slotOn', slot: nr, ndi, mode: 'participant', id, resolution: '720p', audio: stumm ? 'off' : 'person',
+      shareAudio: false, fallback: 'black', showNoVideo: true,
+    }, 'Eingabe');
+    if (!gesendet) {
+      ausstehend.delete(nr);
+      konsolenName.delete(nr);
+    }
+  }
+
+  /** "-<id>": slotOff des Slots, der diese Kennung zeigt - nie einfach der kleinste (Spec 6.18). */
+  function stoppe(id) {
+    const nr = slotMitZiel(id);
+    if (nr === null) {
+      log(`  Kein Slot zeigt ${id}. "liste" zeigt die Slots.`);
+      return;
+    }
+    log(`  Slot ${nr} wird gestoppt: ${id}`);
+    sicherSenden({ cmd: 'slotOff', slot: nr }, 'Eingabe');
+  }
+
+  /** "=<Slot> <id>": slotSet {slot, id} - die Rueckkehr von Hand (Spec 6.18). */
+  function umhaenge(nr, id) {
+    const s = bridge.session;
+    if (!s.slots.has(nr)) {
+      log(`  Slot ${nr} laeuft nicht. "liste" zeigt die Slots.`);
+      return;
+    }
+    const p = s.participants.get(id);
+    if (!p) {
+      log(`  Nicht umgehaengt: ${id} steht nicht in der Teilnehmerliste.`);
+      return;
+    }
+    log(`  Slot ${nr} wird umgehaengt auf ${id}`);
+    konsolenName.set(nr, p.name);
+    sicherSenden({ cmd: 'slotSet', slot: nr, id }, 'Eingabe');
   }
 
   function druckeListe() {
     const s = bridge.session;
     druckeTeilnehmer([...s.participants.values()]);
-    if (s.videoSubs.size === 0) log('  Abonniert: keine.');
+    if (s.slots.size === 0) log('  Slots: keine.');
     else {
-      log(`  Abonniert (${s.videoSubs.size}):`);
-      for (const [id, v] of s.videoSubs) {
-        const a = s.audioSubs.get(id);
+      log(`  Slots (${s.slots.size}):`);
+      for (const [nr, v] of s.slots) {
+        const a = s.slotAudio.get(nr);
         const ton = a ? `${a.state} (${a.reason})` : 'aus';
-        log(`    ${id}  Bild ${v.state} (${v.reason})  Ton ${ton}  Quelle "${v.source}"`);
+        log(`    ${nr}  Ziel ${v.target || 'keins'}  Bild ${v.state} (${v.reason})  Ton ${ton}  Quelle "${v.ndi}"`);
       }
     }
     // Bestaetigt oder gar nicht - eine hier eingesetzte 0 saehe aus wie eine
@@ -714,9 +777,9 @@ export async function starteSteuerung(o = {}) {
     }
     if (e.art === 'versatz') sendeVersatz(zeile.trim(), 'Eingabe');
     else if (e.art === 'abonnieren') abonniere(e.id, e.stumm);
-    else if (e.art === 'abbestellen') {
-      log(`  Abo wird beendet: ${e.id}`);
-      sicherSenden({ cmd: 'videoUnsubscribe', id: e.id }, 'Eingabe');
+    else if (e.art === 'abbestellen') stoppe(e.id);
+    else if (e.art === 'umhaengen') {
+      umhaenge(e.slot, e.id);
     } else if (e.art === 'liste') druckeListe();
     else if (e.art === 'hilfe') log(hilfeText());
     else if (e.art === 'ende') {
@@ -906,15 +969,8 @@ export async function starteSteuerung(o = {}) {
         continue;
       }
       abonniert.add(id);
-      ausstehend.add(id);
-      const stumm = ohneTon.has(id);
-      log(`  Video wird abonniert: ${id} (720p)${stumm ? '  OHNE Ton (audio:false)' : ''}`);
-      // Das Feld nur setzen, wenn es auf false soll. Ein ausdrueckliches
-      // `audio:true` waere zwar gleichbedeutend, wuerde aber den Vorgabefall des
-      // Protokolls (Feld fehlt) im Abnahmelauf nie mehr durchlaufen - und geprueft
-      // wird, was in Betrieb geht.
-      if (stumm) bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p', audio: false });
-      else bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p' });
+      // Derselbe Weg wie "+<id>" (Slot, Spec 6.18), samt Pruefung auf Teilnehmer, laufenden Slot und Betriebsgroesse.
+      abonniere(id, ohneTon.has(id));
     }
 
     // Nichts verschwindet still: eine Kennung in ZOOM_AUDIO_OFF, die gar nicht
