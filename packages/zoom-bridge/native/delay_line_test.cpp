@@ -242,6 +242,34 @@ void test_leeren() {
   CHECK(d.spareBuffers() == 0);
 }
 
+void test_bildarten_pb18() {
+  std::printf("PB18 Bildarten weiss und transparent behalten Reihenfolge und Art; clear() beim Moduswechsel leert\n");
+  DelayLine d;
+  pushBild(d, 1, 0);
+  CHECK(d.pushBild(Bildart::Weiss, kW, kH, at(10)) == 0);
+  CHECK(d.pushBild(Bildart::Transparent, kW, kH, at(20)) == 0);
+  pushBild(d, 2, 30);
+  d.pushBlack(kW, kH, at(40));
+  CHECK(d.pushBild(Bildart::I420, kW, kH, at(50)) == 0);   // I420 nur mit Bilddaten (pushFrame)
+  CHECK(d.size() == 5);
+  std::vector<Bildart> arten;
+  std::vector<int> kennungen;
+  const auto senke = [&](const DelayLine::Frame& f) {
+    arten.push_back(f.art);
+    kennungen.push_back(!f.data.empty() ? f.data[0] : (f.black ? 0xFF : 0));
+  };
+  // Einzeln faellig machen (hoechstens kMaxBurst je release), damit die Schwall-Regel nicht dazwischenfunkt.
+  d.release(at(510), milliseconds(500), senke);
+  d.release(at(530), milliseconds(500), senke);
+  d.release(at(540), milliseconds(500), senke);
+  CHECK((arten == std::vector<Bildart>{Bildart::I420, Bildart::Weiss, Bildart::Transparent, Bildart::I420, Bildart::Schwarz}));
+  CHECK((kennungen == std::vector<int>{1, 0, 0, 2, 0xFF}));
+  d.pushBild(Bildart::Weiss, 1280, 720, at(600));
+  d.pushBild(Bildart::Transparent, 1280, 720, at(610));
+  d.clear();
+  CHECK(d.size() == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -259,6 +287,7 @@ int main() {
   test_karenz_laenger_als_ein_bildabstand();
   test_vorrat_ist_gedeckelt();
   test_leeren();
+  test_bildarten_pb18();
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
 }

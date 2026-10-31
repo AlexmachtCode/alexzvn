@@ -1109,4 +1109,159 @@ inline StilleErgebnis stilleBloecke(TonQuelle tonweg, unsigned ziel, const TonSt
   return r;
 }
 
+// ---- Abbau-Ketten (Spec 6.15, Nachfix W2/W3, Fuenfte Runde N8; Task A8) ----------------------------------
+
+/** Die Ketten aus Tabelle 6.15 (Leave in zwei Plaenen: Leave bis SessionLeave, LeaveNachlauf mit dessen Rueckgabe). */
+enum class Kette : uint8_t {
+  SlotOff, Leave, LeaveNachlauf, QuitEof, MeetingEndetSich, MeetingEnde, Entzug, Weggang, FreigabeEndet, InMeetingErneut
+};
+
+/**
+ * Schritte der Ketten. Die Schritte mit Slot-Bezug (TonAusMelden bis InHalteliste) bilden in jedem Plan einen
+ * zusammenhaengenden Block, den der Ausfuehrer abbauAusfuehren (A14) je betroffenem Slot ausfuehrt, die uebrigen
+ * einmal. Ergaenzt gegenueber der Gliederung (Weggang, Freigabe-Ende): FreigabenDerPersonEntfernen,
+ * ErinnerungOhneKennung, Umhaengen (= slotRetarget nach 6.10; waehrend der Sperre merkt umhaengPlan nur vor).
+ */
+enum class AbbauSchritt : uint8_t {
+  AudioShutdown, AudioClearSubscribed, TonAusMelden, SlotAusMelden, VorschauPlatzAbmelden, Unsubscribe,
+  DestroyRenderer, ZeigerVerwerfen, SenderZu, SlotLoeschen, InHalteliste, HaltelisteAbbauen, HaltelisteVerwerfen,
+  FreigabenLeeren, ErinnerungLeeren, VorschauThreadEnde, StopRawRecording, SessionLeave, SperreAn, SperreLoesen,
+  EigeneKennungNeu, FreigabenBefuellen, UmhaengenVormerken, FreigabenDerPersonEntfernen, ErinnerungOhneKennung,
+  Umhaengen
+};
+
+/**
+ * Slot-Block einer Kette: slotAudio off vor slot off (wie video.cpp:595-596), Vorschau-Platz ab, dann Renderer und
+ * Sender. Waehrend der Renderer-Sperre statt der Renderer-Aufrufe und des Loeschens: Sender zu und der ganze Slot in
+ * die Halteliste (Nachfix W2). rendererAnfassen = false (Meeting-Ende): nur Zeiger verwerfen, nie ein SDK-Aufruf.
+ */
+inline void slotBlock(std::vector<AbbauSchritt>& s, bool sperre, bool rendererAnfassen) {
+  s.push_back(AbbauSchritt::TonAusMelden);
+  s.push_back(AbbauSchritt::SlotAusMelden);
+  s.push_back(AbbauSchritt::VorschauPlatzAbmelden);
+  if (sperre && rendererAnfassen) {
+    s.push_back(AbbauSchritt::SenderZu);
+    s.push_back(AbbauSchritt::InHalteliste);
+    return;
+  }
+  if (rendererAnfassen) {
+    s.push_back(AbbauSchritt::Unsubscribe);
+    s.push_back(AbbauSchritt::DestroyRenderer);
+  } else {
+    s.push_back(AbbauSchritt::ZeigerVerwerfen);
+  }
+  s.push_back(AbbauSchritt::SenderZu);
+  s.push_back(AbbauSchritt::SlotLoeschen);
+}
+
+/**
+ * Tabelle 6.15 als Schrittfolge (PB20). sperre = Renderer-Sperre gilt; verlassen = Rueckgabe von sessionLeave() (nur
+ * fuer LeaveNachlauf). Der Ausfuehrer ersetzt bei rendererTot eines Slots Unsubscribe und DestroyRenderer durch
+ * ZeigerVerwerfen (fuerSlot). quit/EOF: sessionShutdown() ruft main.cpp danach wie heute (kein Plan-Schritt).
+ */
+inline std::vector<AbbauSchritt> abbauPlan(Kette kette, bool sperre, bool verlassen = false) {
+  std::vector<AbbauSchritt> s;
+  switch (kette) {
+    case Kette::SlotOff:
+      slotBlock(s, sperre, true);
+      break;
+    case Kette::Leave:
+      s.push_back(AbbauSchritt::AudioShutdown);
+      s.push_back(AbbauSchritt::FreigabenLeeren);
+      s.push_back(AbbauSchritt::ErinnerungLeeren);
+      slotBlock(s, sperre, true);
+      s.push_back(AbbauSchritt::SessionLeave);
+      break;
+    case Kette::LeaveNachlauf:
+      if (verlassen) s.push_back(AbbauSchritt::HaltelisteVerwerfen);   // false: Halteliste bleibt bis Prozessende
+      break;
+    case Kette::QuitEof:
+      s.push_back(AbbauSchritt::AudioShutdown);
+      s.push_back(AbbauSchritt::VorschauThreadEnde);                    // vor dem Loeschen der Slots (B18)
+      s.push_back(AbbauSchritt::FreigabenLeeren);
+      s.push_back(AbbauSchritt::ErinnerungLeeren);
+      slotBlock(s, sperre, true);
+      break;
+    case Kette::MeetingEndetSich:
+      s.push_back(AbbauSchritt::SperreAn);                              // Renderer und Sender bleiben
+      break;
+    case Kette::MeetingEnde:
+      s.push_back(AbbauSchritt::AudioClearSubscribed);
+      s.push_back(AbbauSchritt::FreigabenLeeren);
+      s.push_back(AbbauSchritt::ErinnerungLeeren);
+      slotBlock(s, sperre, false);                                      // ohne SDK-Aufruf am Renderer
+      s.push_back(AbbauSchritt::HaltelisteVerwerfen);
+      s.push_back(AbbauSchritt::SperreLoesen);
+      break;
+    case Kette::Entzug:
+      s.push_back(AbbauSchritt::AudioClearSubscribed);
+      slotBlock(s, sperre, true);
+      s.push_back(AbbauSchritt::StopRawRecording);                      // Freigaben und Erinnerung bleiben (W3)
+      break;
+    case Kette::Weggang:
+      s.push_back(AbbauSchritt::FreigabenDerPersonEntfernen);
+      s.push_back(AbbauSchritt::ErinnerungOhneKennung);
+      s.push_back(AbbauSchritt::Umhaengen);                             // Ziel 0, Sender bleibt
+      break;
+    case Kette::FreigabeEndet:
+      s.push_back(AbbauSchritt::Umhaengen);
+      break;
+    case Kette::InMeetingErneut:
+      s.push_back(AbbauSchritt::SperreLoesen);
+      s.push_back(AbbauSchritt::HaltelisteAbbauen);                     // nach dem Loesen, vor jedem Umhaengen
+      s.push_back(AbbauSchritt::EigeneKennungNeu);
+      s.push_back(AbbauSchritt::ErinnerungLeeren);
+      s.push_back(AbbauSchritt::FreigabenLeeren);
+      s.push_back(AbbauSchritt::FreigabenBefuellen);
+      s.push_back(AbbauSchritt::UmhaengenVormerken);
+      break;
+  }
+  return s;
+}
+
+/** Plan fuer einen Slot mit rendererTot: statt Unsubscribe und DestroyRenderer nur ZeigerVerwerfen (6.10, B32). */
+inline std::vector<AbbauSchritt> fuerSlot(const std::vector<AbbauSchritt>& plan, bool rendererTot) {
+  if (!rendererTot) return plan;
+  std::vector<AbbauSchritt> aus;
+  for (AbbauSchritt s : plan) {
+    if (s == AbbauSchritt::DestroyRenderer) continue;
+    aus.push_back(s == AbbauSchritt::Unsubscribe ? AbbauSchritt::ZeigerVerwerfen : s);
+  }
+  return aus;
+}
+
+/** HaltelisteAbbauen je Eintrag: unSubscribe + destroyRenderer, bei rendererTot keins von beiden; dann loeschen. */
+inline std::vector<AbbauSchritt> halteEintragAbbauen(bool rendererTot) {
+  if (rendererTot) return {AbbauSchritt::SlotLoeschen};
+  return {AbbauSchritt::Unsubscribe, AbbauSchritt::DestroyRenderer, AbbauSchritt::SlotLoeschen};
+}
+
+/** Ein INMEETING baut nur Eintraege desselben Meetings ab; aeltere fasst es nie an (join zaehlt die Nummer hoch). */
+inline bool halteEintragGehoertZu(uint32_t eintragMeeting, uint32_t meeting) { return eintragMeeting == meeting; }
+
+// ---- Base64 fuer die Vorschau (Spec 6.16; genutzt von native/preview.cpp, A13) ----------------------------
+
+inline std::string base64(const uint8_t* daten, size_t n) {
+  static constexpr char kZeichen[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string aus;
+  aus.reserve((n + 2) / 3 * 4);
+  size_t i = 0;
+  for (; i + 2 < n; i += 3) {
+    const uint32_t v = (uint32_t{daten[i]} << 16) | (uint32_t{daten[i + 1]} << 8) | uint32_t{daten[i + 2]};
+    aus += kZeichen[(v >> 18) & 63];
+    aus += kZeichen[(v >> 12) & 63];
+    aus += kZeichen[(v >> 6) & 63];
+    aus += kZeichen[v & 63];
+  }
+  if (i < n) {
+    const bool zwei = i + 1 < n;
+    const uint32_t v = (uint32_t{daten[i]} << 16) | (zwei ? uint32_t{daten[i + 1]} << 8 : 0u);
+    aus += kZeichen[(v >> 18) & 63];
+    aus += kZeichen[(v >> 12) & 63];
+    aus += zwei ? kZeichen[(v >> 6) & 63] : '=';
+    aus += '=';
+  }
+  return aus;
+}
+
 }  // namespace slotlogic

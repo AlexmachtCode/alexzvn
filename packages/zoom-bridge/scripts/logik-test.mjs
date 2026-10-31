@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 const paket = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Je Datei ein Programm mit main(). Der Selbsttest prueft, dass jede native/*_test.cpp hier steht. */
-const TESTDATEIEN = ['native/slot_logic_test.cpp', 'native/delay_line_test.cpp'];
+const TESTDATEIEN = ['native/slot_logic_test.cpp', 'native/audio_mix_test.cpp', 'native/delay_line_test.cpp'];
 
 const GNU_SCHALTER = ['-std=c++17', '-Wall', '-Werror'];
 const CL_SCHALTER = ['/nologo', '/std:c++17', '/W4', '/WX', '/EHsc', '/utf-8'];

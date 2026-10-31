@@ -75,3 +75,6 @@ target_compile_options(delay-line-test PRIVATE /utf-8)
 # Zoom noch NDI. In der CI laeuft dieselbe Datei ohne CMake ueber npm run logik-test.
 add_executable(slot-logic-test native/slot_logic_test.cpp)
 target_compile_options(slot-logic-test PRIVATE /utf-8)
+# Mischer der Mischer-Slots (Spec 6.13), ebenso rein.
+add_executable(audio-mix-test native/audio_mix_test.cpp)
+target_compile_options(audio-mix-test PRIVATE /utf-8)

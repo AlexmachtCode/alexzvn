@@ -7,6 +7,12 @@
 #include <vector>
 
 /**
+ * Art eines Bildes in der Warteschlange (Spec 6.12, 6.14, PB18): I420 traegt Zooms Bilddaten, die drei Ersatzbilder
+ * tragen keine (der Sender baut sie aus seinen Puffern je Groesse). Statt nur „Bild oder Schwarz“.
+ */
+enum class Bildart : uint8_t { I420, Schwarz, Weiss, Transparent };
+
+/**
  * Bild-Verzoegerung einer Zoom-Quelle (Abnahmepunkt 5, Lippensynchronitaet).
  *
  * WARUM DAS BILD UND NICHT DER TON: am 18.08.2026 lief der Ton dem Bild
@@ -68,10 +74,13 @@ class DelayLine {
   static constexpr std::chrono::milliseconds kNachlaufKarenz{70};
 
   struct Frame {
+    Bildart art = Bildart::I420;
+    // = (art == Bildart::Schwarz), gesetzt nur in pushBild(). Bleibt, bis NdiSender die Bildart liest (Plan A,
+    // Task A9); die 14 Faelle von delay_line_test.cpp lesen es weiter.
     bool black = false;
     int w = 0;
     int h = 0;
-    std::vector<uint8_t> data;   // leer bei einem Schwarzbild
+    std::vector<uint8_t> data;   // leer bei Schwarz, Weiss und Transparent
     TimePoint arrival{};
   };
 
@@ -106,9 +115,17 @@ class DelayLine {
    * sonst ueberholte es die noch wartenden Bilder, und die Quelle zeigte
    * Schwarz, bevor die letzten Bilder vor dem Kamera-Aus durch sind.
    */
-  int pushBlack(int w, int h, TimePoint arrival) {
+  int pushBlack(int w, int h, TimePoint arrival) { return pushBild(Bildart::Schwarz, w, h, arrival); }
+
+  /**
+   * Ein Ersatzbild ohne Bilddaten (Schwarz, Weiss, Transparent) durch dieselbe Warteschlange, aus demselben Grund
+   * wie pushBlack. I420 traegt Bilddaten und geht nur ueber pushFrame: pushBild(Bildart::I420, ...) legt nichts ab.
+   */
+  int pushBild(Bildart art, int w, int h, TimePoint arrival) {
+    if (art == Bildart::I420) return 0;
     Frame f;
-    f.black = true;
+    f.art = art;
+    f.black = art == Bildart::Schwarz;
     f.w = w;
     f.h = h;
     f.arrival = arrival;

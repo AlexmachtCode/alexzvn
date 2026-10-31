@@ -1060,6 +1060,106 @@ void pb30_stille_bloecke() {
   CHECK(stilleBloecke(TonQuelle::Mix, A, neu, at(3000)).abtastwerte == 0);
 }
 
+// Abbau-Ketten und Base64 (Task A8).
+using AS = AbbauSchritt;
+
+bool enthaelt(const std::vector<AS>& plan, AS s) {
+  for (AS x : plan) {
+    if (x == s) return true;
+  }
+  return false;
+}
+int stelleIn(const std::vector<AS>& plan, AS s) {
+  for (size_t i = 0; i < plan.size(); ++i) {
+    if (plan[i] == s) return static_cast<int>(i);
+  }
+  return -1;
+}
+bool ohneRenderer(const std::vector<AS>& plan) {
+  return !enthaelt(plan, AS::Unsubscribe) && !enthaelt(plan, AS::DestroyRenderer);
+}
+
+void pb20_abbau_ohne_sperre() {
+  std::printf("PB20 Abbau-Plan ohne Renderer-Sperre: jede Zeile der Tabelle 6.15 woertlich\n");
+  const std::vector<AS> block = {AS::TonAusMelden, AS::SlotAusMelden, AS::VorschauPlatzAbmelden, AS::Unsubscribe,
+                                 AS::DestroyRenderer, AS::SenderZu, AS::SlotLoeschen};
+  CHECK(abbauPlan(Kette::SlotOff, false) == block);
+  std::vector<AS> soll = {AS::AudioShutdown, AS::FreigabenLeeren, AS::ErinnerungLeeren};
+  soll.insert(soll.end(), block.begin(), block.end());
+  soll.push_back(AS::SessionLeave);
+  CHECK(abbauPlan(Kette::Leave, false) == soll);
+  CHECK(!enthaelt(abbauPlan(Kette::Leave, false), AS::HaltelisteVerwerfen));
+  CHECK(abbauPlan(Kette::LeaveNachlauf, false, true) == std::vector<AS>{AS::HaltelisteVerwerfen});
+  CHECK(abbauPlan(Kette::LeaveNachlauf, false, false).empty());
+  soll = {AS::AudioShutdown, AS::VorschauThreadEnde, AS::FreigabenLeeren, AS::ErinnerungLeeren};
+  soll.insert(soll.end(), block.begin(), block.end());
+  CHECK(abbauPlan(Kette::QuitEof, false) == soll);
+  CHECK(stelleIn(abbauPlan(Kette::QuitEof, false), AS::VorschauThreadEnde) < stelleIn(abbauPlan(Kette::QuitEof, false), AS::SlotLoeschen));
+  CHECK(abbauPlan(Kette::MeetingEndetSich, false) == std::vector<AS>{AS::SperreAn});
+  CHECK((abbauPlan(Kette::MeetingEnde, false) ==
+         std::vector<AS>{AS::AudioClearSubscribed, AS::FreigabenLeeren, AS::ErinnerungLeeren, AS::TonAusMelden,
+                         AS::SlotAusMelden, AS::VorschauPlatzAbmelden, AS::ZeigerVerwerfen, AS::SenderZu,
+                         AS::SlotLoeschen, AS::HaltelisteVerwerfen, AS::SperreLoesen}));
+  CHECK(ohneRenderer(abbauPlan(Kette::MeetingEnde, false)));
+  soll = {AS::AudioClearSubscribed};
+  soll.insert(soll.end(), block.begin(), block.end());
+  soll.push_back(AS::StopRawRecording);
+  CHECK(abbauPlan(Kette::Entzug, false) == soll);
+  CHECK(!enthaelt(abbauPlan(Kette::Entzug, false), AS::FreigabenLeeren) &&
+        !enthaelt(abbauPlan(Kette::Entzug, false), AS::ErinnerungLeeren));
+  CHECK((abbauPlan(Kette::Weggang, false) ==
+         std::vector<AS>{AS::FreigabenDerPersonEntfernen, AS::ErinnerungOhneKennung, AS::Umhaengen}));
+  CHECK(abbauPlan(Kette::FreigabeEndet, false) == std::vector<AS>{AS::Umhaengen});
+  CHECK((abbauPlan(Kette::InMeetingErneut, false) ==
+         std::vector<AS>{AS::SperreLoesen, AS::HaltelisteAbbauen, AS::EigeneKennungNeu, AS::ErinnerungLeeren,
+                         AS::FreigabenLeeren, AS::FreigabenBefuellen, AS::UmhaengenVormerken}));
+}
+
+void pb20_abbau_mit_sperre() {
+  std::printf("PB20 Abbau-Plan mit Renderer-Sperre: melden, Vorschau ab, Sender zu, dann Halteliste statt Renderer\n");
+  const std::vector<AS> halten = {AS::TonAusMelden, AS::SlotAusMelden, AS::VorschauPlatzAbmelden, AS::SenderZu,
+                                  AS::InHalteliste};
+  CHECK(abbauPlan(Kette::SlotOff, true) == halten);
+  const Kette mitHalteliste[3] = {Kette::Leave, Kette::QuitEof, Kette::Entzug};
+  for (Kette k : mitHalteliste) {
+    const std::vector<AS> p = abbauPlan(k, true);
+    CHECK(enthaelt(p, AS::InHalteliste) && enthaelt(p, AS::SenderZu) && enthaelt(p, AS::TonAusMelden));
+    CHECK(ohneRenderer(p) && !enthaelt(p, AS::ZeigerVerwerfen) && !enthaelt(p, AS::SlotLoeschen));
+    CHECK(!enthaelt(p, AS::HaltelisteVerwerfen));   // quit/EOF und leave: die Halteliste bleibt hier stehen
+  }
+  CHECK(abbauPlan(Kette::Leave, true).back() == AS::SessionLeave);
+  CHECK(abbauPlan(Kette::MeetingEnde, true) == abbauPlan(Kette::MeetingEnde, false));
+  CHECK(abbauPlan(Kette::MeetingEndetSich, true) == std::vector<AS>{AS::SperreAn});
+  const std::vector<AS> wieder = abbauPlan(Kette::InMeetingErneut, true);
+  CHECK(stelleIn(wieder, AS::SperreLoesen) == 0 && stelleIn(wieder, AS::HaltelisteAbbauen) > stelleIn(wieder, AS::SperreLoesen) &&
+        stelleIn(wieder, AS::HaltelisteAbbauen) < stelleIn(wieder, AS::UmhaengenVormerken));
+  CHECK(abbauPlan(Kette::Weggang, true) == abbauPlan(Kette::Weggang, false));
+  CHECK(!enthaelt(abbauPlan(Kette::Weggang, true), AS::SenderZu) && !enthaelt(abbauPlan(Kette::FreigabeEndet, true), AS::SenderZu));
+}
+
+void pb20_renderer_tot_und_halteliste() {
+  std::printf("PB20 rendererTot nur Zeiger verwerfen; Halteliste je Eintrag; ein spaeteres Meeting fasst aeltere nicht an\n");
+  CHECK((fuerSlot(abbauPlan(Kette::SlotOff, false), true) ==
+         std::vector<AS>{AS::TonAusMelden, AS::SlotAusMelden, AS::VorschauPlatzAbmelden, AS::ZeigerVerwerfen,
+                         AS::SenderZu, AS::SlotLoeschen}));
+  CHECK(fuerSlot(abbauPlan(Kette::SlotOff, false), false) == abbauPlan(Kette::SlotOff, false));
+  CHECK((halteEintragAbbauen(false) == std::vector<AS>{AS::Unsubscribe, AS::DestroyRenderer, AS::SlotLoeschen}));
+  CHECK(halteEintragAbbauen(true) == std::vector<AS>{AS::SlotLoeschen});
+  CHECK(halteEintragGehoertZu(3, 3));
+  CHECK(!halteEintragGehoertZu(2, 3));
+}
+
+void a8_base64() {
+  std::printf("A8 Base64 der Vorschau: Man -> TWFu, Laengen 0-3 mit Padding\n");
+  const uint8_t man[3] = {'M', 'a', 'n'};
+  CHECK(base64(man, 0).empty());
+  CHECK(base64(man, 1) == "TQ==");
+  CHECK(base64(man, 2) == "TWE=");
+  CHECK(base64(man, 3) == "TWFu");
+  const uint8_t hoch[2] = {0xFB, 0xFF};
+  CHECK(base64(hoch, 2) == "+/8=");
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -1107,6 +1207,10 @@ int main() {
   pb22_umschalten_no_share();
   pb25_ton_zuordnung();
   pb30_stille_bloecke();
+  pb20_abbau_ohne_sperre();
+  pb20_abbau_mit_sperre();
+  pb20_renderer_tot_und_halteliste();
+  a8_base64();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
