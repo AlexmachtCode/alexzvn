@@ -16,6 +16,7 @@
 #include <string>
 #include <thread>
 #include <cstdio>
+#include <cstring>
 #include <windows.h>
 #include "emit.h"
 #include "session.h"
@@ -116,10 +117,9 @@ void merkerNehmen() {
   }
   MerkerTeilnehmer t;
   while (callbacksTakeTeilnehmer(&t)) {
-    // ZWISCHENSTAND bis A11 (Plan A, A-EP17): die alten Abo-Wege, jetzt aus der
-    // Hauptschleife statt aus dem Rueckruf.
-    if (t.beitritt) videoParticipantJoined(t.id);
-    else videoParticipantLeft(t.id);
+    // Weggang: jeder Slot, dessen Ziel geht, haengt auf Ziel 0 um (6.7). Ein
+    // Beitritt haengt nichts um - die Rueckkehr schickt Connect per slotSet (E6).
+    if (!t.beitritt) slotsParticipantLeft(t.id);
   }
   // Kamera, Freigaben und Sprecher wertet ab A12 die Slot-Logik aus; bis dahin
   // werden die Merker nur genommen, damit keine Warteschlange vollaeuft.
@@ -131,36 +131,61 @@ void merkerNehmen() {
   while (callbacksTakeSprecher(&s)) {}
 }
 
-// BERICHTIGT (Nachbesserungsrunde 1, Critical): "id" ist laut Protokoll
-// (Aufgabe 2) eine ZAHL, keine Zeichenkette - fieldFromJson() liest
-// AUSDRUECKLICH nur Zeichenketten (siehe session.h/session.cpp) und liefert
-// fuer ein Zahlenfeld darum IMMER "". Der vorherige Stand hier
-// (fieldFromJson() + std::stoul()) las "id" darum bei JEDER echten
-// videoSubscribe/videoUnsubscribe-Zeile als leer und meldete deterministisch
-// videoUnknownParticipant, unabhaengig davon, ob der Teilnehmer existierte -
-// das Merkmal war gegen den echten Prozess unbenutzbar. numberFromJson()
-// (session.h/session.cpp) liest die Ziffernfolge direkt, ohne den Umweg
-// ueber eine Zeichenkette, und faengt einen Ueberlauf selbst ab (kein
-// std::stoul mehr noetig, also auch keine Ausnahme, die den Prozess
-// beenden koennte).
-//
-// ZUSAETZLICHE PRUEFUNG hier: numberFromJson() liefert unsigned long long
-// (64 Bit) - absichtlich breiter als der userId-Zieltyp (unsigned int,
-// 32 Bit, wie Zooms eigenes GetUserID()). Eine Zahl, die zwar innerhalb von
-// unsigned long long passt, aber unsigned int sprengt, wuerde beim
-// Schmalcast sonst STILL umlaufen (modulo 2^32) und koennte zufaellig auf
-// eine FALSCHE, aber existierende Kennung zeigen - derselbe Grundsatz wie
-// beim Ueberlauf-Fang in numberFromJson() selbst: nicht verstuemmeln, klar
-// als "nicht auswertbar" melden. UINT_MAX statt std::numeric_limits<...>::max():
-// windows.h definiert ohne NOMINMAX ein Makro `max`, das den STL-Aufruf
-// verstuemmeln wuerde (siehe derselbe, GEMESSENE Fund in session.cpp).
-bool parseParticipantId(const std::string& line, unsigned int* out) {
-  unsigned long long value = 0;
-  if (!numberFromJson(line, "id", &value)) return false;
-  if (value > static_cast<unsigned long long>(UINT_MAX)) return false;
-  *out = static_cast<unsigned int>(value);
+// --- Feldleser der Slot-Befehle (Gliederung 3.2, A-EP11) ----------------------------
+// Drei Ausgaenge je Feld: fehlt, gut, schlecht (unlesbar ODER unbekannter Wert).
+// "schlecht" ist immer ein Fehler; "fehlt" ist bei slotOn ein Fehler (Pflichtfeld,
+// ausser id) und bei slotSet "nicht aendern".
+enum class Lesung { Fehlt, Gut, Schlecht };
+
+template <size_t N, class E>
+Lesung leseName(const std::string& line, const char* key, const char* const (&tabelle)[N], E* out) {
+  std::string wert;
+  bool roh = false;
+  const JsonFeld f = stringFromJson3(line, key, &wert, &roh);
+  if (f == JsonFeld::Fehlt) return Lesung::Fehlt;
+  if (f == JsonFeld::Unlesbar) return Lesung::Schlecht;
+  for (size_t i = 0; i < N; ++i) {
+    if (wert == tabelle[i]) { *out = static_cast<E>(i); return Lesung::Gut; }
+  }
+  return Lesung::Schlecht;
+}
+
+Lesung leseAufloesung(const std::string& line, ZoomSDKResolution* out) {
+  std::string wert;
+  bool roh = false;
+  const JsonFeld f = stringFromJson3(line, "resolution", &wert, &roh);
+  if (f == JsonFeld::Fehlt) return Lesung::Fehlt;
+  return f == JsonFeld::Gelesen && slotParseResolution(wert, out) ? Lesung::Gut : Lesung::Schlecht;
+}
+
+Lesung leseSchalter(const std::string& line, const char* key, bool* out) {
+  const JsonBool b = boolFromJson(line, key, out);
+  return b == JsonBool::Fehlt ? Lesung::Fehlt : b == JsonBool::Gelesen ? Lesung::Gut : Lesung::Schlecht;
+}
+
+// "id": reine Ziffernfolge bis UINT_MAX (wie Zooms GetUserID(), 32 Bit). UINT_MAX
+// statt std::numeric_limits: windows.h definiert ohne NOMINMAX ein Makro `max`.
+Lesung leseZiel(const std::string& line, unsigned int* out) {
+  unsigned long long v = 0;
+  const JsonFeld f = numberFromJson3(line, "id", &v);
+  if (f == JsonFeld::Fehlt) return Lesung::Fehlt;
+  if (f == JsonFeld::Unlesbar || v > static_cast<unsigned long long>(UINT_MAX)) return Lesung::Schlecht;
+  *out = static_cast<unsigned int>(v);
+  return Lesung::Gut;
+}
+
+// Pruefung 1: "slot" lesbar und 1..16, sonst slotBadNumber OHNE slot.
+bool leseSlotNummer(const std::string& line, int* nr) {
+  unsigned long long v = 0;
+  if (numberFromJson3(line, "slot", &v) != JsonFeld::Gelesen || v < 1 || v > 16) {
+    emitSlotFehler("slotBadNumber", 0);
+    return false;
+  }
+  *nr = static_cast<int>(v);
   return true;
 }
+
+std::wstring breit(const char* s) { return std::wstring(s, s + std::strlen(s)); }
 
 void handle(const std::string& line) {
   const std::string cmd = cmdOf(line);
@@ -221,74 +246,97 @@ void handle(const std::string& line) {
     // das dieselbe Annahme, die an dieser Stelle beim Bild schon einmal
     // nicht gehalten hat (siehe der Kommentar hier eins darueber).
     audioShutdown();
-    videoShutdownAll();
+    slotsShutdownAll();
     sessionLeave();
     return;
   }
-  if (cmd == "videoSubscribe") {
-    unsigned int userId = 0;
-    if (!parseParticipantId(line, &userId)) {
-      // OHNE "id" - und zwar mit Absicht (Owner-Lauf 18.08.2026): hier ist
-      // GAR KEINE Kennung gelesen worden, userId steht noch auf 0. Eine
-      // gedruckte 0 saehe aus wie eine Angabe und schickte die Suche zu einem
-      // Teilnehmer, den niemand genannt hat. Ueberall dort, wo die Kennung
-      // BEKANNT ist, traegt der Fehler sie (video.cpp, emitVideoError mit
-      // zweitem Argument) - das Fehlen ist hier also selbst eine Auskunft:
-      // "die Zeile enthielt keine lesbare Kennung".
-      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
+  // videoSubscribe/videoUnsubscribe ENTFALLEN (Spec 6.18): sie landen unten bei
+  // "unbekannter Befehl" (where:"cmd", code 1).
+  if (cmd == "slotOn") {
+    // Pruefreihenfolge = Reihenfolge der Antworten (Gliederung 3.2, Spec 6.2);
+    // der erste Fehler gewinnt, nichts wird angelegt.
+    int nr = 0;
+    if (!leseSlotNummer(line, &nr)) return;                                     // 1.
+    SlotBefehl b;
+    b.nr = nr;
+    bool roh = false;
+    if (stringFromJson3(line, "ndi", &b.ndi, &roh) != JsonFeld::Gelesen ||       // 2.
+        slotlogic::pruefeNdiName(b.ndi, roh) != slotlogic::NamensFehler::Keiner) {
+      emitSlotFehler("slotBadName", nr);
       return;
     }
-    const std::string resKey = fieldFromJson(line, "resolution");
-    ZoomSDKResolution res = ZoomSDKResolution_720P;   // Vorgabe laut Spec
-    if (!resKey.empty() && !videoParseResolution(resKey, &res)) {
-      emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadResolution\",\"id\":") + std::to_string(userId) + "}");
+    // 3. direkt nach dem Namen (Spec 6.2), nur gegen ANDERE laufende Slots (Nachbesserung a1).
+    if (slotNameBelegt(b.ndi, nr)) { emitSlotFehler("slotNameTaken", nr); return; }
+    if (leseName(line, "mode", slotlogic::MODUS_NAMEN, &b.mode) != Lesung::Gut) { emitSlotFehler("slotBadMode", nr); return; }   // 4.
+    if (leseAufloesung(line, &b.res) != Lesung::Gut) { emitSlotFehler("slotBadResolution", nr); return; }
+    if (leseName(line, "audio", slotlogic::AUDIO_NAMEN, &b.audio) != Lesung::Gut) { emitSlotFehler("slotBadAudio", nr); return; }
+    if (leseName(line, "fallback", slotlogic::FALLBACK_NAMEN, &b.fallback) != Lesung::Gut) { emitSlotFehler("slotBadFallback", nr); return; }
+    if (leseSchalter(line, "shareAudio", &b.shareAudio) != Lesung::Gut ||       // 5.
+        leseSchalter(line, "showNoVideo", &b.showNoVideo) != Lesung::Gut) {
+      emitSlotFehler("slotBadFlag", nr);
       return;
     }
-    bool audioOn = true;   // Vorgabe laut Spec Abschnitt 7
-    // GENAU WIE DIE resolution-PRUEFUNG ZWEI ZEILEN DARUEBER: unlesbar heisst
-    // melden und NICHT abonnieren, nicht "dann eben die Vorgabe"
-    // (Schlusspruefung, Important 6). Vorher wurde der Rueckgabewert
-    // verworfen, und ein {"audio":"false"} oder {"audio":0} bekam Ton AN,
-    // waehrend stderr zufrieden "Ton-Schalter an" meldete - ein Aufrufer
-    // haette den Grund fuer den doppelten Ton im Saal nirgends gefunden.
-    // FEHLT dagegen bleibt die Vorgabe: ein weggelassenes Feld ist keine
-    // falsche Angabe (Spec Abschnitt 7: audio ist optional).
-    if (boolFromJson(line, "audio", &audioOn) == JsonBool::Unlesbar) {
-      emitRaw(std::string("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoBadAudioFlag\",\"id\":") + std::to_string(userId) + "}");
-      return;
-    }
-    // Fuer den Menschen, der die Rohausgabe mitliest - und der Beleg, den
-    // test/bool-probe.mjs auswertet: ohne diese Zeile saehe ein ignorierter
-    // Schalter genauso aus wie ein befolgter.
-    //
-    // WORTLAUT GEAENDERT (Owner-Lauf 18.08.2026): hier stand
-    // "Ton-Schalter fuer 16795648: an" - und daneben lehnte videoSubscribe()
-    // genau diese Kennung als videoUnknownParticipant ab. Die Zeile las sich
-    // wie eine Aussage ueber ein bestehendes Abo, war aber immer nur eine
-    // Aussage ueber die GELESENE BEFEHLSZEILE. Sie kann auch gar nichts
-    // anderes sein: sie steht VOR videoSubscribe(), und das muss so bleiben,
-    // weil bool-probe.mjs sie OHNE Meeting auswertet - dort scheitert jedes
-    // Abo zwangslaeufig an der fehlenden Rohdaten-Erlaubnis. Also sagt der
-    // Wortlaut jetzt, was die Zeile wirklich belegt.
-    emitLog(std::wstring(L"Befehl gelesen: videoSubscribe ") + std::to_wstring(userId) +
-            L", Ton-Schalter " + (audioOn ? L"an" : L"aus"));
-    videoSubscribe(userId, res, audioOn);
+    if (leseZiel(line, &b.id) == Lesung::Schlecht) { emitSlotFehler("slotBadTarget", nr); return; }   // 6. (A-EP2)
+    if (slotLaeuft(nr)) { emitSlotFehler("slotAlreadyOn", nr); return; }                            // 7.
+    // VOR der Erlaubnispruefung (A-EP3): der Beleg, den command-probe und
+    // bool-probe OHNE Meeting auswerten - dort endet jeder gueltige slotOn mit
+    // slotNoPrivilege. Ohne NDI-Namen (0.23).
+    emitLog(L"Befehl gelesen: slotOn " + std::to_wstring(nr) + L", Modus " +
+            breit(slotlogic::MODUS_NAMEN[static_cast<int>(b.mode)]) + L", Ton " +
+            breit(slotlogic::AUDIO_NAMEN[static_cast<int>(b.audio)]));
+    // Zweite Zeile (Nachbesserung a3, NB-a3-3): die GELESENEN Werte der uebrigen Felder.
+    // command-probe und bool-probe vergleichen sie ohne Meeting mit dem Gesendeten - ein
+    // still verlorener Wert (1080p als 720p, false als true) faellt sonst erst im Meeting
+    // auf. Ohne NDI-Namen (0.23).
+    emitLog(L"Felder gelesen: slotOn " + std::to_wstring(nr) + L", Aufloesung " + breit(slotAufloesungName(b.res)) +
+            L", Ersatzbild " + breit(slotlogic::FALLBACK_NAMEN[static_cast<int>(b.fallback)]) +
+            L", Computerton " + (b.shareAudio ? L"ja" : L"nein") + L", ohne Kamera " + (b.showNoVideo ? L"ja" : L"nein") +
+            L", Ziel " + (b.id != 0 ? std::to_wstring(b.id) : std::wstring(L"keins")));
+    slotOn(b);   // 8.-11.
     return;
   }
-  if (cmd == "videoUnsubscribe") {
-    unsigned int userId = 0;
-    if (!parseParticipantId(line, &userId)) {
-      // OHNE "id" - und zwar mit Absicht (Owner-Lauf 18.08.2026): hier ist
-      // GAR KEINE Kennung gelesen worden, userId steht noch auf 0. Eine
-      // gedruckte 0 saehe aus wie eine Angabe und schickte die Suche zu einem
-      // Teilnehmer, den niemand genannt hat. Ueberall dort, wo die Kennung
-      // BEKANNT ist, traegt der Fehler sie (video.cpp, emitVideoError mit
-      // zweitem Argument) - das Fehlen ist hier also selbst eine Auskunft:
-      // "die Zeile enthielt keine lesbare Kennung".
-      emitRaw("{\"ev\":\"error\",\"where\":\"video\",\"code\":\"videoUnknownParticipant\"}");
-      return;
-    }
-    videoUnsubscribe(userId);
+  if (cmd == "slotSet") {
+    // Erst ALLE Felder pruefen, dann aendern (ein Fehler aendert nichts, 6.2).
+    int nr = 0;
+    if (!leseSlotNummer(line, &nr)) return;
+    SlotAenderung a;
+    a.nr = nr;
+    Lesung l = leseName(line, "mode", slotlogic::MODUS_NAMEN, &a.mode);
+    if (l == Lesung::Schlecht) { emitSlotFehler("slotBadMode", nr); return; }
+    a.modeGesetzt = l == Lesung::Gut;
+    l = leseAufloesung(line, &a.res);
+    if (l == Lesung::Schlecht) { emitSlotFehler("slotBadResolution", nr); return; }
+    a.resGesetzt = l == Lesung::Gut;
+    l = leseName(line, "audio", slotlogic::AUDIO_NAMEN, &a.audio);
+    if (l == Lesung::Schlecht) { emitSlotFehler("slotBadAudio", nr); return; }
+    a.audioGesetzt = l == Lesung::Gut;
+    l = leseName(line, "fallback", slotlogic::FALLBACK_NAMEN, &a.fallback);
+    if (l == Lesung::Schlecht) { emitSlotFehler("slotBadFallback", nr); return; }
+    a.fallbackGesetzt = l == Lesung::Gut;
+    const Lesung teilen = leseSchalter(line, "shareAudio", &a.shareAudio);
+    const Lesung ohneVideo = leseSchalter(line, "showNoVideo", &a.showNoVideo);
+    if (teilen == Lesung::Schlecht || ohneVideo == Lesung::Schlecht) { emitSlotFehler("slotBadFlag", nr); return; }
+    a.shareAudioGesetzt = teilen == Lesung::Gut;
+    a.showNoVideoGesetzt = ohneVideo == Lesung::Gut;
+    l = leseZiel(line, &a.id);
+    if (l == Lesung::Schlecht) { emitSlotFehler("slotBadTarget", nr); return; }
+    a.idGesetzt = l == Lesung::Gut;
+    // Wie bei slotOn (Nachbesserung a3, NB-a3-3): jedes gesetzte Feld mit seinem gelesenen Wert.
+    emitLog(L"Felder gelesen: slotSet " + std::to_wstring(nr) +
+            (a.modeGesetzt ? L", Modus " + breit(slotlogic::MODUS_NAMEN[static_cast<int>(a.mode)]) : std::wstring()) +
+            (a.audioGesetzt ? L", Ton " + breit(slotlogic::AUDIO_NAMEN[static_cast<int>(a.audio)]) : std::wstring()) +
+            (a.resGesetzt ? L", Aufloesung " + breit(slotAufloesungName(a.res)) : std::wstring()) +
+            (a.fallbackGesetzt ? L", Ersatzbild " + breit(slotlogic::FALLBACK_NAMEN[static_cast<int>(a.fallback)]) : std::wstring()) +
+            (a.shareAudioGesetzt ? std::wstring(L", Computerton ") + (a.shareAudio ? L"ja" : L"nein") : std::wstring()) +
+            (a.showNoVideoGesetzt ? std::wstring(L", ohne Kamera ") + (a.showNoVideo ? L"ja" : L"nein") : std::wstring()) +
+            (a.idGesetzt ? L", Ziel " + (a.id != 0 ? std::to_wstring(a.id) : std::wstring(L"keins")) : std::wstring()));
+    slotSet(a);   // slotNotOn dort
+    return;
+  }
+  if (cmd == "slotOff") {
+    int nr = 0;
+    if (!leseSlotNummer(line, &nr)) return;
+    slotOff(nr, slotlogic::Grund::command);   // slotNotOn dort
     return;
   }
   if (cmd == "videoDelay") {
@@ -443,7 +491,7 @@ int main(int argc, char** argv) {
       emitLog(L"Meeting-Ende: Ton-Abo abmelden (ausserhalb des Rueckrufs)");
       audioClearSubscribed();
       emitLog(L"Meeting-Ende: Bild-Abos abbauen");
-      videoMeetingEnded();
+      slotsMeetingEnded();
       // ENDED/FAILED loest die Renderer-Sperre (Spec 6.5): die Renderer dieses
       // Meetings fasst ohnehin niemand mehr an.
       callbacksRendererSperreLoesen();
@@ -467,7 +515,7 @@ int main(int argc, char** argv) {
       emitLog(L"Entzug: Ton-Abo abmelden (ausserhalb des Rueckrufs)");
       audioClearSubscribed();
       emitLog(L"Entzug: Bild-Abos abbauen");
-      videoPrivilegeRevoked();
+      slotsPrivilegeRevoked();
       emitLog(L"Entzug: Rohdaten-Aufnahme beenden");
       sessionStopRawRecording();
     }
@@ -479,7 +527,7 @@ int main(int argc, char** argv) {
     // Bildes sendet. Hier und nicht in einem eigenen Thread - die Schleife
     // tickt bereits alle 10 ms, ein zweiter Thread waere nur ein weiterer
     // Schreiber auf denselben Feldern ohne jeden Vorteil.
-    videoTick();
+    slotsTick();
     while (!g_quit && nextLine(line)) handle(line);
     if (g_stdinClosed) {
       bool linesEmpty;
@@ -573,7 +621,7 @@ int main(int argc, char** argv) {
   // "leave"-Befehl oben: der Lauscher muss weg sein, bevor die Abos
   // verschwinden.
   audioShutdown();
-  videoShutdownAll();
+  slotsShutdownAll();
   const bool shutdownComplete = sessionShutdown();
   if (!shutdownComplete) {
     // Owner-Entscheidung, Abschluss-Sichtung Punkt A: sessionShutdown() hat

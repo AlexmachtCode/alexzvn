@@ -139,6 +139,34 @@ enum class JsonBool {
  */
 JsonBool boolFromJson(const std::string& line, const char* key, bool* out);
 
+/**
+ * DREIWERTIGE Leser fuer die Slot-Befehle (Plan A, A-EP11, Ist-Bridge F1/F2):
+ * fieldFromJson()/numberFromJson() oben liefern fuer "fehlt" und "unlesbar"
+ * dasselbe ("" bzw. false). Fuer slotSet hiesse das: ein falsch getipptes Feld
+ * ("mode":1, "id":"7") verschwaende still, statt einen Fehler zu melden. Diese
+ * beiden trennen die drei Faelle wie JsonBool. Die alten Leser bleiben fuer
+ * init/auth/join/videoDelay unveraendert.
+ */
+enum class JsonFeld {
+  /** Kein Schluessel an einer Schluesselposition. */
+  Fehlt,
+  /** Wert gelesen; *out traegt ihn. */
+  Gelesen,
+  /** Schluessel da, Wert hat den falschen Typ oder ist keine reine Ziffernfolge bzw. laeuft ueber. */
+  Unlesbar,
+};
+
+/**
+ * Zeichenkette. *out wie fieldFromJson() (\u dekodiert der Leser NICHT, er laesst
+ * den Backslash fallen, session.cpp readStringValue). *rohUnicodeFolge = true, wenn
+ * der ROHTEXT des Werts eine \u-Folge enthaelt - nur so ist sie nach dem Lesen noch
+ * zu erkennen (slotBadName, Spec 6.2, B26).
+ */
+JsonFeld stringFromJson3(const std::string& line, const char* key, std::string* out, bool* rohUnicodeFolge);
+
+/** Reine Ziffernfolge bis zum naechsten ',' oder '}' (kein Vorzeichen, kein Punkt, kein Exponent, kein Ueberlauf). */
+JsonFeld numberFromJson3(const std::string& line, const char* key, unsigned long long* out);
+
 /** Der Wert von "cmd", oder "" wenn die Zeile keiner ist. */
 std::string cmdOf(const std::string& line);
 
@@ -397,20 +425,6 @@ void sessionClearCanRecordRaw();
  * ohne das SDK noch einmal zu behelligen. Gilt je Meeting - siehe
  * sessionClearRawRecording().
  */
-/**
- * Zaehlt, wie viele Teilnehmer GENAU diesen Anzeigenamen tragen.
- *
- * Gebraucht fuer das Umhaengen ueber den Namen (videoParticipantJoined):
- * Zooms persistentId traegt einen Wiederbeitritt NICHT (gemessen am
- * 14.08.2026, siehe dort), der Anzeigename ist die einzige verbliebene
- * Handhabe - aber nur, wenn er EINDEUTIG ist. Zwei Gaeste mit demselben Namen
- * auf gut Glueck umzuhaengen waere eine Personenverwechslung auf Sendung.
- *
- * @returns 0, wenn kein Meeting laeuft - "keiner heisst so" ist dann die
- *          richtige Antwort, denn ohne Meeting gibt es keine Teilnehmer.
- */
-int sessionCountParticipantsByName(const std::wstring& name);
-
 SDKError sessionStartRawRecording();
 
 /**

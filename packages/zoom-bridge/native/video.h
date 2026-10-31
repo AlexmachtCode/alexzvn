@@ -12,86 +12,100 @@
 #include <windows.h>
 #include "zoom_sdk.h"
 #include "rawdata/rawdata_renderer_interface.h"
+// Die Entscheidungslogik der Slots (reine Logik ohne SDK, Plan A Block a2):
+// Modus, Ersatzbild, Ton, Gruende und Plaene. Die Enums dort sind die
+// Arbeitsnamen aus Spec 6.1 (A-EP10). GEMESSEN: windows.h (oben, ohne NOMINMAX)
+// definiert die Makros min und max - ein std::min/std::max in der reinen Logik bricht
+// dann mit C2589 ab. Die Makros gelten darum fuer diesen einen Include nicht.
+#pragma push_macro("min")
+#pragma push_macro("max")
+#undef min
+#undef max
+#include "slot_logic.h"
+#pragma pop_macro("max")
+#pragma pop_macro("min")
 
 USING_ZOOM_SDK_NAMESPACE
 
-/** Wandelt "720p" in ZoomSDKResolution_720P. false = unbekannter Schluessel. */
-bool videoParseResolution(const std::string& key, ZoomSDKResolution* out);
+// --- Slots (Spec 6.1-6.3, E1) ------------------------------------------------------
+// Ein Slot ist ein fester NDI-Sender mit einer Nummer 1..16. Er zeigt im Modus
+// Teilnehmer eine Person, im Modus Aktiver Sprecher den Sprecher, im Modus
+// Bildschirmfreigabe die gezeigte Freigabe. g_slots (video.cpp) schreibt NUR der
+// Hauptthread; Rueckrufe fassen nur Atome, fieldMutex-Felder und die Kopie an.
+
+/** slotOn, Felder fertig geprueft (Pruefung 1-7, main.cpp). */
+struct SlotBefehl {
+  int nr = 0;
+  std::string ndi;                 // UTF-8, nach pruefeNdiName gueltig
+  slotlogic::SlotMode mode = slotlogic::SlotMode::Participant;
+  unsigned id = 0;                 // 0 = kein Ziel (nur Modus Teilnehmer); keine Kennung ist 0: ANNAHME AN10, teils belegt
+  ZoomSDKResolution res = ZoomSDKResolution_720P;
+  slotlogic::SlotAudio audio = slotlogic::SlotAudio::Off;
+  bool shareAudio = false;
+  slotlogic::Fallback fallback = slotlogic::Fallback::Transparent;
+  bool showNoVideo = true;
+};
+
+/** slotSet: nur die Felder mit ...Gesetzt = true stehen in der Zeile (alle geprueft). */
+struct SlotAenderung {
+  int nr = 0;
+  bool modeGesetzt = false;        slotlogic::SlotMode mode = slotlogic::SlotMode::Participant;
+  bool idGesetzt = false;          unsigned id = 0;
+  bool resGesetzt = false;         ZoomSDKResolution res = ZoomSDKResolution_720P;
+  bool audioGesetzt = false;       slotlogic::SlotAudio audio = slotlogic::SlotAudio::Off;
+  bool shareAudioGesetzt = false;  bool shareAudio = false;
+  bool fallbackGesetzt = false;    slotlogic::Fallback fallback = slotlogic::Fallback::Transparent;
+  bool showNoVideoGesetzt = false; bool showNoVideo = true;
+};
+
+/** "360p" -> ZoomSDKResolution_360P usw.; nur die drei Stufen der Slots (6.11). false = unbekannt. */
+bool slotParseResolution(const std::string& key, ZoomSDKResolution* out);
+
+/** Gegenstueck: ZoomSDKResolution_360P -> "360p" usw. (stderr-Zeile „Felder gelesen“, Nachbesserung a3). */
+const char* slotAufloesungName(ZoomSDKResolution res);
 
 /**
- * Abonniert das Video eines Teilnehmers und legt dafuer einen NDI-Sender an.
- * Meldet Erfolg und jeden Fehlschlag SELBST auf stdout - der Aufrufer
- * bekommt keinen Rueckgabewert, den er vergessen koennte.
- *
- * audioOn entscheidet, ob dieses Abo AUCH den Ton des Teilnehmers auf die
- * Quelle legt (Stage 3). Der Schalter steht beim Abonnieren fest - siehe
- * Sub::audioOn in video.cpp fuer die Begruendung (Spec Abschnitt 10: kein
- * nachtraegliches Umschalten).
+ * Ein Fehler mit where:"slot" (Spec 6.4). nr = 0: ohne Feld "slot" (slotBadNumber,
+ * speakerBadSignal, speakerBadHold, slotBadTarget ohne lesbare Nummer).
  */
-void videoSubscribe(unsigned int userId, ZoomSDKResolution res, bool audioOn);
+void emitSlotFehler(const char* code, int nr);
 
-/** Baut ein Abo ab. Meldet ebenfalls selbst. */
-void videoUnsubscribe(unsigned int userId);
+/** Laeuft Slot nr? (Pruefung 7 slotAlreadyOn, slotSet/slotOff slotNotOn) */
+bool slotLaeuft(int nr);
 
 /**
- * Baut ALLE Abos ab. MUSS vor sessionLeave() laufen - ein laufender
- * Renderer haelt eine Referenz auf den Meeting-Dienst.
+ * Traegt ein ANDERER laufender Slot als `ausser` GENAU diesen NDI-Namen (Bytevergleich, Pruefung 3)? Der eigene
+ * Slot zaehlt nicht: ein zweites slotOn mit seinem Namen ist slotAlreadyOn (Nachbesserung a1).
  */
-void videoShutdownAll();
+bool slotNameBelegt(const std::string& ndi, int ausser);
 
 /**
- * Baut alle Abos ab, weil das MEETING zu Ende ist (ENDED/FAILED), und meldet
- * jedes einzeln mit reason:"meetingEnded".
- *
- * EIGENE URSACHE, kein geliehener Name: niemand hat etwas befohlen, als der
- * Gastgeber die Sitzung beendete. GEMESSEN am 2026-08-13 ohne diesen Aufruf:
- * das Abo ueberlebte das Meeting, der Herzschlag schickte weiter Schwarzbilder
- * in eine Quelle ohne Sitzung, und der letzte gemeldete Stand war
- * "black"/"cameraOff" - "jemand hat die Kamera aus" fuer ein beendetes
- * Meeting.
- *
- * Tut nichts, wenn es keine Abos gibt - der Normalfall bei jedem Meeting-Ende
- * ohne Video.
+ * slotOn ab Pruefung 8 (Spec 6.2, Gliederung 3.2): Renderer-Sperre -> slotReconnecting,
+ * Erlaubnis -> slotNoPrivilege, NDI -> ndiInitFailed, dann Aufbau
+ * (slotRawRecordingFailed, slotSenderFailed, slotRendererFailed). Meldet selbst.
  */
-void videoMeetingEnded();
+void slotOn(const SlotBefehl& b);
+
+/** slotSet (Spec 6.2): slotNotOn, sonst fallback, showNoVideo, Ton, hoechstens ein Umhaengen. */
+void slotSet(const SlotAenderung& a);
+
+/** slotOff (Spec 6.2): Abbau eines Slots, meldet slotAudio off und slot off mit `grund`. */
+void slotOff(int nr, slotlogic::Grund grund);
+
+/** Weggang (Merker, Hauptschleife): jeder Slot, dessen Ziel geht, haengt auf Ziel 0 um (6.7). */
+void slotsParticipantLeft(unsigned id);
 
 /**
- * Baut alle Abos ab, weil der Host die AUFNAHME-ERLAUBNIS ENTZOGEN hat (Stage 4b,
- * N4b.1), und meldet jedes einzeln mit reason:"privilegeRevoked" - Ton vor Bild,
- * NDI-Sender zu. Das Meeting lebt noch: die Abos werden beim SDK abgemeldet
- * (unSubscribe()/destroyRenderer()).
- *
- * NIE aus einem SDK-Rueckruf rufen - main() ruft sie nach pumpOnce(), wenn
- * callbacksTakePrivilegeRevokedTeardown() true liefert (callbacks.h). Tut nichts,
- * wenn es keine Abos gibt.
+ * Herzschlag (Spec 6.6 Nr. 6): Ton-Zuordnung, Stille, Ersatzbild und Halten,
+ * Gruende nach 200 ms ohne Bild. Von der Hauptschleife je Durchlauf.
  */
-void videoPrivilegeRevoked();
+void slotsTick();
 
-/**
- * Schwarzbild-Herzschlag: von der Hauptschleife alle 10 ms gerufen (siehe
- * main.cpp, direkt nach pumpOnce()). Faellt der Bildstrom eines Abos aus
- * (Kamera aus, Teilnehmer weg, Aussetzer), sendet dieses Abo statt eines
- * eingefrorenen letzten Bildes fortlaufend Schwarz - die NDI-Quelle bleibt
- * bestehen, statt zu verschwinden. Ein verschwindender Sender waere im
- * Livebetrieb die gefaehrlichere Wahl: laege er auf Programm, risse er weg.
- * Der Wechsel wird zusaetzlich als Ereignis gemeldet (state "black"), damit
- * die Regie ihn SIEHT statt ihn zu erraten.
- */
-void videoTick();
+/** Alle Slots ab, Meeting lebt (leave/quit/EOF). VOR sessionLeave()/sessionShutdown(). */
+void slotsShutdownAll();
 
-/**
- * Ein abonnierter Gast verlaesst das Meeting. Das Abo bleibt BESTEHEN - die
- * Quelle darf im Livebetrieb nicht wegbrechen (Spec Abschnitt 3). Der
- * Herzschlag (videoTick()) haelt sie ab jetzt schwarz. Von callbacks.cpp aus
- * onUserLeft gerufen, ZUSAETZLICH zum bestehenden "left"-Ereignis.
- */
-void videoParticipantLeft(unsigned int userId);
+/** Alle Slots ab, weil das Meeting zu Ende ist (ENDED/FAILED): ohne Renderer-Aufruf. */
+void slotsMeetingEnded();
 
-/**
- * Ein Teilnehmer betritt (oder betritt erneut) das Meeting. Traegt dieselbe
- * persistentId bereits ein anderes, noch bestehendes Abo, wird DIESES Abo auf
- * die neue Kennung umgehaengt statt ein zweites anzulegen - derselbe Sender
- * bleibt bestehen, fuer den Switcher ist nichts passiert. Von callbacks.cpp
- * aus onUserJoin gerufen, NACH dem bestehenden "joined"-Ereignis.
- */
-void videoParticipantJoined(unsigned int userId);
+/** Alle Slots ab, weil die Aufnahme-Erlaubnis entzogen ist (Stage 4b, N4b.1). Nie aus einem Rueckruf. */
+void slotsPrivilegeRevoked();

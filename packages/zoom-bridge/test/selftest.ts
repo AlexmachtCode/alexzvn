@@ -2541,7 +2541,8 @@ console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
 {
   // N4b.2: keine emitLog-Anweisung fuehrt einen Teilnehmernamen. Je Aufruf
   // `emitLog(` bis zum naechsten `;`, Texte vorher geleert.
-  const namensBezeichner = /\b(name|displayName|userName|nameOut)\b|GetUserName/;
+  // PT6 d (Plan A, A11): auch kein NDI-Name - ndi, ndiName und source sind seit den Slots verboten (0.23).
+  const namensBezeichner = /\b(name|displayName|userName|nameOut|ndi|ndiName|source)\b|GetUserName/;
   let gefunden = 0;
   const treffer: string[] = [];
   for (const datei of readdirSync(nativOrdner).filter((f) => f.endsWith('.cpp')).sort()) {
@@ -2555,7 +2556,7 @@ console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
     }
   }
   assert(gefunden > 40, 'nativ: der Waechter findet die emitLog-Anweisungen (mehr als 40)');
-  assert(treffer.length === 0, 'nativ: keine emitLog-Anweisung führt einen Teilnehmernamen');
+  assert(treffer.length === 0, 'nativ: keine emitLog-Anweisung führt einen Teilnehmer- oder NDI-Namen (PT6 d)');
   if (treffer.length > 0) console.error(`      Treffer: ${treffer.join(', ')}`);
 }
 {
@@ -2564,7 +2565,7 @@ console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
   const koerper = rumpf(nativ('callbacks.cpp', true), 'void RecordingListener::onRecordPrivilegeChanged(bool bCanRec)');
   assert(/if\s*\(\s*!\s*bCanRec\s*\)\s*\{[^}]*g_entzugAbbauOffen\s*=\s*true/.test(koerper),
     'nativ: onRecordPrivilegeChanged setzt bei false den Merker g_entzugAbbauOffen');
-  assert(koerper !== '' && !/\b(videoAbbauAlle|videoPrivilegeRevoked|videoShutdownAll|videoMeetingEnded|videoUnsubscribe|audioClearSubscribed|audioShutdown|unSubscribe|destroyRenderer|StopRawRecording|sessionStopRawRecording)\b/.test(koerper),
+  assert(koerper !== '' && !/\b(slotsAbbauAlle|slotsPrivilegeRevoked|slotsShutdownAll|slotsMeetingEnded|slotOff|audioClearSubscribed|audioShutdown|unSubscribe|destroyRenderer|StopRawRecording|sessionStopRawRecording)\b/.test(koerper),
     'nativ: onRecordPrivilegeChanged ruft keinen Abbau und kein unSubscribe/StopRawRecording');
 }
 {
@@ -2573,27 +2574,27 @@ console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
   const iPumpe = schleife.indexOf('pumpOnce(');
   const iEnde = schleife.indexOf('callbacksTakeMeetingEndTeardown(');
   const iEntzug = schleife.indexOf('callbacksTakePrivilegeRevokedTeardown(');
-  const iTakt = schleife.indexOf('videoTick(');
+  const iTakt = schleife.indexOf('slotsTick(');
   assert(main.includes('while (!g_quit) {') && iPumpe >= 0 && iEnde > iPumpe && iEntzug > iEnde && iTakt > iEntzug,
-    'nativ: main.cpp arbeitet den Entzug nach pumpOnce() und vor videoTick() ab (nach dem Meeting-Ende-Abbau)');
+    'nativ: main.cpp arbeitet den Entzug nach pumpOnce() und vor slotsTick() ab (nach dem Meeting-Ende-Abbau)');
   const block = rumpf(schleife, 'if (callbacksTakePrivilegeRevokedTeardown())');
   const iTon = block.indexOf('audioClearSubscribed(');
-  const iBild = block.indexOf('videoPrivilegeRevoked(');
+  const iBild = block.indexOf('slotsPrivilegeRevoked(');
   const iRoh = block.indexOf('sessionStopRawRecording(');
   assert(iTon >= 0 && iBild > iTon && iRoh > iBild,
-    'nativ: Reihenfolge im Entzug-Block: audioClearSubscribed, videoPrivilegeRevoked, sessionStopRawRecording');
+    'nativ: Reihenfolge im Entzug-Block: audioClearSubscribed, slotsPrivilegeRevoked, sessionStopRawRecording');
 }
 {
-  const koerper = rumpf(nativ('video.cpp'), 'void videoPrivilegeRevoked()');
-  assert(/videoAbbauAlle\(\s*"privilegeRevoked"\s*,\s*true\s*\)/.test(koerper),
-    'nativ: videoPrivilegeRevoked baut mit videoAbbauAlle("privilegeRevoked", true) ab');
+  const koerper = rumpf(nativ('video.cpp'), 'void slotsPrivilegeRevoked()');
+  assert(/slotsAbbauAlle\(\s*Grund::privilegeRevoked\s*,\s*true\s*\)/.test(koerper),
+    'nativ: slotsPrivilegeRevoked baut mit slotsAbbauAlle(Grund::privilegeRevoked, true) ab');
   const stopp = rumpf(nativ('session.cpp', true), 'SDKError sessionStopRawRecording()');
   const iZurueck = stopp.indexOf('g_rawRecordingOn.exchange(false)');
   const iReturn = stopp.indexOf('return');
   assert(iZurueck >= 0 && iReturn > iZurueck && stopp.includes('StopRawRecording()'),
     'nativ: sessionStopRawRecording setzt das Merkzeichen vor jedem return zurück und ruft StopRawRecording()');
   assert(/\bbool\s+callbacksTakePrivilegeRevokedTeardown\(\s*\)\s*;/.test(nativ('callbacks.h'))
-      && /\bvoid\s+videoPrivilegeRevoked\(\s*\)\s*;/.test(nativ('video.h'))
+      && /\bvoid\s+slotsPrivilegeRevoked\(\s*\)\s*;/.test(nativ('video.h'))
       && /\bSDKError\s+sessionStopRawRecording\(\s*\)\s*;/.test(nativ('session.h')),
     'nativ: callbacks.h, video.h und session.h erklären die drei neuen Funktionen');
 }
@@ -2844,7 +2845,8 @@ console.log('\nA2 Attrappe — Prüffolge aus test/slot-pruefung-faelle.json (Gl
   // stderr je Befehl: Die Attrappe schreibt „ATTRAPPE empfing: <zeile>“ vor jeder Antwort (init und auth zuerst).
   const empfang = stderr.flatMap((z, i) => (z.startsWith('ATTRAPPE empfing: ') ? [i] : []));
   const abschnitt = (n: number): string[] => stderr.slice(empfang[n + 2], empfang[n + 3] ?? stderr.length);
-  assert(faelle.length === 56 && empfang.length === faelle.length + 2, 'A2 A-EP12: die Falltabelle hat 56 Fälle, jeder kam an');
+  // A11 ergänzt zwei Fälle mit einer Auflösung über 1080p (Nachbesserung a3, NB-a3-5).
+  assert(faelle.length === 58 && empfang.length === faelle.length + 2, 'A2 A-EP12: die Falltabelle hat 58 Fälle, jeder kam an');
   faelle.forEach((f, n) => {
     const a = antworten[n] ?? [];
     const erste = a[0] ?? {};
@@ -3440,6 +3442,162 @@ function rueckrufRuempfe(src: string): Array<[string, string]> {
   assert(nehmen.indexOf('callbacksTakeInMeeting(') >= 0 && nehmen.indexOf('callbacksTakeInMeeting(') < nehmen.indexOf('callbacksTakeTeilnehmer(')
       && /sessionEigeneKennungNeu\(\)/.test(nehmen),
     'A10 6.6 Nr. 4: zuerst INMEETING (eigene Kennung neu), dann die Teilnehmer');
+}
+console.log('\nNativer Teil — A11 Slot-Verwaltung, Befehle, Umhängen (Spec 6.1, 6.2, 6.10, G-A3):');
+{
+  const video = nativ('video.cpp', true);
+  // G-A3: jede Renderer-Funktion steht nur in den Ausführern (Umhängen: planAusfuehren,
+  // subscribeAusfuehren, rendererAnlegen; Abbau: slotsAbbauAlle bis A14).
+  const erlaubt = ['void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ', 'void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf)', 'SDKError rendererAnlegen(', 'void slotsAbbauAlle(']
+    .map((kopf) => {
+      const start = video.indexOf(kopf);
+      const koerper = rumpf(video, kopf);
+      return start < 0 || koerper === '' ? [-1, -1] : [video.indexOf(koerper, start), video.indexOf(koerper, start) + koerper.length];
+    });
+  const aufruf = /\b(subscribe|unSubscribe|setRawDataResolution|createRenderer|destroyRenderer)\s*\(/g;
+  const ausserhalb: number[] = [];
+  let gefunden = 0;
+  let m: RegExpExecArray | null;
+  while ((m = aufruf.exec(video)) !== null) {
+    gefunden++;
+    if (!erlaubt.some(([von, bis]) => m!.index > von && m!.index < bis)) ausserhalb.push(video.slice(0, m.index).split('\n').length);
+  }
+  assert(erlaubt.every(([von]) => von >= 0) && gefunden >= 7,
+    `A11 G-A3: der Wächter findet die Ausführer und die Renderer-Aufrufe in video.cpp (${gefunden} ≥ 7)`);
+  assert(ausserhalb.length === 0,
+    'A11 G-A3: subscribe, unSubscribe, setRawDataResolution, createRenderer, destroyRenderer stehen nur in den Ausführern');
+  if (ausserhalb.length > 0) console.error(`      außerhalb in video.cpp, Zeilen ${ausserhalb.join(', ')}`);
+  assert((video.match(/\bcreateRenderer\s*\(/g) ?? []).length === 1 && rumpf(video, 'SDKError rendererAnlegen(').includes('createRenderer('),
+    'A11 6.2/6.10: createRenderer steht genau einmal, in rendererAnlegen');
+  const alle = readdirSync(nativOrdner).filter((f) => /\.(cpp|h)$/.test(f)).map((f) => nativ(f, true)).join('\n');
+  const reste = ['g_subs', 'teilnehmerWeg', 'reboundByName', 'uniqueSourceName', 'videoParticipantJoined', 'videoParticipantLeft',
+    'videoSubscribe', 'videoUnsubscribe', 'sessionCountParticipantsByName'].filter((n) => new RegExp(`\\b${n}\\b`).test(alle));
+  assert(reste.length === 0, 'A11 6.18: kein g_subs, teilnehmerWeg, rebound…, uniqueSourceName, videoSubscribe/-Unsubscribe mehr im nativen Code');
+  if (reste.length > 0) console.error(`      noch da: ${reste.join(', ')}`);
+  const bild = rumpf(video, 'void Delegate::onRawDataFrameReceived(');
+  assert(bild.includes('bildAnkunft(') && !/\bsender\s*\./.test(bild) && !/\bsend\w*\s*\(/.test(bild),
+    'A11 0.30: der Bild-Delegate gibt jedes Bild an Slot::bildAnkunft, nie direkt an den Sender');
+  const ankunft = rumpf(video, 'void Slot::bildAnkunft(');
+  const iRiegel = ankunft.search(/riegelVerwirft\(\s*abo\.subscribed\.load\(\)\s*,\s*abo\.umhaengen\.load\(\)\s*\)/);
+  assert(iRiegel >= 0 && iRiegel < ankunft.indexOf('sendI420(') && /lateFrames\.fetch_add\(1\)/.test(ankunft),
+    'A11 6.10: der Riegel verwirft Bilder ohne subscribed oder während des Umhängens vor dem Senden und zählt lateFrames');
+  // 6.10 „Erstes Bild danach“ (Nachbesserung a3, NB-a3-1): bildSeitUmhaengen und live/frames am ERSTEN Bild, das den
+  // Riegel passiert - über bildAnnehmen() aus A6 (PB23), nie an GetSourceID() gebunden. Die Lücke (gapMs, MS13) endet
+  // getrennt davon am ersten passenden Bild, sonst nach 2 s am ersten Bild nach Schritt 6 (gapUngeprueft).
+  assert(/\bif\s*\(\s*bildAnnehmen\(\s*z\s*,\s*w\s*,\s*h\s*,\s*jetzt\s*\)\s*\)\s*gapErstesBildMs\s*=\s*jetzt\s*;/.test(ankunft)
+      && !/bildSeitUmhaengen\s*=/.test(ankunft)
+      && /if\s*\(\s*gapOffen\s*&&\s*\(\s*passt\s*\|\|\s*jetzt\s*-\s*z\.retargetMs\s*>=\s*2000\s*\)\s*\)/.test(ankunft)
+      && /gapMs\s*=\s*\(\s*passt\s*\?\s*jetzt\s*:\s*gapErstesBildMs\s*\)\s*-\s*z\.retargetMs\s*;/.test(ankunft)
+      && /gapUngeprueft\s*=\s*!passt\s*;/.test(ankunft)
+      && /s\.gapOffen\s*=\s*true\s*;/.test(rumpf(video, 'void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ')),
+    'A11 6.10 erstes Bild: bildAnkunft ruft bildAnnehmen (live/frames ohne GetSourceID); die Lücke endet am ersten passenden Bild, sonst nach 2 s am ersten Bild (gapUngeprueft)');
+  // E3 (6.10 „Der Sender bleibt in jedem Fall“; Nachbesserung a3, NB-a3-4): ein Sender je Slot. sender.open steht genau
+  // einmal (slotOn), sender.close nur im Fehlerpfad von slotOn und im Abbau (slotsAbbauAlle bis A14, abbauAusfuehren
+  // ab A14) - kein Wechsel von Modus, Ziel, Auflösung, Sprecher oder Freigabe öffnet ihn neu.
+  const stelleIn = (kopf: string, i: number): boolean => {
+    const start = video.indexOf(kopf);
+    const koerper = start < 0 ? '' : rumpf(video, kopf);
+    const anfang = koerper === '' ? -1 : video.indexOf(koerper, start);
+    return anfang >= 0 && i > anfang && i < anfang + koerper.length;
+  };
+  const oeffnen = [...video.matchAll(/\bsender\.open\s*\(/g)].map((t) => t.index ?? -1);
+  const schliessen = [...video.matchAll(/\bsender\.close\s*\(/g)].map((t) => t.index ?? -1);
+  const senderOrte = ['void slotOn(const SlotBefehl& b)', 'void slotsAbbauAlle(', 'void abbauAusfuehren('];
+  const einSender = oeffnen.length === 1 && stelleIn('void slotOn(const SlotBefehl& b)', oeffnen[0])
+    && schliessen.length > 0 && schliessen.every((i) => senderOrte.some((k) => stelleIn(k, i)));
+  assert(einSender, 'A11 E3: ein Sender je Slot - sender.open genau einmal (slotOn), sender.close nur im Fehlerpfad von slotOn und im Abbau');
+  if (!einSender) console.error(`      sender.open in Zeile ${oeffnen.map((i) => video.slice(0, i).split('\n').length).join(', ') || '(keiner)'}; sender.close in Zeile ${schliessen.map((i) => video.slice(0, i).split('\n').length).join(', ') || '(keiner)'}`);
+  // 6.2 (Nachbesserung a3, NB-a3-3): Ohne Meeting sieht kein Prüfstand, was im Slot ankommt - der Wächter hält fest,
+  // dass slotOn jedes gelesene Feld übernimmt und slotSet jedes gesetzte.
+  const anRumpf = rumpf(video, 'void slotOn(const SlotBefehl& b)');
+  const setRumpf = rumpf(video, 'void slotSet(const SlotAenderung& a)');
+  assert(['ndi', 'mode', 'res', 'audio', 'shareAudio', 'fallback', 'showNoVideo'].every((f) => new RegExp(`\\bs\\.${f}\\s*=\\s*b\\.${f}\\s*;`).test(anRumpf))
+      && /if\s*\(\s*a\.fallbackGesetzt\s*\)\s*\{?\s*s\.fallback\s*=\s*a\.fallback\s*;/.test(setRumpf)
+      && /if\s*\(\s*a\.showNoVideoGesetzt\s*\)\s*\{?\s*s\.showNoVideo\s*=\s*a\.showNoVideo\s*;/.test(setRumpf)
+      && /\bs\.audio\s*=\s*audio\s*;/.test(setRumpf) && /\bs\.shareAudio\s*=\s*share\s*;/.test(setRumpf)
+      && (setRumpf.match(/\bs\.res\s*=\s*a\.res\s*;/g) ?? []).length === 3,
+    'A11 6.2: slotOn übernimmt jedes gelesene Feld in den Slot, slotSet jedes gesetzte (ohne Meeting nur so prüfbar)');
+  const tot = rumpf(video, 'void Delegate::onRendererBeDestroyed(');
+  assert(/rendererTot\.exchange\(true\)/.test(tot) && /rendererLost\.fetch_add\(1\)/.test(tot) && !RUECKRUF_VERBOTEN.test(tot),
+    'A11 6.5: onRendererBeDestroyed setzt nur rendererTot und zählt rendererLost');
+  const bau = rumpf(video, 'void slotRetargetIntern(');
+  const iRiegelAn = bau.indexOf('abo.umhaengen = true');
+  assert(iRiegelAn >= 0 && iRiegelAn < bau.indexOf('planAusfuehren(') && bau.lastIndexOf('abo.umhaengen = false') > bau.indexOf('planAusfuehren('),
+    'A11 6.10 Schritt 1: der Riegel steht vor dem Ausführen des Plans und fällt erst danach');
+}
+{
+  // Verträge aus A7 (Block a2, E-a2-7, E-a2-8): Hilfsfelder altesZiel, rendererGescheitert, tonFolge; tonAboNoetig.
+  const video = nativ('video.cpp');
+  assert(/l\.altesZiel\s*=\s*abo\.target\.load\(\)\s*;/.test(rumpf(video, 'UmhaengLage lageFuer(')),
+    'A11 E-a2-7: lageFuer setzt altesZiel aus dem bisherigen Ziel (neue Auflösung ohne Zielwechsel: der Ton bleibt)');
+  const ausf = rumpf(video, 'void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ');
+  assert((ausf.match(/lauf\.lage\.rendererGescheitert\s*=\s*true;\s*lauf\.sdkFehler\s*=\s*static_cast<int>\(err\);\s*planAusfuehren\(s,\s*lauf,\s*umhaengNachSubscribe\(lauf\.lage,/g) ?? []).length === 2,
+    'A11 E-a2-7: scheitert createRenderer (neuer oder gleicher Delegate), führt der Ausführer umhaengNachSubscribe mit rendererGescheitert aus');
+  const iFehler = ausf.indexOf('case UmhaengSchritt::FehlerSubscribeMelden:');
+  const fehler = iFehler < 0 ? '' : ausf.slice(iFehler, ausf.indexOf('break;', iFehler));
+  assert(fehler.includes('slotSubscribeFailed') && /\\"sdk\\":"\s*\+\s*std::to_string\(lauf\.sdkFehler\)/.test(fehler)
+      && /lauf\.sdkFehler\s*=\s*static_cast<int>\(err\)/.test(rumpf(video, 'void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf)')),
+    'A11 3.3: slotSubscribeFailed trägt sdk (Rückgabe von subscribe bzw. createRenderer)');
+  assert(/plan\.tonFolge\[tonNr\+\+\]/.test(ausf)
+      && (video.match(/for \(const TonMeldung& m : tp\.tonFolge\) tonMelden\(s, m\.zustand, m\.grund\);/g) ?? []).length === 2
+      && (video.match(/tonAboNoetig\(l, aenderung\)/g) ?? []).length === 2,
+    'A11 E-a2-7/E-a2-8: Ton-Meldungen kommen aus tonFolge in Reihenfolge; slotOn und slotSet fragen tonAboNoetig()');
+}
+{
+  const main = nativ('main.cpp');
+  const zweig = rumpf(main, 'if (cmd == "slotOn")');
+  const iZeile = zweig.indexOf('emitLog(L"Befehl gelesen: slotOn "');
+  // Reihenfolge nach Spec 6.2 (Nachbesserung a1): slotNameTaken direkt nach slotBadName, und nur gegen ANDERE
+  // laufende Slots (slotNameBelegt bekommt die eigene Nummer und uebergeht sie).
+  const pruef = ['leseSlotNummer(', '"slotBadName"', '"slotNameTaken"', '"slotBadMode"', '"slotBadResolution"', '"slotBadAudio"',
+    '"slotBadFallback"', '"slotBadFlag"', '"slotBadTarget"', '"slotAlreadyOn"'].map((s) => zweig.indexOf(s));
+  const belegt = rumpf(nativ('video.cpp'), 'bool slotNameBelegt(');
+  assert(pruef.every((i, k) => i >= 0 && (k === 0 || i > pruef[k - 1])) && iZeile > pruef[pruef.length - 1] && zweig.indexOf('slotOn(b)') > iZeile
+      && /slotNameBelegt\(b\.ndi,\s*nr\)/.test(zweig) && /nr\s*!=\s*ausser\s*&&/.test(belegt),
+    'A11 3.2: slotOn prüft 1.–7. in dieser Reihenfolge, schreibt dann die stderr-Zeile und erst danach slotOn() (Sperre, Erlaubnis)');
+  assert(!/\b(ndi|ndiName|source)\b/.test(zweig.slice(iZeile, zweig.indexOf(';', iZeile))),
+    'A11 0.23: die stderr-Zeile „Befehl gelesen: slotOn …“ trägt keinen NDI-Namen');
+  // Nachbesserung a3 (NB-a3-3): Die zweite Zeile „Felder gelesen: …“ trägt die gelesenen Werte (Auflösung, Ersatzbild,
+  // Computerton, ohne Kamera, Ziel; bei slotSet jedes gesetzte Feld). command-probe und bool-probe vergleichen sie ohne
+  // Meeting mit dem Gesendeten. Sie steht nach der Feldprüfung, vor slotOn()/slotSet(), ohne NDI-Namen (0.23).
+  const setZweig = rumpf(main, 'if (cmd == "slotSet")');
+  const iFelderAn = zweig.indexOf('emitLog(L"Felder gelesen: slotOn "');
+  const iFelderSet = setZweig.indexOf('emitLog(L"Felder gelesen: slotSet "');
+  assert(iZeile >= 0 && iFelderAn > iZeile && zweig.indexOf('slotOn(b)') > iFelderAn
+      && iFelderSet > setZweig.indexOf('"slotBadTarget"') && setZweig.indexOf('"slotBadTarget"') >= 0 && setZweig.indexOf('slotSet(a)') > iFelderSet
+      && !/\b(ndi|ndiName|source)\b/.test(zweig.slice(iFelderAn, zweig.indexOf('slotOn(b)')) + setZweig.slice(iFelderSet, setZweig.indexOf('slotSet(a)'))),
+    'A11 0.23: die Zeilen „Felder gelesen: slotOn/slotSet …“ stehen nach der Feldprüfung, vor slotOn()/slotSet(), ohne NDI-Namen');
+}
+
+console.log('\nA11 Attrappe — E3: der NDI-Name eines Slots bleibt über jeden Wechsel (Drehbuch „Slots“, Nachbesserung a3):');
+{
+  // Plan B prüft gegen die Attrappe: Sie muss wie die EXE (Wächter „A11 E3“) den Sender und seinen Namen über
+  // Sprecher-, Modus-, Freigabe-, Ziel- und Auflösungswechsel behalten. Grün schon vor dem Code dieser Aufgabe,
+  // weil er die Attrappe aus A2 prüft.
+  const namen: Record<number, string> = { 1: 'JM Connect – Zoom Anna', 2: 'JM Connect – Zoom Sprecher', 3: 'JM Connect – Zoom Freigabe' };
+  const ev = await fahreSteuerung({ FAKE_SCRIPT: 'slots' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, namen[1], { id: ANNA, resolution: '360p', fallback: 'black' }));
+    b.send(slotAn(2, namen[2], { mode: 'speaker', audio: 'mix', shareAudio: true }));
+    b.send(slotAn(3, namen[3], { mode: 'share', audio: 'mix', shareAudio: true }));
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'live' }));
+    b.send({ cmd: 'slotSet', slot: 1, resolution: '720p' });
+    await bisEreignis(ev, () => anzahl(ev, art('slot', { slot: 3, share: 101, state: 'live' })) === 2, 6000);
+    b.send({ cmd: 'slotSet', slot: 2, mode: 'share' });
+    await bisEreignis(ev, art('left', { id: ANNA }), 3000);
+    await bisEreignis(ev, art('joined'), 3000);
+    await warte(100);
+    b.send({ cmd: 'slotSet', slot: 1, id: ANNA_NEU });
+    await bisEreignis(ev, () => anzahl(ev, art('slot', { state: 'off', reason: 'privilegeRevoked' })) === 3, 4000);
+  });
+  const slotEv = ev.filter(art('slot')) as unknown as Array<{ slot: number; reason: string; ndi?: string }>;
+  const gruende = new Set(slotEv.map((e) => e.reason));
+  const abweichend = slotEv.filter((e) => e.ndi !== namen[e.slot]);
+  const alleWechsel = ['speakerChanged', 'modeChanged', 'shareChanged', 'targetChanged', 'resolutionChanged', 'participantLeft', 'cameraOff']
+    .every((g) => gruende.has(g));
+  assert(alleWechsel && abweichend.length === 0,
+    'A11 E3 (Attrappe): jedes slot-Ereignis trägt den NDI-Namen aus slotOn, über Sprecher-, Modus-, Freigabe-, Ziel- und Auflösungswechsel');
+  if (!alleWechsel || abweichend.length > 0) console.error(`      Gründe: ${[...gruende].join(', ')}; abweichend: ${abweichend.map((e) => `${e.slot}/${e.reason}`).join(', ') || '(keins)'}`);
 }
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

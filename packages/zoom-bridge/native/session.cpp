@@ -368,20 +368,6 @@ void emitRoster() {
   emitRaw(out);
 }
 
-int sessionCountParticipantsByName(const std::wstring& name) {
-  IMeetingParticipantsController* ctrl = participantsCtrl();
-  if (ctrl == nullptr) return 0;
-  IList<unsigned int>* ids = ctrl->GetParticipantsList();
-  int n = 0;
-  for (int i = 0; ids != nullptr && i < ids->GetCount(); ++i) {
-    IUserInfo* u = ctrl->GetUserByUserID(ids->GetItem(i));
-    if (u == nullptr) continue;
-    const zchar_t* un = u->GetUserName();
-    if (un != nullptr && name == un) ++n;
-  }
-  return n;
-}
-
 void markParticipantsListenerRegistered() {
   g_participantsListenerRegistered = true;
 }
@@ -1028,8 +1014,17 @@ JsonBool boolFromJson(const std::string& line, const char* key, bool* out) {
       if (after < line.size() && line[after] == ':') {
         ++after;
         while (after < line.size() && isJsonSpace(line[after])) ++after;
-        if (line.compare(after, 4, "true") == 0)  { *out = true;  return JsonBool::Gelesen; }
-        if (line.compare(after, 5, "false") == 0) { *out = false; return JsonBool::Gelesen; }
+        // DER WERT MUSS HIER ENDEN (Plan A, Nachbesserung a3; wie numberFromJson seit dem
+        // 30.09.2026): "trueX" oder "falsehood" ist kein Wahrheitswert, sondern unlesbar.
+        // Vorher galt die Zeile als gelesen, und ein Slot schaltete mit einem geratenen Wert;
+        // die Attrappe weist dieselbe Zeile als parse/badJson ab.
+        const size_t laenge = line.compare(after, 4, "true") == 0 ? 4 : line.compare(after, 5, "false") == 0 ? 5 : 0;
+        size_t nach = after + laenge;
+        while (nach < line.size() && isJsonSpace(line[nach])) ++nach;
+        if (laenge > 0 && (nach >= line.size() || line[nach] == ',' || line[nach] == '}')) {
+          *out = laenge == 4;
+          return JsonBool::Gelesen;
+        }
         // Schluessel gefunden, Wert ist weder true noch false: NICHT
         // weitersuchen und NICHT raten - das Feld ist da, aber unlesbar. Der
         // Aufrufer bekommt seit der Schlusspruefung (Important 6) einen
@@ -1051,4 +1046,71 @@ JsonBool boolFromJson(const std::string& line, const char* key, bool* out) {
 
 std::string cmdOf(const std::string& line) {
   return fieldFromJson(line, "cmd");
+}
+
+namespace {
+
+// Gemeinsamer Kopf der dreiwertigen Leser: sucht `key` an einer SCHLUESSEL-Position
+// (davor '{' oder ',', dieselbe Regel wie fieldFromJson) mit folgendem ':' und
+// liefert die Stelle des ersten Zeichens des Werts. npos = Feld fehlt.
+size_t wertStelle(const std::string& line, const char* key) {
+  const std::string needle = std::string("\"") + key + "\"";
+  size_t searchFrom = 0;
+  while (true) {
+    const size_t at = line.find(needle, searchFrom);
+    if (at == std::string::npos) return std::string::npos;
+    size_t p = at;
+    while (p > 0 && isJsonSpace(line[p - 1])) --p;
+    if (p > 0 && (line[p - 1] == '{' || line[p - 1] == ',')) {
+      size_t after = at + needle.size();
+      while (after < line.size() && isJsonSpace(line[after])) ++after;
+      if (after < line.size() && line[after] == ':') {
+        ++after;
+        while (after < line.size() && isJsonSpace(line[after])) ++after;
+        return after;
+      }
+    }
+    searchFrom = at + 1;
+  }
+}
+
+}  // namespace
+
+JsonFeld stringFromJson3(const std::string& line, const char* key, std::string* out, bool* rohUnicodeFolge) {
+  const size_t at = wertStelle(line, key);
+  if (at == std::string::npos) return JsonFeld::Fehlt;
+  if (at >= line.size() || line[at] != '"') return JsonFeld::Unlesbar;
+  // Der Rohtext zuerst: readStringValue() laesst bei \u den Backslash fallen, danach
+  // ist die Folge nicht mehr zu erkennen (Ist-Bridge F2).
+  bool roh = false;
+  bool geschlossen = false;
+  for (size_t i = at + 1; i < line.size(); ++i) {
+    if (line[i] == '\\' && i + 1 < line.size()) {
+      if (line[i + 1] == 'u') roh = true;
+      ++i;
+      continue;
+    }
+    if (line[i] == '"') { geschlossen = true; break; }
+  }
+  if (!geschlossen) return JsonFeld::Unlesbar;
+  if (out != nullptr) *out = readStringValue(line, at);
+  if (rohUnicodeFolge != nullptr) *rohUnicodeFolge = roh;
+  return JsonFeld::Gelesen;
+}
+
+JsonFeld numberFromJson3(const std::string& line, const char* key, unsigned long long* out) {
+  const size_t at = wertStelle(line, key);
+  if (at == std::string::npos) return JsonFeld::Fehlt;
+  if (at >= line.size() || line[at] < '0' || line[at] > '9') return JsonFeld::Unlesbar;
+  size_t end;
+  bool overflow;
+  const unsigned long long value = readUnsignedDigits(line, at, &end, &overflow);
+  if (overflow) return JsonFeld::Unlesbar;
+  // Fuehrende Null ("01") ist kein JSON (Plan A, Nachbesserung a3): unlesbar statt still 1.
+  if (line[at] == '0' && end > at + 1) return JsonFeld::Unlesbar;
+  size_t nach = end;
+  while (nach < line.size() && isJsonSpace(line[nach])) ++nach;
+  if (nach < line.size() && line[nach] != ',' && line[nach] != '}') return JsonFeld::Unlesbar;
+  if (out != nullptr) *out = value;
+  return JsonFeld::Gelesen;
 }
