@@ -90,6 +90,11 @@ uint64_t merkerVerworfen();
  */
 bool callbacksRendererSperre();
 void callbacksRendererSperreLoesen();
+/**
+ * Ob der zuletzt gemeldete Meeting-Status im Meeting ist (slotlogic::statusImMeeting; Nachtrag N2b.1): die
+ * INMEETING-Kette loest die Renderer-Sperre nur dann (slotlogic::sperreLoesenErlaubt). Nur Hauptthread.
+ */
+bool callbacksStatusImMeeting();
 
 class AuthListener : public IAuthServiceEvent {
  public:

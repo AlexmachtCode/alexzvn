@@ -1292,6 +1292,31 @@ inline std::vector<AbbauSchritt> halteEintragAbbauen(bool rendererTot) {
 /** Ein INMEETING baut nur Eintraege desselben Meetings ab; aeltere fasst es nie an (join zaehlt die Nummer hoch). */
 inline bool halteEintragGehoertZu(uint32_t eintragMeeting, uint32_t meeting) { return eintragMeeting == meeting; }
 
+// Meeting-Status (MeetingStatus, meeting_service_interface.h:17-51); callbacks.cpp prueft die Werte per static_assert.
+inline constexpr int STATUS_INMEETING = 3;   // „Meeting is ready, in meeting status.“
+inline constexpr int STATUS_LOCKED = 9;      // „Meeting is locked to prevent the further participants to join“
+inline constexpr int STATUS_UNLOCKED = 10;   // „Meeting is open and participants can join the meeting.“
+
+/**
+ * Ob ein vom Status-Rueckruf gemeldeter Meeting-Status „im Meeting“ heisst (Nachtrag N2b.1): INMEETING und die zwei
+ * Schloss-Meldungen eines LAUFENDEN Meetings (LOCKED/UNLOCKED, laut Header Eigenschaften des Meetings, keine
+ * Verbindungswechsel). Alles andere - trennt, verbindet neu, Warteraum, Ende, unbekannt, Webinar-/Breakout-Wechsel -
+ * nicht.
+ */
+inline bool statusImMeeting(int status) {
+  return status == STATUS_INMEETING || status == STATUS_LOCKED || status == STATUS_UNLOCKED;
+}
+
+/**
+ * Ob der Schritt SperreLoesen jetzt loest (6.5, Nachtrag N2b.1, Task-14-Review C1). Die INMEETING-Kette nur, wenn der
+ * zuletzt gemeldete Status noch im Meeting ist: kam nach dem INMEETING in derselben Pumprunde ein anderer Status, ist
+ * es ueberholt - die Sperre bleibt, das naechste echte INMEETING (oder das Meeting-Ende) loest sie. Das Meeting-Ende
+ * loest immer (6.5: „bis INMEETING oder ENDED/FAILED“; Kette ohne Renderer-Aufruf).
+ */
+inline bool sperreLoesenErlaubt(Kette kette, bool statusImMeeting) {
+  return kette != Kette::InMeetingErneut || statusImMeeting;
+}
+
 // ---- Base64 fuer die Vorschau (Spec 6.16; genutzt von native/preview.cpp, A13) ----------------------------
 
 inline std::string base64(const uint8_t* daten, size_t n) {

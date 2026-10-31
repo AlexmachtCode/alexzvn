@@ -385,8 +385,10 @@ void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf) {
 
 void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
   // 6.5/6.10 Schritt 0: waehrend der Renderer-Sperre gibt umhaengPlan nur Vormerken;
-  // ein Plan mit Renderer-Schritten laeuft dann nicht an.
-  if (rendererSperre() && !(plan.schritte.size() == 1 && plan.schritte.front() == UmhaengSchritt::Vormerken)) return;
+  // ein Plan mit Renderer-Schritten laeuft dann nicht an. Ton- und Feld-Plaene (slotSet
+  // {audio|shareAudio}: TonStandNeu, MischerNeu, TonMelden) laufen auch in der Sperre
+  // (Nachtrag N2b.2, Task-14-Review I1) - sonst blieben Ton-Stand, Mischer und configured alt.
+  if (rendererSperre() && planBrauchtRenderer(plan)) return;
   Abo& abo = s.abo();
   size_t tonNr = 0;   // naechste Meldung aus plan.tonFolge (E-a2-7)
   bool abschlussHier = false;   // dieser Plan lief schon durch ZielStandNeu (29-Weg: Abschluss vor WiederholenIn500ms)
@@ -518,13 +520,22 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
                 (lauf.lage.modusNachher == SlotMode::Share ? "share" : "video") + "\"}");
         break;
       case UmhaengSchritt::TonStandNeu: {
-        std::lock_guard<std::mutex> lock(s.fieldMutex);
-        s.ton = TonStand{};
+        {
+          std::lock_guard<std::mutex> lock(s.fieldMutex);
+          s.ton = TonStand{};
+        }
+        // Nachtrag N2b.6 (6.17 „fehlt ein Wert, ist nichts angekommen“, B55): das Format des Computertons gehoert zum
+        // Ton-Stand - nach Computerton aus, Freigabe- oder Moduswechsel fehlt es, bis wieder Computerton ankommt.
+        s.shareRate = 0;
+        s.shareCh = 0;
         break;
       }
       case UmhaengSchritt::MischerEingangBNeu:
-        // Freigabewechsel im Mischer-Slot: nur der Computerton beginnt neu (6.10 Schritt 8).
+        // Freigabewechsel im Mischer-Slot: nur der Computerton beginnt neu (6.10 Schritt 8) - samt seinem Format
+        // (N2b.6; dieser Weg plant kein TonStandNeu, der Mischton laeuft weiter, RR8).
         s.mix.eingangBNeu();
+        s.shareRate = 0;
+        s.shareCh = 0;
         break;
       case UmhaengSchritt::MischerNeu:
         // Der Slot wird Mischer-Slot: Uhr, Eingaenge und Vorlauf von vorn (Restnachfix N1).
@@ -922,7 +933,11 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
       case AbbauSchritt::SperreAn:
         return false;   // setzt der Rueckruf selbst bei DISCONNECTING/RECONNECTING (callbacks.cpp)
       case AbbauSchritt::SperreLoesen:
-        callbacksRendererSperreLoesen();
+        // Nachtrag N2b.1 (6.5): die INMEETING-Kette loest nur, wenn der zuletzt gemeldete Status noch im Meeting ist -
+        // ein ueberholtes INMEETING laesst die Sperre stehen (HaltelisteAbbauen und das Umhaengen lesen sie danach);
+        // das naechste echte INMEETING bzw. das Meeting-Ende loest sie. Das Meeting-Ende loest immer.
+        if (sperreLoesenErlaubt(kette, callbacksStatusImMeeting())) callbacksRendererSperreLoesen();
+        else emitLog(L"INMEETING ist ueberholt (Zoom meldet inzwischen einen anderen Status) - Renderer-Sperre bleibt");
         return false;
       case AbbauSchritt::EigeneKennungNeu:
         sessionEigeneKennungNeu();
@@ -997,7 +1012,8 @@ bool pufferPasst(Slot& s, const AudioPacket& p) {
 }
 
 // Ein Paket in den Mischer (6.13): Mischton in Eingang A, Computerton in Eingang B. Das
-// Format des Stroms ist das des Computertons (geht bei Raten-Unterschied allein hinaus). Alle Ton-Wege mono 32 kHz ist nur angenommen, gemessen wird je Paket: ANNAHME AN12 (unbelegt).
+// Format des Stroms waehlt der Mischer (rate()/kanaele(): der Computerton, sobald er da ist, und
+// bei Raten-Unterschied allein; sonst der Mischton). Alle Ton-Wege mono 32 kHz ist nur angenommen, gemessen wird je Paket: ANNAHME AN12 (unbelegt).
 void mischerEinspeisen(Slot& s, const AudioPacket& p, Weg weg, int64_t jetzt) {
   if (!pufferPasst(s, p)) return;
   if (weg == Weg::MischerA) {
@@ -1011,10 +1027,10 @@ void mischerEinspeisen(Slot& s, const AudioPacket& p, Weg weg, int64_t jetzt) {
   }
   s.audioPakete.fetch_add(1);
   std::lock_guard<std::mutex> lock(s.fieldMutex);
-  if (weg == Weg::MischerB || s.ton.audioRate == 0) {
-    s.ton.audioRate = p.sampleRate;
-    s.ton.audioChannels = p.channels;
-  }
+  // Nachtrag N2b.3 (Task-15-Review I1): slotAudio.sampleRate/channels nennen das Format, in dem der Mischer schreibt -
+  // nach einem Freigabewechsel (Eingang B leer) oder einem Formatwechsel von A ohne B ist das nicht das letzte Paket.
+  s.ton.audioRate = s.mix.rate();
+  s.ton.audioChannels = s.mix.kanaele();
   s.ton.lastAudioMs = jetzt;
 }
 
@@ -1030,14 +1046,9 @@ void mischerAusgeben(Slot& s, int64_t jetzt) {
     tonMelden(s, TonZustand::Live, TonGrund::rateMismatch);
   }
   if (n <= 0) return;
-  int rate = 0, ch = 0;
-  {
-    std::lock_guard<std::mutex> lock(s.fieldMutex);
-    rate = s.ton.audioRate;
-    ch = s.ton.audioChannels > 0 ? s.ton.audioChannels : 1;
-  }
-  if (rate <= 0) return;
-  s.sender.sendAudio(aus.data(), static_cast<int>(aus.size()) / ch, rate, ch);
+  // Nachtrag N2b.3: im Format, in dem ausgabe() geschrieben hat (rate()/kanaele(), n Abtastwerte je Kanal) - ein
+  // daneben gefuehrtes Format beschriftete die Abtastwerte falsch (Tempo, Tonhoehe, Kanaele). n > 0 heisst: Format da.
+  s.sender.sendAudio(aus.data(), n, s.mix.rate(), s.mix.kanaele());
   if (s.tonZustand != TonZustand::Live && !s.tonAudioUnavailable) tonMelden(s, TonZustand::Live, TonGrund::packets);
 }
 
@@ -1181,8 +1192,10 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
     }
     s.workUs.fetch_add(qpcUs(t0, qpcJetzt()));
     s.letztesErsatzMs = jetzt;
+    // Nachtrag N2b.5 (Spec 6.17: fallbackFps = gesendete Ersatz- UND Haltebilder je Sekunde; 12, FR9): jedes Bild des
+    // Herzschlags zaehlt in fallbackCount, ein Haltebild zusaetzlich in heldFrames (je Ziel, ZielStandNeu setzt zurueck).
+    s.fallbackCount.fetch_add(1);
     if (e.sent == Sent::Held) s.heldFrames.fetch_add(1);
-    else s.fallbackCount.fetch_add(1);
   }
   bool melden = false;
   {
@@ -1610,14 +1623,21 @@ void bridgeStatsTick(bool initGelaufen) {
   pflicht("shareAudioPackets", std::to_string(a.shareAudioPackets));
   pflicht("shareAudioUnassigned", std::to_string(a.shareAudioUnassigned));
   wenn(a.shareAudioLastIdDa, "shareAudioLastId", std::to_string(a.shareAudioLastId));
+  // Erst messen, dann bauen (Nachtrag N2b.4, Task-16-Review I1): in EINEM wenn(...)-Aufruf ist die Reihenfolge der
+  // Argumente unbestimmt (MSVC meist rechts nach links) - der Wert entstuende vor der Messung (erfundene Werte, 6.3).
+  // Video und Freigabe je mit eigenen Variablen.
   bool hd = false, original = false;
-  wenn(sessionHdVideo(&hd), "hdVideo", hd ? "true" : "false");
-  wenn(sessionOriginalSize(&original), "originalSize", original ? "true" : "false");
-  int w = 0, h = 0, fps = 0;
-  wenn(sessionEmpfangsStatistik(false, &w, &h, &fps), "recvVideo",
-       "{\"w\":" + std::to_string(w) + ",\"h\":" + std::to_string(h) + ",\"fps\":" + std::to_string(fps) + "}");
-  wenn(sessionEmpfangsStatistik(true, &w, &h, &fps), "recvShare",
-       "{\"w\":" + std::to_string(w) + ",\"h\":" + std::to_string(h) + ",\"fps\":" + std::to_string(fps) + "}");
+  const bool hdDa = sessionHdVideo(&hd);
+  const bool originalDa = sessionOriginalSize(&original);
+  wenn(hdDa, "hdVideo", hd ? "true" : "false");
+  wenn(originalDa, "originalSize", original ? "true" : "false");
+  int vw = 0, vh = 0, vfps = 0, sw = 0, sh = 0, sfps = 0;
+  const bool videoDa = sessionEmpfangsStatistik(false, &vw, &vh, &vfps);
+  const bool freigabeDa = sessionEmpfangsStatistik(true, &sw, &sh, &sfps);
+  wenn(videoDa, "recvVideo",
+       "{\"w\":" + std::to_string(vw) + ",\"h\":" + std::to_string(vh) + ",\"fps\":" + std::to_string(vfps) + "}");
+  wenn(freigabeDa, "recvShare",
+       "{\"w\":" + std::to_string(sw) + ",\"h\":" + std::to_string(sh) + ",\"fps\":" + std::to_string(sfps) + "}");
   pflicht("previewOn", vorschauAn() ? "true" : "false");
   emitRaw(out + "}");
 }

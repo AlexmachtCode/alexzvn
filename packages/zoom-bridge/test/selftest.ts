@@ -4243,5 +4243,122 @@ console.log('\nNativer Teil — Nachtrag N2a (Riegel unter Sperre, Wiederholung,
       && /lauf\.ziel\s*=\s*zielImLauf\(\s*abo\s*\)\s*;/.test(setN2a) && !/target\.load\(\)/.test(setN2a),
     'F4 6.13: die Ton-Bestätigung von slotOn und slotSet rechnet mit dem gewünschten Ziel');
 }
+console.log('\nNativer Teil — Nachtrag N2b (Sperre nur bei echtem INMEETING, Ton-Pläne in der Sperre, Mischer-Format, bridgeStats nach dem Messen, fallbackFps, Freigabeton zurückgesetzt):');
+{
+  const cbN2b = nativ('callbacks.cpp', true);
+  const videoN2b = nativ('video.cpp', true);
+
+  // N2b.1 (Task-14-Review C1, Critical; Spec 6.5, 6.6 Nr. 4, 6.15): ein INMEETING, das ein späteres DISCONNECTING/
+  // RECONNECTING bzw. ENDED/FAILED in derselben Pumprunde überholt hat, löst die Renderer-Sperre nicht mehr. Der
+  // Status-Rückruf merkt jeden Status (vor allen Zweigen, an genau einer Stelle) und löscht den INMEETING-Merker in den
+  // Zweigen Trennen/Neu-Verbinden und Ende; die INMEETING-Kette löst die Sperre nur, wenn der zuletzt gemeldete Status
+  // im Meeting ist (sperreLoesenErlaubt, Logik-Fall n2b1; das Meeting-Ende löst immer). Kein Hängenbleiben: jedes
+  // INMEETING setzt Merker und Status neu, und SperreLoesen liest den Status erst beim Ausführen.
+  const statusN2b = rumpf(cbN2b, 'void MeetingListener::onMeetingStatusChanged(');
+  const iStatusMerken = statusN2b.search(/g_letzterStatus\s*=\s*static_cast<int>\(\s*status\s*\)\s*;/);
+  const iErsterZweig = statusN2b.search(/if\s*\(\s*status\s*==/);
+  const zweigImMeeting = rumpf(statusN2b, 'if (status == MEETING_STATUS_INMEETING)');
+  const zweigTrennt = rumpf(statusN2b, 'if (status == MEETING_STATUS_DISCONNECTING || status == MEETING_STATUS_RECONNECTING)');
+  const zweigEnde = rumpf(statusN2b, 'if (status == MEETING_STATUS_ENDED || status == MEETING_STATUS_FAILED)');
+  assert(/std::atomic<int>\s+g_letzterStatus\{/.test(cbN2b) && iStatusMerken >= 0 && iErsterZweig > iStatusMerken
+      && (cbN2b.match(/g_letzterStatus\s*=[^=]/g) ?? []).length === 1,
+    'N2b.1 6.5: der Status-Rückruf merkt jeden Meeting-Status, vor allen Zweigen, an genau einer Stelle');
+  assert(/g_inMeetingOffen\s*=\s*false\s*;/.test(zweigTrennt) && /g_rendererSperre\s*=\s*true\s*;/.test(zweigTrennt)
+      && /g_inMeetingOffen\s*=\s*false\s*;/.test(zweigEnde)
+      && /g_inMeetingOffen\s*=\s*true\s*;/.test(zweigImMeeting) && !/g_inMeetingOffen\s*=\s*false/.test(zweigImMeeting)
+      && (cbN2b.match(/g_inMeetingOffen\s*=\s*true/g) ?? []).length === 1 && (cbN2b.match(/g_inMeetingOffen\s*=\s*false/g) ?? []).length === 2,
+    'N2b.1 6.5 (C1): DISCONNECTING/RECONNECTING und ENDED/FAILED löschen den INMEETING-Merker; nur INMEETING setzt ihn');
+  assert(/bool\s+callbacksStatusImMeeting\(\)\s*\{\s*return\s+slotlogic::statusImMeeting\(\s*g_letzterStatus\.load\(\)\s*\)\s*;\s*\}/.test(cbN2b)
+      && /static_assert\(\s*MEETING_STATUS_INMEETING\s*==\s*slotlogic::STATUS_INMEETING\b/.test(cbN2b)
+      && /MEETING_STATUS_LOCKED\s*==\s*slotlogic::STATUS_LOCKED\b/.test(cbN2b) && /MEETING_STATUS_UNLOCKED\s*==\s*slotlogic::STATUS_UNLOCKED\b/.test(cbN2b),
+    'N2b.1 6.5: callbacksStatusImMeeting liest den zuletzt gemeldeten Status beim Aufruf (Werte gegen den SDK-Header geprüft)');
+  const ausN2b = rumpf(videoN2b, 'void abbauAusfuehren(');
+  const iLoesen = ausN2b.indexOf('case AbbauSchritt::SperreLoesen:');
+  const zweigLoesen = iLoesen < 0 ? '' : ausN2b.slice(iLoesen, ausN2b.indexOf('case AbbauSchritt::', iLoesen + 1));
+  assert(/if\s*\(\s*sperreLoesenErlaubt\(\s*kette\s*,\s*callbacksStatusImMeeting\(\)\s*\)\s*\)\s*callbacksRendererSperreLoesen\(\)\s*;/.test(zweigLoesen)
+      && (videoN2b.match(/callbacksRendererSperreLoesen\(/g) ?? []).length === 1,
+    'N2b.1 6.5/6.15: SperreLoesen löst nur mit sperreLoesenErlaubt(kette, Status im Meeting) - die einzige Stelle, die löst');
+
+  // N2b.2 (Task-14-Review I1, Task-15-Review; Spec 6.5, 6.10 Schritt 0, 6.13): während der Renderer-Sperre wartet nur ein
+  // Plan mit Renderer-Schritt (planBrauchtRenderer, N1.3); Ton- und Feld-Pläne (slotSet {audio|shareAudio}: TonStandNeu,
+  // MischerNeu, TonMelden) laufen. Dazu der Abgleich: jeder Zweig des Ausführers, der einen Renderer anfasst, ist in
+  // planBrauchtRenderer ein Renderer-Schritt - ein Plan ohne solchen Schritt erreicht nie subscribe, createRenderer oder
+  // destroyRenderer.
+  const ausfN2b = rumpf(videoN2b, 'void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ');
+  const braucht = rumpf(nativ('slot_logic.h', true), 'inline bool planBrauchtRenderer(');
+  const rendererSchritte = [...braucht.slice(0, braucht.indexOf('return true;')).matchAll(/case\s+UmhaengSchritt::(\w+):/g)].map((m) => m[1]);
+  const FASST_RENDERER = /\b(subscribe|unSubscribe|setRawDataResolution|getResolution|getRawDataType|createRenderer|destroyRenderer|rendererAnlegen|subscribeAusfuehren)\s*\(|\babo\.renderer\b/;
+  const zweigeMitRenderer = [...ausfN2b.matchAll(/case\s+UmhaengSchritt::(\w+):/g)].map((m) => m[1]).filter((name) => {
+    const i = ausfN2b.indexOf(`case UmhaengSchritt::${name}:`);
+    const j = ausfN2b.indexOf('case UmhaengSchritt::', i + 1);
+    return FASST_RENDERER.test(ausfN2b.slice(i, j < 0 ? ausfN2b.length : j));
+  });
+  assert(/^\{\s*if\s*\(\s*rendererSperre\(\)\s*&&\s*planBrauchtRenderer\(\s*plan\s*\)\s*\)\s*return\s*;/.test(ausfN2b)
+      && !/schritte\.size\(\)/.test(ausfN2b) && !/UmhaengSchritt::Vormerken\)/.test(ausfN2b.slice(0, ausfN2b.indexOf('for (const UmhaengSchritt')))
+      && rendererSchritte.length === 8 && zweigeMitRenderer.length === 8 && zweigeMitRenderer.every((n) => rendererSchritte.includes(n)),
+    'N2b.2 6.5: planAusfuehren überspringt in der Sperre nur Pläne mit Renderer-Schritt; planBrauchtRenderer kennt jeden Renderer-Zweig (8 von 8)');
+  if (!zweigeMitRenderer.every((n) => rendererSchritte.includes(n))) console.error(`      Zweige: ${zweigeMitRenderer.join(', ')}; planBrauchtRenderer: ${rendererSchritte.join(', ')}`);
+
+  // N2b.3 (Task-15-Review I1; Spec 6.13, 6.3 slotAudio.sampleRate/channels): der Mischer schreibt in SEINEM Format
+  // (rate()/kanaele(), dieselbe Wahl wie in ausgabe()). Gesendet wird genau damit, und s.ton - die Quelle von
+  // slotAudio.sampleRate/channels - folgt nach jedem Einspeisen dem Mischer statt dem letzten Paket.
+  const ausgeben = rumpf(videoN2b, 'void mischerAusgeben(');
+  const einspeisen = rumpf(videoN2b, 'void mischerEinspeisen(');
+  const iEingang = Math.max(einspeisen.indexOf('s.mix.eingangA('), einspeisen.indexOf('s.mix.eingangB('));
+  assert(/s\.sender\.sendAudio\(\s*aus\.data\(\)\s*,\s*n\s*,\s*s\.mix\.rate\(\)\s*,\s*s\.mix\.kanaele\(\)\s*\)/.test(ausgeben) && !/s\.ton\b/.test(ausgeben)
+      && /s\.ton\.audioRate\s*=\s*s\.mix\.rate\(\)\s*;/.test(einspeisen) && /s\.ton\.audioChannels\s*=\s*s\.mix\.kanaele\(\)\s*;/.test(einspeisen)
+      && !/s\.ton\.audio(Rate|Channels)\s*=\s*p\./.test(einspeisen) && einspeisen.search(/s\.ton\.audioRate\s*=\s*s\.mix\.rate\(\)/) > iEingang && iEingang > 0,
+    'N2b.3 6.13: der Mischer sendet in seinem eigenen Format; s.ton (slotAudio.sampleRate/channels) folgt ihm nach dem Einspeisen');
+
+  // N2b.4 (Task-16-Review I1; Spec 6.3 „keine erfundenen Werte“, 6.17): kein wenn(/pflicht(-Aufruf misst und liest im
+  // selben Aufruf - die Reihenfolge der Argumente ist unbestimmt (MSVC meist rechts nach links), der Wert entstünde vor
+  // der Messung. Je Aufruf: eine Variable, deren Adresse ein Argument übergibt, kommt im Aufruf sonst nicht vor. Dazu in
+  // bridgeStatsTick: jede session…-Messung steht für sich in einer eigenen const bool.
+  const aufrufeN2b: string[] = [];
+  for (const m of videoN2b.matchAll(/\b(wenn|pflicht)\(/g)) {
+    let tiefe = 0;
+    for (let i = (m.index ?? 0) + m[0].length - 1; i < videoN2b.length; i++) {
+      if (videoN2b[i] === '(') tiefe++;
+      else if (videoN2b[i] === ')' && --tiefe === 0) { aufrufeN2b.push(videoN2b.slice(m.index ?? 0, i + 1)); break; }
+    }
+  }
+  const messenUndLesen = aufrufeN2b.filter((a) => [...a.matchAll(/[(,]\s*&\s*([A-Za-z_]\w*)/g)]
+    .some((m) => (a.match(new RegExp(`\\b${m[1]}\\b`, 'g')) ?? []).length > 1));
+  const statsN2b = rumpf(videoN2b, 'void bridgeStatsTick(bool initGelaufen)');
+  const sessionMessungen = [...statsN2b.matchAll(/\bsession\w+\(/g)].map((m) => statsN2b.slice(statsN2b.lastIndexOf(';', m.index ?? 0) + 1, m.index ?? 0));
+  assert(aufrufeN2b.length > 40 && messenUndLesen.length === 0 && sessionMessungen.length === 4
+      && sessionMessungen.every((vor) => /^\s*const\s+bool\s+\w+\s*=\s*$/.test(vor)),
+    'N2b.4 6.3: kein wenn(/pflicht(-Aufruf misst und liest dieselbe Variable; bridgeStats misst zuerst (eigene const bool)');
+  if (messenUndLesen.length > 0) console.error(`      Treffer: ${messenUndLesen.map((a) => a.replace(/\s+/g, ' ').slice(0, 70)).join(' | ')}`);
+
+  // N2b.5 (Task-16-Review I2; Spec 6.17 „fallbackFps, heldFrames | Herzschlag | gesendete Ersatz- und Haltebilder je
+  // Sekunde bzw. gehaltene Bilder seit dem Umhängen“; 12 und FR9: „fallbackFps zählt auch die Haltebilder“): jedes
+  // gesendete Ersatz- oder Haltebild zählt in fallbackCount (Quelle von fallbackFps), ein Haltebild zusätzlich in
+  // heldFrames (je Ziel).
+  const sendeBlock = rumpf(rumpf(videoN2b, 'void ersatzbildTick('), 'if (e.jetztSenden && e.sent != Sent::None)');
+  assert(/s\.fallbackCount\.fetch_add\(1\)\s*;\s*if\s*\(\s*e\.sent\s*==\s*Sent::Held\s*\)\s*s\.heldFrames\.fetch_add\(1\)\s*;/.test(sendeBlock)
+      && !/else\s+s\.fallbackCount/.test(sendeBlock) && (videoN2b.match(/fallbackCount\.fetch_add\(/g) ?? []).length === 1
+      && /const\s+uint64_t\s+ersatz\s*=\s*s\.fallbackCount\.load\(\)\s*-\s*s\.statsFallback\s*;/.test(rumpf(videoN2b, 'void slotStatsMelden('))
+      && /pflicht\("fallbackFps",\s*jeSekunde\(\s*ersatz\s*\)\)/.test(rumpf(nativ('video.cpp'), 'void slotStatsMelden(')),
+    'N2b.5 6.17: fallbackFps zählt jedes gesendete Ersatz- UND Haltebild; Haltebilder zusätzlich in heldFrames');
+
+  // N2b.6 (Task-16-Review I3; Spec 6.17 „fehlt ein Wert, ist nichts angekommen“, B55, GG22): das Format des
+  // Computertons (shareAudioRate/-Ch) gehört zum Ton-Stand. TonStandNeu (Computerton aus, Freigabewechsel mit Tonweg
+  // share, Moduswechsel aus einem Computerton-Weg) und MischerEingangBNeu (Freigabewechsel im Mischer-Slot, dort ohne
+  // TonStandNeu, RR8) setzen es zurück; slotStats lässt die Felder bei 0 weg.
+  const planZweigN2b = (name: string): string => {
+    const i = ausfN2b.indexOf(`case UmhaengSchritt::${name}:`);
+    if (i < 0) return '';
+    const j = ausfN2b.indexOf('case UmhaengSchritt::', i + 1);
+    return ausfN2b.slice(i, j < 0 ? ausfN2b.length : j);
+  };
+  const tonNeuN2b = planZweigN2b('TonStandNeu');
+  const eingangBN2b = planZweigN2b('MischerEingangBNeu');
+  const statsMitTexten = rumpf(nativ('video.cpp'), 'void slotStatsMelden(');
+  assert([tonNeuN2b, eingangBN2b].every((z) => /s\.shareRate\s*=\s*0\s*;/.test(z) && /s\.shareCh\s*=\s*0\s*;/.test(z))
+      && /s\.ton\s*=\s*TonStand\{\}\s*;/.test(tonNeuN2b) && /s\.mix\.eingangBNeu\(\)\s*;/.test(eingangBN2b)
+      && /wenn\(\s*s\.shareRate\s*>\s*0\s*,\s*"shareAudioRate"/.test(statsMitTexten) && /wenn\(\s*s\.shareRate\s*>\s*0\s*,\s*"shareAudioCh"/.test(statsMitTexten),
+    'N2b.6 6.17: TonStandNeu und MischerEingangBNeu setzen das Format des Computertons zurück; slotStats lässt es dann weg');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

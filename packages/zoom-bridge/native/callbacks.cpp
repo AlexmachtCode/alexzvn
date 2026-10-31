@@ -43,6 +43,10 @@ std::atomic<bool> g_inMeetingOffen{false};
 // Renderer-Sperre (6.5): ab DISCONNECTING/RECONNECTING bis zum Loesen durch die
 // Hauptschleife.
 std::atomic<bool> g_rendererSperre{false};
+// Der zuletzt gemeldete Meeting-Status (Nachtrag N2b.1): die INMEETING-Kette loest die
+// Sperre nur, wenn er beim Ausfuehren noch im Meeting ist. Rueckruf und Kette laufen beide
+// auf dem Hauptthread (pumpOnce bzw. Hauptschleife) - std::atomic wie bei den Merkern oben.
+std::atomic<int> g_letzterStatus{static_cast<int>(MEETING_STATUS_IDLE)};
 
 // Reiht ein, solange die Warteschlange unter kMerkerMax liegt; sonst zaehlt es den
 // verlorenen Merker (bridgeStats.merkerVerworfen, T61). Das NEUE wird verworfen:
@@ -82,6 +86,11 @@ bool callbacksTakeSprecher(MerkerSprecher* out) { return merkerNehmen(g_merkerSp
 uint64_t merkerVerworfen() { return g_merkerVerworfen.load(); }
 bool callbacksRendererSperre() { return g_rendererSperre.load(); }
 void callbacksRendererSperreLoesen() { g_rendererSperre = false; }
+
+static_assert(MEETING_STATUS_INMEETING == slotlogic::STATUS_INMEETING && MEETING_STATUS_LOCKED == slotlogic::STATUS_LOCKED &&
+                  MEETING_STATUS_UNLOCKED == slotlogic::STATUS_UNLOCKED,
+              "MeetingStatus wie slotlogic::STATUS_*");
+bool callbacksStatusImMeeting() { return slotlogic::statusImMeeting(g_letzterStatus.load()); }
 
 void AuthListener::onAuthenticationReturn(AuthResult ret) {
   // Nur die Zahl auf die Rohrleitung - den Namen setzt TypeScript dazu.
@@ -141,6 +150,8 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
   // wie bei der Anmeldung: ohne diesen Ruf koennte EOF direkt nach "join" den
   // Beitritt beenden, bevor auch nur EINE Pumprunde eine Rueckmeldung bringt.
   sessionJoinAnswered();
+  // Vor allen Zweigen (Nachtrag N2b.1): die INMEETING-Kette fragt ihn beim Loesen der Sperre.
+  g_letzterStatus = static_cast<int>(status);
 
   if (status == MEETING_STATUS_INMEETING) {
     // JEDES Mal, wenn inMeeting erreicht wird - auch nach einer
@@ -174,6 +185,10 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
   // die Hauptschleife keine Renderer-Funktion mehr, bis INMEETING oder das
   // Meeting-Ende die Sperre loest. Nur das Atom - kein Abbau im Rueckruf.
   if (status == MEETING_STATUS_DISCONNECTING || status == MEETING_STATUS_RECONNECTING) {
+    // Ein noch nicht genommenes INMEETING ist ueberholt (Nachtrag N2b.1, Task-14-Review C1):
+    // sonst loeste es in merkerNehmen() die eben gesetzte Sperre, und die Kette riefe
+    // unSubscribe/destroyRenderer/subscribe, waehrend Zoom trennt.
+    g_inMeetingOffen = false;
     g_rendererSperre = true;
     emitLog(L"Renderer-Sperre an (Zoom trennt oder verbindet neu)");
   }
@@ -193,6 +208,9 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
   // Wiederverbindung fuehrt ohnehin ueber INMEETING wieder in
   // checkPrivilege() zurueck.
   if (status == MEETING_STATUS_ENDED || status == MEETING_STATUS_FAILED) {
+    // Ebenso nach dem Ende (N2b.1): die Meeting-Ende-Kette loest die Sperre; ein ueberholtes
+    // INMEETING riefe danach noch SDK-Abfragen an einem beendeten Meeting.
+    g_inMeetingOffen = false;
     sessionClearCanRecordRaw();
     // Aus demselben Grund und an derselben Stelle: der Rohdaten-Schalter gilt
     // je MEETING. Bliebe er stehen, hielte das naechste Meeting ihn faelschlich

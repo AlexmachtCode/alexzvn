@@ -1273,6 +1273,44 @@ void f1_gewuenschtes_ziel() {
   CHECK(gewuenschtesZiel(true, F1, F1) == F1); // 29 nach Abschluss: beide gleich
 }
 
+void n2b1_sperre_nur_bei_inmeeting() {
+  std::printf("N2b.1 Renderer-Sperre: die INMEETING-Kette loest sie nur bei echtem INMEETING, das Meeting-Ende immer\n");
+  // Meeting-Status (MeetingStatus 0..15, meeting_service_interface.h:17-51): im Meeting sind INMEETING und die zwei
+  // Schloss-Meldungen eines laufenden Meetings (LOCKED/UNLOCKED); alles andere (trennt, verbindet, Warteraum, Ende,
+  // unbekannt, Webinar-/Breakout-Wechsel) nicht.
+  for (int st = 0; st <= 15; ++st) {
+    const bool erwartet = st == STATUS_INMEETING || st == STATUS_LOCKED || st == STATUS_UNLOCKED;
+    CHECK(statusImMeeting(st) == erwartet);
+  }
+  CHECK(STATUS_INMEETING == 3 && STATUS_LOCKED == 9 && STATUS_UNLOCKED == 10);
+  CHECK(sperreLoesenErlaubt(Kette::InMeetingErneut, true));
+  CHECK(!sperreLoesenErlaubt(Kette::InMeetingErneut, false));   // veraltetes INMEETING: die Sperre bleibt
+  CHECK(sperreLoesenErlaubt(Kette::MeetingEnde, false) && sperreLoesenErlaubt(Kette::MeetingEnde, true));   // 6.5: Ende loest
+  // SperreLoesen steht nur in diesen zwei Ketten (mit und ohne Sperre) - keine dritte Kette loest ungeprueft.
+  bool nurZwei = true;
+  for (int k = 0; k <= static_cast<int>(Kette::InMeetingErneut); ++k) {
+    for (int sperre = 0; sperre < 2; ++sperre) {
+      const Kette kette = static_cast<Kette>(k);
+      if (enthaelt(abbauPlan(kette, sperre == 1, true), AS::SperreLoesen) || enthaelt(abbauPlan(kette, sperre == 1, false), AS::SperreLoesen)) {
+        nurZwei = nurZwei && (kette == Kette::InMeetingErneut || kette == Kette::MeetingEnde);
+      }
+    }
+  }
+  CHECK(nurZwei);
+  // Kein Haengenbleiben: RECONNECTING (Sperre an), INMEETING, dann Warteraum (11) in derselben Pumprunde - die Kette
+  // laeuft mit einem Status ausserhalb des Meetings und loest nicht; das naechste echte INMEETING loest.
+  bool sperreAn = true;
+  if (sperreLoesenErlaubt(Kette::InMeetingErneut, statusImMeeting(11))) sperreAn = false;
+  CHECK(sperreAn);
+  if (sperreLoesenErlaubt(Kette::InMeetingErneut, statusImMeeting(STATUS_INMEETING))) sperreAn = false;
+  CHECK(!sperreAn);
+  // RECONNECTING, INMEETING, dann LOCKED (der Gastgeber schliesst ab): das Meeting laeuft, die Sperre faellt - sonst
+  // bliebe sie bis zum Ende des Meetings stehen, denn ein weiteres INMEETING kommt nicht.
+  sperreAn = true;
+  if (sperreLoesenErlaubt(Kette::InMeetingErneut, statusImMeeting(STATUS_LOCKED))) sperreAn = false;
+  CHECK(!sperreAn);
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -1328,6 +1366,7 @@ int main() {
   n1_plan_braucht_renderer();
   n2a2_18_18_dann_29();
   f1_gewuenschtes_ziel();
+  n2b1_sperre_nur_bei_inmeeting();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
