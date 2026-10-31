@@ -45,7 +45,7 @@ std::vector<uint8_t> bild(uint8_t kennung) {
 struct Ausgang {
   std::vector<int> kennungen;
   void operator()(const DelayLine::Frame& f) {
-    kennungen.push_back(f.black ? 0xFF : f.data.at(0));
+    kennungen.push_back(f.art == Bildart::Schwarz ? 0xFF : f.data.at(0));
   }
 };
 
@@ -73,7 +73,7 @@ void test_reihenfolge_mit_schwarzbild() {
   std::printf("Bild, Schwarz, Bild kommen in Ankunftsreihenfolge raus\n");
   DelayLine d;
   pushBild(d, 1, 0);
-  d.pushBlack(kW, kH, at(10));
+  d.pushBild(Bildart::Schwarz, kW, kH, at(10));
   pushBild(d, 2, 20);
   Ausgang a;
   const auto r = d.release(at(520), milliseconds(500), a);
@@ -85,12 +85,12 @@ void test_reihenfolge_mit_schwarzbild() {
 void test_schwarzbild_traegt_groesse() {
   std::printf("Ein Schwarzbild traegt seine Groesse und keine Bilddaten\n");
   DelayLine d;
-  d.pushBlack(1280, 720, at(0));
+  d.pushBild(Bildart::Schwarz, 1280, 720, at(0));
   int w = 0, h = 0;
   bool schwarz = false;
   size_t len = 99;
   d.release(at(0), milliseconds(0), [&](const DelayLine::Frame& f) {
-    w = f.w; h = f.h; schwarz = f.black; len = f.data.size();
+    w = f.w; h = f.h; schwarz = f.art == Bildart::Schwarz; len = f.data.size();
   });
   CHECK(schwarz);
   CHECK(w == 1280);
@@ -249,14 +249,14 @@ void test_bildarten_pb18() {
   CHECK(d.pushBild(Bildart::Weiss, kW, kH, at(10)) == 0);
   CHECK(d.pushBild(Bildart::Transparent, kW, kH, at(20)) == 0);
   pushBild(d, 2, 30);
-  d.pushBlack(kW, kH, at(40));
+  d.pushBild(Bildart::Schwarz, kW, kH, at(40));
   CHECK(d.pushBild(Bildart::I420, kW, kH, at(50)) == 0);   // I420 nur mit Bilddaten (pushFrame)
   CHECK(d.size() == 5);
   std::vector<Bildart> arten;
   std::vector<int> kennungen;
   const auto senke = [&](const DelayLine::Frame& f) {
     arten.push_back(f.art);
-    kennungen.push_back(!f.data.empty() ? f.data[0] : (f.black ? 0xFF : 0));
+    kennungen.push_back(!f.data.empty() ? f.data[0] : (f.art == Bildart::Schwarz ? 0xFF : 0));
   };
   // Einzeln faellig machen (hoechstens kMaxBurst je release), damit die Schwall-Regel nicht dazwischenfunkt.
   d.release(at(510), milliseconds(500), senke);

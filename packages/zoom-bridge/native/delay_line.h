@@ -75,9 +75,6 @@ class DelayLine {
 
   struct Frame {
     Bildart art = Bildart::I420;
-    // = (art == Bildart::Schwarz), gesetzt nur in pushBild(). Bleibt, bis NdiSender die Bildart liest (Plan A,
-    // Task A9); die 14 Faelle von delay_line_test.cpp lesen es weiter.
-    bool black = false;
     int w = 0;
     int h = 0;
     std::vector<uint8_t> data;   // leer bei Schwarz, Weiss und Transparent
@@ -111,21 +108,15 @@ class DelayLine {
   }
 
   /**
-   * Ein Schwarzbild laeuft durch DIESELBE Warteschlange wie echte Bilder -
-   * sonst ueberholte es die noch wartenden Bilder, und die Quelle zeigte
-   * Schwarz, bevor die letzten Bilder vor dem Kamera-Aus durch sind.
-   */
-  int pushBlack(int w, int h, TimePoint arrival) { return pushBild(Bildart::Schwarz, w, h, arrival); }
-
-  /**
-   * Ein Ersatzbild ohne Bilddaten (Schwarz, Weiss, Transparent) durch dieselbe Warteschlange, aus demselben Grund
-   * wie pushBlack. I420 traegt Bilddaten und geht nur ueber pushFrame: pushBild(Bildart::I420, ...) legt nichts ab.
+   * Ein Ersatzbild ohne Bilddaten (Schwarz, Weiss, Transparent) laeuft durch DIESELBE Warteschlange wie echte
+   * Bilder - sonst ueberholte es die noch wartenden Bilder, und die Quelle zeigte Schwarz, bevor die letzten Bilder
+   * vor dem Kamera-Aus durch sind. I420 traegt Bilddaten und geht nur ueber pushFrame: pushBild(Bildart::I420, ...)
+   * legt nichts ab.
    */
   int pushBild(Bildart art, int w, int h, TimePoint arrival) {
     if (art == Bildart::I420) return 0;
     Frame f;
     f.art = art;
-    f.black = art == Bildart::Schwarz;
     f.w = w;
     f.h = h;
     f.arrival = arrival;

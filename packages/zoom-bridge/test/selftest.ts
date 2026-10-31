@@ -3319,5 +3319,39 @@ console.log('\nZoom-Slots — sent ohne Bild in der Attrappe (Plan A, Task A6; T
   assert(sentFolge(4) === 'fallback/shareNone:transparent starting/shareChanged:transparent live/frames:none fallback/shareNone:transparent off/command:none',
     'A6 6.12 Attrappe: „eingefroren“ ohne Kopie dieses Ziels sendet transparent, auch nach dem Ende der Freigabe');
 }
+console.log('\nNativer Teil — A9 NDI-Sender: UYVA, Weiß, Transparent, Kopie, ohne Versatz (Spec 6.12, 6.14):');
+{
+  const sender = nativ('ndi_sender.cpp');
+  const uyva = rumpf(sender, 'void fillFrameUyva(');
+  assert(/FourCC\s*=\s*NDIlib_FourCC_video_type_UYVA\b/.test(uyva) && /line_stride_in_bytes\s*=\s*2\s*\*\s*w\s*;/.test(uyva),
+    'A9 UYVA: fillFrameUyva setzt NDIlib_FourCC_video_type_UYVA und line_stride_in_bytes = 2 * w');
+  assert(rumpf(sender, 'void NdiSender::sendTransparentLocked(').includes('sendUYVALocked(')
+      && rumpf(sender, 'void NdiSender::sendUYVALocked(').includes('fillFrameUyva('),
+    'A9 UYVA: sendTransparentLocked sendet über sendUYVALocked und fillFrameUyva');
+  const transparent = rumpf(sender, 'void fillTransparentUYVA(');
+  assert(/static_cast<size_t>\(w\)\s*\*\s*h\s*\*\s*2/.test(transparent) && /uyvy\s*\+\s*static_cast<size_t>\(w\)\s*\*\s*h\s*,\s*0\)/.test(transparent),
+    'A9 UYVA: Puffer = UYVY-Ebene (2 * B * H) + Alpha-Ebene (B * H), Alpha 0');
+  assert(/static_cast<uint8_t>\(235\)/.test(rumpf(sender, 'void fillWhiteI420(')) && /static_cast<uint8_t>\(128\)/.test(rumpf(sender, 'void fillWhiteI420(')),
+    'A9 Weiß: fillWhiteI420 füllt Y 235 und U/V 128');
+  const i420 = rumpf(sender, 'void NdiSender::sendI420(');
+  const iDirekt = i420.search(/if\s*\(\s*ohneVersatz_\s*\|\|/);
+  assert(iDirekt >= 0 && i420.indexOf('pushFrame(') > iDirekt && i420.indexOf('return;', iDirekt) < i420.indexOf('pushFrame('),
+    'A9 ohne Versatz: sendI420 sendet mit ohneVersatz_ direkt, vor jedem pushFrame');
+  const ersatz = rumpf(sender, 'void NdiSender::sendErsatz(');
+  const iErsatz = ersatz.search(/if\s*\(\s*ohneVersatz_\s*\|\|/);
+  assert(iErsatz >= 0 && ersatz.indexOf('pushBild(') > iErsatz,
+    'A9 ohne Versatz: sendErsatz sendet mit ohneVersatz_ direkt, vor jedem pushBild');
+  const freigabe = rumpf(sender, 'int NdiSender::releaseDueLocked(');
+  assert(freigabe.includes('versatzMsLocked()') && !freigabe.includes('ndiVideoDelayMs()'),
+    'A9 ohne Versatz: releaseDueLocked rechnet mit versatzMsLocked(), nicht mit dem globalen Wert');
+  assert(['Bildart::Schwarz', 'Bildart::Weiss', 'Bildart::Transparent'].every((a) => freigabe.includes(a)),
+    'A9 Bildarten: die Warteschlange gibt Schwarz, Weiß und Transparent als eigene Bildart aus');
+  const delay = nativ('delay_line.h');
+  assert(!/\bbool\s+black\b/.test(delay) && !/\bpushBlack\s*\(/.test(delay) && !/\bpushBlack\s*\(|\.black\b/.test(sender),
+    'A9 Bildarten: Frame::black und pushBlack sind entfernt, der Sender liest nur Frame::art');
+  assert(/\bvoid\s+sendCopy\(\s*const\s+FrameCopy\s*&\s*c\s*\)\s*;/.test(nativ('ndi_sender.h'))
+      && /std::lock_guard<std::mutex>\s+lock\(c\.m\)/.test(rumpf(sender, 'void NdiSender::sendCopy(')),
+    'A9 Kopie: sendCopy(const FrameCopy&) hält die Sperre der Kopie über dem Senden');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

@@ -54,6 +54,23 @@ bool ndiIsUp();
 void ndiShutdown();
 
 /**
+ * Kopie des letzten Bildes eines Slots (Spec 6.12, E9): der Bild-Rueckruf
+ * legt sie an (nur bei Ersatzbild "freeze" oder im Modus Freigabe), der
+ * Herzschlag sendet sie als "freeze" bzw. "held".
+ *
+ * DIE SPERRE m GEHOERT DER KOPIE, nicht dem Slot: der Rueckruf (SDK-Thread)
+ * nimmt sie nur per try_lock - haelt der Herzschlag sie gerade zum Senden,
+ * faellt diese eine Kopie aus, statt den Rueckruf warten zu lassen.
+ * sendCopy() haelt sie ueber dem Sendeaufruf; das ist die Sperre der Kopie
+ * selbst, keine fremde Feldsperre (Regel fieldMutex, video.cpp).
+ */
+struct FrameCopy {
+  std::vector<uint8_t> i420;
+  int w = 0, h = 0;
+  mutable std::mutex m;
+};
+
+/**
  * EIN NDI-Sender. Kennt Zoom nicht.
  *
  * ACHTUNG, WARUM DIE SPERRE: auf denselben Sender schreiben ZWEI Threads -
@@ -89,6 +106,58 @@ class NdiSender {
    * das Schwarz die letzten Bilder vor dem Kamera-Aus.
    */
   void sendBlack(int width, int height);
+
+  /**
+   * Ersatzbild WEISS (Spec 6.12): I420 mit Y 235, U/V 128 - Weiss im
+   * begrenzten Wertebereich, dieselbe Begruendung wie Y 16 fuer Schwarz
+   * (fillBlackI420 in ndi_sender.cpp). Weg wie sendBlack(): mit Bild-Versatz
+   * durch die Warteschlange (Bildart Weiss), sonst direkt.
+   */
+  void sendWhite(int width, int height);
+
+  /**
+   * Ersatzbild TRANSPARENT (Spec 6.12, 0.4): UYVA mit Alpha 0. Die UYVY-
+   * Ebene traegt Schwarz (Y 16, U/V 128); sichtbar wird davon nichts, solange
+   * der Empfaenger Alpha auswertet. Weg wie sendBlack() (Bildart Transparent).
+   */
+  void sendTransparent(int width, int height);
+
+  /**
+   * Sendet ein UYVA-Vollbild (Processing.NDI.structs.h:63-67): zuerst die
+   * UYVY-Ebene mit 2 Byte je Bildpunkt (Zeilenabstand 2 * Breite), direkt
+   * dahinter die Alpha-Ebene mit 1 Byte je Bildpunkt; Puffer 3 * B * H Byte.
+   * GEHT IMMER DIREKT HINAUS, ohne Warteschlange: die Warteschlange traegt
+   * nur I420-Bilder und die vier Bildarten (delay_line.h). Ersatzbilder mit
+   * Versatz nehmen darum sendTransparent().
+   */
+  void sendUYVA(const uint8_t* buf, int width, int height);
+
+  /**
+   * Sendet die Kopie `c` (Freeze, Halten; Spec 6.12) wie ein empfangenes
+   * Bild ueber sendI420(). Haelt c.m ueber dem Sendeaufruf - der Rueckruf
+   * nimmt c.m nur per try_lock (siehe FrameCopy). Leere Kopie: nichts.
+   */
+  void sendCopy(const FrameCopy& c);
+
+  /**
+   * Schalter "ohne Versatz" (Spec 6.14): Freigabe-Slots senden ohne den
+   * Bild-Versatz aller anderen Sender. AN: sendI420() und die Ersatzbilder
+   * gehen direkt hinaus, nie in die Warteschlange. Leert die Warteschlange
+   * NICHT - das tut leereVersatz(), vom Moduswechsel von oder zur Freigabe
+   * VOR dem Umschalten gerufen.
+   */
+  void setOhneVersatz(bool an);
+
+  /** Verwirft die wartenden Bilder samt Vorrat (DelayLine::clear(), Spec 6.14). */
+  void leereVersatz();
+
+  /**
+   * Belegter Speicher dieses Senders in Byte: wartende Bilder und Vorrat der
+   * Versatz-Warteschlange (geschaetzt aus der Groesse des letzten I420-Bildes,
+   * delay_line.h zaehlt keine Bytes) und die drei Ersatzbild-Puffer. Fuer
+   * slotStats.memKb (Spec 6.17).
+   */
+  size_t speicherBytes();
 
   /**
    * Der NACHLAUF: gibt wartende Bilder aus, die das naechste eintreffende
@@ -151,6 +220,20 @@ class NdiSender {
   /** Sendet ein Schwarzbild. Der Aufrufer MUSS mutex_ halten (black_ haengt daran). */
   void sendBlackLocked(int width, int height);
 
+  /** Weiss bzw. transparent, wie sendBlackLocked(). Der Aufrufer MUSS mutex_ halten. */
+  void sendWhiteLocked(int width, int height);
+  void sendTransparentLocked(int width, int height);
+  void sendUYVALocked(const uint8_t* buf, int width, int height);
+
+  /**
+   * Gemeinsamer Weg der drei Ersatzbilder: ohne Versatz (oder mit Schalter
+   * "ohne Versatz") direkt, sonst als Bildart durch die Warteschlange.
+   */
+  void sendErsatz(Bildart art, int width, int height);
+
+  /** Der fuer DIESEN Sender geltende Versatz: 0 mit Schalter "ohne Versatz". Unter mutex_. */
+  int versatzMsLocked() const;
+
   /**
    * Gibt aus delay_ aus, was jetzt faellig ist - `nachlauf` waehlt die Regel
    * (releaseNachlauf mit Karenz statt release). Der Aufrufer MUSS mutex_
@@ -172,6 +255,17 @@ class NdiSender {
   std::vector<uint8_t> black_;
   int blackW_ = 0;
   int blackH_ = 0;
+  // Dieselbe Wiederverwendung fuer Weiss (I420) und Transparent (UYVA, 3 * B * H).
+  std::vector<uint8_t> white_;
+  int whiteW_ = 0;
+  int whiteH_ = 0;
+  std::vector<uint8_t> transparent_;
+  int transparentW_ = 0;
+  int transparentH_ = 0;
+  // Schalter "ohne Versatz" (setOhneVersatz), unter mutex_.
+  bool ohneVersatz_ = false;
+  // Groesse des letzten I420-Bildes in der Warteschlange, fuer speicherBytes().
+  size_t letzteBildBytes_ = 0;
   // Wiederverwendeter Stillepuffer - aus demselben Grund wie black_: je
   // Herzschlag neu zu belegen waere 100-mal je Sekunde je Abo eine
   // Speicheranforderung fuer immer denselben Inhalt (Nullen).

@@ -71,6 +71,30 @@ void fillBlackI420(std::vector<uint8_t>& buf, int w, int h) {
   std::fill(buf.begin() + ySize, buf.end(), static_cast<uint8_t>(128));
 }
 
+// Weiss im begrenzten Wertebereich: Y 235, U/V 128 (Spec 6.12) - dieselbe
+// Begruendung wie Y 16 fuer Schwarz oben.
+void fillWhiteI420(std::vector<uint8_t>& buf, int w, int h) {
+  const size_t ySize = static_cast<size_t>(w) * h;
+  const size_t cSize = ySize / 4;
+  buf.assign(ySize + 2 * cSize, 0);
+  std::fill(buf.begin(), buf.begin() + ySize, static_cast<uint8_t>(235));
+  std::fill(buf.begin() + ySize, buf.end(), static_cast<uint8_t>(128));
+}
+
+// Transparent als UYVA (Processing.NDI.structs.h:63-67): UYVY-Ebene mit
+// 2 Byte je Bildpunkt (U Y V Y je Bildpunktpaar, hier Schwarz 128/16/128/16),
+// DIREKT dahinter die Alpha-Ebene mit 1 Byte je Bildpunkt, alle 0.
+void fillTransparentUYVA(std::vector<uint8_t>& buf, int w, int h) {
+  const size_t uyvy = static_cast<size_t>(w) * h * 2;
+  buf.assign(uyvy + static_cast<size_t>(w) * h, 0);
+  for (size_t i = 0; i + 3 < uyvy; i += 4) {
+    buf[i] = 128;
+    buf[i + 1] = 16;
+    buf[i + 2] = 128;
+    buf[i + 3] = 16;
+  }
+}
+
 void fillFrame(NDIlib_video_frame_v2_t& f, const uint8_t* buf, int w, int h) {
   f.xres = w;
   f.yres = h;
@@ -84,6 +108,15 @@ void fillFrame(NDIlib_video_frame_v2_t& f, const uint8_t* buf, int w, int h) {
   // Bei I420 ist das der Zeilenabstand der Y-Ebene.
   f.line_stride_in_bytes = w;
   f.p_metadata = nullptr;
+}
+
+// Wie fillFrame(), aber UYVA: der Zeilenabstand gilt der UYVY-Ebene und ist
+// 2 * Breite (zwei Byte je Bildpunkt); die Alpha-Ebene folgt ohne Angabe
+// direkt dahinter (Processing.NDI.structs.h:63-67). Dass Empfaenger den Wechsel UYVA/I420 je Bild verkraften, ist ANNAHME AN5 (unbelegt, MS12).
+void fillFrameUyva(NDIlib_video_frame_v2_t& f, const uint8_t* buf, int w, int h) {
+  fillFrame(f, buf, w, h);
+  f.FourCC = NDIlib_FourCC_video_type_UYVA;
+  f.line_stride_in_bytes = 2 * w;
 }
 }  // namespace
 
@@ -108,8 +141,9 @@ void NdiSender::sendI420(const uint8_t* buf, int width, int height) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!send_ || !buf || width <= 0 || height <= 0) return;
-    const int versatz = ndiVideoDelayMs();
-    if (versatz == 0 && delay_.size() == 0) {
+    const int versatz = versatzMsLocked();
+    // "ohne Versatz" (Freigabe-Slots, Spec 6.14): immer direkt, nie pushFrame.
+    if (ohneVersatz_ || (versatz == 0 && delay_.size() == 0)) {
       NDIlib_video_frame_v2_t f;
       fillFrame(f, buf, width, height);
       // Kehrt erst zurueck, wenn der Puffer ausgelesen ist - deshalb duerfen
@@ -121,6 +155,7 @@ void NdiSender::sendI420(const uint8_t* buf, int width, int height) {
     // (video.cpp) hat genau diese Gleichheit schon geprueft und verwirft jedes
     // Bild, bei dem sie nicht gilt.
     const size_t len = static_cast<size_t>(width) * height * 3 / 2;
+    letzteBildBytes_ = len;
     const int verdraengt = delay_.pushFrame(buf, len, width, height, DelayLine::Clock::now());
     zaehler_.verworfen += static_cast<unsigned int>(verdraengt);
     verworfen = verdraengt + releaseDueLocked(false);
@@ -139,20 +174,84 @@ void NdiSender::sendBlackLocked(int width, int height) {
   NDIlib_send_send_video_v2(send_, &f);
 }
 
-void NdiSender::sendBlack(int width, int height) {
+void NdiSender::sendWhiteLocked(int width, int height) {
+  if (whiteW_ != width || whiteH_ != height) {
+    fillWhiteI420(white_, width, height);
+    whiteW_ = width;
+    whiteH_ = height;
+  }
+  NDIlib_video_frame_v2_t f;
+  fillFrame(f, white_.data(), width, height);
+  NDIlib_send_send_video_v2(send_, &f);
+}
+
+void NdiSender::sendUYVALocked(const uint8_t* buf, int width, int height) {
+  NDIlib_video_frame_v2_t f;
+  fillFrameUyva(f, buf, width, height);
+  NDIlib_send_send_video_v2(send_, &f);
+}
+
+void NdiSender::sendTransparentLocked(int width, int height) {
+  if (transparentW_ != width || transparentH_ != height) {
+    fillTransparentUYVA(transparent_, width, height);
+    transparentW_ = width;
+    transparentH_ = height;
+  }
+  sendUYVALocked(transparent_.data(), width, height);
+}
+
+int NdiSender::versatzMsLocked() const { return ohneVersatz_ ? 0 : ndiVideoDelayMs(); }
+
+void NdiSender::sendErsatz(Bildart art, int width, int height) {
   int verworfen = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!send_ || width <= 0 || height <= 0) return;
-    if (ndiVideoDelayMs() == 0 && delay_.size() == 0) {
-      sendBlackLocked(width, height);
+    if (ohneVersatz_ || (versatzMsLocked() == 0 && delay_.size() == 0)) {
+      if (art == Bildart::Weiss) sendWhiteLocked(width, height);
+      else if (art == Bildart::Transparent) sendTransparentLocked(width, height);
+      else sendBlackLocked(width, height);
       return;
     }
-    const int verdraengt = delay_.pushBlack(width, height, DelayLine::Clock::now());
+    const int verdraengt = delay_.pushBild(art, width, height, DelayLine::Clock::now());
     zaehler_.verworfen += static_cast<unsigned int>(verdraengt);
     verworfen = verdraengt + releaseDueLocked(false);
   }
   meldeVerworfen(verworfen);
+}
+
+void NdiSender::sendBlack(int width, int height) { sendErsatz(Bildart::Schwarz, width, height); }
+
+void NdiSender::sendWhite(int width, int height) { sendErsatz(Bildart::Weiss, width, height); }
+
+void NdiSender::sendTransparent(int width, int height) { sendErsatz(Bildart::Transparent, width, height); }
+
+void NdiSender::sendUYVA(const uint8_t* buf, int width, int height) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!send_ || !buf || width <= 0 || height <= 0) return;
+  sendUYVALocked(buf, width, height);
+}
+
+void NdiSender::sendCopy(const FrameCopy& c) {
+  std::lock_guard<std::mutex> lock(c.m);
+  if (c.i420.empty() || c.w <= 0 || c.h <= 0) return;
+  sendI420(c.i420.data(), c.w, c.h);
+}
+
+void NdiSender::setOhneVersatz(bool an) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ohneVersatz_ = an;
+}
+
+void NdiSender::leereVersatz() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  delay_.clear();
+}
+
+size_t NdiSender::speicherBytes() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return (delay_.size() + delay_.spareBuffers()) * letzteBildBytes_ + black_.capacity() + white_.capacity() +
+         transparent_.capacity();
 }
 
 void NdiSender::pump() {
@@ -173,10 +272,18 @@ NdiSender::DelayZaehler NdiSender::takeDelayZaehler() {
 }
 
 int NdiSender::releaseDueLocked(bool nachlauf) {
-  const auto versatz = std::chrono::milliseconds(ndiVideoDelayMs());
+  const auto versatz = std::chrono::milliseconds(versatzMsLocked());
   const auto senke = [this](const DelayLine::Frame& b) {
-    if (b.black) {
+    if (b.art == Bildart::Schwarz) {
       sendBlackLocked(b.w, b.h);
+      return;
+    }
+    if (b.art == Bildart::Weiss) {
+      sendWhiteLocked(b.w, b.h);
+      return;
+    }
+    if (b.art == Bildart::Transparent) {
+      sendTransparentLocked(b.w, b.h);
       return;
     }
     NDIlib_video_frame_v2_t f;
