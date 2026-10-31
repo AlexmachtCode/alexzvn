@@ -404,6 +404,253 @@ void pb27_typ_nachtrag() {
   CHECK(gezeigteFreigabe(null) == F1);
 }
 
+// Bild (Task A6). Ein Ziel, das zur Zeit `seit` umgehaengt wurde und optional ein Bild bei `bildMs` hatte.
+ZielStand zielMitBild(int seit, int bildMs, bool kopie) {
+  ZielStand z;
+  zielStandNeu(z, at(seit));
+  if (bildMs >= 0) bildAnnehmen(z, 1280, 720, at(bildMs));
+  z.kopieGueltig = kopie;
+  return z;
+}
+
+BildLage lage(SlotMode modus, Fallback fallback, SlotState zustand, Grund grund, int jetzt) {
+  BildLage l;
+  l.modus = modus;
+  l.fallback = fallback;
+  l.ziel = modus == SlotMode::Share ? F1 : A;
+  l.freigabeBesteht = modus == SlotMode::Share;
+  l.zustand = zustand;
+  l.grund = grund;
+  l.jetzt = at(jetzt);
+  return l;
+}
+
+void pb16_ersatzbild_tabelle() {
+  std::printf("PB16 Ersatzbild: jede Zeile der Tabelle 6.12 mit Art, Takt und sent; vor dem ersten Bild sofort\n");
+  const ZielStand bild = zielMitBild(0, 1000, false);
+  const ZielStand bildKopie = zielMitBild(0, 1000, true);
+  // Bild juenger als 200 ms: nichts zusaetzlich.
+  BildLage l = lage(SlotMode::Participant, Fallback::Black, SlotState::Live, Grund::frames, 1199);
+  BildEntscheidung e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::None && !e.jetztSenden && !e.zustandAendern);
+  // Freigabe-Slot, Freigabe besteht, Kopie dieses Ziels: Kopie hoechstens alle 200 ms.
+  l = lage(SlotMode::Share, Fallback::Black, SlotState::Live, Grund::frames, 1200);
+  l.letztesErsatzMs = at(1001);
+  e = bildEntscheidung(l, bildKopie);
+  CHECK(e.sent == Sent::Held && !e.jetztSenden);
+  l.letztesErsatzMs = at(1000);
+  e = bildEntscheidung(l, bildKopie);
+  CHECK(e.sent == Sent::Held && e.jetztSenden);
+  // Ersatzbilder hoechstens alle 100 ms; Art nach Einstellung.
+  const Fallback arten[3] = {Fallback::Transparent, Fallback::Black, Fallback::White};
+  const Sent erwartet[3] = {Sent::Transparent, Sent::Black, Sent::White};
+  for (int i = 0; i < 3; ++i) {
+    l = lage(SlotMode::Participant, arten[i], SlotState::Fallback, Grund::noFrames, 1300);
+    l.letztesErsatzMs = at(1201);
+    e = bildEntscheidung(l, bild);
+    CHECK(e.sent == erwartet[i] && !e.jetztSenden);
+    l.letztesErsatzMs = at(1200);
+    e = bildEntscheidung(l, bild);
+    CHECK(e.sent == erwartet[i] && e.jetztSenden);
+  }
+  // freeze mit Kopie dieses Ziels: Kopie; ohne: wie transparent (T60).
+  l = lage(SlotMode::Participant, Fallback::Freeze, SlotState::Fallback, Grund::noFrames, 1300);
+  CHECK(bildEntscheidung(l, bildKopie).sent == Sent::Freeze);
+  CHECK(bildEntscheidung(l, bild).sent == Sent::Transparent);
+  // Kopie im Teilnehmer-Slot ist nie held; Freigabe ohne bestehende Freigabe auch nicht.
+  l = lage(SlotMode::Participant, Fallback::White, SlotState::Fallback, Grund::noFrames, 1300);
+  CHECK(bildEntscheidung(l, bildKopie).sent == Sent::White);
+  l = lage(SlotMode::Share, Fallback::Black, SlotState::Live, Grund::frames, 1300);
+  l.freigabeBesteht = false;
+  CHECK(bildEntscheidung(l, bildKopie).sent == Sent::Black);
+  // Vor dem ersten Bild dieses Ziels sofort das Ersatzbild (kein Warten auf 200 ms), Zustand bleibt starting.
+  const ZielStand neu = zielMitBild(5000, -1, false);
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Starting, Grund::targetChanged, 5000);
+  e = bildEntscheidung(l, neu);
+  CHECK(e.sent == Sent::Transparent && e.jetztSenden && !e.zustandAendern);
+  // Ziel 0: Ersatzbild nach Einstellung, Zustand setzt das Umhaengen.
+  l = lage(SlotMode::Participant, Fallback::Black, SlotState::Fallback, Grund::noTarget, 9000);
+  l.ziel = 0;
+  e = bildEntscheidung(l, neu);
+  CHECK(e.sent == Sent::Black && !e.zustandAendern);
+}
+
+/** Eine Pruefung je Kombination; die FEHLER-Zeile nennt die Kombination (Kreuzprodukt, GG22). */
+void pruefeSent(SlotMode m, Fallback f, const char* lageName, bool besteht, Sent ist, Sent soll) {
+  ++g_run;
+  if (ist != soll) {
+    ++g_fail;
+    std::printf("  FEHLER PB16 %s/%s/%s/Freigabe %s: sent %s statt %s\n", name(m), name(f), lageName,
+                besteht ? "besteht" : "fehlt", name(ist), name(soll));
+  }
+}
+
+void pb16_kreuzprodukt() {
+  std::printf("PB16 Ersatzbild als Kreuzprodukt: Modus x Ersatzbild x Lage x Freigabe besteht, sent nach Tabelle 6.12\n");
+  const Sent TR = Sent::Transparent, FZ = Sent::Freeze, SW = Sent::Black, WS = Sent::White, NI = Sent::None;
+  struct Zeile {
+    const char* lage;
+    bool zielNull;      // Ziel 0 (nach Weggang, Ende der Freigabe, ohne Sprecher; der Ziel-Stand ist neu)
+    int bildMs;         // erstes Bild dieses Ziels, -1 = noch keins
+    bool kopie;         // Kopie DIESES Ziels vorhanden (kopieGueltig)
+    int jetzt;
+    SlotState zustand;
+    Sent soll[4];       // je Ersatzbild in der Reihenfolge der Aufzaehlung: transparent, freeze, black, white
+  };
+  // Tabelle 6.12 ohne die held-Zeile; die steht unten (Freigabe-Slot, Freigabe besteht, Kopie dieses Ziels, Bild alt).
+  const Zeile zeilen[5] = {
+      {"starting ohne Bild", false, -1, false, 5300, SlotState::Starting, {TR, TR, SW, WS}},
+      {"Ziel 0", true, -1, false, 5300, SlotState::Fallback, {TR, TR, SW, WS}},
+      {"altes Bild ohne Kopie", false, 1000, false, 1300, SlotState::Fallback, {TR, TR, SW, WS}},
+      {"altes Bild mit Kopie", false, 1000, true, 1300, SlotState::Fallback, {TR, FZ, SW, WS}},
+      {"Bild juenger als 200 ms", false, 1000, true, 1199, SlotState::Live, {NI, NI, NI, NI}},
+  };
+  const SlotMode modi[3] = {SlotMode::Participant, SlotMode::Speaker, SlotMode::Share};
+  for (const Zeile& z : zeilen) {
+    const ZielStand stand = zielMitBild(z.bildMs < 0 ? 5000 : 0, z.bildMs, z.kopie);
+    for (const SlotMode m : modi) {
+      for (int fi = 0; fi < 4; ++fi) {
+        const Fallback f = static_cast<Fallback>(fi);
+        for (int bi = 0; bi < 2; ++bi) {
+          const bool besteht = bi == 1;
+          BildLage l = lage(m, f, z.zustand, Grund::frames, z.jetzt);
+          if (z.zielNull) l.ziel = 0;
+          l.freigabeBesteht = besteht;
+          const bool held = m == SlotMode::Share && !z.zielNull && besteht && z.kopie && z.soll[fi] != NI;
+          pruefeSent(m, f, z.lage, besteht, bildEntscheidung(l, stand).sent, held ? Sent::Held : z.soll[fi]);
+        }
+      }
+    }
+  }
+}
+
+void pb23_riegel() {
+  std::printf("PB23 Riegel: Bild und RawData_Off waehrend des Umhaengens oder ohne Abo verworfen; erstes Bild zaehlt\n");
+  CHECK(riegelVerwirft(false, false));
+  CHECK(riegelVerwirft(true, true));
+  CHECK(riegelVerwirft(false, true));
+  CHECK(!riegelVerwirft(true, false));
+  ZielStand z;
+  zielStandNeu(z, at(1000));
+  CHECK(!z.bildSeitUmhaengen);
+  CHECK(bildAnnehmen(z, 640, 360, at(1100)));
+  CHECK(z.bildSeitUmhaengen && z.lastFrameMs == 1100 && z.lastW == 640 && z.lastH == 360);
+  CHECK(!bildAnnehmen(z, 640, 360, at(1133)));
+  CHECK(z.lastFrameMs == 1133);
+}
+
+void pb24_grund_nach_200ms() {
+  std::printf("PB24 Grund nach 200 ms ohne Bild: cameraOff nur, wenn Zoom es meldet; sonst noFrames; nie fuer SHARE\n");
+  const ZielStand bild = zielMitBild(0, 1000, false);
+  BildLage l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Live, Grund::frames, 1199);
+  l.kameraAusLautZoom = true;
+  CHECK(!bildEntscheidung(l, bild).zustandAendern);
+  l.jetzt = at(1200);
+  BildEntscheidung e = bildEntscheidung(l, bild);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::cameraOff);
+  l.kameraAusLautZoom = false;
+  e = bildEntscheidung(l, bild);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::noFrames);
+  l = lage(SlotMode::Speaker, Fallback::Transparent, SlotState::Live, Grund::frames, 1500);
+  e = bildEntscheidung(l, bild);
+  CHECK(e.grund == Grund::noFrames);
+  // RawData_Off vor dem ersten Bild dieses Ziels: kein Grund, keine Abfrage.
+  ZielStand vorher;
+  zielStandNeu(vorher, at(2000));
+  CHECK(!rawOffAnnehmen(vorher) && !vorher.rawOffGesehen);
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Starting, Grund::targetChanged, 9000);
+  CHECK(!bildEntscheidung(l, vorher).zustandAendern);
+  ZielStand danach = zielMitBild(2000, 2100, false);
+  CHECK(rawOffAnnehmen(danach) && danach.rawOffGesehen);
+  // SHARE nie cameraOff, auch wenn die Person die Kamera aus hat.
+  l = lage(SlotMode::Share, Fallback::Transparent, SlotState::Live, Grund::frames, 3000);
+  l.kameraAusLautZoom = true;
+  e = bildEntscheidung(l, bild);
+  CHECK(e.zustandAendern && e.grund == Grund::noFrames);
+  // Ein laufender bufferMismatch bleibt stehen.
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Live, Grund::bufferMismatch, 1300);
+  l.bufferMismatch = true;
+  l.kameraAusLautZoom = true;
+  e = bildEntscheidung(l, bild);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::bufferMismatch);
+  // Meldet Zoom die Kamera spaeter als aus, wird aus noFrames cameraOff (E-a2-5).
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Fallback, Grund::noFrames, 4000);
+  l.kameraAusLautZoom = true;
+  e = bildEntscheidung(l, bild);
+  CHECK(e.zustandAendern && e.grund == Grund::cameraOff);
+}
+
+void pb29_halten() {
+  std::printf("PB29 Halten: nur Kopie dieses Ziels; Senden ab 200 ms, Zustand erst nach 2 s; vor dem ersten Bild starting\n");
+  // Nach dem Umhaengen ist die Kopie ungueltig: bis zum ersten Bild des neuen Ziels kein held.
+  ZielStand z;
+  zielStandNeu(z, at(1000));
+  BildLage l = lage(SlotMode::Share, Fallback::Transparent, SlotState::Starting, Grund::shareChanged, 1500);
+  BildEntscheidung e = bildEntscheidung(l, z);
+  CHECK(e.sent == Sent::Transparent && !e.zustandAendern);
+  // Erstes Bild bei 2000, Kopie gueltig.
+  bildAnnehmen(z, 1920, 1080, at(2000));
+  z.kopieGueltig = true;
+  l = lage(SlotMode::Share, Fallback::Transparent, SlotState::Live, Grund::frames, 2199);
+  CHECK(bildEntscheidung(l, z).sent == Sent::None);
+  l.jetzt = at(2200);
+  e = bildEntscheidung(l, z);
+  CHECK(e.sent == Sent::Held && e.jetztSenden && !e.zustandAendern);   // live mit sent = held
+  l.jetzt = at(3999);
+  e = bildEntscheidung(l, z);
+  CHECK(e.sent == Sent::Held && !e.zustandAendern);
+  l.jetzt = at(4000);
+  e = bildEntscheidung(l, z);
+  CHECK(e.sent == Sent::Held && e.zustandAendern && e.zustand == SlotState::Held && e.grund == Grund::shareStill);
+  l.freigabePausiert = true;
+  e = bildEntscheidung(l, z);
+  CHECK(e.zustand == SlotState::Held && e.grund == Grund::sharePaused);
+  // Naechstes Bild: sent wieder none (Ende des Haltens).
+  bildAnnehmen(z, 1920, 1080, at(4100));
+  l.jetzt = at(4110);
+  CHECK(bildEntscheidung(l, z).sent == Sent::None);
+  // Ohne Kopie: ab 200 ms Ersatzbild, nach 2 s fallback/noFrames bzw. sharePaused.
+  ZielStand ohne = zielMitBild(0, 1000, false);
+  l = lage(SlotMode::Share, Fallback::Black, SlotState::Live, Grund::frames, 3000);
+  e = bildEntscheidung(l, ohne);
+  CHECK(e.sent == Sent::Black && e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::noFrames);
+  l.freigabePausiert = true;
+  CHECK(bildEntscheidung(l, ohne).grund == Grund::sharePaused);
+  // Vor dem ersten Bild bleibt starting (auch bei noShareData), ausser die Freigabe ist pausiert: dann nach 2 s.
+  ZielStand leer;
+  zielStandNeu(leer, at(10000));
+  l = lage(SlotMode::Share, Fallback::Transparent, SlotState::Starting, Grund::shareChanged, 20000);
+  CHECK(!bildEntscheidung(l, leer).zustandAendern);
+  l.freigabePausiert = true;
+  l.jetzt = at(11999);
+  CHECK(!bildEntscheidung(l, leer).zustandAendern);
+  l.jetzt = at(12000);
+  e = bildEntscheidung(l, leer);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::sharePaused);
+}
+
+void a6_namensregel() {
+  std::printf("A6 NDI-Namensregel: 1-60 Code-Punkte, kein Doppelpunkt, keine Steuerzeichen, keine \\u-Folge, gueltiges UTF-8\n");
+  const std::string emoji = "\xF0\x9F\x98\x80";   // U+1F600, 4 Byte, 1 Code-Punkt
+  CHECK(codePunkte(std::string(59, 'a') + emoji) == 60);
+  CHECK(codePunkte("\xC3\xA4" + emoji) == 2);
+  CHECK(pruefeNdiName("", false) == NamensFehler::Leer);
+  CHECK(pruefeNdiName(std::string(59, 'a') + emoji, false) == NamensFehler::Keiner);
+  CHECK(pruefeNdiName(std::string(60, 'a') + emoji, false) == NamensFehler::ZuLang);
+  CHECK(pruefeNdiName(std::string(60, 'a'), false) == NamensFehler::Keiner);
+  CHECK(pruefeNdiName("A:B", false) == NamensFehler::Doppelpunkt);
+  CHECK(pruefeNdiName("A\x01" "B", false) == NamensFehler::Steuerzeichen);
+  CHECK(pruefeNdiName("A\nB", false) == NamensFehler::Steuerzeichen);
+  CHECK(pruefeNdiName("A\x7F", false) == NamensFehler::Steuerzeichen);
+  CHECK(pruefeNdiName("A\xC2\x85", false) == NamensFehler::Steuerzeichen);   // U+0085 (C1)
+  CHECK(pruefeNdiName("JM u00e4", true) == NamensFehler::UnicodeFolge);
+  CHECK(pruefeNdiName("JM Connect \xE2\x80\x93 Zoom \xC3\xA4", false) == NamensFehler::Keiner);
+  CHECK(pruefeNdiName("A\xC3\x28", false) == NamensFehler::KeinUtf8);          // Folgebyte fehlt
+  CHECK(pruefeNdiName("\xC0\xAF", false) == NamensFehler::KeinUtf8);           // Ueberlange Form
+  CHECK(pruefeNdiName("\xED\xA0\x80", false) == NamensFehler::KeinUtf8);       // Surrogat
+  CHECK(pruefeNdiName("\xF0\x9F\x98", false) == NamensFehler::KeinUtf8);       // abgeschnitten
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -427,6 +674,12 @@ int main() {
   pb14_eigene_freigaben_nichts();
   pb15_befuellen();
   pb27_typ_nachtrag();
+  pb16_ersatzbild_tabelle();
+  pb16_kreuzprodukt();
+  pb23_riegel();
+  pb24_grund_nach_200ms();
+  pb29_halten();
+  a6_namensregel();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

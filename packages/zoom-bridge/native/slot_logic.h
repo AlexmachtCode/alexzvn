@@ -461,4 +461,229 @@ class FreigabeListe {
   uint64_t befuelltSeq_ = 0;
 };
 
+// ---- Bild: Ziel-Stand, Ersatzbild, Zustand nach 200 ms und 2 s, Riegel (Spec 6.1, 6.7, 6.9, 6.10, 6.12; A6) ----
+
+/**
+ * Alles, was fuer GENAU EIN Ziel EINES Abos gilt (6.1, wörtlich). Das Umhaengen ersetzt den Stand als Ganzes
+ * (zielStandNeu, 6.10 Schritt 6); kein Feld kann beim Zuruecksetzen vergessen werden (B9). Ohne Ton-Felder: der
+ * Ton haengt am Sender (TonStand, RR8).
+ */
+struct ZielStand {
+  int64_t lastFrameMs = 0; int lastW = 0, lastH = 0; bool gemessen = false;   // rotation/limitedRange gemessen
+  bool mismatchGemeldet = false;
+  bool bildSeitUmhaengen = false;  // erstes Bild dieses Ziels kam (6.7, 6.10)
+  bool rawOffGesehen = false;      // RawData_Off nach dem ersten Bild dieses Ziels (6.7)
+  bool kopieGueltig = false;       // Kopie stammt von diesem Ziel (6.12)
+  int64_t retargetMs = 0;          // Beginn der Luecke (6.10)
+};
+
+inline bool operator==(const ZielStand& a, const ZielStand& b) {
+  return a.lastFrameMs == b.lastFrameMs && a.lastW == b.lastW && a.lastH == b.lastH && a.gemessen == b.gemessen &&
+         a.mismatchGemeldet == b.mismatchGemeldet && a.bildSeitUmhaengen == b.bildSeitUmhaengen &&
+         a.rawOffGesehen == b.rawOffGesehen && a.kopieGueltig == b.kopieGueltig && a.retargetMs == b.retargetMs;
+}
+inline bool operator!=(const ZielStand& a, const ZielStand& b) { return !(a == b); }
+
+/** 6.10 Schritt 6 (Plan-Schritt ZielStandNeu): neuer Stand fuer das neue Ziel, Beginn der Luecke = jetzt. */
+inline void zielStandNeu(ZielStand& z, int64_t jetzt) {
+  z = ZielStand{};
+  z.retargetMs = jetzt;
+}
+
+/** Riegel (6.10, I3): Bild und RawData_On/Off werden verworfen, solange nicht abonniert oder beim Umhaengen. */
+inline bool riegelVerwirft(bool subscribed, bool umhaengen) { return !subscribed || umhaengen; }
+
+/**
+ * Ein Bild hat den Riegel passiert: Messwerte des Ziels nachfuehren. true = erstes Bild seit dem Umhaengen
+ * (dann live/frames und Ende der Luecke, 6.10 „Erstes Bild danach“).
+ */
+inline bool bildAnnehmen(ZielStand& z, int w, int h, int64_t jetzt) {
+  const bool erstes = !z.bildSeitUmhaengen;
+  z.bildSeitUmhaengen = true;
+  z.lastFrameMs = jetzt;
+  z.lastW = w;
+  z.lastH = h;
+  return erstes;
+}
+
+/**
+ * RawData_Off hat den Riegel passiert (6.7): setzt nie einen Grund. Nur wenn seit dem Umhaengen schon ein Bild
+ * dieses Ziels kam, merkt es rawOffGesehen und liefert true (dann fragt die Hauptschleife IsVideoOn()).
+ */
+inline bool rawOffAnnehmen(ZielStand& z) {
+  if (!z.bildSeitUmhaengen) return false;
+  z.rawOffGesehen = true;
+  return true;
+}
+
+inline constexpr int64_t BILD_NACHLAUF_MS = 200;            // Ersatzbild bzw. Halten ab 200 ms ohne Bild (6.12)
+inline constexpr int64_t FREIGABE_ZUSTAND_MS = 2000;        // Zustand eines Freigabe-Slots erst nach 2 s (6.9, W1)
+inline constexpr int64_t TAKT_ERSATZBILD_MS = 100;          // Ersatzbild hoechstens alle 100 ms
+inline constexpr int64_t TAKT_HALTEN_MS = 200;              // Kopie beim Halten hoechstens alle 200 ms
+
+/** Eingang der Bild-Entscheidung, je Slot und Herzschlag (videoTick, 6.6 Nr. 6). */
+struct BildLage {
+  SlotMode modus = SlotMode::Participant;
+  Fallback fallback = Fallback::Transparent;
+  unsigned ziel = 0;                  // Kennung bzw. Freigabe-Kennung; 0 = keins
+  bool freigabeBesteht = false;       // die gezeigte Freigabe besteht noch (Freigabe-Slot)
+  bool freigabePausiert = false;      // die gezeigte Freigabe ist pausiert
+  bool kameraAusLautZoom = false;     // videoStatus Video_OFF/Video_Mute_ByHost oder IsVideoOn() = false (6.7)
+  bool bufferMismatch = false;        // laufender Puffer-Fehler dieses Ziels (bleibt als Grund stehen)
+  SlotState zustand = SlotState::Starting;
+  Grund grund = Grund::command;
+  int64_t letztesErsatzMs = 0;        // Zeit des letzten Ersatz- bzw. Halte-Bildes; 0 = noch keins
+  int64_t jetzt = 0;
+};
+
+/**
+ * Ausgang: sent = was der Sender gerade zusaetzlich zu Zooms Bildern schickt (6.12); jetztSenden = in diesem
+ * Herzschlag ein Bild dieser Art senden (Takt); zustandAendern mit zustand/grund = neuer Zustand (sonst unveraendert).
+ */
+struct BildEntscheidung {
+  Sent sent = Sent::None;
+  bool jetztSenden = false;
+  bool zustandAendern = false;
+  SlotState zustand = SlotState::Starting;
+  Grund grund = Grund::command;
+};
+
+/** Art des Ersatzbilds (Tabelle 6.12): freeze ohne Kopie dieses Ziels wie transparent (T60). */
+inline Sent ersatzArt(Fallback f, bool kopieDiesesZiels) {
+  switch (f) {
+    case Fallback::Black: return Sent::Black;
+    case Fallback::White: return Sent::White;
+    case Fallback::Freeze: return kopieDiesesZiels ? Sent::Freeze : Sent::Transparent;
+    case Fallback::Transparent: break;
+  }
+  return Sent::Transparent;
+}
+
+/**
+ * Tabelle 6.12 und die Zustandsschwellen 6.7/6.9/6.12 (PB16, PB24, PB29):
+ * - Bild juenger als 200 ms: nichts zusaetzlich (none). Vor dem ersten Bild dieses Ziels sofort das Ersatzbild.
+ * - Freigabe-Slot, gezeigte Freigabe besteht, Kopie DIESES Ziels: Kopie alle 200 ms (held), ab 200 ms ohne Bild,
+ *   der Zustand bleibt dabei live; erst nach 2 s held/sharePaused bzw. held/shareStill, ohne Kopie
+ *   fallback/sharePaused bzw. fallback/noFrames. Nie cameraOff.
+ * - Teilnehmer/Sprecher: nach 200 ms ohne Bild fallback/cameraOff, wenn Zoom die Kamera als aus meldet, sonst
+ *   fallback/noFrames; ein laufender bufferMismatch bleibt.
+ * - Vor dem ersten Bild bleibt der Zustand (starting, oder cameraOff aus 6.10 Schritt 7); einzige Ausnahme: Freigabe
+ *   pausiert und 2 s seit dem Umhaengen -> fallback/sharePaused. Ziel 0: Zustand setzt das Umhaengen.
+ */
+inline BildEntscheidung bildEntscheidung(const BildLage& l, const ZielStand& z) {
+  BildEntscheidung e;
+  e.zustand = l.zustand;
+  e.grund = l.grund;
+  if (l.zustand == SlotState::Off) return e;
+  const bool hatBild = z.bildSeitUmhaengen;
+  const int64_t seitBild = hatBild && l.jetzt > z.lastFrameMs ? l.jetzt - z.lastFrameMs : 0;
+  const bool frisch = hatBild && seitBild < BILD_NACHLAUF_MS;
+  const bool freigabe = l.modus == SlotMode::Share;
+
+  if (frisch) e.sent = Sent::None;
+  else if (freigabe && l.ziel != 0 && l.freigabeBesteht && z.kopieGueltig) e.sent = Sent::Held;
+  else e.sent = ersatzArt(l.fallback, z.kopieGueltig);
+  if (e.sent != Sent::None) {
+    const int64_t takt = e.sent == Sent::Held ? TAKT_HALTEN_MS : TAKT_ERSATZBILD_MS;
+    e.jetztSenden = l.letztesErsatzMs <= 0 || l.jetzt - l.letztesErsatzMs >= takt;
+  }
+
+  if (l.ziel == 0 || frisch) return e;
+  SlotState soll = l.zustand;
+  Grund sollGrund = l.grund;
+  if (!freigabe) {
+    if (!hatBild) return e;
+    soll = SlotState::Fallback;
+    sollGrund = l.bufferMismatch ? Grund::bufferMismatch : (l.kameraAusLautZoom ? Grund::cameraOff : Grund::noFrames);
+  } else if (!hatBild) {
+    if (!l.freigabePausiert || l.jetzt - z.retargetMs < FREIGABE_ZUSTAND_MS) return e;
+    soll = SlotState::Fallback;
+    sollGrund = Grund::sharePaused;
+  } else {
+    if (seitBild < FREIGABE_ZUSTAND_MS) return e;
+    if (l.bufferMismatch) {
+      soll = SlotState::Fallback;
+      sollGrund = Grund::bufferMismatch;
+    } else if (z.kopieGueltig && l.freigabeBesteht) {
+      soll = SlotState::Held;
+      sollGrund = l.freigabePausiert ? Grund::sharePaused : Grund::shareStill;
+    } else {
+      soll = SlotState::Fallback;
+      sollGrund = l.freigabePausiert ? Grund::sharePaused : Grund::noFrames;
+    }
+  }
+  if (soll != l.zustand || sollGrund != l.grund) {
+    e.zustandAendern = true;
+    e.zustand = soll;
+    e.grund = sollGrund;
+  }
+  return e;
+}
+
+/** Fehler der NDI-Namensregel (6.2, E26, B26); jeder ergibt slotBadName. */
+enum class NamensFehler : uint8_t { Keiner, Leer, ZuLang, Doppelpunkt, Steuerzeichen, UnicodeFolge, KeinUtf8 };
+inline constexpr size_t NDI_NAME_MAX_CODEPUNKTE = 60;
+
+/** UTF-8 streng dekodieren: keine Ueberlangen, keine Surrogate, hoechstens U+10FFFF. false = ungueltig. */
+inline bool utf8Dekodieren(const std::string& s, std::vector<uint32_t>& aus) {
+  aus.clear();
+  size_t i = 0;
+  while (i < s.size()) {
+    const unsigned char b0 = static_cast<unsigned char>(s[i]);
+    uint32_t cp = 0;
+    size_t laenge = 1;
+    uint32_t minimum = 0;
+    if (b0 < 0x80) {
+      cp = b0;
+    } else if ((b0 & 0xE0) == 0xC0) {
+      cp = b0 & 0x1Fu; laenge = 2; minimum = 0x80;
+    } else if ((b0 & 0xF0) == 0xE0) {
+      cp = b0 & 0x0Fu; laenge = 3; minimum = 0x800;
+    } else if ((b0 & 0xF8) == 0xF0) {
+      cp = b0 & 0x07u; laenge = 4; minimum = 0x10000;
+    } else {
+      return false;
+    }
+    if (i + laenge > s.size()) return false;
+    for (size_t k = 1; k < laenge; ++k) {
+      const unsigned char b = static_cast<unsigned char>(s[i + k]);
+      if ((b & 0xC0) != 0x80) return false;
+      cp = (cp << 6) | (b & 0x3Fu);
+    }
+    if (laenge > 1 && cp < minimum) return false;
+    if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+    aus.push_back(cp);
+    i += laenge;
+  }
+  return true;
+}
+
+/** Code-Punkte eines gueltigen UTF-8-Texts, wie Connect zaehlt (ein Emoji = 1; F3). */
+inline size_t codePunkte(const std::string& utf8) {
+  size_t n = 0;
+  for (const char c : utf8) {
+    if ((static_cast<unsigned char>(c) & 0xC0) != 0x80) ++n;   // jedes Nicht-Folgebyte beginnt einen Code-Punkt
+  }
+  return n;
+}
+
+/**
+ * NDI-Name eines Slots (6.2, E26): 1-60 Code-Punkte, kein „:“, keine Steuerzeichen (U+0000-U+001F,
+ * U+007F-U+009F; Entscheidung E-a2-4), keine \u-Folge im Rohtext (der Feldleser dekodiert \u nicht, A-EP11).
+ */
+inline NamensFehler pruefeNdiName(const std::string& utf8, bool rohUnicodeFolge) {
+  std::vector<uint32_t> cp;
+  if (!utf8Dekodieren(utf8, cp)) return NamensFehler::KeinUtf8;
+  if (cp.empty()) return NamensFehler::Leer;
+  if (codePunkte(utf8) > NDI_NAME_MAX_CODEPUNKTE) return NamensFehler::ZuLang;
+  for (const uint32_t c : cp) {
+    if (c == ':') return NamensFehler::Doppelpunkt;
+  }
+  for (const uint32_t c : cp) {
+    if (c < 0x20 || (c >= 0x7F && c <= 0x9F)) return NamensFehler::Steuerzeichen;
+  }
+  if (rohUnicodeFolge) return NamensFehler::UnicodeFolge;
+  return NamensFehler::Keiner;
+}
+
 }  // namespace slotlogic

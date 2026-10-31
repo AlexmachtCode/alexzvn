@@ -3297,5 +3297,27 @@ console.log('\nZoom-Slots — Freigabe-Namen in slot_logic.h (Plan A, Task A5; A
   assert(JSON.stringify(aufzaehlung(logik, 'Befuellt')) === JSON.stringify(['ok', 'leer', 'nichtVerfuegbar']),
     'A5 enum class Befuellt folgt BEFUELLT_NAMEN (Ok, Leer, NichtVerfuegbar)');
 }
+console.log('\nZoom-Slots — sent ohne Bild in der Attrappe (Plan A, Task A6; Tabelle 6.12, Nachbesserung a2):');
+{
+  // Ein Vertrag, zwei Umsetzungen: Was slot_logic.h fuer „kein Bild dieses Ziels“ entscheidet (pb16_kreuzprodukt),
+  // meldet auch die Attrappe aus A2, gegen die Plan B prueft. Zwei Freigabe-Slots (weiss, eingefroren) erleben
+  // Ziel 0, starting ohne Bild, live und das Ende der Freigabe (wieder Ziel 0, die Kopie gehoert dem alten Ziel).
+  const ev = await fahreSteuerung({
+    FAKE_FREIGABEN: `1000:${BEN}:101:begin,1000:${BEN}:101:typ=ds,2000:${BEN}:101:end`,
+  }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(3, 'JM Connect – Zoom Weiss', { mode: 'share', audio: 'off', fallback: 'white' }));
+    b.send(slotAn(4, 'JM Connect – Zoom Eingefroren', { mode: 'share', audio: 'off', fallback: 'freeze' }));
+    await bisEreignis(ev, () => anzahl(ev, art('slot', { slot: 4, reason: 'shareNone' })) === 2, 6000);
+  });
+  const sentFolge = (nr: number) => ev.filter(art('slot', { slot: nr })).map((e) => {
+    const s = e as unknown as { state: string; reason: string; sent: string };
+    return `${s.state}/${s.reason}:${s.sent}`;
+  }).join(' ');
+  assert(sentFolge(3) === 'fallback/shareNone:white starting/shareChanged:white live/frames:none fallback/shareNone:white off/command:none',
+    'A6 6.12 Attrappe: ein weißer Freigabe-Slot sendet ohne Bild weiß, auch bei Ziel 0 nach dem Ende der Freigabe');
+  assert(sentFolge(4) === 'fallback/shareNone:transparent starting/shareChanged:transparent live/frames:none fallback/shareNone:transparent off/command:none',
+    'A6 6.12 Attrappe: „eingefroren“ ohne Kopie dieses Ziels sendet transparent, auch nach dem Ende der Freigabe');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
