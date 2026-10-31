@@ -20,6 +20,11 @@
 // dieser Header selbst IMeetingRecordingController* als Rueckgabetyp
 // deklariert (recordingCtrl() unten).
 #include "meeting_service_components/meeting_recording_interface.h"
+// Fuer die Regler-Getter der Slots (videoCtrl/shareCtrl, unten): der Header
+// deklariert IMeetingVideoController und IMeetingShareController vorab
+// (meeting_service_interface.h:955-956); die vollen Klassen bindet erst
+// callbacks.h ein, in der Reihenfolge, die meeting_sharing_interface.h braucht.
+#include "meeting_service_interface.h"
 
 USING_ZOOM_SDK_NAMESPACE
 
@@ -250,6 +255,44 @@ void markParticipantsListenerRegistered();
 
 /** Der Aufnahme-Regler, oder nullptr wenn kein Meeting laeuft. */
 IMeetingRecordingController* recordingCtrl();
+
+/**
+ * Die drei Regler der Slots (Spec 6.5), je nullptr ohne Meeting
+ * (meeting_service_interface.h:1113, :1119, :1125). audioCtrl() gab es schon
+ * (session.cpp), jetzt auch im Header.
+ */
+IMeetingVideoController* videoCtrl();
+IMeetingShareController* shareCtrl();
+IMeetingAudioController* audioCtrl();
+
+/**
+ * Meldet die drei Lauscher der Slots an (SetEvent auf Video-, Freigabe- und
+ * Ton-Regler) und merkt sich je Regler, DASS angemeldet wurde - fuer die
+ * Messstelle der Abmeldung in sessionShutdown() (Muster Teilnehmer/Aufnahme).
+ * Bei JEDEM INMEETING aus onMeetingStatusChanged gerufen (callbacks.cpp).
+ */
+void sessionRegisterCtrlListeners();
+
+/**
+ * Holt die eigene Kennung neu (GetMySelfUser(), Spec 6.5). Die Hauptschleife
+ * ruft es nach JEDEM INMEETING: Kennungen wechseln nach einer
+ * Wiederverbindung (callbacks.cpp, participantJson).
+ */
+void sessionEigeneKennungNeu();
+
+/** Die zuletzt geholte eigene Kennung; 0 = unbekannt (kein Meeting, kein GetMySelfUser). */
+unsigned sessionMyUserId();
+
+/**
+ * Einstellungsdienst NUR LESEND (Spec 6.11): einmal nach der Anmeldung anlegen
+ * (CreateSettingService), beim Beenden ablegen (sessionShutdown). false = nicht
+ * verfuegbar; dann fehlen hdVideo und originalSize in bridgeStats. Die Bridge
+ * ruft nie EnableHDVideo oder EnableAlwaysUseOriginalSizeVideo.
+ */
+bool sessionSettingsOpen();
+/** IsHDVideoEnabled() bzw. IsAlwaysUseOriginalSizeVideo(); false = Dienst nicht verfuegbar, *out unberuehrt. */
+bool sessionHdVideo(bool* out);
+bool sessionOriginalSize(bool* out);
 
 /**
  * Fragt die Rohdaten-Aufnahme-Erlaubnis ab und, wenn noetig, beim Gastgeber

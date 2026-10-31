@@ -8,6 +8,10 @@
 #include "meeting_service_components/meeting_audio_interface.h"
 #include "emit.h"
 #include "callbacks.h"
+// Einstellungsdienst, nur lesend (Spec 6.11). NACH callbacks.h, also nach
+// windows.h und meeting_service_interface.h; eigene Falle hier ungemessen,
+// darum dieselbe sichere Reihenfolge wie die Regler-Header.
+#include "setting_service_interface.h"
 
 USING_ZOOM_SDK_NAMESPACE
 
@@ -42,6 +46,20 @@ bool g_privilegePending = false;
 // Regler-Zeiger beim Abbau noch gueltig ist.
 bool g_participantsListenerRegistered = false;
 bool g_recordingListenerRegistered = false;
+
+// Die drei Lauscher der Slots (Spec 6.5) und ihre Registriert-Merker, dasselbe
+// Muster wie g_recordingListener und die beiden Merker darueber.
+ShareListener g_shareListener;
+VideoCtrlListener g_videoCtrlListener;
+AudioCtrlListener g_audioCtrlListener;
+bool g_shareListenerRegistered = false;
+bool g_videoCtrlListenerRegistered = false;
+bool g_audioCtrlListenerRegistered = false;
+// Eigene Kennung, nach jedem INMEETING neu (sessionEigeneKennungNeu). Atomar:
+// gelesen auch von der Ton-Zuordnung, geschrieben nur vom Hauptthread.
+std::atomic<unsigned> g_myUserId{0};
+// Einstellungsdienst, nur lesend (Spec 6.11).
+ISettingService* g_settings = nullptr;
 
 // Siehe sessionCanRecordRaw()/sessionSetCanRecordRaw() in session.h (Task 3):
 // der ZULETZT gemeldete Stand der Rohdaten-Erlaubnis. Atomar, nicht bool -
@@ -390,6 +408,64 @@ IMeetingAudioController* audioCtrl() {
   return g_meeting ? g_meeting->GetMeetingAudioController() : nullptr;
 }
 
+IMeetingVideoController* videoCtrl() {
+  return g_meeting ? g_meeting->GetMeetingVideoController() : nullptr;
+}
+
+IMeetingShareController* shareCtrl() {
+  return g_meeting ? g_meeting->GetMeetingShareController() : nullptr;
+}
+
+void sessionRegisterCtrlListeners() {
+  // Je Regler einzeln: fehlt einer (nullptr), steht das auf stderr, die beiden
+  // anderen werden trotzdem angemeldet. Ein fehlender Lauscher ist eine Diagnose,
+  // die man sehen muss - der Modus, der an ihm haengt, bliebe sonst still leer.
+  IMeetingShareController* share = shareCtrl();
+  if (share != nullptr && share->SetEvent(&g_shareListener) == SDKERR_SUCCESS) g_shareListenerRegistered = true;
+  else emitLog(L"Freigabe-Lauscher nicht angemeldet - Modus Bildschirmfreigabe bekommt keine Freigaben");
+  IMeetingVideoController* video = videoCtrl();
+  if (video != nullptr && video->SetEvent(&g_videoCtrlListener) == SDKERR_SUCCESS) g_videoCtrlListenerRegistered = true;
+  else emitLog(L"Video-Regler-Lauscher nicht angemeldet - keine Sprecher-Signale und kein Kamera-Status");
+  IMeetingAudioController* audio = audioCtrl();
+  if (audio != nullptr && audio->SetEvent(&g_audioCtrlListener) == SDKERR_SUCCESS) g_audioCtrlListenerRegistered = true;
+  else emitLog(L"Ton-Regler-Lauscher nicht angemeldet - kein Signal activeAudio");
+}
+
+void sessionEigeneKennungNeu() {
+  IMeetingParticipantsController* parts = participantsCtrl();
+  IUserInfo* ich = (parts != nullptr) ? parts->GetMySelfUser() : nullptr;
+  g_myUserId = (ich != nullptr) ? ich->GetUserID() : 0;
+  if (ich == nullptr) emitLog(L"Eigene Kennung nicht verfuegbar (GetMySelfUser) - der Sprecher-Modus kennt sich selbst nicht");
+}
+
+unsigned sessionMyUserId() { return g_myUserId.load(); }
+
+bool sessionSettingsOpen() {
+  if (g_settings != nullptr) return true;
+  const SDKError err = CreateSettingService(&g_settings);
+  if (err != SDKERR_SUCCESS || g_settings == nullptr) {
+    g_settings = nullptr;
+    emitLog(std::wstring(L"Einstellungsdienst nicht verfuegbar: CreateSettingService meldet SDKError=") +
+            std::to_wstring(static_cast<int>(err)) + L" - hdVideo und originalSize fehlen in den Messwerten");
+    return false;
+  }
+  return true;
+}
+
+bool sessionHdVideo(bool* out) {
+  IVideoSettingContext* v = g_settings != nullptr ? g_settings->GetVideoSettings() : nullptr;
+  if (v == nullptr || out == nullptr) return false;
+  *out = v->IsHDVideoEnabled();
+  return true;
+}
+
+bool sessionOriginalSize(bool* out) {
+  IVideoSettingContext* v = g_settings != nullptr ? g_settings->GetVideoSettings() : nullptr;
+  if (v == nullptr || out == nullptr) return false;
+  *out = v->IsAlwaysUseOriginalSizeVideo();
+  return true;
+}
+
 void checkPrivilege() {
   // ACHTUNG, ZURUECKGENOMMEN (Nachbesserung 2): hier stand einmal ein
   // unbedingtes `g_privilegePending = false;` als ALLERERSTE Anweisung der
@@ -687,6 +763,17 @@ bool sessionShutdown() {
               L"nullptr - dieselbe offene Frage wie beim Teilnehmer-Regler oben, hier "
               L"fuer GetMeetingRecordingController(). Abmeldung uebersprungen, kein Absturz.");
     }
+    // Die drei Lauscher der Slots (Spec 6.5): dieselbe Messstelle, dieselbe
+    // offene Frage (nach Leave() ungemessen).
+    IMeetingShareController* sctrl = shareCtrl();
+    if (sctrl != nullptr) sctrl->SetEvent(nullptr);
+    else if (g_shareListenerRegistered) emitLog(L"Messstelle: Freigabe-Regler war registriert, ist beim Abbau aber nullptr - Abmeldung uebersprungen.");
+    IMeetingVideoController* vctrl = videoCtrl();
+    if (vctrl != nullptr) vctrl->SetEvent(nullptr);
+    else if (g_videoCtrlListenerRegistered) emitLog(L"Messstelle: Video-Regler war registriert, ist beim Abbau aber nullptr - Abmeldung uebersprungen.");
+    IMeetingAudioController* actrl = audioCtrl();
+    if (actrl != nullptr) actrl->SetEvent(nullptr);
+    else if (g_audioCtrlListenerRegistered) emitLog(L"Messstelle: Ton-Regler war registriert, ist beim Abbau aber nullptr - Abmeldung uebersprungen.");
     // g_meeting->SetEvent(nullptr) laeuft IMMER, auch wenn leaveSettled unten
     // false ist - GEMESSEN (Abschluss-Sichtung Punkt A, siehe
     // final-fix-report.md fuer die woertlichen Laeufe): in genau diesem
@@ -721,6 +808,12 @@ bool sessionShutdown() {
     // TerminateProcess (siehe dort, GEMESSEN 10/10 ohne Absturz), das
     // ueberspringt DLL_PROCESS_DETACH fuer ALLE angehaengten DLLs - der halb
     // abgebaute Zustand hier wird darum nie sichtbar nachgefragt.
+  }
+  // Einstellungsdienst ablegen (Spec 6.11) - nur auf dem vollstaendigen Abbau,
+  // aus demselben Grund wie DestroyAuthService unten.
+  if (g_settings != nullptr && leaveSettled) {
+    DestroySettingService(g_settings);
+    g_settings = nullptr;
   }
   if (g_auth != nullptr) {
     // Derselbe Grund wie oben: SetEvent(nullptr) zerstoert nichts, bleibt

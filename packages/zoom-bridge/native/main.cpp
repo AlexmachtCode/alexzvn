@@ -104,6 +104,33 @@ bool nextLine(std::string& out) {
   return true;
 }
 
+// Schritt 4 der Hauptschleife (Spec 6.6): ZUERST INMEETING, dann Teilnehmer,
+// Kamera, Freigaben, Sprecher. Laeuft auf dem Hauptthread, ausserhalb jedes
+// Rueckrufs - hier duerfen die Slots (ab A11) umhaengen.
+void merkerNehmen() {
+  if (callbacksTakeInMeeting()) {
+    // Kennungen wechseln nach einer Wiederverbindung (callbacks.cpp).
+    sessionEigeneKennungNeu();
+    callbacksRendererSperreLoesen();
+    emitLog(L"INMEETING: eigene Kennung neu, Renderer-Sperre geloest");
+  }
+  MerkerTeilnehmer t;
+  while (callbacksTakeTeilnehmer(&t)) {
+    // ZWISCHENSTAND bis A11 (Plan A, A-EP17): die alten Abo-Wege, jetzt aus der
+    // Hauptschleife statt aus dem Rueckruf.
+    if (t.beitritt) videoParticipantJoined(t.id);
+    else videoParticipantLeft(t.id);
+  }
+  // Kamera, Freigaben und Sprecher wertet ab A12 die Slot-Logik aus; bis dahin
+  // werden die Merker nur genommen, damit keine Warteschlange vollaeuft.
+  MerkerKamera k;
+  while (callbacksTakeKamera(&k)) {}
+  MerkerFreigabe f;
+  while (callbacksTakeFreigabe(&f)) {}
+  MerkerSprecher s;
+  while (callbacksTakeSprecher(&s)) {}
+}
+
 // BERICHTIGT (Nachbesserungsrunde 1, Critical): "id" ist laut Protokoll
 // (Aufgabe 2) eine ZAHL, keine Zeichenkette - fieldFromJson() liest
 // AUSDRUECKLICH nur Zeichenketten (siehe session.h/session.cpp) und liefert
@@ -417,6 +444,9 @@ int main(int argc, char** argv) {
       audioClearSubscribed();
       emitLog(L"Meeting-Ende: Bild-Abos abbauen");
       videoMeetingEnded();
+      // ENDED/FAILED loest die Renderer-Sperre (Spec 6.5): die Renderer dieses
+      // Meetings fasst ohnehin niemand mehr an.
+      callbacksRendererSperreLoesen();
       emitLog(L"Meeting-Ende: Abbau zurueckgekehrt, Bruecke laeuft weiter");
     }
     // ABBAU NACH DEM ENTZUG DER AUFNAHME-ERLAUBNIS (Stage 4b, N4b.1) - dasselbe
@@ -441,6 +471,9 @@ int main(int argc, char** argv) {
       emitLog(L"Entzug: Rohdaten-Aufnahme beenden");
       sessionStopRawRecording();
     }
+    // MERKER NEHMEN (Spec 6.6 Nr. 4), nach Meeting-Ende und Entzug, vor dem
+    // Herzschlag. Die Rueckrufe haben nur Werte eingereiht (callbacks.cpp).
+    merkerNehmen();
     // Schwarzbild-Herzschlag (Aufgabe 5): haelt jede Video-Quelle am Leben,
     // indem sie bei Bildausfall Schwarz statt eines eingefrorenen letzten
     // Bildes sendet. Hier und nicht in einem eigenen Thread - die Schleife

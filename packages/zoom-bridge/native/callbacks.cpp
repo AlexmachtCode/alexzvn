@@ -1,5 +1,7 @@
 #include "callbacks.h"
 #include <atomic>
+#include <deque>
+#include <mutex>
 #include "rawdata/zoom_rawdata_api.h"  // HasRawdataLicense()
 #include "audio.h"
 #include "emit.h"
@@ -24,7 +26,62 @@ bool callbacksTakePrivilegeRevokedTeardown() { return g_entzugAbbauOffen.exchang
 
 namespace {
 ParticipantsListener g_participantsListener;
+
+// --- Merker der Slots (Spec 6.5) ---------------------------------------------------
+// Eine Sperre fuer alle vier Warteschlangen: die Rueckrufe halten sie nur fuer ein
+// push_back, die Hauptschleife nur fuer ein pop_front - nie ueber einem SDK- oder
+// NDI-Aufruf und nie ueber emitRaw/emitLog.
+std::mutex g_merkerMutex;
+std::deque<MerkerTeilnehmer> g_merkerTeilnehmer;
+std::deque<MerkerKamera> g_merkerKamera;
+std::deque<MerkerFreigabe> g_merkerFreigabe;
+std::deque<MerkerSprecher> g_merkerSprecher;
+std::atomic<uint64_t> g_merkerVerworfen{0};
+// INMEETING kam (6.6 Nr. 4: zuerst dieser Merker). Ein Merkzeichen statt einer
+// Warteschlange: zwei INMEETING vor dem naechsten Nehmen verlangen dieselbe Arbeit.
+std::atomic<bool> g_inMeetingOffen{false};
+// Renderer-Sperre (6.5): ab DISCONNECTING/RECONNECTING bis zum Loesen durch die
+// Hauptschleife.
+std::atomic<bool> g_rendererSperre{false};
+
+// Reiht ein, solange die Warteschlange unter kMerkerMax liegt; sonst zaehlt es den
+// verlorenen Merker (bridgeStats.merkerVerworfen, T61). Das NEUE wird verworfen:
+// die Reihenfolge der schon wartenden bleibt so erhalten.
+template <class T>
+void merkerEinreihen(std::deque<T>& q, T&& wert) {
+  std::lock_guard<std::mutex> lock(g_merkerMutex);
+  if (q.size() >= kMerkerMax) {
+    g_merkerVerworfen.fetch_add(1);
+    return;
+  }
+  q.push_back(std::move(wert));
 }
+
+template <class T>
+bool merkerNehmen(std::deque<T>& q, T* out) {
+  if (out == nullptr) return false;
+  std::lock_guard<std::mutex> lock(g_merkerMutex);
+  if (q.empty()) return false;
+  *out = std::move(q.front());
+  q.pop_front();
+  return true;
+}
+
+long long qpcJetzt() {
+  LARGE_INTEGER t;
+  QueryPerformanceCounter(&t);
+  return t.QuadPart;
+}
+}  // namespace
+
+bool callbacksTakeInMeeting() { return g_inMeetingOffen.exchange(false); }
+bool callbacksTakeTeilnehmer(MerkerTeilnehmer* out) { return merkerNehmen(g_merkerTeilnehmer, out); }
+bool callbacksTakeKamera(MerkerKamera* out) { return merkerNehmen(g_merkerKamera, out); }
+bool callbacksTakeFreigabe(MerkerFreigabe* out) { return merkerNehmen(g_merkerFreigabe, out); }
+bool callbacksTakeSprecher(MerkerSprecher* out) { return merkerNehmen(g_merkerSprecher, out); }
+uint64_t merkerVerworfen() { return g_merkerVerworfen.load(); }
+bool callbacksRendererSperre() { return g_rendererSperre.load(); }
+void callbacksRendererSperreLoesen() { g_rendererSperre = false; }
 
 void AuthListener::onAuthenticationReturn(AuthResult ret) {
   // Nur die Zahl auf die Rohrleitung - den Namen setzt TypeScript dazu.
@@ -41,6 +98,9 @@ void AuthListener::onAuthenticationReturn(AuthResult ret) {
   if (ret == AUTHRET_SUCCESS) {
     emitLog(std::wstring(L"Rohdaten-Lizenz dieses Kontos: HasRawdataLicense()=") +
             (HasRawdataLicense() ? L"true" : L"false"));
+    // Einstellungsdienst einmal nach der Anmeldung, nur lesend (Spec 6.11).
+    // Scheitert er, meldet sessionSettingsOpen() das auf stderr.
+    sessionSettingsOpen();
   }
   // Meldet session.cpp, dass die Anmeldung nicht mehr offen ist - siehe
   // sessionAuthPending() in session.h.
@@ -100,6 +160,22 @@ void MeetingListener::onMeetingStatusChanged(MeetingStatus status, int iResult) 
       emitRoster();
     }
     checkPrivilege();
+    // Die drei Lauscher der Slots (Spec 6.5) - wie der Teilnehmer-Lauscher bei
+    // JEDEM INMEETING. Alles Uebrige zu INMEETING (eigene Kennung, Sprecher-
+    // Erinnerung, Freigabe-Liste, Loesen der Renderer-Sperre, Umhaengen) macht die
+    // Hauptschleife, wenn sie den Merker nimmt (6.6 Nr. 4; Nachbesserung B33).
+    sessionRegisterCtrlListeners();
+    g_inMeetingOffen = true;
+  }
+
+  // RENDERER-SPERRE (Spec 6.5, Nachbesserung B34): gemessen ist die Folge
+  // disconnecting -> failed -> ended mit weiterlaufendem SDK-Thread
+  // (session.cpp), und schon vor disconnecting kommt RawData_Off. Ab hier ruft
+  // die Hauptschleife keine Renderer-Funktion mehr, bis INMEETING oder das
+  // Meeting-Ende die Sperre loest. Nur das Atom - kein Abbau im Rueckruf.
+  if (status == MEETING_STATUS_DISCONNECTING || status == MEETING_STATUS_RECONNECTING) {
+    g_rendererSperre = true;
+    emitLog(L"Renderer-Sperre an (Zoom trennt oder verbindet neu)");
   }
 
   // DAS MEETING IST VORBEI - die Erlaubnis daraus auch (Abschluss-Sichtung,
@@ -203,12 +279,9 @@ void ParticipantsListener::onUserJoin(IList<unsigned int>* ids, const zchar_t*) 
     IUserInfo* u = participantsCtrl() ? participantsCtrl()->GetUserByUserID(id) : nullptr;
     const std::string p = participantJson(u);
     if (!p.empty()) emitRaw("{\"ev\":\"joined\",\"p\":" + p + "}");
-    // ERST das bestehende "joined"-Ereignis, DANN das Abo-Umhaengen: sonst
-    // stuende ein "video"-Ereignis mit reason:"rebound" fuer eine Kennung auf
-    // der Leitung, die der Leser noch gar nicht kennt. Die Teilnehmerliste
-    // (oben) und das Video-Abo (hier) sind zwei getrennte Fragen und
-    // verschmelzen darum nicht zu einem Ereignis.
-    videoParticipantJoined(id);
+    // KEIN Umhaengen im Rueckruf (Spec E6, 0.2): nur der Merker. Was ein
+    // Beitritt fuer die Slots heisst, entscheidet die Hauptschleife.
+    merkerEinreihen(g_merkerTeilnehmer, MerkerTeilnehmer{id, true});
   }
 }
 
@@ -220,9 +293,9 @@ void ParticipantsListener::onUserLeft(IList<unsigned int>* ids, const zchar_t*) 
   for (int i = 0; i < ids->GetCount(); ++i) {
     const unsigned int id = ids->GetItem(i);
     emitRaw("{\"ev\":\"left\",\"id\":" + std::to_string(id) + "}");
-    // Das bestehende "left"-Ereignis bleibt unveraendert - das Video-Abo (falls
-    // eins besteht) ist eine ANDERE Frage und wird separat gemeldet.
-    videoParticipantLeft(id);
+    // Das bestehende "left"-Ereignis bleibt unveraendert. Die Slots erfahren den
+    // Weggang ueber den Merker; unSubscribe() laeuft in der Hauptschleife (6.7).
+    merkerEinreihen(g_merkerTeilnehmer, MerkerTeilnehmer{id, false});
   }
 }
 
@@ -317,4 +390,64 @@ void RecordingListener::onLocalRecordingPrivilegeRequestStatus(RequestLocalRecor
   sessionSetCanRecordRaw(false);
   emitRaw("{\"ev\":\"privilege\",\"canRecordRaw\":false,\"source\":\"requestAnswer\",\"requested\":true,\"timedOut\":true}");
   emitLog(L"Keine Antwort auf die Anfrage nach lokaler Aufnahme (Zeitueberschreitung).");
+}
+
+// --- Die drei Lauscher der Slots (Spec 6.5) ------------------------------------------
+// Jeder Rumpf kopiert Werte in einen Merker und kehrt zurueck; hoechstens eine
+// stderr-Zeile. Kein Renderer-Aufruf, kein slot...-Aufruf, kein emitRaw (PT6 a).
+
+void ShareListener::onSharingStatus(ZoomSDKSharingSourceInfo shareInfo) {
+  // contentType kann bei Begin vorlaeufig SHARE_TYPE_UNKNOWN sein
+  // (meeting_sharing_interface.h:60-65, :162-164); der Typ-Nachtrag zieht ihn nach.
+  merkerEinreihen(g_merkerFreigabe, MerkerFreigabe{shareInfo.userid, shareInfo.shareSourceID,
+                                                   static_cast<int>(shareInfo.status),
+                                                   static_cast<int>(shareInfo.contentType), false});
+}
+
+void ShareListener::onFailedToStartShare() {
+  emitLog(L"Freigabe: onFailedToStartShare (die Bridge teilt nie selbst)");
+}
+
+void ShareListener::onShareContentNotification(ZoomSDKSharingSourceInfo shareInfo) {
+  merkerEinreihen(g_merkerFreigabe, MerkerFreigabe{shareInfo.userid, shareInfo.shareSourceID,
+                                                   static_cast<int>(shareInfo.status),
+                                                   static_cast<int>(shareInfo.contentType), true});
+}
+
+void ShareListener::onMultiShareSwitchToSingleShareNeedConfirm(IShareSwitchMultiToSingleConfirmHandler* /*handler_*/) {
+  // NICHTS aufrufen: Confirm() stoppt alle Freigaben (meeting_sharing_interface.h:144).
+  emitLog(L"Freigabe: Zoom fragt nach dem Wechsel auf eine einzige Freigabe - die Bridge bestaetigt nichts");
+}
+
+void VideoCtrlListener::onUserVideoStatusChange(unsigned int userId, VideoStatus status) {
+  merkerEinreihen(g_merkerKamera, MerkerKamera{userId, static_cast<int>(status)});
+}
+
+void VideoCtrlListener::onHostRequestStartVideo(IRequestStartVideoHandler* /*handler_*/) {
+  emitLog(L"Video: der Gastgeber bittet, das eigene Video zu starten - die Bridge sendet kein Bild");
+}
+
+void VideoCtrlListener::onActiveSpeakerVideoUserChanged(unsigned int userid) {
+  merkerEinreihen(g_merkerSprecher, MerkerSprecher{0, std::vector<unsigned>{userid}, qpcJetzt()});
+}
+
+void VideoCtrlListener::onActiveVideoUserChanged(unsigned int userid) {
+  merkerEinreihen(g_merkerSprecher, MerkerSprecher{1, std::vector<unsigned>{userid}, qpcJetzt()});
+}
+
+void VideoCtrlListener::onCameraControlRequestReceived(unsigned int /*userId*/, CameraControlRequestType /*requestType*/,
+                                                       ICameraControlRequestHandler* /*pHandler*/) {
+  emitLog(L"Video: Anfrage zur Kamerasteuerung - die Bridge hat keine Kamera und antwortet nicht");
+}
+
+void AudioCtrlListener::onUserActiveAudioChange(IList<unsigned int >* plstActiveAudio) {
+  // Die Lebensdauer der Liste nennt der Header nicht (meeting_audio_interface.h:122):
+  // darum JETZT kopieren.
+  std::vector<unsigned> ids;
+  for (int i = 0; plstActiveAudio != nullptr && i < plstActiveAudio->GetCount(); ++i) ids.push_back(plstActiveAudio->GetItem(i));
+  merkerEinreihen(g_merkerSprecher, MerkerSprecher{2, std::move(ids), qpcJetzt()});
+}
+
+void AudioCtrlListener::onHostRequestStartAudio(IRequestStartAudioHandler* /*handler_*/) {
+  emitLog(L"Ton: der Gastgeber bittet, das eigene Mikrofon zu starten - die Bridge sendet keinen Ton");
 }

@@ -3353,5 +3353,93 @@ console.log('\nNativer Teil — A9 NDI-Sender: UYVA, Weiß, Transparent, Kopie, 
       && /std::lock_guard<std::mutex>\s+lock\(c\.m\)/.test(rumpf(sender, 'void NdiSender::sendCopy(')),
     'A9 Kopie: sendCopy(const FrameCopy&) hält die Sperre der Kopie über dem Senden');
 }
+console.log('\nNativer Teil — A10 Lauscher, Merker, Regler (Spec 6.5, 6.6 Nr. 4, PT6 a):');
+// PT6 a als Verbotsliste (A-EP13): kein Rückruf ruft eine Renderer-Funktion, eine slot…- oder eine
+// videoParticipant…-Funktion. Erlaubt bleiben SetEvent, emitRoster, checkPrivilege und alles Übrige von heute.
+const RUECKRUF_VERBOTEN = /\b(subscribe|unSubscribe|setRawDataResolution|createRenderer|destroyRenderer)\s*\(|\bslot\w*\s*\(|\bvideoParticipant\w*\s*\(/;
+/** Alle Methoden-Rümpfe `void Klasse::on…(…) {…}` einer Datei, als [Kopf, Rumpf]. */
+function rueckrufRuempfe(src: string): Array<[string, string]> {
+  const aus: Array<[string, string]> = [];
+  const kopf = /\bvoid\s+(\w+)::(on\w+)\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = kopf.exec(src)) !== null) aus.push([`${m[1]}::${m[2]}`, rumpf(src.slice(m.index), m[0])]);
+  return aus;
+}
+{
+  const cb = rueckrufRuempfe(nativ('callbacks.cpp', true));
+  const vd = rueckrufRuempfe(nativ('video.cpp', true));
+  const tonKlasse = rumpf(nativ('audio.cpp', true), 'class AudioDelegate');
+  assert(cb.length >= 18 && vd.length >= 2 && tonKlasse.includes('onOneWayAudioRawDataReceived'),
+    `A10 PT6 a: der Wächter findet die Rückruf-Rümpfe (callbacks.cpp ${cb.length} ≥ 18, Bild-Delegate ${vd.length} ≥ 2, Ton-Delegate)`);
+  const verstoss = [...cb, ...vd, ['AudioDelegate', tonKlasse] as [string, string]]
+    .filter(([, koerper]) => koerper === '' || RUECKRUF_VERBOTEN.test(koerper)).map(([name]) => name);
+  assert(verstoss.length === 0,
+    'A10 PT6 a: kein Rückruf ruft subscribe, unSubscribe, setRawDataResolution, createRenderer, destroyRenderer, slot…() oder videoParticipant…()');
+  if (verstoss.length > 0) console.error(`      Verstoß in: ${verstoss.join(', ')}`);
+  const cbSrc = nativ('callbacks.cpp', true);
+  assert(!/\bvideo\w*\s*\(/.test(rumpf(cbSrc, 'void ParticipantsListener::onUserJoin('))
+      && !/\bvideo\w*\s*\(/.test(rumpf(cbSrc, 'void ParticipantsListener::onUserLeft('))
+      && /merkerEinreihen\(\s*g_merkerTeilnehmer/.test(rumpf(cbSrc, 'void ParticipantsListener::onUserLeft(')),
+    'A10 E6: onUserJoin und onUserLeft rufen keine video…-Funktion, sie reihen nur einen Merker ein');
+  const neue = ['ShareListener::', 'VideoCtrlListener::', 'AudioCtrlListener::'];
+  const neueRuempfe = cb.filter(([name]) => neue.some((n) => name.startsWith(n)));
+  assert(neueRuempfe.length === 11 && neueRuempfe.every(([, koerper]) => !/\bemitRaw\s*\(/.test(koerper)),
+    'A10 E21: die 11 ausprogrammierten Methoden der drei neuen Lauscher reihen ein oder schreiben stderr, nie stdout');
+}
+{
+  const kopf = nativ('callbacks.h');
+  const stelle = (s: string) => kopf.indexOf(s);
+  const iWin = stelle('#include <windows.h>');
+  const iMsi = stelle('#include "meeting_service_interface.h"');
+  const iNeu = ['meeting_sharing_interface.h', 'meeting_video_interface.h', 'meeting_audio_interface.h']
+    .map((h) => stelle(`#include "meeting_service_components/${h}"`));
+  assert(iWin >= 0 && iMsi > iWin && iNeu.every((i) => i > iMsi),
+    'A10 B43: callbacks.h bindet windows.h, dann meeting_service_interface.h, erst danach Freigabe-, Video- und Ton-Header ein');
+  const anzahl = (klasse: string) => (rumpf(kopf, `class ${klasse} : public`).match(/\boverride\b/g) ?? []).length;
+  assert(anzahl('ShareListener') === 9 && anzahl('VideoCtrlListener') === 12 && anzahl('AudioCtrlListener') === 5,
+    'A10 B41: ShareListener 9, VideoCtrlListener 12, AudioCtrlListener 5 Methoden (override, ohne #if)');
+  assert(/constexpr\s+size_t\s+kMerkerMax\s*=\s*1024\s*;/.test(kopf)
+      && /if\s*\(\s*q\.size\(\)\s*>=\s*kMerkerMax\s*\)\s*\{\s*g_merkerVerworfen\.fetch_add\(1\);\s*return;/.test(rumpf(nativ('callbacks.cpp'), 'void merkerEinreihen(')),
+    'A10 B20: je Merker-Warteschlange höchstens 1024 Einträge, Überlauf zählt merkerVerworfen');
+}
+{
+  const ses = nativ('session.cpp', true);
+  const abbau = rumpf(ses, 'bool sessionShutdown()');
+  assert(['shareCtrl', 'videoCtrl', 'audioCtrl']
+    .every((g) => new RegExp(`(\\w+)\\s*=\\s*${g}\\(\\);\\s*if\\s*\\(\\s*\\1\\s*!=\\s*nullptr\\s*\\)\\s*\\1->SetEvent\\(nullptr\\)`).test(abbau)),
+    'A10 6.5: sessionShutdown meldet die drei neuen Lauscher mit SetEvent(nullptr) ab');
+  assert(/sessionRegisterCtrlListeners\(\s*\)\s*;[\s\S]*g_inMeetingOffen\s*=\s*true/.test(rumpf(nativ('callbacks.cpp', true), 'void MeetingListener::onMeetingStatusChanged(')),
+    'A10 6.5: INMEETING meldet die drei Lauscher an und setzt den Merker g_inMeetingOffen');
+  const alle = readdirSync(nativOrdner).filter((f) => f.endsWith('.cpp')).map((f) => nativ(f, true)).join('\n');
+  assert(!/\b(EnableHDVideo|EnableAlwaysUseOriginalSizeVideo)\s*\(/.test(alle) && /CreateSettingService\(/.test(ses),
+    'A10 6.11: der Einstellungsdienst wird nur gelesen (kein EnableHDVideo, kein EnableAlwaysUseOriginalSizeVideo)');
+  // 6.11/6.19 „nur lesend“ als Positivliste (Nachbesserung a3, NB-a3-6): Die Verbotsliste oben kennt zwei Setter,
+  // der Einstellungsdienst hat Dutzende (EnableAlwaysShowNameOnVideo, EnableFaceBeautyEffect …). Ob das SDK eine
+  // Einstellung über das Meeting hinaus am Rechner speichert, belegt kein Header (unbelegt) - darum gar keiner.
+  const fremd = readdirSync(nativOrdner).filter((f) => /\.(cpp|h)$/.test(f) && f !== 'session.cpp' && f !== 'session.h')
+    .filter((f) => /\b(g_settings|ISettingService|IVideoSettingContext|GetVideoSettings)\b/.test(nativ(f, true)));
+  const dienst = [...ses.matchAll(/\bg_settings\s*->\s*(\w+)\s*\(/g)].map((m) => m[1]);
+  const kontext = [...ses.matchAll(/\bIVideoSettingContext\s*\*\s*(\w+)\s*=/g)].flatMap((m) => {
+    const ende = ses.indexOf('\n}', m.index);
+    const stueck = ses.slice(m.index, ende < 0 ? ses.length : ende);
+    return [...stueck.matchAll(new RegExp(`\\b${m[1]}\\s*->\\s*(\\w+)\\s*\\(`, 'g'))].map((n) => n[1]);
+  });
+  const nurLesend = fremd.length === 0 && dienst.length > 0 && dienst.every((a) => a === 'GetVideoSettings')
+    && kontext.length > 0 && kontext.every((a) => /^Is[A-Z]/.test(a));
+  assert(nurLesend,
+    'A10 6.11: Positivliste - g_settings ruft nur GetVideoSettings(), der Video-Kontext nur Is…-Getter, beides nur in session.cpp');
+  if (!nurLesend) console.error(`      g_settings: ${dienst.join(', ') || '(keiner)'}; Video-Kontext: ${kontext.join(', ') || '(keiner)'}; außerhalb von session.cpp: ${fremd.join(', ') || '(keine)'}`);
+  const main = nativ('main.cpp', true);
+  const schleife = main.slice(Math.max(0, main.indexOf('while (!g_quit) {')));
+  const iEntzug = schleife.indexOf('callbacksTakePrivilegeRevokedTeardown(');
+  const iMerker = schleife.indexOf('merkerNehmen(');
+  const iTakt = schleife.search(/\b(videoTick|slotsTick)\(/);
+  assert(iEntzug >= 0 && iMerker > iEntzug && iTakt > iMerker,
+    'A10 6.6: die Hauptschleife nimmt die Merker nach dem Entzug und vor dem Herzschlag');
+  const nehmen = rumpf(main, 'void merkerNehmen()');
+  assert(nehmen.indexOf('callbacksTakeInMeeting(') >= 0 && nehmen.indexOf('callbacksTakeInMeeting(') < nehmen.indexOf('callbacksTakeTeilnehmer(')
+      && /sessionEigeneKennungNeu\(\)/.test(nehmen),
+    'A10 6.6 Nr. 4: zuerst INMEETING (eigene Kennung neu), dann die Teilnehmer');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

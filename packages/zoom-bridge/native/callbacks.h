@@ -33,8 +33,63 @@
 // darum nur die explizite, unabhaengige Absicherung fuer diese
 // Uebersetzungseinheit - derselbe Vorsichts-Stil wie bei windows.h oben.
 #include "meeting_service_components/meeting_recording_interface.h"
+// Die drei Lauscher der Slots (Spec 6.5, Nachbesserung B43) - ERST NACH
+// meeting_service_interface.h (oben): meeting_sharing_interface.h bindet nur
+// zoom_sdk_def.h ein (meeting_sharing_interface.h:7), benutzt aber SDKViewType
+// und SDKShareViewZoomRatio (:319, :327, :353), die erst in
+// meeting_service_interface.h:620, :634 stehen - dieselbe Art Falle wie
+// AudioType oben. meeting_audio_interface.h steht schon oben (Zeile mit der
+// AudioType-Falle) und damit ebenfalls nach meeting_service_interface.h.
+#include "meeting_service_components/meeting_sharing_interface.h"
+#include "meeting_service_components/meeting_video_interface.h"
+#include <cstdint>
+#include <vector>
 
 USING_ZOOM_SDK_NAMESPACE
+
+// --- Merker der Slots (Spec 6.5, 6.6 Nr. 4; E21) ------------------------------------
+// Jeder Rueckruf KOPIERT nur Werte (keine Zeiger, deren Lebensdauer der Header nicht
+// nennt, etwa monitorID) in eine Warteschlange unter g_merkerMutex und kehrt zurueck.
+// Die Hauptschleife nimmt sie nach pumpOnce(). Je Warteschlange hoechstens
+// kMerkerMax Eintraege; was darueber kommt, zaehlt merkerVerworfen() (bridgeStats,
+// T61). Auf welchem Thread die drei neuen Lauscher rufen, sagt kein Header
+// (ANNAHME AN3, unbelegt) - die Warteschlange traegt beide Faelle.
+constexpr size_t kMerkerMax = 1024;
+
+/** Teilnehmer kam (beitritt) oder ging. Aus onUserJoin/onUserLeft. */
+struct MerkerTeilnehmer { unsigned id = 0; bool beitritt = false; };
+/** onUserVideoStatusChange: status = VideoStatus (Video_ON/OFF/Mute_ByHost). */
+struct MerkerKamera { unsigned id = 0; int status = 0; };
+/**
+ * onSharingStatus (typNachtrag = false, status = SharingStatus) bzw.
+ * onShareContentNotification (typNachtrag = true; was status dort traegt, sagt der
+ * Header nicht, Spec 6.5 - darum ausdruecklich als Typ-Nachtrag gefuehrt).
+ */
+struct MerkerFreigabe { unsigned user = 0; unsigned share = 0; int status = 0; int contentType = 0; bool typNachtrag = false; };
+/**
+ * Sprecher-Signal: signal 0 = speakerVideo, 1 = activeVideo, 2 = activeAudio
+ * (Reihenfolge von SPEAKER_SIGNALS bzw. slotlogic::Signal); qpc =
+ * QueryPerformanceCounter im Rueckruf.
+ */
+struct MerkerSprecher { int signal = 0; std::vector<unsigned> ids; long long qpc = 0; };
+
+/** INMEETING kam seit dem letzten Nehmen (nimmt und loescht, exchange). */
+bool callbacksTakeInMeeting();
+bool callbacksTakeTeilnehmer(MerkerTeilnehmer* out);
+bool callbacksTakeKamera(MerkerKamera* out);
+bool callbacksTakeFreigabe(MerkerFreigabe* out);
+bool callbacksTakeSprecher(MerkerSprecher* out);
+/** Uebergelaufene Merker seit Prozessstart (ein verlorenes Zoom-Ereignis je Zaehler). */
+uint64_t merkerVerworfen();
+
+/**
+ * Renderer-Sperre (Spec 6.5, Nachbesserung B34): gesetzt im Rueckruf bei
+ * DISCONNECTING und RECONNECTING (meeting_service_interface.h:28, :30), geloest
+ * nur von der Hauptschleife (INMEETING-Merker oder Meeting-Ende-Kette). Jede
+ * Renderer-Funktion liest sie vorher (ab Plan A, Aufgabe A14).
+ */
+bool callbacksRendererSperre();
+void callbacksRendererSperreLoesen();
 
 class AuthListener : public IAuthServiceEvent {
  public:
@@ -136,4 +191,48 @@ class RecordingListener : public IMeetingRecordingCtrlEvent {
   void onRecording2MP4Processing(int) override {}
   void onCustomizedLocalRecordingSourceNotification(ICustomizedLocalRecordingLayoutHelper*) override {}
 #endif
+};
+
+// Freigabe-Lauscher (IMeetingShareCtrlEvent, 9 Methoden ohne #if, Signaturen
+// woertlich aus meeting_sharing_interface.h:153-214). Wirkung Spec 6.5.
+class ShareListener : public IMeetingShareCtrlEvent {
+ public:
+  void onSharingStatus(ZoomSDKSharingSourceInfo shareInfo) override;
+  void onFailedToStartShare() override;
+  void onLockShareStatus(bool /*bLocked*/) override {}
+  void onShareContentNotification(ZoomSDKSharingSourceInfo shareInfo) override;
+  void onMultiShareSwitchToSingleShareNeedConfirm(IShareSwitchMultiToSingleConfirmHandler* handler_) override;
+  void onShareSettingTypeChangedNotification(ShareSettingType /*type*/) override {}
+  void onSharedVideoEnded() override {}
+  void onVideoFileSharePlayError(ZoomSDKVideoFileSharePlayError /*error*/) override {}
+  void onOptimizingShareForVideoClipStatusChanged(ZoomSDKSharingSourceInfo /*shareInfo*/) override {}
+};
+
+// Video-Regler-Lauscher (IMeetingVideoCtrlEvent, 12 Methoden ohne #if,
+// meeting_video_interface.h:208-290).
+class VideoCtrlListener : public IMeetingVideoCtrlEvent {
+ public:
+  void onUserVideoStatusChange(unsigned int userId, VideoStatus status) override;
+  void onSpotlightedUserListChangeNotification(IList<unsigned int >* /*lstSpotlightedUserID*/) override {}
+  void onHostRequestStartVideo(IRequestStartVideoHandler* handler_) override;
+  void onActiveSpeakerVideoUserChanged(unsigned int userid) override;
+  void onActiveVideoUserChanged(unsigned int userid) override;
+  void onHostVideoOrderUpdated(IList<unsigned int >* /*orderList*/) override {}
+  void onLocalVideoOrderUpdated(IList<unsigned int >* /*localOrderList*/) override {}
+  void onFollowHostVideoOrderChanged(bool /*bFollow*/) override {}
+  void onUserVideoQualityChanged(VideoConnectionQuality /*quality*/, unsigned int /*userid*/) override {}
+  void onVideoAlphaChannelStatusChanged(bool /*isAlphaModeOn*/) override {}
+  void onCameraControlRequestReceived(unsigned int userId, CameraControlRequestType requestType, ICameraControlRequestHandler* pHandler) override;
+  void onCameraControlRequestResult(unsigned int /*userId*/, CameraControlRequestResult /*result*/) override {}
+};
+
+// Ton-Regler-Lauscher (IMeetingAudioCtrlEvent, 5 Methoden ohne #if,
+// meeting_audio_interface.h:108-143).
+class AudioCtrlListener : public IMeetingAudioCtrlEvent {
+ public:
+  void onUserAudioStatusChange(IList<IUserAudioStatus* >* /*lstAudioStatusChange*/, const zchar_t* /*strAudioStatusList*/ = nullptr) override {}
+  void onUserActiveAudioChange(IList<unsigned int >* plstActiveAudio) override;
+  void onHostRequestStartAudio(IRequestStartAudioHandler* handler_) override;
+  void onJoin3rdPartyTelephonyAudio(const zchar_t* /*audioInfo*/) override {}
+  void onMuteOnEntryStatusChange(bool /*bEnabled*/) override {}
 };
