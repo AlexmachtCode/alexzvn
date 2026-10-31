@@ -48,11 +48,52 @@ namespace {
 // Owner-Abnahmeliste. Wer diese Zahl anfasst, aendert Betriebswirtschaft: zu
 // klein heisst audioQueueOverflow bei jedem Hakler, zu gross heisst, dass ein
 // echter Haenger Sekunden alten Ton aufhebt, den niemand mehr hoeren will.
-constexpr size_t kMaxPakete = 256;
+// 512 seit den Slots (Spec 6.13): Person-, Misch- und Computerton teilen sich die
+// Warteschlange; die Summe mehrerer Arten ist UNGEMESSEN, ein Ueberlauf bleibt sichtbar
+// (audioQueueOverflow, Hinweis Q6).
+constexpr size_t kMaxPakete = 512;   // reicht fuer 16 Slots mit Misch- und Computerton: ANNAHME AN13 (unbelegt)
 
 std::mutex g_queueMutex;
 std::deque<AudioPacket> g_queue;
 std::atomic<unsigned int> g_verworfen{0};
+// Zaehler fuer bridgeStats (audioZaehler()).
+std::atomic<uint64_t> g_shareAudioPackets{0};
+std::atomic<uint64_t> g_shareAudioUnassigned{0};
+std::atomic<unsigned int> g_shareAudioLastId{0};
+std::atomic<bool> g_shareAudioLastIdDa{false};
+std::atomic<unsigned int> g_queueMax{0};
+std::atomic<uint64_t> g_droppedGesamt{0};
+
+// Kopiert ein Paket und reiht es ein - fuer alle drei Arten derselbe Weg (6.13). Der
+// Rueckruf schlaegt NIE einen Slot nach: das macht die Hauptschleife (tonZiele).
+void einreihen(AudioRawData* data, uint32_t userId, AudioArt art) {
+  if (data == nullptr) return;
+  const char* buf = data->GetBuffer();
+  const unsigned int len = data->GetBufferLen();
+  const int rate = static_cast<int>(data->GetSampleRate());
+  const int ch = static_cast<int>(data->GetChannelNum());
+  if (buf == nullptr || len == 0 || rate <= 0 || ch <= 0) return;
+  AudioPacket p;
+  LARGE_INTEGER jetztQpc;
+  QueryPerformanceCounter(&jetztQpc);
+  p.eingangTick = jetztQpc.QuadPart;
+  p.kind = art;
+  p.userId = userId;
+  p.sampleRate = rate;
+  p.channels = ch;
+  p.bufferLen = len;
+  p.sampleCount = static_cast<int>(len / (sizeof(int16_t) * static_cast<unsigned int>(ch)));
+  p.samples.resize(len / sizeof(int16_t));
+  std::memcpy(p.samples.data(), buf, p.samples.size() * sizeof(int16_t));
+  std::lock_guard<std::mutex> lock(g_queueMutex);
+  while (g_queue.size() >= kMaxPakete) {
+    g_queue.pop_front();
+    g_verworfen.fetch_add(1);
+    g_droppedGesamt.fetch_add(1);
+  }
+  g_queue.push_back(std::move(p));
+  if (g_queue.size() > g_queueMax.load()) g_queueMax = static_cast<unsigned int>(g_queue.size());
+}
 
 // ZWEI TATSACHEN, ZWEI MERKZEICHEN (Schlusspruefung Stage 3, Critical 2).
 // Vorher liefen sie unter EINEM Namen - und gingen auf dem HAEUFIGSTEN Weg
@@ -84,55 +125,23 @@ std::atomic<bool> g_ueberlaufGemeldet{false};
 
 class AudioDelegate : public IZoomSDKAudioRawDataDelegate {
  public:
-  // NICHT GENUTZT, aber Pflicht: die Schnittstelle ist rein virtuell. Der
-  // Mischton, der Bildschirmton und der Dolmetscherton stehen ausdruecklich
-  // NICHT im Umfang (Spec Abschnitt 10) - leere Rumpfe sind hier die
-  // ehrliche Umsetzung, kein Versehen.
-  void onMixedAudioRawDataReceived(AudioRawData* /*data*/) override {}
-  void onShareAudioRawDataReceived(AudioRawData* /*data*/, uint32_t /*userId*/) override {}
+  // BERICHTIGT (D6, Plan A A15): Mischton und Computerton gehoeren seit den Slots zum
+  // Umfang (Spec 6.13) und werden wie der Person-Ton kopiert und eingereiht. Nur der
+  // Dolmetscherton bleibt leer: ihn liefert das Abo ohnehin nur mit
+  // bWithInterpreters = true (rawdata_audio_helper_interface.h:73-74), die Bridge setzt false.
+  void onMixedAudioRawDataReceived(AudioRawData* data) override { einreihen(data, 0, AudioArt::Mix); }
+  void onShareAudioRawDataReceived(AudioRawData* data, uint32_t userId) override {
+    // VOR der Zuordnung gezaehlt (B39): "nichts angekommen" (T64) und "angekommen,
+    // keiner Freigabe zuzuordnen" (T64c) bleiben unterscheidbar.
+    g_shareAudioPackets.fetch_add(1);
+    g_shareAudioLastId = userId;
+    g_shareAudioLastIdDa = true;
+    einreihen(data, userId, AudioArt::Share);
+  }
   void onOneWayInterpreterAudioRawDataReceived(AudioRawData* /*data*/, const zchar_t* /*lang*/) override {}
 
   void onOneWayAudioRawDataReceived(AudioRawData* data, uint32_t userId) override {
-    if (data == nullptr) return;
-    const char* buf = data->GetBuffer();
-    const unsigned int len = data->GetBufferLen();
-    const int rate = static_cast<int>(data->GetSampleRate());
-    const int ch = static_cast<int>(data->GetChannelNum());
-    if (buf == nullptr || len == 0 || rate <= 0 || ch <= 0) return;
-
-    AudioPacket p;
-    // SO FRUEH WIE MOEGLICH: alles danach - die Kopie der Abtastwerte, das
-    // Anstellen in der Warteschlange - gehoert bereits zum Verzug, den diese
-    // Messung erfassen soll.
-    LARGE_INTEGER jetztQpc;
-    QueryPerformanceCounter(&jetztQpc);
-    p.eingangTick = jetztQpc.QuadPart;
-    p.userId = userId;
-    p.sampleRate = rate;
-    p.channels = ch;
-    // Die Pufferpruefung (Vielfaches von channels*2) macht der HAUPTTHREAD
-    // beim Leeren, nicht hier: "einmal je Abo" braucht ein Merkzeichen am
-    // Sub, und genau das darf dieser Rueckruf nicht anfassen. Hier wird nur
-    // so gerechnet, dass nichts ueberlaeuft.
-    //
-    // bufferLen VOR den beiden Teilungen sichern (Nachbesserung): sowohl
-    // sampleCount als auch samples.size() unten entstehen durch dieselbe
-    // Ganzzahl-Division von len und verlieren dabei einen etwaigen Rest
-    // GLEICHERMASSEN - aus den beiden Ergebnissen laesst sich danach nicht
-    // mehr rekonstruieren, ob len ein ganzzahliges Vielfaches von channels*2
-    // war. Nur len selbst traegt diese Information noch.
-    p.bufferLen = len;
-    p.sampleCount = static_cast<int>(len / (sizeof(int16_t) * static_cast<unsigned int>(ch)));
-    p.samples.resize(len / sizeof(int16_t));
-    std::memcpy(p.samples.data(), buf, p.samples.size() * sizeof(int16_t));
-
-    std::lock_guard<std::mutex> lock(g_queueMutex);
-    // DAS AELTESTE fliegt raus, nicht das neue: verspaeteter Ton ist wertlos.
-    while (g_queue.size() >= kMaxPakete) {
-      g_queue.pop_front();
-      g_verworfen.fetch_add(1);
-    }
-    g_queue.push_back(std::move(p));
+    einreihen(data, userId, AudioArt::Person);
   }
 };
 
@@ -177,7 +186,15 @@ void audioAbmelden() {
 
 }  // namespace
 
-bool audioEnsureSubscribed() {
+namespace {
+// Ton-Abo-Fehler (6.4): where:"audio", mit "slot", wenn ein Slot das Einschalten ausloeste.
+void tonAboFehler(const char* code, int slot) {
+  emitRaw(std::string("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"") + code + "\"" +
+          (slot > 0 ? ",\"slot\":" + std::to_string(slot) : std::string()) + "}");
+}
+}  // namespace
+
+bool audioEnsureSubscribed(int slot) {
   if (g_abonniert.load()) return true;
   // Eine noch STEHENDE Anmeldung zuerst freigeben. Im Normalfall ist das ein
   // Rueckkehrbefehl (das Meeting-Ende hat sie bereits geloest), scharf wird
@@ -204,13 +221,13 @@ bool audioEnsureSubscribed() {
   if (voipErr != SDKERR_SUCCESS) {
     emitLog(std::wstring(L"Zoom-SDK meldet einen Fehler bei JoinVoip(): SDKError=") +
             std::to_wstring(static_cast<int>(voipErr)));
-    emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioVoipJoinFailed\"}");
+    tonAboFehler("audioVoipJoinFailed", slot);
     return false;
   }
 
   IZoomSDKAudioRawDataHelper* helper = GetAudioRawdataHelper();
   if (helper == nullptr) {
-    emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioHelperMissing\"}");
+    tonAboFehler("audioHelperMissing", slot);
     return false;
   }
   // false: siehe audio.h - schuetzt die Dolmetscher-App (#208).
@@ -218,7 +235,7 @@ bool audioEnsureSubscribed() {
   if (err != SDKERR_SUCCESS) {
     emitLog(std::wstring(L"Zoom-SDK meldet einen Fehler bei subscribe() fuer den Ton: SDKError=") +
             std::to_wstring(static_cast<int>(err)));
-    emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioSubscribeFailed\"}");
+    tonAboFehler("audioSubscribeFailed", slot);
     return false;
   }
   // ERST die Tatsache ueber das SDK, dann die ueber das Meeting - in dieser
@@ -285,3 +302,16 @@ bool audioTakeOverflowReport(unsigned int* dropped) {
   *dropped = n;
   return true;
 }
+
+AudioZaehler audioZaehler() {
+  AudioZaehler z;
+  z.shareAudioPackets = g_shareAudioPackets.load();
+  z.shareAudioUnassigned = g_shareAudioUnassigned.load();
+  z.shareAudioLastId = g_shareAudioLastId.load();
+  z.shareAudioLastIdDa = g_shareAudioLastIdDa.load();
+  z.queueMax = g_queueMax.load();
+  z.dropped = g_droppedGesamt.load();
+  return z;
+}
+
+void audioShareNichtZugeordnet() { g_shareAudioUnassigned.fetch_add(1); }

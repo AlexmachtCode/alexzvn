@@ -17,6 +17,9 @@
  * macht der Hauptthread (video.cpp, videoTick). g_subs bleibt damit in genau
  * einer Hand, und die Lebensdauerfrage entfaellt, statt bewacht zu werden.
  */
+/** Art eines Ton-Pakets (Spec 6.13): Person-Ton, Mischton des Meetings, Computerton einer Freigabe. */
+enum class AudioArt : uint8_t { Person, Mix, Share };
+
 struct AudioPacket {
   // Zaehlerstand von QueryPerformanceCounter() ZUM ZEITPUNKT DES RUECKRUFS.
   // Misst, wie lange ein Paket in der Warteschlange liegt, bevor der
@@ -31,6 +34,9 @@ struct AudioPacket {
   // Als long long und nicht als LARGE_INTEGER, weil diese Datei bewusst frei
   // von windows.h bleibt (siehe oben).
   long long eingangTick = 0;
+  // Person-Ton, Mischton (userId 0) oder Computerton (userId = die teilende Person,
+  // ANNAHME AN18: der Header nennt nur den Parameternamen).
+  AudioArt kind = AudioArt::Person;
   unsigned int userId = 0;
   int sampleRate = 0;
   int channels = 0;
@@ -56,11 +62,12 @@ struct AudioPacket {
  * lokalen Dolmetscher-Funktionen unbrauchbar und beschaedigt damit die
  * Dolmetscher-App (#208).
  *
- * Meldet audioHelperMissing bzw. audioSubscribeFailed selbst auf stdout.
+ * Meldet audioVoipJoinFailed, audioHelperMissing bzw. audioSubscribeFailed selbst auf
+ * stdout, mit "slot", wenn ein Slot (slot > 0) das Einschalten ausloeste (Spec 6.4).
  *
  * @returns false, wenn kein Ton kommen wird.
  */
-bool audioEnsureSubscribed();
+bool audioEnsureSubscribed(int slot = 0);
 
 /**
  * Beendet den Ton fuer das laufende Meeting: MELDET AB (unSubscribe(), falls
@@ -144,3 +151,21 @@ bool audioPop(AudioPacket* out);
  * @returns true = jetzt melden.
  */
 bool audioTakeOverflowReport(unsigned int* dropped);
+
+/**
+ * Zaehler fuer bridgeStats (Spec 6.13, 6.17). Freigabe-Ton wird VOR der Zuordnung
+ * gezaehlt (Nachbesserung B39): shareAudioPackets bei Ankunft im Rueckruf, Unassigned
+ * meldet die Hauptschleife, wenn tonZiele() keinen Slot liefert.
+ */
+struct AudioZaehler {
+  uint64_t shareAudioPackets = 0;
+  uint64_t shareAudioUnassigned = 0;
+  unsigned int shareAudioLastId = 0;
+  bool shareAudioLastIdDa = false;
+  unsigned int queueMax = 0;     // groesste gesehene Laenge der Warteschlange
+  uint64_t dropped = 0;          // verworfene Pakete seit Prozessstart
+};
+AudioZaehler audioZaehler();
+
+/** Ein Freigabe-Paket ging an keinen Slot (Hauptschleife, nach tonZiele). */
+void audioShareNichtZugeordnet();

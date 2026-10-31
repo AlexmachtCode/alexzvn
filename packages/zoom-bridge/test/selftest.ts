@@ -3731,5 +3731,38 @@ console.log('\nNativer Teil — A14 Abbau-Ketten, Renderer-Sperre, Halteliste (S
       && /slotsMeetingNeu\(\)/.test(fall('join')),
     'A14 6.15: leave ruft nur die Kette slotsLeave; join zählt die Meeting-Nummer der Halteliste hoch');
 }
+console.log('\nNativer Teil — A15 Ton je Slot: Arten, Mischer, Stille (Spec 6.13, 0.35):');
+{
+  const audio = nativ('audio.cpp', true);
+  const ton = rumpf(audio, 'class AudioDelegate');
+  assert(/einreihen\(\s*data\s*,\s*0\s*,\s*AudioArt::Mix\s*\)/.test(ton) && /einreihen\(\s*data\s*,\s*userId\s*,\s*AudioArt::Share\s*\)/.test(ton)
+      && /einreihen\(\s*data\s*,\s*userId\s*,\s*AudioArt::Person\s*\)/.test(ton),
+    'A15 6.13: Person-, Misch- und Computerton werden kopiert und mit ihrer Art eingereiht');
+  assert(!/\b(g_slots|tonZiele|sendAudio|slot\w*)\s*[(.[]/.test(ton) && !/\bSlot\b/.test(ton),
+    'A15 6.13: der Ton-Delegate legt Pakete nur in die Warteschlange (keine Zuordnung im Rückruf)');
+  assert(/constexpr\s+size_t\s+kMaxPakete\s*=\s*512\s*;/.test(audio),
+    'A15 6.13: die Ton-Warteschlange fasst 512 Pakete');
+  assert(/g_shareAudioPackets\.fetch_add\(1\)/.test(rumpf(ton, 'void onShareAudioRawDataReceived(')),
+    'A15 B39: Freigabe-Ton wird vor der Zuordnung gezählt (shareAudioPackets)');
+  const sichern = rumpf(nativ('audio.cpp'), 'bool audioEnsureSubscribed(int slot)');
+  assert(['audioVoipJoinFailed', 'audioHelperMissing', 'audioSubscribeFailed'].every((c) => sichern.includes(`tonAboFehler("${c}", slot)`)),
+    'A15 6.4: die drei Ton-Abo-Fehler tragen slot, wenn ein Slot sie auslöste');
+  const video = nativ('video.cpp', true);
+  assert(/audioEnsureSubscribed\(\s*b\.nr\s*\)/.test(video) && /audioEnsureSubscribed\(\s*s\.nr\s*\)/.test(video) && !/audioEnsureSubscribed\(\s*\)/.test(video),
+    'A15 B70: jedes Einschalten von Ton ruft audioEnsureSubscribed mit der Slot-Nummer');
+  const tick = rumpf(video, 'void slotsTick()');
+  assert(/tonZiele\(\s*art\s*,\s*p\.userId\s*,\s*sicht\s*\)/.test(tick) && /p\.kind\s*==\s*AudioArt::Mix/.test(tick)
+      && /audioShareNichtZugeordnet\(\)/.test(tick) && /mischerEinspeisen\(/.test(tick) && /mischerAusgeben\(/.test(tick),
+    'A15 6.13: die Zuordnung je Paket folgt tonZiele(Art, Kennung, Slots), Mischer A/B, Mischer-Ausgabe je Herzschlag');
+  const stille = rumpf(video, 'void stilleSenden(');
+  const iMischer = stille.search(/if\s*\(\s*weg\s*==\s*TonQuelle::MixShare\s*\)\s*return;/);
+  assert(iMischer >= 0 && iMischer < stille.indexOf('sendSilence('),
+    'A15 0.35: Mischer-Slots rufen den Stille-Herzschlag nicht');
+  assert(/std::lock_guard<std::mutex>\s+lock\(s\.fieldMutex\);\s*s\.ton\.silenceBisMs\s*=\s*r\.neuerSilenceBisMs;/.test(stille)
+      && /stilleBloecke\(\s*weg\s*,/.test(stille),
+    'A15 RN6: stilleBloecke entscheidet, silenceBisMs wird unter fieldMutex fortgeschrieben');
+  assert(/case UmhaengSchritt::MischerNeu:[^}]*?s\.mix\s*=\s*AudioMix\{\}/.test(video) && /case UmhaengSchritt::MischerEingangBNeu:[^}]*?s\.mix\.eingangBNeu\(\)/.test(video),
+    'A15 N1: MischerNeu beginnt den Mischer neu, MischerEingangBNeu nur dessen Eingang B');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

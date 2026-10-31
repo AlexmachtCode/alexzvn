@@ -19,6 +19,14 @@
 #include "callbacks.h"
 #include "audio.h"
 #include "preview.h"
+// Mischer Mischton + Computerton (reine Logik, Block a2). min/max wie bei slot_logic.h.
+#pragma push_macro("min")
+#pragma push_macro("max")
+#undef min
+#undef max
+#include "audio_mix.h"
+#pragma pop_macro("max")
+#pragma pop_macro("min")
 
 using namespace slotlogic;
 
@@ -110,6 +118,9 @@ struct Slot {
   // Kopie des letzten Bildes DIESES Ziels (Freeze, Freigabe; 6.12). Gueltig nur mit
   // abo.ziel.kopieGueltig.
   FrameCopy last;
+  // Mischer (6.13): nur Mischer-Slots (Tonweg mixShare); beginnt neu, sobald der Slot
+  // Mischer-Slot wird (Schritt MischerNeu). Nur Hauptthread.
+  AudioMix mix;
 
   // --- nur Hauptthread ---
   int64_t letztesErsatzMs = 0;
@@ -122,6 +133,11 @@ struct Slot {
   bool tonAudioUnavailable = false;        // audioEnsureSubscribed() scheiterte; bleibt bis Ton neu an (6.13)
   int64_t tonFensterBeginnMs = 0;
   bool tonFensterPerson = false;
+  bool tonFensterMix = false;              // Mischton ging direkt hinaus
+  bool tonFensterShare = false;            // Computerton ging direkt hinaus
+  bool tonFensterMischA = false;           // Mischer bekam Mischton (Eingang A)
+  bool tonFensterMischB = false;           // Mischer bekam Computerton (Eingang B)
+  bool rateMismatchGemeldet = false;       // slotAudio rateMismatch (T76) ist gemeldet
   int64_t versatzMessBeginnMs = 0;
   // Vorgemerktes Umhaengen waehrend der Renderer-Sperre (6.10 Schritt 0).
   bool vorgemerkt = false;
@@ -456,8 +472,14 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         break;
       }
       case UmhaengSchritt::MischerEingangBNeu:
+        // Freigabewechsel im Mischer-Slot: nur der Computerton beginnt neu (6.10 Schritt 8).
+        s.mix.eingangBNeu();
+        break;
       case UmhaengSchritt::MischerNeu:
-        break;   // Mischer kommt mit A15
+        // Der Slot wird Mischer-Slot: Uhr, Eingaenge und Vorlauf von vorn (Restnachfix N1).
+        s.mix = AudioMix{};
+        s.rateMismatchGemeldet = false;
+        break;
       case UmhaengSchritt::TonMelden: {
         // E-a2-7: je Schritt TonMelden die naechste Meldung aus tonFolge, in Reihenfolge.
         if (tonNr >= plan.tonFolge.size()) break;
@@ -882,20 +904,65 @@ void tonMessungMelden(Slot& s, const TonStand& m, int64_t spanne, bool erstes) {
   }
 }
 
+// GEPRUEFT, NICHT GEGLAUBT (wie bisher): eine Pufferlaenge, die nicht zur Kanalzahl
+// passt, ergibt Rauschen. Gemeldet einmal je Ton-Stand (audioBufferMismatch mit slot).
+bool pufferPasst(Slot& s, const AudioPacket& p) {
+  if (p.sampleCount > 0 && p.bufferLen % (sizeof(int16_t) * static_cast<unsigned int>(p.channels)) == 0) return true;
+  bool melden = false;
+  {
+    std::lock_guard<std::mutex> lock(s.fieldMutex);
+    if (!s.ton.audioMismatchGemeldet) { s.ton.audioMismatchGemeldet = true; melden = true; }
+  }
+  if (melden) emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioBufferMismatch\",\"slot\":" + std::to_string(s.nr) + "}");
+  return false;
+}
+
+// Ein Paket in den Mischer (6.13): Mischton in Eingang A, Computerton in Eingang B. Das
+// Format des Stroms ist das des Computertons (geht bei Raten-Unterschied allein hinaus). Alle Ton-Wege mono 32 kHz ist nur angenommen, gemessen wird je Paket: ANNAHME AN12 (unbelegt).
+void mischerEinspeisen(Slot& s, const AudioPacket& p, Weg weg, int64_t jetzt) {
+  if (!pufferPasst(s, p)) return;
+  if (weg == Weg::MischerA) {
+    s.mix.eingangA(p.samples.data(), p.sampleCount, p.sampleRate, p.channels, jetzt);
+    s.tonFensterMischA = true;
+  } else {
+    s.mix.eingangB(p.samples.data(), p.sampleCount, p.sampleRate, p.channels, jetzt);
+    s.tonFensterMischB = true;
+  }
+  std::lock_guard<std::mutex> lock(s.fieldMutex);
+  if (weg == Weg::MischerB || s.ton.audioRate == 0) {
+    s.ton.audioRate = p.sampleRate;
+    s.ton.audioChannels = p.channels;
+  }
+  s.ton.lastAudioMs = jetzt;
+}
+
+// Mischer-Ausgabe je Herzschlag (6.13, B17): genau die verstrichene Zeit in 10-ms-
+// Schritten, nie mehr Ton als Wanduhrzeit. Raten-Unterschied: nur der Computerton,
+// slotAudio rateMismatch (T76).
+void mischerAusgeben(Slot& s, int64_t jetzt) {
+  if (tonWeg(s.mode.load(), s.audio.load(), s.shareAudio.load()) != TonQuelle::MixShare) return;
+  std::vector<int16_t> aus;
+  const int n = s.mix.ausgabe(jetzt, aus);
+  if (s.mix.rateMismatch() && !s.rateMismatchGemeldet && !s.tonAudioUnavailable) {
+    s.rateMismatchGemeldet = true;
+    tonMelden(s, TonZustand::Live, TonGrund::rateMismatch);
+  }
+  if (n <= 0) return;
+  int rate = 0, ch = 0;
+  {
+    std::lock_guard<std::mutex> lock(s.fieldMutex);
+    rate = s.ton.audioRate;
+    ch = s.ton.audioChannels > 0 ? s.ton.audioChannels : 1;
+  }
+  if (rate <= 0) return;
+  s.sender.sendAudio(aus.data(), static_cast<int>(aus.size()) / ch, rate, ch);
+  if (s.tonZustand != TonZustand::Live && !s.tonAudioUnavailable) tonMelden(s, TonZustand::Live, TonGrund::packets);
+}
+
 // Ein Paket an einen Slot (Weg direkt). Prueft die Pufferlaenge je Paket; meldet eine
 // falsche einmal je Ton-Stand (audioBufferMismatch mit slot, 6.4).
 void paketSenden(Slot& s, const AudioPacket& p, int64_t jetzt) {
-  if (p.sampleCount <= 0 || p.bufferLen % (sizeof(int16_t) * static_cast<unsigned int>(p.channels)) != 0) {
-    bool melden = false;
-    {
-      std::lock_guard<std::mutex> lock(s.fieldMutex);
-      if (!s.ton.audioMismatchGemeldet) { s.ton.audioMismatchGemeldet = true; melden = true; }
-    }
-    if (melden) {
-      emitRaw("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioBufferMismatch\",\"slot\":" + std::to_string(s.nr) + "}");
-    }
-    return;
-  }
+  if (!pufferPasst(s, p)) return;
   s.sender.sendAudio(p.samples.data(), p.sampleCount, p.sampleRate, p.channels);
   TonStand fertig;
   bool messungFertig = false, erstes = false;
@@ -927,7 +994,9 @@ void paketSenden(Slot& s, const AudioPacket& p, int64_t jetzt) {
       t.audioWartenSummeUs = t.audioWartenMaxUs = t.audioWartenMinUs = 0;
     }
   }
-  s.tonFensterPerson = true;
+  if (p.kind == AudioArt::Person) s.tonFensterPerson = true;
+  else if (p.kind == AudioArt::Mix) s.tonFensterMix = true;
+  else s.tonFensterShare = true;
   if (s.tonZustand != TonZustand::Live && !s.tonAudioUnavailable &&
       !(s.audio.load() == SlotAudio::Person && s.mode.load() != SlotMode::Participant)) {
     tonMelden(s, TonZustand::Live, TonGrund::packets);
@@ -939,9 +1008,13 @@ void paketSenden(Slot& s, const AudioPacket& p, int64_t jetzt) {
 void tonQuelleMessen(Slot& s, int64_t jetzt) {
   if (s.tonFensterBeginnMs == 0) s.tonFensterBeginnMs = jetzt;
   if (jetzt - s.tonFensterBeginnMs < 500) return;
-  const TonQuelle q = s.tonFensterPerson ? TonQuelle::Person : TonQuelle::None;
+  TonQuelle q = TonQuelle::None;
+  if (s.tonFensterPerson) q = TonQuelle::Person;
+  else if (s.tonFensterMischA && s.tonFensterMischB) q = TonQuelle::MixShare;
+  else if (s.tonFensterMix || s.tonFensterMischA) q = TonQuelle::Mix;
+  else if (s.tonFensterShare || s.tonFensterMischB) q = TonQuelle::Share;
   s.tonFensterBeginnMs = jetzt;
-  s.tonFensterPerson = false;
+  s.tonFensterPerson = s.tonFensterMix = s.tonFensterShare = s.tonFensterMischA = s.tonFensterMischB = false;
   if (q != s.tonSource) {
     s.tonSource = q;
     emitSlotAudio(s);
@@ -951,6 +1024,8 @@ void tonQuelleMessen(Slot& s, int64_t jetzt) {
 // Stille-Herzschlag je Slot (6.13): wie viel, entscheidet stilleBloecke().
 void stilleSenden(Slot& s, int64_t jetzt) {
   const TonQuelle weg = tonWeg(s.mode.load(), s.audio.load(), s.shareAudio.load());
+  // Mischer-Slots: der Mischer liefert die Stille selbst (6.13, 0.35).
+  if (weg == TonQuelle::MixShare) return;
   TonStand t;
   {
     std::lock_guard<std::mutex> lock(s.fieldMutex);
@@ -1147,7 +1222,7 @@ void slotOn(const SlotBefehl& b) {
   UmhaengLage l = lageFuer(s, b.mode, abo.target.load(), Grund::command);
   l.modusVorher = b.mode;
   const TonAenderung aenderung{true, b.audio, true, b.shareAudio};
-  const AboErgebnis aboErg = tonAboNoetig(l, aenderung) ? (audioEnsureSubscribed() ? AboErgebnis::Geglueckt : AboErgebnis::Gescheitert)
+  const AboErgebnis aboErg = tonAboNoetig(l, aenderung) ? (audioEnsureSubscribed(b.nr) ? AboErgebnis::Geglueckt : AboErgebnis::Gescheitert)
                                                         : AboErgebnis::NichtGerufen;
   const UmhaengPlan tp = tonUmschaltPlan(l, aenderung, aboErg);
   s.tonConfigured = tp.configured;
@@ -1177,7 +1252,7 @@ void slotSet(const SlotAenderung& a) {
     l.modusVorher = l.modusNachher;
     // 6.13, W6, N9-1: audioEnsureSubscribed() genau dann, wenn nach dem Einsetzen der gespeicherten Felder Ton an ist.
     const TonAenderung aenderung{a.audioGesetzt, a.audio, a.shareAudioGesetzt, a.shareAudio};
-    const AboErgebnis aboErg = tonAboNoetig(l, aenderung) ? (audioEnsureSubscribed() ? AboErgebnis::Geglueckt : AboErgebnis::Gescheitert)
+    const AboErgebnis aboErg = tonAboNoetig(l, aenderung) ? (audioEnsureSubscribed(s.nr) ? AboErgebnis::Geglueckt : AboErgebnis::Gescheitert)
                                                           : AboErgebnis::NichtGerufen;
     const UmhaengPlan tp = tonUmschaltPlan(l, aenderung, aboErg);
     s.audio = audio;
@@ -1366,12 +1441,17 @@ void slotsTick() {
   const std::vector<TonSlotSicht> sicht = tonSicht();
   AudioPacket p;
   while (audioPop(&p)) {
-    for (const TonZiel& z : tonZiele(PaketArt::Person, p.userId, sicht)) {
+    const PaketArt art = p.kind == AudioArt::Mix ? PaketArt::Mix : p.kind == AudioArt::Share ? PaketArt::Share : PaketArt::Person;
+    const std::vector<TonZiel> ziele = tonZiele(art, p.userId, sicht);
+    if (art == PaketArt::Share && ziele.empty()) audioShareNichtZugeordnet();   // bridgeStats (B39)
+    for (const TonZiel& z : ziele) {
       auto it = g_slots.find(z.nr);
       if (it == g_slots.end() || it->second->imAbbau.load()) continue;
-      paketSenden(*it->second, p, jetzt);
+      if (z.weg == Weg::Direkt) paketSenden(*it->second, p, jetzt);
+      else mischerEinspeisen(*it->second, p, z.weg, jetzt);
     }
   }
+  for (auto& [nr, s] : g_slots) mischerAusgeben(*s, jetzt);
   for (auto& [nr, s] : g_slots) {
     // Bild-Versatz: wartende Bilder ausgeben (Nachlauf), ohne Bedingung.
     s->sender.pump();
