@@ -25,8 +25,39 @@
 //
 // OPTIONAL: $env:ZOOM_STRESS_CYCLES (Vorgabe 10) - wie oft jede Kennung ab-
 // und wieder angemeldet wird.
+//
+// SEIT DEN ZOOM-SLOTS (Connect 0.4.0, Spec docs/superpowers/specs/
+// 2026-10-17-connect-zoom-slots-design.md, E22): Ab- und Anmelden heisst
+// slotOff/slotOn, je Kennung ein Slot (Nummer = Stelle in ZOOM_VIDEO_SUBSCRIBE,
+// hoechstens SLOT_NR_MAX). Was oben ueber Sub und den Abbau eines Abos steht,
+// gilt seither fuer den Slot und seinen Abbau-Ausfuehrer abbauAusfuehren
+// (native/video.cpp); die Annahme zu destroyRenderer() steht dort weiter als
+// UNBELEGT (Spec AN11). Die Frage dieses Laufs ist dieselbe geblieben.
+//
+// Laeuft nie im Selbsttest (Meeting). test/selftest.ts prueft nur Quelltext und
+// Syntax (node --check), Plan A Task A17.
 import { join } from 'node:path';
-import { Bridge, buildJwt, normalizeMeetingId, readCredentials } from '../src/index.ts';
+import { Bridge, SLOT_NR_MAX, buildJwt, normalizeMeetingId, readCredentials } from '../src/index.ts';
+
+/**
+ * slotOn mit allen Pflichtfeldern (Spec 6.2). Ton wie vor den Slots an (Ton der
+ * Person), Ersatzbild Schwarz wie vor den Slots. Der NDI-Name traegt nur die
+ * Slot-Nummer, nie einen Teilnehmernamen.
+ */
+function slotOnBefehl(slot, id) {
+  return {
+    cmd: 'slotOn',
+    slot,
+    ndi: 'JM Connect – Zoom Belastung ' + slot,
+    mode: 'participant',
+    id,
+    resolution: '720p',
+    audio: 'person',
+    shareAudio: false,
+    fallback: 'black',
+    showNoVideo: true,
+  };
+}
 
 function fail(msg) {
   console.error(msg);
@@ -44,6 +75,11 @@ const ids = (process.env.ZOOM_VIDEO_SUBSCRIBE ?? '')
 if (ids.length === 0) {
   fail('ZOOM_VIDEO_SUBSCRIBE ist leer - dieser Lauf braucht mindestens eine Kennung mit ANGESCHALTETER Kamera.');
 }
+if (ids.length > SLOT_NR_MAX) {
+  fail(`ZOOM_VIDEO_SUBSCRIBE nennt ${ids.length} Kennungen - die Bridge kennt hoechstens ${SLOT_NR_MAX} Slots.`);
+}
+// Je Kennung ein Slot, Nummer = Stelle in ZOOM_VIDEO_SUBSCRIBE (ab 1).
+const slotVon = new Map(ids.map((id, i) => [id, i + 1]));
 
 const cycles = Number(process.env.ZOOM_STRESS_CYCLES ?? '10');
 if (!Number.isInteger(cycles) || cycles < 1) fail('ZOOM_STRESS_CYCLES muss eine ganze Zahl >= 1 sein.');
@@ -71,7 +107,9 @@ const bridge = new Bridge({
   onEvent: (ev) => {
     if (ev.ev === 'auth') authCode = ev.code;
     if (ev.ev === 'error' && ev.where === 'exit') abgestuerzt = ev.detail ?? 'ohne naehere Angabe';
-    if (ev.ev === 'error' && ev.where === 'video') console.log(`  FEHLER: ${ev.name} (${ev.code})`);
+    if (ev.ev === 'error' && (ev.where === 'slot' || ev.where === 'ndi')) {
+      console.log(`  FEHLER: ${ev.name} (${ev.code})${ev.slot !== undefined ? ` an Slot ${ev.slot}` : ''}`);
+    }
   },
 });
 
@@ -126,22 +164,23 @@ if (!bridge.session.canRecordRaw) {
   await finish(3);
 }
 
-/** Wartet, bis das Abo `id` Bilder liefert. Bricht bei einem Absturz sofort ab. */
+/** Wartet, bis der Slot der Kennung `id` Bilder liefert. Bricht bei einem Absturz sofort ab. */
 async function warteAufLive(id, frist) {
+  const nr = slotVon.get(id);
   try {
-    await bridge.waitFor(() => abgestuerzt !== null || bridge.session.videoSubs.get(id)?.state === 'live', frist);
+    await bridge.waitFor(() => abgestuerzt !== null || bridge.session.slots.get(nr)?.state === 'live', frist);
   } catch {
     return false;
   }
-  return abgestuerzt === null && bridge.session.videoSubs.get(id)?.state === 'live';
+  return abgestuerzt === null && bridge.session.slots.get(nr)?.state === 'live';
 }
 
 // ALLE Abos zuerst und GEMEINSAM: der Befund verlangt ausdruecklich mehrere
 // gleichzeitige Abos. Ein einzelnes ab- und anzumelden waere ein anderer,
 // schwaecherer Test - die Frage ist ja gerade, ob der Abbau des einen die
 // Rueckrufe der anderen stoert.
-console.log(`\n${ids.length} Abo(s), ${cycles} Runden je Kennung.\n`);
-for (const id of ids) bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p' });
+console.log(`\n${ids.length} Slot(s), ${cycles} Runden je Kennung.\n`);
+for (const id of ids) bridge.send(slotOnBefehl(slotVon.get(id), id));
 
 const nieLive = [];
 for (const id of ids) {
@@ -163,16 +202,18 @@ let ohneBild = 0;
 for (runde = 1; runde <= cycles && abgestuerzt === null; runde++) {
   for (const id of ids) {
     if (abgestuerzt !== null) break;
-    // MITTEN IM LAUFENDEN BILD abmelden - genau das ist die Frage.
-    bridge.send({ cmd: 'videoUnsubscribe', id });
+    // MITTEN IM LAUFENDEN BILD abmelden - genau das ist die Frage. slotOff baut
+    // Renderer und Sender ab wie frueher das Abmelden eines Abos.
+    const nr = slotVon.get(id);
+    bridge.send({ cmd: 'slotOff', slot: nr });
     try {
-      await bridge.waitFor(() => abgestuerzt !== null || !bridge.session.videoSubs.has(id), 10_000);
+      await bridge.waitFor(() => abgestuerzt !== null || !bridge.session.slots.has(nr), 10_000);
     } catch {
-      console.log(`  Runde ${runde}, ${id}: das Abo verschwand nicht innerhalb von 10 s.`);
+      console.log(`  Runde ${runde}, Slot ${nr} (Kennung ${id}): der Slot verschwand nicht innerhalb von 10 s.`);
       await finish(2);
     }
     if (abgestuerzt !== null) break;
-    bridge.send({ cmd: 'videoSubscribe', id, resolution: '720p' });
+    bridge.send(slotOnBefehl(nr, id));
     // Kein harter Abbruch, wenn ein Bild mal ausbleibt: der Gast koennte in
     // genau diesem Moment die Kamera ausgemacht haben. Gezaehlt wird es
     // trotzdem - eine Runde ohne Bild hat das Fenster nicht geoeffnet und

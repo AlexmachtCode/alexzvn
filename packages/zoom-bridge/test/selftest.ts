@@ -3816,5 +3816,135 @@ console.log('\nNativer Teil — A16 Messwerte slotStats und bridgeStats (Spec 6.
   assert(/\*w\s*=\s*info\.recvResolution\s*&\s*0xFFFF\s*;/.test(empfang) && /\*h\s*=\s*\(\s*info\.recvResolution\s*>>\s*16\s*\)\s*&\s*0xFFFF\s*;/.test(empfang),
     'A16 A-EP5: recvResolution HIWORD = Höhe, LOWORD = Breite');
 }
+// ── A17 · Prüfstände mit Meeting auf Slots (E22) und Riegel gegen einen Neubau des Einsatzpakets (PT9, Spec 6.18) ──
+// video-limit.mjs und video-stress.mjs treten einem Meeting bei; sie laufen nie im Selbsttest (Plan A GG5). Geprüft
+// werden ihr Quelltext (ohne Kommentare) und ihre Syntax (node --check). Den Riegel in scripts/build-release.mjs prüft
+// der Selbsttest nur an Kopien in testTemp: dort fehlt build/Release/zoom-bridge.exe, der Bau endet also spätestens an
+// der Frische-Prüfung (Windows) bzw. an der Plattform-Prüfung (Linux) und erzeugt nie ein Paket.
+// Eigene Importnamen (a17…), damit kein gleichnamiger Import eines anderen Blocks kollidiert.
+import { spawnSync as a17Starte } from 'node:child_process';
+import {
+  copyFileSync as a17Kopiere,
+  mkdirSync as a17Ordner,
+  readFileSync as a17Lies,
+  writeFileSync as a17Schreibe,
+} from 'node:fs';
+
+console.log('\nA17 — Prüfstände mit Meeting auf Slots (E22):');
+{
+  const PFLICHT = ['slot', 'ndi', 'mode', 'resolution', 'audio', 'shareAudio', 'fallback', 'showNoVideo'];
+  const KATALOG: Record<string, readonly string[]> = {
+    mode: paket.SLOT_MODES,
+    resolution: paket.SLOT_RESOLUTIONS,
+    audio: paket.SLOT_AUDIO_SETTINGS,
+    fallback: paket.SLOT_FALLBACKS,
+  };
+  /** Quelltext ohne Block-Kommentare und ohne ganze //-Zeilen (Code bleibt, Zeilen nicht). */
+  const ohneKommentare = (src: string): string =>
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((l) => !/^\s*\/\//.test(l))
+      .join('\n');
+  /** Der Rumpf `{ … }` der Funktion slotOnBefehl (Klammern gezählt), sonst ''. */
+  const befehlsRumpf = (src: string): string => {
+    const kopf = src.indexOf('function slotOnBefehl(');
+    const auf = kopf < 0 ? -1 : src.indexOf('{', kopf);
+    if (auf < 0) return '';
+    let tiefe = 0;
+    for (let i = auf; i < src.length; i++) {
+      if (src[i] === '{') tiefe++;
+      else if (src[i] === '}' && --tiefe === 0) return src.slice(auf, i + 1);
+    }
+    return '';
+  };
+  for (const datei of ['video-limit.mjs', 'video-stress.mjs']) {
+    const pfad = join(testDir, datei);
+    const code = ohneKommentare(a17Lies(pfad, 'utf8').replace(/\r\n/g, '\n'));
+    const stress = datei === 'video-stress.mjs';
+    assert(
+      !/\bvideo(Subscribe|Unsubscribe|Subs)\b/.test(code) &&
+        /\bslots\.(get|has)\(/.test(code) &&
+        (!stress || /\bcmd:\s*'slotOff'/.test(code)),
+      `A17 E22: ${datei} ohne videoSubscribe, videoUnsubscribe und videoSubs, liest Session.slots` +
+        (stress ? ', baut mit slotOff ab' : ''),
+    );
+    const rumpf = befehlsRumpf(code);
+    const probleme = [
+      ...(rumpf.includes("cmd: 'slotOn',") ? [] : ["cmd: 'slotOn' fehlt"]),
+      ...PFLICHT.filter((k) => !new RegExp(`^\\s*${k}\\s*[:,]`, 'm').test(rumpf)).map((k) => `${k} fehlt`),
+      ...Object.entries(KATALOG)
+        .filter(([k, werte]) => {
+          const m = new RegExp(`^\\s*${k}:\\s*'([^']*)',`, 'm').exec(rumpf);
+          return m === null || !werte.includes(m[1]);
+        })
+        .map(([k]) => `${k} ohne Katalogwert`),
+      ...['shareAudio', 'showNoVideo']
+        .filter((k) => !new RegExp(`^\\s*${k}:\\s*(true|false),`, 'm').test(rumpf))
+        .map((k) => `${k} ohne true/false`),
+    ];
+    assert(
+      rumpf !== '' && probleme.length === 0,
+      `A17 E22: ${datei} schickt slotOn mit allen Pflichtfeldern, Werte aus den Katalogen (Spec 6.2)`,
+    );
+    if (probleme.length > 0) console.error(`      ${datei}: ${probleme.join(', ')}`);
+    const syntax = a17Starte(process.execPath, ['--check', pfad], { encoding: 'utf8' });
+    assert(syntax.status === 0, `A17 E22: ${datei} besteht node --check`);
+    if (syntax.status !== 0) console.error(`      ${(syntax.stderr ?? '').trim().split('\n').slice(0, 4).join(' | ')}`);
+  }
+}
+
+console.log('\nA17 — Riegel gegen einen Neubau des Einsatzpakets (PT9, Spec 6.18):');
+{
+  const paketOrdner = join(testDir, '..');
+  const SATZ = 'hängt die Bridge das Abo von selbst um';
+  const liesmich = a17Lies(join(paketOrdner, 'paket', 'LIESMICH.txt'), 'utf8');
+  /**
+   * Prüfordner mit Kopien von build-release.mjs, auslieferung.mjs und package.json und dem gegebenen LIESMICH-Text;
+   * startet den Bau dort. Ohne build/Release/zoom-bridge.exe entsteht nie ein Paket.
+   */
+  const baue = (fall: string, text: string): { status: number | null; stderr: string } => {
+    const ordner = join(testTemp, 'a17-riegel', fall);
+    a17Ordner(join(ordner, 'scripts'), { recursive: true });
+    a17Ordner(join(ordner, 'paket'), { recursive: true });
+    for (const f of ['build-release.mjs', 'auslieferung.mjs']) {
+      a17Kopiere(join(paketOrdner, 'scripts', f), join(ordner, 'scripts', f));
+    }
+    a17Kopiere(join(paketOrdner, 'package.json'), join(ordner, 'package.json'));
+    a17Schreibe(join(ordner, 'paket', 'LIESMICH.txt'), text, 'utf8');
+    const r = a17Starte(process.execPath, [join(ordner, 'scripts', 'build-release.mjs')], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    return { status: r.status, stderr: r.stderr ?? '' };
+  };
+  const riegel = (r: { status: number | null; stderr: string }): boolean =>
+    r.status === 1 && r.stderr.includes('Riegel: paket/LIESMICH.txt');
+  const zeige = (fall: string, r: { status: number | null; stderr: string }): void =>
+    console.error(`      ${fall}: Rueckgabe ${r.status}, ${r.stderr.trim().split('\n').slice(-2).join(' | ')}`);
+
+  const einzeilig = baue('einzeilig', `﻿LIESMICH\r\n\r\nIst ihr Name eindeutig, ${SATZ}.\r\n`);
+  const einzeiligGut =
+    riegel(einzeilig) &&
+    einzeilig.stderr.includes('2026-10-17-connect-zoom-slots-design.md, Abschnitt 6.18') &&
+    einzeilig.stderr.includes('berichtigt zuerst paket/LIESMICH.txt und die Version');
+  assert(einzeiligGut, 'A17 PT9: Satz in einer Zeile → Abbruch mit Hinweis auf Spec 6.18 und den Weg (LIESMICH und Version)');
+  if (!einzeiligGut) zeige('einzeilig', einzeilig);
+
+  const echt = baue('echt', liesmich);
+  assert(!liesmich.includes(SATZ) && riegel(echt), 'A17 PT9: paket/LIESMICH.txt wie im Repo (Satz über zwei Zeilen) → Abbruch');
+  if (!riegel(echt)) zeige('echt', echt);
+
+  const leerraum = baue('leerraum', 'Ist ihr Name eindeutig, hängt  die\tBridge das Abo von\n   selbst um.\n');
+  assert(riegel(leerraum), 'A17 PT9: Satz mit Tabulator, doppeltem Leerzeichen und LF-Umbruch → Abbruch');
+  if (!riegel(leerraum)) zeige('leerraum', leerraum);
+
+  const ohneSatz = liesmich.replace(/hängt die Bridge das Abo von\s+selbst um/, 'bleibt die Quelle stehen');
+  const ohne = baue('ohne', ohneSatz);
+  const naechste = process.platform === 'win32' ? 'zoom-bridge.exe fehlt' : 'nur unter Windows';
+  const ohneGut = ohneSatz !== liesmich && ohne.status === 1 && !ohne.stderr.includes('Riegel') && ohne.stderr.includes(naechste);
+  assert(ohneGut, 'A17 PT9: ohne den Satz lässt der Riegel durch (der Bau endet erst an der nächsten Vorbedingung)');
+  if (!ohneGut) zeige('ohne', ohne);
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

@@ -6,8 +6,40 @@
 // Teilnehmern, deren Kameras an sind - die Grenze laesst sich nur mit echten
 // Teilnehmern messen, denn ein Teilnehmer laesst sich nicht zweimal
 // abonnieren (das waere videoAlreadySubscribed und wuerde nichts messen).
+//
+// SEIT DEN ZOOM-SLOTS (Connect 0.4.0, Spec docs/superpowers/specs/
+// 2026-10-17-connect-zoom-slots-design.md, E22): Den Befehl fuer ein Abo je
+// Teilnehmer gibt es nicht mehr. Gemessen wird mit einem Slot je fremdem
+// Teilnehmer (Modus Teilnehmer, slotOn mit allen Pflichtfeldern), hoechstens
+// SLOT_NR_MAX - mehr Slots kennt die Bridge nicht. Jeder Slot haelt genau ein
+// Abo, die Frage des Laufs ist dieselbe. Der Satz ueber
+// videoAlreadySubscribed oben gilt sinngemaess weiter: zwei Slots auf dieselbe
+// Person messen nicht die Grenze, sondern etwas anderes (Spec MS21).
+//
+// Laeuft nie im Selbsttest (Meeting). test/selftest.ts prueft nur Quelltext und
+// Syntax (node --check), Plan A Task A17.
 import { join } from 'node:path';
-import { Bridge, buildJwt, normalizeMeetingId, readCredentials } from '../src/index.ts';
+import { Bridge, SLOT_NR_MAX, buildJwt, normalizeMeetingId, readCredentials } from '../src/index.ts';
+
+/**
+ * slotOn mit allen Pflichtfeldern (Spec 6.2). Ton wie vor den Slots an (Ton der
+ * Person), Ersatzbild Schwarz wie vor den Slots. Der NDI-Name traegt nur die
+ * Slot-Nummer, nie einen Teilnehmernamen.
+ */
+function slotOnBefehl(slot, id) {
+  return {
+    cmd: 'slotOn',
+    slot,
+    ndi: 'JM Connect – Zoom Messlauf ' + slot,
+    mode: 'participant',
+    id,
+    resolution: '720p',
+    audio: 'person',
+    shareAudio: false,
+    fallback: 'black',
+    showNoVideo: true,
+  };
+}
 
 const sdk = process.env.ZOOM_SDK_DIR;
 if (!sdk) { console.error('ZOOM_SDK_DIR ist nicht gesetzt.'); process.exit(1); }
@@ -17,8 +49,10 @@ const bridge = new Bridge({
   env: { PATH: `${join(sdk, 'x64', 'bin')};${process.env.PATH}` },
   envRemove: ['ZOOM_SDK_CLIENT_ID', 'ZOOM_SDK_CLIENT_SECRET', 'ZOOM_SDK_CREDENTIALS'],
   onEvent: (ev) => {
-    if (ev.ev === 'error' && ev.where === 'video') fehler.push(ev);
-    if (ev.ev === 'video') console.log(`  ${ev.id}: ${ev.state} (${ev.reason})`);
+    // Jeder Slot- und NDI-Fehler beendet den Lauf; als Grenze zaehlt unten nur,
+    // was Zoom selbst ablehnt (slotSubscribeFailed, slotRendererFailed).
+    if (ev.ev === 'error' && (ev.where === 'slot' || ev.where === 'ndi')) fehler.push(ev);
+    if (ev.ev === 'slot') console.log(`  Slot ${ev.slot} (Kennung ${ev.target}): ${ev.state} (${ev.reason})`);
   },
 });
 
@@ -49,26 +83,31 @@ console.log(`\n${andere.length} fremde Teilnehmer im Meeting.\n`);
 // Messfehler wie eine Untergrenze als Obergrenze zu melden - nur eine Stufe
 // leiser: der Lauf soll eine Zahl liefern, auf die man sich verlassen kann,
 // und dafuer muss er sagen, WIE fest der Boden unter ihr ist.
+// Ein Slot je Kennung, Nummer = laufende Nummer ab 1. Mehr als SLOT_NR_MAX
+// beantwortete die Bridge mit slotBadNumber - das waere keine Zoom-Grenze.
+const kandidaten = andere.slice(0, SLOT_NR_MAX);
 let gelungen = 0;
 let abbruchGrund = null;
-let abbruchArt = null; // 'hart' = SDK meldet einen Fehler, 'weich' = nur Zeitablauf
-for (const p of andere) {
+// 'hart' = Zoom lehnt ab, 'anders' = anderer Fehler (keine Grenze), 'weich' = nur Zeitablauf
+let abbruchArt = null;
+for (const p of kandidaten) {
   const vorher = fehler.length;
-  bridge.send({ cmd: 'videoSubscribe', id: p.id, resolution: '720p' });
+  const nr = gelungen + 1;
+  bridge.send(slotOnBefehl(nr, p.id));
   try {
-    await bridge.waitFor(
-      (s) => s.videoSubs.get(p.id)?.state === 'live' || fehler.length > vorher,
-      5000,
-    );
+    await bridge.waitFor((s) => s.slots.get(nr)?.state === 'live' || fehler.length > vorher, 5000);
   } catch {
     abbruchArt = 'weich';
-    abbruchGrund = `keine Bilder innerhalb von 5 s (Abo ${gelungen + 1})`;
+    abbruchGrund = `keine Bilder innerhalb von 5 s (Slot ${nr})`;
     break;
   }
   if (fehler.length > vorher) {
     const f = fehler[fehler.length - 1];
-    abbruchArt = 'hart';
-    abbruchGrund = `${f.name}${f.detail ? ` (${f.detail})` : ''}`;
+    // Nur was Zoom selbst ablehnt, ist die gesuchte Grenze. Ein NDI- oder
+    // Aufbaufehler der Bridge (slotSenderFailed, ndiInitFailed, ...) ist es
+    // nicht - zwei Ursachen duerfen nie denselben Namen bekommen.
+    abbruchArt = f.code === 'slotSubscribeFailed' || f.code === 'slotRendererFailed' ? 'hart' : 'anders';
+    abbruchGrund = `${f.name}${f.sdk !== undefined ? ` (SDK ${f.sdk})` : ''}${f.detail ? ` (${f.detail})` : ''}`;
     break;
   }
   gelungen++;
@@ -88,6 +127,17 @@ if (abbruchArt === 'hart') {
       `kann aber ebenso gut Netzwerk-Ruckeln oder eine Kamera sein, die GENAU dieser eine Teilnehmer ` +
       `gerade aus hat. Lauf WIEDERHOLEN (moeglichst mit anderer Teilnehmer-Reihenfolge), bevor ${gelungen} ` +
       `als Grenze gilt.`,
+  );
+} else if (abbruchArt === 'anders') {
+  console.log(
+    `\nKEIN MESSERGEBNIS: ${gelungen} gleichzeitige Slots liefen, der ${gelungen + 1}. scheiterte an ` +
+      `${abbruchGrund} — das ist ein Fehler der Bridge oder von NDI, keine Grenze von Zoom. ` +
+      `Ursache beheben und den Lauf wiederholen.`,
+  );
+} else if (andere.length > SLOT_NR_MAX) {
+  console.log(
+    `\nGemessen: ${gelungen} gleichzeitige Slots erfolgreich — die Grenze wurde NICHT erreicht. Es waren ` +
+      `${andere.length} Teilnehmer da, die Bridge kennt aber hoechstens ${SLOT_NR_MAX} Slots.`,
   );
 } else {
   console.log(

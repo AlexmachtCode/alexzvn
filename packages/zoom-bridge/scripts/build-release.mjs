@@ -95,6 +95,25 @@ function textdatei(quelle, ziel, { bom, nurAscii = false }) {
 }
 
 // --- 1. Vorbedingungen ---------------------------------------------------------
+// RIEGEL (Connect 0.4.0, Spec docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md,
+// Abschnitt 6.18 und D13): Das Einsatzpaket zoom-bridge-v0.1.0 wird NICHT neu gebaut. Dieses
+// Skript baut aus dem aktuellen Code (Frische-Pruefung unten, esbuild von cli/zoom-join.mjs)
+// und legt paket/LIESMICH.txt bei - und das verspricht noch, dass die Bridge ein Abo bei
+// einer Rueckkehr selbst umhaengt. Mit den Zoom-Slots tut sie das nicht mehr. Solange der
+// Satz dort steht, bricht der Bau hier ab, VOR jeder anderen Pruefung (auch unter Linux,
+// damit der Selbsttest ihn dort pruefen kann). Leerraum und Zeilenumbrueche zaehlen gleich:
+// in LIESMICH steht der Satz ueber zwei Zeilen. Wer das Paket neu baut, berichtigt zuerst
+// LIESMICH und die Version (package.json). Geprueft im Selbsttest (Plan A Task A17, PT9).
+const RIEGEL_SATZ = 'hängt die Bridge das Abo von selbst um';
+const liesmichFlach = readFileSync(join(pkg, 'paket', 'LIESMICH.txt'), 'utf8').replace(/\s+/g, ' ');
+if (liesmichFlach.includes(RIEGEL_SATZ)) {
+  abbruch(
+    `Riegel: paket/LIESMICH.txt enthaelt noch den Satz „${RIEGEL_SATZ}“.\n` +
+      '  Das Einsatzpaket zoom-bridge-v0.1.0 wird nicht neu gebaut: Die Bridge haengt seit den Zoom-Slots\n' +
+      '  nicht mehr selbst um (Spec docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md, Abschnitt 6.18).\n' +
+      '  Wer es neu baut, berichtigt zuerst paket/LIESMICH.txt und die Version in package.json.',
+  );
+}
 if (process.platform !== 'win32') abbruch('das Einsatzpaket wird nur unter Windows gebaut.');
 
 const sdkDir = process.env.ZOOM_SDK_DIR;
