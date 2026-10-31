@@ -101,8 +101,20 @@ void slotsParticipantLeft(unsigned id);
  */
 void slotsTick();
 
-/** Alle Slots ab, Meeting lebt (leave/quit/EOF). VOR sessionLeave()/sessionShutdown(). */
+/** quit/EOF (6.15): Ton ab, Vorschau-Thread beenden, alle Slots ab. VOR sessionShutdown(). */
 void slotsShutdownAll();
+
+/** leave (6.15): Plan leave bis einschliesslich sessionLeave(), dann der Nachlauf-Plan mit dessen Rueckgabe. */
+void slotsLeave();
+
+/** join: neue Meeting-Nummer fuer die Halteliste (Eintraege frueherer Meetings fasst nichts mehr an). */
+void slotsMeetingNeu();
+
+/**
+ * Renderer-Sperre (6.5): ab DISCONNECTING/RECONNECTING bis INMEETING oder ENDED/FAILED.
+ * Jede Renderer-Funktion liest sie vorher; slotOn antwortet solange slotReconnecting.
+ */
+bool rendererSperre();
 
 /** Alle Slots ab, weil das Meeting zu Ende ist (ENDED/FAILED): ohne Renderer-Aufruf. */
 void slotsMeetingEnded();

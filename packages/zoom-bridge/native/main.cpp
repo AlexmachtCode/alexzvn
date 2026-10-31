@@ -111,11 +111,10 @@ bool nextLine(std::string& out) {
 // Rueckrufs - hier duerfen die Slots (ab A11) umhaengen.
 void merkerNehmen() {
   if (callbacksTakeInMeeting()) {
-    // Kennungen wechseln nach einer Wiederverbindung (callbacks.cpp).
-    sessionEigeneKennungNeu();
-    callbacksRendererSperreLoesen();
-    emitLog(L"INMEETING: eigene Kennung neu, Renderer-Sperre geloest");
-    // Erinnerung, Freigaben und jeden Slot neu (6.15 "Zoom verbindet selbst neu").
+    // Kette "Zoom verbindet selbst neu" (6.15): Sperre loesen, Halteliste abbauen,
+    // eigene Kennung neu (Kennungen wechseln, callbacks.cpp), Erinnerung und Freigaben
+    // neu, jeden Slot neu zuordnen.
+    emitLog(L"INMEETING: Kette nach abbauPlan");
     slotsInMeeting();
   }
   MerkerTeilnehmer t;
@@ -225,6 +224,7 @@ void handle(const std::string& line) {
     return;
   }
   if (cmd == "join") {
+    slotsMeetingNeu();
     sessionJoin(fieldFromJson(line, "meetingId"), fieldFromJson(line, "passcode"), fieldFromJson(line, "displayName"));
     return;
   }
@@ -246,9 +246,7 @@ void handle(const std::string& line) {
     // verlassen, der audioClearSubscribed() aufruft (callbacks.cpp), waere
     // das dieselbe Annahme, die an dieser Stelle beim Bild schon einmal
     // nicht gehalten hat (siehe der Kommentar hier eins darueber).
-    audioShutdown();
-    slotsShutdownAll();
-    sessionLeave();
+    slotsLeave();
     return;
   }
   // videoSubscribe/videoUnsubscribe ENTFALLEN (Spec 6.18): sie landen unten bei
@@ -509,13 +507,10 @@ int main(int argc, char** argv) {
     // BEVOR die Abos verschwinden - ein Lauscher ohne Abos fuellt eine
     // Warteschlange, die niemand mehr leert.
     if (callbacksTakeMeetingEndTeardown()) {
-      emitLog(L"Meeting-Ende: Ton-Abo abmelden (ausserhalb des Rueckrufs)");
-      audioClearSubscribed();
-      emitLog(L"Meeting-Ende: Bild-Abos abbauen");
+      // Kette Meeting-Ende (6.15): Ton-Abo ab, Slots ohne Renderer-Aufruf ab, Halteliste
+      // verwerfen, Renderer-Sperre loesen - Reihenfolge nach abbauPlan.
+      emitLog(L"Meeting-Ende: Kette nach abbauPlan");
       slotsMeetingEnded();
-      // ENDED/FAILED loest die Renderer-Sperre (Spec 6.5): die Renderer dieses
-      // Meetings fasst ohnehin niemand mehr an.
-      callbacksRendererSperreLoesen();
       emitLog(L"Meeting-Ende: Abbau zurueckgekehrt, Bruecke laeuft weiter");
     }
     // ABBAU NACH DEM ENTZUG DER AUFNAHME-ERLAUBNIS (Stage 4b, N4b.1) - dasselbe
@@ -533,12 +528,9 @@ int main(int argc, char** argv) {
     // neu ruft. Ob das SDK die Lieferung beim Entzug ohnehin selbst einstellt
     // und ob Stop/Start danach fehlerfrei laufen, ist UNGEMESSEN (Messung M18).
     if (callbacksTakePrivilegeRevokedTeardown()) {
-      emitLog(L"Entzug: Ton-Abo abmelden (ausserhalb des Rueckrufs)");
-      audioClearSubscribed();
-      emitLog(L"Entzug: Bild-Abos abbauen");
+      // Kette Entzug (6.15): Ton-Abo ab, Slots ab, StopRawRecording - nach abbauPlan.
+      emitLog(L"Entzug: Kette nach abbauPlan");
       slotsPrivilegeRevoked();
-      emitLog(L"Entzug: Rohdaten-Aufnahme beenden");
-      sessionStopRawRecording();
     }
     // MERKER NEHMEN (Spec 6.6 Nr. 4), nach Meeting-Ende und Entzug, vor dem
     // Herzschlag. Die Rueckrufe haben nur Werte eingereiht (callbacks.cpp).
@@ -644,9 +636,7 @@ int main(int argc, char** argv) {
   // audioShutdown() VOR videoShutdownAll(), dieselbe Reihenfolge wie beim
   // "leave"-Befehl oben: der Lauscher muss weg sein, bevor die Abos
   // verschwinden.
-  audioShutdown();
-  // Vorschau-Thread VOR dem Loeschen der Slots beenden (6.15, B18).
-  vorschauThreadEnde();
+  // Kette quit/EOF (6.15): Ton ab, Vorschau-Thread beenden, Slots ab - nach abbauPlan.
   slotsShutdownAll();
   const bool shutdownComplete = sessionShutdown();
   if (!shutdownComplete) {

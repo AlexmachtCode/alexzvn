@@ -300,6 +300,7 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan);
 // Umhaeng-Ausfuehrer (neuer Delegate nach rendererTot, gleicher Delegate beim
 // Typwechsel, 6.10) rufen sie. Liefert den SDKError; ohne Renderer nie SUCCESS. Zwei Slots auf dieselbe Kennung haben je einen eigenen Renderer, beide beliefert: ANNAHME AN21 (unbelegt, MS21).
 SDKError rendererAnlegen(Abo& abo) {
+  if (rendererSperre()) return SDKERR_WRONG_USAGE;   // 6.5: kein Renderer-Aufruf waehrend der Sperre
   abo.renderer = nullptr;
   SDKError err = createRenderer(&abo.renderer, abo.delegate.get());
   if (err == SDKERR_SUCCESS && abo.renderer == nullptr) err = SDKERR_UNINITIALIZE;
@@ -312,6 +313,7 @@ SDKError rendererAnlegen(Abo& abo) {
 }
 
 void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf) {
+  if (rendererSperre()) return;   // 6.5: kein Renderer-Aufruf waehrend der Sperre
   Abo& abo = s.abo();
   const ZoomSDKRawDataType typ = rohTyp(lauf.lage.modusNachher);
   const SDKError err = abo.renderer != nullptr ? abo.renderer->subscribe(lauf.ziel, typ) : SDKERR_UNINITIALIZE;
@@ -335,6 +337,9 @@ void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf) {
 }
 
 void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
+  // 6.5/6.10 Schritt 0: waehrend der Renderer-Sperre gibt umhaengPlan nur Vormerken;
+  // ein Plan mit Renderer-Schritten laeuft dann nicht an.
+  if (rendererSperre() && !(plan.schritte.size() == 1 && plan.schritte.front() == UmhaengSchritt::Vormerken)) return;
   Abo& abo = s.abo();
   size_t tonNr = 0;   // naechste Meldung aus plan.tonFolge (E-a2-7)
   for (const UmhaengSchritt schritt : plan.schritte) {
@@ -476,7 +481,7 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
 UmhaengLage lageFuer(Slot& s, SlotMode nachher, unsigned ziel, Grund aufruf) {
   Abo& abo = s.abo();
   UmhaengLage l{};
-  l.sperre = callbacksRendererSperre();
+  l.sperre = rendererSperre();
   l.abonniert = abo.subscribed.load();
   l.rendererTot = abo.rendererTot.load();
   l.modusVorher = s.mode.load();
@@ -634,7 +639,7 @@ void freigabeFolgen() {
 void wiederholungen(int64_t jetzt) {
   for (auto& [nr, s] : g_slots) {
     Abo& abo = s->abo();
-    if (!abo.wiederholen || jetzt < abo.wiederholenAbMs || callbacksRendererSperre()) continue;
+    if (!abo.wiederholen || jetzt < abo.wiederholenAbMs || rendererSperre()) continue;
     abo.wiederholen = false;
     UmhaengLauf lauf;
     lauf.ziel = abo.target.load();
@@ -647,44 +652,206 @@ void wiederholungen(int64_t jetzt) {
   }
 }
 
-// --- Abbau (vorlaeufig, A-EP17): Ketten-Semantik von 0.3.0 --------------------------
-// sdkAbmelden = true: Meeting lebt (leave/quit/EOF/Entzug/slotOff) - unSubscribe und
-// destroyRenderer. false: Meeting ist zu Ende - Renderer NICHT anfassen (gemessener
-// Absturz 0xC0000005, README Abschnitt 8). nurNr != 0: nur dieser Slot (slotOff).
-// Jeder Slot meldet slotAudio off vor slot off (Ton vor Bild). Abbau-Marken auf stderr,
-// damit ein Absturz die Zeile benennt (Lehre vom 18.08.2026).
-void slotsAbbauAlle(Grund grund, bool sdkAbmelden, int nurNr = 0) {
-  const char* grundText = nameVon(GRUND_NAMEN, grund);
-  emitLog(L"Abbau beginnt (" + std::wstring(grundText, grundText + std::strlen(grundText)) + L"), SDK abmelden: " +
-          (sdkAbmelden ? L"ja" : L"nein"));
-  for (auto it = g_slots.begin(); it != g_slots.end();) {
-    Slot& s = *it->second;
-    if (nurNr != 0 && s.nr != nurNr) { ++it; continue; }
-    s.imAbbau = true;
-    TonGrund tg = TonGrund::command;
-    if (grund == Grund::meetingEnded) tg = TonGrund::meetingEnded;
-    if (grund == Grund::privilegeRevoked) tg = TonGrund::privilegeRevoked;
-    tonMelden(s, TonZustand::Off, tg);
-    emitSlotOff(s, grund);
-    // Vorschau-Platz VOR dem Loeschen abmelden (6.16).
-    vorschauAbmelden(s.nr);
-    for (auto& abo : s.abos) {
-      abo->subscribed = false;
-      if (abo->renderer != nullptr && sdkAbmelden && !abo->rendererTot.load()) {
-        emitLog(L"Abbau Slot " + std::to_wstring(s.nr) + L": unSubscribe()");
-        logSdkError(L"unSubscribe() beim Abbau", abo->renderer->unSubscribe());
-        emitLog(L"Abbau Slot " + std::to_wstring(s.nr) + L": destroyRenderer()");
-        logSdkError(L"destroyRenderer() beim Abbau", destroyRenderer(abo->renderer));
-      } else if (abo->renderer != nullptr) {
-        emitLog(L"Abbau Slot " + std::to_wstring(s.nr) + L": Renderer nicht angefasst");
-      }
-      abo->renderer = nullptr;
-    }
-    s.sender.close();
-    emitLog(L"Abbau Slot " + std::to_wstring(s.nr) + L": fertig");
-    it = g_slots.erase(it);
+// --- Abbau-Ketten (Spec 6.15) ---------------------------------------------------------
+// Welche Schritte eine Kette in welcher Reihenfolge ausfuehrt, liefert abbauPlan()
+// (slot_logic.h, PB20). Hier steht nur der Ausfuehrer: ein Zweig je Schritt. Schritte,
+// die einem Slot gelten (TonAusMelden bis InHalteliste), laufen fuer jeden Slot der
+// Kette nacheinander; die uebrigen einmal, in Planreihenfolge.
+
+// Halteliste (6.15, Nachfix W2): Slots, die waehrend der Renderer-Sperre abgebaut
+// wurden, samt Abo, Renderer-Zeiger und Delegate. Sie zaehlen nirgends mehr, bekommen
+// keinen Ton und melden nichts; ein spaeter Rueckruf trifft ein lebendes Objekt.
+struct HalteEintrag {
+  std::unique_ptr<Slot> slot;
+  int meeting = 0;          // Nummer des Meetings, in dem der Eintrag entstand (join zaehlt)
+};
+std::vector<HalteEintrag> g_slotsHalt;
+int g_meetingNr = 0;
+bool g_sessionLeaveErgebnis = false;   // Rueckgabe von sessionLeave() fuer den Nachlauf-Plan
+
+bool jeSlot(AbbauSchritt a) {
+  switch (a) {
+    case AbbauSchritt::TonAusMelden:
+    case AbbauSchritt::SlotAusMelden:
+    case AbbauSchritt::VorschauPlatzAbmelden:
+    case AbbauSchritt::Unsubscribe:
+    case AbbauSchritt::DestroyRenderer:
+    case AbbauSchritt::ZeigerVerwerfen:
+    case AbbauSchritt::SenderZu:
+    case AbbauSchritt::SlotLoeschen:
+    case AbbauSchritt::InHalteliste:
+      return true;
+    default:
+      return false;
   }
-  emitLog(L"Abbau fertig");
+}
+
+TonGrund tonGrundFuer(Grund g) {
+  if (g == Grund::meetingEnded) return TonGrund::meetingEnded;
+  if (g == Grund::privilegeRevoked) return TonGrund::privilegeRevoked;
+  return TonGrund::command;
+}
+
+// Nach INMEETING je Slot neu zuordnen (6.15 "Zoom verbindet selbst neu"): Teilnehmer
+// Ziel 0 bis Connect neue Kennungen schickt (PK21), Sprecher Ziel 0 bis zum naechsten
+// Signal, Freigabe die gezeigte Freigabe. Die Renderer bleiben dabei bestehen: ANNAHME AN25 (unbelegt, MS25).
+void alleNeuZuordnen() {
+  const FreigabeEintrag* g = g_freigaben.gezeigt();
+  g_gezeigtShare = g != nullptr ? g->share : 0;
+  g_gezeigtUser = g != nullptr ? g->user : 0;
+  for (auto& [nr, s] : g_slots) {
+    const SlotMode m = s->mode.load();
+    if (m == SlotMode::Participant) {
+      slotRetarget(*s, m, 0, Grund::noTarget);
+    } else if (m == SlotMode::Speaker) {
+      s->wahl = neueWahl(*s);
+      slotRetarget(*s, m, 0, Grund::speakerNone);
+    } else {
+      s->shareUser = g_gezeigtUser;
+      slotRetarget(*s, m, g_gezeigtShare, g_gezeigtShare != 0 ? Grund::shareChanged : Grund::shareNone);
+    }
+  }
+}
+
+// Ausfuehrer der Abbau-Ketten (6.15). nurNr != 0: nur dieser Slot (slotOff). Jede
+// Renderer-Funktion liest vorher rendererSperre() (6.5). Abbau-Marken auf stderr,
+// damit ein Absturz die Zeile benennt (Lehre vom 18.08.2026).
+void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr = 0) {
+  const std::vector<AbbauSchritt> plan = abbauPlan(kette, rendererSperre(), verlassen);
+  emitLog(L"Abbau-Kette " + std::to_wstring(static_cast<int>(kette)) + L", Renderer-Sperre " +
+          (rendererSperre() ? L"an" : L"aus") + L", " + std::to_wstring(plan.size()) + L" Schritte");
+  // true = der Slot hat g_slots verlassen (geloescht oder in der Halteliste).
+  auto schritt = [&](AbbauSchritt a, std::unique_ptr<Slot>* slot) -> bool {
+    Slot* s = slot != nullptr ? slot->get() : nullptr;
+    switch (a) {
+      case AbbauSchritt::TonAusMelden:
+        // Riegel zuerst: die Rueckrufe kehren ab hier sofort zurueck (6.10).
+        s->imAbbau = true;
+        for (auto& abo : s->abos) abo->subscribed = false;
+        tonMelden(*s, TonZustand::Off, tonGrundFuer(grund));   // Ton vor Bild (6.15)
+        return false;
+      case AbbauSchritt::SlotAusMelden:
+        emitSlotOff(*s, grund);
+        return false;
+      case AbbauSchritt::VorschauPlatzAbmelden:
+        vorschauAbmelden(s->nr);   // VOR dem Loeschen (6.16)
+        return false;
+      case AbbauSchritt::Unsubscribe:
+        for (auto& abo : s->abos) {
+          if (abo->renderer != nullptr && !abo->rendererTot.load() && !rendererSperre()) {
+            emitLog(L"Abbau Slot " + std::to_wstring(s->nr) + L": unSubscribe()");
+            logSdkError(L"unSubscribe() beim Abbau", abo->renderer->unSubscribe());
+          }
+        }
+        return false;
+      case AbbauSchritt::DestroyRenderer:
+        for (auto& abo : s->abos) {
+          if (abo->renderer != nullptr && !abo->rendererTot.load() && !rendererSperre()) {
+            emitLog(L"Abbau Slot " + std::to_wstring(s->nr) + L": destroyRenderer()");
+            logSdkError(L"destroyRenderer() beim Abbau", destroyRenderer(abo->renderer));
+          }
+          abo->renderer = nullptr;
+        }
+        return false;
+      case AbbauSchritt::ZeigerVerwerfen:
+        // Meeting-Ende: Renderer NICHT anfassen (gemessener Absturz 0xC0000005,
+        // README Abschnitt 8) - nur den Zeiger loslassen.
+        for (auto& abo : s->abos) abo->renderer = nullptr;
+        emitLog(L"Abbau Slot " + std::to_wstring(s->nr) + L": Renderer nicht angefasst");
+        return false;
+      case AbbauSchritt::SenderZu:
+        s->sender.close();
+        return false;
+      case AbbauSchritt::SlotLoeschen:
+        emitLog(L"Abbau Slot " + std::to_wstring(s->nr) + L": fertig");
+        return true;
+      case AbbauSchritt::InHalteliste:
+        // Renderer-Sperre: weder unSubscribe noch destroyRenderer, und der Delegate
+        // wird nicht frei - der ganze Slot wartet in der Halteliste (W2).
+        emitLog(L"Slot " + std::to_wstring(s->nr) + L": in die Halteliste (Abbau waehrend der Renderer-Sperre)");
+        g_slotsHalt.push_back(HalteEintrag{std::move(*slot), g_meetingNr});
+        return true;
+      case AbbauSchritt::AudioShutdown:
+        audioShutdown();
+        return false;
+      case AbbauSchritt::AudioClearSubscribed:
+        audioClearSubscribed();
+        return false;
+      case AbbauSchritt::HaltelisteAbbauen:
+        // INMEETING desselben Meetings, nach dem Loesen der Sperre: je Eintrag
+        // unSubscribe + destroyRenderer (bei rendererTot keins), dann loeschen. ANNAHME AN25 (unbelegt, MS25): die gehaltenen Renderer sind nach der eigenen Wiederverbindung noch gueltig.
+        for (auto it = g_slotsHalt.begin(); it != g_slotsHalt.end();) {
+          if (it->meeting != g_meetingNr || rendererSperre()) { ++it; continue; }
+          for (auto& abo : it->slot->abos) {
+            if (abo->renderer != nullptr && !abo->rendererTot.load()) {
+              logSdkError(L"unSubscribe() beim Abbau der Halteliste", abo->renderer->unSubscribe());
+              logSdkError(L"destroyRenderer() beim Abbau der Halteliste", destroyRenderer(abo->renderer));
+            }
+            abo->renderer = nullptr;
+          }
+          emitLog(L"Slot " + std::to_wstring(it->slot->nr) + L": aus der Halteliste abgebaut (INMEETING)");
+          it = g_slotsHalt.erase(it);
+        }
+        return false;
+      case AbbauSchritt::HaltelisteVerwerfen:
+        // Meeting zu Ende bzw. leave mit Ruhezustand: loeschen OHNE Renderer-Aufruf.
+        for (auto it = g_slotsHalt.begin(); it != g_slotsHalt.end();) {
+          if (it->meeting != g_meetingNr) { ++it; continue; }
+          for (auto& abo : it->slot->abos) abo->renderer = nullptr;
+          emitLog(L"Slot " + std::to_wstring(it->slot->nr) + L": aus der Halteliste verworfen (ohne Renderer-Aufruf)");
+          it = g_slotsHalt.erase(it);
+        }
+        return false;
+      case AbbauSchritt::FreigabenLeeren:
+        g_freigaben.leeren();
+        g_gezeigtShare = g_gezeigtUser = 0;
+        return false;
+      case AbbauSchritt::ErinnerungLeeren:
+        g_erinnerung.leeren();
+        return false;
+      case AbbauSchritt::VorschauThreadEnde:
+        vorschauThreadEnde();
+        return false;
+      case AbbauSchritt::StopRawRecording:
+        sessionStopRawRecording();
+        return false;
+      case AbbauSchritt::SessionLeave:
+        g_sessionLeaveErgebnis = sessionLeave();
+        return false;
+      case AbbauSchritt::SperreAn:
+        return false;   // setzt der Rueckruf selbst bei DISCONNECTING/RECONNECTING (callbacks.cpp)
+      case AbbauSchritt::SperreLoesen:
+        callbacksRendererSperreLoesen();
+        return false;
+      case AbbauSchritt::EigeneKennungNeu:
+        sessionEigeneKennungNeu();
+        return false;
+      case AbbauSchritt::FreigabenBefuellen:
+        freigabenBefuellen(false);
+        return false;
+      case AbbauSchritt::UmhaengenVormerken:
+        alleNeuZuordnen();
+        return false;
+    }
+    return false;
+  };
+  size_t i = 0;
+  while (i < plan.size()) {
+    if (!jeSlot(plan[i])) {
+      schritt(plan[i], nullptr);
+      ++i;
+      continue;
+    }
+    size_t j = i;
+    while (j < plan.size() && jeSlot(plan[j])) ++j;
+    for (auto it = g_slots.begin(); it != g_slots.end();) {
+      if (nurNr != 0 && it->first != nurNr) { ++it; continue; }
+      bool weg = false;
+      for (size_t k = i; k < j && !weg; ++k) weg = schritt(plan[k], &it->second);
+      it = weg ? g_slots.erase(it) : std::next(it);
+    }
+    i = j;
+  }
 }
 
 // --- Ton-Zuordnung und Messung (Spec 6.13; Person-Ton ab A11, alle Arten ab A15) ----
@@ -926,7 +1093,7 @@ bool slotNameBelegt(const std::string& ndi, int ausser) {
 
 void slotOn(const SlotBefehl& b) {
   // 8. Renderer-Sperre (6.5): nichts anlegen (Nachfix W2).
-  if (callbacksRendererSperre()) { emitSlotFehler("slotReconnecting", b.nr); return; }
+  if (rendererSperre()) { emitSlotFehler("slotReconnecting", b.nr); return; }
   // 9. Erlaubnis ist Voraussetzung, kein Wunsch.
   if (!sessionCanRecordRaw()) { emitSlotFehler("slotNoPrivilege", b.nr); return; }
   // 10. Fehlende NDI-Laufzeit hat ihren eigenen Namen (where:"ndi", wie main.cpp).
@@ -1057,7 +1224,7 @@ void slotSet(const SlotAenderung& a) {
 
 void slotOff(int nr, Grund grund) {
   if (!slotLaeuft(nr)) { emitSlotFehler("slotNotOn", nr); return; }
-  slotsAbbauAlle(grund, true, nr);
+  abbauAusfuehren(Kette::SlotOff, grund, false, nr);
 }
 
 void slotsParticipantLeft(unsigned id) {
@@ -1123,29 +1290,21 @@ void slotsSprecher(const MerkerSprecher& m) {
 }
 
 void slotsInMeeting() {
-  // Kennungen wechseln nach einer Wiederverbindung (6.5): Erinnerung leeren, Freigaben
-  // leeren und neu befuellen, dann jeden Slot neu zuordnen (6.15 "Zoom verbindet selbst
-  // neu"): Teilnehmer Ziel 0 bis Connect neue Kennungen schickt, Sprecher Ziel 0 bis zum
-  // naechsten Signal, Freigabe die gezeigte.
-  g_erinnerung.leeren();
-  g_freigaben.leeren();
-  g_gezeigtShare = g_gezeigtUser = 0;
-  freigabenBefuellen(false);
-  const FreigabeEintrag* g = g_freigaben.gezeigt();
-  g_gezeigtShare = g != nullptr ? g->share : 0;
-  g_gezeigtUser = g != nullptr ? g->user : 0;
-  for (auto& [nr, s] : g_slots) {
-    const SlotMode m = s->mode.load();
-    if (m == SlotMode::Participant) {
-      slotRetarget(*s, m, 0, Grund::noTarget);
-    } else if (m == SlotMode::Speaker) {
-      s->wahl = neueWahl(*s);
-      slotRetarget(*s, m, 0, Grund::speakerNone);
-    } else {
-      s->shareUser = g_gezeigtUser;
-      slotRetarget(*s, m, g_gezeigtShare, g_gezeigtShare != 0 ? Grund::shareChanged : Grund::shareNone);
-    }
-  }
+  // Kennungen wechseln nach einer Wiederverbindung (6.5): Sperre loesen, Halteliste
+  // abbauen, eigene Kennung neu, Erinnerung und Freigaben leeren und neu befuellen, dann
+  // jeden Slot neu zuordnen - die Reihenfolge gibt abbauPlan (6.15, PB20).
+  abbauAusfuehren(Kette::InMeetingErneut, Grund::command);
+}
+
+void slotsMeetingNeu() { ++g_meetingNr; }
+
+bool rendererSperre() { return callbacksRendererSperre(); }
+
+void slotsLeave() {
+  // Zwei Plaene (6.15, Fuenfte Runde N8): bis einschliesslich sessionLeave(), dann der
+  // Nachlauf mit dessen Rueckgabe (true: Halteliste verwerfen, false: sie bleibt).
+  abbauAusfuehren(Kette::Leave, Grund::command);
+  abbauAusfuehren(Kette::LeaveNachlauf, Grund::command, g_sessionLeaveErgebnis);
 }
 
 void slotsSprecherEinstellung(Signal signal, int64_t holdMs) {
@@ -1177,25 +1336,23 @@ void slotLogicTick(int64_t jetzt) {
   }
   freigabeFolgen();
   wiederholungen(jetzt);
-  if (callbacksRendererSperre()) return;
+  if (rendererSperre()) return;
   for (auto& [nr, s] : g_slots) {
     if (s->vorgemerkt) slotRetarget(*s, s->vorgemerktMode, s->vorgemerktZiel, s->vorgemerktGrund);
   }
 }
 
-void slotsShutdownAll() { slotsAbbauAlle(Grund::command, true); }
+// quit/EOF: Ton ab, Vorschau-Thread beenden, Slots ab (6.15; der Plan legt die
+// Reihenfolge fest, die Halteliste bleibt dann bis zum Prozessende stehen).
+void slotsShutdownAll() { abbauAusfuehren(Kette::QuitEof, Grund::command); }
 
-// Die Aufnahme-Erlaubnis ist ENTZOGEN (Stage 4b, N4b.1): Meeting lebt, Renderer gueltig.
-void slotsPrivilegeRevoked() {
-  if (g_slots.empty()) return;
-  slotsAbbauAlle(Grund::privilegeRevoked, true);
-}
+// Die Aufnahme-Erlaubnis ist ENTZOGEN (Stage 4b, N4b.1): Meeting lebt, Renderer gueltig;
+// Freigaben und Sprecher-Erinnerung bleiben (Nachfix W3). Nie aus einem Rueckruf.
+void slotsPrivilegeRevoked() { abbauAusfuehren(Kette::Entzug, Grund::privilegeRevoked); }
 
-// Meeting zu Ende: OHNE SDK-Abmeldung (gemessener Absturz, README Abschnitt 8).
-void slotsMeetingEnded() {
-  if (g_slots.empty()) return;
-  slotsAbbauAlle(Grund::meetingEnded, false);
-}
+// Meeting zu Ende: OHNE Renderer-Aufruf (gemessener Absturz, README Abschnitt 8);
+// die Halteliste wird ebenso ohne Renderer-Aufruf verworfen.
+void slotsMeetingEnded() { abbauAusfuehren(Kette::MeetingEnde, Grund::meetingEnded); }
 
 // LAEUFT AUF DEM HAUPTTHREAD (main.cpp, nach den Merkern). Liest g_slots ohne
 // Kartensperre: alle Mutationen laufen auf diesem Thread.

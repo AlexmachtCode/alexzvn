@@ -2577,17 +2577,16 @@ console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
   const iTakt = schleife.indexOf('slotsTick(');
   assert(main.includes('while (!g_quit) {') && iPumpe >= 0 && iEnde > iPumpe && iEntzug > iEnde && iTakt > iEntzug,
     'nativ: main.cpp arbeitet den Entzug nach pumpOnce() und vor slotsTick() ab (nach dem Meeting-Ende-Abbau)');
+  // Seit A14 legt abbauPlan die Reihenfolge fest (AudioClearSubscribed, Slots, StopRawRecording;
+  // PB20); main.cpp ruft nur noch die Kette.
   const block = rumpf(schleife, 'if (callbacksTakePrivilegeRevokedTeardown())');
-  const iTon = block.indexOf('audioClearSubscribed(');
-  const iBild = block.indexOf('slotsPrivilegeRevoked(');
-  const iRoh = block.indexOf('sessionStopRawRecording(');
-  assert(iTon >= 0 && iBild > iTon && iRoh > iBild,
-    'nativ: Reihenfolge im Entzug-Block: audioClearSubscribed, slotsPrivilegeRevoked, sessionStopRawRecording');
+  assert(block.includes('slotsPrivilegeRevoked(') && !/\b(audioClearSubscribed|sessionStopRawRecording)\s*\(/.test(block),
+    'nativ: der Entzug-Block ruft nur die Kette slotsPrivilegeRevoked (Reihenfolge nach abbauPlan)');
 }
 {
   const koerper = rumpf(nativ('video.cpp'), 'void slotsPrivilegeRevoked()');
-  assert(/slotsAbbauAlle\(\s*Grund::privilegeRevoked\s*,\s*true\s*\)/.test(koerper),
-    'nativ: slotsPrivilegeRevoked baut mit slotsAbbauAlle(Grund::privilegeRevoked, true) ab');
+  assert(/abbauAusfuehren\(\s*Kette::Entzug\s*,\s*Grund::privilegeRevoked\s*\)/.test(koerper),
+    'nativ: slotsPrivilegeRevoked baut mit abbauAusfuehren(Kette::Entzug, Grund::privilegeRevoked) ab (PT6 b)');
   const stopp = rumpf(nativ('session.cpp', true), 'SDKError sessionStopRawRecording()');
   const iZurueck = stopp.indexOf('g_rawRecordingOn.exchange(false)');
   const iReturn = stopp.indexOf('return');
@@ -3440,15 +3439,15 @@ function rueckrufRuempfe(src: string): Array<[string, string]> {
     'A10 6.6: die Hauptschleife nimmt die Merker nach dem Entzug und vor dem Herzschlag');
   const nehmen = rumpf(main, 'void merkerNehmen()');
   assert(nehmen.indexOf('callbacksTakeInMeeting(') >= 0 && nehmen.indexOf('callbacksTakeInMeeting(') < nehmen.indexOf('callbacksTakeTeilnehmer(')
-      && /sessionEigeneKennungNeu\(\)/.test(nehmen),
-    'A10 6.6 Nr. 4: zuerst INMEETING (eigene Kennung neu), dann die Teilnehmer');
+      && /slotsInMeeting\(\)/.test(nehmen),
+    'A10 6.6 Nr. 4: zuerst INMEETING (Kette mit eigener Kennung neu, A14), dann die Teilnehmer');
 }
 console.log('\nNativer Teil — A11 Slot-Verwaltung, Befehle, Umhängen (Spec 6.1, 6.2, 6.10, G-A3):');
 {
   const video = nativ('video.cpp', true);
   // G-A3: jede Renderer-Funktion steht nur in den Ausführern (Umhängen: planAusfuehren,
   // subscribeAusfuehren, rendererAnlegen; Abbau: slotsAbbauAlle bis A14).
-  const erlaubt = ['void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ', 'void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf)', 'SDKError rendererAnlegen(', 'void slotsAbbauAlle(']
+  const erlaubt = ['void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ', 'void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf)', 'SDKError rendererAnlegen(', 'void abbauAusfuehren(']
     .map((kopf) => {
       const start = video.indexOf(kopf);
       const koerper = rumpf(video, kopf);
@@ -3639,7 +3638,9 @@ console.log('\nNativer Teil — A12 Sprecher, Freigabe, Moduswechsel, ohne Versa
   const folgen = rumpf(video, 'void freigabeFolgen()');
   assert(/Grund::shareChanged/.test(folgen) && /Grund::shareNone/.test(folgen) && /slotRetarget\(/.test(folgen) && /lage\.freigabePausiert\s*=\s*dieseFreigabe\s*&&\s*gezeigt->paused\s*;/.test(rumpf(video, 'void ersatzbildTick(')),
     'A12 6.9: alle Freigabe-Slots folgen der gezeigten Freigabe (shareChanged bzw. shareNone), der Herzschlag sieht ihre Pause');
-  const neu = rumpf(video, 'void slotsInMeeting()');
+  // Seit A14: die Kette InMeetingErneut nach abbauPlan (Ausfuehrer und alleNeuZuordnen).
+  const neu = /abbauAusfuehren\(\s*Kette::InMeetingErneut/.test(rumpf(video, 'void slotsInMeeting()'))
+    ? rumpf(video, 'void abbauAusfuehren(') + rumpf(video, 'void alleNeuZuordnen()') : '';
   assert(['g_erinnerung.leeren()', 'g_freigaben.leeren()', 'freigabenBefuellen(false)', 'Grund::noTarget', 'Grund::speakerNone']
     .every((s) => neu.includes(s)),
     'A12 6.15: INMEETING leert Erinnerung und Freigaben, befüllt neu; Teilnehmer noTarget, Sprecher speakerNone');
@@ -3668,14 +3669,67 @@ console.log('\nNativer Teil — A13 Vorschau (Spec 6.16, PT6 e):');
   assert(/p->m\.try_lock\(\)/.test(ende) && /jetzt\s*-\s*p->letzteMs\s*<\s*500/.test(ende) && /kMaxB\s*=\s*192/.test(vorschau) && /kMaxH\s*=\s*108/.test(vorschau),
     'A13 6.16: Verkleinern per try_lock, höchstens alle 500 ms, in 192 × 108 eingepasst');
   const main = nativ('main.cpp', true);
-  const iEnde = main.lastIndexOf('vorschauThreadEnde(');
-  assert(iEnde >= 0 && iEnde < main.lastIndexOf('slotsShutdownAll(') && iEnde > main.lastIndexOf('audioShutdown('),
-    'A13 6.15: quit/EOF beendet den Vorschau-Thread nach audioShutdown und vor slotsShutdownAll');
+  // Seit A14 beendet der Schritt VorschauThreadEnde der Kette quit/EOF den Thread (Reihenfolge PB20).
+  assert(/case AbbauSchritt::VorschauThreadEnde:\s*vorschauThreadEnde\(\)/.test(video) && main.lastIndexOf('slotsShutdownAll(') < main.lastIndexOf('sessionShutdown('),
+    'A13 6.15: quit/EOF beendet den Vorschau-Thread im Abbau-Plan, vor sessionShutdown');
   assert(/CoInitializeEx\(\s*nullptr\s*,\s*COINIT_MULTITHREADED\s*\)/.test(vorschau) && /previewUnavailable/.test(nativ('preview.cpp')) && /\bvorschauModus\(\s*an\s*\)/.test(rumpf(nativ('main.cpp'), 'if (cmd == "previewMode")')) && /\bg_an\s*=\s*!\s*g_unavailableGemeldet\.load\(\)\s*;/.test(rumpf(rumpf(vorschau, 'void vorschauModus(bool an)'), 'if (an)')),
     'A13 E15: der Vorschau-Thread startet COM als MTA und meldet previewUnavailable, wenn WIC/COM fehlen; previewMode gibt on an vorschauModus, nach previewUnavailable bleibt die Vorschau aus');
   const cmake = readFileSync(join(nativOrdner, '..', 'CMakeLists.txt'), 'utf8');
   assert(/native\/preview\.cpp/.test(cmake) && /target_link_libraries\(zoom-bridge[^)]*\bwindowscodecs\b[^)]*\bole32\b/.test(cmake),
     'A13 6.16: CMakeLists.txt baut preview.cpp und linkt windowscodecs und ole32');
+}
+console.log('\nNativer Teil — A14 Abbau-Ketten, Renderer-Sperre, Halteliste (Spec 6.5, 6.6, 6.15, PT6 b/c):');
+{
+  const video = nativ('video.cpp', true);
+  const RENDERER = /\b(subscribe|unSubscribe|setRawDataResolution|createRenderer|destroyRenderer)\s*\(/;
+  // PT6 b (Restrunde RR3): das ARGUMENT des Aufrufs wird geprüft, nicht das Fehlen eines Aufrufs.
+  const ende = rumpf(video, 'void slotsMeetingEnded()');
+  const entzug = rumpf(video, 'void slotsPrivilegeRevoked()');
+  assert(/abbauAusfuehren\(\s*Kette::MeetingEnde\s*,\s*Grund::meetingEnded\s*\)/.test(ende) && !RENDERER.test(ende),
+    'A14 PT6 b: slotsMeetingEnded ruft abbauAusfuehren mit Kette::MeetingEnde, selbst keine Renderer-Funktion');
+  assert(/abbauAusfuehren\(\s*Kette::Entzug\s*,/.test(entzug) && !RENDERER.test(entzug),
+    'A14 PT6 b: slotsPrivilegeRevoked ruft abbauAusfuehren mit Kette::Entzug, selbst keine Renderer-Funktion');
+  const aus = rumpf(video, 'void abbauAusfuehren(');
+  const zweig = (name: string) => {
+    const i = aus.indexOf(`case AbbauSchritt::${name}:`);
+    if (i < 0) return '';
+    const j = aus.indexOf('case AbbauSchritt::', i + 1);
+    return aus.slice(i, j < 0 ? aus.length : j);
+  };
+  assert(zweig('ZeigerVerwerfen') !== '' && !RENDERER.test(zweig('ZeigerVerwerfen'))
+      && zweig('HaltelisteVerwerfen') !== '' && !RENDERER.test(zweig('HaltelisteVerwerfen')),
+    'A14 PT6 b: im Ausführer rufen die Zweige ZeigerVerwerfen und HaltelisteVerwerfen keine Renderer-Funktion');
+  assert(/abbauPlan\(\s*kette\s*,\s*rendererSperre\(\)\s*,\s*verlassen\s*\)/.test(aus),
+    'A14 6.15: der Ausführer holt den Plan aus abbauPlan(kette, rendererSperre(), verlassen)');
+  assert(/g_slotsHalt\.push_back\(\s*HalteEintrag\{\s*std::move\(\*slot\)\s*,\s*g_meetingNr\s*\}\s*\)/.test(zweig('InHalteliste'))
+      && /it->meeting\s*!=\s*g_meetingNr/.test(zweig('HaltelisteAbbauen')),
+    'A14 W2: InHalteliste verschiebt den ganzen Slot samt Meeting-Nummer; HaltelisteAbbauen fasst nur Einträge dieses Meetings an');
+  // 6.5: jede Funktion mit Renderer-Aufrufen liest vorher die Renderer-Sperre.
+  const mitSperre = ['void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ', 'void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf)',
+    'SDKError rendererAnlegen(']
+    .every((kopf) => { const k = rumpf(video, kopf); const r = k.search(RENDERER); return r < 0 || (k.indexOf('rendererSperre()') >= 0 && k.indexOf('rendererSperre()') < r); });
+  const imAbbau = ['Unsubscribe', 'DestroyRenderer'].every((n) => /!rendererSperre\(\)/.test(zweig(n)))
+    && /rendererSperre\(\)/.test(zweig('HaltelisteAbbauen'));
+  assert(mitSperre && imAbbau, 'A14 6.5: jede Renderer-Funktion in video.cpp steht hinter einer Prüfung von rendererSperre()');
+  const leave = rumpf(video, 'void slotsLeave()');
+  assert(/abbauAusfuehren\(\s*Kette::Leave\s*,/.test(leave) && /abbauAusfuehren\(\s*Kette::LeaveNachlauf\s*,\s*Grund::command\s*,\s*g_sessionLeaveErgebnis\s*\)/.test(leave)
+      && /g_sessionLeaveErgebnis\s*=\s*sessionLeave\(\)/.test(zweig('SessionLeave')),
+    'A14 N8: leave führt zwei Pläne aus, den Nachlauf mit der Rückgabe von sessionLeave()');
+  assert(/rendererSperre\(\)\)\s*\{\s*emitSlotFehler\(\s*"slotReconnecting"/.test(nativ('video.cpp')),
+    'A14 W2: slotOn antwortet während der Renderer-Sperre slotReconnecting');
+}
+{
+  // PT6 c: Reihenfolge der Hauptschleife nach 6.6.
+  const main = nativ('main.cpp', true);
+  const schleife = main.slice(Math.max(0, main.indexOf('while (!g_quit) {')));
+  const folge = ['pumpOnce(', 'callbacksTakeMeetingEndTeardown(', 'callbacksTakePrivilegeRevokedTeardown(', 'merkerNehmen(', 'slotLogicTick(',
+    'slotsTick(', 'nextLine('].map((s) => schleife.indexOf(s));
+  assert(folge.every((i, k) => i >= 0 && (k === 0 || i > folge[k - 1])),
+    'A14 PT6 c: Hauptschleife pumpOnce < Meeting-Ende < Entzug < Merker < slotLogicTick < slotsTick < Befehle');
+  const fall = (cmd: string) => rumpf(nativ('main.cpp'), `if (cmd == "${cmd}")`);
+  assert(/slotsLeave\(\)/.test(fall('leave')) && !/\b(audioShutdown|sessionLeave|slotsShutdownAll)\s*\(/.test(fall('leave'))
+      && /slotsMeetingNeu\(\)/.test(fall('join')),
+    'A14 6.15: leave ruft nur die Kette slotsLeave; join zählt die Meeting-Nummer der Halteliste hoch');
 }
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
