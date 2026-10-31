@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Zoom-Meeting-SDK-Bruecke (natives Windows-Sidecar) fuer JM Connect: Beitritt, Teilnehmer, Aufnahme-Erlaubnis, Bild und Ton je Teilnehmer als NDI-Quelle, Bild-Versatz; in JM Connect eingebunden ab 0.2.0 (Stage 4)",
+  "description": "Zoom-Meeting-SDK-Bruecke (natives Windows-Sidecar) fuer JM Connect: Beitritt, Teilnehmer, Aufnahme-Erlaubnis, bis zu 16 Slots als feste NDI-Quellen (Teilnehmer, aktiver Sprecher, Bildschirmfreigabe) mit Ersatzbild, Ton je Slot, Vorschau und Messwerten, Bild-Versatz; in JM Connect eingebunden ab 0.2.0, Slots ab 0.4.0",
   "exports": {
     ".": "./src/index.ts",
     "./protocol": "./src/protocol.ts",

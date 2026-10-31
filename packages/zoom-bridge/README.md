@@ -4,16 +4,25 @@
 
 Ein natives Windows-Sidecar für JM Connect, das die Zoom-Meeting-SDK-Funktionen
 anspricht, die Node/Electron nicht selbst können (eigene Win32-Nachrichtenschleife,
-`InitSDK`, Rückrufe). Es deckt **Stage 1–3 von 4** der Zoom-Einbindung (Issue #197)
-ab: Anmeldung, Meeting-Beitritt, Teilnehmerliste, Rohdaten-Aufnahme-Erlaubnis
-(Stage 1) — und, mit dieser Erlaubnis, **Video je abonniertem Teilnehmer als
-eigene NDI-Quelle** (Stage 2) samt **Ton in derselben Quelle** (Stage 3, siehe
-Abschnitt 7).
+`InitSDK`, Rückrufe). Es deckt Anmeldung, Meeting-Beitritt, Teilnehmerliste und
+Rohdaten-Aufnahme-Erlaubnis ab (Stage 1) und gibt, mit dieser Erlaubnis, bis zu
+**16 Slots** als feste NDI-Quellen aus (seit Connect 0.4.0, Spec
+[`docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md`](../../docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md)).
+Jeder Slot hat einen eigenen NDI-Sender und einen von drei Modi: **Teilnehmer**
+(eine bestimmte Person), **Aktiver Sprecher** (wer gerade spricht) oder
+**Bildschirmfreigabe** (die neueste Freigabe). Je Slot gelten eigene Auflösung,
+eigenes Ersatzbild und eigener Ton (Mischton des Meetings, Ton der Person oder aus,
+im Modus Freigabe dazu der Computerton); Einzelheiten in Abschnitt 7.
+
+Bis Connect 0.3.0 deckte die Bridge **Stage 1–3 von 4** der Zoom-Einbindung (Issue
+#197) ab: dazu Video je abonniertem Teilnehmer als eigene NDI-Quelle (Stage 2) samt
+Ton in derselben Quelle (Stage 3). Dieser Weg (`videoSubscribe`) ist mit den Slots
+entfallen; was an ihm gemessen ist, steht weiter in Abschnitt 7.
 
 **Es schreibt keine Datei.** Weder Cloud- noch lokale Aufzeichnung wird je
 gestartet, es entsteht keine Datei auf keiner Platte. Das heißt aber **nicht**
-„kein Bild verlässt den Prozess": mit erteilter Erlaubnis und mindestens einem
-`videoSubscribe`-Abo verlassen sehr wohl Bild **und Ton** den Prozess — als
+„kein Bild verlässt den Prozess“: mit erteilter Erlaubnis und mindestens einem
+laufenden Slot verlassen sehr wohl Bild **und Ton** den Prozess — als
 **NDI**, nicht als Datei.
 
 > **`StartRawRecording()` heißt nicht, was es heißt — und das hat echte Zeit
@@ -56,17 +65,41 @@ können.
 `zoom-bridge.exe` landet danach unter `build/Release/zoom-bridge.exe`
 (`binPath()` in `src/bridge.ts` zeigt genau dorthin).
 
+**Entscheidungslogik über CMake** (seit Connect 0.4.0; nach einem `rebuild`, nur
+Windows, beide SDK-Ordner gesetzt wie für den Bau):
+
+```powershell
+npm run slot-test -w @jm/zoom-bridge
+```
+
+`slot-test` baut die Prüfprogramme der Entscheidungslogik (`native/*_test.cpp`) als
+CMake-Ziele im Ordner `build/` und startet sie, also über den echten Bau mit MSVC.
+Dieselben Programme übersetzt `logik-test` ohne CMake und ohne SDK (Abschnitt 3).
+`npm run delay-test` (nur die Versatz-Warteschlange) bleibt.
+
 ## 3 · Prüfen ohne SDK
 
 ```
 npm run typecheck -w @jm/zoom-bridge
 npm run selftest -w @jm/zoom-bridge
+npm run logik-test -w @jm/zoom-bridge
 ```
 
-Beide laufen **überall** — auch auf Linux, auch ohne Compiler, auch ohne
-`ZOOM_SDK_DIR`. Der Selbsttest (`test/selftest.ts`) prüft Protokoll,
+`typecheck` und `selftest` laufen **überall** — auch auf Linux, auch ohne Compiler,
+auch ohne `ZOOM_SDK_DIR`. Der Selbsttest (`test/selftest.ts`) prüft Protokoll,
 Zustandsmaschine und die Prozess-Schicht (`Bridge`) gegen eine Attrappe
-(`test/fake-bridge.mjs`), nicht gegen das echte SDK.
+(`test/fake-bridge.mjs`), nicht gegen das echte SDK. Dazu kommen Quelltext-Wächter
+über den nativen Teil (wer ruft was, in welcher Reihenfolge, was steht im Log).
+
+`logik-test` (`scripts/logik-test.mjs`, seit Connect 0.4.0) prüft die
+Entscheidungslogik der Slots in C++ ohne SDK: Es übersetzt die Prüfprogramme
+`native/slot_logic_test.cpp`, `native/audio_mix_test.cpp` und
+`native/delay_line_test.cpp` direkt mit dem Compiler (ohne CMake) in einen
+Temp-Ordner und startet sie. Es braucht also einen C++-Compiler, aber weder Zoom-
+noch NDI-SDK: `g++` oder `clang++` mit `-std=c++17 -Wall -Werror`, unter Windows
+`cl /W4 /WX` über `vswhere` und `VsDevCmd.bat`. Die CI fährt es im Job
+`selftests`. Ohne Compiler endet es mit Rückgabe 2 und der Zeile
+`logik-test: kein C++-Compiler gefunden (g++, clang++, cl über vswhere).`
 
 ## 4 · Prüfen gegen ein echtes Meeting
 
@@ -81,8 +114,9 @@ npm run join -w @jm/zoom-bridge
 `test/join.mjs` baut das JWT, startet `zoom-bridge.exe`, tritt dem Meeting bei,
 druckt jedes Ereignis in Klartext und verlässt das Meeting nach `ZOOM_JOIN_SECONDS`
 Sekunden wieder (Vorgabe 60, Strg+C beendet früher). Optional: `ZOOM_DISPLAY_NAME`
-(Vorgabe `JM Connect`), `ZOOM_VIDEO_SUBSCRIBE` (kommagetrennte Kennungen) und
-`ZOOM_AUDIO_OFF` (Teilmenge davon, abonniert mit `audio:false` — Bild ohne Ton).
+(Vorgabe `JM Connect`), `ZOOM_VIDEO_SUBSCRIBE` (kommagetrennte Kennungen; je Kennung
+ein Slot wie bei `+<id>`) und `ZOOM_AUDIO_OFF` (Teilmenge davon, Slot mit
+`audio:"off"` — Bild ohne Ton; bis 0.3.0 ein Abo mit `audio:false`).
 
 Die Logik dahinter steht seit dem Einsatzpaket (01.10.2026) in
 `cli/steuerung.mjs` — dieselbe, die im Paket als `zoom-join.exe` läuft
@@ -96,10 +130,11 @@ Strg+C ein SIGINT bleibt):
 | Eingabe | Wirkung |
 | --- | --- |
 | `<Zahl>` | Bild-Versatz in ms für alle Zoom-Quellen (`videoDelay`). Die **Bridge** prüft 0–1000/ganzzahlig — `4.5` erreicht sie und kommt als `VIDEO_BAD_DELAY` zurück (Drehbuch A3 e). |
-| `+<id>` | Bild **und** Ton dieser Kennung abonnieren (720p, Feld `audio` weggelassen = Vorgabefall des Protokolls). |
-| `+<id> stumm` | dasselbe mit `audio:false`. |
-| `-<id>` | Abo beenden (`videoUnsubscribe`). ⚑ **Bewusste Änderung:** `-<Zahl>` war bis dahin ein (ungültiger) negativer Versatz und heißt jetzt abbestellen. |
-| `liste` | Teilnehmer (Format wie der Teilnehmer-Block, samt „(das sind wir)" und dem Hinweis, wenn eine `persistentId` fehlt — dann geht Umhängen nur über den Namen), laufende Abos, bestätigter Versatz. |
+| `+<id>` | Einen Slot für diese Kennung einschalten: `slotOn` mit der kleinsten freien Slot-Nummer der Konsole, Modus `participant`, 720p, Ton der Person (`audio:"person"`), Ersatzbild Schwarz, NDI-Name „JM Connect – Zoom ‹Name›“ nach der Namensregel von JM Connect, eindeutig gegen die Slots der Konsole (seit Connect 0.4.0; bis 0.3.0 `videoSubscribe`). |
+| `+<id> stumm` | dasselbe mit `audio:"off"`. |
+| `-<id>` | Den Slot mit diesem Ziel abschalten (`slotOff`; bis 0.3.0 `videoUnsubscribe`). ⚑ **Bewusste Änderung:** `-<Zahl>` war bis dahin ein (ungültiger) negativer Versatz und heißt jetzt abbestellen. |
+| `=<Slot> <Kennung>` | Den Slot auf eine andere Kennung hängen (`slotSet {slot, id}`), etwa nach einer Rückkehr (neu mit Connect 0.4.0). |
+| `liste` | Teilnehmer (Format wie der Teilnehmer-Block, samt „(das sind wir)“ und dem Hinweis, wenn eine `persistentId` fehlt), Slots (Nummer, Ziel, Zustand), bestätigter Versatz. |
 | `ende` | wie Strg+C: Meeting verlassen, sauber beenden. Danach wird keine Eingabe mehr gedeutet („Wird gerade beendet – Eingabe ignoriert"). |
 | `hilfe` / `?` | Befehlsübersicht. Eine kurze Fassung steht einmal unter dem ersten Teilnehmer-Block. |
 
@@ -119,6 +154,14 @@ danach `abonnieren mit +<id>` da — **erst nach** dem Umhänge-Versuch der Brid
 (`native/callbacks.cpp` meldet `joined` **vor** dem `video`-Ereignis mit
 `rebound`/`reboundByName`). Hängt sich ein Abo um, steht statt des Hinweises
 „Abo automatisch umgehängt … nichts zu tun".
+
+**Seit Connect 0.4.0 (Spec Zoom-Slots 6.18, Nachbesserung B83):** Die Prüfungen vor
+dem Senden gelten je Slot statt je Abo. Nicht mehr gilt der Schluss des Absatzes
+oben: Die Bridge macht keinen Umhänge-Versuch mehr (kein `rebound`/`reboundByName`),
+und „Abo automatisch umgehängt … nichts zu tun“ erscheint nicht mehr. Auch die
+Konsole hängt nicht von selbst um. Tritt jemand bei, dessen normierter Name dem eines
+Konsolen-Slots ohne Ziel gleicht, druckt sie „Rückkehr? =<Slot> <Kennung>“;
+umgehängt wird erst mit dieser Eingabe.
 
 **Nur anmelden:** `ZOOM_NUR_ANMELDEN=1` macht nur `init` + `auth`, druckt
 SDK-Fassung und Anmeldeergebnis und beendet sauber — **ohne Beitritt**, ohne
@@ -254,10 +297,16 @@ Absturz behandelt.
 | `init` | — | `InitSDK`, startet die Nachrichtenschleife. |
 | `auth` | `jwt` | Anmeldung mit dem fertigen JWT. |
 | `join` | `meetingId`, `passcode`, `displayName` | Tritt dem Meeting bei. |
-| `leave` | — | Verlässt das Meeting, bleibt aber angemeldet. Baut **vorher** alle Video-Abos ab (jedes meldet sich einzeln, siehe Abschnitt 7). |
+| `leave` | — | Verlässt das Meeting, bleibt aber angemeldet. Baut **vorher** alle Slots ab (jeder meldet sich einzeln, Ton vor Bild, siehe Abschnitt 7; bis 0.3.0 alle Video-Abos). |
 | `quit` | — | Beendet `zoom-bridge.exe` sauber. |
-| `videoSubscribe` | `id`, optional `resolution` | Abonniert das Video eines Teilnehmers als eigene NDI-Quelle — **Einzelheiten in Abschnitt 7**. |
-| `videoUnsubscribe` | `id` | Baut dieses Abo ab — **Einzelheiten in Abschnitt 7**. |
+| `slotOn` | `slot` (1–16), `ndi` (fertiger NDI-Name, höchstens 60 Code-Punkte, ohne `:`), `mode` (`participant`/`speaker`/`share`), `id` (nur `participant`; fehlt oder 0 = kein Ziel), `resolution` (`360p`/`720p`/`1080p`), `audio` (`mix`/`person`/`off`), `shareAudio` (Bool), `fallback` (`transparent`/`freeze`/`black`/`white`), `showNoVideo` (Bool) | Legt den Slot mit seinem festen NDI-Sender an und hängt ihn auf das erste Ziel seines Modus — **Einzelheiten in Abschnitt 7**. Der erste Fehler der Prüffolge gewinnt; angelegt wird dann nichts. |
+| `slotSet` | `slot`, dazu beliebig viele von `mode`, `id`, `resolution`, `audio`, `shareAudio`, `fallback`, `showNoVideo` | Prüft erst alle Felder, ändert dann; höchstens ein Umhängen. Der Sender bleibt. |
+| `slotOff` | `slot` | Baut den Slot ab und schließt seinen Sender. |
+| `speakerConfig` | `signal` (`speakerVideo`/`activeVideo`/`activeAudio`), `holdMs` (0–5000) | Signal und Haltezeit für alle Sprecher-Slots; braucht kein `init`. |
+| `previewMode` | `on` (Bool) | Vorschau aller Slots an oder aus; braucht kein `init`. |
+| `videoDelay` | `ms` (ganze Zahl 0–1000) | Bild-Versatz für alle Slots außer Freigabe-Slots; braucht kein `init` (Abschnitt 7, „Die Abhilfe“). |
+| `videoSubscribe` | `id`, optional `resolution` | **Entfallen mit Connect 0.4.0** (Spec Zoom-Slots 6.2, 6.18): Die Bridge antwortet wie auf jeden unbekannten Befehl mit `where:"cmd"`, `code:1`. Bis 0.3.0: Abonniert das Video eines Teilnehmers als eigene NDI-Quelle — **Einzelheiten in Abschnitt 7**. |
+| `videoUnsubscribe` | `id` | **Entfallen mit Connect 0.4.0**, wie `videoSubscribe`. Bis 0.3.0: Baut dieses Abo ab — **Einzelheiten in Abschnitt 7**. |
 
 **Die Reihenfolge ist bindend, und der Aufrufer muss sie einhalten:** nach `auth`
 **erst das `auth`-Ereignis abwarten**, dann `join` schicken. Wer `init`, `auth`
@@ -281,9 +330,19 @@ mit Namen — die Reihenfolge herzustellen ist Sache der aufrufenden Seite
 | `joined` | Ein Teilnehmer (`p`) ist dazugekommen oder wurde aktualisiert. |
 | `left` | Ein Teilnehmer (`id`) ist weg. |
 | `renamed` | Ein Teilnehmer (`id`) hat einen neuen Namen (`name`). |
-| `privilege` | Stand der Rohdaten-Erlaubnis (`canRecordRaw`, `source`, optional `requested`/`denied`/`timedOut`). Entzieht der Host sie (`canRecordRaw:false`, `source:"broadcast"`), baut die Bridge danach alle Abos ab (Grund `privilegeRevoked`, Abschnitt 7). |
-| `video` | Zustand eines Video-Abos (`id`, `state`, `source`, `reason`, `rebindable`, gemessen auch `rotation`/`limitedRange`) — **Einzelheiten in Abschnitt 7**. |
-| `error` | Eine benannte Ursache (`where`, `code`, angereichert zu `name`) — nie ein stiller Abbruch. |
+| `privilege` | Stand der Rohdaten-Erlaubnis (`canRecordRaw`, `source`, optional `requested`/`denied`/`timedOut`). Entzieht der Host sie (`canRecordRaw:false`, `source:"broadcast"`), baut die Bridge danach alle Slots ab (Grund `privilegeRevoked`, Abschnitt 7; bis 0.3.0 alle Abos). |
+| `slot` | Zustand eines Slots: `slot`, `state` (`starting`/`live`/`fallback`/`held`/`off`), `mode`, `target` (Kennung oder 0), `share` (Freigabe-Kennung oder 0), `reason` (einer von 20 Gründen), `sent` (was der Sender gerade zusätzlich zu Zooms Bildern schickt), `ndi`, nach dem ersten Bild `rotation`/`limitedRange` — **Einzelheiten in Abschnitt 7**. |
+| `slotAudio` | Ton eines Slots: `state` (`waiting`/`live`/`silent`/`off`), `source` (gemessen: was im letzten 500-ms-Fenster hinausging), `configured` (eingestellt), `reason` (einer von 12 Gründen), nach dem ersten Paket `sampleRate`/`channels`. |
+| `slotStats` | Messwerte je laufendem Slot, alle 2 s (Abschnitt 7, „Messwerte“). |
+| `bridgeStats` | Messwerte des Prozesses, alle 2 s nach `init`: CPU, Speicher, Ton-Warteschlange, verworfene Merker, Halteliste, Freigabe-Ton vor der Zuordnung, HD-Einstellungen, Empfangswerte, Vorschau an. |
+| `shares` | Freigabe-Liste samt gezeigter Freigabe und den letzten 10 Freigabe-Rückrufen roh, ohne Namen. |
+| `speakerSignal` | Jedes der drei Sprecher-Signale mit Kennungen und Bridge-Uhr, auch die nicht gewählten. |
+| `videoStatus` | Kamera eines Teilnehmers an oder aus (`videoOn`) und ob der Gastgeber sie abgeschaltet hat (`mutedByHost`). |
+| `preview` | Kleines JPEG eines Slots (Base64), höchstens zweimal pro Sekunde, nur bei `previewMode` an. |
+| `speakerConfig`, `previewMode`, `videoDelay` | Bestätigung mit dem Wert, der ab jetzt gilt. |
+| `video` | **Entfallen mit Connect 0.4.0** (ersetzt durch `slot`, Spec Zoom-Slots 6.3). Bis 0.3.0: Zustand eines Video-Abos (`id`, `state`, `source`, `reason`, `rebindable`, gemessen auch `rotation`/`limitedRange`) — **Einzelheiten in Abschnitt 7**. |
+| `audio` | **Entfallen mit Connect 0.4.0** (ersetzt durch `slotAudio`). Bis 0.3.0: Ton-Zustand eines Abos (`id`, `state`, `reason`, nach dem ersten Paket `sampleRate`/`channels`) — Abschnitt 7. |
+| `error` | Eine benannte Ursache (`where`, `code`, angereichert zu `name`) — nie ein stiller Abbruch. Fehler mit `where:"slot"` (Abschnitt 7) setzen die Sitzung nicht auf Fehler. |
 | `bye` | `zoom-bridge.exe` beendet sich sauber (siehe Ausnahme unten). |
 
 **Zwei Wachhunde, zwei Namen.** `JOIN_TIMEOUT` meldet, dass der **erste** Beitritt
@@ -311,7 +370,183 @@ gesehenen Zustand), überspringt der Abbau `DestroyMeetingService`/`DestroyAuthS
 `{"ev":"bye"}` — das wäre eine Lüge über einen sauberen Abgang, den es in diesem Fall nicht gab.
 `leaveTimeout` ist dann die letzte verwertbare Information vor dem Prozessende.
 
-## 7 · Video-Abos (Stage 2)
+## 7 · Slots (Connect 0.4.0) und Video-Abos (Stage 2)
+
+Seit Connect 0.4.0 arbeitet die Bridge mit **Slots** (Spec
+[`docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md`](../../docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md),
+Abschnitt 6). Der Teil „Bis 0.3.0: Video-Abos je Teilnehmer“ weiter unten beschreibt
+den Weg davor; er bleibt als Messprotokoll stehen, mit einem Vermerk, was nicht mehr
+gilt.
+
+### Slots
+
+Ein Slot ist ein fester NDI-Sender mit einer Nummer von 1 bis 16 (`g_slots`,
+Schlüssel = Nummer). Der Sender bleibt offen, solange der Slot läuft: ohne Bild und
+über jeden Wechsel von Person, Modus oder Auflösung hinweg. Im Switcher ändert sich
+also nichts. Den NDI-Namen schickt der Aufrufer fertig mit `slotOn`; die Bridge prüft
+ihn nur (höchstens 60 Code-Punkte, kein `:`, keine Steuerzeichen, keine `\u`-Folge
+im Rohtext). Jeder laufende Slot hat genau ein Abo (Renderer, Delegate, Ziel, Typ).
+Alle Wege gehen trotzdem über die Abo-Liste des Slots, damit eine spätere Fassung
+weitere Abos anhängen kann.
+
+| Modus | Ziel | Wechsel |
+| --- | --- | --- |
+| Teilnehmer (`participant`) | die Kennung aus `slotOn`/`slotSet` (`id`); fehlt sie oder ist 0: kein Ziel (`noTarget`) | Die Bridge hängt **nicht** selbst um. Geht die Person, bleibt der Slot mit Ersatzbild stehen (`participantLeft`); kommt sie zurück, schickt der Aufrufer `slotSet {slot, id}` mit der neuen Kennung (`targetChanged`). |
+| Aktiver Sprecher (`speaker`) | wer laut gewähltem Signal spricht (`speakerConfig`: `speakerVideo`, `activeVideo` oder `activeAudio`, Haltezeit 0–5000 ms; Vorgabe `speakerVideo` mit 1000 ms) | Ein neuer Kandidat muss die Haltezeit lang Kandidat bleiben; die eigene Kennung und 0 sind nie Kandidat. Die Sprecher-Erinnerung hört jedes Signal mit, auch ohne Sprecher-Slot, damit ein neuer Sprecher-Slot sofort jemanden zeigt. |
+| Bildschirmfreigabe (`share`) | die neueste laufende oder pausierte Bild-Freigabe (eine Freigabe-Liste für alle Freigabe-Slots) | Endet sie, zeigt der Slot die nächstjüngere; reine Ton-Freigaben werden nie gezeigt. |
+
+**Umhängen an einer Stelle.** Jeder Wechsel des Ziels läuft über `slotRetarget` in
+der Hauptschleife. Welcher Schritt auf welche SDK-Antwort folgt, entscheidet die reine
+Funktion `umhaengPlan` in `native/slot_logic.h`. Kein SDK-Rückruf ruft eine
+Renderer-Funktion (`subscribe`, `unSubscribe`, `setRawDataResolution`,
+`createRenderer`, `destroyRenderer`). Die drei neuen Lauscher (Freigabe,
+Video-Regler, Ton-Regler) und der Teilnehmer-Lauscher legen nur Merker in
+Warteschlangen, je höchstens 1024 Einträge; was überläuft, zählt `merkerVerworfen`.
+
+**Riegel.** Während des Umhängens und ohne geglücktes `subscribe` verwirft der
+Bild-Rückruf jedes Bild und jedes `RawData_On`/`RawData_Off` (Zähler `lateFrames`).
+Rückrufe laufen gemessen während des Abbaus weiter (Teil „Bis 0.3.0“ unten), darum
+gilt der Riegel auf jedem Weg.
+
+**Renderer-Sperre.** Ab `DISCONNECTING` oder `RECONNECTING` ruft die Bridge keine
+Renderer-Funktion, bis `INMEETING` (Sperre lösen, Halteliste abbauen, vorgemerkte
+Umhängungen ausführen) oder `ENDED`/`FAILED` (Abbau ohne Renderer-Aufruf) kommt.
+`slotOn` beantwortet sie solange mit `slotReconnecting`. Grund ist der gemessene
+Absturz aus Abschnitt 8: `unSubscribe()` an einem Renderer, den das SDK schon
+abgeräumt hatte. Meldet das SDK `onRendererBeDestroyed`, fasst die Bridge den Zeiger
+nie mehr an (`rendererTot`) und legt beim nächsten Umhängen einen neuen Renderer an.
+
+**Halteliste.** Baut `slotOff`, `leave`, quit/EOF oder der Entzug einen Slot während
+der Sperre ab, schließt die Bridge den Sender und legt den ganzen Slot samt Renderer
+und Delegate in die Halteliste, statt den Delegate freizugeben. Abgebaut wird sie beim
+nächsten `INMEETING` desselben Meetings, verworfen ohne Renderer-Aufruf beim
+Meeting-Ende. Die Zahl steht in `bridgeStats.halteliste`.
+
+**Abbau-Ketten.** Welche Schritte `slotOff`, `leave`, quit/EOF, Meeting-Ende und
+Entzug in welcher Reihenfolge ausführen, liefert die reine Funktion `abbauPlan`. Der
+Ausführer `abbauAusfuehren` in `native/video.cpp` führt nur den Plan aus. Jeder Slot
+meldet dabei `slotAudio off` vor `slot off`. Das Meeting-Ende fasst keinen Renderer
+an (Abschnitt 8).
+
+**Ersatzbild und Halten.** Kommt 200 ms kein Bild, sendet der Slot sein Ersatzbild:
+`transparent` (UYVA mit Alpha 0, höchstens alle 100 ms), `black`, `white` oder
+`freeze` (die Kopie des letzten Bildes dieses Ziels; ohne Kopie transparent).
+Freigabe-Slots senden die Kopie des letzten Bildes ihrer Freigabe (`sent` = `held`)
+und wechseln den Zustand erst nach 2 s ohne Bild. Eine Kopie eines früheren Ziels
+geht nie hinaus. Was der Sender gerade zusätzlich schickt, sagt `sent` in jedem
+`slot`-Ereignis. Den Grund `cameraOff` setzt die Bridge nur, wenn Zoom für das Ziel
+die Kamera als aus meldet; sonst heißt er `noFrames`.
+
+**Ton je Slot.** Drei Arten kommen über das eine Ton-Abo des Meetings: Ton je Person,
+Mischton und Computerton einer Freigabe. Die reine Funktion `tonZiele` ordnet jedes
+Paket zu: Person-Ton nur an Teilnehmer-Slots mit diesem Ziel und `audio:"person"`,
+Mischton an jeden Slot mit `audio:"mix"`, Computerton an Freigabe-Slots mit
+`shareAudio`, deren gezeigte Freigabe diese Person teilt. Ein Freigabe-Slot mit
+Mischton und Computerton mischt beide in `native/audio_mix.h` mit **eigener Uhr**: Er
+gibt je Herzschlag genau die verstrichene Wanduhrzeit aus, füllt einen fehlenden
+Eingang mit Stille und verwirft Rückstand über 200 ms. So sendet er nie mehr Ton als
+Wanduhrzeit. Alle anderen Slots halten den Strom mit dem Stille-Herzschlag (Schwelle
+40 ms, höchstens 200 ms je Tick, reine Funktion `stilleBloecke`). Person-Ton außerhalb
+des Modus Teilnehmer meldet `slotAudio off/personNotInMode`. `slotAudio` meldet, was
+im letzten 500-ms-Fenster tatsächlich hinausging (`source`), und was eingestellt ist
+(`configured`). Die Ton-Warteschlange fasst 512 Pakete.
+
+**Bild-Versatz ohne Freigabe.** `videoDelay` gilt für alle Slots außer
+Freigabe-Slots; deren Sender senden ohne Versatz. Ein Moduswechsel von oder zur
+Freigabe leert die Versatz-Warteschlange.
+
+**Auflösung.** `360p`, `720p` oder `1080p` je Slot, gesetzt vor jedem `subscribe`;
+`slotSet {resolution}` hängt auf dasselbe Ziel neu um. Was Zoom wirklich liefert,
+steht in `slotStats` (`w`, `h`, `fps`, `resSet`, `resGot`). Die HD-Einstellungen von
+Zoom liest die Bridge nur, sie ändert sie nie.
+
+**Speicher je Slot.** `slotStats.memKb` zählt Versatz-Warteschlange, Kopie, Vorschau
+und Ersatzbild-Puffer des Slots. Gerechnet sind für die Versatz-Warteschlange bei
+1080p und 1000 ms rund 94 MB je Slot, bei 16 Slots bis 1,5 GB (Spec RS6);
+Freigabe-Slots haben keinen Versatz.
+
+**Vorschau.** Mit `previewMode` an schickt die Bridge je laufendem Slot mit Bild
+höchstens zweimal pro Sekunde ein kleines JPEG (eingepasst in 192×108, WIC, Base64)
+als `preview`, nur von echten Bildern. Ein eigener Vorschau-Thread kodiert; er liest
+nie einen Slot, nur die Plätze des Vorschau-Moduls (`native/preview.cpp`). Lässt
+sich WIC oder COM nicht einrichten, kommt einmal `previewUnavailable`; Bild und Ton
+laufen unberührt.
+
+**Messwerte.** `slotStats` (je Slot) und `bridgeStats` (Prozess) kommen alle 2 s.
+Felder fehlen, solange nichts gemessen ist, und nach jedem Umhängen wieder, bis ein
+Bild des neuen Ziels kam.
+
+**Fehlerschlüssel** (`where:"slot"`; sie setzen die Sitzung nicht auf Fehler; Liste
+`SLOT_ERROR_KEYS` in `src/protocol.ts`):
+
+| Schlüssel | Wann | Zusatzfelder |
+| --- | --- | --- |
+| `slotBadNumber` | `slot` unlesbar oder nicht 1–16 | – |
+| `slotBadName`, `slotNameTaken` | NDI-Name ungültig bzw. schon an einem laufenden Slot | `slot` |
+| `slotBadMode`, `slotBadResolution`, `slotBadAudio`, `slotBadFallback`, `slotBadFlag` | Feld fehlt, ist unlesbar oder unbekannt | `slot` |
+| `slotBadTarget` | `id` vorhanden, aber keine ganze Zahl bis `UINT_MAX` (nicht in der Spec: Ein Tippfehler soll nicht still „kein Ziel“ heißen) | `slot` |
+| `slotAlreadyOn`, `slotNotOn` | `slotOn` auf laufendem bzw. `slotSet`/`slotOff` auf nicht laufendem Slot | `slot` |
+| `slotReconnecting` | `slotOn` während der Renderer-Sperre; nichts angelegt | `slot` |
+| `slotNoPrivilege` | keine Aufnahme-Erlaubnis | `slot` |
+| `slotRawRecordingFailed`, `slotSenderFailed`, `slotRendererFailed` | Aufbau gescheitert, Slot nicht angelegt | `slot` |
+| `slotSubscribeFailed` | `subscribe` gescheitert, auch nach neuem Renderer; der Slot läuft mit Ersatzbild weiter | `slot`, `sdk`, `type` |
+| `slotBufferMismatch` | Bildpuffer passt nicht zur Größe, einmal je Ziel | `slot` |
+| `speakerBadSignal`, `speakerBadHold` | `speakerConfig` ungültig | – |
+| `previewUnavailable` | WIC oder COM ließ sich nicht einrichten | `detail` (HRESULT) |
+
+Die Ton-Fehler `audioVoipJoinFailed`, `audioHelperMissing` und `audioSubscribeFailed`
+bleiben `where:"audio"` und tragen `slot`, wenn ein Slot sie auslöste;
+`audioBufferMismatch` trägt `slot` statt `id`; `audioQueueOverflow` bleibt ohne Slot.
+
+**Ohne Meeting geprüft:** `npm run logik-test` (Abschnitt 3) prüft die
+Entscheidungen: Sprecher-Wahl, Freigabe-Liste, Ersatzbild und Grund, Umhäng-, Ton-
+und Abbau-Plan, Mischer, Stille und Versatz-Warteschlange. `npm run selftest` prüft
+Vertrag, Attrappe, Konsole und die Quelltext-Wächter über den nativen Teil (kein
+Renderer-Aufruf aus einem Rückruf, Reihenfolge der Hauptschleife, keine Namen im
+Log). `npm run command-probe` und `npm run bool-probe` fahren die Prüffolge der
+Slot-Befehle aus `test/slot-pruefung-faelle.json` gegen die echte `.exe`, ohne
+`init`: Ein gültiger `slotOn` endet dort mit `slotNoPrivilege`, und die stderr-Zeile
+„Befehl gelesen: slotOn ‹n›, Modus ‹m›, Ton ‹a›“ belegt, dass die Zeile gelesen
+wurde. Die zweite stderr-Zeile „Felder gelesen: slotOn ‹n›, Aufloesung ‹r›,
+Ersatzbild ‹f›, Computerton ja|nein, ohne Kamera ja|nein, Ziel ‹id|keins›“ nennt
+die gelesenen Werte; bei `slotSet` nennt sie nur die gesetzten Felder. Beide
+Prüfstände vergleichen jeden Wert mit dem gesendeten Befehl, so fällt ein still
+verlorener Wert (1080p als 720p, `false` als `true`) ohne Meeting auf.
+`npm run delay-probe` prüft den Versatz wie bisher.
+
+**Nur im Meeting prüfbar** sind Lauscher, Renderer-Sperre, Halteliste, Umhängen, Ton
+je Art und die Vorschau-Bilder; das prüft die Abnahme
+(`apps/connect/ABNAHME-0.4.0.md`). Gemessen ist davon noch nichts. Die Lücke beim
+Umhängen und der Unterschied der drei Sprecher-Signale kommen nach der Abnahme hierher
+(Spec 13 Nr. 12). Die Messläufe mit Meeting nutzen Slots: `video-limit` setzt einen
+Slot je fremdem Teilnehmer (höchstens 16), `video-stress` baut Slots mit
+`slotOff`/`slotOn` unter laufendem Bild ab und wieder auf.
+
+### Bis 0.3.0: Video-Abos je Teilnehmer (Stage 2 und 3)
+
+> **Vermerk (Connect 0.4.0, Spec Zoom-Slots 6.18):** Dieser Teil beschreibt die Bridge
+> bis Connect 0.3.0 und bleibt als Messprotokoll stehen. Nicht mehr gilt:
+> - die Befehle `videoSubscribe`/`videoUnsubscribe`, die Ereignisse `video` und
+>   `audio` und die zehn `video…`-Schlüssel der Tabelle unten; ersetzt durch die
+>   Slot-Befehle, `slot`, `slotAudio` und die Slot-Schlüssel oben (`ndiInitFailed`
+>   bleibt);
+> - die Namensvergabe mit `uniqueSourceName()` (den NDI-Namen schickt der Aufrufer
+>   fertig);
+> - das Umhängen in der Bridge über `rebound`/`reboundByName` und „Ein Abo überlebt
+>   einen Wiederbeitritt“: Jetzt bleibt der Slot mit Ersatzbild stehen, und der
+>   Aufrufer schickt `slotSet`;
+> - Schwarz als einziges Ersatzbild und `cameraOff` bei jedem Bildausfall: Jetzt heißt
+>   der Grund `noFrames`, wenn Zoom die Kamera als an meldet;
+> - „Ein nachträgliches Umschalten an einem laufenden Abo ist **nicht** vorgesehen“:
+>   Jetzt schaltet `slotSet {audio, shareAudio}` um. Über das eine globale Ton-Abo
+>   laufen jetzt auch Mischton und Computerton;
+> - die Prüfstände: `command-probe` und `bool-probe` prüfen jetzt die Slot-Befehle,
+>   `video-limit` und `video-stress` laufen mit Slots.
+>
+> Weiter gilt, was gemessen ist: der Abbau ohne Renderer-Aufruf nach dem Meeting-Ende,
+> das Format des Tons (32 kHz Mono, 10 ms je Paket), `JoinVoip()` als Bedingung des
+> Ton-Abos, der Bild-Versatz samt Speicherrechnung und alle Messungen vom 13./14. und
+> 18.08.2026.
 
 Je abonniertem Teilnehmer macht `zoom-bridge.exe` einen **eigenen NDI-Sender**
 auf. Frames laufen aus dem Zoom-Rückruf direkt in den NDI-Puffer (`native/video.cpp`)
@@ -816,6 +1051,16 @@ bei höchstens fünf Abos begrenzt, und wahrscheinlich gar keiner, denn dass
 hat. Die Abbau-Marken auf stderr bleiben stehen: stirbt der Prozess je wieder
 hier, ist die letzte gedruckte Marke die einzige Auskunft, die es geben wird.
 
+**Seit den Zoom-Slots (Connect 0.4.0) greift die Lehre früher: Renderer-Sperre ab
+`DISCONNECTING`.** `videoAbbauAlle()` gibt es nicht mehr; dieselbe Trennung trifft
+jetzt der Abbau-Plan (`abbauPlan`): Die Kette für das Meeting-Ende enthält keinen
+Renderer-Schritt. Weil schon vor `disconnecting` ein `RawData_Off` kommt (Abschnitt 7)
+und der SDK-Thread nach `disconnecting` weiterläuft, ruft die Bridge ab
+`DISCONNECTING` oder `RECONNECTING` keine Renderer-Funktion mehr, bis `INMEETING`
+oder `ENDED`/`FAILED` kommt (Abschnitt 7, „Renderer-Sperre“ und „Halteliste“). Ob
+zwischen `DISCONNECTING` und `ENDED` überhaupt Weggang-, Freigabe- oder
+Sprecher-Rückrufe kommen, ist ungemessen (Spec AN23, MS26).
+
 
 **Eine fehlende DLL sieht aus wie ein Anmeldefehler.** `zoom-bridge.exe` ist
 gegen die Zoom-**und** (seit Stage 2) gegen die NDI-Importbibliothek gebunden.
@@ -852,6 +1097,17 @@ zu viel drin (die es unter Windows nicht gibt), gibt es einen unverständlichen
 `C2061` in einer fremden Zeile. Im Spike hat genau das einen Übersetzungsfehler
 gekostet.
 
+Seit den Zoom-Slots kommen drei Lauscher dazu, alle ohne WIN32-Wächter
+(Share 9/0, Video 12/0, Audio 5/0), gezählt als Methoden insgesamt / davon hinter
+dem Wächter am SDK 7.1.5.43953: `ShareListener` (`IMeetingShareCtrlEvent`,
+`meeting_sharing_interface.h:153-214`), `VideoCtrlListener`
+(`IMeetingVideoCtrlEvent`, `meeting_video_interface.h:208-290`) und
+`AudioCtrlListener` (`IMeetingAudioCtrlEvent`, `meeting_audio_interface.h:108-143`).
+Dazu eine Falle derselben Art: `meeting_sharing_interface.h` bindet nur
+`zoom_sdk_def.h` ein, benutzt aber Typen aus `meeting_service_interface.h`.
+`native/callbacks.h` bindet darum `windows.h` zuerst, dann
+`meeting_service_interface.h` und erst danach die drei neuen Header ein.
+
 **`GetBufferLen()` wird geprüft, nicht geglaubt.** NDI erwartet den I420-Puffer
 **zusammenhängend** (Y, dann U, dann V) in einem einzigen Block — genau das
 verspricht `YUVRawDataI420::GetBuffer()`, aber ein Zeilenabstand mit Auffüllung
@@ -868,8 +1124,15 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
 - **Kein Mischton.** `onMixedAudioRawDataReceived` bleibt ungenutzt (leerer
   Rumpf in `AudioDelegate`, siehe `native/audio.cpp`) — nur der Ton je
   einzelnem Teilnehmer wird gesendet.
+  **Widerrufen mit Connect 0.4.0** (Spec Zoom-Slots, Abschnitt 0 und 6.13): Der
+  Mischton wird kopiert und geht an jeden Slot mit `audio:"mix"`; Freigabe-Slots
+  mischen ihn auf Wunsch mit dem Computerton (Abschnitt 7, „Ton je Slot“).
 - **Kein Bildschirmton.** `onShareAudioRawDataReceived` bleibt ebenso
   ungenutzt.
+  **Widerrufen mit Connect 0.4.0** (Spec Zoom-Slots, 6.13): Der Computerton einer
+  Freigabe geht an Freigabe-Slots mit `shareAudio`, deren gezeigte Freigabe diese
+  Person teilt. Dass `user_id` dabei die teilende Person ist, ist eine Annahme
+  (Spec AN18); `bridgeStats` zählt den Freigabe-Ton darum vor der Zuordnung.
 - **Kein Dolmetscherton.** `bWithInterpreters` steht fest auf `false` — ein
   `true` würde laut SDK-Kopfsatz die lokalen Dolmetscher-Funktionen
   unbrauchbar machen und damit die Dolmetscher-App (#208) beschädigen.
@@ -881,7 +1144,8 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
   **keine Datei** — weder Cloud- noch lokale Aufzeichnung. Bild läuft
   ausschließlich über das **Pro-Teilnehmer-Abo**
   (`IZoomSDKRenderer::subscribe`, Abschnitt 7), nie über einen Meeting-weiten
-  Mitschnitt.
+  Mitschnitt. Seit Connect 0.4.0 heißt das: über das Abo je Slot, auf eine Person
+  (Typ VIDEO) oder eine Freigabe (Typ SHARE); einen Mitschnitt gibt es weiter nicht.
 - **Keine eigene Oberfläche.** Die Bedienung liegt in **JM Connect** (ab 0.2.0,
   Spec `docs/superpowers/specs/2026-10-02-zoom-stage4-connect-design.md`):
   Connect startet die Bridge über die Klasse `Bridge` (`src/bridge.ts`) aus
@@ -893,6 +1157,9 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
   JM Connect ab 0.3.0 mit einem **neuen** Bridge-Prozess (Spec Stage 4,
   Abschnitt 6.4). (Ein **einzelnes Video-Abo** überlebt dagegen einen
   Wiederbeitritt **desselben Teilnehmers** — siehe Abschnitt 7.)
+  **Widerrufen mit Connect 0.4.0:** Die Bridge hängt nicht mehr selbst um. Der Slot
+  bleibt mit Sender und Ersatzbild stehen; die Rückkehr erkennt der Aufrufer und
+  schickt `slotSet {slot, id}` (Abschnitt 7).
 - **Kein Bündeln der Zoom-/NDI-DLLs — außer im Einsatzpaket.** Im Repo müssen
   beide zur Laufzeit im `PATH` stehen, und sie kommen aus **verschiedenen
   Händen**: `%ZOOM_SDK_DIR%\x64\bin` setzt der Aufrufer (`test/join.mjs`,
@@ -910,6 +1177,9 @@ sonst ertränken 30 Meldungen je Sekunde jede andere Ausgabe.
 Die vier Ton-Punkte oben sind **ausdrücklich nicht** vorgesehen (Spec Abschnitt 10),
 keine spätere Stage. Die Einbindung in JM Connect (Stage 4, `docs/roadmap.md`)
 ist mit Connect 0.2.0 bis 0.3.0 umgesetzt.
+**Widerrufen mit Connect 0.4.0** für Mischton und Bildschirmton (Spec Zoom-Slots,
+Abschnitt 0 und 6.13); Dolmetscherton und Ton-Rückweg bleiben ausgeschlossen. Die
+Slots kamen mit Connect 0.4.0 (Abschnitt 7).
 
 ## 10 · Einsatzpaket (Release)
 
@@ -928,6 +1198,17 @@ npm run rebuild          -w @jm/zoom-bridge   # zoom-bridge.exe frisch aus dem a
 npm run release:build    -w @jm/zoom-bridge   # nur das öffentliche ZIP
 npm run release:komplett -w @jm/zoom-bridge   # zusätzlich das private Komplett-ZIP
 ```
+
+**Neubau gesperrt, das Paket zeigt den Stand 0.1.0** (Connect 0.4.0, Spec
+Zoom-Slots 6.18, D13, D16). Das veröffentlichte Einsatzpaket `zoom-bridge-v0.1.0`
+zeigt den Stand 0.1.0: Bridge, Konsole und `paket/LIESMICH.txt` von vor den Slots.
+`scripts/build-release.mjs` baut aber aus dem aktuellen Code (Frische-Prüfung unten,
+`cli/zoom-join.mjs` per esbuild), und LIESMICH verspricht noch, dass die Bridge ein
+Abo bei einer Rückkehr selbst umhängt. Darum bricht der Bau vor jeder anderen
+Prüfung ab, solange `paket/LIESMICH.txt` den Satz „hängt die Bridge das Abo von
+selbst um“ enthält (Riegel; Leerraum und Zeilenumbrüche zählen gleich, dort steht der
+Satz über zwei Zeilen). Wer das Paket neu baut, berichtigt zuerst LIESMICH und die
+Version (`package.json:3`). Der Selbsttest prüft den Riegel an Kopien (PT9).
 
 `scripts/build-release.mjs` bricht ab, wenn `build\Release\zoom-bridge.exe`
 **älter** ist als eine Datei in `native\` oder `CMakeLists.txt` — ein Paket mit

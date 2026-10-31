@@ -3946,5 +3946,109 @@ console.log('\nA17 — Riegel gegen einen Neubau des Einsatzpakets (PT9, Spec 6.
   assert(ohneGut, 'A17 PT9: ohne den Satz lässt der Riegel durch (der Bau endet erst an der nächsten Vorbedingung)');
   if (!ohneGut) zeige('ohne', ohne);
 }
+// ── A18 · Doku der Bridge (Spec 14: D1–D5, D7, D15, D16) ──
+// Die README ist Teil des Vertrags: Sie nennt die Slot-Befehle und die neuen Skripte, und jeder widerrufene Satz
+// bleibt mit Vermerk stehen (Lehre „Widerruf“). a17Lies kommt aus dem Abschnitt A17 oben. Gesucht wird in Text mit
+// zusammengefasstem Leerraum (flach), weil die README ihre Zeilen umbricht; Tabellenzeilen und Listenpunkte zeilenweise.
+console.log('\nA18 — Doku der Bridge (README, package.json):');
+{
+  const readme = a17Lies(join(testDir, '..', 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+  /** Abschnitt „## n · …“ bis vor den nächsten „## “, sonst ''. */
+  const abschnitt = (nr: number): string => {
+    const a = readme.indexOf(`\n## ${nr} · `);
+    if (a < 0) return '';
+    const b = readme.indexOf('\n## ', a + 1);
+    return readme.slice(a, b < 0 ? undefined : b);
+  };
+  const flach = (text: string): string => text.replace(/\s+/g, ' ');
+  /** Die Tabellenzeile, die mit „| `name` |“ beginnt, sonst ''. */
+  const zeile = (text: string, name: string): string =>
+    text.split('\n').find((l) => l.startsWith(`| \`${name}\` |`)) ?? '';
+
+  const s1 = flach(abschnitt(1));
+  assert(
+    ['**16 Slots**', '**Teilnehmer**', '**Aktiver Sprecher**', '**Bildschirmfreigabe**', '**Stage 1–3 von 4**'].every((t) =>
+      s1.includes(t),
+    ),
+    'A18 D1: §1 beschreibt bis zu 16 Slots mit drei Modi, „Stage 1–3 von 4“ bleibt als Rückblick',
+  );
+
+  const s2 = flach(abschnitt(2));
+  const s3 = flach(abschnitt(3));
+  assert(
+    s2.includes('npm run slot-test -w @jm/zoom-bridge') &&
+      s3.includes('npm run logik-test -w @jm/zoom-bridge') &&
+      s3.includes('`logik-test: kein C++-Compiler gefunden (g++, clang++, cl über vswhere).`'),
+    'A18 D15: §2 nennt slot-test, §3 nennt logik-test samt der Zeile ohne Compiler',
+  );
+
+  const s4 = abschnitt(4);
+  assert(
+    zeile(s4, '+<id>').includes('`slotOn`') &&
+      zeile(s4, '-<id>').includes('`slotOff`') &&
+      zeile(s4, '=<Slot> <Kennung>').includes('`slotSet {slot, id}`') &&
+      flach(s4).includes('„Rückkehr? =<Slot> <Kennung>“'),
+    'A18 D15: §4 beschreibt die Konsole mit Slots (+, -, =, Rückkehr-Hinweis, kein Umhängen von selbst)',
+  );
+
+  const s6 = abschnitt(6);
+  const neu6 = ['slotOn', 'slotSet', 'slotOff', 'speakerConfig', 'previewMode', 'videoDelay', 'slot', 'slotAudio',
+    'slotStats', 'bridgeStats', 'shares', 'speakerSignal', 'videoStatus', 'preview'];
+  const fehlen6 = neu6.filter((n) => zeile(s6, n) === '');
+  const ohneVermerk6 = ['videoSubscribe', 'videoUnsubscribe', 'video', 'audio'].filter(
+    (n) => !zeile(s6, n).includes('**Entfallen mit Connect 0.4.0**'),
+  );
+  assert(
+    fehlen6.length === 0 && ohneVermerk6.length === 0,
+    'A18 D2: §6 nennt Slot-Befehle und -Ereignisse; videoSubscribe, videoUnsubscribe, video und audio als entfallen',
+  );
+  if (fehlen6.length + ohneVermerk6.length > 0) {
+    console.error(`      fehlt: ${fehlen6.join(', ') || '-'}; ohne Vermerk: ${ohneVermerk6.join(', ') || '-'}`);
+  }
+
+  const s7 = flach(abschnitt(7));
+  const fehlen7 = ['slotRetarget', 'umhaengPlan', '**Riegel.**', '**Renderer-Sperre.**', '**Halteliste.**', 'abbauPlan',
+    '**Ersatzbild und Halten.**', '**Ton je Slot.**', 'eigener Uhr', '**Bild-Versatz ohne Freigabe.**',
+    '**Speicher je Slot.**', '**Vorschau.**', '### Bis 0.3.0: Video-Abos je Teilnehmer (Stage 2 und 3)'].filter(
+    (t) => !s7.includes(t),
+  );
+  assert(
+    fehlen7.length === 0,
+    'A18 D3: §7 beschreibt Slots, Umhängen, Riegel, Renderer-Sperre, Halteliste, Ersatzbild, Ton samt Mischer-Uhr, Versatz, Speicher, Vorschau; Stage 2 bleibt mit Vermerk',
+  );
+  if (fehlen7.length > 0) console.error(`      fehlt in §7: ${fehlen7.join(', ')}`);
+
+  const s8 = flach(abschnitt(8));
+  assert(
+    s8.includes('(Share 9/0, Video 12/0, Audio 5/0)') && s8.includes('Renderer-Sperre ab `DISCONNECTING`'),
+    'A18 D4: §8 zählt die drei neuen Lauscher (WIN32) und nennt die Renderer-Sperre ab DISCONNECTING',
+  );
+
+  const s9 = abschnitt(9);
+  /** Der alte Punkt steht noch, und in demselben Listenpunkt steht der Widerruf. */
+  const mitWiderruf = (alt: string): boolean => {
+    const i = s9.indexOf(alt);
+    if (i < 0) return false;
+    const ende = s9.indexOf('\n- **', i + alt.length);
+    return s9.slice(i, ende < 0 ? undefined : ende).includes('**Widerrufen mit Connect 0.4.0**');
+  };
+  assert(
+    mitWiderruf('- **Kein Mischton.** `onMixedAudioRawDataReceived` bleibt ungenutzt') &&
+      mitWiderruf('- **Kein Bildschirmton.** `onShareAudioRawDataReceived` bleibt ebenso'),
+    'A18 D5: „Kein Mischton“ und „Kein Bildschirmton“ stehen weiter, je mit Widerruf daneben',
+  );
+
+  const s10 = flach(abschnitt(10));
+  assert(
+    s10.includes('Einsatzpaket `zoom-bridge-v0.1.0` zeigt den Stand 0.1.0') && s10.includes('Riegel') && s10.includes('„hängt die Bridge das Abo von selbst um“'),
+    'A18 D16: §10 nennt den Stand 0.1.0 des Einsatzpakets und den Riegel in build-release.mjs',
+  );
+
+  const beschreibung = String(JSON.parse(a17Lies(join(testDir, '..', 'package.json'), 'utf8')).description ?? '');
+  assert(
+    beschreibung.includes('bis zu 16 Slots') && !beschreibung.includes('je Teilnehmer'),
+    'A18 D7: package.json beschreibt Slots statt Quellen je Teilnehmer',
+  );
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
