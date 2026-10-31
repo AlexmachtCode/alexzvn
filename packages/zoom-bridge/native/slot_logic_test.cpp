@@ -248,6 +248,162 @@ void pb26_erinnerung_belegt_vor() {
   CHECK(er.letzte(Signal::SpeakerVideo) == nullptr && er.letzteMs(Signal::SpeakerVideo) == 0);
 }
 
+// Freigaben (Task A5). Kennungen der Personen wie oben, Freigabe-Kennungen 101, 102, 103.
+constexpr unsigned F1 = 101;
+constexpr unsigned F2 = 102;
+constexpr unsigned F3 = 103;
+
+unsigned gezeigteFreigabe(const FreigabeListe& l) { return l.gezeigt() != nullptr ? l.gezeigt()->share : 0; }
+
+FreigabeEintrag zoomEintrag(unsigned user, unsigned share, int typ) {
+  FreigabeEintrag e;
+  e.user = user;
+  e.share = share;
+  e.type = static_cast<uint8_t>(typ);
+  return e;
+}
+
+void a5_namen() {
+  std::printf("A5 Freigabe-Namen: Status- und Typ-Werte des Headers finden ihren Namen\n");
+  CHECK(gleich(SHARING_STATUS_NAMEN[STATUS_FREMD_BEGINN], "otherShareBegin"));
+  CHECK(gleich(SHARING_STATUS_NAMEN[STATUS_FREMD_TON_ENDE], "otherSharePureAudioEnd"));
+  CHECK(gleich(SHARING_STATUS_NAMEN[STATUS_PAUSE], "pause"));
+  CHECK(gleich(sharingStatusName(STATUS_WEITER), "resume"));
+  CHECK(sharingStatusName(11) == nullptr && sharingStatusName(-1) == nullptr);
+  CHECK(gleich(shareTypName(2), "ds"));
+  CHECK(gleich(shareTypName(TYP_COMPUTERTON), "computerAudio"));
+  CHECK(gleich(shareTypName(42), "unknown"));
+  CHECK(gleich(name(Befuellt::NichtVerfuegbar), "unavailable"));
+}
+
+void pb10_ruecksprung() {
+  std::printf("PB10 Freigabe: Begin A, Begin B, End B, End A -> gezeigt A, B, A, keine\n");
+  FreigabeListe l;
+  CHECK(l.status(STATUS_FREMD_BEGINN, A, F1, 2));
+  CHECK(gezeigteFreigabe(l) == F1);
+  CHECK(l.status(STATUS_FREMD_BEGINN, B, F2, 1));
+  CHECK(gezeigteFreigabe(l) == F2);
+  CHECK(l.status(STATUS_FREMD_ENDE, B, F2, 1));
+  CHECK(gezeigteFreigabe(l) == F1);
+  CHECK(l.status(STATUS_FREMD_ENDE, A, F1, 2));
+  CHECK(gezeigteFreigabe(l) == 0 && l.gezeigt() == nullptr);
+  CHECK(l.bildFreigaben() == 0);
+}
+
+void pb11_pause() {
+  std::printf("PB11 Freigabe: Pause/Resume der gezeigten; Pause mit Kennung 0 trifft alle Eintraege der Person\n");
+  FreigabeListe l;
+  l.status(STATUS_FREMD_BEGINN, A, F1, 2);
+  CHECK(l.status(STATUS_PAUSE, A, F1, 2));
+  CHECK(gezeigteFreigabe(l) == F1 && l.gezeigt()->paused && l.gezeigt()->pauses == 1);
+  CHECK(!l.status(STATUS_PAUSE, A, F1, 2));   // schon pausiert: keine Aenderung, kein zweites Zaehlen
+  CHECK(l.status(STATUS_WEITER, A, F1, 2));
+  CHECK(gezeigteFreigabe(l) == F1 && !l.gezeigt()->paused && l.gezeigt()->pauses == 1);
+  l.status(STATUS_PAUSE, A, F1, 2);
+  CHECK(l.gezeigt()->pauses == 2);
+  FreigabeListe zwei;
+  zwei.status(STATUS_FREMD_BEGINN, A, F1, 2);
+  zwei.status(STATUS_FREMD_BEGINN, A, F2, 1);
+  zwei.status(STATUS_FREMD_BEGINN, B, F3, 2);
+  CHECK(zwei.status(STATUS_PAUSE, A, 0, 0));
+  int pausiertA = 0;
+  for (const FreigabeEintrag& e : zwei.eintraege()) {
+    if (e.user == A && e.paused) ++pausiertA;
+    if (e.user == B) CHECK(!e.paused);
+  }
+  CHECK(pausiertA == 2);
+  CHECK(gezeigteFreigabe(zwei) == F3);
+}
+
+void pb12_tonfreigabe_nie_gezeigt() {
+  std::printf("PB12 Freigabe: reine Ton-Freigabe nach einer Bild-Freigabe wird nie gezeigt\n");
+  FreigabeListe l;
+  l.status(STATUS_FREMD_BEGINN, A, F1, 2);
+  CHECK(l.status(STATUS_FREMD_TON_BEGINN, B, F2, TYP_COMPUTERTON));
+  CHECK(gezeigteFreigabe(l) == F1);
+  CHECK(l.bildFreigaben() == 1 && l.eintraege().size() == 2);
+  l.status(STATUS_FREMD_ENDE, A, F1, 2);
+  CHECK(gezeigteFreigabe(l) == 0);
+  CHECK(l.status(STATUS_FREMD_TON_ENDE, B, F2, TYP_COMPUTERTON));
+  CHECK(l.eintraege().empty());
+}
+
+void pb13_person_geht() {
+  std::printf("PB13 Freigabe: Person mit Freigabe geht -> ihre Eintraege weg, die naechstjuengere wird gezeigt\n");
+  FreigabeListe l;
+  l.status(STATUS_FREMD_BEGINN, A, F1, 2);
+  l.status(STATUS_FREMD_BEGINN, B, F2, 2);
+  l.status(STATUS_FREMD_BEGINN, B, F3, 1);
+  CHECK(gezeigteFreigabe(l) == F3);
+  CHECK(l.weggang(B));
+  CHECK(gezeigteFreigabe(l) == F1 && l.eintraege().size() == 1);
+  CHECK(!l.weggang(C));
+}
+
+void pb14_eigene_freigaben_nichts() {
+  std::printf("PB14 Freigabe: Sharing_Self_* und Sharing_View_Other_Sharing aendern nichts\n");
+  FreigabeListe l;
+  l.status(STATUS_FREMD_BEGINN, A, F1, 2);
+  const int nichts[5] = {STATUS_EIGEN_BEGINN, STATUS_EIGEN_ENDE, STATUS_EIGEN_TON_BEGINN, STATUS_EIGEN_TON_ENDE,
+                         STATUS_ANSICHT_FREMD};
+  for (int s : nichts) {
+    CHECK(!l.status(s, B, F2, 2));
+    CHECK(!l.status(s, A, F1, 2));
+  }
+  CHECK(l.eintraege().size() == 1 && gezeigteFreigabe(l) == F1 && !l.gezeigt()->paused);
+}
+
+void pb15_befuellen() {
+  std::printf("PB15 Freigabe: INMEETING leert und befuellt; Einschalten ergaenzt nur; empty/unavailable loescht nichts\n");
+  FreigabeListe l;
+  l.status(STATUS_FREMD_BEGINN, A, F1, 2);
+  const std::vector<FreigabeEintrag> zoom = {zoomEintrag(B, F2, 2), zoomEintrag(C, F3, 1)};
+  CHECK(l.befuellen(&zoom, false) == Befuellt::Ok);   // INMEETING
+  CHECK(l.eintraege().size() == 2 && l.eintraege()[0].share == F2 && l.eintraege()[1].share == F3);
+  CHECK(l.eintraege()[0].seq < l.eintraege()[1].seq);
+  CHECK(gezeigteFreigabe(l) == F3);
+  FreigabeListe ein;
+  ein.status(STATUS_FREMD_BEGINN, A, F1, 2);
+  const uint64_t seqA = ein.gezeigt()->seq;
+  const std::vector<FreigabeEintrag> zoom2 = {zoomEintrag(B, F2, 2), zoomEintrag(A, F1, 2), zoomEintrag(C, F3, 1)};
+  CHECK(ein.befuellen(&zoom2, true) == Befuellt::Ok);   // erstes Einschalten
+  CHECK(ein.eintraege().size() == 3);
+  CHECK(gezeigteFreigabe(ein) == F1 && ein.gezeigt()->seq == seqA);
+  uint64_t seqB = 0;
+  uint64_t seqC = 0;
+  for (const FreigabeEintrag& e : ein.eintraege()) {
+    if (e.share == F2) seqB = e.seq;
+    if (e.share == F3) seqC = e.seq;
+  }
+  CHECK(seqB < seqC && seqC < seqA);
+  ein.status(STATUS_FREMD_BEGINN, B, 104, 2);            // spaeter per Rueckruf: ueber allen befuellten
+  CHECK(gezeigteFreigabe(ein) == 104);
+  const std::vector<FreigabeEintrag> leer;
+  CHECK(ein.befuellen(&leer, true) == Befuellt::Leer && ein.eintraege().size() == 4);
+  CHECK(ein.befuellen(nullptr, true) == Befuellt::NichtVerfuegbar && ein.eintraege().size() == 4);
+  CHECK(ein.befuellen(nullptr, false) == Befuellt::NichtVerfuegbar && ein.eintraege().empty());   // INMEETING ohne Liste
+}
+
+void pb27_typ_nachtrag() {
+  std::printf("PB27 Freigabe: Typ-Nachtrag ohne neues seq; COMPUTER_AUDIO -> audioOnly; Kennung 0 nachgezogen\n");
+  FreigabeListe l;
+  l.status(STATUS_FREMD_BEGINN, A, F1, TYP_UNBEKANNT);
+  l.status(STATUS_FREMD_BEGINN, B, F2, TYP_UNBEKANNT);
+  const uint64_t seqA = l.eintraege()[0].seq;
+  CHECK(l.typNachtrag(A, F1, 2));
+  CHECK(l.eintraege()[0].type == 2 && l.eintraege()[0].seq == seqA);
+  CHECK(gezeigteFreigabe(l) == F2);
+  CHECK(l.typNachtrag(B, F2, TYP_COMPUTERTON));
+  CHECK(l.eintraege()[1].audioOnly && gezeigteFreigabe(l) == F1);
+  CHECK(!l.typNachtrag(C, F3, 2));                     // ohne passenden Eintrag nichts
+  FreigabeListe null;
+  null.status(STATUS_FREMD_BEGINN, A, 0, TYP_UNBEKANNT);   // Kennung 0 (Annahme AN19)
+  const uint64_t seq0 = null.eintraege()[0].seq;
+  CHECK(null.typNachtrag(A, F1, 1));
+  CHECK(null.eintraege()[0].share == F1 && null.eintraege()[0].type == 1 && null.eintraege()[0].seq == seq0);
+  CHECK(gezeigteFreigabe(null) == F1);
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -263,6 +419,14 @@ int main() {
   pb8_gezeigter_geht();
   pb9_haltezeit_grenzen();
   pb26_erinnerung_belegt_vor();
+  a5_namen();
+  pb10_ruecksprung();
+  pb11_pause();
+  pb12_tonfreigabe_nie_gezeigt();
+  pb13_person_geht();
+  pb14_eigene_freigaben_nichts();
+  pb15_befuellen();
+  pb27_typ_nachtrag();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

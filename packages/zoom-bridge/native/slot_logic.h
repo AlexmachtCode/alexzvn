@@ -250,4 +250,215 @@ class SprecherWahl {
   int64_t seit_ = 0;
 };
 
+// ---- Bildschirmfreigabe (Spec 6.9, E20; Task A5) --------------------------------------------------------
+
+// Werte der Aufzaehlungen im Zoom-Header 7.1.5.43953, Index = Wert (zoom_sdk_def.h:561-585 SharingStatus,
+// :420-444 ShareType; A-EP4). Eigene Namen, damit sie in video.cpp neben den SDK-Namen nicht kollidieren.
+inline constexpr int STATUS_EIGEN_BEGINN = 0;         // Sharing_Self_Send_Begin
+inline constexpr int STATUS_EIGEN_ENDE = 1;           // Sharing_Self_Send_End
+inline constexpr int STATUS_EIGEN_TON_BEGINN = 2;     // Sharing_Self_Send_Pure_Audio_Begin
+inline constexpr int STATUS_EIGEN_TON_ENDE = 3;       // Sharing_Self_Send_Pure_Audio_End
+inline constexpr int STATUS_FREMD_BEGINN = 4;         // Sharing_Other_Share_Begin
+inline constexpr int STATUS_FREMD_ENDE = 5;           // Sharing_Other_Share_End
+inline constexpr int STATUS_FREMD_TON_BEGINN = 6;     // Sharing_Other_Share_Pure_Audio_Begin
+inline constexpr int STATUS_FREMD_TON_ENDE = 7;       // Sharing_Other_Share_Pure_Audio_End
+inline constexpr int STATUS_ANSICHT_FREMD = 8;        // Sharing_View_Other_Sharing
+inline constexpr int STATUS_PAUSE = 9;                // Sharing_Pause
+inline constexpr int STATUS_WEITER = 10;              // Sharing_Resume
+inline constexpr int TYP_UNBEKANNT = 0;               // SHARE_TYPE_UNKNOWN (bei Begin oft vorlaeufig)
+inline constexpr int TYP_COMPUTERTON = 10;            // SHARE_TYPE_COMPUTER_AUDIO
+
+inline constexpr const char* SHARE_TYP_NAMEN[11] = {
+  "unknown", "as", "ds", "wb", "airhost", "camera", "data", "videoFile", "frame", "document", "computerAudio"
+};
+inline constexpr const char* SHARING_STATUS_NAMEN[11] = {
+  "selfSendBegin", "selfSendEnd", "selfSendPureAudioBegin", "selfSendPureAudioEnd", "otherShareBegin",
+  "otherShareEnd", "otherSharePureAudioBegin", "otherSharePureAudioEnd", "viewOtherSharing", "pause", "resume"
+};
+
+/** Typ als Name fuer shares/recent; ein Wert ausserhalb des Headers heisst „unknown“. */
+inline const char* shareTypName(int typ) { return typ >= 0 && typ <= TYP_COMPUTERTON ? SHARE_TYP_NAMEN[typ] : "unknown"; }
+/** Status als Name fuer recent; nullptr fuer einen Wert ausserhalb des Headers (dann meldet die Bridge ihn nicht). */
+inline const char* sharingStatusName(int s) { return s >= 0 && s <= STATUS_WEITER ? SHARING_STATUS_NAMEN[s] : nullptr; }
+
+/** Ein Eintrag der Liste (6.9): {share, user, status, type, audioOnly, seq, pauses}; status = paused/running. */
+struct FreigabeEintrag {
+  unsigned share = 0;
+  unsigned user = 0;
+  bool paused = false;
+  uint8_t type = 0;
+  bool audioOnly = false;
+  uint64_t seq = 0;
+  int pauses = 0;
+};
+
+/** Ergebnis eines Befuellens, als shares.seeded: „ok“, „empty“, „unavailable“ (6.3). */
+enum class Befuellt : uint8_t { Ok, Leer, NichtVerfuegbar };
+inline constexpr const char* BEFUELLT_NAMEN[3] = {"ok", "empty", "unavailable"};
+inline const char* name(Befuellt v) { return BEFUELLT_NAMEN[static_cast<int>(v)]; }
+
+/**
+ * Die Liste der Freigaben, eine je Bridge; alle Freigabe-Slots zeigen dieselbe gezeigte Freigabe (E20, O3).
+ * Gefuettert aus den Merkern des ShareListener (6.5) in der Hauptschleife. Gezeigt wird der Eintrag mit dem
+ * hoechsten seq, der nicht audioOnly ist (laufend oder pausiert). Pause aendert nichts am Abo.
+ */
+class FreigabeListe {
+ public:
+  /** Ein onSharingStatus (Tabelle 6.9). true = die Liste hat sich geaendert. */
+  bool status(int sharingStatus, unsigned user, unsigned share, int contentType) {
+    switch (sharingStatus) {
+      case STATUS_FREMD_BEGINN: return beginn(user, share, contentType, false);
+      case STATUS_FREMD_TON_BEGINN: return beginn(user, share, contentType, true);
+      case STATUS_FREMD_ENDE: return ende(user, share, false);
+      case STATUS_FREMD_TON_ENDE: return ende(user, share, true);
+      case STATUS_PAUSE: return pause(user, share, true);
+      case STATUS_WEITER: return pause(user, share, false);
+      default: return false;   // Sharing_Self_*, Sharing_View_Other_Sharing: wir teilen nie (nur stderr)
+    }
+  }
+
+  /**
+   * Typ-Nachtrag (onShareContentNotification, B37): Typ des passenden Eintrags (gleiche Person und Kennung, sonst
+   * der Eintrag dieser Person mit Kennung 0, dessen Kennung nachgezogen wird) OHNE neues seq; COMPUTER_AUDIO
+   * setzt audioOnly. Ohne passenden Eintrag nichts.
+   */
+  bool typNachtrag(unsigned user, unsigned share, int contentType) {
+    FreigabeEintrag* e = finde(user, share);
+    bool geaendert = false;
+    if (e == nullptr && share != 0) {
+      e = finde(user, 0);
+      if (e != nullptr) {
+        e->share = share;   // Kennung nachgezogen (AN19)
+        geaendert = true;
+      }
+    }
+    if (e == nullptr) return false;
+    const uint8_t t = typ(contentType);
+    if (e->type != t) {
+      e->type = t;
+      geaendert = true;
+    }
+    if (contentType == TYP_COMPUTERTON && !e->audioOnly) {
+      e->audioOnly = true;
+      geaendert = true;
+    }
+    return geaendert;
+  }
+
+  /** Weggang einer Person (Merker): ihre Eintraege fallen weg, auch ohne Share_End (Annahme AN9). */
+  bool weggang(unsigned user) {
+    const size_t vorher = eintraege_.size();
+    eintraege_.erase(std::remove_if(eintraege_.begin(), eintraege_.end(),
+                                    [user](const FreigabeEintrag& e) { return e.user == user; }),
+                     eintraege_.end());
+    return eintraege_.size() != vorher;
+  }
+
+  void leeren() { eintraege_.clear(); }
+
+  /**
+   * Befuellen aus GetViewableSharingUserList/GetSharingSourceInfoList (6.9, B38). nurErgaenzen = false heisst
+   * INMEETING: zuerst leeren (Kennungen wechseln), auch wenn Zoom nichts liefert. nurErgaenzen = true heisst
+   * erstes Einschalten eines Freigabe-Slots: Bekanntes bleibt mit seinem seq. Fehlende Eintraege bekommen ein seq
+   * UNTER allen per Rueckruf bekannten, untereinander in Listenreihenfolge (Annahme AN20). nullptr = nicht
+   * verfuegbar, leere Liste = leer; beides loescht nie einen bekannten Eintrag.
+   */
+  Befuellt befuellen(const std::vector<FreigabeEintrag>* zoomListe, bool nurErgaenzen) {
+    if (!nurErgaenzen) leeren();
+    if (zoomListe == nullptr) return Befuellt::NichtVerfuegbar;
+    if (zoomListe->empty()) return Befuellt::Leer;
+    for (const FreigabeEintrag& z : *zoomListe) {
+      if (finde(z.user, z.share) != nullptr) continue;
+      FreigabeEintrag* nullEintrag = z.share != 0 ? finde(z.user, 0) : nullptr;
+      if (nullEintrag != nullptr) {        // per Rueckruf mit Kennung 0 bekannt: Kennung nachziehen, seq bleibt
+        nullEintrag->share = z.share;
+        continue;
+      }
+      FreigabeEintrag e = z;
+      e.seq = ++befuelltSeq_;
+      if (e.type == TYP_COMPUTERTON) e.audioOnly = true;
+      eintraege_.push_back(e);
+    }
+    return Befuellt::Ok;
+  }
+
+  /** Die gezeigte Freigabe: hoechstes seq ohne audioOnly; nullptr = keine. */
+  const FreigabeEintrag* gezeigt() const {
+    const FreigabeEintrag* beste = nullptr;
+    for (const FreigabeEintrag& e : eintraege_) {
+      if (e.audioOnly) continue;
+      if (beste == nullptr || e.seq > beste->seq) beste = &e;
+    }
+    return beste;
+  }
+
+  const std::vector<FreigabeEintrag>& eintraege() const { return eintraege_; }
+
+  /** Zahl der Bild-Freigaben (ohne reine Ton-Freigaben). */
+  int bildFreigaben() const {
+    int n = 0;
+    for (const FreigabeEintrag& e : eintraege_) {
+      if (!e.audioOnly) ++n;
+    }
+    return n;
+  }
+
+ private:
+  /** Rueckruf-seq beginnt ueber allen Befuell-seq: Befuellte begannen vor dem Ankommen (AN20). */
+  static constexpr uint64_t kRueckrufBasis = uint64_t{1} << 32;
+
+  static uint8_t typ(int contentType) {
+    return static_cast<uint8_t>(contentType >= 0 && contentType <= TYP_COMPUTERTON ? contentType : TYP_UNBEKANNT);
+  }
+
+  FreigabeEintrag* finde(unsigned user, unsigned share) {
+    for (FreigabeEintrag& e : eintraege_) {
+      if (e.user == user && e.share == share) return &e;
+    }
+    return nullptr;
+  }
+
+  /** Begin: Eintrag mit neuem seq; ein erneuter Begin derselben Freigabe ersetzt den alten (Entscheidung E-a2-3). */
+  bool beginn(unsigned user, unsigned share, int contentType, bool tonAllein) {
+    eintraege_.erase(std::remove_if(eintraege_.begin(), eintraege_.end(),
+                                    [user, share](const FreigabeEintrag& e) { return e.user == user && e.share == share; }),
+                     eintraege_.end());
+    FreigabeEintrag e;
+    e.user = user;
+    e.share = share;
+    e.type = typ(contentType);
+    e.audioOnly = tonAllein || contentType == TYP_COMPUTERTON;
+    e.seq = ++rueckrufSeq_;
+    eintraege_.push_back(e);
+    return true;
+  }
+
+  /** End: Eintrag entfernen; Kennung 0 gilt fuer alle Eintraege der Person (Entscheidung E-a2-3, wie AN8). */
+  bool ende(unsigned user, unsigned share, bool nurTon) {
+    const size_t vorher = eintraege_.size();
+    eintraege_.erase(std::remove_if(eintraege_.begin(), eintraege_.end(),
+                                    [user, share, nurTon](const FreigabeEintrag& e) {
+                                      return e.user == user && (share == 0 || e.share == share) && (!nurTon || e.audioOnly);
+                                    }),
+                     eintraege_.end());
+    return eintraege_.size() != vorher;
+  }
+
+  /** Pause/Resume: paused bzw. running, pauses zaehlt; Kennung 0 gilt fuer alle Eintraege der Person (AN8). */
+  bool pause(unsigned user, unsigned share, bool an) {
+    bool geaendert = false;
+    for (FreigabeEintrag& e : eintraege_) {
+      if (e.user != user || (share != 0 && e.share != share) || e.paused == an) continue;
+      e.paused = an;
+      if (an) ++e.pauses;
+      geaendert = true;
+    }
+    return geaendert;
+  }
+
+  std::vector<FreigabeEintrag> eintraege_;
+  uint64_t rueckrufSeq_ = kRueckrufBasis;
+  uint64_t befuelltSeq_ = 0;
+};
+
 }  // namespace slotlogic

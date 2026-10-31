@@ -3279,5 +3279,23 @@ console.log('\nZoom-Slots — slot_logic.h gegen protocol.ts (Plan A, Task A4; A
       `A4 ${datei} läuft in npm run slot-test (Ziel und Programm)`);
   }
 }
+console.log('\nZoom-Slots — Freigabe-Namen in slot_logic.h (Plan A, Task A5; A-EP4):');
+{
+  const logik = cppOhneKommentare(paketDateiOderLeer('native', 'slot_logic.h'));
+  const paare: [string, string, readonly string[]][] = [
+    ['SHARE_TYP_NAMEN', 'SHARE_TYPE_NAMES', protokollA4.SHARE_TYPE_NAMES],
+    ['SHARING_STATUS_NAMEN', 'SHARING_STATUS_NAMES', protokollA4.SHARING_STATUS_NAMES],
+    ['BEFUELLT_NAMEN', 'shares.seeded (Gliederung 3.3)', ['ok', 'empty', 'unavailable']],
+  ];
+  for (const [tabelle, katalogName, katalog] of paare) {
+    const t = namensTabelle(logik, tabelle);
+    assert(
+      t !== null && t.n === katalog.length && JSON.stringify(t.namen) === JSON.stringify(katalog),
+      `A5 ${tabelle} in slot_logic.h gleicht ${katalogName} (Index = Wert im Header)`,
+    );
+  }
+  assert(JSON.stringify(aufzaehlung(logik, 'Befuellt')) === JSON.stringify(['ok', 'leer', 'nichtVerfuegbar']),
+    'A5 enum class Befuellt folgt BEFUELLT_NAMEN (Ok, Leer, NichtVerfuegbar)');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
