@@ -6,11 +6,15 @@
 // (native/audio_mix_test.cpp, npm run logik-test; G-A2).
 //
 // Die Ausgabe folgt der WANDUHR: Jeder Aufruf von ausgabe() gibt genau die seit der letzten Ausgabe verstrichene
-// Zeit aus, in 10-ms-Schritten. Der Mischer beginnt, sobald ein Eingang 40 ms Vorlauf hat. Fehlt einem Eingang
-// etwas, fuellt er dessen Anteil mit Stille auf, statt zu warten (mixSilenceMs). Die Summe wird auf den 16-Bit-Bereich
-// begrenzt. Rueckstand ueber 200 ms je Eingang wird am aeltesten Ende verworfen (mixDropsMs). Passen Rate oder
-// Kanalzahl der Eingaenge nicht zusammen, geht nur der Computerton hinaus (rateMismatch, T76). So sendet ein
-// Mischer-Slot nie mehr Ton als Wanduhrzeit, und ein Aussetzer laesst keinen bleibenden Rueckstand zurueck.
+// Zeit aus, in 10-ms-Schritten, hoechstens aber 200 ms (Nachtrag N1.1, bewusste Abweichung von Spec 6.13 „genau die
+// verstrichene Zeit“ nur fuer den Fehlerfall): Nach einem Haenger der Hauptschleife (Ruhezustand) baute ein Aufruf
+// sonst die ganze Luecke als Stille (~230 MB je Stunde bei 32 kHz). Ist mehr verstrichen, zieht der Mischer seine
+// Uhr auf jetzt - 200 ms nach; der Rest gilt als verworfen und zaehlt in mixDropsMs.
+// Der Mischer beginnt, sobald ein Eingang 40 ms Vorlauf hat. Fehlt einem Eingang etwas, fuellt er dessen Anteil mit
+// Stille auf, statt zu warten (mixSilenceMs). Die Summe wird auf den 16-Bit-Bereich begrenzt. Rueckstand ueber
+// 200 ms je Eingang wird am aeltesten Ende verworfen (mixDropsMs). Passen Rate oder Kanalzahl der Eingaenge nicht
+// zusammen, geht nur der Computerton hinaus (rateMismatch, T76). So sendet ein Mischer-Slot nie mehr Ton als
+// Wanduhrzeit, und ein Aussetzer laesst keinen bleibenden Rueckstand zurueck.
 // „Neu“ (Plan-Schritt MischerNeu) heisst `mix = AudioMix{}`; MischerEingangBNeu heisst eingangBNeu().
 #include <algorithm>
 #include <cstddef>
@@ -25,6 +29,8 @@ class AudioMix {
   static constexpr int64_t kSchrittMs = 10;
   static constexpr int64_t kVorlaufMs = 40;
   static constexpr int64_t kRueckstandMs = 200;
+  /** Hoechstens so viel Zeit gibt ein Aufruf von ausgabe() aus (wie der Stille-Herzschlag; Nachtrag N1.1). */
+  static constexpr int64_t kAusgabeHoechstensMs = 200;
 
   /** Mischton: n Abtastwerte je Kanal, verschraenkt (n * kanaele Werte), angekommen zur Zeit ms. */
   void eingangA(const int16_t* abtast, int n, int rate, int kanaele, int64_t ms) { eingang(a_, abtast, n, rate, kanaele, ms); }
@@ -33,11 +39,16 @@ class AudioMix {
 
   /**
    * Gibt die seit der letzten Ausgabe verstrichene Zeit in 10-ms-Schritten aus (verschraenkt in out, Format rate()
-   * und kanaele()). Rueckgabe: Abtastwerte je Kanal; 0 vor dem Beginn.
+   * und kanaele()), hoechstens kAusgabeHoechstensMs; was darueber verstrichen ist, zaehlt in mixDropsMs.
+   * Rueckgabe: Abtastwerte je Kanal; 0 vor dem Beginn.
    */
   int ausgabe(int64_t jetzt, std::vector<int16_t>& out) {
     out.clear();
     if (!laeuft_ || jetzt <= uhr_) return 0;
+    if (jetzt - uhr_ > kAusgabeHoechstensMs) {   // Haenger der Hauptschleife: Uhr nachziehen, Rest verworfen
+      dropsMs_ += jetzt - kAusgabeHoechstensMs - uhr_;
+      uhr_ = jetzt - kAusgabeHoechstensMs;
+    }
     const int64_t schritte = (jetzt - uhr_) / kSchrittMs;
     if (schritte <= 0) return 0;
     uhr_ += schritte * kSchrittMs;

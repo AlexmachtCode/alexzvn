@@ -1160,6 +1160,77 @@ void a8_base64() {
   CHECK(base64(hoch, 2) == "+/8=");
 }
 
+void n1_29_dann_erfolg() {
+  std::printf("N1.2 29, dann Erfolg mit abschlussGelaufen: kein ZielStandNeu, kein SlotMelden, keine Tonmeldung\n");
+  // Sprecher -> Freigabe mit Mischton und Computerton: der Abschluss setzt Ton-Stand und Mischer neu.
+  UmhaengLage l = umh(SlotMode::Speaker, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Mix, true);
+  UmhaengPlan p = umhaengNachSubscribe(l, FEHLER_KEINE_FREIGABEDATEN, 0);   // erstes 29: Abschluss laeuft einmal
+  CHECK(hat(p, S::ZielStandNeu) && hat(p, S::SlotMelden) && hat(p, S::MischerNeu) && hat(p, S::WiederholenIn500ms));
+  CHECK(p.zustand == SlotState::Starting && p.grund == Grund::modeChanged);
+  CHECK(tonIst(p, TonZustand::Waiting, TonGrund::modeChanged, TonQuelle::MixShare));
+  l.abschlussGelaufen = true;   // der Ausfuehrer merkt sich den Abschluss (N2a)
+  CHECK(umhaengNachSubscribe(l, FEHLER_KEINE_FREIGABEDATEN, 1).schritte == std::vector<S>{S::WiederholenIn500ms});
+  p = umhaengNachSubscribe(l, FEHLER_KEINER, 0);   // Wiederholung glueckt: starting/<grund> bleibt bis zum ersten Bild
+  CHECK(!hat(p, S::ZielStandNeu) && !hat(p, S::VorschauPlatzLeeren) && !hat(p, S::SlotMelden));
+  CHECK(keinTon(p) && !p.tonMelden);
+  CHECK(p.schritte.empty());
+  // Freigabewechsel mit direktem Computerton: auch hier kein zweites waiting/targetChanged.
+  UmhaengLage wechsel = umh(SlotMode::Share, SlotMode::Share, F1, F2, Grund::shareChanged, SlotAudio::Off, true);
+  wechsel.abschlussGelaufen = true;
+  p = umhaengNachSubscribe(wechsel, FEHLER_KEINER, 0);
+  CHECK(p.schritte.empty() && p.tonFolge.empty());
+  // Ohne Merker (subscribe glueckt beim ersten Mal): der Abschluss wie bisher.
+  l.abschlussGelaufen = false;
+  p = umhaengNachSubscribe(l, FEHLER_KEINER, 0);
+  CHECK(hat(p, S::ZielStandNeu) && hat(p, S::SlotMelden) && hat(p, S::MischerNeu));
+  CHECK(tonIst(p, TonZustand::Waiting, TonGrund::modeChanged, TonQuelle::MixShare));
+}
+
+void n1_plan_braucht_renderer() {
+  std::printf("N1.3 planBrauchtRenderer: wahr nur mit Renderer-Schritt; Ton- und Feld-Plaene laufen auch in der Sperre\n");
+  const std::vector<S> renderer = {S::Unsubscribe, S::ZeigerVerwerfen, S::CreateRendererNeuerDelegate,
+                                   S::DestroyRenderer, S::CreateRendererGleicherDelegate, S::SetResolution,
+                                   S::GetResolution, S::Subscribe};
+  for (int i = 0; i <= static_cast<int>(S::OhneVersatzSetzen); ++i) {   // jeder Schritt allein
+    const S s = static_cast<S>(i);
+    bool erwartet = false;
+    for (S r : renderer) erwartet = erwartet || r == s;
+    UmhaengPlan einzeln;
+    einzeln.schritte = {s};
+    CHECK(planBrauchtRenderer(einzeln) == erwartet);
+  }
+  CHECK(!planBrauchtRenderer(UmhaengPlan{}));
+  // Ohne Renderer-Schritt: Ton umschalten (TonStandNeu, MischerNeu, TonMelden), Vormerken, Erfolg, 18, Eingang B neu.
+  const UmhaengLage frei = umh(SlotMode::Share, SlotMode::Share, F1, F1, Grund::command, SlotAudio::Off, false);
+  TonAenderung mischer;
+  mischer.audioGesetzt = true;
+  mischer.audio = SlotAudio::Mix;
+  mischer.shareAudioGesetzt = true;
+  mischer.shareAudio = true;
+  const UmhaengPlan ton = tonUmschaltPlan(frei, mischer, AboErgebnis::Geglueckt);
+  CHECK(hat(ton, S::TonStandNeu) && hat(ton, S::MischerNeu) && hat(ton, S::TonMelden) && !planBrauchtRenderer(ton));
+  UmhaengLage l = umh(SlotMode::Participant, SlotMode::Participant, A, B, Grund::targetChanged, SlotAudio::Person, false);
+  UmhaengLage gesperrt = l;
+  gesperrt.sperre = true;
+  CHECK(!planBrauchtRenderer(umhaengPlan(gesperrt)));
+  CHECK(!planBrauchtRenderer(umhaengNachSubscribe(l, FEHLER_KEINER, 0)));
+  CHECK(!planBrauchtRenderer(umhaengNachSubscribe(l, FEHLER_ZU_OFT, 0)));
+  const UmhaengLage mischerSlot = umh(SlotMode::Share, SlotMode::Share, F1, F2, Grund::shareChanged, SlotAudio::Mix, true);
+  const UmhaengPlan eingangB = umhaengNachSubscribe(mischerSlot, FEHLER_KEINER, 0);
+  CHECK(hat(eingangB, S::MischerEingangBNeu) && !planBrauchtRenderer(eingangB));
+  const UmhaengLage ohneAbo = umh(SlotMode::Speaker, SlotMode::Share, 0, 0, Grund::modeChanged, SlotAudio::Off, false);
+  CHECK(!planBrauchtRenderer(umhaengPlan(ohneAbo)));   // Ziel 0, nicht abonniert: nur Versatz und Abschluss
+  // Mit Renderer-Schritt: Umhaengen bis Subscribe, Ziel 0 mit Unsubscribe, rendererTot, Typwechsel.
+  CHECK(planBrauchtRenderer(umhaengPlan(l)));
+  CHECK(planBrauchtRenderer(umhaengPlan(umh(SlotMode::Participant, SlotMode::Participant, A, 0, Grund::participantLeft,
+                                            SlotAudio::Off, false))));
+  UmhaengLage tot = l;
+  tot.rendererTot = true;
+  CHECK(planBrauchtRenderer(umhaengPlan(tot)));
+  const UmhaengLage typwechsel = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Off, false);
+  CHECK(planBrauchtRenderer(umhaengNachSubscribe(typwechsel, 7, 0)));
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -1211,6 +1282,8 @@ int main() {
   pb20_abbau_mit_sperre();
   pb20_renderer_tot_und_halteliste();
   a8_base64();
+  n1_29_dann_erfolg();
+  n1_plan_braucht_renderer();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

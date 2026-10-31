@@ -154,6 +154,27 @@ void a8_eingang_b_neu() {
   CHECK(m.ausgabe(at(40), out) == 1280 && alleGleich(out, 1000));
 }
 
+void n1_luecke_gekappt() {
+  std::printf("N1.1 Mischer nach 60 s Luecke: hoechstens 200 ms je Aufruf, Rest in mixDropsMs, danach 10-ms-Takt\n");
+  AudioMix m;
+  a(m, ton(32000, 40, 1000), 32000, 0);
+  b(m, ton(32000, 40, 2000), 32000, 0);
+  std::vector<int16_t> out;
+  CHECK(m.ausgabe(at(40), out) == 1280 && m.mixDropsMs() == 0);   // Normalbetrieb: genau die verstrichene Zeit
+  const int64_t stilleVorher = m.mixSilenceMs();
+  CHECK(m.ausgabe(at(60040), out) == 6400);                       // 60 s Luecke: hoechstens 200 ms (32 kHz mono)
+  CHECK(out.size() == 6400);
+  CHECK(m.mixDropsMs() == 59800);                                 // 60 000 ms verstrichen, 200 ms ausgegeben
+  CHECK(m.mixSilenceMs() - stilleVorher <= 400);                  // Stille nur fuer die ausgegebenen 200 ms je Eingang
+  a(m, ton(32000, 10, 1000), 32000, 60040);
+  b(m, ton(32000, 10, 2000), 32000, 60040);
+  CHECK(m.ausgabe(at(60050), out) == 320 && alleGleich(out, 3000));   // danach wieder der 10-ms-Takt
+  CHECK(m.mixDropsMs() == 59800);
+  AudioMix grenze;   // genau 200 ms verstrichen: noch Normalbetrieb, nichts verworfen
+  a(grenze, ton(32000, 40, 1000), 32000, 0);
+  CHECK(grenze.ausgabe(at(200), out) == 6400 && grenze.mixDropsMs() == 0);
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -161,6 +182,7 @@ int main() {
   pb17_summe_begrenzung_raten();
   pb28_wanduhr();
   a8_eingang_b_neu();
+  n1_luecke_gekappt();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

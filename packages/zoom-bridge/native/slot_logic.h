@@ -804,6 +804,7 @@ struct UmhaengLage {
   // Hilfsfelder (Gliederung erlaubt sie):
   unsigned altesZiel = 0;                   // Ziel vor dem Umhaengen; ohne Zielwechsel bleibt der Ton (Aufloesung)
   bool rendererGescheitert = false;         // createRenderer scheiterte (6.10 Schritt 2 bzw. neuer Renderer)
+  bool abschlussGelaufen = false;           // Schritte 6-8 liefen schon (erstes 29); Erfolg danach: kein zweiter
 };
 
 /** Eine slotAudio-Meldung (Zustand, Grund, configured). */
@@ -988,7 +989,9 @@ inline UmhaengPlan umhaengNachSubscribe(const UmhaengLage& l, int sdkFehler, int
   const RendererTyp typ = rendererTyp(l.modusNachher);
   if (!l.rendererGescheitert) {
     if (sdkFehler == FEHLER_KEINER) {
-      umhaengAbschluss(l, p);
+      // Nach einem 29 lief der Abschluss schon (starting/<grund>, Ziel-Stand, Ton, Mischer); ein zweiter setzte
+      // Ton-Stand und Mischer erneut zurueck (Nachtrag N1.2). Der Zustand bleibt bis zum ersten Bild (6.10).
+      if (!l.abschlussGelaufen) umhaengAbschluss(l, p);
       return p;
     }
     if (sdkFehler == FEHLER_ZU_OFT && versuch < ZU_OFT_WIEDERHOLUNGEN) {
@@ -1072,6 +1075,43 @@ inline UmhaengPlan tonUmschaltPlan(const UmhaengLage& l, const TonAenderung& a, 
     meldeTon(p, TonZustand::Off, TonGrund::command, weg);
   }
   return p;
+}
+
+/**
+ * Ob ein Plan einen Renderer-Schritt enthaelt (Unsubscribe, ZeigerVerwerfen, CreateRenderer..., DestroyRenderer,
+ * SetResolution, GetResolution, Subscribe). Nur ein solcher Plan wartet waehrend der Renderer-Sperre (6.5, 6.10
+ * Schritt 0); reine Ton- und Feld-Plaene (TonStandNeu, MischerNeu, MischerEingangBNeu, TonMelden, Vormerken, ...)
+ * laufen auch dann (Nachtrag N1.3, Task-14-Review I1; Einsatz im Ausfuehrer: N2b).
+ */
+inline bool planBrauchtRenderer(const UmhaengPlan& plan) {
+  for (const UmhaengSchritt s : plan.schritte) {
+    switch (s) {
+      case UmhaengSchritt::Unsubscribe:
+      case UmhaengSchritt::ZeigerVerwerfen:
+      case UmhaengSchritt::CreateRendererNeuerDelegate:
+      case UmhaengSchritt::DestroyRenderer:
+      case UmhaengSchritt::CreateRendererGleicherDelegate:
+      case UmhaengSchritt::SetResolution:
+      case UmhaengSchritt::GetResolution:
+      case UmhaengSchritt::Subscribe:
+        return true;
+      case UmhaengSchritt::Vormerken:
+      case UmhaengSchritt::WiederholenIn500ms:
+      case UmhaengSchritt::ZielStandNeu:
+      case UmhaengSchritt::VorschauPlatzLeeren:
+      case UmhaengSchritt::IsVideoOnFragen:
+      case UmhaengSchritt::SlotMelden:
+      case UmhaengSchritt::FehlerSubscribeMelden:
+      case UmhaengSchritt::TonStandNeu:
+      case UmhaengSchritt::MischerEingangBNeu:
+      case UmhaengSchritt::MischerNeu:
+      case UmhaengSchritt::TonMelden:
+      case UmhaengSchritt::VersatzLeeren:
+      case UmhaengSchritt::OhneVersatzSetzen:
+        break;
+    }
+  }
+  return false;
 }
 
 /** Ergebnis des Stille-Herzschlags: Abtastwerte je Kanal und der neue silenceBisMs. */
