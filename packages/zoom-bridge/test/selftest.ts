@@ -1392,26 +1392,8 @@ console.log('\nstate — Video: Umhängen behält denselben Sender:');
   assert(s.videoSubs.size === 1, 'nach dem Umhängen über den Namen bleibt genau EIN Abo stehen');
 }
 
-console.log('\nbridge — Video: ein Abo über die Attrappe:');
-{
-  const evs: BridgeEvent[] = [];
-  const b = new Bridge({
-    exePath: process.execPath,
-    exeArgs: [fake],
-    env: { FAKE_SCRIPT: 'video' },
-    onEvent: (e) => { if (e.ev === 'video') evs.push(e); },
-  });
-  await b.start();
-  b.send({ cmd: 'videoSubscribe', id: 42, resolution: '720p' });
-  await b.waitFor((s) => s.videoSubs.get(42)?.state === 'live', 4000);
-  assert(evs.length >= 2, 'erst subscribed, dann live — beide Schritte sind sichtbar');
-  // Cast noetig (Abweichung vom Brief-Wortlaut, siehe task-2-report.md):
-  // evs ist BridgeEvent[], ein Vereinigungstyp, dessen andere Varianten kein
-  // "state" fuehren - derselbe Cast-Stil wie an den bestehenden Stellen
-  // dieser Datei (z. B. `(errors[0] as { name?: string })`).
-  assert((evs[0] as { state?: string })?.state === 'subscribed', 'der erste Schritt ist subscribed');
-  await b.stop();
-}
+// Das Abo über das Drehbuch "video" (videoSubscribe → video/audio) zog nach A2 PT5 um (Plan A, Task A2, 11.10):
+// die Attrappe beantwortet videoSubscribe nur noch im Altweg.
 
 // --- NDI-Laufzeit auf dem PATH des Kindprozesses ------------------------
 // REGRESSION, gemessen am 2026-08-13: zoom-bridge.exe ist seit Stage 2 auch
@@ -1680,7 +1662,8 @@ function steuere(fakeEnv: Record<string, string>, zoomEnv: Record<string, string
     zoomDllDir: null,
     sekunden: null,
     env: { ZOOM_SDK_CLIENT_ID: 'test-id', ZOOM_SDK_CLIENT_SECRET: 'test-secret', ...zoomEnv },
-    kindEnv: { FAKE_SCRIPT: 'steuerung', ...fakeEnv },
+    // Die Konsole sendet bis Plan A, Task A3 noch videoSubscribe; bis dahin laeuft sie gegen den Altweg der Attrappe.
+    kindEnv: { FAKE_SCRIPT: 'steuerung', FAKE_ALTWEG: '1', ...fakeEnv },
     eingabe,
     log: (z: unknown) => zeilen.push(...String(z).split('\n')),
     fehler: (z: unknown) => zeilen.push(...String(z).split('\n')),
@@ -2261,6 +2244,49 @@ async function fahreSteuerung(
   return ev;
 }
 
+// ── A2 · Hilfen für die Slot-Fälle der Attrappe (Plan A, Task A2) ──
+// Als function bzw. VOR dem ersten Gebrauch definiert: Die Stage-4- und 4b-Fälle unten laufen schon mit Slots (11.10).
+const ANNA = 16778240;
+const BEN = 16778241;
+const CARLA = 16778242;
+/** Annas neue Kennung nach dem Wiederbeitritt (FAKE_WIEDERBEITRITT_MS). */
+const ANNA_NEU = 16778250;
+
+/** slotOn eines Teilnehmer-Slots mit Person-Ton; `mehr` ersetzt einzelne Felder (auch absichtlich ungültige). */
+function slotAn(slot: number, ndi: string, mehr: Record<string, unknown> = {}): Command {
+  return {
+    cmd: 'slotOn', slot, ndi, mode: 'participant', resolution: '720p', audio: 'person', shareAudio: false,
+    fallback: 'transparent', showNoVideo: true, ...mehr,
+  } as Command;
+}
+
+/** Beitritt senden und die Erlaubnis abwarten (Drehbuch steuerung: privilege 50 ms nach inMeeting). */
+async function imMeeting(b: Bridge, ev: BridgeEvent[]): Promise<void> {
+  b.send(BEITRITT);
+  await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
+}
+
+/** Die slot-Ereignisse eines Slots als „state/reason@target“, bei Freigabe-Slots mit „#share“. */
+function slotFolge(ev: BridgeEvent[], slot: number): string[] {
+  return ev.filter(art('slot', { slot })).map((e) => {
+    const s = e as unknown as { state: string; reason: string; target: number; share: number };
+    return `${s.state}/${s.reason}@${s.target}${s.share ? `#${s.share}` : ''}`;
+  });
+}
+
+/** Die slotAudio-Ereignisse eines Slots als „state/reason:source“. */
+function tonFolge(ev: BridgeEvent[], slot: number): string[] {
+  return ev.filter(art('slotAudio', { slot })).map((e) => {
+    const s = e as unknown as { state: string; reason: string; source: string };
+    return `${s.state}/${s.reason}:${s.source}`;
+  });
+}
+
+/** Stelle des ersten passenden Ereignisses NACH `ab`, sonst -1. */
+function stelleNach(ev: BridgeEvent[], ab: number, pred: (e: BridgeEvent) => boolean): number {
+  return ev.findIndex((e, i) => i > ab && pred(e));
+}
+
 console.log('\nAttrappe — Stellschrauben Stage 4:');
 {
   // FAKE_SDK_FASSUNG: JM Connect prueft die Fassung exakt (G1) - die Attrappe muss sie liefern koennen.
@@ -2323,68 +2349,61 @@ console.log('\nAttrappe — Stellschrauben Stage 4:');
   const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '100' }, async (b, ev) => {
     b.send(BEITRITT);
     await bisEreignis(ev, art('privilege', { source: 'broadcast' }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, art('error', { code: 'videoNoPrivilege' }));
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('error', { code: 'slotNoPrivilege' }));
   });
   const iJa = stelle(ev, art('privilege', { canRecordRaw: true }));
   const iEntzug = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
   assert(iJa >= 0 && iEntzug > iJa, 'FAKE_ENTZUG_MS: privilege broadcast canRecordRaw:false nach der Erlaubnis');
-  assert(stelle(ev, art('error', { where: 'video', code: 'videoNoPrivilege', id: 16778240 })) > iEntzug,
-    '... ein folgendes videoSubscribe wird mit videoNoPrivilege abgewiesen');
+  assert(stelle(ev, art('error', { where: 'slot', code: 'slotNoPrivilege', slot: 1 })) > iEntzug,
+    '... ein folgendes slotOn wird mit slotNoPrivilege abgewiesen');
 }
 {
   let zwischenMs = -1;
-  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '500', FAKE_RUECKKEHR_MS: '200' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+  let vorSet = -1;
+  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '1000', FAKE_RUECKKEHR_MS: '500' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
     await bisEreignis(ev, art('left'));
     const weg = Date.now();
     await bisEreignis(ev, art('joined'));
     zwischenMs = Date.now() - weg;
-    await bisEreignis(ev, art('video', { reason: 'reboundByName' }));
+    await new Promise((r) => setTimeout(r, 300));
+    vorSet = ev.length;
+    b.send({ cmd: 'slotSet', slot: 1, id: ANNA_NEU });
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'live', target: ANNA_NEU }));
   });
-  const iLeft = stelle(ev, art('left', { id: 16778240 }));
-  const iSchwarz = stelle(ev, art('video', { id: 16778240, state: 'black', reason: 'participantLeft' }));
-  const iTonAus = stelle(ev, art('audio', { id: 16778240, state: 'off', reason: 'participantLeft' }));
-  assert(iLeft >= 0 && iSchwarz === iLeft + 1 && iTonAus === iSchwarz + 1,
-    'Weggang mit Abo: left, video black, audio off (participantLeft) - wie das Original');
-  assert((ev[iSchwarz] as { source?: string } | undefined)?.source === 'JM Connect – Zoom Anna', '... die Quelle bleibt bestehen, nur schwarz');
+  const iLeft = stelle(ev, art('left', { id: ANNA }));
+  const iErsatz = stelle(ev, art('slot', { slot: 1, state: 'fallback', reason: 'participantLeft', target: 0 }));
+  const iTonAus = stelle(ev, art('slotAudio', { slot: 1, state: 'off', reason: 'participantLeft' }));
+  assert(iLeft >= 0 && iErsatz === iLeft + 1 && iTonAus === iErsatz + 1,
+    'Weggang mit Slot: left, slot fallback/participantLeft (Ziel 0), slotAudio off/participantLeft (3.5, 6.7)');
+  assert((ev[iErsatz] as { ndi?: string } | undefined)?.ndi === 'JM Connect – Zoom Anna', '... der Sender bleibt mit seinem Namen');
   const iJoined = stelle(ev, art('joined'));
   const zurueck = ev[iJoined] as { p?: Participant } | undefined;
-  assert(iJoined > iTonAus && zurueck?.p?.id === 16778250 && zurueck.p.name === 'Anna', 'Anna kommt als 16778250 zurueck');
-  assert(zwischenMs >= 150, 'FAKE_RUECKKEHR_MS: zwischen left und joined liegen mindestens 150 ms');
-  const iUm = stelle(ev, art('video', { id: 16778250, state: 'subscribed', reason: 'reboundByName' }));
-  assert(iUm > iJoined, '... dann haengt sich das Abo um (ERST joined, DANN video reboundByName)');
-  assert(stelle(ev, art('audio', { id: 16778250, state: 'waiting', reason: 'reboundByName' })) > iUm,
-    '... und der Ton wartet wieder (Grund reboundByName wie im Original)');
+  assert(iJoined > iTonAus && zurueck?.p?.id === ANNA_NEU && zurueck.p.name === 'Anna', 'Anna kommt als 16778250 zurueck');
+  assert(zwischenMs >= 450, 'FAKE_RUECKKEHR_MS=500: zwischen left und joined liegen mindestens 450 ms (über der 300-ms-Entprellung)');
+  assert(vorSet > iJoined && !ev.slice(iJoined, vorSet).some(art('slot', { slot: 1 })),
+    '... die Attrappe hängt nicht selbst um (300 ms nach joined kein slot-Ereignis, 11.3)');
+  const iSet = stelleNach(ev, vorSet - 1, art('slot', { slot: 1, state: 'starting', reason: 'targetChanged', target: ANNA_NEU }));
+  assert(iSet >= vorSet, '... erst slotSet {id} → starting/targetChanged (6.7)');
+  assert(stelleNach(ev, iSet, art('slotAudio', { slot: 1, state: 'waiting', reason: 'targetChanged' })) > iSet,
+    '... und der Person-Ton wartet wieder (waiting/targetChanged, 6.10 Schritt 8)');
 }
 {
-  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '500', FAKE_RUECKKEHR_NAME: 'anna' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '1000', FAKE_RUECKKEHR_NAME: 'anna' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
     await bisEreignis(ev, art('joined'));
     await new Promise((r) => setTimeout(r, 300));
   });
   const zurueck = ev.find(art('joined')) as { p?: Participant } | undefined;
-  assert(zurueck?.p?.id === 16778250 && zurueck.p.name === 'anna', 'FAKE_RUECKKEHR_NAME: sie kommt als "anna" zurueck');
-  assert(!ev.some(art('video', { reason: 'reboundByName' })), '... und das Abo haengt NICHT um (Name nicht exakt gleich)');
-  assert(stelle(ev, art('video', { id: 16778240, state: 'black', reason: 'participantLeft' })) >= 0, '... es bleibt schwarz unter 16778240');
+  assert(zurueck?.p?.id === ANNA_NEU && zurueck.p.name === 'anna', 'FAKE_RUECKKEHR_NAME: sie kommt als "anna" zurueck');
+  assert(slotFolge(ev, 1).join(' ') === `starting/command@${ANNA} live/frames@${ANNA} fallback/participantLeft@0 off/command@0`,
+    '... und der Slot bleibt ohne Ziel bis zum Ende (die Attrappe hängt nie selbst um)');
 }
-{
-  // Doppelname und Rueckkehr: "Anna" gibt es danach zweimal (16778241 und 16778250) -
-  // das Original haengt dann nicht um ("lieber ein Handgriff als die falsche Person").
-  const ev = await fahreSteuerung({ FAKE_WIEDERBEITRITT_MS: '500', FAKE_DOPPELNAME: '1' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, art('joined'));
-    await new Promise((r) => setTimeout(r, 300));
-  });
-  assert(stelle(ev, art('joined')) >= 0 && !ev.some(art('video', { reason: 'reboundByName' })),
-    'Doppelname: bei der Rueckkehr haengt die Attrappe NICHT um (Name nicht eindeutig)');
-}
+// Doppelname bei der Rückkehr entfällt hier (Plan A, Task A2): Die Attrappe hängt nie selbst um, die Zuordnung
+// eines Namens trifft Connect (Plan B, PK6).
 {
   // envprobe meldet den PATH, den das Kind bekommt. "Path" (so erbt Windows ihn)
   // muss dafuer weg, sonst stuenden "Path" und "PATH" nebeneinander (Spec 3.2-4).
@@ -2414,211 +2433,152 @@ const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 console.log('\nAttrappe — Stage 4b:');
 {
-  // Der neue Grund ist ein EIGENER Name (G18). Die beiden Zuweisungen prueft tsc:
-  // fehlt 'privilegeRevoked' in VideoReason oder AudioReason, ist der Typecheck rot.
-  const bild: PaketVideoReason = 'privilegeRevoked';
-  const ton: AudioReason = 'privilegeRevoked';
+  // Der Grund ist ein EIGENER Name (G18); die Zuweisungen prüft tsc. Mit Slots: slot off löscht Slot und Ton.
+  const bild: PaketSlotReason = 'privilegeRevoked';
+  const ton: PaketSlotAudioReason = 'privilegeRevoked';
   let s = initialSession();
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'subscribed', source: 'JM Connect – Zoom Anna', reason: 'command', rebindable: true } as WireEvent));
-  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'waiting', reason: 'command' } as WireEvent));
-  s = reduce(s, enrich({ ev: 'audio', id: 7, state: 'off', reason: ton } as WireEvent));
-  s = reduce(s, enrich({ ev: 'video', id: 7, state: 'unsubscribed', source: 'JM Connect – Zoom Anna', reason: bild, rebindable: true } as WireEvent));
-  assert(s.videoSubs.size === 0 && s.audioSubs.size === 0,
-    'Reducer: video unsubscribed mit privilegeRevoked entfernt das Abo aus Session.videoSubs (audio off ebenso aus audioSubs)');
+  s = reduce(s, enrich({ ev: 'slot', slot: 1, state: 'starting', mode: 'participant', target: 7, share: 0, reason: 'command',
+    sent: 'transparent', ndi: 'JM Connect – Zoom Anna' } as WireEvent));
+  s = reduce(s, enrich({ ev: 'slotAudio', slot: 1, state: 'waiting', source: 'none', configured: 'person', reason: 'command' } as WireEvent));
+  s = reduce(s, enrich({ ev: 'slotAudio', slot: 1, state: 'off', source: 'none', configured: 'person', reason: ton } as WireEvent));
+  s = reduce(s, enrich({ ev: 'slot', slot: 1, state: 'off', mode: 'participant', target: 7, share: 0, reason: bild, sent: 'none',
+    ndi: 'JM Connect – Zoom Anna' } as WireEvent));
+  assert(s.slots.size === 0 && s.slotAudio.size === 0,
+    'Reducer: slot off mit privilegeRevoked entfernt den Slot samt Ton aus Session.slots und Session.slotAudio');
 }
 {
-  // FAKE_ENTZUG_MS baut ab 4b alle Abos ab (N4b.1, L1/L2): erst privilege false,
-  // dann je Abo audio off (falls Ton) vor video unsubscribed, Grund privilegeRevoked.
-  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p', audio: false });
-    await bisEreignis(ev, art('video', { id: 16778241, state: 'unsubscribed' }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, art('error', { code: 'videoNoPrivilege' }));
+  // FAKE_ENTZUG_MS baut alle Slots ab (N4b.1, 6.15): erst privilege false, dann je Slot slotAudio off vor slot off.
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '1000' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    b.send(slotAn(2, 'JM Connect – Zoom Ben', { id: BEN, audio: 'off' }));
+    await bisEreignis(ev, art('slot', { slot: 2, state: 'off' }));
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('error', { code: 'slotNoPrivilege' }));
   });
   const iEntzug = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
-  const iAnnaTon = stelle(ev, art('audio', { id: 16778240, state: 'off', reason: 'privilegeRevoked' }));
-  const iAnna = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
-  const iBen = stelle(ev, art('video', { id: 16778241, state: 'unsubscribed', reason: 'privilegeRevoked' }));
-  assert(stelle(ev, art('video', { id: 16778240, state: 'subscribed' })) >= 0 && stelle(ev, art('video', { id: 16778241, state: 'subscribed' })) >= 0,
-    'Entzug: vorher liefen zwei Abos (Anna mit Ton, Ben ohne)');
-  assert(iEntzug >= 0 && iAnnaTon > iEntzug && iAnna === iAnnaTon + 1 && iBen > iEntzug,
-    'Entzug baut jedes Abo ab: audio off vor video unsubscribed, Grund privilegeRevoked');
-  assert(!ev.some(art('audio', { id: 16778241, reason: 'privilegeRevoked' })), '... ein Abo ohne Ton meldet kein audio off');
-  assert(ev.filter(art('video', { state: 'unsubscribed' })).every((e) => (e as { reason?: string }).reason === 'privilegeRevoked'),
+  for (const nr of [1, 2]) {
+    const iTon = stelle(ev, art('slotAudio', { slot: nr, state: 'off', reason: 'privilegeRevoked' }));
+    const iAus = stelle(ev, art('slot', { slot: nr, state: 'off', reason: 'privilegeRevoked' }));
+    assert(iEntzug >= 0 && iTon > iEntzug && iAus === iTon + 1, `Entzug baut Slot ${nr} ab: slotAudio off vor slot off, Grund privilegeRevoked`);
+  }
+  assert(ev.filter(art('slot', { state: 'off' })).every((e) => (e as { reason?: string }).reason === 'privilegeRevoked'),
     '... kein Abbau mit command oder meetingEnded (eine Ursache, ein Name)');
-  assert(stelle(ev, art('error', { where: 'video', code: 'videoNoPrivilege', id: 16778240 })) > iAnna,
-    'nach dem Entzug: videoSubscribe → videoNoPrivilege');
-  assert(anzahl(ev, art('video', { state: 'subscribed' })) === 2, '... und es entsteht kein neues Abo');
+  assert(stelle(ev, art('error', { where: 'slot', code: 'slotNoPrivilege', slot: 1 })) > iEntzug
+      && anzahl(ev, art('slot', { state: 'starting' })) === 2,
+    'nach dem Entzug: slotOn → slotNoPrivilege, und es entsteht kein neuer Slot');
 }
 {
-  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '200' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '1000', FAKE_ERTEILUNG_MS: '200' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
     await bisEreignis(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, () => anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 2);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, () => anzahl(ev, art('slot', { slot: 1, state: 'starting' })) === 2);
   });
-  const iAbbau = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  const iAbbau = stelle(ev, art('slot', { slot: 1, state: 'off', reason: 'privilegeRevoked' }));
   const iErteilung = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
-  const neu = ev.filter(art('video', { id: 16778240, state: 'subscribed' }))[1] as { source?: string } | undefined;
+  const neu = ev.filter(art('slot', { slot: 1, state: 'starting' }))[1] as { ndi?: string } | undefined;
   assert(iAbbau >= 0 && iErteilung > iAbbau, "Wiedererteilung: privilege canRecordRaw:true source:'broadcast' nach dem Abbau (FAKE_ERTEILUNG_MS)");
-  assert(ev.indexOf(neu as BridgeEvent) > iErteilung && neu?.source === 'JM Connect – Zoom Anna',
-    '... videoSubscribe danach → subscribed, mit demselben NDI-Namen (ohne „(2)“)');
+  assert(ev.indexOf(neu as BridgeEvent) > iErteilung && neu?.ndi === 'JM Connect – Zoom Anna',
+    '... slotOn danach → starting, mit demselben NDI-Namen');
 }
 {
   // FAKE_ERTEILUNG_MS=0: beide Rundrufe in derselben Pumprunde der Bridge (L2).
-  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '0' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, art('video', { id: 16778240, state: 'unsubscribed' }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, () => anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 2);
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '1000', FAKE_ERTEILUNG_MS: '0' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'off' }));
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, () => anzahl(ev, art('slot', { slot: 1, state: 'starting' })) === 2);
   });
   const iFalsch = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
   const iWahr = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
-  const iAbbau = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
-  assert(iFalsch >= 0 && iWahr === iFalsch + 1 && iAbbau > iWahr, 'FAKE_ERTEILUNG_MS=0: Reihenfolge privilege false, privilege true, dann unsubscribed');
-  const neu = ev.filter(art('video', { id: 16778240, state: 'subscribed' }))[1] as { source?: string } | undefined;
-  assert(ev.indexOf(neu as BridgeEvent) > iAbbau && neu?.source === 'JM Connect – Zoom Anna', '... danach geht videoSubscribe wieder durch, ohne „(2)“');
+  const iAbbau = stelle(ev, art('slot', { slot: 1, state: 'off', reason: 'privilegeRevoked' }));
+  assert(iFalsch >= 0 && iWahr === iFalsch + 1 && iAbbau > iWahr, 'FAKE_ERTEILUNG_MS=0: Reihenfolge privilege false, privilege true, dann slot off');
+  assert(stelleNach(ev, iAbbau, art('slot', { slot: 1, state: 'starting' })) > iAbbau, '... danach geht slotOn wieder durch');
 }
 {
-  // FAKE_ABBAU_MS: Die Bridge baut langsamer ab, als JM Connect bis zum Abgleich wartet (300 ms; Gesamtprüfung 4b, M18).
+  // FAKE_ABBAU_MS gilt auch für Slots: Die Bridge baut langsamer ab, als Connect bis zum Abgleich wartet (300 ms; M18).
   let wahrUm = 0;
   let abbauUm = 0;
-  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '300', FAKE_ERTEILUNG_MS: '0', FAKE_ABBAU_MS: '600' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+  const ev = await fahreSteuerung({ FAKE_ENTZUG_MS: '1000', FAKE_ERTEILUNG_MS: '0', FAKE_ABBAU_MS: '600' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
     await bisEreignis(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
     wahrUm = Date.now();
-    await bisEreignis(ev, art('video', { id: 16778240, state: 'unsubscribed' }));
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'off' }));
     abbauUm = Date.now();
   });
   const iWahr = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
-  const iAbbau = stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' }));
+  const iAbbau = stelle(ev, art('slot', { slot: 1, state: 'off', reason: 'privilegeRevoked' }));
   if (!(abbauUm - wahrUm >= 400)) console.log(`     (Abstand Wiedererteilung → Abbau gemessen: ${abbauUm - wahrUm} ms)`);
   assert(iWahr >= 0 && iAbbau > iWahr && abbauUm - wahrUm >= 400,
-    'FAKE_ABBAU_MS=600: der Abbau (privilegeRevoked) kommt erst mindestens 400 ms nach der Wiedererteilung');
+    'FAKE_ABBAU_MS=600: der Abbau der Slots (privilegeRevoked) kommt erst mindestens 400 ms nach der Wiedererteilung');
 }
 {
   let mitten = '';
-  const ev = await fahreSteuerung({ FAKE_VERBINDUNG_HAENGT_MS: '300', FAKE_VERBINDUNG_ZURUECK_MS: '200' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
+  const ev = await fahreSteuerung({ FAKE_VERBINDUNG_HAENGT_MS: '1000', FAKE_VERBINDUNG_ZURUECK_MS: '200' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    b.send(slotAn(2, 'JM Connect – Zoom Sprecher', { mode: 'speaker', audio: 'mix' }));
     await bisEreignis(ev, () => anzahl(ev, art('roster')) === 2);
     mitten = statusFolge(ev);
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, art('error', { code: 'videoAlreadySubscribed' }));
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('error', { code: 'slotAlreadyOn' }));
   });
-  const iZurueck = ev.findIndex((e, i) => art('status', { status: 'inMeeting' })(e) && i > stelle(ev, art('status', { status: 'reconnecting' })));
+  const iZurueck = stelleNach(ev, stelle(ev, art('status', { status: 'reconnecting' })), art('status', { status: 'inMeeting' }));
   assert(mitten === 'connecting,inMeeting,reconnecting,connecting,inMeeting', 'Rückkehr aus reconnecting: connecting, inMeeting (FAKE_VERBINDUNG_ZURUECK_MS)');
-  assert(iZurueck >= 0 && !ev.slice(0, iZurueck).some(art('video', { state: 'unsubscribed' })), '... Abos bestehen: kein unsubscribed bis zur Rückkehr');
+  assert(iZurueck >= 0 && !ev.slice(0, iZurueck).some(art('slot', { state: 'off' })), '... die Slots bestehen: kein slot off bis zur Rückkehr');
   const roster2 = ev.filter(art('roster'))[1] as { list?: Participant[] } | undefined;
   assert(ev.indexOf(roster2 as BridgeEvent) > iZurueck && (roster2?.list ?? []).map((p) => p.id).join(',') === '100,16778240,16778241',
     '... danach wie das Original roster mit denselben Kennungen');
   assert(stelle(ev, art('privilege', { canRecordRaw: true, source: 'check' })) > iZurueck, "... und privilege canRecordRaw:true source:'check'");
-  assert(iZurueck >= 0 && stelle(ev, art('error', { code: 'videoAlreadySubscribed', id: 16778240 })) > iZurueck,
-    '... das Abo auf Anna lebt noch (videoAlreadySubscribed)');
+  assert(stelleNach(ev, iZurueck, art('slot', { slot: 1, state: 'fallback', reason: 'noTarget', target: 0 })) > iZurueck
+      && stelleNach(ev, iZurueck, art('slot', { slot: 2, state: 'fallback', reason: 'speakerNone', target: 0 })) > iZurueck,
+    '... Teilnehmer-Slot ohne Ziel (noTarget, bis Connect neue Kennungen schickt), Sprecher-Slot speakerNone (6.15)');
+  assert(stelle(ev, art('error', { where: 'slot', code: 'slotAlreadyOn', slot: 1 })) > iZurueck, '... der Slot lebt noch (slotAlreadyOn)');
 }
-{
-  let frueh = true;
-  let dauerMs = -1;
-  const ev = await fahreSteuerung({ FAKE_ABO_VERZOEGERUNG_MS: '300' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    const start = Date.now();
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await warte(100);
-    frueh = ev.some(art('video', { id: 16778240 }));
-    await bisEreignis(ev, art('video', { id: 16778240, state: 'subscribed' }));
-    dauerMs = Date.now() - start;
-    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p' });
-    b.send({ cmd: 'videoUnsubscribe', id: 16778241 });
-    await bisEreignis(ev, art('video', { id: 16778241, state: 'unsubscribed' }));
-    await warte(500);
-  });
-  assert(!frueh && dauerMs >= 250, 'verzögertes Abo: subscribed erst nach der Frist (FAKE_ABO_VERZOEGERUNG_MS)');
-  assert(stelle(ev, art('audio', { id: 16778240, state: 'waiting' })) > stelle(ev, art('video', { id: 16778240, state: 'subscribed' })),
-    '... der Ton meldet sich erst danach');
-  assert(stelle(ev, art('video', { id: 16778241, state: 'unsubscribed', reason: 'command' })) >= 0
-      && !ev.some(art('video', { id: 16778241, state: 'subscribed' })) && !ev.some(art('audio', { id: 16778241 })),
-    'videoUnsubscribe davor → unsubscribed(command), kein subscribed danach');
-}
-{
-  const ev = await fahreSteuerung({ FAKE_ABO_VERZOEGERUNG_MS: '600', FAKE_ENTZUG_MS: '200' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, art('video', { id: 16778240, state: 'unsubscribed' }));
-    await warte(800);
-  });
-  assert(stelle(ev, art('video', { id: 16778240, state: 'unsubscribed', reason: 'privilegeRevoked' })) >= 0
-      && !ev.some(art('video', { id: 16778240, state: 'subscribed' })) && !ev.some(art('audio', { id: 16778240 })),
-    'offenes Abo beim Entzug: unsubscribed(privilegeRevoked) ohne audio off, kein subscribed danach');
-}
-{
-  const ev = await fahreSteuerung({ FAKE_DOPPELNAME: '1' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p' });
-    await bisEreignis(ev, art('video', { id: 16778241, state: 'subscribed' }));
-    b.send({ cmd: 'videoUnsubscribe', id: 16778240 });
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, () => anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 2);
-  });
-  const quellen = ev.filter(art('video', { state: 'subscribed' })).map((e) => (e as { source?: string }).source);
-  assert(quellen[0] === 'JM Connect – Zoom Anna' && quellen[1] === 'JM Connect – Zoom Anna (2)',
-    "Doppelname: zweite Quelle heißt '… Anna (2)' (wie uniqueSourceName)");
-  assert(quellen[2] === 'JM Connect – Zoom Anna', '... ist der Name wieder frei, bekommt das nächste Abo ihn ohne Zusatz');
-}
+// FAKE_ABO_VERZOEGERUNG_MS (verzögertes videoSubscribe) gilt nur noch im Altweg (A-EP1); seine beiden Fälle entfallen
+// hier, Connect prüft den Altweg bis Plan B, Task B23 (zoom-kern.test.ts). „(2)" bei gleichem Namen entfällt: Den Namen
+// vergibt Connect; ein belegter Name ist slotNameTaken (A2 Prüffolge mit laufendem Slot).
 {
   const ev = await fahreSteuerung({ FAKE_PUFFERFEHLER_MS: '100' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    b.send({ cmd: 'videoSubscribe', id: 16778241, resolution: '720p', audio: false });
-    await bisEreignis(ev, art('error', { code: 'videoBufferMismatch', id: 16778241 }));
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    b.send(slotAn(2, 'JM Connect – Zoom Ben', { id: BEN, audio: 'off' }));
+    await bisEreignis(ev, art('error', { code: 'slotBufferMismatch', slot: 2 }));
     await warte(400);
   });
-  assert(anzahl(ev, art('error', { where: 'video', code: 'videoBufferMismatch', id: 16778240 })) === 1
-      && anzahl(ev, art('error', { where: 'video', code: 'videoBufferMismatch', id: 16778241 })) === 1,
-    'Pufferfehler: je Abo ein videoBufferMismatch mit id');
-  assert(anzahl(ev, art('error', { where: 'audio', code: 'audioBufferMismatch', id: 16778240 })) === 1
-      && !ev.some(art('error', { code: 'audioBufferMismatch', id: 16778241 })),
-    '... audioBufferMismatch nur bei einem Abo mit Ton');
-  assert(ev.find(art('error', { code: 'videoBufferMismatch' }))?.name === 'VIDEO_BUFFER_MISMATCH'
+  assert(anzahl(ev, art('error', { where: 'slot', code: 'slotBufferMismatch', slot: 1 })) === 1
+      && anzahl(ev, art('error', { where: 'slot', code: 'slotBufferMismatch', slot: 2 })) === 1,
+    'Pufferfehler: je Slot einmal slotBufferMismatch mit slot');
+  assert(anzahl(ev, art('error', { where: 'audio', code: 'audioBufferMismatch', slot: 1 })) === 1
+      && !ev.some(art('error', { code: 'audioBufferMismatch', slot: 2 }))
+      && !ev.some((e) => e.ev === 'error' && 'id' in e),
+    '... audioBufferMismatch mit slot statt id, nur bei einem Slot mit Ton (6.4)');
+  assert(ev.find(art('error', { code: 'slotBufferMismatch' }))?.name === 'SLOT_BUFFER_MISMATCH'
       && ev.find(art('error', { code: 'audioBufferMismatch' }))?.name === 'AUDIO_BUFFER_MISMATCH',
-    '... mit den Namen VIDEO_BUFFER_MISMATCH und AUDIO_BUFFER_MISMATCH');
+    '... mit den Namen SLOT_BUFFER_MISMATCH und AUDIO_BUFFER_MISMATCH');
 }
 {
-  // FAKE_ABO_FEHLER (JM Connect 0.3.0, Owner 08.10.2026, „Laden gescheitert, bitte von Hand laden“): Das erste Abo, das die
-  // Vorbedingungen besteht, lehnt die Attrappe mit diesem Code und der Kennung ab, wie videoSenderFailed in native/video.cpp
-  // (kein Abo, kein video- und kein audio-Ereignis). Das nächste Abo geht.
-  const ev = await fahreSteuerung({ FAKE_ABO_FEHLER: 'videoSenderFailed' }, async (b, ev) => {
-    b.send(BEITRITT);
-    await bisEreignis(ev, art('privilege', { canRecordRaw: true }));
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, art('error', { code: 'videoSenderFailed' }));
-    await warte(200);
-    b.send({ cmd: 'videoSubscribe', id: 16778240, resolution: '720p' });
-    await bisEreignis(ev, art('video', { id: 16778240, state: 'subscribed' }));
+  // FAKE_ABO_FEHLER „nr:sdk“ (11.3, A-EP7): Das erste Abo des Slots scheitert; der Slot läuft mit Ersatzbild weiter.
+  const ev = await fahreSteuerung({ FAKE_ABO_FEHLER: '1:9' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('slot', { slot: 1 }));
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    b.send({ cmd: 'slotOff', slot: 1 });
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'live' }));
   });
-  const iFehler = stelle(ev, art('error', { where: 'video', code: 'videoSenderFailed', id: 16778240 }));
-  const iAbo = stelle(ev, art('video', { id: 16778240, state: 'subscribed' }));
-  assert(iFehler >= 0 && ev[iFehler]?.name === 'VIDEO_SENDER_FAILED',
-    'FAKE_ABO_FEHLER: das erste Abo → error where:video code:videoSenderFailed mit id und dem Namen VIDEO_SENDER_FAILED');
-  assert(iFehler >= 0 && !ev.slice(0, iAbo < 0 ? ev.length : iAbo).some((e) => (e.ev === 'video' || e.ev === 'audio') && (e as { id?: number }).id === 16778240),
-    '... dabei kein Abo: weder video- noch audio-Ereignis für diese Kennung');
-  assert(iAbo > iFehler && anzahl(ev, art('video', { id: 16778240, state: 'subscribed' })) === 1
-      && !ev.some(art('error', { code: 'videoAlreadySubscribed' })),
-    '... das zweite Abo geht (subscribed, kein videoAlreadySubscribed)');
+  const iFehler = stelle(ev, art('error', { where: 'slot', code: 'slotSubscribeFailed', slot: 1, sdk: 9, type: 'video' }));
+  assert(iFehler >= 0 && ev[iFehler]?.name === 'SLOT_SUBSCRIBE_FAILED',
+    'FAKE_ABO_FEHLER=1:9: error where:slot code:slotSubscribeFailed mit sdk 9, type video und dem Namen SLOT_SUBSCRIBE_FAILED');
+  assert(iFehler < stelle(ev, art('slot', { slot: 1 })) && slotFolge(ev, 1).join(' ')
+      === 'fallback/subscribeFailed@16778240 off/command@16778240 starting/command@16778240 live/frames@16778240 off/command@16778240',
+    '... danach slot fallback/subscribeFailed; Stopp und Start versuchen es neu und gehen durch');
+  assert(ev.some(art('error', { where: 'slot', code: 'slotAlreadyOn', slot: 1 })), '... dazwischen läuft der Slot weiter (slotAlreadyOn)');
 }
 {
   const zeilen: string[] = [];
@@ -2917,6 +2877,364 @@ console.log('\nA1 index — Exporte des Slot-Vertrags (PT4):');
   const empfang: PaketRecvStat = { w: 1280, h: 720, fps: 30 };
   assert(typen.length === 13 && lokal.length === 2 && eintrag.pauses === 1 && rueckruf.cb === 'shareContent' && empfang.fps === 30,
     'A1 PT4: src/index.ts exportiert die Slot-Typen samt SlotSub und SlotAudioSub (prüft tsc)');
+}
+
+// ── A2 · Attrappe: Slot-Befehle, Ereignisse, Stellschrauben, Drehbuch „Slots“, Altweg (Spec 11.3, 11.2 PT5, PT7) ──
+import { spawn } from 'node:child_process';
+
+console.log('\nA2 Attrappe — Slot-Befehle werden beantwortet, der alte Weg nur mit FAKE_ALTWEG (PT5):');
+{
+  const ev = await fahreSteuerung({}, async (b, ev) => {
+    b.send({ cmd: 'speakerConfig', signal: 'activeVideo', holdMs: 0 });
+    b.send({ cmd: 'previewMode', on: false });
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('slotAudio', { slot: 1, state: 'live' }));
+    b.send({ cmd: 'slotSet', slot: 1, fallback: 'black' });
+    b.send({ cmd: 'slotOff', slot: 1 });
+    b.send({ cmd: 'videoSubscribe', id: ANNA, resolution: '720p' });
+    await bisEreignis(ev, art('error', { where: 'cmd' }));
+  });
+  assert(ev.some(art('speakerConfig', { signal: 'activeVideo', holdMs: 0 })) && ev.some(art('previewMode', { on: false })),
+    'A2 PT5: speakerConfig und previewMode werden auch vor dem Beitritt bestätigt');
+  assert(slotFolge(ev, 1).join(' ') === 'starting/command@16778240 live/frames@16778240 live/command@16778240 off/command@16778240',
+    'A2 PT5: slotOn → starting, live; slotSet → Bestätigung mit Grund command; slotOff → off/command');
+  assert(tonFolge(ev, 1).join(' ') === 'waiting/command:none live/packets:person off/command:none',
+    'A2 PT5: Person-Ton waiting/command, dann live/packets; beim slotOff slotAudio off');
+  assert(stelle(ev, art('slotAudio', { slot: 1, state: 'off' })) === stelle(ev, art('slot', { slot: 1, state: 'off' })) - 1,
+    'A2 6.15: Ton vor Bild (slotAudio off direkt vor slot off)');
+  assert(ev.some(art('error', { where: 'cmd', code: 1 })) && !ev.some(art('video')),
+    'A2 PT5: videoSubscribe ohne FAKE_ALTWEG → error where:cmd code:1, kein video-Ereignis');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_ALTWEG: '1' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send({ cmd: 'videoSubscribe', id: ANNA, resolution: '720p' });
+    await bisEreignis(ev, art('video', { id: ANNA, state: 'subscribed' }));
+  });
+  assert(ev.some(art('video', { id: ANNA, state: 'subscribed', source: 'JM Connect – Zoom Anna' })) && !ev.some(art('error', { where: 'cmd' })),
+    'A2 A-EP1: mit FAKE_ALTWEG=1 beantwortet die Attrappe videoSubscribe wie bisher (video subscribed)');
+}
+
+console.log('\nA2 Attrappe — dieselben Kataloge wie src/protocol.ts (Review Focus 6):');
+{
+  const quelle = readFileSync(fake, 'utf8');
+  const katalog = (name: string): string => {
+    const m = new RegExp(`^const ${name} = \\[([^\\]]*)\\];`, 'm').exec(quelle);
+    return m ? [...m[1].matchAll(/'([^']*)'/g)].map((x) => x[1]).join(',') : '';
+  };
+  const paare: [string, readonly string[]][] = [
+    ['SLOT_MODES', SLOT_MODES], ['SLOT_RESOLUTIONS', SLOT_RESOLUTIONS], ['SLOT_AUDIO_SETTINGS', SLOT_AUDIO_SETTINGS],
+    ['SLOT_FALLBACKS', SLOT_FALLBACKS], ['SPEAKER_SIGNALS', SPEAKER_SIGNALS], ['SHARE_TYPE_NAMES', SHARE_TYPE_NAMES],
+  ];
+  for (const [name, werte] of paare) assert(katalog(name) === werte.join(','), `A2: ${name} der Attrappe gleicht src/protocol.ts`);
+  assert(new RegExp(`^const SLOT_NR_MAX = ${SLOT_NR_MAX};`, 'm').test(quelle) && new RegExp(`^const SPEAKER_HOLD_MAX_MS = ${SPEAKER_HOLD_MAX_MS};`, 'm').test(quelle),
+    'A2: SLOT_NR_MAX und SPEAKER_HOLD_MAX_MS der Attrappe gleichen src/protocol.ts');
+  assert(['|    0 | roster ', '|   50 | Erlaubnis ', '|  800 | speakerSignal speakerVideo Ben ', '| 1100 | speakerSignal speakerVideo Carla ', '| 1400 | speakerSignal speakerVideo Ben (schneller Wechsel) ', '| 2000 | Anna Kamera aus ', '| 2600 | Anna Kamera an ', '| 3000 | Freigabe Ben beginnt (Freigabe 101, Typ ds) ', '| 3200 | Freigabe Carla beginnt (Freigabe 102, Typ as) ', '| 3800 | Freigabe Carla endet ', '| 4400 | Anna geht (left) ', '| 4900 | Anna kommt als 16778250 zurück (joined)', '| 5600 | Entzug der Erlaubnis ', '| 6200 | Wiedererteilung ', '| 6500 | später Abbau aller Slots (privilegeRevoked) '].every((z) => quelle.includes(z)), 'A2 A-EP22: die Kopfdoku trägt die Tabelle des Drehbuchs „Slots“ (PK36 liest sie dort)');
+}
+
+/** Startet die Attrappe ohne Bridge und schickt ROHE Zeilen (die Falltabelle braucht "id":4.5 und \u wörtlich). */
+async function fahreRoh(zeilen: string[]): Promise<{ antworten: Record<string, unknown>[][]; stderr: string[] }> {
+  const kind = spawn(process.execPath, [fake], { env: { ...process.env, FAKE_SCRIPT: 'steuerung' }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const aus: Record<string, unknown>[] = [];
+  const fehler: string[] = [];
+  const o = new LineSplitter();
+  const e = new LineSplitter();
+  kind.stdout.setEncoding('utf8').on('data', (d: string) => {
+    for (const l of o.push(d)) {
+      const x = JSON.parse(l) as Record<string, unknown>;
+      if (x.ev !== 'bridgeStats' && x.ev !== 'slotStats') aus.push(x);
+    }
+  });
+  kind.stderr.setEncoding('utf8').on('data', (d: string) => fehler.push(...e.push(d)));
+  const schicke = async (z: string): Promise<Record<string, unknown>[]> => {
+    const vor = aus.length;
+    kind.stdin.write(`${z}\n`);
+    const ende = Date.now() + 2000;
+    while (aus.length === vor && Date.now() < ende) await warte(10);
+    await warte(30);
+    return aus.slice(vor);
+  };
+  await schicke('{"cmd":"init"}');
+  await schicke('{"cmd":"auth","jwt":"attrappe"}');
+  const antworten: Record<string, unknown>[][] = [];
+  for (const z of zeilen) antworten.push(await schicke(z));
+  const ende = new Promise((r) => kind.on('exit', r));
+  kind.stdin.end();
+  await ende;
+  return { antworten, stderr: fehler };
+}
+
+console.log('\nA2 Attrappe — Prüffolge aus test/slot-pruefung-faelle.json (Gliederung 3.2, A-EP12):');
+{
+  type Fall = { name: string; zeile: string; ev: string; where: string | null; code: string | number | null; mitSlot: boolean; stderr: boolean };
+  const faelle = JSON.parse(readFileSync(join(testDir, 'slot-pruefung-faelle.json'), 'utf8')) as Fall[];
+  const { antworten, stderr } = await fahreRoh(faelle.map((f) => f.zeile));
+  // stderr je Befehl: Die Attrappe schreibt „ATTRAPPE empfing: <zeile>“ vor jeder Antwort (init und auth zuerst).
+  const empfang = stderr.flatMap((z, i) => (z.startsWith('ATTRAPPE empfing: ') ? [i] : []));
+  const abschnitt = (n: number): string[] => stderr.slice(empfang[n + 2], empfang[n + 3] ?? stderr.length);
+  assert(faelle.length === 56 && empfang.length === faelle.length + 2, 'A2 A-EP12: die Falltabelle hat 56 Fälle, jeder kam an');
+  faelle.forEach((f, n) => {
+    const a = antworten[n] ?? [];
+    const erste = a[0] ?? {};
+    const passt = f.ev === 'error'
+      ? erste.ev === 'error' && erste.where === f.where && erste.code === f.code && ('slot' in erste) === f.mitSlot
+      : erste.ev === f.ev;
+    const gelesen = abschnitt(n).some((z) => z.startsWith('Befehl gelesen: slotOn '));
+    assert(passt && a.length === 1 && gelesen === f.stderr, `A2 Prüffolge: ${f.name}`);
+  });
+}
+
+console.log('\nA2 Attrappe — Prüffolge mit laufendem Slot: Name belegt, Slot läuft schon, ungültiges slotSet (Gliederung 3.2 Nr. 3, 7; Spec 6.2):');
+{
+  let nachFehlern = -1;
+  const ev = await fahreSteuerung({}, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'live' }));
+    b.send(slotAn(2, 'JM Connect – Zoom Anna', { mode: 'galerie' }));
+    b.send(slotAn(2, 'JM Connect – Zoom Anna'));
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    b.send(slotAn(1, 'JM Connect – Zoom Ben', { id: BEN, mode: 'galerie' }));
+    b.send(slotAn(1, 'JM Connect – Zoom Ben', { id: BEN }));
+    // Ein gültiges (mode), ein ungültiges (fallback) und ein drittes gültiges Feld (showNoVideo): nichts davon gilt.
+    const ungueltig: Record<string, unknown> = { mode: 'speaker', fallback: 'grau', showNoVideo: false };
+    b.send({ cmd: 'slotSet', slot: 1, ...ungueltig } as Command);
+    await bisEreignis(ev, () => anzahl(ev, art('error', { where: 'slot' })) >= 6);
+    nachFehlern = ev.length;
+    b.send({ cmd: 'slotSet', slot: 1, fallback: 'black' });
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'live', reason: 'command' }));
+  });
+  const fehler = ev.filter(art('error', { where: 'slot' })).map((e) => `${(e as { slot?: number }).slot}:${(e as { code?: string }).code}`);
+  assert(fehler.join(' ') === '2:slotNameTaken 2:slotNameTaken 1:slotAlreadyOn 1:slotBadMode 1:slotAlreadyOn 1:slotBadFallback',
+    'A2 3.2: slotNameTaken kommt direkt nach dem Namen, vor einem Feldfehler (Spec 6.2); ein Feldfehler kommt vor slotAlreadyOn; derselbe Slot meldet slotAlreadyOn, auch mit seinem eigenen Namen');
+  assert(!ev.some(art('slot', { slot: 2 })) && anzahl(ev, art('slot', { slot: 1, state: 'starting' })) === 1,
+    'A2 3.2: bei einem Fehler wird nichts angelegt und nichts geändert');
+  const bestaetigung = ev.slice(nachFehlern).find(art('slot', { slot: 1 })) as { mode?: string; target?: number } | undefined;
+  assert(nachFehlern > 0 && bestaetigung?.mode === 'participant' && bestaetigung.target === ANNA
+      && slotFolge(ev, 1).join(' ') === `starting/command@${ANNA} live/frames@${ANNA} live/command@${ANNA} off/command@${ANNA}`,
+    'A2 6.2: slotSet mit einem ungültigen von drei Feldern ändert nichts, auch nicht das gültige mode (das nächste slot-Ereignis zeigt participant mit Ziel Anna)');
+}
+
+console.log('\nA2 Attrappe — slotSet hängt nur bei einer anderen Auflösung um (6.2, wie die EXE, NB-a1-4):');
+{
+  const ev = await fahreSteuerung({}, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'live' }));
+    b.send({ cmd: 'slotSet', slot: 1, resolution: '720p' });
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'live', reason: 'command' }));
+    b.send({ cmd: 'slotSet', slot: 1, resolution: '1080p' });
+    await bisEreignis(ev, () => anzahl(ev, art('slot', { slot: 1, state: 'live', reason: 'frames' })) === 2);
+  });
+  assert(slotFolge(ev, 1).join(' ') === `starting/command@${ANNA} live/frames@${ANNA} live/command@${ANNA} starting/resolutionChanged@${ANNA} live/frames@${ANNA} off/command@${ANNA}`,
+    'A2 6.2: slotSet mit derselben Auflösung bestätigt nur (command), erst eine andere Auflösung hängt um (resolutionChanged)');
+}
+
+console.log('\nA2 Attrappe — slotOn während reconnecting: slotReconnecting, nichts angelegt (3.5, 6.2 Nr. 8):');
+{
+  const zeilen: string[] = [];
+  const ev = await fahreSteuerung({ FAKE_VERBINDUNG_HAENGT_MS: '1000', FAKE_VERBINDUNG_ZURUECK_MS: '1000' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    await bisEreignis(ev, art('status', { status: 'reconnecting' }));
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('error', { code: 'slotReconnecting' }));
+    await bisEreignis(ev, () => anzahl(ev, art('status', { status: 'inMeeting' })) === 2);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('slot', { slot: 1 }));
+  }, zeilen);
+  const iWieder = stelle(ev, art('status', { status: 'reconnecting' }));
+  const iZurueck = stelleNach(ev, iWieder, art('status', { status: 'inMeeting' }));
+  assert(stelle(ev, art('error', { where: 'slot', code: 'slotReconnecting', slot: 1 })) > iWieder
+      && ev.find(art('error', { code: 'slotReconnecting' }))?.name === 'SLOT_RECONNECTING',
+    'A2 6.2 Nr. 8: slotOn während reconnecting → error slotReconnecting mit slot');
+  assert(zeilen.filter((z) => z === 'Befehl gelesen: slotOn 1, Modus participant, Ton person').length === 2,
+    'A2 A-EP3: die stderr-Zeile „Befehl gelesen: slotOn …“ steht vor der Sperre (beide Male)');
+  assert(iZurueck > 0 && !ev.slice(0, iZurueck).some(art('slot', { slot: 1 })), 'A2 6.2: ... und nichts angelegt');
+  assert(stelleNach(ev, iZurueck, art('slot', { slot: 1, state: 'starting' })) > iZurueck, 'A2 6.2: nach inMeeting startet derselbe Befehl den Slot');
+}
+
+console.log('\nA2 Attrappe — Kamera aus und kein Bild (FAKE_KAMERA_AUS_MS, FAKE_KEIN_BILD_MS, PT7):');
+{
+  const ev = await fahreSteuerung({ FAKE_KAMERA_AUS_MS: `${ANNA}:1000` }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA, fallback: 'freeze' }));
+    await bisEreignis(ev, art('videoStatus', { id: ANNA }));
+    b.send(slotAn(2, 'JM Connect – Zoom Anna 2', { id: ANNA, fallback: 'freeze' }));
+    await bisEreignis(ev, art('slot', { slot: 2 }));
+    await warte(300);
+  });
+  assert(ev.some(art('videoStatus', { id: ANNA, videoOn: false, mutedByHost: false })), 'A2 PT7: FAKE_KAMERA_AUS_MS meldet videoStatus mit videoOn:false');
+  assert(slotFolge(ev, 1).join(' ') === 'starting/command@16778240 live/frames@16778240 fallback/cameraOff@16778240 off/command@16778240',
+    'A2 PT7: ... der laufende Slot wechselt auf fallback/cameraOff');
+  assert((ev.find(art('slot', { slot: 1, reason: 'cameraOff' })) as { sent?: string } | undefined)?.sent === 'freeze',
+    'A2 6.12: mit einer Kopie dieses Ziels sendet „eingefroren“ das letzte Bild (sent freeze)');
+  assert(slotFolge(ev, 2).join(' ') === 'fallback/cameraOff@16778240 off/command@16778240' && (ev.find(art('slot', { slot: 2 })) as { sent?: string } | undefined)?.sent === 'transparent',
+    'A2 6.10 Schritt 7: ein neuer Slot auf diese Person meldet sofort fallback/cameraOff; ohne Kopie sendet „eingefroren“ transparent');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_KEIN_BILD_MS: `${ANNA}:1000` }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'fallback' }));
+    b.send(slotAn(2, 'JM Connect – Zoom Anna 2', { id: ANNA }));
+    await warte(400);
+  });
+  assert(slotFolge(ev, 1).join(' ') === 'starting/command@16778240 live/frames@16778240 fallback/noFrames@16778240 off/command@16778240',
+    'A2 PT7: FAKE_KEIN_BILD_MS: der laufende Slot wechselt auf fallback/noFrames');
+  assert(!ev.some(art('videoStatus')), 'A2 PT7: ... ohne videoStatus (Zoom meldet die Kamera als an)');
+  assert(slotFolge(ev, 2).join(' ') === 'starting/command@16778240 off/command@16778240', 'A2 6.12: ein neuer Slot ohne Bilder bleibt starting');
+}
+
+console.log('\nA2 Attrappe — Sprecher-Signale (FAKE_SPRECHER_FOLGE, FAKE_SPRECHER_SIGNAL, PT7):');
+{
+  const ev = await fahreSteuerung({ FAKE_SPRECHER_FOLGE: `1000:${BEN},2000:${ANNA}`, FAKE_SPRECHER_SIGNAL: 'activeAudio' }, async (b, ev) => {
+    b.send({ cmd: 'speakerConfig', signal: 'activeAudio', holdMs: 100 });
+    await imMeeting(b, ev);
+    b.send(slotAn(2, 'JM Connect – Zoom Sprecher', { mode: 'speaker', audio: 'mix', shareAudio: true }));
+    await bisEreignis(ev, art('slot', { slot: 2, target: ANNA, state: 'live' }), 5000);
+  });
+  assert(ev.filter(art('speakerSignal', { signal: 'activeAudio' })).map((e) => (e as { ids?: number[] }).ids?.join()).join(' ') === `${BEN} ${ANNA}`,
+    'A2 PT7: FAKE_SPRECHER_FOLGE meldet je Eintrag ein speakerSignal, mit dem Signal aus FAKE_SPRECHER_SIGNAL');
+  assert(slotFolge(ev, 2).join(' ') === `fallback/speakerNone@0 starting/speakerChanged@${BEN} live/frames@${BEN} starting/speakerChanged@${ANNA} live/frames@${ANNA} off/command@${ANNA}`,
+    'A2 6.8: ohne Ziel springt der Sprecher-Slot sofort, danach nach der Haltezeit');
+  assert(tonFolge(ev, 2).join(' ') === 'waiting/command:none live/packets:mix off/command:none',
+    'A2 6.13: Mischton im Sprecher-Slot hängt an keinem Ziel (kein Ton-Ereignis beim Sprecherwechsel)');
+}
+
+console.log('\nA2 Attrappe — Freigaben (FAKE_FREIGABEN, FAKE_FREIGABE_BEFUELLT, PT7):');
+{
+  const ev = await fahreSteuerung({
+    FAKE_FREIGABEN: `1000:${BEN}:101:begin,1000:${BEN}:101:typ=ds,1100:${CARLA}:102:ton,1600:${BEN}:101:pause,2600:${BEN}:101:resume,3100:${BEN}:101:end`,
+    FAKE_FREIGABE_BEFUELLT: 'unavailable',
+  }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(3, 'JM Connect – Zoom Freigabe', { mode: 'share', audio: 'off', shareAudio: true }));
+    await bisEreignis(ev, () => anzahl(ev, art('slot', { slot: 3, reason: 'shareNone' })) === 2, 6000);
+  });
+  type Anteil = { list: { user: number; share: number; status: string; type: string; audioOnly: boolean; pauses: number }[]; shown: number;
+    seeded?: string; recent: { cb: string; status: string }[] };
+  const anteile = ev.filter(art('shares')) as unknown as Anteil[];
+  assert(anteile[0]?.seeded === 'unavailable' && anteile[0].list.length === 0, 'A2 PT7: FAKE_FREIGABE_BEFUELLT: das Befüllen beim ersten Freigabe-Slot meldet seeded');
+  assert(anteile.some((a) => a.shown === 101 && a.list.some((x) => x.user === BEN && x.share === 101 && x.type === 'ds' && !x.audioOnly)),
+    'A2 PT7: FAKE_FREIGABEN begin und typ=ds: Eintrag mit Typ ds, gezeigt');
+  assert(anteile.some((a) => a.shown === 101 && a.list.some((x) => x.share === 102 && x.audioOnly)), 'A2 6.9: eine reine Ton-Freigabe wird nie gezeigt');
+  assert(anteile.some((a) => a.list.some((x) => x.share === 101 && x.status === 'paused' && x.pauses === 1)), 'A2 6.9: Pause zählt pauses');
+  const letzte = anteile.at(-1);
+  assert(letzte?.shown === 0 && letzte.list.length === 1 && letzte.recent.map((r) => `${r.cb}:${r.status}`).join(' ')
+      === 'sharingStatus:otherShareBegin shareContent:otherShareBegin sharingStatus:otherSharePureAudioBegin sharingStatus:pause sharingStatus:resume sharingStatus:otherShareEnd',
+    'A2 6.3: shares.recent führt die Rückrufe roh; nach dem Ende ist nichts gezeigt');
+  assert(slotFolge(ev, 3).join(' ') === `fallback/shareNone@0 starting/shareChanged@${BEN}#101 live/frames@${BEN}#101 live/frames@${BEN}#101 live/frames@${BEN}#101 fallback/shareNone@0 off/command@0`,
+    'A2 6.9: der Freigabe-Slot hängt auf die gezeigte Freigabe um und fällt mit ihrem Ende zurück');
+  assert(ev.filter(art('slot', { slot: 3, state: 'live' })).map((e) => (e as { sent?: string }).sent).join(' ') === 'none held none',
+    'A2 6.9: in der Pause sendet er nach 200 ms die Kopie (sent held), mit dem nächsten Bild wieder none');
+  assert(tonFolge(ev, 3).join(' ') === 'waiting/command:none off/noShare:none waiting/targetChanged:none live/packets:share off/noShare:none off/command:none',
+    'A2 6.13: direkter Computerton: ohne Freigabe off/noShare, mit Freigabe waiting/targetChanged und live/packets');
+}
+
+console.log('\nA2 Attrappe — Messwerte, Vorschau, gelieferte Auflösung (FAKE_AUFLOESUNG_GELIEFERT, 6.3, 6.16, PT7):');
+{
+  let vorAn = -1;
+  let beimAus = -1;
+  const ev = await fahreSteuerung({ FAKE_AUFLOESUNG_GELIEFERT: '1280x720' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA, resolution: '1080p' }));
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'live' }));
+    await warte(600);
+    vorAn = anzahl(ev, art('preview'));
+    b.send({ cmd: 'previewMode', on: true });
+    await bisEreignis(ev, () => ev.some(art('preview', { slot: 1 })) && ev.some(art('slotStats', { slot: 1 })), 3000);
+    b.send({ cmd: 'previewMode', on: false });
+    await bisEreignis(ev, art('previewMode', { on: false }));
+    beimAus = anzahl(ev, art('preview'));
+    await warte(700);
+  });
+  const stats = ev.find(art('slotStats', { slot: 1 })) as Record<string, unknown> | undefined;
+  assert(stats?.w === 1280 && stats.h === 720 && stats.fps === 30 && stats.resWanted === '1080p' && stats.resGot === 4 && stats.rawType === 0
+      && !('lastW' in stats),
+    'A2 PT7: FAKE_AUFLOESUNG_GELIEFERT=1280x720: slotStats meldet 1280×720 bei gewünschtem 1080p (resGot = ZoomSDKResolution_1080P)');
+  assert(['fallbackFps', 'heldFrames', 'workUs', 'copyUs', 'previewUs', 'memKb', 'foreignFrames', 'lateFrames', 'tooFrequent', 'noShareData',
+    'rendererNew', 'rendererLost'].every((k) => typeof stats?.[k] === 'number'), 'A2 6.3: slotStats trägt jedes Pflichtfeld als Zahl');
+  const brueckeStats = ev.find(art('bridgeStats')) as Record<string, unknown> | undefined;
+  assert(['cpuPct', 'sysPct', 'memMb', 'audioQueueMax', 'audioDropped', 'merkerVerworfen', 'halteliste', 'shareAudioPackets', 'shareAudioUnassigned']
+    .every((k) => typeof brueckeStats?.[k] === 'number') && typeof brueckeStats?.previewOn === 'boolean', 'A2 6.3: bridgeStats alle 2 s nach init, mit jedem Pflichtfeld');
+  const vorschau = ev.find(art('preview', { slot: 1 })) as { target?: number; w?: number; h?: number; jpeg?: string } | undefined;
+  const bild = Buffer.from(vorschau?.jpeg ?? '', 'base64');
+  assert(vorAn === 0 && vorschau?.target === ANNA && vorschau.w === 1 && vorschau.h === 1
+      && bild.subarray(0, 3).toString('hex') === 'ffd8ff' && bild.subarray(-2).toString('hex') === 'ffd9',
+    'A2 6.16: preview erst nach previewMode on, mit Ziel und einem gültigen JPEG (FF D8 … FF D9)');
+  assert(beimAus >= 1 && anzahl(ev, art('preview')) === beimAus && ev.some(art('previewMode', { on: true })),
+    'A2 6.16: nach previewMode off kommt keine Vorschau mehr');
+}
+
+console.log('\nA2 Attrappe — Aufbaufehler und stumme Slots (FAKE_SLOT_FEHLER, FAKE_SLOT_STUMM, PT7):');
+{
+  const zeilen: string[] = [];
+  const ev = await fahreSteuerung({ FAKE_SLOT_FEHLER: '2:slotRendererFailed' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    b.send(slotAn(2, 'JM Connect – Zoom Ben', { id: BEN }));
+    await bisEreignis(ev, art('error', { code: 'slotRendererFailed' }));
+    b.send(slotAn(2, 'JM Connect – Zoom Ben', { id: BEN }));
+    await bisEreignis(ev, art('slot', { slot: 2 }));
+  }, zeilen);
+  const iFehler = stelle(ev, art('error', { where: 'slot', code: 'slotRendererFailed', slot: 2 }));
+  assert(iFehler >= 0 && ev[iFehler]?.name === 'SLOT_RENDERER_FAILED' && stelle(ev, art('slot', { slot: 2 })) > iFehler,
+    'A2 PT7: FAKE_SLOT_FEHLER=2:slotRendererFailed: das erste slotOn 2 scheitert ohne Slot, das zweite geht durch');
+  assert(zeilen.filter((z) => z === 'Befehl gelesen: slotOn 2, Modus participant, Ton person').length === 2
+      && ev.some(art('slot', { slot: 1, state: 'starting' })),
+    'A2 6.2 Nr. 11: ... nach der stderr-Zeile; die anderen Slots laufen');
+}
+{
+  const ev = await fahreSteuerung({ FAKE_SLOT_STUMM: '3' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(3, 'JM Connect – Zoom Anna', { id: ANNA }));
+    b.send(slotAn(1, 'JM Connect – Zoom Ben', { id: BEN }));
+    await bisEreignis(ev, art('slot', { slot: 1 }));
+    await warte(300);
+  });
+  assert(!ev.some((e) => (e as { slot?: number }).slot === 3) && ev.some(art('slot', { slot: 1, state: 'starting' })),
+    'A2 PT7: FAKE_SLOT_STUMM=3: auf slotOn 3 kommt kein Ereignis, die anderen Slots antworten');
+}
+
+console.log('\nA2 Attrappe — Drehbuch „Slots“ von Anfang bis Ende (11.3, A-EP22, PT7):');
+{
+  let zwischenMs = -1;
+  const ev = await fahreSteuerung({ FAKE_SCRIPT: 'slots' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA, resolution: '360p', fallback: 'black' }));
+    b.send(slotAn(2, 'JM Connect – Zoom Sprecher', { mode: 'speaker', audio: 'mix', shareAudio: true }));
+    b.send(slotAn(3, 'JM Connect – Zoom Freigabe', { mode: 'share', audio: 'mix', shareAudio: true }));
+    await bisEreignis(ev, () => anzahl(ev, art('slot', { slot: 3, share: 101, state: 'live' })) === 2, 6000);
+    b.send({ cmd: 'slotSet', slot: 2, mode: 'share' });
+    await bisEreignis(ev, art('left', { id: ANNA }), 3000);
+    const weg = Date.now();
+    await bisEreignis(ev, art('joined'), 3000);
+    zwischenMs = Date.now() - weg;
+    await warte(100);
+    b.send({ cmd: 'slotSet', slot: 1, id: ANNA_NEU });
+    await bisEreignis(ev, () => anzahl(ev, art('slot', { state: 'off', reason: 'privilegeRevoked' })) === 3, 4000);
+  });
+  assert(ev.filter(art('speakerSignal', { signal: 'speakerVideo' })).map((e) => (e as { ids?: number[] }).ids?.join()).join(' ') === `${BEN} ${CARLA} ${BEN}`,
+    'A2 Drehbuch: drei Sprecher-Signale Ben, Carla, Ben');
+  const folge2 = slotFolge(ev, 2).join(' ');
+  assert(folge2.startsWith(`fallback/speakerNone@0 starting/speakerChanged@${BEN} live/frames@${BEN} starting/modeChanged@${BEN}#101`)
+      && !folge2.includes(`@${CARLA}`),
+    'A2 Drehbuch: der Sprecher-Slot springt sofort auf Ben, der schnelle Wechsel zu Carla verfällt, dann Moduswechsel auf die Freigabe');
+  assert(tonFolge(ev, 2).join(' ') === 'waiting/command:none live/packets:mix waiting/modeChanged:none live/packets:mixShare off/privilegeRevoked:none',
+    'A2 Drehbuch: Moduswechsel Sprecher → Freigabe schaltet den Mischer ein (configured mixShare, 6.10 Schritt 8)');
+  assert(slotFolge(ev, 1).join(' ') === `starting/command@${ANNA} live/frames@${ANNA} fallback/cameraOff@${ANNA} live/frames@${ANNA} fallback/participantLeft@0 starting/targetChanged@${ANNA_NEU} live/frames@${ANNA_NEU} off/privilegeRevoked@${ANNA_NEU}`,
+    'A2 Drehbuch: Teilnehmer-Slot Anna: Kamera aus und an, Weggang ohne Umhängen, Rückkehr per slotSet, Abbau nach dem Entzug');
+  assert(ev.filter(art('videoStatus', { id: ANNA })).map((e) => (e as { videoOn?: boolean }).videoOn).join(' ') === 'false true',
+    'A2 Drehbuch: videoStatus Kamera aus, dann an');
+  assert(zwischenMs >= 450, 'A2 Drehbuch: Anna kommt nach 500 ms zurück (mindestens 450 ms, über der 300-ms-Entprellung)');
+  assert(slotFolge(ev, 3).join(' ') === `fallback/shareNone@0 starting/shareChanged@${BEN}#101 live/frames@${BEN}#101 starting/shareChanged@${CARLA}#102 live/frames@${CARLA}#102 starting/shareChanged@${BEN}#101 live/frames@${BEN}#101 off/privilegeRevoked@${BEN}#101`,
+    'A2 Drehbuch: Freigabe-Slot zeigt Ben, dann die neuere Freigabe von Carla, nach deren Ende wieder Ben');
+  const iFalsch = stelle(ev, art('privilege', { canRecordRaw: false, source: 'broadcast' }));
+  const iWahr = stelle(ev, art('privilege', { canRecordRaw: true, source: 'broadcast' }));
+  assert(iFalsch >= 0 && iWahr > iFalsch && stelle(ev, art('slot', { state: 'off' })) > iWahr,
+    'A2 Drehbuch: Entzug, Wiedererteilung, dann der späte Abbau aller drei Slots');
+  assert(ev.some(art('slotStats', { slot: 1, w: 640, h: 360, resWanted: '360p' })), 'A2 Drehbuch: ohne FAKE_AUFLOESUNG_GELIEFERT meldet slotStats die Nenngröße (360p: 640×360)');
 }
 
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);

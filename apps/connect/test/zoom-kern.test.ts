@@ -174,6 +174,8 @@ function baueKern(o: BaueOptionen = {}): Probe {
         ...opts.env,
         FAKE_SCRIPT: o.skript ?? 'steuerung',
         FAKE_SDK_FASSUNG: '7.1.5 (43953)',
+        // Altweg der Attrappe (Plan A, A-EP1): der Kern 0.3.0 spricht noch videoSubscribe. Plan B, Task B23 entfernt die Zeile.
+        FAKE_ALTWEG: '1',
         FAKE_LOGDATEI: join(tmp, `befehle-${nr}.log`),
         ...(o.stell?.(nr) ?? {}),
       },
