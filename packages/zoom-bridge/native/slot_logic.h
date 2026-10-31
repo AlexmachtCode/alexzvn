@@ -809,6 +809,15 @@ struct UmhaengLage {
   bool abschlussGelaufen = false;
 };
 
+/**
+ * Das gewuenschte Ziel eines Abos (Nachtrag N2a Fixrunde 1, F1): steht eine Wiederholung nach 18/29 an, deren Ziel -
+ * nach 18 ist das Abo-Ziel noch das alte (ZielStandNeu lief nicht); sonst das Abo-Ziel. Damit vergleichen Befehle,
+ * Weggang und Sprecher-Wahl; der GEZEIGTE Ziel-Stand (Herzschlag, Kopie, Ton-Zuordnung, Messwerte) bleibt am Abo-Ziel.
+ */
+inline unsigned gewuenschtesZiel(bool wiederholungSteht, unsigned wiederholZiel, unsigned aboZiel) {
+  return wiederholungSteht ? wiederholZiel : aboZiel;
+}
+
 /** Eine slotAudio-Meldung (Zustand, Grund, configured). */
 struct TonMeldung {
   TonZustand zustand = TonZustand::Off;

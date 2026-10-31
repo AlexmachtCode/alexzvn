@@ -1263,6 +1263,16 @@ void n2a2_18_18_dann_29() {
   CHECK(versuch == 4);   // 18 und 29 zaehlen weiter gemeinsam (Grenze 3 nur fuer 18)
 }
 
+void f1_gewuenschtes_ziel() {
+  std::printf("N2a F1: gewuenschtes Ziel - waehrend einer Wiederholung deren Ziel, sonst das Abo-Ziel\n");
+  // Slot auf A, slotSet {id:B} bekommt 18: abo.target bleibt A, die Wiederholung gilt B. Befehle, Weggang und
+  // Sprecher-Wahl vergleichen mit B.
+  CHECK(gewuenschtesZiel(true, B, A) == B);
+  CHECK(gewuenschtesZiel(false, B, A) == A);   // keine Wiederholung (mehr): das Abo-Ziel
+  CHECK(gewuenschtesZiel(true, B, 0) == B);    // slotOn mit 18: abo.target ist noch 0
+  CHECK(gewuenschtesZiel(true, F1, F1) == F1); // 29 nach Abschluss: beide gleich
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -1317,6 +1327,7 @@ int main() {
   n1_29_dann_erfolg();
   n1_plan_braucht_renderer();
   n2a2_18_18_dann_29();
+  f1_gewuenschtes_ziel();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

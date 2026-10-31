@@ -4091,9 +4091,15 @@ console.log('\nNativer Teil — Nachtrag N2a (Riegel unter Sperre, Wiederholung,
   assert(iGen >= 0 && iZiel > iGen && iRiegelOben > iZiel
       && /const\s+bool\s+passt\s*=\s*quelle\s*==\s*aboZiel\s*;/.test(ankunft),
     'N2a.1 6.10: bildAnkunft liest Generation und Ziel VOR dem Riegel (und misst die Lücke gegen dieses Ziel)');
+  // Fixrunde 1, F3: die Schreibzugriffe stehen im else-Zweig GENAU dieser Prüfung (sonst liefe der Rumpf trotz spaet).
+  const iSpaetWahr = ankunft.indexOf('spaet = true;');
+  const nachSpaet = iSpaetWahr < 0 ? '' : ankunft.slice(iSpaetWahr + 'spaet = true;'.length);
+  const sonstZweig = /^\s*\}\s*else\s*\{/.test(nachSpaet) ? rumpf(nachSpaet, 'else') : '';
   assert(sperrKopf !== '' && /imAbbau\.load\(\)/.test(sperrKopf)
       && /riegelVerwirft\(\s*abo\.subscribed\.load\(\)\s*,\s*abo\.umhaengen\.load\(\)\s*\)/.test(sperrKopf)
-      && /abo\.umhaengGeneration\.load\(\)\s*!=\s*aboGen/.test(sperrKopf) && /spaet\s*=\s*true\s*;/.test(sperrKopf),
+      && /abo\.umhaengGeneration\.load\(\)\s*!=\s*aboGen/.test(sperrKopf) && /spaet\s*=\s*true\s*;/.test(sperrKopf)
+      && sonstZweig.includes('bildAnnehmen(') && /gapOffen\s*=\s*false\s*;/.test(sonstZweig)
+      && /kopieGueltig\s*=\s*true\s*;/.test(sonstZweig) && /state\s*=\s*SlotState::Live\s*;/.test(sonstZweig),
     'N2a.1 6.10 (I3 aus Stage 4): bildAnkunft prüft Riegel und Generation ein zweites Mal im Sperr-Block, vor bildAnnehmen');
   assert(iSpaet > iAnnehmen && iVorschau > iSpaet && /vorschauBild\(\s*nr\s*,\s*aboZiel\s*,\s*buf\s*,/.test(ankunft)
       && /abo\.umhaengGeneration\.load\(\)\s*==\s*aboGen/.test(kopieWeg),
@@ -4175,7 +4181,8 @@ console.log('\nNativer Teil — Nachtrag N2a (Riegel unter Sperre, Wiederholung,
   const sprecherZweig = rumpf(setN2a, 'if (sprecherWechsel)');
   const iSprecherZweig = setN2a.indexOf('if (sprecherWechsel)');
   assert(/sprecher\s*=\s*s\.wahl->vorbelegen\(\s*g_erinnerung\s*,/.test(showZweig)
-      && /sprecherWechsel\s*=\s*s\.wahl->ziel\(\)\s*!=\s*abo\.target\.load\(\)\s*;/.test(showZweig) && !/slotRetarget\(/.test(showZweig),
+      // seit Fixrunde 1 (F1) gegen das gewünschte Ziel zielImLauf(abo); F1 unten pinnt diese Form
+      && /sprecherWechsel\s*=\s*s\.wahl->ziel\(\)\s*!=\s*(abo\.target\.load\(\)|zielImLauf\(\s*abo\s*\))\s*;/.test(showZweig) && !/slotRetarget\(/.test(showZweig),
     'N2a.6 6.8: der showNoVideo-Zweig wertet die vorbelegte Wahl aus (Ziel gegen das Abo) und hängt nicht selbst um');
   assert(/slotRetarget\(\s*s\s*,\s*SlotMode::Speaker\s*,\s*s\.wahl->ziel\(\)\s*,\s*sprecher\.grund\s*\)\s*;\s*return\s*;/.test(sprecherZweig)
       && iSprecherZweig > setN2a.indexOf('if (a.modeGesetzt && a.mode != vorher)') && iSprecherZweig < setN2a.indexOf('if (a.resGesetzt && a.res != s.res)'),
@@ -4193,6 +4200,48 @@ console.log('\nNativer Teil — Nachtrag N2a (Riegel unter Sperre, Wiederholung,
       && /const\s+bool\s+modusNeu\s*=\s*m\s*!=\s*s->mode\.load\(\)\s*;/.test(neuZuordnen)
       && /modusNeu\s*\?\s*Grund::modeChanged\s*:\s*Grund::shareChanged/.test(neuZuordnen),
     'N2a.7 6.10 Schritt 0: nach INMEETING ordnet alleNeuZuordnen nach dem vorgemerkten Modus neu zu (Freigabe mit modeChanged)');
+
+  // Fixrunde 1, F1 (Spec 6.10 Tabelle 18, 6.7 Weggang, 6.8): während einer 18-Wartezeit ist abo.target noch das alte
+  // Ziel. Wer das GEWÜNSCHTE Ziel meint (Vergleich mit einem Befehl, Weggang, Sprecher-Wahl, Umhängen auf eine neue
+  // Auflösung), fragt EINEN Helfer zielImLauf (slot_logic.h gewuenschtesZiel); der gezeigte Ziel-Stand bleibt am Abo.
+  const zielImLaufHelfer = rumpf(video, 'unsigned zielImLauf(const Abo& a)');
+  const setUmhaengen = setN2a.slice(Math.max(0, setN2a.indexOf('const SlotMode vorher = s.mode.load();')));
+  const wegF1 = rumpf(video, 'void slotsParticipantLeft(');
+  const sprecherEinst = rumpf(video, 'void slotsSprecherEinstellung(');
+  assert(/return\s+gewuenschtesZiel\(\s*a\.wiederholen\s*,\s*a\.wiederholZiel\s*,\s*a\.target\.load\(\)\s*\)\s*;/.test(zielImLaufHelfer),
+    'F1 6.10: zielImLauf ist während einer anstehenden Wiederholung deren Ziel, sonst das Abo-Ziel');
+  assert(setUmhaengen.length > 0 && /a\.id\s*!=\s*zielImLauf\(\s*abo\s*\)/.test(setUmhaengen)
+      && /slotRetarget\(\s*s\s*,\s*vorher\s*,\s*zielImLauf\(\s*abo\s*\)\s*,\s*Grund::resolutionChanged\s*\)/.test(setUmhaengen)
+      && !/abo\.target\.load\(\)/.test(setUmhaengen)
+      && /sprecherWechsel\s*=\s*s\.wahl->ziel\(\)\s*!=\s*zielImLauf\(\s*abo\s*\)\s*;/.test(showZweig),
+    'F1 6.2/6.8: slotSet vergleicht id und Sprecher-Wahl mit dem gewünschten Ziel und hängt auf eine neue Auflösung des gewünschten Ziels um');
+  assert(/SlotMode::Participant\s*&&\s*zielImLauf\(\s*s->abo\(\)\s*\)\s*==\s*id/.test(wegF1) && !/target\.load\(\)/.test(wegF1)
+      && /s->wahl->ziel\(\)\s*!=\s*zielImLauf\(\s*s->abo\(\)\s*\)/.test(sprecherEinst) && !/target\.load\(\)/.test(sprecherEinst),
+    'F1 6.7/6.8: der Weggang trifft das gewünschte Ziel, speakerConfig vergleicht die neue Wahl mit ihm');
+
+  // Fixrunde 1, F2 (Spec 6.10 Riegel, 6.4 slotBufferMismatch einmal je Ziel): auch ein falsch geformtes Bild prüft
+  // Riegel und Generation unter der Sperre, bevor es bufferMismatch/mismatchGemeldet setzt - ein spätes Bild des alten
+  // Ziels markiert den neuen Ziel-Stand nicht als gemeldet; es zählt lateFrames.
+  const iPuffer = ankunft.indexOf('GetBufferLen() != erwartet');
+  const pufferBlock = iPuffer < 0 ? '' : ankunft.slice(iPuffer, ankunft.indexOf('const int64_t jetzt = jetztMs();', iPuffer));
+  const iPufferSperre = pufferBlock.indexOf('std::lock_guard<std::mutex> lock(fieldMutex);');
+  const iPufferPruef = pufferBlock.search(/if\s*\(\s*imAbbau\.load\(\)\s*\|\|\s*riegelVerwirft\(\s*abo\.subscribed\.load\(\)\s*,\s*abo\.umhaengen\.load\(\)\s*\)\s*\|\|\s*abo\.umhaengGeneration\.load\(\)\s*!=\s*aboGen\s*\)\s*\{\s*verworfen\s*=\s*true\s*;\s*\}\s*else\s*\{\s*bufferMismatch\s*=\s*true\s*;/);
+  const iPufferSpaet = pufferBlock.search(/if\s*\(\s*verworfen\s*\)\s*\{\s*lateFrames\.fetch_add\(1\)\s*;\s*return\s*;\s*\}/);
+  assert(iPufferSperre >= 0 && iPufferPruef > iPufferSperre && iPufferSpaet > iPufferPruef && iPufferSpaet < pufferBlock.indexOf('emitSlotFehler(')
+      && (pufferBlock.match(/bufferMismatch\s*=\s*true/g) ?? []).length === 1,
+    'F2 6.10/6.4: der Pufferfehler-Pfad prüft Riegel und Generation unter der Sperre, sonst lateFrames und nichts gesetzt');
+
+  // Fixrunde 1, F4 (Spec 6.2 slotOn „Ton nach 6.13“, 6.13): bekommt das erste Umhängen von slotOn ein 18, meldet slotOn
+  // den Ton selbst - gegen das GEWÜNSCHTE Ziel (sonst off/noShare, obwohl eine Freigabe gezeigt wird) -, und die
+  // Wiederholung trägt tonMitmelden des Umhängens weiter (sonst ein zweites waiting/targetChanged). slotSet ebenso.
+  assert(/\bbool\s+wiederholTonMitmelden\s*=\s*true\s*;/.test(aboStruktur)
+      && /abo\.wiederholTonMitmelden\s*=\s*lauf\.tonMitmelden\s*;/.test(zweigN2a('WiederholenIn500ms'))
+      && /lauf\.tonMitmelden\s*=\s*abo\.wiederholTonMitmelden\s*;/.test(wdh),
+    'F4 6.13: die Wiederholung meldet den Ton nur, wenn ihr Umhängen ihn melden sollte (slotOn meldet ihn selbst)');
+  assert(/lageFuer\(\s*s\s*,\s*b\.mode\s*,\s*zielImLauf\(\s*abo\s*\)\s*,\s*Grund::command\s*\)/.test(anN2a) && !/target\.load\(\)/.test(anN2a)
+      && /lageFuer\(\s*s\s*,\s*s\.mode\.load\(\)\s*,\s*zielImLauf\(\s*abo\s*\)\s*,\s*Grund::command\s*\)/.test(setN2a)
+      && /lauf\.ziel\s*=\s*zielImLauf\(\s*abo\s*\)\s*;/.test(setN2a) && !/target\.load\(\)/.test(setN2a),
+    'F4 6.13: die Ton-Bestätigung von slotOn und slotSet rechnet mit dem gewünschten Ziel');
 }
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

@@ -94,6 +94,9 @@ struct Abo {
   SlotMode wiederholModus = SlotMode::Participant;
   SlotMode wiederholModusVorher = SlotMode::Participant;
   Grund wiederholGrund = Grund::command;
+  // Ob die Wiederholung den Ton meldet (Fixrunde 1, F4): wie das Umhaengen, das 18 bekam - beim ersten Umhaengen von
+  // slotOn nicht, slotOn meldet den Ton selbst (sonst ein zweites waiting/targetChanged).
+  bool wiederholTonMitmelden = true;
   // Der Abschluss (Schritte 6-8) lief beim ersten 29 schon (nur SHARE, N1.2): Erfolg oder 29 danach ohne zweiten.
   // Gesetzt nur auf diesem Weg (ein VIDEO-Abschluss enthaelt IsVideoOnFragen), geloescht beim naechsten Umhaengen.
   bool abschlussGelaufen = false;
@@ -464,6 +467,7 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         abo.wiederholModus = lauf.lage.modusNachher;
         abo.wiederholModusVorher = abo.abschlussGelaufen ? lauf.lage.modusNachher : lauf.lage.modusVorher;
         abo.wiederholGrund = lauf.lage.aufruf;
+        abo.wiederholTonMitmelden = lauf.tonMitmelden;   // F4
         break;
       case UmhaengSchritt::ZielStandNeu: {
         std::lock_guard<std::mutex> lock(s.fieldMutex);
@@ -674,6 +678,12 @@ bool andererFreigabeSlot(const Slot& ohne) {
   return false;
 }
 
+// Gewuenschtes Ziel (Nachtrag N2a Fixrunde 1, F1): waehrend einer anstehenden Wiederholung (18/29) deren Ziel - nach
+// 18 ist abo.target noch das alte -, sonst abo.target. Fuer alles, was mit einem Befehl, einem Weggang oder der
+// Sprecher-Wahl vergleicht. Der GEZEIGTE Ziel-Stand (Herzschlag, Kopie, Ton-Zuordnung, Messwerte, slot-Ereignis)
+// bleibt an abo.target. Nur Hauptthread (wiederholen/wiederholZiel).
+unsigned zielImLauf(const Abo& a) { return gewuenschtesZiel(a.wiederholen, a.wiederholZiel, a.target.load()); }
+
 // Kennung aus einem Befehl als Ziel (6.7): gehoert sie keinem Teilnehmer, gilt sie als Ziel 0
 // (noTarget) mit stderr-Zeile - kein Fehler, Connect kann in einem Zwischenstand eine veraltete
 // Kennung schicken. EINZIGE Pruefstelle fuer slotOn, Moduswechsel und id-Zweig (Nachtrag N2a.4).
@@ -726,6 +736,7 @@ void wiederholungen(int64_t jetzt) {
     lauf.ziel = abo.wiederholZiel;
     lauf.lage = lageFuer(*s, abo.wiederholModus, abo.wiederholZiel, abo.wiederholGrund);
     lauf.lage.modusVorher = abo.wiederholModusVorher;
+    lauf.tonMitmelden = abo.wiederholTonMitmelden;   // F4: slotOn meldete den Ton schon selbst
     abo.umhaengen = true;
     // N2a.3 (6.10 Schritt 2, B32): kam onRendererBeDestroyed waehrend des Wartens, nie subscribe auf den toten
     // Renderer. Die Wiederholung gehoert zu DIESEM Umhaengen, also gilt dessen Schritt 2: umhaengPlan liefert ohne Abo
@@ -1387,7 +1398,9 @@ void slotOn(const SlotBefehl& b) {
   const unsigned ziel = zielNachModus(s, b.mode, b.id, jetztMs());
   slotRetargetIntern(s, b.mode, ziel, Grund::command, false);
   // Ton (6.13, W6, N9-1): audioEnsureSubscribed() genau dann, wenn tonAboNoetig(); den Plan gibt tonUmschaltPlan.
-  UmhaengLage l = lageFuer(s, b.mode, abo.target.load(), Grund::command);
+  // Mit dem gewuenschten Ziel (F4): bekam das erste Umhaengen 18, ist abo.target noch 0 - eine gezeigte Freigabe
+  // hiesse sonst off/noShare.
+  UmhaengLage l = lageFuer(s, b.mode, zielImLauf(abo), Grund::command);
   l.modusVorher = b.mode;
   const TonAenderung aenderung{true, b.audio, true, b.shareAudio};
   const AboErgebnis aboErg = tonAboNoetig(l, aenderung) ? (audioEnsureSubscribed(b.nr) ? AboErgebnis::Geglueckt : AboErgebnis::Gescheitert)
@@ -1415,13 +1428,14 @@ void slotSet(const SlotAenderung& a) {
       sprecher = s.wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetztMs());
       // Die Wahl ist die Wahrheit ueber den Slot (Nachtrag N2a.6): zeigt sie unter der neuen Einstellung jemand
       // anderen - auch niemanden (Ziel 0, speakerNone) -, haengt der Slot um, wie nach speakerConfig.
-      sprecherWechsel = s.wahl->ziel() != abo.target.load();
+      sprecherWechsel = s.wahl->ziel() != zielImLauf(abo);   // F1: gegen das gewuenschte Ziel
     }
   }
   if (a.audioGesetzt || a.shareAudioGesetzt) {
     const SlotAudio audio = a.audioGesetzt ? a.audio : s.audio.load();
     const bool share = a.shareAudioGesetzt ? a.shareAudio : s.shareAudio.load();
-    UmhaengLage l = lageFuer(s, s.mode.load(), abo.target.load(), Grund::command);
+    // F4: mit dem gewuenschten Ziel (eine anstehende Wiederholung zaehlt), wie in slotOn.
+    UmhaengLage l = lageFuer(s, s.mode.load(), zielImLauf(abo), Grund::command);
     l.modusVorher = l.modusNachher;
     // 6.13, W6, N9-1: audioEnsureSubscribed() genau dann, wenn nach dem Einsetzen der gespeicherten Felder Ton an ist.
     const TonAenderung aenderung{a.audioGesetzt, a.audio, a.shareAudioGesetzt, a.shareAudio};
@@ -1433,7 +1447,7 @@ void slotSet(const SlotAenderung& a) {
     s.tonAudioUnavailable = aboErg == AboErgebnis::Gescheitert;
     UmhaengLauf lauf;
     lauf.lage = l;
-    lauf.ziel = abo.target.load();
+    lauf.ziel = zielImLauf(abo);
     lauf.tonMitmelden = false;
     planAusfuehren(s, lauf, tp);   // TonStandNeu, MischerNeu; TonMelden setzt configured
     for (const TonMeldung& m : tp.tonFolge) tonMelden(s, m.zustand, m.grund);   // E-a2-7: jede Meldung in Reihenfolge
@@ -1447,7 +1461,8 @@ void slotSet(const SlotAenderung& a) {
     slotRetarget(s, a.mode, ziel, Grund::modeChanged);
     return;
   }
-  if (a.idGesetzt && vorher == SlotMode::Participant && a.id != abo.target.load()) {
+  // F1: verglichen wird mit dem gewuenschten Ziel - steht nach 18 eine Wiederholung auf B an, haengt {id:A} um.
+  if (a.idGesetzt && vorher == SlotMode::Participant && a.id != zielImLauf(abo)) {
     if (a.resGesetzt) s.res = a.res;
     slotRetarget(s, vorher, teilnehmerZiel(s.nr, a.id), Grund::targetChanged);
     return;
@@ -1461,7 +1476,7 @@ void slotSet(const SlotAenderung& a) {
   }
   if (a.resGesetzt && a.res != s.res) {
     s.res = a.res;
-    slotRetarget(s, vorher, abo.target.load(), Grund::resolutionChanged);
+    slotRetarget(s, vorher, zielImLauf(abo), Grund::resolutionChanged);   // F1: das gewuenschte Ziel
     return;
   }
   // Kein Umhaengen: Bestaetigung mit Grund command (6.2).
@@ -1485,7 +1500,8 @@ void slotsParticipantLeft(unsigned id) {
   if (g_freigaben.weggang(id)) emitShares(nullptr);
   for (auto& [nr, s] : g_slots) {
     const SlotMode m = s->mode.load();
-    if (m == SlotMode::Participant && s->abo().target.load() == id) {
+    // F1: der Weggang trifft das gewuenschte Ziel (waehrend einer 18-Wartezeit das der Wiederholung).
+    if (m == SlotMode::Participant && zielImLauf(s->abo()) == id) {
       slotRetarget(*s, SlotMode::Participant, 0, Grund::participantLeft);
     } else if (m == SlotMode::Speaker && s->wahl) {
       // Der gezeigte Sprecher geht: Ziel 0 (speakerNone), der naechste Kandidat sofort (6.8 Nr. 6).
@@ -1624,7 +1640,8 @@ void slotsSprecherEinstellung(Signal signal, int64_t holdMs) {
     if (s->mode.load() != SlotMode::Speaker) continue;
     s->wahl = neueWahl(*s);
     s->wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetzt);
-    if (s->wahl->ziel() != s->abo().target.load()) slotRetarget(*s, SlotMode::Speaker, s->wahl->ziel(), Grund::speakerChanged);
+    // F1: gegen das gewuenschte Ziel - eine anstehende Wiederholung auf denselben Sprecher laeuft weiter.
+    if (s->wahl->ziel() != zielImLauf(s->abo())) slotRetarget(*s, SlotMode::Speaker, s->wahl->ziel(), Grund::speakerChanged);
   }
   // Bestaetigung aus dem GESPEICHERTEN Zustand (Nachbesserung a3, NB-a3-3): command-probe vergleicht
   // sie mit dem Gesendeten - eine verlorene Haltezeit oder ein vertauschtes Signal faellt so ohne
@@ -1720,11 +1737,20 @@ void Slot::bildAnkunft(Abo& abo, YUVRawDataI420* data) {
   const size_t erwartet = static_cast<size_t>(w) * h * 3 / 2;
   if (!buf || w <= 0 || h <= 0 || data->GetBufferLen() != erwartet) {
     bool melden = false;
+    bool verworfen = false;
     {
       std::lock_guard<std::mutex> lock(fieldMutex);
-      bufferMismatch = true;
-      if (!abo.ziel.mismatchGemeldet) { abo.ziel.mismatchGemeldet = true; melden = true; }
+      // Fixrunde 1, F2: dieselbe Pruefung wie unten - ein spaetes, falsch geformtes Bild des alten Ziels markiert den
+      // neuen Ziel-Stand nicht als gemeldet (slotBufferMismatch einmal je Ziel, 6.4).
+      if (imAbbau.load() || riegelVerwirft(abo.subscribed.load(), abo.umhaengen.load()) ||
+          abo.umhaengGeneration.load() != aboGen) {
+        verworfen = true;
+      } else {
+        bufferMismatch = true;
+        if (!abo.ziel.mismatchGemeldet) { abo.ziel.mismatchGemeldet = true; melden = true; }
+      }
     }
+    if (verworfen) { lateFrames.fetch_add(1); return; }
     if (melden) emitSlotFehler("slotBufferMismatch", nr);
     return;
   }
