@@ -3514,7 +3514,8 @@ console.log('\nNativer Teil — A11 Slot-Verwaltung, Befehle, Umhängen (Spec 6.
       && /if\s*\(\s*a\.fallbackGesetzt\s*\)\s*\{?\s*s\.fallback\s*=\s*a\.fallback\s*;/.test(setRumpf)
       && /if\s*\(\s*a\.showNoVideoGesetzt\s*\)\s*\{?\s*s\.showNoVideo\s*=\s*a\.showNoVideo\s*;/.test(setRumpf)
       && /\bs\.audio\s*=\s*audio\s*;/.test(setRumpf) && /\bs\.shareAudio\s*=\s*share\s*;/.test(setRumpf)
-      && (setRumpf.match(/\bs\.res\s*=\s*a\.res\s*;/g) ?? []).length === 3,
+      // je Umhäng-Zweig einmal: Modus, Ziel, Auflösung; seit Nachtrag N2a.6 auch Sprecher nach showNoVideo
+      && (setRumpf.match(/\bs\.res\s*=\s*a\.res\s*;/g) ?? []).length === 4,
     'A11 6.2: slotOn übernimmt jedes gelesene Feld in den Slot, slotSet jedes gesetzte (ohne Meeting nur so prüfbar)');
   const tot = rumpf(video, 'void Delegate::onRendererBeDestroyed(');
   assert(/rendererTot\.exchange\(true\)/.test(tot) && /rendererLost\.fetch_add\(1\)/.test(tot) && !RUECKRUF_VERBOTEN.test(tot),
@@ -3660,7 +3661,8 @@ console.log('\nNativer Teil — A13 Vorschau (Spec 6.16, PT6 e):');
     'A13 PT6 e: native/preview.cpp liest g_slots nicht (und bindet video.h nicht ein)');
   const video = nativ('video.cpp', true);
   const ankunft = rumpf(video, 'void Slot::bildAnkunft(');
-  assert(/vorschauBild\(\s*nr\s*,\s*abo\.target\.load\(\)\s*,\s*buf\s*,/.test(ankunft) && !rumpf(video, 'void ersatzbildTick(').includes('vorschauBild('),
+  // Seit Nachtrag N2a.1 bekommt vorschauBild das Ziel, das der Rückruf VOR dem Riegel las (aboZiel).
+  assert(/vorschauBild\(\s*nr\s*,\s*(abo\.target\.load\(\)|aboZiel)\s*,\s*buf\s*,/.test(ankunft) && !rumpf(video, 'void ersatzbildTick(').includes('vorschauBild('),
     'A13 E16: Vorschau nur aus echten Bildern (bildAnkunft), nie aus dem Ersatzbild-Herzschlag');
   assert(/vorschauAnmelden\(\s*b\.nr\s*\)/.test(rumpf(video, 'void slotOn(const SlotBefehl& b)'))
       && /case UmhaengSchritt::VorschauPlatzLeeren:\s*vorschauLeeren\(\s*s\.nr\s*\)/.test(video),
@@ -4049,6 +4051,148 @@ console.log('\nA18 — Doku der Bridge (README, package.json):');
     beschreibung.includes('bis zu 16 Slots') && !beschreibung.includes('je Teilnehmer'),
     'A18 D7: package.json beschreibt Slots statt Quellen je Teilnehmer',
   );
+}
+console.log('\nNativer Teil — Nachtrag N2a (Riegel unter Sperre, Wiederholung, Rollenprüfung, Versatz, showNoVideo, vorgemerkter Modus):');
+{
+  const video = nativ('video.cpp', true);
+  const ausf = rumpf(video, 'void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ');
+  /** Text eines Zweigs `case UmhaengSchritt::<name>:` bis zum nächsten `case UmhaengSchritt::`. */
+  const zweigN2a = (name: string): string => {
+    const i = ausf.indexOf(`case UmhaengSchritt::${name}:`);
+    if (i < 0) return '';
+    const j = ausf.indexOf('case UmhaengSchritt::', i + 1);
+    return ausf.slice(i, j < 0 ? ausf.length : j);
+  };
+
+  // N2a.1 (Task-11-Review I1, Task-13-Review; Spec 6.10 „Riegel“, B53): ein Bild, das den Riegel oben passierte, bevor
+  // die Hauptschleife umhängt, darf den frisch geleerten Ziel-Stand nicht füllen (live/frames, Lücke, kopieGueltig), die
+  // Kopie nicht überschreiben und keinen Vorschau-Platz unter dem neuen Ziel belegen. Die Umhäng-Generation je Abo
+  // zählt ZielStandNeu unter fieldMutex hoch; der Rückruf liest sie (und das Ziel) VOR dem Riegel und vergleicht sie im
+  // Sperr-Block erneut, zusammen mit imAbbau und riegelVerwirft. Ebenso der Status-Rückruf.
+  const aboStruktur = rumpf(video, 'struct Abo ');
+  const zielNeu = zweigN2a('ZielStandNeu');
+  const ankunft = rumpf(video, 'void Slot::bildAnkunft(');
+  const iGen = ankunft.search(/const\s+uint64_t\s+aboGen\s*=\s*abo\.umhaengGeneration\.load\(\)\s*;/);
+  const iZiel = ankunft.search(/const\s+unsigned\s+aboZiel\s*=\s*abo\.target\.load\(\)\s*;/);
+  const iRiegelOben = ankunft.indexOf('riegelVerwirft(');
+  const iAnnehmen = ankunft.indexOf('bildAnnehmen(');
+  const iSperre = ankunft.lastIndexOf('std::lock_guard<std::mutex> lock(fieldMutex);', iAnnehmen);
+  const sperrKopf = iSperre < 0 || iAnnehmen < 0 ? '' : ankunft.slice(iSperre, iAnnehmen);
+  const iSpaet = ankunft.search(/if\s*\(\s*spaet\s*\)\s*\{\s*lateFrames\.fetch_add\(1\)\s*;\s*return\s*;\s*\}/);
+  const iVorschau = ankunft.indexOf('vorschauBild(');
+  const iKopie = ankunft.indexOf('last.i420.assign(');
+  const kopieWeg = iKopie < 0 ? '' : ankunft.slice(ankunft.lastIndexOf('last.m.try_lock()', iKopie), iKopie);
+  assert(/std::atomic<uint64_t>\s+umhaengGeneration\{0\}\s*;/.test(aboStruktur)
+      && /std::lock_guard<std::mutex>\s+lock\(s\.fieldMutex\)\s*;/.test(zielNeu)
+      && zielNeu.search(/abo\.umhaengGeneration\.fetch_add\(1\)\s*;/) > zielNeu.indexOf('abo.target = lauf.ziel;')
+      && zielNeu.indexOf('abo.target = lauf.ziel;') > 0
+      && (video.match(/umhaengGeneration\.fetch_add\(/g) ?? []).length === 1,
+    'N2a.1 6.10: das Abo führt eine Umhäng-Generation; nur ZielStandNeu zählt sie hoch, unter fieldMutex, nach dem neuen Ziel');
+  assert(iGen >= 0 && iZiel > iGen && iRiegelOben > iZiel
+      && /const\s+bool\s+passt\s*=\s*quelle\s*==\s*aboZiel\s*;/.test(ankunft),
+    'N2a.1 6.10: bildAnkunft liest Generation und Ziel VOR dem Riegel (und misst die Lücke gegen dieses Ziel)');
+  assert(sperrKopf !== '' && /imAbbau\.load\(\)/.test(sperrKopf)
+      && /riegelVerwirft\(\s*abo\.subscribed\.load\(\)\s*,\s*abo\.umhaengen\.load\(\)\s*\)/.test(sperrKopf)
+      && /abo\.umhaengGeneration\.load\(\)\s*!=\s*aboGen/.test(sperrKopf) && /spaet\s*=\s*true\s*;/.test(sperrKopf),
+    'N2a.1 6.10 (I3 aus Stage 4): bildAnkunft prüft Riegel und Generation ein zweites Mal im Sperr-Block, vor bildAnnehmen');
+  assert(iSpaet > iAnnehmen && iVorschau > iSpaet && /vorschauBild\(\s*nr\s*,\s*aboZiel\s*,\s*buf\s*,/.test(ankunft)
+      && /abo\.umhaengGeneration\.load\(\)\s*==\s*aboGen/.test(kopieWeg),
+    'N2a.1 B53/7.7: ein spätes Bild zählt lateFrames und endet vor vorschauBild (mit dem Ziel von oben); die Kopie nimmt nur Bilder dieser Generation');
+  const status = rumpf(video, 'void Delegate::onRawDataStatusChanged(');
+  const iStatusGen = status.search(/const\s+uint64_t\s+aboGen\s*=\s*abo_->umhaengGeneration\.load\(\)\s*;/);
+  const iStatusSperre = status.indexOf('std::lock_guard<std::mutex> lock(slot_->fieldMutex);');
+  const statusNachSperre = iStatusSperre < 0 ? '' : status.slice(iStatusSperre, status.indexOf('rawOffGesehen'));
+  assert(iStatusGen >= 0 && iStatusGen < status.indexOf('riegelVerwirft(')
+      && /riegelVerwirft\(\s*abo_->subscribed\.load\(\)\s*,\s*abo_->umhaengen\.load\(\)\s*\)/.test(statusNachSperre)
+      && /abo_->umhaengGeneration\.load\(\)\s*!=\s*aboGen/.test(statusNachSperre),
+    'N2a.1 6.10: der Status-Rückruf prüft Riegel und Generation ebenso ein zweites Mal unter der Sperre');
+
+  // N2a.2 (Task-11-Review I2, Task-12-Review; Spec 6.10 Tabelle, Zeilen 18/29): die Wiederholung nach 18 nimmt Ziel,
+  // Modus und Grund DES Umhängens, das 18 bekam (abo.target ist dann noch das alte Ziel), und den Modus von vorher
+  // (slotRetargetIntern stellt s.mode schon um). Der Merker abschlussGelaufen gilt nur dem 29-Weg mit Abschluss (ein
+  // VIDEO-Abschluss enthält IsVideoOnFragen), geht über subscribeAusfuehren in die Lage und fällt beim nächsten Umhängen.
+  const wiederholen = zweigN2a('WiederholenIn500ms');
+  const wdh = rumpf(video, 'void wiederholungen(');
+  const sub = rumpf(video, 'void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf)');
+  const bauN2a = rumpf(video, 'void slotRetargetIntern(');
+  const nichtNurVormerken = rumpf(bauN2a, 'if (!nurVormerken)');
+  assert(['unsigned wiederholZiel', 'SlotMode wiederholModus', 'SlotMode wiederholModusVorher', 'Grund wiederholGrund', 'bool abschlussGelaufen']
+      .every((f) => new RegExp(`\\b${f.replace(' ', '\\s+')}\\s*=`).test(aboStruktur)),
+    'N2a.2 6.10: das Abo merkt Ziel, Modus, Modus von vorher und Grund der Wiederholung samt Merker abschlussGelaufen');
+  assert(/abo\.wiederholZiel\s*=\s*lauf\.ziel\s*;/.test(wiederholen) && /abo\.wiederholModus\s*=\s*lauf\.lage\.modusNachher\s*;/.test(wiederholen)
+      && /abo\.wiederholGrund\s*=\s*lauf\.lage\.aufruf\s*;/.test(wiederholen)
+      && /abo\.wiederholModusVorher\s*=\s*abo\.abschlussGelaufen\s*\?\s*lauf\.lage\.modusNachher\s*:\s*lauf\.lage\.modusVorher\s*;/.test(wiederholen)
+      && /if\s*\(\s*lauf\.sdkFehler\s*==\s*static_cast<int>\(SDKERR_NO_SHARE_DATA\)\s*&&\s*abschlussHier\s*\)\s*abo\.abschlussGelaufen\s*=\s*true\s*;/.test(wiederholen)
+      && (video.match(/abschlussGelaufen\s*=\s*true/g) ?? []).length === 1
+      && /abschlussHier\s*=\s*true\s*;/.test(zweigN2a('ZielStandNeu')),
+    'N2a.2 6.10: WiederholenIn500ms merkt Ziel, Modus und Grund des laufenden Umhängens; abschlussGelaufen nur nach einem 29 mit Abschluss');
+  assert(/lauf\.ziel\s*=\s*abo\.wiederholZiel\s*;/.test(wdh)
+      && /lageFuer\(\s*\*s\s*,\s*abo\.wiederholModus\s*,\s*abo\.wiederholZiel\s*,\s*abo\.wiederholGrund\s*\)/.test(wdh)
+      && /lauf\.lage\.modusVorher\s*=\s*abo\.wiederholModusVorher\s*;/.test(wdh)
+      && !/abo\.target\.load\(\)/.test(wdh) && !/Grund::command/.test(wdh),
+    'N2a.2 6.10: wiederholungen abonniert das gemerkte Ziel mit gemerktem Modus und Grund, nicht abo.target und nicht command');
+  const iMerkerLage = sub.search(/lauf\.lage\.abschlussGelaufen\s*=\s*abo\.abschlussGelaufen\s*;/);
+  assert(iMerkerLage >= 0 && iMerkerLage < sub.indexOf('umhaengNachSubscribe(')
+      && /abo\.abschlussGelaufen\s*=\s*false\s*;/.test(nichtNurVormerken),
+    'N2a.2 6.10: subscribeAusfuehren gibt den Merker an umhaengNachSubscribe; das nächste echte Umhängen löscht ihn');
+
+  // N2a.3 (Task-11-Review I3; Spec 6.10 Schritt 2, B32): kam onRendererBeDestroyed, während eine Wiederholung wartet,
+  // ruft die Wiederholung nie subscribe auf den toten Renderer, sondern führt den Plan von umhaengPlan aus (Zeiger
+  // verwerfen, createRenderer mit neuem Delegate, Schritte 4-5); nur mit lebendem Renderer gleich subscribeAusfuehren.
+  assert(/if\s*\(\s*lauf\.lage\.rendererTot\s*\)\s*planAusfuehren\(\s*\*s\s*,\s*lauf\s*,\s*umhaengPlan\(\s*lauf\.lage\s*\)\s*\)\s*;\s*else\s+subscribeAusfuehren\(\s*\*s\s*,\s*lauf\s*\)\s*;/.test(wdh)
+      && (wdh.match(/\bsubscribeAusfuehren\(/g) ?? []).length === 1,
+    'N2a.3 6.10 Schritt 2/B32: ist der Renderer bis zur Wiederholung tot, kein subscribe auf ihn - neuer Renderer mit neuem Delegate über umhaengPlan');
+
+  // N2a.4 (Task-11-Review I4, Task-12-Review; Spec 6.7 „Ist die Kennung keinem Teilnehmer zugeordnet, gilt dasselbe“):
+  // EIN Helfer prüft die Kennung aus einem Befehl gegen die Teilnehmer (unbekannt: Ziel 0, noTarget, stderr-Zeile) -
+  // für slotOn, den Moduswechsel von slotSet (über zielNachModus) und den id-Zweig von slotSet; die Kopien entfallen.
+  const teilnehmerHelfer = rumpf(video, 'unsigned teilnehmerZiel(int nr, unsigned id)');
+  const zielN2a = rumpf(video, 'unsigned zielNachModus(');
+  const anN2a = rumpf(video, 'void slotOn(const SlotBefehl& b)');
+  const setN2a = rumpf(video, 'void slotSet(const SlotAenderung& a)');
+  assert(/if\s*\(\s*id\s*==\s*0\s*\|\|\s*sessionFindParticipant\(\s*id\s*,\s*nullptr\s*,\s*nullptr\s*\)\s*\)\s*return\s+id\s*;/.test(teilnehmerHelfer)
+      && /emitLog\(/.test(teilnehmerHelfer) && /return\s+0\s*;/.test(teilnehmerHelfer)
+      && (video.match(/\bsessionFindParticipant\(/g) ?? []).length === 1,
+    'N2a.4 6.7: EIN Helfer teilnehmerZiel prüft die Kennung gegen die Teilnehmer (unbekannt: Ziel 0 mit stderr-Zeile), keine Kopie mehr');
+  assert(/if\s*\(\s*m\s*==\s*SlotMode::Participant\s*\)\s*return\s+teilnehmerZiel\(\s*s\.nr\s*,\s*idTeilnehmer\s*\)\s*;/.test(zielN2a)
+      && /zielNachModus\(\s*s\s*,\s*b\.mode\s*,\s*b\.id\s*,/.test(anN2a) && /zielNachModus\(\s*s\s*,\s*a\.mode\s*,/.test(setN2a)
+      && /teilnehmerZiel\(\s*s\.nr\s*,\s*a\.id\s*\)/.test(setN2a),
+    'N2a.4 6.7/6.10: slotOn, der Moduswechsel von slotSet (zielNachModus) und der id-Zweig von slotSet nehmen die Kennung nur über teilnehmerZiel');
+
+  // N2a.5 (Task-12-Review I1; Spec 6.14 „Freigabe-Slots setzen ihn“, E11): slotOn ist kein Moduswechsel, umhaengPlan
+  // plant dort kein OhneVersatzSetzen. Darum setzt slotOn den Schalter am frisch geöffneten Sender selbst, vor dem
+  // ersten Umhängen; Teilnehmer- und Sprecher-Slots bleiben mit Versatz.
+  const iSenderAuf = anN2a.indexOf('s.sender.open(');
+  const iOhneVersatz = anN2a.search(/s\.sender\.setOhneVersatz\(\s*b\.mode\s*==\s*SlotMode::Share\s*\)\s*;/);
+  assert(iSenderAuf >= 0 && iOhneVersatz > iSenderAuf && iOhneVersatz < anN2a.indexOf('slotRetargetIntern(')
+      && (anN2a.match(/setOhneVersatz\(/g) ?? []).length === 1,
+    'N2a.5 6.14: slotOn setzt am neuen Sender „ohne Versatz“ genau für Freigabe-Slots, vor dem ersten Umhängen');
+
+  // N2a.6 (Task-12-Review I2; Spec 6.8, 6.2): slotSet {showNoVideo} auf einem Sprecher-Slot wertet die neue,
+  // vorbelegte Wahl aus. Zeigt sie jemand anderen als das Abo (auch niemanden), hängt der Slot um - mit Ziel und Grund
+  // der Wahl, nach dem Moduswechsel- und vor dem Auflösungs-Zweig, und höchstens EINMAL je slotSet (Reihenfolge 6.2).
+  const showZweig = rumpf(setN2a, 'if (a.showNoVideoGesetzt)');
+  const sprecherZweig = rumpf(setN2a, 'if (sprecherWechsel)');
+  const iSprecherZweig = setN2a.indexOf('if (sprecherWechsel)');
+  assert(/sprecher\s*=\s*s\.wahl->vorbelegen\(\s*g_erinnerung\s*,/.test(showZweig)
+      && /sprecherWechsel\s*=\s*s\.wahl->ziel\(\)\s*!=\s*abo\.target\.load\(\)\s*;/.test(showZweig) && !/slotRetarget\(/.test(showZweig),
+    'N2a.6 6.8: der showNoVideo-Zweig wertet die vorbelegte Wahl aus (Ziel gegen das Abo) und hängt nicht selbst um');
+  assert(/slotRetarget\(\s*s\s*,\s*SlotMode::Speaker\s*,\s*s\.wahl->ziel\(\)\s*,\s*sprecher\.grund\s*\)\s*;\s*return\s*;/.test(sprecherZweig)
+      && iSprecherZweig > setN2a.indexOf('if (a.modeGesetzt && a.mode != vorher)') && iSprecherZweig < setN2a.indexOf('if (a.resGesetzt && a.res != s.res)'),
+    'N2a.6 6.8/6.10: weicht die Wahl ab, hängt slotSet den Sprecher-Slot mit Ziel und Grund der Wahl um (statt des Auflösungs-Zweigs)');
+  const umhaengenInSet = [...setN2a.matchAll(/slotRetarget\([^;]*\);(\s*return\s*;)?/g)];
+  assert(umhaengenInSet.length === 4 && umhaengenInSet.every((t) => t[1] !== undefined),
+    'N2a.6 6.2: in slotSet endet jedes Umhängen den Befehl (Modus, Ziel, Sprecher nach showNoVideo, Auflösung) - höchstens EIN Umhängen');
+
+  // N2a.7 (Task-12-Review M2; Spec 6.10 Schritt 0, 6.15 „Zoom verbindet selbst neu“): ein während der Renderer-Sperre
+  // vorgemerkter Moduswechsel gilt nach INMEETING. alleNeuZuordnen ordnet nach dem vorgemerkten Modus neu zu (das Ziel
+  // je Modus nach 6.15, weil die Kennungen mit INMEETING wechseln) und bestätigt ihn mit modeChanged.
+  const neuZuordnen = rumpf(video, 'void alleNeuZuordnen()');
+  assert(/const\s+SlotMode\s+m\s*=\s*s->vorgemerkt\s*\?\s*s->vorgemerktMode\s*:\s*s->mode\.load\(\)\s*;/.test(neuZuordnen)
+      && !/const\s+SlotMode\s+m\s*=\s*s->mode\.load\(\)\s*;/.test(neuZuordnen)
+      && /const\s+bool\s+modusNeu\s*=\s*m\s*!=\s*s->mode\.load\(\)\s*;/.test(neuZuordnen)
+      && /modusNeu\s*\?\s*Grund::modeChanged\s*:\s*Grund::shareChanged/.test(neuZuordnen),
+    'N2a.7 6.10 Schritt 0: nach INMEETING ordnet alleNeuZuordnen nach dem vorgemerkten Modus neu zu (Freigabe mit modeChanged)');
 }
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

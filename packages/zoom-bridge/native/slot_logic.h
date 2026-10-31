@@ -804,7 +804,9 @@ struct UmhaengLage {
   // Hilfsfelder (Gliederung erlaubt sie):
   unsigned altesZiel = 0;                   // Ziel vor dem Umhaengen; ohne Zielwechsel bleibt der Ton (Aufloesung)
   bool rendererGescheitert = false;         // createRenderer scheiterte (6.10 Schritt 2 bzw. neuer Renderer)
-  bool abschlussGelaufen = false;           // Schritte 6-8 liefen schon (erstes 29); Erfolg danach: kein zweiter
+  // Schritte 6-8 liefen schon (beim ersten 29, nur SHARE); Erfolg oder 29 danach: kein zweiter. Der Ausfuehrer
+  // setzt ihn nur auf diesem Weg - ein VIDEO-Abschluss enthaelt IsVideoOnFragen und laeuft immer (N1, N2a.2).
+  bool abschlussGelaufen = false;
 };
 
 /** Eine slotAudio-Meldung (Zustand, Grund, configured). */
@@ -1000,7 +1002,9 @@ inline UmhaengPlan umhaengNachSubscribe(const UmhaengLage& l, int sdkFehler, int
     }
     if (sdkFehler == FEHLER_KEINE_FREIGABEDATEN && typ == RendererTyp::Share) {
       if (!l.freigabeNochGezeigt) return p;   // diese Freigabe wird nicht mehr gezeigt: das naechste Umhaengen kommt
-      if (versuch == 0) umhaengAbschluss(l, p);   // einmal: starting/<grund> (T20), Ziel-Stand neu
+      // einmal: starting/<grund> (T20), Ziel-Stand neu. Der Merker, nicht versuch: nach zwei 18 ist versuch schon 2,
+      // und der Abschluss liefe nie (Nachtrag N2a.2, Task-7-Review Minor 3).
+      if (!l.abschlussGelaufen) umhaengAbschluss(l, p);
       p.schritte.push_back(UmhaengSchritt::WiederholenIn500ms);   // kein neuer Renderer; Zaehler noShareData
       return p;
     }

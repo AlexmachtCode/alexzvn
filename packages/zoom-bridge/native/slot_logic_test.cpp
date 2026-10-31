@@ -768,6 +768,7 @@ void pb21_umhaeng_plan() {
   p = umhaengNachSubscribe(freigabe, FEHLER_KEINE_FREIGABEDATEN, 0);
   CHECK(!hat(p, S::DestroyRenderer) && !hat(p, S::CreateRendererGleicherDelegate) && hat(p, S::WiederholenIn500ms));
   CHECK(hat(p, S::SlotMelden) && p.zustand == SlotState::Starting && p.grund == Grund::modeChanged);
+  freigabe.abschlussGelaufen = true;   // seit N2a.2 entscheidet der Merker, nicht versuch: der Abschluss lief schon
   CHECK(umhaengNachSubscribe(freigabe, FEHLER_KEINE_FREIGABEDATEN, 4).schritte == std::vector<S>{S::WiederholenIn500ms});
   freigabe.freigabeNochGezeigt = false;
   CHECK(umhaengNachSubscribe(freigabe, FEHLER_KEINE_FREIGABEDATEN, 4).schritte.empty());
@@ -1231,6 +1232,37 @@ void n1_plan_braucht_renderer() {
   CHECK(planBrauchtRenderer(umhaengNachSubscribe(typwechsel, 7, 0)));
 }
 
+void n2a2_18_18_dann_29() {
+  std::printf("N2a.2 18, 18, dann 29: Abschluss genau einmal, beim ersten 29 (Merker statt versuch)\n");
+  // Teilnehmer -> Freigabe mit Mischton und Computerton: der Abschluss setzt Ton-Stand und Mischer neu.
+  UmhaengLage l = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Mix, true);
+  CHECK(umhaengNachSubscribe(l, FEHLER_ZU_OFT, 0).schritte == std::vector<S>{S::WiederholenIn500ms});
+  CHECK(umhaengNachSubscribe(l, FEHLER_ZU_OFT, 1).schritte == std::vector<S>{S::WiederholenIn500ms});
+  UmhaengPlan p = umhaengNachSubscribe(l, FEHLER_KEINE_FREIGABEDATEN, 2);   // nach zwei 18 das erste 29
+  CHECK(hat(p, S::ZielStandNeu) && hat(p, S::VorschauPlatzLeeren) && hat(p, S::SlotMelden) && hat(p, S::WiederholenIn500ms));
+  CHECK(p.zustand == SlotState::Starting && p.grund == Grund::modeChanged);   // T20: starting/<grund>
+  CHECK(hat(p, S::MischerNeu) && tonIst(p, TonZustand::Waiting, TonGrund::modeChanged, TonQuelle::MixShare));
+  // Die ganze Folge so, wie der Ausfuehrer sie fuehrt (Merker am Abo nach dem Abschluss eines 29, N2a.2):
+  // 18, 18, 29, 29, Erfolg -> genau ein Abschluss, beim dritten Aufruf, eine Tonmeldung.
+  UmhaengLage lauf = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Mix, true);
+  const int folge[] = {FEHLER_ZU_OFT, FEHLER_ZU_OFT, FEHLER_KEINE_FREIGABEDATEN, FEHLER_KEINE_FREIGABEDATEN, FEHLER_KEINER};
+  int versuch = 0, abschluesse = 0, meldungen = 0, abschlussBei = -1, nr = 0;
+  size_t tonMeldungen = 0;
+  for (const int fehler : folge) {
+    const UmhaengPlan q = umhaengNachSubscribe(lauf, fehler, versuch);
+    for (const S x : q.schritte) {
+      if (x == S::ZielStandNeu) { ++abschluesse; abschlussBei = nr; }
+      if (x == S::SlotMelden) ++meldungen;
+    }
+    tonMeldungen += q.tonFolge.size();
+    if (fehler == FEHLER_KEINE_FREIGABEDATEN && hat(q, S::ZielStandNeu)) lauf.abschlussGelaufen = true;
+    if (hat(q, S::WiederholenIn500ms)) ++versuch;
+    ++nr;
+  }
+  CHECK(abschluesse == 1 && meldungen == 1 && abschlussBei == 2 && tonMeldungen == 1);
+  CHECK(versuch == 4);   // 18 und 29 zaehlen weiter gemeinsam (Grenze 3 nur fuer 18)
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -1284,6 +1316,7 @@ int main() {
   a8_base64();
   n1_29_dann_erfolg();
   n1_plan_braucht_renderer();
+  n2a2_18_18_dann_29();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

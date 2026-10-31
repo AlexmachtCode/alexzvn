@@ -78,11 +78,25 @@ struct Abo {
   std::atomic<bool> subscribed{false};    // true nur zwischen gegluecktem subscribe() und dem naechsten unSubscribe()
   std::atomic<bool> umhaengen{false};     // Riegel: true von vor unSubscribe() bis nach subscribe() (6.10)
   std::atomic<bool> rendererTot{false};   // onRendererBeDestroyed kam: Zeiger nie mehr anfassen (6.10, B32)
+  // Umhaeng-Generation (Nachtrag N2a.1): nur ZielStandNeu zaehlt sie hoch, unter fieldMutex. Der Bild- und der
+  // Status-Rueckruf lesen sie VOR dem Riegel und vergleichen sie unter fieldMutex erneut: wer den Riegel vor einem
+  // Umhaengen passierte, fasst den neuen Ziel-Stand nicht an (I3 aus Stage 4, B53).
+  std::atomic<uint64_t> umhaengGeneration{0};
   ZielStand ziel;                         // unter fieldMutex des Slots
   // Wiederholung nach SDKERR_TOO_FREQUENT_CALL / SDKERR_NO_SHARE_DATA (6.10), nur Hauptthread.
   bool wiederholen = false;
   int versuch = 0;
   int64_t wiederholenAbMs = 0;
+  // Was die Wiederholung abonniert (Nachtrag N2a.2): Ziel, Modus und Grund DES Umhaengens, das 18 bzw. 29 bekam -
+  // nach 18 lief ZielStandNeu noch nicht, abo.target ist dann das ALTE Ziel. Dazu der Modus von vorher, weil
+  // slotRetargetIntern s.mode schon umgestellt hat und der Ton-Teil des Abschlusses ihn braucht (6.10 Schritt 8).
+  unsigned wiederholZiel = 0;
+  SlotMode wiederholModus = SlotMode::Participant;
+  SlotMode wiederholModusVorher = SlotMode::Participant;
+  Grund wiederholGrund = Grund::command;
+  // Der Abschluss (Schritte 6-8) lief beim ersten 29 schon (nur SHARE, N1.2): Erfolg oder 29 danach ohne zweiten.
+  // Gesetzt nur auf diesem Weg (ein VIDEO-Abschluss enthaelt IsVideoOnFragen), geloescht beim naechsten Umhaengen.
+  bool abschlussGelaufen = false;
 };
 
 struct Slot {
@@ -357,6 +371,8 @@ void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf) {
   if (err == SDKERR_TOO_FREQUENT_CALL) s.tooFrequent.fetch_add(1);
   if (err == SDKERR_NO_SHARE_DATA) s.noShareData.fetch_add(1);
   if (err == SDKERR_SHARE_CANNOT_SUBSCRIBE_MYSELF) emitLog(L"subscribe(SHARE) meldet SHARE_CANNOT_SUBSCRIBE_MYSELF - die Bridge teilt nie selbst");
+  // N2a.2: der Merker am Abo, nicht versuch (bei Erfolg oben schon 0) - lief der Abschluss beim ersten 29, kein zweiter.
+  lauf.lage.abschlussGelaufen = abo.abschlussGelaufen;
   const UmhaengPlan weiter = umhaengNachSubscribe(lauf.lage, static_cast<int>(err), abo.versuch);
   planAusfuehren(s, lauf, weiter);
   // Fehler nach einem Typwechsel ist ein Fall fuer den gleichen Delegate: der Plan
@@ -370,6 +386,7 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
   if (rendererSperre() && !(plan.schritte.size() == 1 && plan.schritte.front() == UmhaengSchritt::Vormerken)) return;
   Abo& abo = s.abo();
   size_t tonNr = 0;   // naechste Meldung aus plan.tonFolge (E-a2-7)
+  bool abschlussHier = false;   // dieser Plan lief schon durch ZielStandNeu (29-Weg: Abschluss vor WiederholenIn500ms)
   for (const UmhaengSchritt schritt : plan.schritte) {
     switch (schritt) {
       case UmhaengSchritt::Vormerken:
@@ -439,6 +456,14 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         abo.wiederholen = true;
         ++abo.versuch;
         abo.wiederholenAbMs = jetztMs() + 500;
+        // N2a.2: der Abschluss eines 29 (nur SHARE) laeuft genau einmal; ein VIDEO-Abschluss setzt den Merker nie.
+        if (lauf.sdkFehler == static_cast<int>(SDKERR_NO_SHARE_DATA) && abschlussHier) abo.abschlussGelaufen = true;
+        // N2a.2: die Wiederholung gilt DIESEM Umhaengen. Lief sein Abschluss schon, zaehlt der Moduswechsel als
+        // erledigt (Ton und Versatz sind umgestellt); sonst bleibt der Modus von vorher fuer den Abschluss.
+        abo.wiederholZiel = lauf.ziel;
+        abo.wiederholModus = lauf.lage.modusNachher;
+        abo.wiederholModusVorher = abo.abschlussGelaufen ? lauf.lage.modusNachher : lauf.lage.modusVorher;
+        abo.wiederholGrund = lauf.lage.aufruf;
         break;
       case UmhaengSchritt::ZielStandNeu: {
         std::lock_guard<std::mutex> lock(s.fieldMutex);
@@ -453,9 +478,11 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         s.statsAudio = s.audioPakete.load();
         s.gapUngeprueft = false;
         abo.target = lauf.ziel;
+        abo.umhaengGeneration.fetch_add(1);   // nach dem Ziel: wer die neue Generation liest, liest auch das neue Ziel
         s.kameraAus = false;
         s.gapOffen = true;           // die Luecke beginnt neu (6.10, Nachbesserung a3)
         s.gapErstesBildMs = 0;
+        abschlussHier = true;
         break;
       }
       case UmhaengSchritt::VorschauPlatzLeeren:
@@ -553,6 +580,7 @@ void slotRetargetIntern(Slot& s, SlotMode nachher, unsigned ziel, Grund aufruf, 
     s.vorgemerkt = false;
     abo.wiederholen = false;
     abo.versuch = 0;
+    abo.abschlussGelaufen = false;   // N2a.2: ein neues Umhaengen hat seinen eigenen Abschluss
     s.mode = nachher;
   }
   planAusfuehren(s, lauf, plan);
@@ -646,11 +674,20 @@ bool andererFreigabeSlot(const Slot& ohne) {
   return false;
 }
 
-// Ziel nach Modus (6.7-6.10): Teilnehmer die Kennung, Sprecher der Kandidat aus der
-// Erinnerung (neue SprecherWahl, vorbelegt), Freigabe die gezeigte Freigabe (shareUser =
-// teilende Person). Der erste Freigabe-Slot befuellt die Liste, nur ergaenzend (B38).
+// Kennung aus einem Befehl als Ziel (6.7): gehoert sie keinem Teilnehmer, gilt sie als Ziel 0
+// (noTarget) mit stderr-Zeile - kein Fehler, Connect kann in einem Zwischenstand eine veraltete
+// Kennung schicken. EINZIGE Pruefstelle fuer slotOn, Moduswechsel und id-Zweig (Nachtrag N2a.4).
+unsigned teilnehmerZiel(int nr, unsigned id) {
+  if (id == 0 || sessionFindParticipant(id, nullptr, nullptr)) return id;
+  emitLog(L"Slot " + std::to_wstring(nr) + L": Kennung " + std::to_wstring(id) + L" gehoert keinem Teilnehmer - kein Ziel");
+  return 0;
+}
+
+// Ziel nach Modus (6.7-6.10): Teilnehmer die Kennung (geprueft, teilnehmerZiel), Sprecher der
+// Kandidat aus der Erinnerung (neue SprecherWahl, vorbelegt), Freigabe die gezeigte Freigabe
+// (shareUser = teilende Person). Der erste Freigabe-Slot befuellt die Liste, nur ergaenzend (B38).
 unsigned zielNachModus(Slot& s, SlotMode m, unsigned idTeilnehmer, int64_t jetzt) {
-  if (m == SlotMode::Participant) return idTeilnehmer;
+  if (m == SlotMode::Participant) return teilnehmerZiel(s.nr, idTeilnehmer);
   if (m == SlotMode::Speaker) {
     s.wahl = neueWahl(s);
     s.wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetzt);
@@ -677,18 +714,24 @@ void freigabeFolgen() {
   }
 }
 
-// Wiederholung nach 18 bzw. 29 (6.10): dasselbe Ziel, dieselbe Lage, nur subscribe neu. Dass subscribe auf eine Freigabe sonst sofort Daten liefert, ist ANNAHME AN26 (unbelegt, MS27).
+// Wiederholung nach 18 bzw. 29 (6.10): dasselbe Umhaengen, nur subscribe neu. Dass subscribe auf eine Freigabe sonst sofort Daten liefert, ist ANNAHME AN26 (unbelegt, MS27).
 void wiederholungen(int64_t jetzt) {
   for (auto& [nr, s] : g_slots) {
     Abo& abo = s->abo();
     if (!abo.wiederholen || jetzt < abo.wiederholenAbMs || rendererSperre()) continue;
     abo.wiederholen = false;
     UmhaengLauf lauf;
-    lauf.ziel = abo.target.load();
-    lauf.lage = lageFuer(*s, s->mode.load(), lauf.ziel, Grund::command);
-    lauf.lage.modusVorher = lauf.lage.modusNachher;
+    // N2a.2: Ziel, Modus und Grund des Umhaengens, das 18 bzw. 29 bekam (gemerkt bei WiederholenIn500ms) - nach 18
+    // ist abo.target noch das alte Ziel. Den Merker abschlussGelaufen gibt subscribeAusfuehren weiter.
+    lauf.ziel = abo.wiederholZiel;
+    lauf.lage = lageFuer(*s, abo.wiederholModus, abo.wiederholZiel, abo.wiederholGrund);
+    lauf.lage.modusVorher = abo.wiederholModusVorher;
     abo.umhaengen = true;
-    subscribeAusfuehren(*s, lauf);
+    // N2a.3 (6.10 Schritt 2, B32): kam onRendererBeDestroyed waehrend des Wartens, nie subscribe auf den toten
+    // Renderer. Die Wiederholung gehoert zu DIESEM Umhaengen, also gilt dessen Schritt 2: umhaengPlan liefert ohne Abo
+    // ZeigerVerwerfen, CreateRendererNeuerDelegate (scheitert er: fallback/subscribeFailed), dann Schritte 4-5.
+    if (lauf.lage.rendererTot) planAusfuehren(*s, lauf, umhaengPlan(lauf.lage));
+    else subscribeAusfuehren(*s, lauf);
     abo.subscribed = lauf.subscribeGeglueckt;
     abo.umhaengen = false;
   }
@@ -737,12 +780,16 @@ TonGrund tonGrundFuer(Grund g) {
 // Nach INMEETING je Slot neu zuordnen (6.15 "Zoom verbindet selbst neu"): Teilnehmer
 // Ziel 0 bis Connect neue Kennungen schickt (PK21), Sprecher Ziel 0 bis zum naechsten
 // Signal, Freigabe die gezeigte Freigabe. Die Renderer bleiben dabei bestehen: ANNAHME AN25 (unbelegt, MS25).
+// Ein waehrend der Sperre vorgemerkter Moduswechsel (6.10 Schritt 0) gilt hier (Nachtrag N2a.7): neu zugeordnet wird
+// nach dem VORGEMERKTEN Modus. Sein vorgemerktes Ziel nicht - die Kennungen wechseln mit INMEETING (6.5, 6.15), das
+// Ziel kommt je Modus wie oben. slotRetarget loescht die Vormerkung danach.
 void alleNeuZuordnen() {
   const FreigabeEintrag* g = g_freigaben.gezeigt();
   g_gezeigtShare = g != nullptr ? g->share : 0;
   g_gezeigtUser = g != nullptr ? g->user : 0;
   for (auto& [nr, s] : g_slots) {
-    const SlotMode m = s->mode.load();
+    const SlotMode m = s->vorgemerkt ? s->vorgemerktMode : s->mode.load();
+    const bool modusNeu = m != s->mode.load();
     if (m == SlotMode::Participant) {
       slotRetarget(*s, m, 0, Grund::noTarget);
     } else if (m == SlotMode::Speaker) {
@@ -750,7 +797,8 @@ void alleNeuZuordnen() {
       slotRetarget(*s, m, 0, Grund::speakerNone);
     } else {
       s->shareUser = g_gezeigtUser;
-      slotRetarget(*s, m, g_gezeigtShare, g_gezeigtShare != 0 ? Grund::shareChanged : Grund::shareNone);
+      // Mit gezeigter Freigabe bestaetigt modeChanged den vorgemerkten Wechsel; ohne gilt der Ziel-0-Grund (6.10 Schritt 3).
+      slotRetarget(*s, m, g_gezeigtShare, g_gezeigtShare != 0 ? (modusNeu ? Grund::modeChanged : Grund::shareChanged) : Grund::shareNone);
     }
   }
 }
@@ -1319,6 +1367,9 @@ void slotOn(const SlotBefehl& b) {
   Abo& abo = s.abo();
   abo.type = rohTyp(b.mode);
   if (!s.sender.open(s.ndi)) { emitSlotFehler("slotSenderFailed", b.nr); return; }
+  // Freigabe-Slots senden ohne den Bild-Versatz der Personen (6.14, E11; Nachtrag N2a.5). slotOn ist kein
+  // Moduswechsel, umhaengPlan plant hier kein OhneVersatzSetzen; die Warteschlange des neuen Senders ist leer.
+  s.sender.setOhneVersatz(b.mode == SlotMode::Share);
   abo.delegate = std::make_unique<Delegate>(&s, &abo);
   const SDKError err = rendererAnlegen(abo);
   if (err != SDKERR_SUCCESS) {
@@ -1331,13 +1382,9 @@ void slotOn(const SlotBefehl& b) {
   }
   g_slots[b.nr] = std::move(slot);
   vorschauAnmelden(b.nr);
-  // Erstes Ziel nach Modus (6.7-6.9): Teilnehmer die Kennung aus dem Befehl, Sprecher
-  // aus der Sprecher-Erinnerung, Freigabe die gezeigte Freigabe.
-  unsigned ziel = zielNachModus(s, b.mode, b.id, jetztMs());
-  if (b.mode == SlotMode::Participant && ziel != 0 && !sessionFindParticipant(ziel, nullptr, nullptr)) {
-    emitLog(L"Slot " + std::to_wstring(b.nr) + L": Kennung " + std::to_wstring(ziel) + L" gehoert keinem Teilnehmer - kein Ziel");
-    ziel = 0;
-  }
+  // Erstes Ziel nach Modus (6.7-6.9): Teilnehmer die Kennung aus dem Befehl (geprueft,
+  // teilnehmerZiel), Sprecher aus der Sprecher-Erinnerung, Freigabe die gezeigte Freigabe.
+  const unsigned ziel = zielNachModus(s, b.mode, b.id, jetztMs());
   slotRetargetIntern(s, b.mode, ziel, Grund::command, false);
   // Ton (6.13, W6, N9-1): audioEnsureSubscribed() genau dann, wenn tonAboNoetig(); den Plan gibt tonUmschaltPlan.
   UmhaengLage l = lageFuer(s, b.mode, abo.target.load(), Grund::command);
@@ -1358,12 +1405,17 @@ void slotSet(const SlotAenderung& a) {
   Abo& abo = s.abo();
   // Reihenfolge (6.2): fallback, showNoVideo, Ton, dann hoechstens EIN Umhaengen.
   if (a.fallbackGesetzt) s.fallback = a.fallback;
+  bool sprecherWechsel = false;   // N2a.6: die neue Wahl zeigt jemand anderen als das Abo; umgehaengt wird unten
+  SprecherSchritt sprecher;
   if (a.showNoVideoGesetzt) {
     s.showNoVideo = a.showNoVideo;
     // Neue SprecherWahl mit der neuen Einstellung, aus der Erinnerung vorbelegt (6.8).
     if (s.mode.load() == SlotMode::Speaker) {
       s.wahl = neueWahl(s);
-      s.wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetztMs());
+      sprecher = s.wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetztMs());
+      // Die Wahl ist die Wahrheit ueber den Slot (Nachtrag N2a.6): zeigt sie unter der neuen Einstellung jemand
+      // anderen - auch niemanden (Ziel 0, speakerNone) -, haengt der Slot um, wie nach speakerConfig.
+      sprecherWechsel = s.wahl->ziel() != abo.target.load();
     }
   }
   if (a.audioGesetzt || a.shareAudioGesetzt) {
@@ -1397,12 +1449,14 @@ void slotSet(const SlotAenderung& a) {
   }
   if (a.idGesetzt && vorher == SlotMode::Participant && a.id != abo.target.load()) {
     if (a.resGesetzt) s.res = a.res;
-    unsigned ziel = a.id;
-    if (ziel != 0 && !sessionFindParticipant(ziel, nullptr, nullptr)) {
-      emitLog(L"Slot " + std::to_wstring(s.nr) + L": Kennung " + std::to_wstring(ziel) + L" gehoert keinem Teilnehmer - kein Ziel");
-      ziel = 0;
-    }
-    slotRetarget(s, vorher, ziel, Grund::targetChanged);
+    slotRetarget(s, vorher, teilnehmerZiel(s.nr, a.id), Grund::targetChanged);
+    return;
+  }
+  if (sprecherWechsel) {
+    // N2a.6 (6.8, 6.2): Ziel und Grund der neuen Wahl (speakerChanged, bei Ziel 0 speakerNone); eine neue Aufloesung
+    // aus demselben Befehl geht mit - hoechstens EIN Umhaengen.
+    if (a.resGesetzt) s.res = a.res;
+    slotRetarget(s, SlotMode::Speaker, s.wahl->ziel(), sprecher.grund);
     return;
   }
   if (a.resGesetzt && a.res != s.res) {
@@ -1647,6 +1701,11 @@ void slotsTick() {
 namespace {
 
 void Slot::bildAnkunft(Abo& abo, YUVRawDataI420* data) {
+  // Generation und Ziel VOR dem Riegel (Nachtrag N2a.1): haengt die Hauptschleife um, nachdem dieses Bild den Riegel
+  // passiert hat, erkennt der Sperr-Block unten es an der Generation. Reihenfolge Generation, dann Ziel: ZielStandNeu
+  // schreibt das Ziel vor der Generation.
+  const uint64_t aboGen = abo.umhaengGeneration.load();
+  const unsigned aboZiel = abo.target.load();
   // Riegel (6.10): ohne subscribed oder waehrend des Umhaengens verworfen.
   if (imAbbau.load() || riegelVerwirft(abo.subscribed.load(), abo.umhaengen.load())) {
     lateFrames.fetch_add(1);
@@ -1677,7 +1736,7 @@ void Slot::bildAnkunft(Abo& abo, YUVRawDataI420* data) {
   // Erwartet: Teilnehmer- bzw. Freigabe-Kennung. Ein abweichendes Bild zaehlt in
   // foreignFrames und geht hinaus (FP5); es beendet nur die Luecke nicht.
   const unsigned quelle = data->GetSourceID();
-  const bool passt = quelle == abo.target.load();
+  const bool passt = quelle == aboZiel;
   if (!passt) foreignFrames.fetch_add(1);
   sender.sendI420(buf, w, h);
   // Kopie nur bei Freeze oder Freigabe (E9), per try_lock: haelt der Herzschlag die
@@ -1686,47 +1745,63 @@ void Slot::bildAnkunft(Abo& abo, YUVRawDataI420* data) {
   if (mode.load() == SlotMode::Share || fallback.load() == Fallback::Freeze) {
     const long long k0 = qpcJetzt();
     if (last.m.try_lock()) {
-      last.i420.assign(buf, buf + erwartet);
-      last.w = w;
-      last.h = h;
+      // Nur ein Bild DIESER Generation (N2a.1, B53): nach einem Umhaengen ueberschreibt ein spaetes Bild des alten
+      // Ziels die Kopie des neuen nicht mehr.
+      if (abo.umhaengGeneration.load() == aboGen) {
+        last.i420.assign(buf, buf + erwartet);
+        last.w = w;
+        last.h = h;
+        kopiert = true;
+      }
       last.m.unlock();
-      kopiert = true;
     }
     copyUs.fetch_add(qpcUs(k0, qpcJetzt()));
   }
   frameCount.fetch_add(1);
   bool melden = false;
+  bool spaet = false;
   {
     std::lock_guard<std::mutex> lock(fieldMutex);
-    ZielStand& z = abo.ziel;
-    // 6.10 „Erstes Bild danach“ (PB23): bildSeitUmhaengen und live/frames am ERSTEN Bild,
-    // das den Riegel passiert hat - ueber bildAnnehmen() aus slot_logic.h, nie an
-    // GetSourceID() gebunden (Nachbesserung a3). bildAnnehmen fuehrt auch lastFrameMs,
-    // lastW und lastH nach.
-    if (bildAnnehmen(z, w, h, jetzt)) gapErstesBildMs = jetzt;
-    // Getrennt davon die Luecke (gapMs, MS13): sie endet am ersten PASSENDEN Bild; kam 2 s
-    // lang keins, am ersten Bild nach Schritt 6, mit gapUngeprueft (6.10, B10 c).
-    if (gapOffen && (passt || jetzt - z.retargetMs >= 2000)) {
-      gapMs = (passt ? jetzt : gapErstesBildMs) - z.retargetMs;
-      gapUngeprueft = !passt;
-      gapOffen = false;
-    }
-    if (kopiert) z.kopieGueltig = true;
-    bufferMismatch = false;
-    if (!z.gemessen || rotation != rot || limitedRange != limited || state != SlotState::Live || grund != Grund::frames ||
-        sent != Sent::None) {
-      z.gemessen = true;
-      rotation = rot;
-      limitedRange = limited;
-      state = SlotState::Live;
-      grund = Grund::frames;
-      sent = Sent::None;
-      melden = true;
+    // ZWEITE Abfrage des Riegels, in DERSELBEN Sperre wie die Schreibzugriffe (N2a.1, I3 aus Stage 4): zwischen der
+    // ersten oben und hier liegen Senden und Kopie. Hing die Hauptschleife inzwischen um (Generation anders) oder
+    // steht sie mitten darin (Riegel), gehoert dieses Bild nicht zum Ziel-Stand: kein bildAnnehmen, keine gueltige
+    // Kopie, kein Zustand, keine Vorschau.
+    if (imAbbau.load() || riegelVerwirft(abo.subscribed.load(), abo.umhaengen.load()) ||
+        abo.umhaengGeneration.load() != aboGen) {
+      spaet = true;
+    } else {
+      ZielStand& z = abo.ziel;
+      // 6.10 „Erstes Bild danach“ (PB23): bildSeitUmhaengen und live/frames am ERSTEN Bild,
+      // das den Riegel passiert hat - ueber bildAnnehmen() aus slot_logic.h, nie an
+      // GetSourceID() gebunden (Nachbesserung a3). bildAnnehmen fuehrt auch lastFrameMs,
+      // lastW und lastH nach.
+      if (bildAnnehmen(z, w, h, jetzt)) gapErstesBildMs = jetzt;
+      // Getrennt davon die Luecke (gapMs, MS13): sie endet am ersten PASSENDEN Bild; kam 2 s
+      // lang keins, am ersten Bild nach Schritt 6, mit gapUngeprueft (6.10, B10 c).
+      if (gapOffen && (passt || jetzt - z.retargetMs >= 2000)) {
+        gapMs = (passt ? jetzt : gapErstesBildMs) - z.retargetMs;
+        gapUngeprueft = !passt;
+        gapOffen = false;
+      }
+      if (kopiert) z.kopieGueltig = true;
+      bufferMismatch = false;
+      if (!z.gemessen || rotation != rot || limitedRange != limited || state != SlotState::Live || grund != Grund::frames ||
+          sent != Sent::None) {
+        z.gemessen = true;
+        rotation = rot;
+        limitedRange = limited;
+        state = SlotState::Live;
+        grund = Grund::frames;
+        sent = Sent::None;
+        melden = true;
+      }
     }
   }
+  if (spaet) { lateFrames.fetch_add(1); return; }
   workUs.fetch_add(qpcUs(t0, qpcJetzt()));
-  // Vorschau nur aus echten Bildern (E16), eigene Kosten in previewUs.
-  vorschauBild(nr, abo.target.load(), buf, w, h, jetzt);
+  // Vorschau nur aus echten Bildern (E16), eigene Kosten in previewUs; mit dem Ziel, das vor dem Riegel galt
+  // (N2a.1): ein Umhaengen zwischen Sperr-Block und hier beschriftet das Bild nicht mit dem neuen Ziel.
+  vorschauBild(nr, aboZiel, buf, w, h, jetzt);
   if (melden) emitSlot(*this);
 }
 
@@ -1746,9 +1821,15 @@ void Delegate::onRawDataStatusChanged(RawDataStatus status) {
   // RawData_Off setzt KEINEN Grund (6.7): der Header dokumentiert ihn nicht, und er
   // kam gemessen auch nach unSubscribe(). Nach dem ersten Bild dieses Ziels loest er
   // nur die Abfrage IsVideoOn() in der Hauptschleife aus. Der Riegel verwirft ihn, auch wenn er erst nach der Rueckkehr von unSubscribe kommt (ANNAHME AN22, unbelegt).
+  const uint64_t aboGen = abo_->umhaengGeneration.load();   // vor dem Riegel (Nachtrag N2a.1)
   if (slot_->imAbbau.load() || riegelVerwirft(abo_->subscribed.load(), abo_->umhaengen.load())) return;
   if (status != RawData_Off) return;
   std::lock_guard<std::mutex> lock(slot_->fieldMutex);
+  // Riegel und Generation noch einmal unter der Sperre (N2a.1): ein Umhaengen dazwischen verwirft die Meldung.
+  if (slot_->imAbbau.load() || riegelVerwirft(abo_->subscribed.load(), abo_->umhaengen.load()) ||
+      abo_->umhaengGeneration.load() != aboGen) {
+    return;
+  }
   if (abo_->ziel.bildSeitUmhaengen) abo_->ziel.rawOffGesehen = true;
 }
 
