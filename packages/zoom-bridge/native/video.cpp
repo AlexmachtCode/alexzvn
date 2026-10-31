@@ -15,6 +15,9 @@
 // Ohne diesen Include bricht der Bau an jeder Methode auf *data mit C2027
 // ("Verwendung des undefinierten Typs") ab.
 #include "zoom_sdk_raw_data_def.h"
+// GetProcessMemoryInfo (bridgeStats.memMb): mit PSAPI_VERSION 2 liegt es als
+// K32GetProcessMemoryInfo in kernel32 (gemessen: Bau ohne psapi, A-EP15).
+#include <psapi.h>
 #include "session.h"
 #include "callbacks.h"
 #include "audio.h"
@@ -115,6 +118,7 @@ struct Slot {
   std::atomic<uint64_t> frameCount{0}, fallbackCount{0}, heldFrames{0}, foreignFrames{0}, lateFrames{0};
   std::atomic<uint64_t> tooFrequent{0}, noShareData{0}, rendererNew{0}, rendererLost{0};
   std::atomic<uint64_t> workUs{0}, copyUs{0};
+  std::atomic<uint64_t> audioPakete{0};    // gesendete bzw. gemischte Ton-Pakete (audioPps)
   // Kopie des letzten Bildes DIESES Ziels (Freeze, Freigabe; 6.12). Gueltig nur mit
   // abo.ziel.kopieGueltig.
   FrameCopy last;
@@ -126,6 +130,14 @@ struct Slot {
   int64_t letztesErsatzMs = 0;
   bool kameraAus = false;                  // Zoom meldet die Kamera des Ziels als aus (videoStatus, IsVideoOn)
   int resSet = -1, resGot = -1;            // 6.11; -1 = noch nicht gesetzt
+  int rawType = -1;                        // getRawDataType() nach dem Setzen der Aufloesung; -1 = keins
+  int shareRate = 0, shareCh = 0;          // Format des Computertons (shareAudioRate/-Ch)
+  // Messfenster fuer slotStats (6.17): Beginn und Zaehlerstaende am Fensteranfang.
+  int64_t statsBeginnMs = 0;
+  uint64_t statsFrames = 0, statsFallback = 0, statsWork = 0, statsCopy = 0, statsAudio = 0;
+  // Bilder und Ton-Pakete zaehlen je ZIEL (B55, Nachbesserung a3): ZielStandNeu setzt statsFrames
+  // und statsAudio auf den Stand des Umhaengens; fps und audioPps rechnen ab hier.
+  int64_t statsZielBeginnMs = 0;
   TonZustand tonZustand = TonZustand::Off;
   TonGrund tonGrund = TonGrund::command;
   TonQuelle tonConfigured = TonQuelle::None;
@@ -417,6 +429,8 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         break;
       case UmhaengSchritt::GetResolution:
         s.resGot = abo.renderer != nullptr ? static_cast<int>(abo.renderer->getResolution()) : -1;
+        // Messwert zu MS5: welchen Rohdaten-Typ der Renderer meldet.
+        s.rawType = abo.renderer != nullptr ? static_cast<int>(abo.renderer->getRawDataType()) : -1;
         break;
       case UmhaengSchritt::Subscribe:
         subscribeAusfuehren(s, lauf);
@@ -431,6 +445,12 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         abo.ziel = ZielStand{};
         abo.ziel.retargetMs = jetztMs();
         s.bufferMismatch = false;
+        s.heldFrames = 0;   // gehaltene Bilder zaehlen je Ziel (6.17)
+        // Messfenster je ZIEL (B55, Nachbesserung a3): Bilder und Ton-Pakete des alten Ziels
+        // zaehlen nicht fuer das neue; w/h/fps fehlen, bis ein Bild des neuen Ziels kam.
+        s.statsZielBeginnMs = abo.ziel.retargetMs;
+        s.statsFrames = s.frameCount.load();
+        s.statsAudio = s.audioPakete.load();
         s.gapUngeprueft = false;
         abo.target = lauf.ziel;
         s.kameraAus = false;
@@ -927,7 +947,10 @@ void mischerEinspeisen(Slot& s, const AudioPacket& p, Weg weg, int64_t jetzt) {
   } else {
     s.mix.eingangB(p.samples.data(), p.sampleCount, p.sampleRate, p.channels, jetzt);
     s.tonFensterMischB = true;
+    s.shareRate = p.sampleRate;
+    s.shareCh = p.channels;
   }
+  s.audioPakete.fetch_add(1);
   std::lock_guard<std::mutex> lock(s.fieldMutex);
   if (weg == Weg::MischerB || s.ton.audioRate == 0) {
     s.ton.audioRate = p.sampleRate;
@@ -994,6 +1017,8 @@ void paketSenden(Slot& s, const AudioPacket& p, int64_t jetzt) {
       t.audioWartenSummeUs = t.audioWartenMaxUs = t.audioWartenMinUs = 0;
     }
   }
+  s.audioPakete.fetch_add(1);
+  if (p.kind == AudioArt::Share) { s.shareRate = p.sampleRate; s.shareCh = p.channels; }
   if (p.kind == AudioArt::Person) s.tonFensterPerson = true;
   else if (p.kind == AudioArt::Mix) s.tonFensterMix = true;
   else s.tonFensterShare = true;
@@ -1115,6 +1140,102 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
     }
   }
   if (melden) emitSlot(s);
+}
+
+// --- Messwerte (Spec 6.17) -------------------------------------------------------------
+// slotStats alle 2 s je laufendem Slot. Pflichtfelder immer, Messfelder nur, wenn
+// gemessen (Regel "keine erfundenen Werte", 6.3; nach jedem Umhaengen fehlen sie wieder).
+void slotStatsMelden(Slot& s, int64_t jetzt) {
+  if (s.statsBeginnMs == 0) {
+    s.statsBeginnMs = jetzt;
+    s.statsFrames = s.frameCount.load();
+    s.statsFallback = s.fallbackCount.load();
+    s.statsWork = s.workUs.load();
+    s.statsCopy = s.copyUs.load();
+    s.statsAudio = s.audioPakete.load();
+    return;
+  }
+  const int64_t spanne = jetzt - s.statsBeginnMs;
+  if (spanne < 2000) return;
+  // fps und audioPps rechnen ab dem Umhaengen, wenn es in diesem Fenster lag (B55); nie durch 0.
+  const int64_t beginn = s.statsBeginnMs;
+  const int64_t zielBeginn = s.statsZielBeginnMs > beginn ? s.statsZielBeginnMs : beginn;
+  const uint64_t zielMs = jetzt > zielBeginn ? static_cast<uint64_t>(jetzt - zielBeginn) : 1;
+  const uint64_t frames = s.frameCount.load() - s.statsFrames;
+  const uint64_t ersatz = s.fallbackCount.load() - s.statsFallback;
+  const uint64_t work = s.workUs.load() - s.statsWork;
+  const uint64_t copy = s.copyUs.load() - s.statsCopy;
+  const uint64_t pakete = s.audioPakete.load() - s.statsAudio;
+  s.statsBeginnMs = jetzt;
+  s.statsFrames += frames;
+  s.statsFallback += ersatz;
+  s.statsWork += work;
+  s.statsCopy += copy;
+  s.statsAudio += pakete;
+  Abo& abo = s.abo();
+  ZielStand z;
+  TonStand t;
+  int64_t gap = -1;
+  bool gapUngeprueft = false;
+  {
+    std::lock_guard<std::mutex> lock(s.fieldMutex);
+    z = abo.ziel;
+    t = s.ton;
+    gap = s.gapMs;
+    gapUngeprueft = s.gapUngeprueft;
+  }
+  const SlotMode mode = s.mode.load();
+  const unsigned ziel = abo.target.load();
+  const bool mischer = tonWeg(mode, s.audio.load(), s.shareAudio.load()) == TonQuelle::MixShare;
+  size_t kopie = 0;
+  if (s.last.m.try_lock()) {
+    kopie = s.last.i420.capacity();
+    s.last.m.unlock();
+  }
+  const auto jeSekunde = [&](uint64_t n) { return std::to_string(n * 1000 / static_cast<uint64_t>(spanne)); };
+  std::string out = "{\"ev\":\"slotStats\",\"slot\":" + std::to_string(s.nr);
+  auto pflicht = [&](const char* name, const std::string& v) { out += std::string(",\"") + name + "\":" + v; };
+  auto wenn = [&](bool gemessen, const char* name, const std::string& v) { if (gemessen) pflicht(name, v); };
+  // w, h, fps nur aus Bildern dieses Fensters UND dieses Ziels (B55): nach dem Umhaengen
+  // fehlen sie, bis ein Bild des neuen Ziels kam; ohne Bild nur die letzte Groesse des Ziels.
+  const bool bildDa = frames > 0 && z.bildSeitUmhaengen;
+  wenn(bildDa, "w", std::to_string(z.lastW));
+  wenn(bildDa, "h", std::to_string(z.lastH));
+  wenn(!bildDa && z.lastW > 0, "lastW", std::to_string(z.lastW));
+  wenn(!bildDa && z.lastH > 0, "lastH", std::to_string(z.lastH));
+  wenn(bildDa, "fps", std::to_string(frames * 10000 / zielMs / 10) + "." + std::to_string(frames * 10000 / zielMs % 10));
+  pflicht("fallbackFps", jeSekunde(ersatz));
+  pflicht("heldFrames", std::to_string(s.heldFrames.load()));
+  pflicht("workUs", jeSekunde(work));     // Bridge-Anteil je Sekunde (ANNAHME AN4: NDI sendet synchron)
+  pflicht("copyUs", jeSekunde(copy));
+  pflicht("previewUs", jeSekunde(vorschauKostenUs(s.nr)));
+  pflicht("memKb", std::to_string((s.sender.speicherBytes() + kopie + vorschauSpeicherBytes(s.nr)) / 1024));
+  pflicht("resWanted", std::string("\"") + (s.res == ZoomSDKResolution_360P ? "360p" : s.res == ZoomSDKResolution_1080P ? "1080p" : "720p") + "\"");
+  wenn(s.resSet >= 0, "resSet", std::to_string(s.resSet));
+  wenn(s.resGot >= 0, "resGot", std::to_string(s.resGot));
+  wenn(s.rawType >= 0, "rawType", std::to_string(s.rawType));
+  if (mode != SlotMode::Share && ziel != 0 && videoCtrl() != nullptr) {
+    // GetUserVideoSize: Bedeutung ungeklaert (MS24) - nur ein Messwert.
+    const VideoSize gross = videoCtrl()->GetUserVideoSize(ziel);
+    wenn(gross.width > 0, "userVideoW", std::to_string(gross.width));
+    wenn(gross.height > 0, "userVideoH", std::to_string(gross.height));
+  }
+  pflicht("foreignFrames", std::to_string(s.foreignFrames.load()));
+  pflicht("lateFrames", std::to_string(s.lateFrames.load()));
+  pflicht("tooFrequent", std::to_string(s.tooFrequent.load()));
+  pflicht("noShareData", std::to_string(s.noShareData.load()));
+  pflicht("rendererNew", std::to_string(s.rendererNew.load()));
+  pflicht("rendererLost", std::to_string(s.rendererLost.load()));
+  wenn(gap >= 0, "gapMs", std::to_string(gap));
+  wenn(gap >= 0, "gapUngeprueft", gapUngeprueft ? "true" : "false");
+  wenn(pakete > 0, "audioPps", std::to_string(pakete * 1000 / zielMs));
+  wenn(t.audioRate > 0 && !mischer, "audioRate", std::to_string(t.audioRate));
+  wenn(t.audioRate > 0 && !mischer, "audioCh", std::to_string(t.audioChannels));
+  wenn(s.shareRate > 0, "shareAudioRate", std::to_string(s.shareRate));
+  wenn(s.shareRate > 0, "shareAudioCh", std::to_string(s.shareCh));
+  wenn(mischer, "mixDrops", std::to_string(s.mix.mixDropsMs()));
+  wenn(mischer, "mixSilenceMs", std::to_string(s.mix.mixSilenceMs()));
+  emitRaw(out + "}");
 }
 
 // Versatz-Zaehler je Slot alle 10 s (A-EP18, frueher je Abo video.cpp:968-984).
@@ -1373,6 +1494,64 @@ void slotsInMeeting() {
 
 void slotsMeetingNeu() { ++g_meetingNr; }
 
+void bridgeStatsTick(bool initGelaufen) {
+  if (!initGelaufen) return;
+  const int64_t jetzt = jetztMs();
+  static int64_t s_beginn = 0;
+  static uint64_t s_prozess = 0, s_belegt = 0, s_gesamt = 0;
+  FILETIME c, e, k, u, idle, kern, user;
+  GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u);
+  GetSystemTimes(&idle, &kern, &user);
+  const auto wert = [](const FILETIME& f) { return (static_cast<uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
+  const uint64_t prozess = wert(k) + wert(u);
+  const uint64_t gesamt = wert(kern) + wert(user);   // kern enthaelt idle
+  const uint64_t belegt = gesamt - wert(idle);
+  if (s_beginn == 0) {
+    // Erstes Fenster: nur die Ausgangswerte; gemeldet wird erst mit einer Spanne.
+    s_beginn = jetzt;
+    s_prozess = prozess;
+    s_belegt = belegt;
+    s_gesamt = gesamt;
+    return;
+  }
+  if (jetzt - s_beginn < 2000) return;
+  const double spanneMs = static_cast<double>(jetzt - s_beginn);
+  // 100-ns-Einheiten: 10 000 je Millisekunde. 100 % = ein Kern bzw. alle Kerne (6.3).
+  const double cpu = static_cast<double>(prozess - s_prozess) / (spanneMs * 10000.0) * 100.0;
+  const double sys = gesamt > s_gesamt ? static_cast<double>(belegt - s_belegt) * 100.0 / static_cast<double>(gesamt - s_gesamt) : 0.0;
+  s_beginn = jetzt;
+  s_prozess = prozess;
+  s_belegt = belegt;
+  s_gesamt = gesamt;
+  PROCESS_MEMORY_COUNTERS speicher = {};
+  const bool memDa = GetProcessMemoryInfo(GetCurrentProcess(), &speicher, sizeof(speicher)) != 0;
+  const AudioZaehler a = audioZaehler();
+  std::string out = "{\"ev\":\"bridgeStats\"";
+  auto pflicht = [&](const char* name, const std::string& v) { out += std::string(",\"") + name + "\":" + v; };
+  auto wenn = [&](bool gemessen, const char* name, const std::string& v) { if (gemessen) pflicht(name, v); };
+  auto zahl1 = [](double d) { return std::to_string(static_cast<long long>(d * 10.0 + 0.5) / 10) + "." + std::to_string(static_cast<long long>(d * 10.0 + 0.5) % 10); };
+  pflicht("cpuPct", zahl1(cpu));
+  pflicht("sysPct", zahl1(sys));
+  pflicht("memMb", std::to_string(memDa ? speicher.WorkingSetSize / (1024 * 1024) : 0));
+  pflicht("audioQueueMax", std::to_string(a.queueMax));
+  pflicht("audioDropped", std::to_string(a.dropped));
+  pflicht("merkerVerworfen", std::to_string(merkerVerworfen()));
+  pflicht("halteliste", std::to_string(g_slotsHalt.size()));
+  pflicht("shareAudioPackets", std::to_string(a.shareAudioPackets));
+  pflicht("shareAudioUnassigned", std::to_string(a.shareAudioUnassigned));
+  wenn(a.shareAudioLastIdDa, "shareAudioLastId", std::to_string(a.shareAudioLastId));
+  bool hd = false, original = false;
+  wenn(sessionHdVideo(&hd), "hdVideo", hd ? "true" : "false");
+  wenn(sessionOriginalSize(&original), "originalSize", original ? "true" : "false");
+  int w = 0, h = 0, fps = 0;
+  wenn(sessionEmpfangsStatistik(false, &w, &h, &fps), "recvVideo",
+       "{\"w\":" + std::to_string(w) + ",\"h\":" + std::to_string(h) + ",\"fps\":" + std::to_string(fps) + "}");
+  wenn(sessionEmpfangsStatistik(true, &w, &h, &fps), "recvShare",
+       "{\"w\":" + std::to_string(w) + ",\"h\":" + std::to_string(h) + ",\"fps\":" + std::to_string(fps) + "}");
+  pflicht("previewOn", vorschauAn() ? "true" : "false");
+  emitRaw(out + "}");
+}
+
 bool rendererSperre() { return callbacksRendererSperre(); }
 
 void slotsLeave() {
@@ -1459,6 +1638,7 @@ void slotsTick() {
     stilleSenden(*s, jetzt);
     tonQuelleMessen(*s, jetzt);
     ersatzbildTick(*s, jetzt);
+    slotStatsMelden(*s, jetzt);
   }
 }
 

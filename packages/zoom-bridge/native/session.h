@@ -323,6 +323,13 @@ bool sessionHdVideo(bool* out);
 bool sessionOriginalSize(bool* out);
 
 /**
+ * Meetingweite Empfangswerte (6.11, MS24): GetMeetingVideoStatisticInfo bzw.
+ * GetMeetingShareStatisticInfo; recvResolution HIWORD = Hoehe, LOWORD = Breite
+ * (meeting_service_interface.h:589-590, A-EP5). false = kein Meeting oder SDK-Fehler.
+ */
+bool sessionEmpfangsStatistik(bool freigabe, int* w, int* h, int* fps);
+
+/**
  * Fragt die Rohdaten-Aufnahme-Erlaubnis ab und, wenn noetig, beim Gastgeber
  * an (RequestLocalRecordingPrivilege). Meldet {"ev":"privilege",...} bzw.
  * {"ev":"error","where":"privilege",...}. Diese Funktion ruft

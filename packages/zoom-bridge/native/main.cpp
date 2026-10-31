@@ -544,6 +544,7 @@ int main(int argc, char** argv) {
     // tickt bereits alle 10 ms, ein zweiter Thread waere nur ein weiterer
     // Schreiber auf denselben Feldern ohne jeden Vorteil.
     slotsTick();
+    bridgeStatsTick(g_sdkInitialized.load());
     while (!g_quit && nextLine(line)) handle(line);
     if (g_stdinClosed) {
       bool linesEmpty;

@@ -3764,5 +3764,57 @@ console.log('\nNativer Teil — A15 Ton je Slot: Arten, Mischer, Stille (Spec 6.
   assert(/case UmhaengSchritt::MischerNeu:[^}]*?s\.mix\s*=\s*AudioMix\{\}/.test(video) && /case UmhaengSchritt::MischerEingangBNeu:[^}]*?s\.mix\.eingangBNeu\(\)/.test(video),
     'A15 N1: MischerNeu beginnt den Mischer neu, MischerEingangBNeu nur dessen Eingang B');
 }
+console.log('\nNativer Teil — A16 Messwerte slotStats und bridgeStats (Spec 6.3, 6.17):');
+{
+  const video = nativ('video.cpp');
+  // Gliederung 3.3: Pflichtfelder stehen immer (pflicht), Messfelder nur hinter einer Gemessen-Prüfung (wenn).
+  const pruefe = (rumpfText: string, pflichtFelder: string[], messFelder: string[]) => ({
+    fehlt: [...pflichtFelder.filter((f) => !rumpfText.includes(`pflicht("${f}"`)),
+      ...messFelder.filter((f) => !new RegExp(`wenn\\([^;]*"${f}"`).test(rumpfText))],
+    ungeprueft: messFelder.filter((f) => rumpfText.includes(`pflicht("${f}"`)),
+  });
+  const slot = pruefe(rumpf(video, 'void slotStatsMelden('),
+    ['fallbackFps', 'heldFrames', 'workUs', 'copyUs', 'previewUs', 'memKb', 'resWanted', 'foreignFrames', 'lateFrames', 'tooFrequent',
+      'noShareData', 'rendererNew', 'rendererLost'],
+    ['w', 'h', 'lastW', 'lastH', 'fps', 'resSet', 'resGot', 'rawType', 'userVideoW', 'userVideoH', 'gapMs', 'gapUngeprueft', 'audioPps',
+      'audioRate', 'audioCh', 'shareAudioRate', 'shareAudioCh', 'mixDrops', 'mixSilenceMs']);
+  assert(slot.fehlt.length === 0 && slot.ungeprueft.length === 0,
+    'A16 3.3: slotStats führt jedes Feld, Messfelder nur gemessen (kein fps ohne Bild, keine erfundene 0)');
+  if (slot.fehlt.length + slot.ungeprueft.length > 0) console.error(`      fehlt: ${slot.fehlt.join(', ')}; ohne Prüfung: ${slot.ungeprueft.join(', ')}`);
+  const bruecke = pruefe(rumpf(video, 'void bridgeStatsTick(bool initGelaufen)'),
+    ['cpuPct', 'sysPct', 'memMb', 'audioQueueMax', 'audioDropped', 'merkerVerworfen', 'halteliste', 'shareAudioPackets',
+      'shareAudioUnassigned', 'previewOn'],
+    ['shareAudioLastId', 'hdVideo', 'originalSize', 'recvVideo', 'recvShare']);
+  assert(bruecke.fehlt.length === 0 && bruecke.ungeprueft.length === 0,
+    'A16 3.3: bridgeStats führt jedes Feld, hdVideo/originalSize/recv… nur wenn verfügbar');
+  if (bruecke.fehlt.length + bruecke.ungeprueft.length > 0) console.error(`      fehlt: ${bruecke.fehlt.join(', ')}; ohne Prüfung: ${bruecke.ungeprueft.join(', ')}`);
+  const mess = rumpf(video, 'void slotStatsMelden(');
+  assert(/wenn\(\s*bildDa\s*,\s*"fps"/.test(mess) && /if\s*\(\s*spanne\s*<\s*2000\s*\)\s*return;/.test(mess),
+    'A16 6.17: slotStats alle 2 s; fps nur aus Bildern des laufenden Fensters');
+  // B55 (Spec 6.3, Nachbesserung a3, NB-a3-7): Messfelder je ZIEL. Das Umhängen (ZielStandNeu) beginnt das Fenster für
+  // w/h/fps und audioPps neu; w/h/fps nur mit einem Bild des neuen Ziels (bildSeitUmhaengen) - nie w = 0 und nie die
+  // Bildrate des alten Ziels nach einem Sprecherwechsel.
+  const zielNeu = (() => {
+    const plan = rumpf(video, 'void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ');
+    const i = plan.indexOf('case UmhaengSchritt::ZielStandNeu:');
+    return i < 0 ? '' : plan.slice(i, plan.indexOf('break;', i));
+  })();
+  assert(/s\.statsZielBeginnMs\s*=\s*abo\.ziel\.retargetMs\s*;/.test(zielNeu) && /s\.statsFrames\s*=\s*s\.frameCount\.load\(\)\s*;/.test(zielNeu)
+      && /s\.statsAudio\s*=\s*s\.audioPakete\.load\(\)\s*;/.test(zielNeu) && /const\s+uint64_t\s+zielMs\s*=\s*jetzt\s*>\s*zielBeginn\s*\?\s*static_cast<uint64_t>\(\s*jetzt\s*-\s*zielBeginn\s*\)\s*:\s*1\s*;/.test(mess)
+      && /const\s+bool\s+bildDa\s*=\s*frames\s*>\s*0\s*&&\s*z\.bildSeitUmhaengen\s*;/.test(mess)
+      && ['w', 'h'].every((f) => new RegExp(`wenn\\(\\s*bildDa\\s*,\\s*"${f}"`).test(mess))
+      && /s\.statsZielBeginnMs\s*>\s*beginn\s*\?\s*s\.statsZielBeginnMs\s*:\s*beginn/.test(mess) && (mess.match(/frames\s*\*\s*10000\s*\/\s*zielMs\b/g) ?? []).length === 2 && /pakete\s*\*\s*1000\s*\/\s*zielMs\b/.test(mess),
+    'A16 B55: das Umhängen beginnt das Messfenster je Ziel neu; w/h/fps nur mit einem Bild des neuen Ziels, fps und audioPps über die Zeit seit dem Umhängen');
+  assert(/slotStatsMelden\(\s*\*s\s*,\s*jetzt\s*\)/.test(rumpf(nativ('video.cpp', true), 'void slotsTick()')),
+    'A16 6.6 Nr. 6: der Herzschlag meldet slotStats je laufendem Slot');
+  const bt = rumpf(nativ('video.cpp', true), 'void bridgeStatsTick(bool initGelaufen)');
+  assert(/^\{\s*if\s*\(\s*!initGelaufen\s*\)\s*return;/.test(bt) && /bridgeStatsTick\(\s*g_sdkInitialized\.load\(\)\s*\)/.test(nativ('main.cpp', true)),
+    'A16 6.3: bridgeStats erst, sobald init gelaufen ist');
+  // An die Zuweisung gebunden (Nachbesserung a3, NB-a3-8): Ein reiner Tausch von *w und *h enthält beide Muster und
+  // blieb vorher grün. Header: „HIWORD->height, LOWORD->width“ (meeting_service_interface.h:589).
+  const empfang = rumpf(nativ('session.cpp', true), 'bool sessionEmpfangsStatistik(');
+  assert(/\*w\s*=\s*info\.recvResolution\s*&\s*0xFFFF\s*;/.test(empfang) && /\*h\s*=\s*\(\s*info\.recvResolution\s*>>\s*16\s*\)\s*&\s*0xFFFF\s*;/.test(empfang),
+    'A16 A-EP5: recvResolution HIWORD = Höhe, LOWORD = Breite');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

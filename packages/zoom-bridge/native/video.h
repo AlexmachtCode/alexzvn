@@ -149,3 +149,6 @@ void slotsSprecherEinstellung(slotlogic::Signal signal, int64_t holdMs);
  * Wiederholungen nach 18/29, vorgemerkte Umhaengungen.
  */
 void slotLogicTick(int64_t jetzt);
+
+/** bridgeStats alle 2 s, sobald init gelaufen ist (6.3, 6.17). Von der Hauptschleife nach slotsTick. */
+void bridgeStatsTick(bool initGelaufen);

@@ -445,6 +445,17 @@ bool sessionHdVideo(bool* out) {
   return true;
 }
 
+bool sessionEmpfangsStatistik(bool freigabe, int* w, int* h, int* fps) {
+  if (g_meeting == nullptr) return false;
+  MeetingASVStatisticInfo info;
+  const SDKError err = freigabe ? g_meeting->GetMeetingShareStatisticInfo(info) : g_meeting->GetMeetingVideoStatisticInfo(info);
+  if (err != SDKERR_SUCCESS) return false;
+  *w = info.recvResolution & 0xFFFF;
+  *h = (info.recvResolution >> 16) & 0xFFFF;
+  *fps = info.recvFps;
+  return true;
+}
+
 bool sessionOriginalSize(bool* out) {
   IVideoSettingContext* v = g_settings != nullptr ? g_settings->GetVideoSettings() : nullptr;
   if (v == nullptr || out == nullptr) return false;
