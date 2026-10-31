@@ -3647,5 +3647,35 @@ console.log('\nNativer Teil — A12 Sprecher, Freigabe, Moduswechsel, ohne Versa
   assert(/g_erinnerung\.entferne\(id\)/.test(weg) && /g_freigaben\.weggang\(id\)/.test(weg) && /->weggang\(id,/.test(weg),
     'A12 6.8 Nr. 6 / 6.9: ein Weggang entfernt die Kennung aus Erinnerung, Freigaben und Sprecher-Wahl');
 }
+console.log('\nNativer Teil — A13 Vorschau (Spec 6.16, PT6 e):');
+{
+  const dateien = readdirSync(nativOrdner).filter((f) => /\.(cpp|h)$/.test(f));
+  // PT6 e: das Ereignis "preview" gibt nur preview.cpp aus (im C++-Text maskiert als \"preview\").
+  const mitPreview = dateien.filter((f) => nativ(f).includes('\\"preview\\"'));
+  assert(mitPreview.length === 1 && mitPreview[0] === 'preview.cpp',
+    `A13 PT6 e: „preview“ wird nur in native/preview.cpp ausgegeben (gefunden in: ${mitPreview.join(', ') || 'keiner'})`);
+  const vorschau = nativ('preview.cpp', true);
+  assert(vorschau.length > 0 && !/\bg_slots\b/.test(vorschau) && !/#include\s+"video\.h"/.test(nativ('preview.cpp')),
+    'A13 PT6 e: native/preview.cpp liest g_slots nicht (und bindet video.h nicht ein)');
+  const video = nativ('video.cpp', true);
+  const ankunft = rumpf(video, 'void Slot::bildAnkunft(');
+  assert(/vorschauBild\(\s*nr\s*,\s*abo\.target\.load\(\)\s*,\s*buf\s*,/.test(ankunft) && !rumpf(video, 'void ersatzbildTick(').includes('vorschauBild('),
+    'A13 E16: Vorschau nur aus echten Bildern (bildAnkunft), nie aus dem Ersatzbild-Herzschlag');
+  assert(/vorschauAnmelden\(\s*b\.nr\s*\)/.test(rumpf(video, 'void slotOn(const SlotBefehl& b)'))
+      && /case UmhaengSchritt::VorschauPlatzLeeren:\s*vorschauLeeren\(\s*s\.nr\s*\)/.test(video),
+    'A13 6.16: slotOn meldet den Vorschau-Platz an, das Umhängen leert ihn');
+  const ende = rumpf(nativ('preview.cpp', true), 'void vorschauBild(');
+  assert(/p->m\.try_lock\(\)/.test(ende) && /jetzt\s*-\s*p->letzteMs\s*<\s*500/.test(ende) && /kMaxB\s*=\s*192/.test(vorschau) && /kMaxH\s*=\s*108/.test(vorschau),
+    'A13 6.16: Verkleinern per try_lock, höchstens alle 500 ms, in 192 × 108 eingepasst');
+  const main = nativ('main.cpp', true);
+  const iEnde = main.lastIndexOf('vorschauThreadEnde(');
+  assert(iEnde >= 0 && iEnde < main.lastIndexOf('slotsShutdownAll(') && iEnde > main.lastIndexOf('audioShutdown('),
+    'A13 6.15: quit/EOF beendet den Vorschau-Thread nach audioShutdown und vor slotsShutdownAll');
+  assert(/CoInitializeEx\(\s*nullptr\s*,\s*COINIT_MULTITHREADED\s*\)/.test(vorschau) && /previewUnavailable/.test(nativ('preview.cpp')) && /\bvorschauModus\(\s*an\s*\)/.test(rumpf(nativ('main.cpp'), 'if (cmd == "previewMode")')) && /\bg_an\s*=\s*!\s*g_unavailableGemeldet\.load\(\)\s*;/.test(rumpf(rumpf(vorschau, 'void vorschauModus(bool an)'), 'if (an)')),
+    'A13 E15: der Vorschau-Thread startet COM als MTA und meldet previewUnavailable, wenn WIC/COM fehlen; previewMode gibt on an vorschauModus, nach previewUnavailable bleibt die Vorschau aus');
+  const cmake = readFileSync(join(nativOrdner, '..', 'CMakeLists.txt'), 'utf8');
+  assert(/native\/preview\.cpp/.test(cmake) && /target_link_libraries\(zoom-bridge[^)]*\bwindowscodecs\b[^)]*\bole32\b/.test(cmake),
+    'A13 6.16: CMakeLists.txt baut preview.cpp und linkt windowscodecs und ole32');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

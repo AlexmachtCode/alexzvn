@@ -26,6 +26,7 @@
 // gehoert in diese Schleife, nicht in den Rueckruf (Begruendung unten).
 #include "callbacks.h"
 #include "audio.h"
+#include "preview.h"
 
 namespace {
 
@@ -339,6 +340,13 @@ void handle(const std::string& line) {
     slotOff(nr, slotlogic::Grund::command);   // slotNotOn dort
     return;
   }
+  if (cmd == "previewMode") {
+    // Braucht kein "init" (6.2). Unlesbar oder fehlend: slotBadFlag ohne slot.
+    bool an = false;
+    if (boolFromJson(line, "on", &an) != JsonBool::Gelesen) { emitSlotFehler("slotBadFlag", 0); return; }
+    vorschauModus(an);   // meldet {"ev":"previewMode","on":...}
+    return;
+  }
   if (cmd == "speakerConfig") {
     // Braucht kein "init" (wie videoDelay): eine Einstellung, die schon vor dem ersten
     // Sprecher-Slot stehen soll (6.2). Ohne slot in den Fehlern.
@@ -637,6 +645,8 @@ int main(int argc, char** argv) {
   // "leave"-Befehl oben: der Lauscher muss weg sein, bevor die Abos
   // verschwinden.
   audioShutdown();
+  // Vorschau-Thread VOR dem Loeschen der Slots beenden (6.15, B18).
+  vorschauThreadEnde();
   slotsShutdownAll();
   const bool shutdownComplete = sessionShutdown();
   if (!shutdownComplete) {

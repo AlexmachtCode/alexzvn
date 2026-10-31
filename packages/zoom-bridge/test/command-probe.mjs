@@ -16,8 +16,7 @@
 // Selbsttest gegen die Attrappe faehrt (A-EP12): ein Vertrag, zwei Umsetzungen,
 // getrennt gemessen. Faelle, die laufende Slots oder die Renderer-Sperre brauchen
 // (slotNameTaken, slotAlreadyOn, slotReconnecting), sind ohne Meeting nicht
-// erreichbar und werden mit einer Zeile uebersprungen. Faelle fuer Befehle, die erst
-// eine spaetere Aufgabe einfuehrt (NOCH_NICHT), ebenso. Dazu kommen unten die Faelle,
+// erreichbar und werden mit einer Zeile uebersprungen. Dazu kommen unten die Faelle,
 // die nur die echte Bridge pruefen kann (genauer Text der stderr-Zeilen samt der
 // gelesenen Werte, Zeilen ohne gueltiges JSON; Nachbesserung a3); jeder Vertragsfall
 // steht in der Tabelle (Nachbesserung a1). Eine Bestaetigung (speakerConfig,
@@ -39,8 +38,6 @@ require('@jm/ndi');
 const zoomBin = process.env.ZOOM_SDK_DIR ? `${process.env.ZOOM_SDK_DIR}\\x64\\bin;` : '';
 
 const OHNE_MEETING_UNERREICHBAR = new Set(['slotNameTaken', 'slotAlreadyOn', 'slotReconnecting']);
-// Befehle der Tabelle, die erst A13 (previewMode) einfuehrt.
-const NOCH_NICHT = new Set(['previewMode']);
 
 /**
  * Startet die Bridge frisch, schickt eine Zeile, sammelt Ereignisse und stderr und
@@ -147,12 +144,6 @@ for (const roh of [...tabelle, ...nurExe]) {
   const fall = erwartung(roh);
   if (OHNE_MEETING_UNERREICHBAR.has(fall.code)) {
     console.log(`  [${fall.name}] uebersprungen: ${fall.code} braucht laufende Slots oder die Renderer-Sperre`);
-    uebersprungen++;
-    continue;
-  }
-  const befehl = befehlVon(fall.zeile);
-  if (NOCH_NICHT.has(befehl)) {
-    console.log(`  [${fall.name}] uebersprungen: ${befehl} kommt mit einer spaeteren Aufgabe`);
     uebersprungen++;
     continue;
   }

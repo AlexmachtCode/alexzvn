@@ -50,12 +50,14 @@ add_executable(zoom-bridge
   native/ndi_sender.cpp
   native/video.cpp
   native/audio.cpp
+  native/preview.cpp
 )
 
 target_include_directories(zoom-bridge PRIVATE "${ZOOM_HEADERS}" "${NDI_HEADERS}")
 # user32: die Bridge pumpt selbst Win32-Nachrichten (PeekMessage/Dispatch) -
 # ohne eigene Schleife kommt kein einziger SDK-Rueckruf an.
-target_link_libraries(zoom-bridge PRIVATE "${ZOOM_IMPLIB}" "${NDI_IMPLIB}" user32)
+# windowscodecs und ole32: die Vorschau kodiert JPEG mit WIC auf einem COM-Thread (Spec 6.16).
+target_link_libraries(zoom-bridge PRIVATE "${ZOOM_IMPLIB}" "${NDI_IMPLIB}" user32 windowscodecs ole32)
 target_compile_definitions(zoom-bridge PRIVATE UNICODE _UNICODE WIN32)
 # NACHBESSERUNG (Runde 1, Befund 3): /utf-8 setzt Quell- UND Ausfuehrungs-
 # zeichensatz explizit auf UTF-8 (sonst MSVC-Vorgabe: Ausfuehrungszeichensatz

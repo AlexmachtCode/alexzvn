@@ -18,6 +18,7 @@
 #include "session.h"
 #include "callbacks.h"
 #include "audio.h"
+#include "preview.h"
 
 using namespace slotlogic;
 
@@ -417,7 +418,9 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         break;
       }
       case UmhaengSchritt::VorschauPlatzLeeren:
-        break;   // Vorschau kommt mit A13
+        // Die Vorschau zeigt nie ein Bild des alten Ziels (6.10 Schritt 6, 7.7).
+        vorschauLeeren(s.nr);
+        break;
       case UmhaengSchritt::IsVideoOnFragen:
         if (lauf.ziel != 0 && !kameraAn(lauf.ziel)) s.kameraAus = true;
         break;
@@ -663,6 +666,8 @@ void slotsAbbauAlle(Grund grund, bool sdkAbmelden, int nurNr = 0) {
     if (grund == Grund::privilegeRevoked) tg = TonGrund::privilegeRevoked;
     tonMelden(s, TonZustand::Off, tg);
     emitSlotOff(s, grund);
+    // Vorschau-Platz VOR dem Loeschen abmelden (6.16).
+    vorschauAbmelden(s.nr);
     for (auto& abo : s.abos) {
       abo->subscribed = false;
       if (abo->renderer != nullptr && sdkAbmelden && !abo->rendererTot.load()) {
@@ -962,6 +967,7 @@ void slotOn(const SlotBefehl& b) {
     return;
   }
   g_slots[b.nr] = std::move(slot);
+  vorschauAnmelden(b.nr);
   // Erstes Ziel nach Modus (6.7-6.9): Teilnehmer die Kennung aus dem Befehl, Sprecher
   // aus der Sprecher-Erinnerung, Freigabe die gezeigte Freigabe.
   unsigned ziel = zielNachModus(s, b.mode, b.id, jetztMs());
@@ -1302,6 +1308,8 @@ void Slot::bildAnkunft(Abo& abo, YUVRawDataI420* data) {
     }
   }
   workUs.fetch_add(qpcUs(t0, qpcJetzt()));
+  // Vorschau nur aus echten Bildern (E16), eigene Kosten in previewUs.
+  vorschauBild(nr, abo.target.load(), buf, w, h, jetzt);
   if (melden) emitSlot(*this);
 }
 
