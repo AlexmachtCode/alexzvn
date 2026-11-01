@@ -901,15 +901,15 @@ console.log('— 4b: 8.6 Fernsteuer-Hinweise (Vorsatz „Companion: “) und Log
     ['F4 nicht im Meeting', FT.F4('nicht im Meeting'), 'Companion: Laden nicht möglich — nicht im Meeting.'],
     ['F4 keine Erlaubnis', FT.F4('keine Aufnahme-Erlaubnis'), 'Companion: Laden nicht möglich — keine Aufnahme-Erlaubnis.'],
     ['F4 Warteraum', FT.F4('die Person ist im Warteraum'), 'Companion: Laden nicht möglich — die Person ist im Warteraum.'],
-    ['F5', FT.F5('Ben'), 'Companion: keine geladene Quelle „Ben“.'],
+    ['F5', FT.F5('Ben'), 'Companion: kein eingeschalteter Teilnehmer-Slot mit „Ben“.'],
     ['F6', FT.F6('1,5'), 'Companion: Versatz „1,5“ ungültig — erlaubt sind ganze Zahlen von 0 bis 1000.'],
     ['F7', FT.F7('zoom_xyz'), 'Companion: unbekannter Befehl „zoom_xyz“.'],
-    ['F8', FT.F8(6), 'Companion: 6. Quelle geladen — mehr als 5 sind nicht gemessen.'],
+    ['F8', FT.F8(6), 'Companion: 6. Slot eingeschaltet — mehr als 5 sind nicht gemessen.'],
   ];
   for (const [id, ist, soll] of FT_SOLL) ck(`${id} wörtlich`, ist === soll);
-  ck('FT hat genau F1 bis F8 und (Plan B, Task B5) F5_SLOT, F8_SLOT, F9 bis F14',
-    JSON.stringify(Object.keys(FT).sort()) === '["F1","F10","F11","F12","F13","F14","F2","F3","F4","F5","F5_SLOT","F6","F7","F8","F8_SLOT","F9"]');
-  ck('F8 nennt BETRIEBSGROESSE', FT.F8(7) === `Companion: 7. Quelle geladen — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`);
+  ck('FT hat genau F1 bis F14 (F5 und F8 in der Fassung der Slots, Plan B, Task B13)',
+    JSON.stringify(Object.keys(FT).sort()) === '["F1","F10","F11","F12","F13","F14","F2","F3","F4","F5","F6","F7","F8","F9"]');
+  ck('F8 nennt BETRIEBSGROESSE', FT.F8(7) === `Companion: 7. Slot eingeschaltet — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`);
   ck('fernLogText: Kennung groß, Verb in Klammern',
     fernLogText('f3', 'zoom_load') === 'Companion: F3 (zoom_load)' && fernLogText('ok', 'zoom_delay') === 'Companion: OK (zoom_delay)');
   ck('fernLogText hat keinen Namensparameter (Kennung und Verb)', fernLogText.length === 2);
@@ -976,8 +976,8 @@ console.log('— B5 · ST100–ST106, SF5–SF14 wörtlich, SLOT_FEHLER_TEXT je 
       'Ton nicht verfügbar (AUDIO_HELPER_MISSING) — das Bild läuft ohne Ton. Für einen neuen Versuch den Ton aus- und wieder einschalten.'],
     ['T105', SLOT_KT.T105(4), 'Bild: fehlerhafte Bilder in Slot 4 verworfen (slotBufferMismatch). Der Slot läuft weiter; ob wieder Bild kommt, zeigt seine Kachel.'],
     ['T106', audioBufferMismatchText(2), 'Ton: ein fehlerhaftes Paket in Slot 2 verworfen (audioBufferMismatch). Der Ton läuft mit dem nächsten gültigen Paket weiter.'],
-    ['F5 (geändert)', FT.F5_SLOT('Anna Maria'), 'Companion: kein eingeschalteter Teilnehmer-Slot mit „Anna Maria“.'],
-    ['F8 (geändert)', FT.F8_SLOT(6), 'Companion: 6. Slot eingeschaltet — mehr als 5 sind nicht gemessen.'],
+    ['F5 (geändert)', FT.F5('Anna Maria'), 'Companion: kein eingeschalteter Teilnehmer-Slot mit „Anna Maria“.'],
+    ['F8 (geändert)', FT.F8(6), 'Companion: 6. Slot eingeschaltet — mehr als 5 sind nicht gemessen.'],
     ['F9', FT.F9('17'), 'Companion: Slot „17“ gibt es nicht.'],
     ['F10', FT.F10('galerie'), 'Companion: Modus „galerie“ unbekannt — erlaubt sind teilnehmer, sprecher und freigabe.'],
     ['F11', FT.F11(3), 'Companion: Slot 3: kein Anzeigename angegeben.'],
@@ -990,7 +990,7 @@ console.log('— B5 · ST100–ST106, SF5–SF14 wörtlich, SLOT_FEHLER_TEXT je 
   ck('ST104, ST106: tonAboFehlerText und audioBufferMismatchText sind T104 und T106',
     tonAboFehlerText('x') === SLOT_KT.T104('x') && audioBufferMismatchText(7) === SLOT_KT.T106(7));
   ck('SF8 nennt BETRIEBSGROESSE, SF14 nennt SLOT_NR_MAX (B-EP7)',
-    FT.F8_SLOT(7) === `Companion: 7. Slot eingeschaltet — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`
+    FT.F8(7) === `Companion: 7. Slot eingeschaltet — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`
       && FT.F14 === `Companion: kein freier Slot (höchstens ${SLOT_NR_MAX}, vorübergehende eingerechnet).`);
   const quelle = readFileSync(new URL('../src/main/zoom/klartext.ts', import.meta.url), 'utf8');
   ck('Quelltext-Wächter: klartext.ts schreibt „höchstens 16“ nicht als Literal (B-EP7)', !quelle.includes('höchstens 16'));

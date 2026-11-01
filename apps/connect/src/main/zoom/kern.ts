@@ -52,10 +52,12 @@ import type {
   ZoomZustand,
 } from '../../shared/types';
 import {
+  BETRIEBSGROESSE,
   EINSTELLUNG_TEXT,
   kachelFehlerZeile,
   kachelZeile,
   KANDIDAT_KENNZEICHEN,
+  nachfrageText,
   SLOT_TEXT,
   slotMessZeile,
   slotTonZeile,
@@ -105,7 +107,7 @@ import {
 } from './laufzeit';
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
-import { deuteZoomBefehl } from './fernsteuerung';
+import { deuteZoomBefehl, ladeZiel, type SlotSchalter } from './fernsteuerung';
 import { neuerSlot, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName } from './einstellungen';
 import {
   istOffen,
@@ -120,13 +122,14 @@ import {
   tonEingeschaltet,
   tonFuerBridge,
   zaehleSlots,
+  ueber5Nach,
   zeigteSchonNachLive,
   type AbgleichEingabe,
   type SitzungsEreignis,
   type SlotSitzung,
   type ZielErgebnis,
 } from './slots';
-import { baueTeilnehmer } from './teilnehmer';
+import { baueTeilnehmer, normName } from './teilnehmer';
 import { WIEDERBEITRITT_PLAN_S } from './fristen';
 
 // Feste Werte (Spec 5.2) stehen ab 4b in fristen.ts (rein). kern.ts reicht sie unverändert weiter, damit zoom.ts,
@@ -232,12 +235,17 @@ export interface ZoomKern {
   slotAendern(nr: number, aenderung: Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>): ZoomErgebnis;
   /** Löscht einen ausgeschalteten Slot (sonst T36); die Nummer wird frei. */
   slotLoeschen(nr: number): ZoomErgebnis;
-  /** Start-Taste setzen (speichert); der Abgleich startet bzw. stoppt sofort. */
+  /**
+   * Start-Taste setzen (speichert, hebt `anNurMeeting` auf); der Abgleich startet bzw. stoppt sofort. Wären danach mehr als
+   * BETRIEBSGROESSE Slots eingeschaltet und fehlt die Zustimmung: Nachfrage T40, nichts geändert; `trotz` setzt sie (7.4).
+   */
   slotStart(nr: number, an: boolean, trotz?: boolean): ZoomErgebnis | { ok: false; nachfrage: true; text: string };
-  /** „Als Slot laden“ (E13): dauerhafter Teilnehmer-Slot für diese Person nach der Übergangs-Namensregel, eingeschaltet. */
+  /** „Als Slot laden“ (E13): dauerhafter Teilnehmer-Slot für diese Person nach der Übergangs-Namensregel, eingeschaltet; Nachfrage wie slotStart. */
   slotAusPerson(teilnehmerId: number, trotz?: boolean): ZoomErgebnis | { ok: false; nachfrage: true; text: string };
   /** Handwahl bei Doppelname oder Zweifel (7.3 Nr. 5): Der Slot zeigt diese Kennung. */
   slotPersonWaehlen(nr: number, teilnehmerId: number): ZoomErgebnis;
+  /** „Behalten“ (7.2): macht einen vorübergehenden Slot dauerhaft bzw. das Einschalten mit `anNurMeeting` zur gespeicherten Start-Taste. */
+  slotBehalten(nr: number): ZoomErgebnis;
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
@@ -276,6 +284,10 @@ interface SlotIntern {
   fehler: string | null;
   gescheitertText: string | null;
   aboFehlerName: string | null;
+  /** Vor `zoom_slot_audio OFF` gemerkter Stand von Ton und Computerton (8.3); nie gespeichert. */
+  tonGemerkt: { tonAn: boolean; computerton: boolean } | null;
+  /** `zoom_unload` (7.2): Der vorübergehende Slot verschwindet, sobald kein Sender und keine Antwortfrist mehr besteht. */
+  loeschen: boolean;
 }
 /** `ausgang` ordnet einen Fehler der Startfolge für den Wiederbeitritt ein (6.4); null bei Mangel oder Abbruch. */
 type StartErgebnis =
@@ -420,7 +432,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function neuerIntern(e: ZoomSlotEinstellung, voruebergehend = false): SlotIntern {
     return {
       e, voruebergehend, anNurMeeting: false, s: { ...SITZUNG_LEER }, bridge: null, slotOffGesendet: false, frist: null, ton: null,
-      fehler: null, gescheitertText: null, aboFehlerName: null,
+      fehler: null, gescheitertText: null, aboFehlerName: null, tonGemerkt: null, loeschen: false,
     };
   }
 
@@ -535,6 +547,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       zeigteSchon: x.s.zeigteSchon,
       andererSlot,
       fehler: kachelFehlerZeile({ zustand: zst, letzterSlotFehler: x.fehler, seitDemLive: false }),
+      // T46 an der Kachel (7.5 Nr. 9, E26, E42): bei jedem Abbild gegen die aktuelle Gast-Liste, also auch, wenn ein Gast später
+      // mit diesem Namen dazukommt oder geht (zoomGastLabelsGeaendert schickt dann ein neues Abbild).
+      ndiWarnung: pruefeNdiName(e.ndiName, e.nr, [], d.gastLabels()).warnung,
       text: kachelZeile({
         zustand: zst, z, erlaubnis: lageErlaubnis, modus: e.modus, grund, gesendet, ersatzbild: e.ersatzbild, zielName: gezeigt, person,
         doppelt, zweifel, imWarteraum, liefSchon: x.s.liefSchon, andererSlot, freigaben: { zahl: 0, namen: [] },
@@ -1673,6 +1688,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     x.bridge = null;
     x.ton = null;
     x.slotOffGesendet = false;
+    loeschenWennFrei(x);
+  }
+
+  /** `zoom_unload` (7.2): Ein vorübergehender Slot verschwindet, sobald kein Sender und keine Antwortfrist mehr besteht. */
+  function loeschenWennFrei(x: SlotIntern): void {
+    if (!x.loeschen || x.bridge !== null || x.frist !== null || slots.get(x.e.nr) !== x) return;
+    slots.delete(x.e.nr);
+    d.log(`[zoom] Slot ${x.e.nr} gelöscht (vorübergehend)`);
   }
 
   /**
@@ -1693,6 +1716,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
     folgeJe.clear();
     folgeZaehler = 0;
+    // 7.4: Gehen vorübergehende Slots und `anNurMeeting` mit dem Meeting, verfällt die Zustimmung wie bei jedem Ausschalten.
+    zustimmungPruefen();
   }
 
   /** Dauerhafte Slots auf die Platte (7.2); false → nur diese Sitzung (T92). */
@@ -1736,6 +1761,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 7.3 Nr. 7: liefSchon, sobald in diesem Meeting ein Sender bestand; zeigteSchon nur über zeigteSchonNachLive (N3).
     if (!x.s.liefSchon) x.s = { ...x.s, liefSchon: true };
     if (e.state === 'live' && x.e.modus === 'teilnehmer') x.s = { ...x.s, zeigteSchon: zeigteSchonNachLive(x.s, e) };
+    // 7.3 Nr. 4: Ging der Slot aus, während sein slotOn unterwegs war („Stopp“, zoom_unload), stoppt ihn der Kern, sobald die
+    // Bridge den Sender meldet (vorher kennt der Abgleich keinen Sender).
+    if (!x.e.an) stoppSenden(x);
   }
 
   function slotTonEreignis(e: SlotTonEreignis): void {
@@ -1753,7 +1781,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function slotFehlerEreignis(e: FehlerEreignis): void {
     if (typeof e.slot === 'number') {
       const x = slots.get(e.slot);
-      if (x) fristBeantwortet(x);
+      if (x) {
+        fristBeantwortet(x);
+        loeschenWennFrei(x);
+      }
     }
     if (e.where === 'video' && e.code === 'videoBadDelay') hinweis(KT.Q13);
   }
@@ -1765,6 +1796,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const gen = aktiveGen;
     x.frist = zeitgeber(f.aboAntwortMs, () => {
       x.frist = null;
+      loeschenWennFrei(x);
       if (gen !== aktiveGen || imAbbau.has(gen)) return;
       d.log(`[zoom] Slot ${x.e.nr}: keine Antwort der Zoom-Bridge`);
       abbildGeaendert();
@@ -1825,6 +1857,51 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     abbildGeaendert();
   }
 
+  /** e (10.1): eingeschaltete Slots, vorübergehende und `anNurMeeting` eingerechnet (7.4). */
+  function eingeschaltet(): number {
+    let n = 0;
+    for (const x of slots.values()) if (x.e.an) n += 1;
+    return n;
+  }
+
+  /** 7.4: Sind höchstens BETRIEBSGROESSE Slots eingeschaltet, verfällt die Zustimmung. */
+  function zustimmungPruefen(): void {
+    const zustimmung = d.einstellungen.ueber5();
+    if (!zustimmung || ueber5Nach(eingeschaltet(), zustimmung)) return;
+    d.einstellungen.setzeUeber5(false);
+    d.log('[zoom] Zustimmung über 5 Slots verfallen');
+  }
+
+  /**
+   * 7.4: Wären mit einem weiteren eingeschalteten Slot mehr als BETRIEBSGROESSE an und fehlt die Zustimmung: ohne `trotz` die
+   * Nachfrage T40 (nichts geändert), mit `trotz` wird die Zustimmung gespeichert. `null` = weiter.
+   */
+  function nachfrage(trotz: boolean): { ok: false; nachfrage: true; text: string } | null {
+    const n = eingeschaltet() + 1;
+    if (n <= BETRIEBSGROESSE || d.einstellungen.ueber5()) return null;
+    if (!trotz) return { ok: false, nachfrage: true, text: nachfrageText(n) };
+    d.einstellungen.setzeUeber5(true);
+    d.log('[zoom] Zustimmung über 5 Slots gegeben');
+    return null;
+  }
+
+  /** T46 (E26, PK24): gleicher NDI-Name wie ein Browser-Gast ist nur eine Warnung; das Log nennt den Namen nicht (0.23). */
+  function gastWarnung(nr: number, warnung: string | null): void {
+    if (warnung !== null) hinweis(warnung, `Slot ${nr}: NDI-Name wie ein Browser-Gast`);
+  }
+
+  /** Start-Taste (7.2, 7.3 Nr. 2): hebt Fehlerstand, Frist und `anNurMeeting` auf, speichert und gleicht sofort ab. */
+  function startTaste(x: SlotIntern, an: boolean): void {
+    x.s = sitzungNach(x.s, 'stoppStart');
+    fristBeantwortet(x);
+    x.e = { ...x.e, an };
+    x.anNurMeeting = false;
+    if (!x.voruebergehend) speichern();
+    d.log(`[zoom] Slot ${x.e.nr} ${an ? 'eingeschaltet' : 'ausgeschaltet'}`);
+    if (!an) zustimmungPruefen();
+    abgleichen();
+  }
+
   function slotAnlegen(): ZoomErgebnis & { nr?: number } {
     let nr = 1;
     while (slots.has(nr)) nr += 1;
@@ -1840,11 +1917,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function slotAendern(nr: number, aenderung: Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>): ZoomErgebnis {
     const x = slots.get(nr);
     if (x === undefined) return { ok: false, text: '' };
+    let warnung: string | null = null;
     if (aenderung.ndiName !== undefined && aenderung.ndiName !== x.e.ndiName) {
       if (x.e.an || x.bridge !== null) return { ok: false, text: SLOT_TEXT.nameGesperrt };
       const andere = [...slots.values()].map((y) => ({ nr: y.e.nr, ndiName: y.e.ndiName }));
       const p = pruefeNdiName(aenderung.ndiName, nr, andere, d.gastLabels());
       if (p.fehler !== null) return { ok: false, text: p.fehler };
+      warnung = p.warnung;
     }
     const neu: ZoomSlotEinstellung = { ...x.e, ...aenderung, nr: x.e.nr, an: x.e.an };
     // 7.3 Nr. 5, 7 (RR9): Mit der Person fallen gewaehlteId, wegSeq, personJetzt und zeigteSchon, mit dem Modus zeigteSchon.
@@ -1853,6 +1932,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     x.e = neu;
     if (!x.voruebergehend) speichern();
     d.log(`[zoom] Slot ${nr} geändert (${Object.keys(aenderung).sort().join(', ')})`);
+    gastWarnung(nr, warnung);
     abgleichen();
     return { ok: true };
   }
@@ -1869,35 +1949,44 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return { ok: true };
   }
 
-  function slotStart(nr: number, an: boolean, _trotz?: boolean): ZoomErgebnis | { ok: false; nachfrage: true; text: string } {
+  function slotStart(nr: number, an: boolean, trotz = false): ZoomErgebnis | { ok: false; nachfrage: true; text: string } {
     const x = slots.get(nr);
     if (x === undefined) return { ok: false, text: '' };
-    // 7.3 Nr. 2: „Stopp“ und „Start“ heben den Fehlerstand auf; die Start-Taste wird gespeichert.
-    x.s = sitzungNach(x.s, 'stoppStart');
-    fristBeantwortet(x);
-    x.e = { ...x.e, an };
-    if (!x.voruebergehend) speichern();
-    d.log(`[zoom] Slot ${nr} ${an ? 'eingeschaltet' : 'ausgeschaltet'}`);
-    abgleichen();
+    if (an && !x.e.an) {
+      const frage = nachfrage(trotz);
+      if (frage !== null) return frage;
+    }
+    // 7.3 Nr. 2, 7.2: „Stopp“ und „Start“ heben Fehlerstand und `anNurMeeting` auf; die Start-Taste wird gespeichert.
+    startTaste(x, an);
     return { ok: true };
   }
 
-  function slotAusPerson(teilnehmerId: number, _trotz?: boolean): ZoomErgebnis | { ok: false; nachfrage: true; text: string } {
+  /** E13 (7.2 „Übergang“): Übergangs-Namensregel, Person = Anzeigename, Ersatzbild transparent, Vorgaben, an. */
+  function slotFuerPerson(nr: number, anzeigename: string): ZoomSlotEinstellung {
+    const belegt = [...slots.values()].map((x) => x.e.ndiName);
+    return { ...neuerSlot(nr, d.einstellungen.vorgaben(), belegt), ndiName: uebergangsNdiName(anzeigename, belegt), person: anzeigename, an: true };
+  }
+
+  /** Kleinste freie Slot-Nummer; über SLOT_NR_MAX, wenn alle belegt sind (vorübergehende eingerechnet). */
+  function freieNummer(): number {
+    let nr = 1;
+    while (slots.has(nr)) nr += 1;
+    return nr;
+  }
+
+  function slotAusPerson(teilnehmerId: number, trotz = false): ZoomErgebnis | { ok: false; nachfrage: true; text: string } {
     const p = aktiveSitzung()?.participants.get(teilnehmerId);
     if (!p || p.self) return { ok: false, text: KT.Q2 };
     if (p.inWaitingRoom) return { ok: false, text: SLOT_TEXT.warteraumTooltip };
-    let nr = 1;
-    while (slots.has(nr)) nr += 1;
+    const nr = freieNummer();
     if (nr > SLOT_NR_MAX) return { ok: false, text: SLOT_TEXT.hoechstens };
-    // E13, 7.2 „Übergang“: Übergangs-Namensregel, Person = Anzeigename, Ersatzbild transparent, Vorgaben, an.
-    const belegt = [...slots.values()].map((x) => x.e.ndiName);
-    const e: ZoomSlotEinstellung = {
-      ...neuerSlot(nr, d.einstellungen.vorgaben(), belegt), ndiName: uebergangsNdiName(p.name, belegt), person: p.name, an: true,
-    };
-    const x = neuerIntern(e);
-    slots.set(nr, x);
+    const frage = nachfrage(trotz);
+    if (frage !== null) return frage;
+    const e = slotFuerPerson(nr, p.name);
+    slots.set(nr, neuerIntern(e));
     speichern();
     d.log(`[zoom] Slot ${nr} aus Teilnehmer ${teilnehmerId} angelegt`);
+    gastWarnung(nr, pruefeNdiName(e.ndiName, nr, [], d.gastLabels()).warnung);
     abgleichen();
     return { ok: true };
   }
@@ -1912,21 +2001,166 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return { ok: true };
   }
 
-  // ── Fernsteuerung (Spec 11.2, 8.6) ───────────────────────────────────────
+  function slotBehalten(nr: number): ZoomErgebnis {
+    const x = slots.get(nr);
+    if (x === undefined) return { ok: false, text: '' };
+    if (!x.voruebergehend && !x.anNurMeeting) return { ok: true };
+    // 7.2: dauerhaft und gespeichert; die Start-Taste gilt wie eingestellt (ein ausgeschalteter vorübergehender bleibt aus).
+    x.voruebergehend = false;
+    x.anNurMeeting = false;
+    x.loeschen = false;
+    speichern();
+    d.log(`[zoom] Slot ${nr} behalten`);
+    abbildGeaendert();
+    return { ok: true };
+  }
+
+  // ── Fernsteuerung (Spec 8.3, 8.6; Plan B, Task B13) ──────────────────────
+  type FernErgebnis = { kennung: ZoomBefehlKennung; text: string | null };
+  const FERN_OK: FernErgebnis = { kennung: 'ok', text: null };
+
+  /**
+   * 7.4, 8.3: Wären mit `neu` weiteren eingeschalteten Slots mehr als BETRIEBSGROESSE an, setzt Companion die Zustimmung
+   * (vor dem Abgleich, sonst stellte er den Slot zurück) und warnt mit F8; der Befehl ist ausgeführt.
+   */
+  function fernUeber5(neu: number): FernErgebnis {
+    const n = eingeschaltet() + neu;
+    if (n <= BETRIEBSGROESSE) return FERN_OK;
+    if (!d.einstellungen.ueber5()) d.einstellungen.setzeUeber5(true);
+    return { kennung: 'f8', text: FT.F8(n) };
+  }
+
+  /** Teilnehmer-Slots, deren Person nach dem normierten Namen so heißt (8.3), nach Nummer. */
+  function slotsMitPerson(name: string): SlotIntern[] {
+    const gesucht = normName(name);
+    return [...slots.values()].filter((x) => x.e.modus === 'teilnehmer' && normName(x.e.person) === gesucht).sort((a, b) => a.e.nr - b.e.nr);
+  }
+
+  /**
+   * `zoom_load` (8.3, 7.2; ersetzt fernLaden): Prüfungen wie 0.3.0 (F4, dann F2/F3/F4 nach dem Ladeziel). Ist ein
+   * Teilnehmer-Slot dieses Namens an, ändert sich nichts; sonst geht der mit der kleinsten Nummer an, ein dauerhafter nur für
+   * dieses Meeting (`anNurMeeting`, gespeichert bleibt `an: false`); ohne solchen Slot entsteht ein vorübergehender nach E13
+   * (ohne freie Nummer F14). Kein await zwischen Prüfen und Anlegen (B79 c).
+   */
+  function fernSlotAnlegen(name: string): FernErgebnis {
+    if (zustand !== 'im_meeting') return { kennung: 'f4', text: FT.F4('nicht im Meeting') };
+    if (erlaubnis !== 'ja') return { kennung: 'f4', text: FT.F4('keine Aufnahme-Erlaubnis') };
+    const ziel = ladeZiel(name, fremde().map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom })));
+    if (ziel.art === 'niemand') return { kennung: 'f2', text: FT.F2(name) };
+    if (ziel.art === 'mehrdeutig') return { kennung: 'f3', text: FT.F3(name, ziel.n) };
+    if (ziel.art === 'warteraum') return { kennung: 'f4', text: FT.F4('die Person ist im Warteraum') };
+    const vorhanden = slotsMitPerson(name);
+    if (vorhanden.some((x) => x.e.an)) return FERN_OK;
+    const x = vorhanden.at(0);
+    const nr = x?.e.nr ?? freieNummer();
+    if (nr > SLOT_NR_MAX) return { kennung: 'f14', text: FT.F14 };
+    const erg = fernUeber5(1);
+    if (x !== undefined) {
+      x.s = sitzungNach(x.s, 'stoppStart');
+      x.e = { ...x.e, an: true };
+      x.loeschen = false;
+      if (!x.voruebergehend) x.anNurMeeting = true;
+      d.log(`[zoom] Slot ${nr} per Companion eingeschaltet${x.voruebergehend ? '' : ' (nur dieses Meeting)'}`);
+    } else {
+      const e = slotFuerPerson(nr, aktiveSitzung()?.participants.get(ziel.id)?.name ?? name);
+      slots.set(nr, neuerIntern(e, true));
+      d.log(`[zoom] Slot ${nr} vorübergehend angelegt (Teilnehmer ${ziel.id})`);
+      gastWarnung(nr, pruefeNdiName(e.ndiName, nr, [], d.gastLabels()).warnung);
+    }
+    abgleichen();
+    return erg;
+  }
+
+  /**
+   * `zoom_unload` (8.3, 7.2; ersetzt fernEntladen): alle eingeschalteten Teilnehmer-Slots dieses Namens aus; vorübergehende
+   * verschwinden (nach dem Abbau ihres Senders), dauerhafte bleiben gespeichert, `anNurMeeting` fällt. Ohne Treffer F5.
+   */
+  function fernSlotEntladen(name: string): FernErgebnis {
+    const treffer = slotsMitPerson(name).filter((x) => x.e.an);
+    if (treffer.length === 0) return { kennung: 'f5', text: FT.F5(name) };
+    for (const x of treffer) {
+      x.e = { ...x.e, an: false };
+      x.anNurMeeting = false;
+      x.loeschen = x.voruebergehend;
+      d.log(`[zoom] Slot ${x.e.nr} per Companion ausgeschaltet`);
+    }
+    if (treffer.some((x) => !x.voruebergehend)) speichern();
+    zustimmungPruefen();
+    abgleichen();
+    for (const x of treffer) loeschenWennFrei(x);
+    return FERN_OK;
+  }
+
+  /** `zoom_slot <nr> ON|OFF|TOGGLE` (8.3): Start-Taste wie an der Kachel, über BETRIEBSGROESSE ohne Nachfrage mit F8. */
+  function fernSlot(nr: number, wert: SlotSchalter): FernErgebnis {
+    const x = slots.get(nr);
+    if (x === undefined) return { kennung: 'f9', text: FT.F9(String(nr)) };
+    const an = wert === 'toggle' ? !x.e.an : wert === 'on';
+    const erg = an && !x.e.an ? fernUeber5(1) : FERN_OK;
+    startTaste(x, an);
+    return erg;
+  }
+
+  /** `zoom_slot_mode` und `zoom_slot_person` (8.3): wie eine Änderung an der Kachel. */
+  function fernAendern(nr: number, aenderung: Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>): FernErgebnis {
+    if (!slots.has(nr)) return { kennung: 'f9', text: FT.F9(String(nr)) };
+    slotAendern(nr, aenderung);
+    return FERN_OK;
+  }
+
+  /**
+   * `zoom_slot_audio <nr> ON|OFF|TOGGLE` (8.3, B57): OFF macht die Quelle still (Ton und Computerton aus) und merkt den
+   * vorigen Stand; ON stellt ihn her, ohne gemerkten Stand Ton an. TOGGLE löst über „Ton eingeschaltet“ auf (8.2). F12 warnt
+   * bei Tonart Person außerhalb des Modus Teilnehmer (ausgeführt).
+   */
+  function fernSlotTon(nr: number, wert: SlotSchalter): FernErgebnis {
+    const x = slots.get(nr);
+    if (x === undefined) return { kennung: 'f9', text: FT.F9(String(nr)) };
+    const an = wert === 'toggle' ? !tonEingeschaltet(x.e) : wert === 'on';
+    if (!an) {
+      if (x.e.tonAn || x.e.computerton) x.tonGemerkt = { tonAn: x.e.tonAn, computerton: x.e.computerton };
+      slotAendern(nr, { tonAn: false, computerton: false });
+      return FERN_OK;
+    }
+    const g = x.tonGemerkt;
+    x.tonGemerkt = null;
+    slotAendern(nr, g ?? { tonAn: true });
+    return x.e.tonAn && x.e.tonArt === 'person' && x.e.modus !== 'teilnehmer' ? { kennung: 'f12', text: FT.F12(nr) } : FERN_OK;
+  }
+
   function steuerbefehl(cmd: { verb: string; args: string[] }): void {
     const verb = cmd.verb.toLowerCase();
     const b = deuteZoomBefehl(cmd.verb, cmd.args);
-    let erg: { kennung: ZoomBefehlKennung; text: string | null } = { kennung: 'ok', text: null };
-    // Die Slot-Verben (Spec 8.3) deutet fernsteuerung.ts ab Plan B, Task B5; ausgeführt werden sie erst ab Task B13. Bis
-    // dahin beantwortet der Kern jedes von ihnen, auch ein ungültiges, wie 0.3.0 mit F7 (wie B-EP3 für zoom_load).
-    // B-EP3: Mit den Quellen entfällt der alte Weg von zoom_load und zoom_unload; bis Task B13 (vorübergehende Slots) beantwortet
-    // der Kern beide wie ein unbekanntes Verb mit F7.
-    if (verb.startsWith('zoom_slot') || b.art === 'laden' || b.art === 'entladen') erg = { kennung: 'f7', text: FT.F7(verb) };
-    else if (b.art === 'abgelehnt') erg = { kennung: b.kennung, text: b.text };
-    // Wie 6.7; „nur für diese Sitzung gemerkt“ zählt über die Fernsteuerung als ausgeführt (L14).
-    else if (b.art === 'versatz') versatz({ ms: b.ms });
-    // 8.6: F1–F7 sind abgelehnt, F8 ist eine Warnung zu einem ausgeführten Befehl.
-    befehl = { kennung: erg.kennung, abgelehnt: erg.kennung !== 'ok' && erg.kennung !== 'f8' };
+    let erg: FernErgebnis = FERN_OK;
+    switch (b.art) {
+      case 'abgelehnt':
+        erg = { kennung: b.kennung, text: b.text };
+        break;
+      case 'laden':
+        erg = fernSlotAnlegen(b.name);
+        break;
+      case 'entladen':
+        erg = fernSlotEntladen(b.name);
+        break;
+      case 'versatz':
+        // Wie 6.7; „nur für diese Sitzung gemerkt“ zählt über die Fernsteuerung als ausgeführt (L14).
+        versatz({ ms: b.ms });
+        break;
+      case 'slot':
+        erg = fernSlot(b.nr, b.wert);
+        break;
+      case 'slotModus':
+        erg = fernAendern(b.nr, { modus: b.modus });
+        break;
+      case 'slotPerson':
+        erg = fernAendern(b.nr, { person: b.name, modus: 'teilnehmer' });
+        break;
+      case 'slotTon':
+        erg = fernSlotTon(b.nr, b.wert);
+        break;
+    }
+    // 8.3: abgelehnt bei F1–F7, F9–F11, F13, F14; F8 und F12 sind Warnungen zu einem ausgeführten Befehl.
+    befehl = { kennung: erg.kennung, abgelehnt: erg.kennung !== 'ok' && erg.kennung !== 'f8' && erg.kennung !== 'f12' };
     // N4b.2: der Hinweis nennt den Namen, das Log nur Kennung und Verb.
     if (erg.text !== null) hinweis(erg.text, fernLogText(erg.kennung, verb));
     else d.log(`[zoom] ${fernLogText(erg.kennung, verb)}`);
@@ -1990,6 +2224,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   meldeLaufzeit(laufzeitStand);
   // Slot-Spec 7.2: die gespeicherten (dauerhaften) Slots; verworfene Einträge nennt der Hinweis T91 (die Zahl, nie ein Name).
   for (const e of d.einstellungen.slots()) slots.set(e.nr, neuerIntern(e));
+  // 7.4, RR7: Eine Zustimmung über 5 aus einer früheren Sitzung (etwa nach einem Absturz mit einem zoom_load-Slot) gilt nur,
+  // solange mehr als 5 Slots eingeschaltet sind.
+  zustimmungPruefen();
   const lage = d.einstellungen.einstellungsLage();
   if (lage.verworfen > 0) hinweis(EINSTELLUNG_TEXT.verworfen(lage.verworfen));
   d.log(`[zoom] ${slots.size === 1 ? '1 Slot' : `${slots.size} Slots`} gelesen`);
@@ -2021,6 +2258,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     slotStart,
     slotAusPerson,
     slotPersonWaehlen,
+    slotBehalten,
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),

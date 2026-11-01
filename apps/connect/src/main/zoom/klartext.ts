@@ -338,14 +338,11 @@ export const FT = {
   F3: (name: string, n: number): string => `Companion: „${name}“ ist nicht eindeutig (${n} Personen) — bitte in Connect von Hand laden.`,
   F4: (grund: 'nicht im Meeting' | 'keine Aufnahme-Erlaubnis' | 'die Person ist im Warteraum'): string =>
     `Companion: Laden nicht möglich — ${grund}.`,
-  F5: (name: string): string => `Companion: keine geladene Quelle „${name}“.`,
+  // F5 und F8 in der Fassung der Zoom-Slots (Connect 0.4.0, Spec 9.7; Plan B, Task B13): zoom_load und zoom_unload über Slots.
+  F5: (name: string): string => `Companion: kein eingeschalteter Teilnehmer-Slot mit „${name}“.`,
   F6: (arg: string): string => `Companion: Versatz „${arg}“ ungültig — erlaubt sind ganze Zahlen von 0 bis 1000.`,
   F7: (verb: string): string => `Companion: unbekannter Befehl „${verb}“.`,
-  F8: (n: number): string => `Companion: ${n}. Quelle geladen — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`,
-  // Zoom-Slots (Connect 0.4.0, Spec 9.7). F5_SLOT und F8_SLOT sind die geänderten F5 und F8; die alten Fassungen gelten bis
-  // Plan B, Task B13 (zoom_load und zoom_unload über Slots) und entfallen dann.
-  F5_SLOT: (name: string): string => `Companion: kein eingeschalteter Teilnehmer-Slot mit „${name}“.`,
-  F8_SLOT: (n: number): string => `Companion: ${n}. Slot eingeschaltet — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`,
+  F8: (n: number): string => `Companion: ${n}. Slot eingeschaltet — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`,
   F9: (arg: string): string => `Companion: Slot „${arg}“ gibt es nicht.`,
   F10: (arg: string): string => `Companion: Modus „${arg}“ unbekannt — erlaubt sind teilnehmer, sprecher und freigabe.`,
   F11: (nr: number): string => `Companion: Slot ${nr}: kein Anzeigename angegeben.`,

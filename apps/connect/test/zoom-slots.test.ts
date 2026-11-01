@@ -593,6 +593,364 @@ console.log('— KF3 (Hülle) · main/zoom.ts gibt dem Kern die Slot-Felder aus 
     huelle.includes(VERDRAHTUNG.map((z) => `        ${z}`).join('\n')));
 }
 
+// ── Plan B, Task B13: Fernsteuerung, vorübergehende Slots, anNurMeeting, „Behalten“, Nachfrage ab dem 6., Übergang ──
+/** Ein Fernsteuer-Befehl, wie ihn der Steuerserver liefert (verb klein, args an Leerzeichen getrennt). */
+function befehl(p: Probe, verb: string, ...args: string[]): void {
+  p.kern.steuerbefehl({ verb, args });
+}
+/** `zoom_cmd/zoom_cmd_rejected` aus dem STATE. */
+function cmdKv(p: Probe): string {
+  return `${p.kern.stateKv()?.zoom_cmd}/${p.kern.stateKv()?.zoom_cmd_rejected}`;
+}
+const letzterHinweis = (p: Probe): string | undefined => p.kern.abbild().hinweise.at(-1);
+const gespeichert = (p: Probe, nr: number): ZoomSlotEinstellung | undefined => p.einst.slots.find((s) => s.nr === nr);
+
+console.log('— PK12 · Nachfrage ab dem 6. eingeschalteten Slot (7.4, E4): T40, Zustimmung gespeichert, Verfall bei höchstens 5');
+{
+  const p = baueKern({ slots: [1, 2, 3, 4, 5, 6].map((nr) => slotEinst(nr, { an: nr <= 5 })) });
+  const r = p.kern.slotStart(6, true);
+  ck('PK12: sechster Start → Nachfrage mit T40, nichts geändert', !r.ok && 'nachfrage' in r && r.nachfrage
+    && r.text === 'Mehr als 5 Zoom-Slots gleichzeitig sind nicht gemessen. Den 6. Slot trotzdem einschalten? Ob dieser Rechner es schafft, zeigen die Messwerte.'
+    && lage(p, 6)?.einstellung.an === false && gespeichert(p, 6)?.an === false && p.einst.ueber5 === false);
+  ck('… mit trotz → an, Zustimmung gespeichert', ok(p.kern.slotStart(6, true, true)) && gespeichert(p, 6)?.an === true && p.einst.ueber5 === true
+    && p.kern.abbild().ueber5 === true);
+  const vorher = p.einst.slots.map((s) => ({ ...s }));
+  await p.aufraeumen();
+  const q = baueKern({ slots: vorher, ueber5: true });
+  await insMeeting(q);
+  ck('… ein neuer Kern mit diesen Einstellungen startet beim Beitritt alle 6', await bis(() => slotBefehle(q, 1).filter((c) => c.cmd === 'slotOn').length === 6, 3000)
+    && !q.kern.abbild().slots.some((s) => s.zustand === 'zurueckgestellt'));
+  ck('… zurück auf 5 → Zustimmung weg', ok(q.kern.slotStart(6, false)) && q.einst.ueber5 === false && q.kern.abbild().ueber5 === false);
+  await q.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [1, 2, 3, 4, 5].map((nr) => slotEinst(nr, { an: true })) });
+  await insMeeting(p);
+  const r = p.kern.slotAusPerson(ANNA);
+  ck('PK12: „Als Slot laden“ als 6. → ebenso die Nachfrage, kein Slot angelegt', !r.ok && 'nachfrage' in r && r.text.includes('Den 6. Slot trotzdem einschalten?')
+    && p.kern.abbild().slots.length === 5);
+  ck('… mit trotz → angelegt, an, Zustimmung gespeichert', ok(p.kern.slotAusPerson(ANNA, true)) && p.kern.abbild().slots.length === 6 && p.einst.ueber5 === true);
+  await p.aufraeumen();
+}
+{
+  // Etwa nach einem Absturz mit einem zoom_load-Slot als 6.: gespeichert ist die Zustimmung, eingeschaltet sind nur 5 (RR7).
+  const p = baueKern({ ueber5: true, slots: [1, 2, 3, 4, 5].map((nr) => slotEinst(nr, { an: true })) });
+  ck('PK12: gespeicherte Zustimmung bei höchstens 5 eingeschalteten Slots → verfällt beim Anlegen des Kerns',
+    p.einst.ueber5 === false && p.kern.abbild().ueber5 === false);
+  await p.aufraeumen();
+}
+
+console.log('— PK23 · Übergang (E13): „Als Slot laden“ legt einen dauerhaften Slot nach der Übergangs-Namensregel an');
+{
+  const p = baueKern();
+  ck('PK23: leere Einstellungen → keine Slots (die Karte zeigt T30)', p.kern.abbild().slots.length === 0);
+  await insMeeting(p);
+  ck('… „Als Slot laden“ für Anna → dauerhafter Slot 1 „JM Connect – Zoom Anna“, an, gespeichert', ok(p.kern.slotAusPerson(ANNA))
+    && JSON.stringify(gespeichert(p, 1)) === JSON.stringify(slotEinst(1, { ndiName: 'JM Connect – Zoom Anna', person: 'Anna', an: true }))
+    && lage(p, 1)?.voruebergehend === false);
+  ck('… besteht der Name schon an einem anderen Slot → „ (2)“', ok(p.kern.slotAendern(1, { person: 'Ben' })) && ok(p.kern.slotAusPerson(ANNA))
+    && gespeichert(p, 2)?.ndiName === 'JM Connect – Zoom Anna (2)');
+  await p.aufraeumen();
+}
+
+console.log('— PK24 · NDI-Namen im Kern (E26): T43, T44, T45, T47; T46 nur als Warnung; 60 Code-Punkte');
+{
+  const p = baueKern({ slots: [slotEinst(1), slotEinst(2)], gastLabels: () => ['Bühne Gast'] });
+  ck('PK24: leer → T43', text(p.kern.slotAendern(1, { ndiName: '' })) === 'Der NDI-Name muss 1 bis 60 Zeichen lang sein.');
+  ck('… 61 Zeichen → T43', text(p.kern.slotAendern(1, { ndiName: 'x'.repeat(61) })) === 'Der NDI-Name muss 1 bis 60 Zeichen lang sein.');
+  ck('… Doppelpunkt → T44', text(p.kern.slotAendern(1, { ndiName: 'Bühne: links' }))
+    === 'Ein Doppelpunkt ist im NDI-Namen nicht erlaubt (NDI macht daraus ein Leerzeichen).');
+  ck('… Name von Slot 2 → T45', text(p.kern.slotAendern(1, { ndiName: 'zoom 2' })) === 'Diesen NDI-Namen trägt schon Slot 2.');
+  ck('… Steuerzeichen → T47', text(p.kern.slotAendern(1, { ndiName: 'Bühne\tlinks' })) === 'Steuerzeichen sind im NDI-Namen nicht erlaubt.');
+  ck('… nichts davon gespeichert', gespeichert(p, 1)?.ndiName === 'Zoom 1');
+  ck('… 59 Zeichen und ein Emoji sind 60 Code-Punkte → gültig', ok(p.kern.slotAendern(1, { ndiName: `${'x'.repeat(59)}🎤` }))
+    && gespeichert(p, 1)?.ndiName === `${'x'.repeat(59)}🎤`);
+  ck('… Name eines Browser-Gasts → gespeichert, T46 als Warnung unter „Hinweise“', ok(p.kern.slotAendern(2, { ndiName: 'Bühne Gast' }))
+    && gespeichert(p, 2)?.ndiName === 'Bühne Gast'
+    && letzterHinweis(p) === 'NDI-Name doppelt: Ein Browser-Gast sendet ebenfalls als „Bühne Gast“. Im Switcher ist nicht sicher, welche Quelle ankommt. Einen der beiden umbenennen.'
+    && !p.logs.some((z) => z.includes('Bühne Gast')));
+  ck('… am eingeschalteten Slot gesperrt → T35', ok(p.kern.slotStart(2, true)) && text(p.kern.slotAendern(2, { ndiName: 'Neu' }))
+    === 'Den NDI-Namen erst ändern, wenn der Slot ausgeschaltet ist.');
+  await p.aufraeumen();
+}
+{
+  // T46 an der Kachel (7.5 Nr. 9, E42): jedes Abbild prüft gegen die aktuelle Gast-Liste; zoomGastLabelsGeaendert schickt ein neues.
+  const gaeste: string[] = [];
+  const T46 = 'NDI-Name doppelt: Ein Browser-Gast sendet ebenfalls als „Bühne links“. Im Switcher ist nicht sicher, welche Quelle ankommt. Einen der beiden umbenennen.';
+  const p = baueKern({ slots: [slotEinst(1, { ndiName: 'Bühne links', an: true }), slotEinst(2)], gastLabels: () => [...gaeste] });
+  const imAbbild = (): string | null | undefined => p.abbilder.at(-1)?.slots.find((s) => s.einstellung.nr === 1)?.ndiWarnung;
+  ck('PK24 (Kachel): ohne Gast dieses Namens keine Warnung an der Kachel', lage(p, 1)?.ndiWarnung === null && lage(p, 2)?.ndiWarnung === null);
+  gaeste.push('bühne links');
+  p.kern.gastLabelsGeaendert();
+  ck('… ein Gast sendet später als „bühne links“ → T46 an Slot 1 (gleicher Name nach 6.2), auch im gesendeten Abbild; Slot 2 ohne',
+    lage(p, 1)?.ndiWarnung === T46 && lage(p, 2)?.ndiWarnung === null && (await bis(() => imAbbild() === T46, 1000)));
+  gaeste.length = 0;
+  p.kern.gastLabelsGeaendert();
+  ck('… der Gast geht → die Warnung fällt, auch im gesendeten Abbild', lage(p, 1)?.ndiWarnung === null && (await bis(() => imAbbild() === null, 1000)));
+  await p.aufraeumen();
+}
+
+console.log('— PK35 · Übergangs-Namensregel im Kern: normiereSlot verwirft den so angelegten Slot nicht');
+{
+  const { normiereSlots } = await import('../src/main/zoom/einstellungen');
+  const p = baueKern({
+    sitzung: (s) => {
+      const a = s.participants.get(ANNA);
+      if (!a) return s;
+      const participants = new Map(s.participants);
+      participants.set(ANNA, { ...a, name: 'Moderation: Anna' });
+      return { ...s, participants };
+    },
+  });
+  await insMeeting(p);
+  ck('PK35: „Moderation: Anna“ → „JM Connect – Zoom Moderation␣␣Anna“ (zwei Leerzeichen wie 0.3.0)', ok(p.kern.slotAusPerson(ANNA))
+    && gespeichert(p, 1)?.ndiName === 'JM Connect – Zoom Moderation  Anna');
+  const n = normiereSlots(p.einst.slots);
+  ck('… normiereSlot verwirft ihn nicht und ändert den Namen nicht', n.verworfen === 0 && n.slots[0]?.ndiName === 'JM Connect – Zoom Moderation  Anna');
+  await p.aufraeumen();
+}
+
+console.log('— PK13 · Companion: zoom_slot, zoom_slot_mode, zoom_slot_person, zoom_slot_audio (8.3)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Carla' }), slotEinst(2), slotEinst(3, { modus: 'freigabe', tonAn: true, computerton: true })] });
+  await insMeeting(p);
+  befehl(p, 'zoom_slot', '3', 'ON');
+  ck('PK13: zoom_slot 3 ON → an und gespeichert, zoom_cmd ok', cmdKv(p) === 'ok/0' && lage(p, 3)?.einstellung.an === true && gespeichert(p, 3)?.an === true);
+  befehl(p, 'zoom_slot', '3', 'TOGGLE');
+  ck('… TOGGLE → aus', cmdKv(p) === 'ok/0' && lage(p, 3)?.einstellung.an === false && gespeichert(p, 3)?.an === false);
+  befehl(p, 'zoom_slot', '3', 'toggle');
+  ck('… toggle (ohne Groß-/Kleinschreibung) → wieder an', cmdKv(p) === 'ok/0' && lage(p, 3)?.einstellung.an === true);
+  befehl(p, 'zoom_slot', '3', 'OFF');
+  ck('… OFF → aus', cmdKv(p) === 'ok/0' && lage(p, 3)?.einstellung.an === false);
+  befehl(p, 'zoom_slot', '7', 'ON');
+  ck('… zoom_slot 7 ON ohne Slot 7 → F9, rejected 1', cmdKv(p) === 'f9/1' && letzterHinweis(p) === 'Companion: Slot „7“ gibt es nicht.');
+  befehl(p, 'zoom_slot', '1', 'X');
+  ck('… zoom_slot 1 X → F13', cmdKv(p) === 'f13/1' && letzterHinweis(p) === 'Companion: Wert „X“ ungültig — erlaubt sind ON, OFF und TOGGLE.');
+  befehl(p, 'zoom_slot_mode', '2', 'freigabe');
+  ck('… zoom_slot_mode 2 freigabe → Modus gespeichert', cmdKv(p) === 'ok/0' && gespeichert(p, 2)?.modus === 'freigabe');
+  befehl(p, 'zoom_slot_mode', '2', 'galerie');
+  ck('… zoom_slot_mode 2 galerie → F10', cmdKv(p) === 'f10/1'
+    && letzterHinweis(p) === 'Companion: Modus „galerie“ unbekannt — erlaubt sind teilnehmer, sprecher und freigabe.');
+  befehl(p, 'zoom_slot_mode', '1', 'sprecher');
+  befehl(p, 'zoom_slot_person', '1', 'Anna', 'Maria');
+  ck('… zoom_slot_person 1 Anna Maria → Person „Anna Maria“, Modus Teilnehmer', cmdKv(p) === 'ok/0' && gespeichert(p, 1)?.person === 'Anna Maria'
+    && gespeichert(p, 1)?.modus === 'teilnehmer');
+  befehl(p, 'zoom_slot_person', '1');
+  ck('… ohne Namen → F11', cmdKv(p) === 'f11/1' && letzterHinweis(p) === 'Companion: Slot 1: kein Anzeigename angegeben.');
+  befehl(p, 'zoom_slot_audio', '3', 'OFF');
+  ck('… zoom_slot_audio 3 OFF am Freigabe-Slot mit Computerton → Ton und Computerton aus, Ton eingeschaltet 0',
+    cmdKv(p) === 'ok/0' && gespeichert(p, 3)?.tonAn === false && gespeichert(p, 3)?.computerton === false && slotKurz(p, 3)?.tonEin === false);
+  befehl(p, 'zoom_slot_audio', '3', 'ON');
+  ck('… ON stellt beide wieder her', cmdKv(p) === 'ok/0' && gespeichert(p, 3)?.tonAn === true && gespeichert(p, 3)?.computerton === true
+    && slotKurz(p, 3)?.tonEin === true);
+  befehl(p, 'zoom_slot_audio', '3', 'TOGGLE');
+  ck('… TOGGLE löst über „Ton eingeschaltet“ auf → aus', slotKurz(p, 3)?.tonEin === false);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { modus: 'sprecher', tonAn: false, tonArt: 'person' })] });
+  befehl(p, 'zoom_slot_audio', '1', 'ON');
+  ck('PK13: zoom_slot_audio ON bei Tonart Person außerhalb des Modus Teilnehmer → ausgeführt mit Warnung F12, rejected 0',
+    cmdKv(p) === 'f12/0' && gespeichert(p, 1)?.tonAn === true
+    && letzterHinweis(p) === 'Companion: Slot 1: Person-Ton gibt es nur im Modus Teilnehmer, der Slot sendet keinen Meeting-Ton.');
+  await p.aufraeumen();
+}
+
+console.log('— PK13 · Companion: zoom_load und zoom_unload über vorübergehende Slots (7.2, 8.3, 8.4)');
+{
+  const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_PRIVILEGE: 'offen' } : { FAKE_DOPPELNAME: '1' }) });
+  befehl(p, 'zoom_load', 'Anna');
+  ck('PK13: zoom_load ohne Meeting → F4 „nicht im Meeting“, rejected 1', cmdKv(p) === 'f4/1'
+    && letzterHinweis(p) === 'Companion: Laden nicht möglich — nicht im Meeting.');
+  befehl(p, 'zoom_load');
+  ck('… ohne Namen → F1', cmdKv(p) === 'f1/1' && letzterHinweis(p) === 'Companion: kein Anzeigename angegeben.');
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: ANZEIGENAME_VORGABE });
+  ck('… im Meeting ohne Aufnahme-Erlaubnis → F4 „keine Aufnahme-Erlaubnis“', r.ok
+    && (await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000)) && (befehl(p, 'zoom_load', 'Anna'), cmdKv(p) === 'f4/1')
+    && letzterHinweis(p) === 'Companion: Laden nicht möglich — keine Aufnahme-Erlaubnis.' && p.kern.abbild().slots.length === 0);
+  await p.kern.verlassen();
+  ck('… zwei „Anna“ → F3 mit der Zahl', (await insMeeting(p)) && (befehl(p, 'zoom_load', 'Anna'), cmdKv(p) === 'f3/1')
+    && letzterHinweis(p) === 'Companion: „Anna“ ist nicht eindeutig (2 Personen) — bitte in Connect von Hand laden.');
+  befehl(p, 'zoom_load', 'Zora');
+  ck('… niemand namens „Zora“ → F2', cmdKv(p) === 'f2/1' && letzterHinweis(p) === 'Companion: niemand namens „Zora“ im Meeting.'
+    && p.kern.abbild().slots.length === 0);
+  befehl(p, 'zoom_xyz');
+  ck('… ein unbekanntes Verb bleibt F7', cmdKv(p) === 'f7/1' && letzterHinweis(p) === 'Companion: unbekannter Befehl „zoom_xyz“.');
+  ck('… das Log nennt Kennung und Verb, nie einen Namen', p.logs.includes('[zoom] Hinweis: Companion: F3 (zoom_load)')
+    && !p.logs.some((z) => z.includes('Zora')));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    sitzung: (s) => {
+      const a = s.participants.get(ANNA);
+      if (!a) return s;
+      const participants = new Map(s.participants);
+      participants.set(ANNA, { ...a, inWaitingRoom: true });
+      return { ...s, participants };
+    },
+  });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Anna');
+  ck('PK13: zoom_load für eine Person im Warteraum → F4 „die Person ist im Warteraum“', cmdKv(p) === 'f4/1'
+    && letzterHinweis(p) === 'Companion: Laden nicht möglich — die Person ist im Warteraum.' && p.kern.abbild().slots.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('PK13: zoom_load Ben → vorübergehender Slot 1 „JM Connect – Zoom Ben“, an, nicht gespeichert', cmdKv(p) === 'ok/0'
+    && lage(p, 1)?.voruebergehend === true && lage(p, 1)?.einstellung.ndiName === 'JM Connect – Zoom Ben' && lage(p, 1)?.einstellung.person === 'Ben'
+    && lage(p, 1)?.einstellung.an === true && p.einst.slots.length === 0);
+  ck('… läuft', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  befehl(p, 'zoom_load', 'ben');
+  ck('… ein zweites zoom_load Ben nimmt denselben Slot', cmdKv(p) === 'ok/0' && p.kern.abbild().slots.length === 1);
+  befehl(p, 'zoom_unload', 'Ben');
+  ck('… zoom_unload Ben → ausgeschaltet und gelöscht', cmdKv(p) === 'ok/0' && (await bis(() => lage(p, 1) === undefined, 3000))
+    && slotBefehle(p, 1).some((c) => c.cmd === 'slotOff' && c.slot === 1) && p.kern.kurz().slotsLaufen === 0);
+  befehl(p, 'zoom_unload', 'Ben');
+  ck('… noch einmal → F5', cmdKv(p) === 'f5/1' && letzterHinweis(p) === 'Companion: kein eingeschalteter Teilnehmer-Slot mit „Ben“.');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_TEILNEHMER: '17' }) });
+  await insMeeting(p);
+  const namen = p.kern.abbild().teilnehmer.map((t) => t.name);
+  let ergebnisse = '';
+  for (const n of namen) {
+    befehl(p, 'zoom_load', ...n.split(' '));
+    ergebnisse += cmdKv(p) === 'ok/0' ? '' : `${n}:${cmdKv(p)} `;
+    befehl(p, 'zoom_unload', ...n.split(' '));
+    await bis(() => p.kern.abbild().slots.length === 0, 2000);
+  }
+  ck(`PK13: 17 verschiedene Namen nacheinander per zoom_load und zoom_unload → nie F14${ergebnisse ? ` (${ergebnisse})` : ''}`,
+    namen.length === 17 && ergebnisse === '' && p.kern.abbild().slots.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: Array.from({ length: 16 }, (_, i) => slotEinst(i + 1)) });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Anna');
+  ck('PK13: 16 belegte Slots → zoom_load F14, rejected 1', cmdKv(p) === 'f14/1'
+    && letzterHinweis(p) === 'Companion: kein freier Slot (höchstens 16, vorübergehende eingerechnet).' && p.kern.abbild().slots.length === 16);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Ben' })], stell: (n): Record<string, string> => (n === 1 ? { FAKE_MEETING_ENDE_MS: '3000' } : {}) });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Anna');
+  befehl(p, 'zoom_load', 'Ben');
+  ck('PK13: zoom_load Ben schaltet den ausgeschalteten dauerhaften Slot 1 nur für dieses Meeting ein; gespeichert bleibt an: false',
+    cmdKv(p) === 'ok/0' && lage(p, 1)?.anNurMeeting === true && lage(p, 1)?.einstellung.an === true && gespeichert(p, 1)?.an === false
+    && slotKurz(p, 1)?.an === true);
+  ck('… Anna in einem vorübergehenden Slot 2', lage(p, 2)?.voruebergehend === true && lage(p, 2)?.einstellung.person === 'Anna');
+  ck('… beide laufen', await bis(() => p.kern.kurz().slotsLaufen === 2, 3000));
+  ck('… nach dem Meeting-Ende: Slot 2 gelöscht, Slot 1 aus, anNurMeeting weg, gespeichert unverändert',
+    (await bis(() => p.kern.kurz().zustand === 'bereit', 4000)) && lage(p, 2) === undefined && lage(p, 1)?.einstellung.an === false
+      && lage(p, 1)?.anNurMeeting === false && p.einst.slots.length === 1 && gespeichert(p, 1)?.an === false);
+  ck('… ein neuer Beitritt startet keinen früheren zoom_load-Slot', (await insMeeting(p)) && (await warte(800), slotGesendet(p, 2).length === 0));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Ben' }), slotEinst(2, { person: 'Anna' })] });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  befehl(p, 'zoom_unload', 'Ben');
+  ck('PK13: zoom_unload Ben → der dauerhafte Slot 1 geht nur aus und bleibt gespeichert', cmdKv(p) === 'ok/0' && lage(p, 1)?.einstellung.an === false
+    && lage(p, 1)?.anNurMeeting === false && p.einst.slots.length === 2);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('… „Behalten“ hebt anNurMeeting auf und speichert die Start-Taste', lage(p, 1)?.anNurMeeting === true && ok(p.kern.slotBehalten(1))
+    && lage(p, 1)?.anNurMeeting === false && gespeichert(p, 1)?.an === true);
+  befehl(p, 'zoom_load', 'Anna');
+  befehl(p, 'zoom_slot', '2', 'ON');
+  ck('… zoom_slot 2 ON hebt anNurMeeting ebenso auf und speichert', lage(p, 2)?.anNurMeeting === false && gespeichert(p, 2)?.an === true);
+  befehl(p, 'zoom_slot', '2', 'OFF');
+  befehl(p, 'zoom_load', 'Anna');
+  ck('… „Stopp“ und „Start“ an der Kachel ebenso', lage(p, 2)?.anNurMeeting === true && ok(p.kern.slotStart(2, false))
+    && ok(p.kern.slotStart(2, true)) && lage(p, 2)?.anNurMeeting === false && gespeichert(p, 2)?.an === true);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [...[1, 2, 3, 4, 5].map((nr) => slotEinst(nr, { an: true })), slotEinst(6)] });
+  befehl(p, 'zoom_slot', '6', 'ON');
+  ck('PK13: der 6. per Companion → F8, an, Zustimmung gesetzt, zoom_cmd_rejected=0', cmdKv(p) === 'f8/0' && lage(p, 6)?.einstellung.an === true
+    && p.einst.ueber5 === true && letzterHinweis(p) === 'Companion: 6. Slot eingeschaltet — mehr als 5 sind nicht gemessen.');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [1, 2, 3, 4, 5].map((nr) => slotEinst(nr, { an: true })),
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_MEETING_ENDE_MS: '2500' } : {}),
+  });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('PK13: zoom_load als 6. eingeschalteter Slot (F8 aus 0.3.0) → f8/0, vorübergehender Slot 6 an, Zustimmung gesetzt',
+    cmdKv(p) === 'f8/0' && letzterHinweis(p) === 'Companion: 6. Slot eingeschaltet — mehr als 5 sind nicht gemessen.'
+    && lage(p, 6)?.voruebergehend === true && lage(p, 6)?.einstellung.an === true && p.einst.ueber5 === true);
+  ck('… Slot 6 startet (nicht zurückgestellt)', await bis(() => slotGesendet(p, 1, 6).some((c) => c.cmd === 'slotOn'), 3000)
+    && lage(p, 6)?.zustand !== 'zurueckgestellt');
+  ck('… mit dem Meeting-Ende verschwindet Slot 6, und die Zustimmung verfällt (7.4, RR7)', (await bis(() => p.kern.kurz().zustand === 'bereit', 5000))
+    && lage(p, 6) === undefined && p.einst.ueber5 === false && p.kern.abbild().ueber5 === false);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  await insMeeting(p);
+  befehl(p, 'zoom_delay', '300');
+  ck('PK13: zoom_delay 300 (Fall 21 aus 0.3.0) → ok, gespeichert, videoDelay 300 an die Bridge', cmdKv(p) === 'ok/0' && p.einst.versatzMs === 300
+    && (await bis(() => p.befehle(1).some((c) => c.cmd === 'videoDelay' && c.ms === 300), 2000)));
+  befehl(p, 'zoom_delay', '1001');
+  ck('… zoom_delay 1001 → F6, rejected 1, nichts gespeichert', cmdKv(p) === 'f6/1' && p.einst.versatzMs === 300
+    && letzterHinweis(p) === 'Companion: Versatz „1001“ ungültig — erlaubt sind ganze Zahlen von 0 bis 1000.');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ schreibenLiefert: false });
+  befehl(p, 'zoom_delay', '200');
+  ck('PK13: zoom_delay, Einstellungsdatei nicht schreibbar → zoom_cmd=ok (L14), das Abbild sagt „nur Sitzung“', cmdKv(p) === 'ok/0'
+    && p.kern.abbild().versatz.nurSitzung && p.einst.versatzMs === 200);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { person: 'anna', an: true }), slotEinst(3, { person: 'Ben', an: true })] });
+  await insMeeting(p);
+  ck('PK13: zwei Slots für „Anna“ und einer für Ben laufen', await bis(() => p.kern.kurz().slotsLaufen === 3, 3000));
+  befehl(p, 'zoom_unload', 'Anna');
+  ck('… zoom_unload Anna → beide Anna-Slots aus und gespeichert aus, Bens bleibt an, ok', cmdKv(p) === 'ok/0'
+    && gespeichert(p, 1)?.an === false && gespeichert(p, 2)?.an === false && gespeichert(p, 3)?.an === true
+    && (await bis(() => p.kern.kurz().slotsLaufen === 1, 3000))
+    && JSON.stringify(slotGesendet(p, 1).filter((c) => c.cmd === 'slotOff').map((c) => c.slot)) === '[1,2]');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  befehl(p, 'zoom_load', 'Ben');
+  ck('PK13: Taste prellt (zweimal zoom_load Ben vor der Antwort) → ok, rejected 0, ein Slot ohne „(2)“', cmdKv(p) === 'ok/0'
+    && p.kern.abbild().slots.length === 1 && lage(p, 1)?.einstellung.ndiName === 'JM Connect – Zoom Ben');
+  ck('… genau ein slotOn', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000) && (await warte(300), slotGesendet(p, 1).filter((c) => c.cmd === 'slotOn').length === 1));
+  befehl(p, 'zoom_unload', 'Ben');
+  befehl(p, 'zoom_unload', 'Ben');
+  ck('… Taste prellt bei zoom_unload: das zweite meldet F5 (8.3: kein eingeschalteter Slot mehr, Vorgabe OFP12), der Slot geht weg, keine Fehlerzeile',
+    cmdKv(p) === 'f5/1' && (await bis(() => lage(p, 1) === undefined, 3000))
+    && slotGesendet(p, 1).filter((c) => c.cmd === 'slotOff').length === 1 && !p.abbilder.some((a) => a.slots.some((s) => s.fehler !== null)));
+  await p.aufraeumen();
+}
+
+console.log('— PK32 · Vorübergehender Slot „Behalten“: dauerhaft, gespeichert, überlebt das Meeting-Ende');
+{
+  const p = baueKern({ stell: () => ({ FAKE_MEETING_ENDE_MS: '1500' }) });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('PK32: zoom_load Ben → vorübergehend', lage(p, 1)?.voruebergehend === true && p.einst.slots.length === 0);
+  ck('… slotBehalten → dauerhaft und gespeichert (an)', ok(p.kern.slotBehalten(1)) && lage(p, 1)?.voruebergehend === false
+    && gespeichert(p, 1)?.ndiName === 'JM Connect – Zoom Ben' && gespeichert(p, 1)?.an === true);
+  ck('… überlebt das Meeting-Ende, bleibt eingeschaltet', (await bis(() => p.kern.kurz().zustand === 'bereit', 4000))
+    && lage(p, 1)?.einstellung.an === true && p.einst.slots.length === 1);
+  await p.aufraeumen();
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

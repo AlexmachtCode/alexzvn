@@ -20,7 +20,7 @@ import {
   type ZugangDaten,
   type ZugangStand,
 } from '../src/main/zoom/kern';
-import { failText, FT, KT, VORSATZ } from '../src/main/zoom/klartext';
+import { failText, KT, VORSATZ } from '../src/main/zoom/klartext';
 import {
   BRIDGE_EXE,
   laufzeitOrdner,
@@ -2460,22 +2460,8 @@ console.log('— Fix-Welle: Ausnahme in der Startfolge eines Wiederbeitritts-Ver
 // und Beenden leeren die Soll-Liste) entfallen mit Plan B, Task B12 (Spec 11.10): Die Zustände außerhalb des Meetings prüft der
 // Generator der Kachel (Task B6), Q8 und Ladefehler PK18/PK19, „Verlassen und Beenden leeren“ PK11 und Q1/Q2 PK18 (Task B14).
 
-// ── Plan B, Task B5 (gilt bis Task B13): Slot-Verben beantwortet der Kern wie 0.3.0 mit F7 (B-EP3 sinngemäß) ──
-console.log('— B5: zoom_slot-Verben vor Task B13 → F7 wie in 0.3.0');
-{
-  const p = baueKern();
-  const VERBEN: Array<[string, string[]]> = [
-    ['zoom_slot', ['1', 'ON']], ['zoom_slot_mode', ['1', 'sprecher']], ['zoom_slot_person', ['1', 'Anna']], ['zoom_slot_audio', ['1', 'OFF']],
-    ['zoom_slot', ['99', 'ON']], ['zoom_slot_mode', ['1', 'galerie']],
-  ];
-  for (const [verb, args] of VERBEN) {
-    befehl(p, verb, ...args);
-    ck(`B5: ${verb} ${args.join(' ')} → zoom_cmd f7/1, Hinweis F7(${verb})`, cmdKv(p) === 'f7/1' && p.kern.abbild().hinweise.at(-1) === FT.F7(verb));
-  }
-  ck('B5: … das Log nennt Kennung und Verb, nie einen Namen', p.logs.includes('[zoom] Hinweis: Companion: F7 (zoom_slot_person)')
-    && keinTeilnehmernameImLog(p, [...ATTRAPPEN_NAMEN]));
-  await p.aufraeumen();
-}
+// ── Plan B, Task B5 bis B12: Die Slot-Verben beantwortete der Kern mit F7. Seit Task B13 führt er sie aus (PK13 in
+// zoom-slots.test.ts); ein unbekanntes Verb bleibt F7 (ebenda). ──
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);

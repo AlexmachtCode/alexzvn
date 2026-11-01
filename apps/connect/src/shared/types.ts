@@ -103,8 +103,7 @@ export type ZoomErlaubnis = 'offen' | 'ja' | 'abgelehnt' | 'abgelaufen' | 'entzo
 export type ZoomBefehlKennung =
   | 'ok' | 'f1' | 'f2' | 'f3' | 'f4' | 'f5' | 'f6' | 'f7' | 'f8' | 'f9' | 'f10' | 'f11' | 'f12' | 'f13' | 'f14';
 /**
- * `abgelehnt` ist true bei F1–F7. F8 ist eine Warnung, der Befehl wurde ausgeführt (Spec 11.2). Ab Plan B, Task B13 gilt
- * Spec 8.3: abgelehnt bei F1–F7, F9–F11, F13, F14; Warnungen sind F8 und F12.
+ * `abgelehnt` ist true bei F1–F7, F9–F11, F13, F14 (Slot-Spec 8.3). F8 und F12 sind Warnungen, der Befehl wurde ausgeführt.
  */
 export interface ZoomBefehlErgebnis { kennung: ZoomBefehlKennung; abgelehnt: boolean }
 
@@ -277,6 +276,7 @@ export interface ZoomSlotLage {
                                      // fällt bei Person- und Moduswechsel (7.3 Nr. 7, 0.12, FR7)
   andererSlot: number | null;        // T97: ein anderer laufender Slot hat dasselbe Ziel
   fehler: string | null;             // Klartext (9.6), Regeln 10.9
+  ndiWarnung: string | null;         // T46: ein Browser-Gast sendet unter diesem NDI-Namen (Warnung, 7.5 Nr. 9, E26)
   text: string; tonText: string | null; messText: string | null;  // fertige Zeilen der Kachel (10.2, 10.6, 10.7);
                                      // null = keine Zeile (Ton: nur in SZ9 mit eingestelltem Ton; Restrunde RR6, N5)
 }
