@@ -21,6 +21,12 @@ import {
   zugangZeile,
 } from '@shared/zoom-text';
 
+// Zoom-Slots (Connect 0.4.0, Task B21): Slot-Bereich, Angabe je Teilnehmerzeile, Nachfrage ab dem 6. Slot. Texte aus @shared/zoom-text.
+import { KANDIDAT_KENNZEICHEN, SLOT_FELD } from '@shared/zoom-text';
+import { SlotBereich, TeilnehmerSlotAngabe } from './SlotBereich';
+import { NachfrageZeile } from './SlotKachel';
+import { istNachfrage, type SlotAufrufe, type SlotNachfrage, type SlotOrt } from './SlotEinstellungen';
+
 // Tooltip- und Hinweistexte wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht). TEXT_S10 ist
 // neu gefasst und steht wörtlich in Spec 2026-10-06 (Zoom-SDK nachladen), Abschnitt 5 (Owner 06.10.2026).
 // Q10, Q11, Q14 und Q15 an der Teilnehmerzeile entfallen mit den Quellen (Spec 9.7, Plan B, Task B11); Q15 lebt als T98 am
@@ -31,7 +37,7 @@ const SPERR_HINWEIS = 'Zoom ist gesperrt, bis SDK-Ordner und Zugangsdaten vollst
 const FUSSZEILE = 'Zoom-Quellen haben kein Tally, kein Talkback und kein Mix-Minus — das sind Grenzen von Zoom.';
 
 /** Wo eine abgelehnte Antwort (ZoomErgebnis.text) erscheint; 'karte' = unter der Statuszeile, auch für unerwartete IPC-Fehler. */
-type Ort = 'karte' | 'einrichtung' | 'beitritt' | `zeile:${number}`;
+type Ort = 'karte' | 'einrichtung' | 'beitritt' | `zeile:${number}` | `slot:${number}` | 'slots';
 type MeldungsArt = NonNullable<ZoomAbbild['meldung']>['art'];
 
 const KARTE = 'mt-6 rounded-lg border border-neutral-700 bg-neutral-900 p-4';
@@ -225,6 +231,8 @@ export function ZoomCard(): JSX.Element {
   const [schluesselAuf, setSchluesselAuf] = useState(false);
   const [verlassenFrage, setVerlassenFrage] = useState(false);
   const [antwort, setAntwort] = useState<{ ort: Ort; text: string } | null>(null);
+  /** Nachfrage ab dem 6. Slot (Spec 7.4): T40 am Ort des Aufrufs; „Trotzdem einschalten“ wiederholt ihn mit trotz. */
+  const [nachfrage, setNachfrage] = useState<SlotNachfrage | null>(null);
   /** Laufende Aufrufe (gegen Doppelklicks), je Knopf ein Schlüssel. */
   const [laeuft, setLaeuft] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -371,16 +379,41 @@ export function ZoomCard(): JSX.Element {
       <li key={t.id} className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{t.name}</span>
-          {t.rolle === 'host' && <Kennzeichen>Host</Kennzeichen>}
+          {t.rolle === 'host' && <Kennzeichen>{KANDIDAT_KENNZEICHEN.host}</Kennzeichen>}
           {t.rolle === 'coHost' && <Kennzeichen>Co-Host</Kennzeichen>}
-          {t.kamera === 'aus' && <Kennzeichen>Kamera aus</Kennzeichen>}
+          {t.kamera === 'aus' && <Kennzeichen>{KANDIDAT_KENNZEICHEN.kameraAus}</Kennzeichen>}
           {t.kamera === 'keine' && <Kennzeichen>keine Kamera</Kennzeichen>}
-          {t.imWarteraum && <Kennzeichen>im Warteraum</Kennzeichen>}
+          {t.imWarteraum && <Kennzeichen>{KANDIDAT_KENNZEICHEN.imWarteraum}</Kennzeichen>}
           {t.doppelname && <Kennzeichen rot>Name doppelt</Kennzeichen>}
+          {/* Spec 7.5 Nr. 9, 10.10: „Als Slot laden“ (T38, im Warteraum T98) bzw. die Angaben T39–T39d. */}
+          <span className="ml-auto flex items-center gap-2">
+            <TeilnehmerSlotAngabe t={t} a={a} imMeeting={imMeeting} aufrufe={slotAufrufe} />
+          </span>
         </div>
         {text && <p className="mt-1 text-xs text-red-300">{text}</p>}
+        <NachfrageZeile aufrufe={slotAufrufe} ort={`zeile:${t.id}`} />
       </li>
     );
+  };
+
+  /** Im Meeting: „Als Slot laden“ ist nur dann bedienbar (Spec 7.5 Nr. 9; die Zeile aus 0.3.0 nahm Task B11 mit den Lade-Knöpfen). */
+  const imMeeting = k.zustand === 'im_meeting';
+  // Zoom-Slots (Spec 7.5 Nr. 8, 9; 7.4): ein Doppelklick-Schutz (laeuft), ein Antwortort (antwort) und eine Nachfrage für
+  // Slot-Bereich, Kacheln und Teilnehmerliste. starte: Antwort mit nachfrage → T40 am Ort; sonst wie fuehreAus.
+  const starte = (schluessel: string, ort: SlotOrt, f: (trotz: boolean) => Promise<ZoomErgebnis>, trotz = false): void => {
+    setNachfrage(null);
+    void fuehreAus(schluessel, null, () => f(trotz)).then((r) => {
+      if (istNachfrage(r)) setNachfrage({ ort, text: r.text, trotzdem: () => starte(schluessel, ort, f, true) });
+      else if (!r.ok && r.text) setAntwort({ ort, text: r.text });
+    });
+  };
+  const slotAufrufe: SlotAufrufe = {
+    laeuft,
+    fuehreAus: (schluessel, ort, f) => fuehreAus(schluessel, ort, f),
+    starte: (schluessel, ort, f) => starte(schluessel, ort, f),
+    antwortText: (ort) => antwortText(ort),
+    nachfrage,
+    nachfrageWeg: () => setNachfrage(null),
   };
 
   const m = a.meldung;
@@ -688,8 +721,12 @@ export function ZoomCard(): JSX.Element {
             {z}
           </p>
         ))}
+        <p className="mt-1 text-xs text-neutral-500">{SLOT_FELD.versatzZusatz}</p>
         {versatzFehler && <p className="mt-1 text-xs text-red-300">{versatzFehler}</p>}
       </div>
+
+      {/* 8 · Zoom-Slots (Spec 7.5 Nr. 8): Kopf, Vorgaben, Vorschau, Sprecher-Einstellungen, Kacheln */}
+      <SlotBereich a={a} aufrufe={slotAufrufe} />
 
       {/* 8 · Teilnehmerliste (ohne eigene Zeile; Host und Co-Host zuerst, sortiert der Kern) */}
       {a.teilnehmer.length > 0 && <ul className="mb-3 space-y-2">{a.teilnehmer.map((t) => zeile(t))}</ul>}

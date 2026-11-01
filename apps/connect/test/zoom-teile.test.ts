@@ -487,6 +487,64 @@ console.log('— B20: IPC der Zoom-Slots, Preload als Ganzes, Hülle nur über p
       && index.slice(index.indexOf('function showOrCreateWindow(): void {')).includes('    createWindow();'));
 }
 
+console.log('— B21: Zoom-Karte mit Slot-Bereich, Kachel, Einstellungen und Teilnehmerliste (Spec 7.5, 7.7, 10.10; B-EP4, B-EP9)');
+{
+  // Die Komponenten laden React und window.jmconnect und laufen hier nicht; geprüft wird ihr Quelltext (nach LF).
+  const { readFileSync } = await import('node:fs');
+  const lies = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const zt = await import('../src/shared/zoom-text');
+  const bereich = lies('../src/renderer/src/zoom/SlotBereich.tsx');
+  const kachel = lies('../src/renderer/src/zoom/SlotKachel.tsx');
+  const einst = lies('../src/renderer/src/zoom/SlotEinstellungen.tsx');
+  const karte = lies('../src/renderer/src/zoom/ZoomCard.tsx');
+  // B-EP4: Nutzertexte nur aus zoom-text.ts; keiner als Literal (in Anführungszeichen, als Vorlage oder als JSX-Text).
+  const texte = [
+    ...Object.values(zt.SLOT_TEXT), ...Object.values(zt.BEDIEN_TEXT), ...Object.values(zt.MODUS_NAME), ...Object.values(zt.KANDIDAT_KENNZEICHEN),
+    ...Object.values(zt.SPRECHER_TEXT.signal), ...Object.values(zt.SLOT_FELD.tonArt), zt.SLOT_FELD.ndiName, zt.SLOT_FELD.modus, zt.SLOT_FELD.person,
+    zt.SLOT_FELD.einstellungen, zt.SLOT_FELD.welchePerson, zt.SLOT_FELD.personPlatzhalter, zt.SLOT_FELD.computerton, zt.SLOT_FELD.ohneKamera,
+    zt.SLOT_FELD.aufloesung, zt.ERSATZBILD_FELD, zt.SLOT_FELD.ton, zt.SLOT_FELD.versatzZusatz, zt.HALTEZEIT_UNGUELTIG, zt.TEXT_A4_SCHREIBFEHLER,
+  ].filter((t): t is string => typeof t === 'string' && t.length > 0);
+  const literal = (q: string, t: string): boolean => [`'${t}'`, `"${t}"`, `\`${t}\``, `>${t}<`].some((f) => q.includes(f));
+  for (const [datei, q] of [['SlotBereich.tsx', bereich], ['SlotKachel.tsx', kachel], ['SlotEinstellungen.tsx', einst]] as const) {
+    ck(`B21 B-EP4 ${datei}: kein Nutzertext aus zoom-text.ts als Literal`, texte.every((t) => !literal(q, t)));
+    ck(`B21 B-EP4 ${datei}: kein JSX-Text mit Buchstaben, kein title/placeholder/alt/aria-label mit Buchstaben`,
+      !/>[^<>{}\n]*[A-Za-zÄÖÜäöüß][^<>{}\n]*<\//.test(q) && !/\b(title|placeholder|alt|aria-label)="[^"]*[A-Za-zÄÖÜäöüß]/.test(q));
+  }
+  const angabe = bereich.slice(bereich.indexOf('export function TeilnehmerSlotAngabe('), bereich.indexOf('export function SlotBereich('));
+  ck('B21 7.5 Nr. 9: „Als Slot laden“ ruft zoomSlotAusPerson über starte (Nachfrage), nie zoomSlotStart',
+    angabe.includes('aufrufe.starte(schluessel, `zeile:${t.id}`, (trotz) => window.jmconnect.zoomSlotAusPerson({ teilnehmerId: t.id, trotz }))')
+      && !angabe.includes('zoomSlotStart'));
+  ck('B21 10.10: Angabe aus teilnehmerSlotAngabe(teilnehmerSlotEingabe(t, a.slots)); Knopf gesperrt im Warteraum und außerhalb des Meetings',
+    angabe.includes('teilnehmerSlotAngabe(teilnehmerSlotEingabe(t, a.slots))') && angabe.includes('disabled={t.imWarteraum || !imMeeting ||'));
+  ck('B21 7.5 Nr. 8, 9: Kachel zeigt die fertigen Zeilen des Kerns (text, messText, tonText, fehler, T46 aus ndiWarnung)',
+    ['{lage.text}', '{lage.messText}', '{lage.tonText}', '{lage.fehler}', '{lage.ndiWarnung}'].every((s) => kachel.includes(s)));
+  ck('B21 7.5 Nr. 8: Start-Schalter über starte mit zoomSlotStart; Behalten; Auswahl über zoomSlotPerson; Kennzeichen T96/T96b',
+    kachel.includes('window.jmconnect.zoomSlotStart({ nr, an: !e.an, trotz })') && kachel.includes('window.jmconnect.zoomSlotBehalten({ nr })')
+      && kachel.includes('window.jmconnect.zoomSlotPerson({ nr, teilnehmerId: w.id })') && kachel.includes('slotKennzeichen(lage)'));
+  ck('B21 7.7: Vorschau 192 × 108 aus vorschauFlaeche, Bild als data:image/jpeg;base64, Tooltip T52, {detail} von T57 aus dem Abbild',
+    kachel.includes('vorschauFlaeche({') && kachel.includes('data:image/jpeg;base64,${jpeg}') && kachel.includes('title={VORSCHAU_TEXT.T52}')
+      && kachel.includes('h-[108px] w-[192px]') && kachel.includes('detail: a.vorschauDetail,'));
+  ck('B21 7.7: nur Bilder des aktuellen Ziels (verworfen bei Modus- oder Ziel-Wechsel und ohne Größe dieses Ziels), frisch 1,5 s',
+    bereich.includes('l.einstellung.modus !== v.modus || l.zielName !== v.zielName || l.zuletzt === null')
+      && kachel.includes('export const VORSCHAU_FRISCH_MS = 1500;'));
+  ck('B21 7.5: Einstellungen über zoomSlotAendern; Löschen nur ausgeschaltet und nach Rückfrage T37 über zoomSlotLoeschen',
+    einst.includes('window.jmconnect.zoomSlotAendern({ nr, aenderung })') && einst.includes('loeschenFrage(nr, e.ndiName)')
+      && einst.includes('window.jmconnect.zoomSlotLoeschen({ nr })') && einst.includes('disabled={e.an ||'));
+  ck('B21 B-EP9: Kacheln in einem Container, zwei Spalten ab 34rem', bereich.includes('className="@container') && bereich.includes('@[34rem]:grid-cols-2'));
+  const iBereich = karte.indexOf('<SlotBereich a={a} aufrufe={slotAufrufe} />');
+  ck('B21 7.5: ZoomCard zeigt den Slot-Bereich vor der Teilnehmerliste; Ort kennt slot:<nr>',
+    iBereich > 0 && iBereich < karte.indexOf('{/* 8 · Teilnehmerliste') && karte.includes('`slot:${number}`'));
+  ck('B21 7.5 Nr. 9: Teilnehmerzeile mit TeilnehmerSlotAngabe und der Nachfrage am Ort der Zeile',
+    karte.includes('<TeilnehmerSlotAngabe t={t} a={a} imMeeting={imMeeting} aufrufe={slotAufrufe} />')
+      && karte.includes('<NachfrageZeile aufrufe={slotAufrufe} ort={`zeile:${t.id}`} />'));
+  ck('B21 OFP3: Kennzeichen Host, Kamera aus, im Warteraum aus KANDIDAT_KENNZEICHEN, nicht als Literal',
+    ['host', 'kameraAus', 'imWarteraum'].every((s) => karte.includes(`{KANDIDAT_KENNZEICHEN.${s}}`))
+      && !['>Host<', '>Kamera aus<', '>im Warteraum<'].some((s) => karte.includes(s)));
+  ck('B21 7.4: Nachfrage über istNachfrage, „Trotzdem einschalten“ wiederholt mit trotz',
+    karte.includes('if (istNachfrage(r)) setNachfrage({ ort, text: r.text, trotzdem: () => starte(schluessel, ort, f, true) });'));
+  ck('B21 7.5 Nr. 7: unter dem Bild-Versatz die Zeile T81', karte.includes('{SLOT_FELD.versatzZusatz}'));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

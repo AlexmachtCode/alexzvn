@@ -2207,6 +2207,50 @@ console.log('— B9 · STATE je Slot 8.2/10.4 als Kreuzprodukt (10.5): 119 Schl�
   ck('7.11 macOS (Z0): kein zoom_*-Schlüssel im STATE', Object.keys(mac).length === 0);
 }
 
+console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
+{
+  const { teilnehmerSlotEingabe } = await import('../src/shared/zoom-text');
+  const { normName } = await import('../src/main/zoom/teilnehmer');
+  type Lage = import('../src/shared/types').ZoomSlotLage;
+  type Modus = import('../src/shared/types').ZoomSlotModus;
+  const lage = (nr: number, modus: Modus, person: string, zielName: string | null, an = true, doppelt = 1, zweifel = false): Lage => ({
+    einstellung: {
+      nr, ndiName: `Zoom ${nr}`, modus, person, an, aufloesung: '720p', ersatzbild: 'transparent', tonAn: true, tonArt: 'mischton',
+      computerton: true, ohneKamera: true,
+    },
+    voruebergehend: false, anNurMeeting: false, zustand: an ? 'zeigt' : 'aus', grund: null, gesendet: null, zielName, doppelt, zweifel,
+    imWarteraum: false, wahl: null, geliefert: null, zuletzt: null, ton: 'aus', tonGrund: null, tonQuelle: 'none', tonEingestellt: 'none',
+    offen: false, liefSchon: false, zeigteSchon: false, andererSlot: null, fehler: null, ndiWarnung: null, text: '', tonText: null, messText: null,
+  });
+  const anna = { name: 'Anna Maria', imWarteraum: false, slotNrn: [] as number[] };
+  const slots: Lage[] = [
+    lage(2, 'teilnehmer', ' anna  maria', null),
+    lage(3, 'sprecher', '', 'Anna Maria'),
+    lage(4, 'teilnehmer', 'Ben', 'Anna Maria'),
+    lage(6, 'teilnehmer', 'Anna Maria', null, false, 2),
+    lage(9, 'teilnehmer', 'Carla', 'Carla'),
+  ];
+  const e = teilnehmerSlotEingabe(anna, slots);
+  ck('B21 10.10: suchend = Teilnehmer-Slots mit ihrem Namen (Person oder Ziel-Name), nach Nummer; Sprecher- und fremde Slots nicht',
+    JSON.stringify(e.suchend) === JSON.stringify([
+      { nr: 2, an: true, doppelt: 1, zweifel: false },
+      { nr: 4, an: true, doppelt: 1, zweifel: false },
+      { nr: 6, an: false, doppelt: 2, zweifel: false },
+    ]));
+  ck('B21 10.10: ohne laufenden Slot ist laufendMitZiel leer; das Warteraum-Kennzeichen geht durch',
+    e.laufendMitZiel.length === 0 && e.imWarteraum === false && teilnehmerSlotEingabe({ ...anna, imWarteraum: true }, slots).imWarteraum);
+  const l = teilnehmerSlotEingabe({ ...anna, slotNrn: [4, 2] }, slots);
+  ck('B21 10.10: laufendMitZiel = slotNrn nach Nummer; diese Slots zählen nicht mehr als suchend',
+    JSON.stringify(l.laufendMitZiel) === '[2,4]' && JSON.stringify(l.suchend.map((s) => s.nr)) === '[6]');
+  // Gleich heißt hier dasselbe wie normName im Kern (main/zoom/teilnehmer.ts): NFC, trim, Leerraum zu einem Leerzeichen, klein (de).
+  const paare: [string, string][] = [
+    ['Anna Maria', ' anna  maria'], ['ÄRGER', 'ärger'], ['Jörg', 'Jörg'], ['Anna', 'Anna Maria'], ['Ben\tKoch', 'ben koch'],
+  ];
+  ck('B21 10.10: Namensvergleich wie normName im Kern, für alle Paare',
+    paare.every(([x, y]) => (teilnehmerSlotEingabe({ name: x, imWarteraum: false, slotNrn: [] }, [lage(1, 'teilnehmer', y, null)]).suchend.length === 1)
+      === (normName(x) === normName(y))));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

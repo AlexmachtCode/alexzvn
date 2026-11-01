@@ -79,6 +79,26 @@ export const EINSTELLUNG_TEXT = {
       : `${x} gespeicherte Slots waren unvollständig oder doppelt und wurden nicht übernommen.`,
 };
 
+/**
+ * Eingabe der Teilnehmerliste je Person (Spec 10.10; Task B21) für teilnehmerSlotAngabe: laufendMitZiel = die Slots, deren
+ * Ziel diese Person ist (`slotNrn`, vom Kern); suchend = Teilnehmer-Slots, die ihren Namen suchen (eingestellte Person oder
+ * gezeigter bzw. erwarteter Name `zielName`, also auch `personJetzt`, 7.3 Nr. 5, 6), ohne die schon laufenden, nach Nummer.
+ * Verglichen wird der normierte Name wie `normName` im Kern (main/zoom/teilnehmer.ts; ein Test hält beide gleich).
+ */
+export function teilnehmerSlotEingabe(
+  t: Pick<import('./types').ZoomParticipant, 'name' | 'imWarteraum' | 'slotNrn'>,
+  slots: readonly import('./types').ZoomSlotLage[],
+): TeilnehmerSlotEingabe {
+  const norm = (s: string): string => s.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('de');
+  const name = norm(t.name);
+  const suchend = slots
+    .filter((l) => l.einstellung.modus === 'teilnehmer' && !t.slotNrn.includes(l.einstellung.nr))
+    .filter((l) => (l.einstellung.person !== '' && norm(l.einstellung.person) === name) || (l.zielName !== null && norm(l.zielName) === name))
+    .sort((a, b) => a.einstellung.nr - b.einstellung.nr)
+    .map((l) => ({ nr: l.einstellung.nr, an: l.einstellung.an, doppelt: l.doppelt, zweifel: l.zweifel }));
+  return { laufendMitZiel: [...t.slotNrn].sort((a, b) => a - b), suchend, imWarteraum: t.imWarteraum };
+}
+
 /** Gründe im Kartentext Z1a (Spec 7.2), je Mangel einer. */
 export const MANGEL_GRUND: Record<ZoomMangel, string> = {
   sdk_fehlt: 'SDK-Ordner fehlt',
