@@ -1091,7 +1091,8 @@ void pb20_abbau_ohne_sperre() {
   CHECK(abbauPlan(Kette::Leave, false) == soll);
   CHECK(!enthaelt(abbauPlan(Kette::Leave, false), AS::HaltelisteVerwerfen));
   CHECK(abbauPlan(Kette::LeaveNachlauf, false, true) == std::vector<AS>{AS::HaltelisteVerwerfen});
-  CHECK(abbauPlan(Kette::LeaveNachlauf, false, false).empty());
+  // Seit Nachtrag N2b Fixrunde 1 (G1): false friert die Halteliste ein (frueher: kein Schritt).
+  CHECK(abbauPlan(Kette::LeaveNachlauf, false, false) == std::vector<AS>{AS::HaltelisteEinfrieren});
   soll = {AS::AudioShutdown, AS::VorschauThreadEnde, AS::FreigabenLeeren, AS::ErinnerungLeeren};
   soll.insert(soll.end(), block.begin(), block.end());
   CHECK(abbauPlan(Kette::QuitEof, false) == soll);
@@ -1311,6 +1312,29 @@ void n2b1_sperre_nur_bei_inmeeting() {
   CHECK(!sperreAn);
 }
 
+void g1_halteliste_nach_leave_eingefroren() {
+  std::printf("N2b G1 leave-Nachlauf: sessionLeave() false friert die Halteliste ein (bis Prozessende), true verwirft sie\n");
+  // 6.15: „leave nach einem sessionLeave(), das false lieferte: nichts; die Eintraege bleiben bis zum Prozessende stehen,
+  // kein Aufruf am Renderer“. Ohne Einfrieren erreichte ein spaeteres INMEETING desselben Meetings HaltelisteAbbauen.
+  for (int sperre = 0; sperre < 2; ++sperre) {
+    CHECK(abbauPlan(Kette::LeaveNachlauf, sperre == 1, false) == std::vector<AS>{AS::HaltelisteEinfrieren});
+    CHECK(abbauPlan(Kette::LeaveNachlauf, sperre == 1, true) == std::vector<AS>{AS::HaltelisteVerwerfen});
+  }
+  // Nur der Nachlauf mit false friert ein - keine andere Kette, kein anderer Fall.
+  bool nurDort = true;
+  for (int k = 0; k <= static_cast<int>(Kette::InMeetingErneut); ++k) {
+    for (int sperre = 0; sperre < 2; ++sperre) {
+      for (int verlassen = 0; verlassen < 2; ++verlassen) {
+        const Kette kette = static_cast<Kette>(k);
+        const bool erwartet = kette == Kette::LeaveNachlauf && verlassen == 0;
+        nurDort = nurDort && enthaelt(abbauPlan(kette, sperre == 1, verlassen == 1), AS::HaltelisteEinfrieren) == erwartet;
+      }
+    }
+  }
+  CHECK(nurDort);
+  CHECK(ohneRenderer(abbauPlan(Kette::LeaveNachlauf, true, false)));
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -1367,6 +1391,7 @@ int main() {
   n2a2_18_18_dann_29();
   f1_gewuenschtes_ziel();
   n2b1_sperre_nur_bei_inmeeting();
+  g1_halteliste_nach_leave_eingefroren();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

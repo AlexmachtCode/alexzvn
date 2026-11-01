@@ -1180,7 +1180,7 @@ enum class AbbauSchritt : uint8_t {
   DestroyRenderer, ZeigerVerwerfen, SenderZu, SlotLoeschen, InHalteliste, HaltelisteAbbauen, HaltelisteVerwerfen,
   FreigabenLeeren, ErinnerungLeeren, VorschauThreadEnde, StopRawRecording, SessionLeave, SperreAn, SperreLoesen,
   EigeneKennungNeu, FreigabenBefuellen, UmhaengenVormerken, FreigabenDerPersonEntfernen, ErinnerungOhneKennung,
-  Umhaengen
+  Umhaengen, HaltelisteEinfrieren
 };
 
 /**
@@ -1226,7 +1226,11 @@ inline std::vector<AbbauSchritt> abbauPlan(Kette kette, bool sperre, bool verlas
       s.push_back(AbbauSchritt::SessionLeave);
       break;
     case Kette::LeaveNachlauf:
-      if (verlassen) s.push_back(AbbauSchritt::HaltelisteVerwerfen);   // false: Halteliste bleibt bis Prozessende
+      // false: die Halteliste bleibt bis zum Prozessende, kein Aufruf am Renderer (6.15). leave aendert die Meeting-Nummer
+      // nicht - darum friert der Nachlauf die Eintraege ein, sonst erreichte sie ein spaeteres INMEETING desselben
+      // Meetings mit HaltelisteAbbauen (Nachtrag N2b Fixrunde 1, G1). Unabhaengig von der Sperre: sie kann waehrend der
+      // Pumpe in sessionLeave() erst gesetzt worden sein.
+      s.push_back(verlassen ? AbbauSchritt::HaltelisteVerwerfen : AbbauSchritt::HaltelisteEinfrieren);
       break;
     case Kette::QuitEof:
       s.push_back(AbbauSchritt::AudioShutdown);

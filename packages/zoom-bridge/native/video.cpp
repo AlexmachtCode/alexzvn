@@ -530,13 +530,19 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         s.shareCh = 0;
         break;
       }
-      case UmhaengSchritt::MischerEingangBNeu:
+      case UmhaengSchritt::MischerEingangBNeu: {
         // Freigabewechsel im Mischer-Slot: nur der Computerton beginnt neu (6.10 Schritt 8) - samt seinem Format
         // (N2b.6; dieser Weg plant kein TonStandNeu, der Mischton laeuft weiter, RR8).
         s.mix.eingangBNeu();
         s.shareRate = 0;
         s.shareCh = 0;
+        // Fixrunde 1, G4: der Mischer schreibt jetzt im Format von A - slotAudio nennt es sofort (wie N2b.3 beim
+        // Einspeisen), nicht erst mit dem naechsten Paket. Nur Feldbuchfuehrung unter der Sperre.
+        std::lock_guard<std::mutex> lock(s.fieldMutex);
+        s.ton.audioRate = s.mix.rate();
+        s.ton.audioChannels = s.mix.kanaele();
         break;
+      }
       case UmhaengSchritt::MischerNeu:
         // Der Slot wird Mischer-Slot: Uhr, Eingaenge und Vorlauf von vorn (Restnachfix N1).
         s.mix = AudioMix{};
@@ -774,6 +780,9 @@ struct HalteEintrag {
 };
 std::vector<HalteEintrag> g_slotsHalt;
 int g_meetingNr = 0;
+// Meeting-Nummer eingefrorener Eintraege (Nachtrag N2b Fixrunde 1, G1): trifft nie (g_meetingNr beginnt bei 0 und
+// zaehlt nur join hoch) - weder HaltelisteAbbauen noch HaltelisteVerwerfen fassen sie an, sie bleiben bis Prozessende.
+constexpr int kMeetingEingefroren = -1;
 bool g_sessionLeaveErgebnis = false;   // Rueckgabe von sessionLeave() fuer den Nachlauf-Plan
 
 bool jeSlot(AbbauSchritt a) {
@@ -914,6 +923,14 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
           it = g_slotsHalt.erase(it);
         }
         return false;
+      case AbbauSchritt::HaltelisteEinfrieren:
+        // leave mit sessionLeave() false (6.15): die Eintraege dieses Meetings bleiben bis zum Prozessende - kein
+        // Renderer-Aufruf, kein Delegate wird frei. Nur die Nummer wechselt, damit ein spaeteres INMEETING desselben
+        // Meetings (leave aendert g_meetingNr nicht) sie nicht abbaut und ein Meeting-Ende sie nicht verwirft.
+        for (HalteEintrag& e : g_slotsHalt) {
+          if (e.meeting == g_meetingNr) e.meeting = kMeetingEingefroren;
+        }
+        return false;
       case AbbauSchritt::FreigabenLeeren:
         g_freigaben.leeren();
         g_gezeigtShare = g_gezeigtUser = 0;
@@ -936,8 +953,9 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
         // Nachtrag N2b.1 (6.5): die INMEETING-Kette loest nur, wenn der zuletzt gemeldete Status noch im Meeting ist -
         // ein ueberholtes INMEETING laesst die Sperre stehen (HaltelisteAbbauen und das Umhaengen lesen sie danach);
         // das naechste echte INMEETING bzw. das Meeting-Ende loest sie. Das Meeting-Ende loest immer.
+        // Die stderr-Zeile nur, wenn wirklich eine Sperre stehen bleibt (Fixrunde 1, G2).
         if (sperreLoesenErlaubt(kette, callbacksStatusImMeeting())) callbacksRendererSperreLoesen();
-        else emitLog(L"INMEETING ist ueberholt (Zoom meldet inzwischen einen anderen Status) - Renderer-Sperre bleibt");
+        else if (rendererSperre()) emitLog(L"INMEETING ist ueberholt (Zoom meldet inzwischen einen anderen Status) - Renderer-Sperre bleibt");
         return false;
       case AbbauSchritt::EigeneKennungNeu:
         sessionEigeneKennungNeu();

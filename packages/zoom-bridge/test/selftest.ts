@@ -4275,9 +4275,17 @@ console.log('\nNativer Teil — Nachtrag N2b (Sperre nur bei echtem INMEETING, T
   const ausN2b = rumpf(videoN2b, 'void abbauAusfuehren(');
   const iLoesen = ausN2b.indexOf('case AbbauSchritt::SperreLoesen:');
   const zweigLoesen = iLoesen < 0 ? '' : ausN2b.slice(iLoesen, ausN2b.indexOf('case AbbauSchritt::', iLoesen + 1));
+  // Fixrunde 1, G3: „die einzige Stelle“ gezählt über ALLE native/*.cpp (Kommentare und Texte entfernt): außer der
+  // Definition in callbacks.cpp genau ein Aufruf, und der steht in video.cpp; g_rendererSperre = false nur in der Definition.
+  const cppDateienN2b = readdirSync(nativOrdner).filter((f) => f.endsWith('.cpp')).sort();
+  const loesenAufrufe = cppDateienN2b.flatMap((d) => [...nativ(d, true).matchAll(/(?<!void\s+)\bcallbacksRendererSperreLoesen\s*\(/g)].map(() => d));
+  const sperreAus = cppDateienN2b.flatMap((d) => [...nativ(d, true).matchAll(/\bg_rendererSperre\s*=\s*false\b/g)].map(() => d));
   assert(/if\s*\(\s*sperreLoesenErlaubt\(\s*kette\s*,\s*callbacksStatusImMeeting\(\)\s*\)\s*\)\s*callbacksRendererSperreLoesen\(\)\s*;/.test(zweigLoesen)
-      && (videoN2b.match(/callbacksRendererSperreLoesen\(/g) ?? []).length === 1,
+      && (videoN2b.match(/callbacksRendererSperreLoesen\(/g) ?? []).length === 1
+      && loesenAufrufe.length === 1 && loesenAufrufe[0] === 'video.cpp'
+      && sperreAus.length === 1 && /void\s+callbacksRendererSperreLoesen\(\)\s*\{\s*g_rendererSperre\s*=\s*false\s*;\s*\}/.test(cbN2b),
     'N2b.1 6.5/6.15: SperreLoesen löst nur mit sperreLoesenErlaubt(kette, Status im Meeting) - die einzige Stelle, die löst');
+  if (loesenAufrufe.length !== 1 || sperreAus.length !== 1) console.error(`      Aufrufe: ${loesenAufrufe.join(', ')}; g_rendererSperre = false: ${sperreAus.join(', ')}`);
 
   // N2b.2 (Task-14-Review I1, Task-15-Review; Spec 6.5, 6.10 Schritt 0, 6.13): während der Renderer-Sperre wartet nur ein
   // Plan mit Renderer-Schritt (planBrauchtRenderer, N1.3); Ton- und Feld-Pläne (slotSet {audio|shareAudio}: TonStandNeu,
@@ -4359,6 +4367,45 @@ console.log('\nNativer Teil — Nachtrag N2b (Sperre nur bei echtem INMEETING, T
       && /s\.ton\s*=\s*TonStand\{\}\s*;/.test(tonNeuN2b) && /s\.mix\.eingangBNeu\(\)\s*;/.test(eingangBN2b)
       && /wenn\(\s*s\.shareRate\s*>\s*0\s*,\s*"shareAudioRate"/.test(statsMitTexten) && /wenn\(\s*s\.shareRate\s*>\s*0\s*,\s*"shareAudioCh"/.test(statsMitTexten),
     'N2b.6 6.17: TonStandNeu und MischerEingangBNeu setzen das Format des Computertons zurück; slotStats lässt es dann weg');
+
+  // N2b Fixrunde 1, G1 (Review; Spec 6.15 „leave nach einem sessionLeave(), das false lieferte: nichts; die Einträge
+  // bleiben bis zum Prozessende stehen, kein Aufruf am Renderer“): leave ändert g_meetingNr nicht - ohne Einfrieren
+  // erreichte jedes spätere INMEETING desselben Meetings HaltelisteAbbauen (unSubscribe/destroyRenderer). Der
+  // Nachlauf-Schritt HaltelisteEinfrieren gibt den Einträgen dieses Meetings eine Nummer, die nie trifft
+  // (kMeetingEingefroren = -1; g_meetingNr beginnt bei 0, nur join zählt hoch), ruft keine Renderer-Funktion, löscht
+  // nichts und gibt keinen Delegate frei; Abbauen und Verwerfen filtern weiter nach der Meeting-Nummer.
+  const abbauZweigG1 = (name: string): string => {
+    const i = ausN2b.indexOf(`case AbbauSchritt::${name}:`);
+    if (i < 0) return '';
+    const j = ausN2b.indexOf('case AbbauSchritt::', i + 1);
+    return ausN2b.slice(i, j < 0 ? ausN2b.length : j);
+  };
+  const einfrierenG1 = abbauZweigG1('HaltelisteEinfrieren');
+  const RENDERER_G1 = /\b(subscribe|unSubscribe|setRawDataResolution|createRenderer|destroyRenderer)\s*\(/;
+  const meetingNrSchreiben = videoN2b.match(/\bg_meetingNr\s*[-+]?=(?!=)|(\+\+|--)\s*g_meetingNr\b|\bg_meetingNr\s*(\+\+|--)/g) ?? [];
+  assert(einfrierenG1 !== '' && /constexpr\s+int\s+kMeetingEingefroren\s*=\s*-1\s*;/.test(videoN2b)
+      && /if\s*\(\s*(\w+)\.meeting\s*==\s*g_meetingNr\s*\)\s*\1\.meeting\s*=\s*kMeetingEingefroren\s*;/.test(einfrierenG1)
+      && !RENDERER_G1.test(einfrierenG1) && !/erase\(|renderer\s*=|delegate|reset\(/.test(einfrierenG1)
+      && /\bint\s+g_meetingNr\s*=\s*0\s*;/.test(videoN2b) && /void\s+slotsMeetingNeu\(\)\s*\{\s*\+\+g_meetingNr\s*;\s*\}/.test(videoN2b)
+      && meetingNrSchreiben.length === 2
+      && /it->meeting\s*!=\s*g_meetingNr/.test(abbauZweigG1('HaltelisteAbbauen')) && /it->meeting\s*!=\s*g_meetingNr/.test(abbauZweigG1('HaltelisteVerwerfen')),
+    'G1 6.15: HaltelisteEinfrieren nimmt die Einträge dieses Meetings aus Abbauen/Verwerfen (Nummer -1), ohne Renderer-Aufruf und ohne Löschen');
+
+  // N2b Fixrunde 1, G2: die Zeile „INMEETING ist überholt … Renderer-Sperre bleibt“ nur, wenn die Sperre wirklich steht
+  // (sonst z. B. beim ersten Beitritt mit Warteraum in derselben Pumprunde - eine Zeile, die lügt).
+  assert(/callbacksRendererSperreLoesen\(\)\s*;\s*else\s+if\s*\(\s*rendererSperre\(\)\s*\)\s*emitLog\(/.test(zweigLoesen)
+      && (zweigLoesen.match(/\bemitLog\s*\(/g) ?? []).length === 1,
+    'G2 6.5: SperreLoesen meldet die überholte INMEETING-Kette nur bei gesetzter Sperre');
+
+  // N2b Fixrunde 1, G4 (zu N2b.3): nach MischerEingangBNeu (Eingang B leer) schreibt der Mischer im Format von A -
+  // s.ton (slotAudio.sampleRate/channels) folgt ihm sofort unter fieldMutex, nicht erst mit dem nächsten Paket.
+  const eingangBG4 = planZweigN2b('MischerEingangBNeu');
+  const iNeuG4 = eingangBG4.indexOf('s.mix.eingangBNeu();');
+  const iSperreG4 = eingangBG4.search(/std::lock_guard<std::mutex>\s+lock\(s\.fieldMutex\)\s*;/);
+  assert(iNeuG4 > 0 && iSperreG4 > iNeuG4
+      && eingangBG4.search(/s\.ton\.audioRate\s*=\s*s\.mix\.rate\(\)\s*;/) > iSperreG4
+      && eingangBG4.search(/s\.ton\.audioChannels\s*=\s*s\.mix\.kanaele\(\)\s*;/) > iSperreG4,
+    'G4 6.13: MischerEingangBNeu setzt s.ton aus dem Mischer-Format (unter fieldMutex, nach eingangBNeu)');
 }
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
