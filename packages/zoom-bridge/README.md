@@ -391,8 +391,8 @@ weitere Abos anhängen kann.
 
 | Modus | Ziel | Wechsel |
 | --- | --- | --- |
-| Teilnehmer (`participant`) | die Kennung aus `slotOn`/`slotSet` (`id`); fehlt sie oder ist 0: kein Ziel (`noTarget`) | Die Bridge hängt **nicht** selbst um. Geht die Person, bleibt der Slot mit Ersatzbild stehen (`participantLeft`); kommt sie zurück, schickt der Aufrufer `slotSet {slot, id}` mit der neuen Kennung (`targetChanged`). |
-| Aktiver Sprecher (`speaker`) | wer laut gewähltem Signal spricht (`speakerConfig`: `speakerVideo`, `activeVideo` oder `activeAudio`, Haltezeit 0–5000 ms; Vorgabe `speakerVideo` mit 1000 ms) | Ein neuer Kandidat muss die Haltezeit lang Kandidat bleiben; die eigene Kennung und 0 sind nie Kandidat. Die Sprecher-Erinnerung hört jedes Signal mit, auch ohne Sprecher-Slot, damit ein neuer Sprecher-Slot sofort jemanden zeigt. |
+| Teilnehmer (`participant`) | die Kennung aus `slotOn`/`slotSet` (`id`); fehlt sie, ist 0 oder steht sie nicht in der Teilnehmerliste: kein Ziel (`noTarget`), ohne `subscribe` | Die Bridge hängt **nicht** selbst um. Geht die Person, bleibt der Slot mit Ersatzbild stehen (`participantLeft`); kommt sie zurück, schickt der Aufrufer `slotSet {slot, id}` mit der neuen Kennung (`targetChanged`). |
+| Aktiver Sprecher (`speaker`) | wer laut gewähltem Signal spricht (`speakerConfig`: `speakerVideo`, `activeVideo` oder `activeAudio`, Haltezeit 0–5000 ms; Vorgabe `speakerVideo` mit 1000 ms) | Ein neuer Kandidat muss die Haltezeit lang Kandidat bleiben; die eigene Kennung und 0 sind nie Kandidat. Ein `slotSet {showNoVideo}`, das die Wahl ändert, hängt den Sprecher-Slot sofort um (`speakerChanged`, bei Ziel 0 `speakerNone`). Die Sprecher-Erinnerung hört jedes Signal mit, auch ohne Sprecher-Slot, damit ein neuer Sprecher-Slot sofort jemanden zeigt. |
 | Bildschirmfreigabe (`share`) | die neueste laufende oder pausierte Bild-Freigabe (eine Freigabe-Liste für alle Freigabe-Slots) | Endet sie, zeigt der Slot die nächstjüngere; reine Ton-Freigaben werden nie gezeigt. |
 
 **Umhängen an einer Stelle.** Jeder Wechsel des Ziels läuft über `slotRetarget` in
@@ -403,6 +403,20 @@ Renderer-Funktion (`subscribe`, `unSubscribe`, `setRawDataResolution`,
 Video-Regler, Ton-Regler) und der Teilnehmer-Lauscher legen nur Merker in
 Warteschlangen, je höchstens 1024 Einträge; was überläuft, zählt `merkerVerworfen`.
 
+**Wiederholung nach Fehler 18.** Antwortet das SDK auf `subscribe` mit
+`SDKERR_TOO_FREQUENT_CALL` (18), wiederholt die Bridge es höchstens dreimal im
+Abstand von 500 ms. Die Wiederholung nimmt das gewünschte Ziel, den Modus und den
+Grund der laufenden Umhängung, nicht das noch gezeigte Ziel. Während der Wartezeit
+gelten Befehle (`slotSet {id}`, `speakerConfig`), `participantLeft` und die
+Ton-Bestätigung für das gewünschte Ziel. Eine neue Auflösung in der Wartezeit
+bricht die Wiederholung ab und hängt mit Grund `resolutionChanged` auf das
+gewünschte Ziel um. Ist der Renderer inzwischen tot, legt die Wiederholung einen
+neuen an (Spec 6.10 Schritt 2, Zähler `rendererLost`); `slotSubscribeFailed` kann
+auch danach noch kommen. Meldet das SDK `SDKERR_NO_SHARE_DATA` (29), läuft der
+Abschluss des Umhängens sofort; ein späterer Erfolg der Wiederholung löst keinen
+zweiten Abschluss aus (kein doppeltes `slot`-Ereignis), der Zustand bleibt
+`starting` bis zum ersten Bild.
+
 **Riegel.** Während des Umhängens und ohne geglücktes `subscribe` verwirft der
 Bild-Rückruf jedes Bild und jedes `RawData_On`/`RawData_Off` (Zähler `lateFrames`).
 Rückrufe laufen gemessen während des Abbaus weiter (Teil „Bis 0.3.0“ unten), darum
@@ -411,7 +425,19 @@ gilt der Riegel auf jedem Weg.
 **Renderer-Sperre.** Ab `DISCONNECTING` oder `RECONNECTING` ruft die Bridge keine
 Renderer-Funktion, bis `INMEETING` (Sperre lösen, Halteliste abbauen, vorgemerkte
 Umhängungen ausführen) oder `ENDED`/`FAILED` (Abbau ohne Renderer-Aufruf) kommt.
-`slotOn` beantwortet sie solange mit `slotReconnecting`. Grund ist der gemessene
+Das `INMEETING` löst die Sperre nur, wenn der zuletzt gemeldete Meeting-Status noch
+ein laufendes Meeting ist: `INMEETING`, `LOCKED` oder `UNLOCKED` (Spec 6.5 sagt nur
+„bis `INMEETING`“; `LOCKED` und `UNLOCKED` sind laut SDK Zustände eines laufenden
+Meetings und gelten darum mit). Bei `DISCONNECTING`, `RECONNECTING`,
+`ENDED` und `FAILED` fällt ein noch nicht abgearbeitetes `INMEETING` weg; ein
+überholtes lässt die Sperre stehen, bis das nächste echte `INMEETING` oder das
+Meeting-Ende sie löst. Nur Pläne mit einem Renderer-Schritt warten auf die Sperre;
+Ton- und Feld-Pläne (`slotAudio`, Mischer, Zustandsfelder) laufen auch während
+der Sperre. Ein Moduswechsel (`slotSet {mode}`) während der Sperre geht nicht
+verloren: Die Bridge merkt ihn vor, und nach `INMEETING` richtet sich der Slot nach
+dem vorgemerkten Modus. Das Ziel kommt je Modus neu, weil die Kennungen mit
+`INMEETING` wechseln (Teilnehmer: kein Ziel, `noTarget`; Sprecher: neue Wahl;
+Freigabe: die gezeigte; Spec 6.15). `slotOn` beantwortet sie solange mit `slotReconnecting`. Grund ist der gemessene
 Absturz aus Abschnitt 8: `unSubscribe()` an einem Renderer, den das SDK schon
 abgeräumt hatte. Meldet das SDK `onRendererBeDestroyed`, fasst die Bridge den Zeiger
 nie mehr an (`rendererTot`) und legt beim nächsten Umhängen einen neuen Renderer an.
@@ -420,7 +446,12 @@ nie mehr an (`rendererTot`) und legt beim nächsten Umhängen einen neuen Render
 der Sperre ab, schließt die Bridge den Sender und legt den ganzen Slot samt Renderer
 und Delegate in die Halteliste, statt den Delegate freizugeben. Abgebaut wird sie beim
 nächsten `INMEETING` desselben Meetings, verworfen ohne Renderer-Aufruf beim
-Meeting-Ende. Die Zahl steht in `bridgeStats.halteliste`.
+Meeting-Ende. Liefert `sessionLeave()` bei `leave` false (die 5 s Pumpe liefen ab,
+das Meeting läuft vielleicht noch), friert die Bridge die Einträge dieses Meetings
+ein: Sie bleiben bis zum Prozessende in der Liste, ohne Aufruf am Renderer (Spec
+6.15, „kein Aufruf am Renderer“; die Zeilen der Spec zur Kettentabelle und PB20
+sagen für diesen Fall noch „kein Schritt“, maßgeblich ist hier das Verhalten). Die
+Zahl steht in `bridgeStats.halteliste`.
 
 **Abbau-Ketten.** Welche Schritte `slotOff`, `leave`, quit/EOF, Meeting-Ende und
 Entzug in welcher Reihenfolge ausführen, liefert die reine Funktion `abbauPlan`. Der
@@ -443,16 +474,23 @@ Paket zu: Person-Ton nur an Teilnehmer-Slots mit diesem Ziel und `audio:"person"
 Mischton an jeden Slot mit `audio:"mix"`, Computerton an Freigabe-Slots mit
 `shareAudio`, deren gezeigte Freigabe diese Person teilt. Ein Freigabe-Slot mit
 Mischton und Computerton mischt beide in `native/audio_mix.h` mit **eigener Uhr**: Er
-gibt je Herzschlag genau die verstrichene Wanduhrzeit aus, füllt einen fehlenden
-Eingang mit Stille und verwirft Rückstand über 200 ms. So sendet er nie mehr Ton als
-Wanduhrzeit. Alle anderen Slots halten den Strom mit dem Stille-Herzschlag (Schwelle
+gibt je Herzschlag die verstrichene Wanduhrzeit aus, füllt einen fehlenden
+Eingang mit Stille und verwirft Rückstand über 200 ms je Eingang. Je Aufruf gibt er
+höchstens 200 ms aus (bewusste Abweichung von Spec 6.13 „genau die verstrichene
+Zeit“, die nur den Fehlerfall betrifft): Nach einem langen Hänger der Hauptschleife
+zieht er seine Uhr auf „jetzt minus 200 ms“ nach, und der Rest der Lücke zählt als
+verworfen in `mixDrops` (`slotStats`, Millisekunden). So sendet er nie mehr Ton als
+Wanduhrzeit. Er sendet im eigenen Format, nämlich Rate und Kanalzahl des
+Computertons, solange einer angekommen ist, sonst des Mischtons; passen die beiden
+Formate nicht zusammen, geht nur der Computerton hinaus. `slotAudio.sampleRate`
+nennt dieses Format. Alle anderen Slots halten den Strom mit dem Stille-Herzschlag (Schwelle
 40 ms, höchstens 200 ms je Tick, reine Funktion `stilleBloecke`). Person-Ton außerhalb
 des Modus Teilnehmer meldet `slotAudio off/personNotInMode`. `slotAudio` meldet, was
 im letzten 500-ms-Fenster tatsächlich hinausging (`source`), und was eingestellt ist
 (`configured`). Die Ton-Warteschlange fasst 512 Pakete.
 
 **Bild-Versatz ohne Freigabe.** `videoDelay` gilt für alle Slots außer
-Freigabe-Slots; deren Sender senden ohne Versatz. Ein Moduswechsel von oder zur
+Freigabe-Slots; deren Sender senden ohne Versatz, auch gleich nach `slotOn`. Ein Moduswechsel von oder zur
 Freigabe leert die Versatz-Warteschlange.
 
 **Auflösung.** `360p`, `720p` oder `1080p` je Slot, gesetzt vor jedem `subscribe`;
@@ -474,7 +512,11 @@ laufen unberührt.
 
 **Messwerte.** `slotStats` (je Slot) und `bridgeStats` (Prozess) kommen alle 2 s.
 Felder fehlen, solange nichts gemessen ist, und nach jedem Umhängen wieder, bis ein
-Bild des neuen Ziels kam.
+Bild des neuen Ziels kam. `fallbackFps` zählt die gesendeten Ersatzbilder und die
+Haltebilder (Spec 6.17). `shareAudioRate` und `shareAudioCh` stehen in `slotStats`,
+nicht in `bridgeStats`; sie fehlen, solange kein Computerton angekommen ist, und
+fallen bei neuem Ton-Stand und bei neuem Eingang B des Mischers wieder weg, bis
+wieder ein Computerton ankommt.
 
 **Fehlerschlüssel** (`where:"slot"`; sie setzen die Sitzung nicht auf Fehler; Liste
 `SLOT_ERROR_KEYS` in `src/protocol.ts`):
@@ -489,7 +531,7 @@ Bild des neuen Ziels kam.
 | `slotReconnecting` | `slotOn` während der Renderer-Sperre; nichts angelegt | `slot` |
 | `slotNoPrivilege` | keine Aufnahme-Erlaubnis | `slot` |
 | `slotRawRecordingFailed`, `slotSenderFailed`, `slotRendererFailed` | Aufbau gescheitert, Slot nicht angelegt | `slot` |
-| `slotSubscribeFailed` | `subscribe` gescheitert, auch nach neuem Renderer; der Slot läuft mit Ersatzbild weiter | `slot`, `sdk`, `type` |
+| `slotSubscribeFailed` | `subscribe` gescheitert, auch bei der Wiederholung nach Fehler 18 und nach neuem Renderer; der Slot läuft mit Ersatzbild weiter | `slot`, `sdk`, `type` |
 | `slotBufferMismatch` | Bildpuffer passt nicht zur Größe, einmal je Ziel | `slot` |
 | `speakerBadSignal`, `speakerBadHold` | `speakerConfig` ungültig | – |
 | `previewUnavailable` | WIC oder COM ließ sich nicht einrichten | `detail` (HRESULT) |

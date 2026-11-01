@@ -4407,5 +4407,75 @@ console.log('\nNativer Teil — Nachtrag N2b (Sperre nur bei echtem INMEETING, T
       && eingangBG4.search(/s\.ton\.audioChannels\s*=\s*s\.mix\.kanaele\(\)\s*;/) > iSperreG4,
     'G4 6.13: MischerEingangBNeu setzt s.ton aus dem Mischer-Format (unter fieldMutex, nach eingangBNeu)');
 }
+console.log('\nDoku — Nachtrag N3 (README an Sperre, Halteliste, Wiederholung, Mischer und Messwerte angeglichen):');
+{
+  const readme = a17Lies(join(testDir, '..', 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+  const a7 = readme.indexOf('\n## 7 · ');
+  const e7 = readme.indexOf('\n## ', a7 + 1);
+  const s7 = readme.slice(a7, e7 < 0 ? undefined : e7);
+  const flach7 = s7.replace(/\s+/g, ' ');
+  /** Der Absatz, der mit `**<kopf>**` beginnt, bis zur Leerzeile, flach; sonst ''. */
+  const absatz = (kopf: string): string => {
+    const i = s7.indexOf(`\n${kopf}`);
+    if (i < 0) return '';
+    const j = s7.indexOf('\n\n', i + 1);
+    return s7.slice(i, j < 0 ? undefined : j).replace(/\s+/g, ' ');
+  };
+  const zeile7 = (anfang: string): string => s7.split('\n').find((l) => l.startsWith(anfang)) ?? '';
+
+  const sperre = absatz('**Renderer-Sperre.**');
+  assert(
+    sperre.includes('nur, wenn der zuletzt gemeldete Meeting-Status noch ein laufendes Meeting ist: `INMEETING`, `LOCKED` oder `UNLOCKED`')
+      && sperre.includes('Bei `DISCONNECTING`, `RECONNECTING`, `ENDED` und `FAILED` fällt ein noch nicht abgearbeitetes `INMEETING` weg')
+      && sperre.includes('Ton- und Feld-Pläne')
+      && sperre.includes('laufen auch während der Sperre')
+      && sperre.includes('Ein Moduswechsel (`slotSet {mode}`) während der Sperre geht nicht verloren')
+      && sperre.includes('nach dem vorgemerkten Modus'),
+    'N3 N2b.1/N2a.7: README nennt die Bedingung der Sperre (INMEETING, LOCKED, UNLOCKED), Ton-Pläne während der Sperre, vorgemerkten Modus');
+
+  const halt = absatz('**Halteliste.**');
+  assert(
+    halt.includes('Liefert `sessionLeave()` bei `leave` false') && halt.includes('friert die Bridge die Einträge dieses Meetings ein')
+      && halt.includes('bis zum Prozessende') && halt.includes('ohne Aufruf am Renderer') && halt.includes('`bridgeStats.halteliste`'),
+    'N3 N2b-G1: README beschreibt die eingefrorene Halteliste nach leave (kein Renderer-Aufruf, bis Prozessende)');
+
+  const wdh = absatz('**Wiederholung nach Fehler 18.**');
+  assert(
+    wdh.includes('höchstens dreimal im Abstand von 500 ms') && wdh.includes('das gewünschte Ziel, den Modus und den Grund der laufenden Umhängung')
+      && wdh.includes('`participantLeft`') && wdh.includes('`resolutionChanged`')
+      && wdh.includes('Ist der Renderer inzwischen tot, legt die Wiederholung einen neuen an')
+      && wdh.includes('`slotSubscribeFailed` kann auch danach noch kommen')
+      && wdh.includes('löst keinen zweiten Abschluss aus'),
+    'N3 N2a.2/N2a.3/N1.2: README beschreibt die Wiederholung nach 18 (gewünschtes Ziel, neuer Renderer, ein Abschluss)');
+  assert(
+    zeile7('| `slotSubscribeFailed` |').includes('auch bei der Wiederholung nach Fehler 18 und nach neuem Renderer'),
+    'N3 N2a.3: die Fehlerschlüssel-Zeile slotSubscribeFailed nennt die Wiederholung');
+
+  const ton = absatz('**Ton je Slot.**');
+  assert(
+    ton.includes('**eigener Uhr**') && ton.includes('höchstens 200 ms aus')
+      && ton.includes('bewusste Abweichung von Spec 6.13') && ton.includes('verworfen in `mixDrops` (`slotStats`, Millisekunden)')
+      && ton.includes('Er sendet im eigenen Format, nämlich Rate und Kanalzahl des Computertons')
+      && ton.includes('geht nur der Computerton hinaus'),
+    'N3 N1.1/N2b.3: README nennt die Kappe von 200 ms (Abweichung von Spec 6.13), mixDrops und das eigene Format des Mischers');
+
+  const messwerte = absatz('**Messwerte.**');
+  assert(
+    messwerte.includes('`fallbackFps` zählt die gesendeten Ersatzbilder und die Haltebilder')
+      && messwerte.includes('`shareAudioRate` und `shareAudioCh` stehen in `slotStats`, nicht in `bridgeStats`')
+      && messwerte.includes('fallen bei neuem Ton-Stand und bei neuem Eingang B des Mischers wieder weg'),
+    'N3 N2b.5/N2b.6: README nennt fallbackFps mit Haltebildern und den Ort/das Zurücksetzen von shareAudioRate/-Ch');
+
+  assert(
+    zeile7('| Teilnehmer (`participant`) |').includes('steht sie nicht in der Teilnehmerliste: kein Ziel (`noTarget`), ohne `subscribe`')
+      && zeile7('| Aktiver Sprecher (`speaker`) |').includes('Ein `slotSet {showNoVideo}`, das die Wahl ändert, hängt den Sprecher-Slot sofort um')
+      && absatz('**Bild-Versatz ohne Freigabe.**').includes('auch gleich nach `slotOn`'),
+    'N3 N2a.4/N2a.5/N2a.6: README nennt unbekannte Kennung (noTarget), showNoVideo mit Umhängen, Freigabe-Slot ohne Versatz ab slotOn');
+
+  // Keine ASCII-Anführungszeichen in den neuen Nutzertexten (Regel des Briefs): die Absätze oben enthalten keine
+  // (der alte Ton-Absatz führt `audio:"person"` als Code und bleibt darum außen vor).
+  assert(![sperre, halt, wdh, messwerte].some((t) => t.includes('"')), 'N3: die neuen README-Absätze enthalten keine ASCII-Anführungszeichen');
+  assert(flach7.includes('Spec 6.5 sagt nur „bis `INMEETING`“'), 'N3 N2b.1: die README nennt die Abweichung von Spec 6.5 (LOCKED/UNLOCKED zählen mit)');
+}
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);
