@@ -2,7 +2,9 @@
 //
 // Aus der Zoom-Bridge kommen NUR Typen und nur aus '@jm/zoom-bridge/protocol' (Spec 5.1):
 // protocol.ts hat selbst keine Importe, darum prüft tsconfig.web.json diese Datei ohne Änderung mit.
-import type { AudioReason, AudioState, UserRoleName, VideoReason, VideoState } from '@jm/zoom-bridge/protocol';
+import type {
+  AudioReason, AudioState, SlotAudioReason, SlotReason, SlotSent, UserRoleName, VideoReason, VideoState,
+} from '@jm/zoom-bridge/protocol';
 
 /** Ergebnis von openRoom: alles, was der Operator-Renderer zum Verbinden braucht. */
 export interface RoomSession {
@@ -233,6 +235,66 @@ export interface ZoomAbbild {
   pruefungLaeuft: boolean;
   /** Eine gestoppte Bridge baut noch ab (Sperre S10, L13). */
   abbauLaeuft: boolean;
+}
+
+// ── Zoom-Slots (Connect 0.4.0, Spec 7.1 wörtlich; additiv: die Quellen-Typen oben entfallen erst in Plan B, Task B12) ──
+
+export type ZoomSlotModus = 'teilnehmer' | 'sprecher' | 'freigabe';
+export type ZoomSlotAufloesung = '360p' | '720p' | '1080p';
+export type ZoomSlotErsatzbild = 'transparent' | 'eingefroren' | 'schwarz' | 'weiss';
+export type ZoomSlotTonArt = 'mischton' | 'person';
+export type ZoomSprecherSignal = 'sprecherVideo' | 'aktivesVideo' | 'tonAktiv';
+export type TonQuelle = 'mix' | 'person' | 'share' | 'mixShare' | 'none';  // wie slotAudio.source (6.3)
+// SlotReason, SlotAudioReason, SlotSent ('none' | 'transparent' | 'freeze' | 'black' | 'white' | 'held') kommen aus @jm/zoom-bridge/protocol
+
+/** Am Rechner gespeichert (connect-settings.json, zoomSlots). Ein Konstruktor: normiereSlot(). */
+export interface ZoomSlotEinstellung {
+  nr: number;                       // 1..16, fest (E2)
+  ndiName: string;                  // E26
+  modus: ZoomSlotModus;
+  person: string;                   // Anzeigename, nur Teilnehmer; '' = keine Person gewählt
+  an: boolean;                      // Start-Taste
+  aufloesung: ZoomSlotAufloesung;
+  ersatzbild: ZoomSlotErsatzbild;   // Vorgabe 'transparent'
+  tonAn: boolean;                   // Meeting-Ton (Mischton oder Person) an/aus
+  tonArt: ZoomSlotTonArt;           // Vorgabe 'mischton'
+  computerton: boolean;             // nur Freigabe, Vorgabe true (O4); eigener Schalter (Abbildung tonFuerBridge, main/zoom/slots.ts)
+  ohneKamera: boolean;              // nur Sprecher: „Teilnehmer ohne Kamera zeigen“, Vorgabe true (0.28)
+}
+export interface ZoomSlotVorgaben { aufloesung: ZoomSlotAufloesung; tonAn: boolean }  // Vorgabe 720p, Ton an
+export interface ZoomSprecherEinstellung { signal: ZoomSprecherSignal; haltezeitMs: number } // Vorgabe sprecherVideo, 1000
+
+/** Slot-Zustände (10.1), 12 Werte. */
+export type ZoomSlotZustand =
+  | 'aus' | 'ohne_meeting' | 'wartet_erlaubnis' | 'startet' | 'zeigt' | 'gehalten'
+  | 'ersatz' | 'keine_antwort' | 'gescheitert' | 'stoppt' | 'zurueckgestellt' | 'geplant';
+
+/** Ein Slot im Abbild (Main → Fenster). Ein Konstruktor: slotLage() im Kern (Plan B, Task B12). */
+export interface ZoomSlotLage {
+  einstellung: ZoomSlotEinstellung;
+  voruebergehend: boolean;           // per zoom_load angelegt, nur bis Meeting-Ende, nie gespeichert (7.2)
+  anNurMeeting: boolean;             // dauerhafter Slot, per zoom_load nur für dieses Meeting eingeschaltet (7.2, FR10)
+  zustand: ZoomSlotZustand;
+  grund: SlotReason | null;          // letzter Grund der Bridge
+  gesendet: SlotSent | null;         // `sent` der Bridge (6.12): was der Sender gerade zusätzlich schickt
+  zielName: string | null;           // wen der Slot zeigt oder erwartet (für Texte, nie im Log)
+  doppelt: number;                   // > 1 nur, wenn keine gültige gewaehlteId besteht (7.3 Nr. 5)
+  zweifel: boolean;                  // T13b: gezeigte Person gegangen, ein Namensvetter war schon vorher da
+  imWarteraum: boolean;
+  wahl: { id: number; name: string; hinweis: string }[] | null;  // bei doppelt > 1 oder zweifel
+  geliefert: { b: number; h: number; fps: number } | null;        // nur aus dem laufenden Fenster dieses Ziels
+  zuletzt: { b: number; h: number } | null;                       // letzte Größe dieses Ziels (T51c)
+  ton: AudioState | 'aus'; tonGrund: SlotAudioReason | null;
+  tonQuelle: TonQuelle; tonEingestellt: TonQuelle;                // gemessen bzw. eingestellt (6.3)
+  offen: boolean;                    // zählt in o (10.1)
+  liefSchon: boolean;                // lief in diesem Meeting schon (0.12)
+  zeigteSchon: boolean;              // Teilnehmer-Slot zeigte in diesem Meeting schon die eingestellte Person; gesetzt
+                                     // nur von `slot live` mit mode participant und target = gewaehlteId (N3);
+                                     // fällt bei Person- und Moduswechsel (7.3 Nr. 7, 0.12, FR7)
+  andererSlot: number | null;        // T97: ein anderer laufender Slot hat dasselbe Ziel
+  fehler: string | null;             // Klartext (9.6), Regeln 10.9
+  text: string; tonText: string | null; messText: string | null;  // fertige Zeilen der Kachel (10.2, 10.6, 10.7);
+                                     // null = keine Zeile (Ton: nur in SZ9 mit eingestelltem Ton; Restrunde RR6, N5)
 }
 
 export type ZoomErgebnis = { ok: true } | { ok: false; text: string };
